@@ -1,0 +1,53 @@
+spring:
+  config:
+    import:
+      - optional:file:./env/db.env[.properties]
+      - optional:file:./env/api.env[.properties]
+  application:
+    name: nextroute
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:mydatabase}
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    open-in-view: false
+
+seoul:
+  api:
+    bus-key: ${SEOUL_BUS_API:test}
+    bus-base-url: http://ws.bus.go.kr/api/rest
+    subway-key: ${SEOUL_SUBWAY_API:test}
+    subway-base-url: http://swopenAPI.seoul.go.kr/api/subway
+    subway-arrival-key: ${SEOUL_SUBWAY_ARRIVAL:test}
+
+collector:
+  bus-arrival:
+    enabled: true
+    cron: "0 */3 * * * *"
+  bus-position:
+    enabled: true
+    cron: "0 */3 * * * *"
+  subway-arrival:
+    enabled: true
+    cron: "0 */3 * * * *"
+  static-data:
+    cron: "0 0 3 * * *"
+  target-route-ids: []
+
+logging:
+  level:
+    watoo.grd.nextroute: INFO
+  file:
+    name: logs/nextroute.log
+  logback:
+    rollingpolicy:
+      max-file-size: 50MB
+      max-history: 30
