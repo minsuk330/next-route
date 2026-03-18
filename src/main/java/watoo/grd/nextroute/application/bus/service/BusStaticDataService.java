@@ -19,47 +19,62 @@ import java.util.*;
 @RequiredArgsConstructor
 public class BusStaticDataService implements LoadBusStaticDataUseCase {
 
-	private static final String[] ROUTE_SEARCH_KEYWORDS = {
-			"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"
-	};
-
 	private final BusApiPort busApiPort;
 	private final BusDataService busDataService;
 
 	@Override
 	public void execute() {
-		List<BusRoute> routes = loadBusRoutes();
-		if (routes.isEmpty()) {
-			log.warn("[StaticData] No bus routes fetched from API.");
+    //이걸로 버스 노선 번호를 받음
+		List<String> allRouteIds = busApiPort.getBusRouteIds();
+		if (allRouteIds.isEmpty()) {
+			log.warn("[StaticData] No route IDs fetched from Seoul Open API.");
 			return;
 		}
+    //여기서 중복 걸러주고
+		List<String> newRouteIds = allRouteIds.stream()
+				.filter(id -> !busDataService.existsRouteByRouteId(id))
+				.toList();
 
-		busDataService.saveAllRoutes(routes);
-		log.info("[StaticData] Saved {} bus routes", routes.size());
+		log.info("[StaticData] Total {} routes from API, {} new to fetch",
+				allRouteIds.size(), newRouteIds.size());
 
+		if (newRouteIds.isEmpty()) {
+			log.info("[StaticData] All routes already loaded. Skipping.");
+			return;
+		}
+    //노선 정보 가져와주고
+		List<BusRoute> routes = loadBusRoutes(newRouteIds);
+		if (!routes.isEmpty()) {
+			busDataService.saveAllRoutes(routes);
+			log.info("[StaticData] Saved {} new bus routes", routes.size());
+		}
+    //
 		loadBusStopsAndRouteStops(routes);
 	}
 
-	private List<BusRoute> loadBusRoutes() {
-		Map<String, BusRouteInfo> uniqueRoutes = new LinkedHashMap<>();
+	private List<BusRoute> loadBusRoutes(List<String> routeIds) {
+		List<BusRouteInfo> routeInfos = new ArrayList<>();
+		int processed = 0;
 
-		for (String keyword : ROUTE_SEARCH_KEYWORDS) {
+		for (String routeId : routeIds) {
 			try {
-				List<BusRouteInfo> items = busApiPort.getBusRouteList(keyword);
-				for (BusRouteInfo item : items) {
-					uniqueRoutes.putIfAbsent(item.routeId(), item);
+				List<BusRouteInfo> items = busApiPort.getRouteInfo(routeId);
+				routeInfos.addAll(items);
+
+				processed++;
+				if (processed % 100 == 0) {
+					log.info("[StaticData] Bus route info progress: {}/{}", processed, routeIds.size());
 				}
-				log.info("[StaticData] Bus search '{}': {} routes found", keyword, items.size());
 				Thread.sleep(200);
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
 				return List.of();
 			} catch (Exception e) {
-				log.error("[StaticData] Failed to search bus routes for '{}': {}", keyword, e.getMessage());
+				log.error("[StaticData] Failed to get route info for '{}': {}", routeId, e.getMessage());
 			}
 		}
 
-		return uniqueRoutes.values().stream()
+		return routeInfos.stream()
 				.map(this::toRouteEntity)
 				.toList();
 	}
@@ -71,6 +86,7 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 
 		for (BusRoute route : routes) {
 			try {
+        /// 노선별 경유 정류소 조회
 				List<BusRouteStopInfo> items = busApiPort.getStationByRoute(route.getRouteId());
 
 				for (BusRouteStopInfo item : items) {
@@ -82,7 +98,7 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 				if (processed % 100 == 0) {
 					log.info("[StaticData] Bus route stops progress: {}/{}", processed, routes.size());
 				}
-				Thread.sleep(100);
+				Thread.sleep(200);
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
 				return;
@@ -92,10 +108,25 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 			}
 		}
 
-		busDataService.saveAllStops(new ArrayList<>(uniqueStops.values()));
-		busDataService.saveAllRouteStops(allRouteStops);
-		log.info("[StaticData] Saved {} bus stops, {} route-stops",
-				uniqueStops.size(), allRouteStops.size());
+		List<BusStop> newStops = uniqueStops.values().stream()
+				.filter(s -> !busDataService.existsStopByStopId(s.getStopId()))
+				.toList();
+
+		if (!newStops.isEmpty()) {
+			busDataService.saveAllStops(new ArrayList<>(newStops));
+		}
+
+		List<BusRouteStop> newRouteStops = allRouteStops.stream()
+				.filter(rs -> !busDataService.existsRouteStop(rs.getRouteId(), rs.getStopId(), rs.getSeq()))
+				.toList();
+
+		if (!newRouteStops.isEmpty()) {
+			busDataService.saveAllRouteStops(newRouteStops);
+		}
+
+		log.info("[StaticData] Stops: {} new / {} skipped, RouteStops: {} new / {} skipped",
+				newStops.size(), uniqueStops.size() - newStops.size(),
+				newRouteStops.size(), allRouteStops.size() - newRouteStops.size());
 	}
 
 	private BusRoute toRouteEntity(BusRouteInfo info) {
@@ -110,6 +141,9 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 				.lastBusTime(info.lastBusTime())
 				.companyName(info.companyName())
 				.totalDistance(info.totalDistance())
+				.lastBusYn(info.lastBusYn())
+				.firstLowTime(info.firstLowTime())
+				.lastLowTime(info.lastLowTime())
 				.build();
 	}
 
@@ -129,11 +163,14 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 				.stopId(info.stopId())
 				.seq(info.seq())
 				.sectionId(info.sectionId())
-				.latitude(info.latitude())
-				.longitude(info.longitude())
 				.sectionDistance(info.sectionDistance())
 				.direction(info.direction())
 				.transferYn(info.transferYn())
+				.stationNo(info.stationNo())
+				.beginTm(info.beginTm())
+				.lastTm(info.lastTm())
+				.turnStopId(info.turnStopId())
+				.sectionSpeed(info.sectionSpeed())
 				.build();
 	}
 }

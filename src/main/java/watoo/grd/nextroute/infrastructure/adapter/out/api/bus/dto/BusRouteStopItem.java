@@ -20,4 +20,7 @@ public class BusRouteStopItem {
 	private String transYn;
 	private String fullSectDist;
 	private String direction;
+	private String stationNo;
+	private String trnstnid;
+	private String sectSpd;
 }

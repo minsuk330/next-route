@@ -54,6 +54,18 @@ public class BusDataService {
 		return busPositionRawRepository.saveAll(positions);
 	}
 
+	public boolean existsRouteByRouteId(String routeId) {
+		return busRouteRepository.existsByRouteId(routeId);
+	}
+
+	public boolean existsStopByStopId(String stopId) {
+		return busStopRepository.existsByStopId(stopId);
+	}
+
+	public boolean existsRouteStop(String routeId, String stopId, Integer seq) {
+		return busRouteStopRepository.existsByRouteIdAndStopIdAndSeq(routeId, stopId, seq);
+	}
+
 	public List<BusRoute> findAllRoutes() {
 		return busRouteRepository.findAll();
 	}

@@ -11,5 +11,10 @@ public record BusRouteStopInfo(
 		Double longitude,
 		Double sectionDistance,
 		String direction,
-		String transferYn
+		String transferYn,
+		String stationNo,
+		String beginTm,
+		String lastTm,
+		String turnStopId,
+		Double sectionSpeed
 ) {}

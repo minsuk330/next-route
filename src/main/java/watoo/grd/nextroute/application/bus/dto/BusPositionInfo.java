@@ -6,5 +6,11 @@ public record BusPositionInfo(
 		Double longitude,
 		Integer stopSeq,
 		Double sectionSpeed,
-		Integer sectionOrder
+		Integer sectionOrder,
+		String stopFlag,
+		String dataTm,
+		String plainNo,
+		Integer busType,
+		String lastStopId,
+		String isRunning
 ) {}

@@ -15,5 +15,11 @@ public record BusArrivalInfo(
 		Double sectionSpeed2,
 		String isArrive2,
 		String vehicleId2,
-		String plateNo2
+		String plateNo2,
+		String arrivalMsg1,
+		String arrivalMsg2,
+		Integer sectionOrder1,
+		Integer sectionOrder2,
+		String stationName1,
+		String stationName2
 ) {}

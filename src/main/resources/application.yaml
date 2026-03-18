@@ -24,19 +24,24 @@ seoul:
   api:
     bus-key: ${SEOUL_BUS_API:test}
     bus-base-url: http://ws.bus.go.kr/api/rest
+    bus-route-key: ${SEOUL_BUS_ROUTE:test}
+    seoul-base-api-url: http://openapi.seoul.go.kr:8088
     subway-key: ${SEOUL_SUBWAY_API:test}
     subway-base-url: http://swopenAPI.seoul.go.kr/api/subway
     subway-arrival-key: ${SEOUL_SUBWAY_ARRIVAL:test}
+    subway-master-key: ${SEOUL_SUBWAY_MASTER}
+    subway-route-key: ${SEOUL_SUBWAY_ROUTE}
+
 
 collector:
   bus-arrival:
-    enabled: true
+    enabled: false
     cron: "0 */3 * * * *"
   bus-position:
-    enabled: true
+    enabled: false
     cron: "0 */3 * * * *"
   subway-arrival:
-    enabled: true
+    enabled: false
     cron: "0 */3 * * * *"
   static-data:
     cron: "0 0 3 * * *"

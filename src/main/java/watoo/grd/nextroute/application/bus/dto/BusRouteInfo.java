@@ -10,5 +10,8 @@ public record BusRouteInfo(
 		String firstBusTime,
 		String lastBusTime,
 		String companyName,
-		Double totalDistance
+		Double totalDistance,
+		String lastBusYn,
+		String firstLowTime,
+		String lastLowTime
 ) {}

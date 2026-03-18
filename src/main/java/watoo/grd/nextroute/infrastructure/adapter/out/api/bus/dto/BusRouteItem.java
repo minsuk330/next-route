@@ -18,4 +18,7 @@ public class BusRouteItem {
 	private String firstBusTm;
 	private String lastBusTm;
 	private String corpNm;
+	private String lastBusYn;
+	private String firstLowTm;
+	private String lastLowTm;
 }

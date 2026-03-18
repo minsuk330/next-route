@@ -43,4 +43,17 @@ public class SubwayDataService {
 	public List<SubwayStation> findStationsByLine(String lineId) {
 		return subwayStationRepository.findByLineId(lineId);
 	}
+
+	public boolean existsByStationId(String stationId) {
+		return subwayStationRepository.existsByStationId(stationId);
+	}
+
+	public long countSegments() {
+		return subwaySegmentRepository.count();
+	}
+
+	@Transactional
+	public void deleteAllSegments() {
+		subwaySegmentRepository.deleteAll();
+	}
 }

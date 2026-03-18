@@ -14,16 +14,22 @@ import watoo.grd.nextroute.common.entity.BaseEntity;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SubwaySegment extends BaseEntity {
 
+	/** 호선 코드 (예: "1002" = 2호선) */
 	private String lineId;
 
+	/** 출발역 ID */
 	private String departStationId;
 
+	/** 도착역 ID */
 	private String arriveStationId;
 
+	/** 역간 거리 (km) */
 	private Double distance;
 
+	/** 평균 소요시간 (초) */
 	private Double travelTime;
 
+	/** 구간 순서 (노선 내 정렬용) */
 	private Integer seq;
 
 	@Builder

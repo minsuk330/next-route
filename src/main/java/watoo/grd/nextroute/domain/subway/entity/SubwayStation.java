@@ -15,17 +15,23 @@ import watoo.grd.nextroute.common.entity.BaseEntity;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SubwayStation extends BaseEntity {
 
+	/** 역 고유 ID */
 	@Column(nullable = false, unique = true)
 	private String stationId;
 
+	/** 역 이름 (예: "강남") */
 	private String stationName;
 
+	/** 호선 코드 (예: "1002" = 2호선) */
 	private String lineId;
 
+	/** 호선 이름 (예: "2호선") */
 	private String lineName;
 
+	/** 역 위도 (WGS84) */
 	private Double latitude;
 
+	/** 역 경도 (WGS84) */
 	private Double longitude;
 
 	@Builder

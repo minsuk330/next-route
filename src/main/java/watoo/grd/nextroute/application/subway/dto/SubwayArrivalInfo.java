@@ -9,5 +9,9 @@ public record SubwayArrivalInfo(
 		String trainNo,
 		String destinationName,
 		String currentMessage,
-		String arrivalCode
+		String arrivalCode,
+		String subwayId,
+		String arrivalMsg3,
+		String receivedAt,
+		String trainLineName
 ) {}

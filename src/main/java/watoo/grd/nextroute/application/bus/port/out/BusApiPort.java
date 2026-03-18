@@ -15,4 +15,6 @@ public interface BusApiPort {
 	List<BusArrivalInfo> getArrInfoByRouteAll(String busRouteId);
 
 	List<BusPositionInfo> getBusPosByRtid(String busRouteId);
+
+  List<String> getBusRouteIds();
 }
