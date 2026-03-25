@@ -5,13 +5,22 @@ public record SubwayArrivalInfo(
 		String stationName,
 		String lineId,
 		String direction,
+		String prevStationId,
+		String nextStationId,
+		Integer transferCount,
+		String ordkey,
+		String transferLines,
+		String transferStations,
+		String trainType,
 		Integer arrivalSeconds,
 		String trainNo,
+		String destinationId,
 		String destinationName,
 		String currentMessage,
 		String arrivalCode,
 		String subwayId,
 		String arrivalMsg3,
 		String receivedAt,
-		String trainLineName
+		String trainLineName,
+		String lastTrainYn
 ) {}

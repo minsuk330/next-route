@@ -7,13 +7,8 @@ import watoo.grd.nextroute.application.subway.dto.SubwayArrivalInfo;
 import watoo.grd.nextroute.application.subway.port.in.CollectSubwayArrivalUseCase;
 import watoo.grd.nextroute.application.subway.port.out.SubwayApiPort;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalRaw;
-import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
-
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -21,42 +16,29 @@ import java.util.stream.Collectors;
 public class SubwayArrivalService implements CollectSubwayArrivalUseCase {
 
 	private final SubwayApiPort subwayApiPort;
-	private final SubwayDataService subwayDataService;
+	private final SubwayArrivalCache subwayArrivalCache;
 
 	@Override
 	public void execute() {
-		Set<String> stationNames = subwayDataService.findAllStations().stream()
-				.map(SubwayStation::getStationName)
-				.collect(Collectors.toSet());
-
-		if (stationNames.isEmpty()) {
-			log.warn("[SubwayArrival] No stations to collect. Run StaticDataLoader first.");
-			return;
-		}
-
 		LocalDateTime collectedAt = LocalDateTime.now();
-		int totalSaved = 0;
 
-		log.info("[SubwayArrival] Starting collection for {} stations", stationNames.size());
+		try {
+			List<SubwayArrivalInfo> items = subwayApiPort.getRealtimeArrival();
 
-		for (String stationName : stationNames) {
-			try {
-				List<SubwayArrivalInfo> items = subwayApiPort.getRealtimeArrival(stationName);
-				List<SubwayArrivalRaw> entities = items.stream()
-						.map(info -> toEntity(info, collectedAt))
-						.toList();
-				subwayDataService.saveAllArrivals(entities);
-				totalSaved += entities.size();
-				Thread.sleep(100);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
+			if (items.isEmpty()) {
+				log.warn("[SubwayArrival] No arrival data returned from API");
 				return;
-			} catch (Exception e) {
-				log.error("[SubwayArrival] Failed for station {}: {}", stationName, e.getMessage());
 			}
-		}
 
-		log.info("[SubwayArrival] Completed. Saved {} records", totalSaved);
+			List<SubwayArrivalRaw> entities = items.stream()
+					.map(info -> toEntity(info, collectedAt))
+					.toList();
+			entities.forEach(subwayArrivalCache::update);
+
+			log.info("[SubwayArrival] Cached {} records (cache size: {})", entities.size(), subwayArrivalCache.size());
+		} catch (Exception e) {
+			log.error("[SubwayArrival] Failed: {}", e.getMessage(), e);
+		}
 	}
 
 	private SubwayArrivalRaw toEntity(SubwayArrivalInfo info, LocalDateTime collectedAt) {
@@ -66,11 +48,24 @@ public class SubwayArrivalService implements CollectSubwayArrivalUseCase {
 				.stationName(info.stationName())
 				.lineId(info.lineId())
 				.direction(info.direction())
+				.prevStationId(info.prevStationId())
+				.nextStationId(info.nextStationId())
+				.transferCount(info.transferCount())
+				.ordkey(info.ordkey())
+				.transferLines(info.transferLines())
+				.transferStations(info.transferStations())
+				.trainType(info.trainType())
 				.arrivalSeconds(info.arrivalSeconds())
 				.trainNo(info.trainNo())
+				.destinationId(info.destinationId())
 				.destinationName(info.destinationName())
 				.currentMessage(info.currentMessage())
 				.arrivalCode(info.arrivalCode())
+				.subwayId(info.subwayId())
+				.arrivalMsg3(info.arrivalMsg3())
+				.receivedAt(info.receivedAt())
+				.trainLineName(info.trainLineName())
+				.lastTrainYn(info.lastTrainYn())
 				.build();
 	}
 }

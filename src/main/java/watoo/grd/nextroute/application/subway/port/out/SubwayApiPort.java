@@ -12,5 +12,5 @@ public interface SubwayApiPort {
 
 	List<SubwaySegmentInfo> getStationDistance();
 
-	List<SubwayArrivalInfo> getRealtimeArrival(String stationName);
+	List<SubwayArrivalInfo> getRealtimeArrival();
 }

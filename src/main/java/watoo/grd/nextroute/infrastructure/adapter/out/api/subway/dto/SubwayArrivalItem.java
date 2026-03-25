@@ -9,9 +9,17 @@ public class SubwayArrivalItem {
 
 	private String subwayId;
 	private String updnLine;
+	private String statnFid;
+	private String statnTid;
 	private String statnId;
 	private String statnNm;
+	private String trnsitCo;
+	private String ordkey;
+	private String subwayList;
+	private String statnList;
+	private String btrainSttus;
 	private String btrainNo;
+	private String bstatnId;
 	private String bstatnNm;
 	private String barvlDt;
 	private String arvlMsg2;
@@ -19,4 +27,5 @@ public class SubwayArrivalItem {
 	private String arvlCd;
 	private String recptnDt;
 	private String trainLineNm;
+	private String lstcarAt;
 }

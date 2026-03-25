@@ -33,11 +33,35 @@ public class SubwayArrivalRaw extends BaseEntity {
 	/** 상하행 방향 (예: "상행", "내선") */
 	private String direction;
 
+	/** 이전지하철역ID */
+	private String prevStationId;
+
+	/** 다음지하철역ID */
+	private String nextStationId;
+
+	/** 환승노선수 */
+	private Integer transferCount;
+
+	/** 도착예정열차순번 */
+	private String ordkey;
+
+	/** 연계호선ID (예: "1002,1007") */
+	private String transferLines;
+
+	/** 연계지하철역ID (예: "1002000233,1007000000") */
+	private String transferStations;
+
+	/** 열차종류 (급행, ITX, 일반, 특급) */
+	private String trainType;
+
 	/** 도착까지 남은 시간 (초) */
 	private Integer arrivalSeconds;
 
 	/** 열차 번호 */
 	private String trainNo;
+
+	/** 종착지하철역ID */
+	private String destinationId;
 
 	/** 행선지 역 이름 (예: "성수행") */
 	private String destinationName;
@@ -60,20 +84,36 @@ public class SubwayArrivalRaw extends BaseEntity {
 	/** 열차 노선명 (예: "2호선성수행") */
 	private String trainLineName;
 
+	/** 막차여부 (1:막차, 0:아님) */
+	private String lastTrainYn;
+
 	@Builder
 	public SubwayArrivalRaw(LocalDateTime collectedAt, String stationId, String stationName,
-							String lineId, String direction, Integer arrivalSeconds,
-							String trainNo, String destinationName,
+							String lineId, String direction,
+							String prevStationId, String nextStationId,
+							Integer transferCount, String ordkey,
+							String transferLines, String transferStations,
+							String trainType, Integer arrivalSeconds,
+							String trainNo, String destinationId, String destinationName,
 							String currentMessage, String arrivalCode,
 							String subwayId, String arrivalMsg3,
-							String receivedAt, String trainLineName) {
+							String receivedAt, String trainLineName,
+							String lastTrainYn) {
 		this.collectedAt = collectedAt;
 		this.stationId = stationId;
 		this.stationName = stationName;
 		this.lineId = lineId;
 		this.direction = direction;
+		this.prevStationId = prevStationId;
+		this.nextStationId = nextStationId;
+		this.transferCount = transferCount;
+		this.ordkey = ordkey;
+		this.transferLines = transferLines;
+		this.transferStations = transferStations;
+		this.trainType = trainType;
 		this.arrivalSeconds = arrivalSeconds;
 		this.trainNo = trainNo;
+		this.destinationId = destinationId;
 		this.destinationName = destinationName;
 		this.currentMessage = currentMessage;
 		this.arrivalCode = arrivalCode;
@@ -81,5 +121,6 @@ public class SubwayArrivalRaw extends BaseEntity {
 		this.arrivalMsg3 = arrivalMsg3;
 		this.receivedAt = receivedAt;
 		this.trainLineName = trainLineName;
+		this.lastTrainYn = lastTrainYn;
 	}
 }

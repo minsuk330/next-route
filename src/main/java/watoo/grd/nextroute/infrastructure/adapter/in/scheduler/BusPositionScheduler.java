@@ -6,6 +6,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.bus.port.in.CollectBusPositionUseCase;
 
+@Deprecated
 @Component
 @RequiredArgsConstructor
 public class BusPositionScheduler {

@@ -25,27 +25,44 @@ seoul:
     bus-key: ${SEOUL_BUS_API:test}
     bus-base-url: http://ws.bus.go.kr/api/rest
     bus-route-key: ${SEOUL_BUS_ROUTE:test}
+    seoul-bus-use-key: ${SEOUL_BUS_USE}
     seoul-base-api-url: http://openapi.seoul.go.kr:8088
     subway-key: ${SEOUL_SUBWAY_API:test}
     subway-base-url: http://swopenAPI.seoul.go.kr/api/subway
     subway-arrival-key: ${SEOUL_SUBWAY_ARRIVAL:test}
     subway-master-key: ${SEOUL_SUBWAY_MASTER}
     subway-route-key: ${SEOUL_SUBWAY_ROUTE}
+    subway-tago-base-url: http://apis.data.go.kr/1613000/SubwayInfo
+
 
 
 collector:
   bus-arrival:
-    enabled: false
-    cron: "0 */3 * * * *"
+    enabled: true
+    cron: "0 */10 * * * *"
+    daily-budget: 1000
+    target-route-names:
+      - "271"    # 1위  25,758
+      - "143"    # 2위  24,799
+      - "130"    # 3위  24,090
+      - "272"    # 4위  21,168
+      - "421"    # 5위  21,089
+      - "152"    # 6위  20,933
+      - "273"    # 7위  20,847
+      - "420"    # 8위  20,415
+      - "160"    # 9위  20,141
+      - "142"    # 10위 20,018
   bus-position:
     enabled: false
     cron: "0 */3 * * * *"
   subway-arrival:
-    enabled: false
-    cron: "0 */3 * * * *"
+    enabled: true
+    cron: "0 */1 * * * *"
+    flush-cron: "0 */30 * * * *"
+    reset-cron: "0 0 5 * * *"
   static-data:
     cron: "0 0 3 * * *"
-  target-route-ids: []
+
 
 logging:
   level:

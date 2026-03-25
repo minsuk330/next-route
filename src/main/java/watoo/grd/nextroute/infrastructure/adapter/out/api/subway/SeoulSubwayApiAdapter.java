@@ -83,12 +83,21 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 	}
 
 	@Override
-	public List<SubwayArrivalInfo> getRealtimeArrival(String stationName) {
-		URI uri = URI.create(baseUrl + "/" + apiKey
-				+ "/json/realtimeStationArrival/0/100/" + stationName);
-		return callArrivalApi(uri).stream()
-				.map(this::toArrivalInfo)
-				.toList();
+	public List<SubwayArrivalInfo> getRealtimeArrival() {
+		List<SubwayArrivalInfo> allArrivals = new ArrayList<>();
+
+			URI uri = URI.create(baseUrl + "/" + apiKey
+					+ "/json/realtimeStationArrival/" + "ALL");
+
+			List<SubwayArrivalItem> items = callArrivalApi(uri);
+
+			items.stream()
+					.map(this::toArrivalInfo)
+					.forEach(allArrivals::add);
+
+			log.info("[SubwayArrival] Fetched {} arrivals so far", allArrivals.size());
+
+		return allArrivals;
 	}
 
 	@Override
@@ -187,15 +196,24 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 				item.getStatnNm(),
 				item.getSubwayId(),
 				item.getUpdnLine(),
+				item.getStatnFid(),
+				item.getStatnTid(),
+				parseInteger(item.getTrnsitCo()),
+				item.getOrdkey(),
+				item.getSubwayList(),
+				item.getStatnList(),
+				item.getBtrainSttus(),
 				parseInteger(item.getBarvlDt()),
 				item.getBtrainNo(),
+				item.getBstatnId(),
 				item.getBstatnNm(),
 				item.getArvlMsg2(),
 				item.getArvlCd(),
 				item.getSubwayId(),
 				item.getArvlMsg3(),
 				item.getRecptnDt(),
-				item.getTrainLineNm()
+				item.getTrainLineNm(),
+				item.getLstcarAt()
 		);
 	}
 

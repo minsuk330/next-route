@@ -13,6 +13,7 @@ import watoo.grd.nextroute.domain.bus.service.BusDataService;
 import java.time.LocalDateTime;
 import java.util.List;
 
+@Deprecated
 @Slf4j
 @Service
 @RequiredArgsConstructor

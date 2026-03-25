@@ -73,4 +73,8 @@ public class BusDataService {
 	public List<BusRouteStop> findRouteStops(String routeId) {
 		return busRouteStopRepository.findByRouteIdOrderBySeq(routeId);
 	}
+
+	public List<BusRoute> findRoutesByNames(List<String> routeNames) {
+		return busRouteRepository.findByRouteNameIn(routeNames);
+	}
 }
