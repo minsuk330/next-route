@@ -9,6 +9,7 @@ import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.application.subway.dto.SubwayStationTagoInfo;
 import watoo.grd.nextroute.application.subway.dto.SubwayTimetableInfo;
 import watoo.grd.nextroute.application.subway.port.out.TagoSubwayApiPort;
+import watoo.grd.nextroute.infrastructure.adapter.out.api.ApiCallBlocker;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.subway.dto.TagoBaseResponse;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.subway.dto.TagoStationItem;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.subway.dto.TagoTimetableItem;
@@ -25,24 +26,32 @@ public class TagoSubwayApiAdapter implements TagoSubwayApiPort {
 	private static final int MAX_RETRIES = 3;
 	private static final int PAGE_SIZE = 1000;
 
+	private static final String API_TAGO_STATIONS = "tago-subway-stations";
+	private static final String API_TAGO_TIMETABLE = "tago-subway-timetable";
+
 	private final RestTemplate restTemplate;
 	private final ObjectMapper objectMapper;
+	private final ApiCallBlocker blocker;
 	private final String baseUrl;
 	private final String apiKey;
 
 	public TagoSubwayApiAdapter(
 			RestTemplate restTemplate,
 			ObjectMapper objectMapper,
+			ApiCallBlocker blocker,
 			@Value("${seoul.api.subway-tago-base-url}") String baseUrl,
 			@Value("${seoul.api.subway-key}") String apiKey) {
 		this.restTemplate = restTemplate;
 		this.objectMapper = objectMapper;
+		this.blocker = blocker;
 		this.baseUrl = baseUrl;
 		this.apiKey = apiKey;
 	}
 
 	@Override
 	public List<SubwayStationTagoInfo> getAllStations() {
+		if (blocker.isBlocked(API_TAGO_STATIONS)) return List.of();
+
 		List<SubwayStationTagoInfo> allItems = new ArrayList<>();
 		int pageNo = 1;
 
@@ -57,6 +66,7 @@ public class TagoSubwayApiAdapter implements TagoSubwayApiPort {
 					new TypeReference<TagoBaseResponse<TagoStationItem>>() {});
 
 			if (response == null || !response.isSuccess()) {
+				blocker.block(API_TAGO_STATIONS);
 				log.warn("[TAGO] Station list API failed at page {}", pageNo);
 				break;
 			}
@@ -87,6 +97,8 @@ public class TagoSubwayApiAdapter implements TagoSubwayApiPort {
 
 	@Override
 	public List<SubwayTimetableInfo> getTimetable(String tagoStationId, String dailyTypeCode, String upDownTypeCode) {
+		if (blocker.isBlocked(API_TAGO_TIMETABLE)) return List.of();
+
 		List<SubwayTimetableInfo> allItems = new ArrayList<>();
 		int pageNo = 1;
 
@@ -104,6 +116,7 @@ public class TagoSubwayApiAdapter implements TagoSubwayApiPort {
 					new TypeReference<TagoBaseResponse<TagoTimetableItem>>() {});
 
 			if (response == null || !response.isSuccess()) {
+				blocker.block(API_TAGO_TIMETABLE);
 				log.warn("[TAGO] Timetable API failed for station={}, day={}, dir={}",
 						tagoStationId, dailyTypeCode, upDownTypeCode);
 				break;

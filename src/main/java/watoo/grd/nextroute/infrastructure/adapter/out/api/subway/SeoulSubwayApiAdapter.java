@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.subway.dto.SubwayArrivalInfo;
 import watoo.grd.nextroute.application.subway.dto.SubwaySegmentInfo;
 import watoo.grd.nextroute.application.subway.dto.SubwayStationInfo;
 import watoo.grd.nextroute.application.subway.port.out.SubwayApiPort;
+import watoo.grd.nextroute.infrastructure.adapter.out.api.ApiCallBlocker;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.subway.dto.*;
 
 import java.net.URI;
@@ -24,7 +25,12 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 	private static final int MAX_RETRIES = 3;
 	private static final int PAGE_SIZE = 1000;
 
+	private static final String API_ARRIVAL = "seoul-subway-arrival";
+	private static final String API_MASTER = "seoul-subway-master";
+	private static final String API_DISTANCE = "seoul-subway-distance";
+
 	private final RestTemplate restTemplate;
+	private final ApiCallBlocker blocker;
 	private final String apiKey;
 	private final String baseUrl;
 	private final String masterKey;
@@ -33,12 +39,14 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 
 	public SeoulSubwayApiAdapter(
 			RestTemplate restTemplate,
+			ApiCallBlocker blocker,
 			@Value("${seoul.api.subway-arrival-key}") String apiKey,
 			@Value("${seoul.api.subway-base-url}") String baseUrl,
 			@Value("${seoul.api.subway-master-key}") String masterKey,
 			@Value("${seoul.api.subway-route-key}") String routeKey,
 			@Value("${seoul.api.seoul-base-api-url}") String seoulBaseApiUrl) {
 		this.restTemplate = restTemplate;
+		this.blocker = blocker;
 		this.apiKey = apiKey;
 		this.baseUrl = baseUrl;
 		this.masterKey = masterKey;
@@ -48,6 +56,8 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 
 	@Override
 	public List<SubwayStationInfo> getSubwayStationMaster() {
+		if (blocker.isBlocked(API_MASTER)) return List.of();
+
 		List<SubwayStationInfo> allStations = new ArrayList<>();
 		int start = 1;
 
@@ -84,6 +94,8 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 
 	@Override
 	public List<SubwayArrivalInfo> getRealtimeArrival() {
+		if (blocker.isBlocked(API_ARRIVAL)) return List.of();
+
 		List<SubwayArrivalInfo> allArrivals = new ArrayList<>();
 
 			URI uri = URI.create(baseUrl + "/" + apiKey
@@ -102,6 +114,8 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 
 	@Override
 	public List<SubwaySegmentInfo> getStationDistance() {
+		if (blocker.isBlocked(API_DISTANCE)) return List.of();
+
 		List<StationDistanceItem> allItems = new ArrayList<>();
 		int start = 1;
 
@@ -236,6 +250,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 					return null;
 				}
 				if (!response.isSuccess()) {
+					blocker.block(API_MASTER);
 					log.warn("Subway master API error: {}",
 							response.getData() != null && response.getData().getResult() != null
 									? response.getData().getResult().getMessage() : "UNKNOWN");
@@ -267,6 +282,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 					return null;
 				}
 				if (!response.isSuccess()) {
+					blocker.block(API_DISTANCE);
 					log.warn("Station distance API error: {}",
 							response.getData() != null && response.getData().getResult() != null
 									? response.getData().getResult().getMessage() : "UNKNOWN");
@@ -301,6 +317,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 				}
 
 				if (!response.isSuccess()) {
+					blocker.block(API_ARRIVAL);
 					log.warn("Subway API error [{}]: {} - {}",
 							uri.getPath(),
 							response.getErrorMessage() != null ? response.getErrorMessage().getCode() : "UNKNOWN",
