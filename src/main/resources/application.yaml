@@ -5,6 +5,10 @@ spring:
       - optional:file:./env/api.env[.properties]
   application:
     name: nextroute
+  task:
+    scheduling:
+      pool:
+        size: 3
 
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:mydatabase}
