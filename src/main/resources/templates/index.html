@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NextRoute - 대중교통 경로 검색</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+
+        .container { max-width: 480px; margin: 0 auto; padding: 16px; min-height: 100vh; }
+
+        h1 { font-size: 20px; text-align: center; padding: 12px 0; color: #1a1a1a; }
+
+        .search-box {
+            background: #fff; border-radius: 12px; padding: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 16px;
+        }
+
+        .input-group { position: relative; margin-bottom: 12px; }
+        .input-group label { font-size: 12px; color: #888; margin-bottom: 4px; display: block; }
+        .input-group input {
+            width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px;
+            font-size: 14px; outline: none; transition: border-color 0.2s;
+        }
+        .input-group input:focus { border-color: #4A90D9; }
+
+        .autocomplete-list {
+            position: absolute; top: 100%; left: 0; right: 0; z-index: 100;
+            background: #fff; border: 1px solid #ddd; border-radius: 8px;
+            max-height: 200px; overflow-y: auto; display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .autocomplete-list.show { display: block; }
+        .autocomplete-item {
+            padding: 10px 12px; cursor: pointer; font-size: 13px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .autocomplete-item:hover { background: #f5f8ff; }
+        .autocomplete-item .place-name { font-weight: 600; }
+        .autocomplete-item .address { color: #888; font-size: 12px; margin-top: 2px; }
+
+        .btn-search {
+            width: 100%; padding: 12px; background: #4A90D9; color: #fff;
+            border: none; border-radius: 8px; font-size: 15px; font-weight: 600;
+            cursor: pointer; transition: background 0.2s;
+        }
+        .btn-search:hover { background: #3a7bc8; }
+        .btn-search:disabled { background: #ccc; cursor: not-allowed; }
+
+        .loading { text-align: center; padding: 40px 0; color: #888; display: none; }
+        .loading.show { display: block; }
+        .spinner {
+            width: 32px; height: 32px; border: 3px solid #eee; border-top-color: #4A90D9;
+            border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 8px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .error-msg {
+            background: #fff3f3; color: #d32f2f; padding: 12px; border-radius: 8px;
+            margin-bottom: 12px; font-size: 13px; display: none;
+        }
+        .error-msg.show { display: block; }
+
+        .results { display: none; }
+        .results.show { display: block; }
+
+        .path-card {
+            background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08); cursor: pointer; transition: box-shadow 0.2s;
+        }
+        .path-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
+
+        .path-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+        .path-type-badge {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;
+        }
+        .type-subway { background: #e8f5e9; color: #2e7d32; }
+        .type-bus { background: #e3f2fd; color: #1565c0; }
+        .type-mixed { background: #fff3e0; color: #e65100; }
+
+        .path-time { font-size: 22px; font-weight: 700; color: #1a1a1a; }
+        .path-time span { font-size: 13px; font-weight: 400; color: #888; }
+
+        .path-meta { display: flex; gap: 16px; font-size: 13px; color: #666; margin-bottom: 12px; }
+
+        .path-detail { display: none; border-top: 1px solid #eee; padding-top: 12px; }
+        .path-card.expanded .path-detail { display: block; }
+
+        .sub-path { display: flex; gap: 12px; padding: 8px 0; }
+        .sub-path-icon {
+            width: 28px; height: 28px; border-radius: 50%; display: flex;
+            align-items: center; justify-content: center; font-size: 13px;
+            flex-shrink: 0; color: #fff; font-weight: 600;
+        }
+        .icon-walk { background: #9e9e9e; }
+        .icon-bus { background: #1565c0; }
+        .icon-subway { background: #2e7d32; }
+
+        .sub-path-info { flex: 1; }
+        .sub-path-name { font-size: 13px; font-weight: 600; }
+        .sub-path-detail { font-size: 12px; color: #888; margin-top: 2px; }
+        .sub-path-stations { font-size: 11px; color: #aaa; margin-top: 4px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>NextRoute</h1>
+
+    <div class="search-box">
+        <div class="input-group">
+            <label>출발지</label>
+            <input type="text" id="startInput" placeholder="출발지를 입력하세요" autocomplete="off">
+            <div class="autocomplete-list" id="startList"></div>
+        </div>
+        <div class="input-group">
+            <label>도착지</label>
+            <input type="text" id="endInput" placeholder="도착지를 입력하세요" autocomplete="off">
+            <div class="autocomplete-list" id="endList"></div>
+        </div>
+        <button class="btn-search" id="searchBtn" disabled>경로 검색</button>
+    </div>
+
+    <div class="error-msg" id="errorMsg"></div>
+    <div class="loading" id="loading"><div class="spinner"></div>경로를 검색하고 있습니다...</div>
+    <div class="results" id="results"></div>
+</div>
+
+<script th:src="'https://dapi.kakao.com/v2/maps/sdk.js?appkey=' + ${kakaoMapJsKey} + '&libraries=services&autoload=false'"></script>
+<script>
+    const startInput = document.getElementById('startInput');
+    const endInput = document.getElementById('endInput');
+    const startList = document.getElementById('startList');
+    const endList = document.getElementById('endList');
+    const searchBtn = document.getElementById('searchBtn');
+    const loading = document.getElementById('loading');
+    const errorMsg = document.getElementById('errorMsg');
+    const resultsDiv = document.getElementById('results');
+
+    let startCoord = null;
+    let endCoord = null;
+    let startName = '';
+    let endName = '';
+    let debounceTimer = null;
+    let ps = null;
+
+    kakao.maps.load(function() {
+        ps = new kakao.maps.services.Places();
+    });
+
+    function updateSearchBtn() {
+        searchBtn.disabled = !(startCoord && endCoord);
+    }
+
+    function setupAutocomplete(input, list, setCoord) {
+        input.addEventListener('input', function() {
+            clearTimeout(debounceTimer);
+            const query = input.value.trim();
+            if (query.length < 2 || !ps) { list.classList.remove('show'); return; }
+
+            debounceTimer = setTimeout(() => {
+                ps.keywordSearch(query, function(data, status) {
+                    list.innerHTML = '';
+                    if (status !== kakao.maps.services.Status.OK || !data.length) {
+                        list.classList.remove('show');
+                        return;
+                    }
+                    data.slice(0, 5).forEach(place => {
+                        const item = document.createElement('div');
+                        item.className = 'autocomplete-item';
+                        item.innerHTML = `<div class="place-name">${place.place_name}</div><div class="address">${place.address_name}</div>`;
+                        item.addEventListener('click', () => {
+                            input.value = place.place_name;
+                            setCoord({ x: parseFloat(place.x), y: parseFloat(place.y) }, place.place_name);
+                            list.classList.remove('show');
+                            updateSearchBtn();
+                        });
+                        list.appendChild(item);
+                    });
+                    list.classList.add('show');
+                });
+            }, 300);
+        });
+
+        input.addEventListener('blur', () => setTimeout(() => list.classList.remove('show'), 200));
+        input.addEventListener('focus', () => { if (list.children.length > 0) list.classList.add('show'); });
+    }
+
+    setupAutocomplete(startInput, startList, (coord, name) => { startCoord = coord; startName = name; });
+    setupAutocomplete(endInput, endList, (coord, name) => { endCoord = coord; endName = name; });
+
+    // Reset coord when user types after selection
+    startInput.addEventListener('input', () => { startCoord = null; updateSearchBtn(); });
+    endInput.addEventListener('input', () => { endCoord = null; updateSearchBtn(); });
+
+    searchBtn.addEventListener('click', async function() {
+        if (!startCoord || !endCoord) return;
+
+        errorMsg.classList.remove('show');
+        resultsDiv.classList.remove('show');
+        loading.classList.add('show');
+        searchBtn.disabled = true;
+
+        try {
+            const params = new URLSearchParams({
+                startX: startCoord.x, startY: startCoord.y,
+                endX: endCoord.x, endY: endCoord.y,
+                startName: startName, endName: endName
+            });
+            const res = await fetch('/api/route/search?' + params);
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.message || '경로 검색에 실패했습니다.');
+            }
+
+            renderResults(data);
+        } catch (e) {
+            errorMsg.textContent = e.message;
+            errorMsg.classList.add('show');
+        } finally {
+            loading.classList.remove('show');
+            updateSearchBtn();
+        }
+    });
+
+    function getPathTypeInfo(type) {
+        switch (type) {
+            case 1: return { label: '지하철', cls: 'type-subway', icon: '🚇' };
+            case 2: return { label: '버스', cls: 'type-bus', icon: '🚌' };
+            default: return { label: '버스+지하철', cls: 'type-mixed', icon: '🚍' };
+        }
+    }
+
+    function getTrafficIcon(type) {
+        switch (type) {
+            case 1: return { label: '🚇', cls: 'icon-subway' };
+            case 2: return { label: '🚌', cls: 'icon-bus' };
+            default: return { label: '🚶', cls: 'icon-walk' };
+        }
+    }
+
+    function formatTime(min) {
+        if (min < 60) return min + '분';
+        return Math.floor(min / 60) + '시간 ' + (min % 60) + '분';
+    }
+
+    function renderResults(data) {
+        resultsDiv.innerHTML = '';
+        if (!data.paths || data.paths.length === 0) {
+            resultsDiv.innerHTML = '<div style="text-align:center;padding:40px;color:#888;">검색 결과가 없습니다.</div>';
+            resultsDiv.classList.add('show');
+            return;
+        }
+
+        data.paths.forEach((path, idx) => {
+            const typeInfo = getPathTypeInfo(path.pathType);
+            const info = path.info;
+            const card = document.createElement('div');
+            card.className = 'path-card';
+
+            let subPathsHtml = '';
+            (path.subPaths || []).forEach(sp => {
+                const tIcon = getTrafficIcon(sp.trafficType);
+                let name = '';
+                let detail = '';
+                let stationsHtml = '';
+
+                if (sp.trafficType === 3) {
+                    name = '도보';
+                    detail = sp.sectionTime + '분';
+                } else if (sp.trafficType === 1) {
+                    name = (sp.lanes && sp.lanes.length > 0) ? sp.lanes.map(l => l.name).join(', ') : '지하철';
+                    detail = (sp.startName || '') + ' → ' + (sp.endName || '') + ' · ' + sp.sectionTime + '분';
+                    if (sp.stations && sp.stations.length > 0) {
+                        stationsHtml = '<div class="sub-path-stations">' + sp.stations.length + '개 정거장</div>';
+                    }
+                } else if (sp.trafficType === 2) {
+                    name = (sp.lanes && sp.lanes.length > 0) ? sp.lanes.map(l => l.busNo).join(', ') : '버스';
+                    detail = (sp.startName || '') + ' → ' + (sp.endName || '') + ' · ' + sp.sectionTime + '분';
+                    if (sp.stations && sp.stations.length > 0) {
+                        stationsHtml = '<div class="sub-path-stations">' + sp.stations.length + '개 정거장</div>';
+                    }
+                }
+
+                subPathsHtml += `
+                    <div class="sub-path">
+                        <div class="sub-path-icon ${tIcon.cls}">${tIcon.label}</div>
+                        <div class="sub-path-info">
+                            <div class="sub-path-name">${name}</div>
+                            <div class="sub-path-detail">${detail}</div>
+                            ${stationsHtml}
+                        </div>
+                    </div>`;
+            });
+
+            card.innerHTML = `
+                <div class="path-header">
+                    <span class="path-type-badge ${typeInfo.cls}">${typeInfo.icon} ${typeInfo.label}</span>
+                    <div class="path-time">${formatTime(info.totalTime)}</div>
+                </div>
+                <div class="path-meta">
+                    <span>💰 ${info.payment.toLocaleString()}원</span>
+                    <span>🚶 도보 ${info.totalWalk}m</span>
+                    <span>🔄 환승 ${info.transferCount}회</span>
+                </div>
+                <div class="path-detail">${subPathsHtml}</div>`;
+
+            card.addEventListener('click', () => card.classList.toggle('expanded'));
+            resultsDiv.appendChild(card);
+        });
+
+        resultsDiv.classList.add('show');
+    }
+
+    // Close autocomplete when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.input-group')) {
+            startList.classList.remove('show');
+            endList.classList.remove('show');
+        }
+    });
+</script>
+</body>
+</html>

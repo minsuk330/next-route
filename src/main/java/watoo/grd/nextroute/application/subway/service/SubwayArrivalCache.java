@@ -36,6 +36,7 @@ public class SubwayArrivalCache {
 		}
 		// 새 레코드가 도착 확정이면 교체
 		if ("1".equals(incoming.getArrivalCode())) {
+      /// 이거 교체가 되는거임?
 			cache.put(key, incoming);
 			dirtyKeys.add(key);
 			return;
@@ -48,19 +49,19 @@ public class SubwayArrivalCache {
 		}
 	}
 
-	/** dirty 항목 추출 + 도착 확정 항목 캐시에서 제거 */
+	/** dirty 항목 추출 + stale/도착확정 항목 캐시에서 제거 */
 	public synchronized List<SubwayArrivalRaw> drainDirty() {
 		List<SubwayArrivalRaw> result = new ArrayList<>();
 		for (CacheKey key : dirtyKeys) {
 			SubwayArrivalRaw record = cache.get(key);
 			if (record != null) {
 				result.add(record);
-				// 도착 확정 → 캐시에서 삭제 (순환선 재방문 대응)
-				if ("1".equals(record.getArrivalCode())) {
-					cache.remove(key);
-				}
 			}
 		}
+		// 이전 flush 이후 갱신되지 않은 stale 항목 제거
+		cache.keySet().retainAll(dirtyKeys);
+		// 도착 확정 항목도 제거 (순환선 재방문 대응)
+		cache.entrySet().removeIf(e -> "1".equals(e.getValue().getArrivalCode()));
 		dirtyKeys.clear();
 		return result;
 	}
