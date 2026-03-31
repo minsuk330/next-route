@@ -29,4 +29,8 @@ public abstract class BaseEntity {
 
 	/** 논리 삭제 시각 (null이면 활성) */
 	private LocalDateTime deletedAt;
+
+	public void markDeleted() {
+		this.deletedAt = LocalDateTime.now();
+	}
 }
