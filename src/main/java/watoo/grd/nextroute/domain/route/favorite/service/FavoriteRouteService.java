@@ -10,7 +10,7 @@ import watoo.grd.nextroute.domain.user.entity.User;
 import java.util.List;
 import java.util.Optional;
 
-@Service
+@Service("favoriteRouteDomainService")
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class FavoriteRouteService {
