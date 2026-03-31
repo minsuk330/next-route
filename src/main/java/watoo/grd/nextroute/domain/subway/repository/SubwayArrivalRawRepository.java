@@ -10,4 +10,7 @@ public interface SubwayArrivalRawRepository extends JpaRepository<SubwayArrivalR
 
 	List<SubwayArrivalRaw> findByStationIdAndCollectedAtBetween(
 			String stationId, LocalDateTime from, LocalDateTime to);
+
+	List<SubwayArrivalRaw> findByStationIdAndCollectedAtAfter(
+			String stationId, LocalDateTime from);
 }

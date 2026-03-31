@@ -14,6 +14,7 @@ import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayStationTagoRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -92,5 +93,11 @@ public class SubwayDataService {
 
 	public long countTimetables() {
 		return subwayTimetableRepository.count();
+	}
+
+	// ===== Arrival =====
+
+	public List<SubwayArrivalRaw> findLatestArrivalsByStationId(String stationId, LocalDateTime from) {
+		return subwayArrivalRawRepository.findByStationIdAndCollectedAtAfter(stationId, from);
 	}
 }
