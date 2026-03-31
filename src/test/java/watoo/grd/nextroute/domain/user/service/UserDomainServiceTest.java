@@ -73,4 +73,32 @@ class UserDomainServiceTest {
         assertThatThrownBy(() -> userDomainService.findOrCreate("  "))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void findOnly_existingUser_returnsUser() {
+        User user = User.builder().deviceId("device-1").build();
+        when(userRepository.findByDeviceId("device-1")).thenReturn(Optional.of(user));
+
+        Optional<User> result = userDomainService.findOnly("device-1");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().getDeviceId()).isEqualTo("device-1");
+    }
+
+    @Test
+    void findOnly_unknownDevice_returnsEmpty() {
+        when(userRepository.findByDeviceId("unknown")).thenReturn(Optional.empty());
+
+        Optional<User> result = userDomainService.findOnly("unknown");
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void findOnly_blankDeviceId_returnsEmpty() {
+        Optional<User> result = userDomainService.findOnly("  ");
+
+        assertThat(result).isEmpty();
+        verify(userRepository, never()).findByDeviceId(any());
+    }
 }

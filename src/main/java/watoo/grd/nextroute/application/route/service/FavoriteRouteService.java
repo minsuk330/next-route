@@ -43,10 +43,11 @@ public class FavoriteRouteService
 
     @Override
     public List<FavoriteResponse> getAll(String deviceId) {
-        User user = userDomainService.findOrCreate(deviceId);
-        return favoriteDomainService.findByUser(user).stream()
-                .map(FavoriteResponse::from)
-                .toList();
+        return userDomainService.findOnly(deviceId)
+                .map(user -> favoriteDomainService.findByUser(user).stream()
+                        .map(FavoriteResponse::from)
+                        .toList())
+                .orElse(List.of());
     }
 
     @Override

@@ -7,12 +7,21 @@ import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.domain.user.entity.User;
 import watoo.grd.nextroute.domain.user.repository.UserRepository;
 
+import java.util.Optional;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class UserDomainService {
 
     private final UserRepository userRepository;
+
+    public Optional<User> findOnly(String deviceId) {
+        if (deviceId == null || deviceId.isBlank()) {
+            return Optional.empty();
+        }
+        return userRepository.findByDeviceId(deviceId);
+    }
 
     @Transactional
     public User findOrCreate(String deviceId) {

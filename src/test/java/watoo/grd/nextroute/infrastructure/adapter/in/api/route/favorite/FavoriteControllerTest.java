@@ -20,6 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -68,6 +69,8 @@ class FavoriteControllerTest {
     void delete_returns204() throws Exception {
         mockMvc.perform(delete("/api/route/fav/1").header("X-Device-Id", "device-1"))
                 .andExpect(status().isNoContent());
+
+        verify(deleteFavoriteRouteUseCase).delete("device-1", 1L);
     }
 
     @Test
