@@ -6,6 +6,7 @@ import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.domain.bus.entity.*;
 import watoo.grd.nextroute.domain.bus.repository.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -76,5 +77,9 @@ public class BusDataService {
 
 	public List<BusRoute> findRoutesByNames(List<String> routeNames) {
 		return busRouteRepository.findByRouteNameIn(routeNames);
+	}
+
+	public List<BusArrivalRaw> findLatestArrivalsByStopId(String stopId, LocalDateTime from) {
+		return busArrivalRawRepository.findLatestByStopId(stopId, from);
 	}
 }
