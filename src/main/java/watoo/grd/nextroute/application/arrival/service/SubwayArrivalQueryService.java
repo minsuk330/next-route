@@ -12,6 +12,7 @@ import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
@@ -68,7 +69,7 @@ public class SubwayArrivalQueryService implements GetSubwayArrivalUseCase {
             String lineId, String stationName, String direction) {
 
         if (snapshotOpt.isEmpty()) return List.of();
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
 
         Map<String, SubwayRealtimeTrain> deduped = new LinkedHashMap<>();
         snapshotOpt.get().getTrains().stream()
