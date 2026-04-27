@@ -1,7 +1,59 @@
 services:
+
   postgres:
-    image: 'postgres:latest'
+    image: postgis/postgis:17-3.5
+    platform: linux/amd64
     env_file:
       - env/db.env
     ports:
-      - '5432:5432'
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --save ""
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  app:
+    environment:
+      - TZ=Asia/Seoul
+      - POSTGRES_HOST=postgres
+    build: .
+    env_file:
+      - env/db.env
+      - env/api.env
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: always
+
+  nextroute-ml:
+    image: ghcr.io/minsuk330/nextroute-ml:latest
+    environment:
+      - TZ=Asia/Seoul
+      - POSTGRES_HOST=postgres
+    env_file:
+      - env/db.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

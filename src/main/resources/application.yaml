@@ -9,14 +9,25 @@ spring:
     scheduling:
       pool:
         size: 3
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 1000ms
 
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:mydatabase}
     username: ${POSTGRES_USER}
-    password: ${POSTGRES_PASSWORD}
+    password: maABg3j5ahg4pWTOu0pRN17zIyLMNul9
     driver-class-name: org.postgresql.Driver
 
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/postgis-init.sql
+
   jpa:
+    defer-datasource-initialization: true
     hibernate:
       ddl-auto: update
     properties:
@@ -68,7 +79,7 @@ collector:
   bus-position:
     enabled: false
     cron: "0 */3 * * * *"
-  subway-arrival:
+  subway-arrival: # DEPRECATED
     enabled: false
     cron: "0 */1 * * * *"
     flush-cron: "0 */30 * * * *"
@@ -89,3 +100,12 @@ logging:
 
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+
+realtime:
+  subway:
+    enabled: true
+    poll-interval-ms: 15000
+    active-hours:
+      start: "05:30"
+      end: "00:30"
+    snapshot-ttl-seconds: 25
