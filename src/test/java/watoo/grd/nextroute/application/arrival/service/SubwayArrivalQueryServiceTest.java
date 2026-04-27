@@ -1,66 +1,72 @@
 package watoo.grd.nextroute.application.arrival.service;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import watoo.grd.nextroute.application.arrival.dto.SubwayArrivalResponse;
-import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalRaw;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.application.subway.dto.*;
+import watoo.grd.nextroute.application.subway.port.out.SubwayRealtimeCachePort;
 
-import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 
-@ExtendWith(MockitoExtension.class)
+@SpringBootTest
 class SubwayArrivalQueryServiceTest {
 
-    @Mock SubwayDataService subwayDataService;
-    @InjectMocks SubwayArrivalQueryService service;
+    @Autowired
+    SubwayArrivalQueryService service;
 
-    @Test
-    void getArrivals_deduplicatesByDirectionAndTrainNo() {
-        LocalDateTime now = LocalDateTime.now();
-        // same train collected twice — only newest survives
-        SubwayArrivalRaw old = SubwayArrivalRaw.builder()
-                .stationId("1002000233").lineId("1002").direction("상행")
-                .trainNo("2001").arrivalSeconds(120).currentMessage("2정거장 전")
-                .collectedAt(now.minusMinutes(3)).build();
-        SubwayArrivalRaw recent = SubwayArrivalRaw.builder()
-                .stationId("1002000233").lineId("1002").direction("상행")
-                .trainNo("2001").arrivalSeconds(60).currentMessage("1정거장 전")
-                .collectedAt(now.minusMinutes(1)).build();
+    @MockBean
+    SubwayRealtimeCachePort cachePort;
 
-        given(subwayDataService.findLatestArrivalsByStationId(eq("1002000233"), any()))
-                .willReturn(List.of(old, recent));
+    private SubwayRealtimeTrain train(String lineId, String stationName, String direction,
+                                      String trainNo, int secs) {
+        return SubwayRealtimeTrain.builder()
+                .trainNo(trainNo).lineId(lineId).direction(direction)
+                .stationName(stationName).arrivalSeconds(secs)
+                .destinationName("성수행").currentMessage(secs + "초 후 도착")
+                .build();
+    }
 
-        List<SubwayArrivalResponse> result = service.getArrivals("1002000233");
-
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getArrivalSeconds()).isEqualTo(60);
+    private SubwayRealtimeSnapshot snapshot(SubwayRealtimeTrain... trains) {
+        return SubwayRealtimeSnapshot.builder()
+                .collectedAt("2026-04-27T14:00:00+09:00")
+                .status(SubwayRealtimeStatus.ACTIVE)
+                .trains(List.of(trains))
+                .build();
     }
 
     @Test
-    void getArrivals_sortsByArrivalSeconds() {
-        LocalDateTime now = LocalDateTime.now();
-        SubwayArrivalRaw far = SubwayArrivalRaw.builder()
-                .stationId("1002000233").lineId("1002").direction("상행")
-                .trainNo("2002").arrivalSeconds(300).collectedAt(now).build();
-        SubwayArrivalRaw near = SubwayArrivalRaw.builder()
-                .stationId("1002000233").lineId("1002").direction("상행")
-                .trainNo("2001").arrivalSeconds(60).collectedAt(now).build();
+    void 구분자없으면_빈리스트() {
+        assertThat(service.getArrivals("잠실역2호선")).isEmpty();
+    }
 
-        given(subwayDataService.findLatestArrivalsByStationId(eq("1002000233"), any()))
-                .willReturn(List.of(far, near));
+    @Test
+    void 없는역은_빈리스트() {
+        List<SubwayArrivalResponse> result = service.getArrivals("없는역_2호선");
+        assertThat(result).isEmpty();
+    }
 
-        List<SubwayArrivalResponse> result = service.getArrivals("1002000233");
+    @Test
+    void 스냅샷없으면_빈리스트() {
+        given(cachePort.readSnapshot()).willReturn(Optional.empty());
+        List<SubwayArrivalResponse> result = service.getArrivals("을지로3가역_2호선");
+        assertThat(result).isEmpty();
+    }
 
-        assertThat(result.get(0).getArrivalSeconds()).isEqualTo(60);
-        assertThat(result.get(1).getArrivalSeconds()).isEqualTo(300);
+    @Test
+    void 스냅샷에서_역_필터링_반환() {
+        given(cachePort.readSnapshot()).willReturn(Optional.of(snapshot(
+                train("1002", "을지로3가", "상행", "T1", 60),
+                train("1002", "을지로3가", "하행", "T2", 120),
+                train("1003", "을지로3가", "상행", "T3", 80)
+        )));
+        List<SubwayArrivalResponse> result = service.getArrivals("을지로3가역_2호선");
+        assertThat(result).isNotEmpty();
+        assertThat(result).allMatch(r -> "1002".equals(r.getLineId()));
     }
 }
