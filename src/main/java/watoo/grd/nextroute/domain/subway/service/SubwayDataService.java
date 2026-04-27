@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.domain.subway.service;
 
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -8,6 +9,7 @@ import watoo.grd.nextroute.domain.subway.entity.SubwaySegment;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStationTago;
 import watoo.grd.nextroute.domain.subway.entity.SubwayTimetable;
+import watoo.grd.nextroute.domain.subway.repository.NearbySubwayStationProjection;
 import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalRawRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwaySegmentRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
@@ -16,6 +18,7 @@ import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -30,7 +33,9 @@ public class SubwayDataService {
 
 	@Transactional
 	public List<SubwayStation> saveAllStations(List<SubwayStation> stations) {
-		return subwayStationRepository.saveAll(stations);
+		List<SubwayStation> saved = subwayStationRepository.saveAll(stations);
+		subwayStationRepository.backfillGeom();
+		return saved;
 	}
 
 	@Transactional
@@ -45,6 +50,14 @@ public class SubwayDataService {
 
 	public List<SubwayStation> findAllStations() {
 		return subwayStationRepository.findAll();
+	}
+
+	public List<SubwaySegment> findAllSegments() {
+		return subwaySegmentRepository.findAll();
+	}
+
+	public Optional<SubwayStation> findByStationId(String stationId) {
+		return subwayStationRepository.findByStationId(stationId);
 	}
 
 	public List<SubwayStation> findStationsByLine(String lineId) {
@@ -99,5 +112,13 @@ public class SubwayDataService {
 
 	public List<SubwayArrivalRaw> findLatestArrivalsByStationId(String stationId, LocalDateTime from) {
 		return subwayArrivalRawRepository.findByStationIdAndCollectedAtAfter(stationId, from);
+	}
+
+	public SubwayStation findByStationNameLikeAndLineName(String name, String lineName) {
+		return subwayStationRepository.findByStationNameLikeAndLineName(name, lineName);
+	}
+
+	public List<NearbySubwayStationProjection> findNearbyStations(double lat, double lng, double radiusMeters, int limit) {
+		return subwayStationRepository.findNearby(lat, lng, radiusMeters, limit);
 	}
 }
