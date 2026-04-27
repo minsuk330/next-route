@@ -104,6 +104,19 @@ public class SeoulBusApiAdapter implements BusApiPort {
 				.toList();
 	}
 
+	/** 특정 정류소의 버스 도착예정정보 조회 (정류소 ID 기준)
+	 *  [공공데이터포털] 정류소별 도착예정정보
+	 *  API: GET /arrive/getArrInfoByStId?stId={stopId} */
+	@Override
+	public List<BusArrivalInfo> getArrInfoByStop(String stopId) {
+		URI uri = URI.create(baseUrl + "/arrive/getArrInfoByStId"
+				+ "?serviceKey=" + apiKey
+				+ "&stId=" + stopId);
+		return callApi(uri, BusArrivalItem.class).stream()
+				.map(this::toArrivalInfo)
+				.toList();
+	}
+
 	/** 노선 운행 차량의 실시간 GPS 위치 수집 (구간소요시간 역산용)
 	 *  [공공데이터포털] 노선버스 위치정보
 	 *  API: GET /buspos/getBusPosByRtid?busRouteId={id} */

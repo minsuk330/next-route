@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.domain.bus.entity.*;
 import watoo.grd.nextroute.domain.bus.repository.*;
+import watoo.grd.nextroute.domain.bus.repository.NearbyBusStopProjection;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -37,7 +38,9 @@ public class BusDataService {
 
 	@Transactional
 	public List<BusStop> saveAllStops(List<BusStop> stops) {
-		return busStopRepository.saveAll(stops);
+		List<BusStop> saved = busStopRepository.saveAll(stops);
+		busStopRepository.backfillGeom();
+		return saved;
 	}
 
 	@Transactional
@@ -81,5 +84,9 @@ public class BusDataService {
 
 	public List<BusArrivalRaw> findLatestArrivalsByStopId(String stopId, LocalDateTime from) {
 		return busArrivalRawRepository.findLatestByStopId(stopId, from);
+	}
+
+	public List<NearbyBusStopProjection> findNearbyStops(double lat, double lng, double radiusMeters, int limit) {
+		return busStopRepository.findNearby(lat, lng, radiusMeters, limit);
 	}
 }

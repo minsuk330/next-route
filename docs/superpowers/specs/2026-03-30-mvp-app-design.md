@@ -63,10 +63,13 @@ GET    /api/route/fav         목록 조회
 DELETE /api/route/fav/{id}    삭제
 ```
 
-### 3-3. 인증 전략 (MVP)
-- Spring Security 없이 `X-Device-Id` 헤더로 익명 사용자 구분
+### 3-3. 인증 전략
+**MVP (현재):** Spring Security 미적용. `X-Device-Id` 헤더로 익명 사용자 구분.
 - `User` 테이블에 deviceId 기반 자동 생성 (첫 요청 시 upsert)
 - 즐겨찾기는 deviceId 단위로 격리
+
+**이후:** Spring Security 도입 시 deviceId → 실제 계정으로 마이그레이션.
+User 엔티티에 `deviceId` 컬럼을 유지하여 전환 시 데이터 연결 가능하도록 설계.
 
 ### 3-4. 보완점
 - 버스 도착정보는 현재 **10개 노선**만 수집 중 — MVP 단계에서 커버리지 제한 있음

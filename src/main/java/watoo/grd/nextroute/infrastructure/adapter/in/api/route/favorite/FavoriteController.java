@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.route.favorite;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +17,7 @@ import java.util.NoSuchElementException;
 @RestController
 @RequestMapping("/api/route/fav")
 @RequiredArgsConstructor
+@Tag(name = "[회원] 즐겨찾는 경로")
 public class FavoriteController {
 
     private final AddFavoriteRouteUseCase addFavoriteRouteUseCase;

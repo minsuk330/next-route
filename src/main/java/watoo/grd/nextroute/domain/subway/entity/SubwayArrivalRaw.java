@@ -30,7 +30,7 @@ public class SubwayArrivalRaw extends BaseEntity {
 	/** 호선 코드 */
 	private String lineId;
 
-	/** 상하행 방향 (예: "상행", "내선") */
+	/** 상하행 방향 (예: "상행", "내선", 외선, 하행 ) */
 	private String direction;
 
 	/** 이전지하철역ID */

@@ -12,5 +12,8 @@ public interface SubwayApiPort {
 
 	List<SubwaySegmentInfo> getStationDistance();
 
+  /// 모든 도착정보 전부 조회
 	List<SubwayArrivalInfo> getRealtimeArrival();
+  /// 각 역에 따른 도착정보 조회
+	List<SubwayArrivalInfo> getRealtimeArrivalByStation(String stationName);
 }

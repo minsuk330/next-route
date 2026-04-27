@@ -37,15 +37,14 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 .queryParam("EX", ex)
                 .queryParam("EY", ey)
                 .queryParam("OPT", 0)
-                .queryParam("SearchType", 0)
                 .build(true)
                 .toUri();
+      log.info("[OdSay] search url={}", uri);
 
         OdSaySearchResponse response = callApi(uri);
 
         if (response.getError() != null && !response.getError().isNull()) {
             JsonNode errorNode = response.getError();
-            // error가 배열인 경우 첫 번째 요소, 객체인 경우 그대로 사용
             JsonNode first = errorNode.isArray() ? errorNode.get(0) : errorNode;
             String codeStr = first.has("code") ? first.get("code").asText() : "-1";
             String msg = first.has("message") ? first.get("message").asText()
@@ -101,6 +100,8 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 result.getSearchType() != null ? result.getSearchType() : 0,
                 result.getBusCount() != null ? result.getBusCount() : 0,
                 result.getSubwayCount() != null ? result.getSubwayCount() : 0,
+                result.getTrainCount() != null ? result.getTrainCount() : 0,
+                result.getAirCount() != null ? result.getAirCount() : 0,
                 paths
         );
     }
@@ -112,10 +113,73 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 ? path.getSubPath().stream().map(this::toSubPathResult).toList()
                 : Collections.emptyList();
 
+        String mapObj = path.getInfo() != null ? path.getInfo().getMapObj() : null;
+        List<LaneGraphicResult> laneGraphics = (mapObj != null && !mapObj.isBlank())
+                ? loadLane(mapObj)
+                : Collections.emptyList();
+
         return new PathResult(
                 path.getPathType() != null ? path.getPathType() : 0,
                 toPathInfo(path.getInfo()),
-                subPaths
+                subPaths,
+                laneGraphics
+        );
+    }
+
+    @Override
+    public List<LaneGraphicResult> loadLane(String mapObj) {
+        // URI.create() 사용: RestTemplate의 URI 템플릿 처리를 우회하여 '@', ':' 그대로 전달
+        String rawUrl = odSayProperties.getBaseUrl() + "/loadLane"
+                + "?apiKey=" + odSayProperties.getKey()
+                + "&mapObject=" + mapObj;
+        log.debug("[OdSay] loadLane url={}", rawUrl);
+
+        try {
+            URI uri = URI.create(rawUrl);
+            String json = restTemplate.getForObject(uri, String.class);
+            if (json == null) return Collections.emptyList();
+            OdSayLoadLaneResponse response = objectMapper.readValue(json, OdSayLoadLaneResponse.class);
+            if (response.getResult() == null || response.getResult().getLane() == null) {
+                return Collections.emptyList();
+            }
+            double[] base = parseBase(mapObj);
+            return response.getResult().getLane().stream()
+                    .map(lane -> toLaneGraphicResult(lane, base[0], base[1]))
+                    .toList();
+        } catch (Exception e) {
+            log.warn("[OdSay] loadLane failed for mapObj={}: {}", mapObj, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /** mapObj에서 BaseX, BaseY 추출. 형식: BaseX:BaseY@... */
+    private double[] parseBase(String mapObj) {
+        try {
+            String basePart = mapObj.split("@")[0];
+            String[] parts = basePart.split(":");
+            return new double[]{Double.parseDouble(parts[0]), Double.parseDouble(parts[1])};
+        } catch (Exception e) {
+            return new double[]{0, 0};
+        }
+    }
+
+    private LaneGraphicResult toLaneGraphicResult(OdSayLaneGraphic lane, double baseX, double baseY) {
+        List<List<CoordPoint>> sections = Collections.emptyList();
+        if (lane.getSection() != null) {
+            sections = lane.getSection().stream()
+                    .map(section -> {
+                        if (section.getGraphPos() == null) return List.<CoordPoint>of();
+                        return section.getGraphPos().stream()
+                                .filter(p -> p.getX() != null && p.getY() != null)
+                                .map(p -> new CoordPoint(baseX + p.getX(), baseY + p.getY()))
+                                .toList();
+                    })
+                    .toList();
+        }
+        return new LaneGraphicResult(
+                lane.getLaneClass() != null ? lane.getLaneClass() : 0,
+                lane.getType() != null ? lane.getType() : 0,
+                sections
         );
     }
 
@@ -123,14 +187,19 @@ public class OdSayApiAdapter implements OdSayApiPort {
         if (info == null) {
             return new PathInfo(0, 0, 0, 0, "", "");
         }
-        int transferCount = (info.getBusTransitCount() != null ? info.getBusTransitCount() : 0)
-                + (info.getSubwayTransitCount() != null ? info.getSubwayTransitCount() : 0);
-        if (transferCount > 0) {
-            transferCount--;
+        int payment = info.getTotalPayment() != null ? info.getTotalPayment()
+                    : info.getPayment() != null ? info.getPayment() : 0;
+        int transferCount;
+        if (info.getTransitCount() != null) {
+            transferCount = info.getTransitCount();
+        } else {
+            int legs = (info.getBusTransitCount() != null ? info.getBusTransitCount() : 0)
+                     + (info.getSubwayTransitCount() != null ? info.getSubwayTransitCount() : 0);
+            transferCount = legs > 0 ? legs - 1 : 0;
         }
         return new PathInfo(
                 info.getTotalTime() != null ? info.getTotalTime() : 0,
-                info.getPayment() != null ? info.getPayment() : 0,
+                payment,
                 info.getTotalWalk() != null ? info.getTotalWalk() : 0,
                 transferCount,
                 info.getFirstStartStation() != null ? info.getFirstStartStation() : "",
@@ -157,7 +226,16 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 lanes,
                 stations,
                 subPath.getStartName(),
-                subPath.getEndName()
+                subPath.getEndName(),
+                subPath.getStartX(),
+                subPath.getStartY(),
+                subPath.getEndX(),
+                subPath.getEndY(),
+                subPath.getTrainType(),
+                subPath.getPayment(),
+                subPath.getStartID(),
+                subPath.getWay(),
+                subPath.getWayCode()
         );
     }
 

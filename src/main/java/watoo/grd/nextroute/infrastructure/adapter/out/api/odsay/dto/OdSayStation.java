@@ -9,6 +9,11 @@ public class OdSayStation {
     private Integer index;
     private String stationID;
     private String stationName;
+    private Integer stationCityCode;
+    private Integer stationProviderCode;
+    private String localStationID;
+    private String arsID;
     private String x;
     private String y;
+    private String isNonStop;
 }

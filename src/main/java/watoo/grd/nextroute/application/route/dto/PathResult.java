@@ -5,6 +5,7 @@ import java.util.List;
 public record PathResult(
         int pathType,
         PathInfo info,
-        List<SubPathResult> subPaths
+        List<SubPathResult> subPaths,
+        List<LaneGraphicResult> laneGraphics
 ) {
 }
