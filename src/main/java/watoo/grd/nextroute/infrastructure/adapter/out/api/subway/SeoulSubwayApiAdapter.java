@@ -14,6 +14,7 @@ import watoo.grd.nextroute.infrastructure.adapter.out.api.subway.dto.*;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static watoo.grd.nextroute.common.util.ParseUtils.parseDouble;
 import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
@@ -28,6 +29,19 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 	private static final String API_ARRIVAL = "seoul-subway-arrival";
 	private static final String API_MASTER = "seoul-subway-master";
 	private static final String API_DISTANCE = "seoul-subway-distance";
+
+	private static final Map<String, String> LINE_NAME_MAP = Map.ofEntries(
+			Map.entry("경의중앙선", "1063"),
+			Map.entry("공항철도",   "1065"),
+			Map.entry("경춘선",     "1067"),
+			Map.entry("수인분당선", "1075"),
+			Map.entry("신분당선",   "1077"),
+			Map.entry("경강선",     "1081"),
+			Map.entry("우이신설선", "1092"),
+			Map.entry("서해선",     "1093"),
+			Map.entry("GTX-A",     "1032"),
+			Map.entry("중앙선",     "1061")
+	);
 
 	private final RestTemplate restTemplate;
 	private final ApiCallBlocker blocker;
@@ -59,7 +73,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 		if (blocker.isBlocked(API_MASTER)) return List.of();
 
 		List<SubwayStationInfo> allStations = new ArrayList<>();
-		int start = 1;
+		int start = 0;
 
 		while (true) {
 			int end = start + PAGE_SIZE - 1;
@@ -110,6 +124,15 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 			log.info("[SubwayArrival] Fetched {} arrivals so far", allArrivals.size());
 
 		return allArrivals;
+	}
+
+	@Override
+	public List<SubwayArrivalInfo> getRealtimeArrivalByStation(String stationName) {
+		URI uri = URI.create(baseUrl + "/" + apiKey
+				+ "/json/realtimeStationArrival/0/1000/" + stationName);
+		return callArrivalApi(uri).stream()
+				.map(this::toArrivalInfo)
+				.toList();
 	}
 
 	@Override
@@ -234,6 +257,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 	/** "01호선" → "1001", "02호선" → "1002", ... "09호선" → "1009" */
 	private String toLineId(String route) {
 		if (route == null) return null;
+		if (LINE_NAME_MAP.containsKey(route)) return LINE_NAME_MAP.get(route);
 		String num = route.replaceAll("[^0-9]", "");
 		if (num.isEmpty()) return route;
 		return String.valueOf(1000 + Integer.parseInt(num));
@@ -317,12 +341,10 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 				}
 
 				if (!response.isSuccess()) {
-					blocker.block(API_ARRIVAL);
-					log.warn("Subway API error [{}]: {} - {}",
-							uri.getPath(),
-							response.getErrorMessage() != null ? response.getErrorMessage().getCode() : "UNKNOWN",
-							response.getErrorMessage() != null ? response.getErrorMessage().getMessage() : "UNKNOWN");
-					return List.of();
+					String code = response.getErrorMessage() != null ? response.getErrorMessage().getCode() : "UNKNOWN";
+					String msg  = response.getErrorMessage() != null ? response.getErrorMessage().getMessage() : "UNKNOWN";
+					log.warn("Subway arrival API non-success [{}]: {} - {}", uri.getPath(), code, msg);
+					throw new RuntimeException("Subway arrival API error: " + code + " - " + msg);
 				}
 
 				return response.getItems();
@@ -342,7 +364,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 			}
 		}
 
-		log.error("Subway API call failed after {} retries", MAX_RETRIES, lastException);
-		return List.of();
+		log.error("Subway arrival API failed after {} retries", MAX_RETRIES, lastException);
+		throw new RuntimeException("Subway arrival API failed after " + MAX_RETRIES + " retries", lastException);
 	}
 }
