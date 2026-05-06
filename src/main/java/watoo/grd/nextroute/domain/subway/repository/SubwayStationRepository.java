@@ -14,7 +14,11 @@ public interface SubwayStationRepository extends JpaRepository<SubwayStation, Lo
 
 	Optional<SubwayStation> findByStationId(String stationId);
 
+	Optional<SubwayStation> findByStationIdAndLineId(String stationId, String lineId);
+
 	List<SubwayStation> findByLineId(String lineId);
+
+	List<SubwayStation> findByLineIdAndTagoStationId(String lineId, String tagoStationId);
 
 	boolean existsByStationId(String stationId);
 
