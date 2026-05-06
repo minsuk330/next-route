@@ -79,7 +79,13 @@ public class TimetableMatchingService {
                 continue;
             }
             for (SubwayStation st : stations) {
-                timetableKeys.add(new CompareKey(proj.getLineId(), st.getStationId(), proj.getDirection()));
+                String dirUD = proj.getDirection();
+                if (dirUD == null || (!dirUD.equals("U") && !dirUD.equals("D"))) {
+                    log.warn("[PhaseB] timetable coverage direction 미지원값, skip lineId={} tagoStationId={} direction={}",
+                        proj.getLineId(), proj.getTagoStationId(), dirUD);
+                    continue;
+                }
+                timetableKeys.add(new CompareKey(proj.getLineId(), st.getStationId(), dirUD));
             }
         }
 
@@ -98,6 +104,10 @@ public class TimetableMatchingService {
             Optional<SubwayStation> stationOpt = subwayDataService.findByStationIdAndLineId(key.stationId(), key.lineId());
             if (stationOpt.isEmpty()) {
                 List<SubwayArrivalEvent> keyEvents = eventsGrouped.getOrDefault(key, List.of());
+                if (keyEvents.isEmpty()) {
+                    log.info("[PhaseB] station 매핑 없음 + event 없음, skip key={}", matchGroupKey);
+                    continue;
+                }
                 for (int i = 0; i < keyEvents.size(); i++) {
                     issues.add(mappingMissingIssue(serviceDate, dayType, matchGroupKey,
                             key.lineId(), key.stationId(), null, key.directionUD(),
@@ -108,6 +118,10 @@ public class TimetableMatchingService {
             SubwayStation station = stationOpt.get();
             if (station.getTagoStationId() == null) {
                 List<SubwayArrivalEvent> keyEvents = eventsGrouped.getOrDefault(key, List.of());
+                if (keyEvents.isEmpty()) {
+                    log.info("[PhaseB] tagoStationId null + event 없음, skip key={}", matchGroupKey);
+                    continue;
+                }
                 for (int i = 0; i < keyEvents.size(); i++) {
                     issues.add(mappingMissingIssue(serviceDate, dayType, matchGroupKey,
                             key.lineId(), key.stationId(), station.getStationName(), key.directionUD(),
