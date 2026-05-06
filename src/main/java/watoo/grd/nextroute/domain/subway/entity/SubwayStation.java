@@ -41,9 +41,10 @@ public class SubwayStation extends BaseEntity {
 	private Double longitude;
 
 	@Builder
-	public SubwayStation(String stationId, String stationName, String lineId,
+	public SubwayStation(String stationId, String tagoStationId, String stationName, String lineId,
 						 String lineName, String kakaoQuery, Double latitude, Double longitude) {
 		this.stationId = stationId;
+		this.tagoStationId = tagoStationId;
 		this.stationName = stationName;
 		this.lineId = lineId;
 		this.lineName = lineName;
