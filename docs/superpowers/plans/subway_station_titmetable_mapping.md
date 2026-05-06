@@ -432,3 +432,7 @@ order by s.statn_nm, s.search_line_name;
 3. normalized match를 수행한다.
 4. `UNMATCHED`, `AMBIGUOUS`, line_id mismatch를 수동 검증한다.
 5. 매핑된 `tago_station_id` 기준으로 기존 `subway_timetable` 을 전체 교체한다.
+
+
+# todo
+- event로 도착 정보만 필터링 된 경우에서 timetable의 개수와 알맞는지 확인 해봐야 한다.
