@@ -105,14 +105,14 @@ class TimetableConverterTest {
     }
 
     @Test
-    void TC_orderKey_23시50분이_익일_00시00분보다_작다() {
+    void TC_orderKey_23시50분이_익일_00시10분보다_작다() {
         // serviceDate=2026-05-03
         // 23:50 arrTime: base=04:00, 23:50 → 19시간50분 = 71400초
-        // 00:00 arrTime: 다음날 00:00 → 20시간 = 72000초
+        // 00:10 arrTime: 다음날 00:10 → 20시간10분 = 72600초
         LocalDate serviceDate = LocalDate.of(2026, 5, 3);
         long key2350 = converter.toTimetableOrderKey(serviceDate, "235000", "235500");
-        long key0000 = converter.toTimetableOrderKey(serviceDate, "000000", "000500");
-        assertThat(key2350).isLessThan(key0000);
+        long key0010 = converter.toTimetableOrderKey(serviceDate, "001000", "001500");
+        assertThat(key2350).isLessThan(key0010);
     }
 
     @Test
