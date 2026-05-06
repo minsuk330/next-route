@@ -115,3 +115,5 @@ realtime:
 batch:
   arrival-event:
     enabled: true
+  match-issue:
+    enabled: true
