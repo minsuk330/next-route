@@ -5,18 +5,21 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEvent;
+import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEventMatchIssue;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalRaw;
 import watoo.grd.nextroute.domain.subway.entity.SubwaySegment;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStationTago;
 import watoo.grd.nextroute.domain.subway.entity.SubwayTimetable;
 import watoo.grd.nextroute.domain.subway.repository.NearbySubwayStationProjection;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventMatchIssueRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalRawRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwaySegmentRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayStationTagoRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository.TimetableCoverageProjection;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -34,6 +37,7 @@ public class SubwayDataService {
 	private final SubwayStationTagoRepository subwayStationTagoRepository;
 	private final SubwayTimetableRepository subwayTimetableRepository;
 	private final SubwayArrivalEventRepository subwayArrivalEventRepository;
+	private final SubwayArrivalEventMatchIssueRepository subwayArrivalEventMatchIssueRepository;
 
 	@Transactional
 	public List<SubwayStation> saveAllStations(List<SubwayStation> stations) {
@@ -161,5 +165,33 @@ public class SubwayDataService {
 	public void updateCoordinates(Long id, double lat, double lon) {
 		subwayStationRepository.findById(id)
 				.ifPresent(s -> s.updateCoordinates(lat, lon));
+	}
+
+	// ===== ArrivalEventMatchIssue =====
+
+	@Transactional
+	public int deleteMatchIssuesByServiceDate(LocalDate serviceDate) {
+		return subwayArrivalEventMatchIssueRepository.deleteByServiceDate(serviceDate);
+	}
+
+	@Transactional
+	public List<SubwayArrivalEventMatchIssue> saveAllMatchIssues(List<SubwayArrivalEventMatchIssue> issues) {
+		return subwayArrivalEventMatchIssueRepository.saveAll(issues);
+	}
+
+	// ===== Timetable Coverage =====
+
+	public List<TimetableCoverageProjection> findTimetableCoverage(String dayType) {
+		return subwayTimetableRepository.findDistinctCoverage(dayType);
+	}
+
+	// ===== Station lookup =====
+
+	public Optional<SubwayStation> findByStationIdAndLineId(String stationId, String lineId) {
+		return subwayStationRepository.findByStationIdAndLineId(stationId, lineId);
+	}
+
+	public List<SubwayStation> findByLineIdAndTagoStationId(String lineId, String tagoStationId) {
+		return subwayStationRepository.findByLineIdAndTagoStationId(lineId, tagoStationId);
 	}
 }
