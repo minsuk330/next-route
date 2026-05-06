@@ -13,6 +13,7 @@ import lombok.NoArgsConstructor;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class SubwayRealtimeTrain {
     private String trainNo;
+    private String stationId;
     private String lineId;
     private String direction;
     private String stationName;

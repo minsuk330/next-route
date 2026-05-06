@@ -3,6 +3,7 @@ package watoo.grd.nextroute.domain.subway.entity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -12,7 +13,11 @@ import watoo.grd.nextroute.common.entity.BaseEntity;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "subway_arrival_raw")
+@Table(name = "subway_arrival_raw",
+		uniqueConstraints = @UniqueConstraint(
+				name = "uk_subway_arrival_raw_observation",
+				columnNames = {"line_id", "station_id", "train_no",
+						"received_at", "arrival_code", "current_message"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SubwayArrivalRaw extends BaseEntity {

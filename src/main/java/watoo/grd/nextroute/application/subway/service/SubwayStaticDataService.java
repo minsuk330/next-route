@@ -36,33 +36,11 @@ public class SubwayStaticDataService implements LoadSubwayStaticDataUseCase {
 
 	@Override
 	public void execute() {
-		loadStations();
 		loadSegments();
 		loadTagoStations();
 		loadTimetables();
 	}
 
-	private void loadStations() {
-		List<SubwayStationInfo> allStations = subwayApiPort.getSubwayStationMaster();
-		if (allStations.isEmpty()) {
-			log.warn("[SubwayStatic] No stations fetched from API.");
-			return;
-		}
-
-		List<SubwayStation> newStations = allStations.stream()
-				.filter(info -> !subwayDataService.existsByStationId(info.stationId()))
-				.map(this::toStationEntity)
-				.toList();
-
-		if (newStations.isEmpty()) {
-			log.info("[SubwayStatic] All {} stations already loaded. Skipping.", allStations.size());
-			return;
-		}
-
-		subwayDataService.saveAllStations(newStations);
-		log.info("[SubwayStatic] Saved {} new stations ({} total from API)",
-				newStations.size(), allStations.size());
-	}
 
 	private void loadSegments() {
 		List<SubwaySegmentInfo> allSegments = subwayApiPort.getStationDistance();

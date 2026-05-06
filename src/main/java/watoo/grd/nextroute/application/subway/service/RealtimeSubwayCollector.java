@@ -22,6 +22,7 @@ import java.util.List;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/// todo refactoring  현재 경계가 섞여 있음
 public class RealtimeSubwayCollector {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
@@ -38,10 +39,14 @@ public class RealtimeSubwayCollector {
     @Value("${realtime.subway.snapshot-ttl-seconds:25}")
     private long snapshotTtlSeconds;
 
+    @Value("${realtime.subway.persist-raw-arrivals:true}")
+    private boolean persistRawArrivals;
+
     private final SubwayApiPort subwayApiPort;
     private final SubwayRealtimeCachePort cachePort;
     private final SubwaySegmentLookup segmentLookup;
     private final SubwayStationIdLookup stationIdLookup;
+    private final SubwayArrivalRawRecorder arrivalRawRecorder;
 
     @PostConstruct
     public void registerBootTime() {
@@ -70,6 +75,14 @@ public class RealtimeSubwayCollector {
                 log.warn("[RealtimeCollector] Empty arrivals from API");
                 writeErrorSnapshot();
                 return;
+            }
+
+            if (persistRawArrivals) {
+                try {
+                    arrivalRawRecorder.record(arrivals);
+                } catch (Exception e) {
+                    log.warn("[RealtimeCollector] Failed to persist arrival raw rows: {}", e.getMessage());
+                }
             }
 
             stationIdLookup.update(arrivals);
@@ -102,6 +115,7 @@ public class RealtimeSubwayCollector {
 
         return SubwayRealtimeTrain.builder()
                 .trainNo(info.trainNo())
+                .stationId(info.stationId())
                 .lineId(info.lineId())
                 .direction(info.direction())
                 .stationName(info.stationName())

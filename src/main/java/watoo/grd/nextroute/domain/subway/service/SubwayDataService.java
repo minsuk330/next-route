@@ -4,18 +4,21 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEvent;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalRaw;
 import watoo.grd.nextroute.domain.subway.entity.SubwaySegment;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStationTago;
 import watoo.grd.nextroute.domain.subway.entity.SubwayTimetable;
 import watoo.grd.nextroute.domain.subway.repository.NearbySubwayStationProjection;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalRawRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwaySegmentRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayStationTagoRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -30,6 +33,7 @@ public class SubwayDataService {
 	private final SubwayArrivalRawRepository subwayArrivalRawRepository;
 	private final SubwayStationTagoRepository subwayStationTagoRepository;
 	private final SubwayTimetableRepository subwayTimetableRepository;
+	private final SubwayArrivalEventRepository subwayArrivalEventRepository;
 
 	@Transactional
 	public List<SubwayStation> saveAllStations(List<SubwayStation> stations) {
@@ -46,6 +50,13 @@ public class SubwayDataService {
 	@Transactional
 	public List<SubwayArrivalRaw> saveAllArrivals(List<SubwayArrivalRaw> arrivals) {
 		return subwayArrivalRawRepository.saveAll(arrivals);
+	}
+
+	@Transactional
+	public int insertArrivalRawIgnoreDuplicates(List<SubwayArrivalRaw> raws) {
+		return raws.stream()
+				.mapToInt(subwayArrivalRawRepository::insertIgnore)
+				.sum();
 	}
 
 	public List<SubwayStation> findAllStations() {
@@ -114,11 +125,41 @@ public class SubwayDataService {
 		return subwayArrivalRawRepository.findByStationIdAndCollectedAtAfter(stationId, from);
 	}
 
+	public List<SubwayArrivalRaw> findArrivalCandidatesInRange(String fromReceivedAt, String toReceivedAt) {
+		return subwayArrivalRawRepository.findArrivalCandidatesInRange(fromReceivedAt, toReceivedAt);
+	}
+
+	// ===== ArrivalEvent =====
+
+	@Transactional
+	public int deleteArrivalEventsByServiceDate(LocalDate serviceDate) {
+		return subwayArrivalEventRepository.deleteByServiceDate(serviceDate);
+	}
+
+	@Transactional
+	public List<SubwayArrivalEvent> saveAllArrivalEvents(List<SubwayArrivalEvent> events) {
+		return subwayArrivalEventRepository.saveAll(events);
+	}
+
+	public List<SubwayArrivalEvent> findArrivalEventsByServiceDate(LocalDate serviceDate) {
+		return subwayArrivalEventRepository.findByServiceDate(serviceDate);
+	}
+
 	public SubwayStation findByStationNameLikeAndLineName(String name, String lineName) {
 		return subwayStationRepository.findByStationNameLikeAndLineName(name, lineName);
 	}
 
 	public List<NearbySubwayStationProjection> findNearbyStations(double lat, double lng, double radiusMeters, int limit) {
 		return subwayStationRepository.findNearby(lat, lng, radiusMeters, limit);
+	}
+
+	public List<SubwayStation> findAllWithoutCoordinates() {
+		return subwayStationRepository.findByLatitudeIsNull();
+	}
+
+	@Transactional
+	public void updateCoordinates(Long id, double lat, double lon) {
+		subwayStationRepository.findById(id)
+				.ifPresent(s -> s.updateCoordinates(lat, lon));
 	}
 }

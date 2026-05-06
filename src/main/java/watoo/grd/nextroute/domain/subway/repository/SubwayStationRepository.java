@@ -18,11 +18,14 @@ public interface SubwayStationRepository extends JpaRepository<SubwayStation, Lo
 
 	boolean existsByStationId(String stationId);
 
+	List<SubwayStation> findByLatitudeIsNull();
+
 	@Query("SELECT s FROM SubwayStation s WHERE s.lineName = :lineName AND (s.stationName = :name OR s.stationName LIKE CONCAT(:name, '(%)'))")
 	SubwayStation findByStationNameLikeAndLineName(@Param("name") String name, @Param("lineName") String lineName);
 
 	@Query(value = """
-			SELECT station_id, station_name, line_id, line_name, latitude, longitude,
+			SELECT statn_id AS station_id, statn_nm AS station_name, line_id,
+			       search_line_name AS line_name, latitude, longitude,
 			       ST_Distance(geom, ST_MakePoint(:lng, :lat)::geography) AS dist_meters
 			FROM subway_station
 			WHERE geom IS NOT NULL

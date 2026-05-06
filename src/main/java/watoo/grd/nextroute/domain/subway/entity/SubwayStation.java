@@ -15,32 +15,44 @@ import watoo.grd.nextroute.common.entity.BaseEntity;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SubwayStation extends BaseEntity {
 
-	/** 역 고유 ID */
-	@Column(nullable = false, unique = true)
+	@Column(name = "statn_id")
 	private String stationId;
 
-	/** 역 이름 (예: "강남") */
+	@Column(name = "tago_station_id")
+	private String tagoStationId;
+
+	@Column(name = "tago_mapping_status")
+	private String tagoMappingStatus;
+
+	@Column(name = "statn_nm")
 	private String stationName;
 
-	/** 호선 코드 (예: "1002" = 2호선) */
+	@Column(name = "line_id")
 	private String lineId;
 
-	/** 호선 이름 (예: "2호선") */
+	@Column(name = "search_line_name")
 	private String lineName;
 
-	/** 역 위도 (WGS84) */
+	@Column(name = "kakao_query")
+	private String kakaoQuery;
+
 	private Double latitude;
 
-	/** 역 경도 (WGS84) */
 	private Double longitude;
 
 	@Builder
 	public SubwayStation(String stationId, String stationName, String lineId,
-						 String lineName, Double latitude, Double longitude) {
+						 String lineName, String kakaoQuery, Double latitude, Double longitude) {
 		this.stationId = stationId;
 		this.stationName = stationName;
 		this.lineId = lineId;
 		this.lineName = lineName;
+		this.kakaoQuery = kakaoQuery;
+		this.latitude = latitude;
+		this.longitude = longitude;
+	}
+
+	public void updateCoordinates(double latitude, double longitude) {
 		this.latitude = latitude;
 		this.longitude = longitude;
 	}

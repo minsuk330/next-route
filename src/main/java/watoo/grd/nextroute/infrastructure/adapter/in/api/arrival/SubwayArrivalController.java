@@ -20,16 +20,13 @@ import java.util.List;
 public class SubwayArrivalController {
   private final GetSubwayArrivalUseCase getSubwayArrivalUseCase;
 
-  @GetMapping("/{stationRaw}")
-  /// stationRaw 포맷은 역이름_호선
-  public ResponseEntity<List<SubwayArrivalResponse>> getArrivals(@PathVariable String stationRaw) {
-      return ResponseEntity.ok(getSubwayArrivalUseCase.getArrivals(stationRaw));
-  }
-  @GetMapping("/id/{stationId}")
-  public ResponseEntity<List<SubwayArrivalResponse>> getArrivalById(
-      @PathVariable String stationId,
+
+  @GetMapping
+  public ResponseEntity<List<SubwayArrivalResponse>> getArrivals(
+      @RequestParam double lat,
+      @RequestParam double lon,
       @RequestParam(required = false) Integer wayCode
   ) {
-    return ResponseEntity.ok(getSubwayArrivalUseCase.getArrivalsById(stationId, wayCode));
+      return ResponseEntity.ok(getSubwayArrivalUseCase.getArrivals(lat, lon,wayCode));
   }
 }

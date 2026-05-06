@@ -1,4 +1,9 @@
 spring:
+  profiles:
+    default: dev
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
   config:
     import:
       - optional:file:./env/db.env[.properties]
@@ -11,25 +16,19 @@ spring:
         size: 3
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
       timeout: 1000ms
 
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:mydatabase}
     username: ${POSTGRES_USER}
-    password: maABg3j5ahg4pWTOu0pRN17zIyLMNul9
+    password: ${POSTGRES_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
-  sql:
-    init:
-      mode: always
-      schema-locations: classpath:db/postgis-init.sql
-
   jpa:
-    defer-datasource-initialization: true
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
@@ -41,6 +40,8 @@ odsay:
     base-url: https://api.odsay.com/v1/api
 
 kakao:
+  api:
+    key: ${KAKAO_REST_API_KEY}
   map:
     js-key: ${KAKAO_MAP_JS_KEY:}
 
@@ -104,8 +105,13 @@ cors:
 realtime:
   subway:
     enabled: true
-    poll-interval-ms: 15000
+    poll-interval-ms: 10000
     active-hours:
       start: "05:30"
       end: "00:30"
-    snapshot-ttl-seconds: 25
+    snapshot-ttl-seconds: 20
+    persist-raw-arrivals: true
+
+batch:
+  arrival-event:
+    enabled: true

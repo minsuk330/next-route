@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeSnapshot;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
 import watoo.grd.nextroute.application.subway.port.out.SubwayRealtimeCachePort;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
+import watoo.grd.nextroute.domain.subway.repository.NearbySubwayStationProjection;
 import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
 
 import java.time.Duration;
@@ -27,46 +28,21 @@ public class SubwayArrivalQueryService implements GetSubwayArrivalUseCase {
     private final SubwayDataService subwayDataService;
 
     @Override
-    public List<SubwayArrivalResponse> getArrivals(String stationRaw) {
-        int sep = stationRaw.lastIndexOf('_');
-        if (sep < 0) return List.of();
+    public List<SubwayArrivalResponse> getArrivals(double lat, double lon, Integer wayCode) {
+        List<NearbySubwayStationProjection> nearby =
+                subwayDataService.findNearbyStations(lat, lon, 50, 1);
+        if (nearby.isEmpty()) return List.of();
 
-        String rawName  = stationRaw.substring(0, sep);
-        String linePart = stationRaw.substring(sep + 1);
-        String stationName = rawName.endsWith("역")
-                ? rawName.substring(0, rawName.length() - 1) : rawName;
-
-        SubwayStation matched =
-                subwayDataService.findByStationNameLikeAndLineName(stationName, linePart);
-        if (matched == null) return List.of();
+        NearbySubwayStationProjection nearest = nearby.get(0);
 
         Optional<SubwayRealtimeSnapshot> snapshot = cachePort.readSnapshot();
-        return fromSnapshot(snapshot, matched.getLineId(), stationName, null);
-    }
 
-    @Override
-    public List<SubwayArrivalResponse> getArrivalsById(String stationId, Integer wayCode) {
-        if (stationId.length() == 3) stationId = "0" + stationId;
-        Optional<SubwayStation> stationOpt = subwayDataService.findByStationId(stationId);
-        if (stationOpt.isEmpty()) return List.of();
-
-        SubwayStation station    = stationOpt.get();
-        String targetLineId      = station.getLineId();
-        String direction         = toDirection(targetLineId, wayCode);
-
-        String raw      = station.getStationName();
-        int parenIdx    = raw.indexOf('(');
-        String trimmed  = parenIdx >= 0 ? raw.substring(0, parenIdx) : raw;
-        String stationName = trimmed.endsWith("역")
-                ? trimmed.substring(0, trimmed.length() - 1) : trimmed;
-
-        Optional<SubwayRealtimeSnapshot> snapshot = cachePort.readSnapshot();
-        return fromSnapshot(snapshot, targetLineId, stationName, direction);
+        return fromSnapshot(snapshot, nearest.getLineId(), nearest.getStationId(),wayCode);
     }
 
     private List<SubwayArrivalResponse> fromSnapshot(
             Optional<SubwayRealtimeSnapshot> snapshotOpt,
-            String lineId, String stationName, String direction) {
+            String lineId, String stationId, Integer wayCode) {
 
         if (snapshotOpt.isEmpty()) return List.of();
         LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
@@ -74,8 +50,8 @@ public class SubwayArrivalQueryService implements GetSubwayArrivalUseCase {
         Map<String, SubwayRealtimeTrain> deduped = new LinkedHashMap<>();
         snapshotOpt.get().getTrains().stream()
                 .filter(t -> lineId.equals(t.getLineId()))
-                .filter(t -> stationName.equals(t.getStationName()))
-                .filter(t -> direction == null || direction.equals(t.getDirection()))
+                .filter(t -> stationId.equals(t.getStationId()))
+                .filter(t -> wayCode == null || toDirection(t.getLineId(), wayCode).equals(t.getDirection()))
                 .filter(t -> {
                     Integer adj = adjusted(t.getArrivalSeconds(), t.getReceivedAt(), now);
                     return adj == null || adj >= 0;
