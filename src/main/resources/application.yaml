@@ -44,7 +44,9 @@ kakao:
     key: ${KAKAO_REST_API_KEY}
   map:
     js-key: ${KAKAO_MAP_JS_KEY:}
-
+gong:
+  api:
+    key: ${GONG_API}
 seoul:
   api:
     bus-key: ${SEOUL_BUS_API:test}

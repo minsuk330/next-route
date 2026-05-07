@@ -99,7 +99,7 @@ public class RealtimeSubwayCollector {
 
             cachePort.saveSnapshot(snapshot, snapshotTtlSeconds);
             cachePort.saveStatus(SubwayRealtimeStatus.ACTIVE);
-            log.info("[RealtimeCollector] Saved {} trains to Redis", trains.size());
+            //log.info("[RealtimeCollector] Saved {} trains to Redis", trains.size());
 
         } catch (Exception e) {
             log.error("[RealtimeCollector] Collection failed: {}", e.getMessage());

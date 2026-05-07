@@ -122,7 +122,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 					.map(this::toArrivalInfo)
 					.forEach(allArrivals::add);
 
-			log.info("[SubwayArrival] Fetched {} arrivals so far", allArrivals.size());
+			//log.info("[SubwayArrival] Fetched {} arrivals so far", allArrivals.size());
 
 		return allArrivals;
 	}

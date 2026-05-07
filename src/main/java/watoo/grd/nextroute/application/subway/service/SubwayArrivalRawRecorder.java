@@ -28,7 +28,7 @@ public class SubwayArrivalRawRecorder {
 
         if (!raws.isEmpty()) {
             int inserted = subwayDataService.insertArrivalRawIgnoreDuplicates(raws);
-            log.info("[SubwayArrivalRawRecorder] Inserted {}/{} arrival rows", inserted, raws.size());
+            //log.info("[SubwayArrivalRawRecorder] Inserted {}/{} arrival rows", inserted, raws.size());
         }
     }
 

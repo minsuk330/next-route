@@ -32,28 +32,18 @@ class TimetableMatchingServiceTest {
     // ────────────────────────────────────────────
     // FakeHolidayCalendar: 2026-05-05 어린이날 공휴일 등록
     // ────────────────────────────────────────────
+
     static class FakeHolidayCalendar implements HolidayCalendar {
         private final Set<LocalDate> holidays;
-
-        FakeHolidayCalendar(LocalDate... dates) {
-            this.holidays = Set.of(dates);
-        }
-
-        @Override
-        public boolean isHoliday(LocalDate date) {
-            return holidays.contains(date);
-        }
+        FakeHolidayCalendar(LocalDate... dates) { this.holidays = Set.of(dates); }
+        @Override public boolean isHoliday(LocalDate date) { return holidays.contains(date); }
     }
 
-    @Mock
-    SubwayDataService subwayDataService;
-
-    @Mock
-    SubwayTimetableRepository subwayTimetableRepository;
+    @Mock SubwayDataService subwayDataService;
+    @Mock SubwayTimetableRepository subwayTimetableRepository;
 
     TimetableMatchingService service;
 
-    /** 테스트에서 공통으로 사용할 serviceDate (2026-05-03 일요일 → dayType="03") */
     private static final LocalDate SERVICE_DATE = LocalDate.of(2026, 5, 3);
 
     @BeforeEach

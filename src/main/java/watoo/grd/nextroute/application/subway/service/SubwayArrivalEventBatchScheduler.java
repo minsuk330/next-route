@@ -23,36 +23,44 @@ public class SubwayArrivalEventBatchScheduler {
     private final SubwayArrivalEventDerivationService derivationService;
     private final TimetableMatchingService matchingService;
 
-    // 매일 04:30 KST
+    public record BatchRunResult(LocalDate serviceDate, int derivedEvents, int matchIssues) {}
+
     @Scheduled(cron = "0 30 4 * * *", zone = "Asia/Seoul")
     public void runDailyDerivation() {
+        runForDate(LocalDate.now(ZoneId.of("Asia/Seoul")).minusDays(1));
+    }
+
+    public BatchRunResult runForDate(LocalDate serviceDate) {
         if (!enabled) {
-            log.info("[ArrivalEventBatch] Disabled, skipping");
-            return;
+            log.info("[ArrivalEventBatch] Disabled, skipping serviceDate={}", serviceDate);
+            return new BatchRunResult(serviceDate, 0, 0);
         }
-        LocalDate yesterday = LocalDate.now(ZoneId.of("Asia/Seoul")).minusDays(1);
-        log.info("[ArrivalEventBatch] Starting derivation for serviceDate={}", yesterday);
+        log.info("[ArrivalEventBatch] Starting derivation for serviceDate={}", serviceDate);
 
-        // Phase A: Arrival Event Derivation
+        // Phase A
+        int derived;
         try {
-            int count = derivationService.deriveForDate(yesterday);
-            log.info("[BatchScheduler] Phase A complete: serviceDate={} events={}", yesterday, count);
+            derived = derivationService.deriveForDate(serviceDate);
+            log.info("[BatchScheduler] Phase A complete: serviceDate={} events={}", serviceDate, derived);
         } catch (Exception e) {
-            log.error("[BatchScheduler] Phase A failed for serviceDate={}, skipping Phase B", yesterday, e);
-            return;
+            log.error("[BatchScheduler] Phase A failed for serviceDate={}, skipping Phase B", serviceDate, e);
+            return new BatchRunResult(serviceDate, 0, 0);
         }
 
-        // Phase B: Timetable Matching
+        // Phase B
         if (!matchIssueEnabled) {
             log.info("[BatchScheduler] Phase B disabled (batch.match-issue.enabled=false)");
-            return;
+            return new BatchRunResult(serviceDate, derived, 0);
         }
 
+        int matched = 0;
         try {
-            int issueCount = matchingService.matchForDate(yesterday);
-            log.info("[BatchScheduler] Phase B complete: serviceDate={} issues={}", yesterday, issueCount);
+            matched = matchingService.matchForDate(serviceDate);
+            log.info("[BatchScheduler] Phase B complete: serviceDate={} issues={}", serviceDate, matched);
         } catch (Exception e) {
-            log.error("[BatchScheduler] Phase B failed for serviceDate={}", yesterday, e);
+            log.error("[BatchScheduler] Phase B failed for serviceDate={}", serviceDate, e);
         }
+
+        return new BatchRunResult(serviceDate, derived, matched);
     }
 }
