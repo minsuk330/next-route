@@ -39,7 +39,7 @@ public interface SubwayArrivalRawRepository extends JpaRepository<SubwayArrivalR
 				:#{#raw.currentMessage}, :#{#raw.arrivalCode},
 				:#{#raw.subwayId}, :#{#raw.arrivalMsg3}, :#{#raw.receivedAt},
 				:#{#raw.trainLineName}, :#{#raw.lastTrainYn}
-			) on conflict (line_id, station_id, train_no, received_at, arrival_code, current_message)
+			) on conflict (line_id, station_id, direction, train_no, received_at, arrival_code, current_message)
 			do nothing
 			""", nativeQuery = true)
 	int insertIgnore(@Param("raw") SubwayArrivalRaw raw);

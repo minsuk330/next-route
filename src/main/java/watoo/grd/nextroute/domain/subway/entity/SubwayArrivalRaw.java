@@ -16,7 +16,7 @@ import java.time.LocalDateTime;
 @Table(name = "subway_arrival_raw",
 		uniqueConstraints = @UniqueConstraint(
 				name = "uk_subway_arrival_raw_observation",
-				columnNames = {"line_id", "station_id", "train_no",
+				columnNames = {"line_id", "station_id", "direction", "train_no",
 						"received_at", "arrival_code", "current_message"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
