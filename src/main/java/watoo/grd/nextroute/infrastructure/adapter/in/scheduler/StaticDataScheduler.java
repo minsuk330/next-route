@@ -20,8 +20,8 @@ public class StaticDataScheduler {
 	@EventListener(ApplicationReadyEvent.class)
 	public void onStartup() {
 		log.info("[StaticData] Loading static data on startup...");
-		loadBusStaticData.execute();
-		loadSubwayStaticData.execute();
+		//loadBusStaticData.execute();
+		//loadSubwayStaticData.execute();
 	}
 
 	@Scheduled(cron = "${collector.static-data.cron}")

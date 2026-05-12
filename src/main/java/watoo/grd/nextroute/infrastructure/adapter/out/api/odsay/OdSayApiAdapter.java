@@ -14,6 +14,8 @@ import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.odsay.dto.*;
 
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 
@@ -113,43 +115,69 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 ? path.getSubPath().stream().map(this::toSubPathResult).toList()
                 : Collections.emptyList();
 
-        String mapObj = path.getInfo() != null ? path.getInfo().getMapObj() : null;
-        List<LaneGraphicResult> laneGraphics = (mapObj != null && !mapObj.isBlank())
-                ? loadLane(mapObj)
-                : Collections.emptyList();
-
         return new PathResult(
                 path.getPathType() != null ? path.getPathType() : 0,
                 toPathInfo(path.getInfo()),
                 subPaths,
-                laneGraphics
+                Collections.emptyList()
         );
     }
 
     @Override
     public List<LaneGraphicResult> loadLane(String mapObj) {
-        // URI.create() 사용: RestTemplate의 URI 템플릿 처리를 우회하여 '@', ':' 그대로 전달
+        if (mapObj == null || mapObj.isBlank()) {
+            return Collections.emptyList();
+        }
+
+        String loadLaneMapObject = toLoadLaneMapObject(mapObj);
+        // apiKey는 URL 인코딩 필수 (키에 '/' 등 특수문자 포함 가능)
+        // mapObject는 URI.create()로 '@', ':' 그대로 전달 (UriComponentsBuilder는 이를 인코딩함)
+        String encodedApiKey = URLEncoder.encode(odSayProperties.getKey(), StandardCharsets.UTF_8);
         String rawUrl = odSayProperties.getBaseUrl() + "/loadLane"
-                + "?apiKey=" + odSayProperties.getKey()
-                + "&mapObject=" + mapObj;
-        log.debug("[OdSay] loadLane url={}", rawUrl);
+                + "?apiKey=" + encodedApiKey
+                + "&mapObject=" + loadLaneMapObject;
 
         try {
             URI uri = URI.create(rawUrl);
             String json = restTemplate.getForObject(uri, String.class);
             if (json == null) return Collections.emptyList();
             OdSayLoadLaneResponse response = objectMapper.readValue(json, OdSayLoadLaneResponse.class);
+
+            if (response.getError() != null && !response.getError().isNull()) {
+                JsonNode errorNode = response.getError();
+                JsonNode first = errorNode.isArray() ? errorNode.get(0) : errorNode;
+                String codeStr = first.has("code") ? first.get("code").asText() : "-1";
+                String msg = first.has("message") ? first.get("message").asText() : "Unknown ODsay error";
+                int code;
+                try { code = Integer.parseInt(codeStr); } catch (Exception ex) { code = -1; }
+                log.error("[OdSay] loadLane error: code={} msg={} mapObj={}", code, msg, loadLaneMapObject);
+                throw new OdSayApiException(code, msg);
+            }
+
             if (response.getResult() == null || response.getResult().getLane() == null) {
                 return Collections.emptyList();
             }
-            double[] base = parseBase(mapObj);
+            double[] base = parseBase(loadLaneMapObject);
             return response.getResult().getLane().stream()
                     .map(lane -> toLaneGraphicResult(lane, base[0], base[1]))
                     .toList();
+        } catch (OdSayApiException e) {
+            throw e;
         } catch (Exception e) {
-            log.warn("[OdSay] loadLane failed for mapObj={}: {}", mapObj, e.getMessage());
+            log.warn("[OdSay] loadLane failed for mapObj={}: {}", loadLaneMapObject, e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    private String toLoadLaneMapObject(String mapObj) {
+        String trimmed = mapObj.trim();
+        String firstPart = trimmed.split("@", 2)[0];
+        String[] firstPartTokens = firstPart.split(":");
+        if (firstPartTokens.length == 2) {
+            return trimmed;
+        }
+
+        return "0:0@" + trimmed;
     }
 
     /** mapObj에서 BaseX, BaseY 추출. 형식: BaseX:BaseY@... */
@@ -185,7 +213,7 @@ public class OdSayApiAdapter implements OdSayApiPort {
 
     private PathInfo toPathInfo(OdSayPathInfo info) {
         if (info == null) {
-            return new PathInfo(0, 0, 0, 0, "", "");
+            return new PathInfo(0, 0, 0, 0, "", "", null);
         }
         int payment = info.getTotalPayment() != null ? info.getTotalPayment()
                     : info.getPayment() != null ? info.getPayment() : 0;
@@ -203,7 +231,8 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 info.getTotalWalk() != null ? info.getTotalWalk() : 0,
                 transferCount,
                 info.getFirstStartStation() != null ? info.getFirstStartStation() : "",
-                info.getLastEndStation() != null ? info.getLastEndStation() : ""
+                info.getLastEndStation() != null ? info.getLastEndStation() : "",
+                info.getMapObj()
         );
     }
 
@@ -235,7 +264,15 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 subPath.getPayment(),
                 subPath.getStartID(),
                 subPath.getWay(),
-                subPath.getWayCode()
+                subPath.getWayCode(),
+                null,                       // polyline
+                subPath.getStartExitNo(),
+                subPath.getStartExitX(),
+                subPath.getStartExitY(),
+                subPath.getEndExitNo(),
+                subPath.getEndExitX(),
+                subPath.getEndExitY(),
+                null                        // walkSteps
         );
     }
 

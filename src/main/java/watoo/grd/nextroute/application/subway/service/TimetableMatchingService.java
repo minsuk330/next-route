@@ -9,8 +9,6 @@ import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEvent;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEventMatchIssue;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.entity.SubwayTimetable;
-import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository;
-import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository.TimetableCoverageProjection;
 import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
 
 import java.time.LocalDate;
@@ -21,10 +19,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-
-import static java.util.stream.Collectors.toList;
 
 @Slf4j
 @Service
@@ -34,7 +29,6 @@ public class TimetableMatchingService {
 
     private final SubwayDataService subwayDataService;
     private final TimetableConverter converter;
-    private final SubwayTimetableRepository subwayTimetableRepository;
 
     private record CompareKey(String lineId, String stationId, String directionUD) {}
 
@@ -67,42 +61,59 @@ public class TimetableMatchingService {
         // Step 4: dayType 계산
         String dayType = converter.toDayType(serviceDate);
 
-        // Step 5: timetableCoverage를 CompareKey Set으로 변환
-        List<TimetableCoverageProjection> coverage = subwayDataService.findTimetableCoverage(dayType);
+        // ── Bulk pre-load (station-driven) ─────────────────────────────────────────
+        // subway_station WHERE tago_station_id IS NOT NULL → 서울 API 대응 가능한 역만
+        List<SubwayStation> mappableStations = subwayDataService.findMappableStations();
+
+        // lineIds: mappableStations + events
+        Set<String> lineIds = new HashSet<>();
+        for (SubwayStation st : mappableStations) lineIds.add(st.getLineId());
+        for (SubwayArrivalEvent ev : events) lineIds.add(ev.getLineId());
+
+        // stationByStationKey: (stationId + lineId) → SubwayStation  — 루프 내 station 조회용
+        // mappableStations만 포함하므로 조회 결과가 있으면 tagoStationId != null 보장
+        Map<String, SubwayStation> stationByStationKey = new HashMap<>();
+        for (SubwayStation st : mappableStations) {
+            stationByStationKey.put(st.getStationId() + "_" + st.getLineId(), st);
+        }
+
+        // timetables bulk load → CompareKey(lineId, tagoStationId, direction) 기준 맵
+        List<SubwayTimetable> allTimetables = subwayDataService.findTimetablesByDayTypeAndLineIdIn(dayType, lineIds);
+        Map<CompareKey, List<SubwayTimetable>> timetableByKey = new HashMap<>();
+        for (SubwayTimetable tt : allTimetables) {
+            if (tt.getLineId() == null || tt.getTagoStationId() == null || tt.getDirection() == null) continue;
+            timetableByKey.computeIfAbsent(
+                new CompareKey(tt.getLineId(), tt.getTagoStationId(), tt.getDirection()),
+                k -> new ArrayList<>()
+            ).add(tt);
+        }
+
+        // timetableKeys: mappable station × {U, D} 중 timetable이 존재하는 조합만 추가
         Set<CompareKey> timetableKeys = new HashSet<>();
-        for (TimetableCoverageProjection proj : coverage) {
-            List<SubwayStation> stations = subwayDataService.findByLineIdAndTagoStationId(
-                    proj.getLineId(), proj.getTagoStationId());
-            if (stations.isEmpty()) {
-                log.info("[PhaseB] timetable coverage 역방향 매핑 없음 lineId={} tagoStationId={}",
-                        proj.getLineId(), proj.getTagoStationId());
-                continue;
-            }
-            for (SubwayStation st : stations) {
-                String dirUD = proj.getDirection();
-                if (dirUD == null || (!dirUD.equals("U") && !dirUD.equals("D"))) {
-                    log.warn("[PhaseB] timetable coverage direction 미지원값, skip lineId={} tagoStationId={} direction={}",
-                        proj.getLineId(), proj.getTagoStationId(), dirUD);
-                    continue;
+        for (SubwayStation st : mappableStations) {
+            for (String dir : new String[]{"U", "D"}) {
+                CompareKey tagoKey = new CompareKey(st.getLineId(), st.getTagoStationId(), dir);
+                if (timetableByKey.containsKey(tagoKey)) {
+                    timetableKeys.add(new CompareKey(st.getLineId(), st.getStationId(), dir));
                 }
-                timetableKeys.add(new CompareKey(proj.getLineId(), st.getStationId(), dirUD));
             }
         }
+        // ───────────────────────────────────────────────────────────────────────────
 
         // Step 6: compareKeys = union
         Set<CompareKey> compareKeys = new HashSet<>();
         compareKeys.addAll(eventsGrouped.keySet());
         compareKeys.addAll(timetableKeys);
 
-        // Step 7: 각 compareKey 처리
+        // Step 7: 각 compareKey 처리 (DB 호출 없음 — 모두 인메모리 Map 조회)
         List<SubwayArrivalEventMatchIssue> issues = new ArrayList<>();
 
         for (CompareKey key : compareKeys) {
             String matchGroupKey = serviceDate + "|" + key.lineId() + "|" + key.stationId() + "|" + dayType + "|" + key.directionUD();
 
-            // a) station 조회
-            Optional<SubwayStation> stationOpt = subwayDataService.findByStationIdAndLineId(key.stationId(), key.lineId());
-            if (stationOpt.isEmpty()) {
+            // a) station 조회 (Map 조회) — null이면 MAPPING_MISSING
+            SubwayStation station = stationByStationKey.get(key.stationId() + "_" + key.lineId());
+            if (station == null) {
                 List<SubwayArrivalEvent> keyEvents = eventsGrouped.getOrDefault(key, List.of());
                 if (keyEvents.isEmpty()) {
                     log.info("[PhaseB] station 매핑 없음 + event 없음, skip key={}", matchGroupKey);
@@ -115,27 +126,10 @@ public class TimetableMatchingService {
                 }
                 continue;
             }
-            SubwayStation station = stationOpt.get();
-            if (station.getTagoStationId() == null) {
-                List<SubwayArrivalEvent> keyEvents = eventsGrouped.getOrDefault(key, List.of());
-                if (keyEvents.isEmpty()) {
-                    log.info("[PhaseB] tagoStationId null + event 없음, skip key={}", matchGroupKey);
-                    continue;
-                }
-                for (int i = 0; i < keyEvents.size(); i++) {
-                    issues.add(mappingMissingIssue(serviceDate, dayType, matchGroupKey,
-                            key.lineId(), key.stationId(), station.getStationName(), key.directionUD(),
-                            keyEvents.get(i), 0, keyEvents.size(), i));
-                }
-                continue;
-            }
 
-            // b) rawTimetables 조회 후 lineId 필터링
-            List<SubwayTimetable> rawTimetables = subwayTimetableRepository
-                    .findByTagoStationIdAndDayTypeAndDirection(station.getTagoStationId(), dayType, key.directionUD());
-            rawTimetables = rawTimetables.stream()
-                    .filter(t -> key.lineId().equals(t.getLineId()))
-                    .collect(toList());
+            // b) timetable 조회 (Map 조회 — tagoStationId 기준 키)
+            CompareKey tagoKey = new CompareKey(key.lineId(), station.getTagoStationId(), key.directionUD());
+            List<SubwayTimetable> rawTimetables = timetableByKey.getOrDefault(tagoKey, List.of());
 
             // c) TimetableEntry 리스트 생성
             List<TimetableEntry> ttEntries = new ArrayList<>();
@@ -160,7 +154,6 @@ public class TimetableMatchingService {
 
             // f) matchPairs 계산
             int matchPairs = Math.min(ttEntries.size(), evEntries.size());
-
             int timetableCount = ttEntries.size();
             int eventCount = evEntries.size();
 

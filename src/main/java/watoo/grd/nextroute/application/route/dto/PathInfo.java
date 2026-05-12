@@ -6,6 +6,7 @@ public record PathInfo(
         int totalWalk,
         int transferCount,
         String firstStartStation,
-        String lastEndStation
+        String lastEndStation,
+        String mapObj
 ) {
 }

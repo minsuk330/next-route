@@ -32,12 +32,19 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
+        default_batch_fetch_size: 1000
     open-in-view: false
 
 odsay:
   api:
     key: ${ODSAY_API_KEY:test}
     base-url: https://api.odsay.com/v1/api
+
+tmap:
+  app-key: ${TMAP_APP_KEY:test}
+  base-url: https://apis.openapi.sk.com
+  timeout-ms: 1500
+  retry-on-failure: true
 
 kakao:
   api:
@@ -109,8 +116,8 @@ realtime:
     enabled: true
     poll-interval-ms: 10000
     active-hours:
-      start: "05:30"
-      end: "00:30"
+      start: "04:30"
+      end: "01:00"
     snapshot-ttl-seconds: 20
     persist-raw-arrivals: true
 

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalInfo;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalRaw;
+import watoo.grd.nextroute.domain.subway.service.ArrivalRawInsertResult;
 import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
 
 import java.util.List;
@@ -51,7 +52,8 @@ class SubwayArrivalRawRecorderTest {
                 info("T6", "S6", "5"),
                 info("T7", "S7", "99"));
 
-        when(subwayDataService.insertArrivalRawIgnoreDuplicates(any())).thenReturn(7);
+        when(subwayDataService.insertArrivalRawIgnoreDuplicates(any()))
+                .thenReturn(insertResult(7, 7, 1, 1));
 
         recorder.record(arrivals);
 
@@ -105,7 +107,8 @@ class SubwayArrivalRawRecorderTest {
                 info("T1", "S1", "1", "2026-04-30 10:00:00", "강남 출발")   // currentMessage 다름
         );
 
-        when(subwayDataService.insertArrivalRawIgnoreDuplicates(any())).thenReturn(4);
+        when(subwayDataService.insertArrivalRawIgnoreDuplicates(any()))
+                .thenReturn(insertResult(4, 4, 3, 3));
 
         recorder.record(arrivals);
 
@@ -123,7 +126,8 @@ class SubwayArrivalRawRecorderTest {
                 "dest99", "오금행", "교대 도착", "1", "1003",
                 "msg3", "2026-04-30 14:30:00", "3호선오금행", "0");
 
-        when(subwayDataService.insertArrivalRawIgnoreDuplicates(any())).thenReturn(1);
+        when(subwayDataService.insertArrivalRawIgnoreDuplicates(any()))
+                .thenReturn(insertResult(1, 1, 1, 1));
 
         recorder.record(List.of(arrived));
 
@@ -155,5 +159,17 @@ class SubwayArrivalRawRecorderTest {
         assertThat(raw.getTrainLineName()).isEqualTo("3호선오금행");
         assertThat(raw.getLastTrainYn()).isEqualTo("0");
         assertThat(raw.getCollectedAt()).isNotNull();
+    }
+
+    private ArrivalRawInsertResult insertResult(int attemptedRows, int insertedRows,
+                                                int attemptedCode1Rows, int insertedCode1Rows) {
+        return new ArrivalRawInsertResult(
+                attemptedRows,
+                insertedRows,
+                attemptedRows - insertedRows,
+                attemptedCode1Rows,
+                insertedCode1Rows,
+                attemptedCode1Rows - insertedCode1Rows
+        );
     }
 }

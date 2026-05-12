@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.repository.NearbySubwayStationProjection;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -19,6 +20,10 @@ public interface SubwayStationRepository extends JpaRepository<SubwayStation, Lo
 	List<SubwayStation> findByLineId(String lineId);
 
 	List<SubwayStation> findByLineIdAndTagoStationId(String lineId, String tagoStationId);
+
+	List<SubwayStation> findByLineIdIn(Collection<String> lineIds);
+
+	List<SubwayStation> findByTagoStationIdIsNotNull();
 
 	boolean existsByStationId(String stationId);
 

@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.domain.subway.service;
 
+import java.util.Collection;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -57,10 +58,33 @@ public class SubwayDataService {
 	}
 
 	@Transactional
-	public int insertArrivalRawIgnoreDuplicates(List<SubwayArrivalRaw> raws) {
-		return raws.stream()
-				.mapToInt(subwayArrivalRawRepository::insertIgnore)
-				.sum();
+	public ArrivalRawInsertResult insertArrivalRawIgnoreDuplicates(List<SubwayArrivalRaw> raws) {
+		int insertedRows = 0;
+		int attemptedCode1Rows = 0;
+		int insertedCode1Rows = 0;
+
+		for (SubwayArrivalRaw raw : raws) {
+			boolean code1 = "1".equals(raw.getArrivalCode());
+			if (code1) {
+				attemptedCode1Rows++;
+			}
+
+			int inserted = subwayArrivalRawRepository.insertIgnore(raw);
+			insertedRows += inserted;
+
+			if (code1) {
+				insertedCode1Rows += inserted;
+			}
+		}
+
+		return new ArrivalRawInsertResult(
+				raws.size(),
+				insertedRows,
+				raws.size() - insertedRows,
+				attemptedCode1Rows,
+				insertedCode1Rows,
+				attemptedCode1Rows - insertedCode1Rows
+		);
 	}
 
 	public List<SubwayStation> findAllStations() {
@@ -193,5 +217,17 @@ public class SubwayDataService {
 
 	public List<SubwayStation> findByLineIdAndTagoStationId(String lineId, String tagoStationId) {
 		return subwayStationRepository.findByLineIdAndTagoStationId(lineId, tagoStationId);
+	}
+
+	public List<SubwayStation> findStationsByLineIdIn(Collection<String> lineIds) {
+		return subwayStationRepository.findByLineIdIn(lineIds);
+	}
+
+	public List<SubwayStation> findMappableStations() {
+		return subwayStationRepository.findByTagoStationIdIsNotNull();
+	}
+
+	public List<SubwayTimetable> findTimetablesByDayTypeAndLineIdIn(String dayType, Collection<String> lineIds) {
+		return subwayTimetableRepository.findByDayTypeAndLineIdIn(dayType, lineIds);
 	}
 }

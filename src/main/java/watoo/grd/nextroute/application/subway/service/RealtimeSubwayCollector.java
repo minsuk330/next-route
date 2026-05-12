@@ -70,6 +70,7 @@ public class RealtimeSubwayCollector {
         }
 
         try {
+            /// api로 조회
             List<SubwayArrivalInfo> arrivals = subwayApiPort.getRealtimeArrival();
             if (arrivals.isEmpty()) {
                 log.warn("[RealtimeCollector] Empty arrivals from API");
@@ -81,7 +82,7 @@ public class RealtimeSubwayCollector {
                 try {
                     arrivalRawRecorder.record(arrivals);
                 } catch (Exception e) {
-                    log.warn("[RealtimeCollector] Failed to persist arrival raw rows: {}", e.getMessage());
+                    log.warn("[RealtimeCollector] Failed to persist arrival raw rows: {}", arrivals.size(),e);
                 }
             }
 
@@ -147,13 +148,13 @@ public class RealtimeSubwayCollector {
     }
 
     /**
-     * Active window: 05:30 ~ 00:30 (KST, crosses midnight)
-     * Inactive window: 00:30 ≤ now < 05:30
+     * Active window: 04:30 ~ 01:00 (KST, crosses midnight)
+     * Inactive window: 01:00 ≤ now < 04:30
      */
     private boolean isActiveHours() {
         LocalTime now   = LocalTime.now(KST);
-        LocalTime end   = LocalTime.parse(activeEnd);    // 00:30
-        LocalTime start = LocalTime.parse(activeStart);  // 05:30
+        LocalTime end   = LocalTime.parse(activeEnd);
+        LocalTime start = LocalTime.parse(activeStart);
         // Inactive: [00:30, 05:30)
         boolean inactive = !now.isBefore(end) && now.isBefore(start);
         return !inactive;
