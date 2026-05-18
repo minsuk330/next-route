@@ -5,14 +5,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.subway.dto.SubwaySegmentInfo;
 import watoo.grd.nextroute.application.subway.dto.SubwayStationInfo;
-import watoo.grd.nextroute.application.subway.dto.SubwayStationTagoInfo;
 import watoo.grd.nextroute.application.subway.dto.SubwayTimetableInfo;
 import watoo.grd.nextroute.application.subway.port.in.LoadSubwayStaticDataUseCase;
 import watoo.grd.nextroute.application.subway.port.out.SubwayApiPort;
 import watoo.grd.nextroute.application.subway.port.out.TagoSubwayApiPort;
 import watoo.grd.nextroute.domain.subway.entity.SubwaySegment;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
-import watoo.grd.nextroute.domain.subway.entity.SubwayStationTago;
 import watoo.grd.nextroute.domain.subway.entity.SubwayTimetable;
 import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
 
@@ -37,7 +35,6 @@ public class SubwayStaticDataService implements LoadSubwayStaticDataUseCase {
 	@Override
 	public void execute() {
 		loadSegments();
-		loadTagoStations();
 		loadTimetables();
 	}
 
@@ -58,76 +55,41 @@ public class SubwayStaticDataService implements LoadSubwayStaticDataUseCase {
 		log.info("[SubwayStatic] Saved {} segments", entities.size());
 	}
 
-	private void loadTagoStations() {
-		// TAGO 전체 역 목록 한 번에 조회
-		List<SubwayStationTagoInfo> allTagoStations = tagoSubwayApiPort.getAllStations();
-		if (allTagoStations.isEmpty()) {
-			log.warn("[SubwayStatic/TAGO] No stations fetched from TAGO API.");
-			return;
-		}
-
-		// 기존 SubwayStation 매핑용 맵: 역명 → List<SubwayStation>
-		List<SubwayStation> existingStations = subwayDataService.findAllStations();
-		Map<String, List<SubwayStation>> stationsByName = existingStations.stream()
-				.collect(Collectors.groupingBy(SubwayStation::getStationName));
-
-		int savedCount = 0;
-		int skippedCount = 0;
-
-		List<SubwayStationTago> newTagoStations = new ArrayList<>();
-		for (SubwayStationTagoInfo tagoInfo : allTagoStations) {
-			if (subwayDataService.existsByTagoStationId(tagoInfo.tagoStationId())) {
-				skippedCount++;
-				continue;
-			}
-
-			SubwayStationTago.SubwayStationTagoBuilder builder = SubwayStationTago.builder()
-					.tagoStationId(tagoInfo.tagoStationId())
-					.stationName(tagoInfo.stationName())
-					.routeName(tagoInfo.routeName());
-
-			// routeName + 역명으로 기존 SubwayStation 매칭
-			List<SubwayStation> candidates = stationsByName.get(tagoInfo.stationName());
-			if (candidates != null) {
-				candidates.stream()
-						.filter(s -> matchRouteName(tagoInfo.routeName(), s.getLineName()))
-						.findFirst()
-						.ifPresent(matched -> {
-							builder.stationId(matched.getStationId());
-							builder.lineId(matched.getLineId());
-						});
-			}
-
-			newTagoStations.add(builder.build());
-		}
-
-		if (!newTagoStations.isEmpty()) {
-			subwayDataService.saveAllTagoStations(newTagoStations);
-			savedCount = newTagoStations.size();
-		}
-
-		log.info("[SubwayStatic/TAGO] Saved {} TAGO stations, skipped {} (already exists), {} total from API",
-				savedCount, skippedCount, allTagoStations.size());
-	}
-
 	private void loadTimetables() {
-		if (subwayDataService.countTimetables() > 0) {
-			log.info("[SubwayStatic/TAGO] Timetables already loaded. Skipping. (Use daily reload to refresh.)");
+		// 2안: subway_station.tago_station_id 기준 전체 재적재
+		// (subway_station_tago.station_id 기준은 비숫자 노선 1032/1063/1065/.../1094를 누락시킴)
+		List<SubwayStation> mappableStations = subwayDataService.findMappableStations();
+		if (mappableStations.isEmpty()) {
+			log.warn("[SubwayStatic/TAGO] No mappable stations found. Skipping timetable loading.");
 			return;
 		}
 
-		List<SubwayStationTago> matchedStations = subwayDataService.findMatchedTagoStations();
-		if (matchedStations.isEmpty()) {
-			log.warn("[SubwayStatic/TAGO] No matched TAGO stations found. Skipping timetable loading.");
-			return;
-		}
+		// line_id + tago_station_id 중복 제거 (같은 역이 여러 row로 존재할 수 있음)
+		Map<String, SubwayStation> uniqueTargets = mappableStations.stream()
+				.collect(Collectors.toMap(
+						s -> s.getLineId() + "|" + s.getTagoStationId(),
+						s -> s,
+						(a, b) -> a,
+						java.util.LinkedHashMap::new));
+		List<SubwayStation> targetStations = new ArrayList<>(uniqueTargets.values());
 
-		log.info("[SubwayStatic/TAGO] Loading timetables for {} matched stations", matchedStations.size());
+		List<String> lineIds = targetStations.stream()
+				.map(SubwayStation::getLineId)
+				.distinct()
+				.sorted()
+				.toList();
+		log.info("[SubwayStatic/TAGO] Timetable load targets: stations={}, lineIds={}",
+				targetStations.size(), lineIds);
+
+		// 전체 재적재: 기존 timetable 제거 후 재로딩
+		long existing = subwayDataService.countTimetables();
+		subwayDataService.deleteAllTimetables();
+		log.info("[SubwayStatic/TAGO] Deleted {} existing timetable rows for full reload", existing);
 
 		int totalSaved = 0;
 		int stationCount = 0;
 
-		for (SubwayStationTago station : matchedStations) {
+		for (SubwayStation station : targetStations) {
 			stationCount++;
 			int stationSaved = 0;
 
@@ -151,26 +113,12 @@ public class SubwayStaticDataService implements LoadSubwayStaticDataUseCase {
 			totalSaved += stationSaved;
 			if (stationCount % 50 == 0) {
 				log.info("[SubwayStatic/TAGO] Timetable progress: {}/{} stations, {} records so far",
-						stationCount, matchedStations.size(), totalSaved);
+						stationCount, targetStations.size(), totalSaved);
 			}
 		}
 
 		log.info("[SubwayStatic/TAGO] Timetable loading complete: {} records for {} stations",
 				totalSaved, stationCount);
-	}
-
-	/** TAGO routeName(예: "1호선")과 기존 lineName(예: "01호선") 매칭 */
-	private boolean matchRouteName(String tagoRouteName, String lineName) {
-		if (tagoRouteName == null || lineName == null) return false;
-		// 숫자만 추출하여 비교 (예: "1호선" → "1", "01호선" → "01" → 1)
-		String tagoNum = tagoRouteName.replaceAll("[^0-9]", "");
-		String lineNum = lineName.replaceAll("[^0-9]", "");
-		if (tagoNum.isEmpty() || lineNum.isEmpty()) return false;
-		try {
-			return Integer.parseInt(tagoNum) == Integer.parseInt(lineNum);
-		} catch (NumberFormatException e) {
-			return tagoNum.equals(lineNum);
-		}
 	}
 
 	private void throttle() {

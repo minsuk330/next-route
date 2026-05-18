@@ -10,7 +10,6 @@ import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEventMatchIssue;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalRaw;
 import watoo.grd.nextroute.domain.subway.entity.SubwaySegment;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
-import watoo.grd.nextroute.domain.subway.entity.SubwayStationTago;
 import watoo.grd.nextroute.domain.subway.entity.SubwayTimetable;
 import watoo.grd.nextroute.domain.subway.repository.NearbySubwayStationProjection;
 import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventMatchIssueRepository;
@@ -18,7 +17,6 @@ import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventRepository
 import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalRawRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwaySegmentRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
-import watoo.grd.nextroute.domain.subway.repository.SubwayStationTagoRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository.TimetableCoverageProjection;
 
@@ -35,7 +33,6 @@ public class SubwayDataService {
 	private final SubwayStationRepository subwayStationRepository;
 	private final SubwaySegmentRepository subwaySegmentRepository;
 	private final SubwayArrivalRawRepository subwayArrivalRawRepository;
-	private final SubwayStationTagoRepository subwayStationTagoRepository;
 	private final SubwayTimetableRepository subwayTimetableRepository;
 	private final SubwayArrivalEventRepository subwayArrivalEventRepository;
 	private final SubwayArrivalEventMatchIssueRepository subwayArrivalEventMatchIssueRepository;
@@ -114,21 +111,6 @@ public class SubwayDataService {
 	@Transactional
 	public void deleteAllSegments() {
 		subwaySegmentRepository.deleteAll();
-	}
-
-	// ===== TAGO Station =====
-
-	@Transactional
-	public List<SubwayStationTago> saveAllTagoStations(List<SubwayStationTago> stations) {
-		return subwayStationTagoRepository.saveAll(stations);
-	}
-
-	public List<SubwayStationTago> findMatchedTagoStations() {
-		return subwayStationTagoRepository.findByStationIdIsNotNull();
-	}
-
-	public boolean existsByTagoStationId(String tagoStationId) {
-		return subwayStationTagoRepository.existsByTagoStationId(tagoStationId);
 	}
 
 	// ===== Timetable =====
