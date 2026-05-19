@@ -14,7 +14,7 @@ import watoo.grd.nextroute.common.entity.BaseEntity;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SubwayTimetable extends BaseEntity {
 
-	/** TAGO 역 ID (SubwayStationTago 참조) */
+	/** TAGO 역 ID (subway_station.tago_station_id 기준) */
 	private String tagoStationId;
 
 	/** 역명 (비정규화, 조회 편의) */

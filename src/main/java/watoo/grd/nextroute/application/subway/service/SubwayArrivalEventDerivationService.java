@@ -60,26 +60,10 @@ public class SubwayArrivalEventDerivationService {
 
         for (Map.Entry<GroupKey, List<RawWithTime>> entry : grouped.entrySet()) {
             GroupKey key = entry.getKey();
-            List<RawWithTime> group = entry.getValue().stream()
-                    .sorted(Comparator.comparing(RawWithTime::receivedAt))
-                    .collect(Collectors.toList());
 
-            // Step 4: split by 10-minute gap
-            List<List<RawWithTime>> subGroups = new ArrayList<>();
-            List<RawWithTime> current = new ArrayList<>();
-            current.add(group.get(0));
-
-            for (int i = 1; i < group.size(); i++) {
-                RawWithTime prev = group.get(i - 1);
-                RawWithTime curr = group.get(i);
-                Duration gap = Duration.between(prev.receivedAt(), curr.receivedAt());
-                if (gap.compareTo(SPLIT_THRESHOLD) > 0) {
-                    subGroups.add(current);
-                    current = new ArrayList<>();
-                }
-                current.add(curr);
-            }
-            subGroups.add(current);
+            // Step 4: split by 10-minute gap (공용 유틸 — Phase C와 동일 규칙)
+            List<List<RawWithTime>> subGroups = TimeGapSplitter.splitByGap(
+                    entry.getValue(), RawWithTime::receivedAt, SPLIT_THRESHOLD);
 
             // Step 5: 이벤트 속성 계산
             for (List<RawWithTime> sub : subGroups) {
