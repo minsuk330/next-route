@@ -16,6 +16,12 @@ public interface SubwayArrivalEventRepository extends JpaRepository<SubwayArriva
 	@Query("DELETE FROM SubwayArrivalEvent e WHERE e.serviceDate = :serviceDate")
 	int deleteByServiceDate(@Param("serviceDate") LocalDate serviceDate);
 
+	// service_date + event_source 단위 삭제 (Phase C 재실행 멱등성, D4)
+	@Modifying
+	@Query("DELETE FROM SubwayArrivalEvent e WHERE e.serviceDate = :serviceDate AND e.eventSource = :eventSource")
+	int deleteByServiceDateAndEventSource(@Param("serviceDate") LocalDate serviceDate,
+										  @Param("eventSource") String eventSource);
+
 	// 검증용 조회
 	List<SubwayArrivalEvent> findByServiceDate(LocalDate serviceDate);
 
