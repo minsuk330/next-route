@@ -23,12 +23,17 @@ public class SubwayArrivalEventBatchScheduler {
     @Value("${batch.inferred-completion.enabled:true}")
     private boolean inferredCompletionEnabled;
 
+    @Value("${batch.delay-truth.enabled:true}")
+    private boolean delayTruthEnabled;
+
     private final SubwayArrivalEventDerivationService derivationService;
     private final TimetableMatchingService matchingService;
     private final SubwayInferredArrivalCompletionService inferredCompletionService;
+    private final SubwayDelayTruthGenerationService delayTruthService;
 
     public record BatchRunResult(LocalDate serviceDate, int derivedEvents,
-                                 int inferredEvents, int matchIssues) {}
+                                 int inferredEvents, int matchIssues,
+                                 int delayTruthRows) {}
 
     @Scheduled(cron = "0 30 4 * * *", zone = "Asia/Seoul")
     public void runDailyDerivation() {
@@ -38,49 +43,63 @@ public class SubwayArrivalEventBatchScheduler {
     public BatchRunResult runForDate(LocalDate serviceDate) {
         if (!enabled) {
             log.info("[ArrivalEventBatch] Disabled, skipping serviceDate={}", serviceDate);
-            return new BatchRunResult(serviceDate, 0, 0, 0);
+            return new BatchRunResult(serviceDate, 0, 0, 0, 0);
         }
         log.info("[ArrivalEventBatch] Starting derivation for serviceDate={}", serviceDate);
 
-        // Phase A
+        // Phase A — derive
         int derived;
         try {
             derived = derivationService.deriveForDate(serviceDate);
             log.info("[BatchScheduler] Phase A complete: serviceDate={} events={}", serviceDate, derived);
         } catch (Exception e) {
-            log.error("[BatchScheduler] Phase A failed for serviceDate={}, skipping Phase B/C", serviceDate, e);
-            return new BatchRunResult(serviceDate, 0, 0, 0);
+            log.error("[BatchScheduler] Phase A failed for serviceDate={}, skipping Phase B/C/Truth", serviceDate, e);
+            return new BatchRunResult(serviceDate, 0, 0, 0, 0);
         }
 
-        // Phase B
-        if (!matchIssueEnabled) {
-            log.info("[BatchScheduler] Phase B disabled (batch.match-issue.enabled=false)");
-            return new BatchRunResult(serviceDate, derived, 0, 0);
-        }
-
+        // Phase B/C — issue 진단 + event set 확정 (matchIssueEnabled 종속)
+        // Phase C는 B-1의 NO_RAW_EVENT issue를 입력으로 쓰므로 구조적으로
+        // matchIssueEnabled 와 묶여 있다. matchIssueEnabled=false면 event set은
+        // Phase A 한정(Phase C 미적용)으로 truth가 만들어진다.
         int matched = 0;
         int inferred = 0;
-        try {
-            // Phase B-1 (baseline) — TimetableMatchingService가 NO/EXTRA count 자체 로깅 (D5)
-            matched = matchingService.matchForDate(serviceDate);
-            log.info("[BatchScheduler] Phase B-1 complete: serviceDate={} issues={}", serviceDate, matched);
+        if (matchIssueEnabled) {
+            try {
+                matched = matchingService.matchForDate(serviceDate); // B-1
+                log.info("[BatchScheduler] Phase B-1 complete: serviceDate={} issues={}", serviceDate, matched);
 
-            if (inferredCompletionEnabled) {
-                // Phase C — code=3로 NO_RAW_EVENT 보완
-                inferred = inferredCompletionService.completeForDate(serviceDate);
-                log.info("[BatchScheduler] Phase C complete: serviceDate={} inferredEvents={}",
-                        serviceDate, inferred);
+                if (inferredCompletionEnabled) {
+                    inferred = inferredCompletionService.completeForDate(serviceDate); // Phase C
+                    log.info("[BatchScheduler] Phase C complete: serviceDate={} inferredEvents={}",
+                            serviceDate, inferred);
 
-                // Phase B-2 (final) — issue table은 최종 NO/EXTRA만 남음
-                matched = matchingService.matchForDate(serviceDate);
-                log.info("[BatchScheduler] Phase B-2 complete: serviceDate={} issues={}", serviceDate, matched);
-            } else {
-                log.info("[BatchScheduler] Phase C disabled (batch.inferred-completion.enabled=false)");
+                    matched = matchingService.matchForDate(serviceDate); // B-2 (최종 issue)
+                    log.info("[BatchScheduler] Phase B-2 complete: serviceDate={} issues={}", serviceDate, matched);
+                } else {
+                    log.info("[BatchScheduler] Phase C disabled (batch.inferred-completion.enabled=false)");
+                }
+            } catch (Exception e) {
+                log.error("[BatchScheduler] Phase B/C failed for serviceDate={}", serviceDate, e);
             }
-        } catch (Exception e) {
-            log.error("[BatchScheduler] Phase B/C failed for serviceDate={}", serviceDate, e);
+        } else {
+            log.info("[BatchScheduler] Phase B/C disabled (batch.match-issue.enabled=false) — truth uses Phase A event set");
         }
 
-        return new BatchRunResult(serviceDate, derived, inferred, matched);
+        // Truth — issue 진단과 *독립*, 항상 최종 event set 확정 이후 실행
+        // 자체 try/catch 로 앞 단계 결과를 마스킹하지 않는다.
+        int delayTruthRows = 0;
+        if (delayTruthEnabled) {
+            try {
+                delayTruthRows = delayTruthService.generateForDate(serviceDate);
+                log.info("[BatchScheduler] Phase Truth complete: serviceDate={} truthRows={}",
+                        serviceDate, delayTruthRows);
+            } catch (Exception e) {
+                log.error("[BatchScheduler] Phase Truth failed for serviceDate={}", serviceDate, e);
+            }
+        } else {
+            log.info("[BatchScheduler] Phase Truth disabled (batch.delay-truth.enabled=false)");
+        }
+
+        return new BatchRunResult(serviceDate, derived, inferred, matched, delayTruthRows);
     }
 }
