@@ -4,6 +4,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import watoo.grd.nextroute.application.subway.service.EventTimetablePairer.MappingMissing;
+import watoo.grd.nextroute.application.subway.service.EventTimetablePairer.PairingResult;
+import watoo.grd.nextroute.application.subway.service.EventTimetablePairer.UnmatchedEvent;
+import watoo.grd.nextroute.application.subway.service.EventTimetablePairer.UnmatchedTimetable;
 import watoo.grd.nextroute.domain.subway.entity.MatchIssueType;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEvent;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEventMatchIssue;
@@ -12,15 +16,19 @@ import watoo.grd.nextroute.domain.subway.entity.SubwayTimetable;
 import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
+/**
+ * 실패 진단 서비스 — event ↔ timetable 매칭 후 NO_RAW_EVENT / EXTRA_RAW_EVENT /
+ * MAPPING_MISSING 를 {@code subway_arrival_event_match_issue} 에 저장한다.
+ *
+ * <p>그룹핑/정렬/min-pair 페어링은 {@link EventTimetablePairer} 로 추출되어
+ * delay-truth 생성 서비스와 공유된다. 본 서비스는 raw 입력을 전달하여
+ * 기존 동작(사전 필터링 없음)을 그대로 유지하고, 진단 bucket만 소비한다.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -29,13 +37,7 @@ public class TimetableMatchingService {
 
     private final SubwayDataService subwayDataService;
     private final TimetableConverter converter;
-
-    private record CompareKey(String lineId, String stationId, String directionUD) {}
-
-    private record TimetableEntry(SubwayTimetable timetable, LocalDateTime scheduledArrivalAt,
-                                  String scheduledTimeSource, long orderKey) {}
-
-    private record EventEntry(SubwayArrivalEvent event, long orderKey) {}
+    private final EventTimetablePairer pairer;
 
     @Transactional
     public int matchForDate(LocalDate serviceDate) {
@@ -43,174 +45,86 @@ public class TimetableMatchingService {
         // Step 1: 이전 이슈 삭제
         subwayDataService.deleteMatchIssuesByServiceDate(serviceDate);
 
-        // Step 2: 해당 날짜의 이벤트 조회
+        // Step 2: 입력 로드 (기존과 동일 경로 — raw, 사전 필터링 없음)
         List<SubwayArrivalEvent> events = subwayDataService.findArrivalEventsByServiceDate(serviceDate);
-
-        // Step 3: events를 CompareKey로 그룹핑
-        Map<CompareKey, List<SubwayArrivalEvent>> eventsGrouped = new HashMap<>();
-        for (SubwayArrivalEvent ev : events) {
-            String dirUD = converter.toTimetableDirection(ev.getDirection());
-            if (dirUD == null) {
-                log.warn("[PhaseB] direction 변환 실패, skip event id={} direction={}", ev.getId(), ev.getDirection());
-                continue;
-            }
-            CompareKey key = new CompareKey(ev.getLineId(), ev.getStationId(), dirUD);
-            eventsGrouped.computeIfAbsent(key, k -> new ArrayList<>()).add(ev);
-        }
-
-        // Step 4: dayType 계산
         String dayType = converter.toDayType(serviceDate);
-
-        // ── Bulk pre-load (station-driven) ─────────────────────────────────────────
-        // subway_station WHERE tago_station_id IS NOT NULL → 서울 API 대응 가능한 역만
         List<SubwayStation> mappableStations = subwayDataService.findMappableStations();
 
-        // lineIds: mappableStations + events
         Set<String> lineIds = new HashSet<>();
         for (SubwayStation st : mappableStations) lineIds.add(st.getLineId());
         for (SubwayArrivalEvent ev : events) lineIds.add(ev.getLineId());
+        List<SubwayTimetable> timetables =
+                subwayDataService.findTimetablesByDayTypeAndLineIdIn(dayType, lineIds);
 
-        // stationByStationKey: (stationId + lineId) → SubwayStation  — 루프 내 station 조회용
-        // mappableStations만 포함하므로 조회 결과가 있으면 tagoStationId != null 보장
-        Map<String, SubwayStation> stationByStationKey = new HashMap<>();
-        for (SubwayStation st : mappableStations) {
-            stationByStationKey.put(st.getStationId() + "_" + st.getLineId(), st);
-        }
+        // Step 3: 페어링 (공유 루틴)
+        PairingResult result = pairer.pair(serviceDate, dayType, events, mappableStations, timetables);
 
-        // timetables bulk load → CompareKey(lineId, tagoStationId, direction) 기준 맵
-        List<SubwayTimetable> allTimetables = subwayDataService.findTimetablesByDayTypeAndLineIdIn(dayType, lineIds);
-        Map<CompareKey, List<SubwayTimetable>> timetableByKey = new HashMap<>();
-        for (SubwayTimetable tt : allTimetables) {
-            if (tt.getLineId() == null || tt.getTagoStationId() == null || tt.getDirection() == null) continue;
-            timetableByKey.computeIfAbsent(
-                new CompareKey(tt.getLineId(), tt.getTagoStationId(), tt.getDirection()),
-                k -> new ArrayList<>()
-            ).add(tt);
-        }
+        // direction 변환 실패 로깅 (기존 동작 보존)
+        result.invalidEvents().forEach(iv ->
+                log.warn("[PhaseB] direction 변환 실패, skip event id={} direction={}",
+                        iv.event().getId(), iv.event().getDirection()));
 
-        // timetableKeys: mappable station × {U, D} 중 timetable이 존재하는 조합만 추가
-        Set<CompareKey> timetableKeys = new HashSet<>();
-        for (SubwayStation st : mappableStations) {
-            for (String dir : new String[]{"U", "D"}) {
-                CompareKey tagoKey = new CompareKey(st.getLineId(), st.getTagoStationId(), dir);
-                if (timetableByKey.containsKey(tagoKey)) {
-                    timetableKeys.add(new CompareKey(st.getLineId(), st.getStationId(), dir));
-                }
-            }
-        }
-        // ───────────────────────────────────────────────────────────────────────────
-
-        // Step 6: compareKeys = union
-        Set<CompareKey> compareKeys = new HashSet<>();
-        compareKeys.addAll(eventsGrouped.keySet());
-        compareKeys.addAll(timetableKeys);
-
-        // Step 7: 각 compareKey 처리 (DB 호출 없음 — 모두 인메모리 Map 조회)
+        // Step 4: 진단 bucket → issue
         List<SubwayArrivalEventMatchIssue> issues = new ArrayList<>();
 
-        for (CompareKey key : compareKeys) {
-            String matchGroupKey = serviceDate + "|" + key.lineId() + "|" + key.stationId() + "|" + dayType + "|" + key.directionUD();
-
-            // a) station 조회 (Map 조회) — null이면 MAPPING_MISSING
-            SubwayStation station = stationByStationKey.get(key.stationId() + "_" + key.lineId());
-            if (station == null) {
-                List<SubwayArrivalEvent> keyEvents = eventsGrouped.getOrDefault(key, List.of());
-                if (keyEvents.isEmpty()) {
-                    log.info("[PhaseB] station 매핑 없음 + event 없음, skip key={}", matchGroupKey);
-                    continue;
-                }
-                for (int i = 0; i < keyEvents.size(); i++) {
-                    issues.add(mappingMissingIssue(serviceDate, dayType, matchGroupKey,
-                            key.lineId(), key.stationId(), null, key.directionUD(),
-                            keyEvents.get(i), 0, keyEvents.size(), i));
-                }
-                continue;
-            }
-
-            // b) timetable 조회 (Map 조회 — tagoStationId 기준 키)
-            CompareKey tagoKey = new CompareKey(key.lineId(), station.getTagoStationId(), key.directionUD());
-            List<SubwayTimetable> rawTimetables = timetableByKey.getOrDefault(tagoKey, List.of());
-
-            // c) TimetableEntry 리스트 생성
-            List<TimetableEntry> ttEntries = new ArrayList<>();
-            for (SubwayTimetable tt : rawTimetables) {
-                LocalDateTime scheduledArrivalAt = converter.toScheduledArrivalAt(serviceDate, tt.getArrTime(), tt.getDepTime());
-                String scheduledTimeSource = converter.sourceOf(tt.getArrTime()).name();
-                long orderKey = converter.toTimetableOrderKey(serviceDate, tt.getArrTime(), tt.getDepTime());
-                ttEntries.add(new TimetableEntry(tt, scheduledArrivalAt, scheduledTimeSource, orderKey));
-            }
-
-            // d) EventEntry 리스트 생성
-            List<SubwayArrivalEvent> keyEvents = eventsGrouped.getOrDefault(key, List.of());
-            List<EventEntry> evEntries = new ArrayList<>();
-            for (SubwayArrivalEvent ev : keyEvents) {
-                long orderKey = converter.toEventOrderKey(serviceDate, ev.getArrivedAt());
-                evEntries.add(new EventEntry(ev, orderKey));
-            }
-
-            // e) 양쪽 orderKey ASC 정렬
-            ttEntries.sort(Comparator.comparingLong(TimetableEntry::orderKey));
-            evEntries.sort(Comparator.comparingLong(EventEntry::orderKey));
-
-            // f) matchPairs 계산
-            int matchPairs = Math.min(ttEntries.size(), evEntries.size());
-            int timetableCount = ttEntries.size();
-            int eventCount = evEntries.size();
-
-            // g) NO_RAW_EVENT: 시간표에는 있으나 이벤트가 없는 경우
-            List<TimetableEntry> unmatchedTt = ttEntries.subList(matchPairs, ttEntries.size());
-            for (int i = 0; i < unmatchedTt.size(); i++) {
-                TimetableEntry tt = unmatchedTt.get(i);
-                issues.add(SubwayArrivalEventMatchIssue.builder()
-                        .serviceDate(serviceDate)
-                        .issueType(MatchIssueType.NO_RAW_EVENT.name())
-                        .lineId(key.lineId())
-                        .stationId(key.stationId())
-                        .stationName(station.getStationName())
-                        .direction(key.directionUD())
-                        .dayType(dayType)
-                        .matchGroupKey(matchGroupKey)
-                        .timetableId(tt.timetable().getId())
-                        .scheduledArrivalAt(tt.scheduledArrivalAt())
-                        .scheduledTimeSource(tt.scheduledTimeSource())
-                        .timetableOrderIndex(matchPairs + i)
-                        .timetableCount(timetableCount)
-                        .eventCount(eventCount)
-                        .build());
-            }
-
-            // h) EXTRA_RAW_EVENT: 이벤트에는 있으나 시간표가 없는 경우
-            List<EventEntry> unmatchedEv = evEntries.subList(matchPairs, evEntries.size());
-            for (int i = 0; i < unmatchedEv.size(); i++) {
-                EventEntry ev = unmatchedEv.get(i);
-                issues.add(SubwayArrivalEventMatchIssue.builder()
-                        .serviceDate(serviceDate)
-                        .issueType(MatchIssueType.EXTRA_RAW_EVENT.name())
-                        .lineId(key.lineId())
-                        .stationId(key.stationId())
-                        .stationName(station.getStationName())
-                        .direction(key.directionUD())
-                        .dayType(dayType)
-                        .matchGroupKey(matchGroupKey)
-                        .arrivalEventId(ev.event().getId())
-                        .actualArrivedAt(ev.event().getArrivedAt())
-                        .eventOrderIndex(matchPairs + i)
-                        .timetableCount(timetableCount)
-                        .eventCount(eventCount)
-                        .build());
-            }
+        for (MappingMissing mm : result.mappingMissing()) {
+            issues.add(SubwayArrivalEventMatchIssue.builder()
+                    .serviceDate(serviceDate)
+                    .issueType(MatchIssueType.MAPPING_MISSING.name())
+                    .lineId(mm.key().lineId())
+                    .stationId(mm.key().stationId())
+                    .direction(mm.key().directionUD())
+                    .dayType(dayType)
+                    .matchGroupKey(mm.matchGroupKey())
+                    .arrivalEventId(mm.event().getId())
+                    .actualArrivedAt(mm.event().getArrivedAt())
+                    .eventOrderIndex(mm.eventIndex())
+                    .timetableCount(0)
+                    .eventCount(mm.eventCount())
+                    .build());
         }
 
-        // Step 8: 저장 및 로깅
-        long mappingMissingCount = issues.stream()
-                .filter(i -> MatchIssueType.MAPPING_MISSING.name().equals(i.getIssueType()))
-                .count();
-        long noRawEventCount = issues.stream()
-                .filter(i -> MatchIssueType.NO_RAW_EVENT.name().equals(i.getIssueType()))
-                .count();
-        long extraRawEventCount = issues.stream()
-                .filter(i -> MatchIssueType.EXTRA_RAW_EVENT.name().equals(i.getIssueType()))
-                .count();
+        for (UnmatchedTimetable ut : result.unmatchedTimetables()) {
+            issues.add(SubwayArrivalEventMatchIssue.builder()
+                    .serviceDate(serviceDate)
+                    .issueType(MatchIssueType.NO_RAW_EVENT.name())
+                    .lineId(ut.key().lineId())
+                    .stationId(ut.key().stationId())
+                    .stationName(ut.station().getStationName())
+                    .direction(ut.key().directionUD())
+                    .dayType(dayType)
+                    .matchGroupKey(ut.matchGroupKey())
+                    .timetableId(ut.timetable().timetable().getId())
+                    .scheduledArrivalAt(ut.timetable().scheduledArrivalAt())
+                    .scheduledTimeSource(ut.timetable().scheduledTimeSource())
+                    .timetableOrderIndex(ut.orderIndex())
+                    .timetableCount(ut.timetableCount())
+                    .eventCount(ut.eventCount())
+                    .build());
+        }
+
+        for (UnmatchedEvent ue : result.unmatchedEvents()) {
+            issues.add(SubwayArrivalEventMatchIssue.builder()
+                    .serviceDate(serviceDate)
+                    .issueType(MatchIssueType.EXTRA_RAW_EVENT.name())
+                    .lineId(ue.key().lineId())
+                    .stationId(ue.key().stationId())
+                    .stationName(ue.station().getStationName())
+                    .direction(ue.key().directionUD())
+                    .dayType(dayType)
+                    .matchGroupKey(ue.matchGroupKey())
+                    .arrivalEventId(ue.event().event().getId())
+                    .actualArrivedAt(ue.event().event().getArrivedAt())
+                    .eventOrderIndex(ue.orderIndex())
+                    .timetableCount(ue.timetableCount())
+                    .eventCount(ue.eventCount())
+                    .build());
+        }
+
+        // Step 5: 저장 및 로깅
+        long mappingMissingCount = result.mappingMissing().size();
+        long noRawEventCount = result.unmatchedTimetables().size();
+        long extraRawEventCount = result.unmatchedEvents().size();
 
         subwayDataService.saveAllMatchIssues(issues);
 
@@ -218,27 +132,5 @@ public class TimetableMatchingService {
                 serviceDate, mappingMissingCount, noRawEventCount, extraRawEventCount, issues.size());
 
         return issues.size();
-    }
-
-    private SubwayArrivalEventMatchIssue mappingMissingIssue(
-            LocalDate serviceDate, String dayType, String matchGroupKey,
-            String lineId, String stationId, String stationName,
-            String directionUD, SubwayArrivalEvent event,
-            int timetableCount, int eventCount, int eventIndex) {
-        return SubwayArrivalEventMatchIssue.builder()
-                .serviceDate(serviceDate)
-                .issueType(MatchIssueType.MAPPING_MISSING.name())
-                .lineId(lineId)
-                .stationId(stationId)
-                .stationName(stationName)
-                .direction(directionUD)
-                .dayType(dayType)
-                .matchGroupKey(matchGroupKey)
-                .arrivalEventId(event.getId())
-                .actualArrivedAt(event.getArrivedAt())
-                .eventOrderIndex(eventIndex)
-                .timetableCount(timetableCount)
-                .eventCount(eventCount)
-                .build();
     }
 }
