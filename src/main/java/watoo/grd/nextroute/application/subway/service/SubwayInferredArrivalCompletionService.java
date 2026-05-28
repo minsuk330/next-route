@@ -54,6 +54,10 @@ public class SubwayInferredArrivalCompletionService {
     @Value("${batch.inferred-completion.dedup-window-minutes:5}")
     private long dedupWindowMinutes;
 
+    /** v1: NO_RAW_EVENT slot 별 카운트 / v2: COUNT_MISMATCH group의 (tt - ev) */
+    @Value("${batch.delay-truth.matching-version:v2}")
+    String matchingVersion;
+
     private record CompareKey(String lineId, String stationId, String directionUD) {}
 
     private record Code3Raw(SubwayArrivalRaw raw, LocalDateTime receivedAt, String dirUD) {}
@@ -81,21 +85,37 @@ public class SubwayInferredArrivalCompletionService {
         // D4: 재실행 멱등성 — 자체 event_source분만 제거 후 재삽입
         int deleted = subwayDataService.deleteArrivalEventsByServiceDateAndEventSource(serviceDate, EVENT_SOURCE);
 
-        // B-1이 남긴 NO_RAW_EVENT slot (대상 라인 한정)
-        List<SubwayArrivalEventMatchIssue> noIssues =
-                subwayDataService.findNoRawEventIssues(serviceDate, lineIds);
+        // B-1이 남긴 보강 대상 slot (대상 라인 한정)
+        // - v1: NO_RAW_EVENT row마다 slot 1개
+        // - v2: COUNT_MISMATCH group에서 max(timetable_count - event_count, 0) slot
+        boolean v2 = "v2".equalsIgnoreCase(matchingVersion);
+        List<SubwayArrivalEventMatchIssue> noIssues = v2
+                ? subwayDataService.findCountMismatchIssues(serviceDate, lineIds)
+                : subwayDataService.findNoRawEventIssues(serviceDate, lineIds);
         if (noIssues.isEmpty()) {
-            log.info("[PhaseC] NO_RAW_EVENT 없음 serviceDate={} lines={} (deleted prior inferred={})",
-                    serviceDate, lineIds, deleted);
+            log.info("[PhaseC {}] 보강 대상 issue 없음 serviceDate={} lines={} (deleted prior inferred={})",
+                    matchingVersion, serviceDate, lineIds, deleted);
             return 0;
         }
 
         // CompareKey(lineId, stationId, directionUD) → NO slot 수
         Map<CompareKey, Integer> noSlotCountByKey = new HashMap<>();
         for (SubwayArrivalEventMatchIssue iss : noIssues) {
-            noSlotCountByKey.merge(
-                    new CompareKey(iss.getLineId(), iss.getStationId(), iss.getDirection()),
-                    1, Integer::sum);
+            CompareKey key = new CompareKey(iss.getLineId(), iss.getStationId(), iss.getDirection());
+            if (v2) {
+                int tt = iss.getTimetableCount() == null ? 0 : iss.getTimetableCount();
+                int ev = iss.getEventCount() == null ? 0 : iss.getEventCount();
+                int need = Math.max(tt - ev, 0);
+                if (need <= 0) continue; // event > timetable → 보강 대상 아님
+                noSlotCountByKey.merge(key, need, Integer::sum);
+            } else {
+                noSlotCountByKey.merge(key, 1, Integer::sum);
+            }
+        }
+        if (noSlotCountByKey.isEmpty()) {
+            log.info("[PhaseC {}] 보강 slot 없음 serviceDate={} lines={} (issues={}, deleted prior inferred={})",
+                    matchingVersion, serviceDate, lineIds, noIssues.size(), deleted);
+            return 0;
         }
 
         // 시간 범위: Phase A와 동일 (당일 04:00 ~ 익일 04:00)
@@ -203,10 +223,11 @@ public class SubwayInferredArrivalCompletionService {
         }
 
         List<SubwayArrivalEvent> saved = subwayDataService.saveAllArrivalEvents(toSave);
-        log.info("[PhaseC] serviceDate={} lines={} NO_slots={} code3_raw={} segmentMiss={} "
+        log.info("[PhaseC {}] serviceDate={} lines={} issues={} totalSlots={} code3_raw={} segmentMiss={} "
                         + "dedupDropped={} overflowDropped={} inferredSaved={} (deleted prior={})",
-                serviceDate, lineIds, noIssues.size(), code3.size(), segmentMiss,
-                dedupDropped, overflowDropped, saved.size(), deleted);
+                matchingVersion, serviceDate, lineIds, noIssues.size(),
+                noSlotCountByKey.values().stream().mapToInt(Integer::intValue).sum(),
+                code3.size(), segmentMiss, dedupDropped, overflowDropped, saved.size(), deleted);
         return saved.size();
     }
 

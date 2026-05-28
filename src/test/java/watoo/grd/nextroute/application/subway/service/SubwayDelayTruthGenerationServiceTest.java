@@ -42,8 +42,13 @@ class SubwayDelayTruthGenerationServiceTest {
     @BeforeEach
     void setUp() {
         TimetableConverter converter = new TimetableConverter(new FakeHolidayCalendar());
+        DestinationNormalizer destinationNormalizer = new DestinationNormalizer();
         service = new SubwayDelayTruthGenerationService(
-                subwayDataService, converter, new EventTimetablePairer(converter));
+                subwayDataService, converter,
+                new EventTimetablePairer(converter),
+                new EventTimetablePairerV2(converter, destinationNormalizer));
+        service.matchingVersion = "v1";
+        service.maxMatchDistanceSeconds = 1800L;
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────────
@@ -303,5 +308,128 @@ class SubwayDelayTruthGenerationServiceTest {
         assertThat(saved.get(0).isExcludedFromTraining()).isTrue();
         assertThat(saved.get(0).getExcludeReason()).isEqualTo("INFERRED_EVENT");
         assertThat(saved.get(0).getEventSource()).isEqualTo("INFERRED_FROM_PREV_DEPARTURE");
+    }
+
+    // ── V2 ────────────────────────────────────────────────────────────────
+
+    private SubwayTimetable timetable(String lineId, String tagoStationId, String direction,
+                                      String arrTime, String endStationName) {
+        return SubwayTimetable.builder()
+                .lineId(lineId).tagoStationId(tagoStationId).stationName("테스트역")
+                .direction(direction).dayType("03").arrTime(arrTime).depTime(arrTime)
+                .endStationName(endStationName).build();
+    }
+
+    private SubwayArrivalEvent eventWithDestination(String stationId, String direction,
+                                                    LocalDateTime arrivedAt, String destinationName) {
+        return SubwayArrivalEvent.builder()
+                .serviceDate(SERVICE_DATE).lineId("1002").stationId(stationId)
+                .stationName("테스트역").direction(direction).trainNo("T1")
+                .destinationName(destinationName)
+                .arrivedAt(arrivedAt).firstObservedAt(arrivedAt).lastObservedAt(arrivedAt)
+                .rawCount(1).eventSource("OBSERVED_CODE_1").destinationKey("DK").build();
+    }
+
+    @Test
+    void TC_V2_happy_path_count_equal_within_window이면_matched_저장() {
+        service.matchingVersion = "v2";
+        SubwayStation st = station("S1", "1002", "T1");
+        SubwayTimetable tt = timetable("1002", "T1", "U", "100000", "한강진");
+        SubwayArrivalEvent ev = eventWithDestination("S1", "내선",
+                LocalDateTime.of(2026, 5, 3, 10, 0, 30), "한강진");
+
+        stubInputs(List.of(ev), List.of(st), List.of(tt));
+        service.generateForDate(SERVICE_DATE);
+
+        List<MlSubwayDelayTruth> saved = captureSaved();
+        assertThat(saved).hasSize(1);
+        assertThat(saved.get(0).getDelaySeconds()).isEqualTo(30);
+        assertThat(saved.get(0).isExcludedFromTraining()).isFalse();
+        assertThat(saved.get(0).getExcludeReason()).isNull();
+    }
+
+    @Test
+    void TC_V2_time_window_초과_그룹은_truth_저장_안함() {
+        service.matchingVersion = "v2";
+        SubwayStation st = station("S1", "1002", "T1");
+        SubwayTimetable tt = timetable("1002", "T1", "U", "054850", "한강진"); // 05:48:50
+        // event = 다음날 00:54:02 → 19시간+ 차이 → group reject
+        SubwayArrivalEvent ev = eventWithDestination("S1", "내선",
+                LocalDateTime.of(2026, 5, 4, 0, 54, 2), "한강진");
+
+        stubInputs(List.of(ev), List.of(st), List.of(tt));
+        service.generateForDate(SERVICE_DATE);
+
+        assertThat(captureSaved()).isEmpty();
+    }
+
+    @Test
+    void TC_V2_known_known_destination_mismatch는_truth_저장_안함() {
+        service.matchingVersion = "v2";
+        SubwayStation st = station("S1", "1002", "T1");
+        SubwayTimetable tt = timetable("1002", "T1", "U", "100000", "응암");
+        SubwayArrivalEvent ev = eventWithDestination("S1", "내선",
+                LocalDateTime.of(2026, 5, 3, 10, 0, 30), "한강진");
+
+        stubInputs(List.of(ev), List.of(st), List.of(tt));
+        service.generateForDate(SERVICE_DATE);
+
+        assertThat(captureSaved()).isEmpty();
+    }
+
+    @Test
+    void TC_V2_destination_unknown은_truth_저장된다() {
+        service.matchingVersion = "v2";
+        SubwayStation st = station("S1", "1002", "T1");
+        SubwayTimetable tt = timetable("1002", "T1", "U", "100000", "한강진");
+        SubwayArrivalEvent ev = eventWithDestination("S1", "내선",
+                LocalDateTime.of(2026, 5, 3, 10, 0, 30), null); // destination 없음
+
+        stubInputs(List.of(ev), List.of(st), List.of(tt));
+        service.generateForDate(SERVICE_DATE);
+
+        assertThat(captureSaved()).hasSize(1);
+    }
+
+    @Test
+    void TC_V2_count_mismatch는_truth_저장_안함() {
+        service.matchingVersion = "v2";
+        SubwayStation st = station("S1", "1002", "T1");
+        List<SubwayTimetable> tts = List.of(
+                timetable("1002", "T1", "U", "100000", "한강진"),
+                timetable("1002", "T1", "U", "110000", "한강진")); // 2 timetable vs 1 event
+
+        List<SubwayArrivalEvent> events = List.of(
+                eventWithDestination("S1", "내선", LocalDateTime.of(2026, 5, 3, 10, 0, 30), "한강진"));
+
+        stubInputs(events, List.of(st), tts);
+        service.generateForDate(SERVICE_DATE);
+
+        assertThat(captureSaved()).isEmpty();
+    }
+
+    @Test
+    void TC_V2_INFERRED_event는_저장되되_학습제외() {
+        service.matchingVersion = "v2";
+        SubwayStation st = station("S1", "1002", "T1");
+        SubwayTimetable tt = timetable("1002", "T1", "U", "100000", "한강진");
+        SubwayArrivalEvent ev = SubwayArrivalEvent.builder()
+                .serviceDate(SERVICE_DATE).lineId("1002").stationId("S1")
+                .stationName("테스트역").direction("내선").trainNo("T1")
+                .destinationName("한강진")
+                .arrivedAt(LocalDateTime.of(2026, 5, 3, 10, 0, 5))
+                .firstObservedAt(LocalDateTime.of(2026, 5, 3, 10, 0, 5))
+                .lastObservedAt(LocalDateTime.of(2026, 5, 3, 10, 0, 5))
+                .rawCount(1)
+                .eventSource(SubwayInferredArrivalCompletionService.EVENT_SOURCE)
+                .destinationKey("DK").build();
+
+        stubInputs(List.of(ev), List.of(st), List.of(tt));
+        service.generateForDate(SERVICE_DATE);
+
+        List<MlSubwayDelayTruth> saved = captureSaved();
+        assertThat(saved).hasSize(1);
+        assertThat(saved.get(0).isExcludedFromTraining()).isTrue();
+        assertThat(saved.get(0).getExcludeReason()).isEqualTo("INFERRED_EVENT");
     }
 }

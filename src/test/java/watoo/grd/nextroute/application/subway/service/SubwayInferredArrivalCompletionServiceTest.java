@@ -49,6 +49,7 @@ class SubwayInferredArrivalCompletionServiceTest {
                 new ObjectMapper());
         ReflectionTestUtils.setField(service, "lineIdsCsv", "1002");
         ReflectionTestUtils.setField(service, "dedupWindowMinutes", 5L);
+        ReflectionTestUtils.setField(service, "matchingVersion", "v1");
     }
 
     // ── helpers ──────────────────────────────────────────────
@@ -224,5 +225,50 @@ class SubwayInferredArrivalCompletionServiceTest {
 
         assertThat(n).isZero();
         assertThat(captureSaved()).isEmpty();
+    }
+
+    // ── V2: COUNT_MISMATCH 기반 보강 ─────────────────────────────────────────
+
+    private SubwayArrivalEventMatchIssue countMismatchIssue(String stationId, int ttCount, int evCount) {
+        return SubwayArrivalEventMatchIssue.builder()
+                .serviceDate(DATE)
+                .issueType(MatchIssueType.COUNT_MISMATCH.name())
+                .lineId("1002").stationId(stationId).direction("U")
+                .dayType("01")
+                .timetableCount(ttCount).eventCount(evCount)
+                .build();
+    }
+
+    @Test
+    void v2_COUNT_MISMATCH_그룹의_부족분만큼_보강한다() {
+        ReflectionTestUtils.setField(service, "matchingVersion", "v2");
+        // 시간표 3 vs 이벤트 1 → 부족 2 slot
+        when(subwayDataService.findCountMismatchIssues(eq(DATE), anyCollection()))
+                .thenReturn(List.of(countMismatchIssue("S1", 3, 1)));
+        when(subwayDataService.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
+                .thenReturn(List.of(
+                        code3("S1", "T1", "2026-05-17 10:00:00", "P1"),
+                        code3("S1", "T2", "2026-05-17 10:20:00", "P1"),
+                        code3("S1", "T3", "2026-05-17 10:40:00", "P1"))); // 후보 3개
+        stubStations();
+        when(segmentLookup.get("1002", "사당", "교대")).thenReturn(90.0);
+        stubSaveReturnsInput();
+
+        int n = service.completeForDate(DATE);
+
+        assertThat(n).isEqualTo(2); // 부족 2 → 2개만
+    }
+
+    @Test
+    void v2_event가_timetable보다_많은_그룹은_보강_대상_아님() {
+        ReflectionTestUtils.setField(service, "matchingVersion", "v2");
+        // 시간표 1 vs 이벤트 3 → 부족 0
+        when(subwayDataService.findCountMismatchIssues(eq(DATE), anyCollection()))
+                .thenReturn(List.of(countMismatchIssue("S1", 1, 3)));
+
+        int n = service.completeForDate(DATE);
+
+        assertThat(n).isZero();
+        verify(subwayDataService, never()).saveAllArrivalEvents(any());
     }
 }

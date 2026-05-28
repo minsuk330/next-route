@@ -42,8 +42,14 @@ class TimetableMatchingServiceTest {
     void setUp() {
         TimetableConverter converter = new TimetableConverter(
                 new FakeHolidayCalendar(LocalDate.of(2026, 5, 5)));
+        DestinationNormalizer destinationNormalizer = new DestinationNormalizer();
         service = new TimetableMatchingService(subwayDataService, converter,
-                new EventTimetablePairer(converter));
+                new EventTimetablePairer(converter),
+                new EventTimetablePairerV2(converter, destinationNormalizer),
+                destinationNormalizer,
+                new com.fasterxml.jackson.databind.ObjectMapper());
+        service.matchingVersion = "v1";
+        service.maxMatchDistanceSeconds = 1800L;
     }
 
     // ────────────────────────────────────────────
