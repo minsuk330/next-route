@@ -245,7 +245,7 @@ class SubwayInferredArrivalCompletionServiceTest {
         // 시간표 3 vs 이벤트 1 → 부족 2 slot
         when(subwayDataService.findCountMismatchIssues(eq(DATE), anyCollection()))
                 .thenReturn(List.of(countMismatchIssue("S1", 3, 1)));
-        when(subwayDataService.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
+        when(subwayDataService.findPrevDepartureCandidatesInRangeNarrowed(any(), any(), anyCollection(), anyCollection()))
                 .thenReturn(List.of(
                         code3("S1", "T1", "2026-05-17 10:00:00", "P1"),
                         code3("S1", "T2", "2026-05-17 10:20:00", "P1"),
@@ -270,5 +270,47 @@ class SubwayInferredArrivalCompletionServiceTest {
 
         assertThat(n).isZero();
         verify(subwayDataService, never()).saveAllArrivalEvents(any());
+    }
+
+    @Test
+    void v2_narrowed_query에_targetStationIds가_전달된다() {
+        ReflectionTestUtils.setField(service, "matchingVersion", "v2");
+        // 보강 대상 station S1, S2 두 곳
+        when(subwayDataService.findCountMismatchIssues(eq(DATE), anyCollection()))
+                .thenReturn(List.of(
+                        countMismatchIssue("S1", 2, 1),
+                        countMismatchIssue("S2", 2, 0)));
+        when(subwayDataService.findPrevDepartureCandidatesInRangeNarrowed(any(), any(), anyCollection(), anyCollection()))
+                .thenReturn(List.of()); // 후보 0건 — 호출 인자만 검증
+        stubSaveReturnsInput();
+
+        service.completeForDate(DATE);
+
+        // narrowed 메서드가 정확한 stationIds 집합으로 호출됨
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<java.util.Collection<String>> captor =
+                org.mockito.ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(subwayDataService).findPrevDepartureCandidatesInRangeNarrowed(
+                any(), any(), anyCollection(), captor.capture());
+        assertThat(captor.getValue()).containsExactlyInAnyOrder("S1", "S2");
+        // wide 메서드는 V2 path에서 호출되지 않음
+        verify(subwayDataService, never())
+                .findPrevDepartureCandidatesInRange(any(), any(), anyCollection());
+    }
+
+    @Test
+    void v1_path는_여전히_wide_query를_사용한다() {
+        // setUp에서 matchingVersion=v1 default
+        when(subwayDataService.findNoRawEventIssues(eq(DATE), anyCollection()))
+                .thenReturn(List.of(noIssue("S1", 0)));
+        when(subwayDataService.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
+                .thenReturn(List.of()); // 후보 0건
+        stubSaveReturnsInput();
+
+        service.completeForDate(DATE);
+
+        verify(subwayDataService).findPrevDepartureCandidatesInRange(any(), any(), anyCollection());
+        verify(subwayDataService, never())
+                .findPrevDepartureCandidatesInRangeNarrowed(any(), any(), anyCollection(), anyCollection());
     }
 }

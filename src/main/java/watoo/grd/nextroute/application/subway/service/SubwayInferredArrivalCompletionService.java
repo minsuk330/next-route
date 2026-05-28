@@ -122,8 +122,19 @@ public class SubwayInferredArrivalCompletionService {
         String from = serviceDate.atTime(4, 0, 0).format(RAW_FMT);
         String to = serviceDate.plusDays(1).atTime(4, 0, 0).format(RAW_FMT);
 
-        List<SubwayArrivalRaw> code3 =
-                subwayDataService.findPrevDepartureCandidatesInRange(from, to, lineIds);
+        // v2는 보강 대상 station id로 DB 측에서 좁혀 raw 로딩량을 줄인다.
+        // v1은 기존 라인 단위 로드 후 Java에서 noSlotCountByKey 가드로 필터링.
+        List<SubwayArrivalRaw> code3;
+        if (v2) {
+            java.util.Set<String> targetStationIds = new java.util.HashSet<>();
+            for (CompareKey k : noSlotCountByKey.keySet()) {
+                targetStationIds.add(k.stationId());
+            }
+            code3 = subwayDataService.findPrevDepartureCandidatesInRangeNarrowed(
+                    from, to, lineIds, targetStationIds);
+        } else {
+            code3 = subwayDataService.findPrevDepartureCandidatesInRange(from, to, lineIds);
+        }
 
         // stationId → stationName (segment lookup arrive측 + prevName 해소용, 1쿼리)
         Map<String, String> nameByStationId = new HashMap<>();

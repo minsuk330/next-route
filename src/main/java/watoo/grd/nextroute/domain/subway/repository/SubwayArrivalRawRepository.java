@@ -79,4 +79,31 @@ public interface SubwayArrivalRawRepository extends JpaRepository<SubwayArrivalR
 			@Param("fromReceivedAt") String fromReceivedAt,
 			@Param("toReceivedAt") String toReceivedAt,
 			@Param("lineIds") java.util.Collection<String> lineIds);
+
+	/**
+	 * Phase C V2: 보강 대상 (line_id, station_id) tuple로 좁힌 code=3 후보 조회.
+	 *
+	 * <p>V1은 line 전체 raw를 받아 Java에서 station 필터링했다. V2에서는 보강 대상
+	 * COUNT_MISMATCH 그룹의 station id 집합을 미리 알 수 있으므로 DB 측에서 좁힌다.
+	 * {@code stationIds}가 비어 있으면 호출하지 않는다 (Spring Data IN 빈 컬렉션 회피).
+	 */
+	@Query(value = """
+			SELECT * FROM subway_arrival_raw
+			WHERE arrival_code = '3'
+			  AND received_at >= :fromReceivedAt
+			  AND received_at < :toReceivedAt
+			  AND line_id IS NOT NULL
+			  AND station_id IS NOT NULL
+			  AND train_no IS NOT NULL
+			  AND direction IS NOT NULL
+			  AND received_at IS NOT NULL
+			  AND prev_station_id IS NOT NULL
+			  AND line_id IN (:lineIds)
+			  AND station_id IN (:stationIds)
+			""", nativeQuery = true)
+	List<SubwayArrivalRaw> findPrevDepartureCandidatesInRangeNarrowed(
+			@Param("fromReceivedAt") String fromReceivedAt,
+			@Param("toReceivedAt") String toReceivedAt,
+			@Param("lineIds") java.util.Collection<String> lineIds,
+			@Param("stationIds") java.util.Collection<String> stationIds);
 }
