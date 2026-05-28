@@ -137,3 +137,8 @@ batch:
     matching-version: v2
     # V2 시간창. |delay| 초과 시 group-level reject → truth row 미생성, issue로만 저장
     max-match-distance-seconds: 1800
+  persistence:
+    # 일자 단위 issue/truth bulk insert chunk 크기. heap bloat 방지를 위해 chunk 저장 후
+    # SubwayDataService.flushAndClear()로 1차 캐시를 비운다.
+    issue-chunk-size: 1000
+    truth-chunk-size: 2000

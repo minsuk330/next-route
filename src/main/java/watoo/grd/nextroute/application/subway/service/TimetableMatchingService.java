@@ -61,6 +61,9 @@ public class TimetableMatchingService {
     @Value("${batch.delay-truth.max-match-distance-seconds:1800}")
     long maxMatchDistanceSeconds;
 
+    @Value("${batch.persistence.issue-chunk-size:1000}")
+    int issueChunkSize;
+
     public TimetableMatchingService(SubwayDataService subwayDataService,
                                     TimetableConverter converter,
                                     EventTimetablePairer pairer,
@@ -203,10 +206,14 @@ public class TimetableMatchingService {
                 log.warn("[PhaseB v2] direction 변환 실패, skip event id={} direction={}",
                         iv.event().getId(), iv.event().getDirection()));
 
-        List<SubwayArrivalEventMatchIssue> issues = new ArrayList<>();
+        // ── chunked save state ────────────────────────────────────────────
+        // chunk는 flushIfFull 호출 후 새 List로 교체된다 — ArgumentCaptor가 list
+        // reference를 캡처하기 때문에 in-place clear는 캡처값을 비워버린다.
+        List<SubwayArrivalEventMatchIssue> chunk = new ArrayList<>(issueChunkSize);
+        int[] counters = {0, 0}; // [totalSaved, savedChunks]
 
         for (MappingMissing mm : result.mappingMissing()) {
-            issues.add(SubwayArrivalEventMatchIssue.builder()
+            chunk.add(SubwayArrivalEventMatchIssue.builder()
                     .serviceDate(serviceDate)
                     .issueType(MatchIssueType.MAPPING_MISSING.name())
                     .lineId(mm.key().lineId())
@@ -220,6 +227,7 @@ public class TimetableMatchingService {
                     .timetableCount(0)
                     .eventCount(mm.eventCount())
                     .build());
+            chunk = flushIfFull(chunk, counters);
         }
 
         // COUNT_MISMATCH — 그룹 단위 한 row
@@ -230,7 +238,7 @@ public class TimetableMatchingService {
             details.put("missingSlots", Math.max(g.timetableCount() - g.eventCount(), 0));
             details.put("extraEvents", Math.max(g.eventCount() - g.timetableCount(), 0));
 
-            issues.add(SubwayArrivalEventMatchIssue.builder()
+            chunk.add(SubwayArrivalEventMatchIssue.builder()
                     .serviceDate(serviceDate)
                     .issueType(MatchIssueType.COUNT_MISMATCH.name())
                     .lineId(g.key().lineId())
@@ -244,100 +252,120 @@ public class TimetableMatchingService {
                     .eventCount(g.eventCount())
                     .details(toJson(details))
                     .build());
+            chunk = flushIfFull(chunk, counters);
         }
 
-        // MATCH_REJECTED_TIME_DISTANCE — group의 각 pair마다 row (분석 트레이스용)
+        // MATCH_REJECTED_TIME_DISTANCE — group당 worstPair row 1건. 전체 delay 배열은 details에.
         for (RejectedByTimeDistanceGroup g : result.rejectedByTimeDistance()) {
-            for (var p : g.rejectedPairs()) {
-                long delaySec = Duration.between(
-                        p.timetable().scheduledArrivalAt(),
-                        p.event().event().getArrivedAt()).getSeconds();
-                Map<String, Object> details = new LinkedHashMap<>();
-                details.put("delaySeconds", delaySec);
-                details.put("maxAbsDelaySecondsInGroup", g.maxAbsDelaySeconds());
-                details.put("rejectionReason", "TIME_DISTANCE");
+            var p = g.worstPair();
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("rejectionReason", "TIME_DISTANCE");
+            details.put("maxAbsDelaySeconds", g.maxAbsDelaySeconds());
+            details.put("pairCount", g.timetableCount());
+            details.put("allAbsDelaysSeconds", g.allAbsDelaysSeconds());
+            details.put("truncated", g.truncated());
 
-                issues.add(SubwayArrivalEventMatchIssue.builder()
-                        .serviceDate(serviceDate)
-                        .issueType(MatchIssueType.MATCH_REJECTED_TIME_DISTANCE.name())
-                        .lineId(g.key().lineId())
-                        .stationId(g.key().stationId())
-                        .stationName(g.station().getStationName())
-                        .tagoStationId(g.station().getTagoStationId())
-                        .direction(g.key().directionUD())
-                        .dayType(dayType)
-                        .matchGroupKey(g.matchGroupKey())
-                        .timetableId(p.timetable().timetable().getId())
-                        .arrivalEventId(p.event().event().getId())
-                        .scheduledArrivalAt(p.timetable().scheduledArrivalAt())
-                        .actualArrivedAt(p.event().event().getArrivedAt())
-                        .scheduledTimeSource(p.timetable().scheduledTimeSource())
-                        .timetableOrderIndex(p.timetableOrderIndex())
-                        .eventOrderIndex(p.eventOrderIndex())
-                        .timetableCount(g.timetableCount())
-                        .eventCount(g.eventCount())
-                        .details(toJson(details))
-                        .build());
-            }
+            chunk.add(SubwayArrivalEventMatchIssue.builder()
+                    .serviceDate(serviceDate)
+                    .issueType(MatchIssueType.MATCH_REJECTED_TIME_DISTANCE.name())
+                    .lineId(g.key().lineId())
+                    .stationId(g.key().stationId())
+                    .stationName(g.station().getStationName())
+                    .tagoStationId(g.station().getTagoStationId())
+                    .direction(g.key().directionUD())
+                    .dayType(dayType)
+                    .matchGroupKey(g.matchGroupKey())
+                    .timetableId(p.timetable().timetable().getId())
+                    .arrivalEventId(p.event().event().getId())
+                    .scheduledArrivalAt(p.timetable().scheduledArrivalAt())
+                    .actualArrivedAt(p.event().event().getArrivedAt())
+                    .scheduledTimeSource(p.timetable().scheduledTimeSource())
+                    .timetableOrderIndex(p.timetableOrderIndex())
+                    .eventOrderIndex(p.eventOrderIndex())
+                    .timetableCount(g.timetableCount())
+                    .eventCount(g.eventCount())
+                    .details(toJson(details))
+                    .build());
+            chunk = flushIfFull(chunk, counters);
         }
 
-        // DESTINATION_MISMATCH — group의 각 pair마다 row
+        // DESTINATION_MISMATCH — group당 firstMismatchPair row 1건. mismatch 트레이스는 details에.
         for (DestinationMismatchGroup g : result.destinationMismatch()) {
-            for (var p : g.rejectedPairs()) {
-                var match = destinationNormalizer.compare(
-                        p.event().event().getDestinationName(),
-                        p.timetable().timetable().getEndStationName());
-                if (match != DestinationNormalizer.Match.KNOWN_MISMATCH) {
-                    // group 안 다른 pair가 mismatch였을 수 있음 → 본 pair는 진단 row 생략
-                    continue;
-                }
-                long delaySec = Duration.between(
-                        p.timetable().scheduledArrivalAt(),
-                        p.event().event().getArrivedAt()).getSeconds();
-                Map<String, Object> details = new LinkedHashMap<>();
-                details.put("destinationEvent", p.event().event().getDestinationName());
-                details.put("destinationTimetable", p.timetable().timetable().getEndStationName());
-                details.put("delaySeconds", delaySec);
-                details.put("rejectionReason", "DESTINATION_MISMATCH");
+            var p = g.firstMismatchPair();
+            long delaySec = Duration.between(
+                    p.timetable().scheduledArrivalAt(),
+                    p.event().event().getArrivedAt()).getSeconds();
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("rejectionReason", "DESTINATION_MISMATCH");
+            details.put("destinationEvent", p.event().event().getDestinationName());
+            details.put("destinationTimetable", p.timetable().timetable().getEndStationName());
+            details.put("delaySeconds", delaySec);
+            details.put("mismatchCount", g.mismatchDestinations().size());
+            details.put("mismatchDestinations", g.mismatchDestinations());
+            details.put("truncated", g.truncated());
 
-                issues.add(SubwayArrivalEventMatchIssue.builder()
-                        .serviceDate(serviceDate)
-                        .issueType(MatchIssueType.DESTINATION_MISMATCH.name())
-                        .lineId(g.key().lineId())
-                        .stationId(g.key().stationId())
-                        .stationName(g.station().getStationName())
-                        .tagoStationId(g.station().getTagoStationId())
-                        .direction(g.key().directionUD())
-                        .dayType(dayType)
-                        .matchGroupKey(g.matchGroupKey())
-                        .timetableId(p.timetable().timetable().getId())
-                        .arrivalEventId(p.event().event().getId())
-                        .scheduledArrivalAt(p.timetable().scheduledArrivalAt())
-                        .actualArrivedAt(p.event().event().getArrivedAt())
-                        .scheduledTimeSource(p.timetable().scheduledTimeSource())
-                        .timetableOrderIndex(p.timetableOrderIndex())
-                        .eventOrderIndex(p.eventOrderIndex())
-                        .timetableCount(g.timetableCount())
-                        .eventCount(g.eventCount())
-                        .details(toJson(details))
-                        .build());
-            }
+            chunk.add(SubwayArrivalEventMatchIssue.builder()
+                    .serviceDate(serviceDate)
+                    .issueType(MatchIssueType.DESTINATION_MISMATCH.name())
+                    .lineId(g.key().lineId())
+                    .stationId(g.key().stationId())
+                    .stationName(g.station().getStationName())
+                    .tagoStationId(g.station().getTagoStationId())
+                    .direction(g.key().directionUD())
+                    .dayType(dayType)
+                    .matchGroupKey(g.matchGroupKey())
+                    .timetableId(p.timetable().timetable().getId())
+                    .arrivalEventId(p.event().event().getId())
+                    .scheduledArrivalAt(p.timetable().scheduledArrivalAt())
+                    .actualArrivedAt(p.event().event().getArrivedAt())
+                    .scheduledTimeSource(p.timetable().scheduledTimeSource())
+                    .timetableOrderIndex(p.timetableOrderIndex())
+                    .eventOrderIndex(p.eventOrderIndex())
+                    .timetableCount(g.timetableCount())
+                    .eventCount(g.eventCount())
+                    .details(toJson(details))
+                    .build());
+            chunk = flushIfFull(chunk, counters);
         }
 
-        subwayDataService.saveAllMatchIssues(issues);
+        // 잔여 chunk flush
+        if (!chunk.isEmpty()) {
+            int size = chunk.size();
+            subwayDataService.saveAllMatchIssues(chunk);
+            subwayDataService.flushAndClear();
+            counters[0] += size;
+            counters[1]++;
+        }
 
         log.info("[PhaseB v2] serviceDate={} MAPPING_MISSING={} COUNT_MISMATCH={} "
                         + "MATCH_REJECTED_TIME_DISTANCE_groups={} DESTINATION_MISMATCH_groups={} "
-                        + "matched_pairs={} total_issues={}",
+                        + "matched_pairs={} total_issues={} savedChunks={}",
                 serviceDate,
                 result.mappingMissing().size(),
                 result.countMismatch().size(),
                 result.rejectedByTimeDistance().size(),
                 result.destinationMismatch().size(),
                 result.matched().size(),
-                issues.size());
+                counters[0],
+                counters[1]);
 
-        return issues.size();
+        return counters[0];
+    }
+
+    /**
+     * chunk가 가득 차면 save + flushAndClear. 새 chunk list를 반환한다.
+     * (in-place clear 대신 새 list — ArgumentCaptor가 list reference를 캡처하는
+     *  단위 테스트에서 캡처값이 비워지지 않도록.)
+     */
+    private List<SubwayArrivalEventMatchIssue> flushIfFull(
+            List<SubwayArrivalEventMatchIssue> chunk, int[] counters) {
+        if (chunk.size() < issueChunkSize) return chunk;
+        int size = chunk.size();
+        subwayDataService.saveAllMatchIssues(chunk);
+        subwayDataService.flushAndClear();
+        counters[0] += size;
+        counters[1]++;
+        return new ArrayList<>(issueChunkSize);
     }
 
     private String toJson(Map<String, Object> details) {

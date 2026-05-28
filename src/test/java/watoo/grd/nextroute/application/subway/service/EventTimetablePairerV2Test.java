@@ -90,8 +90,16 @@ class EventTimetablePairerV2Test {
 
         assertThat(result.matched()).isEmpty();
         assertThat(result.rejectedByTimeDistance()).hasSize(1);
-        assertThat(result.rejectedByTimeDistance().get(0).rejectedPairs()).hasSize(2);
-        assertThat(result.rejectedByTimeDistance().get(0).maxAbsDelaySeconds()).isGreaterThan(MAX_DISTANCE);
+        var rejected = result.rejectedByTimeDistance().get(0);
+        assertThat(rejected.worstPair()).isNotNull();
+        assertThat(rejected.allAbsDelaysSeconds()).hasSize(2);
+        assertThat(rejected.truncated()).isFalse();
+        assertThat(rejected.maxAbsDelaySeconds()).isGreaterThan(MAX_DISTANCE);
+        // worstPair는 |delay|가 가장 큰 pair여야 한다 (05:48 시간표 ↔ 다음날 00:54 이벤트)
+        assertThat(Math.abs(java.time.Duration.between(
+                rejected.worstPair().timetable().scheduledArrivalAt(),
+                rejected.worstPair().event().event().getArrivedAt()).getSeconds()))
+                .isEqualTo(rejected.maxAbsDelaySeconds());
     }
 
     // ── TC3: known-known destination mismatch → group reject ─────────────────
@@ -105,7 +113,12 @@ class EventTimetablePairerV2Test {
 
         assertThat(result.matched()).isEmpty();
         assertThat(result.destinationMismatch()).hasSize(1);
-        assertThat(result.destinationMismatch().get(0).rejectedPairs()).hasSize(1);
+        var dm = result.destinationMismatch().get(0);
+        assertThat(dm.firstMismatchPair()).isNotNull();
+        assertThat(dm.mismatchDestinations()).hasSize(1);
+        assertThat(dm.mismatchDestinations().get(0).eventDestination()).isEqualTo("한강진");
+        assertThat(dm.mismatchDestinations().get(0).timetableEndStation()).isEqualTo("응암");
+        assertThat(dm.truncated()).isFalse();
     }
 
     // ── TC4: destination unknown + 시간창 내 → matched (unknown 보호) ─────
@@ -203,5 +216,32 @@ class EventTimetablePairerV2Test {
         var result = pair(List.of(ev1, ev2), List.of(tt1, tt2));
 
         assertThat(result.matched()).hasSize(2);
+    }
+
+    // ── TC10: trace 배열 cap (MAX_TRACE_ITEMS 초과) → truncated=true ───────
+
+    @Test
+    void TC10_time_distance_trace는_MAX_TRACE_ITEMS_초과시_truncated_true() {
+        int n = EventTimetablePairerV2.MAX_TRACE_ITEMS + 5; // 105 pair
+        List<SubwayArrivalEvent> events = new java.util.ArrayList<>();
+        List<SubwayTimetable> tts = new java.util.ArrayList<>();
+        // 모든 pair가 19h+ 차이 (시간표 05:48 vs 이벤트 다음날 00:54 변형)
+        for (int i = 0; i < n; i++) {
+            // 시간표: 05:48 + i초 (정렬 순서 보장)
+            String arr = String.format("0548%02d", i % 60); // 05:48:XX
+            tts.add(timetable("T1", "U", arr, "한강진"));
+            // 이벤트: 다음날 00:54:XX
+            events.add(observed("S1", "내선", "T" + i,
+                    LocalDateTime.of(2026, 5, 4, 0, 54, i % 60), "한강진"));
+        }
+
+        var result = pair(events, tts);
+
+        assertThat(result.matched()).isEmpty();
+        assertThat(result.rejectedByTimeDistance()).hasSize(1);
+        var g = result.rejectedByTimeDistance().get(0);
+        assertThat(g.allAbsDelaysSeconds()).hasSize(EventTimetablePairerV2.MAX_TRACE_ITEMS);
+        assertThat(g.truncated()).isTrue();
+        assertThat(g.timetableCount()).isEqualTo(n); // 실제 pair 수는 보존
     }
 }
