@@ -163,6 +163,17 @@ public class SubwayDataService {
 		return subwayArrivalRawRepository.findPrevDepartureCandidatesInRange(fromReceivedAt, toReceivedAt, lineIds);
 	}
 
+	/** Phase C V2: 보강 대상 (line_id, station_id)으로 좁힌 code=3 후보 조회 */
+	public List<SubwayArrivalRaw> findPrevDepartureCandidatesInRangeNarrowed(
+			String fromReceivedAt, String toReceivedAt,
+			Collection<String> lineIds, Collection<String> stationIds) {
+		if (stationIds == null || stationIds.isEmpty()) {
+			return List.of();
+		}
+		return subwayArrivalRawRepository.findPrevDepartureCandidatesInRangeNarrowed(
+				fromReceivedAt, toReceivedAt, lineIds, stationIds);
+	}
+
 	// ===== ArrivalEvent =====
 
 	@Transactional
