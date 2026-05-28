@@ -205,6 +205,13 @@ public class SubwayDataService {
 				serviceDate, MatchIssueType.NO_RAW_EVENT.name(), lineIds);
 	}
 
+	/** V2 Phase C 보강 대상 — event_count &lt; timetable_count 그룹 진단 */
+	public List<SubwayArrivalEventMatchIssue> findCountMismatchIssues(
+			LocalDate serviceDate, Collection<String> lineIds) {
+		return subwayArrivalEventMatchIssueRepository.findByServiceDateAndIssueTypeAndLineIdIn(
+				serviceDate, MatchIssueType.COUNT_MISMATCH.name(), lineIds);
+	}
+
 	// ===== MlSubwayDelayTruth =====
 
 	@Transactional
