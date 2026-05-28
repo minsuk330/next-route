@@ -42,7 +42,8 @@ class TimetableMatchingServiceTest {
     void setUp() {
         TimetableConverter converter = new TimetableConverter(
                 new FakeHolidayCalendar(LocalDate.of(2026, 5, 5)));
-        service = new TimetableMatchingService(subwayDataService, converter);
+        service = new TimetableMatchingService(subwayDataService, converter,
+                new EventTimetablePairer(converter));
     }
 
     // ────────────────────────────────────────────

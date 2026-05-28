@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.domain.subway.entity.MatchIssueType;
+import watoo.grd.nextroute.domain.subway.entity.MlSubwayDelayTruth;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEvent;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEventMatchIssue;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalRaw;
@@ -13,6 +14,7 @@ import watoo.grd.nextroute.domain.subway.entity.SubwaySegment;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.entity.SubwayTimetable;
 import watoo.grd.nextroute.domain.subway.repository.NearbySubwayStationProjection;
+import watoo.grd.nextroute.domain.subway.repository.MlSubwayDelayTruthRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventMatchIssueRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalRawRepository;
@@ -37,6 +39,7 @@ public class SubwayDataService {
 	private final SubwayTimetableRepository subwayTimetableRepository;
 	private final SubwayArrivalEventRepository subwayArrivalEventRepository;
 	private final SubwayArrivalEventMatchIssueRepository subwayArrivalEventMatchIssueRepository;
+	private final MlSubwayDelayTruthRepository mlSubwayDelayTruthRepository;
 
 	@Transactional
 	public List<SubwayStation> saveAllStations(List<SubwayStation> stations) {
@@ -200,6 +203,26 @@ public class SubwayDataService {
 			LocalDate serviceDate, Collection<String> lineIds) {
 		return subwayArrivalEventMatchIssueRepository.findByServiceDateAndIssueTypeAndLineIdIn(
 				serviceDate, MatchIssueType.NO_RAW_EVENT.name(), lineIds);
+	}
+
+	// ===== MlSubwayDelayTruth =====
+
+	@Transactional
+	public int deleteDelayTruthByServiceDate(LocalDate serviceDate) {
+		return mlSubwayDelayTruthRepository.deleteByServiceDate(serviceDate);
+	}
+
+	@Transactional
+	public List<MlSubwayDelayTruth> saveAllDelayTruth(List<MlSubwayDelayTruth> truths) {
+		return mlSubwayDelayTruthRepository.saveAll(truths);
+	}
+
+	public List<MlSubwayDelayTruth> findDelayTruthByServiceDate(LocalDate serviceDate) {
+		return mlSubwayDelayTruthRepository.findByServiceDate(serviceDate);
+	}
+
+	public long countDelayTruthByServiceDate(LocalDate serviceDate) {
+		return mlSubwayDelayTruthRepository.countByServiceDate(serviceDate);
 	}
 
 	// ===== Timetable Coverage =====
