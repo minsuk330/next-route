@@ -35,11 +35,14 @@ import java.util.Set;
  *   <li>rejected 그룹은 truth row를 만들지 않고 issue로만 진단된다 (호출자 책임)</li>
  * </ul>
  *
- * <p>참고: {@link MatchedPair#destination_match} 메타는 본 결과에 컬럼으로 두지 않는다.
- * 추후 분석은 {@code destination_name} / {@code end_station_name} 비교로 도출한다.
+ * <p>OOM 가드: rejected 그룹은 대표 pair 1건과 cap된 trace 배열만 보관해 일자 단위
+ * heap 누적을 줄인다. issue row는 group당 1건이며 details JSON에 trace를 담는다.
  */
 @Component
 public class EventTimetablePairerV2 {
+
+    /** rejected group이 보관하는 delay/destination 배열 cap. 초과 시 truncated=true */
+    public static final int MAX_TRACE_ITEMS = 100;
 
     private final TimetableConverter converter;
     private final DestinationNormalizer destinationNormalizer;
@@ -50,22 +53,41 @@ public class EventTimetablePairerV2 {
         this.destinationNormalizer = destinationNormalizer;
     }
 
-    /** count mismatch — Phase C 보강 후보 또는 진단 */
+    /** count mismatch — Phase C 보강 후보 또는 진단 (entry list 미보관) */
     public record CountMismatchGroup(CompareKey key, SubwayStation station, String matchGroupKey,
-                                     int timetableCount, int eventCount,
-                                     List<TimetableEntry> timetables,
-                                     List<EventEntry> events) {}
+                                     int timetableCount, int eventCount) {}
 
-    /** time-window 초과로 group-level reject */
+    /**
+     * time-window 초과로 group-level reject.
+     * <ul>
+     *   <li>{@code worstPair}: |delay|가 가장 큰 pair (issue 대표 row의 시간 필드 소스)</li>
+     *   <li>{@code allAbsDelaysSeconds}: 그룹 내 모든 pair의 |delay|, head {@link #MAX_TRACE_ITEMS}건 cap</li>
+     *   <li>{@code truncated}: cap 도달로 일부 pair 정보가 버려졌을 때 true</li>
+     * </ul>
+     */
     public record RejectedByTimeDistanceGroup(CompareKey key, SubwayStation station, String matchGroupKey,
                                               int timetableCount, int eventCount,
-                                              List<MatchedPair> rejectedPairs,
-                                              long maxAbsDelaySeconds) {}
+                                              MatchedPair worstPair,
+                                              long maxAbsDelaySeconds,
+                                              List<Long> allAbsDelaysSeconds,
+                                              boolean truncated) {}
 
-    /** known-known destination mismatch로 group-level reject */
+    /**
+     * known-known destination mismatch로 group-level reject.
+     * <ul>
+     *   <li>{@code firstMismatchPair}: 처음 발견된 mismatch pair (issue 대표)</li>
+     *   <li>{@code mismatchDestinations}: 그룹 내 mismatch의 (event/timetable) 페어 목록, cap {@link #MAX_TRACE_ITEMS}</li>
+     *   <li>{@code truncated}: cap 도달 여부</li>
+     * </ul>
+     */
     public record DestinationMismatchGroup(CompareKey key, SubwayStation station, String matchGroupKey,
                                            int timetableCount, int eventCount,
-                                           List<MatchedPair> rejectedPairs) {}
+                                           MatchedPair firstMismatchPair,
+                                           List<DestinationPair> mismatchDestinations,
+                                           boolean truncated) {}
+
+    /** mismatch trace 엔트리 (정규화 *전* 원본 보존) */
+    public record DestinationPair(String eventDestination, String timetableEndStation) {}
 
     public record PairingResult(List<MatchedPair> matched,
                                 List<RejectedByTimeDistanceGroup> rejectedByTimeDistance,
@@ -173,8 +195,7 @@ public class EventTimetablePairerV2 {
             // ── V2 guard 1: count equal? ─────────────────────────────────────
             if (timetableCount != eventCount) {
                 countMismatch.add(new CountMismatchGroup(key, station, matchGroupKey,
-                        timetableCount, eventCount,
-                        List.copyOf(ttEntries), List.copyOf(evEntries)));
+                        timetableCount, eventCount));
                 continue;
             }
 
@@ -192,30 +213,55 @@ public class EventTimetablePairerV2 {
             }
 
             // ── V2 guard 2: known-known destination mismatch? (group-level) ──
-            boolean destReject = pairs.stream().anyMatch(p ->
-                    destinationNormalizer.compare(
+            MatchedPair firstMismatchPair = null;
+            List<DestinationPair> mismatches = new ArrayList<>();
+            boolean destTruncated = false;
+            for (MatchedPair p : pairs) {
+                var match = destinationNormalizer.compare(
+                        p.event().event().getDestinationName(),
+                        p.timetable().timetable().getEndStationName());
+                if (match != DestinationNormalizer.Match.KNOWN_MISMATCH) continue;
+                if (firstMismatchPair == null) firstMismatchPair = p;
+                if (mismatches.size() < MAX_TRACE_ITEMS) {
+                    mismatches.add(new DestinationPair(
                             p.event().event().getDestinationName(),
-                            p.timetable().timetable().getEndStationName()
-                    ) == DestinationNormalizer.Match.KNOWN_MISMATCH);
-            if (destReject) {
+                            p.timetable().timetable().getEndStationName()));
+                } else {
+                    destTruncated = true;
+                }
+            }
+            if (firstMismatchPair != null) {
                 destinationMismatch.add(new DestinationMismatchGroup(key, station, matchGroupKey,
-                        timetableCount, eventCount, pairs));
+                        timetableCount, eventCount, firstMismatchPair,
+                        List.copyOf(mismatches), destTruncated));
                 continue;
             }
 
             // ── V2 guard 3: time-window 초과? (group-level) ─────────────────
             long maxAbsDelay = 0L;
+            MatchedPair worstPair = null;
+            List<Long> allDelays = new ArrayList<>();
+            boolean timeTruncated = false;
             boolean timeReject = false;
             for (MatchedPair p : pairs) {
                 long delay = Math.abs(Duration.between(
                         p.timetable().scheduledArrivalAt(),
                         p.event().event().getArrivedAt()).getSeconds());
-                if (delay > maxAbsDelay) maxAbsDelay = delay;
+                if (delay > maxAbsDelay || worstPair == null) {
+                    maxAbsDelay = delay;
+                    worstPair = p;
+                }
+                if (allDelays.size() < MAX_TRACE_ITEMS) {
+                    allDelays.add(delay);
+                } else {
+                    timeTruncated = true;
+                }
                 if (delay > maxMatchDistanceSeconds) timeReject = true;
             }
             if (timeReject) {
                 rejectedByTimeDistance.add(new RejectedByTimeDistanceGroup(
-                        key, station, matchGroupKey, timetableCount, eventCount, pairs, maxAbsDelay));
+                        key, station, matchGroupKey, timetableCount, eventCount,
+                        worstPair, maxAbsDelay, List.copyOf(allDelays), timeTruncated));
                 continue;
             }
 

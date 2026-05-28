@@ -49,6 +49,7 @@ class SubwayDelayTruthGenerationServiceTest {
                 new EventTimetablePairerV2(converter, destinationNormalizer));
         service.matchingVersion = "v1";
         service.maxMatchDistanceSeconds = 1800L;
+        service.truthChunkSize = 2000;
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────────
@@ -86,7 +87,8 @@ class SubwayDelayTruthGenerationServiceTest {
         when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
         when(subwayDataService.findMappableStations()).thenReturn(stations);
         when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(timetables);
-        when(subwayDataService.saveAllDelayTruth(any())).thenAnswer(inv -> inv.getArgument(0));
+        org.mockito.Mockito.lenient()
+                .when(subwayDataService.saveAllDelayTruth(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
     @SuppressWarnings("unchecked")
@@ -360,7 +362,8 @@ class SubwayDelayTruthGenerationServiceTest {
         stubInputs(List.of(ev), List.of(st), List.of(tt));
         service.generateForDate(SERVICE_DATE);
 
-        assertThat(captureSaved()).isEmpty();
+        // matched 0건 → save 호출 자체가 없음
+        verify(subwayDataService, org.mockito.Mockito.never()).saveAllDelayTruth(any());
     }
 
     @Test
@@ -374,7 +377,7 @@ class SubwayDelayTruthGenerationServiceTest {
         stubInputs(List.of(ev), List.of(st), List.of(tt));
         service.generateForDate(SERVICE_DATE);
 
-        assertThat(captureSaved()).isEmpty();
+        verify(subwayDataService, org.mockito.Mockito.never()).saveAllDelayTruth(any());
     }
 
     @Test
@@ -405,7 +408,36 @@ class SubwayDelayTruthGenerationServiceTest {
         stubInputs(events, List.of(st), tts);
         service.generateForDate(SERVICE_DATE);
 
-        assertThat(captureSaved()).isEmpty();
+        verify(subwayDataService, org.mockito.Mockito.never()).saveAllDelayTruth(any());
+    }
+
+    @Test
+    void TC_V2_chunk_size_초과시_여러번_save_호출된다() {
+        service.matchingVersion = "v2";
+        service.truthChunkSize = 3; // chunk 작게 강제
+
+        // 7건 matched → 3 + 3 + 1 → save 3회
+        List<SubwayStation> stations = new java.util.ArrayList<>();
+        List<SubwayTimetable> tts = new java.util.ArrayList<>();
+        List<SubwayArrivalEvent> events = new java.util.ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            String sid = "S" + i;
+            String tid = "T" + i;
+            stations.add(station(sid, "1002", tid));
+            tts.add(timetable("1002", tid, "U", "100000", "한강진"));
+            events.add(eventWithDestination(sid, "내선",
+                    LocalDateTime.of(2026, 5, 3, 10, 0, 30), "한강진"));
+        }
+        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayDataService.findMappableStations()).thenReturn(stations);
+        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(tts);
+        when(subwayDataService.saveAllDelayTruth(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        int total = service.generateForDate(SERVICE_DATE);
+
+        verify(subwayDataService, times(3)).saveAllDelayTruth(any());
+        verify(subwayDataService, times(3)).flushAndClear();
+        assertThat(total).isEqualTo(7);
     }
 
     @Test

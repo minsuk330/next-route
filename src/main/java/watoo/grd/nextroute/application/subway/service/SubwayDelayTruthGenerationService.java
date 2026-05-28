@@ -67,6 +67,9 @@ public class SubwayDelayTruthGenerationService {
     @Value("${batch.delay-truth.max-match-distance-seconds:1800}")
     long maxMatchDistanceSeconds;
 
+    @Value("${batch.persistence.truth-chunk-size:2000}")
+    int truthChunkSize;
+
     @Transactional
     public int generateForDate(LocalDate serviceDate) {
         if ("v2".equalsIgnoreCase(matchingVersion)) {
@@ -171,7 +174,10 @@ public class SubwayDelayTruthGenerationService {
                 serviceDate, dayType, filteredEvents, stations, filteredTimetables,
                 maxMatchDistanceSeconds);
 
-        List<MlSubwayDelayTruth> truths = new ArrayList<>(result.matched().size());
+        // ── chunked save state ────────────────────────────────────────────
+        List<MlSubwayDelayTruth> chunk = new ArrayList<>(truthChunkSize);
+        int totalSaved = 0;
+        int savedChunks = 0;
         int inferredExcluded = 0;
 
         for (MatchedPair p : result.matched()) {
@@ -191,27 +197,41 @@ public class SubwayDelayTruthGenerationService {
                     1.0 - Math.abs(delay) / (double) maxMatchDistanceSeconds);
             double confidence = delayDecay;
 
-            truths.add(buildTruth(p.key().lineId(), p.key().stationId(), p.station(),
+            chunk.add(buildTruth(p.key().lineId(), p.key().stationId(), p.station(),
                     p.key().directionUD(), dayType, ev, tt, scheduled, actual, delay,
                     evSource, p.timetable().scheduledTimeSource(),
                     p.timetableOrderIndex(), p.eventOrderIndex(), p.matchGroupKey(),
                     serviceDate, MATCH_STRATEGY_ORDINAL, confidence,
                     excludeReason != null, excludeReason));
+
+            if (chunk.size() >= truthChunkSize) {
+                int size = chunk.size();
+                subwayDataService.saveAllDelayTruth(chunk);
+                subwayDataService.flushAndClear();
+                totalSaved += size;
+                savedChunks++;
+                chunk = new ArrayList<>(truthChunkSize);
+            }
+        }
+        if (!chunk.isEmpty()) {
+            int size = chunk.size();
+            subwayDataService.saveAllDelayTruth(chunk);
+            subwayDataService.flushAndClear();
+            totalSaved += size;
+            savedChunks++;
         }
 
-        subwayDataService.saveAllDelayTruth(truths);
-
-        int trainable = truths.size() - inferredExcluded;
+        int trainable = totalSaved - inferredExcluded;
         log.info("[DelayTruth v2] serviceDate={} matched={} trainable={} inferredExcluded={} "
                         + "rejectedTimeDistance_groups={} destinationMismatch_groups={} countMismatch_groups={} "
-                        + "eventTotal={}",
-                serviceDate, truths.size(), trainable, inferredExcluded,
+                        + "eventTotal={} savedChunks={}",
+                serviceDate, totalSaved, trainable, inferredExcluded,
                 result.rejectedByTimeDistance().size(),
                 result.destinationMismatch().size(),
                 result.countMismatch().size(),
-                events.size());
+                events.size(), savedChunks);
 
-        return truths.size();
+        return totalSaved;
     }
 
     private MlSubwayDelayTruth buildTruth(String lineId, String stationId, SubwayStation station,

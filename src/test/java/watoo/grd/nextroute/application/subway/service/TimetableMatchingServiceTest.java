@@ -328,4 +328,117 @@ class TimetableMatchingServiceTest {
         verify(subwayDataService, times(2)).deleteMatchIssuesByServiceDate(SERVICE_DATE);
         assertThat(result1).isEqualTo(result2);
     }
+
+    // ── V2: group당 issue 1건 + chunking ─────────────────────────────────────
+
+    private SubwayTimetable ttWithEnd(String tagoId, String dir, String arr, String end) {
+        return SubwayTimetable.builder()
+                .lineId("1002").tagoStationId(tagoId).stationName("테스트역")
+                .direction(dir).dayType("03").arrTime(arr).depTime(arr)
+                .endStationName(end).build();
+    }
+
+    private SubwayArrivalEvent evWithDest(String stationId, String dir, String trainNo,
+                                          LocalDateTime arrivedAt, String destName) {
+        return SubwayArrivalEvent.builder()
+                .serviceDate(SERVICE_DATE).lineId("1002").stationId(stationId)
+                .stationName("테스트역").direction(dir).trainNo(trainNo)
+                .destinationName(destName)
+                .arrivedAt(arrivedAt).firstObservedAt(arrivedAt).lastObservedAt(arrivedAt)
+                .rawCount(1).eventSource("OBSERVED_CODE_1").destinationKey("DK").build();
+    }
+
+    @Test
+    void TC_V2_시간창_초과_group은_pair_수와_무관하게_issue_1건만_저장한다() {
+        service.matchingVersion = "v2";
+        SubwayStation st = station("S1", "1002", "T1");
+        // 3 pair 모두 19h+ 차이 (count equal + 모두 over-window)
+        List<SubwayTimetable> tts = List.of(
+                ttWithEnd("T1", "U", "054800", "한강진"),
+                ttWithEnd("T1", "U", "054900", "한강진"),
+                ttWithEnd("T1", "U", "055000", "한강진"));
+        List<SubwayArrivalEvent> events = List.of(
+                evWithDest("S1", "내선", "T1", LocalDateTime.of(2026, 5, 4, 0, 54, 0), "한강진"),
+                evWithDest("S1", "내선", "T2", LocalDateTime.of(2026, 5, 4, 0, 55, 0), "한강진"),
+                evWithDest("S1", "내선", "T3", LocalDateTime.of(2026, 5, 4, 0, 56, 0), "한강진"));
+
+        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayDataService.findMappableStations()).thenReturn(List.of(st));
+        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(tts);
+        stubSaveMatchIssuesReturnsInput();
+
+        service.matchForDate(SERVICE_DATE);
+
+        // saveAllMatchIssues 호출 1회 (chunk size 미달) + 그 안에 issue 1건
+        verify(subwayDataService, times(1)).saveAllMatchIssues(any());
+        List<SubwayArrivalEventMatchIssue> issues = captureIssues();
+        assertThat(issues).hasSize(1);
+        assertThat(issues.get(0).getIssueType())
+                .isEqualTo(MatchIssueType.MATCH_REJECTED_TIME_DISTANCE.name());
+        // details JSON에 allAbsDelaysSeconds 3개 포함
+        assertThat(issues.get(0).getDetails()).contains("allAbsDelaysSeconds");
+        assertThat(issues.get(0).getDetails()).contains("\"pairCount\":3");
+    }
+
+    @Test
+    void TC_V2_destination_mismatch_group은_pair_수와_무관하게_issue_1건만_저장한다() {
+        service.matchingVersion = "v2";
+        SubwayStation st = station("S1", "1002", "T1");
+        // 2 pair 모두 destination 다름
+        List<SubwayTimetable> tts = List.of(
+                ttWithEnd("T1", "U", "100000", "응암"),
+                ttWithEnd("T1", "U", "110000", "응암"));
+        List<SubwayArrivalEvent> events = List.of(
+                evWithDest("S1", "내선", "T1", LocalDateTime.of(2026, 5, 3, 10, 0, 30), "한강진"),
+                evWithDest("S1", "내선", "T2", LocalDateTime.of(2026, 5, 3, 11, 0, 30), "한강진"));
+
+        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayDataService.findMappableStations()).thenReturn(List.of(st));
+        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(tts);
+        stubSaveMatchIssuesReturnsInput();
+
+        service.matchForDate(SERVICE_DATE);
+
+        verify(subwayDataService, times(1)).saveAllMatchIssues(any());
+        List<SubwayArrivalEventMatchIssue> issues = captureIssues();
+        assertThat(issues).hasSize(1);
+        assertThat(issues.get(0).getIssueType())
+                .isEqualTo(MatchIssueType.DESTINATION_MISMATCH.name());
+        assertThat(issues.get(0).getDetails()).contains("\"mismatchCount\":2");
+    }
+
+    @Test
+    void TC_V2_chunk_size_초과시_여러번_save_호출된다() {
+        service.matchingVersion = "v2";
+        service.issueChunkSize = 5; // 5 chunk size로 강제
+
+        // 12개 station × 2 pair 모두 over-window → 12 group → issue 12건
+        // 첫 save 5건, 두번째 5건, 잔여 2건 → 총 3회 save
+        List<SubwayStation> stations = new java.util.ArrayList<>();
+        List<SubwayTimetable> tts = new java.util.ArrayList<>();
+        List<SubwayArrivalEvent> events = new java.util.ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            String sid = "S" + i;
+            String tid = "T" + i;
+            stations.add(station(sid, "1002", tid));
+            tts.add(ttWithEnd(tid, "U", "054800", "한강진"));
+            tts.add(ttWithEnd(tid, "U", "054900", "한강진"));
+            events.add(evWithDest(sid, "내선", "T1_" + i,
+                    LocalDateTime.of(2026, 5, 4, 0, 54, 0), "한강진"));
+            events.add(evWithDest(sid, "내선", "T2_" + i,
+                    LocalDateTime.of(2026, 5, 4, 0, 55, 0), "한강진"));
+        }
+
+        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayDataService.findMappableStations()).thenReturn(stations);
+        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(tts);
+        stubSaveMatchIssuesReturnsInput();
+
+        int total = service.matchForDate(SERVICE_DATE);
+
+        // chunk size 5 → 12 issue ÷ 5 = 3회 (5 + 5 + 2)
+        verify(subwayDataService, times(3)).saveAllMatchIssues(any());
+        verify(subwayDataService, times(3)).flushAndClear();
+        assertThat(total).isEqualTo(12);
+    }
 }

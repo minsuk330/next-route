@@ -2,6 +2,8 @@ package watoo.grd.nextroute.domain.subway.service;
 
 import java.util.Collection;
 import java.util.Set;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +42,19 @@ public class SubwayDataService {
 	private final SubwayArrivalEventRepository subwayArrivalEventRepository;
 	private final SubwayArrivalEventMatchIssueRepository subwayArrivalEventMatchIssueRepository;
 	private final MlSubwayDelayTruthRepository mlSubwayDelayTruthRepository;
+
+	@PersistenceContext
+	private EntityManager entityManager;
+
+	/**
+	 * persistence 1차 캐시 비우기 — chunk saveAll 누적으로 인한 heap bloat 방지.
+	 * 호출자는 같은 트랜잭션 안에서 chunk 저장 후 호출한다.
+	 */
+	@Transactional
+	public void flushAndClear() {
+		entityManager.flush();
+		entityManager.clear();
+	}
 
 	@Transactional
 	public List<SubwayStation> saveAllStations(List<SubwayStation> stations) {
