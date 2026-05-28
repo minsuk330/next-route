@@ -33,6 +33,16 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         default_batch_fetch_size: 1000
+        # bulk insert/update 튜닝 — chunk saveAll 처리량 향상.
+        # 같은 entity 종류의 SQL을 batch 단위로 묶어 JDBC에 전송한다.
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+        # batch_versioned_data: 버전 컬럼이 있는 entity 업데이트도 batch 가능.
+        # ml_subway_delay_truth / subway_arrival_event_match_issue는 멱등성 위해
+        # delete-and-insert만 사용하므로 update batch는 영향 미미. 안전 차원에서 on.
+        batch_versioned_data: true
     open-in-view: false
 
 odsay:
