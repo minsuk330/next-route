@@ -80,24 +80,24 @@ public class SubwayArrivalRawRecorder {
                 .filter(a -> !hasText(a.currentMessage()))
                 .count();
 
-        log.info(
-                "[SubwayArrivalRawRecorder] Raw 진단: API응답전체={}건, 저장대상={}건, 필수값누락제외={}건, " +
-                        "API응답중_도착코드1={}건, 저장대상중_도착코드1={}건, 도착코드별분포={}, " +
-                        "도착코드1_호선ID누락={}건, 도착코드1_역ID누락={}건, 도착코드1_방향누락={}건, " +
-                        "도착코드1_열차번호누락={}건, 도착코드1_수신시각누락={}건, 도착코드1_현재메시지누락={}건",
-                arrivals.size(),
-                raws.size(),
-                arrivals.size() - raws.size(),
-                responseCode1Rows,
-                persistableCode1Rows,
-                arrivalCodeCounts(arrivals),
-                code1MissingLineId,
-                code1MissingStationId,
-                code1MissingDirection,
-                code1MissingTrainNo,
-                code1MissingReceivedAt,
-                code1MissingCurrentMessage
-        );
+//        log.info(
+//                "[SubwayArrivalRawRecorder] Raw 진단: API응답전체={}건, 저장대상={}건, 필수값누락제외={}건, " +
+//                        "API응답중_도착코드1={}건, 저장대상중_도착코드1={}건, 도착코드별분포={}, " +
+//                        "도착코드1_호선ID누락={}건, 도착코드1_역ID누락={}건, 도착코드1_방향누락={}건, " +
+//                        "도착코드1_열차번호누락={}건, 도착코드1_수신시각누락={}건, 도착코드1_현재메시지누락={}건",
+//                arrivals.size(),
+//                raws.size(),
+//                arrivals.size() - raws.size(),
+//                responseCode1Rows,
+//                persistableCode1Rows,
+//                arrivalCodeCounts(arrivals),
+//                code1MissingLineId,
+//                code1MissingStationId,
+//                code1MissingDirection,
+//                code1MissingTrainNo,
+//                code1MissingReceivedAt,
+//                code1MissingCurrentMessage
+//        );
     }
 
     private Map<String, Long> arrivalCodeCounts(List<SubwayArrivalInfo> arrivals) {

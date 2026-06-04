@@ -36,7 +36,10 @@ public class SubwaySegmentLookup {
         for (SubwaySegment s : segments) {
             if (s.getTravelTime() != null) {
                 // departStationId / arriveStationId fields actually store station names
-                newMap.put(buildKey(s.getLineId(), s.getDepartStationId(), s.getArriveStationId()),
+                // Fill original direction first so it wins on conflict, then the reverse direction.
+                putIfAbsentOrSame(newMap, s.getLineId(), s.getDepartStationId(), s.getArriveStationId(),
+                        s.getTravelTime());
+                putIfAbsentOrSame(newMap, s.getLineId(), s.getArriveStationId(), s.getDepartStationId(),
                         s.getTravelTime());
             }
         }
@@ -48,6 +51,19 @@ public class SubwaySegmentLookup {
     public Double get(String lineId, String departName, String arriveName) {
         if (lineId == null || departName == null || arriveName == null) return null;
         return map.get(buildKey(lineId, departName, arriveName));
+    }
+
+    /**
+     * Put travelTime under (lineId, depart, arrive) unless a different value already exists.
+     * Same value → no-op. Different value → keep existing (original direction wins) and warn.
+     */
+    private void putIfAbsentOrSame(Map<String, Double> target, String lineId, String depart, String arrive,
+                                   Double travelTime) {
+        String key = buildKey(lineId, depart, arrive);
+        Double existing = target.putIfAbsent(key, travelTime);
+        if (existing != null && !existing.equals(travelTime)) {
+            log.warn("[SegmentLookup] travelTime conflict for {} -> keep {}, ignore {}", key, existing, travelTime);
+        }
     }
 
     private String buildKey(String lineId, String depart, String arrive) {

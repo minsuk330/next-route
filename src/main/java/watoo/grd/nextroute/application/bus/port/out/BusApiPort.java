@@ -18,5 +18,7 @@ public interface BusApiPort {
 
 	List<BusPositionInfo> getBusPosByRtid(String busRouteId);
 
-  List<String> getBusRouteIds();
+	List<String> getBusRouteIds();
+
+	BusRidershipFetchResult getBusRidershipByMonth(String month, int pageSize);
 }

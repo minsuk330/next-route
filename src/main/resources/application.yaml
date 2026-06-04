@@ -69,7 +69,7 @@ seoul:
     bus-key: ${SEOUL_BUS_API:test}
     bus-base-url: http://ws.bus.go.kr/api/rest
     bus-route-key: ${SEOUL_BUS_ROUTE:test}
-    seoul-bus-use-key: ${SEOUL_BUS_USE}
+    seoul-bus-use-key: ${SEOUL_BUS_USAGE}
     seoul-base-api-url: http://openapi.seoul.go.kr:8088
     subway-key: ${SEOUL_SUBWAY_API:test}
     subway-base-url: http://swopenAPI.seoul.go.kr/api/subway
@@ -84,18 +84,39 @@ collector:
   bus-arrival:
     enabled: false
     cron: "0 * * * * *"
-    daily-budget: 1000
+    daily-budget: 50000
     target-route-names:
-      - "271"    # 1위  25,758
-      - "143"    # 2위  24,799
-      - "130"    # 3위  24,090
-      - "272"    # 4위  21,168
-      - "421"    # 5위  21,089
-      - "152"    # 6위  20,933
-      - "273"    # 7위  20,847
-      - "420"    # 8위  20,415
-      - "160"    # 9위  20,141
-      - "142"    # 10위 20,018
+      - "143"
+      - "272"
+      - "160"
+      - "271"
+      - "130"
+      - "273"
+      - "163"
+      - "150"
+      - "152"
+      - "147"
+      - "360"
+      - "340"
+      - "142"
+      - "140"
+      - "146"
+      - "5531"
+      - "202"
+      - "120"
+      - "420"
+      - "421"
+      - "641"
+      - "동작01"
+      - "303"
+      - "262"
+      - "144"
+      - "301"
+      - "5524"
+      - "370"
+      - "4318"
+      - "720"
+
   bus-position:
     enabled: false
     cron: "0 */3 * * * *"
@@ -124,7 +145,7 @@ cors:
 realtime:
   subway:
     enabled: true
-    poll-interval-ms: 10000
+    poll-interval-ms: 1000
     active-hours:
       start: "04:30"
       end: "01:00"

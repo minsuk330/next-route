@@ -20,7 +20,7 @@ public class StaticDataScheduler {
 	@EventListener(ApplicationReadyEvent.class)
 	public void onStartup() {
 		log.info("[StaticData] Loading static data on startup...");
-		//loadBusStaticData.execute();
+		loadBusStaticData.execute();
 		//loadSubwayStaticData.execute();
 	}
 

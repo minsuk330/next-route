@@ -59,6 +59,7 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 		for (String routeId : routeIds) {
 			try {
 				List<BusRouteInfo> items = busApiPort.getRouteInfo(routeId);
+        log.info("loadBusRoutes: routeId={}, items={}", routeId, items);
 				routeInfos.addAll(items);
 
 				processed++;

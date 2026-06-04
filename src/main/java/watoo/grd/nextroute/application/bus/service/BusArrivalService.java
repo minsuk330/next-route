@@ -33,7 +33,7 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 
 	@Override
 	public void execute() {
-		List<String> targetNames = properties.getTargetRouteNames();
+		List<String> targetNames = properties.getTargetRouteNames(); ///이게routename이다.
 
 		if (targetNames.isEmpty()) {
 			log.warn("[BusArrival] No target routes configured. Set collector.bus-arrival.target-route-names.");

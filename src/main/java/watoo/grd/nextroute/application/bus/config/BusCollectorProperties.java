@@ -16,5 +16,5 @@ public class BusCollectorProperties {
 	private boolean enabled = true;
 	private String cron;
 	private List<String> targetRouteNames = List.of();
-	private int dailyBudget = 1000;
+	private int dailyBudget = 60000;
 }

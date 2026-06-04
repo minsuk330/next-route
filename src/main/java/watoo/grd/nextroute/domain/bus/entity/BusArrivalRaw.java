@@ -23,8 +23,11 @@ public class BusArrivalRaw extends BaseEntity {
 	private LocalDateTime collectedAt;
 
 	private String routeId;
+	private String routeAbrv;
+	private String routeName;
 	private String stopId;
 	private String arsId;
+	private String stopName;
 	private Integer seq;
 	private String direction;
 	private Integer routeType;
@@ -32,6 +35,8 @@ public class BusArrivalRaw extends BaseEntity {
 	private String dataTimestamp;
 	private String detourYn;
 	private String nextBusYn;
+	private String firstBusTime;
+	private String lastBusTime;
 
 	// ===== 첫 번째 도착예정 버스 =====
 
@@ -156,9 +161,11 @@ public class BusArrivalRaw extends BaseEntity {
 
 	@Builder
 	public BusArrivalRaw(
-			LocalDateTime collectedAt, String routeId, String stopId, String arsId,
+			LocalDateTime collectedAt, String routeId, String routeAbrv, String routeName,
+			String stopId, String arsId, String stopName,
 			Integer seq, String direction, Integer routeType, Integer term,
 			String dataTimestamp, String detourYn, String nextBusYn,
+			String firstBusTime, String lastBusTime,
 			// 첫 번째 버스
 			String arrivalMsg1, String vehicleId1, String plateNo1, Integer busType1,
 			Integer sectionOrder1, String stationName1, String isArrive1, String isLast1, String isFull1,
@@ -183,8 +190,11 @@ public class BusArrivalRaw extends BaseEntity {
 			Integer main3StopOrd2, Integer main3StopSec2, String main3StopId2) {
 		this.collectedAt = collectedAt;
 		this.routeId = routeId;
+		this.routeAbrv = routeAbrv;
+		this.routeName = routeName;
 		this.stopId = stopId;
 		this.arsId = arsId;
+		this.stopName = stopName;
 		this.seq = seq;
 		this.direction = direction;
 		this.routeType = routeType;
@@ -192,6 +202,8 @@ public class BusArrivalRaw extends BaseEntity {
 		this.dataTimestamp = dataTimestamp;
 		this.detourYn = detourYn;
 		this.nextBusYn = nextBusYn;
+		this.firstBusTime = firstBusTime;
+		this.lastBusTime = lastBusTime;
 		// 첫 번째 버스
 		this.arrivalMsg1 = arrivalMsg1;
 		this.vehicleId1 = vehicleId1;

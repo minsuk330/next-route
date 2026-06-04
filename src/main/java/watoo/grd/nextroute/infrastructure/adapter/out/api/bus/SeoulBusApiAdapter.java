@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.bus;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
@@ -12,6 +14,7 @@ import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.*;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 
 import static watoo.grd.nextroute.common.util.ParseUtils.parseDouble;
@@ -34,18 +37,24 @@ public class SeoulBusApiAdapter implements BusApiPort {
 	private final String baseUrl;
 
 	private final String busRouteKey;
+	private final String busUsageKey;
 	private final String busRouteBaseUrl;
+	private final ObjectMapper objectMapper;
 
 	public SeoulBusApiAdapter(
 			RestTemplate restTemplate,
+			ObjectMapper objectMapper,
 			@Value("${seoul.api.bus-key}") String apiKey,
 			@Value("${seoul.api.bus-base-url}") String baseUrl,
 			@Value("${seoul.api.bus-route-key}") String busRouteKey,
+			@Value("${seoul.api.seoul-bus-use-key}") String busUsageKey,
 			@Value("${seoul.api.seoul-base-api-url}") String busRouteBaseUrl) {
 		this.restTemplate = restTemplate;
+		this.objectMapper = objectMapper;
 		this.apiKey = apiKey;
 		this.baseUrl = baseUrl;
 		this.busRouteKey = busRouteKey;
+		this.busUsageKey = busUsageKey;
 		this.busRouteBaseUrl = busRouteBaseUrl;
 		this.xmlMapper = new XmlMapper();
 		this.xmlMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -161,7 +170,39 @@ public class SeoulBusApiAdapter implements BusApiPort {
 		}
 	}
 
-  // ===== Infra DTO → App DTO 변환 =====
+	/** 월별 버스노선별 정류장별 시간대별 승하차 인원 전체 조회
+	 *  [서울열린데이터광장] CardBusTimeNew
+	 *  API: GET http://openapi.seoul.go.kr:8088/{key}/json/CardBusTimeNew/{start}/{end}/{useYm}/ */
+	@Override
+	public BusRidershipFetchResult getBusRidershipByMonth(String month, int pageSize) {
+		List<BusRidershipInfo> allRows = new ArrayList<>();
+		int start = 1;
+		int totalCount = 0;
+
+		while (true) {
+			int end = start + pageSize - 1;
+			URI uri = URI.create(busRouteBaseUrl + "/" + busUsageKey
+					+ "/json/CardBusTimeNew/" + start + "/" + end + "/" + month + "/");
+
+			CardBusTimeNewPage page = callBusRidershipApi(uri);
+			if (totalCount == 0) {
+				totalCount = page.totalCount();
+			}
+
+			allRows.addAll(page.rows());
+			log.info("[BusRidership] Fetched {}/{} rows for month={}",
+					allRows.size(), totalCount, month);
+
+			if (allRows.size() >= totalCount || page.rows().isEmpty()) {
+				break;
+			}
+			start = end + 1;
+		}
+
+		return new BusRidershipFetchResult(month, totalCount, allRows);
+	}
+
+	// ===== Infra DTO → App DTO 변환 =====
 
 	private BusRouteInfo toRouteInfo(BusRouteItem item) {
 		return new BusRouteInfo(
@@ -313,6 +354,120 @@ public class SeoulBusApiAdapter implements BusApiPort {
 				item.getIsrunyn()
 		);
 	}
+
+	private BusRidershipInfo toRidershipInfo(JsonNode row) {
+		long getOnTotal = 0;
+		long getOffTotal = 0;
+
+		for (int hour = 0; hour <= 23; hour++) {
+			getOnTotal += readLong(row,
+					"HR_" + hour + "_GET_ON_TNOPE",
+					"HR_" + hour + "_GET_ON_NOPE");
+			getOffTotal += readLong(row,
+					"HR_" + hour + "_GET_OFF_TNOPE",
+					"HR_" + hour + "_GET_OFF_NOPE");
+		}
+
+		return new BusRidershipInfo(
+				readText(row, "RTE_NO"),
+				readText(row, "RTE_NM"),
+				getOnTotal,
+				getOffTotal
+		);
+	}
+
+	private long readLong(JsonNode row, String... fieldNames) {
+		for (String fieldName : fieldNames) {
+			JsonNode value = row.get(fieldName);
+			if (value == null || value.isNull()) {
+				continue;
+			}
+			if (value.isNumber()) {
+				return value.asLong();
+			}
+			String text = value.asText();
+			if (text == null || text.isBlank()) {
+				continue;
+			}
+			try {
+				return Long.parseLong(text.trim());
+			} catch (NumberFormatException ignored) {
+				continue;
+			}
+		}
+		return 0;
+	}
+
+	private String readText(JsonNode row, String fieldName) {
+		JsonNode value = row.get(fieldName);
+		if (value == null || value.isNull()) {
+			return null;
+		}
+		return value.asText();
+	}
+
+	private CardBusTimeNewPage callBusRidershipApi(URI uri) {
+		Exception lastException = null;
+
+		for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+			try {
+				String json = restTemplate.getForObject(uri, String.class);
+				if (json == null || json.isBlank()) {
+					throw new IllegalStateException("Empty response from CardBusTimeNew API");
+				}
+				return parseBusRidershipPage(json);
+			} catch (Exception e) {
+				lastException = e;
+				log.warn("CardBusTimeNew API call attempt {}/{} failed [{}]: {}",
+						attempt, MAX_RETRIES, uri.getPath(), e.getMessage());
+
+				if (attempt < MAX_RETRIES) {
+					try {
+						Thread.sleep((long) Math.pow(2, attempt) * 1000);
+					} catch (InterruptedException ie) {
+						Thread.currentThread().interrupt();
+						throw new RuntimeException("Retry interrupted", ie);
+					}
+				}
+			}
+		}
+
+		throw new IllegalStateException("CardBusTimeNew API call failed after retries: " + uri.getPath(), lastException);
+	}
+
+	private CardBusTimeNewPage parseBusRidershipPage(String json) throws Exception {
+		JsonNode root = objectMapper.readTree(json);
+		JsonNode serviceNode = root.get("CardBusTimeNew");
+		if (serviceNode == null || serviceNode.isNull()) {
+			throw new IllegalStateException("CardBusTimeNew response missing service node: " + resultMessage(root.get("RESULT")));
+		}
+
+		JsonNode resultNode = serviceNode.get("RESULT");
+		String code = resultNode == null ? null : resultNode.path("CODE").asText();
+		if (!"INFO-000".equals(code)) {
+			throw new IllegalStateException("CardBusTimeNew API error: " + resultMessage(resultNode));
+		}
+
+		int totalCount = serviceNode.path("list_total_count").asInt(0);
+		List<BusRidershipInfo> rows = new ArrayList<>();
+		JsonNode rowNode = serviceNode.get("row");
+		if (rowNode != null && rowNode.isArray()) {
+			rowNode.forEach(row -> rows.add(toRidershipInfo(row)));
+		} else if (rowNode != null && rowNode.isObject()) {
+			rows.add(toRidershipInfo(rowNode));
+		}
+
+		return new CardBusTimeNewPage(totalCount, rows);
+	}
+
+	private String resultMessage(JsonNode resultNode) {
+		if (resultNode == null || resultNode.isNull()) {
+			return "RESULT node missing";
+		}
+		return resultNode.path("CODE").asText() + " - " + resultNode.path("MESSAGE").asText();
+	}
+
+	private record CardBusTimeNewPage(int totalCount, List<BusRidershipInfo> rows) {}
 
 	/**
 	 * 공통 API 호출 메서드.
