@@ -206,8 +206,11 @@ public class SeoulBusApiAdapter implements BusApiPort {
 		return new BusArrivalInfo(
 				// 공통
 				item.getBusRouteId(),
+				item.getBusRouteAbrv(),
+				item.getRtNm(),
 				item.getStId(),
 				item.getArsId(),
+				item.getStNm(),
 				parseInteger(item.getStaOrd()),
 				item.getDir(),
 				parseInteger(item.getRouteType()),
@@ -215,6 +218,8 @@ public class SeoulBusApiAdapter implements BusApiPort {
 				item.getMkTm(),
 				item.getDeTourAt(),
 				item.getNextBus(),
+				item.getFirstTm(),
+				item.getLastTm(),
 				// 첫 번째 버스
 				item.getArrmsg1(),
 				item.getVehId1(),

@@ -3,8 +3,11 @@ package watoo.grd.nextroute.application.bus.dto;
 public record BusArrivalInfo(
 		// 공통
 		String routeId,
+		String routeAbrv,
+		String routeName,
 		String stopId,
 		String arsId,
+		String stopName,
 		Integer seq,
 		String direction,
 		Integer routeType,
@@ -12,6 +15,8 @@ public record BusArrivalInfo(
 		String dataTimestamp,
 		String detourYn,
 		String nextBusYn,
+		String firstBusTime,
+		String lastBusTime,
 
 		// 첫 번째 버스
 		String arrivalMsg1,

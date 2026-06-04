@@ -83,7 +83,7 @@ seoul:
 collector:
   bus-arrival:
     enabled: false
-    cron: "0 */10 * * * *"
+    cron: "0 * * * * *"
     daily-budget: 1000
     target-route-names:
       - "271"    # 1위  25,758

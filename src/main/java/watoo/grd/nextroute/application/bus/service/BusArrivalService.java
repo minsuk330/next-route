@@ -4,15 +4,21 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.bus.config.BusCollectorProperties;
+import watoo.grd.nextroute.application.bus.dto.BusArrivalActiveSnapshot;
+import watoo.grd.nextroute.application.bus.dto.BusArrivalCandidate;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.port.in.CollectBusArrivalUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
-import watoo.grd.nextroute.domain.bus.entity.BusArrivalRaw;
+import watoo.grd.nextroute.application.bus.port.out.BusArrivalSnapshotPort;
+import watoo.grd.nextroute.domain.bus.entity.BusArrivalCandidateRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.service.BusDataService;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -23,6 +29,7 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 	private final BusDataService busDataService;
 	private final BusCollectorProperties properties;
 	private final BusApiCallBudget budget;
+	private final BusArrivalSnapshotPort busArrivalSnapshotPort;
 
 	@Override
 	public void execute() {
@@ -54,7 +61,7 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 		}
 
 		LocalDateTime collectedAt = LocalDateTime.now();
-		int totalSaved = 0;
+		int totalFinalized = 0;
 
 		log.info("[BusArrival] Starting collection for {} target routes (budget: {}/{})",
 				routeIds.size(), budget.getUsed(), dailyBudget);
@@ -65,117 +72,175 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 				break;
 			}
 
+			boolean callRecorded = false;
 			try {
 				List<BusArrivalInfo> items = busApiPort.getArrInfoByRouteAll(routeId);
 				budget.recordCall();
-				List<BusArrivalRaw> entities = items.stream()
-						.map(info -> toEntity(info, collectedAt))
-						.toList();
-				busDataService.saveAllArrivals(entities);
-				totalSaved += entities.size();
+				callRecorded = true;
+				totalFinalized += reconcile(items, collectedAt);
 				Thread.sleep(100);
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
-				budget.recordCall();
+				if (!callRecorded) {
+					budget.recordCall();
+				}
 				return;
 			} catch (Exception e) {
-				budget.recordCall();
+				if (!callRecorded) {
+					budget.recordCall();
+				}
 				log.error("[BusArrival] Failed for route {}: {}", routeId, e.getMessage());
 			}
 		}
 
-		log.info("[BusArrival] Completed. Saved {} records (budget: {}/{})",
-				totalSaved, budget.getUsed(), dailyBudget);
+		log.info("[BusArrival] Completed. Finalized {} candidates (budget: {}/{})",
+				totalFinalized, budget.getUsed(), dailyBudget);
 	}
 
-	private BusArrivalRaw toEntity(BusArrivalInfo info, LocalDateTime collectedAt) {
-		return BusArrivalRaw.builder()
-				// 공통
-				.collectedAt(collectedAt)
-				.routeId(info.routeId())
-				.stopId(info.stopId())
-				.arsId(info.arsId())
-				.seq(info.seq())
-				.direction(info.direction())
-				.routeType(info.routeType())
-				.term(info.term())
-				.dataTimestamp(info.dataTimestamp())
-				.detourYn(info.detourYn())
-				.nextBusYn(info.nextBusYn())
-				// 첫 번째 버스
-				.arrivalMsg1(info.arrivalMsg1())
-				.vehicleId1(info.vehicleId1())
-				.plateNo1(info.plateNo1())
-				.busType1(info.busType1())
-				.sectionOrder1(info.sectionOrder1())
-				.stationName1(info.stationName1())
-				.isArrive1(info.isArrive1())
-				.isLast1(info.isLast1())
-				.isFull1(info.isFull1())
-				.predictTime1(info.predictTime1())
-				.kalPredictTime1(info.kalPredictTime1())
-				.neuPredictTime1(info.neuPredictTime1())
-				.goalTime1(info.goalTime1())
-				.avgCoefficient1(info.avgCoefficient1())
-				.expCoefficient1(info.expCoefficient1())
-				.kalCoefficient1(info.kalCoefficient1())
-				.neuCoefficient1(info.neuCoefficient1())
-				.sectionTime1(info.sectionTime1())
-				.sectionSpeed1(info.sectionSpeed1())
-				.congestionNum1(info.congestionNum1())
-				.congestionDiv1(info.congestionDiv1())
-				.rideNum1(info.rideNum1())
-				.rideDiv1(info.rideDiv1())
-				.nextStopId1(info.nextStopId1())
-				.nextStopOrd1(info.nextStopOrd1())
-				.nextStopSec1(info.nextStopSec1())
-				.nextStopSpd1(info.nextStopSpd1())
-				.mainStopOrd1(info.mainStopOrd1())
-				.mainStopSec1(info.mainStopSec1())
-				.mainStopId1(info.mainStopId1())
-				.main2StopOrd1(info.main2StopOrd1())
-				.main2StopSec1(info.main2StopSec1())
-				.main2StopId1(info.main2StopId1())
-				.main3StopOrd1(info.main3StopOrd1())
-				.main3StopSec1(info.main3StopSec1())
-				.main3StopId1(info.main3StopId1())
-				// 두 번째 버스
-				.arrivalMsg2(info.arrivalMsg2())
-				.vehicleId2(info.vehicleId2())
-				.plateNo2(info.plateNo2())
-				.busType2(info.busType2())
-				.sectionOrder2(info.sectionOrder2())
-				.stationName2(info.stationName2())
-				.isArrive2(info.isArrive2())
-				.isLast2(info.isLast2())
-				.isFull2(info.isFull2())
-				.predictTime2(info.predictTime2())
-				.kalPredictTime2(info.kalPredictTime2())
-				.neuPredictTime2(info.neuPredictTime2())
-				.goalTime2(info.goalTime2())
-				.avgCoefficient2(info.avgCoefficient2())
-				.expCoefficient2(info.expCoefficient2())
-				.kalCoefficient2(info.kalCoefficient2())
-				.neuCoefficient2(info.neuCoefficient2())
-				.sectionTime2(info.sectionTime2())
-				.sectionSpeed2(info.sectionSpeed2())
-				.congestionNum2(info.congestionNum2())
-				.congestionDiv2(info.congestionDiv2())
-				.rideNum2(info.rideNum2())
-				.rideDiv2(info.rideDiv2())
-				.nextStopId2(info.nextStopId2())
-				.nextStopOrd2(info.nextStopOrd2())
-				.nextStopSec2(info.nextStopSec2())
-				.nextStopSpd2(info.nextStopSpd2())
-				.mainStopOrd2(info.mainStopOrd2())
-				.mainStopSec2(info.mainStopSec2())
-				.mainStopId2(info.mainStopId2())
-				.main2StopOrd2(info.main2StopOrd2())
-				.main2StopSec2(info.main2StopSec2())
-				.main2StopId2(info.main2StopId2())
-				.main3StopOrd2(info.main3StopOrd2())
-				.main3StopSec2(info.main3StopSec2())
-				.main3StopId2(info.main3StopId2())
+	private int reconcile(List<BusArrivalInfo> items, LocalDateTime collectedAt) {
+		int finalized = 0;
+		for (Map.Entry<ArrivalScope, List<BusArrivalCandidate>> entry : groupCandidates(items, collectedAt).entrySet()) {
+			finalized += reconcile(entry.getKey(), entry.getValue(), collectedAt);
+		}
+		return finalized;
+	}
+
+	private Map<ArrivalScope, List<BusArrivalCandidate>> groupCandidates(
+			List<BusArrivalInfo> items,
+			LocalDateTime collectedAt
+	) {
+		Map<ArrivalScope, List<BusArrivalCandidate>> candidatesByScope = new LinkedHashMap<>();
+		for (BusArrivalInfo info : items) {
+			ArrivalScope scope = ArrivalScope.from(info);
+			if (scope == null) {
+				log.debug("[BusArrival] Skipping row without route/stop/seq scope: routeId={}, stopId={}, seq={}",
+						info.routeId(), info.stopId(), info.seq());
+				continue;
+			}
+			candidatesByScope.computeIfAbsent(scope, ignored -> new ArrayList<>())
+					.addAll(BusArrivalCandidate.from(info, collectedAt));
+		}
+		return candidatesByScope;
+	}
+
+	private int reconcile(ArrivalScope scope, List<BusArrivalCandidate> candidates, LocalDateTime finalizedAt) {
+		Map<String, BusArrivalActiveSnapshot> previousSnapshots =
+				busArrivalSnapshotPort.findActive(scope.routeId(), scope.stopId(), scope.seq());
+		Map<String, BusArrivalCandidate> currentCandidates = deduplicateByIdentity(candidates);
+
+		for (Map.Entry<String, BusArrivalCandidate> entry : currentCandidates.entrySet()) {
+			BusArrivalActiveSnapshot previous = previousSnapshots.get(entry.getKey());
+			busArrivalSnapshotPort.save(BusArrivalActiveSnapshot.from(entry.getValue(), previous));
+		}
+
+		List<String> missingIdentityKeys = previousSnapshots.keySet().stream()
+				.filter(identityKey -> !currentCandidates.containsKey(identityKey))
+				.toList();
+		if (missingIdentityKeys.isEmpty()) {
+			return 0;
+		}
+
+		List<BusArrivalCandidateRaw> finalizedCandidates = missingIdentityKeys.stream()
+				.map(previousSnapshots::get)
+				.map(snapshot -> toEntity(snapshot, finalizedAt))
+				.toList();
+		busDataService.saveAllArrivalCandidates(finalizedCandidates);
+
+		for (String identityKey : missingIdentityKeys) {
+			busArrivalSnapshotPort.delete(scope.routeId(), scope.stopId(), scope.seq(), identityKey);
+		}
+
+		return finalizedCandidates.size();
+	}
+
+	private Map<String, BusArrivalCandidate> deduplicateByIdentity(List<BusArrivalCandidate> candidates) {
+		Map<String, BusArrivalCandidate> deduplicated = new LinkedHashMap<>();
+		for (BusArrivalCandidate candidate : candidates) {
+			deduplicated.putIfAbsent(candidate.identityKey(), candidate);
+		}
+		return deduplicated;
+	}
+
+	private BusArrivalCandidateRaw toEntity(BusArrivalActiveSnapshot snapshot, LocalDateTime finalizedAt) {
+		BusArrivalCandidate candidate = snapshot.candidate();
+		return BusArrivalCandidateRaw.builder()
+				.collectedAt(candidate.collectedAt())
+				.finalizedAt(finalizedAt)
+				.firstSeenAt(snapshot.firstSeenAt())
+				.lastSeenAt(snapshot.lastSeenAt())
+				.lastCollectedAt(snapshot.lastCollectedAt())
+				.routeId(candidate.routeId())
+				.routeAbrv(candidate.routeAbrv())
+				.routeName(candidate.routeName())
+				.stopId(candidate.stopId())
+				.arsId(candidate.arsId())
+				.stopName(candidate.stopName())
+				.seq(candidate.seq())
+				.direction(candidate.direction())
+				.routeType(candidate.routeType())
+				.term(candidate.term())
+				.dataTimestamp(candidate.dataTimestamp())
+				.detourYn(candidate.detourYn())
+				.nextBusYn(candidate.nextBusYn())
+				.firstBusTime(candidate.firstBusTime())
+				.lastBusTime(candidate.lastBusTime())
+				.arrivalOrder(candidate.arrivalOrder())
+				.arrivalMsg(candidate.arrivalMsg())
+				.vehicleId(candidate.vehicleId())
+				.plainNo(candidate.plainNo())
+				.vehicleIdentity(candidate.vehicleIdentity())
+				.vehicleIdentityType(candidate.vehicleIdentityType().name())
+				.busType(candidate.busType())
+				.sectionOrder(candidate.sectionOrder())
+				.stationName(candidate.stationName())
+				.isArrive(candidate.isArrive())
+				.isLast(candidate.isLast())
+				.isFull(candidate.isFull())
+				.predictTime(candidate.predictTime())
+				.kalPredictTime(candidate.kalPredictTime())
+				.neuPredictTime(candidate.neuPredictTime())
+				.goalTime(candidate.goalTime())
+				.avgCoefficient(candidate.avgCoefficient())
+				.expCoefficient(candidate.expCoefficient())
+				.kalCoefficient(candidate.kalCoefficient())
+				.neuCoefficient(candidate.neuCoefficient())
+				.sectionTime(candidate.sectionTime())
+				.sectionSpeed(candidate.sectionSpeed())
+				.congestionNum(candidate.congestionNum())
+				.congestionDiv(candidate.congestionDiv())
+				.rideNum(candidate.rideNum())
+				.rideDiv(candidate.rideDiv())
+				.nextStopId(candidate.nextStopId())
+				.nextStopOrd(candidate.nextStopOrd())
+				.nextStopSec(candidate.nextStopSec())
+				.nextStopSpd(candidate.nextStopSpd())
+				.mainStopOrd(candidate.mainStopOrd())
+				.mainStopSec(candidate.mainStopSec())
+				.mainStopId(candidate.mainStopId())
+				.main2StopOrd(candidate.main2StopOrd())
+				.main2StopSec(candidate.main2StopSec())
+				.main2StopId(candidate.main2StopId())
+				.main3StopOrd(candidate.main3StopOrd())
+				.main3StopSec(candidate.main3StopSec())
+				.main3StopId(candidate.main3StopId())
 				.build();
+	}
+
+	private static boolean hasText(String value) {
+		return value != null && !value.trim().isEmpty();
+	}
+
+	private static String normalize(String value) {
+		return value == null ? null : value.trim();
+	}
+
+	private record ArrivalScope(String routeId, String stopId, Integer seq) {
+
+		private static ArrivalScope from(BusArrivalInfo info) {
+			if (!hasText(info.routeId()) || !hasText(info.stopId()) || info.seq() == null) {
+				return null;
+			}
+			return new ArrivalScope(normalize(info.routeId()), normalize(info.stopId()), info.seq());
+		}
 	}
 }

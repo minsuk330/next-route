@@ -4,7 +4,10 @@ build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
-src/main/resources/db
+src/main/resources/db/*
+!src/main/resources/db/migration/
+src/main/resources/db/migration/*
+!src/main/resources/db/migration/V8__create_bus_arrival_candidate_raw.sql
 
 ### STS ###
 .apt_generated

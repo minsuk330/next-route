@@ -19,6 +19,7 @@ public class BusDataService {
   private final BusStopRepository busStopRepository;
   private final BusRouteStopRepository busRouteStopRepository;
   private final BusArrivalRawRepository busArrivalRawRepository;
+  private final BusArrivalCandidateRawRepository busArrivalCandidateRawRepository;
   private final BusPositionRawRepository busPositionRawRepository;
 
 	@Transactional
@@ -51,6 +52,11 @@ public class BusDataService {
 	@Transactional
 	public List<BusArrivalRaw> saveAllArrivals(List<BusArrivalRaw> arrivals) {
 		return busArrivalRawRepository.saveAll(arrivals);
+	}
+
+	@Transactional
+	public List<BusArrivalCandidateRaw> saveAllArrivalCandidates(List<BusArrivalCandidateRaw> candidates) {
+		return busArrivalCandidateRawRepository.saveAll(candidates);
 	}
 
 	@Transactional
