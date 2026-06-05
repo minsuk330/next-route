@@ -82,8 +82,17 @@ seoul:
 
 collector:
   bus-arrival:
-    enabled: false
+    enabled: true
     cron: "0 * * * * *"
+    active-hours:
+      start: "03:30"
+      end: "00:30"
+    finalize-miss-threshold: 2
+    stale-threshold-minutes: 5
+    included-arrival-orders:
+      - 1
+    excluded-arrival-messages:
+      - "출발대기"
     daily-budget: 50000
     target-route-names:
       - "143"
@@ -144,7 +153,7 @@ cors:
 
 realtime:
   subway:
-    enabled: true
+    enabled: false
     poll-interval-ms: 1000
     active-hours:
       start: "04:30"

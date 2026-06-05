@@ -20,6 +20,9 @@ import java.time.LocalDateTime;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class BusArrivalCandidateRaw extends BaseEntity {
 
+	@Column(name = "lifecycle_id", unique = true)
+	private String lifecycleId;
+
 	@Column(name = "collected_at", nullable = false)
 	private LocalDateTime collectedAt;
 
