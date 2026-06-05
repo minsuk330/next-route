@@ -8,6 +8,7 @@ src/main/resources/db/*
 !src/main/resources/db/migration/
 src/main/resources/db/migration/*
 !src/main/resources/db/migration/V8__create_bus_arrival_candidate_raw.sql
+!src/main/resources/db/migration/V9__add_lifecycle_id_to_bus_arrival_candidate_raw.sql
 
 ### STS ###
 .apt_generated
