@@ -117,7 +117,6 @@ class BusPositionServiceTest {
 	private void prepareRoutes(BusRoute... routes) {
 		List<String> routeNames = List.of("143", "272").subList(0, routes.length);
 		given(properties.getTargetRouteNames()).willReturn(routeNames);
-		given(properties.getDailyBudget()).willReturn(50000);
 		given(busDataService.findRoutesByNames(routeNames)).willReturn(List.of(routes));
 	}
 

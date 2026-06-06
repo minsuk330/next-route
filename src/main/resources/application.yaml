@@ -86,14 +86,14 @@ collector:
     cron: "0 * * * * *"
     active-hours:
       start: "03:30"
-      end: "00:30"
+      end: "02:30"
     finalize-miss-threshold: 2
     stale-threshold-minutes: 5
     included-arrival-orders:
       - 1
     excluded-arrival-messages:
       - "출발대기"
-    daily-budget: 50000
+    daily-budget: 100000
     target-route-names:
       - "143"
       - "272"
@@ -129,9 +129,11 @@ collector:
   bus-position:
     enabled: true
     cron: "0 * * * * *"
+    # 도착 수집과 독립 예산. 30노선 × 분당 × active-hours(23h) ≈ 41,400 호출/일.
+    daily-budget: 50000
     active-hours:
       start: "03:30"
-      end: "00:30"
+      end: "02:30"
 
   subway-arrival: # DEPRECATED
     enabled: false

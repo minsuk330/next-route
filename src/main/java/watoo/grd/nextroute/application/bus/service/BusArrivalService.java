@@ -2,6 +2,7 @@ package watoo.grd.nextroute.application.bus.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.bus.config.BusCollectorProperties;
 import watoo.grd.nextroute.application.bus.dto.ArrivalScope;
@@ -36,6 +37,7 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 	private final BusApiPort busApiPort;
 	private final BusDataService busDataService;
 	private final BusCollectorProperties properties;
+	@Qualifier("arrivalApiCallBudget")
 	private final BusApiCallBudget budget;
 	private final BusArrivalSnapshotPort busArrivalSnapshotPort;
 	private final Clock clock;
