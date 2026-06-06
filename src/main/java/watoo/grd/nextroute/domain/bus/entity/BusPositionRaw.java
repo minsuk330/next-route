@@ -27,23 +27,25 @@ public class BusPositionRaw extends BaseEntity {
 	/** 차량 ID */
 	private String vehicleId;
 
-	/** 차량 위도 (WGS84) */
-	private Double latitude;
+	/** API tmX 원본 좌표 */
+	@Column(name = "tm_x")
+	private Double tmX;
 
-	/** 차량 경도 (WGS84) */
-	private Double longitude;
-
-	/** 최근 정차 정류소 순번 */
-	private Integer stopSeq;
-
-	/** 현재 구간 속도 (km/h) */
-	private Double sectionSpeed;
+	/** API tmY 원본 좌표 */
+	@Column(name = "tm_y")
+	private Double tmY;
 
 	/** 현재 구간 순서 */
 	private Integer sectionOrder;
 
+	/** 구간 옵셋 거리 */
+	private Double sectionDistance;
+
 	/** 정차 여부 (0:운행중, 1:정차) */
 	private String stopFlag;
+
+	/** 구간 ID */
+	private String sectionId;
 
 	/** API 기준 수집 시각 */
 	private String dataTm;
@@ -57,28 +59,43 @@ public class BusPositionRaw extends BaseEntity {
 	/** 최종 정류소 ID */
 	private String lastStopId;
 
-	/** 운행 여부 */
-	private String isRunning;
+	/** API posX 원본 좌표 */
+	@Column(name = "pos_x")
+	private Double posX;
+
+	/** API posY 원본 좌표 */
+	@Column(name = "pos_y")
+	private Double posY;
+
+	/** 응답 본문에 포함된 노선 ID */
+	private String apiRouteId;
+
+	/** 차량 내부 혼잡도 */
+	private Integer congestion;
 
 	@Builder
 	public BusPositionRaw(LocalDateTime collectedAt, String routeId, String vehicleId,
-						  Double latitude, Double longitude, Integer stopSeq,
-						  Double sectionSpeed, Integer sectionOrder,
-						  String stopFlag, String dataTm, String plainNo,
-						  Integer busType, String lastStopId, String isRunning) {
+						  Double tmX, Double tmY, Integer sectionOrder,
+						  Double sectionDistance, String stopFlag,
+						  String sectionId, String dataTm, String plainNo,
+						  Integer busType, String lastStopId, Double posX,
+						  Double posY, String apiRouteId, Integer congestion) {
 		this.collectedAt = collectedAt;
 		this.routeId = routeId;
 		this.vehicleId = vehicleId;
-		this.latitude = latitude;
-		this.longitude = longitude;
-		this.stopSeq = stopSeq;
-		this.sectionSpeed = sectionSpeed;
+		this.tmX = tmX;
+		this.tmY = tmY;
 		this.sectionOrder = sectionOrder;
+		this.sectionDistance = sectionDistance;
 		this.stopFlag = stopFlag;
+		this.sectionId = sectionId;
 		this.dataTm = dataTm;
 		this.plainNo = plainNo;
 		this.busType = busType;
 		this.lastStopId = lastStopId;
-		this.isRunning = isRunning;
+		this.posX = posX;
+		this.posY = posY;
+		this.apiRouteId = apiRouteId;
+		this.congestion = congestion;
 	}
 }

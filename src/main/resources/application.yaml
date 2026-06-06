@@ -128,7 +128,11 @@ collector:
 
   bus-position:
     enabled: false
-    cron: "0 */3 * * * *"
+    cron: "0 * * * * *"
+    active-hours:
+      start: "03:30"
+      end: "00:30"
+
   subway-arrival: # DEPRECATED
     enabled: false
     cron: "0 */1 * * * *"

@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import lombok.Data;
 
 @Data
@@ -8,15 +9,19 @@ import lombok.Data;
 public class BusPositionItem {
 
 	private String vehId;
-	private String stOrd;
 	private String tmX;
 	private String tmY;
-	private String sectSpd;
 	private String sectOrd;
+	private String sectDist;
 	private String stopFlag;
+	private String sectionId;
 	private String dataTm;
 	private String plainNo;
 	private String busType;
 	private String lastStnId;
-	private String isrunyn;
+	private String posX;
+	private String posY;
+	private String routeId;
+	@JsonAlias("congestion")
+	private String congetion;
 }

@@ -31,6 +31,8 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class BusArrivalService implements CollectBusArrivalUseCase {
 
+  private static final long API_CALL_INTERVAL_MS = 100;
+
 	private final BusApiPort busApiPort;
 	private final BusDataService busDataService;
 	private final BusCollectorProperties properties;
@@ -89,7 +91,7 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 				budget.recordCall();
 				callRecorded = true;
 				totalFinalized += reconcile(routeId, items, collectedAt);
-				Thread.sleep(100);
+				Thread.sleep(API_CALL_INTERVAL_MS);
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
 				if (!callRecorded) {

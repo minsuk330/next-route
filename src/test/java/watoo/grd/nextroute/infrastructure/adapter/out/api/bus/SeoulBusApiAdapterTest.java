@@ -157,4 +157,57 @@ class SeoulBusApiAdapterTest {
 		assertThat(result.get(0).firstBusTime()).isEqualTo("20230927041000");
 		assertThat(result.get(0).lastBusTime()).isEqualTo("20230927222000");
 	}
+
+	@Test
+	void TC_버스위치정보는_응답필드를_모두_매핑한다() {
+		when(restTemplate.getForObject(any(URI.class), eq(String.class)))
+				.thenReturn("""
+						<ServiceResult>
+						  <msgHeader>
+						    <headerCd>0</headerCd>
+						    <headerMsg>정상적으로 처리되었습니다.</headerMsg>
+						    <itemCount>1</itemCount>
+						  </msgHeader>
+						  <msgBody>
+						    <itemList>
+						      <sectOrd>12</sectOrd>
+						      <sectDist>345.6</sectDist>
+						      <stopFlag>1</stopFlag>
+						      <sectionId>100100001</sectionId>
+						      <dataTm>2026-06-06 13:00:01.0</dataTm>
+						      <tmX>126.982001</tmX>
+						      <tmY>37.566500</tmY>
+						      <vehId>123456789</vehId>
+						      <plainNo>서울70사1234</plainNo>
+						      <busType>1</busType>
+						      <lastStnId>111000001</lastStnId>
+						      <posX>126.982111</posX>
+						      <posY>37.566611</posY>
+						      <routeId>100100118</routeId>
+						      <congetion>4</congetion>
+						    </itemList>
+						  </msgBody>
+						</ServiceResult>
+						""");
+
+		var result = adapter.getBusPosByRtid("100100118");
+
+		assertThat(result).hasSize(1);
+		var info = result.get(0);
+		assertThat(info.vehicleId()).isEqualTo("123456789");
+		assertThat(info.tmX()).isEqualTo(126.982001);
+		assertThat(info.tmY()).isEqualTo(37.566500);
+		assertThat(info.sectionOrder()).isEqualTo(12);
+		assertThat(info.sectionDistance()).isEqualTo(345.6);
+		assertThat(info.stopFlag()).isEqualTo("1");
+		assertThat(info.sectionId()).isEqualTo("100100001");
+		assertThat(info.dataTm()).isEqualTo("2026-06-06 13:00:01.0");
+		assertThat(info.plainNo()).isEqualTo("서울70사1234");
+		assertThat(info.busType()).isEqualTo(1);
+		assertThat(info.lastStopId()).isEqualTo("111000001");
+		assertThat(info.posX()).isEqualTo(126.982111);
+		assertThat(info.posY()).isEqualTo(37.566611);
+		assertThat(info.apiRouteId()).isEqualTo("100100118");
+		assertThat(info.congestion()).isEqualTo(4);
+	}
 }
