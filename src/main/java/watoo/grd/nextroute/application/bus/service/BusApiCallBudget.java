@@ -1,13 +1,14 @@
 package watoo.grd.nextroute.application.bus.service;
 
-import org.springframework.stereotype.Component;
-
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-@Component
+/**
+ * 호출 예산 카운터. 수집기별로 독립 인스턴스를 둔다.
+ * 빈 정의는 {@link BusApiCallBudgetConfig} (arrivalApiCallBudget / positionApiCallBudget) 참고.
+ */
 public class BusApiCallBudget {
 
 	private final Clock clock;

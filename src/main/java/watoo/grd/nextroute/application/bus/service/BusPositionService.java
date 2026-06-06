@@ -6,6 +6,8 @@ import java.util.List;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.bus.config.BusCollectorProperties;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
@@ -25,8 +27,12 @@ public class BusPositionService implements CollectBusPositionUseCase {
 	private final BusApiPort busApiPort;
 	private final BusDataService busDataService;
 	private final BusCollectorProperties properties;
+	@Qualifier("positionApiCallBudget")
 	private final BusApiCallBudget budget;
 	private final Clock clock;
+
+	@Value("${collector.bus-position.daily-budget:50000}")
+	private int dailyBudget = 50000;
 
 	@Override
 	public void execute() {
@@ -51,7 +57,6 @@ public class BusPositionService implements CollectBusPositionUseCase {
 			log.warn("[BusPosition] Only {}/{} target routes found in DB.", routeIds.size(), targetNames.size());
 		}
 
-		int dailyBudget = properties.getDailyBudget();
 		LocalDateTime collectedAt = LocalDateTime.now(clock);
 		int totalSaved = 0;
 		int successfulRoutes = 0;
@@ -103,20 +108,28 @@ public class BusPositionService implements CollectBusPositionUseCase {
 				.collectedAt(collectedAt)
 				.routeId(routeId)
 				.vehicleId(info.vehicleId())
-				.tmX(info.tmX())
-				.tmY(info.tmY())
+				.nextStopTime(info.nextStopTime())
 				.sectionOrder(info.sectionOrder())
 				.sectionDistance(info.sectionDistance())
+				.routeDistance(info.routeDistance())
 				.stopFlag(info.stopFlag())
 				.sectionId(info.sectionId())
 				.dataTm(info.dataTm())
 				.plainNo(info.plainNo())
 				.busType(info.busType())
+				.lastStopTime(info.lastStopTime())
 				.lastStopId(info.lastStopId())
 				.posX(info.posX())
 				.posY(info.posY())
-				.apiRouteId(info.apiRouteId())
+				.isFullFlag(info.isFullFlag())
+				.isLastYn(info.isLastYn())
+				.fullSectionDistance(info.fullSectionDistance())
+				.nextStopId(info.nextStopId())
 				.congestion(info.congestion())
+				.turnStopId(info.turnStopId())
+				.gpsX(info.gpsX())
+				.gpsY(info.gpsY())
+				.isRunYn(info.isRunYn())
 				.build();
 	}
 }

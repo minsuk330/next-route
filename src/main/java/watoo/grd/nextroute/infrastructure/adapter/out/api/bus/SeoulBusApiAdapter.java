@@ -339,24 +339,30 @@ public class SeoulBusApiAdapter implements BusApiPort {
 	}
 
 	private BusPositionInfo toPositionInfo(BusPositionItem item) {
-		Double tmX = parseDouble(item.getTmX());
-		Double tmY = parseDouble(item.getTmY());
 		return new BusPositionInfo(
 				item.getVehId(),
-				tmX,
-				tmY,
+				parseInteger(item.getNextStTm()),
 				parseInteger(item.getSectOrd()),
 				parseDouble(item.getSectDist()),
+				parseDouble(item.getRtDist()),
 				item.getStopFlag(),
 				item.getSectionId(),
 				item.getDataTm(),
 				item.getPlainNo(),
 				parseInteger(item.getBusType()),
+				parseInteger(item.getLastStTm()),
 				item.getLastStnId(),
 				parseDouble(item.getPosX()),
 				parseDouble(item.getPosY()),
-				item.getRouteId(),
-				parseInteger(item.getCongetion())
+				item.getIsFullFlag(),
+				item.getIslastyn(),
+				parseDouble(item.getFullSectDist()),
+				item.getNextStId(),
+				parseInteger(item.getCongetion()),
+				item.getTrnstnid(),
+				parseDouble(item.getGpsX()),
+				parseDouble(item.getGpsY()),
+				item.getIsrunyn()
 		);
 	}
 
