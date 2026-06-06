@@ -27,19 +27,17 @@ public class BusPositionRaw extends BaseEntity {
 	/** 차량 ID */
 	private String vehicleId;
 
-	/** API tmX 원본 좌표 */
-	@Column(name = "tm_x")
-	private Double tmX;
-
-	/** API tmY 원본 좌표 */
-	@Column(name = "tm_y")
-	private Double tmY;
+	/** 다음 정류소 도착 소요시간 */
+	private Integer nextStopTime;
 
 	/** 현재 구간 순서 */
 	private Integer sectionOrder;
 
 	/** 구간 옵셋 거리 */
 	private Double sectionDistance;
+
+	/** 노선 옵셋 거리 */
+	private Double routeDistance;
 
 	/** 정차 여부 (0:운행중, 1:정차) */
 	private String stopFlag;
@@ -56,6 +54,9 @@ public class BusPositionRaw extends BaseEntity {
 	/** 버스 타입 (0:일반, 1:저상) */
 	private Integer busType;
 
+	/** 종점 도착 소요시간 */
+	private Integer lastStopTime;
+
 	/** 최종 정류소 ID */
 	private String lastStopId;
 
@@ -67,35 +68,70 @@ public class BusPositionRaw extends BaseEntity {
 	@Column(name = "pos_y")
 	private Double posY;
 
-	/** 응답 본문에 포함된 노선 ID */
-	private String apiRouteId;
+	/** 만차 여부 */
+	private String isFullFlag;
+
+	/** 막차 여부 */
+	private String isLastYn;
+
+	/** 정류소간 거리 */
+	private Double fullSectionDistance;
+
+	/** 다음 정류소 ID */
+	private String nextStopId;
 
 	/** 차량 내부 혼잡도 */
 	private Integer congestion;
 
+	/** 회차지 정류소 ID */
+	private String turnStopId;
+
+	/** WGS84 X 좌표 */
+	@Column(name = "gps_x")
+	private Double gpsX;
+
+	/** WGS84 Y 좌표 */
+	@Column(name = "gps_y")
+	private Double gpsY;
+
+	/** 해당 차량 운행 여부 */
+	private String isRunYn;
+
 	@Builder
 	public BusPositionRaw(LocalDateTime collectedAt, String routeId, String vehicleId,
-						  Double tmX, Double tmY, Integer sectionOrder,
-						  Double sectionDistance, String stopFlag,
-						  String sectionId, String dataTm, String plainNo,
-						  Integer busType, String lastStopId, Double posX,
-						  Double posY, String apiRouteId, Integer congestion) {
+						  Integer nextStopTime, Integer sectionOrder,
+						  Double sectionDistance, Double routeDistance,
+						  String stopFlag, String sectionId, String dataTm,
+						  String plainNo, Integer busType, Integer lastStopTime,
+						  String lastStopId, Double posX, Double posY,
+						  String isFullFlag, String isLastYn,
+						  Double fullSectionDistance, String nextStopId,
+						  Integer congestion, String turnStopId,
+						  Double gpsX, Double gpsY, String isRunYn) {
 		this.collectedAt = collectedAt;
 		this.routeId = routeId;
 		this.vehicleId = vehicleId;
-		this.tmX = tmX;
-		this.tmY = tmY;
+		this.nextStopTime = nextStopTime;
 		this.sectionOrder = sectionOrder;
 		this.sectionDistance = sectionDistance;
+		this.routeDistance = routeDistance;
 		this.stopFlag = stopFlag;
 		this.sectionId = sectionId;
 		this.dataTm = dataTm;
 		this.plainNo = plainNo;
 		this.busType = busType;
+		this.lastStopTime = lastStopTime;
 		this.lastStopId = lastStopId;
 		this.posX = posX;
 		this.posY = posY;
-		this.apiRouteId = apiRouteId;
+		this.isFullFlag = isFullFlag;
+		this.isLastYn = isLastYn;
+		this.fullSectionDistance = fullSectionDistance;
+		this.nextStopId = nextStopId;
 		this.congestion = congestion;
+		this.turnStopId = turnStopId;
+		this.gpsX = gpsX;
+		this.gpsY = gpsY;
+		this.isRunYn = isRunYn;
 	}
 }

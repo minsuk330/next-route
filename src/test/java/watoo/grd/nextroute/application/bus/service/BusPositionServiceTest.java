@@ -61,20 +61,28 @@ class BusPositionServiceTest {
 		assertThat(saved.getCollectedAt()).isEqualTo(FIXED_NOW);
 		assertThat(saved.getRouteId()).isEqualTo("100100118");
 		assertThat(saved.getVehicleId()).isEqualTo("veh-1");
-		assertThat(saved.getTmX()).isEqualTo(126.982001);
-		assertThat(saved.getTmY()).isEqualTo(37.566500);
+		assertThat(saved.getNextStopTime()).isEqualTo(158);
 		assertThat(saved.getSectionOrder()).isEqualTo(12);
-		assertThat(saved.getSectionDistance()).isEqualTo(345.6);
+		assertThat(saved.getSectionDistance()).isEqualTo(0.126);
+		assertThat(saved.getRouteDistance()).isEqualTo(16.0);
 		assertThat(saved.getStopFlag()).isEqualTo("1");
 		assertThat(saved.getSectionId()).isEqualTo("section-1");
 		assertThat(saved.getDataTm()).isEqualTo("2026-06-05 10:00:01.0");
 		assertThat(saved.getPlainNo()).isEqualTo("서울70사1234");
 		assertThat(saved.getBusType()).isEqualTo(1);
+		assertThat(saved.getLastStopTime()).isEqualTo(2581);
 		assertThat(saved.getLastStopId()).isEqualTo("111000001");
 		assertThat(saved.getPosX()).isEqualTo(126.982111);
 		assertThat(saved.getPosY()).isEqualTo(37.566611);
-		assertThat(saved.getApiRouteId()).isEqualTo("100100118");
+		assertThat(saved.getIsFullFlag()).isEqualTo("0");
+		assertThat(saved.getIsLastYn()).isEqualTo("1");
+		assertThat(saved.getFullSectionDistance()).isEqualTo(0.883);
+		assertThat(saved.getNextStopId()).isEqualTo("111000002");
 		assertThat(saved.getCongestion()).isEqualTo(4);
+		assertThat(saved.getTurnStopId()).isEqualTo("111000099");
+		assertThat(saved.getGpsX()).isEqualTo(126.982001);
+		assertThat(saved.getGpsY()).isEqualTo(37.566500);
+		assertThat(saved.getIsRunYn()).isEqualTo("1");
 		verify(budget).recordCall();
 	}
 
@@ -123,20 +131,28 @@ class BusPositionServiceTest {
 	private BusPositionInfo positionInfo() {
 		return new BusPositionInfo(
 				"veh-1",
-				126.982001,
-				37.566500,
+				158,
 				12,
-				345.6,
+				0.126,
+				16.0,
 				"1",
 				"section-1",
 				"2026-06-05 10:00:01.0",
 				"서울70사1234",
 				1,
+				2581,
 				"111000001",
 				126.982111,
 				37.566611,
-				"100100118",
-				4
+				"0",
+				"1",
+				0.883,
+				"111000002",
+				4,
+				"111000099",
+				126.982001,
+				37.566500,
+				"1"
 		);
 	}
 }

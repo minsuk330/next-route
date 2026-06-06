@@ -170,21 +170,29 @@ class SeoulBusApiAdapterTest {
 						  </msgHeader>
 						  <msgBody>
 						    <itemList>
+						      <nextStTm>158</nextStTm>
 						      <sectOrd>12</sectOrd>
-						      <sectDist>345.6</sectDist>
+						      <sectDist>0.126</sectDist>
+						      <rtDist>16</rtDist>
 						      <stopFlag>1</stopFlag>
 						      <sectionId>100100001</sectionId>
 						      <dataTm>2026-06-06 13:00:01.0</dataTm>
-						      <tmX>126.982001</tmX>
-						      <tmY>37.566500</tmY>
 						      <vehId>123456789</vehId>
 						      <plainNo>서울70사1234</plainNo>
 						      <busType>1</busType>
+						      <lastStTm>2581</lastStTm>
 						      <lastStnId>111000001</lastStnId>
 						      <posX>126.982111</posX>
 						      <posY>37.566611</posY>
-						      <routeId>100100118</routeId>
+						      <isFullFlag>0</isFullFlag>
+						      <islastyn>1</islastyn>
+						      <fullSectDist>0.883</fullSectDist>
+						      <nextStId>111000002</nextStId>
 						      <congetion>4</congetion>
+						      <trnstnid>111000099</trnstnid>
+						      <gpsX>126.982001</gpsX>
+						      <gpsY>37.566500</gpsY>
+						      <isrunyn>1</isrunyn>
 						    </itemList>
 						  </msgBody>
 						</ServiceResult>
@@ -195,19 +203,27 @@ class SeoulBusApiAdapterTest {
 		assertThat(result).hasSize(1);
 		var info = result.get(0);
 		assertThat(info.vehicleId()).isEqualTo("123456789");
-		assertThat(info.tmX()).isEqualTo(126.982001);
-		assertThat(info.tmY()).isEqualTo(37.566500);
+		assertThat(info.nextStopTime()).isEqualTo(158);
 		assertThat(info.sectionOrder()).isEqualTo(12);
-		assertThat(info.sectionDistance()).isEqualTo(345.6);
+		assertThat(info.sectionDistance()).isEqualTo(0.126);
+		assertThat(info.routeDistance()).isEqualTo(16.0);
 		assertThat(info.stopFlag()).isEqualTo("1");
 		assertThat(info.sectionId()).isEqualTo("100100001");
 		assertThat(info.dataTm()).isEqualTo("2026-06-06 13:00:01.0");
 		assertThat(info.plainNo()).isEqualTo("서울70사1234");
 		assertThat(info.busType()).isEqualTo(1);
+		assertThat(info.lastStopTime()).isEqualTo(2581);
 		assertThat(info.lastStopId()).isEqualTo("111000001");
 		assertThat(info.posX()).isEqualTo(126.982111);
 		assertThat(info.posY()).isEqualTo(37.566611);
-		assertThat(info.apiRouteId()).isEqualTo("100100118");
+		assertThat(info.isFullFlag()).isEqualTo("0");
+		assertThat(info.isLastYn()).isEqualTo("1");
+		assertThat(info.fullSectionDistance()).isEqualTo(0.883);
+		assertThat(info.nextStopId()).isEqualTo("111000002");
 		assertThat(info.congestion()).isEqualTo(4);
+		assertThat(info.turnStopId()).isEqualTo("111000099");
+		assertThat(info.gpsX()).isEqualTo(126.982001);
+		assertThat(info.gpsY()).isEqualTo(37.566500);
+		assertThat(info.isRunYn()).isEqualTo("1");
 	}
 }

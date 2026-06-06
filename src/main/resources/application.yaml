@@ -127,7 +127,7 @@ collector:
       - "720"
 
   bus-position:
-    enabled: false
+    enabled: true
     cron: "0 * * * * *"
     active-hours:
       start: "03:30"
