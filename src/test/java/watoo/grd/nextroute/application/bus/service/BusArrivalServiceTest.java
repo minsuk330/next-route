@@ -11,6 +11,7 @@ import watoo.grd.nextroute.application.bus.dto.ArrivalScope;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalActiveSnapshot;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalCandidate;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
+import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.bus.port.out.BusArrivalSnapshotPort;
 import watoo.grd.nextroute.domain.bus.entity.BusArrivalCandidateRaw;
@@ -330,6 +331,22 @@ class BusArrivalServiceTest {
 		verifyNoInteractions(busArrivalSnapshotPort);
 		verify(busDataService, never()).saveAllArrivalCandidates(anyList());
 		verify(budget).recordCall();
+	}
+
+	@Test
+	void TC_API_차단_상태는_budget_기록과_reconcile_없이_수집을_중단한다() {
+		prepareRoute();
+		given(busApiPort.getArrInfoByRouteAll("100100118"))
+				.willThrow(new BusApiBlockedException(
+						FIXED_NOW.plusDays(1).atZone(KST).toInstant(),
+						"blocked"
+				));
+
+		service.execute();
+
+		verifyNoInteractions(busArrivalSnapshotPort);
+		verify(busDataService, never()).saveAllArrivalCandidates(anyList());
+		verify(budget, never()).recordCall();
 	}
 
 	private void prepareRoute() {

@@ -11,7 +11,9 @@ src/main/resources/db/migration/*
 !src/main/resources/db/migration/V9__add_lifecycle_id_to_bus_arrival_candidate_raw.sql
 !src/main/resources/db/migration/V10__add_full_bus_position_fields.sql
 !src/main/resources/db/migration/V11__replace_bus_position_fields_with_rtid_response.sql
-
+docs
+.firecrawl
+.github
 ### STS ###
 .apt_generated
 .classpath

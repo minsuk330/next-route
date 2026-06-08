@@ -9,8 +9,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.application.bus.dto.BusRidershipFetchResult;
+import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
+import watoo.grd.nextroute.application.bus.service.BusApiCallBudget;
+import watoo.grd.nextroute.common.config.ClockConfig;
 
 import java.net.URI;
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,7 +29,14 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class SeoulBusApiAdapterTest {
 
+	private static final Clock CLOCK = Clock.fixed(
+			LocalDateTime.of(2026, 6, 5, 10, 0, 0).atZone(ClockConfig.KST).toInstant(),
+			ClockConfig.KST
+	);
+
 	@Mock RestTemplate restTemplate;
+	@Mock BusApiCallBudget arrivalBudget;
+	@Mock BusApiCallBudget positionBudget;
 	SeoulBusApiAdapter adapter;
 
 	@BeforeEach
@@ -32,6 +44,11 @@ class SeoulBusApiAdapterTest {
 		adapter = new SeoulBusApiAdapter(
 				restTemplate,
 				new ObjectMapper(),
+				CLOCK,
+				arrivalBudget,
+				positionBudget,
+				50000,
+				50000,
 				"bus-key",
 				"http://ws.bus.go.kr/api/rest",
 				"route-key",
@@ -156,6 +173,35 @@ class SeoulBusApiAdapterTest {
 		assertThat(result.get(0).stopName()).isEqualTo("구상동사거리");
 		assertThat(result.get(0).firstBusTime()).isEqualTo("20230927041000");
 		assertThat(result.get(0).lastBusTime()).isEqualTo("20230927222000");
+	}
+
+	@Test
+	void TC_버스_API_호출제한_코드_7이면_다음_KST_자정까지_호출을_차단한다() {
+		when(restTemplate.getForObject(any(URI.class), eq(String.class)))
+				.thenReturn("""
+						<ServiceResult>
+						  <msgHeader>
+						    <headerCd>7</headerCd>
+						    <headerMsg>일일 호출건수를 초과하였습니다.</headerMsg>
+						    <itemCount>0</itemCount>
+						  </msgHeader>
+						  <msgBody />
+						</ServiceResult>
+						""");
+
+		assertThatThrownBy(() -> adapter.getArrInfoByRouteAll("100100118"))
+				.isInstanceOf(BusApiBlockedException.class)
+				.satisfies(error -> assertThat(((BusApiBlockedException) error).blockedUntil())
+						.isEqualTo(LocalDateTime.of(2026, 6, 6, 0, 0, 0)
+								.atZone(ClockConfig.KST)
+								.toInstant()));
+
+		assertThatThrownBy(() -> adapter.getBusPosByRtid("100100118"))
+				.isInstanceOf(BusApiBlockedException.class);
+
+		verify(restTemplate, times(1)).getForObject(any(URI.class), eq(String.class));
+		verify(arrivalBudget, times(2)).getUsed();
+		verify(positionBudget, times(2)).getUsed();
 	}
 
 	@Test
