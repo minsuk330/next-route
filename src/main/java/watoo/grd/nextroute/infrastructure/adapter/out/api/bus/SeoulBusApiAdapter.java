@@ -6,16 +6,25 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.application.bus.dto.*;
+import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
+import watoo.grd.nextroute.application.bus.port.out.BusApiBlockStatusPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
+import watoo.grd.nextroute.application.bus.service.BusApiCallBudget;
+import watoo.grd.nextroute.common.config.ClockConfig;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.*;
 
 import java.net.URI;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static watoo.grd.nextroute.common.util.ParseUtils.parseDouble;
 import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
@@ -27,23 +36,35 @@ import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
  */
 @Slf4j
 @Component
-public class SeoulBusApiAdapter implements BusApiPort {
+public class SeoulBusApiAdapter implements BusApiPort, BusApiBlockStatusPort {
 
 	private static final int MAX_RETRIES = 3;
+	private static final String API_LIMIT_EXCEEDED_CODE = "7";
 
 	private final RestTemplate restTemplate;
 	private final XmlMapper xmlMapper;
 	private final String apiKey;
 	private final String baseUrl;
+	private final Clock clock;
+	private final BusApiCallBudget arrivalBudget;
+	private final BusApiCallBudget positionBudget;
+	private final int arrivalDailyBudget;
+	private final int positionDailyBudget;
 
 	private final String busRouteKey;
 	private final String busUsageKey;
 	private final String busRouteBaseUrl;
 	private final ObjectMapper objectMapper;
+	private volatile Instant blockedUntil;
 
 	public SeoulBusApiAdapter(
 			RestTemplate restTemplate,
 			ObjectMapper objectMapper,
+			Clock clock,
+			@Qualifier("arrivalApiCallBudget") BusApiCallBudget arrivalBudget,
+			@Qualifier("positionApiCallBudget") BusApiCallBudget positionBudget,
+			@Value("${collector.bus-arrival.daily-budget:50000}") int arrivalDailyBudget,
+			@Value("${collector.bus-position.daily-budget:50000}") int positionDailyBudget,
 			@Value("${seoul.api.bus-key}") String apiKey,
 			@Value("${seoul.api.bus-base-url}") String baseUrl,
 			@Value("${seoul.api.bus-route-key}") String busRouteKey,
@@ -51,6 +72,11 @@ public class SeoulBusApiAdapter implements BusApiPort {
 			@Value("${seoul.api.seoul-base-api-url}") String busRouteBaseUrl) {
 		this.restTemplate = restTemplate;
 		this.objectMapper = objectMapper;
+		this.clock = clock;
+		this.arrivalBudget = arrivalBudget;
+		this.positionBudget = positionBudget;
+		this.arrivalDailyBudget = arrivalDailyBudget;
+		this.positionDailyBudget = positionDailyBudget;
 		this.apiKey = apiKey;
 		this.baseUrl = baseUrl;
 		this.busRouteKey = busRouteKey;
@@ -200,6 +226,19 @@ public class SeoulBusApiAdapter implements BusApiPort {
 		}
 
 		return new BusRidershipFetchResult(month, totalCount, allRows);
+	}
+
+	@Override
+	public Optional<Instant> getBlockedUntil() {
+		Instant until = blockedUntil;
+		if (until == null) {
+			return Optional.empty();
+		}
+		if (Instant.now(clock).isBefore(until)) {
+			return Optional.of(until);
+		}
+		blockedUntil = null;
+		return Optional.empty();
 	}
 
 	// ===== Infra DTO → App DTO 변환 =====
@@ -486,6 +525,7 @@ public class SeoulBusApiAdapter implements BusApiPort {
 	 * 모든 재시도 실패 시 빈 리스트를 반환한다.
 	 */
 	private <T> List<T> callApi(URI uri, Class<T> itemType) {
+		throwIfBlocked(uri);
 		Exception lastException = null;
 
 		for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -501,14 +541,21 @@ public class SeoulBusApiAdapter implements BusApiPort {
 				BusApiResponse<T> response = xmlMapper.readValue(xml, responseType);
 
 				if (!response.isSuccess()) {
+					String headerCd = response.getMsgHeader() == null ? null : response.getMsgHeader().getHeaderCd();
+					String headerMsg = response.getMsgHeader() == null ? null : response.getMsgHeader().getHeaderMsg();
+					if (API_LIMIT_EXCEEDED_CODE.equals(normalize(headerCd))) {
+						throw blockUntilNextMidnight(uri, headerMsg);
+					}
 					log.warn("API error [{}]: {} - {}",
 							uri.getPath(),
-							response.getMsgHeader().getHeaderCd(),
-							response.getMsgHeader().getHeaderMsg());
+							headerCd,
+							headerMsg);
 					return List.of();
 				}
 
 				return response.getItems();
+			} catch (BusApiBlockedException e) {
+				throw e;
 			} catch (Exception e) {
 				lastException = e;
 				log.warn("API call attempt {}/{} failed [{}]: {}",
@@ -527,5 +574,43 @@ public class SeoulBusApiAdapter implements BusApiPort {
 
 		log.error("API call failed after {} retries: {}", MAX_RETRIES, uri.getPath(), lastException);
 		return List.of();
+	}
+
+	private void throwIfBlocked(URI uri) {
+		Optional<Instant> blocked = getBlockedUntil();
+		if (blocked.isEmpty()) {
+			return;
+		}
+
+		Instant until = blocked.get();
+		log.warn("API blocked until {} KST due to error code 7 [{}] [budget: {}]",
+				until.atZone(ClockConfig.KST), uri.getPath(), budgetStatus());
+		throw new BusApiBlockedException(
+				until,
+				"Seoul bus API blocked until " + until.atZone(ClockConfig.KST) + " KST"
+		);
+	}
+
+	private BusApiBlockedException blockUntilNextMidnight(URI uri, String headerMsg) {
+		ZonedDateTime nextMidnight = ZonedDateTime.now(clock)
+				.toLocalDate()
+				.plusDays(1)
+				.atStartOfDay(ClockConfig.KST);
+		blockedUntil = nextMidnight.toInstant();
+		log.error("API error code 7 - blocking until {} KST [{}]: {} [budget: {}]",
+				nextMidnight, uri.getPath(), headerMsg, budgetStatus());
+		return new BusApiBlockedException(
+				blockedUntil,
+				"Seoul bus API error code 7; blocked until " + nextMidnight + " KST"
+		);
+	}
+
+	private String normalize(String value) {
+		return value == null ? null : value.trim();
+	}
+
+	private String budgetStatus() {
+		return "arrival=" + arrivalBudget.getUsed() + "/" + arrivalDailyBudget
+				+ ", position=" + positionBudget.getUsed() + "/" + positionDailyBudget;
 	}
 }

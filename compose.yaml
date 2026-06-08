@@ -45,16 +45,5 @@ services:
         condition: service_healthy
     restart: always
 
-  nextroute-ml:
-    image: ghcr.io/minsuk330/nextroute-ml:latest
-    environment:
-      - TZ=Asia/Seoul
-      - POSTGRES_HOST=postgres
-    env_file:
-      - env/db.env
-    depends_on:
-      postgres:
-        condition: service_healthy
-
 volumes:
   pgdata:

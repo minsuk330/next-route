@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.bus.config.BusCollectorProperties;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
+import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.in.CollectBusPositionUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.domain.bus.entity.BusPositionRaw;
@@ -62,8 +63,8 @@ public class BusPositionService implements CollectBusPositionUseCase {
 		int successfulRoutes = 0;
 		int failedRoutes = 0;
 
-		log.info("[BusPosition] Starting collection for {} target routes (budget: {}/{})",
-				routeIds.size(), budget.getUsed(), dailyBudget);
+//		log.info("[BusPosition] Starting collection for {} target routes (budget: {}/{})",
+//				routeIds.size(), budget.getUsed(), dailyBudget);
 
 		for (String routeId : routeIds) {
 			if (!budget.canMakeCall(dailyBudget)) {
@@ -90,6 +91,10 @@ public class BusPositionService implements CollectBusPositionUseCase {
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
 				return;
+			} catch (BusApiBlockedException e) {
+				log.warn("[BusPosition] API blocked. Stopping collection without budget record: {}",
+						e.getMessage());
+				return;
 			} catch (Exception e) {
 				if (!callRecorded) {
 					budget.recordCall();
@@ -99,8 +104,8 @@ public class BusPositionService implements CollectBusPositionUseCase {
 			}
 		}
 
-		log.info("[BusPosition] Completed. Saved {} records across {} routes, failed {} routes (budget: {}/{})",
-				totalSaved, successfulRoutes, failedRoutes, budget.getUsed(), dailyBudget);
+//		log.info("[BusPosition] Completed. Saved {} records across {} routes, failed {} routes (budget: {}/{})",
+//				totalSaved, successfulRoutes, failedRoutes, budget.getUsed(), dailyBudget);
 	}
 
 	private BusPositionRaw toEntity(BusPositionInfo info, String routeId, LocalDateTime collectedAt) {

@@ -8,6 +8,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.bus.config.BusCollectorProperties;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
+import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.domain.bus.entity.BusPositionRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
@@ -111,6 +112,24 @@ class BusPositionServiceTest {
 		verify(busApiPort).getBusPosByRtid("100100118");
 		verify(busApiPort).getBusPosByRtid("100100119");
 		verify(budget, times(2)).recordCall();
+		verify(busDataService, never()).saveAllPositions(anyList());
+	}
+
+	@Test
+	void TC_API_차단_상태는_budget_기록_없이_남은_노선을_호출하지_않는다() {
+		prepareRoutes(route("100100118", "143"), route("100100119", "272"));
+		given(budget.canMakeCall(50000)).willReturn(true);
+		given(busApiPort.getBusPosByRtid("100100118"))
+				.willThrow(new BusApiBlockedException(
+						FIXED_NOW.plusDays(1).atZone(KST).toInstant(),
+						"blocked"
+				));
+
+		service.execute();
+
+		verify(busApiPort).getBusPosByRtid("100100118");
+		verify(busApiPort, never()).getBusPosByRtid("100100119");
+		verify(budget, never()).recordCall();
 		verify(busDataService, never()).saveAllPositions(anyList());
 	}
 

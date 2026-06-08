@@ -9,6 +9,7 @@ import watoo.grd.nextroute.application.bus.dto.ArrivalScope;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalActiveSnapshot;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalCandidate;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
+import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.in.CollectBusArrivalUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.bus.port.out.BusArrivalSnapshotPort;
@@ -74,8 +75,8 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 		LocalDateTime collectedAt = LocalDateTime.now(clock);
 		int totalFinalized = 0;
 
-		log.info("[BusArrival] Starting collection for {} target routes (budget: {}/{})",
-				routeIds.size(), budget.getUsed(), dailyBudget);
+//		log.info("[BusArrival] Starting collection for {} target routes (budget: {}/{})",
+//				routeIds.size(), budget.getUsed(), dailyBudget);
 
 		for (String routeId : routeIds) {
 			// 예산이 소진돼 API를 못 불러도 stale active purge는 멈추지 않는다.
@@ -100,6 +101,10 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 					budget.recordCall();
 				}
 				return;
+			} catch (BusApiBlockedException e) {
+				log.warn("[BusArrival] API blocked. Stopping collection without reconcile or budget record: {}",
+						e.getMessage());
+				return;
 			} catch (Exception e) {
 				if (!callRecorded) {
 					budget.recordCall();
@@ -108,8 +113,8 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 			}
 		}
 
-		log.info("[BusArrival] Completed. Finalized {} candidates (budget: {}/{})",
-				totalFinalized, budget.getUsed(), dailyBudget);
+//		log.info("[BusArrival] Completed. Finalized {} candidates (budget: {}/{})",
+//				totalFinalized, budget.getUsed(), dailyBudget);
 	}
 
 	private int reconcile(String routeId, List<BusArrivalInfo> items, LocalDateTime collectedAt) {
