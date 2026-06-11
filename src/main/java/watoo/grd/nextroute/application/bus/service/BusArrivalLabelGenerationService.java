@@ -4,9 +4,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import watoo.grd.nextroute.domain.bus.entity.BusArrivalCandidateRaw;
+import watoo.grd.nextroute.application.bus.dto.BusArrivalCandidateLabelRow;
+import watoo.grd.nextroute.application.bus.dto.BusPositionLabelRow;
 import watoo.grd.nextroute.domain.bus.entity.BusArrivalLabelEvent;
-import watoo.grd.nextroute.domain.bus.entity.BusPositionRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRouteStop;
 import watoo.grd.nextroute.domain.bus.service.BusDataService;
 
@@ -58,24 +58,9 @@ public class BusArrivalLabelGenerationService {
 
         busDataService.deleteLabelEventsByServiceDate(serviceDate);
 
-        // 해당 service_date의 finalized candidate 전체 로드 (일 ~2.2만건)
-        List<BusArrivalCandidateRaw> allCandidates =
-                busDataService.findCandidatesByFinalizedAtBetween(dayStart, dayEnd);
-
-        // 필터: lifecycle_id not null, arrival_order=1, arrival_msg 제외, vehicle_identity not null
-        List<BusArrivalCandidateRaw> candidates = allCandidates.stream()
-                .filter(c -> c.getLifecycleId() != null)
-                .filter(c -> Integer.valueOf(1).equals(c.getArrivalOrder()))
-                .filter(c -> {
-                    String msg = c.getArrivalMsg();
-                    return msg == null || (!msg.contains("출발대기") && !msg.contains("회차대기"));
-                })
-                .filter(c -> c.getVehicleIdentity() != null && !c.getVehicleIdentity().isBlank())
-                .toList();
-
-        // route 단위로 그룹 (메모리 바운드, PR #4 OOM 교훈)
-        Map<String, List<BusArrivalCandidateRaw>> byRoute = candidates.stream()
-                .collect(Collectors.groupingBy(BusArrivalCandidateRaw::getRouteId));
+        // route 목록만 먼저 조회(가벼움). candidate 전체(하루 ~50만)를 한방에 메모리에 올리지 않고,
+        // route별로 쪼개 로드해 동시 상주를 노선당 ~1.6만으로 바운드한다 (OOM 방지).
+        List<String> routeIds = busDataService.findCandidateRouteIdsByFinalizedAtBetween(dayStart, dayEnd);
 
         List<BusArrivalLabelEvent> chunk = new ArrayList<>();
         int totalSaved = 0;
@@ -83,24 +68,21 @@ public class BusArrivalLabelGenerationService {
         int apiOnlyCount = 0;
         int excludedCount = 0;
 
-        for (Map.Entry<String, List<BusArrivalCandidateRaw>> entry : byRoute.entrySet()) {
-            String routeId = entry.getKey();
-            List<BusArrivalCandidateRaw> routeCandidates = entry.getValue();
+        for (String routeId : routeIds) {
+            // route별 candidate projection (필터는 DB WHERE로 이관, 12컬럼만)
+            List<BusArrivalCandidateLabelRow> routeCandidates =
+                    busDataService.findCandidateLabelRowsByRoute(routeId, dayStart, dayEnd);
 
-            // position 로드 (±10분 여유)
-            List<BusPositionRaw> positions = busDataService
-                    .findPositionsByRouteIdAndCollectedAtBetween(
-                            routeId,
-                            dayStart.minusMinutes(10),
-                            dayEnd.plusMinutes(10));
+            // route별 정차 position projection (stop_flag=1/is_run_yn=1 DB 필터, 8컬럼, ±10분 여유)
+            List<BusPositionLabelRow> positions = busDataService.findPositionLabelRowsByRoute(
+                    routeId, dayStart.minusMinutes(10), dayEnd.plusMinutes(10));
 
-            // position 필터: is_run_yn=1, data_tm 파싱 성공, 신선도 가드
+            // data_tm 파싱 + 신선도 가드 (stop_flag/is_run_yn은 DB에서 이미 필터됨)
             List<PositionSnapshot> snapshots = positions.stream()
-                    .filter(p -> "1".equals(p.getIsRunYn()))
                     .map(p -> {
-                        LocalDateTime ts = parseDataTm(p.getDataTm());
+                        LocalDateTime ts = parseDataTm(p.dataTm());
                         if (ts == null) return null;
-                        Duration lag = Duration.between(ts, p.getCollectedAt());
+                        Duration lag = Duration.between(ts, p.collectedAt());
                         if (lag.toMinutes() < -1 || lag.toMinutes() > STALE_POSITION_THRESHOLD_MINUTES) return null;
                         return new PositionSnapshot(p, ts);
                     })
@@ -113,22 +95,17 @@ public class BusArrivalLabelGenerationService {
                     .collect(Collectors.toMap(BusRouteStop::getSectionId, rs -> rs,
                             (a, b) -> a)); // 중복 section_id: 첫 번째 유지(seq 오름차순은 findByRouteIdOrderBySeq 보장)
 
-            // trip 분리 및 visit 도출
-            // (vehicle_identity) 기준 시계열 → trip 분리 → stop_flag=1 visit
+            // trip 분리 및 visit 도출 (vehicle별 시계열 → trip 분리 → 정차 visit)
             Map<String, List<PositionSnapshot>> byVehicle = snapshots.stream()
-                    .collect(Collectors.groupingBy(ps -> ps.raw().getVehicleId() != null
-                            && !ps.raw().getVehicleId().isBlank()
-                            ? ps.raw().getVehicleId()
-                            : ps.raw().getPlainNo()));
+                    .collect(Collectors.groupingBy(ps -> ps.vehicleKey()));
 
-            // vehicle별 visit 목록
             Map<String, List<StopVisit>> vehicleVisits = byVehicle.entrySet().stream()
                     .collect(Collectors.toMap(
                             Map.Entry::getKey,
                             e -> deriveVisits(routeId, e.getValue(), sectionIdToStop)));
 
             // candidate별 label row 생성
-            for (BusArrivalCandidateRaw candidate : routeCandidates) {
+            for (BusArrivalCandidateLabelRow candidate : routeCandidates) {
                 BusArrivalLabelEvent event = buildLabelEvent(
                         serviceDate, candidate, vehicleVisits, correctionWindowMinutes);
 
@@ -147,9 +124,7 @@ public class BusArrivalLabelGenerationService {
                 }
             }
 
-            // route 1회전 종료: 남은 chunk 저장 후 flushAndClear.
-            // 이 route에서 로드한 position 엔티티(노선당 ~3만)를 1차 캐시에서 detach해
-            // 다음 route로 누적되지 않게 한다 (OOM 방지, PR #4 지하철 교훈과 동일).
+            // route 1회전 종료: 남은 chunk 저장 후 flushAndClear (저장된 label 엔티티 detach).
             if (!chunk.isEmpty()) {
                 busDataService.saveAllLabelEvents(chunk);
                 totalSaved += chunk.size();
@@ -195,8 +170,8 @@ public class BusArrivalLabelGenerationService {
 
             boolean newTrip = false;
             // section_order 큰 폭 감소
-            Integer prevOrd = prev.raw().getSectionOrder();
-            Integer curOrd = cur.raw().getSectionOrder();
+            Integer prevOrd = prev.row().sectionOrder();
+            Integer curOrd = cur.row().sectionOrder();
             if (prevOrd != null && curOrd != null
                     && (prevOrd - curOrd) >= TRIP_SECTION_ORDER_DROP_THRESHOLD) {
                 newTrip = true;
@@ -218,8 +193,7 @@ public class BusArrivalLabelGenerationService {
     }
 
     private String buildTripId(String routeId, List<PositionSnapshot> trip) {
-        String vehicleId = trip.get(0).raw().getVehicleId();
-        if (vehicleId == null || vehicleId.isBlank()) vehicleId = trip.get(0).raw().getPlainNo();
+        String vehicleId = trip.get(0).vehicleKey();
         return routeId + ":" + vehicleId + ":" + trip.get(0).snapshotAt();
     }
 
@@ -231,11 +205,8 @@ public class BusArrivalLabelGenerationService {
         int i = 0;
         while (i < trip.size()) {
             PositionSnapshot ps = trip.get(i);
-            if (!"1".equals(ps.raw().getStopFlag())) {
-                i++;
-                continue;
-            }
-            String sectionId = ps.raw().getSectionId();
+            // stop_flag='1'은 DB에서 이미 필터됨(전부 정차 행). section_id만 확인.
+            String sectionId = ps.row().sectionId();
             if (sectionId == null || sectionId.isBlank()) {
                 i++;
                 continue;
@@ -246,13 +217,12 @@ public class BusArrivalLabelGenerationService {
                 continue;
             }
 
-            // 연속 같은 section_id stop_flag=1 묶기
+            // 연속 같은 section_id 정차 묶기
             List<PositionSnapshot> group = new ArrayList<>();
             group.add(ps);
             int j = i + 1;
             while (j < trip.size()
-                    && "1".equals(trip.get(j).raw().getStopFlag())
-                    && sectionId.equals(trip.get(j).raw().getSectionId())) {
+                    && sectionId.equals(trip.get(j).row().sectionId())) {
                 group.add(trip.get(j));
                 j++;
             }
@@ -264,7 +234,7 @@ public class BusArrivalLabelGenerationService {
                     : null;
 
             List<Long> rawIds = group.stream()
-                    .map(p -> p.raw().getId())
+                    .map(p -> p.row().id())
                     .filter(java.util.Objects::nonNull)
                     .toList();
 
@@ -279,11 +249,11 @@ public class BusArrivalLabelGenerationService {
     // ── label row 생성 ────────────────────────────────────────────────────────
 
     private BusArrivalLabelEvent buildLabelEvent(LocalDate serviceDate,
-                                                  BusArrivalCandidateRaw candidate,
+                                                  BusArrivalCandidateLabelRow candidate,
                                                   Map<String, List<StopVisit>> vehicleVisits,
                                                   int correctionWindowMin) {
-        String vehicleIdentity = candidate.getVehicleIdentity();
-        String vehicleIdentityType = candidate.getVehicleIdentityType();
+        String vehicleIdentity = candidate.vehicleIdentity();
+        String vehicleIdentityType = candidate.vehicleIdentityType();
 
         // API ETA 계산
         LocalDateTime apiEta = computeApiEta(candidate);
@@ -291,23 +261,23 @@ public class BusArrivalLabelGenerationService {
         if (apiEta == null) {
             return BusArrivalLabelEvent.builder()
                     .serviceDate(serviceDate)
-                    .routeId(candidate.getRouteId())
+                    .routeId(candidate.routeId())
                     .vehicleIdentityType(vehicleIdentityType != null ? vehicleIdentityType : "UNKNOWN")
                     .vehicleIdentity(vehicleIdentity)
-                    .stopId(candidate.getStopId())
-                    .seq(candidate.getSeq())
+                    .stopId(candidate.stopId())
+                    .seq(candidate.seq())
                     .labelSource(BusArrivalLabelEvent.SOURCE_ARRIVAL_API_ETA)
                     .labelConfidence(BusArrivalLabelEvent.CONFIDENCE_MEDIUM)
                     .excludedFromTraining(true)
                     .excludeReason(BusArrivalLabelEvent.EXCLUDE_INVALID_API_ETA)
-                    .arrivalRawId(candidate.getId())
-                    .arrivalLifecycleId(candidate.getLifecycleId())
+                    .arrivalRawId(candidate.id())
+                    .arrivalLifecycleId(candidate.lifecycleId())
                     .build();
         }
 
         // position correction 시도
         List<StopVisit> visits = vehicleVisits.getOrDefault(vehicleIdentity, List.of());
-        StopVisit match = findBestVisit(visits, candidate.getStopId(), candidate.getSeq(),
+        StopVisit match = findBestVisit(visits, candidate.stopId(), candidate.seq(),
                 apiEta, correctionWindowMin);
 
         if (match != null) {
@@ -316,12 +286,12 @@ public class BusArrivalLabelGenerationService {
                     .collect(Collectors.joining(",", "[", "]"));
             return BusArrivalLabelEvent.builder()
                     .serviceDate(serviceDate)
-                    .routeId(candidate.getRouteId())
+                    .routeId(candidate.routeId())
                     .vehicleIdentityType(vehicleIdentityType != null ? vehicleIdentityType : "UNKNOWN")
                     .vehicleIdentity(vehicleIdentity)
                     .tripId(match.tripId())
-                    .stopId(candidate.getStopId())
-                    .seq(candidate.getSeq())
+                    .stopId(candidate.stopId())
+                    .seq(candidate.seq())
                     .sectionId(match.sectionId())
                     .apiEstimatedArrivalAt(apiEta)
                     .correctedArrivalAt(match.arrivedAt())
@@ -333,8 +303,8 @@ public class BusArrivalLabelGenerationService {
                     .correctionSource(BusArrivalLabelEvent.SOURCE_POSITION_STOP_FLAG_CORRECTED)
                     .correctionConfidence(BusArrivalLabelEvent.CONFIDENCE_HIGH_PROVISIONAL)
                     .excludedFromTraining(false)
-                    .arrivalRawId(candidate.getId())
-                    .arrivalLifecycleId(candidate.getLifecycleId())
+                    .arrivalRawId(candidate.id())
+                    .arrivalLifecycleId(candidate.lifecycleId())
                     .positionRawIds(posRawIds)
                     .build();
         }
@@ -342,18 +312,18 @@ public class BusArrivalLabelGenerationService {
         // API ETA fallback
         return BusArrivalLabelEvent.builder()
                 .serviceDate(serviceDate)
-                .routeId(candidate.getRouteId())
+                .routeId(candidate.routeId())
                 .vehicleIdentityType(vehicleIdentityType != null ? vehicleIdentityType : "UNKNOWN")
                 .vehicleIdentity(vehicleIdentity)
-                .stopId(candidate.getStopId())
-                .seq(candidate.getSeq())
+                .stopId(candidate.stopId())
+                .seq(candidate.seq())
                 .apiEstimatedArrivalAt(apiEta)
                 .labelArrivalAt(apiEta)
                 .labelSource(BusArrivalLabelEvent.SOURCE_ARRIVAL_API_ETA)
                 .labelConfidence(BusArrivalLabelEvent.CONFIDENCE_MEDIUM)
                 .excludedFromTraining(false)
-                .arrivalRawId(candidate.getId())
-                .arrivalLifecycleId(candidate.getLifecycleId())
+                .arrivalRawId(candidate.id())
+                .arrivalLifecycleId(candidate.lifecycleId())
                 .build();
     }
 
@@ -387,9 +357,9 @@ public class BusArrivalLabelGenerationService {
         }
     }
 
-    private LocalDateTime computeApiEta(BusArrivalCandidateRaw candidate) {
-        String dataTimestamp = candidate.getDataTimestamp();
-        Integer predictTime = candidate.getPredictTime();
+    private LocalDateTime computeApiEta(BusArrivalCandidateLabelRow candidate) {
+        String dataTimestamp = candidate.dataTimestamp();
+        Integer predictTime = candidate.predictTime();
         if (predictTime == null || predictTime < 0) return null;
         LocalDateTime base = parseDataTm(dataTimestamp);
         if (base == null) return null;
@@ -398,7 +368,12 @@ public class BusArrivalLabelGenerationService {
 
     // ── 내부 레코드 ──────────────────────────────────────────────────────────
 
-    record PositionSnapshot(BusPositionRaw raw, LocalDateTime snapshotAt) {}
+    record PositionSnapshot(BusPositionLabelRow row, LocalDateTime snapshotAt) {
+        String vehicleKey() {
+            String vid = row.vehicleId();
+            return (vid != null && !vid.isBlank()) ? vid : row.plainNo();
+        }
+    }
 
     record StopVisit(String stopId, Integer seq, String sectionId, String tripId,
                      LocalDateTime arrivedAt, LocalDateTime departedAt, Integer dwellSeconds,

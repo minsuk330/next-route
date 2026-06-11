@@ -4,6 +4,8 @@ import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import watoo.grd.nextroute.application.bus.dto.BusArrivalCandidateLabelRow;
+import watoo.grd.nextroute.application.bus.dto.BusPositionLabelRow;
 import watoo.grd.nextroute.domain.bus.entity.*;
 import watoo.grd.nextroute.domain.bus.repository.*;
 import watoo.grd.nextroute.domain.bus.repository.NearbyBusStopProjection;
@@ -138,14 +140,19 @@ public class BusDataService {
 		return busArrivalLabelEventRepository.countByServiceDate(serviceDate);
 	}
 
-	public List<BusArrivalCandidateRaw> findCandidatesByFinalizedAtBetween(
+	public List<String> findCandidateRouteIdsByFinalizedAtBetween(
 			LocalDateTime from, LocalDateTime to) {
-		return busArrivalCandidateRawRepository.findByFinalizedAtBetween(from, to);
+		return busArrivalCandidateRawRepository.findDistinctRouteIdsByFinalizedAtBetween(from, to);
 	}
 
-	public List<BusPositionRaw> findPositionsByRouteIdAndCollectedAtBetween(
+	public List<BusArrivalCandidateLabelRow> findCandidateLabelRowsByRoute(
 			String routeId, LocalDateTime from, LocalDateTime to) {
-		return busPositionRawRepository.findByRouteIdAndCollectedAtBetween(routeId, from, to);
+		return busArrivalCandidateRawRepository.findLabelRowsByRouteIdAndFinalizedAtBetween(routeId, from, to);
+	}
+
+	public List<BusPositionLabelRow> findPositionLabelRowsByRoute(
+			String routeId, LocalDateTime from, LocalDateTime to) {
+		return busPositionRawRepository.findLabelRowsByRouteIdAndCollectedAtBetween(routeId, from, to);
 	}
 
 	/** Hibernate 1차 캐시 플러시+초기화. 청크 저장 후 heap bloat 방지. */
