@@ -188,3 +188,7 @@ batch:
     # SubwayDataService.flushAndClear()로 1차 캐시를 비운다.
     issue-chunk-size: 1000
     truth-chunk-size: 2000
+    bus-label-chunk-size: 2000
+  bus-label:
+    enabled: true
+    correction-window-minutes: 10

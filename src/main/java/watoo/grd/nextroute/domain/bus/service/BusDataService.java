@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.domain.bus.service;
 
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -7,6 +8,7 @@ import watoo.grd.nextroute.domain.bus.entity.*;
 import watoo.grd.nextroute.domain.bus.repository.*;
 import watoo.grd.nextroute.domain.bus.repository.NearbyBusStopProjection;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
@@ -24,6 +26,8 @@ public class BusDataService {
   private final BusArrivalRawRepository busArrivalRawRepository;
   private final BusArrivalCandidateRawRepository busArrivalCandidateRawRepository;
   private final BusPositionRawRepository busPositionRawRepository;
+  private final BusArrivalLabelEventRepository busArrivalLabelEventRepository;
+  private final EntityManager entityManager;
 
 	@Transactional
 	public BusRoute saveRoute(BusRoute route) {
@@ -116,5 +120,38 @@ public class BusDataService {
 
 	public List<NearbyBusStopProjection> findNearbyStops(double lat, double lng, double radiusMeters, int limit) {
 		return busStopRepository.findNearby(lat, lng, radiusMeters, limit);
+	}
+
+	// ===== BusArrivalLabelEvent =====
+
+	@Transactional
+	public int deleteLabelEventsByServiceDate(LocalDate serviceDate) {
+		return busArrivalLabelEventRepository.deleteByServiceDate(serviceDate);
+	}
+
+	@Transactional
+	public List<BusArrivalLabelEvent> saveAllLabelEvents(List<BusArrivalLabelEvent> events) {
+		return busArrivalLabelEventRepository.saveAll(events);
+	}
+
+	public long countLabelEventsByServiceDate(LocalDate serviceDate) {
+		return busArrivalLabelEventRepository.countByServiceDate(serviceDate);
+	}
+
+	public List<BusArrivalCandidateRaw> findCandidatesByFinalizedAtBetween(
+			LocalDateTime from, LocalDateTime to) {
+		return busArrivalCandidateRawRepository.findByFinalizedAtBetween(from, to);
+	}
+
+	public List<BusPositionRaw> findPositionsByRouteIdAndCollectedAtBetween(
+			String routeId, LocalDateTime from, LocalDateTime to) {
+		return busPositionRawRepository.findByRouteIdAndCollectedAtBetween(routeId, from, to);
+	}
+
+	/** Hibernate 1차 캐시 플러시+초기화. 청크 저장 후 heap bloat 방지. */
+	@Transactional
+	public void flushAndClear() {
+		entityManager.flush();
+		entityManager.clear();
 	}
 }
