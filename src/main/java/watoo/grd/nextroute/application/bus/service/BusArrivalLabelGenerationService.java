@@ -340,19 +340,36 @@ public class BusArrivalLabelGenerationService {
 
     // ── data_tm 파서 ─────────────────────────────────────────────────────────
 
+    /**
+     * 버스 시각 문자열 파서. 두 원천의 형식을 모두 지원한다.
+     * <ul>
+     *   <li>bus_position_raw.data_tm: {@code yyyyMMddHHmmss} (14자리 숫자)</li>
+     *   <li>bus_arrival_candidate_raw.data_timestamp (= 서울 도착 API mkTm):
+     *       {@code yyyy-MM-dd HH:mm:ss.S} (공백 구분 + 밀리초)</li>
+     * </ul>
+     */
     static LocalDateTime parseDataTm(String dataTm) {
         if (dataTm == null) return null;
-        if (dataTm.length() == 14) {
+        String s = dataTm.trim();
+        if (s.isEmpty()) return null;
+
+        // 숫자만: 앞 14자리 yyyyMMddHHmmss (17자리 밀리초 형식도 앞 14자리 사용)
+        if (s.chars().allMatch(Character::isDigit)) {
+            if (s.length() < 14) return null;
             try {
-                return LocalDateTime.parse(dataTm, FMT_NUM14);
+                return LocalDateTime.parse(s.substring(0, 14), FMT_NUM14);
             } catch (DateTimeParseException e) {
                 return null;
             }
         }
-        // ISO fallback (방어용)
+
+        // 날짜시간 문자열: 공백/T 구분 모두 → T로 정규화 후 초까지(19자)만 파싱.
+        // 밀리초(.S)는 잘라낸다.
+        String norm = s.replace(' ', 'T');
+        if (norm.length() < 19) return null;
         try {
-            return LocalDateTime.parse(dataTm.substring(0, 19));
-        } catch (Exception e) {
+            return LocalDateTime.parse(norm.substring(0, 19));
+        } catch (DateTimeParseException e) {
             return null;
         }
     }

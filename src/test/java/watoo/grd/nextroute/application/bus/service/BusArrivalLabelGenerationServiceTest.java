@@ -282,8 +282,25 @@ class BusArrivalLabelGenerationServiceTest {
     }
 
     @Test
-    void TC9b_ISO_data_tm은_파싱된다() {
+    void TC9b_ISO_T_data_tm은_파싱된다() {
         assertThat(BusArrivalLabelGenerationService.parseDataTm("2026-06-10T13:00:01"))
+                .isEqualTo(LocalDateTime.of(2026, 6, 10, 13, 0, 1));
+    }
+
+    @Test
+    void TC9b2_mkTm_공백_밀리초_형식이_파싱된다() {
+        // 서울 도착 API mkTm 실제 형식 (bus_arrival_candidate_raw.data_timestamp)
+        assertThat(BusArrivalLabelGenerationService.parseDataTm("2026-06-10 10:07:02.0"))
+                .isEqualTo(LocalDateTime.of(2026, 6, 10, 10, 7, 2));
+        assertThat(BusArrivalLabelGenerationService.parseDataTm("2026-06-10 13:00:01"))
+                .isEqualTo(LocalDateTime.of(2026, 6, 10, 13, 0, 1));
+        assertThat(BusArrivalLabelGenerationService.parseDataTm("2026-06-10 13:00:01.123"))
+                .isEqualTo(LocalDateTime.of(2026, 6, 10, 13, 0, 1));
+    }
+
+    @Test
+    void TC9b3_17자리_밀리초_숫자형식은_앞_14자리로_파싱된다() {
+        assertThat(BusArrivalLabelGenerationService.parseDataTm("20260610130001000"))
                 .isEqualTo(LocalDateTime.of(2026, 6, 10, 13, 0, 1));
     }
 
@@ -292,6 +309,20 @@ class BusArrivalLabelGenerationServiceTest {
         assertThat(BusArrivalLabelGenerationService.parseDataTm("INVALID")).isNull();
         assertThat(BusArrivalLabelGenerationService.parseDataTm(null)).isNull();
         assertThat(BusArrivalLabelGenerationService.parseDataTm("")).isNull();
+        assertThat(BusArrivalLabelGenerationService.parseDataTm("2026")).isNull();
+    }
+
+    @Test
+    void TC9e_mkTm_형식_candidate가_INVALID_아닌_정상_라벨이_된다() {
+        // 회귀: 공백+밀리초 mkTm이 parseDataTm 실패로 전건 INVALID_API_ETA 되던 버그 방지
+        stubCandidates(List.of(candidate(VEHICLE_ID, STOP_ID, SEQ, "2026-06-10 05:00:00.0", 120)));
+
+        service.generateForDate(SERVICE_DATE);
+
+        BusArrivalLabelEvent ev = captureSaved().get(0);
+        assertThat(ev.isExcludedFromTraining()).isFalse();
+        assertThat(ev.getLabelSource()).isEqualTo(BusArrivalLabelEvent.SOURCE_ARRIVAL_API_ETA);
+        assertThat(ev.getApiEstimatedArrivalAt()).isEqualTo(LocalDateTime.of(2026, 6, 10, 5, 2, 0));
     }
 
     @Test
