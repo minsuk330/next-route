@@ -146,11 +146,16 @@ public class BusArrivalLabelGenerationService {
                     chunk = new ArrayList<>();
                 }
             }
-        }
 
-        if (!chunk.isEmpty()) {
-            busDataService.saveAllLabelEvents(chunk);
-            totalSaved += chunk.size();
+            // route 1회전 종료: 남은 chunk 저장 후 flushAndClear.
+            // 이 route에서 로드한 position 엔티티(노선당 ~3만)를 1차 캐시에서 detach해
+            // 다음 route로 누적되지 않게 한다 (OOM 방지, PR #4 지하철 교훈과 동일).
+            if (!chunk.isEmpty()) {
+                busDataService.saveAllLabelEvents(chunk);
+                totalSaved += chunk.size();
+                chunk = new ArrayList<>();
+            }
+            busDataService.flushAndClear();
         }
 
         log.info("[BusLabelEvent] serviceDate={} candidates={} corrected={} apiOnly={} excluded={}",
