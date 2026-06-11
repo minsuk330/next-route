@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import org.hibernate.annotations.ColumnTransformer;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -130,6 +131,7 @@ public class BusArrivalLabelEvent extends BaseEntity {
 
     /** 보정에 사용한 bus_position_raw id 목록 (JSON 배열). */
     @Column(name = "position_raw_ids", columnDefinition = "jsonb")
+    @ColumnTransformer(write = "?::jsonb")
     private String positionRawIds;
 
     @Builder
