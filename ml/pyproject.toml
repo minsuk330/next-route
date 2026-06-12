@@ -7,6 +7,10 @@ dependencies = [
     "connectorx",
     "pyarrow",
     "python-dotenv",
+    "lightgbm",
+    "scikit-learn",
+    "numpy",
+    "pandas",
 ]
 
 [tool.uv]
