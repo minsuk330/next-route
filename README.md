@@ -97,5 +97,46 @@ print(labels.select(pl.len()).collect())
 
 ## Next Phases
 
-- `build_dataset.py`: archive parquet에서 dataset cache 생성
-- `validate.py`: archive/dataset 품질 리포트 생성
+## Build Dataset
+
+archive parquet에서 학습용 dataset cache를 생성한다.
+
+```bash
+python build_dataset.py 2026-06-10
+```
+
+이미 part 파일이 있으면 skip한다.
+
+```bash
+python build_dataset.py 2026-06-10 --overwrite
+```
+
+출력:
+
+```text
+data/dataset/service_date=2026-06-10/part-0000.parquet
+data/dataset/service_date=2026-06-10/manifest.json
+```
+
+`build_dataset.py`는 route 단위로 조인해 part 파일을 즉시 쓴다. dataset parquet는 archive에서 언제든 재생성 가능한 cache다.
+
+## Validate
+
+archive와 dataset 품질을 검증한다.
+
+```bash
+python validate.py 2026-06-10
+```
+
+출력:
+
+```text
+data/dataset/service_date=2026-06-10/validation.json
+```
+
+검증 실패 시 exit code 1을 반환한다.
+
+## Later
+
+- baseline/model 학습
+- VPS 컨테이너와 cron 이관
