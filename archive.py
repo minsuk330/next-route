@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote
 
 import polars as pl
 from dotenv import load_dotenv
@@ -79,9 +80,11 @@ def load_config() -> tuple[str, Path]:
     ml_dir = Path(__file__).resolve().parent
     load_dotenv(ml_dir / ".env")
 
-    db_url = os.getenv("DB_URL")
+    db_url = db_url_from_env()
     if not db_url:
-        raise ArchiveError("DB_URL is required. Create ml/.env from .env.example.")
+        raise ArchiveError(
+            "DB_URL or POSTGRES_HOST/PORT/DB/USER/PASSWORD is required."
+        )
 
     data_dir_value = os.getenv("DATA_DIR", "./data")
     data_dir = Path(data_dir_value).expanduser()
@@ -89,6 +92,25 @@ def load_config() -> tuple[str, Path]:
         data_dir = ml_dir / data_dir
 
     return db_url, data_dir
+
+
+def db_url_from_env() -> str | None:
+    if db_url := os.getenv("DB_URL"):
+        return db_url
+
+    host = os.getenv("POSTGRES_HOST")
+    port = os.getenv("POSTGRES_PORT", "5432")
+    database = os.getenv("POSTGRES_DB")
+    user = os.getenv("POSTGRES_USER")
+    password = os.getenv("POSTGRES_PASSWORD")
+    if not all([host, port, database, user, password]):
+        return None
+
+    return (
+        f"postgresql://{quote(user or '', safe='')}:"
+        f"{quote(password or '', safe='')}@{host}:{port}/"
+        f"{quote(database or '', safe='')}"
+    )
 
 
 def sql_string(value: str) -> str:

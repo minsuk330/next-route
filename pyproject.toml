@@ -7,11 +7,15 @@ dependencies = [
     "connectorx",
     "pyarrow",
     "python-dotenv",
+    "psycopg[binary]",
+]
+
+[project.optional-dependencies]
+train = [
     "lightgbm",
     "scikit-learn",
     "numpy",
     "pandas",
-    "psycopg[binary]",
 ]
 
 [tool.uv]
