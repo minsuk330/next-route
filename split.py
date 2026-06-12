@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Literal
@@ -124,9 +124,21 @@ def split_by_time(
         }
     else:
         cutoff = cutoff_datetime(service_date, test_from)
-        train = frame.filter(pl.col("snapshot_at") < cutoff)
+        boundary = frame.filter(
+            (pl.col("snapshot_at") < cutoff)
+            & (pl.col("label_arrival_at") > cutoff)
+        )
+        train = frame.filter(
+            (pl.col("snapshot_at") < cutoff)
+            & (pl.col("label_arrival_at") <= cutoff)
+        )
         test = frame.filter(pl.col("snapshot_at") >= cutoff)
-        policy = {"type": "snapshot_at_cutoff", "test_from": test_from, "cutoff": cutoff.isoformat()}
+        policy = {
+            "type": "snapshot_at_cutoff",
+            "test_from": test_from,
+            "cutoff": cutoff.isoformat(),
+            "boundary_dropped": boundary.height,
+        }
 
     if train.is_empty() or test.is_empty():
         raise ValueError(
@@ -208,6 +220,10 @@ def create_split(
 ) -> DatasetSplit:
     data_dir = data_dir or load_data_dir()
     service_dates = normalize_service_dates(service_date)
+    parsed_test_dates = parse_test_dates(test_dates)
+    if len(service_dates) > 1 and not parsed_test_dates:
+        raise ValueError("multi-date split requires --test-dates")
+
     dataset = load_dataset(data_dir, service_dates)
     filtered, target_column = filter_for_target(dataset, target_name)
 
@@ -225,7 +241,7 @@ def create_split(
         filtered,
         service_dates[0],
         test_from,
-        parse_test_dates(test_dates),
+        parsed_test_dates,
     )
 
     return DatasetSplit(
