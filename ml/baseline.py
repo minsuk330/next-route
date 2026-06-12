@@ -26,6 +26,12 @@ def parse_args() -> argparse.Namespace:
         help="Target column family to evaluate.",
     )
     parser.add_argument("--sample-rows", type=int, default=2_000_000)
+    parser.add_argument(
+        "--per-date-sample-rows",
+        type=int,
+        default=None,
+        help="Rows to sample per service_date before concatenating multi-day data.",
+    )
     parser.add_argument("--test-from", default="21:00")
     parser.add_argument("--test-dates", default=None)
     parser.add_argument("--seed", type=int, default=42)
@@ -113,6 +119,7 @@ def run_baselines(args: argparse.Namespace) -> dict[str, Any]:
         service_date=service_dates,
         target_name=args.target,
         sample_rows=args.sample_rows,
+        per_date_sample_rows=args.per_date_sample_rows,
         test_from=args.test_from,
         test_dates=args.test_dates,
         seed=args.seed,
