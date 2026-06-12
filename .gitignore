@@ -54,6 +54,11 @@ out/
 ### Environment ###
 env/*.env
 !env/*.env.example
+ml/.env
+ml/.venv/
+ml/data/
+__pycache__/
+*.py[cod]
 
 ### Claude ###
 .claude/
