@@ -95,8 +95,6 @@ labels = pl.scan_parquet("data/bus_label/**/*.parquet")
 print(labels.select(pl.len()).collect())
 ```
 
-## Next Phases
-
 ## Build Dataset
 
 archive parquet에서 학습용 dataset cache를 생성한다.
@@ -120,6 +118,13 @@ data/dataset/service_date=2026-06-10/manifest.json
 
 `build_dataset.py`는 route 단위로 조인해 part 파일을 즉시 쓴다. dataset parquet는 archive에서 언제든 재생성 가능한 cache다.
 
+시간 파생 컬럼:
+
+```text
+day_of_week = 1(월) ~ 7(일)
+is_weekend = day_of_week in (6, 7)
+```
+
 ## Validate
 
 archive와 dataset 품질을 검증한다.
@@ -136,7 +141,71 @@ data/dataset/service_date=2026-06-10/validation.json
 
 검증 실패 시 exit code 1을 반환한다.
 
+## Baseline
+
+비ML baseline을 평가한다. `--target`은 `api`, `label`, `corrected` 중 하나다.
+
+```bash
+python baseline.py 2026-06-10 --target label
+python baseline.py 2026-06-10 --target api
+python baseline.py 2026-06-10 --target corrected
+```
+
+출력:
+
+```text
+data/experiments/{run_id}/baseline_report.json
+```
+
+baseline 종류:
+
+- API: `api_target_seconds_to_arrival` 그대로 예측값으로 사용
+- Median: train split의 `(route_id, current_section_order, target_seq, hour_of_day, day_of_week)` median lookup
+
+## Train
+
+LightGBM 회귀 모델을 학습한다.
+
+```bash
+python train.py 2026-06-10 --target label --sample-rows 2000000
+```
+
+target 실험:
+
+```bash
+python train.py 2026-06-10 --target api
+python train.py 2026-06-10 --target label
+python train.py 2026-06-10 --target corrected
+```
+
+기본 split은 단일 service_date에서 `snapshot_at >= 21:00`을 test로 둔다. 여러 날짜 dataset이 쌓이면 service_date를 쉼표로 넘기고 `--test-dates`로 날짜 기준 split을 사용할 수 있다.
+
+```bash
+python train.py 2026-06-10 --target label --test-from 21:00
+python train.py 2026-06-10,2026-06-11,2026-06-12 --target label --test-dates 2026-06-12
+```
+
+기본 feature에서는 arrival 시각 3종과 target 3종을 제외한다. API target을 feature로 넣는 별도 실험은 명시적으로 실행한다.
+
+```bash
+python train.py 2026-06-10 --target label --with-api-feature
+```
+
+출력:
+
+```text
+data/experiments/{run_id}/model.txt
+data/experiments/{run_id}/metrics.json
+data/experiments/{run_id}/training_manifest.json
+```
+
+첫 실험 성공 기준:
+
+- median baseline 대비 MAE 개선
+- 20~40분 horizon에서 의미 있는 개선
+- 특정 route에만 과적합되지 않음
+- target 정책별 차이를 설명 가능
+
 ## Later
 
-- baseline/model 학습
 - VPS 컨테이너와 cron 이관

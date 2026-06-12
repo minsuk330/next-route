@@ -68,7 +68,16 @@ def require_archive(data_dir: Path, table: str, service_date: date) -> Path:
     return data_path
 
 
-def clean_string(name: str) -> pl.Expr:
+def clean_identifier(name: str) -> pl.Expr:
+    value = pl.col(name).cast(pl.Utf8).str.strip_chars()
+    return (
+        pl.when(value.is_not_null() & (value != ""))
+        .then(value)
+        .otherwise(pl.lit(None, dtype=pl.Utf8))
+    )
+
+
+def clean_stop_id(name: str) -> pl.Expr:
     value = pl.col(name).cast(pl.Utf8).str.strip_chars()
     return (
         pl.when(value.is_not_null() & (value != "") & (value != "0"))
@@ -97,8 +106,8 @@ def position_frames(position_path: Path) -> dict[str, pl.LazyFrame]:
             .cast(pl.Utf8)
             .str.strptime(pl.Datetime, "%Y%m%d%H%M%S", strict=False)
             .alias("snapshot_at"),
-            clean_string("vehicle_id").alias("_vehicle_id_clean"),
-            clean_string("plain_no").alias("_plain_no_clean"),
+            clean_identifier("vehicle_id").alias("_vehicle_id_clean"),
+            clean_identifier("plain_no").alias("_plain_no_clean"),
         ]
     ).with_columns(
         [
@@ -125,7 +134,7 @@ def position_frames(position_path: Path) -> dict[str, pl.LazyFrame]:
         )
         .with_columns(
             [
-                clean_string("next_stop_id").alias("next_stop_id_clean"),
+                clean_stop_id("next_stop_id").alias("next_stop_id_clean"),
                 safe_ratio(
                     pl.col("section_distance"),
                     pl.col("full_section_distance"),
@@ -406,7 +415,7 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
             route_dataset = dataset_for_route(
                 positions["prepared"], labels["filtered"], route_id, generated_at
             )
-            route_frame = route_dataset.collect()
+            route_frame = route_dataset.collect(engine="streaming")
             if route_frame.is_empty():
                 print(f"[route] {route_id}: rows=0")
                 continue
