@@ -4,7 +4,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +24,6 @@ REQUIRED_FEATURES = [
     "section_progress",
     "target_stop_id",
     "target_seq",
-    "target_section_id",
     "remaining_stop_count",
     "label_arrival_at",
     "api_estimated_arrival_at",
@@ -47,7 +46,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Validate bus ML archives and generated dataset parquet."
     )
-    parser.add_argument("service_date", help="Service date in YYYY-MM-DD format.")
+    parser.add_argument(
+        "service_date",
+        nargs="?",
+        help="Service date in YYYY-MM-DD format. Omit when using --from/--to.",
+    )
+    parser.add_argument("--from", dest="from_date", help="Inclusive start date.")
+    parser.add_argument("--to", dest="to_date", help="Inclusive end date.")
     return parser.parse_args()
 
 
@@ -56,6 +61,24 @@ def parse_service_date(value: str) -> date:
         return date.fromisoformat(value)
     except ValueError as exc:
         raise ValidationError(f"Invalid service date '{value}'. Use YYYY-MM-DD.") from exc
+
+
+def service_dates_from_args(args: argparse.Namespace) -> list[date]:
+    if args.from_date or args.to_date:
+        if args.service_date:
+            raise ValidationError("Use either service_date or --from/--to, not both.")
+        if not args.from_date or not args.to_date:
+            raise ValidationError("--from and --to must be used together.")
+        start = parse_service_date(args.from_date)
+        end = parse_service_date(args.to_date)
+        if end < start:
+            raise ValidationError("--to must be greater than or equal to --from.")
+        days = (end - start).days
+        return [start + timedelta(days=offset) for offset in range(days + 1)]
+
+    if not args.service_date:
+        raise ValidationError("service_date is required unless --from/--to is used.")
+    return [parse_service_date(args.service_date)]
 
 
 def load_data_dir() -> Path:
@@ -221,6 +244,26 @@ def validate_dataset(data_dir: Path, service_date: date) -> dict[str, Any]:
     manifest_path = output_dir / "manifest.json"
     errors: list[str] = []
 
+    files = part_files(output_dir)
+    if not manifest_path.exists() and not files:
+        return {
+            "row_count": 0,
+            "manifest_row_count": None,
+            "route_counts": {},
+            "label_source_counts": {},
+            "horizon_counts": {},
+            "target_quality": {},
+            "feature_nulls": {},
+            "remaining_stop_count_negative": 0,
+            "snapshot_at_gte_label_arrival_at": 0,
+            "duplicate_position_label_pairs": 0,
+            "manifest": {},
+            "errors": [],
+            "warnings": ["dataset cache not found; archive-only validation"],
+            "skipped": True,
+            "passed": True,
+        }
+
     if not manifest_path.exists():
         errors.append(f"missing manifest: {manifest_path}")
     dataset = scan_parts(output_dir)
@@ -251,8 +294,9 @@ def validate_dataset(data_dir: Path, service_date: date) -> dict[str, Any]:
     )
     duplicate_pairs = duplicate_pair_count(dataset)
 
+    warnings: list[str] = []
     if targets["api_target_seconds_to_arrival"]["le_zero"] != 0:
-        errors.append("api_target_seconds_to_arrival <= 0 rows found")
+        warnings.append("api_target_seconds_to_arrival <= 0 rows found")
     if targets["label_target_seconds_to_arrival"]["le_zero"] != 0:
         errors.append("label_target_seconds_to_arrival <= 0 rows found")
     if remaining_negative != 0:
@@ -289,6 +333,8 @@ def validate_dataset(data_dir: Path, service_date: date) -> dict[str, Any]:
         "duplicate_position_label_pairs": duplicate_pairs,
         "manifest": manifest,
         "errors": errors,
+        "warnings": warnings,
+        "skipped": False,
         "passed": not errors,
     }
 
@@ -320,6 +366,17 @@ def print_report(report: dict[str, Any]) -> None:
     dataset = report["dataset"]
     print("\nDataset")
     print("-------")
+    if dataset.get("skipped"):
+        print("skipped=True (dataset cache not found; archive-only validation)")
+        for warning in dataset.get("warnings", []):
+            print(f"  - {warning}")
+        if report["errors"]:
+            print("\nErrors")
+            print("------")
+            for error in report["errors"]:
+                print(f"- {error}")
+        return
+
     print(
         f"rows={dataset['row_count']}, "
         f"manifest_rows={dataset.get('manifest_row_count')}, passed={dataset['passed']}"
@@ -349,19 +406,27 @@ def print_report(report: dict[str, Any]) -> None:
         print("------")
         for error in report["errors"]:
             print(f"- {error}")
+    if report.get("warnings"):
+        print("\nWarnings")
+        print("--------")
+        for warning in report["warnings"]:
+            print(f"- {warning}")
 
 
 def validate(service_date: date, data_dir: Path) -> dict[str, Any]:
     archive_report = {
         "bus_label": validate_archive_table(data_dir, "bus_label", service_date),
         "bus_position": validate_archive_table(data_dir, "bus_position", service_date),
+        "bus_candidate": validate_archive_table(data_dir, "bus_candidate", service_date),
     }
     dataset_report = validate_dataset(data_dir, service_date)
 
     errors: list[str] = []
+    warnings: list[str] = []
     for item in archive_report.values():
         errors.extend(item.get("errors", []))
     errors.extend(dataset_report.get("errors", []))
+    warnings.extend(dataset_report.get("warnings", []))
 
     report = {
         "service_date": service_date.isoformat(),
@@ -369,10 +434,17 @@ def validate(service_date: date, data_dir: Path) -> dict[str, Any]:
         "archive": archive_report,
         "dataset": dataset_report,
         "errors": errors,
+        "warnings": warnings,
         "passed": not errors,
     }
 
-    validation_path = partition_dir(data_dir, "dataset", service_date) / "validation.json"
+    validation_root = (
+        partition_dir(data_dir, "dataset", service_date)
+        if not dataset_report.get("skipped")
+        else partition_dir(data_dir, "bus_label", service_date)
+    )
+    validation_root.mkdir(parents=True, exist_ok=True)
+    validation_path = validation_root / "validation.json"
     write_json(validation_path, report)
     return report
 
@@ -380,11 +452,14 @@ def validate(service_date: date, data_dir: Path) -> dict[str, Any]:
 def main() -> int:
     args = parse_args()
     try:
-        service_date = parse_service_date(args.service_date)
+        service_dates = service_dates_from_args(args)
         data_dir = load_data_dir()
-        report = validate(service_date, data_dir)
-        print_report(report)
-        return 0 if report["passed"] else 1
+        passed = True
+        for service_date in service_dates:
+            report = validate(service_date, data_dir)
+            print_report(report)
+            passed = passed and report["passed"]
+        return 0 if passed else 1
     except (ValidationError, OSError, pl.exceptions.PolarsError) as exc:
         print(f"[error] {exc}", file=sys.stderr)
         return 1

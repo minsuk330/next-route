@@ -21,6 +21,7 @@ TARGET_COLUMNS: dict[str, str] = {
 }
 
 HORIZON_BUCKETS = ("1-5m", "5-10m", "10-20m", "20-40m")
+FrameLike = pl.DataFrame | pl.LazyFrame
 
 
 @dataclass(frozen=True)
@@ -60,16 +61,12 @@ def dataset_part_files(data_dir: Path, service_date: date) -> list[Path]:
     return files
 
 
-def load_dataset(data_dir: Path, service_dates: Sequence[date]) -> pl.DataFrame:
-    files = [
-        file
-        for service_date in service_dates
-        for file in dataset_part_files(data_dir, service_date)
-    ]
-    return pl.scan_parquet([str(file) for file in files]).collect()
+def scan_dataset(data_dir: Path, service_date: date) -> pl.LazyFrame:
+    files = dataset_part_files(data_dir, service_date)
+    return pl.scan_parquet([str(file) for file in files])
 
 
-def add_horizon_bucket(frame: pl.DataFrame, target_column: str) -> pl.DataFrame:
+def add_horizon_bucket(frame: FrameLike, target_column: str) -> FrameLike:
     return frame.with_columns(
         [
             pl.when(pl.col(target_column) < 300)
@@ -84,7 +81,7 @@ def add_horizon_bucket(frame: pl.DataFrame, target_column: str) -> pl.DataFrame:
     )
 
 
-def filter_for_target(frame: pl.DataFrame, target_name: TargetName) -> tuple[pl.DataFrame, str]:
+def filter_for_target(frame: FrameLike, target_name: TargetName) -> tuple[FrameLike, str]:
     target_column = TARGET_COLUMNS[target_name]
     filtered = frame.filter(
         pl.col(target_column).is_not_null()
@@ -194,6 +191,34 @@ def sample_bucket_route(
     return sampled
 
 
+def collect_date_sample(
+    data_dir: Path,
+    service_date: date,
+    target_name: TargetName,
+    per_date_sample_rows: int | None,
+    seed: int,
+) -> tuple[pl.DataFrame, dict[str, object], str]:
+    filtered, target_column = filter_for_target(scan_dataset(data_dir, service_date), target_name)
+    frame = filtered.collect()
+    input_rows = frame.height
+    if (
+        per_date_sample_rows is not None
+        and per_date_sample_rows > 0
+        and frame.height > per_date_sample_rows
+    ):
+        frame = sample_bucket_route(frame, per_date_sample_rows, seed)
+    return (
+        frame,
+        {
+            "service_date": service_date.isoformat(),
+            "input_rows": input_rows,
+            "output_rows": frame.height,
+            "per_date_sample_rows": per_date_sample_rows,
+        },
+        target_column,
+    )
+
+
 def parse_test_dates(values: str | None) -> set[date] | None:
     if not values:
         return None
@@ -213,6 +238,7 @@ def create_split(
     service_date: date | Sequence[date],
     target_name: TargetName,
     sample_rows: int | None = 2_000_000,
+    per_date_sample_rows: int | None = None,
     test_from: str = "21:00",
     test_dates: str | None = None,
     seed: int = 42,
@@ -224,16 +250,45 @@ def create_split(
     if len(service_dates) > 1 and not parsed_test_dates:
         raise ValueError("multi-date split requires --test-dates")
 
-    dataset = load_dataset(data_dir, service_dates)
-    filtered, target_column = filter_for_target(dataset, target_name)
+    effective_per_date_sample_rows = per_date_sample_rows
+    if effective_per_date_sample_rows is None and sample_rows is not None and sample_rows > 0:
+        effective_per_date_sample_rows = max(1, math.ceil(sample_rows / len(service_dates)))
+
+    parts: list[pl.DataFrame] = []
+    date_policies: list[dict[str, object]] = []
+    target_column: str | None = None
+    for item in service_dates:
+        frame, date_policy, current_target_column = collect_date_sample(
+            data_dir,
+            item,
+            target_name,
+            effective_per_date_sample_rows,
+            seed,
+        )
+        target_column = current_target_column
+        date_policies.append(date_policy)
+        if not frame.is_empty():
+            parts.append(frame)
+
+    if not parts or target_column is None:
+        raise ValueError("No dataset rows available after target filtering.")
+
+    filtered = pl.concat(parts)
 
     sampling_policy: dict[str, object] = {
         "sample_rows": sample_rows,
+        "per_date_sample_rows": effective_per_date_sample_rows,
         "seed": seed,
-        "strategy": "horizon_bucket_route_cap",
-        "input_rows": filtered.height,
+        "strategy": "per_date_horizon_bucket_route_cap",
+        "input_rows": sum(int(item["input_rows"]) for item in date_policies),
+        "date_policies": date_policies,
     }
-    if sample_rows is not None and sample_rows > 0 and filtered.height > sample_rows:
+    if (
+        per_date_sample_rows is None
+        and sample_rows is not None
+        and sample_rows > 0
+        and filtered.height > sample_rows
+    ):
         filtered = sample_bucket_route(filtered, sample_rows, seed)
     sampling_policy["output_rows"] = filtered.height
 
