@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
+import psycopg
+from psycopg import sql
 from dotenv import load_dotenv
 
 
@@ -261,25 +263,37 @@ def count_delete_targets(db_url: str, service_date: date) -> dict[str, int]:
     }
 
 
-def delete_chunked(db_url: str, table: str, condition: str, chunk_size: int) -> int:
+def delete_chunked(
+    connection: psycopg.Connection[Any],
+    table: str,
+    condition: str,
+    chunk_size: int,
+) -> int:
     total = 0
-    while True:
-        deleted = read_scalar(
-            f"""
-            with deleted as (
-                delete from {table}
-                where ctid in (
-                    select ctid
-                    from {table}
-                    where {condition}
-                    limit {chunk_size}
-                )
-                returning 1
+    query = sql.SQL(
+        """
+        with deleted as (
+            delete from {table}
+            where ctid in (
+                select ctid
+                from {table}
+                where {condition}
+                limit %s
             )
-            select count(*) from deleted
-            """,
-            db_url,
+            returning 1
         )
+        select count(*) from deleted
+        """
+    ).format(
+        table=sql.Identifier(table),
+        condition=sql.SQL(condition),
+    )
+    while True:
+        with connection.cursor() as cursor:
+            cursor.execute(query, (chunk_size,))
+            row = cursor.fetchone()
+            deleted = int(row[0]) if row else 0
+        connection.commit()
         total += deleted
         if deleted == 0:
             return total
@@ -294,26 +308,31 @@ def delete_for_service_date(
     date_sql = sql_string(service_date.isoformat())
     start_sql = sql_string(start)
     end_sql = sql_string(end)
-    return {
-        "bus_position_raw": delete_chunked(
-            db_url,
-            "bus_position_raw",
-            f"collected_at >= timestamp {start_sql} and collected_at < timestamp {end_sql}",
-            chunk_size,
-        ),
-        "bus_arrival_candidate_raw": delete_chunked(
-            db_url,
-            "bus_arrival_candidate_raw",
-            f"finalized_at >= timestamp {start_sql} and finalized_at < timestamp {end_sql}",
-            chunk_size,
-        ),
-        "bus_arrival_label_event": delete_chunked(
-            db_url,
-            "bus_arrival_label_event",
-            f"service_date = date {date_sql}",
-            chunk_size,
-        ),
-    }
+    with psycopg.connect(db_url) as connection:
+        try:
+            return {
+                "bus_position_raw": delete_chunked(
+                    connection,
+                    "bus_position_raw",
+                    f"collected_at >= timestamp {start_sql} and collected_at < timestamp {end_sql}",
+                    chunk_size,
+                ),
+                "bus_arrival_candidate_raw": delete_chunked(
+                    connection,
+                    "bus_arrival_candidate_raw",
+                    f"finalized_at >= timestamp {start_sql} and finalized_at < timestamp {end_sql}",
+                    chunk_size,
+                ),
+                "bus_arrival_label_event": delete_chunked(
+                    connection,
+                    "bus_arrival_label_event",
+                    f"service_date = date {date_sql}",
+                    chunk_size,
+                ),
+            }
+        except Exception:
+            connection.rollback()
+            raise
 
 
 def dataset_cache_targets(data_dir: Path, cutoff_date: date) -> list[Path]:
