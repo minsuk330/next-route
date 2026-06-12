@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote
 
 import polars as pl
 from dotenv import load_dotenv
@@ -35,7 +36,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Archive bus ML source tables to service_date partitioned parquet."
     )
-    parser.add_argument("service_date", help="Service date in YYYY-MM-DD format.")
+    parser.add_argument(
+        "service_date",
+        nargs="?",
+        help="Service date in YYYY-MM-DD format. Omit when using --from/--to.",
+    )
+    parser.add_argument("--from", dest="from_date", help="Inclusive start date.")
+    parser.add_argument("--to", dest="to_date", help="Inclusive end date.")
     parser.add_argument(
         "--overwrite",
         action="store_true",
@@ -51,13 +58,33 @@ def parse_service_date(value: str) -> date:
         raise ArchiveError(f"Invalid service date '{value}'. Use YYYY-MM-DD.") from exc
 
 
+def service_dates_from_args(args: argparse.Namespace) -> list[date]:
+    if args.from_date or args.to_date:
+        if args.service_date:
+            raise ArchiveError("Use either service_date or --from/--to, not both.")
+        if not args.from_date or not args.to_date:
+            raise ArchiveError("--from and --to must be used together.")
+        start = parse_service_date(args.from_date)
+        end = parse_service_date(args.to_date)
+        if end < start:
+            raise ArchiveError("--to must be greater than or equal to --from.")
+        days = (end - start).days
+        return [start + timedelta(days=offset) for offset in range(days + 1)]
+
+    if not args.service_date:
+        raise ArchiveError("service_date is required unless --from/--to is used.")
+    return [parse_service_date(args.service_date)]
+
+
 def load_config() -> tuple[str, Path]:
     ml_dir = Path(__file__).resolve().parent
     load_dotenv(ml_dir / ".env")
 
-    db_url = os.getenv("DB_URL")
+    db_url = db_url_from_env()
     if not db_url:
-        raise ArchiveError("DB_URL is required. Create ml/.env from .env.example.")
+        raise ArchiveError(
+            "DB_URL or POSTGRES_HOST/PORT/DB/USER/PASSWORD is required."
+        )
 
     data_dir_value = os.getenv("DATA_DIR", "./data")
     data_dir = Path(data_dir_value).expanduser()
@@ -65,6 +92,25 @@ def load_config() -> tuple[str, Path]:
         data_dir = ml_dir / data_dir
 
     return db_url, data_dir
+
+
+def db_url_from_env() -> str | None:
+    if db_url := os.getenv("DB_URL"):
+        return db_url
+
+    host = os.getenv("POSTGRES_HOST")
+    port = os.getenv("POSTGRES_PORT", "5432")
+    database = os.getenv("POSTGRES_DB")
+    user = os.getenv("POSTGRES_USER")
+    password = os.getenv("POSTGRES_PASSWORD")
+    if not all([host, port, database, user, password]):
+        return None
+
+    return (
+        f"postgresql://{quote(user or '', safe='')}:"
+        f"{quote(password or '', safe='')}@{host}:{port}/"
+        f"{quote(database or '', safe='')}"
+    )
 
 
 def sql_string(value: str) -> str:
@@ -152,6 +198,26 @@ def position_quality_counts(df: pl.DataFrame) -> dict[str, Any]:
     }
 
 
+def value_counts(df: pl.DataFrame, column: str) -> dict[str, int]:
+    if column not in df.columns or df.is_empty():
+        return {}
+    rows = (
+        df.group_by(column)
+        .agg(pl.len().alias("row_count"))
+        .sort(column)
+        .to_dicts()
+    )
+    return {str(row[column]): int(row["row_count"]) for row in rows}
+
+
+def candidate_quality_counts(df: pl.DataFrame) -> dict[str, Any]:
+    return {
+        "lifecycle_id_null": null_count(df, "lifecycle_id"),
+        "arrival_order_counts": value_counts(df, "arrival_order"),
+        "data_timestamp_null": null_count(df, "data_timestamp"),
+    }
+
+
 def build_jobs(service_date: date) -> list[ArchiveJob]:
     day = service_date.isoformat()
     next_day = (service_date + timedelta(days=1)).isoformat()
@@ -164,6 +230,10 @@ def build_jobs(service_date: date) -> list[ArchiveJob]:
         f"collected_at >= timestamp {start_sql} "
         f"and collected_at < timestamp {end_sql} "
         "and is_run_yn = '1'"
+    )
+    candidate_filter = (
+        f"finalized_at >= timestamp {start_sql} "
+        f"and finalized_at < timestamp {end_sql}"
     )
 
     label_select = f"""
@@ -206,6 +276,16 @@ def build_jobs(service_date: date) -> list[ArchiveJob]:
         from bus_position_raw
         where {position_filter}
     """
+    candidate_select = f"""
+        select *
+        from bus_arrival_candidate_raw
+        where {candidate_filter}
+    """
+    candidate_count = f"""
+        select count(*)
+        from bus_arrival_candidate_raw
+        where {candidate_filter}
+    """
 
     return [
         ArchiveJob(
@@ -227,6 +307,17 @@ def build_jobs(service_date: date) -> list[ArchiveJob]:
                 "is_run_yn = '1'",
             ],
             quality_fn=position_quality_counts,
+        ),
+        ArchiveJob(
+            archive_name="bus_candidate",
+            source_table="bus_arrival_candidate_raw",
+            select_query=candidate_select,
+            count_query=candidate_count,
+            filters=[
+                "finalized_at >= service_date 04:00",
+                "finalized_at < service_date + 1 day 04:00",
+            ],
+            quality_fn=candidate_quality_counts,
         ),
     ]
 
@@ -324,11 +415,12 @@ def main() -> int:
     args = parse_args()
 
     try:
-        service_date = parse_service_date(args.service_date)
+        service_dates = service_dates_from_args(args)
         db_url, data_dir = load_config()
-        for job in build_jobs(service_date):
-            archive_job(job, service_date, db_url, data_dir, args.overwrite)
-    except (ArchiveError, OSError, pl.exceptions.PolarsError) as exc:
+        for service_date in service_dates:
+            for job in build_jobs(service_date):
+                archive_job(job, service_date, db_url, data_dir, args.overwrite)
+    except (ArchiveError, OSError, RuntimeError, pl.exceptions.PolarsError) as exc:
         print(f"[error] {exc}", file=sys.stderr)
         return 1
 

@@ -5,7 +5,7 @@ import json
 import os
 import shutil
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +26,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build bus ML dataset parquet from archived label/position parquet."
     )
-    parser.add_argument("service_date", help="Service date in YYYY-MM-DD format.")
+    parser.add_argument(
+        "service_date",
+        nargs="?",
+        help="Service date in YYYY-MM-DD format. Omit when using --from/--to.",
+    )
+    parser.add_argument("--from", dest="from_date", help="Inclusive start date.")
+    parser.add_argument("--to", dest="to_date", help="Inclusive end date.")
     parser.add_argument(
         "--overwrite",
         action="store_true",
@@ -42,6 +48,24 @@ def parse_service_date(value: str) -> date:
         raise DatasetBuildError(
             f"Invalid service date '{value}'. Use YYYY-MM-DD."
         ) from exc
+
+
+def service_dates_from_args(args: argparse.Namespace) -> list[date]:
+    if args.from_date or args.to_date:
+        if args.service_date:
+            raise DatasetBuildError("Use either service_date or --from/--to, not both.")
+        if not args.from_date or not args.to_date:
+            raise DatasetBuildError("--from and --to must be used together.")
+        start = parse_service_date(args.from_date)
+        end = parse_service_date(args.to_date)
+        if end < start:
+            raise DatasetBuildError("--to must be greater than or equal to --from.")
+        days = (end - start).days
+        return [start + timedelta(days=offset) for offset in range(days + 1)]
+
+    if not args.service_date:
+        raise DatasetBuildError("service_date is required unless --from/--to is used.")
+    return [parse_service_date(args.service_date)]
 
 
 def load_data_dir() -> Path:
@@ -68,7 +92,16 @@ def require_archive(data_dir: Path, table: str, service_date: date) -> Path:
     return data_path
 
 
-def clean_string(name: str) -> pl.Expr:
+def clean_identifier(name: str) -> pl.Expr:
+    value = pl.col(name).cast(pl.Utf8).str.strip_chars()
+    return (
+        pl.when(value.is_not_null() & (value != ""))
+        .then(value)
+        .otherwise(pl.lit(None, dtype=pl.Utf8))
+    )
+
+
+def clean_stop_id(name: str) -> pl.Expr:
     value = pl.col(name).cast(pl.Utf8).str.strip_chars()
     return (
         pl.when(value.is_not_null() & (value != "") & (value != "0"))
@@ -97,8 +130,8 @@ def position_frames(position_path: Path) -> dict[str, pl.LazyFrame]:
             .cast(pl.Utf8)
             .str.strptime(pl.Datetime, "%Y%m%d%H%M%S", strict=False)
             .alias("snapshot_at"),
-            clean_string("vehicle_id").alias("_vehicle_id_clean"),
-            clean_string("plain_no").alias("_plain_no_clean"),
+            clean_identifier("vehicle_id").alias("_vehicle_id_clean"),
+            clean_identifier("plain_no").alias("_plain_no_clean"),
         ]
     ).with_columns(
         [
@@ -125,7 +158,7 @@ def position_frames(position_path: Path) -> dict[str, pl.LazyFrame]:
         )
         .with_columns(
             [
-                clean_string("next_stop_id").alias("next_stop_id_clean"),
+                clean_stop_id("next_stop_id").alias("next_stop_id_clean"),
                 safe_ratio(
                     pl.col("section_distance"),
                     pl.col("full_section_distance"),
@@ -406,7 +439,7 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
             route_dataset = dataset_for_route(
                 positions["prepared"], labels["filtered"], route_id, generated_at
             )
-            route_frame = route_dataset.collect()
+            route_frame = route_dataset.collect(engine="streaming")
             if route_frame.is_empty():
                 print(f"[route] {route_id}: rows=0")
                 continue
@@ -462,9 +495,10 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
 def main() -> int:
     args = parse_args()
     try:
-        service_date = parse_service_date(args.service_date)
+        service_dates = service_dates_from_args(args)
         data_dir = load_data_dir()
-        build_dataset(service_date, data_dir, args.overwrite)
+        for service_date in service_dates:
+            build_dataset(service_date, data_dir, args.overwrite)
     except (DatasetBuildError, OSError, pl.exceptions.PolarsError) as exc:
         print(f"[error] {exc}", file=sys.stderr)
         return 1
