@@ -40,10 +40,10 @@ DB_URL=postgresql://USER:PASSWORD@localhost:5433/DBNAME
 DATA_DIR=./data
 ```
 
-의존성을 설치한다.
+로컬에서 dataset 생성과 학습까지 실행하려면 학습 extra까지 설치한다.
 
 ```bash
-uv sync
+uv sync --extra train
 ```
 
 또는:
@@ -187,6 +187,12 @@ baseline 종류:
 
 ## Train
 
+학습 명령은 `train` extra 의존성이 필요하다.
+
+```bash
+uv sync --extra train
+```
+
 LightGBM 회귀 모델을 학습한다.
 
 ```bash
@@ -264,17 +270,47 @@ uv run python retention.py --apply --confirm-backup-reviewed
 
 dataset cache는 재생성 가능하므로 기본 최근 7일만 보존한다.
 
-## Operations
+## VPS Operations
 
-매일 Spring label 생성 이후 로컬에서 실행한다.
+VPS에서는 `postgres`, `redis`, `app`, `ml` compose 서비스가 같이 배포된다. `ml` 서비스는 상시 기동하지 않고 host crontab이 `docker compose run --rm ml ...`로 일회성 실행한다.
 
-```bash
-uv run python archive.py 2026-06-11
-uv run python validate.py 2026-06-11
-uv run python retention.py --dry-run
+`ml` 컨테이너는 `DB_URL`이 없어도 `env/db.env`의 `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`로 접속 URL을 조립한다. compose에서는 `POSTGRES_HOST=postgres`, `DATA_DIR=/data`를 주입한다.
+
+archive 진실원은 VPS bind mount에 저장한다.
+
+```text
+/srv/nextroute/ml-data
 ```
 
-매주 rolling retrain은 최근 4~8주 archive를 dataset cache로 만들고, 최신 1주를 test 날짜로 둔다.
+첫 가동 전 로컬 archive seed가 필요하면 VPS로 복사한다.
+
+```bash
+rsync -av ml/data/ vps:/srv/nextroute/ml-data/
+```
+
+VPS host crontab 예시:
+
+```cron
+20 5 * * * cd /path/to/nextroute && docker compose run --rm ml python archive.py $(date -d yesterday +\%F) >> /var/log/nextroute-ml.log 2>&1
+40 5 * * * cd /path/to/nextroute && docker compose run --rm ml python validate.py $(date -d yesterday +\%F) >> /var/log/nextroute-ml.log 2>&1
+0 6 * * * cd /path/to/nextroute && docker compose run --rm ml python retention.py --dry-run >> /var/log/nextroute-ml.log 2>&1
+```
+
+Spring label batch가 04:50 KST에 끝난 뒤 05:20 KST archive가 시작되는 전제다. v1 알림은 `/var/log/nextroute-ml.log`에서 `[error]` grep으로 확인한다.
+
+`retention.py --apply`를 운영하기 전에는 백업 정책을 다시 결정해야 한다. retention 이후에는 로컬 parquet archive가 30일 이상 지난 raw의 유일본이 될 수 있다.
+
+## Weekly Retrain
+
+주 1회 로컬 맥으로 VPS archive를 pull한다. 이 과정이 VPS+로컬 2카피를 만들어 백업 보류 리스크를 일부 줄인다.
+
+```bash
+rsync -av vps:/srv/nextroute/ml-data/bus_label/ ml/data/bus_label/
+rsync -av vps:/srv/nextroute/ml-data/bus_position/ ml/data/bus_position/
+rsync -av vps:/srv/nextroute/ml-data/bus_candidate/ ml/data/bus_candidate/
+```
+
+최근 4~8주 archive를 dataset cache로 만들고, 최신 1주를 test 날짜로 둔다.
 
 ```bash
 uv run python build_dataset.py --from 2026-05-15 --to 2026-06-11
@@ -284,8 +320,4 @@ uv run python train.py 2026-05-15,2026-05-16,...,2026-06-11 \
   --per-date-sample-rows 100000
 ```
 
-`retention.py --apply`를 운영하기 전에는 백업 정책을 다시 결정해야 한다. retention 이후에는 로컬 parquet archive가 30일 이상 지난 raw의 유일본이 될 수 있다.
-
-## Later
-
-- VPS 컨테이너와 cron 이관
+새 모델은 직전 모델의 `metrics.json`과 비교한 뒤 교체한다.

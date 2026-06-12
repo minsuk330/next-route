@@ -8,6 +8,8 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 import polars as pl
 import psycopg
@@ -16,6 +18,7 @@ from dotenv import load_dotenv
 
 
 ARCHIVE_TABLES = ("bus_label", "bus_position", "bus_candidate")
+KST = ZoneInfo("Asia/Seoul")
 
 
 class RetentionError(RuntimeError):
@@ -43,15 +46,36 @@ def load_config() -> tuple[str, Path]:
     ml_dir = Path(__file__).resolve().parent
     load_dotenv(ml_dir / ".env")
 
-    db_url = os.getenv("DB_URL")
+    db_url = db_url_from_env()
     if not db_url:
-        raise RetentionError("DB_URL is required. Create ml/.env from .env.example.")
+        raise RetentionError(
+            "DB_URL or POSTGRES_HOST/PORT/DB/USER/PASSWORD is required."
+        )
 
     data_dir_value = os.getenv("DATA_DIR", "./data")
     data_dir = Path(data_dir_value).expanduser()
     if not data_dir.is_absolute():
         data_dir = ml_dir / data_dir
     return db_url, data_dir
+
+
+def db_url_from_env() -> str | None:
+    if db_url := os.getenv("DB_URL"):
+        return db_url
+
+    host = os.getenv("POSTGRES_HOST")
+    port = os.getenv("POSTGRES_PORT", "5432")
+    database = os.getenv("POSTGRES_DB")
+    user = os.getenv("POSTGRES_USER")
+    password = os.getenv("POSTGRES_PASSWORD")
+    if not all([host, port, database, user, password]):
+        return None
+
+    return (
+        f"postgresql://{quote(user or '', safe='')}:"
+        f"{quote(password or '', safe='')}@{host}:{port}/"
+        f"{quote(database or '', safe='')}"
+    )
 
 
 def sql_string(value: str) -> str:
@@ -366,7 +390,7 @@ def run_retention(args: argparse.Namespace) -> dict[str, Any]:
         raise RetentionError("--chunk-size must be positive.")
 
     db_url, data_dir = load_config()
-    today = datetime.now().date()
+    today = datetime.now(KST).date()
     raw_cutoff_date = today - timedelta(days=args.retention_days)
     dataset_cutoff_date = today - timedelta(days=args.dataset_cache_days)
     dry_run = not args.apply
