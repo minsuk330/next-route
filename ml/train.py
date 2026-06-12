@@ -101,11 +101,31 @@ def feature_columns(with_api_feature: bool) -> list[str]:
     return columns
 
 
-def to_pandas(frame: pl.DataFrame, columns: list[str], target_column: str) -> tuple[pd.DataFrame, pd.Series]:
+def categorical_dtypes(frames: list[pl.DataFrame]) -> dict[str, pd.CategoricalDtype]:
+    dtypes: dict[str, pd.CategoricalDtype] = {}
+    for column in CATEGORICAL_FEATURES:
+        values: set[Any] = set()
+        for frame in frames:
+            if column in frame.columns:
+                values.update(
+                    str(value)
+                    for value in frame[column].unique().to_list()
+                    if value is not None
+                )
+        dtypes[column] = pd.CategoricalDtype(categories=sorted(values))
+    return dtypes
+
+
+def to_pandas(
+    frame: pl.DataFrame,
+    columns: list[str],
+    target_column: str,
+    cat_dtypes: dict[str, pd.CategoricalDtype],
+) -> tuple[pd.DataFrame, pd.Series]:
     selected = frame.select([*columns, target_column]).to_pandas()
     for column in CATEGORICAL_FEATURES:
         if column in selected.columns:
-            selected[column] = selected[column].astype("category")
+            selected[column] = selected[column].astype("string").astype(cat_dtypes[column])
     y = selected[target_column]
     x = selected.drop(columns=[target_column])
     return x, y
@@ -115,15 +135,19 @@ def validation_split(
     train: pl.DataFrame,
     target_column: str,
     columns: list[str],
+    cat_dtypes: dict[str, pd.CategoricalDtype],
 ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
     ordered = train.sort("snapshot_at")
+    # This internal early-stopping split only tunes model iteration count. The
+    # train/test split already removes rows whose label arrival crosses the
+    # evaluation cutoff, so we keep all remaining train rows here.
     validation_size = max(1, int(ordered.height * 0.1))
     fit_frame = ordered.head(ordered.height - validation_size)
     validation_frame = ordered.tail(validation_size)
     if fit_frame.is_empty():
         raise ValueError("Training split is too small after validation split.")
-    x_train, y_train = to_pandas(fit_frame, columns, target_column)
-    x_valid, y_valid = to_pandas(validation_frame, columns, target_column)
+    x_train, y_train = to_pandas(fit_frame, columns, target_column, cat_dtypes)
+    x_valid, y_valid = to_pandas(validation_frame, columns, target_column, cat_dtypes)
     return x_train, y_train, x_valid, y_valid
 
 
@@ -141,11 +165,12 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
     )
     columns = feature_columns(args.with_api_feature)
     target_column = split.target_column
+    cat_dtypes = categorical_dtypes([split.train, split.test])
 
     x_train, y_train, x_valid, y_valid = validation_split(
-        split.train, target_column, columns
+        split.train, target_column, columns, cat_dtypes
     )
-    x_test, _ = to_pandas(split.test, columns, target_column)
+    x_test, _ = to_pandas(split.test, columns, target_column, cat_dtypes)
 
     model = lgb.LGBMRegressor(
         objective="mae",

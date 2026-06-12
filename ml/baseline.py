@@ -130,6 +130,10 @@ def run_baselines(args: argparse.Namespace) -> dict[str, Any]:
             test, split.target_column, "prediction_median"
         ),
     }
+    if args.target == "api":
+        note = "self-comparison (prediction == target), MAE=0 by construction"
+        reports["baseline_api"]["note"] = note
+        print(f"[warn] baseline_api: {note}")
 
     date_label = service_date_label(service_dates)
     run_id = (
