@@ -291,14 +291,77 @@ rsync -av ml/data/ vps:/srv/nextroute/ml-data/
 VPS host crontab 예시:
 
 ```cron
+CRON_TZ=Asia/Seoul
 20 5 * * * cd /path/to/nextroute && docker compose run --rm ml python archive.py $(date -d yesterday +\%F) >> /var/log/nextroute-ml.log 2>&1
-40 5 * * * cd /path/to/nextroute && docker compose run --rm ml python validate.py $(date -d yesterday +\%F) >> /var/log/nextroute-ml.log 2>&1
+40 5 * * * cd /path/to/nextroute && { docker compose run --rm ml python validate.py $(date -d yesterday +\%F) && bash ml/ops/upload_archive.sh; } >> /var/log/nextroute-ml.log 2>&1
 0 6 * * * cd /path/to/nextroute && docker compose run --rm ml python retention.py --dry-run >> /var/log/nextroute-ml.log 2>&1
 ```
 
-Spring label batch가 04:50 KST에 끝난 뒤 05:20 KST archive가 시작되는 전제다. v1 알림은 `/var/log/nextroute-ml.log`에서 `[error]` grep으로 확인한다.
+Spring label batch가 04:50 KST에 끝난 뒤 05:20 KST archive가 시작되는 전제다. 05:40 작업은 전날 파티션에 대한 `validate.py`가 성공한 경우에만 Google Drive 업로드를 실행한다. v1 알림은 `/var/log/nextroute-ml.log`에서 `[error]` grep으로 확인한다.
 
-`retention.py --apply`를 운영하기 전에는 백업 정책을 다시 결정해야 한다. retention 이후에는 로컬 parquet archive가 30일 이상 지난 raw의 유일본이 될 수 있다.
+`retention.py --apply`를 운영하기 전에는 아래 Google Drive 백업을 설정하고 최신 업로드 성공 여부를 확인해야 한다.
+
+## Remote Backup (rclone to Google Drive)
+
+`retention.py --apply`가 raw DB row를 삭제하기 전에 VPS archive의 오프사이트 사본을 만든다. 백업 대상은 장기 원천인 `bus_label`, `bus_position`, `bus_candidate`이며, 재생성 가능한 dataset과 model experiment는 제외한다.
+
+VPS host에 `rclone`을 설치한다.
+
+```bash
+sudo apt update
+sudo apt install rclone
+```
+
+VPS에 브라우저가 없으면 로컬 맥에서 Google Drive OAuth 토큰을 발급한다.
+
+```bash
+rclone authorize "drive"
+```
+
+브라우저 인증 후 출력되는 token JSON을 VPS의 `rclone config`에서 `gdrive` remote를 만들 때 입력한다. 또는 `~/.config/rclone/rclone.conf`를 직접 구성할 수 있다. cron은 이 설정 파일을 소유한 동일한 VPS 사용자로 실행해야 한다.
+
+```bash
+chmod 600 ~/.config/rclone/rclone.conf
+rclone lsd gdrive:
+```
+
+`rclone.conf`에는 Google Drive refresh token이 평문으로 저장된다. 이 파일은 repo 밖 `~/.config/rclone/`에만 두고 절대 커밋하지 않는다.
+
+기본 원격 경로는 다음과 같다.
+
+```text
+gdrive:nextroute-archive/
+  bus_label/
+  bus_position/
+  bus_candidate/
+```
+
+수동 업로드:
+
+```bash
+ML_DATA_DIR=/srv/nextroute/ml-data bash ml/ops/upload_archive.sh
+rclone size gdrive:nextroute-archive
+```
+
+다른 remote나 경로를 사용하려면 `ML_RCLONE_REMOTE`를 지정한다.
+
+```bash
+ML_RCLONE_REMOTE=gdrive:other-path bash ml/ops/upload_archive.sh
+```
+
+스크립트는 `rclone copy`만 사용하므로 원격 파일을 삭제하지 않는다. 날짜별 parquet는 immutable이므로 재실행하면 같은 파일은 건너뛴다. `sync`는 원격 장기 백업 파일을 삭제할 수 있으므로 사용하지 않는다.
+
+현재 Google Drive 용량은 200GB다. archive 증가량 약 33GB/년 기준으로 Drive가 비어 있다고 가정하면 약 6년을 보관할 수 있다. 다른 Drive 사용량을 포함한 실제 여유 공간은 `rclone about gdrive:`와 `rclone size gdrive:nextroute-archive`로 주기적으로 확인한다. 원격 archive 삭제 정책은 별도 작업으로 결정한다.
+
+`retention.py`는 Google Drive 상태를 직접 검사하지 않는다. `--apply`를 실행하기 전에는 최신 cron 로그에 `[upload] ... all archives uploaded`가 있고 `rclone size`가 정상인지 운영자가 확인해야 한다.
+
+Google Drive는 주간 retrain의 대체 복원 경로로도 사용할 수 있다.
+
+```bash
+rclone copy gdrive:nextroute-archive/bus_label ml/data/bus_label
+rclone copy gdrive:nextroute-archive/bus_position ml/data/bus_position
+rclone copy gdrive:nextroute-archive/bus_candidate ml/data/bus_candidate
+```
 
 ## Weekly Retrain
 
