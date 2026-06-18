@@ -45,5 +45,20 @@ services:
         condition: service_healthy
     restart: always
 
+  ml:
+    build: ./ml
+    profiles: ["ml"]
+    environment:
+      - TZ=Asia/Seoul
+      - POSTGRES_HOST=postgres
+      - DATA_DIR=/data
+    env_file:
+      - env/db.env
+    volumes:
+      - /srv/nextroute/ml-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:
