@@ -16,7 +16,8 @@ src/main/resources/db/migration/*
 !src/main/resources/db/migration/V14__add_bus_position_collected_at_index.sql
 docs
 .firecrawl
-.github
+.github/*
+!.github/workflows/
 ### STS ###
 .apt_generated
 .classpath

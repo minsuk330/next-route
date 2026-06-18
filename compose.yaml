@@ -45,7 +45,8 @@ services:
         condition: service_healthy
     restart: always
 
-  ml:
+  nextroute-ml:
+    image: ghcr.io/minsuk330/nextroute-ml:latest
     build: ./ml
     profiles: ["ml"]
     environment:
