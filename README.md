@@ -310,6 +310,15 @@ VPS host에 `rclone`을 설치한다.
 ```bash
 sudo apt update
 sudo apt install rclone
+rclone version
+```
+
+Ubuntu 기본 저장소의 `rclone`이 오래되어 OAuth 설정에 실패하면 공식 최신 설치 스크립트를 사용한다.
+
+```bash
+sudo -v
+curl https://rclone.org/install.sh | sudo bash
+rclone version
 ```
 
 VPS에 브라우저가 없으면 로컬 맥에서 Google Drive OAuth 토큰을 발급한다.
