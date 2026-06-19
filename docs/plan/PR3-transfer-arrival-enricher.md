@@ -18,6 +18,11 @@
 - `BusRouteStop`(table `bus_route_stop`): `routeId,stopId,seq,sectionId`. repo `findByRouteIdOrderBySeq`,
   `existsByRouteIdAndStopIdAndSeq` — **`findByRouteIdAndStopId` 없음 → 추가**.
 - `BusRoute`: `routeId,routeName`. repo `findByRouteNameIn`. `BusDataService.findRoutesByNames` 사용.
+- **ODSAY→repo 식별자 매핑 (사용자 검증 확정)**:
+  - `lane.busLocalBlID`는 ODSAY 응답에 **실제로 채워져 옴** → 그대로 **route_id**. `findByRouteId`로 검증 후 단건 확정.
+    `lane.busNo`(이름)→`findRoutesByNames`는 **busLocalBlID 누락/검증실패 시 fallback만**.
+  - `subPath.startLocalStationID` = 서울 **stop_id(stId)** → `BusStopRepository.findByStopId` **직접 조회**
+    (ARS 간접경로 불필요).
 - `getArrInfoByStop`는 **stId** 요구(ARS 아님), `getBusPosByRtid`는 `busRouteId`.
 - 기존 `SeoulBusApiAdapter`는 3회 재시도(2s/4s) + 공용 RestTemplate read timeout 30s → 검색 경로 직접 사용 위험.
 - top-30 노선 = 수집 대상 = `application.yaml:97-127` `collector.bus-arrival.target-route-names`
@@ -64,25 +69,22 @@
 - **caller 동기화 필수**(record 인자 변경): `RoutePolylineEnricher.java:149`, `WalkSegmentEnricher.java:201`,
   `RouteSearchService.stripWalkSubPath(:105)` — 컴파일러가 전부 잡음.
 
-### 3b. resolver — **2단계** (정적=후보집합만, 실시간 조회 후 최종 확정)
-> 다중 routeId·중복 seq 해소는 실시간 노선/`BusArrivalInfo.seq`가 필요하므로, **정적 단계에서 routeId/targetSeq를
-> 먼저 확정하면 유효한 모호 케이스가 stop API 조회 전에 `UNSUPPORTED_ROUTE`/`STOP_MAPPING_FAILED`로 조기 종료됨.**
-> → 정적 단계는 stopId와 **후보 집합**만 만들고, stop API dedupe 조회 뒤 최종 확정.
+### 3b. resolver (대부분 정적 단건 확정 — 확정 매핑 적용)
+> busLocalBlID/localStationID가 직접 단건 ID라 **routeId·stopId는 정적에서 바로 확정**된다. 실시간 교차검증이
+> 필요한 건 **루프노선의 중복 seq**뿐. (1차 플랜의 전면 2단계 후보집합 복잡도는 seq 모호 케이스로 축소.)
 
-**정적 단계(조회 전)**:
-- stopId: `subPath.startArsID` → `BusStopRepository.findByArsId` → `stopId`. 실패 시 `startLocalStationID`가
-  stopId일 때 fallback. (stopId는 여기서 확정 — stop API 호출 키.)
-- routeId **후보집합**: **`lane.busLocalBlID` 우선** — `findByRouteId`로 검증되면 그것으로 **단건 확정**(이름 검색
-  합치지 않음). `busLocalBlID`가 없거나 DB 검증 실패일 때만 `lane.busNo` → `findRoutesByNames` fallback(다건 허용).
-  (검증된 정확 ID를 이름 후보와 union하면 동명 다른 노선이 끼어 stop API 실패/양노선 경유 시 정확 ID도 모호 종료됨.)
-- targetSeq **후보집합**: **`BusRouteStopRepository.findByRouteIdAndStopId`(신규, `List` 반환)** — 후보별 `seq` 목록.
+**정적 확정(조회 전, 항상)**:
+- **stopId**: `subPath.startLocalStationID` → `BusStopRepository.findByStopId` → `stopId`. 매핑 실패 → `STOP_MAPPING_FAILED`.
+- **routeId**: `lane.busLocalBlID` → `BusRouteRepository.findByRouteId` 검증 → 단건 확정.
+  - `busLocalBlID` 없음/검증 실패 시에만 `lane.busNo` → `findRoutesByNames` fallback. fallback이 다건이면 ODSAY 방향(`way`)
+    또는 실시간 노선으로 유일화, 불가하면 `UNSUPPORTED_ROUTE`(임의 선택 금지).
+- **targetSeq**: `BusRouteStopRepository.findByRouteIdAndStopId(routeId, stopId)`(**신규, `List<Integer> seq` 반환**).
+  - **단건이면 정적 확정**(대부분). **다건(루프노선이 같은 정류장 2회 경유)이면 후보로 두고** 실시간
+    `BusArrivalInfo.seq`로 유일화(확정 단계).
 
-**확정 단계(stop API 조회 후)**:
-- routeId/targetSeq를 **실시간 노선·`BusArrivalInfo.seq`·ODSAY 방향(`way`)·정류장 포함 여부**로 후보 중 **유일 결정**.
-- 유일하지 않으면 임의 선택 없이 `UNSUPPORTED_ROUTE`(routeId)/`STOP_MAPPING_FAILED`(seq).
-- **stop API 실패(응답 없음) 시**: 확정 근거가 없으므로 **정적 후보가 routeId 1개·seq 1개인 경우에만** 그 값으로
-  모델 fallback 허용. 후보가 다건이면 임의 결합 금지 → `STOP_MAPPING_FAILED`/`ERROR`로 종료.
-- stopId 매핑 자체 실패는 정적 단계에서 즉시 `STOP_MAPPING_FAILED`(예외 아님).
+**확정 단계(stop API 조회 후, seq 다건일 때만 필요)**:
+- targetSeq 후보가 다건이면 실시간 `BusArrivalInfo.seq`(요청 정류소 순번)로 유일 결정. 불가하면 `STOP_MAPPING_FAILED`.
+- **stop API 실패 시**: targetSeq 후보가 **단건이면** 그 값으로 모델 fallback 진행. 다건이면 `STOP_MAPPING_FAILED`(임의 결합 금지).
 
 ### 3c. 전용 검색용 client (no-retry, 단축 timeout)
 - 신규 `RestClient` bean `@Qualifier("busRealtimeRestClient")`(~1.5s timeout) + 신규 port/adapter
@@ -157,8 +159,8 @@ minute_of_day, day_of_week(1=월~7=일), is_weekend, route_id`.
 ## Verification
 - **시각 파서**: `mkTm`/`dataTm` 숫자 14/17자리 **및** `yyyy-MM-dd HH:mm:ss[.S]` 각 포맷에서 후보 생성/REALTIME 분기 테스트.
 - **equality 차량**: `sectOrd == targetSeq`(remaining_stop_count=0) 차량의 REALTIME/MODEL 선택 테스트(제외되면 안 됨).
-- **resolver 2단계**: 정적=후보집합만, stop API 조회 후 유일 결정. 모호 케이스가 조회 전 조기 종료 안 됨 확인.
-  ars→stopId, routeId(busLocalBlID/이름 다건), targetSeq(중복 seq→실시간 seq로 유일) 경계.
+- **resolver**: `startLocalStationID`→`findByStopId`(직접), `busLocalBlID`→`findByRouteId`(단건 확정),
+  busNo fallback(다건 유일화/실패), targetSeq 단건 정적 확정 / 루프노선 중복 seq→실시간 `BusArrivalInfo.seq` 유일화 경계.
 - **복수 lane**: 대표 lane(min 도착) 기준 후속 타임라인, `basisLaneIndex`/`conditional` 세팅 검증.
 - **wave 다중 승차**: 버스→버스 경로에서 wave0 대기 결과가 wave1 `estimatedUserArrivalAt`에 반영되는지(회귀).
   단일 패스로 합치면 잡을 수 없는 버스를 AVAILABLE로 내는 케이스 방지 검증.
@@ -179,3 +181,64 @@ minute_of_day, day_of_week(1=월~7=일), is_weekend, route_id`.
   위험 경로가 열림. 기능 toggle(`transfer-arrival`)을 꺼야 fan-out 자체가 차단됨.
 - 대안: `transfer-arrival`을 켜야 한다면 **realtime fan-out의 deadline·호출 상한을 PR3에 포함**(PR4 캐시/병렬제한 전까지 최소 방어).
 - 운영 활성화 조건은 [PR4](./PR4-ops-hardening.md) 참고.
+
+---
+
+## 구현 체크리스트 (cold-start 실행 순서)
+
+> fresh 컨텍스트에서 이 문서만 보고 실행 가능하도록 정리. 패키지 루트 `watoo.grd.nextroute`.
+> PR1(#21 serving)·PR2(#22 `MlArrivalPredictorPort`/`MlArrivalPredictorAdapter`/`ml.predictor` config) 이미 main에 머지됨.
+
+### 0. 사전 사실 (재확인 불필요, 위 "확정된 사실" 참조)
+- 버스 trafficType=2, sectionTime 단위=분. `busLocalBlID`→route_id(findByRouteId), `startLocalStationID`→stop_id(findByStopId).
+- 기존 재사용: `BusApiPort.getArrInfoByStop(stId)`/`getBusPosByRtid(busRouteId)`, `BusStopRepository.findByStopId`,
+  `BusRouteRepository.findByRouteId`/`findByRouteNameIn`, `BusRouteStopRepository`(seq 메서드 추가), `MlArrivalPredictorPort.predict`.
+- 호출 응답 DTO: `BusArrivalInfo`(predictTime1/2, sectionOrder1/2, seq, vehicleId1/2 …), `BusPositionInfo`
+  (vehicleId, sectionOrder, sectionDistance, fullSectionDistance, gpsX/Y, congestion, nextStopTime, lastStopTime, isRunYn, dataTm).
+
+### 1. 식별자·도보시간 보존 (3a) — 먼저 (record 시그니처 변경 전파)
+1. `application/route/dto/LaneResult.java`: `busID`, `busLocalBlID` 필드 추가.
+2. `application/route/dto/SubPathResult.java`: `startLocalStationID`, `endLocalStationID`, `startArsID`, `endArsID`, `endID`,
+   `walkTotalTimeSeconds`(Integer, 초) 필드 추가(record 끝).
+3. `infrastructure/.../odsay/OdSayApiAdapter`: `toLaneResult`/`toSubPathResult`에서 신규 ID 채움, `walkTotalTimeSeconds`=null.
+4. `WalkSegmentEnricher`(:201 등 `new SubPathResult`): TMAP `WalkSegment.totalTime`을 `walkTotalTimeSeconds`로 보존.
+5. 나머지 `new SubPathResult(...)` caller 동기화: `RoutePolylineEnricher`(:149), `RouteSearchService.stripWalkSubPath`(:105).
+   → 컴파일 통과로 확인.
+
+### 2. repo 메서드 추가
+6. `domain/bus/repository/BusRouteStopRepository`: `List<BusRouteStop> findByRouteIdAndStopId(String routeId, String stopId)`.
+
+### 3. 시각 파서 + mkTm 노출
+7. `application/route/service`(또는 common util)에 **공통 시각 파서**: `yyyyMMddHHmmss`(14) / 17자리 / `yyyy-MM-dd HH:mm:ss[.S]`
+   → `Instant`(Asia/Seoul). 단위 테스트.
+8. `BusArrivalInfo`에 `mkTm` 노출(현재 `BusArrivalItem`에만 있음) — `SeoulBusApiAdapter.toArrivalInfo` 매핑에 추가.
+
+### 4. 전용 검색 client (3c)
+9. `ApiClientConfig`: `@Qualifier("busRealtimeRestClient")` RestClient bean(~1.5s, no-retry).
+10. `application/route/port/out/SearchTimeBusQueryPort` + `infrastructure/.../bus/SearchTimeBusAdapter` —
+    `getArrInfoByStop`/`getBusPosByRtid`를 재시도 없이 호출(기존 `SeoulBusApiAdapter` 건드리지 않음). MockWebServer 테스트.
+
+### 5. 응답 DTO (3e)
+11. `application/route/dto/TransferArrival.java`(record): 3e 필드 전부(source/status enum 포함).
+12. `SubPathResult`에 `List<TransferArrival> transferArrivals` 추가 + 1단계 caller 동기화.
+
+### 6. feature 빌더 (3f)
+13. `application/route/service/MlFeatureVectorBuilder`: `BusPositionInfo`+target_seq → `MlFeatureVector`
+    (이름/파생 3f 표와 정확히 일치, **시간 feature는 dataTm KST 기준**, 차량 필터 `isRunYn=="1"` 등).
+
+### 7. resolver (3b)
+14. `application/route/service/TransferStopResolver`: startLocalStationID→stopId, busLocalBlID→routeId(+busNo fallback),
+    findByRouteIdAndStopId→targetSeq(단건/루프 다건). 단위 테스트.
+
+### 8. config + 오케스트레이터 (3d)
+15. `application/route/config/TransferArrivalProperties`(`route.transfer-arrival`): `enabled=false`. `application.yaml` 블록 추가.
+16. `application/route/service/TransferArrivalEnricher`: **dependency-aware wave 루프**(3d), 부분 실패 격리, wave 실패 전파.
+    포트 모킹 단위 테스트(분기·dedupe·절대시각·wave).
+17. `RouteSearchService.search`: 도보 보강 뒤 `saveLog` 전 `transferArrivalEnricher.enrich(result, request)` 호출. `InOrder` 테스트.
+
+### 9. 검증
+18. 위 "Verification" 전 항목. e2e는 serving(`enabled=true`) 기동 후 top-30 버스 승차 좌표로 `/api/route/search`.
+
+### 모델 target 선택
+- **PR3 코드 결정 아님** — 어떤 target(label/api/corrected) 모델을 쓸지는 serving의 `ML_MODEL_PATH`(배포 선택).
+  PR3는 serving이 무슨 모델이든 feature만 맞춰 호출. 기본 권장: `label`(최종 라벨) experiment.
