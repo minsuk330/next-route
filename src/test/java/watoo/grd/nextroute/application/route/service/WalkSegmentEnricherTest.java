@@ -50,7 +50,8 @@ class WalkSegmentEnricherTest {
                 null,
                 null, null, null,
                 null, null, null,
-                null
+                null,
+                null, null, null, null, null, null, null
         );
     }
 
@@ -60,7 +61,7 @@ class WalkSegmentEnricherTest {
                                  String endExitNo, Double endExitX, Double endExitY) {
         return new SubPathResult(
                 1, 1200, 6000.0,
-                List.of(new LaneResult("2호선", null, 2, null)),
+                List.of(new LaneResult("2호선", null, 2, null, null, null)),
                 Collections.emptyList(),
                 startName, endName,
                 sx, sy, ex, ey,
@@ -68,7 +69,8 @@ class WalkSegmentEnricherTest {
                 null,
                 startExitNo, startExitX, startExitY,
                 endExitNo, endExitX, endExitY,
-                null
+                null,
+                null, null, null, null, null, null, null
         );
     }
 

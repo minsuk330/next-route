@@ -12,6 +12,7 @@ import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.domain.route.log.entity.RouteSearchLog;
 import watoo.grd.nextroute.domain.route.log.service.RouteDataService;
 
+import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 
@@ -26,6 +27,7 @@ class RouteSearchServiceTest {
     @Mock RouteDataService routeDataService;
     @Mock RoutePolylineEnricher polylineEnricher;
     @Mock WalkSegmentEnricher walkSegmentEnricher;
+    @Mock TransferArrivalEnricher transferArrivalEnricher;
 
     RouteSearchService service;
 
@@ -33,7 +35,7 @@ class RouteSearchServiceTest {
     void setUp() {
         service = new RouteSearchService(
                 odSayApiPort, routeDataService, new ObjectMapper(),
-                polylineEnricher, walkSegmentEnricher);
+                polylineEnricher, walkSegmentEnricher, transferArrivalEnricher);
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────
@@ -47,7 +49,8 @@ class RouteSearchServiceTest {
                 null, null, null, null, null,
                 polyline,
                 null, null, null, null, null, null,
-                steps
+                steps,
+                null, null, null, null, null, null, null
         );
     }
 
@@ -60,7 +63,8 @@ class RouteSearchServiceTest {
                 null, null, null, null, null,
                 List.of(new CoordPoint(127.005, 37.499)),  // 지하철 polyline은 유지되어야 함
                 null, null, null, null, null, null,
-                null
+                null,
+                null, null, null, null, null, null, null
         );
     }
 
@@ -77,30 +81,30 @@ class RouteSearchServiceTest {
     // ── 테스트 ────────────────────────────────────────────────────────────
 
     @Test
-    void TC_정상_검색_흐름_ODsay_polylineEnricher_walkSegmentEnricher_순서() {
+    void TC_정상_검색_흐름_enricher_호출순서() {
         RouteSearchResult odsayResult = resultWith(List.of(walkSubPath(null, null)));
         RouteSearchResult afterPolyline = resultWith(List.of(walkSubPath(null, null)));
         RouteSearchResult afterWalk = resultWith(List.of(
                 walkSubPath(List.of(new CoordPoint(127.0, 37.5)),
                         List.of(new WalkStep(0, "SP", 200, "이동", 127.0, 37.5)))));
+        RouteSearchResult afterTransfer = afterWalk;
 
         when(odSayApiPort.searchPath(127.0, 37.5, 127.01, 37.51)).thenReturn(odsayResult);
         when(polylineEnricher.enrich(odsayResult)).thenReturn(afterPolyline);
         when(walkSegmentEnricher.enrich(eq(afterPolyline), eq(127.0), eq(37.5), eq("출발지"),
                 eq(127.01), eq(37.51), eq("도착지"))).thenReturn(afterWalk);
+        when(transferArrivalEnricher.enrich(eq(afterWalk), any(Instant.class))).thenReturn(afterTransfer);
 
         RouteSearchResult result = service.search(request());
 
-        // 호출 순서 검증
-        var order = inOrder(odSayApiPort, polylineEnricher, walkSegmentEnricher);
+        var order = inOrder(odSayApiPort, polylineEnricher, walkSegmentEnricher, transferArrivalEnricher);
         order.verify(odSayApiPort).searchPath(127.0, 37.5, 127.01, 37.51);
         order.verify(polylineEnricher).enrich(odsayResult);
         order.verify(walkSegmentEnricher).enrich(any(), eq(127.0), eq(37.5), eq("출발지"),
                 eq(127.01), eq(37.51), eq("도착지"));
+        order.verify(transferArrivalEnricher).enrich(eq(afterWalk), any(Instant.class));
 
-        // 최종 응답은 enricher 결과 그대로
-        assertThat(result).isSameAs(afterWalk);
-        // 클라이언트 응답에는 도보 polyline + walkSteps 보존
+        assertThat(result).isSameAs(afterTransfer);
         SubPathResult walk = result.paths().get(0).subPaths().get(0);
         assertThat(walk.polyline()).hasSize(1);
         assertThat(walk.walkSteps()).hasSize(1);
@@ -108,7 +112,6 @@ class RouteSearchServiceTest {
 
     @Test
     void TC_로그_저장_시_도보_polyline과_walkSteps_제외() throws Exception {
-        // 보강된 결과: 도보 subPath에 polyline과 walkSteps 있음
         SubPathResult enrichedWalk = walkSubPath(
                 List.of(new CoordPoint(127.0, 37.5), new CoordPoint(127.01, 37.51)),
                 List.of(new WalkStep(0, "SP", 200, "이동", 127.0, 37.5))
@@ -119,15 +122,14 @@ class RouteSearchServiceTest {
         when(polylineEnricher.enrich(any())).thenReturn(enriched);
         when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
                 anyDouble(), anyDouble(), any())).thenReturn(enriched);
+        when(transferArrivalEnricher.enrich(any(), any())).thenReturn(enriched);
 
         service.search(request());
 
-        // 로그 저장 호출 검증
         ArgumentCaptor<RouteSearchLog> logCaptor = ArgumentCaptor.forClass(RouteSearchLog.class);
         verify(routeDataService).save(logCaptor.capture());
 
         String json = logCaptor.getValue().getResponseJson();
-        // 로그 JSON에 도보 polyline/walkSteps가 들어가지 않아야 함
         assertThat(json).contains("\"trafficType\":3");
         assertThat(json).contains("\"polyline\":null");
         assertThat(json).contains("\"walkSteps\":null");
@@ -135,7 +137,6 @@ class RouteSearchServiceTest {
 
     @Test
     void TC_로그_저장_시_지하철_polyline은_유지() throws Exception {
-        // 지하철 polyline은 보존되어야 함
         SubPathResult subway = subwaySubPath();
         RouteSearchResult enriched = resultWith(List.of(subway));
 
@@ -143,6 +144,7 @@ class RouteSearchServiceTest {
         when(polylineEnricher.enrich(any())).thenReturn(enriched);
         when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
                 anyDouble(), anyDouble(), any())).thenReturn(enriched);
+        when(transferArrivalEnricher.enrich(any(), any())).thenReturn(enriched);
 
         service.search(request());
 
@@ -150,7 +152,6 @@ class RouteSearchServiceTest {
         verify(routeDataService).save(logCaptor.capture());
         String json = logCaptor.getValue().getResponseJson();
 
-        // 지하철은 polyline 유지
         assertThat(json).contains("\"trafficType\":1");
         assertThat(json).contains("127.005");
         assertThat(json).contains("37.499");
@@ -163,6 +164,7 @@ class RouteSearchServiceTest {
         when(polylineEnricher.enrich(any())).thenReturn(enriched);
         when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
                 anyDouble(), anyDouble(), any())).thenReturn(enriched);
+        when(transferArrivalEnricher.enrich(any(), any())).thenReturn(enriched);
         doThrow(new RuntimeException("DB fail")).when(routeDataService).save(any());
 
         RouteSearchResult result = service.search(request());

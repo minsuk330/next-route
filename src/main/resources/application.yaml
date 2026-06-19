@@ -62,6 +62,10 @@ ml:
     enabled: ${ML_PREDICTOR_ENABLED:false}
     timeout-ms: 3000
 
+route:
+  transfer-arrival:
+    enabled: ${TRANSFER_ARRIVAL_ENABLED:false}
+
 kakao:
   api:
     key: ${KAKAO_REST_API_KEY}

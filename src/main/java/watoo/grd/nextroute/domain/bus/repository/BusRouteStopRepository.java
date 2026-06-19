@@ -9,6 +9,8 @@ public interface BusRouteStopRepository extends JpaRepository<BusRouteStop, Long
 
 	List<BusRouteStop> findByRouteIdOrderBySeq(String routeId);
 
+	List<BusRouteStop> findByRouteIdAndStopId(String routeId, String stopId);
+
 	boolean existsByRouteIdAndStopIdAndSeq(String routeId, String stopId, Integer seq);
 
 	void deleteByRouteId(String routeId);

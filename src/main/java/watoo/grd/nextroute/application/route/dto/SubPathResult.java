@@ -30,6 +30,16 @@ public record SubPathResult(
         Double endExitX,
         Double endExitY,
         // 도보 보강 (trafficType == 3일 때만 non-null)
-        List<WalkStep> walkSteps
+        List<WalkStep> walkSteps,
+        // ODSAY 식별자 (trafficType == 2 버스 구간)
+        String startLocalStationID,
+        String endLocalStationID,
+        String startArsID,
+        String endArsID,
+        Integer endID,
+        // 도보 TMAP 실측 소요시간 (초, trafficType == 3일 때만 non-null)
+        Integer walkTotalTimeSeconds,
+        // 환승 도착예측 결과 (lane별, trafficType == 2일 때만 non-null)
+        List<TransferArrival> transferArrivals
 ) {
 }

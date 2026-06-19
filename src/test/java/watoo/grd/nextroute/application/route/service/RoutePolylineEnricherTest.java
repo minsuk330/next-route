@@ -87,7 +87,7 @@ class RoutePolylineEnricherTest {
                                         List<StationResult> stations) {
         return new SubPathResult(
                 1, 1200, 6000.0,
-                List.of(new LaneResult("2호선", null, 2, null)),
+                List.of(new LaneResult("2호선", null, 2, null, null, null)),
                 stations,
                 startName, endName,
                 startX, startY, endX, endY,
@@ -95,7 +95,8 @@ class RoutePolylineEnricherTest {
                 null,
                 null, null, null,
                 null, null, null,
-                null
+                null,
+                null, null, null, null, null, null, null
         );
     }
 
@@ -181,7 +182,7 @@ class RoutePolylineEnricherTest {
         // startX null
         SubPathResult sp = new SubPathResult(
                 1, 1200, 6000.0,
-                List.of(new LaneResult("2호선", null, 2, null)),
+                List.of(new LaneResult("2호선", null, 2, null, null, null)),
                 Collections.emptyList(),
                 "A역", "B역",
                 null, 37.10, 126.16, 37.16,
@@ -189,7 +190,8 @@ class RoutePolylineEnricherTest {
                 null,
                 null, null, null,
                 null, null, null,
-                null
+                null,
+                null, null, null, null, null, null, null
         );
         RouteSearchResult result = enricher.enrich(searchResult("8:2:0:0", sp));
 

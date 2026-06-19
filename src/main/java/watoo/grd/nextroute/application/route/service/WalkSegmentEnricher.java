@@ -206,7 +206,11 @@ public class WalkSegmentEnricher {
                 segment.polyline(),
                 start.exitNo(), startExitX, startExitY,
                 end.exitNo(),   endExitX,   endExitY,
-                segment.steps()
+                segment.steps(),
+                sp.startLocalStationID(), sp.endLocalStationID(),
+                sp.startArsID(), sp.endArsID(), sp.endID(),
+                segment.totalTime() > 0 ? segment.totalTime() : null,
+                sp.transferArrivals()
         );
     }
 
