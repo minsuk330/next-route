@@ -17,6 +17,16 @@ train = [
     "numpy",
     "pandas",
 ]
+serve = [
+    "fastapi",
+    "uvicorn",
+    "lightgbm",
+    "pandas",
+]
+serve-dev = [
+    "pytest",
+    "httpx",
+]
 
 [tool.uv]
 package = false

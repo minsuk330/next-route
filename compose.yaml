@@ -32,6 +32,9 @@ services:
       - TZ=Asia/Seoul
       - POSTGRES_HOST=postgres
       - SPRING_PROFILES_ACTIVE=prod
+      # ML serving is optional. app must NOT depend on serve health — if the model
+      # is missing the route search app still boots and calls fall back gracefully.
+      - ML_PREDICTOR_URL=http://nextroute-ml-serve:8001
     build: .
     env_file:
       - env/db.env
@@ -60,6 +63,28 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # Long-running model serving (separate from the batch nextroute-ml run --rm jobs).
+  # Boots even without a model; /health returns 503 until ML_MODEL_PATH points at a
+  # valid experiment dir (model.txt + training_manifest.json) under the mounted data.
+  nextroute-ml-serve:
+    image: ghcr.io/minsuk330/nextroute-ml:latest
+    build: ./ml
+    profiles: ["ml"]
+    command: uvicorn serve.app:app --host 0.0.0.0 --port 8001
+    environment:
+      - TZ=Asia/Seoul
+      - ML_MODEL_PATH=${ML_MODEL_PATH:-}
+    volumes:
+      - /srv/nextroute/ml-data:/data:ro
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/health').status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: always
 
 volumes:
   pgdata:
