@@ -244,6 +244,47 @@ data/experiments/{run_id}/training_manifest.json
 - 특정 route에만 과적합되지 않음
 - target 정책별 차이를 설명 가능
 
+## Serving
+
+학습한 `model.txt`를 HTTP로 예측 제공하는 FastAPI 서버다. batch 스크립트(`archive.py` 등)와 분리된 상시 기동
+서비스이며, Spring app이 환승 도착예측에 사용한다. 모델은 선택이다 — 모델이 없거나 계약 검증에 실패하면 프로세스는
+기동하되 `/health`가 503을 반환해 app이 graceful하게 degrade한다.
+
+serving 의존성:
+
+```bash
+uv sync --extra serve
+```
+
+`ML_MODEL_PATH`로 experiment 디렉터리(또는 `model.txt`)를 지정해 기동한다. 같은 디렉터리의
+`training_manifest.json`을 함께 읽어 `schema_version=1`, `with_api_feature=false`, `feature_list==모델 feature`를
+검증한다(불일치 시 로드 거부 → 503). `route_id`는 `model.txt`의 `pandas_categorical` 순서로 복원하고, 미등록
+route는 item별 `UNSUPPORTED_ROUTE`로 격리한다.
+
+```bash
+ML_MODEL_PATH=data/experiments/lgbm_2026-06-10_label_20260612T080252Z \
+  uv run --extra serve uvicorn serve.app:app --host 0.0.0.0 --port 8001
+```
+
+엔드포인트:
+
+- `GET /health` — 모델 로드 여부. 없으면 503.
+- `GET /metadata` — `model_version`, `feature_list`, `route_count` 등 계약.
+- `POST /predict` — `{"items":[{"request_id","features":{...}}]}`. feature 키는 학습과 동일.
+  - 응답은 **`request_id`로 결합**: `{"results":[{"request_id","status","seconds_to_arrival","model_version"}]}`.
+  - feature **키 누락**은 HTTP 422(요청 거부), 존재하는 키의 **null 값은 허용**(NaN), **미등록 route_id**는
+    그 item만 `UNSUPPORTED_ROUTE`(나머지는 계속 예측).
+
+테스트:
+
+```bash
+uv run --extra serve --extra serve-dev pytest serve/test_app.py
+```
+
+배포: compose `nextroute-ml-serve` 서비스가 batch `nextroute-ml`과 동일 이미지로 상시 기동한다. `/data`(읽기전용
+bind mount) 아래 experiment를 `ML_MODEL_PATH`로 가리키고, app은 `ML_PREDICTOR_URL=http://nextroute-ml-serve:8001`로
+호출한다. app은 serve health에 의존하지 않아 모델이 없어도 정상 기동한다.
+
 ## Retention
 
 기본은 dry-run이다. 삭제 대상 날짜와 archive gate 결과만 출력한다.
