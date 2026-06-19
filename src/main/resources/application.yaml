@@ -56,6 +56,12 @@ tmap:
   timeout-ms: 1500
   retry-on-failure: true
 
+ml:
+  predictor:
+    base-url: ${ML_PREDICTOR_URL:http://localhost:8001}
+    enabled: ${ML_PREDICTOR_ENABLED:false}
+    timeout-ms: 3000
+
 kakao:
   api:
     key: ${KAKAO_REST_API_KEY}
