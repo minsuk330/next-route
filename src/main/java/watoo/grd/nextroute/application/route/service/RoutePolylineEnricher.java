@@ -153,7 +153,10 @@ public class RoutePolylineEnricher {
                 polyline,
                 sp.startExitNo(), sp.startExitX(), sp.startExitY(),
                 sp.endExitNo(),   sp.endExitX(),   sp.endExitY(),
-                sp.walkSteps()
+                sp.walkSteps(),
+                sp.startLocalStationID(), sp.endLocalStationID(),
+                sp.startArsID(), sp.endArsID(), sp.endID(),
+                sp.walkTotalTimeSeconds(), sp.transferArrivals()
         );
     }
 }

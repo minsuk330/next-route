@@ -4,6 +4,8 @@ public record LaneResult(
         String name,
         String busNo,
         Integer subwayCode,
-        Integer type
+        Integer type,
+        Integer busID,
+        String busLocalBlID
 ) {
 }

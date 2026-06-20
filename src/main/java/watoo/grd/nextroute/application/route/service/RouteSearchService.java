@@ -13,6 +13,7 @@ import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.domain.route.log.entity.RouteSearchLog;
 import watoo.grd.nextroute.domain.route.log.service.RouteDataService;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -28,9 +29,12 @@ public class RouteSearchService implements SearchRouteUseCase {
     private final ObjectMapper objectMapper;
     private final RoutePolylineEnricher polylineEnricher;
     private final WalkSegmentEnricher walkSegmentEnricher;
+    private final TransferArrivalEnricher transferArrivalEnricher;
 
     @Override
     public RouteSearchResult search(RouteSearchRequest request) {
+        Instant searchStartedAt = Instant.now();
+
         RouteSearchResult result = odSayApiPort.searchPath(
                 request.startX(), request.startY(),
                 request.endX(), request.endY()
@@ -44,7 +48,10 @@ public class RouteSearchService implements SearchRouteUseCase {
                 request.startX(), request.startY(), request.startName(),
                 request.endX(), request.endY(), request.endName());
 
-        // 3. 로그 저장 (도보 polyline/walkSteps는 제외 — 로그 사이즈 폭증 방지)
+        // 3. 환승 도착예측 보강 (trafficType=2 버스)
+        result = transferArrivalEnricher.enrich(result, searchStartedAt);
+
+        // 4. 로그 저장 (도보 polyline/walkSteps는 제외 — 로그 사이즈 폭증 방지)
         saveLog(request, result);
 
         return result;
@@ -112,7 +119,10 @@ public class RouteSearchService implements SearchRouteUseCase {
                 null,   // polyline 제외
                 sp.startExitNo(), sp.startExitX(), sp.startExitY(),
                 sp.endExitNo(),   sp.endExitX(),   sp.endExitY(),
-                null    // walkSteps 제외
+                null,   // walkSteps 제외
+                sp.startLocalStationID(), sp.endLocalStationID(),
+                sp.startArsID(), sp.endArsID(), sp.endID(),
+                sp.walkTotalTimeSeconds(), sp.transferArrivals()
         );
     }
 }

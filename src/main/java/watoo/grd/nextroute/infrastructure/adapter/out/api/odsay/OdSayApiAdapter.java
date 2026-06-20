@@ -265,14 +265,21 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 subPath.getStartID(),
                 subPath.getWay(),
                 subPath.getWayCode(),
-                null,                       // polyline
+                null,                              // polyline
                 subPath.getStartExitNo(),
                 subPath.getStartExitX(),
                 subPath.getStartExitY(),
                 subPath.getEndExitNo(),
                 subPath.getEndExitX(),
                 subPath.getEndExitY(),
-                null                        // walkSteps
+                null,                              // walkSteps
+                subPath.getStartLocalStationID(),
+                subPath.getEndLocalStationID(),
+                subPath.getStartArsID(),
+                subPath.getEndArsID(),
+                subPath.getEndID(),
+                null,                              // walkTotalTimeSeconds (WalkSegmentEnricher가 채움)
+                null                               // transferArrivals (TransferArrivalEnricher가 채움)
         );
     }
 
@@ -281,7 +288,9 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 lane.getName(),
                 lane.getBusNo(),
                 lane.getSubwayCode(),
-                lane.getType()
+                lane.getType(),
+                lane.getBusID(),
+                lane.getBusLocalBlID()
         );
     }
 

@@ -47,4 +47,15 @@ public class ApiClientConfig {
 				.requestFactory(factory)
 				.build();
 	}
+
+	/** 경로검색 전용 버스 실시간 RestClient. 재시도 없음, 단축 timeout. @Qualifier로 주입. */
+	@Bean
+	public RestClient busRealtimeRestClient() {
+		SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+		factory.setConnectTimeout(Duration.ofMillis(1500));
+		factory.setReadTimeout(Duration.ofMillis(1500));
+		return RestClient.builder()
+				.requestFactory(factory)
+				.build();
+	}
 }
