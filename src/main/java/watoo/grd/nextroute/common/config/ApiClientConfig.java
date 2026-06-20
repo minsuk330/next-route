@@ -1,4 +1,4 @@
-package watoo.grd.nextroute.infrastructure.config;
+package watoo.grd.nextroute.common.config;
 
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;

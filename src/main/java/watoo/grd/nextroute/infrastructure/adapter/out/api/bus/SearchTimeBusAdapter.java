@@ -10,13 +10,19 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
+import watoo.grd.nextroute.application.bus.port.out.BusApiBreakerPort;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
+import watoo.grd.nextroute.common.config.ClockConfig;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.BusApiResponse;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.BusArrivalItem;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.BusPositionItem;
 
 import java.net.URI;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static watoo.grd.nextroute.common.util.ParseUtils.parseDouble;
 import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
@@ -25,21 +31,32 @@ import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
  * 경로검색 전용 버스 실시간 조회 어댑터.
  * 재시도 없음, ~1.5s timeout. 검색 레이턴시 보호용.
  * 기존 SeoulBusApiAdapter(3회 재시도/30s)는 그대로 유지.
+ *
+ * <p>collector와 동일 provider key를 쓰므로 공유 {@link BusApiBreakerPort}를 함께 본다.
+ * 차단 중이면 외부 호출을 생략하고 빈 결과를 반환(검색은 깨지 않음). error code 7 수신 시 공유 차단을 건다.
  */
 @Slf4j
 @Component
 public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
 
+    private static final String API_LIMIT_EXCEEDED_CODE = "7";
+
     private final RestClient restClient;
     private final XmlMapper xmlMapper;
     private final String apiKey;
     private final String baseUrl;
+    private final BusApiBreakerPort breaker;
+    private final Clock clock;
 
     public SearchTimeBusAdapter(
             @Qualifier("busRealtimeRestClient") RestClient restClient,
+            BusApiBreakerPort breaker,
+            Clock clock,
             @Value("${seoul.api.bus-key}") String apiKey,
             @Value("${seoul.api.bus-base-url}") String baseUrl) {
         this.restClient = restClient;
+        this.breaker = breaker;
+        this.clock = clock;
         this.apiKey = apiKey;
         this.baseUrl = baseUrl;
         this.xmlMapper = new XmlMapper();
@@ -68,6 +85,12 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
     }
 
     private <T> List<T> callApi(URI uri, Class<T> itemType) {
+        // 공유 차단 중이면 외부 호출 생략(검색은 깨지 않음 — 빈 결과)
+        Optional<Instant> blocked = breaker.getBlockedUntil();
+        if (blocked.isPresent()) {
+            log.debug("[SearchTimeAdapter] breaker blocked until {} — skip {}", blocked.get(), uri.getPath());
+            return List.of();
+        }
         try {
             String xml = restClient.get()
                     .uri(uri)
@@ -83,7 +106,14 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
             if (!response.isSuccess()) {
                 String cd = response.getMsgHeader() == null ? null : response.getMsgHeader().getHeaderCd();
                 String msg = response.getMsgHeader() == null ? null : response.getMsgHeader().getHeaderMsg();
-                log.warn("[SearchTimeAdapter] API error [{}]: {} - {}", uri.getPath(), cd, msg);
+                if (API_LIMIT_EXCEEDED_CODE.equals(cd == null ? null : cd.trim())) {
+                    // 공유 차단(collector·search 함께 다음날 자정까지 차단)
+                    breaker.tripUntil(nextMidnight());
+                    log.error("[SearchTimeAdapter] API error code 7 — tripping shared breaker [{}]: {}",
+                            uri.getPath(), msg);
+                } else {
+                    log.warn("[SearchTimeAdapter] API error [{}]: {} - {}", uri.getPath(), cd, msg);
+                }
                 return List.of();
             }
             return response.getItems();
@@ -91,6 +121,14 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
             log.warn("[SearchTimeAdapter] Call failed [{}]: {}", uri.getPath(), e.getMessage());
             throw new RuntimeException("SearchTimeBus API call failed: " + uri.getPath(), e);
         }
+    }
+
+    private Instant nextMidnight() {
+        return ZonedDateTime.now(clock)
+                .toLocalDate()
+                .plusDays(1)
+                .atStartOfDay(ClockConfig.KST)
+                .toInstant();
     }
 
     private BusArrivalInfo toArrivalInfo(BusArrivalItem item) {

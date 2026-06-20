@@ -43,6 +43,7 @@ public class TransferArrivalEnricher {
     private final TransferStopResolver resolver;
     private final MlFeatureVectorBuilder featureBuilder;
     private final BusCollectorProperties collectorProps;
+    private final java.time.Clock clock;
 
     // ── 공개 API ────────────────────────────────────────────────────────────
 
@@ -59,6 +60,11 @@ public class TransferArrivalEnricher {
         // 정적 resolve (wave 무관)
         resolveStatic(all);
 
+        // enrich 진입 기준 deadline. 초과 시 미처리 wave는 status=ERROR.
+        Instant deadline = props.getDeadlineMs() > 0
+                ? clock.instant().plusMillis(props.getDeadlineMs())
+                : null;
+
         int maxWave = all.stream().mapToInt(c -> c.waveIndex).max().orElse(-1);
 
         // pathIdx → (직전 wave 대표 lane 예측 도착시각, 직전 버스 subPath 인덱스, 대표 laneIndex, conditional)
@@ -71,10 +77,30 @@ public class TransferArrivalEnricher {
             List<SubPathCtx> waveCtxs = all.stream().filter(c -> c.waveIndex == w).toList();
             if (waveCtxs.isEmpty()) continue;
 
+            if (deadline != null && clock.instant().isAfter(deadline)) {
+                // deadline 초과 — 외부 호출 없이 이 wave 전부 ERROR
+                fillError(waveCtxs, searchStartedAt, resultMap);
+                continue;
+            }
+
             processWave(wave, waveCtxs, result, searchStartedAt, prevWave, resultMap);
         }
 
         return rebuild(result, all, resultMap);
+    }
+
+    private void fillError(List<SubPathCtx> ctxs, Instant calculatedAt,
+                           Map<Integer, Map<Integer, List<TransferArrival>>> resultMap) {
+        for (SubPathCtx ctx : ctxs) {
+            List<TransferArrival> lanes = new ArrayList<>();
+            for (LaneCtx lc : ctx.laneContexts) {
+                lanes.add(noResult(lc.routeId, lc.laneIdx,
+                        TransferArrival.Source.NONE, TransferArrival.Status.ERROR,
+                        calculatedAt, null));
+            }
+            resultMap.computeIfAbsent(ctx.pathIdx, k -> new HashMap<>())
+                    .put(ctx.subPathIdx, lanes);
+        }
     }
 
     // ── 1단계: context 수집 ─────────────────────────────────────────────────

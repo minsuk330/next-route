@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.application.bus.dto.*;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
-import watoo.grd.nextroute.application.bus.port.out.BusApiBlockStatusPort;
+import watoo.grd.nextroute.application.bus.port.out.BusApiBreakerPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.bus.service.BusApiCallBudget;
 import watoo.grd.nextroute.common.config.ClockConfig;
@@ -36,7 +36,7 @@ import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
  */
 @Slf4j
 @Component
-public class SeoulBusApiAdapter implements BusApiPort, BusApiBlockStatusPort {
+public class SeoulBusApiAdapter implements BusApiPort {
 
 	private static final int MAX_RETRIES = 3;
 	private static final String API_LIMIT_EXCEEDED_CODE = "7";
@@ -55,12 +55,13 @@ public class SeoulBusApiAdapter implements BusApiPort, BusApiBlockStatusPort {
 	private final String busUsageKey;
 	private final String busRouteBaseUrl;
 	private final ObjectMapper objectMapper;
-	private volatile Instant blockedUntil;
+	private final BusApiBreakerPort breaker;
 
 	public SeoulBusApiAdapter(
 			RestTemplate restTemplate,
 			ObjectMapper objectMapper,
 			Clock clock,
+			BusApiBreakerPort breaker,
 			@Qualifier("arrivalApiCallBudget") BusApiCallBudget arrivalBudget,
 			@Qualifier("positionApiCallBudget") BusApiCallBudget positionBudget,
 			@Value("${collector.bus-arrival.daily-budget:50000}") int arrivalDailyBudget,
@@ -73,6 +74,7 @@ public class SeoulBusApiAdapter implements BusApiPort, BusApiBlockStatusPort {
 		this.restTemplate = restTemplate;
 		this.objectMapper = objectMapper;
 		this.clock = clock;
+		this.breaker = breaker;
 		this.arrivalBudget = arrivalBudget;
 		this.positionBudget = positionBudget;
 		this.arrivalDailyBudget = arrivalDailyBudget;
@@ -226,19 +228,6 @@ public class SeoulBusApiAdapter implements BusApiPort, BusApiBlockStatusPort {
 		}
 
 		return new BusRidershipFetchResult(month, totalCount, allRows);
-	}
-
-	@Override
-	public Optional<Instant> getBlockedUntil() {
-		Instant until = blockedUntil;
-		if (until == null) {
-			return Optional.empty();
-		}
-		if (Instant.now(clock).isBefore(until)) {
-			return Optional.of(until);
-		}
-		blockedUntil = null;
-		return Optional.empty();
 	}
 
 	// ===== Infra DTO → App DTO 변환 =====
@@ -577,7 +566,7 @@ public class SeoulBusApiAdapter implements BusApiPort, BusApiBlockStatusPort {
 	}
 
 	private void throwIfBlocked(URI uri) {
-		Optional<Instant> blocked = getBlockedUntil();
+		Optional<Instant> blocked = breaker.getBlockedUntil();
 		if (blocked.isEmpty()) {
 			return;
 		}
@@ -596,11 +585,12 @@ public class SeoulBusApiAdapter implements BusApiPort, BusApiBlockStatusPort {
 				.toLocalDate()
 				.plusDays(1)
 				.atStartOfDay(ClockConfig.KST);
-		blockedUntil = nextMidnight.toInstant();
+		Instant until = nextMidnight.toInstant();
+		breaker.tripUntil(until);   // 공유 차단(collector·search 함께 차단)
 		log.error("API error code 7 - blocking until {} KST [{}]: {} [budget: {}]",
 				nextMidnight, uri.getPath(), headerMsg, budgetStatus());
 		return new BusApiBlockedException(
-				blockedUntil,
+				until,
 				"Seoul bus API error code 7; blocked until " + nextMidnight + " KST"
 		);
 	}

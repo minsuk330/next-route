@@ -65,6 +65,8 @@ ml:
 route:
   transfer-arrival:
     enabled: ${TRANSFER_ARRIVAL_ENABLED:false}
+    deadline-ms: ${TRANSFER_ARRIVAL_DEADLINE_MS:1500}
+    cache-ttl-seconds: ${TRANSFER_ARRIVAL_CACHE_TTL:15}
 
 kakao:
   api:
