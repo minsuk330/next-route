@@ -6,5 +6,6 @@ public record NearbyBusStopResult(
         String arsId,
         double latitude,
         double longitude,
-        int distanceMeters
+        int distanceMeters,
+        boolean supportsPrediction
 ) {}

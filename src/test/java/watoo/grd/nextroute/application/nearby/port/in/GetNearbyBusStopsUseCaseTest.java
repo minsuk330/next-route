@@ -8,11 +8,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.nearby.dto.NearbyBusStopResult;
 import watoo.grd.nextroute.application.nearby.service.NearbyTransitService;
+import watoo.grd.nextroute.application.route.service.PredictionSupportService;
 import watoo.grd.nextroute.domain.bus.repository.NearbyBusStopProjection;
 import watoo.grd.nextroute.domain.bus.service.BusDataService;
 import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,10 +29,11 @@ class GetNearbyBusStopsUseCaseTest {
 
     @Mock BusDataService busDataService;
     @Mock SubwayDataService subwayDataService;
+    @Mock PredictionSupportService predictionSupportService;
     @InjectMocks NearbyTransitService service;
 
     @Test
-    @DisplayName("첫 번째 반경(500m)에서 결과가 있으면 projection을 DTO로 변환해 반환한다")
+    @DisplayName("첫 번째 반경(500m)에서 결과가 있으면 projection을 DTO로 변환해 반환한다 (미지원 정류장은 false)")
     void getNearbyBusStops_mapsProjectionToResult() {
         NearbyBusStopProjection projection = projection(
                 "1001", "시청앞", "01-001", 37.5665, 126.9780, 134.6
@@ -38,11 +41,32 @@ class GetNearbyBusStopsUseCaseTest {
 
         given(busDataService.findNearbyStops(37.5665, 126.9780, 500.0, 5))
                 .willReturn(List.of(projection));
+        given(predictionSupportService.supportedRouteIds()).willReturn(Set.of());
+        given(busDataService.findSupportedStopIds(anySet(), anySet())).willReturn(Set.of());
 
         List<NearbyBusStopResult> result = service.getNearbyBusStops(37.5665, 126.9780, 5);
 
         assertThat(result).containsExactly(
-                new NearbyBusStopResult("1001", "시청앞", "01-001", 37.5665, 126.9780, 135)
+                new NearbyBusStopResult("1001", "시청앞", "01-001", 37.5665, 126.9780, 135, false)
+        );
+    }
+
+    @Test
+    @DisplayName("지원 노선을 경유하는 정류장은 supportsPrediction=true")
+    void getNearbyBusStops_marksSupportedStop() {
+        NearbyBusStopProjection projection = projection(
+                "1001", "시청앞", "01-001", 37.5665, 126.9780, 134.6
+        );
+
+        given(busDataService.findNearbyStops(37.5665, 126.9780, 500.0, 5))
+                .willReturn(List.of(projection));
+        given(predictionSupportService.supportedRouteIds()).willReturn(Set.of("100100124"));
+        given(busDataService.findSupportedStopIds(anySet(), anySet())).willReturn(Set.of("1001"));
+
+        List<NearbyBusStopResult> result = service.getNearbyBusStops(37.5665, 126.9780, 5);
+
+        assertThat(result).containsExactly(
+                new NearbyBusStopResult("1001", "시청앞", "01-001", 37.5665, 126.9780, 135, true)
         );
     }
 
@@ -94,6 +118,8 @@ class GetNearbyBusStopsUseCaseTest {
 
         given(busDataService.findNearbyStops(37.5665, 126.9780, 500.0, 5)).willReturn(List.of());
         given(busDataService.findNearbyStops(37.5665, 126.9780, 1000.0, 5)).willReturn(List.of(projection));
+        given(predictionSupportService.supportedRouteIds()).willReturn(Set.of());
+        given(busDataService.findSupportedStopIds(anySet(), anySet())).willReturn(Set.of());
 
         List<NearbyBusStopResult> result = service.getNearbyBusStops(37.5665, 126.9780, 5);
 

@@ -12,6 +12,7 @@ import watoo.grd.nextroute.domain.bus.repository.NearbyBusStopProjection;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -122,6 +123,36 @@ public class BusDataService {
 
 	public List<NearbyBusStopProjection> findNearbyStops(double lat, double lng, double radiusMeters, int limit) {
 		return busStopRepository.findNearby(lat, lng, radiusMeters, limit);
+	}
+
+	// ===== 정류장 선택 UI 조회 =====
+
+	/** 주어진 정류장들 중 지원 노선을 경유하는 정류장 id (배지 판정용). */
+	public Set<String> findSupportedStopIds(Collection<String> stopIds, Collection<String> routeIds) {
+		if (stopIds.isEmpty() || routeIds.isEmpty()) {
+			return Set.of();
+		}
+		return new HashSet<>(busRouteStopRepository.findSupportedStopIds(stopIds, routeIds));
+	}
+
+	/** 정류장 경유 노선 목록 (정류장→노선 역조회). */
+	public List<StopRouteProjection> findRoutesByStopId(String stopId) {
+		return busRouteStopRepository.findRoutesByStopId(stopId);
+	}
+
+	/** 노선 경유 정류장 목록 (seq 순, 좌표 포함). */
+	public List<RouteStopProjection> findStopsByRouteId(String routeId) {
+		return busRouteStopRepository.findStopsByRouteId(routeId);
+	}
+
+	/** 버스번호 prefix 자동완성. */
+	public List<BusRoute> searchRoutesByNamePrefix(String prefix) {
+		return busRouteRepository.findTop20ByRouteNameStartingWithOrderByRouteName(prefix);
+	}
+
+	/** 정류장명 prefix 자동완성. */
+	public List<BusStop> searchStopsByNamePrefix(String prefix) {
+		return busStopRepository.findTop20ByStopNameStartingWithOrderByStopName(prefix);
 	}
 
 	// ===== BusArrivalLabelEvent =====
