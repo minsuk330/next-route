@@ -9,6 +9,7 @@ import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.bus.port.out.BusApiBreakerPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
+import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
 import watoo.grd.nextroute.common.config.ClockConfig;
 
 import java.time.Clock;
@@ -43,30 +44,34 @@ class SearchTimeBusAdapterTest {
     }
 
     @Test
-    void TC_breaker_차단중이면_호출_생략_quota_미사용() {
+    void TC_breaker_차단중이면_BLOCKED_quota_미사용() {
         when(breaker.getBlockedUntil()).thenReturn(Optional.of(Instant.MAX));
         SearchTimeBusAdapter adapter = adapter(new Semaphore(8));
 
-        assertThat(adapter.getArrInfoByStop("1111")).isEmpty();
+        var result = adapter.getArrInfoByStop("1111");
+        assertThat(result.outcome()).isEqualTo(SearchTimeBusQueryPort.Outcome.BLOCKED);
+        assertThat(result.data()).isEmpty();
         verifyNoInteractions(quota, restClient);
     }
 
     @Test
-    void TC_quota_소진시_호출_생략() {
+    void TC_quota_소진시_LIMITED() {
         when(breaker.getBlockedUntil()).thenReturn(Optional.empty());
         when(quota.tryAcquireSearch(BusApiQuotaPort.Endpoint.ARRIVAL)).thenReturn(false);
         SearchTimeBusAdapter adapter = adapter(new Semaphore(8));
 
-        assertThat(adapter.getArrInfoByStop("1111")).isEmpty();
+        var result = adapter.getArrInfoByStop("1111");
+        assertThat(result.outcome()).isEqualTo(SearchTimeBusQueryPort.Outcome.LIMITED);
         verifyNoInteractions(restClient);
     }
 
     @Test
-    void TC_동시_슬롯_없으면_호출_생략_quota_미사용() {
+    void TC_동시_슬롯_없으면_LIMITED_quota_미사용() {
         when(breaker.getBlockedUntil()).thenReturn(Optional.empty());
         SearchTimeBusAdapter adapter = adapter(new Semaphore(0)); // 슬롯 0 → acquire timeout
 
-        assertThat(adapter.getBusPosByRtid("R1")).isEmpty();
+        var result = adapter.getBusPosByRtid("R1");
+        assertThat(result.outcome()).isEqualTo(SearchTimeBusQueryPort.Outcome.LIMITED);
         verifyNoInteractions(quota, restClient);
     }
 

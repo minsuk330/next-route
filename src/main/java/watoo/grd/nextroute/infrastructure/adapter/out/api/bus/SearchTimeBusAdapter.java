@@ -82,57 +82,56 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
     }
 
     @Override
-    public List<BusArrivalInfo> getArrInfoByStop(String stopId) {
+    public BusQueryResult<BusArrivalInfo> getArrInfoByStop(String stopId) {
         URI uri = URI.create(baseUrl + "/arrive/getArrInfoByStId"
                 + "?serviceKey=" + apiKey
                 + "&stId=" + stopId);
-        return callApi(uri, BusArrivalItem.class, BusApiQuotaPort.Endpoint.ARRIVAL).stream()
-                .map(this::toArrivalInfo)
-                .toList();
+        return callApi(uri, BusArrivalItem.class, BusApiQuotaPort.Endpoint.ARRIVAL, this::toArrivalInfo);
     }
 
     @Override
-    public List<BusPositionInfo> getBusPosByRtid(String busRouteId) {
+    public BusQueryResult<BusPositionInfo> getBusPosByRtid(String busRouteId) {
         URI uri = URI.create(baseUrl + "/buspos/getBusPosByRtid"
                 + "?serviceKey=" + apiKey
                 + "&busRouteId=" + busRouteId);
-        return callApi(uri, BusPositionItem.class, BusApiQuotaPort.Endpoint.POSITION).stream()
-                .map(this::toPositionInfo)
-                .toList();
+        return callApi(uri, BusPositionItem.class, BusApiQuotaPort.Endpoint.POSITION, this::toPositionInfo);
     }
 
-    private <T> List<T> callApi(URI uri, Class<T> itemType, BusApiQuotaPort.Endpoint endpoint) {
-        // 1. 공유 차단 중이면 외부 호출 생략(검색은 깨지 않음 — 빈 결과)
+    private <I, R> BusQueryResult<R> callApi(URI uri, Class<I> itemType,
+                                             BusApiQuotaPort.Endpoint endpoint,
+                                             java.util.function.Function<I, R> mapper) {
+        // 1. 공유 차단 중이면 외부 호출 생략 → BLOCKED
         Optional<Instant> blocked = breaker.getBlockedUntil();
         if (blocked.isPresent()) {
             log.debug("[SearchTimeAdapter] breaker blocked until {} — skip {}", blocked.get(), uri.getPath());
-            return List.of();
+            return BusQueryResult.blocked();
         }
-        // 2. 동시 호출 슬롯 확보(초과 대기 시 생략)
+        // 2. 동시 호출 슬롯 확보(초과 대기 시 생략 → LIMITED)
         boolean acquired;
         try {
             acquired = concurrencyLimiter.tryAcquire(props.getExternalCallAcquireMs(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return List.of();
+            return BusQueryResult.limited();
         }
         if (!acquired) {
             log.debug("[SearchTimeAdapter] concurrency slot unavailable — skip {}", uri.getPath());
-            return List.of();
+            return BusQueryResult.limited();
         }
         try {
-            // 3. 검색 몫 quota(collector quota 잠식 방지). 소진/장애 시 생략(fail-closed)
+            // 3. 검색 몫 quota(collector quota 잠식 방지). 소진/장애 시 생략(fail-closed) → LIMITED
             if (!quota.tryAcquireSearch(endpoint)) {
                 log.debug("[SearchTimeAdapter] search quota exhausted [{}] — skip {}", endpoint, uri.getPath());
-                return List.of();
+                return BusQueryResult.limited();
             }
-            return doCall(uri, itemType);
+            return doCall(uri, itemType, mapper);
         } finally {
             concurrencyLimiter.release();
         }
     }
 
-    private <T> List<T> doCall(URI uri, Class<T> itemType) {
+    private <I, R> BusQueryResult<R> doCall(URI uri, Class<I> itemType,
+                                            java.util.function.Function<I, R> mapper) {
         try {
             String xml = restClient.get()
                     .uri(uri)
@@ -140,28 +139,29 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
                     .body(String.class);
             if (xml == null || xml.isBlank()) {
                 log.warn("[SearchTimeAdapter] Empty response: {}", uri.getPath());
-                return List.of();
+                return BusQueryResult.ok(List.of());
             }
             JavaType type = xmlMapper.getTypeFactory()
                     .constructParametricType(BusApiResponse.class, itemType);
-            BusApiResponse<T> response = xmlMapper.readValue(xml, type);
+            BusApiResponse<I> response = xmlMapper.readValue(xml, type);
             if (!response.isSuccess()) {
                 String cd = response.getMsgHeader() == null ? null : response.getMsgHeader().getHeaderCd();
                 String msg = response.getMsgHeader() == null ? null : response.getMsgHeader().getHeaderMsg();
                 if (API_LIMIT_EXCEEDED_CODE.equals(cd == null ? null : cd.trim())) {
-                    // 공유 차단(collector·search 함께 다음날 자정까지 차단)
+                    // 공유 차단(collector·search 함께 다음날 자정까지 차단) → BLOCKED
                     breaker.tripUntil(nextMidnight());
                     log.error("[SearchTimeAdapter] API error code 7 — tripping shared breaker [{}]: {}",
                             uri.getPath(), msg);
-                } else {
-                    log.warn("[SearchTimeAdapter] API error [{}]: {} - {}", uri.getPath(), cd, msg);
+                    return BusQueryResult.blocked();
                 }
-                return List.of();
+                log.warn("[SearchTimeAdapter] API error [{}]: {} - {}", uri.getPath(), cd, msg);
+                return BusQueryResult.error();
             }
-            return response.getItems();
+            List<R> mapped = response.getItems().stream().map(mapper).toList();
+            return BusQueryResult.ok(mapped);
         } catch (Exception e) {
             log.warn("[SearchTimeAdapter] Call failed [{}]: {}", uri.getPath(), e.getMessage());
-            throw new RuntimeException("SearchTimeBus API call failed: " + uri.getPath(), e);
+            return BusQueryResult.error();
         }
     }
 
