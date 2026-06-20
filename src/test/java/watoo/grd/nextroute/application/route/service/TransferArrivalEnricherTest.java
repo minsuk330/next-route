@@ -51,12 +51,15 @@ class TransferArrivalEnricherTest {
 
     static final Instant NOW = Instant.parse("2026-06-06T04:00:00Z"); // KST 13:00
 
+    // deadline 미초과(NOW 고정 clock — clock.instant()는 항상 NOW, deadline=NOW+1500ms 안 넘음)
+    java.time.Clock clock = java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC);
+
     @BeforeEach
     void setUp() {
         resolver = new TransferStopResolver(stopRepo, routeRepo, routeStopRepo);
         featureBuilder = new MlFeatureVectorBuilder();
         enricher = new TransferArrivalEnricher(props, mlProps, busPort, mlPort,
-                resolver, featureBuilder, collectorProps);
+                resolver, featureBuilder, collectorProps, clock);
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────
@@ -435,5 +438,25 @@ class TransferArrivalEnricherTest {
         // sectOrd <= targetSeq (equality) → 포함되어야 함
         assertThat(ta.source()).isEqualTo(TransferArrival.Source.MODEL);
         assertThat(ta.status()).isEqualTo(TransferArrival.Status.AVAILABLE);
+    }
+
+    @Test
+    void TC_deadline_초과_시_외부호출_없이_ERROR() {
+        props.setEnabled(true);
+        props.setDeadlineMs(100);
+
+        // clock: enrich 진입 시 NOW(deadline=NOW+100ms), wave0 체크 시 NOW+2s(초과)
+        java.time.Clock deadlineClock = mock(java.time.Clock.class);
+        when(deadlineClock.instant()).thenReturn(NOW, NOW.plusSeconds(2));
+        TransferArrivalEnricher deadlineEnricher = new TransferArrivalEnricher(
+                props, mlProps, busPort, mlPort, resolver, featureBuilder, collectorProps, deadlineClock);
+
+        RouteSearchResult input = resultWith(List.of(busSubPath("1111", "route1", "360")));
+        RouteSearchResult result = deadlineEnricher.enrich(input, NOW);
+
+        TransferArrival ta = result.paths().get(0).subPaths().get(0).transferArrivals().get(0);
+        assertThat(ta.status()).isEqualTo(TransferArrival.Status.ERROR);
+        // deadline 초과 → 외부 호출 전부 생략
+        verifyNoInteractions(busPort, mlPort);
     }
 }
