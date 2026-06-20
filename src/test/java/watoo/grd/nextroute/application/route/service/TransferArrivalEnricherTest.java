@@ -441,6 +441,29 @@ class TransferArrivalEnricherTest {
     }
 
     @Test
+    void TC_per_search_외부호출_상한_초과분_조회_생략() {
+        props.setEnabled(true);
+        props.setMaxExternalCallsPerSearch(1); // 검색당 1콜만 허용
+
+        when(stopRepo.findByStopId(any())).thenReturn(Optional.of(busStop("1111")));
+        when(routeRepo.findByRouteId(any())).thenReturn(Optional.of(busRoute("100100360", "360")));
+        when(busPort.getArrInfoByStop(any())).thenReturn(List.of());
+
+        // 서로 다른 stopId 2개 버스 승차(각 다른 path → wave0 2건)
+        SubPathResult bus1 = busSubPath("1111", "100100360", "360");
+        SubPathResult bus2 = busSubPath("2222", "100100360", "360");
+        PathInfo info = new PathInfo(3600, 1000, 0, 0, "출발", "도착", null);
+        RouteSearchResult input = new RouteSearchResult(0, 2, 0, 0, 0, List.of(
+                new PathResult(1, info, List.of(bus1), Collections.emptyList()),
+                new PathResult(1, info, List.of(bus2), Collections.emptyList())));
+
+        enricher.enrich(input, NOW);
+
+        // 상한 1콜 → getArrInfoByStop 1회만(다른 stopId 1개는 생략)
+        verify(busPort, times(1)).getArrInfoByStop(any());
+    }
+
+    @Test
     void TC_deadline_초과_시_외부호출_없이_ERROR() {
         props.setEnabled(true);
         props.setDeadlineMs(100);

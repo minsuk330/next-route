@@ -72,6 +72,10 @@ public class TransferArrivalEnricher {
 
         Map<Integer, Map<Integer, List<TransferArrival>>> resultMap = new HashMap<>();
 
+        // 검색당 외부 호출 상한(provider fan-out cap). 0 이하면 무제한.
+        java.util.concurrent.atomic.AtomicInteger callBudget = new java.util.concurrent.atomic.AtomicInteger(
+                props.getMaxExternalCallsPerSearch() > 0 ? props.getMaxExternalCallsPerSearch() : Integer.MAX_VALUE);
+
         for (int wave = 0; wave <= maxWave; wave++) {
             int w = wave;
             List<SubPathCtx> waveCtxs = all.stream().filter(c -> c.waveIndex == w).toList();
@@ -83,10 +87,30 @@ public class TransferArrivalEnricher {
                 continue;
             }
 
-            processWave(wave, waveCtxs, result, searchStartedAt, prevWave, resultMap);
+            processWave(wave, waveCtxs, result, searchStartedAt, prevWave, resultMap, callBudget);
         }
 
         return rebuild(result, all, resultMap);
+    }
+
+    /** 검색당 외부 호출 상한 내에서 도착정보 조회. 상한 소진 시 빈 결과. */
+    private List<BusArrivalInfo> callArr(String stopId, java.util.concurrent.atomic.AtomicInteger callBudget) {
+        if (callBudget.getAndDecrement() <= 0) {
+            callBudget.incrementAndGet();
+            log.debug("[TransferEnricher] per-search call budget exhausted — skip arr {}", stopId);
+            return List.of();
+        }
+        return busPort.getArrInfoByStop(stopId);
+    }
+
+    /** 검색당 외부 호출 상한 내에서 위치정보 조회. 상한 소진 시 빈 결과. */
+    private List<BusPositionInfo> callPos(String routeId, java.util.concurrent.atomic.AtomicInteger callBudget) {
+        if (callBudget.getAndDecrement() <= 0) {
+            callBudget.incrementAndGet();
+            log.debug("[TransferEnricher] per-search call budget exhausted — skip pos {}", routeId);
+            return List.of();
+        }
+        return busPort.getBusPosByRtid(routeId);
     }
 
     private void fillError(List<SubPathCtx> ctxs, Instant calculatedAt,
@@ -141,7 +165,8 @@ public class TransferArrivalEnricher {
             RouteSearchResult result,
             Instant searchStartedAt,
             Map<Integer, PrevWaveInfo> prevWave,
-            Map<Integer, Map<Integer, List<TransferArrival>>> resultMap) {
+            Map<Integer, Map<Integer, List<TransferArrival>>> resultMap,
+            java.util.concurrent.atomic.AtomicInteger callBudget) {
 
         Instant calculatedAt = searchStartedAt;
 
@@ -215,7 +240,7 @@ public class TransferArrivalEnricher {
             if (ctx.upstreamUnavailable || ctx.stopId == null) continue;
             if (queriedStops.add(ctx.stopId)) {
                 try {
-                    List<BusArrivalInfo> info = busPort.getArrInfoByStop(ctx.stopId);
+                    List<BusArrivalInfo> info = callArr(ctx.stopId, callBudget);
                     stopArrivalMap.put(ctx.stopId, info);
                 } catch (Exception e) {
                     log.warn("[TransferEnricher] getArrInfoByStop failed stopId={}: {}", ctx.stopId, e.getMessage());
@@ -280,7 +305,7 @@ public class TransferArrivalEnricher {
         Map<String, List<BusPositionInfo>> positionMap = new HashMap<>();
         for (String routeId : mlRouteIds) {
             try {
-                positionMap.put(routeId, busPort.getBusPosByRtid(routeId));
+                positionMap.put(routeId, callPos(routeId, callBudget));
             } catch (Exception e) {
                 log.warn("[TransferEnricher] getBusPosByRtid failed routeId={}: {}", routeId, e.getMessage());
                 positionMap.put(routeId, List.of());

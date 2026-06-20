@@ -67,6 +67,16 @@ route:
     enabled: ${TRANSFER_ARRIVAL_ENABLED:false}
     deadline-ms: ${TRANSFER_ARRIVAL_DEADLINE_MS:1500}
     cache-ttl-seconds: ${TRANSFER_ARRIVAL_CACHE_TTL:15}
+    max-concurrent-external-calls: ${TRANSFER_ARRIVAL_MAX_CONCURRENT:8}
+    external-call-acquire-ms: ${TRANSFER_ARRIVAL_ACQUIRE_MS:500}
+    max-external-calls-per-search: ${TRANSFER_ARRIVAL_MAX_CALLS:12}
+
+bus:
+  quota:
+    search:
+      # collector 몫(collector.bus-*.daily-budget)과 합이 provider 일일 한도를 넘지 않게 설정
+      arrival: ${SEARCH_QUOTA_ARRIVAL:5000}
+      position: ${SEARCH_QUOTA_POSITION:5000}
 
 kakao:
   api:

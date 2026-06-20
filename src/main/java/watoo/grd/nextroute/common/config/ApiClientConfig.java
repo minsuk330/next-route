@@ -8,8 +8,10 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.application.route.config.MlPredictorProperties;
+import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
 
 import java.time.Duration;
+import java.util.concurrent.Semaphore;
 
 @Configuration
 public class ApiClientConfig {
@@ -57,5 +59,12 @@ public class ApiClientConfig {
 		return RestClient.builder()
 				.requestFactory(factory)
 				.build();
+	}
+
+	/** 검색 fan-out provider 동시 호출 제한 Semaphore. 0 이하면 사실상 무제한. */
+	@Bean
+	public Semaphore busSearchConcurrencyLimiter(TransferArrivalProperties props) {
+		int n = props.getMaxConcurrentExternalCalls();
+		return new Semaphore(n > 0 ? n : Integer.MAX_VALUE, true);
 	}
 }

@@ -11,6 +11,8 @@ import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.port.out.BusApiBreakerPort;
+import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
+import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
 import watoo.grd.nextroute.common.config.ClockConfig;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.BusApiResponse;
@@ -23,6 +25,8 @@ import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 import static watoo.grd.nextroute.common.util.ParseUtils.parseDouble;
 import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
@@ -32,8 +36,12 @@ import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
  * 재시도 없음, ~1.5s timeout. 검색 레이턴시 보호용.
  * 기존 SeoulBusApiAdapter(3회 재시도/30s)는 그대로 유지.
  *
- * <p>collector와 동일 provider key를 쓰므로 공유 {@link BusApiBreakerPort}를 함께 본다.
- * 차단 중이면 외부 호출을 생략하고 빈 결과를 반환(검색은 깨지 않음). error code 7 수신 시 공유 차단을 건다.
+ * <p>collector와 동일 provider key를 쓰므로 운영 안전장치를 적용한다(검색은 어떤 경우에도 깨지 않음 — 빈 결과):
+ * <ul>
+ *   <li>공유 {@link BusApiBreakerPort} 차단 중이면 외부 호출 생략. error code 7 수신 시 공유 차단을 건다.</li>
+ *   <li>{@link BusApiQuotaPort} 검색 몫 quota 소진 시 호출 생략(collector quota 잠식 방지).</li>
+ *   <li>전역 {@link Semaphore}로 fan-out 동시 호출 수 제한(슬롯 대기 초과 시 생략).</li>
+ * </ul>
  */
 @Slf4j
 @Component
@@ -46,16 +54,25 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
     private final String apiKey;
     private final String baseUrl;
     private final BusApiBreakerPort breaker;
+    private final BusApiQuotaPort quota;
+    private final Semaphore concurrencyLimiter;
+    private final TransferArrivalProperties props;
     private final Clock clock;
 
     public SearchTimeBusAdapter(
             @Qualifier("busRealtimeRestClient") RestClient restClient,
             BusApiBreakerPort breaker,
+            BusApiQuotaPort quota,
+            @Qualifier("busSearchConcurrencyLimiter") Semaphore concurrencyLimiter,
+            TransferArrivalProperties props,
             Clock clock,
             @Value("${seoul.api.bus-key}") String apiKey,
             @Value("${seoul.api.bus-base-url}") String baseUrl) {
         this.restClient = restClient;
         this.breaker = breaker;
+        this.quota = quota;
+        this.concurrencyLimiter = concurrencyLimiter;
+        this.props = props;
         this.clock = clock;
         this.apiKey = apiKey;
         this.baseUrl = baseUrl;
@@ -69,7 +86,7 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
         URI uri = URI.create(baseUrl + "/arrive/getArrInfoByStId"
                 + "?serviceKey=" + apiKey
                 + "&stId=" + stopId);
-        return callApi(uri, BusArrivalItem.class).stream()
+        return callApi(uri, BusArrivalItem.class, BusApiQuotaPort.Endpoint.ARRIVAL).stream()
                 .map(this::toArrivalInfo)
                 .toList();
     }
@@ -79,18 +96,43 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
         URI uri = URI.create(baseUrl + "/buspos/getBusPosByRtid"
                 + "?serviceKey=" + apiKey
                 + "&busRouteId=" + busRouteId);
-        return callApi(uri, BusPositionItem.class).stream()
+        return callApi(uri, BusPositionItem.class, BusApiQuotaPort.Endpoint.POSITION).stream()
                 .map(this::toPositionInfo)
                 .toList();
     }
 
-    private <T> List<T> callApi(URI uri, Class<T> itemType) {
-        // 공유 차단 중이면 외부 호출 생략(검색은 깨지 않음 — 빈 결과)
+    private <T> List<T> callApi(URI uri, Class<T> itemType, BusApiQuotaPort.Endpoint endpoint) {
+        // 1. 공유 차단 중이면 외부 호출 생략(검색은 깨지 않음 — 빈 결과)
         Optional<Instant> blocked = breaker.getBlockedUntil();
         if (blocked.isPresent()) {
             log.debug("[SearchTimeAdapter] breaker blocked until {} — skip {}", blocked.get(), uri.getPath());
             return List.of();
         }
+        // 2. 동시 호출 슬롯 확보(초과 대기 시 생략)
+        boolean acquired;
+        try {
+            acquired = concurrencyLimiter.tryAcquire(props.getExternalCallAcquireMs(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return List.of();
+        }
+        if (!acquired) {
+            log.debug("[SearchTimeAdapter] concurrency slot unavailable — skip {}", uri.getPath());
+            return List.of();
+        }
+        try {
+            // 3. 검색 몫 quota(collector quota 잠식 방지). 소진/장애 시 생략(fail-closed)
+            if (!quota.tryAcquireSearch(endpoint)) {
+                log.debug("[SearchTimeAdapter] search quota exhausted [{}] — skip {}", endpoint, uri.getPath());
+                return List.of();
+            }
+            return doCall(uri, itemType);
+        } finally {
+            concurrencyLimiter.release();
+        }
+    }
+
+    private <T> List<T> doCall(URI uri, Class<T> itemType) {
         try {
             String xml = restClient.get()
                     .uri(uri)
