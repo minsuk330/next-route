@@ -123,6 +123,21 @@ def test_health_503_without_model(monkeypatch):
         assert res.json()["status"] == "unavailable"
 
 
+def test_metadata_exposes_route_categories(monkeypatch, model_dir):
+    with _client(monkeypatch, str(model_dir)) as client:
+        res = client.get("/metadata")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["route_count"] == len(ROUTES)
+        assert sorted(body["route_categories"]) == sorted(ROUTES)
+
+
+def test_metadata_503_without_model(monkeypatch):
+    with _client(monkeypatch, None) as client:
+        res = client.get("/metadata")
+        assert res.status_code == 503
+
+
 def test_predict_normal(monkeypatch, model_dir):
     with _client(monkeypatch, str(model_dir)) as client:
         res = client.post("/predict", json={"items": [_item("r1"), _item("r2", route="272")]})

@@ -17,6 +17,9 @@ public interface BusStopRepository extends JpaRepository<BusStop, Long> {
 
 	boolean existsByStopId(String stopId);
 
+	/** 정류장명 prefix 자동완성 (와일드카드 이스케이프는 Spring Data가 처리). */
+	List<BusStop> findTop20ByStopNameStartingWithOrderByStopName(String stopName);
+
 	@Query(value = """
 			SELECT stop_id, stop_name, ars_id, latitude, longitude,
 			       ST_Distance(geom, ST_MakePoint(:lng, :lat)::geography) AS dist_meters

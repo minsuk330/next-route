@@ -198,6 +198,8 @@ def metadata() -> JSONResponse:
             "feature_list": state.feature_names,
             "categorical_feature": CATEGORICAL_FEATURE,
             "route_count": len(state.route_categories),
+            # 학습된 지원 route_id 전체 목록. 백엔드가 "환승 예측 가능" 배지 판정에 사용.
+            "route_categories": state.route_categories,
         }
     )
 
