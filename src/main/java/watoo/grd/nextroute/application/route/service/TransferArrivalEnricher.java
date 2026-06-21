@@ -99,19 +99,19 @@ public class TransferArrivalEnricher {
      * 검색당 외부 호출 상한·deadline 내에서 도착정보 조회.
      * deadline 초과→ERROR, 상한 소진→LIMITED. cache hit은 provider 미호출이라 budget 복원.
      */
-    private BusQueryResult<BusArrivalInfo> callArr(String stopId,
+    private BusQueryResult<BusArrivalInfo> callArr(String stopId, String routeId, int ord,
                                                    java.util.concurrent.atomic.AtomicInteger callBudget,
                                                    Instant deadline) {
         if (deadline != null && clock.instant().isAfter(deadline)) {
-            log.debug("[TransferEnricher] deadline exceeded — skip arr {}", stopId);
+            log.debug("[TransferEnricher] deadline exceeded — skip arr {}:{}", stopId, routeId);
             return BusQueryResult.error();
         }
         if (callBudget.getAndDecrement() <= 0) {
             callBudget.incrementAndGet();
-            log.debug("[TransferEnricher] per-search call budget exhausted — skip arr {}", stopId);
+            log.debug("[TransferEnricher] per-search call budget exhausted — skip arr {}:{}", stopId, routeId);
             return BusQueryResult.limited();
         }
-        BusQueryResult<BusArrivalInfo> r = busPort.getArrInfoByStop(stopId);
+        BusQueryResult<BusArrivalInfo> r = busPort.getArrInfoByStop(stopId, routeId, ord);
         if (r.cacheHit()) callBudget.incrementAndGet();   // cache hit은 provider 호출 아님 → cap 미소모
         return r;
     }
@@ -260,22 +260,31 @@ public class TransferArrivalEnricher {
                     if (ctx.stopId != null && lc.routeId != null) {
                         SeqResolution seqRes = resolver.resolveSeq(lc.routeId, ctx.stopId);
                         lc.seqCandidates = seqRes.candidates();
+                        // 사용자가 노선·정류장을 특정한 상황이라 seq는 단일. getArrInfoByRoute(ord) 입력으로 미리 확정.
+                        lc.targetSeq = lc.seqCandidates.size() == 1 ? lc.seqCandidates.get(0) : null;
                     }
                 }
             }
         }
 
-        // 3b: stop API dedupe
-        Set<String> queriedStops = new HashSet<>();
-        Map<String, BusQueryResult<BusArrivalInfo>> stopResultMap = new HashMap<>();
-
+        // 3b: arrival API 조회 — (stopId, routeId, ord) 단위 dedupe (정류장·노선·순번 특정 상황)
+        Map<String, BusQueryResult<BusArrivalInfo>> arrCache = new HashMap<>();
         for (SubPathCtx ctx : waveCtxs) {
             if (ctx.upstreamUnavailable || ctx.stopId == null) continue;
-            // 유효 routeId lane이 하나도 없으면(전부 UNSUPPORTED) stop 조회 불필요
-            boolean anyRoute = ctx.laneContexts.stream().anyMatch(lc -> lc.routeId != null);
-            if (!anyRoute) continue;
-            if (queriedStops.add(ctx.stopId)) {
-                stopResultMap.put(ctx.stopId, callArr(ctx.stopId, callBudget, deadline));
+            for (LaneCtx lc : ctx.laneContexts) {
+                if (lc.routeId == null || lc.targetSeq == null) continue;  // seq 미확정 lane은 조회 불가
+                String key = ctx.stopId + ":" + lc.routeId + ":" + lc.targetSeq;
+                BusQueryResult<BusArrivalInfo> r = arrCache.get(key);
+                if (r == null) {
+                    r = callArr(ctx.stopId, lc.routeId, lc.targetSeq, callBudget, deadline);
+                    arrCache.put(key, r);
+                }
+                lc.arrOutcome = r.outcome();
+                if (r.isOk()) {
+                    lc.arrMatched = r.data().stream()
+                            .filter(a -> lc.routeId.equals(a.routeId()))
+                            .findFirst().orElse(null);
+                }
             }
         }
 
@@ -283,35 +292,16 @@ public class TransferArrivalEnricher {
         Set<String> mlRouteIds = new HashSet<>();
         for (SubPathCtx ctx : waveCtxs) {
             if (ctx.upstreamUnavailable) continue;
-
-            // stop 조회가 차단/제한/오류면 그 ctx의 lane은 해당 status로 확정(빈 응답 오분류 방지)
-            BusQueryResult<BusArrivalInfo> stopRes = ctx.stopId != null ? stopResultMap.get(ctx.stopId) : null;
-            if (stopRes != null && !stopRes.isOk()) {
-                ctx.stopOutcome = stopRes.outcome();
-                continue;
-            }
-            List<BusArrivalInfo> arrivals = stopRes != null ? stopRes.data() : List.of();
-
-            boolean stopApiAvailable = ctx.stopId != null && !arrivals.isEmpty();
-
             for (LaneCtx lc : ctx.laneContexts) {
                 if (lc.routeId == null) continue;
+                if (lc.targetSeq == null) continue;              // 3f에서 STOP_MAPPING_FAILED
+                if (lc.arrOutcome != Outcome.OK) continue;       // 3f에서 mapOutcome (차단/제한/오류)
 
-                // seq 확정 (단건이면 정적, 다건이면 실시간 seq로 유일화)
-                resolveTargetSeq(lc, arrivals);
-
-                if (lc.targetSeq == null && (lc.seqCandidates == null || lc.seqCandidates.isEmpty())) continue;
-
-                // REALTIME 판정
-                Optional<BusArrivalInfo> matchedArrival = arrivals.stream()
-                        .filter(a -> lc.routeId.equals(a.routeId()))
-                        .findFirst();
-
-                if (matchedArrival.isPresent()) {
-                    BusArrivalInfo ai = matchedArrival.get();
-                    Optional<Instant> realtimeAt = earliestRealtimeArrival(ai, ctx.estimatedUserArrivalAt);
+                // REALTIME 판정 (응답은 해당 노선 1건)
+                if (lc.arrMatched != null) {
+                    Optional<Instant> realtimeAt = earliestRealtimeArrival(lc.arrMatched, ctx.estimatedUserArrivalAt);
                     if (realtimeAt.isPresent()) {
-                        String vehicleId = pickVehicleId(ai, realtimeAt.get());
+                        String vehicleId = pickVehicleId(lc.arrMatched, realtimeAt.get());
                         lc.realtimeResult = buildAvailable(
                                 lc.routeId, lc.laneIdx,
                                 TransferArrival.Source.REALTIME,
@@ -323,14 +313,10 @@ public class TransferArrivalEnricher {
                 }
 
                 // ML 후보 (top-30만)
-                if (isTop30(lc.routeName) && lc.targetSeq != null) {
+                if (isTop30(lc.routeName)) {
                     mlRouteIds.add(lc.routeId);
-                } else if (!isTop30(lc.routeName)) {
+                } else {
                     lc.unsupportedRoute = true;
-                }
-                // stop API 실패이고 seq 후보가 다건이면 STOP_MAPPING_FAILED
-                if (!stopApiAvailable && (lc.seqCandidates == null || lc.seqCandidates.size() != 1)) {
-                    lc.stopApiFailed = true;
                 }
             }
         }
@@ -353,7 +339,7 @@ public class TransferArrivalEnricher {
             if (ctx.upstreamUnavailable) continue;
             for (LaneCtx lc : ctx.laneContexts) {
                 if (lc.realtimeResult != null || lc.routeId == null || !isTop30(lc.routeName)) continue;
-                if (lc.stopApiFailed || lc.targetSeq == null) continue;
+                if (lc.targetSeq == null || lc.arrOutcome != Outcome.OK) continue;
 
                 List<BusPositionInfo> positions = positionMap.getOrDefault(lc.routeId, List.of());
                 for (BusPositionInfo pos : positions) {
@@ -401,24 +387,25 @@ public class TransferArrivalEnricher {
                     ta = noResult(lc.routeId, lc.laneIdx,
                             TransferArrival.Source.NONE, TransferArrival.Status.STOP_MAPPING_FAILED,
                             calculatedAt, ctx.estimatedUserArrivalAt);
-                } else if (ctx.stopOutcome != Outcome.OK) {
-                    // stop 조회 차단/제한/오류 — "버스 없음"과 구분
-                    ta = noResult(lc.routeId, lc.laneIdx,
-                            TransferArrival.Source.NONE, mapOutcome(ctx.stopOutcome),
-                            calculatedAt, ctx.estimatedUserArrivalAt);
                 } else if (lc.routeId == null) {
                     ta = noResult(null, lc.laneIdx,
                             TransferArrival.Source.NONE, TransferArrival.Status.UNSUPPORTED_ROUTE,
+                            calculatedAt, ctx.estimatedUserArrivalAt);
+                } else if (lc.targetSeq == null) {
+                    // seq 유일 확정 실패 — getArrInfoByRoute(ord) 호출 불가
+                    ta = noResult(lc.routeId, lc.laneIdx,
+                            TransferArrival.Source.NONE, TransferArrival.Status.STOP_MAPPING_FAILED,
+                            calculatedAt, ctx.estimatedUserArrivalAt);
+                } else if (lc.arrOutcome != Outcome.OK) {
+                    // 도착 조회 차단/제한/오류 — "버스 없음"과 구분
+                    ta = noResult(lc.routeId, lc.laneIdx,
+                            TransferArrival.Source.NONE, mapOutcome(lc.arrOutcome),
                             calculatedAt, ctx.estimatedUserArrivalAt);
                 } else if (lc.realtimeResult != null) {
                     ta = lc.realtimeResult;
                 } else if (lc.unsupportedRoute) {
                     ta = noResult(lc.routeId, lc.laneIdx,
                             TransferArrival.Source.NONE, TransferArrival.Status.UNSUPPORTED_ROUTE,
-                            calculatedAt, ctx.estimatedUserArrivalAt);
-                } else if (lc.stopApiFailed) {
-                    ta = noResult(lc.routeId, lc.laneIdx,
-                            TransferArrival.Source.NONE, TransferArrival.Status.STOP_MAPPING_FAILED,
                             calculatedAt, ctx.estimatedUserArrivalAt);
                 } else if (!mlProps.isEnabled()) {
                     ta = noResult(lc.routeId, lc.laneIdx,
@@ -464,27 +451,6 @@ public class TransferArrivalEnricher {
             return sp.walkTotalTimeSeconds();
         }
         return sp.sectionTime() * 60L;
-    }
-
-    private void resolveTargetSeq(LaneCtx lc, List<BusArrivalInfo> arrivals) {
-        if (lc.seqCandidates == null || lc.seqCandidates.isEmpty()) {
-            lc.targetSeq = null;
-            return;
-        }
-        if (lc.seqCandidates.size() == 1) {
-            lc.targetSeq = lc.seqCandidates.get(0);
-            return;
-        }
-        // 루프노선: 실시간 seq로 유일화
-        Optional<BusArrivalInfo> matched = arrivals.stream()
-                .filter(a -> lc.routeId.equals(a.routeId()))
-                .findFirst();
-        if (matched.isPresent() && matched.get().seq() != null) {
-            int arrivalSeq = matched.get().seq();
-            lc.targetSeq = lc.seqCandidates.contains(arrivalSeq) ? arrivalSeq : null;
-        } else {
-            lc.targetSeq = null;
-        }
     }
 
     private Optional<Instant> earliestRealtimeArrival(BusArrivalInfo ai, Instant userAt) {
@@ -706,7 +672,6 @@ public class TransferArrivalEnricher {
     static class SubPathCtx {
         final int pathIdx, subPathIdx, waveIndex, laneCount;
         String stopId;
-        Outcome stopOutcome = Outcome.OK;   // stop 조회 결과(BLOCKED/LIMITED/ERROR면 lane status로 반영)
         Instant estimatedUserArrivalAt;
         Integer basisLaneIndex;
         boolean conditional;
@@ -733,7 +698,8 @@ public class TransferArrivalEnricher {
         List<Integer> seqCandidates = List.of();
         Integer targetSeq;
         boolean unsupportedRoute;
-        boolean stopApiFailed;
+        Outcome arrOutcome = Outcome.OK;        // 도착 조회 결과(BLOCKED/LIMITED/ERROR면 lane status로 반영)
+        BusArrivalInfo arrMatched;              // 해당 노선 도착 1건(OK일 때만)
         TransferArrival realtimeResult;
 
         LaneCtx(int laneIdx) { this.laneIdx = laneIdx; }

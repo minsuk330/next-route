@@ -14,7 +14,11 @@ import java.util.List;
  */
 public interface SearchTimeBusQueryPort {
 
-    BusQueryResult<BusArrivalInfo> getArrInfoByStop(String stopId);
+    /**
+     * 특정 정류소·노선·경유순번의 실시간 도착예정정보 (서울 {@code /arrive/getArrInfoByRoute}).
+     * 응답은 해당 노선 1건. 호출 전 seq(ord)가 확정돼야 한다.
+     */
+    BusQueryResult<BusArrivalInfo> getArrInfoByStop(String stopId, String routeId, int ord);
 
     BusQueryResult<BusPositionInfo> getBusPosByRtid(String busRouteId);
 

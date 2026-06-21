@@ -193,7 +193,7 @@ class TransferArrivalEnricherTest {
         when(routeRepo.findByRouteId("100100360")).thenReturn(Optional.of(busRoute("100100360", "360")));
         when(routeStopRepo.findByRouteIdAndStopId("100100360", "1111"))
                 .thenReturn(List.of(routeStop("100100360", "1111", 5)));
-        when(busPort.getArrInfoByStop("1111")).thenReturn(BusQueryResult.blocked());
+        when(busPort.getArrInfoByStop("1111", "100100360", 5)).thenReturn(BusQueryResult.blocked());
 
         RouteSearchResult input = resultWith(List.of(busSubPath("1111", "100100360", "360")));
         RouteSearchResult result = enricher.enrich(input, NOW);
@@ -209,7 +209,7 @@ class TransferArrivalEnricherTest {
         when(routeRepo.findByRouteId("100100360")).thenReturn(Optional.of(busRoute("100100360", "360")));
         when(routeStopRepo.findByRouteIdAndStopId("100100360", "1111"))
                 .thenReturn(List.of(routeStop("100100360", "1111", 5)));
-        when(busPort.getArrInfoByStop("1111")).thenReturn(BusQueryResult.limited());
+        when(busPort.getArrInfoByStop("1111", "100100360", 5)).thenReturn(BusQueryResult.limited());
 
         RouteSearchResult input = resultWith(List.of(busSubPath("1111", "100100360", "360")));
         RouteSearchResult result = enricher.enrich(input, NOW);
@@ -230,7 +230,7 @@ class TransferArrivalEnricherTest {
         when(routeStopRepo.findByRouteIdAndStopId(routeId, stopId))
                 .thenReturn(List.of(routeStop(routeId, stopId, 5)));
         // 버스 이미 지나감 → ML 분기. position은 LIMITED
-        when(busPort.getArrInfoByStop(stopId)).thenReturn(arrOk(List.of(arrivalInfo(routeId, "20260606125500", 60, 60))));
+        when(busPort.getArrInfoByStop(stopId, routeId, 5)).thenReturn(arrOk(List.of(arrivalInfo(routeId, "20260606125500", 60, 60))));
         when(busPort.getBusPosByRtid(routeId)).thenReturn(BusQueryResult.limited());
 
         RouteSearchResult input = resultWith(List.of(busSubPath(stopId, routeId, "360")));
@@ -271,7 +271,7 @@ class TransferArrivalEnricherTest {
         // realtimeAt(13:05) >= userAt(13:00) → REALTIME
         String mkTm = "20260606130000"; // KST
         BusArrivalInfo ai = arrivalInfo(routeId, mkTm, 300);
-        when(busPort.getArrInfoByStop(stopId)).thenReturn(arrOk(List.of(ai)));
+        when(busPort.getArrInfoByStop(stopId, routeId, 5)).thenReturn(arrOk(List.of(ai)));
 
         RouteSearchResult input = resultWith(List.of(busSubPath(stopId, routeId, "360")));
         RouteSearchResult result = enricher.enrich(input, NOW);
@@ -300,7 +300,7 @@ class TransferArrivalEnricherTest {
         // mkTm = KST 12:55:00, predictTime1 = 60s → 12:56 KST (user arrives 13:00 → 이미 지남)
         String mkTm = "20260606125500";
         BusArrivalInfo ai = arrivalInfo(routeId, mkTm, 60, 60); // both buses already passed
-        when(busPort.getArrInfoByStop(stopId)).thenReturn(arrOk(List.of(ai)));
+        when(busPort.getArrInfoByStop(stopId, routeId, 5)).thenReturn(arrOk(List.of(ai)));
 
         // position: sectOrd=3, targetSeq=5, isRunYn=1
         BusPositionInfo pos = new BusPositionInfo(
@@ -329,32 +329,27 @@ class TransferArrivalEnricherTest {
     }
 
     @Test
-    void TC_같은_stopId_dedup_1회만_호출() {
+    void TC_같은_stop_route_seq_dedup_1회만_호출() {
         props.setEnabled(true);
-        String routeId1 = "100100360";
-        String routeId2 = "100100143";
+        String routeId = "100100360";
         String stopId = "1111";
 
         when(stopRepo.findByStopId(stopId)).thenReturn(Optional.of(busStop(stopId)));
-        when(routeRepo.findByRouteId(routeId1)).thenReturn(Optional.of(busRoute(routeId1, "360")));
-        // routeId2 never resolved — wave1 gets UPSTREAM_UNAVAILABLE (wave0 has no boardable lane)
-        // routeStopRepo default returns empty list — no stub needed
+        when(routeRepo.findByRouteId(routeId)).thenReturn(Optional.of(busRoute(routeId, "360")));
+        when(routeStopRepo.findByRouteIdAndStopId(routeId, stopId))
+                .thenReturn(List.of(routeStop(routeId, stopId, 5)));
+        when(busPort.getArrInfoByStop(stopId, routeId, 5)).thenReturn(arrOk(List.of()));
 
-        when(busPort.getArrInfoByStop(stopId)).thenReturn(arrOk(List.of()));
-
-        // 같은 stopId를 가진 두 버스 subPath
-        List<SubPathResult> subs = List.of(
-                busSubPath(stopId, routeId1, "360"),
-                busSubPath(stopId, routeId2, "143")
-        );
+        // 같은 (stopId, routeId, seq)를 가진 두 버스 subPath(서로 다른 path → 둘 다 wave0)
         PathInfo info = new PathInfo(3600, 2000, 0, 0, "출발", "도착", null);
-        RouteSearchResult input = new RouteSearchResult(0, 2, 0, 0, 0,
-                List.of(new PathResult(1, info, subs, Collections.emptyList())));
+        RouteSearchResult input = new RouteSearchResult(0, 2, 0, 0, 0, List.of(
+                new PathResult(1, info, List.of(busSubPath(stopId, routeId, "360")), Collections.emptyList()),
+                new PathResult(1, info, List.of(busSubPath(stopId, routeId, "360")), Collections.emptyList())));
 
         enricher.enrich(input, NOW);
 
-        // 같은 stopId → 1회만
-        verify(busPort, times(1)).getArrInfoByStop(stopId);
+        // 같은 (stopId, routeId, seq) → 1회만
+        verify(busPort, times(1)).getArrInfoByStop(stopId, routeId, 5);
     }
 
     @Test
@@ -374,7 +369,7 @@ class TransferArrivalEnricherTest {
         // 이미 지나간 버스 (no REALTIME)
         String mkTm = "20260606125500";
         BusArrivalInfo ai = arrivalInfo(routeId, mkTm, 60, 60); // both buses already passed
-        when(busPort.getArrInfoByStop(stopId)).thenReturn(arrOk(List.of(ai)));
+        when(busPort.getArrInfoByStop(stopId, routeId, 5)).thenReturn(arrOk(List.of(ai)));
 
         RouteSearchResult input = resultWith(List.of(busSubPath(stopId, routeId, "360")));
         RouteSearchResult result = enricher.enrich(input, NOW);
@@ -398,7 +393,7 @@ class TransferArrivalEnricherTest {
         // wave0 bus: no REALTIME (all buses passed) + ML disabled → MODEL_UNAVAILABLE
         String mkTm = "20260606125500";
         BusArrivalInfo ai = arrivalInfo(routeId, mkTm, 60, 60); // both buses already passed
-        when(busPort.getArrInfoByStop(stopId)).thenReturn(arrOk(List.of(ai)));
+        when(busPort.getArrInfoByStop(stopId, routeId, 5)).thenReturn(arrOk(List.of(ai)));
 
         // Two bus subPaths in the same path (wave0, wave1)
         SubPathResult bus0 = busSubPath(stopId, routeId, "360");
@@ -438,7 +433,7 @@ class TransferArrivalEnricherTest {
         // all buses passed
         String mkTm = "20260606125500";
         BusArrivalInfo ai = arrivalInfo(routeId, mkTm, 60, 60); // both buses already passed
-        when(busPort.getArrInfoByStop(stopId)).thenReturn(arrOk(List.of(ai)));
+        when(busPort.getArrInfoByStop(stopId, routeId, 5)).thenReturn(arrOk(List.of(ai)));
 
         // position: no valid vehicles (sectOrd > targetSeq)
         BusPositionInfo pos = new BusPositionInfo(
@@ -473,7 +468,7 @@ class TransferArrivalEnricherTest {
         // all buses passed
         String mkTm = "20260606125500";
         BusArrivalInfo ai = arrivalInfo(routeId, mkTm, 60, 60); // both buses already passed
-        when(busPort.getArrInfoByStop(stopId)).thenReturn(arrOk(List.of(ai)));
+        when(busPort.getArrInfoByStop(stopId, routeId, 5)).thenReturn(arrOk(List.of(ai)));
 
         // sectOrd == targetSeq = 5 (equality case: remaining_stop_count=0)
         BusPositionInfo pos = new BusPositionInfo(
@@ -507,7 +502,9 @@ class TransferArrivalEnricherTest {
 
         when(stopRepo.findByStopId(any())).thenReturn(Optional.of(busStop("1111")));
         when(routeRepo.findByRouteId(any())).thenReturn(Optional.of(busRoute("100100360", "360")));
-        when(busPort.getArrInfoByStop(any())).thenReturn(arrOk(List.of()));
+        when(routeStopRepo.findByRouteIdAndStopId(any(), any()))
+                .thenReturn(List.of(routeStop("100100360", "1111", 5)));
+        when(busPort.getArrInfoByStop(any(), any(), anyInt())).thenReturn(arrOk(List.of()));
 
         // 서로 다른 stopId 2개 버스 승차(각 다른 path → wave0 2건)
         SubPathResult bus1 = busSubPath("1111", "100100360", "360");
@@ -519,8 +516,8 @@ class TransferArrivalEnricherTest {
 
         enricher.enrich(input, NOW);
 
-        // 상한 1콜 → getArrInfoByStop 1회만(다른 stopId 1개는 생략)
-        verify(busPort, times(1)).getArrInfoByStop(any());
+        // 상한 1콜 → arrival 1회만(다른 (stop,route,seq) 1건은 생략)
+        verify(busPort, times(1)).getArrInfoByStop(any(), any(), anyInt());
     }
 
     @Test
