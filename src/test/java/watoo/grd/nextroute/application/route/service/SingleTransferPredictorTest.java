@@ -107,17 +107,24 @@ class SingleTransferPredictorTest {
     }
 
     @Test
-    @DisplayName("REALTIME 이미 지나감(없는 boardable) → earliest 반환, boardable=false 음수 wait")
-    void realtimeMissed() {
+    @DisplayName("REALTIME 다음차 전부 지남(boardable 없음) → 지난 버스 단정 않고 MODEL fallback")
+    void realtimeMissedFallsBackToModel() {
         given(routeStopRepo.existsByRouteIdAndStopIdAndSeq(ROUTE, STOP, 5)).willReturn(true);
+        // 도착 API가 준 버스가 user 도착(BASE+120) 전(BASE+60)에 옴 → boardable 없음
         given(busPort.getArrInfoByStop(STOP, ROUTE, 5)).willReturn(
                 BusQueryResult.ok(List.of(arrival(ROUTE, MK_TM, 60, -1))));
+        given(supportService.support(ROUTE)).willReturn(PredictionSupportService.Support.SUPPORTED);
+        given(busPort.getBusPosByRtid(ROUTE)).willReturn(BusQueryResult.ok(List.of(position("veh1", 3))));
+        given(mlPort.predict(anyList())).willAnswer(inv -> {
+            List<MlFeatureVector> v = inv.getArgument(0);
+            return v.stream().map(x -> new MlPrediction(x.requestId(), MlPredictionStatus.AVAILABLE, 200.0, "v1")).toList();
+        });
 
         TransferPredictionResult r = predictor.predict(STOP, ROUTE, 5, BASE.plusSeconds(120));
 
-        assertThat(r.source()).isEqualTo(TransferArrival.Source.REALTIME);
-        assertThat(r.boardable()).isFalse();
-        assertThat(r.waitSeconds()).isEqualTo(-60);
+        // 지난 버스를 REALTIME으로 반환하지 않고 MODEL로 escalate
+        assertThat(r.source()).isEqualTo(TransferArrival.Source.MODEL);
+        assertThat(r.status()).isEqualTo(TransferArrival.Status.AVAILABLE);
     }
 
     @Test
