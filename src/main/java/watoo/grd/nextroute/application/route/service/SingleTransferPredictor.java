@@ -223,30 +223,29 @@ public class SingleTransferPredictor implements PredictTransferUseCase {
         return earliestBoardable != null ? earliestBoardable : earliest;
     }
 
-    /** predictTime1/2 중 earliest boardable 우선, 없으면 earliest 전체. */
+    /**
+     * predictTime1/2 중 earliest boardable(userAt 이후 도착) 선택.
+     * 탑승가능 버스가 없으면(도착 API가 준 다음 1~2대가 전부 user 도착 전) empty 반환 →
+     * 지난 버스를 REALTIME으로 단정하지 않고 MODEL fallback으로 넘긴다(Enricher와 동작 일치).
+     */
     private Optional<RealtimePick> pickRealtime(BusArrivalInfo ai, Instant userAt) {
         Optional<Instant> baseOpt = BusTimeParser.parse(ai.dataTimestamp());
         if (baseOpt.isEmpty()) return Optional.empty();
         Instant base = baseOpt.get();
-        List<RealtimePick> cands = new ArrayList<>();
-        if (ai.predictTime1() != null) {
-            cands.add(new RealtimePick(base.plusSeconds(ai.predictTime1()), ai.vehicleId1()));
-        }
-        if (ai.predictTime2() != null) {
-            cands.add(new RealtimePick(base.plusSeconds(ai.predictTime2()), ai.vehicleId2()));
-        }
-        if (cands.isEmpty()) return Optional.empty();
 
         RealtimePick earliestBoardable = null;
-        RealtimePick earliest = null;
-        for (RealtimePick p : cands) {
-            if (earliest == null || p.arrivalAt().isBefore(earliest.arrivalAt())) earliest = p;
-            if (!p.arrivalAt().isBefore(userAt)
-                    && (earliestBoardable == null || p.arrivalAt().isBefore(earliestBoardable.arrivalAt()))) {
-                earliestBoardable = p;
+        if (ai.predictTime1() != null) {
+            Instant t = base.plusSeconds(ai.predictTime1());
+            if (!t.isBefore(userAt)) earliestBoardable = new RealtimePick(t, ai.vehicleId1());
+        }
+        if (ai.predictTime2() != null) {
+            Instant t = base.plusSeconds(ai.predictTime2());
+            if (!t.isBefore(userAt)
+                    && (earliestBoardable == null || t.isBefore(earliestBoardable.arrivalAt()))) {
+                earliestBoardable = new RealtimePick(t, ai.vehicleId2());
             }
         }
-        return Optional.of(earliestBoardable != null ? earliestBoardable : earliest);
+        return Optional.ofNullable(earliestBoardable);
     }
 
     private boolean isValidVehicle(BusPositionInfo pos, int targetSeq, Instant calculatedAt) {
