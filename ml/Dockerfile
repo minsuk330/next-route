@@ -5,6 +5,11 @@ ENV PATH="/app/.venv/bin:${PATH}"
 
 WORKDIR /app
 
+# lightgbm (serve extra) loads libgomp.so.1 at import; python:slim lacks it.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./
