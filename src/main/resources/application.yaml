@@ -71,6 +71,12 @@ route:
     external-call-acquire-ms: ${TRANSFER_ARRIVAL_ACQUIRE_MS:500}
     max-external-calls-per-search: ${TRANSFER_ARRIVAL_MAX_CALLS:12}
 
+transfer:
+  predict:
+    deadline-ms: ${TRANSFER_PREDICT_DEADLINE_MS:2500}
+    max-future-minutes: ${TRANSFER_PREDICT_MAX_FUTURE_MIN:40}
+    past-grace-seconds: ${TRANSFER_PREDICT_PAST_GRACE_SEC:60}
+
 bus:
   quota:
     search:
@@ -104,7 +110,7 @@ seoul:
 
 collector:
   bus-arrival:
-    enabled: true
+    enabled: false
     cron: "0 * * * * *"
     active-hours:
       start: "03:30"
@@ -149,7 +155,7 @@ collector:
       - "720"
 
   bus-position:
-    enabled: true
+    enabled: false
     cron: "0 * * * * *"
     # 도착 수집과 독립 예산. 30노선 × 분당 × active-hours(23h) ≈ 41,400 호출/일.
     daily-budget: 50000

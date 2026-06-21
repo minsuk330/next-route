@@ -19,6 +19,7 @@ top-30 노선만 학습.
 | [PR2](./PR2-java-ml-client.md) | Java ML Client (hexagonal) | 독립 | PR1의 `/predict` 계약 따름 |
 | [PR3](./PR3-transfer-arrival-enricher.md) | 식별자 보존 + Resolver + Dedupe Orchestration + DTO | 독립 | PR2 머지 후 분기(코드 의존) |
 | [PR4](./PR4-ops-hardening.md) | 운영 하드닝 (Cache/Budget/Parallel Limit) | 독립 | PR3 후 |
+| [PR5](./PR5-transfer-predict-api.md) | 환승 예측 호출 API (단일 버스, userArrivalAt 기준) | 독립 | 선택 UI(PR #26) 후 |
 
 ## 운영 게이트
 PR3까지 배포 시 **`route.transfer-arrival.enabled=false`(기본값) 유지** — `ML_PREDICTOR_ENABLED=false`만으로는
