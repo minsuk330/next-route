@@ -11,6 +11,8 @@ import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.port.out.BusApiBreakerPort;
+import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
+import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
 import watoo.grd.nextroute.common.config.ClockConfig;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.BusApiResponse;
@@ -23,6 +25,8 @@ import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 import static watoo.grd.nextroute.common.util.ParseUtils.parseDouble;
 import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
@@ -32,8 +36,12 @@ import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
  * 재시도 없음, ~1.5s timeout. 검색 레이턴시 보호용.
  * 기존 SeoulBusApiAdapter(3회 재시도/30s)는 그대로 유지.
  *
- * <p>collector와 동일 provider key를 쓰므로 공유 {@link BusApiBreakerPort}를 함께 본다.
- * 차단 중이면 외부 호출을 생략하고 빈 결과를 반환(검색은 깨지 않음). error code 7 수신 시 공유 차단을 건다.
+ * <p>collector와 동일 provider key를 쓰므로 운영 안전장치를 적용한다(검색은 어떤 경우에도 깨지 않음 — 빈 결과):
+ * <ul>
+ *   <li>공유 {@link BusApiBreakerPort} 차단 중이면 외부 호출 생략. error code 7 수신 시 공유 차단을 건다.</li>
+ *   <li>{@link BusApiQuotaPort} 검색 몫 quota 소진 시 호출 생략(collector quota 잠식 방지).</li>
+ *   <li>전역 {@link Semaphore}로 fan-out 동시 호출 수 제한(슬롯 대기 초과 시 생략).</li>
+ * </ul>
  */
 @Slf4j
 @Component
@@ -46,16 +54,25 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
     private final String apiKey;
     private final String baseUrl;
     private final BusApiBreakerPort breaker;
+    private final BusApiQuotaPort quota;
+    private final Semaphore concurrencyLimiter;
+    private final TransferArrivalProperties props;
     private final Clock clock;
 
     public SearchTimeBusAdapter(
             @Qualifier("busRealtimeRestClient") RestClient restClient,
             BusApiBreakerPort breaker,
+            BusApiQuotaPort quota,
+            @Qualifier("busSearchConcurrencyLimiter") Semaphore concurrencyLimiter,
+            TransferArrivalProperties props,
             Clock clock,
             @Value("${seoul.api.bus-key}") String apiKey,
             @Value("${seoul.api.bus-base-url}") String baseUrl) {
         this.restClient = restClient;
         this.breaker = breaker;
+        this.quota = quota;
+        this.concurrencyLimiter = concurrencyLimiter;
+        this.props = props;
         this.clock = clock;
         this.apiKey = apiKey;
         this.baseUrl = baseUrl;
@@ -65,32 +82,56 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
     }
 
     @Override
-    public List<BusArrivalInfo> getArrInfoByStop(String stopId) {
+    public BusQueryResult<BusArrivalInfo> getArrInfoByStop(String stopId) {
         URI uri = URI.create(baseUrl + "/arrive/getArrInfoByStId"
                 + "?serviceKey=" + apiKey
                 + "&stId=" + stopId);
-        return callApi(uri, BusArrivalItem.class).stream()
-                .map(this::toArrivalInfo)
-                .toList();
+        return callApi(uri, BusArrivalItem.class, BusApiQuotaPort.Endpoint.ARRIVAL, this::toArrivalInfo);
     }
 
     @Override
-    public List<BusPositionInfo> getBusPosByRtid(String busRouteId) {
+    public BusQueryResult<BusPositionInfo> getBusPosByRtid(String busRouteId) {
         URI uri = URI.create(baseUrl + "/buspos/getBusPosByRtid"
                 + "?serviceKey=" + apiKey
                 + "&busRouteId=" + busRouteId);
-        return callApi(uri, BusPositionItem.class).stream()
-                .map(this::toPositionInfo)
-                .toList();
+        return callApi(uri, BusPositionItem.class, BusApiQuotaPort.Endpoint.POSITION, this::toPositionInfo);
     }
 
-    private <T> List<T> callApi(URI uri, Class<T> itemType) {
-        // 공유 차단 중이면 외부 호출 생략(검색은 깨지 않음 — 빈 결과)
+    private <I, R> BusQueryResult<R> callApi(URI uri, Class<I> itemType,
+                                             BusApiQuotaPort.Endpoint endpoint,
+                                             java.util.function.Function<I, R> mapper) {
+        // 1. 공유 차단 중이면 외부 호출 생략 → BLOCKED
         Optional<Instant> blocked = breaker.getBlockedUntil();
         if (blocked.isPresent()) {
             log.debug("[SearchTimeAdapter] breaker blocked until {} — skip {}", blocked.get(), uri.getPath());
-            return List.of();
+            return BusQueryResult.blocked();
         }
+        // 2. 동시 호출 슬롯 확보(초과 대기 시 생략 → LIMITED)
+        boolean acquired;
+        try {
+            acquired = concurrencyLimiter.tryAcquire(props.getExternalCallAcquireMs(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return BusQueryResult.limited();
+        }
+        if (!acquired) {
+            log.debug("[SearchTimeAdapter] concurrency slot unavailable — skip {}", uri.getPath());
+            return BusQueryResult.limited();
+        }
+        try {
+            // 3. 검색 몫 quota(collector quota 잠식 방지). 소진/장애 시 생략(fail-closed) → LIMITED
+            if (!quota.tryAcquireSearch(endpoint)) {
+                log.debug("[SearchTimeAdapter] search quota exhausted [{}] — skip {}", endpoint, uri.getPath());
+                return BusQueryResult.limited();
+            }
+            return doCall(uri, itemType, mapper);
+        } finally {
+            concurrencyLimiter.release();
+        }
+    }
+
+    private <I, R> BusQueryResult<R> doCall(URI uri, Class<I> itemType,
+                                            java.util.function.Function<I, R> mapper) {
         try {
             String xml = restClient.get()
                     .uri(uri)
@@ -98,28 +139,29 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
                     .body(String.class);
             if (xml == null || xml.isBlank()) {
                 log.warn("[SearchTimeAdapter] Empty response: {}", uri.getPath());
-                return List.of();
+                return BusQueryResult.ok(List.of());
             }
             JavaType type = xmlMapper.getTypeFactory()
                     .constructParametricType(BusApiResponse.class, itemType);
-            BusApiResponse<T> response = xmlMapper.readValue(xml, type);
+            BusApiResponse<I> response = xmlMapper.readValue(xml, type);
             if (!response.isSuccess()) {
                 String cd = response.getMsgHeader() == null ? null : response.getMsgHeader().getHeaderCd();
                 String msg = response.getMsgHeader() == null ? null : response.getMsgHeader().getHeaderMsg();
                 if (API_LIMIT_EXCEEDED_CODE.equals(cd == null ? null : cd.trim())) {
-                    // 공유 차단(collector·search 함께 다음날 자정까지 차단)
+                    // 공유 차단(collector·search 함께 다음날 자정까지 차단) → BLOCKED
                     breaker.tripUntil(nextMidnight());
                     log.error("[SearchTimeAdapter] API error code 7 — tripping shared breaker [{}]: {}",
                             uri.getPath(), msg);
-                } else {
-                    log.warn("[SearchTimeAdapter] API error [{}]: {} - {}", uri.getPath(), cd, msg);
+                    return BusQueryResult.blocked();
                 }
-                return List.of();
+                log.warn("[SearchTimeAdapter] API error [{}]: {} - {}", uri.getPath(), cd, msg);
+                return BusQueryResult.error();
             }
-            return response.getItems();
+            List<R> mapped = response.getItems().stream().map(mapper).toList();
+            return BusQueryResult.ok(mapped);
         } catch (Exception e) {
             log.warn("[SearchTimeAdapter] Call failed [{}]: {}", uri.getPath(), e.getMessage());
-            throw new RuntimeException("SearchTimeBus API call failed: " + uri.getPath(), e);
+            return BusQueryResult.error();
         }
     }
 

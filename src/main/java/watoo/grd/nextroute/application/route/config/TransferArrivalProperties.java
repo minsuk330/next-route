@@ -22,4 +22,13 @@ public class TransferArrivalProperties {
 
     /** 검색용 버스 API Redis 캐시 TTL(초). 같은 stopId/routeId 중복 호출 억제. 0 이하면 캐시 비활성. */
     private long cacheTtlSeconds = 15;
+
+    /** 검색 fan-out provider 동시 호출 상한(전역 Semaphore). 0 이하면 무제한. */
+    private int maxConcurrentExternalCalls = 8;
+
+    /** 동시 호출 슬롯 획득 대기 상한(ms). 초과 시 그 호출은 빈 결과로 생략. */
+    private long externalCallAcquireMs = 500;
+
+    /** 검색 1건이 외부 버스 API를 호출할 수 있는 최대 횟수. 초과분 승차는 status=NONE. 0 이하면 무제한. */
+    private int maxExternalCallsPerSearch = 12;
 }

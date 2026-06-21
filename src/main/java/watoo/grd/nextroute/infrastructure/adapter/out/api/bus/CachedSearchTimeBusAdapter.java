@@ -50,27 +50,29 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
     }
 
     @Override
-    public List<BusArrivalInfo> getArrInfoByStop(String stopId) {
+    public BusQueryResult<BusArrivalInfo> getArrInfoByStop(String stopId) {
         return cached(KEY_ARR + stopId, ARR_TYPE, () -> delegate.getArrInfoByStop(stopId));
     }
 
     @Override
-    public List<BusPositionInfo> getBusPosByRtid(String busRouteId) {
+    public BusQueryResult<BusPositionInfo> getBusPosByRtid(String busRouteId) {
         return cached(KEY_POS + busRouteId, POS_TYPE, () -> delegate.getBusPosByRtid(busRouteId));
     }
 
-    private <T> List<T> cached(String key, TypeReference<List<T>> type, java.util.function.Supplier<List<T>> loader) {
+    private <T> BusQueryResult<T> cached(String key, TypeReference<List<T>> type,
+                                         java.util.function.Supplier<BusQueryResult<T>> loader) {
         long ttl = props.getCacheTtlSeconds();
         if (ttl <= 0) {
             return loader.get();
         }
         List<T> hit = readCache(key, type);
         if (hit != null) {
-            return hit;
+            return BusQueryResult.cached(hit);   // provider 미호출 — cap·quota 미소모
         }
-        List<T> fresh = loader.get();
-        if (!fresh.isEmpty()) {
-            writeCache(key, fresh, ttl);
+        BusQueryResult<T> fresh = loader.get();
+        // 성공 + 비어있지 않을 때만 캐시(차단·제한·에러·빈 결과는 고착 방지)
+        if (fresh.isOk() && !fresh.data().isEmpty()) {
+            writeCache(key, fresh.data(), ttl);
         }
         return fresh;
     }

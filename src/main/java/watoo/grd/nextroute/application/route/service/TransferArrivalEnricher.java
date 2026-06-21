@@ -13,6 +13,8 @@ import watoo.grd.nextroute.application.route.port.out.MlArrivalPredictorPort;
 import watoo.grd.nextroute.application.route.port.out.MlArrivalPredictorPort.MlFeatureVector;
 import watoo.grd.nextroute.application.route.port.out.MlArrivalPredictorPort.MlPrediction;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
+import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.BusQueryResult;
+import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.Outcome;
 import watoo.grd.nextroute.application.route.service.TransferStopResolver.RouteResolution;
 import watoo.grd.nextroute.application.route.service.TransferStopResolver.SeqResolution;
 import watoo.grd.nextroute.application.route.service.TransferStopResolver.StopResolution;
@@ -72,6 +74,10 @@ public class TransferArrivalEnricher {
 
         Map<Integer, Map<Integer, List<TransferArrival>>> resultMap = new HashMap<>();
 
+        // 검색당 외부 호출 상한(provider fan-out cap). 0 이하면 무제한.
+        java.util.concurrent.atomic.AtomicInteger callBudget = new java.util.concurrent.atomic.AtomicInteger(
+                props.getMaxExternalCallsPerSearch() > 0 ? props.getMaxExternalCallsPerSearch() : Integer.MAX_VALUE);
+
         for (int wave = 0; wave <= maxWave; wave++) {
             int w = wave;
             List<SubPathCtx> waveCtxs = all.stream().filter(c -> c.waveIndex == w).toList();
@@ -83,10 +89,60 @@ public class TransferArrivalEnricher {
                 continue;
             }
 
-            processWave(wave, waveCtxs, result, searchStartedAt, prevWave, resultMap);
+            processWave(wave, waveCtxs, result, searchStartedAt, prevWave, resultMap, callBudget, deadline);
         }
 
         return rebuild(result, all, resultMap);
+    }
+
+    /**
+     * 검색당 외부 호출 상한·deadline 내에서 도착정보 조회.
+     * deadline 초과→ERROR, 상한 소진→LIMITED. cache hit은 provider 미호출이라 budget 복원.
+     */
+    private BusQueryResult<BusArrivalInfo> callArr(String stopId,
+                                                   java.util.concurrent.atomic.AtomicInteger callBudget,
+                                                   Instant deadline) {
+        if (deadline != null && clock.instant().isAfter(deadline)) {
+            log.debug("[TransferEnricher] deadline exceeded — skip arr {}", stopId);
+            return BusQueryResult.error();
+        }
+        if (callBudget.getAndDecrement() <= 0) {
+            callBudget.incrementAndGet();
+            log.debug("[TransferEnricher] per-search call budget exhausted — skip arr {}", stopId);
+            return BusQueryResult.limited();
+        }
+        BusQueryResult<BusArrivalInfo> r = busPort.getArrInfoByStop(stopId);
+        if (r.cacheHit()) callBudget.incrementAndGet();   // cache hit은 provider 호출 아님 → cap 미소모
+        return r;
+    }
+
+    /**
+     * 검색당 외부 호출 상한·deadline 내에서 위치정보 조회.
+     * deadline 초과→ERROR, 상한 소진→LIMITED. cache hit은 budget 복원.
+     */
+    private BusQueryResult<BusPositionInfo> callPos(String routeId,
+                                                    java.util.concurrent.atomic.AtomicInteger callBudget,
+                                                    Instant deadline) {
+        if (deadline != null && clock.instant().isAfter(deadline)) {
+            log.debug("[TransferEnricher] deadline exceeded — skip pos {}", routeId);
+            return BusQueryResult.error();
+        }
+        if (callBudget.getAndDecrement() <= 0) {
+            callBudget.incrementAndGet();
+            log.debug("[TransferEnricher] per-search call budget exhausted — skip pos {}", routeId);
+            return BusQueryResult.limited();
+        }
+        BusQueryResult<BusPositionInfo> r = busPort.getBusPosByRtid(routeId);
+        if (r.cacheHit()) callBudget.incrementAndGet();
+        return r;
+    }
+
+    private TransferArrival.Status mapOutcome(Outcome outcome) {
+        return switch (outcome) {
+            case BLOCKED -> TransferArrival.Status.BLOCKED;
+            case LIMITED -> TransferArrival.Status.LIMITED;
+            default -> TransferArrival.Status.ERROR;
+        };
     }
 
     private void fillError(List<SubPathCtx> ctxs, Instant calculatedAt,
@@ -141,7 +197,9 @@ public class TransferArrivalEnricher {
             RouteSearchResult result,
             Instant searchStartedAt,
             Map<Integer, PrevWaveInfo> prevWave,
-            Map<Integer, Map<Integer, List<TransferArrival>>> resultMap) {
+            Map<Integer, Map<Integer, List<TransferArrival>>> resultMap,
+            java.util.concurrent.atomic.AtomicInteger callBudget,
+            Instant deadline) {
 
         Instant calculatedAt = searchStartedAt;
 
@@ -209,18 +267,15 @@ public class TransferArrivalEnricher {
 
         // 3b: stop API dedupe
         Set<String> queriedStops = new HashSet<>();
-        Map<String, List<BusArrivalInfo>> stopArrivalMap = new HashMap<>();
+        Map<String, BusQueryResult<BusArrivalInfo>> stopResultMap = new HashMap<>();
 
         for (SubPathCtx ctx : waveCtxs) {
             if (ctx.upstreamUnavailable || ctx.stopId == null) continue;
+            // 유효 routeId lane이 하나도 없으면(전부 UNSUPPORTED) stop 조회 불필요
+            boolean anyRoute = ctx.laneContexts.stream().anyMatch(lc -> lc.routeId != null);
+            if (!anyRoute) continue;
             if (queriedStops.add(ctx.stopId)) {
-                try {
-                    List<BusArrivalInfo> info = busPort.getArrInfoByStop(ctx.stopId);
-                    stopArrivalMap.put(ctx.stopId, info);
-                } catch (Exception e) {
-                    log.warn("[TransferEnricher] getArrInfoByStop failed stopId={}: {}", ctx.stopId, e.getMessage());
-                    stopArrivalMap.put(ctx.stopId, List.of());
-                }
+                stopResultMap.put(ctx.stopId, callArr(ctx.stopId, callBudget, deadline));
             }
         }
 
@@ -229,9 +284,13 @@ public class TransferArrivalEnricher {
         for (SubPathCtx ctx : waveCtxs) {
             if (ctx.upstreamUnavailable) continue;
 
-            List<BusArrivalInfo> arrivals = ctx.stopId != null
-                    ? stopArrivalMap.getOrDefault(ctx.stopId, List.of())
-                    : List.of();
+            // stop 조회가 차단/제한/오류면 그 ctx의 lane은 해당 status로 확정(빈 응답 오분류 방지)
+            BusQueryResult<BusArrivalInfo> stopRes = ctx.stopId != null ? stopResultMap.get(ctx.stopId) : null;
+            if (stopRes != null && !stopRes.isOk()) {
+                ctx.stopOutcome = stopRes.outcome();
+                continue;
+            }
+            List<BusArrivalInfo> arrivals = stopRes != null ? stopRes.data() : List.of();
 
             boolean stopApiAvailable = ctx.stopId != null && !arrivals.isEmpty();
 
@@ -276,14 +335,14 @@ public class TransferArrivalEnricher {
             }
         }
 
-        // 3d: position API dedupe (ML 후보 routeId만)
+        // 3d: position API dedupe (ML 후보 routeId만). ML 꺼져 있으면 조회 불필요(MODEL_UNAVAILABLE 확정)
         Map<String, List<BusPositionInfo>> positionMap = new HashMap<>();
-        for (String routeId : mlRouteIds) {
-            try {
-                positionMap.put(routeId, busPort.getBusPosByRtid(routeId));
-            } catch (Exception e) {
-                log.warn("[TransferEnricher] getBusPosByRtid failed routeId={}: {}", routeId, e.getMessage());
-                positionMap.put(routeId, List.of());
+        Map<String, Outcome> positionOutcomeMap = new HashMap<>();
+        if (mlProps.isEnabled()) {
+            for (String routeId : mlRouteIds) {
+                BusQueryResult<BusPositionInfo> posRes = callPos(routeId, callBudget, deadline);
+                positionMap.put(routeId, posRes.data());
+                positionOutcomeMap.put(routeId, posRes.outcome());
             }
         }
 
@@ -342,6 +401,11 @@ public class TransferArrivalEnricher {
                     ta = noResult(lc.routeId, lc.laneIdx,
                             TransferArrival.Source.NONE, TransferArrival.Status.STOP_MAPPING_FAILED,
                             calculatedAt, ctx.estimatedUserArrivalAt);
+                } else if (ctx.stopOutcome != Outcome.OK) {
+                    // stop 조회 차단/제한/오류 — "버스 없음"과 구분
+                    ta = noResult(lc.routeId, lc.laneIdx,
+                            TransferArrival.Source.NONE, mapOutcome(ctx.stopOutcome),
+                            calculatedAt, ctx.estimatedUserArrivalAt);
                 } else if (lc.routeId == null) {
                     ta = noResult(null, lc.laneIdx,
                             TransferArrival.Source.NONE, TransferArrival.Status.UNSUPPORTED_ROUTE,
@@ -359,6 +423,11 @@ public class TransferArrivalEnricher {
                 } else if (!mlProps.isEnabled()) {
                     ta = noResult(lc.routeId, lc.laneIdx,
                             TransferArrival.Source.NONE, TransferArrival.Status.MODEL_UNAVAILABLE,
+                            calculatedAt, ctx.estimatedUserArrivalAt);
+                } else if (positionOutcomeMap.getOrDefault(lc.routeId, Outcome.OK) != Outcome.OK) {
+                    // position 조회 차단/제한/오류 — MODEL 분기 불가
+                    ta = noResult(lc.routeId, lc.laneIdx,
+                            TransferArrival.Source.NONE, mapOutcome(positionOutcomeMap.get(lc.routeId)),
                             calculatedAt, ctx.estimatedUserArrivalAt);
                 } else {
                     // ML 결과에서 가장 이른 boardable 차량 탐색
@@ -637,6 +706,7 @@ public class TransferArrivalEnricher {
     static class SubPathCtx {
         final int pathIdx, subPathIdx, waveIndex, laneCount;
         String stopId;
+        Outcome stopOutcome = Outcome.OK;   // stop 조회 결과(BLOCKED/LIMITED/ERROR면 lane status로 반영)
         Instant estimatedUserArrivalAt;
         Integer basisLaneIndex;
         boolean conditional;

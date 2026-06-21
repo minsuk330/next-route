@@ -27,6 +27,10 @@ public record TransferArrival(
         NO_VEHICLE,
         MODEL_UNAVAILABLE,
         UPSTREAM_UNAVAILABLE,
+        /** 공유 circuit breaker 차단(provider error code 7 등)으로 조회 못 함. */
+        BLOCKED,
+        /** quota 소진·동시성·per-search 호출 상한으로 조회 생략. */
+        LIMITED,
         ERROR
     }
 }
