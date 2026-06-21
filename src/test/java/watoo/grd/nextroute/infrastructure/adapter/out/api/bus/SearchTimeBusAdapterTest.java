@@ -48,7 +48,7 @@ class SearchTimeBusAdapterTest {
         when(breaker.getBlockedUntil()).thenReturn(Optional.of(Instant.MAX));
         SearchTimeBusAdapter adapter = adapter(new Semaphore(8));
 
-        var result = adapter.getArrInfoByStop("1111");
+        var result = adapter.getArrInfoByStop("1111", "R1", 3);
         assertThat(result.outcome()).isEqualTo(SearchTimeBusQueryPort.Outcome.BLOCKED);
         assertThat(result.data()).isEmpty();
         verifyNoInteractions(quota, restClient);
@@ -60,7 +60,7 @@ class SearchTimeBusAdapterTest {
         when(quota.tryAcquireSearch(BusApiQuotaPort.Endpoint.ARRIVAL)).thenReturn(false);
         SearchTimeBusAdapter adapter = adapter(new Semaphore(8));
 
-        var result = adapter.getArrInfoByStop("1111");
+        var result = adapter.getArrInfoByStop("1111", "R1", 3);
         assertThat(result.outcome()).isEqualTo(SearchTimeBusQueryPort.Outcome.LIMITED);
         verifyNoInteractions(restClient);
     }
@@ -82,8 +82,8 @@ class SearchTimeBusAdapterTest {
         Semaphore sem = new Semaphore(1);
         SearchTimeBusAdapter adapter = adapter(sem);
 
-        adapter.getArrInfoByStop("1111");
-        adapter.getArrInfoByStop("2222");
+        adapter.getArrInfoByStop("1111", "R1", 3);
+        adapter.getArrInfoByStop("2222", "R1", 3);
 
         // quota false로 호출 생략돼도 슬롯은 release됨
         assertThat(sem.availablePermits()).isEqualTo(1);

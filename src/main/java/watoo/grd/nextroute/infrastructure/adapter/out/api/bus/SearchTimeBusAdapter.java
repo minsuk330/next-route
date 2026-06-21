@@ -82,10 +82,12 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
     }
 
     @Override
-    public BusQueryResult<BusArrivalInfo> getArrInfoByStop(String stopId) {
-        URI uri = URI.create(baseUrl + "/arrive/getArrInfoByStId"
+    public BusQueryResult<BusArrivalInfo> getArrInfoByStop(String stopId, String routeId, int ord) {
+        URI uri = URI.create(baseUrl + "/arrive/getArrInfoByRoute"
                 + "?serviceKey=" + apiKey
-                + "&stId=" + stopId);
+                + "&stId=" + stopId
+                + "&busRouteId=" + routeId
+                + "&ord=" + ord);
         return callApi(uri, BusArrivalItem.class, BusApiQuotaPort.Endpoint.ARRIVAL, this::toArrivalInfo);
     }
 

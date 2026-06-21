@@ -81,30 +81,26 @@ public class SingleTransferPredictor implements PredictTransferUseCase {
         }
 
         // 3. REALTIME 조회
+        // getArrInfoByRoute는 (stopId, routeId, ord) 단위 — 호출 전 seq가 유일 확정돼야 한다.
+        // 사용자가 노선·정류장을 특정한 상황이라 seq는 단일이지만, 방어적으로 다건이면 매핑 실패 처리.
+        if (targetSeq == null) {
+            return no(stopId, routeId, null, TransferArrival.Source.NONE,
+                    TransferArrival.Status.STOP_MAPPING_FAILED, calculatedAt, userArrivalAt);
+        }
         if (remaining(deadline) <= 0) {
             return no(stopId, routeId, targetSeq, TransferArrival.Source.NONE,
                     TransferArrival.Status.LIMITED, calculatedAt, userArrivalAt);
         }
-        BusQueryResult<BusArrivalInfo> arrRes = busPort.getArrInfoByStop(stopId);
+        BusQueryResult<BusArrivalInfo> arrRes = busPort.getArrInfoByStop(stopId, routeId, targetSeq);
         if (arrRes.outcome() == Outcome.BLOCKED) {
             return no(stopId, routeId, targetSeq, TransferArrival.Source.NONE,
                     TransferArrival.Status.BLOCKED, calculatedAt, userArrivalAt);
         }
         boolean arrOk = arrRes.isOk();
         List<BusArrivalInfo> arrivals = arrOk ? arrRes.data() : List.of();
+        // 응답은 해당 노선 1건. 방어적으로 routeId 필터.
         Optional<BusArrivalInfo> matched = arrivals.stream()
                 .filter(a -> routeId.equals(a.routeId())).findFirst();
-
-        // 루프노선 seq 유일화 (다건 후보)
-        if (targetSeq == null) {
-            Integer resolved = matched.map(BusArrivalInfo::seq)
-                    .filter(seqCandidates::contains).orElse(null);
-            if (resolved == null) {
-                return no(stopId, routeId, null, TransferArrival.Source.NONE,
-                        TransferArrival.Status.STOP_MAPPING_FAILED, calculatedAt, userArrivalAt);
-            }
-            targetSeq = resolved;
-        }
 
         // REALTIME 판정 (arr OK일 때만)
         if (arrOk && matched.isPresent()) {

@@ -50,8 +50,9 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
     }
 
     @Override
-    public BusQueryResult<BusArrivalInfo> getArrInfoByStop(String stopId) {
-        return cached(KEY_ARR + stopId, ARR_TYPE, () -> delegate.getArrInfoByStop(stopId));
+    public BusQueryResult<BusArrivalInfo> getArrInfoByStop(String stopId, String routeId, int ord) {
+        String key = KEY_ARR + stopId + ":" + routeId + ":" + ord;
+        return cached(key, ARR_TYPE, () -> delegate.getArrInfoByStop(stopId, routeId, ord));
     }
 
     @Override

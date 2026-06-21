@@ -92,7 +92,7 @@ class SingleTransferPredictorTest {
     @DisplayName("REALTIME boardable → AVAILABLE, waitSeconds 양수")
     void realtimeBoardable() {
         given(routeStopRepo.existsByRouteIdAndStopIdAndSeq(ROUTE, STOP, 5)).willReturn(true);
-        given(busPort.getArrInfoByStop(STOP)).willReturn(
+        given(busPort.getArrInfoByStop(STOP, ROUTE, 5)).willReturn(
                 BusQueryResult.ok(List.of(arrival(ROUTE, MK_TM, 300, -1))));
 
         TransferPredictionResult r = predictor.predict(STOP, ROUTE, 5, BASE.plusSeconds(60));
@@ -110,7 +110,7 @@ class SingleTransferPredictorTest {
     @DisplayName("REALTIME 이미 지나감(없는 boardable) → earliest 반환, boardable=false 음수 wait")
     void realtimeMissed() {
         given(routeStopRepo.existsByRouteIdAndStopIdAndSeq(ROUTE, STOP, 5)).willReturn(true);
-        given(busPort.getArrInfoByStop(STOP)).willReturn(
+        given(busPort.getArrInfoByStop(STOP, ROUTE, 5)).willReturn(
                 BusQueryResult.ok(List.of(arrival(ROUTE, MK_TM, 60, -1))));
 
         TransferPredictionResult r = predictor.predict(STOP, ROUTE, 5, BASE.plusSeconds(120));
@@ -124,7 +124,7 @@ class SingleTransferPredictorTest {
     @DisplayName("REALTIME 없음 + SUPPORTED + ml on → MODEL earliest")
     void modelFallback() {
         given(routeStopRepo.existsByRouteIdAndStopIdAndSeq(ROUTE, STOP, 5)).willReturn(true);
-        given(busPort.getArrInfoByStop(STOP)).willReturn(BusQueryResult.ok(List.of())); // route 도착 없음
+        given(busPort.getArrInfoByStop(STOP, ROUTE, 5)).willReturn(BusQueryResult.ok(List.of())); // route 도착 없음
         given(supportService.support(ROUTE)).willReturn(PredictionSupportService.Support.SUPPORTED);
         given(busPort.getBusPosByRtid(ROUTE)).willReturn(BusQueryResult.ok(List.of(position("veh1", 3))));
         given(mlPort.predict(anyList())).willAnswer(inv -> {
@@ -146,7 +146,7 @@ class SingleTransferPredictorTest {
     @DisplayName("미지원 노선 → UNSUPPORTED_ROUTE, position 콜 0 (realtime만)")
     void unsupportedSkipsModel() {
         given(routeStopRepo.existsByRouteIdAndStopIdAndSeq(ROUTE, STOP, 5)).willReturn(true);
-        given(busPort.getArrInfoByStop(STOP)).willReturn(BusQueryResult.ok(List.of()));
+        given(busPort.getArrInfoByStop(STOP, ROUTE, 5)).willReturn(BusQueryResult.ok(List.of()));
         given(supportService.support(ROUTE)).willReturn(PredictionSupportService.Support.UNSUPPORTED);
 
         TransferPredictionResult r = predictor.predict(STOP, ROUTE, 5, BASE.plusSeconds(60));
@@ -160,7 +160,7 @@ class SingleTransferPredictorTest {
     @DisplayName("UNKNOWN(캐시 미적재) → ML 시도, serving UNSUPPORTED_ROUTE → 그 상태")
     void unknownTriesMlThenServingUnsupported() {
         given(routeStopRepo.existsByRouteIdAndStopIdAndSeq(ROUTE, STOP, 5)).willReturn(true);
-        given(busPort.getArrInfoByStop(STOP)).willReturn(BusQueryResult.ok(List.of()));
+        given(busPort.getArrInfoByStop(STOP, ROUTE, 5)).willReturn(BusQueryResult.ok(List.of()));
         given(supportService.support(ROUTE)).willReturn(PredictionSupportService.Support.UNKNOWN);
         given(busPort.getBusPosByRtid(ROUTE)).willReturn(BusQueryResult.ok(List.of(position("veh1", 3))));
         given(mlPort.predict(anyList())).willAnswer(inv -> {
@@ -179,7 +179,7 @@ class SingleTransferPredictorTest {
     void mlOff() {
         mlProps.setEnabled(false);
         given(routeStopRepo.existsByRouteIdAndStopIdAndSeq(ROUTE, STOP, 5)).willReturn(true);
-        given(busPort.getArrInfoByStop(STOP)).willReturn(BusQueryResult.ok(List.of()));
+        given(busPort.getArrInfoByStop(STOP, ROUTE, 5)).willReturn(BusQueryResult.ok(List.of()));
         given(supportService.support(ROUTE)).willReturn(PredictionSupportService.Support.SUPPORTED);
 
         TransferPredictionResult r = predictor.predict(STOP, ROUTE, 5, BASE.plusSeconds(60));
@@ -192,7 +192,7 @@ class SingleTransferPredictorTest {
     @DisplayName("stop API BLOCKED → BLOCKED, position 콜 0")
     void stopBlocked() {
         given(routeStopRepo.existsByRouteIdAndStopIdAndSeq(ROUTE, STOP, 5)).willReturn(true);
-        given(busPort.getArrInfoByStop(STOP)).willReturn(BusQueryResult.blocked());
+        given(busPort.getArrInfoByStop(STOP, ROUTE, 5)).willReturn(BusQueryResult.blocked());
 
         TransferPredictionResult r = predictor.predict(STOP, ROUTE, 5, BASE.plusSeconds(60));
 
@@ -204,7 +204,7 @@ class SingleTransferPredictorTest {
     @DisplayName("stop API ERROR라도 targetSeq 확정 시 ML fallback 진입")
     void stopErrorStillFallsBackToMl() {
         given(routeStopRepo.existsByRouteIdAndStopIdAndSeq(ROUTE, STOP, 5)).willReturn(true);
-        given(busPort.getArrInfoByStop(STOP)).willReturn(BusQueryResult.error());
+        given(busPort.getArrInfoByStop(STOP, ROUTE, 5)).willReturn(BusQueryResult.error());
         given(supportService.support(ROUTE)).willReturn(PredictionSupportService.Support.SUPPORTED);
         given(busPort.getBusPosByRtid(ROUTE)).willReturn(BusQueryResult.ok(List.of(position("veh1", 3))));
         given(mlPort.predict(anyList())).willAnswer(inv -> {
@@ -224,7 +224,7 @@ class SingleTransferPredictorTest {
     void resolvesSeqWhenAbsent() {
         given(resolver.resolveSeq(ROUTE, STOP))
                 .willReturn(new TransferStopResolver.SeqResolution(List.of(5)));
-        given(busPort.getArrInfoByStop(STOP)).willReturn(
+        given(busPort.getArrInfoByStop(STOP, ROUTE, 5)).willReturn(
                 BusQueryResult.ok(List.of(arrival(ROUTE, MK_TM, 300, -1))));
 
         TransferPredictionResult r = predictor.predict(STOP, ROUTE, null, BASE.plusSeconds(60));
