@@ -25,6 +25,11 @@ public class PredictionSupportService {
     private final MlSupportedRoutesPort supportedRoutesPort;
 
     private volatile Set<String> supportedRouteIds = Set.of();
+    /** 캐시가 한 번이라도 정상 적재됐는지. false면 미포함 ≠ 미지원(UNKNOWN). */
+    private volatile boolean loaded = false;
+
+    /** 노선의 모델 지원 상태. 캐시 미적재(serving 미기동/장애) 시 UNKNOWN. */
+    public enum Support { SUPPORTED, UNSUPPORTED, UNKNOWN }
 
     @EventListener(ApplicationReadyEvent.class)
     public void onReady() {
@@ -38,14 +43,28 @@ public class PredictionSupportService {
         supportedRoutesPort.fetchSupportedRouteIds().ifPresentOrElse(
                 routeIds -> {
                     supportedRouteIds = Set.copyOf(routeIds);
+                    loaded = true;
                     log.info("[PredictionSupport] refreshed: {} supported routes", supportedRouteIds.size());
                 },
-                () -> log.debug("[PredictionSupport] refresh skipped/failed; keeping {} cached routes",
-                        supportedRouteIds.size()));
+                () -> log.debug("[PredictionSupport] refresh skipped/failed; keeping {} cached routes (loaded={})",
+                        supportedRouteIds.size(), loaded));
     }
 
+    /**
+     * 배지용 boolean 판정 — 캐시 미적재/미포함은 보수적으로 false.
+     * 예측 게이트는 UNKNOWN과 UNSUPPORTED를 구분해야 하므로 {@link #support(String)}를 쓸 것.
+     */
     public boolean isSupported(String routeId) {
         return routeId != null && supportedRouteIds.contains(routeId);
+    }
+
+    /**
+     * 예측 게이트용 tri-state. 캐시 미적재면 UNKNOWN(serving 권위에 위임 → ML 시도).
+     */
+    public Support support(String routeId) {
+        if (!loaded) return Support.UNKNOWN;
+        return routeId != null && supportedRouteIds.contains(routeId)
+                ? Support.SUPPORTED : Support.UNSUPPORTED;
     }
 
     public Set<String> supportedRouteIds() {
