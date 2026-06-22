@@ -3,6 +3,7 @@ package watoo.grd.nextroute.infrastructure.adapter.in.api.arrival;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 
 import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.arrival.dto.SubwayArrivalResponse;
@@ -15,6 +16,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(SubwayArrivalController.class)
+@AutoConfigureMockMvc(addFilters = false)
 class SubwayArrivalControllerTest {
 
     @Autowired MockMvc mockMvc;

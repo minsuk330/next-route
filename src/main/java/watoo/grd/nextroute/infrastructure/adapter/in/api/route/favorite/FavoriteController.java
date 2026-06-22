@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import watoo.grd.nextroute.application.route.dto.FavoriteRequest;
 import watoo.grd.nextroute.application.route.dto.FavoriteResponse;
@@ -26,22 +27,22 @@ public class FavoriteController {
 
     @PostMapping
     public ResponseEntity<FavoriteResponse> add(
-            @RequestHeader("X-Device-Id") String deviceId,
+            @AuthenticationPrincipal Long userId,
             @Valid @RequestBody FavoriteRequest request) {
-        return ResponseEntity.ok(addFavoriteRouteUseCase.add(deviceId, request));
+        return ResponseEntity.ok(addFavoriteRouteUseCase.add(userId, request));
     }
 
     @GetMapping
     public ResponseEntity<List<FavoriteResponse>> getAll(
-            @RequestHeader("X-Device-Id") String deviceId) {
-        return ResponseEntity.ok(getFavoriteRoutesUseCase.getAll(deviceId));
+            @AuthenticationPrincipal Long userId) {
+        return ResponseEntity.ok(getFavoriteRoutesUseCase.getAll(userId));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(
-            @RequestHeader("X-Device-Id") String deviceId,
+            @AuthenticationPrincipal Long userId,
             @PathVariable Long id) {
-        deleteFavoriteRouteUseCase.delete(deviceId, id);
+        deleteFavoriteRouteUseCase.delete(userId, id);
         return ResponseEntity.noContent().build();
     }
 

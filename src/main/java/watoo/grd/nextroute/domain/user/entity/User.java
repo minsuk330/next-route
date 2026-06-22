@@ -9,17 +9,19 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import watoo.grd.nextroute.common.entity.BaseEntity;
 
+/** 사용자. 신원은 토스 로그인 사용자 식별키(tossUserKey)로만 식별한다. */
 @Entity
 @Table(name = "users")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class User extends BaseEntity {
 
+    /** 토스 로그인 사용자 식별키(앱 단위 unique). 유일한 신원 식별자. */
     @Column(unique = true, nullable = false)
-    private String deviceId;
+    private Long tossUserKey;
 
     @Builder
-    public User(String deviceId) {
-        this.deviceId = deviceId;
+    public User(Long tossUserKey) {
+        this.tossUserKey = tossUserKey;
     }
 }

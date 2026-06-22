@@ -14,6 +14,9 @@ src/main/resources/db/migration/*
 !src/main/resources/db/migration/V12__create_bus_arrival_label_event.sql
 !src/main/resources/db/migration/V13__add_bus_label_batch_indexes.sql
 !src/main/resources/db/migration/V14__add_bus_position_collected_at_index.sql
+!src/main/resources/db/migration/V15__add_stop_route_search_indexes.sql
+!src/main/resources/db/migration/V16__toss_login.sql
+!src/main/resources/db/migration/V17__drop_device_id.sql
 docs/*
 !docs/plan/
 .firecrawl
@@ -69,3 +72,9 @@ CLAUDE.md
 
 ### Worktrees ###
 .worktrees/
+
+### OS junk ###
+.DS_Store
+
+### Toss mTLS certs/keys (절대 커밋 금지) ###
+src/main/resources/toss/

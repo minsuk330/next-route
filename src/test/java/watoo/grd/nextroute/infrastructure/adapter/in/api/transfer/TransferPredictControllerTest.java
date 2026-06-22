@@ -3,6 +3,7 @@ package watoo.grd.nextroute.infrastructure.adapter.in.api.transfer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -24,6 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(TransferPredictController.class)
+@AutoConfigureMockMvc(addFilters = false)
 class TransferPredictControllerTest {
 
     static final Instant NOW = Instant.parse("2026-06-06T04:00:00Z");
