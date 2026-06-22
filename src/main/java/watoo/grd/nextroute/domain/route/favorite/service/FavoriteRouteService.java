@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.domain.route.favorite.entity.FavoriteRoute;
+import watoo.grd.nextroute.domain.route.favorite.entity.FavoriteType;
 import watoo.grd.nextroute.domain.route.favorite.repository.FavoriteRouteRepository;
 import watoo.grd.nextroute.domain.user.entity.User;
 
@@ -28,5 +29,9 @@ public class FavoriteRouteService {
 
     public Optional<FavoriteRoute> findByIdAndUser(Long id, User user) {
         return favoriteRouteRepository.findByIdAndUserAndDeletedAtIsNull(id, user);
+    }
+
+    public boolean existsActiveType(User user, FavoriteType type) {
+        return favoriteRouteRepository.existsByUserAndTypeAndDeletedAtIsNull(user, type);
     }
 }

@@ -2,6 +2,7 @@ package watoo.grd.nextroute.domain.route.favorite.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import watoo.grd.nextroute.domain.route.favorite.entity.FavoriteRoute;
+import watoo.grd.nextroute.domain.route.favorite.entity.FavoriteType;
 import watoo.grd.nextroute.domain.user.entity.User;
 
 import java.util.List;
@@ -12,4 +13,6 @@ public interface FavoriteRouteRepository extends JpaRepository<FavoriteRoute, Lo
     List<FavoriteRoute> findByUserAndDeletedAtIsNull(User user);
 
     Optional<FavoriteRoute> findByIdAndUserAndDeletedAtIsNull(Long id, User user);
+
+    boolean existsByUserAndTypeAndDeletedAtIsNull(User user, FavoriteType type);
 }

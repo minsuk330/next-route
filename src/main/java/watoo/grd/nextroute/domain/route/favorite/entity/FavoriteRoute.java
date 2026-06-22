@@ -25,6 +25,12 @@ public class FavoriteRoute extends BaseEntity {
     private FavoriteType type;
 
     @Column(nullable = false)
+    private String name;       // 사용자 정의 이름
+
+    @Column(nullable = false)
+    private String address;    // 주소
+
+    @Column(nullable = false)
     private String endPlace;
 
     @Column(nullable = false)
@@ -36,10 +42,12 @@ public class FavoriteRoute extends BaseEntity {
     private LocalDateTime endDate;
 
     @Builder
-    public FavoriteRoute(User user, FavoriteType type, String endPlace,
-                         Double ex, Double ey, LocalDateTime endDate) {
+    public FavoriteRoute(User user, FavoriteType type, String name, String address,
+                         String endPlace, Double ex, Double ey, LocalDateTime endDate) {
         this.user = user;
         this.type = type;
+        this.name = name;
+        this.address = address;
         this.endPlace = endPlace;
         this.ex = ex;
         this.ey = ey;

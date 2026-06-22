@@ -11,6 +11,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.route.dto.FavoriteResponse;
+import watoo.grd.nextroute.application.route.exception.FavoriteConflictException;
 import watoo.grd.nextroute.application.route.port.in.AddFavoriteRouteUseCase;
 import watoo.grd.nextroute.application.route.port.in.DeleteFavoriteRouteUseCase;
 import watoo.grd.nextroute.application.route.port.in.GetFavoriteRoutesUseCase;
@@ -50,12 +51,12 @@ class FavoriteControllerTest {
     @Test
     void add_returns200WithResponse() throws Exception {
         FavoriteResponse response = FavoriteResponse.builder()
-                .id(1L).type(FavoriteType.HOME).endPlace("집")
+                .id(1L).type(FavoriteType.HOME).name("우리집").address("서울시 강남구").endPlace("집")
                 .ex(127.1).ey(37.5).build();
         given(addFavoriteRouteUseCase.add(eq(7L), any())).willReturn(response);
 
         String body = """
-                {"type":"HOME","endPlace":"집","ex":127.1,"ey":37.5}
+                {"type":"HOME","name":"우리집","address":"서울시 강남구","endPlace":"집","ex":127.1,"ey":37.5}
                 """;
 
         mockMvc.perform(post("/api/route/fav")
@@ -64,7 +65,57 @@ class FavoriteControllerTest {
                         .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.name").value("우리집"))
+                .andExpect(jsonPath("$.address").value("서울시 강남구"))
                 .andExpect(jsonPath("$.endPlace").value("집"));
+    }
+
+    @Test
+    void add_missingName_returns400() throws Exception {
+        String body = """
+                {"type":"HOME","address":"서울시 강남구","endPlace":"집","ex":127.1,"ey":37.5}
+                """;
+
+        mockMvc.perform(post("/api/route/fav")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void add_conflict_returns409() throws Exception {
+        given(addFavoriteRouteUseCase.add(eq(7L), any()))
+                .willThrow(new FavoriteConflictException("dup"));
+
+        String body = """
+                {"type":"HOME","name":"우리집","address":"서울시 강남구","endPlace":"집","ex":127.1,"ey":37.5}
+                """;
+
+        mockMvc.perform(post("/api/route/fav")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void add_etcType_returns200() throws Exception {
+        FavoriteResponse response = FavoriteResponse.builder()
+                .id(2L).type(FavoriteType.ETC).name("헬스장").address("서울시 마포구").endPlace("짐")
+                .ex(126.9).ey(37.55).build();
+        given(addFavoriteRouteUseCase.add(eq(7L), any())).willReturn(response);
+
+        String body = """
+                {"type":"ETC","name":"헬스장","address":"서울시 마포구","endPlace":"짐","ex":126.9,"ey":37.55}
+                """;
+
+        mockMvc.perform(post("/api/route/fav")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("ETC"));
     }
 
     @Test

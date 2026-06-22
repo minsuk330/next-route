@@ -12,6 +12,8 @@ import java.time.LocalDateTime;
 public class FavoriteResponse {
     private Long id;
     private FavoriteType type;
+    private String name;
+    private String address;
     private String endPlace;
     private Double ex;
     private Double ey;
@@ -21,6 +23,8 @@ public class FavoriteResponse {
         return FavoriteResponse.builder()
                 .id(entity.getId())
                 .type(entity.getType())
+                .name(entity.getName())
+                .address(entity.getAddress())
                 .endPlace(entity.getEndPlace())
                 .ex(entity.getEx())
                 .ey(entity.getEy())
