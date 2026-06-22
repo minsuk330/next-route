@@ -8,6 +8,7 @@ spring:
     import:
       - optional:file:./env/db.env[.properties]
       - optional:file:./env/api.env[.properties]
+      - optional:file:./env/toss.env[.properties]
   application:
     name: nextroute
   task:
