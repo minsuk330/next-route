@@ -5,6 +5,6 @@ import watoo.grd.nextroute.application.arrival.dto.SubwayArrivalResponse;
 import java.util.List;
 
 public interface GetSubwayArrivalUseCase {
-  List<SubwayArrivalResponse> getArrivals(double lat, double lon, Integer wayCode);
+  List<SubwayArrivalResponse> getArrivals(double lat, double lon, Integer wayCode, String lineId);
 
 }

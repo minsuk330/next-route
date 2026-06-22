@@ -28,16 +28,31 @@ public class SubwayArrivalQueryService implements GetSubwayArrivalUseCase {
     private final SubwayDataService subwayDataService;
 
     @Override
-    public List<SubwayArrivalResponse> getArrivals(double lat, double lon, Integer wayCode) {
+    public List<SubwayArrivalResponse> getArrivals(double lat, double lon, Integer wayCode, String lineId) {
         List<NearbySubwayStationProjection> nearby =
-                subwayDataService.findNearbyStations(lat, lon, 50, 1);
+                subwayDataService.findNearbyStations(lat, lon, 50, 5);
         if (nearby.isEmpty()) return List.of();
 
-        NearbySubwayStationProjection nearest = nearby.get(0);
+        NearbySubwayStationProjection target = selectStation(nearby, lineId);
 
         Optional<SubwayRealtimeSnapshot> snapshot = cachePort.readSnapshot();
 
-        return fromSnapshot(snapshot, nearest.getLineId(), nearest.getStationId(),wayCode);
+        return fromSnapshot(snapshot, target.getLineId(), target.getStationId(), wayCode);
+    }
+
+    /**
+     * 후보가 2개 이상이고 line_id가 주어지면 해당 호선으로 1개만 추출.
+     * 미지정/미일치 시 최근접(첫번째) 역 사용.
+     */
+    private NearbySubwayStationProjection selectStation(
+            List<NearbySubwayStationProjection> nearby, String lineId) {
+        if (nearby.size() >= 2 && lineId != null && !lineId.isBlank()) {
+            return nearby.stream()
+                    .filter(s -> lineId.equals(s.getLineId()))
+                    .findFirst()
+                    .orElse(nearby.get(0));
+        }
+        return nearby.get(0);
     }
 
     private List<SubwayArrivalResponse> fromSnapshot(

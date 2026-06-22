@@ -25,8 +25,9 @@ public class SubwayArrivalController {
   public ResponseEntity<List<SubwayArrivalResponse>> getArrivals(
       @RequestParam double lat,
       @RequestParam double lon,
-      @RequestParam(required = false) Integer wayCode
+      @RequestParam(required = false) Integer wayCode,
+      @RequestParam(name = "line_id", required = false) String lineId
   ) {
-      return ResponseEntity.ok(getSubwayArrivalUseCase.getArrivals(lat, lon,wayCode));
+      return ResponseEntity.ok(getSubwayArrivalUseCase.getArrivals(lat, lon, wayCode, lineId));
   }
 }
