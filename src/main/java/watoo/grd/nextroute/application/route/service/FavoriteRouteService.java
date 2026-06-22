@@ -8,7 +8,9 @@ import watoo.grd.nextroute.application.route.dto.FavoriteResponse;
 import watoo.grd.nextroute.application.route.port.in.AddFavoriteRouteUseCase;
 import watoo.grd.nextroute.application.route.port.in.DeleteFavoriteRouteUseCase;
 import watoo.grd.nextroute.application.route.port.in.GetFavoriteRoutesUseCase;
+import watoo.grd.nextroute.application.route.exception.FavoriteConflictException;
 import watoo.grd.nextroute.domain.route.favorite.entity.FavoriteRoute;
+import watoo.grd.nextroute.domain.route.favorite.entity.FavoriteType;
 import watoo.grd.nextroute.domain.user.entity.User;
 import watoo.grd.nextroute.domain.user.repository.UserRepository;
 
@@ -28,10 +30,17 @@ public class FavoriteRouteService
     @Transactional
     public FavoriteResponse add(long userId, FavoriteRequest request) {
         User user = requireUser(userId);
+        if (request.getType() != FavoriteType.ETC
+                && favoriteDomainService.existsActiveType(user, request.getType())) {
+            throw new FavoriteConflictException(
+                    request.getType() + " 즐겨찾기는 이미 존재합니다.");
+        }
         FavoriteRoute saved = favoriteDomainService.save(
                 FavoriteRoute.builder()
                         .user(user)
                         .type(request.getType())
+                        .name(request.getName())
+                        .address(request.getAddress())
                         .endPlace(request.getEndPlace())
                         .ex(request.getEx())
                         .ey(request.getEy())

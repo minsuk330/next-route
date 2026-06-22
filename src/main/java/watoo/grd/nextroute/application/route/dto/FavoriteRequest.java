@@ -14,6 +14,10 @@ public class FavoriteRequest {
     @NotNull
     private FavoriteType type;
     @NotBlank
+    private String name;
+    @NotBlank
+    private String address;
+    @NotBlank
     private String endPlace;
     @NotNull
     private Double ex;

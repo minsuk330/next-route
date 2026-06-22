@@ -65,7 +65,7 @@ public class RealtimeSubwayCollector {
 
         if (!isActiveHours()) {
             cachePort.saveStatus(SubwayRealtimeStatus.OFF_HOURS);
-            log.debug("[RealtimeCollector] Off-hours, skipping collection");
+
             return;
         }
 
