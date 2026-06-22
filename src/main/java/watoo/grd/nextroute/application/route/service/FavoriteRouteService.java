@@ -10,7 +10,7 @@ import watoo.grd.nextroute.application.route.port.in.DeleteFavoriteRouteUseCase;
 import watoo.grd.nextroute.application.route.port.in.GetFavoriteRoutesUseCase;
 import watoo.grd.nextroute.domain.route.favorite.entity.FavoriteRoute;
 import watoo.grd.nextroute.domain.user.entity.User;
-import watoo.grd.nextroute.domain.user.service.UserDomainService;
+import watoo.grd.nextroute.domain.user.repository.UserRepository;
 
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -22,12 +22,12 @@ public class FavoriteRouteService
         implements AddFavoriteRouteUseCase, GetFavoriteRoutesUseCase, DeleteFavoriteRouteUseCase {
 
     private final watoo.grd.nextroute.domain.route.favorite.service.FavoriteRouteService favoriteDomainService;
-    private final UserDomainService userDomainService;
+    private final UserRepository userRepository;
 
     @Override
     @Transactional
-    public FavoriteResponse add(String deviceId, FavoriteRequest request) {
-        User user = userDomainService.findOrCreate(deviceId);
+    public FavoriteResponse add(long userId, FavoriteRequest request) {
+        User user = requireUser(userId);
         FavoriteRoute saved = favoriteDomainService.save(
                 FavoriteRoute.builder()
                         .user(user)
@@ -42,8 +42,8 @@ public class FavoriteRouteService
     }
 
     @Override
-    public List<FavoriteResponse> getAll(String deviceId) {
-        return userDomainService.findOnly(deviceId)
+    public List<FavoriteResponse> getAll(long userId) {
+        return userRepository.findById(userId)
                 .map(user -> favoriteDomainService.findByUser(user).stream()
                         .map(FavoriteResponse::from)
                         .toList())
@@ -52,10 +52,15 @@ public class FavoriteRouteService
 
     @Override
     @Transactional
-    public void delete(String deviceId, Long favoriteId) {
-        User user = userDomainService.findOrCreate(deviceId);
+    public void delete(long userId, Long favoriteId) {
+        User user = requireUser(userId);
         FavoriteRoute route = favoriteDomainService.findByIdAndUser(favoriteId, user)
                 .orElseThrow(() -> new NoSuchElementException("즐겨찾기를 찾을 수 없습니다."));
         route.markDeleted();
+    }
+
+    private User requireUser(long userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new NoSuchElementException("사용자를 찾을 수 없습니다: " + userId));
     }
 }

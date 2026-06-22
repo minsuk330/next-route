@@ -106,6 +106,31 @@ seoul:
     subway-route-key: ${SEOUL_SUBWAY_ROUTE}
     subway-tago-base-url: http://apis.data.go.kr/1613000/SubwayInfo
 
+toss:
+  login:
+    base-url: ${TOSS_LOGIN_BASE_URL:https://apps-in-toss-api.toss.im}
+    # mTLS 클라이언트 인증서(PKCS12). 미설정 시 토스 서버통신 실패(부팅은 됨)
+    key-store-path: ${TOSS_MTLS_KEYSTORE_PATH:}
+    key-store-password: ${TOSS_MTLS_KEYSTORE_PASSWORD:}
+    trust-store-path: ${TOSS_MTLS_TRUSTSTORE_PATH:}
+    trust-store-password: ${TOSS_MTLS_TRUSTSTORE_PASSWORD:}
+    # 사용자정보 PII 복호화 키(Base64) + AAD. 콘솔→이메일 수신
+    decrypt-key: ${TOSS_DECRYPT_KEY:}
+    aad: ${TOSS_DECRYPT_AAD:TOSS}
+    # 연결끊기 콜백 Basic Auth
+    callback-username: ${TOSS_CALLBACK_USERNAME:}
+    callback-password: ${TOSS_CALLBACK_PASSWORD:}
+    connect-timeout-ms: 3000
+    read-timeout-ms: 5000
+    max-retries: 3
+
+auth:
+  jwt:
+    secret: ${AUTH_JWT_SECRET:change-me-this-is-a-dev-only-jwt-secret-please-override}
+    issuer: ${AUTH_JWT_ISSUER:nextroute}
+    access-ttl-seconds: ${AUTH_JWT_ACCESS_TTL:3600}
+    refresh-ttl-seconds: ${AUTH_JWT_REFRESH_TTL:1209600}
+
 
 
 collector:
