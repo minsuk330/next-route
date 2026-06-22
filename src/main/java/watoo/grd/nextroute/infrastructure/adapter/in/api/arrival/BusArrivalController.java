@@ -20,8 +20,10 @@ public class BusArrivalController {
 
     private final GetBusArrivalUseCase getBusArrivalUseCase;
 
-    @GetMapping("/{stopId}")
-    public ResponseEntity<List<BusArrivalResponse>> getArrivals(@PathVariable String stopId) {
-        return ResponseEntity.ok(getBusArrivalUseCase.getArrivals(stopId));
+    @GetMapping("/{stopId}/{routeId}")
+    public ResponseEntity<List<BusArrivalResponse>> getArrivals(
+        @PathVariable String stopId,
+        @PathVariable String routeId) {
+        return ResponseEntity.ok(getBusArrivalUseCase.getArrivals(stopId,routeId));
     }
 }

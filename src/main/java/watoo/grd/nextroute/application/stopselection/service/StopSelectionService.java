@@ -38,12 +38,16 @@ public class StopSelectionService
 
     @Override
     public RouteStopsResult getRouteStops(String routeId) {
-        List<RouteStopsResult.RouteStop> stops = busDataService.findStopsByRouteId(routeId).stream()
+        return new RouteStopsResult(routeId, predictionSupportService.isSupported(routeId),
+                fetchRouteStops(routeId));
+    }
+
+    private List<RouteStopsResult.RouteStop> fetchRouteStops(String routeId) {
+        return busDataService.findStopsByRouteId(routeId).stream()
                 .map(p -> new RouteStopsResult.RouteStop(
                         p.getSeq(), p.getStopId(), p.getStopName(),
                         p.getLatitude(), p.getLongitude(), p.getDirection()))
                 .toList();
-        return new RouteStopsResult(routeId, predictionSupportService.isSupported(routeId), stops);
     }
 
     @Override
@@ -69,6 +73,10 @@ public class StopSelectionService
                         s.getLatitude(), s.getLongitude()))
                 .toList();
 
-        return new SearchSuggestResult(routes, stops);
+        List<RouteStopsResult.RouteStop> routeStops = routes.size() == 1
+                ? fetchRouteStops(routes.get(0).routeId())
+                : List.of();
+
+        return new SearchSuggestResult(routes, stops, routeStops);
     }
 }

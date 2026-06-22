@@ -36,6 +36,7 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
     public List<NearbyBusStopResult> getNearbyBusStops(double lat, double lng, int limit) {
         validateCoordinates(lat, lng);
         int lim = clampLimit(limit);
+
         List<NearbyBusStopProjection> stops = searchWithExpanding(
                 (radius, l) -> busDataService.findNearbyStops(lat, lng, radius, l), lim);
         if (stops.isEmpty()) {
@@ -47,6 +48,7 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
                 .collect(Collectors.toSet());
         Set<String> supportedStopIds = busDataService.findSupportedStopIds(
                 stopIds, predictionSupportService.supportedRouteIds());
+
         return stops.stream()
                 .map(p -> new NearbyBusStopResult(
                         p.getStopId(), p.getStopName(), p.getArsId(),

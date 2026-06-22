@@ -2,3 +2,46 @@ spring:
   flyway:
     baseline-on-migrate: true
     baseline-version: 1
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+logging:
+  level:
+    watoo.grd.nextroute: INFO
+  file:
+    name: logs/nextroute.log
+  logback:
+    rollingpolicy:
+      max-file-size: 50MB
+      max-history: 30
+
+collector:
+  bus-arrival:
+    enabled: true
+  bus-position:
+    enabled: true
+
+realtime:
+  subway:
+    enabled: true
+    persist-raw-arrivals: false
+
+batch:
+  arrival-event:
+    enabled: true
+  match-issue:
+    enabled: true
+  inferred-completion:
+    enabled: true
+  delay-truth:
+    enabled: true
+  bus-label:
+    enabled: true
+
+ml:
+  predictor:
+    enabled: ${ML_PREDICTOR_ENABLED:true}
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:*}

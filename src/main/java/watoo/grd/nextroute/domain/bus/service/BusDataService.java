@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.domain.bus.service;
 
 import jakarta.persistence.EntityManager;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -155,6 +156,10 @@ public class BusDataService {
 		return busStopRepository.findTop20ByStopNameStartingWithOrderByStopName(prefix);
 	}
 
+  public Optional<BusStop> findStopById(String stopId) {
+    return busStopRepository.findByStopId(stopId);
+  }
+
 	// ===== BusArrivalLabelEvent =====
 
 	@Transactional
@@ -192,4 +197,8 @@ public class BusDataService {
 		entityManager.flush();
 		entityManager.clear();
 	}
+
+  public List<BusRouteStop> findBusRouteByStopAndRoute(String stopId, String routeId) {
+    return busRouteStopRepository.findByRouteIdAndStopId(routeId, stopId);
+  }
 }
