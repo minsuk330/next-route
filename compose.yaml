@@ -39,6 +39,11 @@ services:
     env_file:
       - env/db.env
       - env/api.env
+      - env/toss.env
+    volumes:
+      # 토스 mTLS PKCS12 keystore. host 의 .p12 를 read-only 로 mount.
+      # 컨테이너 경로는 TOSS_MTLS_KEYSTORE_PATH(/secrets/toss.p12) 와 일치해야 한다.
+      - /srv/nextroute/toss.p12:/secrets/toss.p12:ro
     ports:
       - "8080:8080"
     depends_on:

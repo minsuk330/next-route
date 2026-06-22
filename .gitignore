@@ -66,6 +66,13 @@ ml/data/
 __pycache__/
 *.py[cod]
 
+### Secrets / mTLS keystores ###
+*.p12
+*.pfx
+*.jks
+secrets/
+src/main/resources/toss/
+
 ### Claude ###
 .claude/
 CLAUDE.md
