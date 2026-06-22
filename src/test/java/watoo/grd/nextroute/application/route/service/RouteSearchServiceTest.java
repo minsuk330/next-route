@@ -8,7 +8,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.route.dto.*;
+import watoo.grd.nextroute.application.route.exception.OdSayApiException;
+import watoo.grd.nextroute.application.route.exception.TmapApiException;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
+import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
 import watoo.grd.nextroute.domain.route.log.entity.RouteSearchLog;
 import watoo.grd.nextroute.domain.route.log.service.RouteDataService;
 
@@ -17,6 +20,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -24,6 +28,7 @@ import static org.mockito.Mockito.*;
 class RouteSearchServiceTest {
 
     @Mock OdSayApiPort odSayApiPort;
+    @Mock TmapPedestrianPort tmapPort;
     @Mock RouteDataService routeDataService;
     @Mock RoutePolylineEnricher polylineEnricher;
     @Mock WalkSegmentEnricher walkSegmentEnricher;
@@ -34,7 +39,7 @@ class RouteSearchServiceTest {
     @BeforeEach
     void setUp() {
         service = new RouteSearchService(
-                odSayApiPort, routeDataService, new ObjectMapper(),
+                odSayApiPort, tmapPort, routeDataService, new ObjectMapper(),
                 polylineEnricher, walkSegmentEnricher, transferArrivalEnricher);
     }
 
@@ -170,6 +175,72 @@ class RouteSearchServiceTest {
         RouteSearchResult result = service.search(request());
 
         assertThat(result).isSameAs(enriched);
+    }
+
+    // ── -98(700m 이내) TMAP 도보 폴백 ────────────────────────────────────
+
+    @Test
+    void TC_700m이내_98_TMAP_도보경로로만_응답() {
+        when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
+                .thenThrow(new OdSayApiException(-98, "출, 도착지가 700m이내입니다."));
+        WalkSegment segment = new WalkSegment(
+                List.of(new CoordPoint(127.0, 37.5), new CoordPoint(127.01, 37.51)),
+                420, 360,
+                List.of(new WalkStep(0, "SP", 200, "이동", 127.0, 37.5)));
+        when(tmapPort.search(any())).thenReturn(segment);
+
+        RouteSearchResult result = service.search(request());
+
+        assertThat(result.paths()).hasSize(1);
+        PathResult path = result.paths().get(0);
+        assertThat(path.pathType()).isEqualTo(3);
+        assertThat(path.subPaths()).hasSize(1);
+        SubPathResult walk = path.subPaths().get(0);
+        assertThat(walk.trafficType()).isEqualTo(3);
+        assertThat(walk.distance()).isEqualTo(420.0);
+        assertThat(walk.sectionTime()).isEqualTo(6);          // 360s → 6분
+        assertThat(walk.walkTotalTimeSeconds()).isEqualTo(360);
+        assertThat(walk.polyline()).hasSize(2);
+        assertThat(walk.walkSteps()).hasSize(1);
+        assertThat(path.info().totalWalk()).isEqualTo(420);
+
+        // 폴백 경로는 enricher 체인을 타지 않음
+        verifyNoInteractions(polylineEnricher, walkSegmentEnricher, transferArrivalEnricher);
+        verify(routeDataService).save(any());
+    }
+
+    @Test
+    void TC_700m이내_98_TMAP_빈응답이면_원래_98_에러_전파() {
+        when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
+                .thenThrow(new OdSayApiException(-98, "출, 도착지가 700m이내입니다."));
+        when(tmapPort.search(any())).thenReturn(WalkSegment.empty());
+
+        assertThatThrownBy(() -> service.search(request()))
+                .isInstanceOf(OdSayApiException.class)
+                .satisfies(e -> assertThat(((OdSayApiException) e).getErrorCode()).isEqualTo(-98));
+        verify(routeDataService, never()).save(any());
+    }
+
+    @Test
+    void TC_700m이내_98_TMAP_호출실패면_원래_98_에러_전파() {
+        when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
+                .thenThrow(new OdSayApiException(-98, "출, 도착지가 700m이내입니다."));
+        when(tmapPort.search(any())).thenThrow(new TmapApiException(500, "5xx"));
+
+        assertThatThrownBy(() -> service.search(request()))
+                .isInstanceOf(OdSayApiException.class)
+                .satisfies(e -> assertThat(((OdSayApiException) e).getErrorCode()).isEqualTo(-98));
+    }
+
+    @Test
+    void TC_98이_아닌_ODsay_에러는_그대로_전파_TMAP_미호출() {
+        when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
+                .thenThrow(new OdSayApiException(-99, "다른 에러"));
+
+        assertThatThrownBy(() -> service.search(request()))
+                .isInstanceOf(OdSayApiException.class)
+                .satisfies(e -> assertThat(((OdSayApiException) e).getErrorCode()).isEqualTo(-99));
+        verifyNoInteractions(tmapPort);
     }
 
 }

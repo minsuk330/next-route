@@ -14,7 +14,8 @@ public interface BusApiPort {
 
 	List<BusArrivalInfo> getArrInfoByRouteAll(String busRouteId);
 
-	List<BusArrivalInfo> getArrInfoByStop(String stopId);
+	/** 특정 정류소·노선의 도착예정정보. ord = 정류소 경유순번(seq). */
+	List<BusArrivalInfo> getArrInfoByStop(String stopId, String routeId, String ord);
 
 	List<BusPositionInfo> getBusPosByRtid(String busRouteId);
 

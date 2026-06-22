@@ -22,7 +22,7 @@ class BusArrivalControllerTest {
 
     @Test
     void getArrivals_returns200WithList() throws Exception {
-        given(getBusArrivalUseCase.getArrivals("22000")).willReturn(List.of(
+        given(getBusArrivalUseCase.getArrivals("22000", "100100001")).willReturn(List.of(
                 BusArrivalResponse.builder()
                         .routeId("100100001")
                         .arrivalMsg1("3분 후")
@@ -30,7 +30,7 @@ class BusArrivalControllerTest {
                         .build()
         ));
 
-        mockMvc.perform(get("/api/arrivals/bus/22000"))
+        mockMvc.perform(get("/api/arrivals/bus/22000/100100001"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].routeId").value("100100001"))
                 .andExpect(jsonPath("$[0].predictTime1").value(180));
@@ -38,9 +38,9 @@ class BusArrivalControllerTest {
 
     @Test
     void getArrivals_emptyList_returns200() throws Exception {
-        given(getBusArrivalUseCase.getArrivals("99999")).willReturn(List.of());
+        given(getBusArrivalUseCase.getArrivals("99999", "100100001")).willReturn(List.of());
 
-        mockMvc.perform(get("/api/arrivals/bus/99999"))
+        mockMvc.perform(get("/api/arrivals/bus/99999/100100001"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$").isEmpty());

@@ -78,6 +78,7 @@ class StopSelectionServiceTest {
                 busStop("1001", "14번가", "01-001", 37.5, 127.0)
         ));
         given(predictionSupportService.isSupported("R1")).willReturn(true);
+        given(busDataService.findStopsByRouteId("R1")).willReturn(List.of());
 
         SearchSuggestResult result = service.suggest("14");
 
@@ -85,6 +86,43 @@ class StopSelectionServiceTest {
                 new SearchSuggestResult.SuggestRoute("R1", "143", 3, "기점", "종점", true));
         assertThat(result.stops()).containsExactly(
                 new SearchSuggestResult.SuggestStop("1001", "14번가", "01-001", 37.5, 127.0));
+    }
+
+    @Test
+    @DisplayName("자동완성: route 단일 매치 시 경유 정류장 전체 embed (seq 순, 좌표 null 허용)")
+    void suggest_singleRouteMatch_embedsStops() {
+        given(busDataService.searchRoutesByNamePrefix("143")).willReturn(List.of(
+                busRoute("R1", "143", 3, "기점", "종점")
+        ));
+        given(busDataService.searchStopsByNamePrefix("143")).willReturn(List.of());
+        given(predictionSupportService.isSupported("R1")).willReturn(true);
+        given(busDataService.findStopsByRouteId("R1")).willReturn(List.of(
+                routeStopProjection(1, "1001", "시청앞", 37.5, 127.0, "강남방면"),
+                routeStopProjection(2, "1002", "좌표없음", null, null, "강남방면")
+        ));
+
+        SearchSuggestResult result = service.suggest("143");
+
+        assertThat(result.routeStops()).containsExactly(
+                new RouteStopsResult.RouteStop(1, "1001", "시청앞", 37.5, 127.0, "강남방면"),
+                new RouteStopsResult.RouteStop(2, "1002", "좌표없음", null, null, "강남방면"));
+    }
+
+    @Test
+    @DisplayName("자동완성: route 다중 매치 시 routeStops 빈 리스트, 정류장 조회 안 함")
+    void suggest_multipleRouteMatch_noStops() {
+        given(busDataService.searchRoutesByNamePrefix("14")).willReturn(List.of(
+                busRoute("R1", "143", 3, "기점", "종점"),
+                busRoute("R2", "146", 3, "기점", "종점")
+        ));
+        given(busDataService.searchStopsByNamePrefix("14")).willReturn(List.of());
+        lenient().when(predictionSupportService.isSupported(org.mockito.ArgumentMatchers.any())).thenReturn(false);
+
+        SearchSuggestResult result = service.suggest("14");
+
+        assertThat(result.routes()).hasSize(2);
+        assertThat(result.routeStops()).isEmpty();
+        verify(busDataService, never()).findStopsByRouteId(org.mockito.ArgumentMatchers.any());
     }
 
     @Test

@@ -27,8 +27,7 @@ spring:
     driver-class-name: org.postgresql.Driver
 
   jpa:
-    hibernate:
-      ddl-auto: validate
+    # ddl-auto / flyway baseline 등 환경별 값은 application-{dev,prod}.yaml 참고
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
@@ -59,12 +58,12 @@ tmap:
 ml:
   predictor:
     base-url: ${ML_PREDICTOR_URL:http://localhost:8001}
-    enabled: ${ML_PREDICTOR_ENABLED:false}
+    # enabled 는 application-{dev,prod}.yaml 에서 설정
     timeout-ms: 3000
 
 route:
   transfer-arrival:
-    enabled: ${TRANSFER_ARRIVAL_ENABLED:false}
+    enabled: ${TRANSFER_ARRIVAL_ENABLED:true}
     deadline-ms: ${TRANSFER_ARRIVAL_DEADLINE_MS:1500}
     cache-ttl-seconds: ${TRANSFER_ARRIVAL_CACHE_TTL:15}
     max-concurrent-external-calls: ${TRANSFER_ARRIVAL_MAX_CONCURRENT:8}
@@ -109,8 +108,8 @@ seoul:
 
 
 collector:
+  # *.enabled 는 application-{dev,prod}.yaml 에서 설정
   bus-arrival:
-    enabled: false
     cron: "0 * * * * *"
     active-hours:
       start: "03:30"
@@ -155,7 +154,6 @@ collector:
       - "720"
 
   bus-position:
-    enabled: false
     cron: "0 * * * * *"
     # 도착 수집과 독립 예산. 30노선 × 분당 × active-hours(23h) ≈ 41,400 호출/일.
     daily-budget: 50000
@@ -172,40 +170,23 @@ collector:
     cron: "0 0 3 * * *"
 
 
-logging:
-  level:
-    watoo.grd.nextroute: INFO
-  file:
-    name: logs/nextroute.log
-  logback:
-    rollingpolicy:
-      max-file-size: 50MB
-      max-history: 30
-
-cors:
-  allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+# logging / cors 는 application-{dev,prod}.yaml 에서 설정
 
 realtime:
   subway:
-    enabled: false
+    # enabled / persist-raw-arrivals 는 application-{dev,prod}.yaml 에서 설정
     poll-interval-ms: 1000
     active-hours:
       start: "04:30"
       end: "01:00"
     snapshot-ttl-seconds: 20
-    persist-raw-arrivals: true
 
 batch:
-  arrival-event:
-    enabled: true
-  match-issue:
-    enabled: true
+  # *.enabled 는 application-{dev,prod}.yaml 에서 설정
   inferred-completion:
-    enabled: true
     line-ids: "1002,1005,1006,1007"
     dedup-window-minutes: 5
   delay-truth:
-    enabled: true
     # v1: legacy ORDINAL 강제 매칭 + OUTLIER_DELAY 학습 제외
     # v2: count guard + 30분 time-window + known-known destination hard reject
     matching-version: v2
@@ -218,5 +199,4 @@ batch:
     truth-chunk-size: 2000
     bus-label-chunk-size: 2000
   bus-label:
-    enabled: true
     correction-window-minutes: 10

@@ -2,3 +2,40 @@ spring:
   flyway:
     baseline-on-migrate: true
     baseline-version: 1
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+logging:
+  level:
+    watoo.grd.nextroute: DEBUG
+
+collector:
+  bus-arrival:
+    enabled: false
+  bus-position:
+    enabled: false
+
+realtime:
+  subway:
+    enabled: true
+    persist-raw-arrivals: false   # dev = DB write 안 함
+
+batch:
+  arrival-event:
+    enabled: false
+  match-issue:
+    enabled: false
+  inferred-completion:
+    enabled: false
+  delay-truth:
+    enabled: false
+  bus-label:
+    enabled: false
+
+ml:
+  predictor:
+    enabled: ${ML_PREDICTOR_ENABLED:false}
+
+cors:
+  allowed-origins: "*"

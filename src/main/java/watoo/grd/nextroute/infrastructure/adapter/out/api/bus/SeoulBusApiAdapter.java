@@ -141,14 +141,16 @@ public class SeoulBusApiAdapter implements BusApiPort {
 				.toList();
 	}
 
-	/** 특정 정류소의 버스 도착예정정보 조회 (정류소 ID 기준)
-	 *  [공공데이터포털] 정류소별 도착예정정보
-	 *  API: GET /arrive/getArrInfoByStId?stId={stopId} */
+	/** 특정 정류소·노선의 버스 도착예정정보 조회 (정류소·노선·경유순번 기준)
+	 *  [공공데이터포털] 정류소별 특정노선 도착예정정보
+	 *  API: GET /arrive/getArrInfoByRoute?stId={stopId}&busRouteId={routeId}&ord={ord} */
 	@Override
-	public List<BusArrivalInfo> getArrInfoByStop(String stopId) {
-		URI uri = URI.create(baseUrl + "/arrive/getArrInfoByStId"
+	public List<BusArrivalInfo> getArrInfoByStop(String stopId, String routeId, String ord) {
+		URI uri = URI.create(baseUrl + "/arrive/getArrInfoByRoute"
 				+ "?serviceKey=" + apiKey
-				+ "&stId=" + stopId);
+				+ "&stId=" + stopId
+				+ "&busRouteId=" + routeId
+				+ "&ord=" + ord);
 		return callApi(uri, BusArrivalItem.class).stream()
 				.map(this::toArrivalInfo)
 				.toList();
@@ -172,15 +174,16 @@ public class SeoulBusApiAdapter implements BusApiPort {
 	 *  API: GET http://openapi.seoul.go.kr:8088/{key}/xml/busRoute/{start}/{end}/ */
 	@Override
 	public List<String> getBusRouteIds() {
-		URI uri = URI.create(busRouteBaseUrl + "/" + busRouteKey + "/xml/busRoute/1/1000/");
-		String xml = restTemplate.getForObject(uri, String.class);
-		if (xml == null || xml.isBlank()) {
-			log.warn("Empty response from Seoul busRoute API");
-			return List.of();
-		}
 
 		try {
-			SeoulBusRouteResponse response = xmlMapper.readValue(xml, SeoulBusRouteResponse.class);
+      URI uri = URI.create(busRouteBaseUrl + "/" + busRouteKey + "/xml/busRoute/1/1000/");
+      String xml = restTemplate.getForObject(uri, String.class);
+      if (xml == null || xml.isBlank()) {
+        log.warn("Empty response from Seoul busRoute API");
+        return List.of();
+      }
+
+      SeoulBusRouteResponse response = xmlMapper.readValue(xml, SeoulBusRouteResponse.class);
 			if (!response.isSuccess()) {
 				log.warn("Seoul busRoute API error: {} - {}",
 						response.getResult().getCode(), response.getResult().getMessage());
@@ -193,7 +196,7 @@ public class SeoulBusApiAdapter implements BusApiPort {
 			log.info("[StaticData] Fetched {} bus route IDs from Seoul Open API", routeIds.size());
 			return routeIds;
 		} catch (Exception e) {
-			log.error("Failed to parse Seoul busRoute API response: {}", e.getMessage());
+			log.error("Failed Seoul busRoute API response: {}", e.getMessage());
 			return List.of();
 		}
 	}
