@@ -460,12 +460,12 @@ public class TransferArrivalEnricher {
         Instant base = mkTm.get();
         Instant best = null;
 
-        if (ai.predictTime1() != null) {
-            Instant t = base.plusSeconds(ai.predictTime1());
+        if (ai.sectionTime1() != null) {
+            Instant t = base.plusSeconds(ai.sectionTime1());
             if (!t.isBefore(userAt) && (best == null || t.isBefore(best))) best = t;
         }
-        if (ai.predictTime2() != null) {
-            Instant t = base.plusSeconds(ai.predictTime2());
+        if (ai.sectionTime2() != null) {
+            Instant t = base.plusSeconds(ai.sectionTime2());
             if (!t.isBefore(userAt) && (best == null || t.isBefore(best))) best = t;
         }
         return Optional.ofNullable(best);
@@ -475,8 +475,8 @@ public class TransferArrivalEnricher {
         Optional<Instant> mkTm = BusTimeParser.parse(ai.dataTimestamp());
         if (mkTm.isEmpty()) return null;
         Instant base = mkTm.get();
-        if (ai.predictTime1() != null && base.plusSeconds(ai.predictTime1()).equals(realtimeAt)) return ai.vehicleId1();
-        if (ai.predictTime2() != null && base.plusSeconds(ai.predictTime2()).equals(realtimeAt)) return ai.vehicleId2();
+        if (ai.sectionTime1() != null && base.plusSeconds(ai.sectionTime1()).equals(realtimeAt)) return ai.vehicleId1();
+        if (ai.sectionTime2() != null && base.plusSeconds(ai.sectionTime2()).equals(realtimeAt)) return ai.vehicleId2();
         return null;
     }
 

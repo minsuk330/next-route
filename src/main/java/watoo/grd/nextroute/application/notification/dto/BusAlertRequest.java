@@ -18,4 +18,7 @@ public class BusAlertRequest {
     /** 사용자 정류소 예상 도착 시각. 이 시각 이후 오는 버스를 알림 대상으로 한다. */
     @NotNull
     private LocalDateTime userEta;
+    /** 등록 시점 버스 예상 도착(분). GET 응답 표시용. */
+    @NotNull
+    private Integer busArrivalMinutes;
 }

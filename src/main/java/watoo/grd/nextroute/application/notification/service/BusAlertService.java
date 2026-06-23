@@ -68,6 +68,7 @@ public class BusAlertService
                 .routeName(routeName)
                 .stopName(stopName)
                 .userEta(request.getUserEta())
+                .busArrivalMinutes(request.getBusArrivalMinutes())
                 .expiresAt(LocalDateTime.now(clock).plusMinutes(properties.getTtlMinutes()))
                 .build();
         try {

@@ -250,12 +250,12 @@ class SingleTransferPredictorTest {
                 mkTm, null, null, null, null,
                 "1분", "v1", null, 0, 3, "현재정류장", "0", "0", "0",
                 pt1, null, null, null, null, null, null, null,
-                null, null, null, null, null, null,
+                pt1, null, null, null, null, null,
                 null, null, null, null,
                 null, null, null, null, null, null, null, null, null,
                 "msg2", "v2", null, 0, 5, "다음정류장", "0", "0", "0",
                 p2, null, null, null, null, null, null, null,
-                null, null, null, null, null, null,
+                p2, null, null, null, null, null,
                 null, null, null, null,
                 null, null, null, null, null, null, null, null, null);
     }

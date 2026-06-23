@@ -36,10 +36,10 @@ public class BusArrivalQueryService implements GetBusArrivalUseCase {
                 .map(info -> BusArrivalResponse.builder()
                         .routeId(info.routeId())
                         .arrivalMsg1(info.arrivalMsg1())
-                        .predictTime1(info.kalPredictTime1())
+                        .predictTime1(info.sectionTime1())
                         .congestionNum1(info.congestionNum1())
                         .arrivalMsg2(info.arrivalMsg2())
-                        .predictTime2(info.kalPredictTime2())
+                        .predictTime2(info.sectionTime2())
                         .congestionNum2(info.congestionNum2())
                         .build())
                 .toList();
