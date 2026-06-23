@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import watoo.grd.nextroute.application.bus.config.BusCollectorProperties;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.route.config.MlPredictorProperties;
@@ -42,10 +41,10 @@ class TransferArrivalEnricherTest {
     @Mock BusStopRepository stopRepo;
     @Mock BusRouteRepository routeRepo;
     @Mock BusRouteStopRepository routeStopRepo;
+    @Mock PredictionSupportService predictionSupport;
 
     TransferArrivalProperties props = new TransferArrivalProperties();
     MlPredictorProperties mlProps = new MlPredictorProperties();
-    BusCollectorProperties collectorProps = new BusCollectorProperties();
     TransferStopResolver resolver;
     MlFeatureVectorBuilder featureBuilder;
     TransferArrivalEnricher enricher;
@@ -60,7 +59,7 @@ class TransferArrivalEnricherTest {
         resolver = new TransferStopResolver(stopRepo, routeRepo, routeStopRepo);
         featureBuilder = new MlFeatureVectorBuilder();
         enricher = new TransferArrivalEnricher(props, mlProps, busPort, mlPort,
-                resolver, featureBuilder, collectorProps, clock);
+                resolver, featureBuilder, predictionSupport, clock);
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────
@@ -222,7 +221,7 @@ class TransferArrivalEnricherTest {
     void TC_position_제한시_NO_VEHICLE아닌_LIMITED() {
         props.setEnabled(true);
         mlProps.setEnabled(true);
-        collectorProps.setTargetRouteNames(List.of("360"));
+        when(predictionSupport.isSupported("100100360")).thenReturn(true);
         String routeId = "100100360", stopId = "1111";
 
         when(stopRepo.findByStopId(stopId)).thenReturn(Optional.of(busStop(stopId)));
@@ -287,7 +286,7 @@ class TransferArrivalEnricherTest {
     void TC_이미_지나간_버스_ML_호출() {
         props.setEnabled(true);
         mlProps.setEnabled(true);
-        collectorProps.setTargetRouteNames(List.of("360"));
+        when(predictionSupport.isSupported("100100360")).thenReturn(true);
 
         String routeId = "100100360";
         String stopId = "1111";
@@ -356,7 +355,7 @@ class TransferArrivalEnricherTest {
     void TC_ML_disabled_MODEL_UNAVAILABLE() {
         props.setEnabled(true);
         mlProps.setEnabled(false);
-        collectorProps.setTargetRouteNames(List.of("360"));
+        when(predictionSupport.isSupported("100100360")).thenReturn(true);
 
         String routeId = "100100360";
         String stopId = "1111";
@@ -420,7 +419,7 @@ class TransferArrivalEnricherTest {
     void TC_walk_subPath_없는_경로_버스_도착정보_없음_NO_VEHICLE() {
         props.setEnabled(true);
         mlProps.setEnabled(true);
-        collectorProps.setTargetRouteNames(List.of("360"));
+        when(predictionSupport.isSupported("100100360")).thenReturn(true);
 
         String routeId = "100100360";
         String stopId = "1111";
@@ -455,7 +454,7 @@ class TransferArrivalEnricherTest {
     void TC_equality_차량_sectOrd_equals_targetSeq_포함() {
         props.setEnabled(true);
         mlProps.setEnabled(true);
-        collectorProps.setTargetRouteNames(List.of("360"));
+        when(predictionSupport.isSupported("100100360")).thenReturn(true);
 
         String routeId = "100100360";
         String stopId = "1111";
@@ -529,7 +528,7 @@ class TransferArrivalEnricherTest {
         java.time.Clock deadlineClock = mock(java.time.Clock.class);
         when(deadlineClock.instant()).thenReturn(NOW, NOW.plusSeconds(2));
         TransferArrivalEnricher deadlineEnricher = new TransferArrivalEnricher(
-                props, mlProps, busPort, mlPort, resolver, featureBuilder, collectorProps, deadlineClock);
+                props, mlProps, busPort, mlPort, resolver, featureBuilder, predictionSupport, deadlineClock);
 
         RouteSearchResult input = resultWith(List.of(busSubPath("1111", "route1", "360")));
         RouteSearchResult result = deadlineEnricher.enrich(input, NOW);
