@@ -21,6 +21,10 @@ realtime:
     enabled: true
     persist-raw-arrivals: false   # dev = DB write 안 함
 
+notification:
+  bus-arrival:
+    enabled: false   # dev = 발송 안 함
+
 batch:
   arrival-event:
     enabled: false

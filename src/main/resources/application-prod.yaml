@@ -27,6 +27,10 @@ realtime:
     enabled: true
     persist-raw-arrivals: false
 
+notification:
+  bus-arrival:
+    enabled: true
+
 batch:
   arrival-event:
     enabled: true

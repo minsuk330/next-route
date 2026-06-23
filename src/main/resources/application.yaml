@@ -123,6 +123,26 @@ toss:
     connect-timeout-ms: 3000
     read-timeout-ms: 5000
     max-retries: 3
+  messenger:
+    # 서버 send-message 용 템플릿 세트 코드
+    bus-arrival-template-set-code: ${TOSS_BUS_ARRIVAL_TEMPLATE_SET:}
+    # 앱 requestNotificationAgreement 참조용(서버 미사용)
+    agreement-template-code: ${TOSS_BUS_ARRIVAL_AGREEMENT:}
+
+notification:
+  bus-arrival:
+    # enabled 는 application-{dev,prod}.yaml 에서 설정
+    poll-interval-ms: 30000
+    threshold-seconds: 120
+    ttl-minutes: 60
+    batch-size: 200
+    claim-timeout-minutes: 3
+    max-attempts: 3
+    per-user-cycle-cap: 5
+    backoff-seconds: 60
+    active-hours:
+      start: "05:00"
+      end: "01:00"
 
 auth:
   jwt:
