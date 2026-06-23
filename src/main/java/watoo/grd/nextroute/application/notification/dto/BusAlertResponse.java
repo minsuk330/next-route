@@ -16,6 +16,7 @@ public class BusAlertResponse {
     private String routeId;
     private String routeName;
     private String stopName;
+    private LocalDateTime userEta;
     private LocalDateTime expiresAt;
 
     public static BusAlertResponse from(BusArrivalAlert entity) {
@@ -26,6 +27,7 @@ public class BusAlertResponse {
                 .routeId(entity.getRouteId())
                 .routeName(entity.getRouteName())
                 .stopName(entity.getStopName())
+                .userEta(entity.getUserEta())
                 .expiresAt(entity.getExpiresAt())
                 .build();
     }

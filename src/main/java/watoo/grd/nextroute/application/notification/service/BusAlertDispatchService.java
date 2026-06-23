@@ -56,13 +56,16 @@ public class BusAlertDispatchService {
 
             for (List<BusArrivalAlert> group : groups.values()) {
                 BusArrivalAlert sample = group.get(0);
-                Integer predict = firstPredictSeconds(sample);
-                if (predict == null || predict < 0 || predict > properties.getThresholdSeconds()) {
-                    continue;
-                }
-                int arrivalMin = (int) Math.ceil(predict / 60.0);
+                // 그룹당 도착 1회 조회(dedup). 타겟 버스 선택은 alert.userEta 별로 다르므로 per-alert 계산.
+                List<BusArrivalInfo> arrivals = busApiPort.getArrInfoByStop(
+                        sample.getStopId(), sample.getRouteId(), String.valueOf(sample.getOrd()));
+                if (arrivals.isEmpty()) continue;
 
                 for (BusArrivalAlert alert : group) {
+                    Integer target = selectTargetSeconds(arrivals.get(0), alert.getUserEta(), now);
+                    if (target == null || target > properties.getThresholdSeconds()) {
+                        continue; // userEta 이후 버스 없음 or 아직 임계 밖
+                    }
                     long userKey = alert.getUser().getTossUserKey();
                     if (sentPerUser.getOrDefault(userKey, 0) >= properties.getPerUserCycleCap()) {
                         continue; // 다음 사이클로
@@ -71,7 +74,7 @@ public class BusAlertDispatchService {
                         continue; // 이미 PENDING 아님
                     }
                     sentPerUser.merge(userKey, 1, Integer::sum);
-                    sendOne(alert, userKey, templateSetCode, arrivalMin);
+                    sendOne(alert, userKey, templateSetCode, (int) Math.ceil(target / 60.0));
                 }
             }
         } catch (Exception e) {
@@ -97,10 +100,19 @@ public class BusAlertDispatchService {
         }
     }
 
-    private Integer firstPredictSeconds(BusArrivalAlert alert) {
-        List<BusArrivalInfo> arrivals = busApiPort.getArrInfoByStop(
-                alert.getStopId(), alert.getRouteId(), String.valueOf(alert.getOrd()));
-        if (arrivals.isEmpty()) return null;
-        return arrivals.get(0).kalPredictTime1();
+    /**
+     * userEta 이후(=사용자가 정류소 도착한 뒤) 가장 먼저 오는 버스의 도착예정초.
+     * 도착예정 1·2번째 버스 중 (now + predict) >= userEta 인 것 중 가장 빠른 것.
+     * userEta 이후 버스가 없으면 null.
+     */
+    private Integer selectTargetSeconds(BusArrivalInfo info, LocalDateTime userEta, LocalDateTime now) {
+        long userGapSec = java.time.Duration.between(now, userEta).getSeconds();
+        Integer best = null;
+        for (Integer predict : new Integer[]{info.kalPredictTime1(), info.kalPredictTime2()}) {
+            if (predict == null || predict < 0) continue;
+            if (predict < userGapSec) continue;          // 사용자 도착 전에 떠나는 버스 → 제외
+            if (best == null || predict < best) best = predict;
+        }
+        return best;
     }
 }

@@ -9,6 +9,11 @@ public final class BusArrivalInfoFixtures {
 
 	/** 첫 버스 kalPredictTime1(초)만 지정한 최소 fixture. */
 	public static BusArrivalInfo arrivalWithKalPredict1(Integer kalPredictTime1) {
+		return arrivalWithKalPredict(kalPredictTime1, 241);
+	}
+
+	/** 첫·둘째 버스 kalPredictTime(초)을 지정한 최소 fixture. */
+	public static BusArrivalInfo arrivalWithKalPredict(Integer kalPredictTime1, Integer kalPredictTime2) {
 		return new BusArrivalInfo(
 				"100100118", "753", "753",
 				"111000299", "12390", "구상동사거리",
@@ -25,7 +30,7 @@ public final class BusArrivalInfoFixtures {
 				10, 500, "111000320",
 				15, 900, "111000330",
 				"3분 후", "v2", "p2", 1, 7, "두번째정류장", "0", "0", "0",
-				240, 241, 242, 7200,
+				240, kalPredictTime2, 242, 7200,
 				2.1, 2.2, 2.3, 2.4,
 				5, 13.5,
 				20, 4, 24, 2,
