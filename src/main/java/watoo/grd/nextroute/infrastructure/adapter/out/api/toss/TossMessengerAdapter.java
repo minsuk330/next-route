@@ -33,6 +33,7 @@ public class TossMessengerAdapter implements TossMessengerPort {
     }
 
     @Override
+    //busNum (버스 번호 즉 routeName을 context에 busNum : routename 으로 보내줘야 함)
     public void sendMessage(long tossUserKey, String templateSetCode, Map<String, Object> context) {
         try {
             JsonNode root = restClient.post()

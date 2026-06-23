@@ -51,6 +51,7 @@ class BusAlertServiceTest {
         BusAlertRequest r = new BusAlertRequest();
         set(r, "stopId", stopId);
         set(r, "routeId", routeId);
+        set(r, "userEta", java.time.LocalDateTime.now().plusMinutes(10));
         return r;
     }
 
@@ -117,6 +118,7 @@ class BusAlertServiceTest {
         BusArrivalAlert existing = BusArrivalAlert.builder()
                 .user(new User(123L)).stopId("S1").routeId("R1").ord(3)
                 .routeName("간선143").stopName("강남역")
+                .userEta(java.time.LocalDateTime.now(clock).plusMinutes(10))
                 .expiresAt(java.time.LocalDateTime.now(clock).plusMinutes(60)).build();
         given(alertRepository.findFirstByUserAndStopIdAndRouteIdAndOrdAndStatusInAndDeletedAtIsNull(
                 any(), any(), any(), any(), anyCollection())).willReturn(Optional.of(existing));

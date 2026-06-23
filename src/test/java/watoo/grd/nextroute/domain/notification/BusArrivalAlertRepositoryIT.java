@@ -56,6 +56,7 @@ class BusArrivalAlertRepositoryIT {
         return BusArrivalAlert.builder()
                 .user(user).stopId("S1").routeId("R1").ord(3)
                 .routeName("간선143").stopName("강남역")
+                .userEta(LocalDateTime.now().plusMinutes(10))
                 .expiresAt(LocalDateTime.now().plusMinutes(60))
                 .build();
     }

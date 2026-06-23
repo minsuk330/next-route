@@ -22,6 +22,7 @@ CREATE TABLE bus_arrival_alert (
     ord                   integer       not null,
     route_name            varchar(255)  not null,
     stop_name             varchar(255)  not null,
+    user_eta              timestamp(6)  not null,
     status                varchar(255)  not null
         constraint bus_arrival_alert_status_check
             check (status in ('PENDING', 'PROCESSING', 'SENT', 'FAILED', 'EXPIRED', 'CANCELED')),
