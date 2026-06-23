@@ -6,7 +6,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import watoo.grd.nextroute.application.bus.config.BusCollectorProperties;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
@@ -34,7 +33,7 @@ class BusPositionServiceTest {
 
 	@Mock BusApiPort busApiPort;
 	@Mock BusDataService busDataService;
-	@Mock BusCollectorProperties properties;
+	@Mock TargetRouteProvider targetRouteProvider;
 	@Mock BusApiCallBudget budget;
 
 	private final Clock clock = Clock.fixed(FIXED_NOW.atZone(KST).toInstant(), KST);
@@ -42,7 +41,7 @@ class BusPositionServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new BusPositionService(busApiPort, busDataService, properties, budget, clock);
+		service = new BusPositionService(busApiPort, busDataService, targetRouteProvider, budget, clock);
 	}
 
 	@Test
@@ -135,7 +134,7 @@ class BusPositionServiceTest {
 
 	private void prepareRoutes(BusRoute... routes) {
 		List<String> routeNames = List.of("143", "272").subList(0, routes.length);
-		given(properties.getTargetRouteNames()).willReturn(routeNames);
+		given(targetRouteProvider.activeRouteNames()).willReturn(routeNames);
 		given(busDataService.findRoutesByNames(routeNames)).willReturn(List.of(routes));
 	}
 

@@ -38,6 +38,7 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 	private final BusApiPort busApiPort;
 	private final BusDataService busDataService;
 	private final BusCollectorProperties properties;
+	private final TargetRouteProvider targetRouteProvider;
 	@Qualifier("arrivalApiCallBudget")
 	private final BusApiCallBudget budget;
 	private final BusArrivalSnapshotPort busArrivalSnapshotPort;
@@ -45,7 +46,7 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 
 	@Override
 	public void execute() {
-		List<String> targetNames = properties.getTargetRouteNames(); ///이게routename이다.
+		List<String> targetNames = targetRouteProvider.activeRouteNames(); ///이게routename이다.
 
 		if (targetNames.isEmpty()) {
 			log.warn("[BusArrival] No target routes configured. Set collector.bus-arrival.target-route-names.");
