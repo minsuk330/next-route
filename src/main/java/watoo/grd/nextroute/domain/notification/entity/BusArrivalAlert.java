@@ -43,6 +43,9 @@ public class BusArrivalAlert extends BaseEntity {
     private LocalDateTime userEta;   // 사용자 정류소 예상 도착 시각. 이 시각 이후 오는 버스를 타겟으로 발송.
 
     @Column(nullable = false)
+    private Integer busArrivalMinutes;   // 등록 시점 버스 예상 도착(분). GET 응답 표시용.
+
+    @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private AlertStatus status;
 
@@ -64,7 +67,7 @@ public class BusArrivalAlert extends BaseEntity {
     @Builder
     public BusArrivalAlert(User user, String stopId, String routeId, Integer ord,
                            String routeName, String stopName, LocalDateTime userEta,
-                           LocalDateTime expiresAt) {
+                           Integer busArrivalMinutes, LocalDateTime expiresAt) {
         this.user = user;
         this.stopId = stopId;
         this.routeId = routeId;
@@ -72,6 +75,7 @@ public class BusArrivalAlert extends BaseEntity {
         this.routeName = routeName;
         this.stopName = stopName;
         this.userEta = userEta;
+        this.busArrivalMinutes = busArrivalMinutes;
         this.expiresAt = expiresAt;
         this.status = AlertStatus.PENDING;
         this.attemptCount = 0;

@@ -234,12 +234,12 @@ public class SingleTransferPredictor implements PredictTransferUseCase {
         Instant base = baseOpt.get();
 
         RealtimePick earliestBoardable = null;
-        if (ai.predictTime1() != null) {
-            Instant t = base.plusSeconds(ai.predictTime1());
+        if (ai.sectionTime1() != null) {
+            Instant t = base.plusSeconds(ai.sectionTime1());
             if (!t.isBefore(userAt)) earliestBoardable = new RealtimePick(t, ai.vehicleId1());
         }
-        if (ai.predictTime2() != null) {
-            Instant t = base.plusSeconds(ai.predictTime2());
+        if (ai.sectionTime2() != null) {
+            Instant t = base.plusSeconds(ai.sectionTime2());
             if (!t.isBefore(userAt)
                     && (earliestBoardable == null || t.isBefore(earliestBoardable.arrivalAt()))) {
                 earliestBoardable = new RealtimePick(t, ai.vehicleId2());

@@ -118,8 +118,8 @@ class TransferArrivalEnricherTest {
                 // 버스1 예측+계수 8
                 predictTime1, null, null, null,
                 null, null, null, null,
-                // 버스1 구간+혼잡 6
-                null, null,
+                // 버스1 구간+혼잡 6 (sectionTime1 = 도착 ETA 소스)
+                predictTime1, null,
                 null, null, null, null,
                 // 버스1 다음정류소 4
                 null, null, null, null,
@@ -132,8 +132,8 @@ class TransferArrivalEnricherTest {
                 // 버스2 예측+계수 8
                 pt2, null, null, null,
                 null, null, null, null,
-                // 버스2 구간+혼잡 6
-                null, null,
+                // 버스2 구간+혼잡 6 (sectionTime2 = 도착 ETA 소스)
+                pt2, null,
                 null, null, null, null,
                 // 버스2 다음정류소 4
                 null, null, null, null,

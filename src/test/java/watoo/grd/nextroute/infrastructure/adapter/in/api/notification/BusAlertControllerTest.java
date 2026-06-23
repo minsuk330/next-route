@@ -52,7 +52,7 @@ class BusAlertControllerTest {
                         .stopId("S1").routeId("R1").routeName("간선143").stopName("강남역").build());
 
         String body = """
-                {"stopId":"S1","routeId":"R1","userEta":"2026-06-23T10:00:00"}
+                {"stopId":"S1","routeId":"R1","userEta":"2026-06-23T10:00:00","busArrivalMinutes":8}
                 """;
 
         mockMvc.perform(post("/api/notifications/bus-alert")

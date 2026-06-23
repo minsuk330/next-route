@@ -64,12 +64,12 @@ class BusAlertDispatchServiceTest {
         return a;
     }
 
-    private BusArrivalInfo arrival(Integer kalPredict) {
-        return BusArrivalInfoFixtures.arrivalWithKalPredict(kalPredict, null);
+    private BusArrivalInfo arrival(Integer sec1) {
+        return BusArrivalInfoFixtures.arrivalWithSectionTime(sec1, null);
     }
 
-    private BusArrivalInfo arrival(Integer kal1, Integer kal2) {
-        return BusArrivalInfoFixtures.arrivalWithKalPredict(kal1, kal2);
+    private BusArrivalInfo arrival(Integer sec1, Integer sec2) {
+        return BusArrivalInfoFixtures.arrivalWithSectionTime(sec1, sec2);
     }
 
     private void due(List<BusArrivalAlert> alerts) {

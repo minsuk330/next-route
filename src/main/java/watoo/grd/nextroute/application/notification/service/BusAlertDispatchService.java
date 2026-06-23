@@ -130,7 +130,7 @@ public class BusAlertDispatchService {
     private Integer selectTargetSeconds(BusArrivalInfo info, LocalDateTime userEta, LocalDateTime now) {
         long userGapSec = java.time.Duration.between(now, userEta).getSeconds();
         Integer best = null;
-        for (Integer predict : new Integer[]{info.kalPredictTime1(), info.kalPredictTime2()}) {
+        for (Integer predict : new Integer[]{info.sectionTime1(), info.sectionTime2()}) {
             if (predict == null || predict < 0) continue;
             if (predict < userGapSec) continue;          // 사용자 도착 전에 떠나는 버스 → 제외
             if (best == null || predict < best) best = predict;
