@@ -55,31 +55,53 @@ public class BusAlertDispatchService {
                     .collect(Collectors.groupingBy(a -> a.getStopId() + "|" + a.getRouteId() + "|" + a.getOrd()));
 
             for (List<BusArrivalAlert> group : groups.values()) {
-                BusArrivalAlert sample = group.get(0);
-                // 그룹당 도착 1회 조회(dedup). 타겟 버스 선택은 alert.userEta 별로 다르므로 per-alert 계산.
-                List<BusArrivalInfo> arrivals = busApiPort.getArrInfoByStop(
-                        sample.getStopId(), sample.getRouteId(), String.valueOf(sample.getOrd()));
-                if (arrivals.isEmpty()) continue;
-
-                for (BusArrivalAlert alert : group) {
-                    Integer target = selectTargetSeconds(arrivals.get(0), alert.getUserEta(), now);
-                    if (target == null || target > properties.getThresholdSeconds()) {
-                        continue; // userEta 이후 버스 없음 or 아직 임계 밖
-                    }
-                    long userKey = alert.getUser().getTossUserKey();
-                    if (sentPerUser.getOrDefault(userKey, 0) >= properties.getPerUserCycleCap()) {
-                        continue; // 다음 사이클로
-                    }
-                    if (!stateService.claim(alert.getId())) {
-                        continue; // 이미 PENDING 아님
-                    }
-                    sentPerUser.merge(userKey, 1, Integer::sum);
-                    sendOne(alert, userKey, templateSetCode, (int) Math.ceil(target / 60.0));
+                // 그룹(=정류소·노선·순번) 단위 격리: API 오류가 다른 그룹을 막지 않게.
+                try {
+                    processGroup(group, now, templateSetCode, sentPerUser);
+                } catch (Exception e) {
+                    BusArrivalAlert s = group.get(0);
+                    log.warn("[BusAlertDispatch] 그룹 처리 실패 stop={} route={} ord={}: {}",
+                            s.getStopId(), s.getRouteId(), s.getOrd(), e.getMessage(), e);
                 }
             }
         } catch (Exception e) {
             log.error("[BusAlertDispatch] 디스패치 실패: {}", e.getMessage(), e);
         }
+    }
+
+    private void processGroup(List<BusArrivalAlert> group, LocalDateTime now,
+                              String templateSetCode, Map<Long, Integer> sentPerUser) {
+        BusArrivalAlert sample = group.get(0);
+        // 그룹당 도착 1회 조회(dedup). 타겟 버스 선택은 alert.userEta 별로 다르므로 per-alert 계산.
+        List<BusArrivalInfo> arrivals = busApiPort.getArrInfoByStop(
+                sample.getStopId(), sample.getRouteId(), String.valueOf(sample.getOrd()));
+        if (arrivals.isEmpty()) return;
+
+        for (BusArrivalAlert alert : group) {
+            // alert 단위 격리: 한 건의 예상외 예외가 같은 그룹의 나머지를 막지 않게.
+            try {
+                processAlert(alert, arrivals.get(0), now, templateSetCode, sentPerUser);
+            } catch (Exception e) {
+                log.warn("[BusAlertDispatch] alert={} 처리 실패: {}", alert.getId(), e.getMessage(), e);
+            }
+        }
+    }
+
+    private void processAlert(BusArrivalAlert alert, BusArrivalInfo arrival, LocalDateTime now,
+                              String templateSetCode, Map<Long, Integer> sentPerUser) {
+        Integer target = selectTargetSeconds(arrival, alert.getUserEta(), now);
+        if (target == null || target > properties.getThresholdSeconds()) {
+            return; // userEta 이후 버스 없음 or 아직 임계 밖
+        }
+        long userKey = alert.getUser().getTossUserKey();
+        if (sentPerUser.getOrDefault(userKey, 0) >= properties.getPerUserCycleCap()) {
+            return; // 다음 사이클로
+        }
+        if (!stateService.claim(alert.getId())) {
+            return; // 이미 PENDING 아님
+        }
+        sentPerUser.merge(userKey, 1, Integer::sum);
+        sendOne(alert, userKey, templateSetCode, (int) Math.ceil(target / 60.0));
     }
 
     private void sendOne(BusArrivalAlert alert, long userKey, String templateSetCode, int arrivalMin) {

@@ -178,6 +178,20 @@ class BusAlertDispatchServiceTest {
     }
 
     @Test
+    void oneAlertException_doesNotBlockOthers() {
+        // 같은 그룹 2건. 첫 건 claim에서 예상외 예외 → 둘째 건은 정상 발송돼야 함.
+        due(List.of(alert(1L, "S1", "R1", 3), alert(2L, "S1", "R1", 3)));
+        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60)));
+        given(stateService.claim(1L)).willThrow(new RuntimeException("boom"));
+        given(stateService.claim(2L)).willReturn(true);
+
+        service().dispatchDue();
+
+        verify(stateService).markSent(2L);
+        verify(tossMessengerPort, times(1)).sendMessage(anyLong(), any(), anyMap());
+    }
+
+    @Test
     void claimReturnsFalse_skipsSend() {
         due(List.of(alert(1L, "S1", "R1", 3)));
         given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60)));
