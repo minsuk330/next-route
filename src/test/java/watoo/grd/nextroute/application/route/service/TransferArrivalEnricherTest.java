@@ -221,7 +221,7 @@ class TransferArrivalEnricherTest {
     void TC_position_제한시_NO_VEHICLE아닌_LIMITED() {
         props.setEnabled(true);
         mlProps.setEnabled(true);
-        when(predictionSupport.isSupported("100100360")).thenReturn(true);
+        when(predictionSupport.support("100100360")).thenReturn(PredictionSupportService.Support.SUPPORTED);
         String routeId = "100100360", stopId = "1111";
 
         when(stopRepo.findByStopId(stopId)).thenReturn(Optional.of(busStop(stopId)));
@@ -286,7 +286,7 @@ class TransferArrivalEnricherTest {
     void TC_이미_지나간_버스_ML_호출() {
         props.setEnabled(true);
         mlProps.setEnabled(true);
-        when(predictionSupport.isSupported("100100360")).thenReturn(true);
+        when(predictionSupport.support("100100360")).thenReturn(PredictionSupportService.Support.SUPPORTED);
 
         String routeId = "100100360";
         String stopId = "1111";
@@ -355,7 +355,7 @@ class TransferArrivalEnricherTest {
     void TC_ML_disabled_MODEL_UNAVAILABLE() {
         props.setEnabled(true);
         mlProps.setEnabled(false);
-        when(predictionSupport.isSupported("100100360")).thenReturn(true);
+        when(predictionSupport.support("100100360")).thenReturn(PredictionSupportService.Support.SUPPORTED);
 
         String routeId = "100100360";
         String stopId = "1111";
@@ -419,7 +419,7 @@ class TransferArrivalEnricherTest {
     void TC_walk_subPath_없는_경로_버스_도착정보_없음_NO_VEHICLE() {
         props.setEnabled(true);
         mlProps.setEnabled(true);
-        when(predictionSupport.isSupported("100100360")).thenReturn(true);
+        when(predictionSupport.support("100100360")).thenReturn(PredictionSupportService.Support.SUPPORTED);
 
         String routeId = "100100360";
         String stopId = "1111";
@@ -454,7 +454,7 @@ class TransferArrivalEnricherTest {
     void TC_equality_차량_sectOrd_equals_targetSeq_포함() {
         props.setEnabled(true);
         mlProps.setEnabled(true);
-        when(predictionSupport.isSupported("100100360")).thenReturn(true);
+        when(predictionSupport.support("100100360")).thenReturn(PredictionSupportService.Support.SUPPORTED);
 
         String routeId = "100100360";
         String stopId = "1111";

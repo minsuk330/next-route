@@ -311,8 +311,9 @@ public class TransferArrivalEnricher {
                     }
                 }
 
-                // ML 후보 (모델이 학습한 노선만 — 수집 대상과 무관, 로테이션으로 빠진 노선도 포함)
-                if (predictionSupport.isSupported(lc.routeId)) {
+                // ML 후보: 모델 미지원(UNSUPPORTED)만 제외. 수집 대상과 무관 — 로테이션으로 빠진 노선도
+                // 모델에 학습돼 있으면 포함. 캐시 미적재(UNKNOWN)는 serving 권위에 위임해 시도한다.
+                if (predictionSupport.support(lc.routeId) != PredictionSupportService.Support.UNSUPPORTED) {
                     mlRouteIds.add(lc.routeId);
                 } else {
                     lc.unsupportedRoute = true;
@@ -337,7 +338,8 @@ public class TransferArrivalEnricher {
         for (SubPathCtx ctx : waveCtxs) {
             if (ctx.upstreamUnavailable) continue;
             for (LaneCtx lc : ctx.laneContexts) {
-                if (lc.realtimeResult != null || lc.routeId == null || !predictionSupport.isSupported(lc.routeId)) continue;
+                if (lc.realtimeResult != null || lc.routeId == null
+                        || predictionSupport.support(lc.routeId) == PredictionSupportService.Support.UNSUPPORTED) continue;
                 if (lc.targetSeq == null || lc.arrOutcome != Outcome.OK) continue;
 
                 List<BusPositionInfo> positions = positionMap.getOrDefault(lc.routeId, List.of());
