@@ -37,6 +37,7 @@ public class SecurityConfig {
                         // 인증 필요한 엔드포인트(회원 전용)
                         .requestMatchers(HttpMethod.POST, "/api/auth/toss/logout").authenticated()
                         .requestMatchers("/api/route/fav/**").authenticated()
+                        .requestMatchers("/api/notifications/**").authenticated()
                         // 그 외 전부 오픈(공용). 로그인/재발급/콜백 포함
                         .anyRequest().permitAll())
                 .exceptionHandling(e -> e.authenticationEntryPoint(

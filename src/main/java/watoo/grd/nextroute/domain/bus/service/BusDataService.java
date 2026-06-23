@@ -160,6 +160,10 @@ public class BusDataService {
     return busStopRepository.findByStopId(stopId);
   }
 
+  public Optional<BusRoute> findRouteById(String routeId) {
+    return busRouteRepository.findByRouteId(routeId);
+  }
+
 	// ===== BusArrivalLabelEvent =====
 
 	@Transactional
