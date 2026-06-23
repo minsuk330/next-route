@@ -24,7 +24,8 @@ public class BusRidershipAdminController {
 	public ResponseEntity<BusRouteRidershipRankingResponse> getTopRoutes(
 			@RequestParam(defaultValue = "202603") String month,
 			@RequestParam(defaultValue = "30") int limit,
+			@RequestParam(defaultValue = "0") int offset,
 			@RequestParam(defaultValue = "1000") int pageSize) {
-		return ResponseEntity.ok(busRidershipRankingService.findTopRoutes(month, limit, pageSize));
+		return ResponseEntity.ok(busRidershipRankingService.findTopRoutes(month, limit, offset, pageSize));
 	}
 }

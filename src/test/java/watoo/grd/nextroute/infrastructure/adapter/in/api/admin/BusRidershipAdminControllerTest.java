@@ -28,7 +28,7 @@ class BusRidershipAdminControllerTest {
 
 	@Test
 	void TC_기본파라미터로_버스이용량_topRoutes를_호출한다() throws Exception {
-		given(service.findTopRoutes("202603", 30, 1000))
+		given(service.findTopRoutes("202603", 30, 0, 1000))
 				.willReturn(new BusRouteRidershipRankingResponse("202603", 40000, 40000, List.of(
 						new BusRouteRidershipRank(1, "143", "143번", 100, 80, 180, 10)
 				)));
@@ -42,6 +42,6 @@ class BusRidershipAdminControllerTest {
 				.andExpect(jsonPath("$.rankings[0].routeNo").value("143"))
 				.andExpect(jsonPath("$.rankings[0].totalUsage").value(180));
 
-		verify(service).findTopRoutes("202603", 30, 1000);
+		verify(service).findTopRoutes("202603", 30, 0, 1000);
 	}
 }
