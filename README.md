@@ -424,24 +424,60 @@ rclone copy gdrive:nextroute-archive/bus_position ml/data/bus_position
 rclone copy gdrive:nextroute-archive/bus_candidate ml/data/bus_candidate
 ```
 
-## Weekly Retrain
+## Weekly Retrain (자동)
 
-주 1회 로컬 맥으로 VPS archive를 pull한다. 이 과정이 VPS+로컬 2카피를 만들어 백업 보류 리스크를 일부 줄인다.
+`ml/ops/retrain.sh`가 VPS host crontab에서 주 1회 실행한다. Drive archive를 원천으로 **전체 누적**
+재학습 후, gate 통과 시 `model/current` symlink를 원자 교체하고 serve를 재기동한다. 설계 근거는
+`docs/plan/rotation-PR5-cumulative-retrain.md`.
+
+파이프라인: flock(retention과 공유) → 디스크 gate → Drive 누락 partition restore →
+날짜별 `build_dataset.py`(갭 안전) → 누적 `train.py`(콤마 날짜리스트 + `--test-dates`) →
+`gate.py`(metric AND coverage) → relative symlink swap → `compose restart nextroute-ml-serve` →
+`/health`·`/metadata` 확인 → dataset 삭제 + 오래된 experiment 정리.
+
+### 환경변수
+
+| 변수 | 의미 | 예 |
+|---|---|---|
+| `ML_TRAIN_FROM` | 누적 학습 시작일(첫 수집일, 필수) | `2026-06-12` |
+| `ML_ABS_MAE` | 절대 MAE 상한(필수). 현 모델 `metrics.json`의 `overall.mae` 기준 설정 | `95` |
+| `ML_ARCHIVE_REMOTE` | gdrive 원천 | `gdrive:nextroute-archive` |
+| `ML_SAMPLE_ROWS` | 학습 행 상한(OOM 방지) | `2000000` |
+| `ML_MAX_REGRESSION` | 직전 모델 대비 MAE 허용 배수 | `1.05` |
+| `ML_MIN_FREE_GB` / `ML_EXTRA_FREE_GB` / `ML_DISK_FACTOR` | 디스크 gate | `8` / `5` / `2.5` |
+| `ML_KEEP_EXPERIMENTS` | 보관 experiment 개수 | `5` |
+| `ML_APP_DIR` / `ML_DATA_DIR` | compose dir / 데이터 host 경로 | `/root/apps/nextroute` / `/srv/nextroute/ml-data` |
+
+### 1회성 ops — symlink 모델 경로 전환
+
+`compose.override.yaml`의 `ML_MODEL_PATH`를 **symlink 고정 경로**로 바꾸고 현 모델로 최초 링크를 만든다.
+symlink는 **relative target**이어야 serve 컨테이너 `/data:ro`에서 깨지지 않는다.
+
+```bash
+# compose.override.yaml: ML_MODEL_PATH=/data/model/current
+cd /srv/nextroute/ml-data && mkdir -p model
+ln -sfn ../experiments/<현재_run_id> model/current   # relative target
+cd /root/apps/nextroute && docker compose up -d nextroute-ml-serve
+```
+
+### crontab (validate/upload·retention 이후, 공통 lock)
+
+```cron
+30 6 * * MON cd /root/apps/nextroute && ML_TRAIN_FROM=2026-06-12 ML_ABS_MAE=95 bash ml/ops/retrain.sh >> /var/log/nextroute-ml.log 2>&1
+```
+
+gate 실패는 current 모델을 유지하고 비치명(exit 0) 종료한다. restore/build/train/배포 실패는 non-zero로
+끝나며 `/var/log/nextroute-ml.log`의 `[error]` grep으로 확인한다. `gate.py`가 이미지에 포함되려면
+이 PR 머지 후 GHCR 이미지 재빌드(05:10 `docker compose pull`)가 선행돼야 한다.
+
+### 수동 fallback
+
+로컬에서 직접 학습하려면 archive를 rsync로 받아 동일 단계를 수동 실행한다.
 
 ```bash
 rsync -av vps:/srv/nextroute/ml-data/bus_label/ ml/data/bus_label/
-rsync -av vps:/srv/nextroute/ml-data/bus_position/ ml/data/bus_position/
-rsync -av vps:/srv/nextroute/ml-data/bus_candidate/ ml/data/bus_candidate/
+uv run python build_dataset.py <date>            # 날짜별
+uv run python train.py <dates,csv> --target label --test-dates <latest_week> --sample-rows 2000000
+uv run python gate.py --model-dir ml/data/experiments/<run> --abs-mae 95 \
+  --prev-dir ml/data/experiments/<prev> --expected-routes-file <routes.txt>
 ```
-
-최근 4~8주 archive를 dataset cache로 만들고, 최신 1주를 test 날짜로 둔다.
-
-```bash
-uv run python build_dataset.py --from 2026-05-15 --to 2026-06-11
-uv run python train.py 2026-05-15,2026-05-16,...,2026-06-11 \
-  --target label \
-  --test-dates 2026-06-05,2026-06-06,2026-06-07,2026-06-08,2026-06-09,2026-06-10,2026-06-11 \
-  --per-date-sample-rows 100000
-```
-
-새 모델은 직전 모델의 `metrics.json`과 비교한 뒤 교체한다.
