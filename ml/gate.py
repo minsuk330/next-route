@@ -30,11 +30,16 @@ class GateError(RuntimeError):
     pass
 
 
-def overall_mae(metrics: dict[str, Any]) -> float:
+def overall_mae(metrics: dict[str, Any], model_key: str = "lightgbm") -> float:
+    # train.py writes {"lightgbm": {"overall": {...}, "by_horizon": ...}} (ml/train.py:208).
+    # Accept the nested form; fall back to a flat {"overall": ...} for forward/back compat.
+    node = metrics.get(model_key, metrics)
     try:
-        return float(metrics["overall"]["mae"])
+        return float(node["overall"]["mae"])
     except (KeyError, TypeError, ValueError) as exc:
-        raise GateError(f"metrics missing overall.mae: {exc}") from exc
+        raise GateError(
+            f"metrics missing {model_key}.overall.mae (keys={list(metrics)}): {exc}"
+        ) from exc
 
 
 def metric_gate(
@@ -81,6 +86,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--prev-dir", default=None, help="Previously deployed experiment dir.")
     p.add_argument("--abs-mae", type=float, required=True, help="Absolute MAE ceiling.")
     p.add_argument("--max-regression", type=float, default=1.05)
+    p.add_argument("--model-key", default="lightgbm", help="Top-level key in metrics.json.")
     p.add_argument(
         "--expected-routes-file",
         default=None,
@@ -95,12 +101,12 @@ def main(argv: list[str] | None = None) -> int:
     metrics_path, manifest_path = model_files(model_dir)
 
     try:
-        new_mae = overall_mae(load_json(metrics_path))
+        new_mae = overall_mae(load_json(metrics_path), args.model_key)
         prev_mae = None
         if args.prev_dir:
             prev_metrics_path, _ = model_files(Path(args.prev_dir))
             if prev_metrics_path.exists():
-                prev_mae = overall_mae(load_json(prev_metrics_path))
+                prev_mae = overall_mae(load_json(prev_metrics_path), args.model_key)
 
         m_ok, m_reason = metric_gate(new_mae, prev_mae, args.abs_mae, args.max_regression)
 

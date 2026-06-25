@@ -430,10 +430,12 @@ rclone copy gdrive:nextroute-archive/bus_candidate ml/data/bus_candidate
 재학습 후, gate 통과 시 `model/current` symlink를 원자 교체하고 serve를 재기동한다. 설계 근거는
 `docs/plan/rotation-PR5-cumulative-retrain.md`.
 
-파이프라인: flock(retention과 공유) → 디스크 gate → Drive 누락 partition restore →
-날짜별 `build_dataset.py`(갭 안전) → 누적 `train.py`(콤마 날짜리스트 + `--test-dates`) →
-`gate.py`(metric AND coverage) → relative symlink swap → `compose restart nextroute-ml-serve` →
-`/health`·`/metadata` 확인 → dataset 삭제 + 오래된 experiment 정리.
+파이프라인: flock(retention과 공유) → 디스크 gate → Drive 누락 partition restore
+(`bus_label∩bus_position`) → 날짜별 `build_dataset.py`(갭 안전) → `holdout.py`로 coverage-safe
+test 날짜 선택(신규 route가 전부 test로 빠져 미학습되지 않도록) → 누적 `train.py`(콤마 날짜리스트 +
+`--test-dates`) → `gate.py`(metric AND coverage) → relative symlink swap →
+`compose restart nextroute-ml-serve` → `/health`·`/metadata` 확인 →
+dataset 삭제(EXIT trap, 항상) + 오래된 experiment 정리.
 
 ### 환경변수
 
@@ -446,6 +448,7 @@ rclone copy gdrive:nextroute-archive/bus_candidate ml/data/bus_candidate
 | `ML_MAX_REGRESSION` | 직전 모델 대비 MAE 허용 배수 | `1.05` |
 | `ML_MIN_FREE_GB` / `ML_EXTRA_FREE_GB` / `ML_DISK_FACTOR` | 디스크 gate | `8` / `5` / `2.5` |
 | `ML_KEEP_EXPERIMENTS` | 보관 experiment 개수 | `5` |
+| `ML_KEEP_DATASET_ON_FAILURE` | 실패 시 dataset 보존(디버그) | `false` |
 | `ML_APP_DIR` / `ML_DATA_DIR` | compose dir / 데이터 host 경로 | `/root/apps/nextroute` / `/srv/nextroute/ml-data` |
 
 ### 1회성 ops — symlink 모델 경로 전환

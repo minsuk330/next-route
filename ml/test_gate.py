@@ -11,6 +11,16 @@ from pathlib import Path
 import gate
 
 
+def test_overall_mae_reads_nested_lightgbm_structure():
+    # real train.py output (ml/train.py:208)
+    metrics = {"lightgbm": {"overall": {"mae": 87.5}, "by_horizon": {}}}
+    assert gate.overall_mae(metrics) == 87.5
+
+
+def test_overall_mae_flat_fallback():
+    assert gate.overall_mae({"overall": {"mae": 12.0}}) == 12.0
+
+
 def test_metric_gate_pass_within_abs_and_no_prev():
     ok, _ = gate.metric_gate(90.0, None, abs_mae=100.0, max_regression=1.05)
     assert ok
@@ -49,7 +59,8 @@ def test_coverage_gate_fail_lists_missing():
 
 def _write_model(d: Path, mae: float, training_routes: list[str]) -> Path:
     d.mkdir(parents=True, exist_ok=True)
-    (d / "metrics.json").write_text(json.dumps({"overall": {"mae": mae}}))
+    # real train.py structure: {"lightgbm": {"overall": {...}, ...}} (ml/train.py:208)
+    (d / "metrics.json").write_text(json.dumps({"lightgbm": {"overall": {"mae": mae}}}))
     (d / "training_manifest.json").write_text(
         json.dumps({"training_route_categories": training_routes})
     )

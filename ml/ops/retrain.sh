@@ -51,6 +51,18 @@ if ! flock -n 9; then
 	exit 0
 fi
 
+# dataset is ephemeral — always remove on exit (any path). Keep only for debugging
+# when ML_KEEP_DATASET_ON_FAILURE=true and the run failed.
+cleanup() {
+	rc=$?
+	if [ "$rc" -ne 0 ] && [ "${ML_KEEP_DATASET_ON_FAILURE:-false}" = "true" ]; then
+		err "exit $rc — keeping $DATA_DIR_HOST/dataset for debug (ML_KEEP_DATASET_ON_FAILURE)"
+	else
+		rm -rf "$DATA_DIR_HOST/dataset" 2>/dev/null || true
+	fi
+}
+trap cleanup EXIT
+
 # ── 1. disk gate ────────────────────────────────────────────────────────────
 REMOTE_BYTES="$(rclone size --json "$ARCHIVE_REMOTE" 2>/dev/null | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')"
 REMOTE_BYTES="${REMOTE_BYTES:-0}"
@@ -64,28 +76,36 @@ if [ "$FREE_BYTES" -lt "${NEED_BYTES%.*}" ]; then
 fi
 
 # ── 2. restore: Drive available partitions → local (gap-safe, only missing) ──
-# available_service_dates = partitions present on Drive for the spine table.
-mapfile -t AVAIL_DATES < <(
-	rclone lsf "$ARCHIVE_REMOTE/bus_label/" 2>/dev/null \
+# build_dataset.py requires BOTH bus_label and bus_position (ml/build_dataset.py:415-416).
+# available = dates present on Drive for BOTH (intersection). bus_candidate not required.
+drive_dates() {
+	rclone lsf "$ARCHIVE_REMOTE/$1/" 2>/dev/null \
 		| sed -n 's#^service_date=\([0-9-]\{10\}\)/$#\1#p' \
-		| awk -v from="$TRAIN_FROM" -v to="$TO" '$1>=from && $1<=to' \
-		| sort
-)
+		| awk -v from="$TRAIN_FROM" -v to="$TO" '$1>=from && $1<=to' | sort -u
+}
+mapfile -t AVAIL_DATES < <(comm -12 <(drive_dates bus_label) <(drive_dates bus_position))
 if [ "${#AVAIL_DATES[@]}" -eq 0 ]; then
-	err "no archive partitions on $ARCHIVE_REMOTE in [$TRAIN_FROM..$TO]"
+	err "no bus_label∩bus_position partitions on $ARCHIVE_REMOTE in [$TRAIN_FROM..$TO]"
 	exit 1
 fi
-log "available dates: ${#AVAIL_DATES[@]} ($TRAIN_FROM..$TO)"
+log "available dates (label∩position): ${#AVAIL_DATES[@]} ($TRAIN_FROM..$TO)"
 
-for tbl in bus_label bus_position bus_candidate; do
-	for d in "${AVAIL_DATES[@]}"; do
+# required tables fail on restore error; bus_candidate is best-effort (not needed to build).
+for d in "${AVAIL_DATES[@]}"; do
+	for tbl in bus_label bus_position; do
 		local_part="$DATA_DIR_HOST/$tbl/service_date=$d/data.parquet"
 		[ -f "$local_part" ] && continue
 		log "restore $tbl $d"
 		rclone copy "$ARCHIVE_REMOTE/$tbl/service_date=$d/" \
 			"$DATA_DIR_HOST/$tbl/service_date=$d/" --transfers 4 --checkers 8 \
 			|| { err "restore failed $tbl $d"; exit 1; }
+		[ -f "$local_part" ] || { err "restored but missing $local_part"; exit 1; }
 	done
+	cand="$DATA_DIR_HOST/bus_candidate/service_date=$d/data.parquet"
+	if [ ! -f "$cand" ]; then
+		rclone copy "$ARCHIVE_REMOTE/bus_candidate/service_date=$d/" \
+			"$DATA_DIR_HOST/bus_candidate/service_date=$d/" --transfers 4 --checkers 8 2>/dev/null || true
+	fi
 done
 
 # ── 3. dataset cleanup (ephemeral) ──────────────────────────────────────────
@@ -98,10 +118,27 @@ for d in "${AVAIL_DATES[@]}"; do
 	dcrun python build_dataset.py "$d" --overwrite || { err "build_dataset failed $d"; exit 1; }
 done
 
-# ── 5. cumulative train (comma list of available dates) ─────────────────────
+# ── 5. coverage-safe holdout: every route must keep >= 1 train date ─────────
+# build per-date route map from the freshly built dataset, then let holdout.py pick test dates.
+mkdir -p "$DATA_DIR_HOST/tmp"
+dcrun python -c "
+import polars as pl, glob, json
+out={}
+for d in sorted(glob.glob('$DATA_DIR_CTR/dataset/service_date=*')):
+    sd=d.split('service_date=')[-1]
+    files=glob.glob(d+'/part-*.parquet')
+    if not files: continue
+    routes=pl.scan_parquet(files).select('route_id').unique().collect()['route_id'].to_list()
+    out[sd]=sorted(str(r) for r in routes if r is not None)
+open('$DATA_DIR_CTR/tmp/date_routes.json','w').write(json.dumps(out))
+" || { err "date-routes extraction failed"; exit 1; }
+
+TEST_DATES="$(dcrun python holdout.py --date-routes-file "$DATA_DIR_CTR/tmp/date_routes.json" --max-test-days 7)"
+TEST_DATES="$(echo "$TEST_DATES" | tr -d '[:space:]')"
+[ -n "$TEST_DATES" ] || { err "holdout selection produced empty test set"; exit 1; }
+
+# ── 6. cumulative train (comma list of available dates) ─────────────────────
 DATE_CSV="$(IFS=,; echo "${AVAIL_DATES[*]}")"
-# holdout = last available week, kept so every route still has train rows upstream.
-TEST_DATES="$(printf '%s\n' "${AVAIL_DATES[@]}" | tail -7 | paste -sd, -)"
 log "train dates=${#AVAIL_DATES[@]} test=$TEST_DATES sample_rows=$SAMPLE_ROWS"
 dcrun python train.py "$DATE_CSV" --target "$TARGET" --test-dates "$TEST_DATES" \
 	--sample-rows "$SAMPLE_ROWS" || { err "train failed"; exit 1; }
@@ -113,13 +150,12 @@ RUN_ID="$(basename "$RUN_DIR_HOST")"
 [ -f "$RUN_DIR_HOST/model.txt" ] || { err "no model.txt in $RUN_DIR_HOST"; exit 1; }
 log "trained: $RUN_ID"
 
-# ── 6. expected routes = distinct route_id in built dataset (must be trained) ─
-mkdir -p "$DATA_DIR_HOST/tmp"
+# ── 7. expected routes = union of date_routes (built dataset). reuse, no rescan. ─
 dcrun python -c "
-import polars as pl, glob
-files = glob.glob('$DATA_DIR_CTR/dataset/service_date=*/part-*.parquet')
-routes = pl.scan_parquet(files).select('route_id').unique().collect()['route_id'].to_list()
-open('$DATA_DIR_CTR/tmp/expected_routes.txt','w').write('\n'.join(sorted(str(r) for r in routes if r is not None)))
+import json
+dr=json.load(open('$DATA_DIR_CTR/tmp/date_routes.json'))
+routes=sorted({str(r) for v in dr.values() for r in v})
+open('$DATA_DIR_CTR/tmp/expected_routes.txt','w').write('\n'.join(routes))
 " || { err "expected-routes extraction failed"; exit 1; }
 
 # ── 7. gate (metric AND coverage). gate fail = keep current, non-fatal. ─────
@@ -138,8 +174,7 @@ GATE_RC=$?
 set -e
 if [ "$GATE_RC" -eq 2 ]; then
 	err "gate failed — keeping current model ($PREV_TARGET), skipping deploy"
-	rm -rf "$DATA_DIR_HOST/dataset"
-	exit 0
+	exit 0  # dataset cleaned by trap
 elif [ "$GATE_RC" -ne 0 ]; then
 	err "gate error rc=$GATE_RC"
 	exit 1
@@ -170,8 +205,7 @@ fi
 ROUTE_COUNT="$(curl -fsS "$SERVE_HEALTH_URL/metadata" | sed -n 's/.*"route_count":[ ]*\([0-9]*\).*/\1/p')"
 log "deployed $RUN_ID, /metadata route_count=$ROUTE_COUNT"
 
-# ── 10. cleanup: ephemeral dataset + old experiments (keep last N) ──────────
-rm -rf "$DATA_DIR_HOST/dataset"
+# ── 10. cleanup: old experiments (keep last N). dataset handled by EXIT trap. ─
 ls -1dt "$EXP_DIR_HOST"/*/ 2>/dev/null | tail -n +"$((KEEP_EXPERIMENTS + 1))" | while read -r old; do
 	old="${old%/}"
 	[ "$(basename "$old")" = "$RUN_ID" ] && continue
