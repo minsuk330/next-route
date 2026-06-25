@@ -238,6 +238,13 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         "split_policy": split.split_policy,
         "train_rows": split.train.height,
         "test_rows": split.test.height,
+        # 실제 train split에 1행 이상 존재한 route만. pandas_categorical(train∪test)과 달리
+        # 이 값이 "모델이 실제로 학습한 route"다. serving 지원 판정·coverage gate의 권위 소스.
+        "training_route_categories": sorted(
+            str(v)
+            for v in split.train[CATEGORICAL_FEATURES[0]].unique().to_list()
+            if v is not None
+        ),
         "validation_rows": len(y_valid),
         "best_iteration": int(model.best_iteration_ or model.n_estimators),
         "metrics": reports,
