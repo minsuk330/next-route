@@ -42,6 +42,10 @@ class ModelState:
         self.manifest: dict[str, Any] = {}
         self.feature_names: list[str] = []
         self.numeric_features: list[str] = []
+        # model_categories: booster의 pandas_categorical(train∪test). DataFrame dtype 인코딩용 — 절대 부분집합으로 바꾸면 category code 깨짐.
+        self.model_categories: list[str] = []
+        # route_categories: 실제 학습된 route(manifest.training_route_categories). 없으면 model_categories로 폴백.
+        # 지원 판정(metadata + predict 격리)의 권위 소스.
         self.route_categories: list[str] = []
         self.route_category_set: set[str] = set()
         self.model_version: str | None = None
@@ -118,7 +122,14 @@ def load_model(state: ModelState) -> None:
     state.manifest = manifest
     state.feature_names = feature_names
     state.numeric_features = [f for f in feature_names if f != CATEGORICAL_FEATURE]
-    state.route_categories = [str(c) for c in pandas_categorical[0]]
+    state.model_categories = [str(c) for c in pandas_categorical[0]]
+    # 지원 route = manifest.training_route_categories(실제 학습된 route). 구 모델(필드 없음)은
+    # model_categories(train∪test)로 폴백 — 하위호환. training set은 train⊆train∪test라 항상 부분집합.
+    trained = manifest.get("training_route_categories")
+    if trained:
+        state.route_categories = sorted(str(c) for c in trained)
+    else:
+        state.route_categories = state.model_categories
     state.route_category_set = set(state.route_categories)
     state.model_version = manifest.get("model_version") or model_path.parent.name
     logger.info(
@@ -198,8 +209,11 @@ def metadata() -> JSONResponse:
             "feature_list": state.feature_names,
             "categorical_feature": CATEGORICAL_FEATURE,
             "route_count": len(state.route_categories),
-            # 학습된 지원 route_id 전체 목록. 백엔드가 "환승 예측 가능" 배지 판정에 사용.
+            # 실제 학습된 지원 route_id 목록(manifest.training_route_categories, 폴백 시 model categorical).
+            # 백엔드가 "환승 예측 가능" 배지 판정에 사용. predict 격리 기준과 동일.
             "route_categories": state.route_categories,
+            # 디버그: booster categorical(train∪test) 크기. route_count보다 크면 test-only/미학습 route 존재.
+            "model_route_count": len(state.model_categories),
         }
     )
 
@@ -268,7 +282,9 @@ def _build_frame(items: list[PredictItem]) -> pd.DataFrame:
         columns[CATEGORICAL_FEATURE].append(str(route))
 
     frame = pd.DataFrame(columns)
+    # dtype은 booster의 full categorical(model_categories)이어야 category code가 일치한다.
+    # 지원 판정은 route_categories로 이미 격리됐고, predictable route ⊆ training ⊆ model_categories.
     frame[CATEGORICAL_FEATURE] = pd.Categorical(
-        frame[CATEGORICAL_FEATURE], categories=state.route_categories
+        frame[CATEGORICAL_FEATURE], categories=state.model_categories
     )
     return frame[state.feature_names]
