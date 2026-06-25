@@ -1,95 +1,126 @@
-# PR5 — 누적 재학습 자동화 cron
+# PR5 — Drive archive 기반 전체 누적 재학습 + 모델 배포 자동화
 
-주간 노선 로테이션(PR #40)의 뒷단. 로테이션이 매주 다른 30개를 수집·archive까지 자동화해도,
-**train을 누적 범위로 자동 실행하는 cron이 없으면 `route_categories`가 늘지 않아** 빠진 노선
-예측이 깨진다. 이 PR은 `build_dataset → train → 모델 배포 → serve 리로드`를 누적 범위로 주 1회
-자동 실행한다.
+주간 노선 로테이션(PR #40)의 뒷단. "수동 학습 자동화"가 아니라 **Google Drive archive를 장기
+원천으로 한 전체 누적 재학습 + dataset 임시 처리 + 모델 무중단 교체**로 정의한다. 로테이션이 매주
+다른 30개를 수집·archive해도, train을 **전체 누적** 범위로 자동 실행해야 `route_categories`가 단조
+증가해 빠진 노선 예측이 유지된다.
 
-## 전제 / 현황
+## VPS 운영 현황 (실측 2026-06-25)
 
-- 기존 일배치 cron(VPS): `archive.py`(DB→parquet) + `upload_archive.sh`(rclone offsite) + `retention.py`. **train/build_dataset은 cron 제외(수동).**
-- `archive` parquet은 `ML_DATA_DIR=/srv/nextroute/ml-data` 하위 `{table}/service_date=YYYY-MM-DD/`에 영속. retention은 raw DB 21일·dataset cache 7일만 삭제하고 archive parquet은 보존 → 누적 학습 안전.
-- batch는 GHCR 이미지(PR #20)에서 `docker compose run`으로 CMD 오버라이드.
-- serve는 `ML_MODEL_PATH`(experiment dir or model.txt)를 **기동 시 1회 로드**. 핫리로드 없음 → 배포 = 모델 경로 갱신 + serve 컨테이너 재기동.
+- 배포 디렉터리: `/root/apps/nextroute/` (`compose.yaml` + `compose.override.yaml`)
+- 데이터 마운트: `/srv/nextroute/ml-data` → batch `nextroute-ml`은 `/data`(rw), serve `nextroute-ml-serve`는 `/data:ro`
+- **모델 경로: `compose.override.yaml`에 `ML_MODEL_PATH=/data/experiments/lgbm_2026-06-12_to_2026-06-17_label_20260619T141946Z` 하드코딩** (symlink 아님, 특정 dir 직결). 현 모델은 로컬(mac uid 501) 수동 학습 후 rsync.
+- 디스크: 58G 중 **17G 여유(72% 사용)**. `dataset/`이 4일치만으로 **767M** → 누적 dataset 영속은 디스크 파탄. archive 합계 ~767M(candidate 315M+label 238M+position 214M).
+- **로컬 archive에 갭 존재**(`bus_label`에 2026-06-13·14 없음) → 로컬은 working copy일 뿐, **gdrive가 원천**임을 입증.
+- rclone 원격 `gdrive:` 존재. `upload_archive.sh`가 `gdrive:nextroute-archive`로 no-delete 업로드.
+- 기존 crontab(KST): `05:20 archive` → `05:40 validate + upload_archive.sh` → `06:00 retention.py --dry-run`(현재 **dry-run, 미적용**).
+- serve는 `ML_MODEL_PATH`(experiment dir)를 **기동 시 1회 로드**. 핫리로드 없음 → 배포 = 경로 갱신 + serve 재기동.
 - `route_categories`는 train 데이터에 존재하는 route_id로 자동 도출(`ml/train.py:110` `categorical_dtypes`). 별도 등록 없음.
 
-## 목표
+## 데이터 수명 정책 (재정의)
 
-매주, 첫 수집일 ~ 어제까지 누적 archive로 모델을 재학습하고, 품질 게이트를 통과하면 무중단에
-가깝게 교체한다. route_categories가 매 로테이션 노선의 합집합으로 단조 증가한다.
+| 자산 | 위치 | 정책 |
+|---|---|---|
+| DB raw | postgres | archive+upload **검증 성공 후에만** 정기 삭제(retention apply) |
+| archive parquet (원천) | `gdrive:nextroute-archive` | 영속, no-delete |
+| archive parquet (working) | VPS `/data/{bus_*}` | 디스크 허용 동안 유지. 누락분은 retrain 시 Drive에서 복원 |
+| dataset parquet | VPS `/data/dataset` | **ephemeral** — retrain 중에만 생성, **학습 후 삭제** |
+| model experiment dir | VPS `/data/experiments/*` | 최근 N개 유지(나머지 정리). `current` symlink가 운영 모델 |
 
-## cron이 실행하는 파이프라인 (`ml/ops/retrain.sh`)
+## 학습 범위 — 전체 누적 고정
+
+- `ML_TRAIN_FROM`(첫 수집일) 고정, `TO`=어제(KST). 매주 범위 자동 확장.
+- **rolling window 부적합**: 주차별 route rotation이라 윈도우로 자르면 과거 bucket route가 데이터에서 빠져 `route_categories`에서 드롭. 반드시 전체 누적.
+- train.py 다중 service_date는 **`--test-dates` 필수**(`ml/split.py:249` `multi-date split requires --test-dates`). holdout=**직전 완료 주차(또는 최근 7일)**를 test로 분리.
+
+## 재정의된 파이프라인 (`ml/ops/retrain.sh`, 주1회)
 
 ```
-0. lock 획득(flock) — 중복 실행 방지
-1. 날짜범위 결정: FROM=ML_TRAIN_FROM(첫 수집일, 고정), TO=어제(KST)
-2. build_dataset.py --from $FROM --to $TO   # archive parquet → dataset parquet(누적)
-3. train.py <FROM..TO 날짜 리스트> --target label --sample-rows N --test-dates <holdout>
-     # ⚠️ split.py:249 — 다중 service_date 학습은 --test-dates 필수.
-     # holdout = 최근 7일(또는 직전 완료 주차)을 test로 분리, 나머지가 train.
-     → 새 experiment dir: model.txt + training_manifest.json + metrics
-4. 품질 게이트(둘 다 충족 시 배포): overall.mae <= ABS_THRESHOLD AND new_mae <= prev_mae * 1.05
-     - 통과: 5로
-     - 실패: 배포 스킵, 알림, 기존 모델 유지(exit 0, 비치명)
-5. 배포: experiment dir를 'current' 경로로 원자 교체(rename/symlink swap)
-6. serve 컨테이너 재기동: `docker compose restart nextroute-ml-serve` → ML_MODEL_PATH 재로드
-7. /health·/metadata 폴링으로 로드 성공 + route_count 증가 확인
-8. upload(모델 아카이브) + 로그
+weekly retrain (월 06:10 KST+, validate/upload 이후)
+ → flock (중복 실행 방지)
+ → rclone size gdrive:nextroute-archive            # 원천 크기 파악
+ → df 디스크 gate: free >= ML_MIN_FREE_GB
+        (+ dataset 생성 여유 ML_EXTRA_FREE_GB 확보) 아니면 alert+non-zero
+ → Drive에서 누락 archive partition restore         # 로컬 갭 메움 (rclone copy, ML_ARCHIVE_REMOTE)
+ → dataset dir cleanup (이전 잔여 제거)
+ → build_dataset.py --from $ML_TRAIN_FROM --to $TO --overwrite   # 누적 dataset 생성
+ → train.py <FROM..TO 날짜리스트> --target label --test-dates <직전주차> --sample-rows N
+        → experiments/lgbm_<from>_to_<to>_label_<ts>/ : model.txt + manifest + metrics
+ → metric gate (둘 다): overall.mae <= ML_ABS_MAE  AND  new_mae <= prev_mae * 1.05
+ → route coverage gate: 신모델 route_categories ⊇ 기대 route 집합          # ★ 아래 리스크 참고
+ → /data/model/current symlink atomic swap (신 experiment dir로)
+ → docker compose restart nextroute-ml-serve
+ → /health 200 + /metadata route_count 비감소 확인
+ → dataset/ 삭제 (ephemeral)
+ → 실패 시 current 유지 또는 rollback(직전 symlink 타깃 복원)
+ → 오래된 experiments 정리(최근 N개만)
 ```
 
-## 핵심 설계 결정
+## 실패 처리 — 단계별 exit 코드 구분
 
-### 날짜범위 — 누적
-- `ML_TRAIN_FROM`(첫 수집일)을 환경변수로 고정. `TO`=어제. 매주 범위가 자동 확장.
-- train.py 다중 service_date는 **`--test-dates` 필수**(`split.py:249` `multi-date split requires --test-dates`). retrain.sh가 FROM..TO 날짜 리스트를 생성하고, holdout으로 **최근 7일(또는 직전 완료 주차)**을 `--test-dates`로 분리 → 나머지가 train.
-- 학습량 상한: `--sample-rows`(기본 2M)로 캡. 범위가 커져도 OOM/시간 통제. (PR #4 OOM fix 참고)
+| 단계 | 실패 시 |
+|---|---|
+| restore / build_dataset / train | **non-zero exit + alert marker** (치명: 새 모델 못 만듦) |
+| metric gate / coverage gate | **current 유지**, 배포 스킵, alert (비치명, exit 0 허용) |
+| symlink swap / serve restart / health | rollback(직전 symlink 복원) + non-zero |
 
-### 모델 배포·리로드
-- serve `ML_MODEL_PATH`를 안정 경로(예: `$ML_DATA_DIR/model/current`)로 고정.
-- train 산출물을 `model/exp-<ts>/`에 쓰고, 게이트 통과 시 `current` symlink를 원자 교체.
-- serve 재기동으로 신모델 로드(핫리로드 미지원). 교체+재기동 사이 짧은 503은 Java가 MODEL_UNAVAILABLE로 graceful degrade(기존 동작).
+→ 기존 플랜의 "전부 exit 0"은 폐기. gate 실패만 비치명, restore/build/train/배포 실패는 non-zero.
 
-### 품질 게이트 (둘 다 충족해야 배포)
-- train.py가 출력하는 holdout metric(label MAE)을 파싱.
-- 기준: **`overall.mae <= ABS_THRESHOLD`** AND **`new_mae <= prev_mae * 1.05`**(직전 배포 모델 대비 5% 회귀 허용).
-  - `ABS_THRESHOLD`는 환경변수(초기값은 현 baseline metric 기준으로 설정).
-  - `prev_mae`는 직전 배포 모델의 metrics.json에서 읽음. 직전 없으면 (b) 스킵하고 (a)만.
-- 실패 시 배포 스킵 + 기존 current 유지. route_categories 누락 노선이 생겨도 옛 모델로 서비스 지속.
+## 모델 배포 — symlink 전환 (1회성 ops)
 
-### retention 상호작용
-- retention은 archive parquet 미삭제 → 누적 train 안전.
-- dataset cache 7일 삭제 → build_dataset이 매주 필요한 범위를 재생성(archive에서 저렴하게 복원).
-- **순서 의존: 매일 archive가 retention(21일) 전에 완료돼야 raw 손실 없이 parquet 확보.** 기존 일배치 충족.
+- **현재**: `compose.override.yaml`이 특정 experiment dir 직결. 자동 교체 불가.
+- **PR5 전환**: `ML_MODEL_PATH=/data/model/current`(symlink)로 override 1회 수정 + 최초 symlink를 현 모델로 생성.
+- 이후 retrain은 `current` symlink만 원자 교체(`ln -sfn <new> /data/model/current.tmp && mv -T`) + `docker compose restart nextroute-ml-serve`. serve는 `:ro`라도 symlink 따라 읽기 OK.
+- rollback = symlink를 직전 experiment dir로 되돌리고 restart.
 
-### 스케줄·순서
-- 기존 ML cron(`ml/README.md`): 05:20 archive → 05:40 validate+upload → 06:00 retention. 재학습은 **validate/upload 이후인 월 06:10 KST 이후**(예: `10 6 * * MON`). 05:30은 validate 창과 충돌하므로 금지.
-- 주기: **주 1회**. 로테이션이 주 단위라 격주면 route_categories 반영 지연이 큼.
-- 로테이션(월 04:00)과 독립 — 재학습은 "과거 누적"을 학습하므로 이번 주 새 노선의 첫 데이터를 즉시 요구하지 않음. 새 노선은 그 주 수집→다음 재학습부터 route_categories 편입.
+## DB retention 연동
+
+- retention apply는 **archive+upload 검증 성공 이후에만**. 현재 cron은 `--dry-run`(미적용) → apply 전환 시 upload 성공 게이트 선행 필수(parquet이 gdrive에 올라간 뒤 raw 삭제). 순서: archive → validate → upload(gdrive) → 그 성공 확인 후 retention --apply.
+
+## ★ 코드 리스크 — sample-rows vs route coverage
+
+`--sample-rows`는 OOM 방지에 필요하나(누적이라 행 급증), 너무 낮으면 **일부 route가 학습 category에서
+빠질 수 있다**. 현 sampling은 route/horizon을 고려하지만(`split.py` bucket 단위), 누적 날짜·route가
+많아질수록 route당 행이 희박해짐. → **retrain 검증에 `route coverage gate` 필수**:
+신모델 `/metadata.route_categories`가 **기대 route 집합(누적 수집된 전 route)을 포함**하는지 확인,
+누락 시 alert(또는 sample-rows 상향 후 재시도). 단순 route_count 비감소보다 강한 보증.
 
 ## 추가/수정 파일
 
-- `ml/ops/retrain.sh` — 위 파이프라인. flock, 날짜계산, 게이트, symlink swap, serve restart, 검증.
-- `ml/ops/README` 또는 `ml/README.md` — cron 등록 예시(crontab), 환경변수표.
-- (선택) `ml/deploy.py` — experiment dir 검증 + current symlink 원자 교체 + /health 폴링(쉘 대신 파이썬으로 견고하게).
-- (선택) `ml/gate.py` — metrics.json 파싱 + 기준 비교(배포 여부 0/1 반환).
-- VPS crontab 1줄 추가(인프라, 코드 아님).
+- `ml/ops/retrain.sh` — 메인 파이프라인(flock, 디스크 gate, restore, build, train, gate, swap, restart, cleanup).
+- `ml/ops/restore_archive_from_drive.sh` — `rclone copy gdrive:nextroute-archive → /data`로 누락 partition 복원(또는 retrain.sh 내부 함수).
+- `ml/deploy.py` (선택) — symlink 원자 교체 + /health·/metadata 폴링 + route coverage 검증(쉘보다 견고).
+- `ml/gate.py` (선택) — metrics.json 파싱 + (절대 임계 AND 직전대비) 판정 0/1.
+- `ml/README.md` — 환경변수표 + crontab 1줄 추가.
+- `compose.override.yaml` — `ML_MODEL_PATH=/data/model/current` 전환(ops, 코드 아님).
 
-## 모니터링·실패 처리
+## 환경변수
 
-- 멱등: 같은 날 재실행해도 dataset/모델 재생성만, current 교체는 게이트 통과시에만.
-- flock으로 중복 방지(긴 학습이 다음 트리거와 겹침 방지).
-- 실패는 비치명(exit 0) + 로그/알림 — current 모델 보존이 최우선.
-- 배포 후 `/metadata` route_count가 직전 대비 **감소하면 경보**(누적인데 줄면 데이터/범위 이상).
+| 변수 | 의미 | 예 |
+|---|---|---|
+| `ML_TRAIN_FROM` | 누적 학습 시작일(첫 수집일) | `2026-06-12` |
+| `ML_ARCHIVE_REMOTE` | gdrive 원천 | `gdrive:nextroute-archive` |
+| `ML_MIN_FREE_GB` | 최소 여유 디스크 게이트 | `8` |
+| `ML_EXTRA_FREE_GB` | dataset 생성용 추가 여유 | `5` |
+| `ML_ABS_MAE` | 절대 MAE 임계 | (현 baseline metric 기준) |
+| `ML_MODEL_PATH` | serve 모델 경로(symlink로 전환) | `/data/model/current` |
+| `ML_KEEP_EXPERIMENTS` | 보관할 experiment 개수 | `5` |
+
+## 스케줄
+
+- 재학습: `10 6 * * MON`(월 06:10 KST) — validate/upload(05:40)·retention(06:00) 이후. 05:30 금지(validate 창 충돌).
+- 주 1회 유지(로테이션 주기와 정렬, 격주는 반영 지연).
 
 ## 후속(이 PR 밖)
 
-- serve **reload 엔드포인트**(컨테이너 재기동 없이 모델 교체) — 이번 PR은 `compose restart`로 가고, reload는 별도 PR.
-- 슬라이딩 윈도우 전환(노선별 staleness/concept drift 대응) — 누적이 학습량·drift 한계 도달 시.
-- route 단위 provenance(어느 bucket/주차 데이터인지) 메타 — 디버깅·가중 학습용.
-- 모델 버전 롤백 자동화.
+- serve **reload 엔드포인트**(컨테이너 재기동 없이 교체) — 이번 PR은 `compose restart`.
+- 모델 버전 롤백 자동화(현재는 수동 symlink 되돌림).
+- route provenance 메타(bucket/주차) — 가중 학습·디버깅.
 
 ## 검증 (배포 전)
 
-1. 수동 1회: `retrain.sh` 로컬/스테이징 실행 → experiment dir 생성, 게이트 로그, current 교체, serve `/metadata` route_count 확인.
-2. route_categories에 직전 로테이션 노선 route_id 포함되는지 확인.
-3. 게이트 실패 시 current 미교체 확인(일부러 나쁜 모델로).
+1. 수동 1회 VPS 실행: `retrain.sh` → restore·build·train 로그, gate 판정, symlink 교체, serve `/metadata` route_count.
+2. **route coverage**: `/metadata.route_categories` ⊇ 누적 수집 route 전체 확인.
+3. gate 실패 시 current 미교체 + 비치명 종료 확인.
+4. restore/build/train 실패 시 non-zero + current 보존 확인.
+5. dataset/가 retrain 후 삭제됐는지 디스크 확인.
