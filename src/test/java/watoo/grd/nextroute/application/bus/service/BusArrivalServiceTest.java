@@ -48,6 +48,7 @@ class BusArrivalServiceTest {
 	@Mock BusApiPort busApiPort;
 	@Mock BusDataService busDataService;
 	@Mock BusCollectorProperties properties;
+	@Mock TargetRouteProvider targetRouteProvider;
 	@Mock BusApiCallBudget budget;
 	@Mock BusArrivalSnapshotPort busArrivalSnapshotPort;
 
@@ -56,7 +57,7 @@ class BusArrivalServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new BusArrivalService(busApiPort, busDataService, properties, budget, busArrivalSnapshotPort, clock);
+		service = new BusArrivalService(busApiPort, busDataService, properties, targetRouteProvider, budget, busArrivalSnapshotPort, clock);
 	}
 
 	@Test
@@ -295,7 +296,7 @@ class BusArrivalServiceTest {
 	@Test
 	void TC_예산_소진_route는_API없이_stale_active만_폐기한다() {
 		BusRoute route = BusRoute.builder().routeId("100100118").routeName("753").build();
-		given(properties.getTargetRouteNames()).willReturn(List.of("753"));
+		given(targetRouteProvider.activeRouteNames()).willReturn(List.of("753"));
 		given(busDataService.findRoutesByNames(List.of("753"))).willReturn(List.of(route));
 		given(properties.getDailyBudget()).willReturn(1000);
 		// 시작 가드는 통과, 루프 내 route 단위 체크에서 소진
@@ -355,7 +356,7 @@ class BusArrivalServiceTest {
 				.routeName("753")
 				.build();
 
-		given(properties.getTargetRouteNames()).willReturn(List.of("753"));
+		given(targetRouteProvider.activeRouteNames()).willReturn(List.of("753"));
 		given(busDataService.findRoutesByNames(List.of("753"))).willReturn(List.of(route));
 		given(properties.getDailyBudget()).willReturn(1000);
 		given(budget.canMakeCall(1000)).willReturn(true);

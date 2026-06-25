@@ -3,7 +3,6 @@ package watoo.grd.nextroute.application.route.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import watoo.grd.nextroute.application.bus.config.BusCollectorProperties;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.route.config.MlPredictorProperties;
@@ -44,7 +43,7 @@ public class TransferArrivalEnricher {
     private final MlArrivalPredictorPort mlPort;
     private final TransferStopResolver resolver;
     private final MlFeatureVectorBuilder featureBuilder;
-    private final BusCollectorProperties collectorProps;
+    private final PredictionSupportService predictionSupport;
     private final java.time.Clock clock;
 
     // ── 공개 API ────────────────────────────────────────────────────────────
@@ -312,8 +311,9 @@ public class TransferArrivalEnricher {
                     }
                 }
 
-                // ML 후보 (top-30만)
-                if (isTop30(lc.routeName)) {
+                // ML 후보: 모델 미지원(UNSUPPORTED)만 제외. 수집 대상과 무관 — 로테이션으로 빠진 노선도
+                // 모델에 학습돼 있으면 포함. 캐시 미적재(UNKNOWN)는 serving 권위에 위임해 시도한다.
+                if (predictionSupport.support(lc.routeId) != PredictionSupportService.Support.UNSUPPORTED) {
                     mlRouteIds.add(lc.routeId);
                 } else {
                     lc.unsupportedRoute = true;
@@ -338,7 +338,8 @@ public class TransferArrivalEnricher {
         for (SubPathCtx ctx : waveCtxs) {
             if (ctx.upstreamUnavailable) continue;
             for (LaneCtx lc : ctx.laneContexts) {
-                if (lc.realtimeResult != null || lc.routeId == null || !isTop30(lc.routeName)) continue;
+                if (lc.realtimeResult != null || lc.routeId == null
+                        || predictionSupport.support(lc.routeId) == PredictionSupportService.Support.UNSUPPORTED) continue;
                 if (lc.targetSeq == null || lc.arrOutcome != Outcome.OK) continue;
 
                 List<BusPositionInfo> positions = positionMap.getOrDefault(lc.routeId, List.of());
@@ -489,11 +490,6 @@ public class TransferArrivalEnricher {
         Instant snap = snapOpt.get();
         return !snap.isBefore(calculatedAt.minusSeconds(STALE_BEFORE_SEC))
                 && !snap.isAfter(calculatedAt.plusSeconds(STALE_AFTER_SEC));
-    }
-
-    private boolean isTop30(String routeName) {
-        if (routeName == null) return false;
-        return collectorProps.getTargetRouteNames().contains(routeName);
     }
 
     private TransferArrival pickMlResult(

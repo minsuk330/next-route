@@ -9,7 +9,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import watoo.grd.nextroute.application.bus.config.BusCollectorProperties;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.in.CollectBusPositionUseCase;
@@ -27,7 +26,7 @@ public class BusPositionService implements CollectBusPositionUseCase {
 
 	private final BusApiPort busApiPort;
 	private final BusDataService busDataService;
-	private final BusCollectorProperties properties;
+	private final TargetRouteProvider targetRouteProvider;
 	@Qualifier("positionApiCallBudget")
 	private final BusApiCallBudget budget;
 	private final Clock clock;
@@ -37,7 +36,7 @@ public class BusPositionService implements CollectBusPositionUseCase {
 
 	@Override
 	public void execute() {
-		List<String> targetNames = properties.getTargetRouteNames();
+		List<String> targetNames = targetRouteProvider.activeRouteNames();
 
 		if (targetNames.isEmpty()) {
 			log.warn("[BusPosition] No target routes configured. Set collector.bus-arrival.target-route-names.");

@@ -23,13 +23,17 @@ public class BusRidershipRankingService {
 	private final BusApiPort busApiPort;
 
 	public BusRouteRidershipRankingResponse findTopRoutes(String month, int limit, int pageSize) {
-		validate(month, limit, pageSize);
+		return findTopRoutes(month, limit, 0, pageSize);
+	}
+
+	public BusRouteRidershipRankingResponse findTopRoutes(String month, int limit, int offset, int pageSize) {
+		validate(month, limit, offset, pageSize);
 
 		BusRidershipFetchResult fetchResult = busApiPort.getBusRidershipByMonth(month, pageSize);
-		List<BusRouteRidershipRank> rankings = rank(fetchResult.rows(), limit);
+		List<BusRouteRidershipRank> rankings = rank(fetchResult.rows(), limit, offset);
 
-		log.info("[BusRidership] month={}, fetchedRows={}, totalRows={}, rankingSize={}",
-				month, fetchResult.fetchedRowCount(), fetchResult.totalRowCount(), rankings.size());
+		log.info("[BusRidership] month={}, offset={}, fetchedRows={}, totalRows={}, rankingSize={}",
+				month, offset, fetchResult.fetchedRowCount(), fetchResult.totalRowCount(), rankings.size());
 
 		return new BusRouteRidershipRankingResponse(
 				month,
@@ -39,19 +43,22 @@ public class BusRidershipRankingService {
 		);
 	}
 
-	private void validate(String month, int limit, int pageSize) {
+	private void validate(String month, int limit, int offset, int pageSize) {
 		if (month == null || !month.matches("\\d{6}")) {
 			throw new IllegalArgumentException("month must be yyyyMM");
 		}
 		if (limit <= 0) {
 			throw new IllegalArgumentException("limit must be positive");
 		}
+		if (offset < 0) {
+			throw new IllegalArgumentException("offset must be non-negative");
+		}
 		if (pageSize <= 0) {
 			throw new IllegalArgumentException("pageSize must be positive");
 		}
 	}
 
-	private List<BusRouteRidershipRank> rank(List<BusRidershipInfo> rows, int limit) {
+	private List<BusRouteRidershipRank> rank(List<BusRidershipInfo> rows, int limit, int offset) {
 		Map<RouteKey, RouteAggregate> aggregates = new LinkedHashMap<>();
 
 		for (BusRidershipInfo row : rows) {
@@ -64,6 +71,7 @@ public class BusRidershipRankingService {
 				.sorted(Comparator.comparingLong(RouteAggregate::totalUsage).reversed()
 						.thenComparing(RouteAggregate::routeNo, Comparator.nullsLast(String::compareTo))
 						.thenComparing(RouteAggregate::routeName, Comparator.nullsLast(String::compareTo)))
+				.skip(offset)
 				.limit(limit)
 				.toList();
 
@@ -71,7 +79,7 @@ public class BusRidershipRankingService {
 		for (int i = 0; i < sorted.size(); i++) {
 			RouteAggregate aggregate = sorted.get(i);
 			rankings.add(new BusRouteRidershipRank(
-					i + 1,
+					offset + i + 1,
 					aggregate.routeNo(),
 					aggregate.routeName(),
 					aggregate.getOnTotal(),

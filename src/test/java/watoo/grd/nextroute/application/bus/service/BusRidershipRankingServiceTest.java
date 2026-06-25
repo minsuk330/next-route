@@ -61,6 +61,29 @@ class BusRidershipRankingServiceTest {
 	}
 
 	@Test
+	void TC_offset만큼_상위를_건너뛰고_rank는_offset기준으로_매긴다() {
+		given(busApiPort.getBusRidershipByMonth("202603", 1000))
+				.willReturn(new BusRidershipFetchResult("202603", 3, List.of(
+						new BusRidershipInfo("300", "300번", 300, 300),
+						new BusRidershipInfo("200", "200번", 200, 200),
+						new BusRidershipInfo("100", "100번", 100, 100)
+				)));
+
+		BusRouteRidershipRankingResponse result = service.findTopRoutes("202603", 30, 1, 1000);
+
+		assertThat(result.rankings()).extracting("routeNo").containsExactly("200", "100");
+		assertThat(result.rankings().get(0).rank()).isEqualTo(2);
+		assertThat(result.rankings().get(1).rank()).isEqualTo(3);
+	}
+
+	@Test
+	void TC_offset이_음수면_예외() {
+		assertThatThrownBy(() -> service.findTopRoutes("202603", 30, -1, 1000))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("offset");
+	}
+
+	@Test
 	void TC_month는_yyyyMM_형식이어야_한다() {
 		assertThatThrownBy(() -> service.findTopRoutes("2026-03", 30, 1000))
 				.isInstanceOf(IllegalArgumentException.class)
