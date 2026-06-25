@@ -121,14 +121,21 @@ done
 # ── 5. coverage-safe holdout: every route must keep >= 1 train date ─────────
 # build per-date route map from the freshly built dataset, then let holdout.py pick test dates.
 mkdir -p "$DATA_DIR_HOST/tmp"
+# Apply the SAME target filter train.py uses (ml/split.py:84 filter_for_target):
+# target not-null AND 60<=t<=2400. Routes with data but no trainable label rows must
+# not enter expected/holdout, else coverage gate fails forever.
 dcrun python -c "
 import polars as pl, glob, json
+TARGET_COLUMNS={'api':'api_target_seconds_to_arrival','label':'label_target_seconds_to_arrival','corrected':'corrected_target_seconds_to_arrival'}
+col=TARGET_COLUMNS['$TARGET']
 out={}
 for d in sorted(glob.glob('$DATA_DIR_CTR/dataset/service_date=*')):
     sd=d.split('service_date=')[-1]
     files=glob.glob(d+'/part-*.parquet')
     if not files: continue
-    routes=pl.scan_parquet(files).select('route_id').unique().collect()['route_id'].to_list()
+    routes=(pl.scan_parquet(files)
+            .filter(pl.col(col).is_not_null() & (pl.col(col)>=60) & (pl.col(col)<=2400))
+            .select('route_id').unique().collect()['route_id'].to_list())
     out[sd]=sorted(str(r) for r in routes if r is not None)
 open('$DATA_DIR_CTR/tmp/date_routes.json','w').write(json.dumps(out))
 " || { err "date-routes extraction failed"; exit 1; }
@@ -187,21 +194,28 @@ mv -T "$MODEL_DIR_HOST/current.tmp" "$MODEL_DIR_HOST/current"
 log "symlink current → ../experiments/$RUN_ID"
 
 # ── 9. serve restart + health ───────────────────────────────────────────────
-"${DC[@]}" restart "$SERVE_CONTAINER" || { err "serve restart failed"; exit 1; }
+# symlink already points at the new model. ANY failure past this point must
+# restore the previous target so a later serve boot won't load the bad model.
+rollback() {
+	err "deploy failed ($1) — rolling back current → $PREV_TARGET"
+	if [ -n "$PREV_TARGET" ]; then
+		ln -sfn "$PREV_TARGET" "$MODEL_DIR_HOST/current.tmp"
+		mv -T "$MODEL_DIR_HOST/current.tmp" "$MODEL_DIR_HOST/current"
+		"${DC[@]}" restart "$SERVE_CONTAINER" || true
+	else
+		# no prior model: drop the dangling current so serve falls back to 503, not a bad model.
+		rm -f "$MODEL_DIR_HOST/current"
+	fi
+	exit 1
+}
+
+"${DC[@]}" restart "$SERVE_CONTAINER" || rollback "restart"
 ok=0
 for _ in $(seq 1 30); do
 	if curl -fsS "$SERVE_HEALTH_URL/health" >/dev/null 2>&1; then ok=1; break; fi
 	sleep 2
 done
-if [ "$ok" -ne 1 ]; then
-	err "serve unhealthy after deploy — rolling back to $PREV_TARGET"
-	if [ -n "$PREV_TARGET" ]; then
-		ln -sfn "$PREV_TARGET" "$MODEL_DIR_HOST/current.tmp"
-		mv -T "$MODEL_DIR_HOST/current.tmp" "$MODEL_DIR_HOST/current"
-		"${DC[@]}" restart "$SERVE_CONTAINER" || true
-	fi
-	exit 1
-fi
+[ "$ok" -eq 1 ] || rollback "unhealthy"
 ROUTE_COUNT="$(curl -fsS "$SERVE_HEALTH_URL/metadata" | sed -n 's/.*"route_count":[ ]*\([0-9]*\).*/\1/p')"
 log "deployed $RUN_ID, /metadata route_count=$ROUTE_COUNT"
 
