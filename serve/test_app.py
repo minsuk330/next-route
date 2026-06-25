@@ -128,8 +128,44 @@ def test_metadata_exposes_route_categories(monkeypatch, model_dir):
         res = client.get("/metadata")
         assert res.status_code == 200
         body = res.json()
+        # manifest에 training_route_categories 없음 → model categorical로 폴백
         assert body["route_count"] == len(ROUTES)
         assert sorted(body["route_categories"]) == sorted(ROUTES)
+        assert body["model_route_count"] == len(ROUTES)
+
+
+def _set_training_routes(model_dir: Path, trained: list[str]) -> None:
+    manifest_path = model_dir / "training_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["training_route_categories"] = trained
+    manifest_path.write_text(json.dumps(manifest))
+
+
+def test_metadata_uses_training_route_categories_when_present(monkeypatch, model_dir):
+    # 모델은 143/272/160 모두 categorical이지만 train split엔 143/272만 있었던 경우
+    _set_training_routes(model_dir, ["143", "272"])
+    with _client(monkeypatch, str(model_dir)) as client:
+        body = client.get("/metadata").json()
+        assert sorted(body["route_categories"]) == ["143", "272"]
+        assert body["route_count"] == 2
+        # booster categorical은 여전히 3개 → 미학습 route 존재 신호
+        assert body["model_route_count"] == len(ROUTES)
+
+
+def test_predict_isolates_untrained_category_route(monkeypatch, model_dir):
+    # 160은 model categorical엔 있지만 학습 안 됨 → UNSUPPORTED, 학습된 143은 정상 예측
+    _set_training_routes(model_dir, ["143", "272"])
+    with _client(monkeypatch, str(model_dir)) as client:
+        res = client.post(
+            "/predict",
+            json={"items": [_item("ok", route="143"), _item("untrained", route="160")]},
+        )
+        assert res.status_code == 200
+        by_id = {r["request_id"]: r for r in res.json()["results"]}
+        assert by_id["ok"]["status"] == "AVAILABLE"
+        assert isinstance(by_id["ok"]["seconds_to_arrival"], float)
+        assert by_id["untrained"]["status"] == "UNSUPPORTED_ROUTE"
+        assert by_id["untrained"]["seconds_to_arrival"] is None
 
 
 def test_metadata_503_without_model(monkeypatch):
