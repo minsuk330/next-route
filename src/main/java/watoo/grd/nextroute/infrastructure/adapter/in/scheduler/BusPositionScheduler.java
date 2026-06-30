@@ -7,6 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.bus.port.in.CollectBusPositionUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiBlockStatusPort;
+import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.common.config.ClockConfig;
 
 import java.time.Instant;
@@ -40,7 +41,7 @@ public class BusPositionScheduler {
 			log.debug("[BusPosition] Off-hours, skipping collection");
 			return;
 		}
-		Optional<Instant> blockedUntil = busApiBlockStatusPort.getBlockedUntil();
+		Optional<Instant> blockedUntil = busApiBlockStatusPort.getBlockedUntil(BusApiQuotaPort.Endpoint.POSITION);
 		if (blockedUntil.isPresent()) {
 			log.debug("[BusPosition] API blocked until {}, skipping collection",
 					blockedUntil.get().atZone(ClockConfig.KST));

@@ -45,7 +45,7 @@ class SearchTimeBusAdapterTest {
 
     @Test
     void TC_breaker_차단중이면_BLOCKED_quota_미사용() {
-        when(breaker.getBlockedUntil()).thenReturn(Optional.of(Instant.MAX));
+        when(breaker.getBlockedUntil(BusApiQuotaPort.Endpoint.ARRIVAL)).thenReturn(Optional.of(Instant.MAX));
         SearchTimeBusAdapter adapter = adapter(new Semaphore(8));
 
         var result = adapter.getArrInfoByStop("1111", "R1", 3);
@@ -56,7 +56,7 @@ class SearchTimeBusAdapterTest {
 
     @Test
     void TC_quota_소진시_LIMITED() {
-        when(breaker.getBlockedUntil()).thenReturn(Optional.empty());
+        when(breaker.getBlockedUntil(BusApiQuotaPort.Endpoint.ARRIVAL)).thenReturn(Optional.empty());
         when(quota.tryAcquireSearch(BusApiQuotaPort.Endpoint.ARRIVAL)).thenReturn(false);
         SearchTimeBusAdapter adapter = adapter(new Semaphore(8));
 
@@ -67,7 +67,7 @@ class SearchTimeBusAdapterTest {
 
     @Test
     void TC_동시_슬롯_없으면_LIMITED_quota_미사용() {
-        when(breaker.getBlockedUntil()).thenReturn(Optional.empty());
+        when(breaker.getBlockedUntil(BusApiQuotaPort.Endpoint.POSITION)).thenReturn(Optional.empty());
         SearchTimeBusAdapter adapter = adapter(new Semaphore(0)); // 슬롯 0 → acquire timeout
 
         var result = adapter.getBusPosByRtid("R1");
@@ -77,7 +77,7 @@ class SearchTimeBusAdapterTest {
 
     @Test
     void TC_생략시에도_세마포어_누수_없음() {
-        when(breaker.getBlockedUntil()).thenReturn(Optional.empty());
+        when(breaker.getBlockedUntil(BusApiQuotaPort.Endpoint.ARRIVAL)).thenReturn(Optional.empty());
         when(quota.tryAcquireSearch(BusApiQuotaPort.Endpoint.ARRIVAL)).thenReturn(false);
         Semaphore sem = new Semaphore(1);
         SearchTimeBusAdapter adapter = adapter(sem);
