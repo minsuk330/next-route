@@ -17,6 +17,14 @@ SCHEMA_VERSION = 1
 QUERY_VERSION = "v1"
 DATASET_ARCHIVE_VERSION = "v1"
 
+# Calendar feature boundaries (hour of day, KST snapshot). These constants are the
+# single spec — the Java MlFeatureVectorBuilder must replicate them exactly to avoid
+# train/serve skew. [start, end) half-open for commute windows.
+COMMUTE_MORNING = (7, 9)
+COMMUTE_EVENING = (18, 20)
+LATE_NIGHT_START = 23  # hour >= 23
+LATE_NIGHT_END = 5  # or hour < 5
+
 
 class DatasetBuildError(RuntimeError):
     pass
@@ -81,6 +89,61 @@ def load_data_dir() -> Path:
 
 def partition_dir(data_dir: Path, table: str, service_date: date) -> Path:
     return data_dir / table / f"service_date={service_date.isoformat()}"
+
+
+def holiday_sidecar_path(data_dir: Path) -> Path:
+    return data_dir / "calendar" / "holidays.parquet"
+
+
+def load_holidays(data_dir: Path) -> list[date]:
+    """Read the holiday sidecar (ml/holiday_fetch.py output). Missing sidecar
+    returns an empty list — holiday-derived features fall back to null so a stale
+    or absent calendar is visibly unknown rather than silently 'not a holiday'."""
+    path = holiday_sidecar_path(data_dir)
+    if not path.exists():
+        print(f"[warn] holiday sidecar missing: {path} — holiday features will be null")
+        return []
+    frame = pl.read_parquet(str(path))
+    if "holiday_date" not in frame.columns:
+        return []
+    return frame.get_column("holiday_date").to_list()
+
+
+def calendar_columns(holidays: list[date]) -> list[pl.Expr]:
+    """Calendar features derived from snapshot_at (KST). Boundaries are the module
+    constants; the Java serving builder must match these exactly."""
+    hour = pl.col("snapshot_at").dt.hour()
+    commute = [
+        ((hour >= COMMUTE_MORNING[0]) & (hour < COMMUTE_MORNING[1]))
+        .cast(pl.Int8)
+        .alias("is_commute_morning"),
+        ((hour >= COMMUTE_EVENING[0]) & (hour < COMMUTE_EVENING[1]))
+        .cast(pl.Int8)
+        .alias("is_commute_evening"),
+        ((hour >= LATE_NIGHT_START) | (hour < LATE_NIGHT_END))
+        .cast(pl.Int8)
+        .alias("is_late_night"),
+    ]
+    if holidays:
+        snap_date = pl.col("snapshot_at").dt.date()
+        holiday = [
+            snap_date.is_in(holidays).cast(pl.Int8).alias("is_holiday"),
+            snap_date.dt.offset_by("1d")
+            .is_in(holidays)
+            .cast(pl.Int8)
+            .alias("is_pre_holiday"),
+            snap_date.dt.offset_by("-1d")
+            .is_in(holidays)
+            .cast(pl.Int8)
+            .alias("is_post_holiday"),
+        ]
+    else:
+        holiday = [
+            pl.lit(None, dtype=pl.Int8).alias("is_holiday"),
+            pl.lit(None, dtype=pl.Int8).alias("is_pre_holiday"),
+            pl.lit(None, dtype=pl.Int8).alias("is_post_holiday"),
+        ]
+    return holiday + commute
 
 
 def require_archive(data_dir: Path, table: str, service_date: date) -> Path:
@@ -247,6 +310,7 @@ def dataset_for_route(
     label: pl.LazyFrame,
     route_id: str,
     generated_at: str,
+    holidays: list[date],
 ) -> pl.LazyFrame:
     position_route = position.filter(pl.col("route_id") == route_id)
     label_route = label.filter(pl.col("route_id") == route_id)
@@ -294,6 +358,7 @@ def dataset_for_route(
                 .dt.weekday()
                 .is_in([6, 7])
                 .alias("is_weekend"),
+                *calendar_columns(holidays),
                 pl.lit(SCHEMA_VERSION).alias("schema_version"),
                 pl.lit(generated_at).alias("generated_at"),
             ]
@@ -328,6 +393,12 @@ def dataset_columns() -> list[str]:
         "minute_of_day",
         "day_of_week",
         "is_weekend",
+        "is_holiday",
+        "is_pre_holiday",
+        "is_post_holiday",
+        "is_commute_morning",
+        "is_commute_evening",
+        "is_late_night",
         "api_target_seconds_to_arrival",
         "corrected_target_seconds_to_arrival",
         "label_target_seconds_to_arrival",
@@ -428,6 +499,7 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
     positions = position_frames(position_path)
     labels = label_frames(label_path)
     generated_at = datetime.now(timezone.utc).isoformat()
+    holidays = load_holidays(data_dir)
 
     drops = build_drop_counts(positions, labels)
     routes = route_ids(positions["prepared"], labels["filtered"])
@@ -437,7 +509,7 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
     try:
         for route_id in routes:
             route_dataset = dataset_for_route(
-                positions["prepared"], labels["filtered"], route_id, generated_at
+                positions["prepared"], labels["filtered"], route_id, generated_at, holidays
             )
             route_frame = route_dataset.collect(engine="streaming")
             if route_frame.is_empty():
@@ -464,6 +536,7 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
             "query_version": QUERY_VERSION,
             "service_date": service_date.isoformat(),
             "row_count": row_count,
+            "holiday_sidecar_dates": len(holidays),
             "route_counts": route_counts,
             "label_source_counts": label_source_counts,
             "drop_counts": drops,

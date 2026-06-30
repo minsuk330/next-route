@@ -63,6 +63,8 @@ services:
       - DATA_DIR=/data
     env_file:
       - env/db.env
+      # GONG_API: data.go.kr 키 (holiday_fetch.py getRestDeInfo, Java GongApiAdapter 공용)
+      - env/api.env
     volumes:
       - /srv/nextroute/ml-data:/data
     depends_on:
