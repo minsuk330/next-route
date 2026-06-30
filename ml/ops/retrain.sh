@@ -31,7 +31,6 @@ MIN_FREE_GB="${ML_MIN_FREE_GB:-8}"
 EXTRA_FREE_GB="${ML_EXTRA_FREE_GB:-5}"
 DISK_FACTOR="${ML_DISK_FACTOR:-2.5}"
 SERVE_CONTAINER="${ML_SERVE_CONTAINER:-nextroute-ml-serve}"
-SERVE_HEALTH_URL="${ML_SERVE_HEALTH_URL:-http://localhost:8001}"
 LOCK_FILE="${ML_LOCK_FILE:-/var/lock/nextroute-ml.lock}"   # shared with retention
 
 MODEL_DIR_HOST="$DATA_DIR_HOST/model"
@@ -234,14 +233,22 @@ rollback() {
 	exit 1
 }
 
+# Probe inside the serve container: its 8001 port is not necessarily published to
+# the host, so a host-side curl would always fail and force a false rollback.
+serve_probe() {  # $1 = path; prints body, non-zero on failure
+	"${DC[@]}" exec -T "$SERVE_CONTAINER" python -c \
+		"import urllib.request,sys; sys.stdout.write(urllib.request.urlopen('http://localhost:8001$1').read().decode())" \
+		2>/dev/null
+}
+
 "${DC[@]}" restart "$SERVE_CONTAINER" || rollback "restart"
 ok=0
 for _ in $(seq 1 30); do
-	if curl -fsS "$SERVE_HEALTH_URL/health" >/dev/null 2>&1; then ok=1; break; fi
+	if serve_probe /health >/dev/null 2>&1; then ok=1; break; fi
 	sleep 2
 done
 [ "$ok" -eq 1 ] || rollback "unhealthy"
-ROUTE_COUNT="$(curl -fsS "$SERVE_HEALTH_URL/metadata" | sed -n 's/.*"route_count":[ ]*\([0-9]*\).*/\1/p')"
+ROUTE_COUNT="$(serve_probe /metadata | sed -n 's/.*"route_count":[ ]*\([0-9]*\).*/\1/p')"
 log "deployed $RUN_ID, /metadata route_count=$ROUTE_COUNT"
 
 # ── 10. cleanup: old experiments (keep last N). dataset handled by EXIT trap. ─
