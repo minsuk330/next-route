@@ -83,6 +83,94 @@ def partition_dir(data_dir: Path, table: str, service_date: date) -> Path:
     return data_dir / table / f"service_date={service_date.isoformat()}"
 
 
+# Raw ASOS observations carried by the weather sidecar (ml/weather_fetch.py). The
+# derived flags below are computed here so a threshold change never needs a refetch.
+WEATHER_RAW_COLUMNS = [
+    "temperature_c",
+    "precipitation_mm",
+    "humidity_pct",
+    "wind_speed_mps",
+    "snow_depth_cm",
+]
+WEATHER_DERIVED_COLUMNS = ["is_raining", "is_snowing", "weather_severity"]
+WEATHER_COLUMNS = WEATHER_RAW_COLUMNS + WEATHER_DERIVED_COLUMNS
+
+
+def weather_sidecar_path(data_dir: Path, service_date: date) -> Path:
+    return (
+        data_dir / "weather" / f"service_date={service_date.isoformat()}" / "data.parquet"
+    )
+
+
+def load_weather(data_dir: Path, service_date: date) -> pl.LazyFrame | None:
+    """Scan the weather sidecar for a date. Missing sidecar returns None — the join
+    is skipped and all weather features fall back to null (LightGBM NaN)."""
+    path = weather_sidecar_path(data_dir, service_date)
+    if not path.exists():
+        print(f"[warn] weather sidecar missing: {path} — weather features will be null")
+        return None
+    return pl.scan_parquet(str(path))
+
+
+def weather_derived_columns() -> list[pl.Expr]:
+    """Deterministic snow/rain/severity from raw ASOS columns. This is the single
+    spec the Java serving builder must replicate exactly. Snow takes precedence over
+    rain (진눈깨비 → snow). Null inputs propagate to null derived values."""
+    precip = pl.col("precipitation_mm")
+    snow = pl.col("snow_depth_cm")
+    wind = pl.col("wind_speed_mps")
+
+    is_snowing = (
+        pl.when(snow.is_null())
+        .then(pl.lit(None, dtype=pl.Int8))
+        .when(snow > 0)
+        .then(pl.lit(1, dtype=pl.Int8))
+        .otherwise(pl.lit(0, dtype=pl.Int8))
+        .alias("is_snowing")
+    )
+    is_raining = (
+        pl.when(precip.is_null())
+        .then(pl.lit(None, dtype=pl.Int8))
+        .when((precip > 0) & (snow.fill_null(0) == 0))
+        .then(pl.lit(1, dtype=pl.Int8))
+        .otherwise(pl.lit(0, dtype=pl.Int8))
+        .alias("is_raining")
+    )
+
+    all_null = precip.is_null() & snow.is_null() & wind.is_null()
+    p = precip.fill_null(0)
+    s = snow.fill_null(0)
+    w = wind.fill_null(0)
+    weather_severity = (
+        pl.when(all_null)
+        .then(pl.lit(None, dtype=pl.Int8))
+        .when((p >= 10) | (s >= 5) | (w >= 14))
+        .then(pl.lit(3, dtype=pl.Int8))
+        .when((p >= 3) | (s >= 1) | (w >= 10))
+        .then(pl.lit(2, dtype=pl.Int8))
+        .when((p >= 0.1) | (s > 0) | (w >= 7))
+        .then(pl.lit(1, dtype=pl.Int8))
+        .otherwise(pl.lit(0, dtype=pl.Int8))
+        .alias("weather_severity")
+    )
+    return [is_raining, is_snowing, weather_severity]
+
+
+def attach_weather(frame: pl.LazyFrame, weather: pl.LazyFrame | None) -> pl.LazyFrame:
+    """Left-join the hourly weather sidecar on weather_hour, then derive flags.
+    weather_hour = snapshot_at truncated to the hour (same KST base as serving)."""
+    frame = frame.with_columns(
+        pl.col("snapshot_at").dt.truncate("1h").alias("weather_hour")
+    )
+    if weather is not None:
+        frame = frame.join(weather, on="weather_hour", how="left")
+    else:
+        frame = frame.with_columns(
+            [pl.lit(None, dtype=pl.Float64).alias(col) for col in WEATHER_RAW_COLUMNS]
+        )
+    return frame.with_columns(weather_derived_columns())
+
+
 def require_archive(data_dir: Path, table: str, service_date: date) -> Path:
     data_path = partition_dir(data_dir, table, service_date) / "data.parquet"
     if not data_path.exists():
@@ -247,6 +335,7 @@ def dataset_for_route(
     label: pl.LazyFrame,
     route_id: str,
     generated_at: str,
+    weather: pl.LazyFrame | None,
 ) -> pl.LazyFrame:
     position_route = position.filter(pl.col("route_id") == route_id)
     label_route = label.filter(pl.col("route_id") == route_id)
@@ -274,7 +363,7 @@ def dataset_for_route(
         ]
     )
 
-    return (
+    enriched = (
         with_targets.filter(
             (pl.col("label_arrival_at") > pl.col("snapshot_at") + pl.duration(minutes=1))
             & (
@@ -298,8 +387,9 @@ def dataset_for_route(
                 pl.lit(generated_at).alias("generated_at"),
             ]
         )
-        .select(dataset_columns())
     )
+
+    return attach_weather(enriched, weather).select(dataset_columns())
 
 
 def dataset_columns() -> list[str]:
@@ -328,6 +418,14 @@ def dataset_columns() -> list[str]:
         "minute_of_day",
         "day_of_week",
         "is_weekend",
+        "temperature_c",
+        "precipitation_mm",
+        "humidity_pct",
+        "wind_speed_mps",
+        "snow_depth_cm",
+        "is_raining",
+        "is_snowing",
+        "weather_severity",
         "api_target_seconds_to_arrival",
         "corrected_target_seconds_to_arrival",
         "label_target_seconds_to_arrival",
@@ -428,6 +526,7 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
     positions = position_frames(position_path)
     labels = label_frames(label_path)
     generated_at = datetime.now(timezone.utc).isoformat()
+    weather = load_weather(data_dir, service_date)
 
     drops = build_drop_counts(positions, labels)
     routes = route_ids(positions["prepared"], labels["filtered"])
@@ -437,7 +536,7 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
     try:
         for route_id in routes:
             route_dataset = dataset_for_route(
-                positions["prepared"], labels["filtered"], route_id, generated_at
+                positions["prepared"], labels["filtered"], route_id, generated_at, weather
             )
             route_frame = route_dataset.collect(engine="streaming")
             if route_frame.is_empty():
@@ -457,6 +556,9 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
         row_count = count_rows(dataset)
         route_counts = count_by(dataset, "route_id")
         label_source_counts = count_by(dataset, "label_source")
+        weather_present_rows = int(
+            dataset.select(pl.col("temperature_c").is_not_null().sum()).collect().item()
+        )
 
         manifest = {
             "archive_version": DATASET_ARCHIVE_VERSION,
@@ -464,6 +566,8 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
             "query_version": QUERY_VERSION,
             "service_date": service_date.isoformat(),
             "row_count": row_count,
+            "weather_sidecar_present": weather is not None,
+            "weather_coverage_rows": weather_present_rows,
             "route_counts": route_counts,
             "label_source_counts": label_source_counts,
             "drop_counts": drops,
