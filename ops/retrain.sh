@@ -118,7 +118,16 @@ done
 rm -rf "$DATA_DIR_HOST/dataset"
 mkdir -p "$DATA_DIR_HOST/dataset"
 
-# ── 3.5 weather sidecar fetch (best-effort; ASOS getWthrDataList) ───────────
+# ── 3.5 holiday sidecar (best-effort; same gov API as Java GongApiAdapter) ──
+# Merges into $DATA_DIR/calendar/holidays.parquet (persisted). API outage → keep
+# prior sidecar; build_dataset degrades to null holiday features, never fails here.
+FROM_YEAR="${TRAIN_FROM:0:4}"
+TO_YEAR="${TO:0:4}"
+log "holiday fetch ${FROM_YEAR}..${TO_YEAR}"
+dcrun python holiday_fetch.py --from-year "$FROM_YEAR" --to-year "$TO_YEAR" \
+	|| log "holiday fetch failed (best-effort) — calendar holiday features null this run"
+
+# ── 3.6 weather sidecar fetch (best-effort; ASOS getWthrDataList) ───────────
 # Fill any date still missing a weather sidecar after restore. API/key failure →
 # build_dataset degrades to null weather features, never fails the pipeline here.
 for d in "${AVAIL_DATES[@]}"; do
