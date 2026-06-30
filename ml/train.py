@@ -31,6 +31,20 @@ NUMERIC_FEATURES = [
     "minute_of_day",
     "day_of_week",
     "is_weekend",
+    # Calendar + weather (PR D2). Must exactly match the keys MlFeatureVectorBuilder
+    # sends — snow_depth_cm/weather_severity are NOT served, so they stay out (else /predict 422).
+    "is_holiday",
+    "is_pre_holiday",
+    "is_post_holiday",
+    "is_commute_morning",
+    "is_commute_evening",
+    "is_late_night",
+    "temperature_c",
+    "precipitation_mm",
+    "humidity_pct",
+    "wind_speed_mps",
+    "is_raining",
+    "is_snowing",
 ]
 CATEGORICAL_FEATURES = ["route_id"]
 LEAKAGE_COLUMNS = [
@@ -224,7 +238,7 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         "run_id": run_id,
         "type": "lightgbm",
         "model_version": run_id,
-        "schema_version": 1,
+        "schema_version": 2,
         "service_date_range": [item.isoformat() for item in service_dates],
         "dataset_path": split.dataset_path,
         "target_policy": args.target,
