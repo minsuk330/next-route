@@ -63,7 +63,9 @@ class SingleTransferPredictorTest {
         mlProps.setEnabled(true);
         Clock clock = Clock.fixed(BASE, ZoneOffset.UTC);
         predictor = new SingleTransferPredictor(transferProps, predictProps, mlProps,
-                busPort, mlPort, new MlFeatureVectorBuilder(), resolver, routeStopRepo, supportService, clock);
+                busPort, mlPort,
+                new MlFeatureVectorBuilder(d -> false, org.mockito.Mockito.mock(WeatherSnapshotService.class)),
+                resolver, routeStopRepo, supportService, clock);
     }
 
     @Test

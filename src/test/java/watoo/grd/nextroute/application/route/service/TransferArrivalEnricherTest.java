@@ -57,7 +57,7 @@ class TransferArrivalEnricherTest {
     @BeforeEach
     void setUp() {
         resolver = new TransferStopResolver(stopRepo, routeRepo, routeStopRepo);
-        featureBuilder = new MlFeatureVectorBuilder();
+        featureBuilder = new MlFeatureVectorBuilder(d -> false, org.mockito.Mockito.mock(WeatherSnapshotService.class));
         enricher = new TransferArrivalEnricher(props, mlProps, busPort, mlPort,
                 resolver, featureBuilder, predictionSupport, clock);
     }

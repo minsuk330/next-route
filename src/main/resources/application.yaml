@@ -92,6 +92,13 @@ kakao:
 gong:
   api:
     key: ${GONG_API}
+# 기상청 초단기실황(getUltraSrtNcst) — ML serving 날씨 feature. 키는 gong.api.key(GONG_API) 재사용.
+kma:
+  weather:
+    enabled: ${KMA_WEATHER_ENABLED:true}
+    nx: ${KMA_WEATHER_NX:60}    # 서울
+    ny: ${KMA_WEATHER_NY:127}   # 서울
+    poll-ms: ${KMA_WEATHER_POLL_MS:600000}
 seoul:
   api:
     bus-key: ${SEOUL_BUS_API:test}
