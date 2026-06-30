@@ -61,6 +61,8 @@ services:
       - TZ=Asia/Seoul
       - POSTGRES_HOST=postgres
       - DATA_DIR=/data
+      # holiday_fetch.py → getRestDeInfo (same gov key as Java GongApiAdapter)
+      - GONG_API=${GONG_API:-}
     env_file:
       - env/db.env
     volumes:
