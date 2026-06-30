@@ -61,6 +61,9 @@ services:
       - TZ=Asia/Seoul
       - POSTGRES_HOST=postgres
       - DATA_DIR=/data
+      # weather_fetch.py → 기상청 ASOS 시간자료 (getWthrDataList)
+      - KMA_ASOS_API=${KMA_ASOS_API:-}
+      - ASOS_STATION=${ASOS_STATION:-108}
     env_file:
       - env/db.env
     volumes:
