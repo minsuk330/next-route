@@ -83,14 +83,26 @@ restore_serve_image() {  # revert .env to prior state (persistent)
 	[ -n "\$PREV_IMG_LINE" ] && echo "\$PREV_IMG_LINE" >> "\$ENV_FILE"
 }
 
+# Any failure after this point (pull / up / verify) must restore .env + symlink.
+# set -e would otherwise exit before the verify block's rollback ran.
+rollback() {
+	echo "[deploy-remote] rolling back (.env image + symlink)" >&2
+	[ "\$WITH_IMAGE" = "true" ] && restore_serve_image
+	if [ -n "\$PREV_SYMLINK" ]; then
+		ln -sfn "\$PREV_SYMLINK" "\$MODEL_DIR/current.tmp"
+		mv -T "\$MODEL_DIR/current.tmp" "\$MODEL_DIR/current"
+	fi
+	docker compose up -d --force-recreate $SERVE_SVC || true
+}
+
 if [ "\$WITH_IMAGE" = "true" ]; then
 	set_serve_image "\$IMAGE_TAG"
-	docker compose pull $SERVE_SVC
+	docker compose pull $SERVE_SVC || { err_msg="pull failed"; rollback; echo "[deploy-remote] FAIL \$err_msg" >&2; exit 1; }
 fi
 
 ln -sfn "../experiments/$RUN_ID" "\$MODEL_DIR/current.tmp"
 mv -T "\$MODEL_DIR/current.tmp" "\$MODEL_DIR/current"
-docker compose up -d --force-recreate $SERVE_SVC
+docker compose up -d --force-recreate $SERVE_SVC || { rollback; echo "[deploy-remote] FAIL recreate failed" >&2; exit 1; }
 
 ok=0
 for _ in \$(seq 1 30); do
@@ -103,12 +115,7 @@ if [ "\$ok" = "1" ] && [ "\$ver" = "$RUN_ID" ]; then
 	echo "[deploy-remote] OK model_version=\$ver image=\${IMAGE_TAG:-unchanged}"
 else
 	echo "[deploy-remote] FAIL ok=\$ok ver=\$ver expected=$RUN_ID — rolling back" >&2
-	[ "\$WITH_IMAGE" = "true" ] && restore_serve_image
-	if [ -n "\$PREV_SYMLINK" ]; then
-		ln -sfn "\$PREV_SYMLINK" "\$MODEL_DIR/current.tmp"
-		mv -T "\$MODEL_DIR/current.tmp" "\$MODEL_DIR/current"
-	fi
-	docker compose up -d --force-recreate $SERVE_SVC || true
+	rollback
 	exit 1
 fi
 REMOTE
