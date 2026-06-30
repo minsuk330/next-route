@@ -31,6 +31,18 @@ FEATURES = [
     "minute_of_day",
     "day_of_week",
     "is_weekend",
+    "is_holiday",
+    "is_pre_holiday",
+    "is_post_holiday",
+    "is_commute_morning",
+    "is_commute_evening",
+    "is_late_night",
+    "temperature_c",
+    "precipitation_mm",
+    "humidity_pct",
+    "wind_speed_mps",
+    "is_raining",
+    "is_snowing",
     "route_id",
 ]
 ROUTES = ["143", "272", "160"]
@@ -57,6 +69,18 @@ def _build_model(model_dir: Path) -> None:
                 "minute_of_day": i % 60,
                 "day_of_week": (i % 7) + 1,
                 "is_weekend": 1 if (i % 7) + 1 in (6, 7) else 0,
+                "is_holiday": i % 2,
+                "is_pre_holiday": (i + 1) % 2,
+                "is_post_holiday": i % 3 == 0,
+                "is_commute_morning": 1 if (i % 24) in (7, 8) else 0,
+                "is_commute_evening": 1 if (i % 24) in (18, 19) else 0,
+                "is_late_night": 1 if (i % 24) >= 23 or (i % 24) < 5 else 0,
+                "temperature_c": float(i % 35) - 5.0,
+                "precipitation_mm": float(i % 5),
+                "humidity_pct": float(40 + i % 60),
+                "wind_speed_mps": float(i % 8),
+                "is_raining": 1 if i % 5 else 0,
+                "is_snowing": 1 if i % 9 == 0 else 0,
                 "route_id": route,
                 "y": 120 + (i % 600),
             }
@@ -75,7 +99,7 @@ def _build_model(model_dir: Path) -> None:
     (model_dir / "training_manifest.json").write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "with_api_feature": False,
                 "feature_list": FEATURES,
                 "model_version": "test-model-v1",
@@ -113,7 +137,11 @@ def test_health_ok_when_model_loaded(monkeypatch, model_dir):
     with _client(monkeypatch, str(model_dir)) as client:
         res = client.get("/health")
         assert res.status_code == 200
-        assert res.json()["model_version"] == "test-model-v1"
+        body = res.json()
+        assert body["model_version"] == "test-model-v1"
+        # schema2 contract = 28 features (16 base + 12 calendar/weather)
+        assert body["feature_count"] == 28
+        assert len(FEATURES) == 28
 
 
 def test_health_503_without_model(monkeypatch):
@@ -132,6 +160,9 @@ def test_metadata_exposes_route_categories(monkeypatch, model_dir):
         assert body["route_count"] == len(ROUTES)
         assert sorted(body["route_categories"]) == sorted(ROUTES)
         assert body["model_route_count"] == len(ROUTES)
+        # schema2 feature_list = 28 (booster feature order)
+        assert body["feature_list"] == FEATURES
+        assert body["schema_version"] == 2
 
 
 def _set_training_routes(model_dir: Path, trained: list[str]) -> None:

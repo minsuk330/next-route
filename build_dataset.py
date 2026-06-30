@@ -13,7 +13,7 @@ import polars as pl
 from dotenv import load_dotenv
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 QUERY_VERSION = "v1"
 DATASET_ARCHIVE_VERSION = "v1"
 
@@ -441,7 +441,12 @@ def dataset_for_route(
         .with_columns(
             [
                 pl.col("snapshot_at").dt.hour().alias("hour_of_day"),
-                pl.col("snapshot_at").dt.minute().alias("minute_of_day"),
+                # minute_of_day = minute-of-day (0–1439), matching Java
+                # MlFeatureVectorBuilder (hour*60+minute). Was dt.minute() (0–59) → train/serve skew.
+                # dt.hour() is Int8; cast before *60 to avoid Int8 overflow (8*60 wraps).
+                (pl.col("snapshot_at").dt.hour().cast(pl.Int32) * 60
+                 + pl.col("snapshot_at").dt.minute())
+                .alias("minute_of_day"),
                 pl.col("snapshot_at").dt.weekday().alias("day_of_week"),
                 pl.col("snapshot_at")
                 .dt.weekday()

@@ -29,7 +29,7 @@ logger = logging.getLogger("ml.serve")
 # Serving only accepts models trained against this dataset schema and without the
 # leakage-aware api feature (see ml/train.py --with-api-feature). A mismatched
 # artifact would break the fixed /predict feature contract, so we refuse to load it.
-EXPECTED_SCHEMA_VERSION = 1
+EXPECTED_SCHEMA_VERSION = 2
 CATEGORICAL_FEATURE = "route_id"
 FORBIDDEN_FEATURE = "api_target_seconds_to_arrival"
 
