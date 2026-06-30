@@ -13,6 +13,8 @@ changing a threshold never requires a re-fetch.
 
 ASOS blank-value convention: rn (precip) and dsnw (snow depth) blanks mean *absent*
 → 0.0; ta/hm/ws blanks mean *missing measurement* → null.
+
+Auth: reuses GONG_API (same data.go.kr key as the holiday endpoint / Java side).
 """
 
 from __future__ import annotations
@@ -113,9 +115,11 @@ def sidecar_path(data_dir: Path, service_date: date) -> Path:
 
 
 def _service_key() -> str:
-    key = os.getenv("KMA_ASOS_API")
+    # Same data.go.kr key as Java GongApiAdapter / holiday_fetch.py (one account key
+    # covers 특일정보 and ASOS once both services are subscribed).
+    key = os.getenv("GONG_API")
     if not key:
-        raise WeatherFetchError("KMA_ASOS_API not set — cannot fetch ASOS weather.")
+        raise WeatherFetchError("GONG_API not set — cannot fetch ASOS weather.")
     return key
 
 
