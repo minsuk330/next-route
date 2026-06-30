@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import watoo.grd.nextroute.application.bus.port.in.CollectBusPositionUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiBlockStatusPort;
+import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 
 import java.time.Instant;
 import java.time.LocalTime;
@@ -15,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class BusPositionSchedulerTest {
 
 	private final CollectBusPositionUseCase useCase = () -> {};
-	private final BusApiBlockStatusPort blockStatusPort = Optional::empty;
+	private final BusApiBlockStatusPort blockStatusPort = endpoint -> Optional.empty();
 	private final BusPositionScheduler scheduler = new BusPositionScheduler(useCase, blockStatusPort);
 
 	@Test
@@ -35,7 +36,9 @@ class BusPositionSchedulerTest {
 		AtomicInteger executions = new AtomicInteger();
 		BusPositionScheduler blockedScheduler = new BusPositionScheduler(
 				executions::incrementAndGet,
-				() -> Optional.of(Instant.parse("2026-06-09T00:00:00Z"))
+				endpoint -> endpoint == BusApiQuotaPort.Endpoint.POSITION
+						? Optional.of(Instant.parse("2026-06-09T00:00:00Z"))
+						: Optional.empty()
 		);
 		ReflectionTestUtils.setField(blockedScheduler, "enabled", true);
 		ReflectionTestUtils.setField(blockedScheduler, "activeStart", "00:00");

@@ -38,7 +38,7 @@ import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
  *
  * <p>collector와 동일 provider key를 쓰므로 운영 안전장치를 적용한다(검색은 어떤 경우에도 깨지 않음 — 빈 결과):
  * <ul>
- *   <li>공유 {@link BusApiBreakerPort} 차단 중이면 외부 호출 생략. error code 7 수신 시 공유 차단을 건다.</li>
+ *   <li>endpoint별 {@link BusApiBreakerPort} 차단 중이면 외부 호출 생략. error code 7 수신 시 endpoint별 limit count를 기록한다.</li>
  *   <li>{@link BusApiQuotaPort} 검색 몫 quota 소진 시 호출 생략(collector quota 잠식 방지).</li>
  *   <li>전역 {@link Semaphore}로 fan-out 동시 호출 수 제한(슬롯 대기 초과 시 생략).</li>
  * </ul>
@@ -103,9 +103,10 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
                                              BusApiQuotaPort.Endpoint endpoint,
                                              java.util.function.Function<I, R> mapper) {
         // 1. 공유 차단 중이면 외부 호출 생략 → BLOCKED
-        Optional<Instant> blocked = breaker.getBlockedUntil();
+        Optional<Instant> blocked = breaker.getBlockedUntil(endpoint);
         if (blocked.isPresent()) {
-            log.debug("[SearchTimeAdapter] breaker blocked until {} — skip {}", blocked.get(), uri.getPath());
+            log.debug("[SearchTimeAdapter] {} breaker blocked until {} — skip {}",
+                    endpoint, blocked.get(), uri.getPath());
             return BusQueryResult.blocked();
         }
         // 2. 동시 호출 슬롯 확보(초과 대기 시 생략 → LIMITED)
@@ -126,13 +127,14 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
                 log.debug("[SearchTimeAdapter] search quota exhausted [{}] — skip {}", endpoint, uri.getPath());
                 return BusQueryResult.limited();
             }
-            return doCall(uri, itemType, mapper);
+            return doCall(uri, itemType, endpoint, mapper);
         } finally {
             concurrencyLimiter.release();
         }
     }
 
     private <I, R> BusQueryResult<R> doCall(URI uri, Class<I> itemType,
+                                            BusApiQuotaPort.Endpoint endpoint,
                                             java.util.function.Function<I, R> mapper) {
         try {
             String xml = restClient.get()
@@ -150,11 +152,10 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
                 String cd = response.getMsgHeader() == null ? null : response.getMsgHeader().getHeaderCd();
                 String msg = response.getMsgHeader() == null ? null : response.getMsgHeader().getHeaderMsg();
                 if (API_LIMIT_EXCEEDED_CODE.equals(cd == null ? null : cd.trim())) {
-                    // 공유 차단(collector·search 함께 다음날 자정까지 차단) → BLOCKED
-                    breaker.tripUntil(nextMidnight());
-                    log.error("[SearchTimeAdapter] API error code 7 — tripping shared breaker [{}]: {}",
-                            uri.getPath(), msg);
-                    return BusQueryResult.blocked();
+                    BusApiBreakerPort.LimitDecision decision = breaker.recordApiLimit(endpoint, nextMidnight());
+                    log.error("[SearchTimeAdapter] {} API error code 7 — count={} blocked={} [{}]: {}",
+                            endpoint, decision.count(), decision.blocked(), uri.getPath(), msg);
+                    return decision.blocked() ? BusQueryResult.blocked() : BusQueryResult.limited();
                 }
                 log.warn("[SearchTimeAdapter] API error [{}]: {} - {}", uri.getPath(), cd, msg);
                 return BusQueryResult.error();

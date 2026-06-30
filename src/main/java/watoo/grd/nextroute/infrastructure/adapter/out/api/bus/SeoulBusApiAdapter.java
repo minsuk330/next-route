@@ -14,6 +14,7 @@ import watoo.grd.nextroute.application.bus.dto.*;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiBreakerPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
+import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.application.bus.service.BusApiCallBudget;
 import watoo.grd.nextroute.common.config.ClockConfig;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.*;
@@ -136,7 +137,7 @@ public class SeoulBusApiAdapter implements BusApiPort {
 		URI uri = URI.create(baseUrl + "/arrive/getArrInfoByRouteAll"
 				+ "?serviceKey=" + apiKey
 				+ "&busRouteId=" + busRouteId);
-		return callApi(uri, BusArrivalItem.class).stream()
+		return callApi(uri, BusArrivalItem.class, BusApiQuotaPort.Endpoint.ARRIVAL).stream()
 				.map(this::toArrivalInfo)
 				.toList();
 	}
@@ -151,7 +152,7 @@ public class SeoulBusApiAdapter implements BusApiPort {
 				+ "&stId=" + stopId
 				+ "&busRouteId=" + routeId
 				+ "&ord=" + ord);
-		return callApi(uri, BusArrivalItem.class).stream()
+		return callApi(uri, BusArrivalItem.class, BusApiQuotaPort.Endpoint.ARRIVAL).stream()
 				.map(this::toArrivalInfo)
 				.toList();
 	}
@@ -164,7 +165,7 @@ public class SeoulBusApiAdapter implements BusApiPort {
 		URI uri = URI.create(baseUrl + "/buspos/getBusPosByRtid"
 				+ "?serviceKey=" + apiKey
 				+ "&busRouteId=" + busRouteId);
-		return callApi(uri, BusPositionItem.class).stream()
+		return callApi(uri, BusPositionItem.class, BusApiQuotaPort.Endpoint.POSITION).stream()
 				.map(this::toPositionInfo)
 				.toList();
 	}
@@ -517,7 +518,11 @@ public class SeoulBusApiAdapter implements BusApiPort {
 	 * 모든 재시도 실패 시 빈 리스트를 반환한다.
 	 */
 	private <T> List<T> callApi(URI uri, Class<T> itemType) {
-		throwIfBlocked(uri);
+		return callApi(uri, itemType, null);
+	}
+
+	private <T> List<T> callApi(URI uri, Class<T> itemType, BusApiQuotaPort.Endpoint endpoint) {
+		throwIfBlocked(endpoint, uri);
 		Exception lastException = null;
 
 		for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -536,7 +541,12 @@ public class SeoulBusApiAdapter implements BusApiPort {
 					String headerCd = response.getMsgHeader() == null ? null : response.getMsgHeader().getHeaderCd();
 					String headerMsg = response.getMsgHeader() == null ? null : response.getMsgHeader().getHeaderMsg();
 					if (API_LIMIT_EXCEEDED_CODE.equals(normalize(headerCd))) {
-						throw blockUntilNextMidnight(uri, headerMsg);
+						if (endpoint == null) {
+							log.warn("API error code 7 on non-breaker endpoint [{}]: {} [budget: {}]",
+									uri.getPath(), headerMsg, budgetStatus());
+							return List.of();
+						}
+						throw recordLimitUntilNextMidnight(endpoint, uri, headerMsg);
 					}
 					log.warn("API error [{}]: {} - {}",
 							uri.getPath(),
@@ -568,33 +578,42 @@ public class SeoulBusApiAdapter implements BusApiPort {
 		return List.of();
 	}
 
-	private void throwIfBlocked(URI uri) {
-		Optional<Instant> blocked = breaker.getBlockedUntil();
+	private void throwIfBlocked(BusApiQuotaPort.Endpoint endpoint, URI uri) {
+		if (endpoint == null) {
+			return;
+		}
+
+		Optional<Instant> blocked = breaker.getBlockedUntil(endpoint);
 		if (blocked.isEmpty()) {
 			return;
 		}
 
 		Instant until = blocked.get();
-		log.warn("API blocked until {} KST due to error code 7 [{}] [budget: {}]",
-				until.atZone(ClockConfig.KST), uri.getPath(), budgetStatus());
+		log.warn("{} API blocked until {} KST due to error code 7 [{}] [budget: {}]",
+				endpoint, until.atZone(ClockConfig.KST), uri.getPath(), budgetStatus());
 		throw new BusApiBlockedException(
 				until,
-				"Seoul bus API blocked until " + until.atZone(ClockConfig.KST) + " KST"
+				"Seoul bus " + endpoint + " API blocked until " + until.atZone(ClockConfig.KST) + " KST"
 		);
 	}
 
-	private BusApiBlockedException blockUntilNextMidnight(URI uri, String headerMsg) {
+	private BusApiBlockedException recordLimitUntilNextMidnight(
+			BusApiQuotaPort.Endpoint endpoint,
+			URI uri,
+			String headerMsg
+	) {
 		ZonedDateTime nextMidnight = ZonedDateTime.now(clock)
 				.toLocalDate()
 				.plusDays(1)
 				.atStartOfDay(ClockConfig.KST);
 		Instant until = nextMidnight.toInstant();
-		breaker.tripUntil(until);   // 공유 차단(collector·search 함께 차단)
-		log.error("API error code 7 - blocking until {} KST [{}]: {} [budget: {}]",
-				nextMidnight, uri.getPath(), headerMsg, budgetStatus());
+		BusApiBreakerPort.LimitDecision decision = breaker.recordApiLimit(endpoint, until);
+		String action = decision.blocked() ? "blocked" : "limit observed";
+		log.error("{} API error code 7 - {} until {} KST after count={} [{}]: {} [budget: {}]",
+				endpoint, action, nextMidnight, decision.count(), uri.getPath(), headerMsg, budgetStatus());
 		return new BusApiBlockedException(
 				until,
-				"Seoul bus API error code 7; blocked until " + nextMidnight + " KST"
+				"Seoul bus " + endpoint + " API error code 7; " + action + " until " + nextMidnight + " KST"
 		);
 	}
 

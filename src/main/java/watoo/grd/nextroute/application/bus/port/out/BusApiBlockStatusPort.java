@@ -5,5 +5,5 @@ import java.util.Optional;
 
 public interface BusApiBlockStatusPort {
 
-	Optional<Instant> getBlockedUntil();
+	Optional<Instant> getBlockedUntil(BusApiQuotaPort.Endpoint endpoint);
 }

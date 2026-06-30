@@ -11,6 +11,7 @@ import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.application.bus.dto.BusRidershipFetchResult;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiBreakerPort;
+import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.application.bus.service.BusApiCallBudget;
 import watoo.grd.nextroute.common.config.ClockConfig;
 
@@ -25,9 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class SeoulBusApiAdapterTest {
@@ -60,6 +59,7 @@ class SeoulBusApiAdapterTest {
 				"usage-key",
 				"http://openapi.seoul.go.kr:8088"
 		);
+		lenient().when(breaker.getBlockedUntil(any())).thenReturn(Optional.empty());
 	}
 
 	@Test
@@ -181,12 +181,12 @@ class SeoulBusApiAdapterTest {
 	}
 
 	@Test
-	void TC_버스_API_호출제한_코드_7이면_공유_breaker를_다음_KST_자정까지_차단한다() {
+	void TC_도착_API_호출제한_코드_7이면_도착_endpoint에만_limit을_기록한다() {
 		Instant nextMidnight = LocalDateTime.of(2026, 6, 6, 0, 0, 0)
 				.atZone(ClockConfig.KST).toInstant();
-		// 첫 호출: 미차단 → API 호출 → code 7 → breaker.tripUntil. 둘째 호출: breaker 차단 상태.
-		when(breaker.getBlockedUntil())
-				.thenReturn(Optional.empty(), Optional.of(nextMidnight));
+		when(breaker.recordApiLimit(BusApiQuotaPort.Endpoint.ARRIVAL, nextMidnight))
+				.thenReturn(new BusApiBreakerPort.LimitDecision(
+						BusApiQuotaPort.Endpoint.ARRIVAL, 1, false, nextMidnight));
 		when(restTemplate.getForObject(any(URI.class), eq(String.class)))
 				.thenReturn("""
 						<ServiceResult>
@@ -204,12 +204,35 @@ class SeoulBusApiAdapterTest {
 				.satisfies(error -> assertThat(((BusApiBlockedException) error).blockedUntil())
 						.isEqualTo(nextMidnight));
 
-		// 공유 breaker에 자정까지 차단 기록
-		verify(breaker).tripUntil(nextMidnight);
+		verify(breaker).getBlockedUntil(BusApiQuotaPort.Endpoint.ARRIVAL);
+		verify(breaker).recordApiLimit(BusApiQuotaPort.Endpoint.ARRIVAL, nextMidnight);
+		verify(breaker, never()).getBlockedUntil(BusApiQuotaPort.Endpoint.POSITION);
+		verify(breaker, never()).recordApiLimit(eq(BusApiQuotaPort.Endpoint.POSITION), any());
+	}
 
-		// 둘째 호출은 breaker 차단으로 API 미호출
-		assertThatThrownBy(() -> adapter.getBusPosByRtid("100100118"))
+	@Test
+	void TC_도착_endpoint_차단중이어도_위치_API는_호출한다() {
+		Instant nextMidnight = LocalDateTime.of(2026, 6, 6, 0, 0, 0)
+				.atZone(ClockConfig.KST).toInstant();
+		when(breaker.getBlockedUntil(BusApiQuotaPort.Endpoint.ARRIVAL))
+				.thenReturn(Optional.of(nextMidnight));
+		when(breaker.getBlockedUntil(BusApiQuotaPort.Endpoint.POSITION))
+				.thenReturn(Optional.empty());
+		when(restTemplate.getForObject(any(URI.class), eq(String.class)))
+				.thenReturn("""
+						<ServiceResult>
+						  <msgHeader>
+						    <headerCd>0</headerCd>
+						    <headerMsg>정상적으로 처리되었습니다.</headerMsg>
+						    <itemCount>0</itemCount>
+						  </msgHeader>
+						  <msgBody />
+						</ServiceResult>
+						""");
+
+		assertThatThrownBy(() -> adapter.getArrInfoByRouteAll("100100118"))
 				.isInstanceOf(BusApiBlockedException.class);
+		assertThat(adapter.getBusPosByRtid("100100118")).isEmpty();
 
 		verify(restTemplate, times(1)).getForObject(any(URI.class), eq(String.class));
 	}
