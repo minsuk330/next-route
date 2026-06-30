@@ -175,3 +175,14 @@ def test_load_holidays_roundtrip(tmp_path):
 
 def test_load_holidays_missing_returns_empty(tmp_path):
     assert load_holidays(tmp_path) == []
+
+
+def test_minute_of_day_is_minute_of_day_not_minute_of_hour():
+    # build_dataset must emit minute-of-day (0..1439) to match Java
+    # MlFeatureVectorBuilder (hour*60+minute). dt.minute() alone (0..59) was a skew.
+    rows = [datetime(2026, 1, 5, 0, 0), datetime(2026, 1, 5, 8, 37), datetime(2026, 1, 5, 23, 59)]
+    out = pl.DataFrame({"snapshot_at": rows}, schema={"snapshot_at": pl.Datetime}).with_columns(
+        (pl.col("snapshot_at").dt.hour().cast(pl.Int32) * 60 + pl.col("snapshot_at").dt.minute())
+        .alias("minute_of_day")
+    )
+    assert out["minute_of_day"].to_list() == [0, 517, 1439]

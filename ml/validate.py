@@ -230,6 +230,36 @@ def feature_nulls(dataset: pl.LazyFrame, row_count: int) -> dict[str, dict[str, 
     return result
 
 
+# Calendar/weather features are nullable by design (sidecar/API gaps). They are NOT
+# in REQUIRED_FEATURES — the >1% null gate must not block retrain on a missing weather
+# sidecar. We only report coverage (warning), never error.
+NULLABLE_FEATURES = [
+    "is_holiday",
+    "is_pre_holiday",
+    "is_post_holiday",
+    "temperature_c",
+    "precipitation_mm",
+    "humidity_pct",
+    "wind_speed_mps",
+    "is_raining",
+    "is_snowing",
+    "snow_depth_cm",
+    "weather_severity",
+]
+
+
+def nullable_coverage(dataset: pl.LazyFrame, row_count: int) -> dict[str, float]:
+    """null_rate per nullable feature present in the dataset (coverage report only)."""
+    schema_names = set(dataset.collect_schema().names())
+    present = [c for c in NULLABLE_FEATURES if c in schema_names]
+    if not present or not row_count:
+        return {}
+    row = dataset.select(
+        [pl.col(c).is_null().sum().alias(c) for c in present]
+    ).collect().to_dicts()[0]
+    return {c: int(row.get(c, row_count)) / row_count for c in present}
+
+
 def duplicate_pair_count(dataset: pl.LazyFrame) -> int:
     duplicates = (
         dataset.group_by(["position_raw_id", "arrival_label_event_id"])
@@ -293,8 +323,15 @@ def validate_dataset(data_dir: Path, service_date: date) -> dict[str, Any]:
         .item()
     )
     duplicate_pairs = duplicate_pair_count(dataset)
+    weather_coverage = nullable_coverage(dataset, row_count)
 
     warnings: list[str] = []
+    heavy_null = [c for c, r in weather_coverage.items() if r > 0.5]
+    if heavy_null:
+        warnings.append(
+            "nullable feature null rate > 50%: "
+            + ", ".join(f"{c}={weather_coverage[c]:.2f}" for c in heavy_null)
+        )
     if targets["api_target_seconds_to_arrival"]["le_zero"] != 0:
         warnings.append("api_target_seconds_to_arrival <= 0 rows found")
     if targets["label_target_seconds_to_arrival"]["le_zero"] != 0:
@@ -328,6 +365,7 @@ def validate_dataset(data_dir: Path, service_date: date) -> dict[str, Any]:
         "horizon_counts": horizons,
         "target_quality": targets,
         "feature_nulls": nulls,
+        "nullable_coverage": weather_coverage,
         "remaining_stop_count_negative": remaining_negative,
         "snapshot_at_gte_label_arrival_at": snapshot_after_label,
         "duplicate_position_label_pairs": duplicate_pairs,

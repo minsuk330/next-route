@@ -77,7 +77,9 @@ services:
   # Boots even without a model; /health returns 503 until ML_MODEL_PATH points at a
   # valid experiment dir (model.txt + training_manifest.json) under the mounted data.
   nextroute-ml-serve:
-    image: ghcr.io/minsuk330/nextroute-ml:latest
+    # Pin to a sha tag via ML_SERVE_IMAGE for schema-change (D2) deploys + rollback;
+    # defaults to latest. Batch nextroute-ml is intentionally left on latest.
+    image: ${ML_SERVE_IMAGE:-ghcr.io/minsuk330/nextroute-ml:latest}
     build: ./ml
     profiles: ["ml"]
     command: uvicorn serve.app:app --host 0.0.0.0 --port 8001
