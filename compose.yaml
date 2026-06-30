@@ -61,9 +61,11 @@ services:
       - TZ=Asia/Seoul
       - POSTGRES_HOST=postgres
       - DATA_DIR=/data
+      # weather_fetch.py: ASOS 관측 지점 (108=서울)
+      - ASOS_STATION=108
     env_file:
       - env/db.env
-      # GONG_API: data.go.kr 키 (holiday_fetch.py getRestDeInfo, Java GongApiAdapter 공용)
+      # GONG_API: data.go.kr 키 (ASOS 날씨 weather_fetch + 휴일 holiday_fetch, Java 공용)
       - env/api.env
     volumes:
       - /srv/nextroute/ml-data:/data

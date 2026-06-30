@@ -106,6 +106,12 @@ for d in "${AVAIL_DATES[@]}"; do
 		rclone copy "$ARCHIVE_REMOTE/bus_candidate/service_date=$d/" \
 			"$DATA_DIR_HOST/bus_candidate/service_date=$d/" --transfers 4 --checkers 8 2>/dev/null || true
 	fi
+	# weather sidecar is best-effort: restore if archived (build_dataset left-joins it).
+	wx="$DATA_DIR_HOST/weather/service_date=$d/data.parquet"
+	if [ ! -f "$wx" ]; then
+		rclone copy "$ARCHIVE_REMOTE/weather/service_date=$d/" \
+			"$DATA_DIR_HOST/weather/service_date=$d/" --transfers 4 --checkers 8 2>/dev/null || true
+	fi
 done
 
 # ── 3. dataset cleanup (ephemeral) ──────────────────────────────────────────
@@ -120,6 +126,16 @@ TO_YEAR="${TO:0:4}"
 log "holiday fetch ${FROM_YEAR}..${TO_YEAR}"
 dcrun python holiday_fetch.py --from-year "$FROM_YEAR" --to-year "$TO_YEAR" \
 	|| log "holiday fetch failed (best-effort) — calendar holiday features null this run"
+
+# ── 3.6 weather sidecar fetch (best-effort; ASOS getWthrDataList) ───────────
+# Fill any date still missing a weather sidecar after restore. API/key failure →
+# build_dataset degrades to null weather features, never fails the pipeline here.
+for d in "${AVAIL_DATES[@]}"; do
+	[ -f "$DATA_DIR_HOST/weather/service_date=$d/data.parquet" ] && continue
+	log "weather fetch $d"
+	dcrun python weather_fetch.py "$d" \
+		|| log "weather fetch failed $d (best-effort) — weather features null for $d"
+done
 
 # ── 4. build_dataset per available date (range input fails on gap days) ─────
 for d in "${AVAIL_DATES[@]}"; do

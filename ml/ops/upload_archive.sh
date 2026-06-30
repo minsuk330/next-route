@@ -5,7 +5,7 @@ set -euo pipefail
 
 DATA_DIR="${ML_DATA_DIR:-/srv/nextroute/ml-data}"
 REMOTE="${ML_RCLONE_REMOTE:-gdrive:nextroute-archive}"
-ARCHIVES=(bus_label bus_position bus_candidate)
+ARCHIVES=(bus_label bus_position bus_candidate weather)
 
 ts() {
   date +%FT%T%z
