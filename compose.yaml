@@ -65,7 +65,7 @@ services:
       - ASOS_STATION=108
     env_file:
       - env/db.env
-      # GONG_API: data.go.kr 키 (ASOS 날씨 + 휴일 공용)
+      # GONG_API: data.go.kr 키 (ASOS 날씨 weather_fetch + 휴일 holiday_fetch, Java 공용)
       - env/api.env
     volumes:
       - /srv/nextroute/ml-data:/data
