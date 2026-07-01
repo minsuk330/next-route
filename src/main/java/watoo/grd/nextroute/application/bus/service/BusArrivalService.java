@@ -13,6 +13,7 @@ import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.in.CollectBusArrivalUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.bus.port.out.BusArrivalSnapshotPort;
+import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.domain.bus.entity.BusArrivalCandidateRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.service.BusDataService;
@@ -42,6 +43,7 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 	@Qualifier("arrivalApiCallBudget")
 	private final BusApiCallBudget budget;
 	private final BusArrivalSnapshotPort busArrivalSnapshotPort;
+	private final BusRealtimeCacheWritePort realtimeCacheWrite;
 	private final Clock clock;
 
 	@Override
@@ -95,6 +97,10 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 				budget.recordCall();
 				callRecorded = true;
 				totalFinalized += reconcile(routeId, items, collectedAt);
+				// 검색·공용 조회가 재사용하도록 실시간 캐시 프라이밍(정류장·순번별 분해; best-effort)
+				if (properties.isPrimeRealtimeCache()) {
+					primeRealtimeCache(routeId, items);
+				}
 				Thread.sleep(API_CALL_INTERVAL_MS);
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
@@ -116,6 +122,23 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 
 //		log.info("[BusArrival] Completed. Finalized {} candidates (budget: {}/{})",
 //				totalFinalized, budget.getUsed(), dailyBudget);
+	}
+
+	/**
+	 * route-all 응답을 (stopId, routeId, seq)별로 분해해 실시간 캐시에 프라이밍한다.
+	 * seq/stopId 없는 항목은 검색 조회 키를 만들 수 없어 스킵한다.
+	 */
+	private void primeRealtimeCache(String routeId, List<BusArrivalInfo> items) {
+		Map<ArrivalScope, List<BusArrivalInfo>> grouped = new LinkedHashMap<>();
+		for (BusArrivalInfo info : items) {
+			if (info.seq() == null || info.stopId() == null) {
+				continue;
+			}
+			ArrivalScope scope = new ArrivalScope(routeId, info.stopId(), info.seq());
+			grouped.computeIfAbsent(scope, k -> new ArrayList<>()).add(info);
+		}
+		grouped.forEach((scope, group) ->
+				realtimeCacheWrite.putArrivals(scope.stopId(), scope.routeId(), scope.seq(), group));
 	}
 
 	private int reconcile(String routeId, List<BusArrivalInfo> items, LocalDateTime collectedAt) {

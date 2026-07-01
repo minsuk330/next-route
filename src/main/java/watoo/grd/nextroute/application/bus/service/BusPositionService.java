@@ -13,6 +13,7 @@ import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.in.CollectBusPositionUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
+import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.domain.bus.entity.BusPositionRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.service.BusDataService;
@@ -30,9 +31,14 @@ public class BusPositionService implements CollectBusPositionUseCase {
 	@Qualifier("positionApiCallBudget")
 	private final BusApiCallBudget budget;
 	private final Clock clock;
+	private final BusRealtimeCacheWritePort realtimeCacheWrite;
 
 	@Value("${collector.bus-position.daily-budget:50000}")
 	private int dailyBudget = 50000;
+
+	/** 수집한 위치를 실시간 캐시에 프라이밍할지(노선당 1키, 저렴 — 기본 on). */
+	@Value("${collector.bus-position.prime-realtime-cache:true}")
+	private boolean primeRealtimeCache = true;
 
 	@Override
 	public void execute() {
@@ -84,6 +90,10 @@ public class BusPositionService implements CollectBusPositionUseCase {
 				if (!entities.isEmpty()) {
 					busDataService.saveAllPositions(entities);
 					totalSaved += entities.size();
+				}
+				// 검색·공용 조회가 재사용하도록 실시간 캐시 프라이밍(best-effort — 어댑터가 장애 graceful 처리)
+				if (primeRealtimeCache && !items.isEmpty()) {
+					realtimeCacheWrite.putPositions(routeId, items);
 				}
 				successfulRoutes++;
 				Thread.sleep(API_CALL_INTERVAL_MS);

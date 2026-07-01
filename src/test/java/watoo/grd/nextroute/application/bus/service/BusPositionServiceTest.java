@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
+import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.domain.bus.entity.BusPositionRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.service.BusDataService;
@@ -24,6 +25,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class BusPositionServiceTest {
@@ -35,13 +37,14 @@ class BusPositionServiceTest {
 	@Mock BusDataService busDataService;
 	@Mock TargetRouteProvider targetRouteProvider;
 	@Mock BusApiCallBudget budget;
+	@Mock BusRealtimeCacheWritePort realtimeCacheWrite;
 
 	private final Clock clock = Clock.fixed(FIXED_NOW.atZone(KST).toInstant(), KST);
 	private BusPositionService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new BusPositionService(busApiPort, busDataService, targetRouteProvider, budget, clock);
+		service = new BusPositionService(busApiPort, busDataService, targetRouteProvider, budget, clock, realtimeCacheWrite);
 	}
 
 	@Test
@@ -84,6 +87,8 @@ class BusPositionServiceTest {
 		assertThat(saved.getGpsY()).isEqualTo(37.566500);
 		assertThat(saved.getIsRunYn()).isEqualTo("1");
 		verify(budget).recordCall();
+		// 실시간 캐시 프라이밍(prime-realtime-cache 기본 on)
+		verify(realtimeCacheWrite).putPositions("100100118", List.of(positionInfo()));
 	}
 
 	@Test
@@ -112,6 +117,8 @@ class BusPositionServiceTest {
 		verify(busApiPort).getBusPosByRtid("100100119");
 		verify(budget, times(2)).recordCall();
 		verify(busDataService, never()).saveAllPositions(anyList());
+		// 실패(예외)·빈 결과 노선은 캐시 프라이밍 안 함
+		verifyNoInteractions(realtimeCacheWrite);
 	}
 
 	@Test

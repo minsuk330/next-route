@@ -1,39 +1,38 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.bus;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
-import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
+import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheReadPort;
+import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.BusQueryResult;
 
-import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class CachedSearchTimeBusAdapterTest {
 
     @Mock SearchTimeBusAdapter delegate;
-    @Mock RedisTemplate<String, String> redisTemplate;
-    @Mock ValueOperations<String, String> valueOps;
+    @Mock BusRealtimeCacheReadPort cacheRead;
+    @Mock BusRealtimeCacheWritePort cacheWrite;
 
-    ObjectMapper objectMapper = new ObjectMapper();
-    TransferArrivalProperties props = new TransferArrivalProperties();
     CachedSearchTimeBusAdapter cache;
 
     @BeforeEach
     void setUp() {
-        props.setCacheTtlSeconds(15);
-        cache = new CachedSearchTimeBusAdapter(delegate, redisTemplate, objectMapper, props);
+        cache = new CachedSearchTimeBusAdapter(delegate, cacheRead, cacheWrite);
     }
 
     private BusPositionInfo pos(String vehId) {
@@ -46,11 +45,8 @@ class CachedSearchTimeBusAdapterTest {
     }
 
     @Test
-    void TC_캐시_hit이면_delegate_미호출_cacheHit_true() throws Exception {
-        String key = CachedSearchTimeBusAdapter.KEY_POS + "R1";
-        String json = objectMapper.writeValueAsString(List.of(pos("v1")));
-        when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.get(key)).thenReturn(json);
+    void TC_캐시_hit이면_delegate_미호출_cacheHit_true() {
+        given(cacheRead.getPositions("R1")).willReturn(Optional.of(List.of(pos("v1"))));
 
         BusQueryResult<BusPositionInfo> result = cache.getBusPosByRtid("R1");
 
@@ -59,69 +55,52 @@ class CachedSearchTimeBusAdapterTest {
         assertThat(result.data()).hasSize(1);
         assertThat(result.data().get(0).vehicleId()).isEqualTo("v1");
         verify(delegate, never()).getBusPosByRtid(any());
+        verify(cacheWrite, never()).putPositions(any(), any());
     }
 
     @Test
     void TC_캐시_miss이면_delegate_호출하고_저장_cacheHit_false() {
-        String key = CachedSearchTimeBusAdapter.KEY_POS + "R1";
-        when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.get(key)).thenReturn(null);
-        when(delegate.getBusPosByRtid("R1")).thenReturn(BusQueryResult.ok(List.of(pos("v1"))));
+        given(cacheRead.getPositions("R1")).willReturn(Optional.empty());
+        given(delegate.getBusPosByRtid("R1")).willReturn(BusQueryResult.ok(List.of(pos("v1"))));
 
         BusQueryResult<BusPositionInfo> result = cache.getBusPosByRtid("R1");
 
         assertThat(result.data()).hasSize(1);
         assertThat(result.cacheHit()).isFalse();
-        verify(valueOps).set(eq(key), anyString(), eq(Duration.ofSeconds(15)));
+        verify(cacheWrite).putPositions(eq("R1"), eq(List.of(pos("v1"))));
     }
 
     @Test
     void TC_빈_결과는_캐시하지_않음() {
-        String key = CachedSearchTimeBusAdapter.KEY_POS + "R1";
-        when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.get(key)).thenReturn(null);
-        when(delegate.getBusPosByRtid("R1")).thenReturn(BusQueryResult.ok(List.of()));
+        given(cacheRead.getPositions("R1")).willReturn(Optional.empty());
+        given(delegate.getBusPosByRtid("R1")).willReturn(BusQueryResult.ok(List.of()));
 
         BusQueryResult<BusPositionInfo> result = cache.getBusPosByRtid("R1");
 
         assertThat(result.data()).isEmpty();
-        verify(valueOps, never()).set(any(), any(), any(Duration.class));
+        verify(cacheWrite, never()).putPositions(any(), any());
     }
 
     @Test
     void TC_차단_결과는_캐시하지_않음() {
-        String key = CachedSearchTimeBusAdapter.KEY_POS + "R1";
-        when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.get(key)).thenReturn(null);
-        when(delegate.getBusPosByRtid("R1")).thenReturn(BusQueryResult.blocked());
+        given(cacheRead.getPositions("R1")).willReturn(Optional.empty());
+        given(delegate.getBusPosByRtid("R1")).willReturn(BusQueryResult.blocked());
 
         BusQueryResult<BusPositionInfo> result = cache.getBusPosByRtid("R1");
 
         // BLOCKED outcome 전파, 캐시 안 함(고착 방지)
         assertThat(result.isOk()).isFalse();
-        verify(valueOps, never()).set(any(), any(), any(Duration.class));
+        verify(cacheWrite, never()).putPositions(any(), any());
     }
 
     @Test
-    void TC_ttl_0이면_캐시_우회_delegate_직접() {
-        props.setCacheTtlSeconds(0);
-        when(delegate.getBusPosByRtid("R1")).thenReturn(BusQueryResult.ok(List.of(pos("v1"))));
+    void TC_도착조회_miss이면_delegate_호출하고_저장() {
+        given(cacheRead.getArrivals("22000", "R1", 3)).willReturn(Optional.empty());
+        given(delegate.getArrInfoByStop("22000", "R1", 3)).willReturn(BusQueryResult.ok(List.of()));
 
-        BusQueryResult<BusPositionInfo> result = cache.getBusPosByRtid("R1");
+        cache.getArrInfoByStop("22000", "R1", 3);
 
-        assertThat(result.data()).hasSize(1);
-        verifyNoInteractions(redisTemplate);
-    }
-
-    @Test
-    void TC_Redis_조회_장애_graceful_delegate로_진행() {
-        String key = CachedSearchTimeBusAdapter.KEY_POS + "R1";
-        when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.get(key)).thenThrow(new RuntimeException("redis down"));
-        when(delegate.getBusPosByRtid("R1")).thenReturn(BusQueryResult.ok(List.of(pos("v1"))));
-
-        BusQueryResult<BusPositionInfo> result = cache.getBusPosByRtid("R1");
-
-        assertThat(result.data()).hasSize(1);
+        // 빈 결과라 저장 안 함
+        verify(cacheWrite, never()).putArrivals(any(), any(), anyInt(), any());
     }
 }
