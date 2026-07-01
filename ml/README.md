@@ -344,14 +344,20 @@ CRON_TZ=Asia/Seoul
 10 5 * * * cd /path/to/nextroute && docker compose pull nextroute-ml >> /var/log/nextroute-ml.log 2>&1
 20 5 * * * cd /path/to/nextroute && docker compose run --rm nextroute-ml python archive.py $(date -d yesterday +\%F) >> /var/log/nextroute-ml.log 2>&1
 40 5 * * * cd /path/to/nextroute && { docker compose run --rm nextroute-ml python validate.py $(date -d yesterday +\%F) && bash ml/ops/upload_archive.sh; } >> /var/log/nextroute-ml.log 2>&1
-0 6 * * * cd /path/to/nextroute && docker compose run --rm nextroute-ml python retention.py --dry-run >> /var/log/nextroute-ml.log 2>&1
+0 6 * * * cd /path/to/nextroute && docker compose run --rm -T nextroute-ml python retention.py --dry-run --retention-days 7 >> /var/log/nextroute-ml.log 2>&1
+0 7 * * 1 cd /path/to/nextroute && ML_RETENTION_DAYS=7 bash ml/ops/retention_apply_remote.sh >> /var/log/nextroute-ml.log 2>&1
 ```
 
 05:10 `docker compose pull`로 GHCR 최신 이미지를 받은 뒤 05:20 archive가 그 이미지로 실행되는 전제다.
 
 Spring label batch가 04:50 KST에 끝난 뒤 05:20 KST archive가 시작되는 전제다. 05:40 작업은 전날 파티션에 대한 `validate.py`가 성공한 경우에만 Google Drive 업로드를 실행한다. v1 알림은 `/var/log/nextroute-ml.log`에서 `[error]` grep으로 확인한다.
 
-`retention.py --apply`를 운영하기 전에는 아래 Google Drive 백업을 설정하고 최신 업로드 성공 여부를 확인해야 한다.
+월요일 07:00 retention apply는 `retention_apply_remote.sh`를 통해 실행한다. 이 wrapper는 먼저
+`retention.py --dry-run`으로 삭제 후보 날짜를 만들고, 각 후보 날짜의 `bus_label`, `bus_position`,
+`bus_candidate`가 Google Drive remote에 `data.parquet` + `manifest.json`으로 존재하는지 확인한 뒤에만
+`retention.py --apply --confirm-backup-reviewed`를 실행한다. Drive 검증 실패 시 DB raw row는 삭제하지 않는다.
+
+`retention.py --apply`를 직접 운영하기 전에는 아래 Google Drive 백업을 설정하고 최신 업로드 성공 여부를 확인해야 한다.
 
 ## Remote Backup (rclone to Google Drive)
 
@@ -414,7 +420,20 @@ ML_RCLONE_REMOTE=gdrive:other-path bash ml/ops/upload_archive.sh
 
 현재 Google Drive 용량은 200GB다. archive 증가량 약 33GB/년 기준으로 Drive가 비어 있다고 가정하면 약 6년을 보관할 수 있다. 다른 Drive 사용량을 포함한 실제 여유 공간은 `rclone about gdrive:`와 `rclone size gdrive:nextroute-archive`로 주기적으로 확인한다. 원격 archive 삭제 정책은 별도 작업으로 결정한다.
 
-`retention.py`는 Google Drive 상태를 직접 검사하지 않는다. `--apply`를 실행하기 전에는 최신 cron 로그에 `[upload] ... all archives uploaded`가 있고 `rclone size`가 정상인지 운영자가 확인해야 한다.
+`retention.py`는 컨테이너 내부에서 실행되므로 Google Drive 상태를 직접 검사하지 않는다. Drive 검증은 VPS host의
+`rclone` 설정을 사용하는 `ml/ops/retention_apply_remote.sh`가 담당한다.
+
+수동 적용:
+
+```bash
+ML_RETENTION_DAYS=7 bash ml/ops/retention_apply_remote.sh
+```
+
+다른 remote나 경로를 사용하려면 `ML_RCLONE_REMOTE`를 지정한다.
+
+```bash
+ML_RCLONE_REMOTE=gdrive:other-path ML_RETENTION_DAYS=7 bash ml/ops/retention_apply_remote.sh
+```
 
 Google Drive는 주간 retrain의 대체 복원 경로로도 사용할 수 있다.
 
