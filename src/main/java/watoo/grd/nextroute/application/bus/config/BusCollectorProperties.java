@@ -16,6 +16,8 @@ public class BusCollectorProperties {
 
 	private boolean enabled = true;
 	private String cron;
+	/** 수집한 도착정보를 실시간 캐시에 프라이밍할지 여부(노선×정류장 쓰기량 많음 — 기본 off). */
+	private boolean primeRealtimeCache = false;
 	private List<String> targetRouteNames = List.of();
 	private int dailyBudget = 60000;
 	private int finalizeMissThreshold = 2;

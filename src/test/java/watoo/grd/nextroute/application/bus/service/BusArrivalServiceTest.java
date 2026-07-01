@@ -14,6 +14,7 @@ import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.bus.port.out.BusArrivalSnapshotPort;
+import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.domain.bus.entity.BusArrivalCandidateRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.service.BusDataService;
@@ -51,13 +52,14 @@ class BusArrivalServiceTest {
 	@Mock TargetRouteProvider targetRouteProvider;
 	@Mock BusApiCallBudget budget;
 	@Mock BusArrivalSnapshotPort busArrivalSnapshotPort;
+	@Mock BusRealtimeCacheWritePort realtimeCacheWrite;
 
 	private final Clock clock = Clock.fixed(FIXED_NOW.atZone(KST).toInstant(), KST);
 	private BusArrivalService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new BusArrivalService(busApiPort, busDataService, properties, targetRouteProvider, budget, busArrivalSnapshotPort, clock);
+		service = new BusArrivalService(busApiPort, busDataService, properties, targetRouteProvider, budget, busArrivalSnapshotPort, realtimeCacheWrite, clock);
 	}
 
 	@Test
@@ -81,6 +83,37 @@ class BusArrivalServiceTest {
 		assertThat(snapshotCaptor.getValue().lifecycleId()).isNotBlank();
 		verify(busDataService, never()).saveAllArrivalCandidates(anyList());
 		verify(busArrivalSnapshotPort, never()).delete("100100118", "111000299", 1, "veh:veh-A");
+	}
+
+	@Test
+	void TC_prime_on이면_stop_route_seq별로_실시간캐시에_프라이밍한다() {
+		prepareRoute();
+		noRedisActiveScopes();
+		given(properties.isPrimeRealtimeCache()).willReturn(true);
+		BusArrivalInfo info = arrivalInfo("veh-A", "서울71사1111", "1분 후", "veh-B", "서울72사2222", "4분 후");
+		given(busApiPort.getArrInfoByRouteAll("100100118")).willReturn(List.of(info));
+		given(busArrivalSnapshotPort.findActive("100100118", "111000299", 1))
+				.willReturn(Map.of());
+
+		service.execute();
+
+		// arrivalInfo fixture: stopId=111000299, routeId=100100118, seq=1
+		verify(realtimeCacheWrite).putArrivals("111000299", "100100118", 1, List.of(info));
+	}
+
+	@Test
+	void TC_prime_off_기본이면_실시간캐시에_쓰지_않는다() {
+		prepareRoute();
+		noRedisActiveScopes();
+		// properties.isPrimeRealtimeCache() 기본 false(mock)
+		given(busApiPort.getArrInfoByRouteAll("100100118"))
+				.willReturn(List.of(arrivalInfo("veh-A", "서울71사1111", "1분 후", "veh-B", "서울72사2222", "4분 후")));
+		given(busArrivalSnapshotPort.findActive("100100118", "111000299", 1))
+				.willReturn(Map.of());
+
+		service.execute();
+
+		verify(realtimeCacheWrite, never()).putArrivals(anyString(), anyString(), anyInt(), anyList());
 	}
 
 	@Test

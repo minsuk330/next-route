@@ -164,6 +164,8 @@ collector:
   # *.enabled 는 application-{dev,prod}.yaml 에서 설정
   bus-arrival:
     cron: "0 * * * * *"
+    # 수집 도착정보를 실시간 캐시에 프라이밍(노선×정류장 쓰기량 많음 — 기본 off, 검증 후 on).
+    prime-realtime-cache: ${COLLECTOR_ARR_PRIME_CACHE:false}
     active-hours:
       start: "03:30"
       end: "02:30"
@@ -208,6 +210,8 @@ collector:
 
   bus-position:
     cron: "0 * * * * *"
+    # 수집 위치를 실시간 캐시에 프라이밍(노선당 1키, 저렴 — 기본 on).
+    prime-realtime-cache: ${COLLECTOR_POS_PRIME_CACHE:true}
     # 도착 수집과 독립 예산. 30노선 × 분당 × active-hours(23h) ≈ 41,400 호출/일.
     daily-budget: 50000
     active-hours:
