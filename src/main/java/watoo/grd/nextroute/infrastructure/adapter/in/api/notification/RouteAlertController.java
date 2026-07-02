@@ -55,4 +55,10 @@ public class RouteAlertController {
     public ResponseEntity<Void> handleBadRequest() {
         return ResponseEntity.badRequest().build();
     }
+
+    /** 소요시간 추정 실패(경로 없음 등): 요청은 유효하나 처리 불가 → 422. */
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<Void> handleUnprocessable() {
+        return ResponseEntity.unprocessableEntity().build();
+    }
 }
