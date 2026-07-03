@@ -455,21 +455,7 @@ public class TransferArrivalEnricher {
     }
 
     private Optional<Instant> earliestRealtimeArrival(BusArrivalInfo ai, Instant userAt) {
-        Optional<Instant> mkTm = BusTimeParser.parse(ai.dataTimestamp());
-        if (mkTm.isEmpty()) return Optional.empty();
-
-        Instant base = mkTm.get();
-        Instant best = null;
-
-        if (ai.sectionTime1() != null) {
-            Instant t = base.plusSeconds(ai.sectionTime1());
-            if (!t.isBefore(userAt) && (best == null || t.isBefore(best))) best = t;
-        }
-        if (ai.sectionTime2() != null) {
-            Instant t = base.plusSeconds(ai.sectionTime2());
-            if (!t.isBefore(userAt) && (best == null || t.isBefore(best))) best = t;
-        }
-        return Optional.ofNullable(best);
+        return RealtimeArrivalCalculator.earliest(ai, userAt);
     }
 
     private String pickVehicleId(BusArrivalInfo ai, Instant realtimeAt) {

@@ -27,4 +27,16 @@ public class RouteArrivalAlertProperties {
     private double firstCheckHeadwayFactor = 0.5;
     /** firstCheckAt term 비례 여유 상한(분). 너무 이르면 실시간 미확정 → NO_VEHICLE 방지. */
     private int firstCheckMaxMarginMinutes = 20;
+
+    // ── 체크 스케줄러(PR-B) ──────────────────────────────────────────────────
+    /** 체크 스케줄러 활성화. 기본 off. */
+    private boolean schedulerEnabled = false;
+    /** 체크 스캔 주기(ms). */
+    private long checkIntervalMs = 30000;
+    /** final check 리드(분): finalCheckAt = recommendedLeaveBy − 이 값. userLead ≤ 이 값 → final check 생략. */
+    private int finalCheckLeadMinutes = 5;
+    /** 변경 임계(분): |final − lastNotified| ≥ 이 값 → CHANGE. */
+    private int changeThresholdMinutes = 5;
+    /** 스냅샷 STALE/OUT_OF_SERVICE boarding 비율 초과 시 CHANGE 억제. */
+    private double snapshotStaleThreshold = 0.5;
 }

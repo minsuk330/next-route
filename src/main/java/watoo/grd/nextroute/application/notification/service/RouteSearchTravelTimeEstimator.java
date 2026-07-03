@@ -115,7 +115,8 @@ public class RouteSearchTravelTimeEstimator implements RouteTravelTimeEstimator 
                 if (!choice.resolved) {
                     anyUnresolved = true;
                 } else {
-                    boardings.add(new Boarding(choice.stopId, choice.routeId, choice.seq, offsetSec));
+                    int headway = choice.maxTerm != null ? choice.maxTerm : properties.getDefaultHeadwayMinutes();
+                    boardings.add(new Boarding(choice.stopId, choice.routeId, choice.seq, offsetSec, headway));
                     busSegs.add(new BusSeg(choice.stopId, choice.routeId, cumulativeBefore));
                 }
             }

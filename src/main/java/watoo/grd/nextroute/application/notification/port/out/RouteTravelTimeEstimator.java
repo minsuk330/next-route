@@ -51,6 +51,7 @@ public interface RouteTravelTimeEstimator {
         UNRESOLVED_BUS
     }
 
-    record Boarding(String stopId, String routeId, int seq, int offsetSec) {
+    /** @param headwayMinutes 배차간격(분). final check 실시간 조회 실패 시 term/2 fallback 용. */
+    record Boarding(String stopId, String routeId, int seq, int offsetSec, int headwayMinutes) {
     }
 }

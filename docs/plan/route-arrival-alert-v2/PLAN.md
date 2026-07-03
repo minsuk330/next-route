@@ -263,13 +263,16 @@ private double snapshotStaleThreshold = 0.5;    // STALE/OUT_OF_SERVICE boarding
 - 동시성: 모든 alert 갱신은 `@Version` 낙관락. 충돌(dispatcher와 경합) 시 스킵/다음 스캔 재시도.
 - 메트릭: check 성공/실패/운행불가/snapshot-stale 카운터 (기존 메트릭 패턴 확인 후 동일 방식)
 
-### 3.2 PR-B 작업 순서
+### 3.2 PR-B 작업 순서 (구현 완료)
 
-- [ ] repo 스캔 메서드 + 스케줄러 골격 + flag
-- [ ] first check 로직 + DEPARTURE 생성
-- [ ] final check 로직 + CHANGE 판정
-- [ ] 만료 처리
-- [ ] 테스트 (5.PR-B) → `./gradlew test --tests '*RouteAlertCheckScheduler*'`
+구현 노트: 스케줄러를 2클래스로 분리 — `RouteAlertCheckScheduler`(thin, @ConditionalOnProperty scan+위임) + `RouteAlertCheckProcessor`(@Transactional 단건 처리, self-invocation 회피·테스트 용이). `earliestRealtimeArrival` 은 `RealtimeArrivalCalculator`(신규 static util)로 추출해 enricher·final check 공유. `Boarding` 에 `headwayMinutes` 추가(final check 실시간 실패 시 term/2 fallback). 스냅샷 JSON = `RouteAlertPathSnapshot`(dto).
+
+- [x] repo 스캔 메서드(`findByStatusAndNextActionAtLessThanEqualAndDeletedAtIsNull`) + 스케줄러 골격 + flag
+- [x] first check 로직 + DEPARTURE 생성(성공/실패-baseline fallback) + eligibility 스냅샷
+- [x] final check 로직(타깃 재조회, ODsay 미호출) + 타임라인 재계산 + 스냅샷 stale 억제 + 과거 clamp + CHANGE 판정
+- [x] 만료 처리(EXPIRED + 취소 전파)
+- [x] 테스트 통과 (RouteAlertCheckProcessorTest 10개)
+- [ ] **동시성 @Version 경합·발송 원자성은 통합테스트 영역**(mock 단위테스트 범위 밖, DB 필요)
 
 ## 4. PR-C: 발송 디스패처
 
