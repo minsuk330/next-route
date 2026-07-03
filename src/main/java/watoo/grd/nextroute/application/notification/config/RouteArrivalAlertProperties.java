@@ -18,12 +18,13 @@ public class RouteArrivalAlertProperties {
     /** 구독 만료 여유(분): expiresAt = targetArrivalAt + 이 값. */
     private int expiresAfterTargetMinutes = 30;
 
-    /** 앞당김 감지 임계(분): newLeaveBy ≤ prevLeaveBy − 이 값이면 EARLIER 발행. (PR2) */
-    private int earlierThresholdMinutes = 5;
+    /** term 미확보 버스 구간 STATIC 대기 = 이 값/2(분). */
+    private int defaultHeadwayMinutes = 10;
 
-    /** 앞당김 알림 per-alert 상한. (PR2) */
-    private int earlierCapCount = 3;
-
-    /** alert 당 재탐색 성공 호출 총 상한. (PR2) */
-    private int researchCountCap = 20;
+    /** firstCheckAt 기본 여유(분). */
+    private int firstCheckBaseMarginMinutes = 3;
+    /** firstCheckAt term 비례 여유 계수(배차 변동 흡수). */
+    private double firstCheckHeadwayFactor = 0.5;
+    /** firstCheckAt term 비례 여유 상한(분). 너무 이르면 실시간 미확정 → NO_VEHICLE 방지. */
+    private int firstCheckMaxMarginMinutes = 20;
 }

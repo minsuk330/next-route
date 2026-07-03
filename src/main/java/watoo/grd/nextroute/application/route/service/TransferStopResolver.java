@@ -28,7 +28,8 @@ public class TransferStopResolver {
 
     public record StopResolution(String stopId) {}
 
-    public record RouteResolution(String routeId, String routeName, boolean fallback) {}
+    /** {@code termMinutes} = 배차간격(분). STATIC 대기 근사(term/2)용. 미확보 시 null. */
+    public record RouteResolution(String routeId, String routeName, boolean fallback, Integer termMinutes) {}
 
     public record SeqResolution(List<Integer> candidates) {
         public boolean isSingle() { return candidates.size() == 1; }
@@ -54,7 +55,7 @@ public class TransferStopResolver {
             Optional<BusRoute> route = routeRepo.findByRouteId(busLocalBlID);
             if (route.isPresent()) {
                 BusRoute r = route.get();
-                return Optional.of(new RouteResolution(r.getRouteId(), r.getRouteName(), false));
+                return Optional.of(new RouteResolution(r.getRouteId(), r.getRouteName(), false, r.getTerm()));
             }
             log.debug("[Resolver] busLocalBlID={} not found in repo, trying busNo fallback", busLocalBlID);
         }
@@ -63,7 +64,7 @@ public class TransferStopResolver {
             List<BusRoute> routes = routeRepo.findByRouteNameIn(List.of(busNo));
             if (routes.size() == 1) {
                 BusRoute r = routes.get(0);
-                return Optional.of(new RouteResolution(r.getRouteId(), r.getRouteName(), true));
+                return Optional.of(new RouteResolution(r.getRouteId(), r.getRouteName(), true, r.getTerm()));
             }
             if (routes.size() > 1) {
                 log.debug("[Resolver] busNo={} matched {} routes, cannot disambiguate", busNo, routes.size());

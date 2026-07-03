@@ -10,11 +10,11 @@ import watoo.grd.nextroute.application.notification.port.in.CancelRouteAlertUseC
 import watoo.grd.nextroute.application.notification.port.in.CreateRouteAlertUseCase;
 import watoo.grd.nextroute.application.notification.port.in.GetRouteAlertUseCase;
 import watoo.grd.nextroute.application.notification.port.out.RouteTravelTimeEstimator;
+import watoo.grd.nextroute.application.notification.port.out.RouteTravelTimeEstimator.EvaluationMode;
+import watoo.grd.nextroute.application.notification.port.out.RouteTravelTimeEstimator.RouteEvaluation;
 import watoo.grd.nextroute.application.notification.port.out.RouteTravelTimeEstimator.TravelTimeQuery;
 import watoo.grd.nextroute.domain.notification.entity.RouteAlertStatus;
 import watoo.grd.nextroute.domain.notification.entity.RouteArrivalAlert;
-import watoo.grd.nextroute.domain.notification.entity.RouteArrivalAlertNotification;
-import watoo.grd.nextroute.domain.notification.entity.RouteNotificationType;
 import watoo.grd.nextroute.domain.notification.repository.RouteArrivalAlertNotificationRepository;
 import watoo.grd.nextroute.domain.notification.repository.RouteArrivalAlertRepository;
 import watoo.grd.nextroute.domain.user.entity.User;
@@ -24,16 +24,19 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Set;
 
 /**
- * 목표 도착시간 기반 출발 알림 등록/취소/조회. 등록 시 1회 소요시간 추정으로 초기 leaveByAt 을 확정하고
- * DEPART_REMINDER outbox row 를 생성한다(PR1 은 dispatch 미존재 → row 는 inert). 재탐색·발송은 후속 PR.
+ * 목표 도착시간 기반 출발 알림 v2 등록/취소/조회. 등록 시 STATIC evaluator 로 baseline 을 확정하고
+ * first check 예정시각을 잡아 WAITING_FIRST_CHECK 로 저장한다. first check·발송은 후속 PR(스케줄러/디스패처).
  */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class RouteArrivalAlertService
         implements CreateRouteAlertUseCase, CancelRouteAlertUseCase, GetRouteAlertUseCase {
+
+    private static final Set<Integer> ALLOWED_LEAD = Set.of(0, 5, 10, 15);
 
     private final RouteArrivalAlertRepository alertRepository;
     private final RouteArrivalAlertNotificationRepository notificationRepository;
@@ -49,8 +52,8 @@ public class RouteArrivalAlertService
         LocalDateTime now = LocalDateTime.now(clock);
 
         int userLead = request.getUserLeadMinutes();
-        if (userLead % 5 != 0) {
-            throw new IllegalArgumentException("userLeadMinutes 는 5분 단위여야 합니다: " + userLead);
+        if (!ALLOWED_LEAD.contains(userLead)) {
+            throw new IllegalArgumentException("userLeadMinutes 는 {0,5,10,15} 중 하나여야 합니다: " + userLead);
         }
         if (!request.getTargetArrivalAt().isAfter(now)) {
             throw new IllegalArgumentException("목표 도착시각이 이미 지났습니다.");
@@ -59,13 +62,29 @@ public class RouteArrivalAlertService
                 ? request.getBufferMinutes()
                 : properties.getDefaultBufferMinutes();
 
-        int durationSec = estimator.estimateSeconds(new TravelTimeQuery(
+        // baseline: STATIC 추정(실시간 미반영, term/2 정적 대기).
+        RouteEvaluation eval = estimator.evaluate(new TravelTimeQuery(
                 request.getStartX(), request.getStartY(), request.getStartName(),
-                request.getEndX(), request.getEndY(), request.getEndName(), now));
+                request.getEndX(), request.getEndY(), request.getEndName(),
+                request.getTargetArrivalAt()), EvaluationMode.STATIC);
 
-        LocalDateTime leaveByAt = request.getTargetArrivalAt()
-                .minusSeconds(durationSec)
+        LocalDateTime baselineLeaveByAt = request.getTargetArrivalAt()
+                .minusSeconds(eval.durationSec())
                 .minusMinutes(buffer);
+        if (!baselineLeaveByAt.isAfter(now)) {
+            throw new IllegalStateException("목표 도착시각에 맞추려면 이미 출발했어야 합니다.");
+        }
+
+        // first check 여유 = 기본 + term 비례(배차 변동 흡수, 상한). baseline 낙관 편향 흡수.
+        int maxHeadway = eval.maxHeadwayMinutes() != null ? eval.maxHeadwayMinutes() : 0;
+        int headwayMargin = Math.min(
+                (int) Math.round(maxHeadway * properties.getFirstCheckHeadwayFactor()),
+                properties.getFirstCheckMaxMarginMinutes());
+        int safetyMargin = properties.getFirstCheckBaseMarginMinutes() + headwayMargin;
+        LocalDateTime firstCheckAt = baselineLeaveByAt.minusMinutes(userLead).minusMinutes(safetyMargin);
+        if (firstCheckAt.isBefore(now)) {
+            firstCheckAt = now;
+        }
 
         RouteArrivalAlert alert = alertRepository.save(RouteArrivalAlert.builder()
                 .user(user)
@@ -74,26 +93,14 @@ public class RouteArrivalAlertService
                 .targetArrivalAt(request.getTargetArrivalAt())
                 .userLeadMinutes(userLead)
                 .bufferMinutes(buffer)
-                .lastTotalDurationSec(durationSec)
-                .leaveByAt(leaveByAt)
-                .lastResearchAt(now)
+                .baselineDurationSec(eval.durationSec())
+                .baselineLeaveByAt(baselineLeaveByAt)
+                .firstCheckAt(firstCheckAt)
+                .reliability(eval.reliability())
                 .expiresAt(request.getTargetArrivalAt().plusMinutes(properties.getExpiresAfterTargetMinutes()))
                 .build());
 
-        // DEPART_REMINDER outbox row. 리마인드 시각이 이미 과거면 즉시 발송 대상(scheduledAt=now).
-        LocalDateTime remindAt = leaveByAt.minusMinutes(userLead);
-        if (remindAt.isBefore(now)) {
-            remindAt = now;
-        }
-        notificationRepository.save(RouteArrivalAlertNotification.builder()
-                .alert(alert)
-                .type(RouteNotificationType.DEPART_REMINDER)
-                .dedupKey(alert.getId() + ":DEPART")
-                .scheduledAt(remindAt)
-                .targetLeaveByAt(leaveByAt)
-                .payload(null)
-                .build());
-
+        // DEPARTURE row 는 first check(PR-B)가 생성. 등록 시점엔 만들지 않음.
         return RouteAlertResponse.from(alert);
     }
 
