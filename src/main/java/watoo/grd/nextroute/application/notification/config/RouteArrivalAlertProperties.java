@@ -39,4 +39,18 @@ public class RouteArrivalAlertProperties {
     private int changeThresholdMinutes = 5;
     /** 스냅샷 STALE/OUT_OF_SERVICE boarding 비율 초과 시 CHANGE 억제. */
     private double snapshotStaleThreshold = 0.5;
+
+    // ── 발송 디스패처(PR-C) ──────────────────────────────────────────────────
+    /** 디스패처 활성화. 기본 off. */
+    private boolean dispatchEnabled = false;
+    /** 디스패치 스캔 주기(ms). */
+    private long dispatchIntervalMs = 15000;
+    /** 스캔당 처리 상한. */
+    private int dispatchBatchSize = 100;
+    /** PROCESSING 고착 reclaim 임계(분). */
+    private int claimTimeoutMinutes = 5;
+    /** transient 실패 최대 시도. 초과 시 FAILED. */
+    private int maxAttempts = 3;
+    /** transient 실패 재시도 백오프(초). */
+    private int backoffSeconds = 60;
 }

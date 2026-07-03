@@ -74,4 +74,34 @@ public class RouteArrivalAlertNotification extends BaseEntity {
     public void markCanceled() {
         this.status = RouteNotificationStatus.CANCELED;
     }
+
+    /** PENDING → PROCESSING(claim). attemptCount 증가. */
+    public void markProcessing(LocalDateTime now) {
+        this.status = RouteNotificationStatus.PROCESSING;
+        this.processingStartedAt = now;
+        this.attemptCount++;
+    }
+
+    public void markSent(LocalDateTime now) {
+        this.status = RouteNotificationStatus.SENT;
+        this.sentAt = now;
+    }
+
+    public void markFailed(String reason) {
+        this.status = RouteNotificationStatus.FAILED;
+        this.lastFailureReason = reason;
+    }
+
+    /** transient 실패 → 재시도 위해 PENDING 복귀. scheduledAt 을 다음 시도시각으로 미룬다(백오프). */
+    public void releaseToPending(String reason, LocalDateTime nextAttemptAt) {
+        this.status = RouteNotificationStatus.PENDING;
+        this.lastFailureReason = reason;
+        this.scheduledAt = nextAttemptAt;
+    }
+
+    /** reclaim(고착 PROCESSING → PENDING). */
+    public void releaseForReclaim(LocalDateTime now) {
+        this.status = RouteNotificationStatus.PENDING;
+        this.scheduledAt = now;
+    }
 }

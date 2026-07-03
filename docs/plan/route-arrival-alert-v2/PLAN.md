@@ -291,13 +291,16 @@ private double snapshotStaleThreshold = 0.5;    // STALE/OUT_OF_SERVICE boarding
 - CHANGE 발송 성공 → sent 마킹만
 - 실패 → attemptCount++/FAILED/재시도 정책 (기존 outbox 패턴 확인 후 동일). attemptCount 상한 초과→FAILED 고정, alert는 expiresAt에 checker가 EXPIRED(고아 방지)
 
-### 4.2 PR-C 작업 순서
+### 4.2 PR-C 작업 순서 (구현 완료)
 
-- [ ] claim/reclaim repo 메서드 + 디스패처 골격 + flag
-- [ ] stale 가드
-- [ ] Toss 발송 연동
-- [ ] 발송 후 phase 전이 (recordNotified)
-- [ ] 테스트 (5.PR-C) → `./gradlew test --tests '*RouteAlertDispatch*'`
+구현 노트: BusAlert 디스패처 패턴 복제 — `RouteAlertDispatchScheduler`(thin, @ConditionalOnProperty dispatch-enabled, 트랜잭션 밖 오케스트레이션) + `RouteAlertDispatchStateService`(@Transactional REQUIRES_NEW 상태전이). stale 가드+claim 원자(`claimForDispatch` → DispatchTask). DEPARTURE 발송성공은 `markDepartureSent`가 notification SENT + 부모 alert `recordNotified`를 같은 트랜잭션에서(원자). 백오프는 `releaseToPending`이 scheduledAt 미룸(신규 필드 없이). Toss 템플릿 코드는 TossMessengerProperties에 route departure/change 추가.
+
+- [x] claim/reclaim repo 메서드(`findDispatchable`/`reclaimStale`) + 디스패처 골격 + flag
+- [x] stale 가드(부모 CANCELED/EXPIRED·target 과거·DEPARTURE 잘못된 phase → notification CANCELED)
+- [x] Toss 발송 연동(TossMessengerPort, permanent/transient 분기)
+- [x] 발송 후 phase 전이(markDepartureSent = SENT + recordNotified 원자, finalCheckAt=userLead≤5 or eligibility≠ELIGIBLE 시 null→DONE)
+- [x] 테스트 통과 (RouteAlertDispatchStateServiceTest 11개)
+- [ ] **e2e 발송(실제 Toss)·@Version 경합은 통합/스테이징 영역** (flag on + 템플릿 코드 설정 필요)
 
 ## 5. 테스트 플랜
 
