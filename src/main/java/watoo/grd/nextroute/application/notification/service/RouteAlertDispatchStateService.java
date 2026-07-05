@@ -79,9 +79,16 @@ public class RouteAlertDispatchStateService {
             return Optional.empty();
         }
 
-        n.markProcessing(now);
-        return Optional.of(new DispatchTask(n.getId(), n.getType(),
-                alert.getUser().getTossUserKey(), buildContext(alert, n)));
+        // context 를 원자 claim 전에 구성(bulk update 가 영속성 컨텍스트를 비우므로 lazy 접근 먼저).
+        RouteNotificationType type = n.getType();
+        long userKey = alert.getUser().getTossUserKey();
+        Map<String, Object> context = buildContext(alert, n);
+
+        // 원자 claim(PENDING→PROCESSING). 동시 dispatcher 가 있어도 단일 승자만 발송.
+        if (notificationRepository.claimForProcessing(n.getId(), now) == 0) {
+            return Optional.empty();
+        }
+        return Optional.of(new DispatchTask(n.getId(), type, userKey, context));
     }
 
     private Map<String, Object> buildContext(RouteArrivalAlert alert, RouteArrivalAlertNotification n) {

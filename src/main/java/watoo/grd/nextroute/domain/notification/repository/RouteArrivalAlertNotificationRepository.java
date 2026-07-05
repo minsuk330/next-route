@@ -25,6 +25,18 @@ public interface RouteArrivalAlertNotificationRepository
             """)
     List<RouteArrivalAlertNotification> findDispatchable(@Param("now") LocalDateTime now, Pageable pageable);
 
+    /** 원자 claim: PENDING → PROCESSING(단일 승자 보장). 갱신 행수 1=claim, 0=경쟁서 짐. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update RouteArrivalAlertNotification n
+            set n.status = watoo.grd.nextroute.domain.notification.entity.RouteNotificationStatus.PROCESSING,
+                n.processingStartedAt = :now,
+                n.attemptCount = n.attemptCount + 1
+            where n.id = :id
+              and n.status = watoo.grd.nextroute.domain.notification.entity.RouteNotificationStatus.PENDING
+            """)
+    int claimForProcessing(@Param("id") Long id, @Param("now") LocalDateTime now);
+
     /** 고착 PROCESSING reclaim → PENDING(scheduledAt=now). */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""

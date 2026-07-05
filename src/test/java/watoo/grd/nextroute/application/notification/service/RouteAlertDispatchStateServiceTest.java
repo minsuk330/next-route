@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 
 @ExtendWith(MockitoExtension.class)
@@ -98,6 +100,7 @@ class RouteAlertDispatchStateServiceTest {
         RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
         RouteArrivalAlertNotification n = noti(a, RouteNotificationType.DEPARTURE, null);
         given(notificationRepository.findById(7L)).willReturn(Optional.of(n));
+        given(notificationRepository.claimForProcessing(eq(7L), any())).willReturn(1); // 원자 claim 성공
 
         Optional<DispatchTask> task = service().claimForDispatch(7L);
 
@@ -105,7 +108,16 @@ class RouteAlertDispatchStateServiceTest {
         assertThat(task.get().type()).isEqualTo(RouteNotificationType.DEPARTURE);
         assertThat(task.get().tossUserKey()).isEqualTo(999L);
         assertThat(task.get().context()).containsKeys("leaveByAt", "targetArrivalAt", "startName", "endName");
-        assertThat(n.getStatus()).isEqualTo(RouteNotificationStatus.PROCESSING);
+    }
+
+    @Test
+    void claim_lostRace_empty() {
+        RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
+        RouteArrivalAlertNotification n = noti(a, RouteNotificationType.DEPARTURE, null);
+        given(notificationRepository.findById(7L)).willReturn(Optional.of(n));
+        given(notificationRepository.claimForProcessing(eq(7L), any())).willReturn(0); // 경쟁서 짐
+
+        assertThat(service().claimForDispatch(7L)).isEmpty();
     }
 
     @Test

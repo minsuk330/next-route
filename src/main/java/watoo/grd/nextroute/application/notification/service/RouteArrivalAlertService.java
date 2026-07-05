@@ -66,7 +66,7 @@ public class RouteArrivalAlertService
         RouteEvaluation eval = estimator.evaluate(new TravelTimeQuery(
                 request.getStartX(), request.getStartY(), request.getStartName(),
                 request.getEndX(), request.getEndY(), request.getEndName(),
-                request.getTargetArrivalAt()), EvaluationMode.STATIC);
+                request.getTargetArrivalAt(), buffer), EvaluationMode.STATIC);
 
         LocalDateTime baselineLeaveByAt = request.getTargetArrivalAt()
                 .minusSeconds(eval.durationSec())

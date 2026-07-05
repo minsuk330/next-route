@@ -21,4 +21,11 @@ public interface RouteArrivalAlertRepository extends JpaRepository<RouteArrivalA
      */
     List<RouteArrivalAlert> findByStatusAndNextActionAtLessThanEqualAndDeletedAtIsNull(
             RouteAlertStatus status, LocalDateTime nextActionAt);
+
+    /**
+     * 만료 스윕: 활성 + 만료 도래. WAITING_DEPARTURE(next_action_at=NULL, 발송/실패로 고착 가능)까지 포함해
+     * 고아 ACTIVE 를 정리한다. idx_route_alert_status_expires 사용.
+     */
+    List<RouteArrivalAlert> findByStatusAndExpiresAtLessThanEqualAndDeletedAtIsNull(
+            RouteAlertStatus status, LocalDateTime expiresAt);
 }

@@ -47,7 +47,7 @@ class RouteSearchTravelTimeEstimatorTest {
     }
 
     private TravelTimeQuery query() {
-        return new TravelTimeQuery(127.0, 37.5, "출발", 127.1, 37.6, "도착", LocalDateTime.now());
+        return new TravelTimeQuery(127.0, 37.5, "출발", 127.1, 37.6, "도착", LocalDateTime.now(), 5);
     }
 
     // ── DTO 빌더 ────────────────────────────────────────────────────────────
@@ -56,6 +56,18 @@ class RouteSearchTravelTimeEstimatorTest {
         LaneResult lane = new LaneResult("간선", "146", null, 2, 1, "BL1");
         return new SubPathResult(2, sectionTimeMin, 1000.0,
                 List.of(lane), List.of(), "정류장A", "정류장B",
+                127.0, 37.5, 127.05, 37.55,
+                null, null, null, null, null,
+                null, null, null, null, null, null, null,
+                null, "STA1", "STA2", null, null, null,
+                null, arrivals);
+    }
+
+    private SubPathResult busTwoLane(int sectionTimeMin, List<TransferArrival> arrivals) {
+        LaneResult lane0 = new LaneResult("간선", "146", null, 2, 1, "BL1");
+        LaneResult lane1 = new LaneResult("지선", "471", null, 2, 2, "BL2");
+        return new SubPathResult(2, sectionTimeMin, 1000.0,
+                List.of(lane0, lane1), List.of(), "정류장A", "정류장B",
                 127.0, 37.5, 127.05, 37.55,
                 null, null, null, null, null,
                 null, null, null, null, null, null, null,
@@ -159,6 +171,21 @@ class RouteSearchTravelTimeEstimatorTest {
         // fallback term/2 = 6분 → 20+6 = 26분
         assertThat(e.durationSec()).isEqualTo(20 * 60 + 6 * 60);
         assertThat(e.reliability()).isEqualTo(RouteAlertReliability.LOW);
+    }
+
+    @Test
+    void realtime_preferredOverFallback_evenIfFallbackShorter() {
+        // lane0=NO_VEHICLE(fallback term12/2=6분), lane1=AVAILABLE 8분. 실시간이 우선 → 8분 선택.
+        given(searchRouteUseCase.search(any())).willReturn(result(busTwoLane(20, List.of(
+                arrival(0, TransferArrival.Status.NO_VEHICLE, 0),
+                arrival(1, TransferArrival.Status.AVAILABLE, 480)))));
+        stubResolveOk(12);
+        given(serviceWindowChecker.judge(any(), any(), any())).willReturn(Availability.AVAILABLE);
+
+        RouteEvaluation e = estimator().evaluate(query(), EvaluationMode.REALTIME);
+
+        assertThat(e.durationSec()).isEqualTo(20 * 60 + 480);   // fallback 6분(360s) 아님
+        assertThat(e.reliability()).isEqualTo(RouteAlertReliability.HIGH);
     }
 
     // ── 후보 선택 / 예외 ─────────────────────────────────────────────────────

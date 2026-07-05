@@ -55,7 +55,7 @@ public class RouteSearchTravelTimeEstimator implements RouteTravelTimeEstimator 
 
         List<PathEval> evals = new ArrayList<>();
         for (PathResult path : result.paths()) {
-            evals.add(evaluatePath(path, mode, q.targetArrivalAt()));
+            evals.add(evaluatePath(path, mode, q.targetArrivalAt(), q.bufferMinutes()));
         }
 
         // 후보 선택: AVAILABLE 최소 → UNKNOWN 최소 → 전부 OUT_OF_SERVICE 면 예외.
@@ -79,7 +79,8 @@ public class RouteSearchTravelTimeEstimator implements RouteTravelTimeEstimator 
                 .orElse(null);
     }
 
-    private PathEval evaluatePath(PathResult path, EvaluationMode mode, LocalDateTime targetArrivalAt) {
+    private PathEval evaluatePath(PathResult path, EvaluationMode mode,
+                                  LocalDateTime targetArrivalAt, int bufferMinutes) {
         int fixedSec = 0;       // 대기 제외 고정 소요 누적
         int waitSec = 0;        // 버스 대기 누적
         Integer maxHeadway = null;
@@ -124,10 +125,10 @@ public class RouteSearchTravelTimeEstimator implements RouteTravelTimeEstimator 
 
         int durationSec = fixedSec + waitSec;
 
-        // 서비스윈도: 예상 승차시각 = (target − durationSec) + cumulativeBefore.
+        // 서비스윈도: 예상 승차시각 = leaveBy(= target − duration − buffer) + cumulativeBefore.
         RouteServiceWindowChecker.Availability availability = RouteServiceWindowChecker.Availability.AVAILABLE;
         if (targetArrivalAt != null) {
-            LocalDateTime leaveByEstimate = targetArrivalAt.minusSeconds(durationSec);
+            LocalDateTime leaveByEstimate = targetArrivalAt.minusSeconds(durationSec).minusMinutes(bufferMinutes);
             for (BusSeg seg : busSegs) {
                 LocalDateTime boardingAt = leaveByEstimate.plusSeconds(seg.cumulativeBeforeSec);
                 RouteServiceWindowChecker.Availability a =
@@ -155,7 +156,10 @@ public class RouteSearchTravelTimeEstimator implements RouteTravelTimeEstimator 
         List<LaneResult> lanes = sp.lanes() != null ? sp.lanes() : List.of();
         List<TransferArrival> arrivals = sp.transferArrivals() != null ? sp.transferArrivals() : List.of();
 
-        BusLaneChoice best = null;
+        // 실시간/모델 후보와 term/2 fallback 후보를 분리 집계. 실시간이 있으면 fallback 보다 항상 우선
+        // (fallback 대기가 우연히 짧아도 실제 도착을 가림 방지).
+        BusLaneChoice realtimeBest = null;
+        BusLaneChoice fallbackBest = null;
         for (int li = 0; li < lanes.size(); li++) {
             LaneResult lane = lanes.get(li);
             Optional<RouteResolution> routeRes = resolver.resolveRoute(lane.busLocalBlID(), lane.busNo());
@@ -169,27 +173,27 @@ public class RouteSearchTravelTimeEstimator implements RouteTravelTimeEstimator 
             int staticWait = headway * 60 / 2;
 
             if (mode == EvaluationMode.STATIC) {
-                if (best == null || staticWait < best.waitSec) {
-                    best = new BusLaneChoice(true, false, false, stopId, rr.routeId(), seq, staticWait, headway);
-                }
+                // STATIC 은 term/2 가 정식 추정(fallback 아님) → realtimeBest 슬롯에 최소 대기로 집계.
+                BusLaneChoice cand = new BusLaneChoice(true, false, false, stopId, rr.routeId(), seq, staticWait, headway);
+                if (realtimeBest == null || cand.waitSec < realtimeBest.waitSec) realtimeBest = cand;
             } else {
                 TransferArrival ta = arrivalForLane(arrivals, li);
-                if (ta != null && ta.waitSeconds() != null
+                boolean valid = ta != null && ta.waitSeconds() != null
                         && (ta.status() == TransferArrival.Status.AVAILABLE
-                            || ta.status() == TransferArrival.Status.ARRIVAL_TIME_APPROXIMATE)) {
+                            || ta.status() == TransferArrival.Status.ARRIVAL_TIME_APPROXIMATE);
+                if (valid) {
                     int wait = (int) Math.max(0, ta.waitSeconds());
                     boolean approx = ta.status() == TransferArrival.Status.ARRIVAL_TIME_APPROXIMATE;
-                    if (best == null || wait < best.waitSec) {
-                        best = new BusLaneChoice(true, false, approx, stopId, rr.routeId(), seq, wait, headway);
-                    }
-                } else if (best == null || best.fallback) {
-                    // 유효 실시간/모델 없음 → term/2 fallback (더 나은 lane 없을 때만)
+                    BusLaneChoice cand = new BusLaneChoice(true, false, approx, stopId, rr.routeId(), seq, wait, headway);
+                    if (realtimeBest == null || wait < realtimeBest.waitSec) realtimeBest = cand;
+                } else {
                     BusLaneChoice fb = new BusLaneChoice(true, true, false, stopId, rr.routeId(), seq, staticWait, headway);
-                    if (best == null || fb.waitSec < best.waitSec) best = fb;
+                    if (fallbackBest == null || fb.waitSec < fallbackBest.waitSec) fallbackBest = fb;
                 }
             }
         }
 
+        BusLaneChoice best = realtimeBest != null ? realtimeBest : fallbackBest;
         if (best == null) {
             // resolve 전멸 → 대기 근사 불가, 고정 headway 로만. boarding 기록 불가(unresolved).
             int headway = properties.getDefaultHeadwayMinutes();

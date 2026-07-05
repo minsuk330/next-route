@@ -11,7 +11,9 @@ import watoo.grd.nextroute.domain.notification.repository.RouteArrivalAlertRepos
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 체크포인트 스케줄러(flag: notification.route-arrival.scheduler-enabled).
@@ -30,21 +32,26 @@ public class RouteAlertCheckScheduler {
     @Scheduled(fixedDelayString = "${notification.route-arrival.check-interval-ms:30000}")
     public void run() {
         LocalDateTime now = LocalDateTime.now(clock);
-        List<RouteArrivalAlert> due = alertRepository
-                .findByStatusAndNextActionAtLessThanEqualAndDeletedAtIsNull(RouteAlertStatus.ACTIVE, now);
-        if (due.isEmpty()) return;
+        // 체크 도래(next_action_at) + 만료 도래(expires_at) 합집합. 후자는 WAITING_DEPARTURE
+        // 고아(발송 취소·영구실패로 nextActionAt=NULL 고착)까지 정리한다.
+        Set<Long> ids = new LinkedHashSet<>();
+        alertRepository.findByStatusAndNextActionAtLessThanEqualAndDeletedAtIsNull(RouteAlertStatus.ACTIVE, now)
+                .forEach(a -> ids.add(a.getId()));
+        alertRepository.findByStatusAndExpiresAtLessThanEqualAndDeletedAtIsNull(RouteAlertStatus.ACTIVE, now)
+                .forEach(a -> ids.add(a.getId()));
+        if (ids.isEmpty()) return;
 
         int ok = 0, failed = 0;
-        for (RouteArrivalAlert alert : due) {
+        for (Long id : ids) {
             try {
-                processor.process(alert.getId());
+                processor.process(id);   // process() 가 만료 우선 처리 후 phase 분기
                 ok++;
             } catch (Exception e) {
                 // 개별 alert 실패 격리(낙관락 충돌 포함) — 다음 스캔에 재시도.
                 failed++;
-                log.warn("[RouteAlertCheck] alert={} 처리 실패: {}", alert.getId(), e.getMessage());
+                log.warn("[RouteAlertCheck] alert={} 처리 실패: {}", id, e.getMessage());
             }
         }
-        log.debug("[RouteAlertCheck] scanned={} ok={} failed={}", due.size(), ok, failed);
+        log.debug("[RouteAlertCheck] scanned={} ok={} failed={}", ids.size(), ok, failed);
     }
 }

@@ -27,6 +27,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -125,23 +127,27 @@ public class RouteAlertCheckProcessor {
         int cumWaitSec = 0;
         int degraded = 0;
         boolean anyDown = false;
+        Map<String, BusQueryResult<BusArrivalInfo>> arrCache = new HashMap<>();  // (stop,route,seq) dedupe
 
         for (RouteAlertPathSnapshot.Boarding b : snap.boardings()) {
             Instant arriveAtStop = departInstant.plusSeconds((long) b.offsetSec() + cumWaitSec);
             LocalDateTime arriveLdt = LocalDateTime.ofInstant(arriveAtStop, SEOUL);
+            boolean boardingDegraded = false;   // boarding 당 최대 1회만 degraded 카운트
 
             if (serviceWindowChecker.judge(b.routeId(), b.stopId(), arriveLdt)
                     == RouteServiceWindowChecker.Availability.OUT_OF_SERVICE) {
-                degraded++;
+                boardingDegraded = true;
             }
 
             int waitSec;
-            BusQueryResult<BusArrivalInfo> r = busPort.getArrInfoByStop(b.stopId(), b.routeId(), b.seq());
+            String key = b.stopId() + ":" + b.routeId() + ":" + b.seq();
+            BusQueryResult<BusArrivalInfo> r = arrCache.computeIfAbsent(key,
+                    k -> busPort.getArrInfoByStop(b.stopId(), b.routeId(), b.seq()));
             if (r.isOk() && !r.data().isEmpty()) {
                 BusArrivalInfo ai = r.data().stream()
                         .filter(a -> b.routeId().equals(a.routeId())).findFirst().orElse(null);
                 if (ai == null) {                       // 응답에 해당 route 없음 → STALE
-                    degraded++;
+                    boardingDegraded = true;
                     anyDown = true;
                     waitSec = fallbackWait(b);
                 } else {
@@ -153,10 +159,11 @@ public class RouteAlertCheckProcessor {
                         waitSec = fallbackWait(b);
                     }
                 }
-            } else {                                    // 조회 실패 → term/2
-                anyDown = true;
+            } else {                                    // 조회 실패(BLOCKED/LIMITED/ERROR) → transient, term/2
+                anyDown = true;                          // reliability 하향만(스냅샷 stale 아님 → CHANGE 억제 대상 X)
                 waitSec = fallbackWait(b);
             }
+            if (boardingDegraded) degraded++;
             cumWaitSec += Math.max(0, waitSec);
         }
 
@@ -205,7 +212,7 @@ public class RouteAlertCheckProcessor {
 
     private TravelTimeQuery query(RouteArrivalAlert a) {
         return new TravelTimeQuery(a.getStartX(), a.getStartY(), a.getStartName(),
-                a.getEndX(), a.getEndY(), a.getEndName(), a.getTargetArrivalAt());
+                a.getEndX(), a.getEndY(), a.getEndName(), a.getTargetArrivalAt(), a.getBufferMinutes());
     }
 
     private String writeSnapshot(RouteEvaluation eval) {

@@ -25,10 +25,13 @@ public interface RouteTravelTimeEstimator {
 
     enum EvaluationMode { STATIC, REALTIME }
 
-    /** {@code targetArrivalAt} 은 서비스윈도(첫차/막차) 판정 기준. */
+    /**
+     * @param targetArrivalAt 서비스윈도(첫차/막차) 판정 기준
+     * @param bufferMinutes   안전 버퍼(분). 실제 leaveBy = target − duration − buffer 이므로 승차시각 판정에 반영.
+     */
     record TravelTimeQuery(double startX, double startY, String startName,
                            double endX, double endY, String endName,
-                           LocalDateTime targetArrivalAt) {
+                           LocalDateTime targetArrivalAt, int bufferMinutes) {
     }
 
     /**
