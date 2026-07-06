@@ -21,6 +21,8 @@ collector:
     enabled: true
   bus-position:
     enabled: true
+  route-rotation:
+    enabled: true
 
 realtime:
   subway:
