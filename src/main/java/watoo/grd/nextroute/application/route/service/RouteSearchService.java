@@ -44,6 +44,15 @@ public class RouteSearchService implements SearchRouteUseCase {
 
     @Override
     public RouteSearchResult search(RouteSearchRequest request) {
+        return searchInternal(request, true);
+    }
+
+    @Override
+    public RouteSearchResult searchWithoutRealtime(RouteSearchRequest request) {
+        return searchInternal(request, false);
+    }
+
+    private RouteSearchResult searchInternal(RouteSearchRequest request, boolean withRealtime) {
         Instant searchStartedAt = Instant.now();
 
         RouteSearchResult result;
@@ -68,8 +77,10 @@ public class RouteSearchService implements SearchRouteUseCase {
                 request.startX(), request.startY(), request.startName(),
                 request.endX(), request.endY(), request.endName());
 
-        // 3. 환승 도착예측 보강 (trafficType=2 버스)
-        result = transferArrivalEnricher.enrich(result, searchStartedAt);
+        // 3. 환승 도착예측 보강 (trafficType=2 버스) — baseline(STATIC)은 생략해 fan-out 낭비 방지.
+        if (withRealtime) {
+            result = transferArrivalEnricher.enrich(result, searchStartedAt);
+        }
 
         // 4. 로그 저장 (도보 polyline/walkSteps는 제외 — 로그 사이즈 폭증 방지)
         saveLog(request, result);

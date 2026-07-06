@@ -7,10 +7,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.notification.config.RouteArrivalAlertProperties;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertRequest;
+import watoo.grd.nextroute.application.notification.port.out.RouteOutOfServiceException;
 import watoo.grd.nextroute.application.notification.port.out.RouteTravelTimeEstimator;
+import watoo.grd.nextroute.application.notification.port.out.RouteTravelTimeEstimator.EvaluationMode;
+import watoo.grd.nextroute.application.notification.port.out.RouteTravelTimeEstimator.RouteEvaluation;
+import watoo.grd.nextroute.domain.notification.entity.RouteAlertPhase;
+import watoo.grd.nextroute.domain.notification.entity.RouteAlertReliability;
 import watoo.grd.nextroute.domain.notification.entity.RouteArrivalAlert;
-import watoo.grd.nextroute.domain.notification.entity.RouteArrivalAlertNotification;
-import watoo.grd.nextroute.domain.notification.entity.RouteNotificationType;
 import watoo.grd.nextroute.domain.notification.repository.RouteArrivalAlertNotificationRepository;
 import watoo.grd.nextroute.domain.notification.repository.RouteArrivalAlertRepository;
 import watoo.grd.nextroute.domain.user.entity.User;
@@ -21,6 +24,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -81,73 +85,83 @@ class RouteArrivalAlertServiceTest {
         given(userRepository.findById(7L)).willReturn(Optional.of(new User(123L)));
         given(alertRepository.save(any())).willAnswer(inv -> {
             RouteArrivalAlert a = inv.getArgument(0);
-            set(a, "id", 55L); // 식별자 생성 모사(dedupKey 용)
+            set(a, "id", 55L);
             return a;
         });
     }
 
-    @Test
-    void create_computesLeaveByAndCreatesDepartReminder() {
-        stubUserAndSave();
-        // 목표 = now + 120분, 소요 30분(1800s), 버퍼 5분 → leaveBy = target-35분 = now+85분
-        given(estimator.estimateSeconds(any())).willReturn(1800);
-        LocalDateTime target = now().plusMinutes(120);
-
-        service().create(7L, req(target, 10, 5));
-
-        ArgumentCaptor<RouteArrivalAlert> alertCap = ArgumentCaptor.forClass(RouteArrivalAlert.class);
-        verify(alertRepository).save(alertCap.capture());
-        RouteArrivalAlert alert = alertCap.getValue();
-        assertThat(alert.getLeaveByAt()).isEqualTo(target.minusMinutes(35));
-        assertThat(alert.getLastTotalDurationSec()).isEqualTo(1800);
-
-        ArgumentCaptor<RouteArrivalAlertNotification> notiCap =
-                ArgumentCaptor.forClass(RouteArrivalAlertNotification.class);
-        verify(notificationRepository).save(notiCap.capture());
-        RouteArrivalAlertNotification noti = notiCap.getValue();
-        assertThat(noti.getType()).isEqualTo(RouteNotificationType.DEPART_REMINDER);
-        assertThat(noti.getDedupKey()).isEqualTo("55:DEPART");
-        // scheduledAt = leaveBy - userLead(10) = target-45분
-        assertThat(noti.getScheduledAt()).isEqualTo(target.minusMinutes(45));
-        assertThat(noti.getTargetLeaveByAt()).isEqualTo(target.minusMinutes(35));
+    private RouteEvaluation eval(int durationSec, Integer maxHeadway) {
+        return new RouteEvaluation(durationSec, RouteAlertReliability.MEDIUM, null, maxHeadway);
     }
 
     @Test
-    void create_remindTimeAlreadyPast_schedulesImmediately() {
+    void create_computesBaselineAndFirstCheck_noDepartureRow() {
         stubUserAndSave();
-        // 목표 = now + 20분, 소요 30분 → leaveBy = now-15분(과거), 리마인드는 더 과거 → scheduledAt=now
-        given(estimator.estimateSeconds(any())).willReturn(1800);
-        LocalDateTime target = now().plusMinutes(20);
-
-        service().create(7L, req(target, 10, 5));
-
-        ArgumentCaptor<RouteArrivalAlertNotification> notiCap =
-                ArgumentCaptor.forClass(RouteArrivalAlertNotification.class);
-        verify(notificationRepository).save(notiCap.capture());
-        assertThat(notiCap.getValue().getScheduledAt()).isEqualTo(now());
-    }
-
-    @Test
-    void create_defaultBufferWhenNull() {
-        stubUserAndSave();
-        given(estimator.estimateSeconds(any())).willReturn(600); // 10분
+        // 목표 = now+120분, 소요 30분(1800s), 버퍼 5분 → baselineLeaveBy = now+85분
+        given(estimator.evaluate(any(), eq(EvaluationMode.STATIC))).willReturn(eval(1800, 12));
         LocalDateTime target = now().plusMinutes(120);
 
-        service().create(7L, req(target, 5, null)); // buffer null → 기본 5분
+        service().create(7L, req(target, 10, 5));
 
         ArgumentCaptor<RouteArrivalAlert> cap = ArgumentCaptor.forClass(RouteArrivalAlert.class);
         verify(alertRepository).save(cap.capture());
-        assertThat(cap.getValue().getBufferMinutes()).isEqualTo(properties.getDefaultBufferMinutes());
-        // leaveBy = target - 10분 - 5분
-        assertThat(cap.getValue().getLeaveByAt()).isEqualTo(target.minusMinutes(15));
+        RouteArrivalAlert alert = cap.getValue();
+        assertThat(alert.getBaselineDurationSec()).isEqualTo(1800);
+        assertThat(alert.getBaselineLeaveByAt()).isEqualTo(target.minusMinutes(35));
+        // safetyMargin = 3 + min(round(12*0.5)=6, 20) = 9 → firstCheck = baselineLeaveBy - lead(10) - 9
+        assertThat(alert.getFirstCheckAt()).isEqualTo(target.minusMinutes(35 + 10 + 9));
+        assertThat(alert.getPhase()).isEqualTo(RouteAlertPhase.WAITING_FIRST_CHECK);
+        assertThat(alert.getNextActionAt()).isEqualTo(alert.getFirstCheckAt());
+        // DEPARTURE row 는 등록 시 미생성
+        verify(notificationRepository, never()).save(any());
     }
 
     @Test
-    void create_userLeadNotMultipleOf5_throws() {
+    void create_noBusHeadway_usesBaseMarginOnly() {
+        stubUserAndSave();
+        given(estimator.evaluate(any(), eq(EvaluationMode.STATIC))).willReturn(eval(600, null)); // 10분, 버스 없음
+        LocalDateTime target = now().plusMinutes(120);
+
+        service().create(7L, req(target, 5, 5)); // baselineLeaveBy = target-15분
+
+        ArgumentCaptor<RouteArrivalAlert> cap = ArgumentCaptor.forClass(RouteArrivalAlert.class);
+        verify(alertRepository).save(cap.capture());
+        // safetyMargin = 3 (headway 없음) → firstCheck = target-15 - lead(5) - 3
+        assertThat(cap.getValue().getFirstCheckAt()).isEqualTo(target.minusMinutes(15 + 5 + 3));
+    }
+
+    @Test
+    void create_firstCheckInPast_clampsToNow() {
+        stubUserAndSave();
+        // 목표 = now+20분, 소요 10분 → baselineLeaveBy = now+5분, firstCheck 은 과거 → now clamp
+        given(estimator.evaluate(any(), eq(EvaluationMode.STATIC))).willReturn(eval(600, 10));
+        LocalDateTime target = now().plusMinutes(20);
+
+        service().create(7L, req(target, 5, 5));
+
+        ArgumentCaptor<RouteArrivalAlert> cap = ArgumentCaptor.forClass(RouteArrivalAlert.class);
+        verify(alertRepository).save(cap.capture());
+        assertThat(cap.getValue().getFirstCheckAt()).isEqualTo(now());
+    }
+
+    @Test
+    void create_baselineLeaveByAlreadyPast_throws422() {
+        given(userRepository.findById(7L)).willReturn(Optional.of(new User(123L)));
+        // 목표 = now+10분, 소요 20분 → baselineLeaveBy = now-15분(과거) → IllegalStateException(422)
+        given(estimator.evaluate(any(), eq(EvaluationMode.STATIC))).willReturn(eval(1200, 10));
+
+        assertThatThrownBy(() -> service().create(7L, req(now().plusMinutes(10), 5, 5)))
+                .isInstanceOf(IllegalStateException.class);
+        verify(alertRepository, never()).save(any());
+    }
+
+    @Test
+    void create_userLeadNotAllowed_throws() {
         given(userRepository.findById(7L)).willReturn(Optional.of(new User(123L)));
 
         assertThatThrownBy(() -> service().create(7L, req(now().plusMinutes(60), 7, 5)))
                 .isInstanceOf(IllegalArgumentException.class);
+        verify(estimator, never()).evaluate(any(), any());
         verify(alertRepository, never()).save(any());
     }
 
@@ -161,13 +175,25 @@ class RouteArrivalAlertServiceTest {
     }
 
     @Test
-    void cancel_marksCanceledAndPropagatesToPendingNotifications() {
+    void create_outOfService_propagates422() {
+        given(userRepository.findById(7L)).willReturn(Optional.of(new User(123L)));
+        given(estimator.evaluate(any(), eq(EvaluationMode.STATIC)))
+                .willThrow(new RouteOutOfServiceException("운행불가"));
+
+        assertThatThrownBy(() -> service().create(7L, req(now().plusMinutes(120), 5, 5)))
+                .isInstanceOf(IllegalStateException.class);
+        verify(alertRepository, never()).save(any());
+    }
+
+    @Test
+    void cancel_marksCanceledAndPropagates() {
         User user = new User(123L);
         given(userRepository.findById(7L)).willReturn(Optional.of(user));
         RouteArrivalAlert alert = RouteArrivalAlert.builder()
                 .user(user).startX(1.0).startY(2.0).endX(3.0).endY(4.0)
                 .targetArrivalAt(now().plusMinutes(60)).userLeadMinutes(10).bufferMinutes(5)
-                .lastTotalDurationSec(600).leaveByAt(now().plusMinutes(45)).lastResearchAt(now())
+                .baselineDurationSec(600).baselineLeaveByAt(now().plusMinutes(45))
+                .firstCheckAt(now().plusMinutes(30)).reliability(RouteAlertReliability.MEDIUM)
                 .expiresAt(now().plusMinutes(90)).build();
         set(alert, "id", 55L);
         given(alertRepository.findByIdAndUserAndDeletedAtIsNull(eq(55L), any()))
@@ -176,6 +202,29 @@ class RouteArrivalAlertServiceTest {
         service().cancel(7L, 55L);
 
         assertThat(alert.isActive()).isFalse();
+        assertThat(alert.getNextActionAt()).isNull();
         verify(notificationRepository).cancelPendingByAlertId(55L);
+    }
+
+    @Test
+    void getActive_filtersActive() {
+        User user = new User(123L);
+        given(userRepository.findById(7L)).willReturn(Optional.of(user));
+        RouteArrivalAlert active = RouteArrivalAlert.builder()
+                .user(user).startX(1.0).startY(2.0).endX(3.0).endY(4.0)
+                .targetArrivalAt(now().plusMinutes(60)).userLeadMinutes(10).bufferMinutes(5)
+                .baselineLeaveByAt(now().plusMinutes(45)).firstCheckAt(now().plusMinutes(30))
+                .expiresAt(now().plusMinutes(90)).build();
+        RouteArrivalAlert canceled = RouteArrivalAlert.builder()
+                .user(user).startX(1.0).startY(2.0).endX(3.0).endY(4.0)
+                .targetArrivalAt(now().plusMinutes(60)).userLeadMinutes(10).bufferMinutes(5)
+                .baselineLeaveByAt(now().plusMinutes(45)).firstCheckAt(now().plusMinutes(30))
+                .expiresAt(now().plusMinutes(90)).build();
+        canceled.markCanceled();
+        given(alertRepository.findByUserAndDeletedAtIsNull(any())).willReturn(List.of(active, canceled));
+
+        List<?> result = service().getActive(7L);
+
+        assertThat(result).hasSize(1);
     }
 }

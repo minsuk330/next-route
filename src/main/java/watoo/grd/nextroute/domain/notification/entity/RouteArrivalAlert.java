@@ -11,9 +11,9 @@ import watoo.grd.nextroute.domain.user.entity.User;
 import java.time.LocalDateTime;
 
 /**
- * 목표 도착시간 기반 출발 알림 구독(계산 상태만). 발송/재시도 상태는 {@link RouteArrivalAlertNotification}(outbox)이 소유.
- * 배경에서 소요시간을 재추정해 leaveByAt(언제 출발) 을 갱신하고, 필요한 알림 row 를 생성한다.
- * 상태 전이는 시간(targetArrivalAt/expiresAt) 또는 사용자 취소만이 트리거하며 발송 성패와 무관하다.
+ * 목표 도착시간 기반 출발 알림 구독 v2(계산/상태만). 발송/재시도 상태는 {@link RouteArrivalAlertNotification}(outbox)이 소유.
+ * 흐름: baseline(등록·STATIC) → first check(REALTIME) → DEPARTURE 발송 → final check(타깃 재조회) → optional CHANGE → DONE.
+ * checker/dispatcher 가 별도 스케줄러로 동시 접근하므로 {@link Version} 낙관락으로 정합을 지킨다.
  */
 @Entity
 @Table(name = "route_arrival_alert")
@@ -41,35 +41,55 @@ public class RouteArrivalAlert extends BaseEntity {
     @Column(nullable = false)
     private LocalDateTime targetArrivalAt;
 
-    /** 출발 리마인드 리드타임(5분 단위, 고정). */
+    /** 출발 리마인드 리드타임(분, {0,5,10,15}). */
     @Column(nullable = false)
     private Integer userLeadMinutes;
 
-    /** 안전 버퍼(분). leaveByAt 계산에 반영. */
+    /** 안전 버퍼(분). leaveBy 계산에 반영. */
     @Column(nullable = false)
     private Integer bufferMinutes;
 
-    /** 최근 재추정 소요시간(초). */
-    private Integer lastTotalDurationSec;
+    // ── baseline (등록 시 STATIC evaluator) ──────────────────────────────
+    /** 등록 시 정적 추정 소요(초). */
+    private Integer baselineDurationSec;
+    /** 등록 시 추정 출발시각(= target − baselineDurationSec − buffer). */
+    private LocalDateTime baselineLeaveByAt;
+    /** first check 예정시각(= baselineLeaveBy − userLead − safetyMargin). */
+    private LocalDateTime firstCheckAt;
 
-    /** 언제 출발해야 목표 도착 가능한가 (= targetArrivalAt − lastTotalDurationSec − bufferMinutes). */
-    private LocalDateTime leaveByAt;
+    // ── first check (REALTIME evaluator) ─────────────────────────────────
+    private Integer recommendedDurationSec;
+    /** 확정 추천 출발시각(= target − recommendedDurationSec − buffer). */
+    private LocalDateTime recommendedLeaveByAt;
+    /** DEPARTURE 발송 예정시각(= recommendedLeaveBy − userLead). */
+    private LocalDateTime departureNotificationAt;
 
-    /** 직전 재탐색 시점 leaveByAt (앞당김 감지 비교용). */
-    private LocalDateTime prevLeaveByAt;
+    // ── 발송 기록 (dispatcher) ────────────────────────────────────────────
+    /** 마지막으로 발송한 leaveBy(재검증 변경 감지 비교 기준). */
+    private LocalDateTime lastNotifiedLeaveByAt;
+    private LocalDateTime lastNotifiedAt;
 
-    private LocalDateTime lastResearchAt;
+    /** 선택 경로 스냅샷 JSON(first check 기록, final check 타깃 재조회용). */
+    @Column(length = 2000)
+    private String selectedPathSnapshot;
 
-    /** 적응형 cadence 로 계산된 다음 재탐색 예정시각(§6). */
-    private LocalDateTime nextResearchAt;
+    // ── final check ───────────────────────────────────────────────────────
+    private LocalDateTime finalCheckedAt;
 
-    /** 재탐색 성공 호출 횟수(비용 상한 추적). */
+    @Enumerated(EnumType.STRING)
+    private RouteAlertReliability reliability;
+
+    /** 변경 알림 발행 카운터(0부터 단조증가). cap·dedup 근거. */
     @Column(nullable = false)
-    private int researchCount;
+    private int changeAlertCount;
 
-    /** EARLIER_DEPARTURE 발행 카운터(0부터 단조증가). dedup·cap 근거. */
+    // ── 상태머신 ────────────────────────────────────────────────────────────
     @Column(nullable = false)
-    private int earlierSeq;
+    @Enumerated(EnumType.STRING)
+    private RouteAlertPhase phase;
+
+    /** 다음 체크 액션 예정시각. WAITING_DEPARTURE 는 NULL(dispatcher 소유). */
+    private LocalDateTime nextActionAt;
 
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
@@ -78,12 +98,16 @@ public class RouteArrivalAlert extends BaseEntity {
     @Column(nullable = false)
     private LocalDateTime expiresAt;
 
+    @Version
+    @Column(nullable = false)
+    private long version;
+
     @Builder
     public RouteArrivalAlert(User user, Double startX, Double startY, String startName,
                              Double endX, Double endY, String endName,
                              LocalDateTime targetArrivalAt, Integer userLeadMinutes, Integer bufferMinutes,
-                             Integer lastTotalDurationSec, LocalDateTime leaveByAt,
-                             LocalDateTime lastResearchAt, LocalDateTime nextResearchAt,
+                             Integer baselineDurationSec, LocalDateTime baselineLeaveByAt,
+                             LocalDateTime firstCheckAt, RouteAlertReliability reliability,
                              LocalDateTime expiresAt) {
         this.user = user;
         this.startX = startX;
@@ -95,13 +119,13 @@ public class RouteArrivalAlert extends BaseEntity {
         this.targetArrivalAt = targetArrivalAt;
         this.userLeadMinutes = userLeadMinutes;
         this.bufferMinutes = bufferMinutes;
-        this.lastTotalDurationSec = lastTotalDurationSec;
-        this.leaveByAt = leaveByAt;
-        this.prevLeaveByAt = leaveByAt;
-        this.lastResearchAt = lastResearchAt;
-        this.nextResearchAt = nextResearchAt;
-        this.researchCount = lastTotalDurationSec != null ? 1 : 0;
-        this.earlierSeq = 0;
+        this.baselineDurationSec = baselineDurationSec;
+        this.baselineLeaveByAt = baselineLeaveByAt;
+        this.firstCheckAt = firstCheckAt;
+        this.reliability = reliability;
+        this.changeAlertCount = 0;
+        this.phase = RouteAlertPhase.WAITING_FIRST_CHECK;
+        this.nextActionAt = firstCheckAt;
         this.status = RouteAlertStatus.ACTIVE;
         this.expiresAt = expiresAt;
     }
@@ -110,15 +134,56 @@ public class RouteArrivalAlert extends BaseEntity {
         return status == RouteAlertStatus.ACTIVE;
     }
 
+    /** first check 완료: 추천값·스냅샷 확정 후 발송 대기로. nextActionAt=NULL(dispatcher 소유). */
+    public void applyFirstCheck(Integer recommendedDurationSec, LocalDateTime recommendedLeaveByAt,
+                                LocalDateTime departureNotificationAt, RouteAlertReliability reliability,
+                                String selectedPathSnapshot) {
+        this.recommendedDurationSec = recommendedDurationSec;
+        this.recommendedLeaveByAt = recommendedLeaveByAt;
+        this.departureNotificationAt = departureNotificationAt;
+        this.reliability = reliability;
+        this.selectedPathSnapshot = selectedPathSnapshot;
+        this.phase = RouteAlertPhase.WAITING_DEPARTURE;
+        this.nextActionAt = null;
+    }
+
+    /**
+     * DEPARTURE 발송 성공 기록(dispatcher, 발송과 동일 트랜잭션).
+     * finalCheckAt null → 종결(DONE), 아니면 final check 대기.
+     */
+    public void recordNotified(LocalDateTime leaveByAt, LocalDateTime at, LocalDateTime finalCheckAt) {
+        this.lastNotifiedLeaveByAt = leaveByAt;
+        this.lastNotifiedAt = at;
+        if (finalCheckAt == null) {
+            this.phase = RouteAlertPhase.COMPLETED;
+            this.status = RouteAlertStatus.DONE;
+            this.nextActionAt = null;
+        } else {
+            this.phase = RouteAlertPhase.WAITING_FINAL_CHECK;
+            this.nextActionAt = finalCheckAt;
+        }
+    }
+
+    /** final check 완료: 종결(DONE). */
+    public void applyFinalCheck(LocalDateTime at, RouteAlertReliability reliability) {
+        this.finalCheckedAt = at;
+        this.reliability = reliability;
+        this.phase = RouteAlertPhase.COMPLETED;
+        this.status = RouteAlertStatus.DONE;
+        this.nextActionAt = null;
+    }
+
+    public void incrementChangeAlertCount() {
+        this.changeAlertCount++;
+    }
+
     public void markCanceled() {
         this.status = RouteAlertStatus.CANCELED;
+        this.nextActionAt = null;
     }
 
     public void markExpired() {
         this.status = RouteAlertStatus.EXPIRED;
-    }
-
-    public void markDone() {
-        this.status = RouteAlertStatus.DONE;
+        this.nextActionAt = null;
     }
 }
