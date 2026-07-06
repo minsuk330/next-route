@@ -20,8 +20,10 @@ public class WeeklyRouteRotationScheduler {
 
 	@Scheduled(cron = "${collector.route-rotation.cron}", zone = "Asia/Seoul")
 	public void trigger() {
+		log.info("[RouteRotation] scheduled trigger fired enabled={} cron={} month={} limit={}",
+				properties.isEnabled(), properties.getCron(), properties.getRidershipMonth(), properties.getLimit());
 		if (!properties.isEnabled()) {
-			log.debug("[RouteRotation] disabled, skipping");
+			log.info("[RouteRotation] disabled, skipping");
 			return;
 		}
 		try {
