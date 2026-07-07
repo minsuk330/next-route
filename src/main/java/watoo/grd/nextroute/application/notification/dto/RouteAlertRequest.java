@@ -1,13 +1,18 @@
 package watoo.grd.nextroute.application.notification.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.List;
 
-/** 목표 도착시간 기반 출발 알림 구독 요청. */
+/**
+ * 반복(요일)/일회성 목표 도착 알림 구독 요청. 절대 날짜 없이 시각(HH:mm)만 지정한다.
+ * repeat=true 면 weekdays 로 매주 반복, false 면 다음 도래(금일/익일) 1회.
+ */
 @Getter
 @NoArgsConstructor
 public class RouteAlertRequest {
@@ -24,11 +29,18 @@ public class RouteAlertRequest {
     private Double endY;
     private String endName;
 
-    /** 목표 도착시각(미래). */
+    /** 목표 도착 시각(HH:mm). 날짜는 서버가 다음 도래로 결정. */
     @NotNull
-    private LocalDateTime targetArrivalAt;
+    @JsonFormat(pattern = "HH:mm")
+    private LocalTime arrivalTime;
 
-    /** 출발 리마인드 리드타임(분, 5분 단위). */
+    /** 반복 요일 코드(["MON","WED",...]). repeat=true 면 1개 이상 필수. 일회성이면 무시. */
+    private List<String> weekdays;
+
+    /** true=반복, false=일회성. */
+    private boolean repeat;
+
+    /** 출발 리마인드 리드타임(분, {0,5,10,15}). */
     @NotNull
     @PositiveOrZero
     private Integer userLeadMinutes;

@@ -7,13 +7,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.notification.config.RouteArrivalAlertProperties;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertRequest;
-import watoo.grd.nextroute.application.notification.port.out.RouteOutOfServiceException;
-import watoo.grd.nextroute.application.notification.port.out.RouteTravelTimeEstimator;
-import watoo.grd.nextroute.application.notification.port.out.RouteTravelTimeEstimator.EvaluationMode;
-import watoo.grd.nextroute.application.notification.port.out.RouteTravelTimeEstimator.RouteEvaluation;
-import watoo.grd.nextroute.domain.notification.entity.RouteAlertPhase;
-import watoo.grd.nextroute.domain.notification.entity.RouteAlertReliability;
+import watoo.grd.nextroute.application.notification.dto.RouteAlertScheduleResponse;
+import watoo.grd.nextroute.domain.notification.entity.RouteAlertSchedule;
+import watoo.grd.nextroute.domain.notification.entity.RouteAlertScheduleStatus;
+import watoo.grd.nextroute.domain.notification.entity.RouteAlertStatus;
 import watoo.grd.nextroute.domain.notification.entity.RouteArrivalAlert;
+import watoo.grd.nextroute.domain.notification.repository.RouteAlertScheduleRepository;
 import watoo.grd.nextroute.domain.notification.repository.RouteArrivalAlertNotificationRepository;
 import watoo.grd.nextroute.domain.notification.repository.RouteArrivalAlertRepository;
 import watoo.grd.nextroute.domain.user.entity.User;
@@ -23,6 +22,7 @@ import java.lang.reflect.Field;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
@@ -38,31 +38,36 @@ import static org.mockito.Mockito.verify;
 @ExtendWith(MockitoExtension.class)
 class RouteArrivalAlertServiceTest {
 
+    @Mock RouteAlertScheduleRepository scheduleRepository;
     @Mock RouteArrivalAlertRepository alertRepository;
     @Mock RouteArrivalAlertNotificationRepository notificationRepository;
-    @Mock RouteTravelTimeEstimator estimator;
+    @Mock RouteAlertScheduleSpawnService spawnService;
     @Mock UserRepository userRepository;
+    @Mock org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     RouteArrivalAlertProperties properties = new RouteArrivalAlertProperties();
-    // 고정 now = 2026-06-23 09:00 KST
+    // 고정 now = 2026-06-23(화) 09:00 KST
     Clock clock = Clock.fixed(Instant.parse("2026-06-23T00:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     RouteArrivalAlertService service() {
         return new RouteArrivalAlertService(
-                alertRepository, notificationRepository, estimator, userRepository, properties, clock);
+                scheduleRepository, alertRepository, notificationRepository, spawnService,
+                userRepository, properties, transactionManager, clock);
     }
 
     private LocalDateTime now() {
         return LocalDateTime.now(clock);
     }
 
-    private RouteAlertRequest req(LocalDateTime target, int userLead, Integer buffer) {
+    private RouteAlertRequest req(String hhmm, List<String> weekdays, boolean repeat, int userLead, Integer buffer) {
         RouteAlertRequest r = new RouteAlertRequest();
         set(r, "startX", 127.0);
         set(r, "startY", 37.5);
         set(r, "endX", 127.1);
         set(r, "endY", 37.6);
-        set(r, "targetArrivalAt", target);
+        set(r, "arrivalTime", LocalTime.parse(hhmm));
+        set(r, "weekdays", weekdays);
+        set(r, "repeat", repeat);
         set(r, "userLeadMinutes", userLead);
         set(r, "bufferMinutes", buffer);
         return r;
@@ -81,150 +86,111 @@ class RouteArrivalAlertServiceTest {
         } catch (ReflectiveOperationException e) { throw new RuntimeException(e); }
     }
 
-    private void stubUserAndSave() {
+    private RouteAlertSchedule schedule(long id, boolean repeat, int mask, LocalTime arrivalTime) {
+        RouteAlertSchedule s = RouteAlertSchedule.builder()
+                .user(new User(123L))
+                .startX(127.0).startY(37.5).endX(127.1).endY(37.6)
+                .arrivalTime(arrivalTime).weekdaysMask(mask).repeat(repeat)
+                .userLeadMinutes(10).bufferMinutes(5)
+                .build();
+        set(s, "id", id);
+        return s;
+    }
+
+    @Test
+    void create_savesSchedule_delegatesSpawn_returnsNextArrival() {
         given(userRepository.findById(7L)).willReturn(Optional.of(new User(123L)));
-        given(alertRepository.save(any())).willAnswer(inv -> {
-            RouteArrivalAlert a = inv.getArgument(0);
-            set(a, "id", 55L);
-            return a;
-        });
-    }
+        // 일회성 10:00, now 09:00 → 오늘 10:00
+        RouteAlertSchedule saved = schedule(55L, false, 0, LocalTime.of(10, 0));
+        given(scheduleRepository.save(any())).willReturn(saved);
+        given(scheduleRepository.findById(55L)).willReturn(Optional.of(saved));
+        given(alertRepository.findByScheduleIdAndStatusAndDeletedAtIsNull(55L, RouteAlertStatus.ACTIVE))
+                .willReturn(List.of());
 
-    private RouteEvaluation eval(int durationSec, Integer maxHeadway) {
-        return new RouteEvaluation(durationSec, RouteAlertReliability.MEDIUM, null, maxHeadway);
-    }
+        RouteAlertScheduleResponse res = service().create(7L, req("10:00", null, false, 10, 5));
 
-    @Test
-    void create_computesBaselineAndFirstCheck_noDepartureRow() {
-        stubUserAndSave();
-        // 목표 = now+120분, 소요 30분(1800s), 버퍼 5분 → baselineLeaveBy = now+85분
-        given(estimator.evaluate(any(), eq(EvaluationMode.STATIC))).willReturn(eval(1800, 12));
-        LocalDateTime target = now().plusMinutes(120);
-
-        service().create(7L, req(target, 10, 5));
-
-        ArgumentCaptor<RouteArrivalAlert> cap = ArgumentCaptor.forClass(RouteArrivalAlert.class);
-        verify(alertRepository).save(cap.capture());
-        RouteArrivalAlert alert = cap.getValue();
-        assertThat(alert.getBaselineDurationSec()).isEqualTo(1800);
-        assertThat(alert.getBaselineLeaveByAt()).isEqualTo(target.minusMinutes(35));
-        // safetyMargin = 3 + min(round(12*0.5)=6, 20) = 9 → firstCheck = baselineLeaveBy - lead(10) - 9
-        assertThat(alert.getFirstCheckAt()).isEqualTo(target.minusMinutes(35 + 10 + 9));
-        assertThat(alert.getPhase()).isEqualTo(RouteAlertPhase.WAITING_FIRST_CHECK);
-        assertThat(alert.getNextActionAt()).isEqualTo(alert.getFirstCheckAt());
-        // DEPARTURE row 는 등록 시 미생성
-        verify(notificationRepository, never()).save(any());
+        verify(scheduleRepository).save(any());
+        verify(spawnService).processScheduleSpawn(eq(55L), any());
+        assertThat(res.getId()).isEqualTo(55L);
+        assertThat(res.getNextArrivalAt()).isEqualTo(LocalDateTime.of(2026, 6, 23, 10, 0));
+        assertThat(res.getOccurrenceId()).isNull(); // spawn mock 이므로 미materialize
     }
 
     @Test
-    void create_noBusHeadway_usesBaseMarginOnly() {
-        stubUserAndSave();
-        given(estimator.evaluate(any(), eq(EvaluationMode.STATIC))).willReturn(eval(600, null)); // 10분, 버스 없음
-        LocalDateTime target = now().plusMinutes(120);
-
-        service().create(7L, req(target, 5, 5)); // baselineLeaveBy = target-15분
-
-        ArgumentCaptor<RouteArrivalAlert> cap = ArgumentCaptor.forClass(RouteArrivalAlert.class);
-        verify(alertRepository).save(cap.capture());
-        // safetyMargin = 3 (headway 없음) → firstCheck = target-15 - lead(5) - 3
-        assertThat(cap.getValue().getFirstCheckAt()).isEqualTo(target.minusMinutes(15 + 5 + 3));
-    }
-
-    @Test
-    void create_firstCheckInPast_clampsToNow() {
-        stubUserAndSave();
-        // 목표 = now+20분, 소요 10분 → baselineLeaveBy = now+5분, firstCheck 은 과거 → now clamp
-        given(estimator.evaluate(any(), eq(EvaluationMode.STATIC))).willReturn(eval(600, 10));
-        LocalDateTime target = now().plusMinutes(20);
-
-        service().create(7L, req(target, 5, 5));
-
-        ArgumentCaptor<RouteArrivalAlert> cap = ArgumentCaptor.forClass(RouteArrivalAlert.class);
-        verify(alertRepository).save(cap.capture());
-        assertThat(cap.getValue().getFirstCheckAt()).isEqualTo(now());
-    }
-
-    @Test
-    void create_baselineLeaveByAlreadyPast_throws422() {
-        given(userRepository.findById(7L)).willReturn(Optional.of(new User(123L)));
-        // 목표 = now+10분, 소요 20분 → baselineLeaveBy = now-15분(과거) → IllegalStateException(422)
-        given(estimator.evaluate(any(), eq(EvaluationMode.STATIC))).willReturn(eval(1200, 10));
-
-        assertThatThrownBy(() -> service().create(7L, req(now().plusMinutes(10), 5, 5)))
-                .isInstanceOf(IllegalStateException.class);
-        verify(alertRepository, never()).save(any());
+    void create_repeatWithoutWeekdays_throws() {
+        assertThatThrownBy(() -> service().create(7L, req("08:00", List.of(), true, 10, 5)))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(scheduleRepository, never()).save(any());
+        verify(spawnService, never()).processScheduleSpawn(any(), any());
     }
 
     @Test
     void create_userLeadNotAllowed_throws() {
-        given(userRepository.findById(7L)).willReturn(Optional.of(new User(123L)));
-
-        assertThatThrownBy(() -> service().create(7L, req(now().plusMinutes(60), 7, 5)))
+        assertThatThrownBy(() -> service().create(7L, req("08:00", null, false, 7, 5)))
                 .isInstanceOf(IllegalArgumentException.class);
-        verify(estimator, never()).evaluate(any(), any());
-        verify(alertRepository, never()).save(any());
+        verify(scheduleRepository, never()).save(any());
     }
 
     @Test
-    void create_targetInPast_throws() {
+    void create_repeatComputesNextWeekday() {
         given(userRepository.findById(7L)).willReturn(Optional.of(new User(123L)));
+        int mask = watoo.grd.nextroute.domain.notification.entity.RouteWeekdays.maskFromCodes(List.of("WED"));
+        RouteAlertSchedule saved = schedule(60L, true, mask, LocalTime.of(8, 0));
+        given(scheduleRepository.save(any())).willReturn(saved);
+        given(scheduleRepository.findById(60L)).willReturn(Optional.of(saved));
+        given(alertRepository.findByScheduleIdAndStatusAndDeletedAtIsNull(60L, RouteAlertStatus.ACTIVE))
+                .willReturn(List.of());
 
-        assertThatThrownBy(() -> service().create(7L, req(now().minusMinutes(1), 5, 5)))
-                .isInstanceOf(IllegalArgumentException.class);
-        verify(alertRepository, never()).save(any());
+        // now 화 09:00, 선택 수 → 다음 수요일 2026-06-24 08:00
+        RouteAlertScheduleResponse res = service().create(7L, req("08:00", List.of("WED"), true, 10, 5));
+
+        assertThat(res.getNextArrivalAt()).isEqualTo(LocalDateTime.of(2026, 6, 24, 8, 0));
+        assertThat(res.getWeekdays()).containsExactly("WED");
     }
 
     @Test
-    void create_outOfService_propagates422() {
-        given(userRepository.findById(7L)).willReturn(Optional.of(new User(123L)));
-        given(estimator.evaluate(any(), eq(EvaluationMode.STATIC)))
-                .willThrow(new RouteOutOfServiceException("운행불가"));
-
-        assertThatThrownBy(() -> service().create(7L, req(now().plusMinutes(120), 5, 5)))
-                .isInstanceOf(IllegalStateException.class);
-        verify(alertRepository, never()).save(any());
-    }
-
-    @Test
-    void cancel_marksCanceledAndPropagates() {
+    void cancel_marksCanceled_propagatesToOccurrence() {
         User user = new User(123L);
         given(userRepository.findById(7L)).willReturn(Optional.of(user));
-        RouteArrivalAlert alert = RouteArrivalAlert.builder()
-                .user(user).startX(1.0).startY(2.0).endX(3.0).endY(4.0)
+        RouteAlertSchedule s = schedule(55L, false, 0, LocalTime.of(10, 0));
+        given(scheduleRepository.findByIdAndUserAndDeletedAtIsNull(eq(55L), any())).willReturn(Optional.of(s));
+        RouteArrivalAlert occ = RouteArrivalAlert.builder()
+                .user(user).scheduleId(55L).startX(1.0).startY(2.0).endX(3.0).endY(4.0)
                 .targetArrivalAt(now().plusMinutes(60)).userLeadMinutes(10).bufferMinutes(5)
-                .baselineDurationSec(600).baselineLeaveByAt(now().plusMinutes(45))
-                .firstCheckAt(now().plusMinutes(30)).reliability(RouteAlertReliability.MEDIUM)
+                .baselineLeaveByAt(now().plusMinutes(45)).firstCheckAt(now().plusMinutes(30))
                 .expiresAt(now().plusMinutes(90)).build();
-        set(alert, "id", 55L);
-        given(alertRepository.findByIdAndUserAndDeletedAtIsNull(eq(55L), any()))
-                .willReturn(Optional.of(alert));
+        set(occ, "id", 77L);
+        given(alertRepository.findByScheduleIdAndStatusAndDeletedAtIsNull(55L, RouteAlertStatus.ACTIVE))
+                .willReturn(List.of(occ));
 
         service().cancel(7L, 55L);
 
-        assertThat(alert.isActive()).isFalse();
-        assertThat(alert.getNextActionAt()).isNull();
-        verify(notificationRepository).cancelPendingByAlertId(55L);
+        assertThat(s.isActive()).isFalse();
+        assertThat(occ.getStatus()).isEqualTo(RouteAlertStatus.CANCELED);
+        verify(notificationRepository).cancelPendingByAlertId(77L);
     }
 
     @Test
-    void getActive_filtersActive() {
+    void getActive_filtersActive_batchLoadsOccurrence() {
         User user = new User(123L);
         given(userRepository.findById(7L)).willReturn(Optional.of(user));
-        RouteArrivalAlert active = RouteArrivalAlert.builder()
-                .user(user).startX(1.0).startY(2.0).endX(3.0).endY(4.0)
+        RouteAlertSchedule active = schedule(10L, true,
+                watoo.grd.nextroute.domain.notification.entity.RouteWeekdays.maskFromCodes(List.of("MON")),
+                LocalTime.of(9, 30));
+        given(scheduleRepository.findByUserAndStatusAndDeletedAtIsNull(any(), eq(RouteAlertScheduleStatus.ACTIVE)))
+                .willReturn(List.of(active));
+        RouteArrivalAlert occ = RouteArrivalAlert.builder()
+                .user(user).scheduleId(10L).startX(1.0).startY(2.0).endX(3.0).endY(4.0)
                 .targetArrivalAt(now().plusMinutes(60)).userLeadMinutes(10).bufferMinutes(5)
                 .baselineLeaveByAt(now().plusMinutes(45)).firstCheckAt(now().plusMinutes(30))
                 .expiresAt(now().plusMinutes(90)).build();
-        RouteArrivalAlert canceled = RouteArrivalAlert.builder()
-                .user(user).startX(1.0).startY(2.0).endX(3.0).endY(4.0)
-                .targetArrivalAt(now().plusMinutes(60)).userLeadMinutes(10).bufferMinutes(5)
-                .baselineLeaveByAt(now().plusMinutes(45)).firstCheckAt(now().plusMinutes(30))
-                .expiresAt(now().plusMinutes(90)).build();
-        canceled.markCanceled();
-        given(alertRepository.findByUserAndDeletedAtIsNull(any())).willReturn(List.of(active, canceled));
+        set(occ, "id", 99L);
+        given(alertRepository.findActiveOccurrencesByScheduleIds(List.of(10L))).willReturn(List.of(occ));
 
-        List<?> result = service().getActive(7L);
+        List<RouteAlertScheduleResponse> result = service().getActive(7L);
 
         assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(10L);
+        assertThat(result.get(0).getOccurrenceId()).isEqualTo(99L);
     }
 }
