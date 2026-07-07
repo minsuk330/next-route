@@ -65,7 +65,7 @@ public class RouteAlertScheduleSpawnService {
         }
         // 일회성 종결: 마지막 occurrence 가 DONE(발송 성공) 이면 COMPLETED. EXPIRED 등은 이월(fall-through).
         if (!s.isRepeat() && s.getLastSpawnedTargetArrivalAt() != null) {
-            RouteAlertStatus last = alertRepository.findTopByScheduleIdOrderByIdDesc(scheduleId)
+            RouteAlertStatus last = alertRepository.findTopByScheduleIdAndDeletedAtIsNullOrderByIdDesc(scheduleId)
                     .map(RouteArrivalAlert::getStatus).orElse(null);
             if (last == RouteAlertStatus.DONE) {
                 s.markCompleted();

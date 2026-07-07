@@ -176,7 +176,7 @@ class RouteAlertScheduleSpawnServiceTest {
                 .targetArrivalAt(LocalDateTime.of(2026, 6, 22, 10, 0)).userLeadMinutes(10).bufferMinutes(5)
                 .expiresAt(now).build();
         set(done, "status", RouteAlertStatus.DONE);
-        given(alertRepository.findTopByScheduleIdOrderByIdDesc(8L)).willReturn(Optional.of(done));
+        given(alertRepository.findTopByScheduleIdAndDeletedAtIsNullOrderByIdDesc(8L)).willReturn(Optional.of(done));
 
         service().processScheduleSpawn(8L, now);
 

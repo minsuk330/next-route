@@ -3,7 +3,9 @@ package watoo.grd.nextroute.application.notification.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import watoo.grd.nextroute.application.notification.config.RouteArrivalAlertProperties;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertRequest;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertScheduleResponse;
@@ -50,6 +52,7 @@ public class RouteArrivalAlertService
     private final RouteAlertScheduleSpawnService spawnService;
     private final UserRepository userRepository;
     private final RouteArrivalAlertProperties properties;
+    private final PlatformTransactionManager transactionManager;
     private final Clock clock;
 
     @Override
@@ -74,8 +77,7 @@ public class RouteArrivalAlertService
 
         User user = requireUser(userId);
 
-        // tx1: schedule 저장(자체 커밋). 이후 spawn 실패가 이 저장을 rollback 하지 않는다.
-        RouteAlertSchedule saved = scheduleRepository.save(RouteAlertSchedule.builder()
+        RouteAlertSchedule entity = RouteAlertSchedule.builder()
                 .user(user)
                 .startX(request.getStartX()).startY(request.getStartY()).startName(request.getStartName())
                 .endX(request.getEndX()).endY(request.getEndY()).endName(request.getEndName())
@@ -84,7 +86,12 @@ public class RouteArrivalAlertService
                 .repeat(request.isRepeat())
                 .userLeadMinutes(userLead)
                 .bufferMinutes(buffer)
-                .build());
+                .build();
+
+        // tx1: schedule 저장을 명시적 트랜잭션으로 커밋. spawn(tx2) 실패가 이 저장을 rollback 하지 않도록
+        // create() 전체를 하나의 tx 로 묶지 않고, 저장만 독립 tx 로 확정한다.
+        RouteAlertSchedule saved = new TransactionTemplate(transactionManager)
+                .execute(status -> scheduleRepository.save(entity));
 
         // tx2: window 내면 즉시 occurrence 생성(SpawnService 가 in-flight/window/roll-forward 판정).
         // 즉시 materialize 가 예상외로 실패해도(외부 API RuntimeException 등) schedule(tx1) 은 유지 —

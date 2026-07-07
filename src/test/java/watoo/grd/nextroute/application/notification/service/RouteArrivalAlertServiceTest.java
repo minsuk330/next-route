@@ -43,6 +43,7 @@ class RouteArrivalAlertServiceTest {
     @Mock RouteArrivalAlertNotificationRepository notificationRepository;
     @Mock RouteAlertScheduleSpawnService spawnService;
     @Mock UserRepository userRepository;
+    @Mock org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     RouteArrivalAlertProperties properties = new RouteArrivalAlertProperties();
     // 고정 now = 2026-06-23(화) 09:00 KST
@@ -51,7 +52,7 @@ class RouteArrivalAlertServiceTest {
     RouteArrivalAlertService service() {
         return new RouteArrivalAlertService(
                 scheduleRepository, alertRepository, notificationRepository, spawnService,
-                userRepository, properties, clock);
+                userRepository, properties, transactionManager, clock);
     }
 
     private LocalDateTime now() {

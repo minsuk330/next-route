@@ -39,7 +39,7 @@ public interface RouteArrivalAlertRepository extends JpaRepository<RouteArrivalA
     List<RouteArrivalAlert> findByScheduleIdAndStatusAndDeletedAtIsNull(Long scheduleId, RouteAlertStatus status);
 
     /** 일회성 종결 판정: schedule 의 마지막 occurrence(최신 id). status 로 DONE/EXPIRED 구분. */
-    Optional<RouteArrivalAlert> findTopByScheduleIdOrderByIdDesc(Long scheduleId);
+    Optional<RouteArrivalAlert> findTopByScheduleIdAndDeletedAtIsNullOrderByIdDesc(Long scheduleId);
 
     /** getActive batch: 여러 schedule 의 in-flight(ACTIVE) occurrence 를 한 번에(Q3 N+1 방지). */
     @Query("""
