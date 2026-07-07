@@ -25,6 +25,9 @@ public class RouteArrivalAlert extends BaseEntity {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    /** occurrence 출처 schedule id(null=구모델/직접 생성). 상태머신엔 무관, 재무장·중복방지 근거. */
+    private Long scheduleId;
+
     @Column(nullable = false)
     private Double startX;
     @Column(nullable = false)
@@ -103,13 +106,14 @@ public class RouteArrivalAlert extends BaseEntity {
     private long version;
 
     @Builder
-    public RouteArrivalAlert(User user, Double startX, Double startY, String startName,
+    public RouteArrivalAlert(User user, Long scheduleId, Double startX, Double startY, String startName,
                              Double endX, Double endY, String endName,
                              LocalDateTime targetArrivalAt, Integer userLeadMinutes, Integer bufferMinutes,
                              Integer baselineDurationSec, LocalDateTime baselineLeaveByAt,
                              LocalDateTime firstCheckAt, RouteAlertReliability reliability,
                              LocalDateTime expiresAt) {
         this.user = user;
+        this.scheduleId = scheduleId;
         this.startX = startX;
         this.startY = startY;
         this.startName = startName;

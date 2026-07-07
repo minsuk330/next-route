@@ -1,9 +1,9 @@
 package watoo.grd.nextroute.application.notification.port.in;
 
-import watoo.grd.nextroute.application.notification.dto.RouteAlertResponse;
+import watoo.grd.nextroute.application.notification.dto.RouteAlertScheduleResponse;
 
 import java.util.List;
 
 public interface GetRouteAlertUseCase {
-    List<RouteAlertResponse> getActive(long userId);
+    List<RouteAlertScheduleResponse> getActive(long userId);
 }

@@ -53,4 +53,16 @@ public class RouteArrivalAlertProperties {
     private int maxAttempts = 3;
     /** transient 실패 재시도 백오프(초). */
     private int backoffSeconds = 60;
+
+    // ── 반복 스케줄 spawner (PR2, flag key 는 check/dispatch 와 별개) ──────────────
+    /** spawner 활성화. 기본 off. */
+    private boolean scheduleSpawnerEnabled = false;
+    /** spawner 스캔 주기(ms). */
+    private long scheduleSpawnIntervalMs = 60000;
+    /** occurrence 생성 window(시간): 목표시각 − now ≤ 이 값일 때만 생성. */
+    private int spawnLeadHours = 6;
+    /** materialize 시스템오류 지수 백오프 base(초). */
+    private long spawnBackoffBaseSeconds = 60;
+    /** materialize 시스템오류 지수 백오프 상한(초). */
+    private long spawnBackoffMaxSeconds = 3600;
 }

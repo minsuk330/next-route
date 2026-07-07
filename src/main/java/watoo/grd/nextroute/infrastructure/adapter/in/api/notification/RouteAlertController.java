@@ -7,7 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertRequest;
-import watoo.grd.nextroute.application.notification.dto.RouteAlertResponse;
+import watoo.grd.nextroute.application.notification.dto.RouteAlertScheduleResponse;
 import watoo.grd.nextroute.application.notification.port.in.CancelRouteAlertUseCase;
 import watoo.grd.nextroute.application.notification.port.in.CreateRouteAlertUseCase;
 import watoo.grd.nextroute.application.notification.port.in.GetRouteAlertUseCase;
@@ -26,14 +26,14 @@ public class RouteAlertController {
     private final CancelRouteAlertUseCase cancelRouteAlertUseCase;
 
     @PostMapping
-    public ResponseEntity<RouteAlertResponse> create(
+    public ResponseEntity<RouteAlertScheduleResponse> create(
             @AuthenticationPrincipal Long userId,
             @Valid @RequestBody RouteAlertRequest request) {
         return ResponseEntity.ok(createRouteAlertUseCase.create(userId, request));
     }
 
     @GetMapping
-    public ResponseEntity<List<RouteAlertResponse>> getActive(
+    public ResponseEntity<List<RouteAlertScheduleResponse>> getActive(
             @AuthenticationPrincipal Long userId) {
         return ResponseEntity.ok(getRouteAlertUseCase.getActive(userId));
     }
