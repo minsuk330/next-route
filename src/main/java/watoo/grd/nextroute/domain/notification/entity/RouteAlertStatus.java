@@ -5,5 +5,7 @@ public enum RouteAlertStatus {
     ACTIVE,
     DONE,
     EXPIRED,
-    CANCELED
+    CANCELED,
+    /** 스케줄 수정으로 대체된 미발송 occurrence(soft-delete 동반). 사용자 취소(CANCELED)와 구분. */
+    SUPERSEDED
 }

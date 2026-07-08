@@ -186,6 +186,22 @@ public class RouteArrivalAlert extends BaseEntity {
         this.nextActionAt = null;
     }
 
+    /** 스케줄 수정으로 대체(발송 전): SUPERSEDED + soft-delete. 유니크 슬롯 해제·종결판정 제외. */
+    public void markSuperseded() {
+        this.status = RouteAlertStatus.SUPERSEDED;
+        this.phase = RouteAlertPhase.COMPLETED;
+        this.nextActionAt = null;
+        markDeleted();
+    }
+
+    /** 스케줄 수정으로 조기종결(일회성 발송 후): DONE 유지(발송 사실 보존) + soft-delete(유니크 슬롯 해제). */
+    public void markDoneOnEdit() {
+        this.status = RouteAlertStatus.DONE;
+        this.phase = RouteAlertPhase.COMPLETED;
+        this.nextActionAt = null;
+        markDeleted();
+    }
+
     public void markExpired() {
         this.status = RouteAlertStatus.EXPIRED;
         this.nextActionAt = null;

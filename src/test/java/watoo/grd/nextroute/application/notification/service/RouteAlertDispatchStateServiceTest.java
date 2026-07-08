@@ -203,6 +203,35 @@ class RouteAlertDispatchStateServiceTest {
         assertThat(n.getStatus()).isEqualTo(RouteNotificationStatus.SENT);
     }
 
+    // ── 수정 경합 guard (claim 후 supersede 된 alert 는 발송 기록 금지) ────────────────
+
+    @Test
+    void markDepartureSent_alertSuperseded_cancelsNotationNotRecorded() {
+        RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
+        a.markSuperseded(); // 수정으로 대체(SUPERSEDED + soft-delete)
+        RouteArrivalAlertNotification n = noti(a, RouteNotificationType.DEPARTURE, null);
+        n.markProcessing(now());
+        given(notificationRepository.findById(7L)).willReturn(Optional.of(n));
+
+        service().markDepartureSent(7L);
+
+        assertThat(n.getStatus()).isEqualTo(RouteNotificationStatus.CANCELED); // SENT 아님
+        assertThat(a.getLastNotifiedAt()).isNull(); // recordNotified 미호출
+    }
+
+    @Test
+    void markChangeSent_alertSoftDeleted_cancels() {
+        RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
+        a.markDoneOnEdit(); // 일회성 발송후 수정 → DONE + soft-delete
+        RouteArrivalAlertNotification n = noti(a, RouteNotificationType.CHANGE, null);
+        n.markProcessing(now());
+        given(notificationRepository.findById(7L)).willReturn(Optional.of(n));
+
+        service().markChangeSent(7L);
+
+        assertThat(n.getStatus()).isEqualTo(RouteNotificationStatus.CANCELED);
+    }
+
     // ── 실패 ───────────────────────────────────────────────────────────────────
 
     @Test

@@ -63,8 +63,8 @@ public class RouteAlertDispatchStateService {
         RouteArrivalAlert alert = n.getAlert();
         LocalDateTime now = LocalDateTime.now(clock);
 
-        // stale 가드
-        if (alert.getStatus() == RouteAlertStatus.CANCELED || alert.getStatus() == RouteAlertStatus.EXPIRED) {
+        // stale 가드: 비-ACTIVE(CANCELED/EXPIRED/DONE/SUPERSEDED) 또는 soft-delete(수정으로 대체) → 발송 안 함.
+        if (alert.getStatus() != RouteAlertStatus.ACTIVE || alert.getDeletedAt() != null) {
             n.markCanceled();
             return Optional.empty();
         }
@@ -106,10 +106,15 @@ public class RouteAlertDispatchStateService {
     public void markDepartureSent(long notificationId) {
         RouteArrivalAlertNotification n = notificationRepository.findById(notificationId).orElse(null);
         if (n == null) return;
+        RouteArrivalAlert alert = n.getAlert();
+        // claim 후 발송 사이에 스케줄 수정으로 alert 가 대체(SUPERSEDED/조기 DONE·soft-delete)됐으면
+        // recordNotified 로 phase 를 되살리지 말고 notification 만 CANCELED(PROCESSING 방치 시 reclaimStale 재시도 방지).
+        if (isInactive(alert)) {
+            n.markCanceled();
+            return;
+        }
         LocalDateTime now = LocalDateTime.now(clock);
         n.markSent(now);
-
-        RouteArrivalAlert alert = n.getAlert();
         LocalDateTime finalCheckAt = computeFinalCheckAt(alert, now);
         alert.recordNotified(alert.getRecommendedLeaveByAt(), now, finalCheckAt);
     }
@@ -117,8 +122,18 @@ public class RouteAlertDispatchStateService {
     /** CHANGE 발송성공: notification SENT 만(alert 는 이미 final check 로 DONE). */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markChangeSent(long notificationId) {
-        notificationRepository.findById(notificationId)
-                .ifPresent(n -> n.markSent(LocalDateTime.now(clock)));
+        notificationRepository.findById(notificationId).ifPresent(n -> {
+            if (isInactive(n.getAlert())) {
+                n.markCanceled();
+                return;
+            }
+            n.markSent(LocalDateTime.now(clock));
+        });
+    }
+
+    /** 스케줄 수정으로 대체된(비-ACTIVE 또는 soft-delete) alert — 발송 기록 금지. */
+    private boolean isInactive(RouteArrivalAlert alert) {
+        return alert.getStatus() != RouteAlertStatus.ACTIVE || alert.getDeletedAt() != null;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

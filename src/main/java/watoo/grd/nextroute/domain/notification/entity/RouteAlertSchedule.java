@@ -105,6 +105,23 @@ public class RouteAlertSchedule extends BaseEntity {
         return status == RouteAlertScheduleStatus.ACTIVE;
     }
 
+    /**
+     * 구독 규칙 수정(좌표 제외). 필드 갱신 + retry 백오프 메타 리셋.
+     * ★리셋 필수: 남아있으면 수정 후 즉시 재 materialize 가 백오프 게이트({@code nextMaterializationRetryAt})에 막혀 skip 된다.
+     */
+    public void update(LocalTime arrivalTime, int weekdaysMask, boolean repeat,
+                       Integer userLeadMinutes, Integer bufferMinutes) {
+        this.arrivalTime = arrivalTime;
+        this.weekdaysMask = weekdaysMask;
+        this.repeat = repeat;
+        this.userLeadMinutes = userLeadMinutes;
+        this.bufferMinutes = bufferMinutes;
+        this.materializationRetryCount = 0;
+        this.nextMaterializationRetryAt = null;
+        this.lastMaterializationError = null;
+        this.lastMaterializationFailedAt = null;
+    }
+
     /** occurrence 생성 성공 기록(spawner·즉시생성 공유). 성공하면 retry metadata 리셋. */
     public void recordSpawn(LocalDateTime targetArrivalAt) {
         this.lastSpawnedTargetArrivalAt = targetArrivalAt;

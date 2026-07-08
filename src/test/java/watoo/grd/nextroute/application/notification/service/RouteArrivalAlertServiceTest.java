@@ -8,6 +8,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.notification.config.RouteArrivalAlertProperties;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertRequest;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertScheduleResponse;
+import watoo.grd.nextroute.application.notification.dto.RouteAlertUpdateRequest;
+import watoo.grd.nextroute.application.notification.exception.ScheduleNotEditableException;
 import watoo.grd.nextroute.domain.notification.entity.RouteAlertSchedule;
 import watoo.grd.nextroute.domain.notification.entity.RouteAlertScheduleStatus;
 import watoo.grd.nextroute.domain.notification.entity.RouteAlertStatus;
@@ -192,5 +194,153 @@ class RouteArrivalAlertServiceTest {
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getId()).isEqualTo(10L);
         assertThat(result.get(0).getOccurrenceId()).isEqualTo(99L);
+    }
+
+    // ── update ────────────────────────────────────────────────────────────────
+    private RouteAlertUpdateRequest updateReq(String hhmm, List<String> weekdays, boolean repeat,
+                                              int lead, Integer buffer) {
+        RouteAlertUpdateRequest r = new RouteAlertUpdateRequest();
+        set(r, "arrivalTime", LocalTime.parse(hhmm));
+        set(r, "weekdays", weekdays);
+        set(r, "repeat", repeat);
+        set(r, "userLeadMinutes", lead);
+        set(r, "bufferMinutes", buffer);
+        return r;
+    }
+
+    private RouteArrivalAlert occ(long id, long schedId, boolean sent) {
+        RouteArrivalAlert a = RouteArrivalAlert.builder()
+                .user(new User(123L)).scheduleId(schedId).startX(1.0).startY(2.0).endX(3.0).endY(4.0)
+                .targetArrivalAt(now().plusMinutes(60)).userLeadMinutes(10).bufferMinutes(5)
+                .baselineLeaveByAt(now().plusMinutes(45)).firstCheckAt(now().plusMinutes(30))
+                .expiresAt(now().plusMinutes(90)).build();
+        set(a, "id", id);
+        if (sent) set(a, "lastNotifiedAt", now().minusMinutes(5));
+        return a;
+    }
+
+    private void stubUpdate(RouteAlertSchedule schedule, List<RouteArrivalAlert> activeOccs) {
+        given(userRepository.findById(7L)).willReturn(Optional.of(new User(123L)));
+        given(scheduleRepository.findByIdAndUserAndDeletedAtIsNull(eq(schedule.getId()), any()))
+                .willReturn(Optional.of(schedule));
+        given(alertRepository.findByScheduleIdAndStatusAndDeletedAtIsNull(schedule.getId(), RouteAlertStatus.ACTIVE))
+                .willReturn(activeOccs);
+        given(scheduleRepository.findById(schedule.getId())).willReturn(Optional.of(schedule));
+    }
+
+    @Test
+    void update_repeat_presendOccurrence_superseded() {
+        RouteAlertSchedule s = schedule(20L, true,
+                watoo.grd.nextroute.domain.notification.entity.RouteWeekdays.maskFromCodes(List.of("MON")),
+                LocalTime.of(9, 30));
+        set(s, "nextMaterializationRetryAt", now().plusMinutes(30)); // 직전 시스템오류 백오프
+        set(s, "materializationRetryCount", 3);
+        RouteArrivalAlert pre = occ(201L, 20L, false);
+        stubUpdate(s, List.of(pre));
+
+        service().update(7L, 20L, updateReq("08:00", List.of("TUE"), true, 15, 5));
+
+        assertThat(pre.getStatus()).isEqualTo(RouteAlertStatus.SUPERSEDED);
+        assertThat(pre.getDeletedAt()).isNotNull();
+        assertThat(s.getArrivalTime()).isEqualTo(LocalTime.of(8, 0));
+        // 백오프 메타 리셋(안 하면 재spawn 이 게이트에 막힘)
+        assertThat(s.getNextMaterializationRetryAt()).isNull();
+        assertThat(s.getMaterializationRetryCount()).isZero();
+        verify(notificationRepository).cancelPendingByAlertId(201L);
+        verify(spawnService).processScheduleSpawn(eq(20L), any());
+    }
+
+    @Test
+    void update_repeat_multipleActivePresend_allSuperseded() {
+        // DB 가 schedule 당 ACTIVE 1개를 보장하지 않으므로 방어적 다건 처리 검증.
+        RouteAlertSchedule s = schedule(25L, true,
+                watoo.grd.nextroute.domain.notification.entity.RouteWeekdays.maskFromCodes(List.of("MON")),
+                LocalTime.of(9, 30));
+        RouteArrivalAlert a1 = occ(251L, 25L, false);
+        RouteArrivalAlert a2 = occ(252L, 25L, false);
+        stubUpdate(s, List.of(a1, a2));
+
+        service().update(7L, 25L, updateReq("08:00", List.of("TUE"), true, 15, 5));
+
+        assertThat(a1.getStatus()).isEqualTo(RouteAlertStatus.SUPERSEDED);
+        assertThat(a2.getStatus()).isEqualTo(RouteAlertStatus.SUPERSEDED);
+        verify(notificationRepository).cancelPendingByAlertId(251L);
+        verify(notificationRepository).cancelPendingByAlertId(252L);
+    }
+
+    @Test
+    void update_repeat_postsendOccurrence_kept() {
+        RouteAlertSchedule s = schedule(21L, true,
+                watoo.grd.nextroute.domain.notification.entity.RouteWeekdays.maskFromCodes(List.of("MON")),
+                LocalTime.of(9, 30));
+        RouteArrivalAlert sent = occ(211L, 21L, true);
+        stubUpdate(s, List.of(sent));
+
+        service().update(7L, 21L, updateReq("08:00", List.of("TUE"), true, 15, 5));
+
+        assertThat(sent.getStatus()).isEqualTo(RouteAlertStatus.ACTIVE); // 유지
+        assertThat(sent.getDeletedAt()).isNull();
+        verify(notificationRepository, never()).cancelPendingByAlertId(211L);
+        verify(spawnService).processScheduleSpawn(eq(21L), any());
+    }
+
+    @Test
+    void update_oneTime_postsendOccurrence_doneOnEdit() {
+        RouteAlertSchedule s = schedule(22L, false, 0, LocalTime.of(10, 0));
+        RouteArrivalAlert sent = occ(221L, 22L, true);
+        stubUpdate(s, List.of(sent));
+        given(alertRepository.findTopByScheduleIdAndDeletedAtIsNullOrderByIdDesc(22L))
+                .willReturn(Optional.empty()); // 루프서 이미 처리, C2 no-op
+
+        service().update(7L, 22L, updateReq("11:00", null, false, 10, 5));
+
+        assertThat(sent.getStatus()).isEqualTo(RouteAlertStatus.DONE);
+        assertThat(sent.getDeletedAt()).isNotNull();
+        verify(notificationRepository).cancelPendingByAlertId(221L);
+        verify(spawnService).processScheduleSpawn(eq(22L), any());
+    }
+
+    @Test
+    void update_oneTime_alreadyDone_c2_supersedes() {
+        RouteAlertSchedule s = schedule(23L, false, 0, LocalTime.of(10, 0));
+        stubUpdate(s, List.of()); // ACTIVE 없음
+        RouteArrivalAlert done = occ(231L, 23L, true);
+        set(done, "status", RouteAlertStatus.DONE);
+        given(alertRepository.findTopByScheduleIdAndDeletedAtIsNullOrderByIdDesc(23L))
+                .willReturn(Optional.of(done));
+
+        service().update(7L, 23L, updateReq("11:00", null, false, 10, 5));
+
+        assertThat(done.getDeletedAt()).isNotNull(); // C2: soft-delete
+        verify(notificationRepository).cancelPendingByAlertId(231L);
+        verify(spawnService).processScheduleSpawn(eq(23L), any());
+    }
+
+    @Test
+    void update_nonActiveSchedule_conflict() {
+        RouteAlertSchedule s = schedule(24L, false, 0, LocalTime.of(10, 0));
+        s.markCompleted();
+        given(userRepository.findById(7L)).willReturn(Optional.of(new User(123L)));
+        given(scheduleRepository.findByIdAndUserAndDeletedAtIsNull(eq(24L), any())).willReturn(Optional.of(s));
+
+        assertThatThrownBy(() -> service().update(7L, 24L, updateReq("11:00", null, false, 10, 5)))
+                .isInstanceOf(ScheduleNotEditableException.class);
+        verify(spawnService, never()).processScheduleSpawn(any(), any());
+    }
+
+    @Test
+    void update_scheduleNotFound_404() {
+        given(userRepository.findById(7L)).willReturn(Optional.of(new User(123L)));
+        given(scheduleRepository.findByIdAndUserAndDeletedAtIsNull(eq(99L), any())).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().update(7L, 99L, updateReq("11:00", null, false, 10, 5)))
+                .isInstanceOf(java.util.NoSuchElementException.class);
+    }
+
+    @Test
+    void update_repeatWithoutWeekdays_throws() {
+        assertThatThrownBy(() -> service().update(7L, 30L, updateReq("08:00", List.of(), true, 10, 5)))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(scheduleRepository, never()).findByIdAndUserAndDeletedAtIsNull(any(), any());
     }
 }
