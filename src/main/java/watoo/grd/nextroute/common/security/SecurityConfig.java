@@ -12,6 +12,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import watoo.grd.nextroute.application.auth.config.AdminProperties;
 
 /**
  * 무상태(JWT) 보안 설정. 기존 오픈 엔드포인트는 그대로 permitAll로 유지하고,
@@ -24,6 +25,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtProvider jwtProvider;
+    private final AdminProperties adminProperties;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -34,6 +36,8 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // 운영 전용(정적 Admin API 키). X-Admin-Key 헤더로만 접근
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         // 인증 필요한 엔드포인트(회원 전용)
                         .requestMatchers(HttpMethod.POST, "/api/auth/toss/logout").authenticated()
                         .requestMatchers("/api/route/fav/**").authenticated()
@@ -42,6 +46,7 @@ public class SecurityConfig {
                         .anyRequest().permitAll())
                 .exceptionHandling(e -> e.authenticationEntryPoint(
                         (req, res, ex) -> res.sendError(HttpServletResponse.SC_UNAUTHORIZED)))
+                .addFilterBefore(new AdminApiKeyFilter(adminProperties.getApiKey()), UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new JwtAuthFilter(jwtProvider), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
