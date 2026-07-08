@@ -3,14 +3,18 @@ package watoo.grd.nextroute.infrastructure.adapter.in.api.notification;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertRequest;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertScheduleResponse;
+import watoo.grd.nextroute.application.notification.dto.RouteAlertUpdateRequest;
+import watoo.grd.nextroute.application.notification.exception.ScheduleNotEditableException;
 import watoo.grd.nextroute.application.notification.port.in.CancelRouteAlertUseCase;
 import watoo.grd.nextroute.application.notification.port.in.CreateRouteAlertUseCase;
 import watoo.grd.nextroute.application.notification.port.in.GetRouteAlertUseCase;
+import watoo.grd.nextroute.application.notification.port.in.UpdateRouteAlertUseCase;
 
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -22,6 +26,7 @@ import java.util.NoSuchElementException;
 public class RouteAlertController {
 
     private final CreateRouteAlertUseCase createRouteAlertUseCase;
+    private final UpdateRouteAlertUseCase updateRouteAlertUseCase;
     private final GetRouteAlertUseCase getRouteAlertUseCase;
     private final CancelRouteAlertUseCase cancelRouteAlertUseCase;
 
@@ -30,6 +35,14 @@ public class RouteAlertController {
             @AuthenticationPrincipal Long userId,
             @Valid @RequestBody RouteAlertRequest request) {
         return ResponseEntity.ok(createRouteAlertUseCase.create(userId, request));
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<RouteAlertScheduleResponse> update(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long id,
+            @Valid @RequestBody RouteAlertUpdateRequest request) {
+        return ResponseEntity.ok(updateRouteAlertUseCase.update(userId, id, request));
     }
 
     @GetMapping
@@ -60,5 +73,11 @@ public class RouteAlertController {
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Void> handleUnprocessable() {
         return ResponseEntity.unprocessableEntity().build();
+    }
+
+    /** 비-ACTIVE 스케줄 수정 시도·동시 수정 충돌 → 409. */
+    @ExceptionHandler(ScheduleNotEditableException.class)
+    public ResponseEntity<Void> handleConflict() {
+        return ResponseEntity.status(HttpStatus.CONFLICT).build();
     }
 }

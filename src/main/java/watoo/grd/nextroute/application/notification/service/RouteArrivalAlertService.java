@@ -2,6 +2,7 @@ package watoo.grd.nextroute.application.notification.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -9,9 +10,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 import watoo.grd.nextroute.application.notification.config.RouteArrivalAlertProperties;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertRequest;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertScheduleResponse;
+import watoo.grd.nextroute.application.notification.dto.RouteAlertUpdateRequest;
+import watoo.grd.nextroute.application.notification.exception.ScheduleNotEditableException;
 import watoo.grd.nextroute.application.notification.port.in.CancelRouteAlertUseCase;
 import watoo.grd.nextroute.application.notification.port.in.CreateRouteAlertUseCase;
 import watoo.grd.nextroute.application.notification.port.in.GetRouteAlertUseCase;
+import watoo.grd.nextroute.application.notification.port.in.UpdateRouteAlertUseCase;
 import watoo.grd.nextroute.domain.notification.entity.RouteAlertSchedule;
 import watoo.grd.nextroute.domain.notification.entity.RouteAlertScheduleStatus;
 import watoo.grd.nextroute.domain.notification.entity.RouteAlertStatus;
@@ -42,7 +46,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class RouteArrivalAlertService
-        implements CreateRouteAlertUseCase, CancelRouteAlertUseCase, GetRouteAlertUseCase {
+        implements CreateRouteAlertUseCase, UpdateRouteAlertUseCase,
+        CancelRouteAlertUseCase, GetRouteAlertUseCase {
 
     private static final Set<Integer> ALLOWED_LEAD = Set.of(0, 5, 10, 15);
 
@@ -60,20 +65,8 @@ public class RouteArrivalAlertService
         LocalDateTime now = LocalDateTime.now(clock);
 
         int userLead = request.getUserLeadMinutes();
-        if (!ALLOWED_LEAD.contains(userLead)) {
-            throw new IllegalArgumentException("userLeadMinutes 는 {0,5,10,15} 중 하나여야 합니다: " + userLead);
-        }
-        LocalTime arrivalTime = request.getArrivalTime();
-        if (arrivalTime == null) {
-            throw new IllegalArgumentException("arrivalTime 이 필요합니다.");
-        }
-        int mask = RouteWeekdays.maskFromCodes(request.getWeekdays());
-        if (request.isRepeat() && mask == 0) {
-            throw new IllegalArgumentException("반복(repeat=true) 은 weekdays 를 1개 이상 지정해야 합니다.");
-        }
-        int buffer = request.getBufferMinutes() != null
-                ? request.getBufferMinutes()
-                : properties.getDefaultBufferMinutes();
+        int mask = validateAndMask(userLead, request.getArrivalTime(), request.isRepeat(), request.getWeekdays());
+        int buffer = resolveBuffer(request.getBufferMinutes());
 
         User user = requireUser(userId);
 
@@ -81,7 +74,7 @@ public class RouteArrivalAlertService
                 .user(user)
                 .startX(request.getStartX()).startY(request.getStartY()).startName(request.getStartName())
                 .endX(request.getEndX()).endY(request.getEndY()).endName(request.getEndName())
-                .arrivalTime(arrivalTime)
+                .arrivalTime(request.getArrivalTime())
                 .weekdaysMask(mask)
                 .repeat(request.isRepeat())
                 .userLeadMinutes(userLead)
@@ -103,6 +96,73 @@ public class RouteArrivalAlertService
         }
 
         return buildResponse(saved.getId(), now);
+    }
+
+    @Override
+    public RouteAlertScheduleResponse update(long userId, Long scheduleId, RouteAlertUpdateRequest request) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        int userLead = request.getUserLeadMinutes();
+        boolean repeat = request.isRepeat();
+        int mask = validateAndMask(userLead, request.getArrivalTime(), repeat, request.getWeekdays());
+        int buffer = resolveBuffer(request.getBufferMinutes());
+        User user = requireUser(userId);
+
+        // tx1: schedule 갱신 + in-flight occurrence 재처리(supersede/DONE). spawn(tx2) 과 분리해 격리.
+        try {
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                RouteAlertSchedule schedule = scheduleRepository
+                        .findByIdAndUserAndDeletedAtIsNull(scheduleId, user)
+                        .orElseThrow(() -> new NoSuchElementException("구독을 찾을 수 없습니다."));
+                if (!schedule.isActive()) {
+                    throw new ScheduleNotEditableException("ACTIVE 상태만 수정할 수 있습니다: " + schedule.getStatus());
+                }
+                // 필드 갱신 + 백오프 메타 리셋(안 하면 tx2 재spawn 이 백오프 게이트에 막혀 skip).
+                schedule.update(request.getArrivalTime(), mask, repeat, userLead, buffer);
+
+                // occurrence entity 변경을 먼저 모두 수행하고, notification 취소(cancelPendingByAlertId)는 나중에 일괄.
+                // cancelPendingByAlertId 는 @Modifying(clearAutomatically=true) 라 호출 시 영속성 컨텍스트를 비운다 —
+                // 취소를 각 반복에서 섞으면 첫 clear 이후 나머지 occurrence 가 detached 되어 변경이 유실된다.
+                List<Long> toCancelNotif = new java.util.ArrayList<>();
+                // ACTIVE occurrence 전체 순회(DB 가 active 1개 보장 안 함).
+                for (RouteArrivalAlert occ : alertRepository
+                        .findByScheduleIdAndStatusAndDeletedAtIsNull(scheduleId, RouteAlertStatus.ACTIVE)) {
+                    if (occ.getLastNotifiedAt() == null) {          // 발송 전 → 폐기
+                        occ.markSuperseded();
+                        toCancelNotif.add(occ.getId());
+                    } else if (!repeat) {                            // 발송 후 one-time → 조기 종결
+                        occ.markDoneOnEdit();
+                        toCancelNotif.add(occ.getId());
+                    }
+                    // 발송 후 repeat=true → 유지(다음 주부터 새 설정)
+                }
+                // one-time C2: 이미 발송·DONE 종결됐으나 schedule 이 아직 ACTIVE 인 윈도우 —
+                // 그 DONE occurrence 도 soft-delete 해 유니크 슬롯 해제 + 재생성 보장(같은 target 대비).
+                // (findTop 은 위 soft-delete 를 autoflush 로 반영해 방금 폐기한 건 제외한다.)
+                if (!repeat) {
+                    alertRepository.findTopByScheduleIdAndDeletedAtIsNullOrderByIdDesc(scheduleId)
+                            .filter(o -> o.getStatus() == RouteAlertStatus.DONE)
+                            .ifPresent(o -> {
+                                o.markDoneOnEdit();
+                                toCancelNotif.add(o.getId());
+                            });
+                }
+                // 일괄 취소: 첫 호출의 flushAutomatically 가 clear 전에 위 entity 변경을 모두 flush 한다.
+                for (Long alertId : toCancelNotif) {
+                    notificationRepository.cancelPendingByAlertId(alertId);
+                }
+            });
+        } catch (OptimisticLockingFailureException e) {
+            throw new ScheduleNotEditableException("동시 수정 충돌이 발생했습니다. 다시 시도해 주세요.");
+        }
+
+        // tx2: 새 파라미터로 재 materialize(발송후 repeat=true 는 in-flight 남아 가드 skip).
+        try {
+            spawnService.processScheduleSpawn(scheduleId, now);
+        } catch (RuntimeException e) {
+            log.warn("[RouteAlert] 수정 후 재 materialize 실패 scheduleId={}: {}", scheduleId, e.getMessage());
+        }
+
+        return buildResponse(scheduleId, now);
     }
 
     @Override
@@ -151,6 +211,25 @@ public class RouteArrivalAlertService
 
     private LocalDateTime nextArrivalAt(RouteAlertSchedule s, LocalDateTime now) {
         return RouteWeekdays.nextOccurrence(now, s.getArrivalTime(), s.getWeekdaysMask(), s.isRepeat());
+    }
+
+    /** 생성/수정 공통 검증 + weekdays → mask. */
+    private int validateAndMask(int userLead, LocalTime arrivalTime, boolean repeat, List<String> weekdays) {
+        if (!ALLOWED_LEAD.contains(userLead)) {
+            throw new IllegalArgumentException("userLeadMinutes 는 {0,5,10,15} 중 하나여야 합니다: " + userLead);
+        }
+        if (arrivalTime == null) {
+            throw new IllegalArgumentException("arrivalTime 이 필요합니다.");
+        }
+        int mask = RouteWeekdays.maskFromCodes(weekdays);
+        if (repeat && mask == 0) {
+            throw new IllegalArgumentException("반복(repeat=true) 은 weekdays 를 1개 이상 지정해야 합니다.");
+        }
+        return mask;
+    }
+
+    private int resolveBuffer(Integer requested) {
+        return requested != null ? requested : properties.getDefaultBufferMinutes();
     }
 
     private User requireUser(long userId) {
