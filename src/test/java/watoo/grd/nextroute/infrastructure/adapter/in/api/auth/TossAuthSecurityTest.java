@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.auth.dto.TokenResult;
 import watoo.grd.nextroute.application.auth.port.in.TossLoginUseCase;
+import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
@@ -21,7 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** SecurityConfig 규칙 + Security 통합 CORS 검증: 필터 체인 적용(addFilters 기본 true). */
 @WebMvcTest(TossAuthController.class)
-@Import({SecurityConfig.class, CorsConfig.class})
+@Import({SecurityConfig.class, CorsConfig.class, AdminProperties.class})
 class TossAuthSecurityTest {
 
     @Autowired MockMvc mockMvc;
