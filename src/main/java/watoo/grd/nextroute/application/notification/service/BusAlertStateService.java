@@ -31,15 +31,13 @@ public class BusAlertStateService {
         alertRepository.reclaimStale(now.minusMinutes(properties.getClaimTimeoutMinutes()));
     }
 
-    /** PENDING → PROCESSING. 이미 PENDING 아니면 false(동시성 가드). */
+    /**
+     * PENDING → PROCESSING 원자 claim. 영향행수 1=승자, 0=이미 비-PENDING/경쟁서 짐.
+     * 조건부 UPDATE 라 read-then-write race(동시 worker 중복 발송) 가 없다.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean claim(Long alertId) {
-        BusArrivalAlert alert = alertRepository.findById(alertId).orElse(null);
-        if (alert == null || alert.getStatus() != AlertStatus.PENDING) {
-            return false;
-        }
-        alert.markProcessing(LocalDateTime.now(clock));
-        return true;
+        return alertRepository.claimForProcessing(alertId, LocalDateTime.now(clock)) == 1;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
