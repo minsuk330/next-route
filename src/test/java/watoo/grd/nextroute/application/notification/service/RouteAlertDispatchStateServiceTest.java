@@ -28,8 +28,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 
 @ExtendWith(MockitoExtension.class)
@@ -93,16 +91,16 @@ class RouteAlertDispatchStateServiceTest {
         return n;
     }
 
-    // ── claim / stale 가드 ────────────────────────────────────────────────────
+    // ── loadTask / stale 가드 (claim 후 컨텍스트 구성·재확인) ─────────────────────────
 
     @Test
-    void claim_departureActive_processing() {
+    void loadTask_departureProcessing_buildsTask() {
         RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
         RouteArrivalAlertNotification n = noti(a, RouteNotificationType.DEPARTURE, null);
+        n.markProcessing(now()); // claim 완료 상태
         given(notificationRepository.findById(7L)).willReturn(Optional.of(n));
-        given(notificationRepository.claimForProcessing(eq(7L), any())).willReturn(1); // 원자 claim 성공
 
-        Optional<DispatchTask> task = service().claimForDispatch(7L);
+        Optional<DispatchTask> task = service().loadTask(7L);
 
         assertThat(task).isPresent();
         assertThat(task.get().type()).isEqualTo(RouteNotificationType.DEPARTURE);
@@ -111,45 +109,36 @@ class RouteAlertDispatchStateServiceTest {
     }
 
     @Test
-    void claim_lostRace_empty() {
+    void loadTask_notProcessing_empty() {
         RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
-        RouteArrivalAlertNotification n = noti(a, RouteNotificationType.DEPARTURE, null);
+        RouteArrivalAlertNotification n = noti(a, RouteNotificationType.DEPARTURE, null); // PENDING
         given(notificationRepository.findById(7L)).willReturn(Optional.of(n));
-        given(notificationRepository.claimForProcessing(eq(7L), any())).willReturn(0); // 경쟁서 짐
 
-        assertThat(service().claimForDispatch(7L)).isEmpty();
+        assertThat(service().loadTask(7L)).isEmpty();
     }
 
     @Test
-    void claim_parentCanceled_cancelsNotification() {
+    void loadTask_parentCanceled_cancelsNotification() {
         RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
         a.markCanceled();
         RouteArrivalAlertNotification n = noti(a, RouteNotificationType.DEPARTURE, null);
+        n.markProcessing(now());
         given(notificationRepository.findById(7L)).willReturn(Optional.of(n));
 
-        assertThat(service().claimForDispatch(7L)).isEmpty();
+        assertThat(service().loadTask(7L)).isEmpty();
         assertThat(n.getStatus()).isEqualTo(RouteNotificationStatus.CANCELED);
     }
 
     @Test
-    void claim_departureWrongPhase_cancels() {
+    void loadTask_departureWrongPhase_cancels() {
         RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
         a.recordNotified(a.getRecommendedLeaveByAt(), now(), now().plusMinutes(1)); // → WAITING_FINAL_CHECK
         RouteArrivalAlertNotification n = noti(a, RouteNotificationType.DEPARTURE, null);
+        n.markProcessing(now());
         given(notificationRepository.findById(7L)).willReturn(Optional.of(n));
 
-        assertThat(service().claimForDispatch(7L)).isEmpty();
+        assertThat(service().loadTask(7L)).isEmpty();
         assertThat(n.getStatus()).isEqualTo(RouteNotificationStatus.CANCELED);
-    }
-
-    @Test
-    void claim_notPending_empty() {
-        RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
-        RouteArrivalAlertNotification n = noti(a, RouteNotificationType.DEPARTURE, null);
-        n.markProcessing(now()); // 이미 PROCESSING
-        given(notificationRepository.findById(7L)).willReturn(Optional.of(n));
-
-        assertThat(service().claimForDispatch(7L)).isEmpty();
     }
 
     // ── 발송성공 전이 ─────────────────────────────────────────────────────────
@@ -248,7 +237,7 @@ class RouteAlertDispatchStateServiceTest {
     }
 
     @Test
-    void transientFailure_atMax_failed() {
+    void transientFailure_atMax_dead() {
         RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
         RouteArrivalAlertNotification n = noti(a, RouteNotificationType.DEPARTURE, null);
         set(n, "attemptCount", properties.getMaxAttempts());
@@ -256,7 +245,7 @@ class RouteAlertDispatchStateServiceTest {
 
         service().markTransientFailure(7L, "timeout");
 
-        assertThat(n.getStatus()).isEqualTo(RouteNotificationStatus.FAILED);
+        assertThat(n.getStatus()).isEqualTo(RouteNotificationStatus.DEAD); // permanent(FAILED)와 구분
     }
 
     @Test
@@ -268,5 +257,68 @@ class RouteAlertDispatchStateServiceTest {
         service().markPermanentFailure(7L, "bad-template");
 
         assertThat(n.getStatus()).isEqualTo(RouteNotificationStatus.FAILED);
+    }
+
+    // ── DEAD requeue ─────────────────────────────────────────────────────────────
+
+    private RouteArrivalAlertNotification deadNoti(RouteArrivalAlert a) {
+        RouteArrivalAlertNotification n = noti(a, RouteNotificationType.DEPARTURE, null);
+        set(n, "attemptCount", properties.getMaxAttempts());
+        n.markDead("max-retry");
+        return n;
+    }
+
+    @Test
+    void requeueDead_active_backToPendingPreservingBudget() {
+        RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
+        RouteArrivalAlertNotification n = deadNoti(a);
+        given(notificationRepository.findById(7L)).willReturn(Optional.of(n));
+
+        RouteAlertDispatchStateService.RequeueResult r = service().requeueDead(List.of(7L), false);
+
+        assertThat(r.requeued()).isEqualTo(1);
+        assertThat(r.skipped()).isEmpty();
+        assertThat(n.getStatus()).isEqualTo(RouteNotificationStatus.PENDING);
+        assertThat(n.getRequeueCount()).isEqualTo(1);
+        // 예산 보존: attemptCount=max-1 → 다음 claim(+1)이면 정확히 1회만 더 시도.
+        assertThat(n.getAttemptCount()).isEqualTo(properties.getMaxAttempts() - 1);
+    }
+
+    @Test
+    void requeueDead_resetAttempts_fullBudget() {
+        RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
+        RouteArrivalAlertNotification n = deadNoti(a);
+        given(notificationRepository.findById(7L)).willReturn(Optional.of(n));
+
+        service().requeueDead(List.of(7L), true);
+
+        assertThat(n.getAttemptCount()).isZero();
+    }
+
+    @Test
+    void requeueDead_parentInactive_skipped() {
+        RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
+        a.markCanceled();
+        RouteArrivalAlertNotification n = deadNoti(a);
+        given(notificationRepository.findById(7L)).willReturn(Optional.of(n));
+
+        RouteAlertDispatchStateService.RequeueResult r = service().requeueDead(List.of(7L), false);
+
+        assertThat(r.requeued()).isZero();
+        assertThat(r.skipped()).containsExactly(7L);
+        assertThat(n.getStatus()).isEqualTo(RouteNotificationStatus.DEAD); // 불변
+    }
+
+    @Test
+    void requeueDead_overCap_skipped() {
+        RouteArrivalAlert a = waitingDeparture(10, FinalCheckEligibility.ELIGIBLE);
+        RouteArrivalAlertNotification n = deadNoti(a);
+        set(n, "requeueCount", properties.getMaxRequeue());
+        given(notificationRepository.findById(7L)).willReturn(Optional.of(n));
+
+        RouteAlertDispatchStateService.RequeueResult r = service().requeueDead(List.of(7L), false);
+
+        assertThat(r.requeued()).isZero();
+        assertThat(r.skipped()).containsExactly(7L);
     }
 }

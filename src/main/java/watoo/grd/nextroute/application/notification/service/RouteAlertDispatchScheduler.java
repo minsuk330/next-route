@@ -3,7 +3,6 @@ package watoo.grd.nextroute.application.notification.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.notification.config.RouteArrivalAlertProperties;
@@ -11,9 +10,7 @@ import watoo.grd.nextroute.application.notification.config.TossMessengerProperti
 import watoo.grd.nextroute.application.notification.exception.TossMessengerException;
 import watoo.grd.nextroute.application.notification.port.out.TossMessengerPort;
 import watoo.grd.nextroute.application.notification.service.RouteAlertDispatchStateService.DispatchTask;
-import watoo.grd.nextroute.domain.notification.entity.RouteArrivalAlertNotification;
 import watoo.grd.nextroute.domain.notification.entity.RouteNotificationType;
-import watoo.grd.nextroute.domain.notification.repository.RouteArrivalAlertNotificationRepository;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -30,7 +27,6 @@ import java.util.Optional;
 @ConditionalOnProperty(prefix = "notification.route-arrival", name = "dispatch-enabled", havingValue = "true")
 public class RouteAlertDispatchScheduler {
 
-    private final RouteArrivalAlertNotificationRepository notificationRepository;
     private final RouteAlertDispatchStateService stateService;
     private final TossMessengerPort tossMessengerPort;
     private final RouteArrivalAlertProperties properties;
@@ -43,17 +39,16 @@ public class RouteAlertDispatchScheduler {
             LocalDateTime now = LocalDateTime.now(clock);
             stateService.reclaim(now);
 
-            List<RouteArrivalAlertNotification> due = notificationRepository.findDispatchable(
-                    now, PageRequest.of(0, properties.getDispatchBatchSize()));
-            if (due.isEmpty()) return;
+            // 배치 원자 claim(cancelStale + SKIP LOCKED) 은 한 트랜잭션에서 커밋된 뒤 id 만 넘어온다.
+            List<Long> claimedIds = stateService.claimBatch(now, properties.getDispatchBatchSize());
 
-            for (RouteArrivalAlertNotification n : due) {
+            for (Long id : claimedIds) {
                 try {
-                    Optional<DispatchTask> task = stateService.claimForDispatch(n.getId());
+                    Optional<DispatchTask> task = stateService.loadTask(id);
                     task.ifPresent(this::send);
                 } catch (Exception e) {
-                    // 개별 격리(낙관락 충돌 포함) — 다음 스캔 재시도.
-                    log.warn("[RouteAlertDispatch] notification={} 처리 실패: {}", n.getId(), e.getMessage());
+                    // 개별 격리(낙관락 충돌 포함) — reclaim 후 다음 스캔 재시도.
+                    log.warn("[RouteAlertDispatch] notification={} 처리 실패: {}", id, e.getMessage());
                 }
             }
         } catch (Exception e) {

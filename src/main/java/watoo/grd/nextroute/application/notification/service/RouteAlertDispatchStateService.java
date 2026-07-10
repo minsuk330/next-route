@@ -20,14 +20,18 @@ import watoo.grd.nextroute.domain.notification.repository.RouteArrivalAlertNotif
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 /**
- * 발송 상태 전이의 트랜잭션 경계. claim/stale-guard 와 발송성공 전이를 REQUIRES_NEW 로 분리해
+ * 발송 상태 전이의 트랜잭션 경계. 배치 claim(SKIP LOCKED)과 발송성공 전이를 분리해
  * 외부 토스 호출이 DB 트랜잭션 밖에서 일어나게 한다. DEPARTURE 발송성공은 부모 alert 전이(recordNotified)와
  * 같은 트랜잭션에서 처리한다(원자성).
+ * <p>흐름: reclaim → claimBatch(cancelStale+SKIP LOCKED, 커밋) → per-id loadTask → 토스 발송(tx 밖) → markXxx.
+ * claim 트랜잭션을 먼저 커밋하고 mark 를 별도 트랜잭션으로 두어, claim 이 연 커넥션과 mark 커넥션이 겹치지 않게 한다.
  */
 @Slf4j
 @Service
@@ -46,49 +50,48 @@ public class RouteAlertDispatchStateService {
                                long tossUserKey, Map<String, Object> context) {
     }
 
-    /** PROCESSING 고착 reclaim. */
+    /** admin requeue 결과: 실제 재투입 건과 (부모 비활성/상한 초과 등으로) 건너뛴 id. */
+    public record RequeueResult(int requeued, List<Long> skipped) {
+    }
+
+    /** PROCESSING 고착 reclaim. SKIP LOCKED 락은 tx 커밋 시 풀리므로 crash 소유권 회수는 이 경로가 담당. */
     @Transactional
     public void reclaim(LocalDateTime now) {
         notificationRepository.reclaimStale(now.minusMinutes(properties.getClaimTimeoutMinutes()), now);
     }
 
     /**
-     * stale 가드 + PENDING→PROCESSING claim(원자). 발송 대상이면 {@link DispatchTask} 반환, 아니면 empty.
+     * stale 정리 + 배치 원자 claim. 단일 트랜잭션에서 cancelStale 후 SKIP LOCKED 로 PENDING→PROCESSING 전이,
+     * claim 된 notification id 목록을 반환한다. 엔티티는 로드하지 않는다(id 만).
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public Optional<DispatchTask> claimForDispatch(long notificationId) {
+    @Transactional
+    public List<Long> claimBatch(LocalDateTime now, int batchSize) {
+        notificationRepository.cancelStaleDispatchable(now);
+        return notificationRepository.claimBatchForProcessing(now, batchSize);
+    }
+
+    /**
+     * claim 된 notification(PROCESSING)을 재확인하고 발송 컨텍스트를 구성한다.
+     * claim 커밋 이후 부모 alert 가 비활성화(수정으로 SUPERSEDED/조기 DONE·soft-delete)됐으면 발송 안 함(CANCELED).
+     */
+    @Transactional
+    public Optional<DispatchTask> loadTask(long notificationId) {
         RouteArrivalAlertNotification n = notificationRepository.findById(notificationId).orElse(null);
-        if (n == null || n.getStatus() != RouteNotificationStatus.PENDING) return Optional.empty();
+        if (n == null || n.getStatus() != RouteNotificationStatus.PROCESSING) return Optional.empty();
 
         RouteArrivalAlert alert = n.getAlert();
         LocalDateTime now = LocalDateTime.now(clock);
 
-        // stale 가드: 비-ACTIVE(CANCELED/EXPIRED/DONE/SUPERSEDED) 또는 soft-delete(수정으로 대체) → 발송 안 함.
-        if (alert.getStatus() != RouteAlertStatus.ACTIVE || alert.getDeletedAt() != null) {
-            n.markCanceled();
-            return Optional.empty();
-        }
-        if (alert.getTargetArrivalAt().isBefore(now)) {
-            n.markCanceled();
-            return Optional.empty();
-        }
-        // DEPARTURE 는 WAITING_DEPARTURE 에서만 유효(이미 전이됐으면 stale).
-        if (n.getType() == RouteNotificationType.DEPARTURE
-                && alert.getPhase() != RouteAlertPhase.WAITING_DEPARTURE) {
+        // claim~loadTask 사이에 부모가 전이됐을 수 있으므로 stale 가드 재확인(이중 방어).
+        if (isInactive(alert) || alert.getTargetArrivalAt().isBefore(now)
+                || (n.getType() == RouteNotificationType.DEPARTURE
+                    && alert.getPhase() != RouteAlertPhase.WAITING_DEPARTURE)) {
             n.markCanceled();
             return Optional.empty();
         }
 
-        // context 를 원자 claim 전에 구성(bulk update 가 영속성 컨텍스트를 비우므로 lazy 접근 먼저).
-        RouteNotificationType type = n.getType();
-        long userKey = alert.getUser().getTossUserKey();
-        Map<String, Object> context = buildContext(alert, n);
-
-        // 원자 claim(PENDING→PROCESSING). 동시 dispatcher 가 있어도 단일 승자만 발송.
-        if (notificationRepository.claimForProcessing(n.getId(), now) == 0) {
-            return Optional.empty();
-        }
-        return Optional.of(new DispatchTask(n.getId(), type, userKey, context));
+        return Optional.of(new DispatchTask(
+                n.getId(), n.getType(), alert.getUser().getTossUserKey(), buildContext(alert, n)));
     }
 
     private Map<String, Object> buildContext(RouteArrivalAlert alert, RouteArrivalAlertNotification n) {
@@ -136,12 +139,13 @@ public class RouteAlertDispatchStateService {
         return alert.getStatus() != RouteAlertStatus.ACTIVE || alert.getDeletedAt() != null;
     }
 
+    /** transient 실패: 재시도 예산 남으면 백오프 후 PENDING, 소진되면 DEAD(수동 개입 대기). */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markTransientFailure(long notificationId, String reason) {
         notificationRepository.findById(notificationId).ifPresent(n -> {
             LocalDateTime now = LocalDateTime.now(clock);
             if (n.getAttemptCount() >= properties.getMaxAttempts()) {
-                n.markFailed("max-retry: " + reason);
+                n.markDead("max-retry: " + reason);
             } else {
                 n.releaseToPending(reason, now.plusSeconds(properties.getBackoffSeconds()));
             }
@@ -151,6 +155,35 @@ public class RouteAlertDispatchStateService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markPermanentFailure(long notificationId, String reason) {
         notificationRepository.findById(notificationId).ifPresent(n -> n.markFailed(reason));
+    }
+
+    /** admin: DEAD row 목록(최신순). */
+    @Transactional(readOnly = true)
+    public List<RouteArrivalAlertNotification> findDead() {
+        return notificationRepository.findByStatusOrderByCreatedAtDesc(RouteNotificationStatus.DEAD);
+    }
+
+    /**
+     * admin: DEAD → PENDING 재투입. 부모가 ACTIVE·미래 target 이고 requeueCount 상한 미만인 것만.
+     * resetAttempts=true 면 재시도 예산 전체 재부여(기본은 1회만 더).
+     */
+    @Transactional
+    public RequeueResult requeueDead(List<Long> ids, boolean resetAttempts) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        int requeued = 0;
+        List<Long> skipped = new ArrayList<>();
+        for (Long id : ids) {
+            RouteArrivalAlertNotification n = notificationRepository.findById(id).orElse(null);
+            if (n == null || n.getStatus() != RouteNotificationStatus.DEAD
+                    || n.getRequeueCount() >= properties.getMaxRequeue()
+                    || isInactive(n.getAlert()) || !n.getAlert().getTargetArrivalAt().isAfter(now)) {
+                skipped.add(id);
+                continue;
+            }
+            n.requeue(now, resetAttempts);
+            requeued++;
+        }
+        return new RequeueResult(requeued, skipped);
     }
 
     /**
