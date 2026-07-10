@@ -29,6 +29,7 @@ class BusAlertDispatchServiceTest {
 
     @Mock BusArrivalAlertRepository alertRepository;
     @Mock BusAlertStateService stateService;
+    @Mock BusAlertOutboxEnqueueService outboxEnqueueService;
     @Mock BusApiPort busApiPort;
     @Mock TossMessengerPort tossMessengerPort;
 
@@ -39,7 +40,7 @@ class BusAlertDispatchServiceTest {
     BusAlertDispatchService service() {
         msgProps.setBusArrivalTemplateSetCode("BUS_ARRIVAL");
         return new BusAlertDispatchService(
-                alertRepository, stateService, busApiPort, tossMessengerPort, props, msgProps, clock);
+                alertRepository, stateService, outboxEnqueueService, busApiPort, tossMessengerPort, props, msgProps, clock);
     }
 
     // 디스패치 now = LocalDateTime.now(clock)

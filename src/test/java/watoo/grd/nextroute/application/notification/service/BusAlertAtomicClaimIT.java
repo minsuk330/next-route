@@ -47,6 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import({
         BusAlertDispatchService.class,
         BusAlertStateService.class,
+        BusAlertOutboxEnqueueService.class,
         BusAlertAtomicClaimIT.Config.class
 })
 class BusAlertAtomicClaimIT {
@@ -158,6 +159,11 @@ class BusAlertAtomicClaimIT {
         @Bean
         Clock clock() {
             return Clock.fixed(NOW.atZone(KST).toInstant(), KST);
+        }
+
+        @Bean
+        com.fasterxml.jackson.databind.ObjectMapper objectMapper() {
+            return new com.fasterxml.jackson.databind.ObjectMapper();
         }
 
         @Bean

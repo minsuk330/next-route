@@ -53,6 +53,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({
         BusAlertDispatchService.class,
+        BusAlertOutboxEnqueueService.class,
         BusAlertConcurrentPollingIT.ConcurrentPollingConfig.class
 })
 class BusAlertConcurrentPollingIT {
@@ -230,6 +231,11 @@ class BusAlertConcurrentPollingIT {
         @Bean
         Clock clock() {
             return Clock.fixed(NOW.atZone(KST).toInstant(), KST);
+        }
+
+        @Bean
+        com.fasterxml.jackson.databind.ObjectMapper objectMapper() {
+            return new com.fasterxml.jackson.databind.ObjectMapper();
         }
 
         @Bean
