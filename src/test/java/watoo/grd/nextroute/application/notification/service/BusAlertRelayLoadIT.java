@@ -131,18 +131,22 @@ class BusAlertRelayLoadIT {
         jdbcTemplate.update("delete from bus_alert_notification");
         jdbcTemplate.update("delete from bus_arrival_alert");
         jdbcTemplate.update("delete from users");
+        List<Object[]> users = new ArrayList<>(backlog);
+        List<Object[]> alerts = new ArrayList<>(backlog);
         for (int i = 1; i <= backlog; i++) {
-            jdbcTemplate.update("insert into users (id, created_at, updated_at, toss_user_key) values (?,?,?,?)",
-                    (long) i, NOW, NOW, 1_000_000L + i);
-            jdbcTemplate.update("""
-                    insert into bus_arrival_alert
-                        (id, created_at, updated_at, user_id, stop_id, route_id, ord,
-                         route_name, stop_name, user_eta, bus_arrival_minutes, status, expires_at, attempt_count)
-                    values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    """,
+            users.add(new Object[]{(long) i, NOW, NOW, 1_000_000L + i});
+            alerts.add(new Object[]{
                     (long) i, NOW, NOW, (long) i, "S" + i, "R" + i, 3, "간선" + i, "정류장" + i,
-                    NOW, 1, "PENDING", NOW.plusMinutes(60), 0);
+                    NOW, 1, "PENDING", NOW.plusMinutes(60), 0});
         }
+        jdbcTemplate.batchUpdate(
+                "insert into users (id, created_at, updated_at, toss_user_key) values (?,?,?,?)", users);
+        jdbcTemplate.batchUpdate("""
+                insert into bus_arrival_alert
+                    (id, created_at, updated_at, user_id, stop_id, route_id, ord,
+                     route_name, stop_name, user_eta, bus_arrival_minutes, status, expires_at, attempt_count)
+                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, alerts);
         // batchSize 무관하게 backlog 전량 enqueue(사이클 반복 소진).
         while (scalar("select count(*) from bus_arrival_alert where status = 'PENDING'") > 0) {
             long before = scalar("select count(*) from bus_arrival_alert where status = 'PENDING'");

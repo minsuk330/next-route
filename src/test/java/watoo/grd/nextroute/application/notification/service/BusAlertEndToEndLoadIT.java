@@ -27,7 +27,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -123,19 +125,23 @@ class BusAlertEndToEndLoadIT {
     }
 
     private void seedPending(int total, int groupCount) {
+        List<Object[]> users = new ArrayList<>(total);
+        List<Object[]> alerts = new ArrayList<>(total);
         for (int i = 1; i <= total; i++) {
             int g = (i - 1) % groupCount;
-            jdbcTemplate.update("insert into users (id, created_at, updated_at, toss_user_key) values (?,?,?,?)",
-                    (long) i, NOW, NOW, 1_000_000L + i);
-            jdbcTemplate.update("""
-                    insert into bus_arrival_alert
-                        (id, created_at, updated_at, user_id, stop_id, route_id, ord,
-                         route_name, stop_name, user_eta, bus_arrival_minutes, status, expires_at, attempt_count)
-                    values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    """,
+            users.add(new Object[]{(long) i, NOW, NOW, 1_000_000L + i});
+            alerts.add(new Object[]{
                     (long) i, NOW, NOW, (long) i, "S" + g, "R" + g, 3, "간선" + g, "정류장" + g,
-                    NOW, 1, "PENDING", NOW.plusMinutes(60), 0);
+                    NOW, 1, "PENDING", NOW.plusMinutes(60), 0});
         }
+        jdbcTemplate.batchUpdate(
+                "insert into users (id, created_at, updated_at, toss_user_key) values (?,?,?,?)", users);
+        jdbcTemplate.batchUpdate("""
+                insert into bus_arrival_alert
+                    (id, created_at, updated_at, user_id, stop_id, route_id, ord,
+                     route_name, stop_name, user_eta, bus_arrival_minutes, status, expires_at, attempt_count)
+                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, alerts);
     }
 
     private long scalar(String sql) {
