@@ -68,6 +68,11 @@ class BusAlertEnqueueLoadIT {
         r.add("spring.datasource.password", postgres::getPassword);
         r.add("spring.jpa.hibernate.ddl-auto", () -> "none");
         r.add("spring.flyway.enabled", () -> "false");
+        // 실측용 batch-size 오버라이드(auto-bound 프로퍼티에 반영됨).
+        String batch = System.getenv("BUS_ALERT_ENQUEUE_LOAD_BATCH");
+        if (batch != null && !batch.isBlank()) {
+            r.add("notification.bus-arrival.batch-size", () -> batch);
+        }
     }
 
     @Autowired BusAlertDispatchService dispatchService;
