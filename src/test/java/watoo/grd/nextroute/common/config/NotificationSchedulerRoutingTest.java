@@ -5,8 +5,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import watoo.grd.nextroute.application.notification.service.RouteAlertCheckScheduler;
 import watoo.grd.nextroute.application.notification.service.RouteAlertDispatchScheduler;
 import watoo.grd.nextroute.application.notification.service.RouteAlertScheduleSpawner;
-import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.BusAlertOutboxRelayScheduler;
-import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.BusArrivalAlertScheduler;
+import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.notifination.BusAlertOutboxRelayScheduler;
+import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.notifination.BusArrivalAlertScheduler;
 
 import java.lang.reflect.Method;
 

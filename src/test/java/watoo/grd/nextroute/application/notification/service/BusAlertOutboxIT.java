@@ -67,7 +67,7 @@ class BusAlertOutboxIT {
     @Autowired BusAlertDispatchService dispatchService;
     @Autowired BusAlertOutboxRelayService relayService;
     @Autowired BusArrivalAlertProperties properties;
-    @Autowired BusAlertConcurrentPollingIT.CountingTossMessengerPort tossMessengerPort;
+    @Autowired CountingTossMessengerPort tossMessengerPort;
     @Autowired JdbcTemplate jdbcTemplate;
 
     @BeforeEach
@@ -76,7 +76,6 @@ class BusAlertOutboxIT {
         jdbcTemplate.update("delete from bus_arrival_alert");
         jdbcTemplate.update("delete from users");
         tossMessengerPort.reset();
-        properties.setOutboxEnabled(true);
     }
 
     @Test
@@ -161,7 +160,6 @@ class BusAlertOutboxIT {
             p.setMaxAttempts(3);
             p.setPerUserCycleCap(5);
             p.setBackoffSeconds(60);
-            p.setOutboxEnabled(true);
             p.setOutboxRelayBatchSize(200);
             return p;
         }
@@ -184,8 +182,8 @@ class BusAlertOutboxIT {
         }
 
         @Bean
-        BusAlertConcurrentPollingIT.CountingBusApiPort busApiPort() {
-            return new BusAlertConcurrentPollingIT.CountingBusApiPort(0);
+        CountingBusApiPort busApiPort() {
+            return new CountingBusApiPort(0);
         }
 
         @Bean
@@ -194,8 +192,8 @@ class BusAlertOutboxIT {
         }
 
         @Bean
-        BusAlertConcurrentPollingIT.CountingTossMessengerPort tossMessengerPort() {
-            return new BusAlertConcurrentPollingIT.CountingTossMessengerPort(0);
+        CountingTossMessengerPort tossMessengerPort() {
+            return new CountingTossMessengerPort(0);
         }
     }
 }

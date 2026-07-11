@@ -38,22 +38,9 @@ public interface BusArrivalAlertRepository extends JpaRepository<BusArrivalAlert
     Optional<BusArrivalAlert> findByIdAndUserAndDeletedAtIsNull(Long id, User user);
 
     /**
-     * 원자 claim: PENDING → PROCESSING(단일 승자). 영향행수 1=claim, 0=경쟁서 짐/이미 비-PENDING.
-     * read-then-write 를 조건부 UPDATE 로 대체해 동시 worker/다중 인스턴스의 중복 발송을 차단한다
-     * (Postgres 행 락으로 동시 UPDATE 중 하나만 status=PENDING 조건에 매치). markProcessing 과 동일 필드 전이.
+     * bulk 만료: PENDING만 대상. 발송 인계된 PROCESSING 은 outbox relay 가 소유(여기서 되돌리지 않음 —
+     * 되돌리면 재enqueue dedup 충돌).
      */
-    @Modifying(clearAutomatically = true)
-    @Query("""
-            update BusArrivalAlert a
-            set a.status = watoo.grd.nextroute.domain.notification.entity.AlertStatus.PROCESSING,
-                a.processingStartedAt = :now, a.lastAttemptAt = :now, a.attemptCount = a.attemptCount + 1
-            where a.id = :id
-              and a.status = watoo.grd.nextroute.domain.notification.entity.AlertStatus.PENDING
-              and a.deletedAt is null
-            """)
-    int claimForProcessing(@Param("id") Long id, @Param("now") LocalDateTime now);
-
-    /** bulk 만료: PENDING만 대상(발송중 PROCESSING은 reclaim으로만 복귀). */
     @Modifying(clearAutomatically = true)
     @Query("""
             update BusArrivalAlert a
@@ -62,15 +49,4 @@ public interface BusArrivalAlertRepository extends JpaRepository<BusArrivalAlert
               and a.expiresAt < :now and a.deletedAt is null
             """)
     int expirePendingOverdue(@Param("now") LocalDateTime now);
-
-    /** bulk reclaim: 고착 PROCESSING → PENDING. */
-    @Modifying(clearAutomatically = true)
-    @Query("""
-            update BusArrivalAlert a
-            set a.status = watoo.grd.nextroute.domain.notification.entity.AlertStatus.PENDING,
-                a.lastFailureReason = 'reclaimed'
-            where a.status = watoo.grd.nextroute.domain.notification.entity.AlertStatus.PROCESSING
-              and a.processingStartedAt < :threshold and a.deletedAt is null
-            """)
-    int reclaimStale(@Param("threshold") LocalDateTime threshold);
 }
