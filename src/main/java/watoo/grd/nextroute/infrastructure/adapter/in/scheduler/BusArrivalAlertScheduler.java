@@ -22,7 +22,8 @@ public class BusArrivalAlertScheduler {
     private final BusArrivalAlertProperties properties;
     private final Clock clock;
 
-    @Scheduled(fixedDelayString = "${notification.bus-arrival.poll-interval-ms:30000}")
+    @Scheduled(fixedDelayString = "${notification.bus-arrival.poll-interval-ms:30000}",
+            scheduler = "notificationTaskScheduler")
     public void poll() {
         if (!properties.isEnabled()) return;
         if (!isActiveHours()) return;

@@ -29,7 +29,8 @@ public class RouteAlertCheckScheduler {
     private final RouteAlertCheckProcessor processor;
     private final Clock clock;
 
-    @Scheduled(fixedDelayString = "${notification.route-arrival.check-interval-ms:30000}")
+    @Scheduled(fixedDelayString = "${notification.route-arrival.check-interval-ms:30000}",
+            scheduler = "notificationTaskScheduler")
     public void run() {
         LocalDateTime now = LocalDateTime.now(clock);
         // 체크 도래(next_action_at) + 만료 도래(expires_at) 합집합. 후자는 WAITING_DEPARTURE
