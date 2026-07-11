@@ -52,6 +52,12 @@ public class BusArrivalAlertProperties {
     /** DEAD requeue 누적 상한. */
     private int maxRequeue = 3;
 
+    /**
+     * 발송 조건 판단 시 실시간 관측 캐시 재사용(Step E). on 이면 그룹 도착조회를 캐시 우선(miss 시 provider+prime)으로
+     * 수행해 collector/검색과 캐시를 공유, busApiCalls 를 줄인다. off 면 항상 provider 직접 호출(기존 동작).
+     */
+    private boolean cacheReadEnabled = false;
+
     private final ActiveHours activeHours = new ActiveHours();
 
     @Getter

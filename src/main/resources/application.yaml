@@ -147,6 +147,8 @@ notification:
     max-attempts: 3
     per-user-cycle-cap: 5
     backoff-seconds: 60
+    # 발송조건 판단 시 실시간 관측 캐시 재사용(Step E). on 이면 collector/검색과 캐시 공유로 busApiCalls 절감. 기본 off.
+    cache-read-enabled: false
     active-hours:
       start: "05:00"
       end: "01:00"

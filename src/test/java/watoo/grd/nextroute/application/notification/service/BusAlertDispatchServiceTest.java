@@ -5,6 +5,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.bus.BusArrivalInfoFixtures;
+import watoo.grd.nextroute.application.bus.InMemoryBusRealtimeCache;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.notification.config.BusArrivalAlertProperties;
@@ -20,6 +21,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.*;
@@ -36,11 +38,13 @@ class BusAlertDispatchServiceTest {
     BusArrivalAlertProperties props = new BusArrivalAlertProperties();
     TossMessengerProperties msgProps = new TossMessengerProperties();
     Clock clock = Clock.fixed(Instant.parse("2026-06-23T03:00:00Z"), ZoneId.of("Asia/Seoul"));
+    InMemoryBusRealtimeCache cache = new InMemoryBusRealtimeCache();
 
     BusAlertDispatchService service() {
         msgProps.setBusArrivalTemplateSetCode("BUS_ARRIVAL");
         return new BusAlertDispatchService(
-                alertRepository, stateService, outboxEnqueueService, busApiPort, tossMessengerPort, props, msgProps, clock);
+                alertRepository, stateService, outboxEnqueueService, busApiPort, cache, cache,
+                tossMessengerPort, props, msgProps, clock);
     }
 
     // 디스패치 now = LocalDateTime.now(clock)
@@ -110,6 +114,38 @@ class BusAlertDispatchServiceTest {
 
         verify(busApiPort, times(1)).getArrInfoByStop("S1", "R1", "3");
         verify(tossMessengerPort, times(2)).sendMessage(anyLong(), any(), anyMap());
+    }
+
+    @Test
+    void cacheReadEnabled_reusesRealtimeCache_acrossCycles_reducingBusApiCalls() {
+        // Step E: 같은 그룹을 여러 사이클 돌려도 provider 는 miss 1회만. 이후 캐시 hit(busApiCalls 절감).
+        props.setCacheReadEnabled(true);
+        // 임계 밖(300s)이라 발송 로직은 타지 않음 — 도착 로드(캐시) 경로만 격리 검증.
+        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(300)));
+
+        due(List.of(alert(1L, "S1", "R1", 3)));
+        service().dispatchDue();   // cycle1: miss → provider 호출 + 프라이밍
+        due(List.of(alert(1L, "S1", "R1", 3)));
+        service().dispatchDue();   // cycle2: hit → provider 미호출
+        due(List.of(alert(1L, "S1", "R1", 3)));
+        service().dispatchDue();   // cycle3: hit
+
+        verify(busApiPort, times(1)).getArrInfoByStop("S1", "R1", "3");
+        assertThat(cache.getArrivals("S1", "R1", 3)).isPresent();
+    }
+
+    @Test
+    void cacheReadDisabled_alwaysCallsProvider() {
+        // flag off(기본): 캐시 미사용 → 매 사이클 provider 직접 호출(기존 동작 보존).
+        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(300)));
+
+        due(List.of(alert(1L, "S1", "R1", 3)));
+        service().dispatchDue();
+        due(List.of(alert(1L, "S1", "R1", 3)));
+        service().dispatchDue();
+
+        verify(busApiPort, times(2)).getArrInfoByStop("S1", "R1", "3");
+        assertThat(cache.getArrivals("S1", "R1", 3)).isEmpty();
     }
 
     @Test
