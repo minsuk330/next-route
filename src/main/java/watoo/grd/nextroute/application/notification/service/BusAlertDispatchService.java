@@ -6,6 +6,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
+import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheReadPort;
+import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.application.notification.config.BusArrivalAlertProperties;
 import watoo.grd.nextroute.application.notification.config.TossMessengerProperties;
 import watoo.grd.nextroute.application.notification.exception.TossMessengerException;
@@ -18,6 +20,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -33,6 +36,8 @@ public class BusAlertDispatchService {
     private final BusAlertStateService stateService;
     private final BusAlertOutboxEnqueueService outboxEnqueueService;
     private final BusApiPort busApiPort;
+    private final BusRealtimeCacheReadPort cacheReadPort;
+    private final BusRealtimeCacheWritePort cacheWritePort;
     private final TossMessengerPort tossMessengerPort;
     private final BusArrivalAlertProperties properties;
     private final TossMessengerProperties messengerProperties;
@@ -74,8 +79,7 @@ public class BusAlertDispatchService {
                               String templateSetCode, Map<Long, Integer> sentPerUser) {
         BusArrivalAlert sample = group.get(0);
         // 그룹당 도착 1회 조회(dedup). 타겟 버스 선택은 alert.userEta 별로 다르므로 per-alert 계산.
-        List<BusArrivalInfo> arrivals = busApiPort.getArrInfoByStop(
-                sample.getStopId(), sample.getRouteId(), String.valueOf(sample.getOrd()));
+        List<BusArrivalInfo> arrivals = loadArrivals(sample);
         if (arrivals.isEmpty()) return;
 
         for (BusArrivalAlert alert : group) {
@@ -86,6 +90,27 @@ public class BusAlertDispatchService {
                 log.warn("[BusAlertDispatch] alert={} 처리 실패: {}", alert.getId(), e.getMessage(), e);
             }
         }
+    }
+
+    /**
+     * 그룹(정류소·노선·순번)의 실시간 도착정보 로드.
+     * <p>cacheReadEnabled(Step E): 실시간 관측 캐시 우선 조회 → hit 이면 provider 미호출(busApiCalls 절감),
+     * miss 면 provider 호출 후 캐시 프라이밍(collector/검색과 공유). off 면 항상 provider 직접 호출(기존 동작).
+     * <p>알림은 검색 quota/circuit-breaker 와 무관한 {@link BusApiPort} 경로를 유지한다(검색 예산 미결합).
+     */
+    private List<BusArrivalInfo> loadArrivals(BusArrivalAlert sample) {
+        String stopId = sample.getStopId();
+        String routeId = sample.getRouteId();
+        int ord = sample.getOrd();
+        if (properties.isCacheReadEnabled()) {
+            Optional<List<BusArrivalInfo>> hit = cacheReadPort.getArrivals(stopId, routeId, ord);
+            if (hit.isPresent()) return hit.get();
+        }
+        List<BusArrivalInfo> fresh = busApiPort.getArrInfoByStop(stopId, routeId, String.valueOf(ord));
+        if (properties.isCacheReadEnabled() && !fresh.isEmpty()) {
+            cacheWritePort.putArrivals(stopId, routeId, ord, fresh); // 프라이밍 — 이후 사이클/검색/collector 공유
+        }
+        return fresh;
     }
 
     private void processAlert(BusArrivalAlert alert, BusArrivalInfo arrival, LocalDateTime now,

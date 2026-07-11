@@ -224,6 +224,11 @@ class BusAlertOutboxRelayThroughputIT {
         }
 
         @Bean
+        watoo.grd.nextroute.application.bus.InMemoryBusRealtimeCache busRealtimeCache() {
+            return new watoo.grd.nextroute.application.bus.InMemoryBusRealtimeCache();
+        }
+
+        @Bean
         BusAlertConcurrentPollingIT.CountingTossMessengerPort tossMessengerPort() {
             return new BusAlertConcurrentPollingIT.CountingTossMessengerPort(0);
         }

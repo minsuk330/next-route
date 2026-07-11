@@ -14,6 +14,7 @@
 - Step B: polling 은 enqueue 만, Toss 호출 0 → polling 이 외부 지연서 분리. 발송은 relay. 병렬화는 C로 분리
 - Step C: claim 은 이미 원자(SKIP LOCKED)라 병렬화 대상은 느린 Toss I/O 만. relay 가 claim 한 배치를 bounded 워커 풀(outboxRelayWorkers)로 팬아웃. workers≤1 이면 인라인(B 동치). throughput IT: 순차 1239ms→병렬 146ms(8.49x), Toss 24회 중복 0
 - Step D: 알림 5개 @Scheduled 잡을 전용 풀(noti-sched-, pool 2)로 격리 — @Scheduled(scheduler="notificationTaskScheduler"). 공용 풀(size3) 포화가 도착 알림 밀지 않게. 함정: Boot 자동설정이 @ConditionalOnMissingBean(TaskScheduler)라 공용 풀도 @Primary 로 명시 재정의. isolation Test 로 포화 공용 뒤 알림 즉시 실행 증명
+- Step E: 발송조건 판단(processGroup)의 도착조회를 실시간 관측 캐시 우선(miss 시 provider+prime)으로 — collector/검색과 캐시 공유해 busApiCalls 절감. cacheReadEnabled flag off 기본. BusRealtimeCacheRead/WritePort 직접 주입(검색 quota/circuit-breaker 결합 회피, BusApiPort 경로 유지). unit test: N사이클 같은 그룹 → busApiCalls 1회(hit 재사용) vs off=N회
 - enqueue 는 단일 SQL(CTE claim + INSERT ON CONFLICT), 선확인/예외흡수 금지 (codex)
 - 각 단계가 측정 근거를 가짐: A=IT, C=load IT 처리량, E=busApiCalls. 부하테스트는 병목(C/D)용, outbox 정당화 아님
 

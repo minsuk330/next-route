@@ -415,6 +415,11 @@ class BusAlertDispatcherLoadIT {
         }
 
         @Bean
+        watoo.grd.nextroute.application.bus.InMemoryBusRealtimeCache busRealtimeCache() {
+            return new watoo.grd.nextroute.application.bus.InMemoryBusRealtimeCache();
+        }
+
+        @Bean
         CountingTossMessengerPort tossMessengerPort() {
             return new CountingTossMessengerPort(longEnv("BUS_ALERT_LOAD_TOSS_LATENCY_MS", 0));
         }
