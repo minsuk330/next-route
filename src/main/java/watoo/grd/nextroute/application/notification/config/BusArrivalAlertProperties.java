@@ -40,6 +40,16 @@ public class BusArrivalAlertProperties {
     /** transient 재시도 백오프(초). */
     private int backoffSeconds = 60;
 
+    // ── outbox (Step B) ──────────────────────────────────────────────────────
+    /** outbox 발송 분리 활성. 기본 off. on 이면 polling 은 enqueue 만(Toss 미호출), 발송은 relay. */
+    private boolean outboxEnabled = false;
+    /** relay 스캔 주기(ms). */
+    private long outboxRelayIntervalMs = 15000;
+    /** relay 스캔당 처리 상한. */
+    private int outboxRelayBatchSize = 200;
+    /** DEAD requeue 누적 상한. */
+    private int maxRequeue = 3;
+
     private final ActiveHours activeHours = new ActiveHours();
 
     @Getter

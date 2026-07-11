@@ -31,6 +31,7 @@ public class BusAlertDispatchService {
 
     private final BusArrivalAlertRepository alertRepository;
     private final BusAlertStateService stateService;
+    private final BusAlertOutboxEnqueueService outboxEnqueueService;
     private final BusApiPort busApiPort;
     private final TossMessengerPort tossMessengerPort;
     private final BusArrivalAlertProperties properties;
@@ -97,11 +98,22 @@ public class BusAlertDispatchService {
         if (sentPerUser.getOrDefault(userKey, 0) >= properties.getPerUserCycleCap()) {
             return; // 다음 사이클로
         }
+        int arrivalMin = (int) Math.ceil(target / 60.0);
+
+        // outbox on: enqueue 만 하고 Toss 는 호출하지 않는다(발송은 relay). polling 이 외부 지연서 분리됨.
+        if (properties.isOutboxEnabled()) {
+            if (outboxEnqueueService.enqueueTossArrival(alert, arrivalMin)) {
+                sentPerUser.merge(userKey, 1, Integer::sum);
+            }
+            return;
+        }
+
+        // outbox off(레거시): claim 후 인라인 발송.
         if (!stateService.claim(alert.getId())) {
             return; // 이미 PENDING 아님
         }
         sentPerUser.merge(userKey, 1, Integer::sum);
-        sendOne(alert, userKey, templateSetCode, (int) Math.ceil(target / 60.0));
+        sendOne(alert, userKey, templateSetCode, arrivalMin);
     }
 
     private void sendOne(BusArrivalAlert alert, long userKey, String templateSetCode, int arrivalMin) {

@@ -24,11 +24,17 @@ public class BusAlertStateService {
     private final BusArrivalAlertProperties properties;
     private final Clock clock;
 
-    /** PENDING만 대상 만료 + 고착 PROCESSING reclaim (bulk). */
+    /**
+     * PENDING 만료 + 고착 PROCESSING reclaim (bulk).
+     * outbox on 이면 구독 reclaim 을 끈다 — 인계된 PROCESSING 구독을 PENDING 으로 되돌리면
+     * 재enqueue 시 dedup unique 충돌 → 무한 루프. 재시도 소유권은 outbox relay 가 단독으로 갖는다.
+     */
     @Transactional
     public void expireAndReclaim(LocalDateTime now) {
         alertRepository.expirePendingOverdue(now);
-        alertRepository.reclaimStale(now.minusMinutes(properties.getClaimTimeoutMinutes()));
+        if (!properties.isOutboxEnabled()) {
+            alertRepository.reclaimStale(now.minusMinutes(properties.getClaimTimeoutMinutes()));
+        }
     }
 
     /**
