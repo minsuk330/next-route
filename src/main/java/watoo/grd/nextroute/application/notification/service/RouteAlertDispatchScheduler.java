@@ -37,7 +37,8 @@ public class RouteAlertDispatchScheduler {
     private final TossMessengerProperties messengerProperties;
     private final Clock clock;
 
-    @Scheduled(fixedDelayString = "${notification.route-arrival.dispatch-interval-ms:15000}")
+    @Scheduled(fixedDelayString = "${notification.route-arrival.dispatch-interval-ms:15000}",
+            scheduler = "notificationTaskScheduler")
     public void run() {
         try {
             LocalDateTime now = LocalDateTime.now(clock);

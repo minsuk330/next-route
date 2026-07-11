@@ -23,7 +23,8 @@ public class BusAlertOutboxRelayScheduler {
     private final BusArrivalAlertProperties properties;
     private final Clock clock;
 
-    @Scheduled(fixedDelayString = "${notification.bus-arrival.outbox-relay-interval-ms:15000}")
+    @Scheduled(fixedDelayString = "${notification.bus-arrival.outbox-relay-interval-ms:15000}",
+            scheduler = "notificationTaskScheduler")
     public void relay() {
         if (!isActiveHours()) return;
         relayService.relayOnce();

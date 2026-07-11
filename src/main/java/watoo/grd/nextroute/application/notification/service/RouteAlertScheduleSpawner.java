@@ -29,7 +29,8 @@ public class RouteAlertScheduleSpawner {
     private final RouteAlertScheduleSpawnService spawnService;
     private final Clock clock;
 
-    @Scheduled(fixedDelayString = "${notification.route-arrival.schedule-spawn-interval-ms:60000}")
+    @Scheduled(fixedDelayString = "${notification.route-arrival.schedule-spawn-interval-ms:60000}",
+            scheduler = "notificationTaskScheduler")
     public void run() {
         LocalDateTime now = LocalDateTime.now(clock);
         for (RouteAlertSchedule s : scheduleRepository

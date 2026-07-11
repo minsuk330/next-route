@@ -14,7 +14,7 @@ spring:
   task:
     scheduling:
       pool:
-        size: 3
+        size: 3   # 공용 스케줄러 풀(수집/배치/로테이션 등). 알림 잡은 전용 풀로 격리(NotificationSchedulerConfig)
   data:
     redis:
       host: ${REDIS_HOST}
@@ -150,6 +150,9 @@ notification:
     active-hours:
       start: "05:00"
       end: "01:00"
+  scheduler:
+    # 알림 전용 스케줄러 풀(noti-sched-). 공용 풀 포화와 무관하게 도착 알림 정시 실행(Step D 격리).
+    pool-size: 2
 
 auth:
   jwt:
