@@ -47,6 +47,8 @@ public class BusArrivalAlertProperties {
     private long outboxRelayIntervalMs = 15000;
     /** relay 스캔당 처리 상한. */
     private int outboxRelayBatchSize = 200;
+    /** relay 발송 병렬도(Step C). claim 은 이미 원자(SKIP LOCKED)라 느린 Toss I/O 만 팬아웃. ≤1 이면 인라인(Step B 동치). */
+    private int outboxRelayWorkers = 4;
     /** DEAD requeue 누적 상한. */
     private int maxRequeue = 3;
 
