@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Step D 검증: 알림 전용 스케줄러 풀 격리로 공용 풀 포화가 알림 잡을 밀지 않음(head-of-line blocking 제거)을
- * 증명한다. 프로덕션과 동일하게 {@link NotificationSchedulerConfig} 로 두 풀을 구성한다.
+ * 증명한다. 프로덕션과 동일하게 {@link SchedulingConfig} 로 두 풀을 구성한다.
  *
  * <p>공용 풀(size 3)을 블로킹 작업 3개로 가득 채운 뒤, 같은 순간 공용/알림 각각에 작업을 던진다.
  * 공용 작업은 큐에서 대기(블로킹)하지만, 알림 작업은 전용 풀에서 즉시 실행됨을 확인한다.
@@ -27,10 +27,12 @@ class NotificationSchedulerIsolationTest {
 
     private ThreadPoolTaskScheduler general;
     private ThreadPoolTaskScheduler notification;
+    /** 공용 풀 점유 해제 신호. tearDown 에서 먼저 풀어 실패 시에도 블로킹 태스크가 남지 않게 한다. */
+    private final CountDownLatch release = new CountDownLatch(1);
 
     @BeforeEach
     void setUp() {
-        NotificationSchedulerConfig config = new NotificationSchedulerConfig();
+        SchedulingConfig config = new SchedulingConfig();
         general = config.taskScheduler(GENERAL_POOL);
         notification = config.notificationTaskScheduler(NOTI_POOL);
         general.initialize();
@@ -39,13 +41,13 @@ class NotificationSchedulerIsolationTest {
 
     @AfterEach
     void tearDown() {
+        release.countDown();   // assert 실패로 미해제된 블로킹 태스크 정리 후 종료
         general.shutdown();
         notification.shutdown();
     }
 
     @Test
     void notificationPool_runsWhileGeneralPoolSaturated() throws Exception {
-        CountDownLatch release = new CountDownLatch(1);   // 공용 풀 점유 해제 신호
         CountDownLatch generalBusy = new CountDownLatch(GENERAL_POOL);
 
         // 공용 풀 3스레드 전부 블로킹으로 점유.

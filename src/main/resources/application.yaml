@@ -14,7 +14,7 @@ spring:
   task:
     scheduling:
       pool:
-        size: 3   # 공용 스케줄러 풀(수집/배치/로테이션 등). 알림 잡은 전용 풀로 격리(NotificationSchedulerConfig)
+        size: 3   # 공용 스케줄러 풀(수집/배치/로테이션 등). 알림 잡은 전용 풀로 격리(SchedulingConfig)
   data:
     redis:
       host: ${REDIS_HOST}
