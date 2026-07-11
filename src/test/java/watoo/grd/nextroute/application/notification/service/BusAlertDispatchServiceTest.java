@@ -9,9 +9,6 @@ import watoo.grd.nextroute.application.bus.InMemoryBusRealtimeCache;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.notification.config.BusArrivalAlertProperties;
-import watoo.grd.nextroute.application.notification.config.TossMessengerProperties;
-import watoo.grd.nextroute.application.notification.exception.TossMessengerException;
-import watoo.grd.nextroute.application.notification.port.out.TossMessengerPort;
 import watoo.grd.nextroute.domain.notification.entity.BusArrivalAlert;
 import watoo.grd.nextroute.domain.notification.repository.BusArrivalAlertRepository;
 import watoo.grd.nextroute.domain.user.entity.User;
@@ -26,6 +23,10 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.*;
 
+/**
+ * 디스패치 단위 검증(outbox-only). dispatchDue 는 Toss 를 호출하지 않고 임계 도달 alert 를
+ * {@link BusAlertOutboxEnqueueService#enqueueTossArrival} 로 적재만 한다. 발송은 relay 소관.
+ */
 @ExtendWith(MockitoExtension.class)
 class BusAlertDispatchServiceTest {
 
@@ -33,21 +34,17 @@ class BusAlertDispatchServiceTest {
     @Mock BusAlertStateService stateService;
     @Mock BusAlertOutboxEnqueueService outboxEnqueueService;
     @Mock BusApiPort busApiPort;
-    @Mock TossMessengerPort tossMessengerPort;
 
     BusArrivalAlertProperties props = new BusArrivalAlertProperties();
-    TossMessengerProperties msgProps = new TossMessengerProperties();
     Clock clock = Clock.fixed(Instant.parse("2026-06-23T03:00:00Z"), ZoneId.of("Asia/Seoul"));
     InMemoryBusRealtimeCache cache = new InMemoryBusRealtimeCache();
 
     BusAlertDispatchService service() {
-        msgProps.setBusArrivalTemplateSetCode("BUS_ARRIVAL");
         return new BusAlertDispatchService(
                 alertRepository, stateService, outboxEnqueueService, busApiPort, cache, cache,
-                tossMessengerPort, props, msgProps, clock);
+                props, clock);
     }
 
-    // 디스패치 now = LocalDateTime.now(clock)
     private java.time.LocalDateTime now() {
         return java.time.LocalDateTime.now(clock);
     }
@@ -81,46 +78,102 @@ class BusAlertDispatchServiceTest {
         given(alertRepository.findDispatchable(any(), any(), any())).willReturn(alerts);
     }
 
-    @Test
-    void predictWithinThreshold_sendsAndMarksSent() {
-        due(List.of(alert(1L, "S1", "R1", 3)));
-        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60)));
-        given(stateService.claim(1L)).willReturn(true);
-
-        service().dispatchDue();
-
-        verify(tossMessengerPort).sendMessage(eq(123L), eq("BUS_ARRIVAL"), anyMap());
-        verify(stateService).markSent(1L);
+    private void enqueueOk() {
+        lenient().when(outboxEnqueueService.enqueueTossArrival(any(), anyInt())).thenReturn(true);
     }
 
     @Test
-    void predictOverThreshold_doesNotSend() {
+    void predictWithinThreshold_enqueuesOnly_noToss() {
+        due(List.of(alert(1L, "S1", "R1", 3)));
+        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60)));
+        enqueueOk();
+
+        service().dispatchDue();
+
+        // 60s → arrivalMin=1. Toss 는 dispatch 가 호출하지 않는다(발송=relay).
+        verify(outboxEnqueueService).enqueueTossArrival(any(BusArrivalAlert.class), eq(1));
+    }
+
+    @Test
+    void predictOverThreshold_doesNotEnqueue() {
         due(List.of(alert(1L, "S1", "R1", 3)));
         given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(300)));
 
         service().dispatchDue();
 
-        verify(stateService, never()).claim(anyLong());
-        verify(tossMessengerPort, never()).sendMessage(anyLong(), any(), anyMap());
+        verify(outboxEnqueueService, never()).enqueueTossArrival(any(), anyInt());
     }
 
     @Test
-    void sameGroup_callsArrivalOnce() {
+    void sameGroup_callsArrivalOnce_enqueuesEach() {
         due(List.of(alert(1L, "S1", "R1", 3), alert(2L, "S1", "R1", 3)));
         given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60)));
-        given(stateService.claim(anyLong())).willReturn(true);
+        enqueueOk();
 
         service().dispatchDue();
 
-        verify(busApiPort, times(1)).getArrInfoByStop("S1", "R1", "3");
-        verify(tossMessengerPort, times(2)).sendMessage(anyLong(), any(), anyMap());
+        verify(busApiPort, times(1)).getArrInfoByStop("S1", "R1", "3"); // 그룹당 조회 1회
+        verify(outboxEnqueueService, times(2)).enqueueTossArrival(any(), anyInt());
+    }
+
+    @Test
+    void perUserCycleCap_limitsEnqueue() {
+        props.setPerUserCycleCap(1);
+        // 동일 userKey(123) 2건 → cap 1 이므로 1건만 enqueue.
+        due(List.of(alert(1L, "S1", "R1", 3), alert(2L, "S1", "R1", 3)));
+        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60)));
+        enqueueOk();
+
+        service().dispatchDue();
+
+        verify(outboxEnqueueService, times(1)).enqueueTossArrival(any(), anyInt());
+    }
+
+    @Test
+    void picksBusArrivingAfterUserEta() {
+        // userEta = now + 100s. bus1=60s(사용자 도착 전, 제외), bus2=119s(이후 + 임계 내) → enqueue(arrivalMin=2)
+        BusArrivalAlert a = alert(1L, "S1", "R1", 3, now().plusSeconds(100));
+        due(List.of(a));
+        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60, 119)));
+        enqueueOk();
+
+        service().dispatchDue();
+
+        verify(outboxEnqueueService).enqueueTossArrival(eq(a), eq(2));
+    }
+
+    @Test
+    void noBusAfterUserEta_doesNotEnqueue() {
+        // userEta = now + 100s. bus1=60s(제외), bus2 없음 → 대상 없음
+        BusArrivalAlert a = alert(1L, "S1", "R1", 3, now().plusSeconds(100));
+        due(List.of(a));
+        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60, null)));
+
+        service().dispatchDue();
+
+        verify(outboxEnqueueService, never()).enqueueTossArrival(any(), anyInt());
+    }
+
+    @Test
+    void oneAlertException_doesNotBlockOthers() {
+        // 같은 그룹 2건. 첫 건 enqueue 예상외 예외 → 둘째 건은 정상 enqueue.
+        BusArrivalAlert a1 = alert(1L, "S1", "R1", 3);
+        BusArrivalAlert a2 = alert(2L, "S1", "R1", 3);
+        due(List.of(a1, a2));
+        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60)));
+        given(outboxEnqueueService.enqueueTossArrival(eq(a1), anyInt())).willThrow(new RuntimeException("boom"));
+        given(outboxEnqueueService.enqueueTossArrival(eq(a2), anyInt())).willReturn(true);
+
+        service().dispatchDue();
+
+        verify(outboxEnqueueService).enqueueTossArrival(eq(a2), anyInt());
     }
 
     @Test
     void cacheReadEnabled_reusesRealtimeCache_acrossCycles_reducingBusApiCalls() {
         // Step E: 같은 그룹을 여러 사이클 돌려도 provider 는 miss 1회만. 이후 캐시 hit(busApiCalls 절감).
         props.setCacheReadEnabled(true);
-        // 임계 밖(300s)이라 발송 로직은 타지 않음 — 도착 로드(캐시) 경로만 격리 검증.
+        // 임계 밖(300s)이라 enqueue 로직은 타지 않음 — 도착 로드(캐시) 경로만 격리 검증.
         given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(300)));
 
         due(List.of(alert(1L, "S1", "R1", 3)));
@@ -136,7 +189,7 @@ class BusAlertDispatchServiceTest {
 
     @Test
     void cacheReadDisabled_alwaysCallsProvider() {
-        // flag off(기본): 캐시 미사용 → 매 사이클 provider 직접 호출(기존 동작 보존).
+        // flag off(기본): 캐시 미사용 → 매 사이클 provider 직접 호출.
         given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(300)));
 
         due(List.of(alert(1L, "S1", "R1", 3)));
@@ -146,96 +199,5 @@ class BusAlertDispatchServiceTest {
 
         verify(busApiPort, times(2)).getArrInfoByStop("S1", "R1", "3");
         assertThat(cache.getArrivals("S1", "R1", 3)).isEmpty();
-    }
-
-    @Test
-    void permanentFailure_marksPermanent() {
-        due(List.of(alert(1L, "S1", "R1", 3)));
-        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60)));
-        given(stateService.claim(1L)).willReturn(true);
-        doThrow(new TossMessengerException("bad", true))
-                .when(tossMessengerPort).sendMessage(anyLong(), any(), anyMap());
-
-        service().dispatchDue();
-
-        verify(stateService).markPermanentFailure(eq(1L), any());
-        verify(stateService, never()).markSent(anyLong());
-    }
-
-    @Test
-    void transientFailure_marksTransient() {
-        due(List.of(alert(1L, "S1", "R1", 3)));
-        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60)));
-        given(stateService.claim(1L)).willReturn(true);
-        doThrow(new TossMessengerException("timeout", false))
-                .when(tossMessengerPort).sendMessage(anyLong(), any(), anyMap());
-
-        service().dispatchDue();
-
-        verify(stateService).markTransientFailure(eq(1L), any());
-    }
-
-    @Test
-    void perUserCycleCap_limitsSends() {
-        props.setPerUserCycleCap(1);
-        due(List.of(alert(1L, "S1", "R1", 3), alert(2L, "S1", "R1", 3)));
-        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60)));
-        given(stateService.claim(anyLong())).willReturn(true);
-
-        service().dispatchDue();
-
-        verify(tossMessengerPort, times(1)).sendMessage(anyLong(), any(), anyMap());
-    }
-
-    @Test
-    void picksBusArrivingAfterUserEta() {
-        // userEta = now + 100s. bus1=60s(사용자 도착 전, 제외), bus2=119s(이후 + 임계 내) → 발송
-        BusArrivalAlert a = alert(1L, "S1", "R1", 3, now().plusSeconds(100));
-        due(List.of(a));
-        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60, 119)));
-        given(stateService.claim(1L)).willReturn(true);
-
-        service().dispatchDue();
-
-        verify(tossMessengerPort).sendMessage(eq(123L), eq("BUS_ARRIVAL"), anyMap());
-        verify(stateService).markSent(1L);
-    }
-
-    @Test
-    void noBusAfterUserEta_doesNotSend() {
-        // userEta = now + 100s. bus1=60s(제외), bus2 없음 → 대상 없음
-        BusArrivalAlert a = alert(1L, "S1", "R1", 3, now().plusSeconds(100));
-        due(List.of(a));
-        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60, null)));
-
-        service().dispatchDue();
-
-        verify(stateService, never()).claim(anyLong());
-        verify(tossMessengerPort, never()).sendMessage(anyLong(), any(), anyMap());
-    }
-
-    @Test
-    void oneAlertException_doesNotBlockOthers() {
-        // 같은 그룹 2건. 첫 건 claim에서 예상외 예외 → 둘째 건은 정상 발송돼야 함.
-        due(List.of(alert(1L, "S1", "R1", 3), alert(2L, "S1", "R1", 3)));
-        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60)));
-        given(stateService.claim(1L)).willThrow(new RuntimeException("boom"));
-        given(stateService.claim(2L)).willReturn(true);
-
-        service().dispatchDue();
-
-        verify(stateService).markSent(2L);
-        verify(tossMessengerPort, times(1)).sendMessage(anyLong(), any(), anyMap());
-    }
-
-    @Test
-    void claimReturnsFalse_skipsSend() {
-        due(List.of(alert(1L, "S1", "R1", 3)));
-        given(busApiPort.getArrInfoByStop("S1", "R1", "3")).willReturn(List.of(arrival(60)));
-        given(stateService.claim(1L)).willReturn(false);
-
-        service().dispatchDue();
-
-        verify(tossMessengerPort, never()).sendMessage(anyLong(), any(), anyMap());
     }
 }

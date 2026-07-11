@@ -86,7 +86,6 @@ class BusAlertOutboxRelayThroughputIT {
         jdbcTemplate.update("delete from bus_alert_notification");
         jdbcTemplate.update("delete from bus_arrival_alert");
         jdbcTemplate.update("delete from users");
-        properties.setOutboxEnabled(true);
         properties.setOutboxRelayBatchSize(BACKLOG * 2);
     }
 
@@ -94,8 +93,8 @@ class BusAlertOutboxRelayThroughputIT {
     void parallelRelayBeatsSequential_withoutDuplicateSend(TestReporter reporter) {
         // ── 순차(workers=1) ──
         seedBacklog();
-        BusAlertDispatcherLoadIT.CountingTossMessengerPort seqToss =
-                new BusAlertDispatcherLoadIT.CountingTossMessengerPort(TOSS_LATENCY_MS);
+        CountingTossMessengerPort seqToss =
+                new CountingTossMessengerPort(TOSS_LATENCY_MS);
         BusAlertOutboxRelayService seqRelay = relay(seqToss, 1);
         long seqMs = timed(seqRelay::relayOnce);
 
@@ -109,8 +108,8 @@ class BusAlertOutboxRelayThroughputIT {
         jdbcTemplate.update("delete from bus_arrival_alert");
         jdbcTemplate.update("delete from users");
         seedBacklog();
-        BusAlertDispatcherLoadIT.CountingTossMessengerPort parToss =
-                new BusAlertDispatcherLoadIT.CountingTossMessengerPort(TOSS_LATENCY_MS);
+        CountingTossMessengerPort parToss =
+                new CountingTossMessengerPort(TOSS_LATENCY_MS);
         BusAlertOutboxRelayService parRelay = relay(parToss, PARALLEL_WORKERS);
         long parMs = timed(parRelay::relayOnce);
 
@@ -146,12 +145,11 @@ class BusAlertOutboxRelayThroughputIT {
     }
 
     private BusAlertOutboxRelayService relay(
-            BusAlertDispatcherLoadIT.CountingTossMessengerPort toss, int workers) {
+            CountingTossMessengerPort toss, int workers) {
         BusArrivalAlertProperties p = new BusArrivalAlertProperties();
         p.setClaimTimeoutMinutes(3);
         p.setMaxAttempts(3);
         p.setBackoffSeconds(60);
-        p.setOutboxEnabled(true);
         p.setOutboxRelayBatchSize(BACKLOG * 2);
         p.setOutboxRelayWorkers(workers);
         return new BusAlertOutboxRelayService(outboxStateService, toss, p, messengerProperties, clock);
@@ -196,7 +194,6 @@ class BusAlertOutboxRelayThroughputIT {
             p.setMaxAttempts(3);
             p.setPerUserCycleCap(5);
             p.setBackoffSeconds(60);
-            p.setOutboxEnabled(true);
             p.setOutboxRelayBatchSize(BACKLOG * 2);
             return p;
         }
@@ -219,8 +216,8 @@ class BusAlertOutboxRelayThroughputIT {
         }
 
         @Bean
-        BusAlertConcurrentPollingIT.CountingBusApiPort busApiPort() {
-            return new BusAlertConcurrentPollingIT.CountingBusApiPort(0);
+        CountingBusApiPort busApiPort() {
+            return new CountingBusApiPort(0);
         }
 
         @Bean
@@ -229,8 +226,8 @@ class BusAlertOutboxRelayThroughputIT {
         }
 
         @Bean
-        BusAlertConcurrentPollingIT.CountingTossMessengerPort tossMessengerPort() {
-            return new BusAlertConcurrentPollingIT.CountingTossMessengerPort(0);
+        CountingTossMessengerPort tossMessengerPort() {
+            return new CountingTossMessengerPort(0);
         }
     }
 }

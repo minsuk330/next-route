@@ -1,12 +1,11 @@
 package watoo.grd.nextroute.application.notification.config;
 
-import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-/** 버스 도착 알림 스케줄러/디스패치 설정. */
+/** 버스 도착 알림 스케줄러/디스패치 설정. 발송은 항상 outbox 경로(polling=enqueue, relay=send). */
 @Getter
 @Setter
 @Component
@@ -14,10 +13,10 @@ import org.springframework.stereotype.Component;
 public class BusArrivalAlertProperties {
 
     /** 스케줄러 활성화. */
-    private boolean enabled = false;
+    private boolean enabled = true;
 
-    /** 폴링 주기(ms). */
-    private long pollIntervalMs = 30000;
+    /** 폴링(=enqueue) 주기(ms). polling 은 Toss 를 호출하지 않으므로 고빈도 가능. */
+    private long pollIntervalMs = 1000;
 
     /** "곧 도착" 임계(초). predictTime ≤ 이 값이면 발송. */
     private int thresholdSeconds = 120;
@@ -34,17 +33,15 @@ public class BusArrivalAlertProperties {
     /** transient 실패 최대 시도. 초과 시 FAILED. */
     private int maxAttempts = 3;
 
-    /** 사이클당 userKey 발송 cap(토스 분당 10회 제한 대응). */
+    /** 사이클당 userKey enqueue cap(한 폴링 사이클에서 동일 유저 과다 적재 방지). */
     private int perUserCycleCap = 5;
 
     /** transient 재시도 백오프(초). */
     private int backoffSeconds = 60;
 
-    // ── outbox (Step B) ──────────────────────────────────────────────────────
-    /** outbox 발송 분리 활성. 기본 off. on 이면 polling 은 enqueue 만(Toss 미호출), 발송은 relay. */
-    private boolean outboxEnabled = false;
-    /** relay 스캔 주기(ms). */
-    private long outboxRelayIntervalMs = 15000;
+    // ── outbox relay ─────────────────────────────────────────────────────────
+    /** relay 스캔(=send) 주기(ms). */
+    private long outboxRelayIntervalMs = 1000;
     /** relay 스캔당 처리 상한. */
     private int outboxRelayBatchSize = 200;
     /** relay 발송 병렬도(Step C). claim 은 이미 원자(SKIP LOCKED)라 느린 Toss I/O 만 팬아웃. ≤1 이면 인라인(Step B 동치). */
@@ -65,21 +62,5 @@ public class BusArrivalAlertProperties {
     public static class ActiveHours {
         private String start = "05:00";
         private String end = "01:00";
-    }
-
-    /**
-     * 토스 분당 10회/userKey 제한 보장: cap × (분당 사이클 수) ≤ 10.
-     * 설정이 한도를 깨면 부팅 차단(fail-fast).
-     */
-    @PostConstruct
-    void validateRate() {
-        double cyclesPerMinute = 60000.0 / pollIntervalMs;
-        double maxPerMinute = perUserCycleCap * cyclesPerMinute;
-        if (maxPerMinute > 10.0) {
-            throw new IllegalStateException(
-                    "notification.bus-arrival: userKey 분당 발송 한도 초과 가능 ("
-                            + String.format("%.1f", maxPerMinute)
-                            + " > 10). per-user-cycle-cap 또는 poll-interval-ms 조정 필요.");
-        }
     }
 }

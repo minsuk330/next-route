@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.notification.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,8 +18,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import watoo.grd.nextroute.application.bus.InMemoryBusRealtimeCache;
 import watoo.grd.nextroute.application.notification.config.BusArrivalAlertProperties;
-import watoo.grd.nextroute.application.notification.config.TossMessengerProperties;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -36,9 +37,10 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Step A 검증: 실제(원자) claim 을 쓰면 동시 worker 가 같은 PENDING 을 중복 발송하지 않음을 증명한다.
- * {@link BusAlertConcurrentPollingIT}(race-amplified, 구설계 문서화)와 대조 — 여기선 앰프 없이 실 claim.
- * K개 PENDING 을 N worker 가 동시에 dispatchDue → Toss 호출 정확히 K회(구독당 1회), 중복 0.
+ * 원자 enqueue 검증: 동시 worker 가 같은 PENDING 구독을 중복 적재하지 않음을 실 Postgres 로 증명한다.
+ * enqueue 는 단일 SQL CTE(구독 PENDING→PROCESSING 원자 claim + outbox INSERT ON CONFLICT)라
+ * 경쟁 worker 중 하나만 승자 → K개 구독 = 정확히 K개 outbox row(중복 0), 구독 전량 PROCESSING.
+ * dispatch 는 Toss 를 호출하지 않는다(발송은 relay).
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -59,7 +61,7 @@ class BusAlertAtomicClaimIT {
     @Container
     static PostgreSQLContainer<?> postgres =
             new PostgreSQLContainer<>(DockerImageName.parse("postgres:17"))
-                    .withInitScript("db/it/bus-alert-it-schema.sql");
+                    .withInitScript("db/it/bus-alert-outbox-it-schema.sql");
 
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
@@ -71,18 +73,17 @@ class BusAlertAtomicClaimIT {
     }
 
     @Autowired BusAlertDispatchService dispatchService;
-    @Autowired BusAlertConcurrentPollingIT.CountingTossMessengerPort tossMessengerPort;
     @Autowired JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("delete from bus_alert_notification");
         jdbcTemplate.update("delete from bus_arrival_alert");
         jdbcTemplate.update("delete from users");
-        tossMessengerPort.reset();
     }
 
     @Test
-    void concurrentDispatch_atomicClaim_noDuplicateSend() throws Exception {
+    void concurrentDispatch_atomicEnqueue_noDuplicate() throws Exception {
         int alerts = 8;
         int workers = 4;
         seedPendingAlerts(alerts);
@@ -103,10 +104,11 @@ class BusAlertAtomicClaimIT {
             executor.shutdownNow();
         }
 
-        // 원자 claim → 각 구독은 정확히 한 worker 가 집어 정확히 1회 발송(중복 0).
-        assertThat(tossMessengerPort.calls()).isEqualTo(alerts);
-        assertThat(statusCount("SENT")).isEqualTo(alerts);
-        assertThat(statusCount("PENDING")).isZero();
+        // 원자 enqueue → 각 구독은 정확히 한 worker 가 적재 → outbox 정확히 K행(중복 0), 구독 전량 PROCESSING.
+        assertThat(outboxCount()).isEqualTo(alerts);
+        assertThat(statusCount("bus_arrival_alert", "PROCESSING")).isEqualTo(alerts);
+        assertThat(statusCount("bus_arrival_alert", "PENDING")).isZero();
+        assertThat(statusCount("bus_alert_notification", "PENDING")).isEqualTo(alerts);
     }
 
     private void seedPendingAlerts(int count) {
@@ -128,9 +130,14 @@ class BusAlertAtomicClaimIT {
         }
     }
 
-    private long statusCount(String status) {
+    private long outboxCount() {
+        Long c = jdbcTemplate.queryForObject("select count(*) from bus_alert_notification", Long.class);
+        return c == null ? 0 : c;
+    }
+
+    private long statusCount(String table, String status) {
         Long c = jdbcTemplate.queryForObject(
-                "select count(*) from bus_arrival_alert where status = ?", Long.class, status);
+                "select count(*) from " + table + " where status = ?", Long.class, status);
         return c == null ? 0 : c;
     }
 
@@ -150,35 +157,23 @@ class BusAlertAtomicClaimIT {
         }
 
         @Bean
-        TossMessengerProperties tossMessengerProperties() {
-            TossMessengerProperties p = new TossMessengerProperties();
-            p.setBusArrivalTemplateSetCode("BUS_ARRIVAL_ATOMIC_TEST");
-            return p;
-        }
-
-        @Bean
         Clock clock() {
             return Clock.fixed(NOW.atZone(KST).toInstant(), KST);
         }
 
         @Bean
-        com.fasterxml.jackson.databind.ObjectMapper objectMapper() {
-            return new com.fasterxml.jackson.databind.ObjectMapper();
+        ObjectMapper objectMapper() {
+            return new ObjectMapper();
         }
 
         @Bean
-        BusAlertConcurrentPollingIT.CountingBusApiPort busApiPort() {
-            return new BusAlertConcurrentPollingIT.CountingBusApiPort(0);
+        CountingBusApiPort busApiPort() {
+            return new CountingBusApiPort(0);
         }
 
         @Bean
-        watoo.grd.nextroute.application.bus.InMemoryBusRealtimeCache busRealtimeCache() {
-            return new watoo.grd.nextroute.application.bus.InMemoryBusRealtimeCache();
-        }
-
-        @Bean
-        BusAlertConcurrentPollingIT.CountingTossMessengerPort tossMessengerPort() {
-            return new BusAlertConcurrentPollingIT.CountingTossMessengerPort(0);
+        InMemoryBusRealtimeCache busRealtimeCache() {
+            return new InMemoryBusRealtimeCache();
         }
     }
 }
