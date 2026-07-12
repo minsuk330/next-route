@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.tmap;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -36,7 +38,8 @@ class TmapPedestrianAdapterTest {
         properties.setRetryOnFailure(false);
 
         RestClient restClient = RestClient.builder().build();
-        adapter = new TmapPedestrianAdapter(restClient, properties);
+        adapter = new TmapPedestrianAdapter(restClient, properties,
+                new RouteSearchMetrics(new SimpleMeterRegistry()));
     }
 
     @AfterEach

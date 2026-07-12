@@ -5,6 +5,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.route.dto.*;
 import watoo.grd.nextroute.application.route.exception.TmapApiException;
+import watoo.grd.nextroute.application.route.observability.DegradeReason;
+import watoo.grd.nextroute.application.route.observability.RouteSearchContext;
+import watoo.grd.nextroute.application.route.observability.SearchComponent;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort.WalkSearchCommand;
 import watoo.grd.nextroute.application.route.port.out.WalkSegmentCachePort;
@@ -39,11 +42,22 @@ public class WalkSegmentEnricher {
     private final WalkSegmentCachePort cache;
     private final TmapPedestrianPort tmapPort;
 
+    /** 계측 없이 호출하는 경로(단위 테스트 등). */
     public RouteSearchResult enrich(RouteSearchResult original,
                                     double requestedStartX, double requestedStartY,
                                     String requestedStartName,
                                     double requestedEndX, double requestedEndY,
                                     String requestedEndName) {
+        return enrich(original, requestedStartX, requestedStartY, requestedStartName,
+                requestedEndX, requestedEndY, requestedEndName, RouteSearchContext.noop());
+    }
+
+    public RouteSearchResult enrich(RouteSearchResult original,
+                                    double requestedStartX, double requestedStartY,
+                                    String requestedStartName,
+                                    double requestedEndX, double requestedEndY,
+                                    String requestedEndName,
+                                    RouteSearchContext searchCtx) {
         if (original.paths() == null || original.paths().isEmpty()) {
             return original;
         }
@@ -54,6 +68,9 @@ public class WalkSegmentEnricher {
         if (contexts.isEmpty()) {
             return original;
         }
+
+        // 도보 구간이 있는 경로만 이 보강의 적용 대상이다.
+        searchCtx.requested(SearchComponent.WALK);
 
         Map<WalkContext, WalkSegment> resolved = new HashMap<>();
         Map<String, CompletableFuture<TmapResult>> futures = new HashMap<>();
@@ -74,13 +91,17 @@ public class WalkSegmentEnricher {
         for (WalkContext ctx : contexts) {
             if (resolved.containsKey(ctx)) continue;
 
+            // 워커 스레드가 아니라 join 이후 호출 스레드에서 보고한다(스레드 경계 없이 집계).
             TmapResult tmapResult = futures.get(ctx.key().asKey()).join();
             if (tmapResult.failed()) {
                 // 폴백: 원본 유지 (resolved에 추가하지 않음 → rebuild 시 원본 사용)
+                searchCtx.degrade(SearchComponent.WALK, DegradeReason.UPSTREAM_ERROR);
                 continue;
             }
             WalkSegment segment = tmapResult.segment();
             if (segment.isEmpty()) {
+                // TMAP 은 정상 응답했지만 보강할 내용이 없음(서비스 지역 외 등) → 원본 도보 유지.
+                searchCtx.degrade(SearchComponent.WALK, DegradeReason.EMPTY_RESULT);
                 cache.putNegative(ctx.key(), NEGATIVE_TTL);
             } else {
                 cache.put(ctx.key(), segment, POSITIVE_TTL);

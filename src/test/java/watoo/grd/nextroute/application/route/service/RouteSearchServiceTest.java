@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.route.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -10,6 +11,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.route.dto.*;
 import watoo.grd.nextroute.application.route.exception.OdSayApiException;
 import watoo.grd.nextroute.application.route.exception.TmapApiException;
+import watoo.grd.nextroute.application.route.observability.RouteSearchContext;
+import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
 import watoo.grd.nextroute.domain.route.log.entity.RouteSearchLog;
@@ -40,7 +43,8 @@ class RouteSearchServiceTest {
     void setUp() {
         service = new RouteSearchService(
                 odSayApiPort, tmapPort, routeDataService, new ObjectMapper(),
-                polylineEnricher, walkSegmentEnricher, transferArrivalEnricher);
+                polylineEnricher, walkSegmentEnricher, transferArrivalEnricher,
+                new RouteSearchMetrics(new SimpleMeterRegistry()));
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────
@@ -95,19 +99,20 @@ class RouteSearchServiceTest {
         RouteSearchResult afterTransfer = afterWalk;
 
         when(odSayApiPort.searchPath(127.0, 37.5, 127.01, 37.51)).thenReturn(odsayResult);
-        when(polylineEnricher.enrich(odsayResult)).thenReturn(afterPolyline);
+        when(polylineEnricher.enrich(eq(odsayResult), any(RouteSearchContext.class))).thenReturn(afterPolyline);
         when(walkSegmentEnricher.enrich(eq(afterPolyline), eq(127.0), eq(37.5), eq("출발지"),
-                eq(127.01), eq(37.51), eq("도착지"))).thenReturn(afterWalk);
-        when(transferArrivalEnricher.enrich(eq(afterWalk), any(Instant.class))).thenReturn(afterTransfer);
+                eq(127.01), eq(37.51), eq("도착지"), any(RouteSearchContext.class))).thenReturn(afterWalk);
+        when(transferArrivalEnricher.enrich(eq(afterWalk), any(Instant.class), any(RouteSearchContext.class)))
+                .thenReturn(afterTransfer);
 
         RouteSearchResult result = service.search(request());
 
         var order = inOrder(odSayApiPort, polylineEnricher, walkSegmentEnricher, transferArrivalEnricher);
         order.verify(odSayApiPort).searchPath(127.0, 37.5, 127.01, 37.51);
-        order.verify(polylineEnricher).enrich(odsayResult);
+        order.verify(polylineEnricher).enrich(eq(odsayResult), any(RouteSearchContext.class));
         order.verify(walkSegmentEnricher).enrich(any(), eq(127.0), eq(37.5), eq("출발지"),
-                eq(127.01), eq(37.51), eq("도착지"));
-        order.verify(transferArrivalEnricher).enrich(eq(afterWalk), any(Instant.class));
+                eq(127.01), eq(37.51), eq("도착지"), any(RouteSearchContext.class));
+        order.verify(transferArrivalEnricher).enrich(eq(afterWalk), any(Instant.class), any(RouteSearchContext.class));
 
         assertThat(result).isSameAs(afterTransfer);
         SubPathResult walk = result.paths().get(0).subPaths().get(0);
@@ -124,10 +129,10 @@ class RouteSearchServiceTest {
         RouteSearchResult enriched = resultWith(List.of(enrichedWalk));
 
         when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble())).thenReturn(enriched);
-        when(polylineEnricher.enrich(any())).thenReturn(enriched);
+        when(polylineEnricher.enrich(any(), any())).thenReturn(enriched);
         when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
-                anyDouble(), anyDouble(), any())).thenReturn(enriched);
-        when(transferArrivalEnricher.enrich(any(), any())).thenReturn(enriched);
+                anyDouble(), anyDouble(), any(), any())).thenReturn(enriched);
+        when(transferArrivalEnricher.enrich(any(), any(), any())).thenReturn(enriched);
 
         service.search(request());
 
@@ -146,10 +151,10 @@ class RouteSearchServiceTest {
         RouteSearchResult enriched = resultWith(List.of(subway));
 
         when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble())).thenReturn(enriched);
-        when(polylineEnricher.enrich(any())).thenReturn(enriched);
+        when(polylineEnricher.enrich(any(), any())).thenReturn(enriched);
         when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
-                anyDouble(), anyDouble(), any())).thenReturn(enriched);
-        when(transferArrivalEnricher.enrich(any(), any())).thenReturn(enriched);
+                anyDouble(), anyDouble(), any(), any())).thenReturn(enriched);
+        when(transferArrivalEnricher.enrich(any(), any(), any())).thenReturn(enriched);
 
         service.search(request());
 
@@ -166,10 +171,10 @@ class RouteSearchServiceTest {
     void TC_로그_저장_실패해도_검색_응답은_정상_반환() {
         RouteSearchResult enriched = resultWith(List.of(walkSubPath(null, null)));
         when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble())).thenReturn(enriched);
-        when(polylineEnricher.enrich(any())).thenReturn(enriched);
+        when(polylineEnricher.enrich(any(), any())).thenReturn(enriched);
         when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
-                anyDouble(), anyDouble(), any())).thenReturn(enriched);
-        when(transferArrivalEnricher.enrich(any(), any())).thenReturn(enriched);
+                anyDouble(), anyDouble(), any(), any())).thenReturn(enriched);
+        when(transferArrivalEnricher.enrich(any(), any(), any())).thenReturn(enriched);
         doThrow(new RuntimeException("DB fail")).when(routeDataService).save(any());
 
         RouteSearchResult result = service.search(request());

@@ -7,6 +7,7 @@ import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheReadPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
+import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
 
 import java.util.List;
@@ -27,24 +28,32 @@ import java.util.Optional;
 @Component
 public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
 
+    private static final String TYPE_ARRIVAL = "arrival";
+    private static final String TYPE_POSITION = "position";
+
     private final SearchTimeBusAdapter delegate;
     private final BusRealtimeCacheReadPort cacheRead;
     private final BusRealtimeCacheWritePort cacheWrite;
+    private final RouteSearchMetrics metrics;
 
     public CachedSearchTimeBusAdapter(SearchTimeBusAdapter delegate,
                                       BusRealtimeCacheReadPort cacheRead,
-                                      BusRealtimeCacheWritePort cacheWrite) {
+                                      BusRealtimeCacheWritePort cacheWrite,
+                                      RouteSearchMetrics metrics) {
         this.delegate = delegate;
         this.cacheRead = cacheRead;
         this.cacheWrite = cacheWrite;
+        this.metrics = metrics;
     }
 
     @Override
     public BusQueryResult<BusArrivalInfo> getArrInfoByStop(String stopId, String routeId, int ord) {
         Optional<List<BusArrivalInfo>> hit = cacheRead.getArrivals(stopId, routeId, ord);
         if (hit.isPresent()) {
+            metrics.recordCacheAccess(TYPE_ARRIVAL, "hit");
             return BusQueryResult.cached(hit.get());   // provider 미호출 — cap·quota 미소모
         }
+        metrics.recordCacheAccess(TYPE_ARRIVAL, "miss");
         BusQueryResult<BusArrivalInfo> fresh = delegate.getArrInfoByStop(stopId, routeId, ord);
         if (fresh.isOk() && !fresh.data().isEmpty()) {
             cacheWrite.putArrivals(stopId, routeId, ord, fresh.data());
@@ -56,8 +65,10 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
     public BusQueryResult<BusPositionInfo> getBusPosByRtid(String busRouteId) {
         Optional<List<BusPositionInfo>> hit = cacheRead.getPositions(busRouteId);
         if (hit.isPresent()) {
+            metrics.recordCacheAccess(TYPE_POSITION, "hit");
             return BusQueryResult.cached(hit.get());
         }
+        metrics.recordCacheAccess(TYPE_POSITION, "miss");
         BusQueryResult<BusPositionInfo> fresh = delegate.getBusPosByRtid(busRouteId);
         if (fresh.isOk() && !fresh.data().isEmpty()) {
             cacheWrite.putPositions(busRouteId, fresh.data());

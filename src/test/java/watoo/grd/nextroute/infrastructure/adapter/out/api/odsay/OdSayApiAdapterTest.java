@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.odsay;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,7 +38,8 @@ class OdSayApiAdapterTest {
         properties.setBaseUrl("https://api.odsay.com/v1/api");
         properties.setKey("test-key");
 
-        adapter = new OdSayApiAdapter(restTemplate, new ObjectMapper(), properties);
+        adapter = new OdSayApiAdapter(restTemplate, new ObjectMapper(), properties,
+                new RouteSearchMetrics(new SimpleMeterRegistry()));
     }
 
     @Test

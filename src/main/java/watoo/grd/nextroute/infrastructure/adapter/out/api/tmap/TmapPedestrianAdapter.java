@@ -14,6 +14,7 @@ import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.dto.WalkSegment;
 import watoo.grd.nextroute.application.route.dto.WalkStep;
 import watoo.grd.nextroute.application.route.exception.TmapApiException;
+import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.tmap.dto.TmapFeature;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.tmap.dto.TmapFeatureProperties;
@@ -31,10 +32,16 @@ public class TmapPedestrianAdapter implements TmapPedestrianPort {
 
     private static final String PATH = "/tmap/routes/pedestrian";
     private static final long RETRY_BACKOFF_MS = 200L;
+    private static final String PROVIDER = "tmap";
 
     private final RestClient restClient;
     private final TmapProperties properties;
+    private final RouteSearchMetrics metrics;
 
+    /**
+     * 계측 단위는 논리적 호출 1건(재시도·backoff 포함). ODsay 와 동일한 규칙이다.
+     * 4xx 까지 재시도하는 현재 정책은 Step 2 에서 교정한다 — 여기서는 비용만 드러낸다.
+     */
     @Override
     public WalkSegment search(WalkSearchCommand cmd) {
         TmapPedestrianRequest body = TmapPedestrianRequest.of(
@@ -44,18 +51,34 @@ public class TmapPedestrianAdapter implements TmapPedestrianPort {
                 cmd.searchOption()
         );
 
+        long startNanos = System.nanoTime();
+        int attempts = 1;
         try {
-            return callApi(body);
+            WalkSegment segment = callApi(body);
+            metrics.recordExternalCall(PROVIDER, "ok", attempts, System.nanoTime() - startNanos);
+            return segment;
         } catch (TmapApiException e) {
-            if (!properties.isRetryOnFailure()) throw e;
+            if (!properties.isRetryOnFailure()) {
+                metrics.recordExternalCall(PROVIDER, "error", attempts, System.nanoTime() - startNanos);
+                throw e;
+            }
             log.warn("[TMAP] retry after {}ms: {}", RETRY_BACKOFF_MS, e.getMessage());
             try {
                 Thread.sleep(RETRY_BACKOFF_MS);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
+                metrics.recordExternalCall(PROVIDER, "interrupted", attempts, System.nanoTime() - startNanos);
                 throw new TmapApiException(-1, "Interrupted during retry", ie);
             }
-            return callApi(body);
+            attempts = 2;
+            try {
+                WalkSegment segment = callApi(body);
+                metrics.recordExternalCall(PROVIDER, "ok", attempts, System.nanoTime() - startNanos);
+                return segment;
+            } catch (TmapApiException retryFailure) {
+                metrics.recordExternalCall(PROVIDER, "error", attempts, System.nanoTime() - startNanos);
+                throw retryFailure;
+            }
         }
     }
 
