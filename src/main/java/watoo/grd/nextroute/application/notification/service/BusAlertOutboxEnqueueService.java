@@ -3,14 +3,15 @@ package watoo.grd.nextroute.application.notification.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.domain.notification.entity.BusArrivalAlert;
 import watoo.grd.nextroute.domain.notification.repository.BusAlertNotificationRepository;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -28,16 +29,21 @@ public class BusAlertOutboxEnqueueService {
 
     private final BusAlertNotificationRepository notificationRepository;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
     /** TOSS/ARRIVAL enqueue. 성공(구독 PENDING→PROCESSING + outbox INSERT) 시 true, 경쟁서 짐/중복이면 false. */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public boolean enqueueTossArrival(BusArrivalAlert alert, int arrivalMin) {
         String dedupKey = "BUS_ARRIVAL:" + alert.getId() + ":" + EVENT_ARRIVAL + ":" + CHANNEL_TOSS;
         String payload = writePayload(alert, arrivalMin);
         LocalDateTime now = LocalDateTime.now(clock);
-        return !notificationRepository.enqueue(
-                alert.getId(), dedupKey, CHANNEL_TOSS, EVENT_ARRIVAL, payload, now).isEmpty();
+        List<Long> created = notificationRepository.enqueue(
+                alert.getId(), dedupKey, CHANNEL_TOSS, EVENT_ARRIVAL, payload, now);
+        if (created.isEmpty()) return false;
+        // 커밋 후 relay 즉시 wake(AFTER_COMMIT). 이 tx 에 바인딩되므로 롤백 시 발행 안 됨.
+        eventPublisher.publishEvent(new OutboxEnqueuedEvent(created.get(0)));
+        return true;
     }
 
     private String writePayload(BusArrivalAlert alert, int arrivalMin) {
