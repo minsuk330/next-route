@@ -22,6 +22,7 @@ public class RouteSearchMetrics {
     public static final String EXTERNAL_CALLS = "external.api.calls";
     public static final String EXTERNAL_DURATION = "external.api.duration";
     public static final String CACHE_REQUESTS = "bus.realtime.cache.requests";
+    public static final String CACHE_ERRORS = "bus.realtime.cache.errors";
 
     private final MeterRegistry registry;
 
@@ -62,9 +63,21 @@ public class RouteSearchMetrics {
                 .record(nanos, TimeUnit.NANOSECONDS);
     }
 
-    /** 실시간 버스 캐시 조회 결과. type=arrival/position, result=hit/miss. */
+    /**
+     * 검색 경로의 실시간 버스 캐시 조회 결과. type=arrival/position, result=hit/miss.
+     * hit ratio 의 분모가 되므로 <b>검색 경로만</b> 집계한다. Redis 장애로 인한 read 실패는
+     * 검색 입장에서 miss 이며, 그 원인은 {@link #recordCacheError} 로 따로 남긴다.
+     */
     public void recordCacheAccess(String type, String result) {
         registry.counter(CACHE_REQUESTS, "type", type, "result", result).increment();
+    }
+
+    /**
+     * 캐시 자체의 read/write 실패(Redis 장애 등). hit/miss 비율을 오염시키지 않도록 별도 지표로 둔다.
+     * 검색·수집기 등 이 캐시의 모든 소비자를 포함한다. op=read/write.
+     */
+    public void recordCacheError(String type, String op) {
+        registry.counter(CACHE_ERRORS, "type", type, "op", op).increment();
     }
 
     private Timer timer(String name, String tagKey, String tagValue) {

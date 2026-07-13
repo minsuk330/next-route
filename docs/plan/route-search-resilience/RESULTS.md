@@ -1,6 +1,6 @@
 # 경로 검색 외부 의존성 개선 결과
 
-> 진행 상태: **Step 0(Baseline) 완료** — PR-A. 이후 단계는 이 문서에 계속 누적한다.
+> 진행 상태: **Step 0(Baseline) · Step 1(Hybrid Cache) 완료** — PR-A, PR-B. 이후 단계는 이 문서에 계속 누적한다.
 
 ## 테스트 환경
 
@@ -62,6 +62,59 @@ ODsay 무응답 시 3회 시도 + `Thread.sleep(2s)` + `Thread.sleep(4s)` 로 6,
 `FULL/PARTIAL/BASE_ONLY/FAILED` 판정은 이 단계에서 메트릭용으로만 구현했다(응답 DTO 변경 없음).
 선택 provider 실패가 `BASE_ONLY` 로, 필수 provider 실패가 `FAILED` 로 각각 분리 관측됨을 확인했다.
 
+## Step 1 — Hybrid Cache 계측과 계약 고정 (PR-B)
+
+측정 테스트: `RouteSearchCacheIT` (Testcontainers Redis 7, 직렬화·TTL·만료 포함)
+
+### 고정한 계약
+
+| 항목 | 결과 |
+|---|---|
+| 수집기 write ↔ 검색 read | 같은 키(`bus:search:arr:{stopId}:{routeId}:{seq}`)·직렬화로 왕복, 값 보존 |
+| cache hit | provider 호출 0회 — 검색 호출 cap·quota 미소모 |
+| 저장 대상 | non-empty 결과만. 빈 결과·`BLOCKED`·`LIMITED`·`ERROR` 는 저장되지 않음 |
+| Redis 장애 | read 실패 → miss 로 degrade, 검색은 provider 경로로 계속. 응답 정상 |
+
+"빈 결과를 저장하지 않는다"가 중요한 이유는, 차단·오류로 인한 빈 응답을 TTL 동안 캐시에 고착시키면
+provider 가 회복해도 그 시간만큼 계속 빈 결과를 돌려주기 때문이다.
+
+Redis 장애는 검색 입장에서 miss 지만, 원인을 hit ratio 분모에 섞으면 캐시 효과를 오독하게 된다.
+그래서 `bus.realtime.cache.errors{type,op}` 를 별도 지표로 분리했다.
+
+### TTL A/B
+
+동일 키 1개, 20초 동안 250ms 간격 조회.
+
+| TTL | 요청 | hit | provider 호출 | hit ratio | hit 시점 age p50 | age max |
+|---|---:|---:|---:|---:|---:|---:|
+| off (캐시 우회) | 79 | 0 | 79 | 0% | — | — |
+| 5s | 77 | 73 | 4 | 94.8% | 3s | 5s |
+| 15s (운영값) | 78 | 76 | 2 | 97.4% | 6s | 15s |
+
+해석:
+
+- 캐시가 provider 호출을 **79회 → 2회(운영 TTL 15s)로 줄인다**. 같은 정류장·노선을 여러 요청이
+  동시에 조회하는 검색 특성상 이 감소가 곧 일일 예산 절약이다.
+- provider 호출 수는 `ceil(window / TTL)` 로 수렴한다. TTL 을 3배로 늘려도 hit ratio 는
+  94.8% → 97.4% 로 2.6%p 밖에 오르지 않는다. **TTL 을 키워서 얻는 호출 감소는 빠르게 체감된다.**
+- 반면 hit 데이터의 **최대 staleness 는 정확히 TTL** 이다(5s → 5s, 15s → 15s).
+
+### TTL 상한을 결정하는 것은 검색이 아니라 알림이다
+
+이 캐시는 경로 검색만 쓰는 게 아니라 **버스 알림의 발송 조건 판단**도 공유한다.
+따라서 TTL 을 30초로 늘리면 hit ratio 는 조금 오르지만, 알림이 보는 도착 정보가 최대 30초 낡을 수 있다.
+도착 알림은 "곧 온다"를 알리는 기능이라 30초 오차는 기능 자체를 무의미하게 만든다.
+
+즉 TTL 상한은 검색의 hit ratio 곡선이 아니라 **알림이 허용하는 도착 판단 오차**가 정한다.
+현재 15초는 이 제약 안에서 호출 감소를 거의 다 얻는 지점이다(97.4%). TTL 을 더 늘릴 이유가 없다.
+
+### 남은 한계 — TTL 만료 순간의 stampede
+
+이 실험은 요청이 1개일 때의 hit ratio 다. 같은 키를 여러 요청이 **동시에** miss 하면
+그 수만큼 provider 를 호출한다(현재 병합 없음). TTL 을 늘리는 것보다 이 폭증을 먼저 없애야 한다.
+
+→ Step 3(Single-flight)의 before.
+
 ## 부수 수정
 
 - ODsay 검색 URI 전체를 `log.info` 로 남기던 코드가 apiKey 를 로그에 노출하고 있었다.
@@ -71,7 +124,6 @@ ODsay 무응답 시 3회 시도 + `Thread.sleep(2s)` + `Thread.sleep(4s)` 로 6,
 
 | 단계 | 내용 | 이 문서에 추가할 수치 |
 |---|---|---|
-| Step 1 (PR-B) | Hybrid Cache 계측·A/B | hit ratio, provider 호출 감소, TTL별 데이터 age·알림 정확도 |
 | Step 2 (PR-C) | End-to-end Deadline, 조건부 Retry | 지연·무응답 시 상한 내 종료, 재시도 횟수 |
 | Step 3 (PR-D) | Single-flight | 동일 키 100건 동시 miss 시 provider 호출 수 |
 | Step 4 (PR-E) | Provider Bulkhead | provider별 최대 동시성, 포화 시 격리 |

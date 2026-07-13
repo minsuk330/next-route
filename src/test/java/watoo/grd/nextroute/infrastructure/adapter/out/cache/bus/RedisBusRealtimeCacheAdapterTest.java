@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.cache.bus;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -11,6 +12,7 @@ import org.springframework.data.redis.core.ValueOperations;
 import watoo.grd.nextroute.application.bus.BusArrivalInfoFixtures;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
+import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 
 import java.time.Duration;
 import java.util.List;
@@ -38,7 +40,8 @@ class RedisBusRealtimeCacheAdapterTest {
     @BeforeEach
     void setUp() {
         props.setCacheTtlSeconds(15);
-        cache = new RedisBusRealtimeCacheAdapter(redisTemplate, objectMapper, props);
+        cache = new RedisBusRealtimeCacheAdapter(redisTemplate, objectMapper, props,
+                new RouteSearchMetrics(new SimpleMeterRegistry()));
     }
 
     private BusPositionInfo pos(String vehId) {
