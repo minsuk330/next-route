@@ -46,6 +46,14 @@ public class WalkSegmentEnricher {
     private final WalkSegmentCachePort cache;
     private final TmapPedestrianPort tmapPort;
 
+    /**
+     * 요청 간 공유되는 진행 중 TMAP 호출(single-flight). 같은 보행 구간을 동시에 miss 한 요청들이
+     * 하나의 호출을 공유한다. 캐시 TTL 이 7일이라 stampede 창은 짧지만, 같은 구간을 동시에 검색하는
+     * 요청이 몰리면(퇴근 시간 같은 목적지) 첫 miss 에서 호출이 폭증할 수 있다.
+     */
+    private final java.util.concurrent.ConcurrentMap<String, CompletableFuture<TmapResult>> inFlight =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     /** 계측 없이 호출하는 경로(단위 테스트 등). */
     public RouteSearchResult enrich(RouteSearchResult original,
                                     double requestedStartX, double requestedStartY,
@@ -196,22 +204,31 @@ public class WalkSegmentEnricher {
 
     // ── 2단계: TMAP 비동기 호출 ──────────────────────────────────────────
 
+    /**
+     * 같은 보행 구간(WalkCacheKey)에 대한 진행 중인 호출이 있으면 그 future 를 공유한다(Step 3).
+     * 이전에는 요청 <b>안</b>에서만 중복을 제거했기 때문에, 여러 요청이 동시에 같은 구간을 miss 하면
+     * 그 수만큼 TMAP 을 호출했다.
+     */
     private CompletableFuture<TmapResult> callTmapAsync(WalkContext ctx) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                WalkSegment segment = tmapPort.search(new WalkSearchCommand(
-                        ctx.key().startX(), ctx.key().startY(),
-                        ctx.key().endX(), ctx.key().endY(),
-                        ctx.start().name(), ctx.end().name(),
-                        DEFAULT_SEARCH_OPTION));
-                return TmapResult.ok(segment);
-            } catch (TmapApiException e) {
-                log.warn("[WalkEnricher] TMAP failed for ({},{})->({},{}) — fallback: {}",
-                        ctx.key().startX(), ctx.key().startY(),
-                        ctx.key().endX(), ctx.key().endY(), e.getMessage());
-                return TmapResult.failure();
-            }
-        });
+        String key = ctx.key().asKey();
+        return inFlight.computeIfAbsent(key, k -> CompletableFuture
+                .supplyAsync(() -> {
+                    try {
+                        WalkSegment segment = tmapPort.search(new WalkSearchCommand(
+                                ctx.key().startX(), ctx.key().startY(),
+                                ctx.key().endX(), ctx.key().endY(),
+                                ctx.start().name(), ctx.end().name(),
+                                DEFAULT_SEARCH_OPTION));
+                        return TmapResult.ok(segment);
+                    } catch (TmapApiException e) {
+                        log.warn("[WalkEnricher] TMAP failed for ({},{})->({},{}) — fallback: {}",
+                                ctx.key().startX(), ctx.key().startY(),
+                                ctx.key().endX(), ctx.key().endY(), e.getMessage());
+                        return TmapResult.failure();
+                    }
+                })
+                // 성공·실패 모두 정리 — in-flight map 누수 방지.
+                .whenComplete((r, t) -> inFlight.remove(key)));
     }
 
     // ── 3단계: 응답 재구성 ───────────────────────────────────────────────

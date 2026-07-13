@@ -7,6 +7,8 @@ import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheReadPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
+import watoo.grd.nextroute.application.route.concurrent.SingleFlight;
+import watoo.grd.nextroute.application.route.config.SearchTimeBusProperties;
 import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
 
@@ -30,20 +32,31 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
 
     private static final String TYPE_ARRIVAL = "arrival";
     private static final String TYPE_POSITION = "position";
+    private static final String PROVIDER = "bus";
 
     private final SearchTimeBusAdapter delegate;
     private final BusRealtimeCacheReadPort cacheRead;
     private final BusRealtimeCacheWritePort cacheWrite;
     private final RouteSearchMetrics metrics;
+    private final SearchTimeBusProperties properties;
+
+    /**
+     * 캐시 miss 뒤의 provider 호출을 키 단위로 병합한다(Step 3).
+     * 도착은 {@code stopId:routeId:ord}, 위치는 {@code routeId} 가 키다 — provider 호출의 단위와 같다.
+     */
+    private final SingleFlight<String, BusQueryResult<BusArrivalInfo>> arrivalFlight = new SingleFlight<>();
+    private final SingleFlight<String, BusQueryResult<BusPositionInfo>> positionFlight = new SingleFlight<>();
 
     public CachedSearchTimeBusAdapter(SearchTimeBusAdapter delegate,
                                       BusRealtimeCacheReadPort cacheRead,
                                       BusRealtimeCacheWritePort cacheWrite,
-                                      RouteSearchMetrics metrics) {
+                                      RouteSearchMetrics metrics,
+                                      SearchTimeBusProperties properties) {
         this.delegate = delegate;
         this.cacheRead = cacheRead;
         this.cacheWrite = cacheWrite;
         this.metrics = metrics;
+        this.properties = properties;
     }
 
     @Override
@@ -54,11 +67,17 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
             return BusQueryResult.cached(hit.get());   // provider 미호출 — cap·quota 미소모
         }
         metrics.recordCacheAccess(TYPE_ARRIVAL, "miss");
-        BusQueryResult<BusArrivalInfo> fresh = delegate.getArrInfoByStop(stopId, routeId, ord);
-        if (fresh.isOk() && !fresh.data().isEmpty()) {
-            cacheWrite.putArrivals(stopId, routeId, ord, fresh.data());
-        }
-        return fresh;
+
+        String key = stopId + ":" + routeId + ":" + ord;
+        SingleFlight.Outcome<BusQueryResult<BusArrivalInfo>> outcome = arrivalFlight.execute(key, () -> {
+            BusQueryResult<BusArrivalInfo> fresh = delegate.getArrInfoByStop(stopId, routeId, ord);
+            if (fresh.isOk() && !fresh.data().isEmpty()) {
+                cacheWrite.putArrivals(stopId, routeId, ord, fresh.data());
+            }
+            return fresh;
+        }, properties.getJoinWaitMs());
+
+        return resolve(outcome, TYPE_ARRIVAL);
     }
 
     @Override
@@ -69,10 +88,31 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
             return BusQueryResult.cached(hit.get());
         }
         metrics.recordCacheAccess(TYPE_POSITION, "miss");
-        BusQueryResult<BusPositionInfo> fresh = delegate.getBusPosByRtid(busRouteId);
-        if (fresh.isOk() && !fresh.data().isEmpty()) {
-            cacheWrite.putPositions(busRouteId, fresh.data());
-        }
-        return fresh;
+
+        SingleFlight.Outcome<BusQueryResult<BusPositionInfo>> outcome = positionFlight.execute(busRouteId, () -> {
+            BusQueryResult<BusPositionInfo> fresh = delegate.getBusPosByRtid(busRouteId);
+            if (fresh.isOk() && !fresh.data().isEmpty()) {
+                cacheWrite.putPositions(busRouteId, fresh.data());
+            }
+            return fresh;
+        }, properties.getJoinWaitMs());
+
+        return resolve(outcome, TYPE_POSITION);
+    }
+
+    /**
+     * joiner 는 provider 를 호출하지 않았으므로 결과의 cacheHit 의미가 애매해진다.
+     * 여기서는 "provider 호출을 하지 않았다"는 사실이 중요하므로 cached 로 표시한다(cap·quota 미소모).
+     * 예산 안에 owner 결과를 못 받으면 LIMITED — 조회를 못 한 것이지 "버스 없음"이 아니다.
+     */
+    private <T> BusQueryResult<T> resolve(SingleFlight.Outcome<BusQueryResult<T>> outcome, String type) {
+        metrics.recordSingleFlight(PROVIDER, type, outcome.role());
+        return switch (outcome.role()) {
+            case OWNER -> outcome.value();
+            case JOINER -> outcome.hasValue() && outcome.value().isOk()
+                    ? BusQueryResult.cached(outcome.value().data())
+                    : outcome.value();
+            case JOIN_TIMEOUT -> BusQueryResult.limited();
+        };
     }
 }

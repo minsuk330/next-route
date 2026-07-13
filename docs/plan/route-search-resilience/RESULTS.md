@@ -1,6 +1,6 @@
 # 경로 검색 외부 의존성 개선 결과
 
-> 진행 상태: **Step 0(Baseline) · Step 1(Hybrid Cache) · Step 2(Deadline·Retry) 완료** — PR-A, PR-B, PR-C. 이후 단계는 이 문서에 계속 누적한다.
+> 진행 상태: **Step 0(Baseline) · Step 1(Hybrid Cache) · Step 2(Deadline·Retry) · Step 3(Single-flight) 완료** — PR-A ~ PR-D. 이후 단계는 이 문서에 계속 누적한다.
 
 ## 테스트 환경
 
@@ -163,6 +163,34 @@ TMAP 응답을 예산 안에서 못 받으면 이번 응답에서 생략하지�
 
 → Step 4(Bulkhead)의 before.
 
+## Step 3 — Single-flight (PR-D)
+
+측정 테스트: `RouteSearchStampedeIT` (Testcontainers Redis)
+
+Step 1 에서 남겨둔 한계 — 같은 키를 **동시에** miss 하면 그 수만큼 provider 를 호출한다 — 를 없앤다.
+첫 요청(owner)만 실제로 호출하고, 나머지는 그 결과를 공유받는다(joiner).
+
+### 동일 키 100건 동시 miss (provider 응답 200ms)
+
+| 항목 | before | after |
+|---|---:|---:|
+| provider 호출 | 100회 | **1회** |
+| owner / joiner | — | 1 / 99 |
+| join timeout | — | 0 |
+| 응답 데이터 | — | 100건 모두 동일 값 수신 |
+
+두 번째 물결(같은 키 100건 재요청)은 owner 가 채운 캐시에 그대로 hit 해 **provider 호출 0회**다.
+
+### 설계 판단
+
+- **owner 는 호출 스레드에서 직접 실행한다.** 별도 executor 로 넘기면 스레드만 더 쓰고 대기 구조는 같다.
+- **joiner 는 자신의 남은 예산까지만 기다린다.** owner 가 느리다고 joiner 의 deadline 을 어길 수는 없다.
+  예산 안에 못 받으면 `LIMITED` — "조회를 못 했다"이지 "버스가 없다"가 아니다(이 구분은 이미 `BusQueryResult` 가 갖고 있다).
+- **owner 의 실패를 joiner 에게 전파하지 않는다.** 실패를 공유하면 한 번의 장애가 합류한 요청 전부의 실패가 된다.
+- **JVM 로컬 범위다.** 현재 단일 인스턴스 배포라 이걸로 충분하다. 다중 인스턴스로 가면
+  인스턴스 수만큼 호출이 남는다 — 그때는 Redis 분산 락이나 상류 캐시가 필요하다.
+  단일 인스턴스에서 분산 락을 먼저 넣는 것은 얻는 것 없이 Redis 왕복만 늘린다.
+
 ## 부수 수정
 
 - ODsay 검색 URI 전체를 `log.info` 로 남기던 코드가 apiKey 를 로그에 노출하고 있었다.
@@ -172,6 +200,5 @@ TMAP 응답을 예산 안에서 못 받으면 이번 응답에서 생략하지�
 
 | 단계 | 내용 | 이 문서에 추가할 수치 |
 |---|---|---|
-| Step 3 (PR-D) | Single-flight | 동일 키 100건 동시 miss 시 provider 호출 수 |
 | Step 4 (PR-E) | Provider Bulkhead | provider별 최대 동시성, 포화 시 격리 |
 | Step 6 (PR-G) | 부하·장애 주입 재측정 | before/after 최종 결과표 |
