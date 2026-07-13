@@ -50,6 +50,12 @@ public class RouteArrivalAlertNotification extends BaseEntity {
     @Column(nullable = false)
     private int attemptCount;
 
+    /** admin requeue 누적 횟수. 무제한 재시도 방지 상한(maxRequeue)과 대조. */
+    @Column(nullable = false)
+    private int requeueCount;
+
+    private LocalDateTime lastRequeuedAt;
+
     private LocalDateTime processingStartedAt;
 
     private LocalDateTime sentAt;
@@ -90,6 +96,25 @@ public class RouteArrivalAlertNotification extends BaseEntity {
     public void markFailed(String reason) {
         this.status = RouteNotificationStatus.FAILED;
         this.lastFailureReason = reason;
+    }
+
+    /** transient 재시도 소진 → DEAD(수동 개입 대기). permanent(FAILED)와 구분. */
+    public void markDead(String reason) {
+        this.status = RouteNotificationStatus.DEAD;
+        this.lastFailureReason = reason;
+    }
+
+    /**
+     * DEAD → PENDING 재투입(admin). 기본은 attemptCount 를 1 줄여(다음 claim 이 +1) 정확히 1회만 더 시도.
+     * resetAttempts=true 면 재시도 예산 전체 재부여. requeueCount 증가로 반복 requeue 상한을 건다.
+     */
+    public void requeue(LocalDateTime now, boolean resetAttempts) {
+        this.status = RouteNotificationStatus.PENDING;
+        this.scheduledAt = now;
+        this.attemptCount = resetAttempts ? 0 : Math.max(0, this.attemptCount - 1);
+        this.lastFailureReason = null;
+        this.requeueCount++;
+        this.lastRequeuedAt = now;
     }
 
     /** transient 실패 → 재시도 위해 PENDING 복귀. scheduledAt 을 다음 시도시각으로 미룬다(백오프). */

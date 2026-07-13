@@ -49,10 +49,12 @@ public class RouteArrivalAlertProperties {
     private int dispatchBatchSize = 100;
     /** PROCESSING 고착 reclaim 임계(분). */
     private int claimTimeoutMinutes = 5;
-    /** transient 실패 최대 시도. 초과 시 FAILED. */
+    /** transient 실패 최대 시도. 초과 시 DEAD(수동 개입 대기). */
     private int maxAttempts = 3;
     /** transient 실패 재시도 백오프(초). */
     private int backoffSeconds = 60;
+    /** DEAD row 의 admin requeue 누적 상한. 초과 시 requeue 거부(무제한 재시도 방지). */
+    private int maxRequeue = 3;
 
     // ── 반복 스케줄 spawner (PR2, flag key 는 check/dispatch 와 별개) ──────────────
     /** spawner 활성화. 기본 off. */

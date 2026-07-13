@@ -5,6 +5,9 @@ public enum RouteNotificationStatus {
     PENDING,
     PROCESSING,
     SENT,
+    /** permanent 실패(종결). 재시도/requeue 대상 아님. */
     FAILED,
+    /** transient 재시도 소진 → 수동 개입 대기. admin requeue 로 PENDING 복귀 가능. */
+    DEAD,
     CANCELED
 }
