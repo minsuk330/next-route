@@ -18,6 +18,8 @@ public enum DegradeReason {
     NO_DATA,
     /** provider 는 정상 응답했지만 내용이 비어 보강할 수 없음(서비스 지역 외 등). */
     EMPTY_RESULT,
+    /** provider 전용 풀이 포화되어 호출하지 못함. */
+    BULKHEAD_FULL,
     /** 기능 플래그로 꺼져 있음. */
     DISABLED,
     /** 부가 작업(검색 이력 등) 저장 실패. */

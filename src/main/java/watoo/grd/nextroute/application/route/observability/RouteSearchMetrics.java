@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.route.observability;
 
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import watoo.grd.nextroute.application.route.concurrent.SingleFlight;
 import io.micrometer.core.instrument.Timer;
@@ -7,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -26,6 +28,9 @@ public class RouteSearchMetrics {
     public static final String CACHE_REQUESTS = "bus.realtime.cache.requests";
     public static final String CACHE_ERRORS = "bus.realtime.cache.errors";
     public static final String SINGLEFLIGHT = "singleflight.requests";
+    public static final String BULKHEAD_ACTIVE = "bulkhead.active";
+    public static final String BULKHEAD_QUEUE = "bulkhead.queue";
+    public static final String BULKHEAD_REJECTED = "bulkhead.rejected";
 
     private final MeterRegistry registry;
 
@@ -78,6 +83,19 @@ public class RouteSearchMetrics {
      */
     public void recordCacheAccess(String type, String result) {
         registry.counter(CACHE_REQUESTS, "type", type, "result", result).increment();
+    }
+
+    /** provider 전용 풀이 포화되어 보강을 생략한 횟수. 실패가 아니라 관측 가능한 degradation 이다. */
+    public void recordBulkheadRejected(String provider) {
+        registry.counter(BULKHEAD_REJECTED, "provider", provider).increment();
+    }
+
+    /** provider 전용 풀의 현재 실행/대기 수를 gauge 로 노출. 부팅 시 1회 등록한다. */
+    public void registerBulkheadGauges(String provider, ThreadPoolExecutor executor) {
+        Gauge.builder(BULKHEAD_ACTIVE, executor, ThreadPoolExecutor::getActiveCount)
+                .tag("provider", provider).register(registry);
+        Gauge.builder(BULKHEAD_QUEUE, executor, e -> e.getQueue().size())
+                .tag("provider", provider).register(registry);
     }
 
     /**
