@@ -42,13 +42,30 @@ public class BusAlertOutboxRelayService {
     /** 발송 팬아웃 풀. lazy 생성(첫 relay 시 properties 반영), 워커 수는 부팅 후 고정. */
     private volatile ExecutorService sendPool;
 
-    public void relayOnce() {
+    /**
+     * outbox 를 빌 때까지 반복 처리(밀린 backlog 전량). 한 batch 만 처리하면 나머지가 다음 sweep 까지
+     * 밀리므로, claim 이 빌 때까지 drain 한다. producer 폭주로 claim 이 계속 나오는 경우를 대비해
+     * maxBatches/maxMillis/interrupt 로 yield(호출자 루프의 await 로 복귀).
+     */
+    public void drainUntilEmpty() {
+        long startNanos = System.nanoTime();
+        int batches = 0;
+        while (!Thread.currentThread().isInterrupted()
+                && batches < properties.getOutboxRelayMaxBatches()
+                && elapsedMillis(startNanos) < properties.getOutboxDrainMaxMillis()) {
+            if (!relayOnce()) break; // 비었음 → 종료
+            batches++;
+        }
+    }
+
+    /** 한 배치 처리. 처리한 게 있으면 true(계속 drain), claim 비었으면 false. */
+    public boolean relayOnce() {
         try {
             LocalDateTime now = LocalDateTime.now(clock);
             stateService.reclaim(now);
 
             List<Long> claimed = stateService.claimBatch(now, properties.getOutboxRelayBatchSize());
-            if (claimed.isEmpty()) return;
+            if (claimed.isEmpty()) return false;
 
             int workers = Math.max(1, properties.getOutboxRelayWorkers());
             if (workers <= 1 || claimed.size() == 1) {
@@ -56,9 +73,15 @@ public class BusAlertOutboxRelayService {
             } else {
                 drainParallel(claimed, workers);
             }
+            return true;
         } catch (Exception e) {
             log.error("[BusAlertOutboxRelay] relay 실패: {}", e.getMessage(), e);
+            return false;
         }
+    }
+
+    private static long elapsedMillis(long startNanos) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
     }
 
     /** claim 된 배치를 워커 풀로 팬아웃 발송하고 전량 완료까지 대기. */

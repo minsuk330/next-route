@@ -5,7 +5,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import watoo.grd.nextroute.application.notification.service.RouteAlertCheckScheduler;
 import watoo.grd.nextroute.application.notification.service.RouteAlertDispatchScheduler;
 import watoo.grd.nextroute.application.notification.service.RouteAlertScheduleSpawner;
-import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.notifination.BusAlertOutboxRelayScheduler;
 import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.notifination.BusArrivalAlertScheduler;
 
 import java.lang.reflect.Method;
@@ -27,7 +26,7 @@ class NotificationSchedulerRoutingTest {
         assertScheduledOn(RouteAlertDispatchScheduler.class, "run");
         assertScheduledOn(RouteAlertScheduleSpawner.class, "run");
         assertScheduledOn(BusArrivalAlertScheduler.class, "poll");
-        assertScheduledOn(BusAlertOutboxRelayScheduler.class, "relay");
+        // 발송 relay 는 @Scheduled 가 아니라 이벤트 wake-up 루프(BusAlertRelayLoop, 전용 스레드)로 이관됨.
     }
 
     private void assertScheduledOn(Class<?> type, String methodName) throws NoSuchMethodException {

@@ -76,7 +76,6 @@ public class BusAlertDispatchService {
         // 그룹당 도착 1회 조회(dedup). 타겟 버스 선택은 alert.userEta 별로 다르므로 per-alert 계산.
         List<BusArrivalInfo> arrivals = loadArrivals(sample);
         if (arrivals.isEmpty()) return;
-
         for (BusArrivalAlert alert : group) {
             // alert 단위 격리: 한 건의 예상외 예외가 같은 그룹의 나머지를 막지 않게.
             try {
@@ -115,7 +114,7 @@ public class BusAlertDispatchService {
             return; // userEta 이후 버스 없음 or 아직 임계 밖
         }
         long userKey = alert.getUser().getTossUserKey();
-        if (enqueuedPerUser.getOrDefault(userKey, 0) >= properties.getPerUserCycleCap()) {
+        if (enqueuedPerUser.getOrDefault(userKey, 0) >= properties. getPerUserCycleCap()) {
             return; // 다음 사이클로
         }
         int arrivalMin = (int) Math.ceil(target / 60.0);

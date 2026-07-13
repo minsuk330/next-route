@@ -139,9 +139,9 @@ toss:
 notification:
   bus-arrival:
     # enabled 는 application-{dev,prod}.yaml 에서 설정. 발송은 항상 outbox 경로(polling=enqueue, relay=send).
-    poll-interval-ms: 1000        # 폴링=enqueue 만(Toss 미호출)이라 고빈도 가능
-    outbox-relay-interval-ms: 1000 # relay=발송
-    outbox-relay-workers: 4        # 발송 병렬도(Step C)
+    poll-interval-ms: 1000          # 폴링=enqueue 만(Toss 미호출)이라 고빈도 가능
+    outbox-sweep-interval-ms: 1000  # relay fallback sweep(평소엔 enqueue afterCommit wake 로 즉시 발송)
+    outbox-relay-workers: 4         # 발송 병렬도(Step C)
     threshold-seconds: 120
     ttl-minutes: 60
     batch-size: 200

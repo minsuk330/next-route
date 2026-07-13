@@ -40,12 +40,19 @@ public class BusArrivalAlertProperties {
     private int backoffSeconds = 60;
 
     // ── outbox relay ─────────────────────────────────────────────────────────
-    /** relay 스캔(=send) 주기(ms). */
-    private long outboxRelayIntervalMs = 1000;
+    /**
+     * relay fallback sweep 주기(ms). 평소엔 enqueue afterCommit wake 로 즉시 발송하고, wake 신호가 없는
+     * 경우(재시도 row backoff 복귀, 신호 유실, 재시작)만 이 주기로 재스캔한다. relay 루프의 await timeout.
+     */
+    private long outboxSweepIntervalMs = 1000;
     /** relay 스캔당 처리 상한. */
     private int outboxRelayBatchSize = 200;
     /** relay 발송 병렬도(Step C). claim 은 이미 원자(SKIP LOCKED)라 느린 Toss I/O 만 팬아웃. ≤1 이면 인라인(Step B 동치). */
     private int outboxRelayWorkers = 4;
+    /** drain-until-empty 무한 점유 방어: 한 번 깨어날 때 최대 배치 수. 초과 시 await 로 yield. */
+    private int outboxRelayMaxBatches = 1000;
+    /** drain-until-empty 무한 점유 방어: 한 번 깨어날 때 최대 소요(ms). 초과 시 await 로 yield. */
+    private long outboxDrainMaxMillis = 5000;
     /** DEAD requeue 누적 상한. */
     private int maxRequeue = 3;
 
