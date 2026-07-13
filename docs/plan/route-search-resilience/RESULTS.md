@@ -1,6 +1,26 @@
 # 경로 검색 외부 의존성 개선 결과
 
-> 진행 상태: **Step 0(Baseline) · Step 1(Hybrid Cache) · Step 2(Deadline·Retry) · Step 3(Single-flight) · Step 4(Bulkhead) 완료** — PR-A ~ PR-E. 이후 단계는 이 문서에 계속 누적한다.
+> **MVP 범위(Step 0~4, 6) 완료** — PR-A ~ PR-G.
+> Step 5(부분 응답 메타데이터 노출)는 클라이언트 API 계약 판단이 필요해 후속으로 분리했다(PLAN.md §7).
+
+경로 검색은 ODsay(필수) 위에 지하철 폴리라인·TMAP 보행·실시간 버스·ML 예측을 얹는 동기 API 다.
+문제는 이 조합이 **가장 느린 의존성의 속도로 응답한다**는 것이었다. 이 문서는 그 구조를
+측정 → 교정 → 재측정한 기록이다.
+
+## 요약 — before / after
+
+| 항목 | before | after |
+|---|---:|---:|
+| TMAP 5s 지연 시 응답 | 5,197ms | **438ms** (기본 경로 정상 반환) |
+| ODsay 무응답 시 응답 | 6,934ms | **805ms** (504) |
+| ODsay 무응답 시 provider 호출 | 3회 + backoff 6s | **1회** |
+| 동일 키 100건 동시 miss | provider 100회 | **1회** |
+| 캐시 20초 창 provider 호출 | 79회(캐시 off) | **2회**(TTL 15s) |
+| 느린 TMAP 12건 동시 요청 | 공용 ForkJoinPool 잠식 | **전용 풀 4건 실행 / 8건 거절, 기본 경로 12건 전부 반환** |
+| 실패 응답 상태코드 | 전부 400 | **504 / 502 / 400 구분** |
+
+운영 read timeout(30s) 기준으로 환산하면, ODsay 무응답 1건이 요청 스레드를 **최악 96초** 점유할 수 있었다.
+지금은 시간 예산 안에서 끝난다.
 
 ## 테스트 환경
 
@@ -9,13 +29,13 @@
 | Machine | Apple M3 Pro, 18GB RAM |
 | JVM | Java 17 (Gradle toolchain) |
 | 외부 provider | ODsay·TMAP = MockWebServer (지연·HTTP 상태 제어) |
-| DB·Redis | 미사용 — 이 단계는 외부 호출 구간만 격리해 측정 |
-| 측정 테스트 | Step 0·2 = `RouteSearchDeadlineIT`(baseline 은 PR-A 시점 `RouteSearchBaselineIT`), Step 1 = `RouteSearchCacheIT` |
-| ODsay read timeout(테스트) | 300ms |
-| ODsay read timeout(운영) | 30s (`ApiClientConfig`) |
+| Redis | Testcontainers redis:7 (직렬화·TTL·만료 포함) — Step 1·3 |
+| 측정 테스트 | `RouteSearchDeadlineIT`(Step 0 baseline·Step 2), `RouteSearchCacheIT`(Step 1), `RouteSearchStampedeIT`(Step 3), `RouteSearchBulkheadIT`(Step 4) |
+| ODsay read timeout(테스트, before) | 300ms |
+| ODsay read timeout(운영, before) | 30s (`ApiClientConfig`) |
 
 운영 네트워크, 실 provider rate limit, 실제 응답 크기는 이 수치에 포함하지 않는다.
-버스·ML·Redis 캐시를 포함한 측정은 Step 1(PR-B)에서 Testcontainers 로 별도 수행한다.
+아래 모든 수치는 로컬 Mock 환경 기준이다.
 
 ## Baseline — 현재 구조
 
@@ -216,6 +236,46 @@ TMAP 보강을 전용 bounded 풀로 옮기고, 포화되면 대기 없이 거�
 `ThreadPoolExecutor` 의 흔한 포화 정책인 `CallerRunsPolicy` 는 여기서 정확히 틀린 선택이다.
 호출 스레드(=요청 스레드)가 TMAP 호출을 대신 실행하게 되고, 그러면 Step 2 에서 세운 deadline 을
 지킬 수 없다. 거절해서 **보강만 생략**하는 것이 맞다.
+
+## 최종 설정값과 선정 근거
+
+| 설정 | 값 | 근거 |
+|---|---:|---|
+| `route.search.deadline-ms` | 3,000 | 정상 검색이 60ms 수준이므로 충분히 여유 있다. 목적은 평균 단축이 아니라 **tail 절단**이다. |
+| `route.search.odsay-ms` | 2,000 | 필수 단계라 여유를 주되, 무응답 시 요청 스레드가 2초 안에 풀리게 한다. |
+| `route.search.tmap-ms` | 1,200 | 선택 보강이므로 전체 예산의 절반 이하. 이 안에 못 오면 기본 경로를 먼저 낸다. |
+| `route.search.min-remaining-for-optional-ms` | 150 | 이보다 적게 남았는데 호출을 시작하면 orphan 호출만 만들고 결과는 못 기다린다. |
+| `route.search.tmap-pool.size` | 8 | 상한을 키워도 TMAP 이 빨라지지 않는다. provider rate limit 과 VPS CPU 만 압박한다. |
+| `route.search.tmap-pool.queue` | 16 | 짧게 둔다. 큰 대기열은 과부하를 숨기고 지연을 뒤로 미룰 뿐이다. |
+| `route.search.bus.join-wait-ms` | 1,800 | 버스 조회 자체가 ~1.5s timeout 이므로 owner 를 기다릴 여지를 조금 더 준다. |
+| 실시간 캐시 TTL | 15s (유지) | hit ratio 는 97.4%. 더 늘려도 2.6%p 남짓 오르는 대신 **알림의 도착 판단 오차가 TTL 만큼 커진다**. |
+
+## 한계 · 운영 제외 범위
+
+- 모든 수치는 **로컬 Mock 환경**이다. 운영 네트워크 지연, 실 provider rate limit, 실제 응답 크기는 반영하지 않았다.
+- Single-flight 는 **JVM 로컬**이다. 다중 인스턴스로 확장하면 인스턴스 수만큼 provider 호출이 남는다.
+  단일 인스턴스 배포에서 Redis 분산 락을 먼저 넣는 것은 얻는 것 없이 왕복만 늘린다.
+- Circuit Breaker 는 넣지 않았다. 버스 API 에는 이미 provider 가 명시적으로 주는 한도 신호(error code 7)
+  기반의 자체 breaker 가 있고, ODsay·TMAP 은 지속 장애가 실측된 적이 없다.
+  **근거 없이 라이브러리를 얹지 않는다** — 필요해지면 그때 실측을 근거로 넣는다.
+- 응답의 `FULL/PARTIAL/BASE_ONLY/FAILED` 는 현재 **메트릭으로만** 관측한다.
+  클라이언트 응답에 노출하려면 API 계약과 문서화가 필요해 Step 5 로 분리했다.
+
+## 포트폴리오 요약 원문
+
+경로 검색은 ODsay 위에 TMAP 보행·실시간 버스·ML 예측을 얹는 동기 API 라, 가장 느린 의존성의 속도로
+응답하는 구조였다. 계측을 먼저 붙여 측정하니 TMAP 이 5초 지연되면 응답도 5,197ms 가 됐고,
+ODsay 가 무응답이면 3회 재시도와 고정 backoff 6초 때문에 6,934ms(운영 설정 환산 최악 96초) 동안
+요청 스레드가 묶였다.
+
+이를 **요청 단위 시간 예산(deadline) 전파**, **조건부 재시도**, **single-flight**, **provider 전용 풀**로
+교정해, TMAP 5초 지연에도 438ms 에 기본 경로를 반환하고 ODsay 무응답도 805ms 안에 504 로 끝나게 했다.
+동일 키 100건 동시 miss 의 provider 호출은 100회에서 1회로 줄었다.
+
+`RestTemplate` 은 timeout 이 client 단위 고정값이라 요청마다 달라지는 잔여 예산을 반영할 수 없어,
+필수 단계인 ODsay 를 JDK `HttpClient` 로 옮겨 `HttpRequest.timeout(min(단계 상한, 남은 시간))` 으로
+예산을 HTTP I/O 까지 내렸다. 캐시 TTL 은 검색의 hit ratio 곡선이 아니라 **같은 캐시를 공유하는
+버스 알림이 허용하는 도착 판단 오차**가 상한을 정한다고 보고 15초를 유지했다.
 
 ## 부수 수정
 
