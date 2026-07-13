@@ -5,6 +5,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.concurrent.Executors;
+import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.dto.*;
 import watoo.grd.nextroute.application.route.exception.TmapApiException;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
@@ -33,7 +36,9 @@ class WalkSegmentEnricherTest {
     @BeforeEach
     void setUp() {
         resolver = new WalkCoordResolver();
-        enricher = new WalkSegmentEnricher(resolver, cache, tmapPort);
+        enricher = new WalkSegmentEnricher(resolver, cache, tmapPort,
+                Executors.newFixedThreadPool(4),
+                new RouteSearchMetrics(new SimpleMeterRegistry()));
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────
