@@ -10,6 +10,7 @@ import watoo.grd.nextroute.application.route.dto.RouteSearchRequest;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.dto.WalkSegment;
+import watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties;
 import watoo.grd.nextroute.application.route.exception.OdSayApiException;
 import watoo.grd.nextroute.application.route.exception.TmapApiException;
 import watoo.grd.nextroute.application.route.observability.DegradeReason;
@@ -47,6 +48,7 @@ public class RouteSearchService implements SearchRouteUseCase {
     private final WalkSegmentEnricher walkSegmentEnricher;
     private final TransferArrivalEnricher transferArrivalEnricher;
     private final RouteSearchMetrics metrics;
+    private final RouteSearchDeadlineProperties deadlineProperties;
 
     @Override
     public RouteSearchResult search(RouteSearchRequest request) {
@@ -60,7 +62,7 @@ public class RouteSearchService implements SearchRouteUseCase {
 
     private RouteSearchResult searchInternal(RouteSearchRequest request, boolean withRealtime) {
         Instant searchStartedAt = Instant.now();
-        RouteSearchContext ctx = RouteSearchContext.start();
+        RouteSearchContext ctx = RouteSearchContext.start(deadlineProperties.getDeadlineMs());
         try {
             return runSearch(request, withRealtime, searchStartedAt, ctx);
         } finally {
@@ -74,16 +76,23 @@ public class RouteSearchService implements SearchRouteUseCase {
         RouteSearchResult result;
         long odsayStart = System.nanoTime();
         try {
+            // 필수 단계도 예산 안에서만 기다린다: min(단계 상한, 남은 시간).
             result = odSayApiPort.searchPath(
                     request.startX(), request.startY(),
-                    request.endX(), request.endY()
+                    request.endX(), request.endY(),
+                    ctx.budgetMillis(deadlineProperties.getOdsayMs())
             );
         } catch (OdSayApiException e) {
             if (e.getErrorCode() == ODSAY_CODE_WITHIN_WALK_DISTANCE) {
                 // 출/도착지 700m 이내 → ODsay 대중교통 경로 없음. TMAP 도보 경로로만 응답.
                 return walkOnlyFallback(request, e, ctx);
             }
-            ctx.degrade(SearchComponent.ODSAY, DegradeReason.UPSTREAM_ERROR);
+            if (e.getKind() == OdSayApiException.Kind.TIMEOUT) {
+                ctx.degrade(SearchComponent.ODSAY, DegradeReason.TIMEOUT);
+                metrics.recordDeadlineExceeded(SearchComponent.ODSAY);
+            } else {
+                ctx.degrade(SearchComponent.ODSAY, DegradeReason.UPSTREAM_ERROR);
+            }
             throw e;
         } finally {
             metrics.recordStage(SearchComponent.ODSAY, ctx.isDegraded(SearchComponent.ODSAY),
@@ -100,7 +109,8 @@ public class RouteSearchService implements SearchRouteUseCase {
         result = stage(ctx, SearchComponent.WALK,
                 () -> walkSegmentEnricher.enrich(afterWalk,
                         request.startX(), request.startY(), request.startName(),
-                        request.endX(), request.endY(), request.endName(), ctx));
+                        request.endX(), request.endY(), request.endName(), ctx,
+                        deadlineProperties));
 
         // 3. 환승 도착예측 보강 (trafficType=2 버스) — baseline(STATIC)은 생략해 fan-out 낭비 방지.
         // withRealtime=false 는 요청이 실시간을 요구하지 않은 것이므로 degradation 이 아니다(단계 미적용).

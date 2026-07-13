@@ -12,10 +12,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.application.route.config.OdSayProperties;
+import watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties;
 import watoo.grd.nextroute.application.route.config.TmapProperties;
 import watoo.grd.nextroute.application.route.dto.RouteSearchRequest;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
@@ -39,17 +39,17 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Step 0 baseline — 현재 코드의 동작을 <b>바꾸지 않고</b> 외부 provider 지연·실패가
- * 검색 응답시간에 어떻게 전파되는지 측정한다. 여기서 남는 수치가 이후 단계(Deadline·Single-flight·
- * Bulkhead)의 before 가 된다(PLAN.md §6 Step 0).
+ * Step 2 검증 — 시간 예산(deadline)과 조건부 재시도가 적용된 뒤의 동작.
+ * Step 0 baseline(같은 시나리오, RESULTS.md)과 짝을 이룬다.
  *
- * <p>ODsay/TMAP 은 MockWebServer 로 지연·HTTP 상태를 제어하고, DB·캐시 의존은 stub 으로 고정해
- * 외부 호출 구간만 남긴다. 버스·ML·Redis 를 포함한 캐시 실험은 Step 1(PR-B)에서 Testcontainers 로 다룬다.
- *
- * <p>측정값은 stdout 에 남겨 RESULTS.md 의 원자료로 쓴다. 단정(assert)은 구조적 사실
- * (재시도 횟수, deadline 부재, 부분 실패 시 기본 경로 유지)에만 걸고, 절대 시간에는 걸지 않는다.
+ * <p>확인 대상:
+ * <ul>
+ *   <li>선택 보강(TMAP)의 지연이 응답 시간을 끌지 않는다 — 단계 상한에서 잘리고 PARTIAL/BASE_ONLY 로 반환</li>
+ *   <li>필수 provider(ODsay) 무응답도 예산 안에서 끝난다 — 3회 재시도 + 6s backoff 소멸</li>
+ *   <li>4xx 는 재시도하지 않는다 — 같은 답을 다시 받으려고 시간을 쓰지 않는다</li>
+ * </ul>
  */
-class RouteSearchBaselineIT {
+class RouteSearchDeadlineIT {
 
     /** ODsay 응답: 도보 1구간짜리 경로 1개. mapObj 가 없어 폴리라인 보강은 적용 대상이 아니다. */
     private static final String ODSAY_BODY = """
@@ -75,12 +75,18 @@ class RouteSearchBaselineIT {
     private SimpleMeterRegistry registry;
     private RouteSearchService service;
 
-    /**
-     * ODsay read timeout. 운영은 공용 RestTemplate 의 30s 지만, 재시도 3회를 실제로 태우면
-     * 테스트가 90s 를 넘는다. 여기서는 짧게 두어 <b>backoff sleep 이 지배적</b>이라는 사실만 드러낸다
-     * (2s + 4s = 6s 는 timeout 값과 무관하게 고정).
-     */
-    private static final Duration ODSAY_READ_TIMEOUT = Duration.ofMillis(300);
+    /** 이 테스트의 시간 예산. 전체 1.5s, ODsay 800ms, TMAP 400ms — 상한이 실제로 자르는지 본다. */
+    private static final long DEADLINE_MS = 1500;
+    private static final long ODSAY_LIMIT_MS = 800;
+    private static final long TMAP_LIMIT_MS = 400;
+
+    private static RouteSearchDeadlineProperties deadlineProperties() {
+        RouteSearchDeadlineProperties p = new RouteSearchDeadlineProperties();
+        p.setDeadlineMs(DEADLINE_MS);
+        p.setOdsayMs(ODSAY_LIMIT_MS);
+        p.setTmapMs(TMAP_LIMIT_MS);
+        return p;
+    }
 
     @BeforeEach
     void setUp() throws Exception {
@@ -96,16 +102,14 @@ class RouteSearchBaselineIT {
         odSayProperties.setKey("test-key");
         odSayProperties.setBaseUrl(odsayServer.url("/").toString().replaceAll("/$", ""));
 
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(Duration.ofSeconds(1));
-        factory.setReadTimeout(ODSAY_READ_TIMEOUT);
+        // ODsay 는 요청별 timeout 을 거는 JDK HttpClient 를 내부에서 쓴다(RestTemplate 은 loadLane 전용).
         OdSayApiAdapter odSayAdapter =
-                new OdSayApiAdapter(new RestTemplate(factory), new ObjectMapper(), odSayProperties, metrics);
+                new OdSayApiAdapter(new RestTemplate(), new ObjectMapper(), odSayProperties, metrics);
 
         TmapProperties tmapProperties = new TmapProperties();
         tmapProperties.setAppKey("test-key");
         tmapProperties.setBaseUrl(tmapServer.url("/").toString().replaceAll("/$", ""));
-        tmapProperties.setRetryOnFailure(true);   // 운영 기본값 — 4xx 까지 재시도하는 현재 정책을 그대로 측정
+        tmapProperties.setRetryOnFailure(true);   // 운영 기본값. 이제 4xx 는 재시도 대상에서 빠진다.
         TmapPedestrianAdapter tmapAdapter =
                 new TmapPedestrianAdapter(RestClient.builder().build(), tmapProperties, metrics);
 
@@ -120,7 +124,8 @@ class RouteSearchBaselineIT {
 
         service = new RouteSearchService(
                 odSayAdapter, tmapAdapter, mock(RouteDataService.class), new ObjectMapper(),
-                polylineEnricher, walkEnricher, mock(TransferArrivalEnricher.class), metrics);
+                polylineEnricher, walkEnricher, mock(TransferArrivalEnricher.class), metrics,
+                deadlineProperties());
     }
 
     @AfterEach
@@ -132,75 +137,91 @@ class RouteSearchBaselineIT {
     // ── 시나리오 ────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("baseline 1 — 정상(ODsay 20ms, TMAP 20ms): 단계별 시간 분포")
-    void baseline_normal() {
+    @DisplayName("정상(ODsay 20ms, TMAP 20ms): 예산은 정상 응답을 방해하지 않는다")
+    void normal() {
         odsayServer.setDispatcher(fixed(ODSAY_BODY, 20));
         tmapServer.setDispatcher(fixed(TMAP_BODY, 20));
 
         RouteSearchResult result = service.searchWithoutRealtime(request());
 
         assertThat(result.paths()).hasSize(1);
-        report("정상(ODsay 20ms / TMAP 20ms)");
         assertThat(searchCount("full")).isEqualTo(1);
+        report("정상(ODsay 20ms / TMAP 20ms)");
     }
 
     @Test
-    @DisplayName("baseline 2 — TMAP 5s 지연: 선택 보강이 전체 응답을 그대로 지연시킨다(deadline 부재)")
-    void baseline_slowTmap() {
+    @DisplayName("TMAP 5s 지연: 선택 보강은 단계 상한에서 잘리고 기본 경로가 즉시 반환된다")
+    void slowTmapIsCutAtStageLimit() {
         odsayServer.setDispatcher(fixed(ODSAY_BODY, 20));
         tmapServer.setDispatcher(fixed(TMAP_BODY, 5_000));
 
         long startNanos = System.nanoTime();
-        service.searchWithoutRealtime(request());
+        RouteSearchResult result = service.searchWithoutRealtime(request());
         long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
 
         report("TMAP 5s 지연");
-        System.out.printf("  전체 검색 소요: %,d ms%n", elapsedMs);
+        System.out.printf("  전체 검색 소요: %,d ms (before: 5,197ms)%n", elapsedMs);
 
-        // 핵심: 선택 보강(TMAP)의 지연이 잘려나가지 않고 응답에 그대로 실린다.
-        assertThat(elapsedMs).isGreaterThanOrEqualTo(5_000);
-        assertThat(searchCount("full")).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("baseline 3 — TMAP 500: 기본 경로는 반환되지만 재시도 비용을 그대로 문다")
-    void baseline_tmapServerError() {
-        odsayServer.setDispatcher(fixed(ODSAY_BODY, 20));
-        tmapServer.setDispatcher(status(500, 20));
-
-        RouteSearchResult result = service.searchWithoutRealtime(request());
-
-        report("TMAP 500(재시도 on)");
-
-        // 선택 보강 실패 → 기본 경로 유지(부분 실패 허용은 이미 성립).
-        assertThat(result.paths()).hasSize(1);
+        // baseline 은 5,197ms 였다. 이제 TMAP 단계 상한(400ms)에서 잘린다.
+        assertThat(elapsedMs).isLessThan(DEADLINE_MS);
+        assertThat(result.paths()).hasSize(1);          // 기본 경로는 그대로 반환
         assertThat(searchCount("base_only")).isEqualTo(1);
-        assertThat(degradedCount("walk", "upstream_error")).isEqualTo(1);
-        // 5xx 를 1회 재시도하므로 provider 호출은 2회 발생한다.
-        assertThat(tmapServer.getRequestCount()).isEqualTo(2);
-        assertThat(externalCallCount("tmap", "error", "true")).isEqualTo(1);
+        assertThat(degradedCount("walk", "timeout")).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("baseline 4 — ODsay 무응답: 3회 재시도 + 고정 backoff 6s 가 요청 스레드를 붙잡는다")
-    void baseline_odsayTimeout() {
+    @DisplayName("ODsay 무응답: 예산 안에서 종료한다 — 3회 재시도와 6s backoff 소멸")
+    void odsayNoResponseEndsWithinBudget() {
         odsayServer.setDispatcher(noResponse());
-        tmapServer.setDispatcher(fixed(TMAP_BODY, 20));
 
         long startNanos = System.nanoTime();
         assertThatThrownBy(() -> service.searchWithoutRealtime(request()))
-                .isInstanceOf(OdSayApiException.class);
+                .isInstanceOf(OdSayApiException.class)
+                .satisfies(e -> assertThat(((OdSayApiException) e).getKind())
+                        .isEqualTo(OdSayApiException.Kind.TIMEOUT));   // → 504 로 매핑됨
         long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
 
         report("ODsay 무응답");
-        System.out.printf("  전체 검색 소요: %,d ms (read timeout %d ms × 3회 + backoff 2s + 4s)%n",
-                elapsedMs, ODSAY_READ_TIMEOUT.toMillis());
+        System.out.printf("  전체 검색 소요: %,d ms (before: 6,934ms)%n", elapsedMs);
 
-        // 필수 provider 실패 → FAILED. 재시도 3회 + backoff 6s 는 timeout 값과 무관하게 고정 비용이다.
-        assertThat(odsayServer.getRequestCount()).isEqualTo(3);
-        assertThat(elapsedMs).isGreaterThanOrEqualTo(6_000);
+        // ODsay 단계 상한(800ms) 안에서 끝난다. 첫 시도가 예산을 다 쓰므로 재시도는 성립하지 않는다.
+        assertThat(elapsedMs).isLessThan(DEADLINE_MS);
+        assertThat(odsayServer.getRequestCount()).isEqualTo(1);
         assertThat(searchCount("failed")).isEqualTo(1);
+        assertThat(deadlineExceededCount("odsay")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("ODsay 5xx: 예산이 남아 있으면 1회만 재시도한다")
+    void odsayServerErrorRetriesOnce() {
+        odsayServer.setDispatcher(status(500, 10));
+
+        assertThatThrownBy(() -> service.searchWithoutRealtime(request()))
+                .isInstanceOf(OdSayApiException.class)
+                .satisfies(e -> assertThat(((OdSayApiException) e).getKind())
+                        .isEqualTo(OdSayApiException.Kind.UPSTREAM));  // → 502 로 매핑됨
+
+        report("ODsay 500");
+
+        // baseline 은 3회였다. 이제 최대 2회(원 호출 + 재시도 1회).
+        assertThat(odsayServer.getRequestCount()).isEqualTo(2);
         assertThat(externalCallCount("odsay", "error", "true")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("TMAP 4xx: 재시도하지 않는다 — 같은 답을 다시 받으려고 시간을 쓰지 않는다")
+    void tmapClientErrorIsNotRetried() {
+        odsayServer.setDispatcher(fixed(ODSAY_BODY, 20));
+        tmapServer.setDispatcher(status(400, 10));
+
+        RouteSearchResult result = service.searchWithoutRealtime(request());
+
+        report("TMAP 400");
+
+        assertThat(result.paths()).hasSize(1);                 // 기본 경로 유지
+        assertThat(tmapServer.getRequestCount()).isEqualTo(1);  // before: 2 (4xx도 재시도했음)
+        assertThat(externalCallCount("tmap", "error", "false")).isEqualTo(1);
+        assertThat(degradedCount("walk", "upstream_error")).isEqualTo(1);
     }
 
     // ── 헬퍼 ────────────────────────────────────────────────────────────────
@@ -255,15 +276,20 @@ class RouteSearchBaselineIT {
         return counter == null ? 0 : counter.count();
     }
 
+    private double deadlineExceededCount(String stage) {
+        Counter counter = registry.find(RouteSearchMetrics.DEADLINE_EXCEEDED).tag("stage", stage).counter();
+        return counter == null ? 0 : counter.count();
+    }
+
     private double externalCallCount(String provider, String outcome, String retry) {
         Counter counter = registry.find(RouteSearchMetrics.EXTERNAL_CALLS)
                 .tag("provider", provider).tag("outcome", outcome).tag("retry", retry).counter();
         return counter == null ? 0 : counter.count();
     }
 
-    /** RESULTS.md 원자료 — 단계별 소요와 provider 호출을 그대로 출력. */
+    /** RESULTS.md 원자료 — 단계별 소요와 provider 호출을 그대로 출력(Step 0 baseline 과 같은 형식). */
     private void report(String scenario) {
-        System.out.printf("%n=== baseline: %s ===%n", scenario);
+        System.out.printf("%n=== step2(after): %s ===%n", scenario);
         registry.find(RouteSearchMetrics.SEARCH_DURATION).timers().forEach(t ->
                 System.out.printf("  route.search.duration[outcome=%s] count=%d total=%,.0f ms max=%,.0f ms%n",
                         t.getId().getTag("outcome"), t.count(),
