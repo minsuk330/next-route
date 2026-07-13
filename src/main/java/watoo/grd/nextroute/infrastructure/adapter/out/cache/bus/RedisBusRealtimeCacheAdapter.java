@@ -10,6 +10,7 @@ import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheReadPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
+import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 
 import java.time.Duration;
 import java.util.List;
@@ -39,40 +40,46 @@ public class RedisBusRealtimeCacheAdapter implements BusRealtimeCacheReadPort, B
     private static final TypeReference<List<BusArrivalInfo>> ARR_TYPE = new TypeReference<>() {};
     private static final TypeReference<List<BusPositionInfo>> POS_TYPE = new TypeReference<>() {};
 
+    private static final String TYPE_ARRIVAL = "arrival";
+    private static final String TYPE_POSITION = "position";
+
     private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
     private final TransferArrivalProperties props;
+    private final RouteSearchMetrics metrics;
 
     public RedisBusRealtimeCacheAdapter(RedisTemplate<String, String> redisTemplate,
                                         ObjectMapper objectMapper,
-                                        TransferArrivalProperties props) {
+                                        TransferArrivalProperties props,
+                                        RouteSearchMetrics metrics) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.props = props;
+        this.metrics = metrics;
     }
 
     // ── read ────────────────────────────────────────────────────────────────
 
     @Override
     public Optional<List<BusArrivalInfo>> getArrivals(String stopId, String routeId, int seq) {
-        return read(arrKey(stopId, routeId, seq), ARR_TYPE);
+        return read(arrKey(stopId, routeId, seq), ARR_TYPE, TYPE_ARRIVAL);
     }
 
     @Override
     public Optional<List<BusPositionInfo>> getPositions(String routeId) {
-        return read(KEY_POS + routeId, POS_TYPE);
+        return read(KEY_POS + routeId, POS_TYPE, TYPE_POSITION);
     }
 
     // ── write ───────────────────────────────────────────────────────────────
 
     @Override
     public void putArrivals(String stopId, String routeId, int seq, List<BusArrivalInfo> data) {
-        write(arrKey(stopId, routeId, seq), data);
+        write(arrKey(stopId, routeId, seq), data, TYPE_ARRIVAL);
     }
 
     @Override
     public void putPositions(String routeId, List<BusPositionInfo> data) {
-        write(KEY_POS + routeId, data);
+        write(KEY_POS + routeId, data, TYPE_POSITION);
     }
 
     // ── 내부 ─────────────────────────────────────────────────────────────────
@@ -81,7 +88,7 @@ public class RedisBusRealtimeCacheAdapter implements BusRealtimeCacheReadPort, B
         return KEY_ARR + stopId + ":" + routeId + ":" + seq;
     }
 
-    private <T> Optional<List<T>> read(String key, TypeReference<List<T>> type) {
+    private <T> Optional<List<T>> read(String key, TypeReference<List<T>> type, String metricType) {
         if (props.getCacheTtlSeconds() <= 0) {
             return Optional.empty();
         }
@@ -90,26 +97,29 @@ public class RedisBusRealtimeCacheAdapter implements BusRealtimeCacheReadPort, B
             if (json == null) return Optional.empty();
             return Optional.ofNullable(objectMapper.readValue(json, type));
         } catch (Exception e) {
+            // 장애는 miss 로 degrade 하되(호출자는 provider 경로로 계속), 원인은 지표로 남긴다.
             log.warn("[BusRealtimeCache] read failed [{}]: {}", key, e.getMessage());
+            metrics.recordCacheError(metricType, "read");
             return Optional.empty();
         }
     }
 
-    private <T> void write(String key, List<T> value, long ttlSeconds) {
+    private <T> void write(String key, List<T> value, long ttlSeconds, String metricType) {
         try {
             String json = objectMapper.writeValueAsString(value);
             redisTemplate.opsForValue().set(key, json, Duration.ofSeconds(ttlSeconds));
         } catch (Exception e) {
             log.warn("[BusRealtimeCache] write failed [{}]: {}", key, e.getMessage());
+            metrics.recordCacheError(metricType, "write");
         }
     }
 
-    private <T> void write(String key, List<T> value) {
+    private <T> void write(String key, List<T> value, String metricType) {
         long ttl = props.getCacheTtlSeconds();
         // TTL 비활성 또는 빈 데이터는 저장하지 않는다(빈 결과 고착 방지).
         if (ttl <= 0 || value == null || value.isEmpty()) {
             return;
         }
-        write(key, value, ttl);
+        write(key, value, ttl, metricType);
     }
 }
