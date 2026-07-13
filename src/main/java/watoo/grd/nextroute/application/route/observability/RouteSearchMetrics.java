@@ -19,6 +19,7 @@ public class RouteSearchMetrics {
     public static final String SEARCH_DURATION = "route.search.duration";
     public static final String STAGE_DURATION = "route.search.stage.duration";
     public static final String DEGRADED = "route.search.degraded";
+    public static final String DEADLINE_EXCEEDED = "route.search.deadline.exceeded";
     public static final String EXTERNAL_CALLS = "external.api.calls";
     public static final String EXTERNAL_DURATION = "external.api.duration";
     public static final String CACHE_REQUESTS = "bus.realtime.cache.requests";
@@ -38,6 +39,11 @@ public class RouteSearchMetrics {
                 .tag("outcome", degraded ? "degraded" : "ok")
                 .register(registry)
                 .record(nanos, TimeUnit.NANOSECONDS);
+    }
+
+    /** 시간 예산을 초과한 지점. 어느 단계가 예산을 다 쓰는지 알려준다. */
+    public void recordDeadlineExceeded(SearchComponent component) {
+        registry.counter(DEADLINE_EXCEEDED, "stage", component.tag()).increment();
     }
 
     /** 요청 종료 시 누적된 degradation 을 사유별로 기록. */

@@ -1,6 +1,6 @@
 # 경로 검색 외부 의존성 개선 결과
 
-> 진행 상태: **Step 0(Baseline) · Step 1(Hybrid Cache) 완료** — PR-A, PR-B. 이후 단계는 이 문서에 계속 누적한다.
+> 진행 상태: **Step 0(Baseline) · Step 1(Hybrid Cache) · Step 2(Deadline·Retry) 완료** — PR-A, PR-B, PR-C. 이후 단계는 이 문서에 계속 누적한다.
 
 ## 테스트 환경
 
@@ -10,7 +10,7 @@
 | JVM | Java 17 (Gradle toolchain) |
 | 외부 provider | ODsay·TMAP = MockWebServer (지연·HTTP 상태 제어) |
 | DB·Redis | 미사용 — 이 단계는 외부 호출 구간만 격리해 측정 |
-| 측정 테스트 | `RouteSearchBaselineIT` |
+| 측정 테스트 | Step 0·2 = `RouteSearchDeadlineIT`(baseline 은 PR-A 시점 `RouteSearchBaselineIT`), Step 1 = `RouteSearchCacheIT` |
 | ODsay read timeout(테스트) | 300ms |
 | ODsay read timeout(운영) | 30s (`ApiClientConfig`) |
 
@@ -115,6 +115,54 @@ Redis 장애는 검색 입장에서 miss 지만, 원인을 hit ratio 분모에 �
 
 → Step 3(Single-flight)의 before.
 
+## Step 2 — End-to-end Deadline과 조건부 Retry (PR-C)
+
+측정 테스트: `RouteSearchDeadlineIT` (Step 0 baseline 과 동일한 MockWebServer 시나리오)
+
+### 구현 결정 — 요청별 timeout
+
+`RestTemplate` 의 timeout 은 client 단위 고정값이라 요청마다 달라지는 잔여 예산을 반영할 수 없다.
+PLAN.md §4 의 선택지 중 **A(JDK `HttpClient`)** 를 ODsay 에 적용해
+`HttpRequest.timeout(min(단계 상한, 남은 시간))` 으로 예산을 HTTP I/O 까지 전파했다.
+TMAP 은 기존 고정 timeout 을 유지하되, **호출자가 잔여 예산까지만 기다리도록** 바꿨다
+(늦게 도착한 응답은 캐시에만 반영되고 이번 응답에는 실리지 않는다).
+
+### 재시도 교정
+
+| 항목 | before | after |
+|---|---|---|
+| ODsay 재시도 | 모든 예외 3회 | timeout·5xx 만, 최대 1회, 예산이 남을 때만 |
+| ODsay backoff | `sleep(2s)` + `sleep(4s)` = 6s 고정 | 100ms + jitter, 예산 안에서만 |
+| TMAP 재시도 | 4xx 포함 1회 | 4xx 제외(timeout·5xx 만) |
+| 실패 응답 | 전부 400 | timeout→504, 상류 장애→502, 비즈니스(-98 등)→400 |
+
+### before / after
+
+테스트 예산: 전체 1,500ms · ODsay 800ms · TMAP 400ms
+
+| 시나리오 | before | after | 결과 |
+|---|---:|---:|---|
+| TMAP 5s 지연 | 5,197ms | **438ms** | BASE_ONLY, `degraded[walk=timeout]`, 기본 경로 정상 반환 |
+| ODsay 무응답 | 6,934ms | **805ms** | FAILED(504), ODsay 호출 3회 → **1회** |
+| ODsay 500 | — | — | 호출 3회 → **2회**(원 호출 + 재시도 1회), 502 |
+| TMAP 400 | 2회 호출 | **1회 호출** | 재시도 없음, 기본 경로 유지 |
+| 정상 | 60ms | 유사 | 예산은 정상 응답을 방해하지 않음 |
+
+해석:
+
+- 선택 보강의 지연이 더 이상 응답 시간을 끌지 않는다. TMAP 이 5초 걸려도 응답은 단계 상한에서 잘리고,
+  사용자는 기본 경로를 즉시 받는다(**5,197ms → 438ms**).
+- 필수 provider 가 죽어도 요청 스레드가 예산 안에서 풀린다(**6,934ms → 805ms**).
+  운영 설정 환산으로 최악 96초였던 점유가 사라졌다.
+- 재시도가 "혹시 되나" 식 3회에서 **근거 있는 1회**로 줄었다. 4xx 는 다시 물어도 같은 답이므로 재시도하지 않는다.
+
+### 남은 것
+
+TMAP 응답을 예산 안에서 못 받으면 이번 응답에서 생략하지만, **진행 중인 호출 자체는 계속 살아 있다**(orphan).
+현재는 공용 `ForkJoinPool` 을 쓰기 때문에 느린 TMAP 이 쌓이면 공용 자원을 잠식할 수 있다.
+
+→ Step 4(Bulkhead)의 before.
+
 ## 부수 수정
 
 - ODsay 검색 URI 전체를 `log.info` 로 남기던 코드가 apiKey 를 로그에 노출하고 있었다.
@@ -124,7 +172,6 @@ Redis 장애는 검색 입장에서 miss 지만, 원인을 hit ratio 분모에 �
 
 | 단계 | 내용 | 이 문서에 추가할 수치 |
 |---|---|---|
-| Step 2 (PR-C) | End-to-end Deadline, 조건부 Retry | 지연·무응답 시 상한 내 종료, 재시도 횟수 |
 | Step 3 (PR-D) | Single-flight | 동일 키 100건 동시 miss 시 provider 호출 수 |
 | Step 4 (PR-E) | Provider Bulkhead | provider별 최대 동시성, 포화 시 격리 |
 | Step 6 (PR-G) | 부하·장애 주입 재측정 | before/after 최종 결과표 |

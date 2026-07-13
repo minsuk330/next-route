@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.route.dto.*;
+import watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties;
 import watoo.grd.nextroute.application.route.exception.TmapApiException;
 import watoo.grd.nextroute.application.route.observability.DegradeReason;
 import watoo.grd.nextroute.application.route.observability.RouteSearchContext;
@@ -16,6 +17,9 @@ import watoo.grd.nextroute.application.route.service.WalkCoordResolver.Resolved;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * ODsay 응답의 도보 subPath(trafficType=3)에 TMAP 보행자 경로를 보강한다.
@@ -49,15 +53,21 @@ public class WalkSegmentEnricher {
                                     double requestedEndX, double requestedEndY,
                                     String requestedEndName) {
         return enrich(original, requestedStartX, requestedStartY, requestedStartName,
-                requestedEndX, requestedEndY, requestedEndName, RouteSearchContext.noop());
+                requestedEndX, requestedEndY, requestedEndName, RouteSearchContext.noop(),
+                new RouteSearchDeadlineProperties());
     }
 
+    /**
+     * 시간 예산을 아는 보강(Step 2). TMAP 은 선택 보강이므로, 남은 예산이 없으면 호출하지 않고
+     * 응답을 기다리는 시간도 예산 안으로 제한한다. 늦게 도착하는 응답은 캐시에만 남고 이번 응답엔 안 실린다.
+     */
     public RouteSearchResult enrich(RouteSearchResult original,
                                     double requestedStartX, double requestedStartY,
                                     String requestedStartName,
                                     double requestedEndX, double requestedEndY,
                                     String requestedEndName,
-                                    RouteSearchContext searchCtx) {
+                                    RouteSearchContext searchCtx,
+                                    RouteSearchDeadlineProperties deadline) {
         if (original.paths() == null || original.paths().isEmpty()) {
             return original;
         }
@@ -81,18 +91,26 @@ public class WalkSegmentEnricher {
                 resolved.put(ctx, hit.get());
                 continue;
             }
+            // 남은 예산이 거의 없으면 호출을 시작조차 하지 않는다(orphan 호출만 남기고 못 기다린다).
+            if (searchCtx.remainingMillis() < deadline.getMinRemainingForOptionalMs()) {
+                searchCtx.degrade(SearchComponent.WALK, DegradeReason.TIMEOUT);
+                continue;
+            }
             futures.computeIfAbsent(ctx.key().asKey(), k -> callTmapAsync(ctx));
-        }
-
-        if (!futures.isEmpty()) {
-            CompletableFuture.allOf(futures.values().toArray(new CompletableFuture[0])).join();
         }
 
         for (WalkContext ctx : contexts) {
             if (resolved.containsKey(ctx)) continue;
 
-            // 워커 스레드가 아니라 join 이후 호출 스레드에서 보고한다(스레드 경계 없이 집계).
-            TmapResult tmapResult = futures.get(ctx.key().asKey()).join();
+            CompletableFuture<TmapResult> future = futures.get(ctx.key().asKey());
+            if (future == null) continue;   // 예산 부족으로 호출하지 않음
+
+            TmapResult tmapResult = awaitWithinBudget(future, searchCtx, deadline);
+            if (tmapResult == null) {
+                // 예산 안에 못 받음 → 이번 응답에서는 생략. 진행 중 호출은 캐시에만 반영된다.
+                searchCtx.degrade(SearchComponent.WALK, DegradeReason.TIMEOUT);
+                continue;
+            }
             if (tmapResult.failed()) {
                 // 폴백: 원본 유지 (resolved에 추가하지 않음 → rebuild 시 원본 사용)
                 searchCtx.degrade(SearchComponent.WALK, DegradeReason.UPSTREAM_ERROR);
@@ -110,6 +128,27 @@ public class WalkSegmentEnricher {
         }
 
         return rebuild(original, contexts, resolved);
+    }
+
+    /** 남은 예산과 TMAP 단계 상한 중 짧은 쪽까지만 기다린다. 초과하면 null. */
+    private TmapResult awaitWithinBudget(CompletableFuture<TmapResult> future,
+                                         RouteSearchContext searchCtx,
+                                         RouteSearchDeadlineProperties deadline) {
+        long waitMs = searchCtx.budgetMillis(deadline.getTmapMs());
+        if (waitMs <= 0) {
+            return null;
+        }
+        try {
+            return future.get(waitMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            log.warn("[WalkEnricher] TMAP 응답이 시간 예산({}ms) 안에 오지 않음 — 이번 응답에서 생략", waitMs);
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (ExecutionException e) {
+            return TmapResult.failure();
+        }
     }
 
     // ── 1단계: 도보 식별 + 좌표 결정 ─────────────────────────────────────
