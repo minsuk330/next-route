@@ -8,6 +8,9 @@ import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.route.config.MlPredictorProperties;
 import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
 import watoo.grd.nextroute.application.route.dto.*;
+import watoo.grd.nextroute.application.route.observability.DegradeReason;
+import watoo.grd.nextroute.application.route.observability.RouteSearchContext;
+import watoo.grd.nextroute.application.route.observability.SearchComponent;
 import watoo.grd.nextroute.application.route.port.out.MlArrivalPredictorPort;
 import watoo.grd.nextroute.application.route.port.out.MlArrivalPredictorPort.MlFeatureVector;
 import watoo.grd.nextroute.application.route.port.out.MlArrivalPredictorPort.MlPrediction;
@@ -47,6 +50,46 @@ public class TransferArrivalEnricher {
     private final java.time.Clock clock;
 
     // ── 공개 API ────────────────────────────────────────────────────────────
+
+    /**
+     * 계측 버전. 보강 내부 흐름은 그대로 두고, 결과에 실린 per-arrival {@link TransferArrival.Status}
+     * 를 읽어 degradation 을 보고한다(Step 0 — 행동 변경 없음).
+     *
+     * <p>한계: 이 enricher 자체의 deadline 초과도 status=ERROR 로 나타나므로 여기서는
+     * {@code UPSTREAM_ERROR} 와 구분되지 않는다. deadline 초과 전용 지표는 Step 2 에서 추가한다.
+     */
+    public RouteSearchResult enrich(RouteSearchResult result, Instant searchStartedAt,
+                                    RouteSearchContext searchCtx) {
+        RouteSearchResult enriched = enrich(result, searchStartedAt);
+        reportArrivalOutcomes(enriched, searchCtx);
+        return enriched;
+    }
+
+    private void reportArrivalOutcomes(RouteSearchResult result, RouteSearchContext searchCtx) {
+        if (result.paths() == null) return;
+        result.paths().stream()
+                .filter(p -> p.subPaths() != null)
+                .flatMap(p -> p.subPaths().stream())
+                .filter(sp -> sp.transferArrivals() != null && !sp.transferArrivals().isEmpty())
+                .peek(sp -> searchCtx.requested(SearchComponent.BUS_REALTIME))
+                .flatMap(sp -> sp.transferArrivals().stream())
+                .forEach(arrival -> reportStatus(arrival.status(), searchCtx));
+    }
+
+    /** 정상 조회(버스가 실제로 없는 NO_VEHICLE 포함)는 degradation 이 아니다. */
+    private void reportStatus(TransferArrival.Status status, RouteSearchContext searchCtx) {
+        switch (status) {
+            case AVAILABLE, ARRIVAL_TIME_APPROXIMATE, NO_VEHICLE -> { }
+            case DISABLED -> searchCtx.degrade(SearchComponent.BUS_REALTIME, DegradeReason.DISABLED);
+            case BLOCKED -> searchCtx.degrade(SearchComponent.BUS_REALTIME, DegradeReason.BLOCKED);
+            case LIMITED -> searchCtx.degrade(SearchComponent.BUS_REALTIME, DegradeReason.LIMITED);
+            case STOP_MAPPING_FAILED -> searchCtx.degrade(SearchComponent.BUS_REALTIME, DegradeReason.NO_DATA);
+            case MODEL_UNAVAILABLE, UNSUPPORTED_ROUTE ->
+                    searchCtx.degrade(SearchComponent.ML, DegradeReason.NO_DATA);
+            case UPSTREAM_UNAVAILABLE, ERROR ->
+                    searchCtx.degrade(SearchComponent.BUS_REALTIME, DegradeReason.UPSTREAM_ERROR);
+        }
+    }
 
     public RouteSearchResult enrich(RouteSearchResult result, Instant searchStartedAt) {
         if (result.paths() == null || result.paths().isEmpty()) return result;

@@ -10,6 +10,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import watoo.grd.nextroute.application.route.config.OdSayProperties;
 import watoo.grd.nextroute.application.route.dto.*;
 import watoo.grd.nextroute.application.route.exception.OdSayApiException;
+import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.odsay.dto.*;
 
@@ -25,10 +26,12 @@ import java.util.List;
 public class OdSayApiAdapter implements OdSayApiPort {
 
     private static final int MAX_RETRY = 3;
+    private static final String PROVIDER = "odsay";
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final OdSayProperties odSayProperties;
+    private final RouteSearchMetrics metrics;
 
     @Override
     public RouteSearchResult searchPath(double sx, double sy, double ex, double ey) {
@@ -41,7 +44,8 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 .queryParam("OPT", 0)
                 .build(true)
                 .toUri();
-      log.info("[OdSay] search url={}", uri);
+        // apiKey 가 포함된 전체 URI 는 로그에 남기지 않는다.
+        log.info("[OdSay] searchPath SX={} SY={} EX={} EY={}", sx, sy, ex, ey);
 
         OdSaySearchResponse response = callApi(uri);
 
@@ -65,18 +69,29 @@ public class OdSayApiAdapter implements OdSayApiPort {
         return toRouteSearchResult(response.getResult());
     }
 
+    /**
+     * 계측 단위는 <b>논리적 호출 1건</b>이다. duration 에는 재시도와 backoff sleep 이 모두 포함되므로,
+     * baseline 에서 "재시도가 요청 스레드를 얼마나 오래 붙잡는가"가 그대로 드러난다.
+     * 재시도·backoff 자체를 교정하는 것은 Step 2 의 범위이며, 여기서는 동작을 바꾸지 않는다.
+     */
     private OdSaySearchResponse callApi(URI uri) {
+        long startNanos = System.nanoTime();
+        int attempts = 0;
         for (int attempt = 1; attempt <= MAX_RETRY; attempt++) {
+            attempts = attempt;
             try {
                 String json = restTemplate.getForObject(uri, String.class);
                 if (json == null) {
                     log.warn("[OdSay] Null response on attempt {}/{}", attempt, MAX_RETRY);
                 } else {
-                    return objectMapper.readValue(json, OdSaySearchResponse.class);
+                    OdSaySearchResponse parsed = objectMapper.readValue(json, OdSaySearchResponse.class);
+                    metrics.recordExternalCall(PROVIDER, "ok", attempts, System.nanoTime() - startNanos);
+                    return parsed;
                 }
             } catch (Exception e) {
                 log.warn("[OdSay] API call failed on attempt {}/{}: {}", attempt, MAX_RETRY, e.getMessage(), e);
                 if (attempt == MAX_RETRY) {
+                    metrics.recordExternalCall(PROVIDER, "error", attempts, System.nanoTime() - startNanos);
                     throw new OdSayApiException(-1, "OdSay API call failed after " + MAX_RETRY + " attempts: " + e.getMessage());
                 }
             }
@@ -86,10 +101,12 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 Thread.sleep(sleepMs);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
+                metrics.recordExternalCall(PROVIDER, "interrupted", attempts, System.nanoTime() - startNanos);
                 throw new OdSayApiException(-1, "Interrupted during retry");
             }
         }
 
+        metrics.recordExternalCall(PROVIDER, "error", attempts, System.nanoTime() - startNanos);
         throw new OdSayApiException(-1, "OdSay API call failed after " + MAX_RETRY + " attempts");
     }
 

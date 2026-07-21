@@ -12,6 +12,10 @@ import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.dto.WalkSegment;
 import watoo.grd.nextroute.application.route.exception.OdSayApiException;
 import watoo.grd.nextroute.application.route.exception.TmapApiException;
+import watoo.grd.nextroute.application.route.observability.DegradeReason;
+import watoo.grd.nextroute.application.route.observability.RouteSearchContext;
+import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
+import watoo.grd.nextroute.application.route.observability.SearchComponent;
 import watoo.grd.nextroute.application.route.port.in.SearchRouteUseCase;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
@@ -22,6 +26,7 @@ import watoo.grd.nextroute.domain.route.log.service.RouteDataService;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.function.Supplier;
 
 @Slf4j
 @Service
@@ -41,6 +46,7 @@ public class RouteSearchService implements SearchRouteUseCase {
     private final RoutePolylineEnricher polylineEnricher;
     private final WalkSegmentEnricher walkSegmentEnricher;
     private final TransferArrivalEnricher transferArrivalEnricher;
+    private final RouteSearchMetrics metrics;
 
     @Override
     public RouteSearchResult search(RouteSearchRequest request) {
@@ -54,8 +60,19 @@ public class RouteSearchService implements SearchRouteUseCase {
 
     private RouteSearchResult searchInternal(RouteSearchRequest request, boolean withRealtime) {
         Instant searchStartedAt = Instant.now();
+        RouteSearchContext ctx = RouteSearchContext.start();
+        try {
+            return runSearch(request, withRealtime, searchStartedAt, ctx);
+        } finally {
+            metrics.recordSearch(ctx.outcome(), ctx.elapsedNanos());
+            metrics.recordDegradations(ctx.degradations());
+        }
+    }
 
+    private RouteSearchResult runSearch(RouteSearchRequest request, boolean withRealtime,
+                                        Instant searchStartedAt, RouteSearchContext ctx) {
         RouteSearchResult result;
+        long odsayStart = System.nanoTime();
         try {
             result = odSayApiPort.searchPath(
                     request.startX(), request.startY(),
@@ -64,35 +81,59 @@ public class RouteSearchService implements SearchRouteUseCase {
         } catch (OdSayApiException e) {
             if (e.getErrorCode() == ODSAY_CODE_WITHIN_WALK_DISTANCE) {
                 // 출/도착지 700m 이내 → ODsay 대중교통 경로 없음. TMAP 도보 경로로만 응답.
-                return walkOnlyFallback(request, e);
+                return walkOnlyFallback(request, e, ctx);
             }
+            ctx.degrade(SearchComponent.ODSAY, DegradeReason.UPSTREAM_ERROR);
             throw e;
+        } finally {
+            metrics.recordStage(SearchComponent.ODSAY, ctx.isDegraded(SearchComponent.ODSAY),
+                    System.nanoTime() - odsayStart);
         }
 
         // 1. 지하철 노선 폴리라인 보강 (trafficType=1)
-        result = polylineEnricher.enrich(result);
+        RouteSearchResult afterPolyline = result;
+        result = stage(ctx, SearchComponent.POLYLINE,
+                () -> polylineEnricher.enrich(afterPolyline, ctx));
 
         // 2. TMAP 보행자 경로 보강 (trafficType=3)
-        result = walkSegmentEnricher.enrich(result,
-                request.startX(), request.startY(), request.startName(),
-                request.endX(), request.endY(), request.endName());
+        RouteSearchResult afterWalk = result;
+        result = stage(ctx, SearchComponent.WALK,
+                () -> walkSegmentEnricher.enrich(afterWalk,
+                        request.startX(), request.startY(), request.startName(),
+                        request.endX(), request.endY(), request.endName(), ctx));
 
         // 3. 환승 도착예측 보강 (trafficType=2 버스) — baseline(STATIC)은 생략해 fan-out 낭비 방지.
+        // withRealtime=false 는 요청이 실시간을 요구하지 않은 것이므로 degradation 이 아니다(단계 미적용).
         if (withRealtime) {
-            result = transferArrivalEnricher.enrich(result, searchStartedAt);
+            RouteSearchResult afterBus = result;
+            result = stage(ctx, SearchComponent.BUS_REALTIME,
+                    () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx));
         }
 
         // 4. 로그 저장 (도보 polyline/walkSteps는 제외 — 로그 사이즈 폭증 방지)
-        saveLog(request, result);
+        saveLog(request, result, ctx);
 
         return result;
+    }
+
+    /** 단계 실행 + 소요시간 기록. degradation 은 각 단계가 ctx 에 보고한 결과를 그대로 읽는다. */
+    private <T> T stage(RouteSearchContext ctx, SearchComponent component, Supplier<T> body) {
+        long startNanos = System.nanoTime();
+        try {
+            return body.get();
+        } finally {
+            metrics.recordStage(component, ctx.isDegraded(component), System.nanoTime() - startNanos);
+        }
     }
 
     /**
      * ODsay -98(출/도착지 700m 이내) 대응: TMAP 보행자 경로만으로 응답을 구성한다.
      * TMAP이 빈 결과(서비스지역 외)이거나 호출 실패면 원래 -98 에러를 그대로 전파한다.
      */
-    private RouteSearchResult walkOnlyFallback(RouteSearchRequest request, OdSayApiException cause) {
+    private RouteSearchResult walkOnlyFallback(RouteSearchRequest request, OdSayApiException cause,
+                                               RouteSearchContext ctx) {
+        // 도보 전용 응답에서 TMAP 은 선택 보강이 아니라 응답 생성 수단이다.
+        // 실패하면 응답 자체가 없으므로 ODSAY(필수) degradation 으로도 기록해 outcome=FAILED 가 된다.
         WalkSegment segment;
         try {
             segment = tmapPort.search(new WalkSearchCommand(
@@ -101,15 +142,21 @@ public class RouteSearchService implements SearchRouteUseCase {
                     request.startName(), request.endName()));
         } catch (TmapApiException te) {
             log.warn("[Route] -98 fallback TMAP 실패 — 원래 ODsay 에러 전파: {}", te.getMessage());
+            ctx.degrade(SearchComponent.WALK, DegradeReason.UPSTREAM_ERROR);
+            ctx.degrade(SearchComponent.ODSAY, DegradeReason.NO_DATA);
             throw cause;
         }
         if (segment.isEmpty()) {
             log.warn("[Route] -98 fallback TMAP 빈 응답(서비스지역 외) — 원래 ODsay 에러 전파");
+            ctx.degrade(SearchComponent.WALK, DegradeReason.EMPTY_RESULT);
+            ctx.degrade(SearchComponent.ODSAY, DegradeReason.NO_DATA);
             throw cause;
         }
 
+        // 요청이 요구한 보강(도보 상세)이 완성된 응답 → outcome=FULL.
+        ctx.requested(SearchComponent.WALK);
         RouteSearchResult result = buildWalkOnlyResult(request, segment);
-        saveLog(request, result);
+        saveLog(request, result, ctx);
         return result;
     }
 
@@ -138,7 +185,8 @@ public class RouteSearchService implements SearchRouteUseCase {
         return new RouteSearchResult(0, 0, 0, 0, 0, List.of(path));
     }
 
-    private void saveLog(RouteSearchRequest request, RouteSearchResult result) {
+    private void saveLog(RouteSearchRequest request, RouteSearchResult result, RouteSearchContext ctx) {
+        long startNanos = System.nanoTime();
         try {
             RouteSearchResult stripped = stripWalkDetailsForLog(result);
             String responseJson = objectMapper.writeValueAsString(stripped);
@@ -157,6 +205,11 @@ public class RouteSearchService implements SearchRouteUseCase {
             routeDataService.save(searchLog);
         } catch (Exception e) {
             log.warn("[Route] Failed to save search log: {}", e.getMessage());
+            // AUXILIARY — 응답 내용에 기여하지 않으므로 outcome 판정에서는 제외되고 카운터만 남는다.
+            ctx.degrade(SearchComponent.SEARCH_LOG, DegradeReason.PERSIST_ERROR);
+        } finally {
+            metrics.recordStage(SearchComponent.SEARCH_LOG, ctx.isDegraded(SearchComponent.SEARCH_LOG),
+                    System.nanoTime() - startNanos);
         }
     }
 

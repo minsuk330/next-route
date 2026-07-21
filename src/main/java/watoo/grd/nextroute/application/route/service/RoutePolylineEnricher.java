@@ -4,6 +4,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.route.dto.*;
+import watoo.grd.nextroute.application.route.observability.DegradeReason;
+import watoo.grd.nextroute.application.route.observability.RouteSearchContext;
+import watoo.grd.nextroute.application.route.observability.SearchComponent;
 import watoo.grd.nextroute.domain.route.polyline.service.OdsayRoutePolylineDataService;
 
 import java.util.HashMap;
@@ -24,9 +27,14 @@ public class RoutePolylineEnricher {
     private final OdsayRoutePolylineSlicer slicer;
     private final OdsayRoutePolylineDataService dataService;
 
+    /** 계측 없이 호출하는 경로(단위 테스트 등). */
     public RouteSearchResult enrich(RouteSearchResult original) {
+        return enrich(original, RouteSearchContext.noop());
+    }
+
+    public RouteSearchResult enrich(RouteSearchResult original, RouteSearchContext ctx) {
         List<PathResult> enrichedPaths = original.paths().stream()
-                .map(this::enrichPath)
+                .map(path -> enrichPath(path, ctx))
                 .toList();
 
         return new RouteSearchResult(
@@ -39,7 +47,7 @@ public class RoutePolylineEnricher {
         );
     }
 
-    private PathResult enrichPath(PathResult path) {
+    private PathResult enrichPath(PathResult path, RouteSearchContext ctx) {
         String mapObj = path.info() != null ? extractMapObj(path.info()) : null;
         if (mapObj == null || mapObj.isBlank()) {
             return path;
@@ -55,8 +63,11 @@ public class RoutePolylineEnricher {
             return path;
         }
 
+        // 지하철 구간이 있는 경로만 이 보강의 적용 대상이다(없으면 degradation 이 아니라 미적용).
+        ctx.requested(SearchComponent.POLYLINE);
+
         // routeId 별 폴리라인 일괄 조회 (중복 DB 호출 방지)
-        Map<String, OdsayRoutePolylineData> polylineCache = loadPolylines(subwayFragments, mapObj);
+        Map<String, OdsayRoutePolylineData> polylineCache = loadPolylines(subwayFragments, mapObj, ctx);
 
         // trafficType=1 subPath 순서와 subway fragment 순서 대응
         List<SubPathResult> subwaySubPaths = path.subPaths().stream()
@@ -84,6 +95,7 @@ public class RoutePolylineEnricher {
                         log.warn("[PolylineEnricher] Missing subPath coord routeId={} subPath={}->{} startX={} startY={} endX={} endY={}",
                                 fragment.odsayRouteId(), sp.startName(), sp.endName(),
                                 sp.startX(), sp.startY(), sp.endX(), sp.endY());
+                        ctx.degrade(SearchComponent.POLYLINE, DegradeReason.NO_DATA);
                         return withPolyline(sp, List.of());
                     }
 
@@ -101,6 +113,7 @@ public class RoutePolylineEnricher {
                                 fragment.odsayRouteId(), data.size(),
                                 sp.startName(), sp.endName(),
                                 sp.startX(), sp.startY(), sp.endX(), sp.endY());
+                        ctx.degrade(SearchComponent.POLYLINE, DegradeReason.EMPTY_RESULT);
                     }
 
                     return withPolyline(sp, polyline);
@@ -111,7 +124,7 @@ public class RoutePolylineEnricher {
     }
 
     private Map<String, OdsayRoutePolylineData> loadPolylines(
-            List<OdsayMapObjFragment> fragments, String rawMapObj) {
+            List<OdsayMapObjFragment> fragments, String rawMapObj, RouteSearchContext ctx) {
 
         Map<String, OdsayRoutePolylineData> result = new HashMap<>();
         fragments.stream()
@@ -124,6 +137,7 @@ public class RoutePolylineEnricher {
                     } else {
                         log.info("[PolylineEnricher] Cache miss routeId={}, enqueuing collection job", routeId);
                         dataService.requestCollection(routeId, 2, rawMapObj);
+                        ctx.degrade(SearchComponent.POLYLINE, DegradeReason.NO_DATA);
                     }
                 });
         return result;
