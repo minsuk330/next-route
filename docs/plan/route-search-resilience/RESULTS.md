@@ -1,6 +1,6 @@
 # 경로 검색 외부 의존성 개선 결과
 
-> 진행 상태: **Step 0(Baseline) · Step 1(Hybrid Cache) · Step 2(Deadline·Retry) · Step 3(Single-flight) 완료** — PR-A ~ PR-D. 이후 단계는 이 문서에 계속 누적한다.
+> 진행 상태: **Step 0(Baseline) · Step 1(Hybrid Cache) · Step 2(Deadline·Retry) · Step 3(Single-flight) · Step 4(Bulkhead) 완료** — PR-A ~ PR-E. 이후 단계는 이 문서에 계속 누적한다.
 
 ## 테스트 환경
 
@@ -191,6 +191,32 @@ Step 1 에서 남겨둔 한계 — 같은 키를 **동시에** miss 하면 그 �
   인스턴스 수만큼 호출이 남는다 — 그때는 Redis 분산 락이나 상류 캐시가 필요하다.
   단일 인스턴스에서 분산 락을 먼저 넣는 것은 얻는 것 없이 Redis 왕복만 늘린다.
 
+## Step 4 — Provider Bulkhead (PR-E)
+
+측정 테스트: `RouteSearchBulkheadIT`
+
+Step 2 에서 남겨둔 문제 — 예산 초과로 버린 TMAP 호출이 **공용 `ForkJoinPool` 에 그대로 살아 있다** — 를 없앤다.
+TMAP 보강을 전용 bounded 풀로 옮기고, 포화되면 대기 없이 거절한다.
+
+### TMAP 풀 포화 (pool=2, queue=2, 동시 요청 12건, TMAP 1,000ms)
+
+| 항목 | 값 |
+|---|---:|
+| 실제 TMAP 호출 | 4회 (= pool 2 + queue 2) |
+| bulkhead 거절 | 8회 |
+| 기본 경로 반환 | **12건 전부** |
+
+- 동시 실행이 풀 크기를 넘지 않는다. 느린 TMAP 이 몰려도 공용 자원을 잠식하지 못한다.
+- 초과분은 **큐에 쌓이지 않고 거절**된다. 큰 대기열은 과부하를 숨기고 지연을 뒤로 미룰 뿐이다.
+- 거절은 실패가 아니라 관측 가능한 degradation(`degraded[walk=bulkhead_full]`)이며,
+  사용자는 기본 경로를 정상적으로 받는다.
+
+### 설계 판단 — 포화 시 CallerRuns 를 쓰지 않는다
+
+`ThreadPoolExecutor` 의 흔한 포화 정책인 `CallerRunsPolicy` 는 여기서 정확히 틀린 선택이다.
+호출 스레드(=요청 스레드)가 TMAP 호출을 대신 실행하게 되고, 그러면 Step 2 에서 세운 deadline 을
+지킬 수 없다. 거절해서 **보강만 생략**하는 것이 맞다.
+
 ## 부수 수정
 
 - ODsay 검색 URI 전체를 `log.info` 로 남기던 코드가 apiKey 를 로그에 노출하고 있었다.
@@ -200,5 +226,4 @@ Step 1 에서 남겨둔 한계 — 같은 키를 **동시에** miss 하면 그 �
 
 | 단계 | 내용 | 이 문서에 추가할 수치 |
 |---|---|---|
-| Step 4 (PR-E) | Provider Bulkhead | provider별 최대 동시성, 포화 시 격리 |
 | Step 6 (PR-G) | 부하·장애 주입 재측정 | before/after 최종 결과표 |

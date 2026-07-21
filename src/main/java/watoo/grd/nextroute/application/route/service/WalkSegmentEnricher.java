@@ -2,12 +2,14 @@ package watoo.grd.nextroute.application.route.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.route.dto.*;
 import watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties;
 import watoo.grd.nextroute.application.route.exception.TmapApiException;
 import watoo.grd.nextroute.application.route.observability.DegradeReason;
 import watoo.grd.nextroute.application.route.observability.RouteSearchContext;
+import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.observability.SearchComponent;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort.WalkSearchCommand;
@@ -18,6 +20,8 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -42,9 +46,15 @@ public class WalkSegmentEnricher {
     /** 시작과 도착 좌표가 이 이내면 동일 위치로 간주 (≈ 11m, 캐시 키 정밀도와 동일) */
     private static final double SAME_LOCATION_THRESHOLD = 1e-4;
 
+    private static final String PROVIDER = "tmap";
+
     private final WalkCoordResolver resolver;
     private final WalkSegmentCachePort cache;
     private final TmapPedestrianPort tmapPort;
+    /** TMAP 전용 bounded 풀(bulkhead). 공용 ForkJoinPool 을 쓰면 TMAP 지연이 공용 자원을 잠식한다. */
+    @Qualifier("walkEnrichmentExecutor")
+    private final ExecutorService walkExecutor;
+    private final RouteSearchMetrics metrics;
 
     /**
      * 요청 간 공유되는 진행 중 TMAP 호출(single-flight). 같은 보행 구간을 동시에 miss 한 요청들이
@@ -104,7 +114,14 @@ public class WalkSegmentEnricher {
                 searchCtx.degrade(SearchComponent.WALK, DegradeReason.TIMEOUT);
                 continue;
             }
-            futures.computeIfAbsent(ctx.key().asKey(), k -> callTmapAsync(ctx));
+            // 요청 안의 중복 제거가 1차 방어선이다. inFlight(요청 간 공유)는 완료 즉시 정리되므로
+            // 여기에만 의존하면 같은 요청의 두 번째 구간이 재호출될 수 있다.
+            CompletableFuture<TmapResult> future =
+                    futures.computeIfAbsent(ctx.key().asKey(), k -> callTmapAsync(ctx));
+            if (future == null) {
+                // 풀 포화 → 이번 요청에서는 보행 상세를 생략하고 기본 경로를 그대로 낸다.
+                searchCtx.degrade(SearchComponent.WALK, DegradeReason.BULKHEAD_FULL);
+            }
         }
 
         for (WalkContext ctx : contexts) {
@@ -211,7 +228,13 @@ public class WalkSegmentEnricher {
      */
     private CompletableFuture<TmapResult> callTmapAsync(WalkContext ctx) {
         String key = ctx.key().asKey();
-        return inFlight.computeIfAbsent(key, k -> CompletableFuture
+        return inFlight.computeIfAbsent(key, k -> submitTmap(ctx, k));
+    }
+
+    /** 전용 풀에 제출. 포화면 null → 호출자가 이 보강을 생략한다(거절은 실패가 아니라 degradation). */
+    private CompletableFuture<TmapResult> submitTmap(WalkContext ctx, String key) {
+        try {
+            return CompletableFuture
                 .supplyAsync(() -> {
                     try {
                         WalkSegment segment = tmapPort.search(new WalkSearchCommand(
@@ -226,9 +249,14 @@ public class WalkSegmentEnricher {
                                 ctx.key().endX(), ctx.key().endY(), e.getMessage());
                         return TmapResult.failure();
                     }
-                })
+                }, walkExecutor)
                 // 성공·실패 모두 정리 — in-flight map 누수 방지.
-                .whenComplete((r, t) -> inFlight.remove(key)));
+                .whenComplete((r, t) -> inFlight.remove(key));
+        } catch (RejectedExecutionException e) {
+            log.warn("[WalkEnricher] TMAP 전용 풀 포화 — 보행 보강 생략");
+            metrics.recordBulkheadRejected(PROVIDER);
+            return null;
+        }
     }
 
     // ── 3단계: 응답 재구성 ───────────────────────────────────────────────

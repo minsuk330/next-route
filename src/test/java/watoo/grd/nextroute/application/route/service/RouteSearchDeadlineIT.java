@@ -30,6 +30,7 @@ import watoo.grd.nextroute.infrastructure.adapter.out.api.tmap.TmapPedestrianAda
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -117,7 +118,8 @@ class RouteSearchDeadlineIT {
         when(walkCache.get(any())).thenReturn(Optional.empty());   // 항상 miss — provider 경로 측정
 
         WalkSegmentEnricher walkEnricher =
-                new WalkSegmentEnricher(new WalkCoordResolver(), walkCache, tmapAdapter);
+                new WalkSegmentEnricher(new WalkCoordResolver(), walkCache, tmapAdapter,
+                        Executors.newFixedThreadPool(4), metrics);
         RoutePolylineEnricher polylineEnricher = new RoutePolylineEnricher(
                 mock(OdsayMapObjParser.class), mock(OdsayRoutePolylineSlicer.class),
                 mock(OdsayRoutePolylineDataService.class));
