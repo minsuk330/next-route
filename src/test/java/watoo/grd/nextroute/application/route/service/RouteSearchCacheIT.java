@@ -17,6 +17,7 @@ import org.testcontainers.utility.DockerImageName;
 import watoo.grd.nextroute.application.bus.BusArrivalInfoFixtures;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
+import watoo.grd.nextroute.application.route.config.SearchTimeBusProperties;
 import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.BusQueryResult;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.CachedSearchTimeBusAdapter;
@@ -102,7 +103,8 @@ class RouteSearchCacheIT {
 
         provider = mock(SearchTimeBusAdapter.class);
         redisCache = new RedisBusRealtimeCacheAdapter(redisTemplate, new ObjectMapper(), props, metrics);
-        cache = new CachedSearchTimeBusAdapter(provider, redisCache, redisCache, metrics);
+        cache = new CachedSearchTimeBusAdapter(provider, redisCache, redisCache, metrics,
+                new SearchTimeBusProperties());
     }
 
     // ── 1. 수집기 write ↔ 검색 read 계약 ─────────────────────────────────────
@@ -190,7 +192,8 @@ class RouteSearchCacheIT {
         RedisBusRealtimeCacheAdapter brokenCache =
                 new RedisBusRealtimeCacheAdapter(broken, new ObjectMapper(), props, metrics);
         CachedSearchTimeBusAdapter searchCache =
-                new CachedSearchTimeBusAdapter(provider, brokenCache, brokenCache, metrics);
+                new CachedSearchTimeBusAdapter(provider, brokenCache, brokenCache, metrics,
+                new SearchTimeBusProperties());
 
         when(provider.getArrInfoByStop(anyString(), anyString(), anyInt()))
                 .thenReturn(BusQueryResult.ok(List.of(arrival(60))));
@@ -272,7 +275,8 @@ class RouteSearchCacheIT {
                 });
 
         CachedSearchTimeBusAdapter sweepSearchCache =
-                new CachedSearchTimeBusAdapter(sweepProvider, sweepCache, sweepCache, sweepMetrics);
+                new CachedSearchTimeBusAdapter(sweepProvider, sweepCache, sweepCache, sweepMetrics,
+                        new SearchTimeBusProperties());
 
         String key = "bus:search:arr:" + STOP + ":" + ROUTE + ":" + SEQ;
         List<Long> ages = new ArrayList<>();

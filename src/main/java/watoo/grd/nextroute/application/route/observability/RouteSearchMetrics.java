@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.route.observability;
 
 import io.micrometer.core.instrument.MeterRegistry;
+import watoo.grd.nextroute.application.route.concurrent.SingleFlight;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -24,6 +25,7 @@ public class RouteSearchMetrics {
     public static final String EXTERNAL_DURATION = "external.api.duration";
     public static final String CACHE_REQUESTS = "bus.realtime.cache.requests";
     public static final String CACHE_ERRORS = "bus.realtime.cache.errors";
+    public static final String SINGLEFLIGHT = "singleflight.requests";
 
     private final MeterRegistry registry;
 
@@ -76,6 +78,17 @@ public class RouteSearchMetrics {
      */
     public void recordCacheAccess(String type, String result) {
         registry.counter(CACHE_REQUESTS, "type", type, "result", result).increment();
+    }
+
+    /**
+     * single-flight 참여 결과. owner 만 실제 provider 를 호출했고 joiner 는 그 결과를 공유받았다.
+     * 따라서 joiner 수가 곧 "막아낸 중복 호출 수"다.
+     */
+    public void recordSingleFlight(String provider, String type, SingleFlight.Role role) {
+        registry.counter(SINGLEFLIGHT,
+                "provider", provider,
+                "type", type,
+                "role", role.name().toLowerCase()).increment();
     }
 
     /**
