@@ -61,6 +61,12 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
 
     @Override
     public BusQueryResult<BusArrivalInfo> getArrInfoByStop(String stopId, String routeId, int ord) {
+        return getArrInfoByStop(stopId, routeId, ord, Long.MAX_VALUE);
+    }
+
+    @Override
+    public BusQueryResult<BusArrivalInfo> getArrInfoByStop(
+            String stopId, String routeId, int ord, long timeoutMs) {
         Optional<List<BusArrivalInfo>> hit = cacheRead.getArrivals(stopId, routeId, ord);
         if (hit.isPresent()) {
             metrics.recordCacheAccess(TYPE_ARRIVAL, "hit");
@@ -70,18 +76,25 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
 
         String key = stopId + ":" + routeId + ":" + ord;
         SingleFlight.Outcome<BusQueryResult<BusArrivalInfo>> outcome = arrivalFlight.execute(key, () -> {
-            BusQueryResult<BusArrivalInfo> fresh = delegate.getArrInfoByStop(stopId, routeId, ord);
+            BusQueryResult<BusArrivalInfo> fresh = timeoutMs == Long.MAX_VALUE
+                    ? delegate.getArrInfoByStop(stopId, routeId, ord)
+                    : delegate.getArrInfoByStop(stopId, routeId, ord, timeoutMs);
             if (fresh.isOk() && !fresh.data().isEmpty()) {
                 cacheWrite.putArrivals(stopId, routeId, ord, fresh.data());
             }
             return fresh;
-        }, properties.getJoinWaitMs());
+        }, joinWait(timeoutMs));
 
         return resolve(outcome, TYPE_ARRIVAL);
     }
 
     @Override
     public BusQueryResult<BusPositionInfo> getBusPosByRtid(String busRouteId) {
+        return getBusPosByRtid(busRouteId, Long.MAX_VALUE);
+    }
+
+    @Override
+    public BusQueryResult<BusPositionInfo> getBusPosByRtid(String busRouteId, long timeoutMs) {
         Optional<List<BusPositionInfo>> hit = cacheRead.getPositions(busRouteId);
         if (hit.isPresent()) {
             metrics.recordCacheAccess(TYPE_POSITION, "hit");
@@ -90,14 +103,22 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
         metrics.recordCacheAccess(TYPE_POSITION, "miss");
 
         SingleFlight.Outcome<BusQueryResult<BusPositionInfo>> outcome = positionFlight.execute(busRouteId, () -> {
-            BusQueryResult<BusPositionInfo> fresh = delegate.getBusPosByRtid(busRouteId);
+            BusQueryResult<BusPositionInfo> fresh = timeoutMs == Long.MAX_VALUE
+                    ? delegate.getBusPosByRtid(busRouteId)
+                    : delegate.getBusPosByRtid(busRouteId, timeoutMs);
             if (fresh.isOk() && !fresh.data().isEmpty()) {
                 cacheWrite.putPositions(busRouteId, fresh.data());
             }
             return fresh;
-        }, properties.getJoinWaitMs());
+        }, joinWait(timeoutMs));
 
         return resolve(outcome, TYPE_POSITION);
+    }
+
+    private long joinWait(long timeoutMs) {
+        return timeoutMs == Long.MAX_VALUE
+                ? properties.getJoinWaitMs()
+                : Math.max(0, Math.min(properties.getJoinWaitMs(), timeoutMs));
     }
 
     /**

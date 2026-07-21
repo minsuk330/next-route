@@ -24,6 +24,8 @@ import watoo.grd.nextroute.application.route.service.TransferStopResolver.StopRe
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 import java.util.stream.IntStream;
 
 /**
@@ -52,15 +54,23 @@ public class TransferArrivalEnricher {
     // ── 공개 API ────────────────────────────────────────────────────────────
 
     /**
-     * 계측 버전. 보강 내부 흐름은 그대로 두고, 결과에 실린 per-arrival {@link TransferArrival.Status}
-     * 를 읽어 degradation 을 보고한다(Step 0 — 행동 변경 없음).
-     *
-     * <p>한계: 이 enricher 자체의 deadline 초과도 status=ERROR 로 나타나므로 여기서는
-     * {@code UPSTREAM_ERROR} 와 구분되지 않는다. deadline 초과 전용 지표는 Step 2 에서 추가한다.
+     * 전체 검색 컨텍스트의 남은 예산과 이 단계 상한 중 짧은 값을 버스·ML 호출까지 전파하고,
+     * 결과의 per-arrival {@link TransferArrival.Status}를 degradation으로 보고한다.
      */
     public RouteSearchResult enrich(RouteSearchResult result, Instant searchStartedAt,
                                     RouteSearchContext searchCtx) {
-        RouteSearchResult enriched = enrich(result, searchStartedAt);
+        long stageStartedNanos = System.nanoTime();
+        long stageLimitMs = props.getDeadlineMs();
+        LongSupplier remainingBudget = () -> {
+            long requestRemaining = searchCtx.remainingMillis();
+            if (stageLimitMs <= 0) return requestRemaining;
+            long stageElapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - stageStartedNanos);
+            return Math.max(0, Math.min(requestRemaining, stageLimitMs - stageElapsedMs));
+        };
+        RouteSearchResult enriched = enrichInternal(result, searchStartedAt, remainingBudget, true);
+        if (remainingBudget.getAsLong() <= 0) {
+            searchCtx.degrade(SearchComponent.BUS_REALTIME, DegradeReason.TIMEOUT);
+        }
         reportArrivalOutcomes(enriched, searchCtx);
         return enriched;
     }
@@ -92,6 +102,14 @@ public class TransferArrivalEnricher {
     }
 
     public RouteSearchResult enrich(RouteSearchResult result, Instant searchStartedAt) {
+        Instant deadline = props.getDeadlineMs() > 0
+                ? clock.instant().plusMillis(props.getDeadlineMs())
+                : null;
+        return enrichInternal(result, searchStartedAt, () -> remainingMillis(deadline), false);
+    }
+
+    private RouteSearchResult enrichInternal(RouteSearchResult result, Instant searchStartedAt,
+                                             LongSupplier remainingBudget, boolean requestBudgetAware) {
         if (result.paths() == null || result.paths().isEmpty()) return result;
 
         List<SubPathCtx> all = collectContexts(result);
@@ -103,11 +121,6 @@ public class TransferArrivalEnricher {
 
         // 정적 resolve (wave 무관)
         resolveStatic(all);
-
-        // enrich 진입 기준 deadline. 초과 시 미처리 wave는 status=ERROR.
-        Instant deadline = props.getDeadlineMs() > 0
-                ? clock.instant().plusMillis(props.getDeadlineMs())
-                : null;
 
         int maxWave = all.stream().mapToInt(c -> c.waveIndex).max().orElse(-1);
 
@@ -125,13 +138,14 @@ public class TransferArrivalEnricher {
             List<SubPathCtx> waveCtxs = all.stream().filter(c -> c.waveIndex == w).toList();
             if (waveCtxs.isEmpty()) continue;
 
-            if (deadline != null && clock.instant().isAfter(deadline)) {
+            if (remainingBudget.getAsLong() <= 0) {
                 // deadline 초과 — 외부 호출 없이 이 wave 전부 ERROR
                 fillError(waveCtxs, searchStartedAt, resultMap);
                 continue;
             }
 
-            processWave(wave, waveCtxs, result, searchStartedAt, prevWave, resultMap, callBudget, deadline);
+            processWave(wave, waveCtxs, result, searchStartedAt, prevWave, resultMap,
+                    callBudget, remainingBudget, requestBudgetAware);
         }
 
         return rebuild(result, all, resultMap);
@@ -143,8 +157,10 @@ public class TransferArrivalEnricher {
      */
     private BusQueryResult<BusArrivalInfo> callArr(String stopId, String routeId, int ord,
                                                    java.util.concurrent.atomic.AtomicInteger callBudget,
-                                                   Instant deadline) {
-        if (deadline != null && clock.instant().isAfter(deadline)) {
+                                                   LongSupplier remainingBudget,
+                                                   boolean requestBudgetAware) {
+        long remainingMs = remainingBudget.getAsLong();
+        if (remainingMs <= 0) {
             log.debug("[TransferEnricher] deadline exceeded — skip arr {}:{}", stopId, routeId);
             return BusQueryResult.error();
         }
@@ -153,7 +169,9 @@ public class TransferArrivalEnricher {
             log.debug("[TransferEnricher] per-search call budget exhausted — skip arr {}:{}", stopId, routeId);
             return BusQueryResult.limited();
         }
-        BusQueryResult<BusArrivalInfo> r = busPort.getArrInfoByStop(stopId, routeId, ord);
+        BusQueryResult<BusArrivalInfo> r = requestBudgetAware
+                ? busPort.getArrInfoByStop(stopId, routeId, ord, remainingMs)
+                : busPort.getArrInfoByStop(stopId, routeId, ord);
         if (r.cacheHit()) callBudget.incrementAndGet();   // cache hit은 provider 호출 아님 → cap 미소모
         return r;
     }
@@ -164,8 +182,10 @@ public class TransferArrivalEnricher {
      */
     private BusQueryResult<BusPositionInfo> callPos(String routeId,
                                                     java.util.concurrent.atomic.AtomicInteger callBudget,
-                                                    Instant deadline) {
-        if (deadline != null && clock.instant().isAfter(deadline)) {
+                                                    LongSupplier remainingBudget,
+                                                    boolean requestBudgetAware) {
+        long remainingMs = remainingBudget.getAsLong();
+        if (remainingMs <= 0) {
             log.debug("[TransferEnricher] deadline exceeded — skip pos {}", routeId);
             return BusQueryResult.error();
         }
@@ -174,7 +194,9 @@ public class TransferArrivalEnricher {
             log.debug("[TransferEnricher] per-search call budget exhausted — skip pos {}", routeId);
             return BusQueryResult.limited();
         }
-        BusQueryResult<BusPositionInfo> r = busPort.getBusPosByRtid(routeId);
+        BusQueryResult<BusPositionInfo> r = requestBudgetAware
+                ? busPort.getBusPosByRtid(routeId, remainingMs)
+                : busPort.getBusPosByRtid(routeId);
         if (r.cacheHit()) callBudget.incrementAndGet();
         return r;
     }
@@ -241,7 +263,8 @@ public class TransferArrivalEnricher {
             Map<Integer, PrevWaveInfo> prevWave,
             Map<Integer, Map<Integer, List<TransferArrival>>> resultMap,
             java.util.concurrent.atomic.AtomicInteger callBudget,
-            Instant deadline) {
+            LongSupplier remainingBudget,
+            boolean requestBudgetAware) {
 
         Instant calculatedAt = searchStartedAt;
 
@@ -318,7 +341,8 @@ public class TransferArrivalEnricher {
                 String key = ctx.stopId + ":" + lc.routeId + ":" + lc.targetSeq;
                 BusQueryResult<BusArrivalInfo> r = arrCache.get(key);
                 if (r == null) {
-                    r = callArr(ctx.stopId, lc.routeId, lc.targetSeq, callBudget, deadline);
+                    r = callArr(ctx.stopId, lc.routeId, lc.targetSeq, callBudget,
+                            remainingBudget, requestBudgetAware);
                     arrCache.put(key, r);
                 }
                 lc.arrOutcome = r.outcome();
@@ -369,7 +393,8 @@ public class TransferArrivalEnricher {
         Map<String, Outcome> positionOutcomeMap = new HashMap<>();
         if (mlProps.isEnabled()) {
             for (String routeId : mlRouteIds) {
-                BusQueryResult<BusPositionInfo> posRes = callPos(routeId, callBudget, deadline);
+                BusQueryResult<BusPositionInfo> posRes = callPos(routeId, callBudget,
+                        remainingBudget, requestBudgetAware);
                 positionMap.put(routeId, posRes.data());
                 positionOutcomeMap.put(routeId, posRes.outcome());
             }
@@ -398,7 +423,13 @@ public class TransferArrivalEnricher {
         Map<String, MlPrediction> mlResults = new HashMap<>();
         if (!mlVectors.isEmpty() && mlProps.isEnabled()) {
             try {
-                mlPort.predict(mlVectors).forEach(p -> mlResults.put(p.requestId(), p));
+                long remainingMs = remainingBudget.getAsLong();
+                if (remainingMs > 0) {
+                    List<MlPrediction> predictions = requestBudgetAware
+                            ? mlPort.predict(mlVectors, remainingMs)
+                            : mlPort.predict(mlVectors);
+                    predictions.forEach(p -> mlResults.put(p.requestId(), p));
+                }
             } catch (Exception e) {
                 log.warn("[TransferEnricher] ML predict failed: {}", e.getMessage());
             }
@@ -486,6 +517,12 @@ public class TransferArrivalEnricher {
             prevWave.put(ctx.pathIdx, new PrevWaveInfo(
                     boardable ? best : null, ctx.subPathIdx, bestLane, conditional, boardable));
         }
+    }
+
+    private long remainingMillis(Instant deadline) {
+        if (deadline == null) return Long.MAX_VALUE;
+        long millis = Duration.between(clock.instant(), deadline).toMillis();
+        return Math.max(0, millis);
     }
 
     // ── 헬퍼 ────────────────────────────────────────────────────────────────

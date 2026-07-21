@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -103,6 +104,19 @@ class MlArrivalPredictorAdapterTest {
         assertThatThrownBy(() -> adapter.predict(vectors("a")))
                 .isInstanceOf(MlPredictionException.class)
                 .satisfies(e -> assertThat(((MlPredictionException) e).isRetryable()).isTrue());
+    }
+
+    @Test
+    void TC_검색_잔여예산이_고정_ML_timeout보다_짧으면_잔여예산을_우선() {
+        server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE));
+
+        long started = System.nanoTime();
+        assertThatThrownBy(() -> adapter.predict(vectors("a"), 80))
+                .isInstanceOf(MlPredictionException.class)
+                .satisfies(e -> assertThat(((MlPredictionException) e).isRetryable()).isTrue());
+        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+
+        assertThat(elapsedMs).isLessThan(300);
     }
 
     @Test

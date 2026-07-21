@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.mlpredictor;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
@@ -15,6 +16,11 @@ import watoo.grd.nextroute.infrastructure.adapter.out.api.mlpredictor.dto.MlPred
 import watoo.grd.nextroute.infrastructure.adapter.out.api.mlpredictor.dto.MlPredictResponseDto;
 
 import java.util.ArrayList;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -31,6 +37,8 @@ public class MlArrivalPredictorAdapter implements MlArrivalPredictorPort {
 
     private final RestClient restClient;
     private final MlPredictorProperties properties;
+    private final HttpClient httpClient = HttpClient.newBuilder().build();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public MlArrivalPredictorAdapter(
             @Qualifier("mlPredictorRestClient") RestClient restClient,
@@ -41,6 +49,18 @@ public class MlArrivalPredictorAdapter implements MlArrivalPredictorPort {
 
     @Override
     public List<MlPrediction> predict(List<MlFeatureVector> vectors) {
+        return predictInternal(vectors, null);
+    }
+
+    @Override
+    public List<MlPrediction> predict(List<MlFeatureVector> vectors, long timeoutMs) {
+        if (timeoutMs <= 0) {
+            throw new MlPredictionException(-1, "ML 호출 전에 시간 예산이 소진됨", true);
+        }
+        return predictInternal(vectors, timeoutMs);
+    }
+
+    private List<MlPrediction> predictInternal(List<MlFeatureVector> vectors, Long timeoutMs) {
         if (vectors == null || vectors.isEmpty()) {
             return List.of();
         }
@@ -49,8 +69,39 @@ public class MlArrivalPredictorAdapter implements MlArrivalPredictorPort {
                 .map(v -> new MlPredictRequestDto.Item(v.requestId(), v.features()))
                 .toList();
 
-        MlPredictResponseDto response = callApi(new MlPredictRequestDto(items));
+        MlPredictRequestDto request = new MlPredictRequestDto(items);
+        MlPredictResponseDto response = timeoutMs == null
+                ? callApi(request)
+                : callApiWithin(request, timeoutMs);
         return toResults(vectors, response);
+    }
+
+    /** 검색 요청마다 달라지는 잔여 예산을 HTTP 요청 timeout으로 적용한다. */
+    private MlPredictResponseDto callApiWithin(MlPredictRequestDto body, long timeoutMs) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(properties.getBaseUrl() + PATH))
+                    .timeout(Duration.ofMillis(Math.max(1, timeoutMs)))
+                    .header("Accept", MediaType.APPLICATION_JSON_VALUE)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            int status = response.statusCode();
+            if (status >= 500) {
+                throw new MlPredictionException(status, "ML serving 5xx", true);
+            }
+            if (status >= 400) {
+                throw new MlPredictionException(status, "ML serving 4xx", false);
+            }
+            return objectMapper.readValue(response.body(), MlPredictResponseDto.class);
+        } catch (MlPredictionException e) {
+            throw e;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new MlPredictionException(-1, "ML serving interrupted", true, e);
+        } catch (Exception e) {
+            throw new MlPredictionException(-1, "ML serving call failed: " + e.getMessage(), true, e);
+        }
     }
 
     private MlPredictResponseDto callApi(MlPredictRequestDto body) {

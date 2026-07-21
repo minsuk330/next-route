@@ -15,6 +15,11 @@ public interface MlArrivalPredictorPort {
 
     List<MlPrediction> predict(List<MlFeatureVector> vectors);
 
+    /** 요청 전체 deadline에서 남은 시간까지만 ML 응답을 기다리는 검색 경로용 호출. */
+    default List<MlPrediction> predict(List<MlFeatureVector> vectors, long timeoutMs) {
+        return predict(vectors);
+    }
+
     /**
      * @param requestId 결과 재결합 키(배치 내 유일).
      * @param features  feature 이름→값. 이름은 학습(train.py)과 동일. 값은 숫자 또는 route_id(String).

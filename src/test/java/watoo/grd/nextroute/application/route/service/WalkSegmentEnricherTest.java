@@ -8,6 +8,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.concurrent.Executors;
 import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
+import watoo.grd.nextroute.application.route.observability.RouteSearchContext;
+import watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties;
 import watoo.grd.nextroute.application.route.dto.*;
 import watoo.grd.nextroute.application.route.exception.TmapApiException;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
@@ -319,5 +321,27 @@ class WalkSegmentEnricherTest {
         verify(tmapPort).search(captor.capture());
         assertThat(captor.getValue().endName()).isEqualTo("강남 11번 출구");
         assertThat(captor.getValue().startName()).isEqualTo("출발지");
+    }
+
+    @Test
+    void TC_응답_deadline_뒤_TMAP_완료_결과도_캐시에_저장() {
+        RouteSearchResult original = resultOf(List.of(
+                walk(127.0, 37.5, 127.01, 37.49, "출발", "도착")));
+        when(cache.get(any())).thenReturn(Optional.empty());
+        when(tmapPort.search(any())).thenAnswer(invocation -> {
+            Thread.sleep(120);
+            return sampleSegment();
+        });
+
+        RouteSearchDeadlineProperties deadline = new RouteSearchDeadlineProperties();
+        deadline.setTmapMs(30);
+        deadline.setMinRemainingForOptionalMs(1);
+
+        RouteSearchResult result = enricher.enrich(original,
+                127.0, 37.5, "출발지", 127.01, 37.49, "도착지",
+                RouteSearchContext.start(300), deadline);
+
+        assertThat(result.paths().get(0).subPaths().get(0).polyline()).isNull();
+        verify(cache, timeout(500)).put(any(), eq(sampleSegment()), eq(Duration.ofDays(7)));
     }
 }

@@ -145,9 +145,6 @@ public class WalkSegmentEnricher {
             if (segment.isEmpty()) {
                 // TMAP 은 정상 응답했지만 보강할 내용이 없음(서비스 지역 외 등) → 원본 도보 유지.
                 searchCtx.degrade(SearchComponent.WALK, DegradeReason.EMPTY_RESULT);
-                cache.putNegative(ctx.key(), NEGATIVE_TTL);
-            } else {
-                cache.put(ctx.key(), segment, POSITIVE_TTL);
             }
             resolved.put(ctx, segment);
         }
@@ -250,8 +247,25 @@ public class WalkSegmentEnricher {
                         return TmapResult.failure();
                     }
                 }, walkExecutor)
-                // 성공·실패 모두 정리 — in-flight map 누수 방지.
-                .whenComplete((r, t) -> inFlight.remove(key));
+                // 호출자가 timeout으로 먼저 반환해도 정상 완료 결과는 후속 요청이 쓰도록 캐시에 남긴다.
+                .whenComplete((r, t) -> {
+                    try {
+                        if (t == null && r != null && !r.failed()) {
+                            if (r.segment().isEmpty()) {
+                                cache.putNegative(ctx.key(), NEGATIVE_TTL);
+                            } else {
+                                cache.put(ctx.key(), r.segment(), POSITIVE_TTL);
+                            }
+                        }
+                    } catch (RuntimeException cacheError) {
+                        // 캐시는 선택 최적화다. 저장 실패가 이미 얻은 TMAP 결과나 future 완료를 깨면 안 된다.
+                        log.warn("[WalkEnricher] completed TMAP result cache write failed: {}",
+                                cacheError.getMessage());
+                    } finally {
+                        // 성공·실패 모두 정리 — in-flight map 누수 방지.
+                        inFlight.remove(key);
+                    }
+                });
         } catch (RejectedExecutionException e) {
             log.warn("[WalkEnricher] TMAP 전용 풀 포화 — 보행 보강 생략");
             metrics.recordBulkheadRejected(PROVIDER);

@@ -1,0 +1,128 @@
+<mxfile host="app.diagrams.net" agent="Codex">
+  <diagram id="route-search-resilience" name="Architecture">
+    <mxGraphModel dx="1156" dy="1072" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="720" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="external-label" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;fontColor=#777777;" value="External APIs" vertex="1">
+          <mxGeometry height="25" width="180" x="615" y="25" as="geometry" />
+        </mxCell>
+        <mxCell id="odsay-api" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#888888;strokeWidth=1.5;fontColor=#222222;fontSize=14;fontStyle=1;" value="ODsay API" vertex="1">
+          <mxGeometry height="65" width="145" x="615" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="tmap-api" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#888888;strokeWidth=1.5;fontColor=#222222;fontSize=14;fontStyle=1;" value="TMAP API" vertex="1">
+          <mxGeometry height="65" width="155" x="805" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="bus-api" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#888888;strokeWidth=1.5;fontColor=#222222;fontSize=14;fontStyle=1;" value="서울 버스 API" vertex="1">
+          <mxGeometry height="65" width="165" x="1005" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="vps" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#AFAFAF;strokeWidth=1.5;dashed=1;verticalAlign=top;align=left;spacingTop=10;spacingLeft=14;fontSize=13;fontColor=#666666;" value="&amp;nbsp; &amp;nbsp; &amp;nbsp;&amp;nbsp; " vertex="1">
+          <mxGeometry height="500" width="1360" x="175" y="175" as="geometry" />
+        </mxCell>
+        <mxCell id="application-area" parent="1" style="swimlane;html=1;rounded=1;startSize=36;fillColor=#FFFFFF;swimlaneFillColor=#F3F3F3;strokeColor=#999999;strokeWidth=1.3;fontColor=#444444;fontSize=14;fontStyle=1;horizontal=1;" value="Spring Boot Application" vertex="1">
+          <mxGeometry height="225" width="1290" x="210" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="client-label" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=12;fontColor=#777777;" value="Client" vertex="1">
+          <mxGeometry height="25" width="120" x="25" y="235" as="geometry" />
+        </mxCell>
+        <mxCell id="client" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#888888;strokeWidth=1.5;fontColor=#222222;fontSize=14;fontStyle=1;" value="경로 검색 요청" vertex="1">
+          <mxGeometry height="70" width="120" x="25" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="route-api" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#777777;strokeWidth=1.5;fontColor=#222222;fontSize=14;fontStyle=1;" value="Route API" vertex="1">
+          <mxGeometry height="70" width="130" x="240" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="search-service" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#4E78A0;strokeWidth=2;fontColor=#222222;fontSize=14;fontStyle=1;" value="Route Search&lt;br&gt;&lt;font style=&quot;font-size:12px;color:#555555&quot;&gt;Request Deadline&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="165" x="410" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="odsay-stage" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#777777;strokeWidth=1.5;fontColor=#222222;fontSize=14;fontStyle=1;" value="Base Route" vertex="1">
+          <mxGeometry height="70" width="145" x="615" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="walk-stage" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#777777;strokeWidth=1.5;fontColor=#222222;fontSize=14;fontStyle=1;" value="Walk Enricher&lt;br&gt;&lt;font style=&quot;font-size:12px;color:#555555&quot;&gt;Bounded Pool&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="155" x="805" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="realtime-stage" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#777777;strokeWidth=1.5;fontColor=#222222;fontSize=14;fontStyle=1;" value="Bus / ML Enricher&lt;br&gt;&lt;font style=&quot;font-size:12px;color:#555555&quot;&gt;Single-flight&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="165" x="1005" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="assembly" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#777777;strokeWidth=1.5;fontColor=#222222;fontSize=14;fontStyle=1;" value="Response&lt;br&gt;&lt;font style=&quot;font-size:12px;color:#555555&quot;&gt;Full / Base Route&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="165" x="1210" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="response" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#888888;strokeWidth=1.5;fontColor=#222222;fontSize=14;fontStyle=1;" value="경로 검색 응답" vertex="1">
+          <mxGeometry height="70" width="140" x="1605" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="postgres-area" parent="1" style="swimlane;html=1;rounded=1;startSize=32;fillColor=#FFFFFF;swimlaneFillColor=#F3F3F3;strokeColor=#999999;strokeWidth=1.3;fontColor=#444444;fontSize=13;fontStyle=1;horizontal=1;" value="PostgreSQL Container" vertex="1">
+          <mxGeometry height="145" width="210" x="760" y="490" as="geometry" />
+        </mxCell>
+        <mxCell id="postgres" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#F3F6F9;strokeColor=#4E78A0;strokeWidth=2;fontColor=#222222;fontSize=14;fontStyle=1;" value="PostgreSQL&lt;br&gt;&lt;font style=&quot;font-size:12px;color:#555555&quot;&gt;Walk Cache · Search Log&lt;/font&gt;" vertex="1">
+          <mxGeometry height="80" width="160" x="785" y="535" as="geometry" />
+        </mxCell>
+        <mxCell id="redis-area" parent="1" style="swimlane;html=1;rounded=1;startSize=32;fillColor=#FFFFFF;swimlaneFillColor=#F3F3F3;strokeColor=#999999;strokeWidth=1.3;fontColor=#444444;fontSize=13;fontStyle=1;horizontal=1;" value="Redis Container" vertex="1">
+          <mxGeometry height="145" width="210" x="995" y="490" as="geometry" />
+        </mxCell>
+        <mxCell id="redis" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#F3F6F9;strokeColor=#4E78A0;strokeWidth=2;fontColor=#222222;fontSize=14;fontStyle=1;" value="Redis&lt;br&gt;&lt;font style=&quot;font-size:12px;color:#555555&quot;&gt;Bus Realtime Cache&lt;/font&gt;" vertex="1">
+          <mxGeometry height="80" width="160" x="1020" y="535" as="geometry" />
+        </mxCell>
+        <mxCell id="ml-area" parent="1" style="swimlane;html=1;rounded=1;startSize=32;fillColor=#FFFFFF;swimlaneFillColor=#F3F3F3;strokeColor=#999999;strokeWidth=1.3;fontColor=#444444;fontSize=13;fontStyle=1;horizontal=1;" value="ML Container" vertex="1">
+          <mxGeometry height="145" width="210" x="1230" y="490" as="geometry" />
+        </mxCell>
+        <mxCell id="ml-service" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#888888;strokeWidth=1.5;fontColor=#222222;fontSize=14;fontStyle=1;" value="FastAPI ML&lt;br&gt;&lt;font style=&quot;font-size:12px;color:#555555&quot;&gt;Arrival Prediction&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="160" x="1255" y="535" as="geometry" />
+        </mxCell>
+        <mxCell id="flow1" edge="1" parent="1" source="client" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1.8;" target="route-api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow2" edge="1" parent="1" source="route-api" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1.8;" target="search-service">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow3" edge="1" parent="1" source="search-service" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1.8;" target="odsay-stage">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow4" edge="1" parent="1" source="odsay-stage" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1.8;" target="walk-stage">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow5" edge="1" parent="1" source="walk-stage" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1.8;" target="realtime-stage">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow6" edge="1" parent="1" source="realtime-stage" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1.8;" target="assembly">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow7" edge="1" parent="1" source="assembly" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1.8;" target="response">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="deadline" edge="1" parent="1" source="search-service" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#4E78A0;strokeWidth=1.5;fontColor=#4E78A0;fontSize=11;dashed=1;" target="realtime-stage" value="Remaining Budget">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="493" y="260" />
+              <mxPoint x="1088" y="260" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="odsay-call" edge="1" parent="1" source="odsay-stage" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeColor=#777777;strokeWidth=1.4;fontColor=#777777;fontSize=11;" target="odsay-api" value="HTTP">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tmap-call" edge="1" parent="1" source="walk-stage" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeColor=#777777;strokeWidth=1.4;fontColor=#777777;fontSize=11;" target="tmap-api" value="HTTP">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="bus-call" edge="1" parent="1" source="realtime-stage" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeColor=#777777;strokeWidth=1.4;fontColor=#777777;fontSize=11;" target="bus-api" value="Cache Miss">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="walk-cache" edge="1" parent="1" source="walk-stage" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeColor=#777777;strokeWidth=1.4;fontColor=#777777;fontSize=11;" target="postgres" value="Cache">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="bus-cache" edge="1" parent="1" source="realtime-stage" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeColor=#777777;strokeWidth=1.4;fontColor=#777777;fontSize=11;" target="redis" value="Cache">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ml-call" edge="1" parent="1" source="realtime-stage" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeColor=#777777;strokeWidth=1.4;fontColor=#777777;fontSize=11;" target="ml-service" value="HTTP">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="search-log" edge="1" parent="1" source="assembly" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#999999;strokeWidth=1.3;fontColor=#777777;fontSize=11;dashed=1;" target="postgres" value="Log">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1293" y="460" />
+              <mxPoint x="865" y="460" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -20,7 +20,20 @@ public interface SearchTimeBusQueryPort {
      */
     BusQueryResult<BusArrivalInfo> getArrInfoByStop(String stopId, String routeId, int ord);
 
+    /**
+     * 요청 전체 deadline에서 배정받은 호출 예산. 구현체는 동시 슬롯 대기와 HTTP 응답 대기를
+     * 합쳐 이 시간 안에 종료해야 한다. 기존 비검색 호출과 테스트 대역은 기본 메서드를 사용한다.
+     */
+    default BusQueryResult<BusArrivalInfo> getArrInfoByStop(
+            String stopId, String routeId, int ord, long timeoutMs) {
+        return getArrInfoByStop(stopId, routeId, ord);
+    }
+
     BusQueryResult<BusPositionInfo> getBusPosByRtid(String busRouteId);
+
+    default BusQueryResult<BusPositionInfo> getBusPosByRtid(String busRouteId, long timeoutMs) {
+        return getBusPosByRtid(busRouteId);
+    }
 
     /**
      * @param outcome  조회 결과 종류.
