@@ -22,7 +22,6 @@ import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.exception.OdSayApiException;
 import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.port.out.WalkSegmentCachePort;
-import watoo.grd.nextroute.domain.route.log.service.RouteDataService;
 import watoo.grd.nextroute.domain.route.polyline.service.OdsayRoutePolylineDataService;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.odsay.OdSayApiAdapter;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.tmap.TmapPedestrianAdapter;
@@ -125,7 +124,7 @@ class RouteSearchDeadlineIT {
                 mock(OdsayRoutePolylineDataService.class));
 
         service = new RouteSearchService(
-                odSayAdapter, tmapAdapter, mock(RouteDataService.class), new ObjectMapper(),
+                odSayAdapter, tmapAdapter,
                 polylineEnricher, walkEnricher, mock(TransferArrivalEnricher.class), metrics,
                 deadlineProperties());
     }

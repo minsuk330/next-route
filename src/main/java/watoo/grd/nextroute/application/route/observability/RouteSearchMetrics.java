@@ -31,8 +31,14 @@ public class RouteSearchMetrics {
     public static final String BULKHEAD_ACTIVE = "bulkhead.active";
     public static final String BULKHEAD_QUEUE = "bulkhead.queue";
     public static final String BULKHEAD_REJECTED = "bulkhead.rejected";
+    public static final String HISTORY_DROPPED = "route.search.history.dropped";
 
     private final MeterRegistry registry;
+
+    /** 검색 이력 저장이 유실된 횟수(큐 포화 또는 워커 저장 실패). best-effort 저장의 drop 관측. */
+    public void recordHistoryDropped() {
+        registry.counter(HISTORY_DROPPED).increment();
+    }
 
     /** 요청 전체 소요와 완전성. */
     public void recordSearch(SearchOutcome outcome, long nanos) {
