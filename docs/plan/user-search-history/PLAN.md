@@ -1,33 +1,41 @@
 # 사용자별 경로 검색 이력 — 구현 PLAN
 
-> 티어 L. 설계 근거 = 같은 폴더 `design.md`. PR 2개 분할, 각 fresh main 독립 브랜치(스택 금지).
-> 이 문서만 읽고 컨텍스트 없이 구현 가능하도록 작성됨.
+> 티어 L. 설계 근거 = 같은 폴더 `design.md`. codex 논의(2026-07-21) 반영 완료.
+> PR 2개 분할, 각 fresh main 독립 브랜치(스택 금지). 컨텍스트 없이 이 문서만으로 구현 가능.
 
 ## 배경 · 불변 사실 (검증됨)
 
-- 검색 엔드포인트: `RouteSearchController` `/api/route/search` (`infrastructure/adapter/in/api/route/search/RouteSearchController.java`).
-  현재 `@AuthenticationPrincipal` 없음. 공용.
-- `SecurityConfig.java:38-46` — `/api/route/search` 는 `.anyRequest().permitAll()`. `JwtAuthFilter` 가
-  JWT 있으면 principal=`Long userId` 세팅. → **optional auth 는 컨트롤러에 파라미터 추가만, 보안설정 무변경.**
-- 인증 패턴 참조: `FavoriteController` — `@AuthenticationPrincipal Long userId` + 유스케이스 위임.
+- 검색 엔드포인트: `RouteSearchController` `/api/route/search`
+  (`infrastructure/adapter/in/api/route/search/RouteSearchController.java`). 현재 `@AuthenticationPrincipal` 없음. 공용.
+- `SecurityConfig.java:38-46` — `/api/route/search` 는 `.anyRequest().permitAll()`. `JwtAuthFilter` 가 JWT 있으면
+  principal=`Long userId` 세팅. → **optional auth = 컨트롤러 파라미터 추가만, 보안설정 무변경**.
+- 인증 패턴 참조: `FavoriteController` — `@AuthenticationPrincipal Long userId` + 유스케이스 위임 + `@ExceptionHandler`.
 - `users` PK = `id bigint identity` (V1__baseline.sql:312).
 - 기존 이력 저장: `RouteSearchService.saveLog()` (`application/route/service/RouteSearchService.java:198-224`)
-  — 매 검색 `route_search_log` 에 responseJson 포함 동기 저장, **user_id 항상 null**.
+  — 매 검색 `route_search_log` 에 responseJson 포함 **동기 저장**, user_id 항상 null.
 - `route_search_log` 소비처: `RouteDataService.save` + `RouteSearchLogRepository`(빈 JpaRepository) + 마이그레이션뿐.
-  **읽는 쿼리 0** → write 중단해도 하류 파손 없음.
-- `RouteSearchLog` 엔티티에 `user_id` ManyToOne 있으나 saveLog 가 안 채움.
-- **마이그레이션 gitignore 컨벤션**: `src/main/resources/db/migration/*` 는 `.gitignore` 로 제외(V17 등 일부만 예외).
-  신규 마이그레이션 파일은 git 추적 안 됨. 로컬/VPS 에만 존재. 다음 번호 = **V29**.
-- `searchWithoutRealtime` 내부 호출자: `application/notification/service/RouteSearchTravelTimeEstimator`.
+  **읽는 쿼리 0** → write 중단·saveLog 제거해도 하류 파손 없음.
+- **마이그레이션 gitignore 컨벤션**: `src/main/resources/db/migration/*` 제외(일부만 예외). 신규 파일 git 미추적.
+  로컬/VPS 에만 존재. 다음 번호 = **V29**. (배포 리스크: design.md §10-11 참고)
 - `SearchRouteUseCase` (`application/route/port/in/SearchRouteUseCase.java`) — `search(request)`, `searchWithoutRealtime(request)`.
+  **이 인터페이스는 변경하지 않는다**(codex 권고).
+- Postgres. upsert 는 `INSERT ... ON CONFLICT DO UPDATE` 네이티브 사용.
+
+## 핵심 아키텍처 (codex 반영)
+
+- 쓰기는 **비동기**. 컨트롤러가 검색 성공 후 `RecordSearchHistoryUseCase.record(userId, request, result)` 호출 →
+  entry 변환 후 **전용 bounded executor** 에 submit(즉시 반환). 큐 포화 → drop metric. 워커가 upsert+trim.
+- dedup+cap = **단일 `INSERT ON CONFLICT DO UPDATE` + trim DELETE**(사전조회 race 제거, 이름도 갱신).
+- 포트 **중간 두께**: `SearchHistoryCommandPort.upsertAndTrim(SearchHistoryEntry, maxPerUser)`. request/result DTO 비노출.
+- `SearchRouteUseCase` 무변경, `RouteSearchService.saveLog` 제거.
 
 ---
 
 ## PR1 — 저장 파이프라인
 
-브랜치: `feat/user-search-history` (이 브랜치, 이미 spec 커밋됨).
+브랜치: `feat/user-search-history` (이 브랜치, spec/PLAN 이미 커밋됨).
 
-### 1-1. 마이그레이션 `V29__create_route_search_history.sql` (gitignore — 커밋 안 됨)
+### 1-1. 마이그레이션 `V29__create_route_search_history.sql` (gitignore — 미커밋)
 경로: `src/main/resources/db/migration/V29__create_route_search_history.sql`
 ```sql
 create table route_search_history
@@ -36,7 +44,7 @@ create table route_search_history
     created_at   timestamp(6),
     updated_at   timestamp(6),
     deleted_at   timestamp(6),
-    user_id      bigint           not null references users,
+    user_id      bigint           not null,
     startx       double precision not null,
     starty       double precision not null,
     endx         double precision not null,
@@ -46,137 +54,171 @@ create table route_search_history
     path_count   integer,
     search_type  integer,
     searched_at  timestamp(6)     not null,
-    constraint uk_search_history_user_coords unique (user_id, startx, starty, endx, endy)
+    constraint uk_search_history_user_coords unique (user_id, startx, starty, endx, endy),
+    constraint fk_search_history_user foreign key (user_id) references users (id) on delete cascade
 );
-create index idx_search_history_user_time on route_search_history (user_id, searched_at desc);
+create index idx_search_history_user_time on route_search_history (user_id, searched_at desc, id desc);
 ```
 
 ### 1-2. 도메인 엔티티 `RouteSearchHistory`
-경로: `src/main/java/watoo/grd/nextroute/domain/route/log/entity/RouteSearchHistory.java`
-- `extends BaseEntity`, `@Table(name = "route_search_history")`
+경로: `domain/route/log/entity/RouteSearchHistory.java`
+- `extends BaseEntity`, `@Table(name = "route_search_history")`.
 - 필드: `@ManyToOne(LAZY) @JoinColumn(name="user_id") User user;` `Double startX/startY/endX/endY;`
-  `String startName/endName;` `Integer pathCount; Integer searchType; LocalDateTime searchedAt;`
-- 컬럼 매핑: startX→`startx` 등은 Hibernate 기본 네이밍(기존 route_search_log 와 동일)이라 `@Column` 불필요.
-  (혹시 네이밍 전략이 snake 로 `start_x` 를 낸다면 `@Column(name="startx")` 명시 — 빌드시 DDL 검증으로 확인)
-- 메서드: `void collapseWith(int pathCount, int searchType, LocalDateTime searchedAt)` — 기존 행 갱신용.
-- 정적 팩토리 `of(User, RouteSearchRequest, RouteSearchResult, LocalDateTime)`.
+  `String startName/endName; Integer pathCount; Integer searchType; LocalDateTime searchedAt;`
+- 컬럼 매핑: 기존 route_search_log 와 동일하게 Hibernate 기본 네이밍(startX→startx). 빌드시 DDL 검증으로 확인,
+  불일치면 `@Column(name="startx")` 명시.
+- 조회/삭제(PR2)용 엔티티. **쓰기는 엔티티 persist 아니라 native upsert**(아래 어댑터).
 
 ### 1-3. JPA repository `RouteSearchHistoryRepository`
-경로: `src/main/java/watoo/grd/nextroute/domain/route/log/repository/RouteSearchHistoryRepository.java`
+경로: `domain/route/log/repository/RouteSearchHistoryRepository.java`
 ```java
-Optional<RouteSearchHistory> findByUser_IdAndStartXAndStartYAndEndXAndEndY(
-    Long userId, Double sx, Double sy, Double ex, Double ey);
-List<RouteSearchHistory> findByUser_IdOrderBySearchedAtDesc(Long userId);
-long countByUser_Id(Long userId);
-// cap 초과분 삭제: 오래된 것부터. 파생 or @Query.
-List<RouteSearchHistory> findByUser_IdOrderBySearchedAtAsc(Long userId);
-long deleteByIdAndUser_Id(Long id, Long userId);   // 소유검증 삭제, 영향행수 반환
-void deleteByUser_Id(Long userId);                 // 전체삭제
+@Modifying
+@Query(value = """
+    insert into route_search_history
+        (user_id, startx, starty, endx, endy, start_name, end_name,
+         path_count, search_type, searched_at, created_at, updated_at)
+    values (:userId, :sx, :sy, :ex, :ey, :sName, :eName, :pathCount, :searchType, :at, :at, :at)
+    on conflict (user_id, startx, starty, endx, endy)
+    do update set searched_at = excluded.searched_at,
+                  path_count  = excluded.path_count,
+                  search_type = excluded.search_type,
+                  start_name  = excluded.start_name,
+                  end_name    = excluded.end_name,
+                  updated_at  = excluded.searched_at
+    """, nativeQuery = true)
+int upsert(...params...);
+
+@Modifying
+@Query(value = """
+    delete from route_search_history
+    where user_id = :userId
+      and id not in (
+        select id from route_search_history
+        where user_id = :userId
+        order by searched_at desc, id desc
+        limit :maxPerUser)
+    """, nativeQuery = true)
+int trim(@Param("userId") Long userId, @Param("maxPerUser") int maxPerUser);
+
+// PR2:
+List<RouteSearchHistory> findByUser_IdOrderBySearchedAtDescIdDesc(Long userId);
+long deleteByIdAndUser_Id(Long id, Long userId);
+void deleteByUser_Id(Long userId);
 ```
 
-### 1-4. out 포트 `SearchHistoryRepositoryPort`
-경로: `application/route/port/out/SearchHistoryRepositoryPort.java`
-- `void record(Long userId, RouteSearchRequest req, RouteSearchResult result, LocalDateTime at, int maxPerUser)`
-  — dedup + cap 을 이 구현(어댑터)에서 트랜잭션으로. 또는 아래 recorder 가 로직 소유하고 포트는 CRUD 만 노출.
-- **택1 (PLAN 권장)**: 포트는 얇게 CRUD 만. dedup/cap 로직은 application recorder 가 소유(테스트 쉬움).
-  포트 메서드: `findExisting(...)`, `save(entity)`, `count(userId)`, `oldest(userId, limit)`, `delete(...)`.
-- 어댑터 `infrastructure/adapter/out/persistence/RouteSearchHistoryPersistenceAdapter` 가 repository 위임.
+### 1-4. persistence-neutral DTO `SearchHistoryEntry`
+경로: `application/route/dto/SearchHistoryEntry.java` (record)
+- `Long userId, double startX, startY, endX, endY, String startName, endName, Integer pathCount, Integer searchType, LocalDateTime searchedAt`
+- 정적 팩토리 `of(Long userId, RouteSearchRequest req, RouteSearchResult result, LocalDateTime at)`:
+  pathCount = `result.paths()==null?0:result.paths().size()`, searchType = `result.searchType()`.
 
-> 구현자 판단: 포트를 CRUD 얇게 두고 recorder 가 dedup/cap 오케스트레이션. User 참조는 `userRepository.getReferenceById(userId)`
-> (프록시) 로 FK 만 세팅, 로딩 회피.
+### 1-5. out 포트 + 어댑터
+- 포트 `application/route/port/out/SearchHistoryCommandPort.java`:
+  `void upsertAndTrim(SearchHistoryEntry entry, int maxPerUser);`
+- 어댑터 `infrastructure/adapter/out/persistence/SearchHistoryPersistenceAdapter.java`:
+  - `@Transactional` 로 `repository.upsert(...)` 후 `repository.trim(userId, maxPerUser)` 순차 호출.
+  - 워커 tx 에 짧은 timeout: `@Transactional` + (선택) 커스텀 `statement_timeout`/`lock_timeout` (SET LOCAL or Hikara).
+    최소구현은 `@Transactional(timeout=N초)` 로 시작.
 
-### 1-5. application `RouteSearchHistoryRecorder`
-경로: `application/route/service/RouteSearchHistoryRecorder.java`
-- `@Service`, `@Transactional`
-- 의존: `SearchHistoryRepositoryPort`, `UserRepository`(getReferenceById), `RouteSearchHistoryProperties`, `RouteSearchMetrics`(drop metric), `Clock`
-- `void record(Long userId, RouteSearchRequest req, RouteSearchResult result)`:
-  1. `findExisting(userId, 좌표)` → 있으면 `collapseWith(pathCount, searchType, now)` + save, 종료
-  2. 없으면 새 엔티티 save
-  3. `count(userId) > maxPerUser` 이면 `oldest(userId, count-max)` 물리삭제
-- 예외는 던지지 않음 — **호출자(RouteSearchService)가 catch 하여 drop metric**. (recorder 내부 tx 롤백은 되게 두되
-  RuntimeException 을 상위로 전파 → 상위 catch. 또는 recorder 가 catch 후 metric. **PLAN: 상위 catch 로 통일**.)
-- pathCount = `result.paths()==null ? 0 : result.paths().size()`, searchType = `result.searchType()`.
+### 1-6. bounded executor 빈
+경로: `application/route/config/SearchHistoryExecutorConfig.java`
+- `@Bean("searchHistoryExecutor") ThreadPoolTaskExecutor` — core/max/queue 를 프로퍼티에서.
+  `setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy())` (포화시 예외 → 호출부 drop).
+  `setThreadNamePrefix("search-history-")`. graceful shutdown 옵션.
 
-### 1-6. 설정 `RouteSearchHistoryProperties`
+### 1-7. 설정 `RouteSearchHistoryProperties`
 경로: `application/route/config/RouteSearchHistoryProperties.java`
-- `@ConfigurationProperties("route.search.history")`, `int maxPerUser = 50;`
-- `application.yaml` 에 `route.search.history.max-per-user: 50` 추가(기본값이라 생략 가능하나 노출).
-- `@EnableConfigurationProperties` 등록(기존 route properties 등록 위치 따름).
+- `@ConfigurationProperties("route.search.history")`
+- `int maxPerUser = 50;` + nested `Executor{ int coreSize=2; int maxSize=4; int queueCapacity=500; }`
+- `@EnableConfigurationProperties` 등록. `application.yaml` 에 노출.
 
-### 1-7. write-path 배선
-- `SearchRouteUseCase.search` 시그니처에 nullable `Long userId` 추가:
-  `RouteSearchResult search(RouteSearchRequest request, Long userId);`
-  (searchWithoutRealtime 은 그대로 두거나 userId 파라미터 추가 — 내부 호출자는 null.)
-- `RouteSearchService`:
-  - 생성자에 `RouteSearchHistoryRecorder` 주입.
-  - `search(request, userId)` → `searchInternal(request, true, userId)`.
-  - `searchInternal` 끝(응답 반환 직전, meta 부착 후)에서 `userId != null` 이면:
+### 1-8. application — recorder(submit) + writer(worker)
+- `application/route/port/in/RecordSearchHistoryUseCase.java`:
+  `void record(Long userId, RouteSearchRequest request, RouteSearchResult result);`
+- `application/route/service/RouteSearchHistoryRecorder.java` (`@Service`, `RecordSearchHistoryUseCase` 구현):
+  - 의존: `@Qualifier("searchHistoryExecutor") Executor`, `SearchHistoryAsyncWriter`, `RouteSearchHistoryProperties`, `RouteSearchMetrics`, `Clock`.
+  - `record()`: `SearchHistoryEntry entry = SearchHistoryEntry.of(userId, request, result, now)`;
+    `try { executor.execute(() -> writer.write(entry)); } catch (RejectedExecutionException e) { metrics.recordHistoryDropped(); }`
+- `application/route/service/SearchHistoryAsyncWriter.java` (`@Service`):
+  - `void write(SearchHistoryEntry entry)`: `try { commandPort.upsertAndTrim(entry, props.getMaxPerUser()); }
+    catch (Exception e) { log.warn(...); metrics.recordHistoryDropped(); }`
+  - (upsertAndTrim 이 `@Transactional` 이므로 write 는 별 빈 호출로 프록시 경유. writer 자체엔 @Transactional 안 붙임.)
+
+### 1-9. `RouteSearchMetrics` 확장
+- `recordHistoryDropped()` 카운터 추가 (`route.search.history.dropped` 등).
+
+### 1-10. write-path 배선 (컨트롤러)
+- `RouteSearchController`:
+  - 생성자에 `RecordSearchHistoryUseCase recordSearchHistoryUseCase` 주입(기존 `SearchRouteUseCase` 유지).
+  - `search(@AuthenticationPrincipal Long userId, @Valid RouteSearchRequest request)`:
     ```java
-    try { historyRecorder.record(userId, request, result); }
-    catch (Exception e) { log.warn(...); metrics.recordHistoryDropped(); }
+    RouteSearchResult result = searchRouteUseCase.search(request);
+    if (userId != null) recordSearchHistoryUseCase.record(userId, request, result);
+    return ResponseEntity.ok(result);
     ```
-  - 기존 `saveLog(...)` 호출/메서드 **제거**(route_search_log 저장·responseJson strip 삭제).
-    `RouteDataService`/`RouteSearchLog`/`RouteSearchLogRepository` 는 남겨두되 미사용(추후 정리).
-  - `objectMapper` 등 saveLog 전용 의존이 다른 데 안 쓰이면 제거.
-- `RouteSearchController.search(@AuthenticationPrincipal Long userId, @Valid RouteSearchRequest request)`
-  → `searchRouteUseCase.search(request, userId)`.
-- 내부 호출자 `RouteSearchTravelTimeEstimator` — `searchWithoutRealtime` 사용 중이면 무변경, `search` 사용 중이면 `search(request, null)`.
-- `RouteSearchMetrics` 에 `recordHistoryDropped()` 카운터 추가.
+- **`SearchRouteUseCase` 및 `RouteSearchService.search` 시그니처 무변경.**
+- `RouteSearchService`: `saveLog(...)` 호출 및 메서드 **제거**(route_search_log 저장·responseJson strip 삭제).
+  saveLog 전용 의존(`RouteDataService`, `objectMapper` 의 log 용도)이 다른 데 안 쓰이면 생성자에서 제거.
+  `stripWalkDetailsForLog`/`stripPath`/`stripWalkSubPath` 도 saveLog 전용이면 함께 제거.
+  → `RouteSearchServiceTest` 의 로그 저장 관련 테스트(도보 strip, 지하철 유지, 로그 실패) 제거/이관.
+- `RouteDataService`/`RouteSearchLog`/`RouteSearchLogRepository` 는 남기되 미사용(추후 정리 대상 주석).
 
-### 1-8. PR1 테스트
-- `RouteSearchHistoryRecorderTest`(mock 포트): collapse(기존행 갱신·새행 아님) / cap(오래된 것 삭제로 N 유지) / 정상 insert.
-- `RouteSearchServiceTest` 보강: userId=null → recorder 미호출 / userId 있음 → 호출 / recorder 예외 → 검색 정상 반환 + drop metric.
-  (기존 test 의 `new RouteSearchService(...)` 생성자 인자 추가 반영. 기존 search() 호출은 `search(request, null)` 로.)
-- 마이그레이션 스모크는 PR1 또는 PR2 IT.
+### 1-11. PR1 테스트
+- `RouteSearchHistoryRecorderTest`(mock executor/writer/metrics): 포화(`RejectedExecutionException`)→drop metric,
+  정상 submit→writer 호출.
+- `SearchHistoryPersistenceAdapter` **IT(실 DB, @DataJpaTest or Testcontainers 기존 패턴)**:
+  (a) 신규 insert, (b) 동일좌표 재호출→1행·searched_at·이름 갱신, (c) N 초과→trim 으로 N 유지,
+  (d) 동시 동일좌표(병렬)→unique 충돌 없이 1행.
+- `RouteSearchControllerTest`(슬라이스 or 단위): userId=null→record 미호출, userId 있음→record 호출.
+- `RouteSearchServiceTest`: saveLog 제거 반영(생성자 인자 조정, 로그 테스트 정리).
+- 마이그레이션 스모크(테이블·unique·index·FK) IT.
 
-### 1-9. PR1 검증
+### 1-12. PR1 검증
 ```
 ./gradlew compileJava compileTestJava
-./gradlew test --tests "*RouteSearchServiceTest" --tests "*RouteSearchHistoryRecorderTest" --tests "*RouteSearch*IT"
+./gradlew test --tests "*RouteSearchServiceTest" --tests "*RouteSearchHistory*" \
+  --tests "*SearchHistory*" --tests "*RouteSearch*IT" --tests "*RouteSearchControllerTest"
 ```
-전 route-search 테스트 그린. 앱 부팅 시 V29 적용 확인(로컬 DB).
+전 route-search 테스트 그린. 앱 부팅 V29 적용 확인(로컬 DB). 익명 검색시 이력 0, 로그인 검색시 1행.
 
 ---
 
 ## PR2 — 조회 · 관리 API
 
-브랜치: `feat/user-search-history-api` (PR1 머지 후 fresh main 에서 분기).
+브랜치: `feat/user-search-history-api` (PR1 머지 후 fresh main 분기).
 
-### 2-1. 조회/삭제 유스케이스 (port/in)
-경로: `application/route/port/in/`
-- `GetSearchHistoryUseCase` — `List<SearchHistoryResponse> getAll(Long userId)`
-- `DeleteSearchHistoryUseCase` — `void delete(Long userId, Long id)` (없으면 `NoSuchElementException`)
-- `ClearSearchHistoryUseCase` — `void clear(Long userId)`
+### 2-1. port/in 유스케이스
+`application/route/port/in/`
+- `GetSearchHistoryUseCase.getAll(Long userId) : List<SearchHistoryResponse>`
+- `DeleteSearchHistoryUseCase.delete(Long userId, Long id)` (미소유/부재 → `NoSuchElementException`)
+- `ClearSearchHistoryUseCase.clear(Long userId)`
 
-### 2-2. 응답 DTO `SearchHistoryResponse`
-경로: `application/route/dto/SearchHistoryResponse.java` (record)
-- `id, startX, startY, endX, endY, startName, endName, pathCount, searchType, searchedAt`
-- 엔티티→DTO 매핑 정적 팩토리.
+### 2-2. out 관리 포트 `SearchHistoryManagementPort`
+`application/route/port/out/` — `findByUser`, `deleteByIdAndUser`(영향행수), `deleteByUser`.
+어댑터는 PR1 repository 재사용.
 
-### 2-3. application service `RouteSearchHistoryService`
-경로: `application/route/service/RouteSearchHistoryService.java`
-- 3 유스케이스 구현. `@Transactional(readOnly=true)` (조회) / `@Transactional`(삭제).
-- getAll → `findByUser_IdOrderBySearchedAtDesc`.
-- delete → `deleteByIdAndUser_Id(id, userId)` 영향 0 이면 `NoSuchElementException`(→ 404).
-- clear → `deleteByUser_Id(userId)`.
+### 2-3. 응답 DTO `SearchHistoryResponse`
+`application/route/dto/SearchHistoryResponse.java` (record):
+`id, startX, startY, endX, endY, startName, endName, pathCount, searchType, searchedAt` + 엔티티→DTO 팩토리.
 
-### 2-4. 컨트롤러 `RouteSearchHistoryController`
-경로: `infrastructure/adapter/in/api/route/search/RouteSearchHistoryController.java`
-- `@RequestMapping("/api/route/my/searches")`, `@Tag(name="[회원] 내 검색 이력")`
-- `GET` → `@AuthenticationPrincipal Long userId` → getAll
-- `DELETE /{id}` → delete → 204. `@ExceptionHandler(NoSuchElementException.class)` → 404 (FavoriteController 패턴)
-- `DELETE` → clear → 204
+### 2-4. application `RouteSearchHistoryService`
+3 유스케이스 구현. 조회 `@Transactional(readOnly=true)` → `findByUser_IdOrderBySearchedAtDescIdDesc`.
+delete → `deleteByIdAndUser_Id` 영향 0 → `NoSuchElementException`. clear → `deleteByUser_Id`.
 
-### 2-5. 보안 규칙
-- `SecurityConfig.java` authorizeHttpRequests 에 `.requestMatchers("/api/route/my/**").authenticated()` 추가
-  (fav/notifications 규칙 옆).
+### 2-5. 컨트롤러 `RouteSearchHistoryController`
+`infrastructure/adapter/in/api/route/search/RouteSearchHistoryController.java`
+- `@RequestMapping("/api/route/my/searches")`, `@Tag(name="[회원] 내 검색 이력")`.
+- `GET` → getAll, `DELETE /{id}` → delete → 204, `DELETE` → clear → 204.
+- `@ExceptionHandler(NoSuchElementException.class)` → 404 (FavoriteController 패턴).
 
-### 2-6. PR2 테스트
-- `RouteSearchHistoryServiceTest`: 최신순 목록 / delete 소유검증(타인 id → NoSuchElement) / clear.
-- 컨트롤러 슬라이스 or IT: 401(미인증), 본인 목록, 404(타인 삭제).
-- 마이그레이션 IT: route_search_history 스키마·unique·index 스모크.
+### 2-6. 보안 규칙
+`SecurityConfig` authorizeHttpRequests 에 `.requestMatchers("/api/route/my/**").authenticated()` 추가.
 
-### 2-7. PR2 검증
+### 2-7. PR2 테스트
+- `RouteSearchHistoryServiceTest`: 최신순(tie-breaker) / delete 소유검증(타인 id→NoSuchElement) / clear.
+- 컨트롤러 슬라이스/IT: 401(미인증), 본인 목록, 404(타인 삭제).
+
+### 2-8. PR2 검증
 ```
 ./gradlew compileJava compileTestJava
 ./gradlew test --tests "*RouteSearchHistory*"
@@ -187,30 +229,33 @@ void deleteByUser_Id(Long userId);                 // 전체삭제
 ## 순서 체크리스트
 
 **PR1**
-- [ ] V29 마이그레이션 작성(gitignore, 커밋 안 됨) + 로컬 적용
-- [ ] `RouteSearchHistory` 엔티티 + repository
-- [ ] `SearchHistoryRepositoryPort` + persistence 어댑터
-- [ ] `RouteSearchHistoryProperties` + application.yaml + 등록
-- [ ] `RouteSearchHistoryRecorder`(dedup/cap)
+- [ ] V29 마이그레이션(FK CASCADE, tie-breaker 인덱스) + 로컬 적용
+- [ ] `RouteSearchHistory` 엔티티 + repository(upsert/trim native @Query)
+- [ ] `SearchHistoryEntry` DTO
+- [ ] `SearchHistoryCommandPort` + persistence 어댑터(upsertAndTrim @Transactional)
+- [ ] `SearchHistoryExecutorConfig` bounded executor 빈
+- [ ] `RouteSearchHistoryProperties`(maxPerUser + executor) + application.yaml + 등록
+- [ ] `RecordSearchHistoryUseCase` + `RouteSearchHistoryRecorder`(submit/drop) + `SearchHistoryAsyncWriter`
 - [ ] `RouteSearchMetrics.recordHistoryDropped()`
-- [ ] `SearchRouteUseCase.search(request, userId)` 시그니처 + 구현
-- [ ] `RouteSearchService` 배선(recorder 주입, saveLog 제거, drop-catch)
-- [ ] `RouteSearchController` @AuthenticationPrincipal
-- [ ] 내부 호출자(`RouteSearchTravelTimeEstimator`) 반영
-- [ ] 테스트(recorder, service 보강)
+- [ ] `RouteSearchController` @AuthenticationPrincipal + record 위임
+- [ ] `RouteSearchService.saveLog` 제거 + 관련 테스트 정리
+- [ ] 테스트(recorder, adapter IT, controller, service 조정)
 - [ ] 검증 명령 그린 → PR1
 
 **PR2** (PR1 머지 후 fresh main)
-- [ ] Get/Delete/Clear 유스케이스 + `RouteSearchHistoryService`
+- [ ] Get/Delete/Clear 유스케이스 + `SearchHistoryManagementPort` + `RouteSearchHistoryService`
 - [ ] `SearchHistoryResponse`
 - [ ] `RouteSearchHistoryController`
 - [ ] SecurityConfig `/api/route/my/**` authenticated
-- [ ] 테스트(service, 컨트롤러/IT, 마이그레이션 스모크)
+- [ ] 테스트(service, 컨트롤러/IT)
 - [ ] 검증 그린 → PR2
 
-## 오픈 포인트 (codex 논의)
-- dedup double 정확일치 정규화 필요성(비목표로 뒀으나 재확인).
-- cap enforce 경쟁 근사 허용 범위.
-- 동기 저장 tail 지연 — statement timeout 필요 여부.
-- 포트 두께(얇은 CRUD vs dedup/cap 포함) 최종 택.
-- `SearchRouteUseCase` 시그니처: 파라미터 추가 vs 오버로드.
+## 배포 (VPS, design.md §11)
+- [ ] V29 파일이 VPS 빌드 컨텍스트에 존재(누락시 upsert 전량 실패→drop). 부팅 로그 Flyway V29 확인.
+
+## codex 논의 종결 (결정 확정)
+- 포트 두께 → 중간(upsertAndTrim + persistence-neutral entry). **확정**
+- SearchRouteUseCase 시그니처 → 무변경, 컨트롤러 오케스트레이션. **확정**
+- dedup → 단일 upsert ON CONFLICT(이름 갱신 포함), 사전조회 제거. **확정**
+- 저장 지연 → **비동기 bounded executor**(사용자 결정 B). statement/lock timeout 은 워커 tx 에. **확정**
+- 추가 리스크(FK CASCADE, tie-breaker, 마이그레이션 배포순서) → 반영 완료.
