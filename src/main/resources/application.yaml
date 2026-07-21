@@ -71,6 +71,18 @@ route:
     external-call-acquire-ms: ${TRANSFER_ARRIVAL_ACQUIRE_MS:500}
     max-external-calls-per-search: ${TRANSFER_ARRIVAL_MAX_CALLS:12}
 
+  # 경로 검색 시간 예산·격리. 값 선정 근거는 docs/plan/route-search-resilience/RESULTS.md
+  search:
+    deadline-ms: ${ROUTE_SEARCH_DEADLINE_MS:3000}
+    odsay-ms: ${ROUTE_SEARCH_ODSAY_MS:2000}
+    tmap-ms: ${ROUTE_SEARCH_TMAP_MS:1200}
+    min-remaining-for-optional-ms: ${ROUTE_SEARCH_MIN_REMAINING_MS:150}
+    tmap-pool:
+      size: ${ROUTE_SEARCH_TMAP_POOL_SIZE:8}
+      queue: ${ROUTE_SEARCH_TMAP_POOL_QUEUE:16}
+    bus:
+      join-wait-ms: ${ROUTE_SEARCH_BUS_JOIN_WAIT_MS:1800}
+
 transfer:
   predict:
     deadline-ms: ${TRANSFER_PREDICT_DEADLINE_MS:2500}
