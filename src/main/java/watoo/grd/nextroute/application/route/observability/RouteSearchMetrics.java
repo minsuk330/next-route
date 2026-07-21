@@ -1,11 +1,14 @@
 package watoo.grd.nextroute.application.route.observability;
 
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import watoo.grd.nextroute.application.route.concurrent.SingleFlight;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -19,9 +22,15 @@ public class RouteSearchMetrics {
     public static final String SEARCH_DURATION = "route.search.duration";
     public static final String STAGE_DURATION = "route.search.stage.duration";
     public static final String DEGRADED = "route.search.degraded";
+    public static final String DEADLINE_EXCEEDED = "route.search.deadline.exceeded";
     public static final String EXTERNAL_CALLS = "external.api.calls";
     public static final String EXTERNAL_DURATION = "external.api.duration";
     public static final String CACHE_REQUESTS = "bus.realtime.cache.requests";
+    public static final String CACHE_ERRORS = "bus.realtime.cache.errors";
+    public static final String SINGLEFLIGHT = "singleflight.requests";
+    public static final String BULKHEAD_ACTIVE = "bulkhead.active";
+    public static final String BULKHEAD_QUEUE = "bulkhead.queue";
+    public static final String BULKHEAD_REJECTED = "bulkhead.rejected";
 
     private final MeterRegistry registry;
 
@@ -37,6 +46,11 @@ public class RouteSearchMetrics {
                 .tag("outcome", degraded ? "degraded" : "ok")
                 .register(registry)
                 .record(nanos, TimeUnit.NANOSECONDS);
+    }
+
+    /** 시간 예산을 초과한 지점. 어느 단계가 예산을 다 쓰는지 알려준다. */
+    public void recordDeadlineExceeded(SearchComponent component) {
+        registry.counter(DEADLINE_EXCEEDED, "stage", component.tag()).increment();
     }
 
     /** 요청 종료 시 누적된 degradation 을 사유별로 기록. */
@@ -62,9 +76,45 @@ public class RouteSearchMetrics {
                 .record(nanos, TimeUnit.NANOSECONDS);
     }
 
-    /** 실시간 버스 캐시 조회 결과. type=arrival/position, result=hit/miss. */
+    /**
+     * 검색 경로의 실시간 버스 캐시 조회 결과. type=arrival/position, result=hit/miss.
+     * hit ratio 의 분모가 되므로 <b>검색 경로만</b> 집계한다. Redis 장애로 인한 read 실패는
+     * 검색 입장에서 miss 이며, 그 원인은 {@link #recordCacheError} 로 따로 남긴다.
+     */
     public void recordCacheAccess(String type, String result) {
         registry.counter(CACHE_REQUESTS, "type", type, "result", result).increment();
+    }
+
+    /** provider 전용 풀이 포화되어 보강을 생략한 횟수. 실패가 아니라 관측 가능한 degradation 이다. */
+    public void recordBulkheadRejected(String provider) {
+        registry.counter(BULKHEAD_REJECTED, "provider", provider).increment();
+    }
+
+    /** provider 전용 풀의 현재 실행/대기 수를 gauge 로 노출. 부팅 시 1회 등록한다. */
+    public void registerBulkheadGauges(String provider, ThreadPoolExecutor executor) {
+        Gauge.builder(BULKHEAD_ACTIVE, executor, ThreadPoolExecutor::getActiveCount)
+                .tag("provider", provider).register(registry);
+        Gauge.builder(BULKHEAD_QUEUE, executor, e -> e.getQueue().size())
+                .tag("provider", provider).register(registry);
+    }
+
+    /**
+     * single-flight 참여 결과. owner 만 실제 provider 를 호출했고 joiner 는 그 결과를 공유받았다.
+     * 따라서 joiner 수가 곧 "막아낸 중복 호출 수"다.
+     */
+    public void recordSingleFlight(String provider, String type, SingleFlight.Role role) {
+        registry.counter(SINGLEFLIGHT,
+                "provider", provider,
+                "type", type,
+                "role", role.name().toLowerCase()).increment();
+    }
+
+    /**
+     * 캐시 자체의 read/write 실패(Redis 장애 등). hit/miss 비율을 오염시키지 않도록 별도 지표로 둔다.
+     * 검색·수집기 등 이 캐시의 모든 소비자를 포함한다. op=read/write.
+     */
+    public void recordCacheError(String type, String op) {
+        registry.counter(CACHE_ERRORS, "type", type, "op", op).increment();
     }
 
     private Timer timer(String name, String tagKey, String tagValue) {

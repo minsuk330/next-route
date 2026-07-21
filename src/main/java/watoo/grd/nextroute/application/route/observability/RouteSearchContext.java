@@ -5,6 +5,7 @@ import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 
 /**
@@ -22,35 +23,43 @@ import java.util.function.LongSupplier;
  */
 public final class RouteSearchContext {
 
+    /** deadline 이 없는 컨텍스트(테스트·비계측 경로)의 잔여 시간. */
+    private static final long NO_DEADLINE = Long.MAX_VALUE;
+
     private final String requestId;
     private final LongSupplier nanoTime;
     private final long startNanos;
+    private final long deadlineNanos;
 
     private final Set<SearchComponent> requested = EnumSet.noneOf(SearchComponent.class);
     private final Map<SearchComponent, DegradeReason> degraded = new EnumMap<>(SearchComponent.class);
     private boolean mandatoryFailed;
 
-    private RouteSearchContext(LongSupplier nanoTime) {
+    private RouteSearchContext(LongSupplier nanoTime, long deadlineMillis) {
         this.nanoTime = nanoTime;
         this.requestId = UUID.randomUUID().toString();
         this.startNanos = nanoTime.getAsLong();
+        this.deadlineNanos = deadlineMillis <= 0
+                ? NO_DEADLINE
+                : startNanos + TimeUnit.MILLISECONDS.toNanos(deadlineMillis);
     }
 
-    public static RouteSearchContext start() {
-        return new RouteSearchContext(System::nanoTime);
+    /** 시간 예산이 있는 요청 컨텍스트. */
+    public static RouteSearchContext start(long deadlineMillis) {
+        return new RouteSearchContext(System::nanoTime, deadlineMillis);
     }
 
     /** 테스트용 — 단조 시계 주입. */
-    public static RouteSearchContext start(LongSupplier nanoTime) {
-        return new RouteSearchContext(nanoTime);
+    public static RouteSearchContext start(LongSupplier nanoTime, long deadlineMillis) {
+        return new RouteSearchContext(nanoTime, deadlineMillis);
     }
 
     /**
-     * 계측 대상이 아닌 호출 경로(단위 테스트 등)용 no-op 컨텍스트.
-     * 보고는 받되 아무도 읽지 않으므로 메트릭에 반영되지 않는다.
+     * 계측·시간 예산 대상이 아닌 호출 경로(단위 테스트 등)용 no-op 컨텍스트.
+     * 보고는 받되 아무도 읽지 않고, 잔여 시간은 무한이다.
      */
     public static RouteSearchContext noop() {
-        return new RouteSearchContext(System::nanoTime);
+        return new RouteSearchContext(System::nanoTime, 0);
     }
 
     public String requestId() {
@@ -59,6 +68,23 @@ public final class RouteSearchContext {
 
     public long elapsedNanos() {
         return nanoTime.getAsLong() - startNanos;
+    }
+
+    /** 남은 시간(ms). deadline 이 없으면 매우 큰 값. 0 이면 예산 소진. */
+    public long remainingMillis() {
+        if (deadlineNanos == NO_DEADLINE) {
+            return Long.MAX_VALUE / 2;   // 오버플로 없이 "사실상 무한"
+        }
+        long remaining = deadlineNanos - nanoTime.getAsLong();
+        return remaining <= 0 ? 0 : TimeUnit.NANOSECONDS.toMillis(remaining);
+    }
+
+    /**
+     * 이 단계에 허용할 timeout(ms). {@code min(단계 상한, 남은 시간)}.
+     * 남은 시간이 없으면 0 — 호출자는 호출을 시작하지 않아야 한다.
+     */
+    public long budgetMillis(long stageLimitMillis) {
+        return Math.min(stageLimitMillis, remainingMillis());
     }
 
     /** 이 단계가 이번 요청에 적용 가능함(보강할 대상이 실제로 있었음)을 표시. */

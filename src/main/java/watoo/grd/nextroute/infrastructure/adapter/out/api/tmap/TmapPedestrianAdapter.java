@@ -58,7 +58,8 @@ public class TmapPedestrianAdapter implements TmapPedestrianPort {
             metrics.recordExternalCall(PROVIDER, "ok", attempts, System.nanoTime() - startNanos);
             return segment;
         } catch (TmapApiException e) {
-            if (!properties.isRetryOnFailure()) {
+            // 4xx 는 다시 불러도 같은 답이다 — 재시도하면 시간만 쓰고 상류 부하만 키운다(Step 2).
+            if (!properties.isRetryOnFailure() || !isRetryable(e)) {
                 metrics.recordExternalCall(PROVIDER, "error", attempts, System.nanoTime() - startNanos);
                 throw e;
             }
@@ -80,6 +81,12 @@ public class TmapPedestrianAdapter implements TmapPedestrianPort {
                 throw retryFailure;
             }
         }
+    }
+
+    /** 재시도 대상: timeout·I/O(-1)·5xx. 4xx 는 제외. */
+    private static boolean isRetryable(TmapApiException e) {
+        int code = e.getStatusCode();
+        return code < 0 || code >= 500;
     }
 
     private WalkSegment callApi(TmapPedestrianRequest body) {

@@ -1,5 +1,8 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.bus;
 
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.SocketPolicy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,6 +20,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
@@ -87,5 +91,29 @@ class SearchTimeBusAdapterTest {
 
         // quota false로 호출 생략돼도 슬롯은 release됨
         assertThat(sem.availablePermits()).isEqualTo(1);
+    }
+
+    @Test
+    void TC_요청별_잔여예산이_HTTP_대기시간을_제한() throws Exception {
+        MockWebServer server = new MockWebServer();
+        server.start();
+        try {
+            when(breaker.getBlockedUntil(BusApiQuotaPort.Endpoint.ARRIVAL)).thenReturn(Optional.empty());
+            when(quota.tryAcquireSearch(BusApiQuotaPort.Endpoint.ARRIVAL)).thenReturn(true);
+            server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE));
+
+            SearchTimeBusAdapter adapter = new SearchTimeBusAdapter(
+                    restClient, breaker, quota, new Semaphore(1), props, CLOCK,
+                    "bus-key", server.url("/").toString().replaceAll("/$", ""));
+
+            long started = System.nanoTime();
+            var result = adapter.getArrInfoByStop("1111", "R1", 3, 80);
+            long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+
+            assertThat(result.outcome()).isEqualTo(SearchTimeBusQueryPort.Outcome.ERROR);
+            assertThat(elapsedMs).isLessThan(300);
+        } finally {
+            server.shutdown();
+        }
     }
 }

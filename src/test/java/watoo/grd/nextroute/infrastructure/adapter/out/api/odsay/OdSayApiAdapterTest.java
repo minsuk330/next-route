@@ -9,15 +9,19 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
 import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.application.route.config.OdSayProperties;
 import watoo.grd.nextroute.application.route.dto.LaneGraphicResult;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
+import watoo.grd.nextroute.application.route.exception.OdSayApiException;
 
 import java.net.URI;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -112,11 +116,18 @@ class OdSayApiAdapterTest {
         assertThat(result.get(0).sections().get(0).get(0).y()).isEqualTo(37.5);
     }
 
+    /**
+     * searchPath 는 요청별 timeout 을 걸기 위해 JDK HttpClient 를 쓴다(RestTemplate 은 loadLane 전용).
+     * 따라서 실제 HTTP 로 검증한다.
+     */
     @Test
-    void TC_searchPath는_경로검색만_하고_loadLane은_호출하지_않는다() {
-        // loadLane은 관리자 적재 API에서만 호출되며, 검색 중에는 DB 캐시를 사용한다.
-        when(restTemplate.getForObject(any(URI.class), eq(String.class)))
-                .thenReturn("""
+    void TC_searchPath는_경로검색만_하고_loadLane은_호출하지_않는다() throws Exception {
+        MockWebServer server = new MockWebServer();
+        server.start();
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""
                         {
                           "result": {
                             "searchType": 0,
@@ -139,14 +150,20 @@ class OdSayApiAdapterTest {
                             ]
                           }
                         }
-                        """);
+                        """));
 
-        RouteSearchResult result = adapter.searchPath(126.9, 37.5, 127.0, 37.6);
+        OdSayProperties properties = new OdSayProperties();
+        properties.setBaseUrl(server.url("/").toString().replaceAll("/$", ""));
+        properties.setKey("test-key");
+        OdSayApiAdapter httpAdapter = new OdSayApiAdapter(new RestTemplate(), new ObjectMapper(), properties,
+                new RouteSearchMetrics(new SimpleMeterRegistry()));
+
+        RouteSearchResult result = httpAdapter.searchPath(126.9, 37.5, 127.0, 37.6, 1000);
 
         // searchPath 단 1회만 호출, loadLane 추가 호출 없음
-        ArgumentCaptor<URI> uriCaptor = ArgumentCaptor.forClass(URI.class);
-        verify(restTemplate, times(1)).getForObject(uriCaptor.capture(), eq(String.class));
-        assertThat(uriCaptor.getValue().toString())
+        assertThat(server.getRequestCount()).isEqualTo(1);
+        String path = server.takeRequest().getPath();
+        assertThat(path)
                 .contains("/searchPubTransPathT")
                 .contains("SX=126.9")
                 .contains("EY=37.6");
@@ -156,5 +173,15 @@ class OdSayApiAdapterTest {
         assertThat(result.paths().get(0).info().mapObj()).isEqualTo("3:2:322:329@17:2:534:572");
         // laneGraphics는 비어있음 (DB 캐시 기반 enricher가 별도로 채움)
         assertThat(result.paths().get(0).laneGraphics()).isEmpty();
+
+        server.shutdown();
+    }
+
+    @Test
+    void TC_시간예산이_없으면_호출하지_않고_TIMEOUT() {
+        assertThatThrownBy(() -> adapter.searchPath(126.9, 37.5, 127.0, 37.6, 0))
+                .isInstanceOf(OdSayApiException.class)
+                .satisfies(e -> assertThat(((OdSayApiException) e).getKind())
+                        .isEqualTo(OdSayApiException.Kind.TIMEOUT));
     }
 }

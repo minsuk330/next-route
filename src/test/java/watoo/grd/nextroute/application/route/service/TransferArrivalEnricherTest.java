@@ -16,6 +16,7 @@ import watoo.grd.nextroute.application.route.port.out.MlArrivalPredictorPort.MlP
 import watoo.grd.nextroute.application.route.port.out.MlArrivalPredictorPort.MlPredictionStatus;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.BusQueryResult;
+import watoo.grd.nextroute.application.route.observability.RouteSearchContext;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.entity.BusRouteStop;
 import watoo.grd.nextroute.domain.bus.entity.BusStop;
@@ -537,5 +538,23 @@ class TransferArrivalEnricherTest {
         assertThat(ta.status()).isEqualTo(TransferArrival.Status.ERROR);
         // deadline 초과 → 외부 호출 전부 생략
         verifyNoInteractions(busPort, mlPort);
+    }
+
+    @Test
+    void TC_검색_context의_잔여예산을_버스_호출까지_전파() {
+        props.setEnabled(true);
+        when(stopRepo.findByStopId(any())).thenReturn(Optional.of(busStop("1111")));
+        when(routeRepo.findByRouteId(any())).thenReturn(Optional.of(busRoute("100100360", "360")));
+        when(routeStopRepo.findByRouteIdAndStopId(any(), any()))
+                .thenReturn(List.of(routeStop("100100360", "1111", 5)));
+        when(busPort.getArrInfoByStop(eq("1111"), eq("100100360"), eq(5), anyLong()))
+                .thenReturn(arrOk(List.of()));
+
+        RouteSearchResult input = resultWith(List.of(busSubPath("1111", "100100360", "360")));
+        enricher.enrich(input, NOW, RouteSearchContext.start(500));
+
+        verify(busPort).getArrInfoByStop(eq("1111"), eq("100100360"), eq(5),
+                longThat(ms -> ms > 0 && ms <= 500));
+        verify(busPort, never()).getArrInfoByStop(any(), any(), anyInt());
     }
 }
