@@ -12,8 +12,10 @@ import watoo.grd.nextroute.application.route.dto.*;
 import watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties;
 import watoo.grd.nextroute.application.route.exception.OdSayApiException;
 import watoo.grd.nextroute.application.route.exception.TmapApiException;
+import watoo.grd.nextroute.application.route.observability.DegradeReason;
 import watoo.grd.nextroute.application.route.observability.RouteSearchContext;
 import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
+import watoo.grd.nextroute.application.route.observability.SearchComponent;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
 import watoo.grd.nextroute.domain.route.log.entity.RouteSearchLog;
@@ -118,7 +120,11 @@ class RouteSearchServiceTest {
                 any(RouteSearchDeadlineProperties.class));
         order.verify(transferArrivalEnricher).enrich(eq(afterWalk), any(Instant.class), any(RouteSearchContext.class));
 
-        assertThat(result).isSameAs(afterTransfer);
+        // withMeta 로 감싸므로 인스턴스는 다르지만 보강 결과(paths)는 그대로 전달된다.
+        assertThat(result.paths()).isSameAs(afterTransfer.paths());
+        assertThat(result.meta()).isNotNull();
+        assertThat(result.meta().outcome()).isEqualTo("full");
+        assertThat(result.meta().degraded()).isEmpty();
         SubPathResult walk = result.paths().get(0).subPaths().get(0);
         assertThat(walk.polyline()).hasSize(1);
         assertThat(walk.walkSteps()).hasSize(1);
@@ -183,7 +189,10 @@ class RouteSearchServiceTest {
 
         RouteSearchResult result = service.search(request());
 
-        assertThat(result).isSameAs(enriched);
+        // 로그 저장(AUXILIARY) 실패는 응답 완전성 판정에 영향을 주지 않는다.
+        assertThat(result.paths()).isSameAs(enriched.paths());
+        assertThat(result.meta().outcome()).isEqualTo("full");
+        assertThat(result.meta().degraded()).isEmpty();
     }
 
     // ── -98(700m 이내) TMAP 도보 폴백 ────────────────────────────────────
@@ -250,6 +259,71 @@ class RouteSearchServiceTest {
                 .isInstanceOf(OdSayApiException.class)
                 .satisfies(e -> assertThat(((OdSayApiException) e).getErrorCode()).isEqualTo(-99));
         verifyNoInteractions(tmapPort);
+    }
+
+    // ── Step 5: 응답 완전성 계약(meta) ──────────────────────────────────────
+
+    @Test
+    void TC_meta_선택보강_일부만_실패시_PARTIAL_과_degraded_목록() {
+        RouteSearchResult odsay = resultWith(List.of(walkSubPath(null, null)));
+        when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
+                .thenReturn(odsay);
+        when(polylineEnricher.enrich(any(), any())).thenReturn(odsay);
+        // WALK 성공(적용됨), BUS_REALTIME timeout 실패 → 적용 2 / 실패 1 = PARTIAL
+        when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
+                anyDouble(), anyDouble(), any(), any(RouteSearchContext.class), any()))
+                .thenAnswer(inv -> {
+                    inv.getArgument(7, RouteSearchContext.class).requested(SearchComponent.WALK);
+                    return odsay;
+                });
+        when(transferArrivalEnricher.enrich(any(), any(), any(RouteSearchContext.class)))
+                .thenAnswer(inv -> {
+                    inv.getArgument(2, RouteSearchContext.class)
+                            .degrade(SearchComponent.BUS_REALTIME, DegradeReason.TIMEOUT);
+                    return odsay;
+                });
+
+        RouteSearchResult result = service.search(request());
+
+        assertThat(result.meta().outcome()).isEqualTo("partial");
+        assertThat(result.meta().degraded())
+                .containsExactly(new SearchMeta.DegradedComponent("bus_realtime", "timeout"));
+    }
+
+    @Test
+    void TC_meta_적용가능_보강이_전부_실패하면_BASE_ONLY() {
+        RouteSearchResult odsay = resultWith(List.of(walkSubPath(null, null)));
+        when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
+                .thenReturn(odsay);
+        when(polylineEnricher.enrich(any(), any())).thenReturn(odsay);
+        when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
+                anyDouble(), anyDouble(), any(), any(RouteSearchContext.class), any()))
+                .thenAnswer(inv -> {
+                    inv.getArgument(7, RouteSearchContext.class)
+                            .degrade(SearchComponent.WALK, DegradeReason.BULKHEAD_FULL);
+                    return odsay;
+                });
+        when(transferArrivalEnricher.enrich(any(), any(), any())).thenReturn(odsay);
+
+        RouteSearchResult result = service.search(request());
+
+        assertThat(result.meta().outcome()).isEqualTo("base_only");
+        assertThat(result.meta().degraded())
+                .containsExactly(new SearchMeta.DegradedComponent("walk", "bulkhead_full"));
+    }
+
+    @Test
+    void TC_meta_700m_도보폴백도_meta_full_로_반환() {
+        when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
+                .thenThrow(new OdSayApiException(-98, "출, 도착지가 700m이내입니다."));
+        when(tmapPort.search(any())).thenReturn(new WalkSegment(
+                List.of(new CoordPoint(127.0, 37.5), new CoordPoint(127.01, 37.51)),
+                420, 360, List.of(new WalkStep(0, "SP", 200, "이동", 127.0, 37.5))));
+
+        RouteSearchResult result = service.search(request());
+
+        assertThat(result.meta().outcome()).isEqualTo("full");
+        assertThat(result.meta().degraded()).isEmpty();
     }
 
 }

@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.route.dto.PathInfo;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.RouteSearchRequest;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
+import watoo.grd.nextroute.application.route.dto.SearchMeta;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.dto.WalkSegment;
 import watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties;
@@ -64,11 +65,25 @@ public class RouteSearchService implements SearchRouteUseCase {
         Instant searchStartedAt = Instant.now();
         RouteSearchContext ctx = RouteSearchContext.start(deadlineProperties.getDeadlineMs());
         try {
-            return runSearch(request, withRealtime, searchStartedAt, ctx);
+            // 완전성 판정은 모든 단계가 ctx 에 보고를 마친 뒤 확정되므로, 반환 직전에 meta 로 부착한다.
+            return runSearch(request, withRealtime, searchStartedAt, ctx).withMeta(buildMeta(ctx));
         } finally {
             metrics.recordSearch(ctx.outcome(), ctx.elapsedNanos());
             metrics.recordDegradations(ctx.degradations());
         }
+    }
+
+    /**
+     * 내부 완전성 판정을 응답 계약(Step 5)으로 변환한다. degraded 목록은 클라이언트 응답 필드에
+     * 실제로 영향을 주는 OPTIONAL 단계만 담는다(AUXILIARY 검색 이력은 제외). MANDATORY 실패는
+     * body 가 아니라 504/502 에러로 나가므로 여기 도달하지 않는다.
+     */
+    private SearchMeta buildMeta(RouteSearchContext ctx) {
+        List<SearchMeta.DegradedComponent> degraded = ctx.degradations().entrySet().stream()
+                .filter(e -> e.getKey().isOptional())
+                .map(e -> new SearchMeta.DegradedComponent(e.getKey().tag(), e.getValue().tag()))
+                .toList();
+        return new SearchMeta(ctx.outcome().tag(), degraded);
     }
 
     private RouteSearchResult runSearch(RouteSearchRequest request, boolean withRealtime,

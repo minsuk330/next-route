@@ -1,7 +1,7 @@
 # 경로 검색 외부 의존성 개선 결과
 
-> **MVP 범위(Step 0~4, 6) 완료** — PR-A ~ PR-G.
-> Step 5(부분 응답 메타데이터 노출)는 클라이언트 API 계약 판단이 필요해 후속으로 분리했다(PLAN.md §7).
+> **Step 0~6 완료** — PR-A ~ PR-G + Step 5(응답 완전성 계약).
+> 검색 이력 저장의 bounded 비동기 오프로드만 후속으로 남겼다(아래 "다음 단계").
 
 경로 검색은 ODsay(필수) 위에 지하철 폴리라인·TMAP 보행·실시간 버스·ML 예측을 얹는 동기 API 다.
 문제는 이 조합이 **가장 느린 의존성의 속도로 응답한다**는 것이었다. 이 문서는 그 구조를
@@ -275,8 +275,8 @@ TMAP 보강을 전용 bounded 풀로 옮기고, 포화되면 대기 없이 거�
 - Circuit Breaker 는 넣지 않았다. 버스 API 에는 이미 provider 가 명시적으로 주는 한도 신호(error code 7)
   기반의 자체 breaker 가 있고, ODsay·TMAP 은 지속 장애가 실측된 적이 없다.
   **근거 없이 라이브러리를 얹지 않는다** — 필요해지면 그때 실측을 근거로 넣는다.
-- 응답의 `FULL/PARTIAL/BASE_ONLY/FAILED` 는 현재 **메트릭으로만** 관측한다.
-  클라이언트 응답에 노출하려면 API 계약과 문서화가 필요해 Step 5 로 분리했다.
+- 검색 이력 저장(AUXILIARY)은 아직 응답 스레드에서 동기로 수행한다. bounded 비동기 오프로드는
+  검색 로그가 필수 비즈니스 데이터인지 확정한 뒤로 미뤘다(아래 후속).
 
 ## 포트폴리오 요약 원문
 
@@ -299,10 +299,28 @@ ODsay 가 무응답이면 3회 재시도와 고정 backoff 6초 때문에 6,934m
 - ODsay 검색 URI 전체를 `log.info` 로 남기던 코드가 apiKey 를 로그에 노출하고 있었다.
   좌표만 남기도록 바꿨다(`OdSayApiAdapter`).
 
+## Step 5 — 응답 완전성 계약 (완료)
+
+내부 완전성 판정(`FULL/PARTIAL/BASE_ONLY/FAILED`)을 응답 body 의 하위 호환 `meta` 필드로 노출했다.
+
+```json
+"meta": {
+  "outcome": "partial",
+  "degraded": [ { "component": "bus_realtime", "reason": "timeout" } ]
+}
+```
+
+- `outcome` = 이 응답에 실린 보강 수준. `full` / `partial` / `base_only`.
+  `failed`(필수 ODsay 실패)는 body 가 아니라 504/502 에러로 나가므로 여기 등장하지 않는다.
+- `degraded` = 생략·실패한 **OPTIONAL** 보강만. AUXILIARY(검색 이력)는 응답 내용과 무관하므로 제외한다.
+  클라이언트는 이 목록의 component 보강 필드(버스 도착정보·도보 상세 등)를 최신 정상값으로 오인하면 안 된다.
+- 기존 클라이언트 호환: `RouteSearchResult` 레코드에 nullable `meta` 를 추가하고 6-arg 편의 생성자를 유지해
+  기존 호출부·중간 보강 결과는 무변경. `@JsonInclude(NON_NULL)` 로 meta 없는 내부 경로는 필드가 생략된다.
+- 판정은 컨트롤러 반환 직전 `RouteSearchResult.withMeta(...)` 로 한 번만 부착한다(모든 단계 보고 확정 후).
+
 ## 다음 단계 (후속)
 
 | 단계 | 내용 | 필요한 판단 |
 |---|---|---|
-| Step 5 | `FULL/PARTIAL/BASE_ONLY` 를 응답 메타데이터로 노출 | 클라이언트 API 계약·문서화 |
-| — | 검색 이력 저장을 응답 경로에서 분리(bounded 비동기) | 검색 로그가 필수 비즈니스 데이터인지 확정 |
+| — | 검색 이력 저장을 응답 경로에서 분리(bounded 비동기, 포화 시 drop metric) | 검색 로그가 필수 비즈니스 데이터인지 확정 |
 | — | 운영 canary: 실 provider 로 timeout·degradation 계약만 확인 | VPS 배포 후 소량 요청 |
