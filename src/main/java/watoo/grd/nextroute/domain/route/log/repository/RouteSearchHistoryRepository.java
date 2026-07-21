@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import watoo.grd.nextroute.domain.route.log.entity.RouteSearchHistory;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public interface RouteSearchHistoryRepository extends JpaRepository<RouteSearchHistory, Long> {
 
@@ -52,4 +53,13 @@ public interface RouteSearchHistoryRepository extends JpaRepository<RouteSearchH
                 limit :maxPerUser)
             """, nativeQuery = true)
     int trim(@Param("userId") Long userId, @Param("maxPerUser") int maxPerUser);
+
+    /** 본인 이력 최신순(목록 조회). tie-breaker 는 저장 인덱스와 동일한 (searched_at DESC, id DESC). */
+    List<RouteSearchHistory> findByUser_IdOrderBySearchedAtDescIdDesc(Long userId);
+
+    /** 본인 소유 행만 물리삭제. 삭제된 행 수를 반환(0 이면 미소유/부재 → 404 판정). */
+    long deleteByIdAndUser_Id(Long id, Long userId);
+
+    /** 본인 이력 전체 물리삭제. */
+    void deleteByUser_Id(Long userId);
 }
