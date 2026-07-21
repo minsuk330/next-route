@@ -1,6 +1,5 @@
 package watoo.grd.nextroute.application.route.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -20,7 +19,6 @@ import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
 import watoo.grd.nextroute.application.route.dto.*;
 import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.port.out.*;
-import watoo.grd.nextroute.domain.route.log.service.RouteDataService;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.CachedSearchTimeBusAdapter;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.SearchTimeBusAdapter;
 
@@ -104,7 +102,7 @@ class RouteSearchRealtimeDeadlineIT {
         deadline.setOdsayMs(100);
         deadline.setTmapMs(100);
         RouteSearchService service = new RouteSearchService(
-                odsay, mock(TmapPedestrianPort.class), mock(RouteDataService.class), new ObjectMapper(),
+                odsay, mock(TmapPedestrianPort.class),
                 polyline, walk, transferEnricher, metrics, deadline);
 
         long started = System.nanoTime();

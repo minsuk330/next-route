@@ -1,11 +1,9 @@
 package watoo.grd.nextroute.application.route.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.route.dto.*;
@@ -18,8 +16,6 @@ import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.observability.SearchComponent;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
-import watoo.grd.nextroute.domain.route.log.entity.RouteSearchLog;
-import watoo.grd.nextroute.domain.route.log.service.RouteDataService;
 
 import java.time.Instant;
 import java.util.Collections;
@@ -35,7 +31,6 @@ class RouteSearchServiceTest {
 
     @Mock OdSayApiPort odSayApiPort;
     @Mock TmapPedestrianPort tmapPort;
-    @Mock RouteDataService routeDataService;
     @Mock RoutePolylineEnricher polylineEnricher;
     @Mock WalkSegmentEnricher walkSegmentEnricher;
     @Mock TransferArrivalEnricher transferArrivalEnricher;
@@ -45,7 +40,7 @@ class RouteSearchServiceTest {
     @BeforeEach
     void setUp() {
         service = new RouteSearchService(
-                odSayApiPort, tmapPort, routeDataService, new ObjectMapper(),
+                odSayApiPort, tmapPort,
                 polylineEnricher, walkSegmentEnricher, transferArrivalEnricher,
                 new RouteSearchMetrics(new SimpleMeterRegistry()),
                 new RouteSearchDeadlineProperties());
@@ -63,20 +58,6 @@ class RouteSearchServiceTest {
                 polyline,
                 null, null, null, null, null, null,
                 steps,
-                null, null, null, null, null, null, null
-        );
-    }
-
-    private SubPathResult subwaySubPath() {
-        return new SubPathResult(
-                1, 1200, 6000.0,
-                Collections.emptyList(), Collections.emptyList(),
-                "강남", "교대",
-                127.0, 37.5, 127.01, 37.49,
-                null, null, null, null, null,
-                List.of(new CoordPoint(127.005, 37.499)),  // 지하철 polyline은 유지되어야 함
-                null, null, null, null, null, null,
-                null,
                 null, null, null, null, null, null, null
         );
     }
@@ -130,71 +111,6 @@ class RouteSearchServiceTest {
         assertThat(walk.walkSteps()).hasSize(1);
     }
 
-    @Test
-    void TC_로그_저장_시_도보_polyline과_walkSteps_제외() throws Exception {
-        SubPathResult enrichedWalk = walkSubPath(
-                List.of(new CoordPoint(127.0, 37.5), new CoordPoint(127.01, 37.51)),
-                List.of(new WalkStep(0, "SP", 200, "이동", 127.0, 37.5))
-        );
-        RouteSearchResult enriched = resultWith(List.of(enrichedWalk));
-
-        when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong())).thenReturn(enriched);
-        when(polylineEnricher.enrich(any(), any())).thenReturn(enriched);
-        when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
-                anyDouble(), anyDouble(), any(), any(), any())).thenReturn(enriched);
-        when(transferArrivalEnricher.enrich(any(), any(), any())).thenReturn(enriched);
-
-        service.search(request());
-
-        ArgumentCaptor<RouteSearchLog> logCaptor = ArgumentCaptor.forClass(RouteSearchLog.class);
-        verify(routeDataService).save(logCaptor.capture());
-
-        String json = logCaptor.getValue().getResponseJson();
-        assertThat(json).contains("\"trafficType\":3");
-        assertThat(json).contains("\"polyline\":null");
-        assertThat(json).contains("\"walkSteps\":null");
-    }
-
-    @Test
-    void TC_로그_저장_시_지하철_polyline은_유지() throws Exception {
-        SubPathResult subway = subwaySubPath();
-        RouteSearchResult enriched = resultWith(List.of(subway));
-
-        when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong())).thenReturn(enriched);
-        when(polylineEnricher.enrich(any(), any())).thenReturn(enriched);
-        when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
-                anyDouble(), anyDouble(), any(), any(), any())).thenReturn(enriched);
-        when(transferArrivalEnricher.enrich(any(), any(), any())).thenReturn(enriched);
-
-        service.search(request());
-
-        ArgumentCaptor<RouteSearchLog> logCaptor = ArgumentCaptor.forClass(RouteSearchLog.class);
-        verify(routeDataService).save(logCaptor.capture());
-        String json = logCaptor.getValue().getResponseJson();
-
-        assertThat(json).contains("\"trafficType\":1");
-        assertThat(json).contains("127.005");
-        assertThat(json).contains("37.499");
-    }
-
-    @Test
-    void TC_로그_저장_실패해도_검색_응답은_정상_반환() {
-        RouteSearchResult enriched = resultWith(List.of(walkSubPath(null, null)));
-        when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong())).thenReturn(enriched);
-        when(polylineEnricher.enrich(any(), any())).thenReturn(enriched);
-        when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
-                anyDouble(), anyDouble(), any(), any(), any())).thenReturn(enriched);
-        when(transferArrivalEnricher.enrich(any(), any(), any())).thenReturn(enriched);
-        doThrow(new RuntimeException("DB fail")).when(routeDataService).save(any());
-
-        RouteSearchResult result = service.search(request());
-
-        // 로그 저장(AUXILIARY) 실패는 응답 완전성 판정에 영향을 주지 않는다.
-        assertThat(result.paths()).isSameAs(enriched.paths());
-        assertThat(result.meta().outcome()).isEqualTo("full");
-        assertThat(result.meta().degraded()).isEmpty();
-    }
-
     // ── -98(700m 이내) TMAP 도보 폴백 ────────────────────────────────────
 
     @Test
@@ -224,7 +140,6 @@ class RouteSearchServiceTest {
 
         // 폴백 경로는 enricher 체인을 타지 않음
         verifyNoInteractions(polylineEnricher, walkSegmentEnricher, transferArrivalEnricher);
-        verify(routeDataService).save(any());
     }
 
     @Test
@@ -236,7 +151,6 @@ class RouteSearchServiceTest {
         assertThatThrownBy(() -> service.search(request()))
                 .isInstanceOf(OdSayApiException.class)
                 .satisfies(e -> assertThat(((OdSayApiException) e).getErrorCode()).isEqualTo(-98));
-        verify(routeDataService, never()).save(any());
     }
 
     @Test

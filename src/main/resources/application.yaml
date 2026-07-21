@@ -82,6 +82,13 @@ route:
       queue: ${ROUTE_SEARCH_TMAP_POOL_QUEUE:16}
     bus:
       join-wait-ms: ${ROUTE_SEARCH_BUS_JOIN_WAIT_MS:1800}
+    # 사용자별 검색 이력 저장(비동기 전용 풀). 저장은 best-effort — 포화·실패는 drop metric.
+    history:
+      max-per-user: ${ROUTE_SEARCH_HISTORY_MAX_PER_USER:50}
+      executor:
+        core-size: ${ROUTE_SEARCH_HISTORY_CORE:2}
+        max-size: ${ROUTE_SEARCH_HISTORY_MAX:4}
+        queue-capacity: ${ROUTE_SEARCH_HISTORY_QUEUE:500}
 
 transfer:
   predict:
