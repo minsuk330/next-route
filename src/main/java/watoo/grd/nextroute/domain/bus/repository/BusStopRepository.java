@@ -36,6 +36,6 @@ public interface BusStopRepository extends JpaRepository<BusStop, Long> {
 			@Param("lim") int lim);
 
 	@Modifying
-	@Query(value = "UPDATE bus_stop SET geom = ST_MakePoint(longitude, latitude)::geography WHERE geom IS NULL AND longitude IS NOT NULL AND latitude IS NOT NULL", nativeQuery = true)
-	void backfillGeom();
+	@Query(value = "UPDATE bus_stop SET geom = ST_MakePoint(longitude, latitude)::geography WHERE longitude IS NOT NULL AND latitude IS NOT NULL", nativeQuery = true)
+	void refreshGeom();
 }

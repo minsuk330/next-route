@@ -38,18 +38,18 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 		log.info("[StaticData] Total {} routes from API, {} new to fetch",
 				allRouteIds.size(), newRouteIds.size());
 
-		if (newRouteIds.isEmpty()) {
-			log.info("[StaticData] All routes already loaded. Skipping.");
-			return;
+		if (!newRouteIds.isEmpty()) {
+      //노선 정보 가져와주고
+			List<BusRoute> routes = loadBusRoutes(newRouteIds);
+			if (!routes.isEmpty()) {
+				busDataService.saveAllRoutes(routes);
+				log.info("[StaticData] Saved {} new bus routes", routes.size());
+			}
 		}
-    //노선 정보 가져와주고
-		List<BusRoute> routes = loadBusRoutes(newRouteIds);
-		if (!routes.isEmpty()) {
-			busDataService.saveAllRoutes(routes);
-			log.info("[StaticData] Saved {} new bus routes", routes.size());
-		}
-    //
-		loadBusStopsAndRouteStops(routes);
+
+		// 정류장 좌표는 개편될 수 있으므로 기존 노선도 매 동기화 때 다시 읽어 upsert한다.
+		// 경유 관계는 새 노선에 대해서만 저장해 기존 관계를 중복 검사하지 않는다.
+		loadBusStopsAndRouteStops(allRouteIds, new HashSet<>(newRouteIds));
 	}
 
 	private List<BusRoute> loadBusRoutes(List<String> routeIds) {
@@ -80,42 +80,37 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 				.toList();
 	}
 
-	private void loadBusStopsAndRouteStops(List<BusRoute> routes) {
+	private void loadBusStopsAndRouteStops(List<String> routeIds, Set<String> newRouteIds) {
 		Map<String, BusStop> uniqueStops = new LinkedHashMap<>();
 		List<BusRouteStop> allRouteStops = new ArrayList<>();
 		int processed = 0;
 
-		for (BusRoute route : routes) {
+		for (String routeId : routeIds) {
 			try {
         /// 노선별 경유 정류소 조회
-				List<BusRouteStopInfo> items = busApiPort.getStationByRoute(route.getRouteId());
+				List<BusRouteStopInfo> items = busApiPort.getStationByRoute(routeId);
 
 				for (BusRouteStopInfo item : items) {
 					uniqueStops.putIfAbsent(item.stopId(), toStopEntity(item));
-					allRouteStops.add(toRouteStopEntity(item));
+					if (newRouteIds.contains(routeId)) {
+						allRouteStops.add(toRouteStopEntity(item));
+					}
 				}
 
 				processed++;
 				if (processed % 100 == 0) {
-					log.info("[StaticData] Bus route stops progress: {}/{}", processed, routes.size());
+					log.info("[StaticData] Bus route stops progress: {}/{}", processed, routeIds.size());
 				}
 				Thread.sleep(200);
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
 				return;
 			} catch (Exception e) {
-				log.error("[StaticData] Failed to load stops for route {}: {}",
-						route.getRouteId(), e.getMessage());
+				log.error("[StaticData] Failed to load stops for route {}: {}", routeId, e.getMessage());
 			}
 		}
 
-		List<BusStop> newStops = uniqueStops.values().stream()
-				.filter(s -> !busDataService.existsStopByStopId(s.getStopId()))
-				.toList();
-
-		if (!newStops.isEmpty()) {
-			busDataService.saveAllStops(new ArrayList<>(newStops));
-		}
+		List<BusStop> syncedStops = busDataService.upsertStops(new ArrayList<>(uniqueStops.values()));
 
 		List<BusRouteStop> newRouteStops = allRouteStops.stream()
 				.filter(rs -> !busDataService.existsRouteStop(rs.getRouteId(), rs.getStopId(), rs.getSeq()))
@@ -125,8 +120,8 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 			busDataService.saveAllRouteStops(newRouteStops);
 		}
 
-		log.info("[StaticData] Stops: {} new / {} skipped, RouteStops: {} new / {} skipped",
-				newStops.size(), uniqueStops.size() - newStops.size(),
+		log.info("[StaticData] Stops: {} synchronized, RouteStops: {} new / {} skipped",
+				syncedStops.size(),
 				newRouteStops.size(), allRouteStops.size() - newRouteStops.size());
 	}
 

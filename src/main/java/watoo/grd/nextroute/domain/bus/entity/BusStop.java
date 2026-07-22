@@ -41,4 +41,11 @@ public class BusStop extends BaseEntity {
 		this.latitude = latitude;
 		this.longitude = longitude;
 	}
+
+	public void refresh(String stopName, String arsId, Double latitude, Double longitude) {
+		this.stopName = stopName;
+		this.arsId = arsId;
+		this.latitude = latitude;
+		this.longitude = longitude;
+	}
 }

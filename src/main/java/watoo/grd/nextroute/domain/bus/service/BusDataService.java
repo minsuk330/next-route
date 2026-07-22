@@ -51,7 +51,22 @@ public class BusDataService {
 	@Transactional
 	public List<BusStop> saveAllStops(List<BusStop> stops) {
 		List<BusStop> saved = busStopRepository.saveAll(stops);
-		busStopRepository.backfillGeom();
+		busStopRepository.refreshGeom();
+		return saved;
+	}
+
+	@Transactional
+	public List<BusStop> upsertStops(List<BusStop> stops) {
+		List<BusStop> merged = stops.stream()
+				.map(stop -> busStopRepository.findByStopId(stop.getStopId())
+						.map(existing -> {
+							existing.refresh(stop.getStopName(), stop.getArsId(), stop.getLatitude(), stop.getLongitude());
+							return existing;
+						})
+						.orElse(stop))
+				.toList();
+		List<BusStop> saved = busStopRepository.saveAll(merged);
+		busStopRepository.refreshGeom();
 		return saved;
 	}
 

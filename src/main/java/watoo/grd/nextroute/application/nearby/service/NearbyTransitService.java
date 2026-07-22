@@ -7,6 +7,8 @@ import watoo.grd.nextroute.application.nearby.dto.NearbyBusStopResult;
 import watoo.grd.nextroute.application.nearby.dto.NearbySubwayStationResult;
 import watoo.grd.nextroute.application.nearby.port.in.GetNearbyBusStopsUseCase;
 import watoo.grd.nextroute.application.nearby.port.in.GetNearbySubwayStationsUseCase;
+import watoo.grd.nextroute.application.nearby.dto.BusStopResolveResult;
+import watoo.grd.nextroute.application.nearby.port.in.ResolveBusStopUseCase;
 import watoo.grd.nextroute.application.route.service.PredictionSupportService;
 import watoo.grd.nextroute.domain.bus.repository.NearbyBusStopProjection;
 import watoo.grd.nextroute.domain.bus.service.BusDataService;
@@ -20,13 +22,17 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearbySubwayStationsUseCase {
+public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearbySubwayStationsUseCase, ResolveBusStopUseCase {
 
     static final double INITIAL_RADIUS = 500.0;
     static final double RADIUS_STEP = 500.0;
     static final double MAX_RADIUS = 3000.0;
     static final int DEFAULT_LIMIT = 20;
     static final int MAX_LIMIT = 50;
+    static final double SYMBOL_MATCH_RADIUS = 180.0;
+    static final double COORDINATE_ONLY_MATCH_RADIUS = 35.0;
+    static final double AMBIGUOUS_DISTANCE_GAP = 20.0;
+    static final int SYMBOL_MATCH_LIMIT = 8;
 
     private final BusDataService busDataService;
     private final SubwayDataService subwayDataService;
@@ -59,6 +65,44 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
     }
 
     @Override
+    public BusStopResolveResult resolveBusStop(double lat, double lng, String name) {
+        validateCoordinates(lat, lng);
+        String normalizedName = normalizeStopName(name);
+        List<BusStopResolveResult.Candidate> nearby = busDataService
+                .findNearbyStops(lat, lng, SYMBOL_MATCH_RADIUS, SYMBOL_MATCH_LIMIT)
+                .stream()
+                .map(stop -> new BusStopResolveResult.Candidate(
+                        stop.getStopId(), stop.getStopName(), stop.getArsId(),
+                        stop.getLatitude(), stop.getLongitude(),
+                        (int) Math.round(stop.getDistMeters())))
+                .toList();
+
+        List<BusStopResolveResult.Candidate> candidates = normalizedName.isBlank()
+                ? nearby.stream()
+                        .filter(stop -> stop.distanceMeters() <= COORDINATE_ONLY_MATCH_RADIUS)
+                        .toList()
+                : nearby.stream()
+                        .filter(stop -> normalizeStopName(stop.stopName()).equals(normalizedName))
+                        .toList();
+
+        if (candidates.isEmpty()) {
+            return BusStopResolveResult.notFound();
+        }
+
+        BusStopResolveResult.Candidate closest = candidates.get(0);
+        if (!normalizedName.isBlank() && closest.distanceMeters() > SYMBOL_MATCH_RADIUS) {
+            return BusStopResolveResult.notFound();
+        }
+
+        if (candidates.size() > 1
+                && candidates.get(1).distanceMeters() - closest.distanceMeters() <= AMBIGUOUS_DISTANCE_GAP) {
+            return BusStopResolveResult.ambiguous(candidates);
+        }
+
+        return BusStopResolveResult.matched(closest);
+    }
+
+    @Override
     public List<NearbySubwayStationResult> getNearbySubwayStations(double lat, double lng, int limit) {
         validateCoordinates(lat, lng);
         int lim = clampLimit(limit);
@@ -88,5 +132,10 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
     private int clampLimit(int limit) {
         if (limit <= 0) return DEFAULT_LIMIT;
         return Math.min(limit, MAX_LIMIT);
+    }
+
+    private String normalizeStopName(String value) {
+        if (value == null) return "";
+        return value.replaceAll("\\s+", "").trim();
     }
 }
