@@ -86,3 +86,6 @@ CLAUDE.md
 
 ### Toss mTLS certs/keys (절대 커밋 금지) ###
 src/main/resources/toss/
+
+### Observability — Grafana admin 비밀번호 (커밋 금지) ###
+ops/observability/env/grafana.env
