@@ -6,6 +6,16 @@ spring:
     hibernate:
       ddl-auto: validate
 
+# actuator를 별도 management 포트로 격리 (compose에서 미publish → Docker 내부망 전용).
+# app 8080은 anyRequest().permitAll() + 공개 포트라 actuator를 8080에 노출하면 인터넷 공개됨.
+management:
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: prometheus,health,info
+
 logging:
   level:
     watoo.grd.nextroute: INFO
@@ -15,6 +25,10 @@ logging:
     rollingpolicy:
       max-file-size: 50MB
       max-history: 30
+  # 콘솔(=docker json-file 로그)만 JSON 구조화 → Alloy가 level/필드 파싱. 파일 로그는 텍스트 유지.
+  structured:
+    format:
+      console: logstash
 
 collector:
   bus-arrival:

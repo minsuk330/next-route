@@ -1,0 +1,47 @@
+// Alloy — docker.sock으로 컨테이너 로그 수집 → level 추출 → Loki push.
+// 라벨 정책: app / env / level 만 (저카디널리티). traceId·userId·path 등 고카디널리티는
+// label 승격 금지 — JSON 필드로만 남기고 Grafana LogQL `| json`으로 검색.
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  // compose service 명 → app 라벨
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "app"
+  }
+  // 정적 env 라벨
+  rule {
+    target_label = "env"
+    replacement  = "prod"
+  }
+}
+
+loki.source.docker "docker_logs" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.containers.output
+  labels     = {} // 필수 argument. 정적 추가 라벨 없음(relabel 결과가 targets로 유입).
+  forward_to = [loki.process.extract_level.receiver]
+}
+
+// app JSON 로그에서 level 필드 추출 → 라벨. 비-JSON 라인(postgres/redis/ml)은 추출만 실패,
+// 라인 자체는 그대로 적재됨.
+loki.process "extract_level" {
+  stage.json {
+    expressions = { level = "level" }
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

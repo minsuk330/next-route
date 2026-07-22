@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # nextroute app의 management 포트(8081, 미공개). prometheus만 nextroute_default 네트워크 소속.
+  - job_name: nextroute-app
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["app:8081"]
