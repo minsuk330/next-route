@@ -8,7 +8,9 @@ distributor:
     otlp:
       protocols:
         grpc:
-          endpoint: 0.0.0.0:4317
+          endpoint: 0.0.0.0:4317   # OTLP gRPC
+        http:
+          endpoint: 0.0.0.0:4318   # OTLP HTTP (Spring Boot 기본 전송) — app이 여기로 보냄
 
 storage:
   trace:

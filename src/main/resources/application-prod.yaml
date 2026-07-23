@@ -15,14 +15,15 @@ management:
     web:
       exposure:
         include: prometheus,health,info
-  # 분산 트레이싱: 전량 샘플링 → OTLP(gRPC)로 Tempo 전송(nextroute_default 경유).
+  # 분산 트레이싱: 전량 샘플링 → OTLP(HTTP)로 Tempo 전송(nextroute_default 경유).
+  # Spring Boot 3.5 기본 OTLP 전송은 HTTP(포트 4318, /v1/traces). Tempo는 http+grpc 수신.
   # traceId/spanId는 bridge-otel이 MDC에 자동 주입 → 위 logstash JSON 로그에 자동 포함(추가 설정 불필요).
   tracing:
     sampling:
       probability: 1.0
   otlp:
     tracing:
-      endpoint: http://tempo:4317
+      endpoint: http://tempo:4318/v1/traces
 
 logging:
   level:
