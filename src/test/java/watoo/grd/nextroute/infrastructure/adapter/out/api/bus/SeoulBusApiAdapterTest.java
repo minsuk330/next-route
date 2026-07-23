@@ -10,6 +10,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.application.bus.dto.BusRidershipFetchResult;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
+import watoo.grd.nextroute.application.bus.exception.BusApiLimitExceededException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiBreakerPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.application.bus.service.BusApiCallBudget;
@@ -178,6 +179,91 @@ class SeoulBusApiAdapterTest {
 		assertThat(result.get(0).stopName()).isEqualTo("구상동사거리");
 		assertThat(result.get(0).firstBusTime()).isEqualTo("20230927041000");
 		assertThat(result.get(0).lastBusTime()).isEqualTo("20230927222000");
+	}
+
+	@Test
+	void TC_노선경로는_no순번과_gpsX경도_gpsY위도를_매핑한다() {
+		when(restTemplate.getForObject(any(URI.class), eq(String.class)))
+				.thenReturn("""
+						<ServiceResult>
+						  <msgHeader>
+						    <headerCd>0</headerCd>
+						    <headerMsg>정상적으로 처리되었습니다.</headerMsg>
+						    <itemCount>2</itemCount>
+						  </msgHeader>
+						  <msgBody>
+						    <itemList><no>2</no><gpsX>126.84</gpsX><gpsY>37.51</gpsY></itemList>
+						    <itemList><no>1</no><gpsX>126.83</gpsX><gpsY>37.50</gpsY></itemList>
+						  </msgBody>
+						</ServiceResult>
+						""");
+
+		var result = adapter.getRoutePath("100100576");
+
+		assertThat(result).hasSize(2);
+		assertThat(result.get(0).sequence()).isEqualTo(2);
+		assertThat(result.get(0).longitude()).isEqualTo(126.84);
+		assertThat(result.get(0).latitude()).isEqualTo(37.51);
+
+		ArgumentCaptor<URI> uriCaptor = ArgumentCaptor.forClass(URI.class);
+		verify(restTemplate).getForObject(uriCaptor.capture(), eq(String.class));
+		assertThat(uriCaptor.getValue().toString())
+				.isEqualTo("http://ws.bus.go.kr/api/rest/busRouteInfo/getRoutePath"
+						+ "?serviceKey=bus-key&busRouteId=100100576");
+	}
+
+	@Test
+	void TC_노선경로_API키는_이미_인코딩된_값을_다시_인코딩하지_않는다() {
+		SeoulBusApiAdapter encodedKeyAdapter = new SeoulBusApiAdapter(
+				restTemplate,
+				new ObjectMapper(),
+				CLOCK,
+				breaker,
+				arrivalBudget,
+				positionBudget,
+				50000,
+				50000,
+				"abc%2Fdef%3D",
+				"http://ws.bus.go.kr/api/rest",
+				"route-key",
+				"usage-key",
+				"http://openapi.seoul.go.kr:8088"
+		);
+		when(restTemplate.getForObject(any(URI.class), eq(String.class)))
+				.thenReturn("""
+						<ServiceResult>
+						  <msgHeader><headerCd>0</headerCd><headerMsg>정상</headerMsg><itemCount>0</itemCount></msgHeader>
+						  <msgBody />
+						</ServiceResult>
+						""");
+
+		encodedKeyAdapter.getRoutePath("100100576");
+
+		ArgumentCaptor<URI> uriCaptor = ArgumentCaptor.forClass(URI.class);
+		verify(restTemplate).getForObject(uriCaptor.capture(), eq(String.class));
+		assertThat(uriCaptor.getValue().toString()).contains("serviceKey=abc%2Fdef%3D");
+		assertThat(uriCaptor.getValue().toString()).doesNotContain("%252F");
+	}
+
+	@Test
+	void TC_노선경로_호출제한_코드_7이면_즉시_중단_예외를_던진다() {
+		when(restTemplate.getForObject(any(URI.class), eq(String.class)))
+				.thenReturn("""
+						<ServiceResult>
+						  <msgHeader>
+						    <headerCd>7</headerCd>
+						    <headerMsg>일일 호출건수를 초과하였습니다.</headerMsg>
+						    <itemCount>0</itemCount>
+						  </msgHeader>
+						  <msgBody />
+						</ServiceResult>
+						""");
+
+		assertThatThrownBy(() -> adapter.getRoutePath("100100576"))
+				.isInstanceOf(BusApiLimitExceededException.class)
+				.hasMessageContaining("daily limit exceeded");
+
+		verify(restTemplate, times(1)).getForObject(any(URI.class), eq(String.class));
 	}
 
 	@Test

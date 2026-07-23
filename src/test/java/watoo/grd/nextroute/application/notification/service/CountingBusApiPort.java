@@ -5,6 +5,7 @@ import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.dto.BusRidershipFetchResult;
 import watoo.grd.nextroute.application.bus.dto.BusRouteInfo;
+import watoo.grd.nextroute.application.bus.dto.BusRoutePathPoint;
 import watoo.grd.nextroute.application.bus.dto.BusRouteStopInfo;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 
@@ -52,6 +53,11 @@ public class CountingBusApiPort implements BusApiPort {
 
     @Override
     public List<BusRouteStopInfo> getStationByRoute(String busRouteId) {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public List<BusRoutePathPoint> getRoutePath(String busRouteId) {
         return Collections.emptyList();
     }
 
