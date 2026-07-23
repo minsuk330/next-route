@@ -15,6 +15,14 @@ management:
     web:
       exposure:
         include: prometheus,health,info
+  # 분산 트레이싱: 전량 샘플링 → OTLP(gRPC)로 Tempo 전송(nextroute_default 경유).
+  # traceId/spanId는 bridge-otel이 MDC에 자동 주입 → 위 logstash JSON 로그에 자동 포함(추가 설정 불필요).
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: http://tempo:4317
 
 logging:
   level:

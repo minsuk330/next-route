@@ -80,8 +80,27 @@ services:
         condition: service_healthy
       prometheus:
         condition: service_healthy
+      tempo:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: always
+    logging: *logrotate
+
+  tempo:
+    image: grafana/tempo:2.7.0
+    command: -config.file=/etc/tempo/tempo.yaml
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - default
+      - nextroute   # app이 nextroute_default 경유로 OTLP(4317) 전송
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3200/ready || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -100,3 +119,4 @@ volumes:
   prom-data:
   grafana-data:
   alloy-data:
+  tempo-data:
