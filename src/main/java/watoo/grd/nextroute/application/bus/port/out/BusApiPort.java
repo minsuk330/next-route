@@ -12,6 +12,9 @@ public interface BusApiPort {
 
 	List<BusRouteStopInfo> getStationByRoute(String busRouteId);
 
+	/** 노선 전체 경로 좌표. sequence 순서의 x=경도, y=위도 좌표를 반환한다. */
+	List<BusRoutePathPoint> getRoutePath(String busRouteId);
+
 	List<BusArrivalInfo> getArrInfoByRouteAll(String busRouteId);
 
 	/** 특정 정류소·노선의 도착예정정보. ord = 정류소 경유순번(seq). */

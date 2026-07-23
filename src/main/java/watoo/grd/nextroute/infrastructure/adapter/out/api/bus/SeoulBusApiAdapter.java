@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.application.bus.dto.*;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
+import watoo.grd.nextroute.application.bus.exception.BusApiLimitExceededException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiBreakerPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
@@ -126,6 +127,19 @@ public class SeoulBusApiAdapter implements BusApiPort {
 				+ "&busRouteId=" + busRouteId);
 		return callApi(uri, BusRouteStopItem.class).stream()
 				.map(this::toRouteStopInfo)
+				.toList();
+	}
+
+	/** 노선 ID로 전체 경로 좌표 조회.
+	 *  [공공데이터포털] 노선 경로 조회
+	 *  API: GET /busRouteInfo/getRoutePath?busRouteId={id} */
+	@Override
+	public List<BusRoutePathPoint> getRoutePath(String busRouteId) {
+		URI uri = URI.create(baseUrl + "/busRouteInfo/getRoutePath"
+				+ "?serviceKey=" + apiKey
+				+ "&busRouteId=" + busRouteId);
+		return callApi(uri, BusRoutePathItem.class, null, true).stream()
+				.map(this::toRoutePathPoint)
 				.toList();
 	}
 
@@ -272,6 +286,14 @@ public class SeoulBusApiAdapter implements BusApiPort {
 				item.getLastTm(),
 				item.getTrnstnid(),
 				parseDouble(item.getSectSpd())
+		);
+	}
+
+	private BusRoutePathPoint toRoutePathPoint(BusRoutePathItem item) {
+		return new BusRoutePathPoint(
+				parseInteger(item.getNo()),
+				parseDouble(item.getGpsX()),
+				parseDouble(item.getGpsY())
 		);
 	}
 
@@ -522,6 +544,15 @@ public class SeoulBusApiAdapter implements BusApiPort {
 	}
 
 	private <T> List<T> callApi(URI uri, Class<T> itemType, BusApiQuotaPort.Endpoint endpoint) {
+		return callApi(uri, itemType, endpoint, false);
+	}
+
+	private <T> List<T> callApi(
+			URI uri,
+			Class<T> itemType,
+			BusApiQuotaPort.Endpoint endpoint,
+			boolean failOnStaticLimit
+	) {
 		throwIfBlocked(endpoint, uri);
 		Exception lastException = null;
 
@@ -542,6 +573,10 @@ public class SeoulBusApiAdapter implements BusApiPort {
 					String headerMsg = response.getMsgHeader() == null ? null : response.getMsgHeader().getHeaderMsg();
 					if (API_LIMIT_EXCEEDED_CODE.equals(normalize(headerCd))) {
 						if (endpoint == null) {
+							if (failOnStaticLimit) {
+								throw new BusApiLimitExceededException(
+										"Seoul bus API daily limit exceeded [" + uri.getPath() + "]: " + headerMsg);
+							}
 							log.warn("API error code 7 on non-breaker endpoint [{}]: {} [budget: {}]",
 									uri.getPath(), headerMsg, budgetStatus());
 							return List.of();
@@ -556,7 +591,7 @@ public class SeoulBusApiAdapter implements BusApiPort {
 				}
 
 				return response.getItems();
-			} catch (BusApiBlockedException e) {
+			} catch (BusApiBlockedException | BusApiLimitExceededException e) {
 				throw e;
 			} catch (Exception e) {
 				lastException = e;
@@ -575,6 +610,10 @@ public class SeoulBusApiAdapter implements BusApiPort {
 		}
 
 		log.error("API call failed after {} retries: {}", MAX_RETRIES, uri.getPath(), lastException);
+		if (failOnStaticLimit) {
+			throw new IllegalStateException(
+					"Seoul bus API call failed after retries: " + uri.getPath(), lastException);
+		}
 		return List.of();
 	}
 

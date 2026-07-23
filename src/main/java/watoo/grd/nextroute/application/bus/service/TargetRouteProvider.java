@@ -25,7 +25,7 @@ public class TargetRouteProvider {
 
     public List<String> activeRouteNames() {
         List<String> dbNames = repository.findByActiveTrueAndDeletedAtIsNull().stream()
-                .map(WeeklyTargetRoute::getRouteName)
+                .map(WeeklyTargetRoute::getRouteNo)
                 .toList();
         if (dbNames.isEmpty()) {
             log.warn("[TargetRoute] weekly_target_route active empty — falling back to yaml target-route-names");
