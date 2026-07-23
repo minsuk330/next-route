@@ -1,0 +1,23 @@
+# Tempo 2.x 단일 바이너리, filesystem 저장, retention 14일.
+# app이 OTLP gRPC(4317)로 span 전송. 조회는 3200(HTTP).
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal
+
+compactor:
+  compaction:
+    block_retention: 336h   # 14일 (트레이스는 로그보다 부피 커서 짧게)

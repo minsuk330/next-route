@@ -40,35 +40,38 @@ public class ApiClientConfig {
 	 * 공용 RestClient(TMAP 등 unqualified 주입의 기본). ML 전용 bean이 추가되어
 	 * RestClient bean이 둘이 되므로 @Primary로 unqualified 주입 모호성을 제거한다.
 	 */
+	// 주의: 각 RestClient는 반드시 주입된 RestClient.Builder(자동설정)에서 빌드한다.
+	// 정적 RestClient.builder()는 ObservationRestClientCustomizer가 적용되지 않아
+	// 외부 호출 트레이싱 span이 생성되지 않는다. 빌더는 프로토타입이라 빈 간 간섭 없음.
 	@Bean
 	@Primary
-	public RestClient restClient() {
+	public RestClient restClient(RestClient.Builder builder) {
 		SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
 		factory.setConnectTimeout(Duration.ofSeconds(3));
 		factory.setReadTimeout(Duration.ofSeconds(5));
-		return RestClient.builder()
+		return builder
 				.requestFactory(factory)
 				.build();
 	}
 
 	/** ML serving 전용 RestClient. 검색 경로에서 호출하므로 단축 timeout. @Qualifier로 주입. */
 	@Bean
-	public RestClient mlPredictorRestClient(MlPredictorProperties properties) {
+	public RestClient mlPredictorRestClient(RestClient.Builder builder, MlPredictorProperties properties) {
 		SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
 		factory.setConnectTimeout(Duration.ofMillis(properties.getTimeoutMs()));
 		factory.setReadTimeout(Duration.ofMillis(properties.getTimeoutMs()));
-		return RestClient.builder()
+		return builder
 				.requestFactory(factory)
 				.build();
 	}
 
 	/** 경로검색 전용 버스 실시간 RestClient. 재시도 없음, 단축 timeout. @Qualifier로 주입. */
 	@Bean
-	public RestClient busRealtimeRestClient() {
+	public RestClient busRealtimeRestClient(RestClient.Builder builder) {
 		SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
 		factory.setConnectTimeout(Duration.ofMillis(1500));
 		factory.setReadTimeout(Duration.ofMillis(1500));
-		return RestClient.builder()
+		return builder
 				.requestFactory(factory)
 				.build();
 	}
@@ -86,7 +89,7 @@ public class ApiClientConfig {
 	 * keystore 경로가 비어 있으면 mTLS 없이 부팅만 되도록 기본 SSLContext를 사용한다(실호출만 실패).
 	 */
 	@Bean
-	public RestClient tossRestClient(TossLoginProperties props) {
+	public RestClient tossRestClient(RestClient.Builder builder, TossLoginProperties props) {
 		HttpClient.Builder httpBuilder = HttpClient.newBuilder()
 				.connectTimeout(Duration.ofMillis(props.getConnectTimeoutMs()));
 
@@ -98,7 +101,7 @@ public class ApiClientConfig {
 		JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpBuilder.build());
 		factory.setReadTimeout(Duration.ofMillis(props.getReadTimeoutMs()));
 
-		return RestClient.builder()
+		return builder
 				.baseUrl(props.getBaseUrl())
 				.requestFactory(factory)
 				.build();
