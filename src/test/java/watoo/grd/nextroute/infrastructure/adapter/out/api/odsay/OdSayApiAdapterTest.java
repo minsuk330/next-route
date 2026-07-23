@@ -11,6 +11,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.application.route.config.OdSayProperties;
 import watoo.grd.nextroute.application.route.dto.LaneGraphicResult;
@@ -43,7 +44,7 @@ class OdSayApiAdapterTest {
         properties.setKey("test-key");
 
         adapter = new OdSayApiAdapter(restTemplate, new ObjectMapper(), properties,
-                new RouteSearchMetrics(new SimpleMeterRegistry()));
+                new RouteSearchMetrics(new SimpleMeterRegistry()), RestClient.builder());
     }
 
     @Test
@@ -156,7 +157,7 @@ class OdSayApiAdapterTest {
         properties.setBaseUrl(server.url("/").toString().replaceAll("/$", ""));
         properties.setKey("test-key");
         OdSayApiAdapter httpAdapter = new OdSayApiAdapter(new RestTemplate(), new ObjectMapper(), properties,
-                new RouteSearchMetrics(new SimpleMeterRegistry()));
+                new RouteSearchMetrics(new SimpleMeterRegistry()), RestClient.builder());
 
         RouteSearchResult result = httpAdapter.searchPath(126.9, 37.5, 127.0, 37.6, 1000);
 

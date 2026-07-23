@@ -4,7 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 import watoo.grd.nextroute.application.route.config.OdSayProperties;
@@ -14,12 +18,9 @@ import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.odsay.dto.*;
 
-import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -45,7 +46,13 @@ public class OdSayApiAdapter implements OdSayApiPort {
     private final ObjectMapper objectMapper;
     private final OdSayProperties odSayProperties;
     private final RouteSearchMetrics metrics;
-    /** 요청별 timeout 을 걸기 위한 client. RestTemplate 은 timeout 이 client 단위라 예산 전파가 불가능하다. */
+    /**
+     * searchPath 발신 호출용 빌더(자동설정 주입). 요청별 read timeout 을 걸어야 하므로 호출마다
+     * 남은 예산으로 RestClient 를 만든다. 주입 빌더에서 만들어야 트레이싱(ObservationRestClientCustomizer)이
+     * 적용되어 외부 호출 span 이 생긴다. 정적 RestClient.builder() 는 계측되지 않는다.
+     */
+    private final RestClient.Builder restClientBuilder;
+    /** 연결 timeout 은 client 단위(2s)로 공유하고, read timeout 만 요청별로 건다. */
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
             .build();
@@ -136,15 +143,25 @@ public class OdSayApiAdapter implements OdSayApiPort {
         throw lastFailure != null ? lastFailure : OdSayApiException.timeout("OdSay 시간 예산 소진");
     }
 
-    /** 요청별 timeout 을 건 단발 호출. 여기서만 HTTP 오류를 Kind 로 분류한다. */
+    /**
+     * 요청별 timeout 을 건 단발 호출. 여기서만 HTTP 오류를 Kind 로 분류한다.
+     *
+     * <p>트레이싱을 위해 주입된(계측된) RestClient.Builder 로 호출한다. read timeout 은 남은 예산으로
+     * 요청마다 달라지므로, 공유 HttpClient(연결 2s)를 감싼 JdkClientHttpRequestFactory 에 read timeout 을
+     * 걸어 RestClient 를 만든다. 빌더는 싱글턴에서 공유되므로 동시 호출 경합을 피하려 clone 후 설정한다.
+     * 상태코드는 직접 검사해야 하므로 onStatus 로 기본 예외 변환을 끈다.
+     */
     private OdSaySearchResponse sendOnce(URI uri, long timeoutMs) {
-        HttpRequest request = HttpRequest.newBuilder(uri)
-                .timeout(Duration.ofMillis(timeoutMs))
-                .GET()
-                .build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+        factory.setReadTimeout(Duration.ofMillis(timeoutMs));
+        RestClient client = restClientBuilder.clone().requestFactory(factory).build();
         try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            int status = response.statusCode();
+            ResponseEntity<String> response = client.get()
+                    .uri(uri)
+                    .retrieve()
+                    .onStatus(status -> true, (req, res) -> { })  // 기본 4xx/5xx 예외 억제 — 아래서 직접 분류
+                    .toEntity(String.class);
+            int status = response.getStatusCode().value();
             if (status >= 500) {
                 throw OdSayApiException.upstream("OdSay 5xx: " + status);
             }
@@ -152,18 +169,21 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 // 4xx 는 다시 불러도 같은 답 — 재시도 대상 아님.
                 throw new OdSayApiException(status, "OdSay 4xx: " + status);
             }
-            String body = response.body();
+            String body = response.getBody();
             if (body == null || body.isBlank()) {
                 throw OdSayApiException.upstream("OdSay 빈 응답");
             }
             return objectMapper.readValue(body, OdSaySearchResponse.class);
-        } catch (HttpTimeoutException e) {
-            throw OdSayApiException.timeout("OdSay timeout(" + timeoutMs + "ms)");
-        } catch (IOException e) {
+        } catch (ResourceAccessException e) {
+            // read timeout(HttpTimeoutException) → TIMEOUT, 그 외 I/O → UPSTREAM.
+            if (e.getCause() instanceof HttpTimeoutException) {
+                throw OdSayApiException.timeout("OdSay timeout(" + timeoutMs + "ms)");
+            }
+            if (e.getCause() instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+                throw OdSayApiException.upstream("OdSay 호출 중 인터럽트");
+            }
             throw OdSayApiException.upstream("OdSay I/O 실패: " + e.getMessage());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw OdSayApiException.upstream("OdSay 호출 중 인터럽트");
         } catch (OdSayApiException e) {
             throw e;
         } catch (Exception e) {

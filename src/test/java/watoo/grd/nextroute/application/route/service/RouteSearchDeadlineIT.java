@@ -102,9 +102,9 @@ class RouteSearchDeadlineIT {
         odSayProperties.setKey("test-key");
         odSayProperties.setBaseUrl(odsayServer.url("/").toString().replaceAll("/$", ""));
 
-        // ODsay 는 요청별 timeout 을 거는 JDK HttpClient 를 내부에서 쓴다(RestTemplate 은 loadLane 전용).
+        // ODsay searchPath 는 요청별 read timeout 을 걸려고 RestClient 를 호출마다 만든다(RestTemplate 은 loadLane 전용).
         OdSayApiAdapter odSayAdapter =
-                new OdSayApiAdapter(new RestTemplate(), new ObjectMapper(), odSayProperties, metrics);
+                new OdSayApiAdapter(new RestTemplate(), new ObjectMapper(), odSayProperties, metrics, RestClient.builder());
 
         TmapProperties tmapProperties = new TmapProperties();
         tmapProperties.setAppKey("test-key");
