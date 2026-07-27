@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import watoo.grd.nextroute.domain.bus.entity.BusRouteStop;
+import watoo.grd.nextroute.application.bus.dto.BusRouteStopMatchData;
 
 import java.util.Collection;
 import java.util.List;
@@ -45,4 +46,14 @@ public interface BusRouteStopRepository extends JpaRepository<BusRouteStop, Long
 			ORDER BY brs.seq
 			""")
 	List<RouteStopProjection> findStopsByRouteId(@Param("routeId") String routeId);
+
+	@Query("""
+			SELECT new watoo.grd.nextroute.application.bus.dto.BusRouteStopMatchData(
+			       brs.seq, brs.stopId, brs.sectionId, brs.sectionDistance,
+			       bs.longitude, bs.latitude)
+			FROM BusRouteStop brs JOIN brs.busStop bs
+			WHERE brs.routeId = :routeId
+			ORDER BY brs.seq
+			""")
+	List<BusRouteStopMatchData> findMatchDataByRouteId(@Param("routeId") String routeId);
 }

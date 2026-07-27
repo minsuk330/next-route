@@ -1,5 +1,9 @@
 # 서울시 버스 노선 Polyline 일회성 적재 계획
 
+> **2026-07-23 후속 변경:** 일회성 적재 구조는 정적 데이터 매 실행 upsert와
+> 정류장 순서 제약 구간 생성으로 대체됐다. 현재 계획은
+> [`docs/plan/bus-route-segment-polyline/PLAN.md`](../bus-route-segment-polyline/PLAN.md)를 따른다.
+
 > 서울시 `getRoutePath` API를 `BusApiPort`에 추가하고, DB에 이미 존재하는 모든 `bus_route.route_id`를 기준으로 노선 Polyline을 한 번 적재한다.
 
 ## 1. 결정 사항

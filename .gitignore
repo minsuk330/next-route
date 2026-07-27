@@ -17,6 +17,7 @@ src/main/resources/db/migration/*
 !src/main/resources/db/migration/V15__add_stop_route_search_indexes.sql
 !src/main/resources/db/migration/V16__toss_login.sql
 !src/main/resources/db/migration/V17__drop_device_id.sql
+!src/main/resources/db/migration/V32__create_bus_route_segment_polyline.sql
 docs/*
 !docs/plan/
 !docs/mobile/

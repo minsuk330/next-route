@@ -75,4 +75,19 @@ public class BusRoute extends BaseEntity {
 		this.firstLowTime = firstLowTime;
 		this.lastLowTime = lastLowTime;
 	}
+
+	public void refresh(BusRoute source) {
+		this.routeName = source.routeName;
+		this.routeType = source.routeType;
+		this.startStation = source.startStation;
+		this.endStation = source.endStation;
+		this.term = source.term;
+		this.firstBusTime = source.firstBusTime;
+		this.lastBusTime = source.lastBusTime;
+		this.companyName = source.companyName;
+		this.totalDistance = source.totalDistance;
+		this.lastBusYn = source.lastBusYn;
+		this.firstLowTime = source.firstLowTime;
+		this.lastLowTime = source.lastLowTime;
+	}
 }

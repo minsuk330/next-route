@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineData;
+import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineSnapshot;
 import watoo.grd.nextroute.domain.bus.entity.BusRoutePolyline;
 import watoo.grd.nextroute.domain.bus.repository.BusRoutePolylineRepository;
 
@@ -25,36 +26,43 @@ public class BusRoutePolylineDataService {
 	private final ObjectMapper objectMapper;
 	private final Clock clock;
 
-	public List<String> findRouteIdsWithoutPolyline() {
-		return repository.findRouteIdsWithoutPolyline();
-	}
-
-	public boolean existsByRouteId(String routeId) {
-		return repository.existsByRouteId(routeId);
+	public List<String> findAllRouteIds() {
+		return repository.findAllActiveRouteIds();
 	}
 
 	@Transactional
-	public boolean saveIfAbsent(String routeId, BusRoutePolylineData data) {
-		if (repository.existsByRouteId(routeId)) {
-			return false;
-		}
+	public void upsert(String routeId, BusRoutePolylineData data) {
 		if (data == null || data.size() < 2) {
 			throw new IllegalArgumentException("Bus route polyline requires at least two points");
 		}
-
-		repository.save(BusRoutePolyline.builder()
-				.routeId(routeId)
-				.pointCount(data.size())
-				.polyline(serialize(data))
-				.source(SOURCE)
-				.fetchedAt(OffsetDateTime.now(clock))
-				.build());
-		return true;
+		String serialized = serialize(data);
+		OffsetDateTime fetchedAt = OffsetDateTime.now(clock);
+		BusRoutePolyline entity = repository.findByRouteId(routeId)
+				.map(existing -> {
+					existing.refresh(data.size(), serialized, SOURCE, fetchedAt);
+					return existing;
+				})
+				.orElseGet(() -> BusRoutePolyline.builder()
+						.routeId(routeId)
+						.pointCount(data.size())
+						.polyline(serialized)
+						.source(SOURCE)
+						.fetchedAt(fetchedAt)
+						.build());
+		repository.save(entity);
 	}
 
 	public Optional<BusRoutePolylineData> findByRouteId(String routeId) {
 		return repository.findByRouteId(routeId)
 				.map(entity -> deserialize(entity.getPolyline()));
+	}
+
+	public Optional<BusRoutePolylineSnapshot> findSnapshotByRouteId(String routeId) {
+		return repository.findByRouteId(routeId)
+				.map(entity -> new BusRoutePolylineSnapshot(
+						entity.getRouteId(),
+						deserialize(entity.getPolyline()),
+						entity.getFetchedAt()));
 	}
 
 	private String serialize(BusRoutePolylineData data) {

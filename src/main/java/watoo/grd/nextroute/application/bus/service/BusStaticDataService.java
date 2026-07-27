@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.bus.dto.BusRouteInfo;
 import watoo.grd.nextroute.application.bus.dto.BusRouteStopInfo;
+import watoo.grd.nextroute.application.bus.port.in.LoadBusRoutePolylineUseCase;
 import watoo.grd.nextroute.application.bus.port.in.LoadBusStaticDataUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
@@ -21,35 +22,31 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 
 	private final BusApiPort busApiPort;
 	private final BusDataService busDataService;
+	private final LoadBusRoutePolylineUseCase loadBusRoutePolyline;
 
 	@Override
 	public void execute() {
-    //이걸로 버스 노선 번호를 받음
 		List<String> allRouteIds = busApiPort.getBusRouteIds();
 		if (allRouteIds.isEmpty()) {
 			log.warn("[StaticData] No route IDs fetched from Seoul Open API.");
 			return;
 		}
-    //여기서 중복 걸러주고
-		List<String> newRouteIds = allRouteIds.stream()
-				.filter(id -> !busDataService.existsRouteByRouteId(id))
+
+		// 노선 메타데이터도 개편·배차 변경이 있으므로 신규 노선만이 아니라 전체를 갱신한다.
+		List<BusRoute> routes = loadBusRoutes(allRouteIds);
+		busDataService.upsertRoutes(routes);
+
+		Set<String> knownRouteIds = busDataService.findAllRoutes().stream()
+				.map(BusRoute::getRouteId)
+				.collect(java.util.stream.Collectors.toSet());
+		List<String> syncTargets = allRouteIds.stream()
+				.filter(knownRouteIds::contains)
 				.toList();
+		loadBusStopsAndRouteStops(syncTargets);
+		loadBusRoutePolyline.execute();
 
-		log.info("[StaticData] Total {} routes from API, {} new to fetch",
-				allRouteIds.size(), newRouteIds.size());
-
-		if (!newRouteIds.isEmpty()) {
-      //노선 정보 가져와주고
-			List<BusRoute> routes = loadBusRoutes(newRouteIds);
-			if (!routes.isEmpty()) {
-				busDataService.saveAllRoutes(routes);
-				log.info("[StaticData] Saved {} new bus routes", routes.size());
-			}
-		}
-
-		// 정류장 좌표는 개편될 수 있으므로 기존 노선도 매 동기화 때 다시 읽어 upsert한다.
-		// 경유 관계는 새 노선에 대해서만 저장해 기존 관계를 중복 검사하지 않는다.
-		loadBusStopsAndRouteStops(allRouteIds, new HashSet<>(newRouteIds));
+		log.info("[StaticData] Reload completed: providerRoutes={}, refreshedRoutes={}, stopTargets={}",
+				allRouteIds.size(), routes.size(), syncTargets.size());
 	}
 
 	private List<BusRoute> loadBusRoutes(List<String> routeIds) {
@@ -59,7 +56,7 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 		for (String routeId : routeIds) {
 			try {
 				List<BusRouteInfo> items = busApiPort.getRouteInfo(routeId);
-        log.info("loadBusRoutes: routeId={}, items={}", routeId, items);
+				log.debug("[StaticData] Route metadata fetched: routeId={}, items={}", routeId, items.size());
 				routeInfos.addAll(items);
 
 				processed++;
@@ -75,14 +72,19 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 			}
 		}
 
-		return routeInfos.stream()
+		return new ArrayList<>(routeInfos.stream()
 				.map(this::toRouteEntity)
-				.toList();
+				.collect(java.util.stream.Collectors.toMap(
+						BusRoute::getRouteId,
+						java.util.function.Function.identity(),
+						(left, right) -> right,
+						LinkedHashMap::new))
+				.values());
 	}
 
-	private void loadBusStopsAndRouteStops(List<String> routeIds, Set<String> newRouteIds) {
+	private void loadBusStopsAndRouteStops(List<String> routeIds) {
 		Map<String, BusStop> uniqueStops = new LinkedHashMap<>();
-		List<BusRouteStop> allRouteStops = new ArrayList<>();
+		Map<String, List<BusRouteStop>> routeStopsByRouteId = new LinkedHashMap<>();
 		int processed = 0;
 
 		for (String routeId : routeIds) {
@@ -90,11 +92,23 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
         /// 노선별 경유 정류소 조회
 				List<BusRouteStopInfo> items = busApiPort.getStationByRoute(routeId);
 
-				for (BusRouteStopInfo item : items) {
-					uniqueStops.putIfAbsent(item.stopId(), toStopEntity(item));
-					if (newRouteIds.contains(routeId)) {
-						allRouteStops.add(toRouteStopEntity(item));
-					}
+				if (items.isEmpty()) {
+					log.warn("[StaticData] Empty route-stop response; preserving previous snapshot: routeId={}", routeId);
+				} else {
+					List<BusRouteStop> routeStops = items.stream()
+							.sorted(Comparator.comparingInt(BusRouteStopInfo::seq))
+							.collect(java.util.stream.Collectors.toMap(
+									BusRouteStopInfo::seq,
+									java.util.function.Function.identity(),
+									(left, right) -> right,
+									LinkedHashMap::new))
+							.values().stream()
+							.map(item -> {
+								uniqueStops.put(item.stopId(), toStopEntity(item));
+								return toRouteStopEntity(item);
+							})
+							.toList();
+					routeStopsByRouteId.put(routeId, routeStops);
 				}
 
 				processed++;
@@ -112,17 +126,14 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 
 		List<BusStop> syncedStops = busDataService.upsertStops(new ArrayList<>(uniqueStops.values()));
 
-		List<BusRouteStop> newRouteStops = allRouteStops.stream()
-				.filter(rs -> !busDataService.existsRouteStop(rs.getRouteId(), rs.getStopId(), rs.getSeq()))
-				.toList();
-
-		if (!newRouteStops.isEmpty()) {
-			busDataService.saveAllRouteStops(newRouteStops);
+		int synchronizedRouteStops = 0;
+		for (Map.Entry<String, List<BusRouteStop>> entry : routeStopsByRouteId.entrySet()) {
+			busDataService.replaceRouteStops(entry.getKey(), entry.getValue());
+			synchronizedRouteStops += entry.getValue().size();
 		}
 
-		log.info("[StaticData] Stops: {} synchronized, RouteStops: {} new / {} skipped",
-				syncedStops.size(),
-				newRouteStops.size(), allRouteStops.size() - newRouteStops.size());
+		log.info("[StaticData] Stops: {} synchronized, RouteStops: {} synchronized across {} routes",
+				syncedStops.size(), synchronizedRouteStops, routeStopsByRouteId.size());
 	}
 
 	private BusRoute toRouteEntity(BusRouteInfo info) {

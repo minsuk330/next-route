@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineBackfillResult;
 import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineData;
 import watoo.grd.nextroute.application.bus.exception.BusApiLimitExceededException;
 import watoo.grd.nextroute.application.bus.port.in.LoadBusRoutePolylineUseCase;
+import watoo.grd.nextroute.application.bus.port.in.BuildBusRouteSegmentPolylinesUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.domain.bus.service.BusRoutePolylineDataService;
 
@@ -26,21 +27,24 @@ public class BusRoutePolylineBackfillService implements LoadBusRoutePolylineUseC
 
 	private final BusApiPort busApiPort;
 	private final BusRoutePolylineDataService dataService;
+	private final BuildBusRouteSegmentPolylinesUseCase segmentBuilder;
 	private final long requestIntervalMillis;
 
 	public BusRoutePolylineBackfillService(
 			BusApiPort busApiPort,
 			BusRoutePolylineDataService dataService,
-			@Value("${batch.bus-route-polyline.request-interval-ms:200}") long requestIntervalMillis
+			BuildBusRouteSegmentPolylinesUseCase segmentBuilder,
+			@Value("${collector.static-data.bus-route-polyline-request-interval-ms:200}") long requestIntervalMillis
 	) {
 		this.busApiPort = busApiPort;
 		this.dataService = dataService;
+		this.segmentBuilder = segmentBuilder;
 		this.requestIntervalMillis = Math.max(0, requestIntervalMillis);
 	}
 
 	@Override
 	public BusRoutePolylineBackfillResult execute() {
-		List<String> routeIds = dataService.findRouteIdsWithoutPolyline();
+		List<String> routeIds = dataService.findAllRouteIds();
 		int success = 0;
 		int skipped = 0;
 		int empty = 0;
@@ -53,25 +57,20 @@ public class BusRoutePolylineBackfillService implements LoadBusRoutePolylineUseC
 		for (int index = 0; index < routeIds.size(); index++) {
 			String routeId = routeIds.get(index);
 			try {
-				// 대상 조회 후 다른 실행이 먼저 저장한 경우의 중복 API 호출도 피한다.
-				if (dataService.existsByRouteId(routeId)) {
-					skipped++;
+				List<BusRoutePathPoint> rawPoints = busApiPort.getRoutePath(routeId);
+				if (rawPoints.isEmpty()) {
+					empty++;
+					log.warn("[BusRoutePolyline] Empty route path; preserving previous snapshot: routeId={}", routeId);
 				} else {
-					List<BusRoutePathPoint> rawPoints = busApiPort.getRoutePath(routeId);
-					if (rawPoints.isEmpty()) {
-						empty++;
-						log.warn("[BusRoutePolyline] Empty route path: routeId={}", routeId);
+					BusRoutePolylineData data = normalize(rawPoints);
+					if (data.size() < 2) {
+						invalid++;
+						log.warn("[BusRoutePolyline] Invalid route path; preserving previous snapshot: routeId={}, rawPoints={}, validPoints={}",
+								routeId, rawPoints.size(), data.size());
 					} else {
-						BusRoutePolylineData data = normalize(rawPoints);
-						if (data.size() < 2) {
-							invalid++;
-							log.warn("[BusRoutePolyline] Invalid route path: routeId={}, rawPoints={}, validPoints={}",
-									routeId, rawPoints.size(), data.size());
-						} else if (dataService.saveIfAbsent(routeId, data)) {
-							success++;
-						} else {
-							skipped++;
-						}
+						dataService.upsert(routeId, data);
+						segmentBuilder.buildRoute(routeId);
+						success++;
 					}
 				}
 			} catch (BusApiLimitExceededException e) {

@@ -261,7 +261,9 @@ collector:
     flush-cron: "0 */30 * * * *"
     reset-cron: "0 0 5 * * *"
   static-data:
+    enabled: ${STATIC_DATA_ENABLED:true}
     cron: "0 0 3 * * *"
+    bus-route-polyline-request-interval-ms: ${BUS_ROUTE_POLYLINE_REQUEST_INTERVAL_MS:200}
 
 
 # logging / cors 는 application-{dev,prod}.yaml 에서 설정
@@ -277,10 +279,6 @@ realtime:
 
 batch:
   # *.enabled 는 application-{dev,prod}.yaml 에서 설정
-  # 서울시 버스 노선 Polyline 일회성 backfill. 실행할 때만 enabled=true로 올린다.
-  bus-route-polyline:
-    enabled: ${BUS_ROUTE_POLYLINE_BACKFILL_ENABLED:false}
-    request-interval-ms: ${BUS_ROUTE_POLYLINE_REQUEST_INTERVAL_MS:200}
   inferred-completion:
     line-ids: "1002,1005,1006,1007"
     dedup-window-minutes: 5

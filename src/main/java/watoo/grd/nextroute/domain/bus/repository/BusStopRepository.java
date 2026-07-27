@@ -8,6 +8,7 @@ import watoo.grd.nextroute.domain.bus.entity.BusStop;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 public interface BusStopRepository extends JpaRepository<BusStop, Long> {
 
@@ -16,6 +17,8 @@ public interface BusStopRepository extends JpaRepository<BusStop, Long> {
 	Optional<BusStop> findByArsId(String arsId);
 
 	boolean existsByStopId(String stopId);
+
+	List<BusStop> findByStopIdIn(Collection<String> stopIds);
 
 	/** 정류장명 prefix 자동완성 (와일드카드 이스케이프는 Spring Data가 처리). */
 	List<BusStop> findTop20ByStopNameStartingWithOrderByStopName(String stopName);
