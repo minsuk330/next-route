@@ -32,7 +32,7 @@ public class BusRouteStop extends BaseEntity {
 	/** 구간 ID (두 정류소 사이 구간 식별자) */
 	private String sectionId;
 
-	/** 이전 정류소부터의 구간 거리 (km) */
+	/** 이전 정류소부터의 구간 거리 (m, 첫 정류장은 0) */
 	private Double sectionDistance;
 
 	/** 방향 (예: "양천공영차고지방면") */
@@ -82,5 +82,18 @@ public class BusRouteStop extends BaseEntity {
 		this.lastTm = lastTm;
 		this.turnStopId = turnStopId;
 		this.sectionSpeed = sectionSpeed;
+	}
+
+	public void refresh(BusRouteStop source) {
+		this.stopId = source.stopId;
+		this.sectionId = source.sectionId;
+		this.sectionDistance = source.sectionDistance;
+		this.direction = source.direction;
+		this.transferYn = source.transferYn;
+		this.stationNo = source.stationNo;
+		this.beginTm = source.beginTm;
+		this.lastTm = source.lastTm;
+		this.turnStopId = source.turnStopId;
+		this.sectionSpeed = source.sectionSpeed;
 	}
 }

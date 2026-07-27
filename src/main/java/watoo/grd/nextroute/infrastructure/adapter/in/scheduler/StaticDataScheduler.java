@@ -6,12 +6,14 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import watoo.grd.nextroute.application.bus.port.in.LoadBusStaticDataUseCase;
 import watoo.grd.nextroute.application.subway.port.in.LoadSubwayStaticDataUseCase;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@ConditionalOnProperty(prefix = "collector.static-data", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class StaticDataScheduler {
 
 	private final LoadBusStaticDataUseCase loadBusStaticData;

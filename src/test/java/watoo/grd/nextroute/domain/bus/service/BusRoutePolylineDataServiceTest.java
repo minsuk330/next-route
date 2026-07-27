@@ -15,8 +15,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -37,13 +39,13 @@ class BusRoutePolylineDataServiceTest {
 
 	@Test
 	void TC_JSONB용_좌표와_pointCount를_저장한다() throws Exception {
-		when(repository.existsByRouteId("route-1")).thenReturn(false);
+		when(repository.findByRouteId("route-1")).thenReturn(Optional.empty());
 		BusRoutePolylineData data = new BusRoutePolylineData(List.of(
 				new BusRoutePolylineData.Point(126.8, 37.5),
 				new BusRoutePolylineData.Point(126.9, 37.6)
 		));
 
-		assertThat(service.saveIfAbsent("route-1", data)).isTrue();
+		service.upsert("route-1", data);
 
 		ArgumentCaptor<BusRoutePolyline> entityCaptor = ArgumentCaptor.forClass(BusRoutePolyline.class);
 		verify(repository).save(entityCaptor.capture());
@@ -55,12 +57,31 @@ class BusRoutePolylineDataServiceTest {
 	}
 
 	@Test
-	void TC_이미_저장된_routeId면_중복_INSERT하지_않는다() {
-		when(repository.existsByRouteId("route-1")).thenReturn(true);
-
-		boolean saved = service.saveIfAbsent("route-1", new BusRoutePolylineData(List.of()));
-
-		assertThat(saved).isFalse();
+	void TC_유효한_좌표가_2개_미만이면_갱신하지_않는다() {
+		assertThatThrownBy(() -> service.upsert("route-1", new BusRoutePolylineData(List.of())))
+				.isInstanceOf(IllegalArgumentException.class);
 		verify(repository, never()).save(any());
+	}
+
+	@Test
+	void TC_upsert는_기존_Polyline과_수집시각을_갱신한다() {
+		BusRoutePolyline existing = BusRoutePolyline.builder()
+				.routeId("route-1")
+				.pointCount(2)
+				.polyline("{\"points\":[{\"x\":126.0,\"y\":37.0},{\"x\":126.1,\"y\":37.1}]}")
+				.source("SEOUL_BUS")
+				.fetchedAt(java.time.OffsetDateTime.parse("2026-07-21T00:00:00Z"))
+				.build();
+		when(repository.findByRouteId("route-1")).thenReturn(Optional.of(existing));
+		BusRoutePolylineData refreshed = new BusRoutePolylineData(List.of(
+				new BusRoutePolylineData.Point(126.8, 37.5),
+				new BusRoutePolylineData.Point(126.9, 37.6),
+				new BusRoutePolylineData.Point(127.0, 37.7)));
+
+		service.upsert("route-1", refreshed);
+
+		assertThat(existing.getPointCount()).isEqualTo(3);
+		assertThat(existing.getFetchedAt()).isEqualTo("2026-07-22T01:00:00Z");
+		verify(repository).save(existing);
 	}
 }

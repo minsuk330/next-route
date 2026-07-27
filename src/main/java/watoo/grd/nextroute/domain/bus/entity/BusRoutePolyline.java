@@ -48,4 +48,11 @@ public class BusRoutePolyline extends BaseEntity {
 		this.source = source;
 		this.fetchedAt = fetchedAt;
 	}
+
+	public void refresh(Integer pointCount, String polyline, String source, OffsetDateTime fetchedAt) {
+		this.pointCount = pointCount;
+		this.polyline = polyline;
+		this.source = source;
+		this.fetchedAt = fetchedAt;
+	}
 }
