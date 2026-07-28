@@ -48,7 +48,7 @@ class TossAuthSecurityTest {
 
     @Test
     void logout_withValidToken_returns204() throws Exception {
-        given(jwtProvider.parseUserId("good")).willReturn(55L);
+        given(jwtProvider.parseAccessUserId("good")).willReturn(55L);
 
         mockMvc.perform(post("/api/auth/toss/logout")
                         .header("Authorization", "Bearer good"))

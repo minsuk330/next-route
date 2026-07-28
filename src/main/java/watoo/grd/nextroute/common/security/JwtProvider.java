@@ -48,16 +48,26 @@ public class JwtProvider {
                 .compact();
     }
 
-    /** 유효한 토큰이면 userId 반환. 만료/위조 시 JwtException. */
-    public long parseUserId(String token) {
-        return Long.parseLong(parse(token).getSubject());
+    /**
+     * access 토큰인지 검증하고 userId 반환. 만료/위조/타입 불일치 시 JwtException.
+     *
+     * <p>타입 검사가 없으면 refresh 토큰을 {@code Authorization: Bearer} 로 보내
+     * 보호된 API 를 호출할 수 있다. access 는 1시간, refresh 는 14일이므로
+     * 짧은 access 수명이 무의미해진다. API 인증 경로는 반드시 이 메서드만 쓴다.
+     */
+    public long parseAccessUserId(String token) {
+        return parseTyped(token, TYPE_ACCESS, "access 토큰이 아님");
     }
 
     /** refresh 토큰인지 검증하고 userId 반환. */
     public long parseRefreshUserId(String token) {
+        return parseTyped(token, TYPE_REFRESH, "refresh 토큰이 아님");
+    }
+
+    private long parseTyped(String token, String expectedType, String message) {
         Claims claims = parse(token);
-        if (!TYPE_REFRESH.equals(claims.get(CLAIM_TYPE, String.class))) {
-            throw new JwtException("refresh 토큰이 아님");
+        if (!expectedType.equals(claims.get(CLAIM_TYPE, String.class))) {
+            throw new JwtException(message);
         }
         return Long.parseLong(claims.getSubject());
     }
