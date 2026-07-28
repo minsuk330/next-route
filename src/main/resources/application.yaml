@@ -90,6 +90,12 @@ route:
         max-size: ${ROUTE_SEARCH_HISTORY_MAX:4}
         queue-capacity: ${ROUTE_SEARCH_HISTORY_QUEUE:500}
 
+  # 검색 결과 스냅샷(여정 시작이 searchSessionId+pathKey 만 받게 하려는 준비).
+  # 저장은 best-effort — 실패해도 검색은 200 이고 meta.degraded 에 journey_snapshot 만 남는다.
+  snapshot:
+    enabled: ${ROUTE_SNAPSHOT_ENABLED:true}
+    ttl-seconds: ${ROUTE_SNAPSHOT_TTL_SECONDS:600}
+
 transfer:
   predict:
     deadline-ms: ${TRANSFER_PREDICT_DEADLINE_MS:2500}

@@ -15,6 +15,7 @@ import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.exception.OdSayApiException;
 import watoo.grd.nextroute.application.route.port.in.RecordSearchHistoryUseCase;
 import watoo.grd.nextroute.application.route.port.in.SearchRouteUseCase;
+import watoo.grd.nextroute.application.route.service.RouteSearchSnapshotRecorder;
 
 import java.util.Map;
 
@@ -26,16 +27,21 @@ public class RouteSearchController {
 
     private final SearchRouteUseCase searchRouteUseCase;
     private final RecordSearchHistoryUseCase recordSearchHistoryUseCase;
+    private final RouteSearchSnapshotRecorder snapshotRecorder;
 
     /**
      * 공용 엔드포인트 유지 + optional auth. JWT 가 있으면 {@code userId} 가 채워지고(로그인),
      * 익명 요청은 null 이다. 로그인 사용자에 한해 검색 이력을 비동기로 기록한다(응답 지연 없음).
+     *
+     * <p>스냅샷 부착은 {@code RouteSearchService} 내부가 아니라 여기서 한다. {@code withMeta} 와 같은 자리라
+     * 내부 중간 결과나 다른 호출부(알림 소요시간 추정 등)를 오염시키지 않는다.
      */
     @GetMapping("/search")
     public ResponseEntity<RouteSearchResult> search(
             @AuthenticationPrincipal Long userId,
             @Valid RouteSearchRequest request) {
         RouteSearchResult result = searchRouteUseCase.search(request);
+        result = snapshotRecorder.attach(userId, result);
         if (userId != null) {
             recordSearchHistoryUseCase.record(userId, request, result);
         }
