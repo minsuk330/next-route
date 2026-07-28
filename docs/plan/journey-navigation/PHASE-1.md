@@ -78,4 +78,4 @@ L 두 건은 착수 전 codex 논의를 거치고 구현은 세션을 분리한�
 | D14 | 토큰 폐기 방식 | 사용자 토큰 세대 번호 | journey-auth-oauth §5.8 |
 | D15 | 이관 배포 방식 | 짧은 인증 정지 창 + 개수 대조 | journey-auth-oauth §6.1 |
 | D16 | 토스 신원 없는 사용자의 알림 API | `422` 로 거절, Phase 5 에서 해제 | journey-auth-oauth §5.10 |
-| D17 | 기존 토스 사용자의 앱 전환 | **미정** — 연결 플로우 vs 전환 불가 정책 | journey-auth-oauth §9 |
+| D17 | 기존 토스 사용자의 앱 전환 | **전환 불가 — 별개 계정을 제품 정책으로 확정** | journey-auth-oauth §5.11 |
