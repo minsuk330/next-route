@@ -21,7 +21,9 @@ class OAuthProviderPropertiesTest {
         props.getApple().setJwkSetUri("https://appleid.apple.com/auth/keys");
         props.getApple().setIssuer("https://appleid.apple.com");
         props.getApple().setAudiences(appleAudiences);
+        props.getKakao().setTokenInfoUri("https://kapi.kakao.com/v1/user/access_token_info");
         props.getKakao().setUserInfoUri("https://kapi.kakao.com/v2/user/me");
+        props.getKakao().setAppId(123456L);
         return props;
     }
 
@@ -52,6 +54,28 @@ class OAuthProviderPropertiesTest {
     void nullAudiences_failsStartup() {
         assertThatThrownBy(() -> properties(null).validate())
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("카카오 앱 식별자가 없으면 기동을 막는다 — 없으면 다른 앱 토큰도 통과한다")
+    void missingKakaoAppId_failsStartup() {
+        OAuthProviderProperties props = properties(List.of("com.golbob.nextroute"));
+        props.getKakao().setAppId(null);
+
+        assertThatThrownBy(props::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("oauth.kakao.app-id");
+    }
+
+    @Test
+    @DisplayName("카카오 토큰정보 주소가 비면 기동을 막는다")
+    void blankKakaoTokenInfoUri_failsStartup() {
+        OAuthProviderProperties props = properties(List.of("com.golbob.nextroute"));
+        props.getKakao().setTokenInfoUri("  ");
+
+        assertThatThrownBy(props::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("oauth.kakao.token-info-uri");
     }
 
     @Test

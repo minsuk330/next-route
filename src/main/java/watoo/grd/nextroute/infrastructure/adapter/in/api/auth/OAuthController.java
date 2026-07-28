@@ -51,14 +51,15 @@ public class OAuthController {
 
     /** 처음 보는 신원이면 가입까지 겸한다. */
     @PostMapping("/login")
-    public ResponseEntity<OAuthLoginResponse> login(@Valid @RequestBody OAuthLoginRequest request) {
+    public ResponseEntity<OAuthLoginResponse> login(
+        @Valid @RequestBody OAuthLoginRequest request
+    ){
         var result = oAuthLoginUseCase.login(new OAuthCredential(
                 request.getProvider(), request.getCredential(),
                 request.getNonce(), request.getDisplayName()));
         return ResponseEntity.ok(OAuthLoginResponse.from(result));
     }
 
-    /** 어느 항목이 틀렸는지는 응답에 싣지 않는다. 공격자에게 힌트가 된다. */
     @ExceptionHandler(OAuthVerificationException.class)
     public ResponseEntity<Map<String, Object>> handleVerification(OAuthVerificationException e) {
         return error(HttpStatus.UNAUTHORIZED, "OAUTH_VERIFICATION_FAILED", "로그인 검증에 실패했다");

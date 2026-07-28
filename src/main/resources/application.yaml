@@ -204,7 +204,10 @@ oauth:
     issuer: ${OAUTH_APPLE_ISSUER:https://appleid.apple.com}
     audiences: ${OAUTH_APPLE_AUDIENCES:}
   kakao:
+    # 토큰이 우리 앱을 위해 발급됐는지 확인한다(애플의 aud 검사에 해당).
+    token-info-uri: ${OAUTH_KAKAO_TOKEN_INFO_URI:https://kapi.kakao.com/v1/user/access_token_info}
     user-info-uri: ${OAUTH_KAKAO_USER_INFO_URI:https://kapi.kakao.com/v2/user/me}
+    app-id: ${OAUTH_KAKAO_APP_ID:}
   # 애플 일회용 값(challenge) 보관 시간. 서버가 발급하고 로그인 때 한 번만 소비한다.
   challenge:
     ttl-seconds: ${OAUTH_CHALLENGE_TTL_SECONDS:300}
