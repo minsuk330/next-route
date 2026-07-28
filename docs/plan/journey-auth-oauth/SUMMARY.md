@@ -2,7 +2,7 @@
 
 ## 뭘 하나
 
-로그인 수단을 담는 `auth_identity` 테이블을 새로 만들고, 애플·구글·카카오 로그인을 연다.
+로그인 수단을 담는 `auth_identity` 테이블을 새로 만들고, 애플·카카오 로그인을 연다.
 토스는 여러 수단 중 하나로 내려가고 앱에서는 고를 수 없다(미니앱 전용). 여기에 codex 리뷰로 드러난 기존 토큰 취약점 두 건을 같이 고친다. 회원 탈퇴는 별도 작업.
 
 ## 왜
@@ -18,7 +18,8 @@
 - **애플 일회용 값을 서버가 발급·1회 소비** — 앱이 만든 값을 되돌려받는 방식은 재전송을 못 막음
 - 이메일이 같아도 다른 회사면 **별개 계정**. 애플 이름은 토큰에 없으므로 앱이 별도로 넘기고 표시용으로만 저장
 - **미니앱 계정과 앱 계정은 합치지 않는다** — 결함이 아니라 확정된 제품 정책. 연결 플로우 자체가 계정 탈취 표면이 됨
-- **계정당 앱 로그인 하나** (애플/구글/카카오 중 택1). 토스만 예외로 공존. DB 규칙으로 강제
+- **계정당 앱 로그인 하나** (애플/카카오 중 택1). 토스만 예외로 공존. DB 규칙으로 강제
+- **구글 제외.** Android 는 사실상 카카오만 쓰게 되는 걸 감수. 필요해지면 enum 값 하나 + 검증기 하나 + CHECK 제약 확장으로 복구
 - **마이그레이션 실행 주체는 Flyway 하나.** "VPS 수동 적용"은 git 추적과 실행을 혼동한 메모였음
 - 토스 신원 없는 사용자는 알림 API 를 `422` 로 거절. 발송 코드가 토스 번호를 언박싱해서 터짐
 
@@ -28,7 +29,7 @@
 `domain/user/entity/User.java` (nullable 완화), `domain/auth/` (AuthIdentity, AuthProvider, repository)
 `common/security/` (JwtProvider, JwtAuthFilter — 토큰 종류·세대 번호)
 `application/auth/` (OAuthLoginService, AccountService, OAuthProviderProperties, TossLoginService, nonce challenge)
-`infrastructure/adapter/out/auth/` (애플·구글·카카오 검증기, JwkDecoderFactory)
+`infrastructure/adapter/out/auth/` (애플·카카오 검증기, JwkDecoderFactory)
 `infrastructure/adapter/in/api/auth/` (OAuthController, AccountController)
 알림 발송 2곳 (`BusAlertDispatchService`, `RouteAlertDispatchStateService` — 언박싱 방어)
 
@@ -37,8 +38,8 @@
 - 이관 직후 구버전이 만든 사용자가 신분증 없이 남음 → 인증 쓰기를 잠깐 멈추고 이관, 개수 대조로 확인
 - `NOT NULL` 을 풀었는데 `User` 엔티티를 안 고치면 첫 OAuth 가입이 실패 → 같은 변경 단위에 포함
 - 토큰 세대 번호가 요청마다 DB 조회를 늘림 → Redis 캐싱, 부하 측정 후 결정
-- 애플·구글·카카오 자격증명 미확보 시 검증 불가 → 착수 전 선행 조건
+- 애플·카카오 자격증명은 나중에 발급 예정. env placeholder 로 진행하며 단위 테스트는 자체 키·MockWebServer 라 영향 없음. 실기기 로그인 확인만 뒤로 밀림
 
 ## 검증법
 
-검증기 거부 매트릭스(도장 위조·다른 앱용·`azp` 불일치·발급처·기간·일회용 값·빈 사용자 번호), refresh 토큰이 API 에서 거부되는지, 일회용 값이 두 번째에 거부되는지, 동시 로그인 두 건이 모두 성공하고 사용자는 하나인지, 지운 사용자가 이관에서 빠지는지와 개수 대조, 실기기 3사 로그인, 기존 전체 테스트 회귀 없음.
+검증기 거부 매트릭스(도장 위조·다른 앱용·발급처·기간·일회용 값·빈 사용자 번호), refresh 토큰이 API 에서 거부되는지, 일회용 값이 두 번째에 거부되는지, 동시 로그인 두 건이 모두 성공하고 사용자는 하나인지, 지운 사용자가 이관에서 빠지는지와 개수 대조, 실기기 2사 로그인(자격증명 확보 후), 기존 전체 테스트 회귀 없음.

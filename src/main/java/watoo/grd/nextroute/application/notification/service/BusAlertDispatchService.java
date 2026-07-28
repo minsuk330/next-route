@@ -113,7 +113,14 @@ public class BusAlertDispatchService {
         if (target == null || target > properties.getThresholdSeconds()) {
             return; // userEta 이후 버스 없음 or 아직 임계 밖
         }
-        long userKey = alert.getUser().getTossUserKey();
+        // 발송 채널이 토스뿐이라 토스 신원이 없으면 보낼 수단이 없다. 언박싱 전에 막는다.
+        // (구독 생성 API 가 이미 거절하지만, V33 이전에 만들어진 구독이 남아 있을 수 있다.)
+        Long tossUserKey = alert.getUser().getTossUserKey();
+        if (tossUserKey == null) {
+            log.warn("[BusAlert] 토스 신원이 없는 사용자의 구독 — 발송을 건너뛴다: alertId={}", alert.getId());
+            return;
+        }
+        long userKey = tossUserKey;
         if (enqueuedPerUser.getOrDefault(userKey, 0) >= properties. getPerUserCycleCap()) {
             return; // 다음 사이클로
         }

@@ -10,6 +10,7 @@ spring:
       - optional:file:./env/api.env[.properties]
       - optional:file:./env/toss.env[.properties]
       - optional:file:./env/auth.env[.properties]
+      - optional:file:./env/oauth.env[.properties]
   application:
     name: nextroute
   task:
@@ -194,6 +195,19 @@ auth:
   admin:
     # /api/admin/** 보호 시크릿. 공백이면 admin 전부 401(fail-closed). ops가 X-Admin-Key 헤더로 인증.
     api-key: ${ADMIN_API_KEY:}
+
+# 앱 OAuth provider. 값은 env/oauth.env 로 주입한다(env/oauth.env.example 참고).
+# audiences 가 비면 부팅을 막는다 — 빈 목록이 "전부 통과"로 동작하면 검증이 없는 것과 같다.
+oauth:
+  apple:
+    jwk-set-uri: ${OAUTH_APPLE_JWK_SET_URI:https://appleid.apple.com/auth/keys}
+    issuer: ${OAUTH_APPLE_ISSUER:https://appleid.apple.com}
+    audiences: ${OAUTH_APPLE_AUDIENCES:}
+  kakao:
+    user-info-uri: ${OAUTH_KAKAO_USER_INFO_URI:https://kapi.kakao.com/v2/user/me}
+  # 애플 일회용 값(challenge) 보관 시간. 서버가 발급하고 로그인 때 한 번만 소비한다.
+  challenge:
+    ttl-seconds: ${OAUTH_CHALLENGE_TTL_SECONDS:300}
 
 
 

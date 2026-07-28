@@ -81,7 +81,13 @@ public class RouteAlertDispatchStateService {
 
         // context 를 원자 claim 전에 구성(bulk update 가 영속성 컨텍스트를 비우므로 lazy 접근 먼저).
         RouteNotificationType type = n.getType();
-        long userKey = alert.getUser().getTossUserKey();
+        // 발송 채널이 토스뿐이라 토스 신원이 없으면 보낼 수단이 없다. 언박싱 전에 막는다.
+        Long tossUserKey = alert.getUser().getTossUserKey();
+        if (tossUserKey == null) {
+            log.warn("[RouteAlert] 토스 신원이 없는 사용자의 구독 — 발송을 건너뛴다: alertId={}", alert.getId());
+            return Optional.empty();
+        }
+        long userKey = tossUserKey;
         Map<String, Object> context = buildContext(alert, n);
 
         // 원자 claim(PENDING→PROCESSING). 동시 dispatcher 가 있어도 단일 승자만 발송.

@@ -26,7 +26,7 @@ CLAUDE.md 의 L 판별 기준 — ①diff 모양이 미리 안 그려짐 ②스�
 
 | 슬러그 | 티어 | 근거 |
 |---|---|---|
-| journey-auth-oauth | L | 신원 모델 전환(②) + 계정 병합 정책 논쟁(④) + provider 3사 검증 설계 |
+| journey-auth-oauth | L | 신원 모델 전환(②) + 계정 병합 정책 논쟁(④) + provider 2사 검증 설계 |
 | journey-route-snapshot | M | 포트/어댑터 1쌍 + 응답 필드 추가. 단일 관심사 |
 | journey-persistence | L | 새 모듈 경계 신설(②) + 5테이블 + 컴파일 규칙 설계 여지(④) |
 
@@ -47,7 +47,7 @@ L 두 건은 착수 전 codex 논의를 거치고 구현은 세션을 분리한�
 
 - [ ] PR 3건 순차 머지
 - [ ] VPS 에 V33·V34 적용
-- [ ] Apple·Google·Kakao 로 가입한 계정이 `POST /api/journeys` 를 통과
+- [ ] 애플·카카오로 가입한 계정이 `POST /api/journeys` 를 통과
 - [ ] 기존 토스 미니앱 로그인 회귀 없음
 - [ ] 기존 경로 검색·즐겨찾기·알림 API p95 회귀 없음
 
@@ -65,7 +65,7 @@ L 두 건은 착수 전 codex 논의를 거치고 구현은 세션을 분리한�
 | # | 결정 | 상태 | 근거 위치 |
 |---|---|---|---|
 | D1 | 다중 provider OAuth 도입 | **확정** — 토스는 미니앱 전용 채널로 격하 | journey-auth-oauth §1 |
-| D2 | 지원 provider 범위 | 기본안 Apple·Google·Kakao | journey-auth-oauth §8 |
+| D2 | 지원 provider 범위 | **애플·카카오만.** 구글 제외 | journey-auth-oauth §3.3 |
 | D3 | 스냅샷 TTL 600초 | 기본안 | journey-route-snapshot §7 |
 | D4 | 익명 검색 스냅샷으로 Journey 시작 허용 | 허용 | journey-route-snapshot §4.2 |
 | D13 | 스냅샷 크기 줄이기(폴리라인 제외 등) | **1차 미적용** — 통째로 저장하고 측정 후 재검토 | journey-route-snapshot §4.1.1 |

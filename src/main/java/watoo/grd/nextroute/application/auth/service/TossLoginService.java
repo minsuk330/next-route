@@ -10,7 +10,10 @@ import watoo.grd.nextroute.application.auth.exception.TossLoginException;
 import watoo.grd.nextroute.application.auth.port.in.TossLoginUseCase;
 import watoo.grd.nextroute.application.auth.port.out.TossLoginPort;
 import watoo.grd.nextroute.common.security.JwtProvider;
+import watoo.grd.nextroute.domain.auth.entity.AuthIdentity;
+import watoo.grd.nextroute.domain.auth.entity.AuthProvider;
 import watoo.grd.nextroute.domain.auth.entity.TossUserToken;
+import watoo.grd.nextroute.domain.auth.repository.AuthIdentityRepository;
 import watoo.grd.nextroute.domain.auth.repository.TossUserTokenRepository;
 import watoo.grd.nextroute.domain.user.entity.User;
 import watoo.grd.nextroute.domain.user.repository.UserRepository;
@@ -28,6 +31,7 @@ public class TossLoginService implements TossLoginUseCase {
 
     private final TossLoginPort tossLoginPort;
     private final UserRepository userRepository;
+    private final AuthIdentityRepository authIdentityRepository;
     private final TossUserTokenRepository tossUserTokenRepository;
     private final JwtProvider jwtProvider;
 
@@ -87,10 +91,32 @@ public class TossLoginService implements TossLoginUseCase {
 
     // ---- helpers ----
 
+    /**
+     * 토스 신원으로 사용자를 찾거나 만든다.
+     *
+     * <p>V33 이후 신원 조회의 기준은 {@code auth_identity} 다. {@code users.toss_user_key} 는
+     * 연결끊기 콜백 경로가 아직 쓰는 레거시 미러라 계속 채우되, 찾을 때는 보지 않는다.
+     *
+     * <p>지운 표시가 된 신분증은 조회에서 빠진다. 이 저장소는 자동 필터 장치를 쓰지 않으므로
+     * 메서드 이름에 조건이 들어가 있다.
+     */
     private User upsertUser(long tossUserKey) {
-        return userRepository.findByTossUserKey(tossUserKey)
-                .orElseGet(() -> userRepository.saveAndFlush(
-                        User.builder().tossUserKey(tossUserKey).build()));
+        String subject = String.valueOf(tossUserKey);
+        return authIdentityRepository
+                .findByProviderAndProviderSubjectAndDeletedAtIsNull(AuthProvider.TOSS, subject)
+                .flatMap(identity -> userRepository.findById(identity.getUserId()))
+                .orElseGet(() -> createUserWithTossIdentity(tossUserKey, subject));
+    }
+
+    private User createUserWithTossIdentity(long tossUserKey, String subject) {
+        User user = userRepository.saveAndFlush(User.builder().tossUserKey(tossUserKey).build());
+        authIdentityRepository.save(AuthIdentity.builder()
+                .userId(user.getId())
+                .provider(AuthProvider.TOSS)
+                .providerSubject(subject)
+                .linkedAt(LocalDateTime.now())
+                .build());
+        return user;
     }
 
     private void storeTossToken(long userKey, TossLoginPort.TossToken token) {

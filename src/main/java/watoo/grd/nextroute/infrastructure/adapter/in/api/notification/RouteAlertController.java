@@ -1,5 +1,8 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.notification;
 
+import java.util.Map;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import watoo.grd.nextroute.application.notification.exception.TossIdentityRequiredException;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -79,5 +82,17 @@ public class RouteAlertController {
     @ExceptionHandler(ScheduleNotEditableException.class)
     public ResponseEntity<Void> handleConflict() {
         return ResponseEntity.status(HttpStatus.CONFLICT).build();
+    }
+
+    /**
+     * 알림 발송 채널이 토스뿐이라 토스 신원이 없으면 구독을 만들 수 없다(Phase 5 FCM 도입 시 해제).
+     * 400 이 아니라 422 인 이유는 요청 형식은 맞고 계정 상태가 조건을 못 채운 것이기 때문이다.
+     */
+    @ExceptionHandler(TossIdentityRequiredException.class)
+    public ResponseEntity<Map<String, Object>> handleTossIdentityRequired(TossIdentityRequiredException e) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                "error", true,
+                "code", "TOSS_IDENTITY_REQUIRED",
+                "message", e.getMessage()));
     }
 }
