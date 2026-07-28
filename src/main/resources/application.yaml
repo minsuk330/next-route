@@ -9,6 +9,7 @@ spring:
       - optional:file:./env/db.env[.properties]
       - optional:file:./env/api.env[.properties]
       - optional:file:./env/toss.env[.properties]
+      - optional:file:./env/auth.env[.properties]
   application:
     name: nextroute
   task:
@@ -179,7 +180,8 @@ notification:
 
 auth:
   jwt:
-    secret: ${AUTH_JWT_SECRET:change-me-this-is-a-dev-only-jwt-secret-please-override}
+    # 기본값을 두지 않는다. 없으면 부팅 시 명시적으로 실패한다(env/auth.env.example 참고).
+    secret: ${AUTH_JWT_SECRET:}
     issuer: ${AUTH_JWT_ISSUER:nextroute}
     access-ttl-seconds: ${AUTH_JWT_ACCESS_TTL:3600}
     refresh-ttl-seconds: ${AUTH_JWT_REFRESH_TTL:1209600}
