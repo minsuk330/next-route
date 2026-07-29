@@ -1,0 +1,12 @@
+.git
+.gradle
+.idea
+.env
+logs
+ml
+src
+env
+docs
+ops
+*.md
+!build/libs/nextroute-0.0.1-SNAPSHOT.jar

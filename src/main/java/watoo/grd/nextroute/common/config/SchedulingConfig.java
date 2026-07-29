@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 /**
@@ -41,6 +42,7 @@ public class SchedulingConfig {
      * <p>종료 시 진행 중 relay 발송 유실을 막기 위해 graceful shutdown(최대 20s 대기)을 켠다.
      */
     @Bean("notificationTaskScheduler")
+    @Profile("worker")
     public ThreadPoolTaskScheduler notificationTaskScheduler(
             @Value("${notification.scheduler.pool-size:2}") int poolSize) {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();

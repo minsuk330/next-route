@@ -1,4 +1,4 @@
-# 관측 스택 — nextroute app 배포(/root/apps/nextroute)와 분리된 별도 compose 프로젝트.
+# 관측 스택 — nextroute API/Worker 배포(/root/apps/nextroute)와 분리된 별도 compose 프로젝트.
 # VPS 배포: /root/apps/observability/ 로 복사 후 `docker compose up -d`.
 # 이미지 태그는 도입 시점 안정 버전으로 고정 — 업그레이드는 의도적으로만.
 services:
@@ -98,7 +98,7 @@ services:
       - tempo-data:/var/tempo
     networks:
       - default
-      - nextroute   # app이 nextroute_default 경유로 OTLP(4317) 전송
+      - nextroute   # API/Worker가 nextroute_default 경유로 OTLP 전송
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3200/ready || exit 1"]
       interval: 15s
@@ -108,7 +108,7 @@ services:
     logging: *logrotate
 
 networks:
-  # nextroute app이 속한 네트워크에 연결 → prometheus가 app:8081 스크랩.
+  # nextroute 서비스가 속한 네트워크에 연결 → Prometheus가 api/worker:8081 스크랩.
   # 실제 네트워크 이름은 `docker network ls | grep nextroute`로 확인 후 맞출 것.
   nextroute:
     external: true

@@ -2,9 +2,6 @@ package watoo.grd.nextroute.application.route.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.route.port.out.MlSupportedRoutesPort;
 
@@ -31,14 +28,7 @@ public class PredictionSupportService {
     /** 노선의 모델 지원 상태. 캐시 미적재(serving 미기동/장애) 시 UNKNOWN. */
     public enum Support { SUPPORTED, UNSUPPORTED, UNKNOWN }
 
-    @EventListener(ApplicationReadyEvent.class)
-    public void onReady() {
-        refresh();
-    }
-
-    /** 모델 지원 노선 목록 주기 갱신 (1시간). serving 불가 시 직전 캐시 유지. */
-    @Scheduled(fixedDelayString = "${ml.predictor.supported-routes-refresh-ms:3600000}",
-            initialDelayString = "${ml.predictor.supported-routes-refresh-ms:3600000}")
+    /** 경로 검색을 수행하는 각 역할의 {@link PredictionSupportRefreshScheduler}가 호출한다. */
     public void refresh() {
         supportedRoutesPort.fetchSupportedRouteIds().ifPresentOrElse(
                 routeIds -> {

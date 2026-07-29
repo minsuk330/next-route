@@ -2,7 +2,6 @@ package watoo.grd.nextroute.application.route.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.route.config.KmaWeatherProperties;
 import watoo.grd.nextroute.application.route.port.out.WeatherPort;
@@ -29,9 +28,8 @@ public class WeatherSnapshotService {
         return cached;
     }
 
-    // initialDelay=0 → 부팅 직후 1회, 이후 pollMs 간격. enabled=false면 port가 empty 반환.
-    @Scheduled(initialDelayString = "0", fixedDelayString = "${kma.weather.poll-ms:600000}")
-    void refresh() {
+    /** 경로 검색을 수행하는 각 역할의 {@link WeatherSnapshotRefreshScheduler}가 호출한다. */
+    public void refresh() {
         if (!props.isEnabled()) return;
         weatherPort.fetchCurrent().ifPresentOrElse(
                 features -> {

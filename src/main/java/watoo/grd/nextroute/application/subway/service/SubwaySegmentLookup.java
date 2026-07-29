@@ -3,7 +3,6 @@ package watoo.grd.nextroute.application.subway.service;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.domain.subway.entity.SubwaySegment;
 import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
@@ -28,8 +27,7 @@ public class SubwaySegmentLookup {
         reload();
     }
 
-    /** Daily reload at 03:00 KST */
-    @Scheduled(cron = "0 0 3 * * *")
+    /** 기동 시 적재 및 Worker 역할의 일일 갱신에서 호출한다. */
     public void reload() {
         List<SubwaySegment> segments = subwayDataService.findAllSegments();
         Map<String, Double> newMap = new HashMap<>();

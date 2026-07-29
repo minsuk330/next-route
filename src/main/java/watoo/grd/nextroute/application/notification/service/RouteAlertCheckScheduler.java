@@ -3,6 +3,7 @@ package watoo.grd.nextroute.application.notification.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.domain.notification.entity.RouteAlertStatus;
@@ -22,6 +23,7 @@ import java.util.Set;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@Profile("worker")
 @ConditionalOnProperty(prefix = "notification.route-arrival", name = "scheduler-enabled", havingValue = "true")
 public class RouteAlertCheckScheduler {
 
