@@ -48,7 +48,10 @@ ensure_state() {
 new_image_tag() {
   local timestamp revision
   timestamp=$(date +%Y%m%d-%H%M%S)
-  revision=$(git rev-parse --short HEAD 2>/dev/null || printf 'manual')
+  revision="${DEPLOY_REVISION:-}"
+  if [ -z "${revision}" ]; then
+    revision=$(git rev-parse --short HEAD 2>/dev/null || printf 'manual')
+  fi
   printf 'nextroute:%s-%s' "${timestamp}" "${revision}"
 }
 
