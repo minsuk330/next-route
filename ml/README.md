@@ -313,9 +313,9 @@ dataset cache는 재생성 가능하므로 기본 최근 7일만 보존한다.
 
 ## VPS Operations
 
-VPS에서는 `postgres`, `redis`, `app`, `nextroute-ml` compose 서비스가 같이 배포된다. `nextroute-ml` 서비스는 상시 기동하지 않고 host crontab이 `docker compose run --rm nextroute-ml ...`로 일회성 실행한다.
+VPS에서는 `postgres`, `redis`, `api`, `worker`, `nextroute-ml` compose 서비스가 같이 배포된다. `nextroute-ml` 서비스는 상시 기동하지 않고 host crontab이 `docker compose -f compose.yaml run --rm nextroute-ml ...`로 일회성 실행한다.
 
-`nextroute-ml` 이미지는 VPS에서 직접 빌드하지 않는다. `ml/**`가 main에 push되면 `.github/workflows/ml-image.yml`이 `ghcr.io/<owner>/nextroute-ml:latest`(+`:sha`)를 빌드해 GHCR에 push하고, VPS는 `docker compose pull nextroute-ml`로 받는다. 코드 변경 시 VPS에서 수동 빌드/동기화가 필요 없다.
+`nextroute-ml` 이미지는 VPS에서 직접 빌드하지 않는다. `ml/**`가 main에 push되면 `.github/workflows/ml-image.yml`이 `ghcr.io/<owner>/nextroute-ml:latest`(+`:sha`)를 빌드해 GHCR에 push하고, VPS는 `docker compose -f compose.yaml pull nextroute-ml`로 받는다. 코드 변경 시 VPS에서 수동 빌드/동기화가 필요 없다.
 
 GHCR 패키지는 private이므로 VPS에서 1회 로그인한다. `read:packages` 권한 PAT가 필요하다.
 
@@ -341,14 +341,14 @@ VPS host crontab 예시:
 
 ```cron
 CRON_TZ=Asia/Seoul
-10 5 * * * cd /path/to/nextroute && docker compose pull nextroute-ml >> /var/log/nextroute-ml.log 2>&1
-20 5 * * * cd /path/to/nextroute && docker compose run --rm nextroute-ml python archive.py $(date -d yesterday +\%F) >> /var/log/nextroute-ml.log 2>&1
-40 5 * * * cd /path/to/nextroute && { docker compose run --rm nextroute-ml python validate.py $(date -d yesterday +\%F) && bash ml/ops/upload_archive.sh; } >> /var/log/nextroute-ml.log 2>&1
-0 6 * * * cd /path/to/nextroute && docker compose run --rm -T nextroute-ml python retention.py --dry-run --retention-days 7 >> /var/log/nextroute-ml.log 2>&1
+10 5 * * * cd /path/to/nextroute && docker compose -f compose.yaml pull nextroute-ml >> /var/log/nextroute-ml.log 2>&1
+20 5 * * * cd /path/to/nextroute && docker compose -f compose.yaml run --rm nextroute-ml python archive.py $(date -d yesterday +\%F) >> /var/log/nextroute-ml.log 2>&1
+40 5 * * * cd /path/to/nextroute && { docker compose -f compose.yaml run --rm nextroute-ml python validate.py $(date -d yesterday +\%F) && bash ml/ops/upload_archive.sh; } >> /var/log/nextroute-ml.log 2>&1
+0 6 * * * cd /path/to/nextroute && docker compose -f compose.yaml run --rm -T nextroute-ml python retention.py --dry-run --retention-days 7 >> /var/log/nextroute-ml.log 2>&1
 0 7 * * 1 cd /path/to/nextroute && ML_RETENTION_DAYS=7 bash ml/ops/retention_apply_remote.sh >> /var/log/nextroute-ml.log 2>&1
 ```
 
-05:10 `docker compose pull`로 GHCR 최신 이미지를 받은 뒤 05:20 archive가 그 이미지로 실행되는 전제다.
+05:10 `docker compose -f compose.yaml pull`로 GHCR 최신 이미지를 받은 뒤 05:20 archive가 그 이미지로 실행되는 전제다. 운영 명령은 항상 `-f compose.yaml`을 지정해 오래된 `compose.override.yaml`이 자동 병합되지 않게 한다.
 
 Spring label batch가 04:50 KST에 끝난 뒤 05:20 KST archive가 시작되는 전제다. 05:40 작업은 전날 파티션에 대한 `validate.py`가 성공한 경우에만 Google Drive 업로드를 실행한다. v1 알림은 `/var/log/nextroute-ml.log`에서 `[error]` grep으로 확인한다.
 
