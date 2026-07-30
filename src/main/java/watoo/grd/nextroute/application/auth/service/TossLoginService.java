@@ -43,25 +43,30 @@ public class TossLoginService implements TossLoginUseCase {
         User user = upsertUser(info.userKey());
         storeTossToken(info.userKey(), token);
 
-        String accessJwt = jwtProvider.createAccessToken(user.getId());
-        String refreshJwt = jwtProvider.createRefreshToken(user.getId());
+        String accessJwt = jwtProvider.createAccessToken(user.getId(), user.getTokenGeneration());
+        String refreshJwt = jwtProvider.createRefreshToken(user.getId(), user.getTokenGeneration());
 
         return new LoginResult(accessJwt, refreshJwt, user.getId(), info.userKey(), info.name());
     }
 
     @Override
     public TokenResult reissue(String refreshToken) {
-        long userId;
+        JwtProvider.TokenPrincipal principal;
         try {
-            userId = jwtProvider.parseRefreshUserId(refreshToken);
+            principal = jwtProvider.parseRefreshPrincipal(refreshToken);
         } catch (RuntimeException e) {
             throw new TossLoginException("유효하지 않은 refresh 토큰", false, e);
         }
-        userRepository.findById(userId)
+        long userId = principal.userId();
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new TossLoginException("사용자 없음: " + userId, false));
+        // 미니앱에는 세대를 올리는 경로가 없어 실질적으로 항상 같다. 규칙에 예외를 두지 않으려고 검사한다.
+        if (user.getTokenGeneration() != principal.generation()) {
+            throw new TossLoginException("이미 폐기된 세션이다", false);
+        }
         return new TokenResult(
-                jwtProvider.createAccessToken(userId),
-                jwtProvider.createRefreshToken(userId)
+                jwtProvider.createAccessToken(userId, user.getTokenGeneration()),
+                jwtProvider.createRefreshToken(userId, user.getTokenGeneration())
         );
     }
 

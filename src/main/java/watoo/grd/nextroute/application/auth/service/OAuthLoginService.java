@@ -137,10 +137,19 @@ public class OAuthLoginService implements OAuthLoginUseCase {
                 .orElseThrow(() -> new IdentityAlreadyLinkedException(verified.provider())));
     }
 
+    /**
+     * 토큰에는 그 사용자의 현재 세대 번호를 함께 담는다. 나중에 로그아웃이 이 번호를 올려
+     * 여기서 발급한 토큰을 끊는다.
+     *
+     * <p>가입 직후 경로에서는 방금 저장한 사용자가 영속성 컨텍스트에 있어 추가 조회가 되지 않는다.
+     */
     private OAuthLoginResult issueTokens(Long userId, AuthProvider provider) {
+        int generation = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalStateException("신원에 연결된 사용자가 없다: " + userId))
+                .getTokenGeneration();
         return new OAuthLoginResult(
-                jwtProvider.createAccessToken(userId),
-                jwtProvider.createRefreshToken(userId),
+                jwtProvider.createAccessToken(userId, generation),
+                jwtProvider.createRefreshToken(userId, generation),
                 userId,
                 provider);
     }

@@ -10,6 +10,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.route.port.out.WalkSegmentCachePort;
+import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
@@ -29,6 +30,7 @@ class AdminApiKeySecurityTest {
 
     @MockBean WalkSegmentCachePort cache;
     @MockBean JwtProvider jwtProvider;
+    @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
 
     @Test
     void admin_withoutKey_returns401() throws Exception {
