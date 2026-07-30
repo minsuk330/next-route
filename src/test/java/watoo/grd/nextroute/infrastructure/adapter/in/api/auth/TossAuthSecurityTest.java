@@ -10,9 +10,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.auth.dto.TokenResult;
 import watoo.grd.nextroute.application.auth.port.in.TossLoginUseCase;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
+import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
+
+import java.util.OptionalInt;
 
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
@@ -29,6 +32,7 @@ class TossAuthSecurityTest {
 
     @MockBean TossLoginUseCase tossLoginUseCase;
     @MockBean JwtProvider jwtProvider;
+    @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
 
     @Test
     void logout_withoutToken_returns401() throws Exception {
@@ -48,7 +52,9 @@ class TossAuthSecurityTest {
 
     @Test
     void logout_withValidToken_returns204() throws Exception {
-        given(jwtProvider.parseAccessUserId("good")).willReturn(55L);
+        given(jwtProvider.parseAccessPrincipal("good"))
+                .willReturn(new JwtProvider.TokenPrincipal(55L, 0));
+        given(tokenGenerationPort.currentGeneration(55L)).willReturn(OptionalInt.of(0));
 
         mockMvc.perform(post("/api/auth/toss/logout")
                         .header("Authorization", "Bearer good"))

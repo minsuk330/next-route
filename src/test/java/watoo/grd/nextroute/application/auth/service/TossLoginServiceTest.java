@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.auth.service;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -61,8 +62,8 @@ class TossLoginServiceTest {
                 AuthProvider.TOSS, "999")).willReturn(Optional.empty());
         given(userRepository.saveAndFlush(any(User.class))).willReturn(user(100L, 999L));
         given(tossUserTokenRepository.findByUserKey(999L)).willReturn(Optional.empty());
-        given(jwtProvider.createAccessToken(100L)).willReturn("ourAcc");
-        given(jwtProvider.createRefreshToken(100L)).willReturn("ourRef");
+        given(jwtProvider.createAccessToken(100L, 0)).willReturn("ourAcc");
+        given(jwtProvider.createRefreshToken(100L, 0)).willReturn("ourRef");
 
         LoginResult result = service.login("code", "DEFAULT");
 
@@ -97,8 +98,8 @@ class TossLoginServiceTest {
                         .build()));
         given(userRepository.findById(50L)).willReturn(Optional.of(existing));
         given(tossUserTokenRepository.findByUserKey(999L)).willReturn(Optional.empty());
-        given(jwtProvider.createAccessToken(50L)).willReturn("a");
-        given(jwtProvider.createRefreshToken(50L)).willReturn("r");
+        given(jwtProvider.createAccessToken(50L, 0)).willReturn("a");
+        given(jwtProvider.createRefreshToken(50L, 0)).willReturn("r");
 
         LoginResult result = service.login("code", "DEFAULT");
 
@@ -108,10 +109,11 @@ class TossLoginServiceTest {
 
     @Test
     void reissue_validRefresh_returnsNewPair() {
-        given(jwtProvider.parseRefreshUserId("ref")).willReturn(7L);
+        given(jwtProvider.parseRefreshPrincipal("ref"))
+                .willReturn(new JwtProvider.TokenPrincipal(7L, 0));
         given(userRepository.findById(7L)).willReturn(Optional.of(user(7L, 1L)));
-        given(jwtProvider.createAccessToken(7L)).willReturn("a2");
-        given(jwtProvider.createRefreshToken(7L)).willReturn("r2");
+        given(jwtProvider.createAccessToken(7L, 0)).willReturn("a2");
+        given(jwtProvider.createRefreshToken(7L, 0)).willReturn("r2");
 
         var result = service.reissue("ref");
 
@@ -121,8 +123,21 @@ class TossLoginServiceTest {
 
     @Test
     void reissue_invalidRefresh_throws() {
-        given(jwtProvider.parseRefreshUserId("bad")).willThrow(new RuntimeException("bad"));
+        given(jwtProvider.parseRefreshPrincipal("bad")).willThrow(new RuntimeException("bad"));
         assertThatThrownBy(() -> service.reissue("bad"))
+                .isInstanceOf(TossLoginException.class);
+    }
+
+    @Test
+    @DisplayName("폐기된 세대의 refresh 는 거부한다 — 미니앱에도 규칙의 예외를 두지 않는다")
+    void reissue_staleGeneration_throws() {
+        User u = user(7L, 1L);
+        ReflectionTestUtils.setField(u, "tokenGeneration", 2);
+        given(jwtProvider.parseRefreshPrincipal("old"))
+                .willReturn(new JwtProvider.TokenPrincipal(7L, 1));
+        given(userRepository.findById(7L)).willReturn(Optional.of(u));
+
+        assertThatThrownBy(() -> service.reissue("old"))
                 .isInstanceOf(TossLoginException.class);
     }
 

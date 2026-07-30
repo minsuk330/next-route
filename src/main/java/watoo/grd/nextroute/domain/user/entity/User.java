@@ -30,6 +30,15 @@ public class User extends BaseEntity {
     @Column(unique = true)
     private Long tossUserKey;
 
+    /**
+     * 토큰 세대 번호. 로그아웃하면 올라가고, 그 순간 이전에 발급된 JWT 는 전부 거부된다.
+     *
+     * <p>JWT 는 한 번 서명해 내보내면 만료 전까지 되돌릴 수 없다. 서버가 개입할 수 있는
+     * 지점이 이 값 하나뿐이라, 로그아웃·토큰 유출 대응이 모두 여기에 걸려 있다(V34).
+     */
+    @Column(nullable = false)
+    private int tokenGeneration;
+
     @Builder
     public User(Long tossUserKey) {
         this.tossUserKey = tossUserKey;
@@ -38,5 +47,10 @@ public class User extends BaseEntity {
     /** 토스 신원이 붙어 있는 사용자인지. 알림 기능이 아직 이 값을 요구한다. */
     public boolean hasTossIdentity() {
         return tossUserKey != null;
+    }
+
+    /** 지금까지 발급한 토큰을 전부 무효화한다. 로그아웃이 실제로 하는 일이다. */
+    public void bumpTokenGeneration() {
+        this.tokenGeneration++;
     }
 }

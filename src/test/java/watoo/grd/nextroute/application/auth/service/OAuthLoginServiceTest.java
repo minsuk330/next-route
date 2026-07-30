@@ -79,6 +79,10 @@ class OAuthLoginServiceTest {
             storedUsers.add(user);
             return user;
         });
+        // 토큰에 담을 세대 번호를 읽으려고 발급 직전에 사용자를 다시 본다.
+        when(userRepository.findById(any())).thenAnswer(inv -> storedUsers.stream()
+                .filter(u -> inv.getArgument(0).equals(u.getId()))
+                .findFirst());
         when(identityRepository.saveAndFlush(any(AuthIdentity.class))).thenAnswer(inv -> {
             AuthIdentity identity = inv.getArgument(0);
             assignId(identity, sequence.incrementAndGet());

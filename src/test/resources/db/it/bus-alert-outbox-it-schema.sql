@@ -7,7 +7,9 @@ CREATE TABLE users (
     created_at    timestamp(6),
     updated_at    timestamp(6),
     deleted_at    timestamp(6),
-    toss_user_key bigint
+    toss_user_key bigint,
+    -- V34. 토큰 세대 번호. 엔티티가 매핑하므로 없으면 users 조회 SQL 이 깨진다.
+    token_generation integer not null default 0
 );
 
 CREATE TABLE bus_arrival_alert (

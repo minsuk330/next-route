@@ -16,6 +16,7 @@ import watoo.grd.nextroute.application.route.port.in.AddFavoriteRouteUseCase;
 import watoo.grd.nextroute.application.route.port.in.DeleteFavoriteRouteUseCase;
 import watoo.grd.nextroute.application.route.port.in.GetFavoriteRoutesUseCase;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
+import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
@@ -43,6 +44,7 @@ class FavoriteControllerTest {
     @MockBean GetFavoriteRoutesUseCase getFavoriteRoutesUseCase;
     @MockBean DeleteFavoriteRouteUseCase deleteFavoriteRouteUseCase;
     @MockBean JwtProvider jwtProvider; // SecurityConfig 의존
+    @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
     @MockBean AdminProperties adminProperties; // SecurityConfig(AdminApiKeyFilter) 의존
 
     private static UsernamePasswordAuthenticationToken authUser(long userId) {

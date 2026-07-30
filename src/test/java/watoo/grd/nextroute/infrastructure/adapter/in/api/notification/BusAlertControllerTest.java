@@ -15,6 +15,7 @@ import watoo.grd.nextroute.application.notification.dto.BusAlertResponse;
 import watoo.grd.nextroute.application.notification.port.in.CancelBusAlertUseCase;
 import watoo.grd.nextroute.application.notification.port.in.CreateBusAlertUseCase;
 import watoo.grd.nextroute.application.notification.port.in.GetBusAlertUseCase;
+import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
@@ -40,6 +41,7 @@ class BusAlertControllerTest {
     @MockBean GetBusAlertUseCase getBusAlertUseCase;
     @MockBean CancelBusAlertUseCase cancelBusAlertUseCase;
     @MockBean JwtProvider jwtProvider;
+    @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
     @MockBean AdminProperties adminProperties;
 
     private static UsernamePasswordAuthenticationToken authUser(long userId) {
