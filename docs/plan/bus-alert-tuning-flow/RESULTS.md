@@ -1,5 +1,13 @@
 # 버스 도착 알림 튜닝 흐름
 
+> **현재 배포 주의 (2026-07-29).** 이 문서의 수치는 Apple M3 Pro에서 진행한 당시 로컬
+> 실험 기록이다. 현재 배포 SHA `778ed9711d0d945aa45a8cfdceeccf718966a56e`에는 이 문서
+> 7절의 temp table + set-based batch enqueue 구현이 존재하지 않으며, 실제 VPS 재검증에서
+> 10,000건 기본 설정 중앙값은 38.479초·259.9건/s였다. Worker 32·Toss mock 20ms의 실제
+> AFTER_COMMIT wake-up 경로도 p95 중앙값 1,553ms로 434ms를 재현하지 못했다.
+> 현재 포트폴리오에는 아래 수치를 현행 배포 결과로 사용하지 말고
+> [`docs/plan/bus-alert-vps-validation/RESULTS.md`](../bus-alert-vps-validation/RESULTS.md)를 기준으로 한다.
+
 ## 목표
 
 버스 도착 알림은 사용자가 곧 탈 버스의 도착 여부를 알려주는 기능이므로, 단순히 "언젠가 발송"보다 발송 지연의 상한이 중요하다.

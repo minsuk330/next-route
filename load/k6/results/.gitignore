@@ -1,0 +1,4 @@
+*.console.log
+*.summary.json
+*.meta.txt
+!.gitignore
