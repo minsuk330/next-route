@@ -10,8 +10,13 @@ scrape_configs:
     static_configs:
       - targets: ["node-exporter:9100"]
 
-  # nextroute app의 management 포트(8081, 미공개). prometheus만 nextroute_default 네트워크 소속.
+  # API/Worker management 포트(8081, 미공개). Prometheus만 nextroute_default 네트워크 소속.
   - job_name: nextroute-app
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ["app:8081"]
+      - targets: ["api:8081"]
+        labels:
+          role: api
+      - targets: ["worker:8081"]
+        labels:
+          role: worker

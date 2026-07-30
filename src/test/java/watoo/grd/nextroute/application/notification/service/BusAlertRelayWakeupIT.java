@@ -12,6 +12,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.bus.InMemoryBusRealtimeCache;
@@ -35,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * BusAlertRelayLoop 이 즉시 drain → SENT. sweep 을 크게 둬 오직 wake 로만 발송됨을 확인한다.
  */
 @DataJpaTest
+@ActiveProfiles("worker")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({

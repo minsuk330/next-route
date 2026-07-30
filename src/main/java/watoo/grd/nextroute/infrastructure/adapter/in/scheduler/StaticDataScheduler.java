@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -12,6 +13,7 @@ import watoo.grd.nextroute.application.subway.port.in.LoadSubwayStaticDataUseCas
 
 @Slf4j
 @Component
+@Profile("worker")
 @RequiredArgsConstructor
 @ConditionalOnProperty(prefix = "collector.static-data", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class StaticDataScheduler {

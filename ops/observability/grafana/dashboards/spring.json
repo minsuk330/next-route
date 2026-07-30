@@ -18,7 +18,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (uri) (rate(http_server_requests_seconds_count{job=\"nextroute-app\"}[5m]))",
+          "expr": "sum by (uri) (rate(http_server_requests_seconds_count{job=\"nextroute-app\", role=\"api\"}[5m]))",
           "legendFormat": "{{uri}}"
         }
       ]
@@ -34,7 +34,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (uri) (rate(http_server_requests_seconds_count{job=\"nextroute-app\", status=~\"5..\"}[5m]))",
+          "expr": "sum by (uri) (rate(http_server_requests_seconds_count{job=\"nextroute-app\", role=\"api\", status=~\"5..\"}[5m]))",
           "legendFormat": "{{uri}}"
         }
       ]
@@ -50,7 +50,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (le, uri) (rate(http_server_requests_seconds_bucket{job=\"nextroute-app\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, uri) (rate(http_server_requests_seconds_bucket{job=\"nextroute-app\", role=\"api\"}[5m])))",
           "legendFormat": "{{uri}}"
         }
       ]
@@ -66,8 +66,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (id) (jvm_memory_used_bytes{job=\"nextroute-app\", area=\"heap\"})",
-          "legendFormat": "{{id}}"
+          "expr": "sum by (role, id) (jvm_memory_used_bytes{job=\"nextroute-app\", area=\"heap\"})",
+          "legendFormat": "{{role}} · {{id}}"
         }
       ]
     },
@@ -82,8 +82,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (action) (rate(jvm_gc_pause_seconds_sum{job=\"nextroute-app\"}[5m]))",
-          "legendFormat": "{{action}}"
+          "expr": "sum by (role, action) (rate(jvm_gc_pause_seconds_sum{job=\"nextroute-app\"}[5m]))",
+          "legendFormat": "{{role}} · {{action}}"
         }
       ]
     },
@@ -99,13 +99,13 @@
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "process_cpu_usage{job=\"nextroute-app\"}",
-          "legendFormat": "process"
+          "legendFormat": "{{role}} · process"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "system_cpu_usage{job=\"nextroute-app\"}",
-          "legendFormat": "system"
+          "legendFormat": "{{role}} · system"
         }
       ]
     }

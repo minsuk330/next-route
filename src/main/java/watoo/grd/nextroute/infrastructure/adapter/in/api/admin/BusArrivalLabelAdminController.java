@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.BusArrivalLabelBatchScheduler;
+import watoo.grd.nextroute.application.bus.service.BusArrivalLabelBatchService;
 
 @RestController
 @RequestMapping("/api/admin/bus/batch")
@@ -20,7 +20,7 @@ import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.BusArrivalLabelBa
 @Tag(name = "[어드민] 버스 라벨 배치")
 public class BusArrivalLabelAdminController {
 
-    private final BusArrivalLabelBatchScheduler labelBatchScheduler;
+    private final BusArrivalLabelBatchService labelBatchService;
 
     @PostMapping("/label/trigger")
     @Operation(summary = "버스 라벨 배치 수동 트리거 (개발용)",
@@ -33,7 +33,7 @@ public class BusArrivalLabelAdminController {
                 ? date
                 : LocalDate.now(ZoneId.of("Asia/Seoul")).minusDays(1);
 
-        int rows = labelBatchScheduler.runForDate(serviceDate);
+        int rows = labelBatchService.runForDate(serviceDate);
         return ResponseEntity.ok(Map.of("serviceDate", serviceDate.toString(), "rows", rows));
     }
 }

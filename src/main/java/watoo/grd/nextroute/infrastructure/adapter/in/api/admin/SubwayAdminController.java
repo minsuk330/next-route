@@ -11,8 +11,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import watoo.grd.nextroute.application.subway.service.SubwayArrivalEventBatchScheduler;
-import watoo.grd.nextroute.application.subway.service.SubwayArrivalEventBatchScheduler.BatchRunResult;
+import watoo.grd.nextroute.application.subway.service.SubwayArrivalEventBatchService;
+import watoo.grd.nextroute.application.subway.service.SubwayArrivalEventBatchService.BatchRunResult;
 import watoo.grd.nextroute.application.subway.service.SubwayCoordinateEnrichService;
 import watoo.grd.nextroute.application.subway.service.SubwayCoordinateEnrichService.EnrichResult;
 
@@ -23,7 +23,7 @@ import watoo.grd.nextroute.application.subway.service.SubwayCoordinateEnrichServ
 public class SubwayAdminController {
 
     private final SubwayCoordinateEnrichService subwayCoordinateEnrichService;
-    private final SubwayArrivalEventBatchScheduler batchScheduler;
+    private final SubwayArrivalEventBatchService batchService;
 
     @PostMapping("/enrich-coordinates")
     public ResponseEntity<EnrichResult> enrichCoordinates() {
@@ -40,6 +40,6 @@ public class SubwayAdminController {
                 ? date
                 : LocalDate.now(ZoneId.of("Asia/Seoul")).minusDays(1);
 
-        return ResponseEntity.ok(batchScheduler.runForDate(serviceDate));
+        return ResponseEntity.ok(batchService.runForDate(serviceDate));
     }
 }
