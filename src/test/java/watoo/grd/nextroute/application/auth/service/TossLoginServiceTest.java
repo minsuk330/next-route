@@ -15,6 +15,9 @@ import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.domain.auth.entity.TossUserToken;
 import watoo.grd.nextroute.domain.auth.repository.TossUserTokenRepository;
 import watoo.grd.nextroute.domain.user.entity.User;
+import watoo.grd.nextroute.domain.auth.entity.AuthIdentity;
+import watoo.grd.nextroute.domain.auth.entity.AuthProvider;
+import watoo.grd.nextroute.domain.auth.repository.AuthIdentityRepository;
 import watoo.grd.nextroute.domain.user.repository.UserRepository;
 
 import java.util.List;
@@ -31,6 +34,7 @@ class TossLoginServiceTest {
 
     @Mock TossLoginPort tossLoginPort;
     @Mock UserRepository userRepository;
+    @Mock AuthIdentityRepository authIdentityRepository;
     @Mock TossUserTokenRepository tossUserTokenRepository;
     @Mock JwtProvider jwtProvider;
 
@@ -52,7 +56,9 @@ class TossLoginServiceTest {
         given(tossLoginPort.getUserInfo("tAcc"))
                 .willReturn(new TossLoginPort.TossUserInfo(999L, "user_name", List.of("t1"),
                         "홍길동", null, null, null, null, null, null));
-        given(userRepository.findByTossUserKey(999L)).willReturn(Optional.empty());
+        // V33 이후 신원 조회의 기준은 auth_identity 다. 신분증이 없으면 새 사용자를 만든다.
+        given(authIdentityRepository.findByProviderAndProviderSubjectAndDeletedAtIsNull(
+                AuthProvider.TOSS, "999")).willReturn(Optional.empty());
         given(userRepository.saveAndFlush(any(User.class))).willReturn(user(100L, 999L));
         given(tossUserTokenRepository.findByUserKey(999L)).willReturn(Optional.empty());
         given(jwtProvider.createAccessToken(100L)).willReturn("ourAcc");
@@ -80,7 +86,16 @@ class TossLoginServiceTest {
         given(tossLoginPort.getUserInfo("tAcc"))
                 .willReturn(new TossLoginPort.TossUserInfo(999L, "user_name", List.of(),
                         null, null, null, null, null, null, null));
-        given(userRepository.findByTossUserKey(999L)).willReturn(Optional.of(existing));
+        // 이관된 신분증으로 사용자를 찾는다. toss_user_key 칸은 더 이상 조회에 쓰지 않는다.
+        given(authIdentityRepository.findByProviderAndProviderSubjectAndDeletedAtIsNull(
+                AuthProvider.TOSS, "999"))
+                .willReturn(Optional.of(AuthIdentity.builder()
+                        .userId(50L)
+                        .provider(AuthProvider.TOSS)
+                        .providerSubject("999")
+                        .linkedAt(java.time.LocalDateTime.now())
+                        .build()));
+        given(userRepository.findById(50L)).willReturn(Optional.of(existing));
         given(tossUserTokenRepository.findByUserKey(999L)).willReturn(Optional.empty());
         given(jwtProvider.createAccessToken(50L)).willReturn("a");
         given(jwtProvider.createRefreshToken(50L)).willReturn("r");

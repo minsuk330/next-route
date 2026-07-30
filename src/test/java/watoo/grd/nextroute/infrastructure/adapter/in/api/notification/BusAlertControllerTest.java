@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
+import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.notification.dto.BusAlertResponse;
 import watoo.grd.nextroute.application.notification.port.in.CancelBusAlertUseCase;
 import watoo.grd.nextroute.application.notification.port.in.CreateBusAlertUseCase;
@@ -39,6 +40,7 @@ class BusAlertControllerTest {
     @MockBean GetBusAlertUseCase getBusAlertUseCase;
     @MockBean CancelBusAlertUseCase cancelBusAlertUseCase;
     @MockBean JwtProvider jwtProvider;
+    @MockBean AdminProperties adminProperties;
 
     private static UsernamePasswordAuthenticationToken authUser(long userId) {
         return new UsernamePasswordAuthenticationToken(

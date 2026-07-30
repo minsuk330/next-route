@@ -12,6 +12,8 @@ x-app-service: &app-service
     - env/api.env
     - env/toss.env
     - env/auth.env
+    # OAuth provider 설정은 API 로그인과 Worker의 공통 애플리케이션 부팅 검증에 필요하다.
+    - env/oauth.env
   volumes:
     - ./logs:/logs
     - /srv/nextroute/toss.p12:/secrets/toss.p12:ro

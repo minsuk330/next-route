@@ -6,6 +6,9 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.gong.dto.GongRestDeResponse;
@@ -83,57 +86,76 @@ class GongApiAdapterTest {
         return response;
     }
 
+    private void stubExchange(GongRestDeResponse response) {
+        when(restTemplate.exchange(
+            any(URI.class),
+            eq(HttpMethod.GET),
+            any(HttpEntity.class),
+            eq(GongRestDeResponse.class)))
+            .thenReturn(ResponseEntity.ok(response));
+    }
+
     // ── 단위 테스트 ───────────────────────────────────────────────────
 
     @Test
     void TC_isHoliday_Y인_날짜는_true를_반환한다() {
         // 1월만 공휴일(신정), 나머지는 빈 응답
-        when(restTemplate.getForObject(any(URI.class), eq(GongRestDeResponse.class)))
-            .thenReturn(emptyResponse());
-        when(restTemplate.getForObject(
+        stubExchange(emptyResponse());
+        when(restTemplate.exchange(
             argThat(uri -> uri != null && uri.toString().contains("solMonth=01")),
+            eq(HttpMethod.GET),
+            any(HttpEntity.class),
             eq(GongRestDeResponse.class)))
-            .thenReturn(successResponse("20260101"));
+            .thenReturn(ResponseEntity.ok(successResponse("20260101")));
 
         assertThat(adapter.isHoliday(LocalDate.of(2026, 1, 1))).isTrue();
     }
 
     @Test
     void TC_isHoliday_Y가_아닌_날짜는_false를_반환한다() {
-        when(restTemplate.getForObject(any(URI.class), eq(GongRestDeResponse.class)))
-            .thenReturn(emptyResponse());
+        stubExchange(emptyResponse());
 
         assertThat(adapter.isHoliday(LocalDate.of(2026, 1, 2))).isFalse();
     }
 
     @Test
     void TC_같은_연도는_API를_한_번만_호출한다() {
-        when(restTemplate.getForObject(any(URI.class), eq(GongRestDeResponse.class)))
-            .thenReturn(emptyResponse());
+        stubExchange(emptyResponse());
 
         adapter.isHoliday(LocalDate.of(2026, 1, 1));
         adapter.isHoliday(LocalDate.of(2026, 6, 6));
         adapter.isHoliday(LocalDate.of(2026, 12, 25));
 
         // 2026년 12개월 → API 12번만 호출 (연도 캐시 후 추가 호출 없음)
-        verify(restTemplate, times(12)).getForObject(any(URI.class), eq(GongRestDeResponse.class));
+        verify(restTemplate, times(12)).exchange(
+            any(URI.class),
+            eq(HttpMethod.GET),
+            any(HttpEntity.class),
+            eq(GongRestDeResponse.class));
     }
 
     @Test
     void TC_다른_연도는_각각_API를_호출한다() {
-        when(restTemplate.getForObject(any(URI.class), eq(GongRestDeResponse.class)))
-            .thenReturn(emptyResponse());
+        stubExchange(emptyResponse());
 
         adapter.isHoliday(LocalDate.of(2025, 1, 1));
         adapter.isHoliday(LocalDate.of(2026, 1, 1));
 
         // 2025년 12번 + 2026년 12번 = 24번
-        verify(restTemplate, times(24)).getForObject(any(URI.class), eq(GongRestDeResponse.class));
+        verify(restTemplate, times(24)).exchange(
+            any(URI.class),
+            eq(HttpMethod.GET),
+            any(HttpEntity.class),
+            eq(GongRestDeResponse.class));
     }
 
     @Test
     void TC_API_실패시_하드코딩_폴백으로_대체된다() {
-        when(restTemplate.getForObject(any(URI.class), eq(GongRestDeResponse.class)))
+        when(restTemplate.exchange(
+            any(URI.class),
+            eq(HttpMethod.GET),
+            any(HttpEntity.class),
+            eq(GongRestDeResponse.class)))
             .thenThrow(new RuntimeException("network error"));
 
         // 2026-01-01(신정)은 KoreanPublicHolidayCalendar 폴백에서 true여야 함
@@ -160,12 +182,13 @@ class GongApiAdapterTest {
         response.setHeader(header);
         response.setBody(body);
 
-        when(restTemplate.getForObject(any(URI.class), eq(GongRestDeResponse.class)))
-            .thenReturn(emptyResponse());
-        when(restTemplate.getForObject(
+        stubExchange(emptyResponse());
+        when(restTemplate.exchange(
             argThat(uri -> uri != null && uri.toString().contains("solMonth=03")),
+            eq(HttpMethod.GET),
+            any(HttpEntity.class),
             eq(GongRestDeResponse.class)))
-            .thenReturn(response);
+            .thenReturn(ResponseEntity.ok(response));
 
         // isHoliday=N 이므로 false (삼일절은 고정 공휴일이지만 API가 N으로 반환한 경우 테스트)
         // 실제론 Y로 오지만, 파싱 로직 검증용

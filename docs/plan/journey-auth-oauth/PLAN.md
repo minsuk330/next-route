@@ -7,7 +7,7 @@
 
 ## 1. 한 줄 요약
 
-**로그인 수단을 담는 `auth_identity` 테이블을 새로 만들고, 애플·구글·카카오 로그인을 연다.**
+**로그인 수단을 담는 `auth_identity` 테이블을 새로 만들고, 애플·카카오 로그인을 연다.**
 
 지금은 `users` 테이블에 "토스 사용자 번호" 칸이 직접 뚫려 있어서 토스로만 가입할 수 있다. 이 여정 기능은 iOS·Android 앱에서 쓰이는데 앱 안에서는 토스 로그인을 부를 수 없다. 토스 밖에서 가입할 길이 없으면 기능 자체를 못 쓴다.
 
@@ -22,7 +22,7 @@
 - `V16__toss_login.sql` — `users` 에 토스 번호 칸을 뚫음
 - `V17__drop_device_id.sql` — 기기 번호 칸을 메우고 토스 번호를 필수로 승격
 
-여기에 애플·구글·카카오를 같은 방식으로 넣으면 칸이 세 개 더 늘고, 각 칸마다 "비어 있어도 되지만 겹치면 안 된다"는 규칙을 따로 붙여야 한다. 로그인 수단이 하나 늘 때마다 테이블 변경이 따라온다.
+여기에 애플·카카오를 같은 방식으로 넣으면 칸이 두 개 더 늘고, 각 칸마다 "비어 있어도 되지만 겹치면 안 된다"는 규칙을 따로 붙여야 한다. 로그인 수단이 하나 늘 때마다 테이블 변경이 따라온다.
 
 **대안도 성립한다.** 뒤에 나오는 D9 규칙(계정당 앱 로그인 하나)을 지키면 칸 세 개로도 만들 수 있다 — 어떤 수단인지, 그 수단이 준 번호가 뭔지, 토스 번호가 뭔지. 조인이 없어 더 단순하다.
 
@@ -49,47 +49,33 @@
 - [ ] Apple Developer — Identifiers 에 `com.golbob.nextroute` 등록. **Sign in with Apple 체크 필수**
   - 서명 키(`.p8`)는 탈퇴 기능 전용이라 이번엔 불필요
   - Android 에서도 애플 로그인을 제공할 계획이면 Service ID 를 별도로 만들어야 한다. 이때 토큰의 대상 앱 값이 Bundle ID 가 아니라 Service ID 가 된다
-- [ ] Google Cloud — OAuth 클라이언트 **세 개**
-  - iOS: Bundle ID `com.golbob.nextroute`
-  - Android: 패키지명 `com.golbob.nextroute` + SHA-1 지문
-  - **웹(서버)**: 서버가 검증할 대상 앱 값으로 쓴다 (§3.3)
 - [ ] Kakao Developers — 앱 키 발급, 카카오 로그인 활성화
 
 세 곳의 자격증명이 없으면 §7 검증을 못 한다. 착수 전에 확보한다.
 
-### 3.3 구글 토큰의 "대상 앱" 값을 하나로 통일한다
+### 3.3 구글은 지원하지 않는다
 
-**모바일이 구글 로그인 SDK 에 웹 클라이언트 ID 를 `serverClientId` 로 넘기게 한다.** 그러면 iOS·Android 가 발급받는 토큰의 대상 앱 값이 **웹 클라이언트 ID 하나**로 같아지고, 서버 허용 목록도 한 줄로 끝난다.
+**앱 로그인 수단은 애플과 카카오 둘뿐이다.** 구글은 범위에서 뺐다(D2).
 
-- Android: `GetGoogleIdOption.setServerClientId(webClientId)` (구버전이면 `requestIdToken(webClientId)`)
-- iOS: `GIDConfiguration(clientID: iosClientId, serverClientID: webClientId)`
+그래서 함께 사라진 것들이 있다. 구글 클라이언트 ID 를 플랫폼별로 발급받고 서버 허용 목록을 맞추는 작업, 그리고 대상 앱 값과 요청자 값(`aud`/`azp`)이 구성에 따라 달라지는 문제 전체다. Android SHA-1 지문 등록도 필요 없다.
 
-이 구성에서는 토큰의 "발급 요청자" 값에 플랫폼별 클라이언트 ID 가 들어간다. 서버는 대상 앱 값만 확인하면 된다.
-
-`serverClientId` 를 넘기지 않으면 대상 앱 값이 플랫폼별 클라이언트 ID 가 되고, 허용 목록에 두 개를 넣어야 한다.
-
-**구현 중에 실제 토큰으로 확인한다.** 구글 SDK 의 동작은 버전에 따라 달라져 왔다. 첫 로그인에서 받은 토큰을 디코드해 대상 앱·발급 요청자 값을 눈으로 보고 허용 목록을 확정한다. 문서 설명만 믿고 고정하지 않는다.
-
-### 3.4 Android SHA-1 지문 — 놓치기 쉬운 것
-
-- **debug 빌드와 release 빌드의 SHA-1 이 다르다.** 둘 다 등록하지 않으면 개발 중에만, 또는 배포본에서만 로그인이 깨진다
-- **Play 앱 서명을 쓰면 실제 배포본의 SHA-1 은 구글이 재서명한 값이다.** 로컬 keystore 의 SHA-1 만 등록하면 스토어 배포본에서 로그인이 실패한다. Play Console 의 앱 서명 페이지에서 값을 가져와 함께 등록한다
+**대신 감수하는 것:** Android 사용자는 사실상 카카오만 쓰게 된다. 애플 로그인을 Android 에서 제공하려면 웹 플로우용 Service ID 가 따로 필요하고 UX 도 어색하다. 국내 사용자 커버리지를 카카오가 채운다는 전제다. 이 전제가 깨지면 구글을 다시 넣는다 — `AuthProvider` 에 값 하나와 검증기 하나를 더하고 `auth_identity` 의 CHECK 제약을 넓히면 된다.
 
 ## 4. 범위
 
 **한다**
 
 - `auth_identity` 테이블 신설 + 기존 토스 사용자 이관
-- 애플 · 구글 · 카카오 로그인 API (토스는 앱에서 못 쓴다, §5.6)
-- 수단과 무관한 공용 토큰 재발급 · 로그아웃 · 내정보 API
+- 애플 · 카카오 로그인 API (토스는 앱에서 못 쓴다, §5.6 / 구글 제외는 §3.3)
 - `users` 의 토스 번호 칸을 "비어 있어도 됨"으로 완화 + **`User` 엔티티도 같이 완화**
-- **토큰 종류 강제** — refresh 토큰이 API 접근에 쓰이지 못하게 막는다 (§5.7)
-- **로그인 세션 폐기 수단** — 로그아웃·탈취 시 기존 토큰을 무효화한다 (§5.8)
 - **애플 일회용 값을 서버가 발급·소비** (§5.9)
 - **토스 신원이 없는 사용자의 알림 API 차단** (§5.10)
+- 토스 로그인을 `auth_identity` 경유로 전환
 
 **안 한다 (별도 작업)**
 
+- **수단과 무관한 공용 재발급 · 로그아웃 · 내정보 API** → 후속 PR "세션 관리"
+- **로그인 세션 폐기 수단(토큰 세대 번호, §5.8)** → 후속 PR "세션 관리"
 - 로그인한 상태에서 토스 계정을 추가로 잇는 API. D9 때문에 이을 수 있는 건 토스뿐이다
 - **회원 탈퇴 (`DELETE /api/me`)** — App Store 심사 제출 전에는 반드시 필요하다
 - `users` 의 토스 번호 칸 제거
@@ -111,13 +97,13 @@ users(id)  ←1:N─  auth_identity(user_id, provider, provider_subject)
 - 애플리케이션 코드는 토스 번호로 사용자를 찾지 않는다. 항상 `users.id`
 - **한 회사의 한 번호는 한 사용자에게만 연결된다.** 애플이 준 번호 하나가 두 계정에 붙을 수 없다
 - **한 사용자는 같은 회사를 두 번 연결할 수 없다**
-- **한 계정은 앱 로그인 수단을 하나만 갖는다.** 애플 · 구글 · 카카오 중 하나
-- **토스는 예외.** 앱 수단 하나와 별개로 붙을 수 있다. 토스+애플은 되고, 애플+구글은 안 된다
+- **한 계정은 앱 로그인 수단을 하나만 갖는다.** 애플 · 카카오 중 하나
+- **토스는 예외.** 앱 수단 하나와 별개로 붙을 수 있다. 토스+애플은 되고, 애플+카카오는 안 된다
 - **토스로는 앱에서 로그인할 수 없다.** 토스 신분증은 미니앱 로그인 경로로만 만들어진다 (§5.6)
 
 | 부류 | 수단 | 계정당 개수 | 앱에서 로그인 |
 |---|---|---|---|
-| 앱 로그인 (하나만) | `APPLE`, `GOOGLE`, `KAKAO` | 최대 1 | 가능 |
+| 앱 로그인 (하나만) | `APPLE`, `KAKAO` | 최대 1 | 가능 |
 | 미니앱 (예외) | `TOSS` | 최대 1 | **불가** |
 
 ### 5.2 로그인 토큰 검증 — 양보 없는 부분
@@ -131,14 +117,12 @@ users(id)  ←1:N─  auth_identity(user_id, provider, provider_subject)
 | 수단 | 앱이 보내는 것 | 서버가 확인하는 것 |
 |---|---|---|
 | `APPLE` | 애플이 발급한 토큰 + 일회용 값 | ① 애플이 공개한 검증 열쇠로 도장이 진짜인지 ② 발급처가 애플이 맞는지 ③ 우리 앱을 위해 발급된 게 맞는지 ④ 유효기간이 남았는지 ⑤ 우리가 보낸 일회용 값이 토큰 안의 값과 같은지 |
-| `GOOGLE` | 구글이 발급한 토큰 | ①②③④ 동일. 여기에 더해 **⑤ 요청자 값(`azp`)이 있으면 그것도 허용 목록에 있는지 확인한다** |
 | `KAKAO` | 카카오 접근 토큰 | 서버가 카카오에 `GET https://kapi.kakao.com/v2/user/me` 를 직접 호출해 토큰이 살아 있는지 확인. 응답의 `id` 가 사용자 번호 |
 
 용어를 한 번만 풀어 둔다.
 
 - **일회용 값(nonce)** — 로그인 요청마다 한 번만 쓰이는 무작위 문자열. 예전에 훔친 토큰을 재사용하는 공격을 막는다. **서버가 발급하고 서버가 소비한다**(§5.9)
-- **요청자 값(azp)** — 토큰을 실제로 요청한 앱의 식별자. `serverClientId` 구성에서는 대상 앱 값이 웹 클라이언트 ID 로 통일되므로, 어느 플랫폼이 요청했는지는 이 값에만 남는다
-- **검증 열쇠 목록(JWKS)** — 애플·구글이 공개해 둔, 도장이 진짜인지 확인할 때 쓰는 열쇠 모음. 회사가 주기적으로 갈아 끼운다
+- **검증 열쇠 목록(JWKS)** — 애플이 공개해 둔, 도장이 진짜인지 확인할 때 쓰는 열쇠 모음. 회사가 주기적으로 갈아 끼운다
 - **사용자 번호(sub)** — 발급 회사가 이 사람에게 매긴 고유 번호. 이메일과 달리 바뀌지 않는다
 
 추가 규칙:
@@ -148,10 +132,10 @@ users(id)  ←1:N─  auth_identity(user_id, provider, provider_subject)
 - 앱이 넘긴 이름은 **표시용으로만** 저장한다. 신원 판단에 절대 쓰지 않는다. 클라이언트가 보낸 값이기 때문이다
 - 애플의 가려진 이메일(`...@privaterelay.appleid.com`)은 사람을 구분하는 열쇠로 쓰지 않는다. 사용자 번호만 믿는다
 - 받은 토큰 원문을 로그·지표·예외 메시지에 남기지 않는다
-- **사용자 번호가 비었거나 공백이면 거부한다.** 애플·구글의 `sub`, 카카오의 `id` 중 하나라도 `null`·빈 문자열·`"0"` 같은 기본값이면 신원으로 쓰지 않는다. 이 값이 신원의 전부이므로 빈 값이 통과하면 서로 다른 사람이 한 계정으로 합쳐진다
+- **사용자 번호가 비었거나 공백이면 거부한다.** 애플의 `sub`, 카카오의 `id` 중 하나라도 `null`·빈 문자열·`"0"` 같은 기본값이면 신원으로 쓰지 않는다. 이 값이 신원의 전부이므로 빈 값이 통과하면 서로 다른 사람이 한 계정으로 합쳐진다
 - **대상 앱 값이 여러 개면 전부 허용 목록 안에 있어야 한다.** 하나만 맞으면 통과시키는 구현은 쓰지 않는다
 
-**검증 열쇠를 직접 관리하지 않는다.** 회사가 열쇠를 갈아 끼울 때 따라가는 처리와 캐시를 직접 짜면 그 자체가 사고 지점이 된다. `spring-boot-starter-oauth2-resource-server` 를 넣고 그 안의 `NimbusJwtDecoder.withJwkSetUri(...)` 만 쓴다.
+**검증 열쇠를 직접 관리하지 않는다.** 애플이 열쇠를 갈아 끼울 때 따라가는 처리와 캐시를 직접 짜면 그 자체가 사고 지점이 된다. `spring-boot-starter-oauth2-resource-server` 를 넣고 그 안의 `NimbusJwtDecoder.withJwkSetUri(...)` 만 쓴다.
 
 이 라이브러리를 넣어도 `SecurityConfig` 에서 `.oauth2ResourceServer(...)` 를 부르지 않으면 기존 인증 흐름은 그대로다. 기존 인증 API 회귀 테스트로 확인한다.
 
@@ -185,7 +169,7 @@ users(id)  ←1:N─  auth_identity(user_id, provider, provider_subject)
 
 ### 5.6 앱에서는 토스로 로그인할 수 없다
 
-**공용 로그인 API 는 애플·구글·카카오만 받는다. 토스를 지정하면 400 으로 거절한다.**
+**공용 로그인 API 는 애플·카카오만 받는다. 토스를 지정하면 400 으로 거절한다.**
 
 토스 로그인은 토스 미니앱 안에서만 동작한다. 미니앱이 주는 인가코드를 앱이 얻을 방법이 없으므로, 앱에서 토스를 고를 수 있게 두면 반드시 실패하는 선택지를 노출하는 셈이다.
 
@@ -199,7 +183,7 @@ users(id)  ←1:N─  auth_identity(user_id, provider, provider_subject)
 
 **같은 사람이 토스 미니앱과 네이티브 앱을 모두 써도 계정은 둘이다. 합치는 기능을 만들지 않는다.**
 
-토스 미니앱에서 가입한 사용자와 앱에서 애플·구글·카카오로 가입한 사용자는 서로 다른 `users.id` 를 받는다. 서버는 두 사람이 동일인인지 알 방법이 없다 — 이메일은 소유권을 확인한 적 없고 애플은 가려진 이메일을 준다(§5.3).
+토스 미니앱에서 가입한 사용자와 앱에서 애플·카카오로 가입한 사용자는 서로 다른 `users.id` 를 받는다. 서버는 두 사람이 동일인인지 알 방법이 없다 — 이메일은 소유권을 확인한 적 없고 애플은 가려진 이메일을 준다(§5.3).
 
 그래서 이렇게 된다.
 
@@ -214,7 +198,10 @@ users(id)  ←1:N─  auth_identity(user_id, provider, provider_subject)
 
 정책이므로 **제품 쪽에도 반영해야 한다.** 앱 안에서 "토스로 가입한 계정을 가져오기" 같은 기대를 만들지 않는다. 필요해지면 그때 별도 작업으로 연결 플로우를 설계한다.
 
-### 5.7 refresh 토큰으로는 API 를 부를 수 없게 한다
+### 5.7 refresh 토큰으로는 API 를 부를 수 없게 한다 — **완료(#86)**
+
+> 이 항목은 별도 PR 로 먼저 반영됐다. 아래는 그때의 근거를 남긴 것이다.
+
 
 **지금은 부를 수 있다. 이건 이번 작업에서 반드시 막아야 하는 기존 취약점이다.**
 
@@ -236,7 +223,12 @@ public long parseAccessUserId(String token);
 
 이 변경은 이번 작업의 다른 부분과 독립적이지만, 로그인 수단을 늘리면서 취약한 토큰 검사를 그대로 두는 것은 앞뒤가 맞지 않는다.
 
-### 5.8 로그아웃과 재발급이 실제로 무언가를 끝내게 한다
+### 5.8 로그아웃과 재발급이 실제로 무언가를 끝내게 한다 — **후속 PR**
+
+> 이 절은 "세션 관리" PR 로 분리했다. `JwtProvider`·`JwtAuthFilter`·`users` 스키마를 함께
+> 건드려서 신원 도입과 같이 올리면 리뷰 단위가 지나치게 커진다. 독립적으로 검토할 가치가 있는
+> 보안 변경이기도 하다.
+
 
 **지금의 로그아웃은 자체 토큰을 무효화하지 않는다.**
 
@@ -287,7 +279,7 @@ long userKey = alert.getUser().getTossUserKey();
 long userKey = alert.getUser().getTossUserKey();
 ```
 
-`getTossUserKey()` 는 `Long` 인데 받는 쪽이 `long` 이다. 값이 없으면 그 자리에서 터진다. 애플·구글·카카오로 가입한 사용자가 알림을 만들면, 요청은 성공하고 나중에 백그라운드 발송이 조용히 실패한다.
+`getTossUserKey()` 는 `Long` 인데 받는 쪽이 `long` 이다. 값이 없으면 그 자리에서 터진다. 애플·카카오로 가입한 사용자가 알림을 만들면, 요청은 성공하고 나중에 백그라운드 발송이 조용히 실패한다.
 
 이번 작업에서 알림 채널을 새로 만들 수는 없다(FCM 은 Phase 5 다). 대신 **막는다.**
 
@@ -317,7 +309,7 @@ CREATE TABLE auth_identity (
     user_id          bigint       not null references users,
     provider         varchar(20)  not null
         constraint auth_identity_provider_check
-            check (provider in ('TOSS', 'APPLE', 'GOOGLE', 'KAKAO')),
+            check (provider in ('TOSS', 'APPLE', 'KAKAO')),
     provider_subject varchar(255) not null,
     email            varchar(320),   -- 회사가 준 값. 소유권을 확인한 적 없다. 표시용.
     display_name     varchar(100),
@@ -399,7 +391,6 @@ public enum AuthProvider {
     /** 미니앱 전용. 앱에서는 고를 수 없고, 앱 수단 하나와 공존할 수 있다. */
     TOSS(false, false),
     APPLE(true, true),
-    GOOGLE(true, true),
     KAKAO(true, true);
 
     private final boolean appExclusive;
@@ -496,12 +487,11 @@ public interface OAuthIdentityVerifier {
 @ConfigurationProperties(prefix = "oauth")
 public class OAuthProviderProperties {
     private Apple apple;    // jwkSetUri, issuer, audiences(List<String>)
-    private Google google;  // jwkSetUri, issuers(List<String>), audiences(List<String>)
     private Kakao kakao;    // userInfoUri
 }
 ```
 
-`@PostConstruct` 에서 애플·구글의 허용 앱 목록이 비어 있으면 `IllegalStateException` 을 던져 기동을 막는다(§5.2).
+`@PostConstruct` 에서 애플의 허용 앱 목록이 비어 있으면 `IllegalStateException` 을 던져 기동을 막는다(§5.2).
 
 - [ ] `application/auth/service/OAuthLoginService.java` — `OAuthLoginUseCase` 구현
 
@@ -563,7 +553,6 @@ public JwtDecoder decoder(String jwkSetUri, List<String> issuers, List<String> a
   - 위 검증기를 통과시킨 뒤, 토큰 안의 일회용 값과 요청의 일회용 값을 비교한다. 비교는 문자열 길이에 관계없이 같은 시간이 걸리는 방식으로 한다
   - 사용자 번호·이메일만 토큰에서 꺼낸다. **이름은 토큰에 없다**(§5.2). 이름은 요청의 `displayName` 을 그대로 쓴다
   - 사용자 번호가 비었거나 공백이면 거부한다
-- [ ] `infrastructure/adapter/out/auth/GoogleIdentityVerifier.java`
 - [ ] `infrastructure/adapter/out/auth/KakaoIdentityVerifier.java`
   - `RestClient` 로 `GET /v2/user/me`. 401·403 이면 `OAuthVerificationException`
   - 관측성 계측이 붙도록 `RestClient` 를 쓴다(`OdSayApiAdapter` 참고)
@@ -587,7 +576,7 @@ POST /api/auth/oauth/login
 → 400 provider 가 TOSS   (앱에서는 토스 로그인 불가, §5.6)
 → 401 검증 실패 (서명·대상앱·발급처·기간·일회용 값)
 
-`provider` 로 받을 수 있는 값은 `APPLE` · `GOOGLE` · `KAKAO` 뿐이다.
+`provider` 로 받을 수 있는 값은 `APPLE` · `KAKAO` 뿐이다.
 ```
 
 ```http
@@ -628,10 +617,6 @@ oauth:
     jwk-set-uri: https://appleid.apple.com/auth/keys
     issuer: https://appleid.apple.com
     audiences: ${OAUTH_APPLE_AUDIENCES}
-  google:
-    jwk-set-uri: https://www.googleapis.com/oauth2/v3/certs
-    issuers: accounts.google.com,https://accounts.google.com
-    audiences: ${OAUTH_GOOGLE_AUDIENCES}
   kakao:
     user-info-uri: https://kapi.kakao.com/v2/user/me
 ```
@@ -643,14 +628,13 @@ oauth:
 **검증기 테스트가 이 작업의 핵심이다.** 통과 케이스 하나보다 거부 케이스 다섯 개가 중요하다.
 
 - [ ] `AppleIdentityVerifierTest` — 정상 토큰 통과 / 도장 위조 · 다른 앱용 · 발급처 위조 · 유효기간 만료 · 일회용 값 불일치를 각각 거부
-- [ ] `GoogleIdentityVerifierTest` — 같은 매트릭스. 허용 목록에 없는 앱 식별자 거부
 - [ ] `KakaoIdentityVerifierTest` — 카카오가 401 을 주면 거부
 - [ ] `OAuthProviderPropertiesTest` — 허용 앱 목록이 비면 기동 실패
 - [ ] `OAuthLoginServiceTest` — 첫 로그인 시 사용자와 신분증이 함께 생성 / 재로그인 시 행이 늘지 않고 기존 사용자 재사용
 - [ ] `OAuthLoginServiceTest` — 이메일이 같아도 다른 회사면 **다른 사용자**
 - [ ] `OAuthLoginServiceTest` — `provider = TOSS` 로 공용 로그인을 부르면 400, 검증기를 호출하지 않음
 - [ ] `AuthProviderTest` — 앱 로그인 허용 목록에 토스가 없음
-- [ ] `AuthIdentityConstraintTest` (Testcontainers) — 한 사용자에 애플+구글 넣으면 실패
+- [ ] `AuthIdentityConstraintTest` (Testcontainers) — 한 사용자에 애플+카카오 넣으면 실패
 - [ ] `AuthIdentityConstraintTest` — 한 사용자에 토스+애플 넣으면 **성공**
 - [ ] `AuthIdentityConstraintTest` — 앱 수단을 지운 표시한 뒤 다른 앱 수단 넣으면 성공
 - [ ] `AuthIdentityMigrationTest` (Testcontainers) — V33 적용 후 기존 토스 사용자가 전부 옮겨지고 개수가 일치
@@ -664,7 +648,6 @@ codex 리뷰(§10)로 추가된 것:
 - [ ] `JwtProviderTest` — 로그아웃으로 세대 번호가 오르면 이전 토큰이 거부된다 (§5.8)
 - [ ] `AppleNonceChallengeTest` — 서버가 준 값은 **한 번만** 통과하고 두 번째 시도는 거부된다 (§5.9)
 - [ ] `AppleNonceChallengeTest` — 저장된 적 없는 값이면 거부된다
-- [ ] `GoogleIdentityVerifierTest` — `azp` 가 허용 목록에 없으면 거부된다
 - [ ] `*IdentityVerifierTest` — 사용자 번호가 `null`·빈 문자열이면 거부된다 (세 provider 모두)
 - [ ] `OAuthLoginServiceTest` — 같은 신원으로 동시 로그인 두 건이 **둘 다 성공**하고 사용자는 하나만 생긴다 (§6.5)
 - [ ] `AuthIdentityMigrationTest` — **지운 표시가 된 사용자는 이관되지 않는다** (§6.1)
@@ -672,7 +655,7 @@ codex 리뷰(§10)로 추가된 것:
 - [ ] `UserEntityTest` — 토스 번호 없이 `User` 를 저장할 수 있다 (§6.3)
 - [ ] `BusAlertControllerTest` — 토스 신원이 없는 사용자의 알림 생성이 `422` 로 거절된다 (§5.10)
 
-애플·구글의 검증 열쇠는 테스트 전용 키쌍을 만들어 MockWebServer 로 흉내 낸다. `com.squareup.okhttp3:mockwebserver` 는 이미 `build.gradle` 에 있다.
+애플의 검증 열쇠는 테스트 전용 키쌍을 만들어 MockWebServer 로 흉내 낸다. `com.squareup.okhttp3:mockwebserver` 는 이미 `build.gradle` 에 있다.
 
 ### 7.2 명령
 
@@ -684,7 +667,7 @@ codex 리뷰(§10)로 추가된 것:
 
 ### 7.3 손으로 확인
 
-- [ ] 애플 · 구글 · 카카오 각각 실기기 로그인 성공
+- [ ] 애플 · 카카오 각각 실기기 로그인 성공
 - [ ] 도장 위조 · 다른 앱용 토큰이 401 로 거부
 - [ ] 기존 토스 미니앱 로그인 회귀 없음
 
@@ -710,7 +693,7 @@ codex 리뷰(§10)로 추가된 것:
 
 | # | 결정 | 기본안 |
 |---|---|---|
-| D2 | 카카오 포함 여부 | 포함. 빼면 검증기 하나와 테스트가 줄어든다 |
+| D2 | 지원 provider 범위 | **애플 · 카카오만.** 구글은 제외한다 (§3.3) |
 | D6 | 이메일 같은 다른 회사 계정 자동 병합 | 하지 않는다 (§5.3) |
 | D9 | 계정당 앱 로그인 수단 개수 | **하나.** 토스만 예외로 공존 (§5.1) |
 | D12 | 앱에서 토스 로그인 지원 | **하지 않는다.** 공용 로그인 API 가 토스를 400 으로 거절 (§5.6) |
@@ -728,7 +711,7 @@ codex 리뷰(§10)로 추가된 것:
 | refresh 토큰이 access 로 통과 | §5.7 신설 — `parseAccessUserId` 도입, `parseUserId` 삭제 |
 | 로그아웃이 자체 토큰을 안 지움 | §5.8 신설 — 토큰 세대 번호(D14) |
 | 애플 일회용 값이 서버에 안 묶임 | §5.9 신설 — 서버 발급·1회 소비 challenge |
-| 구글 `azp` 미검증 | §5.2 표에 추가 |
+| 구글 `azp` 미검증 | **무효** — 구글을 범위에서 제외(§3.3) |
 | 토스↔앱 사용자 데이터 분리 | §5.11 신설 — 별개 계정을 제품 정책으로 확정(D17) |
 | 애플 이름은 토큰에 없음 | §3.2·§5.2 정정 — 앱이 별도 전달, 신원에 사용 금지 |
 | 알림 API 가 토스 전제 | §5.10 신설 — 422 거절 + 언박싱 방어 |

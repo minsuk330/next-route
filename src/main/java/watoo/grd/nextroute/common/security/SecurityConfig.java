@@ -43,6 +43,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/route/fav/**").authenticated()
                         .requestMatchers("/api/route/my/**").authenticated()
                         .requestMatchers("/api/notifications/**").authenticated()
+                        // 앱 OAuth 로그인·challenge 는 인증 전 호출이라 공개다.
+                        // 보호가 필요한 신규 엔드포인트가 생기면 여기에 명시적으로 추가한다 —
+                        // 이 설정은 "적어 둔 것만 보호"라 빠뜨리면 익명에 열린다.
                         // 그 외 전부 오픈(공용). 로그인/재발급/콜백 포함
                         .anyRequest().permitAll())
                 .exceptionHandling(e -> e.authenticationEntryPoint(
