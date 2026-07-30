@@ -32,6 +32,8 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
+import watoo.grd.nextroute.application.notification.exception.TossIdentityRequiredException;
+
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.function.Function;
@@ -68,7 +70,7 @@ public class RouteArrivalAlertService
         int mask = validateAndMask(userLead, request.getArrivalTime(), request.isRepeat(), request.getWeekdays());
         int buffer = resolveBuffer(request.getBufferMinutes());
 
-        User user = requireUser(userId);
+        User user = requireTossUser(userId);
 
         RouteAlertSchedule entity = RouteAlertSchedule.builder()
                 .user(user)
@@ -235,5 +237,19 @@ public class RouteArrivalAlertService
     private User requireUser(long userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new NoSuchElementException("사용자를 찾을 수 없습니다: " + userId));
+    }
+
+    /**
+     * 알림 구독은 토스 신원이 있는 사용자만 만들 수 있다.
+     *
+     * <p>발송 채널이 토스뿐이라 없으면 받을 수단이 없다. 만드는 시점에 막지 않으면 요청은
+     * 성공하고 백그라운드 발송만 조용히 실패해, 사용자는 알림이 온다고 믿게 된다.
+     */
+    private User requireTossUser(long userId) {
+        User user = requireUser(userId);
+        if (!user.hasTossIdentity()) {
+            throw new TossIdentityRequiredException();
+        }
+        return user;
     }
 }
