@@ -20,6 +20,7 @@ err() {
 }
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+COMPOSE_FILE="${ML_COMPOSE_FILE:-$REPO_ROOT/compose.yaml}"
 DATA_DIR="${ML_DATA_DIR:-/srv/nextroute/ml-data}"
 REMOTE="${ML_RCLONE_REMOTE:-gdrive:nextroute-archive}"
 RETENTION_DAYS="${ML_RETENTION_DAYS:-7}"
@@ -43,10 +44,15 @@ if [[ ! -d "$DATA_DIR" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$COMPOSE_FILE" ]]; then
+  err "compose file missing: $COMPOSE_FILE"
+  exit 1
+fi
+
 cd "$REPO_ROOT"
 
 log "preflight dry-run retention_days=$RETENTION_DAYS dataset_cache_days=$DATASET_CACHE_DAYS"
-docker compose run --rm -T "$SERVICE" python retention.py \
+docker compose -f "$COMPOSE_FILE" run --rm -T "$SERVICE" python retention.py \
   --dry-run \
   --retention-days "$RETENTION_DAYS" \
   --dataset-cache-days "$DATASET_CACHE_DAYS" \
@@ -92,7 +98,7 @@ done
 log "remote backup verified for ${#dates[@]} gated service_date(s)"
 
 log "apply retention"
-docker compose run --rm -T "$SERVICE" python retention.py \
+docker compose -f "$COMPOSE_FILE" run --rm -T "$SERVICE" python retention.py \
   --apply \
   --confirm-backup-reviewed \
   --retention-days "$RETENTION_DAYS" \
