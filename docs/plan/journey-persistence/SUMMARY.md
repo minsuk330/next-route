@@ -2,36 +2,53 @@
 
 ## 뭘 하나
 
-진행 중인 여정을 PostgreSQL 에 기록한다 — 테이블 5개, `domain/journey`·`application/journey` 새 폴더, 고른 경로를 "걷기 / 기다리기 / 타고 가기" 단계로 쪼개는 코드, 여정 시작 API 최소분.
+진행 중인 여정을 PostgreSQL에 저장하고, 선택 경로를 `WALK / WAIT / RIDE` leg와 복수 노선 후보로 compile한다. 최소 시작 API와 ACTIVE Journey 복구 API까지 만든다.
 
-## 왜
+## 구현 단위
 
-검색은 사진, 여정은 동영상이다. 검색은 결과를 주면 끝이지만 여정은 30분에서 한 시간 동안 굴러가고 앱이 꺼져도 서버가 재시작해도 이어져야 한다.
+1. `journey-schema-domain` — V35, 6테이블, entity·repository
+2. `journey-compiler` — 실제 검색 fixture를 leg·transfer·route option으로 변환
+3. `journey-start-api` — snapshot 검증, 시작·ACTIVE 조회, 동시성·보안
 
 ## 핵심 결정
 
-- 검색 코드와 **폴더를 나눈다** — 검색은 짧고 굵게, 여정은 길고 가늘게 부하가 걸린다. 합치면 여정 평가가 스레드를 붙든 동안 검색이 밀림
-- 여정 번호만 무작위 문자열 — 푸시 내용과 앱 링크에 실려 나가서 순번이면 남의 것을 추측할 수 있음
-- `version` 은 JPA 자동 관리에 안 맡기고 직접 올린다 — 앱과 주고받는 약속값이라 예외 번역보다 명시적 증가가 안전
-- 진행 중인 여정은 사람당 하나. 기존 것을 **자동으로 안 끝낸다** — 409 와 현재 정보를 주고 `?replace=true` 일 때만 갈아탐
-- 쪼개다 막히면 예외 대신 "모름" 표시 — 검색은 됐는데 시작만 막히면 사용자가 이유를 알 수 없음
-- 타는 구간을 **기다리기 + 타고가기 두 단계**로 나눔 — "탔어요/내렸어요" 누르는 지점이 단계 경계에 있어야 함
-- 기기 구분 칸 없음 — 다중 기기 미지원 (SCOPE-CHANGES SC-1)
+- V34는 토큰 세대 migration이 사용 중이므로 Journey는 **V35**를 사용한다.
+- `commandVersion / evaluationVersion / routeRevision`을 분리한다.
+- 시작 상태는 `1 / 0 / 1`, 첫 leg만 `ACTIVE`다.
+- `lastHeartbeatAt`, `guidanceLeaseUntil`, `endReason`을 처음부터 저장한다.
+- `SubPathResult.lanes` 복수 후보를 `journey_leg_route_option`에 모두 저장한다.
+- 식별자 누락은 leg lifecycle을 `UNKNOWN`으로 바꾸지 않고 `evidenceQuality=UNKNOWN`으로 표현한다.
+- Redis snapshot 조회와 compile은 트랜잭션 밖, 사용자 잠금과 DB 저장만 짧은 트랜잭션으로 처리한다.
+- `replace=true`는 기존 Journey 취소를 flush한 뒤 신규 Journey를 insert한다.
+- route snapshot은 `JsonNode/JSONB`로 저장하고 수정하지 않는다.
+- `JourneyRevision`에는 수락된 경로만 `ACTIVE/SUPERSEDED`로 저장하고, 미수락 대안은 Phase 6 `reroute_proposal`로 분리한다.
+- 절대시각은 `timestamptz/Instant`를 사용한다.
+- `reroute_proposal`은 Phase 6으로 미룬다.
 
-## 건드는 곳
+## API
 
-`V34__create_journey.sql`, `.gitignore`
-`domain/journey/` (엔티티 6 + 종류값 5 + 조회 5, 신규)
-`application/journey/` (JourneyCompiler, JourneyStartService, DTO·예외, 신규)
-`infrastructure/adapter/in/api/journey/` (JourneyController, 신규)
-`common/security/SecurityConfig.java`
+```http
+POST /api/journeys?replace=false
+GET  /api/journeys/active
+```
 
-## 리스크
+두 API 모두 JWT 인증이 필수다. 동일 사용자의 ACTIVE Journey가 있으면 자동 종료하지 않고 `409 ACTIVE_JOURNEY_EXISTS`와 현재 snapshot을 반환한다.
 
-- 동시에 시작했을 때 500 이 새어 나갈 수 있음 → DB 거부 예외를 409 로 변환, 동시성 테스트로 고정
-- `replace=true` 가 트랜잭션이 나뉘면 "사람당 하나" 규칙과 충돌 → 하나의 `@Transactional`
-- 쪼개는 코드가 실제 검색 응답 변형을 못 다룸 → 준비 데이터 5종 + "모름" 처리
+## 동시성
 
-## 검증법
+`users` 행을 `PESSIMISTIC_WRITE`로 잠가 같은 사용자의 시작 요청을 직렬화하고, `uq_journey_active_per_user` partial unique index를 최종 방어선으로 둔다. unique 위반만 정확히 409로 번역하며 다른 무결성 오류는 숨기지 않는다.
 
-V34 가 테스트 컨테이너에서 적용되는지, S1~S6 쪼갠 결과가 준비 데이터의 기대값과 맞는지, 동시에 두 번 시작하면 하나만 진행되고 나머지는 409 인지, 로그인 없는 요청이 401 인지, 기존 전체 테스트에 회귀가 없는지.
+## 배포
+
+V35 SQL을 수동 실행하지 않는다. migration을 bootJar에 포함하고 API 시작 시 Flyway가 적용하게 한다. 이번 단계는 Worker 로직을 바꾸지 않으므로 역할 분리가 완료된 VPS에서는 `./deploy.sh api`로 배포 가능하다.
+
+## 필수 검증
+
+- V35·CHECK·partial unique index
+- JSONB object round-trip과 route snapshot 불변성
+- S1·S2·S3·S4·S6 및 복수 lane compile
+- 첫 leg ACTIVE, 나머지 PENDING
+- 동시 시작·동시 replace에서도 ACTIVE 하나
+- 만료 410, 소유자 불일치 403, 인증 없음 401
+- `EntityManager.clear()` 후 ACTIVE Journey 복구
+- 전체 테스트 회귀 없음
