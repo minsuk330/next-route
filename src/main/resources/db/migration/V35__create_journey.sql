@@ -3,6 +3,10 @@
 -- 검색은 사진이고 여정은 동영상이다. 검색 결과는 응답으로 끝나지만 여정은 30분~1시간 굴러가며
 -- 앱이 꺼져도 서버가 재시작해도 이어져야 한다. 그 canonical state 를 여기에 둔다.
 --
+-- 절대시각은 timestamptz 다(감사 칼럼만 기존 관례대로 timestamp(6)). 엔티티는 Instant 로
+-- 받으면 되고 별도 매핑 어노테이션이 필요 없다 — Hibernate 6 이 Instant 를 timestamptz 로
+-- 보내는 것이 기본값이라 붙여도 생성 DDL 이 같다(측정 확인).
+--
 -- lease(guidance_lease_until)·세 version 칼럼·journey_event 는 Phase 2~4 가 쓰는 계약이라
 -- 이번 단계에서 쓰지 않더라도 미리 만든다. 나중에 ALTER 로 칼럼을 붙이면 이미 쌓인 행의
 -- 기본값을 소급 결정해야 하는데, 그 결정이 곧 상태 해석 규칙이라 뒤늦게 정하면 위험하다.

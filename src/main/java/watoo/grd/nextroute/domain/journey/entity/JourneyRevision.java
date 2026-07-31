@@ -54,11 +54,9 @@ public class JourneyRevision extends BaseEntity {
     @Column(nullable = false, columnDefinition = "jsonb")
     private JsonNode routeSnapshot;
 
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(nullable = false)
     private Instant activatedAt;
 
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     private Instant supersededAt;
 
     @Builder

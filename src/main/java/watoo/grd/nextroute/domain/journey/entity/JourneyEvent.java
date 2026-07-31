@@ -51,10 +51,8 @@ public class JourneyEvent extends BaseEntity {
     private String type;
 
     /** 앱 기준 발생 시각. 기기 시계라 믿을 수 없어 판단 기준으로 쓰지 않는다. */
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     private Instant clientOccurredAt;
 
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(nullable = false)
     private Instant serverReceivedAt;
 

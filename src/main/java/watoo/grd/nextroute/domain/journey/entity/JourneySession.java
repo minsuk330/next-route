@@ -89,12 +89,10 @@ public class JourneySession implements Persistable<UUID> {
     @Column(nullable = false)
     private int currentLegIndex;
 
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(nullable = false)
     private Instant startedAt;
 
     /** 앱이 마지막으로 살아 있다고 알린 시각(Phase 2 heartbeat). */
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(nullable = false)
     private Instant lastHeartbeatAt;
 
@@ -104,15 +102,12 @@ public class JourneySession implements Persistable<UUID> {
      * <p>앱이 죽었는지 그냥 조용한지 서버는 구분할 수 없다. 만료 시각을 미리 정해 두면 "소식이
      * 없으면 언제 접을지"를 매번 판단하지 않아도 된다.
      */
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(nullable = false)
     private Instant guidanceLeaseUntil;
 
     /** 다음에 서버가 평가해야 할 시각. 채우는 주체는 Phase 4. */
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     private Instant nextEvaluationAt;
 
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     private Instant endedAt;
 
     @Enumerated(EnumType.STRING)

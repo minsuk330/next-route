@@ -9,8 +9,6 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 import watoo.grd.nextroute.common.entity.BaseEntity;
 
 import java.math.BigDecimal;
@@ -63,15 +61,12 @@ public class TransferConnection extends BaseEntity {
     private TransferStatus status;
 
     /** 지금 타고 있는 차량이 환승 지점에 닿는 시각(Phase 3). */
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     private Instant currentLegArrivalAt;
 
     /** 내려서 걸어간 뒤 사용자가 탈 준비가 되는 시각(Phase 3). */
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     private Instant userReadyAt;
 
     /** 갈아탈 차량이 오는 시각(Phase 3). */
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     private Instant nextBusArrivalAt;
 
     /** 준비되는 시각과 차가 오는 시각 사이의 여유. 음수면 이미 늦었다는 뜻이다. */
@@ -87,11 +82,9 @@ public class TransferConnection extends BaseEntity {
     @Column(length = 20)
     private String confidence;
 
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     private Instant calculatedAt;
 
     /** 계산에 쓴 관측값이 만들어진 시각. 계산 시각과 다르면 낡은 데이터로 계산한 것이다. */
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     private Instant dataObservedAt;
 
     @Column(length = 50)

@@ -9,8 +9,6 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 import watoo.grd.nextroute.common.entity.BaseEntity;
 
 import java.time.Instant;
@@ -74,7 +72,6 @@ public class JourneyLeg extends BaseEntity {
     /** 검색 결과가 말한 소요시간. 실제 소요가 아니라 계획값이다. */
     private Integer plannedDurationSec;
 
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     private Instant predictedEndAt;
 
     private Integer remainingStops;
@@ -83,7 +80,6 @@ public class JourneyLeg extends BaseEntity {
     @Column(length = 30)
     private String evidenceSource;
 
-    @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     private Instant evidenceObservedAt;
 
     /** 근거를 얼마나 믿을 수 있는지. 지금 정의된 값은 {@link #EVIDENCE_QUALITY_UNKNOWN} 뿐이다. */
