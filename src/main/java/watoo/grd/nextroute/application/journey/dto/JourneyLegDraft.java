@@ -14,8 +14,10 @@ import java.util.List;
  * @param legIndex           경로 안에서의 순번. 0 부터
  * @param type               걷기 / 기다리기 / 타고 가기
  * @param state              시작 시점의 진행 상태. 0번만 {@code ACTIVE}
- * @param startStopId        출발 지점 식별자. 검색 응답에 없으면 null
- * @param endStopId          도착 지점 식별자. 검색 응답에 없으면 null
+ * @param startStopId        서버 내부 출발 정류장·역 ID. 아직 해석 전이면 null
+ * @param endStopId          서버 내부 도착 정류장·역 ID. 아직 해석 전이면 null
+ * @param sourceStartStopId  ODSAY가 준 출발 지점 ID. 내부 ID와 같은지 보장하지 않는다
+ * @param sourceEndStopId    ODSAY가 준 도착 지점 ID. 내부 ID와 같은지 보장하지 않는다
  * @param startName          출발 지점 이름
  * @param endName            도착 지점 이름
  * @param plannedDurationSec 검색 결과가 말한 소요시간(초). 기다리는 단계는 알 수 없어 null
@@ -29,8 +31,14 @@ public record JourneyLegDraft(
         JourneyLegState state,
         String startStopId,
         String endStopId,
+        String sourceStartStopId,
+        String sourceEndStopId,
         String startName,
         String endName,
+        Double startX,
+        Double startY,
+        Double endX,
+        Double endY,
         Integer plannedDurationSec,
         String evidenceQuality,
         List<JourneyRouteOptionDraft> routeOptions,
@@ -39,6 +47,17 @@ public record JourneyLegDraft(
 
     public JourneyLegDraft {
         routeOptions = routeOptions == null ? List.of() : List.copyOf(routeOptions);
+    }
+
+    /** 내부 ID 해석 결과를 반영한 새 draft. Compiler는 원천 ID만 채우고 이 단계가 내부 ID를 채운다. */
+    public JourneyLegDraft withResolvedStops(String resolvedStartStopId, String resolvedEndStopId,
+                                             String resolvedEvidenceQuality,
+                                             List<JourneyRouteOptionDraft> resolvedOptions) {
+        return new JourneyLegDraft(legIndex, type, state,
+                resolvedStartStopId, resolvedEndStopId,
+                sourceStartStopId, sourceEndStopId,
+                startName, endName, startX, startY, endX, endY,
+                plannedDurationSec, resolvedEvidenceQuality, resolvedOptions, pairedLegIndex);
     }
 
     /** 후보가 하나뿐인지. 이때만 시작 시점에 탈 노선을 확정할 수 있다. */

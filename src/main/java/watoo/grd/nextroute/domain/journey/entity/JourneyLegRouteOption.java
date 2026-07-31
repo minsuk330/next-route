@@ -47,15 +47,28 @@ public class JourneyLegRouteOption extends BaseEntity {
     @Column(length = 100)
     private String routeName;
 
+    /** ODSAY 지하철 방향 코드. 내부 lineId와 함께 실시간 방향 판정에 쓴다. */
+    private Integer wayCode;
+
+    /** 내부 버스 노선에서 승차 정류장의 순번. 외부 도착 API·ML의 입력이다. */
+    private Integer boardingSeq;
+
+    /** 내부 버스 노선에서 하차 정류장의 순번. 남은 정류장·구간 예측의 입력이다. */
+    private Integer alightingSeq;
+
     @Builder
     public JourneyLegRouteOption(Long journeyLegId, int optionIndex, int laneIndex,
-                                 String routeId, String sourceRouteId, String routeName) {
+                                 String routeId, String sourceRouteId, String routeName,
+                                 Integer wayCode, Integer boardingSeq, Integer alightingSeq) {
         this.journeyLegId = journeyLegId;
         this.optionIndex = optionIndex;
         this.laneIndex = laneIndex;
         this.routeId = routeId;
         this.sourceRouteId = sourceRouteId;
         this.routeName = routeName;
+        this.wayCode = wayCode;
+        this.boardingSeq = boardingSeq;
+        this.alightingSeq = alightingSeq;
     }
 
     /** 저장 후 확정된 단계 id 를 연결한다(단계와 후보의 저장 순서를 코드가 잡을 때 쓴다). */

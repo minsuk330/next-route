@@ -29,15 +29,28 @@ public class SubwayArrivalQueryService implements GetSubwayArrivalUseCase {
 
     @Override
     public List<SubwayArrivalResponse> getArrivals(double lat, double lon, Integer wayCode, String lineId) {
-        List<NearbySubwayStationProjection> nearby =
-                subwayDataService.findNearbyStations(lat, lon, 50, 5);
-        if (nearby.isEmpty()) return List.of();
-
-        NearbySubwayStationProjection target = selectStation(nearby, lineId);
+        Optional<ResolvedStation> target = resolveStation(lat, lon, lineId);
+        if (target.isEmpty()) return List.of();
 
         Optional<SubwayRealtimeSnapshot> snapshot = cachePort.readSnapshot();
 
-        return fromSnapshot(snapshot, target.getLineId(), target.getStationId(), wayCode);
+        return fromSnapshot(snapshot, target.get().lineId(), target.get().stationId(), wayCode);
+    }
+
+    /**
+     * 좌표와 내부 line_id를 이용해 실시간 조회 대상 역을 확정한다.
+     *
+     * <p>기존 도착 조회와 여정 시작이 같은 역 선택 규칙을 사용하도록 공개한 재사용 진입점이다.
+     */
+    public Optional<ResolvedStation> resolveStation(double lat, double lon, String lineId) {
+        List<NearbySubwayStationProjection> nearby =
+                subwayDataService.findNearbyStations(lat, lon, 50, 5);
+        if (nearby.isEmpty()) {
+            return Optional.empty();
+        }
+        NearbySubwayStationProjection target = selectStation(nearby, lineId);
+        return Optional.of(new ResolvedStation(
+                target.getStationId(), target.getStationName(), target.getLineId()));
     }
 
     /**
@@ -110,5 +123,8 @@ public class SubwayArrivalQueryService implements GetSubwayArrivalUseCase {
         } catch (Exception e) {
             return raw;
         }
+    }
+
+    public record ResolvedStation(String stationId, String stationName, String lineId) {
     }
 }
