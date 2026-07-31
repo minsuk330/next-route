@@ -80,8 +80,14 @@ public class JourneyCompiler {
                 JourneyLegState.PENDING,
                 null,
                 null,
+                null,
+                null,
                 sub.startName(),
                 sub.endName(),
+                sub.startX(),
+                sub.startY(),
+                sub.endX(),
+                sub.endY(),
                 walkDurationSec(sub),
                 null,
                 List.of(),
@@ -126,9 +132,8 @@ public class JourneyCompiler {
         boolean subway = sub.trafficType() == TRAFFIC_SUBWAY;
         List<JourneyRouteOptionDraft> options = routeOptions(sub);
 
-        String startStopId = startStopId(sub);
-        String endStopId = endStopId(sub);
-        String evidenceQuality = evidenceQuality(startStopId, endStopId, options);
+        String sourceStartStopId = sourceStartStopId(sub);
+        String sourceEndStopId = sourceEndStopId(sub);
 
         int waitIndex = legs.size();
         int rideIndex = waitIndex + 1;
@@ -137,13 +142,19 @@ public class JourneyCompiler {
                 waitIndex,
                 subway ? JourneyLegType.WAIT_SUBWAY : JourneyLegType.WAIT_BUS,
                 JourneyLegState.PENDING,
-                startStopId,
-                startStopId,
+                null,
+                null,
+                sourceStartStopId,
+                sourceStartStopId,
                 sub.startName(),
                 sub.startName(),
+                sub.startX(),
+                sub.startY(),
+                sub.startX(),
+                sub.startY(),
                 // 기다리는 시간은 검색 결과에 없다. 실시간 도착 정보가 붙는 Phase 3 의 몫이다.
                 null,
-                evidenceQuality,
+                JourneyLeg.EVIDENCE_QUALITY_UNKNOWN,
                 options,
                 rideIndex));
 
@@ -151,12 +162,18 @@ public class JourneyCompiler {
                 rideIndex,
                 subway ? JourneyLegType.RIDE_SUBWAY : JourneyLegType.RIDE_BUS,
                 JourneyLegState.PENDING,
-                startStopId,
-                endStopId,
+                null,
+                null,
+                sourceStartStopId,
+                sourceEndStopId,
                 sub.startName(),
                 sub.endName(),
+                sub.startX(),
+                sub.startY(),
+                sub.endX(),
+                sub.endY(),
                 sub.sectionTime() * SECONDS_PER_MINUTE,
-                evidenceQuality,
+                JourneyLeg.EVIDENCE_QUALITY_UNKNOWN,
                 List.of(),
                 waitIndex));
 
@@ -176,7 +193,8 @@ public class JourneyCompiler {
         List<JourneyRouteOptionDraft> options = new ArrayList<>(sub.lanes().size());
         for (int i = 0; i < sub.lanes().size(); i++) {
             LaneResult lane = sub.lanes().get(i);
-            options.add(JourneyRouteOptionDraft.of(i, sourceRouteId(lane), routeName(lane)));
+            options.add(JourneyRouteOptionDraft.of(
+                    i, sourceRouteId(lane), routeName(lane), sub.wayCode()));
         }
         return options;
     }
@@ -198,22 +216,10 @@ public class JourneyCompiler {
         return hasText(lane.busNo()) ? lane.busNo() : lane.name();
     }
 
-    /**
-     * 근거 품질. 실시간 대조에 쓸 식별자가 없으면 "모름"으로 표시한다.
-     *
-     * <p>식별자가 없다고 단계 상태를 {@code UNKNOWN} 으로 만들지 않는다. 그러면 사용자가 손으로
-     * 진행할 수도 없다. 진행은 그대로 두고 "서버가 자동으로 따라가지는 못한다"만 남긴다.
-     */
-    private String evidenceQuality(String startStopId, String endStopId,
-                                   List<JourneyRouteOptionDraft> options) {
-        boolean stopsKnown = hasText(startStopId) && hasText(endStopId);
-        boolean routeKnown = options.stream().anyMatch(JourneyRouteOptionDraft::hasIdentifier);
-        return stopsKnown && routeKnown ? null : JourneyLeg.EVIDENCE_QUALITY_UNKNOWN;
-    }
-
     // ── 식별자 ───────────────────────────────────────────────────────────────
 
-    private String startStopId(SubPathResult sub) {
+    /** ODSAY가 준 출발 ID. 내부 ID와 같은지 보장하지 않으므로 Resolver가 나중에 해석한다. */
+    private String sourceStartStopId(SubPathResult sub) {
         if (sub.trafficType() == TRAFFIC_BUS && hasText(sub.startLocalStationID())) {
             return sub.startLocalStationID();
         }
@@ -223,7 +229,8 @@ public class JourneyCompiler {
         return stationId(sub, true);
     }
 
-    private String endStopId(SubPathResult sub) {
+    /** ODSAY가 준 도착 ID. 내부 ID와 같은지 보장하지 않으므로 Resolver가 나중에 해석한다. */
+    private String sourceEndStopId(SubPathResult sub) {
         if (sub.trafficType() == TRAFFIC_BUS && hasText(sub.endLocalStationID())) {
             return sub.endLocalStationID();
         }
@@ -244,12 +251,12 @@ public class JourneyCompiler {
     }
 
     private StopRef startStopRef(SubPathResult sub) {
-        return new StopRef(startStopId(sub), sub.startArsID(), sub.startName(),
+        return new StopRef(sourceStartStopId(sub), sub.startArsID(), sub.startName(),
                 sub.startX(), sub.startY());
     }
 
     private StopRef endStopRef(SubPathResult sub) {
-        return new StopRef(endStopId(sub), sub.endArsID(), sub.endName(),
+        return new StopRef(sourceEndStopId(sub), sub.endArsID(), sub.endName(),
                 sub.endX(), sub.endY());
     }
 
@@ -263,7 +270,10 @@ public class JourneyCompiler {
         JourneyLegDraft first = legs.get(0);
         legs.set(0, new JourneyLegDraft(
                 first.legIndex(), first.type(), JourneyLegState.ACTIVE,
-                first.startStopId(), first.endStopId(), first.startName(), first.endName(),
+                first.startStopId(), first.endStopId(),
+                first.sourceStartStopId(), first.sourceEndStopId(),
+                first.startName(), first.endName(),
+                first.startX(), first.startY(), first.endX(), first.endY(),
                 first.plannedDurationSec(), first.evidenceQuality(),
                 first.routeOptions(), first.pairedLegIndex()));
         return legs;

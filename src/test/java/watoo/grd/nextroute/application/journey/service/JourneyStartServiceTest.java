@@ -34,6 +34,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.AdditionalAnswers.returnsFirstArg;
 import static watoo.grd.nextroute.application.journey.service.SubPathFixture.bus;
 import static watoo.grd.nextroute.application.journey.service.SubPathFixture.busLane;
 import static watoo.grd.nextroute.application.journey.service.SubPathFixture.walk;
@@ -52,6 +53,7 @@ class JourneyStartServiceTest {
     private RouteSearchSnapshotPort snapshotPort;
     private JourneyStartTxService txService;
     private JourneyQueryService queryService;
+    private JourneyPlanResolver planResolver;
     private JourneyStartService service;
 
     @BeforeEach
@@ -59,9 +61,12 @@ class JourneyStartServiceTest {
         snapshotPort = mock(RouteSearchSnapshotPort.class);
         txService = mock(JourneyStartTxService.class);
         queryService = mock(JourneyQueryService.class);
+        planResolver = mock(JourneyPlanResolver.class);
+        given(planResolver.resolve(any())).willAnswer(returnsFirstArg());
         service = new JourneyStartService(
                 snapshotPort,
                 new JourneyCompiler(new StopIdentityResolver()),
+                planResolver,
                 txService,
                 queryService,
                 new ObjectMapper(),

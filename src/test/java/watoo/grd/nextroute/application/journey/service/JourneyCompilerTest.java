@@ -382,7 +382,7 @@ class JourneyCompilerTest {
         }
 
         @Test
-        @DisplayName("정류장 목록에서라도 식별자를 찾아 쓴다")
+        @DisplayName("정류장 목록 식별자는 원천 ID로 보존하고 내부 ID 칸은 비워 둔다")
         void fallsBackToStationList() {
             JourneyPlan plan = compiler.compile(path(
                     bus(20).names("정류장A", "정류장F")
@@ -393,18 +393,22 @@ class JourneyCompilerTest {
                                             1, "ST-F", "정류장F", 127.01, 37.51))
                             .lanes(busLane("370", "BL-370")).build()));
 
-            assertThat(plan.legs().get(1).startStopId()).isEqualTo("ST-A");
-            assertThat(plan.legs().get(1).endStopId()).isEqualTo("ST-F");
-            assertThat(plan.legs().get(1).evidenceQuality()).isNull();
+            JourneyLegDraft ride = plan.legs().get(1);
+            assertThat(ride.startStopId()).isNull();
+            assertThat(ride.endStopId()).isNull();
+            assertThat(ride.sourceStartStopId()).isEqualTo("ST-A");
+            assertThat(ride.sourceEndStopId()).isEqualTo("ST-F");
+            assertThat(ride.evidenceQuality()).isEqualTo(JourneyLeg.EVIDENCE_QUALITY_UNKNOWN);
         }
 
         @Test
-        @DisplayName("식별자가 다 있으면 근거 품질을 건드리지 않는다")
-        void identifiersPresent_leavesEvidenceUntouched() {
+        @DisplayName("ODSAY 식별자가 있어도 내부 해석 전까지는 근거 품질을 모름으로 둔다")
+        void identifiersPresent_stillNeedsResolution() {
             JourneyPlan plan = compiler.compile(path(
                     bus(20).busStops("ST-A", "ST-F").lanes(busLane("370", "BL-370")).build()));
 
-            assertThat(plan.legs().get(0).evidenceQuality()).isNull();
+            assertThat(plan.legs().get(0).evidenceQuality())
+                    .isEqualTo(JourneyLeg.EVIDENCE_QUALITY_UNKNOWN);
         }
     }
 

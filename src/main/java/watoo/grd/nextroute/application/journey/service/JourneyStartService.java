@@ -46,6 +46,7 @@ public class JourneyStartService implements StartJourneyUseCase {
 
     private final RouteSearchSnapshotPort snapshotPort;
     private final JourneyCompiler compiler;
+    private final JourneyPlanResolver planResolver;
     private final JourneyStartTxService startTxService;
     private final JourneyQueryService queryService;
     private final ObjectMapper objectMapper;
@@ -65,6 +66,7 @@ public class JourneyStartService implements StartJourneyUseCase {
                     command.searchSessionId(), command.pathKey());
             throw new JourneyCompileFailedException();
         }
+        plan = planResolver.resolve(plan);
 
         JsonNode routeSnapshot = objectMapper.valueToTree(stored.path());
 

@@ -60,6 +60,14 @@ public class JourneyLeg extends BaseEntity {
     @Column(length = 64)
     private String endStopId;
 
+    /** ODSAY가 준 출발 ID. 실시간·ML에는 쓰지 않고, 재해석과 진단에만 남긴다. */
+    @Column(length = 64)
+    private String sourceStartStopId;
+
+    /** ODSAY가 준 도착 ID. 실시간·ML에는 쓰지 않고, 재해석과 진단에만 남긴다. */
+    @Column(length = 64)
+    private String sourceEndStopId;
+
     private String startName;
 
     private String endName;
@@ -99,7 +107,9 @@ public class JourneyLeg extends BaseEntity {
     @Builder
     public JourneyLeg(Long journeyId, int routeRevision, int legIndex,
                       JourneyLegType type, JourneyLegState state,
-                      String startStopId, String endStopId, String startName, String endName,
+                      String startStopId, String endStopId,
+                      String sourceStartStopId, String sourceEndStopId,
+                      String startName, String endName,
                       Integer plannedDurationSec, String evidenceQuality) {
         this.journeyId = journeyId;
         this.routeRevision = routeRevision;
@@ -108,6 +118,8 @@ public class JourneyLeg extends BaseEntity {
         this.state = state;
         this.startStopId = startStopId;
         this.endStopId = endStopId;
+        this.sourceStartStopId = sourceStartStopId;
+        this.sourceEndStopId = sourceEndStopId;
         this.startName = startName;
         this.endName = endName;
         this.plannedDurationSec = plannedDurationSec;

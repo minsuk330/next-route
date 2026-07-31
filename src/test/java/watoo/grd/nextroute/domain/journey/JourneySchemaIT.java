@@ -55,7 +55,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V35 가 만든 스키마와 Journey 엔티티 매핑을 실 PostgreSQL 로 확인한다.
+ * V35/V36 이 만든 스키마와 Journey 엔티티 매핑을 실 PostgreSQL 로 확인한다.
  *
  * <p>스키마를 테스트용으로 복제하지 않고 <b>실제 마이그레이션 파일을 그대로 실행</b>한다
  * ({@code @Sql}). 복제본을 두면 마이그레이션만 고치고 테스트는 통과하는 상태가 생긴다.
@@ -70,7 +70,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import(JpaConfig.class)
-@Sql(scripts = "classpath:db/migration/V35__create_journey.sql",
+@Sql(scripts = {
+        "classpath:db/migration/V35__create_journey.sql",
+        "classpath:db/migration/V36__add_journey_transit_resolution.sql"
+},
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 class JourneySchemaIT {
 
@@ -295,6 +298,9 @@ class JourneySchemaIT {
                 .type(JourneyLegType.WAIT_BUS)
                 .state(JourneyLegState.ACTIVE)
                 .startStopId("STOP-1")
+                .endStopId("STOP-2")
+                .sourceStartStopId("odsay-stop-1")
+                .sourceEndStopId("odsay-stop-2")
                 .startName("정류장A")
                 .plannedDurationSec(300)
                 .evidenceQuality(JourneyLeg.EVIDENCE_QUALITY_UNKNOWN)
@@ -308,6 +314,9 @@ class JourneySchemaIT {
                         .routeId("ROUTE-1")
                         .sourceRouteId("src-1")
                         .routeName("370")
+                        .wayCode(1)
+                        .boardingSeq(4)
+                        .alightingSeq(12)
                         .build());
 
         wait.selectRouteOption(option.getId());
@@ -319,9 +328,16 @@ class JourneySchemaIT {
         assertThat(legs).hasSize(1);
         assertThat(legs.get(0).getSelectedRouteOptionId()).isEqualTo(option.getId());
         assertThat(legs.get(0).getEvidenceQuality()).isEqualTo("UNKNOWN");
+        assertThat(legs.get(0).getSourceStartStopId()).isEqualTo("odsay-stop-1");
+        assertThat(legs.get(0).getSourceEndStopId()).isEqualTo("odsay-stop-2");
 
-        assertThat(routeOptionRepository.findByJourneyLegIdInAndDeletedAtIsNull(
-                List.of(wait.getId()))).hasSize(1);
+        assertThat(routeOptionRepository.findByJourneyLegIdInAndDeletedAtIsNull(List.of(wait.getId())))
+                .singleElement()
+                .satisfies(saved -> {
+                    assertThat(saved.getWayCode()).isEqualTo(1);
+                    assertThat(saved.getBoardingSeq()).isEqualTo(4);
+                    assertThat(saved.getAlightingSeq()).isEqualTo(12);
+                });
     }
 
     @Test

@@ -128,6 +128,8 @@ public class JourneyStartTxService {
                     .state(draft.state())
                     .startStopId(draft.startStopId())
                     .endStopId(draft.endStopId())
+                    .sourceStartStopId(draft.sourceStartStopId())
+                    .sourceEndStopId(draft.sourceEndStopId())
                     .startName(draft.startName())
                     .endName(draft.endName())
                     .plannedDurationSec(draft.plannedDurationSec())
@@ -174,6 +176,9 @@ public class JourneyStartTxService {
                 .routeId(draft.routeId())
                 .sourceRouteId(draft.sourceRouteId())
                 .routeName(draft.routeName())
+                .wayCode(draft.wayCode())
+                .boardingSeq(draft.boardingSeq())
+                .alightingSeq(draft.alightingSeq())
                 .build();
     }
 
