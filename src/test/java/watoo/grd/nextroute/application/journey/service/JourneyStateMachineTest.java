@@ -358,9 +358,35 @@ class JourneyStateMachineTest {
         }
 
         @Test
-        @DisplayName("걷는 중에는 고를 노선이 없다")
-        void duringWalk_rejected() {
+        @DisplayName("걷는 중에는 앞에 있는 기다리기 단계를 고른다")
+        void duringWalk_targetsNextWaitLeg() {
             JourneySnapshot j = journey(0, fullRoute());
+
+            JourneyTransition t = stateMachine.decide(
+                    j, command(JourneyEventType.USER_SELECTED_VEHICLE, 100L));
+
+            assertThat(t.isApplied()).isTrue();
+            assertThat(t.routeOptionTargetLegs()).containsExactly(1, 2);
+        }
+
+        @Test
+        @DisplayName("환승 도보 중에도 다음 노선을 고를 수 있다")
+        void duringTransferWalk_targetsNextWaitLeg() {
+            JourneySnapshot j = journey(3, withState(fullRoute(), 3, JourneyLegState.ACTIVE));
+
+            JourneyTransition t = stateMachine.decide(
+                    j, command(JourneyEventType.USER_SELECTED_VEHICLE, 200L));
+
+            assertThat(t.isApplied())
+                    .as("내려서 다음 정류장으로 걸어가는 동안이 어느 버스를 탈지 고르는 시점이다")
+                    .isTrue();
+            assertThat(t.routeOptionTargetLegs()).containsExactly(4, 5);
+        }
+
+        @Test
+        @DisplayName("남은 기다리기 단계가 없으면 거절한다")
+        void noWaitLegAhead_rejected() {
+            JourneySnapshot j = journey(6, withState(fullRoute(), 6, JourneyLegState.ACTIVE));
 
             JourneyTransition t = stateMachine.decide(
                     j, command(JourneyEventType.USER_SELECTED_VEHICLE, 100L));

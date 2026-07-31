@@ -15,24 +15,30 @@ import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegView;
 import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionView;
+import watoo.grd.nextroute.application.journey.dto.JourneyCommand;
+import watoo.grd.nextroute.application.journey.dto.JourneyEventOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
 import watoo.grd.nextroute.application.journey.exception.JourneyCompileFailedException;
 import watoo.grd.nextroute.application.journey.exception.SnapshotOwnerMismatchException;
 import watoo.grd.nextroute.application.journey.exception.SnapshotUnavailableException;
+import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
+import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -62,6 +68,7 @@ class JourneyControllerTest {
     @Autowired MockMvc mockMvc;
     @MockBean StartJourneyUseCase startJourneyUseCase;
     @MockBean GetActiveJourneyUseCase getActiveJourneyUseCase;
+    @MockBean ApplyJourneyEventUseCase applyJourneyEventUseCase;
     @MockBean JwtProvider jwtProvider;                 // SecurityConfig 의존
     @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
     @MockBean AdminProperties adminProperties;         // SecurityConfig(AdminApiKeyFilter) 의존
@@ -215,7 +222,106 @@ class JourneyControllerTest {
                 .andExpect(status().isNoContent());
     }
 
+
+    // ── 명령 ─────────────────────────────────────────────────────────────────
+
+    private static final String EVENT_BODY = """
+            {"eventId":"11111111-2222-3333-4444-555555555555",
+             "type":"USER_CONFIRMED_BOARDING",
+             "baseCommandVersion":1,
+             "routeRevision":1}
+            """;
+
+    private void givenOutcome(JourneyEventResult result, String reason) {
+        given(applyJourneyEventUseCase.apply(eq(7L), eq(5L), any(JourneyCommand.class)))
+                .willReturn(new JourneyEventOutcome(result, reason, snapshot(5L)));
+    }
+
+    @Test
+    @DisplayName("명령이 반영되면 200 과 최신 상태를 준다")
+    void applyEvent_returns200() throws Exception {
+        givenOutcome(JourneyEventResult.APPLIED, null);
+
+        mockMvc.perform(post("/api/journeys/5/events")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(EVENT_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("APPLIED"))
+                .andExpect(jsonPath("$.journey.journeyId").value(5))
+                .andExpect(jsonPath("$.reason").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("재전송도 성공과 같은 200 이다")
+    void applyEvent_duplicate_returns200() throws Exception {
+        givenOutcome(JourneyEventResult.DUPLICATE, null);
+
+        mockMvc.perform(post("/api/journeys/5/events")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(EVENT_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("DUPLICATE"))
+                .andExpect(jsonPath("$.journey.journeyId").value(5));
+    }
+
+    @Test
+    @DisplayName("낡은 상태로 보낸 명령은 409 와 최신 상태를 준다")
+    void applyEvent_conflict_returns409() throws Exception {
+        givenOutcome(JourneyEventResult.CONFLICT, "STALE_COMMAND_VERSION");
+
+        mockMvc.perform(post("/api/journeys/5/events")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(EVENT_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.reason").value("STALE_COMMAND_VERSION"))
+                .andExpect(jsonPath("$.journey.commandVersion").value(1));
+    }
+
+    @Test
+    @DisplayName("규칙상 할 수 없는 명령은 422")
+    void applyEvent_rejected_returns422() throws Exception {
+        givenOutcome(JourneyEventResult.REJECTED, "NOT_RIDING");
+
+        mockMvc.perform(post("/api/journeys/5/events")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(EVENT_BODY))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.reason").value("NOT_RIDING"));
+    }
+
+    @Test
+    @DisplayName("없는 여정과 남의 여정은 똑같이 404")
+    void applyEvent_notFound_returns404() throws Exception {
+        willThrow(new NoSuchElementException())
+                .given(applyJourneyEventUseCase).apply(eq(7L), eq(5L), any(JourneyCommand.class));
+
+        mockMvc.perform(post("/api/journeys/5/events")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(EVENT_BODY))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("JOURNEY_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("명령 식별자가 없으면 400")
+    void applyEvent_missingEventId_returns400() throws Exception {
+        mockMvc.perform(post("/api/journeys/5/events")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"type\":\"APP_RESUMED\",\"baseCommandVersion\":1,\"routeRevision\":1}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("인증 없이는 명령을 보낼 수 없다")
+    void applyEvent_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(post("/api/journeys/5/events")
+                        .contentType(MediaType.APPLICATION_JSON).content(EVENT_BODY))
+                .andExpect(status().isUnauthorized());
+    }
+
     // ── 보호 ─────────────────────────────────────────────────────────────────
+
 
     @Test
     @DisplayName("인증 없이는 시작할 수 없다")

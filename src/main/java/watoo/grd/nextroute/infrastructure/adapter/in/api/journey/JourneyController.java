@@ -8,21 +8,28 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import watoo.grd.nextroute.application.journey.dto.JourneyEventOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
 import watoo.grd.nextroute.application.journey.exception.JourneyCompileFailedException;
 import watoo.grd.nextroute.application.journey.exception.SnapshotOwnerMismatchException;
 import watoo.grd.nextroute.application.journey.exception.SnapshotUnavailableException;
+import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
+import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
+import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.ApplyJourneyEventRequest;
+import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.JourneyEventResponse;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.StartJourneyRequest;
 
 import java.util.LinkedHashMap;
+import java.util.NoSuchElementException;
 import java.util.Map;
 
 /**
@@ -38,6 +45,7 @@ public class JourneyController {
 
     private final StartJourneyUseCase startJourneyUseCase;
     private final GetActiveJourneyUseCase getActiveJourneyUseCase;
+    private final ApplyJourneyEventUseCase applyJourneyEventUseCase;
 
     /**
      * 검색 결과 하나로 여정을 시작한다.
@@ -60,6 +68,47 @@ public class JourneyController {
         return getActiveJourneyUseCase.getActive(userId)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /**
+     * 탑승·하차·차량 선택·취소 같은 명령을 보낸다.
+     *
+     * <p>같은 {@code eventId} 로 다시 오면 처음 판정을 그대로 돌려준다. 지하철에서 응답을 못 받은
+     * 앱이 재전송하는 것이 정상 동작이기 때문이다.
+     *
+     * <p>앱이 낡은 상태를 보고 눌렀으면 409 다. 규칙상 지금 할 수 없는 명령이면 422 다. 둘 다
+     * 최신 여정 상태를 함께 싣는다.
+     */
+    @PostMapping("/{journeyId}/events")
+    public ResponseEntity<JourneyEventResponse> applyEvent(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long journeyId,
+            @Valid @RequestBody ApplyJourneyEventRequest request) {
+        JourneyEventOutcome outcome =
+                applyJourneyEventUseCase.apply(userId, journeyId, request.toCommand());
+        return ResponseEntity.status(statusOf(outcome.result()))
+                .body(JourneyEventResponse.from(outcome));
+    }
+
+    /**
+     * 결과를 HTTP 상태로 옮긴다.
+     *
+     * <p>재전송(DUPLICATE)은 성공과 같은 200 이다. 앱이 보기에 "그 명령은 반영됐다"는 사실은
+     * 처음이든 두 번째든 같다.
+     */
+    private static HttpStatus statusOf(JourneyEventResult result) {
+        return switch (result) {
+            case APPLIED, DUPLICATE -> HttpStatus.OK;
+            case CONFLICT -> HttpStatus.CONFLICT;
+            case REJECTED -> HttpStatus.UNPROCESSABLE_ENTITY;
+        };
+    }
+
+    /** 없는 여정과 남의 여정을 구분하지 않는다. 구분하면 남의 여정 번호를 찍어 볼 수 있다. */
+    @ExceptionHandler(NoSuchElementException.class)
+    public ResponseEntity<Map<String, Object>> handleNotFound(NoSuchElementException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(error("JOURNEY_NOT_FOUND", "여정을 찾을 수 없다"));
     }
 
     /** 진행 중인 여정을 함께 돌려준다. 앱이 "이어서 보기"를 바로 그릴 수 있게. */
