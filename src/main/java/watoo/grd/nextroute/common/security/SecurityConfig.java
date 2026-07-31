@@ -47,6 +47,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/route/fav/**").authenticated()
                         .requestMatchers("/api/route/my/**").authenticated()
                         .requestMatchers("/api/notifications/**").authenticated()
+                        .requestMatchers("/api/journeys/**").authenticated()
                         // 앱 OAuth 로그인·challenge 는 인증 전 호출이라 공개다.
                         // 재발급(/api/auth/reissue)도 공개다 — access 가 만료된 뒤 부르는 경로라
                         // Bearer 를 요구할 수 없다. 대신 본문의 refresh 토큰이 신원을 증명한다.
