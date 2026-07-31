@@ -25,11 +25,13 @@ import watoo.grd.nextroute.application.journey.exception.SnapshotOwnerMismatchEx
 import watoo.grd.nextroute.application.journey.exception.SnapshotUnavailableException;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
+import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
+import watoo.grd.nextroute.domain.journey.entity.JourneyEventType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
@@ -46,6 +48,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -69,6 +72,7 @@ class JourneyControllerTest {
     @MockBean StartJourneyUseCase startJourneyUseCase;
     @MockBean GetActiveJourneyUseCase getActiveJourneyUseCase;
     @MockBean ApplyJourneyEventUseCase applyJourneyEventUseCase;
+    @MockBean GetJourneyUseCase getJourneyUseCase;
     @MockBean JwtProvider jwtProvider;                 // SecurityConfig 의존
     @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
     @MockBean AdminProperties adminProperties;         // SecurityConfig(AdminApiKeyFilter) 의존
@@ -79,7 +83,7 @@ class JourneyControllerTest {
     }
 
     private JourneySnapshot snapshot(Long journeyId) {
-        return new JourneySnapshot(journeyId, JourneyStatus.ACTIVE, 1L, 0L, 1, 0,
+        return JourneySnapshot.of(journeyId, JourneyStatus.ACTIVE, 1L, 0L, 1, 0,
                 Instant.parse("2026-07-31T09:03:00Z"), Instant.parse("2026-07-31T09:00:00Z"),
                 List.of(new JourneyLegView(10L, 0, JourneyLegType.WAIT_BUS, JourneyLegState.ACTIVE,
                         "ST-A", "ST-A", "정류장A", "정류장A", null, null, null,
@@ -320,7 +324,130 @@ class JourneyControllerTest {
                 .andExpect(status().isUnauthorized());
     }
 
+
+    // ── 상세 조회 ────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("번호로 조회하면 200 과 파생 값까지 준다")
+    void detail_returns200() throws Exception {
+        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+
+        mockMvc.perform(get("/api/journeys/5").with(authentication(authUser(7L))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.journeyId").value(5))
+                .andExpect(jsonPath("$.currentLeg.type").value("WAIT_BUS"))
+                .andExpect(jsonPath("$.recommendedPollSeconds").value(10));
+    }
+
+    @Test
+    @DisplayName("바뀐 것이 없으면 204 로 본문을 아낀다")
+    void detail_unchanged_returns204() throws Exception {
+        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+
+        mockMvc.perform(get("/api/journeys/5?afterCommandVersion=1&afterEvaluationVersion=0")
+                        .with(authentication(authUser(7L))))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("명령 번호가 올랐으면 본문을 준다")
+    void detail_changed_returns200() throws Exception {
+        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+
+        mockMvc.perform(get("/api/journeys/5?afterCommandVersion=0")
+                        .with(authentication(authUser(7L))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("없는 여정은 404")
+    void detail_notFound_returns404() throws Exception {
+        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/journeys/5").with(authentication(authUser(7L))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("JOURNEY_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("인증 없이는 조회할 수 없다")
+    void detail_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(get("/api/journeys/5"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ── 종료 ─────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("도착하면 본문 없이도 끝낼 수 있다")
+    void complete_withoutBody() throws Exception {
+        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+        given(applyJourneyEventUseCase.apply(eq(7L), eq(5L), any(JourneyCommand.class)))
+                .willReturn(new JourneyEventOutcome(
+                        JourneyEventResult.APPLIED, null, snapshot(5L)));
+
+        mockMvc.perform(post("/api/journeys/5/complete").with(authentication(authUser(7L))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("APPLIED"));
+
+        verify(applyJourneyEventUseCase).apply(eq(7L), eq(5L),
+                org.mockito.ArgumentMatchers.argThat(c ->
+                        c.type() == JourneyEventType.JOURNEY_COMPLETED
+                                && c.baseCommandVersion() == 1L
+                                && c.eventId() != null));
+    }
+
+    @Test
+    @DisplayName("취소는 DELETE 로 보낸다")
+    void cancel_usesDelete() throws Exception {
+        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+        given(applyJourneyEventUseCase.apply(eq(7L), eq(5L), any(JourneyCommand.class)))
+                .willReturn(new JourneyEventOutcome(
+                        JourneyEventResult.APPLIED, null, snapshot(5L)));
+
+        mockMvc.perform(delete("/api/journeys/5").with(authentication(authUser(7L))))
+                .andExpect(status().isOk());
+
+        verify(applyJourneyEventUseCase).apply(eq(7L), eq(5L),
+                org.mockito.ArgumentMatchers.argThat(c ->
+                        c.type() == JourneyEventType.JOURNEY_CANCELED));
+    }
+
+    @Test
+    @DisplayName("종료에 명령 식별자를 실으면 재전송을 흡수할 수 있다")
+    void cancel_withEventId() throws Exception {
+        UUID eventId = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+        given(applyJourneyEventUseCase.apply(eq(7L), eq(5L), any(JourneyCommand.class)))
+                .willReturn(new JourneyEventOutcome(
+                        JourneyEventResult.DUPLICATE, null, snapshot(5L)));
+
+        mockMvc.perform(delete("/api/journeys/5")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"eventId\":\"" + eventId + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("DUPLICATE"));
+
+        verify(applyJourneyEventUseCase).apply(eq(7L), eq(5L),
+                org.mockito.ArgumentMatchers.argThat(c -> eventId.equals(c.eventId())));
+    }
+
+    @Test
+    @DisplayName("이미 끝난 여정을 또 끝내려 하면 422")
+    void complete_alreadyEnded_returns422() throws Exception {
+        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+        given(applyJourneyEventUseCase.apply(eq(7L), eq(5L), any(JourneyCommand.class)))
+                .willReturn(new JourneyEventOutcome(
+                        JourneyEventResult.REJECTED, "JOURNEY_NOT_ACTIVE", snapshot(5L)));
+
+        mockMvc.perform(post("/api/journeys/5/complete").with(authentication(authUser(7L))))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.reason").value("JOURNEY_NOT_ACTIVE"));
+    }
+
     // ── 보호 ─────────────────────────────────────────────────────────────────
+
 
 
     @Test

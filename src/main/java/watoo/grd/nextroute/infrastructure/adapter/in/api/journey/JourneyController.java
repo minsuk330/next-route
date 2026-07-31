@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,9 +23,12 @@ import watoo.grd.nextroute.application.journey.exception.SnapshotOwnerMismatchEx
 import watoo.grd.nextroute.application.journey.exception.SnapshotUnavailableException;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
+import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
+import watoo.grd.nextroute.domain.journey.entity.JourneyEventType;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.ApplyJourneyEventRequest;
+import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.EndJourneyRequest;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.JourneyEventResponse;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.StartJourneyRequest;
 
@@ -46,6 +50,7 @@ public class JourneyController {
     private final StartJourneyUseCase startJourneyUseCase;
     private final GetActiveJourneyUseCase getActiveJourneyUseCase;
     private final ApplyJourneyEventUseCase applyJourneyEventUseCase;
+    private final GetJourneyUseCase getJourneyUseCase;
 
     /**
      * 검색 결과 하나로 여정을 시작한다.
@@ -68,6 +73,78 @@ public class JourneyController {
         return getActiveJourneyUseCase.getActive(userId)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /**
+     * 여정 하나를 번호로 조회한다. 끝난 여정도 볼 수 있다.
+     *
+     * <p>{@code afterCommandVersion}·{@code afterEvaluationVersion} 을 함께 보내면, 그 이후로
+     * 바뀐 것이 없을 때 <b>204</b> 를 돌려준다. 앱이 30초마다 물어도 대부분은 바뀐 것이 없고,
+     * 그때마다 전체 단계 목록을 실어 보내면 지하철에서 쓸데없이 데이터를 먹는다.
+     */
+    @GetMapping("/{journeyId}")
+    public ResponseEntity<JourneySnapshot> detail(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long journeyId,
+            @RequestParam(required = false) Long afterCommandVersion,
+            @RequestParam(required = false) Long afterEvaluationVersion) {
+        JourneySnapshot journey = getJourneyUseCase.get(userId, journeyId)
+                .orElseThrow(() -> new NoSuchElementException("여정을 찾을 수 없다: " + journeyId));
+
+        if (unchanged(journey, afterCommandVersion, afterEvaluationVersion)) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(journey);
+    }
+
+    /** 앱이 들고 있는 번호가 서버와 같으면 새로 보낼 것이 없다. 한쪽만 보내도 그 값만 본다. */
+    private static boolean unchanged(JourneySnapshot journey,
+                                     Long afterCommandVersion, Long afterEvaluationVersion) {
+        if (afterCommandVersion == null && afterEvaluationVersion == null) {
+            return false;
+        }
+        boolean commandSame = afterCommandVersion == null
+                || journey.commandVersion() <= afterCommandVersion;
+        boolean evaluationSame = afterEvaluationVersion == null
+                || journey.evaluationVersion() <= afterEvaluationVersion;
+        return commandSame && evaluationSame;
+    }
+
+    /** 목적지에 도착했다. 취소와 끝나는 이유가 달라 따로 둔다. */
+    @PostMapping("/{journeyId}/complete")
+    public ResponseEntity<JourneyEventResponse> complete(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long journeyId,
+            @RequestBody(required = false) EndJourneyRequest request) {
+        return end(userId, journeyId, request, JourneyEventType.JOURNEY_COMPLETED);
+    }
+
+    /** 여정을 접는다. 사용자가 명시적으로 그만두는 경로다. */
+    @DeleteMapping("/{journeyId}")
+    public ResponseEntity<JourneyEventResponse> cancel(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long journeyId,
+            @RequestBody(required = false) EndJourneyRequest request) {
+        return end(userId, journeyId, request, JourneyEventType.JOURNEY_CANCELED);
+    }
+
+    /**
+     * 종료 계열 요청을 명령으로 바꿔 보낸다.
+     *
+     * <p>본문 없이도 부를 수 있게 현재 번호를 서버가 읽어 채운다. 종료는 "지금 상태가 무엇이든
+     * 끝낸다"에 가까워서, 낡은 번호 때문에 실패하면 사용자가 여정을 못 끝내는 상황이 된다.
+     */
+    private ResponseEntity<JourneyEventResponse> end(Long userId, Long journeyId,
+                                                     EndJourneyRequest request,
+                                                     JourneyEventType type) {
+        JourneySnapshot current = getJourneyUseCase.get(userId, journeyId)
+                .orElseThrow(() -> new NoSuchElementException("여정을 찾을 수 없다: " + journeyId));
+        EndJourneyRequest body = request != null ? request : new EndJourneyRequest(null, null);
+
+        JourneyEventOutcome outcome = applyJourneyEventUseCase.apply(userId, journeyId,
+                body.toCommand(type, current.commandVersion(), current.routeRevision()));
+        return ResponseEntity.status(statusOf(outcome.result()))
+                .body(JourneyEventResponse.from(outcome));
     }
 
     /**

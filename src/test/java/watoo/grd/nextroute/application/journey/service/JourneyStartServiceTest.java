@@ -89,7 +89,7 @@ class JourneyStartServiceTest {
     }
 
     private JourneySnapshot snapshot(Long journeyId) {
-        return new JourneySnapshot(journeyId, JourneyStatus.ACTIVE, 1L, 0L, 1, 0,
+        return JourneySnapshot.of(journeyId, JourneyStatus.ACTIVE, 1L, 0L, 1, 0,
                 NOW.plusSeconds(180), NOW, List.of());
     }
 
