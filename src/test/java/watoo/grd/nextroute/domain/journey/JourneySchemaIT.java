@@ -206,9 +206,9 @@ class JourneySchemaIT {
     void unknown_status_rejected() {
         assertThatThrownBy(() -> jdbcTemplate.update("""
                 insert into journey_session
-                    (id, created_at, updated_at, user_id, status, started_at,
+                    (created_at, updated_at, user_id, status, started_at,
                      last_heartbeat_at, guidance_lease_until, route_snapshot)
-                values (gen_random_uuid(), now(), now(), ?, 'PAUSED', now(), now(), now(), '{}')
+                values (now(), now(), ?, 'PAUSED', now(), now(), now(), '{}')
                 """, userId))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }

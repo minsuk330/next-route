@@ -3,28 +3,18 @@ package watoo.grd.nextroute.domain.journey.entity;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.Id;
-import jakarta.persistence.PostLoad;
-import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.annotation.LastModifiedDate;
-import org.springframework.data.domain.Persistable;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+import watoo.grd.nextroute.common.entity.BaseEntity;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.util.UUID;
 
 /**
  * 진행 중인 여정 하나. 서버가 들고 있는 기준 상태다.
@@ -32,34 +22,21 @@ import java.util.UUID;
  * <p>검색은 사진이고 여정은 동영상이다. 검색은 응답을 주면 끝이지만 여정은 30분~1시간 굴러가고
  * 앱이 꺼져도 서버가 재시작해도 이어져야 한다. 그래서 앱 메모리가 아니라 이 행이 진실이다.
  *
- * <p>{@code BaseEntity} 를 상속하지 않는다. PK 가 순번 bigint 가 아니라 애플리케이션이 만든
- * UUID 이기 때문이다(D7). 여정 번호는 푸시 본문과 앱 링크에 실려 나가므로 순번이면 남의 여정을
- * 추측할 수 있다. 감사 칼럼은 같은 관례({@code timestamp(6)})로 직접 선언한다.
- *
  * <p>제약은 DB 가 소유한다(V35).
  * <ul>
  *   <li>{@code uq_journey_active_per_user} — 사람당 진행 중인 여정 하나</li>
  *   <li>{@code journey_session_status_check}, {@code journey_end_reason_check} — 값 목록</li>
  * </ul>
+ *
+ * <p>{@code id} 는 다른 표와 같은 순번 bigint 다. 여정 번호는 푸시 본문과 앱 링크에 실려 나가
+ * 이웃 번호를 찍어 볼 수 있으므로, 조회는 반드시 소유자를 <b>쿼리 조건에</b> 넣는다
+ * ({@code findByIdAndUserIdAndDeletedAtIsNull}). 꺼낸 뒤에 비교하는 방식은 언젠가 빠뜨린다.
  */
 @Entity
 @Table(name = "journey_session")
-@EntityListeners(AuditingEntityListener.class)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class JourneySession implements Persistable<UUID> {
-
-    @Id
-    private UUID id;
-
-    @CreatedDate
-    @Column(updatable = false)
-    private LocalDateTime createdAt;
-
-    @LastModifiedDate
-    private LocalDateTime updatedAt;
-
-    private LocalDateTime deletedAt;
+public class JourneySession extends BaseEntity {
 
     /** User 연관 대신 id 로 참조한다(도메인 경계 단순화, {@code AuthIdentity} 와 같은 관례). */
     @Column(nullable = false)
@@ -130,19 +107,9 @@ public class JourneySession implements Persistable<UUID> {
     @Column(columnDefinition = "jsonb")
     private JsonNode destinationSummary;
 
-    /**
-     * Spring Data 가 이 행을 insert 로 다룰지 판단하는 표시.
-     *
-     * <p>PK 를 애플리케이션이 만들어 넣기 때문에, 이 표시가 없으면 {@code save()} 가 "이미 있는
-     * 행"으로 보고 select 를 한 번 더 친다.
-     */
-    @Transient
-    private boolean isNew = true;
-
     @Builder
     public JourneySession(Long userId, Instant startedAt, Instant guidanceLeaseUntil,
                           JsonNode routeSnapshot, JsonNode destinationSummary) {
-        this.id = UUID.randomUUID();
         this.userId = userId;
         this.status = JourneyStatus.ACTIVE;
         this.commandVersion = 1L;
@@ -156,30 +123,10 @@ public class JourneySession implements Persistable<UUID> {
         this.destinationSummary = destinationSummary;
     }
 
-    @Override
-    public UUID getId() {
-        return id;
-    }
-
-    @Override
-    public boolean isNew() {
-        return isNew;
-    }
-
-    @PostPersist
-    @PostLoad
-    void markNotNew() {
-        this.isNew = false;
-    }
-
     /** 여정을 끝낸다. 상태와 이유를 함께 남겨야 나중에 왜 끝났는지 셀 수 있다. */
     public void end(JourneyStatus status, JourneyEndReason reason, Instant endedAt) {
         this.status = status;
         this.endReason = reason;
         this.endedAt = endedAt;
-    }
-
-    public void markDeleted(LocalDateTime now) {
-        this.deletedAt = now;
     }
 }

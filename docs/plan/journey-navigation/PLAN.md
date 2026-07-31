@@ -88,7 +88,7 @@ Mobile
 ### 4.1 `JourneySession`
 
 ```text
-id(UUID), userId
+id(identity bigint), userId
 status(ACTIVE|COMPLETED|CANCELED|EXPIRED)
 commandVersion, evaluationVersion, routeRevision, currentLegIndex
 startedAt, lastHeartbeatAt, guidanceLeaseUntil, nextEvaluationAt, endedAt, endReason
@@ -200,7 +200,7 @@ Journey 스냅샷 최소 필드:
 
 ```json
 {
-  "journeyId": "uuid",
+  "journeyId": 1234,
   "commandVersion": 13,
   "evaluationVersion": 41,
   "routeRevision": 2,
@@ -259,13 +259,13 @@ DELETE /api/me/push-token
 
 ```json
 {
-  "journeyId": "uuid",
+  "journeyId": 1234,
   "routeRevision": 2,
   "commandVersion": 14,
   "evaluationVersion": 42,
   "alertId": "uuid",
   "type": "TRANSFER_AT_RISK",
-  "deepLink": "nextroute://journeys/uuid"
+  "deepLink": "nextroute://journeys/1234"
 }
 ```
 

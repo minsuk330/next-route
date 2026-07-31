@@ -13,7 +13,6 @@ import watoo.grd.nextroute.common.entity.BaseEntity;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.UUID;
 
 /**
  * 갈아타는 이음매 하나. 앞 단계에서 내려 다음 교통수단을 타기까지의 연결이다.
@@ -32,7 +31,7 @@ import java.util.UUID;
 public class TransferConnection extends BaseEntity {
 
     @Column(nullable = false)
-    private UUID journeyId;
+    private Long journeyId;
 
     @Column(nullable = false)
     private int routeRevision;
@@ -95,7 +94,7 @@ public class TransferConnection extends BaseEntity {
     private String lastNotifiedStatus;
 
     @Builder
-    public TransferConnection(UUID journeyId, int routeRevision, int transferIndex,
+    public TransferConnection(Long journeyId, int routeRevision, int transferIndex,
                               int fromLegIndex, Integer walkLegIndex, int toLegIndex,
                               TransferStatus status) {
         this.journeyId = journeyId;

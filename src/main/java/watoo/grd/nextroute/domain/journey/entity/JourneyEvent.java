@@ -37,7 +37,7 @@ public class JourneyEvent extends BaseEntity {
     private UUID eventId;
 
     @Column(nullable = false)
-    private UUID journeyId;
+    private Long journeyId;
 
     /** 앱이 이 명령을 만들 때 들고 있던 {@code commandVersion}. 낡았으면 충돌로 처리한다. */
     @Column(nullable = false)
@@ -72,7 +72,7 @@ public class JourneyEvent extends BaseEntity {
     private String rejectionReason;
 
     @Builder
-    public JourneyEvent(UUID eventId, UUID journeyId, long baseCommandVersion, int routeRevision,
+    public JourneyEvent(UUID eventId, Long journeyId, long baseCommandVersion, int routeRevision,
                         String type, Instant clientOccurredAt, Instant serverReceivedAt,
                         JsonNode payload, JourneyEventResult result,
                         Long resultingCommandVersion, String rejectionReason) {

@@ -12,7 +12,6 @@ import lombok.NoArgsConstructor;
 import watoo.grd.nextroute.common.entity.BaseEntity;
 
 import java.time.Instant;
-import java.util.UUID;
 
 /**
  * 여정을 쪼갠 한 단계. "걷기 / 기다리기 / 타고 가기" 중 하나다.
@@ -39,7 +38,7 @@ public class JourneyLeg extends BaseEntity {
     public static final String EVIDENCE_QUALITY_UNKNOWN = "UNKNOWN";
 
     @Column(nullable = false)
-    private UUID journeyId;
+    private Long journeyId;
 
     @Column(nullable = false)
     private int routeRevision;
@@ -98,7 +97,7 @@ public class JourneyLeg extends BaseEntity {
     private Long selectedRouteOptionId;
 
     @Builder
-    public JourneyLeg(UUID journeyId, int routeRevision, int legIndex,
+    public JourneyLeg(Long journeyId, int routeRevision, int legIndex,
                       JourneyLegType type, JourneyLegState state,
                       String startStopId, String endStopId, String startName, String endName,
                       Integer plannedDurationSec, String evidenceQuality) {

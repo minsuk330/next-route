@@ -15,7 +15,6 @@ import org.hibernate.type.SqlTypes;
 import watoo.grd.nextroute.common.entity.BaseEntity;
 
 import java.time.Instant;
-import java.util.UUID;
 
 /**
  * 실제 안내에 쓰인 경로 한 판.
@@ -37,7 +36,7 @@ import java.util.UUID;
 public class JourneyRevision extends BaseEntity {
 
     @Column(nullable = false)
-    private UUID journeyId;
+    private Long journeyId;
 
     @Column(nullable = false)
     private int routeRevision;
@@ -60,7 +59,7 @@ public class JourneyRevision extends BaseEntity {
     private Instant supersededAt;
 
     @Builder
-    public JourneyRevision(UUID journeyId, int routeRevision, JourneyRevisionStatus status,
+    public JourneyRevision(Long journeyId, int routeRevision, JourneyRevisionStatus status,
                            String reason, JsonNode routeSnapshot, Instant activatedAt) {
         this.journeyId = journeyId;
         this.routeRevision = routeRevision;

@@ -73,7 +73,7 @@ L 범위는 착수 전 설계를 확정하고 실제 구현은 M 크기 PR로 �
 | D13 | 스냅샷 크기 줄이기(폴리라인 제외 등) | **1차 미적용** — 통째로 저장하고 측정 후 재검토 | journey-route-snapshot §4.1.1 |
 | D5 | `replace=true` 로 기존 Journey 교체 | 허용, 명시적 파라미터 필수. 사용자 행 잠금 + 기존 취소 flush 후 신규 insert | journey-persistence §3.4~3.5 |
 | D6 | 같은 이메일 다른 provider 자동 병합 | **하지 않는다** | journey-auth-oauth §4.3 |
-| D7 | `JourneySession` 의 `BaseEntity` 상속 | 상속하지 않음(uuid PK) | journey-persistence §4.1 |
+| D7 | `JourneySession` 의 `BaseEntity` 상속 | **상속한다 — identity bigint PK.** UUID 안(2026-07-31 폐기) | journey-persistence §3.2 |
 | D8 | 다중 기기 지원 | **하지 않는다** — 기기 세션 PR 삭제 | [SCOPE-CHANGES.md](./SCOPE-CHANGES.md) SC-1 |
 | D9 | 계정당 앱 로그인 수단 개수 | **최대 1개**, `TOSS` 만 예외로 공존 | journey-auth-oauth §5.1 |
 | D12 | 앱에서 토스 로그인 지원 | **하지 않는다** — 토스는 미니앱 전용, 공용 로그인 API 가 400 | journey-auth-oauth §5.6 |
