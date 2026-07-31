@@ -2,10 +2,13 @@ package watoo.grd.nextroute.application.journey.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import watoo.grd.nextroute.application.arrival.service.SubwayArrivalQueryService;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
 import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionDraft;
 import watoo.grd.nextroute.application.route.service.TransferStopResolver;
+import watoo.grd.nextroute.application.subway.service.DestinationNormalizer;
+import watoo.grd.nextroute.application.subway.service.SubwayLineIdMapper;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 
@@ -15,20 +18,21 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * ODSAY 원천 식별자가 든 여정 계획을 서버 내부 식별자가 든 실행 계획으로 바꾼다.
+ * 기존 교통수단 해석 결과를 여정 실행 계획에 반영한다.
  *
  * <p>이 단계는 여정 저장 트랜잭션에 들어가기 전에 실행한다. 정적 데이터 조회가 사용자 행 잠금 시간을
- * 늘리지 않으며, 해석에 실패해도 수동 진행 가능한 여정 자체는 저장한다.
+ * 늘리지 않는다. 버스는 {@link TransferStopResolver}, 지하철 역은
+ * {@link SubwayArrivalQueryService}의 기존 해석 진입점을 재사용한다.
  */
 @Component
 @RequiredArgsConstructor
-public class JourneyPlanResolver {
+public class JourneyTransitIdEnricher {
 
     private final TransferStopResolver busResolver;
-    private final SubwayLineIdResolver subwayLineResolver;
-    private final SubwayStationResolver subwayStationResolver;
+    private final SubwayArrivalQueryService subwayArrivalQueryService;
+    private final DestinationNormalizer destinationNormalizer;
 
-    public JourneyPlan resolve(JourneyPlan plan) {
+    public JourneyPlan enrich(JourneyPlan plan) {
         Map<Integer, JourneyLegDraft> originalByIndex = new HashMap<>();
         plan.legs().forEach(leg -> originalByIndex.put(leg.legIndex(), leg));
         Map<Integer, JourneyLegDraft> resolvedByIndex = new HashMap<>();
@@ -97,7 +101,7 @@ public class JourneyPlanResolver {
     }
 
     private JourneyRouteOptionDraft resolveSubwayOption(JourneyRouteOptionDraft option) {
-        return subwayLineResolver.resolve(option.routeName(), option.sourceRouteId())
+        return SubwayLineIdMapper.resolveOdsay(option.routeName(), option.sourceRouteId())
                 .map(lineId -> option.resolved(lineId, null, null))
                 .orElse(option);
     }
@@ -111,11 +115,22 @@ public class JourneyPlanResolver {
         List<String> stationIds = options.stream()
                 .map(JourneyRouteOptionDraft::routeId)
                 .filter(routeId -> routeId != null && !routeId.isBlank())
-                .map(lineId -> subwayStationResolver.resolve(lineId, name, x, y))
+                .map(lineId -> resolveSubwayStation(lineId, name, x, y))
                 .flatMap(Optional::stream)
                 .distinct()
                 .toList();
         return stationIds.size() == 1 ? stationIds.get(0) : null;
+    }
+
+    private Optional<String> resolveSubwayStation(String lineId, String name, Double x, Double y) {
+        if (x == null || y == null) {
+            return Optional.empty();
+        }
+        return subwayArrivalQueryService.resolveStation(y, x, lineId)
+                .filter(station -> lineId.equals(station.lineId()))
+                .filter(station -> destinationNormalizer.compare(name, station.stationName())
+                        == DestinationNormalizer.Match.KNOWN_MATCH)
+                .map(SubwayArrivalQueryService.ResolvedStation::stationId);
     }
 
     private String resolveBusStop(String sourceStopId) {

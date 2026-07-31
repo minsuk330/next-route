@@ -9,13 +9,13 @@ import watoo.grd.nextroute.application.subway.dto.SubwayArrivalInfo;
 import watoo.grd.nextroute.application.subway.dto.SubwaySegmentInfo;
 import watoo.grd.nextroute.application.subway.dto.SubwayStationInfo;
 import watoo.grd.nextroute.application.subway.port.out.SubwayApiPort;
+import watoo.grd.nextroute.application.subway.service.SubwayLineIdMapper;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.ApiCallBlocker;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.subway.dto.*;
 
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 import static watoo.grd.nextroute.common.util.ParseUtils.parseDouble;
 import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
@@ -30,19 +30,6 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 	private static final String API_ARRIVAL = "seoul-subway-arrival";
 	private static final String API_MASTER = "seoul-subway-master";
 	private static final String API_DISTANCE = "seoul-subway-distance";
-
-	private static final Map<String, String> LINE_NAME_MAP = Map.ofEntries(
-			Map.entry("경의중앙선", "1063"),
-			Map.entry("공항철도",   "1065"),
-			Map.entry("경춘선",     "1067"),
-			Map.entry("수인분당선", "1075"),
-			Map.entry("신분당선",   "1077"),
-			Map.entry("경강선",     "1081"),
-			Map.entry("우이신설선", "1092"),
-			Map.entry("서해선",     "1093"),
-			Map.entry("GTX-A",     "1032"),
-			Map.entry("중앙선",     "1061")
-	);
 
 	private final RestTemplate restTemplate;
 	private final ApiCallBlocker blocker;
@@ -187,7 +174,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 			}
 
 			seq++;
-			String lineId = toLineId(curr.getRouteLine() + "호선");
+			String lineId = SubwayLineIdMapper.toInternalLineId(curr.getRouteLine() + "호선");
 			segments.add(new SubwaySegmentInfo(
 					lineId,
 					prev.getStationName(),
@@ -221,7 +208,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 		return new SubwayStationInfo(
 				item.getBldnId(),
 				item.getBldnNm(),
-				toLineId(route),
+				SubwayLineIdMapper.toInternalLineId(route),
 				route,
 				parseDouble(item.getLat()),
 				parseDouble(item.getLot())
@@ -253,15 +240,6 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 				item.getTrainLineNm(),
 				item.getLstcarAt()
 		);
-	}
-
-	/** "01호선" → "1001", "02호선" → "1002", ... "09호선" → "1009" */
-	private String toLineId(String route) {
-		if (route == null) return null;
-		if (LINE_NAME_MAP.containsKey(route)) return LINE_NAME_MAP.get(route);
-		String num = route.replaceAll("[^0-9]", "");
-		if (num.isEmpty()) return route;
-		return String.valueOf(1000 + Integer.parseInt(num));
 	}
 
 	// ===== API 호출 =====

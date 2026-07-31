@@ -1,10 +1,12 @@
 package watoo.grd.nextroute.application.journey.service;
 
 import org.junit.jupiter.api.Test;
+import watoo.grd.nextroute.application.arrival.service.SubwayArrivalQueryService;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.service.TransferStopResolver;
+import watoo.grd.nextroute.application.subway.service.DestinationNormalizer;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 
 import java.util.List;
@@ -18,13 +20,13 @@ import static watoo.grd.nextroute.application.journey.service.SubPathFixture.bus
 import static watoo.grd.nextroute.application.journey.service.SubPathFixture.subway;
 import static watoo.grd.nextroute.application.journey.service.SubPathFixture.subwayLane;
 
-class JourneyPlanResolverTest {
+class JourneyTransitIdEnricherTest {
 
     private final TransferStopResolver busResolver = mock(TransferStopResolver.class);
-    private final SubwayLineIdResolver subwayLineResolver = mock(SubwayLineIdResolver.class);
-    private final SubwayStationResolver subwayStationResolver = mock(SubwayStationResolver.class);
-    private final JourneyPlanResolver resolver = new JourneyPlanResolver(
-            busResolver, subwayLineResolver, subwayStationResolver);
+    private final SubwayArrivalQueryService subwayArrivalQueryService =
+            mock(SubwayArrivalQueryService.class);
+    private final JourneyTransitIdEnricher enricher = new JourneyTransitIdEnricher(
+            busResolver, subwayArrivalQueryService, new DestinationNormalizer());
     private final JourneyCompiler compiler = new JourneyCompiler(new StopIdentityResolver());
 
     @Test
@@ -41,7 +43,7 @@ class JourneyPlanResolverTest {
         given(busResolver.resolveSeq("100100576", "STOP-F"))
                 .willReturn(new TransferStopResolver.SeqResolution(List.of(12)));
 
-        JourneyPlan plan = resolver.resolve(compile(bus(20).names("정류장A", "정류장F")
+        JourneyPlan plan = enricher.enrich(compile(bus(20).names("정류장A", "정류장F")
                 .busStops("ODSAY-A", "ODSAY-F")
                 .lanes(busLane("370", "ODSAY-ROUTE")).build()));
 
@@ -76,7 +78,7 @@ class JourneyPlanResolverTest {
         given(busResolver.resolveSeq("100100576", "STOP-F"))
                 .willReturn(new TransferStopResolver.SeqResolution(List.of(12)));
 
-        JourneyPlan plan = resolver.resolve(compile(bus(20)
+        JourneyPlan plan = enricher.enrich(compile(bus(20)
                 .busStops("ODSAY-A", "ODSAY-F")
                 .lanes(busLane("370", "ODSAY-ROUTE")).build()));
 
@@ -87,13 +89,14 @@ class JourneyPlanResolverTest {
 
     @Test
     void subway_usesInternalLineAndStationIds_notOdsayIds() {
-        given(subwayLineResolver.resolve("2호선", "2")).willReturn(Optional.of("1002"));
-        given(subwayStationResolver.resolve("1002", "강남", 127.0276, 37.4979))
-                .willReturn(Optional.of("222"));
-        given(subwayStationResolver.resolve("1002", "신촌", 126.9369, 37.5551))
-                .willReturn(Optional.of("240"));
+        given(subwayArrivalQueryService.resolveStation(37.4979, 127.0276, "1002"))
+                .willReturn(Optional.of(new SubwayArrivalQueryService.ResolvedStation(
+                        "222", "강남", "1002")));
+        given(subwayArrivalQueryService.resolveStation(37.5551, 126.9369, "1002"))
+                .willReturn(Optional.of(new SubwayArrivalQueryService.ResolvedStation(
+                        "240", "신촌", "1002")));
 
-        JourneyPlan plan = resolver.resolve(compile(subway(15).names("강남", "신촌")
+        JourneyPlan plan = enricher.enrich(compile(subway(15).names("강남", "신촌")
                 .coords(127.0276, 37.4979, 126.9369, 37.5551)
                 .subwayStations(900222, 900240)
                 .lanes(subwayLane("2호선", 2)).build()));

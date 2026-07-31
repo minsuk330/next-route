@@ -53,7 +53,7 @@ class JourneyStartServiceTest {
     private RouteSearchSnapshotPort snapshotPort;
     private JourneyStartTxService txService;
     private JourneyQueryService queryService;
-    private JourneyPlanResolver planResolver;
+    private JourneyTransitIdEnricher transitIdEnricher;
     private JourneyStartService service;
 
     @BeforeEach
@@ -61,12 +61,12 @@ class JourneyStartServiceTest {
         snapshotPort = mock(RouteSearchSnapshotPort.class);
         txService = mock(JourneyStartTxService.class);
         queryService = mock(JourneyQueryService.class);
-        planResolver = mock(JourneyPlanResolver.class);
-        given(planResolver.resolve(any())).willAnswer(returnsFirstArg());
+        transitIdEnricher = mock(JourneyTransitIdEnricher.class);
+        given(transitIdEnricher.enrich(any())).willAnswer(returnsFirstArg());
         service = new JourneyStartService(
                 snapshotPort,
                 new JourneyCompiler(new StopIdentityResolver()),
-                planResolver,
+                transitIdEnricher,
                 txService,
                 queryService,
                 new ObjectMapper(),
