@@ -88,7 +88,7 @@ Mobile
 ### 4.1 `JourneySession`
 
 ```text
-id(UUID), userId
+id(identity bigint), userId
 status(ACTIVE|COMPLETED|CANCELED|EXPIRED)
 commandVersion, evaluationVersion, routeRevision, currentLegIndex
 startedAt, lastHeartbeatAt, guidanceLeaseUntil, nextEvaluationAt, endedAt, endReason
@@ -200,7 +200,7 @@ Journey 스냅샷 최소 필드:
 
 ```json
 {
-  "journeyId": "uuid",
+  "journeyId": 1234,
   "commandVersion": 13,
   "evaluationVersion": 41,
   "routeRevision": 2,
@@ -259,13 +259,13 @@ DELETE /api/me/push-token
 
 ```json
 {
-  "journeyId": "uuid",
+  "journeyId": 1234,
   "routeRevision": 2,
   "commandVersion": 14,
   "evaluationVersion": 42,
   "alertId": "uuid",
   "type": "TRANSFER_AT_RISK",
-  "deepLink": "nextroute://journeys/uuid"
+  "deepLink": "nextroute://journeys/1234"
 }
 ```
 
@@ -352,11 +352,12 @@ DELETE /api/me/push-token
 
 - `route_search_snapshot` Redis port·adapter와 TTL 추가
 - 경로 검색 응답에 `searchSessionId/pathKey/expiresAt` 추가
-- 다음 사용 가능한 Flyway 버전으로 `journey_session`, `journey_leg`, `transfer_connection`, `journey_event`, `journey_revision`, `reroute_proposal` 생성
+- V35로 `journey_session`, `journey_leg`, `journey_leg_route_option`, `transfer_connection`, `journey_event`, `journey_revision` 생성
 - `domain/journey` entity·repository와 `application/journey` 포트 생성
 - 선택 path를 JourneyLeg·TransferConnection으로 변환하는 compiler 구현
 - 동일 user ACTIVE partial unique 제약, active-exists 409, 명시적 supersede 처리
 - `last_heartbeat_at`, `guidance_lease_until`, `end_reason`과 세 version column 반영
+- 최소 Journey start·active API와 사용자 행 잠금 기반 동시성 처리
 
 **검증**
 
@@ -369,7 +370,7 @@ DELETE /api/me/push-token
 **작업**
 
 - `JourneyStateMachine`, `JourneyCommandService`, `JourneyQueryService`
-- Journey start·active·snapshot·complete·cancel API
+- Journey detail snapshot·complete·cancel API와 Phase 1 start·active 응답 확장
 - 멱등 Journey event API와 `baseCommandVersion` conflict 409 계약
 - B1·B2·B3 전이, 다중 leg 진행, routeRevision fencing
 - 스냅샷에 세 version, `guidanceLeaseUntil`, `serverTime`, 절대 ETA, freshness, `recommendedPollSeconds` 포함
@@ -449,6 +450,7 @@ DELETE /api/me/push-token
 
 **작업**
 
+- 다음 사용 가능한 Flyway 버전으로 `reroute_proposal` 생성
 - 환승 정류장 도착·임박, `AT_RISK`, `MISSED` 트리거 판정
 - 현재 위치·환승 지점과 `userReadyAt` 기준 남은 경로 검색
 - 좌표 기반 후보 경로를 `userReadyAt` 기준 실시간 ETA로 다시 평가하는 `RemainingRouteSearchService`

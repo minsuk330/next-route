@@ -23,7 +23,7 @@ iOS·Android는 사용자의 강제 종료 사실을 서버에 즉시·확실하
 
 서버는 강제 종료, 프로세스 crash, 장시간 네트워크 단절을 구분할 수 없다. 그러므로 3분 동안 신호가 없으면 원인과 관계없이 `EXPIRED` 처리한다. 앱이 lease 만료 전에 재접속하면 기존 ACTIVE Journey로 수렴할 수 있다.
 
-heartbeat는 상태 전이 event가 아니며 `commandVersion`을 증가시키지 않는다. foreground와 Android foreground service는 기본 30초마다 보내고, 서버는 activeDevice가 맞을 때만 lease를 연장한다. iOS background에서는 임의 주기 timer를 신뢰하지 않고 Core Location callback을 heartbeat로 사용한다. DB hot row를 줄이기 위해 실제 lease 갱신은 Journey별 최대 60초에 한 번으로 합친다.
+heartbeat는 상태 전이 event가 아니며 `commandVersion`을 증가시키지 않는다. foreground와 Android foreground service는 기본 30초마다 보내고, 서버는 인증된 Journey 소유 user의 요청일 때만 lease를 연장한다. iOS background에서는 임의 주기 timer를 신뢰하지 않고 Core Location callback을 heartbeat로 사용한다. DB hot row를 줄이기 위해 실제 lease 갱신은 Journey별 최대 60초에 한 번으로 합친다.
 
 ### 종료 규칙
 
@@ -107,7 +107,7 @@ Push는 상태 저장소가 아니다. payload에는 `journeyId`, `commandVersio
 
 ```text
 eventId 중복 확인
-→ ACTIVE·activeDevice·routeRevision 확인
+→ ACTIVE·소유 user·routeRevision 확인
 → baseCommandVersion 확인
 → 허용 상태 전이 검증
 → JourneySession·JourneyLeg 변경
@@ -119,7 +119,7 @@ eventId 중복 확인
 
 같은 `eventId`의 재전송은 최초 결과를 그대로 반환한다.
 
-heartbeat는 이 command transaction과 분리한다. 인증된 activeDevice에 대해 `status=ACTIVE` 조건부 update로 `lastHeartbeatAt`과 `guidanceLeaseUntil`만 갱신한다.
+heartbeat는 이 command transaction과 분리한다. 인증된 Journey 소유 user에 대해 `status=ACTIVE` 조건부 update로 `lastHeartbeatAt`과 `guidanceLeaseUntil`만 갱신한다. 1차는 다중 기기 구분을 지원하지 않는다.
 
 ### 5.2 ETA·환승 평가
 

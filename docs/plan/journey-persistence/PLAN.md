@@ -1,400 +1,545 @@
 # 여정 상태 저장 · 경로 쪼개기 — 구현 계획
 
-- 티어: **L** (새 모듈 신설 + 테이블 5개 + 쪼개는 규칙에 설계 여지)
-- 브랜치: `feat/journey-persistence` (fresh main 기준)
-- 상위 맥락: [journey-navigation/PHASE-1.md](../journey-navigation/PHASE-1.md) ③
-- 선행 의존: `journey-route-snapshot` 머지 완료
+- 티어: **L** (신규 도메인 + 테이블 6개 + 동시성 경계 + 경로 compile 규칙)
+- 개정일: 2026-07-31 (구현안 리뷰 반영)
+- 구현 단위: `journey-schema-domain` → `journey-compiler` → `journey-start-api`
+- 상위 맥락: [journey-navigation/PLAN.md](../journey-navigation/PLAN.md) Phase 1
+- 선행 의존: `journey-auth-oauth`, `journey-route-snapshot` 머지 완료
 - 다중 기기 미지원: [journey-navigation/SCOPE-CHANGES.md](../journey-navigation/SCOPE-CHANGES.md) SC-1
 
 ## 1. 한 줄 요약
 
-**진행 중인 여정을 PostgreSQL 에 기록하고, 고른 경로를 "걷기 / 기다리기 / 타고 가기" 단계로 쪼개는 코드를 만든다.**
+**진행 중인 여정을 PostgreSQL의 기준 상태로 저장하고, 선택한 경로를 "걷기 / 기다리기 / 타고 가기" 단계와 복수 노선 후보로 쪼갠다.**
 
-## 2. 왜
+## 2. 이번 작업의 완료 상태
 
-**검색은 사진, 여정은 동영상이다.**
+이 작업이 끝나면 다음이 가능하다.
 
-경로 검색은 한 번 찍고 끝난다. 결과를 돌려주면 서버가 기억할 게 없다. 여정은 30분에서 한 시간 동안 계속 굴러가고, 앱이 꺼졌다 켜져도 이어져야 하며, 서버가 재시작해도 살아 있어야 한다.
+- 검색 결과의 `searchSessionId + pathKey`로 여정을 시작한다.
+- 앱이 재실행되면 `GET /api/journeys/active`로 최소 스냅샷을 복원한다.
+- 동일 사용자의 ACTIVE Journey는 DB와 트랜잭션 양쪽에서 하나만 유지한다.
+- 첫 leg는 `ACTIVE`, 나머지는 `PENDING`으로 저장한다.
+- 최초 경로 JSON은 불변으로 보존한다.
 
-그래서 "지금 어디까지 왔는지"를 DB 에 적어 두고 그 기록을 유일한 진실로 삼는다. 앱 화면은 그 기록의 복사본일 뿐이다.
+이번 작업에서 하지 않는 것은 다음과 같다.
 
-## 3. 범위
+- 탑승·하차 이벤트에 따른 상태 전이
+- heartbeat API와 lease 만료 evaluator
+- ETA·환승 위험 계산
+- FCM과 Journey notification outbox
+- 재탐색 제안 생성·수락과 `reroute_proposal` 테이블
 
-**한다**
+lease와 세 version 칼럼은 후속 기능의 기준 계약이므로 이번 migration에 미리 포함한다.
 
-- 여정 · 단계 · 환승 · 이벤트 · 경로개정 다섯 테이블
-- `domain/journey` 엔티티와 조회 코드
-- 고른 경로를 단계 목록으로 바꾸는 코드
-- 여정 시작 API 최소분
+## 3. 확정 설계
 
-**안 한다 (Phase 2 이후)**
+### 3.1 패키지와 실행 역할
 
-- 단계 전환 규칙과 이벤트 반영 API
-- 도착 예측·환승 위험 계산 (Phase 3)
-- 다음 평가 시각을 실제로 채우는 주체 (Phase 4)
+`domain/journey`, `application/journey`, `infrastructure/.../journey`를 신규 경계로 둔다.
 
-## 4. 설계
+패키지 분리는 코드 소유권을 위한 것이고 부하 격리는 런타임 역할이 담당한다.
 
-### 4.1 검색 코드와 섞지 않는다
+- 여정 시작·조회 API: `api` 역할
+- 이후 due evaluator·알림 계산: `worker` 역할
+- PostgreSQL: 두 역할이 공유하는 canonical state
 
-`domain/journey` 와 `application/journey` 는 이 저장소에 없는 새 폴더다. 기존 `application/route` 안에 넣지 않는다.
+API 전용 controller와 시작 orchestration bean에는 `api` profile을 적용한다. 엔티티와 repository는 이후 Worker도 사용하므로 profile로 제한하지 않는다.
 
-부하 성격이 다르기 때문이다. 검색은 짧고 굵게 몰리고, 여정은 길고 가늘게 이어진다. 한 서비스에 합치면 여정 평가가 스레드를 붙들고 있는 동안 검색이 밀린다.
+### 3.2 식별자
 
-### 4.2 여정 번호만 무작위 문자열
+- `journey_session.id`: 다른 표와 같은 identity bigint
+- 나머지 테이블 PK: identity bigint
+- 외부 deep link와 push에는 `journeyId`만 노출한다. 순번이라 이웃 번호를 찍어 볼 수 있으므로 조회는 소유자를 쿼리 조건에 넣어 막는다
 
-`journey_session` 의 식별자만 UUID 로 쓰고 나머지 테이블은 기존 관례대로 순번을 쓴다.
+### 3.3 세 version
 
-여정 번호는 푸시 알림 내용과 앱 링크 주소에 실려 나간다. 순번이면 남의 여정 번호를 쉽게 추측할 수 있다.
+| 칼럼 | 초기값 | 증가 조건 | 용도 |
+|---|---:|---|---|
+| `command_version` | 1 | 탑승·하차·leg 전이·종료 | 오래된 사용자 command 차단 |
+| `evaluation_version` | 0 | ETA·남은 정류장·환승 상태 갱신 | 평가 snapshot 최신성 |
+| `route_revision` | 1 | 재탐색 제안 수락 | 이전 경로 비동기 결과 fencing |
 
-### 4.3 `version` 은 직접 올린다
+`JOURNEY_STARTED` 자체가 첫 canonical command이므로 `commandVersion=1`로 생성한다.
 
-**`version` 은 앱과 주고받는 약속값이다.** 앱이 "내가 아는 최신 상태는 13번이야"라고 보내면 서버가 맞는지 확인한다.
-
-JPA 가 자동으로 관리하는 방식에 맡기지 않는다. 예외를 잡아 번역하는 것보다, 상태를 바꾸는 코드가 명시적으로 올리는 편이 약속을 지키기 쉽다. 실제로 올리는 일은 Phase 2 이고 이번엔 칸과 초기값만 만든다.
-
-### 4.4 진행 중인 여정은 사람당 하나
-
-**마지막 방어선은 DB 규칙이다.**
-
-요청 두 개가 동시에 들어오면 하나는 DB 가 거부한다. 그때 나오는 예외를 잡아 `409 ACTIVE_JOURNEY_EXISTS` 로 바꾼다. 500 이 그대로 나가면 안 된다.
-
-이미 진행 중인 여정이 있으면 **자동으로 끝내지 않는다.** 409 와 현재 여정 정보를 돌려주고, 사용자가 명시적으로 `?replace=true` 를 보낼 때만 갈아탄다 (REQUIREMENTS §4.1).
-
-### 4.5 쪼개다 막히면 예외 대신 "모름"으로 표시
-
-정류장 식별자가 비었다든가 하는 문제가 생기면 그 단계를 "모름" 상태로 두고 계속 진행한다.
-
-검색은 성공했는데 여정 시작만 막히면 사용자 입장에서 이유를 알 수 없다. 불완전하게라도 시작하고 그 단계만 표시를 낮추는 편이 낫다.
-
-## 5. 작업 순서
-
-### 5.1 마이그레이션
-
-- [ ] `src/main/resources/db/migration/V34__create_journey.sql`
+세 값은 JPA `@Version`에 맡기지 않는다. 후속 command 구현은 다음 조건부 갱신 또는 pessimistic lock을 사용해야 한다.
 
 ```sql
--- 여정의 기준 상태. version 이 복구 기준이다.
--- route_snapshot 은 시작 시점 경로의 사본이며 바꾸지 않는다.
--- 재탐색은 이 사본을 덮어쓰지 않고 새 개정본을 추가한다.
+UPDATE journey_session
+SET command_version = command_version + 1, ...
+WHERE id = :journeyId
+  AND status = 'ACTIVE'
+  AND command_version = :baseCommandVersion
+  AND route_revision = :routeRevision;
+```
 
+영향 행이 0건이면 최신 snapshot과 함께 `409 VERSION_CONFLICT`를 반환한다.
+
+### 3.4 ACTIVE Journey 동시성
+
+사용자당 ACTIVE Journey는 하나다.
+
+1. DB partial unique index가 최종 불변조건을 보장한다.
+2. 시작 트랜잭션은 `users` 행을 `PESSIMISTIC_WRITE`로 잠가 같은 사용자의 시작 요청을 직렬화한다.
+3. `replace=false`면 현재 snapshot을 담아 `409 ACTIVE_JOURNEY_EXISTS`를 반환한다.
+4. `replace=true`면 기존 Journey를 `CANCELED/REPLACED`로 바꾸고 `flush()`한 뒤 새 Journey를 insert한다.
+
+모든 `DataIntegrityViolationException`을 409로 바꾸면 안 된다. SQLSTATE `23505`이면서 위반 이름이 `uq_journey_active_per_user`인 경우만, rollback 이후 현재 ACTIVE Journey를 다시 조회해 409로 번역한다.
+
+### 3.5 트랜잭션 경계
+
+Redis 조회와 경로 compile은 DB 트랜잭션 밖에서 실행한다.
+
+```text
+JourneyStartService (트랜잭션 없음)
+  1. Redis route snapshot 조회
+  2. snapshot owner 검증
+  3. JourneyCompiler 실행
+  4. route snapshot을 JsonNode로 직렬화
+  5. JourneyStartTxService 호출
+
+JourneyStartTxService (@Transactional)
+  6. users 행 FOR UPDATE
+  7. 기존 ACTIVE Journey 확인
+  8. 필요하면 기존 Journey 취소 + flush
+  9. Journey·JourneyRevision(1, ACTIVE)·Leg 저장 + flush
+ 10. RouteOption 저장 + flush
+ 11. 단일 후보 WAIT·RIDE의 selectedRouteOption 연결
+ 12. Transfer 저장
+ 13. COMMIT
+```
+
+`JourneyStartService`와 `JourneyStartTxService`는 별도 Spring bean으로 둔다. 같은 클래스의 self-invocation으로 `@Transactional` proxy를 우회하지 않는다.
+
+Leg가 option을 가리키고 option도 소유 WAIT leg를 가리키므로 저장 순서를 명시한다. identity PK가 필요한 양방향 참조를 cascade 한 번에 저장하려 하지 않는다.
+
+`JourneyStartTxService`가 unique 위반을 던지면 트랜잭션은 이미 rollback된 뒤 바깥 `JourneyStartService`로 돌아온다. 바깥 서비스가 `uq_journey_active_per_user`만 식별해 별도 read transaction으로 현재 ACTIVE snapshot을 조회하고 `ActiveJourneyExistsException`으로 바꾼다.
+
+### 3.6 경로 compile과 불완전 데이터
+
+교통 구간은 기다리기와 탑승으로 나눈다.
+
+| `trafficType` | 생성 leg |
+|---|---|
+| 1 지하철 | `WAIT_SUBWAY` + `RIDE_SUBWAY` |
+| 2 버스 | `WAIT_BUS` + `RIDE_BUS` |
+| 3 도보 | 시작·종료는 `WALK`, 교통수단 사이는 `TRANSFER_WALK` |
+
+초기 lifecycle state:
+
+- `legIndex=0`: `ACTIVE`
+- 나머지: `PENDING`
+
+정류장·노선 식별자가 없다는 이유로 lifecycle state를 `UNKNOWN`으로 만들지 않는다. 수동 진행은 가능하도록 `ACTIVE/PENDING`을 유지하고 `evidence_quality=UNKNOWN`으로 표시한다. 서버가 현재 leg 자체를 판별할 수 없을 때만 `UNKNOWN`을 사용한다.
+
+### 3.7 복수 노선 후보
+
+`SubPathResult.lanes`에는 하나의 버스 구간에서 탈 수 있는 복수 노선이 들어올 수 있다. 임의로 첫 lane을 `JourneyLeg.routeId`로 고정하지 않는다.
+
+- 모든 lane을 해당 `WAIT_BUS` 또는 `WAIT_SUBWAY`의 `journey_leg_route_option`에 저장한다.
+- 후보가 하나면 짝이 되는 WAIT·RIDE leg의 `selectedRouteOptionId`가 같은 option을 가리킨다.
+- 후보가 여러 개면 두 leg의 `selectedRouteOptionId`를 비워 둔다.
+- 사용자가 노선·차량을 고르는 Phase 2 command가 WAIT·RIDE 선택값을 한 트랜잭션에서 확정한다.
+- `laneIndex`, 원천 식별자, 내부 resolve 결과를 함께 보존한다.
+
+정류장 동일성 판별 우선순위:
+
+1. 내부 stop/station ID
+2. ARS ID
+3. 정규화한 이름 + 좌표 30m 이내
+4. 판단 불가
+
+같은 정류장으로 확정되면 환승 연결의 `walkLegIndex`는 null이다.
+
+### 3.8 JSON과 시각
+
+- `routeSnapshot`, `destinationSummary`, event payload는 `JsonNode + @JdbcTypeCode(SqlTypes.JSON)`으로 매핑한다.
+- 최초 `routeSnapshot`은 `updatable=false`, 변경 메서드 미제공으로 불변 처리한다.
+- 감사 칼럼은 기존 `BaseEntity` 관례의 `timestamp(6)`을 유지한다.
+- lease, ETA, 이벤트 발생시각 등 절대시각은 PostgreSQL `timestamptz`, Java `Instant`를 사용한다.
+- 현재 시각은 `Instant.now()`를 직접 호출하지 않고 주입한 `Clock`에서 얻는다.
+
+## 4. 구현 단위
+
+### 4.1 PR A — journey-schema-domain
+
+브랜치: `feat/journey-schema-domain`
+
+#### Migration
+
+- [ ] `src/main/resources/db/migration/V35__create_journey.sql`
+- [ ] `.gitignore`에 `!src/main/resources/db/migration/V35__create_journey.sql`
+
+V34는 `V34__add_token_generation_to_users.sql`이 이미 사용 중이므로 재사용하지 않는다.
+
+```sql
 CREATE TABLE journey_session (
-    id                   uuid primary key,
-    created_at           timestamp(6),
-    updated_at           timestamp(6),
-    deleted_at           timestamp(6),
-    user_id              bigint       not null references users,
-    status               varchar(20)  not null
+    id                    bigint generated by default as identity primary key,
+    created_at            timestamp(6) not null,
+    updated_at            timestamp(6) not null,
+    deleted_at            timestamp(6),
+    user_id               bigint       not null references users(id),
+    status                varchar(20)  not null
         constraint journey_session_status_check
             check (status in ('ACTIVE', 'COMPLETED', 'CANCELED', 'EXPIRED')),
-    version              bigint       not null default 0,
-    route_revision       integer      not null default 1,
-    current_leg_index    integer      not null default 0,
-    started_at           timestamp(6) not null,
-    last_client_seen_at  timestamp(6),
-    next_evaluation_at   timestamp(6),
-    ended_at             timestamp(6),
-    route_snapshot       jsonb        not null,
-    destination_summary  jsonb
+    command_version       bigint       not null default 1
+        constraint journey_command_version_check check (command_version >= 1),
+    evaluation_version    bigint       not null default 0
+        constraint journey_evaluation_version_check check (evaluation_version >= 0),
+    route_revision        integer      not null default 1
+        constraint journey_route_revision_check check (route_revision >= 1),
+    current_leg_index     integer      not null default 0
+        constraint journey_current_leg_index_check check (current_leg_index >= 0),
+    started_at            timestamptz  not null,
+    last_heartbeat_at     timestamptz  not null,
+    guidance_lease_until  timestamptz  not null,
+    next_evaluation_at    timestamptz,
+    ended_at              timestamptz,
+    end_reason            varchar(40)
+        constraint journey_end_reason_check
+            check (end_reason is null or end_reason in
+                   ('COMPLETED', 'USER_CANCELED', 'REPLACED',
+                    'CLIENT_LEASE_EXPIRED', 'ADMIN_CANCELED')),
+    route_snapshot        jsonb        not null,
+    destination_summary   jsonb
 );
 
--- 사람당 진행 중인 여정은 하나만.
 CREATE UNIQUE INDEX uq_journey_active_per_user
-    ON journey_session (user_id) WHERE status = 'ACTIVE' AND deleted_at IS NULL;
--- Phase 4 에서 "다시 볼 때가 된 여정"을 찾을 때 쓴다. 여기서 미리 만든다.
+    ON journey_session (user_id)
+    WHERE status = 'ACTIVE' AND deleted_at IS NULL;
+
 CREATE INDEX idx_journey_due
-    ON journey_session (next_evaluation_at) WHERE status = 'ACTIVE' AND deleted_at IS NULL;
+    ON journey_session (next_evaluation_at)
+    WHERE status = 'ACTIVE' AND deleted_at IS NULL;
 
 CREATE TABLE journey_leg (
-    id                   bigint generated by default as identity primary key,
-    created_at           timestamp(6),
-    updated_at           timestamp(6),
-    deleted_at           timestamp(6),
-    journey_id           uuid         not null references journey_session,
-    route_revision       integer      not null,
-    leg_index            integer      not null,
-    type                 varchar(20)  not null
+    id                    bigint generated by default as identity primary key,
+    created_at            timestamp(6) not null,
+    updated_at            timestamp(6) not null,
+    deleted_at            timestamp(6),
+    journey_id            bigint       not null references journey_session(id),
+    route_revision        integer      not null check (route_revision >= 1),
+    leg_index             integer      not null check (leg_index >= 0),
+    type                  varchar(20)  not null
         constraint journey_leg_type_check
             check (type in ('WALK', 'WAIT_BUS', 'RIDE_BUS', 'WAIT_SUBWAY',
                             'RIDE_SUBWAY', 'TRANSFER_WALK')),
-    state                varchar(24)  not null
+    state                 varchar(24)  not null
         constraint journey_leg_state_check
             check (state in ('PENDING', 'ACTIVE', 'CONFIRMATION_REQUIRED',
                              'COMPLETED', 'SKIPPED', 'UNKNOWN')),
-    start_stop_id        varchar(64),
-    end_stop_id          varchar(64),
-    start_name           varchar(255),
-    end_name             varchar(255),
-    route_id             varchar(64),
-    route_name           varchar(100),
-    vehicle_id           varchar(64),
-    planned_duration_sec integer,
-    predicted_end_at     timestamp(6),
-    remaining_stops      integer,
-    evidence_source      varchar(30),
-    evidence_observed_at timestamp(6),
-    evidence_quality     varchar(20)
+    start_stop_id         varchar(64),
+    end_stop_id           varchar(64),
+    start_name            varchar(255),
+    end_name              varchar(255),
+    vehicle_id            varchar(64),
+    planned_duration_sec  integer check (planned_duration_sec >= 0),
+    predicted_end_at      timestamptz,
+    remaining_stops       integer check (remaining_stops >= 0),
+    evidence_source       varchar(30),
+    evidence_observed_at  timestamptz,
+    evidence_quality      varchar(20)
 );
 
 CREATE UNIQUE INDEX uq_journey_leg_index
-    ON journey_leg (journey_id, route_revision, leg_index) WHERE deleted_at IS NULL;
+    ON journey_leg (journey_id, route_revision, leg_index)
+    WHERE deleted_at IS NULL;
+
+CREATE TABLE journey_leg_route_option (
+    id                    bigint generated by default as identity primary key,
+    created_at            timestamp(6) not null,
+    updated_at            timestamp(6) not null,
+    deleted_at            timestamp(6),
+    journey_leg_id        bigint       not null references journey_leg(id),
+    option_index          integer      not null check (option_index >= 0),
+    lane_index            integer      not null check (lane_index >= 0),
+    route_id              varchar(64),
+    source_route_id       varchar(64),
+    route_name            varchar(100)
+);
+
+CREATE UNIQUE INDEX uq_journey_leg_route_option
+    ON journey_leg_route_option (journey_leg_id, option_index)
+    WHERE deleted_at IS NULL;
+
+ALTER TABLE journey_leg
+    ADD COLUMN selected_route_option_id bigint
+        references journey_leg_route_option(id);
+
+CREATE INDEX idx_journey_leg_selected_route_option
+    ON journey_leg (selected_route_option_id)
+    WHERE selected_route_option_id IS NOT NULL;
 
 CREATE TABLE transfer_connection (
     id                     bigint generated by default as identity primary key,
-    created_at             timestamp(6),
-    updated_at             timestamp(6),
+    created_at             timestamp(6) not null,
+    updated_at             timestamp(6) not null,
     deleted_at             timestamp(6),
-    journey_id             uuid         not null references journey_session,
-    route_revision         integer      not null,
-    transfer_index         integer      not null,
-    from_leg_index         integer      not null,
-    walk_leg_index         integer,
-    to_leg_index           integer      not null,
+    journey_id             bigint       not null references journey_session(id),
+    route_revision         integer      not null check (route_revision >= 1),
+    transfer_index         integer      not null check (transfer_index >= 0),
+    from_leg_index         integer      not null check (from_leg_index >= 0),
+    walk_leg_index         integer      check (walk_leg_index >= 0),
+    to_leg_index           integer      not null check (to_leg_index >= 0),
     status                 varchar(20)  not null
         constraint transfer_connection_status_check
-            check (status in ('COMFORTABLE', 'CATCHABLE', 'AT_RISK', 'MISSED', 'UNKNOWN')),
-    current_leg_arrival_at timestamp(6),
-    user_ready_at          timestamp(6),
-    next_bus_arrival_at    timestamp(6),
+            check (status in ('COMFORTABLE', 'CATCHABLE', 'AT_RISK',
+                              'MISSED', 'UNKNOWN')),
+    current_leg_arrival_at timestamptz,
+    user_ready_at          timestamptz,
+    next_bus_arrival_at    timestamptz,
     transfer_slack_seconds integer,
-    success_probability    numeric(4, 3),
+    success_probability    numeric(4, 3)
+        check (success_probability between 0 and 1),
     source                 varchar(20),
     confidence             varchar(20),
-    calculated_at          timestamp(6),
-    data_observed_at       timestamp(6),
+    calculated_at          timestamptz,
+    data_observed_at       timestamptz,
     model_version          varchar(50),
     last_notified_status   varchar(20)
 );
 
 CREATE UNIQUE INDEX uq_transfer_connection_index
-    ON transfer_connection (journey_id, route_revision, transfer_index) WHERE deleted_at IS NULL;
+    ON transfer_connection (journey_id, route_revision, transfer_index)
+    WHERE deleted_at IS NULL;
 
 CREATE TABLE journey_event (
-    id                 bigint generated by default as identity primary key,
-    created_at         timestamp(6),
-    updated_at         timestamp(6),
-    deleted_at         timestamp(6),
-    event_id           uuid         not null,
-    journey_id         uuid         not null references journey_session,
-    base_version       bigint       not null,
-    route_revision     integer      not null,
-    type               varchar(40)  not null,
-    client_occurred_at timestamp(6),
-    server_received_at timestamp(6) not null,
-    payload            jsonb,
-    result             varchar(20)  not null
+    id                        bigint generated by default as identity primary key,
+    created_at                timestamp(6) not null,
+    updated_at                timestamp(6) not null,
+    deleted_at                timestamp(6),
+    event_id                  uuid         not null,
+    journey_id                bigint       not null references journey_session(id),
+    base_command_version      bigint       not null check (base_command_version >= 1),
+    route_revision            integer      not null check (route_revision >= 1),
+    type                      varchar(40)  not null,
+    client_occurred_at        timestamptz,
+    server_received_at        timestamptz  not null,
+    payload                   jsonb,
+    result                    varchar(20)  not null
         constraint journey_event_result_check
             check (result in ('APPLIED', 'DUPLICATE', 'CONFLICT', 'REJECTED')),
-    resulting_version  bigint,
-    rejection_reason   varchar(255)
+    resulting_command_version bigint,
+    rejection_reason          varchar(255)
 );
 
 CREATE UNIQUE INDEX uq_journey_event_id ON journey_event (event_id);
-CREATE INDEX idx_journey_event_journey ON journey_event (journey_id, server_received_at);
+CREATE INDEX idx_journey_event_journey
+    ON journey_event (journey_id, server_received_at);
 
 CREATE TABLE journey_revision (
-    id             bigint generated by default as identity primary key,
-    created_at     timestamp(6),
-    updated_at     timestamp(6),
-    deleted_at     timestamp(6),
-    journey_id     uuid         not null references journey_session,
-    route_revision integer      not null,
-    status         varchar(20)  not null
+    id                    bigint generated by default as identity primary key,
+    created_at            timestamp(6) not null,
+    updated_at            timestamp(6) not null,
+    deleted_at            timestamp(6),
+    journey_id            bigint       not null references journey_session(id),
+    route_revision        integer      not null check (route_revision >= 1),
+    status                varchar(20)  not null
         constraint journey_revision_status_check
-            check (status in ('PROPOSED', 'ACCEPTED', 'EXPIRED', 'REJECTED')),
-    reason         varchar(50),
-    route_snapshot jsonb        not null,
-    proposed_at    timestamp(6) not null,
-    expires_at     timestamp(6),
-    decided_at     timestamp(6)
+            check (status in ('ACTIVE', 'SUPERSEDED')),
+    reason                varchar(50),
+    route_snapshot        jsonb        not null,
+    activated_at          timestamptz  not null,
+    superseded_at         timestamptz
 );
 
 CREATE UNIQUE INDEX uq_journey_revision
-    ON journey_revision (journey_id, route_revision) WHERE deleted_at IS NULL;
+    ON journey_revision (journey_id, route_revision)
+    WHERE deleted_at IS NULL;
+
+CREATE UNIQUE INDEX uq_journey_active_revision
+    ON journey_revision (journey_id)
+    WHERE status = 'ACTIVE' AND deleted_at IS NULL;
 ```
 
-- [ ] `.gitignore` 에 `!src/main/resources/db/migration/V34__create_journey.sql` 추가
-  - `.gitignore:9` 가 마이그레이션 폴더를 통째로 제외하고 파일별로 다시 허용한다. 빠뜨리면 VPS 에 파일이 없다
+#### Domain
 
-### 5.2 domain/journey
+- [ ] `JourneySession`, `JourneyLeg`, `JourneyLegRouteOption`
+- [ ] `TransferConnection`, `JourneyEvent`, `JourneyRevision`
+- [ ] 상태 enum과 `JourneyEndReason`
+- [ ] repository 6개
+- [ ] `UserRepository.findByIdForUpdate(Long)` 추가
 
-경로 사본은 JSON 그대로 담는다. 별도 라이브러리 없이 Hibernate 기본 기능을 쓴다.
+최소 조회 계약:
 
 ```java
-@JdbcTypeCode(SqlTypes.JSON)
-@Column(name = "route_snapshot", nullable = false)
-private String routeSnapshot;
+Optional<JourneySession> findByUserIdAndStatusAndDeletedAtIsNull(
+        Long userId, JourneyStatus status);
+Optional<JourneySession> findByIdAndUserIdAndDeletedAtIsNull(
+        Long journeyId, Long userId);
+List<JourneyLeg> findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+        Long journeyId, int routeRevision);
+List<JourneyLegRouteOption> findByJourneyLegIdInAndDeletedAtIsNull(
+        Collection<Long> journeyLegIds);
 ```
 
-- [ ] `domain/journey/entity/JourneyStatus.java` — `ACTIVE, COMPLETED, CANCELED, EXPIRED`
-- [ ] `domain/journey/entity/JourneyLegType.java` — `WALK, WAIT_BUS, RIDE_BUS, WAIT_SUBWAY, RIDE_SUBWAY, TRANSFER_WALK`
-- [ ] `domain/journey/entity/JourneyLegState.java` — `PENDING, ACTIVE, CONFIRMATION_REQUIRED, COMPLETED, SKIPPED, UNKNOWN`
-- [ ] `domain/journey/entity/TransferStatus.java` — `COMFORTABLE, CATCHABLE, AT_RISK, MISSED, UNKNOWN`
-- [ ] `domain/journey/entity/JourneyEventType.java` — `USER_CONFIRMED_BOARDING, USER_CONFIRMED_ALIGHTING, USER_SELECTED_VEHICLE, USER_CHANGED_VEHICLE, STOP_PROXIMITY_DETECTED, APP_RESUMED, REROUTE_ACCEPTED, JOURNEY_CANCELED`
-- [ ] `domain/journey/entity/JourneyEventResult.java` — `APPLIED, DUPLICATE, CONFLICT, REJECTED`
-- [ ] `domain/journey/entity/JourneySession.java` — 식별자를 직접 지정한다(자동 증가 아님)
-- [ ] `domain/journey/entity/JourneyLeg.java`
-- [ ] `domain/journey/entity/TransferConnection.java`
-- [ ] `domain/journey/entity/JourneyEvent.java`
-- [ ] `domain/journey/entity/JourneyRevision.java`
-- [ ] `domain/journey/repository/JourneySessionRepository.java`
+최소 snapshot 조회는 leg마다 option을 개별 조회하지 않는다. leg를 한 번, 해당 leg ID들의 option을 한 번 조회해 조립한다.
 
 ```java
-Optional<JourneySession> findByUserIdAndStatus(Long userId, JourneyStatus status);
-Optional<JourneySession> findByIdAndUserId(UUID id, Long userId);
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("select u from User u where u.id = :id")
+Optional<User> findByIdForUpdate(@Param("id") Long id);
 ```
 
-- [ ] `domain/journey/repository/JourneyLegRepository.java` — `List<JourneyLeg> findByJourneyIdAndRouteRevisionOrderByLegIndex(UUID, int)`
-- [ ] `domain/journey/repository/TransferConnectionRepository.java`
-- [ ] `domain/journey/repository/JourneyEventRepository.java` — `Optional<JourneyEvent> findByEventId(UUID)`
-- [ ] `domain/journey/repository/JourneyRevisionRepository.java`
+`JourneySession`도 다른 엔티티와 같이 `BaseEntity`를 상속한다. PK 종류를 하나로 유지해 저장 경로와 감사 칼럼 관례가 갈라지지 않게 한다.
 
-### 5.3 경로를 단계로 쪼개기
+#### 검증
 
-**검색 결과의 한 구간을 여정의 여러 단계로 나눈다.**
+- [ ] V35가 Testcontainers PostgreSQL에서 적용됨
+- [ ] 모든 CHECK·partial unique index 존재
+- [ ] `routeSnapshot`이 JSON string이 아니라 JSON object로 round-trip
+- [ ] route snapshot 변경 시도가 엔티티 update에 반영되지 않음
+- [ ] Flyway migration 파일이 Git 추적 및 bootJar 내부에 포함됨
 
-레시피에 "볶는다"라고 적힌 걸 "재료 준비 → 불 켜기 → 볶기"로 나누는 것과 같다. 사용자가 "탔어요" / "내렸어요"를 누르는 지점이 단계 경계에 있어야 진행 상황을 정확히 잡을 수 있다.
+### 4.2 PR B — journey-compiler
 
-- [ ] `application/journey/dto/JourneyLegDraft.java`
-- [ ] `application/journey/dto/TransferConnectionDraft.java`
-- [ ] `application/journey/dto/JourneyPlan.java` — `record(List<JourneyLegDraft> legs, List<TransferConnectionDraft> transfers)`
-- [ ] `application/journey/service/JourneyCompiler.java`
+브랜치: `feat/journey-compiler`
 
-들어오는 건 `PathResult`, 나오는 건 `JourneyPlan` 이다. 구간 종류를 나타내는 숫자의 뜻은 `application/route/dto/SubPathResult.java` 주석에 이미 적혀 있다.
+#### 구현
 
-| 구간 종류 | 뜻 | 만드는 단계 |
-|---|---|---|
-| 1 | 지하철 | `WAIT_SUBWAY` + `RIDE_SUBWAY` |
-| 2 | 버스 | `WAIT_BUS` + `RIDE_BUS` |
-| 3 | 도보 | `WALK`. 앞뒤가 모두 교통수단이면 `TRANSFER_WALK` |
+- [ ] `JourneyLegDraft`
+- [ ] `JourneyRouteOptionDraft`
+- [ ] `TransferConnectionDraft`
+- [ ] `JourneyPlan`
+- [ ] `JourneyCompiler`
+- [ ] 정류장 동일성 판별기
 
-규칙:
-
-- 타는 구간은 **기다리기와 타고가기 두 단계**로 나눈다. 탑승·하차 확인이 단계 경계에 붙어야 하기 때문
-- 맨 앞과 맨 뒤의 도보는 환승 도보가 아니라 그냥 도보
-- 환승 연결은 **"타고가기 → (도보) → 기다리기"** 세 짝이다. 같은 정류장에서 바로 갈아타면 가운데 도보가 비어 있다
-- 걸리는 시간은 도보면 실측 도보 시간을 먼저 쓰고, 없으면 구간 시간을 쓴다
-- 버스 단계의 노선·정류장 식별자는 `lanes`, `startLocalStationID`, `endLocalStationID`, `startArsID` 에서 채운다
-- 지하철 단계는 `startId`, `way`, `wayCode` 를 쓴다
-- 식별자가 없으면 예외 대신 그 단계를 "모름"으로 둔다(§4.5)
-
-### 5.4 여정 시작 서비스
-
-- [ ] `application/journey/port/in/StartJourneyUseCase.java`
-- [ ] `application/journey/exception/ActiveJourneyExistsException.java`
-- [ ] `application/journey/exception/RouteSnapshotExpiredException.java`
-- [ ] `application/journey/exception/SnapshotOwnerMismatchException.java`
-- [ ] `application/journey/service/JourneyStartService.java`
+입력은 `PathResult`, 출력은 저장소와 무관한 `JourneyPlan`이다.
 
 ```java
-@Transactional
-public JourneySnapshot start(long userId, String searchSessionId, String pathKey, boolean replace);
+public record JourneyPlan(
+        List<JourneyLegDraft> legs,
+        List<TransferConnectionDraft> transfers
+) {}
 ```
 
-순서:
+Compiler는 entity를 만들거나 repository를 호출하지 않는다.
 
-1. 보관된 검색 결과에서 경로를 되찾는다. 없으면 `RouteSnapshotExpiredException`
-2. 보관된 주인이 있는데 지금 사용자와 다르면 `SnapshotOwnerMismatchException`
-3. 진행 중인 여정이 있고 `replace` 가 false 면 `ActiveJourneyExistsException`(현재 여정 정보 동봉)
-4. `replace` 가 true 면 기존 여정을 취소 처리한다. **같은 트랜잭션 안에서** 해야 "사람당 하나" 규칙과 부딪히지 않는다
-5. 경로를 단계로 쪼갠다
-6. 여정·단계·환승을 저장한다. `version = 0`, `routeRevision = 1`, `currentLegIndex = 0`
+#### Fixture
 
-DB 가 중복을 거부하면 그 예외를 잡아 `ActiveJourneyExistsException` 으로 바꾼다.
+- [ ] S1 도보 → 버스
+- [ ] S2 버스 → 버스
+- [ ] S3 지하철 → 버스
+- [ ] S4 버스 → 지하철
+- [ ] S6 다중 환승
+- [ ] 하나의 버스 subPath에 lane이 2개 이상인 경로
+- [ ] 정류장 ID가 없고 이름·좌표만 있는 경로
 
-### 5.5 API
+#### 검증
 
-- [ ] `infrastructure/adapter/in/api/journey/JourneyController.java`
+- [ ] 첫 leg ACTIVE, 나머지 PENDING
+- [ ] 버스·지하철은 WAIT + RIDE로 분리
+- [ ] 중간 도보만 TRANSFER_WALK
+- [ ] 같은 정류장 환승은 walkLegIndex null
+- [ ] lane 순서와 route option 순서가 보존됨
+- [ ] 식별자 누락은 lifecycle UNKNOWN이 아니라 evidence quality UNKNOWN
+- [ ] 입력 DTO는 변경하지 않음
+
+### 4.3 PR C — journey-start-api
+
+브랜치: `feat/journey-start-api`
+
+#### Application
+
+- [ ] `StartJourneyUseCase`
+- [ ] `GetActiveJourneyUseCase`
+- [ ] non-transactional `JourneyStartService`
+- [ ] transactional `JourneyStartTxService`
+- [ ] 최소 `JourneyQueryService`
+- [ ] 예외와 409 fallback 번역기
+
+시작 시각:
+
+```text
+startedAt = clock.instant()
+lastHeartbeatAt = startedAt
+guidanceLeaseUntil = startedAt + 3분
+commandVersion = 1
+evaluationVersion = 0
+routeRevision = 1
+currentLegIndex = 0
+```
+
+시작 시 최초 경로를 `JourneySession.routeSnapshot`에 불변 원본으로 저장하고, 같은 JSON으로 `JourneyRevision(routeRevision=1, ACTIVE)`도 생성한다. 이후 현재 경로 조회는 ACTIVE revision을 기준으로 하며 Session 원본은 감사·비교용으로만 남긴다.
+
+#### API
 
 ```http
 POST /api/journeys?replace=false
-Authorization: Bearer <액세스 토큰>
+Authorization: Bearer <accessToken>
 { "searchSessionId": "...", "pathKey": "0" }
+
+GET /api/journeys/active
+Authorization: Bearer <accessToken>
 ```
 
 | 상황 | 응답 |
 |---|---|
-| 성공 | `201` + 여정 정보 |
-| 이미 진행 중인 여정 있음 | `409 ACTIVE_JOURNEY_EXISTS` + 현재 여정 정보 |
-| 보관 만료 · 경로 번호 불일치 | `410 SNAPSHOT_EXPIRED` |
-| 보관 주인 불일치 | `403 SNAPSHOT_OWNER_MISMATCH` |
+| 시작 성공 | `201` + 최소 Journey snapshot |
+| ACTIVE Journey 조회 성공 | `200` + 최소 snapshot |
+| ACTIVE Journey 없음 | `204` |
+| 기존 ACTIVE 존재 | `409 ACTIVE_JOURNEY_EXISTS` + 현재 snapshot |
+| snapshot 만료·잘못된 pathKey | `410 SNAPSHOT_EXPIRED` |
+| snapshot owner 불일치 | `403 SNAPSHOT_OWNER_MISMATCH` |
 
-사용자 번호는 인증 정보에서 꺼낸다. **요청 본문으로 받지 않는다.**
+최소 snapshot:
 
-- [ ] `infrastructure/adapter/in/api/journey/dto/StartJourneyRequest.java`
-- [ ] `infrastructure/adapter/in/api/journey/dto/JourneySnapshotResponse.java` — Phase 2 에서 넓힌다. 지금은 여정 번호·version·경로개정·상태·단계 목록·서버 시각만
+- `journeyId`
+- `commandVersion`, `evaluationVersion`, `routeRevision`
+- `status`, `currentLegIndex`
+- `guidanceLeaseUntil`, `serverTime`
+- 전체 leg와 route options
 
-### 5.6 SecurityConfig
+사용자 ID는 JWT principal에서만 가져온다.
 
-- [ ] `common/security/SecurityConfig.java:45` 아래에 추가
+#### Security
 
 ```java
 .requestMatchers("/api/journeys/**").authenticated()
 ```
 
-이 설정은 "적어 둔 것만 보호하고 나머지는 전부 개방"(`SecurityConfig.java:47`) 방식이다. 규칙을 안 넣으면 여정 API 가 로그인 없이 열린다.
+`SecurityConfig`는 명시한 경로만 보호하므로 이 규칙을 빠뜨리지 않는다.
 
-## 6. 검증
+#### 동시성·통합 검증
 
-### 6.1 준비 데이터
+- [ ] 동시에 시작 요청 2개 → 하나만 ACTIVE, 나머지는 409
+- [ ] `replace=true` → 기존 CANCELED/REPLACED flush 후 신규 ACTIVE
+- [ ] `replace=true` 요청 2개 동시 실행 → ACTIVE는 하나
+- [ ] 다른 사용자는 서로 블로킹하지 않음
+- [ ] unique index 외의 integrity 오류는 ACTIVE 409로 오역하지 않음
+- [ ] snapshot 만료·pathKey 오류 → 410
+- [ ] owner 불일치 → 403
+- [ ] 인증 없이 POST/GET → 401
+- [ ] `EntityManager.clear()` 뒤 ACTIVE snapshot 재조회 가능
+- [ ] 기존 전체 테스트 회귀 없음
 
-- [ ] `src/test/resources/journey/paths/S1.json` — 도보 → 버스
-- [ ] `S2.json` — 버스 → 버스
-- [ ] `S3.json` — 지하철 → 버스
-- [ ] `S4.json` — 버스 → 지하철
-- [ ] `S6.json` — 환승 여러 번
+## 5. 배포
 
-실제 검색 응답을 줄여서 저장한다. Phase 3 의 시간 흐름 테스트에서도 다시 쓴다.
+SQL을 VPS에서 수동 실행하지 않는다.
 
-### 6.2 테스트
+1. V35가 Git 추적되고 bootJar 내부에 포함됐는지 확인한다.
+2. API JAR를 배포한다.
+3. API 시작 시 Flyway가 V35를 한 번 적용한다.
+4. `flyway_schema_history`의 version `35`와 success를 확인한다.
+5. API health와 Journey security smoke test를 확인한다.
 
-- [ ] `JourneySchemaTest` (Testcontainers PostgreSQL) — V34 적용, 제약과 인덱스 존재 확인
-- [ ] `JourneyCompilerTest` — S1·S2·S3·S4·S6 각각 단계 개수·종류 순서·환승 세 짝이 기대값과 일치
-- [ ] `JourneyCompilerTest` — 정류장 식별자가 없으면 그 단계가 "모름"
-- [ ] `JourneyCompilerTest` — 같은 정류장 환승이면 가운데 도보가 비어 있음
-- [ ] `JourneyCompilerTest` — 맨 앞·맨 뒤 도보는 그냥 도보, 중간 도보는 환승 도보
-- [ ] `JourneyStartServiceTest` — 만료된 보관 → 410, 잘못된 경로 번호 → 410, 주인 불일치 → 403
-- [ ] `JourneyStartServiceTest` — `replace=true` 면 이전 여정 취소와 새 여정 생성이 한 트랜잭션
-- [ ] `JourneyStartConcurrencyTest` — 동시에 두 번 시작하면 하나만 진행 중, 나머지는 409 (500 아님)
-- [ ] `JourneyApiSecurityTest` — 로그인 없이 `POST /api/journeys` → 401
-- [ ] 기존 전체 테스트 — 회귀 없음
+이번 세 PR에는 Worker 실행 로직이 없고 V35는 새 테이블만 추가하는 backward-compatible migration이다. API/Worker 분리가 이미 적용된 VPS라면 최종 배포는 `./deploy.sh api`로 수행하고 Worker 컨테이너는 유지할 수 있다.
 
-### 6.3 명령
+## 6. 깨지면 안 되는 불변조건
 
-```bash
-./gradlew compileJava
-./gradlew test --tests '*Journey*'
-./gradlew test          # 전체 회귀
-```
+1. 사용자당 ACTIVE Journey는 최대 하나
+2. 시작 상태는 `commandVersion=1`, `evaluationVersion=0`, `routeRevision=1`
+3. 첫 leg만 ACTIVE, 나머지는 PENDING
+4. 최초 route snapshot은 수정하지 않음
+5. ETA 평가가 commandVersion을 올리지 않음
+6. 이전 routeRevision의 비동기 결과는 반영하지 않음
+7. 정밀한 사용자 GPS 좌표를 DB·로그·event payload에 저장하지 않음
 
-### 6.4 손으로 확인
+## 7. 후속 Phase 계약
 
-- [ ] 실제 검색 응답의 검색 번호·경로 번호로 여정 하나를 만들고 조회
-- [ ] 같은 사용자가 두 번 시작하면 409
+- Phase 2: heartbeat, command state machine, active/detail snapshot 확장
+- Phase 3: ETA·환승 평가와 evaluationVersion 증가
+- Phase 4: due evaluator와 lease expiration
+- Phase 5: FCM·Journey notification outbox
+- Phase 6: `reroute_proposal` migration, 부분 재탐색 제안·수락
 
-### 6.5 배포
-
-- [ ] VPS 에 V34 수동 적용 (V18+ untracked 관례)
-
-## 7. 이 작업에서 깨지면 안 되는 것
-
-1. 진행 중인 여정은 사람당 최대 하나
-2. `version` 은 상태가 바뀔 때마다 올라가기만 한다 (여기서는 초기값 0 만)
-3. 시작 시점 경로 사본은 바꾸지 않는다. 재탐색은 새 개정본을 더한다
-4. 정밀한 위치 좌표는 어떤 칸에도, 어떤 로그에도 저장하지 않는다
-
-## 8. 리스크
-
-| 리스크 | 대응 |
-|---|---|
-| 동시에 시작했을 때 500 이 새어 나감 | DB 거부 예외를 잡아 409 로 변환. 동시성 테스트로 고정 |
-| `replace=true` 가 트랜잭션이 나뉘어 규칙과 충돌 | 하나의 `@Transactional` 로 묶음. 테스트로 고정 |
-| 쪼개는 코드가 실제 검색 응답의 변형을 못 다룸 | 준비 데이터 5종 + "모름" 처리 |
-| 무작위 식별자가 기존 엔티티 관례와 어긋남 | `JourneySession` 만 따로 처리. 자식 테이블은 순번 유지 |
-
-## 9. 열린 결정
-
-| # | 결정 | 기본안 |
-|---|---|---|
-| D5 | `replace=true` 로 기존 여정 갈아타기 | 허용하되 명시적으로 지정해야 함 |
-| D7 | `JourneySession` 이 공통 부모 엔티티를 상속할지 | 상속하지 않고 감사 칸만 직접 선언(식별자 방식이 달라서) |
+`journey_revision`은 수락되어 실제 안내에 사용된 경로만 `ACTIVE/SUPERSEDED`로 저장한다. 아직 수락되지 않은 대안은 Phase 6의 `reroute_proposal`이 점수·만료·dedup과 함께 보관하며, 수락 transaction이 새 ACTIVE JourneyRevision을 만든다.
