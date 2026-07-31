@@ -174,20 +174,24 @@ public class JourneyStateMachine {
     /**
      * 지금 선택을 받을 기다리기 단계.
      *
-     * <p>아직 기다리는 중이면 그 단계, 이미 탔다면 방금 지나온 기다리기 단계다. 두 단계가 한 쌍이라
-     * 어느 쪽에서 눌러도 같은 곳을 가리켜야 한다.
+     * <p>세 가지 경우를 모두 같은 곳으로 보낸다.
+     * <ul>
+     *   <li>기다리는 중 — 그 단계</li>
+     *   <li>타고 있는 중 — 방금 지나온 짝 단계. 잘못 탄 것을 정정하는 경우다</li>
+     *   <li>환승 도보 중 — 앞에 있는 다음 기다리기 단계</li>
+     * </ul>
+     *
+     * <p>세 번째를 빠뜨리면 안 된다. 내려서 다음 정류장으로 걸어가는 동안이 "어느 버스를 탈지"를
+     * 고르는 가장 자연스러운 시점이다.
      */
     private int findWaitLegOwningOptions(JourneySnapshot journey) {
         int current = journey.currentLegIndex();
         List<JourneyLegView> legs = journey.legs();
-        if (current < legs.size() && legs.get(current).type().isWaiting()) {
-            return current;
-        }
         if (current < legs.size() && legs.get(current).type().isRiding()
                 && current > 0 && legs.get(current - 1).type().isWaiting()) {
             return current - 1;
         }
-        return -1;
+        return findAhead(journey, leg -> leg.type().isWaiting());
     }
 
     // ── 종료 ─────────────────────────────────────────────────────────────────

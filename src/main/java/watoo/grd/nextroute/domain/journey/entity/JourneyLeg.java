@@ -130,4 +130,14 @@ public class JourneyLeg extends BaseEntity {
     public void selectRouteOption(Long journeyLegRouteOptionId) {
         this.selectedRouteOptionId = journeyLegRouteOptionId;
     }
+
+    /**
+     * 진행 상태를 바꾼다.
+     *
+     * <p>어떤 상태로 갈 수 있는지는 여기서 따지지 않는다. 그 판단은 여정 전체를 봐야 할 수 있어
+     * ({@code JourneyStateMachine}) 단계 하나가 스스로 결정할 수 없다.
+     */
+    public void changeState(JourneyLegState state) {
+        this.state = state;
+    }
 }

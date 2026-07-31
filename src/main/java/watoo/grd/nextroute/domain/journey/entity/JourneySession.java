@@ -123,6 +123,21 @@ public class JourneySession extends BaseEntity {
         this.destinationSummary = destinationSummary;
     }
 
+    /**
+     * 사용자 명령이 반영됐다.
+     *
+     * <p>이 번호가 오르는 순간, 앱이 손에 들고 있던 이전 번호로 온 명령은 전부 낡은 것이 된다.
+     * 그래서 상태를 실제로 바꾼 명령만 이 메서드를 부른다.
+     */
+    public void bumpCommandVersion() {
+        this.commandVersion++;
+    }
+
+    /** 진행 중인 단계를 옮긴다. 뒤로 가지 않는 것은 부르는 쪽이 보장한다. */
+    public void moveToLeg(int legIndex) {
+        this.currentLegIndex = legIndex;
+    }
+
     /** 여정을 끝낸다. 상태와 이유를 함께 남겨야 나중에 왜 끝났는지 셀 수 있다. */
     public void end(JourneyStatus status, JourneyEndReason reason, Instant endedAt) {
         this.status = status;
