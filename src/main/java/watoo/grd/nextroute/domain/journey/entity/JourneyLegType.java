@@ -3,8 +3,8 @@ package watoo.grd.nextroute.domain.journey.entity;
 /**
  * 여정 한 단계의 종류. 값 목록은 V35 의 {@code journey_leg_type_check} 가 소유한다.
  *
- * <p>버스·지하철 한 구간은 <b>기다리기와 타고 가기 두 단계</b>로 쪼갠다. "탔어요 / 내렸어요"를
- * 누르는 지점이 단계 경계에 있어야 상태 전이가 단순해지기 때문이다.
+ * <p>버스·지하철 한 구간은 <b>기다리기와 타고 가기 두 단계</b>로 쪼갠다. 앱의 GPS progress
+ * engine이 판정하는 행동 경계와 ETA 데이터 소유권이 다르기 때문이다.
  */
 public enum JourneyLegType {
 

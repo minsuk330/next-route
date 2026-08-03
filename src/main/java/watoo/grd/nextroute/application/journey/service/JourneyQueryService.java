@@ -78,6 +78,7 @@ public class JourneyQueryService implements GetActiveJourneyUseCase, GetJourneyU
                 session.getRouteRevision(),
                 session.getCurrentLegIndex(),
                 session.getGuidanceLeaseUntil(),
+                session.getSubwayOfflineProtectionUntil(),
                 clock.instant(),
                 legs.stream().map(leg -> toView(leg, optionsByLeg)).toList());
     }
@@ -94,7 +95,11 @@ public class JourneyQueryService implements GetActiveJourneyUseCase, GetJourneyU
                         option.getLaneIndex(),
                         option.getRouteId(),
                         option.getSourceRouteId(),
-                        option.getRouteName()))
+                        option.getRouteName(),
+                        option.getDirectionKey(),
+                        option.getWayCode(),
+                        option.getBoardingSeq(),
+                        option.getAlightingSeq()))
                 .toList();
 
         return new JourneyLegView(
@@ -106,6 +111,7 @@ public class JourneyQueryService implements GetActiveJourneyUseCase, GetJourneyU
                 leg.getEndStopId(),
                 leg.getStartName(),
                 leg.getEndName(),
+                leg.getRouteId(),
                 leg.getPlannedDurationSec(),
                 leg.getEvidenceQuality(),
                 leg.getSelectedRouteOptionId(),

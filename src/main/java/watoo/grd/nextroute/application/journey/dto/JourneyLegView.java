@@ -8,8 +8,8 @@ import java.util.List;
 /**
  * 여정 한 단계의 조회용 모습.
  *
- * <p>{@code selectedRouteOptionId} 가 비어 있고 {@code routeOptions} 가 여럿이면 "아직 어느
- * 노선을 탈지 정하지 않았다"는 뜻이다. 앱은 이 상태에서 사용자에게 후보를 보여 준다.
+ * <p>ODsay 첫 lane을 현재 선택 노선으로 사용하고 나머지는 대체 후보로 보존한다. 이 선택은
+ * 실제 차량·운행 회차를 식별한다는 뜻이 아니다.
  */
 public record JourneyLegView(
         Long legId,
@@ -20,6 +20,7 @@ public record JourneyLegView(
         String endStopId,
         String startName,
         String endName,
+        String routeId,
         Integer plannedDurationSec,
         String evidenceQuality,
         Long selectedRouteOptionId,

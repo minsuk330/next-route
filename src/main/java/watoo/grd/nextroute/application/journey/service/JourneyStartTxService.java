@@ -9,6 +9,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
 import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.TransferConnectionDraft;
+import watoo.grd.nextroute.application.journey.config.JourneyNavigationProperties;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEndReason;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
@@ -27,7 +28,6 @@ import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepositor
 import watoo.grd.nextroute.domain.user.entity.User;
 import watoo.grd.nextroute.domain.user.repository.UserRepository;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,9 +46,7 @@ import java.util.NoSuchElementException;
 @RequiredArgsConstructor
 public class JourneyStartTxService {
 
-    /** 앱이 안내를 맡는 기간. 이 시각까지 소식이 없으면 나중에 서버가 여정을 접는다(Phase 4). */
-    private static final Duration GUIDANCE_LEASE = Duration.ofMinutes(3);
-
+    private final JourneyNavigationProperties navigationProperties;
     private final UserRepository userRepository;
     private final JourneySessionRepository sessionRepository;
     private final JourneyRevisionRepository revisionRepository;
@@ -64,7 +62,7 @@ public class JourneyStartTxService {
      *   <li>사용자 행 잠금 — 같은 사람의 동시 요청을 한 줄로 세운다</li>
      *   <li>기존 여정 확인 — 있으면 갈아탈지 판단</li>
      *   <li>여정·경로 개정본·단계 저장</li>
-     *   <li>노선 후보 저장 → 후보가 하나면 짝이 되는 두 단계에 확정</li>
+     *   <li>노선 후보 저장 → 첫 routeOption을 짝이 되는 두 단계의 현재 노선으로 선택</li>
      *   <li>환승 연결 저장</li>
      * </ol>
      *
@@ -83,7 +81,7 @@ public class JourneyStartTxService {
         JourneySession session = sessionRepository.saveAndFlush(JourneySession.builder()
                 .userId(user.getId())
                 .startedAt(now)
-                .guidanceLeaseUntil(now.plus(GUIDANCE_LEASE))
+                .guidanceLeaseUntil(now.plus(navigationProperties.guidanceLease()))
                 .routeSnapshot(routeSnapshot)
                 .destinationSummary(destinationSummary)
                 .build());
@@ -113,7 +111,7 @@ public class JourneyStartTxService {
         if (!replace) {
             throw new ActiveJourneyExistsException(queryService.snapshotOf(existing));
         }
-        existing.end(JourneyStatus.CANCELED, JourneyEndReason.REPLACED, now);
+        existing.end(JourneyStatus.CANCELED, JourneyEndReason.SUPERSEDED, now);
         sessionRepository.saveAndFlush(existing);
     }
 
@@ -134,16 +132,18 @@ public class JourneyStartTxService {
                     .endName(draft.endName())
                     .plannedDurationSec(draft.plannedDurationSec())
                     .evidenceQuality(draft.evidenceQuality())
+                    .activatedAt(draft.state() == watoo.grd.nextroute.domain.journey.entity.JourneyLegState.ACTIVE
+                            ? session.getStartedAt() : null)
                     .build());
         }
         return legRepository.saveAllAndFlush(legs);
     }
 
     /**
-     * 노선 후보를 저장하고, 후보가 하나뿐인 구간만 탈 노선을 확정한다.
+     * 노선 후보를 저장하고, ODsay가 첫 번째로 준 노선을 현재 선택 노선으로 둔다.
      *
-     * <p>후보가 여럿이면 비워 둔다. 서버가 먼저 하나를 고르면 사용자가 실제로 탄 노선과 어긋나고,
-     * 그 어긋남은 도착 예측이 이상해질 때에야 드러난다.
+     * <p>사용자에게 차량 선택을 요구하지 않는 제품 계약이다. 나머지 후보는 대체 routeOption으로
+     * 그대로 보존하며 실제 차량·운행 회차는 어느 경우에도 확정하지 않는다.
      */
     private void saveRouteOptions(JourneyPlan plan, List<JourneyLeg> legs) {
         for (JourneyLegDraft draft : plan.legs()) {
@@ -156,13 +156,14 @@ public class JourneyStartTxService {
                             .map(option -> toEntity(waitLeg, option))
                             .toList());
 
-            if (!draft.hasSingleRouteOption()) {
+            if (saved.isEmpty()) {
                 continue;
             }
             Long selected = saved.get(0).getId();
-            waitLeg.selectRouteOption(selected);
+            String routeId = saved.get(0).getRouteId();
+            waitLeg.selectRouteOption(selected, routeId);
             if (draft.pairedLegIndex() != null) {
-                legs.get(draft.pairedLegIndex()).selectRouteOption(selected);
+                legs.get(draft.pairedLegIndex()).selectRouteOption(selected, routeId);
             }
         }
         legRepository.flush();
@@ -176,6 +177,7 @@ public class JourneyStartTxService {
                 .routeId(draft.routeId())
                 .sourceRouteId(draft.sourceRouteId())
                 .routeName(draft.routeName())
+                .directionKey(draft.directionKey())
                 .wayCode(draft.wayCode())
                 .boardingSeq(draft.boardingSeq())
                 .alightingSeq(draft.alightingSeq())

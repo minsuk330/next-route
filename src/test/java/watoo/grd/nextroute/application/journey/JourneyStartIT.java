@@ -181,7 +181,7 @@ class JourneyStartIT {
     }
 
     @Test
-    @DisplayName("후보가 하나면 두 단계가 같은 노선을 가리키고, 여럿이면 비워 둔다")
+    @DisplayName("첫 routeOption을 현재 노선으로 선택하고 나머지는 대안으로 보존한다")
     void routeOptionSelection() {
         Long userId = newUser();
 
@@ -200,9 +200,8 @@ class JourneyStartIT {
                 .extracting(o -> o.routeName())
                 .containsExactly("721", "140");
         assertThat(multiWait.selectedRouteOptionId())
-                .as("후보가 여럿이면 서버가 임의로 고르지 않는다")
-                .isNull();
-        assertThat(multiRide.selectedRouteOptionId()).isNull();
+                .isEqualTo(multiWait.routeOptions().get(0).optionId());
+        assertThat(multiRide.selectedRouteOptionId()).isEqualTo(multiWait.selectedRouteOptionId());
     }
 
     @Test
@@ -244,7 +243,7 @@ class JourneyStartIT {
     }
 
     @Test
-    @DisplayName("replace=true 면 기존 여정을 REPLACED 로 접고 새 여정을 만든다")
+    @DisplayName("replace=true 면 기존 여정을 SUPERSEDED 로 접고 새 여정을 만든다")
     void replace_endsPrevious() {
         Long userId = newUser();
         JourneySnapshot first = start(userId, false);
@@ -255,7 +254,7 @@ class JourneyStartIT {
         assertThat(countSessions(userId, JourneyStatus.ACTIVE)).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("""
                 select end_reason from journey_session where id = ?
-                """, String.class, first.journeyId())).isEqualTo("REPLACED");
+                """, String.class, first.journeyId())).isEqualTo("SUPERSEDED");
         assertThat(jdbcTemplate.queryForObject("""
                 select status from journey_session where id = ?
                 """, String.class, first.journeyId())).isEqualTo("CANCELED");

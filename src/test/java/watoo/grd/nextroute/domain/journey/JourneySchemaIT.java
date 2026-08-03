@@ -55,7 +55,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V35/V36 이 만든 스키마와 Journey 엔티티 매핑을 실 PostgreSQL 로 확인한다.
+ * V35~V37이 만든 스키마와 Journey 엔티티 매핑을 실 PostgreSQL 로 확인한다.
  *
  * <p>스키마를 테스트용으로 복제하지 않고 <b>실제 마이그레이션 파일을 그대로 실행</b>한다
  * ({@code @Sql}). 복제본을 두면 마이그레이션만 고치고 테스트는 통과하는 상태가 생긴다.
@@ -72,7 +72,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import(JpaConfig.class)
 @Sql(scripts = {
         "classpath:db/migration/V35__create_journey.sql",
-        "classpath:db/migration/V36__add_journey_transit_resolution.sql"
+        "classpath:db/migration/V36__add_journey_transit_resolution.sql",
+        "classpath:db/migration/V37__align_journey_navigation_contract.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 class JourneySchemaIT {
@@ -235,6 +236,19 @@ class JourneySchemaIT {
     }
 
     @Test
+    @DisplayName("지하철 보호 lease가 nullable 절대시각으로 저장된다")
+    void subwayProtection_roundTrips() {
+        Instant protection = Instant.now().plus(20, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MICROS);
+        JourneySession session = newSession(Instant.now());
+        session.protectSubwayUntil(protection);
+
+        JourneySession saved = sessionRepository.saveAndFlush(session);
+
+        assertThat(sessionRepository.findById(saved.getId()).orElseThrow()
+                .getSubwayOfflineProtectionUntil()).isEqualTo(protection);
+    }
+
+    @Test
     @DisplayName("경로 원본은 수정해도 DB 에 반영되지 않는다")
     void routeSnapshot_isImmutable() {
         JourneySession saved = sessionRepository.saveAndFlush(newSession(Instant.now()));
@@ -314,12 +328,13 @@ class JourneySchemaIT {
                         .routeId("ROUTE-1")
                         .sourceRouteId("src-1")
                         .routeName("370")
+                        .directionKey("SEQ:4>12")
                         .wayCode(1)
                         .boardingSeq(4)
                         .alightingSeq(12)
                         .build());
 
-        wait.selectRouteOption(option.getId());
+        wait.selectRouteOption(option.getId(), option.getRouteId());
         legRepository.saveAndFlush(wait);
 
         List<JourneyLeg> legs = legRepository
@@ -327,6 +342,7 @@ class JourneySchemaIT {
                         session.getId(), 1);
         assertThat(legs).hasSize(1);
         assertThat(legs.get(0).getSelectedRouteOptionId()).isEqualTo(option.getId());
+        assertThat(legs.get(0).getRouteId()).isEqualTo("ROUTE-1");
         assertThat(legs.get(0).getEvidenceQuality()).isEqualTo("UNKNOWN");
         assertThat(legs.get(0).getSourceStartStopId()).isEqualTo("odsay-stop-1");
         assertThat(legs.get(0).getSourceEndStopId()).isEqualTo("odsay-stop-2");
@@ -337,6 +353,7 @@ class JourneySchemaIT {
                     assertThat(saved.getWayCode()).isEqualTo(1);
                     assertThat(saved.getBoardingSeq()).isEqualTo(4);
                     assertThat(saved.getAlightingSeq()).isEqualTo(12);
+                    assertThat(saved.getDirectionKey()).isEqualTo("SEQ:4>12");
                 });
     }
 
@@ -405,7 +422,7 @@ class JourneySchemaIT {
     void newJourneyAfterPreviousEnded() {
         JourneySession first = sessionRepository.saveAndFlush(newSession(Instant.now()));
 
-        first.end(JourneyStatus.CANCELED, JourneyEndReason.REPLACED, Instant.now());
+        first.end(JourneyStatus.CANCELED, JourneyEndReason.SUPERSEDED, Instant.now());
         sessionRepository.saveAndFlush(first);
 
         assertThatCode(() -> sessionRepository.saveAndFlush(newSession(Instant.now())))

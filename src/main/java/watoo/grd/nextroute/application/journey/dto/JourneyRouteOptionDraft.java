@@ -11,6 +11,7 @@ package watoo.grd.nextroute.application.journey.dto;
  * @param routeId       서버 내부 노선 식별자. 해석 전이거나 실패하면 null
  * @param sourceRouteId 검색 응답이 준 원천 식별자(버스는 {@code busLocalBlID}, 지하철은 노선 코드)
  * @param routeName     사람이 읽는 이름(버스 번호, 노선명)
+ * @param directionKey  실시간 조회 후보를 같은 진행 순서로 묶는 키
  * @param wayCode       ODSAY 지하철 방향 코드. 버스와 방향 미제공 구간은 null
  * @param boardingSeq   내부 버스 노선에서 승차 정류장의 순번. 단건 해석 실패 시 null
  * @param alightingSeq  내부 버스 노선에서 하차 정류장의 순번. 단건 해석 실패 시 null
@@ -21,6 +22,7 @@ public record JourneyRouteOptionDraft(
         String routeId,
         String sourceRouteId,
         String routeName,
+        String directionKey,
         Integer wayCode,
         Integer boardingSeq,
         Integer alightingSeq
@@ -35,7 +37,7 @@ public record JourneyRouteOptionDraft(
      */
     public static JourneyRouteOptionDraft of(int index, String sourceRouteId, String routeName,
                                              Integer wayCode) {
-        return new JourneyRouteOptionDraft(index, index, null, sourceRouteId, routeName,
+        return new JourneyRouteOptionDraft(index, index, null, sourceRouteId, routeName, null,
                 wayCode, null, null);
     }
 
@@ -52,6 +54,14 @@ public record JourneyRouteOptionDraft(
     public JourneyRouteOptionDraft resolved(String resolvedRouteId,
                                             Integer resolvedBoardingSeq, Integer resolvedAlightingSeq) {
         return new JourneyRouteOptionDraft(optionIndex, laneIndex, resolvedRouteId, sourceRouteId,
-                routeName, wayCode, resolvedBoardingSeq, resolvedAlightingSeq);
+                routeName, directionKey(wayCode, resolvedBoardingSeq, resolvedAlightingSeq),
+                wayCode, resolvedBoardingSeq, resolvedAlightingSeq);
+    }
+
+    private static String directionKey(Integer wayCode, Integer boardingSeq, Integer alightingSeq) {
+        if (boardingSeq != null && alightingSeq != null) {
+            return "SEQ:" + boardingSeq + ">" + alightingSeq;
+        }
+        return wayCode == null ? null : "WAY:" + wayCode;
     }
 }

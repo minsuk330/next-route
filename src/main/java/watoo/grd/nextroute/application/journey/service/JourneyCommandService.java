@@ -8,10 +8,12 @@ import watoo.grd.nextroute.application.journey.dto.JourneyEventOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.JourneyTransition;
 import watoo.grd.nextroute.application.journey.dto.LegStateChange;
+import watoo.grd.nextroute.application.journey.config.JourneyNavigationProperties;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEvent;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.repository.JourneyEventRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
@@ -21,6 +23,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -37,7 +40,10 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class JourneyCommandService implements ApplyJourneyEventUseCase {
 
+    private static final String EVENT_ID_REUSED = "EVENT_ID_REUSED";
+
     private final JourneySessionRepository sessionRepository;
+    private final JourneyNavigationProperties navigationProperties;
     private final JourneyLegRepository legRepository;
     private final JourneyEventRepository eventRepository;
     private final JourneyStateMachine stateMachine;
@@ -76,22 +82,38 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
     /**
      * 이미 처리한 명령이면 처음 결과를 그대로 돌려준다.
      *
-     * <p>지하철에서 응답을 못 받은 앱은 같은 명령을 다시 보낸다. 그때 "이미 탔는데 또 탔다고?"로
-     * 거절해 버리면, 사용자 입장에서는 눌렀는데 실패한 것으로 보인다. 처음 판정을 그대로 재생하는
-     * 편이 앱과 서버 사이에 오해를 남기지 않는다.
+     * <p>지하철에서 응답을 못 받은 앱은 같은 leg 전이 명령을 다시 보낸다. 이를
+     * 새 명령으로 판정하면 앱은 반영된 상태를 실패로 오해한다. 처음 결과를 재생해
+     * 앱과 서버를 같은 canonical 상태로 수렴시킨다.
      */
     private JourneyEventOutcome replayIfSeen(JourneyCommand command, JourneySession journey) {
         return eventRepository.findByEventId(command.eventId())
-                .map(seen -> new JourneyEventOutcome(
-                        // 결과 자체는 DUPLICATE 로 알린다. 앱이 재전송이었음을 알 수 있어야 한다.
-                        JourneyEventResult.DUPLICATE,
-                        seen.getRejectionReason(),
-                        queryService.snapshotOf(journey)))
+                .map(seen -> {
+                    if (!sameCommand(seen, command, journey.getId())) {
+                        return new JourneyEventOutcome(JourneyEventResult.CONFLICT,
+                                EVENT_ID_REUSED, queryService.snapshotOf(journey));
+                    }
+                    JourneyEventResult replayResult = seen.getResult() == JourneyEventResult.APPLIED
+                            ? JourneyEventResult.DUPLICATE : seen.getResult();
+                    return new JourneyEventOutcome(replayResult, seen.getRejectionReason(),
+                            queryService.snapshotOf(journey));
+                })
                 .orElse(null);
+    }
+
+    /** eventId는 요청 내용까지 같은 재전송에만 재사용할 수 있다. */
+    private boolean sameCommand(JourneyEvent seen, JourneyCommand command, Long journeyId) {
+        return seen.getJourneyId().equals(journeyId)
+                && seen.getBaseCommandVersion() == command.baseCommandVersion()
+                && seen.getRouteRevision() == command.routeRevision()
+                && seen.getType().equals(command.type().name())
+                && Objects.equals(seen.getClientOccurredAt(), command.clientOccurredAt())
+                && Objects.equals(seen.getPayload(), transitionPayload(command));
     }
 
     /** 결정된 지시서를 여정·단계에 옮긴다. */
     private void applyTransition(JourneySession journey, JourneyTransition transition) {
+        Instant appliedAt = Instant.now(clock);
         Map<Integer, JourneyLeg> legsByIndex = legRepository
                 .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
                         journey.getId(), journey.getRouteRevision())
@@ -101,26 +123,40 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
         for (LegStateChange change : transition.legStateChanges()) {
             JourneyLeg leg = legsByIndex.get(change.legIndex());
             if (leg != null) {
-                leg.changeState(change.state());
-            }
-        }
-        for (Integer legIndex : transition.routeOptionTargetLegs()) {
-            JourneyLeg leg = legsByIndex.get(legIndex);
-            if (leg != null) {
-                leg.selectRouteOption(transition.selectedRouteOptionId());
+                leg.changeState(change.state(), appliedAt);
             }
         }
         if (transition.newCurrentLegIndex() != null) {
             journey.moveToLeg(transition.newCurrentLegIndex());
+            updateSubwayProtection(journey, legsByIndex.get(transition.newCurrentLegIndex()), appliedAt);
         }
         if (transition.newStatus() != null) {
-            journey.end(transition.newStatus(), transition.endReason(), Instant.now(clock));
+            journey.end(transition.newStatus(), transition.endReason(), appliedAt);
         }
         if (transition.commandVersionIncrement()) {
             journey.bumpCommandVersion();
         }
         legRepository.flush();
         sessionRepository.flush();
+    }
+
+    private void updateSubwayProtection(JourneySession journey, JourneyLeg currentLeg, Instant at) {
+        if (currentLeg == null || currentLeg.getType() != JourneyLegType.RIDE_SUBWAY) {
+            journey.clearSubwayProtection();
+            return;
+        }
+        Instant legStartedAt = currentLeg.getActivatedAt() != null
+                ? currentLeg.getActivatedAt() : at;
+        Instant predictedEndAt = currentLeg.getPredictedEndAt();
+        if (predictedEndAt == null) {
+            int plannedSeconds = currentLeg.getPlannedDurationSec() == null
+                    ? 0 : currentLeg.getPlannedDurationSec();
+            predictedEndAt = legStartedAt.plusSeconds(plannedSeconds);
+        }
+        Instant predictedProtection = predictedEndAt.plus(navigationProperties.subwayProtectionBuffer());
+        Instant cappedProtection = legStartedAt.plus(navigationProperties.subwayProtectionCap());
+        journey.protectSubwayUntil(predictedProtection.isBefore(cappedProtection)
+                ? predictedProtection : cappedProtection);
     }
 
     /**
@@ -137,10 +173,27 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
                 .baseCommandVersion(command.baseCommandVersion())
                 .routeRevision(command.routeRevision())
                 .type(command.type().name())
+                .clientOccurredAt(command.clientOccurredAt())
                 .serverReceivedAt(Instant.now(clock))
+                .payload(transitionPayload(command))
                 .result(transition.result())
                 .resultingCommandVersion(resultingCommandVersion)
                 .rejectionReason(transition.rejectionReason())
                 .build());
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode transitionPayload(JourneyCommand command) {
+        if (command.fromLegIndex() == null && command.toLegIndex() == null) {
+            return null;
+        }
+        com.fasterxml.jackson.databind.node.ObjectNode payload =
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+        if (command.fromLegIndex() != null) {
+            payload.put("fromLegIndex", command.fromLegIndex());
+        }
+        if (command.toLegIndex() != null) {
+            payload.put("toLegIndex", command.toLegIndex());
+        }
+        return payload;
     }
 }

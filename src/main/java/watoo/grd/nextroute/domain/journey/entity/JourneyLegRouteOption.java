@@ -13,11 +13,12 @@ import watoo.grd.nextroute.common.entity.BaseEntity;
  * 한 구간에서 탈 수 있는 노선 후보 하나.
  *
  * <p>같은 정류장에서 목적지로 가는 버스가 둘 이상일 수 있다. 검색 결과는 이걸 여러 후보로
- * 돌려주는데, 서버가 임의로 첫 번째를 정답으로 굳히면 사용자가 실제로 탄 노선과 어긋난다.
- * 그래서 전부 저장하고 선택은 미룬다(D19).
+ * 돌려주며, 첫 후보는 선택 경로이고 나머지는 같은 승·하차 구간의 대안이다.
+ * ODsay 첫 lane을 선택 경로로 사용하고 나머지는 실시간 재평가용 대체 후보로 보존한다.
+ * 이 선택은 실제 차량이나 운행 회차를 식별한다는 뜻이 아니다.
  *
  * <p>후보는 <b>기다리는 단계</b>({@code WAIT_BUS}/{@code WAIT_SUBWAY})가 소유한다. 짝이 되는
- * 타는 단계는 사용자가 고른 뒤 같은 후보를 가리킨다.
+ * 타는 단계는 저장 시 같은 첫 후보를 가리킨다.
  */
 @Entity
 @Table(name = "journey_leg_route_option")
@@ -47,6 +48,10 @@ public class JourneyLegRouteOption extends BaseEntity {
     @Column(length = 100)
     private String routeName;
 
+    /** 상·하행 명칭이 아니라 실시간 조회 후보를 같은 진행 순서로 묶는 안정 키다. */
+    @Column(length = 64)
+    private String directionKey;
+
     /** ODSAY 지하철 방향 코드. 내부 lineId와 함께 실시간 방향 판정에 쓴다. */
     private Integer wayCode;
 
@@ -59,13 +64,15 @@ public class JourneyLegRouteOption extends BaseEntity {
     @Builder
     public JourneyLegRouteOption(Long journeyLegId, int optionIndex, int laneIndex,
                                  String routeId, String sourceRouteId, String routeName,
-                                 Integer wayCode, Integer boardingSeq, Integer alightingSeq) {
+                                 String directionKey, Integer wayCode,
+                                 Integer boardingSeq, Integer alightingSeq) {
         this.journeyLegId = journeyLegId;
         this.optionIndex = optionIndex;
         this.laneIndex = laneIndex;
         this.routeId = routeId;
         this.sourceRouteId = sourceRouteId;
         this.routeName = routeName;
+        this.directionKey = directionKey;
         this.wayCode = wayCode;
         this.boardingSeq = boardingSeq;
         this.alightingSeq = alightingSeq;

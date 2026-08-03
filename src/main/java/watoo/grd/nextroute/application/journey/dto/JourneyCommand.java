@@ -7,7 +7,7 @@ import java.util.UUID;
 /**
  * 여정에 보내는 명령 하나.
  *
- * <p>{@code eventId} 는 앱이 만든다. 지하철에서 응답을 못 받은 앱이 같은 명령을 다시 보내도 두 번
+ * <p>{@code eventId} 는 앱이 만든다. 지하철에서 응답을 못 받은 앱이 같은 전이를 다시 보내도 두 번
  * 반영되지 않게 하는 열쇠다.
  *
  * <p>{@code baseCommandVersion} 과 {@code routeRevision} 은 "내가 이 상태를 보고 눌렀다"는 진술이다.
@@ -18,13 +18,17 @@ import java.util.UUID;
  * @param type               명령 종류
  * @param baseCommandVersion 앱이 들고 있던 명령 번호
  * @param routeRevision      앱이 들고 있던 경로 개정본 번호
- * @param routeOptionId      B3 에서 고른 노선 후보. 그 외에는 null
+ * @param fromLegIndex       앱이 경계를 통과했다고 판단한 현재 leg
+ * @param toLegIndex         다음으로 활성화할 leg. 1차에서는 반드시 from+1
+ * @param clientOccurredAt   기기 관측 시각. 감사용이며 서버 상태 순서의 기준으로 쓰지 않는다
  */
 public record JourneyCommand(
         UUID eventId,
         JourneyEventType type,
         long baseCommandVersion,
         int routeRevision,
-        Long routeOptionId
+        Integer fromLegIndex,
+        Integer toLegIndex,
+        java.time.Instant clientOccurredAt
 ) {
 }
