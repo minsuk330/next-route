@@ -7,6 +7,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyLegView;
 import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionView;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
+import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
@@ -29,7 +30,7 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
-public class JourneyQueryService implements GetActiveJourneyUseCase {
+public class JourneyQueryService implements GetActiveJourneyUseCase, GetJourneyUseCase {
 
     private final JourneySessionRepository sessionRepository;
     private final JourneyLegRepository legRepository;
@@ -41,6 +42,13 @@ public class JourneyQueryService implements GetActiveJourneyUseCase {
     public Optional<JourneySnapshot> getActive(Long userId) {
         return sessionRepository
                 .findByUserIdAndStatusAndDeletedAtIsNull(userId, JourneyStatus.ACTIVE)
+                .map(this::snapshotOf);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<JourneySnapshot> get(Long userId, Long journeyId) {
+        return sessionRepository.findByIdAndUserIdAndDeletedAtIsNull(journeyId, userId)
                 .map(this::snapshotOf);
     }
 
@@ -62,7 +70,7 @@ public class JourneyQueryService implements GetActiveJourneyUseCase {
                         .stream()
                         .collect(Collectors.groupingBy(JourneyLegRouteOption::getJourneyLegId));
 
-        return new JourneySnapshot(
+        return JourneySnapshot.of(
                 session.getId(),
                 session.getStatus(),
                 session.getCommandVersion(),

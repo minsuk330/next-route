@@ -54,6 +54,7 @@ public class JourneyStateMachine {
             case USER_CONFIRMED_ALIGHTING -> alight(journey);
             case USER_SELECTED_VEHICLE, USER_CHANGED_VEHICLE -> selectVehicle(journey, command);
             case JOURNEY_CANCELED -> end(JourneyStatus.CANCELED, JourneyEndReason.USER_CANCELED);
+            case JOURNEY_COMPLETED -> end(JourneyStatus.COMPLETED, JourneyEndReason.COMPLETED);
             case LEASE_EXPIRED -> end(JourneyStatus.EXPIRED, JourneyEndReason.CLIENT_LEASE_EXPIRED);
             // 근거로만 쓰거나(Phase 3) 아직 없는 기능(Phase 6)이다. 저장은 되고 상태는 그대로다.
             case STOP_PROXIMITY_DETECTED, APP_RESUMED -> JourneyTransition.noChange();

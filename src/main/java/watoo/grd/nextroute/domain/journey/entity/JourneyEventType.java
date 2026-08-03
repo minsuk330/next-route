@@ -35,6 +35,9 @@ public enum JourneyEventType {
     /** 사용자가 여정을 접었다. */
     JOURNEY_CANCELED,
 
+    /** 목적지에 도착했다. 끝나는 방식이 취소와 달라 이유를 나눠 남긴다. */
+    JOURNEY_COMPLETED,
+
     /** 서버가 만든 명령. 앱 소식이 끊겨 안내를 접는다(Phase 4). */
     LEASE_EXPIRED
 }

@@ -68,7 +68,7 @@ class JourneyStateMachineTest {
 
     private JourneySnapshot journey(JourneyStatus status, long commandVersion, int routeRevision,
                                     int currentLegIndex, List<JourneyLegView> legs) {
-        return new JourneySnapshot(1L, status, commandVersion, 0L, routeRevision,
+        return JourneySnapshot.of(1L, status, commandVersion, 0L, routeRevision,
                 currentLegIndex, NOW.plusSeconds(180), NOW, legs);
     }
 

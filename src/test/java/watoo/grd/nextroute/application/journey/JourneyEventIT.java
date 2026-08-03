@@ -17,6 +17,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
+import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
@@ -25,6 +26,7 @@ import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 
 import java.time.Instant;
@@ -62,6 +64,7 @@ class JourneyEventIT {
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired ApplyJourneyEventUseCase applyJourneyEventUseCase;
     @Autowired GetActiveJourneyUseCase getActiveJourneyUseCase;
+    @Autowired GetJourneyUseCase getJourneyUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired EntityManager entityManager;
 
@@ -316,7 +319,65 @@ class JourneyEventIT {
         assertThat(outcome.journey().commandVersion()).isEqualTo(1L);
     }
 
+
+    // ── 조회와 종료 ──────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("끝난 여정도 번호로는 볼 수 있다")
+    void endedJourney_stillReadable() {
+        send(JourneyEventType.JOURNEY_COMPLETED, 1L);
+
+        assertThat(getActiveJourneyUseCase.getActive(userId))
+                .as("진행 중인 것만 찾는 조회에는 안 나온다")
+                .isEmpty();
+        assertThat(getJourneyUseCase.get(userId, journey.journeyId()))
+                .as("알림을 눌러 들어왔는데 이미 끝났을 수 있다")
+                .isPresent()
+                .get()
+                .satisfies(j -> assertThat(j.status()).isEqualTo(JourneyStatus.COMPLETED));
+    }
+
+    @Test
+    @DisplayName("도착으로 끝내면 이유가 취소와 다르다")
+    void complete_recordsArrivalReason() {
+        send(JourneyEventType.JOURNEY_COMPLETED, 1L);
+
+        assertThat(jdbcTemplate.queryForObject(
+                "select end_reason from journey_session where id = ?",
+                String.class, journey.journeyId())).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    @DisplayName("남의 여정은 번호로도 안 보인다")
+    void otherUsersJourney_notReadable() {
+        Long other = newUser();
+
+        assertThat(getJourneyUseCase.get(other, journey.journeyId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("폴링 간격은 지금 단계에 따라 달라지고 끝나면 0 이 된다")
+    void recommendedPollSeconds_followsCurrentLeg() {
+        assertThat(journey.currentLeg().type()).isEqualTo(JourneyLegType.WAIT_BUS);
+        assertThat(journey.recommendedPollSeconds())
+                .as("기다리는 동안이 가장 자주 바뀐다")
+                .isEqualTo(10);
+
+        JourneySnapshot riding = send(JourneyEventType.USER_CONFIRMED_BOARDING, 1L).journey();
+        assertThat(riding.recommendedPollSeconds()).isEqualTo(15);
+
+        JourneySnapshot walking = send(JourneyEventType.USER_CONFIRMED_ALIGHTING, 2L).journey();
+        assertThat(walking.currentLeg().type()).isEqualTo(JourneyLegType.TRANSFER_WALK);
+        assertThat(walking.recommendedPollSeconds()).isEqualTo(30);
+
+        JourneySnapshot ended = send(JourneyEventType.JOURNEY_CANCELED, 3L).journey();
+        assertThat(ended.recommendedPollSeconds())
+                .as("끝난 여정을 계속 물어볼 이유가 없다")
+                .isZero();
+    }
+
     // ── 소유권 ───────────────────────────────────────────────────────────────
+
 
     @Test
     @DisplayName("남의 여정에는 명령을 보낼 수 없다")
