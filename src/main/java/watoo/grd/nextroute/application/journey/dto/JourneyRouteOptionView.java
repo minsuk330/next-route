@@ -7,6 +7,10 @@ public record JourneyRouteOptionView(
         int laneIndex,
         String routeId,
         String sourceRouteId,
-        String routeName
+        String routeName,
+        String directionKey,
+        Integer wayCode,
+        Integer boardingSeq,
+        Integer alightingSeq
 ) {
 }

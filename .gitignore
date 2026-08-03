@@ -22,6 +22,7 @@ src/main/resources/db/migration/*
 !src/main/resources/db/migration/V34__add_token_generation_to_users.sql
 !src/main/resources/db/migration/V35__create_journey.sql
 !src/main/resources/db/migration/V36__add_journey_transit_resolution.sql
+!src/main/resources/db/migration/V37__align_journey_navigation_contract.sql
 docs/*
 !docs/plan/
 !docs/mobile/

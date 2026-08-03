@@ -12,12 +12,12 @@ import lombok.NoArgsConstructor;
 import watoo.grd.nextroute.common.entity.BaseEntity;
 
 import java.time.Instant;
+import java.math.BigDecimal;
 
 /**
  * 여정을 쪼갠 한 단계. "걷기 / 기다리기 / 타고 가기" 중 하나다.
  *
- * <p>단계 경계는 사용자가 버튼을 누르는 지점과 일치시킨다. 버스 한 구간을 하나로 두면
- * "탔어요"를 누른 뒤에도 같은 단계에 머물러 상태가 애매해진다.
+ * <p>단계 경계는 앱의 GPS progress engine이 확정하는 행동 경계와 일치시킨다.
  *
  * <p>{@code (journey_id, route_revision, leg_index)} 가 유일하다(V35). 경로가 바뀌면
  * {@code route_revision} 이 오른 새 단계 묶음이 통째로 쌓이고 이전 묶음은 남는다.
@@ -32,7 +32,7 @@ public class JourneyLeg extends BaseEntity {
      * 근거의 품질이 "모름"인 상태.
      *
      * <p>정류장·노선 식별자가 없어 실시간 대조를 못 하는 경우에 쓴다. 이때도 단계 자체는
-     * {@code ACTIVE/PENDING} 으로 둬서 사용자가 손으로 진행할 수 있게 한다.
+     * {@code ACTIVE/PENDING} 으로 두고 GPS progress engine이 leg 경계를 확정한다.
      * 나머지 어휘는 실시간 근거를 실제로 채우는 Phase 3 이 정한다(DB CHECK 없음).
      */
     public static final String EVIDENCE_QUALITY_UNKNOWN = "UNKNOWN";
@@ -72,7 +72,11 @@ public class JourneyLeg extends BaseEntity {
 
     private String endName;
 
-    /** 탄 차량의 식별자. 실시간 대조로 확정되면 채워진다(Phase 3). */
+    /** 현재 선택된 노선의 내부 식별자. 실제 차량·운행 회차 식별자는 아니다. */
+    @Column(length = 64)
+    private String routeId;
+
+    /** legacy 호환 칼럼. 1차 내비게이션에서는 실제 차량을 식별하지 않으므로 사용하지 않는다. */
     @Column(length = 64)
     private String vehicleId;
 
@@ -93,11 +97,33 @@ public class JourneyLeg extends BaseEntity {
     @Column(length = 20)
     private String evidenceQuality;
 
+    /** Phase 3에서 앱 progress 요약을 저장할 자리. 정밀 좌표는 저장하지 않는다. */
+    private Integer progressGeometrySegmentIndex;
+
+    @Column(precision = 7, scale = 6)
+    private BigDecimal progressFraction;
+
+    @Column(precision = 7, scale = 6)
+    private BigDecimal progressLegFraction;
+
+    private Instant progressObservedAt;
+
+    @Column(length = 64)
+    private String progressSectionId;
+
+    private Integer remainingDistanceMeters;
+
+    private Integer remainingDurationSeconds;
+
+    private Instant activatedAt;
+
+    private Instant completedAt;
+
     /**
      * 이 단계에서 타기로 확정한 노선 후보.
      *
-     * <p>후보가 하나뿐일 때만 채운다. 여러 개면 사용자가 고를 때까지 비워 둔다 — 서버가 임의로
-     * 첫 후보를 고르면 사용자가 실제로 탄 노선과 어긋난다.
+     * <p>ODsay 첫 lane을 현재 경로로 선택하고 다른 후보는 대안으로 보존한다. 사용자의 실제 차량을
+     * 확정하거나 차량 선택 UI를 제공한다는 뜻은 아니다.
      *
      * <p>연관 대신 id 로 참조한다. 단계와 후보가 서로를 가리키는 순환 구조라 한 번의 cascade 로
      * 저장할 수 없고, 저장 순서를 코드가 명시적으로 잡아야 하기 때문이다.
@@ -110,7 +136,8 @@ public class JourneyLeg extends BaseEntity {
                       String startStopId, String endStopId,
                       String sourceStartStopId, String sourceEndStopId,
                       String startName, String endName,
-                      Integer plannedDurationSec, String evidenceQuality) {
+                      Integer plannedDurationSec, String evidenceQuality,
+                      Instant activatedAt) {
         this.journeyId = journeyId;
         this.routeRevision = routeRevision;
         this.legIndex = legIndex;
@@ -124,11 +151,13 @@ public class JourneyLeg extends BaseEntity {
         this.endName = endName;
         this.plannedDurationSec = plannedDurationSec;
         this.evidenceQuality = evidenceQuality;
+        this.activatedAt = activatedAt;
     }
 
-    /** 탈 노선을 확정한다. 후보가 하나뿐인 구간에서 시작 시점에 호출한다. */
-    public void selectRouteOption(Long journeyLegRouteOptionId) {
+    /** 현재 경로의 routeOption을 선택한다. 실제 차량을 확정하는 동작은 아니다. */
+    public void selectRouteOption(Long journeyLegRouteOptionId, String routeId) {
         this.selectedRouteOptionId = journeyLegRouteOptionId;
+        this.routeId = routeId;
     }
 
     /**
@@ -137,7 +166,13 @@ public class JourneyLeg extends BaseEntity {
      * <p>어떤 상태로 갈 수 있는지는 여기서 따지지 않는다. 그 판단은 여정 전체를 봐야 할 수 있어
      * ({@code JourneyStateMachine}) 단계 하나가 스스로 결정할 수 없다.
      */
-    public void changeState(JourneyLegState state) {
+    public void changeState(JourneyLegState state, Instant at) {
         this.state = state;
+        if (state == JourneyLegState.ACTIVE && this.activatedAt == null) {
+            this.activatedAt = at;
+        }
+        if (state == JourneyLegState.COMPLETED) {
+            this.completedAt = at;
+        }
     }
 }

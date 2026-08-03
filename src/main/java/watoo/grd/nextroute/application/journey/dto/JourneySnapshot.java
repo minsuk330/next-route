@@ -27,6 +27,7 @@ public record JourneySnapshot(
         int routeRevision,
         int currentLegIndex,
         Instant guidanceLeaseUntil,
+        Instant subwayOfflineProtectionUntil,
         Instant serverTime,
         JourneyLegView currentLeg,
         int recommendedPollSeconds,
@@ -55,11 +56,14 @@ public record JourneySnapshot(
     public static JourneySnapshot of(Long journeyId, JourneyStatus status,
                                      long commandVersion, long evaluationVersion,
                                      int routeRevision, int currentLegIndex,
-                                     Instant guidanceLeaseUntil, Instant serverTime,
+                                     Instant guidanceLeaseUntil,
+                                     Instant subwayOfflineProtectionUntil,
+                                     Instant serverTime,
                                      List<JourneyLegView> legs) {
         JourneyLegView current = legOf(legs, currentLegIndex);
         return new JourneySnapshot(journeyId, status, commandVersion, evaluationVersion,
-                routeRevision, currentLegIndex, guidanceLeaseUntil, serverTime,
+                routeRevision, currentLegIndex, guidanceLeaseUntil,
+                subwayOfflineProtectionUntil, serverTime,
                 current, pollSecondsOf(status, current), legs);
     }
 

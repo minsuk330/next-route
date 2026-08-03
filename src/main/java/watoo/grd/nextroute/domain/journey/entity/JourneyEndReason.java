@@ -15,7 +15,7 @@ public enum JourneyEndReason {
     USER_CANCELED,
 
     /** {@code replace=true} 로 시작한 새 여정에 자리를 내줌. */
-    REPLACED,
+    SUPERSEDED,
 
     /** 앱이 lease 갱신을 멈춰 서버가 접음. */
     CLIENT_LEASE_EXPIRED,

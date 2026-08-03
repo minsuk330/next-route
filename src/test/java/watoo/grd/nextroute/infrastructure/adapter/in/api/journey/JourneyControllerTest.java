@@ -84,10 +84,13 @@ class JourneyControllerTest {
 
     private JourneySnapshot snapshot(Long journeyId) {
         return JourneySnapshot.of(journeyId, JourneyStatus.ACTIVE, 1L, 0L, 1, 0,
-                Instant.parse("2026-07-31T09:03:00Z"), Instant.parse("2026-07-31T09:00:00Z"),
+                Instant.parse("2026-07-31T09:03:00Z"), null,
+                Instant.parse("2026-07-31T09:00:00Z"),
                 List.of(new JourneyLegView(10L, 0, JourneyLegType.WAIT_BUS, JourneyLegState.ACTIVE,
-                        "ST-A", "ST-A", "정류장A", "정류장A", null, null, null,
-                        List.of(new JourneyRouteOptionView(100L, 0, 0, null, "BL-370", "370")))));
+                        "ST-A", "ST-A", "정류장A", "정류장A", null,
+                        null, null, 100L,
+                        List.of(new JourneyRouteOptionView(100L, 0, 0, null, "BL-370", "370",
+                                null, null, null, null)))));
     }
 
     // ── 시작 ─────────────────────────────────────────────────────────────────
@@ -231,7 +234,15 @@ class JourneyControllerTest {
 
     private static final String EVENT_BODY = """
             {"eventId":"11111111-2222-3333-4444-555555555555",
-             "type":"USER_CONFIRMED_BOARDING",
+             "type":"CLIENT_LEG_TRANSITION_DETECTED",
+             "baseCommandVersion":1,
+             "routeRevision":1,
+             "fromLegIndex":0,
+             "toLegIndex":1}
+            """;
+
+    private static final String END_BODY = """
+            {"eventId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
              "baseCommandVersion":1,
              "routeRevision":1}
             """;
@@ -284,13 +295,13 @@ class JourneyControllerTest {
     @Test
     @DisplayName("규칙상 할 수 없는 명령은 422")
     void applyEvent_rejected_returns422() throws Exception {
-        givenOutcome(JourneyEventResult.REJECTED, "NOT_RIDING");
+        givenOutcome(JourneyEventResult.REJECTED, "INVALID_LEG_TRANSITION_PAYLOAD");
 
         mockMvc.perform(post("/api/journeys/5/events")
                         .with(authentication(authUser(7L)))
                         .contentType(MediaType.APPLICATION_JSON).content(EVENT_BODY))
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.reason").value("NOT_RIDING"));
+                .andExpect(jsonPath("$.reason").value("INVALID_LEG_TRANSITION_PAYLOAD"));
     }
 
     @Test
@@ -312,7 +323,7 @@ class JourneyControllerTest {
         mockMvc.perform(post("/api/journeys/5/events")
                         .with(authentication(authUser(7L)))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"type\":\"APP_RESUMED\",\"baseCommandVersion\":1,\"routeRevision\":1}"))
+                        .content("{\"type\":\"CLIENT_LEG_TRANSITION_DETECTED\",\"baseCommandVersion\":1,\"routeRevision\":1,\"fromLegIndex\":0,\"toLegIndex\":1}"))
                 .andExpect(status().isBadRequest());
     }
 
@@ -379,14 +390,15 @@ class JourneyControllerTest {
     // ── 종료 ─────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("도착하면 본문 없이도 끝낼 수 있다")
-    void complete_withoutBody() throws Exception {
-        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+    @DisplayName("도착 command도 eventId와 version을 보낸다")
+    void complete_withVersionedBody() throws Exception {
         given(applyJourneyEventUseCase.apply(eq(7L), eq(5L), any(JourneyCommand.class)))
                 .willReturn(new JourneyEventOutcome(
                         JourneyEventResult.APPLIED, null, snapshot(5L)));
 
-        mockMvc.perform(post("/api/journeys/5/complete").with(authentication(authUser(7L))))
+        mockMvc.perform(post("/api/journeys/5/complete")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(END_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result").value("APPLIED"));
 
@@ -394,18 +406,20 @@ class JourneyControllerTest {
                 org.mockito.ArgumentMatchers.argThat(c ->
                         c.type() == JourneyEventType.JOURNEY_COMPLETED
                                 && c.baseCommandVersion() == 1L
+                                && c.routeRevision() == 1
                                 && c.eventId() != null));
     }
 
     @Test
     @DisplayName("취소는 DELETE 로 보낸다")
     void cancel_usesDelete() throws Exception {
-        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
         given(applyJourneyEventUseCase.apply(eq(7L), eq(5L), any(JourneyCommand.class)))
                 .willReturn(new JourneyEventOutcome(
                         JourneyEventResult.APPLIED, null, snapshot(5L)));
 
-        mockMvc.perform(delete("/api/journeys/5").with(authentication(authUser(7L))))
+        mockMvc.perform(delete("/api/journeys/5")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(END_BODY))
                 .andExpect(status().isOk());
 
         verify(applyJourneyEventUseCase).apply(eq(7L), eq(5L),
@@ -417,7 +431,6 @@ class JourneyControllerTest {
     @DisplayName("종료에 명령 식별자를 실으면 재전송을 흡수할 수 있다")
     void cancel_withEventId() throws Exception {
         UUID eventId = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
-        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
         given(applyJourneyEventUseCase.apply(eq(7L), eq(5L), any(JourneyCommand.class)))
                 .willReturn(new JourneyEventOutcome(
                         JourneyEventResult.DUPLICATE, null, snapshot(5L)));
@@ -425,7 +438,8 @@ class JourneyControllerTest {
         mockMvc.perform(delete("/api/journeys/5")
                         .with(authentication(authUser(7L)))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"eventId\":\"" + eventId + "\"}"))
+                        .content("{\"eventId\":\"" + eventId
+                                + "\",\"baseCommandVersion\":1,\"routeRevision\":1}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result").value("DUPLICATE"));
 
@@ -434,16 +448,28 @@ class JourneyControllerTest {
     }
 
     @Test
-    @DisplayName("이미 끝난 여정을 또 끝내려 하면 422")
-    void complete_alreadyEnded_returns422() throws Exception {
-        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+    @DisplayName("이미 끝난 여정을 또 끝내려 하면 409")
+    void complete_alreadyEnded_returns409() throws Exception {
         given(applyJourneyEventUseCase.apply(eq(7L), eq(5L), any(JourneyCommand.class)))
                 .willReturn(new JourneyEventOutcome(
-                        JourneyEventResult.REJECTED, "JOURNEY_NOT_ACTIVE", snapshot(5L)));
+                        JourneyEventResult.CONFLICT, "JOURNEY_NOT_ACTIVE", snapshot(5L)));
 
-        mockMvc.perform(post("/api/journeys/5/complete").with(authentication(authUser(7L))))
-                .andExpect(status().isUnprocessableEntity())
+        mockMvc.perform(post("/api/journeys/5/complete")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(END_BODY))
+                .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.reason").value("JOURNEY_NOT_ACTIVE"));
+    }
+
+    @Test
+    @DisplayName("events API는 resume·종료·lease 이벤트를 받지 않는다")
+    void applyEvent_onlyAllowsClientLegTransition() throws Exception {
+        String body = EVENT_BODY.replace("CLIENT_LEG_TRANSITION_DETECTED", "JOURNEY_CANCELED");
+
+        mockMvc.perform(post("/api/journeys/5/events")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest());
     }
 
     // ── 보호 ─────────────────────────────────────────────────────────────────

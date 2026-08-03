@@ -90,7 +90,7 @@ class JourneyStartServiceTest {
 
     private JourneySnapshot snapshot(Long journeyId) {
         return JourneySnapshot.of(journeyId, JourneyStatus.ACTIVE, 1L, 0L, 1, 0,
-                NOW.plusSeconds(180), NOW, List.of());
+                NOW.plusSeconds(180), null, NOW, List.of());
     }
 
     private void givenStoredPath(Long ownerUserId, PathResult path) {

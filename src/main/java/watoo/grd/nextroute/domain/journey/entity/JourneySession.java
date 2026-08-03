@@ -82,6 +82,9 @@ public class JourneySession extends BaseEntity {
     @Column(nullable = false)
     private Instant guidanceLeaseUntil;
 
+    /** 지하철 터널의 GPS·callback 공백 동안 일반 lease 만료를 유예하는 상한 시각. */
+    private Instant subwayOfflineProtectionUntil;
+
     /** 다음에 서버가 평가해야 할 시각. 채우는 주체는 Phase 4. */
     private Instant nextEvaluationAt;
 
@@ -138,10 +141,19 @@ public class JourneySession extends BaseEntity {
         this.currentLegIndex = legIndex;
     }
 
+    public void protectSubwayUntil(Instant protectionUntil) {
+        this.subwayOfflineProtectionUntil = protectionUntil;
+    }
+
+    public void clearSubwayProtection() {
+        this.subwayOfflineProtectionUntil = null;
+    }
+
     /** 여정을 끝낸다. 상태와 이유를 함께 남겨야 나중에 왜 끝났는지 셀 수 있다. */
     public void end(JourneyStatus status, JourneyEndReason reason, Instant endedAt) {
         this.status = status;
         this.endReason = reason;
         this.endedAt = endedAt;
+        this.subwayOfflineProtectionUntil = null;
     }
 }

@@ -60,7 +60,7 @@ public record JourneyLegDraft(
                 plannedDurationSec, resolvedEvidenceQuality, resolvedOptions, pairedLegIndex);
     }
 
-    /** 후보가 하나뿐인지. 이때만 시작 시점에 탈 노선을 확정할 수 있다. */
+    /** 컴파일·해석 테스트에서 후보 개수를 명시적으로 확인할 때 쓴다. */
     public boolean hasSingleRouteOption() {
         return routeOptions.size() == 1;
     }

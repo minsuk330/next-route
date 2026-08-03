@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto;
 
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import watoo.grd.nextroute.application.journey.dto.JourneyCommand;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventType;
 
@@ -8,22 +10,22 @@ import java.util.UUID;
 /**
  * 여정을 끝내는 요청.
  *
- * <p>{@code eventId} 는 선택이지만 보내는 편이 낫다. 종료 요청을 보내고 응답을 못 받아 다시
- * 보냈을 때, 값이 있으면 두 번째 요청이 재전송으로 인식돼 "이미 끝난 여정"이라는 오류 대신
- * 처음 결과를 그대로 받는다.
- *
- * <p>{@code baseCommandVersion} 도 선택이다. 비우면 서버가 현재 값을 쓴다 — 종료는 "지금
- * 상태가 무엇이든 끝낸다"에 가까워서, 낡은 번호 때문에 실패하면 오히려 곤란하다.
+ * <p>종료도 다른 command와 같은 멱등성·version 계약을 사용한다. 오프라인 재전송은 같은
+ * {@code eventId}를 유지하고 충돌 시 최신 snapshot으로 수렴한다.
  */
-public record EndJourneyRequest(UUID eventId, Long baseCommandVersion) {
+public record EndJourneyRequest(
+        @NotNull UUID eventId,
+        @NotNull @Positive Long baseCommandVersion,
+        @NotNull @Positive Integer routeRevision) {
 
-    public JourneyCommand toCommand(JourneyEventType type,
-                                    long currentCommandVersion, int routeRevision) {
+    public JourneyCommand toCommand(JourneyEventType type) {
         return new JourneyCommand(
-                eventId != null ? eventId : UUID.randomUUID(),
+                eventId,
                 type,
-                baseCommandVersion != null ? baseCommandVersion : currentCommandVersion,
+                baseCommandVersion,
                 routeRevision,
+                null,
+                null,
                 null);
     }
 }

@@ -58,6 +58,7 @@ class JourneyTransitIdEnricherTest {
             assertThat(option.sourceRouteId()).isEqualTo("ODSAY-ROUTE");
             assertThat(option.boardingSeq()).isEqualTo(4);
             assertThat(option.alightingSeq()).isEqualTo(12);
+            assertThat(option.directionKey()).isEqualTo("SEQ:4>12");
         });
         assertThat(ride.startStopId()).isEqualTo("STOP-A");
         assertThat(ride.endStopId()).isEqualTo("STOP-F");
@@ -99,6 +100,7 @@ class JourneyTransitIdEnricherTest {
         JourneyPlan plan = enricher.enrich(compile(subway(15).names("강남", "신촌")
                 .coords(127.0276, 37.4979, 126.9369, 37.5551)
                 .subwayStations(900222, 900240)
+                .wayCode(2)
                 .lanes(subwayLane("2호선", 2)).build()));
 
         JourneyLegDraft wait = plan.legs().get(0);
@@ -107,6 +109,7 @@ class JourneyTransitIdEnricherTest {
         assertThat(wait.sourceStartStopId()).isEqualTo("900222");
         assertThat(wait.routeOptions().get(0).routeId()).isEqualTo("1002");
         assertThat(wait.routeOptions().get(0).sourceRouteId()).isEqualTo("2");
+        assertThat(wait.routeOptions().get(0).directionKey()).isEqualTo("WAY:2");
         assertThat(ride.endStopId()).isEqualTo("240");
         assertThat(ride.sourceEndStopId()).isEqualTo("900240");
         assertThat(ride.evidenceQuality()).isNull();
