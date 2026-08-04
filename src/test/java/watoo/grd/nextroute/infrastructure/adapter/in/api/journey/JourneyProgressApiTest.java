@@ -20,6 +20,7 @@ import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyProgressUseCa
 import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
+import watoo.grd.nextroute.application.journey.service.JourneySnapshotEtaComposer;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
@@ -61,6 +62,7 @@ class JourneyProgressApiTest {
     @MockBean GetActiveJourneyUseCase getActiveJourneyUseCase;
     @MockBean ApplyJourneyEventUseCase applyJourneyEventUseCase;
     @MockBean GetJourneyUseCase getJourneyUseCase;
+    @MockBean JourneySnapshotEtaComposer etaComposer;
     @MockBean JwtProvider jwtProvider;
     @MockBean TokenGenerationPort tokenGenerationPort;
     @MockBean AdminProperties adminProperties;

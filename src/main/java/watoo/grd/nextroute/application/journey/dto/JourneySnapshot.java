@@ -31,7 +31,8 @@ public record JourneySnapshot(
         Instant serverTime,
         JourneyLegView currentLeg,
         int recommendedPollSeconds,
-        List<JourneyLegView> legs
+        List<JourneyLegView> legs,
+        JourneyEtaView eta
 ) {
 
     /**
@@ -64,7 +65,22 @@ public record JourneySnapshot(
         return new JourneySnapshot(journeyId, status, commandVersion, evaluationVersion,
                 routeRevision, currentLegIndex, guidanceLeaseUntil,
                 subwayOfflineProtectionUntil, serverTime,
-                current, pollSecondsOf(status, current), legs);
+                current, pollSecondsOf(status, current), legs, null);
+    }
+
+    /**
+     * 예측 값을 얹은 새 스냅샷.
+     *
+     * <p>예측은 실시간 조회가 필요해 트랜잭션 밖에서 따로 계산한다. 그래서 기본 스냅샷을 만든
+     * 뒤에 붙이는 모양이 된다.
+     *
+     * @param pollSeconds 환승 위험을 반영해 좁힌 폴링 간격
+     */
+    public JourneySnapshot withEta(JourneyEtaView eta, int pollSeconds) {
+        return new JourneySnapshot(journeyId, status, commandVersion, evaluationVersion,
+                routeRevision, currentLegIndex, guidanceLeaseUntil,
+                subwayOfflineProtectionUntil, serverTime,
+                currentLeg, pollSeconds, legs, eta);
     }
 
     private static JourneyLegView legOf(List<JourneyLegView> legs, int index) {

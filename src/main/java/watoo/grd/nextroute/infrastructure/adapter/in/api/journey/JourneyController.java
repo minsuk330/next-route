@@ -22,6 +22,7 @@ import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyProgressUseCa
 import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
+import watoo.grd.nextroute.application.journey.service.JourneySnapshotEtaComposer;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventType;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.ApplyJourneyEventRequest;
@@ -50,6 +51,7 @@ public class JourneyController {
     private final ApplyJourneyEventUseCase applyJourneyEventUseCase;
     private final GetJourneyUseCase getJourneyUseCase;
     private final ApplyJourneyProgressUseCase applyJourneyProgressUseCase;
+    private final JourneySnapshotEtaComposer etaComposer;
 
     /**
      * 검색 결과 하나로 여정을 시작한다.
@@ -70,6 +72,7 @@ public class JourneyController {
     @GetMapping("/active")
     public ResponseEntity<JourneySnapshot> active(@AuthenticationPrincipal Long userId) {
         return getActiveJourneyUseCase.getActive(userId)
+                .map(snapshot -> etaComposer.compose(userId, snapshot))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }
@@ -91,9 +94,10 @@ public class JourneyController {
                 .orElseThrow(() -> new BusinessException(JourneyErrorCode.JOURNEY_NOT_FOUND));
 
         if (unchanged(journey, afterCommandVersion, afterEvaluationVersion)) {
+            // 바뀐 것이 없으면 예측도 계산하지 않는다. 실시간 조회는 값이 쓰일 때만 한다.
             return ResponseEntity.noContent().build();
         }
-        return ResponseEntity.ok(journey);
+        return ResponseEntity.ok(etaComposer.compose(userId, journey));
     }
 
     /** 앱이 들고 있는 번호가 서버와 같으면 새로 보낼 것이 없다. 한쪽만 보내도 그 값만 본다. */

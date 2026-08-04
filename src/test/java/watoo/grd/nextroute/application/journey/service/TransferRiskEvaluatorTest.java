@@ -37,6 +37,7 @@ class TransferRiskEvaluatorTest {
     private TransferConnectionRepository transferRepository;
     private JourneyLegRepository legRepository;
     private CurrentLegArrivalService arrivalService;
+    private TransferAssessmentWriter assessmentWriter;
     private TransferRiskEvaluator evaluator;
 
     /** 0=RIDE_BUS(환승 전), 1=TRANSFER_WALK(120초), 2=WAIT_BUS(환승 대상) */
@@ -51,9 +52,11 @@ class TransferRiskEvaluatorTest {
         arrivalService = mock(CurrentLegArrivalService.class);
 
         JourneyTransferRiskProperties properties = new JourneyTransferRiskProperties();
+        assessmentWriter = new TransferAssessmentWriter(transferRepository);
         evaluator = new TransferRiskEvaluator(transferRepository, legRepository, arrivalService,
                 new TransferReadinessCalculator(properties),
                 new TransferRiskPolicy(properties),
+                assessmentWriter,
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
         rideLeg = leg(0, JourneyLegType.RIDE_BUS, 1200);
