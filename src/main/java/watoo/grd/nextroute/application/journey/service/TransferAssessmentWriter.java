@@ -3,6 +3,7 @@ package watoo.grd.nextroute.application.journey.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
 import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
 import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepository;
@@ -25,6 +26,13 @@ import java.util.stream.Collectors;
 @Component
 @RequiredArgsConstructor
 public class TransferAssessmentWriter {
+
+    /** 실시간 도착 정보로 갈아탈 차량을 잡았다. */
+    static final String SOURCE_REALTIME = "REALTIME";
+    /** 실시간으로 못 잡아 모델이 추정했다. */
+    static final String SOURCE_MODEL = "MODEL";
+    /** 둘 다 실패했다. 판정은 UNKNOWN 이다. */
+    static final String SOURCE_NONE = "NONE";
 
     private final TransferConnectionRepository transferRepository;
 
@@ -57,10 +65,28 @@ public class TransferAssessmentWriter {
                     assessment.nextBusArrivalAt(),
                     assessment.transferSlackSeconds() == null
                             ? null : Math.toIntExact(assessment.transferSlackSeconds()),
-                    TransferRiskEvaluator.SOURCE,
+                    sourceOf(assessment.targetSource()),
                     assessment.confidence().name(),
                     assessment.calculatedAt(),
                     assessment.currentLegArrivalAt());
+            transfer.applyModelVersion(assessment.modelVersion());
         }
+    }
+
+    /**
+     * 갈아탈 차량 도착을 무엇으로 알아냈는지.
+     *
+     * <p><b>{@code transfer_connection.source} 는 varchar(20) 이다</b>(V35). 20자를 넘기면 저장이
+     * 실패하고, 이 저장은 조회 경로에서도 일어나므로 조회가 500 이 된다. 실제로 한 번 그렇게
+     * 깨졌다(#111). 값을 늘리려면 컬럼 길이를 먼저 확인할 것.
+     */
+    private static String sourceOf(CurrentLegArrival.Source targetSource) {
+        if (targetSource == CurrentLegArrival.Source.REALTIME_ARRIVAL) {
+            return SOURCE_REALTIME;
+        }
+        if (targetSource == CurrentLegArrival.Source.MODEL_ARRIVAL) {
+            return SOURCE_MODEL;
+        }
+        return SOURCE_NONE;
     }
 }

@@ -3,6 +3,7 @@ package watoo.grd.nextroute.application.journey.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.JourneyEtaView;
 import watoo.grd.nextroute.application.journey.dto.JourneyEtaView.ActiveTransferEta;
@@ -50,6 +51,7 @@ public class JourneySnapshotEtaComposer {
     private final GetJourneyNavigationGeometryUseCase geometryUseCase;
     private final CurrentLegArrivalService arrivalService;
     private final TransferRiskEvaluator transferRiskEvaluator;
+    private final JourneyEvaluatorProperties evaluatorProperties;
 
     /**
      * @param userId 좌표 조회가 소유자 확인을 하므로 필요하다
@@ -72,8 +74,7 @@ public class JourneySnapshotEtaComposer {
                 ? CurrentLegArrival.unknown()
                 : arrivalService.predict(currentLeg, geometry.get(snapshot.currentLegIndex()));
 
-        List<TransferRiskAssessment> assessments = transferRiskEvaluator.evaluate(
-                snapshot.journeyId(), snapshot.routeRevision(), geometry);
+        List<TransferRiskAssessment> assessments = assess(snapshot, geometry);
         TransferRiskAssessment activeTransfer = firstUpcoming(assessments, snapshot);
 
         JourneyEtaView eta = new JourneyEtaView(
@@ -84,6 +85,25 @@ public class JourneySnapshotEtaComposer {
                 nextAction(snapshot, currentArrival, activeTransfer));
 
         return snapshot.withEta(eta, pollSeconds(snapshot, activeTransfer));
+    }
+
+    /**
+     * 환승 판정. <b>저장까지 할지는 평가기가 도는지에 달렸다.</b>
+     *
+     * <p>평가기가 켜져 있으면 저장은 그쪽의 일이다. 여기서도 쓰면 서로 다른 시점에 계산한 두
+     * 결과가 커밋 순서로 승부가 나고, 낡은 계산이 최신을 덮을 수 있다(환승 행에는 낙관적 락도
+     * 잠금도 없다). 평가기가 꺼져 있으면 쓰는 주체가 아무도 없으므로 지금까지처럼 여기서 저장한다.
+     *
+     * <p>다음 PR 에서 이 분기 자체가 사라진다 — 조회는 저장된 판정을 읽기만 하게 된다.
+     */
+    private List<TransferRiskAssessment> assess(JourneySnapshot snapshot,
+                                                Map<Integer, LegGeometry> geometry) {
+        if (evaluatorProperties.isEnabled()) {
+            return transferRiskEvaluator.assess(
+                    snapshot.journeyId(), snapshot.routeRevision(), geometry).assessments();
+        }
+        return transferRiskEvaluator.assessAndStore(
+                snapshot.journeyId(), snapshot.routeRevision(), geometry);
     }
 
     // ── 조각들 ──────────────────────────────────────────────────────────────

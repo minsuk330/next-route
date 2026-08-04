@@ -79,13 +79,16 @@ public class JourneyStartTxService {
         sessionRepository.findByUserIdAndStatusAndDeletedAtIsNull(user.getId(), JourneyStatus.ACTIVE)
                 .ifPresent(existing -> replaceOrReject(existing, replace, now));
 
-        JourneySession session = sessionRepository.saveAndFlush(JourneySession.builder()
+        JourneySession session = JourneySession.builder()
                 .userId(user.getId())
                 .startedAt(now)
                 .guidanceLeaseUntil(now.plus(navigationProperties.guidanceLease()))
                 .routeSnapshot(routeSnapshot)
                 .destinationSummary(destinationSummary)
-                .build());
+                .build();
+        // 시작하는 순간부터 평가 대상이다. 다음 주기를 기다리면 첫 화면이 예측 없이 그려진다.
+        session.scheduleEvaluationAt(now);
+        sessionRepository.saveAndFlush(session);
 
         revisionRepository.save(JourneyRevision.builder()
                 .journeyId(session.getId())

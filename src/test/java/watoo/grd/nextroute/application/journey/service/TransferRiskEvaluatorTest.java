@@ -7,6 +7,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import watoo.grd.nextroute.application.journey.config.JourneyTransferRiskProperties;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
+import watoo.grd.nextroute.application.journey.dto.TransferTargetArrival;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
@@ -21,11 +22,15 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 
+import org.mockito.ArgumentCaptor;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 @DisplayName("환승 위험도를 판정하고 근거와 함께 남긴다")
 class TransferRiskEvaluatorTest {
@@ -37,6 +42,7 @@ class TransferRiskEvaluatorTest {
     private TransferConnectionRepository transferRepository;
     private JourneyLegRepository legRepository;
     private CurrentLegArrivalService arrivalService;
+    private TransferTargetArrivalService targetArrivalService;
     private TransferAssessmentWriter assessmentWriter;
     private TransferRiskEvaluator evaluator;
 
@@ -50,10 +56,14 @@ class TransferRiskEvaluatorTest {
         transferRepository = mock(TransferConnectionRepository.class);
         legRepository = mock(JourneyLegRepository.class);
         arrivalService = mock(CurrentLegArrivalService.class);
+        targetArrivalService = mock(TransferTargetArrivalService.class);
+        given(targetArrivalService.predictBoarding(any(), any(), any()))
+                .willReturn(TransferTargetArrival.unknown());
 
         JourneyTransferRiskProperties properties = new JourneyTransferRiskProperties();
         assessmentWriter = new TransferAssessmentWriter(transferRepository);
         evaluator = new TransferRiskEvaluator(transferRepository, legRepository, arrivalService,
+                targetArrivalService,
                 new TransferReadinessCalculator(properties),
                 new TransferRiskPolicy(properties),
                 assessmentWriter,
@@ -74,7 +84,7 @@ class TransferRiskEvaluatorTest {
         // 버스가 09:05 도착 → +30초 하차 +120초 도보 = 09:07:30 준비 완료
         givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
         // 다음 버스가 09:10 도착 → 여유 150초 → CATCHABLE
-        givenArrival(waitLeg, arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
 
         TransferRiskAssessment assessment = evaluate().get(0);
 
@@ -90,7 +100,7 @@ class TransferRiskEvaluatorTest {
         TransferConnection transfer = transfer(0, 0, 1, 2, null);
         givenTransfers(transfer);
         givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
-        givenArrival(waitLeg, arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
 
         evaluate();
 
@@ -109,7 +119,7 @@ class TransferRiskEvaluatorTest {
         ReflectionTestUtils.setField(transfer, "lastNotifiedStatus", "AT_RISK");
         givenTransfers(transfer);
         givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
-        givenArrival(waitLeg, arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
 
         evaluate();
 
@@ -122,7 +132,7 @@ class TransferRiskEvaluatorTest {
         TransferConnection transfer = transfer(0, 0, 1, 2, TransferStatus.CATCHABLE);
         givenTransfers(transfer);
         givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
-        givenArrival(waitLeg, CurrentLegArrival.unknown());
+        givenBoarding(CurrentLegArrival.unknown());
 
         TransferRiskAssessment assessment = evaluate().get(0);
 
@@ -136,7 +146,7 @@ class TransferRiskEvaluatorTest {
     void approximateEtaLowersConfidence() {
         givenTransfers(transfer(0, 0, 1, 2, null));
         givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.APPROXIMATE));
-        givenArrival(waitLeg, arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
 
         assertThat(evaluate().get(0).confidence())
                 .isEqualTo(CurrentLegArrival.Quality.APPROXIMATE);
@@ -147,7 +157,7 @@ class TransferRiskEvaluatorTest {
     void sameStopTransferHasNoWalk() {
         givenTransfers(transfer(0, 0, null, 2, null));
         givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
-        givenArrival(waitLeg, arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
 
         // 09:05 + 30초 = 09:05:30 준비, 09:10 도착 → 여유 270초
         assertThat(evaluate().get(0).transferSlackSeconds()).isEqualTo(270);
@@ -159,7 +169,7 @@ class TransferRiskEvaluatorTest {
         // 여유 150초는 CATCHABLE 구간이지만 직전이 AT_RISK 면 임계+60=180 이 필요하다.
         givenTransfers(transfer(0, 0, 1, 2, TransferStatus.AT_RISK));
         givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
-        givenArrival(waitLeg, arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
 
         assertThat(evaluate().get(0).status()).isEqualTo(TransferStatus.AT_RISK);
     }
@@ -173,10 +183,77 @@ class TransferRiskEvaluatorTest {
         assertThat(evaluate()).isEmpty();
     }
 
+    @Test
+    @DisplayName("갈아탈 차량은 사용자 준비 시각을 기준으로 묻는다 — 지금 시각이 아니다")
+    void asksBoardingWithUserReadyAnchor() {
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+
+        evaluate();
+
+        ArgumentCaptor<Instant> anchor = ArgumentCaptor.forClass(Instant.class);
+        verify(targetArrivalService).predictBoarding(eq(waitLeg), anchor.capture(), eq(NOW));
+        // 09:05 도착 + 30초 하차 + 120초 도보
+        assertThat(anchor.getValue()).isEqualTo(Instant.parse("2026-08-04T09:07:30Z"));
+    }
+
+    @Test
+    @DisplayName("타고 있는 단계 ETA 를 모르면 앵커가 없어 모름으로 남긴다")
+    void withoutAnchorStaysUnknown() {
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        givenArrival(rideLeg, CurrentLegArrival.unknown());
+
+        TransferRiskAssessment assessment = evaluate().get(0);
+
+        assertThat(assessment.userReadyAt()).isNull();
+        assertThat(assessment.status()).isEqualTo(TransferStatus.UNKNOWN);
+        // 앵커 없이 지금 시각으로 물으면 사용자가 도착하기 전에 지나갈 차량을 답으로 받는다.
+        verify(targetArrivalService).predictBoarding(eq(waitLeg), eq(null), eq(NOW));
+    }
+
+    @Test
+    @DisplayName("assess 는 저장하지 않는다 — 평가기가 켜져 있으면 쓰는 주체는 하나다")
+    void assessDoesNotStore() {
+        TransferConnection transfer = transfer(0, 0, 1, 2, TransferStatus.COMFORTABLE);
+        givenTransfers(transfer);
+        givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+
+        // 판정 결과는 CATCHABLE 이지만 저장하지 않으므로 행은 그대로다.
+        assertThat(evaluator.assess(JOURNEY_ID, REVISION, Map.of()).assessments().get(0).status())
+                .isEqualTo(TransferStatus.CATCHABLE);
+        assertThat(transfer.getStatus()).isEqualTo(TransferStatus.COMFORTABLE);
+        assertThat(transfer.getCalculatedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("예측 출처를 판정에 담는다 — 실시간인지 모델인지")
+    void carriesPredictionSource() {
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
+        given(targetArrivalService.predictBoarding(eq(waitLeg), any(), any()))
+                .willReturn(new TransferTargetArrival(
+                        new CurrentLegArrival(NOW.plusSeconds(600), 600, null, null,
+                                CurrentLegArrival.Source.MODEL_ARRIVAL,
+                                CurrentLegArrival.Quality.APPROXIMATE, NOW),
+                        "bus-eta-v3", false));
+
+        TransferRiskAssessment assessment = evaluate().get(0);
+
+        assertThat(assessment.targetSource()).isEqualTo(CurrentLegArrival.Source.MODEL_ARRIVAL);
+        assertThat(assessment.modelVersion()).isEqualTo("bus-eta-v3");
+    }
+
     // ── 준비 ────────────────────────────────────────────────────────────────
 
     private List<TransferRiskAssessment> evaluate() {
-        return evaluator.evaluate(JOURNEY_ID, REVISION, Map.of());
+        return evaluator.assessAndStore(JOURNEY_ID, REVISION, Map.of());
+    }
+
+    private void givenBoarding(CurrentLegArrival arrival) {
+        given(targetArrivalService.predictBoarding(eq(waitLeg), any(), any()))
+                .willReturn(TransferTargetArrival.of(arrival));
     }
 
     private void givenTransfers(TransferConnection... transfers) {

@@ -141,6 +141,16 @@ public class JourneySession extends BaseEntity {
         this.currentLegIndex = legIndex;
     }
 
+    /**
+     * 다음에 서버가 평가할 시각을 정한다.
+     *
+     * <p>여정을 시작할 때와 단계가 바뀔 때 지금 시각으로 심는다 — 두 순간은 상황이 크게 달라져
+     * 다음 주기를 기다릴 이유가 없다. 그 뒤로는 평가기가 스스로 다음 시각을 기록한다.
+     */
+    public void scheduleEvaluationAt(Instant evaluateAt) {
+        this.nextEvaluationAt = evaluateAt;
+    }
+
     public void protectSubwayUntil(Instant protectionUntil) {
         this.subwayOfflineProtectionUntil = protectionUntil;
     }
@@ -149,11 +159,17 @@ public class JourneySession extends BaseEntity {
         this.subwayOfflineProtectionUntil = null;
     }
 
-    /** 여정을 끝낸다. 상태와 이유를 함께 남겨야 나중에 왜 끝났는지 셀 수 있다. */
+    /**
+     * 여정을 끝낸다. 상태와 이유를 함께 남겨야 나중에 왜 끝났는지 셀 수 있다.
+     *
+     * <p>다음 평가 시각도 함께 비운다. 끝난 여정이 평가 대상에 남아 있으면 이미 끝난 여정 때문에
+     * 외부 API 를 쓴다. 만료 배치는 같은 일을 SQL 한 문장에서 한다.
+     */
     public void end(JourneyStatus status, JourneyEndReason reason, Instant endedAt) {
         this.status = status;
         this.endReason = reason;
         this.endedAt = endedAt;
         this.subwayOfflineProtectionUntil = null;
+        this.nextEvaluationAt = null;
     }
 }

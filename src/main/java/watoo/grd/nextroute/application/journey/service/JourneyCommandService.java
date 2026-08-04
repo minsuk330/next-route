@@ -130,6 +130,8 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
             // 지하철에 들어가면 보호 시각을 세우고, 벗어나면 지운다. 계산은 정책이 소유한다.
             subwayProtectionPolicy.apply(journey,
                     legsByIndex.get(transition.newCurrentLegIndex()), null, appliedAt);
+            // 단계가 바뀌면 상황이 크게 달라진다. 다음 평가 주기를 기다리지 않는다.
+            journey.scheduleEvaluationAt(appliedAt);
         }
         if (transition.newStatus() != null) {
             journey.end(transition.newStatus(), transition.endReason(), appliedAt);
