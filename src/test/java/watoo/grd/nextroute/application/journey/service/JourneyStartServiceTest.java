@@ -9,13 +9,12 @@ import org.springframework.dao.DataIntegrityViolationException;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
-import watoo.grd.nextroute.application.journey.exception.JourneyCompileFailedException;
-import watoo.grd.nextroute.application.journey.exception.SnapshotOwnerMismatchException;
-import watoo.grd.nextroute.application.journey.exception.SnapshotUnavailableException;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
+import watoo.grd.nextroute.global.error.BusinessException;
+import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
 import java.sql.SQLException;
 import java.time.Clock;
@@ -106,7 +105,8 @@ class JourneyStartServiceTest {
         given(snapshotPort.find("sess-1", "0")).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.start(USER_ID, command()))
-                .isInstanceOf(SnapshotUnavailableException.class);
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(JourneyErrorCode.SNAPSHOT_EXPIRED));
         verify(txService, never()).start(anyLong(), any(), any(), any(), anyBoolean(), any());
     }
 
@@ -116,7 +116,8 @@ class JourneyStartServiceTest {
         givenStoredPath(99L, usablePath());
 
         assertThatThrownBy(() -> service.start(USER_ID, command()))
-                .isInstanceOf(SnapshotOwnerMismatchException.class);
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(JourneyErrorCode.SNAPSHOT_OWNER_MISMATCH));
         verify(txService, never()).start(anyLong(), any(), any(), any(), anyBoolean(), any());
     }
 
@@ -136,7 +137,8 @@ class JourneyStartServiceTest {
         givenStoredPath(USER_ID, new PathResult(1, null, List.of(), List.of()));
 
         assertThatThrownBy(() -> service.start(USER_ID, command()))
-                .isInstanceOf(JourneyCompileFailedException.class);
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(JourneyErrorCode.JOURNEY_COMPILE_FAILED));
     }
 
     @Test

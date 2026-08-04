@@ -20,9 +20,6 @@ import watoo.grd.nextroute.application.journey.dto.JourneyEventOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
-import watoo.grd.nextroute.application.journey.exception.JourneyCompileFailedException;
-import watoo.grd.nextroute.application.journey.exception.SnapshotOwnerMismatchException;
-import watoo.grd.nextroute.application.journey.exception.SnapshotUnavailableException;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
@@ -35,6 +32,9 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyEventType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
+import watoo.grd.nextroute.global.error.BusinessException;
+import watoo.grd.nextroute.global.error.code.CommonErrorCode;
+import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
 import java.time.Instant;
 import java.util.List;
@@ -165,13 +165,13 @@ class JourneyControllerTest {
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ACTIVE_JOURNEY_EXISTS"))
-                .andExpect(jsonPath("$.journey.journeyId").value(42));
+                .andExpect(jsonPath("$.details.journeyId").value(42));
     }
 
     @Test
     @DisplayName("스냅샷이 만료됐으면 410")
     void start_expired_returns410() throws Exception {
-        willThrow(new SnapshotUnavailableException())
+        willThrow(new BusinessException(JourneyErrorCode.SNAPSHOT_EXPIRED))
                 .given(startJourneyUseCase).start(eq(7L), any(StartJourneyCommand.class));
 
         mockMvc.perform(post("/api/journeys")
@@ -184,7 +184,7 @@ class JourneyControllerTest {
     @Test
     @DisplayName("남의 검색 결과면 403")
     void start_ownerMismatch_returns403() throws Exception {
-        willThrow(new SnapshotOwnerMismatchException())
+        willThrow(new BusinessException(JourneyErrorCode.SNAPSHOT_OWNER_MISMATCH))
                 .given(startJourneyUseCase).start(eq(7L), any(StartJourneyCommand.class));
 
         mockMvc.perform(post("/api/journeys")
@@ -197,7 +197,7 @@ class JourneyControllerTest {
     @Test
     @DisplayName("쪼갤 수 없는 경로는 422 — 만료와 구분한다")
     void start_compileFailed_returns422() throws Exception {
-        willThrow(new JourneyCompileFailedException())
+        willThrow(new BusinessException(JourneyErrorCode.JOURNEY_COMPILE_FAILED))
                 .given(startJourneyUseCase).start(eq(7L), any(StartJourneyCommand.class));
 
         mockMvc.perform(post("/api/journeys")
@@ -307,7 +307,7 @@ class JourneyControllerTest {
     @Test
     @DisplayName("없는 여정과 남의 여정은 똑같이 404")
     void applyEvent_notFound_returns404() throws Exception {
-        willThrow(new NoSuchElementException())
+        willThrow(new BusinessException(JourneyErrorCode.JOURNEY_NOT_FOUND))
                 .given(applyJourneyEventUseCase).apply(eq(7L), eq(5L), any(JourneyCommand.class));
 
         mockMvc.perform(post("/api/journeys/5/events")
@@ -315,6 +315,33 @@ class JourneyControllerTest {
                         .contentType(MediaType.APPLICATION_JSON).content(EVENT_BODY))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("JOURNEY_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("일반 NoSuchElementException은 여정 없음으로 번역하지 않는다")
+    void genericNoSuchElement_isNotJourneyNotFound() throws Exception {
+        willThrow(new NoSuchElementException())
+                .given(startJourneyUseCase).start(eq(7L), any(StartJourneyCommand.class));
+
+        mockMvc.perform(post("/api/journeys")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("COMMON_INTERNAL_SERVER_ERROR"));
+    }
+
+    @Test
+    @DisplayName("인증 주체 사용자가 없으면 여정 없음이 아닌 공통 리소스 오류를 준다")
+    void userNotFound_usesCommonNotFound() throws Exception {
+        willThrow(new BusinessException(CommonErrorCode.NOT_FOUND))
+                .given(startJourneyUseCase).start(eq(7L), any(StartJourneyCommand.class));
+
+        mockMvc.perform(post("/api/journeys")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("COMMON_NOT_FOUND"))
+                .andExpect(jsonPath("$.path").value("/api/journeys"));
     }
 
     @Test
@@ -462,6 +489,34 @@ class JourneyControllerTest {
     }
 
     @Test
+    @DisplayName("없는 여정을 완료하려 하면 404 공통 오류를 준다")
+    void complete_notFound_returns404() throws Exception {
+        willThrow(new BusinessException(JourneyErrorCode.JOURNEY_NOT_FOUND))
+                .given(applyJourneyEventUseCase).apply(eq(7L), eq(5L), any(JourneyCommand.class));
+
+        mockMvc.perform(post("/api/journeys/5/complete")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(END_BODY))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("JOURNEY_NOT_FOUND"))
+                .andExpect(jsonPath("$.path").value("/api/journeys/5/complete"));
+    }
+
+    @Test
+    @DisplayName("없는 여정을 취소하려 하면 404 공통 오류를 준다")
+    void cancel_notFound_returns404() throws Exception {
+        willThrow(new BusinessException(JourneyErrorCode.JOURNEY_NOT_FOUND))
+                .given(applyJourneyEventUseCase).apply(eq(7L), eq(5L), any(JourneyCommand.class));
+
+        mockMvc.perform(delete("/api/journeys/5")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(END_BODY))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("JOURNEY_NOT_FOUND"))
+                .andExpect(jsonPath("$.path").value("/api/journeys/5"));
+    }
+
+    @Test
     @DisplayName("events API는 resume·종료·lease 이벤트를 받지 않는다")
     void applyEvent_onlyAllowsClientLegTransition() throws Exception {
         String body = EVENT_BODY.replace("CLIENT_LEG_TRANSITION_DETECTED", "JOURNEY_CANCELED");
@@ -481,7 +536,9 @@ class JourneyControllerTest {
     void start_unauthenticated_returns401() throws Exception {
         mockMvc.perform(post("/api/journeys")
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("SECURITY_UNAUTHENTICATED"))
+                .andExpect(jsonPath("$.path").value("/api/journeys"));
     }
 
     @Test

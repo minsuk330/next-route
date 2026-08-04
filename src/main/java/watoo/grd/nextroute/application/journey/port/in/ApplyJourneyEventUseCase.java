@@ -10,7 +10,8 @@ public interface ApplyJourneyEventUseCase {
      *
      * <p>같은 {@code eventId} 로 다시 오면 처음 결과를 그대로 돌려준다. 두 번 반영하지 않는다.
      *
-     * @throws java.util.NoSuchElementException 없는 여정이거나 남의 여정
+     * @throws watoo.grd.nextroute.global.error.BusinessException
+     *         {@code JOURNEY_NOT_FOUND}인 경우
      */
     JourneyEventOutcome apply(Long userId, Long journeyId, JourneyCommand command);
 }

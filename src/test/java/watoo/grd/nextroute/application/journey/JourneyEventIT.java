@@ -25,11 +25,12 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
+import watoo.grd.nextroute.global.error.BusinessException;
+import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -260,7 +261,8 @@ class JourneyEventIT {
         assertThatThrownBy(() -> applyJourneyEventUseCase.apply(other, journey.journeyId(),
                 command(UUID.randomUUID(), JourneyEventType.CLIENT_LEG_TRANSITION_DETECTED,
                         1L, 1, 0, 1)))
-                .isInstanceOf(NoSuchElementException.class);
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(JourneyErrorCode.JOURNEY_NOT_FOUND));
     }
 
     private JourneyEventOutcome transition(UUID eventId, long version, int revision,

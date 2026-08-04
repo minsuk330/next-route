@@ -2,6 +2,8 @@ package watoo.grd.nextroute.application.journey.exception;
 
 import lombok.Getter;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
+import watoo.grd.nextroute.global.error.BusinessException;
+import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
 /**
  * 이미 진행 중인 여정이 있다.
@@ -13,12 +15,12 @@ import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
  * 하기 위해서다 — 409 만 받으면 무엇이 진행 중인지 다시 물어야 한다.
  */
 @Getter
-public class ActiveJourneyExistsException extends RuntimeException {
+public class ActiveJourneyExistsException extends BusinessException {
 
     private final transient JourneySnapshot current;
 
     public ActiveJourneyExistsException(JourneySnapshot current) {
-        super("이미 진행 중인 여정이 있다");
+        super(JourneyErrorCode.ACTIVE_JOURNEY_EXISTS);
         this.current = current;
     }
 }
