@@ -7,21 +7,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import watoo.grd.nextroute.application.journey.dto.JourneyEventOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
-import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
-import watoo.grd.nextroute.application.journey.exception.JourneyCompileFailedException;
-import watoo.grd.nextroute.application.journey.exception.SnapshotOwnerMismatchException;
-import watoo.grd.nextroute.application.journey.exception.SnapshotUnavailableException;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
@@ -32,10 +26,9 @@ import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.ApplyJourne
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.EndJourneyRequest;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.JourneyEventResponse;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.StartJourneyRequest;
+import watoo.grd.nextroute.global.error.BusinessException;
+import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
-import java.util.LinkedHashMap;
-import java.util.NoSuchElementException;
-import java.util.Map;
 
 /**
  * 여정 시작·복원.
@@ -90,7 +83,7 @@ public class JourneyController {
             @RequestParam(required = false) Long afterCommandVersion,
             @RequestParam(required = false) Long afterEvaluationVersion) {
         JourneySnapshot journey = getJourneyUseCase.get(userId, journeyId)
-                .orElseThrow(() -> new NoSuchElementException("여정을 찾을 수 없다: " + journeyId));
+                .orElseThrow(() -> new BusinessException(JourneyErrorCode.JOURNEY_NOT_FOUND));
 
         if (unchanged(journey, afterCommandVersion, afterEvaluationVersion)) {
             return ResponseEntity.noContent().build();

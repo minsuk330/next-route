@@ -11,12 +11,11 @@ import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
-import watoo.grd.nextroute.application.journey.exception.JourneyCompileFailedException;
-import watoo.grd.nextroute.application.journey.exception.SnapshotOwnerMismatchException;
-import watoo.grd.nextroute.application.journey.exception.SnapshotUnavailableException;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
+import watoo.grd.nextroute.global.error.BusinessException;
+import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
 import java.time.Clock;
 
@@ -56,7 +55,7 @@ public class JourneyStartService implements StartJourneyUseCase {
     public JourneySnapshot start(Long userId, StartJourneyCommand command) {
         RouteSearchSnapshotPort.StoredPath stored = snapshotPort
                 .find(command.searchSessionId(), command.pathKey())
-                .orElseThrow(SnapshotUnavailableException::new);
+                .orElseThrow(() -> new BusinessException(JourneyErrorCode.SNAPSHOT_EXPIRED));
 
         requireOwner(stored, userId);
 
@@ -64,7 +63,7 @@ public class JourneyStartService implements StartJourneyUseCase {
         if (plan.isEmpty()) {
             log.warn("여정 쪼개기 실패 — searchSessionId={}, pathKey={}",
                     command.searchSessionId(), command.pathKey());
-            throw new JourneyCompileFailedException();
+            throw new BusinessException(JourneyErrorCode.JOURNEY_COMPILE_FAILED);
         }
         plan = transitIdEnricher.enrich(plan);
 
@@ -83,7 +82,7 @@ public class JourneyStartService implements StartJourneyUseCase {
      */
     private void requireOwner(RouteSearchSnapshotPort.StoredPath stored, Long userId) {
         if (stored.ownerUserId() != null && !stored.ownerUserId().equals(userId)) {
-            throw new SnapshotOwnerMismatchException();
+            throw new BusinessException(JourneyErrorCode.SNAPSHOT_OWNER_MISMATCH);
         }
     }
 

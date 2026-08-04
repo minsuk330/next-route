@@ -22,10 +22,11 @@ import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import watoo.grd.nextroute.global.error.BusinessException;
+import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
 /**
  * 여정에 온 명령을 실제로 반영한다.
@@ -54,7 +55,7 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
     @Transactional
     public JourneyEventOutcome apply(Long userId, Long journeyId, JourneyCommand command) {
         JourneySession journey = sessionRepository.findByIdAndUserIdForUpdate(journeyId, userId)
-                .orElseThrow(() -> new NoSuchElementException("여정을 찾을 수 없다: " + journeyId));
+                .orElseThrow(() -> new BusinessException(JourneyErrorCode.JOURNEY_NOT_FOUND));
 
         JourneyEventOutcome replayed = replayIfSeen(command, journey);
         if (replayed != null) {

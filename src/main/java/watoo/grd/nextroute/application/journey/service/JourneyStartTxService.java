@@ -27,11 +27,12 @@ import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepository;
 import watoo.grd.nextroute.domain.user.entity.User;
 import watoo.grd.nextroute.domain.user.repository.UserRepository;
+import watoo.grd.nextroute.global.error.BusinessException;
+import watoo.grd.nextroute.global.error.code.CommonErrorCode;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.NoSuchElementException;
 
 /**
  * 여정을 실제로 DB 에 앉히는 트랜잭션.
@@ -73,7 +74,7 @@ public class JourneyStartTxService {
     public JourneySnapshot start(Long userId, JourneyPlan plan, JsonNode routeSnapshot,
                                  JsonNode destinationSummary, boolean replace, Instant now) {
         User user = userRepository.findByIdForUpdate(userId)
-                .orElseThrow(() -> new NoSuchElementException("사용자를 찾을 수 없다: " + userId));
+                .orElseThrow(() -> new BusinessException(CommonErrorCode.NOT_FOUND));
 
         sessionRepository.findByUserIdAndStatusAndDeletedAtIsNull(user.getId(), JourneyStatus.ACTIVE)
                 .ifPresent(existing -> replaceOrReject(existing, replace, now));
