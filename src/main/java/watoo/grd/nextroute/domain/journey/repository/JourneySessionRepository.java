@@ -10,6 +10,7 @@ import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -79,4 +80,56 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                            @Param("now") Instant now,
                            @Param("leaseUntil") Instant leaseUntil,
                            @Param("coalesceBefore") Instant coalesceBefore);
+
+    /**
+     * 소식이 끊긴 여정을 한 번에 여러 건 골라 {@code EXPIRED} 로 바꾼다.
+     *
+     * <p>고르기와 바꾸기를 한 문장으로 한다. 두 문장으로 나누면 그 사이에 다른 인스턴스가 같은
+     * 여정을 골라 두 번 접는다. {@code SKIP LOCKED} 는 이미 다른 인스턴스가 잡은 행을 기다리지
+     * 않고 건너뛴다 — 기다리면 워커가 서로를 막는다.
+     *
+     * <p>고르는 조건이 두 갈래다.
+     * <ul>
+     *   <li>{@code guidance_lease_until < :leaseDeadline} — lease 3분이 지나고 유예 2분까지 지났다.
+     *       유예를 빼서 계산한 시각을 넘겨받는 이유는 {@code idx_journey_expiration} 이 이 칼럼을
+     *       그대로 훑을 수 있어야 하기 때문이다. 쿼리 안에서 칼럼에 유예를 더하면 인덱스를 못 쓴다</li>
+     *   <li>지하철 보호 시각이 남아 있으면 접지 않는다(SC-12 4항). 터널에서 GPS 가 끊긴 것과 앱이
+     *       죽은 것을 서버는 구분할 수 없으므로, 보호 시각까지는 살아 있다고 본다</li>
+     * </ul>
+     *
+     * <p>바꾸는 동시에 {@code next_evaluation_at} 을 비운다. 접은 여정이 평가 대상에 남아 있으면
+     * 이미 끝난 여정 때문에 외부 API 를 쓴다. 같은 문장 안에서 해야 그 틈이 생기지 않는다.
+     *
+     * <p>{@code ACTIVE} 만 고르므로 여러 번 돌려도 결과가 같다(멱등). {@code updated_at} 은
+     * 건드리지 않는다 — {@code extendLeaseIfStale}·{@code bumpEvaluationVersion} 과 같은 관례다.
+     *
+     * <p>{@code @Modifying} 이 아니다({@code RETURNING} 이 결과를 돌려준다). 반드시
+     * {@code @Transactional} 안에서 부른다.
+     *
+     * @param leaseDeadline {@code now - expirationGrace}
+     * @return 이번에 접은 여정 번호
+     */
+    @Query(value = """
+            WITH picked AS (
+                SELECT s.id FROM journey_session s
+                WHERE s.status = 'ACTIVE' AND s.deleted_at IS NULL
+                  AND s.guidance_lease_until < :leaseDeadline
+                  AND (s.subway_offline_protection_until IS NULL
+                       OR s.subway_offline_protection_until < :now)
+                ORDER BY s.guidance_lease_until
+                LIMIT :batchSize
+                FOR UPDATE OF s SKIP LOCKED)
+            UPDATE journey_session j
+               SET status = 'EXPIRED',
+                   end_reason = 'CLIENT_LEASE_EXPIRED',
+                   ended_at = :now,
+                   next_evaluation_at = NULL,
+                   subway_offline_protection_until = NULL
+            FROM picked
+            WHERE j.id = picked.id
+            RETURNING j.id
+            """, nativeQuery = true)
+    List<Long> claimExpiredBatch(@Param("now") Instant now,
+                                 @Param("leaseDeadline") Instant leaseDeadline,
+                                 @Param("batchSize") int batchSize);
 }
