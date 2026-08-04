@@ -11,6 +11,7 @@
 - GPS 1초 수집·progress 15초/5초 업로드 반영일: 2026-08-03
 - 전체 선택 경로 지도 표시 반영일: 2026-08-03
 - 교통수단 공통 정적 geometry progress ETA 반영일: 2026-08-03
+- local checkpoint 계측·progress 멱등 계약 반영일: 2026-08-04
 - 확정 기술 결정: [TECHNICAL_DECISIONS.md](./TECHNICAL_DECISIONS.md)
 - 대상: Nextroute 백엔드와 Android·iOS 전용 모바일 클라이언트
 - 목적: 구현 계획 작성과 범위 변경 판단의 기준선
@@ -167,7 +168,7 @@ transferSlack = nextBusArrivalAt - userReadyAt
 
 - ETA의 작은 변동은 상시 화면만 조용히 갱신한다.
 - 사용자 행동이 필요하거나 환승 상태가 하락할 때만 주의 알림을 보낸다.
-- 중복 방지 키는 `journeyId:routeRevision:scopeType:scopeId:checkpoint:channel`을 기준으로 한다. 환승 알림의 scope는 transfer, 하차 알림의 scope는 leg다.
+- 사용자 표시 중복 방지 키는 채널과 무관한 `logicalCheckpointKey = journeyId:routeRevision:scopeType:scopeId:checkpoint`다. 채널별 발송·처리 멱등 키는 `deliveryKey = logicalCheckpointKey:channel`로 둔다. 환승 알림의 scope는 transfer, 하차 알림의 scope는 leg다.
 - N1·N3은 모바일 local notification, N2·N4~N8은 서버 FCM이 소유한다. N2의 실시간 버스 조회는 환승 대상 버스에만 적용한다.
 - 앱이 포그라운드일 때는 local·FCM 알림 모두 OS 알림으로 중복 표시하지 않고 앱 내부 배너로만 표시한다. 백그라운드·잠금화면에서는 local notification 또는 FCM을 OS 알림으로 표시한다.
 - 푸시 페이로드는 식별자·`commandVersion`·`evaluationVersion`·`routeRevision`·deep link만 담고, 앱이 REST로 최신 상태를 재조회한다.
@@ -230,7 +231,8 @@ iOS·Android는 사용자의 강제 종료 사실을 서버에 즉시·확실하
 | C1 | 클라이언트 이벤트별 고유 `eventId`를 사용한 멱등 처리 |
 | C2 | `baseCommandVersion` 낙관적 락과 충돌 시 최신 스냅샷 반환 |
 | C3 | 이전 `routeRevision` 이벤트의 현재 상태 변경 차단 |
-| C5 | 알림 checkpoint·channel 단위 dedup |
+| C4 | progress별 고유 `progressId`와 `observedAt` 조건부 병합으로 재전송·역순 요청의 상태 변경 차단 |
+| C5 | 채널 없는 logical checkpoint 표시 dedup과 channel별 delivery 멱등성 분리 |
 | C6 | `commandVersion`·`evaluationVersion`·`routeRevision` 분리와 앱 재접속 시 서버 상태 수렴 |
 
 ## 5. 필수 예외 처리
@@ -275,10 +277,14 @@ iOS·Android는 사용자의 강제 종료 사실을 서버에 즉시·확실하
 - `journey.evaluation.duration{outcome}`
 - `journey.transfer.status{status,source}`
 - `journey.state.conflict.total{event_type}`
-- `journey.notification.total{type,channel,outcome}`
-- `journey.notification.lateness`
+- `journey.notification.delivery.total{type,channel=PUSH,outcome}`
+- `journey.notification.delivery.lateness{type}`
 - `journey.notification.open.total{type}`
 - `journey.notification.open.delay{type}`
+- `journey.checkpoint.presentation.total{checkpoint,surface,outcome}`
+- `journey.checkpoint.presentation.delay{checkpoint,surface}`
+- `journey.checkpoint.open.total{checkpoint,surface}`
+- `journey.checkpoint.open.delay{checkpoint,surface}`
 - `journey.ui.foreground.ratio`
 - `journey.ui.open.total{trigger,leg_type}`
 - `journey.transfer.decision.open.total{risk}`
@@ -291,7 +297,7 @@ iOS·Android는 사용자의 강제 종료 사실을 서버에 즉시·확실하
 - `journey.state.convergence.duration{trigger}`
 - `journey.expiry.premature.total{leg_type}`
 
-Journey UI 이용행태 telemetry는 canonical Journey 상태 전이에 사용하지 않는 best-effort 신호다. 모바일은 foreground 구간과 화면 진입 원인·알림 식별자·후속 행동만 전송하고 정밀 좌표를 포함하지 않는다. Journey ID, 사용자 ID, 노선 ID, 좌표는 메트릭 태그로 사용하지 않는다.
+Journey UI 이용행태 telemetry는 canonical Journey 상태 전이에 사용하지 않는 best-effort 신호다. 모바일은 각 event에 재시도 동안 유지하는 고유 `telemetryId`를 부여하고, foreground 구간과 화면 진입 원인·알림 식별자·후속 행동에 더해 local checkpoint의 `TRIGGERED|PRESENTED|DEDUP_SUPPRESSED|OPENED`, `checkpointOccurrenceId`, `surface`, 발생 시각을 batch 전송한다. 서버는 `telemetryId` 중복을 제거한 뒤 이 telemetry를 집계해 O8·O13과 local checkpoint 중복 표시 gate를 계산한다. 정밀 좌표는 포함하지 않으며 Journey ID, 사용자 ID, 노선 ID, `telemetryId`, `checkpointOccurrenceId`, 좌표는 메트릭 태그로 사용하지 않는다.
 
 ### 데이터 보관·삭제
 
@@ -326,7 +332,7 @@ Journey UI 이용행태 telemetry는 canonical Journey 상태 전이에 사용�
 | 기존 API p95 회귀 | baseline 대비 10% 이하 |
 | premature Journey expiry | 전체의 0.5% 미만 |
 
-FCM의 실제 단말 도착시간은 앱·OS·통신사에 좌우되므로 초기 서버 SLO에서 제외하고 provider 접수시간·성공률과 push open telemetry로 별도 관찰한다. ETA MAE·환승 예측 정확도는 shadow evaluation 결과를 baseline으로 고정한 뒤 단계별 회귀 여부를 판단한다.
+FCM의 실제 단말 도착시간은 앱·OS·통신사에 좌우되므로 초기 서버 SLO에서 제외하고 provider 접수시간·성공률과 push open telemetry로 별도 관찰한다. local checkpoint의 중복 방지는 네이티브 저장소의 logical checkpoint 불변식으로 우선 보장하고, 중복 표시 telemetry가 한 건이라도 서버에 도착하면 해당 플랫폼의 하차 알림 feature flag를 끄고 rollout을 중단한다. 오프라인 단말의 telemetry는 지연될 수 있으므로 서버의 즉시 탐지는 보장하지 않는다. ETA MAE·환승 예측 정확도는 shadow evaluation 결과를 baseline으로 고정한 뒤 단계별 회귀 여부를 판단한다.
 
 API 성공률은 유효 요청 중 5xx·timeout이 아닌 응답을 성공으로 계산하며, 의도된 `409 CONFLICT`·검증 4xx는 실패 분자에서 제외한다. FCM 성공률은 발송 시점에 enabled인 유효 token 대상 provider 접수를 기준으로 하고 `UNREGISTERED`는 별도 token 정리 지표로 집계한다. premature expiry는 `EXPIRED` 응답 뒤 10분 안에 같은 Journey의 resume telemetry가 수신된 경우를 운영 proxy로 사용하며, 강제 종료 후 자발적 재실행이 섞일 수 있음을 dashboard에 명시한다.
 
