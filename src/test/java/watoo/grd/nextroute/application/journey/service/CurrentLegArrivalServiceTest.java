@@ -27,9 +27,9 @@ class CurrentLegArrivalServiceTest {
             Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
-    @DisplayName("기다리는 단계는 맡을 구현이 없어 모른다고 말한다")
-    void waitLegIsUnknownForNow() {
-        // 검색 결과에는 대기시간이 없다. 계획 소요시간으로 대신 채우면 근거 없는 숫자가 된다.
+    @DisplayName("맡는 구현이 등록되지 않은 단계는 모른다고 말한다")
+    void unsupportedLegIsUnknown() {
+        // 이 테스트는 등록된 구현만으로 조립한다. 실제 컨텍스트에는 대기 단계 구현이 따로 있다.
         CurrentLegArrival arrival = service.predict(leg(JourneyLegType.WAIT_BUS), null);
 
         assertThat(arrival.isUnknown()).isTrue();
@@ -37,8 +37,8 @@ class CurrentLegArrivalServiceTest {
     }
 
     @Test
-    @DisplayName("지하철 대기도 마찬가지다")
-    void waitSubwayIsUnknownForNow() {
+    @DisplayName("등록되지 않은 다른 단계도 마찬가지다")
+    void anotherUnsupportedLegIsUnknown() {
         assertThat(service.predict(leg(JourneyLegType.WAIT_SUBWAY), null).isUnknown()).isTrue();
     }
 

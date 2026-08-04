@@ -1,7 +1,7 @@
 package watoo.grd.nextroute.application.arrival.service;
 
 import org.junit.jupiter.api.Test;
-import watoo.grd.nextroute.application.subway.port.out.SubwayRealtimeCachePort;
+import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
 import watoo.grd.nextroute.domain.subway.repository.NearbySubwayStationProjection;
 import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
 
@@ -13,10 +13,10 @@ import static org.mockito.Mockito.mock;
 
 class SubwayArrivalQueryServiceTest {
 
-    private final SubwayRealtimeCachePort cachePort = mock(SubwayRealtimeCachePort.class);
+    private final SubwayRealtimeArrivalReader arrivalReader = mock(SubwayRealtimeArrivalReader.class);
     private final SubwayDataService subwayDataService = mock(SubwayDataService.class);
     private final SubwayArrivalQueryService service =
-            new SubwayArrivalQueryService(cachePort, subwayDataService);
+            new SubwayArrivalQueryService(arrivalReader, subwayDataService);
 
     @Test
     void resolveStation_selectsTheRequestedInternalLine() {

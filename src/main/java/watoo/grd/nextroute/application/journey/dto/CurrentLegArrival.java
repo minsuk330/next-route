@@ -31,6 +31,12 @@ public record CurrentLegArrival(
     public enum Source {
         /** 앱 GPS 를 정적 geometry 에 투영한 진행도. 이동 단계의 기본이다. */
         CLIENT_GEOMETRY_PROGRESS,
+        /**
+         * 실시간 도착 정보. 기다리는 단계의 기본이다.
+         *
+         * <p>여기서는 사용자가 어디까지 왔는지가 아니라 <b>차량이 어디까지 왔는지</b>가 답이다.
+         */
+        REALTIME_ARRIVAL,
         /** 진행도가 없어 계획 소요시간만 썼다. */
         PLANNED_DURATION
     }
