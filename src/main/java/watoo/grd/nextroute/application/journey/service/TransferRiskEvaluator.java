@@ -40,8 +40,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TransferRiskEvaluator {
 
-    /** 이 판정이 무엇으로 계산됐는지. 진단과 계측에서 서버 계산과 모델 추정을 가른다. */
-    static final String SOURCE = "CLIENT_PROGRESS_AND_REALTIME";
+    /**
+     * 이 판정이 무엇으로 계산됐는지. 진단과 계측에서 서버 계산과 모델 추정을 가른다.
+     *
+     * <p><b>{@code transfer_connection.source} 가 varchar(20) 이라 20자를 넘길 수 없다</b>(V35).
+     * 넘기면 저장이 실패하고, 이 저장은 여정 조회 경로 안에 있어서 조회 자체가 500 이 된다.
+     */
+    static final String SOURCE = "PROGRESS_REALTIME";
 
     private final TransferConnectionRepository transferRepository;
     private final JourneyLegRepository legRepository;
