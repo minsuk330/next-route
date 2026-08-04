@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.dto.LaneResult;
 import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
@@ -63,6 +64,7 @@ public final class SubPathFixture {
         private String endArsID;
         private Integer endID;
         private Integer walkTotalTimeSeconds;
+        private List<CoordPoint> polyline;
 
         private Builder(int trafficType, int sectionTime) {
             this.trafficType = trafficType;
@@ -128,11 +130,17 @@ public final class SubPathFixture {
             return this;
         }
 
+        /** 지하철·도보 구간 좌표. 검색 결과의 차량/도보 공용 폴리라인 슬롯에 들어간다. */
+        public Builder polyline(CoordPoint... points) {
+            this.polyline = List.of(points);
+            return this;
+        }
+
         public SubPathResult build() {
             return new SubPathResult(
                     trafficType, sectionTime, distance, lanes, stations,
                     startName, endName, startX, startY, endX, endY,
-                    null, null, startId, null, wayCode, null,
+                    null, null, startId, null, wayCode, polyline,
                     null, null, null, null, null, null, null,
                     startLocalStationID, endLocalStationID, startArsID, endArsID, endID,
                     walkTotalTimeSeconds, null);

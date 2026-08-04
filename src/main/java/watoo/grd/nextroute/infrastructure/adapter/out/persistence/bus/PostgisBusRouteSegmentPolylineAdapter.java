@@ -9,9 +9,11 @@ import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineData;
 import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineData;
 import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineRange;
+import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineSection;
 import watoo.grd.nextroute.application.bus.port.out.BusRouteSegmentPolylinePort;
 
 import java.sql.Types;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -121,6 +123,28 @@ public class PostgisBusRouteSegmentPolylineAdapter implements BusRouteSegmentPol
 
 		return Optional.of(new BusRouteSegmentPolylineRange(
 				routeId, fromSeq, toSeq, hasGap, List.copyOf(merged), summaries));
+	}
+
+	@Override
+	public List<BusRouteSegmentPolylineSection> findSections(String routeId, int fromSeq, int toSeq) {
+		return jdbcTemplate.query("""
+				SELECT from_seq, to_seq, section_id, quality_status, quality_reason,
+				       polyline::text, source_fetched_at
+				FROM bus_route_segment_polyline
+				WHERE route_id = ? AND from_seq >= ? AND to_seq <= ?
+				ORDER BY from_seq, to_seq
+				""", (resultSet, rowNum) -> {
+			BusRoutePolylineData polyline = deserializeNullable(resultSet.getString("polyline"));
+			OffsetDateTime fetchedAt = resultSet.getObject("source_fetched_at", OffsetDateTime.class);
+			return new BusRouteSegmentPolylineSection(
+					resultSet.getInt("from_seq"),
+					resultSet.getInt("to_seq"),
+					resultSet.getString("section_id"),
+					BusRouteSegmentPolylineData.QualityStatus.valueOf(resultSet.getString("quality_status")),
+					resultSet.getString("quality_reason"),
+					polyline == null ? List.of() : polyline.points(),
+					fetchedAt);
+		}, routeId, fromSeq, toSeq);
 	}
 
 	private void append(List<BusRoutePolylineData.Point> target, List<BusRoutePolylineData.Point> source) {
