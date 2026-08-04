@@ -28,11 +28,20 @@ public class JourneyNavigationProperties {
      */
     private long leaseWriteCoalesceSeconds = 60;
 
+    /**
+     * 진행도를 "최근"으로 볼 수 있는 시간.
+     *
+     * <p>앱은 15초(하차 임박 5초)마다 진행도를 올린다. 이 값을 넘도록 갱신이 없으면 터널이거나
+     * GPS 를 잃은 것으로 보고 마지막으로 고정한 도착 시각을 유지하며 품질을 낮춘다. 60초면 정상
+     * 전송을 세 번 놓친 상태다.
+     */
+    private long progressFreshnessSeconds = 60;
+
     @PostConstruct
     void validate() {
         if (guidanceLeaseSeconds <= 0 || expirationGraceSeconds < 0
                 || subwayProtectionBufferSeconds < 0 || subwayProtectionCapSeconds <= 0
-                || leaseWriteCoalesceSeconds < 0) {
+                || leaseWriteCoalesceSeconds < 0 || progressFreshnessSeconds <= 0) {
             throw new IllegalStateException("journey.navigation lease 설정은 0 이상의 유효한 값이어야 한다");
         }
         if (leaseWriteCoalesceSeconds >= guidanceLeaseSeconds) {
@@ -62,5 +71,9 @@ public class JourneyNavigationProperties {
 
     public Duration leaseWriteCoalesce() {
         return Duration.ofSeconds(leaseWriteCoalesceSeconds);
+    }
+
+    public Duration progressFreshness() {
+        return Duration.ofSeconds(progressFreshnessSeconds);
     }
 }
