@@ -135,7 +135,7 @@ class WaitLegArrivalPredictorTest {
         void earliestTrainBecomesLegEnd() {
             JourneyLeg leg = leg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.ACTIVE, "923", "1009");
             givenOption(option(null, null, 1));
-            given(arrivalReader.arrivals("1009", "923", 1)).willReturn(List.of(
+            given(arrivalReader.arrivalsByStation("1009", "923", "강남", 1)).willReturn(List.of(
                     arrival(180), arrival(420)));
 
             CurrentLegArrival result = subwayPredictor.predict(leg, null, NOW);
@@ -151,7 +151,7 @@ class WaitLegArrivalPredictorTest {
             givenOption(option(null, null, null));
 
             assertThat(subwayPredictor.predict(leg, null, NOW).isUnknown()).isTrue();
-            verify(arrivalReader, never()).arrivals(anyString(), anyString(), anyInt());
+            verify(arrivalReader, never()).arrivalsByStation(anyString(), anyString(), anyString(), anyInt());
         }
 
         @Test
@@ -159,7 +159,28 @@ class WaitLegArrivalPredictorTest {
         void noMatchingTrainIsUnknown() {
             JourneyLeg leg = leg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.ACTIVE, "923", "1009");
             givenOption(option(null, null, 1));
-            given(arrivalReader.arrivals("1009", "923", 1)).willReturn(List.of());
+            given(arrivalReader.arrivalsByStation("1009", "923", "강남", 1)).willReturn(List.of());
+
+            assertThat(subwayPredictor.predict(leg, null, NOW).isUnknown()).isTrue();
+        }
+
+        @Test
+        @DisplayName("실시간 조회가 빈 응답이면 모른다고 말한다")
+        void emptyRealtimeResponseIsUnknown() {
+            JourneyLeg leg = leg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.ACTIVE, "923", "1009");
+            givenOption(option(null, null, 1));
+            given(arrivalReader.arrivalsByStation("1009", "923", "강남", 1)).willReturn(List.of());
+
+            assertThat(subwayPredictor.predict(leg, null, NOW).isUnknown()).isTrue();
+        }
+
+        @Test
+        @DisplayName("역 이름이 없으면 실시간 조회를 하지 않는다")
+        void missingStationNameSkipsCall() {
+            JourneyLeg leg = leg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.ACTIVE, "923", "1009");
+            ReflectionTestUtils.setField(leg, "startName", null);
+            givenOption(option(null, null, 1));
+            given(arrivalReader.arrivalsByStation("1009", "923", null, 1)).willReturn(List.of());
 
             assertThat(subwayPredictor.predict(leg, null, NOW).isUnknown()).isTrue();
         }
@@ -169,7 +190,7 @@ class WaitLegArrivalPredictorTest {
         void trainWithoutSecondsIsSkipped() {
             JourneyLeg leg = leg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.ACTIVE, "923", "1009");
             givenOption(option(null, null, 1));
-            given(arrivalReader.arrivals("1009", "923", 1)).willReturn(List.of(
+            given(arrivalReader.arrivalsByStation("1009", "923", "강남", 1)).willReturn(List.of(
                     arrival(null), arrival(300)));
 
             assertThat(subwayPredictor.predict(leg, null, NOW).arrivalAt())
@@ -192,6 +213,7 @@ class WaitLegArrivalPredictorTest {
                 .type(type)
                 .state(state)
                 .startStopId(startStopId)
+                .startName("강남")
                 .plannedDurationSec(600)
                 .build();
         ReflectionTestUtils.setField(leg, "id", 10L);

@@ -29,7 +29,10 @@ import java.util.Optional;
  * <p>방향을 가릴 수 없으면 열차를 고르지 않는다. 반대 방향 열차를 집으면 ETA 가 그럴듯하게
  * 틀리고, 사용자는 그 숫자를 믿고 엉뚱한 시각에 움직인다.
  *
- * <p>매칭 실패·snapshot 부재에서 정적 대기시간을 만들어 내지 않는다(SC-6 4항·SC-9 8항).
+ * <p>매칭 실패·조회 실패에서 정적 대기시간을 만들어 내지 않는다(SC-6 4항·SC-9 8항).
+ *
+ * <p>실시간 수집기가 꺼져 있는 환경을 전제해 <b>역별 실시간 호출</b>을 쓴다. 캐시를 먼저 보지
+ * 않는 이유는 비어 있는 캐시를 확인하는 왕복이 늘 헛수고이기 때문이다.
  */
 @Slf4j
 @Component
@@ -60,8 +63,10 @@ public class WaitSubwayArrivalPredictor implements CurrentLegArrivalPredictor {
             return CurrentLegArrival.unknown();
         }
 
-        List<SubwayRealtimeArrivalReader.Arrival> arrivals =
-                arrivalReader.arrivals(leg.getRouteId(), leg.getStartStopId(), wayCode);
+        // 수집기가 꺼져 있으면 캐시가 항상 비어 늘 "모름"이 된다. 그래서 필요한 역만 실시간으로
+        // 직접 부른다. 호출량은 조회하는 역 수에 비례한다.
+        List<SubwayRealtimeArrivalReader.Arrival> arrivals = arrivalReader.arrivalsByStation(
+                leg.getRouteId(), leg.getStartStopId(), leg.getStartName(), wayCode);
 
         Optional<SubwayRealtimeArrivalReader.Arrival> next = arrivals.stream()
                 .filter(SubwayRealtimeArrivalReader.Arrival::hasSeconds)
