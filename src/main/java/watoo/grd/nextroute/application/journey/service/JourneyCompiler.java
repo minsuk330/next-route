@@ -16,6 +16,8 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -41,8 +43,19 @@ public class JourneyCompiler {
     private final StopIdentityResolver stopIdentityResolver;
 
     public JourneyPlan compile(PathResult path) {
+        return compileDetailed(path).plan();
+    }
+
+    /**
+     * 쪼개기 결과와 함께 "각 단계가 원본 몇 번째 구간에서 나왔는지"를 돌려준다.
+     *
+     * <p>지도·GPS 투영에 쓸 좌표는 원본 구간이 들고 있는데, 저장된 단계에는 그 순번이 없다.
+     * 좌표를 찾을 때마다 이름·좌표로 거꾸로 맞히는 것보다 같은 쪼개기를 한 번 더 돌려 순번을
+     * 받는 편이 어긋날 여지가 없다. 쪼개기는 같은 입력에 같은 결과를 준다.
+     */
+    public Compiled compileDetailed(PathResult path) {
         if (path == null || path.subPaths() == null || path.subPaths().isEmpty()) {
-            return new JourneyPlan(List.of(), List.of());
+            return new Compiled(new JourneyPlan(List.of(), List.of()), List.of());
         }
         List<SubPathResult> subPaths = path.subPaths();
 
@@ -58,7 +71,50 @@ public class JourneyCompiler {
             }
         }
 
-        return new JourneyPlan(withInitialStates(legs), buildTransfers(emitted));
+        return new Compiled(
+                new JourneyPlan(withInitialStates(legs), buildTransfers(emitted)),
+                subPathIndexByLegIndex(legs.size(), emitted));
+    }
+
+    /** 단계 순번 → 원본 구간 순번. 단계를 만들지 않은 걷기는 어느 칸도 차지하지 않는다. */
+    private List<Integer> subPathIndexByLegIndex(int legCount, List<Emitted> emitted) {
+        Integer[] byLeg = new Integer[legCount];
+        for (Emitted e : emitted) {
+            assign(byLeg, e.waitLeg(), e.subPathIndex());
+            assign(byLeg, e.rideLeg(), e.subPathIndex());
+            assign(byLeg, e.walkLeg(), e.subPathIndex());
+        }
+        // null 을 담을 수 있어야 해서 List.of 를 쓰지 않는다. 원본을 잃은 단계가 null 이다.
+        return Collections.unmodifiableList(new ArrayList<>(Arrays.asList(byLeg)));
+    }
+
+    private void assign(Integer[] byLeg, Integer legIndex, int subPathIndex) {
+        if (legIndex != null && legIndex < byLeg.length) {
+            byLeg[legIndex] = subPathIndex;
+        }
+    }
+
+    /**
+     * 쪼개기 결과와 원본 구간 순번.
+     *
+     * @param plan                    단계·환승 연결
+     * @param subPathIndexByLegIndex  단계 순번으로 찾는 원본 구간 순번
+     */
+    public record Compiled(JourneyPlan plan, List<Integer> subPathIndexByLegIndex) {
+
+        public Compiled {
+            subPathIndexByLegIndex = subPathIndexByLegIndex == null
+                    ? List.of()
+                    : Collections.unmodifiableList(new ArrayList<>(subPathIndexByLegIndex));
+        }
+
+        /** 없는 단계이거나 원본을 잃은 단계면 null. */
+        public Integer subPathIndexOf(int legIndex) {
+            if (legIndex < 0 || legIndex >= subPathIndexByLegIndex.size()) {
+                return null;
+            }
+            return subPathIndexByLegIndex.get(legIndex);
+        }
     }
 
     // ── 걷기 ────────────────────────────────────────────────────────────────

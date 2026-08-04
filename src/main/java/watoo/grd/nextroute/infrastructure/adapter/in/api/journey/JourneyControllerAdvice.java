@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
+import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
 import watoo.grd.nextroute.global.error.ErrorResponse;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
@@ -24,6 +25,17 @@ public class JourneyControllerAdvice {
     JourneyErrorCode errorCode = JourneyErrorCode.ACTIVE_JOURNEY_EXISTS;
     return ResponseEntity.status(errorCode.getHttpStatus())
         .body(ErrorResponse.of(errorCode, request.getRequestURI(), exception.getCurrent()));
+  }
+
+  /** 현재 개정본을 details에 담아 앱이 좌표를 곧바로 다시 받을 수 있게 한다. */
+  @ExceptionHandler(StaleRouteRevisionException.class)
+  public ResponseEntity<ErrorResponse<Integer>> handleStaleRevision(
+      StaleRouteRevisionException exception,
+      HttpServletRequest request) {
+    JourneyErrorCode errorCode = JourneyErrorCode.STALE_ROUTE_REVISION;
+    return ResponseEntity.status(errorCode.getHttpStatus())
+        .body(ErrorResponse.of(errorCode, request.getRequestURI(),
+            exception.getCurrentRouteRevision()));
   }
 
 }
