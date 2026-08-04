@@ -5,7 +5,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
+import watoo.grd.nextroute.application.journey.dto.TransferAssessmentBatch;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
+import watoo.grd.nextroute.application.journey.dto.TransferTargetArrival;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
@@ -20,52 +22,57 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 여정의 환승들이 지금 안전한지 판정하고 그 결과를 남긴다.
+ * 여정의 환승들이 지금 안전한지 판정한다.
  *
  * <p>세 값을 모아 여유를 구한다.
  * <ul>
  *   <li>타고 있는 교통수단이 환승 지점에 닿는 시각 — 이동 leg ETA</li>
  *   <li>거기서 내려 걸어가 준비를 마치는 시각 — 하차 버퍼 + 환승 걷기</li>
- *   <li>갈아탈 차량이 오는 시각 — 대기 leg ETA</li>
+ *   <li>갈아탈 차량이 <b>그 시각에</b> 오는 시각 — 대기 leg ETA</li>
  * </ul>
  *
  * <p>세 값 중 하나라도 모르면 {@code UNKNOWN} 이다. 한쪽을 0으로 가정해 계산하면 그럴듯하게
  * 틀린 숫자가 나오고, 그것이 그대로 알림이 된다.
  *
- * <p>판정 결과를 저장하는 이유는 떨림 방지가 <b>직전 상태</b>를 필요로 하기 때문이다. 매번
- * 새로 계산하면 좋아지는 방향에 유예를 걸 수 없다.
+ * <h2>계산 순서가 중요하다</h2>
+ *
+ * 갈아탈 차량을 물어보려면 <b>사용자가 그 정류장에 언제 서는지</b>를 먼저 알아야 한다. 그래서
+ * 준비 시각을 구한 뒤에 대기 leg 을 묻는다. 지금 시각으로 물으면 사용자가 도착하기 전에 지나갈
+ * 차량을 답으로 받는다.
+ *
+ * <h2>저장하는 메서드와 하지 않는 메서드</h2>
+ *
+ * 판정 결과를 저장하는 이유는 떨림 방지가 <b>직전 상태</b>를 필요로 하기 때문이다. 다만 쓰는
+ * 주체는 하나여야 한다 — 평가기와 조회 요청이 같은 행에 쓰면 서로 다른 시점에 계산한 두 결과가
+ * 커밋 순서로 승부가 난다. 그래서 계산만 하는 {@link #assess}와 저장까지 하는
+ * {@link #assessAndStore}를 나눠 두고, 부르는 쪽이 자기가 쓰는 주체인지에 따라 고른다.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class TransferRiskEvaluator {
 
-    /**
-     * 이 판정이 무엇으로 계산됐는지. 진단과 계측에서 서버 계산과 모델 추정을 가른다.
-     *
-     * <p><b>{@code transfer_connection.source} 가 varchar(20) 이라 20자를 넘길 수 없다</b>(V35).
-     * 넘기면 저장이 실패하고, 이 저장은 여정 조회 경로 안에 있어서 조회 자체가 500 이 된다.
-     */
-    static final String SOURCE = "PROGRESS_REALTIME";
-
     private final TransferConnectionRepository transferRepository;
     private final JourneyLegRepository legRepository;
     private final CurrentLegArrivalService arrivalService;
+    private final TransferTargetArrivalService targetArrivalService;
     private final TransferReadinessCalculator readinessCalculator;
     private final TransferRiskPolicy riskPolicy;
     private final TransferAssessmentWriter assessmentWriter;
     private final Clock clock;
 
     /**
+     * 판정만 한다. 저장은 부르는 쪽의 책임이다.
+     *
      * @param geometryByLegIndex 단계별 좌표. 없으면 빈 map 을 넘겨도 된다
      */
-    public List<TransferRiskAssessment> evaluate(Long journeyId, int routeRevision,
-                                                 Map<Integer, LegGeometry> geometryByLegIndex) {
+    public TransferAssessmentBatch assess(Long journeyId, int routeRevision,
+                                          Map<Integer, LegGeometry> geometryByLegIndex) {
         List<TransferConnection> transfers = transferRepository
                 .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByTransferIndex(
                         journeyId, routeRevision);
         if (transfers.isEmpty()) {
-            return List.of();
+            return TransferAssessmentBatch.empty();
         }
         Map<Integer, JourneyLeg> legsByIndex = legRepository
                 .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
@@ -74,38 +81,60 @@ public class TransferRiskEvaluator {
                 .collect(Collectors.toMap(JourneyLeg::getLegIndex, Function.identity()));
 
         Instant now = Instant.now(clock);
+        Map<Integer, TransferTargetArrival> boardingByLegIndex = new java.util.HashMap<>();
         List<TransferRiskAssessment> assessments = transfers.stream()
-                .map(transfer -> assess(transfer, legsByIndex, geometryByLegIndex, now))
+                .map(transfer -> assessOne(transfer, legsByIndex, geometryByLegIndex, now,
+                        boardingByLegIndex))
                 .toList();
-
-        // 계산이 끝난 뒤에 저장한다. 실시간 조회가 트랜잭션 안에 들어가면 provider 가 느린 동안
-        // DB 커넥션을 붙잡는다.
-        assessmentWriter.write(journeyId, routeRevision, assessments);
-        return assessments;
+        boolean upstreamBlocked = boardingByLegIndex.values().stream()
+                .anyMatch(TransferTargetArrival::upstreamBlocked);
+        return new TransferAssessmentBatch(assessments, Map.copyOf(boardingByLegIndex), upstreamBlocked);
     }
 
-    private TransferRiskAssessment assess(TransferConnection transfer,
-                                          Map<Integer, JourneyLeg> legsByIndex,
-                                          Map<Integer, LegGeometry> geometryByLegIndex,
-                                          Instant now) {
-        CurrentLegArrival fromArrival = predict(transfer.getFromLegIndex(), legsByIndex, geometryByLegIndex);
-        CurrentLegArrival toArrival = predict(transfer.getToLegIndex(), legsByIndex, geometryByLegIndex);
+    /**
+     * 판정하고 저장한다. 평가기가 꺼져 있을 때의 조회 경로가 쓴다.
+     *
+     * <p>계산이 끝난 뒤에 저장한다. 실시간 조회가 트랜잭션 안에 들어가면 provider 가 느린 동안
+     * DB 커넥션을 붙잡는다.
+     */
+    public List<TransferRiskAssessment> assessAndStore(Long journeyId, int routeRevision,
+                                                       Map<Integer, LegGeometry> geometryByLegIndex) {
+        TransferAssessmentBatch batch = assess(journeyId, routeRevision, geometryByLegIndex);
+        assessmentWriter.write(journeyId, routeRevision, batch.assessments());
+        return batch.assessments();
+    }
+
+    private TransferRiskAssessment assessOne(TransferConnection transfer,
+                                             Map<Integer, JourneyLeg> legsByIndex,
+                                             Map<Integer, LegGeometry> geometryByLegIndex,
+                                             Instant now,
+                                             Map<Integer, TransferTargetArrival> boardingByLegIndex) {
+        CurrentLegArrival fromArrival = predictCurrent(
+                transfer.getFromLegIndex(), legsByIndex, geometryByLegIndex);
 
         Instant userReadyAt = readinessCalculator.userReadyAt(
                 fromArrival.arrivalAt(), walkSeconds(transfer, legsByIndex));
-        Long slack = readinessCalculator.transferSlackSeconds(userReadyAt, toArrival.arrivalAt());
 
+        // 준비 시각을 앵커로 갈아탈 차량을 묻는다. 앵커가 없으면(타고 있는 단계 ETA 를 모르면)
+        // 물어볼 기준이 없으므로 예측기가 모른다고 답한다.
+        TransferTargetArrival target = targetArrivalService.predictBoarding(
+                legsByIndex.get(transfer.getToLegIndex()), userReadyAt, now);
+        boardingByLegIndex.put(transfer.getToLegIndex(), target);
+        CurrentLegArrival toArrival = target.arrival();
+
+        Long slack = readinessCalculator.transferSlackSeconds(userReadyAt, toArrival.arrivalAt());
         TransferStatus status = riskPolicy.evaluate(slack, transfer.getStatus());
         CurrentLegArrival.Quality confidence = confidenceOf(fromArrival, toArrival, slack);
 
         return new TransferRiskAssessment(transfer.getTransferIndex(),
                 transfer.getFromLegIndex(), transfer.getToLegIndex(), status,
                 fromArrival.arrivalAt(), userReadyAt, toArrival.arrivalAt(),
-                slack, confidence, now);
+                slack, confidence, now, toArrival.source(), target.modelVersion());
     }
 
-    private CurrentLegArrival predict(int legIndex, Map<Integer, JourneyLeg> legsByIndex,
-                                      Map<Integer, LegGeometry> geometryByLegIndex) {
+    /** 타고 있는(또는 걷고 있는) 단계가 언제 끝나는지. 외부 호출이 없는 계산이다. */
+    private CurrentLegArrival predictCurrent(int legIndex, Map<Integer, JourneyLeg> legsByIndex,
+                                             Map<Integer, LegGeometry> geometryByLegIndex) {
         JourneyLeg leg = legsByIndex.get(legIndex);
         if (leg == null) {
             return CurrentLegArrival.unknown();

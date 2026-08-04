@@ -132,4 +132,77 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
     List<Long> claimExpiredBatch(@Param("now") Instant now,
                                  @Param("leaseDeadline") Instant leaseDeadline,
                                  @Param("batchSize") int batchSize);
+
+    /**
+     * 평가할 때가 된 여정을 한 번에 여러 건 골라 선점한다.
+     *
+     * <p>고르기와 선점을 한 문장으로 한다. 나누면 그 사이에 다른 인스턴스가 같은 여정을 골라
+     * 같은 여정을 두 번 평가한다 — 외부 API 호출이 그만큼 낭비된다.
+     *
+     * <p><b>선점 방법은 다음 평가 시각을 미래로 미는 것이다.</b> 별도의 "처리 중" 칼럼을 두지
+     * 않는다. 밀어 둔 시각이 지나도 결과가 안 들어오면(워커가 죽었으면) 다른 워커가 자연히 다시
+     * 잡는다.
+     *
+     * <p>여기서 넘긴 {@code leaseUntil} 은 <b>소유권 증서</b>로도 쓰인다. 평가를 마친 워커는 저장
+     * 전에 "이 여정의 다음 평가 시각이 아직 내가 심은 값인가"를 확인한다
+     * ({@code finishEvaluation}). 늦게 끝난 워커가 최신 결과를 덮는 것을 그 조건이 막는다.
+     *
+     * <p>{@code idx_journey_due}(V35) 를 그대로 탄다 — 20,000행 기준 인덱스 스캔이고 정렬 단계가
+     * 없다. 조건에 칼럼 연산을 넣으면 그 성질이 깨진다.
+     *
+     * <p>{@code @Modifying} 이 아니다({@code RETURNING} 이 결과를 돌려준다). 반드시
+     * {@code @Transactional} 안에서 부른다.
+     *
+     * @return 이번에 선점한 여정 번호
+     */
+    @Query(value = """
+            WITH picked AS (
+                SELECT s.id FROM journey_session s
+                WHERE s.status = 'ACTIVE' AND s.deleted_at IS NULL
+                  AND s.next_evaluation_at IS NOT NULL
+                  AND s.next_evaluation_at <= :now
+                ORDER BY s.next_evaluation_at
+                LIMIT :batchSize
+                FOR UPDATE OF s SKIP LOCKED)
+            UPDATE journey_session j
+               SET next_evaluation_at = :leaseUntil
+            FROM picked
+            WHERE j.id = picked.id
+            RETURNING j.id
+            """, nativeQuery = true)
+    List<Long> claimDueBatch(@Param("now") Instant now,
+                             @Param("leaseUntil") Instant leaseUntil,
+                             @Param("batchSize") int batchSize);
+
+    /**
+     * 평가를 마친 여정의 다음 평가 시각을 기록한다. <b>소유권을 확인하는 자리이기도 하다.</b>
+     *
+     * <p>{@code next_evaluation_at = :claimedLeaseUntil} 조건이 핵심이다. claim 할 때 심어 둔 값이
+     * 아직 그대로라면 이 여정은 여전히 내 것이다. 값이 바뀌었다면 lease 가 만료돼 다른 워커가
+     * 가져갔거나, 단계 전이가 다음 평가를 앞당겼거나, 여정이 끝난 것이다. 그때는 0을 돌려주고
+     * 부르는 쪽이 계산 결과를 버린다.
+     *
+     * <p>이 확인이 없으면 느렸던 워커가 낡은 판정을 최신 판정 위에 덮어쓴다.
+     *
+     * <p>{@code evaluationVersion} 은 실제로 값이 바뀌었을 때만 올린다. 조회 API 가 이 번호로
+     * "바뀐 것 없음(204)"을 판단하므로, 상태·시각·근거가 그대로인데 번호를 올리면 앱이 30초마다
+     * 같은 응답을 전부 다시 받는다.
+     *
+     * @param bump 판정 값이 직전과 달라졌는지
+     * @return 1이면 내 소유가 확인됐고 기록됐다. 0이면 소유권을 잃었다
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE journey_session
+               SET next_evaluation_at = :nextEvaluationAt,
+                   evaluation_version = evaluation_version + CASE WHEN :bump THEN 1 ELSE 0 END
+             WHERE id = :id
+               AND status = 'ACTIVE'
+               AND deleted_at IS NULL
+               AND next_evaluation_at = :claimedLeaseUntil
+            """, nativeQuery = true)
+    int finishEvaluation(@Param("id") Long id,
+                         @Param("claimedLeaseUntil") Instant claimedLeaseUntil,
+                         @Param("nextEvaluationAt") Instant nextEvaluationAt,
+                         @Param("bump") boolean bump);
 }

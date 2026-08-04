@@ -171,6 +171,24 @@ public class JourneyLeg extends BaseEntity {
     }
 
     /**
+     * 갈아탈 차량 도착 예측을 이 단계에 남긴다. 기다리는 단계에만 의미가 있다.
+     *
+     * <p>남기는 이유는 조회 요청이 이 값을 읽게 하기 위해서다. 지금은 조회할 때마다 실시간 도착
+     * API 를 부르는데, 그러면 provider 가 느린 만큼 여정 조회가 느려진다. 평가기가 미리 계산해
+     * 여기 적어 두면 조회는 읽기만 한다.
+     *
+     * <p>{@code remainingStops}·거리는 채우지 않는다. 기다리는 단계에서 "남은 정류장"은 사용자가
+     * 아니라 차량의 이야기이고, 그 값은 판정에 쓰지 않는다.
+     */
+    public void applyBoardingPrediction(Instant predictedEndAt, String evidenceSource,
+                                        String evidenceQuality, Instant evidenceObservedAt) {
+        this.predictedEndAt = predictedEndAt;
+        this.evidenceSource = evidenceSource;
+        this.evidenceQuality = evidenceQuality;
+        this.evidenceObservedAt = evidenceObservedAt;
+    }
+
+    /**
      * 진행 상태를 바꾼다.
      *
      * <p>어떤 상태로 갈 수 있는지는 여기서 따지지 않는다. 그 판단은 여정 전체를 봐야 할 수 있어

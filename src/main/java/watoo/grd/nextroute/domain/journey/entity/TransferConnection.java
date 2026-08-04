@@ -135,4 +135,14 @@ public class TransferConnection extends BaseEntity {
         this.calculatedAt = calculatedAt;
         this.dataObservedAt = dataObservedAt;
     }
+
+    /**
+     * 모델이 추정한 경우 어느 모델이었는지 남긴다. 실시간으로 잡았으면 null 이다.
+     *
+     * <p>판정 반영과 나눠 둔 이유 — 이 값은 예측 결과의 부속물이고, 나중에 모델을 바꿨을 때
+     * 예측 품질을 견주려고만 쓴다. 판정 자체의 근거가 되는 값들과 섞지 않는다.
+     */
+    public void applyModelVersion(String modelVersion) {
+        this.modelVersion = modelVersion;
+    }
 }

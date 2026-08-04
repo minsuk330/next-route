@@ -20,6 +20,8 @@ import java.time.Instant;
  * @param transferSlackSeconds 여유(초). 음수면 이미 놓쳤다
  * @param confidence           판정을 얼마나 믿을 수 있는지
  * @param calculatedAt         판정 시각
+ * @param targetSource         갈아탈 차량 도착을 무엇으로 알아냈는지(실시간·모델). 모르면 null
+ * @param modelVersion         모델이 추정한 경우의 모델 이름. 그 외에는 null
  */
 public record TransferRiskAssessment(
         int transferIndex,
@@ -31,8 +33,32 @@ public record TransferRiskAssessment(
         Instant nextBusArrivalAt,
         Long transferSlackSeconds,
         CurrentLegArrival.Quality confidence,
-        Instant calculatedAt
+        Instant calculatedAt,
+        CurrentLegArrival.Source targetSource,
+        String modelVersion
 ) {
+
+    /**
+     * 이 판정이 앱에 보일 값 기준으로 직전 판정과 같은지.
+     *
+     * <p>{@code calculatedAt} 은 비교하지 않는다. 그것은 매 평가마다 달라지므로 넣으면 늘 "달라졌다"가
+     * 되고, 그러면 여정 번호가 30초마다 올라 앱이 같은 응답을 계속 다시 받는다.
+     *
+     * <p>반대로 상태만 비교해도 안 된다. {@code CATCHABLE} 그대로인데 버스가 3분 뒤에서 1분 뒤로
+     * 바뀐 경우가 가장 흔하고, 그때 번호가 안 오르면 앱은 조회해도 <b>바뀐 것 없음</b>(204)을 받아
+     * 새 도착 시각을 영원히 못 본다.
+     */
+    public boolean sameAs(TransferRiskAssessment other) {
+        if (other == null) {
+            return false;
+        }
+        return status == other.status
+                && java.util.Objects.equals(currentLegArrivalAt, other.currentLegArrivalAt)
+                && java.util.Objects.equals(userReadyAt, other.userReadyAt)
+                && java.util.Objects.equals(nextBusArrivalAt, other.nextBusArrivalAt)
+                && java.util.Objects.equals(transferSlackSeconds, other.transferSlackSeconds)
+                && targetSource == other.targetSource;
+    }
 
     public boolean isUnknown() {
         return status == TransferStatus.UNKNOWN;

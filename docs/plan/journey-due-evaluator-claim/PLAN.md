@@ -100,6 +100,16 @@ List<Long> claimDueBatch(@Param("now") Instant now,
 - V35 `idx_journey_due` = `(next_evaluation_at) WHERE status='ACTIVE' AND deleted_at IS NULL` 를 그대로 쓴다. 조건에 칼럼 연산을 넣지 말 것
 - 착수 시 `EXPLAIN` 으로 인덱스 사용을 확인하고 PLAN 에 결과를 덧붙인다. 인덱스가 안 붙으면 V39 로 부분 인덱스 추가
 
+**확인 결과(2026-08-04).** `journey_session` 구조를 그대로 복제한 20,000행 표에서 claim 조건을 `EXPLAIN` 한 결과다.
+
+```
+Limit
+  ->  Index Scan using js_next_evaluation_at_idx on js s
+        Index Cond: ((next_evaluation_at IS NOT NULL) AND (next_evaluation_at <= now()))
+```
+
+부분 인덱스를 그대로 타고 `ORDER BY next_evaluation_at` 이 인덱스 순서로 해결돼 **정렬 단계가 사라진다.** → **V39 불필요, 마이그레이션 없음.** (개발 DB 는 12행뿐이라 그대로 `EXPLAIN` 하면 Seq Scan 이 나온다. 행 수가 적어서 그런 것이므로 판단 근거로 쓰지 말 것)
+
 **`leaseUntil` 은 소유권 증서다(D9).** 여정마다 값이 다르게 나오도록 **여정별로 계산한 값을 그대로 되받아** 저장 조건에 쓴다. 그래서 claim 은 여정 번호와 함께 그 번호에 심은 lease 시각을 함께 돌려줘야 한다.
 
 ```java
@@ -338,19 +348,19 @@ public void run()
 
 ## 4. 작업 순서
 
-- [ ] 1. `EXPLAIN` 으로 claim 조건이 `idx_journey_due` 를 쓰는지 확인, 결과를 이 문서에 기록
-- [ ] 2. `JourneyEvaluatorProperties` + `application.yaml` (기본 off)
-- [ ] 3. `JourneySessionRepository.claimDueBatch`(jitter 포함, `DueClaim` 반환) + `JourneySession.scheduleEvaluationAt` / `end()` 에서 비우기
-- [ ] 4. seeding — `JourneyStartTxService`, `JourneyCommandService`
-- [ ] 5. `CurrentLegArrival.Source.MODEL_ARRIVAL` 추가
-- [ ] 6. `TransferTargetArrivalPredictor` 포트 + 버스·지하철 구현(horizon 포함) + `TransferTargetArrivalService`
-- [ ] 7. `TransferRiskAssessment` 에 `targetSource`·`modelVersion` 추가 → `TransferRiskEvaluator` 를 `assess`/`assessAndStore` 로 분리 + 앵커 전환 → `TransferAssessmentWriter` 저장 확장
-- [ ] 8. `JourneyLeg.applyBoardingPrediction` + 평가 시 대기 leg 예측 저장
-- [ ] 9. `JourneyEvaluationScheduleWriter`(소유권 CAS + `bump` 판정) → `JourneyEvaluationService`(§3.5 의 5→6 순서)
-- [ ] 10. `JourneySnapshotEtaComposer` 에 D12 분기 한 줄
-- [ ] 11. `JourneyEvaluatorPoolConfig` + `JourneyDueEvaluatorScheduler`(실패 종류별 재예약)
-- [ ] 12. `JourneyEvaluationMetrics` 배선
-- [ ] 13. 테스트(§5) → 전체 스위트 → PR
+- [x] 1. `EXPLAIN` 으로 claim 조건이 `idx_journey_due` 를 쓰는지 확인, 결과를 이 문서에 기록
+- [x] 2. `JourneyEvaluatorProperties` + `application.yaml` (기본 off)
+- [x] 3. `JourneySessionRepository.claimDueBatch`(jitter 포함, `DueClaim` 반환) + `JourneySession.scheduleEvaluationAt` / `end()` 에서 비우기
+- [x] 4. seeding — `JourneyStartTxService`, `JourneyCommandService`
+- [x] 5. `CurrentLegArrival.Source.MODEL_ARRIVAL` 추가
+- [x] 6. `TransferTargetArrivalPredictor` 포트 + 버스·지하철 구현(horizon 포함) + `TransferTargetArrivalService`
+- [x] 7. `TransferRiskAssessment` 에 `targetSource`·`modelVersion` 추가 → `TransferRiskEvaluator` 를 `assess`/`assessAndStore` 로 분리 + 앵커 전환 → `TransferAssessmentWriter` 저장 확장
+- [x] 8. `JourneyLeg.applyBoardingPrediction` + 평가 시 대기 leg 예측 저장
+- [x] 9. `JourneyEvaluationScheduleWriter`(소유권 CAS + `bump` 판정) → `JourneyEvaluationService`(§3.5 의 5→6 순서)
+- [x] 10. `JourneySnapshotEtaComposer` 에 D12 분기 한 줄
+- [x] 11. `JourneyEvaluatorPoolConfig` + `JourneyDueEvaluatorScheduler`(실패 종류별 재예약)
+- [x] 12. `JourneyEvaluationMetrics` 배선
+- [x] 13. 테스트(§5) → 전체 스위트 → PR
 
 3~4 는 서로 의존한다(seeding 이 없으면 claim 대상이 0). 6~8 은 4 와 독립이라 병행 가능. 9 는 3(claim 이 lease 값을 돌려줘야 CAS 조건을 만들 수 있다)에 의존한다.
 
@@ -417,6 +427,26 @@ flag 를 켠 뒤 로컬에서 여정 하나를 시작하고 30초 기다린다. 
 - 응답에 `eta.evaluatedAt` 추가 — 앱이 신선도를 판단할 수 있게
 - 이 PR 이 머지되면 실시간 호출이 요청 경로에서 완전히 빠지고 `snapshot p95 500ms`(SC-13)를 provider 지연이 직접 깨지 못한다
 - §3.5.1 의 `assess`/`assessAndStore` 분기도 여기서 사라진다 — 조회는 계산을 아예 하지 않는다
+
+## 8.5 구현하면서 계획과 달라진 것 (2026-08-05)
+
+계획을 따르되 다음 다섯 가지는 구현 중에 더 단순하거나 더 안전한 쪽으로 바꿨다.
+
+**① 선점 시각의 흩뜨림을 SQL 이 아니라 Java 에서 한다.** 계획은 claim SQL 안에서 `journeyId % jitter` 로 여정마다 다른 lease 를 심고 그 값을 되받는 모양이었다. 실제로는 배치 전체가 같은 lease 값을 쓰고, 그 값을 Java 에서 계산해 넘긴다. 소유권 증서로서의 유일성은 흩뜨림이 아니라 **선점 시각**에서 나온다 — 같은 여정을 두 워커가 동시에 잡는 일은 `SKIP LOCKED` 가 막고, 두 번째 선점은 lease 가 만료된 뒤(60초 후)에만 일어나므로 두 lease 값이 같아질 수 없다. 흩뜨림은 필요한 곳, 즉 **다음 평가 시각**에만 적용한다(`JourneyEvaluationService.nextEvaluationAt`). 결과 매핑(다중 컬럼 `RETURNING`)도 함께 사라져 쿼리가 단순해졌다.
+
+**② 소유권 확인과 저장을 한 트랜잭션에 넣는다.** 계획은 5(확인·다음 시각) → 6(판정 저장)을 별도 트랜잭션으로 두었다. 둘 다 DB 만 만지는 짧은 작업이라 나눌 이유가 없고, 나누면 "확인은 통과했는데 저장만 실패한" 상태가 생긴다. 그때 여정은 이미 30초 뒤로 밀려 있어 그 사이 조회는 갱신되지 않은 판정을 읽는다. `JourneyEvaluationScheduleWriter.finish` 하나가 확인 → 판정 저장 → 대기 단계 예측 저장을 함께 한다.
+
+**③ provider 차단을 예측 결과가 직접 실어 온다.** 계획의 실패 분류표는 차단을 어떻게 알아내는지 말하지 않았다. 예측기 안에서 `BLOCKED`·`LIMITED` 가 UNKNOWN 으로 뭉개지기 때문에 밖에서는 구분할 수 없었다. `TransferTargetArrival.upstreamBlocked` 를 두어 그 사실을 위로 올리고, 차단이면 다음 평가를 4배 늦춘다. 재시도 자체는 별도 재예약 없이 **선점 만료**가 처리한다 — 예외가 나면 CAS 를 못 했으니 다음 평가 시각이 선점 값 그대로 남아 60초 뒤에 다시 잡힌다.
+
+**④ 상태 로드를 별도 빈으로 뺐다.** `JourneyEvaluationService` 안에 `@Transactional` 메서드를 두면 자기 호출이라 프록시를 지나지 않아 트랜잭션이 조용히 사라진다. `JourneyEvaluationContextLoader` 로 분리했다(같은 함정을 `TransferAssessmentWriter` 가 이미 피하고 있다).
+
+**⑤ DTO 가 계획보다 늘었다.** `TransferAssessmentBatch`(판정 + 대기 단계별 원본 예측), `TransferTargetArrival`(예측 + 모델 이름 + 차단 여부), `JourneyDueClaim`, `JourneyEvaluationOutcome`, `JourneyEvaluationService.Report`. 이유는 하나다 — 판정으로 합쳐지는 과정에서 원본 값(예측 신뢰도·모델 이름·차단 여부)이 묻히는데, 그것들이 저장과 계측에 필요하다.
+
+### 시험을 쓰면서 드러난 사실
+
+- **정류장·노선이 해석돼 있어야 예측이 일어난다.** `journey_leg.start_stop_id` 와 `journey_leg_route_option.boarding_seq` 가 비어 있으면 예측기가 조회를 건너뛴다(Phase 3 부터의 규칙). 통합시험은 그 두 값을 직접 채운다 — 정류장 해석은 별개 관심사다
+- **환승이 예측 시야 안에 있어야 한다.** 첫 버스가 20분이면 환승까지 23분이 남아 시야(15분) 밖이므로 아무 예측도 일어나지 않는다. 정상 동작이다. 시험 경로의 첫 버스를 5분으로 줄였다
+- **`given(mock.method(...))` 로 같은 mock 을 두 번 스텁하지 말 것.** 두 번째 스텁이 첫 번째 답을 실제로 실행해 엉뚱한 곳에서 터진다. `willAnswer(...).given(mock).method(...)` 형태를 쓴다
 
 ## 9. codex 설계 리뷰 (2026-08-04)
 

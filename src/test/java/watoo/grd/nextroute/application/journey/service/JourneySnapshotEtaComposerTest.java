@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegView;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
@@ -43,6 +44,7 @@ class JourneySnapshotEtaComposerTest {
     private GetJourneyNavigationGeometryUseCase geometryUseCase;
     private CurrentLegArrivalService arrivalService;
     private TransferRiskEvaluator transferRiskEvaluator;
+    private JourneyEvaluatorProperties evaluatorProperties;
     private JourneySnapshotEtaComposer composer;
 
     /** 0=RIDE_BUS(현재), 1=TRANSFER_WALK(120초), 2=WAIT_BUS, 3=RIDE_BUS(600초), 4=WALK(180초) */
@@ -54,8 +56,11 @@ class JourneySnapshotEtaComposerTest {
         geometryUseCase = mock(GetJourneyNavigationGeometryUseCase.class);
         arrivalService = mock(CurrentLegArrivalService.class);
         transferRiskEvaluator = mock(TransferRiskEvaluator.class);
+        // 평가기가 꺼진 상태를 기본으로 둔다 — 조회 경로가 스스로 계산하고 저장하는 현재 동작이다.
+        evaluatorProperties = new JourneyEvaluatorProperties();
         composer = new JourneySnapshotEtaComposer(
-                legRepository, geometryUseCase, arrivalService, transferRiskEvaluator);
+                legRepository, geometryUseCase, arrivalService, transferRiskEvaluator,
+                evaluatorProperties);
 
         legs = List.of(
                 leg(0, JourneyLegType.RIDE_BUS, 1200),
@@ -67,7 +72,7 @@ class JourneySnapshotEtaComposerTest {
                 JOURNEY_ID, REVISION)).willReturn(legs);
         given(geometryUseCase.get(anyLong(), anyLong(), anyInt()))
                 .willReturn(new JourneyNavigationGeometry(JOURNEY_ID, REVISION, List.of(), null));
-        given(transferRiskEvaluator.evaluate(anyLong(), anyInt(), any())).willReturn(List.of());
+        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), any())).willReturn(List.of());
     }
 
     @Test
@@ -106,7 +111,7 @@ class JourneySnapshotEtaComposerTest {
     @DisplayName("아직 지나지 않은 환승만 활성 환승으로 고른다")
     void picksUpcomingTransfer() {
         givenCurrentArrival(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
-        given(transferRiskEvaluator.evaluate(anyLong(), anyInt(), any())).willReturn(List.of(
+        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), any())).willReturn(List.of(
                 assessment(0, 0, 2, TransferStatus.CATCHABLE, 150L)));
 
         var transfer = composer.compose(USER_ID, snapshot(0)).eta().activeTransfer();
@@ -122,7 +127,7 @@ class JourneySnapshotEtaComposerTest {
     @DisplayName("이미 지나온 환승은 고르지 않는다")
     void skipsPassedTransfer() {
         givenCurrentArrival(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
-        given(transferRiskEvaluator.evaluate(anyLong(), anyInt(), any())).willReturn(List.of(
+        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), any())).willReturn(List.of(
                 assessment(0, 0, 2, TransferStatus.COMFORTABLE, 400L)));
 
         // 이미 4번 단계(마지막 걷기)까지 왔으면 2번 대기 단계 환승은 지나간 것이다
@@ -133,7 +138,7 @@ class JourneySnapshotEtaComposerTest {
     @DisplayName("목적지 ETA 는 남은 단계를 이어 더하고 대기 단계는 다음 차량 도착으로 다시 기준 잡는다")
     void composesJourneyEta() {
         givenCurrentArrival(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
-        given(transferRiskEvaluator.evaluate(anyLong(), anyInt(), any())).willReturn(List.of(
+        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), any())).willReturn(List.of(
                 assessment(0, 0, 2, TransferStatus.CATCHABLE, 150L)));
 
         Instant journeyEta = composer.compose(USER_ID, snapshot(0)).eta().journeyEta();
@@ -146,7 +151,7 @@ class JourneySnapshotEtaComposerTest {
     @DisplayName("대기 단계의 다음 차량 시각을 모르면 목적지 ETA 를 만들지 않는다")
     void unknownWaitMeansUnknownJourneyEta() {
         givenCurrentArrival(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
-        given(transferRiskEvaluator.evaluate(anyLong(), anyInt(), any())).willReturn(List.of());
+        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), any())).willReturn(List.of());
 
         assertThat(composer.compose(USER_ID, snapshot(0)).eta().journeyEta()).isNull();
     }
@@ -155,7 +160,7 @@ class JourneySnapshotEtaComposerTest {
     @DisplayName("환승이 위험하면 다음 행동이 환승 준비이고 폴링을 좁힌다")
     void atRiskTransferChangesActionAndPolling() {
         givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
-        given(transferRiskEvaluator.evaluate(anyLong(), anyInt(), any())).willReturn(List.of(
+        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), any())).willReturn(List.of(
                 assessment(0, 0, 2, TransferStatus.AT_RISK, 30L)));
 
         JourneySnapshot result = composer.compose(USER_ID, snapshot(0));
@@ -182,8 +187,23 @@ class JourneySnapshotEtaComposerTest {
         JourneySnapshot result = composer.compose(USER_ID, finished);
 
         assertThat(result.eta()).isNull();
-        verify(transferRiskEvaluator, never()).evaluate(anyLong(), anyInt(), any());
+        verify(transferRiskEvaluator, never()).assessAndStore(anyLong(), anyInt(), any());
+        verify(transferRiskEvaluator, never()).assess(anyLong(), anyInt(), any());
         verify(geometryUseCase, never()).get(anyLong(), anyLong(), anyInt());
+    }
+
+    @Test
+    @DisplayName("평가기가 켜져 있으면 조회는 계산만 하고 저장하지 않는다")
+    void doesNotStoreWhileEvaluatorRuns() {
+        evaluatorProperties.setEnabled(true);
+        given(transferRiskEvaluator.assess(anyLong(), anyInt(), any()))
+                .willReturn(watoo.grd.nextroute.application.journey.dto.TransferAssessmentBatch.empty());
+        givenCurrentArrival(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
+
+        composer.compose(USER_ID, snapshot(0));
+
+        verify(transferRiskEvaluator).assess(anyLong(), anyInt(), any());
+        verify(transferRiskEvaluator, never()).assessAndStore(anyLong(), anyInt(), any());
     }
 
     @Test
@@ -239,7 +259,8 @@ class JourneySnapshotEtaComposerTest {
                                               TransferStatus status, Long slack) {
         return new TransferRiskAssessment(transferIndex, fromLegIndex, toLegIndex, status,
                 NOW.plusSeconds(300), NOW.plusSeconds(450), NOW.plusSeconds(600),
-                slack, CurrentLegArrival.Quality.GOOD, NOW);
+                slack, CurrentLegArrival.Quality.GOOD, NOW,
+                CurrentLegArrival.Source.REALTIME_ARRIVAL, null);
     }
 
     private JourneyLeg leg(int index, JourneyLegType type, Integer plannedSeconds) {
