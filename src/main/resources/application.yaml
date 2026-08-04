@@ -321,3 +321,14 @@ batch:
     bus-label-chunk-size: 2000
   bus-label:
     correction-window-minutes: 10
+
+journey:
+  navigation:
+    # 만료 판정 기준(lease 180초 + 유예 120초)·지하철 보호 상한은 JourneyNavigationProperties 의
+    # 기본값을 쓴다. 여기 있는 값은 "얼마나 자주, 몇 건씩 훑을지"뿐이다.
+    expiry:
+      # 만료가 정상 사용자의 여정을 접는 상황이면 배포를 기다리지 않고 끈다. worker 프로필에서만 돈다.
+      enabled: ${JOURNEY_EXPIRY_ENABLED:true}
+      interval-ms: ${JOURNEY_EXPIRY_INTERVAL_MS:30000}
+      batch-size: 200
+      max-sweeps-per-tick: 5
