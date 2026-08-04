@@ -13,6 +13,7 @@ import watoo.grd.nextroute.common.entity.BaseEntity;
 
 import java.time.Instant;
 import java.math.BigDecimal;
+import java.util.UUID;
 
 /**
  * 여정을 쪼갠 한 단계. "걷기 / 기다리기 / 타고 가기" 중 하나다.
@@ -96,6 +97,15 @@ public class JourneyLeg extends BaseEntity {
     /** 근거를 얼마나 믿을 수 있는지. 지금 정의된 값은 {@link #EVIDENCE_QUALITY_UNKNOWN} 뿐이다. */
     @Column(length = 20)
     private String evidenceQuality;
+
+    /**
+     * 마지막으로 반영한 progress 의 식별자. command 의 {@code eventId} 와 별개다.
+     *
+     * <p>앱은 응답을 못 받으면 같은 progress 를 다시 보낸다. 그때 같은 값으로 다시 반영하면
+     * {@code evaluationVersion} 이 두 번 올라가고, 앱은 상태가 바뀐 줄 알고 화면을 다시 그린다.
+     * 그래서 "이미 이 progress 를 봤다"를 여기 남긴다.
+     */
+    private UUID lastProgressId;
 
     /** Phase 3에서 앱 progress 요약을 저장할 자리. 정밀 좌표는 저장하지 않는다. */
     private Integer progressGeometrySegmentIndex;

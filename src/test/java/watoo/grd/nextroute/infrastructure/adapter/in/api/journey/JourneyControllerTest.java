@@ -22,6 +22,7 @@ import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
+import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyProgressUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.common.config.CorsConfig;
@@ -73,6 +74,7 @@ class JourneyControllerTest {
     @MockBean GetActiveJourneyUseCase getActiveJourneyUseCase;
     @MockBean ApplyJourneyEventUseCase applyJourneyEventUseCase;
     @MockBean GetJourneyUseCase getJourneyUseCase;
+    @MockBean ApplyJourneyProgressUseCase applyJourneyProgressUseCase;
     @MockBean JwtProvider jwtProvider;                 // SecurityConfig 의존
     @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
     @MockBean AdminProperties adminProperties;         // SecurityConfig(AdminApiKeyFilter) 의존

@@ -8,9 +8,12 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
+import watoo.grd.nextroute.application.journey.exception.ProgressTimestampConflictException;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
 import watoo.grd.nextroute.global.error.ErrorResponse;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
+
+import java.time.Instant;
 
 /** 여정 도메인의 예외를 공통 오류 응답으로 변환한다. */
 @RestControllerAdvice(basePackageClasses = JourneyController.class)
@@ -25,6 +28,16 @@ public class JourneyControllerAdvice {
     JourneyErrorCode errorCode = JourneyErrorCode.ACTIVE_JOURNEY_EXISTS;
     return ResponseEntity.status(errorCode.getHttpStatus())
         .body(ErrorResponse.of(errorCode, request.getRequestURI(), exception.getCurrent()));
+  }
+
+  /** 충돌한 관측 시각을 details에 담는다. 앱이 어느 sample 이 문제였는지 알 수 있어야 한다. */
+  @ExceptionHandler(ProgressTimestampConflictException.class)
+  public ResponseEntity<ErrorResponse<Instant>> handleProgressConflict(
+      ProgressTimestampConflictException exception,
+      HttpServletRequest request) {
+    JourneyErrorCode errorCode = JourneyErrorCode.PROGRESS_TIMESTAMP_CONFLICT;
+    return ResponseEntity.status(errorCode.getHttpStatus())
+        .body(ErrorResponse.of(errorCode, request.getRequestURI(), exception.getObservedAt()));
   }
 
   /** 현재 개정본을 details에 담아 앱이 좌표를 곧바로 다시 받을 수 있게 한다. */

@@ -3,11 +3,13 @@ package watoo.grd.nextroute.domain.journey.repository;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 
+import java.time.Instant;
 import java.util.Optional;
 
 /**
@@ -42,4 +44,39 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
             """)
     Optional<JourneySession> findByIdAndUserIdForUpdate(@Param("id") Long id,
                                                         @Param("userId") Long userId);
+
+    /**
+     * 평가 번호만 하나 올린다. 진행 중인 여정에만 적용한다.
+     *
+     * <p>{@code commandVersion} 은 건드리지 않는다. progress 는 명령이 아니라 관측이라서, 이것으로
+     * 낙관적 락이 깨지면 앱이 보낸 정상 명령이 충돌로 거절된다.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update JourneySession j
+               set j.evaluationVersion = j.evaluationVersion + 1
+             where j.id = :id and j.status = watoo.grd.nextroute.domain.journey.entity.JourneyStatus.ACTIVE
+               and j.deletedAt is null
+            """)
+    int bumpEvaluationVersion(@Param("id") Long id);
+
+    /**
+     * lease 를 연장한다. 마지막 신호가 {@code coalesceBefore} 보다 오래됐을 때만 쓴다.
+     *
+     * <p>progress 는 15초(하차 임박 5초)마다 들어오는데 그때마다 이 행을 쓰면 여정 하나가
+     * 계속 갱신되는 hot row 가 된다. 실제 쓰기를 여정별 최대 60초에 한 번으로 합치는 이유다.
+     * lease 자체는 3분이라 60초 간격으로 늘려도 만료되지 않는다.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update JourneySession j
+               set j.lastHeartbeatAt = :now, j.guidanceLeaseUntil = :leaseUntil
+             where j.id = :id and j.status = watoo.grd.nextroute.domain.journey.entity.JourneyStatus.ACTIVE
+               and j.deletedAt is null
+               and j.lastHeartbeatAt < :coalesceBefore
+            """)
+    int extendLeaseIfStale(@Param("id") Long id,
+                           @Param("now") Instant now,
+                           @Param("leaseUntil") Instant leaseUntil,
+                           @Param("coalesceBefore") Instant coalesceBefore);
 }
