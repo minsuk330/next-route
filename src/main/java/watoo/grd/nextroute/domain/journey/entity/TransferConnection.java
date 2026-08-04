@@ -105,4 +105,34 @@ public class TransferConnection extends BaseEntity {
         this.toLegIndex = toLegIndex;
         this.status = status;
     }
+
+    /**
+     * 위험도 판정 결과를 반영한다.
+     *
+     * <p>어떤 상태로 갈 수 있는지는 여기서 따지지 않는다. 떨림 방지를 포함한 판정은 여유와 직전
+     * 상태를 함께 봐야 하므로 {@code TransferRiskPolicy} 가 정한다.
+     *
+     * <p>{@code lastNotifiedStatus} 는 건드리지 않는다. 그것은 "알렸는가"의 기록이고 알림을
+     * 보내는 쪽(Phase 5)이 소유한다. 여기서 같이 바꾸면 판정만 하고 알림은 안 보낸 상태를
+     * 이미 알린 것으로 오해한다.
+     */
+    public void applyAssessment(TransferStatus status,
+                                Instant currentLegArrivalAt,
+                                Instant userReadyAt,
+                                Instant nextBusArrivalAt,
+                                Integer transferSlackSeconds,
+                                String source,
+                                String confidence,
+                                Instant calculatedAt,
+                                Instant dataObservedAt) {
+        this.status = status;
+        this.currentLegArrivalAt = currentLegArrivalAt;
+        this.userReadyAt = userReadyAt;
+        this.nextBusArrivalAt = nextBusArrivalAt;
+        this.transferSlackSeconds = transferSlackSeconds;
+        this.source = source;
+        this.confidence = confidence;
+        this.calculatedAt = calculatedAt;
+        this.dataObservedAt = dataObservedAt;
+    }
 }
