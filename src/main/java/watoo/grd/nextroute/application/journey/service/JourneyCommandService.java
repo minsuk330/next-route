@@ -8,12 +8,10 @@ import watoo.grd.nextroute.application.journey.dto.JourneyEventOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.JourneyTransition;
 import watoo.grd.nextroute.application.journey.dto.LegStateChange;
-import watoo.grd.nextroute.application.journey.config.JourneyNavigationProperties;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEvent;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
-import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.repository.JourneyEventRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
@@ -44,7 +42,7 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
     private static final String EVENT_ID_REUSED = "EVENT_ID_REUSED";
 
     private final JourneySessionRepository sessionRepository;
-    private final JourneyNavigationProperties navigationProperties;
+    private final SubwayOfflineProtectionPolicy subwayProtectionPolicy;
     private final JourneyLegRepository legRepository;
     private final JourneyEventRepository eventRepository;
     private final JourneyStateMachine stateMachine;
@@ -129,7 +127,9 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
         }
         if (transition.newCurrentLegIndex() != null) {
             journey.moveToLeg(transition.newCurrentLegIndex());
-            updateSubwayProtection(journey, legsByIndex.get(transition.newCurrentLegIndex()), appliedAt);
+            // 지하철에 들어가면 보호 시각을 세우고, 벗어나면 지운다. 계산은 정책이 소유한다.
+            subwayProtectionPolicy.apply(journey,
+                    legsByIndex.get(transition.newCurrentLegIndex()), null, appliedAt);
         }
         if (transition.newStatus() != null) {
             journey.end(transition.newStatus(), transition.endReason(), appliedAt);
@@ -139,25 +139,6 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
         }
         legRepository.flush();
         sessionRepository.flush();
-    }
-
-    private void updateSubwayProtection(JourneySession journey, JourneyLeg currentLeg, Instant at) {
-        if (currentLeg == null || currentLeg.getType() != JourneyLegType.RIDE_SUBWAY) {
-            journey.clearSubwayProtection();
-            return;
-        }
-        Instant legStartedAt = currentLeg.getActivatedAt() != null
-                ? currentLeg.getActivatedAt() : at;
-        Instant predictedEndAt = currentLeg.getPredictedEndAt();
-        if (predictedEndAt == null) {
-            int plannedSeconds = currentLeg.getPlannedDurationSec() == null
-                    ? 0 : currentLeg.getPlannedDurationSec();
-            predictedEndAt = legStartedAt.plusSeconds(plannedSeconds);
-        }
-        Instant predictedProtection = predictedEndAt.plus(navigationProperties.subwayProtectionBuffer());
-        Instant cappedProtection = legStartedAt.plus(navigationProperties.subwayProtectionCap());
-        journey.protectSubwayUntil(predictedProtection.isBefore(cappedProtection)
-                ? predictedProtection : cappedProtection);
     }
 
     /**

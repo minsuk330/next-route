@@ -45,6 +45,7 @@ public class JourneyProgressService implements ApplyJourneyProgressUseCase {
     private final JourneySessionRepository sessionRepository;
     private final JourneyLegRepository legRepository;
     private final JourneyQueryService queryService;
+    private final SubwayOfflineProtectionPolicy subwayProtectionPolicy;
     private final JourneyNavigationProperties properties;
     private final Clock clock;
 
@@ -73,7 +74,38 @@ public class JourneyProgressService implements ApplyJourneyProgressUseCase {
         JourneySession refreshed = sessionRepository
                 .findByIdAndUserIdAndDeletedAtIsNull(journeyId, userId)
                 .orElseThrow(() -> new BusinessException(JourneyErrorCode.JOURNEY_NOT_FOUND));
+        refreshSubwayProtection(refreshed, leg, command, result);
         return new JourneyProgressOutcome(result, queryService.snapshotOf(refreshed));
+    }
+
+    /**
+     * 지하철 보호 시각을 새 관측으로 다시 계산한다(SC-12 3항).
+     *
+     * <p>단계 전이 때 세운 보호 시각은 검색이 준 계획 소요시간에서 나온 값이다. 실제 지하철이
+     * 늦으면 그 시각이 지나 버리고, 앱이 정상인데도 여정이 만료 대상이 된다. 앱이 "이 단계가
+     * 아직 얼마나 남았다"고 보고할 때마다 그 값으로 다시 세운다.
+     *
+     * <p>다시 세우는 조건이 셋이다.
+     * <ul>
+     *   <li>실제로 반영된 관측일 때만 — 재전송이나 뒤늦게 온 관측으로는 움직이지 않는다</li>
+     *   <li>보고한 단계가 지금 지나는 단계일 때만 — progress 는 다음 단계를 미리 가리킬 수 있다</li>
+     *   <li>남은 시간을 함께 보냈을 때만 — 없으면 정책이 계획 소요시간으로 내려간다</li>
+     * </ul>
+     *
+     * <p>60분 상한은 정책이 지킨다. 앱이 계속 "더 걸린다"고 해도 단계 시작 + 60분을 넘기지 않는다.
+     *
+     * <p>여정 행을 다시 읽은 뒤에 건드리는 이유 — 위의 조건부 UPDATE 들이 영속성 컨텍스트를
+     * 비우므로, 그 전에 바꾼 값은 사라진다.
+     */
+    private void refreshSubwayProtection(JourneySession journey, JourneyLeg leg,
+                                         JourneyProgressCommand command, Result result) {
+        if (result != Result.APPLIED || command.legIndex() != journey.getCurrentLegIndex()) {
+            return;
+        }
+        Instant observedEndAt = command.remainingDurationSeconds() == null
+                ? null
+                : command.observedAt().plusSeconds(command.remainingDurationSeconds());
+        subwayProtectionPolicy.apply(journey, leg, observedEndAt, Instant.now(clock));
     }
 
     /**
