@@ -11,6 +11,7 @@
 - 지하철 실시간 ETA·하차 알림 제외 반영일: 2026-08-03
 - GPS 1초 수집·progress 15초/5초 업로드 반영일: 2026-08-03
 - 전체 선택 경로 지도 표시 반영일: 2026-08-03
+- local checkpoint 계측·progress 멱등 계약 반영일: 2026-08-04
 - 대상 레포: React Native `nextroute-app`
 
 ## 1. 책임 경계
@@ -24,7 +25,7 @@
 - 오프라인 command: `eventId`를 가진 로컬 outbox에 저장 후 재전송
 - 초 단위 남은 시간: 서버의 절대 ETA와 `serverTime`을 기준으로 로컬 계산
 - 네이티브 GPS 요청 주기는 ACTIVE Journey 동안 1초. 실제 callback 간격은 OS 정책에 따라 늦어질 수 있으므로 위치와 함께 수신 시각을 사용
-- progress 업로드는 기본 15초, `RIDE_BUS && remainingStops <= 2`이면 5초. 정상 progress 요청이 heartbeat를 겸하고, progress를 만들지 못하면 최대 30초 heartbeat로 3분 `guidanceLeaseUntil` 연장
+- progress마다 command `eventId`와 별개인 `progressId`를 만들고 재시도 동안 유지한다. 업로드는 기본 15초, `RIDE_BUS && remainingStops <= 2`이면 5초. 정상 progress 요청이 heartbeat를 겸하고, progress를 만들지 못하면 최대 30초 heartbeat로 3분 `guidanceLeaseUntil` 연장
 - `RIDE_SUBWAY` 진입 snapshot의 `subwayOfflineProtectionUntil`을 로컬에 보존한다. GPS callback이 끊겨 heartbeat를 보내지 못해도 보호 시각 전에는 로컬 Journey를 임의 종료하지 않는다.
 - 하차 알림: native background location callback에서 GPS progress를 계산해 local notification 발생
 - 환승 위험·재탐색 제안: 서버 FCM 수신 후 REST로 최신 snapshot 조회
@@ -155,7 +156,7 @@ confirmedProgressByLeg[legId]
 - 남은 정류장·남은 시간 표시
 - 기본 하차 준비·이번 정류장 두 단계 알림 표시
 - 3정거장 전·1정거장 전 세분화는 운영 계측 후 설정으로 확장
-- leg·checkpoint 단위 local dedup으로 중복 표시 차단
+- 채널 없는 `logicalCheckpointKey = journeyId:routeRevision:scopeType:legIndex:checkpoint`를 기준으로 OS 알림·앱 배너 중복 표시를 차단하고, `deliveryKey = logicalCheckpointKey:LOCAL`로 local 처리 재시도를 흡수
 - GPS 정확도 저하·터널에서도 화면 마커 튐은 허용하되, 단일 sample로 leg 전이·`ALIGHT_NOW`를 확정하지 않음
 - 지하철 leg도 ODsay 정적 leg 시간 × GPS geometry progress로 남은 시간을 계산하고, GPS가 끊기면 마지막 절대 ETA countdown과 `APPROXIMATE`·마지막 갱신 시각을 표시
 - `WAIT_BUS`는 서버의 실시간 버스→ML ETA, `WAIT_SUBWAY`는 실시간 지하철 도착 ETA를 표시
@@ -177,6 +178,10 @@ confirmedProgressByLeg[legId]
 - Journey foreground 진입·이탈 구간을 누적해 전체 여정 대비 foreground 체류시간 계산
 - 화면 진입 원인을 `DIRECT|RESUME|PUSH`로 구분
 - push 선택, 환승 의사결정 구간 화면 진입, 이후 leg 전이·재탐색 수락 시간을 best-effort batch 전송
+- local checkpoint마다 `TRIGGERED|PRESENTED|DEDUP_SUPPRESSED|OPENED`를 기록하고 재시도 동안 유지하는 고유 `telemetryId`, `routeRevision`, `legIndex`, `checkpoint`, `checkpointOccurrenceId`, `surface(IN_APP_BANNER|OS_NOTIFICATION)`, `triggeredAt`, `occurredAt`을 best-effort batch 전송
+- 전송 실패 시 같은 `telemetryId`로 batch를 재시도해 서버 집계가 표시 중복으로 오판하지 않게 함
+- `telemetryId`·`checkpointOccurrenceId`는 telemetry dedup·상관관계에만 사용하며 metric tag로 사용하지 않고, 정밀 좌표는 checkpoint telemetry에도 포함하지 않음
+- 네이티브 표시 coordinator가 OS 알림과 앱 배너의 logical checkpoint dedup을 단일 소유하고, telemetry 전송 실패·오프라인 여부와 무관하게 중복 표시를 먼저 차단
 - telemetry 실패는 Journey command·polling·알림 처리를 막지 않음
 - 정밀 좌표·전체 위치 궤적은 telemetry에 포함하지 않음
 - `COMPLETED|CANCELED|EXPIRED` 또는 로그아웃 시 마지막 GPS sample·route geometry·pending event·local alert dedup 상태 삭제
@@ -204,5 +209,6 @@ confirmedProgressByLeg[legId]
 - 동일 노선의 후속 차량 탑승 시 차량 재선택 없이 GPS progress로 계속 진행
 - 재탐색 수락 후 이전 revision의 지도·알림·비동기 응답이 노출되지 않음
 - 위치 권한 거부·축소·회수 시 GPS 기반 진행·하차 알림을 중단하고 제한 상태를 명시
-- 포그라운드 체류 비율·화면 진입 원인·push 선택·alert-to-action telemetry가 중복 없이 집계됨
+- 포그라운드 체류 비율·화면 진입 원인·push 및 local checkpoint 선택·alert-to-action telemetry가 중복 없이 집계됨
+- local checkpoint의 표시·dedup 억제·선택·표시 지연을 surface별로 확인할 수 있고, 중복 표시 telemetry fixture가 해당 플랫폼 하차 알림 feature flag 중단 신호로 집계됨
 - terminal 상태·로그아웃·계정 삭제 후 정밀 위치 sample·geometry·pending event가 로컬에 남지 않음

@@ -12,6 +12,7 @@
 - GPS 1초 수집·progress 15초/5초 업로드 반영일: 2026-08-03
 - 전체 선택 경로 지도 표시 반영일: 2026-08-03
 - 교통수단 공통 정적 geometry progress ETA 반영일: 2026-08-03
+- local checkpoint 계측·progress 멱등 계약 반영일: 2026-08-04
 - 대상 레포: Spring Boot 백엔드 `nextroute`
 - 모바일 경계: 본 계획은 API·이벤트·푸시 계약까지 포함하고, React Native 화면·네이티브 백그라운드 위치 코드는 별도 `nextroute-app`에서 구현한다.
 - 백그라운드 하차 판정은 RN JavaScript가 아니라 Swift `Core Location`·Kotlin foreground location service가 소유하며, local notification도 네이티브에서 직접 표시한다.
@@ -123,7 +124,7 @@ id, journeyId, routeRevision, legIndex
 type(WALK|WAIT_BUS|RIDE_BUS|WAIT_SUBWAY|RIDE_SUBWAY|TRANSFER_WALK)
 state(PENDING|ACTIVE|CONFIRMATION_REQUIRED|COMPLETED|SKIPPED|UNKNOWN)
 start/end stop·station identity, routeId, selectedRouteOptionId
-vehicleId(null/미사용), progressGeometrySegmentIndex, progressFraction, progressObservedAt
+vehicleId(null/미사용), lastProgressId, progressGeometrySegmentIndex, progressFraction, progressObservedAt
 progressSectionId(null 가능·버스 보조 식별자)
 plannedDuration, predictedEndAt, remainingStops
 evidenceSource, evidenceObservedAt, evidenceQuality
@@ -169,7 +170,7 @@ resultingCommandVersion, rejectionReason
 
 `eventId`로 중복 재전송을 흡수한다. 같은 `eventId`는 type·version·payload·`clientOccurredAt`까지 같은 요청에만 재사용하며, 다른 요청에 재사용하면 `409 EVENT_ID_REUSED`를 반환한다. `baseCommandVersion`이 다르면 409와 최신 스냅샷을 반환한다. ETA 평가에 따른 `evaluationVersion` 증가는 command 충돌을 만들지 않는다. 이전 `routeRevision`을 가리키는 이벤트는 적용하지 않는다.
 
-heartbeat와 progress는 JourneyEvent가 아니며 `commandVersion`을 증가시키지 않는다. progress는 `geometrySegmentIndex`, `segmentProgress`, `legProgress`, `remainingDistanceMeters`, `remainingDurationSeconds`, 버스의 `sectionId`·`remainingStops`, `observedAt`, `quality`만 수신하고 정밀 GPS 좌표 궤적은 저장하지 않는다. 인증된 사용자의 ACTIVE Journey만 조건부 갱신하고 progress도 heartbeat로 인정한다. progress 전송 간격은 기본 15초, `RIDE_BUS && remainingStops <= 2`에서 5초다. 유효한 progress를 만들지 못하면 최대 30초 heartbeat를 사용하고, iOS background에서는 임의 timer 대신 Core Location callback을 이용한다. PostgreSQL lease write는 Journey별 최대 60초에 한 번으로 합친다. 만료 worker는 `max(guidanceLeaseUntil + expirationGraceSeconds, subwayOfflineProtectionUntil)`이 지난 Journey만 종료하며, grace·보호 시각 안에 도착한 정상 신호는 일반 lease를 다시 연장한다. `RIDE_SUBWAY`가 활성화되면 서버가 정적 geometry ETA로 보호 시각을 설정한다. ETA가 아직 없으면 leg 시작 시각 + ODsay `plannedDuration`을 사용하고, 이후 최대 상한 안에서 progress 기반 ETA로 갱신하며, leg를 벗어나면 제거한다. leg 전이 command와 하차 local notification은 progress 전송 timer와 분리해 즉시 처리한다.
+heartbeat와 progress는 JourneyEvent가 아니며 `commandVersion`을 증가시키지 않는다. progress는 `progressId`, `geometrySegmentIndex`, `segmentProgress`, `legProgress`, `remainingDistanceMeters`, `remainingDurationSeconds`, 버스의 `sectionId`·`remainingStops`, `observedAt`, `quality`만 수신하고 정밀 GPS 좌표 궤적은 저장하지 않는다. 인증된 사용자의 ACTIVE Journey만 조건부 갱신하고 progress도 heartbeat로 인정한다. progress 전송 간격은 기본 15초, `RIDE_BUS && remainingStops <= 2`에서 5초다. 유효한 progress를 만들지 못하면 최대 30초 heartbeat를 사용하고, iOS background에서는 임의 timer 대신 Core Location callback을 이용한다. PostgreSQL lease write는 Journey별 최대 60초에 한 번으로 합친다. 만료 worker는 `max(guidanceLeaseUntil + expirationGraceSeconds, subwayOfflineProtectionUntil)`이 지난 Journey만 종료하며, grace·보호 시각 안에 도착한 정상 신호는 일반 lease를 다시 연장한다. `RIDE_SUBWAY`가 활성화되면 서버가 정적 geometry ETA로 보호 시각을 설정한다. ETA가 아직 없으면 leg 시작 시각 + ODsay `plannedDuration`을 사용하고, 이후 최대 상한 안에서 progress 기반 ETA로 갱신하며, leg를 벗어나면 제거한다. leg 전이 command와 하차 local notification은 progress 전송 timer와 분리해 즉시 처리한다.
 
 ### 4.5 알림
 
@@ -192,8 +193,10 @@ heartbeat와 progress는 JourneyEvent가 아니며 `commandVersion`을 증가시
 ### 4.7 UI 이용행태 telemetry
 
 - 포그라운드 체류 구간, Journey 화면 진입 원인(`DIRECT|RESUME|PUSH`), `alertId`, 환승 의사결정 구간 진입, 후속 사용자 행동을 best-effort로 수집한다.
+- 모바일 소유 local checkpoint는 `TRIGGERED|PRESENTED|DEDUP_SUPPRESSED|OPENED`를 수집한다. 각 event는 재시도 동안 유지하는 고유 `telemetryId`와 `routeRevision`, `legIndex`, `checkpoint`, `checkpointOccurrenceId`, `surface(IN_APP_BANNER|OS_NOTIFICATION)`, `triggeredAt`, `occurredAt`을 포함하고 정밀 좌표는 포함하지 않는다.
+- 사용자 표시 중복은 채널 없는 `logicalCheckpointKey`로, 채널별 전달 멱등성은 `deliveryKey = logicalCheckpointKey:channel`로 구분한다. `checkpointOccurrenceId`·Journey ID·사용자 ID는 원본 telemetry 상관관계에만 사용하고 metric tag로 사용하지 않는다.
 - telemetry는 Journey command·evaluation version을 변경하지 않으며 전송 실패가 여정 진행을 막지 않는다.
-- 모바일은 여러 UI event를 묶어 전송하고 서버는 저카디널리티 counter·histogram으로 집계한다.
+- 모바일은 여러 UI event를 묶어 전송하고 서버는 `telemetryId`로 배치 재전송을 dedup한 뒤 저카디널리티 counter·histogram으로 집계한다.
 - 정밀 좌표·전체 이동 궤적·push token은 telemetry payload와 metric tag에 포함하지 않는다.
 
 ## 5. API 계약
@@ -221,6 +224,7 @@ GET    /api/journeys/{journeyId}/navigation-geometry?routeRevision=
 POST   /api/journeys/{journeyId}/events
 POST   /api/journeys/{journeyId}/heartbeat
 PUT    /api/journeys/{journeyId}/progress
+POST   /api/journeys/{journeyId}/telemetry/batch
 POST   /api/journeys/{journeyId}/reroute-proposals
 GET    /api/journeys/{journeyId}/reroute-proposals/active
 POST   /api/journeys/{journeyId}/reroute-proposals/{proposalId}/accept
@@ -305,7 +309,7 @@ progress 요청 최소 필드:
 
 ```json
 {
-  "eventId": "uuid",
+  "progressId": "uuid",
   "routeRevision": 2,
   "legIndex": 3,
   "geometrySegmentIndex": 7,
@@ -320,7 +324,14 @@ progress 요청 최소 필드:
 }
 ```
 
-서버는 이전 revision·leg, 관측 시각 역전, 선택 leg에 없는 geometry segment·버스 section을 거절한다. GPS 튐을 서버가 복잡하게 재판정하지 않고, 모바일이 확정한 progress를 멱등적으로 병합해 `evaluationVersion`만 증가시킨다. leg 전이는 별도 `CLIENT_LEG_TRANSITION_DETECTED` command로 처리한다.
+`progressId`는 command의 `eventId`와 별개이며 같은 progress 요청을 재전송할 때 유지한다. 서버는 leg별 `lastProgressId`와 `progressObservedAt`만 보존하고 다음 규칙으로 조건부 병합한다.
+
+- 현재 `lastProgressId`와 같은 요청은 no-op이며 `evaluationVersion`을 증가시키지 않는다.
+- 새 `progressId`이고 `observedAt`이 현재 값보다 최신일 때만 progress를 갱신하고 `evaluationVersion`을 한 번 증가시킨다.
+- 현재보다 오래된 `observedAt`은 stale로 처리해 상태를 바꾸지 않는다.
+- 같은 `observedAt`에 다른 `progressId`·내용이 들어오면 `409 PROGRESS_TIMESTAMP_CONFLICT`로 거절한다.
+
+서버는 이전 revision·leg, 선택 leg에 없는 geometry segment·버스 section도 거절한다. GPS 튐을 서버가 복잡하게 재판정하지 않고 모바일이 확정한 최신 progress만 병합한다. leg 전이는 별도 `CLIENT_LEG_TRANSITION_DETECTED` command로 처리한다. 전체 progress 이력이나 정밀 좌표는 저장하지 않는다.
 
 재탐색 제안 최소 필드:
 
@@ -508,7 +519,8 @@ DELETE /api/me/push-token
 
 **작업**
 
-- 멱등 progress API와 routeRevision·leg·관측 시각·section 소속 검증
+- `progressId` 재전송 no-op과 `observedAt` 조건부 갱신을 갖는 멱등 progress API, routeRevision·leg·section 소속 검증
+- 다음 사용 가능한 Flyway migration으로 `journey_leg.last_progress_id` 추가
 - Journey 전체 navigation geometry API와 leg별 points·버스 section별 points·quality·sourceFetchedAt 계약
 - 이동 leg 공통 `StaticGeometryProgressEtaCalculator`, CLIENT_GEOMETRY_PROGRESS adapter, WAIT_BUS realtime→ML, WAIT_SUBWAY realtime adapter
 - 현재 bus ETA는 client progress 요약 + 구간 소요시간으로 계산하고 `vehicleId`·실시간 차량 위치를 참조하지 않음
@@ -615,17 +627,18 @@ Phase 3의 최소 ETA·checkpoint 계약이 고정되면 Phase 4의 10,000 Journ
 - 계정 삭제 시 API·push 즉시 차단, FCM token 제거, 사용자 연결 Journey·telemetry 24시간 이내 물리 삭제
 - 모바일 terminal 상태·로그아웃 시 마지막 GPS sample·geometry·pending event 삭제 계약
 - 정밀 좌표 미저장·로그 마스킹·push token 마스킹 검증
-- O1·O2·O3·O4·O6·O7·O8·O10~O17 metrics·structured log·dashboard
+- O1·O2·O3·O4·O6·O7·O8·O10~O17 metrics·structured log·dashboard. 서버 push delivery와 모바일 local checkpoint presentation을 별도 metric으로 집계
 - SLO 분모 정의: 예상 4xx 제외 API system success, enabled token의 FCM provider 접수, `EXPIRED` 후 10분 이내 same-Journey resume를 premature expiry proxy로 집계
-- 포그라운드 체류 구간·화면 진입 원인·push 선택·후속 행동 best-effort telemetry 수집
+- 다음 사용 가능한 Flyway migration으로 30일 보관할 Journey telemetry 원본과 `telemetryId` unique 제약 추가
+- 포그라운드 체류 구간·화면 진입 원인·push 선택·후속 행동과 local checkpoint `TRIGGERED|PRESENTED|DEDUP_SUPPRESSED|OPENED` best-effort batch telemetry 수집·재전송 dedup
 - 실제 탑승·환승 결과 feedback으로 ETA·probability 후검증
 
 **통과 기준**
 
 - 서버·Redis 재시작 후 일반 lease 또는 지하철 보호 lease가 유효한 Journey 복원·알림 재개
 - `EXPIRED` Journey 비복원과 종료 이후 평가·알림 중단
-- 중복 알림률, false alert rate, ETA MAE, 상태 수렴 시간을 확인할 수 있음
-- 포그라운드 체류 비율, push 선택률, 환승 구간 재진입률, alert-to-action 지연을 확인할 수 있음
+- push·local을 구분한 중복 알림률, false alert rate, 표시 지연, ETA MAE, 상태 수렴 시간을 확인할 수 있음
+- 포그라운드 체류 비율, push·local 선택률, 환승 구간 재진입률, alert-to-action 지연을 확인할 수 있음
 - 정밀 좌표·token·전체 route JSON이 로그·metric·telemetry에 노출되지 않고 retention·계정 삭제 job이 기한 안에 완료됨
 
 ### Phase 8. 점진 배포
@@ -637,12 +650,12 @@ Phase 3의 최소 ETA·checkpoint 계약이 고정되면 Phase 4의 10,000 Journ
 5. 25%로 확대해 최소 1,000 Journey 또는 7일 동안 외부 API 쿼터·DB 부하·SLO를 확인한다.
 6. 모든 초기 SLO와 불변식을 통과한 경우에만 전체 활성화한다.
 
-한 건이라도 발생하면 feature flag를 끄는 즉시 중단 기준:
+한 건이라도 관측되면 feature flag를 끄는 즉시 중단 기준. local checkpoint는 best-effort telemetry가 서버에 수신된 시점에 관측된 것으로 보며, 오프라인 중 즉시 탐지를 보장하지 않는다:
 
 - 다른 사용자의 Journey 노출
 - 이전 routeRevision 알림 발생
 - 사용자 수락 없는 routeRevision 교체
-- 같은 checkpoint의 OS 알림·앱 배너 중복 표시
+- telemetry로 확인된 같은 logical checkpoint의 OS 알림·앱 배너 중복 표시
 - 정밀 GPS·access/refresh token·FCM token의 로그·metric 노출
 - 기존 경로 검색·버스 알림의 치명적 기능 회귀
 

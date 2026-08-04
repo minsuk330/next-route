@@ -452,7 +452,7 @@ ODsay의 lane별 기본 이동시간이 분리되지 않을 수 있어 같은 su
 2. 종료된 Journey·leg·revision·event와 notification 기록은 30일, 로그는 14일, 식별 가능한 UI telemetry는 30일, 비식별 집계는 1년 보관한다.
 3. 모바일 위치·geometry·pending event는 terminal 상태·로그아웃 시 삭제한다. 계정 삭제 시 API·push를 즉시 차단하고 token을 제거하며 사용자 연결 데이터는 24시간 안에 물리 삭제한다.
 4. 초기 서버 SLO는 command 성공률 99.5%, snapshot p95 500ms, progress p95 300ms, evaluator lag p95 10초, outbox→FCM provider p95 5초, provider 성공률 99%, 복구 수렴 p95 5초다.
-5. 이전 revision 표시·checkpoint 중복·사용자 수락 없는 경로 교체는 0건이고 premature expiry는 0.5% 미만이어야 한다.
+5. 이전 revision 표시·checkpoint 중복·사용자 수락 없는 경로 교체는 0건이고 premature expiry는 0.5% 미만이어야 한다. 모바일 local checkpoint 중복은 표시 telemetry로 관찰한다.
 6. 실제 단말 FCM 도착시간과 ETA 정확도는 고정 서버 SLO로 두지 않는다. FCM은 provider 접수 이후 telemetry로 관찰하고 ETA는 shadow baseline 대비 회귀로 판단한다.
 7. 배포는 `OFF → shadow → 내부 실사용 → 5% → 25% → 전체` 순서이며 각 단계의 최소 Journey 수·관측 기간과 중단 기준을 통과해야 한다.
 8. 정상 conflict·validation 4xx는 API 실패율에서 제외하고, premature expiry는 `EXPIRED` 후 10분 이내 same-Journey resume를 proxy로 측정한다.
@@ -469,7 +469,7 @@ ODsay의 lane별 기본 이동시간이 분리되지 않을 수 있어 같은 su
 
 ### 중단 기준
 
-다른 사용자 Journey 노출, 이전 revision 표시, 무단 경로 변경, 동일 checkpoint 중복 표시, 위치·token 노출, 기존 기능의 치명적 회귀는 한 건이라도 feature flag를 즉시 끈다.
+다른 사용자 Journey 노출, 이전 revision 표시, 무단 경로 변경, telemetry로 확인된 동일 logical checkpoint 중복 표시, 위치·token 노출, 기존 기능의 치명적 회귀는 한 건이라도 feature flag를 즉시 끄고 rollout을 중단한다. local telemetry는 best-effort이므로 오프라인 단말의 중복을 서버가 즉시 탐지한다고 가정하지 않는다.
 
 API 5xx 2% 초과, evaluator lag p95 30초 초과, FCM provider 성공률 95% 미만, DB pool 85% 초과, 외부 API quota 80% 초과, 기존 API p95 20% 초과 회귀, premature expiry 0.5% 이상이 10분 지속되면 현재 단계 확대를 중단한다.
 
@@ -483,3 +483,29 @@ API 5xx 2% 초과, evaluator lag p95 30초 초과, FCM provider 성공률 95% �
 - 로그·metric·telemetry에 정밀 위치·인증 token·FCM token·전체 route JSON이 없다.
 - 각 rollout 단계는 최소 sample과 관측 기간, SLO를 통과해야 다음 단계로 이동한다.
 - 즉시 중단 불변식은 feature flag rollback으로 검증한다.
+
+---
+
+## SC-14 — local checkpoint 계측·progress 멱등 계약 보완 (2026-08-04)
+
+### 결정
+
+1. 사용자 표시 중복 방지용 `logicalCheckpointKey`는 channel을 제외하고, 채널별 전달 멱등용 `deliveryKey`에만 channel을 포함한다.
+2. 모바일은 local checkpoint의 `TRIGGERED`, `PRESENTED`, `DEDUP_SUPPRESSED`, `OPENED`와 표시 surface·시각을 best-effort telemetry로 전송한다. 각 event의 `telemetryId`는 재시도 동안 유지하고 서버가 unique 제약으로 batch 중복을 제거한다.
+3. 서버 push delivery metric과 모바일 local checkpoint presentation metric을 분리한다. O8·O13과 중복 표시 rollout gate는 두 계측원을 함께 사용한다.
+4. 동일 checkpoint 중복은 네이티브 표시 coordinator가 로컬에서 먼저 차단한다. telemetry로 한 건이라도 확인되면 해당 플랫폼 하차 알림 feature flag를 끄되, 오프라인 단말의 서버 즉시 탐지는 보장하지 않는다.
+5. progress는 JourneyEvent가 아니며 command `eventId` 대신 별도 `progressId`를 사용한다. 서버는 leg별 `lastProgressId`와 `progressObservedAt`만 보존한다.
+6. 같은 `progressId` 재전송은 no-op, 새 ID의 최신 `observedAt`만 갱신, 오래된 관측은 상태 변경 없음, 같은 관측 시각의 다른 ID·내용은 충돌로 처리한다.
+
+### 이유
+
+하차 checkpoint는 모바일이 판정·표시하므로 서버 outbox metric만으로는 중복·지연·선택률을 측정할 수 없다. 또한 progress 요청의 식별자와 관측 순서가 분리되지 않으면 재전송 때 `evaluationVersion`이 중복 증가할 수 있다. 표시 불변식은 단말에서 보장하고 서버는 telemetry로 rollout을 통제하며, progress 식별과 시간 순서를 분리해 최신 요약만 저장하는 정책을 유지한다.
+
+### 인수 기준 변경
+
+- OS 알림·앱 배너가 같은 logical checkpoint를 동시에 표시하지 않는다.
+- local checkpoint의 표시·dedup 억제·선택·지연을 surface별로 집계할 수 있다.
+- 같은 telemetry batch 재전송은 metric과 중복 표시 gate를 두 번 증가시키지 않는다.
+- 중복 표시 telemetry fixture 한 건으로 해당 플랫폼 하차 알림 rollout 중단 신호가 생성된다.
+- 동일 `progressId` 재전송과 과거 `observedAt` 요청은 progress·`evaluationVersion`을 두 번 변경하지 않는다.
+- 같은 `observedAt`의 서로 다른 progress 내용은 충돌로 확인할 수 있다.

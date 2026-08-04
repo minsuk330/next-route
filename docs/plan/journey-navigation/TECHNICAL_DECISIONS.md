@@ -4,6 +4,7 @@
 - 확정일: 2026-07-27
 - 선택 노선·GPS 기반 진행 모델 반영일: 2026-08-01
 - GPS 표시 튐 수용·상태 판정 단순화 반영일: 2026-08-03
+- local checkpoint 계측·progress 멱등 계약 반영일: 2026-08-04
 - 요구사항: [REQUIREMENTS.md](./REQUIREMENTS.md)
 - 백엔드 계획: [PLAN.md](./PLAN.md)
 - 모바일 계획: [MOBILE_PLAN.md](./MOBILE_PLAN.md)
@@ -38,7 +39,7 @@ ACTIVE Journey의 네이티브 GPS 요청 주기는 화면 표시와 `confirmedP
 | 원인 | 결과 | endReason |
 |---|---|---|
 | 사용자 앱 내 종료 | 즉시 `CANCELED` | `USER_CANCELED` |
-| 사용자 여정 완료 | `COMPLETED` | `JOURNEY_COMPLETED` |
+| 사용자 여정 완료 | `COMPLETED` | `COMPLETED` |
 | 일반 leg에서 heartbeat 3분 + grace 2분 미수신 | `EXPIRED` | `CLIENT_LEASE_EXPIRED` |
 | `RIDE_SUBWAY`에서 일반 lease와 지하철 보호 시각 모두 만료 | `EXPIRED` | `CLIENT_LEASE_EXPIRED` |
 | 새 Journey로 명시적 교체 | 기존 Journey `CANCELED` | `SUPERSEDED` |
@@ -71,7 +72,7 @@ Push는 상태 저장소가 아니다. payload에는 `journeyId`, `commandVersio
 - high priority는 환승 위험·재탐색 제안처럼 즉시 사용자 행동이 필요한 서버 알림에만 사용한다.
 - FCM에 이미 전달된 알림을 lease 만료 후 회수할 수는 없으므로 짧은 TTL로 늦은 알림을 최소화한다.
 - 앱이 포그라운드이면 local checkpoint와 FCM 수신을 앱 내부 배너로만 표시하고 OS notification presentation은 억제한다. 백그라운드·잠금화면에서는 local notification 또는 FCM을 OS 알림으로 표시한다.
-- 포그라운드 handler도 payload의 상태를 신뢰하지 않고 최신 Journey snapshot과 대조하며, 동일 dedup key의 local·FCM·REST 결과는 배너 한 건으로 합친다.
+- 포그라운드 handler도 payload의 상태를 신뢰하지 않고 최신 Journey snapshot과 대조한다. 사용자 표시 중복 방지용 `logicalCheckpointKey = journeyId:routeRevision:scopeType:scopeId:checkpoint`는 채널과 무관하게 공유하고, 채널별 처리 멱등성은 `deliveryKey = logicalCheckpointKey:channel`로 별도 관리한다. local·FCM·REST 결과가 같은 logical checkpoint를 가리키면 배너 한 건으로 합친다.
 
 ## 3. Version 모델
 
@@ -118,7 +119,7 @@ Push는 상태 저장소가 아니다. payload에는 `journeyId`, `commandVersio
 
 `APP_RESUMED`는 JourneyEvent로 저장하지 않는다. resume은 heartbeat 전송, 최신 snapshot 조회, best-effort telemetry 기록으로 처리하며 `commandVersion`을 증가시키지 않는다. resume 후 GPS가 실제 leg 경계 통과를 확인한 경우에만 별도 `CLIENT_LEG_TRANSITION_DETECTED` command를 적용한다.
 
-고빈도 GPS sample은 JourneyEvent로 저장하지 않는다. 앱은 현재 `geometrySegmentIndex`·segment/leg 진행률·남은 거리·시간·버스의 `sectionId`·남은 정류장·관측 품질을 요약해 progress API로 전송한다. progress 갱신과 ETA·환승 위험도·남은 정류장 갱신은 `evaluationVersion`만 증가시킨다. leg 경계를 통과한 순간에만 `CLIENT_LEG_TRANSITION_DETECTED`를 command로 적용한다.
+고빈도 GPS sample은 JourneyEvent로 저장하지 않는다. 앱은 command의 `eventId`와 구분되는 고유 `progressId`를 만들고 현재 `geometrySegmentIndex`·segment/leg 진행률·남은 거리·시간·버스의 `sectionId`·남은 정류장·관측 품질을 요약해 progress API로 전송한다. 서버는 leg의 `lastProgressId`와 `progressObservedAt`만 보존한다. 현재 `progressId` 재전송은 no-op이며 `evaluationVersion`을 증가시키지 않고, 새 ID이면서 더 최신 `observedAt`인 요청만 갱신한다. 더 오래된 관측은 상태를 바꾸지 않으며 같은 `observedAt`에 다른 ID·내용이 오면 충돌로 거절한다. progress 갱신과 ETA·환승 위험도·남은 정류장 갱신은 `evaluationVersion`만 증가시킨다. leg 경계를 통과한 순간에만 `CLIENT_LEG_TRANSITION_DETECTED`를 command로 적용한다.
 
 화면용 `displayLocation`과 Journey용 `confirmedProgress`를 분리한다. `displayLocation`은 최신 GPS를 즉시 보여줄 수 있지만, `confirmedProgress`는 Journey의 현재 section·다음 section 범위에서 유지하고 leg 전이·`ALIGHT_NOW`에만 연속 sample을 요구한다. 노선의 상행·하행 분류, heading matching, 전 구간 jump score는 구현하지 않는다.
 
@@ -145,6 +146,8 @@ ODsay `subPath.lane`의 모든 버스 노선을 `JourneyLegRouteOption`으로 �
 재탐색 초기 설정은 decision window 10분 또는 하차 2정거장 이내, 최소 ETA 개선 5분, cooldown 2분, proposal TTL 2분, 표시 후보 최대 3개다.
 
 React Native JavaScript timer·background task는 백그라운드 하차 판정의 실행 기반으로 사용하지 않는다. iOS Swift `Core Location`과 Android Kotlin foreground location service가 GPS projection·`confirmedProgress`·checkpoint dedup·local notification을 소유한다. RN은 화면과 포그라운드 복귀 동기화를 담당한다. 네트워크·FCM·서버 장애 중에도 하차 알림은 동작하고, 사용자가 앱을 강제 종료하면 네이티브 위치 세션과 이후 local notification을 종료한다.
+
+네이티브 엔진은 local checkpoint마다 `TRIGGERED`, `PRESENTED`, `DEDUP_SUPPRESSED`, `OPENED`를 로컬에 기록하고 RN을 통해 best-effort batch telemetry로 전송한다. 각 기록은 재시도 동안 유지하는 고유 `telemetryId`와 `routeRevision`, `legIndex`, `checkpoint`, `checkpointOccurrenceId`, `surface(IN_APP_BANNER|OS_NOTIFICATION)`, `triggeredAt`, `occurredAt`을 포함하되 정밀 좌표는 포함하지 않는다. 서버는 `telemetryId` 중복을 먼저 제거한 뒤 FCM outbox/provider 계측과 local checkpoint 표시 계측을 분리해 집계한다. 중복 표시는 단말의 logical checkpoint 불변식으로 우선 차단하고, 서로 다른 `PRESENTED` 기록으로 중복 표시가 한 건이라도 확인되면 해당 플랫폼의 하차 알림 feature flag를 비활성화하고 rollout을 중단한다. 오프라인 단말의 telemetry는 지연될 수 있으므로 서버의 즉시 탐지는 보장하지 않는다.
 
 ## 6. 트랜잭션 경계
 
@@ -178,6 +181,8 @@ Journey snapshot·최신 progress 요약 조회
 → 트랜잭션 밖에서 ETA·위험도 계산
 → 짧은 트랜잭션 시작
 → ACTIVE·routeRevision 재검증
+→ progressId 재전송·observedAt 순서 조건부 병합
+→ no-op·stale이면 상태와 evaluationVersion을 바꾸지 않고 종료
 → evaluation snapshot 저장
 → evaluationVersion 증가
 → 서버 소유 환승 checkpoint가 바뀐 경우 outbox 생성
@@ -229,13 +234,13 @@ Phase 3의 최소 ETA·checkpoint가 고정되면 FCM token·sender·outbox·dee
 - command 성공률 99.5% 이상, snapshot p95 500ms 이하, progress p95 300ms 이하
 - evaluator lag p95 10초 이하, outbox→FCM provider p95 5초 이하, provider 접수 성공률 99% 이상
 - 복구 후 상태 수렴 p95 5초 이하, 기존 API p95 회귀 10% 이하
-- 이전 revision 표시·checkpoint 중복·자동 경로 교체는 0건, premature expiry는 0.5% 미만
+- 이전 revision 표시·checkpoint 중복·자동 경로 교체는 0건, premature expiry는 0.5% 미만. local checkpoint 중복은 모바일 표시 telemetry로 관찰한다.
 - 단말 FCM 도착시간은 통제 불가능하므로 서버 SLO가 아니라 별도 telemetry로 관찰한다.
 - API 성공률은 정상적인 conflict·validation 4xx를 실패에서 제외하고, premature expiry는 `EXPIRED` 후 10분 이내 same-Journey resume telemetry를 운영 proxy로 사용한다.
 
 ### rollout gate
 
-`OFF → 내부 shadow 100 Journey/7일 → 내부 실사용 50 Journey → 5% 500 Journey/7일 → 25% 1,000 Journey/7일 → 전체` 순서로 확대한다. 보안·revision·중복 표시·무단 경로 변경 불변식 위반은 한 건이라도 즉시 feature flag를 끈다. API 5xx, evaluator lag, FCM provider, DB pool, 외부 API quota, 기존 API 회귀, premature expiry 임계가 10분 지속되면 확대를 중단한다.
+`OFF → 내부 shadow 100 Journey/7일 → 내부 실사용 50 Journey → 5% 500 Journey/7일 → 25% 1,000 Journey/7일 → 전체` 순서로 확대한다. 보안·revision·무단 경로 변경 위반이나 telemetry로 확인된 동일 checkpoint 중복 표시는 한 건이라도 해당 feature flag를 끄고 rollout을 중단한다. API 5xx, evaluator lag, FCM provider, DB pool, 외부 API quota, 기존 API 회귀, premature expiry 임계가 10분 지속되면 확대를 중단한다.
 
 ## 9. 비범위
 
