@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.journey;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -25,6 +26,7 @@ import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyProgressUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
+import watoo.grd.nextroute.application.journey.service.JourneySnapshotEtaComposer;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
@@ -75,9 +77,16 @@ class JourneyControllerTest {
     @MockBean ApplyJourneyEventUseCase applyJourneyEventUseCase;
     @MockBean GetJourneyUseCase getJourneyUseCase;
     @MockBean ApplyJourneyProgressUseCase applyJourneyProgressUseCase;
+    @MockBean JourneySnapshotEtaComposer etaComposer;
     @MockBean JwtProvider jwtProvider;                 // SecurityConfig 의존
     @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
     @MockBean AdminProperties adminProperties;         // SecurityConfig(AdminApiKeyFilter) 의존
+
+    @BeforeEach
+    void stubComposer() {
+        // 예측 합성은 별도 테스트가 본다. 여기서는 통과시켜 기본 스냅샷 계약만 확인한다.
+        given(etaComposer.compose(any(), any())).willAnswer(call -> call.getArgument(1));
+    }
 
     private Authentication authUser(Long userId) {
         return new UsernamePasswordAuthenticationToken(

@@ -11,6 +11,8 @@ import java.time.Instant;
  * 있어야 임계값을 운영 데이터로 조정할 수 있다.
  *
  * @param transferIndex        여정 안에서의 환승 순번
+ * @param fromLegIndex         갈아타기 전 타고 있는 단계 순번
+ * @param toLegIndex           갈아탈 차량을 기다리는 단계 순번
  * @param status               다섯 단계 중 하나
  * @param currentLegArrivalAt  타고 있는 교통수단이 환승 지점에 닿는 시각
  * @param userReadyAt          하차·도보를 더해 사용자가 탈 준비를 마치는 시각
@@ -21,6 +23,8 @@ import java.time.Instant;
  */
 public record TransferRiskAssessment(
         int transferIndex,
+        int fromLegIndex,
+        int toLegIndex,
         TransferStatus status,
         Instant currentLegArrivalAt,
         Instant userReadyAt,
@@ -32,5 +36,10 @@ public record TransferRiskAssessment(
 
     public boolean isUnknown() {
         return status == TransferStatus.UNKNOWN;
+    }
+
+    /** 아직 지나지 않은 환승인지. 갈아탈 대기 단계가 현재보다 뒤이거나 지금이면 남은 것이다. */
+    public boolean isUpcoming(int currentLegIndex) {
+        return toLegIndex >= currentLegIndex;
     }
 }

@@ -3,7 +3,6 @@ package watoo.grd.nextroute.application.journey.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
@@ -42,19 +41,19 @@ import java.util.stream.Collectors;
 public class TransferRiskEvaluator {
 
     /** 이 판정이 무엇으로 계산됐는지. 진단과 계측에서 서버 계산과 모델 추정을 가른다. */
-    private static final String SOURCE = "CLIENT_PROGRESS_AND_REALTIME";
+    static final String SOURCE = "CLIENT_PROGRESS_AND_REALTIME";
 
     private final TransferConnectionRepository transferRepository;
     private final JourneyLegRepository legRepository;
     private final CurrentLegArrivalService arrivalService;
     private final TransferReadinessCalculator readinessCalculator;
     private final TransferRiskPolicy riskPolicy;
+    private final TransferAssessmentWriter assessmentWriter;
     private final Clock clock;
 
     /**
      * @param geometryByLegIndex 단계별 좌표. 없으면 빈 map 을 넘겨도 된다
      */
-    @Transactional
     public List<TransferRiskAssessment> evaluate(Long journeyId, int routeRevision,
                                                  Map<Integer, LegGeometry> geometryByLegIndex) {
         List<TransferConnection> transfers = transferRepository
@@ -70,9 +69,14 @@ public class TransferRiskEvaluator {
                 .collect(Collectors.toMap(JourneyLeg::getLegIndex, Function.identity()));
 
         Instant now = Instant.now(clock);
-        return transfers.stream()
+        List<TransferRiskAssessment> assessments = transfers.stream()
                 .map(transfer -> assess(transfer, legsByIndex, geometryByLegIndex, now))
                 .toList();
+
+        // 계산이 끝난 뒤에 저장한다. 실시간 조회가 트랜잭션 안에 들어가면 provider 가 느린 동안
+        // DB 커넥션을 붙잡는다.
+        assessmentWriter.write(journeyId, routeRevision, assessments);
+        return assessments;
     }
 
     private TransferRiskAssessment assess(TransferConnection transfer,
@@ -89,17 +93,8 @@ public class TransferRiskEvaluator {
         TransferStatus status = riskPolicy.evaluate(slack, transfer.getStatus());
         CurrentLegArrival.Quality confidence = confidenceOf(fromArrival, toArrival, slack);
 
-        transfer.applyAssessment(status,
-                fromArrival.arrivalAt(),
-                userReadyAt,
-                toArrival.arrivalAt(),
-                slack == null ? null : Math.toIntExact(slack),
-                SOURCE,
-                confidence.name(),
-                now,
-                fromArrival.observedAt());
-
-        return new TransferRiskAssessment(transfer.getTransferIndex(), status,
+        return new TransferRiskAssessment(transfer.getTransferIndex(),
+                transfer.getFromLegIndex(), transfer.getToLegIndex(), status,
                 fromArrival.arrivalAt(), userReadyAt, toArrival.arrivalAt(),
                 slack, confidence, now);
     }
