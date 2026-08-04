@@ -23,6 +23,7 @@ src/main/resources/db/migration/*
 !src/main/resources/db/migration/V35__create_journey.sql
 !src/main/resources/db/migration/V36__add_journey_transit_resolution.sql
 !src/main/resources/db/migration/V37__align_journey_navigation_contract.sql
+!src/main/resources/db/migration/V38__add_journey_last_progress_id.sql
 docs/*
 !docs/plan/
 !docs/mobile/

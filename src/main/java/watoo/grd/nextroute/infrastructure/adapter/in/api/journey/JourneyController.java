@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -17,12 +18,15 @@ import org.springframework.web.bind.annotation.RestController;
 import watoo.grd.nextroute.application.journey.dto.JourneyEventOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
+import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyProgressUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventType;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.ApplyJourneyEventRequest;
+import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.ApplyJourneyProgressRequest;
+import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.JourneyProgressResponse;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.EndJourneyRequest;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.JourneyEventResponse;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.StartJourneyRequest;
@@ -45,6 +49,7 @@ public class JourneyController {
     private final GetActiveJourneyUseCase getActiveJourneyUseCase;
     private final ApplyJourneyEventUseCase applyJourneyEventUseCase;
     private final GetJourneyUseCase getJourneyUseCase;
+    private final ApplyJourneyProgressUseCase applyJourneyProgressUseCase;
 
     /**
      * 검색 결과 하나로 여정을 시작한다.
@@ -155,6 +160,25 @@ public class JourneyController {
                 applyJourneyEventUseCase.apply(userId, journeyId, request.toCommand());
         return ResponseEntity.status(statusOf(outcome.result()))
                 .body(JourneyEventResponse.from(outcome));
+    }
+
+    /**
+     * 앱이 확정한 진행 요약을 올린다. 명령이 아니라 관측이다.
+     *
+     * <p>{@code PUT} 인 이유는 이 호출이 leg 의 <b>최신 진행 한 벌</b>을 대체하기 때문이다.
+     * 이력을 쌓지 않으므로 여러 번 보내도 결과가 같다.
+     *
+     * <p>재전송·역순 요청도 200 이다. 앱은 응답의 결과 값과 함께 실린 최신 스냅샷을 보고
+     * 화면을 맞추면 되고, 왜 반영되지 않았는지 따로 물어볼 필요가 없다. 같은 관측 시각에 다른
+     * 내용이 온 경우만 409 다.
+     */
+    @PutMapping("/{journeyId}/progress")
+    public JourneyProgressResponse applyProgress(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long journeyId,
+            @Valid @RequestBody ApplyJourneyProgressRequest request) {
+        return JourneyProgressResponse.from(
+                applyJourneyProgressUseCase.apply(userId, journeyId, request.toCommand()));
     }
 
     /**

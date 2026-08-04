@@ -1,0 +1,157 @@
+package watoo.grd.nextroute.application.journey.service;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import watoo.grd.nextroute.application.journey.config.JourneyNavigationProperties;
+import watoo.grd.nextroute.application.journey.dto.JourneyProgressCommand;
+import watoo.grd.nextroute.application.journey.dto.JourneyProgressOutcome;
+import watoo.grd.nextroute.application.journey.dto.JourneyProgressOutcome.Result;
+import watoo.grd.nextroute.application.journey.exception.ProgressTimestampConflictException;
+import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyProgressUseCase;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
+import watoo.grd.nextroute.domain.journey.entity.JourneySession;
+import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
+import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
+import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
+import watoo.grd.nextroute.global.error.BusinessException;
+import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.util.List;
+
+/**
+ * 앱이 확정한 진행 요약을 여정에 반영한다.
+ *
+ * <p>여정 행을 잠그지 않는다. progress 는 여정마다 15초(하차 임박 5초)에 한 번씩 들어오는데,
+ * 명령 처리와 같은 잠금을 쓰면 둘이 계속 부딪친다. 대신 "지금 값보다 최신일 때만 쓴다"를 SQL
+ * 조건에 넣어 읽고 판단해 쓰는 사이의 틈을 없앤다.
+ *
+ * <h2>지키는 것</h2>
+ * <ul>
+ *   <li>같은 progress 를 다시 받아도 {@code evaluationVersion} 은 한 번만 올라간다</li>
+ *   <li>오래된 관측은 최신 상태를 덮어쓰지 않는다</li>
+ *   <li>{@code commandVersion} 은 절대 건드리지 않는다</li>
+ *   <li>정밀 좌표를 저장하지 않는다</li>
+ * </ul>
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class JourneyProgressService implements ApplyJourneyProgressUseCase {
+
+    private final JourneySessionRepository sessionRepository;
+    private final JourneyLegRepository legRepository;
+    private final JourneyQueryService queryService;
+    private final JourneyNavigationProperties properties;
+    private final Clock clock;
+
+    @Override
+    @Transactional
+    public JourneyProgressOutcome apply(Long userId, Long journeyId, JourneyProgressCommand command) {
+        JourneySession journey = sessionRepository
+                .findByIdAndUserIdAndDeletedAtIsNull(journeyId, userId)
+                .orElseThrow(() -> new BusinessException(JourneyErrorCode.JOURNEY_NOT_FOUND));
+
+        if (journey.getStatus() != JourneyStatus.ACTIVE) {
+            throw new BusinessException(JourneyErrorCode.JOURNEY_NOT_ACTIVE);
+        }
+        if (command.routeRevision() != journey.getRouteRevision()) {
+            throw new BusinessException(JourneyErrorCode.STALE_ROUTE_REVISION);
+        }
+
+        JourneyLeg leg = requireLeg(journey, command);
+        Result result = merge(leg, command);
+
+        if (result == Result.APPLIED) {
+            sessionRepository.bumpEvaluationVersion(journeyId);
+        }
+        extendLease(journeyId);
+
+        JourneySession refreshed = sessionRepository
+                .findByIdAndUserIdAndDeletedAtIsNull(journeyId, userId)
+                .orElseThrow(() -> new BusinessException(JourneyErrorCode.JOURNEY_NOT_FOUND));
+        return new JourneyProgressOutcome(result, queryService.snapshotOf(refreshed));
+    }
+
+    /**
+     * 조건부로 덮어쓰고, 덮어쓰지 못했으면 왜인지 가른다.
+     *
+     * <p>순서가 중요하다. 재전송 판정을 먼저 한다 — 앱이 응답을 못 받아 다시 보낸 것이라면 그것은
+     * 오류가 아니고, 같은 시각·같은 내용이므로 충돌로 오해하기 쉽다.
+     */
+    private Result merge(JourneyLeg leg, JourneyProgressCommand command) {
+        int updated = legRepository.applyProgressIfNewer(
+                leg.getId(),
+                command.progressId(),
+                command.geometrySegmentIndex(),
+                command.segmentProgress(),
+                command.legProgress(),
+                command.sectionId(),
+                command.remainingDistanceMeters(),
+                command.remainingDurationSeconds(),
+                command.remainingStops(),
+                command.observedAt(),
+                JourneyProgressCommand.EVIDENCE_SOURCE,
+                command.quality());
+        if (updated > 0) {
+            return Result.APPLIED;
+        }
+
+        JourneyLeg current = legRepository.findById(leg.getId())
+                .orElseThrow(() -> new BusinessException(JourneyErrorCode.JOURNEY_LEG_NOT_FOUND));
+
+        if (command.progressId().equals(current.getLastProgressId())) {
+            return Result.DUPLICATE;
+        }
+        if (command.observedAt().equals(current.getProgressObservedAt())) {
+            // 같은 시각을 두 번 관측할 수는 없다. 어느 쪽이 맞는지 서버가 고를 근거가 없다.
+            throw new ProgressTimestampConflictException(command.observedAt());
+        }
+        return Result.STALE;
+    }
+
+    /**
+     * progress 가 가리키는 단계.
+     *
+     * <p>검증은 <b>명백한 위반만</b> 본다. 구간 순번이 실제 좌표 개수 안에 드는지까지 확인하려면
+     * 얼려 둔 경로를 매 요청마다 다시 쪼개야 하고, 15초마다 오는 요청에 그 비용을 붙이면
+     * progress 응답 시간 목표를 스스로 깎는다. 구간 정합은 좌표를 들고 있는 앱의 책임이다.
+     *
+     * <p>대신 되돌릴 수 없는 위반은 막는다. 이미 지나온 단계로 진행을 되돌리는 요청이다.
+     */
+    private JourneyLeg requireLeg(JourneySession journey, JourneyProgressCommand command) {
+        List<JourneyLeg> legs = legRepository
+                .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+                        journey.getId(), journey.getRouteRevision());
+
+        JourneyLeg leg = legs.stream()
+                .filter(candidate -> candidate.getLegIndex() == command.legIndex())
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(JourneyErrorCode.JOURNEY_LEG_NOT_FOUND));
+
+        if (command.legIndex() < journey.getCurrentLegIndex()) {
+            throw new BusinessException(JourneyErrorCode.STALE_PROGRESS_LEG);
+        }
+        return leg;
+    }
+
+    /**
+     * lease 를 연장한다. 정상 progress 는 heartbeat 를 겸한다.
+     *
+     * <p>실제 쓰기는 여정별 최대 60초에 한 번으로 합친다. 15초마다 이 행을 쓰면 여정 하나가 계속
+     * 갱신되는 hot row 가 된다. lease 는 3분이라 60초 간격으로 늘려도 만료되지 않는다.
+     *
+     * <p>만료 판정과 heartbeat 전용 API 는 Phase 4 의 몫이다. 여기서는 연장만 한다.
+     */
+    private void extendLease(Long journeyId) {
+        Instant now = Instant.now(clock);
+        sessionRepository.extendLeaseIfStale(
+                journeyId,
+                now,
+                now.plus(properties.guidanceLease()),
+                now.minus(properties.leaseWriteCoalesce()));
+    }
+}
