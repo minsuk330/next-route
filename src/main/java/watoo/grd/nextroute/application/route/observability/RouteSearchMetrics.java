@@ -27,6 +27,8 @@ public class RouteSearchMetrics {
     public static final String EXTERNAL_DURATION = "external.api.duration";
     public static final String CACHE_REQUESTS = "bus.realtime.cache.requests";
     public static final String CACHE_ERRORS = "bus.realtime.cache.errors";
+    public static final String ML_CACHE_REQUESTS = "ml.prediction.cache.requests";
+    public static final String ML_CACHE_ERRORS = "ml.prediction.cache.errors";
     public static final String SINGLEFLIGHT = "singleflight.requests";
     public static final String BULKHEAD_ACTIVE = "bulkhead.active";
     public static final String BULKHEAD_QUEUE = "bulkhead.queue";
@@ -89,6 +91,21 @@ public class RouteSearchMetrics {
      */
     public void recordCacheAccess(String type, String result) {
         registry.counter(CACHE_REQUESTS, "type", type, "result", result).increment();
+    }
+
+    /**
+     * ML 예측 캐시 조회 결과. result=hit/miss.
+     *
+     * <p>버스 캐시와 지표를 나눈 이유 — 두 캐시는 무효화 방식이 다르다. 버스는 TTL 로 늙고, ML 은
+     * 입력이 바뀌면 키가 바뀌어 죽는다. 한 지표에 섞으면 hit 비율이 낮을 때 어느 쪽 문제인지 모른다.
+     */
+    public void recordMlCacheAccess(String result) {
+        registry.counter(ML_CACHE_REQUESTS, "result", result).increment();
+    }
+
+    /** ML 예측 캐시 자체의 read/write 실패(Redis 장애 등). op=read/write. */
+    public void recordMlCacheError(String op) {
+        registry.counter(ML_CACHE_ERRORS, "op", op).increment();
     }
 
     /** provider 전용 풀이 포화되어 보강을 생략한 횟수. 실패가 아니라 관측 가능한 degradation 이다. */
