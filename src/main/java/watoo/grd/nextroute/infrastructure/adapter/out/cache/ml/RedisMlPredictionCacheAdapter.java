@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.cache.ml;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
@@ -29,6 +30,7 @@ import java.util.Map;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class RedisMlPredictionCacheAdapter implements MlPredictionCachePort {
 
     static final String KEY_PREFIX = "ml:pred:v1:";
@@ -37,16 +39,6 @@ public class RedisMlPredictionCacheAdapter implements MlPredictionCachePort {
     private final ObjectMapper objectMapper;
     private final MlPredictorProperties props;
     private final RouteSearchMetrics metrics;
-
-    public RedisMlPredictionCacheAdapter(RedisTemplate<String, String> redisTemplate,
-                                         ObjectMapper objectMapper,
-                                         MlPredictorProperties props,
-                                         RouteSearchMetrics metrics) {
-        this.redisTemplate = redisTemplate;
-        this.objectMapper = objectMapper;
-        this.props = props;
-        this.metrics = metrics;
-    }
 
     @Override
     public Map<String, MlPrediction> findAll(List<String> cacheKeys) {
@@ -60,6 +52,7 @@ public class RedisMlPredictionCacheAdapter implements MlPredictionCachePort {
                 return Map.of();
             }
             Map<String, MlPrediction> found = new HashMap<>();
+
             for (int i = 0; i < cacheKeys.size() && i < values.size(); i++) {
                 String json = values.get(i);
                 if (json == null) {
