@@ -240,7 +240,7 @@ class JourneyEvaluationIT {
                     call.getArgument(0), call.getArgument(1), call.getArgument(2),
                     TransferArrival.Source.REALTIME, Instant.now(), anchor,
                     anchor.plusSeconds(secondsFromNow - 450), "vehicle-1", null);
-        }).given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any());
+        }).given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any());
     }
 
     private void givenFixedRealtimeArrival(Instant arrivalAt) {
@@ -248,7 +248,7 @@ class JourneyEvaluationIT {
                 call.getArgument(0), call.getArgument(1), call.getArgument(2),
                 TransferArrival.Source.REALTIME, Instant.now(), call.getArgument(3),
                 arrivalAt, "vehicle-1", null))
-                .given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any());
+                .given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any());
     }
 
     private void givenModelArrival(int secondsFromNow, String modelVersion) {
@@ -258,7 +258,7 @@ class JourneyEvaluationIT {
                     call.getArgument(0), call.getArgument(1), call.getArgument(2),
                     TransferArrival.Source.MODEL, Instant.now(), anchor,
                     anchor.plusSeconds(secondsFromNow - 450), "vehicle-1", modelVersion);
-        }).given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any());
+        }).given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any());
     }
 
     private void givenBlocked() {
@@ -266,7 +266,7 @@ class JourneyEvaluationIT {
                 call.getArgument(0), call.getArgument(1), call.getArgument(2),
                 TransferArrival.Source.NONE, TransferArrival.Status.BLOCKED,
                 Instant.now(), call.getArgument(3)))
-                .given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any());
+                .given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any());
     }
 
     private Long startJourney() {

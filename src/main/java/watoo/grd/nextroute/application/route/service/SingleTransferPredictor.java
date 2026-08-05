@@ -51,7 +51,8 @@ public class SingleTransferPredictor implements PredictTransferUseCase {
     private final Clock clock;
 
     @Override
-    public TransferPredictionResult predict(String stopId, String routeId, Integer seq, Instant userArrivalAt) {
+    public TransferPredictionResult predict(String stopId, String routeId, Integer seq,
+                                           Instant userArrivalAt, Mode mode) {
         Instant calculatedAt = clock.instant();
         Instant deadline = calculatedAt.plusMillis(predictProps.getDeadlineMs());
 
@@ -86,6 +87,11 @@ public class SingleTransferPredictor implements PredictTransferUseCase {
         if (targetSeq == null) {
             return no(stopId, routeId, null, TransferArrival.Source.NONE,
                     TransferArrival.Status.STOP_MAPPING_FAILED, calculatedAt, userArrivalAt);
+        }
+        if (mode == Mode.MODEL_ONLY) {
+            // 실시간 시야 밖이라고 부르는 쪽이 판단했다. 도착 API 는 다음 한두 대만 알려 주므로
+            // 그 시각에 탈 차량은 목록에 없다 — 답이 없을 호출을 건너뛴다.
+            return modelOnly(stopId, routeId, targetSeq, userArrivalAt, calculatedAt, deadline);
         }
         if (remaining(deadline) <= 0) {
             return no(stopId, routeId, targetSeq, TransferArrival.Source.NONE,
@@ -130,6 +136,27 @@ public class SingleTransferPredictor implements PredictTransferUseCase {
         }
 
         // 5. MODEL fallback (SUPPORTED or UNKNOWN, ml on)
+        return modelFallback(stopId, routeId, targetSeq, userArrivalAt, calculatedAt, deadline);
+    }
+
+    /**
+     * 실시간을 건너뛰고 모델만 쓴다.
+     *
+     * <p>실시간 응답이 없으니 게이트 판정도 단순해진다. 노선이 모델 대상이 아니거나 모델이 꺼져
+     * 있으면 그대로 모른다고 답한다 — 대신 쓸 근거가 없다.
+     */
+    private TransferPredictionResult modelOnly(String stopId, String routeId, int targetSeq,
+                                               Instant userArrivalAt, Instant calculatedAt,
+                                               Instant deadline) {
+        PredictionSupportService.Support support = supportService.support(routeId);
+        if (support == PredictionSupportService.Support.UNSUPPORTED) {
+            return no(stopId, routeId, targetSeq, TransferArrival.Source.NONE,
+                    TransferArrival.Status.UNSUPPORTED_ROUTE, calculatedAt, userArrivalAt);
+        }
+        if (!mlProps.isEnabled()) {
+            return no(stopId, routeId, targetSeq, TransferArrival.Source.NONE,
+                    TransferArrival.Status.MODEL_UNAVAILABLE, calculatedAt, userArrivalAt);
+        }
         return modelFallback(stopId, routeId, targetSeq, userArrivalAt, calculatedAt, deadline);
     }
 

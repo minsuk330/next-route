@@ -190,7 +190,7 @@ class JourneyEvalReadPathIT {
                     call.getArgument(0), call.getArgument(1), call.getArgument(2),
                     TransferArrival.Source.REALTIME, Instant.now(), anchor,
                     anchor.plusSeconds(150), "vehicle-1", null);
-        }).given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any());
+        }).given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any());
     }
 
     private void boardFirstBus() {
