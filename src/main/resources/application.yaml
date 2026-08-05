@@ -348,5 +348,8 @@ journey:
       # 어차피 답이 없다. 지하철은 시야가 더 짧고 모델도 없다(SC-6).
       transfer-realtime-horizon-seconds: 900
       subway-realtime-horizon-seconds: 480
+      # 저장된 판정을 믿어 주는 상한. 낡음의 1차 기준은 "가리키는 도착 시각이 지났는가"이고,
+      # 이 값은 평가기가 멈춘 채 먼 미래를 가리키는 값이 최신인 척하는 것을 막는 안전망이다.
+      stale-after-seconds: 300
       pool-size: 4
       queue-capacity: 200

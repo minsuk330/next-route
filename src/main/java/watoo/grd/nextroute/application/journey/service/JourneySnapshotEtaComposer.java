@@ -22,6 +22,8 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -51,7 +53,9 @@ public class JourneySnapshotEtaComposer {
     private final GetJourneyNavigationGeometryUseCase geometryUseCase;
     private final CurrentLegArrivalService arrivalService;
     private final TransferRiskEvaluator transferRiskEvaluator;
+    private final StoredJourneyEvaluationReader storedEvaluationReader;
     private final JourneyEvaluatorProperties evaluatorProperties;
+    private final Clock clock;
 
     /**
      * @param userId 좌표 조회가 소유자 확인을 하므로 필요하다
@@ -69,12 +73,11 @@ public class JourneySnapshotEtaComposer {
                 .stream()
                 .collect(Collectors.toMap(JourneyLeg::getLegIndex, Function.identity()));
 
+        Instant now = Instant.now(clock);
         JourneyLeg currentLeg = legsByIndex.get(snapshot.currentLegIndex());
-        CurrentLegArrival currentArrival = currentLeg == null
-                ? CurrentLegArrival.unknown()
-                : arrivalService.predict(currentLeg, geometry.get(snapshot.currentLegIndex()));
+        CurrentLegArrival currentArrival = currentLegArrival(snapshot, currentLeg, geometry, now);
 
-        List<TransferRiskAssessment> assessments = assess(snapshot, geometry);
+        List<TransferRiskAssessment> assessments = assess(snapshot, geometry, now);
         TransferRiskAssessment activeTransfer = firstUpcoming(assessments, snapshot);
 
         JourneyEtaView eta = new JourneyEtaView(
@@ -82,28 +85,69 @@ public class JourneySnapshotEtaComposer {
                 alighting(snapshot, currentArrival),
                 activeTransferEta(activeTransfer),
                 journeyEta(snapshot, legsByIndex, currentArrival, activeTransfer),
-                nextAction(snapshot, currentArrival, activeTransfer));
+                nextAction(snapshot, currentArrival, activeTransfer),
+                evaluatedAt(activeTransfer, currentArrival));
 
         return snapshot.withEta(eta, pollSeconds(snapshot, activeTransfer));
     }
 
     /**
-     * 환승 판정. <b>저장까지 할지는 평가기가 도는지에 달렸다.</b>
+     * 환승 판정. <b>평가기가 도는지에 따라 출처가 다르다.</b>
      *
-     * <p>평가기가 켜져 있으면 저장은 그쪽의 일이다. 여기서도 쓰면 서로 다른 시점에 계산한 두
-     * 결과가 커밋 순서로 승부가 나고, 낡은 계산이 최신을 덮을 수 있다(환승 행에는 낙관적 락도
-     * 잠금도 없다). 평가기가 꺼져 있으면 쓰는 주체가 아무도 없으므로 지금까지처럼 여기서 저장한다.
+     * <p>평가기가 켜져 있으면 <b>저장된 판정을 읽는다.</b> 이 경로에서 실시간 도착 API 가 완전히
+     * 빠지는 지점이고, provider 지연이 여정 조회 응답 시간을 직접 늘리지 못하게 된다.
      *
-     * <p>다음 PR 에서 이 분기 자체가 사라진다 — 조회는 저장된 판정을 읽기만 하게 된다.
+     * <p>꺼져 있으면 지금까지처럼 여기서 계산하고 저장한다. 평가기가 없으면 값을 만드는 주체가
+     * 아무도 없기 때문이다. 스위치 하나가 "누가 계산하고 누가 읽는지"를 함께 뒤집으므로, 문제가
+     * 생기면 끄는 것만으로 이전 동작으로 돌아온다.
+     *
+     * <p>이 분기는 Phase 8 에서 평가기를 항상 켜기로 정한 뒤에 지운다.
      */
     private List<TransferRiskAssessment> assess(JourneySnapshot snapshot,
-                                                Map<Integer, LegGeometry> geometry) {
+                                                Map<Integer, LegGeometry> geometry, Instant now) {
         if (evaluatorProperties.isEnabled()) {
-            return transferRiskEvaluator.assess(
-                    snapshot.journeyId(), snapshot.routeRevision(), geometry).assessments();
+            return storedEvaluationReader.assessments(
+                    snapshot.journeyId(), snapshot.routeRevision(), now);
         }
         return transferRiskEvaluator.assessAndStore(
                 snapshot.journeyId(), snapshot.routeRevision(), geometry);
+    }
+
+    /**
+     * 지금 지나는 단계가 언제 끝나는지.
+     *
+     * <p>단계 종류로 갈린다.
+     * <ul>
+     *   <li><b>이동·도보</b> — 요청 시점에 계산한다. 외부 호출이 없고(좌표 + 앱이 올린 진행도),
+     *       방금 올라온 진행도가 즉시 반영돼 화면이 부드럽게 움직인다</li>
+     *   <li><b>대기</b> — 평가기가 켜져 있으면 저장된 값을 읽는다. 이 구간은 앱이 10초마다 묻는
+     *       가장 잦은 조회여서, 그때마다 실시간을 부르면 호출량이 사용자 수에 비례한다</li>
+     * </ul>
+     */
+    private CurrentLegArrival currentLegArrival(JourneySnapshot snapshot, JourneyLeg currentLeg,
+                                                Map<Integer, LegGeometry> geometry, Instant now) {
+        if (currentLeg == null) {
+            return CurrentLegArrival.unknown();
+        }
+        if (evaluatorProperties.isEnabled() && currentLeg.getType().isWaiting()) {
+            return storedEvaluationReader.boardingArrival(currentLeg, now);
+        }
+        return arrivalService.predict(currentLeg, geometry.get(snapshot.currentLegIndex()));
+    }
+
+    /**
+     * 이 예측을 언제 계산했는지. 앱이 신선도를 판단할 근거다.
+     *
+     * <p>요청 시점 계산만 담긴 응답에서는 null 이다 — 그때는 "방금"이므로 알려 줄 것이 없다.
+     */
+    private Instant evaluatedAt(TransferRiskAssessment activeTransfer, CurrentLegArrival arrival) {
+        if (!evaluatorProperties.isEnabled()) {
+            return null;
+        }
+        if (activeTransfer != null && activeTransfer.calculatedAt() != null) {
+            return activeTransfer.calculatedAt();
+        }
+        return arrival.observedAt();
     }
 
     // ── 조각들 ──────────────────────────────────────────────────────────────

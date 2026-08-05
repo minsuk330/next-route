@@ -3,7 +3,6 @@ package watoo.grd.nextroute.application.journey.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
@@ -44,44 +43,9 @@ public class JourneyEvaluationContextLoader {
                         journeyId, journey.getRouteRevision())
                 .stream()
                 .collect(Collectors.toMap(TransferConnection::getTransferIndex,
-                        JourneyEvaluationContextLoader::storedAssessment));
+                        TransferAssessmentMapper::fromStored));
         return Optional.of(new JourneyEvaluationContext(journey.getId(), journey.getUserId(),
                 journey.getRouteRevision(), previous));
-    }
-
-    /**
-     * 저장된 판정을 비교용으로 되살린다.
-     *
-     * <p>{@code confidence} 는 비교에 쓰지 않으므로 채우지 않는다. {@code calculatedAt} 도 비교에서
-     * 빠진다 — 매 평가마다 달라지는 값이라 넣으면 언제나 "달라졌다"가 되고, 그러면 여정 평가 번호가
-     * 30초마다 올라 앱이 같은 응답을 계속 다시 받는다.
-     */
-    private static TransferRiskAssessment storedAssessment(TransferConnection transfer) {
-        return new TransferRiskAssessment(
-                transfer.getTransferIndex(),
-                transfer.getFromLegIndex(),
-                transfer.getToLegIndex(),
-                transfer.getStatus(),
-                transfer.getCurrentLegArrivalAt(),
-                transfer.getUserReadyAt(),
-                transfer.getNextBusArrivalAt(),
-                transfer.getTransferSlackSeconds() == null
-                        ? null : transfer.getTransferSlackSeconds().longValue(),
-                CurrentLegArrival.Quality.UNKNOWN,
-                transfer.getCalculatedAt(),
-                sourceOf(transfer.getSource()),
-                transfer.getModelVersion());
-    }
-
-    /** 저장된 문자열을 다시 열거값으로. 알 수 없는 값이면 비교에서 "다름"으로 취급된다. */
-    private static CurrentLegArrival.Source sourceOf(String stored) {
-        if (TransferAssessmentWriter.SOURCE_REALTIME.equals(stored)) {
-            return CurrentLegArrival.Source.REALTIME_ARRIVAL;
-        }
-        if (TransferAssessmentWriter.SOURCE_MODEL.equals(stored)) {
-            return CurrentLegArrival.Source.MODEL_ARRIVAL;
-        }
-        return null;
     }
 
     /**

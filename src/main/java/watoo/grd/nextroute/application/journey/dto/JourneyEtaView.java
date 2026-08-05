@@ -21,13 +21,16 @@ import java.time.Instant;
  * @param activeTransfer 다음에 맞이할 환승. 남은 환승이 없으면 null
  * @param journeyEta     목적지 도착 예측. 중간에 모르는 값이 있으면 null
  * @param nextAction     사용자가 지금 할 일
+ * @param evaluatedAt    이 예측을 서버가 계산한 시각. 앱이 신선도를 판단한다. 요청 시점에 계산한
+ *                       값만 담겼으면 null
  */
 public record JourneyEtaView(
         CurrentLegEta currentLeg,
         AlightingEta alighting,
         ActiveTransferEta activeTransfer,
         Instant journeyEta,
-        NextAction nextAction
+        NextAction nextAction,
+        Instant evaluatedAt
 ) {
 
     /**
