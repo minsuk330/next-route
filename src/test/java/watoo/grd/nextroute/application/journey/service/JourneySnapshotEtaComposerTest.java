@@ -44,6 +44,7 @@ class JourneySnapshotEtaComposerTest {
     private GetJourneyNavigationGeometryUseCase geometryUseCase;
     private CurrentLegArrivalService arrivalService;
     private TransferRiskEvaluator transferRiskEvaluator;
+    private StoredJourneyEvaluationReader storedEvaluationReader;
     private JourneyEvaluatorProperties evaluatorProperties;
     private JourneySnapshotEtaComposer composer;
 
@@ -56,11 +57,13 @@ class JourneySnapshotEtaComposerTest {
         geometryUseCase = mock(GetJourneyNavigationGeometryUseCase.class);
         arrivalService = mock(CurrentLegArrivalService.class);
         transferRiskEvaluator = mock(TransferRiskEvaluator.class);
-        // 평가기가 꺼진 상태를 기본으로 둔다 — 조회 경로가 스스로 계산하고 저장하는 현재 동작이다.
+        storedEvaluationReader = mock(StoredJourneyEvaluationReader.class);
+        // 평가기가 꺼진 상태를 기본으로 둔다 — 조회 경로가 스스로 계산하고 저장하는 동작이다.
         evaluatorProperties = new JourneyEvaluatorProperties();
         composer = new JourneySnapshotEtaComposer(
                 legRepository, geometryUseCase, arrivalService, transferRiskEvaluator,
-                evaluatorProperties);
+                storedEvaluationReader, evaluatorProperties,
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC));
 
         legs = List.of(
                 leg(0, JourneyLegType.RIDE_BUS, 1200),
@@ -193,17 +196,59 @@ class JourneySnapshotEtaComposerTest {
     }
 
     @Test
-    @DisplayName("평가기가 켜져 있으면 조회는 계산만 하고 저장하지 않는다")
-    void doesNotStoreWhileEvaluatorRuns() {
+    @DisplayName("평가기가 켜져 있으면 저장된 판정을 읽고 실시간 조회를 하지 않는다")
+    void readsStoredAssessmentWhileEvaluatorRuns() {
         evaluatorProperties.setEnabled(true);
-        given(transferRiskEvaluator.assess(anyLong(), anyInt(), any()))
-                .willReturn(watoo.grd.nextroute.application.journey.dto.TransferAssessmentBatch.empty());
+        given(storedEvaluationReader.assessments(anyLong(), anyInt(), any()))
+                .willReturn(List.of(assessment(0, 0, 2, TransferStatus.CATCHABLE, 150L)));
         givenCurrentArrival(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
 
-        composer.compose(USER_ID, snapshot(0));
+        JourneySnapshot result = composer.compose(USER_ID, snapshot(0));
 
-        verify(transferRiskEvaluator).assess(anyLong(), anyInt(), any());
+        assertThat(result.eta().activeTransfer().status()).isEqualTo(TransferStatus.CATCHABLE);
+        assertThat(result.eta().evaluatedAt()).isEqualTo(NOW);
+        verify(storedEvaluationReader).assessments(anyLong(), anyInt(), any());
         verify(transferRiskEvaluator, never()).assessAndStore(anyLong(), anyInt(), any());
+        verify(transferRiskEvaluator, never()).assess(anyLong(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("기다리는 단계가 현재면 저장된 도착 예측을 읽는다 — 실시간을 부르지 않는다")
+    void readsStoredBoardingArrivalForWaitingLeg() {
+        evaluatorProperties.setEnabled(true);
+        given(storedEvaluationReader.assessments(anyLong(), anyInt(), any())).willReturn(List.of());
+        given(storedEvaluationReader.boardingArrival(any(), any()))
+                .willReturn(arrival(NOW.plusSeconds(240), CurrentLegArrival.Quality.GOOD));
+
+        JourneySnapshot result = composer.compose(USER_ID, snapshot(2));
+
+        assertThat(result.eta().currentLeg().arrivalAt()).isEqualTo(NOW.plusSeconds(240));
+        verify(storedEvaluationReader).boardingArrival(any(), any());
+        verify(arrivalService, never()).predict(any(), any());
+    }
+
+    @Test
+    @DisplayName("이동 단계는 평가기가 켜져 있어도 요청 시점에 계산한다")
+    void ridingLegIsStillComputedPerRequest() {
+        evaluatorProperties.setEnabled(true);
+        given(storedEvaluationReader.assessments(anyLong(), anyInt(), any())).willReturn(List.of());
+        givenCurrentArrival(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
+
+        JourneySnapshot result = composer.compose(USER_ID, snapshot(0));
+
+        assertThat(result.eta().currentLeg().arrivalAt()).isEqualTo(NOW.plusSeconds(300));
+        verify(arrivalService).predict(any(), any());
+        verify(storedEvaluationReader, never()).boardingArrival(any(), any());
+    }
+
+    @Test
+    @DisplayName("평가기가 꺼져 있으면 계산 시각을 알려 주지 않는다 — 방금 계산한 값이다")
+    void evaluatedAtIsNullWithoutEvaluator() {
+        givenCurrentArrival(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
+
+        JourneySnapshot result = composer.compose(USER_ID, snapshot(0));
+
+        assertThat(result.eta().evaluatedAt()).isNull();
     }
 
     @Test

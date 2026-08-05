@@ -80,6 +80,17 @@ public class JourneyEvaluatorProperties {
      */
     private long subwayRealtimeHorizonSeconds = 480;
 
+    /**
+     * 저장된 판정을 믿어 주는 상한.
+     *
+     * <p>낡음의 1차 기준은 시간이 아니라 <b>가리키는 시각이 지났는가</b>다. 5분 전에 계산했어도
+     * "10분 뒤 도착"이면 아직 쓸 만하고, 30초 전에 계산했어도 "이미 도착"이면 쓸모없다.
+     *
+     * <p>다만 시간 상한도 함께 둔다 — 평가기가 멈춰 있는데 도착 시각만 미래인 값(예: 먼 미래를
+     * 가리키는 잘못된 예측)이 계속 최신인 척하는 것을 막는 안전망이다.
+     */
+    private long staleAfterSeconds = 300;
+
     /** 평가 worker 스레드 수. */
     private int poolSize = 4;
 
@@ -91,6 +102,7 @@ public class JourneyEvaluatorProperties {
         if (tickMs <= 0 || batchSize <= 0 || intervalSeconds <= 0 || leaseSeconds <= 0
                 || jitterSeconds <= 0 || batchDeadlineMs <= 0
                 || transferRealtimeHorizonSeconds <= 0 || subwayRealtimeHorizonSeconds <= 0
+                || staleAfterSeconds <= 0
                 || poolSize <= 0 || queueCapacity <= 0) {
             throw new IllegalStateException("journey.navigation.evaluator 설정은 모두 0 보다 커야 한다");
         }
@@ -114,6 +126,10 @@ public class JourneyEvaluatorProperties {
 
     public Duration lease() {
         return Duration.ofSeconds(leaseSeconds);
+    }
+
+    public Duration staleAfter() {
+        return Duration.ofSeconds(staleAfterSeconds);
     }
 
     public Duration transferRealtimeHorizon() {

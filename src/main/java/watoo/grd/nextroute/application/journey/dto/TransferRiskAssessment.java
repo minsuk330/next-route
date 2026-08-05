@@ -60,6 +60,19 @@ public record TransferRiskAssessment(
                 && targetSource == other.targetSource;
     }
 
+    /**
+     * 이 판정을 "모름"으로 바꾼 사본.
+     *
+     * <p>저장된 판정이 가리키는 시각이 이미 지났을 때 쓴다. 그 값은 틀렸다고 확신할 수 있는
+     * 상태다 — 이미 떠난 버스 시각을 그대로 내려보내면 사용자는 오지 않을 차를 기다린다. 근거가
+     * 되는 시각들도 함께 비운다. 하나만 남기면 앱이 그것으로 남은 시간을 계산한다.
+     */
+    public TransferRiskAssessment asUnknown() {
+        return new TransferRiskAssessment(transferIndex, fromLegIndex, toLegIndex,
+                TransferStatus.UNKNOWN, null, null, null, null,
+                CurrentLegArrival.Quality.UNKNOWN, calculatedAt, null, null);
+    }
+
     public boolean isUnknown() {
         return status == TransferStatus.UNKNOWN;
     }
