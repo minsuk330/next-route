@@ -351,5 +351,14 @@ journey:
       # 저장된 판정을 믿어 주는 상한. 낡음의 1차 기준은 "가리키는 도착 시각이 지났는가"이고,
       # 이 값은 평가기가 멈춘 채 먼 미래를 가리키는 값이 최신인 척하는 것을 막는 안전망이다.
       stale-after-seconds: 300
+      # 상황별 평가 간격. 환승이 임박하거나 위험하면 min, 멀거나 없으면 idle, 그 사이는 기본값.
+      # max 는 stale-after-seconds 보다 반드시 짧아야 한다 — 길면 조회가 그 판정을 낡았다고
+      # 버려서 평가기가 정상인데도 앱에 "모름"이 뜬다(부팅 시 검증한다).
+      min-interval-seconds: ${JOURNEY_EVALUATOR_MIN_INTERVAL_SECONDS:10}
+      max-interval-seconds: ${JOURNEY_EVALUATOR_MAX_INTERVAL_SECONDS:180}
+      idle-interval-seconds: ${JOURNEY_EVALUATOR_IDLE_INTERVAL_SECONDS:120}
+      near-transfer-seconds: ${JOURNEY_EVALUATOR_NEAR_TRANSFER_SECONDS:300}
+      far-transfer-seconds: ${JOURNEY_EVALUATOR_FAR_TRANSFER_SECONDS:900}
+      unchanged-backoff-multiplier: ${JOURNEY_EVALUATOR_UNCHANGED_BACKOFF:2}
       pool-size: 4
       queue-capacity: 200

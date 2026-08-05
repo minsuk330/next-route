@@ -28,6 +28,7 @@ public class JourneyEvaluationMetrics {
     public static final String FAILURES = "journey.evaluation.failures";
     public static final String LOST_CLAIM = "journey.evaluation.lost-claim";
     public static final String PREDICTION = "journey.transfer.prediction";
+    public static final String INTERVAL = "journey.evaluation.interval";
 
     private final MeterRegistry registry;
 
@@ -52,6 +53,18 @@ public class JourneyEvaluationMetrics {
     /** 소유권을 잃어 결과를 버린 횟수. 늘어나면 lease·배치 상한 설정이 잘못됐다는 신호다. */
     public void recordLostClaim() {
         registry.counter(LOST_CLAIM).increment();
+    }
+
+    /**
+     * 다음 평가까지 얼마를 기다리기로 했는지, 그리고 그렇게 정한 근거.
+     *
+     * <p>운영이 봐야 하는 것은 근거별 분포다. {@code near}·{@code at_risk} 비율이 높으면 평가기가
+     * 바쁘게 돌고 있다는 뜻이고, {@code backoff} 가 대부분이면 대상 여정이 조용하다는 뜻이다.
+     *
+     * @param reason  {@code JourneyEvaluationIntervalPolicy.Reason} 이름(소문자). 고정 집합이다
+     */
+    public void recordInterval(String reason, long seconds) {
+        registry.summary(INTERVAL, "reason", reason).record(seconds);
     }
 
     /**

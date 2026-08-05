@@ -101,6 +101,13 @@ V39 는 만료 쿼리와 due claim 쿼리의 실행계획(EXPLAIN)을 확인한 
 - 여정 하나가 계속 짧은 간격만 요구하지 못하도록 최소 간격 상한을 둔다
 - 상태가 계속 그대로면 간격을 점점 늘린다(backoff)
 
+**구현 결과** — 상세는 [`docs/plan/journey-adaptive-interval/`](../journey-adaptive-interval/PLAN.md). 실제 값은 위험·임박 10초 / 5~15분 30초 / 그 밖 120초, 값이 그대로면 2배씩 늘려 최대 180초. 규칙은 `JourneyEvaluationIntervalPolicy` 한 곳에 있다.
+
+- **backoff 에 컬럼을 쓰지 않는다.** "직전 간격"은 `transfer_connection.calculated_at` 을 되읽어 구한다 — 평가할 때마다 갱신되고 이미 읽어 오는 값이다
+- **최대 간격은 `stale-after-seconds` 보다 짧아야 한다.** 조회 경로가 그보다 오래된 판정을 버리므로(④b), 넘기면 평가기가 정상인데 앱에 "모름"이 뜬다. 부팅 검증으로 막는다
+- 임박·위험한 상태에서는 값이 그대로여도 간격을 늘리지 않는다
+- 지나온 환승은 계산에서 뺀다. 과거 준비 시각이 섞이면 여정 후반이 계속 최소 간격으로 돈다
+
 ### ⑦ `journey-evaluator-resilience`
 
 평가기 전용 scheduler pool·deadline·bulkhead·기능 플래그를 붙인다.
