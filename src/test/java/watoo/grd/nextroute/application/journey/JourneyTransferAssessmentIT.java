@@ -67,7 +67,7 @@ class JourneyTransferAssessmentIT {
                 new RouteSearchSnapshotPort.StoredPath(
                         null, twoBusPath(), Instant.now().plusSeconds(600))));
         // 실시간 도착은 이 시험의 관심이 아니다. 모른다고 답해도 판정 행은 저장돼야 한다.
-        given(predictTransferUseCase.predict(anyString(), anyString(), any(), any()))
+        given(predictTransferUseCase.predict(anyString(), anyString(), any(), any(), any()))
                 .willAnswer(call -> TransferPredictionResult.noResult(
                         call.getArgument(0), call.getArgument(1), call.getArgument(2),
                         TransferArrival.Source.NONE, TransferArrival.Status.NO_VEHICLE,

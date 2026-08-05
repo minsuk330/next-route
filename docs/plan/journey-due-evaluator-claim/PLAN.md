@@ -31,7 +31,7 @@
 | D8 | 마이그레이션 **없음이 목표** | V35 `idx_journey_due` 가 claim 조건을 덮는다. 실행계획 확인 후 필요하면 V39 |
 | D9 | **claim 한 lease 값 자체를 소유권 토큰으로 쓴다** | lease 가 만료된 뒤 느렸던 이전 워커가 낡은 판정을 최신 위에 덮는 것을 막는다. 컬럼 추가 없음 (codex 리뷰 1) |
 | D10 | `evaluationVersion` 은 **상태뿐 아니라 시각·출처가 바뀌어도** 올린다 | 조회 API 가 이 번호로 204 를 판단한다. 상태 그대로 도착 시각만 바뀌면 앱이 새 ETA 를 영원히 못 본다 (codex 리뷰 5) |
-| D11 | 버스도 **앵커 horizon** 을 둔다(기본 15분) | 실시간은 다음 1~2대만, 모델은 현재 운행 차량만 본다. 먼 미래 환승은 어차피 UNKNOWN 이므로 호출 자체를 하지 않는다 (codex 리뷰 3) |
+| D11 | 앵커 거리로 **근거를 고른다** | 버스는 20분 안이면 실시간→모델, 밖이면 모델만. 지하철은 호출량 제한이 없어 항상 묻는다. 실시간 도착 API 는 다음 1~2대만 알려 주므로 먼 미래 차량은 애초에 목록에 없다 (2026-08-05 개정, 원래는 버스 15분·지하철 8분 완전 차단) |
 | D12 | 평가기가 켜져 있으면 **조회 경로는 저장하지 않는다** | 쓰기 주체를 하나로 만든다. 켜진 상태에서 둘이 같은 행을 쓰면 낡은 계산이 최신을 덮는다 (codex 리뷰 2) |
 
 ## 2. 신규·변경 파일
@@ -154,7 +154,19 @@ public interface TransferTargetArrivalPredictor {
 - `BusTransferTargetArrivalPredictor` (`WAIT_BUS`) — `predictTransferUseCase.predict(startStopId, routeId, boardingSeq, boardingAnchorAt)`. **`state` 가드 없음.** 결과 `source` 를 `CurrentLegArrival.Source` 로 매핑: `REALTIME → REALTIME_ARRIVAL`, `MODEL → MODEL_ARRIVAL`(신규 enum 값)
 - `SubwayTransferTargetArrivalPredictor` (`WAIT_SUBWAY`) — 지하철 실시간은 "지금 들어오는 열차"만 말한다. `boardingAnchorAt - now > subwayRealtimeHorizonSeconds`(기본 480)이면 `unknown()`. 지하철은 모델이 없다(SC-6) — 없는 근거를 만들지 않는다
 
-**버스에도 horizon 을 둔다(D11).** `boardingAnchorAt - now > transferRealtimeHorizonSeconds`(기본 900)이면 외부 호출을 **하지 않고** `unknown()` 을 돌려준다. 근거는 두 예측 방법의 시야다 — 실시간 도착 API 는 다음 1~2대만 알려 주고, 모델은 **지금 운행 중인 차량**의 위치로만 추정한다. 20분 뒤에 올 버스는 아직 차고에 있거나 노선 앞쪽에 없어서 어느 쪽도 답을 못 준다. 그때 호출하면 `NO_VEHICLE` 을 받으려고 외부 API 를 쓰는 셈이다.
+**앵커 거리로 근거를 고른다(D11, 2026-08-05 개정).** 완전 차단이 아니라 단계적이다.
+
+| 상황 | 호출 | 못 잡으면 |
+|---|---|---|
+| 버스, 앵커 ≤ `busRealtimeWindowSeconds`(1200) | 실시간 → 모델 | UNKNOWN |
+| 버스, 앵커 > 1200초 | **모델만**(`Mode.MODEL_ONLY`) | UNKNOWN |
+| 지하철 | 항상 실시간 | UNKNOWN |
+
+실시간을 건너뛰는 이유는 시야다 — 도착 API 는 지금 접근 중인 다음 1~2대만 알려 주므로 20분 뒤에 탈 차량은 애초에 그 목록에 없다. 반면 **모델에는 시야를 두지 않는다.** 운행 중인 차량이 있으면 추정하고 없으면 모른다고 답하는 판단은, 거리로 미리 자르는 것보다 데이터를 보는 모델 쪽이 하는 것이 맞다.
+
+지하철은 실시간 조회에 호출량 제한이 없어 거리와 무관하게 매번 묻는다. 다만 **준비 시각 이후에 도착하는 첫 열차만** 고른다 — 지금 들어오는 열차를 먼 미래의 사용자에게 답으로 주면 여유가 음수로 계산돼 "환승 놓침"이 뜬다.
+
+`Mode` 는 `PredictTransferUseCase` 가 소유한다. 기존 4인자 서명은 `REALTIME_THEN_MODEL` 로 위임하는 default 메서드로 남겨 검색 경로를 건드리지 않는다.
 
 **앵커가 과거인 경우는 그대로 넘긴다.** `pickRealtime`(`SingleTransferPredictor.java:222`)이 `!t.isBefore(userAt)` 로 고르므로, 앵커가 과거면 자연히 "다음에 오는 차"가 선택된다. 사용자가 이미 늦은 상황에서 원하는 동작이 그것이다. 앵커를 `now` 로 올려 잡지 말 것 — 그러면 이미 놓친 사실(`MISSED`)이 지워진다.
 - `TransferTargetArrivalService` — 단계 종류로 구현을 고르는 얇은 층. `CurrentLegArrivalService` 와 같은 모양

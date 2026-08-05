@@ -80,7 +80,7 @@ class TransferTargetArrivalPredictorTest {
 
             ArgumentCaptor<Instant> captured = ArgumentCaptor.forClass(Instant.class);
             verify(predictTransferUseCase).predict(eq("ST-G"), eq("BL-721"), eq(3),
-                    captured.capture());
+                    captured.capture(), any());
             assertThat(captured.getValue()).isEqualTo(anchor);
         }
 
@@ -124,14 +124,41 @@ class TransferTargetArrivalPredictorTest {
         }
 
         @Test
-        @DisplayName("앵커가 시야 밖이면 외부 API 를 부르지 않는다")
-        void skipsCallBeyondHorizon() {
-            Instant farAnchor = NOW.plusSeconds(properties.getTransferRealtimeHorizonSeconds() + 60);
+        @DisplayName("시야 안이면 실시간까지 본다")
+        void withinWindowUsesRealtime() {
+            givenPrediction(TransferArrival.Source.REALTIME, TransferArrival.Status.AVAILABLE,
+                    NOW.plusSeconds(480), null);
+
+            predictor.predictBoarding(waitLeg, NOW.plusSeconds(420), NOW);
+
+            verify(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(),
+                    eq(PredictTransferUseCase.Mode.REALTIME_THEN_MODEL));
+        }
+
+        @Test
+        @DisplayName("시야 밖이면 실시간을 건너뛰고 모델만 쓴다 — 호출은 여전히 한다")
+        void beyondWindowUsesModelOnly() {
+            Instant farAnchor = NOW.plusSeconds(properties.getBusRealtimeWindowSeconds() + 60);
+            givenPrediction(TransferArrival.Source.MODEL, TransferArrival.Status.AVAILABLE,
+                    farAnchor.plusSeconds(120), "bus-eta-v3");
+
+            TransferTargetArrival result = predictor.predictBoarding(waitLeg, farAnchor, NOW);
+
+            verify(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(),
+                    eq(PredictTransferUseCase.Mode.MODEL_ONLY));
+            assertThat(result.arrival().source()).isEqualTo(CurrentLegArrival.Source.MODEL_ARRIVAL);
+        }
+
+        @Test
+        @DisplayName("시야 밖이고 모델도 못 답하면 모름이다")
+        void beyondWindowWithoutModelAnswerIsUnknown() {
+            Instant farAnchor = NOW.plusSeconds(properties.getBusRealtimeWindowSeconds() + 600);
+            givenPrediction(TransferArrival.Source.MODEL, TransferArrival.Status.NO_VEHICLE, null, null);
 
             TransferTargetArrival result = predictor.predictBoarding(waitLeg, farAnchor, NOW);
 
             assertThat(result.arrival().quality()).isEqualTo(CurrentLegArrival.Quality.UNKNOWN);
-            verifyNoInteractions(predictTransferUseCase);
+            assertThat(result.upstreamBlocked()).isFalse();
         }
 
         @Test
@@ -140,7 +167,7 @@ class TransferTargetArrivalPredictorTest {
             TransferTargetArrival result = predictor.predictBoarding(waitLeg, null, NOW);
 
             assertThat(result.arrival().quality()).isEqualTo(CurrentLegArrival.Quality.UNKNOWN);
-            verify(predictTransferUseCase, never()).predict(anyString(), anyString(), anyInt(), any());
+            verifyNoInteractions(predictTransferUseCase);
         }
 
         @Test
@@ -152,7 +179,8 @@ class TransferTargetArrivalPredictorTest {
 
             TransferTargetArrival result = predictor.predictBoarding(waitLeg, pastAnchor, NOW);
 
-            verify(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), eq(pastAnchor));
+            verify(predictTransferUseCase).predict(anyString(), anyString(), anyInt(),
+                    eq(pastAnchor), any());
             assertThat(result.arrival().arrivalAt()).isEqualTo(NOW.plusSeconds(90));
         }
 
@@ -183,7 +211,7 @@ class TransferTargetArrivalPredictorTest {
                     ? TransferPredictionResult.noResult("ST-G", "BL-721", 3, source, status, NOW, NOW)
                     : new TransferPredictionResult("ST-G", "BL-721", 3, source, status, NOW, NOW,
                             predictedArrivalAt, null, true, "vehicle-1", modelVersion);
-            given(predictTransferUseCase.predict(anyString(), anyString(), anyInt(), any()))
+            given(predictTransferUseCase.predict(anyString(), anyString(), anyInt(), any(), any()))
                     .willReturn(result);
         }
     }
@@ -199,44 +227,47 @@ class TransferTargetArrivalPredictorTest {
         @BeforeEach
         void setUp() {
             predictor = new SubwayTransferTargetArrivalPredictor(
-                    arrivalReader, routeOptionRepository, properties);
+                    arrivalReader, routeOptionRepository);
             waitLeg = waitLeg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.PENDING);
             ReflectionTestUtils.setField(waitLeg, "routeId", "1002");
             given(routeOptionRepository.findById(OPTION_ID)).willReturn(Optional.of(subwayOption()));
         }
 
         @Test
-        @DisplayName("앵커가 시야 안이면 지금 들어오는 열차를 쓴다")
-        void usesIncomingTrainWithinHorizon() {
+        @DisplayName("준비 시각 이후에 오는 첫 열차를 고른다")
+        void picksFirstBoardableTrain() {
             given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt()))
-                    .willReturn(List.of(arrival(240)));
+                    .willReturn(List.of(arrival(60), arrival(240), arrival(420)));
 
             TransferTargetArrival result = predictor.predictBoarding(waitLeg, NOW.plusSeconds(180), NOW);
 
+            // 60초 뒤 열차는 사용자가 준비를 마치기 전에 지나간다.
             assertThat(result.arrival().arrivalAt()).isEqualTo(NOW.plusSeconds(240));
             assertThat(result.arrival().source()).isEqualTo(CurrentLegArrival.Source.REALTIME_ARRIVAL);
         }
 
         @Test
-        @DisplayName("앵커가 시야 밖이면 조회하지 않는다 — 지하철은 모델도 없다")
-        void skipsBeyondHorizon() {
-            Instant farAnchor = NOW.plusSeconds(properties.getSubwayRealtimeHorizonSeconds() + 60);
+        @DisplayName("앵커가 멀어도 조회한다 — 지하철 실시간은 호출량 제한이 없다")
+        void alwaysAsksRegardlessOfDistance() {
+            Instant farAnchor = NOW.plusSeconds(3600);
+            given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt()))
+                    .willReturn(List.of(arrival(120)));
 
-            TransferTargetArrival result = predictor.predictBoarding(waitLeg, farAnchor, NOW);
+            predictor.predictBoarding(waitLeg, farAnchor, NOW);
 
-            assertThat(result.arrival().quality()).isEqualTo(CurrentLegArrival.Quality.UNKNOWN);
-            verifyNoInteractions(arrivalReader);
+            verify(arrivalReader).arrivalsByStation(any(), any(), any(), anyInt());
         }
 
         @Test
-        @DisplayName("사용자가 도착하기 전에 지나갈 열차면 값은 주되 근사로 낮춘다")
-        void trainBeforeUserIsApproximate() {
+        @DisplayName("탈 수 있는 열차가 목록에 없으면 모름이다 — 못 탈 열차를 답으로 주지 않는다")
+        void noBoardableTrainIsUnknown() {
             given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt()))
-                    .willReturn(List.of(arrival(60)));
+                    .willReturn(List.of(arrival(60), arrival(120)));
 
-            TransferTargetArrival result = predictor.predictBoarding(waitLeg, NOW.plusSeconds(300), NOW);
+            TransferTargetArrival result = predictor.predictBoarding(waitLeg, NOW.plusSeconds(1800), NOW);
 
-            assertThat(result.arrival().quality()).isEqualTo(CurrentLegArrival.Quality.APPROXIMATE);
+            // 지금 들어오는 열차를 답으로 주면 여유가 음수가 되어 "환승 놓침"이 뜬다.
+            assertThat(result.arrival().quality()).isEqualTo(CurrentLegArrival.Quality.UNKNOWN);
         }
 
         private SubwayRealtimeArrivalReader.Arrival arrival(int seconds) {

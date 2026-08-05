@@ -64,21 +64,16 @@ public class JourneyEvaluatorProperties {
     private long batchDeadlineMs = 4_000;
 
     /**
-     * 이 시간보다 먼 <b>버스</b> 환승은 조회하지 않는다.
+     * 버스 <b>실시간</b> 도착 정보를 쓸 수 있는 시야.
      *
-     * <p>실시간 도착 정보는 다음 한두 대만 알려 주고, 모델은 지금 운행 중인 차량의 위치로만
-     * 추정한다. 20분 뒤에 올 버스는 아직 노선 앞쪽에 없어서 어느 쪽도 답을 못 준다. 그때 부르면
-     * "차량 없음"을 받으려고 외부 API 를 쓰는 셈이다.
-     */
-    private long transferRealtimeHorizonSeconds = 900;
-
-    /**
-     * 이 시간보다 먼 <b>지하철</b> 환승은 조회하지 않는다.
+     * <p>이 시간 안에 탈 예정이면 실시간을 먼저 보고, 못 잡으면 모델로 내려간다. 그 밖이면
+     * <b>실시간을 건너뛰고 모델만</b> 쓴다 — 도착 API 는 지금 접근 중인 다음 한두 대만 알려 주므로
+     * 20분 뒤에 탈 차량은 애초에 그 목록에 없다. 답이 없을 호출을 하지 않는다.
      *
-     * <p>지하철 실시간은 "지금 역으로 들어오는 열차"만 말한다. 버스보다 시야가 짧다. 지하철은
-     * 모델도 없으므로(SC-6) 그 밖은 모른다고 답한다.
+     * <p>모델은 시야를 두지 않는다. 운행 중인 차량이 있으면 추정하고, 없으면 모른다고 답한다 —
+     * 그 판단은 모델 쪽이 데이터를 보고 하는 것이 맞다.
      */
-    private long subwayRealtimeHorizonSeconds = 480;
+    private long busRealtimeWindowSeconds = 1200;
 
     /**
      * 저장된 판정을 믿어 주는 상한.
@@ -101,8 +96,7 @@ public class JourneyEvaluatorProperties {
     void validate() {
         if (tickMs <= 0 || batchSize <= 0 || intervalSeconds <= 0 || leaseSeconds <= 0
                 || jitterSeconds <= 0 || batchDeadlineMs <= 0
-                || transferRealtimeHorizonSeconds <= 0 || subwayRealtimeHorizonSeconds <= 0
-                || staleAfterSeconds <= 0
+                || busRealtimeWindowSeconds <= 0 || staleAfterSeconds <= 0
                 || poolSize <= 0 || queueCapacity <= 0) {
             throw new IllegalStateException("journey.navigation.evaluator 설정은 모두 0 보다 커야 한다");
         }
@@ -132,11 +126,7 @@ public class JourneyEvaluatorProperties {
         return Duration.ofSeconds(staleAfterSeconds);
     }
 
-    public Duration transferRealtimeHorizon() {
-        return Duration.ofSeconds(transferRealtimeHorizonSeconds);
-    }
-
-    public Duration subwayRealtimeHorizon() {
-        return Duration.ofSeconds(subwayRealtimeHorizonSeconds);
+    public Duration busRealtimeWindow() {
+        return Duration.ofSeconds(busRealtimeWindowSeconds);
     }
 }
