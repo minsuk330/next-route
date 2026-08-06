@@ -52,9 +52,11 @@ public class SingleTransferPredictor implements PredictTransferUseCase {
 
     @Override
     public TransferPredictionResult predict(String stopId, String routeId, Integer seq,
-                                           Instant userArrivalAt, Mode mode) {
+                                           Instant userArrivalAt, Mode mode, long budgetMs) {
         Instant calculatedAt = clock.instant();
-        Instant deadline = calculatedAt.plusMillis(predictProps.getDeadlineMs());
+        // 부르는 쪽이 예산을 정하지 않으면 검색 기준 설정값을 쓴다.
+        long budget = budgetMs > 0 ? budgetMs : predictProps.getDeadlineMs();
+        Instant deadline = calculatedAt.plusMillis(budget);
 
         // 1. feature gate
         if (!transferProps.isEnabled()) {

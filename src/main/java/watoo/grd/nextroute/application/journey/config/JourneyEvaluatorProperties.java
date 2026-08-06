@@ -126,6 +126,37 @@ public class JourneyEvaluatorProperties {
     /** worker 대기 큐 길이. 넘치면 그 tick 은 포기하고 다음 tick 에 다시 잡는다. */
     private int queueCapacity = 200;
 
+    /**
+     * 평가기가 동시에 외부 provider 를 부를 수 있는 수.
+     *
+     * <p>버스 API 호출은 검색 요청과 공용 Semaphore(permit 8)를 나눠 쓴다. 그 앞에 평가기 전용
+     * Semaphore 를 두어 <b>워커 스레드 수와 provider 동시 호출 수를 분리한다.</b> 이것이 없으면
+     * 처리량을 올리려고 {@link #poolSize} 를 키우는 순간 검색 요청 몫이 조용히 줄어든다.
+     */
+    private int providerPermits = 4;
+
+    /** provider 슬롯을 기다리는 시간. 넘으면 이번 여정은 건너뛰고 선점 만료 후 다시 잡는다. */
+    private long providerAcquireMs = 300;
+
+    /**
+     * 환승 예측 한 건의 시간 예산.
+     *
+     * <p>검색용({@code transfer.predict.deadline-ms} 2500ms)보다 짧다. 검색은 사용자가 화면에서
+     * 기다리지만 평가기는 기다리는 사람이 없고, 대신 배치 상한과 선점 시간을 지켜야 한다.
+     */
+    private long predictDeadlineMs = 1_500;
+
+    /**
+     * provider 가 답을 못 줄 때 직전 판정을 붙잡고 있는 시간.
+     *
+     * <p>조회가 한 번 실패했다고 바로 "모름"으로 덮으면, 30초 뒤 복구돼도 그 사이 사용자는 근거
+     * 없는 화면을 본다. 직전 판정이 아직 쓸 만하면 유지하고 이 시간을 넘겨야 모름으로 바꾼다.
+     *
+     * <p>{@link #staleAfterSeconds} 를 넘을 수 없다. 조회가 낡았다고 버릴 값을 평가기가 붙잡고
+     * 있으면 안 된다.
+     */
+    private long unknownGraceSeconds = 120;
+
     @PostConstruct
     void validate() {
         if (tickMs <= 0 || batchSize <= 0 || intervalSeconds <= 0 || leaseSeconds <= 0
@@ -147,6 +178,25 @@ public class JourneyEvaluatorProperties {
             throw new IllegalStateException("흩뜨리는 폭은 평가 간격보다 작아야 한다");
         }
         validateAdaptiveInterval();
+        validateResilience();
+    }
+
+    /** 평가기가 사용자 요청 자원을 밀어내지 않게 하는 값들의 관계. */
+    private void validateResilience() {
+        if (providerPermits <= 0 || providerAcquireMs <= 0 || predictDeadlineMs <= 0
+                || unknownGraceSeconds <= 0) {
+            throw new IllegalStateException("평가기 격리 설정은 모두 0 보다 커야 한다");
+        }
+        if (predictDeadlineMs * 2 > batchDeadlineMs) {
+            throw new IllegalStateException(
+                    "환승 예측 예산의 두 배가 배치 상한을 넘으면 안 된다. 환승 두 개짜리 여정이 "
+                            + "배치 안에 못 끝나 매 tick 미완료가 나고, 그 이유가 로그에 드러나지 않는다");
+        }
+        if (unknownGraceSeconds > staleAfterSeconds) {
+            throw new IllegalStateException(
+                    "직전 판정을 붙잡는 시간은 저장된 판정을 믿어 주는 시간을 넘을 수 없다. "
+                            + "조회가 낡았다고 버릴 값을 평가기가 붙잡고 있게 된다");
+        }
     }
 
     /** 간격을 상황에 맞춰 조절할 때 지켜야 하는 관계들. */
@@ -210,5 +260,9 @@ public class JourneyEvaluatorProperties {
 
     public Duration farTransfer() {
         return Duration.ofSeconds(farTransferSeconds);
+    }
+
+    public Duration unknownGrace() {
+        return Duration.ofSeconds(unknownGraceSeconds);
     }
 }

@@ -2,6 +2,7 @@ package watoo.grd.nextroute.application.journey.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties;
 import watoo.grd.nextroute.application.journey.dto.JourneyDueClaim;
@@ -18,6 +19,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -50,9 +53,14 @@ public class JourneyEvaluationService {
     private final TransferRiskEvaluator transferRiskEvaluator;
     private final JourneyEvaluationScheduleWriter scheduleWriter;
     private final JourneyEvaluationIntervalPolicy intervalPolicy;
+    private final TransferAssessmentGracePolicy gracePolicy;
     private final JourneyEvaluationMetrics metrics;
     private final JourneyEvaluatorProperties properties;
     private final Clock clock;
+
+    /** 평가기 몫의 provider 동시 호출 수. 워커 스레드 수와 분리하는 장치다. */
+    @Qualifier("journeyEvaluatorProviderLimiter")
+    private final Semaphore providerLimiter;
 
     /** 평가 한 건의 결말. 실패도 종류를 갈라야 재시도 간격을 달리 줄 수 있다. */
     public enum Result {
@@ -77,10 +85,13 @@ public class JourneyEvaluationService {
         }
 
         Instant now = Instant.now(clock);
-        Map<Integer, LegGeometry> geometry = loadGeometry(context);
-        TransferAssessmentBatch batch = transferRiskEvaluator.assess(
-                context.journeyId(), context.routeRevision(), geometry);
+        TransferAssessmentBatch computed = computeWithProviderSlot(context);
+        if (computed == null) {
+            // 평가기 몫의 provider 슬롯을 못 잡았다. 선점이 만료되면 다른 tick 이 다시 잡는다.
+            return Report.skipped();
+        }
 
+        TransferAssessmentBatch batch = applyGrace(computed, context, now);
         boolean changed = hasChanged(batch.assessments(), context.previousAssessments());
         JourneyEvaluationOutcome outcome = new JourneyEvaluationOutcome(
                 context.journeyId(), context.routeRevision(), batch, changed);
@@ -91,6 +102,65 @@ public class JourneyEvaluationService {
             return Report.lostClaim();
         }
         return new Report(Result.EVALUATED, batch.assessments(), batch.upstreamBlocked());
+    }
+
+    /**
+     * 외부 호출 구간. 평가기 몫의 슬롯을 잡은 동안에만 돈다.
+     *
+     * <p><b>DB 작업은 이 안에 넣지 않는다.</b> 넣으면 provider 동시 호출 제한이 DB 처리 시간까지
+     * 붙잡아, 슬롯이 실제 외부 호출보다 훨씬 오래 잠긴다.
+     *
+     * @return 슬롯을 못 잡았으면 null
+     */
+    private TransferAssessmentBatch computeWithProviderSlot(JourneyEvaluationContext context) {
+        boolean acquired;
+        try {
+            acquired = providerLimiter.tryAcquire(
+                    properties.getProviderAcquireMs(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            metrics.recordProviderSlot("interrupted");
+            return null;
+        }
+        if (!acquired) {
+            metrics.recordProviderSlot("rejected");
+            log.debug("[JourneyEvaluation] provider 슬롯 없음 — journeyId={}, 이번 tick 은 건너뛴다",
+                    context.journeyId());
+            return null;
+        }
+        try {
+            metrics.recordProviderSlot("acquired");
+            Map<Integer, LegGeometry> geometry = loadGeometry(context);
+            return transferRiskEvaluator.assess(
+                    context.journeyId(), context.routeRevision(), geometry);
+        } finally {
+            providerLimiter.release();
+        }
+    }
+
+    /**
+     * 조회가 실패한 환승은 직전 판정을 잠시 붙잡는다.
+     *
+     * <p>여기서 갈아치우기 때문에 뒤따르는 "값이 바뀌었나" 비교가 <b>유지 결정 뒤의 판정</b>을 본다.
+     * 순서가 뒤집히면 직전 값을 유지했는데도 평가 번호가 올라, 앱이 같은 값을 다시 받는다.
+     */
+    private TransferAssessmentBatch applyGrace(TransferAssessmentBatch batch,
+                                               JourneyEvaluationContext context, Instant now) {
+        if (batch.isEmpty()) {
+            return batch;
+        }
+        List<TransferRiskAssessment> chosen = batch.assessments().stream()
+                .map(fresh -> {
+                    TransferRiskAssessment kept = gracePolicy.choose(
+                            fresh, context.previousAssessments().get(fresh.transferIndex()), now);
+                    if (kept != fresh) {
+                        metrics.recordGraceHeld();
+                    }
+                    return kept;
+                })
+                .toList();
+        return new TransferAssessmentBatch(chosen, batch.boardingByLegIndex(),
+                batch.upstreamBlocked());
     }
 
     /**

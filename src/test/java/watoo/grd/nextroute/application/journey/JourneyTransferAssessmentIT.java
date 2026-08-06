@@ -29,6 +29,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 
@@ -67,7 +68,7 @@ class JourneyTransferAssessmentIT {
                 new RouteSearchSnapshotPort.StoredPath(
                         null, twoBusPath(), Instant.now().plusSeconds(600))));
         // 실시간 도착은 이 시험의 관심이 아니다. 모른다고 답해도 판정 행은 저장돼야 한다.
-        given(predictTransferUseCase.predict(anyString(), anyString(), any(), any(), any()))
+        given(predictTransferUseCase.predict(anyString(), anyString(), any(), any(), any(), anyLong()))
                 .willAnswer(call -> TransferPredictionResult.noResult(
                         call.getArgument(0), call.getArgument(1), call.getArgument(2),
                         TransferArrival.Source.NONE, TransferArrival.Status.NO_VEHICLE,

@@ -70,12 +70,15 @@ public class BusTransferTargetArrivalPredictor implements TransferTargetArrivalP
         }
 
         PredictTransferUseCase.Mode mode = modeFor(boardingAnchorAt, now);
+        // 평가기 몫의 시간 예산을 명시한다. 검색용 기본값(2500ms)을 그대로 쓰면 환승 두 개짜리
+        // 여정이 배치 상한을 넘고, 밀리면 선점이 만료돼 계산 결과를 통째로 버린다.
         TransferPredictionResult prediction = predictTransferUseCase.predict(
                 waitLeg.getStartStopId(),
                 option.get().getRouteId(),
                 option.get().getBoardingSeq(),
                 boardingAnchorAt,
-                mode);
+                mode,
+                properties.getPredictDeadlineMs());
 
         if (prediction.predictedArrivalAt() == null) {
             // 막혀서 못 물어본 것과 물어봤지만 근거가 없는 것을 가른다. 막힌 상황에서 30초마다

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,6 +37,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
@@ -65,6 +67,7 @@ class JourneyEvaluationIT {
     @Autowired JourneyDueClaimService claimService;
     @Autowired JourneyEvaluationService evaluationService;
     @Autowired JdbcTemplate jdbcTemplate;
+    @Autowired @Qualifier("journeyEvaluatorProviderLimiter") java.util.concurrent.Semaphore providerLimiter;
     @MockBean RouteSearchSnapshotPort snapshotPort;
     @MockBean PredictTransferUseCase predictTransferUseCase;
 
@@ -253,6 +256,58 @@ class JourneyEvaluationIT {
         assertThat(nextEvaluationAt()).isAfter(Instant.now().plusSeconds(60));
     }
 
+    @Test
+    @DisplayName("provider 가 잠깐 막혀도 유예 안에서는 직전 판정을 유지한다")
+    void keepsPreviousAssessmentWithinGrace() {
+        givenRealtimeArrival(600);
+        evaluate();
+        String statusBefore = storedStatus();
+        Instant arrivalBefore = storedNextBusArrivalAt();
+        long versionBefore = evaluationVersion();
+
+        givenBlocked();
+        makeDue();
+        evaluate();
+
+        // 조회에 실패했다고 곧바로 모름으로 덮으면, 30초 뒤 복구돼도 그 사이 사용자는 근거 없는
+        // 화면을 본다. 값이 그대로이므로 평가 번호도 오르지 않아야 한다.
+        assertThat(storedStatus()).isEqualTo(statusBefore);
+        assertThat(storedNextBusArrivalAt()).isEqualTo(arrivalBefore);
+        assertThat(evaluationVersion()).isEqualTo(versionBefore);
+    }
+
+    @Test
+    @DisplayName("유예를 넘기면 모름으로 바꾼다")
+    void marksUnknownAfterGrace() {
+        givenRealtimeArrival(600);
+        evaluate();
+
+        // 직전 판정을 유예(기본 120초)보다 오래된 것으로 만든다.
+        agePreviousEvaluation(130);
+        givenBlocked();
+        makeDue();
+        evaluate();
+
+        assertThat(storedStatus()).isEqualTo(TransferStatus.UNKNOWN.name());
+    }
+
+    @Test
+    @DisplayName("provider 슬롯을 못 잡으면 아무것도 저장하지 않는다")
+    void skipsWhenProviderSlotUnavailable() throws Exception {
+        givenRealtimeArrival(600);
+        JourneyDueClaim claim = claim();
+        // 평가기 몫의 슬롯을 전부 잡아 둔다. 워커 스레드가 남아 있어도 외부 호출은 못 나간다.
+        int permits = providerLimiter.drainPermits();
+        try {
+            Result result = evaluationService.evaluate(claim).result();
+
+            assertThat(result).isEqualTo(Result.SKIPPED);
+            assertThat(storedCalculatedAt()).isNull();
+        } finally {
+            providerLimiter.release(permits);
+        }
+    }
+
     // ── 준비 ────────────────────────────────────────────────────────────────
 
     private Result evaluate() {
@@ -280,7 +335,7 @@ class JourneyEvaluationIT {
                     call.getArgument(0), call.getArgument(1), call.getArgument(2),
                     TransferArrival.Source.REALTIME, Instant.now(), anchor,
                     anchor.plusSeconds(secondsFromNow - 450), "vehicle-1", null);
-        }).given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any());
+        }).given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any(), anyLong());
     }
 
     private void givenFixedRealtimeArrival(Instant arrivalAt) {
@@ -288,7 +343,7 @@ class JourneyEvaluationIT {
                 call.getArgument(0), call.getArgument(1), call.getArgument(2),
                 TransferArrival.Source.REALTIME, Instant.now(), call.getArgument(3),
                 arrivalAt, "vehicle-1", null))
-                .given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any());
+                .given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any(), anyLong());
     }
 
     private void givenModelArrival(int secondsFromNow, String modelVersion) {
@@ -298,7 +353,7 @@ class JourneyEvaluationIT {
                     call.getArgument(0), call.getArgument(1), call.getArgument(2),
                     TransferArrival.Source.MODEL, Instant.now(), anchor,
                     anchor.plusSeconds(secondsFromNow - 450), "vehicle-1", modelVersion);
-        }).given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any());
+        }).given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any(), anyLong());
     }
 
     private void givenBlocked() {
@@ -306,7 +361,7 @@ class JourneyEvaluationIT {
                 call.getArgument(0), call.getArgument(1), call.getArgument(2),
                 TransferArrival.Source.NONE, TransferArrival.Status.BLOCKED,
                 Instant.now(), call.getArgument(3)))
-                .given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any());
+                .given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any(), anyLong());
     }
 
     private Long startJourney() {

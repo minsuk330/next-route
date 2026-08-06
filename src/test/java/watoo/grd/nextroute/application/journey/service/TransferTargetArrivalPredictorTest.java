@@ -25,6 +25,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -80,7 +81,7 @@ class TransferTargetArrivalPredictorTest {
 
             ArgumentCaptor<Instant> captured = ArgumentCaptor.forClass(Instant.class);
             verify(predictTransferUseCase).predict(eq("ST-G"), eq("BL-721"), eq(3),
-                    captured.capture(), any());
+                    captured.capture(), any(), anyLong());
             assertThat(captured.getValue()).isEqualTo(anchor);
         }
 
@@ -132,7 +133,7 @@ class TransferTargetArrivalPredictorTest {
             predictor.predictBoarding(waitLeg, NOW.plusSeconds(420), NOW);
 
             verify(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(),
-                    eq(PredictTransferUseCase.Mode.REALTIME_THEN_MODEL));
+                    eq(PredictTransferUseCase.Mode.REALTIME_THEN_MODEL), anyLong());
         }
 
         @Test
@@ -145,7 +146,7 @@ class TransferTargetArrivalPredictorTest {
             TransferTargetArrival result = predictor.predictBoarding(waitLeg, farAnchor, NOW);
 
             verify(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(),
-                    eq(PredictTransferUseCase.Mode.MODEL_ONLY));
+                    eq(PredictTransferUseCase.Mode.MODEL_ONLY), anyLong());
             assertThat(result.arrival().source()).isEqualTo(CurrentLegArrival.Source.MODEL_ARRIVAL);
         }
 
@@ -180,7 +181,7 @@ class TransferTargetArrivalPredictorTest {
             TransferTargetArrival result = predictor.predictBoarding(waitLeg, pastAnchor, NOW);
 
             verify(predictTransferUseCase).predict(anyString(), anyString(), anyInt(),
-                    eq(pastAnchor), any());
+                    eq(pastAnchor), any(), anyLong());
             assertThat(result.arrival().arrivalAt()).isEqualTo(NOW.plusSeconds(90));
         }
 
@@ -211,7 +212,7 @@ class TransferTargetArrivalPredictorTest {
                     ? TransferPredictionResult.noResult("ST-G", "BL-721", 3, source, status, NOW, NOW)
                     : new TransferPredictionResult("ST-G", "BL-721", 3, source, status, NOW, NOW,
                             predictedArrivalAt, null, true, "vehicle-1", modelVersion);
-            given(predictTransferUseCase.predict(anyString(), anyString(), anyInt(), any(), any()))
+            given(predictTransferUseCase.predict(anyString(), anyString(), anyInt(), any(), any(), anyLong()))
                     .willReturn(result);
         }
     }

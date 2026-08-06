@@ -13,6 +13,7 @@ import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
 import watoo.grd.nextroute.application.route.config.TransferPredictProperties;
 import watoo.grd.nextroute.application.route.dto.TransferArrival;
 import watoo.grd.nextroute.application.route.dto.TransferPredictionResult;
+import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
 import watoo.grd.nextroute.application.route.port.out.MlArrivalPredictorPort;
 import watoo.grd.nextroute.application.route.port.out.MlArrivalPredictorPort.MlFeatureVector;
 import watoo.grd.nextroute.application.route.port.out.MlArrivalPredictorPort.MlPrediction;
@@ -260,6 +261,65 @@ class SingleTransferPredictorTest {
                 p2, null, null, null, null, null,
                 null, null, null, null,
                 null, null, null, null, null, null, null, null, null);
+    }
+
+    @Test
+    @DisplayName("부르는 쪽이 준 예산으로 잘린다 — 평가기는 검색보다 짧은 예산을 쓴다")
+    void callerBudgetIsApplied() {
+        // 호출 사이에 2초가 흐르는 시계. 예산 1500ms 는 그 사이에 소진되고 2500ms 는 남는다.
+        given(routeStopRepo.existsByRouteIdAndStopIdAndSeq(ROUTE, STOP, 5)).willReturn(true);
+        SingleTransferPredictor tightPredictor = predictorWith(advancingClock());
+
+        TransferPredictionResult r = tightPredictor.predict(
+                STOP, ROUTE, 5, BASE.plusSeconds(60), PredictTransferUseCase.Mode.REALTIME_THEN_MODEL, 1_500);
+
+        assertThat(r.status()).isEqualTo(TransferArrival.Status.LIMITED);
+        verifyNoInteractions(busPort, mlPort);
+    }
+
+    @Test
+    @DisplayName("예산을 0 으로 주면 설정값을 쓴다 — 기존 호출 경로가 안 바뀐다")
+    void zeroBudgetFallsBackToProperties() {
+        given(routeStopRepo.existsByRouteIdAndStopIdAndSeq(ROUTE, STOP, 5)).willReturn(true);
+        given(busPort.getArrInfoByStop(STOP, ROUTE, 5)).willReturn(
+                BusQueryResult.ok(List.of(arrival(ROUTE, MK_TM, 300, -1))));
+        SingleTransferPredictor sameClockPredictor = predictorWith(advancingClock());
+
+        TransferPredictionResult r = sameClockPredictor.predict(
+                STOP, ROUTE, 5, BASE.plusSeconds(60), PredictTransferUseCase.Mode.REALTIME_THEN_MODEL, 0);
+
+        // 설정값 2500ms 는 2초가 흘러도 남아 있어 조회까지 간다.
+        assertThat(r.status()).isEqualTo(TransferArrival.Status.AVAILABLE);
+    }
+
+    /** 부를 때마다 2초씩 흐르는 시계. 예산 소진을 시험하려면 시간이 실제로 흘러야 한다. */
+    private Clock advancingClock() {
+        return new Clock() {
+            private Instant current = BASE;
+
+            @Override
+            public java.time.ZoneId getZone() {
+                return ZoneOffset.UTC;
+            }
+
+            @Override
+            public Clock withZone(java.time.ZoneId zone) {
+                return this;
+            }
+
+            @Override
+            public Instant instant() {
+                Instant now = current;
+                current = current.plusSeconds(2);
+                return now;
+            }
+        };
+    }
+
+    private SingleTransferPredictor predictorWith(Clock clock) {
+        return new SingleTransferPredictor(transferProps, predictProps, mlProps, busPort, mlPort,
+                new MlFeatureVectorBuilder(d -> false, org.mockito.Mockito.mock(WeatherSnapshotService.class)),
+                resolver, routeStopRepo, supportService, clock);
     }
 
     private BusPositionInfo position(String vehicleId, int sectionOrder) {

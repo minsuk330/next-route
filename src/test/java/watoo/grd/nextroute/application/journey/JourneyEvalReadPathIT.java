@@ -37,6 +37,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
@@ -190,7 +191,7 @@ class JourneyEvalReadPathIT {
                     call.getArgument(0), call.getArgument(1), call.getArgument(2),
                     TransferArrival.Source.REALTIME, Instant.now(), anchor,
                     anchor.plusSeconds(150), "vehicle-1", null);
-        }).given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any());
+        }).given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any(), anyLong());
     }
 
     private void boardFirstBus() {
