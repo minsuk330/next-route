@@ -5,6 +5,7 @@
 - 확정 기술 결정: [TECHNICAL_DECISIONS.md](./TECHNICAL_DECISIONS.md)
 - 범위 변경 이력: [SCOPE-CHANGES.md](./SCOPE-CHANGES.md) (SC-3·SC-7·SC-12·SC-13)
 - 앞 단계: [PHASE-3.md](./PHASE-3.md)
+- 다음 단계: [PHASE-5.md](./PHASE-5.md)
 - 작성일: 2026-08-04
 
 이 문서는 **어떤 PR 을 어떤 순서로 낼지 정리한 목차**다. 구현 상세는 각 PR 의 `PLAN.md` 에 쓴다. DDL 이나 메서드 시그니처를 여기에 다시 적지 않는다 — 두 문서가 서로 어긋나기 시작하면 어느 쪽이 맞는지 알 수 없게 된다.
