@@ -153,11 +153,15 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
      * <p>{@code @Modifying} 이 아니다({@code RETURNING} 이 결과를 돌려준다). 반드시
      * {@code @Transactional} 안에서 부른다.
      *
-     * @return 이번에 선점한 여정 번호
+     * <p><b>선점 전 시각을 함께 돌려준다.</b> 이 UPDATE 가 {@code next_evaluation_at} 을 덮어쓰므로,
+     * "이 여정이 언제부터 평가를 기다렸나"는 여기서 잡지 않으면 영영 알 수 없다. 선점 직후에 따로
+     * SELECT 하는 방법은 다른 워커의 선점과 경합해 엉뚱한 값을 집는다.
+     *
+     * @return 이번에 선점한 여정 번호와 선점 전 다음 평가 시각
      */
     @Query(value = """
             WITH picked AS (
-                SELECT s.id FROM journey_session s
+                SELECT s.id, s.next_evaluation_at AS due_at FROM journey_session s
                 WHERE s.status = 'ACTIVE' AND s.deleted_at IS NULL
                   AND s.next_evaluation_at IS NOT NULL
                   AND s.next_evaluation_at <= :now
@@ -168,11 +172,18 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                SET next_evaluation_at = :leaseUntil
             FROM picked
             WHERE j.id = picked.id
-            RETURNING j.id
+            RETURNING j.id AS id, picked.due_at AS due_at
             """, nativeQuery = true)
-    List<Long> claimDueBatch(@Param("now") Instant now,
-                             @Param("leaseUntil") Instant leaseUntil,
-                             @Param("batchSize") int batchSize);
+    List<DueClaimRow> claimDueBatch(@Param("now") Instant now,
+                                    @Param("leaseUntil") Instant leaseUntil,
+                                    @Param("batchSize") int batchSize);
+
+    /** 선점 결과 한 줄. 칼럼 별칭으로 매핑된다. */
+    interface DueClaimRow {
+        Long getId();
+
+        Instant getDueAt();
+    }
 
     /**
      * 평가를 마친 여정의 다음 평가 시각을 기록한다. <b>소유권을 확인하는 자리이기도 하다.</b>

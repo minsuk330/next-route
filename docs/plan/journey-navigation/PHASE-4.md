@@ -140,6 +140,17 @@ ACTIVE 여정 10,000건을 만들어 돌리는 부하 실험 도구와 before/af
 - **먼저 측정한 baseline 이 목표를 넘으면** Redis ZSET due index 를 추가하고 PostgreSQL 은 원본(canonical) fallback 으로 남긴다. 목표 안이면 추가하지 않는다 — 재보고 나서 결정하는 순서다
 - 결과 문서를 남긴다. `route-search-resilience` 의 `RESULTS.md` 와 같은 형식
 
+**측정 결과 (2026-08-06)** — 수치와 근거는 [`journey-load-harness/RESULTS.md`](../journey-load-harness/RESULTS.md).
+
+- **게이트 불합격**: 여정 10,000건에서 평가 지연 p95 92초(목표 10초), 적체 2,184 → 9,829 발산
+- **동시 선점 겹침은 모든 시나리오에서 0건** — `SKIP LOCKED` + 선점 시각 CAS 가 규모에서도 유지된다
+- **외부 호출 수는 여정 수가 아니라 관심 수에 비례**: 관심 100개면 평가 20건당 도착 API 1회, 관심 10,000개면 1건당 1회. ⑤ 의 성질이 규모에서 확인됐다
+- **Redis ZSET due index 는 도입하지 않는다.** 병목이 claim 조회가 아니라 **선점을 나눠 주는 주기**였다. `batch-size` 100→500·`tick-ms` 5000→1000 만으로 처리량이 15.6 → 133건/s(8.5배). claim SQL 은 부분 인덱스와 `SKIP LOCKED` 로 이미 싸다
+- **워커를 4→16 으로 늘려도 1.4배뿐** — ⑦ 의 평가기 provider 슬롯(4)이 상한이다. 같은 실험에서 사용자 검색 573건 중 `LIMITED` 0건으로, ⑦ 의 격리가 설계대로 동작함이 확인됐다
+- DB 커넥션은 최대 9(풀 10)로 병목이 아니었다 — projection 은 지금 우선순위가 아니다
+
+후속: 운영 설정 조정(`batch-size`·`tick-ms`·`queue-capacity`) 별도 PR. 슬롯 확대는 검색 몫과의 교환이라 운영 관측이 먼저다.
+
 ## 2. 티어 판정 근거
 
 CLAUDE.md 의 L 판별 기준 — ①고칠 코드의 모양이 미리 그려지지 않음 ②스키마·API·모듈 경계를 새로 만듦 ③PR 이 여러 개 필요 ④설계 대안을 두고 다툴 여지가 있음.
