@@ -48,6 +48,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/auth/toss/logout").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").authenticated()
                         .requestMatchers("/api/me").authenticated()
+                        // /api/me 는 정확 경로 매처라 하위 경로(/api/me/push-token 등)를 덮지 않는다.
+                        // 이 줄이 없으면 하위 경로가 아래 permitAll 로 떨어져 익명에 열린다.
+                        .requestMatchers("/api/me/**").authenticated()
                         .requestMatchers("/api/route/fav/**").authenticated()
                         .requestMatchers("/api/route/my/**").authenticated()
                         .requestMatchers("/api/notifications/**").authenticated()
