@@ -30,6 +30,17 @@ public interface PredictTransferUseCase {
         return predict(stopId, routeId, seq, userArrivalAt, Mode.REALTIME_THEN_MODEL);
     }
 
+    /** 예산을 따로 정하지 않으면 설정값({@code transfer.predict.deadline-ms})을 쓴다. */
+    default TransferPredictionResult predict(String stopId, String routeId, Integer seq,
+                                             Instant userArrivalAt, Mode mode) {
+        return predict(stopId, routeId, seq, userArrivalAt, mode, 0L);
+    }
+
+    /**
+     * @param budgetMs 이 호출에 쓸 수 있는 시간(ms). 0 이하면 설정값을 쓴다.
+     *                 검색은 사용자가 화면에서 기다리므로 넉넉하고, 주기 평가는 배치 상한과 선점
+     *                 시간을 지켜야 하므로 더 짧게 잡는다
+     */
     TransferPredictionResult predict(String stopId, String routeId, Integer seq,
-                                     Instant userArrivalAt, Mode mode);
+                                     Instant userArrivalAt, Mode mode, long budgetMs);
 }

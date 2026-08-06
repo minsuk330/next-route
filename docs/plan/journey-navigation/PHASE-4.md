@@ -124,6 +124,14 @@ V39 는 만료 쿼리와 due claim 쿼리의 실행계획(EXPLAIN)을 확인한 
 - `journey.navigation.evaluator.enabled` 로 즉시 끌 수 있어야 한다. Phase 8 의 점진 배포가 이 스위치를 쓴다
 - 실시간 데이터가 없거나 다음 버스 후보가 사라지면, 유예 시간을 준 뒤 `UNKNOWN` 으로 표시한다. 여정 자체를 실패로 만들지 않는다
 
+**구현 결과** — 상세는 [`docs/plan/journey-evaluator-resilience/`](../journey-evaluator-resilience/PLAN.md). 위 4개 중 스레드 풀 분리·기능 플래그·기존 자산 재사용은 ④a 에서 이미 끝나 있었다. 이 PR 이 채운 것은 셋이다.
+
+- **평가기 전용 Semaphore(permit 4)** — 버스 API 호출은 검색 요청과 공용 Semaphore(permit 8, `ApiClientConfig:81`)를 나눠 쓴다. 지금 평가기 몫이 4인 이유는 워커 스레드가 4개여서일 뿐이라, `pool-size` 를 올리면 검색 몫이 조용히 줄어든다. 전용 Semaphore 로 그 경계를 코드에 고정했다. 공용 permit 수는 그대로라 provider 입장 총 동시 호출은 안 늘어난다
+- **평가기 전용 시간 예산 1500ms** — 검색용 2500ms 를 그대로 쓰면 환승 두 개짜리 여정이 배치 상한(4초)을 넘고, 밀리면 선점이 만료돼 계산 결과를 통째로 버린다. `PredictTransferUseCase.predict` 에 예산 인자를 더했다
+- **provider 실패 시 120초 유예** — 조회가 한 번 막혔다고 즉시 `UNKNOWN` 으로 덮지 않는다. 직전 판정이 가리키는 도착 시각이 아직 안 지났고 계산한 지 유예 안이면 그대로 둔다. 유예 조건은 조회 낡음 규칙(④b)과 같게 맞췄다
+
+**일일 호출 예산은 나누지 않았다.** 검색과 평가기가 같은 외부 API 한도를 쓰는 두 소비자라, 카운터를 쪼개면 한쪽이 남기고 다른 쪽이 굶는다(2026-08-06 결정).
+
 ### ⑧ `journey-load-harness`
 
 ACTIVE 여정 10,000건을 만들어 돌리는 부하 실험 도구와 before/after 보고서를 만든다.

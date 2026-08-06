@@ -29,6 +29,8 @@ public class JourneyEvaluationMetrics {
     public static final String LOST_CLAIM = "journey.evaluation.lost-claim";
     public static final String PREDICTION = "journey.transfer.prediction";
     public static final String INTERVAL = "journey.evaluation.interval";
+    public static final String PROVIDER_SLOT = "journey.evaluation.provider-slot";
+    public static final String GRACE_HELD = "journey.evaluation.grace-held";
 
     private final MeterRegistry registry;
 
@@ -65,6 +67,28 @@ public class JourneyEvaluationMetrics {
      */
     public void recordInterval(String reason, long seconds) {
         registry.summary(INTERVAL, "reason", reason).record(seconds);
+    }
+
+    /**
+     * 평가기 몫의 provider 슬롯을 잡았는지.
+     *
+     * <p>{@code rejected} 가 늘어나면 평가기가 자기 몫보다 더 부르려 한다는 뜻이다. 워커 스레드를
+     * 줄이거나 {@code provider-permits} 를 올릴지 판단하는 근거가 된다.
+     *
+     * @param result acquired · rejected · interrupted
+     */
+    public void recordProviderSlot(String result) {
+        registry.counter(PROVIDER_SLOT, "result", result).increment();
+    }
+
+    /**
+     * 조회에 실패해 직전 판정을 그대로 둔 횟수.
+     *
+     * <p>이 값이 크면 provider 가 자주 막히고 있다는 뜻이다. 사용자에게는 옛 값이 보이므로,
+     * 계속 늘어나면 유예 시간이 아니라 provider 쪽을 봐야 한다.
+     */
+    public void recordGraceHeld() {
+        registry.counter(GRACE_HELD).increment();
     }
 
     /**

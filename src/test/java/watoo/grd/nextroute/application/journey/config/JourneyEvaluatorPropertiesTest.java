@@ -54,6 +54,36 @@ class JourneyEvaluatorPropertiesTest {
     }
 
     @Test
+    void TC_예측_예산_두_배가_배치_상한을_넘으면_부팅을_막는다() {
+        // 환승 두 개짜리 여정이 배치 안에 못 끝나면 매 tick 미완료가 나는데, 로그만 봐서는
+        // 그 이유가 설정 때문인지 provider 때문인지 알 수 없다.
+        JourneyEvaluatorProperties props = new JourneyEvaluatorProperties();
+        props.setPredictDeadlineMs(2_500);   // 배치 상한 4000ms 의 절반을 넘는다
+
+        assertThatThrownBy(props::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("배치 상한");
+    }
+
+    @Test
+    void TC_유예가_낡음_기준보다_길면_부팅을_막는다() {
+        JourneyEvaluatorProperties props = new JourneyEvaluatorProperties();
+        props.setUnknownGraceSeconds(301);   // stale-after 300초보다 길다
+
+        assertThatThrownBy(props::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("붙잡");
+    }
+
+    @Test
+    void TC_provider_슬롯_수가_0이면_부팅을_막는다() {
+        JourneyEvaluatorProperties props = new JourneyEvaluatorProperties();
+        props.setProviderPermits(0);
+
+        assertThatThrownBy(props::validate).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void TC_배수가_1보다_작으면_부팅을_막는다() {
         JourneyEvaluatorProperties props = new JourneyEvaluatorProperties();
         props.setUnchangedBackoffMultiplier(0);
