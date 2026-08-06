@@ -93,6 +93,13 @@ V39 는 만료 쿼리와 due claim 쿼리의 실행계획(EXPLAIN)을 확인한 
 - routeId 별로 차량 후보를 최소 2대 남긴다(T9·R2). PHASE-3 ④ 에서 뒤로 미뤄 둔 항목이 여기에 붙는다
 - 기존 `CachedSearchTimeBusAdapter` 의 single-flight 와 역할이 겹치지 않게 경계를 정한다
 
+**착수해 보니 범위가 달랐다** — 상세와 결과는 [`docs/plan/journey-evaluation-dedupe/`](../journey-evaluation-dedupe/PLAN.md). 버스 도착·위치는 `CachedSearchTimeBusAdapter`(Redis 15초 + single-flight)가 **이미 합치고 있었다.** 실제로 비어 있던 곳은 두 군데다.
+
+- **ML serving 호출** — 캐시·single-flight 이 없어 여정 수만큼 나갔다. 여정 10,000건·평가 간격 30초면 초당 333회
+- **지하철 역별 실시간 조회** — 수집기 캐시가 빈 환경에서 쓰는 경로라 역을 보는 여정 수만큼 나갔다
+
+그래서 ⑤는 그 두 곳에 같은 모양의 캐시 껍데기를 씌우는 작업이 됐다. ML 캐시 키는 **feature 값 전체의 해시**다 — 같은 입력이면 같은 예측이고, 상류 위치 스냅샷이 갱신되면 키가 저절로 죽는다. single-flight 은 지하철에만 붙였다(호출 단위가 역 하나로 명확). ML 은 호출 단위가 배치이고 배치 구성이 요청마다 달라 배치 키가 재사용되지 않는다.
+
 ### ⑥ `journey-adaptive-interval`
 
 다음 평가 시각을 상황에 따라 다르게 정한다.
