@@ -56,6 +56,11 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 ①이 끝나면 ②와 ③은 서로 독립이라 동시에 진행할 수 있다. 마이그레이션 번호는 **V39 부터**다
 (Phase 4 는 마이그레이션이 없었다).
 
+**진행 상황** — ① 구현 완료(플랜: [journey-push-token](../journey-push-token/SUMMARY.md)).
+후속 과제 하나가 남았다: 계정 삭제(탈퇴) 경로가 생기면 그 사용자의 `user_push_token` 행을 전부
+soft delete 해야 한다(PLAN §7 개인정보). 지금은 탈퇴 서비스가 코드베이스에 없어 죽은 메서드를
+만들지 않고 `UserPushTokenRepository` Javadoc 에만 남겼다.
+
 ### ① `journey-push-token`
 
 기기 push token 을 받아 두는 테이블과 API.

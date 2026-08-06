@@ -74,7 +74,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V35__create_journey.sql",
         "classpath:db/migration/V36__add_journey_transit_resolution.sql",
         "classpath:db/migration/V37__align_journey_navigation_contract.sql",
-        "classpath:db/migration/V38__add_journey_last_progress_id.sql"
+        "classpath:db/migration/V38__add_journey_last_progress_id.sql",
+        "classpath:db/migration/V39__create_user_push_token.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 class JourneySchemaIT {
