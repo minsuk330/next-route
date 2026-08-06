@@ -129,7 +129,7 @@ class JourneyDueEvaluatorSchedulerTest {
     private List<JourneyDueClaim> claims(int count) {
         Instant leaseUntil = Instant.now().plusSeconds(60);
         return java.util.stream.IntStream.rangeClosed(1, count)
-                .mapToObj(id -> new JourneyDueClaim((long) id, leaseUntil))
+                .mapToObj(id -> new JourneyDueClaim((long) id, leaseUntil, leaseUntil.minusSeconds(30)))
                 .toList();
     }
 

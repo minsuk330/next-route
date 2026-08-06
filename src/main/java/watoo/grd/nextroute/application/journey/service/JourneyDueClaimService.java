@@ -42,14 +42,14 @@ public class JourneyDueClaimService {
         Instant now = Instant.now(clock);
         Instant leaseUntil = now.plus(properties.lease());
 
-        List<Long> claimed = sessionRepository.claimDueBatch(
+        List<JourneySessionRepository.DueClaimRow> claimed = sessionRepository.claimDueBatch(
                 now, leaseUntil, properties.getBatchSize());
         if (claimed.isEmpty()) {
             return List.of();
         }
         log.debug("[JourneyDueEvaluator] {}건 선점 — leaseUntil={}", claimed.size(), leaseUntil);
         return claimed.stream()
-                .map(journeyId -> new JourneyDueClaim(journeyId, leaseUntil))
+                .map(row -> new JourneyDueClaim(row.getId(), leaseUntil, row.getDueAt()))
                 .toList();
     }
 }
