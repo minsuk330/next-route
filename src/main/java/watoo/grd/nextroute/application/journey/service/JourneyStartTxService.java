@@ -22,6 +22,7 @@ import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionRepository;
+import watoo.grd.nextroute.domain.journey.repository.JourneyNotificationRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyRevisionRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepository;
@@ -54,6 +55,7 @@ public class JourneyStartTxService {
     private final JourneyLegRepository legRepository;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
     private final TransferConnectionRepository transferConnectionRepository;
+    private final JourneyNotificationRepository notificationRepository;
     private final JourneyQueryService queryService;
 
     /**
@@ -117,6 +119,8 @@ public class JourneyStartTxService {
         }
         existing.end(JourneyStatus.CANCELED, JourneyEndReason.SUPERSEDED, now);
         sessionRepository.saveAndFlush(existing);
+        // 갈아탄 옛 여정의 알림이 새 여정 중에 나가면 사용자는 엉뚱한 환승 안내를 받는다.
+        notificationRepository.cancelPendingByJourneyId(existing.getId());
     }
 
     private List<JourneyLeg> saveLegs(JourneySession session, JourneyPlan plan) {

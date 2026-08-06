@@ -248,6 +248,12 @@ class JourneySubwayProtectionIT {
             jdbcTemplate.update("delete from " + table
                     + " where journey_id in (select id from journey_session where user_id = ?)", id);
         }
+        // 알림 outbox 는 여정을 FK 로 잡고 있다. 평가가 위험을 감지하면 여기에도 행이 생기므로
+        // 여정보다 먼저 지운다.
+        jdbcTemplate.update("""
+                delete from journey_notification where journey_id in (
+                    select id from journey_session where user_id = ?)
+                """, id);
         jdbcTemplate.update("delete from journey_session where user_id = ?", id);
     }
 

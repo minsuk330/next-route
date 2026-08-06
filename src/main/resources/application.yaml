@@ -384,3 +384,30 @@ journey:
       predict-deadline-ms: ${JOURNEY_EVALUATOR_PREDICT_DEADLINE_MS:1500}
       # provider 가 답을 못 줘도 이 시간 안에는 직전 판정을 유지한다. stale-after-seconds 이하여야 한다.
       unknown-grace-seconds: ${JOURNEY_EVALUATOR_UNKNOWN_GRACE_SECONDS:120}
+  notification:
+    # 알림만 끄는 스위치. 평가기는 그대로 돌고 outbox 에 쌓지만 않는다.
+    enqueue-enabled: ${JOURNEY_NOTIFICATION_ENQUEUE_ENABLED:true}
+    # 발송 구현. PR3 이 fcm 을 추가한다. relay 를 켠 채 noop 이면 부팅을 막는다 —
+    # 진짜 알림 행을 아무 데도 보내지 않고 SENT 로 소모해 나중 발송을 영영 막기 때문이다.
+    sender: ${JOURNEY_NOTIFICATION_SENDER:noop}
+    # 채널 결정. fixed 는 아래 목록을 그대로 쓴다. PR3 이 identity 를 추가한다.
+    channel-resolver: ${JOURNEY_NOTIFICATION_CHANNEL_RESOLVER:fixed}
+    fixed-channels: PUSH
+    # 유효시간. MISSED 는 "다음 차 도착이 이미 과거"라는 뜻이라 그대로 쓰면 삽입 순간 만료다.
+    # 바닥 180초 = 백오프 60초 × 최대 3회 — 만료 바닥에 걸린 행도 재시도를 다 쓸 수 있어야 한다.
+    min-ttl-seconds: 180
+    default-ttl-seconds: 600
+    max-ttl-seconds: 1800
+    max-attempts: 3
+    backoff-seconds: 60
+    # 이 시간을 넘겨 PROCESSING 인 행은 워커가 죽은 것으로 보고 회수한다.
+    # PR3 의 sender 는 자체 타임아웃을 이 값보다 짧게 둘 의무가 있다.
+    claim-timeout-minutes: 3
+    relay:
+      # 기본 꺼짐. 실제 발송 구현이 붙는 PR3 전까지는 쌓이기만 한다. worker 프로필 전용.
+      enabled: ${JOURNEY_NOTIFICATION_RELAY_ENABLED:false}
+      sweep-interval-ms: 1000
+      batch-size: 200
+      workers: 4
+      max-batches: 1000
+      drain-max-millis: 5000

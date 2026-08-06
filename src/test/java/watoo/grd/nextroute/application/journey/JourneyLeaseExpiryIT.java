@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -7,8 +8,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
@@ -29,7 +32,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willAnswer;
 
 /**
  * 만료 처리가 언제 접고 언제 기다리는지 DB 까지 확인한다.
@@ -54,6 +60,8 @@ class JourneyLeaseExpiryIT {
     @Autowired JourneyLeaseExpiryService expiryService;
     @Autowired JdbcTemplate jdbcTemplate;
     @MockBean RouteSearchSnapshotPort snapshotPort;
+    /** {@code sweep()} 안에서 트랜잭션이 실제로 열려 있는지 보려고 감싼다. */
+    @SpyBean MeterRegistry meterRegistry;
 
     private final List<Long> createdUserIds = new ArrayList<>();
 
@@ -162,6 +170,29 @@ class JourneyLeaseExpiryIT {
     }
 
     @Test
+    @DisplayName("운영 진입점(sweep)은 트랜잭션 안에서 배치를 돌린다")
+    void sweepRunsInsideTransaction() {
+        Long journeyId = startJourney();
+        setLeaseAge(journeyId, "3 minutes");
+        List<Boolean> transactionActive = new ArrayList<>();
+        // 만료 카운터는 배치 SQL 바로 뒤, 같은 트랜잭션 안에서 올라간다. 그 순간을 엿본다.
+        willAnswer(invocation -> {
+            transactionActive.add(TransactionSynchronizationManager.isActualTransactionActive());
+            return invocation.callRealMethod();
+        }).given(meterRegistry).counter(eq(JourneyLeaseExpiryService.EXPIRED_COUNTER), any(String[].class));
+
+        int expired = expiryService.sweep();
+
+        assertThat(expired).isPositive();
+        assertThat(statusOf(journeyId)).isEqualTo("EXPIRED");
+        assertThat(transactionActive)
+                .as("자기 호출은 프록시를 안 타므로 sweep 이 직접 트랜잭션을 열어야 한다. "
+                        + "안 그러면 만료와 알림 취소가 따로 커밋된다")
+                .isNotEmpty()
+                .containsOnly(true);
+    }
+
+    @Test
     @DisplayName("두 워커가 동시에 돌아도 같은 여정을 두 번 접지 않는다")
     void concurrentWorkersDoNotDoubleClaim() throws Exception {
         List<Long> targets = new ArrayList<>();
@@ -264,6 +295,12 @@ class JourneyLeaseExpiryIT {
             jdbcTemplate.update("delete from " + table
                     + " where journey_id in (select id from journey_session where user_id = ?)", id);
         }
+        // 알림 outbox 는 여정을 FK 로 잡고 있다. 평가가 위험을 감지하면 여기에도 행이 생기므로
+        // 여정보다 먼저 지운다.
+        jdbcTemplate.update("""
+                delete from journey_notification where journey_id in (
+                    select id from journey_session where user_id = ?)
+                """, id);
         jdbcTemplate.update("delete from journey_session where user_id = ?", id);
     }
 

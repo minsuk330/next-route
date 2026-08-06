@@ -293,6 +293,8 @@ public final class JourneyLoadFixture {
                 "journey_event")) {
             jdbc.update("delete from " + table + " where journey_id = any (?)", (Object) journeyIds);
         }
+        // 알림 outbox 가 여정을 FK 로 잡는다. 평가가 위험을 감지하면 행이 생기므로 먼저 지운다.
+        jdbc.update("delete from journey_notification where journey_id = any (?)", (Object) journeyIds);
         jdbc.update("delete from journey_session where id = any (?)", (Object) journeyIds);
         jdbc.update("delete from users where id = any (?)",
                 (Object) prepared.userIds().toArray(Long[]::new));

@@ -75,18 +75,10 @@ public class TransferRiskPolicy {
     }
 
     /**
-     * 나쁜 정도. 클수록 나쁘다.
-     *
-     * <p>{@code UNKNOWN} 을 가장 나쁘게 두지 않는다. 모르는 것과 놓친 것은 다르고, 모른다는
-     * 이유로 "놓쳤다"고 말하면 사용자가 포기해 버린다.
+     * 나쁜 정도. 표는 {@link TransferStatus#severity()} 가 소유한다 — 알림 승격 판단(Phase 5)이
+     * 같은 순위를 봐야 하는데, 표가 두 벌이면 한쪽만 고쳐도 아무 데서도 안 터진다.
      */
     private int severity(TransferStatus status) {
-        return switch (status) {
-            case COMFORTABLE -> 0;
-            case CATCHABLE -> 1;
-            case UNKNOWN -> 2;
-            case AT_RISK -> 3;
-            case MISSED -> 4;
-        };
+        return status.severity();
     }
 }

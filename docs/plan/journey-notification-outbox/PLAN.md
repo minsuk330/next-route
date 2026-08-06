@@ -138,42 +138,42 @@ PROCESSING 에 남아 회수 → 재시도 → 또 예외를 **영원히** 반�
 ## 3. 작업 순서 (체크박스, 의존성 명시)
 
 ### Step 1 — 마이그레이션
-- [ ] `src/main/resources/db/migration/V40__create_journey_notification.sql` (§4)
-- [ ] `.gitignore` 27행 뒤 `!src/main/resources/db/migration/V40__create_journey_notification.sql`
-- [ ] `src/test/java/.../domain/journey/JourneySchemaIT.java` `@Sql` 배열에 V40 추가
-- [ ] 검증: `git check-ignore -v src/main/resources/db/migration/V40__*.sql` 이 **아무것도 출력 안 함**
-- [ ] 검증: `./gradlew test --tests '*JourneySchemaIT'`
+- [x] `src/main/resources/db/migration/V40__create_journey_notification.sql` (§4)
+- [x] `.gitignore` 27행 뒤 `!src/main/resources/db/migration/V40__create_journey_notification.sql`
+- [x] `src/test/java/.../domain/journey/JourneySchemaIT.java` `@Sql` 배열에 V40 추가
+- [x] 검증: `git check-ignore -v src/main/resources/db/migration/V40__*.sql` 이 **아무것도 출력 안 함**
+- [x] 검증: `./gradlew test --tests '*JourneySchemaIT'`
 
 ### Step 2 — 도메인 (의존: Step 1)
-- [ ] `domain/journey/entity/JourneyNotificationStatus.java`
-- [ ] `domain/journey/entity/JourneyNotificationScope.java`
-- [ ] `domain/journey/entity/JourneyCheckpoint.java`
-- [ ] `domain/notification/entity/NotificationChannel.java`
-- [ ] `domain/journey/entity/JourneyNotification.java`
-- [ ] `src/test/java/.../domain/journey/JourneyNotificationSchemaIT.java`
-- [ ] 검증: `./gradlew test --tests '*JourneyNotificationSchemaIT'`
+- [x] `domain/journey/entity/JourneyNotificationStatus.java`
+- [x] `domain/journey/entity/JourneyNotificationScope.java`
+- [x] `domain/journey/entity/JourneyCheckpoint.java`
+- [x] `domain/notification/entity/NotificationChannel.java`
+- [x] `domain/journey/entity/JourneyNotification.java`
+- [x] `src/test/java/.../domain/journey/JourneyNotificationSchemaIT.java`
+- [x] 검증: `./gradlew test --tests '*JourneyNotificationSchemaIT'`
 
 ### Step 3 — 레포지토리 (의존: Step 2)
-- [ ] `domain/journey/repository/JourneyNotificationRepository.java` — `enqueue`,
+- [x] `domain/journey/repository/JourneyNotificationRepository.java` — `enqueue`,
       `claimBatchForProcessing`, `reclaimStale`, `cancelPendingByJourneyId`,
       `cancelPendingByJourneyIdIn`, **`supersedePendingByScope`**(§2.3)
-- [ ] 검증: `./gradlew test --tests '*JourneyNotificationSchemaIT'` (레포지토리 케이스 추가)
+- [x] 검증: `./gradlew test --tests '*JourneyNotificationSchemaIT'` (레포지토리 케이스 추가)
 
 ### Step 4 — 마커 배선 (의존: Step 2, Step 3 과 병렬 가능)
-- [ ] `domain/journey/entity/TransferStatus.java` — `public int severity()` 추가
-- [ ] `application/journey/service/TransferRiskPolicy.java` — private `severity()` 를 enum 에 위임
-- [ ] `domain/journey/entity/TransferConnection.java` — `markNotified(String)`, `clearNotified()`
-- [ ] 검증: `./gradlew test --tests '*TransferRiskPolicyTest' --tests '*Journey*AssessmentIT'`
+- [x] `domain/journey/entity/TransferStatus.java` — `public int severity()` 추가
+- [x] `application/journey/service/TransferRiskPolicy.java` — private `severity()` 를 enum 에 위임
+- [x] `domain/journey/entity/TransferConnection.java` — `markNotified(String)`, `clearNotified()`
+- [x] 검증: `./gradlew test --tests '*TransferRiskPolicyTest' --tests '*Journey*AssessmentIT'`
 
 > `TransferAssessmentWriter` 는 **안 고친다**(codex 리뷰로 바뀐 결정). 관리 중인 엔티티를
 > 내보내면 조회 경로(`TransferRiskEvaluator:103` → `assessAndStore`)에서 트랜잭션이 끝난 뒤
 > 그 엔티티를 고쳤을 때 마커가 조용히 사라진다. 알림 쪽에서 다시 조회한다(§5.5 성질 5).
 
 ### Step 4.5 — 만료 배치 트랜잭션 수정 (**선행 필수**, 의존: 없음)
-- [ ] `application/journey/service/JourneyLeaseExpiryService.java` — `sweep()` 이
+- [x] `application/journey/service/JourneyLeaseExpiryService.java` — `sweep()` 이
       `TransactionTemplate` 으로 배치 하나를 감싼다(§6 ⚠)
-- [ ] `sweep()` 을 직접 도는 IT 추가
-- [ ] 검증: `./gradlew test --tests '*JourneyLeaseExpiry*'`
+- [x] `sweep()` 을 직접 도는 IT 추가
+- [x] 검증: `./gradlew test --tests '*JourneyLeaseExpiry*'`
 
 > **왜 선행인가.** 지금 `sweep():46` 이 같은 클래스의 `expireBatch()` 를 직접 부르는데 Spring
 > `@Transactional` 은 프록시 기반이라 자기 호출에는 **안 걸린다**. 즉 운영에서 만료 배치는
@@ -182,52 +182,52 @@ PROCESSING 에 남아 회수 → 재시도 → 또 예외를 **영원히** 반�
 > 를 직접 불러 프록시를 타므로 이 문제를 못 잡는다.
 
 ### Step 5 — 포트·no-op 구현 (의존: Step 2)
-- [ ] `application/journey/port/out/NotificationSender.java`
-- [ ] `application/journey/port/out/NotificationChannelResolver.java`
-- [ ] `application/journey/dto/NotificationSendCommand.java`
-- [ ] `application/journey/exception/NotificationSendException.java`
-- [ ] `infrastructure/adapter/out/notification/NoOpNotificationSender.java`
-- [ ] `infrastructure/adapter/out/notification/FixedNotificationChannelResolver.java`
-- [ ] `application/journey/config/JourneyNotificationProperties.java`
-- [ ] `src/main/resources/application.yaml` — `journey.notification` 블록
-- [ ] 검증: `./gradlew compileJava`
+- [x] `application/journey/port/out/NotificationSender.java`
+- [x] `application/journey/port/out/NotificationChannelResolver.java`
+- [x] `application/journey/dto/NotificationSendCommand.java`
+- [x] `application/journey/exception/NotificationSendException.java`
+- [x] `infrastructure/adapter/out/notification/NoOpNotificationSender.java`
+- [x] `infrastructure/adapter/out/notification/FixedNotificationChannelResolver.java`
+- [x] `application/journey/config/JourneyNotificationProperties.java`
+- [x] `src/main/resources/application.yaml` — `journey.notification` 블록
+- [x] 검증: `./gradlew compileJava`
 
 ### Step 6 — enqueue + 알림 판단 (의존: Step 3·4·5)
-- [ ] `application/journey/service/JourneyNotificationKeys.java`
-- [ ] `application/journey/service/JourneyNotificationEnqueuer.java`
-- [ ] `application/journey/service/TransferRiskNotifier.java`
-- [ ] `application/journey/service/JourneyOutboxEnqueuedEvent.java`
-- [ ] `application/journey/dto/NotificationContext.java` — **신규**(`JourneyEvaluationOutcome` 은
+- [x] `application/journey/service/JourneyNotificationKeys.java`
+- [x] `application/journey/service/JourneyNotificationEnqueuer.java`
+- [x] `application/journey/service/TransferRiskNotifier.java`
+- [x] `application/journey/service/JourneyOutboxEnqueuedEvent.java`
+- [x] `application/journey/dto/NotificationContext.java` — **신규**(`JourneyEvaluationOutcome` 은
       안 건드린다)
-- [ ] `application/journey/service/JourneyEvaluationService.java` — 채널 결정(**트랜잭션 밖**) →
+- [x] `application/journey/service/JourneyEvaluationService.java` — 채널 결정(**트랜잭션 밖**) →
       `NotificationContext` 조립 → `finish()` 에 전달
-- [ ] `application/journey/service/JourneyEvaluationScheduleWriter.java` — 인자 추가 + notifier 호출
-- [ ] 검증: `./gradlew test --tests '*TransferRiskNotifierTest' --tests '*JourneyNotificationKeysTest' --tests '*JourneyNotificationEnqueueIT' --tests '*JourneyNotificationLostClaimIT' --tests '*JourneyNotificationSupersedeIT'`
+- [x] `application/journey/service/JourneyEvaluationScheduleWriter.java` — 인자 추가 + notifier 호출
+- [x] 검증: `./gradlew test --tests '*TransferRiskNotifierTest' --tests '*JourneyNotificationKeysTest' --tests '*JourneyNotificationEnqueueIT' --tests '*JourneyNotificationLostClaimIT' --tests '*JourneyNotificationSupersedeIT'`
 
 ### Step 7 — 여정 종료 시 취소 (의존: Step 3, **Step 4.5**)
-- [ ] `application/journey/service/JourneyCommandService.java` (`:137` 뒤)
-- [ ] `application/journey/service/JourneyStartTxService.java` (`:120` 뒤)
-- [ ] `application/journey/service/JourneyLeaseExpiryService.java` (`expireBatch()` 안,
+- [x] `application/journey/service/JourneyCommandService.java` (`:137` 뒤)
+- [x] `application/journey/service/JourneyStartTxService.java` (`:120` 뒤)
+- [x] `application/journey/service/JourneyLeaseExpiryService.java` (`expireBatch()` 안,
       `claimExpiredBatch` 결과로 `cancelPendingByJourneyIdIn`)
-- [ ] 검증: `./gradlew test --tests '*JourneyNotificationCancelOnEndIT' --tests '*JourneyLeaseExpiry*' --tests '*JourneyCommand*' --tests '*JourneyStart*'`
+- [x] 검증: `./gradlew test --tests '*JourneyNotificationCancelOnEndIT' --tests '*JourneyLeaseExpiry*' --tests '*JourneyCommand*' --tests '*JourneyStart*'`
 
 ### Step 8 — relay (의존: Step 3·5)
-- [ ] `application/journey/service/JourneyNotificationOutboxStateService.java`
-- [ ] `application/journey/service/JourneyNotificationRelayService.java`
-- [ ] `application/journey/service/JourneyRelayWaker.java`
-- [ ] `application/journey/service/JourneyRelayWakeListener.java`
-- [ ] `infrastructure/adapter/in/scheduler/journey/JourneyNotificationRelayLoop.java`
-- [ ] 검증: `./gradlew test --tests '*JourneyNotificationRelayIT' --tests '*JourneyNotificationRelayWakeupIT' --tests '*JourneyNotificationAtomicClaimIT'`
+- [x] `application/journey/service/JourneyNotificationOutboxStateService.java`
+- [x] `application/journey/service/JourneyNotificationRelayService.java`
+- [x] `application/journey/service/JourneyRelayWaker.java`
+- [x] `application/journey/service/JourneyRelayWakeListener.java`
+- [x] `infrastructure/adapter/in/scheduler/journey/JourneyNotificationRelayLoop.java`
+- [x] 검증: `./gradlew test --tests '*JourneyNotificationRelayIT' --tests '*JourneyNotificationRelayWakeupIT' --tests '*JourneyNotificationAtomicClaimIT'`
 
 ### Step 9 — 지표 (의존: Step 6·8)
-- [ ] `application/journey/observability/JourneyNotificationMetrics.java`
-- [ ] 검증: `./gradlew test --tests '*JourneyNotification*'`
+- [x] `application/journey/observability/JourneyNotificationMetrics.java`
+- [x] 검증: `./gradlew test --tests '*JourneyNotification*'`
 
 ### Step 10 — 마무리
-- [ ] 전체 `./gradlew test`
-- [ ] 버스 경로 회귀 `./gradlew test --tests 'watoo.grd.nextroute.application.notification.*'`
-- [ ] `PHASE-5.md` ② 진행 표시 + 보관(retention) 후속 과제 한 줄
-- [ ] 커밋 + PR (플랜 파일 2개 포함)
+- [x] 전체 `./gradlew test`
+- [x] 버스 경로 회귀 `./gradlew test --tests 'watoo.grd.nextroute.application.notification.*'`
+- [x] `PHASE-5.md` ② 진행 표시 + 보관(retention) 후속 과제 한 줄
+- [x] 커밋 + PR (플랜 파일 2개 포함)
 
 ---
 
@@ -1051,5 +1051,29 @@ Docker 필요(Testcontainers postgres:17).
 ## 13. 진행 방식
 
 1. ~~이 PLAN.md 로 codex 논의~~ → **완료**(2026-08-06, §12)
-2. **새 세션**에서 이 파일을 읽고 §3 순서대로 구현. **Step 4.5 를 Step 7 보다 먼저** 할 것
+2. ~~새 세션에서 §3 순서대로 구현~~ → **완료**(2026-08-06). Step 4.5 를 Step 7 보다 먼저 했다
 3. `/verify` + 리뷰 → PR (플랜 파일 2개 포함)
+
+## 14. 구현하며 플랜에서 벗어난 것 (2026-08-06)
+
+| 자리 | 플랜 | 실제 | 이유 |
+|---|---|---|---|
+| `supersedePendingByScope` | 한 메서드, `exceptDeliveryKey` 가 null 이면 전부 취소 | **두 메서드로 분리**(`supersedePendingByScope` / `supersedeAllPendingByScope`) | JPQL 의 `in` 에 빈 컬렉션을 넘기는 경로를 만들지 않기 위해서다. 빈 목록으로 잘못 부르면 방금 만든 행까지 취소되는데, 타입이 아니라 값으로만 갈리면 그 실수가 컴파일에서 안 잡힌다 |
+| `JourneyLeaseExpiryService` | `TransactionTemplate` 주입 | `PlatformTransactionManager` 를 받아 생성자에서 만든다 | 자동 구성이 주는 `TransactionTemplate` 빈에 기대면 슬라이스 테스트마다 그 빈 유무에 의존하게 된다. 이 서비스는 트랜잭션 경계 자체가 검증 대상이라 그 의존을 만들지 않았다 |
+| `JourneyOutboxEnqueuedEvent` | 행 번호를 싣는다 | 필드 없는 record | 평가 한 번이 여러 행을 만들고 깨우는 쪽은 "뭔가 생겼다"만 알면 된다 |
+| `JourneyNotificationAtLeastOnceIT`·`JourneyNotificationRelayWakeupIT` | 별도 IT 클래스 | 각각 `JourneyNotificationRelayIT` 의 테스트 하나 / `JourneyRelayWakeupTest`(단위) | 최소 한 번 계약은 relay 하네스가 그대로 필요해 같은 컨텍스트에 두었고, wake 배선은 DB 가 없어도 증명된다(커밋 뒤 발행은 `JourneyNotificationEnqueueIT` 가 확인) |
+| 테스트 스키마 | 마이그레이션 파일만 `@Sql` | `db/it/journey-reset.sql` 을 앞에 하나 더 | 여정 IT 들이 컨테이너 하나를 나눠 쓰는데 `@Sql(BEFORE_TEST_CLASS)` 는 클래스마다 돌아, 앞 클래스가 만든 표에서 `CREATE TABLE` 이 실패한다 |
+
+### 전체 스위트를 돌리며 추가로 고친 것 3가지
+
+플랜에 없던 작업이다. 셋 다 <b>이 PR 없이도 있던 문제</b>지만, 표가 하나 늘고 컨텍스트가 둘
+늘면서 한계를 넘겨 드러났다.
+
+| 무엇 | 왜 |
+|---|---|
+| 기존 여정 IT 13곳의 정리 코드에 `journey_notification` 선삭제 추가 | 평가가 위험을 감지하면 이제 알림 행이 생기고, 그 행이 여정을 FK 로 잡는다. 정리 순서를 안 고치면 `delete from journey_session` 이 FK 위반으로 실패한다 |
+| `src/test/resources/application.properties` 에 커넥션 풀 상한(상주 0 / 최대 5) | Spring 은 테스트 컨텍스트를 캐시해 둔다. 기본값(상주 10)이면 컨텍스트 열 개만 넘어가도 Postgres `max_connections`(100)를 먹어 `FATAL: sorry, too many clients already` 가 난다. 원인이 테스트 코드와 무관해 보여 찾기 어렵다 |
+| `build.gradle` 테스트 힙 `2g` | 캐시된 컨텍스트가 쌓이면 기본 힙에서 `OutOfMemoryError` 가 나는데, 그것이 <b>엉뚱한 테스트 클래스의 "컨텍스트 로드 실패"</b>로 나타난다 |
+
+<b>검증</b>: `./gradlew test` 전체 <b>1,234개 통과·0 실패</b>, 버스 알림 경로 회귀
+(`application.notification.*`) 통과.

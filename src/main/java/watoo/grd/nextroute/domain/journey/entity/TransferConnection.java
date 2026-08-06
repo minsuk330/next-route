@@ -145,4 +145,32 @@ public class TransferConnection extends BaseEntity {
     public void applyModelVersion(String modelVersion) {
         this.modelVersion = modelVersion;
     }
+
+    /**
+     * 이 상태로 알림을 쌓았다고 기록한다. {@code lastNotifiedStatus} 의 <b>유일한</b> writer 다.
+     *
+     * <p>이 값이 있으면 같은 상태로는 다시 알리지 않는다 — 평가가 10초마다 도는데 상태가 그대로면
+     * 사용자는 같은 이야기를 반복해 듣는다. 나빠질 때만 다시 알린다.
+     *
+     * <p>알림 행을 실제로 넣었는지와 무관하게, <b>넣으려고 시도했으면</b> 쓴다. 중복이라 0행이
+     * 들어간 것은 "사용자가 이미 봤다"는 뜻이고, 그때 마커를 안 쓰면 10초마다 영원히 헛삽입한다.
+     *
+     * <p>{@code UNKNOWN} 은 여기 절대 들어오지 않는다. 마커는 알림을 쌓을 때만 쓰는데
+     * {@code UNKNOWN} 은 알릴 상태가 아니다. 들어오면 {@code AT_RISK → UNKNOWN → AT_RISK} 가
+     * 재알림이 된다.
+     */
+    public void markNotified(String status) {
+        this.lastNotifiedStatus = status;
+    }
+
+    /**
+     * 알린 기록을 지운다. 상태가 알릴 값이 아닌 값으로 <b>좋아졌을 때만</b> 부른다.
+     *
+     * <p>안 지우면 나중에 다시 나빠져도 "이미 알렸다"로 걸려 알림이 안 나간다.
+     *
+     * <p>{@code UNKNOWN} 에서는 부르지 않는다 — 잠깐 모르는 것과 실제로 좋아진 것은 다르다.
+     */
+    public void clearNotified() {
+        this.lastNotifiedStatus = null;
+    }
 }

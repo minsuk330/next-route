@@ -75,7 +75,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V36__add_journey_transit_resolution.sql",
         "classpath:db/migration/V37__align_journey_navigation_contract.sql",
         "classpath:db/migration/V38__add_journey_last_progress_id.sql",
-        "classpath:db/migration/V39__create_user_push_token.sql"
+        "classpath:db/migration/V39__create_user_push_token.sql",
+        "classpath:db/migration/V40__create_journey_notification.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 class JourneySchemaIT {
@@ -125,6 +126,7 @@ class JourneySchemaIT {
         jdbcTemplate.update("update journey_leg set selected_route_option_id = null");
         jdbcTemplate.update("delete from journey_leg_route_option");
         jdbcTemplate.update("delete from journey_leg");
+        jdbcTemplate.update("delete from journey_notification");
         jdbcTemplate.update("delete from journey_session");
         jdbcTemplate.update("delete from users");
         userId = jdbcTemplate.queryForObject(
