@@ -86,6 +86,40 @@ public class JourneyEvaluatorProperties {
      */
     private long staleAfterSeconds = 300;
 
+    /**
+     * 가장 짧게 잡을 수 있는 간격.
+     *
+     * <p>여정 하나가 계속 짧은 간격만 요구하지 못하게 막는 바닥이다. 환승이 코앞이어도 이보다
+     * 자주 보지 않는다.
+     */
+    private long minIntervalSeconds = 10;
+
+    /**
+     * 가장 길게 잡을 수 있는 간격.
+     *
+     * <p><b>{@link #staleAfterSeconds} 보다 작아야 한다.</b> 조회 경로는 저장된 판정이 그 시간보다
+     * 오래되면 낡았다고 보고 버린다. 평가 간격이 그보다 길면 평가기가 멀쩡히 도는데도 앱은 계속
+     * "모름"을 받는다.
+     */
+    private long maxIntervalSeconds = 180;
+
+    /** 환승이 멀거나 아예 없을 때의 간격. */
+    private long idleIntervalSeconds = 120;
+
+    /** 이 시간 안에 갈아타야 하면 임박으로 본다. */
+    private long nearTransferSeconds = 300;
+
+    /** 이 시간보다 멀면 한가한 것으로 본다. */
+    private long farTransferSeconds = 900;
+
+    /**
+     * 값이 그대로일 때 간격을 늘리는 배수.
+     *
+     * <p>몇 번을 확인해도 앱에 보일 값이 안 바뀌면 더 물어봐야 얻는 것이 없다는 뜻이다. 다만
+     * 임박하거나 위험한 상태에서는 늘리지 않는다 — 급한데 뜸해지면 알림이 늦는다.
+     */
+    private int unchangedBackoffMultiplier = 2;
+
     /** 평가 worker 스레드 수. */
     private int poolSize = 4;
 
@@ -112,6 +146,34 @@ public class JourneyEvaluatorProperties {
         if (jitterSeconds >= intervalSeconds) {
             throw new IllegalStateException("흩뜨리는 폭은 평가 간격보다 작아야 한다");
         }
+        validateAdaptiveInterval();
+    }
+
+    /** 간격을 상황에 맞춰 조절할 때 지켜야 하는 관계들. */
+    private void validateAdaptiveInterval() {
+        if (minIntervalSeconds <= 0 || maxIntervalSeconds <= 0 || idleIntervalSeconds <= 0
+                || nearTransferSeconds <= 0 || farTransferSeconds <= 0) {
+            throw new IllegalStateException("평가 간격 설정은 모두 0 보다 커야 한다");
+        }
+        if (unchangedBackoffMultiplier < 1) {
+            throw new IllegalStateException("변화 없을 때의 배수는 1 이상이어야 한다");
+        }
+        if (minIntervalSeconds > intervalSeconds || intervalSeconds > maxIntervalSeconds) {
+            throw new IllegalStateException(
+                    "간격은 min ≤ 기본 ≤ max 순서여야 한다. 기본값이 범위 밖이면 어떤 상황에서도 "
+                            + "쓰이지 않는다");
+        }
+        if (idleIntervalSeconds > maxIntervalSeconds) {
+            throw new IllegalStateException("한가할 때의 간격이 최대 간격을 넘을 수 없다");
+        }
+        if (nearTransferSeconds >= farTransferSeconds) {
+            throw new IllegalStateException("임박 기준은 한가함 기준보다 짧아야 한다");
+        }
+        if (maxIntervalSeconds >= staleAfterSeconds) {
+            throw new IllegalStateException(
+                    "최대 평가 간격은 저장된 판정을 믿어 주는 시간보다 짧아야 한다. 길면 평가기가 "
+                            + "정상인데도 조회가 그 판정을 낡았다고 버려 앱이 계속 모름을 받는다");
+        }
     }
 
     public Duration interval() {
@@ -128,5 +190,25 @@ public class JourneyEvaluatorProperties {
 
     public Duration busRealtimeWindow() {
         return Duration.ofSeconds(busRealtimeWindowSeconds);
+    }
+
+    public Duration minInterval() {
+        return Duration.ofSeconds(minIntervalSeconds);
+    }
+
+    public Duration maxInterval() {
+        return Duration.ofSeconds(maxIntervalSeconds);
+    }
+
+    public Duration idleInterval() {
+        return Duration.ofSeconds(idleIntervalSeconds);
+    }
+
+    public Duration nearTransfer() {
+        return Duration.ofSeconds(nearTransferSeconds);
+    }
+
+    public Duration farTransfer() {
+        return Duration.ofSeconds(farTransferSeconds);
     }
 }

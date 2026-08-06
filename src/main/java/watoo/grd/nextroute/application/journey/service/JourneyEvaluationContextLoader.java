@@ -10,7 +10,10 @@ import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepository;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -45,19 +48,37 @@ public class JourneyEvaluationContextLoader {
                 .collect(Collectors.toMap(TransferConnection::getTransferIndex,
                         TransferAssessmentMapper::fromStored));
         return Optional.of(new JourneyEvaluationContext(journey.getId(), journey.getUserId(),
-                journey.getRouteRevision(), previous));
+                journey.getRouteRevision(), journey.getCurrentLegIndex(), previous));
     }
 
     /**
      * 계산에 쓰는 상태 묶음.
      *
-     * @param previousAssessments 직전 판정. 값이 달라졌는지 견주는 데만 쓴다
+     * @param currentLegIndex     지금 진행 중인 단계. 이미 지나온 환승을 간격 계산에서 빼는 데 쓴다
+     * @param previousAssessments 직전 판정. 값이 달라졌는지 견주고, 직전 평가 시각을 읽는 데 쓴다
      */
     public record JourneyEvaluationContext(
             Long journeyId,
             Long userId,
             int routeRevision,
+            int currentLegIndex,
             Map<Integer, TransferRiskAssessment> previousAssessments
     ) {
+
+        /**
+         * 직전 평가와 지금 사이의 간격. 판정을 저장할 때마다 갱신되는 계산 시각에서 되읽는다.
+         *
+         * <p>따로 저장하지 않는 이유 — 이미 저장돼 있는 값이라 컬럼을 늘릴 필요가 없다.
+         *
+         * @return 직전 평가 기록이 없으면 null
+         */
+        public Duration previousInterval(Instant now) {
+            return previousAssessments.values().stream()
+                    .map(TransferRiskAssessment::calculatedAt)
+                    .filter(Objects::nonNull)
+                    .max(Instant::compareTo)
+                    .map(lastAt -> Duration.between(lastAt, now))
+                    .orElse(null);
+        }
     }
 }

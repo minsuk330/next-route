@@ -140,6 +140,46 @@ class JourneyEvaluationIT {
     }
 
     @Test
+    @DisplayName("환승이 임박하면 다음 평가를 앞당긴다")
+    void shortensIntervalWhenTransferIsNear() {
+        ridingLegTakes(60);   // 1분 뒤 하차 → 도보까지 더해도 준비까지 5분 안이다
+        givenRealtimeArrival(600);
+
+        evaluate();
+
+        // 임박하면 최소 간격(10초)이다. 기본 간격 30초보다 확실히 짧아야 한다.
+        assertThat(secondsUntilNextEvaluation()).isLessThan(30);
+    }
+
+    @Test
+    @DisplayName("환승이 멀면 다음 평가를 미룬다")
+    void lengthensIntervalWhenTransferIsFar() {
+        ridingLegTakes(1_800);   // 30분 뒤 하차 → 서둘러 볼 이유가 없다
+        givenRealtimeArrival(600);
+
+        evaluate();
+
+        assertThat(secondsUntilNextEvaluation()).isGreaterThan(60);
+    }
+
+    @Test
+    @DisplayName("아무것도 안 바뀌면 다음 평가를 더 미룬다")
+    void lengthensIntervalWhenNothingChanges() {
+        ridingLegTakes(1_800);
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(3_600));
+        evaluate();
+        long first = secondsUntilNextEvaluation();
+
+        // 두 번째 평가가 첫 번째로부터 2분 뒤에 일어난 상황으로 만든다. 직전 간격은 저장된
+        // 판정의 계산 시각에서 되읽으므로, 그 값을 과거로 밀면 시계를 건드리지 않아도 된다.
+        agePreviousEvaluation(120);
+        makeDue();
+        evaluate();
+
+        assertThat(secondsUntilNextEvaluation()).isGreaterThan(first);
+    }
+
+    @Test
     @DisplayName("도착 시각만 바뀌어도 평가 번호가 오른다 — 안 그러면 앱이 204 만 받는다")
     void bumpsVersionWhenOnlyArrivalTimeChanges() {
         givenRealtimeArrival(600);
@@ -306,6 +346,32 @@ class JourneyEvaluationIT {
                     select id from journey_leg where journey_id = ? and deleted_at is null)
                   and boarding_seq is null
                 """, journeyId);
+    }
+
+    /**
+     * 타고 있는 단계가 얼마나 걸리는지 바꾼다.
+     *
+     * <p>환승까지 남은 시간을 조절하는 손잡이다. 도착 시각은 단계 시작 시각 + 계획 소요시간으로
+     * 잡히고(`ClientGeometryProgressArrivalPredictor:112`), 거기에 하차 버퍼와 환승 도보가 더해져
+     * 준비 시각이 된다.
+     */
+    private void ridingLegTakes(int seconds) {
+        jdbcTemplate.update("""
+                update journey_leg set planned_duration_sec = ?
+                where journey_id = ? and leg_index = 1 and deleted_at is null
+                """, seconds, journeyId);
+    }
+
+    /** 직전 평가가 이만큼 전에 일어난 것으로 만든다. 간격을 늘리는 규칙이 이 값을 되읽는다. */
+    private void agePreviousEvaluation(int seconds) {
+        jdbcTemplate.update("""
+                update transfer_connection set calculated_at = calculated_at - make_interval(secs => ?)
+                where journey_id = ? and deleted_at is null
+                """, seconds, journeyId);
+    }
+
+    private long secondsUntilNextEvaluation() {
+        return java.time.Duration.between(Instant.now(), nextEvaluationAt()).toSeconds();
     }
 
     /** 다시 평가 대상으로 만든다. 평가가 끝나면 다음 시각이 미래로 밀려 곧바로 선점되지 않는다. */

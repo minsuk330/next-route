@@ -10,6 +10,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
 import watoo.grd.nextroute.application.journey.dto.TransferAssessmentBatch;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
+import watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.journey.service.JourneyEvaluationContextLoader.JourneyEvaluationContext;
 
@@ -48,11 +49,10 @@ public class JourneyEvaluationService {
     private final GetJourneyNavigationGeometryUseCase geometryUseCase;
     private final TransferRiskEvaluator transferRiskEvaluator;
     private final JourneyEvaluationScheduleWriter scheduleWriter;
+    private final JourneyEvaluationIntervalPolicy intervalPolicy;
+    private final JourneyEvaluationMetrics metrics;
     private final JourneyEvaluatorProperties properties;
     private final Clock clock;
-
-    /** 막혔을 때 다음 평가를 몇 배로 늦출지. 막힌 문을 30초마다 두드리지 않는다. */
-    private static final int BLOCKED_BACKOFF_MULTIPLIER = 4;
 
     /** 평가 한 건의 결말. 실패도 종류를 갈라야 재시도 간격을 달리 줄 수 있다. */
     public enum Result {
@@ -85,7 +85,7 @@ public class JourneyEvaluationService {
         JourneyEvaluationOutcome outcome = new JourneyEvaluationOutcome(
                 context.journeyId(), context.routeRevision(), batch, changed);
 
-        Instant nextAt = nextEvaluationAt(context.journeyId(), now, batch.upstreamBlocked());
+        Instant nextAt = nextEvaluationAt(context, batch, now, changed);
         boolean stored = scheduleWriter.finish(claim, outcome, nextAt);
         if (!stored) {
             return Report.lostClaim();
@@ -94,16 +94,25 @@ public class JourneyEvaluationService {
     }
 
     /**
-     * 다음 평가 시각. 여정 번호로 조금씩 흩뜨린다.
+     * 다음 평가 시각. 상황에 맞는 간격을 고르고, 여정 번호로 몇 초씩 흩뜨린다.
      *
-     * <p>모두 같은 간격을 쓰면 한 tick 에 수천 건이 함께 만기가 되고, 그 tick 하나가 외부 API 를
-     * 몰아 부른다. 여정마다 몇 초씩 어긋나게 두면 부하가 고르게 퍼진다.
+     * <p>간격을 고르는 규칙은 {@link JourneyEvaluationIntervalPolicy} 가 가진다. 여기서는 그 결과에
+     * 흩뜨리기만 더한다 — 모두 같은 시각에 만기가 되면 한 tick 이 외부 API 를 몰아 부른다.
+     *
+     * <p>직전 간격은 저장된 판정의 계산 시각에서 되읽는다. 값이 계속 그대로일 때 간격을 늘리려면
+     * 직전에 얼마 만에 봤는지 알아야 하는데, 그 값이 이미 저장돼 있어 컬럼을 늘릴 필요가 없다.
      */
-    private Instant nextEvaluationAt(Long journeyId, Instant now, boolean upstreamBlocked) {
-        long spread = Math.floorMod(journeyId, properties.getJitterSeconds());
-        long seconds = properties.getIntervalSeconds()
-                * (upstreamBlocked ? BLOCKED_BACKOFF_MULTIPLIER : 1);
-        return now.plusSeconds(seconds + spread);
+    private Instant nextEvaluationAt(JourneyEvaluationContext context, TransferAssessmentBatch batch,
+                                     Instant now, boolean changed) {
+        JourneyEvaluationIntervalPolicy.Decision decision = intervalPolicy.decide(
+                batch.assessments(), context.currentLegIndex(), now,
+                context.previousInterval(now), changed, batch.upstreamBlocked());
+
+        metrics.recordInterval(decision.reason().name().toLowerCase(),
+                decision.interval().toSeconds());
+
+        long spread = Math.floorMod(context.journeyId(), properties.getJitterSeconds());
+        return now.plus(decision.interval()).plusSeconds(spread);
     }
 
     /**
