@@ -3,6 +3,7 @@ package watoo.grd.nextroute.application.journey.config;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -73,6 +74,28 @@ class JourneyEvaluatorPropertiesTest {
         assertThatThrownBy(props::validate)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("붙잡");
+    }
+
+    @Test
+    void TC_워커_큐가_선점_배치보다_작으면_부팅을_막는다() {
+        // 작으면 선점까지 해 놓고 큐에서 거부돼, 그 여정은 선점 만료(60초)까지 방치된다.
+        JourneyEvaluatorProperties props = new JourneyEvaluatorProperties();
+        props.setBatchSize(500);
+        props.setQueueCapacity(400);
+
+        assertThatThrownBy(props::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("큐");
+    }
+
+    @Test
+    void TC_기본값의_처리량_상한이_초당_200건이다() {
+        JourneyEvaluatorProperties props = new JourneyEvaluatorProperties();
+
+        // 상한 = 배치 ÷ 주기. 이 값이 낮으면 워커·슬롯이 아무리 넉넉해도 그만큼밖에 못 돈다.
+        double perSecond = props.getBatchSize() / (props.getTickMs() / 1000.0);
+
+        assertThat(perSecond).isEqualTo(200.0);
     }
 
     @Test

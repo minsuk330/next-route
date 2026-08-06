@@ -22,11 +22,17 @@ public class JourneyEvaluatorProperties {
 
     private boolean enabled = false;
 
-    /** claim 주기. 이 간격마다 "지금 평가할 여정"을 긁는다. */
-    private long tickMs = 5_000;
+    /**
+     * claim 주기. 이 간격마다 "지금 평가할 여정"을 긁는다.
+     *
+     * <p><b>{@link #batchSize} 와 함께 처리량 상한을 정한다</b>(배치 ÷ 주기). 스케줄러는 한 배치를
+     * 맡긴 뒤 완료를 기다리고 다시 이만큼 쉬므로, 이 둘이 평가기가 낼 수 있는 최대 속도다.
+     * ⑧ 부하 측정에서 100건/5초(20건/s)는 여정 1,000건에서도 적체가 쌓였다.
+     */
+    private long tickMs = 1_000;
 
-    /** 한 번에 claim 하는 여정 수. */
-    private int batchSize = 100;
+    /** 한 번에 claim 하는 여정 수. {@link #queueCapacity} 보다 크면 선점해 놓고 거부된다. */
+    private int batchSize = 200;
 
     /**
      * 다음 평가까지의 간격.
@@ -123,8 +129,13 @@ public class JourneyEvaluatorProperties {
     /** 평가 worker 스레드 수. */
     private int poolSize = 4;
 
-    /** worker 대기 큐 길이. 넘치면 그 tick 은 포기하고 다음 tick 에 다시 잡는다. */
-    private int queueCapacity = 200;
+    /**
+     * worker 대기 큐 길이. 넘치면 그 tick 은 포기하고 다음 tick 에 다시 잡는다.
+     *
+     * <p>{@link #batchSize} 이상이어야 한다. 작으면 선점까지 해 놓고 큐에서 거부돼, 그 여정은
+     * 선점이 만료될 때까지(기본 60초) 아무도 손대지 않는다 — 적체가 그만큼 늘어난다.
+     */
+    private int queueCapacity = 400;
 
     /**
      * 평가기가 동시에 외부 provider 를 부를 수 있는 수.
@@ -191,6 +202,11 @@ public class JourneyEvaluatorProperties {
             throw new IllegalStateException(
                     "환승 예측 예산의 두 배가 배치 상한을 넘으면 안 된다. 환승 두 개짜리 여정이 "
                             + "배치 안에 못 끝나 매 tick 미완료가 나고, 그 이유가 로그에 드러나지 않는다");
+        }
+        if (queueCapacity < batchSize) {
+            throw new IllegalStateException(
+                    "워커 큐는 선점 배치보다 작을 수 없다. 작으면 선점해 놓고 큐에서 거부돼 그 여정이 "
+                            + "선점 만료까지 방치된다");
         }
         if (unknownGraceSeconds > staleAfterSeconds) {
             throw new IllegalStateException(
