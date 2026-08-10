@@ -25,6 +25,8 @@ import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
+import watoo.grd.nextroute.domain.bus.repository.RouteStopProjection;
 import watoo.grd.nextroute.global.error.BusinessException;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
@@ -42,6 +44,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -55,6 +58,7 @@ class JourneyNavigationGeometryServiceTest {
     private JourneySessionRepository sessionRepository;
     private JourneyLegRepository legRepository;
     private JourneyLegRouteOptionRepository routeOptionRepository;
+    private BusRouteStopRepository busRouteStopRepository;
     private BusRouteSegmentPolylinePort busPolylinePort;
     private JourneyNavigationGeometryService service;
 
@@ -65,9 +69,11 @@ class JourneyNavigationGeometryServiceTest {
         sessionRepository = mock(JourneySessionRepository.class);
         legRepository = mock(JourneyLegRepository.class);
         routeOptionRepository = mock(JourneyLegRouteOptionRepository.class);
+        busRouteStopRepository = mock(BusRouteStopRepository.class);
         busPolylinePort = mock(BusRouteSegmentPolylinePort.class);
         service = new JourneyNavigationGeometryService(
-                sessionRepository, legRepository, routeOptionRepository, busPolylinePort,
+                sessionRepository, legRepository, routeOptionRepository,
+                busRouteStopRepository, busPolylinePort,
                 new JourneyCompiler(new StopIdentityResolver()),
                 new GeometrySegmentAllocator(),
                 objectMapper);
@@ -81,6 +87,13 @@ class JourneyNavigationGeometryServiceTest {
         JourneyLeg ride = leg(2, JourneyLegType.RIDE_BUS, 1200);
         givenLegs(leg(0, JourneyLegType.WALK, 300), wait, ride);
         givenOptions(option(wait.getId(), "R1", 10, 13));
+        when(busRouteStopRepository.findStopsByRouteId("R1")).thenReturn(List.of(
+                routeStop(9, "S9", "범위 밖", 127.000, 37.5),
+                routeStop(10, "S10", "승차", 127.001, 37.5),
+                routeStop(11, "S11", "두 번째", 127.002, 37.5),
+                routeStop(12, "S12", "세 번째", null, null),
+                routeStop(13, "S13", "하차", 127.004, 37.5),
+                routeStop(14, "S14", "범위 밖", 127.005, 37.5)));
 
         when(busPolylinePort.findSections("R1", 10, 13)).thenReturn(List.of(
                 section(10, 11, "s1", QualityStatus.OK, 127.001, 127.002),
@@ -99,6 +112,12 @@ class JourneyNavigationGeometryServiceTest {
         // 단계 품질은 가장 나쁜 구간을 따른다.
         assertThat(busLeg.quality()).isEqualTo(GeometryQuality.FAILED);
         assertThat(busLeg.routeId()).isEqualTo("R1");
+        assertThat(busLeg.stops()).extracting(stop -> stop.seq())
+                .containsExactly(10, 11, 12, 13);
+        assertThat(busLeg.stops()).extracting(stop -> stop.stopName())
+                .containsExactly("승차", "두 번째", "세 번째", "하차");
+        assertThat(busLeg.stops().get(2).x()).isNull();
+        assertThat(busLeg.stops().get(2).y()).isNull();
     }
 
     @Test
@@ -127,6 +146,7 @@ class JourneyNavigationGeometryServiceTest {
         assertThat(walk.quality()).isEqualTo(GeometryQuality.OK);
         assertThat(walk.points()).hasSize(3);
         assertThat(walk.segments()).hasSize(2);
+        assertThat(walk.stops()).isEmpty();
         assertThat(walk.totalDistanceMeters()).isGreaterThan(0.0);
         assertThat(walk.segments().stream()
                 .mapToInt(s -> s.plannedDurationSeconds())
@@ -161,6 +181,35 @@ class JourneyNavigationGeometryServiceTest {
 
         assertThat(wait.segments()).isEmpty();
         assertThat(wait.points()).hasSize(1);
+        assertThat(wait.stops()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("같은 노선의 버스 단계가 여러 개여도 정류장은 요청당 한 번만 조회한다")
+    void cachesRouteStopsWithinRequest() {
+        givenJourney(walkThenBus());
+        JourneyLeg firstWait = leg(0, JourneyLegType.WAIT_BUS, null);
+        JourneyLeg firstRide = leg(1, JourneyLegType.RIDE_BUS, 600);
+        JourneyLeg secondWait = leg(2, JourneyLegType.WAIT_BUS, null);
+        JourneyLeg secondRide = leg(3, JourneyLegType.RIDE_BUS, 600);
+        givenLegs(firstWait, firstRide, secondWait, secondRide);
+        givenOptions(
+                option(firstWait.getId(), "R1", 10, 11),
+                option(secondWait.getId(), "R1", 11, 12));
+        when(busRouteStopRepository.findStopsByRouteId("R1")).thenReturn(List.of(
+                routeStop(10, "S10", "첫 정류장", 127.001, 37.5),
+                routeStop(11, "S11", "둘째 정류장", 127.002, 37.5),
+                routeStop(12, "S12", "셋째 정류장", 127.003, 37.5)));
+        when(busPolylinePort.findSections("R1", 10, 11)).thenReturn(List.of(
+                section(10, 11, "s1", QualityStatus.OK, 127.001, 127.002)));
+        when(busPolylinePort.findSections("R1", 11, 12)).thenReturn(List.of(
+                section(11, 12, "s2", QualityStatus.OK, 127.002, 127.003)));
+
+        JourneyNavigationGeometry result = service.get(USER_ID, JOURNEY_ID, REVISION);
+
+        assertThat(result.legs().get(1).stops()).hasSize(2);
+        assertThat(result.legs().get(3).stops()).hasSize(2);
+        verify(busRouteStopRepository, times(1)).findStopsByRouteId("R1");
     }
 
     @Test
@@ -278,6 +327,18 @@ class JourneyNavigationGeometryServiceTest {
                 List.of(new BusRoutePolylineData.Point(startX, 37.5),
                         new BusRoutePolylineData.Point(endX, 37.5)),
                 OffsetDateTime.of(2026, 8, 1, 0, 0, 0, 0, ZoneOffset.UTC));
+    }
+
+    private RouteStopProjection routeStop(int seq, String stopId, String stopName,
+                                          Double longitude, Double latitude) {
+        return new RouteStopProjection() {
+            @Override public Integer getSeq() { return seq; }
+            @Override public String getStopId() { return stopId; }
+            @Override public String getStopName() { return stopName; }
+            @Override public Double getLongitude() { return longitude; }
+            @Override public Double getLatitude() { return latitude; }
+            @Override public String getDirection() { return null; }
+        };
     }
 
     /** 걷기 → 버스. 좌표 보강이 없어 polyline 이 비어 있는 경로다. */

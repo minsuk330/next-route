@@ -16,6 +16,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.Geo
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeometryQuality;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.SegmentGeometry;
+import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.StopGeometry;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
@@ -65,6 +66,9 @@ class JourneyNavigationGeometryControllerTest {
                 .andExpect(jsonPath("$.routeRevision").value(1))
                 .andExpect(jsonPath("$.legs[0].type").value("RIDE_BUS"))
                 .andExpect(jsonPath("$.legs[0].quality").value("OK"))
+                .andExpect(jsonPath("$.legs[0].stops[0].seq").value(10))
+                .andExpect(jsonPath("$.legs[0].stops[0].stopName").value("승차 정류장"))
+                .andExpect(jsonPath("$.legs[0].stops[1].x").doesNotExist())
                 .andExpect(jsonPath("$.legs[0].segments[0].sectionId").value("s1"))
                 .andExpect(jsonPath("$.legs[0].segments[0].geometrySegmentIndex").value(0));
     }
@@ -113,7 +117,10 @@ class JourneyNavigationGeometryControllerTest {
         LegGeometry leg = new LegGeometry(2, JourneyLegType.RIDE_BUS, "R1", 1200, 420.0,
                 GeometryQuality.OK,
                 List.of(new GeoPoint(127.0, 37.5), new GeoPoint(127.004, 37.5)),
-                List.of(segment));
+                List.of(segment),
+                List.of(
+                        new StopGeometry(10, "S10", "승차 정류장", 127.0, 37.5),
+                        new StopGeometry(11, "S11", "하차 정류장", null, null)));
         return new JourneyNavigationGeometry(7L, 1, List.of(leg), null);
     }
 }

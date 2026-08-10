@@ -183,7 +183,7 @@ class ClientGeometryProgressArrivalPredictorTest {
         List<SegmentGeometry> segments = List.of(
                 segment(0, 100.0, 90), segment(1, 400.0, 360), segment(2, 200.0, 150));
         return new LegGeometry(0, JourneyLegType.RIDE_BUS, "R1", 600, 700.0,
-                quality, List.of(), segments);
+                quality, List.of(), segments, List.of());
     }
 
     private SegmentGeometry segment(int index, double meters, int seconds) {

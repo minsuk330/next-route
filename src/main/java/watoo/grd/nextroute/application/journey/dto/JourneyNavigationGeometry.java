@@ -56,6 +56,7 @@ public record JourneyNavigationGeometry(
      * @param quality                 단계 전체 품질. segment 중 가장 나쁜 값을 따른다
      * @param points                  지도 표시용 전체 좌표
      * @param segments                진행 판정용 구간. 대기 단계는 비어 있다
+     * @param stops                   버스 승차~하차 정류장. 버스 외 단계는 비어 있다
      */
     public record LegGeometry(
             int legIndex,
@@ -65,13 +66,30 @@ public record JourneyNavigationGeometry(
             double totalDistanceMeters,
             GeometryQuality quality,
             List<GeoPoint> points,
-            List<SegmentGeometry> segments
+            List<SegmentGeometry> segments,
+            List<StopGeometry> stops
     ) {
 
         public LegGeometry {
             points = points == null ? List.of() : List.copyOf(points);
             segments = segments == null ? List.of() : List.copyOf(segments);
+            stops = stops == null ? List.of() : List.copyOf(stops);
         }
+    }
+
+    /**
+     * 선택한 버스 노선의 정류장 순서와 고정 좌표.
+     *
+     * <p>좌표가 없는 정류장도 순서를 유지해야 하므로 {@code x}/{@code y}는 nullable이다.
+     * 모바일은 이를 순서 제약 geofence와 하차 지점 표시에만 사용한다.
+     */
+    public record StopGeometry(
+            int seq,
+            String stopId,
+            String stopName,
+            Double x,
+            Double y
+    ) {
     }
 
     /**

@@ -14,6 +14,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.Geo
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeometryQuality;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.SegmentGeometry;
+import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.StopGeometry;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.route.dto.CoordPoint;
@@ -24,6 +25,8 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
+import watoo.grd.nextroute.domain.bus.repository.RouteStopProjection;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.global.error.BusinessException;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
@@ -58,6 +61,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
     private final JourneySessionRepository sessionRepository;
     private final JourneyLegRepository legRepository;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
+    private final BusRouteStopRepository busRouteStopRepository;
     private final BusRouteSegmentPolylinePort busPolylinePort;
     private final JourneyCompiler compiler;
     private final GeometrySegmentAllocator allocator;
@@ -78,6 +82,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
         List<JourneyLeg> legs = legRepository
                 .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(journeyId, revision);
         Map<Long, List<JourneyLegRouteOption>> optionsByLeg = loadRouteOptions(legs);
+        Map<String, List<RouteStopProjection>> routeStopsByRouteId = new java.util.HashMap<>();
         Snapshot snapshot = recompile(journey.getRouteSnapshot());
 
         List<LegGeometry> geometries = new ArrayList<>(legs.size());
@@ -86,7 +91,8 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
             JourneyLeg leg = legs.get(i);
             SubPathResult sub = snapshot.subPathOf(leg.getLegIndex());
             Built built = switch (leg.getType()) {
-                case RIDE_BUS -> busLeg(leg, ownerOfOptions(legs, i), optionsByLeg, sub);
+                case RIDE_BUS -> busLeg(leg, ownerOfOptions(legs, i), optionsByLeg,
+                        routeStopsByRouteId, sub);
                 case WAIT_BUS, WAIT_SUBWAY -> new Built(waitLeg(leg, sub), null);
                 default -> new Built(snapshotLeg(leg, sub), null);
             };
@@ -107,6 +113,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
      */
     private Built busLeg(JourneyLeg leg, JourneyLeg optionOwner,
                          Map<Long, List<JourneyLegRouteOption>> optionsByLeg,
+                         Map<String, List<RouteStopProjection>> routeStopsByRouteId,
                          SubPathResult sub) {
         JourneyLegRouteOption option = selectedOption(leg, optionOwner, optionsByLeg);
         if (!hasBusScope(option)) {
@@ -114,10 +121,11 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
             return new Built(snapshotLeg(leg, sub), null);
         }
 
+        List<StopGeometry> stops = busStops(option, routeStopsByRouteId);
         List<BusRouteSegmentPolylineSection> sections = busPolylinePort.findSections(
                 option.getRouteId(), option.getBoardingSeq(), option.getAlightingSeq());
         if (sections.isEmpty()) {
-            return new Built(snapshotLeg(leg, sub), null);
+            return new Built(withStops(snapshotLeg(leg, sub), stops), null);
         }
 
         List<SegmentGeometry> raw = new ArrayList<>(sections.size());
@@ -131,7 +139,27 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
             oldest = older(oldest, section.sourceFetchedAt());
         }
         List<SegmentGeometry> segments = allocator.distribute(raw, leg.getPlannedDurationSec());
-        return new Built(assemble(leg, option.getRouteId(), segments), oldest);
+        return new Built(assemble(leg, option.getRouteId(), segments, stops), oldest);
+    }
+
+    private List<StopGeometry> busStops(JourneyLegRouteOption option,
+                                        Map<String, List<RouteStopProjection>> routeStopsByRouteId) {
+        return routeStopsByRouteId.computeIfAbsent(option.getRouteId(),
+                        busRouteStopRepository::findStopsByRouteId).stream()
+                .filter(stop -> stop.getSeq() != null
+                        && stop.getSeq() >= option.getBoardingSeq()
+                        && stop.getSeq() <= option.getAlightingSeq())
+                .sorted(Comparator.comparingInt(RouteStopProjection::getSeq))
+                .map(stop -> new StopGeometry(
+                        stop.getSeq(), stop.getStopId(), stop.getStopName(),
+                        stop.getLongitude(), stop.getLatitude()))
+                .toList();
+    }
+
+    private LegGeometry withStops(LegGeometry leg, List<StopGeometry> stops) {
+        return new LegGeometry(leg.legIndex(), leg.type(), leg.routeId(),
+                leg.plannedDurationSeconds(), leg.totalDistanceMeters(), leg.quality(),
+                leg.points(), leg.segments(), stops);
     }
 
     private boolean hasBusScope(JourneyLegRouteOption option) {
@@ -176,7 +204,8 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
         if (sub == null || sub.startX() == null || sub.startY() == null
                 || sub.endX() == null || sub.endY() == null) {
             return new LegGeometry(leg.getLegIndex(), leg.getType(), leg.getRouteId(),
-                    leg.getPlannedDurationSec(), 0.0, GeometryQuality.FAILED, List.of(), List.of());
+                    leg.getPlannedDurationSec(), 0.0, GeometryQuality.FAILED,
+                    List.of(), List.of(), List.of());
         }
         List<GeoPoint> points = List.of(
                 new GeoPoint(sub.startX(), sub.startY()),
@@ -195,13 +224,18 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
         return new LegGeometry(leg.getLegIndex(), leg.getType(), leg.getRouteId(),
                 leg.getPlannedDurationSec(), 0.0,
                 points.isEmpty() ? GeometryQuality.FAILED : GeometryQuality.OK,
-                points, List.of());
+                points, List.of(), List.of());
     }
 
     // ── 조립 ────────────────────────────────────────────────────────────────
 
     /** 구간을 이어 붙여 지도용 전체 좌표를 만들고 단계 품질을 가장 나쁜 구간으로 정한다. */
     private LegGeometry assemble(JourneyLeg leg, String routeId, List<SegmentGeometry> segments) {
+        return assemble(leg, routeId, segments, List.of());
+    }
+
+    private LegGeometry assemble(JourneyLeg leg, String routeId, List<SegmentGeometry> segments,
+                                 List<StopGeometry> stops) {
         List<GeoPoint> merged = new ArrayList<>();
         double totalMeters = 0.0;
         GeometryQuality worst = GeometryQuality.OK;
@@ -216,7 +250,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
         }
         return new LegGeometry(leg.getLegIndex(), leg.getType(), routeId,
                 leg.getPlannedDurationSec(), Math.round(totalMeters * 10.0) / 10.0,
-                segments.isEmpty() ? GeometryQuality.FAILED : worst, merged, segments);
+                segments.isEmpty() ? GeometryQuality.FAILED : worst, merged, segments, stops);
     }
 
     /** 나쁜 쪽을 남긴다. 앱이 단계 하나만 보고 "믿어도 되는가"를 판단할 수 있어야 한다. */
