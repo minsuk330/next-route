@@ -2,7 +2,6 @@ package watoo.grd.nextroute.application.journey.config;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -18,9 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class JourneyNotificationPropertiesTest {
 
     private JourneyNotificationProperties properties() {
-        JourneyNotificationProperties properties = new JourneyNotificationProperties();
-        properties.setEnvironment(new MockEnvironment());
-        return properties;
+        return new JourneyNotificationProperties();
     }
 
     private void validate(JourneyNotificationProperties properties) {
@@ -67,20 +64,6 @@ class JourneyNotificationPropertiesTest {
                 .as("진짜 알림 행을 아무 데도 안 보낸 채 SENT 로 소모한다")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("noop");
-    }
-
-    @Test
-    @DisplayName("test 프로필에서는 relay + noop 조합을 허용한다")
-    void testProfileMayUseNoopRelay() {
-        JourneyNotificationProperties properties = new JourneyNotificationProperties();
-        MockEnvironment environment = new MockEnvironment();
-        environment.setActiveProfiles("test");
-        properties.setEnvironment(environment);
-        properties.getRelay().setEnabled(true);
-
-        assertThatCode(() -> validate(properties))
-                .as("전 구간을 도는 통합 테스트가 이 조합을 쓴다")
-                .doesNotThrowAnyException();
     }
 
     @Test
