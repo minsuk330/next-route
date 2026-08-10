@@ -54,7 +54,10 @@ public class JourneyNotificationMetrics {
     }
 
     /**
-     * @param reason {@code expired}·{@code journey-ended}·{@code route-changed}·{@code superseded}
+     * @param reason {@code expired}·{@code journey-ended}·{@code route-changed}·{@code superseded}·
+     *               {@code lease-expired}·{@code command-changed}·{@code transfer-missed}·
+     *               {@code already-boarded}. 사유마다 이름을 따로 두는 이유는 "왜 안 갔나"를
+     *               운영에서 갈라 봐야 하기 때문이다 — 뭉뚱그리면 재검증이 과한지 모자란지 모른다
      */
     public void recordCanceled(String reason) {
         registry.counter(CANCELED, "reason", reason).increment();
