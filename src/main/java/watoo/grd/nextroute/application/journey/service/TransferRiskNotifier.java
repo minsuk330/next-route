@@ -2,12 +2,12 @@ package watoo.grd.nextroute.application.journey.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties;
 import watoo.grd.nextroute.application.journey.dto.JourneyEvaluationOutcome;
 import watoo.grd.nextroute.application.journey.dto.NotificationContext;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
+import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotificationScope;
 import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
@@ -54,25 +54,41 @@ public class TransferRiskNotifier {
     /** 마커가 없을 때의 순위. 어떤 실제 상태보다도 작아야 첫 알림이 나간다. */
     private static final int NO_MARKER = -1;
 
+    /**
+     * 회복이 지울 수 있는 체크포인트.
+     *
+     * <p>접근 알림({@code TRANSFER_TARGET_APPROACHING})은 여기 없다. 여유가 생긴 것과 "갈아탈
+     * 차가 곧 온다"는 서로 다른 이야기라, 상태가 좋아졌다고 그것까지 지우면 정작 사용자가 고개를
+     * 들어야 하는 순간의 알림이 사라진다.
+     */
+    private static final Set<JourneyCheckpoint> RISK_CHECKPOINTS =
+            EnumSet.of(JourneyCheckpoint.TRANSFER_RISK_AT_RISK, JourneyCheckpoint.TRANSFER_RISK_MISSED);
+
     private final TransferConnectionRepository transferRepository;
     private final JourneyNotificationRepository notificationRepository;
     private final JourneyNotificationEnqueuer enqueuer;
     private final JourneyNotificationProperties properties;
-    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 나빠진 환승마다 알림을 쌓는다.
      *
      * <p><b>반드시 소유권 확인(CAS) 뒤에 불러야 한다.</b> 순서를 바꾸면 lease 를 잃은 워커가
      * 마커를 앞당겨 찍어, 이긴 워커의 알림을 영구히 막는다.
+     *
+     * <p>relay 를 깨우는 이벤트는 여기서 발행하지 않는다. 같은 평가에서 접근 알림
+     * ({@link TransferTargetApproachNotifier})도 쌓일 수 있어, 각자 발행하면 평가 한 번에 이벤트가
+     * 둘 나간다. 부르는 쪽({@code JourneyEvaluationScheduleWriter})이 둘의 결과를 합쳐 한 번만
+     * 발행한다.
+     *
+     * @return 이 평가에서 알림을 쌓으려 시도했으면 true
      */
-    public void notifyWorsened(JourneyEvaluationOutcome outcome, NotificationContext context) {
+    public boolean notifyWorsened(JourneyEvaluationOutcome outcome, NotificationContext context) {
         if (!properties.isEnqueueEnabled()) {
-            return;
+            return false;
         }
         if (context == null || context.channels().isEmpty()) {
             // 보낼 길이 없다. 여기서 마커를 쓰면 그 환승은 영영 알림이 없다.
-            return;
+            return false;
         }
 
         // 마커를 쓸 엔티티를 다시 조회한다. 같은 트랜잭션이라 1차 캐시가 판정 저장이 방금 만진
@@ -97,11 +113,7 @@ public class TransferRiskNotifier {
             enqueuedAny |= handle(outcome, context, assessment, transfer);
         }
 
-        if (enqueuedAny) {
-            // 평가 한 번에 한 번만 발행한다. 행마다 발행하면 초당 200 평가에서 이벤트
-            // 멀티캐스터 시간만 태운다 — 어차피 waker 가 신호를 하나로 합친다.
-            eventPublisher.publishEvent(new JourneyOutboxEnqueuedEvent());
-        }
+        return enqueuedAny;
     }
 
     /** @return 이 환승에서 알림을 쌓으려 시도했으면 true */
@@ -109,6 +121,9 @@ public class TransferRiskNotifier {
                            TransferRiskAssessment assessment, TransferConnection transfer) {
         if (!NOTIFIABLE.contains(assessment.status())) {
             recoverIfImproved(outcome, assessment, transfer);
+            return false;
+        }
+        if (yieldsToApproach(assessment, context.currentLegIndex())) {
             return false;
         }
 
@@ -136,6 +151,27 @@ public class TransferRiskNotifier {
     }
 
     /**
+     * 이 판정은 접근 알림에 자리를 넘기는가.
+     *
+     * <p>사용자가 <b>이미 그 환승 정류장에 서 있고</b> 상태가 {@code AT_RISK} 면 넘긴다.
+     *
+     * <p>그 자리에서 여유는 {@code 다음 차 도착 - 지금} 이라, 차가 2분 안에 오면 상태는 거의 항상
+     * {@code AT_RISK} 다. 그런데 위험 알림의 문구는 "지금 이동하면 다음 차를 탈 수 있어요"이고,
+     * <b>이미 정류장에 서 있는 사람에게 이동하라는 것은 틀린 지시</b>다. 그 순간 쓸모 있는 말은
+     * "갈아탈 차가 곧 도착해요" 하나뿐이므로 {@link TransferTargetApproachNotifier} 가 맡는다.
+     *
+     * <p>{@code MISSED} 는 넘기지 않는다. 기다리던 차를 놓쳤다는 사실은 정류장에 서 있는
+     * 사람에게도 — 오히려 그 사람에게 가장 — 필요하다.
+     *
+     * <p>마커도 쓰지 않고 넘긴다. 나중에 {@code MISSED} 로 떨어지면 그때는 알려야 하는데, 여기서
+     * 마커를 찍어 두면 순위 비교가 그 알림을 막을 이유가 없어도 규칙이 한 겹 복잡해진다.
+     */
+    private boolean yieldsToApproach(TransferRiskAssessment assessment, int currentLegIndex) {
+        return assessment.status() == TransferStatus.AT_RISK
+                && currentLegIndex >= assessment.toLegIndex();
+    }
+
+    /**
      * 상태가 알릴 값이 아닌 값으로 좋아졌을 때의 회복 경로.
      *
      * <p>{@code UNKNOWN} 에서는 아무것도 하지 않는다 — 잠깐 근거를 못 구한 것과 실제로 여유가
@@ -152,7 +188,7 @@ public class TransferRiskNotifier {
         }
         notificationRepository.supersedeAllPendingByScope(
                 outcome.journeyId(), outcome.routeRevision(),
-                JourneyNotificationScope.TRANSFER, assessment.transferIndex());
+                JourneyNotificationScope.TRANSFER, assessment.transferIndex(), RISK_CHECKPOINTS);
         transfer.clearNotified();
     }
 

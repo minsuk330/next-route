@@ -2,6 +2,7 @@ package watoo.grd.nextroute.application.journey.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
@@ -40,6 +41,8 @@ public class JourneyEvaluationScheduleWriter {
     private final JourneyLegRepository legRepository;
     private final TransferAssessmentWriter assessmentWriter;
     private final TransferRiskNotifier transferRiskNotifier;
+    private final TransferTargetApproachNotifier approachNotifier;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 소유권을 확인하고, 확인되면 판정과 예측을 저장하고 알릴 것이 있으면 outbox 에 쌓는다.
@@ -67,7 +70,17 @@ public class JourneyEvaluationScheduleWriter {
 
         assessmentWriter.write(outcome.journeyId(), outcome.routeRevision(),
                 outcome.batch().assessments());
-        transferRiskNotifier.notifyWorsened(outcome, notificationContext);
+
+        // 위험이 먼저다. 회복 경로가 그 환승의 밀린 알림을 지우는데, 접근이 먼저 돌면 방금 넣은
+        // 행이 그 대상이 된다. 저장소 쿼리의 체크포인트 필터가 이미 막지만 순서로도 막는다.
+        boolean riskEnqueued = transferRiskNotifier.notifyWorsened(outcome, notificationContext);
+        boolean approachEnqueued = approachNotifier.notifyApproach(outcome, notificationContext);
+        if (riskEnqueued || approachEnqueued) {
+            // 평가 한 번에 한 번만 발행한다. 두 판정기가 각자 발행하면 초당 200 평가에서 이벤트
+            // 멀티캐스터 시간만 태운다 — 어차피 waker 가 신호를 하나로 합친다.
+            eventPublisher.publishEvent(new JourneyOutboxEnqueuedEvent());
+        }
+
         storeBoardingPredictions(outcome);
         return true;
     }

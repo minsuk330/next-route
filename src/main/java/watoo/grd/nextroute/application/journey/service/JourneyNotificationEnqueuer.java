@@ -70,6 +70,43 @@ public class JourneyNotificationEnqueuer {
     }
 
     /**
+     * 환승 대상 차량 접근 알림 한 건(N2).
+     *
+     * <p>만료는 다음 차 도착 시각 <b>그대로</b>다. 위험 알림의 바닥을 쓰지 않는다 — 그 바닥은
+     * {@code MISSED} 의 도착이 이미 과거라서 필요한 장치이고, 여기서는 부르는 쪽이 "도착이 미래이고
+     * 창 안"임을 이미 보장한다. 바닥을 붙이면 차가 떠난 뒤에 "곧 온다"가 나간다 — 안 가는 편이 낫다.
+     *
+     * <p><b>발송 키가 아니라 생성 여부를 돌려준다.</b> 위험 알림은 밀어내기 대상에서 빼려고 키가
+     * 필요했지만 접근 알림은 밀어내기를 하지 않는다. 대신 "행이 실제로 생겼는가"가 필요하다 —
+     * 그것이 relay 를 깨울지의 기준이다. 창이 열려 있는 동안 판정은 매 평가마다 참이라, 시도를
+     * 기준으로 삼으면 아무것도 안 늘어난 채 relay 만 계속 깨운다.
+     *
+     * @param now 평가 한 번의 기준 시각. 조건 검사에 쓴 것과 같은 값이어야 한다
+     * @return 행이 새로 생겼으면 true. 중복이라 0행이면 false
+     */
+    public boolean enqueueTargetApproach(long journeyId, int routeRevision,
+                                         TransferRiskAssessment assessment,
+                                         NotificationChannel channel, Instant now) {
+        JourneyCheckpoint checkpoint = JourneyCheckpoint.TRANSFER_TARGET_APPROACHING;
+        String logicalKey = JourneyNotificationKeys.logical(journeyId, routeRevision,
+                JourneyNotificationScope.TRANSFER, assessment.transferIndex(), checkpoint);
+        String deliveryKey = JourneyNotificationKeys.delivery(logicalKey, channel);
+
+        List<Long> created = notificationRepository.enqueue(
+                journeyId, routeRevision,
+                JourneyNotificationScope.TRANSFER.name(), assessment.transferIndex(),
+                checkpoint.name(), channel.name(),
+                logicalKey, deliveryKey, now, assessment.nextBusArrivalAt(),
+                writePayload(assessment), LocalDateTime.now(clock));
+
+        if (created.isEmpty()) {
+            return false;
+        }
+        metrics.recordEnqueued(checkpoint);
+        return true;
+    }
+
+    /**
      * 이 시각을 넘기면 보내지 않는다.
      *
      * <pre>

@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotification;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotificationScope;
 
@@ -106,10 +107,23 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
                                 @Param("exceptDeliveryKeys") Collection<String> exceptDeliveryKeys);
 
     /**
-     * 회복 경로. 그 대상의 PENDING 을 전부 취소한다.
+     * 회복 경로. 그 대상의 <b>위험 알림</b> PENDING 을 취소한다.
      *
      * <p>환승 상태가 알릴 값이 아닌 값으로 좋아졌을 때 부른다 — 안 하면 옛 {@code AT_RISK} 가
      * 최대 30분 살아 있다가 뒤늦게 나간다.
+     *
+     * <p><b>체크포인트를 가려 받는 이유.</b> "여유가 생겼다"는 사실은 "갈아탈 차가 곧 온다"
+     * ({@code TRANSFER_TARGET_APPROACHING})를 무효로 만들지 않는다. 오히려 사용자가 정작 고개를
+     * 들어야 하는 순간이다. 대상의 PENDING 을 통째로 지우면 가장 쓸모 있는 알림이 조용히 사라진다.
+     *
+     * <p>정상 전이에서는 이 필터가 실제로 무언가를 구하는 일이 드물다 — 접근 알림이 남아 있는
+     * 채로 회복 경로가 도는 조합이 배선 순서상 거의 생기지 않는다. 그래도 둔다.
+     * <b>"회복은 위험 알림만 지운다"는 불변식을 코드에 적어 두는 장치</b>이고, 순서가 유일한
+     * 보호막이면 나중에 배선을 바꾸는 사람이 조용히 접근 알림을 지운다.
+     *
+     * <p>승격 경로({@link #supersedePendingByScope})는 반대로 가린 것이 없다. 그 쿼리는 이미
+     * PENDING 만 건드리므로, 그 의미가 그대로 "아직 발송되지 않은 접근 알림만 취소"가 된다 —
+     * 위험 알림이 나가는 마당에 뒤늦게 도착하는 "곧 온다"는 거짓 안심이다.
      */
     @Modifying(flushAutomatically = true, clearAutomatically = false)
     @Query("""
@@ -121,11 +135,13 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
                and n.scopeType = :scopeType
                and n.scopeId = :scopeId
                and n.status = watoo.grd.nextroute.domain.journey.entity.JourneyNotificationStatus.PENDING
+               and n.checkpoint in :checkpoints
             """)
     int supersedeAllPendingByScope(@Param("journeyId") Long journeyId,
                                    @Param("routeRevision") int routeRevision,
                                    @Param("scopeType") JourneyNotificationScope scopeType,
-                                   @Param("scopeId") int scopeId);
+                                   @Param("scopeId") int scopeId,
+                                   @Param("checkpoints") Collection<JourneyCheckpoint> checkpoints);
 
     /**
      * relay 배치 claim: PENDING → PROCESSING(SKIP LOCKED).

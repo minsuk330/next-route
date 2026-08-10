@@ -180,7 +180,7 @@ transferSlack = nextBusArrivalAt - userReadyAt
 | A1 | 사용자 GPS를 선택 노선의 순서 제약 section polyline에 투영해 남은 거리·정류장 수 계산 |
 | A2 | 현재 section 진행률과 남은 section 예상시간을 합성해 하차까지 남은 시간 계산 |
 | A3 | 기본 체크포인트인 하차 준비·이번 정류장 판정 |
-| A4 | 남은 시간과 남은 정류장 수가 서로 충돌할 때 더 보수적인 알림 선택 |
+| A4 | `PREPARE`는 남은 시간과 무관하게 확정된 남은 정류장 수가 2 이하일 때 한 번만 발생 |
 | A5 | 지도 마커의 일시적 GPS 튐은 허용하되, 단일 튐만으로 leg 전이·`ALIGHT_NOW`를 확정하지 않음 |
 
 버스 하차 체크포인트는 앱의 native 위치 엔진이 판정하고 local notification으로 표시한다. 실시간 버스 API는 하차 판정에 사용하지 않고 환승할 다음 버스 ETA·재탐색에만 사용한다. 하차 알림은 버스 leg에만 제공한다. 버스·지하철·도보의 current leg ETA는 ODsay 정적 leg 시간을 geometry segment 거리 비율로 배분하고 사용자 GPS progress 이후의 남은 배분 시간을 합산해 계산한다. GPS가 끊기면 마지막 `predictedEndAt`을 유지하며 quality를 낮추고, GPS 복구 시 다시 계산한다. 지하철 하차 알림은 제공하지 않으며 목적역·환승역 근처 GPS가 확인되면 앱이 leg 전이를 확정한다.

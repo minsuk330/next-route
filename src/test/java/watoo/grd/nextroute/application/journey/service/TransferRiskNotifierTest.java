@@ -3,13 +3,13 @@ package watoo.grd.nextroute.application.journey.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.JourneyEvaluationOutcome;
 import watoo.grd.nextroute.application.journey.dto.NotificationContext;
 import watoo.grd.nextroute.application.journey.dto.TransferAssessmentBatch;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
+import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotificationScope;
 import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
@@ -19,6 +19,7 @@ import watoo.grd.nextroute.domain.notification.entity.NotificationChannel;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,7 +57,7 @@ class TransferRiskNotifierTest {
         enqueuer = mock(JourneyNotificationEnqueuer.class);
         properties = new JourneyNotificationProperties();
         notifier = new TransferRiskNotifier(transferRepository, notificationRepository, enqueuer,
-                properties, mock(ApplicationEventPublisher.class));
+                properties);
 
         transfer = TransferConnection.builder()
                 .journeyId(1L).routeRevision(1).transferIndex(0)
@@ -158,7 +159,8 @@ class TransferRiskNotifierTest {
         notify(TransferStatus.CATCHABLE);
 
         verify(notificationRepository).supersedeAllPendingByScope(
-                1L, 1, JourneyNotificationScope.TRANSFER, 0);
+                1L, 1, JourneyNotificationScope.TRANSFER, 0,
+                Set.of(JourneyCheckpoint.TRANSFER_RISK_AT_RISK, JourneyCheckpoint.TRANSFER_RISK_MISSED));
         assertThat(transfer.getLastNotifiedStatus()).isNull();
     }
 
@@ -170,7 +172,7 @@ class TransferRiskNotifierTest {
         notify(TransferStatus.UNKNOWN);
 
         verify(notificationRepository, never()).supersedeAllPendingByScope(
-                anyLong(), anyInt(), any(), anyInt());
+                anyLong(), anyInt(), any(), anyInt(), any());
         assertThat(transfer.getLastNotifiedStatus()).isEqualTo("AT_RISK");
     }
 

@@ -56,6 +56,7 @@ public record JourneyNavigationGeometry(
      * @param quality                 단계 전체 품질. segment 중 가장 나쁜 값을 따른다
      * @param points                  지도 표시용 전체 좌표
      * @param segments                진행 판정용 구간. 대기 단계는 비어 있다
+     * @param stops                   버스 승차~하차 정류장. 다른 단계는 비어 있다
      */
     public record LegGeometry(
             int legIndex,
@@ -65,13 +66,34 @@ public record JourneyNavigationGeometry(
             double totalDistanceMeters,
             GeometryQuality quality,
             List<GeoPoint> points,
-            List<SegmentGeometry> segments
+            List<SegmentGeometry> segments,
+            List<StopGeometry> stops
     ) {
 
         public LegGeometry {
             points = points == null ? List.of() : List.copyOf(points);
             segments = segments == null ? List.of() : List.copyOf(segments);
+            stops = stops == null ? List.of() : List.copyOf(stops);
         }
+
+        /** 기존 서버 코드와 테스트가 새 필드 배포 중에도 그대로 컴파일되도록 유지한다. */
+        public LegGeometry(int legIndex, JourneyLegType type, String routeId,
+                           Integer plannedDurationSeconds, double totalDistanceMeters,
+                           GeometryQuality quality, List<GeoPoint> points,
+                           List<SegmentGeometry> segments) {
+            this(legIndex, type, routeId, plannedDurationSeconds, totalDistanceMeters,
+                    quality, points, segments, List.of());
+        }
+    }
+
+    /** 버스 노선의 승차 정류장부터 하차 정류장까지의 순서·좌표. */
+    public record StopGeometry(
+            int seq,
+            String stopId,
+            String stopName,
+            Double x,
+            Double y
+    ) {
     }
 
     /**

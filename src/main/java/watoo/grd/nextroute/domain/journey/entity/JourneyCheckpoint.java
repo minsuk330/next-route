@@ -9,6 +9,9 @@ package watoo.grd.nextroute.domain.journey.entity;
  * <p><b>상태를 이름에 품는 것이 필수다.</b> {@code TRANSFER_RISK} 하나로 두면
  * {@code AT_RISK → MISSED} 승격이 같은 {@code deliveryKey} 를 만들어 {@code ON CONFLICT} 에
  * 삼켜진다 — 가장 중요한 알림이 영영 안 나간다.
+ *
+ * <p><b>하차·정류장 접근은 이 어휘에 없다.</b> 그 둘(N1·N3)은 모바일 local notification 소유라
+ * 서버가 보낼 수단 자체를 두지 않는다. "하차 유형 발송 0" 이 규칙이 아니라 타입으로 지켜진다.
  */
 public enum JourneyCheckpoint {
 
@@ -16,7 +19,15 @@ public enum JourneyCheckpoint {
     TRANSFER_RISK_AT_RISK,
 
     /** 환승 여유가 음수다 — 이미 놓쳤다. */
-    TRANSFER_RISK_MISSED;
+    TRANSFER_RISK_MISSED,
+
+    /**
+     * 갈아탈 차가 곧 온다. 위험이 아니라 <b>행동 신호</b>다 — 안전한 상태에서만 나간다.
+     *
+     * <p>상태에서 파생되지 않는다. 상태·남은 시간·현재 단계의 곱이 조건이라
+     * {@link #ofTransferStatus} 가 이 값을 만들지 않는다.
+     */
+    TRANSFER_TARGET_APPROACHING;
 
     /**
      * 환승 상태에 대응하는 체크포인트.
