@@ -110,7 +110,8 @@ public class JourneySnapshotEtaComposer {
                     snapshot.journeyId(), snapshot.routeRevision(), now);
         }
         return transferRiskEvaluator.assessAndStore(
-                snapshot.journeyId(), snapshot.routeRevision(), geometry);
+                snapshot.journeyId(), snapshot.routeRevision(), snapshot.currentLegIndex(),
+                geometry);
     }
 
     /**

@@ -37,6 +37,9 @@ class TransferRiskEvaluatorTest {
 
     private static final long JOURNEY_ID = 7L;
     private static final int REVISION = 1;
+
+    /** 기본 픽스처는 사용자가 아직 앞 버스를 타고 있는 상황이다(환승 from leg). */
+    private static final int RIDING_LEG_INDEX = 0;
     private static final Instant NOW = Instant.parse("2026-08-04T09:00:00Z");
 
     private TransferConnectionRepository transferRepository;
@@ -221,7 +224,7 @@ class TransferRiskEvaluatorTest {
         givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
 
         // 판정 결과는 CATCHABLE 이지만 저장하지 않으므로 행은 그대로다.
-        assertThat(evaluator.assess(JOURNEY_ID, REVISION, Map.of()).assessments().get(0).status())
+        assertThat(evaluator.assess(JOURNEY_ID, REVISION, RIDING_LEG_INDEX, Map.of()).assessments().get(0).status())
                 .isEqualTo(TransferStatus.CATCHABLE);
         assertThat(transfer.getStatus()).isEqualTo(TransferStatus.COMFORTABLE);
         assertThat(transfer.getCalculatedAt()).isNull();
@@ -248,7 +251,7 @@ class TransferRiskEvaluatorTest {
     // ── 준비 ────────────────────────────────────────────────────────────────
 
     private List<TransferRiskAssessment> evaluate() {
-        return evaluator.assessAndStore(JOURNEY_ID, REVISION, Map.of());
+        return evaluator.assessAndStore(JOURNEY_ID, REVISION, RIDING_LEG_INDEX, Map.of());
     }
 
     private void givenBoarding(CurrentLegArrival arrival) {

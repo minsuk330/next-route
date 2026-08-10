@@ -66,7 +66,7 @@ public class TransferRiskEvaluator {
      *
      * @param geometryByLegIndex 단계별 좌표. 없으면 빈 map 을 넘겨도 된다
      */
-    public TransferAssessmentBatch assess(Long journeyId, int routeRevision,
+    public TransferAssessmentBatch assess(Long journeyId, int routeRevision, int currentLegIndex,
                                           Map<Integer, LegGeometry> geometryByLegIndex) {
         List<TransferConnection> transfers = transferRepository
                 .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByTransferIndex(
@@ -84,7 +84,7 @@ public class TransferRiskEvaluator {
         Map<Integer, TransferTargetArrival> boardingByLegIndex = new java.util.HashMap<>();
         List<TransferRiskAssessment> assessments = transfers.stream()
                 .map(transfer -> assessOne(transfer, legsByIndex, geometryByLegIndex, now,
-                        boardingByLegIndex))
+                        currentLegIndex, boardingByLegIndex))
                 .toList();
         boolean upstreamBlocked = boardingByLegIndex.values().stream()
                 .anyMatch(TransferTargetArrival::upstreamBlocked);
@@ -98,8 +98,10 @@ public class TransferRiskEvaluator {
      * DB 커넥션을 붙잡는다.
      */
     public List<TransferRiskAssessment> assessAndStore(Long journeyId, int routeRevision,
+                                                       int currentLegIndex,
                                                        Map<Integer, LegGeometry> geometryByLegIndex) {
-        TransferAssessmentBatch batch = assess(journeyId, routeRevision, geometryByLegIndex);
+        TransferAssessmentBatch batch = assess(journeyId, routeRevision, currentLegIndex,
+                geometryByLegIndex);
         assessmentWriter.write(journeyId, routeRevision, batch.assessments());
         return batch.assessments();
     }
@@ -107,13 +109,14 @@ public class TransferRiskEvaluator {
     private TransferRiskAssessment assessOne(TransferConnection transfer,
                                              Map<Integer, JourneyLeg> legsByIndex,
                                              Map<Integer, LegGeometry> geometryByLegIndex,
-                                             Instant now,
+                                             Instant now, int currentLegIndex,
                                              Map<Integer, TransferTargetArrival> boardingByLegIndex) {
         CurrentLegArrival fromArrival = predictCurrent(
                 transfer.getFromLegIndex(), legsByIndex, geometryByLegIndex);
 
         Instant userReadyAt = readinessCalculator.userReadyAt(
-                fromArrival.arrivalAt(), walkSeconds(transfer, legsByIndex));
+                fromArrival.arrivalAt(), walkSeconds(transfer, legsByIndex),
+                progressOf(transfer, currentLegIndex), now);
 
         // 준비 시각을 앵커로 갈아탈 차량을 묻는다. 앵커가 없으면(타고 있는 단계 ETA 를 모르면)
         // 물어볼 기준이 없으므로 예측기가 모른다고 답한다.
@@ -140,6 +143,26 @@ public class TransferRiskEvaluator {
             return CurrentLegArrival.unknown();
         }
         return arrivalService.predict(leg, geometryByLegIndex.get(legIndex));
+    }
+
+    /**
+     * 사용자가 이 환승에서 어디까지 왔는지.
+     *
+     * <p>단계 번호만으로 정한다. 갈아탈 대기 단계에 이미 들어왔으면 <b>서 있는 것</b>이고, 앞
+     * 교통수단을 지났지만 대기 단계 전이면 <b>걷는 중</b>이다.
+     *
+     * <p>이 구분이 없으면 이미 끝난 하차·도보를 계속 더해, 정류장에 서 있는 사용자의 준비 시각이
+     * 3분 넘게 미래로 밀린다 — 곧 오는 차가 "이미 지나간 차"로 판정된다.
+     */
+    private TransferReadinessCalculator.Progress progressOf(TransferConnection transfer,
+                                                            int currentLegIndex) {
+        if (currentLegIndex >= transfer.getToLegIndex()) {
+            return TransferReadinessCalculator.Progress.WAITING;
+        }
+        if (currentLegIndex > transfer.getFromLegIndex()) {
+            return TransferReadinessCalculator.Progress.WALKING;
+        }
+        return TransferReadinessCalculator.Progress.RIDING;
     }
 
     /**

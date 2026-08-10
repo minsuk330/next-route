@@ -27,18 +27,50 @@ public class TransferReadinessCalculator {
     private final JourneyTransferRiskProperties properties;
 
     /**
+     * 사용자가 그 환승에서 어디까지 왔는지.
+     *
+     * <p>준비 시각의 계산이 <b>단계마다 다르다</b> — 이미 한 일을 다시 더하면 안 되기 때문이다.
+     */
+    public enum Progress {
+        /** 아직 앞 교통수단을 타고 있다. 하차도 환승 도보도 남았다. */
+        RIDING,
+        /** 내려서 환승 정류장으로 걷는 중이다. 하차는 끝났다. */
+        WALKING,
+        /** 이미 환승 정류장에서 기다리고 있다. 남은 일이 없다. */
+        WAITING
+    }
+
+    /**
+     * 준비 완료 시각.
+     *
      * @param currentLegArrivalAt 지금 타고 있는 교통수단이 환승 정류장에 닿는 시각
      * @param transferWalkSeconds 환승 걷기 소요시간(초). 같은 정류장 환승이면 null 또는 0
-     * @return 준비 완료 시각. 현재 leg 도착 시각을 모르면 null
+     * @return 준비 완료 시각. 계산할 근거가 없으면 null
+     *
+     * <table>
+     *   <caption>단계별 계산</caption>
+     *   <tr><th>단계</th><th>준비 완료 시각</th></tr>
+     *   <tr><td>{@code RIDING}</td><td>도착 + 하차 버퍼 + 환승 도보</td></tr>
+     *   <tr><td>{@code WALKING}</td><td>지금 + 환승 도보(하차는 이미 끝났다)</td></tr>
+     *   <tr><td>{@code WAITING}</td><td>지금(이미 서 있다)</td></tr>
+     * </table>
+     *
+     * <p><b>이 구분이 없으면 정류장에 서 있는 사용자가 환승을 놓친 것으로 판정된다.</b> 앞 단계의
+     * 도착 시각에 하차 버퍼와 도보를 계속 더하므로 준비 시각이 3분 넘게 미래로 밀리고, 2분 뒤에
+     * 오는 차가 "이미 지나간 차"가 된다.
+     *
+     * @param now 걷는 중·기다리는 중일 때의 기준 시각. {@code RIDING} 이면 쓰지 않는다
      */
-    public Instant userReadyAt(Instant currentLegArrivalAt, Integer transferWalkSeconds) {
-        if (currentLegArrivalAt == null) {
-            return null;
-        }
+    public Instant userReadyAt(Instant currentLegArrivalAt, Integer transferWalkSeconds,
+                               Progress progress, Instant now) {
         long walk = transferWalkSeconds == null ? 0L : Math.max(0, transferWalkSeconds);
-        return currentLegArrivalAt
-                .plusSeconds(properties.getAlightingBufferSeconds())
-                .plusSeconds(walk);
+        return switch (progress) {
+            case WAITING -> now;
+            case WALKING -> now == null ? null : now.plusSeconds(walk);
+            case RIDING -> currentLegArrivalAt == null ? null : currentLegArrivalAt
+                    .plusSeconds(properties.getAlightingBufferSeconds())
+                    .plusSeconds(walk);
+        };
     }
 
     /**

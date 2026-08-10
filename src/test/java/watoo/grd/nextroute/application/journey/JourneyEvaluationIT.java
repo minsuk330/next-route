@@ -310,6 +310,45 @@ class JourneyEvaluationIT {
 
     // ── 준비 ────────────────────────────────────────────────────────────────
 
+    @Test
+    @DisplayName("정류장에서 기다리는 중이면 곧 오는 차를 놓친 것으로 보지 않는다")
+    void waitingUserIsNotJudgedAsMissed() {
+        walkToTransferStop();
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(60));
+
+        assertThat(evaluate()).isEqualTo(Result.EVALUATED);
+
+        assertThat(storedStatus())
+                .as("이미 걸어와 서 있는 사람에게 하차 버퍼와 환승 도보를 다시 더하면 준비 시각이 "
+                        + "3분 넘게 미래로 밀려, 1분 뒤 오는 차가 이미 지나간 차가 된다")
+                .isNotEqualTo(TransferStatus.MISSED.name());
+    }
+
+    @Test
+    @DisplayName("아직 타고 있는 중에는 하차 버퍼와 환승 도보를 그대로 더한다")
+    void ridingUserStillPaysWalkAndBuffer() {
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(60));
+
+        evaluate();
+
+        assertThat(storedStatus())
+                .as("타는 중에는 내려서 걸어가는 시간이 실제로 남아 있다")
+                .isEqualTo(TransferStatus.MISSED.name());
+    }
+
+    /** 갈아탈 정류장까지 이동해 대기 단계에 선다. */
+    private void walkToTransferStop() {
+        int waitLegIndex = transferColumn("to_leg_index", Integer.class);
+        long baseCommandVersion = 2L;
+        for (int from = 1; from < waitLegIndex; from++) {
+            var outcome = applyJourneyEventUseCase.apply(userId, journeyId,
+                    new JourneyCommand(UUID.randomUUID(),
+                            JourneyEventType.CLIENT_LEG_TRANSITION_DETECTED,
+                            baseCommandVersion++, 1, from, from + 1, Instant.now()));
+            assertThat(outcome.result().name()).isEqualTo("APPLIED");
+        }
+    }
+
     private Result evaluate() {
         return evaluationService.evaluate(claim()).result();
     }
