@@ -28,6 +28,8 @@ import watoo.grd.nextroute.application.journey.service.JourneyRelayWakeListener;
 import watoo.grd.nextroute.application.journey.service.JourneyRelayWaker;
 import watoo.grd.nextroute.application.journey.service.TransferAssessmentWriter;
 import watoo.grd.nextroute.application.journey.service.TransferRiskNotifier;
+import watoo.grd.nextroute.application.journey.service.TransferTargetApproachNotifier;
+import watoo.grd.nextroute.application.journey.service.TransferTargetApproachPolicy;
 import watoo.grd.nextroute.common.config.JpaConfig;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
@@ -55,6 +57,7 @@ import java.util.Map;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({JpaConfig.class, TransferAssessmentWriter.class, TransferRiskNotifier.class,
+        TransferTargetApproachNotifier.class, TransferTargetApproachPolicy.class,
         JourneyNotificationEnqueuer.class, JourneyEvaluationScheduleWriter.class,
         JourneyNotificationMetrics.class, JourneyRelayWaker.class, JourneyRelayWakeListener.class,
         AbstractJourneyNotificationIT.Config.class})
@@ -116,6 +119,8 @@ abstract class AbstractJourneyNotificationIT extends AbstractJourneyOutboxPostgr
     @BeforeEach
     void prepareJourney() {
         properties.setEnqueueEnabled(true);
+        // 설정 빈을 테스트끼리 나눠 쓴다. kill switch 를 내린 시험이 다음 시험까지 끄면 안 된다.
+        properties.getApproach().setEnabled(true);
         // waker 는 빈 하나를 테스트끼리 나눠 쓴다. 앞 테스트가 남긴 신호를 비운다.
         while (relayWaker.await(0)) {
             // 남은 permit 을 모두 소진한다.
@@ -162,15 +167,40 @@ abstract class AbstractJourneyNotificationIT extends AbstractJourneyOutboxPostgr
 
     protected boolean evaluate(TransferStatus status, int currentLegIndex,
                                NotificationChannel... channels) {
+        return evaluate(batchOf(status), currentLegIndex, channels);
+    }
+
+
+    /**
+     * 갈아탈 정류장에서 기다리는 중의 평가 한 번.
+     *
+     * <p>대기 단계에 서 있으면 여유는 {@code 다음 차 도착 - 지금} 이다 — 접근 알림의 조건을
+     * 만드는 유일한 상황이라 도착 시각을 직접 준다.
+     */
+    protected boolean evaluateWaiting(int secondsUntilArrival, NotificationChannel... channels) {
+        Instant now = Instant.now(clock);
+        Instant arrival = now.plusSeconds(secondsUntilArrival);
+        long slack = secondsUntilArrival;
+        TransferStatus status = slack < 0 ? TransferStatus.MISSED
+                : slack < 120 ? TransferStatus.AT_RISK
+                : slack < 300 ? TransferStatus.CATCHABLE
+                : TransferStatus.COMFORTABLE;
+        TransferRiskAssessment assessment = new TransferRiskAssessment(0, 1, 2, status,
+                now, now, arrival, slack, CurrentLegArrival.Quality.GOOD, now,
+                CurrentLegArrival.Source.REALTIME_ARRIVAL, null);
+        return evaluate(new TransferAssessmentBatch(List.of(assessment), Map.of(), false), 2, channels);
+    }
+
+    protected boolean evaluate(TransferAssessmentBatch batch, int currentLegIndex,
+                               NotificationChannel... channels) {
         jdbcTemplate.update("update journey_session set next_evaluation_at = ? where id = ?",
                 java.sql.Timestamp.from(LEASE_UNTIL), journey.getId());
         JourneyEvaluationOutcome outcome = new JourneyEvaluationOutcome(
-                journey.getId(), 1, batchOf(status), true);
-        NotificationContext context = new NotificationContext(
-                userId, currentLegIndex, List.of(channels));
+                journey.getId(), 1, batch, true);
         return scheduleWriter.finish(
                 new JourneyDueClaim(journey.getId(), LEASE_UNTIL, LEASE_UNTIL),
-                outcome, LEASE_UNTIL.plusSeconds(30), context);
+                outcome, LEASE_UNTIL.plusSeconds(30),
+                new NotificationContext(userId, currentLegIndex, List.of(channels)));
     }
 
     protected TransferAssessmentBatch batchOf(TransferStatus status) {

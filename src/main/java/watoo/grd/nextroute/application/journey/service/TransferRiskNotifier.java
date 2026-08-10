@@ -123,6 +123,9 @@ public class TransferRiskNotifier {
             recoverIfImproved(outcome, assessment, transfer);
             return false;
         }
+        if (yieldsToApproach(assessment, context.currentLegIndex())) {
+            return false;
+        }
 
         int previous = severityOfMarker(transfer.getLastNotifiedStatus());
         if (assessment.status().severity() <= previous) {
@@ -145,6 +148,27 @@ public class TransferRiskNotifier {
         // 뜻이고, 그때 마커를 안 쓰면 10초마다 영원히 헛삽입한다.
         transfer.markNotified(assessment.status().name());
         return true;
+    }
+
+    /**
+     * 이 판정은 접근 알림에 자리를 넘기는가.
+     *
+     * <p>사용자가 <b>이미 그 환승 정류장에 서 있고</b> 상태가 {@code AT_RISK} 면 넘긴다.
+     *
+     * <p>그 자리에서 여유는 {@code 다음 차 도착 - 지금} 이라, 차가 2분 안에 오면 상태는 거의 항상
+     * {@code AT_RISK} 다. 그런데 위험 알림의 문구는 "지금 이동하면 다음 차를 탈 수 있어요"이고,
+     * <b>이미 정류장에 서 있는 사람에게 이동하라는 것은 틀린 지시</b>다. 그 순간 쓸모 있는 말은
+     * "갈아탈 차가 곧 도착해요" 하나뿐이므로 {@link TransferTargetApproachNotifier} 가 맡는다.
+     *
+     * <p>{@code MISSED} 는 넘기지 않는다. 기다리던 차를 놓쳤다는 사실은 정류장에 서 있는
+     * 사람에게도 — 오히려 그 사람에게 가장 — 필요하다.
+     *
+     * <p>마커도 쓰지 않고 넘긴다. 나중에 {@code MISSED} 로 떨어지면 그때는 알려야 하는데, 여기서
+     * 마커를 찍어 두면 순위 비교가 그 알림을 막을 이유가 없어도 규칙이 한 겹 복잡해진다.
+     */
+    private boolean yieldsToApproach(TransferRiskAssessment assessment, int currentLegIndex) {
+        return assessment.status() == TransferStatus.AT_RISK
+                && currentLegIndex >= assessment.toLegIndex();
     }
 
     /**

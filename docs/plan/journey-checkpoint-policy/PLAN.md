@@ -3,7 +3,8 @@
 - 슬러그: `journey-checkpoint-policy`
 - 브랜치: `feat/journey-checkpoint-policy` (**fresh main 기준 독립 브랜치**)
 - 마이그레이션: **없음**
-- 선행: ②([journey-notification-outbox](../journey-notification-outbox/SUMMARY.md)) — main 머지 완료
+- 선행: ②([journey-notification-outbox](../journey-notification-outbox/SUMMARY.md)),
+  **PR #127**(정류장에서 기다리는 사용자의 환승 준비 시각 보정) — 둘 다 main 머지 완료
 - 무관: ③(PR #126, FCM sender)은 발송기 쪽이라 이 PR 과 파일이 겹치지 않는다. ③ 머지를 기다리지 않는다
 - 설계 근거 전문: `docs/superpowers/specs/2026-08-10-journey-checkpoint-policy-design.md`(로컬 전용, `docs/*` 는 gitignore)
 - 상위: [PHASE-5.md](../journey-navigation/PHASE-5.md) §④
@@ -20,7 +21,8 @@
 |---|---|---|
 | D1 | 체크포인트는 **3개에서 멈춘다** — `TRANSFER_RISK_AT_RISK`·`TRANSFER_RISK_MISSED`·`TRANSFER_TARGET_APPROACHING` | N4·N5·N8 은 사건이 아니라 내용이다. ⑥ payload·앱 화면 소유 |
 | D2 | N1·N3(하차·정류장 접근)은 **어휘에 두지 않는다** | 모바일 local notification 소유. 규칙이 아니라 타입으로 막는다 |
-| D3 | N2 상태 조건은 `COMFORTABLE`·`CATCHABLE` **둘 다** | 일찍 도착해 기다리면 여유가 커져 `COMFORTABLE` 이 된다. 그때가 N2 가 가장 쓸모 있는 순간 |
+| D3 | N2 상태 조건은 **`MISSED`·`UNKNOWN` 만 제외**(`AT_RISK` 허용) | 대기 중에는 여유 = 남은 시간이라 임박하면 거의 항상 `AT_RISK` 다. 안전 상태만 허용하면 조건이 스스로를 배제한다(§2.2) |
+| D3-1 | 배타성의 축은 상태가 아니라 **단계**다 — 대기 단계에서는 위험 알림이 `AT_RISK` 를 양보한다(`MISSED` 는 유지) | 정류장에 서 있는 사람에게 "지금 이동하면 탈 수 있어요"는 틀린 지시다 |
 | D4 | N2 억제는 **`deliveryKey` unique 만**. 마커 컬럼 없음 | 마커는 상태 서열 축이고 N2 는 그 축이 아니다. 새 칸 = 마이그레이션 |
 | D5 | **회복 경로는 N2 를 보호**하고, **승격 경로는 PENDING N2 를 취소**한다 | 비대칭. §4 |
 | D6 | N2 만료는 `nextBusArrivalAt` 그대로. **바닥·천장 clamp 없음** | 버스 떠난 뒤 "곧 온다"는 틀린 알림. 안 가는 편이 낫다 |
@@ -35,18 +37,33 @@
 셋 전부 AND 일 때만 쌓는다.
 
 ```
-1) currentLegIndex == assessment.toLegIndex                   // 그 환승 대기 단계에 들어옴
-2) assessment.status() ∈ {COMFORTABLE, CATCHABLE}             // 위험 알림과 안 겹침
+1) currentLegIndex == assessment.toLegIndex                            // 그 환승 대기 단계에 들어옴
+2) assessment.status() ∈ {COMFORTABLE, CATCHABLE, AT_RISK}             // MISSED·UNKNOWN 만 제외
 3) assessment.nextBusArrivalAt() != null
-   && 0 < (nextBusArrivalAt - now) <= approachWindow          // 기본 120초, 오른쪽 닫힘
+   && 0 < (nextBusArrivalAt - now) <= approachWindow                   // 기본 120초, 오른쪽 닫힘
 ```
 
 - 조건 1 은 `TransferRiskAssessment#isUpcoming` 이 아니라 **정확한 동등 비교**다. `isUpcoming` 은
   `toLegIndex >= currentLegIndex` 라 아직 앞 차를 타고 있는 환승까지 통과시킨다
 - 조건 3 의 왼쪽은 열린 구간(`0 <`), 오른쪽은 닫힌 구간(`<= window`)이다. 도착이 이미 과거면 보내지
   않고, 정확히 120초면 보낸다
-- `UNKNOWN` 은 `nextBusArrivalAt` 이 null 이라 조건 3 에서 저절로 떨어진다 — 상태 목록에 넣지 않는다
+- `UNKNOWN` 은 도착 시각이 비어 조건 3 에서도 떨어지지만 **목록에 적어 둔다**. 판정의 근거가
+  "다른 필드가 우연히 비어서"가 되면 안 된다
 - `now` 는 **평가 한 번에 하나**다(D10)
+
+### 2.2 왜 안전 상태 게이트를 버렸나 (구현 중 확정)
+
+처음 설계는 `COMFORTABLE`·`CATCHABLE` 에서만 N2 를 냈다. "위험 알림이 안 나가는 상태"를 조건으로
+삼으면 겹침이 저절로 사라진다는 계산이었는데, **실제 값이 그렇게 움직이지 않는다.**
+
+정류장에 서 있는 사용자의 여유는 `다음 차 도착 - 지금` 이다(선행 PR #127 이 준비 시각을 이렇게
+고쳤다). 창이 120초이고 `catchable` 임계도 120초라, 차가 창 안에 오면 여유도 120초 미만이라
+상태는 거의 항상 `AT_RISK` 다 — 안전 상태와 임박이 **수학적으로 양립하지 않는다**.
+
+그래서 축을 바꿨다. 그 자리에서 `AT_RISK` 는 위험이 아니라 **탈 준비를 하라**는 뜻이고, 위험
+알림의 문구("지금 이동하면 다음 차를 탈 수 있어요")는 이미 서 있는 사람에게 틀린 지시다.
+**대기 단계에서는 위험 알림이 `AT_RISK` 를 양보하고 N2 가 그 자리를 맡는다.** `MISSED` 는
+양보하지 않는다 — 기다리던 차를 놓친 사실은 서 있는 사람에게 가장 필요하다.
 
 ### 2.1 판정 소유자 (신규)
 
@@ -232,8 +249,8 @@ public class TransferTargetApproachNotifier {
 
 규칙:
 
-- `properties.isEnqueueEnabled()` 가 false 거나 `properties.getApproach().isEnabled()` 가 false 면
-  즉시 false
+- `properties.isEnqueueEnabled()` 가 false 면 즉시 false.
+  `approach.enabled` 는 **정책이 본다**(평가 서비스의 채널 결정도 같은 답을 봐야 하기 때문)
 - `context == null || context.channels().isEmpty()` 면 즉시 false
 - 메서드 첫머리에 `Instant now = Instant.now(clock)` 를 **한 번만** 읽어 판정과 enqueue 에 함께
   넘긴다(D10)
@@ -269,6 +286,19 @@ storeBoardingPredictions(outcome);
   않는다** — 앞선 평가가 쌓아 둔 N2 가 아직 `PROCESSING` 일 수 있다(§11 의 경쟁 창)
 - `TransferRiskNotifier` 는 `ApplicationEventPublisher` 의존을 **제거**하고 `boolean` 을 반환한다
   (기존 100~104 의 발행 블록 삭제, `enqueuedAny` 를 그대로 return)
+
+### 8.0 위험 알림의 양보 (D3-1)
+
+`TransferRiskNotifier#handle` 에 갈래를 하나 더한다.
+
+```java
+if (assessment.status() == AT_RISK && currentLegIndex >= assessment.toLegIndex()) {
+    return false;   // 마커도 쓰지 않는다
+}
+```
+
+마커를 안 쓰는 이유 — 나중에 `MISSED` 로 떨어지면 그때는 알려야 하는데, 여기서 마커를 찍으면
+순위 비교가 그것을 막을 이유가 없어도 규칙이 한 겹 늘어난다.
 
 ### 8.1 채널 결정 조건 확장 (codex 4번 — 이걸 빼면 N2 가 아예 안 나간다)
 
@@ -327,12 +357,14 @@ if (!anyRisk && !anyApproach) {
 
 | # | 시나리오 | 기대 | 왜 |
 |---|---|---|---|
-| 1 | 대기 leg + 도착 60초 뒤 + `CATCHABLE` | 1행, checkpoint `TRANSFER_TARGET_APPROACHING` | 기본 |
-| 2 | 대기 leg + 도착 60초 뒤 + **`COMFORTABLE`** | 1행 | 일찍 도착 케이스. 가장 잘 빠지는 자리 |
+| 1 | 대기 leg + 도착 60초 뒤 | 1행, checkpoint `TRANSFER_TARGET_APPROACHING` | 기본 |
+| 2 | 대기 leg + 도착 100초 뒤 | 1행 | 여유가 넉넉해도 임박이면 쌓는다 |
 | 3 | 같은 조건 10초 간격 6회 | 여전히 1행, **2회차부터 wake 이벤트 0** | 키 dedupe + D8 |
-| 4 | `AT_RISK` + 도착 60초 뒤 | 접근 0행(위험 1행) | 중복 방지 |
+| 4 | 대기 중 `AT_RISK` | 접근 1행, **위험 0행·마커 없음** | D3-1 양보 |
+| 4b | 대기 중 `MISSED` | 위험 1행, 접근 0행 | 양보하지 않는 예외 |
 | 5 | `currentLegIndex < toLegIndex` | 0행 | 앞 차 타는 중 |
 | 6 | 도착 **0초·정확히 120초·121초** (단위) | 0행·1행·0행 | 경계. 150초만 보면 포함 경계를 못 본다 |
+| 6b | 대기 + 도착 121초 (IT) | 0행 | 창 밖 |
 | 7 | 1번 행의 `expiresAt` | `== nextBusArrivalAt`(바닥 미적용) | D6 |
 | 8 | N2 PENDING 을 **직접 seed** → 회복 경로 호출 | 위험 PENDING 만 CANCELED, **N2 생존** | 불변식 가드(§4.1) |
 | 8b | 정상 전이: N2 PENDING → `AT_RISK` 승격 → `CATCHABLE` 회복 | 승격에서 N2 CANCELED, 회복 후에도 **재생성 없음** | 평생 1회 계약을 고정 |
@@ -340,8 +372,8 @@ if (!anyRisk && !anyApproach) {
 | 10 | 위험·접근이 서로 다른 환승에서 동시에 쌓임 | `JourneyOutboxEnqueuedEvent` 1회 | D8 |
 | 11 | `JourneyCheckpoint.values().length` | `== 3` | 하차·정류장 접근 발송 0(D2) |
 | 12 | `approach.enabled=false` | 접근 0행, 위험 알림 정상 | kill switch |
-| 13 | **안전 상태만 있는 평가**(위험 0건) + 임박 | `notificationContext` 가 만들어지고 N2 1행 | §8.1. **이게 없으면 4번 사고를 못 잡는다** |
-| 14 | N2 enqueue 가 예외를 던짐 | 평가 트랜잭션 rollback, 판정 저장도 안 남음 | §11 실패 정책을 계약으로 고정 |
+| 13 | **실제 평가 경로**(`JourneyEvaluationIT`): 대기 단계로 이동 + 임박 | N2 1행 | §8.1. **이게 없으면 codex 4번 사고를 못 잡는다** |
+| 13b | 실제 평가 경로: 대기 단계 + 도착 600초 뒤 | 0행 | 창 밖에서 채널 결정이 헛돌지 않는다 |
 
 - 8·9 는 비대칭 규칙의 방어선, **13 은 N2 가 살아 있는지의 방어선**이다
 - 6·11 은 단위 테스트로 한다. 테스트 컨테이너가 무거워 IT 수를 늘리면 전체 시간이 늘어난다
@@ -401,7 +433,7 @@ payload 직렬화 실패만 예외다 — 기존 `writePayload` 가 `null` 을 �
 
 | # | 지적 | 처분 |
 |---|---|---|
-| 4 | `notificationContext()` 가 위험 상태에서만 만들어져 **N2 가 한 건도 안 나간다** | **수용 — 최우선.** §8.1 신설, 판정을 `TransferTargetApproachPolicy` 로 단일화(D9), 13번 테스트 추가 |
+| 4 | `notificationContext()` 가 위험 상태에서만 만들어져 **N2 가 한 건도 안 나간다** | **수용 — 최우선.** §8.1 신설, 판정을 `TransferTargetApproachPolicy` 로 단일화(D9), 13번 테스트 추가. 그 테스트가 다시 §2.2 의 발화 불가 문제를 드러내 선행 PR #127 로 이어졌다 |
 | 1 | 승격 뒤 `PROCESSING` N2 가 발송될 수 있다 | **수용(문서화·이관).** §11 로 경쟁 창을 명시하고 발송 직전 상태 재검증은 ⑤ 로 넘긴다 |
 | 5 | 반환값·wake 이벤트가 "시도"인지 "생성"인지 불명확 | **수용.** enqueue 는 `boolean created` 를 돌려주고 wake 는 생성됐을 때만(D8). 3번 테스트에 "2회차부터 이벤트 0" 추가 |
 | 6 | `now` 기준 시점이 두 곳에서 각각 읽힌다 / 경계 시험이 포함 경계를 안 본다 | **수용.** D10 으로 단일 `now` 를 강제, 6번 테스트를 0·120·121초로 교체 |

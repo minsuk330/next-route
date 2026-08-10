@@ -60,18 +60,18 @@ class TransferTargetApproachPolicyTest {
     class Status {
 
         @ParameterizedTest(name = "{0}")
-        @EnumSource(value = TransferStatus.class, names = {"COMFORTABLE", "CATCHABLE"})
-        @DisplayName("안전한 상태에서만 알린다")
-        void notifiesOnSafeStatus(TransferStatus status) {
+        @EnumSource(value = TransferStatus.class, names = {"COMFORTABLE", "CATCHABLE", "AT_RISK"})
+        @DisplayName("아직 놓치지 않았으면 알린다 — 정류장에 서 있으면 AT_RISK 가 정상값이다")
+        void notifiesUnlessMissed(TransferStatus status) {
             TransferRiskAssessment assessment = assessment(status, NOW.plusSeconds(60));
 
             assertThat(policy.isApproaching(assessment, WAIT_LEG, NOW)).isTrue();
         }
 
         @ParameterizedTest(name = "{0}")
-        @EnumSource(value = TransferStatus.class, names = {"AT_RISK", "MISSED", "UNKNOWN"})
-        @DisplayName("위험하거나 모르는 상태에서는 알리지 않는다 — 위험 알림이 이미 말한다")
-        void skipsOnRiskyStatus(TransferStatus status) {
+        @EnumSource(value = TransferStatus.class, names = {"MISSED", "UNKNOWN"})
+        @DisplayName("이미 놓쳤거나 근거가 없으면 알리지 않는다 — 지나간 차를 곧 온다고 할 수 없다")
+        void skipsWhenMissedOrUnknown(TransferStatus status) {
             TransferRiskAssessment assessment = assessment(status, NOW.plusSeconds(60));
 
             assertThat(policy.isApproaching(assessment, WAIT_LEG, NOW)).isFalse();

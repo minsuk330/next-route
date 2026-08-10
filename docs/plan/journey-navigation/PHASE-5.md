@@ -56,10 +56,11 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 ①이 끝나면 ②와 ③은 서로 독립이라 동시에 진행할 수 있다. 마이그레이션 번호는 **V39 부터**다
 (Phase 4 는 마이그레이션이 없었다).
 
-**진행 상황** — ①②③ 구현 완료
+**진행 상황** — ①②③④ 구현 완료
 (플랜: [journey-push-token](../journey-push-token/SUMMARY.md),
 [journey-notification-outbox](../journey-notification-outbox/SUMMARY.md),
-[journey-fcm-sender](../journey-fcm-sender/SUMMARY.md)).
+[journey-fcm-sender](../journey-fcm-sender/SUMMARY.md),
+[journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md)).
 ③ 까지 머지돼도 **운영 발송은 꺼져 있다** — 활성화 게이트는 ③ 절 표를 본다.
 
 후속 과제 둘이 남았다.
@@ -112,7 +113,8 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 ### ③ `journey-fcm-sender`
 
 `NotificationSender` 포트의 Firebase Admin SDK 구현. **구현 완료**
-(플랜: [journey-fcm-sender](../journey-fcm-sender/SUMMARY.md)).
+(플랜: [journey-fcm-sender](../journey-fcm-sender/SUMMARY.md),
+[journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md)).
 
 - **채널 라우터는 만들지 않는다.** 여정 알림은 `PUSH` 하나다(`TECHNICAL_DECISIONS §2` LOCKED —
   "1차에서는 `FcmNotificationSender` 하나만 구현한다"). 이 문서에 있던 "토스 신분증이면 토스
@@ -147,16 +149,27 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 
 ### ④ `journey-checkpoint-policy`
 
-**언제 보낼지**를 정한다. 서버가 소유하는 것은 N2·N4~N8 이다.
+**언제 보낼지**를 정한다. **구현 완료**
+(플랜: [journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md)).
 
-- N1(정류장 접근)·N3(하차 임박)은 **모바일 local notification 소유**다. 서버는 그 유형을 FCM 으로
-  보내지 않는다 — 검증 항목에 "하차 유형 FCM enqueue 0" 이 있다
-- 상태가 **나빠질 때만** 보낸다. `COMFORTABLE → CATCHABLE` 은 알리지 않고
-  `CATCHABLE → AT_RISK`, `AT_RISK → MISSED` 를 알린다. ETA 가 몇 초 흔들리는 것은 화면만 갱신한다
-- **떨림 방지(hysteresis)** — 경계에서 오가는 값 때문에 같은 알림이 반복되면 안 된다.
-  `TransferRiskPolicy` 가 이미 판정에 hysteresis 를 갖고 있으므로 그 결과를 쓴다
-- 중복 방지는 `logicalCheckpointKey` 로 한다. 같은 여정·같은 revision·같은 환승·같은 체크포인트는
-  **한 번만** 사용자에게 보인다
+- **체크포인트는 셋에서 멈춘다** — `TRANSFER_RISK_AT_RISK`·`TRANSFER_RISK_MISSED`(②가 만든 N6·N7)
+  에 `TRANSFER_TARGET_APPROACHING`(N2)을 더한다. N4·N5·N8 은 사건이 아니라 알림을 열었을 때 볼
+  **내용**이라 ⑥ payload·앱 화면이 소유한다
+- N1(정류장 접근)·N3(하차 임박)은 **어휘에 아예 없다.** 모바일 local notification 소유이므로 서버가
+  보낼 수단 자체를 두지 않는다 — "하차 유형 FCM enqueue 0" 이 검사가 아니라 타입으로 지켜진다
+- 상태가 **나빠질 때만** 보내는 규칙과 떨림 방지는 ②가 이미 구현했다. ④는 그 위에 접근 알림을
+  얹는다
+- **배타성의 축은 상태가 아니라 단계다.** 정류장에 서 있으면 여유는 `다음 차 도착 - 지금` 이라,
+  차가 창(기본 120초) 안에 오면 상태는 거의 항상 `AT_RISK` 다. 그 자리에서 `AT_RISK` 는 위험이
+  아니라 탈 준비 신호이고 "지금 이동하라"는 문구는 틀린 지시이므로, **대기 단계에서는 위험 알림이
+  `AT_RISK` 를 양보하고 접근 알림이 그 자리를 맡는다.** `MISSED` 는 양보하지 않는다
+- **취소 규칙은 비대칭이다.** 상태가 좋아지는 회복은 위험 알림만 지우고 접근 알림을 보호한다.
+  나빠지는 승격은 아직 발송되지 않은 접근 알림을 취소한다 — 놓친 마당에 "곧 온다"가 뒤늦게
+  도착하면 거짓 안심이다
+- 접근 알림은 마커 없이 `deliveryKey` 로만 중복을 막고, 만료는 **다음 차 도착 시각 그대로**다
+  (바닥을 씌우면 차가 떠난 뒤에 "곧 온다"가 나간다). 그래서 **환승당 평생 1회**다
+- 선행 수정 하나가 갈라져 나갔다 — 정류장에 서 있는 사용자에게 하차 버퍼와 환승 도보를 다시
+  더해 준비 시각이 3분 넘게 미래로 밀리던 문제(PR #127). 그것 없이는 접근 알림이 발화할 수 없었다
 - L 인 이유 — 규칙이 평가기 결과와 결합하고, "보내지 않을 이유"가 보낼 이유보다 많다
 
 ### ⑤ `journey-notification-guards`
@@ -165,6 +178,8 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 
 - 발송 직전 재검증: 여정이 아직 `ACTIVE` 인가, lease 가 살아 있나, `routeRevision` 이 그대로인가,
   `commandVersion`·`evaluationVersion` 이 어긋나지 않았나
+- **접근 알림은 최신 환승 상태도 확인한다.** ④는 `PENDING` 인 접근 알림만 취소할 수 있어, 이미
+  claim 돼 `PROCESSING` 인 것은 그 사이 `MISSED` 로 떨어져도 나간다(④가 수용하고 여기로 넘겼다)
 - **재탐색 후 이전 revision 알림 발송 0** 이 통과 기준이다. 사용자가 다른 경로를 받았는데 옛 경로
   기준 알림이 가면 그 알림은 틀린 것이 아니라 해로운 것이다
 - lease 가 만료된 뒤에는 새 enqueue 도 발송도 없다
