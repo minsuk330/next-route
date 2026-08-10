@@ -14,6 +14,7 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.repository.JourneyEventRepository;
+import watoo.grd.nextroute.domain.journey.repository.JourneyNotificationRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 
@@ -45,6 +46,7 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
     private final SubwayOfflineProtectionPolicy subwayProtectionPolicy;
     private final JourneyLegRepository legRepository;
     private final JourneyEventRepository eventRepository;
+    private final JourneyNotificationRepository notificationRepository;
     private final JourneyStateMachine stateMachine;
     private final JourneyQueryService queryService;
     private final Clock clock;
@@ -135,6 +137,12 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
         }
         if (transition.newStatus() != null) {
             journey.end(transition.newStatus(), transition.endReason(), appliedAt);
+            // 끝난 여정의 알림은 나가면 안 된다. 사용자 취소·완료·앱이 보고한 lease 만료가
+            // 모두 여기로 모이므로 취소도 여기 한 자리에서 한다.
+            //
+            // 스위치를 걸지 않는다. 평가기를 껐다 켜는 사이 남은 알림이 나중에 나가면
+            // 사용자는 이미 끝난 여정의 안내를 받는다.
+            notificationRepository.cancelPendingByJourneyId(journey.getId());
         }
         if (transition.commandVersionIncrement()) {
             journey.bumpCommandVersion();

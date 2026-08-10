@@ -9,11 +9,14 @@ import watoo.grd.nextroute.application.journey.dto.JourneyDueClaim;
 import watoo.grd.nextroute.application.journey.dto.JourneyEvaluationOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
+import watoo.grd.nextroute.application.journey.dto.NotificationContext;
 import watoo.grd.nextroute.application.journey.dto.TransferAssessmentBatch;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
 import watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
+import watoo.grd.nextroute.application.journey.port.out.NotificationChannelResolver;
 import watoo.grd.nextroute.application.journey.service.JourneyEvaluationContextLoader.JourneyEvaluationContext;
+import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -56,6 +59,8 @@ public class JourneyEvaluationService {
     private final TransferAssessmentGracePolicy gracePolicy;
     private final JourneyEvaluationMetrics metrics;
     private final JourneyEvaluatorProperties properties;
+    /** 이 사용자에게 어느 길로 보낼지. 평가 트랜잭션 <b>밖</b>에서 부른다. */
+    private final NotificationChannelResolver channelResolver;
     private final Clock clock;
 
     /** 평가기 몫의 provider 동시 호출 수. 워커 스레드 수와 분리하는 장치다. */
@@ -97,11 +102,35 @@ public class JourneyEvaluationService {
                 context.journeyId(), context.routeRevision(), batch, changed);
 
         Instant nextAt = nextEvaluationAt(context, batch, now, changed);
-        boolean stored = scheduleWriter.finish(claim, outcome, nextAt);
+        boolean stored = scheduleWriter.finish(claim, outcome, nextAt, notificationContext(context, batch));
         if (!stored) {
             return Report.lostClaim();
         }
         return new Report(Result.EVALUATED, batch.assessments(), batch.upstreamBlocked());
+    }
+
+    /**
+     * 이번 결과에 알릴 것이 있으면 발송 정보를 미리 만든다.
+     *
+     * <p>채널 결정을 <b>평가 트랜잭션 밖</b>에서 한다. PR3 의 구현은 DB 를 읽는데, 그 읽기가
+     * 트랜잭션 안에 들어오면 쓰기 트랜잭션이 그만큼 길어진다.
+     *
+     * <p>알릴 상태가 하나도 없으면 아예 부르지 않는다 — 대부분의 평가가 여기에 해당하므로,
+     * 매번 부르면 아무 알림도 안 나가는 여정에 조회가 하나씩 붙는다.
+     *
+     * @return 알릴 것이 없으면 null
+     */
+    private NotificationContext notificationContext(JourneyEvaluationContext context,
+                                                    TransferAssessmentBatch batch) {
+        boolean anyNotifiable = batch.assessments().stream()
+                .anyMatch(a -> (a.status() == TransferStatus.AT_RISK
+                        || a.status() == TransferStatus.MISSED)
+                        && a.isUpcoming(context.currentLegIndex()));
+        if (!anyNotifiable) {
+            return null;
+        }
+        return new NotificationContext(context.userId(), context.currentLegIndex(),
+                channelResolver.resolve(context.userId()));
     }
 
     /**

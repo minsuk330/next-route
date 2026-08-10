@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.JourneyDueClaim;
 import watoo.grd.nextroute.application.journey.dto.JourneyEvaluationOutcome;
+import watoo.grd.nextroute.application.journey.dto.NotificationContext;
 import watoo.grd.nextroute.application.journey.dto.TransferTargetArrival;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
@@ -38,17 +39,23 @@ public class JourneyEvaluationScheduleWriter {
     private final JourneySessionRepository sessionRepository;
     private final JourneyLegRepository legRepository;
     private final TransferAssessmentWriter assessmentWriter;
+    private final TransferRiskNotifier transferRiskNotifier;
 
     /**
-     * 소유권을 확인하고, 확인되면 판정과 예측을 저장한다.
+     * 소유권을 확인하고, 확인되면 판정과 예측을 저장하고 알릴 것이 있으면 outbox 에 쌓는다.
+     *
+     * <p><b>알림은 반드시 소유권 확인 뒤에 온다.</b> 앞에 두면 lease 를 잃은 워커가 "알렸다"
+     * 마커를 앞당겨 찍어, 이긴 워커의 알림을 영구히 막는다. 순서가 이 성질을 만든다.
      *
      * @param claim             선점 정보. {@code leaseUntil} 이 소유권 증서다
      * @param nextEvaluationAt  다음에 평가할 시각
+     * @param notificationContext 발송 정보(수신자·채널). 트랜잭션 밖에서 미리 정해 온다.
+     *                            알릴 것이 없으면 null
      * @return 저장했으면 true. 소유권을 잃어 결과를 버렸으면 false
      */
     @Transactional
     public boolean finish(JourneyDueClaim claim, JourneyEvaluationOutcome outcome,
-                          Instant nextEvaluationAt) {
+                          Instant nextEvaluationAt, NotificationContext notificationContext) {
         int owned = sessionRepository.finishEvaluation(
                 claim.journeyId(), claim.leaseUntil(), nextEvaluationAt, outcome.changed());
         if (owned == 0) {
@@ -60,6 +67,7 @@ public class JourneyEvaluationScheduleWriter {
 
         assessmentWriter.write(outcome.journeyId(), outcome.routeRevision(),
                 outcome.batch().assessments());
+        transferRiskNotifier.notifyWorsened(outcome, notificationContext);
         storeBoardingPredictions(outcome);
         return true;
     }

@@ -56,10 +56,19 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 ①이 끝나면 ②와 ③은 서로 독립이라 동시에 진행할 수 있다. 마이그레이션 번호는 **V39 부터**다
 (Phase 4 는 마이그레이션이 없었다).
 
-**진행 상황** — ① 구현 완료(플랜: [journey-push-token](../journey-push-token/SUMMARY.md)).
-후속 과제 하나가 남았다: 계정 삭제(탈퇴) 경로가 생기면 그 사용자의 `user_push_token` 행을 전부
-soft delete 해야 한다(PLAN §7 개인정보). 지금은 탈퇴 서비스가 코드베이스에 없어 죽은 메서드를
-만들지 않고 `UserPushTokenRepository` Javadoc 에만 남겼다.
+**진행 상황** — ①② 구현 완료
+(플랜: [journey-push-token](../journey-push-token/SUMMARY.md),
+[journey-notification-outbox](../journey-notification-outbox/SUMMARY.md)).
+
+후속 과제 둘이 남았다.
+
+- ① — 계정 삭제(탈퇴) 경로가 생기면 그 사용자의 `user_push_token` 행을 전부 soft delete 해야
+  한다(PLAN §7 개인정보). 지금은 탈퇴 서비스가 코드베이스에 없어 죽은 메서드를 만들지 않고
+  `UserPushTokenRepository` Javadoc 에만 남겼다
+- ② — **`journey_notification` 보관(retention)**. 이 표의 행은 지금 <b>절대 지우지 않는다</b>.
+  `delivery_key` 의 unique 가 부분 인덱스가 아니라서, 지우는 순간 키가 열려 같은 알림이 다시
+  나가기 때문이다. 지금 규모에서는 문제없지만 정리가 필요해지면 <b>흔적(tombstone) 표를 먼저
+  설계</b>해야 한다. Phase 6 이후 과제
 
 ### ① `journey-push-token`
 
@@ -86,6 +95,16 @@ soft delete 해야 한다(PLAN §7 개인정보). 지금은 탈퇴 서비스가 
   Phase 4 에서 외부 호출을 트랜잭션 밖으로 뺀 것과 같은 이유다
 - **여정이 끝나면 pending 을 취소한다.** Phase 4 ②의 만료 SQL 에 한 줄을 더한다(그 자리를 비워 뒀다)
 - L 인 이유 — 상태 기계·동시성·취소 경로가 한꺼번에 얽히고, 채널이 둘이라 멱등 키가 두 겹이다
+
+**구현하며 드러난 것 3가지**(자세한 내용은 ②의 SUMMARY).
+
+1. `JourneyLeaseExpiryService.sweep()` 이 같은 클래스의 `expireBatch()` 를 직접 불러
+   `@Transactional` 이 <b>안 걸리고 있었다</b>(기존 버그). 만료 SQL 이 한 문장이라 우연히
+   안전했을 뿐이고, 취소 쿼리를 더하면 원자성이 깨진다. ②가 먼저 고쳤다
+2. 체크포인트 값이 <b>상태를 품어야</b> 한다(`TRANSFER_RISK_AT_RISK`/`_MISSED`). 하나로 두면
+   승격이 같은 `deliveryKey` 를 만들어 `ON CONFLICT` 에 삼켜진다
+3. 만료 시각에 <b>바닥(180초)</b>이 필요하다. `MISSED` 는 다음 차 도착이 이미 과거라 그대로
+   쓰면 삽입 순간 만료된다. 바닥은 재시도 예산(백오프 60초 × 3회)과 같아야 한다
 
 ### ③ `journey-fcm-sender`
 
