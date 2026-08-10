@@ -161,7 +161,8 @@ public class JourneyEvaluationService {
             metrics.recordProviderSlot("acquired");
             Map<Integer, LegGeometry> geometry = loadGeometry(context);
             return transferRiskEvaluator.assess(
-                    context.journeyId(), context.routeRevision(), geometry);
+                    context.journeyId(), context.routeRevision(), context.currentLegIndex(),
+                    geometry);
         } finally {
             providerLimiter.release();
         }

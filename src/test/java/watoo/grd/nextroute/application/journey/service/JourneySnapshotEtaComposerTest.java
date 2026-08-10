@@ -75,7 +75,7 @@ class JourneySnapshotEtaComposerTest {
                 JOURNEY_ID, REVISION)).willReturn(legs);
         given(geometryUseCase.get(anyLong(), anyLong(), anyInt()))
                 .willReturn(new JourneyNavigationGeometry(JOURNEY_ID, REVISION, List.of(), null));
-        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), any())).willReturn(List.of());
+        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), anyInt(), any())).willReturn(List.of());
     }
 
     @Test
@@ -114,7 +114,7 @@ class JourneySnapshotEtaComposerTest {
     @DisplayName("아직 지나지 않은 환승만 활성 환승으로 고른다")
     void picksUpcomingTransfer() {
         givenCurrentArrival(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
-        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), any())).willReturn(List.of(
+        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), anyInt(), any())).willReturn(List.of(
                 assessment(0, 0, 2, TransferStatus.CATCHABLE, 150L)));
 
         var transfer = composer.compose(USER_ID, snapshot(0)).eta().activeTransfer();
@@ -130,7 +130,7 @@ class JourneySnapshotEtaComposerTest {
     @DisplayName("이미 지나온 환승은 고르지 않는다")
     void skipsPassedTransfer() {
         givenCurrentArrival(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
-        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), any())).willReturn(List.of(
+        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), anyInt(), any())).willReturn(List.of(
                 assessment(0, 0, 2, TransferStatus.COMFORTABLE, 400L)));
 
         // 이미 4번 단계(마지막 걷기)까지 왔으면 2번 대기 단계 환승은 지나간 것이다
@@ -141,7 +141,7 @@ class JourneySnapshotEtaComposerTest {
     @DisplayName("목적지 ETA 는 남은 단계를 이어 더하고 대기 단계는 다음 차량 도착으로 다시 기준 잡는다")
     void composesJourneyEta() {
         givenCurrentArrival(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
-        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), any())).willReturn(List.of(
+        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), anyInt(), any())).willReturn(List.of(
                 assessment(0, 0, 2, TransferStatus.CATCHABLE, 150L)));
 
         Instant journeyEta = composer.compose(USER_ID, snapshot(0)).eta().journeyEta();
@@ -154,7 +154,7 @@ class JourneySnapshotEtaComposerTest {
     @DisplayName("대기 단계의 다음 차량 시각을 모르면 목적지 ETA 를 만들지 않는다")
     void unknownWaitMeansUnknownJourneyEta() {
         givenCurrentArrival(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
-        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), any())).willReturn(List.of());
+        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), anyInt(), any())).willReturn(List.of());
 
         assertThat(composer.compose(USER_ID, snapshot(0)).eta().journeyEta()).isNull();
     }
@@ -163,7 +163,7 @@ class JourneySnapshotEtaComposerTest {
     @DisplayName("환승이 위험하면 다음 행동이 환승 준비이고 폴링을 좁힌다")
     void atRiskTransferChangesActionAndPolling() {
         givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
-        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), any())).willReturn(List.of(
+        given(transferRiskEvaluator.assessAndStore(anyLong(), anyInt(), anyInt(), any())).willReturn(List.of(
                 assessment(0, 0, 2, TransferStatus.AT_RISK, 30L)));
 
         JourneySnapshot result = composer.compose(USER_ID, snapshot(0));
@@ -190,8 +190,8 @@ class JourneySnapshotEtaComposerTest {
         JourneySnapshot result = composer.compose(USER_ID, finished);
 
         assertThat(result.eta()).isNull();
-        verify(transferRiskEvaluator, never()).assessAndStore(anyLong(), anyInt(), any());
-        verify(transferRiskEvaluator, never()).assess(anyLong(), anyInt(), any());
+        verify(transferRiskEvaluator, never()).assessAndStore(anyLong(), anyInt(), anyInt(), any());
+        verify(transferRiskEvaluator, never()).assess(anyLong(), anyInt(), anyInt(), any());
         verify(geometryUseCase, never()).get(anyLong(), anyLong(), anyInt());
     }
 
@@ -208,8 +208,8 @@ class JourneySnapshotEtaComposerTest {
         assertThat(result.eta().activeTransfer().status()).isEqualTo(TransferStatus.CATCHABLE);
         assertThat(result.eta().evaluatedAt()).isEqualTo(NOW);
         verify(storedEvaluationReader).assessments(anyLong(), anyInt(), any());
-        verify(transferRiskEvaluator, never()).assessAndStore(anyLong(), anyInt(), any());
-        verify(transferRiskEvaluator, never()).assess(anyLong(), anyInt(), any());
+        verify(transferRiskEvaluator, never()).assessAndStore(anyLong(), anyInt(), anyInt(), any());
+        verify(transferRiskEvaluator, never()).assess(anyLong(), anyInt(), anyInt(), any());
     }
 
     @Test

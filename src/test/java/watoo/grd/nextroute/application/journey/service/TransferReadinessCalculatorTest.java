@@ -20,7 +20,7 @@ class TransferReadinessCalculatorTest {
     @Test
     @DisplayName("도착 시각에 하차 버퍼와 환승 도보를 더한다")
     void addsBufferAndWalk() {
-        Instant ready = calculator.userReadyAt(ARRIVED, 120);
+        Instant ready = calculator.userReadyAt(ARRIVED, 120, TransferReadinessCalculator.Progress.RIDING, null);
 
         // 09:00:00 + 30초 + 120초
         assertThat(ready).isEqualTo(Instant.parse("2026-08-04T09:02:30Z"));
@@ -29,23 +29,45 @@ class TransferReadinessCalculatorTest {
     @Test
     @DisplayName("같은 정류장 환승이면 도보 없이 하차 버퍼만 더한다")
     void sameStopAddsBufferOnly() {
-        assertThat(calculator.userReadyAt(ARRIVED, null))
+        assertThat(calculator.userReadyAt(ARRIVED, null, TransferReadinessCalculator.Progress.RIDING, null))
                 .isEqualTo(Instant.parse("2026-08-04T09:00:30Z"));
-        assertThat(calculator.userReadyAt(ARRIVED, 0))
+        assertThat(calculator.userReadyAt(ARRIVED, 0, TransferReadinessCalculator.Progress.RIDING, null))
                 .isEqualTo(Instant.parse("2026-08-04T09:00:30Z"));
     }
 
     @Test
     @DisplayName("도보 시간이 음수로 들어와도 여유를 늘리지 않는다")
     void negativeWalkIsClamped() {
-        assertThat(calculator.userReadyAt(ARRIVED, -300))
+        assertThat(calculator.userReadyAt(ARRIVED, -300, TransferReadinessCalculator.Progress.RIDING, null))
                 .isEqualTo(Instant.parse("2026-08-04T09:00:30Z"));
     }
 
     @Test
     @DisplayName("현재 leg 도착 시각을 모르면 준비 시각도 모른다")
     void unknownArrivalMeansUnknownReady() {
-        assertThat(calculator.userReadyAt(null, 120)).isNull();
+        assertThat(calculator.userReadyAt(null, 120, TransferReadinessCalculator.Progress.RIDING, null)).isNull();
+    }
+
+    @Test
+    @DisplayName("이미 정류장에 서 있으면 지금이 준비 완료 시각이다")
+    void waitingIsReadyNow() {
+        Instant now = Instant.parse("2026-08-04T09:05:00Z");
+
+        assertThat(calculator.userReadyAt(ARRIVED, 120,
+                TransferReadinessCalculator.Progress.WAITING, now))
+                .as("이미 걸어와 서 있는 사람에게 하차 버퍼와 도보를 다시 더하면, 곧 오는 차가 "
+                        + "이미 지나간 차로 판정된다")
+                .isEqualTo(now);
+    }
+
+    @Test
+    @DisplayName("걷는 중이면 지금부터 남은 도보만 더한다 — 하차는 이미 끝났다")
+    void walkingAddsWalkOnly() {
+        Instant now = Instant.parse("2026-08-04T09:05:00Z");
+
+        assertThat(calculator.userReadyAt(ARRIVED, 120,
+                TransferReadinessCalculator.Progress.WALKING, now))
+                .isEqualTo(now.plusSeconds(120));
     }
 
     @Test
