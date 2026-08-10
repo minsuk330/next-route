@@ -55,6 +55,13 @@ public class UserPushToken extends BaseEntity {
     @Column(nullable = false, length = 512)
     private String token;
 
+    /**
+     * 클라이언트가 알려 준 빌드 종류(운영·개발).
+     *
+     * <p><b>발송 라우팅에 쓰지 않는다.</b> 불변식은 "배포 하나 = Firebase 프로젝트 하나"다. 이
+     * 값은 앱이 주는 것이라 라우팅 근거가 못 되고, 환경을 진짜로 나누려면 {@code FirebaseApp}
+     * 자체를 나눠야 한다. 지금은 사고 조사용 기록일 뿐이다.
+     */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private PushEnvironment environment;
@@ -86,10 +93,17 @@ public class UserPushToken extends BaseEntity {
     }
 
     /**
-     * provider 가 {@code UNREGISTERED}·{@code INVALID_ARGUMENT} 로 답했을 때 끈다(Phase 5 PR3).
+     * provider 가 {@code UNREGISTERED} 로 답했을 때 끈다.
      *
-     * <p>지우지 않는 이유. 껐다는 사실 자체를 세야 하고(PR7 지표), 같은 token 이 다시 등록되면
+     * <p>{@code INVALID_ARGUMENT}·{@code SENDER_ID_MISMATCH} 로는 <b>끄지 않는다</b> — payload·
+     * 자격증명 문제로도 나는 코드라, 설정 실수 한 번이 주소록을 통째로 지운다.
+     *
+     * <p>지우지 않는 이유. 껐다는 사실 자체를 세야 하고(⑦ 지표), 같은 token 이 다시 등록되면
      * 되살려야 한다.
+     *
+     * <p>운영 발송 경로는 이 메서드가 아니라
+     * {@code UserPushTokenRepository#deactivate} 의 조건부 UPDATE 를 쓴다. 발송 도중 재등록된
+     * 행을 꺼 버리지 않으려면 관측한 소유자·{@code lastSeenAt} 을 조건에 넣어야 하기 때문이다.
      */
     public void deactivate() {
         this.enabled = false;

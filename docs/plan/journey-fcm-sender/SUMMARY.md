@@ -47,3 +47,18 @@
 `./gradlew test` 전체 + 버스 경로 회귀. 핵심 5개: ①`성공+UNAVAILABLE` → 재시도 ②`UNREGISTERED`
 만 꺼지고 `INVALID_ARGUMENT` 는 안 꺼짐 ③`lastSeenAt` 이 바뀐 token 은 안 꺼짐 ④APNs 헤더가
 epoch 초, Android 는 duration ⑤`sender=fcm` + 자격증명 없음 → 부팅 실패.
+
+## 구현하며 달라진 것 (2026-08-10)
+
+- **`FirebaseConfig` 위치** — 플랜은 `infrastructure/config/` 였으나 이 저장소에는 그 패키지가
+  없다. 설정 클래스는 전부 `common/config/` 에 있어 그쪽 관례를 따랐다
+- **firebase-admin 9.10.0 은 등록 token 발송을 deprecated 로 표시한다**(FID 권장). 옮기려면 앱이
+  FID 를 올려 줘야 해 서버만으로는 못 한다 — 동작에는 영향이 없어 `@SuppressWarnings` 와 이유
+  주석으로 두고 후속 과제로 남긴다
+- **`compose.yaml` 의 worker** — YAML 병합(`<<`)은 목록을 이어 붙이지 않고 덮는다. worker 에
+  `env_file`·`volumes` 를 더하면 공용 앵커의 항목이 사라지므로 그 목록을 다시 적었다
+- **상한 가드의 자리** — 사용자당 token 수는 상한이 없어 `deactivate-max-per-send` 판단은
+  `PushTokenDeactivationService` 가 소유한다. 발송기는 끌 목록을 통째로 넘기기만 한다
+- **기기 단위 지표는 행 지표와 분리** — `journey.notification.push.tokens{outcome}`,
+  `...push.token.deactivated`, `...push.no.active.token{channel}`. `failed{kind}` 에 섞으면 한
+  행이 두 번 세어진다

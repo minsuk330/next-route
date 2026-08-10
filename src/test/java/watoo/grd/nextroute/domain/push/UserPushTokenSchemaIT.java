@@ -235,6 +235,68 @@ class UserPushTokenSchemaIT {
         assertThat(repository.findByUserIdAndEnabledTrueAndDeletedAtIsNull(userId)).hasSize(2);
     }
 
+    // ---------------------------------------------------------------- 조건부 비활성화
+
+    @Test
+    @DisplayName("관측한 소유자·lastSeenAt 이 그대로면 끈다")
+    void deactivateTurnsOffObservedRow() {
+        Instant seenAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Long id = register(userId, TOKEN, seenAt);
+
+        int affected = tx.execute(s -> repository.deactivate(
+                id, userId, seenAt, LocalDateTime.now()));
+
+        assertThat(affected).isEqualTo(1);
+        assertThat(repository.findById(id).orElseThrow().isEnabled()).isFalse();
+        assertThat(repository.findByUserIdAndEnabledTrueAndDeletedAtIsNull(userId)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("발송 도중 재등록된 행은 끄지 않는다")
+    void deactivateSkipsReRegisteredRow() {
+        Instant observed = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MILLIS);
+        Long id = register(userId, TOKEN, observed);
+        // provider 응답을 기다리는 사이에 앱이 같은 token 을 다시 등록했다.
+        register(userId, TOKEN, Instant.now().truncatedTo(ChronoUnit.MILLIS));
+
+        int affected = tx.execute(s -> repository.deactivate(
+                id, userId, observed, LocalDateTime.now()));
+
+        assertThat(affected).as("0행은 정상이다 — 더 새로운 등록이 이겼다").isZero();
+        assertThat(repository.findById(id).orElseThrow().isEnabled())
+                .as("조건이 없으면 방금 등록한 기기를 꺼 버린다")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("소유자가 바뀐 행은 끄지 않는다")
+    void deactivateSkipsHandedOverRow() {
+        Instant seenAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Long id = register(userId, TOKEN, seenAt);
+        register(otherUserId, TOKEN, seenAt);
+
+        int affected = tx.execute(s -> repository.deactivate(
+                id, userId, seenAt, LocalDateTime.now()));
+
+        assertThat(affected).isZero();
+        assertThat(repository.findById(id).orElseThrow().isEnabled())
+                .as("기기를 물려받은 새 소유자의 알림까지 끊긴다")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("이미 해제한 token 은 끄기 대상이 아니다")
+    void deactivateIgnoresSoftDeletedRow() {
+        Instant seenAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Long id = register(userId, TOKEN, seenAt);
+        tx.execute(s -> repository.unregister(userId, TOKEN, LocalDateTime.now()));
+
+        int affected = tx.execute(s -> repository.deactivate(
+                id, userId, seenAt, LocalDateTime.now()));
+
+        assertThat(affected).isZero();
+    }
+
     // ---------------------------------------------------------------- 값 제약
 
     @Test

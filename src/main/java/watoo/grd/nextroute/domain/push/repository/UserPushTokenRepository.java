@@ -97,4 +97,32 @@ public interface UserPushTokenRepository extends JpaRepository<UserPushToken, Lo
      * 죽었다고 답한 것도 보내면 안 된다.
      */
     List<UserPushToken> findByUserIdAndEnabledTrueAndDeletedAtIsNull(Long userId);
+
+    /**
+     * provider 가 {@code UNREGISTERED} 라고 답한 token 을 끈다.
+     *
+     * <p><b>조건부 UPDATE 인 것이 핵심이다.</b> 발송을 시작한 뒤 결과가 오기까지 사이에 같은
+     * token 이 재등록될 수 있고, 그 upsert 는 같은 행의 {@code user_id}·{@code enabled}·
+     * {@code last_seen_at} 을 갱신한다. {@code WHERE id = :id} 만으로 끄면 <b>방금 등록한
+     * 기기</b>(혹은 새 소유자)를 꺼 버린다. 그래서 발송 시점에 <b>관측한</b> 소유자와
+     * {@code last_seen_at} 을 조건에 넣는다.
+     *
+     * <p>0행은 정상이다 — "더 새로운 등록이 이겼다"는 뜻이므로 호출부는 로그만 남긴다.
+     *
+     * @return 실제로 꺼진 행 수(0 또는 1)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE user_push_token
+               SET enabled = false, updated_at = :now
+             WHERE id = :id
+               AND user_id = :observedUserId
+               AND last_seen_at = :observedLastSeenAt
+               AND enabled = true
+               AND deleted_at IS NULL
+            """, nativeQuery = true)
+    int deactivate(@Param("id") Long id,
+                   @Param("observedUserId") Long observedUserId,
+                   @Param("observedLastSeenAt") Instant observedLastSeenAt,
+                   @Param("now") LocalDateTime now);
 }

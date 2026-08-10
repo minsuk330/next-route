@@ -56,9 +56,11 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 ①이 끝나면 ②와 ③은 서로 독립이라 동시에 진행할 수 있다. 마이그레이션 번호는 **V39 부터**다
 (Phase 4 는 마이그레이션이 없었다).
 
-**진행 상황** — ①② 구현 완료
+**진행 상황** — ①②③ 구현 완료
 (플랜: [journey-push-token](../journey-push-token/SUMMARY.md),
-[journey-notification-outbox](../journey-notification-outbox/SUMMARY.md)).
+[journey-notification-outbox](../journey-notification-outbox/SUMMARY.md),
+[journey-fcm-sender](../journey-fcm-sender/SUMMARY.md)).
+③ 까지 머지돼도 **운영 발송은 꺼져 있다** — 활성화 게이트는 ③ 절 표를 본다.
 
 후속 과제 둘이 남았다.
 
@@ -108,18 +110,35 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 
 ### ③ `journey-fcm-sender`
 
-`NotificationSender` 포트와 Firebase Admin SDK 기반 구현.
+`NotificationSender` 포트의 Firebase Admin SDK 구현. **구현 완료**
+(플랜: [journey-fcm-sender](../journey-fcm-sender/SUMMARY.md)).
 
-- 포트는 채널을 모른다. 부르는 쪽은 "이 사용자에게 이 알림을" 이라고만 말하고, **어느 길로 갈지는
-  라우터가 정한다** — 토스 신분증(`provider='TOSS'`)이면 토스 메신저, 아니면 FCM
-- 기존 `TossMessengerPort` 는 그대로 두고 새 포트 뒤로 감싼다. 버스 도착 알림 경로는 안 건드린다
-- 영구 실패를 가른다: `UNREGISTERED`·`INVALID_ARGUMENT` 는 재시도하지 않고 token 을 비활성화한다.
-  일시 실패는 백오프 후 재시도
-- FCM TTL 은 outbox 의 `expires_at` 에서 만든다. 늦게 도착한 알림은 사용자를 엉뚱한 때에 움직인다
-- scope 별 collapse key 로 같은 환승의 옛 알림을 새 알림이 덮게 한다
-- **자격증명이 없어도 구현은 진행한다.** Firebase project·APNs 인증키 발급은 병행하고, 테스트는
-  SDK 를 mock 으로 둔다(토스 로그인 때와 같은 방식)
-- L 인 이유 — 외부 SDK 도입과 채널 라우팅 경계 신설이 함께 온다
+- **채널 라우터는 만들지 않는다.** 여정 알림은 `PUSH` 하나다(`TECHNICAL_DECISIONS §2` LOCKED —
+  "1차에서는 `FcmNotificationSender` 하나만 구현한다"). 이 문서에 있던 "토스 신분증이면 토스
+  메신저" 문장은 그 결정과 어긋나 ③이 지웠다. `NotificationChannelResolver` 포트와 `TOSS` 채널
+  값은 남아 있으므로, 토스 채널이 실제로 필요해지면 그때 라우터를 만든다
+- 기존 `TossMessengerPort` 와 버스 도착 알림 경로는 한 줄도 건드리지 않았다
+- **token 을 비활성화하는 사유는 `UNREGISTERED` 하나뿐이다.** `INVALID_ARGUMENT` 는 payload·TTL·
+  크기 문제로도 나고 `SENDER_ID_MISMATCH` 는 서버 자격증명이 틀린 것이라, 둘로 끄면 설정 실수
+  한 번이 주소록을 통째로 지운다. 한 번에 끌 수 있는 수에 상한(기본 50)도 둔다
+- **일시 실패가 하나라도 있으면 성공이 섞여 있어도 행 전체를 재시도한다.** 성공 하나로 `SENT` 를
+  찍으면 일시 실패한 기기는 영구 누락된다
+- FCM TTL 은 outbox 의 `expires_at` 에서 만든다. Android 는 남은 시간, APNs 는 epoch 초로
+  **단위가 달라** 값 하나에서 둘을 파생한다
+- scope 별 collapse key(체크포인트 제외)로 같은 환승의 옛 알림을 새 알림이 덮게 한다
+- 자격증명은 **worker 컨테이너에만** 읽기 전용으로 마운트한다. 초기화 실패는 부팅을 막는다
+- L 인 이유 — 외부 SDK 도입과 부분 실패 분류·token 수명 관리가 함께 온다
+
+**⚠ 이 PR 은 운영 발송을 켜지 않는다.** `sender` 는 `noop`, `relay.enabled` 는 `false` 그대로다.
+
+| 시점 | 스위치 |
+|---|---|
+| ③ 머지 | `sender=noop`·`relay.enabled=false` 유지. 행은 쌓이고 아무것도 안 나간다 |
+| ⑤·⑥ 머지 뒤 | 자격증명 배치 → worker 만 `sender=fcm` → 부팅 확인 → `relay.enabled=true` |
+| 되돌리기 | `relay.enabled=false` |
+
+⑤(발송 직전 lease·version 재검증)와 ⑥(payload 계약·최종 문구) 없이 켜면 낡은 알림이 나가고
+임시 문구가 운영에 굳는다.
 
 ### ④ `journey-checkpoint-policy`
 

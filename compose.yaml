@@ -85,6 +85,22 @@ services:
   worker:
     <<: *app-service
     image: ${WORKER_IMAGE:-nextroute:bootstrap}
+    # FCM 자격증명은 worker 에만 준다. relay 는 worker 프로필 전용이라 API 에 주면 권한만
+    # 넓어지고, Firebase 초기화 실패가 API 부팅까지 막는다.
+    #
+    # ⚠ YAML 병합(<<)은 목록을 이어 붙이지 않고 통째로 덮는다. 그래서 공용 앵커의 항목을 여기
+    # 다시 적어야 한다 — 지우면 worker 가 DB·토스 설정을 잃는다.
+    env_file:
+      - env/db.env
+      - env/api.env
+      - env/toss.env
+      - env/auth.env
+      - env/oauth.env
+      - env/fcm.env
+    volumes:
+      - ./logs:/logs
+      - /srv/nextroute/toss.p12:/secrets/toss.p12:ro
+      - /srv/nextroute/firebase-service-account.json:/secrets/firebase-service-account.json:ro
     environment:
       <<: *app-environment
       SPRING_PROFILES_ACTIVE: prod,worker

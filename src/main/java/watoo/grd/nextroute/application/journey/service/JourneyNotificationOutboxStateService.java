@@ -97,8 +97,10 @@ public class JourneyNotificationOutboxStateService {
             return Optional.empty();
         }
 
-        return Optional.of(new NotificationSendCommand(n.getId(), n.getUserId(), n.getChannel(),
-                n.getCheckpoint(), n.getPayload(), n.getExpiresAt()));
+        return Optional.of(new NotificationSendCommand(n.getId(), n.getUserId(), n.getJourneyId(),
+                n.getRouteRevision(), n.getScopeType(), n.getScopeId(), n.getCheckpoint(),
+                n.getChannel(), n.getCommandVersion(), n.getEvaluationVersion(),
+                n.getPayload(), n.getExpiresAt()));
     }
 
     private void cancel(JourneyNotification n, String reason) {

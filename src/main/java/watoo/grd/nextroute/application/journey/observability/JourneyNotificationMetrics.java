@@ -24,6 +24,9 @@ public class JourneyNotificationMetrics {
     public static final String SENT = "journey.notification.sent";
     public static final String FAILED = "journey.notification.failed";
     public static final String CANCELED = "journey.notification.canceled";
+    public static final String PUSH_TOKENS = "journey.notification.push.tokens";
+    public static final String TOKEN_DEACTIVATED = "journey.notification.push.token.deactivated";
+    public static final String NO_ACTIVE_TOKEN = "journey.notification.push.no.active.token";
 
     private final MeterRegistry registry;
 
@@ -56,5 +59,38 @@ public class JourneyNotificationMetrics {
      */
     public void recordCanceled(String reason) {
         registry.counter(CANCELED, "reason", reason).increment();
+    }
+
+    /**
+     * 기기 단위 발송 결과. 행 단위({@link #SENT}·{@link #FAILED})와 <b>따로</b> 센다 — 사용자가
+     * 기기 셋 중 하나만 못 받은 상황은 행 지표에 안 보인다.
+     *
+     * @param outcome {@code success}·{@code transient}·{@code permanent}
+     */
+    public void recordPushTokens(String outcome, int count) {
+        if (count > 0) {
+            registry.counter(PUSH_TOKENS, "outcome", outcome).increment(count);
+        }
+    }
+
+    /**
+     * provider 가 죽었다고 답해 우리가 끈 token 수.
+     *
+     * <p>정상적인 기기 교체로도 꾸준히 오른다. 갑자기 치솟으면 자격증명·payload 사고를 의심한다.
+     */
+    public void recordTokenDeactivated(int count) {
+        if (count > 0) {
+            registry.counter(TOKEN_DEACTIVATED).increment(count);
+        }
+    }
+
+    /**
+     * 보낼 곳이 하나도 없어 끝난 행.
+     *
+     * <p>provider 실패와 섞으면 안 된다. 이것은 발송 경로의 고장이 아니라 "그 사용자는 알림을
+     * 받을 기기가 없다"는 사실이라, 섞이면 정상 token churn 이 실패 지표를 부풀린다.
+     */
+    public void recordNoActiveToken(NotificationChannel channel) {
+        registry.counter(NO_ACTIVE_TOKEN, "channel", channel.name()).increment();
     }
 }
