@@ -12,6 +12,7 @@
 - GPS 1초 수집·progress 15초/5초 업로드 반영일: 2026-08-03
 - 전체 선택 경로 지도 표시 반영일: 2026-08-03
 - local checkpoint 계측·progress 멱등 계약 반영일: 2026-08-04
+- M5 iOS 버스 하차 판정 확정일: 2026-08-10
 - 대상 레포: React Native `nextroute-app`
 
 ## 1. 책임 경계
@@ -151,11 +152,18 @@ confirmedProgressByLeg[legId]
 
 ### Phase M5. 하차 안내
 
-- `bus_route_segment_polyline`을 section 순서로 로드하고 GPS를 현재 section 이후 범위에서만 투영
-- `REVIEW|FAILED` section은 단독 진행 근거로 쓰지 않고 다음 `OK` section 재매칭·정류장 geofence로 gap 처리
-- 남은 정류장·남은 시간 표시
-- 기본 하차 준비·이번 정류장 두 단계 알림 표시
-- 3정거장 전·1정거장 전 세분화는 운영 계측 후 설정으로 확장
+- navigation geometry의 버스 leg에 승차~하차 정류장 `stops(seq, stopId, stopName, x, y)`를 추가한다. 좌표가 없는 정류장도 순서를 유지하고 `x/y`만 null로 둔다.
+- `bus_route_segment_polyline`을 section 순서로 로드하고, `OK` section만 직접 진행 확정에 사용한다. 정확도 60m 이하·polyline 이격 80m 이하에서 현재 또는 다음 정상 section에 투영한다.
+- 최초 위치는 모든 정상 section 중 최근접 지점에서 시작하되 이후에는 정류장 순서가 뒤로 가지 않으며, 기존 3% 초과 역행 억제를 유지한다.
+- `REVIEW|FAILED` section은 지도에는 표시하지만 단독 진행 근거로 쓰지 않는다. 다음 예상 정류장 80m·정확도 60m 이하를 3회 연속 확인하거나, 뒤의 다음 `OK` section에 3회 연속 재매칭됐을 때만 순서대로 보정한다.
+- 남은 정류장은 `하차 seq - 마지막 확정 통과 seq`로 한 정류장씩 단조 감소한다. 남은 시간은 현재 segment의 남은 배분 시간과 뒤 segment 시간을 합산한다.
+- GPS가 끊기면 마지막 `observedAt + remainingDurationSeconds` 절대 ETA를 유지하고, 60초 이상 새 진행이 없으면 시간은 계속 표시하되 `APPROXIMATE`와 마지막 갱신 시각을 표시한다.
+- `PREPARE`는 시간과 무관하게 `RIDE_BUS && confirmed remainingStops <= 2`에서 한 번만 발생한다.
+- `ALIGHT_NOW`는 마지막 구간 진입, 실제 하차 정류장 100m 이내, 정확도 60m 이하를 3회 연속 만족할 때 한 번만 발생한다.
+- 정류장 목록 또는 실제 하차 정류장 좌표가 없으면 경로만 표시하고 두 checkpoint를 추측하지 않는다.
+- 주 안내 카드 하나가 기본→`PREPARE`→`ALIGHT_NOW`로 전환되며, 바텀시트에는 현재·다음·하차 정류장을 연결한 rail을 표시한다. 지도에는 하차 정류장 마커 하나만 추가한다.
+- `readState()`는 `lastProgress`와 확인 전 `activeCheckpoint`를 반환하고, local notification 선택 시 최신 Journey를 조회한 뒤 `/navigation`으로 이동한다.
+- M5 1차 구현은 공통 API·RN 화면과 iOS Swift 엔진이다. Android는 별도 후속 체크리스트에서 같은 계약으로 포팅한다.
 - 채널 없는 `logicalCheckpointKey = journeyId:routeRevision:scopeType:legIndex:checkpoint`를 기준으로 OS 알림·앱 배너 중복 표시를 차단하고, `deliveryKey = logicalCheckpointKey:LOCAL`로 local 처리 재시도를 흡수
 - GPS 정확도 저하·터널에서도 화면 마커 튐은 허용하되, 단일 sample로 leg 전이·`ALIGHT_NOW`를 확정하지 않음
 - 지하철 leg도 ODsay 정적 leg 시간 × GPS geometry progress로 남은 시간을 계산하고, GPS가 끊기면 마지막 절대 ETA countdown과 `APPROXIMATE`·마지막 갱신 시각을 표시

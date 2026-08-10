@@ -388,8 +388,12 @@ class JourneyNotificationSchemaIT extends AbstractJourneyOutboxPostgresIT {
         assertThat(status(fresh)).isEqualTo("PENDING");
     }
 
+    /** 회복이 지울 수 있는 체크포인트. 접근 알림은 여기 없다(TransferRiskNotifier 와 같은 목록). */
+    private static final java.util.Set<JourneyCheckpoint> RISK_CHECKPOINTS = java.util.Set.of(
+            JourneyCheckpoint.TRANSFER_RISK_AT_RISK, JourneyCheckpoint.TRANSFER_RISK_MISSED);
+
     @Test
-    @DisplayName("회복 경로는 그 대상의 대기 알림을 전부 밀어낸다 — 발송 중인 것은 빼고")
+    @DisplayName("회복 경로는 그 대상의 위험 알림만 밀어낸다 — 발송 중인 것과 접근 알림은 빼고")
     void supersedeAll_cancelsPending_butNotProcessing() {
         Long pending = enqueue(JourneyCheckpoint.TRANSFER_RISK_AT_RISK, NotificationChannel.PUSH).get(0);
         Long processing = enqueue(JourneyCheckpoint.TRANSFER_RISK_MISSED, NotificationChannel.PUSH).get(0);
@@ -397,7 +401,7 @@ class JourneyNotificationSchemaIT extends AbstractJourneyOutboxPostgresIT {
                 "update journey_notification set status = 'PROCESSING' where id = ?", processing);
 
         int superseded = tx().execute(s -> notificationRepository.supersedeAllPendingByScope(
-                journey.getId(), 1, JourneyNotificationScope.TRANSFER, 0));
+                journey.getId(), 1, JourneyNotificationScope.TRANSFER, 0, RISK_CHECKPOINTS));
 
         assertThat(superseded).isEqualTo(1);
         assertThat(status(pending)).isEqualTo("CANCELED");
@@ -416,7 +420,7 @@ class JourneyNotificationSchemaIT extends AbstractJourneyOutboxPostgresIT {
                 0, now, now.plusSeconds(600));
 
         tx().execute(s -> notificationRepository.supersedeAllPendingByScope(
-                journey.getId(), 1, JourneyNotificationScope.TRANSFER, 0));
+                journey.getId(), 1, JourneyNotificationScope.TRANSFER, 0, RISK_CHECKPOINTS));
 
         assertThat(status(other)).isEqualTo("PENDING");
     }

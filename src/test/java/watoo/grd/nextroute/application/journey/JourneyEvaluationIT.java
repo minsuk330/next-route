@@ -336,7 +336,31 @@ class JourneyEvaluationIT {
                 .isEqualTo(TransferStatus.MISSED.name());
     }
 
-    /** 갈아탈 정류장까지 이동해 대기 단계에 선다. */
+    @Test
+    @DisplayName("갈아탈 차가 임박하면 접근 알림이 쌓인다")
+    void enqueuesTargetApproachWhenBusIsNear() {
+        walkToTransferStop();
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(60));
+
+        assertThat(evaluate()).isEqualTo(Result.EVALUATED);
+
+        assertThat(enqueuedCheckpoints())
+                .as("발송 정보를 위험 상태에서만 만들면 접근 알림은 코드가 다 있어도 한 건도 안 나간다")
+                .contains("TRANSFER_TARGET_APPROACHING");
+    }
+
+    @Test
+    @DisplayName("갈아탈 차가 아직 멀면 아무것도 쌓지 않는다")
+    void enqueuesNothingWhenBusIsFarAway() {
+        walkToTransferStop();
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(600));
+
+        evaluate();
+
+        assertThat(enqueuedCheckpoints()).isEmpty();
+    }
+
+    /** 갈아탈 정류장까지 이동해 대기 단계에 선다. 접근 알림의 첫 번째 조건이다. */
     private void walkToTransferStop() {
         int waitLegIndex = transferColumn("to_leg_index", Integer.class);
         long baseCommandVersion = 2L;
@@ -347,6 +371,12 @@ class JourneyEvaluationIT {
                             baseCommandVersion++, 1, from, from + 1, Instant.now()));
             assertThat(outcome.result().name()).isEqualTo("APPLIED");
         }
+    }
+
+    private List<String> enqueuedCheckpoints() {
+        return jdbcTemplate.queryForList(
+                "select checkpoint from journey_notification where journey_id = ? order by id",
+                String.class, journeyId);
     }
 
     private Result evaluate() {

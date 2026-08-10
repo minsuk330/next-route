@@ -106,6 +106,7 @@ public class FcmMessageFactory {
         return switch (checkpoint) {
             case TRANSFER_RISK_AT_RISK -> "환승 시간이 빠듯해요";
             case TRANSFER_RISK_MISSED -> "환승을 놓쳤어요";
+            case TRANSFER_TARGET_APPROACHING -> "갈아탈 차가 곧 도착해요";
         };
     }
 
@@ -113,6 +114,7 @@ public class FcmMessageFactory {
         return switch (checkpoint) {
             case TRANSFER_RISK_AT_RISK -> "지금 이동하면 다음 차를 탈 수 있어요.";
             case TRANSFER_RISK_MISSED -> "앱에서 새 안내를 확인하세요.";
+            case TRANSFER_TARGET_APPROACHING -> "탑승 준비를 하세요.";
         };
     }
 }

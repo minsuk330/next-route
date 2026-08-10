@@ -87,6 +87,34 @@ public class JourneyNotificationProperties {
 
     private final Fcm fcm = new Fcm();
 
+    private final Approach approach = new Approach();
+
+    /**
+     * 접근 알림(N2) 설정. "갈아탈 차가 곧 온다"를 언제 알릴지 정한다.
+     *
+     * <p>위험 알림과 스위치가 갈려 있다 — N2 가 시끄러우면 그것만 끄고 위험 알림은 남긴다.
+     */
+    @Getter
+    @Setter
+    public static class Approach {
+
+        /** N2 만 끄는 kill switch. 위험 알림은 그대로 간다. */
+        private boolean enabled = true;
+
+        /**
+         * 이 시간 안에 도착하면 "곧 온다"로 본다.
+         *
+         * <p>이 값이 N2 의 <b>유효시간 상한</b>이기도 하다. 접근 알림은 바닥·천장 clamp 없이
+         * 다음 차 도착 시각을 그대로 만료로 쓰는데, 조건이 "도착이 창 안"이라 만료가 창을 넘지
+         * 못하기 때문이다.
+         */
+        private long windowSeconds = 120;
+
+        public Duration window() {
+            return Duration.ofSeconds(windowSeconds);
+        }
+    }
+
     @Getter
     @Setter
     public static class Relay {
@@ -170,7 +198,20 @@ public class JourneyNotificationProperties {
                     "relay 를 켜면서 sender 를 noop 으로 두면 안 된다. 진짜 알림 행을 아무 데도 "
                             + "보내지 않은 채 SENT 로 소모해, 나중에 실제 발송을 영영 막는다");
         }
+        validateApproach();
         validateFcm();
+    }
+
+    private void validateApproach() {
+        if (approach.getWindowSeconds() <= 0) {
+            throw new IllegalStateException(
+                    "journey.notification.approach.window-seconds 는 0 보다 커야 한다");
+        }
+        if (approach.getWindowSeconds() > maxTtlSeconds) {
+            throw new IllegalStateException(
+                    "approach.window-seconds 는 max-ttl-seconds 이하여야 한다. 넘으면 접근 알림만 "
+                            + "천장보다 오래 살아 알림 수명의 상한이 두 벌이 된다");
+        }
     }
 
     private void validateFcm() {

@@ -413,6 +413,12 @@ journey:
       timeout-ms: 5000
       # provider 가 메시지를 들고 있을 시간의 천장. max-ttl-seconds 이하여야 한다.
       ttl-max-seconds: 1800
+    approach:
+      # "갈아탈 차가 곧 온다"(N2)만 끄는 스위치. 위험 알림은 그대로 간다.
+      enabled: ${JOURNEY_NOTIFICATION_APPROACH_ENABLED:true}
+      # 이 시간 안에 도착하면 곧 온다고 본다. 이 값이 N2 의 유효시간 상한이기도 하다 —
+      # 접근 알림은 바닥·천장 clamp 없이 다음 차 도착 시각을 그대로 만료로 쓴다.
+      window-seconds: 120
     relay:
       # 기본 꺼짐. 발송 구현은 붙었지만 ⑤(발송 직전 재검증)와 ⑥(payload 계약·문구)이 들어오기
       # 전에는 켜지 않는다 — 낡은 알림이 나가고 임시 문구가 운영에 굳는다. worker 프로필 전용.

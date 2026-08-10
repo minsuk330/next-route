@@ -61,6 +61,7 @@ public class JourneyEvaluationService {
     private final JourneyEvaluatorProperties properties;
     /** 이 사용자에게 어느 길로 보낼지. 평가 트랜잭션 <b>밖</b>에서 부른다. */
     private final NotificationChannelResolver channelResolver;
+    private final TransferTargetApproachPolicy approachPolicy;
     private final Clock clock;
 
     /** 평가기 몫의 provider 동시 호출 수. 워커 스레드 수와 분리하는 장치다. */
@@ -102,7 +103,7 @@ public class JourneyEvaluationService {
                 context.journeyId(), context.routeRevision(), batch, changed);
 
         Instant nextAt = nextEvaluationAt(context, batch, now, changed);
-        boolean stored = scheduleWriter.finish(claim, outcome, nextAt, notificationContext(context, batch));
+        boolean stored = scheduleWriter.finish(claim, outcome, nextAt, notificationContext(context, batch, now));
         if (!stored) {
             return Report.lostClaim();
         }
@@ -115,18 +116,26 @@ public class JourneyEvaluationService {
      * <p>채널 결정을 <b>평가 트랜잭션 밖</b>에서 한다. PR3 의 구현은 DB 를 읽는데, 그 읽기가
      * 트랜잭션 안에 들어오면 쓰기 트랜잭션이 그만큼 길어진다.
      *
-     * <p>알릴 상태가 하나도 없으면 아예 부르지 않는다 — 대부분의 평가가 여기에 해당하므로,
+     * <p>알릴 것이 하나도 없으면 아예 부르지 않는다 — 대부분의 평가가 여기에 해당하므로,
      * 매번 부르면 아무 알림도 안 나가는 여정에 조회가 하나씩 붙는다.
      *
+     * <p><b>알릴 것은 두 종류다.</b> 위험 알림은 상태가 나쁠 때, 접근 알림은 반대로 상태가
+     * <b>안전할 때</b> 나간다. 위험만 조건으로 두면 접근 알림은 코드가 다 있어도 여기서 null 이
+     * 되어 한 건도 나가지 않는다. 접근 조건은 좁아서(대기 단계 + 임박 창) 대부분의 평가는
+     * 여전히 null 이다.
+     *
+     * @param now 이 평가의 기준 시각. 판정기가 쓰는 것과 같은 값이어야 한다
      * @return 알릴 것이 없으면 null
      */
     private NotificationContext notificationContext(JourneyEvaluationContext context,
-                                                    TransferAssessmentBatch batch) {
-        boolean anyNotifiable = batch.assessments().stream()
+                                                    TransferAssessmentBatch batch, Instant now) {
+        boolean anyRisk = batch.assessments().stream()
                 .anyMatch(a -> (a.status() == TransferStatus.AT_RISK
                         || a.status() == TransferStatus.MISSED)
                         && a.isUpcoming(context.currentLegIndex()));
-        if (!anyNotifiable) {
+        boolean anyApproach = batch.assessments().stream()
+                .anyMatch(a -> approachPolicy.isApproaching(a, context.currentLegIndex(), now));
+        if (!anyRisk && !anyApproach) {
             return null;
         }
         return new NotificationContext(context.userId(), context.currentLegIndex(),
