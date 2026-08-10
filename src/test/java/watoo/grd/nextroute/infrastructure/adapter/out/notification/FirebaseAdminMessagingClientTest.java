@@ -8,21 +8,18 @@ import watoo.grd.nextroute.application.journey.port.out.FirebaseMessagingClient.
 import watoo.grd.nextroute.application.journey.port.out.PushMessage;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * chunk 경계와 예산. SDK 없이 검증한다.
+ * 경계가 예산과 오류를 어떻게 넘기는지. SDK 없이 검증한다.
  *
- * <p>순서가 이 테스트의 핵심이다. chunk 결과를 잘못 이으면 발송기가 <b>엉뚱한 token 을 끈다</b> —
- * 사용자는 알림을 못 받는데 어디에도 오류가 안 남는다.
+ * <p>시한이 이 테스트의 핵심이다. 발송이 회수 주기(3분)보다 오래 걸리면 회수 루프가 아직
+ * 발송 중인 행을 다시 집어 가 같은 알림이 두 번 나간다.
  */
-@DisplayName("FCM 호출은 500개씩 나누고 순서를 지킨다")
+@DisplayName("FCM 호출 경계")
 class FirebaseAdminMessagingClientTest {
 
     private static final PushMessage MESSAGE = new PushMessage(
@@ -35,109 +32,72 @@ class FirebaseAdminMessagingClientTest {
         return properties;
     }
 
-    private List<String> tokens(int count) {
-        return IntStream.range(0, count).mapToObj(i -> "token-" + i).toList();
+    @Test
+    @DisplayName("설정한 예산을 그대로 SDK 호출에 넘긴다")
+    void passesConfiguredBudget() {
+        RecordingDispatcher dispatcher = new RecordingDispatcher(PushResult.ok());
+        FirebaseAdminMessagingClient client =
+                new FirebaseAdminMessagingClient(dispatcher, properties(5000));
+
+        PushResult result = client.send(MESSAGE, "token-a");
+
+        assertThat(result.success()).isTrue();
+        assertThat(dispatcher.lastTimeoutMs)
+                .as("SDK 기본 타임아웃은 회수 주기보다 길 수 있다 — 우리가 직접 건다")
+                .isEqualTo(5000);
+        assertThat(dispatcher.lastToken).isEqualTo("token-a");
     }
 
     @Test
-    @DisplayName("500개 이하면 한 번만 부른다")
-    void singleCallUpTo500() {
-        RecordingChunkSender chunkSender = new RecordingChunkSender();
+    @DisplayName("provider 오류 코드를 그대로 올려 보낸다")
+    void propagatesErrorCode() {
+        RecordingDispatcher dispatcher = new RecordingDispatcher(PushResult.failed("UNREGISTERED"));
         FirebaseAdminMessagingClient client =
-                new FirebaseAdminMessagingClient(chunkSender, properties(5000));
+                new FirebaseAdminMessagingClient(dispatcher, properties(5000));
 
-        List<PushResult> results = client.send(MESSAGE, tokens(500));
+        PushResult result = client.send(MESSAGE, "token-a");
 
-        assertThat(chunkSender.chunkSizes).containsExactly(500);
-        assertThat(results).hasSize(500);
+        assertThat(result.success()).isFalse();
+        assertThat(result.errorCode())
+                .as("분류는 발송기가 한다. 경계는 코드만 전달한다")
+                .isEqualTo("UNREGISTERED");
     }
 
     @Test
-    @DisplayName("501개면 두 번 부르고 결과는 입력 순서 그대로 이어진다")
-    void splitsAtChunkBoundaryKeepingOrder() {
-        RecordingChunkSender chunkSender = new RecordingChunkSender();
-        FirebaseAdminMessagingClient client =
-                new FirebaseAdminMessagingClient(chunkSender, properties(5000));
-        List<String> tokens = tokens(501);
+    @DisplayName("호출 실패는 일시 실패로 올라간다")
+    void callFailureIsTransient() {
+        FirebaseAdminMessagingClient client = new FirebaseAdminMessagingClient(
+                (message, token, timeoutMs) -> {
+                    throw new NotificationSendException("fcm-timeout: 50ms 안에 답이 없다", false);
+                },
+                properties(50));
 
-        List<PushResult> results = client.send(MESSAGE, tokens);
-
-        assertThat(chunkSender.chunkSizes).containsExactly(500, 1);
-        assertThat(results).hasSize(501);
-        // 가짜 sender 가 결과의 errorCode 자리에 받은 token 을 그대로 넣는다. 순서가 어긋나면
-        // 여기서 드러난다.
-        assertThat(results.stream().map(PushResult::errorCode).toList())
-                .as("어긋나면 발송기가 엉뚱한 token 을 끈다")
-                .isEqualTo(tokens);
-    }
-
-    @Test
-    @DisplayName("예산은 행 전체 기준이다 — 남은 시간이 줄어든 채 다음 chunk 로 넘어간다")
-    void budgetIsSharedAcrossChunks() {
-        RecordingChunkSender chunkSender = new RecordingChunkSender(30);
-        FirebaseAdminMessagingClient client =
-                new FirebaseAdminMessagingClient(chunkSender, properties(5000));
-
-        client.send(MESSAGE, tokens(501));
-
-        assertThat(chunkSender.timeouts).hasSize(2);
-        assertThat(chunkSender.timeouts.get(1))
-                .as("chunk 마다 5초면 합이 회수 주기를 넘어 같은 알림이 두 번 나간다")
-                .isLessThan(chunkSender.timeouts.get(0));
-    }
-
-    @Test
-    @DisplayName("예산을 다 쓰면 일시 실패다 — 남은 chunk 는 재시도가 가져간다")
-    void exhaustedBudgetIsTransient() {
-        RecordingChunkSender chunkSender = new RecordingChunkSender(80);
-        FirebaseAdminMessagingClient client =
-                new FirebaseAdminMessagingClient(chunkSender, properties(50));
-
-        assertThatThrownBy(() -> client.send(MESSAGE, tokens(501)))
+        assertThatThrownBy(() -> client.send(MESSAGE, "token-a"))
+                .as("실제로 전달됐는지 알 수 없다. 영구로 단정하면 알림이 사라진다")
                 .isInstanceOf(NotificationSendException.class)
                 .hasMessageContaining("fcm-timeout")
+                .hasMessageNotContaining("token-a")
                 .extracting(e -> ((NotificationSendException) e).isPermanent())
                 .isEqualTo(false);
     }
 
-    @Test
-    @DisplayName("예외 문구에 token 이 들어가지 않는다")
-    void timeoutMessageCarriesNoToken() {
-        RecordingChunkSender chunkSender = new RecordingChunkSender(80);
-        FirebaseAdminMessagingClient client =
-                new FirebaseAdminMessagingClient(chunkSender, properties(50));
+    /** 받은 인자를 기록하고 심어 둔 결과를 돌려준다. */
+    private static class RecordingDispatcher
+            implements FirebaseAdminMessagingClient.MessageDispatcher {
 
-        assertThatThrownBy(() -> client.send(MESSAGE, tokens(501)))
-                .hasMessageNotContaining("token-");
-    }
+        private final PushResult result;
+        private String lastToken;
+        private long lastTimeoutMs;
 
-    /** 받은 chunk 를 기록하고, 결과의 {@code errorCode} 자리에 token 을 되돌려 준다. */
-    private static class RecordingChunkSender implements FirebaseAdminMessagingClient.ChunkSender {
-
-        private final List<Integer> chunkSizes = new ArrayList<>();
-        private final List<Long> timeouts = new ArrayList<>();
-        private final long delayMillis;
-
-        RecordingChunkSender() {
-            this(0);
-        }
-
-        RecordingChunkSender(long delayMillis) {
-            this.delayMillis = delayMillis;
+        RecordingDispatcher(PushResult result) {
+            this.result = result;
         }
 
         @Override
-        public List<PushResult> send(PushMessage message, List<String> chunk, long timeoutMs) {
-            chunkSizes.add(chunk.size());
-            timeouts.add(timeoutMs);
-            if (delayMillis > 0) {
-                try {
-                    Thread.sleep(delayMillis);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-            return chunk.stream().map(token -> new PushResult(false, token)).toList();
+        public PushResult dispatch(PushMessage message, String token, long timeoutMs) {
+            this.lastToken = token;
+            this.lastTimeoutMs = timeoutMs;
+            return result;
         }
     }
 }

@@ -9,6 +9,7 @@ import watoo.grd.nextroute.domain.push.entity.UserPushToken;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 알림 발송 주소록.
@@ -93,10 +94,31 @@ public interface UserPushTokenRepository extends JpaRepository<UserPushToken, Lo
                    @Param("now") LocalDateTime now);
 
     /**
-     * 발송 대상(Phase 5 PR2·PR3). 조건이 둘 다 필요하다 — 사용자가 해제한 것도, provider 가
+     * 살아 있는 발송 대상 전부. 조건이 둘 다 필요하다 — 사용자가 해제한 것도, provider 가
      * 죽었다고 답한 것도 보내면 안 된다.
+     *
+     * <p>발송 경로는 이 목록이 아니라
+     * {@link #findFirstByUserIdAndEnabledTrueAndDeletedAtIsNullOrderByLastSeenAtDescIdDesc}
+     * 를 쓴다. 이 메서드는 표의 상태를 통째로 보는 검증·운영 조회용이다.
      */
     List<UserPushToken> findByUserIdAndEnabledTrueAndDeletedAtIsNull(Long userId);
+
+    /**
+     * <b>발송 대상 한 대.</b> 가장 최근에 등록한 살아 있는 token 하나를 고른다.
+     *
+     * <p>표는 사용자당 여러 행을 허용하지만(V39) <b>알림은 기기 한 대에만 보낸다</b>. 같은 알림을
+     * 폰과 태블릿에 동시에 띄우는 것이 요구사항이 아니고, 여러 대에 보내면 행 하나의 결말을
+     * 기기별 결과에서 접어야 해 규칙이 크게 늘어난다(부분 실패 판정·순서 보존·대량 비활성화 방어).
+     *
+     * <p>기준은 {@code last_seen_at} 이다. 앱이 가장 최근에 등록한 기기가 사용자가 지금 들고
+     * 있는 기기일 가능성이 가장 높다. 같은 시각이면 나중에 만들어진 행이 이긴다.
+     *
+     * <p>고른 token 이 죽어 있으면 그 알림 한 건은 실패한다. 다만 그 응답이
+     * {@code UNREGISTERED} 면 그 행을 꺼 두므로 다음 알림부터는 그다음 기기가 대상이 된다.
+     */
+    Optional<UserPushToken>
+            findFirstByUserIdAndEnabledTrueAndDeletedAtIsNullOrderByLastSeenAtDescIdDesc(
+                    Long userId);
 
     /**
      * provider 가 {@code UNREGISTERED} 라고 답한 token 을 끈다.

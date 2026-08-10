@@ -3,9 +3,7 @@ package watoo.grd.nextroute.application.journey.notification;
 import watoo.grd.nextroute.application.journey.port.out.FirebaseMessagingClient;
 import watoo.grd.nextroute.application.journey.port.out.PushMessage;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -17,7 +15,7 @@ import java.util.Map;
 class FakeFirebaseMessagingClient implements FirebaseMessagingClient {
 
     private final Map<String, String> failures = new HashMap<>();
-    private final List<String> lastTokens = new ArrayList<>();
+    private String lastToken;
     private int callCount;
 
     /** @param errorCode {@code MessagingErrorCode} 이름. 예: {@code UNREGISTERED} */
@@ -27,12 +25,12 @@ class FakeFirebaseMessagingClient implements FirebaseMessagingClient {
 
     synchronized void reset() {
         failures.clear();
-        lastTokens.clear();
+        lastToken = null;
         callCount = 0;
     }
 
-    synchronized List<String> lastTokens() {
-        return List.copyOf(lastTokens);
+    synchronized String lastToken() {
+        return lastToken;
     }
 
     synchronized int callCount() {
@@ -40,14 +38,11 @@ class FakeFirebaseMessagingClient implements FirebaseMessagingClient {
     }
 
     @Override
-    public synchronized List<PushResult> send(PushMessage message, List<String> tokens) {
+    public synchronized PushResult send(PushMessage message, String token) {
         callCount++;
-        lastTokens.clear();
-        lastTokens.addAll(tokens);
-        return tokens.stream()
-                .map(token -> failures.containsKey(token)
-                        ? PushResult.failed(failures.get(token))
-                        : PushResult.ok())
-                .toList();
+        lastToken = token;
+        return failures.containsKey(token)
+                ? PushResult.failed(failures.get(token))
+                : PushResult.ok();
     }
 }

@@ -134,14 +134,6 @@ public class JourneyNotificationProperties {
         /** provider 가 메시지를 들고 있을 시간의 천장. outbox 의 {@code max-ttl-seconds} 이하여야 한다. */
         private long ttlMaxSeconds = 1800;
 
-        /**
-         * 한 번의 발송에서 끌 수 있는 token 수의 상한. 넘으면 <b>하나도 끄지 않고</b> 경고만 남긴다.
-         *
-         * <p>그 규모의 동시 {@code UNREGISTERED} 는 token 문제가 아니라 우리 쪽 사고다. 상한이
-         * 없으면 사고 한 번이 주소록을 통째로 지운다.
-         */
-        private int deactivateMaxPerSend = 50;
-
         public Duration timeout() {
             return Duration.ofMillis(timeoutMs);
         }
@@ -182,8 +174,7 @@ public class JourneyNotificationProperties {
     }
 
     private void validateFcm() {
-        if (fcm.getTimeoutMs() <= 0 || fcm.getTtlMaxSeconds() <= 0
-                || fcm.getDeactivateMaxPerSend() <= 0) {
+        if (fcm.getTimeoutMs() <= 0 || fcm.getTtlMaxSeconds() <= 0) {
             throw new IllegalStateException("journey.notification.fcm 설정은 모두 0 보다 커야 한다");
         }
         // 단위를 맞춘 비교다. 5000(밀리초)과 3(분)을 숫자로 견주면 정상 설정이 부팅에서 죽는다.

@@ -24,7 +24,6 @@ public class JourneyNotificationMetrics {
     public static final String SENT = "journey.notification.sent";
     public static final String FAILED = "journey.notification.failed";
     public static final String CANCELED = "journey.notification.canceled";
-    public static final String PUSH_TOKENS = "journey.notification.push.tokens";
     public static final String TOKEN_DEACTIVATED = "journey.notification.push.token.deactivated";
     public static final String NO_ACTIVE_TOKEN = "journey.notification.push.no.active.token";
 
@@ -59,18 +58,6 @@ public class JourneyNotificationMetrics {
      */
     public void recordCanceled(String reason) {
         registry.counter(CANCELED, "reason", reason).increment();
-    }
-
-    /**
-     * 기기 단위 발송 결과. 행 단위({@link #SENT}·{@link #FAILED})와 <b>따로</b> 센다 — 사용자가
-     * 기기 셋 중 하나만 못 받은 상황은 행 지표에 안 보인다.
-     *
-     * @param outcome {@code success}·{@code transient}·{@code permanent}
-     */
-    public void recordPushTokens(String outcome, int count) {
-        if (count > 0) {
-            registry.counter(PUSH_TOKENS, "outcome", outcome).increment(count);
-        }
     }
 
     /**

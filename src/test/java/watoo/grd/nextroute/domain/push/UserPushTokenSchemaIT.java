@@ -214,25 +214,38 @@ class UserPushTokenSchemaIT {
     @Test
     @DisplayName("발송 대상은 disabled 도 soft delete 도 제외한다")
     void sendTargetsExcludeDisabledAndDeleted() {
-        Long live = register(userId, TOKEN, Instant.now());
+        Long live = register(userId, TOKEN, Instant.now().minusSeconds(600));
         Long disabled = register(userId, TOKEN + "-b", Instant.now());
         Long deleted = register(userId, TOKEN + "-c", Instant.now());
         jdbcTemplate.update("update user_push_token set enabled = false where id = ?", disabled);
         jdbcTemplate.update("update user_push_token set deleted_at = now() where id = ?", deleted);
 
-        List<UserPushToken> targets =
-                repository.findByUserIdAndEnabledTrueAndDeletedAtIsNull(userId);
-
-        assertThat(targets).extracting(UserPushToken::getId).containsExactly(live);
+        assertThat(repository.findByUserIdAndEnabledTrueAndDeletedAtIsNull(userId))
+                .extracting(UserPushToken::getId).containsExactly(live);
+        assertThat(sendTarget()).map(UserPushToken::getId)
+                .as("더 최근이어도 꺼졌거나 해제된 행은 대상이 아니다")
+                .contains(live);
     }
 
     @Test
-    @DisplayName("사용자당 여러 기기를 허용한다")
-    void allowsMultipleTokensPerUser() {
-        register(userId, TOKEN + "-1", Instant.now());
-        register(userId, TOKEN + "-2", Instant.now());
+    @DisplayName("사용자당 여러 기기를 허용하되 발송 대상은 가장 최근 등록 하나다")
+    void allowsMultipleTokensButSendsToLatest() {
+        register(userId, TOKEN + "-1", Instant.now().minus(2, ChronoUnit.HOURS));
+        Long newest = register(userId, TOKEN + "-2", Instant.now());
 
         assertThat(repository.findByUserIdAndEnabledTrueAndDeletedAtIsNull(userId)).hasSize(2);
+        assertThat(sendTarget()).map(UserPushToken::getId)
+                .as("알림은 기기 한 대에만 간다 — 기준은 last_seen_at")
+                .contains(newest);
+    }
+
+    @Test
+    @DisplayName("살아 있는 token 이 없으면 발송 대상도 없다")
+    void noLiveTokenMeansNoTarget() {
+        Long id = register(userId, TOKEN, Instant.now());
+        jdbcTemplate.update("update user_push_token set enabled = false where id = ?", id);
+
+        assertThat(sendTarget()).isEmpty();
     }
 
     // ---------------------------------------------------------------- 조건부 비활성화
@@ -368,6 +381,13 @@ class UserPushTokenSchemaIT {
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /** 발송 경로가 실제로 부르는 조회 — 가장 최근에 등록한 살아 있는 token 하나. */
+    private java.util.Optional<UserPushToken> sendTarget() {
+        return repository
+                .findFirstByUserIdAndEnabledTrueAndDeletedAtIsNullOrderByLastSeenAtDescIdDesc(
+                        userId);
+    }
 
     private long insertUser() {
         return jdbcTemplate.queryForObject(

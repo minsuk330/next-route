@@ -43,7 +43,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * outbox 행 하나가 FCM 까지 가는 전 구간. SDK 만 가짜다.
  *
  * <p>단위 테스트가 분류 규칙을 잠그고, 여기서는 그 판정이 <b>DB 에 실제로 반영되는지</b>를 본다 —
- * 죽은 token 이 정말 꺼지는가, 일시 실패가 정말 다시 대기로 돌아가는가.
+ * 발송 대상이 정말 최신 기기 하나인가, 죽은 token 이 정말 꺼지는가, 일시 실패가 정말 다시
+ * 대기로 돌아가는가.
  *
  * <p>relay 루프 빈은 띄우지 않는다. {@code relay.enabled=true} + {@code sender=noop} 조합을
  * 부팅에서 막기 때문에, 루프 대신 {@link JourneyNotificationRelayService} 를 직접 부른다.
@@ -139,75 +140,78 @@ class JourneyNotificationFcmRelayIT extends AbstractJourneyOutboxPostgresIT {
     }
 
     @Test
-    @DisplayName("살아 있는 token 전부에 한 번에 보내고 행은 SENT 로 끝난다")
-    void sendsToEveryActiveToken() {
-        insertToken("token-a");
-        insertToken("token-b");
+    @DisplayName("가장 최근에 등록한 기기 한 대에만 보내고 행은 SENT 로 끝난다")
+    void sendsToMostRecentTokenOnly() {
+        insertToken("token-old", NOW.minusSeconds(7200));
+        insertToken("token-new", NOW.minusSeconds(60));
         long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(600));
 
         relayService.drainUntilEmpty();
 
-        assertThat(client.lastTokens()).containsExactlyInAnyOrder("token-a", "token-b");
-        assertThat(client.callCount()).as("행 하나 = 사용자 × 채널. token 마다 부르지 않는다")
-                .isEqualTo(1);
+        assertThat(client.lastToken())
+                .as("사용자가 지금 들고 있을 가능성이 가장 높은 기기다")
+                .isEqualTo("token-new");
+        assertThat(client.callCount()).isEqualTo(1);
         assertThat(statusOf(id)).isEqualTo("SENT");
     }
 
     @Test
-    @DisplayName("죽은 token 은 DB 에서 실제로 꺼지고 행은 그대로 SENT 다")
-    void deadTokenIsDisabledInDatabase() {
-        long alive = insertToken("token-alive");
-        long dead = insertToken("token-dead");
+    @DisplayName("죽은 token 은 DB 에서 실제로 꺼지고 다음 발송은 그다음 기기로 간다")
+    void deadTokenIsDisabledAndNextSendFallsBack() {
+        long older = insertToken("token-old", NOW.minusSeconds(7200));
+        long newest = insertToken("token-dead", NOW.minusSeconds(60));
         client.fail("token-dead", "UNREGISTERED");
-        long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(600));
+        long first = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(600));
 
         relayService.drainUntilEmpty();
 
-        assertThat(statusOf(id)).as("한 대라도 접수됐으면 SENT 다").isEqualTo("SENT");
-        assertThat(enabledOf(dead)).isFalse();
-        assertThat(enabledOf(alive)).isTrue();
-        assertThat(tokenRepository.findByUserIdAndEnabledTrueAndDeletedAtIsNull(userId))
-                .as("다음 발송부터는 대상에서 빠진다")
-                .hasSize(1);
+        assertThat(statusOf(first)).as("사용자는 아무것도 못 받았다").isEqualTo("FAILED");
+        assertThat(reasonOf(first)).isEqualTo("fcm: UNREGISTERED");
+        assertThat(enabledOf(newest)).isFalse();
+        assertThat(enabledOf(older)).isTrue();
+
+        // 그다음 알림은 살아 있는 기기로 간다 — 죽은 행이 대상에서 빠졌기 때문이다.
+        long second = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(600));
+        relayService.drainUntilEmpty();
+
+        assertThat(client.lastToken()).isEqualTo("token-old");
+        assertThat(statusOf(second)).isEqualTo("SENT");
     }
 
     @Test
     @DisplayName("설정 오류로 보이는 실패는 token 을 끄지 않는다")
-    void configurationErrorKeepsTokens() {
-        long id1 = insertToken("token-a");
-        long id2 = insertToken("token-b");
+    void configurationErrorKeepsToken() {
+        long tokenId = insertToken("token-a", NOW.minusSeconds(60));
         client.fail("token-a", "SENDER_ID_MISMATCH");
-        client.fail("token-b", "SENDER_ID_MISMATCH");
         long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(600));
 
         relayService.drainUntilEmpty();
 
-        assertThat(statusOf(id)).as("아무도 못 받았다").isEqualTo("FAILED");
-        assertThat(enabledOf(id1)).as("설정 실수 한 번이 주소록을 지우면 안 된다").isTrue();
-        assertThat(enabledOf(id2)).isTrue();
+        assertThat(statusOf(id)).isEqualTo("FAILED");
+        assertThat(enabledOf(tokenId))
+                .as("서버 자격증명 문제로 주소록을 지우면 안 된다")
+                .isTrue();
     }
 
     @Test
-    @DisplayName("일시 실패는 성공이 섞여 있어도 대기로 돌아가고 시각이 밀린다")
+    @DisplayName("일시 실패는 대기로 돌아가고 시각이 밀린다")
     void transientFailureReturnsToPending() {
-        insertToken("token-a");
-        insertToken("token-b");
-        client.fail("token-b", "UNAVAILABLE");
+        long tokenId = insertToken("token-a", NOW.minusSeconds(60));
+        client.fail("token-a", "UNAVAILABLE");
         long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(1800));
 
         relayService.drainUntilEmpty();
 
-        assertThat(statusOf(id))
-                .as("SENT 로 끝내면 token-b 기기는 영원히 못 받는다")
-                .isEqualTo("PENDING");
+        assertThat(statusOf(id)).isEqualTo("PENDING");
         assertThat(scheduledAtOf(id)).isEqualTo(NOW.plusSeconds(properties.getBackoffSeconds()));
         assertThat(attemptCountOf(id)).isEqualTo(1);
+        assertThat(enabledOf(tokenId)).as("일시 실패로 token 을 끄지 않는다").isTrue();
     }
 
     @Test
     @DisplayName("보낼 곳이 없으면 재시도 없이 FAILED 다")
     void noActiveTokenIsFinal() {
-        long disabled = insertToken("token-off");
+        long disabled = insertToken("token-off", NOW.minusSeconds(60));
         jdbcTemplate.update("update user_push_token set enabled = false where id = ?", disabled);
         long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(600));
 
@@ -216,18 +220,19 @@ class JourneyNotificationFcmRelayIT extends AbstractJourneyOutboxPostgresIT {
         assertThat(client.callCount()).isZero();
         assertThat(statusOf(id)).isEqualTo("FAILED");
         assertThat(reasonOf(id)).isEqualTo("no-active-token");
+        assertThat(tokenRepository.findByUserIdAndEnabledTrueAndDeletedAtIsNull(userId)).isEmpty();
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────
 
-    private long insertToken(String token) {
+    private long insertToken(String token, Instant lastSeenAt) {
         return jdbcTemplate.queryForObject("""
                 insert into user_push_token
                     (created_at, updated_at, user_id, platform, provider, token, environment,
                      enabled, last_seen_at)
                 values (now(), now(), ?, 'ANDROID', 'FCM', ?, 'PRODUCTION', true, ?)
                 returning id
-                """, Long.class, userId, token, Timestamp.from(NOW.minusSeconds(3600)));
+                """, Long.class, userId, token, Timestamp.from(lastSeenAt));
     }
 
     private long enqueue(Instant scheduledAt, Instant expiresAt) {
