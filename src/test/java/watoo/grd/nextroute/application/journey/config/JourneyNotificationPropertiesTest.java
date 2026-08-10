@@ -88,4 +88,52 @@ class JourneyNotificationPropertiesTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("channel-resolver");
     }
+
+    @Test
+    @DisplayName("sender=fcm 인데 자격증명 경로가 비면 막는다")
+    void fcmWithoutCredentialsIsRejected() {
+        JourneyNotificationProperties properties = properties();
+        properties.setSender("fcm");
+
+        assertThatThrownBy(() -> validate(properties))
+                .as("켠다고 해 놓고 조용히 아무것도 안 보내는 상태가 가장 나쁘다")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("credentials-path");
+    }
+
+    @Test
+    @DisplayName("자격증명이 있으면 fcm 기본값 조합도 통과한다")
+    void fcmDefaultsPassWithCredentials() {
+        JourneyNotificationProperties properties = properties();
+        properties.setSender("fcm");
+        properties.getFcm().setCredentialsPath("/secrets/firebase.json");
+
+        assertThatCode(() -> validate(properties))
+                .as("타임아웃 5,000ms 와 회수 주기 3분을 숫자로 견주면(5000*2 < 3) 정상 설정이 죽는다")
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("발송 타임아웃 × 2 가 회수 주기를 넘으면 막는다")
+    void sendTimeoutMustFitInsideClaimTimeout() {
+        JourneyNotificationProperties properties = properties();
+        properties.getFcm().setTimeoutMs(properties.claimTimeout().toMillis());
+
+        assertThatThrownBy(() -> validate(properties))
+                .as("길면 아직 발송 중인 행을 회수 루프가 다시 집어 가 같은 알림이 두 번 나간다")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("회수 주기");
+    }
+
+    @Test
+    @DisplayName("provider TTL 상한이 outbox 만료 상한보다 크면 막는다")
+    void providerTtlCannotOutliveOutboxTtl() {
+        JourneyNotificationProperties properties = properties();
+        properties.getFcm().setTtlMaxSeconds(properties.getMaxTtlSeconds() + 1);
+
+        assertThatThrownBy(() -> validate(properties))
+                .as("provider 가 outbox 보다 오래 들고 있으면 만료된 알림이 나중에 도착한다")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ttl-max-seconds");
+    }
 }

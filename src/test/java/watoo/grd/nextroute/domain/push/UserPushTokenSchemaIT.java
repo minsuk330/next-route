@@ -214,25 +214,100 @@ class UserPushTokenSchemaIT {
     @Test
     @DisplayName("발송 대상은 disabled 도 soft delete 도 제외한다")
     void sendTargetsExcludeDisabledAndDeleted() {
-        Long live = register(userId, TOKEN, Instant.now());
+        Long live = register(userId, TOKEN, Instant.now().minusSeconds(600));
         Long disabled = register(userId, TOKEN + "-b", Instant.now());
         Long deleted = register(userId, TOKEN + "-c", Instant.now());
         jdbcTemplate.update("update user_push_token set enabled = false where id = ?", disabled);
         jdbcTemplate.update("update user_push_token set deleted_at = now() where id = ?", deleted);
 
-        List<UserPushToken> targets =
-                repository.findByUserIdAndEnabledTrueAndDeletedAtIsNull(userId);
-
-        assertThat(targets).extracting(UserPushToken::getId).containsExactly(live);
+        assertThat(repository.findByUserIdAndEnabledTrueAndDeletedAtIsNull(userId))
+                .extracting(UserPushToken::getId).containsExactly(live);
+        assertThat(sendTarget()).map(UserPushToken::getId)
+                .as("더 최근이어도 꺼졌거나 해제된 행은 대상이 아니다")
+                .contains(live);
     }
 
     @Test
-    @DisplayName("사용자당 여러 기기를 허용한다")
-    void allowsMultipleTokensPerUser() {
-        register(userId, TOKEN + "-1", Instant.now());
-        register(userId, TOKEN + "-2", Instant.now());
+    @DisplayName("사용자당 여러 기기를 허용하되 발송 대상은 가장 최근 등록 하나다")
+    void allowsMultipleTokensButSendsToLatest() {
+        register(userId, TOKEN + "-1", Instant.now().minus(2, ChronoUnit.HOURS));
+        Long newest = register(userId, TOKEN + "-2", Instant.now());
 
         assertThat(repository.findByUserIdAndEnabledTrueAndDeletedAtIsNull(userId)).hasSize(2);
+        assertThat(sendTarget()).map(UserPushToken::getId)
+                .as("알림은 기기 한 대에만 간다 — 기준은 last_seen_at")
+                .contains(newest);
+    }
+
+    @Test
+    @DisplayName("살아 있는 token 이 없으면 발송 대상도 없다")
+    void noLiveTokenMeansNoTarget() {
+        Long id = register(userId, TOKEN, Instant.now());
+        jdbcTemplate.update("update user_push_token set enabled = false where id = ?", id);
+
+        assertThat(sendTarget()).isEmpty();
+    }
+
+    // ---------------------------------------------------------------- 조건부 비활성화
+
+    @Test
+    @DisplayName("관측한 소유자·lastSeenAt 이 그대로면 끈다")
+    void deactivateTurnsOffObservedRow() {
+        Instant seenAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Long id = register(userId, TOKEN, seenAt);
+
+        int affected = tx.execute(s -> repository.deactivate(
+                id, userId, seenAt, LocalDateTime.now()));
+
+        assertThat(affected).isEqualTo(1);
+        assertThat(repository.findById(id).orElseThrow().isEnabled()).isFalse();
+        assertThat(repository.findByUserIdAndEnabledTrueAndDeletedAtIsNull(userId)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("발송 도중 재등록된 행은 끄지 않는다")
+    void deactivateSkipsReRegisteredRow() {
+        Instant observed = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MILLIS);
+        Long id = register(userId, TOKEN, observed);
+        // provider 응답을 기다리는 사이에 앱이 같은 token 을 다시 등록했다.
+        register(userId, TOKEN, Instant.now().truncatedTo(ChronoUnit.MILLIS));
+
+        int affected = tx.execute(s -> repository.deactivate(
+                id, userId, observed, LocalDateTime.now()));
+
+        assertThat(affected).as("0행은 정상이다 — 더 새로운 등록이 이겼다").isZero();
+        assertThat(repository.findById(id).orElseThrow().isEnabled())
+                .as("조건이 없으면 방금 등록한 기기를 꺼 버린다")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("소유자가 바뀐 행은 끄지 않는다")
+    void deactivateSkipsHandedOverRow() {
+        Instant seenAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Long id = register(userId, TOKEN, seenAt);
+        register(otherUserId, TOKEN, seenAt);
+
+        int affected = tx.execute(s -> repository.deactivate(
+                id, userId, seenAt, LocalDateTime.now()));
+
+        assertThat(affected).isZero();
+        assertThat(repository.findById(id).orElseThrow().isEnabled())
+                .as("기기를 물려받은 새 소유자의 알림까지 끊긴다")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("이미 해제한 token 은 끄기 대상이 아니다")
+    void deactivateIgnoresSoftDeletedRow() {
+        Instant seenAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Long id = register(userId, TOKEN, seenAt);
+        tx.execute(s -> repository.unregister(userId, TOKEN, LocalDateTime.now()));
+
+        int affected = tx.execute(s -> repository.deactivate(
+                id, userId, seenAt, LocalDateTime.now()));
+
+        assertThat(affected).isZero();
     }
 
     // ---------------------------------------------------------------- 값 제약
@@ -306,6 +381,13 @@ class UserPushTokenSchemaIT {
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /** 발송 경로가 실제로 부르는 조회 — 가장 최근에 등록한 살아 있는 token 하나. */
+    private java.util.Optional<UserPushToken> sendTarget() {
+        return repository
+                .findFirstByUserIdAndEnabledTrueAndDeletedAtIsNullOrderByLastSeenAtDescIdDesc(
+                        userId);
+    }
 
     private long insertUser() {
         return jdbcTemplate.queryForObject(
