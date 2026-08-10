@@ -29,7 +29,7 @@ public class JourneyRelayWaker {
     }
 
     /**
-     * 신호나 시간 초과까지 기다린다.
+     * 새 알림이 들어올때까지 대기, 신호 또는 timeout으로 깨어나는 함수다.
      *
      * @return 신호를 받았으면 true, 시간 초과(= sweep 시점)면 false
      */

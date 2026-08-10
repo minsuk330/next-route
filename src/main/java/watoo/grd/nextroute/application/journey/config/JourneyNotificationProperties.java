@@ -4,8 +4,6 @@ import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.context.EnvironmentAware;
-import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -30,7 +28,7 @@ import java.util.Set;
 @Setter
 @Component
 @ConfigurationProperties(prefix = "journey.notification")
-public class JourneyNotificationProperties implements EnvironmentAware {
+public class JourneyNotificationProperties {
 
     private static final Set<String> KNOWN_SENDERS = Set.of("noop", "fcm");
     private static final Set<String> KNOWN_CHANNEL_RESOLVERS = Set.of("fixed", "identity");
@@ -81,13 +79,6 @@ public class JourneyNotificationProperties implements EnvironmentAware {
 
     private final Relay relay = new Relay();
 
-    private Environment environment;
-
-    @Override
-    public void setEnvironment(Environment environment) {
-        this.environment = environment;
-    }
-
     @Getter
     @Setter
     public static class Relay {
@@ -130,16 +121,11 @@ public class JourneyNotificationProperties implements EnvironmentAware {
         if (!KNOWN_CHANNEL_RESOLVERS.contains(channelResolver)) {
             throw new IllegalStateException("모르는 channel-resolver: " + channelResolver);
         }
-        if (relay.isEnabled() && "noop".equals(sender) && !isTestProfile()) {
+        if (relay.isEnabled() && "noop".equals(sender)) {
             throw new IllegalStateException(
                     "relay 를 켜면서 sender 를 noop 으로 두면 안 된다. 진짜 알림 행을 아무 데도 "
                             + "보내지 않은 채 SENT 로 소모해, 나중에 실제 발송을 영영 막는다");
         }
-    }
-
-    /** 테스트는 relay 를 켜고 가짜 sender 로 전 구간을 돌려야 한다. */
-    private boolean isTestProfile() {
-        return environment != null && environment.matchesProfiles("test");
     }
 
     public Duration minTtl() {

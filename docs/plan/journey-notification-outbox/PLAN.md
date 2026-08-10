@@ -124,8 +124,8 @@ PROCESSING 은 못 막는다 — `loadTask` 재확인이 안전망(§5.7).
 
 ### 2.5 `relay.enabled=true` + `sender=noop` 은 부팅에서 막는다
 
-진짜 알림 행을 SENT 로 소모해 나중에 진짜 발송을 막는다. `@PostConstruct` 에서 거절한다
-(`test` 프로필 제외).
+진짜 알림 행을 SENT 로 소모해 나중에 진짜 발송을 막는다. `@PostConstruct` 에서 거절한다.
+프로필 예외는 없다 — 알림 IT 는 relay 서비스를 직접 만들어 돌리므로 이 조합이 필요 없다.
 
 ### 2.6 sender 가 던지는 모든 예외를 삼킨다
 
@@ -797,7 +797,7 @@ journey:
 |---|---|
 | `minTtl > 0`, `maxTtl >= defaultTtl >= minTtl` | 순서 뒤집힘 |
 | **`backoffSeconds * maxAttempts <= minTtlSeconds`** | 만료 바닥에 걸린 행이 재시도를 한 번도 못 하면 안 된다. 60×3=180 ≤ 180 ✓. `minTtl=60` 이던 원안은 이 규칙에 걸린다(codex 지적) |
-| **`relay.enabled=true` 이면 `sender != noop`** (`test` 프로필 제외) | no-op 이 진짜 행을 SENT 로 소모해 나중에 진짜 발송을 막는다(§2.5) |
+| **`relay.enabled=true` 이면 `sender != noop`** | no-op 이 진짜 행을 SENT 로 소모해 나중에 진짜 발송을 막는다(§2.5) |
 | `sender` 가 아는 값인지 | 오타로 조용히 no-op 이 뜨는 것 방지 |
 
 ### 5.9 스위치 4개 — 기본은 전부 꺼짐 조합
