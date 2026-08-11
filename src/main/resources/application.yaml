@@ -397,6 +397,17 @@ journey:
       interval-ms: ${JOURNEY_REROUTE_EXPIRY_INTERVAL_MS:60000}
       batch-size: 200
       max-sweeps-per-tick: 5
+    trigger:
+      # "언제 찾아볼지" 판정. shadow 다 - 방아쇠가 켜져도 지표·로그만 남고 제안도 외부 호출도
+      # 만들어지지 않는다. 위 enabled(기능 플래그)와 다른 스위치인 것이 의도다:
+      # 방아쇠는 기능이 꺼져 있는 동안 발생률을 재는 것이 일이라, 둘을 묶으면 아무것도 못 잰다.
+      # 켜 두는 것이 기본값인 이유 - 하루에 몇 번 도는지 모르는 채로 ③을 켜면 요금이 먼저 온다.
+      enabled: ${JOURNEY_REROUTE_TRIGGER_ENABLED:true}
+      # 문(decision window). 환승 준비 시각까지 이 안이면 찾아봐도 되는 구간으로 본다.
+      # 이것만으로는 아무 일도 일어나지 않는다 - 실제로 찾게 만드는 것은 방아쇠다.
+      decision-window-seconds: 600
+      # 같은 환승에서 다시 찾기까지의 최소 간격. 0 이면 cooldown 없이 원시 발생률만 잰다.
+      cooldown: PT2M
   notification:
     # 알림만 끄는 스위치. 평가기는 그대로 돌고 outbox 에 쌓지만 않는다.
     enqueue-enabled: ${JOURNEY_NOTIFICATION_ENQUEUE_ENABLED:true}

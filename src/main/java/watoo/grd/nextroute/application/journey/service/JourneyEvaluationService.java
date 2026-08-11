@@ -62,6 +62,8 @@ public class JourneyEvaluationService {
     /** 이 사용자에게 어느 길로 보낼지. 평가 트랜잭션 <b>밖</b>에서 부른다. */
     private final NotificationChannelResolver channelResolver;
     private final TransferTargetApproachPolicy approachPolicy;
+    /** 재탐색 방아쇠(Phase 6 ①). 지금은 세기만 한다 — 제안을 만들지 않는다. */
+    private final RerouteTriggerEvaluator triggerEvaluator;
     private final Clock clock;
 
     /** 평가기 몫의 provider 동시 호출 수. 워커 스레드 수와 분리하는 장치다. */
@@ -107,6 +109,10 @@ public class JourneyEvaluationService {
         if (!stored) {
             return Report.lostClaim();
         }
+        // 소유권을 확인한 뒤에만 방아쇠를 본다. 앞에 두면 lease 를 잃은 워커가 cooldown 을 태워
+        // 이긴 워커의 방아쇠를 먹는다(알림이 CAS 뒤에 오는 것과 같은 이유). 트랜잭션 밖이라
+        // cooldown 확인이 DB 커넥션을 붙잡지 않는다.
+        triggerEvaluator.evaluate(context, batch, now);
         return new Report(Result.EVALUATED, batch.assessments(), batch.upstreamBlocked());
     }
 
