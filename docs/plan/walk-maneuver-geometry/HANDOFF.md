@@ -170,25 +170,45 @@ GET /api/journeys/{journeyId}/navigation-geometry?routeRevision={n}
 
 ## 3. TMAP `turnType` → `type` 매핑표
 
+출처: TMAP 공식 문서 「경로안내 샘플예제」의 **보행자** 응답 스펙(`https://tmap-skopenapi.readme.io/reference/경로안내-샘플예제`). 자동차 경로안내 표와 코드 뜻이 다르다.
+
 서버가 이미 변환해서 내려주므로 앱은 `type`만 보면 된다. 참고용.
 
-| turnType | type | 비고 |
+| turnType | 원문 뜻 | type |
 | --- | --- | --- |
-| 11 | `STRAIGHT` | 직진 |
-| 12 | `LEFT` | 좌회전 |
-| 13 | `RIGHT` | 우회전 |
-| 14 | `UTURN` | 유턴 |
-| 16 | `SHARP_LEFT` | 8시 방향 |
-| 17 | `SLIGHT_LEFT` | 10시 방향 |
-| 18 | `SLIGHT_RIGHT` | 2시 방향 |
-| 19 | `SHARP_RIGHT` | 4시 방향 |
-| 184, 185 | `STRAIGHT` | 경유지 계열 |
-| 125~131 | `STRAIGHT` | 육교·지하보도·계단·경사로·보행자전용도로·횡단보도 등 시설 진입. 시설 이름은 `instruction`에 있다 |
-| 200 | `DEPART` | 출발 (`pointType == "SP"`) |
-| 201 | `ARRIVE` | 도착 (`pointType == "EP"`) |
-| 그 외 | `UNKNOWN` | 표에 없는 코드. 추측해서 방향을 만들지 않는다 |
+| 1~7 | 안내 없음 | `STRAIGHT` |
+| 11 | 직진 | `STRAIGHT` |
+| 12 | 좌회전 | `LEFT` |
+| 13 | 우회전 | `RIGHT` |
+| 14 | U-turn | `UTURN` |
+| 16 | 8시 방향 좌회전 | `SHARP_LEFT` |
+| 17 | 10시 방향 좌회전 | `SLIGHT_LEFT` |
+| 18 | 2시 방향 우회전 | `SLIGHT_RIGHT` |
+| 19 | 4시 방향 우회전 | `SHARP_RIGHT` |
+| 125 | 육교 | `STRAIGHT` |
+| 126 | 지하보도 | `STRAIGHT` |
+| 127 | 계단 진입 | `STRAIGHT` |
+| 128 | 경사로 진입 | `STRAIGHT` |
+| 129 | 계단+경사로 진입 | `STRAIGHT` |
+| 184~189 | 경유지 계열 | `STRAIGHT` |
+| 200 | 출발지 | `DEPART` |
+| 201 | 목적지 | `ARRIVE` |
+| 211 | 횡단보도 | `CROSSWALK` |
+| 212 | 좌측 횡단보도 | `CROSSWALK` |
+| 213 | 우측 횡단보도 | `CROSSWALK` |
+| 214 | 8시 방향 횡단보도 | `CROSSWALK` |
+| 215 | 10시 방향 횡단보도 | `CROSSWALK` |
+| 216 | 2시 방향 횡단보도 | `CROSSWALK` |
+| 217 | 4시 방향 횡단보도 | `CROSSWALK` |
+| 218 | 엘리베이터 | `STRAIGHT` |
+| 233 | 직진 임시 | `STRAIGHT` |
+| 그 외 | — | `UNKNOWN` |
 
-`pointType`이 `SP`/`EP`면 turnType보다 우선한다.
+`pointType`은 `SP`(출발지)·`EP`(도착지)·`PP`/`PP1`~`PP5`(경유지)·`GP`(일반 안내점)다. `SP`/`EP`는 turnType보다 우선한다.
+
+**횡단보도는 왜 따로 두나** — 코드가 7개 있고 실제 응답에 흔히 나온다(문서 샘플에도 212가 있다). 건너는 행동을 "직진"이라 부르면 거짓이라, 아이콘을 달리 줄 수 있게 `CROSSWALK`로 구분한다. 좌측·우측·대각선 구분은 `instruction` 문구에 남는다.
+
+**방향 있는 회전과 시설의 차이** — `SHARP_LEFT`(8시)는 실제로 그 방향으로 도는 것이고, `CROSSWALK`는 횡단보도를 건너는 것이다. 214~217처럼 방향이 붙은 횡단보도도 `CROSSWALK`로 통일했다 — 대각선 화살표를 그리려면 문구를 파싱해야 하고, 잘못된 화살표는 없는 화살표보다 나쁘다.
 
 ## 4. 앱이 지켜야 할 계약
 
@@ -196,5 +216,6 @@ GET /api/journeys/{journeyId}/navigation-geometry?routeRevision={n}
 - `geometrySegmentIndex`는 같은 leg의 `segments` 인덱스다. `points` 인덱스가 아니다 — `points`는 중복 좌표를 지우므로 개수가 다를 수 있다.
 - `distanceFromLegStartMeters`는 **단조 증가**한다. "다음 안내까지 남은 거리"는 이 값으로 계산한다.
 - `type == "UNKNOWN"`이면 방향 아이콘 대신 `instruction` 문구를 그대로 보여 준다.
+- `type == "CROSSWALK"`는 회전이 아니라 "횡단보도를 건넌다"다. 어느 쪽 횡단보도인지는 `instruction`에 있다.
 - `type`은 앞으로 값이 늘 수 있다. 모르는 값은 `UNKNOWN`처럼 다뤄라(하드 실패 금지).
 - 응답은 `(journeyId, routeRevision)`로 캐시한다. 개정본이 바뀌지 않는 한 안내점도 바뀌지 않는다.

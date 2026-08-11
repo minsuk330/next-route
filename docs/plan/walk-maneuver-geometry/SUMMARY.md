@@ -11,14 +11,14 @@ iOS가 Dynamic Island에 "200m 앞 좌회전"을 띄우려면 방향 정보가 �
 - anchor 기준은 dedupe된 `points`가 아니라 **원본 폴리라인**(= segment를 만든 그 리스트). 안 그러면 인덱스가 어긋난다.
 - 직선 대체(APPROXIMATE)·좌표 없음(FAILED) 도보에는 안내점을 아예 안 준다. 거짓 방향보다 없는 편이 낫다.
 - anchor 실패는 그 안내점만 버린다. 전체 응답은 200으로 나가고 `maneuvers`는 최악의 경우 빈 배열(null 아님).
-- 회전 코드는 `ManeuverType`으로 정규화해 TMAP 코드를 계약에 노출하지 않는다. 횡단보도·계단 같은 시설 코드는 `STRAIGHT`로 접고 안내 문구는 `instruction`에 남긴다.
+- 회전 코드는 `ManeuverType`으로 정규화해 TMAP 코드를 계약에 노출하지 않는다. 방향 없는 시설(육교·계단·엘리베이터)은 `STRAIGHT`로 접고, 횡단보도(코드 7개, 실측에 흔함)는 `CROSSWALK`로 따로 둔다.
 
 ## 건드는 곳
 `ManeuverType`(신규), `WalkManeuverTypeMapper`(신규), `WalkManeuverAnchorer`(신규), `JourneyNavigationGeometry`, `JourneyNavigationGeometryService`, `GeometrySegmentAllocator`, 그리고 위 3개의 테스트 + 기존 geometry 서비스/컨트롤러 테스트.
 
 ## 리스크
-- **TMAP turnType 매핑표의 실측 근거가 없다.** 레포에 실제 TMAP 응답 fixture가 없어(합성 테스트에 200/201/11만) 공식 문서 표를 쓰고 테스트로 고정한다. 미등록 코드는 UNKNOWN + 문구 노출로 흘려보낸다.
-- 시설 세부 코드(211~)가 실측에서 흔하면 UNKNOWN 비율이 높아질 수 있다. 운영 로그로 확인 후 표를 넓히는 후속.
+- turnType 매핑표는 TMAP 공식 문서 「경로안내 샘플예제」의 보행자 스펙으로 검증했다(2026-08-11). 남은 위험은 문서에 없는 코드가 실측에 나오는 경우 — UNKNOWN + 문구 노출로 흘리고 `log.debug`로 코드를 남긴다.
+- 자동차 표와 섞이면 방향이 뒤집힌다(130·131은 자동차 전용). 테스트가 130·131 → UNKNOWN을 못박아 재발을 막는다.
 
 ## 검증법
 `./gradlew test` 전체 green. 기존 geometry 서비스·컨트롤러 테스트 무수정 통과(생성자 인자 추가만), 신규 mapper·anchorer 테스트 통과, 컨트롤러 JSON에 `maneuvers` 8개 필드 노출 확인. 마이그레이션 디렉터리 무변경.

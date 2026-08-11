@@ -6,9 +6,13 @@ package watoo.grd.nextroute.application.journey.dto;
  * <p>TMAP 의 {@code turnType} 숫자를 그대로 내려보내지 않기 위해 두는 값이다. 외부 규격이 바뀌어도
  * 앱 계약은 그대로여야 한다.
  *
- * <p>횡단보도·계단·육교 같은 <b>시설 코드는 별 값을 만들지 않고 {@link #STRAIGHT} 로 접는다.</b>
- * 앱이 잃는 정보는 없다 — 안내 문구({@code instruction})에 "횡단보도를 건넌 후" 가 그대로 남는다.
- * 값을 늘리면 앱이 모르는 값을 만날 위험만 커진다.
+ * <p>육교·지하보도·계단·경사로·엘리베이터처럼 <b>방향이 없는 시설 코드는 별 값을 만들지 않고
+ * {@link #STRAIGHT} 로 접는다.</b> 앱이 잃는 정보는 없다 — 안내 문구({@code instruction})에 시설
+ * 이름이 그대로 남는다. 값을 늘리면 앱이 모르는 값을 만날 위험만 커진다.
+ *
+ * <p>횡단보도만 예외로 {@link #CROSSWALK} 를 둔다. TMAP 보행자 규격에 횡단보도 코드가 일곱 개
+ * (211~217) 있고 실제 응답에 흔히 나온다. 건너는 행동을 "직진"이라 부르면 거짓이고, 앱은 이때
+ * 아이콘을 달리 줘야 한다.
  */
 public enum ManeuverType {
 
@@ -38,6 +42,9 @@ public enum ManeuverType {
 
     /** 유턴. */
     UTURN,
+
+    /** 횡단보도를 건넌다. 어느 쪽·어느 방향 횡단보도인지는 안내 문구에 있다. */
+    CROSSWALK,
 
     /** 도착점. */
     ARRIVE,

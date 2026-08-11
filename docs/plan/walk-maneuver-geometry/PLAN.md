@@ -32,7 +32,7 @@
 3. **`maneuverIndex`는 응답 배열 내 0부터 재부여**한다. TMAP `WalkStep.index`를 그대로 쓰면 anchor 실패로 제외된 step 때문에 번호에 구멍이 남는다. TMAP index는 응답에 노출하지 않는다.
 4. **`distanceFromLegStartMeters`는 반올림하지 않은 haversine prefix sum을 마지막에 한 번만 0.1m로 반올림**한다. segment별 반올림값을 누적하면 leg 총거리와 미세 불일치가 생긴다.
 5. **anchor 실패는 전체 응답을 실패시키지 않는다.** 해당 maneuver만 제외, 최악의 경우 `maneuvers = []`. `maneuvers`는 절대 null이 아니다.
-6. **`ManeuverType`에 `DEPART`를 포함**한다 (TMAP `pointType == "SP"`, turnType 200). 시설 코드(횡단보도·육교·지하보도·계단·경사로 계열)는 별 타입을 만들지 않고 `STRAIGHT`로 접고 `instruction`(TMAP description)에 안내를 남긴다 — 앱이 "횡단보도를 건넌 후" 문구를 잃지 않도록.
+6. **`ManeuverType`에 `DEPART`를 포함**한다 (TMAP `pointType == "SP"`, turnType 200). 방향이 없는 시설 코드(육교·지하보도·계단·경사로·엘리베이터)는 별 타입을 만들지 않고 `STRAIGHT`로 접고 `instruction`(TMAP description)에 안내를 남긴다. **횡단보도(211~217)만 `CROSSWALK`로 따로 둔다** — 공식 스펙에 코드가 7개 있고 실제 응답에 흔히 나오며(문서 샘플에도 212 등장), 건너는 행동을 "직진"이라 부르면 거짓이다. 214~217처럼 방향이 붙은 횡단보도도 `CROSSWALK`로 통일한다(대각선 화살표는 문구 파싱이 필요하고, 잘못된 화살표가 없는 화살표보다 나쁘다).
 7. 조회 시 TMAP 재호출 금지. snapshot만 읽는다.
 
 ## 3. 신규 파일
@@ -63,25 +63,31 @@ public ManeuverType map(String pointType, Integer turnType)
 4. TMAP 보행자 turnType 표 (아래) 적용
 5. 미등록 코드 → `UNKNOWN`
 
-TMAP 보행자 turnType 매핑표 — **TMAP 보행자 경로안내 공식 문서 값. 레포에 실측 fixture가 없으므로 표를 테스트로 고정하는 것이 유일한 방어선이다. 구현자는 표를 코드에 상수 Map으로 두고 테스트에서 코드↔타입을 전부 단정한다.**
+TMAP 보행자 turnType 매핑표 — **출처는 TMAP 공식 문서 「경로안내 샘플예제」의 보행자 응답 스펙**(`https://tmap-skopenapi.readme.io/reference/경로안내-샘플예제`, 2026-08-11 확인). 자동차 경로안내 표와 코드 뜻이 다르므로 옮겨 쓰면 안 된다 — 130(토끼굴 진입)·131(1시 방향)은 자동차 전용이고 보행자에 없다. 표는 코드에 상수 Map으로 두고 테스트에서 코드↔타입을 전부 단정한다.
 
-| turnType | ManeuverType | 비고 |
+| turnType | 원문 | ManeuverType |
 | --- | --- | --- |
-| 11 | STRAIGHT | 직진 |
-| 12 | LEFT | 좌회전 |
-| 13 | RIGHT | 우회전 |
-| 14 | UTURN | 유턴 |
-| 16 | SHARP_LEFT | 8시 방향 좌회전 |
-| 17 | SLIGHT_LEFT | 10시 방향 좌회전 |
-| 18 | SLIGHT_RIGHT | 2시 방향 우회전 |
-| 19 | SHARP_RIGHT | 4시 방향 우회전 |
-| 184 / 185 | STRAIGHT | 경유지 계열 |
-| 125, 126, 127, 128, 129, 130, 131 | STRAIGHT | 육교·지하보도·계단·경사로·보행자전용도로·횡단보도 등 시설 진입. 결정 6에 따라 접는다 |
-| 200 | DEPART | 출발 (pointType SP로도 잡힘) |
-| 201 | ARRIVE | 도착 (pointType EP로도 잡힘) |
-| 그 외 (211~ 등 시설 세부 코드 포함) | UNKNOWN | 표에 없으면 UNKNOWN. 앱은 instruction 문구로 안내 |
+| 1~7 | 안내 없음 | STRAIGHT |
+| 11 | 직진 | STRAIGHT |
+| 12 | 좌회전 | LEFT |
+| 13 | 우회전 | RIGHT |
+| 14 | U-turn | UTURN |
+| 16 | 8시 방향 좌회전 | SHARP_LEFT |
+| 17 | 10시 방향 좌회전 | SLIGHT_LEFT |
+| 18 | 2시 방향 우회전 | SLIGHT_RIGHT |
+| 19 | 4시 방향 우회전 | SHARP_RIGHT |
+| 125~129 | 육교·지하보도·계단·경사로·계단+경사로 진입 | STRAIGHT |
+| 184~189 | 경유지 계열 | STRAIGHT |
+| 200 | 출발지 | DEPART (pointType SP로도 잡힘) |
+| 201 | 목적지 | ARRIVE (pointType EP로도 잡힘) |
+| 211~217 | 횡단보도 / 좌측·우측 / 8시·10시·2시·4시 방향 횡단보도 | CROSSWALK |
+| 218 | 엘리베이터 | STRAIGHT |
+| 233 | 직진 임시 | STRAIGHT |
+| 그 외 | — | UNKNOWN |
 
-주의: 211 이상 시설 세부 코드가 실측에서 자주 보이면 UNKNOWN이 흔해진다. 구현 중 미등록 코드를 만나면 `log.debug`로 코드를 남겨(개인정보 없음) 나중에 표를 넓힐 근거를 만든다. 표를 추측으로 늘리지 말 것.
+pointType: SP(출발지)·EP(도착지)·PP·PP1~PP5(경유지)·GP(일반 안내점).
+
+미등록 코드를 만나면 `log.debug`로 코드 숫자만 남긴다(개인정보 없음). 표를 추측으로 늘리지 말 것.
 
 ### 3.3 `src/main/java/watoo/grd/nextroute/application/journey/service/WalkManeuverAnchorer.java`
 
