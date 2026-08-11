@@ -109,11 +109,30 @@ public class JourneyEvaluationService {
         if (!stored) {
             return Report.lostClaim();
         }
-        // 소유권을 확인한 뒤에만 방아쇠를 본다. 앞에 두면 lease 를 잃은 워커가 cooldown 을 태워
-        // 이긴 워커의 방아쇠를 먹는다(알림이 CAS 뒤에 오는 것과 같은 이유). 트랜잭션 밖이라
-        // cooldown 확인이 DB 커넥션을 붙잡지 않는다.
-        triggerEvaluator.evaluate(context, batch, now);
+        evaluateRerouteTrigger(context, batch, now);
         return new Report(Result.EVALUATED, batch.assessments(), batch.upstreamBlocked());
+    }
+
+    /**
+     * 재탐색 방아쇠를 본다. <b>소유권을 확인한 뒤·트랜잭션 밖</b>이다.
+     *
+     * <p>순서가 중요하다 — 앞에 두면 lease 를 잃은 워커가 cooldown 을 태워 이긴 워커의 방아쇠를
+     * 먹는다(알림이 CAS 뒤에 오는 것과 같은 이유). 트랜잭션 밖인 것은 cooldown 확인이 DB
+     * 커넥션을 붙잡지 않게 하기 위해서다.
+     *
+     * <p><b>예외를 삼킨다.</b> 이 시점에는 판정·예측이 <b>이미 커밋됐다</b>. 여기서 던지면
+     * {@code JourneyDueEvaluatorScheduler.evaluateOne} 이 그것을 잡아 성공한 평가를
+     * {@code storage}·{@code transient} 실패로 기록한다 — 지표가 거짓말을 하고, 진짜 저장 실패
+     * 신호가 그 밑에 묻힌다. 방아쇠는 관측일 뿐이라 실패해도 여정은 멀쩡해야 한다.
+     */
+    private void evaluateRerouteTrigger(JourneyEvaluationContext context,
+                                        TransferAssessmentBatch batch, Instant now) {
+        try {
+            triggerEvaluator.evaluate(context, batch, now);
+        } catch (Exception e) {
+            log.warn("[JourneyEvaluation] 재탐색 방아쇠 판정 실패 — journeyId={}: {}",
+                    context.journeyId(), e.getMessage());
+        }
     }
 
     /**

@@ -155,6 +155,30 @@ class RerouteTriggerPolicyTest {
         }
 
         @Test
+        @DisplayName("다음 차로 여유 있게 가면 방아쇠가 아니다")
+        void comfortableAfterMissIsNotATrigger() {
+            TransferRiskAssessment before = withNextBus(
+                    TransferStatus.CATCHABLE, NOW.minusSeconds(30));
+
+            assertThat(signals(before, at(TransferStatus.COMFORTABLE)))
+                    .as("찾아 봐야 최소 개선폭을 못 넘긴다. 아무것도 못 내놓고 요금만 쓴다")
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("다음 차가 빠듯하면 방아쇠다")
+        void catchableAfterMissStillFires() {
+            TransferRiskAssessment before = withNextBus(
+                    TransferStatus.COMFORTABLE, NOW.minusSeconds(30));
+
+            assertThat(signals(before, at(TransferStatus.CATCHABLE)))
+                    .as("서두르면 되는 상황은 사용자가 다른 길을 볼 값이 있다")
+                    .singleElement()
+                    .extracting(RerouteTriggerSignal::reason)
+                    .isEqualTo(RerouteTriggerSignal.Reason.TARGET_PASSED);
+        }
+
+        @Test
         @DisplayName("직전이 UNKNOWN 이면 통과 판정을 하지 않는다")
         void unknownPreviousHasNoTarget() {
             TransferRiskAssessment before = new TransferRiskAssessment(

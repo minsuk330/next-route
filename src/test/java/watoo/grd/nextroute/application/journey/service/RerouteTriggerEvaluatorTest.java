@@ -101,6 +101,24 @@ class RerouteTriggerEvaluatorTest {
     }
 
     @Test
+    @DisplayName("cooldown 이 터져도 평가 결과를 흔들지 않는다")
+    void cooldownFailurePropagatesToCaller() {
+        RerouteTriggerEvaluator evaluator = evaluator((journeyId, revision, transferIndex) -> {
+            throw new IllegalStateException("redis down");
+        });
+
+        // 이 예외를 삼키는 것은 부르는 쪽(JourneyEvaluationService)의 책임이다. 여기서 던지는
+        // 것 자체는 계약 위반이 아니지만, 던진다는 사실을 시험으로 고정해 둔다 — 부르는 쪽의
+        // try/catch 를 나중에 걷어내면 커밋된 평가가 실패로 기록된다.
+        assertThatThrownBy(() -> evaluator.evaluate(context(), batch(TransferStatus.AT_RISK), NOW))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(count(JourneyRerouteMetrics.TRIGGER_FIRED))
+                .as("터지기 전에 켜진 것은 세어져 있어야 한다")
+                .isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("cooldown 확인은 신호가 가리키는 여정·개정본·환승으로 묻는다")
     void cooldownIsAskedWithSignalScope() {
         RerouteTriggerEvaluator evaluator = evaluator((journeyId, revision, transferIndex) -> {

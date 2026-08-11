@@ -122,7 +122,7 @@ public class RerouteTriggerPolicy {
         if (degraded(before, current)) {
             return Optional.of(RerouteTriggerSignal.Reason.DEGRADED);
         }
-        if (targetPassed(before, now)) {
+        if (targetPassed(before, current, now)) {
             return Optional.of(RerouteTriggerSignal.Reason.TARGET_PASSED);
         }
         return Optional.empty();
@@ -147,9 +147,17 @@ public class RerouteTriggerPolicy {
      *
      * <p>사용자가 이미 탔으면 {@code currentLegIndex} 가 그 대기 단계를 지나가므로 부르는 쪽의
      * {@code isUpcoming} 이 걸러 낸다.
+     *
+     * <p><b>이미 편해진 상황은 제외한다.</b> 타려던 차가 지나갔어도 다음 차로 여유 있게 갈 수
+     * 있으면({@code COMFORTABLE}) 찾아 봐야 나은 것이 없다 — ③의 최소 개선폭(300초)을 넘길 리가
+     * 없어 <b>아무것도 못 내놓고 외부 검색 요금만 쓴다.</b> 이 Phase 의 축이 "외부 검색을 안 부르는
+     * 것"이므로 여기서 거른다. {@code CATCHABLE} 은 남긴다 — 서두르면 되는 상황은 사용자가 다른
+     * 길을 볼 값이 있다.
      */
-    private boolean targetPassed(TransferRiskAssessment before, Instant now) {
+    private boolean targetPassed(TransferRiskAssessment before, TransferRiskAssessment current,
+                                 Instant now) {
         return before.status() != TransferStatus.UNKNOWN
+                && current.status() != TransferStatus.COMFORTABLE
                 && before.nextBusArrivalAt() != null
                 && before.nextBusArrivalAt().isBefore(now);
     }

@@ -41,7 +41,7 @@
 |---|---|
 | 문 | `userReadyAt - now <= 600초` **그리고** 근거가 있다(`status` ≠ `UNKNOWN` **그리고** `confidence` ≠ `UNKNOWN`) |
 | 방아쇠 ⓐ 하락 | 직전 상태보다 나빠졌고(`severity` 증가) 새 상태가 `AT_RISK` 또는 `MISSED` |
-| 방아쇠 ⓑ 통과 | 직전 판정의 `nextBusArrivalAt` 이 지났는데 사용자가 아직 그 대기 단계를 못 지났다 |
+| 방아쇠 ⓑ 통과 | 직전 판정의 `nextBusArrivalAt` 이 지났는데 사용자가 아직 그 대기 단계를 못 지났고, **지금 상태가 `COMFORTABLE` 이 아니다** |
 
 **새 상태가 `UNKNOWN` 이면 절대 방아쇠가 아니다.** 이 한 줄이 이 PR 에서 가장 중요하다 — 실시간
 API 가 흔들리면 판정이 `UNKNOWN` 으로 떨어지는데, 그것을 "나빠졌다"로 읽으면 **API 가 흔들릴
@@ -178,7 +178,12 @@ public class RerouteTriggerPolicy {
 3. **ⓐ 하락**: `current.status().severity() > previous.status().severity()` &&
    `current.status() ∈ {AT_RISK, MISSED}`
 4. **ⓑ 통과**: `previous != null` && `previous.status() != UNKNOWN` &&
-   `previous.nextBusArrivalAt() != null` && `previous.nextBusArrivalAt().isBefore(now)`
+   **`current.status() != COMFORTABLE`** && `previous.nextBusArrivalAt() != null` &&
+   `previous.nextBusArrivalAt().isBefore(now)`
+
+   `COMFORTABLE` 을 거르는 이유 — 타려던 차가 지나갔어도 다음 차로 여유 있게 갈 수 있으면
+   찾아 봐야 나은 것이 없다. ③의 최소 개선폭(300초)을 넘길 리가 없어 **아무것도 못 내놓고 외부
+   검색 요금만 쓴다.** `CATCHABLE` 은 남긴다 — 서두르면 되는 상황은 다른 길을 볼 값이 있다
 5. ⓐ·ⓑ 둘 다면 **ⓐ 하나만** 낸다 — 같은 환승에서 신호를 둘 내면 cooldown 이 하나를 삼켜
    지표가 사유별로 어긋난다. 하락이 더 구체적인 사건이므로 우선
 
@@ -258,10 +263,14 @@ log.info("[JourneyReroute] trigger journeyId={} rev={} transferIndex={} reason={
 `if (!stored) return Report.lostClaim();` **다음**(현재 109행 부근):
 
 ```java
-// 소유권을 확인한 뒤에만 방아쇠를 본다. 앞에 두면 lease 를 잃은 워커가 cooldown 을 태워
-// 이긴 워커의 방아쇠를 먹는다(알림이 CAS 뒤에 오는 것과 같은 이유).
-triggerEvaluator.evaluate(context, batch, now);
+evaluateRerouteTrigger(context, batch, now);   // private, try/catch 로 감싼다
 ```
+
+**예외를 삼키는 것이 계약이다.** 이 시점에는 판정·예측이 **이미 커밋됐다.** 여기서 던지면
+`JourneyDueEvaluatorScheduler.evaluateOne` 이 그것을 잡아 성공한 평가를 `storage`(DataAccessException)
+또는 `transient` 실패로 기록한다 — 지표가 거짓말을 하고 **진짜 저장 실패 신호가 그 밑에 묻힌다.**
+방아쇠는 관측일 뿐이라 실패해도 여정은 멀쩡해야 한다(Phase 5 의 "알림 실패가 여정을 실패로
+만들면 안 된다"와 같은 원칙).
 
 생성자에 `RerouteTriggerEvaluator` 를 더한다. 이 클래스는 테스트에서 손으로 생성되는 곳이 없다
 (`grep 'new JourneyEvaluationService(' src/test` → 0건).
@@ -339,6 +348,7 @@ triggerEvaluator.evaluate(context, batch, now);
 - **문이 닫혀 있으면 어떤 하락도 방아쇠가 아니다** — `userReadyAt` 이 700초 뒤
 - **`userReadyAt` 이 null 이면 문이 닫힌다**(GPS 끊김). `confidence == UNKNOWN` 도 마찬가지
 - 통과 판정은 **직전** 판정의 `nextBusArrivalAt` 을 본다 — 이번 판정의 값(다음 차)이 아니다
+- 통과했어도 지금이 `COMFORTABLE` 이면 방아쇠가 아니다. `CATCHABLE` 은 방아쇠다
 - 이미 지나온 환승(`isUpcoming` false)은 제외
 - 직전 판정이 없으면(첫 평가) 방아쇠 없음 — `null` 을 `UNKNOWN` 으로 취급하지 않는다
 - ⓐ·ⓑ 동시 성립이면 `DEGRADED` 하나만 난다
@@ -400,6 +410,10 @@ triggerEvaluator.evaluate(context, batch, now);
 - **`journey.reroute.enabled` 를 보지 말 것.** 그것은 ②의 기능 플래그(기본 off)이고, 방아쇠는
   기능이 꺼진 동안 발생률을 재는 것이 일이다. 두 스위치를 묶으면 이 PR 이 아무것도 측정하지 않는다
 - **마이그레이션 없음.** 카운터가 필요한 판정(연속 N회 소실)을 이 PR 에 끌어들이면 그 전제가 깨진다
+- **방아쇠 예외를 밖으로 던지지 말 것.** 커밋 뒤에 도는 코드라, 던지면 성공한 평가가 실패
+  지표로 기록된다. ③이 이 경로에 후보 생성을 붙이면 던질 거리가 훨씬 늘어난다
+- **통과 방아쇠에서 `COMFORTABLE` 을 거를 것.** 안 거르면 이미 편해진 사용자에게도 ③이 유료
+  검색을 돌리고, 최소 개선폭에 걸려 아무것도 못 내놓는다
 
 ## 7. 뒤 PR 이 이 PR 에서 가져가는 것
 
