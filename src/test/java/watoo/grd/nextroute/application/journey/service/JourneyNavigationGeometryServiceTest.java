@@ -12,10 +12,12 @@ import watoo.grd.nextroute.application.bus.port.out.BusRouteSegmentPolylinePort;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeometryQuality;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
+import watoo.grd.nextroute.application.journey.dto.ManeuverType;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
 import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
+import watoo.grd.nextroute.application.route.dto.WalkStep;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEndReason;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
@@ -76,6 +78,8 @@ class JourneyNavigationGeometryServiceTest {
                 busRouteStopRepository,
                 new JourneyCompiler(new StopIdentityResolver()),
                 new GeometrySegmentAllocator(),
+                new WalkManeuverAnchorer(new GeometrySegmentAllocator(),
+                        new WalkManeuverTypeMapper()),
                 objectMapper);
     }
 
@@ -211,6 +215,116 @@ class JourneyNavigationGeometryServiceTest {
     }
 
     @Test
+    @DisplayName("걷기 단계는 얼려 둔 안내점을 폴리라인 위 위치로 바꿔 함께 내려준다")
+    void addsManeuversToWalkLeg() {
+        givenJourney(walkWithManeuvers());
+        givenLegs(leg(0, JourneyLegType.WALK, 300));
+        givenOptions();
+
+        LegGeometry walk = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(0);
+
+        assertThat(walk.maneuvers()).hasSize(3);
+        assertThat(walk.maneuvers()).extracting(m -> m.maneuverIndex()).containsExactly(0, 1, 2);
+        assertThat(walk.maneuvers()).extracting(m -> m.type())
+                .containsExactly(ManeuverType.DEPART, ManeuverType.LEFT, ManeuverType.ARRIVE);
+        assertThat(walk.maneuvers().get(1).instruction()).isEqualTo("횡단보도를 건넌 후 좌회전하세요");
+        // 구간 순번은 이 단계 segments 의 순번이어야 한다.
+        assertThat(walk.maneuvers()).allSatisfy(m ->
+                assertThat(m.geometrySegmentIndex()).isBetween(0, walk.segments().size() - 1));
+        assertThat(walk.maneuvers()).extracting(m -> m.distanceFromLegStartMeters()).isSorted();
+        assertThat(walk.maneuvers().get(2).distanceFromLegStartMeters())
+                .isLessThanOrEqualTo(walk.totalDistanceMeters());
+        // 좌표·구간 계약은 그대로다.
+        assertThat(walk.points()).hasSize(3);
+        assertThat(walk.segments()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("환승 도보도 같은 안내점을 받는다")
+    void addsManeuversToTransferWalkLeg() {
+        givenJourney(walkWithManeuvers());
+        givenLegs(leg(0, JourneyLegType.TRANSFER_WALK, 300));
+        givenOptions();
+
+        LegGeometry walk = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(0);
+
+        assertThat(walk.type()).isEqualTo(JourneyLegType.TRANSFER_WALK);
+        assertThat(walk.maneuvers()).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("타고 가는 단계와 기다리는 단계는 안내점을 주지 않는다")
+    void transitLegsHaveNoManeuvers() {
+        givenJourney(walkThenBus());
+        JourneyLeg wait = leg(1, JourneyLegType.WAIT_BUS, null);
+        JourneyLeg ride = leg(2, JourneyLegType.RIDE_BUS, 1200);
+        givenLegs(leg(0, JourneyLegType.WALK, 300), wait, ride);
+        givenOptions(option(wait.getId(), "R1", 10, 11));
+        List<RouteStopProjection> routeStops = List.of(
+                routeStop(10, "S10", "승차", 37.5, 127.001),
+                routeStop(11, "S11", "하차", 37.51, 127.002));
+        when(busRouteStopRepository.findStopsByRouteId("R1")).thenReturn(routeStops);
+        when(busPolylinePort.findSections("R1", 10, 11)).thenReturn(List.of(
+                section(10, 11, "s1", QualityStatus.OK, 127.001, 127.002)));
+
+        JourneyNavigationGeometry result = service.get(USER_ID, JOURNEY_ID, REVISION);
+
+        assertThat(result.legs()).allSatisfy(legGeometry ->
+                assertThat(legGeometry.maneuvers()).isNotNull());
+        assertThat(result.legs().get(1).maneuvers()).isEmpty();
+        assertThat(result.legs().get(2).maneuvers()).isEmpty();
+        // 버스 단계는 정류장을 잃지 않는다.
+        assertThat(result.legs().get(2).stops()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("지하철 단계는 좌표만 주고 안내점은 비운다")
+    void subwayLegHasNoManeuvers() {
+        givenJourney(walkWithPolyline());
+        givenLegs(leg(0, JourneyLegType.RIDE_SUBWAY, 300));
+        givenOptions();
+
+        LegGeometry subway = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(0);
+
+        assertThat(subway.segments()).hasSize(2);
+        assertThat(subway.maneuvers()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("안내점이 없는 도보는 좌표만 그대로 주고 안내점을 빈 목록으로 둔다")
+    void walkWithoutStepsHasEmptyManeuvers() {
+        givenJourney(walkWithPolyline());
+        givenLegs(leg(0, JourneyLegType.WALK, 300));
+        givenOptions();
+
+        LegGeometry walk = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(0);
+
+        assertThat(walk.maneuvers()).isEmpty();
+        assertThat(walk.points()).hasSize(3);
+        assertThat(walk.segments()).hasSize(2);
+        assertThat(walk.quality()).isEqualTo(GeometryQuality.OK);
+    }
+
+    @Test
+    @DisplayName("직선으로 대체한 도보에는 안내점을 얹지 않는다 — 없는 길을 가리키게 된다")
+    void straightLineWalkHasNoManeuvers() {
+        // 안내점은 있지만 폴리라인이 없어 직선으로 떨어지는 검색 결과.
+        SubPathResult walk = SubPathFixture.walk(5).names("집", "정류장")
+                .coords(127.0, 37.5, 127.002, 37.5)
+                .walkSteps(walkStep(0, "SP", 200, 127.0, 37.5),
+                        walkStep(1, "EP", 201, 127.002, 37.5))
+                .build();
+        givenJourney(new PathResult(1, null, List.of(walk), List.of()));
+        givenLegs(leg(0, JourneyLegType.WALK, 300));
+        givenOptions();
+
+        LegGeometry result = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(0);
+
+        assertThat(result.quality()).isEqualTo(GeometryQuality.APPROXIMATE);
+        assertThat(result.maneuvers()).isEmpty();
+    }
+
+    @Test
     @DisplayName("이전 개정본을 가리키면 현재 개정본과 함께 충돌로 거절한다")
     void rejectsStaleRevision() {
         givenJourney(walkThenBus());
@@ -247,6 +361,7 @@ class JourneyNavigationGeometryServiceTest {
         // 원본 구간을 못 찾으니 양 끝 좌표도 없다. 진행은 막지 않고 품질만 알린다.
         assertThat(walk.quality()).isEqualTo(GeometryQuality.FAILED);
         assertThat(walk.segments()).isEmpty();
+        assertThat(walk.maneuvers()).isEmpty();
     }
 
     @Test
@@ -359,5 +474,29 @@ class JourneyNavigationGeometryServiceTest {
                         new CoordPoint(127.002, 37.5))
                 .build();
         return new PathResult(1, null, List.of(walk), List.of());
+    }
+
+    /** TMAP 보강이 폴리라인과 안내점을 함께 붙인 걷기. 실제 응답처럼 안내점 좌표는 폴리라인 정점이다. */
+    private PathResult walkWithManeuvers() {
+        SubPathResult walk = SubPathFixture.walk(5).names("집", "정류장")
+                .coords(127.0, 37.5, 127.002, 37.5)
+                .polyline(new CoordPoint(127.0, 37.5),
+                        new CoordPoint(127.001, 37.5),
+                        new CoordPoint(127.002, 37.5))
+                .walkSteps(
+                        walkStep(0, "SP", 200, 127.0, 37.5),
+                        walkStep(1, "GP", 12, 127.001, 37.5),
+                        walkStep(2, "EP", 201, 127.002, 37.5))
+                .build();
+        return new PathResult(1, null, List.of(walk), List.of());
+    }
+
+    private WalkStep walkStep(int index, String pointType, Integer turnType, double x, double y) {
+        String description = switch (pointType) {
+            case "SP" -> "출발";
+            case "EP" -> "도착";
+            default -> "횡단보도를 건넌 후 좌회전하세요";
+        };
+        return new WalkStep(index, pointType, turnType, description, x, y);
     }
 }

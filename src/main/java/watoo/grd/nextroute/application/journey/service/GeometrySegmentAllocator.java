@@ -121,7 +121,13 @@ public class GeometrySegmentAllocator {
         return result;
     }
 
-    private double distanceMeters(GeoPoint a, GeoPoint b) {
+    /**
+     * 두 좌표 사이 거리(m).
+     *
+     * <p>도보 안내점 anchor 도 이 식을 그대로 써야 한다. 거리식이 둘로 갈리면 안내점의 누적거리와
+     * leg 총거리가 조금씩 어긋나고, 그 차이가 "다음 안내까지 남은 거리"에 남는다.
+     */
+    public double distanceMeters(GeoPoint a, GeoPoint b) {
         double lat1 = Math.toRadians(a.y());
         double lat2 = Math.toRadians(b.y());
         double dLat = lat2 - lat1;

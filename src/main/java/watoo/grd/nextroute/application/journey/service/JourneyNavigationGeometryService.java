@@ -13,6 +13,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeoPoint;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeometryQuality;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
+import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.ManeuverGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.SegmentGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.StopGeometry;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
@@ -66,6 +67,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
     private final BusRouteStopRepository busRouteStopRepository;
     private final JourneyCompiler compiler;
     private final GeometrySegmentAllocator allocator;
+    private final WalkManeuverAnchorer maneuverAnchorer;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -95,6 +97,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                 case RIDE_BUS -> busLeg(leg, ownerOfOptions(legs, i), optionsByLeg, sub,
                         routeStopsByRouteId);
                 case WAIT_BUS, WAIT_SUBWAY -> new Built(waitLeg(leg, sub), null);
+                case WALK, TRANSFER_WALK -> new Built(walkLeg(leg, sub), null);
                 default -> new Built(snapshotLeg(leg, sub), null);
             };
             geometries.add(built.geometry());
@@ -190,6 +193,26 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
     }
 
     /**
+     * 걷는 단계. 기존 좌표 조립에 turn-by-turn 안내점만 얹는다.
+     *
+     * <p>안내점은 <b>얼려 둔 검색 결과의 {@code walkSteps}</b> 에서 나온다. 조회 때 TMAP 을 다시
+     * 부르지 않는다 — 이 응답은 개정본마다 한 번 받는 캐시 대상이고, 경로가 바뀌지 않았는데 안내가
+     * 달라지면 앱 캐시와 서버가 서로 다른 말을 한다.
+     *
+     * <p>안내점이 없거나 못 붙는 것은 정상 경로다. 좌표·구간은 그대로 내려가고 안내점만 빈다.
+     */
+    private LegGeometry walkLeg(JourneyLeg leg, SubPathResult sub) {
+        LegGeometry base = snapshotLeg(leg, sub);
+        if (sub == null) {
+            return base;
+        }
+        // anchor 기준은 base.points() 가 아니라 sub.polyline() 이다. points 는 붙이는 과정에서
+        // 연속 중복 좌표를 지우므로 구간 순번의 기준이 될 수 없다.
+        return withManeuvers(base,
+                maneuverAnchorer.anchor(sub.walkSteps(), sub.polyline(), base.quality()));
+    }
+
+    /**
      * 실측 좌표가 없을 때의 마지막 수단. 진행을 막지 않고 품질만 낮춘다.
      *
      * <p>양 끝 좌표는 저장된 단계가 아니라 얼려 둔 검색 결과에서 가져온다. {@code journey_leg}
@@ -247,11 +270,22 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                 segments.isEmpty() ? GeometryQuality.FAILED : worst, merged, segments, stops);
     }
 
+    /** 정류장만 갈아끼운다. 나머지 필드는 반드시 보존한다 — 하나라도 흘리면 앱 계약이 깨진다. */
     private LegGeometry withStops(LegGeometry geometry, List<StopGeometry> stops) {
         return new LegGeometry(
                 geometry.legIndex(), geometry.type(), geometry.routeId(),
                 geometry.plannedDurationSeconds(), geometry.totalDistanceMeters(),
-                geometry.quality(), geometry.points(), geometry.segments(), stops);
+                geometry.quality(), geometry.points(), geometry.segments(), stops,
+                geometry.maneuvers());
+    }
+
+    /** 안내점만 갈아끼운다. {@link #withStops} 와 같은 이유로 나머지를 보존한다. */
+    private LegGeometry withManeuvers(LegGeometry geometry, List<ManeuverGeometry> maneuvers) {
+        return new LegGeometry(
+                geometry.legIndex(), geometry.type(), geometry.routeId(),
+                geometry.plannedDurationSeconds(), geometry.totalDistanceMeters(),
+                geometry.quality(), geometry.points(), geometry.segments(), geometry.stops(),
+                maneuvers);
     }
 
     /** 나쁜 쪽을 남긴다. 앱이 단계 하나만 보고 "믿어도 되는가"를 판단할 수 있어야 한다. */

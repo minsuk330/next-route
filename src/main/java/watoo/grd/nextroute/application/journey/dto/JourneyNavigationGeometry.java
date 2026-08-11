@@ -57,6 +57,7 @@ public record JourneyNavigationGeometry(
      * @param points                  지도 표시용 전체 좌표
      * @param segments                진행 판정용 구간. 대기 단계는 비어 있다
      * @param stops                   버스 승차~하차 정류장. 다른 단계는 비어 있다
+     * @param maneuvers               걷기 단계의 turn-by-turn 안내점. 다른 단계는 비어 있다
      */
     public record LegGeometry(
             int legIndex,
@@ -67,13 +68,16 @@ public record JourneyNavigationGeometry(
             GeometryQuality quality,
             List<GeoPoint> points,
             List<SegmentGeometry> segments,
-            List<StopGeometry> stops
+            List<StopGeometry> stops,
+            List<ManeuverGeometry> maneuvers
     ) {
 
         public LegGeometry {
             points = points == null ? List.of() : List.copyOf(points);
             segments = segments == null ? List.of() : List.copyOf(segments);
             stops = stops == null ? List.of() : List.copyOf(stops);
+            // 안내점은 null 대신 빈 목록이다. 앱이 "없음"과 "필드 누락"을 구분할 필요가 없어야 한다.
+            maneuvers = maneuvers == null ? List.of() : List.copyOf(maneuvers);
         }
 
         /** 기존 서버 코드와 테스트가 새 필드 배포 중에도 그대로 컴파일되도록 유지한다. */
@@ -82,8 +86,45 @@ public record JourneyNavigationGeometry(
                            GeometryQuality quality, List<GeoPoint> points,
                            List<SegmentGeometry> segments) {
             this(legIndex, type, routeId, plannedDurationSeconds, totalDistanceMeters,
-                    quality, points, segments, List.of());
+                    quality, points, segments, List.of(), List.of());
         }
+
+        /** 정류장까지만 있던 시절의 호출부를 위해 유지한다. */
+        public LegGeometry(int legIndex, JourneyLegType type, String routeId,
+                           Integer plannedDurationSeconds, double totalDistanceMeters,
+                           GeometryQuality quality, List<GeoPoint> points,
+                           List<SegmentGeometry> segments, List<StopGeometry> stops) {
+            this(legIndex, type, routeId, plannedDurationSeconds, totalDistanceMeters,
+                    quality, points, segments, stops, List.of());
+        }
+    }
+
+    /**
+     * 걷기 단계의 안내점 하나.
+     *
+     * <p>서버는 <b>지금 어디인지 판정하지 않는다.</b> 안내점이 경로 위 어디에 있는지만 알려주고,
+     * GPS 매칭과 "다음 안내"의 선택은 앱이 한다. 그래서 요청에 현재 위치를 받지 않는다.
+     *
+     * @param maneuverIndex                이 목록 안에서의 순번. 0 부터. 원천의 순번이 아니다 —
+     *                                     안내점 하나가 빠져도 번호에 구멍이 남지 않아야 한다
+     * @param type                         정규화한 회전 종류
+     * @param instruction                  "횡단보도를 건넌 후 좌회전하세요" 등 원천 안내 문구
+     * @param geometrySegmentIndex         이 단계 {@code segments} 안에서의 구간 순번
+     * @param segmentProgress              그 구간 안의 위치 비율. 0…1
+     * @param distanceFromLegStartMeters   단계 시작점부터의 경로 거리(m). 안내점 순서대로 증가한다
+     * @param x                            경도
+     * @param y                            위도
+     */
+    public record ManeuverGeometry(
+            int maneuverIndex,
+            ManeuverType type,
+            String instruction,
+            int geometrySegmentIndex,
+            double segmentProgress,
+            double distanceFromLegStartMeters,
+            double x,
+            double y
+    ) {
     }
 
     /** 버스 노선의 승차 정류장부터 하차 정류장까지의 순서·좌표. */

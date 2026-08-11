@@ -4,6 +4,7 @@ import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.dto.LaneResult;
 import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
+import watoo.grd.nextroute.application.route.dto.WalkStep;
 
 import java.util.List;
 
@@ -65,6 +66,7 @@ public final class SubPathFixture {
         private Integer endID;
         private Integer walkTotalTimeSeconds;
         private List<CoordPoint> polyline;
+        private List<WalkStep> walkSteps;
 
         private Builder(int trafficType, int sectionTime) {
             this.trafficType = trafficType;
@@ -136,12 +138,18 @@ public final class SubPathFixture {
             return this;
         }
 
+        /** TMAP 도보 안내점. 폴리라인 정점과 좌표가 같아야 실제 응답과 같은 모양이다. */
+        public Builder walkSteps(WalkStep... steps) {
+            this.walkSteps = List.of(steps);
+            return this;
+        }
+
         public SubPathResult build() {
             return new SubPathResult(
                     trafficType, sectionTime, distance, lanes, stations,
                     startName, endName, startX, startY, endX, endY,
                     null, null, startId, null, wayCode, polyline,
-                    null, null, null, null, null, null, null,
+                    null, null, null, null, null, null, walkSteps,
                     startLocalStationID, endLocalStationID, startArsID, endArsID, endID,
                     walkTotalTimeSeconds, null);
         }
