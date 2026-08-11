@@ -6,6 +6,7 @@
 -- users 는 지우지 않는다. 컨테이너 init script(journey-it-schema.sql)가 만든 FK 대상이고,
 -- 여정 표를 지울 때 CASCADE 로 참조만 함께 사라지면 된다.
 
+DROP TABLE IF EXISTS journey_telemetry_event CASCADE;
 DROP TABLE IF EXISTS journey_notification CASCADE;
 DROP TABLE IF EXISTS transfer_connection CASCADE;
 DROP TABLE IF EXISTS journey_event CASCADE;
