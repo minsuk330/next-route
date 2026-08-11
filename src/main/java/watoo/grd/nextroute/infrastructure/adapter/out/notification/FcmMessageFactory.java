@@ -19,7 +19,8 @@ import java.util.Map;
  * <p><b>유효시간·collapse key·우선순위·data 허용 목록·문구가 존재하는 유일한 자리다.</b> ⑥이
  * payload 계약과 deep link 를 정할 때 여기만 고치면 된다.
  *
- * <p>문구는 임시다. 운영 발송은 ⑤·⑥ 이 들어온 뒤에 켠다 — 지금 켜면 이 문구가 그대로 굳는다.
+ * <p>문구는 ⑥ 이 확정했다. 운영 발송을 켠 뒤에 바꾸면 사용자 눈에 그대로 보이므로, 켜기 전에
+ * 굳히는 것이 ⑥ 의 목적이었다.
  */
 @Component
 @RequiredArgsConstructor
@@ -28,6 +29,15 @@ public class FcmMessageFactory {
 
     /** APNs {@code apns-collapse-id} 의 하드 제한. 넘기면 그 메시지가 거부된다. */
     static final int COLLAPSE_KEY_MAX_BYTES = 64;
+
+    /**
+     * 앱이 등록한 URL 스킴. 이 글자가 앱 등록값과 다르면 OS 가 알림을 열 곳을 못 찾는다.
+     *
+     * <p>https 유니버설 링크가 아니라 커스텀 스킴인 이유 — 유니버설 링크는 도메인에 iOS
+     * {@code apple-app-site-association} 과 Android {@code assetlinks.json} 을 먼저 배포해야
+     * 동작한다. 그 설정이 생기면 여기만 바꾼다.
+     */
+    static final String DEEP_LINK_SCHEME = "nextroute";
 
     private final JourneyNotificationProperties properties;
 
@@ -98,10 +108,45 @@ public class FcmMessageFactory {
         data.put("checkpoint", command.checkpoint().name());
         data.put("commandVersion", String.valueOf(command.commandVersion()));
         data.put("evaluationVersion", String.valueOf(command.evaluationVersion()));
+        data.put("messageKey", messageKey(command.checkpoint()));
+        data.put("deepLink", deepLink(command));
         return data;
     }
 
-    /** 임시 문구. ⑥ 이 최종 문구와 deep link 를 확정한다. */
+    /**
+     * 앱이 자기 문구를 쓰고 싶을 때의 열쇠.
+     *
+     * <p>문구 자체는 서버가 갖는다({@link #title}·{@link #body}). 키를 함께 주면 앱이 원할 때
+     * 자기 문구로 갈아 끼우고, 안 쓰면 서버 문구가 그대로 보인다 — 다국어를 나중에 열어 두되
+     * 지금 설정 키를 늘리지 않는 절충이다.
+     */
+    private String messageKey(JourneyCheckpoint checkpoint) {
+        return switch (checkpoint) {
+            case TRANSFER_RISK_AT_RISK -> "journey.transfer.at-risk";
+            case TRANSFER_RISK_MISSED -> "journey.transfer.missed";
+            case TRANSFER_TARGET_APPROACHING -> "journey.transfer.approaching";
+        };
+    }
+
+    /**
+     * 알림을 눌렀을 때 앱이 열 자리.
+     *
+     * <p>서버가 <b>완성된 문자열</b>로 준다. 앱이 식별자로 조립하게 하면 라우팅 규칙이 서버와 앱
+     * 두 벌이 되어, 경로가 하나 늘 때마다 양쪽을 함께 고쳐야 한다.
+     *
+     * <p>{@code scope} 는 이름을 그대로 싣는다. 값이 지금 하나뿐이라고 문자열을 박아 넣으면 leg
+     * 범위가 생기는 날 조용히 틀린 링크가 된다.
+     *
+     * <p>사용자 식별자나 token 은 넣지 않는다 — 알림은 잠금화면에 그대로 보인다.
+     */
+    private String deepLink(NotificationSendCommand command) {
+        return DEEP_LINK_SCHEME + "://journey/" + command.journeyId()
+                + "?alertId=" + command.notificationId()
+                + "&scope=" + command.scopeType().name()
+                + "&scopeId=" + command.scopeId();
+    }
+
+    /** 확정 문구. 바꾸려면 발송을 켜기 <b>전</b>에 바꾼다 — 켠 뒤의 변경은 사용자 눈에 보인다. */
     private String title(JourneyCheckpoint checkpoint) {
         return switch (checkpoint) {
             case TRANSFER_RISK_AT_RISK -> "환승 시간이 빠듯해요";
@@ -112,7 +157,9 @@ public class FcmMessageFactory {
 
     private String body(JourneyCheckpoint checkpoint) {
         return switch (checkpoint) {
-            case TRANSFER_RISK_AT_RISK -> "지금 이동하면 다음 차를 탈 수 있어요.";
+            // "지금 이동하면"이 아니다. ④가 대기 단계의 AT_RISK 를 접근 알림에 넘겼으므로 이
+            // 문구가 나가는 상황은 아직 이동 중이고, "이동하면"은 멈춰 있다는 전제를 깐다.
+            case TRANSFER_RISK_AT_RISK -> "서두르면 다음 차를 탈 수 있어요.";
             case TRANSFER_RISK_MISSED -> "앱에서 새 안내를 확인하세요.";
             case TRANSFER_TARGET_APPROACHING -> "탑승 준비를 하세요.";
         };

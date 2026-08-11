@@ -13,6 +13,8 @@ import watoo.grd.nextroute.domain.notification.entity.NotificationChannel;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -113,7 +115,7 @@ class FcmMessageFactoryTest {
 
         assertThat(message.data()).containsOnlyKeys("notificationId", "journeyId",
                 "routeRevision", "scopeType", "scopeId", "checkpoint", "commandVersion",
-                "evaluationVersion");
+                "evaluationVersion", "messageKey", "deepLink");
         assertThat(message.data())
                 .as("늦게 도착한 알림이 낡은 숫자를 보여 준다(REQUIREMENTS §4.5)")
                 .doesNotContainKeys("status", "transferSlackSeconds", "nextBusArrivalAt");
@@ -158,6 +160,57 @@ class FcmMessageFactoryTest {
         assertThat(message.title()).isNotBlank();
         assertThat(message.body()).isNotBlank();
         assertThat(message.priority()).isEqualTo(PushMessage.Priority.HIGH);
+    }
+
+    @Test
+    @DisplayName("체크포인트 셋이 각각 다른 문구와 문구 키를 갖는다")
+    void everyCheckpointHasItsOwnWording() {
+        List<PushMessage> messages = Arrays.stream(JourneyCheckpoint.values())
+                .map(checkpoint -> factory.from(
+                        withCheckpoint(command(NOW.plusSeconds(600)), checkpoint), NOW))
+                .toList();
+
+        assertThat(messages).extracting(PushMessage::title).doesNotHaveDuplicates();
+        assertThat(messages).extracting(PushMessage::body).doesNotHaveDuplicates();
+        assertThat(messages).extracting(m -> m.data().get("messageKey"))
+                .as("앱이 이 키로 자기 문구를 고를 수 있어야 한다")
+                .doesNotHaveDuplicates()
+                .allSatisfy(key -> assertThat(key).startsWith("journey.transfer."));
+    }
+
+    @Test
+    @DisplayName("deep link 는 서버가 완성해서 준다 — 앱이 조립하지 않는다")
+    void deepLinkIsFullyFormed() {
+        PushMessage message = factory.from(command(NOW.plusSeconds(600)), NOW);
+
+        assertThat(message.data().get("deepLink"))
+                .as("이 글자가 앱 등록 스킴과 다르면 OS 가 알림을 열 곳을 못 찾는다")
+                .isEqualTo("nextroute://journey/11?alertId=7&scope=TRANSFER&scopeId=0");
+    }
+
+    @Test
+    @DisplayName("deep link 의 alertId 는 알림 행 id 와 같다")
+    void deepLinkAlertIdMatchesNotificationId() {
+        PushMessage message = factory.from(command(NOW.plusSeconds(600)), NOW);
+
+        assertThat(message.data().get("deepLink"))
+                .contains("alertId=" + message.data().get("notificationId"));
+    }
+
+    @Test
+    @DisplayName("deep link 에 사용자 식별자를 싣지 않는다 — 알림은 잠금화면에 보인다")
+    void deepLinkCarriesNoUserIdentity() {
+        PushMessage message = factory.from(command(NOW.plusSeconds(600)), NOW);
+
+        assertThat(message.data().get("deepLink")).doesNotContain("42");
+    }
+
+    private NotificationSendCommand withCheckpoint(NotificationSendCommand base,
+                                                   JourneyCheckpoint checkpoint) {
+        return new NotificationSendCommand(base.notificationId(), base.userId(), base.journeyId(),
+                base.routeRevision(), base.scopeType(), base.scopeId(), checkpoint,
+                base.channel(), base.commandVersion(), base.evaluationVersion(),
+                base.payload(), base.expiresAt());
     }
 
     private NotificationSendCommand withPayload(NotificationSendCommand base,

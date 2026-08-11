@@ -56,12 +56,13 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 ①이 끝나면 ②와 ③은 서로 독립이라 동시에 진행할 수 있다. 마이그레이션 번호는 **V39 부터**다
 (Phase 4 는 마이그레이션이 없었다).
 
-**진행 상황** — ①②③④⑤ 구현 완료
+**진행 상황** — ①②③④⑤⑥ 구현 완료
 (플랜: [journey-push-token](../journey-push-token/SUMMARY.md),
 [journey-notification-outbox](../journey-notification-outbox/SUMMARY.md),
 [journey-fcm-sender](../journey-fcm-sender/SUMMARY.md),
 [journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md),
-[journey-notification-guards](../journey-notification-guards/SUMMARY.md)).
+[journey-notification-guards](../journey-notification-guards/SUMMARY.md),
+[journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md)).
 ③ 까지 머지돼도 **운영 발송은 꺼져 있다** — 활성화 게이트는 ③ 절 표를 본다.
 
 후속 과제 둘이 남았다.
@@ -116,7 +117,8 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 `NotificationSender` 포트의 Firebase Admin SDK 구현. **구현 완료**
 (플랜: [journey-fcm-sender](../journey-fcm-sender/SUMMARY.md),
 [journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md),
-[journey-notification-guards](../journey-notification-guards/SUMMARY.md)).
+[journey-notification-guards](../journey-notification-guards/SUMMARY.md),
+[journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md)).
 
 - **채널 라우터는 만들지 않는다.** 여정 알림은 `PUSH` 하나다(`TECHNICAL_DECISIONS §2` LOCKED —
   "1차에서는 `FcmNotificationSender` 하나만 구현한다"). 이 문서에 있던 "토스 신분증이면 토스
@@ -143,8 +145,18 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 | 시점 | 스위치 |
 |---|---|
 | ③ 머지 | `sender=noop`·`relay.enabled=false` 유지. 행은 쌓이고 아무것도 안 나간다 |
-| ⑤·⑥ 머지 뒤 | 자격증명 배치 → worker 만 `sender=fcm` → 부팅 확인 → `relay.enabled=true` |
+| ⑤·⑥ 머지 뒤 | 아래 §1.1 절차로 켠다 |
 | 되돌리기 | `relay.enabled=false` |
+
+### 1.1 운영 발송 켜기 (⑥ 뒤의 별도 작업)
+
+코드 변경과 섞지 않는다. 되돌릴 것이 스위치 하나로 남아야 한다.
+
+1. worker 컨테이너에 서비스 계정 JSON 을 **읽기 전용**으로 마운트(`compose.yaml`, ③에서 준비됨)
+2. worker 프로필만 `journey.notification.sender=fcm` → **부팅 확인**. 자격증명이 없거나 틀리면
+   부팅이 막힌다(조용히 아무것도 안 보내는 상태가 가장 나쁘다)
+3. `journey.notification.relay.enabled=true`
+4. 되돌리기는 `relay.enabled=false` 하나. 행은 다시 쌓이기만 한다
 
 ⑤(발송 직전 lease·version 재검증)와 ⑥(payload 계약·최종 문구) 없이 켜면 낡은 알림이 나가고
 임시 문구가 운영에 굳는다.
@@ -153,7 +165,8 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 
 **언제 보낼지**를 정한다. **구현 완료**
 (플랜: [journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md),
-[journey-notification-guards](../journey-notification-guards/SUMMARY.md)).
+[journey-notification-guards](../journey-notification-guards/SUMMARY.md),
+[journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md)).
 
 - **체크포인트는 셋에서 멈춘다** — `TRANSFER_RISK_AT_RISK`·`TRANSFER_RISK_MISSED`(②가 만든 N6·N7)
   에 `TRANSFER_TARGET_APPROACHING`(N2)을 더한다. N4·N5·N8 은 사건이 아니라 알림을 열었을 때 볼
@@ -178,7 +191,8 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 ### ⑤ `journey-notification-guards`
 
 발송 직전에 다시 확인한다. **계산 시점과 발송 시점 사이에 세상이 바뀐다.** **구현 완료**
-(플랜: [journey-notification-guards](../journey-notification-guards/SUMMARY.md)).
+(플랜: [journey-notification-guards](../journey-notification-guards/SUMMARY.md),
+[journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md)).
 
 - 재확인은 `JourneyNotificationOutboxStateService#loadTask` 한 곳이 소유한다. 순서는 만료 →
   여정 `ACTIVE` → `routeRevision` → **lease** → **`commandVersion`** → **접근 알림의 뜻**
@@ -199,13 +213,24 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 
 ### ⑥ `journey-push-payload-deeplink`
 
-payload 계약과 앱 진입.
+payload 계약과 앱 진입. **구현 완료**
+(플랜: [journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md)).
 
-- payload 에는 **식별자·세 version·deep link 만** 담는다. 상태 값을 담지 않는다 — 앱은 push 를 열면
-  REST 로 최신 snapshot 을 다시 조회한다(SC-3 2항)
-- `journeyId + alertId` 로 조회하고, 알림 대상 leg·transfer 의 다음 행동을 표시한다
-- 포그라운드에서는 OS 알림을 띄우지 않고 앱 내부 배너만 — payload 와 클라이언트 핸들러를 나눠
-  그 구분이 가능하게 한다
+- payload 에는 **식별자·세 version·문구 키·deep link 만** 담는다. 상태 값을 담지 않는다 — 앱은
+  push 를 열면 REST 로 최신 snapshot 을 다시 조회한다(SC-3 2항)
+- **deep link 는 서버가 완성한 문자열**이다:
+  `nextroute://journey/{journeyId}?alertId={notificationId}&scope=TRANSFER&scopeId={n}`.
+  앱이 식별자로 조립하게 하면 라우팅 규칙이 두 벌이 된다. https 유니버설 링크는 도메인에
+  `apple-app-site-association`·`assetlinks.json` 배포가 선행돼야 해 지금은 못 쓴다
+- **`notification` + `data` 를 함께 보낸다.** 포그라운드 억제는 앱이 한다 — iOS 무음(data-only)
+  push 는 OS 가 미루거나 버려서 알림이 아예 안 뜨는 사례가 생긴다(G8 은 클라이언트 소유)
+- **문구는 서버가 갖고 `messageKey` 를 동봉**한다. 앱이 원하면 키로 자기 문구를 쓰고, 안 쓰면 서버
+  문구가 그대로 보인다
+- **알림 조회 API 는 만들지 않았다.** 기존 snapshot 의 `legs`·`eta.activeTransfer` 로 대상을 그릴 수
+  있다. 알림 이력 화면이 생기면 그때 만든다
+- 확정 문구 — 접근 "갈아탈 차가 곧 도착해요 / 탑승 준비를 하세요.", 위험 "환승 시간이 빠듯해요 /
+  서두르면 다음 차를 탈 수 있어요.", 놓침 "환승을 놓쳤어요 / 앱에서 새 안내를 확인하세요."
+  (`AT_RISK` 본문의 "지금 이동하면"은 ④가 대기 중 `AT_RISK` 를 접근 알림에 넘겨 어색해져 바꿨다)
 
 ### ⑦ `journey-alert-telemetry`
 
