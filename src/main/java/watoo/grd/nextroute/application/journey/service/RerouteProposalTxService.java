@@ -139,9 +139,14 @@ public class RerouteProposalTxService {
      *   <li>{@code routeRevision} — 경로가 바뀌었다. 후보의 {@code legIndex} 가 다른 단계를 가리킨다</li>
      *   <li>진행 단계 — 이미 그 환승을 지났다. 사용자가 할 수 있는 일이 없는 제안이 된다</li>
      * </ul>
+     *
+     * <p><b>여정 행을 잠그고 읽는다.</b> 잠그지 않으면 읽기와 삽입 사이에 탑승 명령이 커밋될 수
+     * 있어, 확인 자체가 "방금까지는 맞았던 사진"이 된다 — 이 확인이 막으려던 바로 그 경합이다.
+     * 명령 처리({@code JourneyCommandService})가 같은 행을 같은 순서로 잠그므로 서로 줄을 선다.
      */
     private boolean stillCurrent(RerouteContext context) {
-        Optional<JourneySession> found = sessionRepository.findById(context.journeyId());
+        Optional<JourneySession> found = sessionRepository
+                .findByIdAndUserIdForUpdate(context.journeyId(), context.userId());
         if (found.isEmpty()) {
             return false;
         }

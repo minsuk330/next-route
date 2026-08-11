@@ -135,13 +135,17 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
         Instant startedAt = clock.instant();
         int evaluated = 1;
         for (JourneyLegRouteOption option : alternatives(waitLeg, options)) {
-            if (budgetExhausted(startedAt)) {
+            long remainingMs = remainingBudgetMs(startedAt);
+            if (remainingMs <= 0) {
                 // 이미 평가한 것으로 제안을 만든다. 부분 결과가 빈손보다 낫다.
                 metrics.recordCandidateFiltered("budget-exhausted");
                 break;
             }
             evaluated++;
-            Attempt attempt = evaluate(option, waitLeg, legs, transfer, context);
+            // 한 번 물어보는 몫과 남은 누적 예산 중 짧은 쪽. 예산을 "부르기 전"에만 보면 마감
+            // 직전에 시작한 호출이 제 몫을 다 써서 총 시간이 예산을 넘는다.
+            Attempt attempt = evaluateSafely(option, waitLeg, legs, transfer, context,
+                    Math.min(interpreter.budgetMs(), remainingMs));
             if (attempt.failed()) {
                 metrics.recordCandidateFiltered(attempt.filterReason());
                 continue;
@@ -185,7 +189,11 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
                     context.journeyId(), waitLeg.getLegIndex());
             return null;
         }
-        Attempt attempt = evaluate(selected.get(), waitLeg, legs, transfer, context);
+        // 기준선은 누적 예산에서 빼지 않는다(D7 계열의 결정). 기준선이 없으면 개선폭을 잴 수
+        // 없어 어차피 빈 결과이므로, 예산을 아껴 봐야 아무것도 못 낸다. 따라서 요청 전체의
+        // 최악 시간은 "기준선 1회(≤predict-deadline) + 대안 누적 예산"이다.
+        Attempt attempt = evaluate(selected.get(), waitLeg, legs, transfer, context,
+                interpreter.budgetMs());
         if (attempt.failed()) {
             // 지금 경로로 아예 못 타는 상황이다. 개선폭을 잴 기준이 없어 여기서는 빈손이고,
             // 사다리의 다음 칸(④)이 받는다. 빈도는 지표로 본다.
@@ -200,6 +208,25 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
     }
 
     /**
+     * 대안 하나를 평가하되, <b>터져도 이미 모은 후보를 버리지 않는다</b>.
+     *
+     * <p>바깥 {@code try/catch} 만 있으면 세 번째 후보에서 난 일시적 장애가 앞의 두 후보까지
+     * 통째로 날린다. 예산이 떨어졌을 때 부분 결과를 내는 것과 같은 이유로, 여기서도 그 후보만
+     * 버리고 계속한다.
+     */
+    private Attempt evaluateSafely(JourneyLegRouteOption option, JourneyLeg waitLeg,
+                                   List<JourneyLeg> legs, TransferConnection transfer,
+                                   RerouteContext context, long budgetMs) {
+        try {
+            return evaluate(option, waitLeg, legs, transfer, context, budgetMs);
+        } catch (Exception e) {
+            log.warn("[JourneyReroute] 후보 평가 실패 journeyId={} routeId={}: {}",
+                    context.journeyId(), option.getRouteId(), e.getMessage());
+            return Attempt.failed("no-prediction");
+        }
+    }
+
+    /**
      * 노선 하나를 예측하고 목적지 ETA 까지 낸다.
      *
      * <p>앵커는 {@code userReadyAt} 이다. <b>{@code now} 로 대신하지 않는다</b> — 사용자가 도착하기
@@ -207,11 +234,13 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
      *
      * <p>지표는 <b>남기지 않는다</b>. 같은 실패라도 기준선이면 뜻이 다르므로 부르는 쪽이 센다.
      *
+     * @param budgetMs 이 호출 하나에 쓸 수 있는 시간. 남은 누적 예산보다 길면 안 된다 —
+     *                 예산을 부르기 전에만 보면 마감 직전에 시작한 호출이 예산을 넘긴다
      * @return 탈 수 없거나 소요가 깨져 있으면 사유가 담긴 실패
      */
     private Attempt evaluate(JourneyLegRouteOption option, JourneyLeg waitLeg,
                              List<JourneyLeg> legs, TransferConnection transfer,
-                             RerouteContext context) {
+                             RerouteContext context, long budgetMs) {
         Instant anchor = transfer.getUserReadyAt();
         TransferPredictionResult prediction = predictTransferUseCase.predict(
                 waitLeg.getStartStopId(),
@@ -219,7 +248,7 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
                 option.getBoardingSeq(),
                 anchor,
                 interpreter.modeFor(anchor, context.now()),
-                interpreter.budgetMs());
+                budgetMs);
 
         if (prediction.predictedArrivalAt() == null) {
             return Attempt.failed("no-prediction");
@@ -268,9 +297,15 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
                 && option.getBoardingSeq() != null;
     }
 
-    private boolean budgetExhausted(Instant startedAt) {
-        return Duration.between(startedAt, clock.instant()).toMillis()
-                >= properties.getRouteOption().getEvaluationBudgetMs();
+    /**
+     * 대안 평가에 남은 시간(ms). 0 이하면 그만 본다.
+     *
+     * <p>이 값을 <b>다음 호출의 상한으로도 쓴다.</b> 예산은 "몇 번 부를까"가 아니라 "사용자가
+     * 얼마나 기다리나"의 문제라, 마감 직전에 시작한 호출이 제 몫을 다 쓰면 예산이 무의미해진다.
+     */
+    private long remainingBudgetMs(Instant startedAt) {
+        long budget = properties.getRouteOption().getEvaluationBudgetMs();
+        return budget - Duration.between(startedAt, clock.instant()).toMillis();
     }
 
     /**

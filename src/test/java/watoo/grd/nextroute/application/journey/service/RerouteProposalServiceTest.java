@@ -171,6 +171,22 @@ class RerouteProposalServiceTest {
     }
 
     @Test
+    @DisplayName("저장이 빈 결과면 다음 공급자로 넘어가지 않는다")
+    void staleContextStopsInsteadOfFallingThrough() {
+        when(txService.store(any(), any(), any(), any(), any())).thenReturn(Optional.empty());
+        RerouteProposalService service = service(allowing(), List.of(
+                recordingProvider(RerouteProposalKind.ROUTE_OPTION, 0, List.of(candidate())),
+                recordingProvider(RerouteProposalKind.REMAINING_PATH, 1, List.of(candidate()))));
+
+        Optional<RerouteProposalView> result = service.request(USER_ID, JOURNEY_ID, 0);
+
+        assertThat(result).isEmpty();
+        assertThat(callOrder)
+                .as("여정이 움직인 것이지 후보가 없던 것이 아니다 — 더 비싼 검색을 부를 이유가 없다")
+                .containsExactly(RerouteProposalKind.ROUTE_OPTION);
+    }
+
+    @Test
     @DisplayName("공급자가 터져도 요청 전체가 죽지 않는다")
     void providerFailureDoesNotFailRequest() {
         RerouteCandidateProvider exploding = new RerouteCandidateProvider() {

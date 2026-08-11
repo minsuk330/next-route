@@ -72,6 +72,12 @@ class RouteOptionCandidateProviderTest {
     private final Map<String, TransferPredictionResult> predictions = new LinkedHashMap<>();
     private final List<String> askedRoutes = new ArrayList<>();
 
+    /** 호출마다 넘긴 시간 예산. 마감 직전 호출이 예산을 넘기지 않는지 본다. */
+    private final List<Long> budgets = new ArrayList<>();
+
+    /** 이 노선을 물으면 터진다. 일시적 장애를 흉내 낸다. */
+    private final List<String> exploding = new ArrayList<>();
+
     /** 예측 한 번마다 시간이 흐른다. 시간 예산을 시험하려면 시계가 움직여야 한다. */
     private Duration tickPerPrediction = Duration.ZERO;
     private Instant currentTime = NOW;
@@ -96,7 +102,11 @@ class RouteOptionCandidateProviderTest {
                 anyLong())).thenAnswer(invocation -> {
                     String routeId = invocation.getArgument(1);
                     askedRoutes.add(routeId);
+                    budgets.add(invocation.getArgument(5));
                     currentTime = currentTime.plus(tickPerPrediction);
+                    if (exploding.contains(routeId)) {
+                        throw new IllegalStateException("실시간 API 500");
+                    }
                     return predictions.getOrDefault(routeId, noResult(routeId));
                 });
     }
@@ -293,6 +303,24 @@ class RouteOptionCandidateProviderTest {
                 .isEmpty();
     }
 
+    @Test
+    @DisplayName("한 후보가 터져도 앞서 모은 후보는 살아남는다")
+    void oneFailingCandidateDoesNotDiscardTheRest() {
+        properties.getRouteOption().setMaxEvaluations(3);
+        givenOptions(selected("BL-370", "UP"),
+                alternative(101L, 1, "BL-721", "UP"),
+                alternative(102L, 2, "BL-802", "UP"));
+        predicts("BL-370", READY_AT.plusSeconds(900));
+        predicts("BL-721", READY_AT.plusSeconds(60));
+        explodes("BL-802");
+
+        assertThat(provider.findCandidates(context()))
+                .as("세 번째 후보의 일시적 장애가 앞의 좋은 후보까지 날리면 안 된다")
+                .singleElement()
+                .satisfies(candidate -> assertThat(candidate.apply()).isEqualTo(
+                        new RerouteCandidateApply.RouteOptionApply(2, 1, "BL-721", "UP")));
+    }
+
     // ── 평가 대상 추리기 ────────────────────────────────────────────────────
 
     @Test
@@ -377,6 +405,26 @@ class RouteOptionCandidateProviderTest {
                 .as("부분 결과가 빈손보다 낫다")
                 .hasSize(2);
         assertThat(filtered("budget-exhausted")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("남은 예산이 짧으면 그만큼만 기다린다 — 마감 직전 호출이 예산을 넘기지 않게")
+    void remainingBudgetCapsTheNextCall() {
+        properties.getRouteOption().setEvaluationBudgetMs(1_000);
+        properties.getRouteOption().setMaxEvaluations(3);
+        tickPerPrediction = Duration.ofMillis(800);
+        givenOptions(selected("BL-370", "UP"),
+                alternative(101L, 1, "BL-721", "UP"),
+                alternative(102L, 2, "BL-802", "UP"));
+        predicts("BL-370", READY_AT.plusSeconds(900));
+        predicts("BL-721", READY_AT.plusSeconds(60));
+        predicts("BL-802", READY_AT.plusSeconds(30));
+
+        provider.findCandidates(context());
+
+        // 기준선은 예산 밖이라 제 몫(1500)을 받는다. 첫 대안도 예산이 넉넉해 1500.
+        // 800ms 를 쓴 뒤 남은 예산은 200ms 뿐이라 두 번째 대안은 그만큼만 받는다.
+        assertThat(budgets).containsExactly(1_500L, 1_000L, 200L);
     }
 
     @Test
@@ -492,6 +540,10 @@ class RouteOptionCandidateProviderTest {
      */
     private void predictsPassed(String routeId, Instant arrivalAt) {
         predicts(routeId, arrivalAt);
+    }
+
+    private void explodes(String routeId) {
+        exploding.add(routeId);
     }
 
     private TransferPredictionResult noResult(String routeId) {
