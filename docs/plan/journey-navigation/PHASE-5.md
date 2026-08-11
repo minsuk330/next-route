@@ -56,11 +56,12 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 ①이 끝나면 ②와 ③은 서로 독립이라 동시에 진행할 수 있다. 마이그레이션 번호는 **V39 부터**다
 (Phase 4 는 마이그레이션이 없었다).
 
-**진행 상황** — ①②③④ 구현 완료
+**진행 상황** — ①②③④⑤ 구현 완료
 (플랜: [journey-push-token](../journey-push-token/SUMMARY.md),
 [journey-notification-outbox](../journey-notification-outbox/SUMMARY.md),
 [journey-fcm-sender](../journey-fcm-sender/SUMMARY.md),
-[journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md)).
+[journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md),
+[journey-notification-guards](../journey-notification-guards/SUMMARY.md)).
 ③ 까지 머지돼도 **운영 발송은 꺼져 있다** — 활성화 게이트는 ③ 절 표를 본다.
 
 후속 과제 둘이 남았다.
@@ -114,7 +115,8 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 
 `NotificationSender` 포트의 Firebase Admin SDK 구현. **구현 완료**
 (플랜: [journey-fcm-sender](../journey-fcm-sender/SUMMARY.md),
-[journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md)).
+[journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md),
+[journey-notification-guards](../journey-notification-guards/SUMMARY.md)).
 
 - **채널 라우터는 만들지 않는다.** 여정 알림은 `PUSH` 하나다(`TECHNICAL_DECISIONS §2` LOCKED —
   "1차에서는 `FcmNotificationSender` 하나만 구현한다"). 이 문서에 있던 "토스 신분증이면 토스
@@ -150,7 +152,8 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 ### ④ `journey-checkpoint-policy`
 
 **언제 보낼지**를 정한다. **구현 완료**
-(플랜: [journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md)).
+(플랜: [journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md),
+[journey-notification-guards](../journey-notification-guards/SUMMARY.md)).
 
 - **체크포인트는 셋에서 멈춘다** — `TRANSFER_RISK_AT_RISK`·`TRANSFER_RISK_MISSED`(②가 만든 N6·N7)
   에 `TRANSFER_TARGET_APPROACHING`(N2)을 더한다. N4·N5·N8 은 사건이 아니라 알림을 열었을 때 볼
@@ -174,16 +177,25 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 
 ### ⑤ `journey-notification-guards`
 
-발송 직전에 다시 확인한다. **계산 시점과 발송 시점 사이에 세상이 바뀐다.**
+발송 직전에 다시 확인한다. **계산 시점과 발송 시점 사이에 세상이 바뀐다.** **구현 완료**
+(플랜: [journey-notification-guards](../journey-notification-guards/SUMMARY.md)).
 
-- 발송 직전 재검증: 여정이 아직 `ACTIVE` 인가, lease 가 살아 있나, `routeRevision` 이 그대로인가,
-  `commandVersion`·`evaluationVersion` 이 어긋나지 않았나
-- **접근 알림은 최신 환승 상태도 확인한다.** ④는 `PENDING` 인 접근 알림만 취소할 수 있어, 이미
-  claim 돼 `PROCESSING` 인 것은 그 사이 `MISSED` 로 떨어져도 나간다(④가 수용하고 여기로 넘겼다)
+- 재확인은 `JourneyNotificationOutboxStateService#loadTask` 한 곳이 소유한다. 순서는 만료 →
+  여정 `ACTIVE` → `routeRevision` → **lease** → **`commandVersion`** → **접근 알림의 뜻**
+- **`commandVersion` 만 엄격 비교한다.** `evaluationVersion` 은 ETA 숫자가 몇 초 흔들리기만 해도
+  오르므로(대기 단계 10초 주기) 취소 근거로 쓰지 않는다 — 쓰면 정상 알림이 발송 직전에 대거 죽는다.
+  조용히 사라지는 알림이 한 번 더 가는 알림보다 나쁘다
+- **접근 알림만 최신 환승 상태를 확인한다.** 놓쳤으면(`transfer-missed`) 거짓말이고, 이미 탔으면
+  (`already-boarded`) 늦은 알림이다. ④가 `PENDING` 만 취소할 수 있어 넘긴 경쟁 창을 여기서 닫는다
+- **위험 알림에는 상태 확인을 걸지 않는다.** `MISSED` 알림을 환승 상태로 거르면 그 알림이 자기
+  자신을 지운다. 그래서 환승 조회도 접근 알림일 때만 한다
 - **재탐색 후 이전 revision 알림 발송 0** 이 통과 기준이다. 사용자가 다른 경로를 받았는데 옛 경로
   기준 알림이 가면 그 알림은 틀린 것이 아니라 해로운 것이다
 - lease 가 만료된 뒤에는 새 enqueue 도 발송도 없다
 - 만료(`expires_at`)가 지난 알림은 보내지 않고 `CANCELED`
+- 취소 사유는 이름을 따로 둔다 — `expired`·`journey-ended`·`route-changed`·`superseded`·
+  `lease-expired`·`command-changed`·`transfer-missed`·`already-boarded`. 뭉뚱그리면 재검증이
+  과한지 모자란지 운영에서 못 가른다
 
 ### ⑥ `journey-push-payload-deeplink`
 
