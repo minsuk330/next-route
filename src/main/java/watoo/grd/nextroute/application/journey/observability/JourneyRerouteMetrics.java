@@ -24,6 +24,8 @@ public class JourneyRerouteMetrics {
     public static final String PROPOSAL_RESOLVED = "journey.reroute.proposal.resolved";
     public static final String REQUEST_REJECTED = "journey.reroute.request.rejected";
     public static final String REQUEST_EMPTY = "journey.reroute.request.empty";
+    public static final String TRIGGER_FIRED = "journey.reroute.trigger.fired";
+    public static final String TRIGGER_ADMITTED = "journey.reroute.trigger.admitted";
 
     /** 트리거(①)가 내려 준 사유를 그대로 태그에 쓰지 않기 위한 접기 값. */
     static final String UNKNOWN_REASON = "unknown";
@@ -61,5 +63,25 @@ public class JourneyRerouteMetrics {
     /** 적격했지만 후보가 하나도 없었다. 실패가 아니라 "나은 것이 없다"는 정상 결과다. */
     public void recordEmpty() {
         registry.counter(REQUEST_EMPTY).increment();
+    }
+
+    /**
+     * 방아쇠가 켜졌다. cooldown 을 <b>지나기 전</b>의 수다.
+     *
+     * @param reason {@code degraded} · {@code target-passed}. enum 에서 오므로 값 종류가 둘이다
+     */
+    public void recordTriggerFired(String reason) {
+        registry.counter(TRIGGER_FIRED, "reason", reason).increment();
+    }
+
+    /**
+     * 방아쇠가 cooldown 을 통과했다.
+     *
+     * <p><b>{@link #TRIGGER_FIRED} 와의 차이가 cooldown 이 깎는 양이다.</b> 켜진 수만 두면 ③이
+     * 켜졌을 때 외부 검색이 몇 번 나갈지 예측할 수 없고, 통과한 수만 두면 방아쇠 조건이 너무
+     * 좁은 것인지 cooldown 이 먹는 것인지 가를 수 없다.
+     */
+    public void recordTriggerAdmitted(String reason) {
+        registry.counter(TRIGGER_ADMITTED, "reason", reason).increment();
     }
 }

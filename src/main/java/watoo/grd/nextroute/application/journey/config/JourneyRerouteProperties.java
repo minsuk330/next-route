@@ -37,6 +37,42 @@ public class JourneyRerouteProperties {
 
     private final Expiry expiry = new Expiry();
 
+    private final Trigger trigger = new Trigger();
+
+    /**
+     * "언제 찾아볼지"의 운영값(Phase 6 ①).
+     *
+     * <p><b>{@link JourneyRerouteProperties#enabled} 와 다른 스위치다.</b> 그쪽은 제안 기능
+     * 자체의 플래그(기본 꺼짐)이고, 방아쇠는 <b>기능이 꺼져 있는 동안 발생률을 재는 것</b>이
+     * 일이다. 두 스위치를 묶으면 재탐색을 켜기 전까지 아무것도 측정하지 못한다.
+     */
+    @Getter
+    @Setter
+    public static class Trigger {
+
+        /**
+         * 기본 켜짐. 방아쇠는 지표·로그만 남기고 제안도 외부 호출도 만들지 않는다(shadow).
+         *
+         * <p>켜 두는 것이 기본값인 이유 — 하루에 몇 번 도는지 모르는 채로 후보 생성기(③)를
+         * 켜면 요금이 먼저 온다. 그래도 끄는 스위치는 남긴다.
+         */
+        private boolean enabled = true;
+
+        /**
+         * 문이 열리는 폭. 환승 준비 시각까지 이 시간 안이면 찾아봐도 되는 구간으로 본다.
+         *
+         * <p>이것만으로는 아무 일도 일어나지 않는다 — 실제로 찾게 만드는 것은 방아쇠다.
+         */
+        private int decisionWindowSeconds = 600;
+
+        /** 같은 환승에서 다시 찾기까지의 최소 간격. 버튼 연타가 외부 검색 연타가 되면 안 된다. */
+        private Duration cooldown = Duration.ofMinutes(2);
+
+        public Duration decisionWindow() {
+            return Duration.ofSeconds(decisionWindowSeconds);
+        }
+    }
+
     @Getter
     @Setter
     public static class Expiry {
@@ -67,6 +103,14 @@ public class JourneyRerouteProperties {
         if (expiry.getBatchSize() <= 0 || expiry.getMaxSweepsPerTick() <= 0) {
             throw new IllegalStateException(
                     "journey.reroute.expiry 의 batch-size·max-sweeps-per-tick 은 1 이상이어야 한다");
+        }
+        if (trigger.getDecisionWindowSeconds() <= 0) {
+            throw new IllegalStateException(
+                    "journey.reroute.trigger.decision-window-seconds 는 1 이상이어야 한다");
+        }
+        if (trigger.getCooldown() == null || trigger.getCooldown().isNegative()) {
+            // 0 은 허용한다 - cooldown 을 사실상 끄고 원시 발생률만 보고 싶을 때가 있다.
+            throw new IllegalStateException("journey.reroute.trigger.cooldown 은 음수일 수 없다");
         }
     }
 }
