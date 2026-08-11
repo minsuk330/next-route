@@ -1,0 +1,225 @@
+package watoo.grd.nextroute.application.journey;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.jdbc.Sql;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties;
+import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
+import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
+import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
+import watoo.grd.nextroute.application.journey.dto.RerouteContext;
+import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
+import watoo.grd.nextroute.application.journey.service.RerouteProposalExpiryService;
+import watoo.grd.nextroute.application.journey.service.RerouteProposalTxService;
+import watoo.grd.nextroute.common.config.JpaConfig;
+import watoo.grd.nextroute.domain.journey.entity.JourneySession;
+import watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind;
+import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
+import watoo.grd.nextroute.testsupport.AbstractJourneyOutboxPostgresIT;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * <b>아무도 API 를 부르지 않는 상황</b>을 만든다.
+ *
+ * <p>lazy 전이는 조회·생성·수락이 지나갈 때만 돈다. 앱이 죽거나 백그라운드로 들어가면 그 셋이
+ * 모두 오지 않고, TTL 이 지난 행이 {@code ACTIVE} 로 남아 <b>같은 환승의 새 제안을 영영 막는다.</b>
+ * 배치 sweep 이 그 자리를 여는지가 이 파일의 존재 이유다.
+ */
+@DataJpaTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
+@Import({JpaConfig.class, RerouteProposalExpiryService.class, RerouteProposalTxService.class,
+        JourneyRerouteMetrics.class, RerouteProposalExpiryIT.Config.class})
+@Sql(scripts = {
+        "classpath:db/it/journey-reset.sql",
+        "classpath:db/migration/V35__create_journey.sql",
+        "classpath:db/migration/V36__add_journey_transit_resolution.sql",
+        "classpath:db/migration/V37__align_journey_navigation_contract.sql",
+        "classpath:db/migration/V38__add_journey_last_progress_id.sql",
+        "classpath:db/migration/V39__create_user_push_token.sql",
+        "classpath:db/migration/V40__create_journey_notification.sql",
+        "classpath:db/migration/V41__create_journey_telemetry_event.sql",
+        "classpath:db/migration/V42__create_reroute_proposal.sql"
+},
+        executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
+@TestPropertySource(properties = {
+        "journey.reroute.expiry.batch-size=2",
+        "journey.reroute.expiry.max-sweeps-per-tick=2"
+})
+@DisplayName("재탐색 제안 배치 만료")
+class RerouteProposalExpiryIT extends AbstractJourneyOutboxPostgresIT {
+
+    private static final Instant NOW = Instant.parse("2026-08-11T00:00:00Z");
+    private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
+
+    /** 한 tick 의 상한을 눈으로 셀 수 있게 작게 잡는다. */
+    private static final int BATCH_SIZE = 2;
+    private static final int MAX_SWEEPS = 2;
+
+    @TestConfiguration
+    static class Config {
+
+        @Bean
+        Clock clock() {
+            return Clock.fixed(NOW, ZoneId.of("Asia/Seoul"));
+        }
+
+        @Bean
+        MeterRegistry meterRegistry() {
+            return new SimpleMeterRegistry();
+        }
+
+        @Bean
+        ObjectMapper objectMapper() {
+            return MAPPER;
+        }
+
+        /**
+         * 값은 {@code @TestPropertySource} 로 준다. 여기서 손으로 채워도
+         * {@code ConfigurationPropertiesBindingPostProcessor} 가 {@code application.yaml} 값으로
+         * 다시 덮어써, 상한을 작게 잡은 줄 알고도 기본값으로 도는 시험이 된다.
+         */
+        @Bean
+        JourneyRerouteProperties journeyRerouteProperties() {
+            return new JourneyRerouteProperties();
+        }
+    }
+
+    @Autowired JdbcTemplate jdbcTemplate;
+    @Autowired JourneySessionRepository sessionRepository;
+    @Autowired RerouteProposalExpiryService expiryService;
+    @Autowired RerouteProposalTxService txService;
+
+    private long userId;
+    private long journeyId;
+
+    @BeforeEach
+    void setUp() {
+        jdbcTemplate.update("delete from reroute_proposal");
+        jdbcTemplate.update("delete from journey_session");
+        jdbcTemplate.update("delete from users");
+        userId = newUser();
+        journeyId = newJourney(userId);
+    }
+
+    @Test
+    @DisplayName("요청이 하나도 없어도 TTL 이 지난 제안을 접는다")
+    void sweepExpiresWithoutAnyRequest() {
+        insertProposal(0, NOW.minusSeconds(1));
+
+        int expired = expiryService.sweep();
+
+        assertThat(expired).isEqualTo(1);
+        assertThat(rows()).singleElement().satisfies(row -> {
+            assertThat(row.get("status")).isEqualTo("EXPIRED");
+            assertThat(row.get("resolved_reason"))
+                    .as("lazy 전이(ttl)와 갈라야 한다 - 이쪽이 대부분이면 사용자가 제안을 못 보고 있다")
+                    .isEqualTo("ttl-sweep");
+        });
+    }
+
+    @Test
+    @DisplayName("접힌 뒤 같은 환승에 새 제안이 들어간다")
+    void sweepFreesTheSlot() {
+        insertProposal(0, NOW.minusSeconds(1));
+        expiryService.sweep();
+
+        // lazy 만 있을 때 막히던 자리다. 앱이 죽어 있으면 이 삽입이 영영 안 된다.
+        txService.store(new RerouteContext(journeyId, userId, 1, 1L, 0, NOW),
+                RerouteProposalKind.ROUTE_OPTION, List.of(candidate()), NOW, NOW.plusSeconds(120));
+
+        assertThat(activeCount()).isEqualTo(1);
+        assertThat(rows()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("아직 만료 안 된 제안은 건드리지 않는다")
+    void sweepLeavesLiveProposals() {
+        insertProposal(0, NOW.plusSeconds(60));
+
+        assertThat(expiryService.sweep()).isZero();
+        assertThat(activeCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("한 tick 은 batch × max-sweeps 를 넘지 않는다")
+    void sweepRespectsTickBound() {
+        for (int transferIndex = 0; transferIndex < BATCH_SIZE * MAX_SWEEPS + 2; transferIndex++) {
+            insertProposal(transferIndex, NOW.minusSeconds(1));
+        }
+
+        int expired = expiryService.sweep();
+
+        assertThat(expired)
+                .as("상한이 없으면 밀린 만큼 한 tick 이 끝없이 돌아 다른 잡이 스케줄러를 못 쓴다")
+                .isEqualTo(BATCH_SIZE * MAX_SWEEPS);
+        assertThat(activeCount()).isEqualTo(2);
+    }
+
+    // ── 준비 ────────────────────────────────────────────────────────────────
+
+    private void insertProposal(int transferIndex, Instant expiresAt) {
+        jdbcTemplate.update("""
+                insert into reroute_proposal
+                    (created_at, updated_at, journey_id, user_id, route_revision, transfer_index,
+                     kind, status, base_command_version, candidates,
+                     snapshot_observed_at, expires_at)
+                values (now(), now(), ?, ?, 1, ?, 'ROUTE_OPTION', 'ACTIVE', 1,
+                        '{"version":1,"candidates":[]}'::jsonb, ?, ?)
+                """, journeyId, userId, transferIndex,
+                java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(expiresAt));
+    }
+
+    private RerouteCandidate candidate() {
+        return new RerouteCandidate(null, RerouteProposalKind.ROUTE_OPTION,
+                new RerouteCandidateApply.RouteOptionApply(1, 0, "BL-370", "UP"),
+                new RerouteCandidateDisplay(NOW.plusSeconds(1_200), 1_200, 120, 1, 300,
+                        "REALTIME", "HIGH", NOW.minusSeconds(20), List.of("370 버스")));
+    }
+
+    private long newUser() {
+        return jdbcTemplate.queryForObject(
+                "insert into users (created_at, updated_at) values (now(), now()) returning id",
+                Long.class);
+    }
+
+    private long newJourney(long ownerId) {
+        return sessionRepository.saveAndFlush(JourneySession.builder()
+                .userId(ownerId)
+                .startedAt(NOW)
+                .guidanceLeaseUntil(NOW.plusSeconds(180))
+                .routeSnapshot(MAPPER.createObjectNode().put("pathType", 1))
+                .build()).getId();
+    }
+
+    private List<Map<String, Object>> rows() {
+        return jdbcTemplate.queryForList("select * from reroute_proposal order by id");
+    }
+
+    private int activeCount() {
+        return jdbcTemplate.queryForObject(
+                "select count(*) from reroute_proposal where status = 'ACTIVE'", Integer.class);
+    }
+}

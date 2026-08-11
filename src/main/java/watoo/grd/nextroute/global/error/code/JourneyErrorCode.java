@@ -19,7 +19,9 @@ public enum JourneyErrorCode implements ErrorCode {
   JOURNEY_LEG_NOT_FOUND("JOURNEY_LEG_NOT_FOUND", "여정 단계를 찾을 수 없습니다.", HttpStatus.NOT_FOUND),
   STALE_PROGRESS_LEG("STALE_PROGRESS_LEG", "이미 지나온 단계의 진행입니다.", HttpStatus.CONFLICT),
   PROGRESS_TIMESTAMP_CONFLICT("PROGRESS_TIMESTAMP_CONFLICT",
-      "같은 관측 시각에 다른 진행 내용이 왔습니다.", HttpStatus.CONFLICT);
+      "같은 관측 시각에 다른 진행 내용이 왔습니다.", HttpStatus.CONFLICT),
+  REROUTE_NOT_ELIGIBLE("REROUTE_NOT_ELIGIBLE", "지금은 재탐색할 수 있는 상태가 아닙니다.",
+      HttpStatus.CONFLICT);
 
   private final String code;
   private final String message;

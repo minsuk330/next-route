@@ -164,6 +164,40 @@ class JourneyNotificationCancelOnEndIT {
         assertThat(statusOf(pending)).isEqualTo("PENDING");
     }
 
+    // ── 재탐색 제안도 같이 접힌다 ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("사용자가 접으면 살아 있는 재탐색 제안도 함께 접힌다")
+    void userCancelResolvesRerouteProposal() {
+        Long ownerId = newUser();
+        JourneySnapshot journey = start(ownerId);
+        Long proposalId = insertActiveProposal(journey.journeyId());
+
+        applyJourneyEventUseCase.apply(ownerId, journey.journeyId(), new JourneyCommand(
+                UUID.randomUUID(), JourneyEventType.JOURNEY_CANCELED,
+                journey.commandVersion(), journey.routeRevision(), null, null, Instant.now()));
+
+        assertThat(proposalStatusOf(proposalId))
+                .as("남겨 두면 수락 API 가 '여정은 끝났는데 제안은 유효한' 상태를 본다")
+                .isEqualTo("SUPERSEDED");
+        assertThat(proposalReasonOf(proposalId)).isEqualTo("journey-ended");
+    }
+
+    @Test
+    @DisplayName("서버 만료 배치(sweep)도 재탐색 제안을 접는다")
+    void sweepResolvesRerouteProposal() {
+        Long ownerId = newUser();
+        JourneySnapshot journey = start(ownerId);
+        Long proposalId = insertActiveProposal(journey.journeyId());
+        setLeaseAge(journey.journeyId(), "3 minutes");
+
+        expiryService.sweep();
+
+        assertThat(journeyStatusOf(journey.journeyId())).isEqualTo("EXPIRED");
+        assertThat(proposalStatusOf(proposalId)).isEqualTo("SUPERSEDED");
+        assertThat(proposalReasonOf(proposalId)).isEqualTo("journey-ended");
+    }
+
     // ── 준비 ────────────────────────────────────────────────────────────────
 
     private JourneySnapshot start(Long ownerId) {
@@ -208,6 +242,32 @@ class JourneyNotificationCancelOnEndIT {
                 String.class, notificationId);
     }
 
+    /** 살아 있는 제안 하나. 후보 생성기(③④)가 없으므로 행만 손으로 만든다. */
+    private Long insertActiveProposal(Long journeyId) {
+        return jdbcTemplate.queryForObject("""
+                insert into reroute_proposal
+                    (created_at, updated_at, journey_id, user_id, route_revision, transfer_index,
+                     kind, status, base_command_version, candidates,
+                     snapshot_observed_at, expires_at)
+                select now(), now(), s.id, s.user_id, s.route_revision, 0,
+                       'ROUTE_OPTION', 'ACTIVE', s.command_version,
+                       '{"version":1,"candidates":[]}'::jsonb, now(), now() + interval '2 minutes'
+                from journey_session s where s.id = ?
+                returning id
+                """, Long.class, journeyId);
+    }
+
+    private String proposalStatusOf(Long proposalId) {
+        return jdbcTemplate.queryForObject(
+                "select status from reroute_proposal where id = ?", String.class, proposalId);
+    }
+
+    private String proposalReasonOf(Long proposalId) {
+        return jdbcTemplate.queryForObject(
+                "select resolved_reason from reroute_proposal where id = ?",
+                String.class, proposalId);
+    }
+
     private String journeyStatusOf(Long journeyId) {
         return jdbcTemplate.queryForObject(
                 "select status from journey_session where id = ?", String.class, journeyId);
@@ -230,6 +290,10 @@ class JourneyNotificationCancelOnEndIT {
     private void deleteJourneysOf(Long id) {
         jdbcTemplate.update("""
                 delete from journey_notification where journey_id in (
+                    select id from journey_session where user_id = ?)
+                """, id);
+        jdbcTemplate.update("""
+                delete from reroute_proposal where journey_id in (
                     select id from journey_session where user_id = ?)
                 """, id);
         jdbcTemplate.update("""
