@@ -101,7 +101,21 @@ public class RerouteTriggerPolicy {
                 || assessment.confidence() == CurrentLegArrival.Quality.UNKNOWN) {
             return false;
         }
-        Duration untilReady = Duration.between(now, assessment.userReadyAt());
+        return withinWindow(assessment.userReadyAt(), now);
+    }
+
+    /**
+     * 환승 준비 시각이 문 안에 들어왔는가. <b>임계값을 아는 유일한 자리다.</b>
+     *
+     * <p>사용자 요청 경로({@code WindowCooldownEligibilityPolicy})가 같은 판정을 해야 하는데,
+     * 거기서 임계값을 다시 읽으면 두 경로가 서로 다른 문을 갖게 된다 — 주기 평가는 열렸다고
+     * 세는데 버튼은 거절하는 상태가 조용히 생긴다. 그래서 판정을 여기 한 곳에 둔다.
+     *
+     * <p><b>근거가 없는 경우(userReadyAt == null)는 부르는 쪽이 먼저 거른다.</b> 여기는 시각
+     * 비교만 한다 — 근거 유무의 판정은 부르는 쪽이 어떤 사유로 거절할지와 묶여 있다.
+     */
+    public boolean withinWindow(Instant userReadyAt, Instant now) {
+        Duration untilReady = Duration.between(now, userReadyAt);
         return untilReady.compareTo(properties.getTrigger().decisionWindow()) <= 0;
     }
 

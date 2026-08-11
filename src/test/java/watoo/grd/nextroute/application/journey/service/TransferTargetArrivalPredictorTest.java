@@ -65,7 +65,8 @@ class TransferTargetArrivalPredictorTest {
         @BeforeEach
         void setUp() {
             predictor = new BusTransferTargetArrivalPredictor(
-                    predictTransferUseCase, routeOptionRepository, properties);
+                    predictTransferUseCase, routeOptionRepository,
+                    new TransferPredictionInterpreter(properties));
             waitLeg = waitLeg(JourneyLegType.WAIT_BUS, JourneyLegState.PENDING);
             given(routeOptionRepository.findById(OPTION_ID)).willReturn(Optional.of(busOption()));
         }

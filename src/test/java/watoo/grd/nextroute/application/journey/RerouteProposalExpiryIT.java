@@ -118,10 +118,18 @@ class RerouteProposalExpiryIT extends AbstractJourneyOutboxPostgresIT {
     @BeforeEach
     void setUp() {
         jdbcTemplate.update("delete from reroute_proposal");
+        jdbcTemplate.update("delete from transfer_connection");
         jdbcTemplate.update("delete from journey_session");
         jdbcTemplate.update("delete from users");
         userId = newUser();
         journeyId = newJourney(userId);
+        // 저장 직전 재확인(R3)이 볼 환승. 없으면 store 가 stale-context 로 비켜 간다.
+        jdbcTemplate.update("""
+                insert into transfer_connection
+                    (created_at, updated_at, journey_id, route_revision, transfer_index,
+                     from_leg_index, to_leg_index, status)
+                values (now(), now(), ?, 1, 0, 1, 2, 'AT_RISK')
+                """, journeyId);
     }
 
     @Test

@@ -141,7 +141,7 @@ Push는 상태 저장소가 아니다. payload에는 `journeyId`, `commandVersio
 
 환승 상태 초기값은 `alightingBufferSeconds=30`, `COMFORTABLE >= 300초`, `CATCHABLE 120~299초`, `AT_RISK 0~119초`, `MISSED < 0초`다. 필수 ETA가 누락·stale·매칭 불가이면 `UNKNOWN`이다. 확률 캘리브레이션이 부족하면 `successProbability=null`로 두고 slack 상태는 유지하며, 초기 probability는 위험 방향 downgrade만 허용한다.
 
-ODsay `subPath.lane`의 모든 버스 노선을 `JourneyLegRouteOption`으로 보존하고 PostgreSQL을 canonical로 둔다. Redis에는 Journey TTL의 routeOptions 조회 cache를 유지한다. 재탐색 시 `(stopId, routeId, directionKey, targetSeq)`로 각 routeId의 실시간 도착 후보를 공유 조회하고, 같은 승·하차 구간의 다른 routeOption을 먼저 비교한다. 개선 가능한 routeOption이 없을 때만 Redis의 다른 경로 구조를 평가하고 cache miss 때 ODsay 남은 경로 검색을 호출한다.
+ODsay `subPath.lane`의 모든 버스 노선을 `JourneyLegRouteOption`으로 보존하고 PostgreSQL을 canonical로 둔다. 재탐색은 이 표를 DB에서 직접 읽는다(SC-15). Redis 사본은 두지 않는다 — 만료·무효화 규칙이 새로 생기는 대가에 비해 조회 한 번을 아끼는 이득이 작고, 사본이 낡으면 이미 지나간 노선을 후보로 올린다. 재탐색 시 `(stopId, routeId, directionKey, targetSeq)`로 각 routeId의 실시간 도착 후보를 공유 조회하고, 같은 승·하차 구간의 다른 routeOption을 먼저 비교한다. 개선 가능한 routeOption이 없을 때만 Redis의 다른 경로 구조를 평가하고 cache miss 때 ODsay 남은 경로 검색을 호출한다.
 
 재탐색 초기 설정은 decision window 10분 또는 하차 2정거장 이내, 최소 ETA 개선 5분, cooldown 2분, proposal TTL 2분, 표시 후보 최대 3개다.
 

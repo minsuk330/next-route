@@ -14,6 +14,7 @@ import watoo.grd.nextroute.application.journey.service.JourneyEvaluationContextL
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -40,6 +41,21 @@ class RerouteTriggerEvaluatorTest {
 
     /** cooldown 호출 횟수를 눈으로 센다. mock 보다 "몇 번 물었나"가 바로 읽힌다. */
     private final AtomicInteger cooldownAsked = new AtomicInteger();
+
+    /** 어떤 용도로 잠금을 물었는지. 사용자 요청 잠금을 태우면 안 된다(D6). */
+    private final List<RerouteCooldownPort.Scope> askedScopes = new ArrayList<>();
+
+    @Test
+    @DisplayName("shadow 방아쇠는 TRIGGER 잠금만 태운다 — 사용자 요청 잠금을 먹지 않는다")
+    void triggerBurnsOnlyItsOwnCooldownKey() {
+        RerouteTriggerEvaluator evaluator = evaluator(admitting(true));
+
+        evaluator.evaluate(context(), batch(TransferStatus.AT_RISK), NOW);
+
+        assertThat(askedScopes)
+                .as("아무것도 만들지 않는 셈이 사용자 요청을 2분간 막으면 안 된다")
+                .containsExactly(RerouteCooldownPort.Scope.TRIGGER);
+    }
 
     @Test
     @DisplayName("통과하면 켜짐과 통과가 둘 다 오른다")
@@ -103,7 +119,7 @@ class RerouteTriggerEvaluatorTest {
     @Test
     @DisplayName("cooldown 이 터져도 평가 결과를 흔들지 않는다")
     void cooldownFailurePropagatesToCaller() {
-        RerouteTriggerEvaluator evaluator = evaluator((journeyId, revision, transferIndex) -> {
+        RerouteTriggerEvaluator evaluator = evaluator((journeyId, revision, transferIndex, scope) -> {
             throw new IllegalStateException("redis down");
         });
 
@@ -121,7 +137,7 @@ class RerouteTriggerEvaluatorTest {
     @Test
     @DisplayName("cooldown 확인은 신호가 가리키는 여정·개정본·환승으로 묻는다")
     void cooldownIsAskedWithSignalScope() {
-        RerouteTriggerEvaluator evaluator = evaluator((journeyId, revision, transferIndex) -> {
+        RerouteTriggerEvaluator evaluator = evaluator((journeyId, revision, transferIndex, scope) -> {
             cooldownAsked.incrementAndGet();
             assertThat(journeyId).isEqualTo(JOURNEY_ID);
             assertThat(revision).isEqualTo(3);
@@ -144,8 +160,9 @@ class RerouteTriggerEvaluatorTest {
     }
 
     private RerouteCooldownPort admitting(boolean admit) {
-        return (journeyId, routeRevision, transferIndex) -> {
+        return (journeyId, routeRevision, transferIndex, scope) -> {
             cooldownAsked.incrementAndGet();
+            askedScopes.add(scope);
             return admit;
         };
     }

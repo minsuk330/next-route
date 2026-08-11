@@ -509,3 +509,29 @@ API 5xx 2% 초과, evaluator lag p95 30초 초과, FCM provider 성공률 95% �
 - 중복 표시 telemetry fixture 한 건으로 해당 플랫폼 하차 알림 rollout 중단 신호가 생성된다.
 - 동일 `progressId` 재전송과 과거 `observedAt` 요청은 progress·`evaluationVersion`을 두 번 변경하지 않는다.
 - 같은 `observedAt`의 서로 다른 progress 내용은 충돌로 확인할 수 있다.
+
+---
+
+## SC-15 — 노선 후보 조회는 DB canonical, 판정 입력은 여정 전체 (2026-08-11)
+
+### 결정
+
+1. 재탐색이 읽는 `journey_leg_route_option` 은 **PostgreSQL 을 직접 읽는다.** TECHNICAL_DECISIONS §4·SC-10 이 적었던 Redis routeOptions cache 는 만들지 않는다.
+2. `RerouteEligibilityPolicy` 는 식별자 대신 **`JourneySession` 을 받는다.** `routeRevision`·`currentLegIndex` 가 그 안에 있어야 이미 지나간 환승 요청을 거절할 수 있다.
+3. 후보 저장(`RerouteProposalTxService.store`)은 트랜잭션 안에서 **여정을 다시 읽어** 상태·`commandVersion`·`routeRevision`·진행 단계를 확인하고, 어긋나면 저장하지 않고 빈 결과를 낸다.
+4. 재탐색 cooldown 키를 용도별로 가른다(`trigger`/`request`).
+5. 목적지 ETA 합산에서 **이후 대기 단계의 소요는 0으로 둔다.** 그 값은 검색 결과에 없다(`JourneyCompiler`). 대신 이후 환승이 남아 있으면 화면 신뢰도를 `APPROXIMATE` 로 낮춘다.
+6. 제안은 **사용자 요청으로만** 만든다. 방아쇠(①)는 계속 세기만 한다(shadow).
+
+### 이유
+
+캐시는 만료·무효화 규칙을 새로 만드는 값에 비해 아끼는 것이 조회 한 번뿐이고, 사본이 낡으면 지나간 노선을 후보로 올린다. 적격성 판정이 식별자만 받으면 시간 조건만으로 판단하게 되는데, "준비 시각까지 600초 이내"는 **음수 간격에도 참**이라 30분 전에 지나간 환승도 통과한다. 요청 본문의 `transferIndex` 는 없으면 0으로 채워지므로 옛 앱 버전의 빈 요청이 첫 환승 제안을 만든다. 후보 생성은 실시간·ML 왕복이라 트랜잭션 밖에서 도는데, 그 사이 사용자는 버스를 타고 여정은 움직인다. cooldown 을 한 키로 두면 아무것도 만들지 않는 shadow 방아쇠가 잠금을 태워 사용자 요청이 2분간 거절된다. 대기 소요를 필수로 두면 환승이 둘 이상인 여정은 제안이 영원히 0건이 된다 — 그 값은 모든 후보에 똑같이 빠지므로 개선폭에는 영향이 없고 절대 시각만 낙관적이다. 자동 생성은 알릴 통로(⑥)가 없어 사용자가 볼 수 없고, 발생률을 아직 못 잰 상태에서 외부 호출만 늘린다.
+
+### 인수 기준 변경
+
+- 재탐색 요청 한 번이 경로 검색(ODsay)을 **한 번도 부르지 않는다.**
+- 환승이 둘 이상인 여정에서도 제안이 만들어진다.
+- 이미 지나간 환승 번호로 온 요청은 `past-transfer` 로 거절된다(본문 없이 온 요청 포함).
+- 후보를 만드는 사이 여정이 끝나거나 개정본·`commandVersion` 이 바뀌면 저장하지 않는다.
+- shadow 방아쇠가 방금 잠금을 태워도 사용자 요청은 통과한다.
+- 이후 환승이 남아 있는 후보의 신뢰도는 `APPROXIMATE` 다.

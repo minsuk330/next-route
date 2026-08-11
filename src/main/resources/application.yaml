@@ -407,7 +407,21 @@ journey:
       # 이것만으로는 아무 일도 일어나지 않는다 - 실제로 찾게 만드는 것은 방아쇠다.
       decision-window-seconds: 600
       # 같은 환승에서 다시 찾기까지의 최소 간격. 0 이면 cooldown 없이 원시 발생률만 잰다.
+      # 키는 용도별로 갈린다(trigger/request) - shadow 방아쇠가 사용자 요청 잠금을 태우면
+      # 아무것도 만들지 않는 셈 때문에 실제 요청이 2분간 거절된다.
       cooldown: PT2M
+    route-option:
+      # 같은 정류장의 다른 노선을 후보로 올리는 판정(③). 값이 전부 요금과 대기시간 이야기다 -
+      # 후보 하나마다 실시간·ML 조회가 나가고 사용자는 그 응답을 화면에서 기다린다.
+      # 이만큼 빨라지지 않으면 제안하지 않는다. 낮추면 예측 오차보다 작은 차이가 제안이 된다.
+      minimum-eta-gain-seconds: 300
+      # 예측을 물어볼 대안 노선 수 상한(기준선 제외). 후보 하나가 최대 1500ms 라 5 면 9초가 된다.
+      max-evaluations: 3
+      # 대안 평가의 누적 시간 예산. 넘으면 남은 후보를 건너뛰고 이미 평가한 것으로 제안한다 -
+      # 부분 결과가 빈손보다 낫다. 남은 예산은 다음 호출의 상한으로도 쓴다(마감 직전에 시작한
+      # 호출이 예산을 넘기지 않게). 기준선 평가는 여기서 빼지 않으므로, 요청 하나의 최악 대기는
+      # journey.evaluator.predict-deadline-ms(기준선 1회) + 이 값이다.
+      evaluation-budget-ms: 3000
   notification:
     # 알림만 끄는 스위치. 평가기는 그대로 돌고 outbox 에 쌓지만 않는다.
     enqueue-enabled: ${JOURNEY_NOTIFICATION_ENQUEUE_ENABLED:true}

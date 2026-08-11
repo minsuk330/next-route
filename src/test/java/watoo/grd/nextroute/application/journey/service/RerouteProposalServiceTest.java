@@ -66,7 +66,7 @@ class RerouteProposalServiceTest {
         when(sessionRepository.findByIdAndUserIdAndDeletedAtIsNull(JOURNEY_ID, USER_ID))
                 .thenReturn(Optional.of(journey()));
         when(txService.store(any(), any(), any(), any(), any()))
-                .thenAnswer(invocation -> view(invocation.getArgument(1)));
+                .thenAnswer(invocation -> Optional.of(view(invocation.getArgument(1))));
     }
 
     // ── 외부 검색이 나가지 않는 경우 ────────────────────────────────────────
@@ -91,7 +91,7 @@ class RerouteProposalServiceTest {
     @DisplayName("기본 상태(트리거 없음)에서는 항상 거절이다")
     void defaultPolicyRejects() {
         RerouteProposalService service = service(
-                (journeyId, transferIndex, now) -> Optional.of("disabled"), List.of());
+                (journey, transferIndex, now) -> Optional.of("disabled"), List.of());
 
         assertThatThrownBy(() -> service.request(USER_ID, JOURNEY_ID, 0))
                 .isInstanceOf(BusinessException.class);
@@ -107,7 +107,7 @@ class RerouteProposalServiceTest {
         assertThatThrownBy(() -> service.request(USER_ID, JOURNEY_ID, 0))
                 .isInstanceOf(BusinessException.class);
 
-        verify(policy, never()).denialReason(anyLong(), anyInt(), any());
+        verify(policy, never()).denialReason(any(), anyInt(), any());
     }
 
     @Test
@@ -168,6 +168,22 @@ class RerouteProposalServiceTest {
                 .as("'찾아봤지만 나은 것이 없다'는 정상 결과다. 오류로 만들면 앱이 재시도를 돈다")
                 .isEmpty();
         verify(txService, never()).store(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("저장이 빈 결과면 다음 공급자로 넘어가지 않는다")
+    void staleContextStopsInsteadOfFallingThrough() {
+        when(txService.store(any(), any(), any(), any(), any())).thenReturn(Optional.empty());
+        RerouteProposalService service = service(allowing(), List.of(
+                recordingProvider(RerouteProposalKind.ROUTE_OPTION, 0, List.of(candidate())),
+                recordingProvider(RerouteProposalKind.REMAINING_PATH, 1, List.of(candidate()))));
+
+        Optional<RerouteProposalView> result = service.request(USER_ID, JOURNEY_ID, 0);
+
+        assertThat(result).isEmpty();
+        assertThat(callOrder)
+                .as("여정이 움직인 것이지 후보가 없던 것이 아니다 — 더 비싼 검색을 부를 이유가 없다")
+                .containsExactly(RerouteProposalKind.ROUTE_OPTION);
     }
 
     @Test
@@ -237,11 +253,11 @@ class RerouteProposalServiceTest {
     }
 
     private RerouteEligibilityPolicy allowing() {
-        return (journeyId, transferIndex, now) -> Optional.empty();
+        return (journey, transferIndex, now) -> Optional.empty();
     }
 
     private RerouteEligibilityPolicy denying(String reason) {
-        return (journeyId, transferIndex, now) -> Optional.of(reason);
+        return (journey, transferIndex, now) -> Optional.of(reason);
     }
 
     private RerouteCandidateProvider recordingProvider(RerouteProposalKind kind, int priority,

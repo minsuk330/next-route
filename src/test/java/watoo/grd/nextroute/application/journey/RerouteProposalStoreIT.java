@@ -109,10 +109,12 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     @BeforeEach
     void setUp() {
         jdbcTemplate.update("delete from reroute_proposal");
+        jdbcTemplate.update("delete from transfer_connection");
         jdbcTemplate.update("delete from journey_session");
         jdbcTemplate.update("delete from users");
         userId = newUser();
         journeyId = newJourney(userId);
+        newTransfer(0, 2);
     }
 
     // ── 자리가 막히지 않는가 ────────────────────────────────────────────────
@@ -124,7 +126,8 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
                 List.of(candidate()), NOW, NOW.minusSeconds(1));
 
         RerouteProposalView stored = txService.store(context(1, 0),
-                RerouteProposalKind.ROUTE_OPTION, List.of(candidate()), NOW, NOW.plusSeconds(120));
+                RerouteProposalKind.ROUTE_OPTION, List.of(candidate()), NOW, NOW.plusSeconds(120))
+                .orElseThrow();
 
         assertThat(stored.proposalId()).isNotNull();
         assertThat(activeCount()).isEqualTo(1);
@@ -181,7 +184,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         RerouteProposalView stored = txService.store(context(1, 0),
                 RerouteProposalKind.ROUTE_OPTION,
                 List.of(candidate(), candidate(), candidate(), candidate()),
-                NOW, NOW.plusSeconds(120));
+                NOW, NOW.plusSeconds(120)).orElseThrow();
 
         assertThat(stored.candidates()).hasSize(3);
         assertThat(txService.findActive(journeyId)).get()
@@ -194,7 +197,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         RerouteProposalView stored = txService.store(context(1, 0),
                 RerouteProposalKind.ROUTE_OPTION,
                 List.of(candidate("provider-가-넣은-값"), candidate("같은-값")),
-                NOW, NOW.plusSeconds(120));
+                NOW, NOW.plusSeconds(120)).orElseThrow();
 
         assertThat(stored.candidates()).extracting(RerouteCandidate::candidateId)
                 .as("순번이나 provider 가 준 값을 믿으면 다른 경로가 적용될 수 있다")
@@ -213,6 +216,66 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
                         .satisfies(candidate -> assertThat(candidate.apply())
                                 .isEqualTo(new RerouteCandidateApply.RouteOptionApply(
                                         1, 2, "BL-370", "UP"))));
+    }
+
+    // ── 저장 직전 재확인 (R3) ───────────────────────────────────────────────
+
+    @Test
+    @DisplayName("후보를 만드는 사이 여정이 끝났으면 저장하지 않는다")
+    void endedJourneyIsNotStored() {
+        jdbcTemplate.update("update journey_session set status = 'COMPLETED' where id = ?",
+                journeyId);
+
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+                List.of(candidate()), NOW, NOW.plusSeconds(120)))
+                .as("끝난 여정에 살아 있는 제안이 남는다")
+                .isEmpty();
+        assertThat(rows()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("그 사이 사용자 명령이 반영됐으면 저장하지 않는다")
+    void bumpedCommandVersionIsNotStored() {
+        // 후보를 만드는 동안 사용자가 탑승·하차를 알렸다. 지금 제안은 그 전의 판단이다.
+        jdbcTemplate.update("update journey_session set command_version = 2 where id = ?",
+                journeyId);
+
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+                List.of(candidate()), NOW, NOW.plusSeconds(120))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("그 사이 경로가 바뀌었으면 저장하지 않는다")
+    void bumpedRouteRevisionIsNotStored() {
+        jdbcTemplate.update("update journey_session set route_revision = 2 where id = ?",
+                journeyId);
+
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+                List.of(candidate()), NOW, NOW.plusSeconds(120)))
+                .as("후보의 legIndex 가 다른 단계를 가리키게 된다")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("그 사이 그 환승을 지났으면 저장하지 않는다")
+    void passedTransferIsNotStored() {
+        jdbcTemplate.update("update journey_session set current_leg_index = 4 where id = ?",
+                journeyId);
+
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+                List.of(candidate()), NOW, NOW.plusSeconds(120)))
+                .as("사용자가 할 수 있는 일이 없는 제안이 된다")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("진행 중인 환승은 아직 지나지 않은 것이다")
+    void currentTransferIsStillStored() {
+        jdbcTemplate.update("update journey_session set current_leg_index = 2 where id = ?",
+                journeyId);
+
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+                List.of(candidate()), NOW, NOW.plusSeconds(120))).isPresent();
     }
 
     // ── 동시성 ──────────────────────────────────────────────────────────────
@@ -285,6 +348,19 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         return jdbcTemplate.queryForObject(
                 "insert into users (created_at, updated_at) values (now(), now()) returning id",
                 Long.class);
+    }
+
+    /**
+     * 저장 직전 재확인이 볼 환승 하나(R3). 없으면 저장이 {@code stale-context} 로 비켜 간다 —
+     * 제안은 언제나 살아 있는 환승 하나를 가리킨다.
+     */
+    private void newTransfer(int transferIndex, int toLegIndex) {
+        jdbcTemplate.update("""
+                insert into transfer_connection
+                    (created_at, updated_at, journey_id, route_revision, transfer_index,
+                     from_leg_index, to_leg_index, status)
+                values (now(), now(), ?, 1, ?, ?, ?, 'AT_RISK')
+                """, journeyId, transferIndex, toLegIndex - 1, toLegIndex);
     }
 
     private long newJourney(long ownerId) {

@@ -3,13 +3,9 @@ package watoo.grd.nextroute.application.journey.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
-import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Quality;
-import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Source;
 import watoo.grd.nextroute.application.journey.dto.TransferTargetArrival;
 import watoo.grd.nextroute.application.journey.port.out.TransferTargetArrivalPredictor;
-import watoo.grd.nextroute.application.route.dto.TransferArrival;
 import watoo.grd.nextroute.application.route.dto.TransferPredictionResult;
 import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
@@ -39,6 +35,10 @@ import java.util.Optional;
  * <p>모델도 답을 못 주면 모른다고 한다. 운행 중인 차량이 없으면 추정할 근거가 없고, 그 판단은
  * 데이터를 보는 모델 쪽이 하는 것이 맞다 — 여기서 거리로 미리 자르지 않는다.
  *
+ * <p>근거 고르기와 결과 해석은 {@link TransferPredictionInterpreter} 가 소유한다. 재탐색 후보
+ * 평가({@code RouteOptionCandidateProvider})가 같은 규칙을 써야 하기 때문이다 — 두 곳이 각자
+ * 해석하면 같은 버스를 두고 평가와 재탐색이 서로 다른 답을 낸다.
+ *
  * <p>{@link WaitBusArrivalPredictor} 와 달리 단계가 시작됐는지 보지 않는다. 아직 버스를 타고 있는
  * 사용자에게 "다음 정류장에서 갈아탈 차가 언제 오나"를 알려 주는 것이 이 클래스의 존재 이유다.
  */
@@ -49,7 +49,7 @@ public class BusTransferTargetArrivalPredictor implements TransferTargetArrivalP
 
     private final PredictTransferUseCase predictTransferUseCase;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
-    private final JourneyEvaluatorProperties properties;
+    private final TransferPredictionInterpreter interpreter;
 
     @Override
     public boolean supports(JourneyLegType type) {
@@ -69,22 +69,21 @@ public class BusTransferTargetArrivalPredictor implements TransferTargetArrivalP
             return TransferTargetArrival.unknown();
         }
 
-        PredictTransferUseCase.Mode mode = modeFor(boardingAnchorAt, now);
-        // 평가기 몫의 시간 예산을 명시한다. 검색용 기본값(2500ms)을 그대로 쓰면 환승 두 개짜리
-        // 여정이 배치 상한을 넘고, 밀리면 선점이 만료돼 계산 결과를 통째로 버린다.
+        PredictTransferUseCase.Mode mode = interpreter.modeFor(boardingAnchorAt, now);
+        // 평가기 몫의 시간 예산을 명시한다. 검색용 기본값을 그대로 쓰면 환승 두 개짜리 여정이
+        // 배치 상한을 넘고, 밀리면 선점이 만료돼 계산 결과를 통째로 버린다.
         TransferPredictionResult prediction = predictTransferUseCase.predict(
                 waitLeg.getStartStopId(),
                 option.get().getRouteId(),
                 option.get().getBoardingSeq(),
                 boardingAnchorAt,
                 mode,
-                properties.getPredictDeadlineMs());
+                interpreter.budgetMs());
 
         if (prediction.predictedArrivalAt() == null) {
             // 막혀서 못 물어본 것과 물어봤지만 근거가 없는 것을 가른다. 막힌 상황에서 30초마다
             // 다시 부르면 막힌 문을 계속 두드린다.
-            return prediction.status() == TransferArrival.Status.BLOCKED
-                    || prediction.status() == TransferArrival.Status.LIMITED
+            return interpreter.isBlocked(prediction)
                     ? TransferTargetArrival.blocked()
                     : TransferTargetArrival.unknown();
         }
@@ -93,42 +92,11 @@ public class BusTransferTargetArrivalPredictor implements TransferTargetArrivalP
                 (int) Math.max(0, Duration.between(now, prediction.predictedArrivalAt()).getSeconds()),
                 null,
                 null,
-                sourceOf(prediction),
-                qualityOf(prediction),
+                interpreter.sourceOf(prediction),
+                interpreter.qualityOf(prediction),
                 prediction.calculatedAt()),
                 prediction.modelVersion(),
                 false);
-    }
-
-    /**
-     * 실시간까지 볼지, 모델만 볼지.
-     *
-     * <p>앵커가 지났거나 가까우면 실시간이 답을 줄 수 있다. 멀면 실시간 목록에 그 차량이 없으므로
-     * 부르지 않는다.
-     */
-    private PredictTransferUseCase.Mode modeFor(Instant boardingAnchorAt, Instant now) {
-        boolean withinRealtimeWindow = Duration.between(now, boardingAnchorAt)
-                .compareTo(properties.busRealtimeWindow()) <= 0;
-        return withinRealtimeWindow
-                ? PredictTransferUseCase.Mode.REALTIME_THEN_MODEL
-                : PredictTransferUseCase.Mode.MODEL_ONLY;
-    }
-
-    /** 실시간으로 잡았는지 모델이 추정했는지. 운영이 그 비율을 보고 모델 품질을 판단한다. */
-    private Source sourceOf(TransferPredictionResult prediction) {
-        return prediction.source() == TransferArrival.Source.REALTIME
-                ? Source.REALTIME_ARRIVAL : Source.MODEL_ARRIVAL;
-    }
-
-    /**
-     * 실시간으로 잡은 차량이면 믿을 만하고, 모델 추정이면 오차가 크다.
-     *
-     * <p>{@code ARRIVAL_TIME_APPROXIMATE} 는 실시간이어도 도착시간이 근사라는 표시라서 함께 낮춘다.
-     */
-    private Quality qualityOf(TransferPredictionResult prediction) {
-        boolean realtime = prediction.source() == TransferArrival.Source.REALTIME;
-        boolean exact = prediction.status() == TransferArrival.Status.AVAILABLE;
-        return realtime && exact ? Quality.GOOD : Quality.APPROXIMATE;
     }
 
     private Optional<JourneyLegRouteOption> selectedOption(JourneyLeg leg) {
