@@ -15,8 +15,10 @@ import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeoPoint;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeometryQuality;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
+import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.ManeuverGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.SegmentGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.StopGeometry;
+import watoo.grd.nextroute.application.journey.dto.ManeuverType;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
@@ -30,6 +32,7 @@ import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
 import java.util.List;
 
+import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -72,7 +75,34 @@ class JourneyNavigationGeometryControllerTest {
                 .andExpect(jsonPath("$.legs[0].stops[0].stopName").value("승차 정류장"))
                 .andExpect(jsonPath("$.legs[0].stops[1].seq").value(11))
                 .andExpect(jsonPath("$.legs[0].stops[1].x").value((Object) null))
-                .andExpect(jsonPath("$.legs[0].stops[1].y").value((Object) null));
+                .andExpect(jsonPath("$.legs[0].stops[1].y").value((Object) null))
+                // 안내점 없는 단계도 필드를 빼지 않는다. 앱이 null 을 따로 다루지 않아야 한다.
+                .andExpect(jsonPath("$.legs[0].maneuvers").isArray())
+                .andExpect(jsonPath("$.legs[0].maneuvers").isEmpty());
+    }
+
+    @Test
+    @DisplayName("200 — 걷기 단계는 안내점을 필드째 내려준다")
+    void exposesWalkManeuvers() throws Exception {
+        given(getNavigationGeometryUseCase.get(eq(1L), eq(7L), any())).willReturn(walkGeometry());
+
+        mockMvc.perform(get("/api/journeys/7/navigation-geometry")
+                        .with(authentication(authUser(1L))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.legs[0].type").value("WALK"))
+                .andExpect(jsonPath("$.legs[0].maneuvers", hasSize(2)))
+                .andExpect(jsonPath("$.legs[0].maneuvers[0].maneuverIndex").value(0))
+                .andExpect(jsonPath("$.legs[0].maneuvers[0].type").value("DEPART"))
+                .andExpect(jsonPath("$.legs[0].maneuvers[0].instruction").value("출발"))
+                .andExpect(jsonPath("$.legs[0].maneuvers[1].maneuverIndex").value(1))
+                .andExpect(jsonPath("$.legs[0].maneuvers[1].type").value("LEFT"))
+                .andExpect(jsonPath("$.legs[0].maneuvers[1].instruction")
+                        .value("횡단보도를 건넌 후 좌회전하세요"))
+                .andExpect(jsonPath("$.legs[0].maneuvers[1].geometrySegmentIndex").value(15))
+                .andExpect(jsonPath("$.legs[0].maneuvers[1].segmentProgress").value(0.42))
+                .andExpect(jsonPath("$.legs[0].maneuvers[1].distanceFromLegStartMeters").value(184.6))
+                .andExpect(jsonPath("$.legs[0].maneuvers[1].x").value(127.1021))
+                .andExpect(jsonPath("$.legs[0].maneuvers[1].y").value(37.5134));
     }
 
     @Test
@@ -123,6 +153,24 @@ class JourneyNavigationGeometryControllerTest {
                 List.of(
                         new StopGeometry(10, "S10", "승차 정류장", 127.0, 37.5),
                         new StopGeometry(11, "S11", "하차 정류장", null, null)));
+        return new JourneyNavigationGeometry(7L, 1, List.of(leg), null);
+    }
+
+    /** 걷기 단계 하나. 안내점 필드가 실제 JSON 에 나오는지 보기 위한 값이다. */
+    private JourneyNavigationGeometry walkGeometry() {
+        SegmentGeometry segment = new SegmentGeometry(15, null, null, null, 40.0, 30,
+                GeometryQuality.OK, null,
+                List.of(new GeoPoint(127.1020, 37.5133), new GeoPoint(127.1022, 37.5135)));
+        LegGeometry leg = new LegGeometry(0, JourneyLegType.WALK, null, 300, 320.0,
+                GeometryQuality.OK,
+                List.of(new GeoPoint(127.1020, 37.5133), new GeoPoint(127.1022, 37.5135)),
+                List.of(segment),
+                List.of(),
+                List.of(
+                        new ManeuverGeometry(0, ManeuverType.DEPART, "출발", 0, 0.0, 0.0,
+                                127.1000, 37.5120),
+                        new ManeuverGeometry(1, ManeuverType.LEFT, "횡단보도를 건넌 후 좌회전하세요",
+                                15, 0.42, 184.6, 127.1021, 37.5134)));
         return new JourneyNavigationGeometry(7L, 1, List.of(leg), null);
     }
 }
