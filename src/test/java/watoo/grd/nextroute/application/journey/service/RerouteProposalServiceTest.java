@@ -66,7 +66,7 @@ class RerouteProposalServiceTest {
         when(sessionRepository.findByIdAndUserIdAndDeletedAtIsNull(JOURNEY_ID, USER_ID))
                 .thenReturn(Optional.of(journey()));
         when(txService.store(any(), any(), any(), any(), any()))
-                .thenAnswer(invocation -> view(invocation.getArgument(1)));
+                .thenAnswer(invocation -> Optional.of(view(invocation.getArgument(1))));
     }
 
     // ── 외부 검색이 나가지 않는 경우 ────────────────────────────────────────
@@ -91,7 +91,7 @@ class RerouteProposalServiceTest {
     @DisplayName("기본 상태(트리거 없음)에서는 항상 거절이다")
     void defaultPolicyRejects() {
         RerouteProposalService service = service(
-                (journeyId, transferIndex, now) -> Optional.of("disabled"), List.of());
+                (journey, transferIndex, now) -> Optional.of("disabled"), List.of());
 
         assertThatThrownBy(() -> service.request(USER_ID, JOURNEY_ID, 0))
                 .isInstanceOf(BusinessException.class);
@@ -107,7 +107,7 @@ class RerouteProposalServiceTest {
         assertThatThrownBy(() -> service.request(USER_ID, JOURNEY_ID, 0))
                 .isInstanceOf(BusinessException.class);
 
-        verify(policy, never()).denialReason(anyLong(), anyInt(), any());
+        verify(policy, never()).denialReason(any(), anyInt(), any());
     }
 
     @Test
@@ -237,11 +237,11 @@ class RerouteProposalServiceTest {
     }
 
     private RerouteEligibilityPolicy allowing() {
-        return (journeyId, transferIndex, now) -> Optional.empty();
+        return (journey, transferIndex, now) -> Optional.empty();
     }
 
     private RerouteEligibilityPolicy denying(String reason) {
-        return (journeyId, transferIndex, now) -> Optional.of(reason);
+        return (journey, transferIndex, now) -> Optional.of(reason);
     }
 
     private RerouteCandidateProvider recordingProvider(RerouteProposalKind kind, int priority,

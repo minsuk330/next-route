@@ -12,10 +12,14 @@ import watoo.grd.nextroute.application.journey.dto.RerouteCandidateEnvelope;
 import watoo.grd.nextroute.application.journey.dto.RerouteContext;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
+import watoo.grd.nextroute.domain.journey.entity.JourneySession;
+import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposal;
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind;
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposalStatus;
+import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.domain.journey.repository.RerouteProposalRepository;
+import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepository;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -42,6 +46,8 @@ import java.util.stream.Collectors;
 public class RerouteProposalTxService {
 
     private final RerouteProposalRepository proposalRepository;
+    private final JourneySessionRepository sessionRepository;
+    private final TransferConnectionRepository transferRepository;
     private final JourneyRerouteProperties properties;
     private final JourneyRerouteMetrics metrics;
     private final ObjectMapper objectMapper;
@@ -73,11 +79,23 @@ public class RerouteProposalTxService {
      *
      * <p>{@code candidateId} 를 여기서 부여한다. provider 가 무엇을 넣었든 덮어쓴다 — ID 의
      * 유일성은 만드는 쪽이 아니라 저장하는 쪽이 책임진다.
+     *
+     * <h2>저장 직전에 여정을 다시 본다 (R3)</h2>
+     * 후보를 만드는 동안(실시간·ML 왕복) 여정은 계속 움직인다. 사용자가 버스를 타 다음 단계로
+     * 넘어갔거나, 다른 제안을 수락해 경로가 바뀌었을 수 있다. 넘겨받은 {@code context} 는 그
+     * <b>왕복 이전</b>의 사진이라 그대로 믿으면 <b>지나간 환승에 대한 제안</b>이 저장된다.
+     *
+     * @return 저장한 제안. 그 사이 여정이 어긋났으면 <b>빈 결과</b>다 — 오류가 아니다. 사용자가
+     *         이미 다음 단계로 갔거나 경로가 바뀐 것이고, 그때 제안을 심는 쪽이 틀렸다
      */
     @Transactional
-    public RerouteProposalView store(RerouteContext context, RerouteProposalKind kind,
-                                     List<RerouteCandidate> candidates,
-                                     Instant snapshotObservedAt, Instant expiresAt) {
+    public Optional<RerouteProposalView> store(RerouteContext context, RerouteProposalKind kind,
+                                               List<RerouteCandidate> candidates,
+                                               Instant snapshotObservedAt, Instant expiresAt) {
+        if (!stillCurrent(context)) {
+            metrics.recordRejected("stale-context");
+            return Optional.empty();
+        }
         LocalDateTime auditNow = LocalDateTime.now(clock);
         countByReason(proposalRepository.resolveStale(
                 context.journeyId(), context.routeRevision(), context.now(), auditNow));
@@ -104,10 +122,40 @@ public class RerouteProposalTxService {
                 .build());
 
         metrics.recordCreated(kind.name());
-        return new RerouteProposalView(proposal.getId(), proposal.getJourneyId(),
+        return Optional.of(new RerouteProposalView(proposal.getId(), proposal.getJourneyId(),
                 proposal.getRouteRevision(), proposal.getTransferIndex(), proposal.getKind(),
                 proposal.getBaseCommandVersion(), proposal.getSnapshotObservedAt(),
-                proposal.getExpiresAt(), stored);
+                proposal.getExpiresAt(), stored));
+    }
+
+    /**
+     * 후보를 만드는 사이 여정이 그대로였는가.
+     *
+     * <p>넷을 본다. <b>넷이 각각 다른 사고를 막는다.</b>
+     *
+     * <ul>
+     *   <li>{@code ACTIVE} — 여정이 끝났는데 제안을 심으면 끝난 여정에 살아 있는 제안이 남는다</li>
+     *   <li>{@code commandVersion} — 사용자가 탑승·하차를 알렸다. 그 전의 판단이다</li>
+     *   <li>{@code routeRevision} — 경로가 바뀌었다. 후보의 {@code legIndex} 가 다른 단계를 가리킨다</li>
+     *   <li>진행 단계 — 이미 그 환승을 지났다. 사용자가 할 수 있는 일이 없는 제안이 된다</li>
+     * </ul>
+     */
+    private boolean stillCurrent(RerouteContext context) {
+        Optional<JourneySession> found = sessionRepository.findById(context.journeyId());
+        if (found.isEmpty()) {
+            return false;
+        }
+        JourneySession journey = found.get();
+        if (journey.getStatus() != JourneyStatus.ACTIVE
+                || journey.getCommandVersion() != context.commandVersion()
+                || journey.getRouteRevision() != context.routeRevision()) {
+            return false;
+        }
+        return transferRepository
+                .findByJourneyIdAndRouteRevisionAndTransferIndexAndDeletedAtIsNull(
+                        context.journeyId(), context.routeRevision(), context.transferIndex())
+                .filter(transfer -> transfer.getToLegIndex() >= journey.getCurrentLegIndex())
+                .isPresent();
     }
 
     /**

@@ -76,7 +76,9 @@ ODsay 호출은 요금이 붙고 느리다. 그리고 재탐색은 사용자가 
 후보 계약**이고(§②), ②의 PR 에 그 계약을 지키는 **consumer contract test** 를 함께 넣는다 —
 ③④가 만든 후보가 ⑤가 읽을 수 있는 모양인지를 각 PR 이 그 시험으로 확인한다.
 
-**진행 상황** — 아직 시작 전.
+**진행 상황** — ①(#135)·②(#133) 머지됨. ③ 구현 완료(브랜치 `feat/journey-reroute-route-options`).
+남은 것은 ④⑤⑥. ③까지 왔어도 `journey.reroute.enabled` 는 **계속 꺼 둔다** — 켜는 것은 알림
+통로(⑥)가 붙은 뒤다.
 
 ### ① `journey-reroute-trigger`
 
@@ -141,22 +143,34 @@ ODsay 호출은 요금이 붙고 느리다. 그리고 재탐색은 사용자가 
 - L 인 이유 — 상태·만료·중복 제거·소유권 검증이 한 표에 얽히고, 여기서 정한 canonical 계약을
   ③④⑤⑥이 전부 따른다
 
-### ③ `journey-reroute-route-options`
+### ③ `journey-reroute-route-options` — **구현 완료**
 
 사다리 첫 칸. **같은 정류장에서 다른 버스를 탄다.**
+
+구현하며 아래 서술에서 **네 가지가 달라졌다**(근거는 SC-15, 실행 계획은
+`docs/plan/journey-reroute-route-options/PLAN.md`).
+
+- 재사용하는 자리는 `TransferTargetArrivalService` 가 아니라 그 아래 `PredictTransferUseCase` 다.
+  전자는 단계 하나의 `selectedRouteOptionId` 만 보므로 **대안 노선을 평가할 수 없다.** 실시간→ML
+  규칙(`SingleTransferPredictor`)은 그대로 공유되므로 "새 예측기를 만들지 않는다"는 의도는 지켜졌다
+- 이후 대기 단계의 소요는 **언제나 비어 있다**(검색 결과에 없다). 그래서 0으로 두고 건너뛰며,
+  이후 환승이 남아 있으면 화면 신뢰도를 `APPROXIMATE` 로 낮춘다. 필수로 뒀다면 환승이 둘 이상인
+  여정은 제안이 영원히 0건이었다
+- 적격성 판정(`RerouteEligibilityPolicy`)의 실 구현도 이 PR 에 들어갔다. 없으면 ③이 머지돼도
+  API 가 `disabled` 로 막힌 상태로 남는다
+- **제안은 사용자 요청으로만 만든다.** 방아쇠(①)는 계속 shadow 다 — 자동 생성해도 알릴 통로가
+  없어 아무도 못 본다
 
 - `journey_leg_route_option` 에서 현재 `WAIT_BUS` 의 다른 `routeId` 를 읽는다. **DB 가 canonical
   이고 Redis 캐시는 만들지 않는다** — 없는 캐시를 이 PR 에서 새로 만들면 검증할 것이 두 배가 된다.
   조회 부하가 실제로 보이면 그때 넣는다
-- **이건 확정 문서를 거스르는 결정이다.** TECHNICAL_DECISIONS §4 와 SC-10 3항은 "Redis 에 Journey
-  TTL 의 routeOptions 조회 cache 를 유지한다"로 적혀 있고, 그 문장은 **아직 구현된 적이 없다.**
-  코드가 문서를 조용히 어기게 두면 다음 사람이 없는 캐시를 있다고 읽는다. 그래서 ③의 PR 에
-  **TECHNICAL_DECISIONS §4·SC-10 해당 문장 수정을 함께 넣는다** — "PostgreSQL canonical 조회로
-  시작하고, 조회 부하가 확인되면 캐시를 추가한다"로 바꾸고 SCOPE-CHANGES 에 근거를 남긴다.
-  문서를 안 고칠 거면 캐시를 이 PR 에서 만들어야 한다. **둘 중 하나는 반드시 한다**
+- **이건 확정 문서를 거스르는 결정이었다.** TECHNICAL_DECISIONS §4 와 SC-10 3항은 "Redis 에
+  Journey TTL 의 routeOptions 조회 cache 를 유지한다"로 적혀 있었고, 그 문장은 **한 번도 구현된
+  적이 없다.** 코드가 문서를 조용히 어기게 두면 다음 사람이 없는 캐시를 있다고 읽는다. 그래서
+  ③의 PR 에서 **TECHNICAL_DECISIONS §4 문장을 고치고 SC-15 에 근거를 남겼다**
 - 각 후보를 `(stopId, routeId, directionKey, targetSeq)` 로 실시간 → ML fallback 평가한다.
-  `WaitBusArrivalPredictor`·`TransferTargetArrivalService` 를 **재사용한다. 새 예측기를 만들지
-  않는다**
+  **새 예측기를 만들지 않는다** — `PredictTransferUseCase` 를 그대로 부르고, 근거 고르기·결과
+  해석은 `TransferPredictionInterpreter` 가 주기 평가와 공유한다
 - **비교 대상은 "다음 차가 언제 오냐"가 아니라 목적지 ETA 다.** 빨리 오는 차가 더 늦게 도착할 수
   있다. 대기 + 승차 기본시간 + 남은 downstream 을 합쳐야 비교가 성립한다
 - ODsay 는 lane 별 주행시간을 나눠 주지 않으므로 **같은 subPath 의 후보들은 paired ride 기본시간을

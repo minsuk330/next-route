@@ -26,13 +26,21 @@ public class JourneyRerouteMetrics {
     public static final String REQUEST_EMPTY = "journey.reroute.request.empty";
     public static final String TRIGGER_FIRED = "journey.reroute.trigger.fired";
     public static final String TRIGGER_ADMITTED = "journey.reroute.trigger.admitted";
+    public static final String CANDIDATE_EVALUATED = "journey.reroute.candidate.evaluated";
+    public static final String CANDIDATE_FILTERED = "journey.reroute.candidate.filtered";
 
-    /** 트리거(①)가 내려 준 사유를 그대로 태그에 쓰지 않기 위한 접기 값. */
+    /** 판정이 내려 준 사유를 그대로 태그에 쓰지 않기 위한 접기 값. */
     static final String UNKNOWN_REASON = "unknown";
 
     /** 사유 태그로 받아들이는 값. 목록 밖은 {@link #UNKNOWN_REASON} 으로 접는다. */
     private static final Set<String> KNOWN_REJECTION_REASONS = Set.of(
-            "disabled", "not-active", "cooldown", "window", "no-gain", "already-active");
+            "disabled", "not-active", "cooldown", "window", "no-gain", "already-active",
+            "no-transfer", "past-transfer", "stale-context");
+
+    /** 후보가 걸러진 사유. 마찬가지로 <b>목록 밖은 접는다</b>. */
+    private static final Set<String> KNOWN_FILTER_REASONS = Set.of(
+            "no-prediction", "unboardable", "missing-duration", "gain-below-threshold",
+            "baseline-unboardable", "budget-exhausted");
 
     private final MeterRegistry registry;
 
@@ -83,5 +91,33 @@ public class JourneyRerouteMetrics {
      */
     public void recordTriggerAdmitted(String reason) {
         registry.counter(TRIGGER_ADMITTED, "reason", reason).increment();
+    }
+
+    /**
+     * 한 요청에서 예측을 <b>몇 번 물었는지</b>(기준선 포함).
+     *
+     * <p>요금을 추정하는 값이다. 제안 건수만으로는 못 센다 — 후보를 넷 평가하고 전부 걸러 빈손을
+     * 낸 요청도 외부 호출은 네 번 나갔다.
+     */
+    public void recordCandidateEvaluated(int count) {
+        if (count <= 0) {
+            return;
+        }
+        registry.counter(CANDIDATE_EVALUATED).increment(count);
+    }
+
+    /**
+     * 평가는 했지만 후보로 올리지 못한 이유.
+     *
+     * <p>{@link #REQUEST_EMPTY} 만 보면 "왜 빈손인지"를 못 가른다 — 개선폭이 모자란 것과 예측이
+     * 아예 안 온 것은 손댈 곳이 다르다.
+     *
+     * @param reason {@code no-prediction} · {@code unboardable} · {@code missing-duration} ·
+     *               {@code gain-below-threshold} · {@code baseline-unboardable} ·
+     *               {@code budget-exhausted}
+     */
+    public void recordCandidateFiltered(String reason) {
+        registry.counter(CANDIDATE_FILTERED, "reason",
+                KNOWN_FILTER_REASONS.contains(reason) ? reason : UNKNOWN_REASON).increment();
     }
 }

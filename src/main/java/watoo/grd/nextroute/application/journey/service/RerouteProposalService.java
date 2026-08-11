@@ -109,7 +109,7 @@ public class RerouteProposalService {
             metrics.recordRejected("disabled");
             throw new BusinessException(JourneyErrorCode.REROUTE_NOT_ELIGIBLE);
         }
-        Optional<String> denial = eligibilityPolicy.denialReason(journeyId, transferIndex, now);
+        Optional<String> denial = eligibilityPolicy.denialReason(journey, transferIndex, now);
         if (denial.isPresent()) {
             metrics.recordRejected(denial.get());
             throw new BusinessException(JourneyErrorCode.REROUTE_NOT_ELIGIBLE);
@@ -123,8 +123,11 @@ public class RerouteProposalService {
             if (candidates.isEmpty()) {
                 continue;
             }
-            return Optional.of(txService.store(context, provider.kind(), candidates,
-                    observedAt(candidates, now), now.plus(properties.getProposalTtl())));
+            // 후보를 만드는 동안 여정이 움직였으면 저장 쪽이 빈 결과를 낸다. 그때 다음 공급자로
+            // 넘어가지 않는다 — 더 비싼 검색을 부를 이유가 없다. 상황이 바뀐 것이지 후보가
+            // 없었던 것이 아니다.
+            return txService.store(context, provider.kind(), candidates,
+                    observedAt(candidates, now), now.plus(properties.getProposalTtl()));
         }
 
         metrics.recordEmpty();
