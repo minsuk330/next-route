@@ -56,20 +56,27 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 ①이 끝나면 ②와 ③은 서로 독립이라 동시에 진행할 수 있다. 마이그레이션 번호는 **V39 부터**다
 (Phase 4 는 마이그레이션이 없었다).
 
-**진행 상황** — ①②③④⑤⑥ 구현 완료
+**진행 상황** — ①②③④⑤⑥⑦ 구현 완료 (Phase 5 코드 작업 끝)
 (플랜: [journey-push-token](../journey-push-token/SUMMARY.md),
 [journey-notification-outbox](../journey-notification-outbox/SUMMARY.md),
 [journey-fcm-sender](../journey-fcm-sender/SUMMARY.md),
 [journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md),
 [journey-notification-guards](../journey-notification-guards/SUMMARY.md),
-[journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md)).
+[journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md),
+[journey-alert-telemetry](../journey-alert-telemetry/SUMMARY.md)).
 ③ 까지 머지돼도 **운영 발송은 꺼져 있다** — 활성화 게이트는 ③ 절 표를 본다.
 
-후속 과제 둘이 남았다.
+후속 과제 넷이 남았다.
 
 - ① — 계정 삭제(탈퇴) 경로가 생기면 그 사용자의 `user_push_token` 행을 전부 soft delete 해야
   한다(PLAN §7 개인정보). 지금은 탈퇴 서비스가 코드베이스에 없어 죽은 메서드를 만들지 않고
   `UserPushTokenRepository` Javadoc 에만 남겼다
+- ⑦ — **계측 보관 삭제 배치**. 정책은 30일(`received_at` 기준)이고 ⑦은 저장까지만 했다.
+  `@Scheduled` 하나면 되지만, 지우는 순간 그 `telemetry_id` 의 멱등이 열린다 — 아주 오래된 batch 를
+  뒤늦게 재전송하는 기기가 있으면 같은 이벤트가 다시 셈해진다. **받아 주는 시각 창**(예: 7일보다
+  오래된 `occurredAt` 은 거부)을 함께 정해야 한다
+- ⑦ — **계정 삭제 시 계측 24시간 내 물리 삭제**(PLAN §7). ①의 `user_push_token` 과 같은 상황으로,
+  탈퇴 경로가 코드베이스에 생기면 그때 붙인다
 - ② — **`journey_notification` 보관(retention)**. 이 표의 행은 지금 <b>절대 지우지 않는다</b>.
   `delivery_key` 의 unique 가 부분 인덱스가 아니라서, 지우는 순간 키가 열려 같은 알림이 다시
   나가기 때문이다. 지금 규모에서는 문제없지만 정리가 필요해지면 <b>흔적(tombstone) 표를 먼저
@@ -118,7 +125,8 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 (플랜: [journey-fcm-sender](../journey-fcm-sender/SUMMARY.md),
 [journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md),
 [journey-notification-guards](../journey-notification-guards/SUMMARY.md),
-[journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md)).
+[journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md),
+[journey-alert-telemetry](../journey-alert-telemetry/SUMMARY.md)).
 
 - **채널 라우터는 만들지 않는다.** 여정 알림은 `PUSH` 하나다(`TECHNICAL_DECISIONS §2` LOCKED —
   "1차에서는 `FcmNotificationSender` 하나만 구현한다"). 이 문서에 있던 "토스 신분증이면 토스
@@ -166,7 +174,8 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 **언제 보낼지**를 정한다. **구현 완료**
 (플랜: [journey-checkpoint-policy](../journey-checkpoint-policy/SUMMARY.md),
 [journey-notification-guards](../journey-notification-guards/SUMMARY.md),
-[journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md)).
+[journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md),
+[journey-alert-telemetry](../journey-alert-telemetry/SUMMARY.md)).
 
 - **체크포인트는 셋에서 멈춘다** — `TRANSFER_RISK_AT_RISK`·`TRANSFER_RISK_MISSED`(②가 만든 N6·N7)
   에 `TRANSFER_TARGET_APPROACHING`(N2)을 더한다. N4·N5·N8 은 사건이 아니라 알림을 열었을 때 볼
@@ -192,7 +201,8 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 
 발송 직전에 다시 확인한다. **계산 시점과 발송 시점 사이에 세상이 바뀐다.** **구현 완료**
 (플랜: [journey-notification-guards](../journey-notification-guards/SUMMARY.md),
-[journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md)).
+[journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md),
+[journey-alert-telemetry](../journey-alert-telemetry/SUMMARY.md)).
 
 - 재확인은 `JourneyNotificationOutboxStateService#loadTask` 한 곳이 소유한다. 순서는 만료 →
   여정 `ACTIVE` → `routeRevision` → **lease** → **`commandVersion`** → **접근 알림의 뜻**
@@ -214,7 +224,8 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 ### ⑥ `journey-push-payload-deeplink`
 
 payload 계약과 앱 진입. **구현 완료**
-(플랜: [journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md)).
+(플랜: [journey-push-payload-deeplink](../journey-push-payload-deeplink/SUMMARY.md),
+[journey-alert-telemetry](../journey-alert-telemetry/SUMMARY.md)).
 
 - payload 에는 **식별자·세 version·문구 키·deep link 만** 담는다. 상태 값을 담지 않는다 — 앱은
   push 를 열면 REST 로 최신 snapshot 을 다시 조회한다(SC-3 2항)
@@ -234,11 +245,25 @@ payload 계약과 앱 진입. **구현 완료**
 
 ### ⑦ `journey-alert-telemetry`
 
-효과를 잰다. 안 재면 알림을 늘릴지 줄일지 판단할 근거가 없다.
+효과를 잰다. 안 재면 알림을 늘릴지 줄일지 판단할 근거가 없다. **구현 완료**
+(플랜: [journey-alert-telemetry](../journey-alert-telemetry/SUMMARY.md)). **티어를 M 에서 L 로
+올렸다** — API·스키마 신설이 붙었다.
 
-- push 선택률, 알림 이후 GPS 단계 전이·재탐색 수락까지의 지연(alert-to-action)
-- 채널별 발송·성공·영구 실패 수, token 비활성화 수
-- SC-3 5항의 계측 항목과 맞춘다
+- 채널별 발송·성공·실패·token 비활성화는 ③이, 취소 사유 8종은 ⑤가 이미 넣었다. ⑦이 채운 것은
+  **받은 뒤**다 — 눌렀는지, 누르고 무엇을 했는지는 폰 안에서만 일어난다
+- `POST /api/journeys/{journeyId}/telemetry/batch` 로 batch 를 받아 `journey_telemetry_event`(V41)에
+  원본을 쌓는다. 원본을 남기는 이유는 alert-to-action(O15)이 <b>두 사건의 시각 차이</b>라
+  카운터만으로는 상관을 못 내기 때문이다
+- **유일성은 `(user_id, telemetry_id)`.** 전역으로 두면 기기를 물려받아 계정이 바뀔 때 앞선
+  사용자의 키가 새 사용자의 이벤트를 삼킨다. 재전송은 `ON CONFLICT DO NOTHING` 으로 흡수한다 —
+  예외로 만들면 batch 하나가 통째로 죽고 앱은 영원히 재시도한다
+- **`alertId` 도 소유권을 확인**하고(`(id, user_id, journey_id)`), 통과하면 수집 시점에
+  `alert_checkpoint`·`alert_sent_at` 을 **서버가 스냅샷**한다. 알림 행이 나중에 사라져도 상관이 남는다
+- **`detail` 은 이벤트별 허용 키의 스칼라만** 저장한다. 키 이름만 막으면 `{"pos":{"lat":...}}` 를
+  못 걸러 낸다
+- **모르는 이벤트 종류를 거부하지 않는다.** 앱이 먼저 배포되는 것이 정상 순서라, 400 을 내면 새
+  이벤트를 붙이는 동안 batch 가 통째로 버려진다. 지표에서만 `unknown` 으로 접는다
+- 보관은 30일이되 기준은 `received_at` 이고, **삭제 배치는 후속 과제**다(§5)
 
 ## 2. 티어 판정 근거
 

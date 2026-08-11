@@ -26,6 +26,7 @@ src/main/resources/db/migration/*
 !src/main/resources/db/migration/V38__add_journey_last_progress_id.sql
 !src/main/resources/db/migration/V39__create_user_push_token.sql
 !src/main/resources/db/migration/V40__create_journey_notification.sql
+!src/main/resources/db/migration/V41__create_journey_telemetry_event.sql
 docs/*
 !docs/plan/
 !docs/mobile/
