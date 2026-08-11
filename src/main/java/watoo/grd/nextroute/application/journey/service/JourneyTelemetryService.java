@@ -76,6 +76,12 @@ public class JourneyTelemetryService {
     /** {@code detail} 직렬화 크기 상한. 넘으면 그 행만 버린다. */
     private static final int MAX_DETAIL_BYTES = 4096;
 
+    /** {@code journey_telemetry_event.telemetry_id varchar(64)} 와 맞춘다. */
+    private static final int MAX_TELEMETRY_ID_LENGTH = 64;
+
+    /** {@code journey_telemetry_event.event_type varchar(40)} 와 맞춘다. */
+    private static final int MAX_EVENT_TYPE_LENGTH = 40;
+
     private final JourneySessionRepository sessionRepository;
     private final JourneyNotificationRepository notificationRepository;
     private final JourneyTelemetryEventRepository telemetryRepository;
@@ -99,17 +105,28 @@ public class JourneyTelemetryService {
         int rejected = 0;
 
         for (JourneyTelemetryCommand command : commands) {
+            if (!hasValidShape(command)) {
+                // 길이·필수값 검증을 DTO 의 Bean Validation 이 아니라 여기서 한다. @Valid 로
+                // record 필드에 걸면 이 행 하나가 요청 전체를 400 으로 죽인다 — "행 단위 검증"
+                // 계약과 정면으로 어긋난다(JourneyTelemetryBatchRequest.Event 참고).
+                reject("malformed");
+                rejected++;
+                continue;
+            }
+
             JourneyNotification alert = null;
             if (command.alertId() != null) {
                 alert = notificationRepository.findById(command.alertId()).orElse(null);
                 if (alert == null || !alert.getUserId().equals(userId)
                         || !alert.getJourneyId().equals(journeyId)) {
                     // 남의 알림 id 로 "내가 눌렀다"를 심으면 O13·O15 가 엉뚱한 발송에 붙는다.
-                    rejected += reject("foreign-alert");
+                    reject("foreign-alert");
+                    rejected++;
                     continue;
                 }
             } else if (ALERT_REQUIRED.contains(command.eventType())) {
-                rejected += reject("unattributable");
+                reject("unattributable");
+                rejected++;
                 continue;
             }
 
@@ -117,7 +134,8 @@ public class JourneyTelemetryService {
             if (detail.tooLarge()) {
                 // 크기 상한을 넘는 것은 "남길 게 없는 것"과 다르다. 조용히 비우면 앱은 보냈다고
                 // 믿고, 우리는 왜 값이 없는지 모르게 된다.
-                rejected += reject("malformed");
+                reject("malformed");
+                rejected++;
                 continue;
             }
 
@@ -141,9 +159,25 @@ public class JourneyTelemetryService {
         return new JourneyTelemetryResult(accepted, duplicated, rejected);
     }
 
-    private int reject(String reason) {
+    private void reject(String reason) {
         metrics.recordRejected(reason);
-        return 1;
+    }
+
+    /**
+     * 필수값·길이가 저장 가능한 모양인지.
+     *
+     * <p>DTO 에서 {@code @Size} 로 걸지 않는 이유가 여기 있다 — 길이 초과는 <b>흔히 있는 일</b>
+     * (앱 오타·옛 버전)이라 그 행만 버려야 한다. 길이를 넘긴 값을 그대로 insert 로 보내면
+     * {@code varchar(64)} 제약을 DB 가 예외로 거부하고, 그 예외가 트랜잭션 전체를 rollback-only
+     * 로 만들어 <b>batch 전체가 죽는다</b> — Bean Validation 을 걷어낸 것과 같은 사고가 저장소
+     * 앞에서 다시 일어난다. 그래서 DB 에 보내기 전에 여기서 자른다.
+     */
+    private boolean hasValidShape(JourneyTelemetryCommand command) {
+        return command.telemetryId() != null && !command.telemetryId().isBlank()
+                && command.telemetryId().length() <= MAX_TELEMETRY_ID_LENGTH
+                && command.eventType() != null && !command.eventType().isBlank()
+                && command.eventType().length() <= MAX_EVENT_TYPE_LENGTH
+                && command.occurredAt() != null;
     }
 
     /**

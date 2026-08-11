@@ -161,6 +161,25 @@ class JourneyTelemetryIT extends AbstractJourneyOutboxPostgresIT {
         assertThat(rows()).hasSize(2);
     }
 
+    @Test
+    @DisplayName("한 이벤트가 길이 제한을 넘어도 그 행만 버리고 batch 는 산다")
+    void oversizedFieldRejectsOnlyThatRow() {
+        String tooLongTelemetryId = "x".repeat(65);
+        String tooLongEventType = "y".repeat(41);
+
+        JourneyTelemetryResult result = record(
+                event("t1", "SCREEN_ENTERED", null),
+                event(tooLongTelemetryId, "SCREEN_ENTERED", null),
+                event("t2", tooLongEventType, null));
+
+        assertThat(result.accepted())
+                .as("한 필드가 varchar 제한을 넘겨 DB 에 그대로 넣으면 그 예외가 트랜잭션 전체를 "
+                        + "죽인다 — Bean Validation 을 걷어낸 것과 같은 사고가 저장소 앞에서 재발한다")
+                .isEqualTo(1);
+        assertThat(result.rejected()).isEqualTo(2);
+        assertThat(rows()).hasSize(1);
+    }
+
     // ── 권한 ────────────────────────────────────────────────────────────────
 
     @Test
