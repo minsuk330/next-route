@@ -17,6 +17,8 @@ import watoo.grd.nextroute.domain.journey.repository.JourneyEventRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyNotificationRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
+import watoo.grd.nextroute.domain.journey.repository.RerouteProposalRepository;
+import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -47,6 +49,8 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
     private final JourneyLegRepository legRepository;
     private final JourneyEventRepository eventRepository;
     private final JourneyNotificationRepository notificationRepository;
+    private final RerouteProposalRepository rerouteProposalRepository;
+    private final JourneyRerouteMetrics rerouteMetrics;
     private final JourneyStateMachine stateMachine;
     private final JourneyQueryService queryService;
     private final Clock clock;
@@ -143,6 +147,11 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
             // 스위치를 걸지 않는다. 평가기를 껐다 켜는 사이 남은 알림이 나중에 나가면
             // 사용자는 이미 끝난 여정의 안내를 받는다.
             notificationRepository.cancelPendingByJourneyId(journey.getId());
+            // 제안도 같이 접는다. 남겨 두면 수락 API 가 "여정은 끝났는데 제안은 유효한" 상태를
+            // 본다. 알림과 마찬가지로 스위치를 걸지 않는다 - 재탐색을 끈 뒤에도 그전에 만들어진
+            // 행은 여정이 끝나면 접혀야 한다.
+            rerouteMetrics.recordResolved("journey-ended",
+                    rerouteProposalRepository.resolveActiveByJourneyId(journey.getId(), appliedAt));
         }
         if (transition.commandVersionIncrement()) {
             journey.bumpCommandVersion();

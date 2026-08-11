@@ -1,0 +1,47 @@
+package watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto;
+
+import watoo.grd.nextroute.application.journey.dto.RerouteCandidateSummary;
+import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
+import watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * 재탐색 제안 응답.
+ *
+ * <p>제안이 없으면 {@code 204} 가 아니라 {@code proposal: null} 이다. 앱이 "있음/없음"을 한
+ * 분기로 다루게 하기 위해서다 — 상태 코드로 가르면 없음이 오류 처리 경로로 새기 쉽다.
+ *
+ * <p><b>적용 재료({@code apply})는 어느 필드에도 없다.</b> 후보 하나에 경로 원본이 통째로 들어가
+ * 후보 3개면 수십 KB 이고, 앱은 그 값을 쓰지 않는다. {@link RerouteProposalView} 를 그대로
+ * 반환하지 않는 이유가 이것이다.
+ */
+public record RerouteProposalResponse(ProposalBody proposal) {
+
+    public static final RerouteProposalResponse EMPTY = new RerouteProposalResponse(null);
+
+    public static RerouteProposalResponse from(Optional<RerouteProposalView> view) {
+        return view.map(RerouteProposalResponse::from).orElse(EMPTY);
+    }
+
+    public static RerouteProposalResponse from(RerouteProposalView view) {
+        return new RerouteProposalResponse(new ProposalBody(
+                view.proposalId(), view.routeRevision(), view.transferIndex(), view.kind(),
+                view.expiresAt(), view.snapshotObservedAt(),
+                // 변환은 이 팩터리 한 자리에서만 한다. 컨트롤러에서 필드를 골라 담게 하면
+                // 나중에 필드가 하나 늘 때 적용 재료가 실수로 새어 나간다.
+                RerouteCandidateSummary.from(view.candidates())));
+    }
+
+    public record ProposalBody(
+            Long proposalId,
+            int routeRevision,
+            int transferIndex,
+            RerouteProposalKind kind,
+            Instant expiresAt,
+            Instant snapshotObservedAt,
+            List<RerouteCandidateSummary> candidates) {
+    }
+}

@@ -8,8 +8,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import watoo.grd.nextroute.application.journey.config.JourneyExpiryProperties;
 import watoo.grd.nextroute.application.journey.config.JourneyNavigationProperties;
+import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
 import watoo.grd.nextroute.domain.journey.repository.JourneyNotificationRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
+import watoo.grd.nextroute.domain.journey.repository.RerouteProposalRepository;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -35,6 +37,8 @@ public class JourneyLeaseExpiryService {
 
     private final JourneySessionRepository sessionRepository;
     private final JourneyNotificationRepository notificationRepository;
+    private final RerouteProposalRepository rerouteProposalRepository;
+    private final JourneyRerouteMetrics rerouteMetrics;
     private final JourneyNavigationProperties navigationProperties;
     private final JourneyExpiryProperties expiryProperties;
     private final MeterRegistry meterRegistry;
@@ -48,6 +52,8 @@ public class JourneyLeaseExpiryService {
      */
     public JourneyLeaseExpiryService(JourneySessionRepository sessionRepository,
                                      JourneyNotificationRepository notificationRepository,
+                                     RerouteProposalRepository rerouteProposalRepository,
+                                     JourneyRerouteMetrics rerouteMetrics,
                                      JourneyNavigationProperties navigationProperties,
                                      JourneyExpiryProperties expiryProperties,
                                      MeterRegistry meterRegistry,
@@ -55,6 +61,8 @@ public class JourneyLeaseExpiryService {
                                      PlatformTransactionManager transactionManager) {
         this.sessionRepository = sessionRepository;
         this.notificationRepository = notificationRepository;
+        this.rerouteProposalRepository = rerouteProposalRepository;
+        this.rerouteMetrics = rerouteMetrics;
         this.navigationProperties = navigationProperties;
         this.expiryProperties = expiryProperties;
         this.meterRegistry = meterRegistry;
@@ -111,6 +119,9 @@ public class JourneyLeaseExpiryService {
         // idx_journey_notification_journey_live 로 싸다. 만료 SQL 에 합치지 않는 이유는 부하
         // 시험을 거친 그 쿼리(idx_journey_due, 정렬 단계 없음)의 실행 계획을 흔들지 않기 위해서다.
         notificationRepository.cancelPendingByJourneyIdIn(expired);
+        // 제안도 같은 트랜잭션에서 접는다. 밖으로 빼면 "여정은 끝났는데 제안은 살아 있는" 창이 생긴다.
+        rerouteMetrics.recordResolved("journey-ended",
+                rerouteProposalRepository.resolveActiveByJourneyIdIn(expired, now));
 
         meterRegistry.counter(EXPIRED_COUNTER, "reason", "client_lease_expired")
                 .increment(expired.size());
