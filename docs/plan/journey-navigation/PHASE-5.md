@@ -156,15 +156,21 @@ REQUIREMENTS §4.5 가 이미 그것을 전제로 키를 나눠 뒀다.
 | ⑤·⑥ 머지 뒤 | 아래 §1.1 절차로 켠다 |
 | 되돌리기 | `relay.enabled=false` |
 
-### 1.1 운영 발송 켜기 (⑥ 뒤의 별도 작업)
+### 1.1 운영 발송 켜기 (⑦ 뒤의 별도 작업)
 
 코드 변경과 섞지 않는다. 되돌릴 것이 스위치 하나로 남아야 한다.
 
 1. worker 컨테이너에 서비스 계정 JSON 을 **읽기 전용**으로 마운트(`compose.yaml`, ③에서 준비됨)
 2. worker 프로필만 `journey.notification.sender=fcm` → **부팅 확인**. 자격증명이 없거나 틀리면
    부팅이 막힌다(조용히 아무것도 안 보내는 상태가 가장 나쁘다)
-3. `journey.notification.relay.enabled=true`
-4. 되돌리기는 `relay.enabled=false` 하나. 행은 다시 쌓이기만 한다
+3. 평가기(`JOURNEY_EVALUATOR_ENABLED=true`)를 켜 행이 쌓이는지 본다
+4. `journey.notification.relay.enabled=true`
+5. 되돌리기는 `relay.enabled=false` 하나. 행은 다시 쌓이기만 한다
+
+**⏸ 2026-08-15 이후에 실행한다** — VPS 이번 달 네트워크 전송량을 다 썼다. 발송을 켜면 FCM·실시간
+버스 API 호출이 함께 늘어 남은 전송량을 더 빨리 소진한다.
+
+절차 전문·선행 조건·켠 뒤 확인 SQL 은 [GO-LIVE.md](./GO-LIVE.md) 에 있다.
 
 ⑤(발송 직전 lease·version 재검증)와 ⑥(payload 계약·최종 문구) 없이 켜면 낡은 알림이 나가고
 임시 문구가 운영에 굳는다.
