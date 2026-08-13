@@ -120,7 +120,14 @@ public interface BoardingTimeEstimator {
 
 **`Optional` 이 아닌 이유** — 지금 버스 예측기는 예측이 없을 때 `blocked`(막혀서 못 물어봤다)와 `unknown`(물어봤지만 근거가 없다)을 가른다. 막힌 상황에서 30초마다 다시 부르면 막힌 문을 계속 두드리기 때문이다. `Optional.empty()` 하나로 뭉치면 그 구분이 사라져 회귀다. 지하철은 `blocked` 를 항상 `false` 로 둔다(실시간 조회에 호출량 제한이 없어 "막힘" 개념이 없다).
 
-`BoardingQuery` 는 엔티티가 아니라 값이다 — 정류장/역 ID·이름, 노선 ID, `boardingSeq`, `wayCode`. `BoardingEstimate` 는 승차 시각 + 근거(`REALTIME`/`ML`) + 신뢰도 + 관측 시각.
+`BoardingQuery` 는 엔티티가 아니라 값이다 — 정류장/역 ID·이름, 노선 ID, `boardingSeq`, `wayCode`. `BoardingEstimate` 는 승차 시각 + **탈 수 있는지 여부** + 근거(`REALTIME`/`ML`) + 신뢰도 + 관측 시각.
+
+**"탈 수 있는지"로 걸러내는 것은 추정기가 아니라 소비자다.** 같은 값을 두 소비자가 정반대로 쓴다.
+
+- **여정 평가**는 못 타는 예측을 **일부러 통과시킨다.** 그 시각이 흘러가 "준비 시각보다 먼저 온 차"가 되고, 음수 여유가 곧 `MISSED` 판정의 근거다(`TransferRiskEvaluator:128`). 추정기가 걸러내면 여유가 `null` 이 되어 상태가 `UNKNOWN` 으로 떨어진다 — **"차를 놓쳤다"가 "모르겠다"로 바뀐다**
+- **재탐색 후보**는 버린다. 지나간 차를 "이걸 타면 5분 빠릅니다"로 제안할 수 없다
+
+지금 코드가 그렇게 갈려 있다(`BusTransferTargetArrivalPredictor:83` 은 안 보고, `RouteOptionCandidateProvider:256` 은 본다). 추정기를 만들 때 **③의 필터를 따라 넣으면 평가 경로가 조용히 망가진다.**
 
 ⑤가 수락 후 재검증할 때도 같은 자를 쓸 수 있다.
 
