@@ -28,6 +28,8 @@ public class JourneyRerouteMetrics {
     public static final String TRIGGER_ADMITTED = "journey.reroute.trigger.admitted";
     public static final String CANDIDATE_EVALUATED = "journey.reroute.candidate.evaluated";
     public static final String CANDIDATE_FILTERED = "journey.reroute.candidate.filtered";
+    public static final String REMAINING_SEARCH = "journey.reroute.remaining.search";
+    public static final String REMAINING_PATHS = "journey.reroute.remaining.paths";
 
     /** 판정이 내려 준 사유를 그대로 태그에 쓰지 않기 위한 접기 값. */
     static final String UNKNOWN_REASON = "unknown";
@@ -40,7 +42,14 @@ public class JourneyRerouteMetrics {
     /** 후보가 걸러진 사유. 마찬가지로 <b>목록 밖은 접는다</b>. */
     private static final Set<String> KNOWN_FILTER_REASONS = Set.of(
             "no-prediction", "unboardable", "missing-duration", "gain-below-threshold",
-            "baseline-unboardable", "budget-exhausted");
+            "baseline-unboardable", "budget-exhausted",
+            // ④(남은 구간 재검색)가 쓰는 사유들. 목록에 없으면 조용히 unknown 으로 접혀
+            // "왜 빈손인지"를 못 가른다.
+            "same-as-current", "no-direction", "unresolved-route", "more-transfers");
+
+    /** 경로 검색 한 번의 결말. <b>{@code cache-hit} 비율이 ④의 요금을 결정한다.</b> */
+    private static final Set<String> KNOWN_SEARCH_OUTCOMES = Set.of(
+            "cache-hit", "single-flight-join", "called", "failed");
 
     private final MeterRegistry registry;
 
@@ -114,10 +123,40 @@ public class JourneyRerouteMetrics {
      *
      * @param reason {@code no-prediction} · {@code unboardable} · {@code missing-duration} ·
      *               {@code gain-below-threshold} · {@code baseline-unboardable} ·
-     *               {@code budget-exhausted}
+     *               {@code budget-exhausted} · {@code same-as-current} · {@code no-direction} ·
+     *               {@code unresolved-route} · {@code more-transfers}
      */
     public void recordCandidateFiltered(String reason) {
         registry.counter(CANDIDATE_FILTERED, "reason",
                 KNOWN_FILTER_REASONS.contains(reason) ? reason : UNKNOWN_REASON).increment();
+    }
+
+    /**
+     * 남은 구간 경로 검색이 어떻게 끝났는지(④).
+     *
+     * <p><b>{@code cache-hit} 비율이 이 칸의 요금을 결정한다.</b> {@code called} 하나만 유료 호출이고
+     * {@code single-flight-join} 은 진행 중인 호출에 합류한 것이라 돈이 들지 않는다 — 둘을 뭉치면
+     * 중복 억제가 실제로 먹는지 알 수 없다.
+     *
+     * @param outcome {@code cache-hit} · {@code single-flight-join} · {@code called} · {@code failed}
+     */
+    public void recordRemainingSearch(String outcome) {
+        registry.counter(REMAINING_SEARCH, "outcome",
+                KNOWN_SEARCH_OUTCOMES.contains(outcome) ? outcome : UNKNOWN_REASON).increment();
+    }
+
+    /**
+     * 검색이 <b>준</b> 경로 수와 그중 <b>평가한</b> 수.
+     *
+     * <p>둘을 함께 세야 상한(max-paths)이 실제로 무엇을 자르고 있는지 보인다. 평가 수만 두면
+     * "경로가 원래 하나였다"와 "다섯 개 중 둘만 봤다"가 같은 숫자가 된다.
+     */
+    public void recordRemainingPaths(int given, int evaluated) {
+        if (given > 0) {
+            registry.counter(REMAINING_PATHS, "stage", "given").increment(given);
+        }
+        if (evaluated > 0) {
+            registry.counter(REMAINING_PATHS, "stage", "evaluated").increment(evaluated);
+        }
     }
 }

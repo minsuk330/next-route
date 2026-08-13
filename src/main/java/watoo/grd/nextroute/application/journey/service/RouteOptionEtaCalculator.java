@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.journey.service;
 
 import org.springframework.stereotype.Component;
+import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 
@@ -54,31 +55,67 @@ public class RouteOptionEtaCalculator {
      * @return 소요가 깨져 계산할 수 없으면 빈 결과. 그 후보는 버린다
      */
     public Optional<Result> compute(List<JourneyLeg> legs, JourneyLeg waitLeg, Instant boardingAt) {
+        return computeFrom(
+                legs.stream()
+                        .map(leg -> new Segment(leg.getLegIndex(), leg.getType(),
+                                leg.getPlannedDurationSec()))
+                        .toList(),
+                waitLeg.getLegIndex(), boardingAt);
+    }
+
+    /**
+     * <b>아직 저장되지 않은</b> 경로용. 재검색이 방금 가져온 후보는 DB 에 없어 엔티티가 없다.
+     *
+     * <p>대기 단계 <b>객체</b>가 아니라 하한 <b>번호</b>를 받는 것이 차이다. 걷기만으로 목적지에
+     * 닿는 후보에는 넘길 대기 단계가 아예 없기 때문이다.
+     *
+     * @param fromLegIndexExclusive 이 번호까지는 이미 승차 시각에 반영돼 있다. 그보다 뒤만 더한다.
+     *                              대기 단계가 없는 경로에는 (첫 단계 번호 - 1) 을 넘긴다
+     */
+    public Optional<Result> compute(List<JourneyLegDraft> legs, int fromLegIndexExclusive,
+                                    Instant boardingAt) {
+        return computeFrom(
+                legs.stream()
+                        .map(leg -> new Segment(leg.legIndex(), leg.type(), leg.plannedDurationSec()))
+                        .toList(),
+                fromLegIndexExclusive, boardingAt);
+    }
+
+    /**
+     * 합산 규칙은 <b>한 벌뿐이다.</b> 저장된 경로용과 후보용이 각자 계산하면 ③과 ④의 개선폭이
+     * 계산 방식의 차이가 된다.
+     */
+    private Optional<Result> computeFrom(List<Segment> segments, int fromLegIndexExclusive,
+                                         Instant boardingAt) {
         int remaining = 0;
         int walking = 0;
         boolean furtherTransfer = false;
 
-        for (JourneyLeg leg : legs) {
-            if (leg.getLegIndex() <= waitLeg.getLegIndex()) {
+        for (Segment segment : segments) {
+            if (segment.legIndex() <= fromLegIndexExclusive) {
                 // 이미 지나온 구간과 대기 단계 자체는 예측 승차 시각에 이미 반영돼 있다.
                 continue;
             }
-            if (leg.getType().isWaiting()) {
+            if (segment.type().isWaiting()) {
                 // 검색 결과에 없는 값이다. 여기서 포기하면 환승이 둘 이상인 여정이 통째로 죽는다.
                 furtherTransfer = true;
                 continue;
             }
-            Integer duration = leg.getPlannedDurationSec();
+            Integer duration = segment.plannedDurationSec();
             if (duration == null) {
                 return Optional.empty();
             }
             remaining += duration;
-            if (leg.getType() == JourneyLegType.WALK
-                    || leg.getType() == JourneyLegType.TRANSFER_WALK) {
+            if (segment.type() == JourneyLegType.WALK
+                    || segment.type() == JourneyLegType.TRANSFER_WALK) {
                 walking += duration;
             }
         }
         return Optional.of(new Result(boardingAt.plusSeconds(remaining), remaining, walking,
                 furtherTransfer));
+    }
+
+    /** 합산에 필요한 것만 남긴 한 단계. 엔티티와 초안을 같은 규칙으로 다루기 위한 그릇이다. */
+    private record Segment(int legIndex, JourneyLegType type, Integer plannedDurationSec) {
     }
 }
