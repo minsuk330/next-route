@@ -2,69 +2,56 @@
 
 - 설계 근거: [DESIGN.md](./DESIGN.md) — 결정의 *이유*는 전부 그쪽에 있다. 이 문서는 *무엇을 어떻게*만 적는다
 - 상위: [PHASE-6.md §⑤](../journey-navigation/PHASE-6.md) · 선행 PR: ①(#135) ②(#133) ③(#136) ④(#139, #140)
-- 마이그레이션: **없음** (기존 표만 쓴다)
-- 작성일: 2026-08-13
+- 마이그레이션: **V43 한 건**(`reroute_proposal.accepted_candidate_id`)
+- 작성일: 2026-08-13 · **codex 리뷰 반영: 2026-08-13**
 
 ## PR 두 개로 나눈다
 
 | | 슬러그 | 티어 | 내용 | 선행 |
 |---|---|---|---|---|
-| **PR-1** | `feat/journey-geometry-revision-source` | **M** | geometry 원천을 `ACTIVE` 개정본 스냅샷으로 옮긴다(**동작 불변**) | ④(#140) |
-| **PR-2** | `feat/journey-reroute-accept` | **L** | 수락 엔드포인트·트랜잭션·개정본 재구성 | PR-1 |
+| **PR-1** | `feat/journey-geometry-revision-source` | **M** | geometry 원천을 그 개정본의 스냅샷으로 옮긴다(**동작 불변**) | 없음(④와 독립) |
+| **PR-2** | `feat/journey-reroute-accept` | **L** | 수락 엔드포인트·트랜잭션·개정본 재구성 + progress 개정본 가드 | PR-1, ④(#140) |
 
 **PR-1 을 먼저 떼는 이유** — 원천 이동은 **이미 머지돼 화면이 쓰고 있는 코드**를 건드린다. 1번
 개정본에서는 세션 스냅샷과 개정본 스냅샷이 **같은 값**이라 동작이 바뀌지 않아야 하고, 그것을 기존
-geometry 시험이 무수정으로 증명한다. 수락과 같은 PR 에 넣으면 "지도가 이상하다"의 원인이 원천
-이동인지 새 개정본인지 가릴 수 없다.
-
-## 0. 이 PR 이 만드는 것
-
-사용자가 고른 제안 하나를 받아 **안내 경로를 실제로 갈아끼운다.** 개정본·단계·노선 후보·환승·
-geometry 다섯이 한 트랜잭션에서 함께 움직인다.
+geometry 시험이 무수정으로 증명한다.
 
 ## 1. 확정 결정 (요약 — 근거는 DESIGN.md §1)
 
 | # | 결정 |
 |---|---|
-| D1 | 전용 엔드포인트 `POST /api/journeys/{journeyId}/reroute-proposals/{proposalId}/accept` |
-| D2 | 본문에 `candidateId` 필수. 없으면 400 |
-| D3 | 새 개정본은 **전체 단계를 복제**한다(앞 구간은 값 보존, 뒤 구간은 새 경로) |
-| D4 | `fromLegIndex < currentLegIndex` 면 409. 같으면 적용하고 `ACTIVE` 상태·`activatedAt` 을 잇는다 |
-| D5 | 개정본 스냅샷은 **합성**한다 — 옛 스냅샷의 앞 구간 + 후보 경로 |
-| D6 | geometry 원천은 `ACTIVE` `JourneyRevision.routeSnapshot` (PR-1) |
-| D7 | 트랜잭션 안에서 넷을 재확인: 제안 `ACTIVE` · 만료 · `baseCommandVersion` · `routeRevision` |
-| D8 | 동시 수락은 제안 상태 **조건부 update 한 문장**으로 한 번만 통과 |
-| D9 | 같은 `(proposalId, candidateId)` 재전송은 200 + 최신 스냅샷. 다른 후보면 409 |
-| D10 | `journey_revision.reason` = `ROUTE_OPTION_ACCEPTED` · `REMAINING_PATH_ACCEPTED` |
-| D11 | 이전 개정본 pending 알림 취소 + 남은 제안 접기 + 즉시 재평가 예약 |
-| D12 | 상태머신 `REROUTE_ACCEPTED` 는 계속 거절. 이력은 수락 트랜잭션이 직접 남긴다 |
+| D1·D2 | 전용 엔드포인트 + `candidateId` 필수(없으면 400) |
+| D3 | 새 개정본은 **전체 단계 복제**(앞은 값 보존, 뒤는 새 경로) |
+| D4 | `fromLegIndex < currentLegIndex` 면 409. 같으면 §4.4 승계 규칙 |
+| D5 | **스냅샷을 먼저 합성하고, 새 단계·환승은 그 합성본을 다시 쪼개서 얻는다** |
+| D5-b | 합성본을 쪼갠 **앞 구간이 저장된 단계와 다르면 409**(`snapshot-mismatch`) |
+| D6 | geometry 원천 = 그 개정본의 스냅샷. **폴백은 1번 개정본에만**, 그 뒤는 명시적 실패 |
+| D7·D8 | **세션 행을 잠근다**(`findByIdAndUserIdForUpdate`). 순서는 세션 → 제안 |
+| D9 | 재확인 실패는 **예외로 롤백**. 정상 return 409 금지 |
+| D10·D11 | 수락 후보 ID 를 저장(V43). 같은 후보 재전송 200, 다른 후보 409 |
+| D12 | `event_id` = `reroute-accept:{proposalId}:{candidateId}` (결정론) |
+| D13 | 교체 지점 **이후**의 예측·증거·진행도·환승 판정·알림 표시는 **초기화** |
+| D14 | 알림 취소 사유는 `route-changed` |
+| D15 | progress 경로에 **개정본 가드** 추가 |
+| D16 | `reason` = `ROUTE_OPTION_ACCEPTED` · `REMAINING_PATH_ACCEPTED` |
+| D17 | 상태머신 `REROUTE_ACCEPTED` 는 계속 거절 |
 
 ## 2. 착수 시점의 실제 코드 상태 (2026-08-13 확인)
 
 | 부품 | 상태 |
 |---|---|
-| `JourneyStateMachine` | `REROUTE_ACCEPTED -> rejected(NOT_SUPPORTED_YET)` (`:40`) |
-| `JourneySession` | `bumpCommandVersion()`·`moveToLeg()`·`scheduleEvaluationAt()` 는 있고 **`routeRevision` 을 올리는 메서드는 없다** — 추가한다 |
-| `JourneyRevision` | `supersede(at)` 있음. `reason` 칸은 비어 있고 어휘 미정 |
-| `RerouteProposal` | `accept(now)` 이미 있음(`resolvedReason = "accepted"`). `baseCommandVersion`·`routeRevision`·`expiresAt` 보유 |
-| `RerouteProposalRepository` | `supersedeActive`·`resolveStale`·`resolveActiveByJourneyId` 있음. **조건부 accept update 는 없다 — 추가한다** |
-| `JourneyStartTxService` | 저장 순서(단계 → 노선 후보 → 환승)의 본보기. 선택 노선은 첫 후보(`saveRouteOptions:170`) |
-| `JourneyNavigationGeometryService` | `recompile(journey.getRouteSnapshot())`(`:88`) — **세션 스냅샷**을 쓴다. PR-1 이 여기를 옮긴다 |
-| `JourneyCompiler.compileDetailed` | `subPathIndexOf(legIndex)` 로 단계 → 원본 구간 번호를 준다. 합성 스냅샷의 자르는 위치가 이 값이다 |
-| `JourneyCommandService.applyTransition` | 알림 취소·제안 접기·`commandVersion` 증가의 본보기(`:145-160`) |
-| `JourneyNotificationRepository` | `cancelPendingByJourneyId(journeyId)` 있음 |
-| `uq_journey_active_revision` | 여정당 `ACTIVE` 개정본 하나. **옛 개정본을 내리고 flush 한 뒤** 새 행을 넣어야 한다 |
-| `uq_journey_leg_index` | `(journey_id, route_revision, leg_index)` — 개정본이 다르면 같은 번호가 공존한다 |
-| `JourneyErrorCode` | `REROUTE_NOT_ELIGIBLE`·`STALE_ROUTE_REVISION`·`JOURNEY_NOT_ACTIVE` 있음. 수락 전용 코드는 없다 |
-| `RerouteCandidateApply` | `RouteOptionApply(waitLegIndex, routeOptionIndex, routeId, directionKey)` · `RemainingPathApply(fromLegIndex, path)` |
-| `JourneyTransitIdEnricher` | ④가 후보 경로에 이미 쓴다. 수락도 같은 단계를 거친다 |
-
-### 참고할 형제 코드
-
-- **저장 순서·flush 규칙**: `JourneyStartTxService.start`
-- **알림 취소·제안 접기**: `JourneyCommandService.applyTransition`
-- **조건부 update 관례**: `RerouteProposalRepository.supersedeActive`
-- **통합 시험 관례**: `RerouteRouteOptionIT`(③) · `RerouteRemainingPathIT`(④)
+| `JourneyCommandService.apply` | `sessionRepository.findByIdAndUserIdForUpdate(...)` 로 **세션 행을 잠근다**(`:61-62`). 수락도 같은 것을 잠근다 |
+| `JourneyProgressService.apply` | **잠그지 않는다.** 개정본을 한 번 확인하고(`:35-36`) 단계를 갱신한 뒤 세션을 다시 읽는다(`:74-78`) |
+| `JourneyLeg` builder | `type`·`state`·정류장·이름·`plannedDurationSec`·`evidenceQuality`·`activatedAt` 만 받는다(`:143-165`). **진행도·예측·완료 시각은 넣을 방법이 없다 → 복제 API 를 만든다** |
+| `JourneyCompiler` | 도보 종류가 앞뒤 교통수단으로 갈리고(`:122-150`), 같은 정류장 0거리 도보는 단계를 만들지 않는다(`:128-129`). 환승은 인접 교통수단으로 만든다(`:337-361`) |
+| `JourneyStartTxService` | 저장 순서: 단계 저장·flush → 후보 저장·flush → 선택 지정 → flush(`:126-177`) |
+| `JourneyNotificationRepository` | `cancelPendingByJourneyId` 는 사유가 **`journey-ended` 고정**(`:194-202`) → 사유 인자를 받는 메서드를 새로 만든다 |
+| `RerouteProposalRepository` | `supersedeActive`·`resolveStale`·`resolveActiveByJourneyId` 있음. **조건부 accept 는 없다** |
+| `RerouteProposal` / V42 | 수락한 후보 ID 를 담을 칸이 **없다** → V43 |
+| `JourneyEvent` | `event_id` 필수·unique(`uq_journey_event_id`). 수락 요청에는 앱이 준 `eventId` 가 없다 |
+| `journey_leg.selected_route_option_id` FK | **행 존재만** 검사한다 — 옛 개정본의 후보 행을 가리켜도 통과한다 |
+| `uq_journey_active_revision` | 여정당 `ACTIVE` 하나. 옛 행을 내리고 **flush 뒤** 새 행 |
+| `TransferRiskEvaluator` / `TransferRiskNotifier` | 떨림 방지와 `lastNotifiedStatus` 표시를 쓴다 — 복제로 남으면 **새 위험 알림이 막힌다** |
 
 ---
 
@@ -77,15 +64,15 @@ geometry 다섯이 한 트랜잭션에서 함께 움직인다.
 Snapshot snapshot = recompile(journey.getRouteSnapshot());
 
 // 바꾼 뒤
-Snapshot snapshot = recompile(revisionSnapshot(journey));
+Snapshot snapshot = recompile(snapshotOf(journey, revision));
 ```
 
 - `JourneyRevisionRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNull(journeyId, revision)`
-  로 **지금 그리는 개정본의 스냅샷**을 읽는다. `findByJourneyIdAndStatus…(ACTIVE)` 를 쓰지 않는다 —
-  요청이 특정 개정본을 지목할 수 있고(`requestedRevision`), 그 값과 다른 스냅샷을 그리면 안 된다
-  (조회 메서드는 ④가 이미 추가해 뒀다)
-- **개정본 행이 없으면 세션 스냅샷으로 폴백하고 `log.warn`.** 시작 흐름이 1번 개정본을 반드시
-  만들지만, 옛 데이터나 부분 실패로 없을 수 있고 그때 지도를 통째로 죽이는 것은 과하다
+  로 **지금 그리는 개정본의** 스냅샷을 읽는다(④가 추가해 둔 조회다). `ACTIVE` 로 찾지 않는다 —
+  요청이 개정본을 지목할 수 있다
+- **폴백은 `revision == 1` 일 때만.** 그때만 세션 스냅샷과 같은 값이 보장된다.
+  2 이상인데 개정본 행이 없으면 `log.error` + 예외(500) — 2번 개정본에서 세션 스냅샷을 그리면
+  **반드시 옛 경로를 조용히 그린다**
 - 그 외에는 한 줄도 바꾸지 않는다
 
 ### 3.2 검증 (PR-1)
@@ -94,196 +81,233 @@ Snapshot snapshot = recompile(revisionSnapshot(journey));
 ./gradlew test --tests '*JourneyNavigationGeometry*'
 ```
 
-- [ ] 기존 geometry 시험이 **무수정 통과**. 1번 개정본에서 두 스냅샷이 같은 값이므로 결과가 같다
-- [ ] 개정본 스냅샷을 일부러 다르게 심으면 **개정본 쪽이 그려진다**(원천이 옮겨졌다는 증거)
-- [ ] 개정본 행이 없으면 세션 스냅샷으로 그린다(폴백)
+- [ ] 기존 geometry 시험이 **무수정 통과**
+- [ ] 개정본 스냅샷을 다르게 심으면 **개정본 쪽이 그려진다**
+- [ ] 1번 개정본에 행이 없으면 세션 스냅샷으로 그린다(폴백)
+- [ ] **2번 개정본에 행이 없으면 실패한다**(조용히 옛 경로를 그리지 않는다)
 - [ ] `./gradlew build` 전체 통과 → PR-1 머지
 
 ---
 
 ## PR-2 — 수락 본체 (L)
 
-### 4.1 신규 `application/journey/service/JourneyRevisionComposer.java`
+### 4.1 마이그레이션 V43
 
-새 개정본의 **재료**를 만든다. DB 를 읽지도 쓰지도 않는 순수 변환이라 시험이 쉽다.
+```sql
+ALTER TABLE reroute_proposal ADD COLUMN accepted_candidate_id varchar(36);
+COMMENT ON COLUMN reroute_proposal.accepted_candidate_id IS
+    '수락된 후보의 candidateId. 재전송(같은 후보 200)과 다른 후보(409)를 가른다';
+```
+
+`nullable` 이다 — 수락되지 않은 제안이 대부분이다. **VPS 배포 시 수동 배치 대상**(마이그레이션
+convention).
+
+### 4.2 신규 `application/journey/service/JourneyRevisionComposer.java`
+
+DB 를 읽지도 쓰지도 않는 순수 변환. **순서가 계약이다 — 합성 먼저, 쪼개기 나중.**
 
 ```java
 @Component
 public class JourneyRevisionComposer {
 
     /**
-     * @param currentSnapshot 지금 개정본의 경로 원본
-     * @param currentLegs     지금 개정본의 단계 전부(legIndex 오름차순)
-     * @param apply           사용자가 고른 후보의 적용 재료
-     * @return 새 개정본의 단계 초안 + 합성 스냅샷. 만들 수 없으면 빈 결과
+     * @return 만들 수 없거나 앞 구간이 저장된 단계와 어긋나면 사유가 담긴 실패
      */
-    public Optional<Composed> compose(PathResult currentSnapshot, List<JourneyLeg> currentLegs,
-                                      RerouteCandidateApply apply);
+    public Result compose(PathResult currentSnapshot, List<JourneyLeg> currentLegs,
+                          RerouteCandidateApply apply);
 
-    public record Composed(List<JourneyLegDraft> legs, List<TransferConnectionDraft> transfers,
-                           PathResult snapshot, int fromLegIndex, String reason) {}
+    public record Composed(PathResult snapshot, List<JourneyLegDraft> legs,
+                           List<TransferConnectionDraft> transfers,
+                           int fromLegIndex, String reason) {}
 }
 ```
 
-동작:
+`REMAINING_PATH` 동작:
 
-1. `fromLegIndex` 를 뽑는다 — `RemainingPathApply.fromLegIndex()` / `RouteOptionApply.waitLegIndex()`
-2. **`ROUTE_OPTION`** 이면 구조가 안 바뀐다. 스냅샷도 단계 목록도 지금 것을 그대로 쓰고,
-   바뀌는 것은 대기 단계의 **선택 노선**뿐이다(§4.3-b)
-3. **`REMAINING_PATH`** 면
-   - `compiler.compile(apply.path())` → `transitIdEnricher.enrich(plan)`
-     (**보강을 빼먹으면 새 단계가 전부 미해석이 되어 그 뒤 평가가 통째로 죽는다**)
-   - 새 단계 초안의 번호를 `fromLegIndex + i` 로 다시 매긴다. `pairedLegIndex` 도 같이 민다
-   - 앞 구간 초안은 만들지 않는다 — **엔티티 복제**는 저장 쪽이 한다(§4.3)
-   - 스냅샷 합성: `p = compileDetailed(currentSnapshot).subPathIndexOf(fromLegIndex)` 를 구해
-     `currentSnapshot.subPaths[0..p)` + `apply.path().subPaths()` 를 이은 `PathResult`.
-     `info`·`pathType`·`laneGraphics` 는 **후보 경로의 것을 그대로** 쓴다
-   - `p` 가 null 이면(원본을 잃은 단계) 빈 결과 → 수락 거절
-   - 환승 초안: 앞 구간의 기존 환승은 저장 쪽이 복제하고, 여기서는 **새 구간의 환승만** 낸다.
-     `transferIndex` 는 앞 구간 환승 수부터 이어 붙이고 `fromLegIndex` 만큼 단계 번호를 민다
+1. `fromLegIndex = apply.fromLegIndex()`
+2. `p = compiler.compileDetailed(currentSnapshot).subPathIndexOf(fromLegIndex)`.
+   **null 이면 실패**(`snapshot-unmappable`)
+3. 합성: `subPaths = currentSnapshot.subPaths[0..p) + apply.path().subPaths()`.
+   `pathType`·`info`·`laneGraphics` 는 **후보 경로의 것**을 그대로
+4. **합성본을 `compiler.compile(...)` 로 쪼갠다.** 후보를 따로 쪼개 번호를 밀지 않는다 —
+   도보 종류·`skippedWalk`·접합부 환승이 여기서만 올바르게 나온다
+5. `transitIdEnricher.enrich(...)` 를 거친다(④와 같은 함정)
+6. **앞 구간 검사(D5-b)**: `legIndex < fromLegIndex` 인 초안의 `type` 이 저장된 단계와 하나라도
+   다르거나 개수가 다르면 실패(`snapshot-mismatch`)
+7. 환승 초안은 **합성본이 낸 것 전부**를 쓴다. 앞 구간에 걸친 환승은 저장 쪽이 옛 판정값을 덮어
+   씌운다(§4.3-c)
 
-### 4.2 신규 `application/journey/service/RerouteAcceptService.java`
-
-트랜잭션 **밖**에서 할 일만 한다 — 후보를 찾아 재료를 만든다. 그 다음 Tx 서비스를 부른다.
-
-```java
-public JourneySnapshot accept(Long userId, Long journeyId, Long proposalId, String candidateId);
-```
-
-- 제안·여정을 읽어 **소유자**를 확인한다(`userId` 는 JWT 에서만 온다)
-- `candidateId` 로 후보를 고른다. 없으면 `REROUTE_CANDIDATE_NOT_FOUND`(404)
-- 이미 `ACCEPTED` 이고 **같은 후보**면 그대로 최신 스냅샷을 돌려준다(D9)
-- 재료를 만들어 `RerouteAcceptTxService.apply(...)` 로 넘긴다
+`ROUTE_OPTION` 동작: 스냅샷·단계·환승 구조는 그대로. `Composed.legs` 는 비우고 `fromLegIndex` 와
+바꿀 후보 정보만 싣는다(§4.3-b).
 
 ### 4.3 신규 `application/journey/service/RerouteAcceptTxService.java`
 
-한 트랜잭션에서 전부 한다. 순서가 계약이다.
-
 ```
-1. userRepository.findByIdForUpdate(userId)                 사용자 행 잠금
-2. proposalRepository.acceptIfActive(proposalId, now)       조건부 update — 1행이 아니면 409
-3. 여정을 다시 읽어 넷을 확인 (D7·D4)                        어긋나면 409 + 최신 스냅샷
-4. 옛 개정본 supersede + flush                              uq_journey_active_revision
-5. 새 개정본 insert (routeRevision+1, reason, 합성 스냅샷)
-6. 앞 구간 단계 복제 + 새 구간 단계 저장 → flush
-7. 노선 후보 저장 + 선택 노선 지정 (시작 흐름과 같은 규칙)
-8. 환승 저장 (앞 구간 복제 + 새 구간)
-9. session: routeRevision+1 · commandVersion+1 · scheduleEvaluationAt(now)
-10. 알림 취소(cancelPendingByJourneyId) · 남은 제안 접기(route-changed)
-11. journey_event 에 REROUTE_ACCEPTED 기록
+ 1. sessionRepository.findByIdAndUserIdForUpdate(journeyId, userId)     세션 행 잠금 (D7)
+ 2. 여정 ACTIVE 확인
+ 3. proposalRepository.acceptIfActive(proposalId, candidateId, now)     조건부 update (D8)
+      - 0행이면: 제안을 다시 읽어 accepted_candidate_id 로 판정
+        · 같은 후보 → 200 + 최신 스냅샷 (D11)
+        · 그 외      → 409
+ 4. 넷 재확인 — 제안의 routeRevision == 세션, baseCommandVersion == 세션,
+    expiresAt > now, fromLegIndex >= currentLegIndex
+      - 하나라도 어긋나면 BusinessException → 트랜잭션 롤백 (D9)
+ 5. composer.compose(...) 실패면 BusinessException(snapshot-mismatch) → 롤백
+ 6. 옛 개정본 supersede + flush                                          uq_journey_active_revision
+ 7. 새 개정본 insert (routeRevision+1, reason, 합성 스냅샷)
+ 8. 앞 구간 단계 복제 + 새 구간 단계 저장 → flush
+ 9. 노선 후보 저장 → 선택 노선 지정(복제한 새 후보 행 ID) → flush
+10. 환승 저장 (앞 구간은 판정값 복제, 교체 지점 이후는 UNKNOWN)
+11. session: routeRevision+1 · commandVersion+1 · scheduleEvaluationAt(now)
+12. 알림 취소(route-changed) · 남은 제안 resolveStale(새 개정본)
+13. journey_event insert — event_id = "reroute-accept:{proposalId}:{candidateId}"
 ```
 
-**앞 구간 복제(6)에서 옮기는 칸**은 손으로 나열하지 말고 **시험이 목록을 세게 한다**(§6 함정).
-최소한 이것들: `type`·`state`·`startStopId`·`endStopId`·`sourceStartStopId`·`sourceEndStopId`·
-`startName`·`endName`·`routeId`·`vehicleId`·`plannedDurationSec`·`predictedEndAt`·`remainingStops`·
-`evidenceSource`·`evidenceObservedAt`·`evidenceQuality`·`lastProgressId`·`progress*`·
-`remainingDistanceMeters`·`remainingDurationSeconds`·`activatedAt`·`completedAt`.
+#### 4.3-a 단계 복제
 
-**`currentLegIndex == fromLegIndex`** 면 새 단계의 첫 칸이 `ACTIVE` 이고 `activatedAt` 은 옛
-단계의 값을 잇는다(D4). 그 외에는 새 구간 전부 `PENDING`.
-
-### 4.3-b `ROUTE_OPTION` 수락은 구조가 안 바뀐다
-
-단계·환승·스냅샷은 그대로 복제하고, 대기 단계와 짝 주행 단계의 `selectedRouteOptionId`·`routeId` 만
-고른 후보로 바꾼다. **개정본은 똑같이 오른다** — 앱이 "경로가 바뀌었다"를 개정본 번호로 판단하고,
-알림·제안 정리도 개정본 기준이기 때문이다.
-
-### 4.4 신규 저장소 메서드
-
-`RerouteProposalRepository`
+`JourneyLeg` 에 **복제 전용 API 를 만든다.** 빌더로는 진행도·예측·완료 시각을 옮길 수 없다.
 
 ```java
-/** ACTIVE 인 제안만 ACCEPTED 로. 동시 수락 중 한 번만 1을 돌려준다. */
-@Modifying(clearAutomatically = true)
+/** 같은 단계를 새 개정본으로 옮긴다. 진행·증거·시각을 그대로 들고 간다. */
+public JourneyLeg copyToRevision(int newRouteRevision);
+```
+
+- 복제 대상: `legIndex < fromLegIndex` 전부
+- **`selectedRouteOptionId` 는 복제 직후 null 로 두고**, 새 후보 행을 저장한 뒤 새 ID 로 채운다.
+  FK 가 행 존재만 검사하므로 옛 ID 를 그대로 두면 **다른 개정본을 가리키는 유령 참조**가 통과한다
+- 짝이 되는 대기·주행 단계는 **같은 새 후보 행**을 가리켜야 한다(시작 흐름과 같은 규칙)
+
+#### 4.3-b `ROUTE_OPTION` 수락
+
+단계·환승·스냅샷은 전부 복제하고, 대기 단계와 짝 주행 단계의 `selectedRouteOptionId`·`routeId` 만
+고른 후보로 바꾼다. **개정본은 똑같이 오른다.** 그리고 **그 환승과 단계의 판정값은 초기화한다**
+(§4.3-c) — 구조가 같다고 옛 예측이 유효한 것이 아니다.
+
+#### 4.3-c 무엇을 잇고 무엇을 버리는가 (D13)
+
+| 대상 | 교체 지점 **앞** | 교체 지점 **이후** |
+|---|---|---|
+| 단계 `state`·`activatedAt`·`completedAt` | 복제 | 새로 만든 값(§4.4) |
+| 단계 `progress*`·`lastProgressId`·`remaining*` | 복제 | **비운다** |
+| 단계 `predictedEndAt`·`evidence*` | 복제 | **비운다** |
+| 환승 `status`·`userReadyAt`·예측·`confidence` | 복제 | `UNKNOWN` + 전부 비움 |
+| 환승 `lastNotifiedStatus` | 복제 | **비운다** — 남기면 새 위험을 알리지 못한다 |
+
+`ROUTE_OPTION` 수락에서 **바뀐 노선의 환승**은 "이후"로 취급한다.
+
+### 4.4 `currentLegIndex == fromLegIndex` 승계
+
+| 값 | 규칙 |
+|---|---|
+| `state` | 옛 단계가 `ACTIVE` 면 새 첫 단계도 `ACTIVE` |
+| `activatedAt` | **옛 단계와 종류(`type`)가 같을 때만** 승계. 다르면 `now` |
+| `progress*`·`predictedEndAt`·`evidence*` | 승계하지 않는다 |
+
+### 4.5 신규·수정 저장소 메서드
+
+```java
+// RerouteProposalRepository — 조건부 수락. candidateId 도 함께 남긴다 (D10)
+@Modifying(clearAutomatically = false, flushAutomatically = true)
 @Query("update RerouteProposal p set p.status = 'ACCEPTED', p.resolvedAt = :now, "
-     + "p.resolvedReason = 'accepted' where p.id = :id and p.status = 'ACTIVE' "
-     + "and p.expiresAt > :now")
-int acceptIfActive(@Param("id") Long id, @Param("now") Instant now);
+     + "p.resolvedReason = 'accepted', p.acceptedCandidateId = :candidateId "
+     + "where p.id = :id and p.status = 'ACTIVE' and p.expiresAt > :now")
+int acceptIfActive(Long id, String candidateId, Instant now);
+
+// JourneyNotificationRepository — 사유를 받는다 (D14)
+int cancelPendingByJourneyId(Long journeyId, String reason);
 ```
 
-### 4.5 신규 API
+**`clearAutomatically = true` 를 쓰지 않는다.** 영속성 컨텍스트를 비우면 방금 잠근 세션 엔티티가
+detach 되어 그 뒤 변경이 조용히 사라진다(기존 `cancelPendingByJourneyId` 주석이 같은 이유를 적어 뒀다).
 
-`POST /api/journeys/{journeyId}/reroute-proposals/{proposalId}/accept`
+### 4.6 progress 개정본 가드 (D15)
 
-```json
-{ "candidateId": "0f9f…" }
-```
+`JourneyProgressService` 는 여정 행을 잠그지 않는다. 수락이 그 사이 개정본을 올리면 **옛 단계**를
+갱신하고 새 세션에 지하철 보호 시각을 씌운다.
 
-- 응답은 **여정 스냅샷**(기존 `JourneySnapshotResponse` 재사용). 앱은 응답의 `routeRevision` 으로
-  geometry 를 다시 받는다
-- 오류: 404 `REROUTE_PROPOSAL_NOT_FOUND`·`REROUTE_CANDIDATE_NOT_FOUND` / 409
-  `REROUTE_PROPOSAL_STALE`(만료·상태·버전·개정본·지나간 단계 전부 이 코드) / 400 `candidateId` 누락
-- 409 응답에도 **최신 스냅샷을 함께 싣는다**. 앱이 다시 물어보지 않고 화면을 맞출 수 있어야 한다
+- 단계 갱신·`bumpEvaluationVersion`·보호 시각 적용을 **개정본 조건부**로 바꾼다
+- 다시 읽은 세션의 개정본이 요청과 다르면 **아무 것도 적용하지 않고** `STALE_ROUTE_REVISION`
+- 시험: 수락과 progress 를 겹쳐 실행해 옛 개정본 갱신이 새 상태를 건드리지 않는지
 
-### 4.6 수정 파일
+### 4.7 API
+
+`POST /api/journeys/{journeyId}/reroute-proposals/{proposalId}/accept` · 본문 `{ "candidateId": "…" }`
+
+- 응답: 여정 스냅샷(기존 응답 재사용). 앱은 `routeRevision` 으로 geometry 를 다시 받는다
+- 404 `REROUTE_PROPOSAL_NOT_FOUND`·`REROUTE_CANDIDATE_NOT_FOUND` / 409 `REROUTE_PROPOSAL_STALE`
+  (만료·상태·버전·개정본·지나간 단계·`snapshot-mismatch`) / 400 `candidateId` 누락
+- 409 에도 **최신 스냅샷을 싣는다**
+
+### 4.8 수정 파일
 
 | 경로 | 변경 |
 |---|---|
-| `domain/journey/entity/JourneySession.java` | `bumpRouteRevision()` 추가 |
-| `domain/journey/entity/JourneyRevision.java` | `reason` 어휘 주석 확정(D10) |
+| `domain/journey/entity/JourneySession.java` | `bumpRouteRevision()` |
+| `domain/journey/entity/JourneyLeg.java` | `copyToRevision(newRevision)` · 판정값 초기화 API |
+| `domain/journey/entity/TransferConnection.java` | 판정·알림 표시 초기화 API |
+| `domain/journey/entity/JourneyRevision.java` | `reason` 어휘 확정(D16) |
 | `domain/journey/repository/RerouteProposalRepository.java` | `acceptIfActive` |
-| `global/error/code/JourneyErrorCode.java` | 코드 3개 추가 |
-| `infrastructure/adapter/in/api/journey/JourneyRerouteProposalController.java` | accept 엔드포인트 |
-| `application/journey/service/JourneyStateMachine.java` | 주석만 — 왜 계속 거절인지(D12) |
-| `docs/plan/journey-navigation/PHASE-6.md` | ⑤ 서술 정정(§7) |
-| `docs/plan/journey-navigation/SCOPE-CHANGES.md` | **SC-17** |
+| `domain/journey/repository/JourneyNotificationRepository.java` | 사유를 받는 취소 |
+| `application/journey/service/JourneyProgressService.java` | 개정본 가드(D15) |
+| `global/error/code/JourneyErrorCode.java` | 코드 3개 |
+| `infrastructure/adapter/in/api/journey/JourneyRerouteProposalController.java` | accept |
+| `application/journey/service/JourneyStateMachine.java` | 주석만(D17) |
+| `docs/plan/journey-navigation/PHASE-6.md`·`SCOPE-CHANGES.md` | ⑤ 서술 정정 + **SC-17** |
 
-### 4.7 시험 파일
+### 4.9 시험 파일
 
 | 경로 | 내용 |
 |---|---|
-| `test/.../service/JourneyRevisionComposerTest.java` | 단위. **합성 스냅샷을 다시 쪼갠 결과 = 저장할 단계 목록**, 번호 밀기, 걷지 않는 환승이 있는 경로 |
-| `test/.../journey/RerouteAcceptIT.java` | 통합. 수락 → 개정본·단계·환승·세션이 함께 바뀐다 |
-| `test/.../journey/RerouteAcceptConflictIT.java` | 통합. 만료·버전 어긋남·지나간 단계·중복 수락·동시 수락 |
+| `test/.../service/JourneyRevisionComposerTest.java` | 단위. **합성본을 쪼갠 결과 = 저장할 단계**, 접합부 도보 종류·`skippedWalk`·접합부 환승, 앞 구간 불일치 시 실패 |
+| `test/.../journey/RerouteAcceptIT.java` | 통합. 수락 → 개정본·단계·환승·세션·geometry |
+| `test/.../journey/RerouteAcceptConflictIT.java` | 통합. 만료·버전·지나간 단계·중복 수락·동시 수락·progress 경합 |
 
 ## 5. 검증
 
 ```bash
-./gradlew test --tests '*RerouteAccept*' --tests '*JourneyRevisionComposer*' --tests '*Geometry*'
+./gradlew test --tests '*RerouteAccept*' --tests '*JourneyRevisionComposer*' --tests '*Geometry*' --tests '*Progress*'
 ./gradlew build
 ```
 
 ### 통과해야 하는 것
 
-- [ ] **(PR-1) 기존 geometry 시험이 무수정 통과**하고, 개정본 스냅샷을 다르게 심으면 그쪽이 그려진다
-- [ ] 수락하면 `routeRevision`·`commandVersion` 이 **각각 1씩** 오른다
-- [ ] 새 개정본에 **앞 구간 단계가 그대로 있다** — 상태·진행도·증거·시각까지
-- [ ] **새 개정본 스냅샷을 다시 쪼갠 단계 목록이 저장된 단계와 번호·종류가 같다**(§DESIGN 3 의 계약)
-- [ ] 수락 뒤 geometry 가 **새 경로**를 그린다
-- [ ] `fromLegIndex < currentLegIndex` 면 409 이고 여정은 그대로다
-- [ ] `currentLegIndex == fromLegIndex` 면 수락되고 새 첫 단계가 `ACTIVE` 이며 `activatedAt` 이 이어진다
-- [ ] 만료된 제안·`baseCommandVersion` 불일치·`routeRevision` 불일치는 전부 409 + 최신 스냅샷
-- [ ] 같은 `(proposalId, candidateId)` 재전송은 200 이고 개정본은 **한 번만** 오른다
-- [ ] 다른 `candidateId` 로 다시 누르면 409
-- [ ] 동시 수락 둘 중 **한 번만** 성공한다
-- [ ] 이전 개정본의 pending 알림이 취소되고 남은 제안이 접힌다
-- [ ] `journey_event` 에 `REROUTE_ACCEPTED` 가 남는다
-- [ ] `ROUTE_OPTION` 수락도 개정본을 올리고 선택 노선이 바뀐다
-- [ ] 후보 경로가 보강(`enrich`)을 거쳐 새 단계의 `startStopId`·`routeId` 가 채워진다
-- [ ] 수락 뒤 평가가 즉시 예약되고, 다음 평가가 **새 개정본의 환승**을 본다
+- [ ] **(PR-1) 기존 geometry 시험 무수정 통과**, 개정본 스냅샷이 우선, 2번 개정본 결측은 실패
+- [ ] **합성본을 다시 쪼갠 단계 목록 = 저장된 단계**(번호·종류)
+- [ ] **접합부에서 도보 종류가 바뀌는 후보는 409**(`snapshot-mismatch`)이고 여정은 그대로다
+- [ ] 접합부 환승이 새 개정본에 생긴다(`toLegIndex`·`walkLegIndex` 포함)
+- [ ] 수락하면 `routeRevision`·`commandVersion` 이 각각 1씩 오른다
+- [ ] 앞 구간 단계가 **진행도·증거·시각까지** 그대로 남는다
+- [ ] 복제한 단계의 `selectedRouteOptionId` 가 **새 개정본의 후보 행**을 가리킨다
+- [ ] 교체 지점 이후 단계·환승의 예측·증거·`lastNotifiedStatus` 가 **비어 있다**
+- [ ] `ROUTE_OPTION` 수락도 개정본을 올리고 그 환승의 판정값을 초기화한다
+- [ ] 재확인 실패 시 **제안이 다시 `ACTIVE`** 다(롤백)
+- [ ] 같은 후보 재전송은 200, 다른 후보는 409, 개정본은 **한 번만** 오른다
+- [ ] 동시 수락 둘 중 한 번만 성공한다
+- [ ] `journey_event` 에 `reroute-accept:{proposalId}:{candidateId}` 가 **한 행만** 남는다
+- [ ] 알림이 **`route-changed`** 사유로 취소된다(`journey-ended` 가 아니다)
+- [ ] 수락 직후 들어온 옛 개정본 progress 가 새 상태를 건드리지 않는다
+- [ ] 수락 뒤 geometry 가 새 경로를 그린다
 - [ ] 기존 여정 시작·진행·알림·③④ 시험 회귀 없음
 
 ### 배포 메모
 
-마이그레이션이 없어 VPS 수동 배치가 없다. `journey.reroute.enabled` 는 **여전히 false** — 켜는 것은
-⑥ 이후이고 PHASE-5 §1.1 절차를 함께 탄다.
+**V43 은 VPS 수동 배치 대상**이다. `journey.reroute.enabled` 는 여전히 false — 켜는 것은 ⑥ 이후다.
 
 ## 6. 함정
 
-- **합성 스냅샷의 자르는 위치를 손으로 세지 마라.** 걷지 않는 환승은 단계를 만들지 않아 원본 구간과
-  단계가 1:1 이 아니다. `compileDetailed(...).subPathIndexOf(fromLegIndex)` 로 묻는다
-- **앞 구간을 재컴파일로 다시 만들지 마라.** 진행도·증거·시각을 잃는다. 엔티티 값을 복제한다
-- **복제에서 칸 하나를 빠뜨려도 시험이 통과한다** — 대부분 다음 평가에서 다시 채워지기 때문이다.
-  그래서 복제 시험은 "값이 같다"가 아니라 **칸 목록을 세는** 방식으로 짠다
-- **`uq_journey_active_revision` 은 여정당 하나다.** 새 행을 먼저 넣으면 자기 자신과 충돌한다.
-  옛 개정본을 내리고 `flush()` 한 뒤 넣는다(여정 시작의 `replaceOrReject` 와 같은 이유)
-- **`selectedRouteOptionId` 는 다른 개정본의 후보 행을 가리키면 안 된다.** 복제한 단계에는 복제한
-  후보 행의 새 ID 를 넣는다. 그대로 두면 옛 개정본 행을 가리키는 유령 참조가 된다
-- **보강을 빼먹지 마라.** 새 단계가 전부 미해석이면 그 뒤 평가·재탐색이 통째로 죽는다(④와 같은 함정)
-- **`ACCEPTED` 로 바꾸는 update 를 조회 뒤 저장으로 하지 마라.** 동시 수락 둘이 모두 통과한다
-- **409 를 던지기 전에 제안을 이미 `ACCEPTED` 로 바꿨는지 보라.** 조건부 update 를 통과한 뒤
-  D7 검사에서 거절하면 제안만 소모되고 여정은 안 바뀐 상태가 남는다 — **검사를 update 앞으로**
-  당기거나, 거절 시 트랜잭션을 통째로 롤백해야 한다(후자를 권한다)
+- **후보를 따로 쪼개지 마라.** 쪼개기는 앞뒤 구간을 함께 본다 — 도보 종류가 바뀌고 0거리 도보가
+  사라져 번호가 밀린다. 합성 먼저, 쪼개기 나중
+- **자르는 위치를 손으로 세지 마라.** `compileDetailed(...).subPathIndexOf(fromLegIndex)` 로 묻는다
+- **세션 행을 잠가라.** 사용자 행을 잠그면 단계 전이와 직렬화되지 않는다. 순서는 세션 → 제안
+- **조건부 update 뒤의 거절은 롤백이다.** 정상 return 409 면 제안만 소모된다
+- **`clearAutomatically = true` 금지.** 잠근 세션이 detach 된다
+- **`JourneyLeg` 빌더로 복제하지 마라.** 진행도·예측·완료 시각이 통째로 null 이 되는데, 다음 평가가
+  대부분 다시 채워 시험에서도 안 보인다
+- **복제한 단계의 `selectedRouteOptionId` 를 그대로 두지 마라.** FK 는 행 존재만 보므로 옛 개정본
+  후보를 가리키는 유령 참조가 통과한다
+- **`lastNotifiedStatus` 를 남기지 마라.** 새 위험 알림이 조용히 막힌다
+- **알림 취소 사유를 `journey-ended` 로 두지 마라.** 끝나지도 않은 여정이 그 지표를 오염시킨다
+- **`event_id` 는 결정론으로.** 앱이 주지 않으므로 서버가 만들고, unique 가 멱등을 대신한다
 - **`git add -A` 금지.** 경로를 지정해 커밋한다
 
 ## 7. 문서 변경 (SC-17)
@@ -291,5 +315,6 @@ int acceptIfActive(@Param("id") Long id, @Param("now") Instant now);
 | PHASE-6 서술 | 실제 |
 |---|---|
 | "지금 진행 중인 leg 가 어느 쪽이냐가 안 적혀 있다" | `fromLegIndex >= currentLegIndex` 면 수락, 아니면 409 |
-| (없음) | 새 개정본 스냅샷은 **합성**한다 — 옛 앞 구간 + 후보 경로 |
+| (없음) | 새 개정본 스냅샷은 **합성**하고, 단계는 **합성본을 다시 쪼개** 얻는다 |
+| (없음) | 마이그레이션 **V43**(`accepted_candidate_id`) 한 건이 생긴다 |
 | `journey_revision.reason` 미정 | `ROUTE_OPTION_ACCEPTED` · `REMAINING_PATH_ACCEPTED` |
