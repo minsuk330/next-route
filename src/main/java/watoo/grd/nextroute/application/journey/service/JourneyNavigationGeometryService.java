@@ -23,8 +23,10 @@ import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
+import watoo.grd.nextroute.domain.journey.entity.JourneyRevision;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionRepository;
+import watoo.grd.nextroute.domain.journey.repository.JourneyRevisionRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
@@ -38,6 +40,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -60,7 +63,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class JourneyNavigationGeometryService implements GetJourneyNavigationGeometryUseCase {
 
+    /** 여정을 시작할 때 세션과 1번 개정본이 같은 스냅샷을 받는다. 그 뒤로는 개정본만 바뀐다. */
+    private static final int FIRST_REVISION = 1;
+
     private final JourneySessionRepository sessionRepository;
+    private final JourneyRevisionRepository revisionRepository;
     private final JourneyLegRepository legRepository;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
     private final BusRouteSegmentPolylinePort busPolylinePort;
@@ -85,7 +92,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
         List<JourneyLeg> legs = legRepository
                 .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(journeyId, revision);
         Map<Long, List<JourneyLegRouteOption>> optionsByLeg = loadRouteOptions(legs);
-        Snapshot snapshot = recompile(journey.getRouteSnapshot());
+        Snapshot snapshot = recompile(snapshotOf(journey, revision));
 
         List<LegGeometry> geometries = new ArrayList<>(legs.size());
         Map<String, List<RouteStopProjection>> routeStopsByRouteId = new HashMap<>();
@@ -308,6 +315,34 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
     }
 
     // ── 원천 되찾기 ─────────────────────────────────────────────────────────
+
+    /**
+     * 지금 그리는 <b>개정본의</b> 경로 원본. 세션이 든 것이 아니다.
+     *
+     * <p>{@code JourneySession.routeSnapshot} 은 여정을 시작할 때의 원본이고 <b>영원히 바뀌지
+     * 않는다.</b> 재탐색을 수락하면 개정본만 오르므로, 세션 쪽을 쓰면 지도와 진행 엔진에 옛 경로가
+     * 계속 내려간다 — 오류 없이, 조용히.
+     *
+     * <p><b>폴백은 1번 개정본에만.</b> 그때만 두 값이 같은 것이 보장된다(여정 시작이 같은 스냅샷을
+     * 두 곳에 넣는다). 2번 이상인데 개정본 행이 없으면 세션 스냅샷은 <b>반드시 다른 경로</b>이므로,
+     * 조용히 옛 경로를 그리느니 실패한다.
+     */
+    private JsonNode snapshotOf(JourneySession journey, int revision) {
+        Optional<JourneyRevision> found = revisionRepository
+                .findByJourneyIdAndRouteRevisionAndDeletedAtIsNull(journey.getId(), revision);
+        if (found.isPresent()) {
+            return found.get().getRouteSnapshot();
+        }
+        if (revision != FIRST_REVISION) {
+            log.error("[JourneyGeometry] 개정본 스냅샷이 없다 — journeyId={} revision={}",
+                    journey.getId(), revision);
+            throw new IllegalStateException(
+                    "개정본 스냅샷이 없다: journeyId=" + journey.getId() + " revision=" + revision);
+        }
+        log.warn("[JourneyGeometry] 1번 개정본 행이 없어 세션 스냅샷으로 그린다 — journeyId={}",
+                journey.getId());
+        return journey.getRouteSnapshot();
+    }
 
     /**
      * 얼려 둔 검색 결과를 같은 규칙으로 다시 쪼개 단계 → 원본 구간 순번을 얻는다.
