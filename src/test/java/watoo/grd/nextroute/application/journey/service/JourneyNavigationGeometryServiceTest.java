@@ -10,6 +10,7 @@ import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineData.Quali
 import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineSection;
 import watoo.grd.nextroute.application.bus.port.out.BusRouteSegmentPolylinePort;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
+import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeoPoint;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeometryQuality;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
 import watoo.grd.nextroute.application.journey.dto.ManeuverType;
@@ -26,6 +27,9 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionRepository;
+import watoo.grd.nextroute.domain.journey.entity.JourneyRevision;
+import watoo.grd.nextroute.domain.journey.entity.JourneyRevisionStatus;
+import watoo.grd.nextroute.domain.journey.repository.JourneyRevisionRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
 import watoo.grd.nextroute.domain.bus.repository.RouteStopProjection;
@@ -58,6 +62,7 @@ class JourneyNavigationGeometryServiceTest {
     private static final int REVISION = 1;
 
     private JourneySessionRepository sessionRepository;
+    private JourneyRevisionRepository revisionRepository;
     private JourneyLegRepository legRepository;
     private JourneyLegRouteOptionRepository routeOptionRepository;
     private BusRouteSegmentPolylinePort busPolylinePort;
@@ -69,12 +74,14 @@ class JourneyNavigationGeometryServiceTest {
     @BeforeEach
     void setUp() {
         sessionRepository = mock(JourneySessionRepository.class);
+        revisionRepository = mock(JourneyRevisionRepository.class);
         legRepository = mock(JourneyLegRepository.class);
         routeOptionRepository = mock(JourneyLegRouteOptionRepository.class);
         busPolylinePort = mock(BusRouteSegmentPolylinePort.class);
         busRouteStopRepository = mock(BusRouteStopRepository.class);
         service = new JourneyNavigationGeometryService(
-                sessionRepository, legRepository, routeOptionRepository, busPolylinePort,
+                sessionRepository, revisionRepository, legRepository, routeOptionRepository,
+                busPolylinePort,
                 busRouteStopRepository,
                 new JourneyCompiler(new StopIdentityResolver()),
                 new GeometrySegmentAllocator(),
@@ -377,6 +384,75 @@ class JourneyNavigationGeometryServiceTest {
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────
+
+    // ── 좌표 원천 ────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("좌표 원천은 그 개정본의 스냅샷이다 — 세션 스냅샷은 시작 시점 원본이라 영원히 안 바뀐다")
+    void drawsFromRevisionSnapshot() {
+        givenJourney(walkThenBus());
+        // 개정본은 다른 경로를 들고 있다. 재탐색을 수락한 뒤의 모습이다.
+        givenRevisionSnapshot(REVISION, movedWalk());
+        givenLegs(leg(0, JourneyLegType.WALK, 300));
+
+        JourneyNavigationGeometry result = service.get(USER_ID, JOURNEY_ID, REVISION);
+
+        assertThat(result.legs().get(0).segments().get(0).points())
+                .extracting(GeoPoint::x)
+                .as("세션 스냅샷(127.0)이 아니라 개정본 스냅샷(128.0)을 그린다")
+                .startsWith(128.0);
+    }
+
+    @Test
+    @DisplayName("1번 개정본에 행이 없으면 세션 스냅샷으로 그린다 — 그때만 두 값이 같다")
+    void fallsBackToSessionSnapshotOnFirstRevision() {
+        givenJourney(walkThenBus());
+        when(revisionRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNull(JOURNEY_ID, 1))
+                .thenReturn(Optional.empty());
+        givenLegs(leg(0, JourneyLegType.WALK, 300));
+
+        JourneyNavigationGeometry result = service.get(USER_ID, JOURNEY_ID, 1);
+
+        assertThat(result.legs().get(0).segments().get(0).points())
+                .extracting(GeoPoint::x)
+                .startsWith(127.0);
+    }
+
+    @Test
+    @DisplayName("2번 개정본에 행이 없으면 실패한다 — 조용히 옛 경로를 그리지 않는다")
+    void failsWhenLaterRevisionSnapshotIsMissing() {
+        JourneySession journey = session();
+        ReflectionTestUtils.setField(journey, "routeSnapshot",
+                objectMapper.valueToTree(walkThenBus()));
+        ReflectionTestUtils.setField(journey, "routeRevision", 2);
+        when(sessionRepository.findByIdAndUserIdAndDeletedAtIsNull(JOURNEY_ID, USER_ID))
+                .thenReturn(Optional.of(journey));
+        when(revisionRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNull(JOURNEY_ID, 2))
+                .thenReturn(Optional.empty());
+        when(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+                JOURNEY_ID, 2)).thenReturn(List.of(leg(0, JourneyLegType.WALK, 300)));
+
+        assertThatThrownBy(() -> service.get(USER_ID, JOURNEY_ID, 2))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    /** 세션 스냅샷과 다른 경로. 개정본 쪽이 그려지는지 가리기 위한 값이다. */
+    private PathResult movedWalk() {
+        return new PathResult(1, null, List.of(SubPathFixture.walk(5).names("집", "정류장")
+                .coords(128.0, 38.5, 128.001, 38.5).build()), List.of());
+    }
+
+    private void givenRevisionSnapshot(int revision, PathResult path) {
+        JourneyRevision entity = JourneyRevision.builder()
+                .journeyId(JOURNEY_ID)
+                .routeRevision(revision)
+                .status(JourneyRevisionStatus.ACTIVE)
+                .routeSnapshot(objectMapper.valueToTree(path))
+                .activatedAt(Instant.parse("2026-08-04T00:00:00Z"))
+                .build();
+        when(revisionRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNull(
+                JOURNEY_ID, revision)).thenReturn(Optional.of(entity));
+    }
 
     private void givenJourney(PathResult path) {
         JourneySession journey = session();
