@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.route.concurrent.SingleFlight;
 import watoo.grd.nextroute.application.subway.config.SubwayStationArrivalProperties;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalInfo;
+import watoo.grd.nextroute.application.subway.dto.SubwayPositionFetchResult;
 import watoo.grd.nextroute.application.subway.dto.SubwaySegmentInfo;
 import watoo.grd.nextroute.application.subway.dto.SubwayStationInfo;
 import watoo.grd.nextroute.application.subway.observability.SubwayRealtimeMetrics;
@@ -64,6 +65,18 @@ public class CachedSubwayApiAdapter implements SubwayApiPort {
     @Override
     public List<SubwayArrivalInfo> getRealtimeArrival() {
         return delegate.getRealtimeArrival();
+    }
+
+    /**
+     * 그대로 위임한다. <b>캐시하지 않는다.</b>
+     *
+     * <p>이 캐시는 "같은 역을 여럿이 동시에 묻는다"를 합치려고 있다. 위치 조회는 수집기 하나가
+     * 자기 주기로 노선마다 한 번씩 부르는 경로라 합칠 중복이 없다. 오히려 캐시를 끼우면 수집
+     * 주기보다 오래된 위치를 새 관측으로 착각해 <b>있지도 않은 전이</b>를 만든다.
+     */
+    @Override
+    public SubwayPositionFetchResult getRealtimePosition(String lineId) {
+        return delegate.getRealtimePosition(lineId);
     }
 
     @Override
