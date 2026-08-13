@@ -25,3 +25,32 @@
 ```
 
 ---
+
+## 2026-08-13 journey-reroute-accept (Phase 6 ⑤ PR-1·PR-2)
+
+### 확정
+- **합성 순서 뒤집기가 옳았다**(codex 지적). 시험이 추가 결함 하나를 더 잡음: 교체 시작점이 원본
+  구간 **한가운데**(RIDE 단계)면 짝 대기 단계만 앞에 남아 종류는 같은 채 다른 노선을 가리킨다 →
+  `snapshot-unmappable` 로 거절. 가드: `cut == subPathIndexOf(fromLegIndex - 1)`
+- `journey_event.eventId` 는 **UUID 타입**이라 문자열 결정론 키를 못 쓴다 →
+  `UUID.nameUUIDFromBytes("reroute-accept:{proposalId}:{candidateId}")`
+- **마이그레이션은 .gitignore 화이트리스트**에 넣어야 커밋된다(`!src/.../V43__*.sql`). 안 넣으면
+  조용히 untracked 로 남아 CI·다른 개발자 환경에서 컬럼이 없다
+- Testcontainers IT(`AbstractJourneyOutboxPostgresIT` 계열)는 **flyway 를 끄고 `@Sql` 로 마이그레이션을
+  나열**한다. 새 마이그레이션은 그 목록 3곳(StoreIT·ExpiryIT·SchemaIT)에도 넣어야 한다
+
+### 함정
+- `journey_notification` 에는 `available_at` 칸이 없다(`scheduled_at`·`expires_at`·`logical_checkpoint_key`·
+  `delivery_key` 가 필수) — IT 픽스처 작성 시 주의
+- 새 포트를 컨트롤러에 주입하면 기존 `@WebMvcTest` 가 빈 부족으로 전부 깨진다 → `@MockBean` 추가
+
+### 좌표
+- application/journey/service/JourneyRevisionComposer.java:75 — 합성→재컴파일→앞 구간 검사
+- application/journey/service/RerouteAcceptTxService.java:90 — 세션 잠금→조건부 update→재확인→반영
+- domain/journey/entity/JourneyLeg.java:copyToRevision — 진행도·증거·시각 복제(빌더로는 불가)
+
+### 배포
+- **V43 수동 배치 대상**. `journey.reroute.enabled` 계속 false
+
+### 검증
+- `./gradlew test --tests '*Reroute*' --tests '*Journey*'` 통과(composer 6 + acceptIT 9 포함)
