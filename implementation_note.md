@@ -175,3 +175,53 @@
 - ~~`realtimePosition` 미지원 노선~~ → 시험한 7개 노선 전부 지원
 - `trainSttus=3`(전역출발) 은 이번 표본(2호선 60초)에 **한 건도 없었다**. 판단 보류 — 여전히 보조 근거로만
 
+## 2026-08-13 m7-subway-train-binding PR-2b (수집기 + 전이 로그)
+
+### 확정
+- **`subway_segment.departStationId`/`arriveStationId` 에는 ID 가 아니라 역 *이름*이 들어 있다.**
+  엔티티 javadoc 은 "출발역 ID" 라고 적혀 있지만 거짓이다 — `SubwayStaticDataService:148` 이
+  `info.departStationName()` 을 넣는다. `SubwaySegmentLookup` 도 이름으로 조회한다.
+  그래서 인접 판정도 **이름**으로 한다(위치 API 가 `statnNm` 을 주므로 성립)
+- **인접 판정을 `SubwaySegmentLookup` 에 얹지 않고 `SubwayStationAdjacency` 를 새로 팠다.**
+  저쪽은 `travelTime == null` 인 구간을 **통째로 버린다**. 인접 판정이 그걸 물려받으면
+  소요시간이 없는 구간의 이동이 전부 "순간이동"으로 보여 출발 확정이 막힌다
+- **인접 판정은 방향을 가리지 않는다.** 전이 추적기는 전역이라 여정 맥락이 없다.
+  여기서 할 수 있는 것은 "맞닿아 있는가"까지고, "우리 진행 방향의 다음 역인가"는 PR-4 몫이다.
+  이 단계의 목적은 **순간이동(회차·차량기지·역행) 차단**이다
+- **정적 데이터가 없으면 `isAdjacent` 는 항상 false** → 출발 확정이 아예 안 나온다.
+  모르는 것을 인접이라 답하면 순간이동을 출발로 읽으므로 이쪽이 안전하다
+- **Redis 색인을 둘로 나눴다.** PLAN 은 `trainlog` 하나였지만 질의 축이 둘이다 —
+  출발은 **역** 기준(`subway:dep:{date}:{line}:{dir}:{station}`), 도착은 **열차** 기준
+  (`subway:arr:{date}:{line}:{dir}:{trainNo}`). 하나로 두면 한쪽이 전수 조회가 된다
+- 직전 위치(`subway:pos:{date}:{line}` HASH)는 JSON 이 아니라 구분자 문자열이다.
+  노선당 수십 대 × 회차마다 전량 재기록이라 파싱 비용이 수집 주기에 그대로 얹힌다
+- **쓰는 쪽이 수집기 하나**(노선 순차)라는 전제로 "읽고 지우고 쓴다"에 잠금을 두지 않았다.
+  쓰는 곳이 늘면 이 전제가 깨진다 — Lua 로 묶어야 한다. 클래스 javadoc 에 명시
+- 출발 구간 상한이 두 갈래다. 직전이 이미 `DEPARTED` 였으면 `before.receivedAt` 까지로 좁히고,
+  놓쳤으면 `now.receivedAt` 까지 넓힌다. 그 넓이가 그대로 불확실성이 된다
+
+### 함정
+- `record` 컴포넌트 `quality`(String)에 같은 이름의 enum 반환 접근자를 얹으면 컴파일 에러
+  (`no suitable method found for valueOf`) ← 컴포넌트 접근자와 시그니처 충돌 /
+  가드: `qualityEnum()` 으로 이름을 달리한다
+- **`BUILD SUCCESSFUL` 만으로 시험이 돌았다고 믿으면 안 된다.** 필터가 아무것도 안 잡아도
+  성공으로 끝난다 / 가드: `build/test-results/test/*.xml` 의 `tests` 개수를 확인
+
+### 좌표
+- application/subway/service/SubwayTrainTransitionTracker.java — 전이 판정 본체
+- application/subway/service/SubwayStationAdjacency.java — 순간이동 차단(이름 기준)
+- application/subway/service/ServiceDateResolver.java — 04:00 경계(기존 규칙을 한 곳으로)
+- application/subway/service/RealtimeSubwayPositionCollector.java — @Profile("worker"), 노선 순차
+- infrastructure/adapter/out/cache/subway/RedisSubwayTrainLogAdapter.java — 색인 2개 + TTL
+- application/subway/config/SubwayPositionProperties.java — enabled/interval/lines/lag/ttl
+
+### 배포
+- 마이그레이션 없음. 설정 키만 추가(`realtime.subway.position.*`), **기본값 전부 off**
+- 켤 때 `lines` 를 명시해야 한다 — 비어 있으면 수집기가 아무것도 하지 않는다
+
+### 검증
+- `./gradlew compileJava` 통과
+- `./gradlew test --tests '*SubwayTrainTransitionTrackerTest' --tests '*ServiceDateResolverTest'`
+  → XML 확인: TransitionTracker 16건, ServiceDateResolver 2건, 실패 0
+- `./gradlew test --tests '*Subway*' --tests '*ServiceDate*'` → 총 125건, 실패 0, 오류 0
+- `./gradlew build -x test` 통과

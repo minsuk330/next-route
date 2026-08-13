@@ -311,6 +311,26 @@ realtime:
       cache-ttl-seconds: ${SUBWAY_STATION_ARRIVAL_CACHE_TTL:10}
       join-wait-ms: ${SUBWAY_STATION_ARRIVAL_JOIN_WAIT_MS:1000}
 
+    # 실시간 열차 "위치"(realtimePosition). 도착정보와 축이 다르다 — 노선마다 한 번씩 부른다.
+    #
+    # 주기가 15초인 것은 실측이다. 원천은 열차별로 p50 56초·p90 84초마다 갱신되고,
+    # recptnDt 자체가 현재보다 1~2분 뒤처져 있다. 그보다 빨리 물어보면 같은 값을 다시 받는다.
+    #
+    # 대상 노선을 자동으로 늘리지 않는다. 서울이 노선을 늘렸을 때 우리가 모르는 사이
+    # 호출량이 늘고 지원하지 않는 노선까지 추적하면 안 된다 — 늘리는 것은 배포 결정이다.
+    position:
+      enabled: ${SUBWAY_POSITION_ENABLED:false}
+      poll-interval-ms: ${SUBWAY_POSITION_POLL_MS:15000}
+      active-hours:
+        start: "04:30"
+        end: "01:00"
+      # recptnDt 는 "최종수신시간"이라 실제 사건은 그보다 앞이다. 사건 시각 구간의 하한을
+      # 이만큼 과거로 넓힌다. 실측 지연이 56~153초였고, 그 산포를 다 재기 전까지 보수적으로 둔다.
+      source-lag-budget: 150s
+      freshness-window: 5m
+      log-ttl: 15m
+      lines: []
+
 batch:
   # *.enabled 는 application-{dev,prod}.yaml 에서 설정
   inferred-completion:
