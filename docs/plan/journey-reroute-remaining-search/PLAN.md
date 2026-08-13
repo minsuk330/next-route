@@ -81,8 +81,12 @@ public interface BoardingTimeEstimator {
 
     /**
      * @param anchorAt 사용자가 그 정류장에서 탈 준비를 마치는 시각. now 로 대신하지 않는다
-     * @return 탈 수 있는 차가 없거나 근거가 없으면 값 없는 결과. 예외를 던지지 않는다.
+     * @return 탈 수 있는 차가 없거나 근거가 없으면 값 없는 결과.
      *         "막혀서 못 물어봤다"와 "물어봤지만 근거가 없다"는 {@code blocked} 로 가른다(§3.3-b)
+     *
+     * <p><b>예외를 삼키지 않는다.</b> 외부 호출이 터지면 그대로 올린다 — 지금 두 예측기가
+     * 그러고 있고(버스 {@code :75-81}, 지하철 {@code :69-70}), 여기서 삼키면 위임하는 순간
+     * 평가 경로의 동작이 바뀐다. 재탐색 쪽은 후보마다 {@code try/catch} 로 감싼다(§3.9-7)
      */
     BoardingOutcome estimate(BoardingQuery query, Instant anchorAt, Instant now, long budgetMs);
 }
@@ -131,7 +135,9 @@ public record BoardingEstimate(Instant boardingAt, boolean boardable,
 현재 `BusTransferTargetArrivalPredictor.java:60-100` 의 판정을 **그대로** 옮긴다. 더하지도 빼지도 않는다.
 
 - `supports(WAIT_BUS)`
-- `routeId` 비었거나 `boardingSeq == null` → `BoardingOutcome.none()`
+- **`stopId` 가 null 이면 외부 호출 없이 `none()`** — 지금 예측기 `:67-69` 가 그렇게 한다.
+  이 검사를 빠뜨리면 미해석 정류장으로 외부 API 를 부른다
+- `routeId` 비었거나 `boardingSeq == null` → `BoardingOutcome.none()` (역시 호출 전에)
 - `PredictTransferUseCase.predict(stopId, routeId, boardingSeq, anchorAt, interpreter.modeFor(anchorAt, now), budgetMs)`
 - `prediction.predictedArrivalAt() == null` 이면 **여기서 갈린다** (지금 예측기 `:83-89` 와 같게):
   - `interpreter.isBlocked(prediction)` → `BoardingOutcome.blocked()`
@@ -143,7 +149,8 @@ public record BoardingEstimate(Instant boardingAt, boolean boardable,
 ### 3.3 `application/journey/service/SubwayBoardingTimeEstimator.java` — PR-1
 
 - `supports(WAIT_SUBWAY)`
-- `wayCode == null` → 빈 결과 (**방향을 모르면 반대 방향 열차를 집는다**)
+- **`routeId` 나 `stopId` 가 null 이면 외부 호출 없이 `none()`** — 지금 예측기 `:58-66` 이 그렇게 한다
+- `wayCode == null` → `none()` (**방향을 모르면 반대 방향 열차를 집는다**)
 - `arrivalReader.arrivalsByStation(routeId, stopId, stopName, wayCode)` → `hasSeconds()` 인 것만 → `now + arrivalSeconds` 중 `anchorAt` 이후 **가장 이른 것**
 - 없으면 `BoardingOutcome.none()`. **모델·시간표로 대체하지 않는다**(SC-6)
 - `blocked` 는 **항상 false** — 지하철 실시간 조회에는 호출량 제한이 없어 "막힘" 개념이 없다
@@ -204,6 +211,9 @@ public record BoardingOutcome(BoardingEstimate estimate, boolean blocked) {
       이 시험이 없으면 `MISSED` 감지가 죽는 회귀를 아무도 못 잡는다
 - [ ] `predictedArrivalAt == null` + `status=BLOCKED` → `upstreamBlocked()` 가 `true`.
       (`status=NO_VEHICLE` 는 `false` — 기존 시험에 이미 있다)
+- [ ] **`stopId == null`(버스) / `routeId`·`stopId == null`(지하철) 이면 외부 포트를 한 번도 부르지 않는다.**
+      `verifyNoInteractions` 로 못 박는다 — 사전조건이 약해지면 미해석 정류장으로 유료 호출이 나간다
+- [ ] **외부 호출이 예외를 던지면 예측기도 예외를 올린다**(삼키지 않는다). 지금 동작이다
 
 ### 3.4 `application/journey/service/JourneyWaypointResolver.java` — PR-2
 
@@ -212,8 +222,14 @@ public record BoardingOutcome(BoardingEstimate estimate, boolean blocked) {
 @Component
 public class JourneyWaypointResolver {
 
-    /** @return 스냅샷이 없거나 해당 legIndex 가 없으면 빈 결과 */
-    public Optional<Waypoints> resolve(Long journeyId, int legIndex);
+    /**
+     * @param routeRevision <b>{@code context.routeRevision()} 을 넘긴다.</b> "지금 ACTIVE 인 개정본"을
+     *                      읽으면, 후보를 만드는 사이 수락으로 개정본이 오른 경우 <b>옛 환승·단계와
+     *                      새 스냅샷 좌표가 섞인다</b> — 저장 단계의 잠금 재확인은 DB 쓰기만 막고
+     *                      이미 나간 유료 호출과 캐시 오염은 되돌리지 못한다
+     * @return 스냅샷이 없거나 해당 legIndex 가 없으면 빈 결과
+     */
+    public Optional<Waypoints> resolve(Long journeyId, int routeRevision, int legIndex);
 
     /**
      * @param origin      그 legIndex 단계의 시작 좌표 (검색 출발점)
@@ -224,7 +240,8 @@ public class JourneyWaypointResolver {
 }
 ```
 
-- `JourneyRevisionRepository.findByJourneyIdAndStatusAndDeletedAtIsNull(journeyId, ACTIVE)` → `routeSnapshot`
+- `JourneyRevisionRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNull(journeyId, routeRevision)` → `routeSnapshot`
+  **이 조회 메서드는 지금 없다 — PR-2 에서 추가한다.** 기존 `findByJourneyIdAndStatusAndDeletedAtIsNull(journeyId, ACTIVE)` 를 쓰면 위 경합이 열린다
 - `objectMapper.treeToValue(snapshot, PathResult.class)` → `compiler.compile(path).legs()`
 - `legIndex` 일치 초안의 `startX/startY`, 마지막 초안의 `endX/endY`
 - 좌표가 `null` 이면 빈 결과
@@ -285,11 +302,31 @@ public class RemainingPathEtaComposer {
 ```
 
 내부:
-1. `compiler.compile(candidatePath)` → 초안 목록. `fromLegIndex` 오프셋을 더해 실제 `legIndex` 로 맞춘다
-2. 첫 대기 단계를 찾는다. **없으면(걷기만 경로, D8) 예측을 건너뛰고** `boardingAt = transfer.getUserReadyAt()` 로 둔다
-3. 있으면 `BoardingTimeEstimator` 를 `supports(waitType)` 로 골라 `estimate(query, transfer.getUserReadyAt(), now, budgetMs)`
-4. 목적지 ETA 합산. **계산기 오버로드를 쓴다** — 아래 세부를 그대로 따를 것
-5. 실패 사유는 `no-prediction` · `unboardable` · `missing-duration` · `no-direction` 중 하나
+
+1. `compiler.compile(candidatePath)` → 초안 목록
+2. **`transitIdEnricher.enrich(plan)` 를 반드시 거친다.** 컴파일러는 `startStopId=null`·option `routeId=null`
+   인 초안을 낸다(`JourneyCompiler.java:199-200`, `JourneyRouteOptionDraft`). 여정 시작 흐름도
+   `JourneyStartService.java:69` 에서 이 단계를 거친다. **이걸 빼면 버스 후보가 전부 `no-prediction` 이
+   되고 `same-as-current` 판정도 작동하지 않는다** — 비교할 `routeId` 가 양쪽 다 null 이 된다
+3. `fromLegIndex` 오프셋을 더해 실제 `legIndex` 로 맞춘다
+4. 첫 대기 단계를 찾는다
+   - 있고 `routeId`·`boardingSeq`(버스) 또는 `routeId`·`wayCode`(지하철)를 못 채웠으면
+     → 실패 `unresolved-route`
+   - **없으면(걷기만 경로, D8)** 예측을 건너뛰고 `boardingAt = transfer.getUserReadyAt()`
+5. **앵커에 "첫 대기 앞의 도보"를 더한다.**
+   ```
+   앵커 = transfer.getUserReadyAt() + (첫 대기보다 앞에 오는 WALK·TRANSFER_WALK 소요 합)
+   ```
+   새 경로는 **환승 정류장에서 다른 정류장까지 걸어간 뒤** 타는 모양일 수 있다. 그 도보를 빼고
+   `userReadyAt` 을 그대로 앵커로 쓰면 "정류장에 이미 서 있는 사용자"로 평가해 **실제로는 못 타는
+   차를 후보로 만들고 ETA 도 도보 시간만큼 빨라진다.** 그 도보 소요가 `null` 이면 실패
+   `missing-duration`
+6. `BoardingTimeEstimator` 를 `supports(waitType)` 로 골라 `estimate(query, 앵커, now, budgetMs)`.
+   결과가 없으면 `no-prediction`, `boardable` 이 아니면 `unboardable`
+7. 목적지 ETA 합산 — 계산기 오버로드(아래)에 **첫 대기 번호**를 하한으로 넘긴다. 앞의 도보는 이미
+   앵커에 들어갔으므로 두 번 더하지 않는다. 걷기만 경로는 하한을 `첫 단계 번호 - 1` 로 둔다
+8. 실패 사유는 `unresolved-route` · `no-prediction` · `unboardable` · `missing-duration` ·
+   `no-direction` 중 하나
 
 #### 계산기 오버로드 (§4 의 `RouteOptionEtaCalculator` 수정)
 
@@ -331,8 +368,12 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
 `collect(context)` 순서:
 
 1. `TransferConnectionRepository.findByJourneyIdAndRouteRevisionAndTransferIndexAndDeletedAtIsNull(...)` → 없거나 `userReadyAt == null` 이면 빈 목록
-2. `JourneyWaypointResolver.resolve(journeyId, transfer.getToLegIndex())` → 없으면 빈 목록
-3. `JourneyLegRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(...)` → 대기 단계와 지금 선택 노선을 찾는다
+2. `JourneyWaypointResolver.resolve(journeyId, context.routeRevision(), transfer.getToLegIndex())`
+   → 없으면 빈 목록. **개정본을 `context` 값으로 고정한다**(§3.4)
+3. `JourneyLegRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(...)` → 대기 단계와 지금 선택 노선을 찾는다.
+   **`waitLeg.getStartStopId() == null` 이면 빈 목록** — 미해석 정류장으로 검색하면 캐시 키가
+   `…:null:{목적지}` 가 되어 **다른 정류장의 경로를 서로 돌려준다**(③도 같은 이유로 거절한다,
+   `RouteOptionCandidateProvider.java:120-121`)
 4. `RemainingRouteSearchService.search(waitLeg.getStartStopId(), waypoints, searchBudgetMs)`
    → **빈 목록이면 여기서 끝낸다.** 기준선을 재기 전에 검색을 먼저 하는 이유가 이것이다 —
    검색이 빈손이면 기준선 예측이 통째로 낭비다(DESIGN §3 흐름도와 같은 순서)
@@ -342,9 +383,11 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
    `boardable` 이 아니거나 결과가 없으면 `baseline = null` (**빈손이 아니다 — D3 로 간다**)
 7. 후보마다 `RemainingPathEtaComposer.compose(...)`. **후보마다 try/catch** — 하나 터져도 이미 모은 후보를 버리지 않는다
 8. 누적 예산: 후보 평가 전에 남은 예산을 계산해 `Math.min(interpreter.budgetMs(), remaining)` 을 넘긴다. 0 이하면 `budget-exhausted` 로 중단
-9. 견주기: `baseline != null` → 개선폭 300초 이상만 / `baseline == null` → **ETA 가 가장 이른 하나만**, `etaGainSec = 0`, `confidence = APPROXIMATE`
-10. `etaGainSec` 내림차순 정렬. **개수 절단 없음**(저장 쪽이 `maxCandidates` 로 자른다)
-11. 전체를 `try/catch` 로 감싸 빈 목록을 낸다
+9. **환승 수 관문 (C)**: 후보의 "첫 대기 이후 남은 대기 수"가 기준선의 그것보다 **많으면 버린다**
+   (`more-transfers`). 이유는 §5-b
+10. 견주기: `baseline != null` → 개선폭 300초 이상만 / `baseline == null` → **ETA 가 가장 이른 하나만**, `etaGainSec = 0`, `confidence = APPROXIMATE`
+11. `etaGainSec` 내림차순 정렬. **개수 절단 없음**(저장 쪽이 `maxCandidates` 로 자른다)
+12. 전체를 `try/catch` 로 감싸 빈 목록을 낸다
 
 **트랜잭션 없음.** 외부 호출을 하는 코드가 DB 커넥션을 잡고 있으면 안 된다.
 
@@ -384,6 +427,7 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
 | `application/journey/config/JourneyRerouteProperties.java` | PR-2 | 중첩 클래스 `RemainingPath` 추가 + `validate()` 확장 |
 | `application/journey/observability/JourneyRerouteMetrics.java` | PR-2 | `KNOWN_FILTER_REASONS` 에 `same-as-current`·`no-direction` 추가. 신규 `recordRemainingSearch(String outcome)`·`recordRemainingPaths(int given, int evaluated)` |
 | `application/journey/service/RouteOptionEtaCalculator.java` | PR-2 | `JourneyLegDraft` 목록용 오버로드 추가. **③ 경로의 동작은 불변** |
+| `domain/journey/repository/JourneyRevisionRepository.java` | PR-2 | `findByJourneyIdAndRouteRevisionAndDeletedAtIsNull` 추가(§3.4) |
 | `src/main/resources/application.yaml` | PR-2 | `journey.reroute.remaining-path.*` |
 | `docs/plan/journey-navigation/PHASE-6.md` | PR-2 | ④ 서술 3곳 정정 (§8) |
 | `docs/plan/journey-navigation/SCOPE-CHANGES.md` | PR-2 | **SC-16** 추가 (직전이 SC-15) |
@@ -414,8 +458,28 @@ journey:
 | `no-prediction` | 예측 자체가 없다 |
 | `gain-below-threshold` | 개선폭 300초 미만 |
 | `budget-exhausted` | 누적 예산 초과 |
+| `unresolved-route` | enrich 후에도 첫 대기의 노선·순번(또는 방향)을 못 채웠다 |
+| `more-transfers` | 후보의 이후 대기 수가 기준선보다 많다 (§5-b) |
 
 **새 사유는 반드시 `JourneyRerouteMetrics` 목록에 넣는다.** 안 넣으면 조용히 `unknown` 으로 접힌다.
+
+### 5-b 환승 수가 더 많은 후보를 버리는 이유
+
+D4 는 이후 대기를 0으로 두는데, ③에서는 그 값이 **기준선과 후보에 똑같이 빠져** 뺄셈에서 상쇄됐다
+(구조가 안 바뀌므로 대기 수가 같다). **④는 경로 구조 자체를 바꾸므로 그 전제가 깨진다.**
+
+```
+실제 ETA = 계산된 ETA + 생략한 대기 시간의 합
+실제 개선폭 = 계산된 개선폭 + (기준선이 생략한 대기 − 후보가 생략한 대기)
+```
+
+- 후보의 이후 대기 수 **≤** 기준선 → 괄호가 0 이상 → **계산된 개선폭이 실제보다 작거나 같다**(보수적).
+  허위 개선이 생기지 않는다
+- 후보의 이후 대기 수 **>** 기준선 → 괄호가 음수 → **후보만 낙관되어 없는 300초 개선이 만들어진다.**
+  `APPROXIMATE` 표시는 순위를 바로잡지 못한다 — 사용자는 더 느린 길로 갈아탄다
+
+그래서 **많은 쪽은 버린다.** 대가: "환승이 하나 늘지만 훨씬 빠른 경로"를 놓친다. 그것을 정직하게
+평가하려면 모든 대기를 예측해야 하고, 그건 D4 의 후속 과제다(DESIGN §9).
 
 신규 지표
 - `journey.reroute.remaining.search` — 태그 `outcome`: `cache-hit`·`single-flight-join`·`called`·`failed`. **`cache-hit` 비율이 이 칸의 요금을 결정한다**
@@ -478,12 +542,19 @@ journey:
 - [ ] **재컴파일한 `legIndex` 가 저장된 단계와 일치한다** (§3.4 의 유일한 외줄)
 - [ ] 지금 경로와 같은 노선으로 시작하는 경로는 `same-as-current` 로 걸러진다
 - [ ] **캐시가 맞으면 ODsay 를 부르지 않는다**
-- [ ] 동시에 두 요청이 오면 ODsay 호출은 **1회**다
+- [ ] 동시에 두 요청이 오면 ODsay 호출은 **1회**다.
+      **같은 여정으로 시험하면 안 된다** — REQUEST cooldown 이 두 번째를 먼저 거절해서 SingleFlight 를
+      전혀 지나지 않는다. **서로 다른 여정이면서 같은 캐시 키**(같은 환승 정류장 → 같은 목적지)로 시험한다
 - [ ] **Redis 가 죽어도 제안이 나온다**(캐시 fail-open)
 - [ ] ODsay 가 죽으면 빈 결과다. 예외가 아니다
 - [ ] 첫 대기가 지하철인 경로도 후보가 된다. `wayCode` 없으면 `no-direction`
 - [ ] 지하철은 실시간이 없으면 후보가 아니다 — **시간표로 채우지 않는다**
 - [ ] 걷기만으로 닿는 경로도 후보가 된다(D8)
+- [ ] **enrich 를 거쳐 버스 후보의 `routeId`·`boardingSeq` 가 채워진다.** 안 거치면 전부 `no-prediction` 이다
+- [ ] **첫 대기 앞에 도보가 있는 경로는 그 도보만큼 앵커가 밀린다** — 안 밀면 못 타는 차를 후보로 만든다
+- [ ] **후보의 이후 대기 수가 기준선보다 많으면 `more-transfers` 로 버린다**(§5-b)
+- [ ] **미해석 정류장(`startStopId == null`)이면 검색을 부르지 않는다** — 캐시 키가 섞인다
+- [ ] **좌표는 `context.routeRevision()` 의 스냅샷에서 온다** — ACTIVE 를 읽으면 개정본이 오른 사이 옛 단계와 새 좌표가 섞인다
 - [ ] 기준선을 못 잰 경우 **1건만** 나오고 `etaGainSec == 0`, `confidence == APPROXIMATE`
 - [ ] 개선폭 300초 미만이면 빈 결과다
 - [ ] 후보 하나의 예측이 터져도 **이미 모은 후보는 살아남는다**
@@ -497,6 +568,12 @@ journey:
 
 마이그레이션이 없어 VPS 수동 배치가 없다. `journey.reroute.enabled` 는 **계속 false 로 둔다** — 켜는 것은 ⑥ 이후이고 PHASE-5 §1.1 절차를 함께 탄다.
 
+**`SingleFlight` 는 JVM 안에서만 유효하다**(`SingleFlight.java:21-22`). 2026-08-12 기준 VPS compose 는
+`prod,api` 컨테이너 하나와 `prod,worker` 컨테이너 하나이고 replicas 설정이 없다 — 재탐색 요청은 전부
+api 하나로 들어오므로 지금은 충분하다. **api 를 여러 개로 늘리면** 중복 억제가 "인스턴스당 1회"로
+느슨해진다(캐시가 그 뒤를 받으므로 요금이 인스턴스 수만큼 늘 뿐 정합성 문제는 아니다). 늘릴 때
+분산 잠금을 다시 판단한다.
+
 ## 8. 문서 변경 (SC-16)
 
 PHASE-6 ④ 서술 세 곳이 코드와 어긋난다. 고치고 근거를 남긴다.
@@ -509,6 +586,9 @@ PHASE-6 ④ 서술 세 곳이 코드와 어긋난다. 고치고 근거를 남긴
 
 ## 9. 함정
 
+- **컴파일한 후보를 그대로 쓰지 마라.** `JourneyTransitIdEnricher.enrich()` 를 거쳐야 `stopId`·`routeId`·`boardingSeq` 가 채워진다. 빼먹으면 후보가 전부 `no-prediction` 이고, 원인이 "예측 API 가 답을 안 준다"로 보여 엉뚱한 곳을 파게 된다
+- **앵커에 첫 도보를 더하는 것을 잊지 마라.** 새 경로는 걸어서 다른 정류장으로 가는 모양일 수 있다
+- **③의 "이후 대기는 상쇄된다"를 ④에 그대로 옮기지 마라.** ④는 구조를 바꾸므로 환승 수가 다르면 상쇄되지 않는다(§5-b)
 - **추정기에서 `boardable` 로 걸러내지 마라.** 여정 평가는 못 타는 예측을 **일부러** 통과시킨다 — 그 음수 여유가 `MISSED` 판정의 근거다(§3.1-b). 재탐색 후보 쪽만 버린다
 - **기존 예측기를 재사용하려 하지 마라.** `predictBoarding(JourneyLeg, …)` 는 내부에서 `routeOptionRepository.findById(leg.getSelectedRouteOptionId())` 를 읽는다. ④의 후보는 DB 에 없다
 - **대기 단계 소요는 언제나 `null` 이다**(`JourneyCompiler.java:210`). "없으면 포기"로 짜면 환승이 둘 이상인 여정이 통째로 죽는다(③의 R1)
