@@ -21,6 +21,13 @@ public enum JourneyErrorCode implements ErrorCode {
   PROGRESS_TIMESTAMP_CONFLICT("PROGRESS_TIMESTAMP_CONFLICT",
       "같은 관측 시각에 다른 진행 내용이 왔습니다.", HttpStatus.CONFLICT),
   REROUTE_NOT_ELIGIBLE("REROUTE_NOT_ELIGIBLE", "지금은 재탐색할 수 있는 상태가 아닙니다.",
+      HttpStatus.CONFLICT),
+  REROUTE_PROPOSAL_NOT_FOUND("REROUTE_PROPOSAL_NOT_FOUND", "제안을 찾을 수 없습니다.",
+      HttpStatus.NOT_FOUND),
+  REROUTE_CANDIDATE_NOT_FOUND("REROUTE_CANDIDATE_NOT_FOUND", "그 후보가 제안에 없습니다.",
+      HttpStatus.NOT_FOUND),
+  /** 만료·상태·명령 번호·개정본·지나간 단계·스냅샷 불일치가 전부 이 코드로 온다. */
+  REROUTE_PROPOSAL_STALE("REROUTE_PROPOSAL_STALE", "제안이 더 이상 유효하지 않습니다.",
       HttpStatus.CONFLICT);
 
   private final String code;

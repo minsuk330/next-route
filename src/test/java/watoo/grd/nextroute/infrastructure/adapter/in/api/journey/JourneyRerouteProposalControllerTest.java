@@ -17,6 +17,7 @@ import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
+import watoo.grd.nextroute.application.journey.port.in.AcceptRerouteProposalUseCase;
 import watoo.grd.nextroute.application.journey.service.RerouteProposalService;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
 import watoo.grd.nextroute.application.route.dto.PathResult;
@@ -64,6 +65,7 @@ class JourneyRerouteProposalControllerTest {
 
     @Autowired MockMvc mockMvc;
     @MockBean RerouteProposalService proposalService;
+    @MockBean AcceptRerouteProposalUseCase acceptUseCase;
     @MockBean JwtProvider jwtProvider;                 // SecurityConfig 의존
     @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
     @MockBean AdminProperties adminProperties;         // SecurityConfig(AdminApiKeyFilter) 의존

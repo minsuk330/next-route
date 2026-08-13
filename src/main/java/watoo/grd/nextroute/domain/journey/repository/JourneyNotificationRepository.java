@@ -201,6 +201,24 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
             """)
     int cancelPendingByJourneyId(@Param("journeyId") Long journeyId);
 
+    /**
+     * 사유를 받아 취소한다. 재탐색 수락(⑤)이 이전 개정본의 알림을 접을 때 쓴다.
+     *
+     * <p>{@link #cancelPendingByJourneyId} 와 나눠 둔 이유는 <b>사유가 곧 운영 신호</b>이기
+     * 때문이다. 끝나지도 않은 여정의 알림을 {@code journey-ended} 로 세면 "여정이 끝나서 못 간
+     * 알림"의 지표가 오염되고, "경로가 바뀌어서 접힌 알림"은 세어지지 않는다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
+    @Query("""
+            update JourneyNotification n
+               set n.status = watoo.grd.nextroute.domain.journey.entity.JourneyNotificationStatus.CANCELED,
+                   n.lastFailureReason = :reason
+             where n.journeyId = :journeyId
+               and n.status = watoo.grd.nextroute.domain.journey.entity.JourneyNotificationStatus.PENDING
+            """)
+    int cancelPendingByJourneyId(@Param("journeyId") Long journeyId,
+                                 @Param("reason") String reason);
+
     /** 서버 lease 만료 배치용. 만료된 여정 묶음의 PENDING 을 한 문장으로 취소한다. */
     @Modifying(flushAutomatically = true, clearAutomatically = false)
     @Query("""

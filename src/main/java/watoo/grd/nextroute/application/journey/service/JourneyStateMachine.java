@@ -37,6 +37,9 @@ public class JourneyStateMachine {
             case JOURNEY_COMPLETED -> complete(journey);
             case LEASE_EXPIRED -> end(JourneyStatus.EXPIRED,
                     JourneyEndReason.CLIENT_LEASE_EXPIRED, List.of());
+            // 수락은 전용 엔드포인트가 받는다(Phase 6 ⑤, RerouteAcceptTxService). 여기로 오는
+            // 것은 이벤트 통로로 보낸 앱이고, 그 통로는 열지 않는다 — 이벤트는 "앱이 관측한
+            // 사실"이고 수락은 "사용자의 선택"이라 재전송 규칙도 되짚을 조건도 다르다.
             case REROUTE_ACCEPTED -> JourneyTransition.rejected(NOT_SUPPORTED_YET);
         };
     }

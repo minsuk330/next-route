@@ -136,6 +136,16 @@ public class JourneySession extends BaseEntity {
         this.commandVersion++;
     }
 
+    /**
+     * 안내 경로가 바뀌었다(재탐색 수락).
+     *
+     * <p>이 번호가 오르면 앱이 들고 있던 geometry·단계가 통째로 낡은 것이 된다. 그래서 개정본을
+     * 올리는 쪽은 <b>같은 트랜잭션에서</b> 새 개정본의 단계까지 전부 만들어 둬야 한다.
+     */
+    public void bumpRouteRevision() {
+        this.routeRevision++;
+    }
+
     /** 진행 중인 단계를 옮긴다. 뒤로 가지 않는 것은 부르는 쪽이 보장한다. */
     public void moveToLeg(int legIndex) {
         this.currentLegIndex = legIndex;

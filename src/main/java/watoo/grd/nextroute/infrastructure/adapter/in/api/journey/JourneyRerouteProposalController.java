@@ -10,7 +10,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
+import watoo.grd.nextroute.application.journey.port.in.AcceptRerouteProposalUseCase;
 import watoo.grd.nextroute.application.journey.service.RerouteProposalService;
+import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.AcceptRerouteProposalRequest;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.CreateRerouteProposalRequest;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.RerouteProposalResponse;
 
@@ -30,6 +33,7 @@ import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.RerouteProp
 public class JourneyRerouteProposalController {
 
     private final RerouteProposalService proposalService;
+    private final AcceptRerouteProposalUseCase acceptUseCase;
 
     /** 살아 있는 제안. 없으면 body 의 {@code proposal} 이 null 이다({@code 204} 가 아니다). */
     @GetMapping("/{journeyId}/reroute-proposals/active")
@@ -53,5 +57,25 @@ public class JourneyRerouteProposalController {
                                            @Valid @RequestBody CreateRerouteProposalRequest request) {
         return RerouteProposalResponse.from(
                 proposalService.request(userId, journeyId, request.transferIndexOrDefault()));
+    }
+
+    /**
+     * 사용자가 고른 제안을 실제로 적용한다(⑤).
+     *
+     * <p>여정 이벤트 통로로 받지 않는다. 이벤트는 <b>앱이 관측한 사실</b>이고 수락은
+     * <b>사용자의 선택</b>이라, 재전송 규칙도 되짚어야 할 조건도 다르다.
+     *
+     * <p>응답은 새 개정본이 반영된 여정 스냅샷이다. 앱은 그 {@code routeRevision} 으로 geometry 를
+     * 다시 받아 지도와 진행 엔진을 한꺼번에 갈아끼운다.
+     *
+     * <p>제안이 만들어진 뒤 사용자가 누르기까지 최대 2분이 있어, 그 사이 여정이 움직였으면
+     * {@code 409 REROUTE_PROPOSAL_STALE} 이다. 같은 후보로 다시 누른 재전송은 {@code 200} 이다.
+     */
+    @PostMapping("/{journeyId}/reroute-proposals/{proposalId}/accept")
+    public JourneySnapshot accept(@AuthenticationPrincipal Long userId,
+                                  @PathVariable Long journeyId,
+                                  @PathVariable Long proposalId,
+                                  @Valid @RequestBody AcceptRerouteProposalRequest request) {
+        return acceptUseCase.accept(userId, journeyId, proposalId, request.candidateId());
     }
 }
