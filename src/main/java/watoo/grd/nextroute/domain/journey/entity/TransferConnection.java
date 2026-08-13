@@ -107,6 +107,40 @@ public class TransferConnection extends BaseEntity {
     }
 
     /**
+     * 같은 환승을 <b>새 개정본으로 옮긴다</b>(재탐색 수락, Phase 6 ⑤).
+     *
+     * @param keepAssessment 지나온 구간이면 {@code true} — 판정·알림 기록까지 그대로 들고 간다.
+     *                       경로가 바뀐 뒤쪽이면 {@code false} — 옛 노선의 예측이고,
+     *                       특히 {@code lastNotifiedStatus} 가 남으면 <b>새 위험을 알리지 못한다</b>
+     */
+    public TransferConnection copyToRevision(int newRouteRevision, boolean keepAssessment) {
+        TransferConnection copy = TransferConnection.builder()
+                .journeyId(this.journeyId)
+                .routeRevision(newRouteRevision)
+                .transferIndex(this.transferIndex)
+                .fromLegIndex(this.fromLegIndex)
+                .walkLegIndex(this.walkLegIndex)
+                .toLegIndex(this.toLegIndex)
+                .status(keepAssessment ? this.status : TransferStatus.UNKNOWN)
+                .build();
+        if (!keepAssessment) {
+            return copy;
+        }
+        copy.currentLegArrivalAt = this.currentLegArrivalAt;
+        copy.userReadyAt = this.userReadyAt;
+        copy.nextBusArrivalAt = this.nextBusArrivalAt;
+        copy.transferSlackSeconds = this.transferSlackSeconds;
+        copy.successProbability = this.successProbability;
+        copy.source = this.source;
+        copy.confidence = this.confidence;
+        copy.calculatedAt = this.calculatedAt;
+        copy.dataObservedAt = this.dataObservedAt;
+        copy.modelVersion = this.modelVersion;
+        copy.lastNotifiedStatus = this.lastNotifiedStatus;
+        return copy;
+    }
+
+    /**
      * 위험도 판정 결과를 반영한다.
      *
      * <p>어떤 상태로 갈 수 있는지는 여기서 따지지 않는다. 떨림 방지를 포함한 판정은 여유와 직전

@@ -28,6 +28,7 @@ src/main/resources/db/migration/*
 !src/main/resources/db/migration/V40__create_journey_notification.sql
 !src/main/resources/db/migration/V41__create_journey_telemetry_event.sql
 !src/main/resources/db/migration/V42__create_reroute_proposal.sql
+!src/main/resources/db/migration/V43__add_reroute_proposal_accepted_candidate.sql
 docs/*
 !docs/plan/
 !docs/mobile/

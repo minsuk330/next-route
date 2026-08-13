@@ -26,6 +26,30 @@ import java.util.Optional;
  */
 public interface RerouteProposalRepository extends JpaRepository<RerouteProposal, Long> {
 
+    /**
+     * {@code ACTIVE} 이고 아직 만료되지 않은 제안만 {@code ACCEPTED} 로 바꾼다(Phase 6 ⑤).
+     *
+     * <p>동시 수락에서 <b>한 요청만 1을 돌려받는다.</b> 읽고 판단해 저장하는 방식이면 둘 다
+     * 통과할 수 있고, 그러면 개정본이 두 번 올라 단계가 두 벌 생긴다.
+     *
+     * <p>고른 후보도 함께 남긴다 — 진 요청이 "같은 후보의 재전송(200)"인지 "다른 후보(409)"인지
+     * 가릴 근거가 그 값뿐이다.
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query(value = """
+            UPDATE reroute_proposal
+               SET status = 'ACCEPTED',
+                   resolved_at = :now,
+                   resolved_reason = 'accepted',
+                   accepted_candidate_id = :candidateId,
+                   updated_at = :auditNow
+             WHERE id = :id
+               AND status = 'ACTIVE'
+               AND expires_at > :now
+            """, nativeQuery = true)
+    int acceptIfActive(@Param("id") Long id, @Param("candidateId") String candidateId,
+                       @Param("now") Instant now, @Param("auditNow") LocalDateTime auditNow);
+
     /** 살아 있는 제안 하나. 만료 전이({@link #resolveStale})를 먼저 돌린 뒤에 부른다. */
     Optional<RerouteProposal> findByJourneyIdAndTransferIndexAndStatusAndDeletedAtIsNull(
             Long journeyId, int transferIndex, RerouteProposalStatus status);
