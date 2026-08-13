@@ -45,6 +45,46 @@ public class JourneyRerouteProperties {
 
     private final RouteOption routeOption = new RouteOption();
 
+    private final RemainingPath remainingPath = new RemainingPath();
+
+    /**
+     * "환승 정류장에서 목적지까지 다른 경로를 찾을지"의 운영값(Phase 6 ④).
+     *
+     * <p>{@link RouteOption} 과 값의 뜻은 같지만 <b>키를 따로 둔다.</b> ③은 저장된 노선 후보만
+     * 보고 ④는 유료 경로 검색(ODsay)을 부르므로, 요금이 걱정될 때 조여야 하는 쪽이 서로 다르다.
+     * 한 값을 나눠 쓰면 ③을 넓히려다 ④의 요금이 함께 늘어난다.
+     */
+    @Getter
+    @Setter
+    public static class RemainingPath {
+
+        /** 이만큼 빨라지지 않으면 제안하지 않는다. ③과 같은 값이지만 키는 별도다. */
+        private int minimumEtaGainSeconds = 300;
+
+        /**
+         * 검색이 준 경로 중 <b>실제로 평가할</b> 수 상한.
+         *
+         * <p>2 인 이유는 시간이다. 경로 하나마다 승차 예측이 한 번 나가고, 그 앞에 검색(최대 2초)과
+         * 기준선(최대 1.5초)이 이미 있다.
+         */
+        private int maxPaths = 2;
+
+        /** 후보 평가에 쓸 수 있는 누적 시간. 넘으면 이미 평가한 것으로 제안을 만든다. */
+        private long evaluationBudgetMs = 3000;
+
+        /** 경로 검색 한 번에 쓸 수 있는 시간. 캐시가 맞으면 쓰이지 않는다. */
+        private long searchBudgetMs = 2000;
+
+        /**
+         * 검색 응답을 Redis 에 들고 있는 시간.
+         *
+         * <p>여정과 무관한 <b>공유 키</b>(정류장→목적지)라 다른 사용자의 요청도 이 캐시를 맞힌다.
+         * 10분인 이유는 그 사이 경로 <b>구조</b>가 바뀌지 않기 때문이다 — 바뀌는 것은 차가 언제
+         * 오느냐이고, 그것은 캐시하지 않고 매번 예측한다.
+         */
+        private Duration cacheTtl = Duration.ofMinutes(10);
+    }
+
     /**
      * "같은 정류장의 다른 노선을 후보로 올릴지"의 운영값(Phase 6 ③).
      *
@@ -170,6 +210,28 @@ public class JourneyRerouteProperties {
         if (routeOption.getEvaluationBudgetMs() <= 0) {
             throw new IllegalStateException(
                     "journey.reroute.route-option.evaluation-budget-ms 는 1 이상이어야 한다");
+        }
+        if (remainingPath.getMinimumEtaGainSeconds() <= 0) {
+            throw new IllegalStateException(
+                    "journey.reroute.remaining-path.minimum-eta-gain-seconds 는 1 이상이어야 한다");
+        }
+        if (remainingPath.getMaxPaths() <= 0) {
+            throw new IllegalStateException(
+                    "journey.reroute.remaining-path.max-paths 는 1 이상이어야 한다");
+        }
+        if (remainingPath.getEvaluationBudgetMs() <= 0) {
+            throw new IllegalStateException(
+                    "journey.reroute.remaining-path.evaluation-budget-ms 는 1 이상이어야 한다");
+        }
+        if (remainingPath.getSearchBudgetMs() <= 0) {
+            // 0 이하면 OdSayApiPort 계약상 "부르지 말라"는 뜻이라 이 칸이 통째로 죽는다.
+            throw new IllegalStateException(
+                    "journey.reroute.remaining-path.search-budget-ms 는 1 이상이어야 한다");
+        }
+        if (remainingPath.getCacheTtl() == null || remainingPath.getCacheTtl().isZero()
+                || remainingPath.getCacheTtl().isNegative()) {
+            // Redis 는 TTL 0 을 거부한다. 만료 없는 키가 남으면 그 구간이 영영 옛 경로를 돌려준다.
+            throw new IllegalStateException("journey.reroute.remaining-path.cache-ttl 은 양수여야 한다");
         }
     }
 }

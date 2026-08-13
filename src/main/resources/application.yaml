@@ -422,6 +422,19 @@ journey:
       # 호출이 예산을 넘기지 않게). 기준선 평가는 여기서 빼지 않으므로, 요청 하나의 최악 대기는
       # journey.evaluator.predict-deadline-ms(기준선 1회) + 이 값이다.
       evaluation-budget-ms: 3000
+    remaining-path:
+      # 환승 정류장에서 목적지까지 다른 경로를 찾는 판정(④). ③과 값은 같아도 키는 별도다 -
+      # 이쪽만 유료 경로 검색(ODsay)을 부르므로 요금이 걱정될 때 조여야 할 곳이 다르다.
+      minimum-eta-gain-seconds: 300
+      # 검색이 준 경로 중 실제로 평가할 수 상한. 경로 하나마다 승차 예측이 한 번 나간다.
+      max-paths: 2
+      # 후보 평가의 누적 시간 예산. 넘으면 이미 평가한 것으로 제안한다.
+      evaluation-budget-ms: 3000
+      # 경로 검색 한 번의 시간 예산. 캐시가 맞으면 쓰이지 않는다.
+      search-budget-ms: 2000
+      # 검색 응답을 들고 있는 시간. 여정과 무관한 공유 키(정류장→목적지)라 다른 사용자의 요청도
+      # 이 캐시를 맞힌다. 이 비율이 이 칸의 요금을 결정한다.
+      cache-ttl: PT10M
   notification:
     # 알림만 끄는 스위치. 평가기는 그대로 돌고 outbox 에 쌓지만 않는다.
     enqueue-enabled: ${JOURNEY_NOTIFICATION_ENQUEUE_ENABLED:true}

@@ -33,7 +33,7 @@ Phase 6 은 그 뒷문장을 만든다. **"그럼 어떻게 가면 되냐"에 �
 | 제안 표 | 없다. **V42** 로 `reroute_proposal` 을 만든다 |
 | routeOptions Redis 캐시 | **없다.** TECHNICAL_DECISIONS §4 에 계획만 있고 구현체가 없다(`infrastructure` 에 `RouteOption` 참조 0). PostgreSQL 이 canonical 이므로 **DB 조회로 시작**하고, 부하가 확인되면 그때 캐시를 넣는다 |
 | 다른 경로 후보 캐시 | `RedisRouteSearchSnapshotAdapter` 가 있지만 **사용자 검색 응답 보관용**(`searchSessionId + pathKey`)이라 키 모양이 다르다. 여정용 후보 캐시는 새로 만든다 |
-| 실시간·ML 평가 | `TransferTargetArrivalService`·`WaitBusArrivalPredictor` 가 이미 `(stopId, routeId, directionKey, targetSeq)` 단위로 조회한다. **후보 평가가 이걸 그대로 재사용한다** |
+| 실시간·ML 평가 | 재사용하는 자리는 `TransferTargetArrivalService`·`WaitBusArrivalPredictor` 가 **아니다**(SC-15·SC-16). 그것들은 저장된 단계를 받아 DB 를 읽는데 ③의 대안 노선과 ④의 후보 경로는 그 모양이 아니다. ③은 `PredictTransferUseCase` 를, ④는 값만 받는 `BoardingTimeEstimator` 를 쓴다 — 실시간→ML 규칙(`SingleTransferPredictor`)은 그대로 공유된다 |
 | 알림 발송 | Phase 5 로 완성. 제안 알림은 체크포인트 하나를 더하는 일이다 |
 | 운영 발송 스위치 | 여전히 **꺼져 있다**(PHASE-5 §1.1, 2026-08-15 이후). 제안 push 도 같은 스위치를 탄다 |
 
@@ -189,11 +189,14 @@ ODsay 호출은 요금이 붙고 느리다. 그리고 재탐색은 사용자가 
 
 - `RemainingRouteSearchService` 를 새로 만든다. **기존 `RouteSearchService` 를 부르지 않는다** —
   검색 이력 기록·telemetry 같은 부수효과가 여정 경로에 섞이면 안 되고, 시작점도 다르다(최초
-  출발지가 아니라 **현재 위치 또는 다음 환승 지점**)
+  출발지가 아니라 **다음 환승 지점 고정**. 현재 위치는 서버가 정밀 좌표를 받지 않아 MVP 밖이다 —
+  SC-16). 좌표는 개정본 스냅샷을 다시 쪼개 얻는다. `journey_leg` 에 좌표 칸이 없어서다
 - **ODsay 포트는 좌표만 받고 미래 출발시각을 못 받는다.** 그래서 ODsay 응답에서 가져오는 것은
   경로 **구조**뿐이고, 대기·승차·환승 시간은 `userReadyAt` 기준 실시간·ML 로 **다시 계산한다.**
   ODsay 가 준 시간을 그대로 쓰면 "지금 출발" 기준이라 10분 뒤 환승 지점에서는 틀린 숫자다
-- 후보 캐시는 여정 TTL 동안 Redis 에 둔다. cache miss 또는 후보 무효화일 때만 외부 호출이다
+- 검색 응답 캐시는 **10분 고정**이고 키에 여정도 사용자도 넣지 않는다(`{stopId}:{destX}:{destY}`).
+  경로 **구조**는 누가 묻든 같은 답이라 공유해야 요금이 준다 — 여정 TTL 로 묶으면 다른 사용자의
+  같은 질문이 매번 유료 호출이 된다(SC-16). cache miss 일 때만 외부 호출이다
 - `application/route/concurrent/SingleFlight` 가 이미 있다. 같은 키로 몰리는 중복 호출은 그것으로
   막는다
 - **검색 실패는 조용히 "제안 없음"이다.** 재탐색이 실패해도 진행 중인 안내는 멀쩡해야 한다.
