@@ -13,10 +13,12 @@ import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeoPoint;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeometryQuality;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
+import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.StopGeometry;
 import watoo.grd.nextroute.application.journey.dto.ManeuverType;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
 import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.dto.PathResult;
+import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.dto.WalkStep;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEndReason;
@@ -298,6 +300,91 @@ class JourneyNavigationGeometryServiceTest {
     }
 
     @Test
+    @DisplayName("지하철 단계는 지나는 역을 순서대로 내려준다")
+    void subwayLegCarriesItsStationChain() {
+        givenJourney(subwayWithStations());
+        givenLegs(leg(0, JourneyLegType.RIDE_SUBWAY, 300));
+        givenOptions();
+
+        LegGeometry subway = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(0);
+
+        assertThat(subway.stops())
+                .extracting(StopGeometry::stopName)
+                .containsExactly("성수", "건대입구", "구의");
+    }
+
+    @Test
+    @DisplayName("검색 결과가 역 순서를 섞어 주더라도 순번대로 다시 세운다")
+    void subwayStationsAreSortedBySequence() {
+        SubPathResult subway = SubPathFixture.subway(10).names("성수", "구의")
+                .coords(127.0, 37.5, 127.02, 37.5)
+                .polyline(new CoordPoint(127.0, 37.5), new CoordPoint(127.02, 37.5))
+                .stations(
+                        new StationResult(2, "S3", "구의", 127.02, 37.5),
+                        new StationResult(0, "S1", "성수", 127.0, 37.5),
+                        new StationResult(1, "S2", "건대입구", 127.01, 37.5))
+                .build();
+        givenJourney(new PathResult(1, null, List.of(subway), List.of()));
+        givenLegs(leg(0, JourneyLegType.RIDE_SUBWAY, 300));
+        givenOptions();
+
+        LegGeometry leg = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(0);
+
+        assertThat(leg.stops())
+                .extracting(StopGeometry::seq)
+                .containsExactly(0, 1, 2);
+    }
+
+    @Test
+    @DisplayName("지하철 역에는 정류장 식별자를 싣지 않는다 — 실시간 쪽과 체계가 다르다")
+    void subwayStationsCarryNoStopId() {
+        givenJourney(subwayWithStations());
+        givenLegs(leg(0, JourneyLegType.RIDE_SUBWAY, 300));
+        givenOptions();
+
+        LegGeometry subway = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(0);
+
+        assertThat(subway.stops())
+                .isNotEmpty()
+                .allSatisfy(stop -> assertThat(stop.stopId()).isNull());
+    }
+
+    @Test
+    @DisplayName("재탐색 뒤에는 새 개정본의 역 목록을 준다 — 세션에 남은 옛 경로가 아니다")
+    void subwayStationsFollowTheCurrentRevision() {
+        JourneySession journey = session();
+        // 세션에는 여정을 시작할 때의 경로가 남아 있다. 재탐색이 바꾼 것은 개정본 쪽이다.
+        ReflectionTestUtils.setField(journey, "routeSnapshot",
+                objectMapper.valueToTree(subwayWithStations()));
+        ReflectionTestUtils.setField(journey, "routeRevision", 2);
+        when(sessionRepository.findByIdAndUserIdAndDeletedAtIsNull(JOURNEY_ID, USER_ID))
+                .thenReturn(Optional.of(journey));
+        givenRevisionSnapshot(2, reroutedSubway());
+        when(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+                JOURNEY_ID, 2)).thenReturn(List.of(leg(0, JourneyLegType.RIDE_SUBWAY, 300)));
+        givenOptions();
+
+        LegGeometry subway = service.get(USER_ID, JOURNEY_ID, 2).legs().get(0);
+
+        assertThat(subway.stops())
+                .extracting(StopGeometry::stopName)
+                .containsExactly("왕십리", "한양대");
+    }
+
+    @Test
+    @DisplayName("검색 결과에 역 목록이 없으면 빈 목록이고 좌표는 그대로다")
+    void subwayWithoutStationsStillHasGeometry() {
+        givenJourney(walkWithPolyline());
+        givenLegs(leg(0, JourneyLegType.RIDE_SUBWAY, 300));
+        givenOptions();
+
+        LegGeometry subway = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(0);
+
+        assertThat(subway.stops()).isEmpty();
+        assertThat(subway.segments()).isNotEmpty();
+    }
+
+    @Test
     @DisplayName("안내점이 없는 도보는 좌표만 그대로 주고 안내점을 빈 목록으로 둔다")
     void walkWithoutStepsHasEmptyManeuvers() {
         givenJourney(walkWithPolyline());
@@ -542,6 +629,33 @@ class JourneyNavigationGeometryServiceTest {
     }
 
     /** TMAP 보강이 붙은 걷기 하나. */
+    /** 재탐색이 갈아 끼운 지하철 구간. 세션에 남은 것과 역이 겹치지 않아야 가릴 수 있다. */
+    private PathResult reroutedSubway() {
+        SubPathResult subway = SubPathFixture.subway(6).names("왕십리", "한양대")
+                .coords(127.03, 37.56, 127.04, 37.55)
+                .polyline(new CoordPoint(127.03, 37.56), new CoordPoint(127.04, 37.55))
+                .stations(
+                        new StationResult(0, "S9", "왕십리", 127.03, 37.56),
+                        new StationResult(1, "S10", "한양대", 127.04, 37.55))
+                .build();
+        return new PathResult(1, null, List.of(subway), List.of());
+    }
+
+    /** 역 목록이 실린 지하철 구간. 검색 결과가 passStopList 를 주는 정상 경우다. */
+    private PathResult subwayWithStations() {
+        SubPathResult subway = SubPathFixture.subway(10).names("성수", "구의")
+                .coords(127.0, 37.5, 127.02, 37.5)
+                .polyline(new CoordPoint(127.0, 37.5),
+                        new CoordPoint(127.01, 37.5),
+                        new CoordPoint(127.02, 37.5))
+                .stations(
+                        new StationResult(0, "S1", "성수", 127.0, 37.5),
+                        new StationResult(1, "S2", "건대입구", 127.01, 37.5),
+                        new StationResult(2, "S3", "구의", 127.02, 37.5))
+                .build();
+        return new PathResult(1, null, List.of(subway), List.of());
+    }
+
     private PathResult walkWithPolyline() {
         SubPathResult walk = SubPathFixture.walk(5).names("집", "정류장")
                 .coords(127.0, 37.5, 127.002, 37.5)

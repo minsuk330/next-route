@@ -20,6 +20,7 @@ import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionExcep
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.dto.PathResult;
+import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
@@ -105,6 +106,8 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                         routeStopsByRouteId);
                 case WAIT_BUS, WAIT_SUBWAY -> new Built(waitLeg(leg, sub), null);
                 case WALK, TRANSFER_WALK -> new Built(walkLeg(leg, sub), null);
+                case RIDE_SUBWAY ->
+                        new Built(withStops(snapshotLeg(leg, sub), subwayStations(sub)), null);
                 default -> new Built(snapshotLeg(leg, sub), null);
             };
             geometries.add(built.geometry());
@@ -197,6 +200,32 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
             return assemble(leg, leg.getRouteId(), segments);
         }
         return straightLine(leg, sub);
+    }
+
+    /**
+     * 얼려 둔 검색 결과가 준 계획 역 목록. 승차역부터 하차역까지 순서대로다.
+     *
+     * <p><b>진행의 근거가 아니다.</b> 열차가 어디쯤 왔는지는 실시간 정보가 답할 일이고, 여기 있는
+     * 역 목록은 순서·이름·남은 역 수·하차역 여부에만 쓴다. 검색 시점에 얼린 값이라 그 뒤로 바뀌지
+     * 않는다는 점이 오히려 필요하다 — 안내가 조회할 때마다 달라지면 안 된다.
+     *
+     * <p><b>{@code stopId} 를 비워 둔다.</b> 검색 결과의 역 식별자와 실시간 정보의 역 식별자는
+     * 서로 다른 체계다. 값을 실어 두면 언젠가 둘을 맞대어 보는 코드가 생기고, 그때는 아무것도
+     * 일치하지 않는다. 실시간 쪽과의 대조는 역 이름으로 한다.
+     */
+    private List<StopGeometry> subwayStations(SubPathResult sub) {
+        if (sub == null || sub.stations() == null || sub.stations().isEmpty()) {
+            return List.of();
+        }
+        return sub.stations().stream()
+                .sorted(Comparator.comparingInt(StationResult::index))
+                .map(station -> new StopGeometry(
+                        station.index(),
+                        null,
+                        station.stationName(),
+                        station.x(),
+                        station.y()))
+                .toList();
     }
 
     /**

@@ -55,6 +55,35 @@
 ### 검증
 - `./gradlew test --tests '*Reroute*' --tests '*Journey*'` 통과(composer 6 + acceptIT 9 포함)
 
+## 2026-08-13 journey-subway-station-chain (M7 PR-1)
+
+### 확정
+- 지하철 역 체인은 **새 데이터 소스가 필요 없다.** ODsay `passStopList` 가 이미
+  `SubPathResult.stations` 로 들어와 route snapshot 에 얼려져 있다. geometry 서비스가
+  안 내려주고 있었을 뿐이다
+- **`StopGeometry.stopId` 를 지하철에서는 비운다.** ODsay `StationResult.stationID` 와
+  서울 실시간 `statnId` 는 다른 ID 공간이다. 값을 실으면 언젠가 둘을 비교하는 코드가 생기고
+  그때는 아무것도 일치하지 않는다. 실시간 쪽 대조는 **역 이름**으로 한다
+- `StopGeometry` 를 지하철·버스 공용으로 쓴다. 앱이 하는 일이 같다 —
+  순서대로 늘어놓고, 남은 개수를 세고, 마지막이 내릴 곳인지 본다
+- **revision 처리는 손댈 게 없었다.** `snapshotOf(journey, revision):359` 가 이미
+  `journey_revision.route_snapshot` 을 먼저 보고 세션은 1번 개정본 폴백일 때만 쓴다.
+  PLAN 이 걱정한 "세션 것을 직접 읽는" 경로는 애초에 없다. 다만 지하철 체인이 그 경로를
+  타는지는 회귀 시험으로 고정했다(`subwayStationsFollowTheCurrentRevision`)
+
+### 좌표
+- application/journey/service/JourneyNavigationGeometryService.java:107 — RIDE_SUBWAY 분기
+- application/journey/service/JourneyNavigationGeometryService.java:189 — subwayStations() 본체
+- application/journey/dto/JourneyNavigationGeometry.java — StopGeometry 계약(지하철 stopId=null)
+
+### 배포
+- 마이그레이션 없음, 설정 변경 없음, 플래그 없음
+- **응답에 필드가 늘어난다**(지하철 leg 의 `stops`). 기존 앱은 모르는 필드를 무시하므로 안전
+
+### 검증
+- `./gradlew test --tests '*JourneyNavigationGeometryServiceTest'` → XML 확인 24건, 실패 0
+  (기존 19건 + 신규 5건)
+- `./gradlew build` 전체 통과 → 1,634건, 실패 0, 오류 0
 ## 2026-08-13 m7-subway-train-binding PR-2a (realtimePosition 연결)
 
 ### 확정
