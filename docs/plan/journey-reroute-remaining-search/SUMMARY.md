@@ -1,0 +1,50 @@
+# 남은 구간 재검색 (Phase 6 ④)
+
+## PR 두 개
+
+| | 브랜치 | 티어 | 내용 |
+|---|---|---|---|
+| PR-1 | `feat/journey-boarding-time-estimator` | M | 승차 시각 추정기 포트 + 버스·지하철 구현 + 기존 예측기 둘이 그것에 위임(**동작 불변**) |
+| PR-2 | `feat/journey-reroute-remaining-search` | L | ④의 나머지 전부. PR-1 머지 후 착수 |
+
+## 뭘 하나
+
+같은 정류장의 다른 버스로도 안 될 때(③이 빈손), **환승 정류장에서 목적지까지 다른 경로**를 찾아
+최대 3개까지 제안으로 저장한다. 지도 앱에서 길찾기를 다시 누르는 것이고, 출발지는 "지금 내 위치"가
+아니라 곧 내릴 환승 정류장이다. 이 칸에서 처음으로 유료 경로 검색(ODsay)을 부른다.
+
+## 왜
+
+②가 저장소·API 를, ③이 판정·잠금을 만들었지만 `REMAINING_PATH` 후보를 **만들어 주는 코드가 없다.**
+④가 채워야 사다리가 완성되고, ③이 "지금 버스를 아예 못 탄다"며 넘긴 상황을 받을 곳이 생긴다.
+
+## 핵심 결정
+
+- **검색 시작점은 환승 정류장 고정.** 서버는 정밀 좌표를 안 받으므로(프라이버시 계약) 현재 위치 기반은 MVP 밖. 좌표는 개정본 스냅샷을 다시 컴파일해 얻는다 — 마이그레이션 없음
+- **ODsay 응답을 Redis 캐싱**(여정과 무관한 공유 키, TTL 10분). 유료 호출이라 cooldown 만으로는 부족하다. 캐시 없이 시작하는 안 기각
+- **`BoardingTimeEstimator` 포트를 선행 PR 로 뗀다.** 기존 예측기는 저장된 단계를 받아 DB 를 읽는데 ④의 후보는 DB 에 없다. 포트만 떼면 소비자 없는 죽은 코드라 **기존 예측기 둘이 그것에 위임하는 리팩터링을 함께** 넣는다 — 기존 시험이 "새 자가 같은 답을 낸다"를 증명한다
+- **지하철도 인정하되 실시간만** 본다. 시간표 대체 기각(SC-6)
+- **첫 대기만 예측**하고 이후 대기는 0으로 두고 신뢰도를 낮춘다. 전체 예측은 호출이 환승 수만큼 곱해져 후속 과제로
+- **기준선은 ④가 스스로 다시 잰다.** ③에서 값을 넘겨받는 안은 공급자 사이 순서 의존을 만들어 기각
+
+## 건드는 곳
+
+신규 — `RemainingPathCandidateProvider`, `RemainingRouteSearchService`, `RemainingPathEtaComposer`,
+`JourneyWaypointResolver`, `BoardingTimeEstimator`(+버스·지하철 구현), `RemainingRouteCachePort`,
+`RedisRemainingRouteCacheAdapter`, `BoardingQuery`, `BoardingEstimate`
+수정 — `JourneyRerouteProperties`, `JourneyRerouteMetrics`, `RouteOptionEtaCalculator`(오버로드 추가),
+`application.yaml`, `PHASE-6.md`, `SCOPE-CHANGES.md`(SC-16)
+마이그레이션 없음.
+
+## 리스크
+
+- **최악 대기 6.5초**(ODsay 2초 + 기준선 1.5초 + 후보 3초). 캐시가 맞으면 4.5초로 떨어지고 ③이 답을 내면 여기까지 오지 않지만, 첫 사용자는 6.5초를 본다
+- **좌표를 재컴파일로 얻는 것이 유일한 외줄** — "저장된 단계와 같은 규칙으로 쪼개진다"는 가정이 깨지면 좌표가 다른 정류장을 가리킨다. 시험으로 못 박는다
+- **PR-1 은 머지된 예측기 둘을 건드린다.** 동작 불변이 전제이고 `TransferTargetArrivalPredictorTest` 를 한 줄도 고치지 않고 통과해야 한다. 고쳐야 한다면 동작이 바뀐 것이다
+- PR-1 에서 `blocked`(막혀서 못 물어봤다)와 `unknown`(물어봤지만 근거 없음) 구분을 잃으면 회귀다 — 막힌 문을 30초마다 두드리게 된다
+
+## 검증법
+
+③이 빈손인 여정에서 제안 1건이 저장되고, 그 과정에서 **캐시가 맞으면 ODsay 호출 0회 · 동시 요청이면
+1회**. 기준선을 못 잰 경우 임계값 없이 1건만 나오고 신뢰도가 낮아진다. Redis 가 죽어도 제안이 나오고
+ODsay 가 죽으면 조용히 빈 결과다. PR-1 은 **기존 예측기 시험이 무수정 통과**. 둘 다 `./gradlew build` 전체 통과.

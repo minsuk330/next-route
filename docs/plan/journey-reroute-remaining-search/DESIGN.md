@@ -77,9 +77,9 @@ RerouteProposalService.request()               (②·③ 완성 — 손대지 �
 | `application/journey/service/RemainingRouteSearchService.java` | 남은 구간 경로 검색 + 캐시 + 단일비행. **`RouteSearchService` 를 부르지 않는다** — 검색이력·telemetry 부수효과가 여정 경로에 섞이면 안 되고 시작점도 다르다 |
 | `application/journey/port/out/RemainingRouteCachePort.java` | 경로 구조 캐시 포트 |
 | `infrastructure/adapter/out/cache/journey/RedisRemainingRouteCacheAdapter.java` | 위 구현. 키·TTL 소유 |
-| `application/journey/port/out/BoardingTimeEstimator.java` | "DB 에 없는 대기 단계의 승차 시각을 값만 받아 추정한다" |
-| `application/journey/service/BusBoardingTimeEstimator.java` | `PredictTransferUseCase` 위임 (실시간→ML) |
-| `application/journey/service/SubwayBoardingTimeEstimator.java` | `SubwayRealtimeArrivalReader` 위임 (실시간만) |
+| `application/journey/port/out/BoardingTimeEstimator.java` | "DB 에 없는 대기 단계의 승차 시각을 값만 받아 추정한다". **선행 PR 로 뗀다**(PLAN.md §PR 두 개로 나눈다) |
+| `application/journey/service/BusBoardingTimeEstimator.java` | `PredictTransferUseCase` 위임 (실시간→ML). 선행 PR |
+| `application/journey/service/SubwayBoardingTimeEstimator.java` | `SubwayRealtimeArrivalReader` 위임 (실시간만). 선행 PR |
 | `application/journey/service/RemainingPathEtaComposer.java` | ODsay 구조 + 추정 승차시각 → 목적지 ETA·화면값 |
 | `application/journey/service/JourneyWaypointResolver.java` | `routeSnapshot` 재컴파일로 `legIndex` → 좌표 |
 | `application/journey/config/JourneyRerouteProperties.RemainingPath` | 중첩 설정 |
@@ -110,15 +110,23 @@ RerouteProposalService.request()               (②·③ 완성 — 손대지 �
 public interface BoardingTimeEstimator {
     boolean supports(JourneyLegType waitType);
 
-    /** @return 탈 수 있는 차가 없거나 근거가 없으면 빈 결과 */
-    Optional<BoardingEstimate> estimate(BoardingQuery query, Instant anchorAt,
-                                        Instant now, long budgetMs);
+    /**
+     * @return 탈 수 있는 차가 없거나 근거가 없으면 값 없는 결과.
+     *         "막혀서 못 물어봤다"와 "물어봤지만 근거가 없다"는 {@code blocked} 로 가른다
+     */
+    BoardingOutcome estimate(BoardingQuery query, Instant anchorAt, Instant now, long budgetMs);
 }
 ```
 
+**`Optional` 이 아닌 이유** — 지금 버스 예측기는 예측이 없을 때 `blocked`(막혀서 못 물어봤다)와 `unknown`(물어봤지만 근거가 없다)을 가른다. 막힌 상황에서 30초마다 다시 부르면 막힌 문을 계속 두드리기 때문이다. `Optional.empty()` 하나로 뭉치면 그 구분이 사라져 회귀다. 지하철은 `blocked` 를 항상 `false` 로 둔다(실시간 조회에 호출량 제한이 없어 "막힘" 개념이 없다).
+
 `BoardingQuery` 는 엔티티가 아니라 값이다 — 정류장/역 ID·이름, 노선 ID, `boardingSeq`, `wayCode`. `BoardingEstimate` 는 승차 시각 + 근거(`REALTIME`/`ML`) + 신뢰도 + 관측 시각.
 
-⑤가 수락 후 재검증할 때도 같은 자를 쓸 수 있다. ③의 `RouteOptionCandidateProvider` 를 나중에 이걸로 옮길 수 있지만 **이 PR 에서는 옮기지 않는다**(동작 불변 리팩터링을 새 기능과 섞지 않는다).
+⑤가 수락 후 재검증할 때도 같은 자를 쓸 수 있다.
+
+**이 포트는 선행 PR 로 뗀다.** 포트와 구현만 떼면 소비자 없는 죽은 코드가 머지되므로, 그 PR 에서 **기존 예측기 둘이 새 자에 위임하게** 만든다 — 소비자가 생기고, 무엇보다 기존 시험이 "새 자가 같은 답을 낸다"를 증명한다. 그때 `blocked`(막혀서 못 물어봤다)와 `unknown`(물어봤지만 근거 없음)의 구분을 잃지 않는 것이 관문이다(PLAN.md §3.3-b).
+
+③의 `RouteOptionCandidateProvider` 는 **옮기지 않는다** — 동작 불변 리팩터링을 두 PR 에 걸쳐 늘리지 않는다. 후속 정리 과제다.
 
 | | 버스 | 지하철 |
 |---|---|---|
@@ -288,7 +296,7 @@ PHASE-6 ④ 서술 세 곳이 코드와 어긋난다. 고치고 근거를 SCOPE-
 
 - **새 경로의 이후 환승은 예측하지 않는다**(D4). 절대 도착 시각이 낙관적이므로 신뢰도를 낮춰 표시한다. 개선폭 비교에는 영향이 없다 — 모든 후보와 기준선에 똑같이 빠지는 값이다. 전체 예측은 후속 과제(호출이 환승 수만큼 곱해지므로 후보 수 축소가 함께 와야 한다)
 - **사용자 현재 위치 기반 재탐색.** "여기서 내려서 걸어가는 게 빠릅니다" 류는 좌표 수집이 필요하고, 그건 MVP 밖으로 결정했다 — 이탈을 감지해도 대응 통로(⑤⑥)가 없어 shadow 계측만 쌓이기 때문이다. 순서는 ④→⑤→⑥→운영 배포·오차 측정→좌표 판단
-- **③의 `RouteOptionCandidateProvider` 를 `BoardingTimeEstimator` 로 옮기지 않는다.** 동작 불변 리팩터링을 새 기능과 같은 PR 에 섞지 않는다
+- **③의 `RouteOptionCandidateProvider` 를 `BoardingTimeEstimator` 로 옮기지 않는다.** 선행 PR 이 이미 예측기 둘을 옮기므로, 동작 불변 리팩터링을 그보다 더 늘리지 않는다
 - **`journey.reroute.enabled` 는 계속 false.** 켜는 것은 ⑥ 이후이고 PHASE-5 §1.1 절차를 함께 탄다
 
 ## 10. 함정
