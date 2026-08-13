@@ -66,6 +66,35 @@ public final class SubwayLineIdMapper {
                 : Optional.of(String.valueOf(1000 + numeric));
     }
 
+    /**
+     * 내부 line_id 를 서울 API 의 호선명으로 되돌린다.
+     *
+     * <p>실시간 <b>위치</b> API 는 경로에 line_id 가 아니라 호선명을 받는다
+     * ({@code /realtimePosition/0/1000/2호선}). 그래서 이 매핑이 필요하다.
+     *
+     * <p>모르는 line_id 는 <b>비어 있는 값</b>을 돌려준다. 숫자를 그럴듯하게 지어내 호출하면
+     * 엉뚱한 노선의 열차를 우리 노선인 줄 알고 추적한다 — 안 부르는 편이 낫다.
+     */
+    public static Optional<String> toLineName(String lineId) {
+        if (lineId == null || lineId.isBlank()) {
+            return Optional.empty();
+        }
+        String value = lineId.trim();
+        for (Map.Entry<String, String> entry : NAMED_LINES.entrySet()) {
+            if (entry.getValue().equals(value)) {
+                return Optional.of(entry.getKey());
+            }
+        }
+        try {
+            int numeric = Integer.parseInt(value) - 1000;
+            return numeric > 0 && numeric < 100
+                    ? Optional.of(numeric + "호선")
+                    : Optional.empty();
+        } catch (NumberFormatException ignored) {
+            return Optional.empty();
+        }
+    }
+
     private static String normalize(String value) {
         return value == null ? "" : value.replaceAll("\\s+", "").trim();
     }

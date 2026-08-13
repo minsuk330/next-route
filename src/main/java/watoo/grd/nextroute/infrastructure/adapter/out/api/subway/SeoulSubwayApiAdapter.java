@@ -6,16 +6,25 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalInfo;
+import watoo.grd.nextroute.application.subway.dto.SubwayExpressType;
+import watoo.grd.nextroute.application.subway.dto.SubwayPositionFetchResult;
+import watoo.grd.nextroute.application.subway.dto.SubwayPositionInfo;
 import watoo.grd.nextroute.application.subway.dto.SubwaySegmentInfo;
 import watoo.grd.nextroute.application.subway.dto.SubwayStationInfo;
+import watoo.grd.nextroute.application.subway.dto.SubwayTrainStatus;
 import watoo.grd.nextroute.application.subway.port.out.SubwayApiPort;
+import watoo.grd.nextroute.application.subway.service.SubwayDirectionNormalizer;
 import watoo.grd.nextroute.application.subway.service.SubwayLineIdMapper;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.ApiCallBlocker;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.subway.dto.*;
 
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static watoo.grd.nextroute.common.util.ParseUtils.parseDouble;
 import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
@@ -30,10 +39,18 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 	private static final String API_ARRIVAL = "seoul-subway-arrival";
 	private static final String API_MASTER = "seoul-subway-master";
 	private static final String API_DISTANCE = "seoul-subway-distance";
+	/**
+	 * 위치 API 차단기는 <b>노선별</b>로 판다.
+	 *
+	 * <p>{@link ApiCallBlocker} 는 하루 단위로 막는다. 공통 키 하나로 두면 한 노선의 잘못된
+	 * 응답이 <b>모든 노선</b>을 그날 내내 막는다.
+	 */
+	private static final String API_POSITION_PREFIX = "seoul-subway-position:";
 
 	private final RestTemplate restTemplate;
 	private final ApiCallBlocker blocker;
-	private final String apiKey;
+	private final String arrivalKey;
+  private final String positionKey;
 	private final String baseUrl;
 	private final String masterKey;
 	private final String routeKey;
@@ -42,14 +59,16 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 	public SeoulSubwayApiAdapter(
 			RestTemplate restTemplate,
 			ApiCallBlocker blocker,
-			@Value("${seoul.api.subway-arrival-key}") String apiKey,
+			@Value("${seoul.api.subway-arrival-key}") String arrivalKey,
+      @Value("${seoul.api.subway-position-key}") String positionKey,
 			@Value("${seoul.api.subway-base-url}") String baseUrl,
 			@Value("${seoul.api.subway-master-key}") String masterKey,
 			@Value("${seoul.api.subway-route-key}") String routeKey,
 			@Value("${seoul.api.seoul-base-api-url}") String seoulBaseApiUrl) {
 		this.restTemplate = restTemplate;
 		this.blocker = blocker;
-		this.apiKey = apiKey;
+		this.arrivalKey = arrivalKey;
+    this.positionKey = positionKey;
 		this.baseUrl = baseUrl;
 		this.masterKey = masterKey;
 		this.routeKey = routeKey;
@@ -100,7 +119,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 
 		List<SubwayArrivalInfo> allArrivals = new ArrayList<>();
 
-			URI uri = URI.create(baseUrl + "/" + apiKey
+			URI uri = URI.create(baseUrl + "/" + arrivalKey
 					+ "/json/realtimeStationArrival/" + "ALL");
 
 			List<SubwayArrivalItem> items = callArrivalApi(uri);
@@ -116,7 +135,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 
 	@Override
 	public List<SubwayArrivalInfo> getRealtimeArrivalByStation(String stationName) {
-		URI uri = URI.create(baseUrl + "/" + apiKey
+		URI uri = URI.create(baseUrl + "/" + arrivalKey
 				+ "/json/realtimeStationArrival/0/1000/" + stationName);
 		return callArrivalApi(uri).stream()
 				.map(this::toArrivalInfo)
@@ -124,6 +143,75 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 	}
 
 	@Override
+	public SubwayPositionFetchResult getRealtimePosition(String lineId) {
+		Instant fetchedAt = Instant.now();
+
+		Optional<String> lineName = SubwayLineIdMapper.toLineName(lineId);
+		if (lineName.isEmpty()) {
+			// 호선명을 지어내 부르면 엉뚱한 노선의 열차를 우리 노선인 줄 알고 추적한다.
+			log.warn("[SubwayPosition] 호선명을 모르는 line_id — lineId={}", lineId);
+			return SubwayPositionFetchResult.failed(lineId, fetchedAt, "UNKNOWN_LINE");
+		}
+		if (blocker.isBlocked(API_POSITION_PREFIX + lineId)) {
+			return SubwayPositionFetchResult.failed(lineId, fetchedAt, "BLOCKED");
+		}
+
+		URI uri = URI.create(baseUrl + "/" + positionKey + "/json/realtimePosition/0/" + PAGE_SIZE
+				+ "/" + URLEncoder.encode(lineName.get(), StandardCharsets.UTF_8));
+
+		SubwayPositionResponse response = callPositionApi(uri, lineId);
+		if (response == null) {
+			return SubwayPositionFetchResult.failed(lineId, fetchedAt, "CALL_FAILED");
+		}
+		if (!response.isSuccess()) {
+			blocker.block(API_POSITION_PREFIX + lineId);
+			log.warn("[SubwayPosition] 비정상 응답 — lineId={}, code={}", lineId, response.code());
+			return SubwayPositionFetchResult.failed(lineId, fetchedAt, response.code());
+		}
+
+		List<SubwayPositionInfo> rows = response.getItems().stream()
+				.map(this::toPositionInfo)
+				.toList();
+		Integer total = response.total();
+
+		// 받은 건수가 API 가 말한 전체와 다르면 응답이 완결되지 않은 것이다. 그 상태에서 전이를
+		// 만들면 "사라진" 열차가 대량으로 생긴다.
+		SubwayPositionFetchResult.Status status = (total == null || total == rows.size())
+				? SubwayPositionFetchResult.Status.COMPLETE
+				: SubwayPositionFetchResult.Status.PARTIAL;
+		if (status == SubwayPositionFetchResult.Status.PARTIAL) {
+			log.warn("[SubwayPosition] 건수 불일치 — lineId={}, total={}, rows={}",
+					lineId, total, rows.size());
+		}
+
+		return new SubwayPositionFetchResult(lineId, rows, total, status, fetchedAt, null);
+	}
+
+	/**
+	 * 위치 응답 한 행을 응용 계층 모양으로 옮긴다.
+	 *
+	 * <p>방향은 여기서 <b>도착정보와 같은 표기로</b> 맞춘다. 원시 {@code updnLine} 이 밖으로
+	 * 나가면 두 API 의 방향 표기가 뒤섞인 채 비교되는 코드가 생긴다.
+	 */
+	private SubwayPositionInfo toPositionInfo(SubwayPositionItem item) {
+		String lineId = item.getSubwayId();
+		return new SubwayPositionInfo(
+				lineId,
+				item.getTrainNo(),
+				item.getStatnId(),
+				item.getStatnNm(),
+				SubwayDirectionNormalizer.fromUpDownLine(lineId, item.getUpdnLine()),
+				item.getStatnTid(),
+				item.getStatnTnm(),
+				SubwayTrainStatus.from(item.getTrainSttus()),
+				SubwayExpressType.from(item.getDirectAt()),
+				item.getRecptnDt(),
+				item.getLastRecptnDt()
+		);
+	}
+
+
+  @Override
 	public List<SubwaySegmentInfo> getStationDistance() {
 		if (blocker.isBlocked(API_DISTANCE)) return List.of();
 
@@ -273,6 +361,41 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 			}
 		}
 		log.error("Subway master API failed after {} retries", MAX_RETRIES);
+		return null;
+	}
+
+	/**
+	 * 위치 API 를 부른다. 실패해도 <b>예외를 던지지 않고</b> null 을 준다.
+	 *
+	 * <p>도착정보({@code callArrivalApi})는 재시도 끝에 예외를 던진다. 여기서 같은 방식을 쓰지
+	 * 않는 이유는 호출 축이 다르기 때문이다 — 위치는 <b>노선마다</b> 부르므로, 한 노선의 실패가
+	 * 예외로 번지면 그 tick 의 나머지 노선까지 통째로 못 받는다. 실패는 값으로 돌려주고
+	 * 부르는 쪽이 노선 단위로 판단한다.
+	 */
+	private SubwayPositionResponse callPositionApi(URI uri, String lineId) {
+		for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+			try {
+				SubwayPositionResponse response =
+						restTemplate.getForObject(uri, SubwayPositionResponse.class);
+				if (response == null) {
+					log.warn("[SubwayPosition] 빈 응답 — lineId={}", lineId);
+					return null;
+				}
+				return response;
+			} catch (Exception e) {
+				log.warn("[SubwayPosition] 호출 실패 {}/{} — lineId={}, {}",
+						attempt, MAX_RETRIES, lineId, e.getMessage());
+				if (attempt < MAX_RETRIES) {
+					try {
+						Thread.sleep((long) Math.pow(2, attempt) * 1000);
+					} catch (InterruptedException ie) {
+						Thread.currentThread().interrupt();
+						return null;
+					}
+				}
+			}
+		}
+		log.error("[SubwayPosition] {}회 재시도 후 실패 — lineId={}", MAX_RETRIES, lineId);
 		return null;
 	}
 

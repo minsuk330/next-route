@@ -137,6 +137,7 @@ seoul:
     seoul-bus-use-key: ${SEOUL_BUS_USAGE}
     seoul-base-api-url: http://openapi.seoul.go.kr:8088
     subway-key: ${SEOUL_SUBWAY_API:test}
+    subway-position-key: ${SEOUL_SUBWAY_POSITION:test}
     subway-base-url: http://swopenAPI.seoul.go.kr/api/subway
     subway-arrival-key: ${SEOUL_SUBWAY_ARRIVAL:test}
     subway-master-key: ${SEOUL_SUBWAY_MASTER}
