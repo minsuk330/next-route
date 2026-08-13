@@ -1,13 +1,13 @@
 package watoo.grd.nextroute.application.journey.service;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import watoo.grd.nextroute.application.journey.dto.BoardingEstimate;
+import watoo.grd.nextroute.application.journey.dto.BoardingOutcome;
+import watoo.grd.nextroute.application.journey.dto.BoardingQuery;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.TransferTargetArrival;
 import watoo.grd.nextroute.application.journey.port.out.TransferTargetArrivalPredictor;
-import watoo.grd.nextroute.application.route.dto.TransferPredictionResult;
-import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
@@ -41,13 +41,16 @@ import java.util.Optional;
  *
  * <p>{@link WaitBusArrivalPredictor} 와 달리 단계가 시작됐는지 보지 않는다. 아직 버스를 타고 있는
  * 사용자에게 "다음 정류장에서 갈아탈 차가 언제 오나"를 알려 주는 것이 이 클래스의 존재 이유다.
+ *
+ * <p>추정 자체는 {@link BusBoardingTimeEstimator} 가 한다. 여기 남는 것은 <b>저장된 단계에서
+ * 값을 꺼내는 일</b>(선택 노선 DB 읽기)과 결과를 여정 평가의 모양으로 옮기는 일뿐이다 — 재탐색이
+ * 검색해 온 후보 경로는 DB 에 없어서 같은 추정을 단계 없이도 물어볼 수 있어야 한다.
  */
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class BusTransferTargetArrivalPredictor implements TransferTargetArrivalPredictor {
 
-    private final PredictTransferUseCase predictTransferUseCase;
+    private final BusBoardingTimeEstimator boardingTimeEstimator;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
     private final TransferPredictionInterpreter interpreter;
 
@@ -64,38 +67,35 @@ public class BusTransferTargetArrivalPredictor implements TransferTargetArrivalP
             return TransferTargetArrival.unknown();
         }
         Optional<JourneyLegRouteOption> option = selectedOption(waitLeg);
-        if (option.isEmpty() || !hasBusScope(option.get()) || waitLeg.getStartStopId() == null) {
-            log.debug("버스 환승 예측 불가 — legIndex={}, 노선·정류장 미해석", waitLeg.getLegIndex());
-            return TransferTargetArrival.unknown();
-        }
+        BoardingQuery query = new BoardingQuery(
+                JourneyLegType.WAIT_BUS,
+                waitLeg.getStartStopId(),
+                waitLeg.getStartName(),
+                option.map(JourneyLegRouteOption::getRouteId).orElse(null),
+                option.map(JourneyLegRouteOption::getBoardingSeq).orElse(null),
+                null);
 
-        PredictTransferUseCase.Mode mode = interpreter.modeFor(boardingAnchorAt, now);
         // 평가기 몫의 시간 예산을 명시한다. 검색용 기본값을 그대로 쓰면 환승 두 개짜리 여정이
         // 배치 상한을 넘고, 밀리면 선점이 만료돼 계산 결과를 통째로 버린다.
-        TransferPredictionResult prediction = predictTransferUseCase.predict(
-                waitLeg.getStartStopId(),
-                option.get().getRouteId(),
-                option.get().getBoardingSeq(),
-                boardingAnchorAt,
-                mode,
-                interpreter.budgetMs());
+        BoardingOutcome outcome = boardingTimeEstimator.estimate(
+                query, boardingAnchorAt, now, interpreter.budgetMs());
 
-        if (prediction.predictedArrivalAt() == null) {
+        if (!outcome.isPresent()) {
             // 막혀서 못 물어본 것과 물어봤지만 근거가 없는 것을 가른다. 막힌 상황에서 30초마다
             // 다시 부르면 막힌 문을 계속 두드린다.
-            return interpreter.isBlocked(prediction)
-                    ? TransferTargetArrival.blocked()
-                    : TransferTargetArrival.unknown();
+            return outcome.blocked() ? TransferTargetArrival.blocked() : TransferTargetArrival.unknown();
         }
+        // 못 타는 차량이어도 그대로 통과시킨다. 그 음수 여유가 "환승 놓침" 판정의 근거다.
+        BoardingEstimate estimate = outcome.estimate();
         return new TransferTargetArrival(new CurrentLegArrival(
-                prediction.predictedArrivalAt(),
-                (int) Math.max(0, Duration.between(now, prediction.predictedArrivalAt()).getSeconds()),
+                estimate.boardingAt(),
+                (int) Math.max(0, Duration.between(now, estimate.boardingAt()).getSeconds()),
                 null,
                 null,
-                interpreter.sourceOf(prediction),
-                interpreter.qualityOf(prediction),
-                prediction.calculatedAt()),
-                prediction.modelVersion(),
+                estimate.source(),
+                estimate.quality(),
+                estimate.observedAt()),
+                estimate.modelVersion(),
                 false);
     }
 
@@ -104,10 +104,5 @@ public class BusTransferTargetArrivalPredictor implements TransferTargetArrivalP
             return Optional.empty();
         }
         return routeOptionRepository.findById(leg.getSelectedRouteOptionId());
-    }
-
-    private boolean hasBusScope(JourneyLegRouteOption option) {
-        return option.getRouteId() != null && !option.getRouteId().isBlank()
-                && option.getBoardingSeq() != null;
     }
 }

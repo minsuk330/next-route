@@ -3,19 +3,18 @@ package watoo.grd.nextroute.application.journey.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import watoo.grd.nextroute.application.journey.dto.BoardingEstimate;
+import watoo.grd.nextroute.application.journey.dto.BoardingOutcome;
+import watoo.grd.nextroute.application.journey.dto.BoardingQuery;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
-import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Quality;
-import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Source;
 import watoo.grd.nextroute.application.journey.dto.TransferTargetArrival;
 import watoo.grd.nextroute.application.journey.port.out.TransferTargetArrivalPredictor;
-import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionRepository;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 
 /**
@@ -35,13 +34,16 @@ import java.util.Optional;
  * <p>탈 수 있는 열차가 목록에 없으면 모른다고 답한다. 시간표로 대신 채우지 않는다(SC-6) — 배차가
  * 실제와 어긋나면 그럴듯하게 틀린 시각이 사용자를 엉뚱한 때에 움직이게 한다. 지하철에는 도착 예측
  * 모델도 없다.
+ *
+ * <p>추정 자체는 {@link SubwayBoardingTimeEstimator} 가 한다. 여기 남는 것은 저장된 단계에서
+ * 방향을 DB 로 읽어 오는 일과 결과를 여정 평가의 모양으로 옮기는 일뿐이다.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class SubwayTransferTargetArrivalPredictor implements TransferTargetArrivalPredictor {
 
-    private final SubwayRealtimeArrivalReader arrivalReader;
+    private final SubwayBoardingTimeEstimator boardingTimeEstimator;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
 
     @Override
@@ -60,37 +62,27 @@ public class SubwayTransferTargetArrivalPredictor implements TransferTargetArriv
         }
 
         Integer wayCode = selectedOption(waitLeg).map(JourneyLegRouteOption::getWayCode).orElse(null);
-        if (wayCode == null) {
-            // 방향을 모르면 반대 방향 열차를 집을 수 있다. 그럴듯하게 틀린 숫자보다 모름이 낫다.
-            log.debug("지하철 환승 예측 불가 — legIndex={}, 방향 미확정", waitLeg.getLegIndex());
+        BoardingQuery query = new BoardingQuery(JourneyLegType.WAIT_SUBWAY,
+                waitLeg.getStartStopId(), waitLeg.getStartName(), waitLeg.getRouteId(), null, wayCode);
+
+        // 지하철 실시간 조회에는 호출량 제한이 없어 예산 개념이 없다.
+        BoardingOutcome outcome = boardingTimeEstimator.estimate(query, boardingAnchorAt, now, 0L);
+
+        if (!outcome.isPresent()) {
+            log.debug("지하철 환승 예측 없음 — legIndex={}", waitLeg.getLegIndex());
             return TransferTargetArrival.unknown();
         }
 
-        List<SubwayRealtimeArrivalReader.Arrival> arrivals = arrivalReader.arrivalsByStation(
-                waitLeg.getRouteId(), waitLeg.getStartStopId(), waitLeg.getStartName(), wayCode);
-
-        Optional<Instant> boardable = arrivals.stream()
-                .filter(SubwayRealtimeArrivalReader.Arrival::hasSeconds)
-                .map(arrival -> now.plusSeconds(Math.max(0, arrival.arrivalSeconds())))
-                .filter(arrivalAt -> !arrivalAt.isBefore(boardingAnchorAt))
-                .min(Instant::compareTo);
-
-        if (boardable.isEmpty()) {
-            log.debug("지하철 환승 예측 없음 — legIndex={}, 준비 시각 이후 열차가 목록에 없다",
-                    waitLeg.getLegIndex());
-            return TransferTargetArrival.unknown();
-        }
-
-        Instant arrivalAt = boardable.get();
+        BoardingEstimate estimate = outcome.estimate();
         // 지하철은 모델이 없다. 실시간이 아니면 답 자체가 없으므로 모델 이름도 없다.
         return TransferTargetArrival.of(new CurrentLegArrival(
-                arrivalAt,
-                (int) Math.max(0, arrivalAt.getEpochSecond() - now.getEpochSecond()),
+                estimate.boardingAt(),
+                (int) Math.max(0, estimate.boardingAt().getEpochSecond() - now.getEpochSecond()),
                 null,
                 null,
-                Source.REALTIME_ARRIVAL,
-                Quality.GOOD,
-                now));
+                estimate.source(),
+                estimate.quality(),
+                estimate.observedAt()));
     }
 
     private Optional<JourneyLegRouteOption> selectedOption(JourneyLeg leg) {
