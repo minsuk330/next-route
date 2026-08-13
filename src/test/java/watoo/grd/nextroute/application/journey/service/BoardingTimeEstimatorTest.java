@@ -1,0 +1,312 @@
+package watoo.grd.nextroute.application.journey.service;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties;
+import watoo.grd.nextroute.application.journey.dto.BoardingOutcome;
+import watoo.grd.nextroute.application.journey.dto.BoardingQuery;
+import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
+import watoo.grd.nextroute.application.route.dto.TransferArrival;
+import watoo.grd.nextroute.application.route.dto.TransferPredictionResult;
+import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
+import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
+
+import java.time.Instant;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+
+/**
+ * 승차 시각 추정기. 저장된 단계가 아니라 <b>값</b>만 받아 답한다 — 재탐색 후보 경로는 DB 에 없다.
+ *
+ * <p>여기서 못박는 것 중 가장 중요한 하나: <b>못 타는 차를 추정기가 걸러내지 않는다.</b>
+ * 여정 평가는 그 음수 여유로 "환승 놓침"을 판정하므로, 추정기가 걸러내면 그 감지가 죽는다.
+ */
+@DisplayName("승차 시각 추정")
+class BoardingTimeEstimatorTest {
+
+    private static final Instant NOW = Instant.parse("2026-08-04T09:00:00Z");
+
+    @Nested
+    @DisplayName("버스")
+    class Bus {
+
+        private final PredictTransferUseCase predictTransferUseCase = mock(PredictTransferUseCase.class);
+        private final JourneyEvaluatorProperties properties = new JourneyEvaluatorProperties();
+        private BusBoardingTimeEstimator estimator;
+
+        @BeforeEach
+        void setUp() {
+            estimator = new BusBoardingTimeEstimator(
+                    predictTransferUseCase, new TransferPredictionInterpreter(properties));
+        }
+
+        @Test
+        @DisplayName("버스 대기 단계만 맡는다")
+        void supportsWaitBusOnly() {
+            assertThat(estimator.supports(JourneyLegType.WAIT_BUS)).isTrue();
+            assertThat(estimator.supports(JourneyLegType.WAIT_SUBWAY)).isFalse();
+        }
+
+        @Test
+        @DisplayName("앵커를 그대로 기준으로 넘기고 예산도 그대로 넘긴다")
+        void passesAnchorAndBudgetThrough() {
+            Instant anchor = NOW.plusSeconds(420);
+            givenPrediction(TransferArrival.Source.REALTIME, TransferArrival.Status.AVAILABLE,
+                    anchor.plusSeconds(60), true, null);
+
+            estimator.estimate(query(), anchor, NOW, 1500L);
+
+            ArgumentCaptor<Instant> captured = ArgumentCaptor.forClass(Instant.class);
+            verify(predictTransferUseCase).predict(eq("ST-G"), eq("BL-721"), eq(3),
+                    captured.capture(), any(), eq(1500L));
+            assertThat(captured.getValue()).isEqualTo(anchor);
+        }
+
+        @Test
+        @DisplayName("시야 안이면 실시간까지, 밖이면 모델만 본다")
+        void modeFollowsAnchorDistance() {
+            givenPrediction(TransferArrival.Source.REALTIME, TransferArrival.Status.AVAILABLE,
+                    NOW.plusSeconds(480), true, null);
+
+            estimator.estimate(query(), NOW.plusSeconds(420), NOW, 1000L);
+            verify(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(),
+                    eq(PredictTransferUseCase.Mode.REALTIME_THEN_MODEL), anyLong());
+
+            Instant farAnchor = NOW.plusSeconds(properties.getBusRealtimeWindowSeconds() + 60);
+            estimator.estimate(query(), farAnchor, NOW, 1000L);
+            verify(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(),
+                    eq(PredictTransferUseCase.Mode.MODEL_ONLY), anyLong());
+        }
+
+        @Test
+        @DisplayName("실시간이면 출처가 실시간이고 신뢰도가 GOOD 이다")
+        void realtimeMapping() {
+            givenPrediction(TransferArrival.Source.REALTIME, TransferArrival.Status.AVAILABLE,
+                    NOW.plusSeconds(480), true, null);
+
+            BoardingOutcome outcome = estimator.estimate(query(), NOW.plusSeconds(420), NOW, 1000L);
+
+            assertThat(outcome.isPresent()).isTrue();
+            assertThat(outcome.estimate().boardingAt()).isEqualTo(NOW.plusSeconds(480));
+            assertThat(outcome.estimate().source()).isEqualTo(CurrentLegArrival.Source.REALTIME_ARRIVAL);
+            assertThat(outcome.estimate().quality()).isEqualTo(CurrentLegArrival.Quality.GOOD);
+            assertThat(outcome.estimate().observedAt()).isEqualTo(NOW);
+            assertThat(outcome.estimate().modelVersion()).isNull();
+        }
+
+        @Test
+        @DisplayName("모델이 추정하면 출처와 모델 이름을 남기고 신뢰도를 낮춘다")
+        void modelMapping() {
+            givenPrediction(TransferArrival.Source.MODEL, TransferArrival.Status.AVAILABLE,
+                    NOW.plusSeconds(500), true, "bus-eta-v3");
+
+            BoardingOutcome outcome = estimator.estimate(query(), NOW.plusSeconds(420), NOW, 1000L);
+
+            assertThat(outcome.estimate().source()).isEqualTo(CurrentLegArrival.Source.MODEL_ARRIVAL);
+            assertThat(outcome.estimate().quality()).isEqualTo(CurrentLegArrival.Quality.APPROXIMATE);
+            assertThat(outcome.estimate().modelVersion()).isEqualTo("bus-eta-v3");
+        }
+
+        @Test
+        @DisplayName("못 탈 차량도 걸러내지 않고 그대로 싣는다 — 걸러내면 환승 놓침 감지가 죽는다")
+        void doesNotFilterUnboardable() {
+            Instant anchor = NOW.plusSeconds(420);
+            givenPrediction(TransferArrival.Source.REALTIME, TransferArrival.Status.AVAILABLE,
+                    anchor.minusSeconds(120), false, null);
+
+            BoardingOutcome outcome = estimator.estimate(query(), anchor, NOW, 1000L);
+
+            assertThat(outcome.isPresent()).isTrue();
+            assertThat(outcome.estimate().boardable()).isFalse();
+            assertThat(outcome.estimate().boardingAt()).isEqualTo(anchor.minusSeconds(120));
+        }
+
+        @Test
+        @DisplayName("boardable 이 null 이면 못 타는 것으로 좁힌다")
+        void nullBoardableIsFalse() {
+            TransferPredictionResult result = new TransferPredictionResult(
+                    "ST-G", "BL-721", 3, TransferArrival.Source.MODEL, TransferArrival.Status.AVAILABLE,
+                    NOW, NOW, NOW.plusSeconds(480), null, null, null, "bus-eta-v3");
+            given(predictTransferUseCase.predict(anyString(), anyString(), anyInt(), any(), any(), anyLong()))
+                    .willReturn(result);
+
+            BoardingOutcome outcome = estimator.estimate(query(), NOW.plusSeconds(420), NOW, 1000L);
+
+            assertThat(outcome.estimate().boardable()).isFalse();
+        }
+
+        @Test
+        @DisplayName("막힌 것과 근거가 없는 것을 가른다")
+        void separatesBlockedFromUnknown() {
+            givenPrediction(TransferArrival.Source.NONE, TransferArrival.Status.BLOCKED, null, false, null);
+            BoardingOutcome blocked = estimator.estimate(query(), NOW.plusSeconds(420), NOW, 1000L);
+            assertThat(blocked.isPresent()).isFalse();
+            assertThat(blocked.blocked()).isTrue();
+
+            givenPrediction(TransferArrival.Source.MODEL, TransferArrival.Status.NO_VEHICLE, null, false, null);
+            BoardingOutcome none = estimator.estimate(query(), NOW.plusSeconds(420), NOW, 1000L);
+            assertThat(none.isPresent()).isFalse();
+            assertThat(none.blocked()).isFalse();
+        }
+
+        @Test
+        @DisplayName("정류장·노선·순번이 비면 외부 호출 없이 모름이다")
+        void unresolvedScopeSkipsExternalCall() {
+            assertThat(estimator.estimate(
+                    new BoardingQuery(JourneyLegType.WAIT_BUS, null, "정류장G", "BL-721", 3, null),
+                    NOW.plusSeconds(420), NOW, 1000L).isPresent()).isFalse();
+            assertThat(estimator.estimate(
+                    new BoardingQuery(JourneyLegType.WAIT_BUS, "ST-G", "정류장G", " ", 3, null),
+                    NOW.plusSeconds(420), NOW, 1000L).isPresent()).isFalse();
+            assertThat(estimator.estimate(
+                    new BoardingQuery(JourneyLegType.WAIT_BUS, "ST-G", "정류장G", "BL-721", null, null),
+                    NOW.plusSeconds(420), NOW, 1000L).isPresent()).isFalse();
+
+            verifyNoInteractions(predictTransferUseCase);
+        }
+
+        @Test
+        @DisplayName("앵커가 없으면 외부 호출 없이 모름이다 — 지금 시각으로 대신하지 않는다")
+        void noAnchorSkipsExternalCall() {
+            assertThat(estimator.estimate(query(), null, NOW, 1000L).isPresent()).isFalse();
+            verifyNoInteractions(predictTransferUseCase);
+        }
+
+        @Test
+        @DisplayName("외부 호출이 터지면 삼키지 않고 그대로 올린다")
+        void propagatesUpstreamFailure() {
+            given(predictTransferUseCase.predict(anyString(), anyString(), anyInt(), any(), any(), anyLong()))
+                    .willThrow(new IllegalStateException("boom"));
+
+            assertThatThrownBy(() -> estimator.estimate(query(), NOW.plusSeconds(420), NOW, 1000L))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+
+        private BoardingQuery query() {
+            return new BoardingQuery(JourneyLegType.WAIT_BUS, "ST-G", "정류장G", "BL-721", 3, null);
+        }
+
+        private void givenPrediction(TransferArrival.Source source, TransferArrival.Status status,
+                                     Instant predictedArrivalAt, boolean boardable, String modelVersion) {
+            TransferPredictionResult result = predictedArrivalAt == null
+                    ? TransferPredictionResult.noResult("ST-G", "BL-721", 3, source, status, NOW, NOW)
+                    : new TransferPredictionResult("ST-G", "BL-721", 3, source, status, NOW, NOW,
+                            predictedArrivalAt, null, boardable, "vehicle-1", modelVersion);
+            given(predictTransferUseCase.predict(anyString(), anyString(), anyInt(), any(), any(), anyLong()))
+                    .willReturn(result);
+        }
+    }
+
+    @Nested
+    @DisplayName("지하철")
+    class Subway {
+
+        private final SubwayRealtimeArrivalReader arrivalReader = mock(SubwayRealtimeArrivalReader.class);
+        private final SubwayBoardingTimeEstimator estimator = new SubwayBoardingTimeEstimator(arrivalReader);
+
+        @Test
+        @DisplayName("지하철 대기 단계만 맡는다")
+        void supportsWaitSubwayOnly() {
+            assertThat(estimator.supports(JourneyLegType.WAIT_SUBWAY)).isTrue();
+            assertThat(estimator.supports(JourneyLegType.WAIT_BUS)).isFalse();
+        }
+
+        @Test
+        @DisplayName("준비 시각 이후에 오는 첫 열차를 고른다")
+        void picksFirstBoardableTrain() {
+            given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt()))
+                    .willReturn(List.of(arrival(60), arrival(240), arrival(420)));
+
+            BoardingOutcome outcome = estimator.estimate(query(), NOW.plusSeconds(180), NOW, 0L);
+
+            // 60초 뒤 열차는 사용자가 준비를 마치기 전에 지나간다.
+            assertThat(outcome.estimate().boardingAt()).isEqualTo(NOW.plusSeconds(240));
+            assertThat(outcome.estimate().boardable()).isTrue();
+            assertThat(outcome.estimate().source()).isEqualTo(CurrentLegArrival.Source.REALTIME_ARRIVAL);
+            assertThat(outcome.estimate().quality()).isEqualTo(CurrentLegArrival.Quality.GOOD);
+            assertThat(outcome.estimate().observedAt()).isEqualTo(NOW);
+            assertThat(outcome.estimate().modelVersion()).isNull();
+        }
+
+        @Test
+        @DisplayName("남은 초를 모르는 열차는 세지 않는다")
+        void ignoresArrivalsWithoutSeconds() {
+            given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt()))
+                    .willReturn(List.of(new SubwayRealtimeArrivalReader.Arrival(null, null), arrival(300)));
+
+            BoardingOutcome outcome = estimator.estimate(query(), NOW.plusSeconds(180), NOW, 0L);
+
+            assertThat(outcome.estimate().boardingAt()).isEqualTo(NOW.plusSeconds(300));
+        }
+
+        @Test
+        @DisplayName("앵커가 멀어도 조회한다 — 호출량 제한이 없다")
+        void alwaysAsksRegardlessOfDistance() {
+            given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt()))
+                    .willReturn(List.of(arrival(120)));
+
+            estimator.estimate(query(), NOW.plusSeconds(3600), NOW, 0L);
+
+            verify(arrivalReader).arrivalsByStation(eq("1002"), eq("ST-G"), eq("정류장G"), eq(2));
+        }
+
+        @Test
+        @DisplayName("탈 수 있는 열차가 없으면 모름이다 — 시간표로 채우지 않는다")
+        void noBoardableTrainIsNone() {
+            given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt()))
+                    .willReturn(List.of(arrival(60), arrival(120)));
+
+            BoardingOutcome outcome = estimator.estimate(query(), NOW.plusSeconds(1800), NOW, 0L);
+
+            assertThat(outcome.isPresent()).isFalse();
+            assertThat(outcome.blocked()).isFalse();
+        }
+
+        @Test
+        @DisplayName("방향·역·노선이 비면 조회 없이 모름이다")
+        void unresolvedScopeSkipsExternalCall() {
+            assertThat(estimator.estimate(
+                    new BoardingQuery(JourneyLegType.WAIT_SUBWAY, "ST-G", "정류장G", "1002", null, null),
+                    NOW.plusSeconds(180), NOW, 0L).isPresent()).isFalse();
+            assertThat(estimator.estimate(
+                    new BoardingQuery(JourneyLegType.WAIT_SUBWAY, null, "정류장G", "1002", null, 2),
+                    NOW.plusSeconds(180), NOW, 0L).isPresent()).isFalse();
+            assertThat(estimator.estimate(
+                    new BoardingQuery(JourneyLegType.WAIT_SUBWAY, "ST-G", "정류장G", null, null, 2),
+                    NOW.plusSeconds(180), NOW, 0L).isPresent()).isFalse();
+
+            verifyNoInteractions(arrivalReader);
+        }
+
+        @Test
+        @DisplayName("막힘 개념이 없다 — 답이 없어도 blocked 는 항상 false 다")
+        void neverBlocked() {
+            given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt())).willReturn(List.of());
+
+            assertThat(estimator.estimate(query(), NOW.plusSeconds(180), NOW, 0L).blocked()).isFalse();
+        }
+
+        private BoardingQuery query() {
+            return new BoardingQuery(JourneyLegType.WAIT_SUBWAY, "ST-G", "정류장G", "1002", null, 2);
+        }
+
+        private SubwayRealtimeArrivalReader.Arrival arrival(int seconds) {
+            return new SubwayRealtimeArrivalReader.Arrival(null, seconds);
+        }
+    }
+}

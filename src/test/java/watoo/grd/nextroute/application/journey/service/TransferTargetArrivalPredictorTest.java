@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -64,9 +65,10 @@ class TransferTargetArrivalPredictorTest {
 
         @BeforeEach
         void setUp() {
+            TransferPredictionInterpreter interpreter = new TransferPredictionInterpreter(properties);
             predictor = new BusTransferTargetArrivalPredictor(
-                    predictTransferUseCase, routeOptionRepository,
-                    new TransferPredictionInterpreter(properties));
+                    new BusBoardingTimeEstimator(predictTransferUseCase, interpreter),
+                    routeOptionRepository, interpreter);
             waitLeg = waitLeg(JourneyLegType.WAIT_BUS, JourneyLegState.PENDING);
             given(routeOptionRepository.findById(OPTION_ID)).willReturn(Optional.of(busOption()));
         }
@@ -207,6 +209,49 @@ class TransferTargetArrivalPredictorTest {
             assertThat(result.arrival().quality()).isEqualTo(CurrentLegArrival.Quality.UNKNOWN);
         }
 
+        @Test
+        @DisplayName("못 탈 차량이어도 예측 시각을 그대로 돌려준다 — 걸러내면 환승 놓침이 모름으로 바뀐다")
+        void unboardablePredictionIsPassedThrough() {
+            Instant anchor = NOW.plusSeconds(420);
+            // 사용자가 준비를 마치기 전에 지나갈 차량. 그 음수 여유가 MISSED 판정의 근거다.
+            givenUnboardablePrediction(anchor.minusSeconds(120));
+
+            TransferTargetArrival result = predictor.predictBoarding(waitLeg, anchor, NOW);
+
+            assertThat(result.arrival().arrivalAt()).isEqualTo(anchor.minusSeconds(120));
+            assertThat(result.arrival().quality()).isNotEqualTo(CurrentLegArrival.Quality.UNKNOWN);
+        }
+
+        @Test
+        @DisplayName("정류장이 미해석이면 외부 예측을 한 번도 부르지 않는다")
+        void unresolvedStopSkipsExternalCall() {
+            JourneyLeg unresolved = legWithoutStop(JourneyLegType.WAIT_BUS);
+
+            TransferTargetArrival result = predictor.predictBoarding(unresolved, NOW.plusSeconds(420), NOW);
+
+            assertThat(result.arrival().quality()).isEqualTo(CurrentLegArrival.Quality.UNKNOWN);
+            verifyNoInteractions(predictTransferUseCase);
+        }
+
+        @Test
+        @DisplayName("외부 호출이 터지면 삼키지 않고 그대로 올린다")
+        void propagatesUpstreamFailure() {
+            given(predictTransferUseCase.predict(anyString(), anyString(), anyInt(), any(), any(), anyLong()))
+                    .willThrow(new IllegalStateException("boom"));
+
+            assertThatThrownBy(() -> predictor.predictBoarding(waitLeg, NOW.plusSeconds(420), NOW))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+
+        private void givenUnboardablePrediction(Instant predictedArrivalAt) {
+            TransferPredictionResult result = new TransferPredictionResult(
+                    "ST-G", "BL-721", 3, TransferArrival.Source.REALTIME,
+                    TransferArrival.Status.AVAILABLE, NOW, NOW,
+                    predictedArrivalAt, null, false, "vehicle-1", null);
+            given(predictTransferUseCase.predict(anyString(), anyString(), anyInt(), any(), any(), anyLong()))
+                    .willReturn(result);
+        }
+
         private void givenPrediction(TransferArrival.Source source, TransferArrival.Status status,
                                      Instant predictedArrivalAt, String modelVersion) {
             TransferPredictionResult result = predictedArrivalAt == null
@@ -229,7 +274,7 @@ class TransferTargetArrivalPredictorTest {
         @BeforeEach
         void setUp() {
             predictor = new SubwayTransferTargetArrivalPredictor(
-                    arrivalReader, routeOptionRepository);
+                    new SubwayBoardingTimeEstimator(arrivalReader), routeOptionRepository);
             waitLeg = waitLeg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.PENDING);
             ReflectionTestUtils.setField(waitLeg, "routeId", "1002");
             given(routeOptionRepository.findById(OPTION_ID)).willReturn(Optional.of(subwayOption()));
@@ -272,6 +317,27 @@ class TransferTargetArrivalPredictorTest {
             assertThat(result.arrival().quality()).isEqualTo(CurrentLegArrival.Quality.UNKNOWN);
         }
 
+        @Test
+        @DisplayName("역이 미해석이면 실시간 조회를 한 번도 부르지 않는다")
+        void unresolvedStationSkipsExternalCall() {
+            JourneyLeg unresolved = legWithoutStop(JourneyLegType.WAIT_SUBWAY);
+
+            TransferTargetArrival result = predictor.predictBoarding(unresolved, NOW.plusSeconds(420), NOW);
+
+            assertThat(result.arrival().quality()).isEqualTo(CurrentLegArrival.Quality.UNKNOWN);
+            verifyNoInteractions(arrivalReader);
+        }
+
+        @Test
+        @DisplayName("실시간 조회가 터지면 삼키지 않고 그대로 올린다")
+        void propagatesUpstreamFailure() {
+            given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt()))
+                    .willThrow(new IllegalStateException("boom"));
+
+            assertThatThrownBy(() -> predictor.predictBoarding(waitLeg, NOW.plusSeconds(180), NOW))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+
         private SubwayRealtimeArrivalReader.Arrival arrival(int seconds) {
             return new SubwayRealtimeArrivalReader.Arrival(null, seconds);
         }
@@ -287,6 +353,20 @@ class TransferTargetArrivalPredictorTest {
                 .type(type)
                 .state(state)
                 .startStopId("ST-G")
+                .startName("정류장G")
+                .build();
+        ReflectionTestUtils.setField(leg, "selectedRouteOptionId", OPTION_ID);
+        return leg;
+    }
+
+    /** 정류장·역이 아직 내부 ID 로 해석되지 않은 단계. 이런 단계로 외부 호출이 나가면 안 된다. */
+    private JourneyLeg legWithoutStop(JourneyLegType type) {
+        JourneyLeg leg = JourneyLeg.builder()
+                .journeyId(7L)
+                .routeRevision(1)
+                .legIndex(2)
+                .type(type)
+                .state(JourneyLegState.PENDING)
                 .startName("정류장G")
                 .build();
         ReflectionTestUtils.setField(leg, "selectedRouteOptionId", OPTION_ID);
