@@ -98,6 +98,15 @@ public class RerouteProposal extends BaseEntity {
     @Column(name = "resolved_reason", length = 40)
     private String resolvedReason;
 
+    /**
+     * 수락된 후보(V43). 수락되지 않은 제안에는 null 이다.
+     *
+     * <p>없으면 늦게 온 수락 요청을 가릴 수 없다 — 같은 후보의 재전송과 다른 후보를 고른 요청이
+     * 둘 다 "이미 ACCEPTED" 로만 보인다.
+     */
+    @Column(name = "accepted_candidate_id", length = 36)
+    private String acceptedCandidateId;
+
     @Builder
     public RerouteProposal(Long journeyId, Long userId, int routeRevision, int transferIndex,
                            RerouteProposalKind kind, long baseCommandVersion, JsonNode candidates,
@@ -124,8 +133,9 @@ public class RerouteProposal extends BaseEntity {
         resolve(RerouteProposalStatus.SUPERSEDED, now, reason);
     }
 
-    /** 사용자가 골랐다(⑤). */
-    public void accept(Instant now) {
+    /** 사용자가 골랐다(⑤). <b>무엇을 골랐는지</b>도 함께 남긴다. */
+    public void accept(Instant now, String candidateId) {
+        this.acceptedCandidateId = candidateId;
         resolve(RerouteProposalStatus.ACCEPTED, now, "accepted");
     }
 

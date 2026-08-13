@@ -57,9 +57,10 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
             update JourneySession j
                set j.evaluationVersion = j.evaluationVersion + 1
              where j.id = :id and j.status = watoo.grd.nextroute.domain.journey.entity.JourneyStatus.ACTIVE
+               and j.routeRevision = :routeRevision
                and j.deletedAt is null
             """)
-    int bumpEvaluationVersion(@Param("id") Long id);
+    int bumpEvaluationVersion(@Param("id") Long id, @Param("routeRevision") int routeRevision);
 
     /**
      * lease 를 연장한다. 마지막 신호가 {@code coalesceBefore} 보다 오래됐을 때만 쓴다.

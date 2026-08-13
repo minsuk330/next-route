@@ -67,13 +67,20 @@ public class JourneyProgressService implements ApplyJourneyProgressUseCase {
         Result result = merge(leg, command);
 
         if (result == Result.APPLIED) {
-            sessionRepository.bumpEvaluationVersion(journeyId);
+            // 개정본을 조건에 넣는다. 이 요청이 도는 사이 재탐색 수락(⑤)이 경로를 갈아끼웠을 수
+            // 있는데, 여기서는 여정 행을 잠그지 않으므로 그 경합을 막을 다른 장치가 없다.
+            sessionRepository.bumpEvaluationVersion(journeyId, command.routeRevision());
         }
         extendLease(journeyId);
 
         JourneySession refreshed = sessionRepository
                 .findByIdAndUserIdAndDeletedAtIsNull(journeyId, userId)
                 .orElseThrow(() -> new BusinessException(JourneyErrorCode.JOURNEY_NOT_FOUND));
+        if (refreshed.getRouteRevision() != command.routeRevision()) {
+            // 읽고 반영하는 사이에 경로가 바뀌었다. 방금 쓴 단계는 이전 개정본의 행이라 아무도
+            // 읽지 않지만, 그 관측으로 새 개정본의 보호 시각까지 세우면 엉뚱한 경로의 값이 된다.
+            throw new BusinessException(JourneyErrorCode.STALE_ROUTE_REVISION);
+        }
         refreshSubwayProtection(refreshed, leg, command, result);
         return new JourneyProgressOutcome(result, queryService.snapshotOf(refreshed));
     }

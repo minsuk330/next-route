@@ -164,6 +164,80 @@ public class JourneyLeg extends BaseEntity {
         this.activatedAt = activatedAt;
     }
 
+    /**
+     * 같은 단계를 <b>새 개정본으로 옮긴다</b>(재탐색 수락, Phase 6 ⑤).
+     *
+     * <p>빌더로 못 만드는 이유가 이 메서드의 존재 이유다. 빌더는 종류·정류장·이름·계획 소요만
+     * 받는데, 지나온 구간을 복제할 때 반드시 함께 가야 하는 것이 <b>진행도·증거·시각</b>이다.
+     * 그것들을 잃으면 앱의 GPS 엔진이 진행 중인 단계를 처음부터 다시 세고, 화면의 "몇 분 남음"이
+     * 뒤로 돌아간다.
+     *
+     * <p>{@code selectedRouteOptionId} 는 <b>일부러 비워 둔다.</b> 후보 행은 개정본마다 새로
+     * 저장되므로 옛 ID 를 그대로 들고 가면 다른 개정본의 행을 가리키는 유령 참조가 된다 —
+     * 외래키는 행이 있는지만 보므로 그대로 통과한다. 부르는 쪽이 새 후보를 저장한 뒤 다시 채운다.
+     */
+    public JourneyLeg copyToRevision(int newRouteRevision) {
+        JourneyLeg copy = JourneyLeg.builder()
+                .journeyId(this.journeyId)
+                .routeRevision(newRouteRevision)
+                .legIndex(this.legIndex)
+                .type(this.type)
+                .state(this.state)
+                .startStopId(this.startStopId)
+                .endStopId(this.endStopId)
+                .sourceStartStopId(this.sourceStartStopId)
+                .sourceEndStopId(this.sourceEndStopId)
+                .startName(this.startName)
+                .endName(this.endName)
+                .plannedDurationSec(this.plannedDurationSec)
+                .evidenceQuality(this.evidenceQuality)
+                .activatedAt(this.activatedAt)
+                .build();
+        copy.routeId = this.routeId;
+        copy.vehicleId = this.vehicleId;
+        copy.predictedEndAt = this.predictedEndAt;
+        copy.remainingStops = this.remainingStops;
+        copy.evidenceSource = this.evidenceSource;
+        copy.evidenceObservedAt = this.evidenceObservedAt;
+        copy.lastProgressId = this.lastProgressId;
+        copy.progressGeometrySegmentIndex = this.progressGeometrySegmentIndex;
+        copy.progressFraction = this.progressFraction;
+        copy.progressLegFraction = this.progressLegFraction;
+        copy.progressObservedAt = this.progressObservedAt;
+        copy.progressSectionId = this.progressSectionId;
+        copy.remainingDistanceMeters = this.remainingDistanceMeters;
+        copy.remainingDurationSeconds = this.remainingDurationSeconds;
+        copy.completedAt = this.completedAt;
+        return copy;
+    }
+
+    /**
+     * 판정·진행 흔적을 지운다. 경로가 바뀐 <b>뒤쪽</b> 단계에 쓴다.
+     *
+     * <p>진행도는 geometry 위의 좌표라 경로가 바뀌면 가리키는 지점이 달라지고, 예측은 옛 노선의
+     * 값이다. 남겨 두면 화면이 옛 ETA 를 보여 주고 "이미 절반 왔다"가 된다.
+     */
+    public void clearProgressAndPrediction() {
+        this.predictedEndAt = null;
+        this.remainingStops = null;
+        this.evidenceSource = null;
+        this.evidenceObservedAt = null;
+        this.lastProgressId = null;
+        this.progressGeometrySegmentIndex = null;
+        this.progressFraction = null;
+        this.progressLegFraction = null;
+        this.progressObservedAt = null;
+        this.progressSectionId = null;
+        this.remainingDistanceMeters = null;
+        this.remainingDurationSeconds = null;
+    }
+
+    /** 새 개정본의 첫 단계가 이어받는 시작 시각. 종류가 같을 때만 부른다(⑤). */
+    public void inheritActivation(JourneyLegState state, Instant activatedAt) {
+        this.state = state;
+        this.activatedAt = activatedAt;
+    }
+
     /** 현재 경로의 routeOption을 선택한다. 실제 차량을 확정하는 동작은 아니다. */
     public void selectRouteOption(Long journeyLegRouteOptionId, String routeId) {
         this.selectedRouteOptionId = journeyLegRouteOptionId;
