@@ -329,7 +329,28 @@ realtime:
       source-lag-budget: 150s
       freshness-window: 5m
       log-ttl: 15m
-      lines: []
+      # 위치 API 가 받아 주는 노선. 경로에 호선명을 넣어야 하므로 line_id → 이름 변환이
+      # 되는 값만 적을 수 있다(SubwayLineIdMapper.toLineName). 부팅 시 검증한다.
+      #
+      # 정적 노선 표(SubwayLineIdMapper.NAMED_LINES)에는 경강선·서해선·중앙선도 있지만
+      # 위치 API 대상이 아니라 여기 넣지 않는다. 넣으면 매 회차 실패만 쌓인다.
+      lines:
+        - "1001"   # 1호선
+        - "1002"   # 2호선
+        - "1003"   # 3호선
+        - "1004"   # 4호선
+        - "1005"   # 5호선
+        - "1006"   # 6호선
+        - "1007"   # 7호선
+        - "1008"   # 8호선
+        - "1009"   # 9호선
+        - "1063"   # 경의중앙선
+        - "1065"   # 공항철도
+        - "1067"   # 경춘선
+        - "1075"   # 수인분당선
+        - "1077"   # 신분당선
+        - "1092"   # 우이신설선
+        - "1032"   # GTX-A
 
 batch:
   # *.enabled 는 application-{dev,prod}.yaml 에서 설정
