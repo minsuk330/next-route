@@ -56,7 +56,8 @@ public record JourneyNavigationGeometry(
      * @param quality                 단계 전체 품질. segment 중 가장 나쁜 값을 따른다
      * @param points                  지도 표시용 전체 좌표
      * @param segments                진행 판정용 구간. 대기 단계는 비어 있다
-     * @param stops                   버스 승차~하차 정류장. 다른 단계는 비어 있다
+     * @param stops                   버스 승차~하차 정류장, 또는 지하철 승차~하차 역.
+     *                                도보·대기 단계는 비어 있다
      * @param maneuvers               걷기 단계의 turn-by-turn 안내점. 다른 단계는 비어 있다
      */
     public record LegGeometry(
@@ -127,7 +128,20 @@ public record JourneyNavigationGeometry(
     ) {
     }
 
-    /** 버스 노선의 승차 정류장부터 하차 정류장까지의 순서·좌표. */
+    /**
+     * 타고 가는 동안 지나는 곳들. 승차 지점부터 하차 지점까지 순서대로다.
+     *
+     * <p>버스는 정류장, 지하철은 역이다. 둘을 한 모양으로 두는 이유는 앱이 하는 일이 같기
+     * 때문이다 — 순서대로 늘어놓고, 남은 개수를 세고, 마지막이 내릴 곳인지 본다.
+     *
+     * <p><b>지하철은 {@code stopId} 가 비어 있다.</b> 검색 결과의 역 식별자와 실시간 정보의 역
+     * 식별자는 서로 다른 체계라, 값을 실어 두면 언젠가 둘을 맞대어 보는 코드가 생긴다.
+     * 그때는 아무것도 일치하지 않는다. 지하철에서 두 세계를 잇는 것은 역 이름이다.
+     *
+     * @param seq      순서. 버스는 노선 내 정류장 순번, 지하철은 이 구간 안에서의 순번
+     * @param stopId   정류장 식별자. <b>지하철은 null</b>
+     * @param stopName 정류장·역 이름
+     */
     public record StopGeometry(
             int seq,
             String stopId,
