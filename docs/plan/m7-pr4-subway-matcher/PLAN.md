@@ -84,6 +84,28 @@ ODsay wayCode  : 2호선(1002) → 0=내선, 1=외선 /  그 외 → 1=상행, 2
 **`version` 은 그대로 둔다**(`SubwayLegBinding.advanceMovementSeq:171`). 그래서 `version` 만으로 CAS 하면
 "내가 계산에 쓴 근거가 그 사이 바뀌었는지"를 알 수 없다 → §2-6 에서 순번을 CAS 조건에 넣는다.
 
+### ⑤-2 그런데 **반대 방향이 더 위험하다** — 관측이 판정을 통째로 되돌린다
+
+순번 CAS 는 "매칭기가 낡은 근거를 썼나"만 막는다. **관측 쪽 UPDATE 에는 조건이 아예 없다.**
+
+```
+SubwayBoardingEvidenceService.submit:74   @Transactional
+  findByJourneyLegId(...)                 ← 잠금 없음
+  binding.advanceMovementSeq(...)         ← 더티체킹
+SubwayLegBinding:88  private int version; ← @Version 아님 (BaseEntity 에도 없음)
+@DynamicUpdate 없음                       ← UPDATE 가 매핑 칼럼 전부를 쓴다
+```
+
+관측 트랜잭션이 version 3 / `PENDING` / 열차 null 을 읽은 뒤, 매칭기가 CAS 로 `PROVISIONAL`·version 4·
+열차번호를 커밋하고, 그 다음 관측이 flush 하면 — **읽었던 낡은 스냅샷 전 칼럼을 다시 쓴다.**
+판정이 조용히 사라지고 아무 예외도 안 난다.
+
+**같은 병이 `resetByUser()`·`abandon()` 에도 있다.** 둘 다 더티체킹이라 전 칼럼을 쓴다.
+관측 경로만 고치면 사용자 보정 경로가 남는다.
+
+**규칙 하나로 통일한다: `subway_leg_binding` 행을 바꾸는 모든 경로는 그 행을 먼저 X 잠금한다**
+(벌크 UPDATE 는 문장 자체가 잠금이라 해당 없음). 근거는 §2-6·§2-5, 대안 비교는 §7.
+
 ### ⑥ Redis 색인 점수는 **구간이 아니라 중간점**이다
 
 `RedisSubwayTrainLogAdapter` 는 ZSET 점수로 `SubwayTrainEvent.estimate()`(구간 중앙)를 쓰고
@@ -248,7 +270,8 @@ public record MatchInput(
         Instant now, boolean clockSuspect,
 
         // L4 전용. 정차 관측이 없으면 전부 비어 있다
-        Instant episodeFrom, Instant episodeTo,
+        Instant episodeFrom, Instant episodeTo, int episodeSequence,
+        String plannedNextStationName,   // 계획 역 체인에서 뽑은 비교역. 없으면 확정 불가
         List<SubwayBindingCandidate> knownCandidates,
         Map<TrainIdentity, List<SubwayTrainEvent>> arrivalsByCandidate,
         Instant provisionalDecidedAt);
@@ -303,8 +326,12 @@ motion=[100,110], best=[105,115] → 겹침 → e1=0
 ### 3단계 — L4 후행 확정 (**같은 역에서만 비교한다**)
 
 ```
-비교역 S = 후보마다 "자기 출발 시각 이후 첫 도착"의 stationId
-           → 모든 후보의 S 가 같아야 한다. 다르면 NONE:next-station-ambiguous
+비교역 S = 계획 역 체인에서 "승차역 다음 역" (episode 순번 k 면 승차역 + k 번째)
+           체인이 없으면 → PROVISIONAL 유지 (NONE:no-planned-chain)
+
+비교 가능 후보 = S 에 도착 로그가 있는 후보만
+           2 대 미만이면 → PROVISIONAL 유지 (NONE:not-discriminative)
+
 각 후보 점수 = gap(episodeInterval, 그 후보의 S 도착 구간)
 best 점수가 유일 최소 && <= episodeMatchTolerance  → CONFIRMED(그 후보)
   그게 기존 chosen 이 아니면                        → CONFIRMED + 감사행 CORRECTED
@@ -315,12 +342,33 @@ provisionalDecidedAt + confirmWindow 초과           → ABANDON
 > **초안의 "어느 역인지 몰라도 된다"는 틀렸다 — 되돌린다.**
 > `findArrivals(train, from, to)` 는 **역 필터가 없다**(`SubwayTrainLogPort:52`). 그대로 두면
 > 앞차의 N+2역 도착과 뒷차의 N+1역 도착이 같은 시각에 잡혀, **둘 다 정상인데 동점이거나
-> 엉뚱한 놈이 1등**이 된다. 판별력의 근거(후보 간 정차 시각이 배차간격만큼 벌어져 있다)는
-> **같은 역에서 잴 때만** 성립한다.
+> 엉뚱한 놈이 1등**이 된다.
+
+> **비교역을 도착 로그에서 뽑는 것도 틀렸다 (개정 3에서 다시 고침).**
+> "출발 후 첫 도착"은 **다음 역을 보장하지 않는다.** 관측 해상도가 60~90초라 N+1 도착을
+> 통째로 놓치는 일이 실제로 있다(PR-2a 실측: `ENTERING → DEPARTED` 전이 2건 = 도착을 못 보고 지나침).
 >
-> 대신 노선 위상 데이터는 여전히 쓰지 않는다 — 비교역 `S` 를 **후보들의 도착 로그에서 뽑는다**
-> (출발 이후 첫 도착). 후보들은 같은 노선·방향으로 같은 역을 떠났으므로 정상이면 `S` 가 일치한다.
-> 갈리면(지선 분기·결측) **확정하지 않는다.**
+> 더 나쁜 것은 **후보들이 다 같이 N+1 을 놓친 경우**다. 그러면 S 가 전부 N+2 로 **일치**해서
+> "합의됐다"고 읽히고, 앱의 N+1 정차 관측과 비교해 **한 구간(약 2분)만큼 통째로 어긋난 채
+> 자신 있게 확정**한다. 배차간격과 같은 자릿수라 그대로 오답이 된다.
+> 앞선 "S 가 갈리면 확정 안 함" 가드는 **섞인 경우만** 잡는다.
+>
+> 그래서 비교역을 **계획 경로에서** 정한다. PR-1 이 내려주는 역 체인의 원천
+> (`SubPathResult.stations` = ODsay `passStopList`)이 route snapshot 에 얼려져 있다.
+> 승차역 다음 원소가 곧 N+1 이고, **결측과 무관하게** 정해진다.
+
+> **ID 공간 주의**: 계획 체인은 ODsay **역 이름**, 도착 사건은 서울 `statnId` + `statnNm` 이다.
+> 대조는 **이름**으로 하고 `DestinationNormalizer` 를 쓴다(`JourneyTransitIdEnricher:129` 와 같은 방식).
+> PR-1 이 지하철 `stopId` 를 null 로 둔 이유가 바로 이것이다.
+>
+> **재탐색 주의**: 체인은 그 개정본의 `journey_revision.route_snapshot` 에서 읽는다.
+> 세션 것을 직접 읽으면 옛 역 체인이 나온다.
+
+> **"비교 가능 후보 2 대 미만이면 확정 안 함" 이 리뷰보다 한 겹 더 간 부분이다.**
+> best 만 S 도착 로그가 있고 나머지가 없으면, best 가 유일 최소가 되어 **결측이 곧 확정 근거**가 된다.
+> 로그 없음은 "틀림"이 아니라 **"모름"** 이다. 가르지 못했으면 확정하지 않는다.
+
+> **급행은 이미 후보에서 빠져 있다**(§2-4 1단계). 계획 체인의 다음 역이 통과역일 걱정은 없다.
 
 > **후보 집합은 최신 `PROVISIONAL` 감사행의 `detail.candidates` 에서 복구한다.** 단
 > **`binding_version`·`reset_generation` 이 현재 값과 일치하는 행만** 읽는다(§2-5 의 버전 규칙 주의).
@@ -332,8 +380,18 @@ provisionalDecidedAt + confirmWindow 초과           → ABANDON
                - 감사행에서 movementStartedAt·episode·rejected·candidates 복구
                - serviceDate 결정(아래) → findDepartures / findArrivals
                - SubwayTrainMatcher.match(...)
-[짧은 트랜잭션] ① 세션 행 FOR SHARE 재확인 → ② CAS UPDATE → ③ DECISION 감사행
+[짧은 트랜잭션] ① 세션 행 FOR SHARE 재확인
+               ② binding 행 잠금 (SKIP LOCKED — 잠겨 있으면 이번 tick 은 건너뛴다)
+               ③ CAS UPDATE
+               ④ DECISION 감사행
 ```
+
+**잠금 순서는 항상 `journey_session` → `subway_leg_binding` 이다.** 종료·재탐색 접점도 세션 행을
+먼저 잡으므로(`RerouteAcceptTxService`) 방향이 일치해 역순 대기가 생기지 않는다. 새 경로를 넣을 때도
+이 순서를 지킨다.
+
+> **이 트랜잭션에 외부 호출을 넣지 말 것.** 잠금 유지 구간이 곧 트랜잭션 길이다. 지금 안전한 이유는
+> 여기에 DB 왕복밖에 없기 때문이지 잠금이 싸서가 아니다. Redis 조회가 트랜잭션 밖에 있는 것도 같은 이유다.
 
 ### 조회창 보정 (§1-⑥)
 
@@ -410,6 +468,29 @@ CAS 가 1행을 돌려준 뒤에만 쓰므로 그 값이 곧 새 version 이다.
 List<SubwayLegBinding> findMatchable(@Param("limit") int limit);
 
 /**
+ * 판정 직전에 그 행을 잡는다. <b>잠겨 있으면 기다리지 않고 빈손으로 돌아온다</b>(SKIP LOCKED).
+ *
+ * <p>워커가 사용자 요청을 기다릴 이유가 없다. 지금 누가 그 행을 만지는 중이면 다음 tick(2초)에
+ * 다시 오면 된다. 대기가 아니라 재시도다.
+ *
+ * <p>{@code -2} = {@code LockOptions.SKIP_LOCKED}, {@code 0} = {@code NOWAIT}.
+ * <b>구현 때 실제 발행 SQL 로 확인할 것</b> — 방언이 힌트를 무시하면 조용히 대기로 바뀐다.
+ */
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))
+Optional<SubwayLegBinding> findByJourneyLegIdForMatch(Long journeyLegId);
+
+/**
+ * 사용자 요청 경로가 쓰는 잠금 조회. 이쪽은 건너뛸 수 없어 <b>기다리되 짧게</b> 기다린다.
+ *
+ * <p><b>PR-3 의 세 경로(제출·reset·notBoarded)가 전부 이걸 쓰도록 바꾼다.</b> 잠금 없이 읽고
+ * 더티체킹으로 고치면, 그 사이 매칭기가 쓴 판정이 <b>낡은 스냅샷 전 칼럼에 덮여 조용히 사라진다</b>
+ * (§1-⑤-2). 예외도 안 난다.
+ */
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+Optional<SubwayLegBinding> findByJourneyLegIdForUpdate(Long journeyLegId);
+
+/**
  * 낙관적 CAS. <b>CONFIRMED 는 이 경로로 뒤집히지 않는다</b> — 사용자 보정만 예외다.
  *
  * <p>순번까지 조건에 넣는 이유: 관측 수신은 순번만 올리고 {@code version} 은 올리지 않는다
@@ -439,6 +520,39 @@ int casBind(...);
 > **엔티티 메서드를 새로 만들지 않는다.** 판정기는 전부 네이티브 CAS 로 쓴다. JPA 더티체킹과 섞으면
 > 같은 트랜잭션에서 `version` 이 두 번 오른다. 엔티티의 `resetByUser()`·`abandon()` 은 PR-3 의
 > 사용자 보정 경로 전용으로 남긴다.
+
+### 잠금과 CAS 는 둘 다 남긴다 — 하는 일이 다르다
+
+| | 막는 것 |
+|---|---|
+| **행 잠금** | 누가 먼저인지 정한다. 낡은 스냅샷이 남의 결과를 **덮어쓰는** 것 |
+| **CAS predicate** | 내가 계산에 쓴 근거가 그 사이 **바뀌었는지** 본다 |
+
+잠금만 두면 매칭기가 60~90초 전 근거로 계산한 것을 그대로 쓴다.
+CAS 만 두면 §1-⑤-2 의 사고가 난다. **하나를 뺄 수 없다.**
+
+## 2-6b. PR-3 코드 수정 (머지된 코드를 건드린다)
+
+`SubwayBoardingEvidenceService` 의 세 진입점이 `findByJourneyLegId` → **`findByJourneyLegIdForUpdate`** 로 바뀐다.
+
+| 좌표 | 지금 | 바꾼 뒤 |
+|---|---|---|
+| `submit:79` | `findByJourneyLegId` | `findByJourneyLegIdForUpdate` |
+| `reset` → `correct:221` 경로 | 〃 | 〃 |
+| `notBoarded` → `correct:221` 경로 | 〃 | 〃 |
+
+로직은 그대로다. **읽는 방법만 바꾼다.**
+
+`application.yaml` 에 잠금 대기 상한을 둔다 — 워커가 잡고 있을 때 사용자 요청이 무한정 매달리지 않게:
+```yaml
+spring.jpa.properties.jakarta.persistence.lock.timeout: 1000   # ms
+```
+초과하면 관측 API 는 **재시도 가능한 실패**로 답한다(500 아님). 앱이 같은 관측을 다시 보내는 것은
+정상 동작이고, 감사행 유일성이 중복을 흡수한다(PR-3 계약).
+
+> **왜 PR-4a 안에서 고치는가.** 이 버그는 **매칭기가 있어야 발현한다** — 지금은 경합 상대가 없어
+> 관측 경로 단독으로는 아무 일도 안 일어난다. 따로 fix PR 로 내면 "왜 고쳤는지"가 그 PR 에 없다.
+> 계약을 만드는 변경과 그 계약을 지키는 변경은 같은 리뷰에 있어야 한다.
 
 ### 판정 불가 행 청소 (스캔에서 뺐으므로 따로 접는다)
 
@@ -495,8 +609,13 @@ int abandonStaleWithoutMovement(...);
 - 관문 (2) 경계: 위 두 예제가 각각 `PROVISIONAL` / `NONE:gate2`
 - 후보 1대 + headway 추정 불가 → `PROVISIONAL`, 자동 `CONFIRMED` 안 함
 - `clockSuspect` 면 `S` 가 2배가 되어 통과하던 것이 막힌다
-- **L4: 후보들의 비교역이 갈리면 확정하지 않는다** (`NONE:next-station-ambiguous`)
+- **L4: 비교역은 계획 역 체인에서 온다** — 체인이 없으면 확정하지 않는다 (`NONE:no-planned-chain`)
+- **L4: 후보 전원이 N+1 도착을 놓쳐도 오판하지 않는다** — 도착 로그로 비교역을 뽑았다면 전원 N+2 로
+  합의돼 한 구간 어긋난 채 확정됐을 상황. 계획 체인 기준이라 그 역 로그가 없어 `PROVISIONAL` 유지
 - **L4: 다른 역 도착은 비교에 쓰이지 않는다** — 앞차의 N+2 도착이 뒷차의 N+1 도착과 같은 시각이어도 오판하지 않는다
+- **L4: 비교 가능한 후보가 1대뿐이면 확정하지 않는다** (`NONE:not-discriminative`) — 결측이 확정 근거가 되면 안 된다
+- L4: 역 이름 표기가 달라도(`DestinationNormalizer`) 같은 역으로 대조된다
+- L4: 재탐색 후에는 **그 개정본 snapshot** 의 역 체인을 쓴다 (세션 것이 아니다)
 - L4: episode 가 best 아닌 후보와 더 맞으면 그 후보로 `CONFIRMED` + `CORRECTED`
 - L4: 모두 `episodeMatchTolerance` 밖이면 `PROVISIONAL` 유지
 - `matchWindow` 는 `PENDING` 에만, `confirmWindow` 는 잠정 판정 시각부터 — **6분 넘은 `PROVISIONAL` 이 8분까지 산다**
@@ -509,6 +628,14 @@ int abandonStaleWithoutMovement(...);
 - 조회창이 `indexHalfWidthGuard` 만큼 넓게 나가고, 겹치지 않는 사건은 코드가 거른다
 - 구간이 04:00 을 걸치면 **두 영업일을 모두 조회**한다
 - `CONFIRMED` 는 CAS 경로로 뒤집히지 않는다
+
+`SubwayBindingConcurrencyIT` (Testcontainers, **실제 두 트랜잭션 경합**) — 리뷰가 요구한 것
+- ⓐ **관측이 먼저 행을 잡으면 매칭기는 기다리지 않고 건너뛴다**(SKIP LOCKED). 다음 tick 에 처리된다
+- ⓑ **매칭기가 먼저 확정한 뒤 관측이 커밋해도 `PROVISIONAL`·`train_*`·`version` 이 살아남는다**
+  — 순번만 얹힌다. 잠금 없이 짜면 이 시험이 빨간불이어야 한다(가드가 실제로 무는지 확인)
+- ⓒ 사용자 `reset` 과 매칭기 CAS 가 경합해도 거부된 열차가 되살아나지 않는다
+- ⓓ 잠금 대기가 `lock.timeout` 을 넘으면 관측 API 가 **재시도 가능한 실패**를 준다 (5xx 아님)
+- ⓔ 발행 SQL 에 `FOR UPDATE SKIP LOCKED` 가 실제로 들어간다 (방언이 힌트를 무시하면 조용히 대기가 된다)
 
 `SubwayBindingMatchIT` (Testcontainers)
 - superseded revision·종료된 여정의 `PENDING` 은 `findMatchable` 에 안 잡힌다
@@ -638,6 +765,16 @@ PR-5 가 키 모양을 바꿀 때 조용히 어긋난다. PR-5 가 자기 정리
 - **Docker 가 꺼져 있으면 IT 전량 실패**한다(`DockerClientProviderStrategy`). 코드 문제로 오독하지 말 것
 - **`record` 컴포넌트와 같은 이름의 메서드**를 얹으면 컴파일 에러 → `isXxx()`/`hasXxx()` 로 이름을 달리한다
 - **JPA 더티체킹 + 네이티브 CAS 혼용 금지** — `version` 이 두 번 오른다
+- **잠금 없이 읽고 더티체킹으로 고치면 남의 결과가 조용히 사라진다.** `@Version` 도 `@DynamicUpdate` 도
+  없어서 UPDATE 가 매핑 칼럼 **전부**를 낡은 스냅샷으로 덮는다. 예외는 안 난다 /
+  가드: `subway_leg_binding` 을 고치는 경로는 전부 잠금 조회를 쓴다 + `SubwayBindingConcurrencyIT` ⓑ
+- **잠금 순서는 `journey_session` → `subway_leg_binding` 고정.** 뒤집는 경로를 넣으면 데드락이 생긴다
+- **잠금 유지 구간 = 트랜잭션 길이.** 관측 수신·매칭기 쓰기 트랜잭션에 **외부 호출을 넣지 말 것**.
+  지금 대기가 짧은 이유는 여기에 DB 왕복밖에 없기 때문이다
+- **"출발 후 첫 도착"을 다음 역으로 믿지 말 것.** 결측이 흔해 N+2 가 잡힌다. 더구나 후보 **전원이**
+  놓치면 서로 합의된 것처럼 보여 한 구간 어긋난 채 확정된다 / 가드: 비교역은 계획 역 체인에서
+- **결측을 판별 근거로 쓰지 말 것.** 다른 후보에 로그가 없다고 best 가 이긴 게 아니다 —
+  로그 없음은 "모름"이다 / 가드: 비교 가능 후보 2 대 미만이면 확정 안 함
 - **감사행 `binding_version` 은 `expectedVersion + 1`** — 눈에 보이는 값을 적으면 후보 복구가 즉시 무효가 된다
 - **`findMatchable` 에서 세션 조건을 빠뜨리면 끝난 여정을 영원히 재처리**한다. 이 PR 최대의 사고 경로
 - **Redis 조회는 중간점 기준**이다. 창을 그대로 쓰면 넓은 구간의 사건이 후보에 오르지 못한다
@@ -666,7 +803,32 @@ PR-5 가 키 모양을 바꿀 때 조용히 어긋난다. PR-5 가 자기 정리
 - **`trainSttus=3`(전역출발)** — PR-2a 실측 표본에 한 건도 없었다. 보조 근거로만
 - **탑승역 밖 automotive 전환 차단은 서버가 검증할 수 없다** — evidence payload 에 위치·geofence 증거가 없다. **앱이 보장하는 조건**
 - **`localHeadway` 추정 정확도** — 첫차·막차·심야에는 표본이 없어 관문 (3)이 사실상 사라진다
-- **워커 수** — 배포 설정이 1개를 보장하지 않는다. 정확성은 CAS 가 지키지만, 중복 계산량은 워커 수에 비례한다
+- **워커 수** — 배포 설정이 1개를 보장하지 않는다. 정확성은 잠금·CAS 가 지키지만, 중복 계산량은 워커 수에 비례한다
+- **잠금(B) 대신 네이티브 단조 CAS(C) 로 갈 조건** — 지금은 B 를 골랐다(§7-1). 아래 중 하나라도 관측되면 관측 경로만 C 로 내린다:
+  ① 관측 수신 트랜잭션에 외부 호출이 들어간다
+  ② 워커를 여럿 띄우면서 SKIP LOCKED 재시도가 눈에 띄게 헛돈다
+  ③ 잠금 대기가 지표에 잡힌다
+- **앱의 정차 관측 순번이 실제 역 순번과 맞는지** — L4 비교역을 `승차역 + k` 로 잡는 근거다. 앱이 정차를 하나 놓치면 한 칸씩 밀린다. **앱이 보장하는 조건**이고 서버는 검증할 수 없다
+
+## 7-1. 왜 잠금(B)이고 네이티브 CAS(C)가 아닌가
+
+`subway_leg_binding` 쓰기를 지키는 방법은 셋이었다.
+
+| 안 | 방법 | 기각 사유 |
+|---|---|---|
+| A | `version` 에 `@Version` | PR-3 의 수동 `version++` 와 이중 증가. 정상 경합이 500 이 되어 "중복 관측은 예외가 아니다"(PR-3 계약)와 충돌 |
+| **B** | **모든 쓰기가 그 행을 먼저 잠근다** | **채택** |
+| C | 전 경로 네이티브 단조 CAS | 순번 단조·reset 세대 규칙이 SQL 로 흩어져 엔티티 메서드와 이중화. 머지된 PR-3 을 3경로 뜯음 |
+
+**대기 걱정에 대한 답**: 잠금 유지 구간 = 트랜잭션 길이인데, 관측 수신·매칭기 쓰기 **둘 다 외부 호출이
+없어 DB 왕복 몇 번(ms)** 이다. 잠금 대상도 `journey_leg_id` 행 하나라 경합은 "같은 사용자의 같은
+지하철 단계"에서만 일어난다 — 전역 병목이 아니다.
+
+그리고 **워커 쪽 대기는 0 으로 만든다** — SKIP LOCKED 로 잠긴 행은 건너뛰고 다음 tick(2초)에 다시 온다.
+대기가 아니라 재시도다. 사용자 쪽만 짧게 기다리고(`lock.timeout` 1s) 초과 시 재시도 가능한 실패를 준다.
+
+C 의 이득(문장 단위 잠금)은 **대기가 실제로 있을 때만** 값을 갖는데 SKIP LOCKED 로 이미 0 이다.
+남는 이득에 "도메인 규칙이 SQL 로 흩어진다"를 지불할 이유가 없다. 재판단 조건은 §7 마지막 항목.
 
 ## 8. 작업 순서
 
@@ -675,8 +837,10 @@ PR-5 가 키 모양을 바꿀 때 조용히 어긋난다. PR-5 가 자기 정리
   - [ ] `fromWayCode` + 값 검증 + reader 위임 + **회귀 시험** (§2-2)
   - [ ] DTO 2개 (§2-3)
   - [ ] `SubwayTrainMatcher` + 단위 시험 (§2-4) ← **여기가 본체. 시험 먼저**
-  - [ ] `SubwayBindingMatchService` — 조회창 보정·영업일·세션 재확인·버전 규칙 (§2-5)
-  - [ ] 저장소 질의 3개 (§2-6)
+  - [ ] `SubwayBindingMatchService` — 조회창 보정·영업일·세션 재확인·행 잠금·버전 규칙 (§2-5)
+  - [ ] 저장소 질의 (스캔·잠금 조회 2개·CAS·청소) (§2-6)
+  - [ ] **PR-3 세 경로를 잠금 조회로 교체 + `lock.timeout` 설정** (§2-6b) ← 머지된 코드를 건드린다
+  - [ ] **경합 IT** `SubwayBindingConcurrencyIT` (§2-8) ← 잠금이 실제로 무는지 확인
   - [ ] 스케줄러 (§2-7)
   - [ ] 시험 전량 + XML 확인 (§2-8, §2-9)
 - [ ] **PR-4b** (M) — 4a 머지 후 fresh main 에서 `feat/journey-subway-binding-lifecycle`
@@ -705,3 +869,13 @@ PR-5 가 키 모양을 바꿀 때 조용히 어긋난다. PR-5 가 자기 정리
 | 10 | Redis 색인이 중간점이라 넓은 구간 누락 | **수용.** 조회창 확대 + 겹침 후필터 (§2-5) |
 | 11 | `serviceDate` 유도 미정, 04:00 경계 | **수용.** `ServiceDateResolver` + 걸치면 두 날짜 조회 (§2-5) |
 | — | (리뷰 밖) 종착역 배제의 근거 데이터 부재 | **MVP 에서 제거.** 잘못 배제하면 관문이 헐거워져 "잘못 고정" 쪽으로 틀어진다 (§2-4, §7) |
+
+**개정 3 (2026-08-14) — PR #151 리뷰 반영**
+
+| # | 지적 | 처리 |
+|---|---|---|
+| 1 | 순번 CAS 만으로는 낡은 판정을 못 막는다. 관측 경로가 잠금·`@Version` 없이 더티체킹이라 판정을 통째로 되돌린다 | **수용.** `subway_leg_binding` 을 고치는 **모든** 경로에 행 잠금(§1-⑤-2, §2-6). 리뷰가 짚은 관측 경로뿐 아니라 `resetByUser`·`abandon` 도 같은 병이라 함께 (§2-6b). 실제 경합 IT 추가 (§2-8) |
+| 1-a | (대기 우려) 워커가 오래 막히지 않나 | **워커는 SKIP LOCKED 로 건너뛴다** — 대기가 아니라 다음 tick 재시도. 사용자 쪽만 `lock.timeout` 1s. B/C 트레이드오프와 C 전환 조건을 §7-1 에 남김 |
+| 2 | "출발 후 첫 도착"이 다음 역을 보장하지 않는다. N+1 결측이면 N+2 가 비교역이 되어 앱의 N+1 정차와 잘못 비교된다 | **수용.** 비교역을 **계획 역 체인**(route snapshot 의 `passStopList`)에서 정하고, 그 역 로그가 없으면 확정하지 않는다 (§2-4 3단계). 대조는 이름 + `DestinationNormalizer` |
+| 2-a | (리뷰 밖, 더 나쁜 경우) 후보 **전원**이 N+1 을 놓치면 S 가 N+2 로 **합의**돼 한 구간 어긋난 채 확정된다 | 같은 수정으로 닫힘. 기존 "S 갈리면 확정 안 함" 가드는 섞인 경우만 잡았다 |
+| 2-b | (리뷰 밖) best 만 로그가 있으면 **결측이 확정 근거**가 된다 | **비교 가능 후보 2 대 미만이면 확정 안 함.** 로그 없음은 "틀림"이 아니라 "모름"이다 |
