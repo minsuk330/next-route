@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
 import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
+import watoo.grd.nextroute.application.journey.dto.SubwayBindingAbandonReason;
 import watoo.grd.nextroute.application.journey.dto.TransferConnectionDraft;
 import watoo.grd.nextroute.application.journey.config.JourneyNavigationProperties;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
@@ -56,6 +57,7 @@ public class JourneyStartTxService {
     private final JourneyLegRouteOptionRepository routeOptionRepository;
     private final TransferConnectionRepository transferConnectionRepository;
     private final JourneyNotificationRepository notificationRepository;
+    private final SubwayBindingLifecycleService subwayBindingLifecycle;
     private final JourneyQueryService queryService;
 
     /**
@@ -121,6 +123,10 @@ public class JourneyStartTxService {
         sessionRepository.saveAndFlush(existing);
         // 갈아탄 옛 여정의 알림이 새 여정 중에 나가면 사용자는 엉뚱한 환승 안내를 받는다.
         notificationRepository.cancelPendingByJourneyId(existing.getId());
+        // 옛 여정의 미완료 지하철 고정도 여기서 접는다. 여정을 끝내는 길이 여기에도 있다 -
+        // 빠뜨리면 이 경로로 끝난 여정의 고정만 영원히 남는다.
+        subwayBindingLifecycle.abandonOpen(existing.getId(),
+                SubwayBindingAbandonReason.SUPERSEDED_BY_NEW_JOURNEY);
     }
 
     private List<JourneyLeg> saveLegs(JourneySession session, JourneyPlan plan) {

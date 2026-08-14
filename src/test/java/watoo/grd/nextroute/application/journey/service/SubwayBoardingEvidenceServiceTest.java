@@ -452,6 +452,21 @@ class SubwayBoardingEvidenceServiceTest {
                                                          java.time.LocalDateTime cutoff) {
             throw new UnsupportedOperationException();
         }
+        @Override public int abandonOpenByJourney(Long journeyId, java.time.LocalDateTime now) {
+            throw new UnsupportedOperationException();
+        }
+        @Override public int abandonOpenByJourneyIn(java.util.Collection<Long> journeyIds,
+                                                    java.time.LocalDateTime now) {
+            throw new UnsupportedOperationException();
+        }
+        @Override public int abandonOpenByJourneyAndRevision(Long journeyId, int routeRevision,
+                                                             java.time.LocalDateTime now) {
+            throw new UnsupportedOperationException();
+        }
+        @Override public List<SubwayLegBinding> findBoundOfRevision(Long journeyId,
+                                                                    int routeRevision) {
+            throw new UnsupportedOperationException();
+        }
         @Override public <S extends SubwayLegBinding> List<S> saveAll(Iterable<S> entities) {
             throw new UnsupportedOperationException();
         }

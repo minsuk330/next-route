@@ -137,6 +137,41 @@ public class SubwayLegBinding extends BaseEntity {
     }
 
     /**
+     * 재탐색으로 개정본이 올랐지만 지하철 구간이 <b>완전히 같아</b> 그대로 이어받는다.
+     *
+     * <p>옛 행을 옮기지 않고 <b>새 행을 만든다.</b> 이 표는 단계와 1:1 이고 새 개정본의 단계는
+     * 새 행이라, 옮기면 옛 개정본의 감사 기록이 어느 단계를 가리키는지 알 수 없게 된다.
+     *
+     * <p>{@link #version} 은 0 에서 다시 시작한다. 늦게 온 갱신이 되살아나는 문제가 없는 것은
+     * 그 갱신이 <b>옛 단계 번호</b>를 조건으로 걸기 때문이다 — 새 행에는 닿지 않는다.
+     *
+     * <p>{@link #resetGeneration} 과 관측 순번은 <b>그대로 가져온다</b>. 근거 감사행도 함께
+     * 재발행되는데, 세대가 어긋나면 판정기가 그 근거를 하나도 못 읽어 확정 경로가 통째로 죽는다.
+     *
+     * @param newLeg 새 개정본의 짝 단계
+     */
+    public SubwayLegBinding inheritTo(JourneyLeg newLeg) {
+        SubwayLegBinding copy = SubwayLegBinding.builder()
+                .journeyLegId(newLeg.getId())
+                .journeyId(this.journeyId)
+                .routeRevision(newLeg.getRouteRevision())
+                .legIndex(newLeg.getLegIndex())
+                .status(this.status)
+                .boardedDetectedAt(this.boardedDetectedAt)
+                .source(SubwayBindingSource.INHERITED_ON_REROUTE)
+                .confidence(this.confidence)
+                .build();
+        copy.trainNo = this.trainNo;
+        copy.trainServiceDate = this.trainServiceDate;
+        copy.trainLineId = this.trainLineId;
+        copy.trainDirection = this.trainDirection;
+        copy.resetGeneration = this.resetGeneration;
+        copy.lastMovementSeq = this.lastMovementSeq;
+        copy.lastEpisodeSeq = this.lastEpisodeSeq;
+        return copy;
+    }
+
+    /**
      * 사용자가 다른 열차를 탔다고 알렸다.
      *
      * <p>행을 지우지 않고 되돌린다. 지우면 {@link #version} 이 0 으로 돌아가 늦게 온 갱신이

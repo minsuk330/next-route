@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyEventOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.JourneyTransition;
 import watoo.grd.nextroute.application.journey.dto.LegStateChange;
+import watoo.grd.nextroute.application.journey.dto.SubwayBindingAbandonReason;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEvent;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
@@ -51,6 +52,7 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
     private final JourneyNotificationRepository notificationRepository;
     private final RerouteProposalRepository rerouteProposalRepository;
     private final JourneyRerouteMetrics rerouteMetrics;
+    private final SubwayBindingLifecycleService subwayBindingLifecycle;
     private final JourneyStateMachine stateMachine;
     private final JourneyQueryService queryService;
     private final Clock clock;
@@ -152,6 +154,9 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
             // 행은 여정이 끝나면 접혀야 한다.
             rerouteMetrics.recordResolved("journey-ended",
                     rerouteProposalRepository.resolveActiveByJourneyId(journey.getId(), appliedAt));
+            // 미완료 지하철 고정도 여기서 접는다. 끝난 여정의 PENDING 을 남기면 판정기가 그 행을
+            // 영원히 재처리한다 - 이 표는 행을 지우지 않아 스스로 멈추지 않는다.
+            subwayBindingLifecycle.abandonOpen(journey.getId(), SubwayBindingAbandonReason.ENDED);
         }
         if (transition.commandVersionIncrement()) {
             journey.bumpCommandVersion();
