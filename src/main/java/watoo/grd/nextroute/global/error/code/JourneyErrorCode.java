@@ -32,7 +32,15 @@ public enum JourneyErrorCode implements ErrorCode {
   SUBWAY_LEG_REQUIRED("SUBWAY_LEG_REQUIRED", "지하철 단계가 아닙니다.",
       HttpStatus.UNPROCESSABLE_ENTITY),
   SUBWAY_BINDING_NOT_FOUND("SUBWAY_BINDING_NOT_FOUND", "고정된 열차가 없습니다.",
-      HttpStatus.NOT_FOUND);
+      HttpStatus.NOT_FOUND),
+  /**
+   * 판정 워커가 그 고정 행을 잡고 있어 대기 상한 안에 못 들어갔다.
+   *
+   * <p><b>5xx 가 아닌 것이 계약이다.</b> 서버가 고장 난 것이 아니라 지금은 순서가 아니라는 뜻이고,
+   * 앱은 같은 관측을 그대로 다시 보내면 된다 — 감사행 유일성이 중복을 흡수한다.
+   */
+  SUBWAY_BINDING_BUSY("SUBWAY_BINDING_BUSY", "잠시 후 다시 시도해 주세요.",
+      HttpStatus.CONFLICT);
 
   private final String code;
   private final String message;

@@ -49,6 +49,17 @@ import java.util.List;
  * <p>감사 행 저장과 단계 상태 변경이 <b>한 트랜잭션</b>이다. 쪼개지면 "관측은 남았는데 상태가
  * 없다" 또는 그 반대가 생기고, 둘 다 나중에 무엇이 진짜인지 가릴 수 없는 상태다.
  *
+ * <h2>고정 행은 반드시 잠그고 읽는다</h2>
+ *
+ * <p>이 엔티티에는 {@code @Version} 도 {@code @DynamicUpdate} 도 없다. 더티체킹 UPDATE 가 매핑
+ * 칼럼 <b>전부</b>를 낡은 스냅샷 값으로 쓴다는 뜻이다. 잠금 없이 읽으면 — 판정기가 그 사이
+ * 상태·열차·version 을 바꿔 커밋해도 — 이쪽이 flush 하는 순간 그 판정이 통째로 되돌아간다.
+ * <b>예외도 나지 않는다.</b>
+ *
+ * <p>그래서 순번만 올리는 경로까지 포함해 전부 {@code findForUpdate} 를 쓴다. 판정기는
+ * {@code SKIP LOCKED} 로 건너뛰므로 서로 기다리지 않고, 이쪽만 짧게 기다린다
+ * ({@link SubwayBindingLockGuard}).
+ *
  * <h2>기기 시각을 믿지 않는다</h2>
  *
  * <p>시계가 틀어진 기기가 섞인다. 범위 밖이면 관측을 <b>버리지 않고</b> 표시만 해 둔다 —
@@ -65,6 +76,7 @@ public class SubwayBoardingEvidenceService
     private final SubwayLegBindingRepository bindingRepository;
     private final SubwayBindingEventRepository eventRepository;
     private final JourneySubwayBindingProperties properties;
+    private final SubwayBindingLockGuard lockGuard;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
@@ -78,7 +90,8 @@ public class SubwayBoardingEvidenceService
         JourneyLeg ride = rideLegOf(journeyId, routeRevision, legIndex);
         Instant now = Instant.now(clock);
 
-        SubwayLegBinding binding = bindingRepository.findByJourneyLegId(ride.getId())
+        lockGuard.applyLockTimeout();
+        SubwayLegBinding binding = bindingRepository.findForUpdate(ride.getId())
                 .orElseGet(() -> openBinding(ride, evidence, now));
 
         // 이미 끝난 단계에는 새 관측을 얹지 않는다. 사용자가 "안 탔다"고 한 뒤에 늦게 도착한
@@ -219,7 +232,8 @@ public class SubwayBoardingEvidenceService
                                       SubwayBindingEventType type) {
         JourneySession journey = activeJourney(userId, journeyId, routeRevision);
         JourneyLeg ride = rideLegOf(journeyId, routeRevision, legIndex);
-        SubwayLegBinding binding = bindingRepository.findByJourneyLegId(ride.getId())
+        lockGuard.applyLockTimeout();
+        SubwayLegBinding binding = bindingRepository.findForUpdate(ride.getId())
                 .orElseThrow(() -> new BusinessException(JourneyErrorCode.SUBWAY_BINDING_NOT_FOUND));
 
         Instant now = Instant.now(clock);

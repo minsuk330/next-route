@@ -52,4 +52,38 @@ class SubwayDirectionNormalizerTest {
         assertThat(SubwayDirectionNormalizer.fromUpDownLine("1001", "")).isNull();
         assertThat(SubwayDirectionNormalizer.fromUpDownLine("1001", null)).isNull();
     }
+
+    // ── ODsay wayCode ────────────────────────────────────────────────────
+
+    @Test
+    void mapsOdsayWayCodeToArrivalLabels() {
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1001", 1)).isEqualTo("상행");
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1001", 2)).isEqualTo("하행");
+    }
+
+    @Test
+    void circularLineWayCodeUsesInnerAndOuterLabels() {
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1002", 0)).isEqualTo("내선");
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1002", 1)).isEqualTo("외선");
+    }
+
+    /**
+     * <b>허용값이 노선별로 다르다.</b> 2호선은 {@code 0/1}, 그 외는 {@code 1/2} 다.
+     *
+     * <p>둘을 {@code updnLine} 처럼 {@code 0/1} 하나로 묶으면 <b>하행(2)이 통째로 죽고</b>
+     * 2호선에서는 {@code 0} 이 상행으로 읽힌다. 두 실패 모두 조용하다.
+     */
+    @Test
+    void wayCodeWhitelistDiffersPerLine() {
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1001", 0)).isNull();
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1002", 2)).isNull();
+    }
+
+    /** 모르는 값에서 방향을 지어내지 않는다 — 예전 구현은 무엇이 오든 하행을 만들어 냈다. */
+    @Test
+    void doesNotGuessDirectionFromUnknownWayCode() {
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1001", 99)).isNull();
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1001", -1)).isNull();
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1001", null)).isNull();
+    }
 }
