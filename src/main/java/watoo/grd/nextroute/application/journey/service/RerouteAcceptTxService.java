@@ -11,6 +11,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateEnvelope;
+import watoo.grd.nextroute.application.journey.dto.SubwayBindingAbandonReason;
 import watoo.grd.nextroute.application.journey.dto.TransferConnectionDraft;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEvent;
@@ -77,6 +78,7 @@ public class RerouteAcceptTxService {
     private final JourneyNotificationRepository notificationRepository;
     private final RerouteProposalRepository proposalRepository;
     private final JourneyEventRepository eventRepository;
+    private final SubwayBindingLifecycleService subwayBindingLifecycle;
     private final JourneyRevisionComposer composer;
     private final JourneyQueryService queryService;
     private final JourneyRerouteMetrics metrics;
@@ -191,6 +193,14 @@ public class RerouteAcceptTxService {
 
         saveRouteOptions(oldLegs, newLegs, composed, apply);
         saveTransfers(journey, composed, newRevision, oldRevision);
+
+        // 지하철 고정은 단계와 함께 복제되지 않는다(별도 표). 구간이 완전히 같을 때만 명시적으로
+        // 옮기고, 나머지 미완료 고정은 옛 개정본에서 접는다. 순서가 중요하다 - 먼저 접으면
+        // 이어받을 원본이 이미 ABANDONED 다. 노선 후보 저장 뒤인 것도 방향(wayCode) 비교가
+        // 새 단계의 선택 후보를 읽기 때문이다.
+        subwayBindingLifecycle.inheritOnReroute(oldLegs, newLegs);
+        subwayBindingLifecycle.abandonOpenOfRevision(journey.getId(), oldRevision,
+                SubwayBindingAbandonReason.SUPERSEDED_BY_REVISION);
 
         journey.bumpRouteRevision();
         journey.bumpCommandVersion();

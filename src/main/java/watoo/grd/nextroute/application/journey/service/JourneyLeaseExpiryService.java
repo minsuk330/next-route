@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import watoo.grd.nextroute.application.journey.config.JourneyExpiryProperties;
 import watoo.grd.nextroute.application.journey.config.JourneyNavigationProperties;
+import watoo.grd.nextroute.application.journey.dto.SubwayBindingAbandonReason;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
 import watoo.grd.nextroute.domain.journey.repository.JourneyNotificationRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
@@ -39,6 +40,7 @@ public class JourneyLeaseExpiryService {
     private final JourneyNotificationRepository notificationRepository;
     private final RerouteProposalRepository rerouteProposalRepository;
     private final JourneyRerouteMetrics rerouteMetrics;
+    private final SubwayBindingLifecycleService subwayBindingLifecycle;
     private final JourneyNavigationProperties navigationProperties;
     private final JourneyExpiryProperties expiryProperties;
     private final MeterRegistry meterRegistry;
@@ -57,12 +59,14 @@ public class JourneyLeaseExpiryService {
                                      JourneyNavigationProperties navigationProperties,
                                      JourneyExpiryProperties expiryProperties,
                                      MeterRegistry meterRegistry,
+                                     SubwayBindingLifecycleService subwayBindingLifecycle,
                                      Clock clock,
                                      PlatformTransactionManager transactionManager) {
         this.sessionRepository = sessionRepository;
         this.notificationRepository = notificationRepository;
         this.rerouteProposalRepository = rerouteProposalRepository;
         this.rerouteMetrics = rerouteMetrics;
+        this.subwayBindingLifecycle = subwayBindingLifecycle;
         this.navigationProperties = navigationProperties;
         this.expiryProperties = expiryProperties;
         this.meterRegistry = meterRegistry;
@@ -122,6 +126,9 @@ public class JourneyLeaseExpiryService {
         // 제안도 같은 트랜잭션에서 접는다. 밖으로 빼면 "여정은 끝났는데 제안은 살아 있는" 창이 생긴다.
         rerouteMetrics.recordResolved("journey-ended",
                 rerouteProposalRepository.resolveActiveByJourneyIdIn(expired, now));
+        // 미완료 지하철 고정도 같은 트랜잭션에서 접는다. 여정마다 부르지 않고 한 문장으로 묶는다 -
+        // 배치가 200건이라 건별로 부르면 왕복이 그만큼 늘어난다.
+        subwayBindingLifecycle.abandonOpen(expired, SubwayBindingAbandonReason.LEASE_EXPIRED);
 
         meterRegistry.counter(EXPIRED_COUNTER, "reason", "client_lease_expired")
                 .increment(expired.size());

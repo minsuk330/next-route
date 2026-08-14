@@ -360,3 +360,75 @@
 - `./gradlew test --tests '*SubwayDirectionNormalizerTest'` → 9건, `*SubwayRealtimeArrivalReaderTest` → 2건
 - `./gradlew test --tests '*SubwayBoardingEvidenceServiceTest'` → 20건(기존 17 + 잠금 계약 3), 실패 0
 - `./gradlew build` 전체 → **1,768건, 실패 0, 오류 0**
+
+## 2026-08-14 journey-subway-binding-lifecycle (M7 PR-4b)
+
+### 확정
+- **정리를 기능 스위치에 묶지 않는다.** `journey.subway.binding.enabled` 를 끈 뒤에도 켜져 있던
+  동안 만들어진 행은 남는다. 정리까지 스위치를 보면 그 행들이 영영 미완료로 남고 아무도 모른다.
+  접는 질의는 대상이 없으면 0행이라 꺼진 상태의 비용은 문장 하나다
+- **수명주기 질의에 `clearAutomatically` 를 켜지 않았다.** 부르는 자리가 종료·재탐색 트랜잭션
+  한가운데라, 영속성 컨텍스트를 비우면 부르는 쪽이 들고 있던 세션·단계 엔티티가 떨어져 나가
+  그 뒤의 변경(`bumpRouteRevision` 등)이 조용히 사라진다. 기존 `cancelPendingByJourneyId` 도
+  같은 이유로 `clearAutomatically = false` 다 — 관례를 따랐다
+- **접는 것은 단일 UPDATE 문장이라 행 잠금을 따로 잡지 않는다.** PR-4a 의 "이 행을 고치는 모든
+  경로가 잠금 조회" 규칙은 *읽고 고치는* 경로(더티체킹)에 대한 것이다. 문장 하나는 읽기·쓰기
+  사이가 없어 그 병이 없다
+- **계승 → 접기 순서가 계약이다.** 뒤집으면 이어받을 원본이 이미 `ABANDONED` 라 아무것도 안
+  옮겨진다. 접기는 `route_revision = oldRevision` 으로 좁혀 방금 만든 새 행을 죽이지 않는다
+- **계승 판정을 노선 후보 저장 뒤에 부른다.** 방향(`wayCode`) 비교가 새 단계의 선택 후보 행을
+  읽기 때문이다. `saveRouteOptions` 앞에 두면 새 단계의 방향이 항상 null 이라 계승이 전멸한다
+- **계승 조건은 타입·`routeId`·`startStopId`·`endStopId`·`wayCode` 전부 일치 + 전부 non-null.**
+  모르는 것을 같다고 답하면 결과가 엉뚱한 역 하차 안내다. 빠뜨렸을 때 안전한 쪽이 "고정 없음"
+- **새 행은 `version = 0` 이지만 `reset_generation`·관측 순번은 그대로 가져온다.** 플랜은
+  version 만 적었는데, 세대를 0 으로 되돌리면 함께 재발행한 근거 감사행(세대 1)을 판정기가
+  하나도 못 읽어 확정 경로가 통째로 죽는다
+- **`USER_RESET` 감사행도 새 단계로 옮긴다**(플랜 §3-3 이 명시하지 않은 추가). 거부는 누적되는
+  사실이라 세대를 가리지 않는데, 감사행은 *단계 번호*로 조회된다 — 안 옮기면 재탐색 한 번으로
+  거부 이력이 사라지고 방금 거부한 열차를 다시 고른다
+- 재발행하는 감사행의 `binding_version` 은 전부 **0** 으로 다시 적는다(새 행 기준). 옛 값을
+  그대로 옮기면 후보 복구의 "현재 version 과 일치하는 판단만 읽는다" 규칙에 걸려 옮기자마자 무효
+- **접기에는 감사행을 남기지 않는다**(플랜 §3-1 대로). 사유는 지표
+  `journey.subway.binding.lifecycle{event=abandoned,reason}` 로만 갈린다 — 행마다 감사행을
+  적으려면 벌크 UPDATE 를 건별 읽기로 되돌려야 하고, 종료 경로가 그만큼 길어진다
+- 만료 배치는 `IN (:journeyIds)` 한 문장이다. 여정마다 부르면 배치 하나가 200 왕복이 된다
+
+### 함정
+- 저장소 인터페이스에 메서드를 더하면 `SubwayBoardingEvidenceServiceTest` 의 손수 만든 대역
+  (`FakeBindingRepository implements SubwayLegBindingRepository`)이 **컴파일 에러**로 깨진다 ←
+  4개 추가하며 겪음 / 가드: 새 메서드는 그 대역에도 `UnsupportedOperationException` 로 추가
+- 계승 IT 에서 `start_stop_id` 는 정적 데이터가 없으면 **null** 이다(`JourneyTransitIdEnricher`
+  가 `resolveStation` 실패 시 null). 그대로 두면 non-null 조건에 걸려 계승이 안 일어나 시험이
+  거짓 음성이 된다 / 가드: IT 가 여정 시작 뒤 그 두 칸을 직접 채운다
+- 계승 부정 케이스는 **접두 구간으로는 만들 수 없다** — 교체 지점 앞 단계는 `copyToRevision`
+  복제라 정의상 항상 동일하다. 그래서 부정 시험은 교체 지점을 지하철 단계 자체로 내려
+  (`RemainingPathApply(0, …)`) 새 단계가 버스가 되게 만든다
+
+### 좌표
+- application/journey/service/SubwayBindingLifecycleService.java — 접기 3종 + 계승 + 근거 재발행
+- application/journey/dto/SubwayBindingAbandonReason.java — 지표 tag 어휘(4값)
+- domain/journey/entity/SubwayLegBinding.java:inheritTo — 새 단계용 행 복제(version 0, 세대 보존)
+- domain/journey/repository/SubwayLegBindingRepository.java — abandonOpenByJourney/…In/…AndRevision/findBoundOfRevision
+- application/journey/service/JourneyCommandService.java — ① 종료 전이
+- application/journey/service/JourneyLeaseExpiryService.java — ② 만료 배치(생성자 인자 추가)
+- application/journey/service/JourneyStartTxService.java — ③ 여정 갈아타기
+- application/journey/service/RerouteAcceptTxService.java — ④ 계승 후 옛 개정본 접기
+
+### 미결
+- 계승 뒤 **새 단계에서 L4 확정이 실제로 나는지**는 IT 로 안 봤다. Redis 열차 로그까지 세워야
+  해서다. 대신 확정에 필요한 재료가 새 단계에 다 있는지를 고정했다 — 근거 감사행 4종 재발행 +
+  `binding_version = 0` + 새 행이 `findMatchable` 에 잡힘
+- 계승 동일성 판정의 **음성 분기 중 `routeId`·`wayCode`·역 불일치**는 시험으로 못 눌렀다(위 함정).
+  타입 불일치와 `PENDING` 만 실측으로 막았다
+- `ring` 삭제는 넣지 않았다(플랜대로). PR-5 가 자기 정리를 같이 가져간다
+
+### 배포
+- **마이그레이션 없음.** V44·V45 가 필요한 칸을 전부 들고 있다
+- 신규 설정 없음. `journey.subway.binding.enabled` 기본 false 유지 — 수명주기는 스위치와 무관하게 돈다
+- 새 지표 `journey.subway.binding.lifecycle{event=abandoned|inherited, reason}`
+
+### 검증
+- `./gradlew test --tests '*SubwayBindingLifecycleIT'` → XML 확인 5건, 실패 0
+- `./gradlew test --tests '*SubwayBindingRerouteInheritanceIT'` → 4건, 실패 0
+- `./gradlew test --tests '*Journey*' --tests '*Reroute*' --tests '*Subway*'` → 761건, 실패 0
+- `./gradlew build` 전체 → **1,777건, 실패 0, 오류 0** (PR-4a 1,768 + 신규 9)
