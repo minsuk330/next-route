@@ -1,0 +1,193 @@
+package watoo.grd.nextroute.domain.journey.entity;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import watoo.grd.nextroute.common.entity.BaseEntity;
+
+import java.time.Instant;
+import java.time.LocalDate;
+
+/**
+ * 지하철 단계 하나가 어느 열차에 묶였는지.
+ *
+ * <h2>왜 {@link JourneyLeg} 의 칼럼이 아닌가</h2>
+ *
+ * <p>여정 단계는 재탐색마다 통째로 복제된다. 거기에 열차번호를 얹으면 <b>복제가 기본</b>이 되어,
+ * 경로가 바뀌었는데 옛 열차가 살아남는다. 사용자는 엉뚱한 역에서 내린다.
+ *
+ * <p>표를 나누면 반대가 된다 — 새 개정본의 단계는 이 행이 없으므로 "고정 없음"이 기본이고,
+ * 이어받는 것은 명시적으로 만들 때만 일어난다. <b>빠뜨렸을 때 안전한 쪽</b>으로 기운다.
+ *
+ * <h2>행을 지우지 않는다</h2>
+ *
+ * <p>지우고 새로 만들면 {@link #version} 과 {@link #resetGeneration} 이 0 으로 돌아가, 늦게
+ * 도착한 갱신이 되살아난다. 사용자가 "다른 열차를 탔다"고 알려도 행은 남기고 상태만 되돌린다.
+ *
+ * <h2>고정은 타는 단계가 소유한다</h2>
+ *
+ * <p>노선 후보({@link JourneyLegRouteOption})는 기다리는 단계가 소유한다. 축을 나눠 두면
+ * 한 개념이 두 행에 흩어지지 않는다. 대기 단계로 들어온 요청은 짝 {@code RIDE_SUBWAY} 로 옮겨 적는다.
+ */
+@Entity
+@Getter
+@Table(name = "subway_leg_binding")
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+public class SubwayLegBinding extends BaseEntity {
+
+    @Column(name = "journey_leg_id", nullable = false)
+    private Long journeyLegId;
+
+    /** 여정 단위 정리와 개정본 판별을 단계 조인 없이 하기 위해 함께 든다. */
+    @Column(name = "journey_id", nullable = false)
+    private Long journeyId;
+
+    @Column(name = "route_revision", nullable = false)
+    private int routeRevision;
+
+    @Column(name = "leg_index", nullable = false)
+    private int legIndex;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private SubwayBindingStatus status;
+
+    /** 열차번호. 아래 세 값과 함께 있거나 함께 없다 — 하나만 있으면 어느 열차도 못 가리킨다. */
+    @Column(name = "train_no", length = 32)
+    private String trainNo;
+
+    @Column(name = "train_service_date")
+    private LocalDate trainServiceDate;
+
+    @Column(name = "train_line_id", length = 16)
+    private String trainLineId;
+
+    @Column(name = "train_direction", length = 10)
+    private String trainDirection;
+
+    /** 센서가 이동 시작을 감지한 시각. <b>실제 승차 시각이 아니다.</b> */
+    @Column(name = "boarded_detected_at")
+    private Instant boardedDetectedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private SubwayBindingSource source;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 10)
+    private SubwayBindingConfidence confidence;
+
+    /** 낙관적 잠금. 늦게 온 갱신이 이미 교정된 결과를 되돌리지 못하게 한다. */
+    @Column(nullable = false)
+    private int version;
+
+    /**
+     * 사용자 보정 세대.
+     *
+     * <p>사용자가 "다른 열차를 탔다"고 알리면 올라간다. 이 값이 없으면 판정기가 같은 관측을
+     * 다시 읽어 <b>방금 거부한 열차를 그대로 다시 고른다.</b>
+     */
+    @Column(name = "reset_generation", nullable = false)
+    private int resetGeneration;
+
+    /** 이동 시작 관측의 마지막 순번. 정차 순번과 칸을 나눠 든다 — 각각 1 부터 세기 때문이다. */
+    @Column(name = "last_movement_seq")
+    private Integer lastMovementSeq;
+
+    @Column(name = "last_episode_seq")
+    private Integer lastEpisodeSeq;
+
+    @Builder
+    private SubwayLegBinding(Long journeyLegId, Long journeyId, int routeRevision, int legIndex,
+                             SubwayBindingStatus status, Instant boardedDetectedAt,
+                             SubwayBindingSource source, SubwayBindingConfidence confidence) {
+        this.journeyLegId = journeyLegId;
+        this.journeyId = journeyId;
+        this.routeRevision = routeRevision;
+        this.legIndex = legIndex;
+        this.status = status;
+        this.boardedDetectedAt = boardedDetectedAt;
+        this.source = source;
+        this.confidence = confidence;
+        this.version = 0;
+        this.resetGeneration = 0;
+    }
+
+    /** 이동 시작을 받았지만 아직 열차를 고르지 못한 상태로 연다. */
+    public static SubwayLegBinding pending(Long journeyLegId, Long journeyId, int routeRevision,
+                                           int legIndex, Instant detectedAt,
+                                           SubwayBindingSource source,
+                                           SubwayBindingConfidence confidence) {
+        return SubwayLegBinding.builder()
+                .journeyLegId(journeyLegId)
+                .journeyId(journeyId)
+                .routeRevision(routeRevision)
+                .legIndex(legIndex)
+                .status(SubwayBindingStatus.PENDING)
+                .boardedDetectedAt(detectedAt)
+                .source(source)
+                .confidence(confidence)
+                .build();
+    }
+
+    /**
+     * 사용자가 다른 열차를 탔다고 알렸다.
+     *
+     * <p>행을 지우지 않고 되돌린다. 지우면 {@link #version} 이 0 으로 돌아가 늦게 온 갱신이
+     * 되살아난다. {@link #resetGeneration} 을 올려 이전 세대의 후보를 무효로 만든다.
+     *
+     * <p>관측 순번도 비운다 — 그래야 새 관측이 오기 전까지 판정기가 다시 고르지 않는다.
+     */
+    public void resetByUser() {
+        this.status = SubwayBindingStatus.PENDING;
+        clearTrain();
+        this.source = SubwayBindingSource.USER_MANUAL;
+        this.confidence = null;
+        this.boardedDetectedAt = null;
+        this.lastMovementSeq = null;
+        this.lastEpisodeSeq = null;
+        this.resetGeneration++;
+        this.version++;
+    }
+
+    /** 사용자가 타지 않았다고 알렸거나, 판정 시간이 지났다. */
+    public void abandon() {
+        this.status = SubwayBindingStatus.ABANDONED;
+        clearTrain();
+        this.version++;
+    }
+
+    /**
+     * 관측 순번을 앞으로만 옮긴다.
+     *
+     * @return 실제로 옮겼으면 true. 이미 본 순번이면 false
+     */
+    public boolean advanceMovementSeq(Integer sequence) {
+        if (sequence == null || (lastMovementSeq != null && sequence <= lastMovementSeq)) {
+            return false;
+        }
+        this.lastMovementSeq = sequence;
+        return true;
+    }
+
+    public boolean advanceEpisodeSeq(Integer sequence) {
+        if (sequence == null || (lastEpisodeSeq != null && sequence <= lastEpisodeSeq)) {
+            return false;
+        }
+        this.lastEpisodeSeq = sequence;
+        return true;
+    }
+
+    private void clearTrain() {
+        this.trainNo = null;
+        this.trainServiceDate = null;
+        this.trainLineId = null;
+        this.trainDirection = null;
+    }
+}

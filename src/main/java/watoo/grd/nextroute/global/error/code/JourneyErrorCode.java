@@ -28,7 +28,11 @@ public enum JourneyErrorCode implements ErrorCode {
       HttpStatus.NOT_FOUND),
   /** 만료·상태·명령 번호·개정본·지나간 단계·스냅샷 불일치가 전부 이 코드로 온다. */
   REROUTE_PROPOSAL_STALE("REROUTE_PROPOSAL_STALE", "제안이 더 이상 유효하지 않습니다.",
-      HttpStatus.CONFLICT);
+      HttpStatus.CONFLICT),
+  SUBWAY_LEG_REQUIRED("SUBWAY_LEG_REQUIRED", "지하철 단계가 아닙니다.",
+      HttpStatus.UNPROCESSABLE_ENTITY),
+  SUBWAY_BINDING_NOT_FOUND("SUBWAY_BINDING_NOT_FOUND", "고정된 열차가 없습니다.",
+      HttpStatus.NOT_FOUND);
 
   private final String code;
   private final String message;
