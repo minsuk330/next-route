@@ -299,3 +299,64 @@
 - `./gradlew test --tests '*SubwayBoardingEvidenceServiceTest'` → XML 확인 17건, 실패 0
 - `./gradlew test --tests '*SubwayBindingSchemaIT'` → 12건, 실패 0 (마이그레이션 실제 적용 확인)
 - `./gradlew build` 전체 → 1,689건, 실패 0, 오류 0
+
+## 2026-08-14 journey-subway-matcher (M7 PR-4a)
+
+### 확정
+- **잠금 대기 상한을 JPA 힌트로 못 건다.** PostgreSQL 에 `FOR UPDATE WAIT n` 이 없어 Hibernate 가
+  `jakarta.persistence.lock.timeout` 의 임의 값을 그냥 `for update` 로 떨어뜨린다(0=NOWAIT,
+  -2=SKIP LOCKED 만 문장이 된다). 플랜 §2-6b 의 `spring.jpa.properties...lock.timeout: 1000` 은
+  **있으나 마나**여서 채택하지 않았다 → 대신 `SubwayBindingLockGuard` 가 트랜잭션 안에서
+  `SET LOCAL lock_timeout` 을 직접 건다(`journey.subway.binding.lock-timeout`, 기본 1s)
+- **CAS 에서 `confidence` 를 쓰지 않는다.** 플랜 SQL 에는 있었지만 그 값은 "기기가 준 값을 그대로
+  옮긴다"가 계약이라 판정기가 덮으면 근거별 오판율을 못 잰다. 상태·열차 identity·version 만 쓴다
+- **CAS 를 둘로 나눴다** — `casBind`(열차 identity 포함)와 `casAbandon`(상태만). 하나로 두면
+  접을 때 `train_*` 4칸을 어떻게 할지 정해야 하는데, "identity 는 남긴다"(§3-1)와 DB 의
+  all-or-none check 를 동시에 만족시키려면 결국 갈라야 한다
+- **matcher 입력이 `TrainDeparture` 가 아니라 `SubwayBindingCandidate`** 다. 조회창이 04:00 을
+  걸치면 두 영업일을 합쳐 부르는데, 어느 줄이 어느 운행일에서 왔는지는 조회한 쪽만 안다.
+  matcher 안에서 다시 유도하면 자정 근처에서 열차 identity 가 하루씩 어긋난다
+- 잠금 대기 초과 응답은 **409 `SUBWAY_BINDING_BUSY`** (5xx 아님). `JourneyControllerAdvice` 가
+  `PessimisticLockingFailureException` 을 받는다
+- 후보 복구는 `binding_version == 현재 version` + `reset_generation` 일치 감사행만 읽는다.
+  거부 열차(`USER_RESET`)는 **세대를 가리지 않고** 전부 모은다 — 거부는 누적되는 사실이다
+
+### 함정
+- `@Modifying` 질의는 트랜잭션 없이 부르면 `No EntityManager with actual transaction available`
+  ← `sweepStale()` 이 `@Transactional` 없이 청소 질의를 불렀다 / 가드: `sweepStale` 에
+  `@Transactional`, IT 는 `TransactionTemplate` 으로 감싼다
+- Java 17 이라 `List.getFirst()`·`Math.clamp` 없다 ← 둘 다 Java 21 / 가드: `get(0)`·`min/max`
+- `IS NOT DISTINCT FROM :param` 은 파라미터 타입 추론이 안 될 수 있다 / 가드: `cast(:x as integer)`
+- **잠금을 빼면 시험이 실제로 빨간불이 된다(확인함).** `findForUpdate` → `findByJourneyLegId` 로
+  되돌리면 `SubwayBindingConcurrencyIT` 의 "판정이 먼저 커밋되면…"이
+  `expected: "PROVISIONAL" but was: "PENDING"` 로 깨진다. 되돌린 뒤 원복함
+
+### 좌표
+- application/journey/service/SubwayTrainMatcher.java — 관문·L4 판정(순수 계산기)
+- application/journey/service/SubwayBindingMatchService.java — 재료 모으기(트랜잭션 밖) + 감사행 복구
+- application/journey/service/SubwayBindingMatchTxService.java — 세션 FOR SHARE → 행 잠금 → CAS → 감사행
+- application/journey/service/SubwayBindingLockGuard.java — `SET LOCAL lock_timeout`
+- application/journey/service/JourneySubwayStationChainReader.java — 개정본 snapshot 의 계획 역 체인
+- domain/journey/repository/SubwayLegBindingRepository.java — findMatchable/findForMatch(SKIP LOCKED)/findForUpdate/casBind/casAbandon/abandonStaleWithoutMovement
+- infrastructure/adapter/in/scheduler/journey/SubwayBindingMatchScheduler.java — worker 전용, 60 tick 마다 청소
+
+### 미결
+- 관문 숫자 전부 잠정값(실기기 관측 전). 지표 `journey.subway.binding.decisions{reason}` 로 조인다
+- 급행·종착역 배제는 MVP 에서 뺐다(플랜 §7). 급행 탑승은 "확인 중"에 머문다
+- `findMatchable` 이 `ORDER BY updated_at` 인데 그 정렬을 타는 인덱스가 없다. 미완료 고정은
+  진행 중 여정 수에 비례해 작아서 지금은 문제없다 — 늘면 부분 인덱스에 `updated_at` 을 붙인다
+
+### 배포
+- **마이그레이션 없음.** V44·V45 가 필요한 칸을 전부 들고 있다
+- 신규 설정 `journey.subway.binding.*` 전량 추가, **`enabled` 기본 false 유지**.
+  켜려면 PR-2 수집기(`realtime.subway.position.enabled` + `lines`)도 함께 켜야 한다 —
+  로그가 없으면 후보가 0 이라 아무 일도 안 일어난다
+- 스케줄러는 `worker` 프로필 + `enabled=true` 일 때만 뜬다
+
+### 검증
+- `./gradlew test --tests '*SubwayTrainMatcherTest'` → XML 확인 28건, 실패 0
+- `./gradlew test --tests '*SubwayBindingMatchServiceTest'` → 8건 / `*TxServiceTest` → 8건, 실패 0
+- `./gradlew test --tests '*SubwayBindingMatchIT'` → 13건, `*SubwayBindingConcurrencyIT` → 3건, 실패 0
+- `./gradlew test --tests '*SubwayDirectionNormalizerTest'` → 9건, `*SubwayRealtimeArrivalReaderTest` → 2건
+- `./gradlew test --tests '*SubwayBoardingEvidenceServiceTest'` → 20건(기존 17 + 잠금 계약 3), 실패 0
+- `./gradlew build` 전체 → **1,768건, 실패 0, 오류 0**

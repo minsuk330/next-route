@@ -2,6 +2,7 @@ package watoo.grd.nextroute.infrastructure.adapter.in.api.journey;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.Ordered;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -49,6 +50,20 @@ public class JourneyControllerAdvice {
     return ResponseEntity.status(errorCode.getHttpStatus())
         .body(ErrorResponse.of(errorCode, request.getRequestURI(),
             exception.getCurrentRouteRevision()));
+  }
+
+  /**
+   * 고정 행 잠금을 대기 상한 안에 못 잡았다. <b>재시도 가능한 실패로 답한다.</b>
+   *
+   * <p>5xx 로 내보내면 앱은 "서버가 고장 났다"로 읽고 백오프를 길게 잡는다. 실제로는 판정 워커가
+   * 그 행을 잠깐 잡고 있을 뿐이라 곧바로 다시 보내는 편이 맞다. 중복 전송은 감사행 유일성이
+   * 흡수하므로 재시도가 상태를 어지럽히지 않는다.
+   */
+  @ExceptionHandler(PessimisticLockingFailureException.class)
+  public ResponseEntity<ErrorResponse<Void>> handleLockBusy(HttpServletRequest request) {
+    JourneyErrorCode errorCode = JourneyErrorCode.SUBWAY_BINDING_BUSY;
+    return ResponseEntity.status(errorCode.getHttpStatus())
+        .body(ErrorResponse.of(errorCode, request.getRequestURI()));
   }
 
 }

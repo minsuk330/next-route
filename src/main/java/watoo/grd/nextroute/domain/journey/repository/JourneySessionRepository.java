@@ -47,6 +47,33 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                                                         @Param("userId") Long userId);
 
     /**
+     * 여정이 <b>아직 그 개정본으로 살아 있는지</b> 확인하며 공유 잠금을 잡는다.
+     *
+     * <p>배경 판정기가 쓰는 자리다. 대상을 고른 뒤 외부(Redis)를 다녀오는 동안 여정이 끝나거나
+     * 재탐색으로 개정본이 오를 수 있다. 조건만 다시 읽으면 그 확인과 쓰기 사이가 또 벌어지므로,
+     * 잠금으로 순서를 정한다 — 종료·재탐색 접점은 이 행을 {@code UPDATE} 하므로(배타 잠금)
+     * 둘이 서로 기다린다.
+     *
+     * <p>{@code FOR SHARE} 인 이유: 판정기는 이 행을 바꾸지 않고 "살아 있음"만 붙잡으면 된다.
+     * 배타로 잡으면 같은 여정의 다른 판정끼리도 줄을 선다.
+     *
+     * <p><b>잠금 순서는 항상 {@code journey_session} → {@code subway_leg_binding} 이다.</b>
+     * 뒤집는 경로를 넣으면 데드락이 생긴다.
+     *
+     * @return 조건을 만족하면 그 여정 번호 1건, 아니면 빈 목록
+     */
+    @Query(value = """
+            SELECT s.id FROM journey_session s
+             WHERE s.id = :journeyId
+               AND s.status = 'ACTIVE'
+               AND s.deleted_at IS NULL
+               AND s.route_revision = :routeRevision
+             FOR SHARE
+            """, nativeQuery = true)
+    List<Long> lockActiveRevisionForShare(@Param("journeyId") Long journeyId,
+                                          @Param("routeRevision") int routeRevision);
+
+    /**
      * 평가 번호만 하나 올린다. 진행 중인 여정에만 적용한다.
      *
      * <p>{@code commandVersion} 은 건드리지 않는다. progress 는 명령이 아니라 관측이라서, 이것으로

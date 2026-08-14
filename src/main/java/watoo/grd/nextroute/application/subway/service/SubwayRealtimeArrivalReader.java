@@ -140,16 +140,14 @@ public class SubwayRealtimeArrivalReader {
     /**
      * ODsay {@code wayCode} → 서울 실시간 API 의 방향 문자열.
      *
-     * <p>2호선은 순환선이라 상·하행이 아니라 내·외선이다.
+     * <p>매핑은 {@link SubwayDirectionNormalizer} 하나가 소유한다. 여기에 다시 적어 두면 값
+     * 공간을 고칠 때 한쪽만 고쳐지고, 그 어긋남은 <b>반대 방향 열차</b>로만 드러난다.
+     *
+     * <p>모르는 값이 {@code null} 이 된 것이 예전과 다르다. 부르는 쪽은 이미 {@code null} 을
+     * "방향 모름"으로 다루므로(필터를 건너뛴다) 동작은 그대로다.
      */
     public String toDirection(String lineId, Integer wayCode) {
-        if (wayCode == null) {
-            return null;
-        }
-        if ("1002".equals(lineId)) {
-            return wayCode == 0 ? "내선" : "외선";
-        }
-        return wayCode == 1 ? "상행" : "하행";
+        return SubwayDirectionNormalizer.fromWayCode(lineId, wayCode);
     }
 
     /**

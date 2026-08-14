@@ -40,7 +40,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -63,7 +65,11 @@ class SubwayBoardingEvidenceServiceTest {
     private JourneyLegRepository legRepository;
     private FakeBindingRepository bindingRepository;
     private SubwayBindingEventRepository eventRepository;
+    private SubwayBindingLockGuard lockGuard;
     private SubwayBoardingEvidenceService service;
+
+    /** 잠금 상한을 건 순서와 잠금 조회 순서를 함께 본다. 반대면 상한이 없는 것과 같다. */
+    private List<String> calls;
 
     private long insertedRows;
 
@@ -81,9 +87,14 @@ class SubwayBoardingEvidenceServiceTest {
                 any(), any(), any(), any(), any(), any()))
                 .thenAnswer(invocation -> List.of(++insertedRows));
 
+        calls = new ArrayList<>();
+        bindingRepository.calls = calls;
+        lockGuard = mock(SubwayBindingLockGuard.class);
+        doAnswer(invocation -> calls.add("lock-timeout")).when(lockGuard).applyLockTimeout();
+
         service = new SubwayBoardingEvidenceService(sessionRepository, legRepository,
                 bindingRepository, eventRepository, new JourneySubwayBindingProperties(),
-                new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
+                lockGuard, new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
 
         givenActiveJourney();
         givenSubwayPair();
@@ -242,6 +253,36 @@ class SubwayBoardingEvidenceServiceTest {
         assertThat(binding.getVersion()).isEqualTo(1);
     }
 
+    // ── 잠금 계약 ────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("관측 수신도 고정 행을 잠그고 읽는다 — 순번만 올리는 경로도 예외가 아니다")
+    void submitLocksTheRow() {
+        submit(USER_ID, REVISION, RIDE_INDEX, movementStart(1));
+
+        assertThat(bindingRepository.lockedReads).isEqualTo(1);
+        verify(lockGuard).applyLockTimeout();
+    }
+
+    @Test
+    @DisplayName("사용자 보정도 같은 잠금 경로를 쓴다")
+    void correctionLocksTheRow() {
+        submit(USER_ID, REVISION, RIDE_INDEX, movementStart(1));
+        bindingRepository.lockedReads = 0;
+
+        service.reset(USER_ID, JOURNEY_ID, REVISION, RIDE_INDEX);
+
+        assertThat(bindingRepository.lockedReads).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("잠금 대기 상한을 잠금 조회보다 먼저 건다 — 순서가 반대면 상한이 없는 것과 같다")
+    void appliesLockTimeoutBeforeReading() {
+        submit(USER_ID, REVISION, RIDE_INDEX, movementStart(1));
+
+        assertThat(calls).containsExactly("lock-timeout", "locked-read");
+    }
+
     @Test
     @DisplayName("보정해도 행을 지우지 않는다 — 지우면 잠금 값이 0 으로 돌아간다")
     void resetKeepsTheRow() {
@@ -348,9 +389,24 @@ class SubwayBoardingEvidenceServiceTest {
         final Map<Long, SubwayLegBinding> byLegId = new HashMap<>();
         final List<SubwayLegBinding> saved = new ArrayList<>();
         final List<SubwayLegBinding> deleted = new ArrayList<>();
+        List<String> calls = new ArrayList<>();
+        int lockedReads;
 
         @Override
         public Optional<SubwayLegBinding> findByJourneyLegId(Long journeyLegId) {
+            // 잠금 없는 읽기로 되돌아가면 여기서 터진다. 그 회귀는 예외 없이 조용히 남의 판정을
+            // 덮어쓰는 종류라, 실행 중에는 아무 데서도 드러나지 않는다.
+            throw new UnsupportedOperationException("고정 행은 findForUpdate 로만 읽는다");
+        }
+
+        /**
+         * 실제 구현은 행을 잠그고 읽는다. 시험에서는 같은 값을 주되 <b>이 경로로만</b> 읽히는지가
+         * 중요하다 — 잠금 없이 읽으면 판정기가 쓴 결과가 조용히 덮인다.
+         */
+        @Override
+        public Optional<SubwayLegBinding> findForUpdate(Long journeyLegId) {
+            lockedReads++;
+            calls.add("locked-read");
             return Optional.ofNullable(byLegId.get(journeyLegId));
         }
 
@@ -374,6 +430,28 @@ class SubwayBoardingEvidenceServiceTest {
 
         // ── 아래는 이 시험이 쓰지 않는다 ──
 
+        @Override public List<SubwayLegBinding> findMatchable(int limit) {
+            throw new UnsupportedOperationException();
+        }
+        @Override public Optional<SubwayLegBinding> findForMatch(Long legId) {
+            throw new UnsupportedOperationException();
+        }
+        @Override public int casBind(Long legId, String status, String trainNo,
+                                     java.time.LocalDate serviceDate, String lineId,
+                                     String direction, int expectedVersion,
+                                     int expectedGeneration, Integer expectedMovementSeq,
+                                     Integer expectedEpisodeSeq, java.time.LocalDateTime now) {
+            throw new UnsupportedOperationException();
+        }
+        @Override public int casAbandon(Long legId, int expectedVersion, int expectedGeneration,
+                                        Integer expectedMovementSeq, Integer expectedEpisodeSeq,
+                                        java.time.LocalDateTime now) {
+            throw new UnsupportedOperationException();
+        }
+        @Override public int abandonStaleWithoutMovement(java.time.LocalDateTime now,
+                                                         java.time.LocalDateTime cutoff) {
+            throw new UnsupportedOperationException();
+        }
         @Override public <S extends SubwayLegBinding> List<S> saveAll(Iterable<S> entities) {
             throw new UnsupportedOperationException();
         }
