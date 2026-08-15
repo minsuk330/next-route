@@ -20,8 +20,7 @@ public final class SubwayLineIdMapper {
             Map.entry("경강선", "1081"),
             Map.entry("우이신설선", "1092"),
             Map.entry("서해선", "1093"),
-            Map.entry("GTX-A", "1032"),
-            Map.entry("중앙선", "1061")
+            Map.entry("GTX-A", "1032")
     );
 
     private SubwayLineIdMapper() {
