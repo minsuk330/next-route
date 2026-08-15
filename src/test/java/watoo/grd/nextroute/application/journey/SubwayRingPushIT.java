@@ -204,6 +204,36 @@ class SubwayRingPushIT {
     }
 
     @Test
+    @DisplayName("앱이 못 그리는 링은 넣지 않는다 — null 하나로 갱신이 통째로 무시된다")
+    void incompleteRingIsNotEnqueued() {
+        SubwayRingState noName = new SubwayRingState(journeyId, 1, rideLegIndex, 0,
+                1, "1002000221", /* nextStationName */ null, "하차역", 2,
+                new BigDecimal("0.4500"), T0, new BigDecimal("0.90"),
+                T0.plusSeconds(90), T0.plusSeconds(120),
+                SubwayRingPhase.RIDE_SUBWAY, SubwayRingQuality.NORMAL, T0, T0);
+
+        enqueueService.enqueueIfChanged(null, noName, rideLeg);
+
+        assertThat(rowCount())
+                .as("순번만 태우고 앱은 아무것도 못 그린다")
+                .isZero();
+    }
+
+    @Test
+    @DisplayName("도착 예정이 없는 것은 정상이다 — 그때 앱은 보간을 멈춘다")
+    void missingEstimateStillGoesOut() {
+        SubwayRingState frozen = new SubwayRingState(journeyId, 1, rideLegIndex, 0,
+                1, "1002000221", "역1", "하차역", 2,
+                new BigDecimal("0.4500"), T0, new BigDecimal("0.90"),
+                /* estimatedNextStationAt */ null, T0.plusSeconds(120),
+                SubwayRingPhase.RIDE_SUBWAY, SubwayRingQuality.STALE, T0, T0);
+
+        enqueueService.enqueueIfChanged(null, frozen, rideLeg);
+
+        assertThat(rowCount()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("여정·개정본·단계마다 살아 있는 대기 행은 하나다 — DB 가 소유하는 제약이다")
     void onlyOneOpenRowPerKey() {
         enqueueService.enqueueIfChanged(null, ring(1, "0.4500"), rideLeg);

@@ -770,3 +770,17 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증 (리뷰 반영 후)
 - `./gradlew test --tests '*SubwayRingPushIT'` → **22 tests, 0 failures**
 - `./gradlew build` → 271 classes / **1885 tests, 0 failures**
+
+### 리뷰 nit 도 닫음 (앞선 "이번 결함 아님" 판단을 뒤집는다)
+- ~~payload factory 가 하위 계약을 그대로 신뢰하는 것은 PR-5a 의존이라 이번 결함이 아니다~~
+  → **넘길 게 아니었다.** `props` 에 null 이 하나라도 들어가면 앱 디코딩이 통째로 실패하고
+  **조용히 무시**된다(실패 응답도 안 온다). 이 PR 이 내내 막으려는 실패가 정확히 그 모양인데,
+  거기에만 방어가 없었다
+- 가드: `SubwayRingPushEnqueueService.isRenderable()` 이 넣기 전에 non-optional 값을 확인한다.
+  비면 `incomplete_ring` 으로 세고 **순번을 태우지 않는다**
+- **`estimatedNextStationAt` 은 일부러 안 본다** — 없는 것이 정상이고(신호 상실) 그때 앱은
+  보간을 멈추기로 돼 있다. 이걸 필수로 넣으면 STALE 구간의 화면이 통째로 안 나간다
+
+### 검증 (nit 반영 후)
+- `./gradlew test --tests '*SubwayRingPushIT'` → **24 tests, 0 failures**
+- `./gradlew build` → 271 classes / **1887 tests, 0 failures**

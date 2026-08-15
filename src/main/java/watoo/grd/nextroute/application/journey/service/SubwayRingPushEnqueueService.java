@@ -71,6 +71,12 @@ public class SubwayRingPushEnqueueService {
             return;
         }
         SubwayRingPushDecider.Decision decision = decided.get();
+        if (!isRenderable(current)) {
+            // 앱이 non-optional 로 받는 값이 비었다. 보내면 디코딩이 통째로 실패해 갱신이
+            // 조용히 무시되고, 순번만 하나 태운다 — 안 보내는 편이 낫다.
+            metrics.recordPushSkippedEnqueue("incomplete_ring");
+            return;
+        }
         if (isSameScreenAsLast(current, decision)) {
             // 같은 화면을 두 번 만들지 않는다. 링은 5초마다 도는데 대부분의 tick 은 화면을 안 바꾼다.
             metrics.recordPushSkippedEnqueue("same_signature");
@@ -145,6 +151,30 @@ public class SubwayRingPushEnqueueService {
             log.debug("[SubwayRingPush] 대기열 삽입 경합 journeyId={} reason={}", journeyId, reason);
             return false;
         }
+    }
+
+    /**
+     * 앱이 그릴 수 있는 화면인가.
+     *
+     * <p>{@code props} 의 이 값들은 앱 쪽에서 <b>non-optional</b> 이라 하나라도 비면 디코딩이
+     * 통째로 실패한다. 그런데 실패 응답은 오지 않는다 — 서버 쪽에서는 정상으로 보이고 사용자만
+     * 멈춘 화면을 본다. 이 PR 이 내내 막으려는 실패가 정확히 그 모양이다.
+     *
+     * <p>{@code CONFIRMED} 만 대상으로 삼는 것으로 대부분 걸러지지만, 계획 역 체인의 이름이
+     * 비는 경우까지는 막지 못한다(그 값은 검색 결과에서 온다). 여기서 한 번 더 본다.
+     *
+     * <p>{@code estimatedNextStationAt} 은 <b>보지 않는다</b> — 그 값은 없는 것이 정상이고
+     * (신호를 잃으면 null), 앱은 그때 보간을 멈추기로 돼 있다.
+     */
+    private boolean isRenderable(SubwayRingState ring) {
+        return ring.phase() != null
+                && ring.quality() != null
+                && ring.nextStationName() != null && !ring.nextStationName().isBlank()
+                && ring.alightingStationName() != null && !ring.alightingStationName().isBlank()
+                && ring.segmentProgress() != null
+                && ring.progressBaseAt() != null
+                && ring.progressTarget() != null
+                && ring.progressValidUntil() != null;
     }
 
     private boolean isSameScreenAsLast(SubwayRingState current,
