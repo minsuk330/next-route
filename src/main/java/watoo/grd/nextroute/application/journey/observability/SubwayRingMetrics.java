@@ -4,7 +4,10 @@ import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingObservation;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingPushReason;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
+
+import java.time.Duration;
 
 /**
  * 진행 링 지표.
@@ -26,6 +29,12 @@ public class SubwayRingMetrics {
     public static final String ETA = "journey.subway.ring.eta";
     public static final String FAILURES = "journey.subway.ring.failures";
     public static final String CLEARED = "journey.subway.ring.cleared";
+
+    public static final String PUSH_ENQUEUED = "journey.subway.ring.push.enqueued";
+    public static final String PUSH_SKIPPED_ENQUEUE = "journey.subway.ring.push.skipped_enqueue";
+    public static final String PUSH_RESULT = "journey.subway.ring.push";
+    public static final String PUSH_RETRY = "journey.subway.ring.push.retry";
+    public static final String PUSH_LATENCY = "journey.subway.ring.push.latency";
 
     private final MeterRegistry registry;
 
@@ -64,6 +73,53 @@ public class SubwayRingMetrics {
     public void recordCleared(int count) {
         if (count > 0) {
             registry.counter(CLEARED).increment(count);
+        }
+    }
+
+    // ── 원격 갱신(push) ─────────────────────────────────────────────────────
+
+    /**
+     * 대기열에 넣으려 했다.
+     *
+     * <p>{@code accepted=false} 는 경합이다 — 두 워커가 같은 여정을 동시에 계산했고 한쪽이 졌다.
+     * 실패가 아니므로 오류로 세지 않는다.
+     */
+    public void recordPushEnqueued(SubwayRingPushReason reason, boolean accepted) {
+        registry.counter(PUSH_ENQUEUED,
+                "reason", reason.tag(),
+                "accepted", String.valueOf(accepted)).increment();
+    }
+
+    /**
+     * 넣기 전에 걸렀다.
+     *
+     * <p>{@code same_signature} 가 대부분이어야 정상이다 — 링은 5초마다 도는데 화면은 그보다
+     * 훨씬 덜 바뀐다. 이 값이 낮으면 signature 가 너무 잘게 갈리고 있다는 뜻이고, 그만큼 잠금화면
+     * 갱신이 배터리와 APNs 예산을 먹는다.
+     */
+    public void recordPushSkippedEnqueue(String reason) {
+        registry.counter(PUSH_SKIPPED_ENQUEUE, "reason", reason).increment();
+    }
+
+    /**
+     * 발송 한 건의 결말.
+     *
+     * <p>{@code skipped} 는 실패가 아니다. 링 갱신에서 가장 흔한 정상 결말이고, 오히려 그 수가
+     * 많다는 것은 원천이 살아 있다는 뜻이다.
+     */
+    public void recordPushResult(String result, String reason) {
+        registry.counter(PUSH_RESULT, "result", result, "reason", reason).increment();
+    }
+
+    /** 최신인 동안의 재시도가 얼마나 도는지. {@code critical} 이 아닌 재시도가 많으면 낭비다. */
+    public void recordPushRetry(boolean critical) {
+        registry.counter(PUSH_RETRY, "critical", String.valueOf(critical)).increment();
+    }
+
+    /** 링 계산에서 실제 발송까지 걸린 시간. */
+    public void recordPushLatency(Duration latency) {
+        if (!latency.isNegative()) {
+            registry.timer(PUSH_LATENCY).record(latency);
         }
     }
 }

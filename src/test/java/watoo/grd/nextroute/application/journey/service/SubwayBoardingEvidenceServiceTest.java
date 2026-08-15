@@ -436,6 +436,11 @@ class SubwayBoardingEvidenceServiceTest {
         @Override public List<SubwayLegBinding> findRingTargets(int limit) {
             throw new UnsupportedOperationException();
         }
+        @Override public Optional<SubwayLegBinding>
+                findByJourneyIdAndRouteRevisionAndLegIndexAndDeletedAtIsNull(
+                        Long journeyId, int routeRevision, int legIndex) {
+            throw new UnsupportedOperationException();
+        }
         @Override public Optional<SubwayLegBinding> findForMatch(Long legId) {
             throw new UnsupportedOperationException();
         }

@@ -94,6 +94,18 @@ public interface UserPushTokenRepository extends JpaRepository<UserPushToken, Lo
                    @Param("now") LocalDateTime now);
 
     /**
+     * 그 사용자의 살아 있는 token 행 하나를 token 문자열로 찾는다.
+     *
+     * <p>Live Activity 토큰 등록이 쓴다 — 발송에 두 토큰이 다 필요해서 Activity 행이 이 행을
+     * 가리켜야 한다. {@code userId} 를 조건에 넣는 이유는 유일성이 token 하나에만 걸려 있어
+     * (V39) 남의 행을 집을 수 있기 때문이다.
+     *
+     * <p>{@code enabled} 는 보지 않는다. provider 가 죽었다고 답한 뒤라도 앱이 지금 Activity 를
+     * 등록하고 있다면 그 기기는 살아 있고, 재등록이 오면 {@code enabled} 는 어차피 되돌아간다.
+     */
+    Optional<UserPushToken> findByUserIdAndTokenAndDeletedAtIsNull(Long userId, String token);
+
+    /**
      * 살아 있는 발송 대상 전부. 조건이 둘 다 필요하다 — 사용자가 해제한 것도, provider 가
      * 죽었다고 답한 것도 보내면 안 된다.
      *

@@ -600,3 +600,137 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew test --tests '*JourneySubwayGuidanceIT'` → **9 tests, 0 failures**
 - `./gradlew test --tests '*Journey*' --tests '*Subway*'` → 98 classes / **720 tests, 0 failures**
 - `./gradlew build` → 263 classes / **1824 tests, 0 failures**
+
+---
+
+## 지하철 도착정보 — 미산출 열차 표기 (feat/subway-arrival-prev-station)
+
+### 확정
+- **`barvlDt`(남은 초) 0 은 "0초 남음"이 아니라 미산출이다.** 뜻이 `arvlCd` 에 따라 갈린다 —
+  진입·도착(0/1)이면 사건, 전역류(3/4/5)·운행중(99)이면 "거리로만 답했다". 어느 쪽이든
+  더할 시각이 없다. `SubwayRealtimeArrivalReader.adjustedSeconds()` 는 이제 `raw <= 0` 에
+  **null**(모름)을 준다. 0 을 흘리면 경과시간을 뺀 음수가 되어 지나간 열차로 둔갑한다
+- **지나간 열차의 근거는 초가 아니라 `arvlCd=2`(조회역 출발)다.** 초는 *진짜 예정 시각이
+  있었는데*(raw>0) 그마저 넘겼을 때만 부차적 근거
+- **거리(`stationsAway`)는 서버가 확정해 내려 준다.** `arvlMsg2` 파싱을 클라이언트에 맡기지
+  않는다 — 원천이 문구 표현을 한 번 바꾸면 모든 화면이 동시에 깨진다
+- 응답 계약에 `stationsAway` 추가: 조회역 진입·도착=0, 전역류=1, 운행중은 `[N]번째 전역`
+  파싱, 그 밖(출발·미상)=null. **`arrivalSeconds` 가 null 이어도 열차를 감추면 안 된다**
+- 코드가 답할 수 있는 자리에서는 문구를 보지 않는다(코드 우선). 문구는 `ENROUTE` 에서만 읽음
+- ~~segment 로 미산출 열차의 ETA 를 추정~~ 이번 범위에서 제외. 사용자 결정=표기만.
+  필요 부품 4개가 빔(아래 미결)
+
+### 함정
+- **미산출 열차가 목록에서 통째로 사라짐** ← `select()` 의 `adjustedSeconds >= 0` 필터가
+  `0 - 경과초 = 음수` 를 "지나갔다"로 읽음. 실측 표본의 **절반**이 `barvlDt=0` 이라 피해가 큼.
+  가드 = `SubwayRealtimeArrivalReaderTest.keepsTrainWhoseEtaIsNotComputed`
+- **필터를 초 기준으로 그냥 풀면 지나간 열차까지 통과하는 반대 회귀.** `arvlCd=2` 명시 판정이
+  같이 들어가야 함. 가드 = `dropsTrainThatAlreadyDepartedQueriedStation`
+- 여정 예측 경로(`WaitSubwayArrivalPredictor`·`SubwayBoardingTimeEstimator`)는 `hasSeconds()`
+  로 거르므로 **동작 불변**. 예전엔 목록에서 빠졌고 지금은 목록에 있으나 초가 null 이라 무시됨
+- `SubwayRingSignalReader` 클래스 주석이 옛 필터(`adjustedSeconds >= 0`)를 설명하고 있었음 →
+  `arvlCd=2` 기준으로 갱신. 그 판단("select() 를 안 쓴다")은 그대로 유효
+- 테스트에서 `given(...)` 인자 안에서 mock 을 또 스터빙하면 `UnfinishedStubbingException`.
+  변수로 먼저 빼야 함 (`SubwayArrivalQueryServiceTest.givenStation`)
+
+### 좌표
+- application/subway/service/SubwayRealtimeArrivalReader.java:104 — `hasPassed` 필터
+- application/subway/service/SubwayRealtimeArrivalReader.java:150 — `hasPassed` 본체
+- application/subway/service/SubwayRealtimeArrivalReader.java:172 — `adjustedSeconds`, `raw<=0 → null`
+- application/subway/service/SubwayStationsAway.java:41 — `resolve(code, arvlMsg2)` (신규)
+- application/arrival/dto/SubwayArrivalResponse.java:28 — `stationsAway` 필드
+- application/arrival/service/SubwayArrivalQueryService.java:80 — 응답 조립부
+
+### 미결
+- segment 기반 ETA 추정에 빠진 부품 4개:
+  ① `arvlMsg3`(열차 현재 위치 역명)이 `SubwayRealtimeTrain` 까지 안 옴(`toTrain` 둘 다 누락)
+  ② N홉 누적 합산기 없음(`SubwaySegmentLookup` 은 인접 1칸만)
+  ③ 정차시간(dwell) 데이터 없음 — 역당 20~30초 과소추정
+  ④ `travelTime == null` 구간을 `SubwaySegmentLookup.reload()` 가 버림 → 그 구간 끼면 합산 불가
+- `SubwayRealtimeQueryService.adjustArrivalSeconds()`(별도 엔드포인트)는 여전히 0 으로 clamp.
+  같은 함정을 안고 있으나 이번 범위 밖
+
+### 배포
+- **마이그레이션 없음.** 최신은 여전히 V45
+- 설정 변경 없음
+- **클라이언트 영향**: `arrivalSeconds: null` 인 열차가 목록에 새로 나타난다. 앱이 초 없는
+  열차를 안 그리면 화면이 그대로다 — `stationsAway`/`currentMessage` 표기 대응 필요
+
+### 검증
+- `./gradlew compileJava` → 성공
+- `./gradlew test --tests '*SubwayRealtimeArrivalReaderTest*' --tests '*SubwayStationsAwayTest*'
+  --tests '*SubwayArrivalQueryServiceTest*'` → **18 tests, 0 failures**
+- `./gradlew test --tests '*Test'` → 1467 tests, **1 failed (기존 무관)**
+  - 실패 = `SubwayDataServiceTest.flow_test` — `Schema-validation: missing column [deleted_at]
+    in table [subway_ring_push_outbox]`. 작업트리에 딸려 있던 **PR-5b 미커밋 엔티티**
+    (`SubwayRingPushOutbox`, untracked)의 마이그레이션 미작성 탓. 이 브랜치와 무관
+  - 같은 원인으로 `@SpringBootTest` 계열 IT 79개가 컨텍스트 기동 실패(전량 동일 스택)
+
+## 2026-08-15 m7-pr5b-subway-live-activity (Live Activity 토큰 + push outbox + 발송)
+
+### 확정
+- **`ApnsConfig.payload["aps"]` 는 `Aps` 객체가 아니라 그 안의 Map 이 펴져서 들어간다.** SDK 가
+  빌드 시점에 `aps.getFields()` 를 꺼내 넣는다. 시험에서 `Aps.fields` 를 찾으려다 실패해서 알았다
+  — payload 계약 시험은 `payload.get("aps")` 를 **바로 Map 으로** 캐스팅한다
+- **`aps_timestamp` 를 칼럼으로 들고 `GREATEST(지금, 직전+1)` 로 채번한다.** PLAN 은 "sequence 와
+  같은 원천에서 파생"만 요구했다. 실제 시각에 붙여야 APNs 가 다른 알림과 견줄 수 있는데 같은
+  초에 두 건이 나가면 값이 같아져 순서가 사라진다 → 직전보다 반드시 1 크게 만들어 **단조성과
+  실시간성을 함께** 지킨다. 채번은 INSERT ... SELECT 한 문장 안에서 한다
+- **`ON CONFLICT DO NOTHING` 이 경합의 정답이다.** 워커 둘이 같은 여정을 동시에 계산하면 순번
+  unique 나 대기 unique 에 걸리는데, 그것은 "누가 더 새 걸 넣었다"는 뜻이라 예외가 아니다.
+  던지면 그 tick 전체가 죽는다
+- **종료 outbox 는 부르는 쪽 트랜잭션에 올라탄다**(`REQUIRES_NEW` 아님). 링 삭제를 `afterCommit`
+  으로 미룬 것과 방향이 다른 이유 — 링은 Redis 라 롤백이 안 되지만 이건 같은 DB 행이라 함께
+  커밋되거나 함께 되돌아갈 수 있다. `afterCommit` 도 아니다: 커밋과 콜백 사이에 죽으면 그
+  종료는 영영 안 만들어진다(outbox 를 쓰는 목적이 그 창을 없애는 것)
+- **종료 프레임은 마지막으로 보낸 payload 를 그대로 쓰고 `updatedAt` 만 새로 찍는다.** 진행률을
+  1.0 으로 채우지 않는다 — 종료는 하차로만 오는 것이 아니라 lease 만료·갈아타기로도 온다
+- **보낸 적 없는 여정에는 종료 행을 만들지 않는다.** 지울 화면이 없다
+- **재탐색(`abandonOpenOfRevision`)에서는 종료를 보내지 않는다.** Activity 는 여정 단위라 이어진다
+- signature 는 **뭉갠 값**으로 만든다(도착 예정 30초 버킷 + 진행률 0.05 눈금). 정확한 시각을
+  넣으면 재앵커마다 바뀌어 결국 15초마다 push 한다. 중요 이벤트(다음 역·국면·신선도)는 안 뭉갠다
+- 토큰은 **journey 단위**. leg/binding 축을 더하면 계승마다 재등록이 필요해 push 가 끊긴다.
+  낡은 payload 는 outbox 의 `binding_version` + 발송 직전 대조가 막는다
+
+### 함정
+- **`LiveActivityPushPort` 를 relay 에 필수 의존으로 넣으면 push 를 끈 기본 설정에서 부팅이
+  죽는다.** 어댑터가 `push.enabled AND sender=fcm` 일 때만 뜨기 때문 / 가드: relay 는
+  `ObjectProvider` 로 받고 `push.enabled` 를 먼저 본다. 켜 놓고 창구가 없는 조합은
+  `SubwayRingPushWiringValidator` 가 부팅에서 읽을 수 있는 문장으로 막는다
+  (시험 `SubwayLiveActivityTokenIT` 가 이 사고를 잡아 줬다)
+- **`BaseEntity` 를 상속하면 `deleted_at` 칼럼이 없으면 스키마 검증에서 부팅이 죽는다.**
+  V47 에 안 넣었다가 걸렸다 / 가드: 쓰지 않아도 칼럼은 둔다(V40 과 같은 관례)
+- **Jackson 은 `BigDecimal("0.4500")` 을 `0.45` 로 직렬화한다.** payload 시험에서 자릿수를
+  그대로 기대하면 깨진다
+- 링 tick 에서 relay 를 부르지 않는다 — 외부 왕복이 링 계산을 밀어낸다. 스케줄러가 따로다
+- `SubwayLegBindingRepository` 에 메서드를 더하면 `SubwayBoardingEvidenceServiceTest` 의
+  손수 만든 Fake 가 또 컴파일 실패한다(PR-5a 에 이어 두 번째)
+
+### 좌표
+- application/journey/service/SubwayRingPushDecider.java:56 — 보낼지 판정 + signature
+- application/journey/service/SubwayRingPushEnqueueService.java:69 — 링 변화 → 대기열
+- application/journey/service/SubwayRingPushRelayTxService.java:76 — **발송 직전 재확인**(이 PR 최대 난소)
+- domain/journey/repository/SubwayRingPushOutboxRepository.java:97 — 채번 INSERT(순번+timestamp)
+- domain/journey/repository/SubwayRingPushOutboxRepository.java:186 — 실패 원자 판정(CASE 3갈래)
+- infrastructure/adapter/out/notification/FcmLiveActivityPushAdapter.java:96 — Message 조립(계약 전부)
+
+### 미결
+- 앱이 `props.updatedAt` 과 `aps.timestamp` 중 무엇으로 순서를 가리는지 미확인
+- 앱이 재탐색 뒤에도 같은 Activity 를 유지하는지 미확인(유지 전제로 만들었다)
+- `push.ttl` 2분·`maxAttempts` 3 은 잠정값
+
+### 배포
+- **V46·V47 VPS 수동배치 필수**(V44·V45 와 같은 untracked 관례). 파일 전문은 PR 본문에 붙였다
+- 신규 설정 `journey.subway.ring.push.*` — `enabled` 기본 false
+- **켜는 순서**: `journey.notification.sender=fcm`(+ 자격증명 마운트) → `journey.subway.ring.enabled`
+  → **모바일 토큰 등록 확인** → `journey.subway.ring.push.enabled`
+- push 를 켰는데 sender 가 noop 이면 **부팅이 막힌다**(의도된 fail-fast)
+- 신규 의존성 없음 — `ApnsConfig.setLiveActivityToken` 이 firebase-admin 9.10 에 실재(javap 확인)
+
+### 검증
+- `./gradlew test --tests '*SubwayRingPushPayloadFactoryTest'` → **6 tests, 0 failures**
+- `./gradlew test --tests '*SubwayRingPushDeciderTest'` → **12 tests, 0 failures**
+- `./gradlew test --tests '*FcmLiveActivityPushAdapterTest'` → **11 tests, 0 failures**
+- `./gradlew test --tests '*SubwayRingPushIT'` → **20 tests, 0 failures**
+- `./gradlew test --tests '*SubwayLiveActivityTokenIT'` → **9 tests, 0 failures**
+- `./gradlew build` → 272 classes / **1900 tests, 0 failures**
