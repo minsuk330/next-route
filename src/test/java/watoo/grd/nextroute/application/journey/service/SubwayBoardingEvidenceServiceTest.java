@@ -433,6 +433,9 @@ class SubwayBoardingEvidenceServiceTest {
         @Override public List<SubwayLegBinding> findMatchable(int limit) {
             throw new UnsupportedOperationException();
         }
+        @Override public List<SubwayLegBinding> findRingTargets(int limit) {
+            throw new UnsupportedOperationException();
+        }
         @Override public Optional<SubwayLegBinding> findForMatch(Long legId) {
             throw new UnsupportedOperationException();
         }

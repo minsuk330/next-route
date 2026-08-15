@@ -18,6 +18,9 @@ import java.util.List;
  * @param currentLeg             지금 지나는 단계. {@code legs} 에서 뽑은 값이라 중복이지만, 앱이
  *                               매번 순번으로 찾지 않아도 되게 함께 준다
  * @param recommendedPollSeconds 다음에 물어볼 때까지 기다릴 초. 0 이면 그만 물어도 된다
+ * @param subwayGuidance         지하철 진행 안내. 지금 지하철 구간이 아니면 {@code null}.
+ *                               <b>단계 안이 아니라 최상위</b>에 둔다 — 모바일의 기존 계약이고,
+ *                               앱은 이 값 하나만 보고 Dynamic Island 를 그린다
  */
 public record JourneySnapshot(
         Long journeyId,
@@ -32,7 +35,8 @@ public record JourneySnapshot(
         JourneyLegView currentLeg,
         int recommendedPollSeconds,
         List<JourneyLegView> legs,
-        JourneyEtaView eta
+        JourneyEtaView eta,
+        SubwayGuidance subwayGuidance
 ) {
 
     /**
@@ -65,7 +69,7 @@ public record JourneySnapshot(
         return new JourneySnapshot(journeyId, status, commandVersion, evaluationVersion,
                 routeRevision, currentLegIndex, guidanceLeaseUntil,
                 subwayOfflineProtectionUntil, serverTime,
-                current, pollSecondsOf(status, current), legs, null);
+                current, pollSecondsOf(status, current), legs, null, null);
     }
 
     /**
@@ -74,13 +78,33 @@ public record JourneySnapshot(
      * <p>예측은 실시간 조회가 필요해 트랜잭션 밖에서 따로 계산한다. 그래서 기본 스냅샷을 만든
      * 뒤에 붙이는 모양이 된다.
      *
+     * <p><b>{@code subwayGuidance} 를 반드시 함께 옮긴다.</b> 이 메서드는 레코드를 통째로 다시
+     * 만들기 때문에 필드를 하나 더할 때마다 여기서 조용히 사라질 수 있다 — 사라지면 앱은
+     * 지하철 구간에서만, 그것도 예측이 붙은 응답에서만 링을 잃는다. 시험으로 고정한다.
+     *
      * @param pollSeconds 환승 위험을 반영해 좁힌 폴링 간격
      */
     public JourneySnapshot withEta(JourneyEtaView eta, int pollSeconds) {
         return new JourneySnapshot(journeyId, status, commandVersion, evaluationVersion,
                 routeRevision, currentLegIndex, guidanceLeaseUntil,
                 subwayOfflineProtectionUntil, serverTime,
-                currentLeg, pollSeconds, legs, eta);
+                currentLeg, pollSeconds, legs, eta, subwayGuidance);
+    }
+
+    /**
+     * 지하철 안내를 얹은 새 스냅샷.
+     *
+     * <p>{@code null} 이면 그대로 돌려준다 — 지하철 구간이 아닌 여정에서 레코드를 한 번 더
+     * 만들 이유가 없다.
+     */
+    public JourneySnapshot withSubwayGuidance(SubwayGuidance guidance) {
+        if (guidance == null) {
+            return this;
+        }
+        return new JourneySnapshot(journeyId, status, commandVersion, evaluationVersion,
+                routeRevision, currentLegIndex, guidanceLeaseUntil,
+                subwayOfflineProtectionUntil, serverTime,
+                currentLeg, recommendedPollSeconds, legs, eta, guidance);
     }
 
     private static JourneyLegView legOf(List<JourneyLegView> legs, int index) {

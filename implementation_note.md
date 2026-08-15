@@ -432,3 +432,171 @@
 - `./gradlew test --tests '*SubwayBindingRerouteInheritanceIT'` → 4건, 실패 0
 - `./gradlew test --tests '*Journey*' --tests '*Reroute*' --tests '*Subway*'` → 761건, 실패 0
 - `./gradlew build` 전체 → **1,777건, 실패 0, 오류 0** (PR-4a 1,768 + 신규 9)
+
+## 2026-08-15 m7-pr5-subway-ring 실호출 접지 (서울 실시간 도착 API)
+
+VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·잠실·동대문·건대입구·서울역·
+홍대입구·왕십리·사당·교대·성수·합정), 위치 API 는 2·4·7호선.
+
+### 확정
+- **도착 API `btrainNo` 와 위치 API `trainNo` 는 같은 번호 공간이다.** 4개 표본(2·4·7호선)
+  교집합 **16/16**, 도착에만 있는 번호 0건. binding 은 위치 API 로 고정하고 ring 은 도착 API 로
+  ETA 를 얻는데, 이 축이 어긋났으면 전 구간 STALE 이 될 뻔했다
+- **`arvlMsg3` 는 그 열차의 현재 역 이름이다.** "강남 도착"→`강남`, "[3]번째 전역 (청계산입구)"
+  →`청계산입구`, "6분 50초 후"→`사당`. **도착 API 하나로 열차 현재 위치까지 얻는다**
+- **`barvlDt`(남은 초)는 표본의 절반이 0 이고, 0 의 뜻이 `arvlCd` 에 따라 정반대다**
+  - `arvlCd=0`(진입)·`1`(도착) + 0 → **다 왔다**(이벤트)
+  - `arvlCd=99`(운행중) + 0 → **미산출**(아직 멀다. 문구가 `[N]번째 전역`)
+- `arvlCd` × 문구 실측 (n=107)
+
+  | arvlCd | 뜻 | n | 초 있음 | 문구 |
+  |---|---|---|---|---|
+  | 99 | 운행중 | 73 | 51 (70%) | `M분 S초 후`(초 있음) / `[N]번째 전역`(초 없음) |
+  | 1 | 도착 | 17 | 1 | `X 도착` |
+  | 5 | 전역 도착 | 6 | 6 | `전역 도착` (중앙값 120초) |
+  | 2 | 출발 | 4 | 0 | `X 출발` |
+  | 3 | 전역 출발 | 4 | 3 | `전역 출발` (150초) |
+  | 4 | 전역 진입 | 3 | 2 | `전역 진입` (120초) |
+
+- **`[N]번째 전역` 의 N 은 2 이상만 나온다**(실측 2,3,4,5,6,7,9,11,21,32). N=1 자리는
+  `arvlCd=3/4/5`(전역 출발·진입·도착)가 차지한다 → **남은 정거장이 이산 스케일로 완결된다**
+  (`N번째 전역` N≥2 → 전역 3/4/5 = 1 → 진입·도착 0/1 = 0)
+- 방향은 이미 정규화돼 있다. 도착 API `updnLine` = `상행/하행/내선/외선`, 위치 API = `0/1`
+  이고 위치 수집기가 저장 시점에 arrival 공간으로 바꿔 넣는다 → `binding.train_direction` 과
+  `SubwayRealtimeArrivalReader.select()` 의 필터가 같은 공간
+
+### 함정
+- **`SubwayRealtimeArrivalReader.select()` 를 링에 그대로 쓰면 안 된다.** `adjustedSeconds >= 0`
+  필터가 있어 `barvlDt=0` 인 **진입·도착 열차를 버린다** → 링이 1.00 을 영영 못 찍는다 /
+  가드: 링 조회는 그 필터를 타지 않는 별도 경로
+- **`newArrivalSeconds <= 0` 을 "곧 도착"으로 읽으면 안 된다.** PLAN 개정 3(codex 리뷰 반영)이
+  그렇게 적었는데 실측이 뒤집었다 — `arvlCd=99` 의 0 은 "3정거장 전"이다. 그대로 두면 멀리 있는
+  열차를 90%로 표시한다 / 가드: `arvlCd` 로 먼저 가른 뒤에만 초를 본다
+- `arvlMsg2` 파싱은 문자열이라 표기 변경에 깨진다. **1차 판정은 코드값 `arvlCd`**, N 추출은
+  보조로만
+
+### 좌표
+- infrastructure/adapter/out/api/subway/SeoulSubwayApiAdapter.java:200 — 위치 `item.getTrainNo()`
+- infrastructure/adapter/out/api/subway/SeoulSubwayApiAdapter.java:320 — 도착 `item.getBtrainNo()`
+- application/subway/service/SubwayRealtimeArrivalReader.java:100-116 — `select()` 필터(그대로 쓰면 안 됨)
+- application/subway/service/SubwayRealtimeArrivalReader.java:159 — `adjustedSeconds` (raw - elapsed)
+
+### 미결
+- ETA(초)가 나오는 비율 70%(운행중 기준). 나머지는 `[N]번째 전역` 이라 **구간 초반에는 초가 없다**.
+  링을 이산 앵커(`arvlCd`)로 채울지 freeze 로 둘지는 제품 결정
+
+### 추가 실측 (2026-08-15) — 두 원천 교차 검증과 커버리지
+
+**위치 API 와 도착 API 는 같은 것을 가리킨다.** 같은 시각에 긁어 같은 `trainNo` 의 현재 역을
+대조(2·4·7호선, 교집합 106대): **일치 99 / 불일치 7 (6.6%)**. 불일치는 전부 인접 역이고 전부
+`recptnDt` 가 음수 lag(도착 데이터가 4~51초 더 오래됨) — **의미 차이가 아니라 갱신 시차**다.
+
+| 위치 `trainSttus` | 현재 역 일치율 |
+|---|---|
+| `1` 도착 | 63/64 (98%) |
+| `2` 출발 | 29/29 (100%) |
+| `0` 진입 | **7/13 (54%)** ← 불일치가 전부 여기 |
+
+**그러나 도착 API 는 전 열차를 커버하지 않는다.** 위치 API 열차 177대 기준(2·4·5·7·9호선):
+
+| 노선 | 위치 열차 | 도착에 없음 | 인접행 있음 | 먼 역만 | 인접행 중 초 있음 |
+|---|---|---|---|---|---|
+| 2호선 | 39 | 1 | 38 | 0 | 46/46 |
+| 4호선 | 46 | 1 | 44 | 1 | **28/84 (33%)** |
+| 7호선 | 30 | 1 | 29 | 0 | 44/44 |
+| 5호선 | 35 | 2 | 33 | 0 | 50/59 |
+| 9호선 | 27 | 1 | 18 | **8 (30%)** | 25/25 |
+| 합 | 177 | **6 (3%)** | **162 (91%)** | 9 (5%) | 193/258 (74%) |
+
+역당 행 수는 **4행이 최빈**(417개 역) = 방향별 2대. 우리 열차가 그 역 기준 상위 2대에 못 들면
+목록에서 사라진다. 노선 편차가 크다 — 9호선 30%가 먼 역에서만(급행 추정), 4호선 초 확보율
+33%(코레일 직결 구간 추정).
+
+### 확정 (위 실측에서 나온 설계 결론)
+- **두 원천을 역할로 나눈다. 위치 API 를 판정에서 완전히 내리면 안 된다.**
+  도착 API 만 남은 초를 주지만 3%+5% 는 값이 없고, 위치 API 는 초를 못 주지만 전 열차를 준다
+
+  | 신호 | 주 원천 | 폴백 |
+  |---|---|---|
+  | 남은 초(0→0.90 보간) | 도착 `barvlDt` | 없음 → freeze + `STALE` |
+  | 진입 0.95 / 도착 1.00 | 도착 `arvlCd=0/1` | 위치 `trainSttus=0/1` |
+  | 구간 전환(0% 리셋) | 도착 `arvlCd=1` | **위치 `statnNm` 변화** ← 커버리지 안전망 |
+  | 열차 identity | 위치(binding 이 이미 씀) | — |
+
+  이 배치면 도착 API 에 안 잡히는 열차도 **구간은 잃지 않는다**. 링이 0% + `STALE` 로 멈추되
+  역이 바뀌면 다음 구간으로 정상 진행한다. 도착 하나에만 매달리면 그 여정은 내내 링이 죽는다
+- `arvlMsg3`(열차의 절대 현재 역)는 **판정에 쓰지 않는다.** 우리가 쓰는 값은 전부 조회역 기준
+  (`arvlCd`·`barvlDt`·`arvlMsg2`)이라 위치 API 와 좌표계를 맞출 필요 자체가 없다
+- **도착 ALL 응답은 한 시점 스냅샷이 아니다** — `recptnDt` 가 210종(역마다 수집 시각이 다르다).
+  `observedAt` 은 응답 전체가 아니라 **그 행의 `recptnDt`** 를 쓴다(`adjustedSeconds` 가 이미 그렇게 한다)
+- 폴링 주기를 **도착·위치 둘 다 15초**로 통일한다. 현재 도착은 10초
+  (`application.yaml:303` `realtime.subway.poll-interval-ms`), 위치는 15초. 통일하면 arrival 일일
+  호출이 8640 → 5760 회로 줄어 공유 quota 에 여유가 생긴다
+
+## 2026-08-15 m7-pr5a-subway-ring (진행 링 + 스냅샷 확장)
+
+### 확정
+- **구간 전환 표시를 따로 두지 않았다. `segmentProgress == 1.00` 자체가 표시다.** PLAN 의
+  `SubwayRingState` 에 없던 칸을 더할 뻔했는데, 이동 중 상한 0.90 / 진입 0.95 는 실제 도착
+  사건 없이는 만들어지지 않으므로 1.00 이면 도착을 본 것이다 → 다음 tick 이 그 값을 보고
+  구간을 넘긴다(`SubwayRingState.arrivedAtNextStation()`)
+- **`arvlCd=2`(조회역 출발)도 구간 전환이다.** PLAN 표에는 없던 경우다. 우리는 언제나 바로
+  다음 역만 조회하므로 "그 역을 출발했다" = 이미 지났다는 뜻이라 target 을 +1 한다
+- **남은 초를 값으로 들고 다니지 않고 `recptnDt + barvlDt` 절대 시각으로 바꿔 저장한다.**
+  `adjustedSeconds`(raw - elapsed)를 안 쓰는 이유 두 가지 — ①`ALL` 응답은 행마다 `recptnDt`
+  가 달라 "지금부터 N초"가 아니라 "그때부터 N초"다 ②앱이 앵커로 보간하므로 어차피 절대
+  시각이 필요하다. 결과로 `select()` 의 `adjustedSeconds>=0` 필터 문제를 우회하는 것이
+  아니라 **그 경로 자체를 안 탄다**(`SubwayRingSignalReader` 가 스냅샷을 직접 읽는다)
+- **역 이름 해석은 `SubwayRingStationResolver` 한 곳에서 한 번만.** 그 뒤의 판정은 전부
+  `statnId`. 노선별 `Map<정규화이름, statnId>` 를 메모리에 캐시하되 **빈 표는 캐시하지 않는다**
+  — 정적 데이터 적재 전에 캐시하면 그 노선이 재시작 전까지 영영 해석되지 않는다
+- **스냅샷 조립은 "지금 화면이 지하철일 때만" 고정 한 건을 더 읽는다.** 단계마다 읽으면 정확히
+  N+1. `WAIT_SUBWAY` 면 짝 `RIDE` 를 메모리에서 찾아 붙여 질의를 더 만들지 않는다
+- **링 정리는 `abandonOpen`/`abandonOpenOfRevision` 세 자리에 `afterCommit` 으로 얹었다.**
+  재탐색은 계승 뒤에 `abandonOpenOfRevision` 이 불리므로 그 경로도 함께 덮인다
+- PLAN §6 의 `journey.subway.ring.keys` 지표는 **안 넣었다**. 키 수를 세려면 `SCAN` 이 필요한데
+  그건 이 PR 이 금지한 것이다. TTL 회귀는 `RedisSubwayRingAdapterIT` 의 `getExpire` 단언으로
+  잡는다
+
+### 함정
+- **`DestinationNormalizer` 는 끝 "역"을 한 번만 뗀다.** 시험 픽스처에서 마스터 이름을
+  `중간역역` 으로 두면 `중간역` 이 되고 계획 이름 `중간역` 은 `중간` 이 되어 안 맞는다 /
+  가드: 표기 흔들림은 괄호 접미사(`중간역(2호선)`)로 시험한다
+- **시험 환경에서 `journey_leg.route_id` 는 `2호선` → `1002` 로 해석돼 채워진다**
+  (`JourneyTransitIdEnricher` + `SubwayLineIdMapper.resolveOdsay`). 처음엔 null 일 거라
+  의심했는데 아니었다 — 링 IT 는 그 값을 읽어 `subway_station` 을 심는다
+- `JourneySnapshot` 에 필드를 더하면 `withEta()` 가 조용히 떨어뜨린다. `of()` 시그니처는
+  건드리지 않고 `withSubwayGuidance()` 를 따로 뒀다 — `of()` 를 고치면 시험 6개가 깨진다
+- `SubwayLegBindingRepository` 에 메서드를 더하면 `SubwayBoardingEvidenceServiceTest` 의
+  손수 만든 `FakeBindingRepository` 가 컴파일 실패한다(추상 메서드 미구현)
+
+### 좌표
+- application/journey/service/SubwayRingCalculator.java:105 — `next()` 본체(코드→초 순서)
+- application/journey/service/SubwayRingCalculator.java:88 — `targetStationSequence()`
+  (갱신기가 조회할 역을 여기서만 정한다)
+- application/journey/service/SubwayRingSignalReader.java:85 — 도착 스냅샷 직접 조회
+- application/journey/service/JourneySubwayGuidanceComposer.java:57 — 스냅샷 조립 진입점
+- infrastructure/adapter/out/cache/journey/RedisSubwayRingAdapter.java:44 — 저장 Lua(값+TTL+색인)
+- domain/journey/repository/SubwayLegBindingRepository.java:57 — `findRingTargets` (CONFIRMED 만)
+
+### 미결
+- `freshnessWindow` 120초는 잠정값. 실기기 관측 전에는 근거 없음
+- UI 역행 금지가 앱에 실제로 걸려 있는지 미확인. 서버는 앵커 단조까지만 보장한다
+- PR-5b(V46 토큰·V47 outbox·FCM 발송)는 모바일 토큰 등록 확인 후 착수
+
+### 배포
+- **마이그레이션 없음**(PR-5a). 최신은 여전히 V45
+- 신규 설정 `journey.subway.ring.*` — `enabled` 기본 false
+- **기존 설정 변경 1건**: `realtime.subway.poll-interval-ms` 10000 → **15000**
+  (위치 수집기와 주기 통일. 도착 API 일일 호출 8640 → 5760)
+- 켜는 순서: `realtime.subway.enabled` + `realtime.subway.position.*` →
+  `journey.subway.binding.enabled` → `journey.subway.ring.enabled`
+
+### 검증
+- `./gradlew test --tests '*SubwayRingCalculatorTest'` → **21 tests, 0 failures**
+  (XML 5개 합산: 본체 11 + Nested 2/3/2/3)
+- `./gradlew test --tests '*RedisSubwayRingAdapterIT'` → **6 tests, 0 failures** (Testcontainers Redis)
+- `./gradlew test --tests '*SubwayRingIT'` → **11 tests, 0 failures**
+- `./gradlew test --tests '*JourneySubwayGuidanceIT'` → **9 tests, 0 failures**
+- `./gradlew test --tests '*Journey*' --tests '*Subway*'` → 98 classes / **720 tests, 0 failures**
+- `./gradlew build` → 263 classes / **1824 tests, 0 failures**
