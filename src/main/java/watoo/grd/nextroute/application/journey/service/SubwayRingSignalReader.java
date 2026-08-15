@@ -45,9 +45,12 @@ import java.util.Optional;
  *
  * <h2>{@code select()} 를 쓰지 않는다</h2>
  *
- * <p>{@code SubwayRealtimeArrivalReader.select()} 에는 {@code adjustedSeconds >= 0} 필터가 있어
- * <b>{@code barvlDt=0} 인 진입·도착 열차를 버린다</b>. 그걸 타면 링이 1.00 을 영영 못 찍는다.
- * 그 필터는 "다음에 탈 열차 고르기"에는 맞고 "내가 탄 열차 따라가기"에는 정반대다.
+ * <p>{@code SubwayRealtimeArrivalReader.select()} 는 <b>{@code arvlCd=2}(조회역 출발) 열차를
+ * 버린다</b>. 그건 "다음에 탈 열차 고르기"에는 맞지만 "내가 탄 열차 따라가기"에는 정반대다 —
+ * 우리 열차는 그 역을 출발한 바로 그 열차다. 그걸 타면 링이 1.00 을 영영 못 찍는다.
+ *
+ * <p>거르는 근거가 초에서 {@code arvlCd} 로 바뀐 뒤에도 이 판단은 그대로다. 저쪽의 관심은
+ * "아직 안 온 열차"이고 이쪽의 관심은 "지금 타고 있는 열차"라, 같은 목록에서 서로 반대편을 본다.
  */
 @Slf4j
 @Component
