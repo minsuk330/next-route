@@ -734,3 +734,12 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew test --tests '*SubwayRingPushIT'` → **20 tests, 0 failures**
 - `./gradlew test --tests '*SubwayLiveActivityTokenIT'` → **9 tests, 0 failures**
 - `./gradlew build` → 272 classes / **1900 tests, 0 failures**
+
+#### 정정 (같은 날)
+- 위 `### 검증` 의 `./gradlew build` 수치 ~~272 classes / 1900 tests~~ 는 **다른 브랜치 위에서
+  잰 값이다**. 작업 중 이 작업 트리가 다른 세션에 의해 `feat/subway-arrival-prev-station`
+  (PR #155)로 바뀌어 있었고, 커밋이 그 위에 얹혔다. fresh main 기준으로 옮겨 다시 재니
+  **271 classes / 1885 tests, 0 failures**(차이는 PR #155 이 더한 시험)
+- 함정으로 남길 것: **한 작업 트리를 두 세션이 공유하면 `git checkout -b` 뒤에도 브랜치가
+  바뀌어 있을 수 있다.** 커밋 직후 `git log --oneline -2` 로 부모를 확인한다 / 가드: PR 생성이
+  "No commits between main and <branch>" 로 실패하면 이 상황부터 의심한다
