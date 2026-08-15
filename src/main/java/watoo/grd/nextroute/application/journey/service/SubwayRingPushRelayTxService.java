@@ -2,7 +2,6 @@ package watoo.grd.nextroute.application.journey.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
@@ -11,6 +10,7 @@ import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLiveActivityToken;
 import watoo.grd.nextroute.domain.journey.entity.SubwayRingPushEvent;
 import watoo.grd.nextroute.domain.journey.entity.SubwayRingPushOutbox;
+import watoo.grd.nextroute.domain.journey.entity.SubwayRingPushStatus;
 import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
 import watoo.grd.nextroute.domain.journey.repository.SubwayLiveActivityTokenRepository;
 import watoo.grd.nextroute.domain.journey.repository.SubwayRingPushOutboxRepository;
@@ -112,25 +112,28 @@ public class SubwayRingPushRelayTxService {
     /**
      * 실패를 판정한다. 되돌릴지 접을지는 저장소의 한 문장이 정한다.
      *
-     * <p>{@code PENDING} 재등록이 대기 unique 와 충돌할 수 있는 좁은 창이 남는다. 그 충돌은
-     * <b>누가 더 새 걸 넣었다</b>는 뜻이므로 예외가 아니라 {@code SKIPPED} 로 귀결한다.
+     * <h2>여기서 충돌을 삼키지 않는다</h2>
+     *
+     * <p>{@code PENDING} 재등록이 대기 unique 와 충돌할 수 있는 좁은 창이 남는다(판정 문장이
+     * 최신성을 읽은 뒤 쓰기 전에 더 새 행이 커밋되는 경우). 그 충돌을 <b>이 트랜잭션 안에서</b>
+     * 잡아 {@code SKIPPED} 로 고쳐 쓰려고 하면 안 된다 — PostgreSQL 은 문장 하나가 실패하면
+     * 그 트랜잭션을 통째로 abort 상태로 만들고, 이후의 모든 문장이
+     * {@code current transaction is aborted}(25P02) 로 거절된다. savepoint 없이는 같은
+     * 트랜잭션에서 복구 쓰기를 할 수 없다.
+     *
+     * <p>그래서 충돌은 <b>그대로 던진다</b>. 이 트랜잭션은 롤백되고(판정도 반영되지 않는다),
+     * 정리는 부르는 쪽이 <b>새 트랜잭션</b>에서 한다({@code SubwayRingPushRelayService}).
      *
      * @return 되돌렸으면 true(재시도가 남았다)
+     * @throws org.springframework.dao.DataIntegrityViolationException 그 사이 더 새 행이 생겼다
      */
     @Transactional
     public boolean resolveFailure(Long id, String reason) {
-        try {
-            outboxRepository.resolveFailure(id, reason,
-                    properties.getPush().getMaxAttempts(), Instant.now(clock),
-                    LocalDateTime.now(clock));
-        } catch (DataIntegrityViolationException e) {
-            log.debug("[SubwayRingPush] 재등록 경합 — 구형으로 접는다 id={}", id);
-            outboxRepository.markSkipped(id, "superseded", LocalDateTime.now(clock));
-            return false;
-        }
+        outboxRepository.resolveFailure(id, reason,
+                properties.getPush().getMaxAttempts(), Instant.now(clock),
+                LocalDateTime.now(clock));
         return outboxRepository.findById(id)
-                .map(row -> row.getStatus() == watoo.grd.nextroute.domain.journey.entity
-                        .SubwayRingPushStatus.PENDING)
+                .map(row -> row.getStatus() == SubwayRingPushStatus.PENDING)
                 .orElse(false);
     }
 

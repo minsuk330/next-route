@@ -3,6 +3,7 @@ package watoo.grd.nextroute.application.journey.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
 import watoo.grd.nextroute.application.journey.observability.SubwayRingMetrics;
@@ -11,13 +12,16 @@ import watoo.grd.nextroute.domain.journey.entity.SubwayLiveActivityToken;
 import watoo.grd.nextroute.domain.journey.entity.SubwayRingPushEvent;
 import watoo.grd.nextroute.domain.journey.entity.SubwayRingPushOutbox;
 import watoo.grd.nextroute.domain.journey.entity.SubwayRingPushStatus;
+import watoo.grd.nextroute.domain.push.entity.UserPushToken;
 import watoo.grd.nextroute.domain.push.repository.UserPushTokenRepository;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * 대기열을 집어 실제로 보낸다.
@@ -68,8 +72,10 @@ public class SubwayRingPushRelayService {
                 processOne(id);
             } catch (Exception e) {
                 metrics.recordPushResult("failed", "exception");
-                txService.resolveFailure(id, shortReason(e));
                 log.warn("[SubwayRingPush] 발송 실패 id={}: {}", id, e.getMessage());
+                // 정리 자체가 또 실패해도 이 건만 죽어야 한다. 여기서 던지면 남은 배치가
+                // 통째로 이번 tick 을 건너뛴다.
+                resolve(id, shortReason(e));
             }
         }
         return claimed.size();
@@ -106,9 +112,10 @@ public class SubwayRingPushRelayService {
     private void dispatch(SubwayRingPushOutbox row, List<SubwayLiveActivityToken> tokens) {
         boolean anyDelivered = false;
         String lastError = "unknown";
+        Map<Long, UserPushToken> devices = devicesOf(tokens);
 
         for (SubwayLiveActivityToken token : tokens) {
-            String deviceToken = deviceTokenOf(token);
+            String deviceToken = deviceTokenOf(token, devices);
             if (deviceToken == null) {
                 // 기기 주소가 해제됐다. 이 Activity 는 더 이상 닿을 수 없다.
                 lastError = "device_token_gone";
@@ -141,11 +148,52 @@ public class SubwayRingPushRelayService {
             }
             return;
         }
-        boolean retrying = txService.resolveFailure(row.getId(), lastError);
+        boolean retrying = resolve(row.getId(), lastError);
         metrics.recordPushResult(retrying ? "retrying" : "failed", lastError);
         if (retrying) {
             metrics.recordPushRetry(row.isCritical());
         }
+    }
+
+    /**
+     * 실패를 판정하되, <b>판정 자체가 경합에 지면 새 트랜잭션에서 접는다.</b>
+     *
+     * <p>판정 문장이 대기 unique 와 충돌하면 그 트랜잭션은 PostgreSQL 규칙상 통째로 abort 된다 —
+     * 같은 트랜잭션에서는 복구 쓰기를 할 수 없다. 이 메서드는 트랜잭션 밖이라 각 호출이 자기
+     * 트랜잭션을 열고, 그래서 여기서 정리할 수 있다.
+     *
+     * <p>충돌은 <b>더 새 화면이 이미 대기 중</b>이라는 뜻이므로 실패가 아니라 구형이다.
+     *
+     * @return 재시도로 되돌렸으면 true
+     */
+    private boolean resolve(Long id, String reason) {
+        try {
+            return txService.resolveFailure(id, reason);
+        } catch (DataIntegrityViolationException e) {
+            txService.markSkipped(id, "superseded");
+            metrics.recordPushResult("skipped", "superseded");
+            return false;
+        } catch (Exception e) {
+            // 정리에 실패해도 행은 SENDING 으로 남고 고착 회수가 되돌린다. 여기서 던지면
+            // 남은 배치가 죽는다.
+            log.warn("[SubwayRingPush] 실패 판정 실패 id={}: {}", id, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 그 행이 쓸 기기 주소를 <b>한 번에</b> 읽는다.
+     *
+     * <p>토큰마다 따로 물으면 배치 크기 × 기기 수만큼 단건 조회가 2초마다 돈다 — 링이 빨라야 할
+     * 때 정확히 DB 왕복이 늘어난다.
+     */
+    private Map<Long, UserPushToken> devicesOf(List<SubwayLiveActivityToken> tokens) {
+        List<Long> ids = tokens.stream()
+                .map(SubwayLiveActivityToken::getPushTokenId)
+                .distinct()
+                .toList();
+        return pushTokenRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(UserPushToken::getId, device -> device));
     }
 
     /**
@@ -154,11 +202,12 @@ public class SubwayRingPushRelayService {
      * <p>Activity 행이 가리키는 기기 주소를 그대로 쓴다. "가장 최근 기기"를 다시 고르지 않는다 —
      * 그러면 A 기기의 Activity 토큰을 B 기기 주소로 보내게 되고, APNs 는 그 조합을 조용히 버린다.
      */
-    private String deviceTokenOf(SubwayLiveActivityToken token) {
-        return pushTokenRepository.findById(token.getPushTokenId())
-                .filter(device -> device.getDeletedAt() == null && device.isEnabled())
-                .map(device -> device.getToken())
-                .orElse(null);
+    private String deviceTokenOf(SubwayLiveActivityToken token, Map<Long, UserPushToken> devices) {
+        UserPushToken device = devices.get(token.getPushTokenId());
+        if (device == null || device.getDeletedAt() != null || !device.isEnabled()) {
+            return null;
+        }
+        return device.getToken();
     }
 
     /**

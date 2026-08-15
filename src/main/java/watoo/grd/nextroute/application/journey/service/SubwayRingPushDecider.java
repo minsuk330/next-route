@@ -59,15 +59,6 @@ public class SubwayRingPushDecider {
         return Optional.of(new Decision(reason, signatureOf(current), current.updatedAt()));
     }
 
-    /**
-     * 종료는 링과 무관하게 언제나 보낸다.
-     *
-     * <p>여기까지 왔다는 것은 여정이 끝났다는 뜻이고, 안 보내면 잠금화면에 죽은 안내가 남는다.
-     */
-    public Decision terminal(Instant now) {
-        return new Decision(SubwayRingPushReason.END, "end:" + now.toEpochMilli(), now);
-    }
-
     private SubwayRingPushReason reasonOf(SubwayRingState previous, SubwayRingState current) {
         if (previous == null) {
             // 첫 화면. 이것을 놓치면 위젯이 "확인 중"에서 영영 안 벗어난다.

@@ -92,12 +92,9 @@ class SubwayRingPushDeciderTest {
         }
 
         @Test
-        @DisplayName("종료는 링과 무관하게 언제나 critical 이다")
+        @DisplayName("종료는 언제나 critical 이다 — 유실되면 잠금화면에 죽은 안내가 남는다")
         void terminalIsAlwaysCritical() {
-            SubwayRingPushDecider.Decision terminal = decider.terminal(T0);
-
-            assertThat(terminal.reason()).isEqualTo(SubwayRingPushReason.END);
-            assertThat(terminal.critical()).isTrue();
+            assertThat(SubwayRingPushReason.END.isCritical()).isTrue();
         }
     }
 

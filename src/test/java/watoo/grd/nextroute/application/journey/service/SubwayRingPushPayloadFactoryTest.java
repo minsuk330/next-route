@@ -97,35 +97,6 @@ class SubwayRingPushPayloadFactoryTest {
         assertThat(props.get("quality").asText()).isEqualTo("STALE");
     }
 
-    @Test
-    @DisplayName("종료 프레임은 마지막 화면을 그대로 쓰고 시각만 새로 찍는다")
-    void terminalKeepsTheLastScreen() throws Exception {
-        ObjectNode last = factory.contentState(JOURNEY_ID, "2호선", ring(), T0);
-
-        ObjectNode terminal = factory.terminalContentState(last, T0.plusSeconds(600));
-
-        JsonNode props = propsOf(terminal);
-        assertThat(terminal.get("name").asText()).isEqualTo("NavigationLiveActivity");
-        assertThat(props.get("nextStationName").asText()).isEqualTo("역삼");
-        // 진행률을 1.0 으로 채워 넣지 않는다 — 종료는 하차로만 오는 것이 아니다.
-        assertThat(props.get("segmentProgress").decimalValue()).isEqualByComparingTo("0.45");
-        assertThat(props.get("updatedAt").asLong())
-                .isEqualTo(T0.plusSeconds(600).toEpochMilli());
-    }
-
-    @Test
-    @DisplayName("마지막 화면을 못 읽어도 종료는 만들어진다")
-    void terminalSurvivesBrokenLastScreen() {
-        ObjectNode broken = objectMapper.createObjectNode();
-        broken.put("name", "NavigationLiveActivity");
-        broken.put("props", "not-json");
-
-        ObjectNode terminal = factory.terminalContentState(broken, T0);
-
-        assertThat(terminal.get("name").asText()).isEqualTo("NavigationLiveActivity");
-        assertThat(terminal.get("props").isTextual()).isTrue();
-    }
-
     private JsonNode propsOf(ObjectNode envelope) throws Exception {
         return objectMapper.readTree(envelope.get("props").asText());
     }

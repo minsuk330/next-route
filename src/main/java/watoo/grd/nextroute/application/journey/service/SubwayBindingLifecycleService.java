@@ -142,9 +142,7 @@ public class SubwayBindingLifecycleService {
      * 남고</b>, 앱이 꺼져 있으면 사용자가 지울 방법도 없다.
      */
     private void endLiveActivity(Collection<Long> journeyIds) {
-        for (Long journeyId : journeyIds) {
-            pushEnqueueService.enqueueTerminal(journeyId);
-        }
+        pushEnqueueService.enqueueTerminal(journeyIds);
     }
 
     // ── 진행 링 정리 ────────────────────────────────────────────────────────

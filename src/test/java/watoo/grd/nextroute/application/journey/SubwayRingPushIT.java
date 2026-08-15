@@ -242,11 +242,8 @@ class SubwayRingPushIT {
         relayTxService.claim();
         enqueueService.enqueueIfChanged(ring(1, "0.4500"), ring(2, "0.0000"), rideLeg);
 
-        SubwayRingPushOutbox claimed = outboxRepository
-                .findFirstByJourneyIdOrderBySequenceDesc(journeyId).orElseThrow();
-        SubwayRingPushOutbox stale = outboxRepository.findAll().stream()
-                .filter(row -> row.getJourneyId().equals(journeyId) && row.getSequence() == 1L)
-                .findFirst().orElseThrow();
+        SubwayRingPushOutbox claimed = rowOfSequence(2L);
+        SubwayRingPushOutbox stale = rowOfSequence(1L);
 
         assertThat(relayTxService.reasonToSkip(stale)).contains("superseded");
         assertThat(relayTxService.reasonToSkip(claimed))
@@ -371,15 +368,53 @@ class SubwayRingPushIT {
 
     @Test
     @DisplayName("종료 행은 마지막 화면을 그대로 쓴다 — 진행률을 1.0 으로 지어내지 않는다")
-    void terminalKeepsTheLastScreen() {
+    void terminalKeepsTheLastScreen() throws Exception {
         enqueueService.enqueueIfChanged(null, ring(1, "0.4500"), rideLeg);
 
         transactionTemplate.executeWithoutResult(status ->
                 lifecycleService.abandonOpen(journeyId, SubwayBindingAbandonReason.ENDED));
 
         JsonNode terminal = payloadOfSequence(2L);
+        assertThat(terminal.get("name").asText()).isEqualTo("NavigationLiveActivity");
+        assertThat(terminal.get("props").isTextual())
+                .as("종료도 props 는 JSON 문자열이어야 한다 — 객체로 펴지면 앱이 무시한다")
+                .isTrue();
+
+        // 문자열 비교가 아니라 값으로 본다. jsonb 는 키 순서를 보존하지 않고 수치 표기도
+        // 원본 그대로 유지해(0.4500), 직렬화 문자열은 만드는 쪽마다 다르다.
+        JsonNode props = propsOf(terminal);
         // 1.0 이 아니다. 종료는 하차로만 오는 것이 아니라 lease 만료·갈아타기로도 온다.
-        assertThat(terminal.get("props").asText()).contains("\"segmentProgress\":0.45");
+        assertThat(props.get("segmentProgress").decimalValue()).isEqualByComparingTo("0.45");
+        assertThat(props.get("nextStationName").asText()).isEqualTo("역1");
+        assertThat(props.get("phase").asText()).isEqualTo("RIDE_SUBWAY");
+    }
+
+    @Test
+    @DisplayName("종료 프레임의 updatedAt 은 새로 찍힌다 — 마지막 진행 프레임보다 나중이다")
+    void terminalRefreshesUpdatedAt() throws Exception {
+        enqueueService.enqueueIfChanged(null, ring(1, "0.4500"), rideLeg);
+        long lastUpdatedAt = updatedAtOf(payloadOfSequence(1L));
+
+        transactionTemplate.executeWithoutResult(status ->
+                lifecycleService.abandonOpen(journeyId, SubwayBindingAbandonReason.ENDED));
+
+        assertThat(updatedAtOf(payloadOfSequence(2L))).isGreaterThan(lastUpdatedAt);
+    }
+
+    @Test
+    @DisplayName("종료가 이미 있으면 두 번 만들지 않는다 — 접기 경로가 둘 이상 지나가도")
+    void terminalIsMadeOnce() {
+        enqueueService.enqueueIfChanged(null, ring(1, "0.4500"), rideLeg);
+        transactionTemplate.executeWithoutResult(status ->
+                lifecycleService.abandonOpen(journeyId, SubwayBindingAbandonReason.ENDED));
+
+        transactionTemplate.executeWithoutResult(status ->
+                lifecycleService.abandonOpen(journeyId, SubwayBindingAbandonReason.ENDED));
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*) from subway_ring_push_outbox
+                 where journey_id = ? and event = 'end'
+                """, Integer.class, journeyId)).isEqualTo(1);
     }
 
     @Test
@@ -463,6 +498,22 @@ class SubwayRingPushIT {
                 new BigDecimal(progress), T0, new BigDecimal("0.90"),
                 T0.plusSeconds(90), T0.plusSeconds(120),
                 SubwayRingPhase.RIDE_SUBWAY, SubwayRingQuality.NORMAL, T0, T0);
+    }
+
+    private JsonNode propsOf(JsonNode contentState) throws Exception {
+        return new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(contentState.get("props").asText());
+    }
+
+    private long updatedAtOf(JsonNode contentState) throws Exception {
+        return propsOf(contentState).get("updatedAt").asLong();
+    }
+
+    private SubwayRingPushOutbox rowOfSequence(long sequence) {
+        Long id = jdbcTemplate.queryForObject("""
+                select id from subway_ring_push_outbox where journey_id = ? and sequence = ?
+                """, Long.class, journeyId, sequence);
+        return outboxRepository.findById(id).orElseThrow();
     }
 
     private Integer rowCount() {

@@ -15,13 +15,13 @@ import watoo.grd.nextroute.application.subway.service.SubwayLineIdMapper;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.SubwayRingPushEvent;
-import watoo.grd.nextroute.domain.journey.entity.SubwayRingPushOutbox;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionRepository;
 import watoo.grd.nextroute.domain.journey.repository.SubwayRingPushOutboxRepository;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.Optional;
 
 /**
@@ -98,29 +98,30 @@ public class SubwayRingPushEnqueueService {
      * <p>{@code afterCommit} 으로 미루지 않는 이유도 같다. 커밋과 콜백 사이에 프로세스가 죽으면
      * 그 종료는 <b>영영 만들어지지 않는다</b> — outbox 를 쓰는 목적이 정확히 그 창을 없애는 것이다.
      *
-     * @return 넣었으면 true. 그 여정에 보낸 적이 없으면 지울 화면도 없다
+     * <p><b>여정마다 부르지 않는다.</b> 부르는 자리 중 하나가 lease 만료 배치인데, 그 트랜잭션은
+     * 문장 하나만 감싸도록 설계돼 있다 — 여정 수만큼 왕복을 끼우면 만료 하나가 커넥션 풀을
+     * 마르게 한다. 그래서 밀기·넣기 각각 한 문장이다.
+     *
+     * @return 넣은 종료 행 수. 보낸 적이 없는 여정은 지울 화면도 없어 세지 않는다
      */
     @Transactional
-    public boolean enqueueTerminal(Long journeyId) {
-        if (!properties.getPush().isEnabled()) {
-            return false;
-        }
-        SubwayRingPushOutbox last = outboxRepository
-                .findFirstByJourneyIdOrderBySequenceDesc(journeyId)
-                .orElse(null);
-        if (last == null) {
-            return false;
-        }
-        if (last.eventType() == SubwayRingPushEvent.END) {
-            // 이미 종료를 만들었다. 접기 경로가 둘 이상 지나가도 한 번만 보낸다.
-            return false;
+    public int enqueueTerminal(Collection<Long> journeyIds) {
+        if (!properties.getPush().isEnabled() || journeyIds.isEmpty()) {
+            return 0;
         }
         Instant now = Instant.now(clock);
-        ObjectNode contentState = payloadFactory.terminalContentState(last.getPayload(), now);
+        LocalDateTime auditNow = LocalDateTime.now(clock);
 
-        return insert(journeyId, last.getRouteRevision(), last.getLegIndex(),
-                last.getBindingVersion(), SubwayRingPushReason.END,
-                decider.terminal(now).signature(), SubwayRingPushEvent.END, contentState);
+        // 대기 중인 진행 갱신을 먼저 민다. 종료는 밀지 않는다 — 접기 경로가 둘 이상 지나가도
+        // 그 여정이 잠금화면을 지울 기회를 잃으면 안 된다.
+        outboxRepository.skipOpenUpdatesByJourneyIn(journeyIds, auditNow);
+
+        int inserted = outboxRepository.enqueueTerminalByJourneyIn(journeyIds,
+                now.getEpochSecond(), now.toEpochMilli(), decider.expiresAt(now), auditNow);
+        if (inserted > 0) {
+            metrics.recordPushEnqueued(SubwayRingPushReason.END, true);
+        }
+        return inserted;
     }
 
     // ── 넣기 ────────────────────────────────────────────────────────────────

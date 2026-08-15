@@ -8,6 +8,7 @@ import watoo.grd.nextroute.domain.journey.entity.SubwayRingPushOutbox;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,15 +42,6 @@ public interface SubwayRingPushOutboxRepository extends JpaRepository<SubwayRing
     Optional<String> findLatestSignature(@Param("journeyId") Long journeyId,
                                          @Param("routeRevision") int routeRevision,
                                          @Param("legIndex") int legIndex);
-
-    /**
-     * 그 여정에 <b>마지막으로 만든</b> 행.
-     *
-     * <p>종료 프레임이 쓴다. 종료는 "마지막으로 보여 준 화면에 시각만 새로 찍은 것"이어야
-     * 하는데, 그 화면이 여기 들어 있다. 이 행이 없다는 것은 그 여정에 아무것도 보낸 적이
-     * 없다는 뜻이므로 <b>지울 화면도 없다</b>.
-     */
-    Optional<SubwayRingPushOutbox> findFirstByJourneyIdOrderBySequenceDesc(Long journeyId);
 
     /**
      * 그 키의 대기 중인 행을 폐기한다. 새 것을 넣기 <b>직전에</b> 부른다.
@@ -116,6 +108,86 @@ public interface SubwayRingPushOutboxRepository extends JpaRepository<SubwayRing
                 @Param("payload") String payload,
                 @Param("expiresAt") Instant expiresAt,
                 @Param("now") LocalDateTime now);
+
+    // ── 종료(여정 단위, 배치) ───────────────────────────────────────────────
+
+    /**
+     * 종료를 넣기 직전에 그 여정들의 대기 중인 <b>진행 갱신</b>을 폐기한다.
+     *
+     * <p>{@code event = 'update'} 만 민다. 이미 대기 중인 종료까지 밀면 그 여정은 잠금화면을
+     * 지울 기회를 잃는다 — 접기 경로가 둘 이상 지나갈 때 실제로 일어난다.
+     *
+     * <p>여정마다 부르지 않고 한 문장으로 묶는 것이 중요하다. 이 질의를 부르는 자리 중 하나가
+     * lease 만료 배치인데, 그 트랜잭션은 <b>문장 하나만 감싸도록</b> 설계돼 있다(여정 수만큼
+     * 왕복을 끼우면 만료 하나가 커넥션 풀을 마르게 한다).
+     *
+     * @return 폐기한 행 수
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
+    @Query(value = """
+            UPDATE subway_ring_push_outbox
+               SET status = 'SKIPPED', last_failure_reason = 'superseded', updated_at = :now
+             WHERE journey_id IN (:journeyIds)
+               AND status = 'PENDING'
+               AND event = 'update'
+            """, nativeQuery = true)
+    int skipOpenUpdatesByJourneyIn(@Param("journeyIds") Collection<Long> journeyIds,
+                                   @Param("now") LocalDateTime now);
+
+    /**
+     * 여정들의 <b>종료 프레임</b>을 한 문장으로 넣는다.
+     *
+     * <h2>마지막으로 보여 준 화면을 그대로 쓴다</h2>
+     *
+     * <p>진행률을 1.0 으로 채워 넣지 않는다. 종료는 하차로만 오는 것이 아니라 lease 만료·여정
+     * 갈아타기로도 오는데, 그때 "다 왔다"를 마지막 프레임으로 남기면 화면이 거짓말을 한 채로
+     * 잠금화면에 굳는다. 바꾸는 것은 {@code props.updatedAt} 하나뿐이다.
+     *
+     * <p>{@code props} 는 jsonb <b>안의 JSON 문자열</b>이라 한 번 풀었다가 다시 문자열로 넣는다.
+     * 객체로 펴 놓으면 앱 디코딩이 실패해 종료가 조용히 무시된다.
+     *
+     * <h2>보낸 적 없으면 넣지 않는다</h2>
+     *
+     * <p>바깥 조인이 아니라 안쪽 조인이다 — 그 여정에 행이 하나도 없으면 <b>지울 화면도 없다</b>.
+     * 이미 종료를 만든 여정도 {@code last.event <> 'end'} 로 걸러 두 번 넣지 않는다.
+     *
+     * @param nowEpochMillis {@code props} 의 시각은 밀리초다({@code aps_timestamp} 는 초)
+     * @return 넣은 행 수
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
+    @Query(value = """
+            INSERT INTO subway_ring_push_outbox
+                (journey_id, route_revision, leg_index, binding_version, sequence, aps_timestamp,
+                 signature, critical, reason, event, payload, status, attempt_count,
+                 expires_at, created_at, updated_at)
+            SELECT last.journey_id, last.route_revision, last.leg_index, last.binding_version,
+                   last.max_sequence + 1,
+                   GREATEST(cast(:nowEpochSeconds as bigint), last.max_aps + 1),
+                   'end:' || cast(:nowEpochMillis as text),
+                   true, 'end', 'end',
+                   jsonb_build_object(
+                       'name', last.payload ->> 'name',
+                       'props', cast(jsonb_set((last.payload ->> 'props')::jsonb,
+                                               '{updatedAt}',
+                                               to_jsonb(cast(:nowEpochMillis as bigint)))
+                                     as text)),
+                   'PENDING', 0, :expiresAt, :now, :now
+              FROM (SELECT DISTINCT ON (o.journey_id)
+                           o.journey_id, o.route_revision, o.leg_index, o.binding_version,
+                           o.payload, o.event,
+                           max(o.sequence) OVER (PARTITION BY o.journey_id) AS max_sequence,
+                           max(o.aps_timestamp) OVER (PARTITION BY o.journey_id) AS max_aps
+                      FROM subway_ring_push_outbox o
+                     WHERE o.journey_id IN (:journeyIds)
+                     ORDER BY o.journey_id, o.sequence DESC) last
+             WHERE last.event <> 'end'
+            ON CONFLICT DO NOTHING
+            """, nativeQuery = true)
+    int enqueueTerminalByJourneyIn(@Param("journeyIds") Collection<Long> journeyIds,
+                                   @Param("nowEpochSeconds") long nowEpochSeconds,
+                                   @Param("nowEpochMillis") long nowEpochMillis,
+                                   @Param("expiresAt") Instant expiresAt,
+                                   @Param("now") LocalDateTime now);
 
     // ── 집어 가기 ───────────────────────────────────────────────────────────
 

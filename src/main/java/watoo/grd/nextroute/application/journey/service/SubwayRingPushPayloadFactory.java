@@ -62,41 +62,18 @@ public class SubwayRingPushPayloadFactory {
         return envelope;
     }
 
-    /**
-     * 종료 프레임. <b>마지막으로 보여 준 화면을 그대로</b> 쓰고 시각만 새로 찍는다.
+    /*
+     * 종료 프레임은 여기서 만들지 않는다.
      *
-     * <p>진행률을 1.0 으로 채워 넣지 않는다. 종료는 하차로만 오는 것이 아니라 lease 만료·여정
-     * 갈아타기로도 오는데, 그때 "다 왔다"를 마지막 프레임으로 남기면 화면이 거짓말을 한 채로
-     * 잠금화면에 굳는다.
+     * 종료는 "마지막으로 보여 준 화면에 시각만 새로 찍은 것"인데, 그 화면은 이미 대기열 행에
+     * 들어 있다. 자바로 다시 만들려면 여정마다 그 행을 읽어야 하고, 부르는 자리 중 하나가
+     * lease 만료 배치라 여정 수만큼 왕복이 붙는다 — 그 트랜잭션은 문장 하나만 감싸도록
+     * 설계된 자리다. 그래서 같은 변환을 SQL 한 문장으로 한다
+     * (SubwayRingPushOutboxRepository.enqueueTerminalByJourneyIn).
      *
-     * @param lastContentState 그 여정에 마지막으로 보낸 봉투
-     * @return 시각만 새로 찍은 봉투. 못 읽으면 원본 그대로
+     * 같은 변환을 두 곳에 두지 않는 것이 요점이다. 두 벌이 되면 한쪽만 고쳐지는 순간부터
+     * 종료 프레임과 진행 프레임이 다른 모양으로 나간다.
      */
-    public ObjectNode terminalContentState(JsonNode lastContentState, Instant updatedAt) {
-        ObjectNode envelope = objectMapper.createObjectNode();
-        envelope.put(FIELD_NAME, ACTIVITY_NAME);
-        envelope.put(FIELD_PROPS, refreshedProps(lastContentState, updatedAt));
-        return envelope;
-    }
-
-    private String refreshedProps(JsonNode lastContentState, Instant updatedAt) {
-        String raw = lastContentState == null ? null : lastContentState.path(FIELD_PROPS).asText(null);
-        if (raw == null || raw.isBlank()) {
-            return "{}";
-        }
-        try {
-            JsonNode parsed = objectMapper.readTree(raw);
-            if (!parsed.isObject()) {
-                return raw;
-            }
-            ObjectNode props = (ObjectNode) parsed;
-            props.put("updatedAt", updatedAt.toEpochMilli());
-            return objectMapper.writeValueAsString(props);
-        } catch (Exception e) {
-            // 마지막 화면을 못 읽어도 종료는 나가야 한다. 잠금화면에 죽은 안내가 남는 것보다 낫다.
-            return raw;
-        }
-    }
 
     private ObjectNode props(Long journeyId, String lineName, SubwayRingState ring,
                              Instant updatedAt) {

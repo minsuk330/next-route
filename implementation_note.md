@@ -743,3 +743,30 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 함정으로 남길 것: **한 작업 트리를 두 세션이 공유하면 `git checkout -b` 뒤에도 브랜치가
   바뀌어 있을 수 있다.** 커밋 직후 `git log --oneline -2` 로 부모를 확인한다 / 가드: PR 생성이
   "No commits between main and <branch>" 로 실패하면 이 상황부터 의심한다
+
+### 리뷰 반영 (sonnet, PR #156)
+- **blocker 실재했다.** `resolveFailure` 가 `DataIntegrityViolationException` 을 잡고 **같은
+  트랜잭션에서** `markSkipped` 를 다시 쓰려 했다. PostgreSQL 은 문장 하나가 실패하면 트랜잭션을
+  통째로 abort 하고 이후 모든 문장을 25P02 로 거절한다 — savepoint 없이는 복구 쓰기가 불가능하다.
+  실제로는 그 두 번째 문장이 또 던져서 배치 루프까지 예외가 올라가고, 지표는 정상 결말을
+  `failed/exception` 으로 기록하고 있었다 / 가드: 충돌을 **그대로 던지고**(트랜잭션 롤백)
+  트랜잭션 <b>밖</b>인 `SubwayRingPushRelayService.resolve()` 가 새 트랜잭션으로 `SKIPPED` 처리.
+  정리 자체의 실패도 그 건만 죽도록 삼킨다
+- **N+1 실재.** relay 가 토큰마다 `pushTokenRepository.findById` → 배치 100 × 기기 수만큼 단건
+  조회가 2초마다 돌았다 / 가드: `findAllById` 로 행마다 한 번
+- **lease 만료 배치에 여정 수만큼 왕복을 얹고 있었다.** 바로 옆 주석이 "외부 호출이나 다른 계산을
+  끼우면 만료 하나가 커넥션 풀을 마르게 한다"고 경고하는 자리였다 / 가드: 종료 enqueue 를
+  **배치 2문장**으로 바꿈(`skipOpenUpdatesByJourneyIn` + `enqueueTerminalByJourneyIn`).
+  `DISTINCT ON (journey_id)` + window `max()` 로 여정별 마지막 행과 채번을 한 번에 집는다
+- 그 결과 **자바 쪽 종료 프레임 조립을 지웠다**(`terminalContentState`). 같은 변환이 두 벌이면
+  한쪽만 고쳐지는 순간부터 종료와 진행이 다른 모양으로 나간다. 쓰이지 않게 된
+  `decider.terminal()` 과 `findFirstByJourneyIdOrderBySequenceDesc` 도 함께 제거
+- **PG jsonb 는 수치 표기를 원본 그대로 보존한다**(`0.4500`). 자바 경로는 재직렬화하며 `0.45` 로
+  정규화했었다 — SQL 경로가 오히려 더 충실하다. 대신 키 순서가 안 지켜지므로 payload 단언은
+  문자열 `contains` 가 아니라 **파싱해서 값으로** 해야 한다
+- 리뷰가 "통과"로 확인한 것: 순번·timestamp 단조 / 발송 직전 재확인(최신성+세대) / 종료 접점
+  구분(재탐색 제외) / payload 두 겹·단위 분리 / 토큰 비노출 + 조건부 deactivate / 부팅 안전성
+
+### 검증 (리뷰 반영 후)
+- `./gradlew test --tests '*SubwayRingPushIT'` → **22 tests, 0 failures**
+- `./gradlew build` → 271 classes / **1885 tests, 0 failures**
