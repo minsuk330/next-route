@@ -26,7 +26,7 @@ public class SubwayRealtimeTrain {
     private Double segmentTravelSeconds;
     /** stationName → nextStation 구간 소요시간(초). arrivalCode=2 보간용. */
     private Double nextSegmentTravelSeconds;
-    /** 0=도착전, 1=도착, 2=출발 */
+    /** 서울 {@code arvlCd} 원값. 뜻은 {@link SubwayArrivalCode} 가 소유한다. */
     private String arrivalCode;
     private String currentMessage;
     private String destinationName;

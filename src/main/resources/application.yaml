@@ -300,7 +300,12 @@ collector:
 realtime:
   subway:
     # enabled / persist-raw-arrivals 는 application-{dev,prod}.yaml 에서 설정
-    poll-interval-ms: 10000
+    #
+    # 위치 수집(realtime.subway.position.poll-interval-ms)과 같은 15초다. 어긋난 채로 두면 두
+    # 신호가 가리키는 시각이 계속 달라 진행 링의 구간 전환 판정이 흔들린다 — 실측으로 두 원천의
+    # 현재 역이 6.6% 어긋나는데 그 불일치는 전부 갱신 시차였다.
+    # 부수로 도착 API 일일 호출이 8640 → 5760 회로 줄어 공유 quota 에 여유가 생긴다.
+    poll-interval-ms: 15000
     active-hours:
       start: "04:30"
       end: "01:00"
@@ -538,3 +543,22 @@ journey:
       episode-match-tolerance: PT90S
       lock-timeout: PT1S
       algorithm-version: m7-v1
+    ring:
+      # 진행 링. 기본 꺼짐 — 켜려면 binding 이 먼저 켜져 있어야 하고(확정된 고정만 대상),
+      # 도착 수집기(realtime.subway.enabled)와 위치 수집기가 둘 다 돌아야 한다.
+      # 도착이 남은 초를, 위치가 구간 전환 폴백을 맡는다. 하나만 켜면 링이 자주 STALE 이다.
+      # 갱신기는 worker 프로필에서만 뜬다.
+      enabled: ${JOURNEY_SUBWAY_RING_ENABLED:false}
+      # 원천이 15초마다 갱신되고 recptnDt 자체가 1~2분 뒤처져 있다. 더 자주 돌 이유가 없다.
+      tick-ms: ${JOURNEY_SUBWAY_RING_TICK_MS:5000}
+      batch-size: 100
+      # 아래 값은 전부 잠정값이다. 실기기 관측 전에는 근거가 없어 코드가 아니라 여기 둔다.
+      # 이동 중 상한을 1.00 보다 낮게 두는 이유 — 도착 전에 100% 를 찍으면 사용자는 이미
+      # 내렸어야 한다고 읽는다. 진입(0.95)과 실제 도착(1.00)은 사건으로만 만들어진다.
+      progress-target: 0.90
+      approach-progress: 0.95
+      # 앱이 로컬 보간을 이어가도 되는 폭. 길면 죽은 화면이 살아 있는 척하고, 짧으면 링이
+      # 자주 멈춘다. 실기기로 봐야 정해진다.
+      freshness-window: PT120S
+      # 수명주기 네 접점이 지우지만 그중 하나라도 새면 키가 영원히 남는다.
+      ttl: PT30M

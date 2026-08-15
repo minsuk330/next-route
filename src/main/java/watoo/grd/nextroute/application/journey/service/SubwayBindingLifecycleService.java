@@ -6,9 +6,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayBindingProperties;
 import watoo.grd.nextroute.application.journey.dto.SubwayBindingAbandonReason;
 import watoo.grd.nextroute.application.journey.observability.SubwayBindingMetrics;
+import watoo.grd.nextroute.application.journey.observability.SubwayRingMetrics;
+import watoo.grd.nextroute.application.journey.port.out.SubwayRingPort;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
@@ -53,7 +57,12 @@ import java.util.Optional;
  *
  * <p>{@code journey.subway.binding.enabled} 를 끈 뒤에도 켜져 있던 동안 만들어진 행은 남는다.
  * 정리까지 스위치에 묶으면 그 행들이 영영 미완료로 남는다. 접는 질의는 대상이 없으면 0행이라
- * 꺼진 상태에서의 비용은 문장 하나다.
+ * 꺼진 상태에서의 비용은 문장 하나다. 진행 링도 같은 이유로 스위치를 보지 않는다.
+ *
+ * <h2>진행 링은 커밋 뒤에 지운다</h2>
+ *
+ * <p>고정 정리는 부르는 쪽 트랜잭션과 함께 되돌아가야 하지만, Redis 삭제는 되돌아가지 않는다.
+ * 트랜잭션 안에서 지우면 롤백됐을 때 <b>링만 사라진다</b>.
  */
 @Slf4j
 @Service
@@ -68,6 +77,8 @@ public class SubwayBindingLifecycleService {
     private final JourneyLegRouteOptionRepository routeOptionRepository;
     private final JourneySubwayBindingProperties properties;
     private final SubwayBindingMetrics metrics;
+    private final SubwayRingMetrics ringMetrics;
+    private final SubwayRingPort ringPort;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
@@ -77,6 +88,7 @@ public class SubwayBindingLifecycleService {
     public int abandonOpen(Long journeyId, SubwayBindingAbandonReason reason) {
         int abandoned = bindingRepository.abandonOpenByJourney(journeyId, LocalDateTime.now(clock));
         report(abandoned, reason);
+        clearRingsAfterCommit(List.of(journeyId));
         return abandoned;
     }
 
@@ -88,6 +100,7 @@ public class SubwayBindingLifecycleService {
         int abandoned = bindingRepository.abandonOpenByJourneyIn(
                 journeyIds, LocalDateTime.now(clock));
         report(abandoned, reason);
+        clearRingsAfterCommit(journeyIds);
         return abandoned;
     }
 
@@ -102,6 +115,7 @@ public class SubwayBindingLifecycleService {
         int abandoned = bindingRepository.abandonOpenByJourneyAndRevision(
                 journeyId, routeRevision, LocalDateTime.now(clock));
         report(abandoned, reason);
+        clearRingsAfterCommit(List.of(journeyId));
         return abandoned;
     }
 
@@ -110,6 +124,45 @@ public class SubwayBindingLifecycleService {
         if (abandoned > 0) {
             log.debug("[SubwayBinding] 미완료 고정 {}건 접음 reason={}", abandoned, reason);
         }
+    }
+
+    // ── 진행 링 정리 ────────────────────────────────────────────────────────
+
+    /**
+     * 링을 <b>커밋 뒤에</b> 지운다.
+     *
+     * <p>트랜잭션 안에서 지우면 그 트랜잭션이 되돌아갔을 때 <b>링만 사라진다</b> — 여정은 그대로
+     * 살아 있는데 화면의 진행 링만 죽고, 다음 tick 이 0 부터 다시 만들어 사용자에게는 링이 뒤로
+     * 감긴 것으로 보인다. DB 정리와 달리 Redis 삭제는 롤백되지 않는다.
+     *
+     * <p>계승(재탐색)에서도 옛 키를 새 키로 <b>옮기지 않는다</b>. 다음 tick 이 새 고정 세대의
+     * 키로 다시 만든다 — 옮기다 틀리면 옛 구간의 진행률이 새 경로에 붙는다.
+     *
+     * <p>지우지 못해도 여정 종료를 막지 않는다. TTL 이 뒤를 받친다.
+     */
+    private void clearRingsAfterCommit(Collection<Long> journeyIds) {
+        if (journeyIds.isEmpty()) {
+            return;
+        }
+        List<Long> targets = List.copyOf(journeyIds);
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            clearRings(targets);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                clearRings(targets);
+            }
+        });
+    }
+
+    private void clearRings(List<Long> journeyIds) {
+        int cleared = 0;
+        for (Long journeyId : journeyIds) {
+            cleared += ringPort.deleteByJourney(journeyId);
+        }
+        ringMetrics.recordCleared(cleared);
     }
 
     // ── 계승 ────────────────────────────────────────────────────────────────

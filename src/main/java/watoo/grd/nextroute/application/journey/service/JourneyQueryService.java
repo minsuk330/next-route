@@ -35,6 +35,7 @@ public class JourneyQueryService implements GetActiveJourneyUseCase, GetJourneyU
     private final JourneySessionRepository sessionRepository;
     private final JourneyLegRepository legRepository;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
+    private final JourneySubwayGuidanceComposer subwayGuidanceComposer;
     private final Clock clock;
 
     @Override
@@ -71,16 +72,20 @@ public class JourneyQueryService implements GetActiveJourneyUseCase, GetJourneyU
                         .collect(Collectors.groupingBy(JourneyLegRouteOption::getJourneyLegId));
 
         return JourneySnapshot.of(
-                session.getId(),
-                session.getStatus(),
-                session.getCommandVersion(),
-                session.getEvaluationVersion(),
-                session.getRouteRevision(),
-                session.getCurrentLegIndex(),
-                session.getGuidanceLeaseUntil(),
-                session.getSubwayOfflineProtectionUntil(),
-                clock.instant(),
-                legs.stream().map(leg -> toView(leg, optionsByLeg)).toList());
+                        session.getId(),
+                        session.getStatus(),
+                        session.getCommandVersion(),
+                        session.getEvaluationVersion(),
+                        session.getRouteRevision(),
+                        session.getCurrentLegIndex(),
+                        session.getGuidanceLeaseUntil(),
+                        session.getSubwayOfflineProtectionUntil(),
+                        clock.instant(),
+                        legs.stream().map(leg -> toView(leg, optionsByLeg)).toList())
+                // 지금 화면이 지하철일 때만 한 단계를 더 읽는다. 단계마다 물으면 정확히 N+1 이다.
+                .withSubwayGuidance(subwayGuidanceComposer.compose(
+                        session.getRouteRevision(), session.getCurrentLegIndex(),
+                        legs, optionsByLeg));
     }
 
     private JourneyLegView toView(JourneyLeg leg,

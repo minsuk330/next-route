@@ -55,6 +55,32 @@ public interface SubwayLegBindingRepository extends JpaRepository<SubwayLegBindi
     List<SubwayLegBinding> findMatchable(@Param("limit") int limit);
 
     /**
+     * 진행 링 갱신 대상. <b>{@code CONFIRMED} 만 본다.</b>
+     *
+     * <p>{@code PENDING}·{@code PROVISIONAL} 을 넣으면 아직 어느 열차인지 모르는 채로 다음 역과
+     * 진행률이 만들어진다. 앱 위젯의 필드 대부분은 non-optional 이라 그 값이 <b>실시간처럼</b>
+     * 그려지고, 틀렸을 때 사용자는 서버를 믿은 대가로 역을 지나친다. 미확정 구간의 화면은
+     * "탑승 열차 확인 중"이지 0% 링이 아니다.
+     *
+     * <p>세션 상태·개정본 조건은 {@link #findMatchable} 과 같은 이유로 있다 — 없으면 끝난 여정과
+     * 옛 개정본의 확정 고정을 영원히 갱신한다. 이 표는 행을 지우지 않으므로 그 갱신은 스스로
+     * 멈추지 않는다.
+     */
+    @Query(value = """
+            SELECT b.* FROM subway_leg_binding b
+              JOIN journey_leg l     ON l.id = b.journey_leg_id
+              JOIN journey_session s ON s.id = b.journey_id
+             WHERE b.status = 'CONFIRMED'
+               AND b.deleted_at IS NULL
+               AND l.deleted_at IS NULL
+               AND s.status = 'ACTIVE'
+               AND b.route_revision = s.route_revision
+             ORDER BY b.updated_at
+             LIMIT :limit
+            """, nativeQuery = true)
+    List<SubwayLegBinding> findRingTargets(@Param("limit") int limit);
+
+    /**
      * 판정 직전에 그 행을 잡는다. <b>잠겨 있으면 기다리지 않고 빈손으로 돌아온다</b>(SKIP LOCKED).
      *
      * <p>워커가 사용자 요청을 기다릴 이유가 없다. 지금 누가 그 행을 만지는 중이면 다음 tick 에
