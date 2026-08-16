@@ -1,0 +1,32 @@
+[project]
+name = "nextroute-ml"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "polars",
+    "connectorx",
+    "pyarrow",
+    "python-dotenv",
+    "psycopg[binary]",
+]
+
+[project.optional-dependencies]
+train = [
+    "lightgbm",
+    "scikit-learn",
+    "numpy",
+    "pandas",
+]
+serve = [
+    "fastapi",
+    "uvicorn",
+    "lightgbm",
+    "pandas",
+]
+serve-dev = [
+    "pytest",
+    "httpx",
+]
+
+[tool.uv]
+package = false
