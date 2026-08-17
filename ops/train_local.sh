@@ -21,6 +21,8 @@ ABS_MAE="${ML_ABS_MAE:?set ML_ABS_MAE (absolute MAE ceiling)}"
 MAX_REGRESSION="${ML_MAX_REGRESSION:-1.05}"
 SAMPLE_ROWS="${ML_SAMPLE_ROWS:-2000000}"
 TARGET="${ML_TARGET:-label}"
+ROUTER_FALLBACK="${ML_ROUTER_FALLBACK:-false}"
+TARGET_ENCODING="${ML_TARGET_ENCODING:-false}"
 VPS_HOST="${ML_VPS_HOST:-vps}"
 VPS_DATA="${ML_VPS_DATA:-/srv/nextroute/ml-data}"
 ALLOW_NO_PREV="${ML_ALLOW_NO_PREV:-false}"
@@ -116,9 +118,11 @@ fi
 
 # ── 7. cumulative train ─────────────────────────────────────────────────────
 DATE_CSV="$(IFS=,; echo "${AVAIL_DATES[*]}")"
-log "train dates=${#AVAIL_DATES[@]} test=$TEST_DATES sample_rows=$SAMPLE_ROWS"
-pyrun train.py "$DATE_CSV" --target "$TARGET" --test-dates "$TEST_DATES" \
-	--sample-rows "$SAMPLE_ROWS" || { err "train failed"; exit 1; }
+TRAIN_ARGS=("$DATE_CSV" --target "$TARGET" --test-dates "$TEST_DATES" --sample-rows "$SAMPLE_ROWS")
+[ "$ROUTER_FALLBACK" = "true" ] && TRAIN_ARGS+=(--fallback-model)
+[ "$TARGET_ENCODING" = "true" ] && TRAIN_ARGS+=(--target-encoding)
+log "train dates=${#AVAIL_DATES[@]} test=$TEST_DATES sample_rows=$SAMPLE_ROWS fallback_model=$ROUTER_FALLBACK target_encoding=$TARGET_ENCODING"
+pyrun train.py "${TRAIN_ARGS[@]}" || { err "train failed"; exit 1; }
 
 RUN_DIR="$(ls -1dt "$DATA_DIR/experiments"/*/ 2>/dev/null | head -1)"; RUN_DIR="${RUN_DIR%/}"
 RUN_ID="$(basename "$RUN_DIR")"
