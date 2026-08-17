@@ -600,3 +600,32 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew test --tests '*JourneySubwayGuidanceIT'` → **9 tests, 0 failures**
 - `./gradlew test --tests '*Journey*' --tests '*Subway*'` → 98 classes / **720 tests, 0 failures**
 - `./gradlew build` → 263 classes / **1824 tests, 0 failures**
+
+## ml/ ↔ nextroute-ml 동기화 (2026-08-17, 브랜치 chore/ml-sync-target-encoding)
+
+### 확정
+- `ml/` 은 **서브모듈 아님, ignore 아님**. 메인 repo 가 일반 파일로 추적. `cd ml && git pull` 은 메인 repo 를 당기는 것이라 **하면 안 됨**
+- 리모트 이름은 `ml-origin` (https://github.com/minsuk330/nextroute-ml.git). `ml-remote` 아님
+- `ml-origin/main` 은 같은 파일들이 **루트**에 있는 subtree split repo. prefix 없이 merge 하면 프로젝트 루트에 `train.py`, `serve/` 가 쏟아진다
+- 동기화 방법 = `git merge -X subtree=ml ml-origin/main`. `git subtree pull` 은 unrelated history 라 실패
+- 이번 병합 커밋(45cba74) 이후 `ml-origin/main` 이 조상이 되었으므로 **다음부터는 `git subtree pull --prefix=ml ml-origin main` 이 정상 동작**해야 함
+
+### 함정
+- unrelated history → 공통 조상이 없어서 공유 파일 8개가 전부 **add/add 충돌**로 뜬다
+  (README.md, gate.py, ops/deploy_model.sh, ops/train_local.sh, serve/app.py, serve/test_app.py, split.py, train.py)
+- 이번엔 `git diff HEAD:ml 9a0505a` 가 **빈 출력** = 로컬 ml/ 트리가 ml-origin base 와 바이트 동일임을 확인한 뒤
+  전부 theirs 채택 → 로컬 손실 0. **다음번엔 이 사전 확인 없이 theirs 채택 금지**
+
+### 좌표
+- 병합 결과 27파일 +60582/-86. 로컬에만 있고 upstream 에 없는 ml 파일은 0개(단방향)
+- 신규: `ml/feature_engineering.py` `ml/train_advanced.py` `ml/train_compare.py` `ml/test_train.py`
+  `ml/test_feature_engineering.py` `ml/check_api_eta_leakage.py` `ml/docs/api-eta-leakage.md` `ml/.gitignore`
+- 모델 아티팩트 포함(사용자 승인): `ml/models/lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z/`
+  — parquet 인코딩 테이블 약 5.7MB + `model.txt` 38155줄. **바이너리가 메인 repo 에 영구 적재됨**
+- 업스트림 작업 내용 = target-encoding routing, MAE 117.19s (taehyoni7413/nextroute-ml 에서 merge)
+
+### 검증
+- `git diff <staged-tree>:ml ml-origin/main` → **빈 출력** (병합 후 ml/ 이 upstream 과 동일)
+- `git diff --cached HEAD -- . ':(exclude)ml'` → **빈 출력** (ml/ 밖 변경 0)
+- `git ls-files ml | grep -E '\.env$|credentials|\.pem$|token'` → 없음 (비밀값 유입 없음)
+- 파이썬 테스트는 미실행 (ml 은 Gradle 밖, 이번 작업은 동기화 한정)
