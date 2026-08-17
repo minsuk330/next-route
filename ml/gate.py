@@ -13,7 +13,7 @@ Two independent gates, both must pass to deploy:
 
 Exit codes: 0 = pass (deploy), 2 = gate failed (keep current), 1 = usage/IO error.
 
-Run: uv run python gate.py --model-dir <new> [--prev-dir <old>] --abs-mae 95 \
+Run: uv run python gate.py --model-dir <new> [--prev-dir <old>] --abs-mae 123 \
         [--expected-routes-file routes.txt] [--max-regression 1.05]
 """
 

@@ -461,14 +461,23 @@ dataset 삭제(EXIT trap, 항상) + 오래된 experiment 정리.
 | 변수 | 의미 | 예 |
 |---|---|---|
 | `ML_TRAIN_FROM` | 누적 학습 시작일(첫 수집일, 필수) | `2026-06-12` |
-| `ML_ABS_MAE` | 절대 MAE 상한(필수). 현 모델 `metrics.json`의 `overall.mae` 기준 설정 | `95` |
+| `ML_ABS_MAE` | 절대 MAE 상한(필수). 현 모델 `metrics.json`의 `overall.mae` 기준 설정 | `123` |
 | `ML_ARCHIVE_REMOTE` | gdrive 원천 | `gdrive:nextroute-archive` |
 | `ML_SAMPLE_ROWS` | 학습 행 상한(OOM 방지) | `2000000` |
 | `ML_MAX_REGRESSION` | 직전 모델 대비 MAE 허용 배수 | `1.05` |
+| `ML_ROUTER_FALLBACK` | model A(seen route) + model B(route-agnostic) 라우팅 활성화 (`train.py --fallback-model`) | `true` |
+| `ML_TARGET_ENCODING` | model A에 route-키드 target-encoding(`te_*`) 피처 사용 (`--target-encoding`, `ML_ROUTER_FALLBACK=true` 필수) | `true` |
 | `ML_MIN_FREE_GB` / `ML_EXTRA_FREE_GB` / `ML_DISK_FACTOR` | 디스크 gate | `8` / `5` / `2.5` |
 | `ML_KEEP_EXPERIMENTS` | 보관 experiment 개수 | `5` |
 | `ML_KEEP_DATASET_ON_FAILURE` | 실패 시 dataset 보존(디버그) | `false` |
 | `ML_APP_DIR` / `ML_DATA_DIR` | compose dir / 데이터 host 경로 | `/root/apps/nextroute` / `/srv/nextroute/ml-data` |
+
+`ML_ABS_MAE=123`의 근거: 2026-08-16 `train.py --fallback-model --target-encoding`
+풀스케일(56일 윈도우) 실행에서 routed `lightgbm` MAE **117.19초** 확정
+(`117.19 × 1.05 ≈ 123`) — 기존 plain 모델 138.51s/138.53s 기준선 대비 약 15% 개선.
+target-encoding 없이 라우팅만 켠 경우(148.85/138.53s, route_id가 bare categorical로 오히려 손해)는
+개선이 아니므로 `ML_ROUTER_FALLBACK=true`는 `ML_TARGET_ENCODING=true`와 함께 켜야 한다.
+연구 경위는 [docs/api-eta-leakage.md §4.1](../docs/api-eta-leakage.md#41-확정-수치-2026-08-13-전체-학습기간) 참고.
 
 ### 1회성 ops — symlink 모델 경로 전환
 
@@ -485,11 +494,13 @@ cd /root/apps/nextroute && docker compose up -d nextroute-ml-serve
 ### crontab (validate/upload·retention 이후, 공통 lock)
 
 ```cron
-30 6 * * MON cd /root/apps/nextroute && ML_TRAIN_FROM=2026-06-12 ML_ABS_MAE=95 bash ml/ops/retrain.sh >> /var/log/nextroute-ml.log 2>&1
+30 6 * * MON cd /root/apps/nextroute && ML_TRAIN_FROM=2026-06-12 ML_ABS_MAE=123 ML_ROUTER_FALLBACK=true ML_TARGET_ENCODING=true bash ml/ops/train_local.sh >> /var/log/nextroute-ml.log 2>&1 && bash ml/ops/deploy_model.sh
 ```
 
-gate 실패는 current 모델을 유지하고 비치명(exit 0) 종료한다. restore/build/train/배포 실패는 non-zero로
-끝나며 `/var/log/nextroute-ml.log`의 `[error]` grep으로 확인한다. `gate.py`가 이미지에 포함되려면
+위 crontab은 `ml/ops/train_local.sh`가 실제로 실행되는 host(학습은 VPS가 아닌 dev/학습 머신에서 —
+`train_local.sh` 자체 주석 참고, VPS는 OOM으로 학습 불가) 기준으로 조정해서 등록할 것.
+gate 실패 시 `train_local.sh`/`gate.py`는 non-zero로 종료(current 모델 유지, 배포 안 됨)하며
+`/var/log/nextroute-ml.log`의 `[error]` grep으로 확인한다. `gate.py`가 이미지에 포함되려면
 이 PR 머지 후 GHCR 이미지 재빌드(05:10 `docker compose pull`)가 선행돼야 한다.
 
 ### 수동 fallback
@@ -499,7 +510,8 @@ gate 실패는 current 모델을 유지하고 비치명(exit 0) 종료한다. re
 ```bash
 rsync -av vps:/srv/nextroute/ml-data/bus_label/ ml/data/bus_label/
 uv run python build_dataset.py <date>            # 날짜별
-uv run python train.py <dates,csv> --target label --test-dates <latest_week> --sample-rows 2000000
-uv run python gate.py --model-dir ml/data/experiments/<run> --abs-mae 95 \
+uv run python train.py <dates,csv> --target corrected --test-dates <latest_week> --sample-rows 2000000 \
+  --fallback-model --target-encoding
+uv run python gate.py --model-dir ml/data/experiments/<run> --abs-mae 123 \
   --prev-dir ml/data/experiments/<prev> --expected-routes-file <routes.txt>
 ```

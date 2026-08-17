@@ -197,8 +197,16 @@ def collect_date_sample(
     target_name: TargetName,
     per_date_sample_rows: int | None,
     seed: int,
+    columns: Sequence[str] | None = None,
 ) -> tuple[pl.DataFrame, dict[str, object], str]:
     filtered, target_column = filter_for_target(scan_dataset(data_dir, service_date), target_name)
+    if columns is not None:
+        # Projected before collect so the unused columns never materialise. The dataset
+        # carries ~54 columns at 421 bytes/row, but training touches 25 of them at 163
+        # bytes/row — the rest is trip_id, generated_at and the label-provenance strings.
+        # At tens of millions of rows that difference decides whether the run fits in RAM.
+        keep = [column for column in dict.fromkeys([*columns, target_column, "horizon_bucket"])]
+        filtered = filtered.select(keep)
     frame = filtered.collect()
     input_rows = frame.height
     if (
@@ -243,6 +251,7 @@ def create_split(
     test_dates: str | None = None,
     seed: int = 42,
     data_dir: Path | None = None,
+    columns: Sequence[str] | None = None,
 ) -> DatasetSplit:
     data_dir = data_dir or load_data_dir()
     service_dates = normalize_service_dates(service_date)
@@ -264,6 +273,7 @@ def create_split(
             target_name,
             effective_per_date_sample_rows,
             seed,
+            columns,
         )
         target_column = current_target_column
         date_policies.append(date_policy)
