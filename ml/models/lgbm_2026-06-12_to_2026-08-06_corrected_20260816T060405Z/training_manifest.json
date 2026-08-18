@@ -1,0 +1,954 @@
+{
+  "best_iteration": 1998,
+  "dataset_path": "/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-12,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-13,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-14,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-15,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-16,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-17,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-18,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-19,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-20,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-21,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-22,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-23,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-24,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-25,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-26,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-27,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-28,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-29,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-06-30,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-01,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-02,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-03,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-04,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-05,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-06,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-07,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-08,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-09,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-10,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-11,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-12,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-13,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-14,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-15,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-16,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-17,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-18,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-19,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-20,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-21,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-22,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-23,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-24,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-25,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-26,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-27,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-28,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-29,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-30,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-07-31,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-08-01,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-08-02,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-08-03,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-08-04,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-08-05,/home/students/cs/202121052/nextroute-data/dataset/service_date=2026-08-06",
+  "feature_list": [
+    "current_section_order",
+    "section_progress",
+    "current_section_distance",
+    "current_full_section_distance",
+    "next_stop_time",
+    "last_stop_time",
+    "congestion",
+    "gps_x",
+    "gps_y",
+    "target_seq",
+    "remaining_stop_count",
+    "hour_of_day",
+    "minute_of_day",
+    "day_of_week",
+    "is_weekend",
+    "is_holiday",
+    "is_pre_holiday",
+    "is_post_holiday",
+    "is_commute_morning",
+    "is_commute_evening",
+    "is_late_night",
+    "temperature_c",
+    "precipitation_mm",
+    "humidity_pct",
+    "wind_speed_mps",
+    "is_raining",
+    "is_snowing",
+    "current_position_ratio",
+    "target_position_ratio",
+    "remaining_stop_ratio",
+    "congestion_vs_route",
+    "approx_remaining_distance",
+    "minute_sin",
+    "minute_cos",
+    "dow_sin",
+    "dow_cos",
+    "route_total_stops",
+    "route_mean_congestion",
+    "route_mean_section_distance",
+    "route_train_rows",
+    "te_pace__route_id",
+    "te_pace__route_id__n",
+    "te_pace__route_id_hour_of_day",
+    "te_pace__route_id_hour_of_day__n",
+    "te_pace__route_id_current_section_order_target_seq",
+    "te_pace__route_id_current_section_order_target_seq__n",
+    "te_target__route_id_current_section_order_target_seq",
+    "te_target__route_id_current_section_order_target_seq__n",
+    "te_target__route_id_target_seq",
+    "te_target__route_id_target_seq__n",
+    "te_pace__route_id__x_stops",
+    "te_pace__route_id_hour_of_day__x_stops",
+    "te_pace__route_id_current_section_order_target_seq__x_stops"
+  ],
+  "feature_list_b": [
+    "current_section_order",
+    "section_progress",
+    "current_section_distance",
+    "current_full_section_distance",
+    "next_stop_time",
+    "last_stop_time",
+    "congestion",
+    "gps_x",
+    "gps_y",
+    "target_seq",
+    "remaining_stop_count",
+    "hour_of_day",
+    "minute_of_day",
+    "day_of_week",
+    "is_weekend",
+    "is_holiday",
+    "is_pre_holiday",
+    "is_post_holiday",
+    "is_commute_morning",
+    "is_commute_evening",
+    "is_late_night",
+    "temperature_c",
+    "precipitation_mm",
+    "humidity_pct",
+    "wind_speed_mps",
+    "is_raining",
+    "is_snowing"
+  ],
+  "feature_policy": {
+    "dropped_all_null_features": [],
+    "encoding_serving_stats": {
+      "global_pace": 88.61904761904762,
+      "prior_pace_column": "_prior_pace",
+      "spec_order": [
+        "te_pace__route_id",
+        "te_pace__route_id_hour_of_day",
+        "te_pace__route_id_current_section_order_target_seq",
+        "te_target__route_id_current_section_order_target_seq",
+        "te_target__route_id_target_seq"
+      ],
+      "tables": {
+        "te_pace__route_id": "/home/students/cs/202121052/nextroute-data/experiments/lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z/encoding_tables/te_pace__route_id.parquet",
+        "te_pace__route_id_current_section_order_target_seq": "/home/students/cs/202121052/nextroute-data/experiments/lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z/encoding_tables/te_pace__route_id_current_section_order_target_seq.parquet",
+        "te_pace__route_id_hour_of_day": "/home/students/cs/202121052/nextroute-data/experiments/lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z/encoding_tables/te_pace__route_id_hour_of_day.parquet",
+        "te_target__route_id_current_section_order_target_seq": "/home/students/cs/202121052/nextroute-data/experiments/lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z/encoding_tables/te_target__route_id_current_section_order_target_seq.parquet",
+        "te_target__route_id_target_seq": "/home/students/cs/202121052/nextroute-data/experiments/lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z/encoding_tables/te_target__route_id_target_seq.parquet"
+      }
+    },
+    "feature_count": 53,
+    "route_profile": "/home/students/cs/202121052/nextroute-data/experiments/lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z/encoding_tables/route_profile.parquet",
+    "target_encoding": {
+      "fold_grouping": "arrival_label_event_id",
+      "folds": 5,
+      "prior": "hierarchical (route pace x remaining stops), not a global constant",
+      "smoothing": 50.0,
+      "specs": [
+        "pace:route_id",
+        "pace:route_id+hour_of_day",
+        "pace:route_id+current_section_order+target_seq",
+        "target:route_id+current_section_order+target_seq",
+        "target:route_id+target_seq"
+      ]
+    }
+  },
+  "generated_at": "2026-08-16T06:04:05.089853+00:00",
+  "git_commit": null,
+  "leakage_columns_excluded": [
+    "api_estimated_arrival_at",
+    "corrected_arrival_at",
+    "label_arrival_at",
+    "api_target_seconds_to_arrival",
+    "corrected_target_seconds_to_arrival",
+    "label_target_seconds_to_arrival"
+  ],
+  "metrics": {
+    "lightgbm": {
+      "by_horizon": {
+        "1-5m": {
+          "count": 1748688,
+          "mae": 49.30722405380846,
+          "p50_abs_error": 37.74099870880228,
+          "p90_abs_error": 105.42608880988286,
+          "rmse": 69.61863271109361
+        },
+        "10-20m": {
+          "count": 1750489,
+          "mae": 141.48971523908003,
+          "p50_abs_error": 106.8669498875035,
+          "p90_abs_error": 306.9942725073956,
+          "rmse": 191.07963568624484
+        },
+        "20-40m": {
+          "count": 1750615,
+          "mae": 193.61455983849848,
+          "p50_abs_error": 147.32128978940955,
+          "p90_abs_error": 423.49449207264485,
+          "rmse": 258.95630697244366
+        },
+        "5-10m": {
+          "count": 1750208,
+          "mae": 84.28153819209498,
+          "p50_abs_error": 64.38475903664315,
+          "p90_abs_error": 180.0716475919754,
+          "rmse": 114.29526927585522
+        }
+      },
+      "by_label_source": {
+        "POSITION_STOP_FLAG_CORRECTED": {
+          "count": 7000000,
+          "mae": 117.19341660330447,
+          "p50_abs_error": 74.77727298274547,
+          "p90_abs_error": 276.2236599813307,
+          "rmse": 174.29260329659448
+        }
+      },
+      "overall": {
+        "count": 7000000,
+        "mae": 117.19341660330447,
+        "p50_abs_error": 74.77727298274547,
+        "p90_abs_error": 276.2236599813307,
+        "rmse": 174.29260329659448
+      },
+      "worst_routes": [
+        {
+          "count": 133336,
+          "mae": 187.91865644579957,
+          "p90_abs_error": 473.75887863339926,
+          "route_id": "100100407"
+        },
+        {
+          "count": 133327,
+          "mae": 177.62080726497126,
+          "p90_abs_error": 421.5839194446273,
+          "route_id": "104000012"
+        },
+        {
+          "count": 133341,
+          "mae": 176.66489661801083,
+          "p90_abs_error": 422.56199278172176,
+          "route_id": "111000022"
+        },
+        {
+          "count": 133334,
+          "mae": 176.50856425653433,
+          "p90_abs_error": 457.6776772096232,
+          "route_id": "100100132"
+        },
+        {
+          "count": 133333,
+          "mae": 165.64328152897517,
+          "p90_abs_error": 390.86391230143363,
+          "route_id": "100100358"
+        }
+      ]
+    },
+    "model_a_alone": {
+      "by_horizon": {
+        "1-5m": {
+          "count": 1748688,
+          "mae": 133.93321204506472,
+          "p50_abs_error": 133.0424579749502,
+          "p90_abs_error": 262.769451458209,
+          "rmse": 166.58042180804648
+        },
+        "10-20m": {
+          "count": 1750489,
+          "mae": 138.6882118977328,
+          "p50_abs_error": 104.89432624550523,
+          "p90_abs_error": 304.51352813903344,
+          "rmse": 185.7612856789316
+        },
+        "20-40m": {
+          "count": 1750615,
+          "mae": 222.17391082153776,
+          "p50_abs_error": 168.35157813976207,
+          "p90_abs_error": 491.1974854556244,
+          "rmse": 295.4097050990446
+        },
+        "5-10m": {
+          "count": 1750208,
+          "mae": 110.82146493981756,
+          "p50_abs_error": 84.10275668424464,
+          "p90_abs_error": 242.8342030927787,
+          "rmse": 147.7208642884052
+        }
+      },
+      "by_label_source": {
+        "POSITION_STOP_FLAG_CORRECTED": {
+          "count": 7000000,
+          "mae": 151.41159792336356,
+          "p50_abs_error": 115.71204674290544,
+          "p90_abs_error": 317.41808997853366,
+          "rmse": 206.98233015089926
+        }
+      },
+      "overall": {
+        "count": 7000000,
+        "mae": 151.41159792336356,
+        "p50_abs_error": 115.71204674290544,
+        "p90_abs_error": 317.41808997853366,
+        "rmse": 206.98233015089926
+      },
+      "worst_routes": [
+        {
+          "count": 133336,
+          "mae": 264.9294621731125,
+          "p90_abs_error": 511.04195988818174,
+          "route_id": "100100407"
+        },
+        {
+          "count": 133327,
+          "mae": 256.19533873821973,
+          "p90_abs_error": 545.0359277745738,
+          "route_id": "104000012"
+        },
+        {
+          "count": 133330,
+          "mae": 250.929979347789,
+          "p90_abs_error": 446.8590545800871,
+          "route_id": "100100574"
+        },
+        {
+          "count": 133329,
+          "mae": 242.74987188037153,
+          "p90_abs_error": 478.7588305957388,
+          "route_id": "100100352"
+        },
+        {
+          "count": 133336,
+          "mae": 241.12150564967214,
+          "p90_abs_error": 451.88642075358575,
+          "route_id": "100100204"
+        }
+      ]
+    },
+    "model_b_alone": {
+      "by_horizon": {
+        "1-5m": {
+          "count": 1748688,
+          "mae": 54.36049554027676,
+          "p50_abs_error": 41.98735063835659,
+          "p90_abs_error": 115.29637392006535,
+          "rmse": 80.25927005528345
+        },
+        "10-20m": {
+          "count": 1750489,
+          "mae": 168.50815526904336,
+          "p50_abs_error": 135.9271246574856,
+          "p90_abs_error": 353.4128129974926,
+          "rmse": 218.41334720716074
+        },
+        "20-40m": {
+          "count": 1750615,
+          "mae": 231.30106863981285,
+          "p50_abs_error": 190.14626091984314,
+          "p90_abs_error": 480.7287959287574,
+          "rmse": 296.21420127890656
+        },
+        "5-10m": {
+          "count": 1750208,
+          "mae": 97.75021489779334,
+          "p50_abs_error": 77.08060900537566,
+          "p90_abs_error": 204.83367587866127,
+          "rmse": 132.2281722494464
+        }
+      },
+      "by_label_source": {
+        "POSITION_STOP_FLAG_CORRECTED": {
+          "count": 7000000,
+          "mae": 138.00479240383015,
+          "p50_abs_error": 90.65015743406258,
+          "p90_abs_error": 327.17865287830404,
+          "rmse": 199.63372546316177
+        }
+      },
+      "overall": {
+        "count": 7000000,
+        "mae": 138.00479240383015,
+        "p50_abs_error": 90.65015743406258,
+        "p90_abs_error": 327.17865287830404,
+        "rmse": 199.63372546316177
+      },
+      "worst_routes": [
+        {
+          "count": 100017,
+          "mae": 214.4997347773165,
+          "p90_abs_error": 469.2854891068256,
+          "route_id": "102900002"
+        },
+        {
+          "count": 100023,
+          "mae": 192.62903988833457,
+          "p90_abs_error": 457.1400581882456,
+          "route_id": "100100252"
+        },
+        {
+          "count": 133336,
+          "mae": 187.91865644579957,
+          "p90_abs_error": 473.75887863339926,
+          "route_id": "100100407"
+        },
+        {
+          "count": 133327,
+          "mae": 177.62080726497126,
+          "p90_abs_error": 421.5839194446273,
+          "route_id": "104000012"
+        },
+        {
+          "count": 133341,
+          "mae": 176.66489661801083,
+          "p90_abs_error": 422.56199278172176,
+          "route_id": "111000022"
+        }
+      ]
+    }
+  },
+  "model_b_file": "/home/students/cs/202121052/nextroute-data/experiments/lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z/model_b.txt",
+  "model_file": "/home/students/cs/202121052/nextroute-data/experiments/lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z/model.txt",
+  "model_version": "lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z",
+  "router_enabled": true,
+  "run_id": "lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z",
+  "sampling_policy": {
+    "date_policies": [
+      {
+        "input_rows": 11291539,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-12"
+      },
+      {
+        "input_rows": 9133614,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-13"
+      },
+      {
+        "input_rows": 7875367,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-14"
+      },
+      {
+        "input_rows": 11480445,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-15"
+      },
+      {
+        "input_rows": 11540278,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-16"
+      },
+      {
+        "input_rows": 11565331,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-17"
+      },
+      {
+        "input_rows": 11529513,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-18"
+      },
+      {
+        "input_rows": 11597395,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-19"
+      },
+      {
+        "input_rows": 9328165,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-20"
+      },
+      {
+        "input_rows": 7975526,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-21"
+      },
+      {
+        "input_rows": 9763339,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-22"
+      },
+      {
+        "input_rows": 11558272,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-23"
+      },
+      {
+        "input_rows": 11594397,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-24"
+      },
+      {
+        "input_rows": 11491642,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-25"
+      },
+      {
+        "input_rows": 298611,
+        "output_rows": 298611,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-26"
+      },
+      {
+        "input_rows": 9316442,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-27"
+      },
+      {
+        "input_rows": 7925173,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-28"
+      },
+      {
+        "input_rows": 11457889,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-29"
+      },
+      {
+        "input_rows": 7357880,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-06-30"
+      },
+      {
+        "input_rows": 11496311,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-01"
+      },
+      {
+        "input_rows": 11526174,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-02"
+      },
+      {
+        "input_rows": 11295638,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-03"
+      },
+      {
+        "input_rows": 8983607,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-04"
+      },
+      {
+        "input_rows": 7648214,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-05"
+      },
+      {
+        "input_rows": 10432321,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-06"
+      },
+      {
+        "input_rows": 9059007,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-07"
+      },
+      {
+        "input_rows": 8648188,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-08"
+      },
+      {
+        "input_rows": 7112700,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-09"
+      },
+      {
+        "input_rows": 7463319,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-10"
+      },
+      {
+        "input_rows": 7522988,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-11"
+      },
+      {
+        "input_rows": 2561713,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-12"
+      },
+      {
+        "input_rows": 5581165,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-13"
+      },
+      {
+        "input_rows": 6949114,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-14"
+      },
+      {
+        "input_rows": 6283108,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-15"
+      },
+      {
+        "input_rows": 7187032,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-16"
+      },
+      {
+        "input_rows": 5059589,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-17"
+      },
+      {
+        "input_rows": 5651672,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-18"
+      },
+      {
+        "input_rows": 4870831,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-19"
+      },
+      {
+        "input_rows": 5482331,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-20"
+      },
+      {
+        "input_rows": 5511301,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-21"
+      },
+      {
+        "input_rows": 3832651,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-22"
+      },
+      {
+        "input_rows": 5400913,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-23"
+      },
+      {
+        "input_rows": 5525723,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-24"
+      },
+      {
+        "input_rows": 4612539,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-25"
+      },
+      {
+        "input_rows": 3805513,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-26"
+      },
+      {
+        "input_rows": 5361226,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-27"
+      },
+      {
+        "input_rows": 5367608,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-28"
+      },
+      {
+        "input_rows": 5654322,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-29"
+      },
+      {
+        "input_rows": 5655686,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-30"
+      },
+      {
+        "input_rows": 5675562,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-07-31"
+      },
+      {
+        "input_rows": 4754733,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-08-01"
+      },
+      {
+        "input_rows": 3960568,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-08-02"
+      },
+      {
+        "input_rows": 5123988,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-08-03"
+      },
+      {
+        "input_rows": 5167627,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-08-04"
+      },
+      {
+        "input_rows": 5171400,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-08-05"
+      },
+      {
+        "input_rows": 5175027,
+        "output_rows": 1000000,
+        "per_date_sample_rows": 1000000,
+        "service_date": "2026-08-06"
+      }
+    ],
+    "input_rows": 420652227,
+    "output_rows": 55298611,
+    "per_date_sample_rows": 1000000,
+    "sample_rows": 200000000,
+    "seed": 42,
+    "strategy": "per_date_horizon_bucket_route_cap"
+  },
+  "schema_version": 2,
+  "service_date_range": [
+    "2026-06-12",
+    "2026-06-13",
+    "2026-06-14",
+    "2026-06-15",
+    "2026-06-16",
+    "2026-06-17",
+    "2026-06-18",
+    "2026-06-19",
+    "2026-06-20",
+    "2026-06-21",
+    "2026-06-22",
+    "2026-06-23",
+    "2026-06-24",
+    "2026-06-25",
+    "2026-06-26",
+    "2026-06-27",
+    "2026-06-28",
+    "2026-06-29",
+    "2026-06-30",
+    "2026-07-01",
+    "2026-07-02",
+    "2026-07-03",
+    "2026-07-04",
+    "2026-07-05",
+    "2026-07-06",
+    "2026-07-07",
+    "2026-07-08",
+    "2026-07-09",
+    "2026-07-10",
+    "2026-07-11",
+    "2026-07-12",
+    "2026-07-13",
+    "2026-07-14",
+    "2026-07-15",
+    "2026-07-16",
+    "2026-07-17",
+    "2026-07-18",
+    "2026-07-19",
+    "2026-07-20",
+    "2026-07-21",
+    "2026-07-22",
+    "2026-07-23",
+    "2026-07-24",
+    "2026-07-25",
+    "2026-07-26",
+    "2026-07-27",
+    "2026-07-28",
+    "2026-07-29",
+    "2026-07-30",
+    "2026-07-31",
+    "2026-08-01",
+    "2026-08-02",
+    "2026-08-03",
+    "2026-08-04",
+    "2026-08-05",
+    "2026-08-06"
+  ],
+  "split_policy": {
+    "test_dates": [
+      "2026-07-31",
+      "2026-08-01",
+      "2026-08-02",
+      "2026-08-03",
+      "2026-08-04",
+      "2026-08-05",
+      "2026-08-06"
+    ],
+    "type": "service_date"
+  },
+  "target_column": "corrected_target_seconds_to_arrival",
+  "target_encoding_enabled": true,
+  "target_policy": "corrected",
+  "test_rows": 7000000,
+  "train_rows": 48298611,
+  "training_route_categories": [
+    "100100006",
+    "100100007",
+    "100100008",
+    "100100009",
+    "100100012",
+    "100100017",
+    "100100018",
+    "100100019",
+    "100100020",
+    "100100021",
+    "100100022",
+    "100100023",
+    "100100024",
+    "100100025",
+    "100100026",
+    "100100027",
+    "100100029",
+    "100100030",
+    "100100031",
+    "100100032",
+    "100100033",
+    "100100034",
+    "100100036",
+    "100100037",
+    "100100039",
+    "100100042",
+    "100100043",
+    "100100044",
+    "100100046",
+    "100100047",
+    "100100048",
+    "100100049",
+    "100100051",
+    "100100052",
+    "100100053",
+    "100100055",
+    "100100056",
+    "100100057",
+    "100100061",
+    "100100062",
+    "100100063",
+    "100100068",
+    "100100070",
+    "100100071",
+    "100100073",
+    "100100075",
+    "100100076",
+    "100100077",
+    "100100079",
+    "100100080",
+    "100100082",
+    "100100083",
+    "100100084",
+    "100100085",
+    "100100086",
+    "100100087",
+    "100100088",
+    "100100089",
+    "100100090",
+    "100100091",
+    "100100094",
+    "100100096",
+    "100100097",
+    "100100098",
+    "100100099",
+    "100100104",
+    "100100111",
+    "100100112",
+    "100100116",
+    "100100117",
+    "100100118",
+    "100100148",
+    "100100172",
+    "100100175",
+    "100100181",
+    "100100185",
+    "100100186",
+    "100100190",
+    "100100194",
+    "100100202",
+    "100100203",
+    "100100215",
+    "100100216",
+    "100100218",
+    "100100221",
+    "100100225",
+    "100100234",
+    "100100237",
+    "100100249",
+    "100100252",
+    "100100253",
+    "100100260",
+    "100100264",
+    "100100265",
+    "100100267",
+    "100100268",
+    "100100277",
+    "100100279",
+    "100100282",
+    "100100286",
+    "100100287",
+    "100100288",
+    "100100289",
+    "100100290",
+    "100100292",
+    "100100294",
+    "100100305",
+    "100100312",
+    "100100339",
+    "100100340",
+    "100100341",
+    "100100344",
+    "100100345",
+    "100100346",
+    "100100409",
+    "100100410",
+    "100100447",
+    "100100451",
+    "100100459",
+    "100100496",
+    "100100498",
+    "100100499",
+    "100100500",
+    "100100521",
+    "100100522",
+    "100100537",
+    "100100549",
+    "100100553",
+    "100100564",
+    "100100583",
+    "100100595",
+    "100100596",
+    "100100605",
+    "102900002",
+    "110000002",
+    "111000010",
+    "111000014",
+    "113000002",
+    "114900001",
+    "115000007",
+    "117900003",
+    "117900008",
+    "119900007",
+    "121900016",
+    "123000010",
+    "124000038"
+  ],
+  "type": "lightgbm",
+  "validation_rows": 4829861,
+  "with_api_feature": false
+}
