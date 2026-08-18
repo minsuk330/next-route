@@ -3,6 +3,7 @@ package watoo.grd.nextroute.application.subway.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import watoo.grd.nextroute.application.subway.dto.SubwayArrivalCode;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalInfo;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeSnapshot;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
@@ -101,10 +102,7 @@ public class SubwayRealtimeArrivalReader {
                 .filter(train -> lineId != null && lineId.equals(train.getLineId()))
                 .filter(train -> stationId != null && stationId.equals(train.getStationId()))
                 .filter(train -> direction == null || direction.equals(train.getDirection()))
-                .filter(train -> {
-                    Integer adjusted = adjustedSeconds(train, now);
-                    return adjusted == null || adjusted >= 0;
-                })
+                .filter(train -> !hasPassed(train, now))
                 .forEach(train ->
                         deduped.putIfAbsent(train.getDirection() + ":" + train.getTrainNo(), train));
 
@@ -151,14 +149,37 @@ public class SubwayRealtimeArrivalReader {
     }
 
     /**
+     * 이미 <b>지나간</b> 열차인지.
+     *
+     * <p>예전에는 "보정한 남은 초가 음수"만 봤다. 그런데 {@code barvlDt=0} 은 실측 표본의 절반이고
+     * 그중 상당수가 미산출(전역 도착, {@code [N]번째 전역})이다. 0 에서 경과시간을 빼면 반드시
+     * 음수라, <b>아직 오지도 않은 열차가 지나간 것으로 둔갑해</b> 목록에서 통째로 사라졌다.
+     *
+     * <p>지나간 것은 초가 아니라 {@link SubwayArrivalCode#DEPARTED}(조회역 출발)가 말한다.
+     * 초는 <b>진짜 예정 시각이 있었는데</b> 그마저 넘겼을 때만 근거가 된다.
+     */
+    private boolean hasPassed(SubwayRealtimeTrain train, LocalDateTime now) {
+        if (SubwayArrivalCode.from(train.getArrivalCode()) == SubwayArrivalCode.DEPARTED) {
+            return true;
+        }
+        Integer adjusted = adjustedSeconds(train, now);
+        return adjusted != null && adjusted < 0;
+    }
+
+    /**
      * 남은 도착 초를 지금 기준으로 보정한다.
      *
      * <p>수집 시점의 "3분 후 도착"을 그대로 쓰면 수집이 1분 전이었을 때 1분을 더 기다리게 된다.
      * 파싱에 실패하면 원값을 쓴다 — 보정 실패가 조회 실패로 번지지 않게 한다.
+     *
+     * <p><b>{@code 0} 이하는 "0초 남았다"가 아니라 미산출이다.</b> 뜻이 {@code arvlCd} 에 따라
+     * 갈리기 때문이다 — 진입·도착이면 사건이고, 그 밖이면 "{@code [N]번째 전역}"이다. 어느
+     * 쪽이든 <b>더할 시각이 없다</b>. 여기서 0 을 그대로 흘리면 경과시간을 뺀 음수가 되어
+     * {@link #hasPassed} 가 지나간 열차로 읽는다. 거리는 {@link SubwayStationsAway} 가 답한다.
      */
     public Integer adjustedSeconds(SubwayRealtimeTrain train, LocalDateTime now) {
         Integer raw = train.getArrivalSeconds();
-        if (raw == null) {
+        if (raw == null || raw <= 0) {
             return null;
         }
         if (train.getReceivedAt() == null) {

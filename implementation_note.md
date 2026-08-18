@@ -601,6 +601,70 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew test --tests '*Journey*' --tests '*Subway*'` → 98 classes / **720 tests, 0 failures**
 - `./gradlew build` → 263 classes / **1824 tests, 0 failures**
 
+---
+
+## 지하철 도착정보 — 미산출 열차 표기 (feat/subway-arrival-prev-station)
+
+### 확정
+- **`barvlDt`(남은 초) 0 은 "0초 남음"이 아니라 미산출이다.** 뜻이 `arvlCd` 에 따라 갈린다 —
+  진입·도착(0/1)이면 사건, 전역류(3/4/5)·운행중(99)이면 "거리로만 답했다". 어느 쪽이든
+  더할 시각이 없다. `SubwayRealtimeArrivalReader.adjustedSeconds()` 는 이제 `raw <= 0` 에
+  **null**(모름)을 준다. 0 을 흘리면 경과시간을 뺀 음수가 되어 지나간 열차로 둔갑한다
+- **지나간 열차의 근거는 초가 아니라 `arvlCd=2`(조회역 출발)다.** 초는 *진짜 예정 시각이
+  있었는데*(raw>0) 그마저 넘겼을 때만 부차적 근거
+- **거리(`stationsAway`)는 서버가 확정해 내려 준다.** `arvlMsg2` 파싱을 클라이언트에 맡기지
+  않는다 — 원천이 문구 표현을 한 번 바꾸면 모든 화면이 동시에 깨진다
+- 응답 계약에 `stationsAway` 추가: 조회역 진입·도착=0, 전역류=1, 운행중은 `[N]번째 전역`
+  파싱, 그 밖(출발·미상)=null. **`arrivalSeconds` 가 null 이어도 열차를 감추면 안 된다**
+- 코드가 답할 수 있는 자리에서는 문구를 보지 않는다(코드 우선). 문구는 `ENROUTE` 에서만 읽음
+- ~~segment 로 미산출 열차의 ETA 를 추정~~ 이번 범위에서 제외. 사용자 결정=표기만.
+  필요 부품 4개가 빔(아래 미결)
+
+### 함정
+- **미산출 열차가 목록에서 통째로 사라짐** ← `select()` 의 `adjustedSeconds >= 0` 필터가
+  `0 - 경과초 = 음수` 를 "지나갔다"로 읽음. 실측 표본의 **절반**이 `barvlDt=0` 이라 피해가 큼.
+  가드 = `SubwayRealtimeArrivalReaderTest.keepsTrainWhoseEtaIsNotComputed`
+- **필터를 초 기준으로 그냥 풀면 지나간 열차까지 통과하는 반대 회귀.** `arvlCd=2` 명시 판정이
+  같이 들어가야 함. 가드 = `dropsTrainThatAlreadyDepartedQueriedStation`
+- 여정 예측 경로(`WaitSubwayArrivalPredictor`·`SubwayBoardingTimeEstimator`)는 `hasSeconds()`
+  로 거르므로 **동작 불변**. 예전엔 목록에서 빠졌고 지금은 목록에 있으나 초가 null 이라 무시됨
+- `SubwayRingSignalReader` 클래스 주석이 옛 필터(`adjustedSeconds >= 0`)를 설명하고 있었음 →
+  `arvlCd=2` 기준으로 갱신. 그 판단("select() 를 안 쓴다")은 그대로 유효
+- 테스트에서 `given(...)` 인자 안에서 mock 을 또 스터빙하면 `UnfinishedStubbingException`.
+  변수로 먼저 빼야 함 (`SubwayArrivalQueryServiceTest.givenStation`)
+
+### 좌표
+- application/subway/service/SubwayRealtimeArrivalReader.java:104 — `hasPassed` 필터
+- application/subway/service/SubwayRealtimeArrivalReader.java:150 — `hasPassed` 본체
+- application/subway/service/SubwayRealtimeArrivalReader.java:172 — `adjustedSeconds`, `raw<=0 → null`
+- application/subway/service/SubwayStationsAway.java:41 — `resolve(code, arvlMsg2)` (신규)
+- application/arrival/dto/SubwayArrivalResponse.java:28 — `stationsAway` 필드
+- application/arrival/service/SubwayArrivalQueryService.java:80 — 응답 조립부
+
+### 미결
+- segment 기반 ETA 추정에 빠진 부품 4개:
+  ① `arvlMsg3`(열차 현재 위치 역명)이 `SubwayRealtimeTrain` 까지 안 옴(`toTrain` 둘 다 누락)
+  ② N홉 누적 합산기 없음(`SubwaySegmentLookup` 은 인접 1칸만)
+  ③ 정차시간(dwell) 데이터 없음 — 역당 20~30초 과소추정
+  ④ `travelTime == null` 구간을 `SubwaySegmentLookup.reload()` 가 버림 → 그 구간 끼면 합산 불가
+- `SubwayRealtimeQueryService.adjustArrivalSeconds()`(별도 엔드포인트)는 여전히 0 으로 clamp.
+  같은 함정을 안고 있으나 이번 범위 밖
+
+### 배포
+- **마이그레이션 없음.** 최신은 여전히 V45
+- 설정 변경 없음
+- **클라이언트 영향**: `arrivalSeconds: null` 인 열차가 목록에 새로 나타난다. 앱이 초 없는
+  열차를 안 그리면 화면이 그대로다 — `stationsAway`/`currentMessage` 표기 대응 필요
+
+### 검증
+- `./gradlew compileJava` → 성공
+- `./gradlew test --tests '*SubwayRealtimeArrivalReaderTest*' --tests '*SubwayStationsAwayTest*'
+  --tests '*SubwayArrivalQueryServiceTest*'` → **18 tests, 0 failures**
+- `./gradlew test --tests '*Test'` → 1467 tests, **1 failed (기존 무관)**
+  - 실패 = `SubwayDataServiceTest.flow_test` — `Schema-validation: missing column [deleted_at]
+    in table [subway_ring_push_outbox]`. 작업트리에 딸려 있던 **PR-5b 미커밋 엔티티**
+    (`SubwayRingPushOutbox`, untracked)의 마이그레이션 미작성 탓. 이 브랜치와 무관
+  - 같은 원인으로 `@SpringBootTest` 계열 IT 79개가 컨텍스트 기동 실패(전량 동일 스택)
 ## ml/ ↔ nextroute-ml 동기화 (2026-08-17, 브랜치 chore/ml-sync-target-encoding)
 
 ### 확정
