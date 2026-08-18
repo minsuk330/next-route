@@ -46,7 +46,12 @@ if [ -z "$RUN_ID" ]; then
 fi
 [ -n "$RUN_ID" ] || { err "no run_id given and no local experiment found"; exit 1; }
 [ -f "$EXP_DIR/$RUN_ID/model.txt" ] || { err "missing $EXP_DIR/$RUN_ID/model.txt"; exit 1; }
-log "deploying $RUN_ID (with_image=$WITH_IMAGE ${IMAGE_TAG:+image=$IMAGE_TAG})"
+# router_enabled runs must ship both models, or serve/app.py will refuse to load either.
+ROUTER_ENABLED="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('router_enabled', False))" "$EXP_DIR/$RUN_ID/training_manifest.json" 2>/dev/null || echo False)"
+if [ "$ROUTER_ENABLED" = "True" ]; then
+	[ -f "$EXP_DIR/$RUN_ID/model_b.txt" ] || { err "manifest says router_enabled but missing $EXP_DIR/$RUN_ID/model_b.txt"; exit 1; }
+fi
+log "deploying $RUN_ID (with_image=$WITH_IMAGE ${IMAGE_TAG:+image=$IMAGE_TAG} router_enabled=$ROUTER_ENABLED)"
 
 # ── 2. precheck: serve must read /data/model/current, else symlink swap is moot ─
 MP="$(ssh "$VPS_HOST" "cd $APP_DIR && docker compose config" 2>/dev/null | grep -E 'ML_MODEL_PATH' | head -1 || true)"

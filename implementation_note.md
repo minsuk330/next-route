@@ -784,3 +784,125 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증 (nit 반영 후)
 - `./gradlew test --tests '*SubwayRingPushIT'` → **24 tests, 0 failures**
 - `./gradlew build` → 271 classes / **1887 tests, 0 failures**
+## ml/ ↔ nextroute-ml 동기화 (2026-08-17, 브랜치 chore/ml-sync-target-encoding)
+
+### 확정
+- `ml/` 은 **서브모듈 아님, ignore 아님**. 메인 repo 가 일반 파일로 추적. `cd ml && git pull` 은 메인 repo 를 당기는 것이라 **하면 안 됨**
+- 리모트 이름은 `ml-origin` (https://github.com/minsuk330/nextroute-ml.git). `ml-remote` 아님
+- `ml-origin/main` 은 같은 파일들이 **루트**에 있는 subtree split repo. prefix 없이 merge 하면 프로젝트 루트에 `train.py`, `serve/` 가 쏟아진다
+- 동기화 방법 = `git merge -X subtree=ml ml-origin/main`. `git subtree pull` 은 unrelated history 라 실패
+- 이번 병합 커밋(45cba74) 이후 `ml-origin/main` 이 조상이 되었으므로 **다음부터는 `git subtree pull --prefix=ml ml-origin main` 이 정상 동작**해야 함
+
+### 함정
+- unrelated history → 공통 조상이 없어서 공유 파일 8개가 전부 **add/add 충돌**로 뜬다
+  (README.md, gate.py, ops/deploy_model.sh, ops/train_local.sh, serve/app.py, serve/test_app.py, split.py, train.py)
+- 이번엔 `git diff HEAD:ml 9a0505a` 가 **빈 출력** = 로컬 ml/ 트리가 ml-origin base 와 바이트 동일임을 확인한 뒤
+  전부 theirs 채택 → 로컬 손실 0. **다음번엔 이 사전 확인 없이 theirs 채택 금지**
+
+### 좌표
+- 병합 결과 27파일 +60582/-86. 로컬에만 있고 upstream 에 없는 ml 파일은 0개(단방향)
+- 신규: `ml/feature_engineering.py` `ml/train_advanced.py` `ml/train_compare.py` `ml/test_train.py`
+  `ml/test_feature_engineering.py` `ml/check_api_eta_leakage.py` `ml/docs/api-eta-leakage.md` `ml/.gitignore`
+- 모델 아티팩트 포함(사용자 승인): `ml/models/lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z/`
+  — parquet 인코딩 테이블 약 5.7MB + `model.txt` 38155줄. **바이너리가 메인 repo 에 영구 적재됨**
+- 업스트림 작업 내용 = target-encoding routing, MAE 117.19s (taehyoni7413/nextroute-ml 에서 merge)
+
+### 검증
+- `git diff <staged-tree>:ml ml-origin/main` → **빈 출력** (병합 후 ml/ 이 upstream 과 동일)
+- `git diff --cached HEAD -- . ':(exclude)ml'` → **빈 출력** (ml/ 밖 변경 0)
+- `git ls-files ml | grep -E '\.env$|credentials|\.pem$|token'` → 없음 (비밀값 유입 없음)
+- 파이썬 테스트는 미실행 (ml 은 Gradle 밖, 이번 작업은 동기화 한정)
+
+### 배포 영향 점검 (push 전, 2026-08-17)
+
+**결론: 이 머지 자체로 프로덕션 예측 동작은 안 바뀐다. 단, main 머지 시 GHCR ml 이미지가 자동 재빌드된다.**
+
+- **모델은 안 바뀐다.** repo 에 커밋된 `ml/models/lgbm_..._corrected_...` 는 배포물이 아님.
+  VPS serve 는 `ML_MODEL_PATH=/data/model/current` → `/srv/nextroute/ml-data/experiments/lgbm_2026-06-12_to_2026-06-29_label_20260630T174810Z` 심볼릭 링크.
+  바꾸려면 `ops/deploy_model.sh` 로 rsync + 심볼릭 스왑 해야 함
+- **CI 자동 트리거**: `.github/workflows/ml-image.yml` 이 `paths: ml/**` → main 머지 순간
+  `ghcr.io/minsuk330/nextroute-ml:latest` 재빌드/푸시됨
+- **:latest 태그를 batch·serve 두 서비스가 공유**한다 (compose.yaml:110 nextroute-ml, :131 nextroute-ml-serve
+  `${ML_SERVE_IMAGE:-...:latest}`, VPS .env 에 `ML_SERVE_IMAGE` 없음).
+  VPS cron `10 5 * * * docker compose pull nextroute-ml` 이 매일 로컬 :latest 를 갱신 →
+  **serve 컨테이너는 그 순간엔 안 바뀌지만, 이후 아무 recreate 에서나 새 serve 코드로 올라간다**
+- `deploy_model.sh` 는 `--with-image` 없으면 pull 을 안 하고 `up -d --force-recreate` 만 함 →
+  이미 cron 이 당겨둔 로컬 :latest 를 쓰게 된다. 즉 다음 모델 배포 때 serve 코드도 같이 올라감
+
+**호환성 — 실측으로 확인함(추정 아님)**
+- 현행 프로덕션 모델(28 feature / 30 route / manifest 에 router·te 필드 없음)을 **새 이미지에서 로드 성공**,
+  `router=False te=False`, predict 스모크에서 AVAILABLE + UNSUPPORTED_ROUTE 그대로
+- Java 가 보내는 feature 27개 + route_id == serve `RAW_FEATURE_NAMES` 27개와 **집합 일치**,
+  새 모델 `feature_list_b`(27) ⊆ Java 전송 필드. 누락 없음
+- predict 응답에 `"model":"a"|"b"` 필드가 새로 붙지만 `MlPredictResponseDto` 에
+  `@JsonIgnoreProperties(ignoreUnknown = true)` 있어 안전.
+  `/metadata` 새 필드(`router_enabled`, `feature_list_b`, `target_encoding_enabled`)는
+  `MlMetadataResponseDto` 에 ignoreUnknown 이 없지만, 이미 `categorical_feature`/`model_route_count` 를
+  안 받고도 돌고 있음 = Spring 기본 FAIL_ON_UNKNOWN_PROPERTIES=false 로 이미 검증된 상태
+- serve 가 새로 import 하는 `polars`(base dep), `feature_engineering`→`split`→`dotenv`, numpy(lightgbm 전이)
+  전부 serve extra 로 설치됨. pyproject/uv.lock **변경 없음**
+- 배치 cron 이 쓰는 `archive.py` / `validate.py` / `retention.py` / `build_dataset.py` 는 **이번 diff 에 없음**
+
+**주의(미결/후속)**
+- **router(model B) 는 현재 구조에서 절대 안 탄다.** Java 가 predict 호출 전에
+  `PredictionSupportService.support()` 로 미지원 route 를 먼저 걸러낸다
+  (SingleTransferPredictor:125, TransferArrivalEnricher:383/410) → unseen route 는 요청 자체가 안 감.
+  router 모델을 배포해도 이득 보려면 Java 게이팅 또는 `/metadata` 의 지원 목록 계약을 먼저 손봐야 함
+- **새 모델은 절대 MAE 가 더 나쁘다**: 현행 배포 모델 overall MAE **88.34s**(30 route, test 777,777행)
+  vs 신규 **117.19s**(146 route, test 7,000,000행). 커버리지가 30→146 route 로 넓어진 대가.
+  `gate.py` docstring 예시가 `--abs-mae 95` → `123` 으로 바뀐 것도 이 뜻 —
+  배포하려면 `ML_ABS_MAE` 상한을 올려야 통과한다. **배포 전 별도 판단 필요**
+- `ml/models/` 23MB 가 `COPY . .` 로 이미지에 그대로 들어간다(`.dockerignore` 에 `models/` 없음).
+  빌드된 이미지 1.3GB. 모델 아티팩트를 계속 git 에 둘 거면 `.dockerignore` 에 추가 고려
+
+### 검증 (ml 동기화)
+- `.venv/bin/python -m pytest serve/test_app.py test_feature_engineering.py test_train.py -q` → **31 passed**
+- `docker build -t nextroute-ml:mergecheck ml/` → **exit 0** (1.3GB)
+- 새 이미지 + 신규 모델 로드 → `error=None loaded=True router=True te=True routes=146 featA=53 featB=27`
+- 새 이미지 + **현행 프로덕션 모델**(vps 에서 rsync) 로드 → `error=None router=False te=False routes=30 featA=28`
+- 위 조합 predict 스모크 → `AVAILABLE(model=a)` + `UNSUPPORTED_ROUTE` 정상
+- Java 컴파일/테스트 미실행 — 이번 diff 에 java 변경 0건 (`git diff --cached HEAD -- . ':(exclude)ml'` 빈 출력)
+
+---
+
+## FCM 발송 배선 — 프로덕션 첫 활성화 시도 (2026-08-18)
+
+### 함정
+- **`sender=fcm` 을 켜자 worker 부팅이 죽었다** ← `FirebaseAdminMessagingClient` 의 생성자가 **둘**인데
+  `@Autowired` 표시가 없었다. Spring 은 후보가 여럿이면 표시를 찾고, 없으면 인자 없는 생성자로
+  폴백한다 → `NoSuchMethodException: <init>()` → `BeanInstantiationException: No default constructor
+  found` → `fcmNotificationSender` → `journeyNotificationRelayService` 순으로 컨텍스트 refresh 취소.
+  시험용 생성자의 `MessageDispatcher` 가 빈이 아니라는 사실로 나머지를 골라 주지 않는다.
+  가드: `@Autowired` 명시 + `FirebaseAdminMessagingClientWiringTest`(컨텍스트에서 빈이 실제로 만들어지는지)
+- **단위시험이 이 경로를 영원히 못 밟는다.** 시험은 `new` 로 이음매 생성자를 직접 부른다.
+  `FirebaseConfigTest` 도 "자격증명 없음 → 부팅 실패"만 보고 **"자격증명 있음 → 정상 부팅"** 은 안 봤다.
+  `sender=noop` 이라 빈이 아예 안 떠서 여태 안 드러났고, **첫 실행이 프로덕션이었다**
+- **`FcmLiveActivityPushAdapter`(PR #156, 미머지)도 동일 패턴** — public(FirebaseMessaging,…) +
+  package-private(MessageDispatcher,…). 머지 후 push 를 켜면 같은 방식으로 죽고, 게다가
+  `SubwayRingPushWiringValidator` 의 친절한 안내문이 뜨기 **전에** 빈 생성이 먼저 터진다.
+  그 브랜치에서 같은 수정 필요
+- **compose 의 `<<:` merge 는 `env_file`·`volumes` 를 병합하지 않고 대체한다.** worker 에 fcm.env 만
+  추가하려면 앵커(`x-app-service`)의 목록을 **전부 다시 써야** 한다. 안 그러면 db/api/toss/auth/oauth
+  env 와 logs·toss.p12 마운트가 통째로 사라진다
+- **이번 실패에서 자격증명 유효성은 검증되지 않았다.** 로그에 `FirebaseApp`·`FCM 초기화 완료` 0건 —
+  어댑터 빈 생성이 먼저 터져 `FirebaseConfig` 가 실행되지 않았다. 마운트 경로 오타가 남아 있어도 미탐지
+
+### 좌표
+- `infrastructure/adapter/out/notification/FirebaseAdminMessagingClient.java:54` (@Autowired 추가 지점)
+- `common/config/FirebaseConfig.java:41` (자격증명 읽기, 실패 시 부팅 차단)
+- VPS `/root/apps/nextroute/compose.yaml` worker 블록 / `env/fcm.env` / `/srv/nextroute/firebase-service-account.json`
+
+### 배포
+- VPS 에 배치 완료: `/srv/nextroute/firebase-service-account.json`(400 root, project `nextroute-4b01b`),
+  `env/fcm.env`(600, `JOURNEY_NOTIFICATION_SENDER=fcm` + `FIREBASE_CREDENTIALS_PATH`)
+- compose worker 패치는 **롤백해 둔 상태**. 시도본은 `compose.yaml.fcm-attempt.20260818`,
+  직전 정상본 백업은 `compose.yaml.bak.20260818-1828`. 이 픽스가 배포된 이미지에 들어간 뒤에 재적용
+- `JOURNEY_NOTIFICATION_RELAY_ENABLED` 는 미설정(기본 false) — sender 만 fcm 이어도 실제 발송은 안 나감
+- iOS 전달에는 Firebase 콘솔에 APNs 인증키(.p8 + Key ID + Team ID) 등록이 별도로 필요(미확인)
+
+### 검증
+- `./gradlew test --tests '*FirebaseAdminMessagingClient*' --tests '*FirebaseConfigTest'` → 7 tests, 0 failures
+- **가드가 실제로 잡는지 확인**: `@Autowired` 를 제거하고 재실행 → `sender 가 fcm 이면 창구 빈이
+  만들어진다` 만 FAILED (2 tests, 1 failed). 복원 후 재통과
+- `./gradlew build` → **265 classes / 1841 tests, 0 failures**
+- 프로덕션: 롤백 후 worker `Up (healthy)`, `Started NextrouteApplication in 16.324 seconds`

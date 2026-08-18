@@ -4,7 +4,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.arrival.dto.SubwayArrivalResponse;
 import watoo.grd.nextroute.application.arrival.port.in.GetSubwayArrivalUseCase;
+import watoo.grd.nextroute.application.subway.dto.SubwayArrivalCode;
+import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
+import watoo.grd.nextroute.application.subway.service.SubwayStationsAway;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.repository.NearbySubwayStationProjection;
 import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
@@ -65,12 +68,24 @@ public class SubwayArrivalQueryService implements GetSubwayArrivalUseCase {
                         .lineId(arrival.train().getLineId())
                         .direction(arrival.train().getDirection())
                         .arrivalSeconds(arrival.arrivalSeconds())
+                        .stationsAway(stationsAway(arrival.train()))
                         .currentMessage(arrival.train().getCurrentMessage())
                         .destinationName(arrival.train().getDestinationName())
                         .trainType(arrival.train().getTrainType())
                         .arrivalCode(arrival.train().getArrivalCode())
                         .build())
                 .toList();
+    }
+
+    /**
+     * 남은 초가 없는 열차에 <b>거리라도</b> 붙인다.
+     *
+     * <p>원천은 절반 가까운 열차에 시간을 주지 않고 "전역 도착", "[3]번째 전역" 처럼 거리로만
+     * 답한다. 그 열차를 초가 없다는 이유로 감추면 사용자는 오고 있는 열차를 못 본다.
+     */
+    private Integer stationsAway(SubwayRealtimeTrain train) {
+        return SubwayStationsAway.resolve(
+                SubwayArrivalCode.from(train.getArrivalCode()), train.getCurrentMessage());
     }
 
     public record ResolvedStation(String stationId, String stationName, String lineId) {

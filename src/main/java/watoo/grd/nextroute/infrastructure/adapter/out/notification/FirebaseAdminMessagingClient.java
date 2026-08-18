@@ -9,6 +9,7 @@ import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.Notification;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties;
@@ -42,6 +43,15 @@ public class FirebaseAdminMessagingClient implements FirebaseMessagingClient {
     private final MessageDispatcher dispatcher;
     private final JourneyNotificationProperties properties;
 
+    /**
+     * 운영용. <b>{@code @Autowired} 를 지우면 부팅이 죽는다.</b>
+     *
+     * <p>생성자가 둘이라 Spring 이 주입 대상을 고르지 못한다 — 후보 개수만 세고 인자 없는
+     * 생성자로 폴백하는데 그것이 없어 {@code No default constructor found} 로 끝난다.
+     * 아래 시험용 생성자의 {@code MessageDispatcher} 는 빈이 아니지만, Spring 은 "그쪽은
+     * 주입이 안 되니 이쪽이겠지"를 추론해 주지 않는다.
+     */
+    @Autowired
     public FirebaseAdminMessagingClient(FirebaseMessaging messaging,
                                         JourneyNotificationProperties properties) {
         this(new SdkDispatcher(messaging), properties);
