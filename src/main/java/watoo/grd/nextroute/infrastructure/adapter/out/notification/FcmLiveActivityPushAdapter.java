@@ -8,6 +8,7 @@ import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.MessagingErrorCode;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
@@ -68,6 +69,7 @@ public class FcmLiveActivityPushAdapter implements LiveActivityPushPort {
     private final MessageDispatcher dispatcher;
     private final JourneySubwayRingProperties properties;
 
+    @Autowired
     public FcmLiveActivityPushAdapter(FirebaseMessaging messaging,
                                       JourneySubwayRingProperties properties) {
         this(new SdkDispatcher(messaging), properties);
