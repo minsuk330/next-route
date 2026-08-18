@@ -123,7 +123,7 @@ public class JourneyNotificationProperties {
          * 기본 꺼짐. 발송 구현이 붙어도 ⑤(발송 직전 재검증)·⑥(payload 계약)이 들어오기 전에는
          * 켜지 않는다 — 낡은 알림이 나가고 임시 문구가 운영에 굳는다.
          */
-        private boolean enabled = false;
+        private boolean enabled = true;
 
         private long sweepIntervalMs = 1000;
 
