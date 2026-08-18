@@ -49,6 +49,7 @@ public class SubwayRingUpdateService {
     private final SubwayRingStationResolver stationResolver;
     private final SubwayRingSignalReader signalReader;
     private final SubwayRingCalculator calculator;
+    private final SubwayRingPushEnqueueService pushEnqueueService;
     private final SubwayRingPort ringPort;
     private final SubwayRingMetrics metrics;
     private final JourneySubwayRingProperties properties;
@@ -102,8 +103,10 @@ public class SubwayRingUpdateService {
         }
         ringPort.save(state);
         metrics.recordUpdated(state, observation);
-        // 원격 갱신(Live Activity push)은 PR-5b 가 여기에 붙는다. 링 갱신과 규칙이 다르다 —
-        // 링은 latest-wins 로 덮어써도 되지만 push 는 중요 이벤트만, 최신인 동안만 재시도한다.
+
+        // 원격 갱신은 링 저장과 규칙이 다르다 — 링은 latest-wins 로 덮어써도 되지만 push 는
+        // 화면이 실제로 바뀔 때만, 그리고 최신인 동안만 재시도한다. 트랜잭션도 따로 연다.
+        pushEnqueueService.enqueueIfChanged(previous, state, ride);
     }
 
     /**

@@ -665,6 +665,125 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
     in table [subway_ring_push_outbox]`. 작업트리에 딸려 있던 **PR-5b 미커밋 엔티티**
     (`SubwayRingPushOutbox`, untracked)의 마이그레이션 미작성 탓. 이 브랜치와 무관
   - 같은 원인으로 `@SpringBootTest` 계열 IT 79개가 컨텍스트 기동 실패(전량 동일 스택)
+
+## 2026-08-15 m7-pr5b-subway-live-activity (Live Activity 토큰 + push outbox + 발송)
+
+### 확정
+- **`ApnsConfig.payload["aps"]` 는 `Aps` 객체가 아니라 그 안의 Map 이 펴져서 들어간다.** SDK 가
+  빌드 시점에 `aps.getFields()` 를 꺼내 넣는다. 시험에서 `Aps.fields` 를 찾으려다 실패해서 알았다
+  — payload 계약 시험은 `payload.get("aps")` 를 **바로 Map 으로** 캐스팅한다
+- **`aps_timestamp` 를 칼럼으로 들고 `GREATEST(지금, 직전+1)` 로 채번한다.** PLAN 은 "sequence 와
+  같은 원천에서 파생"만 요구했다. 실제 시각에 붙여야 APNs 가 다른 알림과 견줄 수 있는데 같은
+  초에 두 건이 나가면 값이 같아져 순서가 사라진다 → 직전보다 반드시 1 크게 만들어 **단조성과
+  실시간성을 함께** 지킨다. 채번은 INSERT ... SELECT 한 문장 안에서 한다
+- **`ON CONFLICT DO NOTHING` 이 경합의 정답이다.** 워커 둘이 같은 여정을 동시에 계산하면 순번
+  unique 나 대기 unique 에 걸리는데, 그것은 "누가 더 새 걸 넣었다"는 뜻이라 예외가 아니다.
+  던지면 그 tick 전체가 죽는다
+- **종료 outbox 는 부르는 쪽 트랜잭션에 올라탄다**(`REQUIRES_NEW` 아님). 링 삭제를 `afterCommit`
+  으로 미룬 것과 방향이 다른 이유 — 링은 Redis 라 롤백이 안 되지만 이건 같은 DB 행이라 함께
+  커밋되거나 함께 되돌아갈 수 있다. `afterCommit` 도 아니다: 커밋과 콜백 사이에 죽으면 그
+  종료는 영영 안 만들어진다(outbox 를 쓰는 목적이 그 창을 없애는 것)
+- **종료 프레임은 마지막으로 보낸 payload 를 그대로 쓰고 `updatedAt` 만 새로 찍는다.** 진행률을
+  1.0 으로 채우지 않는다 — 종료는 하차로만 오는 것이 아니라 lease 만료·갈아타기로도 온다
+- **보낸 적 없는 여정에는 종료 행을 만들지 않는다.** 지울 화면이 없다
+- **재탐색(`abandonOpenOfRevision`)에서는 종료를 보내지 않는다.** Activity 는 여정 단위라 이어진다
+- signature 는 **뭉갠 값**으로 만든다(도착 예정 30초 버킷 + 진행률 0.05 눈금). 정확한 시각을
+  넣으면 재앵커마다 바뀌어 결국 15초마다 push 한다. 중요 이벤트(다음 역·국면·신선도)는 안 뭉갠다
+- 토큰은 **journey 단위**. leg/binding 축을 더하면 계승마다 재등록이 필요해 push 가 끊긴다.
+  낡은 payload 는 outbox 의 `binding_version` + 발송 직전 대조가 막는다
+
+### 함정
+- **`LiveActivityPushPort` 를 relay 에 필수 의존으로 넣으면 push 를 끈 기본 설정에서 부팅이
+  죽는다.** 어댑터가 `push.enabled AND sender=fcm` 일 때만 뜨기 때문 / 가드: relay 는
+  `ObjectProvider` 로 받고 `push.enabled` 를 먼저 본다. 켜 놓고 창구가 없는 조합은
+  `SubwayRingPushWiringValidator` 가 부팅에서 읽을 수 있는 문장으로 막는다
+  (시험 `SubwayLiveActivityTokenIT` 가 이 사고를 잡아 줬다)
+- **`BaseEntity` 를 상속하면 `deleted_at` 칼럼이 없으면 스키마 검증에서 부팅이 죽는다.**
+  V47 에 안 넣었다가 걸렸다 / 가드: 쓰지 않아도 칼럼은 둔다(V40 과 같은 관례)
+- **Jackson 은 `BigDecimal("0.4500")` 을 `0.45` 로 직렬화한다.** payload 시험에서 자릿수를
+  그대로 기대하면 깨진다
+- 링 tick 에서 relay 를 부르지 않는다 — 외부 왕복이 링 계산을 밀어낸다. 스케줄러가 따로다
+- `SubwayLegBindingRepository` 에 메서드를 더하면 `SubwayBoardingEvidenceServiceTest` 의
+  손수 만든 Fake 가 또 컴파일 실패한다(PR-5a 에 이어 두 번째)
+
+### 좌표
+- application/journey/service/SubwayRingPushDecider.java:56 — 보낼지 판정 + signature
+- application/journey/service/SubwayRingPushEnqueueService.java:69 — 링 변화 → 대기열
+- application/journey/service/SubwayRingPushRelayTxService.java:76 — **발송 직전 재확인**(이 PR 최대 난소)
+- domain/journey/repository/SubwayRingPushOutboxRepository.java:97 — 채번 INSERT(순번+timestamp)
+- domain/journey/repository/SubwayRingPushOutboxRepository.java:186 — 실패 원자 판정(CASE 3갈래)
+- infrastructure/adapter/out/notification/FcmLiveActivityPushAdapter.java:96 — Message 조립(계약 전부)
+
+### 미결
+- 앱이 `props.updatedAt` 과 `aps.timestamp` 중 무엇으로 순서를 가리는지 미확인
+- 앱이 재탐색 뒤에도 같은 Activity 를 유지하는지 미확인(유지 전제로 만들었다)
+- `push.ttl` 2분·`maxAttempts` 3 은 잠정값
+
+### 배포
+- **V46·V47 VPS 수동배치 필수**(V44·V45 와 같은 untracked 관례). 파일 전문은 PR 본문에 붙였다
+- 신규 설정 `journey.subway.ring.push.*` — `enabled` 기본 false
+- **켜는 순서**: `journey.notification.sender=fcm`(+ 자격증명 마운트) → `journey.subway.ring.enabled`
+  → **모바일 토큰 등록 확인** → `journey.subway.ring.push.enabled`
+- push 를 켰는데 sender 가 noop 이면 **부팅이 막힌다**(의도된 fail-fast)
+- 신규 의존성 없음 — `ApnsConfig.setLiveActivityToken` 이 firebase-admin 9.10 에 실재(javap 확인)
+
+### 검증
+- `./gradlew test --tests '*SubwayRingPushPayloadFactoryTest'` → **6 tests, 0 failures**
+- `./gradlew test --tests '*SubwayRingPushDeciderTest'` → **12 tests, 0 failures**
+- `./gradlew test --tests '*FcmLiveActivityPushAdapterTest'` → **11 tests, 0 failures**
+- `./gradlew test --tests '*SubwayRingPushIT'` → **20 tests, 0 failures**
+- `./gradlew test --tests '*SubwayLiveActivityTokenIT'` → **9 tests, 0 failures**
+- `./gradlew build` → 272 classes / **1900 tests, 0 failures**
+
+#### 정정 (같은 날)
+- 위 `### 검증` 의 `./gradlew build` 수치 ~~272 classes / 1900 tests~~ 는 **다른 브랜치 위에서
+  잰 값이다**. 작업 중 이 작업 트리가 다른 세션에 의해 `feat/subway-arrival-prev-station`
+  (PR #155)로 바뀌어 있었고, 커밋이 그 위에 얹혔다. fresh main 기준으로 옮겨 다시 재니
+  **271 classes / 1885 tests, 0 failures**(차이는 PR #155 이 더한 시험)
+- 함정으로 남길 것: **한 작업 트리를 두 세션이 공유하면 `git checkout -b` 뒤에도 브랜치가
+  바뀌어 있을 수 있다.** 커밋 직후 `git log --oneline -2` 로 부모를 확인한다 / 가드: PR 생성이
+  "No commits between main and <branch>" 로 실패하면 이 상황부터 의심한다
+
+### 리뷰 반영 (sonnet, PR #156)
+- **blocker 실재했다.** `resolveFailure` 가 `DataIntegrityViolationException` 을 잡고 **같은
+  트랜잭션에서** `markSkipped` 를 다시 쓰려 했다. PostgreSQL 은 문장 하나가 실패하면 트랜잭션을
+  통째로 abort 하고 이후 모든 문장을 25P02 로 거절한다 — savepoint 없이는 복구 쓰기가 불가능하다.
+  실제로는 그 두 번째 문장이 또 던져서 배치 루프까지 예외가 올라가고, 지표는 정상 결말을
+  `failed/exception` 으로 기록하고 있었다 / 가드: 충돌을 **그대로 던지고**(트랜잭션 롤백)
+  트랜잭션 <b>밖</b>인 `SubwayRingPushRelayService.resolve()` 가 새 트랜잭션으로 `SKIPPED` 처리.
+  정리 자체의 실패도 그 건만 죽도록 삼킨다
+- **N+1 실재.** relay 가 토큰마다 `pushTokenRepository.findById` → 배치 100 × 기기 수만큼 단건
+  조회가 2초마다 돌았다 / 가드: `findAllById` 로 행마다 한 번
+- **lease 만료 배치에 여정 수만큼 왕복을 얹고 있었다.** 바로 옆 주석이 "외부 호출이나 다른 계산을
+  끼우면 만료 하나가 커넥션 풀을 마르게 한다"고 경고하는 자리였다 / 가드: 종료 enqueue 를
+  **배치 2문장**으로 바꿈(`skipOpenUpdatesByJourneyIn` + `enqueueTerminalByJourneyIn`).
+  `DISTINCT ON (journey_id)` + window `max()` 로 여정별 마지막 행과 채번을 한 번에 집는다
+- 그 결과 **자바 쪽 종료 프레임 조립을 지웠다**(`terminalContentState`). 같은 변환이 두 벌이면
+  한쪽만 고쳐지는 순간부터 종료와 진행이 다른 모양으로 나간다. 쓰이지 않게 된
+  `decider.terminal()` 과 `findFirstByJourneyIdOrderBySequenceDesc` 도 함께 제거
+- **PG jsonb 는 수치 표기를 원본 그대로 보존한다**(`0.4500`). 자바 경로는 재직렬화하며 `0.45` 로
+  정규화했었다 — SQL 경로가 오히려 더 충실하다. 대신 키 순서가 안 지켜지므로 payload 단언은
+  문자열 `contains` 가 아니라 **파싱해서 값으로** 해야 한다
+- 리뷰가 "통과"로 확인한 것: 순번·timestamp 단조 / 발송 직전 재확인(최신성+세대) / 종료 접점
+  구분(재탐색 제외) / payload 두 겹·단위 분리 / 토큰 비노출 + 조건부 deactivate / 부팅 안전성
+
+### 검증 (리뷰 반영 후)
+- `./gradlew test --tests '*SubwayRingPushIT'` → **22 tests, 0 failures**
+- `./gradlew build` → 271 classes / **1885 tests, 0 failures**
+
+### 리뷰 nit 도 닫음 (앞선 "이번 결함 아님" 판단을 뒤집는다)
+- ~~payload factory 가 하위 계약을 그대로 신뢰하는 것은 PR-5a 의존이라 이번 결함이 아니다~~
+  → **넘길 게 아니었다.** `props` 에 null 이 하나라도 들어가면 앱 디코딩이 통째로 실패하고
+  **조용히 무시**된다(실패 응답도 안 온다). 이 PR 이 내내 막으려는 실패가 정확히 그 모양인데,
+  거기에만 방어가 없었다
+- 가드: `SubwayRingPushEnqueueService.isRenderable()` 이 넣기 전에 non-optional 값을 확인한다.
+  비면 `incomplete_ring` 으로 세고 **순번을 태우지 않는다**
+- **`estimatedNextStationAt` 은 일부러 안 본다** — 없는 것이 정상이고(신호 상실) 그때 앱은
+  보간을 멈추기로 돼 있다. 이걸 필수로 넣으면 STALE 구간의 화면이 통째로 안 나간다
+
+### 검증 (nit 반영 후)
+- `./gradlew test --tests '*SubwayRingPushIT'` → **24 tests, 0 failures**
+- `./gradlew build` → 271 classes / **1887 tests, 0 failures**
 ## ml/ ↔ nextroute-ml 동기화 (2026-08-17, 브랜치 chore/ml-sync-target-encoding)
 
 ### 확정

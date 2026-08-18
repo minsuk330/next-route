@@ -21,6 +21,15 @@ public interface SubwayLegBindingRepository extends JpaRepository<SubwayLegBindi
     Optional<SubwayLegBinding> findByJourneyLegId(Long journeyLegId);
 
     /**
+     * 그 개정본·단계의 고정. <b>발송 직전 세대 대조</b>가 쓴다.
+     *
+     * <p>단계 id 가 아니라 좌표로 찾는 이유는 대기열 행이 좌표만 들고 있기 때문이다 — 재탐색이
+     * 단계를 복제하므로 옛 id 로 찾으면 지금 살아 있는 고정을 못 본다.
+     */
+    Optional<SubwayLegBinding> findByJourneyIdAndRouteRevisionAndLegIndexAndDeletedAtIsNull(
+            Long journeyId, int routeRevision, int legIndex);
+
+    /**
      * 여러 단계의 고정을 한 번에.
      *
      * <p>여정 스냅샷을 조립할 때 쓴다. 단계마다 따로 물으면 지연 로딩이 단계 수만큼 질의를

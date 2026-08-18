@@ -59,4 +59,54 @@ public class JourneySubwayRingProperties {
      * {@code allkeys-lru} 가 다른 캐시를 밀어낸다.
      */
     private Duration ttl = Duration.ofMinutes(30);
+
+    private final Push push = new Push();
+
+    /**
+     * Live Activity 원격 갱신(push).
+     *
+     * <p>링 계산과 <b>스위치를 따로 둔다</b>. 링만 켜면 앱이 폴링으로 읽어 그리고, push 까지
+     * 켜면 잠금화면이 스스로 갱신된다. 앱이 ActivityKit 토큰을 등록하기 전에 push 를 켜면 보낼
+     * 주소가 없어 전량 실패로 보이므로, 두 단계를 나눠 켤 수 있어야 한다.
+     */
+    @Getter
+    @Setter
+    public static class Push {
+
+        /** 기본값 off. <b>모바일 토큰 등록이 확인된 뒤에 켠다.</b> */
+        private boolean enabled = false;
+
+        /** 발송 배치 주기. 링 tick 보다 촘촘할 이유가 없다. */
+        private long relayIntervalMs = 2000;
+
+        /** 한 배치가 집어 갈 최대 건수. */
+        private int batchSize = 100;
+
+        /**
+         * 최신인 동안의 재시도 상한.
+         *
+         * <p>무한 재시도는 latest-wins 와 충돌한다. 다만 0 으로 두면 commit 은 됐는데 push 가
+         * 유실됐을 때 화면이 멈춘 채로 남는다.
+         */
+        private int maxAttempts = 3;
+
+        /**
+         * push 유효기간. 이 시각을 넘긴 진행률은 보내지 않는다.
+         *
+         * <p>{@code freshnessWindow} 와 같은 값을 쓰지 않는다 — 그쪽은 <b>앱이 보간해도 되는
+         * 폭</b>이고 이쪽은 <b>배달이 늦어도 되는 폭</b>이다. 축이 다르다.
+         */
+        private Duration ttl = Duration.ofMinutes(2);
+
+        /**
+         * 이만큼 {@code SENDING} 에 머문 행은 워커가 죽은 것으로 보고 회수한다.
+         *
+         * <p>FCM 호출 시한보다 넉넉해야 한다 — 짧으면 아직 발송 중인 행을 회수해 같은 화면이
+         * 두 번 나간다.
+         */
+        private Duration claimTimeout = Duration.ofMinutes(1);
+
+        /** FCM 비동기 호출에 거는 시한. */
+        private long sendTimeoutMs = 5000;
+    }
 }

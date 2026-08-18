@@ -79,6 +79,7 @@ public class SubwayBindingLifecycleService {
     private final SubwayBindingMetrics metrics;
     private final SubwayRingMetrics ringMetrics;
     private final SubwayRingPort ringPort;
+    private final SubwayRingPushEnqueueService pushEnqueueService;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
@@ -88,6 +89,7 @@ public class SubwayBindingLifecycleService {
     public int abandonOpen(Long journeyId, SubwayBindingAbandonReason reason) {
         int abandoned = bindingRepository.abandonOpenByJourney(journeyId, LocalDateTime.now(clock));
         report(abandoned, reason);
+        endLiveActivity(List.of(journeyId));
         clearRingsAfterCommit(List.of(journeyId));
         return abandoned;
     }
@@ -100,6 +102,7 @@ public class SubwayBindingLifecycleService {
         int abandoned = bindingRepository.abandonOpenByJourneyIn(
                 journeyIds, LocalDateTime.now(clock));
         report(abandoned, reason);
+        endLiveActivity(journeyIds);
         clearRingsAfterCommit(journeyIds);
         return abandoned;
     }
@@ -124,6 +127,22 @@ public class SubwayBindingLifecycleService {
         if (abandoned > 0) {
             log.debug("[SubwayBinding] 미완료 고정 {}건 접음 reason={}", abandoned, reason);
         }
+    }
+
+    // ── 잠금화면 종료 ───────────────────────────────────────────────────────
+
+    /**
+     * 여정이 끝났으니 잠금화면 위젯도 끝내라고 보낸다.
+     *
+     * <p><b>개정본이 오르는 경로에서는 부르지 않는다.</b> 재탐색은 여정이 끝난 것이 아니라 경로가
+     * 바뀐 것이고, Activity 는 여정 단위라 그대로 이어진다 — 여기서 종료를 보내면 사용자는
+     * 재탐색을 수락할 때마다 잠금화면을 잃는다.
+     *
+     * <p>같은 트랜잭션에서 대기열 행을 만든다. 종료가 유실되면 잠금화면에 <b>죽은 안내가 그대로
+     * 남고</b>, 앱이 꺼져 있으면 사용자가 지울 방법도 없다.
+     */
+    private void endLiveActivity(Collection<Long> journeyIds) {
+        pushEnqueueService.enqueueTerminal(journeyIds);
     }
 
     // ── 진행 링 정리 ────────────────────────────────────────────────────────

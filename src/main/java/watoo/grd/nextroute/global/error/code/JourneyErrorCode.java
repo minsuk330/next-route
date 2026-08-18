@@ -40,7 +40,16 @@ public enum JourneyErrorCode implements ErrorCode {
    * 앱은 같은 관측을 그대로 다시 보내면 된다 — 감사행 유일성이 중복을 흡수한다.
    */
   SUBWAY_BINDING_BUSY("SUBWAY_BINDING_BUSY", "잠시 후 다시 시도해 주세요.",
-      HttpStatus.CONFLICT);
+      HttpStatus.CONFLICT),
+  /**
+   * Live Activity 토큰을 등록하려는데 그 기기의 FCM 토큰이 우리 표에 없다.
+   *
+   * <p>등록 순서가 있다 — 기기 주소({@code POST /api/me/push-token})가 먼저고 Activity 주소가
+   * 나중이다. 둘이 함께 있어야 발송이 성립하므로, 없는 채로 받아 두면 조용히 못 보내는 행이
+   * 쌓인다.
+   */
+  PUSH_TOKEN_NOT_FOUND("PUSH_TOKEN_NOT_FOUND", "먼저 기기 푸시 토큰을 등록해 주세요.",
+      HttpStatus.BAD_REQUEST);
 
   private final String code;
   private final String message;
