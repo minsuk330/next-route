@@ -743,3 +743,47 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 새 이미지 + **현행 프로덕션 모델**(vps 에서 rsync) 로드 → `error=None router=False te=False routes=30 featA=28`
 - 위 조합 predict 스모크 → `AVAILABLE(model=a)` + `UNSUPPORTED_ROUTE` 정상
 - Java 컴파일/테스트 미실행 — 이번 diff 에 java 변경 0건 (`git diff --cached HEAD -- . ':(exclude)ml'` 빈 출력)
+
+---
+
+## FCM 발송 배선 — 프로덕션 첫 활성화 시도 (2026-08-18)
+
+### 함정
+- **`sender=fcm` 을 켜자 worker 부팅이 죽었다** ← `FirebaseAdminMessagingClient` 의 생성자가 **둘**인데
+  `@Autowired` 표시가 없었다. Spring 은 후보가 여럿이면 표시를 찾고, 없으면 인자 없는 생성자로
+  폴백한다 → `NoSuchMethodException: <init>()` → `BeanInstantiationException: No default constructor
+  found` → `fcmNotificationSender` → `journeyNotificationRelayService` 순으로 컨텍스트 refresh 취소.
+  시험용 생성자의 `MessageDispatcher` 가 빈이 아니라는 사실로 나머지를 골라 주지 않는다.
+  가드: `@Autowired` 명시 + `FirebaseAdminMessagingClientWiringTest`(컨텍스트에서 빈이 실제로 만들어지는지)
+- **단위시험이 이 경로를 영원히 못 밟는다.** 시험은 `new` 로 이음매 생성자를 직접 부른다.
+  `FirebaseConfigTest` 도 "자격증명 없음 → 부팅 실패"만 보고 **"자격증명 있음 → 정상 부팅"** 은 안 봤다.
+  `sender=noop` 이라 빈이 아예 안 떠서 여태 안 드러났고, **첫 실행이 프로덕션이었다**
+- **`FcmLiveActivityPushAdapter`(PR #156, 미머지)도 동일 패턴** — public(FirebaseMessaging,…) +
+  package-private(MessageDispatcher,…). 머지 후 push 를 켜면 같은 방식으로 죽고, 게다가
+  `SubwayRingPushWiringValidator` 의 친절한 안내문이 뜨기 **전에** 빈 생성이 먼저 터진다.
+  그 브랜치에서 같은 수정 필요
+- **compose 의 `<<:` merge 는 `env_file`·`volumes` 를 병합하지 않고 대체한다.** worker 에 fcm.env 만
+  추가하려면 앵커(`x-app-service`)의 목록을 **전부 다시 써야** 한다. 안 그러면 db/api/toss/auth/oauth
+  env 와 logs·toss.p12 마운트가 통째로 사라진다
+- **이번 실패에서 자격증명 유효성은 검증되지 않았다.** 로그에 `FirebaseApp`·`FCM 초기화 완료` 0건 —
+  어댑터 빈 생성이 먼저 터져 `FirebaseConfig` 가 실행되지 않았다. 마운트 경로 오타가 남아 있어도 미탐지
+
+### 좌표
+- `infrastructure/adapter/out/notification/FirebaseAdminMessagingClient.java:54` (@Autowired 추가 지점)
+- `common/config/FirebaseConfig.java:41` (자격증명 읽기, 실패 시 부팅 차단)
+- VPS `/root/apps/nextroute/compose.yaml` worker 블록 / `env/fcm.env` / `/srv/nextroute/firebase-service-account.json`
+
+### 배포
+- VPS 에 배치 완료: `/srv/nextroute/firebase-service-account.json`(400 root, project `nextroute-4b01b`),
+  `env/fcm.env`(600, `JOURNEY_NOTIFICATION_SENDER=fcm` + `FIREBASE_CREDENTIALS_PATH`)
+- compose worker 패치는 **롤백해 둔 상태**. 시도본은 `compose.yaml.fcm-attempt.20260818`,
+  직전 정상본 백업은 `compose.yaml.bak.20260818-1828`. 이 픽스가 배포된 이미지에 들어간 뒤에 재적용
+- `JOURNEY_NOTIFICATION_RELAY_ENABLED` 는 미설정(기본 false) — sender 만 fcm 이어도 실제 발송은 안 나감
+- iOS 전달에는 Firebase 콘솔에 APNs 인증키(.p8 + Key ID + Team ID) 등록이 별도로 필요(미확인)
+
+### 검증
+- `./gradlew test --tests '*FirebaseAdminMessagingClient*' --tests '*FirebaseConfigTest'` → 7 tests, 0 failures
+- **가드가 실제로 잡는지 확인**: `@Autowired` 를 제거하고 재실행 → `sender 가 fcm 이면 창구 빈이
+  만들어진다` 만 FAILED (2 tests, 1 failed). 복원 후 재통과
+- `./gradlew build` → **265 classes / 1841 tests, 0 failures**
+- 프로덕션: 롤백 후 worker `Up (healthy)`, `Started NextrouteApplication in 16.324 seconds`
