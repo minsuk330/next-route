@@ -577,7 +577,7 @@ journey:
         # 앱이 ActivityKit 토큰을 등록하기 전에 켜면 보낼 주소가 없어 전량 실패로 보인다.
         # 모바일 선행 조건(Activity 를 pushType: .token 으로 시작 + 토큰 등록/해제)이 확인된
         # 뒤에 켠다.
-        enabled: ${JOURNEY_SUBWAY_RING_PUSH_ENABLED:true}
+        enabled: ${JOURNEY_SUBWAY_RING_PUSH_ENABLED:false}
         relay-interval-ms: ${JOURNEY_SUBWAY_RING_PUSH_RELAY_INTERVAL_MS:2000}
         batch-size: 100
         # 최신인 동안의 재시도 상한. 무한 재시도는 latest-wins 와 충돌하고, 0 이면 commit 은
