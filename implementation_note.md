@@ -962,3 +962,76 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   → **40 tests, 0 failures, 0 errors**
 - 신규 계약 4개: ①50m 0 → 150m 에서 잡힘 ②50m 히트 시 100m 조회 안 함(`never()`)
   ③300m 까지 0 → 빈 값, 350m 조회 안 함 ④확대 반경에서도 요청 호선 선택 유지
+
+---
+
+## 2026-08-19 지도 버스정류장 스냅샷 API (`feat/map-bus-stop-snapshot`, PLAN=docs/plan/map-bus-stop-snapshot)
+
+### 확정
+- 지도 마커용 계약을 `nearby` 와 **분리**했다. 신규 `GET /api/map/bus-stops/snapshot` 이 서울 전체
+  정류장을 한 번에 주고, 클라는 앱 시작 1회 받아 로컬에 둔다. 팬/줌에는 요청이 없다.
+- `version = "<활성 정류장 수>-<max(updated_at) epoch초>"`. ETag 도 같은 값.
+  `If-None-Match` 일치 → 304, **본문 생성·정류장 조회 없음**. 이게 기능의 존재 이유다.
+- 프로브 쿼리와 본문 쿼리의 WHERE 절은 **같아야 한다** (`deleted_at IS NULL AND latitude IS NOT NULL
+  AND longitude IS NOT NULL`). 다르면 버전은 안 바뀌는데 본문만 바뀌는 상태가 생긴다. IT 로 고정.
+- 응답은 JSON **array-of-arrays** + `columns` 동봉. 키 반복 제거 + 표준 파서 사용.
+  CSV 는 정류장명 이스케이프 규칙을 모바일이 구현해야 해서 기각.
+- 좌표는 소수 5자리 절삭(≈1.1m). 행 순서는 `stop_id ASC` **고정** — 같은 데이터면 바이트가 같아야
+  ETag 가 안정적이다.
+- 캐시는 **직렬화된 바이트**로 들고 있는다(DTO 아님). 요청마다 1.3만 행 재직렬화가 최대 낭비.
+  재빌드는 `synchronized` single-flight + 락 안 double-check.
+- 버전 프로브는 60초 memoize. 304 가 요청마다 DB 를 때리지 않게 하는 것이 목적.
+- Redis 기각(정적 페이로드, api 컨테이너 1개, 힙 1MB 미만). MVT 기각(네이버 SDK 미지원).
+  `ShallowEtagHeaderFilter` 기각(매 요청 본문 전체 생성 + MD5 — 목적과 정반대).
+- 워밍업은 `@Profile("!worker")`. worker 는 이 엔드포인트를 서비스하지 않으므로 힙만 먹는다.
+
+### 함정
+- **서버 PR 만으로는 끊김이 안 없어진다.** 원인 5개 중 ①20개 상한 ②줌 무관 반경 ③밀도 의존 확대루프
+  ⑤응답 순서 뒤집힘만 죽는다. **④"응답마다 마커 전체 교체"는 클라만 고칠 수 있다.**
+  거기에 12,986 마커 동시 렌더 = 프레임 사망이라 줌 게이팅/클러스터가 성능상 필수.
+  → 클라 4항목을 `docs/plan/map-bus-stop-snapshot/HANDOFF.md` 로 인계. **판정은 실기기 프레임에서만 난다.**
+- 프로브 시점과 본문 생성 시점 사이에 행이 들어오면 본문이 버전보다 **새로울** 수 있다. 이 방향은
+  다음 프로브에서 재빌드로 수렴하므로 안전. 반대로 프로브를 본문 생성 **뒤로** 옮기면 낡은 본문이
+  영구히 굳는다 — 옮기지 말 것.
+- Mockito: `given(...)` **인자 안에서** helper 가 다시 stubbing 하면 `UnfinishedStubbingException`.
+  projection fake 는 mock 대신 record 로 만들어야 한다 (`BusStopSnapshotServiceTest` 의 `StopRow`).
+- `updated_at` 은 `timestamp without time zone`. Java 시각 객체로 꺼내면 존 해석이 끼어들고 드라이버
+  매핑도 흔들린다 → `extract(epoch FROM max(updated_at))::bigint` 로 **SQL 에서** 변환. `long` 매핑 IT 확인됨.
+- 페이로드 크기 첫 추정(753 kB)은 **틀렸다** — JSON 문법 오버헤드를 뺀 수치였다. 실측 raw 939,929 B.
+- gzip 을 `application.yaml` 전역으로 켰다. 2KB 넘는 **모든** JSON 응답이 압축된다(경로검색 포함).
+  의도된 side effect지만 리뷰에서 의식할 항목.
+- 작업 시작 시 `application.yaml` 에 **다른 세션의 미커밋 변경**(`JOURNEY_SUBWAY_RING_PUSH_ENABLED`
+  기본값 true→false)이 있었다. 보존하고 내 커밋에서 제외했다(백업:
+  scratchpad `foreign-ring-push-flag.patch`). 이 PR 에 그 플래그 변경은 없다.
+- 스냅샷 필터는 좌표 컬럼 기준, 기존 `findNearby` 는 `geom IS NOT NULL` 기준으로 **계약이 다르다**.
+  현재 프로덕션은 결과가 같다(12986행 전부 geom·좌표 있음, 소프트삭제 0건).
+- IT 스키마에서 `geom` 컬럼을 뺐다(postgis 없는 `postgres:17` 사용). `findNearby` 를 이 IT 에
+  추가하려면 postgis 이미지로 바꿔야 한다.
+
+### 좌표
+- `infrastructure/adapter/in/api/map/MapBusStopController.java` (신규, ETag/304 직접 처리)
+- `application/map/service/BusStopSnapshotService.java` (신규, 프로브 memoize + 바이트 캐시)
+- `application/map/service/BusStopSnapshotWarmup.java` (신규, `@Profile("!worker")`)
+- `application/map/port/in/GetBusStopSnapshotUseCase.java`, `application/map/dto/BusStopSnapshotPayload.java`
+- `domain/bus/repository/BusStopRepository.java:59` (`findAllForSnapshot`), `:75` (`probeSnapshotVersion`)
+- `domain/bus/repository/BusStopSnapshotProjection.java`, `BusStopSnapshotVersionProjection.java` (신규)
+- `domain/bus/service/BusDataService.java:213` (스냅샷 위임 2개)
+- `src/main/resources/application.yaml:50` (`server.compression`)
+- 문제 원인 쪽: `application/nearby/service/NearbyTransitService.java:27-30`(상수), `:119`(확대 루프)
+
+### 배포
+- **마이그레이션 없음. VPS 수동배치 불필요.** api 컨테이너 재배포만.
+- 배포 후 확인: `curl -H 'Accept-Encoding: gzip' -D- -o/dev/null https://<host>/api/map/bus-stops/snapshot`
+  → `ETag` 존재 + gzip `Content-Length` 약 233 kB, 같은 ETag 재요청이 304.
+
+### 검증
+- `./gradlew compileJava` → 성공
+- `./gradlew test --tests '*BusStopSnapshotServiceTest*' --tests '*MapBusStopControllerTest*'`
+  → **14 tests, 0 failures** (서비스 9: 버전 포맷/빈 표/좌표 절삭/열 순서/arsId null 유지/캐시 재사용
+  /프로브 memoize/버전 변경 재빌드/좌표 null 스킵, 컨트롤러 5: 200 본문·헤더/304 시 `snapshot()`
+  `never()`/weak ETag 304/stale 200/ETag 는 본문 버전 추종)
+- `./gradlew test --tests '*BusStopSnapshotQueryIT*'` → **3 tests, 0 failures**
+  (소프트삭제·좌표null 제외 + `stop_id` 정렬 / 프로브 count·epoch 매핑 / 빈 표 0-0)
+- 실데이터 페이로드 실측(프로덕션 12,986행에서 동일 형태 JSON 생성): raw **939,929 B**,
+  gzip -6 **238,846 B (233 kB)**. PLAN 기준 400 kB 이하 통과.
+- 미검증(코드로 판정 불가): 실기기 지도 조작 체감. 클라 4항목 구현 후 프레임으로 판정해야 한다.

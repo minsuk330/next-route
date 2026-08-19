@@ -38,6 +38,42 @@ public interface BusStopRepository extends JpaRepository<BusStop, Long> {
 			@Param("radiusMeters") double radiusMeters,
 			@Param("lim") int lim);
 
+	/**
+	 * 지도 스냅샷 전량 조회.
+	 *
+	 * <p>{@code findNearby} 와 달리 {@code geom} 을 보지 않는다 — 스냅샷은 좌표만 쓰므로 판단 기준도
+	 * 좌표 컬럼이다. 대신 소프트삭제는 제외한다.
+	 *
+	 * <p>{@code ORDER BY stop_id} 는 취향이 아니라 계약이다. 같은 데이터면 응답 바이트가 같아야
+	 * ETag 가 안정적이고 클라 디핑이 가능하다.
+	 */
+	@Query(value = """
+			SELECT stop_id AS stopId, stop_name AS stopName, ars_id AS arsId,
+			       latitude AS latitude, longitude AS longitude
+			FROM bus_stop
+			WHERE deleted_at IS NULL
+			  AND latitude IS NOT NULL
+			  AND longitude IS NOT NULL
+			ORDER BY stop_id
+			""", nativeQuery = true)
+	List<BusStopSnapshotProjection> findAllForSnapshot();
+
+	/**
+	 * 스냅샷 버전 프로브. 본문을 만들지 않고 304 를 판단하기 위한 집계 한 방.
+	 *
+	 * <p>{@code findAllForSnapshot} 과 WHERE 절이 같아야 한다 — 다르면 버전은 안 바뀌는데 본문은
+	 * 바뀌는 상태가 생긴다.
+	 */
+	@Query(value = """
+			SELECT count(*) AS stopCount,
+			       coalesce(extract(epoch FROM max(updated_at))::bigint, 0) AS maxUpdatedEpochSec
+			FROM bus_stop
+			WHERE deleted_at IS NULL
+			  AND latitude IS NOT NULL
+			  AND longitude IS NOT NULL
+			""", nativeQuery = true)
+	BusStopSnapshotVersionProjection probeSnapshotVersion();
+
 	@Modifying
 	@Query(value = "UPDATE bus_stop SET geom = ST_MakePoint(longitude, latitude)::geography WHERE longitude IS NOT NULL AND latitude IS NOT NULL", nativeQuery = true)
 	void refreshGeom();
