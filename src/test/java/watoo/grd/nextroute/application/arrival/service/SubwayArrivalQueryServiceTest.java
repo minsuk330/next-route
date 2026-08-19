@@ -11,8 +11,13 @@ import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 class SubwayArrivalQueryServiceTest {
 
@@ -62,6 +67,51 @@ class SubwayArrivalQueryServiceTest {
                 .singleElement()
                 .extracting(SubwayArrivalResponse::getStationsAway)
                 .isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("50m 에서 후보가 없으면 반경을 넓혀 찾는다 — 눈앞의 역을 두고 '정보 없음' 이 되면 안 된다")
+    void expandsRadiusWhenNothingIsFoundNearby() {
+        NearbySubwayStationProjection station = station("1075075212", "압구정로데오", "1075");
+        given(subwayDataService.findNearbyStations(37.5271, 127.0402, 150.0, 5))
+                .willReturn(List.of(station));
+
+        assertThat(service.resolveStation(37.5271, 127.0402, "1075"))
+                .contains(new SubwayArrivalQueryService.ResolvedStation(
+                        "1075075212", "압구정로데오", "1075"));
+    }
+
+    @Test
+    @DisplayName("50m 에서 잡히면 더 넓히지 않는다 — 좁은 반경의 판단 근거를 그대로 둔다")
+    void doesNotExpandWhenTheNearestRadiusAnswers() {
+        givenStation();
+
+        service.resolveStation(37.5271, 127.0402, "1075");
+
+        verify(subwayDataService, never())
+                .findNearbyStations(anyDouble(), anyDouble(), eq(100.0), anyInt());
+    }
+
+    @Test
+    @DisplayName("한계 반경까지 후보가 없으면 빈 값 — 없는 역을 지어내지 않는다")
+    void stopsExpandingAtTheMaxRadius() {
+        assertThat(service.resolveStation(37.5271, 127.0402, "1075")).isEmpty();
+
+        verify(subwayDataService, never())
+                .findNearbyStations(anyDouble(), anyDouble(), eq(350.0), anyInt());
+    }
+
+    @Test
+    @DisplayName("넓힌 반경에서도 요청한 호선을 고른다 — 확대가 노선 선택 규칙을 흐리지 않는다")
+    void keepsLineSelectionAtTheExpandedRadius() {
+        NearbySubwayStationProjection lineNine = station("923", "신논현", "1009");
+        NearbySubwayStationProjection sinbundang = station("D07", "신논현", "1077");
+        given(subwayDataService.findNearbyStations(37.5045, 127.0250, 200.0, 5))
+                .willReturn(List.of(lineNine, sinbundang));
+
+        assertThat(service.resolveStation(37.5045, 127.0250, "1077"))
+                .contains(new SubwayArrivalQueryService.ResolvedStation(
+                        "D07", "신논현", "1077"));
     }
 
     private void givenStation() {

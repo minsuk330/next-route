@@ -906,3 +906,59 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   만들어진다` 만 FAILED (2 tests, 1 failed). 복원 후 재통과
 - `./gradlew build` → **265 classes / 1841 tests, 0 failures**
 - 프로덕션: 롤백 후 worker `Up (healthy)`, `Started NextrouteApplication in 16.324 seconds`
+
+---
+
+## 2026-08-19 지하철 도착 조회 — 역 탐색 반경 단계 확대 (S)
+
+브랜치 `fix/subway-arrival-station-radius-expand`.
+
+### 확정
+- `SubwayArrivalQueryService.resolveStation` 의 반경은 **고정 50m → 50m 시작, 50m 단위 확대,
+  300m 한계**. 후보가 나오는 첫 반경에서 멈춘다.
+- **50m 에서 잡히면 이 변경 전과 완전히 동일**하게 동작한다. 넓힌 반경은 50m 가 침묵할 때만 쓰인다.
+  회귀 위험을 여기로 몰아 넣은 것이 설계 의도다.
+- 선택 규칙(`selectStation`)은 **건드리지 않았다**. 확대는 "어떤 후보를 볼 것인가"만 바꾸고
+  "후보 중 무엇을 고를 것인가"는 그대로다.
+- 상수는 `INITIAL_RADIUS=50.0` / `RADIUS_STEP=50.0` / `MAX_RADIUS=300.0`, 테스트가 읽을 수 있게
+  package-private. 후보 수 `CANDIDATE_LIMIT=5` 는 기존 값 유지.
+- 반복 호출 대신 300m 단발 조회로 줄이자고 제안했으나 **사용자가 단계 확대를 선택**. 근거:
+  좁은 반경 우선이 코드에 드러나는 편이 낫다. `NearbyTransitService.searchWithExpanding` 과
+  같은 패턴이라 결도 맞는다.
+
+### 함정
+- **50m 로는 안 잡히는데 300m 로는 잡히는 역이 실재한다**(사용자 실측). 원인은 역 좌표와
+  경로/GPS 좌표의 기준 차이(역사 중심 vs 승강장·출구). 반경을 고정으로 두면 사용자는 눈앞의
+  역을 두고 "도착정보 없음"을 본다.
+- `findNearby` SQL 에 `WHERE geom IS NOT NULL` 이 있다. `geom` 이 비어 있는 역은 **반경을
+  아무리 넓혀도 안 나온다**. 이번 건의 주원인은 반경이라고 확인됐지만, 여전히 0 이 나오는
+  자리가 있으면 `SELECT count(*) FROM subway_station WHERE geom IS NULL` 부터 보고
+  `SubwayStationRepository.backfillGeom()` 을 쓴다.
+- **미해결 위험 — 넓힌 반경에서의 노선 폴백.** `selectStation` 은 `lineId` 가 후보 중 어디에도
+  없으면 `nearby.get(0)`(최근접, 노선 무관)로 떨어진다. 50m 일 때는 사실상 "같은 환승역의 다른
+  호선"이라 손해가 작았지만, 300m 까지 넓히면 **다른 역**이 걸릴 수 있다. 그때 응답에는 역
+  이름이 없어(`SubwayArrivalResponse` 에 `stationName` 없음) 사용자가 틀린 줄 모른다.
+  → 후속: 응답에 `stationName`/`distanceMeters` 를 싣거나, 확대 경로에서는 노선 미일치 시
+  빈 값으로 떨어뜨린다. 이번 범위에서 제외(사용자가 반경만으로 범위 확정).
+- `JourneyTransitIdEnricher.resolveSubwayStation` 은 뒤에 `lineId.equals` + 이름
+  `KNOWN_MATCH` 이중 검증이 있어 위 위험이 없다. 확대는 그쪽에 순이득.
+
+### 좌표
+- `application/arrival/service/SubwayArrivalQueryService.java:21` (반경 상수 3개)
+- `application/arrival/service/SubwayArrivalQueryService.java:65` (확대 루프)
+- `application/arrival/service/SubwayArrivalQueryService.java:80` (`selectStation`, 미변경)
+- `domain/subway/repository/SubwayStationRepository.java:35` (`findNearby`, `geom IS NOT NULL`)
+- `application/journey/service/JourneyTransitIdEnricher.java:123` (검증 있는 caller)
+
+### 배포
+- 마이그레이션 없음. VPS 수동배치 **불필요**.
+
+### 검증
+- `./gradlew test --tests '*SubwayArrivalQueryServiceTest*'` → **7 tests, 0 failures**
+  (기존 3 + 신규 4). 기존 스텁이 `findNearbyStations(lat, lon, 50, 5)` 정확 인자 매칭인데
+  루프 첫 반경이 그대로 50.0/5 라 **수정 없이 통과** — 무회귀의 실측 증거다.
+- `./gradlew test --tests '*SubwayArrival*' --tests '*JourneyTransitIdEnricher*'
+  --tests '*SubwayStationsAway*' --tests '*SubwayRealtimeArrivalReader*'`
+  → **40 tests, 0 failures, 0 errors**
+- 신규 계약 4개: ①50m 0 → 150m 에서 잡힘 ②50m 히트 시 100m 조회 안 함(`never()`)
+  ③300m 까지 0 → 빈 값, 350m 조회 안 함 ④확대 반경에서도 요청 호선 선택 유지
