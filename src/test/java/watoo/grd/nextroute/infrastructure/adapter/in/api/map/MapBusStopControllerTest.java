@@ -44,7 +44,7 @@ class MapBusStopControllerTest {
         mockMvc.perform(get("/api/map/bus-stops/snapshot"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ETAG, "\"" + VERSION + "\""))
-                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "max-age=3600, must-revalidate, public"))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "max-age=604800, must-revalidate, public"))
                 .andExpect(jsonPath("$.version").value(VERSION))
                 .andExpect(jsonPath("$.count").value(1))
                 .andExpect(jsonPath("$.columns[0]").value("stopId"))

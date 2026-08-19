@@ -34,7 +34,7 @@ If-None-Match: "12986-1786000000"     (저장해 둔 version, 선택)
 - `arsId` 는 **null 일 수 있다** (안내단말기 없는 정류장). 빈 문자열이 아니라 null 이다.
 - 좌표는 소수 5자리(≈1.1m).
 - 실측 크기: raw 약 940 kB, **gzip 약 233 kB** (2026-08-19, 12,986행). `Accept-Encoding: gzip` 필수.
-- 응답 헤더: `ETag: "<version>"`, `Cache-Control: public, max-age=3600, must-revalidate`.
+- 응답 헤더: `ETag: "<version>"`, `Cache-Control: public, max-age=604800, must-revalidate` (1주일).
 
 ### 304
 

@@ -29,8 +29,15 @@ import java.util.concurrent.TimeUnit;
 @Tag(name = "[공용] 지도 정류장 스냅샷")
 public class MapBusStopController {
 
+    /**
+     * 정류장 표는 며칠~몇 주 단위로나 변한다. 1시간 재검증은 얻는 것 없이 왕복만 만든다.
+     *
+     * <p>대가: 공유 캐시(프록시/CDN)는 이 기간 동안 재검증하지 않으므로 데이터가 바뀌면 최대
+     * 1주일 낡은 응답을 줄 수 있다. 앱은 이 헤더를 따르지 않고 자기 로컬 저장소를 쓰며 시작마다
+     * {@code If-None-Match} 로 직접 재검증하므로 앱 경로는 영향받지 않는다.
+     */
     private static final CacheControl CACHE_CONTROL =
-            CacheControl.maxAge(1, TimeUnit.HOURS).cachePublic().mustRevalidate();
+            CacheControl.maxAge(7, TimeUnit.DAYS).cachePublic().mustRevalidate();
 
     private final GetBusStopSnapshotUseCase getBusStopSnapshotUseCase;
 

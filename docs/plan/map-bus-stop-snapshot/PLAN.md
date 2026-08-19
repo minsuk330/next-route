@@ -75,7 +75,7 @@ If-None-Match: "12986-1786000000"      (선택)
 
 ```
 ETag: "12986-1786000000"
-Cache-Control: public, max-age=3600, must-revalidate
+Cache-Control: public, max-age=604800, must-revalidate
 Content-Type: application/json
 ```
 
@@ -206,7 +206,7 @@ WHERE deleted_at IS NULL
   public class MapBusStopController {
 
       private static final CacheControl CACHE_CONTROL =
-              CacheControl.maxAge(1, TimeUnit.HOURS).cachePublic().mustRevalidate();
+              CacheControl.maxAge(7, TimeUnit.DAYS).cachePublic().mustRevalidate();
 
       private final GetBusStopSnapshotUseCase useCase;
 
