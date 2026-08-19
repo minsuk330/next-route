@@ -207,6 +207,18 @@ public class BusDataService {
 		return busStopRepository.findNearby(lat, lng, radiusMeters, limit);
 	}
 
+	// ===== 지도 스냅샷 =====
+
+	/** 지도 스냅샷 전량 (stop_id 정렬). */
+	public List<BusStopSnapshotProjection> findAllStopsForSnapshot() {
+		return busStopRepository.findAllForSnapshot();
+	}
+
+	/** 스냅샷 버전 프로브 (본문 생성 없이 304 판단용). */
+	public BusStopSnapshotVersionProjection probeStopSnapshotVersion() {
+		return busStopRepository.probeSnapshotVersion();
+	}
+
 	// ===== 정류장 선택 UI 조회 =====
 
 	/** 주어진 정류장들 중 지원 노선을 경유하는 정류장 id (배지 판정용). */
