@@ -298,7 +298,7 @@ collector:
     flush-cron: "0 */30 * * * *"
     reset-cron: "0 0 5 * * *"
   static-data:
-    enabled: ${STATIC_DATA_ENABLED:true}
+    enabled: ${STATIC_DATA_ENABLED:false}
     cron: "0 0 3 * * *"
     bus-route-polyline-request-interval-ms: ${BUS_ROUTE_POLYLINE_REQUEST_INTERVAL_MS:200}
 
@@ -393,7 +393,7 @@ journey:
     evaluator:
       # 기본 꺼짐. 평가기는 외부 API 를 상시로 부르므로 배포와 동시에 돌지 않게 한다.
       # 켜는 시점은 운영이 고른다(Phase 8 점진 배포가 이 스위치를 쓴다). worker 프로필 전용.
-      enabled: ${JOURNEY_EVALUATOR_ENABLED:false}
+      enabled: ${JOURNEY_EVALUATOR_ENABLED:true}
       # 처리량 상한 = batch-size ÷ tick-ms. 100건/5초(20건/s)는 여정 1,000건에서도 적체가
       # 쌓였다(⑧ 측정: p95 33초). 200건/1초로 올려 상한을 200건/s 로 둔다.
       # 더 올리려면 워커 수와 평가기 provider 슬롯을 함께 봐야 한다 — 지금은 그쪽이 먼저 막힌다.
@@ -437,7 +437,7 @@ journey:
   reroute:
     # 기본 꺼짐. 트리거(①)와 후보 생성기(③④)가 붙기 전에는 켜도 후보가 0개라 아무 일이 없지만,
     # 스위치는 그것들보다 먼저 있어야 한다. 꺼져 있으면 조회는 빈 결과, 요청은 disabled 로 거절.
-    enabled: ${JOURNEY_REROUTE_ENABLED:false}
+    enabled: ${JOURNEY_REROUTE_ENABLED:true}
     # 제안 유효시간. 넘기면 근거로 삼은 실시간 값이 이미 다른 이야기를 한다.
     proposal-ttl: PT2M
     max-candidates: 3
@@ -523,7 +523,7 @@ journey:
     relay:
       # 기본 꺼짐. 발송 구현은 붙었지만 ⑤(발송 직전 재검증)와 ⑥(payload 계약·문구)이 들어오기
       # 전에는 켜지 않는다 — 낡은 알림이 나가고 임시 문구가 운영에 굳는다. worker 프로필 전용.
-      enabled: ${JOURNEY_NOTIFICATION_RELAY_ENABLED:false}
+      enabled: ${JOURNEY_NOTIFICATION_RELAY_ENABLED:true}
       sweep-interval-ms: 1000
       batch-size: 200
       workers: 4

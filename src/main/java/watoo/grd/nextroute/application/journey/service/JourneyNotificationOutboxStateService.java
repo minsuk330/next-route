@@ -10,6 +10,7 @@ import watoo.grd.nextroute.application.journey.dto.NotificationSendCommand;
 import watoo.grd.nextroute.application.journey.observability.JourneyNotificationMetrics;
 import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotification;
+import watoo.grd.nextroute.domain.journey.entity.JourneyNotificationScope;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotificationStatus;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
@@ -146,7 +147,11 @@ public class JourneyNotificationOutboxStateService {
      * @return 뜻을 잃었으면 true. 그때 행은 이미 CANCELED 다
      */
     private boolean approachLostItsMeaning(JourneyNotification n, JourneySession journey) {
-        if (n.getCheckpoint() != JourneyCheckpoint.TRANSFER_TARGET_APPROACHING) {
+        // 접근 알림의 의미 검사는 환승 scope에만 적용한다. 관리자 테스트처럼 실제
+        // TransferConnection을 가리키지 않는 JOURNEY scope 행을 transfer index 0으로
+        // 잘못 해석하면, 테스트 행이 발송 직전에 조용히 취소된다.
+        if (n.getCheckpoint() != JourneyCheckpoint.TRANSFER_TARGET_APPROACHING
+                || n.getScopeType() != JourneyNotificationScope.TRANSFER) {
             return false;
         }
         TransferConnection transfer = transferRepository

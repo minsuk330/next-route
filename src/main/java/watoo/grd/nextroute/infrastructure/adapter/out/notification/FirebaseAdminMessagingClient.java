@@ -3,6 +3,7 @@ package watoo.grd.nextroute.infrastructure.adapter.out.notification;
 import com.google.firebase.messaging.AndroidConfig;
 import com.google.firebase.messaging.AndroidNotification;
 import com.google.firebase.messaging.ApnsConfig;
+import com.google.firebase.messaging.Aps;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.MessagingErrorCode;
@@ -137,12 +138,14 @@ public class FirebaseAdminMessagingClient implements FirebaseMessagingClient {
                             .build())
                     .setApnsConfig(ApnsConfig.builder()
                             .putHeader("apns-priority",
+
                                     high ? APNS_PRIORITY_HIGH : APNS_PRIORITY_NORMAL)
                             // APNs 는 "언제"를 UTC epoch 초로 받는다. 남은 시간을 넣으면 1970년으로
                             // 읽혀 즉시 만료된다.
                             .putHeader("apns-expiration",
                                     String.valueOf(message.apnsExpirationEpochSeconds()))
                             .putHeader("apns-collapse-id", message.collapseKey())
+                            .setAps(Aps.builder().build())
                             .build())
                     .build();
         }

@@ -65,9 +65,9 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 			return;
 		}
 
-		if (routeIds.size() < targetNames.size()) {
-			log.warn("[BusArrival] Only {}/{} target routes found in DB.", routeIds.size(), targetNames.size());
-		}
+//		if (routeIds.size() < targetNames.size()) {
+//			log.warn("[BusArrival] Only {}/{} target routes found in DB.", routeIds.size(), targetNames.size());
+//		}
 
 		int dailyBudget = properties.getDailyBudget();
 		if (!budget.canMakeCall(dailyBudget)) {

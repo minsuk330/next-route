@@ -59,9 +59,9 @@ public class BusPositionService implements CollectBusPositionUseCase {
 			return;
 		}
 
-		if (routeIds.size() < targetNames.size()) {
-			log.warn("[BusPosition] Only {}/{} target routes found in DB.", routeIds.size(), targetNames.size());
-		}
+//		if (routeIds.size() < targetNames.size()) {
+//			log.warn("[BusPosition] Only {}/{} target routes found in DB.", routeIds.size(), targetNames.size());
+//		}
 
 		LocalDateTime collectedAt = LocalDateTime.now(clock);
 		int totalSaved = 0;
