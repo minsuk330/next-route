@@ -9,8 +9,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.nearby.dto.NearbyBusStopResult;
 import watoo.grd.nextroute.application.nearby.service.NearbyTransitService;
 import watoo.grd.nextroute.application.route.service.PredictionSupportService;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
+import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
 import watoo.grd.nextroute.domain.bus.repository.NearbyBusStopProjection;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
 import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
 
 import java.util.List;
@@ -27,7 +28,8 @@ import static org.mockito.Mockito.never;
 @ExtendWith(MockitoExtension.class)
 class GetNearbyBusStopsUseCaseTest {
 
-    @Mock BusDataService busDataService;
+    @Mock BusStopRepository busStopRepository;
+    @Mock BusRouteStopRepository busRouteStopRepository;
     @Mock SubwayDataService subwayDataService;
     @Mock PredictionSupportService predictionSupportService;
     @InjectMocks NearbyTransitService service;
@@ -39,10 +41,10 @@ class GetNearbyBusStopsUseCaseTest {
                 "1001", "시청앞", "01-001", 37.5665, 126.9780, 134.6
         );
 
-        given(busDataService.findNearbyStops(37.5665, 126.9780, 500.0, 5))
+        given(busStopRepository.findNearby(37.5665, 126.9780, 500.0, 5))
                 .willReturn(List.of(projection));
         given(predictionSupportService.supportedRouteIds()).willReturn(Set.of());
-        given(busDataService.findSupportedStopIds(anySet(), anySet())).willReturn(Set.of());
+        // routeIds가 비어 findSupportedStopIds는 호출되지 않는다(NearbyTransitService의 빈 컬렉션 가드).
 
         List<NearbyBusStopResult> result = service.getNearbyBusStops(37.5665, 126.9780, 5);
 
@@ -58,10 +60,10 @@ class GetNearbyBusStopsUseCaseTest {
                 "1001", "시청앞", "01-001", 37.5665, 126.9780, 134.6
         );
 
-        given(busDataService.findNearbyStops(37.5665, 126.9780, 500.0, 5))
+        given(busStopRepository.findNearby(37.5665, 126.9780, 500.0, 5))
                 .willReturn(List.of(projection));
         given(predictionSupportService.supportedRouteIds()).willReturn(Set.of("100100124"));
-        given(busDataService.findSupportedStopIds(anySet(), anySet())).willReturn(Set.of("1001"));
+        given(busRouteStopRepository.findSupportedStopIds(anySet(), anySet())).willReturn(List.of("1001"));
 
         List<NearbyBusStopResult> result = service.getNearbyBusStops(37.5665, 126.9780, 5);
 
@@ -74,39 +76,39 @@ class GetNearbyBusStopsUseCaseTest {
     @DisplayName("limit이 0 이하이면 기본값 20을 사용한다")
     void getNearbyBusStops_usesDefaultLimitWhenInputIsZero() {
         // 반경 확장 루프 전체를 anyDouble()로 커버
-        given(busDataService.findNearbyStops(eq(37.5665), eq(126.9780), anyDouble(), eq(20)))
+        given(busStopRepository.findNearby(eq(37.5665), eq(126.9780), anyDouble(), eq(20)))
                 .willReturn(List.of());
 
         service.getNearbyBusStops(37.5665, 126.9780, 0);
 
-        then(busDataService).should(atLeastOnce())
-                .findNearbyStops(eq(37.5665), eq(126.9780), anyDouble(), eq(20));
+        then(busStopRepository).should(atLeastOnce())
+                .findNearby(eq(37.5665), eq(126.9780), anyDouble(), eq(20));
     }
 
     @Test
     @DisplayName("limit이 최대값(50)을 넘으면 50으로 clamp 한다")
     void getNearbyBusStops_clampsLimitToMax() {
-        given(busDataService.findNearbyStops(eq(37.5665), eq(126.9780), anyDouble(), eq(50)))
+        given(busStopRepository.findNearby(eq(37.5665), eq(126.9780), anyDouble(), eq(50)))
                 .willReturn(List.of());
 
         service.getNearbyBusStops(37.5665, 126.9780, 999);
 
-        then(busDataService).should(atLeastOnce())
-                .findNearbyStops(eq(37.5665), eq(126.9780), anyDouble(), eq(50));
+        then(busStopRepository).should(atLeastOnce())
+                .findNearby(eq(37.5665), eq(126.9780), anyDouble(), eq(50));
     }
 
     @Test
     @DisplayName("결과가 없으면 500m씩 확장해 최대 3000m까지 조회하고 빈 리스트를 반환한다")
     void getNearbyBusStops_expandsRadiusAndReturnsEmptyWhenNoResults() {
-        given(busDataService.findNearbyStops(anyDouble(), anyDouble(), anyDouble(), anyInt()))
+        given(busStopRepository.findNearby(anyDouble(), anyDouble(), anyDouble(), anyInt()))
                 .willReturn(List.of());
 
         List<NearbyBusStopResult> result = service.getNearbyBusStops(37.5665, 126.9780, 5);
 
         assertThat(result).isEmpty();
         // 500, 1000, 1500, 2000, 2500, 3000 총 6번 호출
-        then(busDataService).should(org.mockito.Mockito.times(6))
-                .findNearbyStops(anyDouble(), anyDouble(), anyDouble(), anyInt());
+        then(busStopRepository).should(org.mockito.Mockito.times(6))
+                .findNearby(anyDouble(), anyDouble(), anyDouble(), anyInt());
     }
 
     @Test
@@ -116,17 +118,17 @@ class GetNearbyBusStopsUseCaseTest {
                 "2001", "광화문", "02-001", 37.5720, 126.9769, 980.0
         );
 
-        given(busDataService.findNearbyStops(37.5665, 126.9780, 500.0, 5)).willReturn(List.of());
-        given(busDataService.findNearbyStops(37.5665, 126.9780, 1000.0, 5)).willReturn(List.of(projection));
+        given(busStopRepository.findNearby(37.5665, 126.9780, 500.0, 5)).willReturn(List.of());
+        given(busStopRepository.findNearby(37.5665, 126.9780, 1000.0, 5)).willReturn(List.of(projection));
         given(predictionSupportService.supportedRouteIds()).willReturn(Set.of());
-        given(busDataService.findSupportedStopIds(anySet(), anySet())).willReturn(Set.of());
+        // routeIds가 비어 findSupportedStopIds는 호출되지 않는다(NearbyTransitService의 빈 컬렉션 가드).
 
         List<NearbyBusStopResult> result = service.getNearbyBusStops(37.5665, 126.9780, 5);
 
         assertThat(result).hasSize(1);
         // 1000m에서 찾았으므로 1500m 이후는 호출하지 않음
-        then(busDataService).should(org.mockito.Mockito.times(2))
-                .findNearbyStops(anyDouble(), anyDouble(), anyDouble(), anyInt());
+        then(busStopRepository).should(org.mockito.Mockito.times(2))
+                .findNearby(anyDouble(), anyDouble(), anyDouble(), anyInt());
     }
 
     @Test
@@ -136,7 +138,8 @@ class GetNearbyBusStopsUseCaseTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("lat must be between -90 and 90");
 
-        then(busDataService).shouldHaveNoInteractions();
+        then(busStopRepository).shouldHaveNoInteractions();
+        then(busRouteStopRepository).shouldHaveNoInteractions();
     }
 
     @Test
@@ -146,7 +149,8 @@ class GetNearbyBusStopsUseCaseTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("lng must be between -180 and 180");
 
-        then(busDataService).shouldHaveNoInteractions();
+        then(busStopRepository).shouldHaveNoInteractions();
+        then(busRouteStopRepository).shouldHaveNoInteractions();
     }
 
     private NearbyBusStopProjection projection(

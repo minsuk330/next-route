@@ -1043,3 +1043,59 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   앱은 이 헤더를 따르지 않고(자기 로컬 저장소 + 시작마다 If-None-Match) 영향 없음.
 - 검증: `./gradlew test --tests '*MapBusStopControllerTest*'` → 5 tests, 0 failures
   (헤더 단정 `max-age=604800, must-revalidate, public` 로 갱신)
+
+## PR1 — Bus 데이터 접근 deepen (domain/bus/service 재편, refactor/bus-data-access-deepen)
+
+### 확정
+- `BusDataService`(37 public 메서드, caller 10개) 삭제. 진짜 동작 있는 4개만 남기고 재편:
+  `BusCatalogWriter`(upsertRoutes/upsertStops/replaceRouteStops), `BusArrivalCandidateStore`(saveAllArrivalCandidates,
+  lifecycle_id 멱등 insert), `BusArrivalLabelStore`(label 6종 + flushAndClear, EntityManager 배치 경계).
+- 순수 위임 21개(1~2줄)는 모듈로 옮기지 않고 caller 가 `BusRouteRepository`/`BusStopRepository`/`BusRouteStopRepository`
+  /`BusPositionRawRepository` 를 직접 주입받게 전환. 새 port/out 만들지 않음 — Spring Data repository interface 가
+  이미 seam(adapter 하나뿐인 port/out 이 45개 중 36개라 가설적 seam 이 이미 넘치는 상태였음).
+- 죽은 메서드 11개(`saveRoute`, `saveAllRoutes`, `saveStop`, `saveAllStops`, `saveAllRouteStops`, `saveAllArrivals`,
+  `existsRouteByRouteId`, `existsStopByStopId`, `existsRouteStop`, `findLatestArrivalsByStopId`,
+  `countLabelEventsByServiceDate`) repo-wide grep 0 hit 재확인 후 삭제.
+- projection 타입 5개 domain 으로 하향: `BusRouteStopMatchData`/`BusPositionLabelRow`/`BusArrivalCandidateLabelRow`
+  → `domain/bus/repository`(JPQL constructor expression 대상이라 repository 소속), `BusRoutePolylineData`/
+  `BusRoutePolylineSnapshot` → `domain/bus/service`(`BusRoutePolylineDataService` 전용, repository 아님).
+  domain→application 역참조 6건 중 5건(bus) 제거, 1건(`OdsayRoutePolylineDataService`→route.dto)은 route 소관이라
+  이번 PR 범위 밖으로 의도적으로 남김.
+
+### 함정
+- `application.bus.dto` 패키지 안에서 `BusRoutePolylineData`/`BusRouteStopMatchData` 를 같은 패키지 암묵 참조로
+  쓰던 파일이 3개 있었음(`BusRouteSegmentPolylineData`, `BusRouteSegmentPolylineRange`, `BusRouteSegmentPolylineSection`
+  — `List<BusRoutePolylineData.Point>` 필드). 이동 후 import 누락으로 컴파일 실패 ← 최초 grep(`import ...dto.X`)이
+  같은 패키지라 import 문 없는 참조를 못 잡았음. 패키지 이동 시 "이 타입을 참조하는 파일" 은 import 문 grep 만으로
+  불충분, `grep -n '<TypeName>'` 로 FQCN 없는 same-package 참조도 같이 훑어야 함.
+- `@Query` JPQL 문자열 리터럴 안의 `new watoo.grd.nextroute.application.bus.dto.X(...)` constructor expression 은
+  import 문이 아니라 문자열이라 IDE/grep import 검색에 안 걸림. `BusRouteStopRepository`/`BusPositionRawRepository`/
+  `BusArrivalCandidateRawRepository` 3곳에서 FQCN 문자열을 직접 sed 치환해야 했음.
+- `NearbyTransitService.findSupportedStopIds` 를 caller 로 인라인하면서 `stopIds.isEmpty()||routeIds.isEmpty()` 가드가
+  caller 코드로 옮겨감. 기존 테스트 2개(`getNearbyBusStops_mapsProjectionToResult`,
+  `_stopsExpandingWhenResultsFound`)가 `predictionSupportService.supportedRouteIds()` 를 빈 Set 으로 스텁해서
+  가드가 리포지토리 호출 자체를 막음 → `UnnecessaryStubbingException`(Mockito strict stubs). 가드 인라인은 caller
+  쪽 스텁을 "레포 호출 없음" 전제로 다시 봐야 한다는 뜻 — 단순 리네임이 아니라 제어흐름 이동임을 놓치기 쉬움.
+
+### 좌표
+- 신규: `domain/bus/service/{BusCatalogWriter,BusArrivalCandidateStore,BusArrivalLabelStore}.java`
+- 이동: `domain/bus/repository/{BusRouteStopMatchData,BusPositionLabelRow,BusArrivalCandidateLabelRow}.java`,
+  `domain/bus/service/{BusRoutePolylineData,BusRoutePolylineSnapshot}.java`
+- 삭제: `domain/bus/service/BusDataService.java`
+- caller 10개 전환: `application/notification/service/BusAlertService.java`,
+  `application/bus/service/{BusRouteSegmentPolylineBuildService,BusArrivalLabelGenerationService,BusPositionService,
+  BusStaticDataService,BusArrivalService}.java`, `application/nearby/service/NearbyTransitService.java`,
+  `application/map/service/BusStopSnapshotService.java`, `application/arrival/service/BusArrivalQueryService.java`,
+  `application/stopselection/service/StopSelectionService.java`
+
+### 배포
+- 마이그레이션 없음. 스키마 변경 없이 코드 재배선만. VPS 수동배치 불필요, 통상 배포로 충분.
+
+### 검증
+- `./gradlew compileJava compileTestJava` → 성공 (경고만: 기존 `@MockBean` deprecation, 이번 PR 무관)
+- `./gradlew test --tests "*Bus*"` → 231 tests, 8 failed. 실패 4개 클래스 전부
+  `journeyNotificationProperties`("relay 켜면서 sender 를 noop 으로 두면 안 된다") 빈 검증 실패로 귀결 —
+  `main` 브랜치 기준선에서 동일 필터로 재현(19 tests, 19 failed) 확인 완료, **기존 무관**.
+  bus 리팩터가 만든 실패는 0건 (`GetNearbyBusStopsUseCaseTest` 2건은 위 가드 인라인 때문에 스텁 제거로 수정 완료).
+- `grep -rn "BusDataService" src` → 0 hit
+- `grep -rn "^import watoo.grd.nextroute.application" src/main/java/.../domain/bus` → 0 hit

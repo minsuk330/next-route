@@ -4,11 +4,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import watoo.grd.nextroute.application.bus.dto.BusArrivalCandidateLabelRow;
-import watoo.grd.nextroute.application.bus.dto.BusPositionLabelRow;
+import watoo.grd.nextroute.domain.bus.repository.BusArrivalCandidateLabelRow;
+import watoo.grd.nextroute.domain.bus.repository.BusPositionLabelRow;
 import watoo.grd.nextroute.domain.bus.entity.BusArrivalLabelEvent;
 import watoo.grd.nextroute.domain.bus.entity.BusRouteStop;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
+import watoo.grd.nextroute.domain.bus.service.BusArrivalLabelStore;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -39,7 +40,8 @@ public class BusArrivalLabelGenerationService {
     private static final int TRIP_SECTION_ORDER_DROP_THRESHOLD = 5;
     private static final int TRIP_GAP_MINUTES = 30;
 
-    private final BusDataService busDataService;
+    private final BusArrivalLabelStore busArrivalLabelStore;
+    private final BusRouteStopRepository busRouteStopRepository;
 
     @Value("${batch.persistence.bus-label-chunk-size:2000}")
     int chunkSize;
@@ -47,8 +49,10 @@ public class BusArrivalLabelGenerationService {
     @Value("${batch.bus-label.correction-window-minutes:10}")
     int correctionWindowMinutes;
 
-    public BusArrivalLabelGenerationService(BusDataService busDataService) {
-        this.busDataService = busDataService;
+    public BusArrivalLabelGenerationService(BusArrivalLabelStore busArrivalLabelStore,
+                                             BusRouteStopRepository busRouteStopRepository) {
+        this.busArrivalLabelStore = busArrivalLabelStore;
+        this.busRouteStopRepository = busRouteStopRepository;
     }
 
     @Transactional
@@ -56,11 +60,11 @@ public class BusArrivalLabelGenerationService {
         LocalDateTime dayStart = serviceDate.atTime(4, 0);
         LocalDateTime dayEnd = serviceDate.plusDays(1).atTime(4, 0);
 
-        busDataService.deleteLabelEventsByServiceDate(serviceDate);
+        busArrivalLabelStore.deleteLabelEventsByServiceDate(serviceDate);
 
         // route 목록만 먼저 조회(가벼움). candidate 전체(하루 ~50만)를 한방에 메모리에 올리지 않고,
         // route별로 쪼개 로드해 동시 상주를 노선당 ~1.6만으로 바운드한다 (OOM 방지).
-        List<String> routeIds = busDataService.findCandidateRouteIdsByFinalizedAtBetween(dayStart, dayEnd);
+        List<String> routeIds = busArrivalLabelStore.findCandidateRouteIdsByFinalizedAtBetween(dayStart, dayEnd);
 
         List<BusArrivalLabelEvent> chunk = new ArrayList<>();
         int totalSaved = 0;
@@ -71,10 +75,10 @@ public class BusArrivalLabelGenerationService {
         for (String routeId : routeIds) {
             // route별 candidate projection (필터는 DB WHERE로 이관, 12컬럼만)
             List<BusArrivalCandidateLabelRow> routeCandidates =
-                    busDataService.findCandidateLabelRowsByRoute(routeId, dayStart, dayEnd);
+                    busArrivalLabelStore.findCandidateLabelRowsByRoute(routeId, dayStart, dayEnd);
 
             // route별 정차 position projection (stop_flag=1/is_run_yn=1 DB 필터, 8컬럼, ±10분 여유)
-            List<BusPositionLabelRow> positions = busDataService.findPositionLabelRowsByRoute(
+            List<BusPositionLabelRow> positions = busArrivalLabelStore.findPositionLabelRowsByRoute(
                     routeId, dayStart.minusMinutes(10), dayEnd.plusMinutes(10));
 
             // data_tm 파싱 + 신선도 가드 (stop_flag/is_run_yn은 DB에서 이미 필터됨)
@@ -90,7 +94,7 @@ public class BusArrivalLabelGenerationService {
                     .toList();
 
             // bus_route_stop 로드 → section_id → (stop_id, seq) 맵
-            List<BusRouteStop> routeStops = busDataService.findRouteStops(routeId);
+            List<BusRouteStop> routeStops = busRouteStopRepository.findByRouteIdOrderBySeq(routeId);
             Map<String, BusRouteStop> sectionIdToStop = routeStops.stream()
                     .collect(Collectors.toMap(BusRouteStop::getSectionId, rs -> rs,
                             (a, b) -> a)); // 중복 section_id: 첫 번째 유지(seq 오름차순은 findByRouteIdOrderBySeq 보장)
@@ -117,8 +121,8 @@ public class BusArrivalLabelGenerationService {
 
                 chunk.add(event);
                 if (chunk.size() >= chunkSize) {
-                    busDataService.saveAllLabelEvents(chunk);
-                    busDataService.flushAndClear();
+                    busArrivalLabelStore.saveAllLabelEvents(chunk);
+                    busArrivalLabelStore.flushAndClear();
                     totalSaved += chunk.size();
                     chunk = new ArrayList<>();
                 }
@@ -126,11 +130,11 @@ public class BusArrivalLabelGenerationService {
 
             // route 1회전 종료: 남은 chunk 저장 후 flushAndClear (저장된 label 엔티티 detach).
             if (!chunk.isEmpty()) {
-                busDataService.saveAllLabelEvents(chunk);
+                busArrivalLabelStore.saveAllLabelEvents(chunk);
                 totalSaved += chunk.size();
                 chunk = new ArrayList<>();
             }
-            busDataService.flushAndClear();
+            busArrivalLabelStore.flushAndClear();
         }
 
         log.info("[BusLabelEvent] serviceDate={} candidates={} corrected={} apiOnly={} excluded={}",

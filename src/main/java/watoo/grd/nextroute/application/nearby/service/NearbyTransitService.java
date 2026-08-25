@@ -10,10 +10,12 @@ import watoo.grd.nextroute.application.nearby.port.in.GetNearbySubwayStationsUse
 import watoo.grd.nextroute.application.nearby.dto.BusStopResolveResult;
 import watoo.grd.nextroute.application.nearby.port.in.ResolveBusStopUseCase;
 import watoo.grd.nextroute.application.route.service.PredictionSupportService;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
+import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
 import watoo.grd.nextroute.domain.bus.repository.NearbyBusStopProjection;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
 import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.BiFunction;
@@ -34,7 +36,8 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
     static final double AMBIGUOUS_DISTANCE_GAP = 20.0;
     static final int SYMBOL_MATCH_LIMIT = 8;
 
-    private final BusDataService busDataService;
+    private final BusStopRepository busStopRepository;
+    private final BusRouteStopRepository busRouteStopRepository;
     private final SubwayDataService subwayDataService;
     private final PredictionSupportService predictionSupportService;
 
@@ -44,7 +47,7 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
         int lim = clampLimit(limit);
 
         List<NearbyBusStopProjection> stops = searchWithExpanding(
-                (radius, l) -> busDataService.findNearbyStops(lat, lng, radius, l), lim);
+                (radius, l) -> busStopRepository.findNearby(lat, lng, radius, l), lim);
         if (stops.isEmpty()) {
             return List.of();
         }
@@ -52,8 +55,10 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
         Set<String> stopIds = stops.stream()
                 .map(NearbyBusStopProjection::getStopId)
                 .collect(Collectors.toSet());
-        Set<String> supportedStopIds = busDataService.findSupportedStopIds(
-                stopIds, predictionSupportService.supportedRouteIds());
+        Set<String> routeIds = predictionSupportService.supportedRouteIds();
+        Set<String> supportedStopIds = stopIds.isEmpty() || routeIds.isEmpty()
+                ? Set.of()
+                : new HashSet<>(busRouteStopRepository.findSupportedStopIds(stopIds, routeIds));
 
         return stops.stream()
                 .map(p -> new NearbyBusStopResult(
@@ -68,8 +73,8 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
     public BusStopResolveResult resolveBusStop(double lat, double lng, String name) {
         validateCoordinates(lat, lng);
         String normalizedName = normalizeStopName(name);
-        List<BusStopResolveResult.Candidate> nearby = busDataService
-                .findNearbyStops(lat, lng, SYMBOL_MATCH_RADIUS, SYMBOL_MATCH_LIMIT)
+        List<BusStopResolveResult.Candidate> nearby = busStopRepository
+                .findNearby(lat, lng, SYMBOL_MATCH_RADIUS, SYMBOL_MATCH_LIMIT)
                 .stream()
                 .map(stop -> new BusStopResolveResult.Candidate(
                         stop.getStopId(), stop.getStopName(), stop.getArsId(),

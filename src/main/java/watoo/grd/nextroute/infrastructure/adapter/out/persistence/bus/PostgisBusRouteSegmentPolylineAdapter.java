@@ -6,7 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
-import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineData;
+import watoo.grd.nextroute.domain.bus.service.BusRoutePolylineData;
 import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineData;
 import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineRange;
 import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineSection;

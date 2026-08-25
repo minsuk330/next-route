@@ -12,9 +12,11 @@ import watoo.grd.nextroute.application.stopselection.dto.SearchSuggestResult;
 import watoo.grd.nextroute.application.stopselection.dto.StopRouteResult;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.entity.BusStop;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
+import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
 import watoo.grd.nextroute.domain.bus.repository.RouteStopProjection;
 import watoo.grd.nextroute.domain.bus.repository.StopRouteProjection;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
 
 import java.util.List;
 
@@ -27,14 +29,16 @@ import static org.mockito.Mockito.verify;
 @ExtendWith(MockitoExtension.class)
 class StopSelectionServiceTest {
 
-    @Mock BusDataService busDataService;
+    @Mock BusRouteStopRepository busRouteStopRepository;
+    @Mock BusRouteRepository busRouteRepository;
+    @Mock BusStopRepository busStopRepository;
     @Mock PredictionSupportService predictionSupportService;
     @InjectMocks StopSelectionService service;
 
     @Test
     @DisplayName("정류장 경유 노선: 지원 노선만 supportsPrediction=true")
     void getStopRoutes_marksSupport() {
-        given(busDataService.findRoutesByStopId("1001")).willReturn(List.of(
+        given(busRouteStopRepository.findRoutesByStopId("1001")).willReturn(List.of(
                 stopRouteProjection("R1", "146", "강남방면", 3, "기점A", "종점A"),
                 stopRouteProjection("R2", "341", "잠실방면", 4, "기점B", "종점B")
         ));
@@ -52,7 +56,7 @@ class StopSelectionServiceTest {
     @Test
     @DisplayName("노선 경유 정류장: 좌표 null 허용, 노선 단위 배지")
     void getRouteStops_routeLevelBadge() {
-        given(busDataService.findStopsByRouteId("R1")).willReturn(List.of(
+        given(busRouteStopRepository.findStopsByRouteId("R1")).willReturn(List.of(
                 routeStopProjection(1, "1001", "시청앞", 37.5, 127.0, "강남방면"),
                 routeStopProjection(2, "1002", "좌표없음", null, null, "강남방면")
         ));
@@ -71,14 +75,14 @@ class StopSelectionServiceTest {
     @Test
     @DisplayName("자동완성: 버스번호 prefix + 정류장명 혼합, 배지 채움")
     void suggest_mixesRoutesAndStops() {
-        given(busDataService.searchRoutesByNamePrefix("14")).willReturn(List.of(
+        given(busRouteRepository.findTop20ByRouteNameStartingWithOrderByRouteName("14")).willReturn(List.of(
                 busRoute("R1", "143", 3, "기점", "종점")
         ));
-        given(busDataService.searchStopsByNamePrefix("14")).willReturn(List.of(
+        given(busStopRepository.findTop20ByStopNameStartingWithOrderByStopName("14")).willReturn(List.of(
                 busStop("1001", "14번가", "01-001", 37.5, 127.0)
         ));
         given(predictionSupportService.isSupported("R1")).willReturn(true);
-        given(busDataService.findStopsByRouteId("R1")).willReturn(List.of());
+        given(busRouteStopRepository.findStopsByRouteId("R1")).willReturn(List.of());
 
         SearchSuggestResult result = service.suggest("14");
 
@@ -91,12 +95,12 @@ class StopSelectionServiceTest {
     @Test
     @DisplayName("자동완성: route 단일 매치 시 경유 정류장 전체 embed (seq 순, 좌표 null 허용)")
     void suggest_singleRouteMatch_embedsStops() {
-        given(busDataService.searchRoutesByNamePrefix("143")).willReturn(List.of(
+        given(busRouteRepository.findTop20ByRouteNameStartingWithOrderByRouteName("143")).willReturn(List.of(
                 busRoute("R1", "143", 3, "기점", "종점")
         ));
-        given(busDataService.searchStopsByNamePrefix("143")).willReturn(List.of());
+        given(busStopRepository.findTop20ByStopNameStartingWithOrderByStopName("143")).willReturn(List.of());
         given(predictionSupportService.isSupported("R1")).willReturn(true);
-        given(busDataService.findStopsByRouteId("R1")).willReturn(List.of(
+        given(busRouteStopRepository.findStopsByRouteId("R1")).willReturn(List.of(
                 routeStopProjection(1, "1001", "시청앞", 37.5, 127.0, "강남방면"),
                 routeStopProjection(2, "1002", "좌표없음", null, null, "강남방면")
         ));
@@ -111,18 +115,18 @@ class StopSelectionServiceTest {
     @Test
     @DisplayName("자동완성: route 다중 매치 시 routeStops 빈 리스트, 정류장 조회 안 함")
     void suggest_multipleRouteMatch_noStops() {
-        given(busDataService.searchRoutesByNamePrefix("14")).willReturn(List.of(
+        given(busRouteRepository.findTop20ByRouteNameStartingWithOrderByRouteName("14")).willReturn(List.of(
                 busRoute("R1", "143", 3, "기점", "종점"),
                 busRoute("R2", "146", 3, "기점", "종점")
         ));
-        given(busDataService.searchStopsByNamePrefix("14")).willReturn(List.of());
+        given(busStopRepository.findTop20ByStopNameStartingWithOrderByStopName("14")).willReturn(List.of());
         lenient().when(predictionSupportService.isSupported(org.mockito.ArgumentMatchers.any())).thenReturn(false);
 
         SearchSuggestResult result = service.suggest("14");
 
         assertThat(result.routes()).hasSize(2);
         assertThat(result.routeStops()).isEmpty();
-        verify(busDataService, never()).findStopsByRouteId(org.mockito.ArgumentMatchers.any());
+        verify(busRouteStopRepository, never()).findStopsByRouteId(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -132,8 +136,8 @@ class StopSelectionServiceTest {
         assertThat(service.suggest("").stops()).isEmpty();
         assertThat(service.suggest(null).routes()).isEmpty();
 
-        verify(busDataService, never()).searchRoutesByNamePrefix(org.mockito.ArgumentMatchers.any());
-        verify(busDataService, never()).searchStopsByNamePrefix(org.mockito.ArgumentMatchers.any());
+        verify(busRouteRepository, never()).findTop20ByRouteNameStartingWithOrderByRouteName(org.mockito.ArgumentMatchers.any());
+        verify(busStopRepository, never()).findTop20ByStopNameStartingWithOrderByStopName(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -145,25 +149,25 @@ class StopSelectionServiceTest {
 
         assertThat(result.routes()).isEmpty();
         assertThat(result.stops()).isEmpty();
-        verify(busDataService, never()).searchRoutesByNamePrefix(org.mockito.ArgumentMatchers.any());
+        verify(busRouteRepository, never()).findTop20ByRouteNameStartingWithOrderByRouteName(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
     @DisplayName("자동완성: keyword는 trim 후 조회")
     void suggest_trimsKeyword() {
-        given(busDataService.searchRoutesByNamePrefix("146")).willReturn(List.of());
-        given(busDataService.searchStopsByNamePrefix("146")).willReturn(List.of());
+        given(busRouteRepository.findTop20ByRouteNameStartingWithOrderByRouteName("146")).willReturn(List.of());
+        given(busStopRepository.findTop20ByStopNameStartingWithOrderByStopName("146")).willReturn(List.of());
 
         service.suggest("  146  ");
 
-        verify(busDataService).searchRoutesByNamePrefix("146");
-        verify(busDataService).searchStopsByNamePrefix("146");
+        verify(busRouteRepository).findTop20ByRouteNameStartingWithOrderByRouteName("146");
+        verify(busStopRepository).findTop20ByStopNameStartingWithOrderByStopName("146");
     }
 
     @Test
     @DisplayName("정류장 없으면 빈 리스트 (404 아님)")
     void getStopRoutes_emptyWhenUnknown() {
-        given(busDataService.findRoutesByStopId("nope")).willReturn(List.of());
+        given(busRouteStopRepository.findRoutesByStopId("nope")).willReturn(List.of());
 
         assertThat(service.getStopRoutes("nope")).isEmpty();
     }

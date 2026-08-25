@@ -1,9 +1,9 @@
 package watoo.grd.nextroute.application.bus.service;
 
 import org.springframework.stereotype.Component;
-import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineData;
+import watoo.grd.nextroute.domain.bus.service.BusRoutePolylineData;
 import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineData;
-import watoo.grd.nextroute.application.bus.dto.BusRouteStopMatchData;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopMatchData;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;

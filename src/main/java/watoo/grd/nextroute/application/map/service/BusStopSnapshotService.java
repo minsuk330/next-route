@@ -7,9 +7,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.map.dto.BusStopSnapshotPayload;
 import watoo.grd.nextroute.application.map.port.in.GetBusStopSnapshotUseCase;
+import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
 import watoo.grd.nextroute.domain.bus.repository.BusStopSnapshotProjection;
 import watoo.grd.nextroute.domain.bus.repository.BusStopSnapshotVersionProjection;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -46,7 +46,7 @@ public class BusStopSnapshotService implements GetBusStopSnapshotUseCase {
 
     private static final String EMPTY_VERSION = "0-0";
 
-    private final BusDataService busDataService;
+    private final BusStopRepository busStopRepository;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
@@ -78,7 +78,7 @@ public class BusStopSnapshotService implements GetBusStopSnapshotUseCase {
             return current;
         }
 
-        List<BusStopSnapshotProjection> rows = busDataService.findAllStopsForSnapshot();
+        List<BusStopSnapshotProjection> rows = busStopRepository.findAllForSnapshot();
         List<Object[]> stops = new ArrayList<>(rows.size());
         for (BusStopSnapshotProjection row : rows) {
             Double lat = row.getLatitude();
@@ -135,7 +135,7 @@ public class BusStopSnapshotService implements GetBusStopSnapshotUseCase {
     }
 
     private String readVersion() {
-        BusStopSnapshotVersionProjection probed = busDataService.probeStopSnapshotVersion();
+        BusStopSnapshotVersionProjection probed = busStopRepository.probeSnapshotVersion();
         if (probed == null) {
             return EMPTY_VERSION;
         }

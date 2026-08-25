@@ -11,7 +11,9 @@ import watoo.grd.nextroute.application.notification.port.in.CancelBusAlertUseCas
 import watoo.grd.nextroute.application.notification.port.in.CreateBusAlertUseCase;
 import watoo.grd.nextroute.application.notification.port.in.GetBusAlertUseCase;
 import watoo.grd.nextroute.domain.bus.entity.BusRouteStop;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
+import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
 import watoo.grd.nextroute.domain.notification.entity.AlertStatus;
 import watoo.grd.nextroute.domain.notification.entity.BusArrivalAlert;
 import watoo.grd.nextroute.domain.notification.repository.BusArrivalAlertRepository;
@@ -35,7 +37,9 @@ public class BusAlertService
             List.of(AlertStatus.PENDING, AlertStatus.PROCESSING);
 
     private final BusArrivalAlertRepository alertRepository;
-    private final BusDataService busDataService;
+    private final BusStopRepository busStopRepository;
+    private final BusRouteRepository busRouteRepository;
+    private final BusRouteStopRepository busRouteStopRepository;
     private final UserRepository userRepository;
     private final BusArrivalAlertProperties properties;
     private final Clock clock;
@@ -46,10 +50,10 @@ public class BusAlertService
         User user = requireTossUser(userId);
 
         Integer ord = resolveOrd(request.getStopId(), request.getRouteId());
-        String stopName = busDataService.findStopById(request.getStopId())
+        String stopName = busStopRepository.findByStopId(request.getStopId())
                 .map(s -> s.getStopName())
                 .orElseThrow(() -> new IllegalArgumentException("정류소를 찾을 수 없습니다: " + request.getStopId()));
-        String routeName = busDataService.findRouteById(request.getRouteId())
+        String routeName = busRouteRepository.findByRouteId(request.getRouteId())
                 .map(r -> r.getRouteName())
                 .orElseThrow(() -> new IllegalArgumentException("노선을 찾을 수 없습니다: " + request.getRouteId()));
 
@@ -105,7 +109,7 @@ public class BusAlertService
 
     /** (stopId, routeId) → 경유순번. 단일 매핑/seq 없으면 400. */
     private Integer resolveOrd(String stopId, String routeId) {
-        List<BusRouteStop> mappings = busDataService.findBusRouteByStopAndRoute(stopId, routeId);
+        List<BusRouteStop> mappings = busRouteStopRepository.findByRouteIdAndStopId(routeId, stopId);
         if (mappings.size() != 1 || mappings.get(0).getSeq() == null) {
             throw new IllegalArgumentException(
                     "정류소·노선 매핑이 유효하지 않습니다: stop=" + stopId + ", route=" + routeId);

@@ -1,4 +1,4 @@
-package watoo.grd.nextroute.application.bus.dto;
+package watoo.grd.nextroute.domain.bus.repository;
 
 import java.time.LocalDateTime;
 

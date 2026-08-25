@@ -5,8 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineData;
-import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineSnapshot;
 import watoo.grd.nextroute.domain.bus.entity.BusRoutePolyline;
 import watoo.grd.nextroute.domain.bus.repository.BusRoutePolylineRepository;
 

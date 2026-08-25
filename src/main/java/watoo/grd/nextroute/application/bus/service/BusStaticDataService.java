@@ -11,7 +11,8 @@ import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.entity.BusRouteStop;
 import watoo.grd.nextroute.domain.bus.entity.BusStop;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
+import watoo.grd.nextroute.domain.bus.service.BusCatalogWriter;
 
 import java.util.*;
 
@@ -21,7 +22,8 @@ import java.util.*;
 public class BusStaticDataService implements LoadBusStaticDataUseCase {
 
 	private final BusApiPort busApiPort;
-	private final BusDataService busDataService;
+	private final BusRouteRepository busRouteRepository;
+	private final BusCatalogWriter busCatalogWriter;
 	private final LoadBusRoutePolylineUseCase loadBusRoutePolyline;
 
 	@Override
@@ -34,9 +36,9 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 
 		// 노선 메타데이터도 개편·배차 변경이 있으므로 신규 노선만이 아니라 전체를 갱신한다.
 		List<BusRoute> routes = loadBusRoutes(allRouteIds);
-		busDataService.upsertRoutes(routes);
+		busCatalogWriter.upsertRoutes(routes);
 
-		Set<String> knownRouteIds = busDataService.findAllRoutes().stream()
+		Set<String> knownRouteIds = busRouteRepository.findAll().stream()
 				.map(BusRoute::getRouteId)
 				.collect(java.util.stream.Collectors.toSet());
 		List<String> syncTargets = allRouteIds.stream()
@@ -124,11 +126,11 @@ public class BusStaticDataService implements LoadBusStaticDataUseCase {
 			}
 		}
 
-		List<BusStop> syncedStops = busDataService.upsertStops(new ArrayList<>(uniqueStops.values()));
+		List<BusStop> syncedStops = busCatalogWriter.upsertStops(new ArrayList<>(uniqueStops.values()));
 
 		int synchronizedRouteStops = 0;
 		for (Map.Entry<String, List<BusRouteStop>> entry : routeStopsByRouteId.entrySet()) {
-			busDataService.replaceRouteStops(entry.getKey(), entry.getValue());
+			busCatalogWriter.replaceRouteStops(entry.getKey(), entry.getValue());
 			synchronizedRouteStops += entry.getValue().size();
 		}
 
