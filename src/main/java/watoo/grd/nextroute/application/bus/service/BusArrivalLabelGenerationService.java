@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.bus.service;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class BusArrivalLabelGenerationService {
 
@@ -48,12 +50,6 @@ public class BusArrivalLabelGenerationService {
 
     @Value("${batch.bus-label.correction-window-minutes:10}")
     int correctionWindowMinutes;
-
-    public BusArrivalLabelGenerationService(BusArrivalLabelStore busArrivalLabelStore,
-                                             BusRouteStopRepository busRouteStopRepository) {
-        this.busArrivalLabelStore = busArrivalLabelStore;
-        this.busRouteStopRepository = busRouteStopRepository;
-    }
 
     @Transactional
     public int generateForDate(LocalDate serviceDate) {
