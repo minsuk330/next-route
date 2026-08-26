@@ -10,7 +10,7 @@ import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReade
 import watoo.grd.nextroute.application.subway.service.SubwayStationsAway;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.repository.NearbySubwayStationProjection;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
 
 import java.util.*;
 
@@ -38,7 +38,7 @@ public class SubwayArrivalQueryService implements GetSubwayArrivalUseCase {
     private static final int CANDIDATE_LIMIT = 5;
 
     private final SubwayRealtimeArrivalReader arrivalReader;
-    private final SubwayDataService subwayDataService;
+    private final SubwayStationRepository subwayStationRepository;
 
     @Override
     public List<SubwayArrivalResponse> getArrivals(double lat, double lon, Integer wayCode, String lineId) {
@@ -64,7 +64,7 @@ public class SubwayArrivalQueryService implements GetSubwayArrivalUseCase {
     public Optional<ResolvedStation> resolveStation(double lat, double lon, String lineId) {
         for (double radius = INITIAL_RADIUS; radius <= MAX_RADIUS; radius += RADIUS_STEP) {
             List<NearbySubwayStationProjection> nearby =
-                    subwayDataService.findNearbyStations(lat, lon, radius, CANDIDATE_LIMIT);
+                    subwayStationRepository.findNearby(lat, lon, radius, CANDIDATE_LIMIT);
             if (nearby.isEmpty()) {
                 continue;
             }

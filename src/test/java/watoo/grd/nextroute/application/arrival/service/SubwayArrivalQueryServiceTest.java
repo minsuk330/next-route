@@ -6,7 +6,7 @@ import watoo.grd.nextroute.application.arrival.dto.SubwayArrivalResponse;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
 import watoo.grd.nextroute.domain.subway.repository.NearbySubwayStationProjection;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
 
 import java.util.List;
 
@@ -22,15 +22,15 @@ import static org.mockito.Mockito.verify;
 class SubwayArrivalQueryServiceTest {
 
     private final SubwayRealtimeArrivalReader arrivalReader = mock(SubwayRealtimeArrivalReader.class);
-    private final SubwayDataService subwayDataService = mock(SubwayDataService.class);
+    private final SubwayStationRepository subwayStationRepository = mock(SubwayStationRepository.class);
     private final SubwayArrivalQueryService service =
-            new SubwayArrivalQueryService(arrivalReader, subwayDataService);
+            new SubwayArrivalQueryService(arrivalReader, subwayStationRepository);
 
     @Test
     void resolveStation_selectsTheRequestedInternalLine() {
         NearbySubwayStationProjection lineNine = station("923", "신논현", "1009");
         NearbySubwayStationProjection sinbundang = station("D07", "신논현", "1077");
-        given(subwayDataService.findNearbyStations(37.5045, 127.0250, 50, 5))
+        given(subwayStationRepository.findNearby(37.5045, 127.0250, 50, 5))
                 .willReturn(List.of(lineNine, sinbundang));
 
         assertThat(service.resolveStation(37.5045, 127.0250, "1077"))
@@ -73,7 +73,7 @@ class SubwayArrivalQueryServiceTest {
     @DisplayName("50m 에서 후보가 없으면 반경을 넓혀 찾는다 — 눈앞의 역을 두고 '정보 없음' 이 되면 안 된다")
     void expandsRadiusWhenNothingIsFoundNearby() {
         NearbySubwayStationProjection station = station("1075075212", "압구정로데오", "1075");
-        given(subwayDataService.findNearbyStations(37.5271, 127.0402, 150.0, 5))
+        given(subwayStationRepository.findNearby(37.5271, 127.0402, 150.0, 5))
                 .willReturn(List.of(station));
 
         assertThat(service.resolveStation(37.5271, 127.0402, "1075"))
@@ -88,8 +88,8 @@ class SubwayArrivalQueryServiceTest {
 
         service.resolveStation(37.5271, 127.0402, "1075");
 
-        verify(subwayDataService, never())
-                .findNearbyStations(anyDouble(), anyDouble(), eq(100.0), anyInt());
+        verify(subwayStationRepository, never())
+                .findNearby(anyDouble(), anyDouble(), eq(100.0), anyInt());
     }
 
     @Test
@@ -97,8 +97,8 @@ class SubwayArrivalQueryServiceTest {
     void stopsExpandingAtTheMaxRadius() {
         assertThat(service.resolveStation(37.5271, 127.0402, "1075")).isEmpty();
 
-        verify(subwayDataService, never())
-                .findNearbyStations(anyDouble(), anyDouble(), eq(350.0), anyInt());
+        verify(subwayStationRepository, never())
+                .findNearby(anyDouble(), anyDouble(), eq(350.0), anyInt());
     }
 
     @Test
@@ -106,7 +106,7 @@ class SubwayArrivalQueryServiceTest {
     void keepsLineSelectionAtTheExpandedRadius() {
         NearbySubwayStationProjection lineNine = station("923", "신논현", "1009");
         NearbySubwayStationProjection sinbundang = station("D07", "신논현", "1077");
-        given(subwayDataService.findNearbyStations(37.5045, 127.0250, 200.0, 5))
+        given(subwayStationRepository.findNearby(37.5045, 127.0250, 200.0, 5))
                 .willReturn(List.of(lineNine, sinbundang));
 
         assertThat(service.resolveStation(37.5045, 127.0250, "1077"))
@@ -118,7 +118,7 @@ class SubwayArrivalQueryServiceTest {
         // 스터빙을 먼저 끝내 두고 넘긴다. given(...) 인자 안에서 또 스터빙하면 Mockito 가
         // 바깥 스터빙이 안 끝난 것으로 보고 UnfinishedStubbingException 을 던진다.
         NearbySubwayStationProjection station = station("1075075212", "압구정로데오", "1075");
-        given(subwayDataService.findNearbyStations(37.5271, 127.0402, 50, 5))
+        given(subwayStationRepository.findNearby(37.5271, 127.0402, 50, 5))
                 .willReturn(List.of(station));
     }
 

@@ -13,7 +13,7 @@ import watoo.grd.nextroute.application.route.service.PredictionSupportService;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
 import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
 import watoo.grd.nextroute.domain.bus.repository.NearbyBusStopProjection;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
 
 import java.util.HashSet;
 import java.util.List;
@@ -38,7 +38,7 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
 
     private final BusStopRepository busStopRepository;
     private final BusRouteStopRepository busRouteStopRepository;
-    private final SubwayDataService subwayDataService;
+    private final SubwayStationRepository subwayStationRepository;
     private final PredictionSupportService predictionSupportService;
 
     @Override
@@ -112,7 +112,7 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
         validateCoordinates(lat, lng);
         int lim = clampLimit(limit);
         return searchWithExpanding(
-                (radius, l) -> subwayDataService.findNearbyStations(lat, lng, radius, l).stream()
+                (radius, l) -> subwayStationRepository.findNearby(lat, lng, radius, l).stream()
                         .map(p -> new NearbySubwayStationResult(
                                 p.getStationId(), p.getStationName(), p.getLineId(), p.getLineName(),
                                 p.getLatitude(), p.getLongitude(),

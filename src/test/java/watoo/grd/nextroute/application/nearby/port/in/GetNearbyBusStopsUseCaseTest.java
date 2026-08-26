@@ -12,7 +12,7 @@ import watoo.grd.nextroute.application.route.service.PredictionSupportService;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
 import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
 import watoo.grd.nextroute.domain.bus.repository.NearbyBusStopProjection;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
 
 import java.util.List;
 import java.util.Set;
@@ -30,7 +30,7 @@ class GetNearbyBusStopsUseCaseTest {
 
     @Mock BusStopRepository busStopRepository;
     @Mock BusRouteStopRepository busRouteStopRepository;
-    @Mock SubwayDataService subwayDataService;
+    @Mock SubwayStationRepository subwayStationRepository;
     @Mock PredictionSupportService predictionSupportService;
     @InjectMocks NearbyTransitService service;
 

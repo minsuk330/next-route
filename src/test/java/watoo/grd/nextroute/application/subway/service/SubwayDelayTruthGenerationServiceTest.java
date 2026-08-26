@@ -10,7 +10,10 @@ import watoo.grd.nextroute.domain.subway.entity.MlSubwayDelayTruth;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEvent;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.entity.SubwayTimetable;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository;
+import watoo.grd.nextroute.domain.subway.service.SubwayDelayTruthStore;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -33,7 +36,10 @@ class SubwayDelayTruthGenerationServiceTest {
         @Override public boolean isHoliday(LocalDate date) { return holidays.contains(date); }
     }
 
-    @Mock SubwayDataService subwayDataService;
+    @Mock SubwayArrivalEventRepository subwayArrivalEventRepository;
+    @Mock SubwayStationRepository subwayStationRepository;
+    @Mock SubwayTimetableRepository subwayTimetableRepository;
+    @Mock SubwayDelayTruthStore subwayDelayTruthStore;
 
     SubwayDelayTruthGenerationService service;
 
@@ -44,7 +50,8 @@ class SubwayDelayTruthGenerationServiceTest {
         TimetableConverter converter = new TimetableConverter(new FakeHolidayCalendar());
         DestinationNormalizer destinationNormalizer = new DestinationNormalizer();
         service = new SubwayDelayTruthGenerationService(
-                subwayDataService, converter,
+                subwayArrivalEventRepository, subwayStationRepository,
+                subwayTimetableRepository, subwayDelayTruthStore, converter,
                 new EventTimetablePairer(converter),
                 new EventTimetablePairerV2(converter, destinationNormalizer));
         service.matchingVersion = "v1";
@@ -84,17 +91,17 @@ class SubwayDelayTruthGenerationServiceTest {
     private void stubInputs(List<SubwayArrivalEvent> events,
                             List<SubwayStation> stations,
                             List<SubwayTimetable> timetables) {
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
-        when(subwayDataService.findMappableStations()).thenReturn(stations);
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(timetables);
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(stations);
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(timetables);
         org.mockito.Mockito.lenient()
-                .when(subwayDataService.saveAllDelayTruth(any())).thenAnswer(inv -> inv.getArgument(0));
+                .when(subwayDelayTruthStore.saveAllDelayTruth(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
     @SuppressWarnings("unchecked")
     private List<MlSubwayDelayTruth> captureSaved() {
         ArgumentCaptor<List<MlSubwayDelayTruth>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).saveAllDelayTruth(captor.capture());
+        verify(subwayDelayTruthStore).saveAllDelayTruth(captor.capture());
         return captor.getValue();
     }
 
@@ -261,7 +268,7 @@ class SubwayDelayTruthGenerationServiceTest {
         service.generateForDate(SERVICE_DATE);
         service.generateForDate(SERVICE_DATE);
 
-        verify(subwayDataService, times(2)).deleteDelayTruthByServiceDate(SERVICE_DATE);
+        verify(subwayDelayTruthStore, times(2)).deleteDelayTruthByServiceDate(SERVICE_DATE);
     }
 
     // ── TC9: 사전 필터 순서 — scheduledArrivalAt 산출 불가 timetable이 *페어링 전*에 제외 ──
@@ -363,7 +370,7 @@ class SubwayDelayTruthGenerationServiceTest {
         service.generateForDate(SERVICE_DATE);
 
         // matched 0건 → save 호출 자체가 없음
-        verify(subwayDataService, org.mockito.Mockito.never()).saveAllDelayTruth(any());
+        verify(subwayDelayTruthStore, org.mockito.Mockito.never()).saveAllDelayTruth(any());
     }
 
     @Test
@@ -377,7 +384,7 @@ class SubwayDelayTruthGenerationServiceTest {
         stubInputs(List.of(ev), List.of(st), List.of(tt));
         service.generateForDate(SERVICE_DATE);
 
-        verify(subwayDataService, org.mockito.Mockito.never()).saveAllDelayTruth(any());
+        verify(subwayDelayTruthStore, org.mockito.Mockito.never()).saveAllDelayTruth(any());
     }
 
     @Test
@@ -408,7 +415,7 @@ class SubwayDelayTruthGenerationServiceTest {
         stubInputs(events, List.of(st), tts);
         service.generateForDate(SERVICE_DATE);
 
-        verify(subwayDataService, org.mockito.Mockito.never()).saveAllDelayTruth(any());
+        verify(subwayDelayTruthStore, org.mockito.Mockito.never()).saveAllDelayTruth(any());
     }
 
     @Test
@@ -428,15 +435,15 @@ class SubwayDelayTruthGenerationServiceTest {
             events.add(eventWithDestination(sid, "내선",
                     LocalDateTime.of(2026, 5, 3, 10, 0, 30), "한강진"));
         }
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
-        when(subwayDataService.findMappableStations()).thenReturn(stations);
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(tts);
-        when(subwayDataService.saveAllDelayTruth(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(stations);
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(tts);
+        when(subwayDelayTruthStore.saveAllDelayTruth(any())).thenAnswer(inv -> inv.getArgument(0));
 
         int total = service.generateForDate(SERVICE_DATE);
 
-        verify(subwayDataService, times(3)).saveAllDelayTruth(any());
-        verify(subwayDataService, times(3)).flushAndClear();
+        verify(subwayDelayTruthStore, times(3)).saveAllDelayTruth(any());
+        verify(subwayDelayTruthStore, times(3)).flushAndClear();
         assertThat(total).isEqualTo(7);
     }
 

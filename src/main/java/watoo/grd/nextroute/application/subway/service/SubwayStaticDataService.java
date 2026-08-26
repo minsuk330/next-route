@@ -12,7 +12,9 @@ import watoo.grd.nextroute.application.subway.port.out.TagoSubwayApiPort;
 import watoo.grd.nextroute.domain.subway.entity.SubwaySegment;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.entity.SubwayTimetable;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwaySegmentRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -30,7 +32,9 @@ public class SubwayStaticDataService implements LoadSubwayStaticDataUseCase {
 
 	private final SubwayApiPort subwayApiPort;
 	private final TagoSubwayApiPort tagoSubwayApiPort;
-	private final SubwayDataService subwayDataService;
+	private final SubwaySegmentRepository subwaySegmentRepository;
+	private final SubwayStationRepository subwayStationRepository;
+	private final SubwayTimetableRepository subwayTimetableRepository;
 
 	@Override
 	public void execute() {
@@ -47,18 +51,18 @@ public class SubwayStaticDataService implements LoadSubwayStaticDataUseCase {
 		}
 
 		// segment는 전체 교체 (역간 거리/소요시간은 갱신될 수 있음)
-		subwayDataService.deleteAllSegments();
+		subwaySegmentRepository.deleteAll();
 		List<SubwaySegment> entities = allSegments.stream()
 				.map(this::toSegmentEntity)
 				.toList();
-		subwayDataService.saveAllSegments(entities);
+		subwaySegmentRepository.saveAll(entities);
 		log.info("[SubwayStatic] Saved {} segments", entities.size());
 	}
 
 	private void loadTimetables() {
 		// 2안: subway_station.tago_station_id 기준 전체 재적재
 		// (subway_station_tago.station_id 기준은 비숫자 노선 1032/1063/1065/.../1094를 누락시킴)
-		List<SubwayStation> mappableStations = subwayDataService.findMappableStations();
+		List<SubwayStation> mappableStations = subwayStationRepository.findByTagoStationIdIsNotNull();
 		if (mappableStations.isEmpty()) {
 			log.warn("[SubwayStatic/TAGO] No mappable stations found. Skipping timetable loading.");
 			return;
@@ -82,8 +86,8 @@ public class SubwayStaticDataService implements LoadSubwayStaticDataUseCase {
 				targetStations.size(), lineIds);
 
 		// 전체 재적재: 기존 timetable 제거 후 재로딩
-		long existing = subwayDataService.countTimetables();
-		subwayDataService.deleteAllTimetables();
+		long existing = subwayTimetableRepository.count();
+		subwayTimetableRepository.deleteAll();
 		log.info("[SubwayStatic/TAGO] Deleted {} existing timetable rows for full reload", existing);
 
 		int totalSaved = 0;
@@ -102,7 +106,7 @@ public class SubwayStaticDataService implements LoadSubwayStaticDataUseCase {
 						List<SubwayTimetable> entities = timetables.stream()
 								.map(info -> toTimetableEntity(info, station.getLineId()))
 								.toList();
-						subwayDataService.saveAllTimetables(entities);
+						subwayTimetableRepository.saveAll(entities);
 						stationSaved += entities.size();
 					}
 

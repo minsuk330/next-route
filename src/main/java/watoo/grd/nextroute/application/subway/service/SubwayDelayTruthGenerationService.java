@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.subway.service;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -9,7 +10,10 @@ import watoo.grd.nextroute.domain.subway.entity.MlSubwayDelayTruth;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEvent;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.entity.SubwayTimetable;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository;
+import watoo.grd.nextroute.domain.subway.service.SubwayDelayTruthStore;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -36,23 +40,17 @@ import java.util.Set;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class SubwayDelayTruthGenerationService {
 
-    private final SubwayDataService subwayDataService;
+    private final SubwayArrivalEventRepository subwayArrivalEventRepository;
+    private final SubwayStationRepository subwayStationRepository;
+    private final SubwayTimetableRepository subwayTimetableRepository;
+    private final SubwayDelayTruthStore subwayDelayTruthStore;
     private final TimetableConverter converter;
     private final EventTimetablePairer pairer;
     private final EventTimetablePairerV2 pairerV2;
-
-    public SubwayDelayTruthGenerationService(SubwayDataService subwayDataService,
-                                             TimetableConverter converter,
-                                             EventTimetablePairer pairer,
-                                             EventTimetablePairerV2 pairerV2) {
-        this.subwayDataService = subwayDataService;
-        this.converter = converter;
-        this.pairer = pairer;
-        this.pairerV2 = pairerV2;
-    }
 
     /** V1 |delay| 임계값 — 초과 시 학습 제외(분포 분석 위해 row는 보존) */
     static final int OUTLIER_THRESHOLD_SECONDS = 900;
@@ -81,17 +79,17 @@ public class SubwayDelayTruthGenerationService {
     // ── V1 (legacy) ─────────────────────────────────────────────────────────
 
     private int generateForDateV1(LocalDate serviceDate) {
-        subwayDataService.deleteDelayTruthByServiceDate(serviceDate);
+        subwayDelayTruthStore.deleteDelayTruthByServiceDate(serviceDate);
 
-        List<SubwayArrivalEvent> events = subwayDataService.findArrivalEventsByServiceDate(serviceDate);
+        List<SubwayArrivalEvent> events = subwayArrivalEventRepository.findByServiceDate(serviceDate);
         String dayType = converter.toDayType(serviceDate);
-        List<SubwayStation> stations = subwayDataService.findMappableStations();
+        List<SubwayStation> stations = subwayStationRepository.findByTagoStationIdIsNotNull();
 
         Set<String> lineIds = new HashSet<>();
         for (SubwayStation st : stations) lineIds.add(st.getLineId());
         for (SubwayArrivalEvent ev : events) lineIds.add(ev.getLineId());
         List<SubwayTimetable> timetables =
-                subwayDataService.findTimetablesByDayTypeAndLineIdIn(dayType, lineIds);
+                subwayTimetableRepository.findByDayTypeAndLineIdIn(dayType, lineIds);
 
         List<SubwayArrivalEvent> filteredEvents = events.stream()
                 .filter(ev -> ev.getArrivedAt() != null)
@@ -138,7 +136,7 @@ public class SubwayDelayTruthGenerationService {
                     serviceDate, MATCH_STRATEGY_ORDINAL, confidence, excluded, excludeReason));
         }
 
-        subwayDataService.saveAllDelayTruth(truths);
+        subwayDelayTruthStore.saveAllDelayTruth(truths);
 
         int trainable = truths.size() - inferredExcluded - outlierExcluded;
         log.info("[DelayTruth v1] serviceDate={} matched={} trainable={} excluded(inferred={}, outlier={}) eventTotal={}",
@@ -150,17 +148,17 @@ public class SubwayDelayTruthGenerationService {
     // ── V2 ────────────────────────────────────────────────────────────────
 
     private int generateForDateV2(LocalDate serviceDate) {
-        subwayDataService.deleteDelayTruthByServiceDate(serviceDate);
+        subwayDelayTruthStore.deleteDelayTruthByServiceDate(serviceDate);
 
-        List<SubwayArrivalEvent> events = subwayDataService.findArrivalEventsByServiceDate(serviceDate);
+        List<SubwayArrivalEvent> events = subwayArrivalEventRepository.findByServiceDate(serviceDate);
         String dayType = converter.toDayType(serviceDate);
-        List<SubwayStation> stations = subwayDataService.findMappableStations();
+        List<SubwayStation> stations = subwayStationRepository.findByTagoStationIdIsNotNull();
 
         Set<String> lineIds = new HashSet<>();
         for (SubwayStation st : stations) lineIds.add(st.getLineId());
         for (SubwayArrivalEvent ev : events) lineIds.add(ev.getLineId());
         List<SubwayTimetable> timetables =
-                subwayDataService.findTimetablesByDayTypeAndLineIdIn(dayType, lineIds);
+                subwayTimetableRepository.findByDayTypeAndLineIdIn(dayType, lineIds);
 
         List<SubwayArrivalEvent> filteredEvents = events.stream()
                 .filter(ev -> ev.getArrivedAt() != null)
@@ -206,8 +204,8 @@ public class SubwayDelayTruthGenerationService {
 
             if (chunk.size() >= truthChunkSize) {
                 int size = chunk.size();
-                subwayDataService.saveAllDelayTruth(chunk);
-                subwayDataService.flushAndClear();
+                subwayDelayTruthStore.saveAllDelayTruth(chunk);
+                subwayDelayTruthStore.flushAndClear();
                 totalSaved += size;
                 savedChunks++;
                 chunk = new ArrayList<>(truthChunkSize);
@@ -215,8 +213,8 @@ public class SubwayDelayTruthGenerationService {
         }
         if (!chunk.isEmpty()) {
             int size = chunk.size();
-            subwayDataService.saveAllDelayTruth(chunk);
-            subwayDataService.flushAndClear();
+            subwayDelayTruthStore.saveAllDelayTruth(chunk);
+            subwayDelayTruthStore.flushAndClear();
             totalSaved += size;
             savedChunks++;
         }

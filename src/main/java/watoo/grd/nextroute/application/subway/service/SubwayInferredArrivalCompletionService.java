@@ -9,7 +9,10 @@ import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEvent;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEventMatchIssue;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalRaw;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalRawRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
+import watoo.grd.nextroute.domain.subway.service.SubwayMatchIssueStore;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -43,7 +46,10 @@ public class SubwayInferredArrivalCompletionService {
     private static final DateTimeFormatter RAW_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final Duration SPLIT_THRESHOLD = Duration.ofMinutes(10);
 
-    private final SubwayDataService subwayDataService;
+    private final SubwayArrivalEventRepository subwayArrivalEventRepository;
+    private final SubwayArrivalRawRepository subwayArrivalRawRepository;
+    private final SubwayStationRepository subwayStationRepository;
+    private final SubwayMatchIssueStore subwayMatchIssueStore;
     private final SubwaySegmentLookup segmentLookup;
     private final TimetableConverter converter;
     private final ObjectMapper objectMapper;
@@ -83,15 +89,15 @@ public class SubwayInferredArrivalCompletionService {
         }
 
         // D4: 재실행 멱등성 — 자체 event_source분만 제거 후 재삽입
-        int deleted = subwayDataService.deleteArrivalEventsByServiceDateAndEventSource(serviceDate, EVENT_SOURCE);
+        int deleted = subwayArrivalEventRepository.deleteByServiceDateAndEventSource(serviceDate, EVENT_SOURCE);
 
         // B-1이 남긴 보강 대상 slot (대상 라인 한정)
         // - v1: NO_RAW_EVENT row마다 slot 1개
         // - v2: COUNT_MISMATCH group에서 max(timetable_count - event_count, 0) slot
         boolean v2 = "v2".equalsIgnoreCase(matchingVersion);
         List<SubwayArrivalEventMatchIssue> noIssues = v2
-                ? subwayDataService.findCountMismatchIssues(serviceDate, lineIds)
-                : subwayDataService.findNoRawEventIssues(serviceDate, lineIds);
+                ? subwayMatchIssueStore.findCountMismatchIssues(serviceDate, lineIds)
+                : subwayMatchIssueStore.findNoRawEventIssues(serviceDate, lineIds);
         if (noIssues.isEmpty()) {
             log.info("[PhaseC {}] 보강 대상 issue 없음 serviceDate={} lines={} (deleted prior inferred={})",
                     matchingVersion, serviceDate, lineIds, deleted);
@@ -130,15 +136,17 @@ public class SubwayInferredArrivalCompletionService {
             for (CompareKey k : noSlotCountByKey.keySet()) {
                 targetStationIds.add(k.stationId());
             }
-            code3 = subwayDataService.findPrevDepartureCandidatesInRangeNarrowed(
-                    from, to, lineIds, targetStationIds);
+            code3 = targetStationIds.isEmpty()
+                    ? List.of()
+                    : subwayArrivalRawRepository.findPrevDepartureCandidatesInRangeNarrowed(
+                            from, to, lineIds, targetStationIds);
         } else {
-            code3 = subwayDataService.findPrevDepartureCandidatesInRange(from, to, lineIds);
+            code3 = subwayArrivalRawRepository.findPrevDepartureCandidatesInRange(from, to, lineIds);
         }
 
         // stationId → stationName (segment lookup arrive측 + prevName 해소용, 1쿼리)
         Map<String, String> nameByStationId = new HashMap<>();
-        for (SubwayStation st : subwayDataService.findAllStations()) {
+        for (SubwayStation st : subwayStationRepository.findAll()) {
             nameByStationId.putIfAbsent(st.getStationId(), st.getStationName());
         }
 
@@ -195,7 +203,7 @@ public class SubwayInferredArrivalCompletionService {
 
         // D1: 시간창 중복 제거 — OBSERVED_CODE_1 event arrived_at ±W분 내면 후보 제외
         Map<CompareKey, List<LocalDateTime>> observedByKey = new HashMap<>();
-        for (SubwayArrivalEvent ev : subwayDataService.findArrivalEventsByServiceDate(serviceDate)) {
+        for (SubwayArrivalEvent ev : subwayArrivalEventRepository.findByServiceDate(serviceDate)) {
             if (!OBSERVED_CODE_1.equals(ev.getEventSource())) continue;
             String ud = converter.toTimetableDirection(ev.getDirection());
             if (ud == null) continue;
@@ -233,7 +241,7 @@ public class SubwayInferredArrivalCompletionService {
             }
         }
 
-        List<SubwayArrivalEvent> saved = subwayDataService.saveAllArrivalEvents(toSave);
+        List<SubwayArrivalEvent> saved = subwayArrivalEventRepository.saveAll(toSave);
         log.info("[PhaseC {}] serviceDate={} lines={} issues={} totalSlots={} code3_raw={} segmentMiss={} "
                         + "dedupDropped={} overflowDropped={} inferredSaved={} (deleted prior={})",
                 matchingVersion, serviceDate, lineIds, noIssues.size(),

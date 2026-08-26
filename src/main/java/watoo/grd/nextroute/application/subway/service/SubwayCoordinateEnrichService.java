@@ -7,7 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.kakao.dto.KakaoSearchResult;
 import watoo.grd.nextroute.application.kakao.port.out.KakaoApiPort;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
 
 import java.util.List;
 
@@ -16,14 +16,14 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SubwayCoordinateEnrichService {
 
-    private final SubwayDataService subwayDataService;
+    private final SubwayStationRepository subwayStationRepository;
     private final KakaoApiPort kakaoApiPort;
 
     public record EnrichResult(int total, int updated, int skipped) {}
 
     @Transactional
     public EnrichResult enrich() {
-        List<SubwayStation> targets = subwayDataService.findAllWithoutCoordinates();
+        List<SubwayStation> targets = subwayStationRepository.findByLatitudeIsNull();
         int updated = 0;
         int skipped = 0;
 
@@ -42,7 +42,8 @@ public class SubwayCoordinateEnrichService {
                 }
 
                 KakaoSearchResult.Place place = result.places().get(0);
-                subwayDataService.updateCoordinates(station.getId(), place.y(), place.x());
+                subwayStationRepository.findById(station.getId())
+                        .ifPresent(s -> s.updateCoordinates(place.y(), place.x()));
                 log.debug("[Enrich] 완료: {} → ({}, {})", station.getKakaoQuery(), place.y(), place.x());
                 updated++;
 

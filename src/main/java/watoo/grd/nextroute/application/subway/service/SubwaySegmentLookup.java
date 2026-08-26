@@ -5,7 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.domain.subway.entity.SubwaySegment;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwaySegmentRepository;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -17,7 +17,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SubwaySegmentLookup {
 
-    private final SubwayDataService subwayDataService;
+    private final SubwaySegmentRepository subwaySegmentRepository;
 
     /** volatile: collector thread reads, scheduler thread replaces */
     private volatile Map<String, Double> map = Map.of();
@@ -29,7 +29,7 @@ public class SubwaySegmentLookup {
 
     /** 기동 시 적재 및 Worker 역할의 일일 갱신에서 호출한다. */
     public void reload() {
-        List<SubwaySegment> segments = subwayDataService.findAllSegments();
+        List<SubwaySegment> segments = subwaySegmentRepository.findAll();
         Map<String, Double> newMap = new HashMap<>();
         for (SubwaySegment s : segments) {
             if (s.getTravelTime() != null) {
