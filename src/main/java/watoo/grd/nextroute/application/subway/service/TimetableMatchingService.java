@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.subway.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -48,6 +49,7 @@ import java.util.Set;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class TimetableMatchingService {
 
@@ -69,26 +71,6 @@ public class TimetableMatchingService {
 
     @Value("${batch.persistence.issue-chunk-size:1000}")
     int issueChunkSize;
-
-    public TimetableMatchingService(SubwayArrivalEventRepository subwayArrivalEventRepository,
-                                    SubwayStationRepository subwayStationRepository,
-                                    SubwayTimetableRepository subwayTimetableRepository,
-                                    SubwayMatchIssueStore subwayMatchIssueStore,
-                                    TimetableConverter converter,
-                                    EventTimetablePairer pairer,
-                                    EventTimetablePairerV2 pairerV2,
-                                    DestinationNormalizer destinationNormalizer,
-                                    ObjectMapper objectMapper) {
-        this.subwayArrivalEventRepository = subwayArrivalEventRepository;
-        this.subwayStationRepository = subwayStationRepository;
-        this.subwayTimetableRepository = subwayTimetableRepository;
-        this.subwayMatchIssueStore = subwayMatchIssueStore;
-        this.converter = converter;
-        this.pairer = pairer;
-        this.pairerV2 = pairerV2;
-        this.destinationNormalizer = destinationNormalizer;
-        this.objectMapper = objectMapper;
-    }
 
     @Transactional
     public int matchForDate(LocalDate serviceDate) {

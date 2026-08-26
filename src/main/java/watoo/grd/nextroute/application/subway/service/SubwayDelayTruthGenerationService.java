@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.subway.service;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,7 @@ import java.util.Set;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class SubwayDelayTruthGenerationService {
 
@@ -49,22 +51,6 @@ public class SubwayDelayTruthGenerationService {
     private final TimetableConverter converter;
     private final EventTimetablePairer pairer;
     private final EventTimetablePairerV2 pairerV2;
-
-    public SubwayDelayTruthGenerationService(SubwayArrivalEventRepository subwayArrivalEventRepository,
-                                             SubwayStationRepository subwayStationRepository,
-                                             SubwayTimetableRepository subwayTimetableRepository,
-                                             SubwayDelayTruthStore subwayDelayTruthStore,
-                                             TimetableConverter converter,
-                                             EventTimetablePairer pairer,
-                                             EventTimetablePairerV2 pairerV2) {
-        this.subwayArrivalEventRepository = subwayArrivalEventRepository;
-        this.subwayStationRepository = subwayStationRepository;
-        this.subwayTimetableRepository = subwayTimetableRepository;
-        this.subwayDelayTruthStore = subwayDelayTruthStore;
-        this.converter = converter;
-        this.pairer = pairer;
-        this.pairerV2 = pairerV2;
-    }
 
     /** V1 |delay| 임계값 — 초과 시 학습 제외(분포 분석 위해 row는 보존) */
     static final int OUTLIER_THRESHOLD_SECONDS = 900;
