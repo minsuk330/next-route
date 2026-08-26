@@ -5,7 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.bus.dto.BusRoutePathPoint;
 import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineBackfillResult;
-import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineData;
+import watoo.grd.nextroute.domain.bus.service.BusRoutePolylineData;
 import watoo.grd.nextroute.application.bus.exception.BusApiLimitExceededException;
 import watoo.grd.nextroute.application.bus.port.in.LoadBusRoutePolylineUseCase;
 import watoo.grd.nextroute.application.bus.port.in.BuildBusRouteSegmentPolylinesUseCase;

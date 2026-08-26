@@ -11,7 +11,7 @@ import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.BusQueryResult;
 import watoo.grd.nextroute.domain.bus.entity.BusRouteStop;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
 
 import java.util.List;
 
@@ -29,12 +29,12 @@ class BusArrivalQueryServiceTest {
     static final String ROUTE = "100100118";
 
     @Mock SearchTimeBusQueryPort busQueryPort;
-    @Mock BusDataService busDataService;
+    @Mock BusRouteStopRepository busRouteStopRepository;
     @InjectMocks BusArrivalQueryService service;
 
     @Test
     void getArrivals_singleMapping_queriesByOrdAndMaps() {
-        given(busDataService.findBusRouteByStopAndRoute(STOP, ROUTE))
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP))
                 .willReturn(List.of(routeStop(3)));
         given(busQueryPort.getArrInfoByStop(STOP, ROUTE, 3))
                 .willReturn(BusQueryResult.ok(List.of(BusArrivalInfoFixtures.arrivalInfo(
@@ -49,7 +49,7 @@ class BusArrivalQueryServiceTest {
 
     @Test
     void getArrivals_cachedResult_mapsSame() {
-        given(busDataService.findBusRouteByStopAndRoute(STOP, ROUTE))
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP))
                 .willReturn(List.of(routeStop(3)));
         given(busQueryPort.getArrInfoByStop(STOP, ROUTE, 3))
                 .willReturn(BusQueryResult.cached(List.of(BusArrivalInfoFixtures.arrivalInfo(
@@ -63,7 +63,7 @@ class BusArrivalQueryServiceTest {
 
     @Test
     void getArrivals_okButEmpty_returnsEmpty() {
-        given(busDataService.findBusRouteByStopAndRoute(STOP, ROUTE))
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP))
                 .willReturn(List.of(routeStop(3)));
         given(busQueryPort.getArrInfoByStop(STOP, ROUTE, 3))
                 .willReturn(BusQueryResult.ok(List.of()));
@@ -73,7 +73,7 @@ class BusArrivalQueryServiceTest {
 
     @Test
     void getArrivals_blocked_returnsEmpty() {
-        given(busDataService.findBusRouteByStopAndRoute(STOP, ROUTE))
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP))
                 .willReturn(List.of(routeStop(3)));
         given(busQueryPort.getArrInfoByStop(STOP, ROUTE, 3))
                 .willReturn(BusQueryResult.blocked());
@@ -83,7 +83,7 @@ class BusArrivalQueryServiceTest {
 
     @Test
     void getArrivals_limited_returnsEmpty() {
-        given(busDataService.findBusRouteByStopAndRoute(STOP, ROUTE))
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP))
                 .willReturn(List.of(routeStop(3)));
         given(busQueryPort.getArrInfoByStop(STOP, ROUTE, 3))
                 .willReturn(BusQueryResult.<BusArrivalInfo>limited());
@@ -93,7 +93,7 @@ class BusArrivalQueryServiceTest {
 
     @Test
     void getArrivals_noMapping_emptyAndNoApiCall() {
-        given(busDataService.findBusRouteByStopAndRoute(STOP, ROUTE)).willReturn(List.of());
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP)).willReturn(List.of());
 
         List<BusArrivalResponse> result = service.getArrivals(STOP, ROUTE);
 
@@ -103,7 +103,7 @@ class BusArrivalQueryServiceTest {
 
     @Test
     void getArrivals_ambiguousLoopMapping_emptyAndNoApiCall() {
-        given(busDataService.findBusRouteByStopAndRoute(STOP, ROUTE))
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP))
                 .willReturn(List.of(routeStop(3), routeStop(31)));
 
         List<BusArrivalResponse> result = service.getArrivals(STOP, ROUTE);

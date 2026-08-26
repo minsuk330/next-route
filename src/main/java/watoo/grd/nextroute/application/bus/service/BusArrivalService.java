@@ -16,7 +16,8 @@ import watoo.grd.nextroute.application.bus.port.out.BusArrivalSnapshotPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.domain.bus.entity.BusArrivalCandidateRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
+import watoo.grd.nextroute.domain.bus.service.BusArrivalCandidateStore;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -37,7 +38,8 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
   private static final long API_CALL_INTERVAL_MS = 100;
 
 	private final BusApiPort busApiPort;
-	private final BusDataService busDataService;
+	private final BusRouteRepository busRouteRepository;
+	private final BusArrivalCandidateStore busArrivalCandidateStore;
 	private final BusCollectorProperties properties;
 	private final TargetRouteProvider targetRouteProvider;
 	@Qualifier("arrivalApiCallBudget")
@@ -55,7 +57,7 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 			return;
 		}
 
-		List<BusRoute> matchedRoutes = busDataService.findRoutesByNames(targetNames);
+		List<BusRoute> matchedRoutes = busRouteRepository.findByRouteNameIn(targetNames);
 		List<String> routeIds = matchedRoutes.stream()
 				.map(BusRoute::getRouteId)
 				.toList();
@@ -219,7 +221,7 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 		}
 
 		if (!finalizedCandidates.isEmpty()) {
-			busDataService.saveAllArrivalCandidates(finalizedCandidates);
+			busArrivalCandidateStore.saveAllArrivalCandidates(finalizedCandidates);
 			for (String identityKey : finalizedIdentityKeys) {
 				busArrivalSnapshotPort.delete(scope.routeId(), scope.stopId(), scope.seq(), identityKey);
 			}

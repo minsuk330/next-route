@@ -12,7 +12,8 @@ import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.domain.bus.entity.BusPositionRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
+import watoo.grd.nextroute.domain.bus.repository.BusPositionRawRepository;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -34,7 +35,8 @@ class BusPositionServiceTest {
 	private static final LocalDateTime FIXED_NOW = LocalDateTime.of(2026, 6, 5, 10, 0, 0);
 
 	@Mock BusApiPort busApiPort;
-	@Mock BusDataService busDataService;
+	@Mock BusRouteRepository busRouteRepository;
+	@Mock BusPositionRawRepository busPositionRawRepository;
 	@Mock TargetRouteProvider targetRouteProvider;
 	@Mock BusApiCallBudget budget;
 	@Mock BusRealtimeCacheWritePort realtimeCacheWrite;
@@ -44,7 +46,7 @@ class BusPositionServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new BusPositionService(busApiPort, busDataService, targetRouteProvider, budget, clock, realtimeCacheWrite);
+		service = new BusPositionService(busApiPort, busRouteRepository, busPositionRawRepository, targetRouteProvider, budget, clock, realtimeCacheWrite);
 	}
 
 	@Test
@@ -58,7 +60,7 @@ class BusPositionServiceTest {
 		@SuppressWarnings("unchecked")
 		ArgumentCaptor<List<BusPositionRaw>> positionsCaptor =
 				(ArgumentCaptor<List<BusPositionRaw>>) (ArgumentCaptor<?>) ArgumentCaptor.forClass(List.class);
-		verify(busDataService).saveAllPositions(positionsCaptor.capture());
+		verify(busPositionRawRepository).saveAll(positionsCaptor.capture());
 		BusPositionRaw saved = positionsCaptor.getValue().get(0);
 
 		assertThat(saved.getCollectedAt()).isEqualTo(FIXED_NOW);
@@ -116,7 +118,7 @@ class BusPositionServiceTest {
 		verify(busApiPort).getBusPosByRtid("100100118");
 		verify(busApiPort).getBusPosByRtid("100100119");
 		verify(budget, times(2)).recordCall();
-		verify(busDataService, never()).saveAllPositions(anyList());
+		verify(busPositionRawRepository, never()).saveAll(anyList());
 		// 실패(예외)·빈 결과 노선은 캐시 프라이밍 안 함
 		verifyNoInteractions(realtimeCacheWrite);
 	}
@@ -136,13 +138,13 @@ class BusPositionServiceTest {
 		verify(busApiPort).getBusPosByRtid("100100118");
 		verify(busApiPort, never()).getBusPosByRtid("100100119");
 		verify(budget, never()).recordCall();
-		verify(busDataService, never()).saveAllPositions(anyList());
+		verify(busPositionRawRepository, never()).saveAll(anyList());
 	}
 
 	private void prepareRoutes(BusRoute... routes) {
 		List<String> routeNames = List.of("143", "272").subList(0, routes.length);
 		given(targetRouteProvider.activeRouteNames()).willReturn(routeNames);
-		given(busDataService.findRoutesByNames(routeNames)).willReturn(List.of(routes));
+		given(busRouteRepository.findByRouteNameIn(routeNames)).willReturn(List.of(routes));
 	}
 
 	private BusRoute route(String routeId, String routeName) {

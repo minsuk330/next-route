@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.bus.dto;
 
 import java.util.List;
+import watoo.grd.nextroute.domain.bus.service.BusRoutePolylineData;
 
 public record BusRouteSegmentPolylineRange(
 		String routeId,

@@ -7,7 +7,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.bus.dto.BusRoutePathPoint;
-import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineData;
+import watoo.grd.nextroute.domain.bus.service.BusRoutePolylineData;
 import watoo.grd.nextroute.application.bus.exception.BusApiLimitExceededException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.bus.port.in.BuildBusRouteSegmentPolylinesUseCase;

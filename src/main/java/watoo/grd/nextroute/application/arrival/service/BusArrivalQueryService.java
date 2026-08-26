@@ -9,7 +9,7 @@ import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.BusQueryResult;
 import watoo.grd.nextroute.domain.bus.entity.BusRouteStop;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
 
 import java.util.List;
 
@@ -24,12 +24,12 @@ public class BusArrivalQueryService implements GetBusArrivalUseCase {
      * 조회 실패(BLOCKED/LIMITED/ERROR)는 빈 결과로 graceful 처리(검색 flow와 동일 시맨틱).
      */
     private final SearchTimeBusQueryPort busQueryPort;
-    private final BusDataService busDataService;
+    private final BusRouteStopRepository busRouteStopRepository;
 
     @Override
     public List<BusArrivalResponse> getArrivals(String stopId, String routeId) {
         // (stopId, routeId) → 경유순번(seq). Seoul getArrInfoByRoute는 ord 필수.
-        List<BusRouteStop> mappings = busDataService.findBusRouteByStopAndRoute(stopId, routeId);
+        List<BusRouteStop> mappings = busRouteStopRepository.findByRouteIdAndStopId(routeId, stopId);
         if (mappings.size() != 1) {
             // 매핑 없음 또는 루프노선 다중순번(모호) → 빈 결과.
             return List.of();

@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.bus.dto;
 
 import java.time.OffsetDateTime;
+import watoo.grd.nextroute.domain.bus.service.BusRoutePolylineData;
 import java.util.List;
 
 public record BusRouteSegmentPolylineData(

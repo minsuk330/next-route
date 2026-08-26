@@ -10,7 +10,9 @@ import watoo.grd.nextroute.application.stopselection.dto.StopRouteResult;
 import watoo.grd.nextroute.application.stopselection.port.in.GetRouteStopsUseCase;
 import watoo.grd.nextroute.application.stopselection.port.in.GetStopRoutesUseCase;
 import watoo.grd.nextroute.application.stopselection.port.in.SearchSuggestUseCase;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
+import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
 
 import java.util.List;
 
@@ -23,12 +25,14 @@ public class StopSelectionService
     /** 자동완성 keyword 최대 길이. 초과 시 빈 결과. */
     static final int MAX_KEYWORD_LENGTH = 20;
 
-    private final BusDataService busDataService;
+    private final BusRouteStopRepository busRouteStopRepository;
+    private final BusRouteRepository busRouteRepository;
+    private final BusStopRepository busStopRepository;
     private final PredictionSupportService predictionSupportService;
 
     @Override
     public List<StopRouteResult> getStopRoutes(String stopId) {
-        return busDataService.findRoutesByStopId(stopId).stream()
+        return busRouteStopRepository.findRoutesByStopId(stopId).stream()
                 .map(p -> new StopRouteResult(
                         p.getRouteId(), p.getRouteName(), p.getDirection(),
                         p.getRouteType(), p.getStartStation(), p.getEndStation(),
@@ -43,7 +47,7 @@ public class StopSelectionService
     }
 
     private List<RouteStopsResult.RouteStop> fetchRouteStops(String routeId) {
-        return busDataService.findStopsByRouteId(routeId).stream()
+        return busRouteStopRepository.findStopsByRouteId(routeId).stream()
                 .map(p -> new RouteStopsResult.RouteStop(
                         p.getSeq(), p.getStopId(), p.getStopName(),
                         p.getLatitude(), p.getLongitude(), p.getDirection()))
@@ -60,14 +64,14 @@ public class StopSelectionService
             return SearchSuggestResult.empty();
         }
 
-        List<SearchSuggestResult.SuggestRoute> routes = busDataService.searchRoutesByNamePrefix(kw).stream()
+        List<SearchSuggestResult.SuggestRoute> routes = busRouteRepository.findTop20ByRouteNameStartingWithOrderByRouteName(kw).stream()
                 .map(r -> new SearchSuggestResult.SuggestRoute(
                         r.getRouteId(), r.getRouteName(), r.getRouteType(),
                         r.getStartStation(), r.getEndStation(),
                         predictionSupportService.isSupported(r.getRouteId())))
                 .toList();
 
-        List<SearchSuggestResult.SuggestStop> stops = busDataService.searchStopsByNamePrefix(kw).stream()
+        List<SearchSuggestResult.SuggestStop> stops = busStopRepository.findTop20ByStopNameStartingWithOrderByStopName(kw).stream()
                 .map(s -> new SearchSuggestResult.SuggestStop(
                         s.getStopId(), s.getStopName(), s.getArsId(),
                         s.getLatitude(), s.getLongitude()))

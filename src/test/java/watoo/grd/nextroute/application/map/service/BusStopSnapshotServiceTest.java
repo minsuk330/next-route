@@ -5,9 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import watoo.grd.nextroute.application.map.dto.BusStopSnapshotPayload;
+import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
 import watoo.grd.nextroute.domain.bus.repository.BusStopSnapshotProjection;
 import watoo.grd.nextroute.domain.bus.repository.BusStopSnapshotVersionProjection;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -22,17 +22,17 @@ import static org.mockito.Mockito.verify;
 
 class BusStopSnapshotServiceTest {
 
-    private BusDataService busDataService;
+    private BusStopRepository busStopRepository;
     private ObjectMapper objectMapper;
     private MutableClock clock;
     private BusStopSnapshotService service;
 
     @BeforeEach
     void setUp() {
-        busDataService = mock(BusDataService.class);
+        busStopRepository = mock(BusStopRepository.class);
         objectMapper = new ObjectMapper();
         clock = new MutableClock(Instant.parse("2026-08-19T00:00:00Z"));
-        service = new BusStopSnapshotService(busDataService, objectMapper, clock);
+        service = new BusStopSnapshotService(busStopRepository, objectMapper, clock);
     }
 
     @Test
@@ -45,7 +45,7 @@ class BusStopSnapshotServiceTest {
     @Test
     void emptyTable_yieldsZeroVersionAndEmptyStops() throws Exception {
         givenVersion(0L, 0L);
-        given(busDataService.findAllStopsForSnapshot()).willReturn(List.of());
+        given(busStopRepository.findAllForSnapshot()).willReturn(List.of());
 
         BusStopSnapshotPayload payload = service.snapshot();
 
@@ -58,7 +58,7 @@ class BusStopSnapshotServiceTest {
     @Test
     void coordinates_areRoundedToFiveDecimals() throws Exception {
         givenVersion(1L, 100L);
-        given(busDataService.findAllStopsForSnapshot())
+        given(busStopRepository.findAllForSnapshot())
                 .willReturn(List.of(row("100000001", "01001", "종로2가사거리", 37.5706234567, 126.9881456789)));
 
         JsonNode stop = objectMapper.readTree(service.snapshot().json()).get("stops").get(0);
@@ -70,7 +70,7 @@ class BusStopSnapshotServiceTest {
     @Test
     void columnOrder_matchesPayloadRows() throws Exception {
         givenVersion(1L, 100L);
-        given(busDataService.findAllStopsForSnapshot())
+        given(busStopRepository.findAllForSnapshot())
                 .willReturn(List.of(row("100000001", "01001", "종로2가사거리", 37.5, 127.0)));
 
         JsonNode body = objectMapper.readTree(service.snapshot().json());
@@ -88,7 +88,7 @@ class BusStopSnapshotServiceTest {
     @Test
     void nullArsId_staysNull() throws Exception {
         givenVersion(1L, 100L);
-        given(busDataService.findAllStopsForSnapshot())
+        given(busStopRepository.findAllForSnapshot())
                 .willReturn(List.of(row("100000001", null, "가상정류장", 37.5, 127.0)));
 
         JsonNode stop = objectMapper.readTree(service.snapshot().json()).get("stops").get(0);
@@ -99,7 +99,7 @@ class BusStopSnapshotServiceTest {
     @Test
     void sameVersion_reusesCachedBytesWithoutRequeryingRows() {
         givenVersion(12986L, 1786000000L);
-        given(busDataService.findAllStopsForSnapshot())
+        given(busStopRepository.findAllForSnapshot())
                 .willReturn(List.of(row("100000001", "01001", "종로2가사거리", 37.5, 127.0)));
 
         BusStopSnapshotPayload first = service.snapshot();
@@ -107,8 +107,8 @@ class BusStopSnapshotServiceTest {
         BusStopSnapshotPayload second = service.snapshot();
 
         assertThat(second).isSameAs(first);
-        verify(busDataService, times(1)).findAllStopsForSnapshot();
-        verify(busDataService, times(2)).probeStopSnapshotVersion();
+        verify(busStopRepository, times(1)).findAllForSnapshot();
+        verify(busStopRepository, times(2)).probeSnapshotVersion();
     }
 
     @Test
@@ -119,15 +119,15 @@ class BusStopSnapshotServiceTest {
         clock.advanceSeconds(30);
         service.currentVersion();
 
-        verify(busDataService, times(1)).probeStopSnapshotVersion();
+        verify(busStopRepository, times(1)).probeSnapshotVersion();
     }
 
     @Test
     void changedVersion_rebuildsPayload() {
         BusStopSnapshotVersionProjection before = version(12986L, 1786000000L);
         BusStopSnapshotVersionProjection after = version(12987L, 1786000099L);
-        given(busDataService.probeStopSnapshotVersion()).willReturn(before, after);
-        given(busDataService.findAllStopsForSnapshot())
+        given(busStopRepository.probeSnapshotVersion()).willReturn(before, after);
+        given(busStopRepository.findAllForSnapshot())
                 .willReturn(List.of(row("100000001", "01001", "종로2가사거리", 37.5, 127.0)));
 
         BusStopSnapshotPayload first = service.snapshot();
@@ -136,13 +136,13 @@ class BusStopSnapshotServiceTest {
 
         assertThat(first.version()).isEqualTo("12986-1786000000");
         assertThat(second.version()).isEqualTo("12987-1786000099");
-        verify(busDataService, times(2)).findAllStopsForSnapshot();
+        verify(busStopRepository, times(2)).findAllForSnapshot();
     }
 
     @Test
     void rowWithNullCoordinate_isSkipped() throws Exception {
         givenVersion(2L, 100L);
-        given(busDataService.findAllStopsForSnapshot()).willReturn(List.of(
+        given(busStopRepository.findAllForSnapshot()).willReturn(List.of(
                 row("100000001", "01001", "정상", 37.5, 127.0),
                 row("100000002", "01002", "좌표없음", null, 127.0)));
 
@@ -153,7 +153,7 @@ class BusStopSnapshotServiceTest {
     }
 
     private void givenVersion(long count, long epochSec) {
-        given(busDataService.probeStopSnapshotVersion()).willReturn(version(count, epochSec));
+        given(busStopRepository.probeSnapshotVersion()).willReturn(version(count, epochSec));
     }
 
     private BusStopSnapshotVersionProjection version(long count, long epochSec) {

@@ -16,7 +16,8 @@ import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.domain.bus.entity.BusPositionRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
+import watoo.grd.nextroute.domain.bus.repository.BusPositionRawRepository;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
 
 @Slf4j
 @Service
@@ -26,7 +27,8 @@ public class BusPositionService implements CollectBusPositionUseCase {
 	private static final long API_CALL_INTERVAL_MS = 100;
 
 	private final BusApiPort busApiPort;
-	private final BusDataService busDataService;
+	private final BusRouteRepository busRouteRepository;
+	private final BusPositionRawRepository busPositionRawRepository;
 	private final TargetRouteProvider targetRouteProvider;
 	@Qualifier("positionApiCallBudget")
 	private final BusApiCallBudget budget;
@@ -49,7 +51,7 @@ public class BusPositionService implements CollectBusPositionUseCase {
 			return;
 		}
 
-		List<BusRoute> matchedRoutes = busDataService.findRoutesByNames(targetNames);
+		List<BusRoute> matchedRoutes = busRouteRepository.findByRouteNameIn(targetNames);
 		List<String> routeIds = matchedRoutes.stream()
 				.map(BusRoute::getRouteId)
 				.toList();
@@ -88,7 +90,7 @@ public class BusPositionService implements CollectBusPositionUseCase {
 						.map(info -> toEntity(info, routeId, collectedAt))
 						.toList();
 				if (!entities.isEmpty()) {
-					busDataService.saveAllPositions(entities);
+					busPositionRawRepository.saveAll(entities);
 					totalSaved += entities.size();
 				}
 				// 검색·공용 조회가 재사용하도록 실시간 캐시 프라이밍(best-effort — 어댑터가 장애 graceful 처리)

@@ -3,11 +3,11 @@ package watoo.grd.nextroute.application.bus.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineSnapshot;
+import watoo.grd.nextroute.domain.bus.service.BusRoutePolylineSnapshot;
 import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineData;
 import watoo.grd.nextroute.application.bus.port.in.BuildBusRouteSegmentPolylinesUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusRouteSegmentPolylinePort;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
 import watoo.grd.nextroute.domain.bus.service.BusRoutePolylineDataService;
 
 import java.util.List;
@@ -18,7 +18,7 @@ import java.util.List;
 public class BusRouteSegmentPolylineBuildService implements BuildBusRouteSegmentPolylinesUseCase {
 
 	private final BusRoutePolylineDataService polylineDataService;
-	private final BusDataService busDataService;
+	private final BusRouteStopRepository busRouteStopRepository;
 	private final OrderedBusRoutePolylineMatcher matcher;
 	private final BusRouteSegmentPolylinePort segmentPort;
 
@@ -29,7 +29,7 @@ public class BusRouteSegmentPolylineBuildService implements BuildBusRouteSegment
 		List<BusRouteSegmentPolylineData> segments = matcher.match(
 				routeId,
 				snapshot.data(),
-				busDataService.findRouteStopMatchData(routeId),
+				busRouteStopRepository.findMatchDataByRouteId(routeId),
 				snapshot.fetchedAt());
 		segmentPort.replaceRouteSegments(routeId, segments);
 

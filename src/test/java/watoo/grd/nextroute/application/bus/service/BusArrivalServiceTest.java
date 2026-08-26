@@ -17,7 +17,8 @@ import watoo.grd.nextroute.application.bus.port.out.BusArrivalSnapshotPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.domain.bus.entity.BusArrivalCandidateRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
+import watoo.grd.nextroute.domain.bus.service.BusArrivalCandidateStore;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -47,7 +48,8 @@ class BusArrivalServiceTest {
 	private static final ArrivalScope SCOPE = new ArrivalScope("100100118", "111000299", 1);
 
 	@Mock BusApiPort busApiPort;
-	@Mock BusDataService busDataService;
+	@Mock BusRouteRepository busRouteRepository;
+	@Mock BusArrivalCandidateStore busArrivalCandidateStore;
 	@Mock BusCollectorProperties properties;
 	@Mock TargetRouteProvider targetRouteProvider;
 	@Mock BusApiCallBudget budget;
@@ -59,7 +61,7 @@ class BusArrivalServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new BusArrivalService(busApiPort, busDataService, properties, targetRouteProvider, budget, busArrivalSnapshotPort, realtimeCacheWrite, clock);
+		service = new BusArrivalService(busApiPort, busRouteRepository, busArrivalCandidateStore, properties, targetRouteProvider, budget, busArrivalSnapshotPort, realtimeCacheWrite, clock);
 	}
 
 	@Test
@@ -81,7 +83,7 @@ class BusArrivalServiceTest {
 				.containsExactly("veh:veh-A");
 		assertThat(snapshotCaptor.getValue().missedCount()).isZero();
 		assertThat(snapshotCaptor.getValue().lifecycleId()).isNotBlank();
-		verify(busDataService, never()).saveAllArrivalCandidates(anyList());
+		verify(busArrivalCandidateStore, never()).saveAllArrivalCandidates(anyList());
 		verify(busArrivalSnapshotPort, never()).delete("100100118", "111000299", 1, "veh:veh-A");
 	}
 
@@ -128,7 +130,7 @@ class BusArrivalServiceTest {
 		service.execute();
 
 		verify(busArrivalSnapshotPort, never()).save(any(BusArrivalActiveSnapshot.class));
-		verify(busDataService, never()).saveAllArrivalCandidates(anyList());
+		verify(busArrivalCandidateStore, never()).saveAllArrivalCandidates(anyList());
 	}
 
 	@Test
@@ -159,7 +161,7 @@ class BusArrivalServiceTest {
 		service.execute();
 
 		verify(busArrivalSnapshotPort).delete("100100118", "111000299", 1, "veh:veh-B");
-		verify(busDataService, never()).saveAllArrivalCandidates(anyList());
+		verify(busArrivalCandidateStore, never()).saveAllArrivalCandidates(anyList());
 	}
 
 	@Test
@@ -199,7 +201,7 @@ class BusArrivalServiceTest {
 		assertThat(missedA.missedCount()).isEqualTo(1);
 		assertThat(missedA.lastSeenAt()).isEqualTo(previousCollectedAt);
 		assertThat(missedA.lifecycleId()).isEqualTo("lc-A");
-		verify(busDataService, never()).saveAllArrivalCandidates(anyList());
+		verify(busArrivalCandidateStore, never()).saveAllArrivalCandidates(anyList());
 		verify(busArrivalSnapshotPort, never()).delete("100100118", "111000299", 1, "veh:veh-A");
 	}
 
@@ -245,7 +247,7 @@ class BusArrivalServiceTest {
 		@SuppressWarnings("unchecked")
 		ArgumentCaptor<List<BusArrivalCandidateRaw>> finalizedCaptor =
 				(ArgumentCaptor<List<BusArrivalCandidateRaw>>) (ArgumentCaptor<?>) ArgumentCaptor.forClass(List.class);
-		verify(busDataService).saveAllArrivalCandidates(finalizedCaptor.capture());
+		verify(busArrivalCandidateStore).saveAllArrivalCandidates(finalizedCaptor.capture());
 		assertThat(finalizedCaptor.getValue()).hasSize(1);
 		BusArrivalCandidateRaw finalized = finalizedCaptor.getValue().get(0);
 		assertThat(finalized.getRouteId()).isEqualTo("100100118");
@@ -298,7 +300,7 @@ class BusArrivalServiceTest {
 		verify(busArrivalSnapshotPort).save(savedCaptor.capture());
 		assertThat(savedCaptor.getValue().identityKey()).isEqualTo("veh:veh-A");
 		assertThat(savedCaptor.getValue().missedCount()).isEqualTo(1);
-		verify(busDataService, never()).saveAllArrivalCandidates(anyList());
+		verify(busArrivalCandidateStore, never()).saveAllArrivalCandidates(anyList());
 		verify(busArrivalSnapshotPort, never()).delete(anyString(), anyString(), anyInt(), anyString());
 	}
 
@@ -322,7 +324,7 @@ class BusArrivalServiceTest {
 		service.execute();
 
 		verify(busArrivalSnapshotPort).delete("100100118", "111000299", 1, "veh:veh-A");
-		verify(busDataService, never()).saveAllArrivalCandidates(anyList());
+		verify(busArrivalCandidateStore, never()).saveAllArrivalCandidates(anyList());
 		verify(busArrivalSnapshotPort, never()).save(any(BusArrivalActiveSnapshot.class));
 	}
 
@@ -330,7 +332,7 @@ class BusArrivalServiceTest {
 	void TC_예산_소진_route는_API없이_stale_active만_폐기한다() {
 		BusRoute route = BusRoute.builder().routeId("100100118").routeName("753").build();
 		given(targetRouteProvider.activeRouteNames()).willReturn(List.of("753"));
-		given(busDataService.findRoutesByNames(List.of("753"))).willReturn(List.of(route));
+		given(busRouteRepository.findByRouteNameIn(List.of("753"))).willReturn(List.of(route));
 		given(properties.getDailyBudget()).willReturn(1000);
 		// 시작 가드는 통과, 루프 내 route 단위 체크에서 소진
 		given(budget.canMakeCall(1000)).willReturn(true, false);
@@ -351,7 +353,7 @@ class BusArrivalServiceTest {
 
 		verify(busApiPort, never()).getArrInfoByRouteAll(anyString());
 		verify(busArrivalSnapshotPort).delete("100100118", "111000299", 1, "veh:veh-A");
-		verify(busDataService, never()).saveAllArrivalCandidates(anyList());
+		verify(busArrivalCandidateStore, never()).saveAllArrivalCandidates(anyList());
 	}
 
 	@Test
@@ -363,7 +365,7 @@ class BusArrivalServiceTest {
 		service.execute();
 
 		verifyNoInteractions(busArrivalSnapshotPort);
-		verify(busDataService, never()).saveAllArrivalCandidates(anyList());
+		verify(busArrivalCandidateStore, never()).saveAllArrivalCandidates(anyList());
 		verify(budget).recordCall();
 	}
 
@@ -379,7 +381,7 @@ class BusArrivalServiceTest {
 		service.execute();
 
 		verifyNoInteractions(busArrivalSnapshotPort);
-		verify(busDataService, never()).saveAllArrivalCandidates(anyList());
+		verify(busArrivalCandidateStore, never()).saveAllArrivalCandidates(anyList());
 		verify(budget, never()).recordCall();
 	}
 
@@ -390,7 +392,7 @@ class BusArrivalServiceTest {
 				.build();
 
 		given(targetRouteProvider.activeRouteNames()).willReturn(List.of("753"));
-		given(busDataService.findRoutesByNames(List.of("753"))).willReturn(List.of(route));
+		given(busRouteRepository.findByRouteNameIn(List.of("753"))).willReturn(List.of(route));
 		given(properties.getDailyBudget()).willReturn(1000);
 		given(budget.canMakeCall(1000)).willReturn(true);
 	}

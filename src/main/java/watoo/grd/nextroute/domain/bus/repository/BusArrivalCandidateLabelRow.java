@@ -1,4 +1,4 @@
-package watoo.grd.nextroute.application.bus.dto;
+package watoo.grd.nextroute.domain.bus.repository;
 
 /**
  * 라벨 생성 배치 전용 candidate projection.

@@ -6,11 +6,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import watoo.grd.nextroute.application.bus.dto.BusArrivalCandidateLabelRow;
-import watoo.grd.nextroute.application.bus.dto.BusPositionLabelRow;
+import watoo.grd.nextroute.domain.bus.repository.BusArrivalCandidateLabelRow;
+import watoo.grd.nextroute.domain.bus.repository.BusPositionLabelRow;
 import watoo.grd.nextroute.domain.bus.entity.BusArrivalLabelEvent;
 import watoo.grd.nextroute.domain.bus.entity.BusRouteStop;
-import watoo.grd.nextroute.domain.bus.service.BusDataService;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
+import watoo.grd.nextroute.domain.bus.service.BusArrivalLabelStore;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -35,7 +36,8 @@ class BusArrivalLabelGenerationServiceTest {
     static final String SECTION_ID = "9999001";
     static final String LIFECYCLE = "lc-test-001";
 
-    @Mock BusDataService busDataService;
+    @Mock BusArrivalLabelStore busArrivalLabelStore;
+    @Mock BusRouteStopRepository busRouteStopRepository;
 
     BusArrivalLabelGenerationService service;
 
@@ -43,15 +45,15 @@ class BusArrivalLabelGenerationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new BusArrivalLabelGenerationService(busDataService);
+        service = new BusArrivalLabelGenerationService(busArrivalLabelStore, busRouteStopRepository);
         service.chunkSize = 2000;
         service.correctionWindowMinutes = 10;
-        lenient().when(busDataService.saveAllLabelEvents(any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(busArrivalLabelStore.saveAllLabelEvents(any())).thenAnswer(inv -> inv.getArgument(0));
         // 기본: 단일 ROUTE
-        lenient().when(busDataService.findCandidateRouteIdsByFinalizedAtBetween(any(), any()))
+        lenient().when(busArrivalLabelStore.findCandidateRouteIdsByFinalizedAtBetween(any(), any()))
                 .thenReturn(List.of(ROUTE));
-        lenient().when(busDataService.findRouteStops(ROUTE)).thenReturn(List.of());
-        lenient().when(busDataService.findPositionLabelRowsByRoute(anyString(), any(), any()))
+        lenient().when(busRouteStopRepository.findByRouteIdOrderBySeq(ROUTE)).thenReturn(List.of());
+        lenient().when(busArrivalLabelStore.findPositionLabelRowsByRoute(anyString(), any(), any()))
                 .thenReturn(List.of());
     }
 
@@ -86,23 +88,23 @@ class BusArrivalLabelGenerationServiceTest {
     }
 
     private void stubCandidates(List<BusArrivalCandidateLabelRow> candidates) {
-        when(busDataService.findCandidateLabelRowsByRoute(eq(ROUTE), any(), any()))
+        when(busArrivalLabelStore.findCandidateLabelRowsByRoute(eq(ROUTE), any(), any()))
                 .thenReturn(candidates);
     }
 
     private void stubPositions(List<BusPositionLabelRow> positions) {
-        when(busDataService.findPositionLabelRowsByRoute(eq(ROUTE), any(), any()))
+        when(busArrivalLabelStore.findPositionLabelRowsByRoute(eq(ROUTE), any(), any()))
                 .thenReturn(positions);
     }
 
     private void stubRouteStops(BusRouteStop... stops) {
-        when(busDataService.findRouteStops(ROUTE)).thenReturn(List.of(stops));
+        when(busRouteStopRepository.findByRouteIdOrderBySeq(ROUTE)).thenReturn(List.of(stops));
     }
 
     @SuppressWarnings("unchecked")
     private List<BusArrivalLabelEvent> captureSaved() {
         ArgumentCaptor<List<BusArrivalLabelEvent>> captor = ArgumentCaptor.forClass(List.class);
-        verify(busDataService, atLeastOnce()).saveAllLabelEvents(captor.capture());
+        verify(busArrivalLabelStore, atLeastOnce()).saveAllLabelEvents(captor.capture());
         return captor.getAllValues().stream().flatMap(List::stream).toList();
     }
 
@@ -249,12 +251,12 @@ class BusArrivalLabelGenerationServiceTest {
 
     @Test
     void TC7_generateForDate_호출시_deleteByServiceDate가_먼저_호출된다() {
-        when(busDataService.findCandidateRouteIdsByFinalizedAtBetween(any(), any()))
+        when(busArrivalLabelStore.findCandidateRouteIdsByFinalizedAtBetween(any(), any()))
                 .thenReturn(List.of());
 
         service.generateForDate(SERVICE_DATE);
 
-        verify(busDataService).deleteLabelEventsByServiceDate(SERVICE_DATE);
+        verify(busArrivalLabelStore).deleteLabelEventsByServiceDate(SERVICE_DATE);
     }
 
     // ── TC8: 청크 분할 saveAll 호출 횟수 ─────────────────────────────────────
@@ -270,7 +272,7 @@ class BusArrivalLabelGenerationServiceTest {
         service.generateForDate(SERVICE_DATE);
 
         // chunkSize=2, 3건 → chunk 2건(save#1) + route 끝 남은 1건(save#2)
-        verify(busDataService, times(2)).saveAllLabelEvents(any());
+        verify(busArrivalLabelStore, times(2)).saveAllLabelEvents(any());
     }
 
     // ── TC9: data_tm 파싱 ─────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
-import watoo.grd.nextroute.application.bus.dto.BusRoutePolylineData;
+import watoo.grd.nextroute.domain.bus.service.BusRoutePolylineData;
 import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineData.QualityStatus;
 import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineSection;
 import watoo.grd.nextroute.application.bus.port.out.BusRouteSegmentPolylinePort;
