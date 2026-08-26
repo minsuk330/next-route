@@ -11,7 +11,10 @@ import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEvent;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEventMatchIssue;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.entity.SubwayTimetable;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository;
+import watoo.grd.nextroute.domain.subway.service.SubwayMatchIssueStore;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -32,7 +35,10 @@ class TimetableMatchingServiceTest {
         @Override public boolean isHoliday(LocalDate date) { return holidays.contains(date); }
     }
 
-    @Mock SubwayDataService subwayDataService;
+    @Mock SubwayArrivalEventRepository subwayArrivalEventRepository;
+    @Mock SubwayStationRepository subwayStationRepository;
+    @Mock SubwayTimetableRepository subwayTimetableRepository;
+    @Mock SubwayMatchIssueStore subwayMatchIssueStore;
 
     TimetableMatchingService service;
 
@@ -43,7 +49,8 @@ class TimetableMatchingServiceTest {
         TimetableConverter converter = new TimetableConverter(
                 new FakeHolidayCalendar(LocalDate.of(2026, 5, 5)));
         DestinationNormalizer destinationNormalizer = new DestinationNormalizer();
-        service = new TimetableMatchingService(subwayDataService, converter,
+        service = new TimetableMatchingService(subwayArrivalEventRepository, subwayStationRepository,
+                subwayTimetableRepository, subwayMatchIssueStore, converter,
                 new EventTimetablePairer(converter),
                 new EventTimetablePairerV2(converter, destinationNormalizer),
                 destinationNormalizer,
@@ -84,14 +91,14 @@ class TimetableMatchingServiceTest {
 
     @SuppressWarnings("unchecked")
     private void stubSaveMatchIssuesReturnsInput() {
-        when(subwayDataService.saveAllMatchIssues(any()))
+        when(subwayMatchIssueStore.saveAllMatchIssues(any()))
                 .thenAnswer(inv -> inv.getArgument(0));
     }
 
     @SuppressWarnings("unchecked")
     private List<SubwayArrivalEventMatchIssue> captureIssues() {
         ArgumentCaptor<List<SubwayArrivalEventMatchIssue>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).saveAllMatchIssues(captor.capture());
+        verify(subwayMatchIssueStore).saveAllMatchIssues(captor.capture());
         return captor.getValue();
     }
 
@@ -105,9 +112,9 @@ class TimetableMatchingServiceTest {
         SubwayTimetable tt = timetable("1002", "T1", "U", "100000");
         SubwayArrivalEvent ev = event("1002", "S1", "내선", LocalDateTime.of(2026, 5, 3, 10, 0, 0));
 
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(List.of(ev));
-        when(subwayDataService.findMappableStations()).thenReturn(List.of(st));
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of(tt));
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(List.of(ev));
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(List.of(st));
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of(tt));
         stubSaveMatchIssuesReturnsInput();
 
         int result = service.matchForDate(SERVICE_DATE);
@@ -136,9 +143,9 @@ class TimetableMatchingServiceTest {
                 timetable("1002", "T1", "U", "130000"),
                 timetable("1002", "T1", "U", "140000"));
 
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
-        when(subwayDataService.findMappableStations()).thenReturn(List.of(st));
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(timetables);
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(List.of(st));
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(timetables);
         stubSaveMatchIssuesReturnsInput();
 
         service.matchForDate(SERVICE_DATE);
@@ -168,9 +175,9 @@ class TimetableMatchingServiceTest {
                 timetable("1002", "T1", "U", "110000"),
                 timetable("1002", "T1", "U", "120000"));
 
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
-        when(subwayDataService.findMappableStations()).thenReturn(List.of(st));
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(timetables);
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(List.of(st));
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(timetables);
         stubSaveMatchIssuesReturnsInput();
 
         service.matchForDate(SERVICE_DATE);
@@ -192,9 +199,9 @@ class TimetableMatchingServiceTest {
                 event("1002", "S1", "내선", LocalDateTime.of(2026, 5, 3, 11, 0, 0)),
                 event("1002", "S1", "내선", LocalDateTime.of(2026, 5, 3, 12, 0, 0)));
 
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
-        when(subwayDataService.findMappableStations()).thenReturn(List.of()); // S1은 매핑 불가
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of());
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(List.of()); // S1은 매핑 불가
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of());
         stubSaveMatchIssuesReturnsInput();
 
         service.matchForDate(SERVICE_DATE);
@@ -217,9 +224,9 @@ class TimetableMatchingServiceTest {
                 event("1002", "S1", "상행", LocalDateTime.of(2026, 5, 3, 11, 0, 0)),
                 event("1002", "S1", "상행", LocalDateTime.of(2026, 5, 3, 12, 0, 0)));
 
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
-        when(subwayDataService.findMappableStations()).thenReturn(List.of(st));
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of());
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(List.of(st));
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of());
         stubSaveMatchIssuesReturnsInput();
 
         service.matchForDate(SERVICE_DATE);
@@ -237,9 +244,9 @@ class TimetableMatchingServiceTest {
     void TC6_이벤트없고_시간표2건이면_NO_RAW_EVENT_2건이다() {
         SubwayStation st = station("S1", "1002", "T1");
 
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(List.of());
-        when(subwayDataService.findMappableStations()).thenReturn(List.of(st));
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of(
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(List.of());
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(List.of(st));
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of(
                 timetable("1002", "T1", "U", "100000"),
                 timetable("1002", "T1", "U", "110000")));
         stubSaveMatchIssuesReturnsInput();
@@ -263,9 +270,9 @@ class TimetableMatchingServiceTest {
                 event("1002", "S1", "내선", LocalDateTime.of(2026, 5, 3, 10, 0, 0)),
                 event("1002", "S1", "외선", LocalDateTime.of(2026, 5, 3, 10, 5, 0)));
 
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
-        when(subwayDataService.findMappableStations()).thenReturn(List.of(st));
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of(
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(List.of(st));
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of(
                 timetable("1002", "T1", "U", "100000"),
                 timetable("1002", "T1", "D", "100500")));
         stubSaveMatchIssuesReturnsInput();
@@ -297,9 +304,9 @@ class TimetableMatchingServiceTest {
                 event("1002", "S1", "상행", LocalDateTime.of(2026, 5, 3, 11, 0, 0)),
                 event("1002", "S1", "상행", LocalDateTime.of(2026, 5, 3, 10, 30, 0)));
 
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
-        when(subwayDataService.findMappableStations()).thenReturn(List.of(st));
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of(tt2, tt1));
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(List.of(st));
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of(tt2, tt1));
         stubSaveMatchIssuesReturnsInput();
 
         service.matchForDate(SERVICE_DATE);
@@ -317,15 +324,15 @@ class TimetableMatchingServiceTest {
         SubwayTimetable tt = timetable("1002", "T1", "U", "100000");
         SubwayArrivalEvent ev = event("1002", "S1", "상행", LocalDateTime.of(2026, 5, 3, 10, 0, 0));
 
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(List.of(ev));
-        when(subwayDataService.findMappableStations()).thenReturn(List.of(st));
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of(tt));
-        when(subwayDataService.saveAllMatchIssues(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(List.of(ev));
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(List.of(st));
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(List.of(tt));
+        when(subwayMatchIssueStore.saveAllMatchIssues(any())).thenAnswer(inv -> inv.getArgument(0));
 
         int result1 = service.matchForDate(SERVICE_DATE);
         int result2 = service.matchForDate(SERVICE_DATE);
 
-        verify(subwayDataService, times(2)).deleteMatchIssuesByServiceDate(SERVICE_DATE);
+        verify(subwayMatchIssueStore, times(2)).deleteMatchIssuesByServiceDate(SERVICE_DATE);
         assertThat(result1).isEqualTo(result2);
     }
 
@@ -362,15 +369,15 @@ class TimetableMatchingServiceTest {
                 evWithDest("S1", "내선", "T2", LocalDateTime.of(2026, 5, 4, 0, 55, 0), "한강진"),
                 evWithDest("S1", "내선", "T3", LocalDateTime.of(2026, 5, 4, 0, 56, 0), "한강진"));
 
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
-        when(subwayDataService.findMappableStations()).thenReturn(List.of(st));
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(tts);
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(List.of(st));
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(tts);
         stubSaveMatchIssuesReturnsInput();
 
         service.matchForDate(SERVICE_DATE);
 
         // saveAllMatchIssues 호출 1회 (chunk size 미달) + 그 안에 issue 1건
-        verify(subwayDataService, times(1)).saveAllMatchIssues(any());
+        verify(subwayMatchIssueStore, times(1)).saveAllMatchIssues(any());
         List<SubwayArrivalEventMatchIssue> issues = captureIssues();
         assertThat(issues).hasSize(1);
         assertThat(issues.get(0).getIssueType())
@@ -392,14 +399,14 @@ class TimetableMatchingServiceTest {
                 evWithDest("S1", "내선", "T1", LocalDateTime.of(2026, 5, 3, 10, 0, 30), "한강진"),
                 evWithDest("S1", "내선", "T2", LocalDateTime.of(2026, 5, 3, 11, 0, 30), "한강진"));
 
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
-        when(subwayDataService.findMappableStations()).thenReturn(List.of(st));
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(tts);
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(List.of(st));
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(tts);
         stubSaveMatchIssuesReturnsInput();
 
         service.matchForDate(SERVICE_DATE);
 
-        verify(subwayDataService, times(1)).saveAllMatchIssues(any());
+        verify(subwayMatchIssueStore, times(1)).saveAllMatchIssues(any());
         List<SubwayArrivalEventMatchIssue> issues = captureIssues();
         assertThat(issues).hasSize(1);
         assertThat(issues.get(0).getIssueType())
@@ -429,16 +436,16 @@ class TimetableMatchingServiceTest {
                     LocalDateTime.of(2026, 5, 4, 0, 55, 0), "한강진"));
         }
 
-        when(subwayDataService.findArrivalEventsByServiceDate(SERVICE_DATE)).thenReturn(events);
-        when(subwayDataService.findMappableStations()).thenReturn(stations);
-        when(subwayDataService.findTimetablesByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(tts);
+        when(subwayArrivalEventRepository.findByServiceDate(SERVICE_DATE)).thenReturn(events);
+        when(subwayStationRepository.findByTagoStationIdIsNotNull()).thenReturn(stations);
+        when(subwayTimetableRepository.findByDayTypeAndLineIdIn(eq("03"), any())).thenReturn(tts);
         stubSaveMatchIssuesReturnsInput();
 
         int total = service.matchForDate(SERVICE_DATE);
 
         // chunk size 5 → 12 issue ÷ 5 = 3회 (5 + 5 + 2)
-        verify(subwayDataService, times(3)).saveAllMatchIssues(any());
-        verify(subwayDataService, times(3)).flushAndClear();
+        verify(subwayMatchIssueStore, times(3)).saveAllMatchIssues(any());
+        verify(subwayMatchIssueStore, times(3)).flushAndClear();
         assertThat(total).isEqualTo(12);
     }
 }

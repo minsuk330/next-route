@@ -6,7 +6,7 @@ import org.mockito.ArgumentCaptor;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalInfo;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalRaw;
 import watoo.grd.nextroute.domain.subway.service.ArrivalRawInsertResult;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.service.SubwayArrivalRawIngestStore;
 
 import java.util.List;
 
@@ -16,12 +16,12 @@ import static org.mockito.Mockito.*;
 
 class SubwayArrivalRawRecorderTest {
 
-    SubwayDataService subwayDataService = mock(SubwayDataService.class);
+    SubwayArrivalRawIngestStore subwayArrivalRawIngestStore = mock(SubwayArrivalRawIngestStore.class);
     SubwayArrivalRawRecorder recorder;
 
     @BeforeEach
     void setUp() {
-        recorder = new SubwayArrivalRawRecorder(subwayDataService);
+        recorder = new SubwayArrivalRawRecorder(subwayArrivalRawIngestStore);
     }
 
     private SubwayArrivalInfo info(String trainNo, String stationId, String arrivalCode,
@@ -52,14 +52,14 @@ class SubwayArrivalRawRecorderTest {
                 info("T6", "S6", "5"),
                 info("T7", "S7", "99"));
 
-        when(subwayDataService.insertArrivalRawIgnoreDuplicates(any()))
+        when(subwayArrivalRawIngestStore.insertArrivalRawIgnoreDuplicates(any()))
                 .thenReturn(insertResult(7, 7, 1, 1));
 
         recorder.record(arrivals);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<SubwayArrivalRaw>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).insertArrivalRawIgnoreDuplicates(captor.capture());
+        verify(subwayArrivalRawIngestStore).insertArrivalRawIgnoreDuplicates(captor.capture());
         assertThat(captor.getValue()).hasSize(7);
     }
 
@@ -79,7 +79,7 @@ class SubwayArrivalRawRecorderTest {
 
         recorder.record(arrivals);
 
-        verify(subwayDataService, never()).insertArrivalRawIgnoreDuplicates(any());
+        verify(subwayArrivalRawIngestStore, never()).insertArrivalRawIgnoreDuplicates(any());
     }
 
     @Test
@@ -88,14 +88,14 @@ class SubwayArrivalRawRecorderTest {
 
         recorder.record(List.of(blankTrain));
 
-        verify(subwayDataService, never()).insertArrivalRawIgnoreDuplicates(any());
+        verify(subwayArrivalRawIngestStore, never()).insertArrivalRawIgnoreDuplicates(any());
     }
 
     @Test
     void 빈_리스트면_저장하지_않는다() {
         recorder.record(List.of());
 
-        verify(subwayDataService, never()).insertArrivalRawIgnoreDuplicates(any());
+        verify(subwayArrivalRawIngestStore, never()).insertArrivalRawIgnoreDuplicates(any());
     }
 
     @Test
@@ -107,14 +107,14 @@ class SubwayArrivalRawRecorderTest {
                 info("T1", "S1", "1", "2026-04-30 10:00:00", "강남 출발")   // currentMessage 다름
         );
 
-        when(subwayDataService.insertArrivalRawIgnoreDuplicates(any()))
+        when(subwayArrivalRawIngestStore.insertArrivalRawIgnoreDuplicates(any()))
                 .thenReturn(insertResult(4, 4, 3, 3));
 
         recorder.record(arrivals);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<SubwayArrivalRaw>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).insertArrivalRawIgnoreDuplicates(captor.capture());
+        verify(subwayArrivalRawIngestStore).insertArrivalRawIgnoreDuplicates(captor.capture());
         assertThat(captor.getValue()).hasSize(4);
     }
 
@@ -126,14 +126,14 @@ class SubwayArrivalRawRecorderTest {
                 "dest99", "오금행", "교대 도착", "1", "1003",
                 "msg3", "2026-04-30 14:30:00", "3호선오금행", "0");
 
-        when(subwayDataService.insertArrivalRawIgnoreDuplicates(any()))
+        when(subwayArrivalRawIngestStore.insertArrivalRawIgnoreDuplicates(any()))
                 .thenReturn(insertResult(1, 1, 1, 1));
 
         recorder.record(List.of(arrived));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<SubwayArrivalRaw>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).insertArrivalRawIgnoreDuplicates(captor.capture());
+        verify(subwayArrivalRawIngestStore).insertArrivalRawIgnoreDuplicates(captor.capture());
         SubwayArrivalRaw raw = captor.getValue().get(0);
 
         assertThat(raw.getStationId()).isEqualTo("S99");

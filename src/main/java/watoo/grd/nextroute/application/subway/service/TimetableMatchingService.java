@@ -17,7 +17,10 @@ import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEvent;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEventMatchIssue;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.entity.SubwayTimetable;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayTimetableRepository;
+import watoo.grd.nextroute.domain.subway.service.SubwayMatchIssueStore;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -48,7 +51,10 @@ import java.util.Set;
 @Transactional(readOnly = true)
 public class TimetableMatchingService {
 
-    private final SubwayDataService subwayDataService;
+    private final SubwayArrivalEventRepository subwayArrivalEventRepository;
+    private final SubwayStationRepository subwayStationRepository;
+    private final SubwayTimetableRepository subwayTimetableRepository;
+    private final SubwayMatchIssueStore subwayMatchIssueStore;
     private final TimetableConverter converter;
     private final EventTimetablePairer pairer;
     private final EventTimetablePairerV2 pairerV2;
@@ -64,13 +70,19 @@ public class TimetableMatchingService {
     @Value("${batch.persistence.issue-chunk-size:1000}")
     int issueChunkSize;
 
-    public TimetableMatchingService(SubwayDataService subwayDataService,
+    public TimetableMatchingService(SubwayArrivalEventRepository subwayArrivalEventRepository,
+                                    SubwayStationRepository subwayStationRepository,
+                                    SubwayTimetableRepository subwayTimetableRepository,
+                                    SubwayMatchIssueStore subwayMatchIssueStore,
                                     TimetableConverter converter,
                                     EventTimetablePairer pairer,
                                     EventTimetablePairerV2 pairerV2,
                                     DestinationNormalizer destinationNormalizer,
                                     ObjectMapper objectMapper) {
-        this.subwayDataService = subwayDataService;
+        this.subwayArrivalEventRepository = subwayArrivalEventRepository;
+        this.subwayStationRepository = subwayStationRepository;
+        this.subwayTimetableRepository = subwayTimetableRepository;
+        this.subwayMatchIssueStore = subwayMatchIssueStore;
         this.converter = converter;
         this.pairer = pairer;
         this.pairerV2 = pairerV2;
@@ -89,17 +101,17 @@ public class TimetableMatchingService {
     // ── V1 (legacy) ─────────────────────────────────────────────────────────
 
     private int matchForDateV1(LocalDate serviceDate) {
-        subwayDataService.deleteMatchIssuesByServiceDate(serviceDate);
+        subwayMatchIssueStore.deleteMatchIssuesByServiceDate(serviceDate);
 
-        List<SubwayArrivalEvent> events = subwayDataService.findArrivalEventsByServiceDate(serviceDate);
+        List<SubwayArrivalEvent> events = subwayArrivalEventRepository.findByServiceDate(serviceDate);
         String dayType = converter.toDayType(serviceDate);
-        List<SubwayStation> mappableStations = subwayDataService.findMappableStations();
+        List<SubwayStation> mappableStations = subwayStationRepository.findByTagoStationIdIsNotNull();
 
         Set<String> lineIds = new HashSet<>();
         for (SubwayStation st : mappableStations) lineIds.add(st.getLineId());
         for (SubwayArrivalEvent ev : events) lineIds.add(ev.getLineId());
         List<SubwayTimetable> timetables =
-                subwayDataService.findTimetablesByDayTypeAndLineIdIn(dayType, lineIds);
+                subwayTimetableRepository.findByDayTypeAndLineIdIn(dayType, lineIds);
 
         PairingResult result = pairer.pair(serviceDate, dayType, events, mappableStations, timetables);
 
@@ -167,7 +179,7 @@ public class TimetableMatchingService {
         long noRawEventCount = result.unmatchedTimetables().size();
         long extraRawEventCount = result.unmatchedEvents().size();
 
-        subwayDataService.saveAllMatchIssues(issues);
+        subwayMatchIssueStore.saveAllMatchIssues(issues);
 
         log.info("[PhaseB v1] serviceDate={} MAPPING_MISSING={} NO_RAW_EVENT={} EXTRA_RAW_EVENT={} total={}",
                 serviceDate, mappingMissingCount, noRawEventCount, extraRawEventCount, issues.size());
@@ -178,17 +190,17 @@ public class TimetableMatchingService {
     // ── V2 ────────────────────────────────────────────────────────────────
 
     private int matchForDateV2(LocalDate serviceDate) {
-        subwayDataService.deleteMatchIssuesByServiceDate(serviceDate);
+        subwayMatchIssueStore.deleteMatchIssuesByServiceDate(serviceDate);
 
-        List<SubwayArrivalEvent> events = subwayDataService.findArrivalEventsByServiceDate(serviceDate);
+        List<SubwayArrivalEvent> events = subwayArrivalEventRepository.findByServiceDate(serviceDate);
         String dayType = converter.toDayType(serviceDate);
-        List<SubwayStation> mappableStations = subwayDataService.findMappableStations();
+        List<SubwayStation> mappableStations = subwayStationRepository.findByTagoStationIdIsNotNull();
 
         Set<String> lineIds = new HashSet<>();
         for (SubwayStation st : mappableStations) lineIds.add(st.getLineId());
         for (SubwayArrivalEvent ev : events) lineIds.add(ev.getLineId());
         List<SubwayTimetable> timetables =
-                subwayDataService.findTimetablesByDayTypeAndLineIdIn(dayType, lineIds);
+                subwayTimetableRepository.findByDayTypeAndLineIdIn(dayType, lineIds);
 
         List<SubwayArrivalEvent> filteredEvents = events.stream()
                 .filter(ev -> ev.getArrivedAt() != null)
@@ -331,8 +343,8 @@ public class TimetableMatchingService {
         // 잔여 chunk flush
         if (!chunk.isEmpty()) {
             int size = chunk.size();
-            subwayDataService.saveAllMatchIssues(chunk);
-            subwayDataService.flushAndClear();
+            subwayMatchIssueStore.saveAllMatchIssues(chunk);
+            subwayMatchIssueStore.flushAndClear();
             counters[0] += size;
             counters[1]++;
         }
@@ -361,8 +373,8 @@ public class TimetableMatchingService {
             List<SubwayArrivalEventMatchIssue> chunk, int[] counters) {
         if (chunk.size() < issueChunkSize) return chunk;
         int size = chunk.size();
-        subwayDataService.saveAllMatchIssues(chunk);
-        subwayDataService.flushAndClear();
+        subwayMatchIssueStore.saveAllMatchIssues(chunk);
+        subwayMatchIssueStore.flushAndClear();
         counters[0] += size;
         counters[1]++;
         return new ArrayList<>(issueChunkSize);

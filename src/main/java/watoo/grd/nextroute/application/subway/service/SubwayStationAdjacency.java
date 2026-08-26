@@ -5,7 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.domain.subway.entity.SubwaySegment;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwaySegmentRepository;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -38,7 +38,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class SubwayStationAdjacency {
 
-    private final SubwayDataService subwayDataService;
+    private final SubwaySegmentRepository subwaySegmentRepository;
 
     /** volatile: 수집 스레드가 읽고, 정적 데이터 갱신 스케줄러가 통째로 갈아 끼운다. */
     private volatile Map<String, Set<String>> neighbors = Map.of();
@@ -50,7 +50,7 @@ public class SubwayStationAdjacency {
 
     public void reload() {
         Map<String, Set<String>> next = new HashMap<>();
-        for (SubwaySegment segment : subwayDataService.findAllSegments()) {
+        for (SubwaySegment segment : subwaySegmentRepository.findAll()) {
             String line = segment.getLineId();
             String a = segment.getDepartStationId();
             String b = segment.getArriveStationId();

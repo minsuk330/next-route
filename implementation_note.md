@@ -1099,3 +1099,69 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   bus 리팩터가 만든 실패는 0건 (`GetNearbyBusStopsUseCaseTest` 2건은 위 가드 인라인 때문에 스텁 제거로 수정 완료).
 - `grep -rn "BusDataService" src` → 0 hit
 - `grep -rn "^import watoo.grd.nextroute.application" src/main/java/.../domain/bus` → 0 hit
+
+## PR2 — Subway 데이터 접근 deepen (domain/subway/service 재편, refactor/subway-data-access-deepen)
+
+### 확정
+- `SubwayDataService`(41 public 메서드, caller 8개) 삭제, PR1(bus)과 동일 원칙 적용 — 사용자 지시로 "PR1과 동일(직접주입)" 확정.
+- 실측: 41개 중 33개가 본문 1줄 순수 위임. 죽은 메서드 14개(repo-wide 0 hit 확인 후 삭제):
+  `countDelayTruthByServiceDate`, `countSegments`, `existsByStationId`, `findByLineIdAndTagoStationId`,
+  `findByStationId`, `findByStationIdAndLineId`, `findByStationNameLikeAndLineName`, `findDelayTruthByServiceDate`,
+  `findLatestArrivalsByStationId`, `findStationsByLine`, `findStationsByLineIdIn`, `findTimetableCoverage`,
+  `saveAllArrivals`, `saveAllStations`(3줄 real logic 있었지만 dead라 원칙대로 삭제 — depth 있어도 안 쓰이면 안 남김).
+- 새 domain 모듈 3개, PR1의 "caller 가 repo 3개+ 이상 묶어써야 하면 모듈로, 아니면 caller 가 repository 직접 주입" 판단을
+  그대로 적용:
+  - `SubwayArrivalRawIngestStore` — `insertArrivalRawIgnoreDuplicates`(22줄, code1 카운트 집계 real logic) 단독.
+  - `SubwayDelayTruthStore` — `MlSubwayDelayTruthRepository`(delete+save) + `EntityManager`(flush) 2콜라보레이터.
+    caller=`SubwayDelayTruthGenerationService` 전용.
+  - `SubwayMatchIssueStore` — `SubwayArrivalEventMatchIssueRepository`(delete+save+find×2) + `EntityManager`.
+    caller 2개(`TimetableMatchingService` 전체 사용, `SubwayInferredArrivalCompletionService` 는 find 만 사용) —
+    2 caller 공유라 모듈로 남길 근거가 bus 보다 강함("두 caller 가 진짜 seam 을 정당화").
+  - 순수 위임(캐시 없는 1~2줄)은 caller 가 `SubwayStationRepository`/`SubwaySegmentRepository`/
+    `SubwayTimetableRepository`/`SubwayArrivalEventRepository`/`SubwayArrivalRawRepository` 직접 주입 —
+    caller당 최대 4 repo(EntityManager 없음)까지는 직접주입, EntityManager 결합되면 모듈로 격상(PR1과 동일 경계).
+- projection 없음(bus 와 달리 subway 는 애초에 domain→application 역참조가 없었음 — subway 쪽 project 타입은
+  처음부터 domain 패키지에 있었음). 그래서 이번 PR 은 타입 이동 작업이 없음.
+- `findPrevDepartureCandidatesInRangeNarrowed` 의 `stationIds.isEmpty()` 가드는 caller
+  (`SubwayInferredArrivalCompletionService`)로 인라인 — PR1의 `findSupportedStopIds` 처리와 동일 패턴.
+- `updateCoordinates`(findById+ifPresent 엔티티 메서드 호출)는 caller(`SubwayCoordinateEnrichService`)로 직접
+  인라인 — 2줄짜리 load-mutate 는 깊이 없음.
+
+### 함정
+- `domain/subway/service/SubwayDataServiceTest.java` 는 `@SpringBootTest` 로 컨텍스트만 띄우고 `assertEquals` 없이
+  `System.out.println` 만 하는 스모크 테스트였음. `SubwayDataService` 삭제 대상이라 검증 없이 삭제 — 남길 이유 없음
+  (테스트가 검증하는 게 없어서 "이 로직을 어디로 옮길지" 판단 자체가 불필요).
+- 8개 mock 기반 테스트 전환 중 `verify(...)` 가 멀티라인(메서드명이 다음 줄에 있는 형태)일 때 sed 한 줄 패턴이
+  못 잡음 — `SubwayInferredArrivalCompletionServiceTest`(2곳), `SubwayArrivalQueryServiceTest`(2곳)에서 컴파일
+  에러로 드러난 뒤 수동 수정. PR1 에서도 동일 함정이 있었는데 이번에도 반복됨 — sed 로 caller 치환할 때
+  `verify(x, never())\n.method(...)` 형태의 개행 분리 호출은 grep -n 으로 컴파일 에러 나기 전엔 못 잡는다는 걸
+  다시 확인.
+- `TimetableMatchingService`, `SubwayInferredArrivalCompletionService` 둘 다 `findMappableStations()` 를 쓰는데
+  실체가 `subwayStationRepository.findByTagoStationIdIsNotNull()` 이었음 — 메서드명이 원본 리포지토리 메서드명과
+  달라서 grep 만으론 안 보이고 body 를 직접 읽어야 확인됨(PR1 의 `saveAllArrivalCandidates` 류 이름 불일치와 같은 패턴).
+
+### 좌표
+- 신규: `domain/subway/service/{SubwayArrivalRawIngestStore,SubwayDelayTruthStore,SubwayMatchIssueStore}.java`
+- 삭제: `domain/subway/service/SubwayDataService.java`, `src/test/.../domain/subway/service/SubwayDataServiceTest.java`
+- caller 8개 전환: `application/subway/service/{SubwayInferredArrivalCompletionService,SubwayDelayTruthGenerationService,
+  SubwayArrivalEventDerivationService,SubwayArrivalRawRecorder,SubwayStaticDataService,SubwayCoordinateEnrichService,
+  SubwayStationAdjacency,SubwaySegmentLookup,TimetableMatchingService}.java`,
+  `application/nearby/service/NearbyTransitService.java`(subway 부분만),
+  `application/arrival/service/SubwayArrivalQueryService.java`
+
+### 배포
+- 마이그레이션 없음. 스키마 변경 없이 코드 재배선만. VPS 수동배치 불필요.
+
+### 검증
+- `./gradlew compileJava compileTestJava` → 성공
+- `./gradlew test --tests "watoo.grd.nextroute.application.subway.service.*" --tests
+  "watoo.grd.nextroute.application.nearby.port.in.GetNearbyBusStopsUseCaseTest" --tests
+  "watoo.grd.nextroute.application.arrival.service.SubwayArrivalQueryServiceTest"` → 성공(exit 0), 관련 unit
+  테스트 전부 통과.
+- `./gradlew test --tests "*Subway*" --tests "*NearbyBusStops*"` → 365 tests, 108 failed. 실패 전부
+  `journey/*IT` 컨텍스트 로드 실패로, root cause 는 `journeyNotificationProperties`("relay 켜면서 sender 를 noop
+  으로 두면 안 된다") — PR1 조사에서 이미 main 기준선 재현 확인된 **기존 무관** 실패와 동일 시그니처.
+  실패 클래스 8개 표본 확인 결과 이번에 옮긴 도메인 클래스(`SubwayStationRepository` 등) 참조 0건 — 완전 무관.
+- `grep -rn "SubwayDataService" src` → 0 hit
+- `grep -rn "^import watoo.grd.nextroute.\(application\|infrastructure\)" domain/` → route/polyline 1건만
+  (이번 PR 범위 밖, 의도적으로 남김), subway 관련 0건.

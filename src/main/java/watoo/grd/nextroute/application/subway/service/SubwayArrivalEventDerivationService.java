@@ -6,7 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEvent;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalRaw;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalRawRepository;
 
 import java.time.*;
 import java.time.format.DateTimeFormatter;
@@ -22,14 +23,15 @@ public class SubwayArrivalEventDerivationService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final Duration SPLIT_THRESHOLD = Duration.ofMinutes(10);
 
-    private final SubwayDataService subwayDataService;
+    private final SubwayArrivalEventRepository subwayArrivalEventRepository;
+    private final SubwayArrivalRawRepository subwayArrivalRawRepository;
     private final ObjectMapper objectMapper;
 
     public int deriveForDate(LocalDate serviceDate) {
         // Step 1: raw 범위 조회
         String from = serviceDate.atTime(4, 0, 0).format(RAW_FMT);
         String to = serviceDate.plusDays(1).atTime(4, 0, 0).format(RAW_FMT);
-        List<SubwayArrivalRaw> candidates = subwayDataService.findArrivalCandidatesInRange(from, to);
+        List<SubwayArrivalRaw> candidates = subwayArrivalRawRepository.findArrivalCandidatesInRange(from, to);
 
         // Step 2: received_at 파싱 후 유효한 row만 유지
         record RawWithTime(SubwayArrivalRaw raw, LocalDateTime receivedAt) {}
@@ -167,8 +169,8 @@ public class SubwayArrivalEventDerivationService {
         }
 
         // Step 6: Delete → Insert
-        subwayDataService.deleteArrivalEventsByServiceDate(serviceDate);
-        List<SubwayArrivalEvent> saved = subwayDataService.saveAllArrivalEvents(events);
+        subwayArrivalEventRepository.deleteByServiceDate(serviceDate);
+        List<SubwayArrivalEvent> saved = subwayArrivalEventRepository.saveAll(events);
         log.info("[EventDerivation] serviceDate={} → deleted existing, inserted {} events from {} candidates",
                 serviceDate, saved.size(), candidates.size());
         return saved.size();

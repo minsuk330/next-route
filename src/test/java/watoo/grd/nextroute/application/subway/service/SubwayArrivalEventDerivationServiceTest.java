@@ -9,7 +9,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEvent;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalRaw;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalRawRepository;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -23,13 +24,16 @@ import static org.mockito.Mockito.*;
 class SubwayArrivalEventDerivationServiceTest {
 
     @Mock
-    SubwayDataService subwayDataService;
+    SubwayArrivalEventRepository subwayArrivalEventRepository;
+    @Mock
+    SubwayArrivalRawRepository subwayArrivalRawRepository;
 
     SubwayArrivalEventDerivationService service;
 
     @BeforeEach
     void setUp() {
-        service = new SubwayArrivalEventDerivationService(subwayDataService, new ObjectMapper());
+        service = new SubwayArrivalEventDerivationService(
+                subwayArrivalEventRepository, subwayArrivalRawRepository, new ObjectMapper());
     }
 
     // ──────────────────────────────────────────────
@@ -65,7 +69,7 @@ class SubwayArrivalEventDerivationServiceTest {
     /** saveAllArrivalEvents 가 입력 리스트를 그대로 반환하도록 스텁 */
     @SuppressWarnings("unchecked")
     private void stubSaveReturnsInput() {
-        when(subwayDataService.saveAllArrivalEvents(any()))
+        when(subwayArrivalEventRepository.saveAll(any()))
                 .thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -78,7 +82,7 @@ class SubwayArrivalEventDerivationServiceTest {
         SubwayArrivalRaw raw1 = raw("1002", "S1", "내선", "T1", "2026-05-03 10:00:00");
         SubwayArrivalRaw raw2 = raw("1002", "S1", "내선", "T1", "2026-05-03 10:00:15");
 
-        when(subwayDataService.findArrivalCandidatesInRange(any(), any())).thenReturn(List.of(raw1, raw2));
+        when(subwayArrivalRawRepository.findArrivalCandidatesInRange(any(), any())).thenReturn(List.of(raw1, raw2));
         stubSaveReturnsInput();
 
         /// 이제 테스트 대상 메서드를 실행한다. 이 전까진 테스트 사전 작업
@@ -86,7 +90,7 @@ class SubwayArrivalEventDerivationServiceTest {
 
       @SuppressWarnings("unchecked")
         ArgumentCaptor<List<SubwayArrivalEvent>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).saveAllArrivalEvents(captor.capture());
+        verify(subwayArrivalEventRepository).saveAll(captor.capture());
 
         List<SubwayArrivalEvent> saved = captor.getValue();
         assertThat(saved).hasSize(1);
@@ -107,7 +111,7 @@ class SubwayArrivalEventDerivationServiceTest {
         SubwayArrivalRaw raw1 = raw("1002", "S1", "내선", "T1", "2026-05-03 10:00:00");
         SubwayArrivalRaw raw2 = raw("1002", "S1", "내선", "T1", "2026-05-03 10:11:00");
 
-        when(subwayDataService.findArrivalCandidatesInRange(any(), any()))
+        when(subwayArrivalRawRepository.findArrivalCandidatesInRange(any(), any()))
                 .thenReturn(List.of(raw1, raw2));
         stubSaveReturnsInput();
 
@@ -115,7 +119,7 @@ class SubwayArrivalEventDerivationServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<SubwayArrivalEvent>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).saveAllArrivalEvents(captor.capture());
+        verify(subwayArrivalEventRepository).saveAll(captor.capture());
 
         assertThat(captor.getValue()).hasSize(2);
     }
@@ -129,7 +133,7 @@ class SubwayArrivalEventDerivationServiceTest {
         SubwayArrivalRaw raw1 = raw("1002", "S1", "내선", "T1", "2026-05-03 10:00:00");
         SubwayArrivalRaw raw2 = raw("1002", "S1", "내선", "T1", "2026-05-03 10:10:00");
 
-        when(subwayDataService.findArrivalCandidatesInRange(any(), any()))
+        when(subwayArrivalRawRepository.findArrivalCandidatesInRange(any(), any()))
                 .thenReturn(List.of(raw1, raw2));
         stubSaveReturnsInput();
 
@@ -137,7 +141,7 @@ class SubwayArrivalEventDerivationServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<SubwayArrivalEvent>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).saveAllArrivalEvents(captor.capture());
+        verify(subwayArrivalEventRepository).saveAll(captor.capture());
 
         assertThat(captor.getValue()).hasSize(1);
     }
@@ -151,7 +155,7 @@ class SubwayArrivalEventDerivationServiceTest {
         SubwayArrivalRaw raw1 = raw("1002", "S1", "내선", "T1", "2026-05-03 10:00:00");
         SubwayArrivalRaw raw2 = raw("1002", "S1", "외선", "T1", "2026-05-03 10:00:00");
 
-        when(subwayDataService.findArrivalCandidatesInRange(any(), any()))
+        when(subwayArrivalRawRepository.findArrivalCandidatesInRange(any(), any()))
                 .thenReturn(List.of(raw1, raw2));
         stubSaveReturnsInput();
 
@@ -159,7 +163,7 @@ class SubwayArrivalEventDerivationServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<SubwayArrivalEvent>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).saveAllArrivalEvents(captor.capture());
+        verify(subwayArrivalEventRepository).saveAll(captor.capture());
 
         assertThat(captor.getValue()).hasSize(2);
     }
@@ -175,7 +179,7 @@ class SubwayArrivalEventDerivationServiceTest {
         SubwayArrivalRaw raw2 = rawWithDest("1002", "S1", "내선", "T1",
                 "2026-05-03 10:00:15", "D99", "성수행");
 
-        when(subwayDataService.findArrivalCandidatesInRange(any(), any()))
+        when(subwayArrivalRawRepository.findArrivalCandidatesInRange(any(), any()))
                 .thenReturn(List.of(raw1, raw2));
         stubSaveReturnsInput();
 
@@ -183,7 +187,7 @@ class SubwayArrivalEventDerivationServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<SubwayArrivalEvent>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).saveAllArrivalEvents(captor.capture());
+        verify(subwayArrivalEventRepository).saveAll(captor.capture());
 
         SubwayArrivalEvent event = captor.getValue().get(0);
         assertThat(event.getDestinationKey()).isEqualTo("D99");
@@ -201,7 +205,7 @@ class SubwayArrivalEventDerivationServiceTest {
         SubwayArrivalRaw raw2 = rawWithDest("1002", "S1", "내선", "T1",
                 "2026-05-03 10:00:15", "D2", "구로디지털단지행");
 
-        when(subwayDataService.findArrivalCandidatesInRange(any(), any()))
+        when(subwayArrivalRawRepository.findArrivalCandidatesInRange(any(), any()))
                 .thenReturn(List.of(raw1, raw2));
         stubSaveReturnsInput();
 
@@ -209,7 +213,7 @@ class SubwayArrivalEventDerivationServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<SubwayArrivalEvent>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).saveAllArrivalEvents(captor.capture());
+        verify(subwayArrivalEventRepository).saveAll(captor.capture());
 
         SubwayArrivalEvent event = captor.getValue().get(0);
         assertThat(event.getDestinationConflicted()).isTrue();
@@ -222,12 +226,12 @@ class SubwayArrivalEventDerivationServiceTest {
 
     @Test
     void serviceDate_2026_05_03이면_쿼리_인자가_당일_새벽4시_범위이다() {
-        when(subwayDataService.findArrivalCandidatesInRange(any(), any()))
+        when(subwayArrivalRawRepository.findArrivalCandidatesInRange(any(), any()))
                 .thenReturn(List.of());
 
         service.deriveForDate(LocalDate.of(2026, 5, 3));
 
-        verify(subwayDataService).findArrivalCandidatesInRange(
+        verify(subwayArrivalRawRepository).findArrivalCandidatesInRange(
                 "2026-05-03 04:00:00",
                 "2026-05-04 04:00:00");
     }
@@ -238,18 +242,18 @@ class SubwayArrivalEventDerivationServiceTest {
 
     @Test
     void raw가_없으면_빈_이벤트로_저장되고_삭제는_호출된다() {
-        when(subwayDataService.findArrivalCandidatesInRange(any(), any()))
+        when(subwayArrivalRawRepository.findArrivalCandidatesInRange(any(), any()))
                 .thenReturn(List.of());
-        when(subwayDataService.saveAllArrivalEvents(any()))
+        when(subwayArrivalEventRepository.saveAll(any()))
                 .thenReturn(List.of());
 
         int result = service.deriveForDate(LocalDate.of(2026, 5, 3));
 
-        verify(subwayDataService).deleteArrivalEventsByServiceDate(LocalDate.of(2026, 5, 3));
+        verify(subwayArrivalEventRepository).deleteByServiceDate(LocalDate.of(2026, 5, 3));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<SubwayArrivalEvent>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).saveAllArrivalEvents(captor.capture());
+        verify(subwayArrivalEventRepository).saveAll(captor.capture());
         assertThat(captor.getValue()).isEmpty();
 
         assertThat(result).isEqualTo(0);
@@ -264,7 +268,7 @@ class SubwayArrivalEventDerivationServiceTest {
         SubwayArrivalRaw raw1 = rawWithDest("1002", "S1", "내선", "T1",
                 "2026-05-03 10:00:00", null, null);
 
-        when(subwayDataService.findArrivalCandidatesInRange(any(), any()))
+        when(subwayArrivalRawRepository.findArrivalCandidatesInRange(any(), any()))
                 .thenReturn(List.of(raw1));
         stubSaveReturnsInput();
 
@@ -272,7 +276,7 @@ class SubwayArrivalEventDerivationServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<SubwayArrivalEvent>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).saveAllArrivalEvents(captor.capture());
+        verify(subwayArrivalEventRepository).saveAll(captor.capture());
 
         SubwayArrivalEvent event = captor.getValue().get(0);
         assertThat(event.getDestinationKey()).isEqualTo("UNKNOWN");

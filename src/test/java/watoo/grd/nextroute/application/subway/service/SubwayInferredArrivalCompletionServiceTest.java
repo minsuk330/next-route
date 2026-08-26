@@ -13,7 +13,10 @@ import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEvent;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalEventMatchIssue;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalRaw;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
-import watoo.grd.nextroute.domain.subway.service.SubwayDataService;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalEventRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalRawRepository;
+import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
+import watoo.grd.nextroute.domain.subway.service.SubwayMatchIssueStore;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -34,7 +37,10 @@ class SubwayInferredArrivalCompletionServiceTest {
         @Override public boolean isHoliday(LocalDate date) { return false; }
     }
 
-    @Mock SubwayDataService subwayDataService;
+    @Mock SubwayArrivalEventRepository subwayArrivalEventRepository;
+    @Mock SubwayArrivalRawRepository subwayArrivalRawRepository;
+    @Mock SubwayStationRepository subwayStationRepository;
+    @Mock SubwayMatchIssueStore subwayMatchIssueStore;
     @Mock SubwaySegmentLookup segmentLookup;
 
     SubwayInferredArrivalCompletionService service;
@@ -44,7 +50,8 @@ class SubwayInferredArrivalCompletionServiceTest {
     @BeforeEach
     void setUp() {
         service = new SubwayInferredArrivalCompletionService(
-                subwayDataService, segmentLookup,
+                subwayArrivalEventRepository, subwayArrivalRawRepository,
+                subwayStationRepository, subwayMatchIssueStore, segmentLookup,
                 new TimetableConverter(new FakeHolidayCalendar()),
                 new ObjectMapper());
         ReflectionTestUtils.setField(service, "lineIdsCsv", "1002");
@@ -89,18 +96,18 @@ class SubwayInferredArrivalCompletionServiceTest {
 
     @SuppressWarnings("unchecked")
     private void stubSaveReturnsInput() {
-        when(subwayDataService.saveAllArrivalEvents(any())).thenAnswer(i -> i.getArgument(0));
+        when(subwayArrivalEventRepository.saveAll(any())).thenAnswer(i -> i.getArgument(0));
     }
 
     private void stubStations() {
-        when(subwayDataService.findAllStations())
+        when(subwayStationRepository.findAll())
                 .thenReturn(List.of(station("S1", "교대"), station("P1", "사당")));
     }
 
     @SuppressWarnings("unchecked")
     private List<SubwayArrivalEvent> captureSaved() {
         ArgumentCaptor<List<SubwayArrivalEvent>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subwayDataService).saveAllArrivalEvents(captor.capture());
+        verify(subwayArrivalEventRepository).saveAll(captor.capture());
         return captor.getValue();
     }
 
@@ -108,19 +115,19 @@ class SubwayInferredArrivalCompletionServiceTest {
 
     @Test
     void NO_없으면_저장도_호출하지_않고_0_반환() {
-        when(subwayDataService.findNoRawEventIssues(eq(DATE), anyCollection())).thenReturn(List.of());
+        when(subwayMatchIssueStore.findNoRawEventIssues(eq(DATE), anyCollection())).thenReturn(List.of());
 
         int n = service.completeForDate(DATE);
 
         assertThat(n).isZero();
-        verify(subwayDataService, never()).saveAllArrivalEvents(any());
+        verify(subwayArrivalEventRepository, never()).saveAll(any());
     }
 
     @Test
     void segment_있으면_NO슬롯을_inferred_event로_보완하고_arrivedAt은_received_plus_travel() {
-        when(subwayDataService.findNoRawEventIssues(eq(DATE), anyCollection()))
+        when(subwayMatchIssueStore.findNoRawEventIssues(eq(DATE), anyCollection()))
                 .thenReturn(List.of(noIssue("S1", 0)));
-        when(subwayDataService.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
+        when(subwayArrivalRawRepository.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
                 .thenReturn(List.of(code3("S1", "T1", "2026-05-17 10:00:00", "P1")));
         stubStations();
         when(segmentLookup.get("1002", "사당", "교대")).thenReturn(90.0);
@@ -138,9 +145,9 @@ class SubwayInferredArrivalCompletionServiceTest {
 
     @Test
     void segment_없으면_후보_제외되어_저장_없음_D3() {
-        when(subwayDataService.findNoRawEventIssues(eq(DATE), anyCollection()))
+        when(subwayMatchIssueStore.findNoRawEventIssues(eq(DATE), anyCollection()))
                 .thenReturn(List.of(noIssue("S1", 0)));
-        when(subwayDataService.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
+        when(subwayArrivalRawRepository.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
                 .thenReturn(List.of(code3("S1", "T1", "2026-05-17 10:00:00", "P1")));
         stubStations();
         when(segmentLookup.get(any(), any(), any())).thenReturn(null);
@@ -154,14 +161,14 @@ class SubwayInferredArrivalCompletionServiceTest {
 
     @Test
     void D1_시간창_내_OBSERVED_CODE_1이_있으면_후보_제외() {
-        when(subwayDataService.findNoRawEventIssues(eq(DATE), anyCollection()))
+        when(subwayMatchIssueStore.findNoRawEventIssues(eq(DATE), anyCollection()))
                 .thenReturn(List.of(noIssue("S1", 0)));
-        when(subwayDataService.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
+        when(subwayArrivalRawRepository.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
                 .thenReturn(List.of(code3("S1", "T1", "2026-05-17 10:00:00", "P1")));
         stubStations();
         when(segmentLookup.get("1002", "사당", "교대")).thenReturn(90.0);
         // 후보 arrivedAt = 10:01:30, 관측 10:03:00 → 1.5분 차 → window(5분) 내 → 제외
-        when(subwayDataService.findArrivalEventsByServiceDate(DATE))
+        when(subwayArrivalEventRepository.findByServiceDate(DATE))
                 .thenReturn(List.of(observed("S1", "2026-05-17 10:03:00")));
         stubSaveReturnsInput();
 
@@ -173,9 +180,9 @@ class SubwayInferredArrivalCompletionServiceTest {
 
     @Test
     void D2_NO슬롯_수만큼만_저장하고_초과_후보는_드롭() {
-        when(subwayDataService.findNoRawEventIssues(eq(DATE), anyCollection()))
+        when(subwayMatchIssueStore.findNoRawEventIssues(eq(DATE), anyCollection()))
                 .thenReturn(List.of(noIssue("S1", 0))); // NO slot 1개
-        when(subwayDataService.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
+        when(subwayArrivalRawRepository.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
                 .thenReturn(List.of(
                         code3("S1", "T1", "2026-05-17 10:00:00", "P1"),
                         code3("S1", "T2", "2026-05-17 10:20:00", "P1"))); // 후보 2개(다른 train)
@@ -193,9 +200,9 @@ class SubwayInferredArrivalCompletionServiceTest {
 
     @Test
     void 십일분_gap_같은train은_subgroup_2개로_분리되어_NO슬롯_2개를_채운다() {
-        when(subwayDataService.findNoRawEventIssues(eq(DATE), anyCollection()))
+        when(subwayMatchIssueStore.findNoRawEventIssues(eq(DATE), anyCollection()))
                 .thenReturn(List.of(noIssue("S1", 0), noIssue("S1", 1))); // NO slot 2개
-        when(subwayDataService.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
+        when(subwayArrivalRawRepository.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
                 .thenReturn(List.of(
                         code3("S1", "T1", "2026-05-17 10:00:00", "P1"),
                         code3("S1", "T1", "2026-05-17 10:11:00", "P1"))); // 11분 gap
@@ -214,9 +221,9 @@ class SubwayInferredArrivalCompletionServiceTest {
 
     @Test
     void NO슬롯이_없는_key의_code3는_무시된다() {
-        when(subwayDataService.findNoRawEventIssues(eq(DATE), anyCollection()))
+        when(subwayMatchIssueStore.findNoRawEventIssues(eq(DATE), anyCollection()))
                 .thenReturn(List.of(noIssue("S1", 0)));
-        when(subwayDataService.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
+        when(subwayArrivalRawRepository.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
                 .thenReturn(List.of(code3("S9", "T1", "2026-05-17 10:00:00", "P1"))); // NO 없는 역 S9
         stubStations();
         stubSaveReturnsInput();
@@ -243,9 +250,9 @@ class SubwayInferredArrivalCompletionServiceTest {
     void v2_COUNT_MISMATCH_그룹의_부족분만큼_보강한다() {
         ReflectionTestUtils.setField(service, "matchingVersion", "v2");
         // 시간표 3 vs 이벤트 1 → 부족 2 slot
-        when(subwayDataService.findCountMismatchIssues(eq(DATE), anyCollection()))
+        when(subwayMatchIssueStore.findCountMismatchIssues(eq(DATE), anyCollection()))
                 .thenReturn(List.of(countMismatchIssue("S1", 3, 1)));
-        when(subwayDataService.findPrevDepartureCandidatesInRangeNarrowed(any(), any(), anyCollection(), anyCollection()))
+        when(subwayArrivalRawRepository.findPrevDepartureCandidatesInRangeNarrowed(any(), any(), anyCollection(), anyCollection()))
                 .thenReturn(List.of(
                         code3("S1", "T1", "2026-05-17 10:00:00", "P1"),
                         code3("S1", "T2", "2026-05-17 10:20:00", "P1"),
@@ -263,24 +270,24 @@ class SubwayInferredArrivalCompletionServiceTest {
     void v2_event가_timetable보다_많은_그룹은_보강_대상_아님() {
         ReflectionTestUtils.setField(service, "matchingVersion", "v2");
         // 시간표 1 vs 이벤트 3 → 부족 0
-        when(subwayDataService.findCountMismatchIssues(eq(DATE), anyCollection()))
+        when(subwayMatchIssueStore.findCountMismatchIssues(eq(DATE), anyCollection()))
                 .thenReturn(List.of(countMismatchIssue("S1", 1, 3)));
 
         int n = service.completeForDate(DATE);
 
         assertThat(n).isZero();
-        verify(subwayDataService, never()).saveAllArrivalEvents(any());
+        verify(subwayArrivalEventRepository, never()).saveAll(any());
     }
 
     @Test
     void v2_narrowed_query에_targetStationIds가_전달된다() {
         ReflectionTestUtils.setField(service, "matchingVersion", "v2");
         // 보강 대상 station S1, S2 두 곳
-        when(subwayDataService.findCountMismatchIssues(eq(DATE), anyCollection()))
+        when(subwayMatchIssueStore.findCountMismatchIssues(eq(DATE), anyCollection()))
                 .thenReturn(List.of(
                         countMismatchIssue("S1", 2, 1),
                         countMismatchIssue("S2", 2, 0)));
-        when(subwayDataService.findPrevDepartureCandidatesInRangeNarrowed(any(), any(), anyCollection(), anyCollection()))
+        when(subwayArrivalRawRepository.findPrevDepartureCandidatesInRangeNarrowed(any(), any(), anyCollection(), anyCollection()))
                 .thenReturn(List.of()); // 후보 0건 — 호출 인자만 검증
         stubSaveReturnsInput();
 
@@ -290,27 +297,27 @@ class SubwayInferredArrivalCompletionServiceTest {
         @SuppressWarnings("unchecked")
         org.mockito.ArgumentCaptor<java.util.Collection<String>> captor =
                 org.mockito.ArgumentCaptor.forClass(java.util.Collection.class);
-        verify(subwayDataService).findPrevDepartureCandidatesInRangeNarrowed(
+        verify(subwayArrivalRawRepository).findPrevDepartureCandidatesInRangeNarrowed(
                 any(), any(), anyCollection(), captor.capture());
         assertThat(captor.getValue()).containsExactlyInAnyOrder("S1", "S2");
         // wide 메서드는 V2 path에서 호출되지 않음
-        verify(subwayDataService, never())
+        verify(subwayArrivalRawRepository, never())
                 .findPrevDepartureCandidatesInRange(any(), any(), anyCollection());
     }
 
     @Test
     void v1_path는_여전히_wide_query를_사용한다() {
         // setUp에서 matchingVersion=v1 default
-        when(subwayDataService.findNoRawEventIssues(eq(DATE), anyCollection()))
+        when(subwayMatchIssueStore.findNoRawEventIssues(eq(DATE), anyCollection()))
                 .thenReturn(List.of(noIssue("S1", 0)));
-        when(subwayDataService.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
+        when(subwayArrivalRawRepository.findPrevDepartureCandidatesInRange(any(), any(), anyCollection()))
                 .thenReturn(List.of()); // 후보 0건
         stubSaveReturnsInput();
 
         service.completeForDate(DATE);
 
-        verify(subwayDataService).findPrevDepartureCandidatesInRange(any(), any(), anyCollection());
-        verify(subwayDataService, never())
+        verify(subwayArrivalRawRepository).findPrevDepartureCandidatesInRange(any(), any(), anyCollection());
+        verify(subwayArrivalRawRepository, never())
                 .findPrevDepartureCandidatesInRangeNarrowed(any(), any(), anyCollection(), anyCollection());
     }
 }
