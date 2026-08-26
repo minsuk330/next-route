@@ -17,7 +17,7 @@ import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.domain.bus.entity.BusArrivalCandidateRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
-import watoo.grd.nextroute.domain.bus.service.BusArrivalCandidateStore;
+import watoo.grd.nextroute.domain.bus.service.BusArrivalCandidateWriter;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -39,7 +39,7 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 
 	private final BusApiPort busApiPort;
 	private final BusRouteRepository busRouteRepository;
-	private final BusArrivalCandidateStore busArrivalCandidateStore;
+	private final BusArrivalCandidateWriter busArrivalCandidateWriter;
 	private final BusCollectorProperties properties;
 	private final TargetRouteProvider targetRouteProvider;
 	@Qualifier("arrivalApiCallBudget")
@@ -221,7 +221,7 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 		}
 
 		if (!finalizedCandidates.isEmpty()) {
-			busArrivalCandidateStore.saveAllArrivalCandidates(finalizedCandidates);
+			busArrivalCandidateWriter.saveAllArrivalCandidates(finalizedCandidates);
 			for (String identityKey : finalizedIdentityKeys) {
 				busArrivalSnapshotPort.delete(scope.routeId(), scope.stopId(), scope.seq(), identityKey);
 			}

@@ -12,7 +12,7 @@ import watoo.grd.nextroute.domain.bus.repository.BusArrivalCandidateRawRepositor
 
 @Service
 @RequiredArgsConstructor
-public class BusArrivalCandidateStore {
+public class BusArrivalCandidateWriter {
 
 	private final BusArrivalCandidateRawRepository busArrivalCandidateRawRepository;
 
