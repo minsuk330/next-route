@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalInfo;
 import watoo.grd.nextroute.domain.subway.entity.SubwayArrivalRaw;
 import watoo.grd.nextroute.domain.subway.service.ArrivalRawInsertResult;
-import watoo.grd.nextroute.domain.subway.service.SubwayArrivalRawIngestStore;
+import watoo.grd.nextroute.domain.subway.service.SubwayArrivalRawWriter;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -22,7 +22,7 @@ public class SubwayArrivalRawRecorder {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
-    private final SubwayArrivalRawIngestStore subwayArrivalRawIngestStore;
+    private final SubwayArrivalRawWriter subwayArrivalRawWriter;
 
     public void record(List<SubwayArrivalInfo> arrivals) {
         List<SubwayArrivalRaw> raws = arrivals.stream()
@@ -33,7 +33,7 @@ public class SubwayArrivalRawRecorder {
         logDiagnostics(arrivals, raws);
 
         if (!raws.isEmpty()) {
-            ArrivalRawInsertResult result = subwayArrivalRawIngestStore.insertArrivalRawIgnoreDuplicates(raws);
+            ArrivalRawInsertResult result = subwayArrivalRawWriter.insertArrivalRawIgnoreDuplicates(raws);
             log.info(
                     "[SubwayArrivalRawRecorder] Raw 저장 결과: 전체시도={}건, 전체저장={}건, 전체중복제외={}건, " +
                             "도착코드1_시도={}건, 도착코드1_저장={}건, 도착코드1_중복제외={}건",

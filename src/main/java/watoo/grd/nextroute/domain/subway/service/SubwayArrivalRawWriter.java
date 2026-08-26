@@ -9,7 +9,7 @@ import watoo.grd.nextroute.domain.subway.repository.SubwayArrivalRawRepository;
 
 @Service
 @RequiredArgsConstructor
-public class SubwayArrivalRawIngestStore {
+public class SubwayArrivalRawWriter {
 
 	private final SubwayArrivalRawRepository subwayArrivalRawRepository;
 
