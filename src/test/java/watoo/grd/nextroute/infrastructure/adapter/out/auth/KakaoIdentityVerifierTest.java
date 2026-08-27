@@ -183,7 +183,7 @@ class KakaoIdentityVerifierTest {
     // ── 헬퍼 ─────────────────────────────────────────────────────────────────
 
     private VerifiedIdentity verify(String accessToken) {
-        return verifier.verify(new OAuthCredential(AuthProvider.KAKAO, accessToken, null, null));
+        return verifier.verify(new OAuthCredential(AuthProvider.KAKAO, accessToken, null, null, null));
     }
 
     private static MockResponse json(String body) {

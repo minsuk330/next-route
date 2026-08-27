@@ -71,6 +71,22 @@ public class OAuthProviderProperties {
         private String issuer;
         /** 허용할 대상 앱 식별자. iOS Bundle ID, (Android 지원 시) Service ID. */
         private List<String> audiences = List.of();
+
+        /**
+         * 토큰 교환·revoke 의 client_id. 번들 ID(=주 audience)와 같다.
+         *
+         * <p>비어 있으면 부팅은 되고 교환·revoke 실호출만 실패한다(mTLS keystore 선례).
+         * .p8 자격을 아직 발급받지 않아도 앱이 뜨게 하기 위함이다.
+         */
+        private String clientId;
+        /** 애플 개발자 팀 식별자(client_secret JWT 의 iss). */
+        private String teamId;
+        /** .p8 개인키의 Key ID(client_secret JWT header 의 kid). */
+        private String keyId;
+        /** .p8(PKCS#8 EC 개인키) 파일 경로. 컨테이너 볼륨 마운트 경로. */
+        private String privateKeyPath;
+        /** 애플 토큰 엔드포인트의 기준 주소. /auth/token·/auth/revoke 가 이 아래 붙는다. */
+        private String tokenBaseUrl = "https://appleid.apple.com";
     }
 
     @Getter

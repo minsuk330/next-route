@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import watoo.grd.nextroute.application.auth.config.OAuthProviderProperties;
 import watoo.grd.nextroute.application.auth.dto.OAuthCredential;
 import watoo.grd.nextroute.application.auth.exception.IdentityAlreadyLinkedException;
+import watoo.grd.nextroute.application.auth.exception.MissingAuthorizationCodeException;
 import watoo.grd.nextroute.application.auth.exception.OAuthVerificationException;
 import watoo.grd.nextroute.application.auth.exception.ProviderNotAllowedException;
 import watoo.grd.nextroute.application.auth.port.in.OAuthLoginUseCase;
@@ -56,7 +57,8 @@ public class OAuthController {
     ){
         var result = oAuthLoginUseCase.login(new OAuthCredential(
                 request.getProvider(), request.getCredential(),
-                request.getNonce(), request.getDisplayName()));
+                request.getNonce(), request.getDisplayName(),
+                request.getAuthorizationCode()));
         return ResponseEntity.ok(OAuthLoginResponse.from(result));
     }
 
@@ -68,6 +70,11 @@ public class OAuthController {
     @ExceptionHandler(ProviderNotAllowedException.class)
     public ResponseEntity<Map<String, Object>> handleProviderNotAllowed(ProviderNotAllowedException e) {
         return error(HttpStatus.BAD_REQUEST, "PROVIDER_NOT_ALLOWED", e.getMessage());
+    }
+
+    @ExceptionHandler(MissingAuthorizationCodeException.class)
+    public ResponseEntity<Map<String, Object>> handleMissingCode(MissingAuthorizationCodeException e) {
+        return error(HttpStatus.BAD_REQUEST, "MISSING_AUTHORIZATION_CODE", e.getMessage());
     }
 
     @ExceptionHandler(IdentityAlreadyLinkedException.class)

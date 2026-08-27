@@ -215,6 +215,12 @@ oauth:
     jwk-set-uri: ${OAUTH_APPLE_JWK_SET_URI:https://appleid.apple.com/auth/keys}
     issuer: ${OAUTH_APPLE_ISSUER:https://appleid.apple.com}
     audiences: ${OAUTH_APPLE_AUDIENCES:}
+    # 토큰 교환·revoke 자격. 비면 부팅은 되고 실호출만 실패한다(.p8 미발급 상태 허용).
+    client-id: ${OAUTH_APPLE_CLIENT_ID:}
+    team-id: ${OAUTH_APPLE_TEAM_ID:}
+    key-id: ${OAUTH_APPLE_KEY_ID:}
+    private-key-path: ${OAUTH_APPLE_PRIVATE_KEY_PATH:}
+    token-base-url: ${OAUTH_APPLE_TOKEN_BASE_URL:https://appleid.apple.com}
   kakao:
     # 토큰이 우리 앱을 위해 발급됐는지 확인한다(애플의 aud 검사에 해당).
     token-info-uri: ${OAUTH_KAKAO_TOKEN_INFO_URI:https://kapi.kakao.com/v1/user/access_token_info}
@@ -223,6 +229,12 @@ oauth:
   # 애플 일회용 값(challenge) 보관 시간. 서버가 발급하고 로그인 때 한 번만 소비한다.
   challenge:
     ttl-seconds: ${OAUTH_CHALLENGE_TTL_SECONDS:300}
+
+# 서버가 보관하는 외부 토큰(애플 refresh_token)을 암호화할 대칭키.
+# Base64(32바이트=AES-256). 비면 부팅은 되고 암호화 실호출 시 예외.
+app:
+  secret:
+    enc-key: ${APP_SECRET_ENC_KEY:}
 
 
 

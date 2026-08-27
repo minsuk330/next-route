@@ -1225,3 +1225,42 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - compileJava/compileTestJava = OK
 - WithdrawalDeletionBoundaryIT 7개 + WithdrawControllerTest 2개 = 통과(BUILD SUCCESSFUL). 버킷3종/users최종/JPA재조회/멱등/타사용자격리/FK그래프완전성/401·204 커버
+
+## 2026-08-27 apple-revoke (PR-A 로그인 code 교환+저장)
+
+### 확정
+- **V48 는 untracked(VPS 수동배치)**. .gitignore 화이트리스트 확인: `!...V43__*` 까지만 등록,
+  V44~V47 전부 untracked. 관례는 V18+ 미커밋. → V48 도 커밋 안 함(git add 강제 금지)
+- **owner to 절 생략**. 마이그레이션 66개 중 owner 절은 V47 1개뿐 → V46 스타일(references users(id),
+  created/updated not null) 따름
+- **토큰 교환은 login() @Transactional 안에서**. 외부 HTTP 가 tx 안이지만 실사용자 0·저빈도라 수용.
+  교환 실패 = 로그경고 후 로그인 성공 유지(로그인 막지 않음). code 누락(APPLE) = 400
+- SecretCipher 키 = env `APP_SECRET_ENC_KEY`(Base64 32B), 생성자 주입. 단위테스트는 env 대신
+  생성자로 키 직접 주입. tossRestClient 처럼 미설정이면 로그경고+실호출만 실패(부팅은 됨)
+- 새 Apple config 필드(clientId/teamId/keyId/privateKeyPath/tokenBaseUrl)는 validate() 하드체크
+  안 넣음 — .p8 없이도 부팅돼야 함(tossRestClient keystore 선례)
+
+### 좌표
+- application/auth/service/OAuthLoginService.java:login — APPLE 검증 성공 후 교환·저장 훅
+- infrastructure/adapter/out/auth/AppleTokenExchanger.java — POST /auth/token
+- common/security/SecretCipher.java — AES-GCM
+- infrastructure/adapter/out/auth/AppleClientSecretJwtBuilder.java — ES256 client_secret
+
+### 배포
+- **V48__create_apple_user_token.sql = VPS 수동배치 필수**(untracked, CI 미반영)
+- 신규 시크릿: .p8 볼륨 마운트 + env(OAUTH_APPLE_CLIENT_ID/TEAM_ID/KEY_ID/PRIVATE_KEY_PATH,
+  APP_SECRET_ENC_KEY) → compose.yaml. 모바일이 authorizationCode 동반 전송 필요(HANDOFF)
+
+### 검증 (PR-A 2026-08-27)
+- `./gradlew compileJava compileTestJava` 성공
+- `./gradlew test --tests '*SecretCipher*' '*AppleClientSecret*' '*AppleTokenExchang*'
+  '*OAuthLoginServiceTest' '*AppleIdentityVerifier*' '*KakaoIdentityVerifier*'` BUILD SUCCESSFUL
+- SecretCipher: round-trip/IV상이/변조거부/키길이/미설정부팅 5, ClientSecret ES256 서명·클레임,
+  Exchanger MockWebServer 성공·refresh없음·HTTP에러 3, LoginService 애플 code필수·암호저장·카카오제외·
+  교환실패도로그인성공 4
+
+### 함정 (PR-A)
+- SecretCipher 생성자 2개(String @Value / byte[] test) → @Autowired 로 DI 생성자 명시(메모리
+  fcm-live-activity 함정 재현 방지). 빈 키는 부팅 통과·use 시 예외(tossRestClient 선례)
+- OAuthCredential 레코드에 authorizationCode 5번째 필드 추가 → 기존 호출부 4곳(verifier 테스트)
+  전부 null 인자 보강 필요

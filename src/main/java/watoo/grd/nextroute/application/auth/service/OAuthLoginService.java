@@ -11,14 +11,19 @@ import watoo.grd.nextroute.application.auth.dto.OAuthCredential;
 import watoo.grd.nextroute.application.auth.dto.OAuthLoginResult;
 import watoo.grd.nextroute.application.auth.dto.VerifiedIdentity;
 import watoo.grd.nextroute.application.auth.exception.IdentityAlreadyLinkedException;
+import watoo.grd.nextroute.application.auth.exception.MissingAuthorizationCodeException;
 import watoo.grd.nextroute.application.auth.exception.OAuthVerificationException;
 import watoo.grd.nextroute.application.auth.exception.ProviderNotAllowedException;
 import watoo.grd.nextroute.application.auth.port.in.OAuthLoginUseCase;
+import watoo.grd.nextroute.application.auth.port.out.AppleRefreshTokenPort;
 import watoo.grd.nextroute.application.auth.port.out.OAuthChallengePort;
 import watoo.grd.nextroute.application.auth.port.out.OAuthIdentityVerifier;
 import watoo.grd.nextroute.common.security.JwtProvider;
+import watoo.grd.nextroute.common.security.SecretCipher;
+import watoo.grd.nextroute.domain.auth.entity.AppleUserToken;
 import watoo.grd.nextroute.domain.auth.entity.AuthIdentity;
 import watoo.grd.nextroute.domain.auth.entity.AuthProvider;
+import watoo.grd.nextroute.domain.auth.repository.AppleUserTokenRepository;
 import watoo.grd.nextroute.domain.auth.repository.AuthIdentityRepository;
 import watoo.grd.nextroute.domain.user.entity.User;
 import watoo.grd.nextroute.domain.user.repository.UserRepository;
@@ -45,6 +50,9 @@ public class OAuthLoginService implements OAuthLoginUseCase {
     private final OAuthChallengePort challengePort;
     private final JwtProvider jwtProvider;
     private final Clock clock;
+    private final AppleUserTokenRepository appleUserTokenRepository;
+    private final AppleRefreshTokenPort appleRefreshTokenPort;
+    private final SecretCipher secretCipher;
     /** 가입 경합 재조회 전용. 충돌한 트랜잭션은 롤백 대상이라 반드시 새 트랜잭션에서 읽어야 한다. */
     private final TransactionTemplate newTransaction;
 
@@ -54,6 +62,9 @@ public class OAuthLoginService implements OAuthLoginUseCase {
                              OAuthChallengePort challengePort,
                              JwtProvider jwtProvider,
                              Clock clock,
+                             AppleUserTokenRepository appleUserTokenRepository,
+                             AppleRefreshTokenPort appleRefreshTokenPort,
+                             SecretCipher secretCipher,
                              PlatformTransactionManager transactionManager) {
         this.verifiers = new EnumMap<>(AuthProvider.class);
         verifierList.forEach(v -> this.verifiers.put(v.provider(), v));
@@ -62,6 +73,9 @@ public class OAuthLoginService implements OAuthLoginUseCase {
         this.challengePort = challengePort;
         this.jwtProvider = jwtProvider;
         this.clock = clock;
+        this.appleUserTokenRepository = appleUserTokenRepository;
+        this.appleRefreshTokenPort = appleRefreshTokenPort;
+        this.secretCipher = secretCipher;
         this.newTransaction = new TransactionTemplate(transactionManager);
         this.newTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -78,6 +92,9 @@ public class OAuthLoginService implements OAuthLoginUseCase {
         if (provider == null || !provider.isAppLoginAllowed()) {
             throw new ProviderNotAllowedException(provider);
         }
+        if (provider == AuthProvider.APPLE && isBlank(credential.authorizationCode())) {
+            throw new MissingAuthorizationCodeException();
+        }
 
         VerifiedIdentity verified = verifier(provider).verify(credential);
         requireSubject(verified);
@@ -87,13 +104,48 @@ public class OAuthLoginService implements OAuthLoginUseCase {
                 .findByProviderAndProviderSubjectAndDeletedAtIsNull(provider, verified.subject())
                 .orElse(null);
 
+        OAuthLoginResult result;
         if (identity == null) {
-            return signUp(verified, credential.displayName(), now);
+            result = signUp(verified, credential.displayName(), now);
+        } else {
+            identity.touchLogin(now);
+            identity.fillProfileIfAbsent(verified.email(), credential.displayName());
+            result = issueTokens(identity.getUserId(), provider);
         }
 
-        identity.touchLogin(now);
-        identity.fillProfileIfAbsent(verified.email(), credential.displayName());
-        return issueTokens(identity.getUserId(), provider);
+        if (provider == AuthProvider.APPLE) {
+            storeAppleRefreshToken(result.userId(), credential.authorizationCode(), verified.subject());
+        }
+        return result;
+    }
+
+    /**
+     * 애플 code 를 refresh_token 으로 교환해 사용자당 한 행으로 보관한다(탈퇴 시 revoke 용).
+     *
+     * <p>best-effort 다. 교환이 실패해도(이미 쓴 code, 애플 장애 등) 로그인은 성공시킨다 — 저장은
+     * revoke 편의를 위한 부수 작업이지 로그인의 성립 조건이 아니다. 실패는 경고 로그만 남긴다.
+     *
+     * <p>재로그인이면 최신 토큰으로 갈아끼운다(user_id unique).
+     */
+    private void storeAppleRefreshToken(long userId, String authorizationCode, String appleSub) {
+        try {
+            String refreshToken = appleRefreshTokenPort.exchangeForRefreshToken(authorizationCode);
+            String enc = secretCipher.encrypt(refreshToken);
+            appleUserTokenRepository.findByUserId(userId)
+                    .ifPresentOrElse(
+                            token -> token.update(enc, appleSub),
+                            () -> appleUserTokenRepository.save(AppleUserToken.builder()
+                                    .userId(userId)
+                                    .refreshTokenEnc(enc)
+                                    .appleSub(appleSub)
+                                    .build()));
+        } catch (Exception e) {
+            log.warn("[OAuth] 애플 토큰 교환·저장 실패(무시, 로그인은 진행): userId={}", userId, e);
+        }
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     /**
