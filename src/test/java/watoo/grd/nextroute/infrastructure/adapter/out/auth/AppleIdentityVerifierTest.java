@@ -101,7 +101,7 @@ class AppleIdentityVerifierTest {
         String token = token(signingKey, ISSUER, AUDIENCE, "apple-sub-1", "nonce-1", plusHours(1));
 
         VerifiedIdentity identity = verifier.verify(
-                new OAuthCredential(AuthProvider.APPLE, token, "nonce-1", "홍길동"));
+                new OAuthCredential(AuthProvider.APPLE, token, "nonce-1", "홍길동", null));
 
         assertThat(identity.provider()).isEqualTo(AuthProvider.APPLE);
         assertThat(identity.subject()).isEqualTo("apple-sub-1");
@@ -115,7 +115,7 @@ class AppleIdentityVerifierTest {
         String token = token(signingKey, ISSUER, AUDIENCE, "apple-sub-1", "nonce-1", plusHours(1));
 
         VerifiedIdentity identity = verifier.verify(
-                new OAuthCredential(AuthProvider.APPLE, token, "nonce-1", "앱이 보낸 이름"));
+                new OAuthCredential(AuthProvider.APPLE, token, "nonce-1", "앱이 보낸 이름", null));
 
         assertThat(identity.name()).isEqualTo("앱이 보낸 이름");
     }
@@ -256,7 +256,7 @@ class AppleIdentityVerifierTest {
     // ── 헬퍼 ─────────────────────────────────────────────────────────────────
 
     private VerifiedIdentity verify(String token, String nonce) {
-        return verifier.verify(new OAuthCredential(AuthProvider.APPLE, token, nonce, null));
+        return verifier.verify(new OAuthCredential(AuthProvider.APPLE, token, nonce, null, null));
     }
 
     private static Instant plusHours(long hours) {

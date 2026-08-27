@@ -30,4 +30,10 @@ public class OAuthLoginRequest {
 
     /** 애플 최초 로그인에서만 앱이 채운다. 표시용이며 신원 판단에 쓰지 않는다. */
     private String displayName;
+
+    /**
+     * APPLE 필수. ASAuthorization 이 매 로그인 발급하는 값이며, 서버가 refresh_token 으로 교환해
+     * 탈퇴 시 revoke 에 쓴다. 없으면 400.
+     */
+    private String authorizationCode;
 }

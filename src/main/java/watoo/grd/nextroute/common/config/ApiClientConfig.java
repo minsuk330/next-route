@@ -9,6 +9,7 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
+import watoo.grd.nextroute.application.auth.config.OAuthProviderProperties;
 import watoo.grd.nextroute.application.auth.config.TossLoginProperties;
 import watoo.grd.nextroute.application.route.config.MlPredictorProperties;
 import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
@@ -72,6 +73,24 @@ public class ApiClientConfig {
 		factory.setConnectTimeout(Duration.ofMillis(1500));
 		factory.setReadTimeout(Duration.ofMillis(1500));
 		return builder
+				.requestFactory(factory)
+				.build();
+	}
+
+	/**
+	 * 애플 토큰 엔드포인트(/auth/token·/auth/revoke) 전용 RestClient.
+	 * mTLS 불요(일반 TLS)라 토스 bean 에서 SSLContext 만 뺀 형태다. 저빈도 서버 간 호출이라
+	 * 단축 timeout 을 둔다. @Qualifier("appleRestClient") 로 주입한다.
+	 */
+	@Bean
+	public RestClient appleRestClient(RestClient.Builder builder, OAuthProviderProperties properties) {
+		HttpClient httpClient = HttpClient.newBuilder()
+				.connectTimeout(Duration.ofSeconds(3))
+				.build();
+		JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+		factory.setReadTimeout(Duration.ofSeconds(5));
+		return builder
+				.baseUrl(properties.getApple().getTokenBaseUrl())
 				.requestFactory(factory)
 				.build();
 	}

@@ -16,13 +16,18 @@ import watoo.grd.nextroute.application.auth.config.JwtProperties;
 import watoo.grd.nextroute.application.auth.dto.OAuthCredential;
 import watoo.grd.nextroute.application.auth.dto.OAuthLoginResult;
 import watoo.grd.nextroute.application.auth.dto.VerifiedIdentity;
+import watoo.grd.nextroute.application.auth.exception.MissingAuthorizationCodeException;
 import watoo.grd.nextroute.application.auth.exception.OAuthVerificationException;
 import watoo.grd.nextroute.application.auth.exception.ProviderNotAllowedException;
+import watoo.grd.nextroute.application.auth.port.out.AppleRefreshTokenPort;
 import watoo.grd.nextroute.application.auth.port.out.OAuthChallengePort;
 import watoo.grd.nextroute.application.auth.port.out.OAuthIdentityVerifier;
 import watoo.grd.nextroute.common.security.JwtProvider;
+import watoo.grd.nextroute.common.security.SecretCipher;
+import watoo.grd.nextroute.domain.auth.entity.AppleUserToken;
 import watoo.grd.nextroute.domain.auth.entity.AuthIdentity;
 import watoo.grd.nextroute.domain.auth.entity.AuthProvider;
+import watoo.grd.nextroute.domain.auth.repository.AppleUserTokenRepository;
 import watoo.grd.nextroute.domain.auth.repository.AuthIdentityRepository;
 import watoo.grd.nextroute.domain.user.entity.User;
 import watoo.grd.nextroute.domain.user.repository.UserRepository;
@@ -58,6 +63,8 @@ class OAuthLoginServiceTest {
     @Mock AuthIdentityRepository identityRepository;
     @Mock UserRepository userRepository;
     @Mock OAuthChallengePort challengePort;
+    @Mock AppleUserTokenRepository appleUserTokenRepository;
+    @Mock AppleRefreshTokenPort appleRefreshTokenPort;
 
     private StubVerifier appleVerifier;
     private StubVerifier kakaoVerifier;
@@ -66,6 +73,7 @@ class OAuthLoginServiceTest {
     /** 저장된 것을 흉내 내는 인메모리 저장소. */
     private final List<AuthIdentity> storedIdentities = new ArrayList<>();
     private final List<User> storedUsers = new ArrayList<>();
+    private final List<AppleUserToken> storedAppleTokens = new ArrayList<>();
     private final AtomicLong sequence = new AtomicLong();
 
     @BeforeEach
@@ -95,6 +103,20 @@ class OAuthLoginServiceTest {
                                 && i.getProviderSubject().equals(inv.getArgument(1)))
                         .findFirst());
 
+        // 애플 토큰 저장(best-effort)의 협력자. 정책 검증에는 부수적이라 기본값만 준다.
+        when(appleRefreshTokenPort.exchangeForRefreshToken(any())).thenReturn("apple-refresh");
+        when(appleUserTokenRepository.findByUserId(any())).thenAnswer(inv -> storedAppleTokens.stream()
+                .filter(t -> inv.getArgument(0).equals(t.getUserId()))
+                .findFirst());
+        when(appleUserTokenRepository.save(any(AppleUserToken.class))).thenAnswer(inv -> {
+            AppleUserToken t = inv.getArgument(0);
+            storedAppleTokens.add(t);
+            return t;
+        });
+        byte[] encKey = new byte[32];
+        new java.security.SecureRandom().nextBytes(encKey);
+        SecretCipher secretCipher = new SecretCipher(encKey);
+
         JwtProperties jwtProps = new JwtProperties();
         jwtProps.setSecret("test-secret-test-secret-test-secret-0123456789");
         jwtProps.setIssuer("nextroute-test");
@@ -104,6 +126,7 @@ class OAuthLoginServiceTest {
                 identityRepository, userRepository, challengePort,
                 new JwtProvider(jwtProps),
                 Clock.fixed(NOW, ZoneOffset.UTC),
+                appleUserTokenRepository, appleRefreshTokenPort, secretCipher,
                 new NoopTransactionManager());
     }
 
@@ -222,6 +245,61 @@ class OAuthLoginServiceTest {
         assertThat(storedUsers).isEmpty();
     }
 
+    // ── 애플 토큰 교환·저장 ────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("애플 로그인에 authorizationCode 가 없으면 거부한다 — revoke 할 방법이 사라진다")
+    void appleWithoutCode_rejected() {
+        appleVerifier.willReturn("apple-1", "a@example.com");
+
+        assertThatThrownBy(() ->
+                service.login(new OAuthCredential(AuthProvider.APPLE, "token", "nonce", null, null)))
+                .isInstanceOf(MissingAuthorizationCodeException.class);
+
+        assertThat(storedUsers).isEmpty();
+    }
+
+    @Test
+    @DisplayName("애플 로그인은 code 를 교환해 refresh_token 을 암호화 저장한다")
+    void appleLogin_storesEncryptedRefreshToken() {
+        appleVerifier.willReturn("apple-1", "a@example.com");
+
+        long userId = login(AuthProvider.APPLE, "홍길동").userId();
+
+        verify(appleRefreshTokenPort).exchangeForRefreshToken("auth-code");
+        assertThat(storedAppleTokens).hasSize(1);
+        AppleUserToken token = storedAppleTokens.get(0);
+        assertThat(token.getUserId()).isEqualTo(userId);
+        assertThat(token.getAppleSub()).isEqualTo("apple-1");
+        // 평문이 아니라 암호문이어야 한다.
+        assertThat(token.getRefreshTokenEnc()).isNotEqualTo("apple-refresh");
+    }
+
+    @Test
+    @DisplayName("카카오 로그인은 애플 토큰 교환을 부르지 않는다")
+    void kakaoLogin_doesNotExchangeAppleToken() {
+        kakaoVerifier.willReturn("kakao-1", "k@example.com");
+
+        login(AuthProvider.KAKAO, null);
+
+        verify(appleRefreshTokenPort, never()).exchangeForRefreshToken(any());
+        assertThat(storedAppleTokens).isEmpty();
+    }
+
+    @Test
+    @DisplayName("애플 토큰 교환이 실패해도 로그인은 성공한다(best-effort)")
+    void appleExchangeFailure_loginStillSucceeds() {
+        appleVerifier.willReturn("apple-1", "a@example.com");
+        when(appleRefreshTokenPort.exchangeForRefreshToken(any()))
+                .thenThrow(new IllegalStateException("이미 쓴 code"));
+
+        OAuthLoginResult result = login(AuthProvider.APPLE, "홍길동");
+
+        assertThat(result.userId()).isPositive();
+        assertThat(result.accessToken()).isNotBlank();
+        assertThat(storedAppleTokens).isEmpty();
+    }
+
     // ── challenge ────────────────────────────────────────────────────────────
 
     @Test
@@ -236,7 +314,8 @@ class OAuthLoginServiceTest {
     // ── 헬퍼 ─────────────────────────────────────────────────────────────────
 
     private OAuthLoginResult login(AuthProvider provider, String displayName) {
-        return service.login(new OAuthCredential(provider, "token", "nonce", displayName));
+        // APPLE 은 authorizationCode 가 필수다. 기존 정책 시험은 code 를 항상 채워 넘긴다.
+        return service.login(new OAuthCredential(provider, "token", "nonce", displayName, "auth-code"));
     }
 
     private static void assignId(Object entity, long id) {
