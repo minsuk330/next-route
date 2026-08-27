@@ -138,4 +138,11 @@ public interface SubwayLiveActivityTokenRepository
              WHERE journey_id = :journeyId AND deleted_at IS NULL
             """, nativeQuery = true)
     int releaseByJourney(@Param("journeyId") Long journeyId, @Param("now") LocalDateTime now);
+
+    /**
+     * 탈퇴: 그 사용자의 Live Activity 토큰을 물리 삭제한다. 발송 주소는 남기지 않는다(ADR 0001).
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("delete from SubwayLiveActivityToken t where t.userId = :userId")
+    void deleteAllByUserId(@Param("userId") Long userId);
 }

@@ -49,4 +49,12 @@ public interface BusArrivalAlertRepository extends JpaRepository<BusArrivalAlert
               and a.expiresAt < :now and a.deletedAt is null
             """)
     int expirePendingOverdue(@Param("now") LocalDateTime now);
+
+    /**
+     * 탈퇴: 그 사용자의 버스 알림을 물리 삭제한다. 자식({@code bus_alert_notification})을 먼저 지운 뒤
+     * 부른다(FK 역순).
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("delete from BusArrivalAlert a where a.user.id = :userId")
+    void deleteAllByUserId(@Param("userId") Long userId);
 }

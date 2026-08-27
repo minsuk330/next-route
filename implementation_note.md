@@ -1192,3 +1192,36 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - Apple /auth/revoke: authorization code 교환 경로 신설 필요, 앱심사 제출 전 필수, 별건 PR
 - 토스 unlink 콜백 계정 미삭제 비대칭(현재 토큰만 폐기)
 - codex 플랜 리뷰 반영 완료(2026-08-27): 누락 favorite_route·route_search_log 물리삭제 추가, journey_notification(V40)·subway_leg_binding(V44) 삭제금지→손대지않음, users 벌크update(detach 함정), 스키마테스트 SQL(referential_constraints+순환가드+public필터)
+
+## account-withdrawal PR2 (2026-08-27, 이어서)
+
+### 확정
+- #165(PR1 가드) main 병합 완료(2af36fe). PR2 브랜치 feat/account-withdrawal = fresh main 기준
+- **CI 에 Java 테스트 워크플로 없음**(.github/workflows=ml-image.yml 뿐). → 경계 IT 는 로컬 전용 게이트. untracked V44~V47 마이그레이션 CI 미반영 무관. IT 는 Flyway full migrate(flyway.enabled=true, classpath:db/migration)로 구성
+- .gitignore 마이그레이션 화이트리스트 V43 까지만. V44~V47 은 gitignore 처리(untracked, 디스크엔 존재)
+- FK 그래프 실측 2단(users→직접자식→alert/journey손자). WITH RECURSIVE 불필요, 명시적 2단 쿼리로 완전성 검사
+
+### 좌표 (엔티티 FK 필드)
+- 물리 userId(Long) 필드: AuthIdentity.userId, UserPushToken.userId, SubwayLiveActivityToken.userId
+- 물리 user(User) 관계(→ .user.id): RouteArrivalAlert, BusArrivalAlert, RouteAlertSchedule, FavoriteRoute
+- 물리 alert(관계, → .alert.id): RouteArrivalAlertNotification, BusAlertNotification
+- 물리 journeyId: SubwayRingPushOutbox.journeyId (→ journeyId in (select JourneySession.id where userId))
+- RouteSearchLog: 필드명 userId 인데 타입 User(user_id nullable) → l.userId.id
+- RouteSearchHistory: 기존 deleteByUser_Id(Long) 재사용. TossUserToken: 기존 deleteByUserKey(Long)
+- 소프트 userId 직접: JourneySession.userId, JourneyTelemetryEvent.userId, RerouteProposal.userId(+journeyId)
+- 소프트 journeyId: JourneyLeg, TransferConnection, JourneyEvent, JourneyRevision, SubwayBindingEvent(+journeyLegId)
+- 소프트 journeyLegId: JourneyLegRouteOption (→ 2단 서브쿼리 journeyLegId in (select JourneyLeg.id where journeyId in (...)))
+- BaseEntity.deletedAt=LocalDateTime, markDeleted(). User.bumpTokenGeneration(), tossUserKey
+- 컨트롤러 패턴: MeController @RequestMapping("/api/me") @AuthenticationPrincipal Long userId + @ExceptionHandler(SessionException). Withdraw 는 신규 @RequestMapping("/api/auth/me") DELETE 204
+
+### 함정 (PR2 구현 실측)
+- 경계 IT 스키마: **Flyway full migrate 불가**. V1__baseline 은 pg_dump 스냅샷이라 선형 replay 안 됨(prod 는 baseline-on-migrate+baseline-version:1 로 V1 미실행). 증거: myuser 롤 없음→geography 타입 없음(postgis)→spatial_ref_sys 중복→subway_station_source_id_seq 미생성→V3 가 V1 미포함 subway_arrival_raw 참조. V19~V32 가 V1 버스테이블 FK 참조라 V1 스킵도 불가
+- **해결: ddl-auto=create-drop 로 엔티티에서 스키마 생성**(flyway off, plain postgres:17). 엔티티에 JTS/geometry 필드 없음(geom 은 DB전용 네이티브)라 가능. 컬럼 정합성은 기능별 스키마 IT 가 이미 커버, 경계 IT 는 서비스 행위 계약 담당
+- 좌표컬럼: `startX`→`startx` (CamelCaseToUnderscores 가 끝자리 단일 대문자에 underscore 안 붙임). route_arrival_alert/route_alert_schedule/route_search_history/route_search_log 전부 startx/starty/endx/endy (엔티티 기준). `sequence` 는 SQL 예약어→따옴표
+- enum 전부 @Enumerated(STRING)=varchar+check. checkpoint 는 JourneyCheckpoint(TRANSFER_RISK_AT_RISK 등), 'CP' 같은 임의값 check 위반
+- **clearAutomatically 함정 재현**: 파생 delete(deleteByUser_Id, deleteByUserKey)는 영속성 컨텍스트 remove 에 의존 → 뒤이은 bulk @Modifying(clearAutomatically=true, flushAutomatically=false)가 flush 전 컨텍스트 비워 삭제 유실. route_search_history 가 안 지워져서 발견. **전 삭제를 bulk @Modifying 으로 통일**(즉시 DML)로 해결. toss 도 동일 위험이라 deleteAllByUserKey bulk 추가
+- **보안 갭 발견**: SecurityConfig 가 DELETE /api/auth/me 미보호 → permitAll 로 떨어짐(익명 탈퇴 가능). `.requestMatchers(HttpMethod.DELETE,"/api/auth/me").authenticated()` 추가
+
+### 검증
+- compileJava/compileTestJava = OK
+- WithdrawalDeletionBoundaryIT 7개 + WithdrawControllerTest 2개 = 통과(BUILD SUCCESSFUL). 버킷3종/users최종/JPA재조회/멱등/타사용자격리/FK그래프완전성/401·204 커버

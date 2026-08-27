@@ -2,6 +2,7 @@ package watoo.grd.nextroute.domain.journey.repository;
 
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import watoo.grd.nextroute.domain.journey.entity.SubwayBindingEvent;
@@ -64,4 +65,18 @@ public interface SubwayBindingEventRepository extends JpaRepository<SubwayBindin
      * 읽어 교정할 수 있다.
      */
     List<SubwayBindingEvent> findByJourneyLegIdOrderByIdDesc(Long journeyLegId, Limit limit);
+
+    /**
+     * 탈퇴: 그 사용자의 여정에 매달린 바인딩 관측 이벤트를 소프트 삭제한다(ADR 0001).
+     *
+     * <p>{@code subway_leg_binding}(집계 상태)과 다르다 — 그쪽은 손대지 않는다(V44 삭제 금지 계약).
+     * 여기 이벤트는 journey_id 로 매달려 여정 소프트 삭제 계열에 든다.
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            update SubwayBindingEvent e set e.deletedAt = :now
+             where e.journeyId in (select s.id from JourneySession s where s.userId = :userId)
+               and e.deletedAt is null
+            """)
+    int softDeleteByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 }

@@ -8,6 +8,7 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -60,4 +61,15 @@ public interface JourneyLegRepository extends JpaRepository<JourneyLeg, Long> {
                              @Param("observedAt") Instant observedAt,
                              @Param("evidenceSource") String evidenceSource,
                              @Param("quality") String quality);
+
+    /**
+     * 탈퇴: 그 사용자의 여정에 속한 단계를 소프트 삭제한다(ADR 0001, 여정 소프트 삭제 계열).
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            update JourneyLeg l set l.deletedAt = :now
+             where l.journeyId in (select s.id from JourneySession s where s.userId = :userId)
+               and l.deletedAt is null
+            """)
+    int softDeleteByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 }

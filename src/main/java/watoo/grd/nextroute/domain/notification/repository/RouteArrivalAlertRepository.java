@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.domain.notification.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import watoo.grd.nextroute.domain.notification.entity.RouteAlertStatus;
@@ -49,4 +50,12 @@ public interface RouteArrivalAlertRepository extends JpaRepository<RouteArrivalA
               and a.deletedAt is null
             """)
     List<RouteArrivalAlert> findActiveOccurrencesByScheduleIds(@Param("scheduleIds") Collection<Long> scheduleIds);
+
+    /**
+     * 탈퇴: 그 사용자의 알림을 물리 삭제한다. 남으면 스케줄러가 지운 계정으로 발송한다.
+     * 자식({@code route_arrival_alert_notification})을 먼저 지운 뒤 부른다(FK 역순).
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("delete from RouteArrivalAlert a where a.user.id = :userId")
+    void deleteAllByUserId(@Param("userId") Long userId);
 }

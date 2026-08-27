@@ -1,9 +1,13 @@
 package watoo.grd.nextroute.domain.journey.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import watoo.grd.nextroute.domain.journey.entity.JourneyRevision;
 import watoo.grd.nextroute.domain.journey.entity.JourneyRevisionStatus;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 public interface JourneyRevisionRepository extends JpaRepository<JourneyRevision, Long> {
@@ -21,4 +25,15 @@ public interface JourneyRevisionRepository extends JpaRepository<JourneyRevision
      */
     Optional<JourneyRevision> findByJourneyIdAndRouteRevisionAndDeletedAtIsNull(
             Long journeyId, int routeRevision);
+
+    /**
+     * 탈퇴: 그 사용자의 여정에 속한 개정본을 소프트 삭제한다(ADR 0001).
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            update JourneyRevision r set r.deletedAt = :now
+             where r.journeyId in (select s.id from JourneySession s where s.userId = :userId)
+               and r.deletedAt is null
+            """)
+    int softDeleteByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 }
