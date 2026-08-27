@@ -12,6 +12,24 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByTossUserKey(Long tossUserKey);
 
     /**
+     * 살아 있는 사용자만 찾는다. 탈퇴한 행({@code deleted_at} 이 찍힌 행)은 없는 것으로 친다.
+     *
+     * <p>기본 {@link #findById} 는 탈퇴한 행도 돌려준다. 세션 경로(재발급·로그아웃·내 정보)는
+     * 이 메서드를 써서 탈퇴한 계정을 "없는 사용자"로 취급한다. 빠뜨리면 탈퇴한 refresh 가
+     * 세대만 맞으면 통과한다.
+     */
+    Optional<User> findByIdAndDeletedAtIsNull(Long id);
+
+    /**
+     * 살아 있는 사용자의 토큰 세대 번호. 탈퇴한 행이면 비어 있다.
+     *
+     * <p>요청마다 필터가 부르는 단건 조회다. 엔티티 대신 값 하나만 읽고, 탈퇴 여부를
+     * 조회 조건에 넣어 필터가 별도 판정 없이 탈퇴 계정을 걸러내게 한다.
+     */
+    @Query("select u.tokenGeneration from User u where u.id = :id and u.deletedAt is null")
+    Optional<Integer> findTokenGenerationOfActive(@Param("id") Long id);
+
+    /**
      * 사용자 행을 잠그고 읽는다. 같은 사람의 요청을 한 줄로 세우는 문지기다.
      *
      * <p>여정 시작이 "진행 중인 여정이 있나 확인 → 없으면 만든다" 두 걸음이라, 동시에 두 번
