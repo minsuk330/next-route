@@ -39,7 +39,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @TestPropertySource(properties = {
         "collector.static-data.enabled=false",
         "realtime.subway.enabled=false",
-        "kma.weather.enabled=false"
+        "kma.weather.enabled=false",
+        // relay 기본값(enabled=true)+sender 기본값(noop)은 부팅 검증에 걸린다. 이 테스트와
+        // 무관한 배경 발송기라 꺼서 컨텍스트가 뜨게 한다.
+        "journey.notification.relay.enabled=false"
 })
 class TokenGenerationIT {
 
@@ -168,6 +171,35 @@ class TokenGenerationIT {
         String orphan = jwtProvider.createAccessToken(999_999_999L, 0);
 
         assertThat(callProtectedWith(orphan)).isEqualTo(401);
+    }
+
+    // ── 탈퇴한 사용자 ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("탈퇴하면 세대가 맞는 access 도 막힌다 — 행은 남지만 없는 사용자로 친다")
+    void accessToken_diesOnWithdrawal() throws Exception {
+        String access = accessTokenNow();
+        assertThat(callProtectedWith(access)).isEqualTo(200);
+
+        softDeleteUser();
+
+        assertThat(callProtectedWith(access)).isEqualTo(401);
+    }
+
+    @Test
+    @DisplayName("탈퇴하면 세대가 맞는 refresh 도 재발급이 막힌다")
+    void refreshToken_diesOnWithdrawal() {
+        String refresh = jwtProvider.createRefreshToken(userId, storedGeneration());
+
+        softDeleteUser();
+
+        assertThatThrownBy(() -> sessionUseCase.reissue(refresh))
+                .isInstanceOf(watoo.grd.nextroute.application.auth.exception.SessionException.class);
+    }
+
+    /** 탈퇴가 하는 일 중 이 테스트에 필요한 만큼 — {@code deleted_at} 만 찍는다. 세대는 건드리지 않는다. */
+    private void softDeleteUser() {
+        jdbcTemplate.update("UPDATE users SET deleted_at = now() WHERE id = ?", userId);
     }
 
     @Test

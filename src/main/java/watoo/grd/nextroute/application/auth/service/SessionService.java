@@ -85,8 +85,14 @@ public class SessionService implements SessionUseCase {
                         .toList());
     }
 
+    /**
+     * 살아 있는 사용자만 통과시킨다. 탈퇴한 계정은 없는 사용자로 취급한다.
+     *
+     * <p>재발급은 refresh 토큰으로 들어와 세대만 대조하므로, 탈퇴한 사용자의 refresh 가
+     * 세대만 맞으면 살아날 수 있다. 여기서 탈퇴 여부를 함께 봐서 그 경로를 막는다.
+     */
     private User requireUser(long userId) {
-        return userRepository.findById(userId)
+        return userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new SessionException("사용자 없음: " + userId));
     }
 

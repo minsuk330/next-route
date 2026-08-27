@@ -65,7 +65,7 @@ class SessionServiceTest {
     @DisplayName("로그아웃하면 세대 번호가 올라간다 — 이 한 줄이 발급된 토큰을 전부 끊는다")
     void logout_bumpsGeneration() {
         User u = user(1L, 0);
-        given(userRepository.findById(1L)).willReturn(Optional.of(u));
+        given(userRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(u));
 
         service.logout(1L);
 
@@ -75,7 +75,7 @@ class SessionServiceTest {
     @Test
     @DisplayName("없는 사용자의 로그아웃은 거부한다")
     void logout_unknownUser_throws() {
-        given(userRepository.findById(9L)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndDeletedAtIsNull(9L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.logout(9L)).isInstanceOf(SessionException.class);
     }
@@ -87,7 +87,7 @@ class SessionServiceTest {
     void reissue_currentGeneration_returnsNewPair() {
         given(jwtProvider.parseRefreshPrincipal("ref"))
                 .willReturn(new JwtProvider.TokenPrincipal(1L, 2));
-        given(userRepository.findById(1L)).willReturn(Optional.of(user(1L, 2)));
+        given(userRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(user(1L, 2)));
         given(jwtProvider.createAccessToken(1L, 2)).willReturn("newAccess");
         given(jwtProvider.createRefreshToken(1L, 2)).willReturn("newRefresh");
 
@@ -102,7 +102,7 @@ class SessionServiceTest {
     void reissue_staleGeneration_throws() {
         given(jwtProvider.parseRefreshPrincipal("old"))
                 .willReturn(new JwtProvider.TokenPrincipal(1L, 0));
-        given(userRepository.findById(1L)).willReturn(Optional.of(user(1L, 1)));
+        given(userRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(user(1L, 1)));
 
         assertThatThrownBy(() -> service.reissue("old")).isInstanceOf(SessionException.class);
     }
@@ -120,7 +120,7 @@ class SessionServiceTest {
     void reissue_unknownUser_throws() {
         given(jwtProvider.parseRefreshPrincipal("ref"))
                 .willReturn(new JwtProvider.TokenPrincipal(1L, 0));
-        given(userRepository.findById(1L)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.reissue("ref")).isInstanceOf(SessionException.class);
     }
@@ -132,7 +132,7 @@ class SessionServiceTest {
     void me_returnsIdentities() {
         LocalDateTime older = LocalDateTime.of(2026, 1, 1, 0, 0);
         LocalDateTime newer = LocalDateTime.of(2026, 6, 1, 0, 0);
-        given(userRepository.findById(1L)).willReturn(Optional.of(user(1L, 0)));
+        given(userRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(user(1L, 0)));
         given(identityRepository.findByUserIdAndDeletedAtIsNull(1L)).willReturn(List.of(
                 identity(AuthProvider.KAKAO, "길동", "user@kakao.com", newer),
                 identity(AuthProvider.TOSS, "토스이름", "toss@example.com", older)));
@@ -147,7 +147,7 @@ class SessionServiceTest {
     @Test
     @DisplayName("표시 이름은 앱 수단에서 먼저 찾는다 — 토스 값은 미니앱 쪽 것이다")
     void me_prefersAppProviderProfile() {
-        given(userRepository.findById(1L)).willReturn(Optional.of(user(1L, 0)));
+        given(userRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(user(1L, 0)));
         given(identityRepository.findByUserIdAndDeletedAtIsNull(1L)).willReturn(List.of(
                 identity(AuthProvider.TOSS, "토스이름", "toss@example.com", LocalDateTime.now()),
                 identity(AuthProvider.KAKAO, "길동", "user@kakao.com", LocalDateTime.now())));
@@ -161,7 +161,7 @@ class SessionServiceTest {
     @Test
     @DisplayName("앱 수단이 이름을 안 채웠으면 토스 값이라도 쓴다")
     void me_fallsBackToAnyIdentity() {
-        given(userRepository.findById(1L)).willReturn(Optional.of(user(1L, 0)));
+        given(userRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(user(1L, 0)));
         given(identityRepository.findByUserIdAndDeletedAtIsNull(1L)).willReturn(List.of(
                 identity(AuthProvider.TOSS, "토스이름", "toss@example.com", LocalDateTime.now()),
                 identity(AuthProvider.KAKAO, null, null, LocalDateTime.now())));
@@ -174,7 +174,7 @@ class SessionServiceTest {
     @Test
     @DisplayName("아무도 이름을 안 줬으면 비워 둔다 — 애플은 이름을 안 줄 수 있다")
     void me_noProfileAnywhere_returnsNulls() {
-        given(userRepository.findById(1L)).willReturn(Optional.of(user(1L, 0)));
+        given(userRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(user(1L, 0)));
         given(identityRepository.findByUserIdAndDeletedAtIsNull(1L)).willReturn(List.of(
                 identity(AuthProvider.APPLE, null, null, LocalDateTime.now())));
 
@@ -188,7 +188,7 @@ class SessionServiceTest {
     @Test
     @DisplayName("없는 사용자는 거부한다")
     void me_unknownUser_throws() {
-        given(userRepository.findById(9L)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndDeletedAtIsNull(9L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.me(9L)).isInstanceOf(SessionException.class);
     }

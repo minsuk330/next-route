@@ -1165,3 +1165,30 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `grep -rn "SubwayDataService" src` → 0 hit
 - `grep -rn "^import watoo.grd.nextroute.\(application\|infrastructure\)" domain/` → route/polyline 1건만
   (이번 PR 범위 밖, 의도적으로 남김), subway 관련 0건.
+
+## account-withdrawal (2026-08-27)
+
+### 확정
+- 삭제 경계: 하이브리드(발송/로그인수단 물리삭제, journey기록 소프트삭제). 근거 docs/plan/account-withdrawal/ADR-deletion-boundary.md, 용어 CONTEXT.md
+- 마이그레이션 0: users.deleted_at 은 V1 baseline 기존재, 삭제대상 22테이블 전부 deleted_at 보유
+- END(Live Activity 종료 푸시) 미포함: 릴레이가 토큰 살아있어야 발송하는데 탈퇴가 그 토큰 지움 → 양립불가. 위젯은 앱이 로컬로 그리다 만료
+- PR 분할: PR1=인증가드(브랜치 feat/account-withdrawal-auth-guard), PR2=탈퇴본체
+
+### 함정
+- .gitignore 가 docs/* 무시, docs/plan/ · docs/mobile/ 만 화이트리스트 → docs/adr/ 커밋 안 됨. ADR 을 docs/plan/account-withdrawal/ADR-deletion-boundary.md 로 이동함
+- TokenGenerationIT(및 모든 @SpringBootTest) 로컬 컨텍스트 로드 실패 ← JourneyNotificationProperties:197: relay.enabled 기본 true + sender 기본 noop 조합 거부. 기존 무관(clean main 도 동일 실패). 가드=@TestPropertySource 에 journey.notification.relay.enabled=false 추가
+
+### 좌표
+- 인증 세대검증: JwtAuthFilter.isStillValid → TokenGenerationPort → UserTokenGenerationAdapter (deleted_at 인지로 교체)
+- SessionService.requireUser: findById → findByIdAndDeletedAtIsNull (reissue 우회 차단)
+- SubwayRingPushRelayService.java:145 "보낸 뒤에만 지운다" — END 와 탈퇴 양립불가 근거
+
+### 검증
+- PR1: ./gradlew compileJava compileTestJava = OK
+- PR1: SessionServiceTest (단위) = 통과
+- PR1: TokenGenerationIT 12 tests 통과 (신규 탈퇴가드 2개 포함: access/refresh 세대맞아도 deleted_at 이면 401)
+
+### 미결
+- Apple /auth/revoke: authorization code 교환 경로 신설 필요, 앱심사 제출 전 필수, 별건 PR
+- 토스 unlink 콜백 계정 미삭제 비대칭(현재 토큰만 폐기)
+- codex 플랜 리뷰 반영 완료(2026-08-27): 누락 favorite_route·route_search_log 물리삭제 추가, journey_notification(V40)·subway_leg_binding(V44) 삭제금지→손대지않음, users 벌크update(detach 함정), 스키마테스트 SQL(referential_constraints+순환가드+public필터)
