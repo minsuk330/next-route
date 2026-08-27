@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.auth.port.in.WithdrawUseCase;
 import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
+import watoo.grd.nextroute.application.auth.service.AppleRevocationOnWithdrawal;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
@@ -34,6 +35,7 @@ class WithdrawControllerTest {
     @Autowired MockMvc mockMvc;
 
     @MockBean WithdrawUseCase withdrawUseCase;
+    @MockBean AppleRevocationOnWithdrawal appleRevocationOnWithdrawal;
     @MockBean JwtProvider jwtProvider;
     @MockBean TokenGenerationPort tokenGenerationPort;
 
@@ -54,6 +56,9 @@ class WithdrawControllerTest {
         mockMvc.perform(delete("/api/auth/me").header("Authorization", "Bearer good"))
                 .andExpect(status().isNoContent());
 
-        then(withdrawUseCase).should().withdraw(42L);
+        // 애플 revoke 를 삭제 앞에서 부른 뒤 탈퇴를 위임한다(순서 고정: 삭제가 토큰을 지우기 전에 써야 함).
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(appleRevocationOnWithdrawal, withdrawUseCase);
+        inOrder.verify(appleRevocationOnWithdrawal).revokeIfApple(42L);
+        inOrder.verify(withdrawUseCase).withdraw(42L);
     }
 }

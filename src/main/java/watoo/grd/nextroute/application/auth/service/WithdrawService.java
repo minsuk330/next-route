@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.auth.port.in.WithdrawUseCase;
+import watoo.grd.nextroute.domain.auth.repository.AppleUserTokenRepository;
 import watoo.grd.nextroute.domain.auth.repository.AuthIdentityRepository;
 import watoo.grd.nextroute.domain.auth.repository.TossUserTokenRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyEventRepository;
@@ -63,6 +64,7 @@ public class WithdrawService implements WithdrawUseCase {
     private final UserRepository userRepository;
     private final AuthIdentityRepository authIdentityRepository;
     private final TossUserTokenRepository tossUserTokenRepository;
+    private final AppleUserTokenRepository appleUserTokenRepository;
 
     private final RouteArrivalAlertRepository routeArrivalAlertRepository;
     private final RouteArrivalAlertNotificationRepository routeArrivalAlertNotificationRepository;
@@ -120,6 +122,7 @@ public class WithdrawService implements WithdrawUseCase {
         routeSearchLogRepository.deleteAllByUserId(userId);
         // 로그인 수단.
         authIdentityRepository.deleteAllByUserId(userId);
+        appleUserTokenRepository.deleteAllByUserId(userId);
         if (tossUserKey != null) {
             tossUserTokenRepository.deleteAllByUserKey(tossUserKey);
         }

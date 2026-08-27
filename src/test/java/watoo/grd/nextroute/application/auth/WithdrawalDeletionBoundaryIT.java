@@ -66,7 +66,7 @@ class WithdrawalDeletionBoundaryIT {
 
     /** 물리 삭제 대상: 탈퇴 후 이 사용자 관련 행이 0이어야 한다. */
     private static final List<String> PHYSICAL = List.of(
-            "auth_identity", "user_push_token", "subway_live_activity_token",
+            "auth_identity", "apple_user_token", "user_push_token", "subway_live_activity_token",
             "subway_ring_push_outbox", "route_arrival_alert", "route_arrival_alert_notification",
             "bus_arrival_alert", "bus_alert_notification", "route_alert_schedule",
             "route_search_history", "favorite_route", "route_search_log");
@@ -100,7 +100,7 @@ class WithdrawalDeletionBoundaryIT {
                 "bus_alert_notification", "bus_arrival_alert", "route_arrival_alert_notification",
                 "route_arrival_alert", "route_alert_schedule", "route_search_history",
                 "route_search_log", "favorite_route", "user_push_token", "auth_identity",
-                "toss_user_token", "users")) {
+                "apple_user_token", "toss_user_token", "users")) {
             jdbc.update("delete from " + t);
         }
         userId = insertUser(700L);
@@ -248,7 +248,7 @@ class WithdrawalDeletionBoundaryIT {
     /** 그 사용자에 매달린 행 수(직접 user_id, 또는 여정/알림 경유). */
     private int userRowCount(String table) {
         String sql = switch (table) {
-            case "auth_identity", "user_push_token", "subway_live_activity_token",
+            case "auth_identity", "apple_user_token", "user_push_token", "subway_live_activity_token",
                  "bus_arrival_alert", "route_alert_schedule", "route_search_history",
                  "route_search_log", "journey_session", "journey_telemetry_event",
                  "reroute_proposal", "journey_notification" ->
@@ -326,6 +326,9 @@ class WithdrawalDeletionBoundaryIT {
         jdbc.update("""
                 insert into toss_user_token (created_at, updated_at, user_key, access_token, refresh_token)
                 values (now(), now(), ?, 'acc', 'ref')""", tossKey);
+        jdbc.update("""
+                insert into apple_user_token (created_at, updated_at, user_id, refresh_token_enc, apple_sub)
+                values (now(), now(), ?, ?, ?)""", uid, "enc-" + uid, "apple-sub-" + uid);
 
         long pushId = jdbc.queryForObject("""
                 insert into user_push_token
