@@ -56,5 +56,7 @@ class AppleRevocationOnWithdrawalTest {
 
         // 탈퇴를 막지 않으려면 예외가 밖으로 새면 안 된다.
         assertThatCode(() -> service.revokeIfApple(3L)).doesNotThrowAnyException();
+        // 실제 revoke 경로를 타고 던졌음을 못박는다(예외가 앞단에서 났는데 통과한 게 아님).
+        then(revokePort).should().revoke("plain");
     }
 }
