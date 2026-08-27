@@ -325,4 +325,15 @@ public interface SubwayRingPushOutboxRepository extends JpaRepository<SubwayRing
             """, nativeQuery = true)
     int expireStale(@Param("expiredBefore") Instant expiredBefore,
                     @Param("now") LocalDateTime now);
+
+    /**
+     * 탈퇴: 그 사용자의 여정에 매달린 진행 링 대기열을 물리 삭제한다. 남으면 relay 가 지운 계정으로
+     * push 를 쏜다. 여정은 소프트 삭제되므로 여기서만 실제로 행을 없앤다.
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            delete from SubwayRingPushOutbox o
+             where o.journeyId in (select s.id from JourneySession s where s.userId = :userId)
+            """)
+    void deleteAllByUserJourneys(@Param("userId") Long userId);
 }

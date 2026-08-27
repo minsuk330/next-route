@@ -69,4 +69,14 @@ public interface RouteArrivalAlertNotificationRepository
               and n.status = watoo.grd.nextroute.domain.notification.entity.RouteNotificationStatus.PENDING
             """)
     int cancelPendingByAlertId(@Param("alertId") Long alertId);
+
+    /**
+     * 탈퇴: 그 사용자의 알림에 매달린 발송 이력을 물리 삭제한다. 부모 알림보다 먼저 부른다(FK 역순).
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            delete from RouteArrivalAlertNotification n
+             where n.alert.id in (select a.id from RouteArrivalAlert a where a.user.id = :userId)
+            """)
+    void deleteAllByUserId(@Param("userId") Long userId);
 }

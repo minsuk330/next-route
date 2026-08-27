@@ -1,6 +1,9 @@
 package watoo.grd.nextroute.domain.auth.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import watoo.grd.nextroute.domain.auth.entity.AuthIdentity;
 import watoo.grd.nextroute.domain.auth.entity.AuthProvider;
 
@@ -22,4 +25,13 @@ public interface AuthIdentityRepository extends JpaRepository<AuthIdentity, Long
     List<AuthIdentity> findByUserIdAndDeletedAtIsNull(Long userId);
 
     boolean existsByUserIdAndProviderAndDeletedAtIsNull(Long userId, AuthProvider provider);
+
+    /**
+     * 탈퇴: 그 사용자의 신원을 물리 삭제한다. 로그인 수단이 남으면 재가입을 막고 개인정보가 남는다.
+     *
+     * <p>{@code deleted_at} 을 보지 않는다 — 탈퇴는 살았든 지워졌든 그 사용자의 흔적을 통째로 없앤다.
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("delete from AuthIdentity a where a.userId = :userId")
+    void deleteAllByUserId(@Param("userId") Long userId);
 }

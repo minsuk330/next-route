@@ -1,8 +1,12 @@
 package watoo.grd.nextroute.domain.journey.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,4 +22,15 @@ public interface TransferConnectionRepository extends JpaRepository<TransferConn
      */
     Optional<TransferConnection> findByJourneyIdAndRouteRevisionAndTransferIndexAndDeletedAtIsNull(
             Long journeyId, int routeRevision, int transferIndex);
+
+    /**
+     * 탈퇴: 그 사용자의 여정에 속한 환승을 소프트 삭제한다(ADR 0001).
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            update TransferConnection t set t.deletedAt = :now
+             where t.journeyId in (select s.id from JourneySession s where s.userId = :userId)
+               and t.deletedAt is null
+            """)
+    int softDeleteByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 }

@@ -3,9 +3,12 @@ package watoo.grd.nextroute.domain.user.repository;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import watoo.grd.nextroute.domain.user.entity.User;
+
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
@@ -41,4 +44,24 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :id")
     Optional<User> findByIdForUpdate(@Param("id") Long id);
+
+    /**
+     * 탈퇴: 사용자 행을 소프트 삭제하고, 세대 번호를 올려 이전 토큰을 끊고, 토스 신원을 지운다.
+     *
+     * <p><b>벌크 update 한 문장으로 처리하는 것이 핵심이다.</b> 관리 엔티티를 dirty-checking 으로
+     * 고치면, 같은 트랜잭션의 다른 벌크 삭제가 {@code clearAutomatically = true} 로 컨텍스트를
+     * 비울 때 이 변경이 flush 되지 않고 유실된다(JourneyNotificationRepository 가 같은 함정을 적어
+     * 뒀다). 벌크로 처리하면 detach 여부와 무관하게 안전하다.
+     *
+     * @return 실제로 탈퇴 처리된 행 수(0 또는 1). 이미 탈퇴한 행이면 0
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            update User u
+               set u.deletedAt = :now,
+                   u.tokenGeneration = u.tokenGeneration + 1,
+                   u.tossUserKey = null
+             where u.id = :userId and u.deletedAt is null
+            """)
+    int withdraw(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 }

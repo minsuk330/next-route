@@ -156,4 +156,15 @@ public interface RerouteProposalRepository extends JpaRepository<RerouteProposal
             """)
     int resolveActiveByJourneyIdIn(@Param("journeyIds") Collection<Long> journeyIds,
                                    @Param("now") Instant now);
+
+    /**
+     * 탈퇴: 그 사용자의 재탐색 제안을 소프트 삭제한다(ADR 0001). user_id 로 직접 매달린다.
+     *
+     * <p>여기서만 {@code clearAutomatically = true} 를 쓴다 — 탈퇴 경로는 관리 엔티티를
+     * dirty-checking 으로 고치지 않고 {@code users} 도 벌크 update 로 처리하므로 컨텍스트를 비워도
+     * 유실될 변경이 없다(클래스 주석의 {@code clearAutomatically = false} 는 여정 종료 경로 전용).
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("update RerouteProposal p set p.deletedAt = :now where p.userId = :userId and p.deletedAt is null")
+    int softDeleteByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 }

@@ -10,6 +10,7 @@ import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -244,4 +245,12 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                          @Param("claimedLeaseUntil") Instant claimedLeaseUntil,
                          @Param("nextEvaluationAt") Instant nextEvaluationAt,
                          @Param("bump") boolean bump);
+
+    /**
+     * 탈퇴: 그 사용자의 여정을 소프트 삭제한다. 여정 기록은 남기되 조회·발송에서 빠지게 한다
+     * (due 쿼리가 {@code deleted_at IS NULL} 을 본다). 물리 삭제하지 않는 이유는 ADR 0001 참조.
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("update JourneySession s set s.deletedAt = :now where s.userId = :userId and s.deletedAt is null")
+    int softDeleteByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 }

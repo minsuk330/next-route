@@ -16,9 +16,8 @@ import java.util.Optional;
  *
  * <p>이 저장소의 소프트 삭제는 수동이다. 조회는 모두 {@code deletedAtIsNull} 을 명시한다.
  *
- * <p>후속 과제: 계정 삭제(탈퇴) 경로가 생기면 그 사용자의 모든 행을 soft delete 해야 한다
- * (journey-navigation/PLAN.md:627). 지금은 탈퇴 서비스가 코드베이스에 없어 죽은 메서드를 만들지
- * 않는다.
+ * <p>탈퇴 시에는 이 표의 행을 <b>물리 삭제</b>한다. 발송 주소는 남기지 않는다(ADR 0001) —
+ * soft delete 로 두면 지운 계정의 기기 주소가 표에 남는다. {@link #deleteAllByUserId} 참조.
  */
 public interface UserPushTokenRepository extends JpaRepository<UserPushToken, Long> {
 
@@ -159,4 +158,11 @@ public interface UserPushTokenRepository extends JpaRepository<UserPushToken, Lo
                    @Param("observedUserId") Long observedUserId,
                    @Param("observedLastSeenAt") Instant observedLastSeenAt,
                    @Param("now") LocalDateTime now);
+
+    /**
+     * 탈퇴: 그 사용자의 push 토큰을 물리 삭제한다. 발송 주소는 남기지 않는다(ADR 0001).
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("delete from UserPushToken t where t.userId = :userId")
+    void deleteAllByUserId(@Param("userId") Long userId);
 }

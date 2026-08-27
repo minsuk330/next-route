@@ -47,6 +47,9 @@ public class SecurityConfig {
                         // 인증 필요한 엔드포인트(회원 전용)
                         .requestMatchers(HttpMethod.POST, "/api/auth/toss/logout").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").authenticated()
+                        // 계정 탈퇴. 익명이 남의 계정을 지울 수 없도록 인증을 강제한다. 이 줄이 없으면
+                        // 아래 permitAll 로 떨어져 열린다(/api/auth/* 대부분은 로그인 전 경로라 공개).
+                        .requestMatchers(HttpMethod.DELETE, "/api/auth/me").authenticated()
                         .requestMatchers("/api/me").authenticated()
                         // /api/me 는 정확 경로 매처라 하위 경로(/api/me/push-token 등)를 덮지 않는다.
                         // 이 줄이 없으면 하위 경로가 아래 permitAll 로 떨어져 익명에 열린다.

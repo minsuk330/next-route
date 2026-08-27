@@ -72,4 +72,14 @@ public interface BusAlertNotificationRepository extends JpaRepository<BusAlertNo
 
     List<BusAlertNotification> findByStatusOrderByCreatedAtDesc(
             watoo.grd.nextroute.domain.notification.entity.BusNotificationStatus status);
+
+    /**
+     * 탈퇴: 그 사용자의 버스 알림에 매달린 발송 이력을 물리 삭제한다. 부모 알림보다 먼저 부른다(FK 역순).
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            delete from BusAlertNotification n
+             where n.alert.id in (select a.id from BusArrivalAlert a where a.user.id = :userId)
+            """)
+    void deleteAllByUserId(@Param("userId") Long userId);
 }

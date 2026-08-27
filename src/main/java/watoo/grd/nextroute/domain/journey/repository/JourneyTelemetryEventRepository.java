@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.domain.journey.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import watoo.grd.nextroute.domain.journey.entity.JourneyTelemetryEvent;
@@ -44,4 +45,11 @@ public interface JourneyTelemetryEventRepository extends JpaRepository<JourneyTe
             @Param("alertCheckpoint") String alertCheckpoint,
             @Param("alertSentAt") Instant alertSentAt, @Param("detail") String detail,
             @Param("auditNow") LocalDateTime auditNow);
+
+    /**
+     * 탈퇴: 그 사용자의 계측 이벤트를 소프트 삭제한다(ADR 0001). user_id 로 직접 매달린다.
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("update JourneyTelemetryEvent e set e.deletedAt = :now where e.userId = :userId and e.deletedAt is null")
+    int softDeleteByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 }
