@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
-import watoo.grd.nextroute.application.route.dto.SearchHistoryResponse;
+import watoo.grd.nextroute.application.route.dto.RecentPlaceResponse;
 import watoo.grd.nextroute.application.route.port.in.ClearSearchHistoryUseCase;
 import watoo.grd.nextroute.application.route.port.in.DeleteSearchHistoryUseCase;
 import watoo.grd.nextroute.application.route.port.in.GetSearchHistoryUseCase;
@@ -52,13 +52,16 @@ class RouteSearchHistoryControllerTest {
     @Test
     void getAll_returns200WithList() throws Exception {
         given(getSearchHistoryUseCase.getAll(7L)).willReturn(List.of(
-                new SearchHistoryResponse(1L, 127.0, 37.5, 127.01, 37.51,
-                        "출발", "도착", 2, 0, LocalDateTime.parse("2026-07-21T10:00:00"))));
+                new RecentPlaceResponse(1L, 37.5, 127.0, "카페",
+                        LocalDateTime.parse("2026-07-21T10:00:00"))));
 
         mockMvc.perform(get("/api/route/my/searches").with(authentication(authUser(7L))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(1))
-                .andExpect(jsonPath("$[0].startName").value("출발"));
+                .andExpect(jsonPath("$[0].lat").value(37.5))
+                .andExpect(jsonPath("$[0].lng").value(127.0))
+                .andExpect(jsonPath("$[0].name").value("카페"))
+                .andExpect(jsonPath("$[0].searchedAt").value("2026-07-21T10:00:00"));
     }
 
     @Test

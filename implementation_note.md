@@ -1301,3 +1301,20 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   '*WithdrawControllerTest' '*WithdrawalDeletionBoundaryIT'` BUILD SUCCESSFUL
 - Revoker MockWebServer 성공(form 검증)·HTTP에러전파 2, Revocation 토큰있음호출·토큰없음무동작·
   실패삼킴 3, Controller revoke→withdraw 순서·401 2, BoundaryIT 7(apple_user_token 물리0 포함)
+
+## recent-place-flatten (2026-08-28)
+### 확정
+- GET /api/route/my/searches 응답: 출/도착 쌍(row) → 좌표 dedup 최근 장소 리스트. 항목 {id,lat,lng,name,searchedAt}
+- 좌표 매핑 lat=Y(startY/endY), lng=X(startX/endX). DB는 X=경도,Y=위도
+- dedup 대표 = putIfAbsent + 포트의 (searched_at DESC, id DESC) 사전정렬 활용 → 명시적 max 불필요
+- 삭제경로 무변경: 대표 id=실제 row id라 기존 deleteByIdAndUser 그대로. Q11=A 반쪽삭제(같은좌표 다른행 남으면 재등장) 감수
+- 마이그레이션 없음(앱단 평탄화), 포트/repository/엔티티/저장경로 무변경
+### 함정
+- 엔티티 id 는 BaseEntity 소속 → subclass @Builder 로 못 넣음. 테스트는 ReflectionTestUtils.setField(h,"id",..)
+- 계약 breaking(flat 필드 폐기) → 모바일 동시배포 필요
+### 좌표
+- 평탄화 로직 RouteSearchHistoryService.java:getAll (putIfAbsentPlace)
+### 검증
+- ./gradlew compileJava compileTestJava → OK (경고=기존 @MockBean deprecation, 무관)
+- ./gradlew test --tests *RouteSearchHistoryServiceTest(7) --tests *RouteSearchHistoryControllerTest(5) → 12 pass, 0 fail
+- 계약 테스트: 평탄화·좌표매핑/dedup대표/tie-break/빈리스트 각 1개
