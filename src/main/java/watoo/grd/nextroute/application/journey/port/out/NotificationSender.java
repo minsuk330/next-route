@@ -53,4 +53,21 @@ public interface NotificationSender {
      * @throws NotificationSendException 발송 실패. {@code permanent} 로 재시도 여부를 알린다
      */
     void send(NotificationSendCommand command);
+
+    /**
+     * 이 구현이 <b>실제로 어딘가로 보내는</b> 창구인가.
+     *
+     * <p>relay 를 켠 채 이 값이 {@code false} 인 구현으로 두면, 루프가 행을 집어 {@code SENT} 로
+     * 찍으면서 아무 데도 안 보낸다 — 나중에 진짜 발송을 영영 막는다. 부팅 가드
+     * ({@code JourneyRelaySenderGuard})가 relay 가 실제로 도는 프로세스에서 이걸 확인한다.
+     *
+     * <p>{@code sender} 문자열이 아니라 <b>배선된 빈에게 직접</b> 물어 판정한다 —
+     * {@code SubwayRingPushWiringValidator} 와 같은 이유(창구 교체·시험 대역이 정상 사용이라
+     * 문자열 조건은 따라 흔들린다).
+     *
+     * @return 실제 발송 창구면 {@code true}. no-op 이면 {@code false}
+     */
+    default boolean deliversRealMessages() {
+        return true;
+    }
 }

@@ -193,11 +193,10 @@ public class JourneyNotificationProperties {
         if (!KNOWN_CHANNEL_RESOLVERS.contains(channelResolver)) {
             throw new IllegalStateException("모르는 channel-resolver: " + channelResolver);
         }
-        if (relay.isEnabled() && "noop".equals(sender)) {
-            throw new IllegalStateException(
-                    "relay 를 켜면서 sender 를 noop 으로 두면 안 된다. 진짜 알림 행을 아무 데도 "
-                            + "보내지 않은 채 SENT 로 소모해, 나중에 실제 발송을 영영 막는다");
-        }
+        // "relay 를 켠 채 sender=noop" 검증은 여기 두지 않는다. 이 config 빈은 프로필과 무관하게
+        // 모든 프로세스에서 뜨는데, relay 루프는 worker 에서만 돈다. relay 를 절대 돌리지 않는 api
+        // (발송 자격이 없어 sender=noop)까지 막지 않도록, 그 검증은 루프와 같은 조건의
+        // JourneyRelaySenderGuard(@Profile("worker") + relay.enabled=true)로 옮겼다.
         validateApproach();
         validateFcm();
     }
