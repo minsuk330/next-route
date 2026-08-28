@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import watoo.grd.nextroute.application.route.dto.SearchHistoryResponse;
+import watoo.grd.nextroute.application.route.dto.RecentPlaceResponse;
 import watoo.grd.nextroute.application.route.port.in.ClearSearchHistoryUseCase;
 import watoo.grd.nextroute.application.route.port.in.DeleteSearchHistoryUseCase;
 import watoo.grd.nextroute.application.route.port.in.GetSearchHistoryUseCase;
@@ -29,7 +29,7 @@ public class RouteSearchHistoryController {
     private final ClearSearchHistoryUseCase clearSearchHistoryUseCase;
 
     @GetMapping
-    public ResponseEntity<List<SearchHistoryResponse>> getAll(
+    public ResponseEntity<List<RecentPlaceResponse>> getAll(
             @AuthenticationPrincipal Long userId) {
         return ResponseEntity.ok(getSearchHistoryUseCase.getAll(userId));
     }
