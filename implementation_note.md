@@ -1264,3 +1264,40 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   fcm-live-activity 함정 재현 방지). 빈 키는 부팅 통과·use 시 예외(tossRestClient 선례)
 - OAuthCredential 레코드에 authorizationCode 5번째 필드 추가 → 기존 호출부 4곳(verifier 테스트)
   전부 null 인자 보강 필요
+
+## 2026-08-27 apple-revoke (PR-B 탈퇴 시 revoke)
+
+### 확정
+- **revoke = 삭제 tx 밖·앞, best-effort**. WithdrawController 가 revokeIfApple(userId) 먼저 →
+  withdrawUseCase.withdraw(userId). WithdrawService 내부 무수정(단일 tx·외부호출0 계약 유지)
+- **순서 이유**: 삭제 tx 가 apple_user_token 을 지우기 전에 그 토큰을 읽어야 함. 그래서 앞에서 호출
+- AppleRevokePort(out) + AppleTokenRevoker 어댑터 = AppleTokenExchanger 패턴 복제(appleRestClient
+  @Qualifier + clientSecretBuilder.build()). POST /auth/revoke, 본문없는 200 = 성공
+  (.toBodilessEntity()). client_id/client_secret/token/token_type_hint=refresh_token
+- AppleRevocationOnWithdrawal(application.service): findByUserId → decrypt → revoke, 모든 예외 삼킴
+  (탈퇴 막지 않음). 토큰 없으면(애플 아님) 조용히 넘어감
+- WithdrawService 물리삭제에 appleUserTokenRepository.deleteAllByUserId 추가(로그인 수단 그룹,
+  authIdentity 다음). deleteAllByUserId 는 PR-A 가 이미 벌크 DML 로 넣어둠(clearAutomatically)
+
+### 좌표
+- application/auth/port/out/AppleRevokePort.java — revoke 포트
+- infrastructure/adapter/out/auth/AppleTokenRevoker.java — POST /auth/revoke
+- application/auth/service/AppleRevocationOnWithdrawal.java — tx밖 조율, 예외 삼킴
+- infrastructure/adapter/in/api/auth/WithdrawController.java:withdraw — revokeIfApple 앞·withdraw 뒤
+
+### 함정 (PR-B)
+- WithdrawController 에 의존성 추가 → WithdrawControllerTest 에 @MockBean AppleRevocationOnWithdrawal
+  누락 시 컨텍스트 로드 실패. InOrder 로 revoke→withdraw 순서 고정
+- WithdrawalDeletionBoundaryIT: PHYSICAL + userRowCount switch(user_id 그룹) + seedAll + setUp
+  cleanup 4곳 전부 apple_user_token 반영해야 everyChildTableIsAccountedFor(users 자식) 통과
+
+### 배포 (PR-B)
+- 신규 마이그레이션 없음(V48 은 PR-A). 코드만. 새 env·시크릿 없음
+- 모바일 HANDOFF 는 PR-A 와 동일(authorizationCode 동반). PR-A/PR-B 동시 릴리스
+
+### 검증 (PR-B 2026-08-27)
+- `./gradlew compileJava compileTestJava` 성공(기존 @MockBean deprecation 경고만)
+- `./gradlew test --tests '*AppleTokenRevoker*' '*AppleRevocationOnWithdrawal*'
+  '*WithdrawControllerTest' '*WithdrawalDeletionBoundaryIT'` BUILD SUCCESSFUL
+- Revoker MockWebServer 성공(form 검증)·HTTP에러전파 2, Revocation 토큰있음호출·토큰없음무동작·
+  실패삼킴 3, Controller revoke→withdraw 순서·401 2, BoundaryIT 7(apple_user_token 물리0 포함)
