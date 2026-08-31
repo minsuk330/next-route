@@ -13,12 +13,14 @@ import java.util.Set;
 /**
  * 여정 알림 outbox 의 운영값.
  *
- * <p>스위치가 넷이고 기본은 전부 "아무 일도 안 일어나는" 조합이다.
+ * <p>스위치가 넷이다.
  * <ul>
  *   <li>{@code journey.navigation.evaluator.enabled}(기존) — 꺼짐. 평가기 빈 자체가 안 뜬다</li>
  *   <li>{@link #enqueueEnabled} — 켜짐. 평가기는 도는데 알림만 끄고 싶을 때의 kill switch</li>
- *   <li>{@link Relay#enabled} — 꺼짐. relay 루프 빈이 안 뜬다(쌓이기만 한다)</li>
- *   <li>{@link #sender} — {@code noop}. 아무것도 안 보낸다</li>
+ *   <li>{@link Relay#enabled} — 켜짐. 단 relay 루프({@code JourneyNotificationRelayLoop})는
+ *       {@code @Profile("worker")} 라 worker 에서만 돈다. api 는 이 값이 켜져 있어도 루프가 없다</li>
+ *   <li>{@link #sender} — {@code noop} 이 기본, worker 는 {@code env/fcm.env} 로 {@code fcm}.
+ *       relay 가 실제로 도는 프로세스에서 noop 이면 부팅이 막힌다({@code JourneyRelaySenderGuard})</li>
  * </ul>
  *
  * <p>취소 갈고리에는 스위치를 걸지 않는다. 평가기를 껐다 켜는 사이 PENDING 이 남으면 죽은
@@ -120,8 +122,10 @@ public class JourneyNotificationProperties {
     public static class Relay {
 
         /**
-         * 기본 꺼짐. 발송 구현이 붙어도 ⑤(발송 직전 재검증)·⑥(payload 계약)이 들어오기 전에는
-         * 켜지 않는다 — 낡은 알림이 나가고 임시 문구가 운영에 굳는다.
+         * 기본 켜짐. ⑤(발송 직전 재검증)·⑥(payload 계약)이 들어와 발송이 라이브라 프로덕션 의도는
+         * relay ON 이다. 실제 발송은 worker 에서만 일어난다 — 루프({@code JourneyNotificationRelayLoop})가
+         * {@code @Profile("worker")} + 이 플래그일 때만 뜨기 때문이다. api 는 켜져 있어도 루프가 없어
+         * 행을 집지 않는다.
          */
         private boolean enabled = true;
 
@@ -193,11 +197,10 @@ public class JourneyNotificationProperties {
         if (!KNOWN_CHANNEL_RESOLVERS.contains(channelResolver)) {
             throw new IllegalStateException("모르는 channel-resolver: " + channelResolver);
         }
-        if (relay.isEnabled() && "noop".equals(sender)) {
-            throw new IllegalStateException(
-                    "relay 를 켜면서 sender 를 noop 으로 두면 안 된다. 진짜 알림 행을 아무 데도 "
-                            + "보내지 않은 채 SENT 로 소모해, 나중에 실제 발송을 영영 막는다");
-        }
+        // "relay 를 켠 채 sender=noop" 검증은 여기 두지 않는다. 이 config 빈은 프로필과 무관하게
+        // 모든 프로세스에서 뜨는데, relay 루프는 worker 에서만 돈다. relay 를 절대 돌리지 않는 api
+        // (발송 자격이 없어 sender=noop)까지 막지 않도록, 그 검증은 루프와 같은 조건의
+        // JourneyRelaySenderGuard(@Profile("worker") + relay.enabled=true)로 옮겼다.
         validateApproach();
         validateFcm();
     }

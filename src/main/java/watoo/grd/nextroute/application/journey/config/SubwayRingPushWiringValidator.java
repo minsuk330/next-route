@@ -17,7 +17,7 @@ import watoo.grd.nextroute.application.journey.port.out.LiveActivityPushPort;
  * 창구를 바꾸거나(다른 provider) 시험에서 대역을 끼우는 것이 정상 사용이고, 그때마다 이 조건이
  * 따라 바뀌면 안 되기 때문이다.
  *
- * <p>같은 이유로 {@code JourneyNotificationProperties} 가 "relay 를 켠 채 sender=noop" 조합을
+ * <p>같은 이유로 {@code JourneyRelaySenderGuard} 가 "relay 를 켠 채 sender=noop" 조합을
  * 막는다. 이 파일은 그 규칙의 지하철 링 판이다.
  */
 @Component

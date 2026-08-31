@@ -54,17 +54,8 @@ class JourneyNotificationPropertiesTest {
                 .hasMessageContaining("백오프");
     }
 
-    @Test
-    @DisplayName("relay 를 켜면서 sender 가 noop 이면 막는다")
-    void relayWithNoopSenderIsRejected() {
-        JourneyNotificationProperties properties = properties();
-        properties.getRelay().setEnabled(true);
-
-        assertThatThrownBy(() -> validate(properties))
-                .as("진짜 알림 행을 아무 데도 안 보낸 채 SENT 로 소모한다")
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("noop");
-    }
+    // "relay 를 켠 채 sender=noop" 검증은 JourneyNotificationProperties 에서 빠졌다
+    // (프로필 무관 config 빈이 api 까지 막던 문제). 그 계약은 JourneyRelaySenderGuardTest 가 진다.
 
     @Test
     @DisplayName("모르는 sender 이름은 막는다")
