@@ -1,0 +1,56 @@
+# OTP 2.9.0 GTFS GraphQL — 수도권 planConnection (national-otp P2-B).
+# stable 필드만 사용(deprecated startTime/endTime/intermediatePlaces 회피, schema.graphqls 검증).
+# 변수: origin/destination(PlanLabeledLocationInput), when(OffsetDateTime, offset 포함 확정 departureAt), first(Int).
+query PlanConnection(
+  $origin: PlanLabeledLocationInput!
+  $destination: PlanLabeledLocationInput!
+  $when: OffsetDateTime!
+  $first: Int!
+) {
+  planConnection(
+    origin: $origin
+    destination: $destination
+    dateTime: { earliestDeparture: $when }
+    first: $first
+  ) {
+    edges {
+      node {
+        duration
+        waitingTime
+        walkDistance
+        walkTime
+        numberOfTransfers
+        legs {
+          mode
+          duration
+          distance
+          realtimeState
+          start { scheduledTime estimated { time } }
+          end { scheduledTime estimated { time } }
+          from { name lat lon stop { gtfsId } }
+          to { name lat lon stop { gtfsId } }
+          route {
+            gtfsId
+            shortName
+            longName
+            mode
+            color
+            textColor
+            agency { gtfsId name }
+          }
+          trip { gtfsId }
+          stopCalls {
+            stopLocation {
+              __typename
+              ... on Stop { gtfsId name lat lon }
+            }
+          }
+          steps { distance relativeDirection streetName }
+          legGeometry { length points }
+          fareProducts { id product { name } }
+        }
+      }
+    }
+    routingErrors { code description }
+  }
+}
