@@ -1318,3 +1318,29 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - ./gradlew compileJava compileTestJava → OK (경고=기존 @MockBean deprecation, 무관)
 - ./gradlew test --tests *RouteSearchHistoryServiceTest(7) --tests *RouteSearchHistoryControllerTest(5) → 12 pass, 0 fail
 - 계약 테스트: 평탄화·좌표매핑/dedup대표/tie-break/빈리스트 각 1개
+
+## place-search-merge (feat/place-search-merge) — 2026-09-07
+
+### 확정
+- 서버 통합 장소검색: 네이버(주, 전부 상단) + 카카오(dedup 보강). 승인된 플랜.
+- 네이버 = NAVER API HUB(ntruss), env NAVER_CLIENT_ID/NAVER_SECRET. 카카오 = dapi.kakao.com KakaoAK(KAKAO_REST_API_KEY).
+- dedup: 정규화 이름 일치 AND 좌표 ≤50m → 카카오건 버림(source 병합 안 함).
+- 네이버 실패=카카오 단독+degraded, 카카오 실패=네이버+degraded, 둘 다 실패=503. outcome full/partial.
+- limit: @Max(5)→@Max(15) 기본15. 네이버 display=min(limit,5), 카카오 size=min(limit,15).
+- 기존 KakaoApiPort.searchSubwayStation(SW8, SubwayCoordinateEnrichService 전용)은 손대지 않음. 신규 KakaoLocalSearchPort 별도.
+
+### 좌표
+- 기존 네이버: application/place/**, adapter/out/api/naver/**, adapter/in/api/place/PlaceSearchController (전부 untracked, Sep4)
+- PlaceSearchResult.Item{key,name,address,roadAddress,lat,lng,category,sources[]} + Meta{outcome,degraded[]} 이미 멀티프로바이더 설계
+- RestClient @Primary bean = common/config/ApiClientConfig (SimpleClientHttpRequestFactory, 3s/5s)
+
+### 배포
+- 마이그레이션 없음. VPS env NAVER_API_HUB 키 이미 세팅 가정(api.env 확인함).
+
+### 검증 (place-search-merge)
+- `./gradlew compileJava compileTestJava` 통과
+- `./gradlew test --tests *PlaceDeduplicatorTest *PlaceSearchServiceTest *KakaoLocalSearchAdapterTest *NaverApiHubLocalSearchAdapterTest` → BUILD SUCCESSFUL
+- 계약 테스트: dedup(이름+50m 경계/원거리/타상호), 조합(네이버선두+카카오dedup), 네이버실패=카카오폴백+degraded, 카카오실패=네이버+degraded, 둘실패=503, limit provider별 클램프(5/15)
+### 함정
+- KakaoLocalSearchAdapter URL 하드코딩→MockWebServer 라우팅 불가. base-url @Value 주입식(kakao.api.local-base-url, 기본 dapi.kakao.com)으로 고쳐 네이버 어댑터 테스트 패턴 미러
+- application.yaml 에 무관 변경(transfer-arrival cache-ttl 15→30) 섞여 있어 naver 블록 hunk 만 git apply --cached
