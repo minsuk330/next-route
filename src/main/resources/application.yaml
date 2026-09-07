@@ -127,6 +127,11 @@ kakao:
     key: ${KAKAO_REST_API_KEY}
   map:
     js-key: ${KAKAO_MAP_JS_KEY:}
+naver:
+  api-hub:
+    base-url: ${NAVER_API_HUB_BASE_URL:https://naverapihub.apigw.ntruss.com}
+    client-id: ${NAVER_CLIENT_ID:}
+    client-secret: ${NAVER_SECRET:}
 gong:
   api:
     key: ${GONG_API}
