@@ -1,0 +1,1 @@
+{"data":{"planConnection":{"edges":[],"routingErrors":[{"code":"OUTSIDE_BOUNDS","description":"Trip is not possible. You might be trying to plan a trip outside the map data boundary."}]}}}
