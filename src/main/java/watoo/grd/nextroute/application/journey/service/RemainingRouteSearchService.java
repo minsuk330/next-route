@@ -10,9 +10,19 @@ import watoo.grd.nextroute.application.route.concurrent.SingleFlight;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
+import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
+import watoo.grd.nextroute.application.route.routing.RoutingFailure;
+import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
+import watoo.grd.nextroute.application.route.routing.RoutingProvider;
+import watoo.grd.nextroute.application.route.routing.RoutingProviderSelector;
+import watoo.grd.nextroute.application.route.routing.RoutingQuery;
+import watoo.grd.nextroute.application.route.routing.RoutingResult;
+import watoo.grd.nextroute.application.route.service.LegacyRouteResponseMapper;
 
+import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 환승 정류장에서 목적지까지 <b>다시 길찾기</b>. ④에서 처음으로 유료 검색이 나가는 곳이다.
@@ -39,6 +49,10 @@ public class RemainingRouteSearchService {
     private final RemainingRouteCachePort cache;
     private final OdSayApiPort odSayApiPort;
     private final JourneyRerouteMetrics metrics;
+    // provider 전환(national-otp P2). 기본 ODSAY 라 재탐색도 default 에서는 기존 ODsay 직행.
+    private final RoutingProviderSelector providerSelector;
+    private final LegacyRouteResponseMapper legacyRouteResponseMapper;
+    private final Clock clock;
 
     private final SingleFlight<String, List<PathResult>> searchFlight = new SingleFlight<>();
 
@@ -83,14 +97,44 @@ public class RemainingRouteSearchService {
      * 여정 경로에서 쓸 일이 없고, 캐시에도 넣지 않는다.
      */
     private List<PathResult> load(Waypoints waypoints, String stopId, long budgetMs) {
+        List<PathResult> paths = providerSelector.select(false) == RoutingProvider.OTP
+                ? loadOtp(waypoints, budgetMs)
+                : loadOdsay(waypoints, budgetMs);
+        if (paths.isEmpty()) {
+            return List.of();
+        }
+        store(stopId, waypoints, paths);
+        return paths;
+    }
+
+    /** 기본 provider(ODSAY): 기존 직행 유지(parity). */
+    private List<PathResult> loadOdsay(Waypoints waypoints, long budgetMs) {
         RouteSearchResult result = odSayApiPort.searchPath(
                 waypoints.origin().x(), waypoints.origin().y(),
                 waypoints.destination().x(), waypoints.destination().y(), budgetMs);
-        if (result == null || result.paths() == null || result.paths().isEmpty()) {
+        if (result == null || result.paths() == null) {
             return List.of();
         }
-        store(stopId, waypoints, result.paths());
         return result.paths();
+    }
+
+    /**
+     * OTP 경로: RoutingPort → legacy paths. 실패는 kind 를 계측하되 재탐색 계약대로 빈 목록으로 끝낸다
+     * (실패가 재탐색 요청 전체를 죽이지 않음). 출발시각은 현재 시각 — 예상 환승 도착시각 전달은 시그니처
+     * 변경이 필요한 후속 작업이다.
+     */
+    private List<PathResult> loadOtp(Waypoints waypoints, long budgetMs) {
+        RoutingDeadline deadline = RoutingDeadline.of(clock, budgetMs);
+        RoutingQuery query = new RoutingQuery(
+                waypoints.origin().x(), waypoints.origin().y(), null,
+                waypoints.destination().x(), waypoints.destination().y(), null,
+                clock.instant(), Set.of(), null, false, "otp-v2", RoutingProvider.OTP, null);
+        RoutingOutcome outcome = providerSelector.portFor(RoutingProvider.OTP).search(query, deadline);
+        if (outcome instanceof RoutingFailure failure) {
+            metrics.recordRemainingSearch("otp-failed-" + failure.kind());
+            return List.of();
+        }
+        return legacyRouteResponseMapper.toLegacy((RoutingResult) outcome).paths();
     }
 
     /**
