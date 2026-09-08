@@ -43,7 +43,12 @@ class RouteSearchServiceTest {
                 odSayApiPort, tmapPort,
                 polylineEnricher, walkSegmentEnricher, transferArrivalEnricher,
                 new RouteSearchMetrics(new SimpleMeterRegistry()),
-                new RouteSearchDeadlineProperties());
+                new RouteSearchDeadlineProperties(),
+                new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
+                        new watoo.grd.nextroute.application.route.config.RoutingProviderProperties(), java.util.List.of()),
+                new LegacyRouteResponseMapper(),
+                new DepartureTimeResolver(java.time.Clock.systemDefaultZone()),
+                java.time.Clock.systemDefaultZone());
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────

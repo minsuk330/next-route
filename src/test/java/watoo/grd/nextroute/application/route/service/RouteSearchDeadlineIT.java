@@ -126,7 +126,12 @@ class RouteSearchDeadlineIT {
         service = new RouteSearchService(
                 odSayAdapter, tmapAdapter,
                 polylineEnricher, walkEnricher, mock(TransferArrivalEnricher.class), metrics,
-                deadlineProperties());
+                deadlineProperties(),
+                new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
+                        new watoo.grd.nextroute.application.route.config.RoutingProviderProperties(), java.util.List.of()),
+                new LegacyRouteResponseMapper(),
+                new DepartureTimeResolver(java.time.Clock.systemDefaultZone()),
+                java.time.Clock.systemDefaultZone());
     }
 
     @AfterEach
