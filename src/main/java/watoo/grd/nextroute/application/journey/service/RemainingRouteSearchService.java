@@ -149,7 +149,9 @@ public class RemainingRouteSearchService {
                 clock.instant(), Set.of(), null, false, "otp-v2", RoutingProvider.OTP, null);
         RoutingOutcome outcome = providerSelector.portFor(RoutingProvider.OTP).search(query, deadline);
         if (outcome instanceof RoutingFailure failure) {
-            metrics.recordRemainingSearch("otp-failed-" + failure.kind());
+            // 카운터는 search() 가 빈 목록을 보고 "failed" 로 일원 기록한다(이중 기록 방지). 실패 종류는
+            // metric 화이트리스트에 없어 unknown 으로 접히므로 로그로 남긴다.
+            log.debug("[JourneyReroute] OTP 재탐색 실패 kind={} code={}", failure.kind(), failure.code());
             return List.of();
         }
         return legacyRouteResponseMapper.toLegacy((RoutingResult) outcome).paths();

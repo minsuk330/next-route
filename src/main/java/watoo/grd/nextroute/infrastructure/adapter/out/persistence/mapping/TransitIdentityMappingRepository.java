@@ -18,6 +18,7 @@ public interface TransitIdentityMappingRepository extends JpaRepository<TransitI
               and m.sourceStopId = :sourceStopId
               and m.occurrenceIndex = :occurrenceIndex
               and ((:tripPattern is null and m.tripPattern is null) or m.tripPattern = :tripPattern)
+              and m.deletedAt is null
             """)
     List<TransitIdentityMappingEntity> findMappings(
             @Param("dataVersion") String dataVersion,
