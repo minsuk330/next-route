@@ -57,7 +57,8 @@ class RemainingRouteSearchServiceOtpTest {
 
     private RemainingRouteSearchService service(RoutingOutcome otpOutcome) {
         RemainingRouteCachePort cache = mock(RemainingRouteCachePort.class);
-        when(cache.find(org.mockito.ArgumentMatchers.anyString(),
+        when(cache.find(org.mockito.ArgumentMatchers.any(watoo.grd.nextroute.application.route.routing.RoutingCacheContext.class),
+                org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyDouble(),
                 org.mockito.ArgumentMatchers.anyDouble())).thenReturn(Optional.empty());
         RoutingProviderProperties props = new RoutingProviderProperties();
@@ -70,7 +71,7 @@ class RemainingRouteSearchServiceOtpTest {
         return new RemainingRouteSearchService(cache, odsayNeverCalled,
                 new JourneyRerouteMetrics(new SimpleMeterRegistry()),
                 new RoutingProviderSelector(props, List.of(otp)),
-                new LegacyRouteResponseMapper(), clock);
+                new LegacyRouteResponseMapper(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(), clock);
     }
 
     @Test

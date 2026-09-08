@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import watoo.grd.nextroute.application.route.routing.RoutingCacheContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -55,12 +57,13 @@ class RemainingRouteSearchServiceTest {
                     new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
                             new watoo.grd.nextroute.application.route.config.RoutingProviderProperties(), java.util.List.of()),
                     new watoo.grd.nextroute.application.route.service.LegacyRouteResponseMapper(),
+                    new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
                     java.time.Clock.systemDefaultZone());
 
     @Test
     @DisplayName("캐시가 맞으면 검색을 부르지 않는다")
     void cacheHitSkipsSearch() {
-        given(cache.find(STOP_ID, 127.5, 37.5)).willReturn(Optional.of(List.of(path())));
+        given(cache.find(any(RoutingCacheContext.class), eq(STOP_ID), eq(127.5), eq(37.5))).willReturn(Optional.of(List.of(path())));
 
         assertThat(service.search(STOP_ID, WAYPOINTS, 2000)).hasSize(1);
         verifyNoInteractions(odSayApiPort);
@@ -69,7 +72,7 @@ class RemainingRouteSearchServiceTest {
     @Test
     @DisplayName("캐시가 비면 검색하고 그 결과를 캐시에 넣는다")
     void cacheMissCallsSearchAndStores() {
-        given(cache.find(STOP_ID, 127.5, 37.5)).willReturn(Optional.empty());
+        given(cache.find(any(RoutingCacheContext.class), eq(STOP_ID), eq(127.5), eq(37.5))).willReturn(Optional.empty());
         given(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
                 .willReturn(searchResult(path()));
 
@@ -77,24 +80,24 @@ class RemainingRouteSearchServiceTest {
 
         assertThat(paths).hasSize(1);
         verify(odSayApiPort).searchPath(eq(127.3), eq(37.3), eq(127.5), eq(37.5), eq(2000L));
-        verify(cache).put(eq(STOP_ID), eq(127.5), eq(37.5), eq(paths));
+        verify(cache).put(any(RoutingCacheContext.class), eq(STOP_ID), eq(127.5), eq(37.5), eq(paths));
     }
 
     @Test
     @DisplayName("검색이 빈 답을 주면 캐시에 넣지 않는다 — 10분간 빈손이 된다")
     void emptyResultIsNotCached() {
-        given(cache.find(STOP_ID, 127.5, 37.5)).willReturn(Optional.empty());
+        given(cache.find(any(RoutingCacheContext.class), eq(STOP_ID), eq(127.5), eq(37.5))).willReturn(Optional.empty());
         given(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
                 .willReturn(searchResult());
 
         assertThat(service.search(STOP_ID, WAYPOINTS, 2000)).isEmpty();
-        verify(cache, never()).put(eq(STOP_ID), anyDouble(), anyDouble(), org.mockito.ArgumentMatchers.anyList());
+        verify(cache, never()).put(any(RoutingCacheContext.class), eq(STOP_ID), anyDouble(), anyDouble(), org.mockito.ArgumentMatchers.anyList());
     }
 
     @Test
     @DisplayName("검색이 터지면 예외 대신 빈 목록이다")
     void searchFailureIsEmptyList() {
-        given(cache.find(STOP_ID, 127.5, 37.5)).willReturn(Optional.empty());
+        given(cache.find(any(RoutingCacheContext.class), eq(STOP_ID), eq(127.5), eq(37.5))).willReturn(Optional.empty());
         willThrow(new IllegalStateException("odsay down")).given(odSayApiPort)
                 .searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong());
 
@@ -104,9 +107,9 @@ class RemainingRouteSearchServiceTest {
     @Test
     @DisplayName("캐시가 죽어도 검색은 그대로 나간다 — 캐시는 fail-open 이다")
     void cacheFailureStillSearches() {
-        given(cache.find(STOP_ID, 127.5, 37.5)).willReturn(Optional.empty());
+        given(cache.find(any(RoutingCacheContext.class), eq(STOP_ID), eq(127.5), eq(37.5))).willReturn(Optional.empty());
         willThrow(new IllegalStateException("redis down")).given(cache)
-                .put(eq(STOP_ID), anyDouble(), anyDouble(), org.mockito.ArgumentMatchers.anyList());
+                .put(any(RoutingCacheContext.class), eq(STOP_ID), anyDouble(), anyDouble(), org.mockito.ArgumentMatchers.anyList());
         given(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
                 .willReturn(searchResult(path()));
 
@@ -117,7 +120,7 @@ class RemainingRouteSearchServiceTest {
     @Test
     @DisplayName("동시에 같은 질문이 오면 검색은 한 번만 나간다")
     void concurrentRequestsCallSearchOnce() throws Exception {
-        given(cache.find(STOP_ID, 127.5, 37.5)).willReturn(Optional.empty());
+        given(cache.find(any(RoutingCacheContext.class), eq(STOP_ID), eq(127.5), eq(37.5))).willReturn(Optional.empty());
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();

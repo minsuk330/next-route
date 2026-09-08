@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey;
 
+import watoo.grd.nextroute.application.route.routing.RoutingCacheContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -118,7 +119,7 @@ class RerouteRemainingPathIT {
         givenPrediction("BL-721", readyAt.plusSeconds(1200));
         // 다른 경로의 버스는 1분 뒤. 목적지까지 훨씬 빠르다.
         givenPrediction("BL-360", readyAt.plusSeconds(60));
-        given(remainingRouteCache.find(anyString(), anyDouble(), anyDouble()))
+        given(remainingRouteCache.find(any(RoutingCacheContext.class), anyString(), anyDouble(), anyDouble()))
                 .willReturn(Optional.empty());
         given(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
                 .willReturn(new RouteSearchResult(0, 1, 0, 0, 0, List.of(alternativePath())));
@@ -148,7 +149,7 @@ class RerouteRemainingPathIT {
         givenLiveTransfer(0, readyAt);
         givenPrediction("BL-721", readyAt.plusSeconds(1200));
         givenPrediction("BL-360", readyAt.plusSeconds(60));
-        given(remainingRouteCache.find(anyString(), anyDouble(), anyDouble()))
+        given(remainingRouteCache.find(any(RoutingCacheContext.class), anyString(), anyDouble(), anyDouble()))
                 .willReturn(Optional.of(List.of(alternativePath())));
 
         Optional<RerouteProposalView> proposal =
@@ -164,7 +165,7 @@ class RerouteRemainingPathIT {
         Instant readyAt = Instant.now().plusSeconds(240);
         givenLiveTransfer(0, readyAt);
         givenPrediction("BL-721", readyAt.plusSeconds(1200));
-        given(remainingRouteCache.find(anyString(), anyDouble(), anyDouble()))
+        given(remainingRouteCache.find(any(RoutingCacheContext.class), anyString(), anyDouble(), anyDouble()))
                 .willReturn(Optional.empty());
         org.mockito.BDDMockito.willThrow(new IllegalStateException("odsay down"))
                 .given(odSayApiPort)
@@ -184,7 +185,7 @@ class RerouteRemainingPathIT {
 
         assertThat(rerouteProposalService.request(userId, journey.journeyId(), 0)).isEmpty();
         verifyNoInteractions(odSayApiPort);
-        verify(remainingRouteCache, never()).find(anyString(), anyDouble(), anyDouble());
+        verify(remainingRouteCache, never()).find(any(RoutingCacheContext.class), anyString(), anyDouble(), anyDouble());
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties;
 import watoo.grd.nextroute.application.journey.port.out.RemainingRouteCachePort;
 import watoo.grd.nextroute.application.route.dto.PathResult;
+import watoo.grd.nextroute.application.route.routing.RoutingCacheContext;
 
 import java.util.List;
 import java.util.Optional;
@@ -37,8 +38,8 @@ public class RedisRemainingRouteCacheAdapter implements RemainingRouteCachePort 
     private final JourneyRerouteProperties properties;
 
     @Override
-    public Optional<List<PathResult>> find(String stopId, double destX, double destY) {
-        String key = key(stopId, destX, destY);
+    public Optional<List<PathResult>> find(RoutingCacheContext ctx, String stopId, double destX, double destY) {
+        String key = key(ctx, stopId, destX, destY);
         try {
             String json = redisTemplate.opsForValue().get(key);
             if (json == null) {
@@ -55,12 +56,12 @@ public class RedisRemainingRouteCacheAdapter implements RemainingRouteCachePort 
     }
 
     @Override
-    public void put(String stopId, double destX, double destY, List<PathResult> paths) {
+    public void put(RoutingCacheContext ctx, String stopId, double destX, double destY, List<PathResult> paths) {
         if (paths == null || paths.isEmpty()) {
             // 빈 답을 10분간 들고 있으면 그 구간이 10분 내내 빈손이 된다.
             return;
         }
-        String key = key(stopId, destX, destY);
+        String key = key(ctx, stopId, destX, destY);
         try {
             redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(paths),
                     properties.getRemainingPath().getCacheTtl());
@@ -70,7 +71,7 @@ public class RedisRemainingRouteCacheAdapter implements RemainingRouteCachePort 
         }
     }
 
-    private String key(String stopId, double destX, double destY) {
-        return KEY_PREFIX + RemainingRouteCachePort.key(stopId, destX, destY);
+    private String key(RoutingCacheContext ctx, String stopId, double destX, double destY) {
+        return KEY_PREFIX + RemainingRouteCachePort.key(ctx, stopId, destX, destY);
     }
 }
