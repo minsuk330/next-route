@@ -1426,3 +1426,13 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - Major: realtimeArrival<departure 모순 → cursor 역행. → 그 leg 정적 fallback(log warn). 테스트 realtimeArrivalBeforeDepartureFallsBackToStatic.
 - Minor: RealtimeLegTimingLookup javadoc 에 boardingStop null 가능 명시. buffer/drift/cascade 산술은 리뷰서 정상 확인.
 - 결과: RouteTimelineComposerTest 12 + Evaluator 5 = 17/17.
+
+## national-otp-p2 배선 PR2: 버스 실시간 timing lookup (2026-09-08, branch feat/otp-p2-realtime-timing)
+### 확정
+- OtpBusRealtimeTimingLookup implements RealtimeLegTimingLookup(#183): 버스 leg → resolve(SeoulBusIdentity) → resolveSeq 단일 → SearchTimeBusQueryPort.getArrInfoByStop → RealtimeArrivalCalculator.earliest(승차 stop 도착=출발) → RealtimeLegTiming. 재사용: 기존 SearchTimeBusQueryPort/RealtimeArrivalCalculator/BusTimeParser/TransferStopResolver.
+- 근사(PLAN step4): 하차 예측 없음→arrival=null(정적 ride). trip-exact 매칭 없이 (stop,route,seq) 계획시각 이후 최초도착. 버스 취소신호 없음→cancelled=false. 조회 실패/차단/버스없음/seq다중→empty(정적).
+- 지하철 identity→empty(후속 PR2b). 게이트=route.transfer-arrival.enabled(기존 공유, 기본 false). standalone(composer 호출은 PR3). 프로덕션 무변경.
+### 검증 (배선 PR2)
+- OtpBusRealtimeTimingLookupTest 7/7: 정상(출발=승차도착·arrival null·REALTIME·observedAt)/미매핑empty/지하철empty/seq다중empty/BLOCKED empty/버스없음empty/disabled empty. fixture=BusArrivalInfoFixtures.arrivalWithSectionTime.
+### 미결(다음 배선)
+- PR2b 지하철 timing(SubwayArrival 예측 재사용). PR3 composer 호출(coverage 게이트+lookup 주입→표시 ETA). PR4 P2-F reroute.
