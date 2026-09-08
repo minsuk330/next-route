@@ -31,4 +31,17 @@ public class TransferArrivalProperties {
 
     /** 검색 1건이 외부 버스 API를 호출할 수 있는 최대 횟수. 초과분 승차는 status=NONE. 0 이하면 무제한. */
     private int maxExternalCallsPerSearch = 12;
+
+    /**
+     * ETA 합성(P2-E) 탑승 여유(초). 실시간/드리프트로 재평가할 때 "선택편 출발 ≥ userReadyAt + 이 값" 이어야
+     * 탈 수 있다고 본다. 정적(OTP 그대로) 편은 OTP 가 이미 환승여유를 계획했으므로 이 buffer 를 재적용하지 않는다
+     * (중복 가산 금지). waitSeconds 는 boardAt-userReadyAt 로 이 여유를 이미 포함한다.
+     */
+    private long boardingBufferSeconds = 60;
+
+    /**
+     * ETA 합성 실시간 값 freshness 상한(초). observedAt 이 계산시각보다 이 값 넘게 과거면 stale 로 보고
+     * 정적으로 fallback 한다(단 운행취소는 fallback 하지 않고 후보 제외).
+     */
+    private long realtimeStaleAfterSeconds = 90;
 }
