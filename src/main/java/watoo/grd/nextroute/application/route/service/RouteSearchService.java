@@ -21,9 +21,6 @@ import watoo.grd.nextroute.application.route.port.in.SearchRouteUseCase;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort.WalkSearchCommand;
-
-import java.time.Clock;
-import java.time.Instant;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
 import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
@@ -31,6 +28,9 @@ import watoo.grd.nextroute.application.route.routing.RoutingProvider;
 import watoo.grd.nextroute.application.route.routing.RoutingProviderSelector;
 import watoo.grd.nextroute.application.route.routing.RoutingQuery;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
+
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.function.Supplier;
 

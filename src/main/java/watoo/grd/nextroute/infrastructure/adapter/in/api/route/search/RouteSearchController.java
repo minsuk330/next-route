@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import watoo.grd.nextroute.application.route.dto.RouteSearchRequest;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
+import watoo.grd.nextroute.application.route.exception.InvalidDepartureTimeException;
 import watoo.grd.nextroute.application.route.exception.OdSayApiException;
 import watoo.grd.nextroute.application.route.port.in.RecordSearchHistoryUseCase;
 import watoo.grd.nextroute.application.route.port.in.SearchRouteUseCase;
@@ -52,6 +53,16 @@ public class RouteSearchController {
      * 실패의 성격을 상태코드로 구분한다(Step 2).
      * 이전에는 전부 400 이라 "요청이 잘못됐다"와 "상류가 응답하지 않는다"가 섞였다.
      */
+    /** departureAt 형식/​offset 오류는 요청 자체의 문제 → 400(무경로/timeout 과 구분). */
+    @ExceptionHandler(InvalidDepartureTimeException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidDepartureTime(InvalidDepartureTimeException e) {
+        return ResponseEntity.badRequest().body(Map.of(
+                "error", true,
+                "code", "INVALID_DEPARTURE_TIME",
+                "message", e.getMessage()
+        ));
+    }
+
     @ExceptionHandler(OdSayApiException.class)
     public ResponseEntity<Map<String, Object>> handleOdSayApiException(OdSayApiException e) {
         HttpStatus status = switch (e.getKind()) {

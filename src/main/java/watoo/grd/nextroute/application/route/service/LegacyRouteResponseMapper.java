@@ -57,6 +57,8 @@ public class LegacyRouteResponseMapper {
             if (hasSubway) subwayCount++;
             if (hasRail) trainCount++;
         }
+        // searchType: ODsay 는 요청 검색모드(0=지하철+버스 등)를 에코한다. OTP 경로는 그 개념이 없어
+        // 0(미상)으로 둔다 — busCount/subwayCount/trainCount 처럼 결과에서 파생할 값이 아니다.
         return new RouteSearchResult(0, busCount, subwayCount, trainCount, 0, paths);
     }
 
