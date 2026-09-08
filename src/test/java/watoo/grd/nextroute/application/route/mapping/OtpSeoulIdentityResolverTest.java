@@ -114,4 +114,36 @@ class OtpSeoulIdentityResolverTest {
         StopOccurrence stop = new StopOccurrence("x", null, null, 0, 127.0, 37.5, "x");
         assertThat(resolver.resolve(walk, stop)).isEmpty();
     }
+
+    @Test
+    @DisplayName("dispatch: BUS leg → SeoulBusIdentity")
+    void dispatchBus() {
+        when(busStopRepo.existsByStopId("101000041")).thenReturn(true);
+        when(busRouteRepo.existsByRouteId("100100022")).thenReturn(true);
+        StopOccurrence boarding = new StopOccurrence("1:BS_TAGO_SEB101000041", null, null, 0, 127.0, 37.5, "s");
+        RoutingLeg bus = new RoutingLeg(RoutingMode.BUS, null, "1", "A1",
+                "1:BR_TAGO_SEB100100022", "143", "trip", null, null, null, 0,
+                List.of(boarding), List.of(), null, null, null);
+        assertThat(resolver.resolve(bus, boarding))
+                .get().isInstanceOf(SeoulBusIdentity.class);
+    }
+
+    @Test
+    @DisplayName("dispatch: SUBWAY leg → SeoulSubwayIdentity(좌표+호선)")
+    void dispatchSubway() {
+        when(subwayRepo.findNearby(anyDouble(), anyDouble(), anyDouble(), anyInt()))
+                .thenReturn(List.of(nearby("1004000427", "1004", 3.0)));
+        StopOccurrence boarding = new StopOccurrence("1:RS_ACC1_S-1-0427", null, null, 0, 126.972135, 37.544618, "s");
+        RoutingLeg sub = new RoutingLeg(RoutingMode.SUBWAY, null, "1", "A1",
+                "1:RR_ACC1_S-1-04-1D", "서울4호선", "trip", null, null, null, 0,
+                List.of(boarding), List.of(), null, null, null);
+        assertThat(resolver.resolve(sub, boarding))
+                .get().isInstanceOf(SeoulSubwayIdentity.class);
+    }
+
+    @Test
+    @DisplayName("지하철: 두 자리 호선(11호선) 뒷자리 오매치 방지 → empty")
+    void subwayTwoDigitLineRejected() {
+        assertThat(resolver.resolveSubway("11호선", 37.5, 127.0)).isEmpty();
+    }
 }

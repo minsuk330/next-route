@@ -1397,3 +1397,8 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증 (resolver, 2026-09-08)
 - ./gradlew test --tests *OtpSeoulIdentityResolverTest → BUILD SUCCESSFUL, 7/7.
 - 계약: 버스 정상매핑 / stop DB미존재 empty(phantom방지) / GGB·ICB 스코프밖 empty / 지하철 라인+좌표 최근접 / 호선1~9밖 empty / 반경내 라인후보없음 empty / WALK dispatch empty.
+
+### 검증 (resolver Sonnet 리뷰 반영, 2026-09-08)
+- Minor: seoulLineId `(\d)호선` 미앵커 → 두자리 "11호선" 뒷자리 오매치 위험. `(?<!\d)([1-9])호선` 로 앵커.
+- Minor: resolve() dispatch 가 WALK 만 테스트됨 → BUS/SUBWAY dispatch 테스트 추가.
+- 리뷰서 solid 확인: SEB 정규식 앵커·phantom 방지·좌표우선 disambiguation. 총 11/11.
