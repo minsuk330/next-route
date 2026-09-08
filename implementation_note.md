@@ -1361,3 +1361,10 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - ./gradlew test --tests *RouteTimelineComposerTest *ConnectionFeasibilityEvaluatorTest → BUILD SUCCESSFUL, 14/14.
 - composer 9: 정적WAIT/RIDE분리+total(buffer중복없음)/0초대기/버스·지하철·버스체인/실시간도착지연캐스케이드MISSED/stale fallback/cancelled/환승실시간조기출발MISSED/자정25시/horizon밖정적. evaluator 5: feasible/buffer내MISSED/지나감MISSED/cancelled/경계포함.
 - 미커버(후속): TMAP 도보증가(도보=OTP정적, P2-E밖), 재검색상한(P2-F), 실제 enrich 배선.
+
+### 검증 (P2-E Sonnet 리뷰 반영, 2026-09-08)
+- Critical: transit leg boardAt null(ODsay shape) 가드 없어 cursor null→NPE/조용한0. → plannedBoard==null 이면 NO_CATCHABLE 후보제외(fail-loud). 테스트 transitLegWithoutAbsoluteTime.
+- Major: MODEL_CAPABLE 게이트 누락(PLAN "실시간 도착/ML" 라 스코프) → isEnrichmentCapable 로 REALTIME_CAPABLE+MODEL_CAPABLE 포함. 테스트 modelCapableApplied(source=MODEL).
+- Major: realtimeArrival<departure 모순 → cursor 역행. → 그 leg 정적 fallback(log warn). 테스트 realtimeArrivalBeforeDepartureFallsBackToStatic.
+- Minor: RealtimeLegTimingLookup javadoc 에 boardingStop null 가능 명시. buffer/drift/cascade 산술은 리뷰서 정상 확인.
+- 결과: RouteTimelineComposerTest 12 + Evaluator 5 = 17/17.

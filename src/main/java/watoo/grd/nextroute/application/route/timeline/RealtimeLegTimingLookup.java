@@ -12,5 +12,9 @@ import java.util.Optional;
  */
 @FunctionalInterface
 public interface RealtimeLegTimingLookup {
+    /**
+     * @param boardingStop 승차 stop occurrence. leg 에 stop 정보가 없으면 <b>null</b> 일 수 있다(구현체는 null 방어).
+     * @param plannedBoardAt 정적 계획 승차시각(non-null; composer 가 절대시각 없는 leg 은 미리 제외)
+     */
     Optional<RealtimeLegTiming> timingFor(RoutingLeg leg, StopOccurrence boardingStop, Instant plannedBoardAt);
 }

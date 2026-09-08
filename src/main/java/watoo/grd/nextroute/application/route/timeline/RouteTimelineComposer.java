@@ -82,7 +82,18 @@ public class RouteTimelineComposer {
             Instant userReadyAt = cursor;
             Instant plannedBoard = leg.boardAt();
             int ride = leg.rideDurationSeconds();
-            Instant plannedAlight = plannedBoard != null ? plannedBoard.plusSeconds(ride) : leg.alightAt();
+
+            // 이 composer 는 절대시각(OTP planConnection) leg 을 전제한다. 상대 소요만 있는 provider shape
+            // (ODsay 는 boardAt/alightAt null)은 하나의 시간축에 놓을 수 없다 → cursor 를 null 로 오염시키지 말고
+            // 명시적으로 후보 제외한다(조용한 0/ NPE 금지).
+            if (plannedBoard == null) {
+                feasibility = Feasibility.NO_CATCHABLE;
+                exclusion = "leg " + i + " 절대 승차시각 없음 (ETA composer 미지원 provider shape)";
+                reReadyAt = null;
+                reFromLeg = i;
+                break;
+            }
+            Instant plannedAlight = plannedBoard.plusSeconds(ride);
 
             Instant effBoard = plannedBoard;
             Instant effAlight = plannedAlight;
@@ -90,21 +101,28 @@ public class RouteTimelineComposer {
             boolean cancelled = false;
             boolean rtApplied = false;
 
-            if (isRealtimeCapable(leg)) {
+            if (isEnrichmentCapable(leg)) {
                 Optional<RealtimeLegTiming> opt = realtime.timingFor(leg, boardingStop(leg), plannedBoard);
                 if (opt.isPresent()) {
                     RealtimeLegTiming rt = opt.get();
                     if (rt.cancelled()) {
                         cancelled = true;
-                    } else if (plannedBoard != null
-                            && rt.realtimeDepartureAt() != null
+                    } else if (rt.realtimeDepartureAt() != null
                             && withinHorizon(plannedBoard, now, horizonSec)
                             && fresh(rt.observedAt(), now, staleAfter)) {
-                        effBoard = rt.realtimeDepartureAt();
-                        effAlight = rt.realtimeArrivalAt() != null
-                                ? rt.realtimeArrivalAt() : effBoard.plusSeconds(ride);
-                        source = rt.source() != null ? rt.source() : ActualSource.REALTIME;
-                        rtApplied = true;
+                        Instant rtBoard = rt.realtimeDepartureAt();
+                        Instant rtAlight = rt.realtimeArrivalAt() != null
+                                ? rt.realtimeArrivalAt() : rtBoard.plusSeconds(ride);
+                        if (rtAlight.isBefore(rtBoard)) {
+                            // 도착<출발 모순 실시간 → 신뢰 불가. 정적 유지(cursor 역행 금지).
+                            log.warn("ETA compose: leg {} realtime arrival {} < departure {} — static fallback",
+                                    i, rtAlight, rtBoard);
+                        } else {
+                            effBoard = rtBoard;
+                            effAlight = rtAlight;
+                            source = rt.source() != null ? rt.source() : ActualSource.REALTIME;
+                            rtApplied = true;
+                        }
                     }
                 }
             }
@@ -167,9 +185,11 @@ public class RouteTimelineComposer {
         return evaluator.evaluate(userReadyAt, effBoard, buffer, false);
     }
 
-    private static boolean isRealtimeCapable(RoutingLeg leg) {
+    /** 실시간 도착(REALTIME_CAPABLE) 또는 ML 승차예측(MODEL_CAPABLE) 지원 leg 만 대체 대상(PLAN P2-E "실시간 도착/ML"). */
+    private static boolean isEnrichmentCapable(RoutingLeg leg) {
         Enrichment e = leg.enrichment();
-        return e != null && e.coverage() == RealtimeCoverage.REALTIME_CAPABLE;
+        return e != null && (e.coverage() == RealtimeCoverage.REALTIME_CAPABLE
+                || e.coverage() == RealtimeCoverage.MODEL_CAPABLE);
     }
 
     private static StopOccurrence boardingStop(RoutingLeg leg) {

@@ -191,6 +191,46 @@ class RouteTimelineComposerTest {
     }
 
     @Test
+    @DisplayName("절대시각 없는 대중교통 leg(ODsay shape) → NO_CATCHABLE (NPE 아님)")
+    void transitLegWithoutAbsoluteTime() {
+        RoutingLeg noTime = new RoutingLeg(RoutingMode.BUS, null, "1", "A1", "R", "route", "trip", null,
+                null, null, 0, List.of(stop()), List.of(), null,
+                Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), null);
+        ComposedTimeline r = composer.compose(itin(null, noTime), reqDep, noRealtime);
+        assertThat(r.feasible()).isFalse();
+        assertThat(r.feasibility()).isEqualTo(Feasibility.NO_CATCHABLE);
+        assertThat(r.reFromLegIndex()).isZero();
+        assertThat(r.exclusionReason()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("MODEL_CAPABLE leg 도 실시간(ML) 대체 대상 → source=MODEL")
+    void modelCapableApplied() {
+        RoutingLeg bus = transit(RoutingMode.BUS, reqDep, t("2026-09-08T01:20:00Z"),
+                RealtimeCoverage.MODEL_CAPABLE);
+        RealtimeLegTimingLookup rt = (leg, stop, board) -> Optional.of(new RealtimeLegTiming(
+                reqDep, t("2026-09-08T01:22:00Z"), false, ActualSource.MODEL, reqDep));
+        ComposedTimeline r = composer.compose(itin(t("2026-09-08T01:20:00Z"), bus), reqDep, rt);
+        assertThat(r.feasible()).isTrue();
+        assertThat(seg(r, 1).type()).isEqualTo(SegmentType.RIDE);
+        assertThat(seg(r, 1).source()).isEqualTo(ActualSource.MODEL);
+        assertThat(r.effectiveArrivalAt()).isEqualTo(t("2026-09-08T01:22:00Z"));
+    }
+
+    @Test
+    @DisplayName("실시간 도착<출발(모순) → 무시하고 정적 fallback(cursor 역행 금지)")
+    void realtimeArrivalBeforeDepartureFallsBackToStatic() {
+        RoutingLeg bus = transit(RoutingMode.BUS, reqDep, t("2026-09-08T01:20:00Z"),
+                RealtimeCoverage.REALTIME_CAPABLE);
+        RealtimeLegTimingLookup rt = (leg, stop, board) -> Optional.of(new RealtimeLegTiming(
+                t("2026-09-08T01:06:00Z"), t("2026-09-08T01:04:00Z"), false, ActualSource.REALTIME, reqDep));
+        ComposedTimeline r = composer.compose(itin(t("2026-09-08T01:20:00Z"), bus), reqDep, rt);
+        assertThat(r.feasible()).isTrue();
+        assertThat(seg(r, 1).source()).isEqualTo(ActualSource.STATIC);
+        assertThat(r.effectiveArrivalAt()).isEqualTo(t("2026-09-08T01:20:00Z"));
+    }
+
+    @Test
     @DisplayName("자정 넘김(25시): 절대시각이라 총시간 정상")
     void crossMidnight() {
         Instant dep = t("2026-09-08T14:50:00Z"); // KST 23:50
