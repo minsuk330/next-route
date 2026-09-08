@@ -23,7 +23,9 @@ class OtpRoutingAdapterBudgetTest {
     private final Instant now = Instant.parse("2026-09-08T00:00:00Z");
     private final OtpRoutingAdapter adapter = new OtpRoutingAdapter(
             RestClient.builder(), new ObjectMapper(), new OtpPlanConnectionMapper(),
-            new OtpRoutingProperties(), Clock.fixed(now, ZoneOffset.UTC));
+            new OtpRoutingProperties(), Clock.fixed(now, ZoneOffset.UTC),
+            new watoo.grd.nextroute.application.route.mapping.OtpLegCoverageResolver(
+                    org.mockito.Mockito.mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)));
 
     @Test
     @DisplayName("provider() == OTP")

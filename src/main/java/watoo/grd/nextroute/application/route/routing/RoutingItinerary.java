@@ -33,4 +33,9 @@ public record RoutingItinerary(
             fare = Fare.unknown();
         }
     }
+    /** legs 만 바꾼 복사본(나머지 필드 보존). */
+    public RoutingItinerary withLegs(java.util.List<RoutingLeg> newLegs) {
+        return new RoutingItinerary(staticArrivalAt, moveSeconds, waitSeconds, walkSeconds, transferCount,
+                navigationSupported, navigationBlockedReasons, fare, newLegs);
+    }
 }
