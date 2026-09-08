@@ -1402,3 +1402,27 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - Minor: seoulLineId `(\d)호선` 미앵커 → 두자리 "11호선" 뒷자리 오매치 위험. `(?<!\d)([1-9])호선` 로 앵커.
 - Minor: resolve() dispatch 가 WALK 만 테스트됨 → BUS/SUBWAY dispatch 테스트 추가.
 - 리뷰서 solid 확인: SEB 정규식 앵커·phantom 방지·좌표우선 disambiguation. 총 11/11.
+
+## national-otp-p2 P2-E ETA composer (2026-09-08, branch feat/otp-p2-eta-timeline)
+### 확정
+- 신규 `application/route/timeline/`: RouteTimelineComposer + ConnectionFeasibilityEvaluator + ComposedTimeline/TimelineSegment(SegmentType WAIT/RIDE/WALK)/Feasibility(FEASIBLE/MISSED/CANCELLED/NO_CATCHABLE)/RealtimeLegTiming/RealtimeLegTimingLookup(주입 FI).
+- 하나의 시간축: cursor=reqDep 시작, WALK=cursor+소요, 대중교통 leg 마다 userReadyAt=cursor, WAIT=boardAt-userReadyAt, RIDE=board..alight, cursor=alight. effective total=최종도착-요청출발(분 Math.round 마지막), 초기대기 포함. static/effective 도착 둘 다 보존.
+- 실시간 대체: leg.enrichment.coverage==REALTIME_CAPABLE + lookup present + plannedBoard horizon 내(maxFutureMinutes*60) + observedAt fresh(staleAfterSeconds) + realtimeDeparture!=null 일 때만. arrival 도 실시간값 보존(도착지연 캐스케이드). cancelled→CANCELLED(정적 fallback 금지). stale/horizon밖→정적.
+- **buffer 적용범위(근사 정책, PLAN 4 신뢰도 명시)**: 첫 탑승=정류장 대기중이라 buffer 미적용(출발<준비면 MISSED). 환승편=실시간/드리프트로 시각 바뀐 경우만 evaluate(userReadyAt, effBoard, buffer). 순수 정적 환승=OTP 계획 신뢰(buffer 재적용 안 함=중복 금지). drifted=rtApplied AND effAlight≠plannedAlight.
+- buffer/stale=TransferArrivalProperties(boardingBufferSeconds=60, realtimeStaleAfterSeconds=90) 신규필드, horizon=TransferPredictProperties.maxFutureMinutes 재사용.
+- standalone(배선 없음). 프로덕션 ODSAY 무변경. reReadyAt/reFromLegIndex 는 재검색 앵커만(실제 재검색·재귀상한=P2-F).
+### 함정
+- 첫 탑승에 buffer 적용하면 오탈락(대기중인데 MISSED). 첫 탑승/환승 구분 필수. 실시간 조기출발 MISSED 는 환승에서만 의미.
+- 도착지연 전파는 realtimeArrivalAt 로(출발만 쓰면 캐스케이드 못 잡음). RealtimeLegTiming 에 depart+arrive 둘 다.
+- 자정넘김=Instant 절대시각이라 특수처리 불필요(25시 테스트 통과).
+### 검증 (P2-E, 2026-09-08)
+- ./gradlew test --tests *RouteTimelineComposerTest *ConnectionFeasibilityEvaluatorTest → BUILD SUCCESSFUL, 14/14.
+- composer 9: 정적WAIT/RIDE분리+total(buffer중복없음)/0초대기/버스·지하철·버스체인/실시간도착지연캐스케이드MISSED/stale fallback/cancelled/환승실시간조기출발MISSED/자정25시/horizon밖정적. evaluator 5: feasible/buffer내MISSED/지나감MISSED/cancelled/경계포함.
+- 미커버(후속): TMAP 도보증가(도보=OTP정적, P2-E밖), 재검색상한(P2-F), 실제 enrich 배선.
+
+### 검증 (P2-E Sonnet 리뷰 반영, 2026-09-08)
+- Critical: transit leg boardAt null(ODsay shape) 가드 없어 cursor null→NPE/조용한0. → plannedBoard==null 이면 NO_CATCHABLE 후보제외(fail-loud). 테스트 transitLegWithoutAbsoluteTime.
+- Major: MODEL_CAPABLE 게이트 누락(PLAN "실시간 도착/ML" 라 스코프) → isEnrichmentCapable 로 REALTIME_CAPABLE+MODEL_CAPABLE 포함. 테스트 modelCapableApplied(source=MODEL).
+- Major: realtimeArrival<departure 모순 → cursor 역행. → 그 leg 정적 fallback(log warn). 테스트 realtimeArrivalBeforeDepartureFallsBackToStatic.
+- Minor: RealtimeLegTimingLookup javadoc 에 boardingStop null 가능 명시. buffer/drift/cascade 산술은 리뷰서 정상 확인.
+- 결과: RouteTimelineComposerTest 12 + Evaluator 5 = 17/17.
