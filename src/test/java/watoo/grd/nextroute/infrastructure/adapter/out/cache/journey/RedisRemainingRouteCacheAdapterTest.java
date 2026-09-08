@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.cache.journey;
 
+import watoo.grd.nextroute.application.route.routing.RoutingCacheContext;
+import watoo.grd.nextroute.application.route.routing.RoutingProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -39,10 +41,13 @@ import static org.mockito.Mockito.when;
 @DisplayName("남은 구간 경로 캐시")
 class RedisRemainingRouteCacheAdapterTest {
 
+    private static final RoutingCacheContext CTX =
+            RoutingCacheContext.of(RoutingProvider.ODSAY, null, "v1");
+
     private static final String STOP_ID = "ST-C";
     private static final double DEST_X = 127.123456;
     private static final double DEST_Y = 37.5;
-    private static final String KEY = "journey:reroute:remaining:ST-C:127.12346:37.50000";
+    private static final String KEY = "journey:reroute:remaining:v1:odsay:ODSAY_NO_GRAPH:ST-C:127.12346:37.50000";
 
     @Mock RedisTemplate<String, String> redisTemplate;
     @Mock ValueOperations<String, String> valueOps;
@@ -62,7 +67,7 @@ class RedisRemainingRouteCacheAdapterTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(valueOps.get(KEY)).thenReturn(objectMapper.writeValueAsString(List.of(path())));
 
-        assertThat(adapter.find(STOP_ID, DEST_X, DEST_Y)).isPresent();
+        assertThat(adapter.find(CTX, STOP_ID, DEST_X, DEST_Y)).isPresent();
     }
 
     @Test
@@ -70,7 +75,7 @@ class RedisRemainingRouteCacheAdapterTest {
     void putUsesConfiguredTtl() {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
 
-        adapter.put(STOP_ID, DEST_X, DEST_Y, List.of(path()));
+        adapter.put(CTX, STOP_ID, DEST_X, DEST_Y, List.of(path()));
 
         ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
         verify(valueOps).set(eq(KEY), json.capture(), eq(Duration.ofMinutes(10)));
@@ -83,7 +88,7 @@ class RedisRemainingRouteCacheAdapterTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(valueOps.get(KEY)).thenReturn(objectMapper.writeValueAsString(List.of(path())));
 
-        Optional<List<PathResult>> found = adapter.find(STOP_ID, DEST_X, DEST_Y);
+        Optional<List<PathResult>> found = adapter.find(CTX, STOP_ID, DEST_X, DEST_Y);
 
         assertThat(found).isPresent();
         assertThat(found.get()).hasSize(1);
@@ -93,7 +98,7 @@ class RedisRemainingRouteCacheAdapterTest {
     @Test
     @DisplayName("빈 목록은 저장하지 않는다 — 빈 답을 10분 들고 있으면 그 구간이 10분 내내 빈손이다")
     void doesNotCacheEmptyResult() {
-        adapter.put(STOP_ID, DEST_X, DEST_Y, List.of());
+        adapter.put(CTX, STOP_ID, DEST_X, DEST_Y, List.of());
 
         verifyNoInteractions(redisTemplate);
     }
@@ -104,7 +109,7 @@ class RedisRemainingRouteCacheAdapterTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(valueOps.get(anyString())).thenThrow(new IllegalStateException("redis down"));
 
-        assertThat(adapter.find(STOP_ID, DEST_X, DEST_Y)).isEmpty();
+        assertThat(adapter.find(CTX, STOP_ID, DEST_X, DEST_Y)).isEmpty();
     }
 
     @Test
@@ -114,7 +119,7 @@ class RedisRemainingRouteCacheAdapterTest {
         org.mockito.BDDMockito.willThrow(new IllegalStateException("redis down"))
                 .given(valueOps).set(anyString(), anyString(), any(Duration.class));
 
-        adapter.put(STOP_ID, DEST_X, DEST_Y, List.of(path()));
+        adapter.put(CTX, STOP_ID, DEST_X, DEST_Y, List.of(path()));
     }
 
     @Test
@@ -123,7 +128,7 @@ class RedisRemainingRouteCacheAdapterTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(valueOps.get(KEY)).thenReturn("{ 이건 JSON 이 아니다");
 
-        assertThat(adapter.find(STOP_ID, DEST_X, DEST_Y)).isEmpty();
+        assertThat(adapter.find(CTX, STOP_ID, DEST_X, DEST_Y)).isEmpty();
         verify(valueOps, never()).set(anyString(), anyString(), any(Duration.class));
     }
 

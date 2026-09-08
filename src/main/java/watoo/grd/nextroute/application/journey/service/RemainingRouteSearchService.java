@@ -10,6 +10,7 @@ import watoo.grd.nextroute.application.route.concurrent.SingleFlight;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
+import watoo.grd.nextroute.application.route.routing.RoutingCacheContext;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
 import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
@@ -52,7 +53,11 @@ public class RemainingRouteSearchService {
     // provider 전환(national-otp P2). 기본 ODSAY 라 재탐색도 default 에서는 기존 ODsay 직행.
     private final RoutingProviderSelector providerSelector;
     private final LegacyRouteResponseMapper legacyRouteResponseMapper;
+    private final watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpRoutingProperties;
     private final Clock clock;
+
+    /** 캐시 값 스키마 버전. 올리면 옛 keyspace 와 분리된다(구형 JSON 을 새 DTO 로 안 읽음). */
+    private static final String CACHE_SCHEMA_VERSION = "v1";
 
     private final SingleFlight<String, List<PathResult>> searchFlight = new SingleFlight<>();
 
@@ -66,16 +71,20 @@ public class RemainingRouteSearchService {
         double destX = waypoints.destination().x();
         double destY = waypoints.destination().y();
 
-        Optional<List<PathResult>> cached = findCached(stopId, destX, destY);
+        // provider·graph 버전을 캐시 문맥으로 고정한다. ODsay 캐시가 OTP 요청에 섞이거나, graph 재빌드
+        // 후 옛 경로가 나가지 않게. provider 는 여기서 한 번 정해 아래 전 경로가 같은 값을 본다.
+        RoutingCacheContext cacheCtx = cacheContext();
+
+        Optional<List<PathResult>> cached = findCached(cacheCtx, stopId, destX, destY);
         if (cached.isPresent()) {
             metrics.recordRemainingSearch("cache-hit");
             return cached.get();
         }
 
-        String key = RemainingRouteCachePort.key(stopId, destX, destY);
+        String key = RemainingRouteCachePort.key(cacheCtx, stopId, destX, destY);
         SingleFlight.Outcome<List<PathResult>> outcome;
         try {
-            outcome = searchFlight.execute(key, () -> load(waypoints, stopId, budgetMs), budgetMs);
+            outcome = searchFlight.execute(key, () -> load(cacheCtx, waypoints, stopId, budgetMs), budgetMs);
         } catch (Exception e) {
             // owner 만 여기로 온다. joiner 는 owner 의 실패를 자기 실패로 만들지 않는다.
             log.warn("[JourneyReroute] 남은 구간 검색 실패 [{}]: {}", key, e.getMessage());
@@ -96,15 +105,24 @@ public class RemainingRouteSearchService {
      * 실제 호출. <b>{@code paths} 만 쓴다</b> — {@code busCount}·{@code meta} 는 검색 응답 계약용이라
      * 여정 경로에서 쓸 일이 없고, 캐시에도 넣지 않는다.
      */
-    private List<PathResult> load(Waypoints waypoints, String stopId, long budgetMs) {
-        List<PathResult> paths = providerSelector.select(false) == RoutingProvider.OTP
+    private List<PathResult> load(RoutingCacheContext cacheCtx, Waypoints waypoints,
+                                  String stopId, long budgetMs) {
+        List<PathResult> paths = cacheCtx.provider() == RoutingProvider.OTP
                 ? loadOtp(waypoints, budgetMs)
                 : loadOdsay(waypoints, budgetMs);
         if (paths.isEmpty()) {
             return List.of();
         }
-        store(stopId, waypoints, paths);
+        store(cacheCtx, stopId, waypoints, paths);
         return paths;
+    }
+
+    /** provider(1회 선택) + OTP graphVersion(또는 ODsay sentinel) + 캐시 스키마 버전. */
+    private RoutingCacheContext cacheContext() {
+        RoutingProvider provider = providerSelector.select(false);
+        String graphVersion = provider == RoutingProvider.OTP
+                ? otpRoutingProperties.getGraphVersion() : null;   // null → ODSAY_NO_GRAPH sentinel
+        return RoutingCacheContext.of(provider, graphVersion, CACHE_SCHEMA_VERSION);
     }
 
     /** 기본 provider(ODSAY): 기존 직행 유지(parity). */
@@ -141,18 +159,18 @@ public class RemainingRouteSearchService {
      * 캐시 실패는 <b>여기서 끝난다.</b> 어댑터도 삼키지만 그 계약에만 기대지 않는다 — 캐시에 못
      * 넣었다는 이유로 이미 돈을 내고 받아 온 경로를 버리면, Redis 장애가 곧 "제안 없음"이 된다.
      */
-    private void store(String stopId, Waypoints waypoints, List<PathResult> paths) {
+    private void store(RoutingCacheContext cacheCtx, String stopId, Waypoints waypoints, List<PathResult> paths) {
         try {
-            cache.put(stopId, waypoints.destination().x(), waypoints.destination().y(), paths);
+            cache.put(cacheCtx, stopId, waypoints.destination().x(), waypoints.destination().y(), paths);
         } catch (Exception e) {
             log.warn("[JourneyReroute] 남은 구간 캐시 저장 실패 — 검색 결과는 그대로 쓴다: {}",
                     e.getMessage());
         }
     }
 
-    private Optional<List<PathResult>> findCached(String stopId, double destX, double destY) {
+    private Optional<List<PathResult>> findCached(RoutingCacheContext cacheCtx, String stopId, double destX, double destY) {
         try {
-            return cache.find(stopId, destX, destY);
+            return cache.find(cacheCtx, stopId, destX, destY);
         } catch (Exception e) {
             log.warn("[JourneyReroute] 남은 구간 캐시 조회 실패 — 없는 것처럼 진행한다: {}", e.getMessage());
             return Optional.empty();

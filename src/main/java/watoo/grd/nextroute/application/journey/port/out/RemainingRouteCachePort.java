@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.journey.port.out;
 
 import watoo.grd.nextroute.application.route.dto.PathResult;
+import watoo.grd.nextroute.application.route.routing.RoutingCacheContext;
 
 import java.util.List;
 import java.util.Locale;
@@ -19,10 +20,10 @@ import java.util.Optional;
 public interface RemainingRouteCachePort {
 
     /** 실패하면 빈 결과. 예외를 던지지 않는다. */
-    Optional<List<PathResult>> find(String stopId, double destX, double destY);
+    Optional<List<PathResult>> find(RoutingCacheContext ctx, String stopId, double destX, double destY);
 
     /** 실패해도 조용히 지나간다. 캐시에 못 넣는 것이 검색을 실패시키면 안 된다. */
-    void put(String stopId, double destX, double destY, List<PathResult> paths);
+    void put(RoutingCacheContext ctx, String stopId, double destX, double destY, List<PathResult> paths);
 
     /**
      * 캐시와 중복 억제(SingleFlight)가 <b>같은 키</b>를 써야 한다. 다르면 캐시는 맞히지 못하면서
@@ -31,8 +32,8 @@ public interface RemainingRouteCachePort {
      * <p>좌표는 소수점 5자리로 고정해 붙인다 — 부동소수 표기가 환경에 따라 흔들리면 같은 지점이
      * 다른 키가 된다. 5자리면 약 1m 로, 정류장 하나를 가리키기에 충분하다.
      */
-    static String key(String stopId, double destX, double destY) {
-        return stopId + ":" + String.format(Locale.ROOT, "%.5f", destX)
+    static String key(RoutingCacheContext ctx, String stopId, double destX, double destY) {
+        return ctx.keyPrefix() + ":" + stopId + ":" + String.format(Locale.ROOT, "%.5f", destX)
                 + ":" + String.format(Locale.ROOT, "%.5f", destY);
     }
 }
