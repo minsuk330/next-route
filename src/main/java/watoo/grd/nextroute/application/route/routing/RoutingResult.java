@@ -35,4 +35,9 @@ public record RoutingResult(
     public boolean success() {
         return true;
     }
+    /** itineraries 만 바꾼 복사본(나머지 필드 보존). */
+    public RoutingResult withItineraries(java.util.List<RoutingItinerary> newItineraries) {
+        return new RoutingResult(provider, schemaVersion, networkDataVersion, graphVersion, mappingVersion,
+                geometryVersion, departureAt, warnings, newItineraries);
+    }
 }

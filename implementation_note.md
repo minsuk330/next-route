@@ -1427,6 +1427,18 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - Minor: RealtimeLegTimingLookup javadoc 에 boardingStop null 가능 명시. buffer/drift/cascade 산술은 리뷰서 정상 확인.
 - 결과: RouteTimelineComposerTest 12 + Evaluator 5 = 17/17.
 
+## national-otp-p2 배선 PR1: OTP leg coverage (2026-09-08, branch feat/otp-p2-leg-coverage)
+### 확정
+- 신규 OtpLegCoverageResolver(application/route/mapping): RoutingResult 의 대중교통 leg 마다 OtpSeoulIdentityResolver.resolve → coverage 확정(present=REALTIME_CAPABLE, else STATIC_SCHEDULE). walk/미지원 불변(NONE). resolver 는 boardingStop null 방어됨(그대로 전달 가능).
+- 배선점: OtpRoutingAdapter.search — mapper.map 성공(RoutingResult)일 때만 applyCoverage, RoutingFailure 는 그대로. 모든 OTP 결과 일관 처리(1지점). OTP 는 selector 뒤라 프로덕션 ODSAY 무변경.
+- 신규 copy 메서드: RoutingLeg.withEnrichment / RoutingItinerary.withLegs / RoutingResult.withItineraries — record 16필드 수동 재생성 유실 위험(codex 지적) 회피용.
+### 함정
+- OtpRoutingAdapter 생성자 5→6인자(coverageResolver 주입) → 기존 어댑터 테스트 2개 생성자 수정. Mockito 는 Optional 반환에 기본 empty → mock(OtpSeoulIdentityResolver) 만으로 coverage=STATIC 유지(기존 assertion 무영향).
+### 검증 (배선 PR1)
+- ./gradlew test --tests *OtpLegCoverageResolverTest → 4/4(매핑됨 REALTIME_CAPABLE/미매핑 STATIC/walk 불변·resolver 미호출/shape 보존). 회귀 *Routing* *Otp* *RouteResponseMapper* *RouteSearchServiceTest* *timeline* 그린.
+### 미결(다음 배선)
+- PR2 timing lookup(resolved id→기존 실시간 도착 조회→RealtimeLegTimingLookup 구현), PR3 composer 호출(OTP 표시 ETA), PR4 P2-F reroute(MISSED→routeOptions/남은검색+policy 복원).
+
 ## national-otp-p2 배선 PR2: 버스 실시간 timing lookup (2026-09-08, branch feat/otp-p2-realtime-timing)
 ### 확정
 - OtpBusRealtimeTimingLookup implements RealtimeLegTimingLookup(#183): 버스 leg → resolve(SeoulBusIdentity) → resolveSeq 단일 → SearchTimeBusQueryPort.getArrInfoByStop → RealtimeArrivalCalculator.earliest(승차 stop 도착=출발) → RealtimeLegTiming. 재사용: 기존 SearchTimeBusQueryPort/RealtimeArrivalCalculator/BusTimeParser/TransferStopResolver.
