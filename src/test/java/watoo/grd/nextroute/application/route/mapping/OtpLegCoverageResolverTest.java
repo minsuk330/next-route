@@ -77,6 +77,17 @@ class OtpLegCoverageResolverTest {
     }
 
     @Test
+    @DisplayName("transit leg stops 비어도 NPE 없이 STATIC_SCHEDULE(resolver 가 null boarding 방어)")
+    void emptyStopsNoNpe() {
+        when(identity.resolve(any(), any())).thenReturn(Optional.empty());
+        RoutingLeg noStops = new RoutingLeg(RoutingMode.BUS, null, "1", "A1", "R", "143", "trip", null,
+                Instant.parse("2026-09-08T01:00:00Z"), Instant.parse("2026-09-08T01:10:00Z"), 600,
+                List.of(), List.of(), null, Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), null);
+        RoutingResult out = resolver.applyCoverage(result(noStops));
+        assertThat(firstLeg(out).enrichment().coverage()).isEqualTo(RealtimeCoverage.STATIC_SCHEDULE);
+    }
+
+    @Test
     @DisplayName("다른 enrichment 필드 보존, itinerary 개수 유지")
     void preservesShape() {
         when(identity.resolve(any(), any())).thenReturn(Optional.of(new SeoulBusIdentity("s", "r", "143")));

@@ -81,4 +81,35 @@ class RouteTimelineServiceTest {
         RoutingResult in = result(itinArriving("2026-09-08T01:20:00Z"));
         assertThat(service.reorderByEffectiveTotal(in, dep)).isSameAs(in);
     }
+
+    @Test
+    @DisplayName("실시간이 실제로 total 을 바꿔 정렬 뒤집는다(coverage→lookup 적용 end-to-end)")
+    void realtimeChangesOrder() {
+        // A: 정적 20분, REALTIME_CAPABLE — 실시간이 30분으로 지연. B: 정적 20분.
+        RoutingLeg aLeg = new RoutingLeg(RoutingMode.BUS, null, "1", "A1", "R", "143", "trip", null,
+                dep.plusSeconds(60), dep.plusSeconds(1200), 1140,
+                List.of(new StopOccurrence("s", null, null, 0, 127.0, 37.5, "s")), List.of(), null,
+                Enrichment.staticOnly(RealtimeCoverage.REALTIME_CAPABLE), null);
+        RoutingItinerary a = new RoutingItinerary(dep.plusSeconds(1200), 0, 0, 0, 0, true, List.of(), null, List.of(aLeg));
+        RoutingItinerary b = itinArriving("2026-09-08T01:20:00Z"); // 정적 20분
+        RealtimeLegTimingLookup delayA = (l, s, bd) -> l == aLeg
+                ? Optional.of(new RealtimeLegTiming(dep.plusSeconds(60), dep.plusSeconds(1800),
+                        false, watoo.grd.nextroute.application.route.routing.ActualSource.REALTIME, dep))
+                : Optional.empty();
+        RouteTimelineService svc = new RouteTimelineService(composer, delayA);
+
+        RoutingResult out = svc.reorderByEffectiveTotal(result(a, b), dep);
+        // A 가 실시간 30분으로 밀려 B(20분)가 먼저.
+        assertThat(firstAlight(out)).isEqualTo(Instant.parse("2026-09-08T01:20:00Z"));
+    }
+
+    @Test
+    @DisplayName("보강 total 동률 → 원래 순서 유지(안정 정렬)")
+    void stableOnTie() {
+        RoutingItinerary first = itinArriving("2026-09-08T01:30:00Z");
+        RoutingItinerary second = itinArriving("2026-09-08T01:30:00Z");
+        RoutingResult out = service.reorderByEffectiveTotal(result(first, second), dep);
+        assertThat(out.itineraries().get(0)).isSameAs(first);
+        assertThat(out.itineraries().get(1)).isSameAs(second);
+    }
 }
