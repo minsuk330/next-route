@@ -22,7 +22,15 @@ import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort.WalkSearchCommand;
 
+import java.time.Clock;
 import java.time.Instant;
+import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
+import watoo.grd.nextroute.application.route.routing.RoutingFailure;
+import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
+import watoo.grd.nextroute.application.route.routing.RoutingProvider;
+import watoo.grd.nextroute.application.route.routing.RoutingProviderSelector;
+import watoo.grd.nextroute.application.route.routing.RoutingQuery;
+import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -44,6 +52,11 @@ public class RouteSearchService implements SearchRouteUseCase {
     private final TransferArrivalEnricher transferArrivalEnricher;
     private final RouteSearchMetrics metrics;
     private final RouteSearchDeadlineProperties deadlineProperties;
+    // provider 전환(national-otp P2). 기본 ODSAY 라 아래 branch 는 default 에서 실행되지 않는다.
+    private final RoutingProviderSelector providerSelector;
+    private final LegacyRouteResponseMapper legacyRouteResponseMapper;
+    private final DepartureTimeResolver departureTimeResolver;
+    private final Clock clock;
 
     @Override
     public RouteSearchResult search(RouteSearchRequest request) {
@@ -82,6 +95,12 @@ public class RouteSearchService implements SearchRouteUseCase {
 
     private RouteSearchResult runSearch(RouteSearchRequest request, boolean withRealtime,
                                         Instant searchStartedAt, RouteSearchContext ctx) {
+        // provider 전환(national-otp P2). 공개 요청은 내부 OTP 요청이 아니므로 select(false).
+        // 기본 provider 는 ODSAY 라 default 구성에서는 아래 OTP branch 를 타지 않는다(회귀 0).
+        if (providerSelector.select(false) == RoutingProvider.OTP) {
+            return runOtpSearch(request, ctx);
+        }
+
         RouteSearchResult result;
         long odsayStart = System.nanoTime();
         try {
@@ -130,6 +149,56 @@ public class RouteSearchService implements SearchRouteUseCase {
         }
 
         return result;
+    }
+
+    /**
+     * OTP provider 경로. RoutingPort 로 검색해 중립 결과를 legacy 응답으로 매핑한다.
+     * ODsay 전용 enricher(지하철 폴리라인·TMAP 도보 상세·서울 실시간)는 타지 않는다 —
+     * 대중교통 형상은 P3(OSM relation), 실시간 보강은 P2-D(ID 매핑)에서 붙는다.
+     */
+    private RouteSearchResult runOtpSearch(RouteSearchRequest request, RouteSearchContext ctx) {
+        long budget = ctx.budgetMillis(deadlineProperties.getOdsayMs());
+        RoutingDeadline deadline = RoutingDeadline.of(clock, budget);
+        Instant departureAt = departureTimeResolver.resolve(request.departureAt());
+        RoutingQuery query = new RoutingQuery(
+                request.startX(), request.startY(), request.startName(),
+                request.endX(), request.endY(), request.endName(),
+                departureAt, java.util.Set.of(), null, false, "otp-v2",
+                RoutingProvider.OTP, null);
+
+        long start = System.nanoTime();
+        RoutingOutcome outcome;
+        try {
+            outcome = providerSelector.portFor(RoutingProvider.OTP).search(query, deadline);
+        } finally {
+            metrics.recordStage(SearchComponent.ODSAY, ctx.isDegraded(SearchComponent.ODSAY),
+                    System.nanoTime() - start);
+        }
+
+        if (outcome instanceof RoutingFailure failure) {
+            return handleOtpFailure(failure, ctx);
+        }
+        return legacyRouteResponseMapper.toLegacy((RoutingResult) outcome);
+    }
+
+    /**
+     * OTP 실패를 응답/에러로 변환한다. 범위 밖·무경로는 빈 결과(정상 무경로), timeout/엔진장애/입력오류는
+     * 기존 route-search 실패 신호({@link OdSayApiException} kind)로 올려 컨트롤러가 504/502/400 으로 낸다.
+     */
+    private RouteSearchResult handleOtpFailure(RoutingFailure failure, RouteSearchContext ctx) {
+        return switch (failure.kind()) {
+            case OUT_OF_SCOPE, NO_ROUTE -> new RouteSearchResult(0, 0, 0, 0, 0, List.of());
+            case TIMEOUT -> {
+                ctx.degrade(SearchComponent.ODSAY, DegradeReason.TIMEOUT);
+                metrics.recordDeadlineExceeded(SearchComponent.ODSAY);
+                throw OdSayApiException.timeout("OTP: " + failure.message());
+            }
+            case ENGINE_ERROR -> {
+                ctx.degrade(SearchComponent.ODSAY, DegradeReason.UPSTREAM_ERROR);
+                throw OdSayApiException.upstream("OTP: " + failure.message());
+            }
+            case INPUT_ERROR -> throw new OdSayApiException(400, "OTP: " + failure.message());
+        };
     }
 
     /** 단계 실행 + 소요시간 기록. degradation 은 각 단계가 ctx 에 보고한 결과를 그대로 읽는다. */

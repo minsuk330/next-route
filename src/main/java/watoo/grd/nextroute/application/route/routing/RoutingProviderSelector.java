@@ -32,10 +32,13 @@ public class RoutingProviderSelector {
      * @return otp-enabled 이고 내부에서 청했을 때만 OTP, 그 밖에는 기본 provider
      */
     public RoutingProvider select(boolean otpRequestedByInternal) {
-        if (properties.isOtpEnabled() && otpRequestedByInternal) {
-            return RoutingProvider.OTP;
+        RoutingProvider desired = otpRequestedByInternal
+                ? RoutingProvider.OTP : properties.getDefaultProvider();
+        // OTP 는 어느 경로로 오든 otp-enabled 없이는 열리지 않는다(default-provider=OTP 오설정 방어).
+        if (desired == RoutingProvider.OTP && !properties.isOtpEnabled()) {
+            return RoutingProvider.ODSAY;
         }
-        return properties.getDefaultProvider();
+        return desired;
     }
 
     /** 선택된 provider 의 port. 없으면 구성 오류. */
