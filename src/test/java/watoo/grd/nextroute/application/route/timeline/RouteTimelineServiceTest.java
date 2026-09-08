@@ -1,0 +1,84 @@
+package watoo.grd.nextroute.application.route.timeline;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
+import watoo.grd.nextroute.application.route.config.TransferPredictProperties;
+import watoo.grd.nextroute.application.route.routing.Enrichment;
+import watoo.grd.nextroute.application.route.routing.RealtimeCoverage;
+import watoo.grd.nextroute.application.route.routing.RoutingItinerary;
+import watoo.grd.nextroute.application.route.routing.RoutingLeg;
+import watoo.grd.nextroute.application.route.routing.RoutingMode;
+import watoo.grd.nextroute.application.route.routing.RoutingProvider;
+import watoo.grd.nextroute.application.route.routing.RoutingResult;
+import watoo.grd.nextroute.application.route.routing.StopOccurrence;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/** 보강 total 로 itinerary 정렬(FEASIBLE 우선·오름차순, 불가는 뒤). composer 실호출 + 실시간 없음(정적). */
+class RouteTimelineServiceTest {
+
+    private final Instant dep = Instant.parse("2026-09-08T01:00:00Z");
+    private final Clock clock = Clock.fixed(dep, ZoneOffset.UTC);
+    private final RouteTimelineComposer composer = new RouteTimelineComposer(
+            clock, new TransferArrivalProperties(), new TransferPredictProperties(),
+            new ConnectionFeasibilityEvaluator());
+    private final RealtimeLegTimingLookup noRealtime = (l, s, b) -> Optional.empty();
+    private final RouteTimelineService service = new RouteTimelineService(composer, noRealtime);
+
+    private RoutingItinerary itinArriving(String alightIso) {
+        RoutingLeg bus = new RoutingLeg(RoutingMode.BUS, null, "1", "A1", "R", "143", "trip", null,
+                dep.plusSeconds(60), Instant.parse(alightIso),
+                (int) (Instant.parse(alightIso).getEpochSecond() - dep.plusSeconds(60).getEpochSecond()),
+                List.of(new StopOccurrence("s", null, null, 0, 127.0, 37.5, "s")), List.of(), null,
+                Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), null);
+        return new RoutingItinerary(Instant.parse(alightIso), 0, 0, 0, 0, true, List.of(), null, List.of(bus));
+    }
+
+    private RoutingItinerary itinInfeasible() {
+        RoutingLeg noTime = new RoutingLeg(RoutingMode.BUS, null, "1", "A1", "R", "143", "trip", null,
+                null, null, 0, List.of(new StopOccurrence("s", null, null, 0, 127.0, 37.5, "s")),
+                List.of(), null, Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), null);
+        return new RoutingItinerary(null, 0, 0, 0, 0, true, List.of(), null, List.of(noTime));
+    }
+
+    private RoutingResult result(RoutingItinerary... its) {
+        return new RoutingResult(RoutingProvider.OTP, "v2", "net", "g1", null, null, dep, List.of(), List.of(its));
+    }
+
+    private Instant firstAlight(RoutingResult r) {
+        return r.itineraries().get(0).legs().get(0).alightAt();
+    }
+
+    @Test
+    @DisplayName("보강 total 오름차순 정렬(느린→빠른 순 입력을 빠른 것 먼저로)")
+    void sortsByEffectiveTotal() {
+        RoutingResult in = result(
+                itinArriving("2026-09-08T01:40:00Z"),  // 40분
+                itinArriving("2026-09-08T01:20:00Z")); // 20분
+        RoutingResult out = service.reorderByEffectiveTotal(in, dep);
+        assertThat(firstAlight(out)).isEqualTo(Instant.parse("2026-09-08T01:20:00Z")); // 빠른 것 먼저
+    }
+
+    @Test
+    @DisplayName("불가(NO_CATCHABLE) itinerary 는 가능한 것 뒤로")
+    void infeasibleAfterFeasible() {
+        RoutingResult in = result(itinInfeasible(), itinArriving("2026-09-08T01:30:00Z"));
+        RoutingResult out = service.reorderByEffectiveTotal(in, dep);
+        assertThat(firstAlight(out)).isEqualTo(Instant.parse("2026-09-08T01:30:00Z")); // feasible 먼저
+        assertThat(out.itineraries().get(1).legs().get(0).boardAt()).isNull();        // 불가 뒤로
+    }
+
+    @Test
+    @DisplayName("itinerary 0~1개 → 그대로")
+    void noopSingle() {
+        RoutingResult in = result(itinArriving("2026-09-08T01:20:00Z"));
+        assertThat(service.reorderByEffectiveTotal(in, dep)).isSameAs(in);
+    }
+}

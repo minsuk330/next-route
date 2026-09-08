@@ -1448,3 +1448,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - OtpBusRealtimeTimingLookupTest 7/7: 정상(출발=승차도착·arrival null·REALTIME·observedAt)/미매핑empty/지하철empty/seq다중empty/BLOCKED empty/버스없음empty/disabled empty. fixture=BusArrivalInfoFixtures.arrivalWithSectionTime.
 ### 미결(다음 배선)
 - PR2b 지하철 timing(SubwayArrival 예측 재사용). PR3 composer 호출(coverage 게이트+lookup 주입→표시 ETA). PR4 P2-F reroute.
+
+## national-otp-p2 배선 PR3: composer 호출 (2026-09-08, branch feat/otp-p2-timeline-wiring)
+### 확정
+- RouteTimelineService.reorderByEffectiveTotal(RoutingResult, departureAt): 각 itinerary 를 RouteTimelineComposer 로 합성(주입된 RealtimeLegTimingLookup=버스 lookup, coverage 게이트) → 보강 total 로 정렬(FEASIBLE 우선·오름차순·안정, 불가 뒤로). result.withItineraries 로 재구성. 응답 매핑은 불변.
+- 배선점: RouteSearchService.runOtpSearch — port 결과(RoutingResult, coverage 배선됨)를 reorderByEffectiveTotal 후 legacyMapper.toLegacy. OTP 경로만(selector 뒤) → 프로덕션 ODSAY 무변경. enabled 기본 false 라 실시간 미적용=정적정렬(OTP 시간순과 사실상 동일 → OtpWiring 회귀 무영향).
+### 함정
+- RouteSearchService @RequiredArgsConstructor 필드 추가 → 생성자 인자 4개 테스트 전부 수정(마지막 위치). ODSAY 테스트는 timeline service 미사용이나 컴파일 위해 주입.
+- RealtimeLegTimingLookup impl 현재 1개(버스)라 인터페이스 주입 무모호. PR2b 지하철 추가 시 @Primary/@Qualifier 또는 List 주입 필요(주의).
+### 검증 (배선 PR3)
+- RouteTimelineServiceTest 3(보강total 정렬/불가 뒤로/0~1개 noop) + RouteSearchServiceTest 8(ODSAY 회귀) + OtpWiringTest(정렬 무영향) + timeline/otp/routing 그린.
+### 미결(다음 배선)
+- PR2b 지하철 timing(+lookup 다중 impl 조합). PR4 P2-F reroute(MISSED→routeOptions/남은검색+policy). v2 응답에 ComposedTimeline(feasibility/segments) 노출은 별도.
