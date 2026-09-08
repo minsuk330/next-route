@@ -1345,6 +1345,64 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - KakaoLocalSearchAdapter URL 하드코딩→MockWebServer 라우팅 불가. base-url @Value 주입식(kakao.api.local-base-url, 기본 dapi.kakao.com)으로 고쳐 네이버 어댑터 테스트 패턴 미러
 - application.yaml 에 무관 변경(transfer-arrival cache-ttl 15→30) 섞여 있어 naver 블록 hunk 만 git apply --cached
 
+## national-otp-p2 매칭 실증 (2026-09-08, VPS 실 DB + OTP fixture 대조)
+목적: P2-D 매핑 "구조가 실제로 성립하나" 검증. 실 DB(vps postgres myuser/mydatabase, 읽기전용) + OTP planConnection fixture(src/test/resources/otp/, tools/transit-routing-benchmark/results/otp-seoul-p1/).
+
+### 확정 (실측)
+- **버스 매핑 = 결정적 prefix strip. 퍼지 불필요.**
+  - OTP stop `1:BS_TAGO_SEB<9digit>` → `SEB` 떼면 bus_stop.stop_id (1:1). fixture 9/9 존재, stop_name 정상(광화문역·롯데백화점·고속터미널 등).
+  - OTP route `1:BR_TAGO_SEB<9digit>` → bus_route.route_id (1:1). fixture 5/5, route_name==OTP shortName(143/150/501/641/643).
+  - bus_stop.stop_id 전부 9자리(12986행), bus_route.route_id 전부 9자리(728). 포맷 안정.
+- **지하철 매핑 = 좌표+라인 확정. id 도 decode 됨.**
+  - OTP subway feed=`ACC1`, stop `1:RS_ACC1_S-1-<line2><seq2>`, route `1:RR_ACC1_S-1-04-1D`(shortName=서울4호선).
+  - ~~OTP `S-1-0427`→statn_id `1004000427`(숙대입구)… 공식 statn_id=`100`+lineNo+`00`+tail~~ **취소: id decode 는 4호선 2샘플만 우연 일치. 일반화 불가(아래 정정 참조)**.
+  - **1차 키는 좌표**: OTP stop lat/lon vs subway_station.geom 거리 = 2.9m / 2.0m(사실상 동일). line 은 route(서울4호선)로 disambiguate(동명역 동대문역사문화공원=1002/1004 등 존재).
+
+### 함정
+- **지하철 OTP feed(ACC1, `S-1-04` 스킴) ≠ DB subway_station.tago_station_id(MTR 스킴, 예 MTRS14427)**. tago 매핑은 딴 소스(TAGO 실시간). OTP↔statn_id 는 별도 decode, MTR 재사용 금지.
+- bus_stop 첫자리 `1`(11241 서울)·`2`(1745 경기권) 2군. OTP prefix `SEB`=서울 기준 확인됨. 경기권 정류장의 OTP prefix(GB/IB?) 는 미확인 — 매핑 생성 배치에서 prefix universe 확인 필요(V49 feed_id/agency_id 로 흡수).
+- 지하철 statn_id decode 공식은 4호선 2샘플만 실증. 타 노선(2·9호선 등) 회차/지선(1D 방향코드) 일반화는 미검증 — 좌표를 1차키로 두면 안전.
+
+### 검증 함의 (P2-D 재평가)
+- V49 의 REVIEW/퍼지검증 파이프라인은 **수도권 기준 과설계**. 버스=prefix규칙, 지하철=좌표(≤3m)+라인 → 규칙 생성기로 VERIFIED 대량 발급 가능. V49 표(immutable/versioned artifact)는 유지하되 "생성기"는 예상보다 단순.
+- 미검증 잔여: repo IT(Testcontainers, NULLS NOT DISTINCT 실증), 경기권 버스 prefix, 지하철 타노선 decode 일반화, resolver 배선 end-to-end.
+
+### 좌표 (검증 스크립트)
+- probe SQL: /Users/wa/.claude/jobs/d6757bfd/tmp/probe{,2,3}.sql (일회성). fixture id 추출: ids.txt.
+
+### 정정 (2026-09-08, 지하철 id decode 반증)
+- **지하철 id-only 매핑 = 불가능/위험. 좌표가 유일 신뢰키.** 추가 노선 실증으로 앞의 decode 공식 반증됨:
+  - `S-1-1806`=부평(1호선) — decode `1018001806` DB 없음. 실제 부평 statn_id=`1001000152`.
+  - `S-1-0150`=서울역(OTP "서울(지하)") — decode `1001000150`=**송내**(틀린 역). 실제 서울역 line1=`1001000133`.
+  - `S-1-04..`(4호선)만 우연히 맞았음.
+- 원인: OTP stop id `S-1-<BB><SS>` 의 `BB`(예 18)=라인 아님, **지선 코드**(부평=경인선). route(`S-1-01`=1호선)가 라인, stop 의 BB 는 별개. DB statn_id 중간2자리(00/07/08/80=지선분기)와 대응규칙 없음. seq 도 지선별 재사용.
+- line_id==statn_id[1:4] 는 100% 성립(DB 일관). 동명역 다수(서울=1001/1004/1032/1063/1065). → **매핑키 = OTP 좌표(≤3m) + route 라인**. id 는 후보축소 보조로만(신뢰 금지).
+- 버스는 반대: id(prefix strip)가 완벽, 좌표 불필요.
+
+### 결정 (2026-09-08): 매핑 = 방법 B 실시간 규칙 resolver (생성기·V49 표 미사용)
+- 검증결과 매칭이 결정적이라 versioned 표(P2-D V49)는 서울 기준 과설계. **표 없이 요청시 규칙으로 즉석 해석**하는 resolver 로 간다.
+- 규칙: 버스=`BS_TAGO_SEB<9d>`→stop_id / `BR_TAGO_SEB<9d>`→route_id (prefix strip+존재검증). 지하철=route shortName `(\d)호선`→line_id `100`+N (1~9만) + StopOccurrence 좌표 최근접 subway_station(≤50m).
+- **스코프 하드제약: 서울 버스 + 지하철 1~9호선만.** 경기(`BS_TAGO_GGB`)·인천(`BS_TAGO_ICB`)·기타 노선(경의중앙 1063/신분당 1075 등)·RS_TAGO/SS_ACC2 = 미지원→STATIC. 추후 확장 시 동일규칙 여부 **미검증**(prefix·좌표계·라인코드 다를 수 있음).
+- P2-D #181(V49 표+JPA adapter+생성기)은 이 결정으로 **미사용/보류**. port 인터페이스(TransitIdentityMappingPort)는 재사용 가능하나 좌표입력 안 맞음 → 신규 resolver 계약 별도.
+
+### 구현 (2026-09-08): OtpSeoulIdentityResolver (방법 B 코어)
+- 신규 `application/route/mapping/`: SeoulTransitIdentity(sealed)/SeoulBusIdentity(stopId,routeId,routeName)/SeoulSubwayIdentity(stationId,lineId,distanceMeters)/OtpSeoulIdentityResolver.
+- resolveBus: 정규식 `^\d+:BS_TAGO_SEB(\d{9})$`/`^\d+:BR_TAGO_SEB(\d{9})$` strip → busStopRepo.existsByStopId + busRouteRepo.existsByRouteId 둘 다 true 여야. routeName=OTP shortName.
+- resolveSubway: shortName `(\d)호선`(1~9)→lineId `100`+N, subwayRepo.findNearby(lat,lon,50m,8) 거리오름차순에서 라인일치 첫 후보. (findNearby·NearbySubwayStationProjection 기존재).
+- resolve(leg,stop) mode 분기(BUS/SUBWAY·RAIL/else). 스코프밖·미존재=empty→호출자 STATIC.
+- 배선 없음(standalone). 프로덕션(ODSAY) 무변경. 소비자=후속(P2-D resolver 연계/P2-E 실시간 대체).
+### 함정 (resolver)
+- 테스트 projection 은 mockito 중첩 스터빙(when 안 when) 터짐 → 익명 구현체로 대체.
+- findNearby 시그니처 (lat, lng, radiusMeters, lim) 순서 주의(lng=경도).
+### 검증 (resolver, 2026-09-08)
+- ./gradlew test --tests *OtpSeoulIdentityResolverTest → BUILD SUCCESSFUL, 7/7.
+- 계약: 버스 정상매핑 / stop DB미존재 empty(phantom방지) / GGB·ICB 스코프밖 empty / 지하철 라인+좌표 최근접 / 호선1~9밖 empty / 반경내 라인후보없음 empty / WALK dispatch empty.
+
+### 검증 (resolver Sonnet 리뷰 반영, 2026-09-08)
+- Minor: seoulLineId `(\d)호선` 미앵커 → 두자리 "11호선" 뒷자리 오매치 위험. `(?<!\d)([1-9])호선` 로 앵커.
+- Minor: resolve() dispatch 가 WALK 만 테스트됨 → BUS/SUBWAY dispatch 테스트 추가.
+- 리뷰서 solid 확인: SEB 정규식 앵커·phantom 방지·좌표우선 disambiguation. 총 11/11.
+
 ## national-otp-p2 P2-E ETA composer (2026-09-08, branch feat/otp-p2-eta-timeline)
 ### 확정
 - 신규 `application/route/timeline/`: RouteTimelineComposer + ConnectionFeasibilityEvaluator + ComposedTimeline/TimelineSegment(SegmentType WAIT/RIDE/WALK)/Feasibility(FEASIBLE/MISSED/CANCELLED/NO_CATCHABLE)/RealtimeLegTiming/RealtimeLegTimingLookup(주입 FI).
