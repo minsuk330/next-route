@@ -51,7 +51,11 @@ class RemainingRouteSearchServiceTest {
     private final JourneyRerouteMetrics metrics =
             new JourneyRerouteMetrics(new SimpleMeterRegistry());
     private final RemainingRouteSearchService service =
-            new RemainingRouteSearchService(cache, odSayApiPort, metrics);
+            new RemainingRouteSearchService(cache, odSayApiPort, metrics,
+                    new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
+                            new watoo.grd.nextroute.application.route.config.RoutingProviderProperties(), java.util.List.of()),
+                    new watoo.grd.nextroute.application.route.service.LegacyRouteResponseMapper(),
+                    java.time.Clock.systemDefaultZone());
 
     @Test
     @DisplayName("캐시가 맞으면 검색을 부르지 않는다")
