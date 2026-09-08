@@ -10,8 +10,9 @@ import java.util.Set;
  *
  * @param mode              provider 무관 수단. 미지원은 UNSUPPORTED(bus 변환 금지)
  * @param sourceDetailType  원천 세부타입(예: 고속철도) 보존용 문자열. 없으면 null
- * @param boardAt           정적 승차시각. 도보 leg 는 null
- * @param alightAt          정적 하차시각. 도보 leg 는 null
+ * @param boardAt           구간 시작 시각(대중교통=정적 승차, 도보=이동 시작). provider 가 절대시각을 주면
+ *                          채우고(OTP planConnection), 주지 않으면 null(ODsay 는 상대 소요시간만 주므로 null)
+ * @param alightAt          구간 끝 시각(대중교통=정적 하차, 도보=이동 끝). boardAt 과 같은 규칙(provider 의존)
  * @param rideDurationSeconds 정적 승차 소요(초). 초 단위 보존(분 반올림은 legacy mapper 최종단계)
  * @param stops             지나는 정류장 occurrence(승·하차 포함)
  * @param walkSteps         도보 leg 의 turn. 대중교통 leg 는 빈 목록
