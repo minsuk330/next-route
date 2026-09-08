@@ -45,4 +45,11 @@ public record RoutingLeg(
     public boolean isTransit() {
         return mode == RoutingMode.BUS || mode == RoutingMode.SUBWAY || mode == RoutingMode.RAIL;
     }
+
+    /** enrichment 만 바꾼 복사본(나머지 필드 보존). 수동 전체 재생성 시 신규 필드 유실을 막는다. */
+    public RoutingLeg withEnrichment(Enrichment newEnrichment) {
+        return new RoutingLeg(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName,
+                tripId, serviceDate, boardAt, alightAt, rideDurationSeconds, stops, walkSteps, geometry,
+                newEnrichment, missing);
+    }
 }
