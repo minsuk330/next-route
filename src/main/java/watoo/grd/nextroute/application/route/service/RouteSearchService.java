@@ -57,7 +57,6 @@ public class RouteSearchService implements SearchRouteUseCase {
     private final LegacyRouteResponseMapper legacyRouteResponseMapper;
     private final DepartureTimeResolver departureTimeResolver;
     private final Clock clock;
-    private final watoo.grd.nextroute.application.route.timeline.RouteTimelineService routeTimelineService;
 
     @Override
     public RouteSearchResult search(RouteSearchRequest request) {
@@ -179,14 +178,10 @@ public class RouteSearchService implements SearchRouteUseCase {
         if (outcome instanceof RoutingFailure failure) {
             return handleOtpFailure(failure, ctx);
         }
-        // 각 itinerary 를 하나의 시간축으로 합성해 보강 total 로 정렬(FEASIBLE 우선). 실시간은 coverage 게이트+주입 lookup.
-        // 남은 예산으로 실시간 상한을 걸어(M1) 순차 외부콜이 검색 deadline 을 넘기지 않게 한다. 계측은 BUS_REALTIME stage.
-        long rtStart = System.nanoTime();
-        RoutingResult result = routeTimelineService.reorderByEffectiveTotal(
-                (RoutingResult) outcome, departureAt, deadline.remainingMillis(clock));
-        metrics.recordStage(SearchComponent.BUS_REALTIME,
-                ctx.isDegraded(SearchComponent.BUS_REALTIME), System.nanoTime() - rtStart);
-        return legacyRouteResponseMapper.toLegacy(result);
+        // #1 검색 응답 = 정적 ODsay 드롭인. 엔진이 준 순서(가장 빠른 것 먼저)를 그대로 유지하고
+        // 실시간 재정렬/coverage 를 서버가 하지 않는다. 실시간은 프론트가 매핑된 서울 id 로 별도 API 를 호출.
+        // 보강 total 정렬(RouteTimelineService)·coverage 는 주행중 재탐색(#2 P2-F) 소비지점에만 붙는다.
+        return legacyRouteResponseMapper.toLegacy((RoutingResult) outcome);
     }
 
     /**

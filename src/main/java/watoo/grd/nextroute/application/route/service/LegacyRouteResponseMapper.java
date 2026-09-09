@@ -2,11 +2,14 @@ package watoo.grd.nextroute.application.route.service;
 
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.route.dto.LaneGraphicResult;
+import watoo.grd.nextroute.application.route.dto.LaneResult;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
+import watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver;
+import watoo.grd.nextroute.application.route.mapping.SeoulBusIdentity;
 import watoo.grd.nextroute.application.route.routing.Fare;
 import watoo.grd.nextroute.application.route.routing.RoutingItinerary;
 import watoo.grd.nextroute.application.route.routing.RoutingLeg;
@@ -16,6 +19,7 @@ import watoo.grd.nextroute.application.route.routing.StopOccurrence;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 중립 {@link RoutingResult} → 기존 앱이 소비하는 legacy {@link RouteSearchResult}.
@@ -27,7 +31,10 @@ import java.util.List;
  * <ul>
  *   <li>{@code polyline}/{@code laneGraphics}/{@code mapObj} — 대중교통 형상은 P3 OSM relation 이 채운다(지금 null).</li>
  *   <li>{@code walkSteps} — legacy 는 TMAP turn 구조(x/y 포함)라 OTP steps 와 형태가 달라 배선하지 않는다(후속).</li>
- *   <li>ODsay 전용 ID(localStationID/ArsID/exit) — GTFS 매핑(P2-D) 전이라 null.</li>
+ *   <li>버스 실시간 ID(localStationID/busLocalBlID) — {@link OtpSeoulIdentityResolver} 로 채운다(프론트가
+ *       {@code /api/arrivals/bus/{stopId}/{routeId}} 를 호출하게). 매핑 안 되면 null(가짜값 금지).
+ *       지하철은 실시간이 좌표 기반({@code /api/arrivals/subway?lat&lon})이라 id 를 채우지 않는다 — 좌표로 충분.
+ *       ArsID/exit 는 원천 부재라 여전히 null.</li>
  *   <li>{@code totalWalk}(m) — 중립 모델이 거리(m)를 안 들고 있어 0. 시간(초)만 정확.</li>
  * </ul>
  * 요금은 unknown 을 0 으로 만들지 않는다: KNOWN→금액, KNOWN_ZERO→0, UNKNOWN→{@code -1} sentinel.
@@ -37,6 +44,13 @@ public class LegacyRouteResponseMapper {
 
     /** legacy payment(primitive int) 의 unknown sentinel. 구형 앱은 -1 을 "요금 미상"으로 그린다(P5 확인 대상). */
     public static final int PAYMENT_UNKNOWN = -1;
+
+    /** 버스 leg 의 서울 실시간 id(정류장/노선) 해석. 지하철은 좌표 기반이라 사용 안 함. */
+    private final OtpSeoulIdentityResolver resolver;
+
+    public LegacyRouteResponseMapper(OtpSeoulIdentityResolver resolver) {
+        this.resolver = resolver;
+    }
 
     private static final int TRAFFIC_SUBWAY = 1;
     private static final int TRAFFIC_BUS = 2;
@@ -114,13 +128,34 @@ public class LegacyRouteResponseMapper {
         String startName = leg.stops().isEmpty() ? null : leg.stops().get(0).name();
         String endName = last == null ? null : last.name();
 
-        // 채우지 못하는 legacy 필드는 null(가짜값 금지): polyline/exit/walkSteps/ODsay-id.
+        // 버스 leg 만 서울 실시간 id 를 채운다. 프론트가 /api/arrivals/bus/{stopId}/{routeId} 를 호출한다.
+        // 지하철/철도는 좌표 기반 실시간이라 여기서 id 를 안 채운다(startX/Y·stations 좌표로 충분).
+        List<LaneResult> lanes = null;
+        String startLocalStationID = null;
+        String endLocalStationID = null;
+        if (leg.mode() == RoutingMode.BUS) {
+            String routeName = leg.sourceRouteName();
+            String busLocalBlID = null;
+            if (!leg.stops().isEmpty()) {
+                Optional<SeoulBusIdentity> boarding = resolver.resolveBus(
+                        leg.stops().get(0).sourceStopId(), leg.sourceRouteId(), routeName);
+                startLocalStationID = boarding.map(SeoulBusIdentity::stopId).orElse(null);
+                busLocalBlID = boarding.map(SeoulBusIdentity::routeId).orElse(null);
+                endLocalStationID = resolver.resolveBus(
+                                last.sourceStopId(), leg.sourceRouteId(), routeName)
+                        .map(SeoulBusIdentity::stopId).orElse(null);
+            }
+            // 표시용 lane 은 버스번호로 항상 생성. busLocalBlID(실시간 호출용)는 매핑될 때만 non-null.
+            lanes = List.of(new LaneResult(routeName, routeName, null, null, null, busLocalBlID));
+        }
+
+        // 채우지 못하는 legacy 필드는 null(가짜값 금지): polyline/exit/walkSteps/ArsID/지하철-id.
         return new SubPathResult(
-                trafficType, sectionTime, null, null, stations,
+                trafficType, sectionTime, null, lanes, stations,
                 startName, endName, startX, startY, endX, endY,
                 null, null, null, null, null, null,
                 null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null);
+                null, startLocalStationID, endLocalStationID, null, null, null, null, null);
     }
 
     private List<StationResult> toStations(List<StopOccurrence> stops) {

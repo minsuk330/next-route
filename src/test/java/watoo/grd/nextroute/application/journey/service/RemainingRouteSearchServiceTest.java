@@ -56,7 +56,7 @@ class RemainingRouteSearchServiceTest {
             new RemainingRouteSearchService(cache, odSayApiPort, metrics,
                     new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
                             new watoo.grd.nextroute.application.route.config.RoutingProviderProperties(), java.util.List.of()),
-                    new watoo.grd.nextroute.application.route.service.LegacyRouteResponseMapper(),
+                    new watoo.grd.nextroute.application.route.service.LegacyRouteResponseMapper(org.mockito.Mockito.mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
                     new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
                     java.time.Clock.systemDefaultZone());
 

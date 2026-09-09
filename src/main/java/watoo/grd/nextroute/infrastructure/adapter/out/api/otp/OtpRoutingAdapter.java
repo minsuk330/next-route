@@ -13,8 +13,6 @@ import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
 import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
-import watoo.grd.nextroute.application.route.routing.RoutingResult;
-import watoo.grd.nextroute.application.route.mapping.OtpLegCoverageResolver;
 import watoo.grd.nextroute.application.route.routing.RoutingPort;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
 import watoo.grd.nextroute.application.route.routing.RoutingQuery;
@@ -48,19 +46,17 @@ public class OtpRoutingAdapter implements RoutingPort {
     private final OtpPlanConnectionMapper mapper;
     private final OtpRoutingProperties properties;
     private final Clock clock;
-    private final OtpLegCoverageResolver coverageResolver;
     private final String query;
     private final HttpClient httpClient;
 
     public OtpRoutingAdapter(RestClient.Builder restClientBuilder, ObjectMapper objectMapper,
                              OtpPlanConnectionMapper mapper, OtpRoutingProperties properties,
-                             Clock clock, OtpLegCoverageResolver coverageResolver) {
+                             Clock clock) {
         this.restClientBuilder = restClientBuilder;
         this.objectMapper = objectMapper;
         this.mapper = mapper;
         this.properties = properties;
         this.clock = clock;
-        this.coverageResolver = coverageResolver;
         this.query = loadQuery();
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(properties.getConnectTimeoutMs()))
@@ -104,12 +100,9 @@ public class OtpRoutingAdapter implements RoutingPort {
         OtpPlanConnectionMapper.OtpVersions versions = new OtpPlanConnectionMapper.OtpVersions(
                 properties.getSchemaVersion(), properties.getNetworkDataVersion(),
                 properties.getGraphVersion());
-        RoutingOutcome outcome = mapper.map(root, routingQuery.departureAt(), versions);
-        // 성공 결과의 대중교통 leg 에 실시간 매핑 가능 여부(coverage)를 배선한다. 실패(RoutingFailure)는 그대로.
-        if (outcome instanceof RoutingResult result) {
-            return coverageResolver.applyCoverage(result);
-        }
-        return outcome;
+        // 실시간 coverage 배선은 #1 검색 응답이 소비하지 않는다(정적 드롭인). 주행중 재탐색(#2 P2-F)이
+        // 소비지점에서 적용한다 → 여기서는 중립 결과를 그대로 반환. OtpLegCoverageResolver 는 #2 용으로 존치.
+        return mapper.map(root, routingQuery.departureAt(), versions);
     }
 
     private String requestBody(RoutingQuery q) {

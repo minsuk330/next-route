@@ -71,7 +71,7 @@ class RemainingRouteSearchServiceOtpTest {
         return new RemainingRouteSearchService(cache, odsayNeverCalled,
                 new JourneyRerouteMetrics(new SimpleMeterRegistry()),
                 new RoutingProviderSelector(props, List.of(otp)),
-                new LegacyRouteResponseMapper(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(), clock);
+                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(), clock);
     }
 
     @Test

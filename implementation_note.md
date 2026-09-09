@@ -1482,3 +1482,24 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - RouteTimelineServiceTest 6(실시간→정렬뒤집힘/budget0 skip 정적우선/동률안정/불가뒤로/0~1 noop) + RouteSearchServiceTest 8(ODSAY) + OtpWiringTest 그린.
 ### 미결 (M1 잔여)
 - **per-call timeout decay 미구현**: 각 버스콜은 여전히 props.getDeadlineMs(1.5s) full timeout. 진행중 1콜은 최대 1.5s. 완전 해결 = RealtimeLegTimingLookup.timingFor + RouteTimelineComposer.compose 에 잔여예산 인자 추가(composer 12테스트 ripple) → P7 OTP 활성 전 별도 PR. 현재 wall-clock 게이트로 누적은 상한됨.
+
+## national-otp 설계 correction: #1 검색 정적화 + 서울 id 채우기 (2026-09-09, 사용자 지시)
+### 확정 (코드만 봐선 안 나오는 계약)
+- **원칙 재확정([[feedback-server-static-search-front-realtime]])**: #1 초기검색 응답 = 정적 ODsay 드롭인만. 실시간·재정렬·라벨·coverage노출 서버 금지. 실시간은 프론트가 **별도 API** 로 호출. 검색응답이 할 일 = 프론트가 실시간 호출하게 **서울 provider id 채우기**.
+- **버스 실시간 = id 기반**: `GET /api/arrivals/bus/{stopId}/{routeId}` (BusArrivalController). stopId=bus_stop.stop_id, routeId=bus_route.route_id. → legacy 응답에 채워야: `SubPathResult.startLocalStationID`←resolver.stopId (PR3규칙 startLocalStationID→stop_id), `LaneResult.busLocalBlID`←resolver.routeId (busLocalBlID→route_id), `endLocalStationID`←하차정류장 resolve.
+- **지하철 실시간 = 좌표 기반**: `GET /api/arrivals/subway?lat&lon&line_id(optional)` (SubwayArrivalController→SubwayArrivalQueryService.resolveStation). 서버가 `findNearby` 50→300m + lineId 필터로 역 확정 = resolver.resolveSubway 와 동일 로직. → **지하철 leg 은 legacy 에 station_id 채울 필요 없음**. 매퍼가 이미 넣는 좌표(startX/Y, StationResult x/y)로 프론트가 호출. startId(Integer) vs station_id(String) 타입불일치 문제는 **폐기**(애초 불필요).
+- **correction 3파트**: ① runOtpSearch 에서 reorderByEffectiveTotal 호출+BUS_REALTIME 계측 제거 → toLegacy(outcome) 직행(엔진 빠른순 유지, 강등/숨김 금지). ② LegacyRouteResponseMapper 에 OtpSeoulIdentityResolver 주입해 버스 id 채우기(지하철 skip). ③ OtpRoutingAdapter 의 applyCoverage 제거(#1 미사용) — resolver/OtpLegCoverageResolver/RouteTimelineService/composer/timing/budget 은 **폐기 아님**, #2(주행중 재탐색 P2-F)용으로 main 보존.
+- **#187(M1 예산상한) = 먼저 머지 후** 그 위에서 correction(사용자 Q1). reorder 를 #1 에서 걷어내도 RouteTimelineService/budget 은 #2 용으로 살아있음.
+### 미결
+- ② 하차정류장 resolve: resolveBus 를 last stop sourceStopId 로 재호출(같은 routeGtfsId/routeName). endLocalStationID 만, endArsID 는 원천 ARS 없음 → null 유지.
+- coverage 를 #2 어디서 소비할지는 P2-F(PR4) 구현 시 확정(현재는 adapter 에서 제거만).
+
+### 검증 (correction, 2026-09-09)
+- 편집: ③ OtpRoutingAdapter(coverageResolver 필드/생성자/applyCoverage 제거, import 정리) ① RouteSearchService.runOtpSearch(reorder+BUS_REALTIME 제거→toLegacy 직행, RouteTimelineService 필드 제거) ② LegacyRouteResponseMapper(OtpSeoulIdentityResolver 주입, 버스 leg 만 startLocalStationID/endLocalStationID + LaneResult.busLocalBlID 채움; 지하철 skip).
+- 계약 실증: 기존 프론트 지하철 실시간 = 좌표 기반(/api/arrivals/subway?lat&lon, SubwayArrivalQueryService.resolveStation=findNearby+lineId 필터). 버스 = id 기반(/api/arrivals/bus/{stopId}/{routeId}). → 지하철 id 매핑 불필요 확정.
+- `./gradlew compileJava compileTestJava` 그린. 생성자 시그니처 변경 파급(테스트 6파일): RouteSearchServiceTest/OtpWiringTest/RouteSearchDeadlineIT/RouteSearchRealtimeDeadlineIT(RouteTimelineService 인자 제거+mapper resolver), RemainingRouteSearchServiceTest/OtpTest(mapper resolver), OtpRoutingAdapterHttpTest/BudgetTest(coverageResolver 인자 제거).
+- `./gradlew test` (11클래스) = **48 tests, 0 fail/error**. RouteResponseMapperTest 4(신규 busSeoulIdFilled/busUnmappedKeepsDisplay 포함), RouteSearchServiceTest 8(ODSAY 회귀), OtpWiringTest 2, OtpSeoulIdentityResolverTest 10, OtpLegCoverageResolverTest 5(클래스 존치 확인), Otp/Remaining/Deadline 나머지.
+### 함정 (correction)
+- SubPathResult 위치인자 31개 — lanes(4번째)·startLocalStationID(25)·endLocalStationID(26)만 채우고 나머지 null 유지. ArsID/startId 는 원천부재로 계속 null.
+- LegacyRouteResponseMapper 는 Lombok 미사용 → 수동 생성자 추가. 무인자 생성자 호출 6곳(1곳은 FQN `...service.LegacyRouteResponseMapper()` 라 단순 grep 누락) 전부 mock resolver 주입.
+- OtpLegCoverageResolver/RouteTimelineService/composer/timing/budget = main 존치(빈 유지), #2 P2-F 소비지점 배선만 남음.
