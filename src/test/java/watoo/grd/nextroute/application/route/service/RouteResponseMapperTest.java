@@ -113,6 +113,24 @@ class RouteResponseMapperTest {
     }
 
     @Test
+    @DisplayName("legacy 지하철: id/lane 안 채움(좌표 기반 실시간), 좌표는 유지")
+    void subwayNoIdCoordsKept() throws IOException {
+        busMappable();   // 버스 repo 매핑돼도 지하철 leg 은 mode 가드로 id 안 붙어야 함
+        RouteSearchResult legacy = legacyMapper.toLegacy(routingResult());
+        // fixture edges[2] = WALK/BUS/WALK/SUBWAY(서울4호선)/WALK → paths[2].subPaths[3]
+        SubPathResult subway = legacy.paths().get(2).subPaths().get(3);
+        assertThat(subway.trafficType()).isEqualTo(1);          // 지하철
+        assertThat(subway.lanes()).isNull();                    // lane 미생성
+        assertThat(subway.startLocalStationID()).isNull();      // 좌표 기반이라 id 불필요
+        assertThat(subway.endLocalStationID()).isNull();
+        assertThat(subway.startId()).isNull();
+        // 좌표는 유지(프론트가 /api/arrivals/subway?lat&lon 호출)
+        assertThat(subway.startX()).isNotNull();
+        assertThat(subway.startY()).isNotNull();
+        assertThat(subway.stations()).isNotEmpty();
+    }
+
+    @Test
     @DisplayName("legacy 버스: DB 미매핑이면 id null(가짜값 금지), 단 lane 은 버스번호로 표시 유지")
     void busUnmappedKeepsDisplay() throws IOException {
         // busMappable() 미호출 → repo exists=false → resolveBus empty
