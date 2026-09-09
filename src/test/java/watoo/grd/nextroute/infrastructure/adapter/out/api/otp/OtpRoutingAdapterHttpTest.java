@@ -39,9 +39,7 @@ class OtpRoutingAdapterHttpTest {
         OtpRoutingProperties props = new OtpRoutingProperties();
         props.setBaseUrl(server.url("/").toString().replaceAll("/$", ""));
         adapter = new OtpRoutingAdapter(RestClient.builder(), new ObjectMapper(),
-                new OtpPlanConnectionMapper(), props, clock,
-                new watoo.grd.nextroute.application.route.mapping.OtpLegCoverageResolver(
-                        org.mockito.Mockito.mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)));
+                new OtpPlanConnectionMapper(), props, clock);
     }
 
     @AfterEach
