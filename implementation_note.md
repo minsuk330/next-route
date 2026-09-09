@@ -1504,6 +1504,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - LegacyRouteResponseMapper 는 Lombok 미사용 → 수동 생성자 추가. 무인자 생성자 호출 6곳(1곳은 FQN `...service.LegacyRouteResponseMapper()` 라 단순 grep 누락) 전부 mock resolver 주입.
 - OtpLegCoverageResolver/RouteTimelineService/composer/timing/budget = main 존치(빈 유지), #2 P2-F 소비지점 배선만 남음.
 
+## national-otp P2-F PR-2: route-option 후보 출처 추상화 (2026-09-10, branch feat/otp-p2f-route-option-source)
+### 확정
+- RerouteRouteOptionSource 포트 도입 + SourceOutcome(OK/UNAVAILABLE/TIMEOUT/ERROR — 정상0vs장애, codex B7). optionsFor(JourneyLeg, RoutingDeadline).
+- StoredRouteOptionSource(@Component): 현행 findByJourneyLegIdInAndDeletedAtIsNull + optionIndex 정렬을 그대로 이관. 저장 조회는 장애상태 없음→항상 OK.
+- RouteOptionCandidateProvider: routeOptionRepository 필드 제거→routeOptionSource. collect()가 source.optionsFor(waitLeg, RoutingDeadline.of(clock, routeOption.evaluationBudgetMs)) 호출, non-OK면 metrics.recordCandidateFiltered("source-<status>")+빈손. baseline/alternatives/dedup/budget 로직 무변경.
+### 함정
+- **무행위변경 성립 조건**: StoredSource 가 항상 OK 라 non-OK 분기 미발동 → 기존 20 테스트 그린 유지. 테스트 provider 생성자는 routeOptionRepository 대신 new StoredRouteOptionSource(mockRepo) 래핑(기존 stub findByJourneyLegIdIn 그대로 동작).
+- PR-4 에서 OtpPatternRouteOptionSource 추가 시 RerouteRouteOptionSource 빈 2개 → DI 모호. @Primary/selector 로 가름(PR-4). PR-2 는 단일 빈.
+### 검증 (PR-2)
+- StoredRouteOptionSourceTest 2(optionIndex 정렬/빈=OK) + RouteOptionCandidateProviderTest 20 무회귀 + RerouteAcceptIT 9(컨텍스트 부팅, 새 빈+재배선). 마이그레이션 없음.
 ## national-otp P2-F PR-3: 동적 route-option 수락 계약 (2026-09-10, branch feat/otp-p2f-dynamic-route-option-accept)
 ### 확정 (코드만 봐선 안 나오는 계약)
 - **문제(codex B1)**: RerouteAcceptTxService.saveRouteOptions 가 저장 journey_leg_route_option 을 optionIndex 로 선택, 불일치=첫 후보 fallback → OTP 동적 후보(저장 미존재) 수락 시 엉뚱 노선 선택.
