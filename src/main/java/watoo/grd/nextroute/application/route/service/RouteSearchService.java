@@ -57,6 +57,7 @@ public class RouteSearchService implements SearchRouteUseCase {
     private final LegacyRouteResponseMapper legacyRouteResponseMapper;
     private final DepartureTimeResolver departureTimeResolver;
     private final Clock clock;
+    private final watoo.grd.nextroute.application.route.timeline.RouteTimelineService routeTimelineService;
 
     @Override
     public RouteSearchResult search(RouteSearchRequest request) {
@@ -178,7 +179,10 @@ public class RouteSearchService implements SearchRouteUseCase {
         if (outcome instanceof RoutingFailure failure) {
             return handleOtpFailure(failure, ctx);
         }
-        return legacyRouteResponseMapper.toLegacy((RoutingResult) outcome);
+        // 각 itinerary 를 하나의 시간축으로 합성해 보강 total 로 정렬(FEASIBLE 우선). 실시간은 coverage 게이트+주입 lookup.
+        RoutingResult result = routeTimelineService.reorderByEffectiveTotal(
+                (RoutingResult) outcome, departureAt);
+        return legacyRouteResponseMapper.toLegacy(result);
     }
 
     /**

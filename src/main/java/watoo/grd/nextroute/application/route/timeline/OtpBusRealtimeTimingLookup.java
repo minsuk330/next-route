@@ -3,6 +3,7 @@ package watoo.grd.nextroute.application.route.timeline;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
+import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
 import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
 import watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver;
 import watoo.grd.nextroute.application.route.mapping.SeoulBusIdentity;
@@ -44,10 +45,12 @@ public class OtpBusRealtimeTimingLookup implements RealtimeLegTimingLookup {
     private final SearchTimeBusQueryPort busPort;
     private final TransferStopResolver stopResolver;
     private final TransferArrivalProperties props;
+    private final OtpRoutingProperties otpProps;
 
     @Override
     public Optional<RealtimeLegTiming> timingFor(RoutingLeg leg, StopOccurrence boardingStop, Instant plannedBoardAt) {
-        if (!props.isEnabled()) {
+        // 두 게이트 AND: 실시간 인프라 활성(ODSAY 공유) + OTP 실시간 전용 킬스위치(라우팅 활성과 분리).
+        if (!props.isEnabled() || !otpProps.isRealtimeEnabled()) {
             return Optional.empty();
         }
         Optional<SeoulTransitIdentity> resolved = identityResolver.resolve(leg, boardingStop);

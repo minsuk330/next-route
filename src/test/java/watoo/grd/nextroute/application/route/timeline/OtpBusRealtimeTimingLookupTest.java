@@ -35,8 +35,10 @@ class OtpBusRealtimeTimingLookupTest {
     private final SearchTimeBusQueryPort busPort = mock(SearchTimeBusQueryPort.class);
     private final TransferStopResolver stopResolver = mock(TransferStopResolver.class);
     private final TransferArrivalProperties props = new TransferArrivalProperties();
+    private final watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps =
+            new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
     private final OtpBusRealtimeTimingLookup lookup =
-            new OtpBusRealtimeTimingLookup(identity, busPort, stopResolver, props);
+            new OtpBusRealtimeTimingLookup(identity, busPort, stopResolver, props, otpProps);
 
     // fixture dataTimestamp = "2023-09-27 16:51:36.0" KST = 07:51:36Z
     private final Instant base = Instant.parse("2023-09-27T07:51:36Z");
@@ -46,7 +48,7 @@ class OtpBusRealtimeTimingLookupTest {
                 "trip", null, base, base.plusSeconds(1200), 1200, List.of(), List.of(), null, null, null);
     }
 
-    private void enable() { props.setEnabled(true); }
+    private void enable() { props.setEnabled(true); otpProps.setRealtimeEnabled(true); }
 
     @Test
     @DisplayName("버스: resolve + 단일seq + 실시간 도착 → RealtimeLegTiming(출발=승차stop 도착, arrival=null, REALTIME)")
@@ -116,6 +118,14 @@ class OtpBusRealtimeTimingLookupTest {
     @Test
     @DisplayName("기능 비활성(transfer-arrival.enabled=false) → empty(resolver 미호출)")
     void disabled() {
+        assertThat(lookup.timingFor(busLeg(), null, base)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("OTP 실시간 전용 킬스위치 off(realtime-enabled=false) → empty (transfer-arrival on 이어도)")
+    void otpRealtimeDisabledIndependently() {
+        props.setEnabled(true);
+        otpProps.setRealtimeEnabled(false); // OTP 라우팅과 분리된 독립 레버
         assertThat(lookup.timingFor(busLeg(), null, base)).isEmpty();
     }
 }

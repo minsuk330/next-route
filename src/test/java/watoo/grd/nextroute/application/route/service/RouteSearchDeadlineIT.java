@@ -131,7 +131,8 @@ class RouteSearchDeadlineIT {
                         new watoo.grd.nextroute.application.route.config.RoutingProviderProperties(), java.util.List.of()),
                 new LegacyRouteResponseMapper(),
                 new DepartureTimeResolver(java.time.Clock.systemDefaultZone()),
-                java.time.Clock.systemDefaultZone());
+                java.time.Clock.systemDefaultZone(),
+                new watoo.grd.nextroute.application.route.timeline.RouteTimelineService(new watoo.grd.nextroute.application.route.timeline.RouteTimelineComposer(java.time.Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.TransferArrivalProperties(), new watoo.grd.nextroute.application.route.config.TransferPredictProperties(), new watoo.grd.nextroute.application.route.timeline.ConnectionFeasibilityEvaluator()), (l, s, b) -> java.util.Optional.empty()));
     }
 
     @AfterEach

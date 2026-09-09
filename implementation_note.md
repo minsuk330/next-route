@@ -1448,3 +1448,26 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - OtpBusRealtimeTimingLookupTest 7/7: 정상(출발=승차도착·arrival null·REALTIME·observedAt)/미매핑empty/지하철empty/seq다중empty/BLOCKED empty/버스없음empty/disabled empty. fixture=BusArrivalInfoFixtures.arrivalWithSectionTime.
 ### 미결(다음 배선)
 - PR2b 지하철 timing(SubwayArrival 예측 재사용). PR3 composer 호출(coverage 게이트+lookup 주입→표시 ETA). PR4 P2-F reroute.
+
+## national-otp-p2 배선 PR3: composer 호출 (2026-09-08, branch feat/otp-p2-timeline-wiring)
+### 확정
+- RouteTimelineService.reorderByEffectiveTotal(RoutingResult, departureAt): 각 itinerary 를 RouteTimelineComposer 로 합성(주입된 RealtimeLegTimingLookup=버스 lookup, coverage 게이트) → 보강 total 로 정렬(FEASIBLE 우선·오름차순·안정, 불가 뒤로). result.withItineraries 로 재구성. 응답 매핑은 불변.
+- 배선점: RouteSearchService.runOtpSearch — port 결과(RoutingResult, coverage 배선됨)를 reorderByEffectiveTotal 후 legacyMapper.toLegacy. OTP 경로만(selector 뒤) → 프로덕션 ODSAY 무변경. enabled 기본 false 라 실시간 미적용=정적정렬(OTP 시간순과 사실상 동일 → OtpWiring 회귀 무영향).
+### 함정
+- RouteSearchService @RequiredArgsConstructor 필드 추가 → 생성자 인자 4개 테스트 전부 수정(마지막 위치). ODSAY 테스트는 timeline service 미사용이나 컴파일 위해 주입.
+- RealtimeLegTimingLookup impl 현재 1개(버스)라 인터페이스 주입 무모호. PR2b 지하철 추가 시 @Primary/@Qualifier 또는 List 주입 필요(주의).
+### 검증 (배선 PR3)
+- RouteTimelineServiceTest 3(보강total 정렬/불가 뒤로/0~1개 noop) + RouteSearchServiceTest 8(ODSAY 회귀) + OtpWiringTest(정렬 무영향) + timeline/otp/routing 그린.
+### 미결(다음 배선)
+- PR2b 지하철 timing(+lookup 다중 impl 조합). PR4 P2-F reroute(MISSED→routeOptions/남은검색+policy). v2 응답에 ComposedTimeline(feasibility/segments) 노출은 별도.
+
+### 검증 (배선 #184~#186 Sonnet 리뷰 반영, 2026-09-08)
+- 리뷰 Critical 0, mergeable. 반영:
+  - **M3 전용 킬스위치**: OtpRoutingProperties.realtimeEnabled(routing.otp.realtime-enabled, 기본 false). OtpBusRealtimeTimingLookup 게이트 = transfer-arrival.enabled AND otp.realtime-enabled. transfer-arrival.enabled 는 배포 yaml 에서 true(ODSAY 공유)라, OTP 라우팅 켜도 실시간은 이 플래그 전엔 off. 테스트 otpRealtimeDisabledIndependently.
+  - **m6 예외가드**: RouteTimelineService.reorderByEffectiveTotal try/catch(RuntimeException)→정적(원래) 순서 degrade(DB/외부콜 예외가 검색 전체 500 만드는 것 방지).
+  - **테스트 보강**: realtimeChangesOrder(coverage→lookup 적용 end-to-end 정렬 뒤집힘), stableOnTie(동률 안정), emptyStopsNoNpe(coverage resolver stops 빈 leg).
+- **후속(문서화, OTP off 라 비긴급)**:
+  - **M1(최중요, OTP 켜기 전 필수)**: RouteTimelineService→composer→timingFor 에 공유 decaying budget(RoutingDeadline) 없음 → N×L 순차 버스콜 각 full 1500ms, 상한·metrics 없음. 완전 해결=composer.compose/RealtimeLegTimingLookup.timingFor 시그니처에 budget 추가 + TransferArrivalEnricher 식 AtomicInteger 예산 + stage() 계측. 별도 PR(P7 OTP 활성 전).
+  - **M2**: OtpLegCoverageResolver 가 OtpRoutingAdapter 에서 모든 OTP-port 호출(RemainingRouteSearchService 재탐색 포함)에 적용됨. 재탐색은 현재 timing 미소비(runOtpSearch 만) → coverage DB비용 낭비. P2-F 재탐색이 소비 예정(전방투자)이나, 아니면 소비처로 이동 검토.
+  - **m4 이중 resolve**: coverage + lookup 이 identityResolver.resolve 중복(레그당 2x 인덱스조회). M1 대비 작음, defer. PR2b 시 coverage 결과를 leg/ctx 에 캐시해 lookup 재조회 제거 검토.
+  - **m5 lookup 다중 impl**: RealtimeLegTimingLookup 현재 1개(버스). PR2b 지하철 추가 시 @Autowired 모호(NoUniqueBean) → mode 키 dispatch/@Primary/List 조합 필요.
