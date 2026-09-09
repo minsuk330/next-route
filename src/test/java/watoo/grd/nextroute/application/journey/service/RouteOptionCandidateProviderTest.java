@@ -92,7 +92,7 @@ class RouteOptionCandidateProviderTest {
             @Override public Instant instant() { return currentTime; }
         };
         provider = new RouteOptionCandidateProvider(transferRepository, legRepository,
-                routeOptionRepository, predictTransferUseCase,
+                new StoredRouteOptionSource(routeOptionRepository), predictTransferUseCase,
                 new TransferPredictionInterpreter(new JourneyEvaluatorProperties()),
                 new RouteOptionEtaCalculator(), properties, metrics, steppingClock);
 

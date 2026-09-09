@@ -19,7 +19,7 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind;
 import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
-import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionRepository;
+import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepository;
 
 import java.time.Clock;
@@ -62,7 +62,7 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
 
     private final TransferConnectionRepository transferRepository;
     private final JourneyLegRepository legRepository;
-    private final JourneyLegRouteOptionRepository routeOptionRepository;
+    private final RerouteRouteOptionSource routeOptionSource;
     private final PredictTransferUseCase predictTransferUseCase;
     private final TransferPredictionInterpreter interpreter;
     private final RouteOptionEtaCalculator etaCalculator;
@@ -121,10 +121,16 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
             return List.of();
         }
 
-        List<JourneyLegRouteOption> options = routeOptionRepository
-                .findByJourneyLegIdInAndDeletedAtIsNull(List.of(waitLeg.getId())).stream()
-                .sorted(Comparator.comparingInt(JourneyLegRouteOption::getOptionIndex))
-                .toList();
+        // 후보 출처를 포트로 가른다(P2-F). 저장 구현은 지금까지와 동일(optionIndex 정렬 보존).
+        // OTP 외부 조회를 위해 예산을 넘긴다 — 저장 구현은 이 값을 쓰지 않는다.
+        RerouteRouteOptionSource.SourceOutcome sourced = routeOptionSource.optionsFor(
+                waitLeg, RoutingDeadline.of(clock, properties.getRouteOption().getEvaluationBudgetMs()));
+        if (!sourced.isOk()) {
+            // 정상 0건이 아니라 출처 장애(OTP timeout/error 등) — 빈손이되 사유를 남긴다.
+            metrics.recordCandidateFiltered("source-" + sourced.status().name().toLowerCase());
+            return List.of();
+        }
+        List<JourneyLegRouteOption> options = sourced.options();
 
         Evaluation baseline = evaluateBaseline(waitLeg, options, legs, transfer, context);
         if (baseline == null) {
