@@ -64,16 +64,29 @@ public class JourneyRerouteProperties {
         /**
          * 검색이 준 경로 중 <b>실제로 평가할</b> 수 상한.
          *
-         * <p>2 인 이유는 시간이다. 경로 하나마다 승차 예측이 한 번 나가고, 그 앞에 검색(최대 2초)과
-         * 기준선(최대 1.5초)이 이미 있다.
+         * <p>4 로 넓힌 근거(national-otp P2-F PR4a): 옛 값 2 는 ODsay <b>유료 호출 요금</b>이 근거였다.
+         * OTP 전환으로 남은경로 검색이 내부 호출이 되면 요금 근거가 사라져, 더 나은 우회로를 놓치지
+         * 않게 폭을 넓힌다. 상한을 두는 이유는 이제 <b>자원·라이브 대기</b>다 — 경로 하나마다 승차
+         * 예측이 나가고 사용자가 주행 중 그 응답을 기다린다. 전체 상한은 {@code evaluationBudgetMs}.
+         *
+         * <p><b>주의(OTP 전제)</b>: 이 값은 OTP(무료) 가정이다. OTP 를 켜기 전 provider=ODSAY 로
+         * 재탐색이 돌면 경로 수만큼 <b>유료</b> ODsay 호출이 는다. 재탐색은 사용자 요청 기반이고
+         * shadow 상태라 사용량이 낮아 수용하되, OTP 활성 전 부하가 관측되면 되돌린다.
          */
-        private int maxPaths = 2;
+        private int maxPaths = 4;
 
         /** 후보 평가에 쓸 수 있는 누적 시간. 넘으면 이미 평가한 것으로 제안을 만든다. */
         private long evaluationBudgetMs = 3000;
 
-        /** 경로 검색 한 번에 쓸 수 있는 시간. 캐시가 맞으면 쓰이지 않는다. */
-        private long searchBudgetMs = 2000;
+        /**
+         * 경로 검색 한 번에 쓸 수 있는 시간. 캐시가 맞으면 쓰이지 않는다.
+         *
+         * <p>3000 으로 늘린 근거(PR4a): 옛 2000 은 ODsay 호출 1회의 요금·지연 상한이었다. OTP 내부
+         * 호출로 바뀌면 근거가 요금에서 <b>지연·완결성</b>으로 옮겨간다 — 목적지가 멀고 환승이 많은
+         * 경로가 2초에 잘려 후보가 빈약해지느니, 1초를 더 줘 완전한 답을 낸다. 전체 여정 deadline
+         * 안에 든다.
+         */
+        private long searchBudgetMs = 3000;
 
         /**
          * 검색 응답을 Redis 에 들고 있는 시간.
@@ -106,10 +119,12 @@ public class JourneyRerouteProperties {
         /**
          * 한 요청에서 예측을 물어볼 <b>대안</b> 노선 수 상한. 기준선은 여기 포함되지 않는다.
          *
-         * <p>3 인 이유는 시간이다. 후보 하나가 최대 1500ms 이므로 5 면 기준선 포함 9초가 되는데,
-         * 사용자가 화면에서 기다리는 요청이다.
+         * <p>10 으로 넓힌 근거(PR4a): ③은 <b>유료 라우팅이 아니다</b>(저장된 노선 후보를 실시간·ML
+         * 로 조회할 뿐). 같은 정류장의 우리 방향 노선은 보통 3~6개라 10 이면 사실상 <b>전부</b> 확인해
+         * 더 빠른 대안을 놓치지 않는다. 폭주 가드로 상한 자체는 남긴다(0/무제한 불가 — 아래 검증).
+         * 실질 대기는 {@code evaluationBudgetMs} 가 먼저 자른다.
          */
-        private int maxEvaluations = 3;
+        private int maxEvaluations = 10;
 
         /**
          * <b>대안</b> 평가에 쓸 수 있는 누적 시간. 넘으면 남은 후보를 건너뛰고 이미 평가한
@@ -151,8 +166,14 @@ public class JourneyRerouteProperties {
          */
         private int decisionWindowSeconds = 600;
 
-        /** 같은 환승에서 다시 찾기까지의 최소 간격. 버튼 연타가 외부 검색 연타가 되면 안 된다. */
-        private Duration cooldown = Duration.ofMinutes(2);
+        /**
+         * 같은 환승에서 다시 찾기까지의 최소 간격. 버튼 연타가 외부 검색 연타가 되면 안 된다.
+         *
+         * <p>1분으로 줄인 근거(PR4a): 옛 2분은 ODsay 요금 폭을 재는 shadow 전제였다. 요금 근거가
+         * 옅어지면 지연 상황에서 <b>더 자주</b> 대안을 갱신하는 편이 UX 에 낫다 — 중복 억제(연타
+         * 가드)는 1분으로도 충분하다.
+         */
+        private Duration cooldown = Duration.ofMinutes(1);
 
         public Duration decisionWindow() {
             return Duration.ofSeconds(decisionWindowSeconds);
