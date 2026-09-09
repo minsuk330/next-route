@@ -1514,3 +1514,43 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - PR-4 에서 OtpPatternRouteOptionSource 추가 시 RerouteRouteOptionSource 빈 2개 → DI 모호. @Primary/selector 로 가름(PR-4). PR-2 는 단일 빈.
 ### 검증 (PR-2)
 - StoredRouteOptionSourceTest 2(optionIndex 정렬/빈=OK) + RouteOptionCandidateProviderTest 20 무회귀 + RerouteAcceptIT 9(컨텍스트 부팅, 새 빈+재배선). 마이그레이션 없음.
+## national-otp P2-F PR-3: 동적 route-option 수락 계약 (2026-09-10, branch feat/otp-p2f-dynamic-route-option-accept)
+### 확정 (코드만 봐선 안 나오는 계약)
+- **문제(codex B1)**: RerouteAcceptTxService.saveRouteOptions 가 저장 journey_leg_route_option 을 optionIndex 로 선택, 불일치=첫 후보 fallback → OTP 동적 후보(저장 미존재) 수락 시 엉뚱 노선 선택.
+- **해법**: RerouteCandidateApply.RouteOptionApply 를 self-sufficient snapshot 으로 확장(RemainingPathApply 가 full path 담는 선례와 동일). routeOptionIndex 음수(DYNAMIC=-1)=동적 후보 판별. saveRouteOptions: 저장 후보=optionIndex 경로(무회귀), 동적 후보=(routeId,directionKey) 매칭 후 없으면 스냅샷으로 새 행 insert→select.
+- **하위호환 장치**: 4-arg 편의 생성자(snapshot null) 유지 → 기존 ~14 호출부·옛 저장 JSON 무변경. 기존 applies 전부 routeOptionIndex≥0 → 현행 경로 그대로.
+### 함정
+- **lane_index >= 0 CHECK(V35:97)**: 동적 후보 laneIndex 는 대응 lane 없음. -1 sentinel 이 CHECK 위반 → laneIndex null 로 두고 insert 시 nextIndex(=option_index, ≥0, 원래 lane 범위 밖이라 클라 stale graphic 안붙음)로 채움.
+- **isDynamic() Jackson 오직렬화**: boolean isDynamic() 가 "dynamic" 프로퍼티로 직렬화→역직렬화 UnrecognizedPropertyException. @JsonIgnore 필수.
+### 좌표
+- src/.../dto/RerouteCandidateApply.java (RouteOptionApply 10-arg + 4-arg 편의 ctor + DYNAMIC + isDynamic@JsonIgnore)
+- src/.../service/RerouteAcceptTxService.java (saveRouteOptions routeOption 분기 + chooseRouteOption + selectByIndex)
+### 검증 (PR-3)
+- 신규 IT RerouteAcceptIT.acceptsDynamicRouteOptionByInsertingNewRow: 저장에 없는 BL-DYNAMIC 동적 후보 수락 → 새 journey_leg_route_option 행 insert + selectedRouteOptionId 가 BL-DYNAMIC 가리킴(첫후보 fallback 아님).
+- ./gradlew test 79 tests 0 fail: RerouteAcceptIT 10(동적 포함) + Contract 9 + StoreIT 13 + ExpiryIT 4 + ProposalServiceTest 12 + RouteOptionCandidateProviderTest 20 + RevisionComposerTest 7 + SubwayBindingRerouteInheritanceIT. 무회귀 확인.
+### 미결
+- toCandidate 는 아직 snapshot 안 채움(4-arg, routeOptionIndex≥0) — PR-4 OTP source 가 동적 apply(DYNAMIC+snapshot) 생성. PR-3 은 수락측 계약+테스트만.
+## national-otp P2-F PR-1: StopPatternPort + OTP 어댑터 (2026-09-10, branch feat/otp-p2f-stop-pattern-port)
+### 확정
+- OTP `stop(id).patterns` 조회 배관. 도메인 StopPattern(routeGtfsId, routeShortName, directionId, stopGtfsIds 운행순서보존) + StopPatternResult(OK/TIMEOUT/ERROR — 정상0 vs 장애 구분, codex B7). Port StopPatternPort.patternsThroughStop(stopGtfsId, RoutingDeadline)=예외 안던짐.
+- 어댑터 OtpStopPatternAdapter 는 OtpRoutingAdapter 패턴 미러(RestClient.Builder 주입 clone+per-call readTimeout=deadline 남은예산, GRAPHQL_PATH 동일, sendOnce/OtpCallException, ClassPathResource loadQuery). 파싱은 OtpStopPatternMapper(@Component 순수). graphql=resources/otp/stopPatterns.graphql(stable 필드만).
+- directionId 는 KTDB direction_id 부재로 전 노선 -1 → 매퍼는 원천값 그대로, 방향판정은 소비처(PR4)가 stops 순서로.
+- **미배선**: 소비 없음(회귀0). PR-4 가 RerouteRouteOptionSource 로 소비.
+### 좌표
+- src/main/java/.../application/route/routing/{StopPattern,StopPatternResult,StopPatternPort}.java
+- src/main/java/.../infrastructure/adapter/out/api/otp/{OtpStopPatternAdapter,OtpStopPatternMapper}.java
+- src/main/resources/otp/stopPatterns.graphql, src/test/resources/otp/stopPatterns-success.json
+### 검증 (PR-1)
+- OtpStopPatternMapperTest 3(route/stops 순서보존/directionId -1 원천/모르는 stop 빈목록) + OtpStopPatternAdapterHttpTest 5(200 OK 파싱/stop null=OK 빈목록=정상0/GraphQL errors=ERROR/5xx=ERROR/예산0=TIMEOUT). 8 그린. 기존 OTP 어댑터·체인 무회귀. 마이그레이션 없음.
+## national-otp P2-F PR4a: reroute policy 값 재산정 (2026-09-09, branch feat/otp-p2f-reroute-policy)
+### 확정 (사용자 결정)
+- REVIEW 값 4개 재산정(cost 근거 제거, OTP 무료 전제): remaining-path.max-paths 2→4, search-budget-ms 2000→3000, route-option.max-evaluations 3→10(사실상 전부, 0/무제한은 @PostConstruct 가 막음), trigger.cooldown PT2M→PT1M. KEEP: min-eta-gain 300, max-external 12, horizon 40.
+- **플래그는 안 건드림**: 마스터 enabled·trigger.enabled(shadow) 그대로. shadow OFF(실제 제안 ON)는 4b·4c(대안 OTP pattern·composer 재평가) 완성 후 배포결정. 지금 켜면 반쪽 부품으로 제안 나감.
+- **⚠ OTP 전제 리스크**: 값 확대 근거=OTP 내부호출 무료. OTP 아직 OFF(기본)라 provider=ODSAY 면 재탐색이 여전히 유료 ODsay. max-paths 2→4=재탐색당 호출 2배. 재탐색=사용자요청+shadow 라 저사용, OTP 전환 예정이라 수용. policy-inventory/yaml/javadoc 에 "OTP 전제" 명시.
+### 함정
+- 기본값 변경이 기존 테스트 2곳 깨뜨림: RemainingPathCandidateProviderTest.trimsToMaxPaths(옛 default 2 가정 → setMaxPaths(2) 명시로 기본값 독립화), RedisRerouteCooldownAdapterTest(default cooldown ofMinutes(2)→(1) 5곳, 단 ttlComesFromProperties 는 명시 45s 라 유지).
+- shadow 세만틱 헷갈림: trigger.enabled=true 가 "shadow(로그만)". 실제 제안=마스터 enabled. yaml enabled 기본 ${...:true} 지만 shadow 가 실질 게이트.
+### 검증 (PR4a)
+- ./gradlew compileJava compileTestJava 그린. 신규 JourneyReroutePropertiesTest 4(값4개/플래그 불변/KEEP/validate) + RemainingPathCandidateProviderTest 13 + RedisRerouteCooldownAdapterTest 8 + RouteOption 20 + RerouteTrigger/Window 등 전부 그린.
+### 미결 (P2-F 다음)
+- PR4b: route-option 대안을 저장값 아닌 OTP pattern 에서 생성(미결정). PR4c: 대안 우열을 RouteTimelineComposer 재평가로(브리지 지점 미결정). shadow OFF 는 4b·4c 후.
