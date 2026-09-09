@@ -180,8 +180,12 @@ public class RouteSearchService implements SearchRouteUseCase {
             return handleOtpFailure(failure, ctx);
         }
         // 각 itinerary 를 하나의 시간축으로 합성해 보강 total 로 정렬(FEASIBLE 우선). 실시간은 coverage 게이트+주입 lookup.
+        // 남은 예산으로 실시간 상한을 걸어(M1) 순차 외부콜이 검색 deadline 을 넘기지 않게 한다. 계측은 BUS_REALTIME stage.
+        long rtStart = System.nanoTime();
         RoutingResult result = routeTimelineService.reorderByEffectiveTotal(
-                (RoutingResult) outcome, departureAt);
+                (RoutingResult) outcome, departureAt, deadline.remainingMillis(clock));
+        metrics.recordStage(SearchComponent.BUS_REALTIME,
+                ctx.isDegraded(SearchComponent.BUS_REALTIME), System.nanoTime() - rtStart);
         return legacyRouteResponseMapper.toLegacy(result);
     }
 

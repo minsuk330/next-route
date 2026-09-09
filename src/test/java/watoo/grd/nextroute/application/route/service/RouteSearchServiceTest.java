@@ -49,7 +49,7 @@ class RouteSearchServiceTest {
                 new LegacyRouteResponseMapper(),
                 new DepartureTimeResolver(java.time.Clock.systemDefaultZone()),
                 java.time.Clock.systemDefaultZone(),
-                new watoo.grd.nextroute.application.route.timeline.RouteTimelineService(new watoo.grd.nextroute.application.route.timeline.RouteTimelineComposer(java.time.Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.TransferArrivalProperties(), new watoo.grd.nextroute.application.route.config.TransferPredictProperties(), new watoo.grd.nextroute.application.route.timeline.ConnectionFeasibilityEvaluator()), (l, s, b) -> java.util.Optional.empty()));
+                new watoo.grd.nextroute.application.route.timeline.RouteTimelineService(new watoo.grd.nextroute.application.route.timeline.RouteTimelineComposer(java.time.Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.TransferArrivalProperties(), new watoo.grd.nextroute.application.route.config.TransferPredictProperties(), new watoo.grd.nextroute.application.route.timeline.ConnectionFeasibilityEvaluator()), (l, s, b) -> java.util.Optional.empty(), java.time.Clock.systemDefaultZone()));
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────
