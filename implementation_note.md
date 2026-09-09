@@ -1503,3 +1503,20 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - SubPathResult 위치인자 31개 — lanes(4번째)·startLocalStationID(25)·endLocalStationID(26)만 채우고 나머지 null 유지. ArsID/startId 는 원천부재로 계속 null.
 - LegacyRouteResponseMapper 는 Lombok 미사용 → 수동 생성자 추가. 무인자 생성자 호출 6곳(1곳은 FQN `...service.LegacyRouteResponseMapper()` 라 단순 grep 누락) 전부 mock resolver 주입.
 - OtpLegCoverageResolver/RouteTimelineService/composer/timing/budget = main 존치(빈 유지), #2 P2-F 소비지점 배선만 남음.
+
+## national-otp P2-F PR-3: 동적 route-option 수락 계약 (2026-09-10, branch feat/otp-p2f-dynamic-route-option-accept)
+### 확정 (코드만 봐선 안 나오는 계약)
+- **문제(codex B1)**: RerouteAcceptTxService.saveRouteOptions 가 저장 journey_leg_route_option 을 optionIndex 로 선택, 불일치=첫 후보 fallback → OTP 동적 후보(저장 미존재) 수락 시 엉뚱 노선 선택.
+- **해법**: RerouteCandidateApply.RouteOptionApply 를 self-sufficient snapshot 으로 확장(RemainingPathApply 가 full path 담는 선례와 동일). routeOptionIndex 음수(DYNAMIC=-1)=동적 후보 판별. saveRouteOptions: 저장 후보=optionIndex 경로(무회귀), 동적 후보=(routeId,directionKey) 매칭 후 없으면 스냅샷으로 새 행 insert→select.
+- **하위호환 장치**: 4-arg 편의 생성자(snapshot null) 유지 → 기존 ~14 호출부·옛 저장 JSON 무변경. 기존 applies 전부 routeOptionIndex≥0 → 현행 경로 그대로.
+### 함정
+- **lane_index >= 0 CHECK(V35:97)**: 동적 후보 laneIndex 는 대응 lane 없음. -1 sentinel 이 CHECK 위반 → laneIndex null 로 두고 insert 시 nextIndex(=option_index, ≥0, 원래 lane 범위 밖이라 클라 stale graphic 안붙음)로 채움.
+- **isDynamic() Jackson 오직렬화**: boolean isDynamic() 가 "dynamic" 프로퍼티로 직렬화→역직렬화 UnrecognizedPropertyException. @JsonIgnore 필수.
+### 좌표
+- src/.../dto/RerouteCandidateApply.java (RouteOptionApply 10-arg + 4-arg 편의 ctor + DYNAMIC + isDynamic@JsonIgnore)
+- src/.../service/RerouteAcceptTxService.java (saveRouteOptions routeOption 분기 + chooseRouteOption + selectByIndex)
+### 검증 (PR-3)
+- 신규 IT RerouteAcceptIT.acceptsDynamicRouteOptionByInsertingNewRow: 저장에 없는 BL-DYNAMIC 동적 후보 수락 → 새 journey_leg_route_option 행 insert + selectedRouteOptionId 가 BL-DYNAMIC 가리킴(첫후보 fallback 아님).
+- ./gradlew test 79 tests 0 fail: RerouteAcceptIT 10(동적 포함) + Contract 9 + StoreIT 13 + ExpiryIT 4 + ProposalServiceTest 12 + RouteOptionCandidateProviderTest 20 + RevisionComposerTest 7 + SubwayBindingRerouteInheritanceIT. 무회귀 확인.
+### 미결
+- toCandidate 는 아직 snapshot 안 채움(4-arg, routeOptionIndex≥0) — PR-4 OTP source 가 동적 apply(DYNAMIC+snapshot) 생성. PR-3 은 수락측 계약+테스트만.

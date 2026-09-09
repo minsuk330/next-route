@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -290,26 +291,76 @@ public class RerouteAcceptTxService {
         Map<Integer, JourneyLeg> oldByIndex = new HashMap<>();
         oldLegs.forEach(leg -> oldByIndex.put(leg.getLegIndex(), leg));
         Map<Long, List<JourneyLegRouteOption>> oldOptions = loadOptions(oldLegs);
-        Integer chosenOptionIndex = apply instanceof RerouteCandidateApply.RouteOptionApply option
-                ? option.routeOptionIndex() : null;
+        RerouteCandidateApply.RouteOptionApply routeOption =
+                apply instanceof RerouteCandidateApply.RouteOptionApply option ? option : null;
 
         for (JourneyLeg leg : newLegs) {
             List<JourneyLegRouteOption> saved = composed.keepsStructure()
                     || leg.getLegIndex() < composed.fromLegIndex()
                     ? copyOptions(oldByIndex.get(leg.getLegIndex()), oldOptions, leg)
                     : newOptions(composed, leg);
-            if (saved.isEmpty()) {
+
+            // 교체 지점 leg 만 사용자가 고른 후보를 반영한다. 그 외 leg 은 기본(optionIndex 0).
+            JourneyLegRouteOption selected =
+                    routeOption != null && leg.getLegIndex() == composed.fromLegIndex()
+                            ? chooseRouteOption(saved, leg, routeOption)
+                            : selectByIndex(saved, 0);
+            if (selected == null) {
                 continue;
             }
-            int selectedIndex = leg.getLegIndex() == composed.fromLegIndex()
-                    && chosenOptionIndex != null ? chosenOptionIndex : 0;
-            JourneyLegRouteOption selected = saved.stream()
-                    .filter(option -> option.getOptionIndex() == selectedIndex)
-                    .findFirst()
-                    .orElse(saved.get(0));
             select(newLegs, leg, selected);
         }
         legRepository.flush();
+    }
+
+    /**
+     * 고른 후보 행을 정한다.
+     *
+     * <p>저장 후보는 {@code optionIndex} 로 특정한다(여정 시작·기존 수락과 같은 규칙 — 무회귀). 저장 목록에
+     * 없는 <b>동적 후보</b>({@link RerouteCandidateApply.RouteOptionApply#isDynamic()})는 그 번호로 못 찾으므로,
+     * 이미 복제된 후보 중 같은 노선이 있으면 그것을, 없으면 apply 의 스냅샷으로 <b>새 행을 만들어</b> 고른다.
+     * 동적 후보를 {@code optionIndex} 로 다루면 저장 첫 후보로 조용히 대체돼 다른 노선이 선택된다.
+     */
+    private JourneyLegRouteOption chooseRouteOption(List<JourneyLegRouteOption> saved, JourneyLeg leg,
+                                                    RerouteCandidateApply.RouteOptionApply apply) {
+        if (!apply.isDynamic()) {
+            return selectByIndex(saved, apply.routeOptionIndex());
+        }
+        Optional<JourneyLegRouteOption> match = saved.stream()
+                .filter(option -> apply.routeId() != null
+                        && apply.routeId().equals(option.getRouteId())
+                        && Objects.equals(apply.directionKey(), option.getDirectionKey()))
+                .findFirst();
+        if (match.isPresent()) {
+            return match.get();
+        }
+        int nextIndex = saved.stream()
+                .mapToInt(JourneyLegRouteOption::getOptionIndex).max().orElse(-1) + 1;
+        // lane_index >= 0 제약. 동적 후보는 대응 lane 이 없어 새 option_index 로 채운다(원래 lane
+        // 범위 밖이라 클라가 옛 lane graphic 을 잘못 붙이지 않는다).
+        return routeOptionRepository.saveAndFlush(JourneyLegRouteOption.builder()
+                .journeyLegId(leg.getId())
+                .optionIndex(nextIndex)
+                .laneIndex(apply.laneIndex() != null ? apply.laneIndex() : nextIndex)
+                .routeId(apply.routeId())
+                .sourceRouteId(apply.sourceRouteId())
+                .routeName(apply.routeName())
+                .directionKey(apply.directionKey())
+                .wayCode(apply.wayCode())
+                .boardingSeq(apply.boardingSeq())
+                .alightingSeq(apply.alightingSeq())
+                .build());
+    }
+
+    /** {@code optionIndex} 로 후보를 고르고, 없으면 첫 후보. 비어 있으면 null(호출부가 skip). */
+    private static JourneyLegRouteOption selectByIndex(List<JourneyLegRouteOption> saved, int index) {
+        if (saved.isEmpty()) {
+            return null;
+        }
+        return saved.stream()
+                .filter(option -> option.getOptionIndex() == index)
+                .findFirst()
+                .orElse(saved.get(0));
     }
 
     private List<JourneyLegRouteOption> copyOptions(JourneyLeg oldLeg,
