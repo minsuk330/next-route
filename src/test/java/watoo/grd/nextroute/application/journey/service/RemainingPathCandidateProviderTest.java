@@ -230,6 +230,8 @@ class RemainingPathCandidateProviderTest {
     @Test
     @DisplayName("경로는 상한(max-paths)까지만 평가한다")
     void trimsToMaxPaths() {
+        // 트림 메커니즘 자체를 검증 — 기본값(PR4a=4)과 독립되게 상한을 2 로 고정한다.
+        properties.getRemainingPath().setMaxPaths(2);
         PathResult first = path("A");
         PathResult second = path("B");
         PathResult third = path("C");
