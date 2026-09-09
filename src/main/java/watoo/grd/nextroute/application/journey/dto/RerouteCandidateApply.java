@@ -50,7 +50,8 @@ public sealed interface RerouteCandidateApply {
      * @param sourceRouteId    동적 후보 insert 용 스냅샷 (저장 후보면 무시)
      * @param routeName        〃
      * @param wayCode          〃 (버스 null)
-     * @param boardingSeq      〃 (내부 노선 승차 순번; 동적 후보 판별 = 이 값 존재)
+     * @param boardingSeq      〃 (내부 노선 승차 순번). 동적 후보 판별은 {@link #isDynamic()}
+     *                         ({@code routeOptionIndex < 0}) 이 하고, insert 시 이 값이 채워진다
      * @param alightingSeq     〃
      * @param laneIndex        〃 (원래 검색 lane. 동적 후보는 대응 lane 이 없으므로 {@code null} →
      *                         수락 시 새 option_index 로 채운다. {@code lane_index >= 0} 제약 때문에
