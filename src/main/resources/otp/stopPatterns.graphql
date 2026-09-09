@@ -1,0 +1,19 @@
+# OTP 2.9.0 GTFS GraphQL — 정류장 경유 노선 pattern (national-otp P2-F PR4b).
+# stable 필드만(schema.graphqls 검증: Stop.patterns, Pattern.route/directionId/stops).
+# 변수: id(Stop gtfsId, 예 "1:BS_TAGO_SEB101000041").
+# directionId 는 KTDB feed 에 direction_id 부재라 전 노선 -1 → 방향은 stops 순서로 판정(소비처 PR4).
+query StopPatterns($id: String!) {
+  stop(id: $id) {
+    gtfsId
+    patterns {
+      route {
+        gtfsId
+        shortName
+      }
+      directionId
+      stops {
+        gtfsId
+      }
+    }
+  }
+}

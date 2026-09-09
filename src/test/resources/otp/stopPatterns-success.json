@@ -1,0 +1,26 @@
+{
+  "data": {
+    "stop": {
+      "gtfsId": "1:BS_TAGO_SEB101000041",
+      "patterns": [
+        {
+          "route": { "gtfsId": "1:BR_TAGO_SEB100100022", "shortName": "143" },
+          "directionId": -1,
+          "stops": [
+            { "gtfsId": "1:BS_TAGO_SEB101000041" },
+            { "gtfsId": "1:BS_TAGO_SEB101000048" },
+            { "gtfsId": "1:BS_TAGO_SEB101000059" }
+          ]
+        },
+        {
+          "route": { "gtfsId": "1:BR_TAGO_SEB100100029", "shortName": "272" },
+          "directionId": -1,
+          "stops": [
+            { "gtfsId": "1:BS_TAGO_SEB101000059" },
+            { "gtfsId": "1:BS_TAGO_SEB101000041" }
+          ]
+        }
+      ]
+    }
+  }
+}

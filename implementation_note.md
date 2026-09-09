@@ -1503,3 +1503,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - SubPathResult 위치인자 31개 — lanes(4번째)·startLocalStationID(25)·endLocalStationID(26)만 채우고 나머지 null 유지. ArsID/startId 는 원천부재로 계속 null.
 - LegacyRouteResponseMapper 는 Lombok 미사용 → 수동 생성자 추가. 무인자 생성자 호출 6곳(1곳은 FQN `...service.LegacyRouteResponseMapper()` 라 단순 grep 누락) 전부 mock resolver 주입.
 - OtpLegCoverageResolver/RouteTimelineService/composer/timing/budget = main 존치(빈 유지), #2 P2-F 소비지점 배선만 남음.
+
+## national-otp P2-F PR-1: StopPatternPort + OTP 어댑터 (2026-09-10, branch feat/otp-p2f-stop-pattern-port)
+### 확정
+- OTP `stop(id).patterns` 조회 배관. 도메인 StopPattern(routeGtfsId, routeShortName, directionId, stopGtfsIds 운행순서보존) + StopPatternResult(OK/TIMEOUT/ERROR — 정상0 vs 장애 구분, codex B7). Port StopPatternPort.patternsThroughStop(stopGtfsId, RoutingDeadline)=예외 안던짐.
+- 어댑터 OtpStopPatternAdapter 는 OtpRoutingAdapter 패턴 미러(RestClient.Builder 주입 clone+per-call readTimeout=deadline 남은예산, GRAPHQL_PATH 동일, sendOnce/OtpCallException, ClassPathResource loadQuery). 파싱은 OtpStopPatternMapper(@Component 순수). graphql=resources/otp/stopPatterns.graphql(stable 필드만).
+- directionId 는 KTDB direction_id 부재로 전 노선 -1 → 매퍼는 원천값 그대로, 방향판정은 소비처(PR4)가 stops 순서로.
+- **미배선**: 소비 없음(회귀0). PR-4 가 RerouteRouteOptionSource 로 소비.
+### 좌표
+- src/main/java/.../application/route/routing/{StopPattern,StopPatternResult,StopPatternPort}.java
+- src/main/java/.../infrastructure/adapter/out/api/otp/{OtpStopPatternAdapter,OtpStopPatternMapper}.java
+- src/main/resources/otp/stopPatterns.graphql, src/test/resources/otp/stopPatterns-success.json
+### 검증 (PR-1)
+- OtpStopPatternMapperTest 3(route/stops 순서보존/directionId -1 원천/모르는 stop 빈목록) + OtpStopPatternAdapterHttpTest 5(200 OK 파싱/stop null=OK 빈목록=정상0/GraphQL errors=ERROR/5xx=ERROR/예산0=TIMEOUT). 8 그린. 기존 OTP 어댑터·체인 무회귀. 마이그레이션 없음.
