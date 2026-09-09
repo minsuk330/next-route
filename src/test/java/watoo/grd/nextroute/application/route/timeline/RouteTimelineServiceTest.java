@@ -30,7 +30,7 @@ class RouteTimelineServiceTest {
             clock, new TransferArrivalProperties(), new TransferPredictProperties(),
             new ConnectionFeasibilityEvaluator());
     private final RealtimeLegTimingLookup noRealtime = (l, s, b) -> Optional.empty();
-    private final RouteTimelineService service = new RouteTimelineService(composer, noRealtime);
+    private final RouteTimelineService service = new RouteTimelineService(composer, noRealtime, clock);
 
     private RoutingItinerary itinArriving(String alightIso) {
         RoutingLeg bus = new RoutingLeg(RoutingMode.BUS, null, "1", "A1", "R", "143", "trip", null,
@@ -62,7 +62,7 @@ class RouteTimelineServiceTest {
         RoutingResult in = result(
                 itinArriving("2026-09-08T01:40:00Z"),  // 40분
                 itinArriving("2026-09-08T01:20:00Z")); // 20분
-        RoutingResult out = service.reorderByEffectiveTotal(in, dep);
+        RoutingResult out = service.reorderByEffectiveTotal(in, dep, 5000L);
         assertThat(firstAlight(out)).isEqualTo(Instant.parse("2026-09-08T01:20:00Z")); // 빠른 것 먼저
     }
 
@@ -70,7 +70,7 @@ class RouteTimelineServiceTest {
     @DisplayName("불가(NO_CATCHABLE) itinerary 는 가능한 것 뒤로")
     void infeasibleAfterFeasible() {
         RoutingResult in = result(itinInfeasible(), itinArriving("2026-09-08T01:30:00Z"));
-        RoutingResult out = service.reorderByEffectiveTotal(in, dep);
+        RoutingResult out = service.reorderByEffectiveTotal(in, dep, 5000L);
         assertThat(firstAlight(out)).isEqualTo(Instant.parse("2026-09-08T01:30:00Z")); // feasible 먼저
         assertThat(out.itineraries().get(1).legs().get(0).boardAt()).isNull();        // 불가 뒤로
     }
@@ -79,7 +79,7 @@ class RouteTimelineServiceTest {
     @DisplayName("itinerary 0~1개 → 그대로")
     void noopSingle() {
         RoutingResult in = result(itinArriving("2026-09-08T01:20:00Z"));
-        assertThat(service.reorderByEffectiveTotal(in, dep)).isSameAs(in);
+        assertThat(service.reorderByEffectiveTotal(in, dep, 5000L)).isSameAs(in);
     }
 
     @Test
@@ -96,11 +96,32 @@ class RouteTimelineServiceTest {
                 ? Optional.of(new RealtimeLegTiming(dep.plusSeconds(60), dep.plusSeconds(1800),
                         false, watoo.grd.nextroute.application.route.routing.ActualSource.REALTIME, dep))
                 : Optional.empty();
-        RouteTimelineService svc = new RouteTimelineService(composer, delayA);
+        RouteTimelineService svc = new RouteTimelineService(composer, delayA, clock);
 
-        RoutingResult out = svc.reorderByEffectiveTotal(result(a, b), dep);
+        RoutingResult out = svc.reorderByEffectiveTotal(result(a, b), dep, 5000L);
         // A 가 실시간 30분으로 밀려 B(20분)가 먼저.
         assertThat(firstAlight(out)).isEqualTo(Instant.parse("2026-09-08T01:20:00Z"));
+    }
+
+    @Test
+    @DisplayName("예산 0 → 실시간 skip(정적으로 합성). 실시간이면 밀릴 A 가 정적이라 먼저")
+    void budgetZeroSkipsRealtime() {
+        // A: 정적 15분(빠름), REALTIME_CAPABLE — 실시간이면 25분으로 밀림. B: 정적 20분.
+        RoutingLeg aLeg = new RoutingLeg(RoutingMode.BUS, null, "1", "A1", "R", "143", "trip", null,
+                dep.plusSeconds(60), dep.plusSeconds(900), 840,
+                List.of(new StopOccurrence("s", null, null, 0, 127.0, 37.5, "s")), List.of(), null,
+                Enrichment.staticOnly(RealtimeCoverage.REALTIME_CAPABLE), null);
+        RoutingItinerary a = new RoutingItinerary(dep.plusSeconds(900), 0, 0, 0, 0, true, List.of(), null, List.of(aLeg));
+        RoutingItinerary b = itinArriving("2026-09-08T01:20:00Z");
+        RealtimeLegTimingLookup delayA = (l, s, bd) -> l == aLeg
+                ? Optional.of(new RealtimeLegTiming(dep.plusSeconds(60), dep.plusSeconds(1500),
+                        false, watoo.grd.nextroute.application.route.routing.ActualSource.REALTIME, dep))
+                : Optional.empty();
+        RouteTimelineService svc = new RouteTimelineService(composer, delayA, clock);
+
+        // 예산 0 → 실시간 미적용 → A 정적 15분이 B 20분보다 먼저.
+        RoutingResult out = svc.reorderByEffectiveTotal(result(a, b), dep, 0L);
+        assertThat(firstAlight(out)).isEqualTo(dep.plusSeconds(900)); // A(01:15) 먼저
     }
 
     @Test
@@ -108,7 +129,7 @@ class RouteTimelineServiceTest {
     void stableOnTie() {
         RoutingItinerary first = itinArriving("2026-09-08T01:30:00Z");
         RoutingItinerary second = itinArriving("2026-09-08T01:30:00Z");
-        RoutingResult out = service.reorderByEffectiveTotal(result(first, second), dep);
+        RoutingResult out = service.reorderByEffectiveTotal(result(first, second), dep, 5000L);
         assertThat(out.itineraries().get(0)).isSameAs(first);
         assertThat(out.itineraries().get(1)).isSameAs(second);
     }

@@ -61,7 +61,7 @@ class RouteSearchServiceOtpWiringTest {
                 new RouteSearchDeadlineProperties(),
                 selector, new LegacyRouteResponseMapper(),
                 new DepartureTimeResolver(Clock.systemDefaultZone()), Clock.systemDefaultZone(),
-                new watoo.grd.nextroute.application.route.timeline.RouteTimelineService(new watoo.grd.nextroute.application.route.timeline.RouteTimelineComposer(java.time.Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.TransferArrivalProperties(), new watoo.grd.nextroute.application.route.config.TransferPredictProperties(), new watoo.grd.nextroute.application.route.timeline.ConnectionFeasibilityEvaluator()), (l, s, b) -> java.util.Optional.empty()));
+                new watoo.grd.nextroute.application.route.timeline.RouteTimelineService(new watoo.grd.nextroute.application.route.timeline.RouteTimelineComposer(java.time.Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.TransferArrivalProperties(), new watoo.grd.nextroute.application.route.config.TransferPredictProperties(), new watoo.grd.nextroute.application.route.timeline.ConnectionFeasibilityEvaluator()), (l, s, b) -> java.util.Optional.empty(), java.time.Clock.systemDefaultZone()));
     }
 
     private RoutingPort otpReturning(RoutingOutcome outcome) {

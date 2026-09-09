@@ -1471,3 +1471,14 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - **M2**: OtpLegCoverageResolver 가 OtpRoutingAdapter 에서 모든 OTP-port 호출(RemainingRouteSearchService 재탐색 포함)에 적용됨. 재탐색은 현재 timing 미소비(runOtpSearch 만) → coverage DB비용 낭비. P2-F 재탐색이 소비 예정(전방투자)이나, 아니면 소비처로 이동 검토.
   - **m4 이중 resolve**: coverage + lookup 이 identityResolver.resolve 중복(레그당 2x 인덱스조회). M1 대비 작음, defer. PR2b 시 coverage 결과를 leg/ctx 에 캐시해 lookup 재조회 제거 검토.
   - **m5 lookup 다중 impl**: RealtimeLegTimingLookup 현재 1개(버스). PR2b 지하철 추가 시 @Autowired 모호(NoUniqueBean) → mode 키 dispatch/@Primary/List 조합 필요.
+
+## national-otp-p2 M1: 실시간 배선 예산 상한 (2026-09-09, branch feat/otp-p2-realtime-budget)
+### 확정
+- RouteTimelineService.reorderByEffectiveTotal 에 budgetMillis 추가 + Clock 주입. wall-clock realtimeDeadline=now+budget. 주입 lookup 을 예산게이트로 감싸(소진 후 timingFor→empty) composer 에 전달 → N×L 순차 외부콜이 검색 deadline 넘기지 않게(누적 ≈ budget + 진행중 1콜 상한). budget<=0 이면 실시간 전면 skip(정적).
+- 배선: RouteSearchService.runOtpSearch 가 deadline.remainingMillis(clock) 을 예산으로 전달 + metrics.recordStage(BUS_REALTIME) 로 계측(가시성).
+### 함정
+- RouteTimelineService 생성자 +Clock → RouteSearchService 4개 테스트 생성자 갱신. reorder 시그니처 +budgetMillis → 호출부/테스트 갱신.
+### 검증 (M1)
+- RouteTimelineServiceTest 6(실시간→정렬뒤집힘/budget0 skip 정적우선/동률안정/불가뒤로/0~1 noop) + RouteSearchServiceTest 8(ODSAY) + OtpWiringTest 그린.
+### 미결 (M1 잔여)
+- **per-call timeout decay 미구현**: 각 버스콜은 여전히 props.getDeadlineMs(1.5s) full timeout. 진행중 1콜은 최대 1.5s. 완전 해결 = RealtimeLegTimingLookup.timingFor + RouteTimelineComposer.compose 에 잔여예산 인자 추가(composer 12테스트 ripple) → P7 OTP 활성 전 별도 PR. 현재 wall-clock 게이트로 누적은 상한됨.
