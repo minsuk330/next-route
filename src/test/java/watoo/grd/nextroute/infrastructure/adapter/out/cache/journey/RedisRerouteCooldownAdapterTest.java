@@ -47,7 +47,7 @@ class RedisRerouteCooldownAdapterTest {
     @DisplayName("처음 찾으면 통과한다")
     void firstAttemptIsAdmitted() {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.setIfAbsent(eq(KEY), eq("1"), eq(Duration.ofMinutes(2)))).thenReturn(true);
+        when(valueOps.setIfAbsent(eq(KEY), eq("1"), eq(Duration.ofMinutes(1)))).thenReturn(true);
 
         assertThat(adapter.tryAdmit(JOURNEY_ID, 1, 0, Scope.TRIGGER)).isTrue();
     }
@@ -56,7 +56,7 @@ class RedisRerouteCooldownAdapterTest {
     @DisplayName("cooldown 안에 다시 오면 거절한다")
     void secondAttemptWithinCooldownIsRejected() {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.setIfAbsent(eq(KEY), eq("1"), eq(Duration.ofMinutes(2)))).thenReturn(false);
+        when(valueOps.setIfAbsent(eq(KEY), eq("1"), eq(Duration.ofMinutes(1)))).thenReturn(false);
 
         assertThat(adapter.tryAdmit(JOURNEY_ID, 1, 0, Scope.TRIGGER)).isFalse();
     }
@@ -87,7 +87,7 @@ class RedisRerouteCooldownAdapterTest {
     @DisplayName("null 응답도 통과가 아니다")
     void nullReplyIsNotAdmission() {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.setIfAbsent(eq(KEY), eq("1"), eq(Duration.ofMinutes(2)))).thenReturn(null);
+        when(valueOps.setIfAbsent(eq(KEY), eq("1"), eq(Duration.ofMinutes(1)))).thenReturn(null);
 
         assertThat(adapter.tryAdmit(JOURNEY_ID, 1, 0, Scope.TRIGGER)).isFalse();
     }
@@ -107,7 +107,7 @@ class RedisRerouteCooldownAdapterTest {
     void keyIncludesScope() {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(valueOps.setIfAbsent(eq("journey:reroute:cooldown:request:42:1:0"), eq("1"),
-                eq(Duration.ofMinutes(2)))).thenReturn(true);
+                eq(Duration.ofMinutes(1)))).thenReturn(true);
 
         // 방아쇠가 방금 trigger 키를 태웠어도 request 키는 비어 있다(D6).
         assertThat(adapter.tryAdmit(JOURNEY_ID, 1, 0, Scope.REQUEST)).isTrue();
@@ -118,7 +118,7 @@ class RedisRerouteCooldownAdapterTest {
     void keyIncludesRouteRevision() {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(valueOps.setIfAbsent(eq("journey:reroute:cooldown:trigger:42:2:0"), eq("1"),
-                eq(Duration.ofMinutes(2)))).thenReturn(true);
+                eq(Duration.ofMinutes(1)))).thenReturn(true);
 
         assertThat(adapter.tryAdmit(JOURNEY_ID, 2, 0, Scope.TRIGGER)).isTrue();
     }

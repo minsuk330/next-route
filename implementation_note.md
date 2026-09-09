@@ -1503,3 +1503,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - SubPathResult 위치인자 31개 — lanes(4번째)·startLocalStationID(25)·endLocalStationID(26)만 채우고 나머지 null 유지. ArsID/startId 는 원천부재로 계속 null.
 - LegacyRouteResponseMapper 는 Lombok 미사용 → 수동 생성자 추가. 무인자 생성자 호출 6곳(1곳은 FQN `...service.LegacyRouteResponseMapper()` 라 단순 grep 누락) 전부 mock resolver 주입.
 - OtpLegCoverageResolver/RouteTimelineService/composer/timing/budget = main 존치(빈 유지), #2 P2-F 소비지점 배선만 남음.
+
+## national-otp P2-F PR4a: reroute policy 값 재산정 (2026-09-09, branch feat/otp-p2f-reroute-policy)
+### 확정 (사용자 결정)
+- REVIEW 값 4개 재산정(cost 근거 제거, OTP 무료 전제): remaining-path.max-paths 2→4, search-budget-ms 2000→3000, route-option.max-evaluations 3→10(사실상 전부, 0/무제한은 @PostConstruct 가 막음), trigger.cooldown PT2M→PT1M. KEEP: min-eta-gain 300, max-external 12, horizon 40.
+- **플래그는 안 건드림**: 마스터 enabled·trigger.enabled(shadow) 그대로. shadow OFF(실제 제안 ON)는 4b·4c(대안 OTP pattern·composer 재평가) 완성 후 배포결정. 지금 켜면 반쪽 부품으로 제안 나감.
+- **⚠ OTP 전제 리스크**: 값 확대 근거=OTP 내부호출 무료. OTP 아직 OFF(기본)라 provider=ODSAY 면 재탐색이 여전히 유료 ODsay. max-paths 2→4=재탐색당 호출 2배. 재탐색=사용자요청+shadow 라 저사용, OTP 전환 예정이라 수용. policy-inventory/yaml/javadoc 에 "OTP 전제" 명시.
+### 함정
+- 기본값 변경이 기존 테스트 2곳 깨뜨림: RemainingPathCandidateProviderTest.trimsToMaxPaths(옛 default 2 가정 → setMaxPaths(2) 명시로 기본값 독립화), RedisRerouteCooldownAdapterTest(default cooldown ofMinutes(2)→(1) 5곳, 단 ttlComesFromProperties 는 명시 45s 라 유지).
+- shadow 세만틱 헷갈림: trigger.enabled=true 가 "shadow(로그만)". 실제 제안=마스터 enabled. yaml enabled 기본 ${...:true} 지만 shadow 가 실질 게이트.
+### 검증 (PR4a)
+- ./gradlew compileJava compileTestJava 그린. 신규 JourneyReroutePropertiesTest 4(값4개/플래그 불변/KEEP/validate) + RemainingPathCandidateProviderTest 13 + RedisRerouteCooldownAdapterTest 8 + RouteOption 20 + RerouteTrigger/Window 등 전부 그린.
+### 미결 (P2-F 다음)
+- PR4b: route-option 대안을 저장값 아닌 OTP pattern 에서 생성(미결정). PR4c: 대안 우열을 RouteTimelineComposer 재평가로(브리지 지점 미결정). shadow OFF 는 4b·4c 후.
