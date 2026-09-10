@@ -43,6 +43,9 @@ public class JourneyRerouteMetrics {
     private static final Set<String> KNOWN_FILTER_REASONS = Set.of(
             "no-prediction", "unboardable", "missing-duration", "gain-below-threshold",
             "baseline-unboardable", "budget-exhausted",
+            // ③ 공정성 게이트(PR4c): 기준선·후보 중 한쪽이라도 노선별 시간표 소요(OTP)를 못 얻어
+            // 실제 제안으로 승격 못 하고 shadow 로 빠진 후보.
+            "ride-duration-incomparable",
             // ④(남은 구간 재검색)가 쓰는 사유들. 목록에 없으면 조용히 unknown 으로 접혀
             // "왜 빈손인지"를 못 가른다.
             "same-as-current", "no-direction", "unresolved-route", "more-transfers");

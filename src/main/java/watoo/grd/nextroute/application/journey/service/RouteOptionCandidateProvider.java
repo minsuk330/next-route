@@ -19,6 +19,8 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind;
 import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
+import watoo.grd.nextroute.application.route.routing.RideDurationResult;
+import watoo.grd.nextroute.application.route.routing.RouteRideDurationPort;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepository;
 
@@ -66,6 +68,7 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
     private final PredictTransferUseCase predictTransferUseCase;
     private final TransferPredictionInterpreter interpreter;
     private final RouteOptionEtaCalculator etaCalculator;
+    private final RouteRideDurationPort rideDurationPort;
     private final JourneyRerouteProperties properties;
     private final JourneyRerouteMetrics metrics;
     private final Clock clock;
@@ -164,6 +167,14 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
                 metrics.recordCandidateFiltered("gain-below-threshold");
                 continue;
             }
+            if (!(baseline.rideDurationOk() && evaluation.rideDurationOk())) {
+                // 공정성 게이트: 기준선과 후보가 <b>둘 다</b> 노선별 시간표 소요(OTP)를 얻었을 때만
+                // 실제 제안으로 발행한다. 한쪽이라도 폴백(미매칭·timeout·OTP off)이면 승차 소요의
+                // 출처가 달라 개선폭이 불공정한 비교가 된다 — 개선폭 계산·지표는 남기되(위에서 이미
+                // 계산했다) 제안으로는 내보내지 않는다(shadow).
+                metrics.recordCandidateFiltered("ride-duration-incomparable");
+                continue;
+            }
             candidates.add(toCandidate(option, waitLeg, legs, evaluation, gainSec, context.now()));
         }
         metrics.recordCandidateEvaluated(evaluated);
@@ -247,6 +258,9 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
     private Attempt evaluate(JourneyLegRouteOption option, JourneyLeg waitLeg,
                              List<JourneyLeg> legs, TransferConnection transfer,
                              RerouteContext context, long budgetMs) {
+        // predict 와 rideSec 조회가 <b>하나의 남은 예산을 나눠 쓴다</b>(예산 이중소비 방지, PR4c).
+        // budgetMs 를 각 단계에 따로 주면 총 대기가 예산을 넘는다.
+        RoutingDeadline deadline = RoutingDeadline.of(clock, budgetMs);
         Instant anchor = transfer.getUserReadyAt();
         TransferPredictionResult prediction = predictTransferUseCase.predict(
                 waitLeg.getStartStopId(),
@@ -254,7 +268,7 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
                 option.getBoardingSeq(),
                 anchor,
                 interpreter.modeFor(anchor, context.now()),
-                budgetMs);
+                deadline.remainingMillis(clock));
 
         if (prediction.predictedArrivalAt() == null) {
             return Attempt.failed("no-prediction");
@@ -264,12 +278,50 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
             // 쓰면 "지나간 버스를 타면 5분 빠릅니다"가 제안으로 나간다.
             return Attempt.failed("unboardable");
         }
+        // 타고 가는 소요를 <b>이 노선의 시간표 소요(OTP)</b>로 바꾼다. 기준선도 같은 방식으로
+        // 조회한다(공정성). 예산은 predict 가 쓰고 남은 것을 공유한다. OTP id·정류장이 없거나
+        // 미매칭·장애면 폴백(override 없음) — 그 후보는 comparable 게이트에서 shadow 로 빠진다.
+        RideDurationResult ride = lookupRideDuration(option, waitLeg, legs, deadline);
+        Integer rideSecOverride = ride.isOk() ? ride.seconds() : null;
         Optional<RouteOptionEtaCalculator.Result> eta =
-                etaCalculator.compute(legs, waitLeg, prediction.predictedArrivalAt());
+                etaCalculator.compute(legs, waitLeg, prediction.predictedArrivalAt(), rideSecOverride);
         if (eta.isEmpty()) {
             return Attempt.failed("missing-duration");
         }
-        return new Attempt(new Evaluation(prediction, eta.get()), null);
+        return new Attempt(new Evaluation(prediction, eta.get(), ride.isOk()), null);
+    }
+
+    /**
+     * 이 노선이 승차→하차를 타고 가는 시간표 소요(초)를 OTP 에 묻는다.
+     *
+     * <p>alight 정류장은 대기 leg 이 아니라 <b>승차 leg({@code waitLeg.legIndex + 1})의 도착
+     * 정류장</b>이다 — 대기 leg 은 승·하차가 모두 승차 정류장이다({@code JourneyCompiler}). ③ 전제상
+     * 기준선·모든 후보의 하차 정류장은 같다.
+     *
+     * <p>OTP route gtfsId({@code sourceRouteId})·정류장 gtfsId 가 비어 있으면(저장 후보가 OTP 원천이
+     * 아닌 경우 등) OTP 에 물을 열쇠가 없다 → {@code NOT_FOUND} 로 폴백한다. OTP 호출은 하지 않는다.
+     */
+    private RideDurationResult lookupRideDuration(JourneyLegRouteOption option, JourneyLeg waitLeg,
+                                                  List<JourneyLeg> legs, RoutingDeadline deadline) {
+        String routeGtfsId = option.getSourceRouteId();
+        String boardGtfsId = waitLeg.getSourceStartStopId();
+        String alightGtfsId = alightGtfsId(legs, waitLeg);
+        if (blankToNull(routeGtfsId) == null || blankToNull(boardGtfsId) == null
+                || alightGtfsId == null) {
+            return RideDurationResult.notFound();
+        }
+        return rideDurationPort.rideDurationSeconds(routeGtfsId, boardGtfsId, alightGtfsId, deadline);
+    }
+
+    /** 승차 leg({@code waitLeg.legIndex + 1})의 하차 정류장 OTP gtfsId. 없으면 null. */
+    private String alightGtfsId(List<JourneyLeg> legs, JourneyLeg waitLeg) {
+        return legs.stream()
+                .filter(leg -> leg.getLegIndex() == waitLeg.getLegIndex() + 1)
+                .map(JourneyLeg::getSourceEndStopId)
+                .map(this::blankToNull)
+                .filter(java.util.Objects::nonNull)
+                .findFirst()
+                .orElse(null);
     }
 
     /**
@@ -386,9 +438,15 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
         return value == null || value.isBlank() ? null : value;
     }
 
-    /** 한 노선의 평가 결과. 예측 원본을 함께 들고 다녀야 근거·신선도를 화면에 옮길 수 있다. */
+    /**
+     * 한 노선의 평가 결과. 예측 원본을 함께 들고 다녀야 근거·신선도를 화면에 옮길 수 있다.
+     *
+     * @param rideDurationOk 타고 가는 소요를 이 노선의 OTP 시간표값으로 얻었는지. 공정성 게이트가
+     *                       기준선·후보 <b>둘 다</b> true 일 때만 실제 제안으로 승격한다
+     */
     private record Evaluation(TransferPredictionResult prediction,
-                              RouteOptionEtaCalculator.Result eta) {
+                              RouteOptionEtaCalculator.Result eta,
+                              boolean rideDurationOk) {
     }
 
     /**

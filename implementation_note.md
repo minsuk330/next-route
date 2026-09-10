@@ -1595,3 +1595,20 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - application/journey/service/RouteOptionEtaCalculator.java:compute(4-arg)/computeFrom(rideSecOverride,rideLegIndex)
 ### 검증
 - `--tests RouteOptionEtaCalculatorTest` = 10 그린(기존 6 무회귀 + override 4: 교체/null 하위호환/RIDE_BUS 아님 폐기/자리 없음 폐기).
+
+## national-otp P2-F PR4c-3: provider 재배선 (구현 중)
+### 함정
+- **alight 정류장은 waitLeg 가 아니라 RIDE leg(waitLeg.legIndex+1) 의 sourceEndStopId 다.** JourneyCompiler:200-232 확인 — WAIT leg 은 sourceStartStopId=sourceEndStopId=승차정류장(둘 다 board). RIDE leg 이 sourceStartStopId=board, sourceEndStopId=alight. 플랜 SUMMARY 의 "waitLeg.getSourceEndStopId()(alight)" 는 오류. rideSec 조회 alight 는 rideLeg.getSourceEndStopId() 사용. ③ 전제(같은 board+alight)라 baseline·모든 후보 동일 alight.
+### 확정 (사용자 결정)
+- **easy path 채택**: baseline·후보 둘 다 option.getSourceRouteId() 를 OTP routeGtfsId 로 조회. main 은 busLocalBlID(seoul)라 OTP 미매칭→NOT_FOUND→shadow. 무거운 stopPatterns 재조회+resolveBus 되찾기는 PR-4 머지 후 별건(지금 구현하면 OTP off·PR-4 미머지라 죽은 코드). 프로덕션 journey.reroute.enabled=false(VPS compose 확인) 라 영향 0.
+
+### 확정 (구현)
+- **공정성 게이트 위치**: collect() 대안 루프에서 gain 임계 통과 후 `baseline.rideDurationOk() && evaluation.rideDurationOk()` 아니면 filtered("ride-duration-incomparable")+continue(shadow). gain 계산·지표는 종전대로(위에서 이미 계산).
+- **예산 공유**: evaluate() 진입 시 RoutingDeadline.of(clock, budgetMs) 하나 생성 → predict 는 deadline.remainingMillis, rideSec 조회도 같은 deadline(predict 뒤 남은 만큼). 이중소비 없음. 진입 시점엔 clock 미tick 이라 predict budget 인자는 종전과 동일 → budget 테스트 무회귀.
+- **override cancel 성질**: baseline·후보가 같은 rideSec(테스트 상수)면 승차 leg 소요 대체가 개선폭 뺄셈에서 상쇄 → 기존 gain 단정(540/660 등) 유지. 그래서 기존 20 provider 테스트 + IT 는 rideDurationPort=OK 스텁만 추가하면 무회귀.
+- **가드**: option.sourceRouteId / waitLeg.sourceStartStopId / rideLeg(waitLeg+1).sourceEndStopId 중 하나라도 blank 면 OTP 호출 없이 NOT_FOUND. main stored 후보는 sourceRouteId=seoul 이라 실제론 미매칭→shadow(설계대로).
+### 함정
+- **JourneyRerouteMetrics.KNOWN_FILTER_REASONS 화이트리스트**: 새 사유 "ride-duration-incomparable" 안 넣으면 조용히 "unknown" 으로 접혀 지표가 안 뜬다(테스트 incomp=0 으로 30분 헤맴). 사유 추가 필수.
+- IT RerouteRouteOptionIT: givenResolvedBoarding 이 baseline option 에 source_route_id 를 안 넣어 baseline 이 항상 shadow → 제안 0. baseline source_route_id + wait/ride leg source stop id 채우고 @MockBean RouteRideDurationPort=OK 추가해야 함.
+### 검증
+- `--tests RouteOptionCandidateProviderTest` = 22 그린(20 무회귀 + 게이트 승격막힘/shadow폴백 2). RouteOptionEtaCalculatorTest 10. Otp*RideDuration* 10. RerouteRouteOptionIT 5(부팅=DI 단일 RouteRideDurationPort 빈 OK). 광역 `*Reroute* *RouteOption* *RemainingPath* *Otp* *RideDuration*` NO FAILURES.
