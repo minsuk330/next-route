@@ -466,6 +466,40 @@ class RouteOptionCandidateProviderTest {
                 anyLong(), anyInt())).thenReturn(legs);
     }
 
+    // ── 동적(OTP) 후보 ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("저장 목록에 없는 동적(OTP) 후보는 스냅샷을 담은 DYNAMIC apply 로 만든다")
+    void dynamicCandidateCarriesSnapshotApply() {
+        // 기준선(저장 selected)은 느리고, 동적 후보는 빨라 제안이 나가야 한다.
+        JourneyLegRouteOption dynamic = JourneyLegRouteOption.builder()
+                .journeyLegId(3L)
+                .optionIndex(OtpPatternRouteOptionSource.DYNAMIC_OPTION_INDEX)
+                .laneIndex(0)
+                .routeId("OTP-9")
+                .sourceRouteId("1:BR_TAGO_SEB100100999")
+                .routeName("9 번")
+                .directionKey("OTP-9|-1")
+                .boardingSeq(3)
+                .build(); // id 는 null — 저장 전 임시 엔티티.
+        // 저장 selected(기준선) + 동적 후보를 내는 출처를 직접 물린다.
+        RerouteRouteOptionSource source = (leg, deadline) ->
+                RerouteRouteOptionSource.SourceOutcome.ok(List.of(selected("BL-370", "UP"), dynamic));
+        provider = new RouteOptionCandidateProvider(transferRepository, legRepository, source,
+                predictTransferUseCase, new TransferPredictionInterpreter(new JourneyEvaluatorProperties()),
+                new RouteOptionEtaCalculator(), properties, metrics, Clock.fixed(NOW, ZoneId.of("UTC")));
+        predicts("BL-370", READY_AT.plusSeconds(600));
+        predicts("OTP-9", READY_AT.plusSeconds(60));
+
+        List<RerouteCandidate> candidates = provider.findCandidates(context());
+
+        assertThat(candidates).hasSize(1);
+        // routeOptionIndex=DYNAMIC(-1) + 스냅샷 전부. PR-3 수락 계약이 이걸로 새 행을 만든다.
+        assertThat(candidates.get(0).apply()).isEqualTo(
+                new RerouteCandidateApply.RouteOptionApply(2, RerouteCandidateApply.RouteOptionApply.DYNAMIC,
+                        "OTP-9", "OTP-9|-1", "1:BR_TAGO_SEB100100999", "9 번", null, 3, null, null));
+    }
+
     private void givenOptions(JourneyLegRouteOption... options) {
         when(routeOptionRepository.findByJourneyLegIdInAndDeletedAtIsNull(any()))
                 .thenReturn(List.of(options));
