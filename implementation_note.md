@@ -1584,3 +1584,14 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - resources/otp/routeRideDuration.graphql, test/resources/otp/routeRideDuration-success.json
 ### 검증
 - `./gradlew compileJava compileTestJava` OK(경고만, 기존). `--tests OtpRouteRideDuration*` = mapper 5 + adapter HTTP 5 = 10 그린(failures 0). 미배선(회귀0).
+
+## national-otp P2-F PR4c-2: RouteOptionEtaCalculator override 오버로드 (구현)
+### 확정
+- 4-arg `compute(legs, waitLeg, boardingAt, rideSecOverride)` 추가. 기존 3-arg=null 위임(하위호환). draft 경로 compute(List<JourneyLegDraft>,...)=override null,-1(④ 무변경).
+- override 대상 = `waitLeg.legIndex+1` 자리 **정확히 하나**, 반드시 RIDE_BUS. computeFrom 에 (rideSecOverride, rideLegIndex) 전달, 합산 규칙 한 벌 유지 — 그 자리만 분기.
+- **후보 폐기 조건 2개**(빈 결과): ①rideLegIndex 자리가 RIDE_BUS 아님(WALK/TRANSFER_WALK 오대체 방지) ②override 지정했는데 그 자리가 아예 없음(overrideApplied=false). 둘 다 "승격 대상 아님".
+- RIDE_BUS override 는 walking 합 불변(RIDE_BUS≠WALK/TRANSFER_WALK).
+### 좌표
+- application/journey/service/RouteOptionEtaCalculator.java:compute(4-arg)/computeFrom(rideSecOverride,rideLegIndex)
+### 검증
+- `--tests RouteOptionEtaCalculatorTest` = 10 그린(기존 6 무회귀 + override 4: 교체/null 하위호환/RIDE_BUS 아님 폐기/자리 없음 폐기).

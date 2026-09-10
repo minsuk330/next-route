@@ -120,6 +120,63 @@ class RouteOptionEtaCalculatorTest {
                 .satisfies(r -> assertThat(r.remainingRideSec()).isEqualTo(600));
     }
 
+    @Test
+    @DisplayName("override 는 대기 직후 RIDE_BUS 소요만 후보 노선값으로 바꾼다 — 나머지는 그대로")
+    void overrideReplacesRideBusDurationOnly() {
+        List<JourneyLeg> legs = List.of(
+                leg(0, JourneyLegType.WALK, 300),
+                leg(1, JourneyLegType.WAIT_BUS, null),
+                leg(2, JourneyLegType.RIDE_BUS, 900),
+                leg(3, JourneyLegType.WALK, 240));
+
+        // 후보 노선의 시간표 소요 = 600(원래 900 대신)
+        Optional<RouteOptionEtaCalculator.Result> result =
+                calculator.compute(legs, legs.get(1), BOARDING, 600);
+
+        assertThat(result).get().satisfies(r -> {
+            // 승차 600 + 하차 후 도보 240 = 840(원래 1140 에서 승차 조각만 교체)
+            assertThat(r.remainingRideSec()).isEqualTo(840);
+            assertThat(r.destinationEtaAt()).isEqualTo(BOARDING.plusSeconds(840));
+            assertThat(r.walkingSec())
+                    .as("RIDE_BUS override 는 도보 합을 건드리지 않는다")
+                    .isEqualTo(240);
+        });
+    }
+
+    @Test
+    @DisplayName("override=null 이면 4-arg 도 기존 3-arg 와 완전히 같다(하위호환)")
+    void nullOverrideMatchesLegacy() {
+        List<JourneyLeg> legs = List.of(
+                leg(0, JourneyLegType.WALK, 300),
+                leg(1, JourneyLegType.WAIT_BUS, null),
+                leg(2, JourneyLegType.RIDE_BUS, 900),
+                leg(3, JourneyLegType.WALK, 240));
+
+        assertThat(calculator.compute(legs, legs.get(1), BOARDING, null))
+                .isEqualTo(calculator.compute(legs, legs.get(1), BOARDING));
+    }
+
+    @Test
+    @DisplayName("대기 직후 자리가 RIDE_BUS 가 아니면(도보) 후보를 버린다 — WALK 오대체 방지")
+    void discardsWhenSlotAfterWaitIsNotRideBus() {
+        List<JourneyLeg> legs = List.of(
+                leg(0, JourneyLegType.WAIT_BUS, null),
+                leg(1, JourneyLegType.TRANSFER_WALK, 180),  // 대기 직후가 도보
+                leg(2, JourneyLegType.RIDE_BUS, 900));
+
+        assertThat(calculator.compute(legs, legs.get(0), BOARDING, 600)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("override 대상 RIDE_BUS 자리가 아예 없으면 후보를 버린다")
+    void discardsWhenNoRideBusSlot() {
+        List<JourneyLeg> legs = List.of(
+                leg(0, JourneyLegType.WAIT_BUS, null),
+                leg(1, JourneyLegType.WAIT_BUS, null));  // legIndex 1 도 대기 → override 못 붙임
+
+        assertThat(calculator.compute(legs, legs.get(0), BOARDING, 600)).isEmpty();
+    }
+
     // ── 준비 ────────────────────────────────────────────────────────────────
 
     private JourneyLeg leg(int legIndex, JourneyLegType type, Integer durationSec) {
