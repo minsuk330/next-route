@@ -1554,3 +1554,33 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - ./gradlew compileJava compileTestJava 그린. 신규 JourneyReroutePropertiesTest 4(값4개/플래그 불변/KEEP/validate) + RemainingPathCandidateProviderTest 13 + RedisRerouteCooldownAdapterTest 8 + RouteOption 20 + RerouteTrigger/Window 등 전부 그린.
 ### 미결 (P2-F 다음)
 - PR4b: route-option 대안을 저장값 아닌 OTP pattern 에서 생성(미결정). PR4c: 대안 우열을 RouteTimelineComposer 재평가로(브리지 지점 미결정). shadow OFF 는 4b·4c 후.
+
+## national-otp P2-F PR4c: route-option 노선별 실주행 ETA (설계 확정 2026-09-10, 구현 대기)
+### 확정 (설계 결정, 사용자 승인)
+- **문제(B2 진범)**: RouteOptionEtaCalculator 가 목적지 ETA = 예측승차 + Σ(하차이후 leg plannedDurationSec). 후보 RIDE leg 소요를 **원래 선택 노선 값**으로 씀 → 다른 버스(급행/완행) 실주행 차이 소실.
+- **결정적 관찰**: 하차이후 leg 은 baseline·모든 후보 동일 → 개선폭 뺄셈에서 상쇄. 후보마다 다른 건 **board→alight 소요 하나뿐**.
+- **A안 확정(경량, composer 안 씀)**: EtaCalculator 의 RIDE leg(waitLeg+1) 소요만 **노선별 OTP 실값**으로 교체, 나머지 합산 그대로. B안(composer 통짜 재평가) 기각 — 하차이후 leg 절대시각 위조 필요(composer 는 진짜 OTP itinerary 전제) + "이후 대기 모름" 문제 재발 + 실시간 주행보정 효과 미미(predict 가 이미 승차시각 실시간).
+- **데이터 출처 = OTP 확정**: `Trip.stoptimes[].scheduledArrival/scheduledDeparture`(초, serviceDay 기준) → `alight.scheduledArrival − board.scheduledDeparture` = 노선별 board→alight 소요. serviceDay 무관 delta. 스키마 실측(schema.graphqls:2470 Stoptime, Trip.stoptimes:88). pattern 별 소요는 trip 간 거의 일정 → 대표 trip 하나.
+- **같은 하차 보장**: PR-4 필터(pattern.stops 승차 idx<하차 idx)로 후보는 그 하차 정류장 실제 정차 확정 → board·alight 둘 다 pattern 위 → delta 산출 가능.
+- **⚠ 공정성 계약("합산 규칙 한 벌")**: baseline 도 후보도 같은 방식으로 rideSec 조회해야. baseline=plannedDurationSec / 후보=OTP 면 비교가 데이터출처 차이가 됨. → **baseline·후보 전부 OTP rideSec**. 조회 실패 시 폴백=plannedDurationSec + 실주행 미반영 표시(실제 제안 게이트).
+- **모듈**: 새 포트 `RouteRideDurationPort`(routeGtfsId, boardGtfsId, alightGtfsId, deadline → Optional<Integer> sec) + OTP 어댑터(stop.stoptimesForPatterns→pattern 매칭→trip.stoptimes delta, 또는 전용 쿼리). EtaCalculator.compute +rideSecOverride(null=기존, 하위호환→④ 무변경). provider.evaluate 가 baseline+후보에 rideSec 주입, deadline(evaluationBudgetMs) 안. 실제 제안 ON 게이트(rideSec 반영시만).
+### 미결 (구현 중)
+- OTP 쿼리 형태: 기존 stoptimesForPatterns 확장(trip{stoptimes}) vs 전용 trip 쿼리. 후보가 pattern/trip id 안 들고 옴 → (boardGtfsId, routeGtfsId)로 재조회.
+- rideSec 캐시(graphVersion 키) — OTP off 라 후순위.
+- #193(PR-4) 머지 의존성: 코드상 독립(stored 후보에도 적용) but 실제 제안 ON 은 PR-4+PR4c 둘 다 필요. PR4c 는 fresh main 독립 브랜치.
+### 검증 (예정)
+- OTP rideSec 어댑터(JSON→sec delta, 미매칭 empty), EtaCalculator rideSecOverride(교체/null 하위호환), provider baseline+후보 동일 조회·폴백. RouteOptionCandidateProviderTest 무회귀.
+
+## national-otp P2-F PR4c-1: RouteRideDurationPort + OTP 어댑터 (구현, 브랜치 feat/otp-p2f-route-ride-duration)
+### 확정
+- **단일쿼리 채택**(plan 의 2단 alias batch 대신): main 은 stopPatterns.graphql=stop.patterns.stops 뿐(stoptimesForPatterns 전환은 PR-4 #193 브랜치, main 미머지). PR4c 전용 쿼리 routeRideDuration.graphql = `stop(id).stoptimesForPatterns(numberOfDepartures:1){pattern{route{gtfsId}} stoptimes{trip{gtfsId stoptimes{stop{gtfsId} scheduledArrival scheduledDeparture}}}}`. board 정류장 한 번 조회로 pattern별 대표 출발편의 **trip 전체 stoptimes** 를 함께 받아 board dep→alight arr delta. `pattern.trips`(limit 없음) 확장 안 함 — numberOfDepartures 로 유계.
+- Port=단일노선(plan 시그니처 그대로). 대안 후보 N개는 provider(PR4c-3)가 N회 호출(baseline1+대안), 공유 deadline 안. batch alias 는 최적화 옵션이었을 뿐 계약 아님.
+- 방향 판정: trip.stoptimes 순서로 board 를 먼저 만난 뒤 alight 를 만나야 OK. 반대(하행 pattern)면 그 pattern skip→다음 매칭 pattern. 어떤 매칭도 board<alight 유효 delta 없으면 NOT_FOUND.
+- RideDurationResult(OK/NOT_FOUND/TIMEOUT/ERROR) — StopPatternResult 철학. NOT_FOUND=정상 미매칭(이 노선이 이 구간 안 감), TIMEOUT/ERROR=장애. 공정성 게이트가 이 구분으로 승격 가름.
+### 좌표
+- application/route/routing/RouteRideDurationPort.java, RideDurationResult.java — 계약
+- infrastructure/adapter/out/api/otp/OtpRouteRideDurationAdapter.java — OtpStopPatternAdapter 미러(RestClient clone+readTimeout=deadline, GRAPHQL_PATH, sendOnce/OtpCallException)
+- infrastructure/adapter/out/api/otp/OtpRouteRideDurationMapper.java — 순수, delta 계산
+- resources/otp/routeRideDuration.graphql, test/resources/otp/routeRideDuration-success.json
+### 검증
+- `./gradlew compileJava compileTestJava` OK(경고만, 기존). `--tests OtpRouteRideDuration*` = mapper 5 + adapter HTTP 5 = 10 그린(failures 0). 미배선(회귀0).
