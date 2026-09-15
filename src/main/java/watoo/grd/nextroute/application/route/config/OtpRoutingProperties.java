@@ -17,10 +17,10 @@ public class OtpRoutingProperties {
     private int first = 5;
     /** 연결 timeout(ms). read timeout 은 호출별 남은 예산으로 결정. */
     private long connectTimeoutMs = 2000;
-    private String schemaVersion = "otp-2.9.0-planConnection-v1";
+    private String schemaVersion = "otp-2.10.0-planConnection-v1";
     private String networkDataVersion = "202503";
-    /** P1 graphVersion. 재빌드 시 갱신. */
-    private String graphVersion = "seoul-bbox-202503-cal20260707_20261108-g15bfe00d18c6";
+    /** graphVersion. 재빌드 시 갱신. shadow 배포 P2(2.10 H+F, serialization id 276) 산출. */
+    private String graphVersion = "seoul-bbox-202503-cal20260707_20261108-otp276-g4e098383";
 
     /**
      * OTP 경로의 실시간 ETA 합성(P2-E/P2-F 배선) 독립 킬스위치. OTP <b>라우팅</b> 활성
