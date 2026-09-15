@@ -5,6 +5,11 @@ x-app-environment: &app-environment
   ML_PREDICTOR_ENABLED: "true"
   LOGGING_LOGBACK_ROLLINGPOLICY_MAX_FILE_SIZE: 10MB
   LOGGING_LOGBACK_ROLLINGPOLICY_MAX_HISTORY: "30"
+  # OTP shadow 배선(dormant). base URL 은 미리 넣되 토글 2개는 off — 전환은 별건(3값 동시 필요).
+  # relaxed binding: routing.otp.base-url / routing.provider.otp-enabled / routing.provider.default-provider.
+  ROUTING_OTP_BASE_URL: http://otp:8080
+  ROUTING_PROVIDER_OTP_ENABLED: "false"
+  ROUTING_PROVIDER_DEFAULT_PROVIDER: ODSAY
 
 x-app-service: &app-service
   env_file:
@@ -140,6 +145,39 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # OTP 수도권 shadow (dormant). docs/plan/otp-vps-shadow-deploy.
+  # ⚠ 최초 shadow 배포 = `docker compose up -d otp` 만. api/worker 는 재생성 금지 —
+  #   위 app-environment 의 ROUTING_OTP_* 변경분은 다음 앱 재배포(deploy.sh) 때 자연 반영되고,
+  #   토글이 off 라 그때까지 무해하다. 지금 전체 `up -d` 를 돌리면 운영 컨테이너가 재생성된다.
+  otp:
+    image: ${OTP_IMAGE}   # GHCR digest. .env: OTP_IMAGE=ghcr.io/minsuk330/nextroute-otp@sha256:...
+    platform: linux/amd64
+    volumes:
+      # graph.obj 만 file-mount — dir 통째 mount 하면 이미지에 구운 otp-config.json 이 가려진다.
+      - /srv/nextroute/otp/seoul-bbox-202503-cal20260707_20261108-otp276-g4e098383/graph.obj:/var/opentripplanner/graph.obj:ro
+    environment:
+      TZ: Asia/Seoul
+      # -XX:MaxMetaspaceSize 넣지 말 것(관측근거 없음, Metaspace OOM 위험 — codex).
+      JAVA_TOOL_OPTIONS: -Xms256m -Xmx1900m -XX:+UseG1GC
+    mem_limit: 3000m
+    memswap_limit: 3000m   # swap 0 — 스래싱으로 이웃 컨테이너 OOM 유발 차단
+    ports:
+      - "127.0.0.1:18080:8080"   # 호스트 디버그/soak 용. 컨테이너끼리는 내부 DNS(otp:8080).
+    healthcheck:
+      # 2.10 에서 feeds 는 [Feed] object → {feeds} 는 GraphQL 검증에러(HTTP200 이라 curl 은 성공).
+      # {feeds{feedId}} 로 조회하고 feedId 존재 && errors 키 없음 으로 판정. ($ 는 compose 보간 회피로 $$.)
+      test: ["CMD-SHELL", "R=$$(curl -sf -X POST http://localhost:8080/otp/routers/default/index/graphql -H 'Content-Type: application/json' -d '{\"query\":\"{feeds{feedId}}\"}') && echo \"$$R\" | grep -q '\"feedId\"' && ! echo \"$$R\" | grep -q '\"errors\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s   # graph load 시간 확보(x86 실측으로 조정)
     restart: always
     logging:
       driver: json-file
