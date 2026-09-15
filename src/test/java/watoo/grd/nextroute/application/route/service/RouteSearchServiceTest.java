@@ -16,10 +16,20 @@ import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.observability.SearchComponent;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
+import watoo.grd.nextroute.application.route.config.RoutingProviderProperties;
+import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
+import watoo.grd.nextroute.application.route.routing.OtpPermit;
+import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
+import watoo.grd.nextroute.application.route.routing.RoutingPort;
+import watoo.grd.nextroute.application.route.routing.RoutingProvider;
+import watoo.grd.nextroute.application.route.routing.RoutingProviderSelector;
+import watoo.grd.nextroute.application.route.routing.RoutingResult;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,21 +44,46 @@ class RouteSearchServiceTest {
     @Mock RoutePolylineEnricher polylineEnricher;
     @Mock WalkSegmentEnricher walkSegmentEnricher;
     @Mock TransferArrivalEnricher transferArrivalEnricher;
+    @Mock OtpConcurrencyGate otpConcurrencyGate;
 
     RouteSearchService service;
 
     @BeforeEach
     void setUp() {
+        // 기본 구성: provider=ODSAY, otp-enabled=false → OTP branch·gate 는 dormant.
         service = new RouteSearchService(
                 odSayApiPort, tmapPort,
                 polylineEnricher, walkSegmentEnricher, transferArrivalEnricher,
                 new RouteSearchMetrics(new SimpleMeterRegistry()),
                 new RouteSearchDeadlineProperties(),
-                new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
-                        new watoo.grd.nextroute.application.route.config.RoutingProviderProperties(), java.util.List.of()),
+                new RoutingProviderSelector(new RoutingProviderProperties(), java.util.List.of()),
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
-                new DepartureTimeResolver(java.time.Clock.systemDefaultZone()),
-                java.time.Clock.systemDefaultZone());
+                new DepartureTimeResolver(Clock.systemDefaultZone()),
+                otpConcurrencyGate,
+                Clock.systemDefaultZone());
+    }
+
+    /** provider=OTP + otp-enabled 인 서비스. gate·mapper·otpPort 는 주입값 그대로 쓴다. */
+    private RouteSearchService otpService(OtpConcurrencyGate gate, RoutingPort otpPort,
+                                         LegacyRouteResponseMapper mapper) {
+        RoutingProviderProperties props = new RoutingProviderProperties();
+        props.setDefaultProvider(RoutingProvider.OTP);
+        props.setOtpEnabled(true);
+        return new RouteSearchService(
+                odSayApiPort, tmapPort,
+                polylineEnricher, walkSegmentEnricher, transferArrivalEnricher,
+                new RouteSearchMetrics(new SimpleMeterRegistry()),
+                new RouteSearchDeadlineProperties(),
+                new RoutingProviderSelector(props, List.of(otpPort)),
+                mapper,
+                new DepartureTimeResolver(Clock.systemDefaultZone()),
+                gate,
+                Clock.systemDefaultZone());
+    }
+
+    private RoutingResult otpResult() {
+        return new RoutingResult(RoutingProvider.OTP, "otp-2.9", "202503", "g-1", null, null,
+                Instant.now(), List.of(), List.of());
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────
@@ -243,6 +278,66 @@ class RouteSearchServiceTest {
 
         assertThat(result.meta().outcome()).isEqualTo("full");
         assertThat(result.meta().degraded()).isEmpty();
+    }
+
+    // ── OTP 동시성 gate 배선 ────────────────────────────────────────────────
+
+    @Test
+    void TC_OTP선택_permit있으면_OTP경로_ODSAY미호출_release됨() {
+        RoutingPort otpPort = mock(RoutingPort.class);
+        when(otpPort.provider()).thenReturn(RoutingProvider.OTP);
+        when(otpPort.search(any(), any())).thenReturn(otpResult());
+        LegacyRouteResponseMapper mapper = mock(LegacyRouteResponseMapper.class);
+        RouteSearchResult mapped = resultWith(List.of(walkSubPath(null, null)));
+        when(mapper.toLegacy(any(RoutingResult.class))).thenReturn(mapped);
+
+        OtpPermit permit = new OtpPermit("tok-1");
+        when(otpConcurrencyGate.tryAcquire(any(RoutingDeadline.class), eq("api")))
+                .thenReturn(Optional.of(permit));
+
+        RouteSearchService otp = otpService(otpConcurrencyGate, otpPort, mapper);
+        RouteSearchResult result = otp.search(request());
+
+        assertThat(result.paths()).isNotEmpty();
+        verify(otpPort).search(any(), any());
+        verify(otpConcurrencyGate).release(permit);   // finally 반납
+        verifyNoInteractions(odSayApiPort);           // provider 안 섞음
+    }
+
+    @Test
+    void TC_OTP선택_permit없으면_504_timeout_OTP도ODSAY도_미호출() {
+        RoutingPort otpPort = mock(RoutingPort.class);
+        when(otpPort.provider()).thenReturn(RoutingProvider.OTP);
+        LegacyRouteResponseMapper mapper = mock(LegacyRouteResponseMapper.class);
+
+        when(otpConcurrencyGate.tryAcquire(any(RoutingDeadline.class), eq("api")))
+                .thenReturn(Optional.empty());   // 포화·Redis fail-closed
+
+        RouteSearchService otp = otpService(otpConcurrencyGate, otpPort, mapper);
+
+        assertThatThrownBy(() -> otp.search(request()))
+                .isInstanceOf(OdSayApiException.class)
+                .satisfies(e -> assertThat(((OdSayApiException) e).getKind())
+                        .isEqualTo(OdSayApiException.Kind.TIMEOUT));
+        verify(otpPort, never()).search(any(), any());
+        verify(otpConcurrencyGate, never()).release(any());
+        verifyNoInteractions(odSayApiPort);           // ODSAY 폴백 없음
+    }
+
+    @Test
+    void TC_기본구성_otpEnabled_false_는_gate_안타고_ODSAY() {
+        RouteSearchResult odsay = resultWith(List.of(walkSubPath(null, null)));
+        when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
+                .thenReturn(odsay);
+        when(polylineEnricher.enrich(any(), any())).thenReturn(odsay);
+        when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
+                anyDouble(), anyDouble(), any(), any(), any())).thenReturn(odsay);
+        when(transferArrivalEnricher.enrich(any(), any(), any())).thenReturn(odsay);
+
+        service.search(request());   // setUp 의 기본 구성(ODSAY)
+
+        verify(odSayApiPort).searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong());
+        verifyNoInteractions(otpConcurrencyGate);   // 회귀 0: gate dormant
     }
 
 }

@@ -11,6 +11,8 @@ import watoo.grd.nextroute.application.route.exception.OdSayApiException;
 import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.routing.Enrichment;
+import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
+import watoo.grd.nextroute.application.route.routing.OtpPermit;
 import watoo.grd.nextroute.application.route.routing.Fare;
 import watoo.grd.nextroute.application.route.routing.LegGeometry;
 import watoo.grd.nextroute.application.route.routing.RealtimeCoverage;
@@ -30,6 +32,7 @@ import watoo.grd.nextroute.application.route.routing.StopOccurrence;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -48,6 +51,14 @@ class RouteSearchServiceOtpWiringTest {
         }
     };
 
+    /** permit 을 항상 내어주는 gate — 이 테스트는 gate 가 아니라 OTP 매핑/실패 변환을 본다. */
+    private final OtpConcurrencyGate grantingGate = new OtpConcurrencyGate() {
+        @Override public Optional<OtpPermit> tryAcquire(RoutingDeadline d, String role) {
+            return Optional.of(new OtpPermit("t"));
+        }
+        @Override public void release(OtpPermit permit) { }
+    };
+
     private RouteSearchService service(RoutingPort otpPort) {
         RoutingProviderProperties props = new RoutingProviderProperties();
         props.setDefaultProvider(RoutingProvider.OTP);
@@ -61,7 +72,7 @@ class RouteSearchServiceOtpWiringTest {
                 new RouteSearchDeadlineProperties(),
                 selector,
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
-                new DepartureTimeResolver(Clock.systemDefaultZone()), Clock.systemDefaultZone());
+                new DepartureTimeResolver(Clock.systemDefaultZone()), grantingGate, Clock.systemDefaultZone());
     }
 
     private RoutingPort otpReturning(RoutingOutcome outcome) {

@@ -21,6 +21,8 @@ import watoo.grd.nextroute.application.route.port.in.SearchRouteUseCase;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort.WalkSearchCommand;
+import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
+import watoo.grd.nextroute.application.route.routing.OtpPermit;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
 import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
@@ -32,6 +34,7 @@ import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -56,6 +59,8 @@ public class RouteSearchService implements SearchRouteUseCase {
     private final RoutingProviderSelector providerSelector;
     private final LegacyRouteResponseMapper legacyRouteResponseMapper;
     private final DepartureTimeResolver departureTimeResolver;
+    // OTP 글로벌 동시성 상한. otp-enabled 전엔 아래 branch 를 안 타므로 dormant.
+    private final OtpConcurrencyGate otpConcurrencyGate;
     private final Clock clock;
 
     @Override
@@ -98,7 +103,18 @@ public class RouteSearchService implements SearchRouteUseCase {
         // provider 전환(national-otp P2). 공개 요청은 내부 OTP 요청이 아니므로 select(false).
         // 기본 provider 는 ODSAY 라 default 구성에서는 아래 OTP branch 를 타지 않는다(회귀 0).
         if (providerSelector.select(false) == RoutingProvider.OTP) {
-            return runOtpSearch(request, ctx);
+            // 하나의 deadline 을 gate 대기와 OTP 호출이 공유한다(예산 이중소비 금지).
+            RoutingDeadline deadline = RoutingDeadline.of(clock, ctx.budgetMillis(deadlineProperties.getOdsayMs()));
+            Optional<OtpPermit> permit = otpConcurrencyGate.tryAcquire(deadline, "api");
+            if (permit.isEmpty()) {
+                // 포화·Redis 장애(fail-closed) → 504. ODSAY 로 provider 를 섞지 않는다(결과 일관성).
+                return handleOtpSaturated(ctx);
+            }
+            try {
+                return runOtpSearch(request, ctx, deadline);
+            } finally {
+                otpConcurrencyGate.release(permit.get());
+            }
         }
 
         RouteSearchResult result;
@@ -156,9 +172,8 @@ public class RouteSearchService implements SearchRouteUseCase {
      * ODsay 전용 enricher(지하철 폴리라인·TMAP 도보 상세·서울 실시간)는 타지 않는다 —
      * 대중교통 형상은 P3(OSM relation), 실시간 보강은 P2-D(ID 매핑)에서 붙는다.
      */
-    private RouteSearchResult runOtpSearch(RouteSearchRequest request, RouteSearchContext ctx) {
-        long budget = ctx.budgetMillis(deadlineProperties.getOdsayMs());
-        RoutingDeadline deadline = RoutingDeadline.of(clock, budget);
+    private RouteSearchResult runOtpSearch(RouteSearchRequest request, RouteSearchContext ctx,
+                                           RoutingDeadline deadline) {
         Instant departureAt = departureTimeResolver.resolve(request.departureAt());
         RoutingQuery query = new RoutingQuery(
                 request.startX(), request.startY(), request.startName(),
@@ -202,6 +217,16 @@ public class RouteSearchService implements SearchRouteUseCase {
             }
             case INPUT_ERROR -> throw new OdSayApiException(400, "OTP: " + failure.message());
         };
+    }
+
+    /**
+     * OTP 동시성 상한 포화(또는 Redis fail-closed). 기존 TIMEOUT 계약을 재사용해 504 로 낸다 —
+     * ODSAY 폴백으로 provider 를 섞지 않는다(요청별 결과 일관성). "2xx degraded body" 가 아니다.
+     */
+    private RouteSearchResult handleOtpSaturated(RouteSearchContext ctx) {
+        ctx.degrade(SearchComponent.ODSAY, DegradeReason.TIMEOUT);
+        metrics.recordDeadlineExceeded(SearchComponent.ODSAY);
+        throw OdSayApiException.timeout("OTP semaphore saturated");
     }
 
     /** 단계 실행 + 소요시간 기록. degradation 은 각 단계가 ctx 에 보고한 결과를 그대로 읽는다. */
