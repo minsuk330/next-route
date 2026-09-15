@@ -1,0 +1,35 @@
+# OTP 수도권 shadow 배포 이미지 (H+F custom fork). docs/plan/otp-vps-shadow-deploy/PLAN.md PR-1.
+# base = eclipse-temurin:25-jre linux/amd64 platform-specific digest 고정 (재현성 + amd64 강제).
+#   manifest-list: sha256:15090d159279e5c158473eccb48cd87f57b3e3a47511a797eb5a7a7ea6f86b0f
+#   amd64:         sha256:65655f706a97bcd4c45ebee8fc2848ab277ae9309ad59d70e39e991b9f230fd7
+FROM eclipse-temurin@sha256:65655f706a97bcd4c45ebee8fc2848ab277ae9309ad59d70e39e991b9f230fd7
+
+# JRE(Ubuntu) 에 curl 없음 → compose healthcheck({ feeds } POST) 용 설치.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# H+F shaded JAR (fork 8dbad55, clean rebuild, serialization id 276). build context 에 otp.jar 로 stage.
+COPY otp.jar /opt/otp/otp.jar
+# feature flags 는 이미지에 굽음. 런타임엔 graph.obj 만 file-mount 할 것 (dir 통째 mount 하면 이 파일이 가려짐).
+COPY otp-config.json /var/opentripplanner/otp-config.json
+
+WORKDIR /var/opentripplanner
+
+ARG OTP_FORK_REVISION=unknown
+ARG OTP_JAR_SHA256=unknown
+ARG OTP_SERIALIZATION_ID=unknown
+ARG OTP_BASE_IMAGE=unknown
+LABEL org.opencontainers.image.title="nextroute-otp" \
+      org.opencontainers.image.description="OpenTripPlanner 2.10.0-SNAPSHOT H+F Seoul-metro fork (P4_FORMAL_PENDING), dormant shadow" \
+      org.opencontainers.image.source="https://github.com/minsuk330/OpenTripPlanner" \
+      org.opencontainers.image.revision="${OTP_FORK_REVISION}" \
+      site.refit.otp.jar-sha256="${OTP_JAR_SHA256}" \
+      site.refit.otp.serialization-id="${OTP_SERIALIZATION_ID}" \
+      site.refit.otp.base-image="${OTP_BASE_IMAGE}"
+
+# exec-form entrypoint: OTP launcher 가 JAVA_TOOL_OPTIONS 를 자동 read (sh -c "java $JAVA_TOOL_OPTIONS" 금지).
+# -XX:MaxMetaspaceSize 넣지 말 것 (관측근거 없음, Metaspace OOM 위험 — codex).
+ENTRYPOINT ["java", "-jar", "/opt/otp/otp.jar"]
+# graph 재빌드 시엔 이 CMD 를 `--build --save /var/opentripplanner` 로 override.
+CMD ["--load", "/var/opentripplanner"]
