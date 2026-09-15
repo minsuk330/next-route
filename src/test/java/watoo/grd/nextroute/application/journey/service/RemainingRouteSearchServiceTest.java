@@ -12,7 +12,21 @@ import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
+import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
+import watoo.grd.nextroute.application.route.config.RoutingProviderProperties;
+import watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver;
+import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
+import watoo.grd.nextroute.application.route.routing.OtpPermit;
+import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
+import watoo.grd.nextroute.application.route.routing.RoutingPort;
+import watoo.grd.nextroute.application.route.routing.RoutingProvider;
+import watoo.grd.nextroute.application.route.routing.RoutingProviderSelector;
+import watoo.grd.nextroute.application.route.routing.RoutingResult;
+import watoo.grd.nextroute.application.route.service.LegacyRouteResponseMapper;
+import org.mockito.ArgumentCaptor;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -52,13 +66,31 @@ class RemainingRouteSearchServiceTest {
     private final OdSayApiPort odSayApiPort = mock(OdSayApiPort.class);
     private final JourneyRerouteMetrics metrics =
             new JourneyRerouteMetrics(new SimpleMeterRegistry());
+    private final OtpConcurrencyGate otpConcurrencyGate = mock(OtpConcurrencyGate.class);
+    // 기본 구성: provider=ODSAY → gate dormant(loadOtpGated 미진입).
     private final RemainingRouteSearchService service =
             new RemainingRouteSearchService(cache, odSayApiPort, metrics,
-                    new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
-                            new watoo.grd.nextroute.application.route.config.RoutingProviderProperties(), java.util.List.of()),
-                    new watoo.grd.nextroute.application.route.service.LegacyRouteResponseMapper(org.mockito.Mockito.mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
-                    new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
-                    java.time.Clock.systemDefaultZone());
+                    new RoutingProviderSelector(new RoutingProviderProperties(), java.util.List.of()),
+                    new LegacyRouteResponseMapper(mock(OtpSeoulIdentityResolver.class)),
+                    new OtpRoutingProperties(),
+                    otpConcurrencyGate,
+                    Clock.systemDefaultZone());
+
+    /** provider=OTP 인 재탐색 서비스. gate·otpPort·mapper 는 주입값 그대로. */
+    private RemainingRouteSearchService otpService(OtpConcurrencyGate gate, RoutingPort otpPort,
+                                                  LegacyRouteResponseMapper mapper) {
+        RoutingProviderProperties props = new RoutingProviderProperties();
+        props.setDefaultProvider(RoutingProvider.OTP);
+        props.setOtpEnabled(true);
+        return new RemainingRouteSearchService(cache, odSayApiPort, metrics,
+                new RoutingProviderSelector(props, List.of(otpPort)),
+                mapper, new OtpRoutingProperties(), gate, Clock.systemDefaultZone());
+    }
+
+    private RoutingResult otpResult() {
+        return new RoutingResult(RoutingProvider.OTP, "otp-2.9", "202503", "g-1", null, null,
+                Instant.now(), List.of(), List.of());
+    }
 
     @Test
     @DisplayName("캐시가 맞으면 검색을 부르지 않는다")
@@ -149,6 +181,51 @@ class RemainingRouteSearchServiceTest {
         assertThat(calls.get()).isEqualTo(1);
         verify(odSayApiPort, times(1))
                 .searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong());
+    }
+
+    @Test
+    @DisplayName("OTP 포화면 OTP 를 부르지 않고 빈 목록이다 — ODSAY 로 섞지 않는다")
+    void otpSaturatedReturnsEmpty() {
+        RoutingPort otpPort = mock(RoutingPort.class);
+        given(otpPort.provider()).willReturn(RoutingProvider.OTP);
+        LegacyRouteResponseMapper mapper = mock(LegacyRouteResponseMapper.class);
+        RemainingRouteSearchService otp = otpService(otpConcurrencyGate, otpPort, mapper);
+
+        given(cache.find(any(RoutingCacheContext.class), eq(STOP_ID), eq(127.5), eq(37.5)))
+                .willReturn(Optional.empty());
+        given(otpConcurrencyGate.tryAcquire(any(RoutingDeadline.class), eq("worker")))
+                .willReturn(Optional.empty());   // 포화·fail-closed
+
+        assertThat(otp.search(STOP_ID, WAYPOINTS, 3000)).isEmpty();
+        verify(otpPort, never()).search(any(), any());
+        verify(otpConcurrencyGate, never()).release(any());
+        verifyNoInteractions(odSayApiPort);
+    }
+
+    @Test
+    @DisplayName("gate 대기와 OTP 호출이 같은 deadline 을 공유한다 — 예산 이중소비 없음, release 됨")
+    void otpSharesOneDeadlineAndReleases() {
+        RoutingPort otpPort = mock(RoutingPort.class);
+        given(otpPort.provider()).willReturn(RoutingProvider.OTP);
+        given(otpPort.search(any(), any())).willReturn(otpResult());
+        LegacyRouteResponseMapper mapper = mock(LegacyRouteResponseMapper.class);
+        given(mapper.toLegacy(any(RoutingResult.class))).willReturn(searchResult(path()));
+        RemainingRouteSearchService otp = otpService(otpConcurrencyGate, otpPort, mapper);
+
+        given(cache.find(any(RoutingCacheContext.class), eq(STOP_ID), eq(127.5), eq(37.5)))
+                .willReturn(Optional.empty());
+        OtpPermit permit = new OtpPermit("tok-w");
+        ArgumentCaptor<RoutingDeadline> gateDeadline = ArgumentCaptor.forClass(RoutingDeadline.class);
+        given(otpConcurrencyGate.tryAcquire(gateDeadline.capture(), eq("worker")))
+                .willReturn(Optional.of(permit));
+
+        assertThat(otp.search(STOP_ID, WAYPOINTS, 3000)).hasSize(1);
+
+        ArgumentCaptor<RoutingDeadline> searchDeadline = ArgumentCaptor.forClass(RoutingDeadline.class);
+        verify(otpPort).search(any(), searchDeadline.capture());
+        // 같은 인스턴스 = 대기 후 남은 예산으로 호출(단계별 새 예산 발급 아님).
+        assertThat(searchDeadline.getValue()).isSameAs(gateDeadline.getValue());
+        verify(otpConcurrencyGate).release(permit);
     }
 
     private RouteSearchResult searchResult(PathResult... paths) {

@@ -10,6 +10,8 @@ import watoo.grd.nextroute.application.route.concurrent.SingleFlight;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
+import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
+import watoo.grd.nextroute.application.route.routing.OtpPermit;
 import watoo.grd.nextroute.application.route.routing.RoutingCacheContext;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
@@ -54,6 +56,8 @@ public class RemainingRouteSearchService {
     private final RoutingProviderSelector providerSelector;
     private final LegacyRouteResponseMapper legacyRouteResponseMapper;
     private final watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpRoutingProperties;
+    // OTP 글로벌 동시성 상한(검색과 합산 N). 기본 provider=ODSAY 라 default 에선 dormant.
+    private final OtpConcurrencyGate otpConcurrencyGate;
     private final Clock clock;
 
     /** 캐시 값 스키마 버전. 올리면 옛 keyspace 와 분리된다(구형 JSON 을 새 DTO 로 안 읽음). */
@@ -108,13 +112,32 @@ public class RemainingRouteSearchService {
     private List<PathResult> load(RoutingCacheContext cacheCtx, Waypoints waypoints,
                                   String stopId, long budgetMs) {
         List<PathResult> paths = cacheCtx.provider() == RoutingProvider.OTP
-                ? loadOtp(waypoints, budgetMs)
+                ? loadOtpGated(waypoints, budgetMs)
                 : loadOdsay(waypoints, budgetMs);
         if (paths.isEmpty()) {
             return List.of();
         }
         store(cacheCtx, stopId, waypoints, paths);
         return paths;
+    }
+
+    /**
+     * OTP 경로는 글로벌 동시성 gate 를 거친다. deadline 하나를 gate 대기와 OTP 호출이 공유해
+     * 예산 이중소비를 막는다. 포화·Redis 장애(fail-closed) → 빈 목록(재탐색 실패 계약, OTP-only 라
+     * ODSAY 폴백 없음).
+     */
+    private List<PathResult> loadOtpGated(Waypoints waypoints, long budgetMs) {
+        RoutingDeadline deadline = RoutingDeadline.of(clock, budgetMs);
+        Optional<OtpPermit> permit = otpConcurrencyGate.tryAcquire(deadline, "worker");
+        if (permit.isEmpty()) {
+            metrics.recordRemainingSearch("otp-saturated");
+            return List.of();
+        }
+        try {
+            return loadOtp(waypoints, deadline);
+        } finally {
+            otpConcurrencyGate.release(permit.get());
+        }
     }
 
     /** provider(1회 선택) + OTP graphVersion(또는 ODsay sentinel) + 캐시 스키마 버전. */
@@ -141,8 +164,7 @@ public class RemainingRouteSearchService {
      * (실패가 재탐색 요청 전체를 죽이지 않음). 출발시각은 현재 시각 — 예상 환승 도착시각 전달은 시그니처
      * 변경이 필요한 후속 작업이다.
      */
-    private List<PathResult> loadOtp(Waypoints waypoints, long budgetMs) {
-        RoutingDeadline deadline = RoutingDeadline.of(clock, budgetMs);
+    private List<PathResult> loadOtp(Waypoints waypoints, RoutingDeadline deadline) {
         RoutingQuery query = new RoutingQuery(
                 waypoints.origin().x(), waypoints.origin().y(), null,
                 waypoints.destination().x(), waypoints.destination().y(), null,

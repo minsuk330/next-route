@@ -12,6 +12,8 @@ import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.routing.Enrichment;
 import watoo.grd.nextroute.application.route.routing.Fare;
+import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
+import watoo.grd.nextroute.application.route.routing.OtpPermit;
 import watoo.grd.nextroute.application.route.routing.LegGeometry;
 import watoo.grd.nextroute.application.route.routing.RealtimeCoverage;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
@@ -68,10 +70,16 @@ class RemainingRouteSearchServiceOtpTest {
             @Override public RoutingOutcome search(RoutingQuery q, RoutingDeadline d) { return otpOutcome; }
             @Override public RoutingProvider provider() { return RoutingProvider.OTP; }
         };
+        OtpConcurrencyGate grantingGate = new OtpConcurrencyGate() {
+            @Override public Optional<OtpPermit> tryAcquire(RoutingDeadline d, String role) {
+                return Optional.of(new OtpPermit("t"));
+            }
+            @Override public void release(OtpPermit permit) { }
+        };
         return new RemainingRouteSearchService(cache, odsayNeverCalled,
                 new JourneyRerouteMetrics(new SimpleMeterRegistry()),
                 new RoutingProviderSelector(props, List.of(otp)),
-                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(), clock);
+                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(), grantingGate, clock);
     }
 
     @Test
