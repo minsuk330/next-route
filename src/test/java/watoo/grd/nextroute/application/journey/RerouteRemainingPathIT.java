@@ -1,6 +1,5 @@
 package watoo.grd.nextroute.application.journey;
 
-import watoo.grd.nextroute.application.route.routing.RoutingCacheContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,7 +13,6 @@ import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
-import watoo.grd.nextroute.application.journey.port.out.RemainingRouteCachePort;
 import watoo.grd.nextroute.application.journey.port.out.RerouteCooldownPort;
 import watoo.grd.nextroute.application.journey.service.RerouteProposalService;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
@@ -52,9 +50,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
  *
  * <ul>
  *   <li>③이 낼 것이 없으면 ④가 받아 제안을 만든다 — 사다리가 이어져 있다</li>
- *   <li><b>캐시가 맞으면 유료 검색을 부르지 않는다.</b> 이 칸의 요금이 거기서 갈린다</li>
- *   <li>미해석 정류장이면 검색을 아예 부르지 않는다 — 캐시 키가 섞여 다른 정류장의 경로를
- *       서로 돌려주게 된다</li>
+ *   <li>검색이 죽어도 예외가 아니라 빈 결과다 — 재탐색은 "있으면 좋은" 기능이다</li>
+ *   <li>미해석 정류장이면 검색을 아예 부르지 않는다 — 정류장이 비면 엉뚱한 출발점으로
+ *       유료 검색이 나간다</li>
  * </ul>
  *
  * <p>{@link TransferStopResolver} 를 {@link MockBean} 으로 둔다. 정류장·노선 해석은 정적 노선표를
@@ -83,7 +81,6 @@ class RerouteRemainingPathIT {
     @MockBean PredictTransferUseCase predictTransferUseCase;
     @MockBean OdSayApiPort odSayApiPort;
     @MockBean RerouteCooldownPort cooldownPort;
-    @MockBean RemainingRouteCachePort remainingRouteCache;
     @MockBean TransferStopResolver transferStopResolver;
 
     private final List<Long> createdUserIds = new ArrayList<>();
@@ -119,8 +116,6 @@ class RerouteRemainingPathIT {
         givenPrediction("BL-721", readyAt.plusSeconds(1200));
         // 다른 경로의 버스는 1분 뒤. 목적지까지 훨씬 빠르다.
         givenPrediction("BL-360", readyAt.plusSeconds(60));
-        given(remainingRouteCache.find(any(RoutingCacheContext.class), anyString(), anyDouble(), anyDouble()))
-                .willReturn(Optional.empty());
         given(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
                 .willReturn(new RouteSearchResult(0, 1, 0, 0, 0, List.of(alternativePath())));
 
@@ -143,30 +138,11 @@ class RerouteRemainingPathIT {
     }
 
     @Test
-    @DisplayName("캐시가 맞으면 유료 검색을 부르지 않는다")
-    void cacheHitSkipsPaidSearch() {
-        Instant readyAt = Instant.now().plusSeconds(240);
-        givenLiveTransfer(0, readyAt);
-        givenPrediction("BL-721", readyAt.plusSeconds(1200));
-        givenPrediction("BL-360", readyAt.plusSeconds(60));
-        given(remainingRouteCache.find(any(RoutingCacheContext.class), anyString(), anyDouble(), anyDouble()))
-                .willReturn(Optional.of(List.of(alternativePath())));
-
-        Optional<RerouteProposalView> proposal =
-                rerouteProposalService.request(userId, journey.journeyId(), 0);
-
-        assertThat(proposal).isPresent();
-        verifyNoInteractions(odSayApiPort);
-    }
-
-    @Test
     @DisplayName("검색이 죽어도 예외가 아니라 빈 결과다")
     void searchFailureIsEmptyResult() {
         Instant readyAt = Instant.now().plusSeconds(240);
         givenLiveTransfer(0, readyAt);
         givenPrediction("BL-721", readyAt.plusSeconds(1200));
-        given(remainingRouteCache.find(any(RoutingCacheContext.class), anyString(), anyDouble(), anyDouble()))
-                .willReturn(Optional.empty());
         org.mockito.BDDMockito.willThrow(new IllegalStateException("odsay down"))
                 .given(odSayApiPort)
                 .searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong());
@@ -185,7 +161,6 @@ class RerouteRemainingPathIT {
 
         assertThat(rerouteProposalService.request(userId, journey.journeyId(), 0)).isEmpty();
         verifyNoInteractions(odSayApiPort);
-        verify(remainingRouteCache, never()).find(any(RoutingCacheContext.class), anyString(), anyDouble(), anyDouble());
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────

@@ -4,7 +4,6 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
-import watoo.grd.nextroute.application.journey.port.out.RemainingRouteCachePort;
 import watoo.grd.nextroute.application.journey.service.JourneyWaypointResolver.Coord;
 import watoo.grd.nextroute.application.journey.service.JourneyWaypointResolver.Waypoints;
 import watoo.grd.nextroute.application.route.config.RoutingProviderProperties;
@@ -39,7 +38,6 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /** 재탐색(RemainingRouteSearchService)의 OTP 경로. 기본 ODSAY 는 기존 테스트가 커버. */
 class RemainingRouteSearchServiceOtpTest {
@@ -58,11 +56,6 @@ class RemainingRouteSearchServiceOtpTest {
     };
 
     private RemainingRouteSearchService service(RoutingOutcome otpOutcome) {
-        RemainingRouteCachePort cache = mock(RemainingRouteCachePort.class);
-        when(cache.find(org.mockito.ArgumentMatchers.any(watoo.grd.nextroute.application.route.routing.RoutingCacheContext.class),
-                org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.anyDouble(),
-                org.mockito.ArgumentMatchers.anyDouble())).thenReturn(Optional.empty());
         RoutingProviderProperties props = new RoutingProviderProperties();
         props.setDefaultProvider(RoutingProvider.OTP);
         props.setOtpEnabled(true);
@@ -76,10 +69,10 @@ class RemainingRouteSearchServiceOtpTest {
             }
             @Override public void release(OtpPermit permit) { }
         };
-        return new RemainingRouteSearchService(cache, odsayNeverCalled,
+        return new RemainingRouteSearchService(odsayNeverCalled,
                 new JourneyRerouteMetrics(new SimpleMeterRegistry()),
                 new RoutingProviderSelector(props, List.of(otp)),
-                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(), grantingGate, new watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties(), clock);
+                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)), grantingGate, new watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties(), clock);
     }
 
     @Test
