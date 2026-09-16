@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -187,7 +188,9 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
                                         List<JourneyLeg> legs, TransferConnection transfer,
                                         RerouteContext context) {
         Optional<JourneyLegRouteOption> selected = options.stream()
-                .filter(option -> option.getId().equals(waitLeg.getSelectedRouteOptionId()))
+                // 동적(OTP) 후보는 저장 전이라 id 가 null 이다. 기준선은 저장 selected 에서만 나오므로
+                // null-safe 비교로 충분하다(동적 후보는 여기서 절대 매칭되지 않는다).
+                .filter(option -> Objects.equals(option.getId(), waitLeg.getSelectedRouteOptionId()))
                 .filter(this::isUsable)
                 .findFirst();
         if (selected.isEmpty()) {
@@ -284,7 +287,9 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
         Set<String> seen = new LinkedHashSet<>();
         List<JourneyLegRouteOption> alternatives = new ArrayList<>();
         for (JourneyLegRouteOption option : options) {
-            if (!isUsable(option) || option.getId().equals(waitLeg.getSelectedRouteOptionId())) {
+            // getId() 가 null 인 동적(OTP) 후보를 그냥 두면 NPE. Objects.equals 로 null-safe —
+            // 동적 후보는 저장 selected 가 아니므로 여기서 걸러지지 않는 게 맞다.
+            if (!isUsable(option) || Objects.equals(option.getId(), waitLeg.getSelectedRouteOptionId())) {
                 continue;
             }
             if (!seen.add(option.getRouteId() + "|" + option.getDirectionKey())) {
@@ -331,8 +336,7 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
                 : interpreter.qualityOf(evaluation.prediction()).name();
 
         return new RerouteCandidate(null, RerouteProposalKind.ROUTE_OPTION,
-                new RerouteCandidateApply.RouteOptionApply(waitLeg.getLegIndex(),
-                        option.getOptionIndex(), option.getRouteId(), option.getDirectionKey()),
+                applyFor(option, waitLeg),
                 new RerouteCandidateDisplay(
                         eta.destinationEtaAt(),
                         (int) Math.max(0, Duration.between(now, eta.destinationEtaAt()).getSeconds()),
@@ -343,6 +347,27 @@ public class RouteOptionCandidateProvider implements RerouteCandidateProvider {
                         confidence,
                         evaluation.prediction().calculatedAt(),
                         summaries(option, waitLeg, legs)));
+    }
+
+    /**
+     * 후보를 실제로 적용할 재료를 만든다. <b>출처에 따라 두 갈래</b>다.
+     *
+     * <p>저장 후보({@code optionIndex >= 0})는 그 leg 의 몇 번째로 특정되므로 종전대로 순번만 담는다.
+     * OTP pattern 이 실시간으로 찾은 <b>동적</b> 후보({@code optionIndex < 0})는 저장 목록에 없어 그
+     * 번호로 못 찾는다 — 수락 시 새 {@code journey_leg_route_option} 행을 만들어야 하므로 스냅샷
+     * (노선·순번 등)을 통째로 담는다({@code RouteOptionApply.DYNAMIC} + snapshot, PR-3 수락 계약).
+     * {@code laneIndex} 는 대응 lane 이 없어 {@code null} — 수락 시 새 {@code option_index} 로 채운다.
+     */
+    private RerouteCandidateApply.RouteOptionApply applyFor(JourneyLegRouteOption option,
+                                                            JourneyLeg waitLeg) {
+        if (option.getOptionIndex() < 0) {
+            return new RerouteCandidateApply.RouteOptionApply(waitLeg.getLegIndex(),
+                    RerouteCandidateApply.RouteOptionApply.DYNAMIC, option.getRouteId(),
+                    option.getDirectionKey(), option.getSourceRouteId(), option.getRouteName(),
+                    option.getWayCode(), option.getBoardingSeq(), option.getAlightingSeq(), null);
+        }
+        return new RerouteCandidateApply.RouteOptionApply(waitLeg.getLegIndex(),
+                option.getOptionIndex(), option.getRouteId(), option.getDirectionKey());
     }
 
     /** 이 환승을 포함해 남은 환승 수. 경로 구조가 안 바뀌므로 기준선과 같은 값이다. */

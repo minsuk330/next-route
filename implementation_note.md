@@ -1554,3 +1554,28 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - ./gradlew compileJava compileTestJava 그린. 신규 JourneyReroutePropertiesTest 4(값4개/플래그 불변/KEEP/validate) + RemainingPathCandidateProviderTest 13 + RedisRerouteCooldownAdapterTest 8 + RouteOption 20 + RerouteTrigger/Window 등 전부 그린.
 ### 미결 (P2-F 다음)
 - PR4b: route-option 대안을 저장값 아닌 OTP pattern 에서 생성(미결정). PR4c: 대안 우열을 RouteTimelineComposer 재평가로(브리지 지점 미결정). shadow OFF 는 4b·4c 후.
+
+## national-otp P2-F PR-4: OtpPatternRouteOptionSource (2026-09-10, branch feat/otp-p2f-otp-pattern-source)
+### 확정 (코드만 봐선 안 나오는 계약)
+- **B6 해법 = 사용자 방향 확정(2026-09-10)**: PR-1 topology 쿼리(`stop.patterns`) 대신 `stop.stoptimesForPatterns(omitNonPickups:true, omitCanceled:true)` 로 교체. OTP 가 애초에 **승차가능(pickupType)·미취소·운행중(timeRange 내 출발편 존재=service 활성)** pattern 만 grouped-by-pattern 으로 내려줌 → 우리가 pickup/dropoff/service 검증 로직 복제 불필요, codex B6 자동해결. StoptimesInPattern.pattern = 기존 Pattern(route/directionId/stops) 이라 **StopPattern DTO·Port·Result 무변경**, graphql 쿼리 body + mapper JSON path(`data.stop.stoptimesForPatterns[].pattern`) + fixture + mapperTest 만 변경.
+  - 스키마 실측(schema.graphqls:2348): `stoptimesForPatterns(numberOfDepartures=5, omitCanceled=true, omitNonPickups=false, startTime=0, timeRange=86400): [StoptimesInPattern]`. StoptimesInPattern{pattern:Pattern, stoptimes:[Stoptime]}. Stoptime.pickupType/dropoffType:PickupDropoffType(2483/2470). Pattern.stops:[Stop!]/route:Route!/directionId(1024). → omit 플래그로 boarding 측 필터를 OTP 에 위임.
+  - **잔여(문서화)**: 하차정류장 dropoff 금지는 boarding stop stoptimes 로 못 봄(그 stop 것만 옴) — 서울 버스에 극히 드묾, topology 로 정차만 확인. "모름>틀림" 위배 아님(승차측이 요점).
+- **union 유지(codex B3, 순수대체 금지)**: baseline(지금 타는 노선)은 저장 selected option 에서만 나옴(provider.evaluateBaseline 이 options 에서 getId==selectedRouteOptionId 로 찾음) → OTP-only 면 baseline 소실. + resolver 9자리만 매핑(`_D/_U` suffix 실패 다수) → OTP-only 후보 감소. → **게이트 on = Stored ∪ OTP, off = Stored(PR-2 무변경)**. OTP non-OK(off/timeout/error)=Stored 폴백.
+- **union dedup 키 = (routeId, boardingSeq)** (codex B5/B8): OTP 후보 중 (routeId,boardingSeq)가 저장에 이미 있으면 제외(baseline·중복 재출력 방지). directionKey 는 directionId=-1 이라 dedup 키로 못 씀.
+- **OTP 후보 = transient JourneyLegRouteOption**(SourceOutcome.options 타입이 이거라): builder journeyLegId=waitLeg.id, **optionIndex=DYNAMIC(-1)** (동적 판별 마커), routeId/sourceRouteId/routeName/directionKey(routeId+"|-1")/boardingSeq/alightingSeq, wayCode=null, laneIndex=0(미사용, DB 미저장). getId()=null.
+- **provider 2곳 손봄(회귀 가드)**: ① `evaluateBaseline`/`alternatives` 의 `option.getId().equals(selectedRouteOptionId)` → transient id=null NPE → `java.util.Objects.equals` 로 null-safe(OTP 후보는 baseline 아님=false 정상). ② `toCandidate`: optionIndex<0 → **동적 RouteOptionApply**(DYNAMIC + snapshot: sourceRouteId/routeName/wayCode/boardingSeq/alightingSeq/laneIndex=null) 생성 → PR-3 수락계약이 새 행 insert. optionIndex≥0(저장) → 기존 4-arg.
+- **DI 구조**: RerouteRouteOptionSource 빈 3개. StoredRouteOptionSource(@Component 기존) + OtpPatternRouteOptionSource(@Component, StopPatternPort+OtpSeoulIdentityResolver+TransferStopResolver) + **UnionRouteOptionSource(@Primary @Component, gate=routeOption.otpPatternEnabled)**. provider 는 여전히 단일 RerouteRouteOptionSource 주입 → @Primary 로 Union 받음(구조 무변경, 기존 테스트는 stored 직접 주입이라 무회귀).
+- **전용 게이트(codex B10)**: `journey.reroute.route-option.otp-pattern-enabled`(기본 false). RoutingProviderSelector(경로검색 provider) 재사용 금지 — 의미 다름.
+- **boardingSeq = 서울 DB 단건규칙 재사용**: TransferStopResolver.resolveSeq(routeId, seoulStopId).isSingle() 이면 seq, 아니면 후보 제외(JourneyTransitIdEnricher.uniqueSeq 와 동일 규칙, codex B4). seoul routeId·stopId 는 OtpSeoulIdentityResolver.resolveBus(sourceStartStopId, pattern.routeGtfsId, shortName) 한 방에(존재검증 포함).
+- **방향 = pattern.stops 정차순서**(direction_id 부재): boarding gtfsId(sourceStartStopId) index < alighting gtfsId(sourceEndStopId) index. boarding stop 이 pattern 에 2회 이상=순환/지선 occurrence 불확정 → 제외(codex B5). alighting 은 boarding 뒤 아무 index 하나라도 있으면 OK.
+- **실제 제안 ON 금지(codex B2) 계속**: PR-4 는 후보집합 확장까지. ETA 노선별 실주행 미반영(공통 plannedDurationSec)은 PR4c(composer 재평가) 몫. shadow OFF 는 PR4c 후.
+### 미결
+- boardingSeq 3단매핑 커버리지(OTP route↔서울 route_id↔bus_route_stop seq) 실측 미측(OTP off).
+- N+1: pattern 마다 resolveBus+resolveSeq. route dedup 먼저로 완화, 진짜 bulk(routeIds×stopId) 미구현 — OTP off 라 프로덕션 0.
+### 검증 (PR-4)
+- 편집: stopPatterns.graphql(patterns→stoptimesForPatterns+omitNonPickups/omitCanceled), OtpStopPatternMapper(JSON path data.stop.stoptimesForPatterns[].pattern), fixture 재작성. 신규 OtpPatternRouteOptionSource/UnionRouteOptionSource(@Primary). JourneyRerouteProperties.RouteOption.otpPatternEnabled(기본 false). RouteOptionCandidateProvider(Objects.equals null-safe 2곳 + applyFor 동적/저장 분기).
+- 계약 실증(스키마): schema.graphqls:2348 stoptimesForPatterns(omitNonPickups/omitCanceled) → StoptimesInPattern{pattern}. omitNonPickups:true=승차가능 pattern 만, omitCanceled+timeRange=운행중만 → B6 를 OTP 가 처리(우리 검증 로직 없음). StopPattern DTO 무변경.
+- `./gradlew compileJava compileTestJava` 그린(warnings=기존 MockBean deprecation).
+- 신규/회귀 테스트 전부 그린: OtpPatternRouteOptionSourceTest 9(방향/순환제외/미매핑/비단건seq/dedup/timeout/error/blank) + UnionRouteOptionSourceTest 4(게이트off·on union·dedup(routeId,boardingSeq)·otp非OK 폴백) + RouteOptionCandidateProviderTest 21(20 회귀 + 동적 apply 신규) + OtpStopPatternMapperTest 3 + OtpStopPatternAdapterHttpTest 5 + StoredRouteOptionSourceTest 2. 마이그레이션 없음.
+- DI: RerouteRouteOptionSource 빈 3개(Stored/Otp/Union@Primary) — RerouteAcceptIT 컨텍스트 부팅 그린(NoUniqueBean 없음). provider 는 @Primary Union 주입.
+- 넓은 회귀(`*Reroute* *RouteOption* *Otp* *JourneyReroutePropertiesTest`) BUILD SUCCESSFUL, 실패 xml 0. JourneyReroutePropertiesTest 는 신규 필드(기본 false)에 무영향.

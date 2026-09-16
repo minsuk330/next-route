@@ -143,6 +143,24 @@ public class JourneyRerouteProperties {
          * {@code journey.evaluator.predict-deadline-ms}(기준선 1회) + 이 값</b>이다.
          */
         private long evaluationBudgetMs = 3000;
+
+        /**
+         * 대안 후보를 OTP pattern 에서 실시간으로 찾을지(national-otp P2-F PR-4). 기본 꺼짐.
+         *
+         * <p>꺼짐 = 지금까지처럼 여정 시작 때 저장한 {@code journey_leg_route_option} 만 본다. 켜짐 =
+         * 그 저장값에 <b>더해</b> OTP 가 같은 정류장에서 탈 수 있다고 답한 노선을 후보로 올린다(합집합
+         * — 순수 대체가 아니다. 기준선은 저장 선택 노선에서 나오고, 매핑 실패·OTP 장애 시 저장값으로
+         * 물러선다).
+         *
+         * <p><b>경로 검색 provider 스위치({@code routing.provider.otp-enabled})와 다른 게이트다.</b>
+         * 그쪽은 "초기 검색을 OTP 로 할지"이고 이건 "재탐색 대안 출처를 OTP pattern 으로 할지"다.
+         * 의미가 달라 키를 섞지 않는다.
+         *
+         * <p><b>이 게이트만으로 실제 제안이 나가지는 않는다.</b> OTP 후보의 목적지 ETA 는 아직 노선별
+         * 실주행을 반영하지 못한다(공통 {@code plannedDurationSec}). 후보 <b>집합</b>만 넓히는 단계이고,
+         * 우열 정확도는 PR4c(composer 재평가)가 맡는다 — 실제 제안 ON 은 그 뒤다.
+         */
+        private boolean otpPatternEnabled = false;
     }
 
     /**
