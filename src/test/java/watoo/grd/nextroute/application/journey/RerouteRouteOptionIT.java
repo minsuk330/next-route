@@ -21,6 +21,8 @@ import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.TransferArrival;
 import watoo.grd.nextroute.application.route.dto.TransferPredictionResult;
 import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
+import watoo.grd.nextroute.application.route.routing.RideDurationResult;
+import watoo.grd.nextroute.application.route.routing.RouteRideDurationPort;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
 import watoo.grd.nextroute.global.error.BusinessException;
@@ -76,6 +78,10 @@ class RerouteRouteOptionIT {
     @MockBean PredictTransferUseCase predictTransferUseCase;
     @MockBean OdSayApiPort odSayApiPort;
     @MockBean RerouteCooldownPort cooldownPort;
+    // PR4c: 노선별 시간표 소요(OTP). 이 시험 환경엔 OTP 가 없으니 스텁으로 "소요를 얻었다"고 둔다.
+    // 값(600)은 기준선·후보에 똑같이 승차 소요를 대체하므로 개선폭은 예측 시각 차이 그대로다.
+    // 공정성 게이트가 승격을 막지 않도록 baseline·후보 모두 OK 로 답한다.
+    @MockBean RouteRideDurationPort rideDurationPort;
 
     private final List<Long> createdUserIds = new ArrayList<>();
     private Long userId;
@@ -88,6 +94,8 @@ class RerouteRouteOptionIT {
                         null, twoTransferPath(), Instant.now().plusSeconds(600))));
         given(cooldownPort.tryAdmit(anyLong(), org.mockito.ArgumentMatchers.anyInt(),
                 org.mockito.ArgumentMatchers.anyInt(), any())).willReturn(true);
+        given(rideDurationPort.rideDurationSeconds(anyString(), anyString(), anyString(), any()))
+                .willReturn(RideDurationResult.ok(600));
         userId = newUser();
         journey = startJourneyUseCase.start(userId,
                 new StartJourneyCommand(SESSION_ID, PATH_KEY, false));
@@ -216,13 +224,24 @@ class RerouteRouteOptionIT {
      */
     private void givenResolvedBoarding(long waitLegId, String routeId) {
         jdbcTemplate.update("""
-                update journey_leg set start_stop_id = 'ST-G' where id = ?
+                update journey_leg set start_stop_id = 'ST-G', source_start_stop_id = 'OTP-BOARD'
+                 where id = ?
                 """, waitLegId);
+        // PR4c: alight 는 승차 leg(대기 leg 다음)의 도착 정류장이다. rideSec 조회 가드를 통과하게 채운다.
+        jdbcTemplate.update("""
+                update journey_leg set source_end_stop_id = 'OTP-ALIGHT'
+                 where journey_id = (select journey_id from journey_leg where id = ?)
+                   and route_revision = (select route_revision from journey_leg where id = ?)
+                   and leg_index = (select leg_index from journey_leg where id = ?) + 1
+                """, waitLegId, waitLegId, waitLegId);
+        // baseline option 도 OTP route gtfsId(source_route_id)를 채운다 — 공정성 게이트는 기준선·후보
+        // 둘 다 OTP 소요가 있어야 승격하므로 baseline 에도 열쇠가 있어야 한다.
         jdbcTemplate.update("""
                 update journey_leg_route_option
-                   set route_id = ?, direction_key = 'UP', boarding_seq = 3, alighting_seq = 9
+                   set route_id = ?, source_route_id = ?, direction_key = 'UP',
+                       boarding_seq = 3, alighting_seq = 9
                  where journey_leg_id = ? and option_index = 0
-                """, routeId, waitLegId);
+                """, routeId, routeId, waitLegId);
     }
 
     /** 같은 대기 단계에 다른 버스를 하나 더 심는다. 검색이 lane 을 여럿 준 상황이다. */

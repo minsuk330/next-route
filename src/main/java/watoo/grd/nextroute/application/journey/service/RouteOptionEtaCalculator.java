@@ -55,12 +55,30 @@ public class RouteOptionEtaCalculator {
      * @return 소요가 깨져 계산할 수 없으면 빈 결과. 그 후보는 버린다
      */
     public Optional<Result> compute(List<JourneyLeg> legs, JourneyLeg waitLeg, Instant boardingAt) {
+        return compute(legs, waitLeg, boardingAt, null);
+    }
+
+    /**
+     * 저장된 경로용 + <b>승차 소요 override</b>(national-otp P2-F PR4c). 재탐색 ③(같은 정류장 다른
+     * 노선) 후보의 목적지 ETA 를 잴 때, <b>타고 가는 시간</b>을 원래 선택 노선의 값이 아니라 후보
+     * 노선의 시간표 소요로 바꾼다. 나머지 단계는 baseline·후보가 같아 뺄셈에서 상쇄되므로 안 건드린다.
+     *
+     * <p>override 대상은 <b>대기 단계 바로 다음 {@code RIDE_BUS}</b>({@code waitLeg.legIndex + 1})
+     * 하나뿐이다. "첫 non-wait 단계"를 찾지 않는다 — 대기 뒤에 도보가 오는 경로에서 {@code WALK} 를
+     * 잘못 대체할 여지가 있기 때문이다. 그 자리가 {@code RIDE_BUS} 가 아니거나 아예 없으면 override 를
+     * 적용할 데가 없다는 뜻이라 <b>후보를 버린다</b>(빈 결과).
+     *
+     * @param rideSecOverride 승차 단계 소요로 쓸 초. {@code null} 이면 기존 계산(하위호환, ④ 무변경)
+     */
+    public Optional<Result> compute(List<JourneyLeg> legs, JourneyLeg waitLeg, Instant boardingAt,
+                                    Integer rideSecOverride) {
         return computeFrom(
                 legs.stream()
                         .map(leg -> new Segment(leg.getLegIndex(), leg.getType(),
                                 leg.getPlannedDurationSec()))
                         .toList(),
-                waitLeg.getLegIndex(), boardingAt);
+                waitLeg.getLegIndex(), boardingAt,
+                rideSecOverride, waitLeg.getLegIndex() + 1);
     }
 
     /**
@@ -78,7 +96,7 @@ public class RouteOptionEtaCalculator {
                 legs.stream()
                         .map(leg -> new Segment(leg.legIndex(), leg.type(), leg.plannedDurationSec()))
                         .toList(),
-                fromLegIndexExclusive, boardingAt);
+                fromLegIndexExclusive, boardingAt, null, -1);
     }
 
     /**
@@ -86,10 +104,12 @@ public class RouteOptionEtaCalculator {
      * 계산 방식의 차이가 된다.
      */
     private Optional<Result> computeFrom(List<Segment> segments, int fromLegIndexExclusive,
-                                         Instant boardingAt) {
+                                         Instant boardingAt, Integer rideSecOverride,
+                                         int rideLegIndex) {
         int remaining = 0;
         int walking = 0;
         boolean furtherTransfer = false;
+        boolean overrideApplied = false;
 
         for (Segment segment : segments) {
             if (segment.legIndex() <= fromLegIndexExclusive) {
@@ -101,15 +121,29 @@ public class RouteOptionEtaCalculator {
                 furtherTransfer = true;
                 continue;
             }
-            Integer duration = segment.plannedDurationSec();
-            if (duration == null) {
-                return Optional.empty();
+            Integer duration;
+            if (rideSecOverride != null && segment.legIndex() == rideLegIndex) {
+                // 대기 직후 자리는 반드시 RIDE_BUS 여야 override 를 적용한다(WALK 오대체 방지).
+                if (segment.type() != JourneyLegType.RIDE_BUS) {
+                    return Optional.empty();
+                }
+                duration = rideSecOverride;
+                overrideApplied = true;
+            } else {
+                duration = segment.plannedDurationSec();
+                if (duration == null) {
+                    return Optional.empty();
+                }
             }
             remaining += duration;
             if (segment.type() == JourneyLegType.WALK
                     || segment.type() == JourneyLegType.TRANSFER_WALK) {
                 walking += duration;
             }
+        }
+        if (rideSecOverride != null && !overrideApplied) {
+            // override 를 적용할 RIDE_BUS 자리가 없었다 → 이 후보는 승격 대상이 아니다.
+            return Optional.empty();
         }
         return Optional.of(new Result(boardingAt.plusSeconds(remaining), remaining, walking,
                 furtherTransfer));

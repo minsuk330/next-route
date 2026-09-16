@@ -16,6 +16,8 @@ import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetri
 import watoo.grd.nextroute.application.route.dto.TransferArrival;
 import watoo.grd.nextroute.application.route.dto.TransferPredictionResult;
 import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
+import watoo.grd.nextroute.application.route.routing.RideDurationResult;
+import watoo.grd.nextroute.application.route.routing.RouteRideDurationPort;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
@@ -41,6 +43,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -64,6 +67,7 @@ class RouteOptionCandidateProviderTest {
     private final JourneyLegRouteOptionRepository routeOptionRepository =
             mock(JourneyLegRouteOptionRepository.class);
     private final PredictTransferUseCase predictTransferUseCase = mock(PredictTransferUseCase.class);
+    private final RouteRideDurationPort rideDurationPort = mock(RouteRideDurationPort.class);
     private final JourneyRerouteProperties properties = new JourneyRerouteProperties();
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final JourneyRerouteMetrics metrics = new JourneyRerouteMetrics(registry);
@@ -94,7 +98,13 @@ class RouteOptionCandidateProviderTest {
         provider = new RouteOptionCandidateProvider(transferRepository, legRepository,
                 new StoredRouteOptionSource(routeOptionRepository), predictTransferUseCase,
                 new TransferPredictionInterpreter(new JourneyEvaluatorProperties()),
-                new RouteOptionEtaCalculator(), properties, metrics, steppingClock);
+                new RouteOptionEtaCalculator(), rideDurationPort, properties, metrics, steppingClock);
+
+        // 기본: 어느 노선이든 OTP 시간표 소요가 있다고 본다. 값(600)은 기준선·후보에 똑같이 승차
+        // leg 소요를 대체하므로 개선폭 뺄셈에서 상쇄된다 — 개선폭 단정은 종전대로 유지된다.
+        // 공정성 게이트를 시험하는 케이스만 이 스텁을 바꾼다.
+        when(rideDurationPort.rideDurationSeconds(anyString(), anyString(), anyString(), any()))
+                .thenReturn(RideDurationResult.ok(600));
 
         givenTransfer(1, 2);
         givenLegs(defaultLegs());
@@ -321,6 +331,43 @@ class RouteOptionCandidateProviderTest {
                         new RerouteCandidateApply.RouteOptionApply(2, 1, "BL-721", "UP")));
     }
 
+    // ── 공정성 게이트(노선별 시간표 소요 비교 가능성) ──────────────────────────
+
+    @Test
+    @DisplayName("기준선의 노선 소요를 못 얻으면 어떤 후보도 실제 제안이 안 된다 — 불공정 비교")
+    void baselineWithoutRideDurationShadowsAllCandidates() {
+        when(rideDurationPort.rideDurationSeconds(eq("BL-370"), anyString(), anyString(), any()))
+                .thenReturn(RideDurationResult.notFound());  // 기준선만 폴백
+        givenOptions(selected("BL-370", "UP"), alternative(101L, 1, "BL-721", "UP"));
+        predicts("BL-370", READY_AT.plusSeconds(900));
+        predicts("BL-721", READY_AT.plusSeconds(60));
+
+        assertThat(provider.findCandidates(context()))
+                .as("기준선 승차 소요가 원래 값이면 후보(OTP)와 데이터 출처가 달라 비교가 불공정하다")
+                .isEmpty();
+        assertThat(filtered("ride-duration-incomparable")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("소요를 얻은 후보만 제안하고, 못 얻은 후보는 shadow 로 뺀다")
+    void candidateWithoutRideDurationIsShadowedWhileOthersPromote() {
+        properties.getRouteOption().setMaxEvaluations(3);
+        when(rideDurationPort.rideDurationSeconds(eq("BL-721"), anyString(), anyString(), any()))
+                .thenReturn(RideDurationResult.notFound());  // 한 후보만 폴백
+        givenOptions(selected("BL-370", "UP"),
+                alternative(101L, 1, "BL-721", "UP"),
+                alternative(102L, 2, "BL-802", "UP"));
+        predicts("BL-370", READY_AT.plusSeconds(900));
+        predicts("BL-721", READY_AT.plusSeconds(30));   // 개선폭은 크지만 소요 폴백이라 shadow
+        predicts("BL-802", READY_AT.plusSeconds(60));
+
+        assertThat(provider.findCandidates(context()))
+                .singleElement()
+                .satisfies(c -> assertThat(c.apply()).isEqualTo(
+                        new RerouteCandidateApply.RouteOptionApply(2, 2, "BL-802", "UP")));
+        assertThat(filtered("ride-duration-incomparable")).isEqualTo(1);
+    }
+
     // ── 평가 대상 추리기 ────────────────────────────────────────────────────
 
     @Test
@@ -487,7 +534,7 @@ class RouteOptionCandidateProviderTest {
                 RerouteRouteOptionSource.SourceOutcome.ok(List.of(selected("BL-370", "UP"), dynamic));
         provider = new RouteOptionCandidateProvider(transferRepository, legRepository, source,
                 predictTransferUseCase, new TransferPredictionInterpreter(new JourneyEvaluatorProperties()),
-                new RouteOptionEtaCalculator(), properties, metrics, Clock.fixed(NOW, ZoneId.of("UTC")));
+                new RouteOptionEtaCalculator(), rideDurationPort, properties, metrics, Clock.fixed(NOW, ZoneId.of("UTC")));
         predicts("BL-370", READY_AT.plusSeconds(600));
         predicts("OTP-9", READY_AT.plusSeconds(60));
 
@@ -524,6 +571,9 @@ class RouteOptionCandidateProviderTest {
                 .type(type)
                 .state(JourneyLegState.PENDING)
                 .startStopId(startStopId)
+                // OTP 정류장 gtfsId 자리. rideSec 조회 가드(비어 있으면 폴백)를 통과하게 채운다.
+                .sourceStartStopId("OTP-S" + legIndex)
+                .sourceEndStopId("OTP-E" + legIndex)
                 .startName(name)
                 .endName(name)
                 .plannedDurationSec(durationSec)
@@ -551,6 +601,9 @@ class RouteOptionCandidateProviderTest {
                 .optionIndex(optionIndex)
                 .laneIndex(optionIndex)
                 .routeId(routeId)
+                // OTP route gtfsId 자리(rideSec 조회 열쇠). 실제 저장 후보는 seoul id 라 미매칭이지만
+                // 여기선 조회 가드 통과 + 공정성 게이트 검증을 위해 non-blank 로 채운다.
+                .sourceRouteId(routeId)
                 .routeName(routeId + " 번")
                 .directionKey(directionKey)
                 .boardingSeq(3)

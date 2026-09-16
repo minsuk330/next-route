@@ -1579,3 +1579,60 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 신규/회귀 테스트 전부 그린: OtpPatternRouteOptionSourceTest 9(방향/순환제외/미매핑/비단건seq/dedup/timeout/error/blank) + UnionRouteOptionSourceTest 4(게이트off·on union·dedup(routeId,boardingSeq)·otp非OK 폴백) + RouteOptionCandidateProviderTest 21(20 회귀 + 동적 apply 신규) + OtpStopPatternMapperTest 3 + OtpStopPatternAdapterHttpTest 5 + StoredRouteOptionSourceTest 2. 마이그레이션 없음.
 - DI: RerouteRouteOptionSource 빈 3개(Stored/Otp/Union@Primary) — RerouteAcceptIT 컨텍스트 부팅 그린(NoUniqueBean 없음). provider 는 @Primary Union 주입.
 - 넓은 회귀(`*Reroute* *RouteOption* *Otp* *JourneyReroutePropertiesTest`) BUILD SUCCESSFUL, 실패 xml 0. JourneyReroutePropertiesTest 는 신규 필드(기본 false)에 무영향.
+## national-otp P2-F PR4c: route-option 노선별 실주행 ETA (설계 확정 2026-09-10, 구현 대기)
+### 확정 (설계 결정, 사용자 승인)
+- **문제(B2 진범)**: RouteOptionEtaCalculator 가 목적지 ETA = 예측승차 + Σ(하차이후 leg plannedDurationSec). 후보 RIDE leg 소요를 **원래 선택 노선 값**으로 씀 → 다른 버스(급행/완행) 실주행 차이 소실.
+- **결정적 관찰**: 하차이후 leg 은 baseline·모든 후보 동일 → 개선폭 뺄셈에서 상쇄. 후보마다 다른 건 **board→alight 소요 하나뿐**.
+- **A안 확정(경량, composer 안 씀)**: EtaCalculator 의 RIDE leg(waitLeg+1) 소요만 **노선별 OTP 실값**으로 교체, 나머지 합산 그대로. B안(composer 통짜 재평가) 기각 — 하차이후 leg 절대시각 위조 필요(composer 는 진짜 OTP itinerary 전제) + "이후 대기 모름" 문제 재발 + 실시간 주행보정 효과 미미(predict 가 이미 승차시각 실시간).
+- **데이터 출처 = OTP 확정**: `Trip.stoptimes[].scheduledArrival/scheduledDeparture`(초, serviceDay 기준) → `alight.scheduledArrival − board.scheduledDeparture` = 노선별 board→alight 소요. serviceDay 무관 delta. 스키마 실측(schema.graphqls:2470 Stoptime, Trip.stoptimes:88). pattern 별 소요는 trip 간 거의 일정 → 대표 trip 하나.
+- **같은 하차 보장**: PR-4 필터(pattern.stops 승차 idx<하차 idx)로 후보는 그 하차 정류장 실제 정차 확정 → board·alight 둘 다 pattern 위 → delta 산출 가능.
+- **⚠ 공정성 계약("합산 규칙 한 벌")**: baseline 도 후보도 같은 방식으로 rideSec 조회해야. baseline=plannedDurationSec / 후보=OTP 면 비교가 데이터출처 차이가 됨. → **baseline·후보 전부 OTP rideSec**. 조회 실패 시 폴백=plannedDurationSec + 실주행 미반영 표시(실제 제안 게이트).
+- **모듈**: 새 포트 `RouteRideDurationPort`(routeGtfsId, boardGtfsId, alightGtfsId, deadline → Optional<Integer> sec) + OTP 어댑터(stop.stoptimesForPatterns→pattern 매칭→trip.stoptimes delta, 또는 전용 쿼리). EtaCalculator.compute +rideSecOverride(null=기존, 하위호환→④ 무변경). provider.evaluate 가 baseline+후보에 rideSec 주입, deadline(evaluationBudgetMs) 안. 실제 제안 ON 게이트(rideSec 반영시만).
+### 미결 (구현 중)
+- OTP 쿼리 형태: 기존 stoptimesForPatterns 확장(trip{stoptimes}) vs 전용 trip 쿼리. 후보가 pattern/trip id 안 들고 옴 → (boardGtfsId, routeGtfsId)로 재조회.
+- rideSec 캐시(graphVersion 키) — OTP off 라 후순위.
+- #193(PR-4) 머지 의존성: 코드상 독립(stored 후보에도 적용) but 실제 제안 ON 은 PR-4+PR4c 둘 다 필요. PR4c 는 fresh main 독립 브랜치.
+### 검증 (예정)
+- OTP rideSec 어댑터(JSON→sec delta, 미매칭 empty), EtaCalculator rideSecOverride(교체/null 하위호환), provider baseline+후보 동일 조회·폴백. RouteOptionCandidateProviderTest 무회귀.
+
+## national-otp P2-F PR4c-1: RouteRideDurationPort + OTP 어댑터 (구현, 브랜치 feat/otp-p2f-route-ride-duration)
+### 확정
+- **단일쿼리 채택**(plan 의 2단 alias batch 대신): main 은 stopPatterns.graphql=stop.patterns.stops 뿐(stoptimesForPatterns 전환은 PR-4 #193 브랜치, main 미머지). PR4c 전용 쿼리 routeRideDuration.graphql = `stop(id).stoptimesForPatterns(numberOfDepartures:1){pattern{route{gtfsId}} stoptimes{trip{gtfsId stoptimes{stop{gtfsId} scheduledArrival scheduledDeparture}}}}`. board 정류장 한 번 조회로 pattern별 대표 출발편의 **trip 전체 stoptimes** 를 함께 받아 board dep→alight arr delta. `pattern.trips`(limit 없음) 확장 안 함 — numberOfDepartures 로 유계.
+- Port=단일노선(plan 시그니처 그대로). 대안 후보 N개는 provider(PR4c-3)가 N회 호출(baseline1+대안), 공유 deadline 안. batch alias 는 최적화 옵션이었을 뿐 계약 아님.
+- 방향 판정: trip.stoptimes 순서로 board 를 먼저 만난 뒤 alight 를 만나야 OK. 반대(하행 pattern)면 그 pattern skip→다음 매칭 pattern. 어떤 매칭도 board<alight 유효 delta 없으면 NOT_FOUND.
+- RideDurationResult(OK/NOT_FOUND/TIMEOUT/ERROR) — StopPatternResult 철학. NOT_FOUND=정상 미매칭(이 노선이 이 구간 안 감), TIMEOUT/ERROR=장애. 공정성 게이트가 이 구분으로 승격 가름.
+### 좌표
+- application/route/routing/RouteRideDurationPort.java, RideDurationResult.java — 계약
+- infrastructure/adapter/out/api/otp/OtpRouteRideDurationAdapter.java — OtpStopPatternAdapter 미러(RestClient clone+readTimeout=deadline, GRAPHQL_PATH, sendOnce/OtpCallException)
+- infrastructure/adapter/out/api/otp/OtpRouteRideDurationMapper.java — 순수, delta 계산
+- resources/otp/routeRideDuration.graphql, test/resources/otp/routeRideDuration-success.json
+### 검증
+- `./gradlew compileJava compileTestJava` OK(경고만, 기존). `--tests OtpRouteRideDuration*` = mapper 5 + adapter HTTP 5 = 10 그린(failures 0). 미배선(회귀0).
+
+## national-otp P2-F PR4c-2: RouteOptionEtaCalculator override 오버로드 (구현)
+### 확정
+- 4-arg `compute(legs, waitLeg, boardingAt, rideSecOverride)` 추가. 기존 3-arg=null 위임(하위호환). draft 경로 compute(List<JourneyLegDraft>,...)=override null,-1(④ 무변경).
+- override 대상 = `waitLeg.legIndex+1` 자리 **정확히 하나**, 반드시 RIDE_BUS. computeFrom 에 (rideSecOverride, rideLegIndex) 전달, 합산 규칙 한 벌 유지 — 그 자리만 분기.
+- **후보 폐기 조건 2개**(빈 결과): ①rideLegIndex 자리가 RIDE_BUS 아님(WALK/TRANSFER_WALK 오대체 방지) ②override 지정했는데 그 자리가 아예 없음(overrideApplied=false). 둘 다 "승격 대상 아님".
+- RIDE_BUS override 는 walking 합 불변(RIDE_BUS≠WALK/TRANSFER_WALK).
+### 좌표
+- application/journey/service/RouteOptionEtaCalculator.java:compute(4-arg)/computeFrom(rideSecOverride,rideLegIndex)
+### 검증
+- `--tests RouteOptionEtaCalculatorTest` = 10 그린(기존 6 무회귀 + override 4: 교체/null 하위호환/RIDE_BUS 아님 폐기/자리 없음 폐기).
+
+## national-otp P2-F PR4c-3: provider 재배선 (구현 중)
+### 함정
+- **alight 정류장은 waitLeg 가 아니라 RIDE leg(waitLeg.legIndex+1) 의 sourceEndStopId 다.** JourneyCompiler:200-232 확인 — WAIT leg 은 sourceStartStopId=sourceEndStopId=승차정류장(둘 다 board). RIDE leg 이 sourceStartStopId=board, sourceEndStopId=alight. 플랜 SUMMARY 의 "waitLeg.getSourceEndStopId()(alight)" 는 오류. rideSec 조회 alight 는 rideLeg.getSourceEndStopId() 사용. ③ 전제(같은 board+alight)라 baseline·모든 후보 동일 alight.
+### 확정 (사용자 결정)
+- **easy path 채택**: baseline·후보 둘 다 option.getSourceRouteId() 를 OTP routeGtfsId 로 조회. main 은 busLocalBlID(seoul)라 OTP 미매칭→NOT_FOUND→shadow. 무거운 stopPatterns 재조회+resolveBus 되찾기는 PR-4 머지 후 별건(지금 구현하면 OTP off·PR-4 미머지라 죽은 코드). 프로덕션 journey.reroute.enabled=false(VPS compose 확인) 라 영향 0.
+
+### 확정 (구현)
+- **공정성 게이트 위치**: collect() 대안 루프에서 gain 임계 통과 후 `baseline.rideDurationOk() && evaluation.rideDurationOk()` 아니면 filtered("ride-duration-incomparable")+continue(shadow). gain 계산·지표는 종전대로(위에서 이미 계산).
+- **예산 공유**: evaluate() 진입 시 RoutingDeadline.of(clock, budgetMs) 하나 생성 → predict 는 deadline.remainingMillis, rideSec 조회도 같은 deadline(predict 뒤 남은 만큼). 이중소비 없음. 진입 시점엔 clock 미tick 이라 predict budget 인자는 종전과 동일 → budget 테스트 무회귀.
+- **override cancel 성질**: baseline·후보가 같은 rideSec(테스트 상수)면 승차 leg 소요 대체가 개선폭 뺄셈에서 상쇄 → 기존 gain 단정(540/660 등) 유지. 그래서 기존 20 provider 테스트 + IT 는 rideDurationPort=OK 스텁만 추가하면 무회귀.
+- **가드**: option.sourceRouteId / waitLeg.sourceStartStopId / rideLeg(waitLeg+1).sourceEndStopId 중 하나라도 blank 면 OTP 호출 없이 NOT_FOUND. main stored 후보는 sourceRouteId=seoul 이라 실제론 미매칭→shadow(설계대로).
+### 함정
+- **JourneyRerouteMetrics.KNOWN_FILTER_REASONS 화이트리스트**: 새 사유 "ride-duration-incomparable" 안 넣으면 조용히 "unknown" 으로 접혀 지표가 안 뜬다(테스트 incomp=0 으로 30분 헤맴). 사유 추가 필수.
+- IT RerouteRouteOptionIT: givenResolvedBoarding 이 baseline option 에 source_route_id 를 안 넣어 baseline 이 항상 shadow → 제안 0. baseline source_route_id + wait/ride leg source stop id 채우고 @MockBean RouteRideDurationPort=OK 추가해야 함.
+### 검증
+- `--tests RouteOptionCandidateProviderTest` = 22 그린(20 무회귀 + 게이트 승격막힘/shadow폴백 2). RouteOptionEtaCalculatorTest 10. Otp*RideDuration* 10. RerouteRouteOptionIT 5(부팅=DI 단일 RouteRideDurationPort 빈 OK). 광역 `*Reroute* *RouteOption* *RemainingPath* *Otp* *RideDuration*` NO FAILURES.
