@@ -534,7 +534,7 @@ class RouteOptionCandidateProviderTest {
                 RerouteRouteOptionSource.SourceOutcome.ok(List.of(selected("BL-370", "UP"), dynamic));
         provider = new RouteOptionCandidateProvider(transferRepository, legRepository, source,
                 predictTransferUseCase, new TransferPredictionInterpreter(new JourneyEvaluatorProperties()),
-                new RouteOptionEtaCalculator(), properties, metrics, Clock.fixed(NOW, ZoneId.of("UTC")));
+                new RouteOptionEtaCalculator(), rideDurationPort, properties, metrics, Clock.fixed(NOW, ZoneId.of("UTC")));
         predicts("BL-370", READY_AT.plusSeconds(600));
         predicts("OTP-9", READY_AT.plusSeconds(60));
 
