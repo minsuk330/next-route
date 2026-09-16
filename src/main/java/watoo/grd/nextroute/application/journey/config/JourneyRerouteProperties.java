@@ -75,8 +75,13 @@ public class JourneyRerouteProperties {
          */
         private int maxPaths = 4;
 
-        /** 후보 평가에 쓸 수 있는 누적 시간. 넘으면 이미 평가한 것으로 제안을 만든다. */
-        private long evaluationBudgetMs = 3000;
+        /**
+         * 후보 평가에 쓸 수 있는 누적 시간. 넘으면 이미 평가한 것으로 제안을 만든다.
+         *
+         * <p>4500 으로 올린 근거(otp-search-budget): OTP 검색 호출 예산이 otpMs(3500)라, 3000 이면
+         * OTP 검색 한 번 뒤 예측 평가가 조기 컷된다. 검색(≤3.5s) + 예측 여유를 담게 넓힌다.
+         */
+        private long evaluationBudgetMs = 4500;
 
         /**
          * 경로 검색 한 번에 쓸 수 있는 시간. 캐시가 맞으면 쓰이지 않는다.

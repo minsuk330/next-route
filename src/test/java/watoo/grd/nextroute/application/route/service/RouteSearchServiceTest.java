@@ -292,13 +292,18 @@ class RouteSearchServiceTest {
         when(mapper.toLegacy(any(RoutingResult.class))).thenReturn(mapped);
 
         OtpPermit permit = new OtpPermit("tok-1");
-        when(otpConcurrencyGate.tryAcquire(any(RoutingDeadline.class), eq("api")))
+        org.mockito.ArgumentCaptor<RoutingDeadline> gateDeadline =
+                org.mockito.ArgumentCaptor.forClass(RoutingDeadline.class);
+        when(otpConcurrencyGate.tryAcquire(gateDeadline.capture(), eq("api")))
                 .thenReturn(Optional.of(permit));
 
         RouteSearchService otp = otpService(otpConcurrencyGate, otpPort, mapper);
         RouteSearchResult result = otp.search(request());
 
         assertThat(result.paths()).isNotEmpty();
+        // OTP 경로 예산 = otpMs(기본 3500), ODSAY odsayMs(2000) 재사용 아님.
+        long remaining = gateDeadline.getValue().remainingMillis(Clock.systemDefaultZone());
+        assertThat(remaining).isGreaterThan(2000L).isLessThanOrEqualTo(3500L);
         verify(otpPort).search(any(), any());
         verify(otpConcurrencyGate).release(permit);   // finally 반납
         verifyNoInteractions(odSayApiPort);           // provider 안 섞음

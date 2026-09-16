@@ -58,6 +58,8 @@ public class RemainingRouteSearchService {
     private final watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpRoutingProperties;
     // OTP 글로벌 동시성 상한(검색과 합산 N). 기본 provider=ODSAY 라 default 에선 dormant.
     private final OtpConcurrencyGate otpConcurrencyGate;
+    // OTP 호출 예산 단일소스(api 검색과 공유). ODSAY 재탐색은 계속 budgetMs 사용.
+    private final watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties routeSearchDeadlineProperties;
     private final Clock clock;
 
     /** 캐시 값 스키마 버전. 올리면 옛 keyspace 와 분리된다(구형 JSON 을 새 DTO 로 안 읽음). */
@@ -112,7 +114,7 @@ public class RemainingRouteSearchService {
     private List<PathResult> load(RoutingCacheContext cacheCtx, Waypoints waypoints,
                                   String stopId, long budgetMs) {
         List<PathResult> paths = cacheCtx.provider() == RoutingProvider.OTP
-                ? loadOtpGated(waypoints, budgetMs)
+                ? loadOtpGated(waypoints)
                 : loadOdsay(waypoints, budgetMs);
         if (paths.isEmpty()) {
             return List.of();
@@ -126,8 +128,9 @@ public class RemainingRouteSearchService {
      * 예산 이중소비를 막는다. 포화·Redis 장애(fail-closed) → 빈 목록(재탐색 실패 계약, OTP-only 라
      * ODSAY 폴백 없음).
      */
-    private List<PathResult> loadOtpGated(Waypoints waypoints, long budgetMs) {
-        RoutingDeadline deadline = RoutingDeadline.of(clock, budgetMs);
+    private List<PathResult> loadOtpGated(Waypoints waypoints) {
+        // OTP 호출은 전용 예산(otpMs) 단일소스 — ODSAY 재탐색 예산(budgetMs)과 분리.
+        RoutingDeadline deadline = RoutingDeadline.of(clock, routeSearchDeadlineProperties.getOtpMs());
         Optional<OtpPermit> permit = otpConcurrencyGate.tryAcquire(deadline, "worker");
         if (permit.isEmpty()) {
             metrics.recordRemainingSearch("otp-saturated");

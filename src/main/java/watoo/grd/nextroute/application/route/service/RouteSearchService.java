@@ -103,8 +103,9 @@ public class RouteSearchService implements SearchRouteUseCase {
         // provider 전환(national-otp P2). 공개 요청은 내부 OTP 요청이 아니므로 select(false).
         // 기본 provider 는 ODSAY 라 default 구성에서는 아래 OTP branch 를 타지 않는다(회귀 0).
         if (providerSelector.select(false) == RoutingProvider.OTP) {
+            // OTP 는 단일 단계(enricher 없음)라 다단계 예산(ctx.budgetMillis) 대신 전용 otpMs 를 쓴다.
             // 하나의 deadline 을 gate 대기와 OTP 호출이 공유한다(예산 이중소비 금지).
-            RoutingDeadline deadline = RoutingDeadline.of(clock, ctx.budgetMillis(deadlineProperties.getOdsayMs()));
+            RoutingDeadline deadline = RoutingDeadline.of(clock, deadlineProperties.getOtpMs());
             Optional<OtpPermit> permit = otpConcurrencyGate.tryAcquire(deadline, "api");
             if (permit.isEmpty()) {
                 // 포화·Redis 장애(fail-closed) → 504. ODSAY 로 provider 를 섞지 않는다(결과 일관성).
