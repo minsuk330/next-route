@@ -1,0 +1,33 @@
+# OTP 2.9.0 GTFS GraphQL — 한 노선의 board→alight 시간표 소요(national-otp P2-F PR4c).
+# 승차 정류장(id)의 pattern 별 대표 출발편 1개(numberOfDepartures:1)를 뽑고, 그 출발편의 trip 전체
+# stoptimes 를 함께 받는다. 소비처(mapper)가 route.gtfsId 로 후보/baseline 노선의 pattern 을 고른 뒤
+# 그 trip.stoptimes 에서 board 의 scheduledDeparture 와 alight 의 scheduledArrival 차이를 낸다.
+#
+# pattern.trips(limit 없음) 는 절대 확장하지 않는다 — stoptimesForPatterns 는 pattern 당 출발편을
+# 제한(numberOfDepartures)하므로 응답 크기가 유계다. scheduledArrival/scheduledDeparture 는 시간표값
+# (실시간 실주행 아님, 자정 기준 초). serviceDay 무관 delta.
+# 변수: id(승차 Stop gtfsId, 예 "1:BS_TAGO_SEB101000041").
+query RouteRideDuration($id: String!) {
+  stop(id: $id) {
+    gtfsId
+    stoptimesForPatterns(numberOfDepartures: 1, omitCanceled: true) {
+      pattern {
+        route {
+          gtfsId
+        }
+      }
+      stoptimes {
+        trip {
+          gtfsId
+          stoptimes {
+            stop {
+              gtfsId
+            }
+            scheduledArrival
+            scheduledDeparture
+          }
+        }
+      }
+    }
+  }
+}
