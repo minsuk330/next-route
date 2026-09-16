@@ -501,12 +501,10 @@ journey:
       max-paths: 4
       # 후보 평가의 누적 시간 예산. 넘으면 이미 평가한 것으로 제안한다.
       evaluation-budget-ms: 3000
-      # 경로 검색 한 번의 시간 예산. 캐시가 맞으면 쓰이지 않는다.
+      # 경로 검색 한 번의 시간 예산(ODSAY 경로). OTP 경로는 route.search.otp-ms 를 쓴다.
       # P2-F PR4a: 요금 상한(2000)을 지연·완결성 근거로 3000 으로. 전체 여정 deadline 안.
+      # 재탐색은 캐시를 두지 않는다 — 실시간 계약상 매번 그때 상태로 provider 를 부른다.
       search-budget-ms: 3000
-      # 검색 응답을 들고 있는 시간. 여정과 무관한 공유 키(정류장→목적지)라 다른 사용자의 요청도
-      # 이 캐시를 맞힌다. 이 비율이 이 칸의 요금을 결정한다.
-      cache-ttl: PT10M
   notification:
     # 알림만 끄는 스위치. 평가기는 그대로 돌고 outbox 에 쌓지만 않는다.
     enqueue-enabled: ${JOURNEY_NOTIFICATION_ENQUEUE_ENABLED:true}

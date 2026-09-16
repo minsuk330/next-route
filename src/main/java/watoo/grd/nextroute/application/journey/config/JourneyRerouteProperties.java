@@ -92,15 +92,6 @@ public class JourneyRerouteProperties {
          * 안에 든다.
          */
         private long searchBudgetMs = 3000;
-
-        /**
-         * 검색 응답을 Redis 에 들고 있는 시간.
-         *
-         * <p>여정과 무관한 <b>공유 키</b>(정류장→목적지)라 다른 사용자의 요청도 이 캐시를 맞힌다.
-         * 10분인 이유는 그 사이 경로 <b>구조</b>가 바뀌지 않기 때문이다 — 바뀌는 것은 차가 언제
-         * 오느냐이고, 그것은 캐시하지 않고 매번 예측한다.
-         */
-        private Duration cacheTtl = Duration.ofMinutes(10);
     }
 
     /**
@@ -253,11 +244,6 @@ public class JourneyRerouteProperties {
             // 0 이하면 OdSayApiPort 계약상 "부르지 말라"는 뜻이라 이 칸이 통째로 죽는다.
             throw new IllegalStateException(
                     "journey.reroute.remaining-path.search-budget-ms 는 1 이상이어야 한다");
-        }
-        if (remainingPath.getCacheTtl() == null || remainingPath.getCacheTtl().isZero()
-                || remainingPath.getCacheTtl().isNegative()) {
-            // Redis 는 TTL 0 을 거부한다. 만료 없는 키가 남으면 그 구간이 영영 옛 경로를 돌려준다.
-            throw new IllegalStateException("journey.reroute.remaining-path.cache-ttl 은 양수여야 한다");
         }
     }
 }
