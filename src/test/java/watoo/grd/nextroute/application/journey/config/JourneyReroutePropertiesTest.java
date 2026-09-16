@@ -30,6 +30,15 @@ class JourneyReroutePropertiesTest {
     }
 
     @Test
+    @DisplayName("otp-search-budget: RemainingPath 평가예산 3000→4500(OTP 검색 3.5s+예측 여유), RouteOption 은 불변")
+    void remainingPathEvaluationBudgetRaisedForOtp() {
+        assertThat(props.getRemainingPath().getEvaluationBudgetMs())
+                .as("OTP 검색 otpMs(3500) 뒤 예측 조기컷 방지").isEqualTo(4500);
+        assertThat(props.getRouteOption().getEvaluationBudgetMs())
+                .as("대안노선 평가예산은 무관 — 불변").isEqualTo(3000);
+    }
+
+    @Test
     @DisplayName("PR4a 는 값만 재산정 — 플래그(마스터 enabled·trigger shadow)는 안 건드림(구현 완료 후 배포 결정)")
     void flagsUntouched() {
         assertThat(props.isEnabled())

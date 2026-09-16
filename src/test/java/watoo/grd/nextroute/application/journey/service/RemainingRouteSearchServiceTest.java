@@ -13,6 +13,7 @@ import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
+import watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties;
 import watoo.grd.nextroute.application.route.config.RoutingProviderProperties;
 import watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver;
 import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
@@ -74,6 +75,7 @@ class RemainingRouteSearchServiceTest {
                     new LegacyRouteResponseMapper(mock(OtpSeoulIdentityResolver.class)),
                     new OtpRoutingProperties(),
                     otpConcurrencyGate,
+                    new RouteSearchDeadlineProperties(),
                     Clock.systemDefaultZone());
 
     /** provider=OTP 인 재탐색 서비스. gate·otpPort·mapper 는 주입값 그대로. */
@@ -84,7 +86,8 @@ class RemainingRouteSearchServiceTest {
         props.setOtpEnabled(true);
         return new RemainingRouteSearchService(cache, odSayApiPort, metrics,
                 new RoutingProviderSelector(props, List.of(otpPort)),
-                mapper, new OtpRoutingProperties(), gate, Clock.systemDefaultZone());
+                mapper, new OtpRoutingProperties(), gate, new RouteSearchDeadlineProperties(),
+                Clock.systemDefaultZone());
     }
 
     private RoutingResult otpResult() {
@@ -225,6 +228,9 @@ class RemainingRouteSearchServiceTest {
         verify(otpPort).search(any(), searchDeadline.capture());
         // 같은 인스턴스 = 대기 후 남은 예산으로 호출(단계별 새 예산 발급 아님).
         assertThat(searchDeadline.getValue()).isSameAs(gateDeadline.getValue());
+        // OTP 호출 예산 = otpMs(기본 3500), 넘긴 budgetMs(3000) 아님(단일소스).
+        long remaining = searchDeadline.getValue().remainingMillis(Clock.systemDefaultZone());
+        assertThat(remaining).isGreaterThan(3000L).isLessThanOrEqualTo(3500L);
         verify(otpConcurrencyGate).release(permit);
     }
 

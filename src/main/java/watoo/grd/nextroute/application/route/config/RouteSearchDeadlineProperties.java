@@ -27,6 +27,13 @@ public class RouteSearchDeadlineProperties {
     /** ODsay(필수) 단계 상한. */
     private long odsayMs = 2000;
 
+    /**
+     * OTP(필수) 호출 예산. OTP planConnection 왕복이 ODsay(2000)보다 느려 전용값을 둔다.
+     * OTP 경로는 단일 단계(enricher 없음)라 이 값이 곧 요청 예산 = readTimeout.
+     * 근거(2026-09-16 VPS 실측, 경로 5종×12): OTP p99~1.9s/max 2.04s + 앱 역직렬화 오버헤드 + tail 여유.
+     */
+    private long otpMs = 3500;
+
     /** TMAP 보행 보강(선택) 단계 상한. */
     private long tmapMs = 1200;
 
