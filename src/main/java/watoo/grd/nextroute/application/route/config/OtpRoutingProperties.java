@@ -30,6 +30,15 @@ public class OtpRoutingProperties {
      */
     private boolean realtimeEnabled = false;
 
+    /**
+     * P3 pfaedle 형상 마킹 킬스위치. false 면 대중교통 leg 형상은 전량 {@code STREET_FALLBACK}
+     * (현행 프로덕션 동작). true 라도 coverage-index.graphVersion 이 {@link #graphVersion} 과 맞고
+     * mode 가 커버되며 trip 이 미degraded 일 때만 {@code GTFS_SHAPE/SHAPE_OK}. 기본 false.
+     */
+    private boolean shapesEnabled = false;
+    /** coverage-index.json 위치(Spring Resource: classpath:/file: 접두). 그래프와 함께 배포. */
+    private String coverageIndexPath = "classpath:otp/coverage-index.json";
+
     public String getBaseUrl() { return baseUrl; }
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
     public int getFirst() { return first; }
@@ -44,4 +53,8 @@ public class OtpRoutingProperties {
     public void setGraphVersion(String graphVersion) { this.graphVersion = graphVersion; }
     public boolean isRealtimeEnabled() { return realtimeEnabled; }
     public void setRealtimeEnabled(boolean realtimeEnabled) { this.realtimeEnabled = realtimeEnabled; }
+    public boolean isShapesEnabled() { return shapesEnabled; }
+    public void setShapesEnabled(boolean shapesEnabled) { this.shapesEnabled = shapesEnabled; }
+    public String getCoverageIndexPath() { return coverageIndexPath; }
+    public void setCoverageIndexPath(String coverageIndexPath) { this.coverageIndexPath = coverageIndexPath; }
 }

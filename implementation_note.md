@@ -1636,3 +1636,27 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - IT RerouteRouteOptionIT: givenResolvedBoarding 이 baseline option 에 source_route_id 를 안 넣어 baseline 이 항상 shadow → 제안 0. baseline source_route_id + wait/ride leg source stop id 채우고 @MockBean RouteRideDurationPort=OK 추가해야 함.
 ### 검증
 - `--tests RouteOptionCandidateProviderTest` = 22 그린(20 무회귀 + 게이트 승격막힘/shadow폴백 2). RouteOptionEtaCalculatorTest 10. Otp*RideDuration* 10. RerouteRouteOptionIT 5(부팅=DI 단일 RouteRideDurationPort 빈 OK). 광역 `*Reroute* *RouteOption* *RemainingPath* *Otp* *RideDuration*` NO FAILURES.
+
+## 2026-09-17 national-otp P3 PR-B1 — 앱 형상 마킹 (src/main)
+
+### 확정 (계약)
+- **SHAPE_OK 판정은 오직 coverage-index 로만**. OtpPlanConnectionMapper.toGeometry: `transit && shapesEnabled && ShapeCoverageIndex.isShapeOk(activeGraphVersion, modeToken, tripId)` → `GeometrySource.GTFS_SHAPE` + `GeometryQuality.SHAPE_OK` + points(version=graphVersion). 아니면 STREET_FALLBACK. OTP 가 shape 없어도 직선 points 주므로 points 존재로 판단 금지(계약).
+- **ShapeCoverageIndex = degraded 만 담음**(게이트 미통과 ∪ 미shape). 통과 trip 은 목록에 없음 → graphVersion 일치 + mode 커버 + trip 미degraded 면 기본 SHAPE_OK. 낡거나 어긋난 인덱스 = isShapeOk 항상 false = **under-claim(전량 fallback), 오마킹 0**.
+- **graphVersion 게이트**: index.graphVersion == 설정 graphVersion(OtpVersions 로 흘러온 값) 정확일치. 불일치=전량 fallback. 현재 앱 기본 graphVersion=`...-otp276-g4e098383`(배포된 shadow) ≠ 형상 그래프 `...-shaped-gad62d423c307` → 형상 그래프 배포 전엔 자동 fallback.
+- **shapesEnabled 기본 false**(OtpRoutingProperties). off 면 인덱스 무관 STREET_FALLBACK = 현행 프로덕션 동작. dormant 회귀 0.
+- **modeToken**: RoutingMode BUS→"bus"/SUBWAY→"subway"/RAIL→"rail"/else null. coveredModes=["bus"] 라 지하철/철도 자동 fallback(Stage1).
+- **tripId feed prefix strip**: OTP leg.trip.gtfsId="1:BR_TAGO_..._Ord001", coverage-index=raw "BR_TAGO_..._Ord001". ShapeCoverageIndex.stripFeed 가 ':' 앞 제거.
+- **네비 차단 로직**: anyTransitFallback = 대중교통 leg 중 quality 가 OSM_RELATION_OK/SHAPE_OK 아닌 것 존재 → "GEOMETRY_STREET_FALLBACK". SHAPE_OK 도 정상으로 인정(isAcceptableGeometry).
+- **legacy 무변경**: LegacyRouteResponseMapper 손 안 댐(polyline=null 유지). 형상은 v2 경로만.
+
+### 함정
+- **3-생성자 @Autowired**: OtpPlanConnectionMapper 에 (ShapeCoverageIndex,OtpRoutingProperties)@Autowired + (ShapeCoverageIndex,boolean) + no-arg. Spring 은 @Autowired 것만 씀. no-arg=기존 5개 테스트(shapes off 기본) 무변경 보존용. [[project-fcm-live-activity-rollout]] 2생성자 함정 회피(정확히 1개만 @Autowired).
+- **ShapeCoverageIndexConfig 부재 폴백**: coverage-index.json 없으면(기본 classpath:otp/coverage-index.json 미배치) disabled() → 부팅 안 깨짐. VPS 는 그래프와 함께 파일 배치 + coverageIndexPath=file:... 설정.
+
+### 좌표
+- 신규: application/route/routing/ShapeCoverageIndex.java(+isShapeOk/stripFeed), application/route/config/ShapeCoverageIndexConfig.java(@Bean 로더). enum: GeometrySource.GTFS_SHAPE, GeometryQuality.SHAPE_OK. OtpRoutingProperties.shapesEnabled/coverageIndexPath.
+- OtpPlanConnectionMapper: 생성자 3개 + toGeometry(+mode,tripId,graphVersion) + toItinerary/toLeg 에 graphVersion 스레드 + isAcceptableGeometry/modeToken.
+
+### 검증
+- `./gradlew compileJava compileTestJava` OK. 계약테스트 OtpPlanConnectionMapperShapeTest 6그린(①covered=SHAPE_OK ②degraded=fallback+네비차단 ②b 전부SHAPE_OK=미차단 ③graphVersion mismatch=전량fallback ④지하철=fallback ⑤flag off=fallback). OtpShapeWiringTest 1(DB없이 빈 배선+부재폴백). otp 패키지 전량 무회귀(Error3/기존Mapper2/RideDuration/StopPattern/Adapter). RouteResponseMapperTest 5.
+- **기존 무관**: NextrouteApplicationTests(@SpringBootTest) = localhost:5432 refused(Flyway, 로컬 DB 없음). 내 변경 전부터 그럼. 빈 배선은 OtpShapeWiringTest 로 DB없이 증명.
