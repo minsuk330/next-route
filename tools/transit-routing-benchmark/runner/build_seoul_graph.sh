@@ -42,12 +42,17 @@ REPORT_ONLY=0
 FROM_KTDB=""
 THRESHOLDS=""
 GRAPH_VERSION=""
+MOTS="bus"      # pfaedle -m (mode-of-transport to map-match). P4 §A1: subway next.
+MODES="bus"     # compute_shape_quality.py --modes (gate/report scope). Independent
+                # of MOTS — e.g. report on bus+subway while only re-matching subway.
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --report-only) REPORT_ONLY=1; shift ;;
     --from-ktdb) FROM_KTDB="$2"; shift 2 ;;
     --thresholds) THRESHOLDS="$2"; shift 2 ;;
     --graph-version) GRAPH_VERSION="$2"; shift 2 ;;
+    --mots) MOTS="$2"; shift 2 ;;
+    --modes) MODES="$2"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -65,19 +70,19 @@ else
   unzip -o -q "$NORMALIZED_ZIP" -d "$GTFS_IN"
 fi
 
-echo "== step 2: pfaedle (bus) =="
+echo "== step 2: pfaedle ($MOTS) =="
 rm -rf "$GTFS_OUT"; mkdir -p "$GTFS_OUT"
 docker run --rm \
   -v "$HERE/$BUILD:/data" \
   -v "$HERE/$OSM_ROADS:/data/roads.osm.pbf:ro" \
   -w /data \
   "$PFAEDLE_IMAGE" \
-  -m bus -x /data/roads.osm.pbf -i /data/gtfs-in -o /data/gtfs-out
+  -m "$MOTS" -x /data/roads.osm.pbf -i /data/gtfs-in -o /data/gtfs-out
 test -s "$GTFS_OUT/shapes.txt" || { echo "pfaedle produced no shapes.txt" >&2; exit 1; }
 echo "shapes.txt lines: $(wc -l < "$GTFS_OUT/shapes.txt")"
 
-echo "== step 3: gate =="
-GATE_ARGS=("$GTFS_OUT" --metrics-out "$BUILD/coverage-metrics.csv")
+echo "== step 3: gate (modes=$MODES) =="
+GATE_ARGS=("$GTFS_OUT" --modes "$MODES" --metrics-out "$BUILD/coverage-metrics.csv")
 if [[ -n "$THRESHOLDS" ]]; then
   [[ -n "$GRAPH_VERSION" ]] || { echo "--thresholds requires --graph-version" >&2; exit 2; }
   GATE_ARGS+=(--thresholds "$THRESHOLDS" --index-out "data/otp-seoul/coverage-index.json" \
