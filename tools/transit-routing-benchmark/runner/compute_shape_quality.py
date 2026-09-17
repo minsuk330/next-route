@@ -319,9 +319,10 @@ def main() -> None:
         "--thresholds",
         type=Path,
         default=None,
-        help="JSON of gate thresholds; when given, emit coverage-index.json. "
-        "Keys: residual_p90, residual_max, anchor_err, "
-        "detour_ratio_max, detour_ratio_min (any subset).",
+        help="JSON of gate thresholds; when given, emit coverage-index.json. Either "
+        "mode-keyed ({\"bus\": {...}, \"subway\": {...}}, P4 §A2) or, for a single "
+        "--modes, a flat dict (legacy P3). Threshold keys: residual_p90, "
+        "residual_max, anchor_err, detour_ratio_max, detour_ratio_min (any subset).",
     )
     parser.add_argument(
         "--index-out",
@@ -347,16 +348,31 @@ def main() -> None:
     unknown = [m for m in modes if m not in MODE_ROUTE_TYPES]
     if unknown:
         parser.error(f"unknown mode(s): {unknown}. known: {sorted(MODE_ROUTE_TYPES)}")
-    if args.thresholds and len(modes) > 1:
-        # 플랜 §A1: "지하철 전용 임계를 따로 둘지 결정한다(버스 임계 재사용 금지)". 지금
-        # thresholds 는 mode 무관 flat dict 하나뿐이라, 여러 mode 에 그대로 적용하면
-        # 부적합한 임계가 조용히 새는 구멍이 된다. mode 별 임계 구조는 P4 §A2 의 몫.
-        parser.error(
-            "--thresholds only supports a single mode at a time for now — a flat "
-            "threshold dict can't be safely reused across modes (P4 PLAN §A1: "
-            "'버스 임계 재사용 금지'). Run per mode until §A2's mode-keyed "
-            "threshold structure lands."
-        )
+
+    thresholds_raw = json.loads(args.thresholds.read_text()) if args.thresholds else None
+    mode_thresholds: dict[str, dict] | None = None
+    if thresholds_raw is not None:
+        mode_keys = [k for k in thresholds_raw if k in MODE_ROUTE_TYPES]
+        if mode_keys:
+            # mode-keyed(P4 §A2): {"bus": {...}, "subway": {...}}. 요청한 mode 전부
+            # 자기 것을 가져야 한다 — 없으면 다른 mode 임계로 조용히 새는 대신 즉시 에러.
+            missing = [m for m in modes if m not in thresholds_raw]
+            if missing:
+                parser.error(
+                    f"--thresholds is mode-keyed but missing mode(s) {missing} "
+                    f"(requested modes={modes}) — 버스 임계 재사용 대신 에러(P4 PLAN §A1)."
+                )
+            mode_thresholds = {m: thresholds_raw[m] for m in modes}
+        elif len(modes) == 1:
+            # legacy flat dict(P3): 단일 mode 에만 허용 — 여러 mode 에 그대로 적용하면
+            # 부적합한 임계가 조용히 새는 구멍이 된다(P4 PLAN §A1 "버스 임계 재사용 금지").
+            mode_thresholds = {modes[0]: thresholds_raw}
+        else:
+            parser.error(
+                "--thresholds is a flat (non mode-keyed) dict — can't safely apply it "
+                "to multiple modes at once. Switch to {\"<mode>\": {...}} structure "
+                "(P4 PLAN §A2) or pass a single --modes."
+            )
 
     gtfs = args.gtfs
     print(f"loading shaped feed: {gtfs}  modes={modes}", file=sys.stderr)
@@ -414,7 +430,6 @@ def main() -> None:
                 print(f"  {label:>12} | {count:>7} {bar}")
 
     # ---- optional per-trip CSV ----
-    thresholds = json.loads(args.thresholds.read_text()) if args.thresholds else None
     if args.metrics_out:
         with args.metrics_out.open("w", encoding="utf-8", newline="") as stream:
             writer = csv.writer(stream)
@@ -426,7 +441,7 @@ def main() -> None:
                     writer.writerow([trip_id, mode, *[""] * len(METRIC_KEYS), "", "UNJUDGED"])
             for trip_id, m in per_trip.items():
                 status = "SHAPE_OK"
-                if thresholds and _is_degraded(m, thresholds):
+                if mode_thresholds and _is_degraded(m, mode_thresholds[trip_mode[trip_id]]):
                     status = "DEGRADED"
                 writer.writerow(
                     [trip_id, trip_mode[trip_id], *[round(m[k], 2) for k in METRIC_KEYS],
@@ -434,11 +449,12 @@ def main() -> None:
                 )
         print(f"\nwrote per-trip metrics: {args.metrics_out}")
 
-    # ---- optional coverage-index (single-mode only, see guard above) ----
-    if thresholds:
+    # ---- optional coverage-index (per-mode threshold application, P4 §A2) ----
+    if mode_thresholds:
         if not args.index_out or not args.graph_version:
             parser.error("--thresholds requires --index-out and --graph-version")
-        degraded = [t for t, m in per_trip.items() if _is_degraded(m, thresholds)]
+        degraded = [t for t, m in per_trip.items()
+                    if _is_degraded(m, mode_thresholds[trip_mode[t]])]
         total_missing = sum(len(v) for v in missing.values())
         total_unjudged = sum(len(v) for v in unjudged.values())
         # DEGRADED ∪ MISSING ∪ UNJUDGED — anything not provably good falls back.
@@ -449,7 +465,7 @@ def main() -> None:
         index = {
             "graphVersion": args.graph_version,
             "coveredModes": modes,
-            "thresholds": thresholds,
+            "thresholds": mode_thresholds,
             "counts": {
                 **{f"{mode}Trips": sum(1 for mo in trip_mode.values() if mo == mode)
                    for mode in modes},

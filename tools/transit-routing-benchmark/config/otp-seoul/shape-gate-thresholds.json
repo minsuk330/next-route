@@ -1,8 +1,19 @@
 {
-  "_comment": "P3 pfaedle shape-quality gate (loose set, chosen from the 2026-09-17 full-feed distribution: no catastrophic shapes, worst residual_p90=126m; trims ~1% tail to STREET_FALLBACK, which equals current prod behavior so degraded => zero regression). residual/anchor in metres, detour is a ratio.",
-  "residual_p90": 70,
-  "residual_max": 190,
-  "anchor_err": 170,
-  "detour_ratio_max": 3.0,
-  "detour_ratio_min": 0.0
+  "_comment": "P3/P4 pfaedle shape-quality gate, mode-keyed (P4 §A2). Each mode's set is chosen from that mode's own full-feed distribution, trimming ~1% of the tail to STREET_FALLBACK (near-zero regression vs current prod). residual/anchor in metres, detour is a ratio. Never reuse another mode's set as-is (P4 §A1: subway station coordinates sit at the station centroid, not the platform, so its anchor_err runs naturally higher than bus's).",
+  "bus": {
+    "_comment": "2026-09-17 P3 full-feed distribution: worst residual_p90=126m.",
+    "residual_p90": 70,
+    "residual_max": 190,
+    "anchor_err": 170,
+    "detour_ratio_max": 3.0,
+    "detour_ratio_min": 0.0
+  },
+  "subway": {
+    "_comment": "2026-09-17 P4 §A1 full-feed distribution (n=8186, 0 missing/unjudged): p99 residual_p90=129.4, anchor_err max=171.7, detour max=3.5. See handoffs/STAGE2-DISTRIBUTION.md — degraded=0.68%(56/8186) at these values, comparable to bus's 1.01%.",
+    "residual_p90": 130,
+    "residual_max": 175,
+    "anchor_err": 175,
+    "detour_ratio_max": 3.5,
+    "detour_ratio_min": 0.0
+  }
 }

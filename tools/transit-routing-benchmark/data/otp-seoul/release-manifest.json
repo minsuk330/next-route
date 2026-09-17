@@ -1,7 +1,7 @@
 {
-  "graphVersion": "seoul-bbox-202503-cal20260707_20261108-otp276-shaped-gb75848ddb4ee",
-  "generatedAt": "2026-09-17T22:08:12+09:00",
-  "stage": "P3 pfaedle transit shapes (Stage1: bus only)",
+  "graphVersion": "seoul-bbox-202503-cal20260707_20261108-otp276-shaped-g13d196cb4979",
+  "generatedAt": "2026-09-18T00:01:16+09:00",
+  "stage": "P4 pfaedle transit shapes (Stage2: bus + subway)",
   "scope": {
     "region": "Seoul metropolitan bbox (name only; not full 행정구역)",
     "bbox": [
@@ -19,7 +19,7 @@
     "gtfsPreShapeZip": "data/input/seoul-bbox-202503.gtfs.zip.preshape.bak",
     "gtfsPreShapeSha256": "0cb23b0d9d370c6c59a2e7374c1702a58f7306a60c339b0b422f66461f5016e6",
     "gtfsShapedZip": "data/input/seoul-bbox-202503.gtfs.zip",
-    "gtfsShapedSha256": "bc0cb120e3e112494ac291aad52a8e9ff91b418476d315f8d9ac5512438cc836",
+    "gtfsShapedSha256": "db280f9fc94146a91b5f821c690c6ea0cf0c31180481c787b8c736e6e550deec",
     "otpOsmPbf": "data/input/south-korea-seoul-metro.osm.pbf",
     "otpOsmPbfSha256": "0be8f32b094def1004296e8a7edf68070ca1ede91d99679918e0cc4910bd2170",
     "pfaedleOsmPbf": "data/input/south-korea-260903.osm.pbf",
@@ -31,21 +31,26 @@
   },
   "pfaedle": {
     "image": "ghcr.io/ad-freiburg/pfaedle@sha256:af4fdc647699ea1ffe5150fd1f9d264c465c2876710ea749e8cb284f13abd20d",
-    "mot": "bus",
-    "matchedTrips": 146670,
-    "shapes": 3536,
-    "note": "Stage1 = bus only; subway/rail/ferry stay STREET_FALLBACK"
+    "mot": "bus (Stage1, 2026-09-17) + subway (Stage2, 2026-09-18) — separate runs against the same input feed; subway pass leaves bus shapes untouched (실측 확인)",
+    "matchedTrips": {
+      "bus": 146670,
+      "subway": 8186
+    },
+    "shapes": 3930,
+    "note": "Stage2 = bus + subway. rail(2 routes)/ferry(1) still unmatched, stay STREET_FALLBACK — rail deferred (too few routes, needs its own distribution check per P4 §A0)."
   },
   "shapeGate": {
     "script": "tools/transit-routing-benchmark/runner/compute_shape_quality.py",
-    "thresholds": "config/otp-seoul/shape-gate-thresholds.json (loose)",
+    "thresholds": "config/otp-seoul/shape-gate-thresholds.json (mode-keyed: bus + subway, P4 §A2)",
     "coverageIndex": "data/otp-seoul/coverage-index.json",
-    "coverageIndexSha256": "5b096c5a1b37b2f78b91a94a493fc3c5ee532ded8f715373357f04fe10f1dbe4",
+    "coverageIndexSha256": "b1b0afa0eb4b3cdb9b4e49d8f4cb4f0298e0bef0d3dbf6d15a965c91185442ee",
     "counts": {
       "busTrips": 146670,
-      "shapeOk": 145193,
-      "degraded": 1477,
-      "missing": 0
+      "subwayTrips": 8186,
+      "shapeOk": 153323,
+      "degraded": 1533,
+      "missing": 0,
+      "unjudged": 0
     }
   },
   "otp": {
@@ -54,12 +59,12 @@
     "serVerId": 276,
     "buildConfig": "config/otp-seoul/build-config.json",
     "otpConfig": "config/otp-seoul/otp-config.json",
-    "note": "VPS 배포본 이미지로 빌드. graph.obj 는 ser.ver.id 로 잠기므로 스톡 2.9.0(id249)로 만든 그래프는 이 OTP 에서 로드되지 않는다."
+    "note": "VPS 배포본 이미지로 빌드(변경 없음, Stage1 과 동일 이미지). graph.obj 는 ser.ver.id 로 잠기므로 스톡 2.9.0(id249)로 만든 그래프는 이 OTP 에서 로드되지 않는다."
   },
   "graph": {
     "file": "data/otp-seoul/graph.obj",
-    "sha256": "b75848ddb4ee336b5dbb53081354175ed7893ae78bba7d52e1c4553a11a2ae54",
-    "sizeBytes": 235527305,
+    "sha256": "13d196cb49796128e5f51b80137caf759ab1a92aa63f9fc08d46e7d65229c5c2",
+    "sizeBytes": 236193367,
     "stops": 43783,
     "patterns": 3936,
     "constrainedTransfers": 284
@@ -80,12 +85,12 @@
   "releaseBundle": {
     "note": "graph+otpImage+shapedGtfs+coverageIndex+graphVersion 한 세트. verify_release_bundle.py 로 배포 전 검증(부분 스왑 차단).",
     "identity": {
-      "graphVersion": "seoul-bbox-202503-cal20260707_20261108-otp276-shaped-gb75848ddb4ee",
+      "graphVersion": "seoul-bbox-202503-cal20260707_20261108-otp276-shaped-g13d196cb4979",
       "otpImage": "sha256:176f3938e87aa933ef5ee6a846ae180b3658fe396f78e80e9515b21aa08a1259",
-      "shapedGtfsSha256": "bc0cb120e3e112494ac291aad52a8e9ff91b418476d315f8d9ac5512438cc836",
-      "coverageIndexSha256": "5b096c5a1b37b2f78b91a94a493fc3c5ee532ded8f715373357f04fe10f1dbe4",
-      "graphSha256": "b75848ddb4ee336b5dbb53081354175ed7893ae78bba7d52e1c4553a11a2ae54"
+      "shapedGtfsSha256": "db280f9fc94146a91b5f821c690c6ea0cf0c31180481c787b8c736e6e550deec",
+      "coverageIndexSha256": "b1b0afa0eb4b3cdb9b4e49d8f4cb4f0298e0bef0d3dbf6d15a965c91185442ee",
+      "graphSha256": "13d196cb49796128e5f51b80137caf759ab1a92aa63f9fc08d46e7d65229c5c2"
     },
-    "bundleHash": "90f08cb7419669719638dc95af2eb187591b657f33ce4fe0766ce7257318942a"
+    "bundleHash": "8706cf5f8887d1a9a78ae767787bf2726e5d9119f29ab58f65498a7fbd1108d0"
   }
 }
