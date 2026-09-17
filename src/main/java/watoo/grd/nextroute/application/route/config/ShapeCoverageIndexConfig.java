@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import watoo.grd.nextroute.application.route.routing.ShapeCoverageIndex;
+import watoo.grd.nextroute.application.route.routing.ShapeMarkingStatus;
 
 import java.io.InputStream;
 import java.util.HashSet;
@@ -27,13 +28,22 @@ public class ShapeCoverageIndexConfig {
     public ShapeCoverageIndex shapeCoverageIndex(OtpRoutingProperties props,
                                                  ObjectMapper objectMapper,
                                                  ResourceLoader resourceLoader) {
+        ShapeCoverageIndex index = load(props, objectMapper, resourceLoader);
+        // 배포 원자성 게이트(PR-B2): 유효 상태를 기동 시 한 줄로 드러낸다. graphVersion 이 어긋난
+        // 배포 조합은 조용히 fallback 되지 않고 WARN 으로 즉시 잡힌다.
+        logMarkingStatus(props, index);
+        return index;
+    }
+
+    private ShapeCoverageIndex load(OtpRoutingProperties props, ObjectMapper objectMapper,
+                                    ResourceLoader resourceLoader) {
         String path = props.getCoverageIndexPath();
         if (path == null || path.isBlank()) {
             return ShapeCoverageIndex.disabled();
         }
         Resource resource = resourceLoader.getResource(path);
         if (!resource.exists()) {
-            log.info("coverage-index 없음({}) → 형상 마킹 비활성", path);
+            log.info("coverage-index 없음({})", path);
             return ShapeCoverageIndex.disabled();
         }
         try (InputStream in = resource.getInputStream()) {
@@ -45,8 +55,27 @@ public class ShapeCoverageIndexConfig {
                     graphVersion, coveredModes, degraded.size());
             return new ShapeCoverageIndex(graphVersion, coveredModes, degraded);
         } catch (Exception e) {
-            log.warn("coverage-index 로드 실패({}) → 형상 마킹 비활성: {}", path, e.toString());
+            log.warn("coverage-index 로드 실패({}): {}", path, e.toString());
             return ShapeCoverageIndex.disabled();
+        }
+    }
+
+    private void logMarkingStatus(OtpRoutingProperties props, ShapeCoverageIndex index) {
+        String cfg = props.getGraphVersion();
+        ShapeMarkingStatus status = index.markingStatus(props.isShapesEnabled(), cfg);
+        switch (status) {
+            case ACTIVE -> log.info(
+                    "형상 마킹 ACTIVE: graphVersion={} coveredModes={} degraded={}",
+                    index.graphVersion(), index.coveredModes(), index.degradedCount());
+            case DISABLED -> log.info("형상 마킹 OFF (shapesEnabled=false) → 전량 STREET_FALLBACK");
+            case NO_INDEX -> log.warn(
+                    "형상 마킹 ON 이나 coverage-index 없음/로드실패 → 전량 STREET_FALLBACK "
+                    + "(coverageIndexPath={})", props.getCoverageIndexPath());
+            case GRAPH_VERSION_MISMATCH -> log.warn(
+                    "형상 마킹 ON 이나 graphVersion 불일치 → 전량 STREET_FALLBACK. "
+                    + "index={} config={} (배포 번들이 어긋남 — graph/coverage-index/graphVersion 한 세트로 교체 필요)",
+                    index.graphVersion(), cfg);
+            default -> { /* exhaustive */ }
         }
     }
 

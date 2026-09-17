@@ -56,6 +56,26 @@ public final class ShapeCoverageIndex {
         return colon >= 0 ? gtfsId.substring(colon + 1) : gtfsId;
     }
 
+    /**
+     * 기동 시 이 인덱스+설정 조합의 유효 형상 마킹 상태(PR-B2 배포 게이트). 로그/검증용.
+     * {@link #isShapeOk} 의 graphVersion·활성 판정과 같은 규칙을 배포 관점에서 요약한다.
+     *
+     * @param shapesEnabled      설정 킬스위치
+     * @param configGraphVersion 설정 graphVersion(배포된 그래프 버전)
+     */
+    public ShapeMarkingStatus markingStatus(boolean shapesEnabled, String configGraphVersion) {
+        if (!shapesEnabled) {
+            return ShapeMarkingStatus.DISABLED;
+        }
+        if (graphVersion.isEmpty()) {
+            return ShapeMarkingStatus.NO_INDEX;
+        }
+        if (configGraphVersion == null || !graphVersion.equals(configGraphVersion)) {
+            return ShapeMarkingStatus.GRAPH_VERSION_MISMATCH;
+        }
+        return ShapeMarkingStatus.ACTIVE;
+    }
+
     public String graphVersion() {
         return graphVersion;
     }

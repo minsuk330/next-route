@@ -4,7 +4,12 @@
   "stage": "P3 pfaedle transit shapes (Stage1: bus only)",
   "scope": {
     "region": "Seoul metropolitan bbox (name only; not full 행정구역)",
-    "bbox": [126.5, 37.2, 127.4, 38.0],
+    "bbox": [
+      126.5,
+      37.2,
+      127.4,
+      38.0
+    ],
     "selection": "spatial: trip kept iff every served stop inside bbox (no route_id prefix)",
     "calendarWindow": "20260707..20261108 (build date 20260907 +/-62d)",
     "otpTransitServiceWindow": "[-P1D, P2M] -> clamped [2026-09-06, 2026-11-07]"
@@ -36,10 +41,16 @@
     "thresholds": "config/otp-seoul/shape-gate-thresholds.json (loose)",
     "coverageIndex": "data/otp-seoul/coverage-index.json",
     "coverageIndexSha256": "749d1874cb72bdabd5b8252ca47ea72004708d963639d3153d70a8590b4b2f19",
-    "counts": {"busTrips": 146670, "shapeOk": 145193, "degraded": 1477, "missing": 0}
+    "counts": {
+      "busTrips": 146670,
+      "shapeOk": 145193,
+      "degraded": 1477,
+      "missing": 0
+    }
   },
   "otp": {
     "image": "opentripplanner/opentripplanner:2.9.0",
+    "imageDigest": "opentripplanner/opentripplanner@sha256:a7eac7da397faa9ec9dee407d4204895d24df4981500662fa6793aae0e71fd8f",
     "serVerId": 249,
     "buildConfig": "config/otp-seoul/build-config.json",
     "otpConfig": "config/otp-seoul/otp-config.json"
@@ -48,10 +59,32 @@
     "file": "data/otp-seoul/graph.obj",
     "sha256": "ad62d423c307da3d31f9f99c290a3b93f306e9b157c5607704b5c37e8c3ebf65",
     "sizeBytes": 236266557,
-    "stops": 43783, "patterns": 3936, "constrainedTransfers": 284
+    "stops": 43783,
+    "patterns": 3936,
+    "constrainedTransfers": 284
   },
   "feedCounts": {
-    "routes": 2738, "routesByType": {"subway_1": 59, "rail_2": 2, "bus_3": 2676, "ferry_4": 1},
-    "trips": 154887, "tripsExcludedOutOfBbox": 171002, "stops": 43783, "transfers": 284
+    "routes": 2738,
+    "routesByType": {
+      "subway_1": 59,
+      "rail_2": 2,
+      "bus_3": 2676,
+      "ferry_4": 1
+    },
+    "trips": 154887,
+    "tripsExcludedOutOfBbox": 171002,
+    "stops": 43783,
+    "transfers": 284
+  },
+  "releaseBundle": {
+    "note": "graph+otpImage+shapedGtfs+coverageIndex+graphVersion 한 세트. verify_release_bundle.py 로 배포 전 검증(부분 스왑 차단).",
+    "identity": {
+      "graphVersion": "seoul-bbox-202503-cal20260707_20261108-shaped-gad62d423c307",
+      "otpImage": "opentripplanner/opentripplanner@sha256:a7eac7da397faa9ec9dee407d4204895d24df4981500662fa6793aae0e71fd8f",
+      "shapedGtfsSha256": "bc0cb120e3e112494ac291aad52a8e9ff91b418476d315f8d9ac5512438cc836",
+      "coverageIndexSha256": "749d1874cb72bdabd5b8252ca47ea72004708d963639d3153d70a8590b4b2f19",
+      "graphSha256": "ad62d423c307da3d31f9f99c290a3b93f306e9b157c5607704b5c37e8c3ebf65"
+    },
+    "bundleHash": "15957c81e4b8b5835cf1d78d2c442a041a0b16d3162abf17e9d0cf8efadeafa1"
   }
 }

@@ -95,3 +95,9 @@ echo "shaped feed → $SHAPED_ZIP"
 docker compose -f compose.seoul-otp.yml --profile build run --rm otp-build
 test -s data/otp-seoul/graph.obj || { echo "otp-build produced no graph.obj" >&2; exit 1; }
 echo "graph.obj rebuilt. Update release-manifest.json (digest/sha/graphVersion) before deploy."
+
+echo "== step 5: release bundle (원자성) =="
+echo "release-manifest.json 의 graph.sha256/gtfsShapedSha256/coverageIndexSha256/graphVersion/"
+echo "otp.imageDigest 를 이번 산출물로 갱신했는지 확인 후:"
+echo "  python3 runner/verify_release_bundle.py --write   # bundleHash 기록"
+echo "  python3 runner/verify_release_bundle.py           # 배포 전 재검증(부분 스왑 차단)"
