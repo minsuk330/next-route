@@ -7,7 +7,10 @@ services:
     platform: linux/amd64
     working_dir: /var/opentripplanner
     environment:
-      JAVA_TOOL_OPTIONS: "-Xmx11g -XX:+UseStringDeduplication"
+      # Docker Desktop VM 이 7.75GB 뿐이라 -Xmx11g 는 항상 OOM 이다(예전 네이티브
+      # arm64 빌드 시절 값이 남아있던 것 — 지금은 포크 이미지가 amd64 전용이라
+      # 이 서비스는 항상 에뮬레이션으로 돈다). -Xmx5g 로 실측 성공(2026-09-17 P3).
+      JAVA_TOOL_OPTIONS: "-Xmx5g -XX:+UseStringDeduplication"
     volumes:
       - ./data/otp-seoul:/var/opentripplanner
       - ./data/input/south-korea-seoul-metro.osm.pbf:/var/opentripplanner/south-korea-seoul-metro.osm.pbf:ro

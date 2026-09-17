@@ -2156,6 +2156,33 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - **버스 임계 재사용 위험 정량화**(coverage-metrics.csv 별도 분석): 버스 임계 그대로 → 지하철 degraded 9.13%(747/8186). anchor_err 만 170→200 완화 → 5.02%(411/8186), anchor_err 원인 완전 소멸. 지하철 자체 p99 근처로 맞춘 제안 임계(`residual_p90≤130, anchor_err≤175, detour≤3.5`) → 0.68%(56/8186), 버스의 1.01% 와 비슷한 수준.
 
 ### 미결
-- **지하철 최종 임계값은 사용자 확인 대기**(플랜 §A1 게이트, STAGE2-DISTRIBUTION.md 제안값 참조).
 - rail(2개 노선) 은 이번 A1 스코프에 안 넣음(`--mots subway` 만 실행) — 노선 수가 너무 적어 별도 분포 실측+판단 필요.
-- A2(임계 확정 → thresholds.json mode-keyed 구조 확장 → 그래프 재빌드 → coverage-index 갱신 → PR-2 오픈 → 배포)는 이번 세션 범위 밖, 사용자 결정 후 착수.
+
+## 2026-09-18 P4 Track A2 — 지하철 임계 확정 + 그래프 재빌드 + VPS 배포(형상 ACTIVE, coveredModes=[bus,subway])
+
+### 확정 (계약)
+- **지하철 임계값 확정(사용자 승인)**: `residual_p90≤130, residual_max≤175, anchor_err≤175, detour_ratio∈[0,3.5]` — STAGE2-DISTRIBUTION.md 제안값 그대로. `config/otp-seoul/shape-gate-thresholds.json` 을 `{"bus": {...}, "subway": {...}}` mode-keyed 구조로 확장(버스 값은 완전히 보존).
+- **compute_shape_quality.py mode-keyed threshold 적용**: `--thresholds` 가 mode 이름을 키로 가진 dict 면 요청한 `--modes` 전부가 자기 키를 가져야 함(하나라도 없으면 즉시 에러 — 다른 mode 임계가 새어들지 않음). 레거시 flat dict 는 단일 mode 에서만 허용(기존 A0 가드 유지, 이제는 "flat dict + 다중 mode" 조합만 막고 "mode-keyed + 다중 mode" 는 정상 허용).
+- **coverage-index.json 최종**: `coveredModes=["bus","subway"]`, `counts={busTrips:146670, subwayTrips:8186, shapeOk:153323, degraded:1533, missing:0, unjudged:0}`(1533=1477버스+56지하철, 정확히 일치). `graphVersion` 을 그래프 sha 접두 기반으로 재명명(`...otp276-shaped-g13d196cb4979`).
+
+### 함정
+- **compose.seoul-otp.yml 의 `otp-build` 기본 `-Xmx11g` 가 그대로 있어서 재빌드가 GTFS `stop_times.txt` 읽는 도중 조용히 죽었다**(에러 로그 없이 로그만 뚝 끊김 — Bash 타임아웃이 아니라 OOM 킬로 보임). Docker Desktop VM 이 7.75GB 뿐인데 11g 를 요청하니 애초에 못 들어간다. 지난 P3 배포 때는 `docker compose run -e JAVA_TOOL_OPTIONS="-Xmx5g..."` CLI 플래그로 그 자리에서만 우회했을 뿐 파일엔 반영을 안 해서, 스크립트만 보고 재실행하면 똑같이 또 죽는 함정이 남아있었다. **고침**: compose 파일의 커밋된 기본값 자체를 `-Xmx5g` 로 바꿔서 다음부터는 아무 플래그 없이도 안전.
+- 증상 재인식 포인트: 실패해도 Java/OTP 쪽 스택트레이스나 "Killed" 문구가 전혀 안 남고 로그가 그냥 특정 줄에서 멈춘다 — "에러 메시지가 없다" 자체가 OOM 킬의 신호일 수 있다(디스크/네트워크 에러라면 보통 예외가 찍힌다).
+- pfaedle `-m subway` 를 이미 bus-shaped 인 입력 feed 에 또 돌려도 bus shape 는 그대로 보존된다(A1 에서 이미 확인, A2 전체 빌드에서도 버스 지표가 다시 한 번 완전히 동일하게 재현되어 재확인됨).
+
+### 좌표
+- 변경: `config/otp-seoul/shape-gate-thresholds.json`(mode-keyed 재구조화), `runner/compute_shape_quality.py`(mode-keyed threshold 로딩+적용, `--thresholds` 도움말 갱신), `compose.seoul-otp.yml`(`otp-build` Xmx11g→5g + 이유 주석), `data/otp-seoul/{coverage-index.json,release-manifest.json}`(Stage2 값으로 갱신, release-manifest 는 verify_release_bundle.py --write 로 bundleHash 재계산).
+- 그래프 산출물(git 미추적, 로컬+VPS 만): `data/otp-seoul/graph.obj`(236,193,367B, sha256=13d196cb...), `data/input/seoul-bbox-202503.gtfs.zip`(bus+subway shape 포함, sha256=db280f9f...).
+
+### 배포 (2026-09-18 00:04~00:06, VPS 실적용)
+- 순서: ①로컬에서 배포본 이미지(`nextroute-otp:h-only-20260917`, ser.ver.id 276)로 그래프 재빌드 + 로컬 부팅으로 "Graph loaded" 선확인(P3 와 동일 절차) ②`/srv/nextroute/otp/<newGraphVersion>/` 새 디렉터리에 graph.obj+coverage-index.json scp, 양쪽 sha256 대조 ③`compose.yaml.bak-20260918-p4stage2` 백업 후 4곳(env 1 / coverage-index 마운트 2 / graph.obj 마운트 1) 전부 새 graphVersion 문자열로 외과 패치(`sed` 전역치환, 치환 전 개수=4 로 다른 곳에 안 섞였는지 먼저 확인) ④`docker compose config -q` PASS ⑤`up -d otp` → healthy(다운타임 19초, P3 의 21초와 비슷) ⑥`up -d api worker` → healthy.
+- 앱 이미지는 손대지 않음(코드 변경 0, OTP 그래프/설정만 교체).
+
+### 검증
+- 로컬: `python3 -m py_compile compute_shape_quality.py` OK. A0 회귀 재확인(bus 만 요청 시 counts/degradedTripIds 불변, mode-keyed 파일로 바꼈어도 동일) + mode-keyed 다중 mode 실행이 정상 동작.
+- 로컬 그래프 로드 증명: `nextroute-otp:h-only-20260917` 로 `--load --serve` → "Graph loaded. \|V\|=808,576 \|E\|=2,068,133" 정상(빌드 로그 자체도 ser.ver.id 276 확인) → 컨테이너 정지+삭제로 정리.
+- `verify_release_bundle.py`: `--write` 로 bundleHash 기록 후 재검증 `RELEASE BUNDLE OK`.
+- **VPS 기동 로그**: api/worker 둘 다 `형상 마킹 ACTIVE: graphVersion=...shaped-g13d196cb4979 coveredModes=[subway, bus] degraded=1533`.
+- **실검색 지하철 polyline 실측**(숙대입구→사당4호선, 과거 fixture 와 동일 좌표): **trafficType=1(지하철) polyline_pts=84** — non-null, 정류장 수(6개)보다 훨씬 큼(플랜 §6 완료판정 조건 충족, Stage2 까지 완료). 버스(223/193pts)·도보 leg 도 여전히 정상.
+- Redis `used_memory`: 배포 전후 7.72~9.09MB 범위(무의미한 변동, B4 가드와 무관한 수준 유지).
+- **P4 Track A(A0+A1+A2) 완료 — 지하철 polyline 실서비스 라이브.** 플랜 §7 잔여 미결(geometryQuality 노출/네비 API 형상 이원화/버스 degraded 1477건/rail 2노선)은 전부 별건.
