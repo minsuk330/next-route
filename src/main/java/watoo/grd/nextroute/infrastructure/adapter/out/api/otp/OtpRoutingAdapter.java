@@ -6,7 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
@@ -19,7 +19,6 @@ import watoo.grd.nextroute.application.route.routing.RoutingQuery;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
@@ -31,8 +30,17 @@ import java.util.Map;
  * OTP 2.9.0 planConnection 어댑터. 선택된 provider 가 OTP 일 때만 호출된다(selector 는 PR2b).
  *
  * <p>파싱/매핑은 {@link OtpPlanConnectionMapper}(순수)가 하고, 여기서는 HTTP 와 오류 분류만 한다.
- * read timeout 은 {@link RoutingDeadline} 의 남은 예산으로 요청마다 건다(OdSay 어댑터와 같은 패턴 —
- * 주입 빌더로 만들어야 트레이싱 span 이 붙는다). 실패는 예외가 아니라 {@link RoutingFailure} 로 반환한다.
+ * read timeout 은 {@link RoutingDeadline} 의 남은 예산으로 요청마다 건다(OdSay 어댑터와 같은 패턴).
+ * 실패는 예외가 아니라 {@link RoutingFailure} 로 반환한다.
+ *
+ * <p><b>{@link SimpleClientHttpRequestFactory}(HttpURLConnection 기반) 사용, {@code JdkClientHttpRequestFactory}
+ * 아님</b> — 2026-09-17 전환 실측: OTP 서버가 POST body 를 다 못 받고 EOFException 을 던지며 정확히
+ * 예산(otpMs) 만큼 걸려 취소됨(otp CPU 0%, 순수 대기). JdkClientHttpRequestFactory 는 body 를
+ * {@code HttpRequest.BodyPublishers.fromPublisher}(Flow.Publisher, 비동기) 로 보내는데, 이 경로에서
+ * body flush 가 멈추는 현상 재현(격리 테스트 — OTP 직접/도커내부망 직접 호출은 전부 1~1.5s 로 정상,
+ * 이 앱의 JdkClientHttpRequestFactory 경유만 매번 3.5s 벽에서 취소). ODSAY 어댑터가 같은
+ * JdkClientHttpRequestFactory 를 오래 문제없이 써온 건 GET(body 없음)이라 이 경로를 안 탔기 때문 —
+ * "OTP 가 느리다"가 아니라 "이 앱에서 POST body 를 보내는 유일한 hot-path 어댑터"라 여기서만 드러남.
  */
 @Slf4j
 @Component
@@ -47,7 +55,6 @@ public class OtpRoutingAdapter implements RoutingPort {
     private final OtpRoutingProperties properties;
     private final Clock clock;
     private final String query;
-    private final HttpClient httpClient;
 
     public OtpRoutingAdapter(RestClient.Builder restClientBuilder, ObjectMapper objectMapper,
                              OtpPlanConnectionMapper mapper, OtpRoutingProperties properties,
@@ -58,9 +65,6 @@ public class OtpRoutingAdapter implements RoutingPort {
         this.properties = properties;
         this.clock = clock;
         this.query = loadQuery();
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofMillis(properties.getConnectTimeoutMs()))
-                .build();
     }
 
     @Override
@@ -122,7 +126,8 @@ public class OtpRoutingAdapter implements RoutingPort {
     }
 
     private String sendOnce(String body, long budgetMs) {
-        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofMillis(properties.getConnectTimeoutMs()));
         factory.setReadTimeout(Duration.ofMillis(budgetMs));
         RestClient client = restClientBuilder.clone().requestFactory(factory).build();
         ResponseEntity<String> response;
