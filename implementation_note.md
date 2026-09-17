@@ -2005,3 +2005,22 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `./gradlew compileJava compileTestJava` OK. 계약테스트 OtpPlanConnectionMapperShapeTest 6그린(①covered=SHAPE_OK ②degraded=fallback+네비차단 ②b 전부SHAPE_OK=미차단 ③graphVersion mismatch=전량fallback ④지하철=fallback ⑤flag off=fallback). OtpShapeWiringTest 1(DB없이 빈 배선+부재폴백). otp 패키지 전량 무회귀(Error3/기존Mapper2/RideDuration/StopPattern/Adapter). RouteResponseMapperTest 5.
 - **기존 무관**: NextrouteApplicationTests(@SpringBootTest) = localhost:5432 refused(Flyway, 로컬 DB 없음). 내 변경 전부터 그럼. 빈 배선은 OtpShapeWiringTest 로 DB없이 증명.
+
+## 2026-09-17 national-otp P3 PR-B2 — 배포 원자성
+
+### 확정 (계약)
+- **ShapeMarkingStatus 로 "조용한 fallback" 을 명시화**: 기동 시 ShapeCoverageIndex.markingStatus(shapesEnabled, configGraphVersion) → DISABLED/NO_INDEX/GRAPH_VERSION_MISMATCH/ACTIVE. ACTIVE 만 SHAPE_OK 발행 가능. isShapeOk 의 graphVersion·활성 규칙을 배포 관점으로 요약(중복 아님, 로그/검증 전용).
+- **ShapeCoverageIndexConfig 기동 로그**: ACTIVE=INFO(gv+modes+degraded), DISABLED=INFO, NO_INDEX/GRAPH_VERSION_MISMATCH=**WARN**(잘못된 배포 조합 즉시 감지). 런타임 fallback 은 B1 이 이미 함 — B2 는 그걸 시끄럽게.
+- **releaseBundle bundleHash**(release-manifest.json): identity 5종 = graphVersion + otp.imageDigest + gtfsShapedSha256 + coverageIndexSha256 + graph.sha256 → sha256. 부분 스왑(그래프만 바꾸고 인덱스 안 바꿈) 차단.
+- **verify_release_bundle.py**(stdlib): 실제 파일(graph/shaped-gtfs/coverage-index) 재해시 vs manifest + bundleHash 재계산 대조. 불일치=exit1. `--write`=빌드직후 bundleHash 기록. 파일 sha=실측, 이미지digest·graphVersion=manifest 문자열 pin.
+- **스코프 밖(PLAN 명시)**: 라이브 graph 실검증(앱↔OTP 실제 그래프 질의)=P2-C 미결 별건. B2 는 manifest/config graphVersion 매칭까지만.
+
+### 좌표
+- 신규: application/route/routing/ShapeMarkingStatus.java(+isActive), ShapeCoverageIndex.markingStatus(). config/ShapeCoverageIndexConfig 리팩터(load 분리 + logMarkingStatus). runner/verify_release_bundle.py. release-manifest.json releaseBundle + otp.imageDigest. build_seoul_graph.sh step5 안내.
+
+### 배포 (shadow, dormant 유지)
+- VPS shadow swap 순서: ①번들 5개(graph.obj + coverage-index.json + shaped-gtfs + OTP 이미지 digest + app graphVersion 설정) **원자 교체** ②`verify_release_bundle.py` PASS 확인 ③app 재기동 — **shapesEnabled=false 유지**(형상 노출 0), 기동 로그 "형상 마킹 OFF" 확인 ④나중 활성화 시 shapesEnabled=true + graphVersion 을 shaped-gad62d423c307 로 갱신 → 로그 "형상 마킹 ACTIVE" 확인. 불일치면 WARN + 전량 fallback(안전).
+- coverage-index.json 은 그래프와 같은 위치 배포 + `routing.otp.coverage-index-path=file:...` 설정. 기본 classpath 는 앱 jar 에 없어 NO_INDEX.
+
+### 검증
+- `compileJava compileTestJava` OK. ShapeMarkingStatusTest 4그린(DISABLED/NO_INDEX/MISMATCH/ACTIVE + isActive). OtpShapeWiringTest 1, OtpPlanConnectionMapper*Test 무회귀. verify_release_bundle: 정상 PASS(bundleHash=15957c81), 변조(graph sha 조작) → exit1 로 file sha + bundleHash 둘 다 불일치 감지 확인. `bash -n build_seoul_graph.sh` OK.
