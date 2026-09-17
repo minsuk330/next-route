@@ -20,7 +20,9 @@ set -euo pipefail
 # --- pins (change deliberately; recorded in release-manifest.json) ------------
 PFAEDLE_DIGEST="sha256:af4fdc647699ea1ffe5150fd1f9d264c465c2876710ea749e8cb284f13abd20d"
 PFAEDLE_IMAGE="ghcr.io/ad-freiburg/pfaedle@${PFAEDLE_DIGEST}"
-OTP_IMAGE="opentripplanner/opentripplanner:2.9.0"
+# graph.obj 는 OTP serialization id 로 잠긴다. 배포 대상 OTP 와 다른 빌드로 만들면 로드 거부.
+# 배포용은 항상 VPS 에 떠 있는 이미지를 넘길 것: OTP_IMAGE=nextroute-otp:<tag> ./build_seoul_graph.sh ...
+export OTP_IMAGE="${OTP_IMAGE:-opentripplanner/opentripplanner:2.9.0}"
 CAL_CENTER="20260907"
 CAL_MARGIN="62"
 BBOX="126.5,37.2,127.4,38.0"
