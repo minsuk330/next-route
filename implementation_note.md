@@ -2024,3 +2024,63 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `compileJava compileTestJava` OK. ShapeMarkingStatusTest 4그린(DISABLED/NO_INDEX/MISMATCH/ACTIVE + isActive). OtpShapeWiringTest 1, OtpPlanConnectionMapper*Test 무회귀. verify_release_bundle: 정상 PASS(bundleHash=15957c81), 변조(graph sha 조작) → exit1 로 file sha + bundleHash 둘 다 불일치 감지 확인. `bash -n build_seoul_graph.sh` OK.
+
+## 2026-09-17 national-otp 전환 재시도(#198 반영 후) → 재롤백. 블로커=otp-ms 3500 도 부족
+
+### 확정
+- **①재배포(dormant) 성공**: main f473beb(P2 완결+#198예산+P3 A1/B1/B2 전부 포함) → 로컬 bootJar → scp → VPS `DEPLOY_REVISION=f473beb ./deploy.sh all`. api+worker healthy. 기동로그 "형상 마킹 OFF"+"gate 설정 검증 통과 permits=4 leaseMs=8000" 확인. 토글 여전히 off라 이 단계는 회귀 0.
+- **②토글(OTP_ENABLED=true+DEFAULT_PROVIDER=OTP) → 즉시 재롤백**. compose.yaml 외과 삽입(diff 2줄만) + api/worker 재생성 → 기동 정상. 그러나 **실검색 전부 502, 시청→강남(~10km) 3회 반복 전부 t=3.516~3.519s 로 완전히 균일**(otpMs=3500 예산 벽에 정확히 부딪힘 → "Request cancelled" 그대로 재현). #198 은 예산을 2000→3500 으로 올렸을 뿐, **이 노선 자체가 3.5s 도 넘긴다** — 예산을 올려도 못 따라가는 케이스가 있다는 뜻.
+- **OTP 엔진 직접 호출(18080, planConnection 최소필드 start/end만) 동일좌표 = 2.62s(HTTP 200)**. 앱이 쓰는 실제 쿼리(전체 itinerary/legs/fare/geometry)는 이보다 더 무거울 수밖에 없어 3.5s 초과가 이상하지 않음. **9/16 벤치마크(p99=1.91/max=2.04s, otp:18080 직접, 경로5종×12)가 실제 프로덕션 쿼리 무게·이 노선 거리대를 대표 못 함** — 벤치마크 쿼리와 앱 실쿼리(필드수·응답크기) 간극이 근본 원인 후보.
+- **즉시 롤백 완료**: compose.yaml.bak-20260917-otptoggle(dormant, 토글 시도 전) 로 복원 + api/worker 재생성. ODSAY 200 확인(3.33s, 정상). 토글 시도 상태는 compose.yaml.bak-20260917-otptoggle-attempted 로 별도 보존.
+
+### 함정
+- **예산을 올리는 접근 자체가 근본 해법이 아닐 수 있음**: 이번처럼 딱 예산치 부근에서 균일하게 잘리는 패턴(3.516~3.519s, 편차 3ms 이내)은 "가끔 느림"이 아니라 "이 쿼리는 구조적으로 이 정도 걸린다"는 신호. 무작정 otpMs 를 더 올리면(예: 5000) 이 노선은 통과하겠지만 사용자 체감 지연·타 노선 동시성(gate permit 점유시간) 이 같이 늘어남 — 트레이드오프 재계산 필요.
+- **벤치마크 쿼리 ≠ 앱 실쿼리**: 9/16 실측이 어떤 GraphQL 필드셋으로 쟀는지 재검증 필요. 앱 쿼리(`OtpRoutingAdapter` 가 로드하는 .graphql 파일, `first=5`) 기준으로 노선거리별(단거리/중거리/장거리) 재벤치마크 없이 예산만 올린 게 이번 재현 실패의 직접 원인.
+
+### 좌표
+- 재현 요청: `curl "http://127.0.0.1:8080/api/route/search?startX=126.9779&startY=37.5665&endX=127.0276&endY=37.4979"` (시청→강남). otp 직접: `POST :18080/otp/routers/default/index/graphql`.
+- otpMs 설정: `RouteSearchDeadlineProperties.otpMs`(기본 3500), 앱 쿼리 파일=`OtpRoutingAdapter` loadQuery() 참조 리소스.
+
+### 미결
+- **전환 전 재조사 필요**: 앱 실쿼리 필드셋으로 노선거리별(단/중/장거리 각 수개) 재벤치마크 → 실제 p99/max 재산정. 그 다음 otpMs 재조정(또는 쿼리 자체 경량화 — first 축소·불필요 필드 제거) 검토.
+- VPS 상태: dormant 로 복귀됨(otp-enabled=false/default=ODSAY), 배포된 이미지는 f473beb(예산fix+P3 전부 포함, 안전하게 유지). 다음 전환 시도는 재배포 불필요 — 재벤치마크+otpMs 조정(코드 or 설정)만 하면 됨.
+
+### 검증
+- 롤백 후 실검색 curl 200(3.33s) 확인. api/worker healthy(20260917-162147-f473beb 로 그대로 유지, 이번 롤백은 compose 토글만 되돌림 — 이미지 재배포 아님).
+
+## 2026-09-17 national-otp 전환 진짜 원인 발견+수정: JdkClientHttpRequestFactory POST body 전송 버그 (OTP 무죄)
+
+### 확정 (근본원인 — 격리 재현으로 확정)
+- **"otpMs 예산 부족"은 오진이었다. 진짜 원인 = `OtpRoutingAdapter` 가 쓰던 `JdkClientHttpRequestFactory`(JDK HttpClient 기반) 가 POST request body 를 못 보내고 멈추는 버그.** OTP 는 완전히 무죄.
+- **격리 3종 테스트로 OTP/게이트/네트워크 전부 결백 증명**(otp:18080 고정 시청→강남 좌표, 앱과 동일 실쿼리 그대로):
+  1. VPS host → otp:18080 직접(otp 방금 재생성한 콜드 상태 포함): 0.99~1.48s, 3회 반복 안정.
+  2. 임시 컨테이너(`nextroute_default` 네트워크) → `otp:8080` 내부DNS 직접(앱과 완전 동일 경로): 0.99~1.35s.
+  3. 필드 ablation(stopCalls/legGeometry/steps/fareProducts 다 제거해도): FULL 1.12s vs BARE(최소필드) 1.20s — 거의 차이 없음. "실쿼리가 무겁다" 가설 기각.
+  4. Prometheus `otp_sem_acquire_total{role,result}`: 실패 3회 전부 `result=success`(즉시 획득), worker 동시호출 0건 — 게이트/동시성 무죄.
+- **스모킹건 = 토글+캡처 동시진행 프로브**(`/tmp/otp_toggle_probe.sh`, 토글→api/worker 재생성→otp/api 로그+`docker stats` 0.3s 간격 캡처→curl 3회→즉시 롤백, 한 스크립트로 원자실행):
+  - otp 컨테이너 로그: 3번의 실패 각각과 정확히 시각이 맞아떨어지는 `EOFException`(OTPExceptionMapper) — 스택트레이스가 `UTF8StreamJsonParser._loadMore`→`InputStreamWrapper.read`→...→`ServerInputBuffer.blockingRead`. **OTP 가 응답을 만들다가 실패한 게 아니라 REQUEST BODY 를 읽다가(blockingRead) 커넥션이 끊겨서 실패**.
+  - `docker stats` 캡처: 실패 3건 내내 **otp 컨테이너 CPU = 0.13~2.11%(사실상 유휴)**. OTP 는 그 3.5초 동안 라우팅 계산을 전혀 안 했다 — 그냥 소켓에서 body 를 기다리며 블록되어 있었다.
+  - 즉: 클라이언트(api)가 request body 를 다 못 보낸 채 자기 read timeout(otpMs=3500) 에 걸려 커넥션을 끊었고, OTP 는 그 순간 body read 도중 EOF 를 맞았다.
+- **JdkClientHttpRequest 바이트코드 확인**(spring-web 6.2.16, javap): body 전송에 `HttpRequest.BodyPublishers.fromPublisher(Flow.Publisher[, long])` 사용 — 단순 buffered send 가 아니라 **Reactive Streams(Flow.Publisher) 기반 비동기 write 경로**. 이 경로에서 write 콜백이 제때 안 일어나면 body 가 소켓에 flush 안 되고 멈출 수 있음(정확한 트리거는 미확정이나, 증상과 정확히 부합).
+- **왜 ODSAY 는 오랫동안 멀쩡했나**: `OdSayApiAdapter` 도 같은 `JdkClientHttpRequestFactory` 패턴을 쓰지만 **GET**(`client.get()`, body 없음) — 이 버그의 코드경로(request body 전송)를 아예 안 탄다. `OtpRoutingAdapter` 만 POST+body 라 유일하게 이 hot-path 에서 걸림. appleRestClient/tossRestClient 도 JdkClientHttpRequestFactory+POST 지만 저빈도(로그인/토큰 교환)라 안 걸렸거나 눈에 안 띔 — 재조사 대상 아님(스코프 밖).
+- **수정**: `OtpRoutingAdapter` 의 `JdkClientHttpRequestFactory`+공유 `java.net.http.HttpClient` 필드를 제거하고, 다른 모든 어댑터(OdSay 제외 대부분)와 같은 **`SimpleClientHttpRequestFactory`(HttpURLConnection 기반, 동기 blocking)** 로 교체. connectTimeoutMs/budgetMs 그대로 매 호출 새 factory 에 설정(기존 패턴 유지).
+- **수정 후 재검증(동일 프로브 스크립트로 토글→3회 호출→즉시롤백)**: **3/3 전부 HTTP 200**, t=1.968s(콜드 첫 호출)/1.339s/1.236s. 이전엔 3/3 502 at ~3.5s 였던 게 완전히 뒤집힘. **otpMs=3500 을 전혀 안 건드리고 해결** — 예산 문제가 아니었다는 최종 증거.
+
+### 함정
+- **"예산을 올리면 되겠지" 접근이 근본적으로 잘못된 방향이었다**: 9/15(2000→) #198(→3500) 두 번의 "예산 늘리기" 시도가 전부 이 버그를 못 잡았던 이유 — 애초에 시간이 오래 걸린 게 아니라 **아예 응답을 못 받는 상태**였기 때문. 심볼릭한 실패모드(같은 값 근처에서 균일하게 반복 실패)를 보면 "느려서 예산초과"와 "멈춰서 타임아웃"을 구분해야 한다 — 전자는 반복시 개선/변동 있고, 후자는 완전히 균일하다(3.516/3.517/3.519 — 오차 3ms 이내였던 게 결정적 단서였음).
+- **격리 재현(python/curl 직접호출)이 "정상"으로 나온다고 앱 경유도 정상이라 단정하면 안 된다** — 클라이언트 구현체 자체(JDK HttpClient vs 다른 HTTP 클라이언트)가 다르면 완전히 다른 버그를 탈 수 있다. 이번 건 OTP·네트워크·게이트를 다 격리해서 무죄 증명한 뒤에도 실제 원인은 못 찾고, **실패 순간을 otp 서버측 로그+컨테이너 CPU 로 동시에 잡아야만** 드러났다(클라이언트 쪽 에러 메시지 "Request cancelled" 만으로는 절대 못 찾음).
+- Micrometer `http_client_requests_seconds_max{client_name="otp",...}` 가 실제 클라이언트측 경과시간(3.437~3.502s)을 정확히 기록하고 있었다 — 이 프로젝트에 이미 있는 관측 스택(observability-prometheus-1, `nextroute_default`+`observability_default` 양쪽 네트워크에 물려있어 임시 컨테이너로 내부 조회 가능)이 이런 진단에 그대로 유용했다.
+
+### 좌표
+- 수정 파일(1개, S 티어): `src/main/java/watoo/grd/nextroute/infrastructure/adapter/out/api/otp/OtpRoutingAdapter.java` — import `JdkClientHttpRequestFactory`→`SimpleClientHttpRequestFactory`, 필드 `httpClient` 제거, 생성자에서 HttpClient 빌드 제거, `sendOnce()` 의 factory 생성부만 교체.
+- 재현/검증 스크립트(VPS, 임시): `/tmp/otp_toggle_probe.sh`(토글+캡처+테스트+롤백 원자화) — 다음 세션도 재사용 가능. `/tmp/otp_bench.py`(OTP 직접 격리 벤치, 노선거리별+필드ablation), `/tmp/otp_internal_bench.py`(도커내부망 격리 벤치). 로컬 스크래치패드에도 원본 있음.
+- Prometheus 조회 패턴: `docker run --rm --network nextroute_default curlimages/curl -s "http://observability-prometheus-1:9090/api/v1/query_range?query=..."` — 호스트에 프로메테우스 포트가 안 열려있어(9090 미노출) 이 방식으로만 조회 가능.
+
+### 미결
+- appleRestClient/tossRestClient 도 같은 `JdkClientHttpRequestFactory`+POST 조합이라 이론상 같은 버그에 노출될 수 있음(저빈도라 안 걸렸을 뿐). **이번 스코프에서는 안 건드림** — 재발하면 동일 패턴(SimpleClientHttpRequestFactory 로 교체) 적용.
+- `JdkClientHttpRequest` 의 정확히 어떤 조건에서 body publisher flush 가 멈추는지(Flow.Subscriber request() 신호 지연? 스레드풀 고갈?)까지는 안 팠음 — 재현·수정만 확정, Spring/JDK 레벨 근본기전은 불명.
+- 수정 후 VPS 는 다시 dormant(otp-enabled=false/default=ODSAY) 로 롤백된 상태. 배포 이미지=nextroute:20260917-170550-simpleclient. **실제 전환(토글 유지)은 아직 안 함** — 사용자 결정 대기.
+
+### 검증
+- `compileJava compileTestJava` OK. `./gradlew test --tests "*Otp*"` green(OtpRoutingAdapterHttpTest 3+OtpRoutingAdapterBudgetTest 등, MockWebServer 기반이라 factory 교체와 무관하게 그대로 통과).
+- VPS 실측(수정 전 vs 후, 동일 프로브 스크립트·동일 좌표·동일 조건): **수정 전 3/3 502 (t=3.516~3.519s, otp EOFException+CPU 0%) → 수정 후 3/3 200 (t=1.968/1.339/1.236s)**. otpMs=3500 무변경.
