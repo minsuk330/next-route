@@ -6,6 +6,8 @@ package watoo.grd.nextroute.application.route.routing;
  */
 public enum GeometryQuality {
     OSM_RELATION_OK,
+    /** pfaedle GTFS shape 가 per-trip 게이트를 통과함(coverage-index 미degraded). 네비 진행 허용. */
+    SHAPE_OK,
     STREET_FALLBACK,
     MISSING,
     REVIEW

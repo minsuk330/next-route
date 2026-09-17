@@ -1,0 +1,70 @@
+{
+  "data": {
+    "planConnection": {
+      "edges": [
+        {
+          "node": {
+            "duration": 600.0,
+            "waitingTime": 0,
+            "walkDistance": 0.0,
+            "walkTime": 0,
+            "numberOfTransfers": 0,
+            "legs": [
+              {
+                "mode": "SUBWAY",
+                "duration": 600.0,
+                "distance": 5000.0,
+                "realtimeState": "SCHEDULED",
+                "start": { "scheduledTime": "2026-09-08T08:10:00+09:00", "estimated": null },
+                "end": { "scheduledTime": "2026-09-08T08:20:00+09:00", "estimated": null },
+                "from": {
+                  "name": "서울역",
+                  "lat": 37.5547,
+                  "lon": 126.9707,
+                  "stop": { "gtfsId": "1:SS_TAGO_SEB201000001" }
+                },
+                "to": {
+                  "name": "시청",
+                  "lat": 37.5657,
+                  "lon": 126.9769,
+                  "stop": { "gtfsId": "1:SS_TAGO_SEB201000002" }
+                },
+                "route": {
+                  "gtfsId": "1:SR_TAGO_SEB200000001",
+                  "shortName": "1호선",
+                  "longName": "-",
+                  "mode": "SUBWAY",
+                  "color": null,
+                  "textColor": null,
+                  "agency": { "gtfsId": "1:A2", "name": "KTDB" }
+                },
+                "trip": { "gtfsId": "1:SR_TAGO_SEB200000001_Ord001" },
+                "stopCalls": [
+                  {
+                    "stopLocation": {
+                      "__typename": "Stop",
+                      "gtfsId": "1:SS_TAGO_SEB201000001",
+                      "name": "서울역",
+                      "lat": 37.5547,
+                      "lon": 126.9707
+                    }
+                  },
+                  {
+                    "stopLocation": {
+                      "__typename": "Stop",
+                      "gtfsId": "1:SS_TAGO_SEB201000002",
+                      "name": "시청",
+                      "lat": 37.5657,
+                      "lon": 126.9769
+                    }
+                  }
+                ],
+                "legGeometry": { "length": 40, "points": "cwhdFcq_fW@s@?[F?j@B" }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
