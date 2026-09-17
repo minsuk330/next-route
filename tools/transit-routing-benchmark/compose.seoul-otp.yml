@@ -1,7 +1,10 @@
 # 수도권 OTP (national-otp-map-migration P1). bbox GTFS(202503, calendar ±2mo) + seoul-metro PBF.
 services:
   otp-build:
-    image: opentripplanner/opentripplanner:2.9.0
+    # graph.obj 는 OTP serialization id 로 잠긴다 — 반드시 VPS 에 배포된 OTP 이미지로 빌드할 것.
+    # (스톡 2.9.0=id249 / 배포 포크 2.10.0-SNAPSHOT=id276 → 섞으면 OTP 가 graph 로드를 거부한다.)
+    image: ${OTP_IMAGE:-opentripplanner/opentripplanner:2.9.0}
+    platform: linux/amd64
     working_dir: /var/opentripplanner
     environment:
       JAVA_TOOL_OPTIONS: "-Xmx11g -XX:+UseStringDeduplication"
@@ -10,11 +13,14 @@ services:
       - ./data/input/south-korea-seoul-metro.osm.pbf:/var/opentripplanner/south-korea-seoul-metro.osm.pbf:ro
       - ./data/input/seoul-bbox-202503.gtfs.zip:/var/opentripplanner/seoul-bbox-202503.gtfs.zip:ro
       - ./config/otp-seoul/build-config.json:/var/opentripplanner/build-config.json:ro
-    command: ["--build", "--save"]
+      - ./config/otp-seoul/otp-config.json:/var/opentripplanner/otp-config.json:ro
+    # 포크 이미지(ENTRYPOINT=java -jar otp.jar)는 디렉터리 인자를 생략하면 "Parameter error" 로 죽는다.
+    command: ["--build", "--save", "/var/opentripplanner"]
     profiles: ["build"]
 
   otp:
-    image: opentripplanner/opentripplanner:2.9.0
+    image: ${OTP_IMAGE:-opentripplanner/opentripplanner:2.9.0}
+    platform: linux/amd64
     working_dir: /var/opentripplanner
     environment:
       JAVA_TOOL_OPTIONS: "-Xmx3500m -XX:+UseStringDeduplication"
@@ -24,7 +30,7 @@ services:
       - ./data/input/seoul-bbox-202503.gtfs.zip:/var/opentripplanner/seoul-bbox-202503.gtfs.zip:ro
       - ./config/otp-seoul/build-config.json:/var/opentripplanner/build-config.json:ro
       - ./config/otp-seoul/otp-config.json:/var/opentripplanner/otp-config.json:ro
-    command: ["--load", "--serve"]
+    command: ["--load", "--serve", "/var/opentripplanner"]
     ports:
       - "18080:8080"
     healthcheck:

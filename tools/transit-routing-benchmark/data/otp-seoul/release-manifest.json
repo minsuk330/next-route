@@ -1,6 +1,6 @@
 {
-  "graphVersion": "seoul-bbox-202503-cal20260707_20261108-shaped-gad62d423c307",
-  "generatedAt": "2026-09-17T13:35:05+09:00",
+  "graphVersion": "seoul-bbox-202503-cal20260707_20261108-otp276-shaped-gb75848ddb4ee",
+  "generatedAt": "2026-09-17T22:08:12+09:00",
   "stage": "P3 pfaedle transit shapes (Stage1: bus only)",
   "scope": {
     "region": "Seoul metropolitan bbox (name only; not full 행정구역)",
@@ -40,7 +40,7 @@
     "script": "tools/transit-routing-benchmark/runner/compute_shape_quality.py",
     "thresholds": "config/otp-seoul/shape-gate-thresholds.json (loose)",
     "coverageIndex": "data/otp-seoul/coverage-index.json",
-    "coverageIndexSha256": "749d1874cb72bdabd5b8252ca47ea72004708d963639d3153d70a8590b4b2f19",
+    "coverageIndexSha256": "5b096c5a1b37b2f78b91a94a493fc3c5ee532ded8f715373357f04fe10f1dbe4",
     "counts": {
       "busTrips": 146670,
       "shapeOk": 145193,
@@ -49,16 +49,17 @@
     }
   },
   "otp": {
-    "image": "opentripplanner/opentripplanner:2.9.0",
-    "imageDigest": "opentripplanner/opentripplanner@sha256:a7eac7da397faa9ec9dee407d4204895d24df4981500662fa6793aae0e71fd8f",
-    "serVerId": 249,
+    "image": "nextroute-otp:h-only-20260917",
+    "imageDigest": "sha256:176f3938e87aa933ef5ee6a846ae180b3658fe396f78e80e9515b21aa08a1259",
+    "serVerId": 276,
     "buildConfig": "config/otp-seoul/build-config.json",
-    "otpConfig": "config/otp-seoul/otp-config.json"
+    "otpConfig": "config/otp-seoul/otp-config.json",
+    "note": "VPS 배포본 이미지로 빌드. graph.obj 는 ser.ver.id 로 잠기므로 스톡 2.9.0(id249)로 만든 그래프는 이 OTP 에서 로드되지 않는다."
   },
   "graph": {
     "file": "data/otp-seoul/graph.obj",
-    "sha256": "ad62d423c307da3d31f9f99c290a3b93f306e9b157c5607704b5c37e8c3ebf65",
-    "sizeBytes": 236266557,
+    "sha256": "b75848ddb4ee336b5dbb53081354175ed7893ae78bba7d52e1c4553a11a2ae54",
+    "sizeBytes": 235527305,
     "stops": 43783,
     "patterns": 3936,
     "constrainedTransfers": 284
@@ -79,12 +80,12 @@
   "releaseBundle": {
     "note": "graph+otpImage+shapedGtfs+coverageIndex+graphVersion 한 세트. verify_release_bundle.py 로 배포 전 검증(부분 스왑 차단).",
     "identity": {
-      "graphVersion": "seoul-bbox-202503-cal20260707_20261108-shaped-gad62d423c307",
-      "otpImage": "opentripplanner/opentripplanner@sha256:a7eac7da397faa9ec9dee407d4204895d24df4981500662fa6793aae0e71fd8f",
+      "graphVersion": "seoul-bbox-202503-cal20260707_20261108-otp276-shaped-gb75848ddb4ee",
+      "otpImage": "sha256:176f3938e87aa933ef5ee6a846ae180b3658fe396f78e80e9515b21aa08a1259",
       "shapedGtfsSha256": "bc0cb120e3e112494ac291aad52a8e9ff91b418476d315f8d9ac5512438cc836",
-      "coverageIndexSha256": "749d1874cb72bdabd5b8252ca47ea72004708d963639d3153d70a8590b4b2f19",
-      "graphSha256": "ad62d423c307da3d31f9f99c290a3b93f306e9b157c5607704b5c37e8c3ebf65"
+      "coverageIndexSha256": "5b096c5a1b37b2f78b91a94a493fc3c5ee532ded8f715373357f04fe10f1dbe4",
+      "graphSha256": "b75848ddb4ee336b5dbb53081354175ed7893ae78bba7d52e1c4553a11a2ae54"
     },
-    "bundleHash": "15957c81e4b8b5835cf1d78d2c442a041a0b16d3162abf17e9d0cf8efadeafa1"
+    "bundleHash": "90f08cb7419669719638dc95af2eb187591b657f33ce4fe0766ce7257318942a"
   }
 }
