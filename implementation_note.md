@@ -2084,3 +2084,38 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `compileJava compileTestJava` OK. `./gradlew test --tests "*Otp*"` green(OtpRoutingAdapterHttpTest 3+OtpRoutingAdapterBudgetTest 등, MockWebServer 기반이라 factory 교체와 무관하게 그대로 통과).
 - VPS 실측(수정 전 vs 후, 동일 프로브 스크립트·동일 좌표·동일 조건): **수정 전 3/3 502 (t=3.516~3.519s, otp EOFException+CPU 0%) → 수정 후 3/3 200 (t=1.968/1.339/1.236s)**. otpMs=3500 무변경.
+
+## 2026-09-17 P4 Track B PR-1 — 검색 응답 polyline 배선(버스·도보)
+
+### 확정 (계약)
+- **polyline 채움 규칙**: 대중교통은 `leg.geometry().quality() == SHAPE_OK` 일 때만, 도보는 `RoutingMode.WALK` 면 quality 무관 항상(OTP 가 OSM 실경로를 street 출처로만 표기하므로 게이트 대상이 아님). 그 외(STREET_FALLBACK/MISSING/REVIEW)는 null. 디코드 결과 2점 미만도 null(선은 2점부터 의미).
+- **EncodedPolyline(신규)**: OTP `legGeometry.points`(위도·경도 순 인코딩) → `List<CoordPoint>`(x=lon,y=lat, 기존 ODSAY 계약과 동일 축 순서 유지). fail-closed: try/catch 로 varint 파싱 예외 흡수 + 디코드 후 `|lat|>90 || |lng|>180` 범위 체크로 조용한 오염(garbage 좌표)도 차단 — 둘 다 빈 리스트.
+- `SubPathResult` 생성자는 31개 위치 인자 record — polyline 은 12~17번째(trainType/payment/startId/way/wayCode/polyline) 묶음의 **마지막 자리**. distance(3번째) 근처 null 과 헷갈리지 않게 자리를 세어서 확인함(플랜이 미리 경고한 함정).
+
+### 함정
+- **B4 측정 하니스 1차 버그**: before/after 를 각각 다른 `OtpPlanConnectionMapper`(shapesEnabled false/true) 로 만들었지만 **같은(수정된) `LegacyRouteResponseMapper` 인스턴스**를 둘 다에 통과시켜서, walk leg polyline(내 변경상 shapesEnabled 무관 항상 채움)이 "before" 쪽에도 섞여 들어가 point당 바이트가 왜곡됨(같은 itinerary인데 case별 B/point 가 3.7~17.9 로 들쭉날쭉). **고침**: after 결과 하나만 실제로 매핑하고, JSON 트리에서 `polyline` 필드만 지워 "before"를 파생 — 그랬더니 B/point 가 25.9~28.0 로 수렴(일관성으로 버그 확인).
+- 이 레포는 저트래픽(포트폴리오 프로젝트) — Redis 용량가드 계산 시 이 특성을 반영해야 한다(대량 트래픽 가정하면 과잉설계).
+
+### 좌표
+- 신규: `application/route/routing/EncodedPolyline.java`.
+- 변경: `application/route/service/LegacyRouteResponseMapper.java` — `toPolyline(RoutingLeg)` 헬퍼 추가 + `toSubPath()` 배선(17번째 인자) + 클래스 javadoc 의 "polyline 항상 null" 문구 갱신(더 이상 사실 아님).
+- 테스트(신규): `routing/EncodedPolylineTest.java`(5: 실fixture 디코드+50m내/null·빈문자열/중간절단/범위밖/1점), `service/LegacyRouteResponseMapperTest.java`(5: SHAPE_OK 채움/STREET_FALLBACK null/지하철 null/도보 항상 채움/1점미만 null).
+- B4 측정 하니스는 임시 파일(`PolylineSizeScratch.java` + 리포트)로 실행 후 삭제 — 커밋 안 함(계약 테스트 아님, 결과만 이 섹션에 보존).
+
+### 검증
+- `./gradlew compileJava compileTestJava` OK.
+- `./gradlew test --tests "*Otp*" --tests "*LegacyRouteResponse*"` → **87 tests, 0 failure, 0 error, 0 skipped**.
+- 기존 `RouteResponseMapperTest`(5) 무회귀: `bus.polyline()).isNull()`(toLegacy 테스트, shapesEnabled=false 컨텍스트라 SHAPE_OK 자체가 안 뜸) 그대로 통과 — ODSAY/기존 계약 영향 0.
+- **B4 응답 바이트 실측**(fixture=otp/planconnection-success.json·stopcall-times.json, shapesEnabled=true+버스전량SHAPE_OK 근사로 "after" 재현, JSON 트리에서 polyline 만 제거해 "before" 파생):
+  - 버스단독(WALK,BUS,BUS,WALK/환승1, 84pts) : 6554B → 8788B (**+2234B**)
+  - 지하철포함(WALK,BUS,WALK,SUBWAY,WALK/환승1, subway 12pt 는 Stage1 미커버라 제외한 69pts) : 4891B → 6824B (**+1933B**)
+  - 버스단독무환승(단일 BUS, 16pts) : 2122B → 2537B (**+415B**)
+  - success.json 전체 응답(itinerary 3개 합산) : 17107B → 24218B (**+7111B**, 전부 일관되게 **~26~28B/point** — 플랜이 경고한 "인코딩 문자열 길이로 추정 금지"와 별개로 실측 point-JSON 단가 확보).
+- **Redis 용량가드 실측(VPS, 2026-09-17 23시경, 읽기전용 조회)**:
+  - `redis-cli INFO memory`: used_memory=9.09MB / maxmemory=128MB(7.1%), `--scan`으로 키 분포 확인 → 전부(3663+58+21) `bus:arrival:*`/`bus:search:pos:*` 실시간 캐시고 **`route:snapshot:*` 키는 현재 0개**(최근 10분 검색 없음, 이 앱 자체가 저트래픽).
+  - Prometheus(`observability-prometheus-1:9090`, `http_server_requests_seconds_count{uri="/api/route/search"}`): 48시간 SUCCESS 총합≈84건(~42/day), `max_over_time(rate(...[5m])[48h:5m])` 피크≈0.035 req/s(≈2.1/min).
+  - **계산**: TTL 600s 기준 피크 시 동시 상주 스냅샷 수 ≈ 0.035×600 ≈ **21개**. 응답당(first=5 근사) 증가량 ≈ 7111B×(5/3) ≈ **11.6KB**. 예상 추가 상주량 ≈ 21×11.6KB ≈ **0.24MB** — 가드 기준 32MB 의 **0.8%**.
+  - **판정: 가드 미충족 → 플랜 §B4 규칙대로 대응(스냅샷 제외/Douglas-Peucker 단순화/TTL 단축) 아무것도 안 함.** 트래픽이 수십 배 이상 커지면 재측정 필요(경고성 기록, 지금 조치 아님).
+
+### 미결
+- (플랜 §7 미결 그대로 유지: geometryQuality 노출 여부/네비 API 형상 이원화/degraded 1477건 — 이번 PR 스코프 아님)
