@@ -2131,3 +2131,31 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - **폴리라인 non-null 실측**(모든 path 의 모든 leg): trafficType=2(버스) pts=[169,37,66,35,18], trafficType=3(도보) pts=[26,6,26,10,31,10] — **전부 non-null, 정류장 수보다 훨씬 큼**(플랜 §6 완료판정 조건 충족). trafficType=1(지하철) leg 은 이 OD 에 없어 이번 실측엔 미포함(Track A 전까지는 나와도 null 이 맞음).
 - Redis: 배포+실검색 전후 `used_memory` 9.09MB→8.85MB(사실상 무변화, bus:arrival TTL 자연변동 수준). `route:snapshot:*` 키 1개 생성 확인(내 테스트 검색 1건, TTL 600s 로 자연만료 예정) — B4 예측과 정합.
 - **P4 Track B(PR-1) 완료.** 다음은 Track A(지하철 pfaedle Stage2, PR-2) — A1 임계값은 플랜에 사용자 확인 게이트가 명시돼 있어 별도 착수 필요.
+
+## 2026-09-17 P4 Track A — A0(모드 일반화) + A1(지하철 매칭 품질 측정)
+
+### 확정 (계약)
+- **A0 스코프 경계**: `compute_shape_quality.py` 의 로딩/필터링(route_type→mode)과 분포 리포트는 완전히 일반화(`--modes bus,subway,rail` 지원, rail 도 매핑은 넣어둠 — 실제로 쓰는 건 사용자 결정). 반면 `--thresholds`/coverage-index 작성 경로는 **여전히 flat 단일 threshold dict** — mode 별 임계 구조(`{"bus":{...},"subway":{...}}`)는 A2 몫으로 명시적으로 미룸. 그 경계를 코드로 강제: `--thresholds` 와 다중 mode(`len(modes)>1`) 를 같이 주면 `parser.error`(플랜 §A1 "버스 임계 재사용 금지"를 실수로 어길 수 없게).
+- **GTFS route_type 매핑 실측 확정**(routes.txt 전수): `3=bus`(2676개 노선), `1=subway`(59개), `2=rail`(2개, memory 의 "rail_2: 2" 와 일치), `4=ferry`(1개, 스코프 밖). `MODE_ROUTE_TYPES={"bus":"3","subway":"1","rail":"2"}`.
+- **coverage-index counts 일반화 규칙**: `{mode}Trips` 를 요청된 mode 마다 하나씩(예: modes=["bus"] → `busTrips` 키 그대로, 기존 산출물과 동일). shapeOk/degraded/missing/unjudged 는 여전히 집계 총합(mode 분리는 A2 에서 필요해지면 추가) — 지금 A1 실행은 `--thresholds` 자체를 안 써서 이 경로가 실행되지도 않았음.
+- **pfaedle 는 기존 shape 를 안 건드린다(실측 확인)**: `-m subway` 로만 재실행해도 같은 입력 feed 의 버스 shape 결과가 **완전히 동일하게 재현됨**(residual_p90 분포가 이전 실행과 숫자 하나까지 일치) — 즉 mode 별로 여러 번 나눠 돌려도 서로 덮어쓰지 않는다.
+
+### 함정
+- **pfaedle 자체 로그의 소요시간이 버그성 오버플로**: "Matched 8186 trips in 836461584.00 ms"(≈9.68일) 이라고 찍히지만 실제로는 로그 타임스탬프 기준 ~1초. pfaedle 내부 타이머 버그로 보임 — 이 숫자로 성능 판단하면 안 됨.
+- **anchor_err 가설이 숫자로 확인됨**: 버스 임계(anchor_err≤170)를 지하철에 그대로 쓰면 anchor_err 단독으로 390/8186(4.8%) 이 걸리는데, 임계를 170→200 으로만 풀어도 anchor_err 원인이 0건이 됨(나머지 residual_p90 411건은 그대로) — "지하철역 좌표=역사중심, 실제 선로는 옆을 지나간다"는 플랜의 가설이 실측으로 확인됨(역사중심 vs 승강장 차이는 [[project-subway-station-radius]] 에서도 이미 문제였던 축).
+
+### 좌표
+- 변경: `runner/compute_shape_quality.py`(`MODE_ROUTE_TYPES`/`_load_trip_modes`/mode 별 리포트 루프/`--modes` 옵션), `runner/build_seoul_graph.sh`(`--mots`=pfaedle `-m` 그대로 전달, `--modes`=gate 스코프, 둘 다 기본값 `bus` 라 무옵션 재실행은 완전히 예전과 동일).
+- 산출물: `docs/plan/otp-p4-polyline-delivery/handoffs/STAGE2-DISTRIBUTION.md`(분포표+임계 재사용 위험 실측+제안 임계값, 최종 확정은 사용자 결정 대기).
+- 로컬 스크래치(gitignore 대상, 커밋 안 됨): `data/otp-seoul/shape-build/gtfs-out`(bus+subway shapes 둘 다 포함하게 됨, 154856 trips), `coverage-metrics.csv`(mode 컬럼 추가).
+
+### 검증
+- `python3 -m py_compile runner/compute_shape_quality.py` OK, `bash -n runner/build_seoul_graph.sh` OK.
+- **A0 회귀-0 실측**: 기존 P3 Stage1 shaped feed(`data/otp-seoul/shape-build/gtfs-out`, 13:19 산출물)에 `--modes bus --thresholds config/otp-seoul/shape-gate-thresholds.json`(기존 그대로) 실행 → 출력 JSON 을 저장된 `coverage-index.json` 과 비교: **파싱 후 구조적으로 완전히 동일**(`a == b` True). 바이트 diff 는 트레일링 개행 1곳뿐(내 변경과 무관 — 이전 graphVersion 수동 편집 때 생긴 기존 흔적, 파일 재작성 전에도 있었음).
+- **A1 매칭 실행**: `./runner/build_seoul_graph.sh --report-only --mots subway --modes bus,subway` → 지하철 8,186 trip 전량 매칭(누락 0, unjudged 0). 버스 쪽 숫자는 기존과 완전히 동일하게 재현(교차검증).
+- **버스 임계 재사용 위험 정량화**(coverage-metrics.csv 별도 분석): 버스 임계 그대로 → 지하철 degraded 9.13%(747/8186). anchor_err 만 170→200 완화 → 5.02%(411/8186), anchor_err 원인 완전 소멸. 지하철 자체 p99 근처로 맞춘 제안 임계(`residual_p90≤130, anchor_err≤175, detour≤3.5`) → 0.68%(56/8186), 버스의 1.01% 와 비슷한 수준.
+
+### 미결
+- **지하철 최종 임계값은 사용자 확인 대기**(플랜 §A1 게이트, STAGE2-DISTRIBUTION.md 제안값 참조).
+- rail(2개 노선) 은 이번 A1 스코프에 안 넣음(`--mots subway` 만 실행) — 노선 수가 너무 적어 별도 분포 실측+판단 필요.
+- A2(임계 확정 → thresholds.json mode-keyed 구조 확장 → 그래프 재빌드 → coverage-index 갱신 → PR-2 오픈 → 배포)는 이번 세션 범위 밖, 사용자 결정 후 착수.
