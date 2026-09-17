@@ -2119,3 +2119,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 미결
 - (플랜 §7 미결 그대로 유지: geometryQuality 노출 여부/네비 API 형상 이원화/degraded 1477건 — 이번 PR 스코프 아님)
+
+### 배포 (2026-09-17 23:22~23:24, VPS 실적용)
+- PR #205 머지(main e079237d) → 로컬 `./gradlew bootJar` → `scp build/libs/nextroute-0.0.1-SNAPSHOT.jar vps:/root/apps/nextroute/app.jar`(144,057,888B, 양쪽 사이즈 일치 확인) → `ssh vps 'DEPLOY_REVISION=e079237d ./deploy.sh all'`.
+- `deploy.sh all` 이 이미지 `nextroute:20260917-232259-e079237d` 빌드 후 api+worker 둘 다 `--force-recreate` → 둘 다 `healthy`(스크립트 자체 내장 헬스체크, 실패시 자동 이전 이미지 롤백 — 이번엔 불필요).
+- 마이그레이션 파일 없음(이번 PR 은 Java 클래스+테스트+문서뿐) → V__ 수동배치 대상 아님.
+
+### 검증 (배포 후 VPS 실측)
+- 기동 로그: `형상 마킹 ACTIVE: graphVersion=...shaped-gb75848ddb4ee coveredModes=[bus] degraded=1477` 유지(그래프/커버리지 무변경 확인).
+- 실검색(`GET /api/route/search?...시청→강남`, 127.0.0.1:8080) HTTP 200, 1.20s, **paths=5**.
+- **폴리라인 non-null 실측**(모든 path 의 모든 leg): trafficType=2(버스) pts=[169,37,66,35,18], trafficType=3(도보) pts=[26,6,26,10,31,10] — **전부 non-null, 정류장 수보다 훨씬 큼**(플랜 §6 완료판정 조건 충족). trafficType=1(지하철) leg 은 이 OD 에 없어 이번 실측엔 미포함(Track A 전까지는 나와도 null 이 맞음).
+- Redis: 배포+실검색 전후 `used_memory` 9.09MB→8.85MB(사실상 무변화, bus:arrival TTL 자연변동 수준). `route:snapshot:*` 키 1개 생성 확인(내 테스트 검색 1건, TTL 600s 로 자연만료 예정) — B4 예측과 정합.
+- **P4 Track B(PR-1) 완료.** 다음은 Track A(지하철 pfaedle Stage2, PR-2) — A1 임계값은 플랜에 사용자 확인 게이트가 명시돼 있어 별도 착수 필요.
