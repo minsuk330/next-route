@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.route.service;
 
 import org.springframework.stereotype.Component;
+import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.dto.LaneGraphicResult;
 import watoo.grd.nextroute.application.route.dto.LaneResult;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
@@ -10,7 +11,9 @@ import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver;
 import watoo.grd.nextroute.application.route.mapping.SeoulBusIdentity;
+import watoo.grd.nextroute.application.route.routing.EncodedPolyline;
 import watoo.grd.nextroute.application.route.routing.Fare;
+import watoo.grd.nextroute.application.route.routing.GeometryQuality;
 import watoo.grd.nextroute.application.route.routing.RoutingItinerary;
 import watoo.grd.nextroute.application.route.routing.RoutingLeg;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
@@ -29,7 +32,9 @@ import java.util.Optional;
  *
  * <p><b>채우지 못하는 legacy 필드(원천 부재, 가짜값 금지)</b>:
  * <ul>
- *   <li>{@code polyline}/{@code laneGraphics}/{@code mapObj} — 대중교통 형상은 P3 OSM relation 이 채운다(지금 null).</li>
+ *   <li>{@code laneGraphics}/{@code mapObj} — ODsay 전용 표시 데이터라 원천이 없음.</li>
+ *   <li>{@code polyline} — 검증된 형상만 채운다: 대중교통은 {@code GeometryQuality.SHAPE_OK} 일 때만,
+ *       도보는 항상(OTP OSM 실경로). 그 외(STREET_FALLBACK/MISSING/REVIEW)는 null(가짜 직선 금지).</li>
  *   <li>{@code walkSteps} — legacy 는 TMAP turn 구조(x/y 포함)라 OTP steps 와 형태가 달라 배선하지 않는다(후속).</li>
  *   <li>버스 실시간 ID(localStationID/busLocalBlID) — {@link OtpSeoulIdentityResolver} 로 채운다(프론트가
  *       {@code /api/arrivals/bus/{stopId}/{routeId}} 를 호출하게). 매핑 안 되면 null(가짜값 금지).
@@ -149,13 +154,29 @@ public class LegacyRouteResponseMapper {
             lanes = List.of(new LaneResult(routeName, routeName, null, null, null, busLocalBlID));
         }
 
-        // 채우지 못하는 legacy 필드는 null(가짜값 금지): polyline/exit/walkSteps/ArsID/지하철-id.
+        List<CoordPoint> polyline = toPolyline(leg);
+
+        // 채우지 못하는 legacy 필드는 null(가짜값 금지): exit/walkSteps/ArsID/지하철-id.
         return new SubPathResult(
                 trafficType, sectionTime, null, lanes, stations,
                 startName, endName, startX, startY, endX, endY,
-                null, null, null, null, null, null,
+                null, null, null, null, null, polyline,
                 null, null, null, null, null, null,
                 null, startLocalStationID, endLocalStationID, null, null, null, null, null);
+    }
+
+    /**
+     * 검증된 형상만 반환한다(가짜 직선 금지). 대중교통은 {@code SHAPE_OK} 게이트 통과 시에만,
+     * 도보는 OTP OSM 실경로라 게이트 대상이 아니다. 2점 미만은 null(선은 2점부터 의미가 있음).
+     */
+    private List<CoordPoint> toPolyline(RoutingLeg leg) {
+        boolean eligible = leg.mode() == RoutingMode.WALK
+                || (leg.isTransit() && leg.geometry().quality() == GeometryQuality.SHAPE_OK);
+        if (!eligible) {
+            return null;
+        }
+        List<CoordPoint> points = EncodedPolyline.decode(leg.geometry().displayPoints());
+        return points.size() < 2 ? null : points;
     }
 
     private List<StationResult> toStations(List<StopOccurrence> stops) {
