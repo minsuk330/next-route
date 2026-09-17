@@ -1579,6 +1579,7 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 신규/회귀 테스트 전부 그린: OtpPatternRouteOptionSourceTest 9(방향/순환제외/미매핑/비단건seq/dedup/timeout/error/blank) + UnionRouteOptionSourceTest 4(게이트off·on union·dedup(routeId,boardingSeq)·otp非OK 폴백) + RouteOptionCandidateProviderTest 21(20 회귀 + 동적 apply 신규) + OtpStopPatternMapperTest 3 + OtpStopPatternAdapterHttpTest 5 + StoredRouteOptionSourceTest 2. 마이그레이션 없음.
 - DI: RerouteRouteOptionSource 빈 3개(Stored/Otp/Union@Primary) — RerouteAcceptIT 컨텍스트 부팅 그린(NoUniqueBean 없음). provider 는 @Primary Union 주입.
 - 넓은 회귀(`*Reroute* *RouteOption* *Otp* *JourneyReroutePropertiesTest`) BUILD SUCCESSFUL, 실패 xml 0. JourneyReroutePropertiesTest 는 신규 필드(기본 false)에 무영향.
+
 ## national-otp P2-F PR4c: route-option 노선별 실주행 ETA (설계 확정 2026-09-10, 구현 대기)
 ### 확정 (설계 결정, 사용자 승인)
 - **문제(B2 진범)**: RouteOptionEtaCalculator 가 목적지 ETA = 예측승차 + Σ(하차이후 leg plannedDurationSec). 후보 RIDE leg 소요를 **원래 선택 노선 값**으로 씀 → 다른 버스(급행/완행) 실주행 차이 소실.
@@ -1636,6 +1637,350 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - IT RerouteRouteOptionIT: givenResolvedBoarding 이 baseline option 에 source_route_id 를 안 넣어 baseline 이 항상 shadow → 제안 0. baseline source_route_id + wait/ride leg source stop id 채우고 @MockBean RouteRideDurationPort=OK 추가해야 함.
 ### 검증
 - `--tests RouteOptionCandidateProviderTest` = 22 그린(20 무회귀 + 게이트 승격막힘/shadow폴백 2). RouteOptionEtaCalculatorTest 10. Otp*RideDuration* 10. RerouteRouteOptionIT 5(부팅=DI 단일 RouteRideDurationPort 빈 OK). 광역 `*Reroute* *RouteOption* *RemainingPath* *Otp* *RideDuration*` NO FAILURES.
+
+## OTP 수도권 shadow 배포 (L, docs/plan/otp-vps-shadow-deploy) — 착수 전 환경 실측 (2026-09-15)
+### 확정 (§6 미결 해소)
+- **OTP fork 상태 == PLAN §1 정확 일치**: branch codex/otp-phase0-3 @ baseline 02c0b4b. 미커밋 = 프로덕션4(H TripPatternForDates + F DestinationArrivalPaths/PathConfig/McRangeRaptorConfig) + 테스트3(TripPatternForDateTest/RaptorRoutingRequestTransitDataCreatorTest/TripPatternForDatesTest) + untracked test/performance/seoul-metro/. B/C/E2 오염 없음.
+- **Java 25 확정**: OTP fork pom `<release>25</release>`. 런타임 base = eclipse-temurin:25-jre (docker manifest inspect = 존재, amd64 O). 로컬엔 25-jdk·maven-3.9-eclipse-temurin-25 있음(빌드용), 25-jre 는 PR-1 에서 pull+digest 고정. temurin jre=Ubuntu 계열이라 curl 없음 → Dockerfile apt 설치 유지.
+- **port 127.0.0.1:18080 = FREE** (VPS compose+env grep 0건). 충돌 없음.
+- **OTP env 부재 확인 = clean shadow**: VPS compose/env 어디에도 ROUTING_OTP/OTP/18080 0건. api/worker 는 ROUTING_OTP_BASE_URL 없음 → 전환 시 재생성 필수(PLAN 함정대로). reroute flag 도 compose/env 부재 → journey.reroute.enabled 코드 기본값(OTP off 라 영향 0).
+- **soak wrapper 위치 = OTP fork test/performance/seoul-metro/**: 형제 스크립트(compare_graphql.py/collect_process_memory.py/summarize_run.py) 존재, run_isolated.py 도 있으나 PLAN대로 재사용 금지(2nd JVM). wrapper 는 형제 import 하는 fork 코드 → PR-0 harness 커밋에 포함이 자연스러움.
+- **이미지 배치**: JAR 빌드=fork(PR-0), Dockerfile+GHCR push=nextroute repo(PR-1). otp-config(feature flags)=이미지 굽기(codex), 런타임 graph.obj 만 file-mount.
+### 함정 (환경 실측)
+- **VPS 메모리 실측**: total 7901M, available 5195M(free 698 + buff/cache 4941 회수가능). 현 RSS 합 ≈ api675+worker631+pg2127+obs470(6컨테이너)+ml36+redis9 ≈ 3.95G. +OTP peak~2.0G = ~5.95G(PLAN "actual 5.9G" 일치). obs 스택 실측 470M = PLAN 예산 0.5G 안. **디스크 22G free**.
+- **⚠ 호스트 swap 843M 이미 사용중**(PLAN 은 clean 가정). OTP 자체는 memswap_limit=3000m 로 swap 0 이라 OTP OOM 무관, 단 호스트 전반 압력 존재 → soak 중 `free -m` swap 증가 모니터 중요도 ↑.
+- **app 실제 JVM = -Xmx768m / mem_limit 1200m**(PLAN §3 좌표의 -Xmx768m 확인). worst-case 합산 PLAN 계산 유효.
+- `/srv/nextroute/otp` 디렉터리 부재 → runbook 에 mkdir -p /srv/nextroute/otp/<graphVersion> 선행 명시 필요.
+### 미결 (여전히 착수 후 확정)
+- eclipse-temurin:25-jre 정확 digest 고정 = PR-1 에서.
+- OTP adapter in-flight semaphore = 배포 범위 밖, runbook 선행조건.
+
+## OTP shadow 배포 — 세션 분리 확정 (2026-09-15, 사용자 조율)
+### 확정 (실행 구조)
+- **3 세션** (git 의존 아님, 값 핸드오프 순서 강제):
+  - **S1** = PR-0. OTP fork(codex/otp-phase0-3). H+F 4+테3+seoul-metro harness+soak-wrapper 한 커밋 → 깨끗 재빌드 → JAR. 하드경계(다른 repo).
+  - **S2** = PR-1(Dockerfile.otp+GHCR push, nextroute 브랜치) + P2(그 이미지로 graph 재빌드, 로컬 op). 묶은 이유=graph 를 그 이미지로 빌드해야 serialization identity 일치. graph 는 커밋 안 함(대용량).
+  - **S3** = PR-3(compose otp 서비스+app env+OtpRoutingProperties.graphVersion bump) + PR-4(runbook+release-manifest). 둘 다 nextroute·둘 다 S2 값 소비. 브랜치 2개(파일 안 겹침).
+- **graphVersion bump = PR-3 에 접음**(compose 가 graphVersion 경로 참조 → 응집). 별 PR 안 만듦.
+- **핸드오프 파일**: docs/plan/otp-vps-shadow-deploy/handoffs/S{n}-out.md 로 고정(세션간 컨텍스트 미인계 대비 재현성).
+  - S1→S2: JAR 경로+JAR SHA-256+fork commit SHA+revision+id 276.
+  - S2→S3: GHCR image digest+temurin base digest+graph.obj SHA-256/크기+graphVersion+service window(2026-11-07).
+  - S3: 전부 → manifest 대조.
+- feedback-per-task-pr: nextroute PR(1·3·4) 서로 다른 파일 → 각자 fresh main 독립 브랜치, 스택 0.
+
+## OTP shadow S1(PR-0) 구현 로그 (2026-09-15)
+### 확정
+- fork 커밋 = **8dbad55** (부모 02c0b4b baseline). 프로덕션4(H TripPatternForDates + F DestinationArrivalPaths/PathConfig/McRangeRaptorConfig)+테스트3+seoul-metro harness+신규 soak_compose.py+test_soak_compose.py 한 커밋. .gitignore(__pycache__) 추가.
+- H 실체: TripPatternForDates 가 pattern×date 별 nStops*nTrips arr/dep int 배열 물질화 → TripTimes[]+per-trip offset lazy lookup.
+- F 실체: DestinationArrivalPaths.qualify() allocation-free MutableDummyPath 프리필터, scalarOnlyComparator 플래그 게이트(호출부 true). ⚠정확성 민감=P4_FORMAL_PENDING, README correctness fingerprint 재현 필요.
+- soak_compose.py = compose otp(이미 뜬 컨테이너) 대상 soak. run_isolated 와 대비(신규 JVM 안 띄움). load 종료후 collector SIGTERM graceful shutdown, deploy identity(image digest/cgroup Memory·MemorySwap/JAR·graph SHA) 기록. 순수헬퍼(deploy_identity/collector_covered/measured_end) 단위테스트 7.
+### 함정
+- **OTP 빌드가 Spotless(prettier) 단계에서 죽는다** ← maven:3.9-eclipse-temurin-25 이미지에 node/npm 없음. 증상="Can't automatically determine npm executable", validate 단계라 전체 블록. **가드: `-Dplugin.spotless.skip=true`** (pom 이 `<skip>${plugin.spotless.skip}</skip>` 로 파라미터화 — `-Dspotless.skip` 은 무효, 30분 헤맴). 포맷 체크라 바이트코드/JAR identity 무관(소스 이미 커밋). CI 는 node 있어 무관.
+- **⚠ stale JAR 함정**: 첫 빌드 실패했는데 `mvn ... | tail` 파이프가 exit 0 으로 보고 → otp-shaded/target/ 의 **Sep-11 dirty JAR(SHA 54bbdbcf..db7f, git.dirty=true, commit=02c0b4b)** 를 확정본으로 오인할 뻔. PLAN 이 경고한 그 JAR. **가드: 빌드 후 otp-project-info.properties 의 git.commit.id==8dbad55 && git.dirty=false 확인 후에만 JAR SHA 채택.** clean package 로 stale 제거.
+### 미결
+- 재빌드(8dbad55, clean, spotless skip) 진행중 → JAR SHA-256 + git.dirty=false 확인 후 handoffs/S1-out.md 확정. id 276 은 소스=276 확인됨.
+### 검증 (S1)
+- clean 재빌드 JAR = SHA-256 `dcd08dedf7060bca3f89a14bd645bf972eda4998cc3acd8e5bab17a02ce45284`, git.dirty=false, commit 8dbad55, id 276. (dirty 54bb 와 다름 = 진짜 재현본.)
+- 빌드: `docker run maven:3.9-eclipse-temurin-25 mvn clean package -pl otp-shaded -am -DskipTests -Dplugin.spotless.skip=true` 성공.
+- 커밋된 H+F 테스트3 = 18 그린(TripPatternForDateTest 7 / TripPatternForDatesTest 7 / RaptorRoutingRequestTransitDataCreatorTest 4, failures 0). 이 3개 모두 application 모듈=H 커버.
+- soak_compose 순수헬퍼 테스트 7 그린, 기존 harness 40 그린.
+- ⚠ **전체 8,225 스위트 미실행**(비용). F(raptor path qualify) 회귀 = raptor 모듈 전체 테스트로 커버중. F 정확성 최종 게이트 = P4 correctness fingerprint(4 OD, PENDING, 전환 전).
+### 배포
+- handoffs/S1-out.md 확정. S2 입력 = JAR경로+SHA dcd08ded+commit 8dbad55+id276+빌드명령.
+- **PR**: minsuk330/OpenTripPlanner#1 (https://github.com/minsuk330/OpenTripPlanner/pull/1), base dev-2.x, isCrossRepository=false (upstream 아님). 브랜치 원격 push 완료.
+
+## OTP shadow S2(PR-1 이미지 + P2 graph) 구현 로그 (2026-09-15)
+### 확정
+- **Dockerfile.otp = nextroute PR #195** (base main, feat/otp-shadow-image). FROM temurin 25-jre amd64 digest 고정, curl apt, otp.jar+otp-config.json COPY, exec-form entrypoint, OCI label(revision/jar-sha/ser-id/base). 빌드컨텍스트(jar+config)=fork 산출물이라 커밋 제외.
+- **GHCR image**: `ghcr.io/minsuk330/nextroute-otp:20260915-8dbad55` digest `sha256:77c240387c804135700bb466fb61ee7c1b0d969998a6bd2420f58099416eaa5a` (amd64 단일). base amd64 `sha256:65655f70..`, manifest-list `sha256:15090d15..`.
+- **graph.obj**: SHA `4e098383e95566805f88a5de77e1cff9fe5838ef970cfa12345236d97e7ed72c`, 229,616,986 bytes, header 0000276(ser id 일치→load OK). \|V\|808,616 \|Patterns\|3,936 \|Stops\|43,783. 입력 SHA=기존 manifest 동일(gtfs 0cb23b0d/osm 0be8f32b). 로컬 원본=tools/transit-routing-benchmark/data/otp-seoul/graph-otp276-4e098383.obj(커밋금지). S3 scp 원본.
+- OTP transitService 창 = [2026-09-14, 2026-11-16) (빌드일 -P1D~P2M) → 만료 2026-11-15. graphVersion 제안 seoul-bbox-202503-cal20260707_20261108-otp276-g4e098383 (S3 확정).
+### 함정
+- **🔴 PLAN healthcheck 쿼리 `{feeds}` 가 2.10 에서 죽는다** ← 2.9 는 feeds=scalar list 였으나 2.10 은 `[Feed]` object → subselection 필수. 증상 `Validation error (SubselectionRequired@[feeds])`. **가드: S3 PR-3 healthcheck 를 `{feeds{feedId}}` 로 정정**(data.feeds feedId 존재 + errors 없음). 안 고치면 컨테이너 영원히 unhealthy. S2-out.md 에 수정 compose 스니펫 있음.
+- **GHCR 로컬 push 최초 = 403** ← docker cred 에 write:packages 없음(gh CLI 토큰도 없음). 가드: `docker login ghcr.io -u minsuk330` + classic PAT(write:packages) 필요. CI(GITHUB_TOKEN)만 써와서 로컬 첫 push 라 발생.
+- otp-config 이미지 굽기 검증: serve 때 graph.obj **파일만** file-mount → 베이크된 /var/opentripplanner/otp-config.json 유지 확인(dir mount 시 가려짐). graph build 때는 stage dir 통째 mount 라 build-config+otp-config 다 stage 에 둠(필수).
+### 검증 (S2)
+- buildx --push 성공, 원격 digest 77c24038 확인, label 4값 정확.
+- graph 재빌드(PR-1 이미지 --build --save) 3m26s, header 0000276.
+- readiness smoke(graph.obj file-mount, -Xmx1900m): `{feeds{feedId}}`={"data":{"feeds":[{"feedId":"1"}]}}(errors 없음), planConnection 서울시청→강남 실경로(버스143/640,472/144). post-load RSS≈1.693GiB(로컬 참고, 3000m soak=S3).
+### 배포
+- handoffs/S2-out.md 확정. S3 입력 = image digest+base digest+graph SHA/크기/ser276+service window(2026-11-15)+graphVersion+**healthcheck 정정**.
+- **PR**: minsuk330/next-route#195 (https://github.com/minsuk330/next-route/pull/195), base main.
+
+## OTP shadow S3(PR-3 compose+env+graphVersion / PR-4 runbook+manifest) 구현 로그 (2026-09-15)
+### 확정
+- **PR-3 = nextroute #196** (feat/otp-shadow-compose, base main). compose.yaml otp 서비스 신설 + app-environment 앵커에 ROUTING_OTP_BASE_URL=http://otp:8080 + 토글2개(otp-enabled=false/default=ODSAY, api·worker 양쪽 상속). OtpRoutingProperties graphVersion→seoul-bbox-202503-cal20260707_20261108-otp276-g4e098383, schemaVersion→otp-2.10.0-planConnection-v1.
+- **PR-4 = untracked 산출물**(GitHub PR 아님): docs/plan/otp-vps-shadow-deploy/deployment-runbook.md + release-manifest.json. tools/·docs/plan/ 이 untracked 관례라 manifest·runbook 도 로컬 파일. 2.9 benchmark manifest(tools/.../data/otp-seoul/release-manifest.json)는 **손 안 댐**(live prod graph 기록 보존) — shadow manifest 는 plan 디렉터리에 새로 씀.
+### 함정
+- **compose $ 보간**: healthcheck 쉘의 `$R`/`$(...)` 는 compose 가 변수 보간 → `$$R`/`$$(...)` 로 이스케이프 필수. `docker compose config` 로 렌더 확인.
+- **bind mount create_host_path**: graph.obj 소스 없이 `up -d otp` 하면 Docker 가 **빈 디렉터리 graph.obj** 생성. runbook: scp+SHA검증 → 그 다음 up. 순서 강제.
+- **adapter planConnection 쿼리는 2.10 에서 안 깨짐**(feeds 와 달리): src/main/resources/otp/planConnection.graphql 를 컨테이너에 실투입 → edges 정상 반환. 전환 시 이 쿼리는 재작성 불필요(feeds healthcheck 만 정정 대상). 첫 curl 시도 EOF 에러는 쉘 이스케이프 문제였고 python POST 로 정상 확인.
+- schemaVersion/graphVersion 은 단순 버전태그 string(캐시키·메타). 신규 로직 없어 계약 테스트 불필요, 검증=compose config+compileJava.
+### 검증 (S3)
+- `docker compose config` 유효(exit 0). otp 블록: mem_limit/memswap 3145728000=3000m, ports 127.0.0.1:18080, graph.obj bind, healthcheck `{feeds{feedId}}`. ROUTING_OTP_* env 가 api·worker 양쪽 렌더 확인.
+- `./gradlew compileJava` BUILD SUCCESSFUL.
+- release-manifest.json JSON valid. config SHA build=16bfbf50/otp=342b442d 기록.
+### 배포
+- **VPS 수동**: OTP_IMAGE=digest .env, mkdir /srv/nextroute/otp/<graphVersion>, scp graph.obj+SHA검증, `docker compose up -d otp`만(api/worker 재생성 금지). 상세=deployment-runbook.md.
+- **PR**: #196. shadow 세션 정리 — S1=PR-0 fork(OpenTripPlanner#1) / S2=PR-1 Dockerfile+image(#195) / S3=PR-3 compose(#196)+PR-4 untracked(runbook+manifest). 코드 전부 끝.
+
+## OTP shadow VPS 배포 실행 (2026-09-15, 사용자 "VPS 배포까지 자율" 승인)
+### 확정
+- **#195·#196 main 머지**(ea4596c). **VPS 배포 라이브**: otp 컨테이너 healthy, feeds+planConnection(버스472/140) 실경로 응답.
+### 🔴 함정 (하마터면 프로덕션 파손)
+- **VPS compose.yaml 은 git repo 아님 + repo main 과 드리프트**. VPS 에만 있는 미커밋 프로덕션 설정: app `-Xmx768m`/`mem_limit 1200m`, Apple `.p8` 마운트, `JOURNEY_NOTIFICATION_RELAY_ENABLED=false`(api 부팅 가드). **repo compose scp 로 덮으면 앱 OOM+apple revoke+worker relay 가드 파손.** 가드: VPS 사본에 otp 블록+env 3줄만 **외과적 additive 삽입**(diff 로 removal 0 확인) 후 scp. 원본은 compose.yaml.bak-20260915 백업.
+- bind mount 순서: graph.obj scp+SHA검증(4e098383) → 그 다음 `up -d otp`. dir /srv/nextroute/otp/<graphVersion> 선mkdir.
+### 검증 (배포)
+- `docker compose up -d otp` = **otp 만 생성**(api/worker created 2026-09-07 그대로, 8일 uptime healthy = 재생성 0).
+- otp healthy 22s(x86 native). `{feeds{feedId}}`=feeds OK. RSS 1.464GiB/2.93GiB(50%, 한도밑). available 4637→3466M, swap 845→874M(+30M, 무압력).
+- **rollback 드릴**: `docker compose stop otp` → api/worker healthy 유지 → `up -d otp` 재기동 healthy. 앱 무영향 확인.
+- manifest ↔ 실 image digest 77c24038 / graph SHA 4e098383 / id 276 대조 일치.
+### soak (짧은 c1/c2/c4, VPS 실측 2026-09-15)
+- harness = OTP fork test/performance/seoul-metro/{soak_compose,compare_graphql,collect_process_memory,summarize_run}.py 를 VPS /root/otp-soak 로 scp. VPS python3.10, docker exec PID1 RSS + host port 18080 부하. corpus 4 OD(cityhall-gangnam/cheonggye-sadang/bupyeong-seoul/bupyeong-gangnam).
+- **결과(req40/warmup10)**: c1 peakRss 1566M/contPeak 1612M, c2 1568/1614, **c4 1723/1771M**. 전 run memErr 0, coverage before+after true, 샘플갭 없음. **최대 1771M ≪ cgroup memory.max 3145728000(3000m), 59%**. -Xmx1900m heap 근처도 안 감. host swap 869→870M 평탄, available >3.5G = 이웃 무영향.
+- status=INCOMPLETE 는 **정상**(--gc-log 안 줌 → gcLogMissing, 메모리 soak 유효. soak_compose.py:170 주석 확인).
+- latency(c1 measured): p50 1161/p95 1406/p99 1653/max 2246ms — elaborate planConnection(다필드) 응답, 오류 0.
+- **함정(무해)**: collect_process_memory 가 mac용 `sysctl vm.swapusage` 프로브 → Linux 에서 "cannot stat" 경고. RSS 는 docker exec 로 수집돼 무관. output-dir 는 exist_ok=False → run 별 fresh 경로 필수.
+### 미결 (선택)
+- **30분 지속 soak(c4)** 미실행 — 짧은 run 은 누수 징후 0(delta +27M/163s)이나 장시간 누적 확인은 별도. 전환 전 권장.
+- OTP_IMAGE 는 VPS .env 에 digest 고정 기록됨.
+## 2026-09-15 journey-reroute-nextstop PR-0 (스파이크 — 절단표현 + 진행판정)
+
+산출 = 문서(이 항목) + fixture `src/test/resources/otp/planconnection-stopcall-times.json`. 코드·마이그레이션·플래그 없음. 결론: **두 축 다 실현 가능. 단 legacy 경계 우회(Q1) + copyToRevision trim 변형(Q2)이 전제.**
+
+### 확정 (Q1 — board→X 소요 + 지도선 슬라이스, 투영 없음)
+- 현재 `planConnection.graphql:42` 는 `stopCalls.stopLocation{gtfsId,name,lat,lon}` 만 받고 **시각을 안 받는다**. `legGeometry.points`(:49)는 이미 받음. 진짜 결핍 = **stopCall 시각뿐**(PLAN 리뷰가 맞음). PR-A 가 `schedule{time{arrival departure}}` + `realTime{arrival{time delay} departure{time delay}}` 를 추가.
+- board→X 소요 = `X.stopCall.time − board.stopCall.time` = **순수 뺄셈, 투영 0**. fixture 실측: 143번 롯데백화점(occ0 08:12:28)→용산구청(occ5 08:22:50) = **622s**, board→고속터미널(occ8) = 936s = `leg.duration` 일치.
+- 절단 지도선 board→X = `stopCalls[board..X]` **좌표 이어그림, 투영 0**(fixture 6좌표). polyline 디코드·투영·오차·폴백 전부 불필요(PLAN 확정과 일치).
+- **유실 경계 = `LegacyRouteResponseMapper.toSubPath`(:114)**: polyline=null(:153 3번째 인자), `sectionTime`=분단위 반올림(:121 — 초·정류장별 시각 소멸), `StationResult`(:164 `toStations`)=`(occurrenceIndex, sourceStopId, name, lon, lat)` **시각 필드 없음**. 즉 `RoutingLeg.geometry.points`+`boardAt/alightAt`+`StopOccurrence` 좌표가 원천엔 있으나 PathResult 변환이 **전부 버린다**.
+- `RemainingRouteSearchService.loadOtp`(:155)가 검색 직후 즉시 `toLegacy` 를 탄다 → **PR-A 는 mapper 확장이 아니라 legacy 우회가 깨끗**: RIDE 재탐색 경로만 `RoutingResult`/`RoutingLeg`(+stopCall 시각) 를 직접 소비(중립 `StopCall` 모델). SubPathResult 34필드 확장/StationResult 시각추가는 검색(#1) 정적 계약까지 흔들어 회귀면 큼([[feedback-server-static-search-front-realtime]]).
+- `StopOccurrence`(record) 시각 필드 없음. `sourceStopSequence`·`tripPattern` 자리는 있으나 mapper 가 null 로 채움(`OtpPlanConnectionMapper:175,:189`). PR-A 중립 StopCall = StopOccurrence + `schedule/realTime` 시각 + `(trip, sourceStopSequence, occurrenceIndex)` 식별.
+
+### 확정 (Q2 — 진행중 RIDE 하차점 교체 + progress 보존)
+- `JourneyLeg.copyToRevision`(:179)이 progress 전 필드 承계: `lastProgressId·progressGeometrySegmentIndex·progressFraction·progressLegFraction·progressObservedAt·progressSectionId·remaining{DistanceMeters,DurationSeconds,Stops}·predictedEndAt·evidenceSource/ObservedAt`. `selectedRouteOptionId` 만 비움(유령 FK 방지).
+- **절단은 꼬리 자르기**(X 가 현재위치보다 앞, 옛 하차점보다 뒤) → `progressGeometrySegmentIndex`·물리위치·`lastProgressId` 안 흔들림. **"몇 분 남음"이 뒤로 안 튄다**(꼬리 truncation 은 현재위치 이전 인덱스 불변).
+- 진행 가드 = `applyProgressIfNewer`(`JourneyLegRepository:52`) WHERE `progressObservedAt is null or progressObservedAt < :observedAt` = **시각 단조, id 아님**. `lastProgressId` 는 DUPLICATE 판정 전용(`JourneyProgressService:145`).
+- "재생 id" 방어 이중: ① 새 revision 발행 → 옛 revision 태그 progress 는 `JourneyProgressService:62`(`command.routeRevision() != journey.getRouteRevision()` → STALE_ROUTE_REVISION)에서 **leg 도달 전 선차단** → 클라 강제 재조회 ② 같은 revision 내 늦게 온 관측은 observedAt 단조가 막음.
+
+### 함정
+- **copyToRevision 만으로는 절단 RIDE 가 틀린다**: `endStopId/endName`=옛 하차점, `plannedDurationSec`=옛 leg 전체, `remaining{Stops,Duration,Distance}`·`progressLegFraction`=옛(먼) 하차점 기준(분모). X 로 절단하면 이 값들이 **옛 값 그대로** → "몇 분 남음"이 X 아닌 옛 하차점까지. **PR-4 필요 = `copyToRevisionTruncated(newRev, X식별, board→X초)` 변형** or copy 후 조정: `endStopId/Name→X`, `plannedDurationSec→board→X`, `remaining*·legFraction→X 기준 재계산`. **보존**: `progressGeometrySegmentIndex·lastProgressId·progressObservedAt·progressFraction`(구간내 비율).
+- **⑤ `rebuild` 경계가 PR-4 에 안 맞는다**(`RerouteAcceptTxService:229`): 규칙 = `legIndex<fromLegIndex` → copyToRevision(진행보존) / `>=fromLegIndex` → 새 JourneyLeg(PENDING, 진행 없음). ⑤ 절단점=**미래 WAIT**라 새로 만들어도 진행 없음이 정상. PR-4 절단점=**현재 RIDE(진행중)** → 그 규칙대로 새로 만들면 진행 전멸 = GPS 엔진 리셋. 현재 RIDE 는 **copy+trim = 제3케이스**(순수 copy 도 순수 rebuild 도 아님). PR-C composer 가 절단 leg 를 이 케이스로 방출하고 rebuild 가 `legIndex==currentLegIndex && 절단` 특수분기.
+- `clearProgressAndPrediction`(`JourneyLeg:220`)은 **꼬리(Y) 전용**. 절단 RIDE 에 쓰면 진행 소멸 — 쓰지 말 것.
+- 절단 RIDE 의 짝 WAIT(`pairedLegIndex`, `JourneyLegDraft`)은 프리픽스(복제)라 불변. 갈아탈 Y = 새 WAIT+RIDE 꼬리, pairing 은 꼬리에서 새로 맺음.
+
+### 좌표
+- src/main/resources/otp/planConnection.graphql:42 — stopCalls(시각 미쿼리, PR-A 확장점)
+- infrastructure/adapter/out/api/otp/OtpPlanConnectionMapper.java:166 toStops — StopOccurrence 시각·seq null(:175 stopCall / :189 from·to)
+- application/route/service/LegacyRouteResponseMapper.java:114 toSubPath — polyline null(:153)·sectionTime 분단위(:121)·시각 유실 경계(PR-A 우회 대상)
+- application/route/routing/StopOccurrence.java — record, 시각 필드 없음(중립 StopCall 신설 근거)
+- application/journey/service/RemainingRouteSearchService.java:144 loadOtp — clock.instant() 고정 + :155 즉시 toLegacy
+- domain/journey/entity/JourneyLeg.java:179 copyToRevision — progress 承계(절단엔 trim 변형 필요) / :220 clearProgressAndPrediction(꼬리 전용, 절단 금지)
+- domain/journey/repository/JourneyLegRepository.java:52 applyProgressIfNewer — observedAt 단조 가드(id 아님)
+- application/journey/service/JourneyProgressService.java:62 — routeRevision 불일치 선차단(재생 id 방어①)
+- application/journey/service/RerouteAcceptTxService.java:229 rebuild — ⑤ 선례(PR-4 확장 대상, 경계규칙 부적합)
+- src/test/resources/otp/planconnection-stopcall-times.json — PR-A 시각 fixture(PR-0 산출, board→X 622s·지도선 6좌표 실측)
+
+### 미결
+- PR-A **legacy 우회 vs DTO 확장** 최종 택 = PR-A 착수 시 확정(우회 권장, 위 근거). **national OTP 마이그(P2-B/P2-G) 담당과 조율 필수**(PLAN 명시 — 병렬 중복 위험).
+- 절단 RIDE progress 의 앱 GPS 엔진 정합: `progressGeometrySegmentIndex` 가 절단 geometry 기준으로 재기준 필요한지(앱이 slice 된 지도선을 다시 받으므로 segmentIndex 의미가 바뀔 수 있음). 앱 계약 확인 = PR-4.
+
+### 배포
+- PR-0 = 문서+fixture. 마이그레이션·코드·플래그·설정 **없음**.
+
+### 검증
+- 코드 리딩 스파이크(변경 0). fixture JSON 파싱 유효 + worked example 실측(python): board→X(용산구청)=622s(순수 뺄셈), board→full=936s=leg.duration 일치, 지도선 slice=6좌표, realTime shape(occ0·occ1 delay=0/60) 확인. fixture 소비 테스트는 PR-A 가 작성.
+
+## 2026-09-15 otp-provider-switchover PR-1 (OTP 동시성 gate)
+
+### 확정
+- **interface 에 role 파라미터 추가**: PLAN §4 는 `tryAcquire(RoutingDeadline)` 였으나 codex 가 요구한 "메트릭 역할(api/worker) 태그"를 지키려면 어댑터가 호출자 역할을 알아야 한다 → `tryAcquire(RoutingDeadline, String role)`. 단일 글로벌 semaphore 는 그대로(역할 분할 아님). role 은 저카디널리티 고정값("api"/"worker").
+- **메트릭 3종을 어댑터가 발행**: `otp.sem.acquire{role,result=success|saturated|redis_error}` 카운터 + `otp.sem.wait{role,result}` 타이머. PLAN 이 따로 적은 `otp.sem.redis_error` 는 acquire{result=redis_error} 로 흡수(별 이름 안 만듦, 카디널리티 절약).
+- **startup validation = 별도 @PostConstruct 빈**(`OtpConcurrencyConfigValidator`). properties 안에 넣지 않은 이유: `leaseMs ≥ max(api odsayMs, worker searchBudgetMs) + margin` 은 3개 properties 를 교차 참조 → @ConfigurationProperties 자체 검증으로는 부족. 현값 api 2000/worker 3000/margin 2000 → 요구 최소 5000, 기본 lease 8000 통과.
+- **worker 예산 출처 = `JourneyRerouteProperties.getRemainingPath().getSearchBudgetMs()`**(=3000). api = `RouteSearchDeadlineProperties.getOdsayMs()`(=2000).
+- **deadline 1개 공유가 계약**: api(runSearch)·worker(load) 둘 다 deadline 을 한 번 만들어 gate 대기 + OTP 호출에 같은 인스턴스 주입. worker 는 기존 loadOtp 가 자체 생성하던 것을 제거하고 loadOtpGated 에서 만들어 넘김. 테스트가 `isSameAs` 로 동일 인스턴스 고정.
+- **포화 응답**: api = `OdSayApiException.timeout("OTP semaphore saturated")`(handleOtpSaturated, 기존 504 계약 재사용, ODSAY 폴백 없음). worker = 빈 목록 + `metrics.recordRemainingSearch("otp-saturated")`(재탐색 실패 계약, OTP-only).
+- **fail-closed**: Redis 예외 = empty(포화와 동일). mem_limit≠동시성상한이라 fail-open 금지.
+- **best-effort 상한**: 공용 allkeys-lru Redis 에 ZSET(`otp:sem:permits`), 축출 가능 → 코드/주석에 "강한 전역 상한 아님, 하드 상한=OTP mem_limit" 명시(사용자 리스크 감수 결정).
+
+### 함정
+- `redisTemplate.execute(script, keys, args...)` 는 varargs → Mockito 스텁 매처 개수를 실제 호출 인자 수(keys 1 + args 3)에 맞춰야 매칭됨. fail-closed 테스트에서 `any(),any(List),any(),any(),any()` 5개로 맞춤.
+- Lua now 는 **Redis TIME**(`redis.call('TIME')`)로 계산 — app Clock 아님(api/worker skew 회피). ZREMRANGEBYSCORE + ZCARD + ZADD 를 한 EVAL 로 원자화.
+- acquire 실패(정원 초과)시 Lua 가 ZADD 안 함 → 실패 토큰 잔류 없음(재시도마다 새 UUID 여도 leak 없음).
+- **JourneyTransferAssessmentIT 실패는 기존 무관**: origin/main(ea4596c) 클린 베이스라인(내 변경 stash 후)에서도 동일 실패(1/1). 정적 데이터(busLocalBlID 미해석) 의존, PR-1 무관. 재조사 방지.
+
+### 좌표
+- application/route/routing/OtpConcurrencyGate.java — Port(+OtpPermit record)
+- infrastructure/adapter/out/cache/route/RedisOtpConcurrencyGateAdapter.java — Lua EVAL semaphore
+- application/route/config/OtpConcurrencyProperties.java — permits(4)/leaseMs(8000)/retryIntervalMs(20)/safetyMarginMs(2000)
+- application/route/config/OtpConcurrencyConfigValidator.java — @PostConstruct lease≥예산+margin 강제
+- application/route/service/RouteSearchService.java:100 runSearch OTP 분기(gate 대기→runOtpSearch(deadline)) / handleOtpSaturated
+- application/journey/service/RemainingRouteSearchService.java loadOtpGated → loadOtp(deadline)
+
+### 배포
+- **마이그레이션 없음**. 신규 설정 `routing.otp.concurrency.*`(전부 기본값, yaml 미기재 = 코드 기본 사용).
+- **PR-1 머지 후 앱 재배포 시점엔 gate dormant**: otp-enabled=false(기본) → runSearch/load 의 OTP 분기 미진입 = gate 미호출. 회귀 0.
+- 전환(별도 결정): compose api/worker 에 `ROUTING_OTP_BASE_URL=http://otp:8080` + `ROUTING_PROVIDER_DEFAULT_PROVIDER=OTP` + `ROUTING_PROVIDER_OTP_ENABLED=true` 3값 + 재생성. 롤백=3값 되돌림.
+
+### 검증
+- `./gradlew compileJava` / `compileTestJava` 통과.
+- 신규 단위 27: RouteSearchServiceTest 11(+OTP gate 3), RouteSearchServiceOtpWiringTest 2, RemainingRouteSearchServiceTest 8(+OTP gate 2), RemainingRouteSearchServiceOtpTest 2, RedisOtpConcurrencyGateAdapterTest 4(fail-closed/interrupt/expired/release-null). 실패 0.
+- 신규 IT 5: RedisOtpConcurrencyGateAdapterIT(정원N/반납재획득/lease만료회수/idempotent/동시반납). 실 Redis(testcontainers). 실패 0. → @SpringBootTest 기동으로 OtpConcurrencyConfigValidator @PostConstruct 도 통과 확인.
+- 전체 `./gradlew test` = 2091 tests, 1 failed(JourneyTransferAssessmentIT=기존 무관, 위 함정), 3 skipped.
+
+## 2026-09-15 otp-provider-switchover 전환 시도 → 롤백 (예산 블로커 발견)
+
+### 확정 (전환 블로커 = PR-1 무관, OTP 호출 예산 부족)
+- **실 트래픽 OTP 전환 시 검색 100% 502**. 원인 = OTP planConnection 왕복이 api mandatory-stage 예산 `route.search.odsay-ms=2000ms` 초과 → RestClient readTimeout(=남은예산) 발화 = "Request cancelled" I/O error → handleOtpFailure ENGINE_ERROR → 502.
+- **실측(2026-09-15 VPS)**:
+  - otp:18080 직접 planConnection(강남역→서울역, warm) = **1.6s**(3회, edges 정상, routingErrors 빈). 
+  - api 경유 검색 = **매번 502 at t=2.01s**(5/5). readTimeout 2000ms 정확히 발화. 차이 ~0.4s = api 측 RestClient 연결+요청직렬화+대용량 응답 역직렬화(legs/geometry/stopCalls) 오버헤드.
+- **gate(PR-1) 정상 무관**: permit N=4 즉시 획득(대기 0), validator 통과. 502 는 permit 획득 후 OTP 호출 자체가 timeout. semaphore 는 제 일 함.
+- **ODSAY 는 200**(롤백 후 t=2.3~3.7s): ODSAY 도 느리지만 mandatory ODSAY 단계는 odsayMs 안에 들고 나머지는 enricher 라 degrade. OTP 는 OTP 호출 자체가 mandatory 단계라 초과=하드 502.
+
+### 함정
+- 전환 = `ROUTING_PROVIDER_OTP_ENABLED:"true"` + `DEFAULT_PROVIDER:OTP` compose 외과삽입(diff 2줄만, removal 0 확인) + `docker compose --env-file .env up -d --no-deps --force-recreate api worker`. 정상 반영·기동됨(env printenv/validator 로그 확인). **문제는 배선이 아니라 예산.**
+- 롤백 = 백업 compose 복원(compose.yaml.bak-20260915-toggle) + 재생성. 즉시 ODSAY 200 복구.
+
+### 미결 (전환 재개 전 해결 필요 = 새 PR)
+- **OTP 호출 예산 상향**: 현 `runOtpSearch`/`loadOtp` 는 `ctx.budgetMillis(odsayMs=2000)` 재사용. OTP 왕복 ~2.0s+ 이라 부족. 선택지: ① OTP 전용 예산 property(`route.search.otp-ms`, 예 3000~3500) 신설 + deadlineMs(현 3000) 동반 상향 ② odsayMs 자체 상향(ODSAY 롤백 경로 tail 도 영향, 단 ODSAY 는 60ms라 무해). deadlineMs 가 상한이라 같이 올려야. **tail-cutting 설계(RESULTS.md 근거) 재검토 대상 — 사용자 결정 필요.**
+- 재확인 필요: 복잡 경로(다환승)의 planConnection latency 분포. 1.6s 는 단순 경로 warm 값 — p90/p99 로 예산 정해야.
+
+### 배포 (현재 상태)
+- **전환 롤백 완료 = dormant 유지**. api/worker = nextroute:20260915-223926-eb50084(PR-1 gate 코드 포함, dormant), OTP_ENABLED=false/DEFAULT_PROVIDER=ODSAY. ODSAY 라이브 정상.
+- VPS 백업: compose.yaml.bak-20260915-toggle(전환 전=dormant, 현재 이걸로 복원됨), compose.yaml.bak-20260915-otptoggle-attempted(전환 시도 상태 보존).
+
+## 2026-09-16 national-otp P2-C → 재탐색 캐시 제거 (접기)
+
+### 확정
+- **P2-C(시간의존 캐시+graph pinning) 를 "구현"이 아니라 "제거"로 종결.** 근거: 캐시의 유일 소비자 = 재탐색(RemainingRouteSearchService)인데, 재탐색은 계약상 실시간(feedback-server-static-search-front-realtime: "실시간 판정은 주행 재탐색에서만"). 구조를 TTL 10분 공유하면 이미 떠난 편·바뀐 상황을 굳은 값으로 돌려줘 재탐색 목적과 충돌. P2-C의 ②envelope(떠난편 거르기)는 그 충돌 땜빵이었고, 계약과 안 맞는 캐시는 땜빵보다 제거가 맞다(사용자 결정).
+- **SingleFlight 도 재탐색에서 제거**(클래스는 bus/subway/검색이 써서 존치). 캐시 없으니 stampede 억제 대상도 사라지고, 재탐색 키는 거의 안 겹쳐 사실상 죽은코드. OTP 과부하 backpressure = 캐시/SingleFlight 아니라 OtpConcurrencyGate(permit N).
+- **RoutingCacheContext 삭제**: 캐시 전용 래퍼였음. provider 선택(OTP/ODSAY 분기)만 남겨 RemainingRouteSearchService.search() 안에 인라인(providerSelector.select(false) 1회).
+- **동작 변경 0 (dormant)**: reroute enabled=false(기본) + OTP dormant. 캐시는 원래 죽은코드였음 → 프로덕션 회귀 없음.
+- metrics 계약 유지: 성공="called", 빈답/실패="failed", "otp-saturated"/"otp-failed-*" 그대로. 제거된 것=캐시 전용 "cache-hit"/"single-flight-join".
+
+### 함정
+- yaml `journey.reroute.remaining-path.cache-ttl: PT10M` 은 field 삭제해도 @ConfigurationProperties 가 unknown 무시라 부팅은 안 깨지지만 dead config → 같이 제거. validator 의 cache-ttl 양수검사도 제거(안 지우면 getter 없어 컴파일 깨짐).
+- RemainingRouteSearchService 생성자 시그니처 변경(cache, OtpRoutingProperties 2개 param 제거) → 테스트 3곳(Test/OtpTest/IT) 전부 생성자·MockBean 수정 필요. otpRoutingProperties 는 캐시 graphVersion 용도뿐이라 같이 제거됨.
+- IT unresolvedStop 테스트: "미해석 정류장 skip" 은 캐시키 섞임이 아니라 상위(candidate provider) 가드라 캐시 제거 후에도 유효. verify(cache,never) 줄만 제거.
+
+### 좌표
+- 삭제: application/journey/port/out/RemainingRouteCachePort.java, infrastructure/adapter/out/cache/journey/RedisRemainingRouteCacheAdapter.java, application/route/routing/RoutingCacheContext.java (+ 테스트 RoutingCacheContextTest, RedisRemainingRouteCacheAdapterTest)
+- 수정: application/journey/service/RemainingRouteSearchService.java (캐시·SingleFlight·cacheContext 제거), application/journey/config/JourneyRerouteProperties.java (cacheTtl field+validation 제거), resources/application.yaml:504 (cache-ttl 제거), 테스트 RemainingRouteSearchServiceTest/OtpTest, RerouteRemainingPathIT
+
+### 미결
+- P2-C 원문의 "graph 인스턴스 pinning + 응답버전 검증"(#5)은 캐시와 함께 소멸했지만, 별개 리스크로 남음: RoutingResult.graphVersion = config 하드코딩(OtpRoutingProperties), 라이브 OTP graph 검증 0. 캐시 없으니 "오염" 리스크는 사라졌으나, 응답 메타(graphVersion)가 거짓일 여지는 여전 → 전환 전 별건 판단.
+- P2 남은 갭: D(ID매핑 #181 열림·보류), F(route-option #193 열림), H 예산(#198 열림). C 는 이 커밋으로 "제거 결론" 종결.
+
+### 검증
+- `./gradlew compileJava compileTestJava` 통과(EXIT 0, 경고=기존 MockBean deprecation만).
+- 단위: RemainingRouteSearchServiceTest(5), RemainingRouteSearchServiceOtpTest(2), JourneyRerouteProperties* green.
+- IT: RerouteRemainingPathIT green(풀 Spring context 부팅 성공 = 빈 배선 정상, RemainingRouteCachePort @Component 삭제 후에도 컨텍스트 OK).
+- 잔존참조 grep: RemainingRouteCachePort/RoutingCacheContext/RedisRemainingRouteCacheAdapter 0(다른 cache-ttl-seconds 는 ML/bus/subway 무관).
+
+## 2026-09-16 national-otp P2-D → #181 close (과확장 폐기, resolver 로 완료)
+
+### 확정
+- **P2-D = 방법B resolver(OtpSeoulIdentityResolver, main 라이브, #182 머지)로 완료 처리. #181(versioned 매핑 표) close.**
+- #181 = 필요 이상 확장 사례: 실제 필요 = "OTP id→서울 id" 결정적 strip(`BS_TAGO_SEB<9자리>`→stop_id, `BR_TAGO_SEB<9자리>`→route_id) 하나인데, 이를 버전표+VERIFIED/REVIEW 상태기계+JPA영속화+V49 마이그+스키마IT 로 부풀림.
+- **폐기 근거**: ① TransitIdentityMappingPort 소비자 0(배선·데이터 없음, grep 빈결과) ② 규칙이 결정적이라 모호매핑 중재(VERIFIED/REVIEW)·버전표·영속화 전부 미사용 ③ 실 id 해석은 이미 resolver 가 4곳(LegacyRouteResponseMapper 검색id채움/OtpLegCoverageResolver/OtpBusRealtimeTimingLookup/self)에서 라이브 ④ 머지 시 죽은코드+V49 VPS 수동배치 리스크만.
+- P2-C 캐시 접기와 동일 패턴(과설계 fold). reopen 가능하게 close(삭제 아님).
+
+### 미결
+- P2-D 잔여 리스크(표와 무관, 별개): RoutingResult.graphVersion=config 하드코딩, 라이브 OTP graph 검증 0. 전환 전 판단.
+- resolver 스코프 하드제약 = 서울 버스+지하철1~9. 경기(GGB)/인천(ICB)/기타노선=empty(STATIC). 수도권 확장 시 재실측 필요(표가 아니라 resolver 규칙 확장으로).
+- P2 남은 = F(#193 열림), H예산(#198 머지됨). C·D 종결.
+
+### 검증
+- 코드변경 0(PR close 만). main resolver 는 기존 테스트가 커버(#182 7 계약테스트).
+
+## 2026-09-16 national-otp P2-F PR-4 (#193) 머지 — 드리프트 검증 후
+
+### 확정
+- **#193(OtpPatternRouteOptionSource + UnionRouteOptionSource) main 머지(7baebc9).** 2026-09-10 생성 후 main 8커밋 전진(#195~199) → 드리프트 검증하고 머지.
+- merge-tree = CONFLICT 0(JourneyRerouteProperties 는 otpPatternEnabled 를 RouteOption 에 추가 = 내 P2-C cacheTtl 제거(RemainingPath)와 다른 위치라 auto-merge). #193 은 캐시 파일 무관 → PR #199(P2-C 제거)와 독립, 순서제약 없음.
+- 게이트 `journey.reroute.route-option.otp-pattern-enabled` 기본 false → 머지해도 동작변경 0(dormant). 실제 제안 ON 은 PR4c(노선별 실주행 ETA) 후.
+
+### 함정
+- 광역 IT 슬라이스(`*Reroute* *RouteOption*`) 28 실패 → **전부 Docker 데몬 off**(testcontainers Postgres 못 뜸, `localhost:5432 refused`, Flyway 단계서 컨텍스트 로드 실패=앱 빈 생성 전). #193 무관(마이그레이션·DB변경 0). Docker 켜고 재실행 → BUILD SUCCESSFUL. **IT 대량 실패 시 `docker ps` 부터 확인**(재조사 방지).
+
+### 검증
+- merged(main+#193) `compileJava compileTestJava` clean.
+- 유닛 green: OtpPatternRouteOptionSourceTest 9 + UnionRouteOptionSourceTest 4 + RouteOptionCandidateProviderTest 21 + JourneyRerouteProperties* + OtpStopPatternMapper.
+- Docker 재가동 후 `*Reroute* *RouteOption*` IT 슬라이스 **BUILD SUCCESSFUL**(RerouteAcceptIT/RerouteRouteOptionIT/RerouteRemainingPathIT 등 = 드리프트 회귀 0).
+- 경계 리뷰: 게이트 off=저장값(PR-2 무변경), OTP실패=저장 폴백, dedup=(routeId,boardingSeq) baseline 제외, 방향=정차순서 count==1, 매핑/순번≠1 제외, DYNAMIC transient. codex B3/B4/B5/B6/B8/B10 부합.
+
+### 미결 (P2-F 남음)
+- **PR4c**(노선별 실주행 ETA, RouteRideDurationPort) = 설계확정(위 2026-09-10 블록), 구현대기. 실제 제안 ON 은 이거 후.
+- P2 전체: A/B/C(제거)/D(#181 close)/E/F(#193) 종결. 남은=PR4c + H(전환 재토글, #198 머지됨).
+
+## 2026-09-16 national-otp P2-F PR4c (#200) 머지 — P2 코드 완결
+
+### 확정
+- **PR4c(RouteRideDurationPort + 노선별 실주행 ETA + 공정성 게이트) main 머지(#200, c9dbc6e).** 사전빌드 브랜치 feat/otp-p2f-route-ride-duration(3커밋, 2026-09-10) 를 현 main 에 통합.
+- **이로써 national-otp P2 코드 완결**: A/B/E(기존) + C(제거 #199) + D(#181 close, resolver) + F(#193 + PR4c). G/H = 증분 스트림이 커버(별도 코드 없음). 남은 것 = 배포(전환 재토글, #198 머지됨) + P3~P8(지도/모바일/배포, 미착수·나중).
+
+### 함정 (드리프트)
+- PR4c 브랜치는 #193 머지 전 빌드 → main 12커밋 전진(#193·#195~199) 후 병합 시 **코드 auto-merge clean, 유일 드리프트 = 테스트 생성자**. #193 이 추가한 RouteOptionCandidateProviderTest.dynamicCandidateCarriesSnapshotApply 의 `new RouteOptionCandidateProvider(...)` 호출이 PR4c 신규 인자 rideDurationPort 누락(git 텍스트충돌로 못 잡음, 컴파일 에러로만 드러남). 별도 커밋(#200 의 10ed6fc)으로 rideDurationPort mock 주입. **교훈: 두 브랜치가 같은 생성자를 늘리면 auto-merge 후 반드시 compile 검증**(merge-tree clean ≠ compile clean).
+- 병합 검증 = verify 브랜치(main+PR4c+픽스)에서 compile+유닛+IT green 확인 후 그 브랜치로 PR #200.
+
+### 검증
+- merged compile clean. 유닛: OtpRouteRideDuration Mapper/AdapterHttp, RouteOptionEtaCalculator(override/하위호환), RouteOptionCandidateProvider(공정성/승격/shadow/RIDE_BUS 폐기) green.
+- IT `*Reroute* *RouteOption*` BUILD SUCCESSFUL(Docker up).
+
+### 미결
+- 실제 제안 ON(shadow OFF) = 배포 결정(otp-pattern-enabled + enabled + comparable 게이트, 현 dormant).
+- baseline OTP 되찾기 커버리지·rideSec 캐시 = OTP on 후 실측(프로덕션 0 지금).
+- 전환 재토글(#198) + P3(지도 형상)가 다음 큰 축.
+
+## 2026-09-16 national-otp P3 착수 — OSM 형상 방향 확정(pfaedle) + 스파이크
+
+### 확정 (설계 결정, 사용자 승인)
+- **P3 형상 주경로 = pfaedle**(안3), NOT OSM route relation(안1, 죽음). 근거는 스파이크 2건:
+  - **안1(OSM route relation) 스파이크 = 실패**: 서울 버스 13노선 표본 중 11개는 OSM에 route_master 자체가 없음(`candidates=[]`), 있는 502·152도 platform 매칭 33~59%·gap 수km. 한국 버스노선 OSM relation 매핑이 성김. 알고리즘 개선으로 못 고침(데이터 부재).
+  - **안3(pfaedle) 스파이크 = 성공**: pfaedle(OSM 도로망 map-matching)로 5노선 shape 생성 → VPS 기존 line(bus_route_segment_polyline)과 **평균 4~6m 일치**(p90 ~10m). 커버리지 100%.
+- **조사 근거**: 시중 앱 = ①메이저(네이버/카카오/티맵)=자체 실측 노선경로 ②중소=ODsay loadLane(실측) ③OSS=OSM도로+OSRM/Dijkstra map-matching. pfaedle = ③의 GTFS 특화 표준(ad-freiburg, 2018 SIGSPATIAL). KTDB GTFS엔 shapes.txt 없음→OTP가 정류장 직선 그림(intent 금지)→pfaedle이 shapes.txt 생성→OTP native 소비.
+- **하이브리드 curation**: pfaedle 전노선 base + VPS 기존 line 교차검증. 일치(~5m)=고신뢰 / VPS REVIEW·깨짐=pfaedle 채택(273 사례: VPS 111구간중 107 REVIEW=96% 깨짐, pfaedle이 full 노선 메움) / 국소 Hausdorff 스파이크(143=198m·152=117m·502=369m)=플래그→degenerate 버리기 or REVIEW. **불일치 자동 "정답판정"은 불가**(oracle 없음)—명백히 깨진 쪽만 자동, 애매하면 REVIEW/degraded(가짜 형상 금지, intent 준수).
+
+### 함정 (재현 도구)
+- **pfaedle Docker ENTRYPOINT=`pfaedle`**: `docker run img pfaedle -x ...` 처럼 `pfaedle` 단어 또 넣으면 그게 feed명으로 잡혀 "Multiple feeds only allowed in filter mode" 에러. → `docker run ghcr.io/ad-freiburg/pfaedle:latest -D -x sk.osm.pbf gtfs-sub`(명령어 없이 인자만).
+- 이미지 amd64(arm64 에뮬), OSM 273M 파싱 ~47s, 804 trip 매칭 OK. `-m bus`로 MOT 한정 가능(tram/coach 0매칭 로그는 무해).
+- VPS DB: user=myuser db=mydatabase(postgres 롤 아님). 폴리라인 테이블=bus_route_segment_polyline(route_id+from/to_seq+geom LineString4326+polyline jsonb+quality_status OK/REVIEW). 서울 route_id=SEB strip 9자리(100100022=143). 지하철=odsay_route_polyline, subway_segment.
+- **기존 VPS line도 26% REVIEW**(577구간중 150). 사용자 지적("ODsay도 깨진 게 많다") 실측 확인 — 그래서 pfaedle base가 더 나음.
+
+### 미결 (본구현 스코프에서 확정)
+- 표본=서울 간선 5개만. 지선·지하철(rail MOT)·경기 경계 미측 → 파이프 구축 중 전량 실행으로 확인.
+- 방향/variant: VPS line ↔ pfaedle shape 방향 정합(현 스파이크는 최근접 1개 비교).
+- OTP legGeometry 소비 배선: #188이 OTP 검색 geometry 제거(applyCoverage) — pfaedle shape가 graph에 들어가도 앱까지 어떻게 전달할지(OTP native vs 별도 폴리라인 API) P3-B에서 결정.
+- graph 재빌드=P1 파이프(prepare_gtfs→**pfaedle 스텝 삽입**→zip→build)로 새 graphVersion. VPS 배포.
+
+### 도구 좌표 (스크래치패드, 재현용)
+- venv: osmvenv(osmium 4.3.1, shapely 2.1.2). pfaedle: ghcr.io/ad-freiburg/pfaedle:latest.
+- GTFS subset 스크립트=gtfs_subset.py(route_id set→참조폐쇄). 비교기=compare.py(shapes.txt vs VPS geojson, 미터투영 point-to-line 거리+Hausdorff).
+
+## 2026-09-17 national-otp P3 PR-A1 — 형상 파이프 + 게이트 (전량 실행)
+
+### 확정 (실측 결정)
+- **pfaedle 전량 실행 성공**: seoul-bbox-202503 정규화피드(146670 버스trip) → `-m bus -x south-korea-260903.osm.pbf` → 146670 trip 전부 shape 매칭(0 미shape). shape 3536개(패턴 dedup). 소요 ~2분(arm64 에뮬), 출력 gtfs-out(shapes.txt 81M, stop_times 840M).
+- **pfaedle 이미지 digest 고정**: `ghcr.io/ad-freiburg/pfaedle@sha256:af4fdc647699ea1ffe5150fd1f9d264c465c2876710ea749e8cb284f13abd20d`(2026-09-17 pull). build_seoul_graph.sh 에 하드핀.
+- **품질 게이트 지표 4축(전량 분포)**: residual_p90(p50=19.6 p99=49.2 max=126.2) / residual_max(p50=41.9 p99=161.8 max=196.7) / anchor_err(p50=22.6 p99=137 max=193.8) / detour_ratio(p50=1.1 p99=1.4 max=3.4). **핵심: 파국적 broken 형상 없음**(worst p90 126m). VPS line(96% REVIEW)과 정반대 — pfaedle base 균질하게 양호. 게이트 = thin tail 만 fallback.
+- **지표 독립적**: worst-residual/worst-anchor/worst-detour trip 전부 다름. anchor>100(4483) 중 residual>50 은 94개뿐 → anchor 이상치 = 종점 setback(회차지/차고지, 정류장이 도로에서 194m 뒤)로 대체로 benign. detour<1.0 = 0건(불가능 형상 없음).
+- **임계 tradeoff(전량 flag count)**: loose{p90>70,max>190,anchor>170,detour>3.0}=1.01% degraded / moderate{50,170,130,2.0}=3.04% / strict{40,140,100,1.6}=11.45%. 미shape 0이라 degradedTripIds = DEGRADED 만.
+
+### 함정 (지표 설계)
+- **monotonicity(전방 단조) 게이트는 폐기**. ①nearest-point along 은 out-and-back/루프(한국버스 대다수 기점→회차→기점)에서 복귀leg 정류장이 병행 outbound 세그먼트에 snap → 가짜 backtrack 수십km(초안 backtrack_max p50=23km, max=161km 전부 거짓). ②greedy 전방제약 snap 은 초반 1개 오snap 이 이후 전부 오염(전방제약판 residual p50 4.8km로 폭발, 90% 거짓 degraded). → **residual(무제약 nearest)=참 적합도**, 역주행/오종점은 anchor_err 가, degenerate 는 detour 가 잡음. 자기근접 형상의 낮은 residual 은 진짜 정상. compute_shape_quality.py distance() 주석에 근거.
+- 게이트 = **stdlib 전용**(numpy/shapely 미사용, 미터 등거투영 LAT0=37.55 단일). venv 의존 0 → 릴리즈 파이프 재현 pin 불필요. compare_pfaedle_vps.py(telemetry, oracle 아님)만 shapely+numpy 필요.
+
+### 좌표
+- 신규: runner/build_seoul_graph.sh(오케스트레이터, --report-only 로 게이트까지만) / runner/compute_shape_quality.py(게이트, stdlib) / runner/compare_pfaedle_vps.py(VPS 대조 telemetry).
+- 산출: data/otp-seoul/shape-build/gtfs-out(shaped feed) / .../coverage-metrics.csv(trip별). coverage-index.json 은 임계 확정 후 생성(--thresholds --graph-version).
+
+### 미결 (사용자 결정 대기)
+- **게이트 임계값 = 사용자 선택**(loose 추천: 1% degraded, 99% SHAPE_OK, 안전측 fallback=현행 직선). 확정 후 coverage-index.json 생성 → PR-B1(앱 마킹).
+- 지하철/철도(Stage2)=STREET_FALLBACK 유지. coveredModes=["bus"].
+- coverage-index trip_id = raw GTFS trip_id(BR_TAGO_..._Ord001). 앱 leg.trip.gtfsId 는 feedId prefix 붙음("feed:trip") → PR-B1 에서 strip 필요(확인).
+
+### 검증
+- pfaedle exit0, 146670/146670 매칭. `python3 -m py_compile` 3스크립트 OK, `bash -n build_seoul_graph.sh` OK. 게이트 전량 실행 46s(무제약)/재실행 확인.
 
 ## 2026-09-17 national-otp P3 PR-B1 — 앱 형상 마킹 (src/main)
 

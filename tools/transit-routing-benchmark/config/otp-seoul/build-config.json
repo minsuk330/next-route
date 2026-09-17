@@ -1,0 +1,15 @@
+{
+  "osm": [
+    { "source": "file:///var/opentripplanner/south-korea-seoul-metro.osm.pbf" }
+  ],
+  "transitFeeds": [
+    { "type": "gtfs", "source": "file:///var/opentripplanner/seoul-bbox-202503.gtfs.zip" }
+  ],
+  "maxTransferDuration": "PT10M",
+  "transferRequests": [ { "modes": "WALK" } ],
+  "staticParkAndRide": false,
+  "staticBikeParkAndRide": false,
+  "areaVisibility": false,
+  "transitServiceStart": "-P1D",
+  "transitServiceEnd": "P2M"
+}

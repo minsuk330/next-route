@@ -1,0 +1,21 @@
+# Benchmark harness generated / binary data — never committed (multi-GB).
+# Only the pipeline source + small JSON manifests are tracked.
+*.pbf
+*.obj
+*.zip
+*.zip.*
+*.jar
+*.csv
+*.log
+.DS_Store
+
+# generated feed / graph / engine caches
+data/gen/
+data/graphhopper/
+data/otp/
+data/otp-seoul/shape-build/
+results/
+
+# empty stale placeholders under the deploy dir (real configs live in config/)
+data/otp-seoul/build-config.json
+data/otp-seoul/otp-config.json
