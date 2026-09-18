@@ -42,7 +42,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V40__create_journey_notification.sql",
         "classpath:db/migration/V41__create_journey_telemetry_event.sql",
         "classpath:db/migration/V42__create_reroute_proposal.sql",
-        "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql"
+        "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql",
+        "classpath:db/migration/V50__add_reroute_proposal_origin.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DisplayName("V42 재탐색 제안 표 스키마")

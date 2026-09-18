@@ -2198,3 +2198,30 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew compileJava compileTestJava` → **BUILD SUCCESSFUL**.
 - `./gradlew test --tests '*LegacyRouteResponseMapper*' --tests '*RouteSearchService*'` → **BUILD SUCCESSFUL**.
 - `LegacyRouteResponseMapperTest`에서 실제 OTP 형식의 GTFS route/stop ID로 23개 지하철 `route.shortName` 전부와 서울 버스 5개 `routeType` 전부가 예상 hex로 연결됨을 검증했다. routeType 7(인천)은 `null` 유지도 검증했다.
+
+## 2026-09-18 journey-reroute-nextstop PR-B stage1(확장) — RerouteOrigin + nullable origin 컬럼
+
+### 확정
+- PR-B 전체 영향범위 실측: `transferIndex`/`transfer_index` 참조 61파일(프로덕션 30+테스트 31). PLAN 의 "34파일" 추정치보다 실제가 큼 — stage3(이중 읽기/쓰기)에서 이 규모를 그대로 마주치게 될 것. **stage1(확장)은 이 중 단 하나도 안 건드림**(순수 추가라 회귀 0, 아래 검증의 근거).
+- `RerouteOrigin{legIndex, tripId, sourceStopSequence, occurrenceIndex, stopGtfsId, kind}` 신설(`application/journey/dto`). stop 식별은 PR-A 가 이미 정한 관례 그대로 재사용 — tripId+occurrenceIndex 가 실질 키, sourceStopSequence 는 OTP `StopCall` 스키마 한계로 이 경로에선 보통 null(`StopOccurrence` 의 같은 경고 참고, journey-reroute-nextstop PR-A 절).
+- `RerouteOriginEnvelope{version, origin}` 은 기존 `RerouteCandidateEnvelope` 패턴을 그대로 복제 — 버전 discriminator 는 별도 DB 컬럼이 아니라 **JSON 봉투 안에** 둔다(이미 `candidates` 컬럼이 이 방식으로 잘 작동 중이라 새 패턴을 안 만들고 기존 것을 재사용).
+- `reroute_proposal.origin`(nullable jsonb) 컬럼을 V50 으로 추가. `transfer_index` 는 그대로 NOT NULL + 기존 부분 unique 유지 — PLAN 이 미리 경고한 대로 JPA 필드가 primitive `int` 라 지금 nullable 로 못 바꾼다(컷오버=stage5 몫).
+- `RerouteProposal` 엔티티: `origin` nullable `JsonNode` 필드 + `@Builder` 생성자에 신규 파라미터로 추가. Lombok `@Builder` 는 이름 있는 세터 체인이라 기존 호출부(`RerouteProposalTxService.store()`)가 `.origin(...)` 을 안 부르면 자동 null — 하위호환 확인(컴파일+테스트로 증명, 아래).
+- 신규 DTO 3개(RerouteOrigin/Kind/Envelope)는 아직 소비자가 없다(stage3 dual-write 가 처음 씀) — 전용 유닛테스트는 **의도적으로 안 만듦**: 이 저장소는 자매 타입 `RerouteCandidateEnvelope` 도 전용 유닛테스트가 없고 실제 쓰는 코드(TxService)의 IT 로만 간접 검증하는 관례라, 새 테스트 패턴을 만들지 않고 그대로 따름(쓰이기 시작하는 stage3 에서 자연히 커버됨).
+
+### 함정
+- **이 저장소에 앱 테스트를 돌리는 CI 가 아예 없다**(`.github/workflows/` 에 `ml-image.yml` 하나뿐, ML 도커 이미지 빌드용이고 `ml/**` 경로 변경에만 반응 — `./gradlew test` 를 부르는 워크플로 자체가 없음). "V18+ untracked convention 이라 CI 로 안 나감"(CLAUDE.md)의 실제 의미는 "CI 가 통과/실패로 알려주지 않는다"가 아니라 **"검증이 전적으로 로컬 개발자 실행에 의존한다"** — 그래서 VPS 수동배치 누락이 어떤 자동 게이트로도 안 걸린다.
+- **마이그레이션 gitignore 가 V43 에서 끊긴다**: `.gitignore` 의 `db/migration/*` 기본무시+allowlist 가 V8~V43 까지만 있고 V44~V49 는 **전부 실제로 git 미추적**(`git ls-files` 로 실측 확인 — CLAUDE.md 표현은 "V18+" 이지만 실제 경계는 V43/V44 사이). 내 V50 은 이 경계 그대로 따름(allowlist 에 추가 안 함) — 일관성 유지.
+
+### 좌표
+- 신규: `application/journey/dto/{RerouteOrigin,RerouteOriginKind,RerouteOriginEnvelope}.java`
+- 변경: `domain/journey/entity/RerouteProposal.java`(origin 필드+builder 파라미터), `test/.../domain/journey/JourneyRerouteProposalSchemaIT.java`(`@Sql` 체인에 V50 추가 — V42/V43 과 같은 파일이 대상이라 V43 추가 때와 동일 전례)
+- 마이그레이션(파일시스템에만 존재, git 미추적 — 아래 배포 참고): `src/main/resources/db/migration/V50__add_reroute_proposal_origin.sql`
+
+### 배포
+- **V50 VPS 수동배치 필요**(V18+/V44+ untracked convention, 위 함정 참고). PR 머지와 VPS 배치는 분리된 두 단계 — 머지만 하고 VPS 에 파일을 안 올리면 다음 배포에서 Flyway 가 이 버전을 못 찾거나(다른 인스턴스는 이미 스키마가 있는데 마이그레이션 이력만 없는 상태) 체크섬 불일치로 깨진다.
+
+### 검증
+- `./gradlew compileJava compileTestJava` OK(무출력).
+- `./gradlew test --tests "*RerouteProposalServiceTest"` → **12/12 green**(순수 mock 기반, DB 불필요 — 기존 서비스 계약 무회귀 확인).
+- `JourneyRerouteProposalSchemaIT`(V50 추가한 @Sql 체인 포함)는 이 샌드박스에 Postgres/Docker 가 없어 로컬 실행 불가(PR-A 세션에서도 동일 확인된 환경 제약, 기존 무관) — V50 SQL 자체는 V42/43 과 같은 문법(`ALTER TABLE ADD COLUMN`+`COMMENT`, 제약·인덱스 없음)이라 위험은 낮으나, **실제 실행 확인은 로컬 Postgres 있는 다음 세션/개발자 몫**(위 함정대로 이 저장소엔 이를 대신해 줄 CI 가 없다).
