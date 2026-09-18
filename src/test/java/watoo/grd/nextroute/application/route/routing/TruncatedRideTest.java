@@ -17,7 +17,7 @@ class TruncatedRideTest {
     private StopOccurrence stop(int occurrenceIndex, Instant scheduled) {
         return new StopOccurrence("stop-" + occurrenceIndex, null, null, occurrenceIndex,
                 127.0 + occurrenceIndex * 0.01, 37.5, "정류장" + occurrenceIndex,
-                scheduled, scheduled, null, null);
+                scheduled, scheduled);
     }
 
     private RoutingLeg busLeg(List<StopOccurrence> stops) {
@@ -59,20 +59,19 @@ class TruncatedRideTest {
     }
 
     @Test
-    @DisplayName("실시간 있으면 실시간 우선(시간표 아님)")
-    void prefersRealtimeOverScheduled() {
+    @DisplayName("소요는 시간표 구간 소요다 — 실시간 보정은 부르는 쪽(서버 캐시) 몫")
+    void usesScheduledTimesOnly() {
         StopOccurrence board = new StopOccurrence("s0", null, null, 0, 127.0, 37.5, "출발",
-                T0, T0, null, T0.plusSeconds(60));
+                T0, T0);
         StopOccurrence alight = new StopOccurrence("s1", null, null, 1, 127.01, 37.5, "도착",
-                T0.plusSeconds(300), T0.plusSeconds(300), T0.plusSeconds(330), null);
+                T0.plusSeconds(300), T0.plusSeconds(300));
         RoutingLeg leg = busLeg(List.of(board, alight));
 
         TruncatedRide result = TruncatedRide.truncateAt(leg, 1);
 
-        // board 는 realtimeDeparture(T0+60), alight 는 realtimeArrival(T0+330) → 270s. 시간표(300s) 아님.
-        assertThat(result.boardAt()).isEqualTo(T0.plusSeconds(60));
-        assertThat(result.alightAt()).isEqualTo(T0.plusSeconds(330));
-        assertThat(result.rideDurationSeconds()).isEqualTo(270);
+        assertThat(result.boardAt()).isEqualTo(T0);
+        assertThat(result.alightAt()).isEqualTo(T0.plusSeconds(300));
+        assertThat(result.rideDurationSeconds()).isEqualTo(300);
     }
 
     @Test
@@ -80,7 +79,7 @@ class TruncatedRideTest {
     void missingTimingYieldsNullDuration() {
         StopOccurrence board = new StopOccurrence("s0", null, null, 0, 127.0, 37.5, "출발");
         StopOccurrence alight = new StopOccurrence("s1", null, null, 1, 127.01, 37.5, "도착",
-                T0.plusSeconds(300), T0.plusSeconds(300), null, null);
+                T0.plusSeconds(300), T0.plusSeconds(300));
         RoutingLeg leg = busLeg(List.of(board, alight));
 
         TruncatedRide result = TruncatedRide.truncateAt(leg, 1);

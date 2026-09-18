@@ -197,15 +197,14 @@ public class OtpPlanConnectionMapper {
             if (!"Stop".equals(loc.path("__typename").asText(""))) {
                 continue;
             }
+            // 시간표만 읽는다. 이 배포의 OTP 에는 GTFS-RT 가 없어 realTime 은 언제나 빈 값이고,
+            // 실시간은 서버의 버스 도착/위치 캐시가 소유한다(StopOccurrence javadoc).
             JsonNode schedule = call.path("schedule").path("time");
-            JsonNode realTime = call.path("realTime");
             fromCalls.add(new StopOccurrence(text(loc.path("gtfsId")), null, null, idx++,
                     loc.path("lon").asDouble(), loc.path("lat").asDouble(),
                     text(loc.path("name")),
                     instant(schedule.path("arrival")),
-                    instant(schedule.path("departure")),
-                    instant(realTime.path("arrival").path("time")),
-                    instant(realTime.path("departure").path("time"))));
+                    instant(schedule.path("departure"))));
         }
         // 실측 확인(fixture 2건): stopCalls 는 board·alight 를 포함한 전량이다 → 비어있지 않으면
         // 그대로 신뢰한다(추가 시각 없는 from/to 합성을 덧붙이면 경계가 중복되고 시각도 비게 된다).

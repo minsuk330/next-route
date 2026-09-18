@@ -2249,6 +2249,33 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew compileJava compileTestJava` 재실행 OK(무출력).
 - `./gradlew test --tests "*OtpPlanConnectionMapper*" --tests "*TruncatedRide*"` 재실행 GREEN(무출력=성공, `-q`).
 
+## 2026-09-18 journey-reroute-nextstop PR-A 정정 — OTP 는 실시간을 모른다(죽은 필드 제거)
+
+### 확정 (앞 절 정정)
+- **위 PR-A 절의 `realTime` 관련 서술 전부 ~~취소~~**: "stopCalls 의 schedule + realTime 을 받아 StopOccurrence 시각을 채운다" 는 **틀렸다**. 배포된 OTP 에는 실시간 피드가 없어서 `realTime` 은 언제나 빈 값이다. 근거(실측):
+  - `build-config.json` 의 `transitFeeds` = static GTFS(`seoul-bbox-202503.gtfs.zip`) 하나뿐, GTFS-RT 항목 없음.
+  - **`router-config.json` 자체가 저장소·VPS 어디에도 없다** — OTP 에서 실시간 updater 를 다는 파일이 바로 그것이다.
+  - VPS `/srv/nextroute/otp/<graphVersion>/` 에는 `graph.obj` + `coverage-index.json` 뿐.
+  - 사용자도 "지금 실시간 안 물려있는 걸로 안다" 로 확인.
+- **역할 분리 확정**: **OTP = 정적 시간표·경로·구간 소요** / **서버 = 실시간**(버스 도착·위치 캐시 [[project-bus-realtime-cache]], 지하철 도착 API). 둘을 합치는 계산은 서버가 한다. 재탐색은 "그 정류장에 내가 도착할 시각"(서버 실시간)으로 OTP 를 부르는 구조이지, OTP 에게 "언제 도착하냐"를 묻는 구조가 아니다.
+- **제거한 것**: 쿼리의 `stopCalls.realTime{...}`(내가 PR-A 에서 추가한 것) + leg 단위 `start/end.estimated{time}`·`realtimeState`(**기존부터 있었으나 어떤 Java 코드도 안 읽고 있었음** — grep 으로 확인, 매퍼는 `start.scheduledTime`/`end.scheduledTime` 만 읽고 Enrichment 는 `staticOnly(STATIC_SCHEDULE)` 하드코딩). `StopOccurrence.realtimeArrival/realtimeDeparture` 필드도 삭제 — 영원히 null 인 칸을 모델에 두면 다음 사람이 "실시간이 있나 보다" 로 읽는다.
+- **`TruncatedRide` 의미 변경**: `boardAt`/`alightAt`/`rideDurationSeconds` 는 이제 **시간표 값**이다. 실시간 보정은 부르는 쪽(서버 캐시) 몫. 근거 = 지연은 운행 전체를 미루지 정류장 사이 소요를 바꾸지 않으므로, "구간 소요는 시간표, 기준 시각은 실시간" 분리가 안전하다.
+- **원점 후보 규칙 변경(사용자 결정)**: 버스 실시간이 안 잡히는 정류장은 **시간표로 폴백하지 않고 후보에서 제외**한다(PLAN PR-2 해당 줄도 정정). 시간표 기반 제안은 지연 중인 실제 차와 어긋나는데, 사용자는 그 제안을 믿고 내리기 때문.
+
+### 함정
+- **fixture 가 실전에 없는 데이터를 만들어 테스트를 초록불로 만들고 있었다**: `planconnection-stopcall-times.json` 에 `realTime` 9건 + `realtimeState:"UPDATED"` + `estimated` 2건이 손으로 지어 넣어져 있었고, `TruncatedRideTest.prefersRealtimeOverScheduled` 가 그 위에서 "실시간 우선" 을 통과시키고 있었다. **피드가 없으니 프로덕션에서 절대 실행될 수 없는 경로**였다. fixture 를 지어낼 때는 "이 값이 실제 배포에서 나올 수 있는 값인가" 를 먼저 확인할 것.
+- 스키마에 필드가 존재하는 것과 그 필드에 값이 오는 것은 다르다. PR-A 때 `schema.graphqls` 로 `realTime` 필드 존재를 확인한 것은 맞았지만, **그것은 "파싱된다"는 증거이지 "값이 온다"는 증거가 아니었다**. 외부 시스템 필드를 새로 받을 때는 스키마 확인 + **실제 응답 1건 확인**을 둘 다 해야 한다.
+
+### 좌표
+- 변경: `src/main/resources/otp/planConnection.graphql`(realTime·estimated·realtimeState 제거), `application/route/routing/StopOccurrence.java`(realtime 2필드 제거 + 역할분리 javadoc), `application/route/routing/TruncatedRide.java`(시간표 기반으로 명시, bestDeparture/bestArrival 제거), `infrastructure/.../otp/OtpPlanConnectionMapper.java`(realTime 파싱 제거)
+- 테스트: `TruncatedRideTest`(realtime 우선 테스트 → 시간표 전용 테스트로 교체), `OtpPlanConnectionMapperTest`(realtime 단언 제거), fixture `planconnection-stopcall-times.json`(realTime/estimated/realtimeState 전부 제거)
+- 문서: `docs/plan/journey-reroute-nextstop/PLAN.md`(리뷰 확정사실·PR-A·PR-2 세 곳 정정)
+
+### 검증
+- `./gradlew compileJava compileTestJava` OK(에러 0, 경고는 기존 `@MockBean` deprecation).
+- `TruncatedRideTest` **6/6**, `OtpPlanConnectionMapperTest` **3/3**, `LegacyRouteResponseMapperTest` **34/34** green.
+- **기존 무관 실패 1건 — `RouteResponseMapperTest.subwayNoIdCoordsKept`**: `subway.lanes()` 가 null 이길 기대하는데 `[LaneResult[name=서울4호선, ..., routeDisplayColor=#009BCE]]` 가 온다. **내 변경을 stash 하고 clean HEAD 에서 돌려도 동일하게 1건 실패** — 원인은 PR #210(routeDisplayColor)이 지하철 leg 에 lane 을 만들기 시작한 것이고, 그 PR 이 `*LegacyRouteResponseMapper*`·`*RouteSearchService*` 만 돌려서 이 클래스(`RouteResponseMapperTest`, 이름이 비슷하지만 다른 클래스)를 놓쳤다. **별건 PR 로 고칠 것**(이 PR 에 섞지 않음).
+
 ## 2026-09-18 OTP legacy routeDisplayColor — 지하철·서울 버스 고정표
 
 ### 확정

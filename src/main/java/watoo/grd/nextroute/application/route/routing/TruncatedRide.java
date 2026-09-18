@@ -11,8 +11,15 @@ import java.util.List;
  * 둘 다 폴리라인 디코드·투영이 없다(journey-reroute-nextstop PLAN PR-A 확정).
  * X 이후 정류장은 버린다.
  *
- * @param boardAt             leg 자신의 탑승 시각(첫 stop 의 최선 시각). 시각 없으면 null(지어내지 않음)
- * @param alightAt            X 하차 시각(X stop 의 최선 시각). 시각 없으면 null
+ * <h2>여기 시각은 전부 시간표다</h2>
+ * <p>OTP 에 실시간 피드가 없으므로({@link StopOccurrence} javadoc) {@link #boardAt()}·
+ * {@link #alightAt()} 은 시간표 시각이고 {@link #rideDurationSeconds()} 는 <b>시간표상 구간 소요</b>다.
+ * "그 차가 실제로 X 에 몇 시에 닿는가"는 서버의 실시간 캐시가 답할 몫이라, 부르는 쪽이 실시간
+ * 기준 시각에 이 소요를 얹는다. 구간 소요 자체는 지연이 생겨도 크게 흔들리지 않으므로 이 분리가
+ * 안전하다 — 지연은 운행 전체를 미루지, 정류장 사이 걸리는 시간을 바꾸지 않는다.
+ *
+ * @param boardAt             leg 자신의 탑승 시각(첫 stop 시간표 출발). 시각 없으면 null(지어내지 않음)
+ * @param alightAt            X 하차 시각(X stop 시간표 도착). 시각 없으면 null
  * @param rideDurationSeconds alightAt - boardAt(초). 둘 중 하나라도 없으면 null
  * @param stops               board..X 구간(양끝 포함), leg 원래 순서
  */
@@ -47,8 +54,8 @@ public record TruncatedRide(Instant boardAt, Instant alightAt, Integer rideDurat
         StopOccurrence board = truncated.get(0);
         StopOccurrence alight = truncated.get(truncated.size() - 1);
 
-        Instant boardAt = bestDeparture(board);
-        Instant alightAt = bestArrival(alight);
+        Instant boardAt = board.scheduledDeparture();
+        Instant alightAt = alight.scheduledArrival();
         Integer seconds = (boardAt == null || alightAt == null)
                 ? null
                 : (int) Duration.between(boardAt, alightAt).getSeconds();
@@ -63,14 +70,5 @@ public record TruncatedRide(Instant boardAt, Instant alightAt, Integer rideDurat
             }
         }
         return -1;
-    }
-
-    /** 실시간이 있으면 실시간, 없으면 시간표(둘 다 없으면 null — 지어내지 않는다). */
-    private static Instant bestDeparture(StopOccurrence stop) {
-        return stop.realtimeDeparture() != null ? stop.realtimeDeparture() : stop.scheduledDeparture();
-    }
-
-    private static Instant bestArrival(StopOccurrence stop) {
-        return stop.realtimeArrival() != null ? stop.realtimeArrival() : stop.scheduledArrival();
     }
 }

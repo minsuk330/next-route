@@ -6,7 +6,8 @@
 ③(`RouteOptionCandidateProvider`) 폐기 + ④(`RemainingPathCandidateProvider`)를 **다음 정류장 창 + 모든 탑승점 실시간 overlay + 정류장별 리스트 + 알림/선택 + 진행중 RIDE 중간 하차**로 일반화(A′). 리뷰가 잡은 두 블로커(정류장별 시각 없음 / transferIndex 주소체계)를 OTP-네이티브 모델 + 원점 주소 일반화로 해결. **초기 스코프 = 버스만**(RIDE_INTERIOR bus-only), 지하철/철도는 보수적 폴백.
 
 ## 리뷰가 확정한 사실 (필독)
-- 정류장별 데이터는 OTP 원천에 있음: `Leg.stopCalls[].{stopLocation gtfsId/lat/lon, schedule.time 시간표 도착/출발, realTime.arrival/departure}`. **`legGeometry` 는 이미 받아 `RoutingLeg.geometry` 로 매핑됨**(OtpPlanConnectionMapper:204) — 진짜 결핍은 **stop-call 시각**.
+- 정류장별 데이터는 OTP 원천에 있음: `Leg.stopCalls[].{stopLocation gtfsId/lat/lon, schedule.time 시간표 도착/출발}`. **`legGeometry` 는 이미 받아 `RoutingLeg.geometry` 로 매핑됨**(OtpPlanConnectionMapper:204) — 진짜 결핍은 **stop-call 시각**.
+- **~~realTime.arrival/departure 도 OTP 에서 받는다~~ 취소(2026-09-18 실측)**: 배포된 OTP 에 GTFS-RT 가 안 물려 있다(`router-config.json` 부재, build-config 의 feed 는 static GTFS 하나). `realTime`·`estimated`·`realtimeState` 는 **영원히 빈 값**이므로 쿼리에서 제거했다. **OTP = 정적 시간표·경로, 실시간 = 서버 캐시**([[project-bus-realtime-cache]]) 로 역할을 가른다. 둘을 합치는 계산은 서버가 한다.
 - **유실 지점 = legacy 경계**: `OtpPlanConnectionMapper` 가 `StopOccurrence` 를 시각·seq null 로 만들고(:166), `LegacyRouteResponseMapper` 가 `PathResult` 변환 시 polyline·시각을 **일부러 버림**(:152). `RemainingRouteSearchService.loadOtp` 가 즉시 이 lossy 변환을 탐(:144). → GraphQL·mapper 만 넓혀선 안 됨, **변환 경계를 손봐야**.
 - `reroute_proposal`·`transferIndex`: `V42:18` `transfer_index NOT NULL` + unique `(journey_id, transfer_index) WHERE ACTIVE`(:45). transferIndex = **34파일** + 공개 API `RerouteProposalService.request(Long,Long,int)`(:101), 저장 재검증·supersede 전부 transfer_index 기준(`RerouteProposalTxService`:95).
 - `RemainingRouteSearchService.loadOtp` 는 **`clock.instant()` 고정 검색**, 도착시각 전파는 "후속작업"(:139).
@@ -30,7 +31,7 @@
 
 ### PR-A (기반) — OTP-네이티브 정류장별 모델 (OTP 마이그레이션 합류)
 의존: PR-0 + OTP 전환 모델 조율.
-- [ ] `planConnection.graphql`: `stopCalls` 에 `schedule{time{...on ArrivalDepartureTime{arrival departure}}}` + `realTime{arrival{time delay} departure{time delay}}`.
+- [x] `planConnection.graphql`: `stopCalls` 에 `schedule{time{...on ArrivalDepartureTime{arrival departure}}}`. **realTime 은 안 받는다**(위 취소 항목 — 피드 없음). 같은 이유로 leg 단위 `estimated{time}`·`realtimeState` 도 제거(아무 코드도 안 읽고 있었음).
 - [ ] `OtpPlanConnectionMapper`: 정류장별 시각 + `(trip, sourceStopSequence, occurrenceIndex)` 채움(현재 null:166).
 - [ ] 중립 `StopCall` 모델 + **legacy 경계 유실 해결**(`LegacyRouteResponseMapper`:152 이 시각/정류장 버리는 것 대체 or 우회 경로). **버전드 스냅샷 리더**(P2-G revision 바인딩).
 - [ ] 중간 절단 연산: transit leg 를 X 기준 board→X(시각=stopCall, 지도선=정류장 좌표 슬라이스, 이후 폐기). `JourneyCompiler` 절단 leg 컴파일.
@@ -62,7 +63,7 @@
 
 ### PR-2 — 원점 창 + 정류장별 리스트
 의존: **PR-A**, PR-B, PR-1.
-- [ ] 신규 `UpcomingStopWindowResolver.resolve(...) → List<OriginStop{legIndex, stop식별, stopGtfsId, busEtaAt, plannedAlight}>`. 창 = 버스 ETA ≥ T_min(90s) ~ 계획 하차. cap K(6), 계획 하차 always. 버스 ETA = 실시간 위치 캐시([[project-bus-realtime-cache]]), 없으면 시간표 폴백.
+- [ ] 신규 `UpcomingStopWindowResolver.resolve(...) → List<OriginStop{legIndex, stop식별, stopGtfsId, busEtaAt, plannedAlight}>`. 창 = 버스 ETA ≥ T_min(90s) ~ 계획 하차. cap K(6), 계획 하차 always. 버스 ETA = 실시간 위치 캐시([[project-bus-realtime-cache]]). **~~없으면 시간표 폴백~~ 취소(사용자 결정 2026-09-18): 실시간이 안 잡히는 정류장은 후보에서 제외한다.** 시간표로 "몇 시에 내릴 수 있다"를 제안하면 지연 중인 실제 차와 어긋난 안내가 되고, 사용자는 그 제안을 믿고 내린다 — 실시간이 뒷받침하는 하차점만 제안한다.
 - [ ] **재탐색을 미래 `busEtaAt` 출발로**: `RemainingRouteSearchService` 가 지금 `clock.instant()` 고정(:139) → origin 별 도달시각으로 검색하도록 API/캐시 확장(별도 작업).
 - [ ] provider 원점 루프: 각 origin fresh search→prepare→**정류장당 시간표 rank 상위 1개만 overlay**→후보. **계획 하차점 fresh search 안 함, 현재 계획 overlay 만**(기준선).
 - [ ] 선별: 정류장 그룹, 절감 = 현재계획ETA − 그 정류장 최선ETA(overlay 후). **0/음수 숨김**. 정렬·동점 = **PR-1 rank() 재사용**. **miss-risk 가드**.

@@ -73,7 +73,7 @@ class OtpPlanConnectionMapperTest {
     }
 
     @Test
-    @DisplayName("stopCalls schedule/realTime → StopOccurrence 시각 채움, stopCalls 가 board·alight 포함이라 addPlace 중복 없음")
+    @DisplayName("stopCalls schedule → StopOccurrence 시간표 시각 채움, stopCalls 가 board·alight 포함이라 addPlace 중복 없음")
     void mapsStopCallTiming() throws IOException {
         RoutingOutcome outcome = mapper.map(load("otp/planconnection-stopcall-times.json"), departureAt, versions);
 
@@ -89,16 +89,9 @@ class OtpPlanConnectionMapperTest {
         assertThat(board.sourceStopId()).isEqualTo("1:BS_TAGO_SEB101000041");
         assertThat(board.occurrenceIndex()).isEqualTo(0);
         assertThat(board.scheduledDeparture()).isEqualTo(offset("2026-09-08T08:12:28+09:00"));
-        assertThat(board.realtimeDeparture()).isEqualTo(offset("2026-09-08T08:12:28+09:00"));
 
-        StopOccurrence delayed = bus.stops().get(1);
-        assertThat(delayed.scheduledArrival()).isEqualTo(offset("2026-09-08T08:14:10+09:00"));
-        assertThat(delayed.realtimeArrival()).isEqualTo(offset("2026-09-08T08:15:10+09:00"));
-
-        StopOccurrence noRealtime = bus.stops().get(2);
-        assertThat(noRealtime.scheduledArrival()).isEqualTo(offset("2026-09-08T08:15:30+09:00"));
-        assertThat(noRealtime.realtimeArrival()).isNull();
-        assertThat(noRealtime.realtimeDeparture()).isNull();
+        StopOccurrence middle = bus.stops().get(1);
+        assertThat(middle.scheduledArrival()).isEqualTo(offset("2026-09-08T08:14:10+09:00"));
 
         StopOccurrence alight = bus.stops().get(8);
         assertThat(alight.sourceStopId()).isEqualTo("1:BS_TAGO_SEB121000020");
