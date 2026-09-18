@@ -21,6 +21,10 @@
 - **ACTIVE 유니크 = 여정당 1개**(origin당 아님). 수락→여정 종료·한 여정 1회 모델과 일치.
 - **진행중 leg 절단 시 progress = 현재 위치까지 보존**(물리적으로 같은 주행), 하차 목표만 X 로. grafted 꼬리는 PENDING. PR-0 이 progress 엔진 수용 확인 + stale/재생 progress id 테스트.
 - **표준 `rank()` = PR-1 산출물**: 비교기(목적지 ETA → 환승수 → 도보 → 여유) + overlay 전 시간표용 정적 변형. PR-2 소비.
+- **근거 기준이 두 곳에서 다르다 — 의도한 비대칭이다(사용자 결정 2026-09-18, 한쪽으로 통일하지 말 것)**:
+  - **하차점(원점) = 실시간만.** 내가 탄 버스가 그 정류장에 언제 닿는지는 실시간 캐시가 답해야 하고, 없으면 그 정류장은 후보에서 **제외**한다(시간표 폴백 금지). 이유 = 하차는 **되돌릴 수 없는 물리 행동**이다. 틀리면 못 내리거나 엉뚱한 데서 내리고, 사용자는 서버 제안을 믿고 몸을 움직인다.
+  - **다음 차 탑승 = 실시간 → 없으면 ML, 둘 다 없으면 후보 제외**(PR-1 원안 유지). 이유 = 탑승 추정이 틀려도 손실은 **정류장에서 더 기다리는 것**뿐이라 되돌릴 수 있고, 순위를 매기는 용도로는 모델 추정으로 충분하다.
+  - 근거가 섞인 후보끼리 비교되는 문제는 PR-1 의 "baseline 도 같은 체인으로 overlay(출처 통일)" 가 이미 막는다. 사용자에게 근거 출처를 표시할지는 별건(UI).
 
 ## 작업 순서 (의존성)
 
@@ -54,7 +58,7 @@
 
 ### PR-1 — overlay A안 체인 + rank()
 의존: PR-A(정류장별 시각).
-- [ ] `RemainingPathEtaComposer.compose` 모든 WAIT 순차 체인: running clock 으로 `BoardingTimeEstimator.estimate`(실시간→ML), 둘 다 없음/not boardable → 후보 제외. anchor 갱신. "이후 대기 0"(R1) 폐기. 경로 간 overlay 병렬.
+- [ ] `RemainingPathEtaComposer.compose` 모든 WAIT 순차 체인: running clock 으로 `BoardingTimeEstimator.estimate`(**실시간→ML** — 여기만 ML 폴백을 허용한다, 확정 결정의 "의도한 비대칭" 참고), 둘 다 없음/not boardable → 후보 제외. anchor 갱신. "이후 대기 0"(R1) 폐기. 경로 간 overlay 병렬.
 - [ ] 기존 계약 유지: enrich, 첫 대기 앞 도보 앵커, 상대 legIndex, **환승 늘면 버림**.
 - [ ] baseline 도 같은 체인 overlay(출처 통일).
 - [ ] **표준 `rank()` 신설**(목적지 ETA→환승수→도보→여유) + overlay 전 시간표 정적 변형. `RemainingPathCandidateProvider`:279 정렬 대체.
