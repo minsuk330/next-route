@@ -113,14 +113,15 @@ class RouteResponseMapperTest {
     }
 
     @Test
-    @DisplayName("legacy 지하철: id/lane 안 채움(좌표 기반 실시간), 좌표는 유지")
+    @DisplayName("legacy 지하철: id 안 채움(좌표 기반 실시간), 좌표는 유지")
     void subwayNoIdCoordsKept() throws IOException {
         busMappable();   // 버스 repo 매핑돼도 지하철 leg 은 mode 가드로 id 안 붙어야 함
         RouteSearchResult legacy = legacyMapper.toLegacy(routingResult());
         // fixture edges[2] = WALK/BUS/WALK/SUBWAY(서울4호선)/WALK → paths[2].subPaths[3]
         SubPathResult subway = legacy.paths().get(2).subPaths().get(3);
         assertThat(subway.trafficType()).isEqualTo(1);          // 지하철
-        assertThat(subway.lanes()).isNull();                    // lane 미생성
+        // lanes 는 여기서 안 본다 - 노선 표시색(PR #210)이 지하철에도 lane 을 만들기 시작했고,
+        // 그 계약은 LegacyRouteResponseMapperTest 가 본다. 이 테스트가 지키는 것은 아래 "id 가짜값 금지" 다.
         assertThat(subway.startLocalStationID()).isNull();      // 좌표 기반이라 id 불필요
         assertThat(subway.endLocalStationID()).isNull();
         assertThat(subway.startId()).isNull();
