@@ -10,6 +10,8 @@ import watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateEnvelope;
 import watoo.grd.nextroute.application.journey.dto.RerouteContext;
+import watoo.grd.nextroute.application.journey.dto.RerouteOrigin;
+import watoo.grd.nextroute.application.journey.dto.RerouteOriginEnvelope;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
@@ -48,6 +50,7 @@ public class RerouteProposalTxService {
     private final RerouteProposalRepository proposalRepository;
     private final JourneySessionRepository sessionRepository;
     private final TransferConnectionRepository transferRepository;
+    private final RerouteOriginResolver originResolver;
     private final JourneyRerouteProperties properties;
     private final JourneyRerouteMetrics metrics;
     private final ObjectMapper objectMapper;
@@ -109,11 +112,17 @@ public class RerouteProposalTxService {
                 .map(candidate -> candidate.withCandidateId(UUID.randomUUID().toString()))
                 .toList();
 
+        // 이중 쓰기(PR-B stage3): 서울 좌표계 origin 과 옛 transfer_index 를 함께 남긴다.
+        // 못 푸는 여정은 origin 이 null 인 채 저장되고 읽는 쪽이 옛 주소로 폴백한다.
+        Optional<RerouteOrigin> origin = originResolver.resolveTransferWait(
+                context.journeyId(), context.routeRevision(), context.transferIndex());
+
         RerouteProposal proposal = proposalRepository.save(RerouteProposal.builder()
                 .journeyId(context.journeyId())
                 .userId(context.userId())
                 .routeRevision(context.routeRevision())
                 .transferIndex(context.transferIndex())
+                .origin(origin.map(this::toJson).orElse(null))
                 .kind(kind)
                 .baseCommandVersion(context.commandVersion())
                 .candidates(toJson(stored))
@@ -123,8 +132,8 @@ public class RerouteProposalTxService {
 
         metrics.recordCreated(kind.name());
         return Optional.of(new RerouteProposalView(proposal.getId(), proposal.getJourneyId(),
-                proposal.getRouteRevision(), proposal.getTransferIndex(), proposal.getKind(),
-                proposal.getBaseCommandVersion(), proposal.getSnapshotObservedAt(),
+                proposal.getRouteRevision(), proposal.getTransferIndex(), origin.orElse(null),
+                proposal.getKind(), proposal.getBaseCommandVersion(), proposal.getSnapshotObservedAt(),
                 proposal.getExpiresAt(), stored));
     }
 
@@ -186,6 +195,35 @@ public class RerouteProposalTxService {
         return objectMapper.valueToTree(RerouteCandidateEnvelope.of(candidates));
     }
 
+    private JsonNode toJson(RerouteOrigin origin) {
+        return objectMapper.valueToTree(RerouteOriginEnvelope.of(origin));
+    }
+
+    /**
+     * 저장된 origin. <b>모르는 판이면 없는 것으로 친다</b> — 후보 봉투와 같은 이유다(계약이 바뀐
+     * 행을 새 뜻으로 읽으면 엉뚱한 정류장을 가리킨다). 그때는 부르는 쪽이 옛 {@code transferIndex}
+     * 로 폴백한다.
+     */
+    private RerouteOrigin readOrigin(RerouteProposal proposal) {
+        if (proposal.getOrigin() == null || proposal.getOrigin().isNull()) {
+            return null;
+        }
+        try {
+            RerouteOriginEnvelope envelope =
+                    objectMapper.treeToValue(proposal.getOrigin(), RerouteOriginEnvelope.class);
+            if (!envelope.isCurrentVersion()) {
+                log.warn("[JourneyReroute] 모르는 origin 계약 판 proposalId={} version={}",
+                        proposal.getId(), envelope.version());
+                return null;
+            }
+            return envelope.origin();
+        } catch (Exception e) {
+            log.warn("[JourneyReroute] origin 을 읽지 못했다 proposalId={}: {}",
+                    proposal.getId(), e.getMessage());
+            return null;
+        }
+    }
+
     /**
      * 저장된 행을 읽기 모델로 되돌린다.
      *
@@ -209,8 +247,8 @@ public class RerouteProposalTxService {
             return Optional.empty();
         }
         return Optional.of(new RerouteProposalView(proposal.getId(), proposal.getJourneyId(),
-                proposal.getRouteRevision(), proposal.getTransferIndex(), proposal.getKind(),
-                proposal.getBaseCommandVersion(), proposal.getSnapshotObservedAt(),
+                proposal.getRouteRevision(), proposal.getTransferIndex(), readOrigin(proposal),
+                proposal.getKind(), proposal.getBaseCommandVersion(), proposal.getSnapshotObservedAt(),
                 proposal.getExpiresAt(), envelope.candidates()));
     }
 }

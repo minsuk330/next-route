@@ -2245,3 +2245,26 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 변경: `application/journey/dto/RerouteOrigin.java`(필드 전면 교체 + 두 좌표계 경계 javadoc + `isRealtimeAddressable`)
 - 영향 없음: `RerouteOriginKind`/`RerouteOriginEnvelope`/V50/엔티티 — **아직 아무도 origin 을 읽거나 쓰지 않아서**(stage3 가 첫 소비자) 모델 교체 비용이 사실상 0이었다. 미소비 상태에서 계약을 뒤집을 수 있는 게 expand 단계를 먼저 둔 실질 이득.
 - PLAN 정정(확정 결정 "stop 식별" 의 적용 범위를 OTP 검색 결과로 축소)은 **PR-A 브랜치 몫** — PLAN.md 가 아직 #211 에만 있고 main 에 없다.
+
+## 2026-09-18 PR-B stage3 (1/2) — 이중 쓰기/읽기 배선
+
+### 확정
+- **`RerouteOriginResolver` 신설**: `(journeyId, routeRevision, transferIndex)` → `Optional<RerouteOrigin>`. 경로 = `transfer_connection.toLegIndex` → 그 **탑승 leg 의 승차 정류장**(`JourneyLeg.startStopId`) → `bus_route_stop` 에서 seq. **못 풀면 예외가 아니라 빈 결과** — 그 제안은 옛 주소만 들고 저장되고 읽는 쪽이 폴백한다. 여기서 실패를 올리면 원점을 못 푸는 여정에서 재탐색 자체가 죽는다.
+- **애매하면 seq 를 비운다**: `findByRouteIdAndStopId` 가 2건 이상이면(순환노선 재방문) 어느 순번인지 단정할 수 없으므로 null. seq 가 없으면 `isRealtimeAddressable()` false → 그 원점은 실시간 후보가 못 되고, 이것이 "애매하면 제안하지 않는다"는 확정 규칙과 같은 결론이다. **가짜 seq 를 고르지 않는다.**
+- **이중 쓰기**: `RerouteProposalTxService.store()` 가 origin(있으면)과 `transfer_index`(항상) 를 함께 남긴다.
+- **이중 읽기**: `toView()` 가 origin 봉투를 읽되 **모르는 version 이면 없는 것으로 친다**(후보 봉투와 같은 가드 — 계약이 바뀐 행을 새 뜻으로 읽으면 엉뚱한 정류장을 가리킨다). `RerouteProposalView.origin` 은 nullable 이고 **전환 기간에 null 인 것이 정상**이다.
+
+### 함정
+- **`JourneyLeg.routeId` 는 `selectRouteOption()` 으로만 채워진다**(빌더에 없음). 즉 노선이 아직 확정되지 않은 leg 는 routeId 가 null 이고, 그러면 seq 도 못 풀어 실시간 주소가 안 된다. 지하철 leg 도 같은 이유로 자연히 걸러진다 — 초기 스코프가 버스만인 것과 맞물려 **추가 모드 가드를 둘 필요가 없었다**.
+
+### 좌표
+- 신규: `application/journey/service/RerouteOriginResolver.java`
+- 변경: `RerouteProposalTxService`(resolver 주입 + 이중쓰기 + `readOrigin()` + 뷰 배선), `dto/RerouteProposalView.java`(nullable `origin` 컴포넌트 추가 — 호출부 4곳 전부 명시적으로 갱신, 하위호환 생성자는 두지 않음: 4곳뿐이라 숨은 기본값보다 명시가 낫다)
+
+### 검증
+- `RerouteOriginResolverTest` **5/5**(정상 해석 / 순환노선 seq 비움 / 노선없음 / 환승행 없음 / stopId 없음).
+- `RerouteProposalOriginReadTest` **3/3**(origin 왕복 / 옛 행 null 폴백 / 모르는 version 무시).
+- 무회귀: `RerouteProposalServiceTest` 12/12, `JourneyRerouteProposalControllerTest` green.
+
+### 미결 (stage3 2/2)
+- `supersedeActive`·`stillCurrent`·조회·cooldown 키·트리거·수락을 canonical origin 키로 옮기는 부분은 아직. 지금은 전부 `transfer_index` 기준 그대로다(무회귀 유지).

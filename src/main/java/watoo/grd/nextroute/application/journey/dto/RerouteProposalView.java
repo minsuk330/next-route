@@ -13,12 +13,15 @@ import java.util.List;
  * {@link RerouteCandidateSummary#from(List)} 를 지난다.
  *
  * @param baseCommandVersion 만들 당시의 명령 번호. 수락 재검증의 낙관적 락 기준
+ * @param origin             서울 좌표계 원점(PR-B). <b>전환 기간에는 null 일 수 있다</b> — 옛 행이거나
+ *                           원점을 못 푼 여정이며, 그때는 {@code transferIndex} 가 주소다
  */
 public record RerouteProposalView(
         Long proposalId,
         Long journeyId,
         int routeRevision,
         int transferIndex,
+        RerouteOrigin origin,
         RerouteProposalKind kind,
         long baseCommandVersion,
         Instant snapshotObservedAt,
