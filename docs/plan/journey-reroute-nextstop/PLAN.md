@@ -17,7 +17,11 @@
 ## 확정 결정 (codex 반영)
 - **geometry 게이트·투영 폐기**: truncated ride 지도선 = board→X 사이 **정류장 좌표(stopCalls lat/lon) 이어 그림**. 투영·오차·폴백 불필요(OTP transit geometry 는 STREET_FALLBACK 근사라 손해 미미). **시각 분할은 stopCall 시각으로 정확**.
 - **PR-A 는 national OTP 마이그레이션(P2-B/P2-G)에 합류**. 옛 `SubPathResult` 확장 금지 → 중립 `StopCall` 모델(정류장별 시간표+실시간+식별 보존) + 버전드 스냅샷 리더. 구현 전 OTP 전환 담당과 조율.
-- **stop 식별 = `(trip/pattern, sourceStopSequence, occurrenceIndex)`**. gtfsId 단독 금지(루프/반복정차).
+- **stop 식별 = `(trip/pattern, sourceStopSequence, occurrenceIndex)`**. gtfsId 단독 금지(루프/반복정차). **단 이 규칙은 OTP 검색 결과 안에서만 적용한다(2026-09-18 범위 축소)** — 아래 "좌표계 둘" 참고.
+- **좌표계가 둘이고 섞으면 안 된다(2026-09-18 실측)**:
+  - **OTP 좌표계 `gtfsId + occurrenceIndex`** = 검색 결과 전용(PR-A `StopOccurrence`·`TruncatedRide`).
+  - **서울 좌표계 `stopId + routeId + seq`** = 진행 중인 여정·실시간·**원점(`RerouteOrigin`)**. 근거 = 실시간 캐시 키가 `getArrivals(stopId, routeId, seq)` 이고, 여정 leg 는 `routeId`/`startStopId` 를 들며, 정류장 목록은 `busRouteStopRepository.findStopsByRouteId` 가 seq 순으로 준다.
+  - 번역은 반만 된다: `OtpSeoulIdentityResolver` 는 stop/route id 를 주지만 **seq 는 못 준다**. `JourneyLeg` 에는 **tripId 자체가 없다**. 루프 재방문 구분은 서울 `seq` 가 한다.
 - **ACTIVE 유니크 = 여정당 1개**(origin당 아님). 수락→여정 종료·한 여정 1회 모델과 일치.
 - **진행중 leg 절단 시 progress = 현재 위치까지 보존**(물리적으로 같은 주행), 하차 목표만 X 로. grafted 꼬리는 PENDING. PR-0 이 progress 엔진 수용 확인 + stale/재생 progress id 테스트.
 - **표준 `rank()` = PR-1 산출물**: 비교기(목적지 ETA → 환승수 → 도보 → 여유) + overlay 전 시간표용 정적 변형. PR-2 소비.
@@ -43,7 +47,7 @@
 
 ### PR-B (기반) — 원점 de-transferIndex (expand→backfill→dual→cutover)
 의존: 없음(PR-A 병렬).
-- [ ] 신규 `RerouteOrigin{legIndex, stop 식별(trip,seq,occ), stopGtfsId, kind{TRANSFER_WAIT, RIDE_INTERIOR}}`. 서버 파생(클라 좌표 안 받음).
+- [x] 신규 `RerouteOrigin{legIndex, stopId, routeId, seq, kind{TRANSFER_WAIT, RIDE_INTERIOR}}` — **서울 좌표계**(위 "좌표계 둘" 참고, 원안의 `(trip,seq,occ)+stopGtfsId` 는 취소). 서버 파생(클라 좌표 안 받음). `routeId`/`seq` 가 없으면 실시간 조회 불가 → **그 원점은 후보에서 제외**.
 - [ ] **1 확장**: `reroute_proposal` 에 nullable origin 컬럼 + 포맷/버전 discriminator, `transfer_index NOT NULL`·기존 unique 유지. (JPA primitive int 라 선 nullable 금지.)
 - [ ] **2 백필**: 옛 proposal ⋈ `transfer_connection`(toLegIndex:54) 로 증명가능한 것만. 유일매핑 실패=legacy 유지(가짜 seq 금지).
 - [ ] **3 이중 쓰기/읽기**: TRANSFER_WAIT 는 둘 다 씀, 읽기 origin 우선·옛행 transfer_index 폴백. `request(...int)` 호환 shim. `stillCurrent`·supersede·조회·cooldown 키·트리거·뷰·수락 **전부 canonical origin 키**로 이동(`RerouteProposalTxService`:95 포함).
