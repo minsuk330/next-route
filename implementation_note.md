@@ -2225,3 +2225,23 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew compileJava compileTestJava` OK(무출력).
 - `./gradlew test --tests "*RerouteProposalServiceTest"` → **12/12 green**(순수 mock 기반, DB 불필요 — 기존 서비스 계약 무회귀 확인).
 - `JourneyRerouteProposalSchemaIT`(V50 추가한 @Sql 체인 포함)는 이 샌드박스에 Postgres/Docker 가 없어 로컬 실행 불가(PR-A 세션에서도 동일 확인된 환경 제약, 기존 무관) — V50 SQL 자체는 V42/43 과 같은 문법(`ALTER TABLE ADD COLUMN`+`COMMENT`, 제약·인덱스 없음)이라 위험은 낮으나, **실제 실행 확인은 로컬 Postgres 있는 다음 세션/개발자 몫**(위 함정대로 이 저장소엔 이를 대신해 줄 CI 가 없다).
+
+## 2026-09-18 PR-B stage1 모델 정정 — RerouteOrigin 을 서울 좌표계로 (OTP 좌표계 아님)
+
+### 확정 (stage1 정정)
+- **~~`RerouteOrigin{legIndex, tripId, sourceStopSequence, occurrenceIndex, stopGtfsId, kind}`~~ 취소** → **`RerouteOrigin{legIndex, stopId, routeId, seq, kind}`**(서울 id). 이유 = 원점은 *진행 중인 여정*의 한 지점이고 그 세계는 전부 서울 id 로 도는데, OTP 좌표계를 씌우면 조회할 때마다 번역이 필요한 데다 그 번역이 **반만 된다**. 실측 근거 3개:
+  1. **실시간 캐시 키가 서울 좌표계**: `BusRealtimeCacheReadPort.getArrivals(String stopId, String routeId, int seq)`. "실시간 없으면 후보 제외"가 확정 규칙이므로 **모든 원점은 이 키로 조회 가능해야 한다**.
+  2. **`JourneyLeg` 에 `tripId` 가 없다**(routeId·vehicleId·startStopId·sourceStartStopId 는 있음). 내가 required 로 박았던 필드를 여정 데이터로 채울 출처가 아예 없었다.
+  3. **여정은 정류장 목록을 저장하지 않는다** — `JourneyNavigationGeometryService` 가 `busRouteStopRepository.findStopsByRouteId(routeId)` 로 **서울 DB 에서** 읽고 `seq` 로 정렬한다. 즉 "앞으로 지날 정류장"의 canonical 출처가 OTP 가 아니라 서울 DB 다. 데이터가 서울에서 태어나는데 OTP 주소를 씌웠다가 되돌리는 왕복이 애초에 불필요했다.
+- **번역이 반만 되는 지점(실측)**: `OtpSeoulIdentityResolver.resolveBus(stopGtfsId, routeGtfsId, routeName)` → `SeoulBusIdentity{stopId, routeId, routeName}` — **seq 가 없다**. 그리고 OTP `occurrenceIndex` 를 서울 seq 로 간주하는 것은 `StopOccurrence` javadoc 이 명시적으로 금지한다(서울 API 순번/sectionId 로 간주 금지).
+- **세계가 둘이라는 것을 계약으로 못박음**: **OTP 좌표계(`gtfsId + occurrenceIndex`) = 검색 결과 안에서만**(PR-A `StopOccurrence`/`TruncatedRide` — 거긴 지금도 맞다) / **서울 좌표계(`stopId + routeId + seq`) = 여정·실시간·원점**. 루프 재방문 구분은 서울 `seq` 가 이미 한다(캐시 키가 stopId 와 seq 를 같이 받는 이유가 그것).
+- **`isRealtimeAddressable()`(routeId·seq 둘 다 있음) = 제안 후보 자격**. 못 푸는 원점(지하철·서울 DB 미매핑)은 여기서 자연히 걸러진다 — 시간표 폴백 없음(사용자 결정). `routeId`/`seq` 는 그래서 nullable, `stopId`/`kind` 는 required.
+
+### 함정
+- **record 에 `isX()` 를 넣으면 Jackson 이 속성으로 오해해 origin jsonb 왕복이 깨진다.** 이 저장소가 `RerouteCandidateEnvelope` 에 이미 같은 주석으로 경고해 둔 함정이라 `@JsonIgnore` 를 붙였다. origin 컬럼에 들어가는 타입에 파생 메서드를 더할 때 매번 확인할 것.
+- 더 큰 교훈: **모델의 주소 체계는 "그 값을 실제로 조회할 인프라의 키"에서 거꾸로 정해야 한다.** stage1 에서는 PLAN 의 식별 튜플을 그대로 따랐는데, 그 튜플은 OTP 검색 결과용으로 정해진 것이었고 원점의 소비자(실시간 캐시·여정 leg·버스 DB)를 확인하지 않았다.
+
+### 좌표
+- 변경: `application/journey/dto/RerouteOrigin.java`(필드 전면 교체 + 두 좌표계 경계 javadoc + `isRealtimeAddressable`)
+- 영향 없음: `RerouteOriginKind`/`RerouteOriginEnvelope`/V50/엔티티 — **아직 아무도 origin 을 읽거나 쓰지 않아서**(stage3 가 첫 소비자) 모델 교체 비용이 사실상 0이었다. 미소비 상태에서 계약을 뒤집을 수 있는 게 expand 단계를 먼저 둔 실질 이득.
+- PLAN 정정(확정 결정 "stop 식별" 의 적용 범위를 OTP 검색 결과로 축소)은 **PR-A 브랜치 몫** — PLAN.md 가 아직 #211 에만 있고 main 에 없다.
