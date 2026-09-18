@@ -414,7 +414,8 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 lane.getSubwayCode(),
                 lane.getType(),
                 lane.getBusID(),
-                lane.getBusLocalBlID()
+                lane.getBusLocalBlID(),
+                null
         );
     }
 

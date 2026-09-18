@@ -32,15 +32,15 @@ public final class SubPathFixture {
     }
 
     public static LaneResult busLane(String busNo, String localBlId) {
-        return new LaneResult(busNo, busNo, null, null, null, localBlId);
+        return new LaneResult(busNo, busNo, null, null, null, localBlId, null);
     }
 
     public static LaneResult namelessLane() {
-        return new LaneResult(null, null, null, null, null, null);
+        return new LaneResult(null, null, null, null, null, null, null);
     }
 
     public static LaneResult subwayLane(String name, Integer subwayCode) {
-        return new LaneResult(name, null, subwayCode, null, null, null);
+        return new LaneResult(name, null, subwayCode, null, null, null, null);
     }
 
     public static final class Builder {

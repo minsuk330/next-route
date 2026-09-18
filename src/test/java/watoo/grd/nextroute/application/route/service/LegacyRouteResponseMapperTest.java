@@ -3,6 +3,9 @@ package watoo.grd.nextroute.application.route.service;
 import org.assertj.core.data.Offset;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver;
@@ -17,15 +20,19 @@ import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import watoo.grd.nextroute.application.route.routing.StopOccurrence;
+import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
 import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
 import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * B2/B3 계약: polyline 은 대중교통 {@code SHAPE_OK} 일 때만, 도보는 항상(OTP 실경로) 채운다.
@@ -38,18 +45,26 @@ class LegacyRouteResponseMapperTest {
             "cygdFod`fWfTfE??nPoK??rrB_X??pK???ls@_X??r]gE??jgBwj@??nKg^";
     private static final Instant NOW = Instant.parse("2026-09-17T00:00:00Z");
 
+    private final BusStopRepository busStopRepository = mock(BusStopRepository.class);
+    private final BusRouteRepository busRouteRepository = mock(BusRouteRepository.class);
     private final LegacyRouteResponseMapper mapper = new LegacyRouteResponseMapper(
-            new OtpSeoulIdentityResolver(mock(BusStopRepository.class), mock(BusRouteRepository.class),
-                    mock(SubwayStationRepository.class)));
+            new OtpSeoulIdentityResolver(busStopRepository, busRouteRepository,
+                    mock(SubwayStationRepository.class)), busRouteRepository);
 
     private RoutingLeg transitLeg(RoutingMode mode, GeometryQuality quality, String points) {
+        return transitLeg(mode, quality, points, "1:R1", "143");
+    }
+
+    private RoutingLeg transitLeg(RoutingMode mode, GeometryQuality quality, String points,
+                                  String sourceRouteId, String sourceRouteName) {
         LegGeometry geometry = new LegGeometry(
                 quality == GeometryQuality.SHAPE_OK ? GeometrySource.GTFS_SHAPE : GeometrySource.OTP_STREET,
                 quality, "test fixture", "g1", points, points);
+        String sourceStopId = mode == RoutingMode.BUS ? "1:BS_TAGO_SEB100100001" : "1:S1";
         List<StopOccurrence> stops = List.of(
-                new StopOccurrence("1:S1", null, null, 0, 126.982, 37.5645, "from"),
-                new StopOccurrence("1:S2", null, null, 1, 127.004, 37.5058, "to"));
-        return new RoutingLeg(mode, null, "1", "1:A1", "1:R1", "143",
+                new StopOccurrence(sourceStopId, null, null, 0, 126.982, 37.5645, "from"),
+                new StopOccurrence(sourceStopId, null, null, 1, 127.004, 37.5058, "to"));
+        return new RoutingLeg(mode, null, "1", "1:A1", sourceRouteId, sourceRouteName,
                 "1:T1", null, null, null, 600, stops, List.of(),
                 geometry, Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), null);
     }
@@ -108,5 +123,76 @@ class LegacyRouteResponseMapperTest {
     void tooShortBecomesNull() {
         SubPathResult sub = firstSubPath(transitLeg(RoutingMode.BUS, GeometryQuality.SHAPE_OK, "_p~iF~ps|U"));
         assertThat(sub.polyline()).isNull();
+    }
+
+    @ParameterizedTest(name = "{0} → {1}")
+    @MethodSource("subwayLineColors")
+    @DisplayName("OTP 지하철 route.shortName을 노선 표시색에 연결한다")
+    void otpSubwayRouteShortNameHasDisplayColor(String routeShortName, String expectedColor) {
+        SubPathResult sub = firstSubPath(transitLeg(RoutingMode.SUBWAY, GeometryQuality.STREET_FALLBACK,
+                BUS_SHAPE, "1:RR_ACC1_" + routeShortName, routeShortName));
+
+        assertThat(sub.lanes()).singleElement().satisfies(lane -> {
+            assertThat(lane.name()).isEqualTo(routeShortName);
+            assertThat(lane.routeDisplayColor()).isEqualTo(expectedColor);
+        });
+    }
+
+    static Stream<Arguments> subwayLineColors() {
+        return Stream.of(
+                Arguments.of("서울1호선", "#004A85"), Arguments.of("서울2호선", "#00A23F"),
+                Arguments.of("서울3호선", "#ED6C00"), Arguments.of("서울4호선", "#009BCE"),
+                Arguments.of("서울5호선", "#794698"), Arguments.of("서울6호선", "#7C4932"),
+                Arguments.of("서울7호선", "#6E7E31"), Arguments.of("서울8호선", "#D11D70"),
+                Arguments.of("서울9호선", "#A49D87"), Arguments.of("인천1호선", "#B4C7E7"),
+                Arguments.of("인천2호선", "#F4A462"), Arguments.of("공항철도", "#0079AC"),
+                Arguments.of("경춘선", "#007A62"), Arguments.of("경의중앙선", "#6AC2B3"),
+                Arguments.of("신분당선", "#B81B30"), Arguments.of("수인분당선", "#ECA300"),
+                Arguments.of("서해선", "#5EAC41"), Arguments.of("GTX-A", "#AB087D"),
+                Arguments.of("김포도시철도", "#957326"), Arguments.of("신림선", "#6789CA"),
+                Arguments.of("우이신설경전철", "#BACC50"), Arguments.of("의정부경전철", "#F0831E"),
+                Arguments.of("용인경전철", "#44A436")
+        );
+    }
+
+    @ParameterizedTest(name = "routeType={0} → {1}")
+    @MethodSource("seoulBusRouteTypeColors")
+    @DisplayName("OTP 서울 버스를 DB routeType 표시색에 연결한다")
+    void otpBusRouteTypeHasDisplayColor(int routeType, String expectedColor) {
+        String routeId = "100100001";
+        when(busStopRepository.existsByStopId(routeId)).thenReturn(true);
+        when(busRouteRepository.existsByRouteId(routeId)).thenReturn(true);
+        when(busRouteRepository.findByRouteId(routeId)).thenReturn(Optional.of(
+                BusRoute.builder().routeId(routeId).routeName("143").routeType(routeType).build()));
+
+        SubPathResult sub = firstSubPath(transitLeg(RoutingMode.BUS, GeometryQuality.STREET_FALLBACK,
+                BUS_SHAPE, "1:BR_TAGO_SEB" + routeId, "143"));
+
+        assertThat(sub.lanes()).singleElement().satisfies(lane -> {
+            assertThat(lane.busLocalBlID()).isEqualTo(routeId);
+            assertThat(lane.routeDisplayColor()).isEqualTo(expectedColor);
+        });
+    }
+
+    static Stream<Arguments> seoulBusRouteTypeColors() {
+        return Stream.of(
+                Arguments.of(2, "#53b332"), Arguments.of(3, "#0068b7"), Arguments.of(4, "#53b332"),
+                Arguments.of(5, "#f2b70a"), Arguments.of(6, "#e60012")
+        );
+    }
+
+    @Test
+    @DisplayName("OTP 비서울 버스 routeType은 표시색을 비운다")
+    void otpUnsupportedBusRouteTypeKeepsColorNull() {
+        String routeId = "100100001";
+        when(busStopRepository.existsByStopId(routeId)).thenReturn(true);
+        when(busRouteRepository.existsByRouteId(routeId)).thenReturn(true);
+        when(busRouteRepository.findByRouteId(routeId)).thenReturn(Optional.of(
+                BusRoute.builder().routeId(routeId).routeName("143").routeType(7).build()));
+
+        SubPathResult sub = firstSubPath(transitLeg(RoutingMode.BUS, GeometryQuality.STREET_FALLBACK,
+                BUS_SHAPE, "1:BR_TAGO_SEB" + routeId, "143"));
+
+        assertThat(sub.lanes()).singleElement().extracting(lane -> lane.routeDisplayColor()).isNull();
     }
 }
