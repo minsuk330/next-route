@@ -106,7 +106,8 @@ class RouteSearchRealtimeDeadlineIT {
                 polyline, walk, transferEnricher, metrics, deadline,
                 new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
                         new watoo.grd.nextroute.application.route.config.RoutingProviderProperties(), java.util.List.of()),
-                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
+                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class),
+                        mock(watoo.grd.nextroute.domain.bus.repository.BusRouteRepository.class)),
                 new DepartureTimeResolver(java.time.Clock.systemDefaultZone()),
                 mock(watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate.class),
                 java.time.Clock.systemDefaultZone());
@@ -125,7 +126,7 @@ class RouteSearchRealtimeDeadlineIT {
     private RouteSearchResult busRouteResult() {
         SubPathResult bus = new SubPathResult(
                 2, 10, 1_500.0,
-                List.of(new LaneResult("360", "360", null, 1, null, "route-1")),
+                List.of(new LaneResult("360", "360", null, 1, null, "route-1", null)),
                 Collections.emptyList(), "출발", "도착",
                 127.0, 37.5, 127.01, 37.51,
                 null, null, null, null, null, null,

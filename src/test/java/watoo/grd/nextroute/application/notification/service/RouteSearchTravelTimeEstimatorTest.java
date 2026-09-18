@@ -53,7 +53,7 @@ class RouteSearchTravelTimeEstimatorTest {
     // ── DTO 빌더 ────────────────────────────────────────────────────────────
 
     private SubPathResult bus(int sectionTimeMin, List<TransferArrival> arrivals) {
-        LaneResult lane = new LaneResult("간선", "146", null, 2, 1, "BL1");
+        LaneResult lane = new LaneResult("간선", "146", null, 2, 1, "BL1", null);
         return new SubPathResult(2, sectionTimeMin, 1000.0,
                 List.of(lane), List.of(), "정류장A", "정류장B",
                 127.0, 37.5, 127.05, 37.55,
@@ -64,8 +64,8 @@ class RouteSearchTravelTimeEstimatorTest {
     }
 
     private SubPathResult busTwoLane(int sectionTimeMin, List<TransferArrival> arrivals) {
-        LaneResult lane0 = new LaneResult("간선", "146", null, 2, 1, "BL1");
-        LaneResult lane1 = new LaneResult("지선", "471", null, 2, 2, "BL2");
+        LaneResult lane0 = new LaneResult("간선", "146", null, 2, 1, "BL1", null);
+        LaneResult lane1 = new LaneResult("지선", "471", null, 2, 2, "BL2", null);
         return new SubPathResult(2, sectionTimeMin, 1000.0,
                 List.of(lane0, lane1), List.of(), "정류장A", "정류장B",
                 127.0, 37.5, 127.05, 37.55,

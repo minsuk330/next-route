@@ -19,6 +19,8 @@ import watoo.grd.nextroute.application.route.routing.RoutingLeg;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import watoo.grd.nextroute.application.route.routing.StopOccurrence;
+import watoo.grd.nextroute.domain.bus.entity.BusRoute;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,9 +54,11 @@ public class LegacyRouteResponseMapper {
 
     /** 버스 leg 의 서울 실시간 id(정류장/노선) 해석. 지하철은 좌표 기반이라 사용 안 함. */
     private final OtpSeoulIdentityResolver resolver;
+    private final BusRouteRepository busRouteRepository;
 
-    public LegacyRouteResponseMapper(OtpSeoulIdentityResolver resolver) {
+    public LegacyRouteResponseMapper(OtpSeoulIdentityResolver resolver, BusRouteRepository busRouteRepository) {
         this.resolver = resolver;
+        this.busRouteRepository = busRouteRepository;
     }
 
     private static final int TRAFFIC_SUBWAY = 1;
@@ -138,7 +142,13 @@ public class LegacyRouteResponseMapper {
         List<LaneResult> lanes = null;
         String startLocalStationID = null;
         String endLocalStationID = null;
-        if (leg.mode() == RoutingMode.BUS) {
+        if (leg.mode() == RoutingMode.SUBWAY || leg.mode() == RoutingMode.RAIL) {
+            String routeName = leg.sourceRouteName();
+            String routeDisplayColor = SubwayLineColors.colorFor(routeName);
+            if (routeDisplayColor != null) {
+                lanes = List.of(new LaneResult(routeName, null, null, null, null, null, routeDisplayColor));
+            }
+        } else if (leg.mode() == RoutingMode.BUS) {
             String routeName = leg.sourceRouteName();
             String busLocalBlID = null;
             if (!leg.stops().isEmpty()) {
@@ -151,7 +161,12 @@ public class LegacyRouteResponseMapper {
                         .map(SeoulBusIdentity::stopId).orElse(null);
             }
             // 표시용 lane 은 버스번호로 항상 생성. busLocalBlID(실시간 호출용)는 매핑될 때만 non-null.
-            lanes = List.of(new LaneResult(routeName, routeName, null, null, null, busLocalBlID));
+            String routeDisplayColor = busLocalBlID == null ? null : busRouteRepository.findByRouteId(busLocalBlID)
+                    .map(BusRoute::getRouteType)
+                    .map(BusRouteTypeColors::colorFor)
+                    .orElse(null);
+            lanes = List.of(new LaneResult(routeName, routeName, null, null, null, busLocalBlID,
+                    routeDisplayColor));
         }
 
         List<CoordPoint> polyline = toPolyline(leg);

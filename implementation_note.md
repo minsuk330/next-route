@@ -2186,3 +2186,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - **실검색 지하철 polyline 실측**(숙대입구→사당4호선, 과거 fixture 와 동일 좌표): **trafficType=1(지하철) polyline_pts=84** — non-null, 정류장 수(6개)보다 훨씬 큼(플랜 §6 완료판정 조건 충족, Stage2 까지 완료). 버스(223/193pts)·도보 leg 도 여전히 정상.
 - Redis `used_memory`: 배포 전후 7.72~9.09MB 범위(무의미한 변동, B4 가드와 무관한 수준 유지).
 - **P4 Track A(A0+A1+A2) 완료 — 지하철 polyline 실서비스 라이브.** 플랜 §7 잔여 미결(geometryQuality 노출/네비 API 형상 이원화/버스 degraded 1477건/rail 2노선)은 전부 별건.
+
+## 2026-09-18 OTP legacy routeDisplayColor — 지하철·서울 버스 고정표
+
+### 확정
+- legacy `LaneResult`에 nullable `routeDisplayColor`를 추가했다. OTP `SUBWAY`/`RAIL` leg는 `sourceRouteName`(GTFS `route.shortName`)으로 23개 도시철도 고정표를 조회해 lane 하나에 표시색을 넣는다. 표 밖 노선은 기존처럼 `lanes=null`을 유지한다.
+- OTP 서울 버스는 기존 `OtpSeoulIdentityResolver`가 검증한 `busLocalBlID`를 그대로 `BusRouteRepository.findByRouteId`에 넘기고, DB `routeType` 2(마을)·3(간선)·4(지선)·5(순환)·6(광역)을 고정색으로 변환한다. 그 외 유형 및 서울 ID 미해석은 `routeDisplayColor=null`이다.
+- ODSAY는 제거 예정이라 색상 해석 대상에서 제외했다. 레코드 생성자 호환을 위해 adapter에는 신규 인자로 `null`만 전달한다.
+
+### 검증
+- `./gradlew compileJava compileTestJava` → **BUILD SUCCESSFUL**.
+- `./gradlew test --tests '*LegacyRouteResponseMapper*' --tests '*RouteSearchService*'` → **BUILD SUCCESSFUL**.
+- `LegacyRouteResponseMapperTest`에서 실제 OTP 형식의 GTFS route/stop ID로 23개 지하철 `route.shortName` 전부와 서울 버스 5개 `routeType` 전부가 예상 hex로 연결됨을 검증했다. routeType 7(인천)은 `null` 유지도 검증했다.

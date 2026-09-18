@@ -71,7 +71,7 @@ class TransferArrivalEnricherTest {
     private SubPathResult busSubPath(String startLocalStationID, String busLocalBlID, String busNo) {
         return new SubPathResult(
                 2, 10, 1500.0,
-                List.of(new LaneResult("360", busNo, null, 1, null, busLocalBlID)),
+                List.of(new LaneResult("360", busNo, null, 1, null, busLocalBlID, null)),
                 Collections.emptyList(),
                 "출발", "도착",
                 127.0, 37.5, 127.01, 37.51,
