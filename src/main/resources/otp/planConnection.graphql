@@ -44,6 +44,8 @@ query PlanConnection(
               __typename
               ... on Stop { gtfsId name lat lon }
             }
+            schedule { time { ... on ArrivalDepartureTime { arrival departure } } }
+            realTime { arrival { time delay } departure { time delay } }
           }
           steps { distance relativeDirection streetName }
           legGeometry { length points }

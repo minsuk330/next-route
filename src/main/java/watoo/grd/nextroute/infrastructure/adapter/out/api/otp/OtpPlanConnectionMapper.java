@@ -190,19 +190,32 @@ public class OtpPlanConnectionMapper {
     }
 
     private List<StopOccurrence> toStops(JsonNode legNode) {
-        List<StopOccurrence> stops = new ArrayList<>();
+        List<StopOccurrence> fromCalls = new ArrayList<>();
         int idx = 0;
-        idx = addPlace(stops, legNode.path("from"), idx);
         for (JsonNode call : legNode.path("stopCalls")) {
             JsonNode loc = call.path("stopLocation");
             if (!"Stop".equals(loc.path("__typename").asText(""))) {
                 continue;
             }
-            stops.add(new StopOccurrence(text(loc.path("gtfsId")), null, null, idx++,
+            JsonNode schedule = call.path("schedule").path("time");
+            JsonNode realTime = call.path("realTime");
+            fromCalls.add(new StopOccurrence(text(loc.path("gtfsId")), null, null, idx++,
                     loc.path("lon").asDouble(), loc.path("lat").asDouble(),
-                    text(loc.path("name"))));
+                    text(loc.path("name")),
+                    instant(schedule.path("arrival")),
+                    instant(schedule.path("departure")),
+                    instant(realTime.path("arrival").path("time")),
+                    instant(realTime.path("departure").path("time"))));
         }
-        addPlace(stops, legNode.path("to"), idx);
+        // 실측 확인(fixture 2건): stopCalls 는 board·alight 를 포함한 전량이다 → 비어있지 않으면
+        // 그대로 신뢰한다(추가 시각 없는 from/to 합성을 덧붙이면 경계가 중복되고 시각도 비게 된다).
+        if (!fromCalls.isEmpty()) {
+            return fromCalls;
+        }
+        // 방어: stopCalls 없는 응답(구버전/이상 케이스)만 시각 없는 from/to 합성으로 폴백.
+        List<StopOccurrence> stops = new ArrayList<>();
+        int placeIdx = addPlace(stops, legNode.path("from"), 0);
+        addPlace(stops, legNode.path("to"), placeIdx);
         return stops;
     }
 
