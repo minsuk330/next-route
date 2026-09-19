@@ -17,7 +17,9 @@ import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -47,7 +50,8 @@ class RemainingPathEtaComposerTest {
     private final JourneyTransitIdEnricher enricher = mock(JourneyTransitIdEnricher.class);
     private final BoardingTimeEstimator busEstimator = mock(BoardingTimeEstimator.class);
     private final RemainingPathEtaComposer composer = new RemainingPathEtaComposer(
-            compiler, enricher, new RouteOptionEtaCalculator(), List.of(busEstimator));
+            compiler, enricher,
+            new BoardingChainEtaCalculator(List.of(busEstimator), Clock.fixed(NOW, ZoneOffset.UTC)));
 
     @Test
     @DisplayName("보강을 거친 초안으로 물어본다 — 안 거치면 후보가 전부 예측 없음이 된다")
@@ -88,7 +92,10 @@ class RemainingPathEtaComposerTest {
         assertThat(attempt.failed()).isFalse();
         // 주행 900초 + 하차 후 도보 240초.
         assertThat(attempt.eta().destinationEtaAt()).isEqualTo(boardingAt.plusSeconds(1140));
-        assertThat(attempt.eta().walkingSec()).isEqualTo(240);
+        // 정류장까지 가는 도보 180초 + 하차 후 도보 240초. 체인은 <b>경로 전체</b>의 걷기를 센다 —
+        // 그 값이 화면에도 나가고 줄 세우기에도 쓰이므로, 접근 도보를 빼면 멀리 걸어가야 하는
+        // 후보가 실제보다 편해 보인다.
+        assertThat(attempt.eta().walkingSec()).isEqualTo(420);
         assertThat(attempt.observedAt()).isEqualTo(NOW);
     }
 
@@ -188,7 +195,71 @@ class RemainingPathEtaComposerTest {
         assertThat(prepared.waitsAfterFirst()).isEqualTo(1);
     }
 
+    // ── overlay 체인(PR-1) ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("대기가 둘이면 둘 다 물어본다 — 두 번째 앵커는 첫 차를 타고 간 뒤다")
+    void chainsEveryWait() {
+        givenEnriched(twoTransferPlan());
+        givenBoardingChain();
+
+        Attempt attempt = composer.compose(composer.prepare(anyPath()), READY_AT, NOW, 1500);
+
+        ArgumentCaptor<Instant> anchors = ArgumentCaptor.forClass(Instant.class);
+        verify(busEstimator, times(2)).estimate(any(BoardingQuery.class), anchors.capture(),
+                any(), anyLong());
+        assertThat(anchors.getAllValues().get(0)).isEqualTo(READY_AT);
+        // 첫 승차(+120) + 주행 600 + 환승 도보 120.
+        assertThat(anchors.getAllValues().get(1)).isEqualTo(READY_AT.plusSeconds(840));
+        // 목적지 = 두 번째 승차(+120) + 주행 600. 두 번의 대기가 <b>0으로 접히지 않았다</b>.
+        assertThat(attempt.eta().destinationEtaAt()).isEqualTo(READY_AT.plusSeconds(1560));
+        assertThat(attempt.eta().waitingSec()).isEqualTo(240);
+    }
+
+    @Test
+    @DisplayName("두 번째 대기를 못 풀면 후보가 아니다 — 0으로 두면 없는 개선폭이 생긴다")
+    void dropsCandidateWhenLaterWaitIsUnresolved() {
+        givenEnriched(twoTransferPlan());
+        given(busEstimator.supports(JourneyLegType.WAIT_BUS)).willReturn(true);
+        given(busEstimator.estimate(any(), any(), any(), anyLong()))
+                .willReturn(BoardingOutcome.of(new BoardingEstimate(READY_AT.plusSeconds(120), true,
+                        CurrentLegArrival.Source.REALTIME_ARRIVAL, CurrentLegArrival.Quality.GOOD,
+                        NOW, null)))
+                .willReturn(BoardingOutcome.none());
+
+        Attempt attempt = composer.compose(composer.prepare(anyPath()), READY_AT, NOW, 1500);
+
+        assertThat(attempt.failed()).isTrue();
+        assertThat(attempt.filterReason()).isEqualTo("boarding-unresolved");
+    }
+
     // ── 준비 ────────────────────────────────────────────────────────────────
+
+    /** 버스 대기 → 주행 600 → 환승 도보 120 → 버스 대기 → 주행 600. */
+    private JourneyPlan twoTransferPlan() {
+        return new JourneyPlan(List.of(
+                waitDraft(0, JourneyLegType.WAIT_BUS, "ST-C", option("BL-360", 5, null)),
+                rideDraft(1, 600),
+                transferWalkDraft(2, 120),
+                waitDraft(3, JourneyLegType.WAIT_BUS, "ST-E", option("BL-100", 3, null)),
+                rideDraft(4, 600)), List.of());
+    }
+
+    /** 물어본 앵커에서 120초 뒤에 탄다고 답한다. 체인이 앵커를 미는지 그대로 드러난다. */
+    private void givenBoardingChain() {
+        given(busEstimator.supports(JourneyLegType.WAIT_BUS)).willReturn(true);
+        given(busEstimator.estimate(any(), any(), any(), anyLong()))
+                .willAnswer(call -> BoardingOutcome.of(new BoardingEstimate(
+                        call.getArgument(1, Instant.class).plusSeconds(120), true,
+                        CurrentLegArrival.Source.REALTIME_ARRIVAL, CurrentLegArrival.Quality.GOOD,
+                        NOW, null)));
+    }
+
+    private JourneyLegDraft transferWalkDraft(int legIndex, int durationSec) {
+        return new JourneyLegDraft(legIndex, JourneyLegType.TRANSFER_WALK, JourneyLegState.PENDING,
+                null, null, null, null, "정류장D", "정류장E", 127.4, 37.4, 127.45, 37.45,
+                durationSec, null, List.of(), null);
+    }
 
     private void givenEnriched(JourneyPlan plan) {
         given(enricher.enrich(any(JourneyPlan.class))).willReturn(plan);

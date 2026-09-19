@@ -2,6 +2,7 @@ package watoo.grd.nextroute.application.journey.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties;
 import watoo.grd.nextroute.application.journey.dto.BoardingEstimate;
@@ -33,10 +34,15 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 환승 정류장에서 목적지까지 <b>다른 경로</b>를 찾아 후보로 올린다(Phase 6 ④).
@@ -72,12 +78,14 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
     private final JourneyWaypointResolver waypointResolver;
     private final RemainingRouteSearchService searchService;
     private final RemainingPathEtaComposer composer;
-    private final RouteOptionEtaCalculator etaCalculator;
+    private final BoardingChainEtaCalculator chainCalculator;
     private final TransferPredictionInterpreter interpreter;
-    private final List<BoardingTimeEstimator> boardingTimeEstimators;
     private final JourneyRerouteProperties properties;
     private final JourneyRerouteMetrics metrics;
     private final Clock clock;
+
+    @Qualifier("rerouteOverlayExecutor")
+    private final ExecutorService overlayExecutor;
 
     @Override
     public RerouteProposalKind kind() {
@@ -186,70 +194,113 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
     /**
      * 지금 경로로 목적지에 언제 닿는지. <b>④가 스스로 다시 잰다</b>(D7).
      *
+     * <p><b>후보와 같은 체인을 탄다</b>({@link BoardingChainEtaCalculator}). 기준선만 "이후 대기 0"
+     * 으로 재면 그 빠진 대기 시간이 그대로 후보의 개선폭처럼 보인다 — 근거 출처를 통일하는 것이
+     * 개선폭을 정직하게 만드는 유일한 방법이다.
+     *
      * @return 잴 수 없으면 {@code null}. <b>빈손이 아니다</b> — 기준선이 없으면 임계값 없이
      *         가장 이른 후보 하나만 내고 신뢰도를 낮춘다(D3)
      */
     private Baseline measureBaseline(JourneyLeg waitLeg, List<JourneyLeg> legs,
                                      TransferConnection transfer, RerouteContext context) {
-        Optional<JourneyLegRouteOption> option = Optional
-                .ofNullable(waitLeg.getSelectedRouteOptionId())
-                .flatMap(routeOptionRepository::findById);
-        BoardingTimeEstimator estimator = estimatorFor(waitLeg.getType());
-        if (option.isEmpty() || estimator == null) {
+        List<BoardingChainEtaCalculator.Step> steps;
+        try {
+            steps = storedSteps(legs);
+        } catch (Exception e) {
+            log.warn("[JourneyReroute] 기준선 단계 구성 실패 journeyId={}: {}",
+                    context.journeyId(), e.getMessage());
             return null;
         }
 
-        BoardingQuery query = new BoardingQuery(waitLeg.getType(), waitLeg.getStartStopId(),
-                waitLeg.getStartName(), option.get().getRouteId(),
-                option.get().getBoardingSeq(), option.get().getWayCode());
-        BoardingOutcome outcome;
+        BoardingChainEtaCalculator.Result chained;
         try {
-            outcome = estimator.estimate(query, transfer.getUserReadyAt(), context.now(),
-                    interpreter.budgetMs());
+            chained = chainCalculator.compute(steps, waitLeg.getLegIndex() - 1,
+                    transfer.getUserReadyAt(), context.now(), baselineBudget());
         } catch (Exception e) {
             log.warn("[JourneyReroute] 기준선 예측 실패 journeyId={}: {}",
                     context.journeyId(), e.getMessage());
             return null;
         }
-        if (!outcome.isPresent() || !outcome.estimate().boardable()) {
+        if (chained.failed()) {
             // 지금 차를 아예 못 타는 상황이다. ③이라면 여기서 빈손이지만 ④는 계속 간다 —
             // "못 타는 사용자"야말로 다른 경로가 필요한 사람이다.
-            return null;
-        }
-        Optional<RouteOptionEtaCalculator.Result> eta = etaCalculator.compute(
-                legs, waitLeg, outcome.estimate().boardingAt());
-        if (eta.isEmpty()) {
             return null;
         }
         int waitsAfter = (int) legs.stream()
                 .filter(leg -> leg.getLegIndex() > waitLeg.getLegIndex())
                 .filter(leg -> leg.getType().isWaiting())
                 .count();
-        return new Baseline(eta.get().destinationEtaAt(), waitsAfter);
+        return new Baseline(chained.destinationEtaAt(), waitsAfter);
     }
 
-    /** 후보마다 예측하고 견준다. 누적 예산 안에서 돌고, 하나가 터져도 앞의 것을 버리지 않는다. */
+    /**
+     * 저장된 단계를 체인이 아는 모양으로 옮긴다.
+     *
+     * <p>대기 단계마다 <b>그 단계가 고른 노선</b>을 읽는다. 첫 대기만 읽으면 뒤의 대기를 물어볼
+     * 수 없어 기준선이 다시 "이후 대기 0"으로 되돌아간다.
+     */
+    private List<BoardingChainEtaCalculator.Step> storedSteps(List<JourneyLeg> legs) {
+        List<BoardingChainEtaCalculator.Step> steps = new ArrayList<>(legs.size());
+        for (JourneyLeg leg : legs) {
+            if (!leg.getType().isWaiting()) {
+                steps.add(BoardingChainEtaCalculator.Step.of(
+                        leg.getLegIndex(), leg.getType(), leg.getPlannedDurationSec()));
+                continue;
+            }
+            JourneyLegRouteOption option = Optional.ofNullable(leg.getSelectedRouteOptionId())
+                    .flatMap(routeOptionRepository::findById)
+                    .orElse(null);
+            BoardingQuery query = new BoardingQuery(leg.getType(), leg.getStartStopId(),
+                    leg.getStartName(),
+                    option == null ? null : option.getRouteId(),
+                    option == null ? null : option.getBoardingSeq(),
+                    option == null ? null : option.getWayCode());
+            steps.add(new BoardingChainEtaCalculator.Step(leg.getLegIndex(), leg.getType(),
+                    null, query));
+        }
+        return steps;
+    }
+
+    /**
+     * 기준선 체인의 예산.
+     *
+     * <p>후보 예산에서 빼지 않는 것은 예전과 같다 — 기준선이 없으면 개선폭을 못 재므로 아껴 봐야
+     * 아무것도 못 낸다. 달라진 것은 <b>호출 수</b>다: 환승이 남아 있으면 그만큼 예측이 더 나가므로
+     * 총 상한을 두고 그 안에서 돈다.
+     */
+    private BoardingChainEtaCalculator.Budget baselineBudget() {
+        return new BoardingChainEtaCalculator.Budget(
+                properties.getRemainingPath().getEvaluationBudgetMs(), interpreter.budgetMs());
+    }
+
+    /**
+     * 후보마다 예측하고 견준다. 누적 예산 안에서 돌고, 하나가 터져도 앞의 것을 버리지 않는다.
+     *
+     * <h3>경로끼리는 나란히 돈다</h3>
+     * 한 후보의 overlay 는 <b>대기 수만큼</b> 예측을 부른다(체인). 후보를 차례로 돌리면 그 곱만큼
+     * 사용자가 기다리고, 예산이 앞의 한둘에서 다 소진돼 뒤의 후보가 늘 {@code budget-exhausted}
+     * 로 잘린다 — <b>검색이 준 순서가 곧 당선 순서</b>가 되는 셈이다. 그래서 경로끼리는 나란히
+     * 돌린다(체인 안의 대기는 앞 대기의 결과가 다음 앵커라 순차일 수밖에 없다).
+     */
     private List<RerouteCandidate> evaluate(List<Candidate> candidates, Baseline baseline,
                                             TransferConnection transfer, JourneyLeg waitLeg,
                                             RerouteContext context) {
         Instant startedAt = clock.instant();
-        List<Scored> scored = new ArrayList<>();
-
+        List<Candidate> admitted = new ArrayList<>();
         for (Candidate candidate : candidates) {
-            long remainingMs = remainingBudgetMs(startedAt);
-            if (remainingMs <= 0) {
-                // 이미 평가한 것으로 제안을 만든다. 부분 결과가 빈손보다 낫다.
-                metrics.recordCandidateFiltered("budget-exhausted");
-                break;
-            }
             if (baseline != null
                     && candidate.prepared().waitsAfterFirst() > baseline.waitsAfterFirst()) {
                 // 생략한 대기 시간이 후보 쪽에만 더 많이 빠져 없는 개선폭이 만들어진다.
                 metrics.recordCandidateFiltered("more-transfers");
                 continue;
             }
-            Attempt attempt = composeSafely(candidate, transfer, context,
-                    Math.min(interpreter.budgetMs(), remainingMs));
+            admitted.add(candidate);
+        }
+
+        List<Attempt> attempts = overlayAll(admitted, transfer, context, startedAt);
+        List<Scored> scored = new ArrayList<>();
+        for (int i = 0; i < admitted.size(); i++) {
+            Attempt attempt = attempts.get(i);
             if (attempt.failed()) {
                 metrics.recordCandidateFiltered(attempt.filterReason());
                 continue;
@@ -257,7 +308,7 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
             metrics.recordCandidateEvaluated(1);
 
             if (baseline == null) {
-                scored.add(new Scored(candidate, attempt, 0));
+                scored.add(new Scored(admitted.get(i), attempt, 0, transfer.getUserReadyAt()));
                 continue;
             }
             int gainSec = (int) Duration.between(
@@ -266,21 +317,75 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
                 metrics.recordCandidateFiltered("gain-below-threshold");
                 continue;
             }
-            scored.add(new Scored(candidate, attempt, gainSec));
+            scored.add(new Scored(admitted.get(i), attempt, gainSec, transfer.getUserReadyAt()));
         }
 
         if (baseline == null) {
-            // 견줄 기준이 없다. 가장 이른 하나만 내고 개선폭은 0, 신뢰도는 낮춘다(D3).
-            return scored.stream()
-                    .min(Comparator.comparing(entry -> entry.attempt().eta().destinationEtaAt()))
-                    .map(entry -> List.of(toCandidate(entry, waitLeg, false, context.now())))
-                    .orElseGet(List::of);
+            // 견줄 기준이 없다. 가장 좋은 하나만 내고 개선폭은 0, 신뢰도는 낮춘다(D3).
+            Scored best = RerouteRanking.best(scored);
+            return best == null
+                    ? List.of()
+                    : List.of(toCandidate(best, waitLeg, false, context.now()));
         }
-        // 개수 절단은 저장 쪽이 한다(maxCandidates). 여기서는 순서만 정한다.
-        return scored.stream()
-                .sorted(Comparator.comparingInt(Scored::gainSec).reversed())
+        // 개수 절단은 저장 쪽이 한다(maxCandidates). 여기서는 순서만 정한다 — 표준 규칙으로.
+        return RerouteRanking.rank(scored).stream()
                 .map(entry -> toCandidate(entry, waitLeg, true, context.now()))
                 .toList();
+    }
+
+    /**
+     * 후보들의 overlay 를 나란히 돌리고 <b>입력 순서 그대로</b> 돌려준다.
+     *
+     * <p>순서를 지키는 이유는 지표 때문이다 — 어느 후보가 왜 걸러졌는지를 후보와 짝지어 읽을 수
+     * 있어야 한다. 풀이 포화면 그 자리에서 직접 돈다: 거절해 후보를 잃느니 조금 느린 편이 낫다
+     * (예산 가드가 전체 대기를 여전히 막는다).
+     */
+    private List<Attempt> overlayAll(List<Candidate> candidates, TransferConnection transfer,
+                                     RerouteContext context, Instant startedAt) {
+        List<CompletableFuture<Attempt>> futures = new ArrayList<>(candidates.size());
+        for (Candidate candidate : candidates) {
+            futures.add(overlayAsync(candidate, transfer, context, startedAt));
+        }
+        List<Attempt> attempts = new ArrayList<>(futures.size());
+        for (CompletableFuture<Attempt> future : futures) {
+            attempts.add(awaitOverlay(future, context, startedAt));
+        }
+        return attempts;
+    }
+
+    private CompletableFuture<Attempt> overlayAsync(Candidate candidate, TransferConnection transfer,
+                                                    RerouteContext context, Instant startedAt) {
+        try {
+            return CompletableFuture.supplyAsync(
+                    () -> composeSafely(candidate, transfer, context, startedAt), overlayExecutor);
+        } catch (RejectedExecutionException e) {
+            // 풀이 가득 찼다. 후보를 버리지 않고 이 스레드에서 돈다.
+            return CompletableFuture.completedFuture(
+                    composeSafely(candidate, transfer, context, startedAt));
+        }
+    }
+
+    /**
+     * 예산이 끝나면 기다리기를 멈춘다.
+     *
+     * <p>이미 끝난 것은 그대로 쓰고, 아직 안 끝난 것만 {@code budget-exhausted} 다. 예전처럼
+     * "예산이 끝났으니 남은 후보는 시작도 안 한다"로 두면 병렬로 이미 나간 호출의 결과를 버리게 된다.
+     */
+    private Attempt awaitOverlay(CompletableFuture<Attempt> future, RerouteContext context,
+                                 Instant startedAt) {
+        long waitMs = remainingBudgetMs(startedAt);
+        try {
+            return future.get(Math.max(0, waitMs), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            return new Attempt(null, null, null, null, "budget-exhausted");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Attempt(null, null, null, null, "budget-exhausted");
+        } catch (ExecutionException e) {
+            log.warn("[JourneyReroute] 남은 구간 후보 평가 실패 journeyId={}: {}",
+                    context.journeyId(), e.getCause() == null ? e.getMessage() : e.getCause().getMessage());
+            return new Attempt(null, null, null, null, "no-prediction");
+        }
     }
 
     /**
@@ -289,10 +394,14 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
      * <p>바깥 {@code try/catch} 만 있으면 두 번째 후보에서 난 일시적 장애가 첫 후보까지 날린다.
      */
     private Attempt composeSafely(Candidate candidate, TransferConnection transfer,
-                                  RerouteContext context, long budgetMs) {
+                                  RerouteContext context, Instant startedAt) {
+        long remainingMs = remainingBudgetMs(startedAt);
+        if (remainingMs <= 0) {
+            return new Attempt(null, null, null, null, "budget-exhausted");
+        }
         try {
-            return composer.compose(candidate.prepared(), transfer.getUserReadyAt(),
-                    context.now(), budgetMs);
+            return composer.compose(candidate.prepared(), transfer.getUserReadyAt(), context.now(),
+                    new BoardingChainEtaCalculator.Budget(remainingMs, interpreter.budgetMs()));
         } catch (Exception e) {
             log.warn("[JourneyReroute] 남은 구간 후보 평가 실패 journeyId={}: {}",
                     context.journeyId(), e.getMessage());
@@ -311,13 +420,6 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
                 - Duration.between(startedAt, clock.instant()).toMillis();
     }
 
-    private BoardingTimeEstimator estimatorFor(JourneyLegType waitType) {
-        return boardingTimeEstimators.stream()
-                .filter(estimator -> estimator.supports(waitType))
-                .findFirst()
-                .orElse(null);
-    }
-
     /**
      * 화면 값으로 옮긴다.
      *
@@ -328,12 +430,14 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
     private RerouteCandidate toCandidate(Scored scored, JourneyLeg waitLeg,
                                          boolean hasBaseline, Instant now) {
         Attempt attempt = scored.attempt();
-        RouteOptionEtaCalculator.Result eta = attempt.eta();
+        BoardingChainEtaCalculator.Result eta = attempt.eta();
         BoardingEstimate estimate = attempt.estimate();
-        String confidence = (!hasBaseline || eta.hasFurtherTransfer() || estimate == null)
-                // 이후 환승의 대기 시간이 빠져 있거나 견줄 기준이 없다. 절대 시각이 낙관적이다.
-                ? CurrentLegArrival.Quality.APPROXIMATE.name()
-                : estimate.quality().name();
+        // 이제 모든 대기를 예측하므로 "뒤에 대기가 남아 있다"는 이유로 낮추지 않는다. 대신
+        // 체인에서 가장 나쁜 고리의 신뢰도를 쓴다 — 두 번째 차가 모델 추정이면 목적지 시각도
+        // 그만큼만 믿을 수 있다. 견줄 기준이 없으면 그대로 낮춘다(D3).
+        String confidence = hasBaseline
+                ? eta.quality().name()
+                : CurrentLegArrival.Quality.APPROXIMATE.name();
 
         return new RerouteCandidate(null, RerouteProposalKind.REMAINING_PATH,
                 new RerouteCandidateApply.RemainingPathApply(waitLeg.getLegIndex(),
@@ -400,6 +504,36 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
     private record Baseline(Instant destinationEtaAt, int waitsAfterFirst) {
     }
 
-    private record Scored(Candidate candidate, Attempt attempt, int gainSec) {
+    /**
+     * 평가를 마친 후보. 줄 세우기 값은 {@link RerouteRanking} 이 읽는다 — 정렬 규칙을 여기서 다시
+     * 쓰지 않는 이유는 ③·④·(PR-2 의) 정류장 목록이 <b>같은 순서 규칙</b>을 써야 하기 때문이다.
+     */
+    private record Scored(Candidate candidate, Attempt attempt, int gainSec, Instant anchorAt)
+            implements RerouteRanking.Ranked {
+
+        @Override
+        public Instant destinationEtaAt() {
+            return attempt.eta().destinationEtaAt();
+        }
+
+        @Override
+        public int transferCount() {
+            return candidate.prepared().transferCount();
+        }
+
+        @Override
+        public int walkingSec() {
+            return attempt.eta().walkingSec();
+        }
+
+        /** 첫 차를 탈 때까지의 여유. 걷기만으로 닿는 경로엔 탈 차가 없어 0이다. */
+        @Override
+        public int slackSec() {
+            BoardingEstimate first = attempt.estimate();
+            if (first == null || anchorAt == null) {
+                return 0;
+            }
+            return (int) Math.max(0, Duration.between(anchorAt, first.boardingAt()).getSeconds());
+        }
     }
 }

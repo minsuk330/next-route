@@ -64,11 +64,13 @@
 
 ### PR-1 — overlay A안 체인 + rank()
 의존: PR-A(정류장별 시각).
-- [ ] `RemainingPathEtaComposer.compose` 모든 WAIT 순차 체인: running clock 으로 `BoardingTimeEstimator.estimate`(**실시간→ML** — 여기만 ML 폴백을 허용한다, 확정 결정의 "의도한 비대칭" 참고), 둘 다 없음/not boardable → 후보 제외. anchor 갱신. "이후 대기 0"(R1) 폐기. 경로 간 overlay 병렬.
-- [ ] 기존 계약 유지: enrich, 첫 대기 앞 도보 앵커, 상대 legIndex, **환승 늘면 버림**.
-- [ ] baseline 도 같은 체인 overlay(출처 통일).
-- [ ] **표준 `rank()` 신설**(목적지 ETA→환승수→도보→여유) + overlay 전 시간표 정적 변형. `RemainingPathCandidateProvider`:279 정렬 대체.
-- [ ] Metrics 사유 `boarding-unresolved` 등재.
+- [x] 신규 `BoardingChainEtaCalculator`: 모든 WAIT 순차 체인(running clock → `BoardingTimeEstimator.estimate`, **실시간→ML** 은 예측기 안에 이미 있음), 못 풀면 후보 제외. anchor 갱신. "이후 대기 0"(R1) 폐기. **체인을 composer 안에 두지 않고 별도 컴포넌트로 뺀 이유 = baseline(저장 엔티티)과 후보(검색 초안)가 같은 계산을 타야 하기 때문**(중립 `Step` 만 받는다).
+- [x] `RemainingPathEtaComposer.compose` 가 체인 사용. 기존 계약 유지: enrich, 첫 대기 앞 도보 앵커(체인의 첫 구간이라 자동), 상대 legIndex, **환승 늘면 버림**.
+- [x] baseline 도 같은 체인 overlay(출처 통일) — 대기 leg 마다 선택 노선을 읽어 질의를 만든다.
+- [x] 경로 간 overlay 병렬: 신규 `rerouteOverlayExecutor`(bulkhead, size 4/queue 8). 풀 포화 시 호출 스레드에서 실행(후보를 버리지 않는다). 예산 초과는 `budget-exhausted` 로 **그 후보만** 접고 이미 끝난 것은 쓴다.
+- [x] **표준 `RerouteRanking.rank()` 신설**(목적지 ETA→환승수→도보→여유) + overlay 전 시간표 정적 변형(`Scheduled`). `RemainingPathCandidateProvider` 의 gain 내림차순 정렬 대체(기준선 고정이면 결과 동일, 동점만 달라짐).
+- [x] Metrics 사유 `boarding-unresolved` 등재(첫 대기 실패 `no-prediction` 과 구분).
+- [x] **신뢰도 = 체인에서 가장 나쁜 고리**(`hasFurtherTransfer` 기반 낮춤 폐기 — 이제 모든 대기를 예측하므로 "뒤에 대기가 남아 있다"가 근거가 아니다).
 - 검증: 2환승 2번째 없음=제외 / 체인 anchor / baseline 동일 / 환승 늘면 버림 / rank 계약 / ④ 무회귀.
 
 ### PR-2 — 원점 창 + 정류장별 리스트

@@ -4,17 +4,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.dto.BoardingEstimate;
-import watoo.grd.nextroute.application.journey.dto.BoardingOutcome;
 import watoo.grd.nextroute.application.journey.dto.BoardingQuery;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
 import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionDraft;
-import watoo.grd.nextroute.application.journey.port.out.BoardingTimeEstimator;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
-import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -47,8 +45,7 @@ public class RemainingPathEtaComposer {
 
     private final JourneyCompiler compiler;
     private final JourneyTransitIdEnricher transitIdEnricher;
-    private final RouteOptionEtaCalculator etaCalculator;
-    private final List<BoardingTimeEstimator> boardingTimeEstimators;
+    private final BoardingChainEtaCalculator chainCalculator;
 
     /**
      * 외부 호출 없이 후보의 뼈대를 만든다.
@@ -89,70 +86,56 @@ public class RemainingPathEtaComposer {
     /**
      * 뼈대에 <b>승차 시각</b>을 붙여 목적지 도착 시각까지 낸다.
      *
+     * <p>첫 대기만이 아니라 <b>모든 대기</b>에 물어본다({@link BoardingChainEtaCalculator}).
+     * 하나라도 못 풀면 후보를 버린다 — 0으로 둔 대기는 그대로 없는 개선폭이 된다.
+     *
      * @param anchorAt 사용자가 환승 정류장에서 준비를 마치는 시각({@code userReadyAt})
-     * @return 첫 대기를 못 잡거나 소요가 깨져 있으면 사유가 담긴 실패
+     * @return 대기를 못 풀거나 소요가 깨져 있으면 사유가 담긴 실패
      */
     public Attempt compose(Prepared prepared, Instant anchorAt, Instant now, long budgetMs) {
+        return compose(prepared, anchorAt, now, BoardingChainEtaCalculator.Budget.of(budgetMs));
+    }
+
+    public Attempt compose(Prepared prepared, Instant anchorAt, Instant now,
+                           BoardingChainEtaCalculator.Budget budget) {
         List<JourneyLegDraft> legs = prepared.legs();
-
-        if (prepared.walkOnly()) {
-            // 탈 것이 없으므로 준비되는 즉시 출발한다. 첫 단계부터 전부 더한다.
-            Optional<RouteOptionEtaCalculator.Result> eta =
-                    etaCalculator.compute(legs, legs.get(0).legIndex() - 1, anchorAt);
-            return eta.map(result -> new Attempt(prepared, result, null, now, null))
-                    .orElseGet(() -> Attempt.failed("missing-duration"));
-        }
-
-        JourneyLegDraft waitLeg = prepared.firstWait();
-        Integer walkBefore = walkSecondsBefore(legs, waitLeg.legIndex());
-        if (walkBefore == null) {
-            return Attempt.failed("missing-duration");
-        }
-        Instant boardingAnchor = anchorAt.plusSeconds(walkBefore);
-
-        BoardingTimeEstimator estimator = estimatorFor(waitLeg.type());
-        if (estimator == null) {
+        if (legs.isEmpty()) {
             return Attempt.failed("unresolved-route");
         }
-        BoardingOutcome outcome = estimator.estimate(
-                query(waitLeg, prepared.firstOption()), boardingAnchor, now, budgetMs);
-        if (!outcome.isPresent()) {
-            return Attempt.failed("no-prediction");
-        }
-        BoardingEstimate estimate = outcome.estimate();
-        if (!estimate.boardable()) {
-            // 사용자가 닿기 전에 지나갈 차다. "이걸 타면 5분 빠릅니다"로 제안할 수 없다.
-            return Attempt.failed("unboardable");
-        }
 
-        Optional<RouteOptionEtaCalculator.Result> eta = etaCalculator.compute(
-                legs, waitLeg.legIndex(), estimate.boardingAt());
-        if (eta.isEmpty()) {
-            return Attempt.failed("missing-duration");
+        // 후보 안의 상대 번호를 그대로 쓴다. 첫 단계 앞에는 아무것도 없다는 뜻으로 하나 앞을 넘긴다
+        // — 첫 대기 앞의 도보가 체인의 첫 구간이 되어 앵커를 자연히 민다.
+        BoardingChainEtaCalculator.Result chained = chainCalculator.compute(
+                steps(legs), legs.get(0).legIndex() - 1, anchorAt, now, budget);
+        if (chained.failed()) {
+            return Attempt.failed(chained.failureReason());
         }
-        return new Attempt(prepared, eta.get(), estimate, estimate.observedAt(), null);
+        BoardingEstimate first = chained.firstEstimate();
+        return new Attempt(prepared, chained, first, first == null ? now : first.observedAt(), null);
     }
 
     /**
-     * 첫 대기 <b>앞에</b> 있는 도보 소요의 합(초).
+     * 초안을 체인이 아는 모양으로 옮긴다.
      *
-     * @return 그중 하나라도 소요가 비어 있으면 null. 0으로 치면 앵커가 앞당겨져 못 타는 차를 고른다
+     * <p>대기 단계에는 <b>그 단계의 첫 노선 후보</b>를 붙인다(여정 시작과 같은 규칙 — 첫 후보가
+     * 선택 노선이다). 후보가 없거나 값이 비면 질의를 만들지 못하는데, 그 경우 체인이
+     * {@code no-prediction}/{@code boarding-unresolved} 로 끝난다 — 예측기가 미해석 값으로는
+     * 유료 조회를 내보내지 않기 때문이다.
      */
-    private Integer walkSecondsBefore(List<JourneyLegDraft> legs, int waitLegIndex) {
-        int walking = 0;
+    private List<BoardingChainEtaCalculator.Step> steps(List<JourneyLegDraft> legs) {
+        List<BoardingChainEtaCalculator.Step> steps = new ArrayList<>(legs.size());
         for (JourneyLegDraft leg : legs) {
-            if (leg.legIndex() >= waitLegIndex) {
-                break;
-            }
-            if (leg.type() != JourneyLegType.WALK && leg.type() != JourneyLegType.TRANSFER_WALK) {
+            if (!leg.type().isWaiting()) {
+                steps.add(BoardingChainEtaCalculator.Step.of(
+                        leg.legIndex(), leg.type(), leg.plannedDurationSec()));
                 continue;
             }
-            if (leg.plannedDurationSec() == null) {
-                return null;
-            }
-            walking += leg.plannedDurationSec();
+            JourneyRouteOptionDraft option = leg.routeOptions().isEmpty()
+                    ? null : leg.routeOptions().get(0);
+            steps.add(new BoardingChainEtaCalculator.Step(leg.legIndex(), leg.type(), null,
+                    query(leg, option)));
         }
-        return walking;
+        return steps;
     }
 
     private String unresolvedReason(JourneyLegDraft waitLeg, JourneyRouteOptionDraft option) {
@@ -171,14 +154,9 @@ public class RemainingPathEtaComposer {
 
     private BoardingQuery query(JourneyLegDraft waitLeg, JourneyRouteOptionDraft option) {
         return new BoardingQuery(waitLeg.type(), waitLeg.startStopId(), waitLeg.startName(),
-                option.routeId(), option.boardingSeq(), option.wayCode());
-    }
-
-    private BoardingTimeEstimator estimatorFor(JourneyLegType waitType) {
-        return boardingTimeEstimators.stream()
-                .filter(estimator -> estimator.supports(waitType))
-                .findFirst()
-                .orElse(null);
+                option == null ? null : option.routeId(),
+                option == null ? null : option.boardingSeq(),
+                option == null ? null : option.wayCode());
     }
 
     /**
@@ -234,7 +212,7 @@ public class RemainingPathEtaComposer {
      * @param estimate   승차 예측. 걷기만으로 닿는 경로면 null
      * @param observedAt 화면에 표시할 근거 시각. 걷기만인 경로는 지금 시각이다
      */
-    public record Attempt(Prepared prepared, RouteOptionEtaCalculator.Result eta,
+    public record Attempt(Prepared prepared, BoardingChainEtaCalculator.Result eta,
                           BoardingEstimate estimate, Instant observedAt, String filterReason) {
 
         static Attempt failed(String reason) {
