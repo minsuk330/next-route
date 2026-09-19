@@ -2540,3 +2540,19 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 미결 (통합 커버리지)
 - **제안→수락 관통 IT 없음**: 제안 생성(실 provider)과 수락(`RerouteAcceptIT`, 제안을 손으로 심음)이 각자 논다. 둘을 잇는 시나리오는 별건.
+
+## 2026-09-19 머지 정리 — PR-C·PR-1·stage5 전부 main
+
+### 배포
+- 머지 완료: **#214(PR-C) → #215(PR-1) → #216(stage5 1/2) → #219(stage5 2/2, 아래 함정)**. main = `a7dcbe6b`. 합쳐진 main 에서 컴파일 + 재탐색 전량 테스트 green 확인.
+- **VPS 는 아직 V49**. 배포 시 V50·V51·V52 가 한 번에 적용된다(그 표는 flag off 라 사실상 비어 있어 순서 위험 없음). 세 파일 모두 git 미추적이라 **이 작업트리에서 `./gradlew bootJar`** 해야 jar 에 실린다.
+- 🔴 **모바일 전달**: 제안 응답의 `transferIndex` → `origin`(legIndex·stopId·routeId·seq·kind).
+
+### 함정
+- 🔴 **`git add -A` 한 번이 추적 대상 아닌 3,066개 파일을 main 에 올렸다**(`.artifacts/` 의 16MB tar.gz 포함, 다른 작업의 계획 문서·도구 스크립트). 머지 충돌을 풀며 쓴 한 줄이었다. 되돌림 = #218(인덱스에서만 제거, 작업 트리 파일은 보존) + `.gitignore` 에 `.artifacts/`·`.tmp/` 추가. **커밋 이력의 blob 은 남아 저장소 용량은 안 줄었다** — 지우려면 filter-repo + force push 라 공유 브랜치 판단이 필요해 하지 않았다. **충돌 해결 때도 `git add <path>` 로 파일을 지목할 것**([[feedback-staged-contamination]] 이 경고하던 사고의 변종).
+- **base 브랜치를 지우면 그 위에 쌓은 PR 이 닫힌다**: #216 을 `--delete-branch` 로 머지하자 base 가 사라진 #217(stage5 2/2)이 **CLOSED** 되고 재오픈도 거부됐다(`Could not open the pull request`). 같은 브랜치로 #219 를 새로 열어 머지. **스택 PR 은 아래 PR 을 머지하기 전에 위 PR 의 base 를 main 으로 먼저 바꿀 것**(닫힌 뒤에는 base 변경도 막힌다).
+- **append-only 노트는 머지마다 충돌한다**(양쪽이 파일 끝에 덧붙이므로). 해결은 언제나 "양쪽 다 살리기" — 이번에 2회.
+
+### 미결
+- **개발 DB 를 쓰는 `@SpringBootTest` IT 가 브랜치 간 스키마 오염에 노출된다**: stage5 마이그레이션이 로컬 개발 DB 에 적용된 뒤, 옛 엔티티를 가진 브랜치(PR-1 등)에서 `Schema-validation: missing column [transfer_index]` 로 컨텍스트가 통째로 죽었다. 이 때문에 PR-1 의 여정 관통 테스트(B1)를 **작성했다가 폐기**(실행 증거를 못 만듦). Testcontainers 로 이관(같은 저장소의 `AbstractJourneyOutboxPostgresIT` 가 선례)하거나 전용 테스트 DB 로 가르는 것이 근본 해법 — **별건**.
+- **여정 관통 테스트 재시도**: 이제 main 에 체인(PR-1)과 새 스키마(stage5)가 함께 있으므로 B1 을 main 기준으로 다시 쓰면 그냥 돈다(버스3·환승2 여정에서 후보의 두 번째 승차까지 물어보는지).
