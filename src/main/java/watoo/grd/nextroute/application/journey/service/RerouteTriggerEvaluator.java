@@ -66,7 +66,7 @@ public class RerouteTriggerEvaluator {
             // 물으면 초당 200 평가가 그대로 Redis 왕복이 된다.
             metrics.recordTriggerFired(signal.reason().tag());
             if (!cooldownPort.tryAdmit(signal.journeyId(), signal.routeRevision(),
-                    signal.transferIndex(), RerouteCooldownPort.Scope.TRIGGER)) {
+                    RerouteCooldownPort.Scope.TRIGGER)) {
                 continue;
             }
             metrics.recordTriggerAdmitted(signal.reason().tag());

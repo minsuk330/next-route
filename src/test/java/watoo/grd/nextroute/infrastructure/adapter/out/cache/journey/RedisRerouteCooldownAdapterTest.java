@@ -30,7 +30,7 @@ import static org.mockito.Mockito.when;
 class RedisRerouteCooldownAdapterTest {
 
     private static final Long JOURNEY_ID = 42L;
-    private static final String KEY = "journey:reroute:cooldown:trigger:42:1:0";
+    private static final String KEY = "journey:reroute:cooldown:trigger:42:1";
 
     @Mock RedisTemplate<String, String> redisTemplate;
     @Mock ValueOperations<String, String> valueOps;
@@ -49,7 +49,7 @@ class RedisRerouteCooldownAdapterTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(valueOps.setIfAbsent(eq(KEY), eq("1"), eq(Duration.ofMinutes(1)))).thenReturn(true);
 
-        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, 0, Scope.TRIGGER)).isTrue();
+        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, Scope.TRIGGER)).isTrue();
     }
 
     @Test
@@ -58,7 +58,7 @@ class RedisRerouteCooldownAdapterTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(valueOps.setIfAbsent(eq(KEY), eq("1"), eq(Duration.ofMinutes(1)))).thenReturn(false);
 
-        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, 0, Scope.TRIGGER)).isFalse();
+        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, Scope.TRIGGER)).isFalse();
     }
 
     @Test
@@ -68,7 +68,7 @@ class RedisRerouteCooldownAdapterTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(valueOps.setIfAbsent(eq(KEY), eq("1"), eq(Duration.ofSeconds(45)))).thenReturn(true);
 
-        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, 0, Scope.TRIGGER)).isTrue();
+        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, Scope.TRIGGER)).isTrue();
         // 두 문장으로 나누면 그 사이에 죽었을 때 만료 없는 키가 남아 그 환승이 영영 막힌다.
         verify(valueOps).setIfAbsent(eq(KEY), eq("1"), eq(Duration.ofSeconds(45)));
     }
@@ -78,7 +78,7 @@ class RedisRerouteCooldownAdapterTest {
     void redisFailureIsFailClosed() {
         when(redisTemplate.opsForValue()).thenThrow(new IllegalStateException("redis down"));
 
-        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, 0, Scope.TRIGGER))
+        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, Scope.TRIGGER))
                 .as("여기서 열어 두면 ③이 켜진 뒤 캐시 장애가 곧 외부 검색 요금이 된다")
                 .isFalse();
     }
@@ -89,7 +89,7 @@ class RedisRerouteCooldownAdapterTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(valueOps.setIfAbsent(eq(KEY), eq("1"), eq(Duration.ofMinutes(1)))).thenReturn(null);
 
-        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, 0, Scope.TRIGGER)).isFalse();
+        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, Scope.TRIGGER)).isFalse();
     }
 
     @Test
@@ -97,7 +97,7 @@ class RedisRerouteCooldownAdapterTest {
     void zeroCooldownSkipsRedis() {
         properties.getTrigger().setCooldown(Duration.ZERO);
 
-        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, 0, Scope.TRIGGER)).isTrue();
+        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, Scope.TRIGGER)).isTrue();
         // Redis 는 TTL 0 을 거부한다. 원시 발생률만 보고 싶을 때 쓰는 설정이다.
         verify(redisTemplate, never()).opsForValue();
     }
@@ -106,20 +106,20 @@ class RedisRerouteCooldownAdapterTest {
     @DisplayName("용도가 다르면 키가 다르다 — shadow 방아쇠가 사용자 요청을 막지 않는다")
     void keyIncludesScope() {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.setIfAbsent(eq("journey:reroute:cooldown:request:42:1:0"), eq("1"),
+        when(valueOps.setIfAbsent(eq("journey:reroute:cooldown:request:42:1"), eq("1"),
                 eq(Duration.ofMinutes(1)))).thenReturn(true);
 
         // 방아쇠가 방금 trigger 키를 태웠어도 request 키는 비어 있다(D6).
-        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, 0, Scope.REQUEST)).isTrue();
+        assertThat(adapter.tryAdmit(JOURNEY_ID, 1, Scope.REQUEST)).isTrue();
     }
 
     @Test
     @DisplayName("키에 개정본이 들어간다 — 경로가 바뀌면 앞선 cooldown 이 막지 않는다")
     void keyIncludesRouteRevision() {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.setIfAbsent(eq("journey:reroute:cooldown:trigger:42:2:0"), eq("1"),
+        when(valueOps.setIfAbsent(eq("journey:reroute:cooldown:trigger:42:2"), eq("1"),
                 eq(Duration.ofMinutes(1)))).thenReturn(true);
 
-        assertThat(adapter.tryAdmit(JOURNEY_ID, 2, 0, Scope.TRIGGER)).isTrue();
+        assertThat(adapter.tryAdmit(JOURNEY_ID, 2, Scope.TRIGGER)).isTrue();
     }
 }

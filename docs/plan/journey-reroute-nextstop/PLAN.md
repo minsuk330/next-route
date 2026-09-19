@@ -52,7 +52,8 @@
 - [~] **2 백필**: **안 한다(2026-09-18 결정)**. 막아 줄 사고가 없다 — ③의 폴백(origin 없으면 transfer_index)과 ⑤의 "TTL+sweep 대기 후 옛 컬럼 제거" 두 겹으로 전환 구간이 이미 덮인다. 게다가 `transfer_connection` 에는 leg 번호뿐이라 tripId/정류장을 못 주고, `journey_revision.route_snapshot` JSON 을 과거 포맷까지 파싱해야 해서 비용도 크다(flag off 라 살아있는 행도 없음).
 - [x] **3 이중 쓰기/읽기**: TRANSFER_WAIT 는 둘 다 씀(`RerouteOriginResolver`), 읽기 origin 우선·옛행 transfer_index 폴백(모르는 봉투 판은 없는 것으로). **`request(...int)` shim 은 보류** — origin 으로 부르는 진입점이 아직 없어 shim 할 대상이 없다(PR-2/PR-4 와 함께).
 - [x] **4 candidate 봉투**: `RemainingPathApply` 에 nullable `origin` 필드 추가. **새 하위타입이 아니라 record 에 칸 추가**(`RouteOptionApply` 선례) — origin 은 "다른 종류의 후보"가 아니라 같은 종류의 추가 정보라 `kind` 축을 늘릴 일이 아니다. 옛 저장 JSON 은 null 로 읽히고 그게 옛 동작이다.
-- [ ] **5 컷오버**: 충돌 ACTIVE 정리→**여정당 unique** 신규 생성→origin-only 배포→TTL(5분)+sweep 여유→옛 인덱스/컬럼 제거. **V번호 신규**, VPS 수동배치 + @Sql 3곳.
+- [x] **5 컷오버 1/2**(V51): 충돌 ACTIVE 정리→**여정당 unique** 신규 생성 + 키 이동(supersede=여정 단위, cooldown 키에서 transferIndex 제거, stillCurrent 는 원점의 legIndex 기준·못 푼 여정만 옛 주소 폴백). 옛 인덱스·컬럼은 **그대로 둔다** — 새 인덱스가 더 좁아 공존이 안전하고 롤백하면 옛 코드가 그대로 돈다. @Sql 3곳 갱신.
+- [ ] **5 컷오버 2/2**(V번호 신규): 1/2 배포 후 TTL(5분)+sweep 여유를 두고 **옛 인덱스 `uq_reroute_proposal_active` + `transfer_index` 컬럼 제거**. 엔티티 필드·`RerouteContext.transferIndex`·API 요청/응답 필드(`CreateRerouteProposalRequest`·`RerouteProposalResponse`)·`stillCurrent` 폴백도 이때 걷는다. **모바일 계약 변경이라 별도 조율**.
   - **③에서 옮겨온 것 — 키 이동 전부**(`stillCurrent`·`supersedeActive`·조회·cooldown 키·트리거·수락). 이유 = **부분 unique 인덱스(자리의 정의)와 supersede(자리 비우기)는 짝**이고 지금 둘 다 `(journey_id, transfer_index)` 로 맞아 있다. 여기만 먼저 바꾸면 ⓐ여정 기준 → 아직 살아야 할 다른 환승 제안까지 죽거나(현 IT `differentTransfersCoexist` 가 고정한 동작), ⓑorigin 기준 → origin 이 null 인 행을 못 밀어내는데 인덱스는 여전히 transfer_index 라 **새 insert 가 unique 위반으로 튕긴다**. ⑤는 인덱스 교체와 코드 교체가 같은 배포라 어긋나는 창이 없다.
   - 🔴 이 오류는 **테스트로 안 잡힌다**: 재탐색은 flag off 라 프로덕션에 티가 안 나고, 이 경로는 Postgres IT 로만 도는데 이 저장소엔 CI 가 없다.
 - 검증: origin 왕복(TRANSFER_WAIT 무회귀), 이중읽기 폴백, 공개 API 컨트롤러 테스트, 마이그레이션 IT, 여정당 unique.

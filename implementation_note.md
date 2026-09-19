@@ -2382,3 +2382,35 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결 (PR-B 이후)
 - stage5(컷오버) = 여정당 unique 신규 + 키 이동 + 옛 인덱스/컬럼 제거 + V번호 신규. **별도 배포 단위**라 PR-B 에 넣지 않는다.
 - `origin` 을 실제로 채우는 것은 PR-2(원점 창)·PR-4(수락) 몫. 지금은 TRANSFER_WAIT 만 이중 쓰기로 채워진다.
+
+## 2026-09-19 journey-reroute-nextstop PR-B stage5 1/2 — 여정당 unique + 키 이동
+
+### 확정
+- **stage5 를 두 PR 로 쪼갰다**(PLAN 은 한 덩이로 적혀 있었음). 1/2 = **V51 여정당 unique + 키 이동**(옛 인덱스·컬럼 유지), 2/2 = TTL·sweep 여유 뒤 **옛 인덱스/컬럼 제거**. 이유 = PLAN 자체가 "③origin-only 배포 → ④TTL+sweep 여유 → ⑤옛 것 제거"로 **배포를 두 번** 요구한다. 한 PR 에 넣으면 그 사이의 대기 창을 코드로 표현할 수 없다.
+- **옛 `uq_reroute_proposal_active(journey_id, transfer_index)` 를 1/2 에서 안 지운다.** 새 인덱스가 **더 좁으므로**(여정당 1 ⊂ 환승당 1) 공존해도 새 삽입을 막지 않고, 롤백하면 옛 코드가 그대로 돈다. 이 순서 덕에 "인덱스만 좁히거나 코드만 좁혀서 깨지는" PLAN 의 경고 상황이 안 생긴다.
+- **자리를 비우는 규칙과 자리를 정의하는 인덱스는 같은 배포다**: `supersedeActive(journeyId, transferIndex, …)` → `supersedeActive(journeyId, …)` 와 V51 unique 가 한 PR. 이것이 PLAN 이 stage3 에서 키 이동을 여기로 미룬 이유 그대로다.
+- **cooldown 키에서 transferIndex 를 뺐다**(`journey:reroute:cooldown:{scope}:{journeyId}:{revision}`). 살아 있는 제안이 여정당 하나면 잠금도 여정 단위여야 한다 — 아니면 연타 한 번이 자리를 계속 갈아치운다. **마이그레이션 불필요**: 옛 키는 TTL(기본 1분)로 저절로 사라진다. `Scope`(TRIGGER/REQUEST) 분리는 그대로 유지(D6).
+- **`stillCurrent` 의 "지나갔는가" 기준을 원점의 `legIndex` 로 옮겼다.** 원점을 못 푼 여정만 옛 환승 행으로 폴백한다(전환 기간 정상 상태, 2/2 에서 폴백도 제거). 지금은 `RerouteOriginResolver` 가 transfer_connection 을 거쳐 origin 을 만들므로 **둘의 값이 항상 같다** — 실제로 갈리는 것은 대응하는 환승 행이 아예 없는 **RIDE_INTERIOR 원점**(PR-2·PR-4)이다. 그래서 지금 바꿔 두지 않으면 그때 이 확인이 통째로 막는다.
+- **수락 경로는 키 이동 대상이 아니었다**(PLAN 목록에는 있었음): `acceptIfActive(id, …)` 가 이미 proposalId 기준이고, `RerouteAcceptTxService` 의 transferIndex 참조는 전부 **transfer_connection**(다른 표) 쪽이다. 조회도 `findActive(journeyId)` 로 이미 여정 단위였다 — 실제로 옮길 것은 supersede·cooldown·stillCurrent 셋.
+- **죽은 쿼리 제거**: `findByJourneyIdAndTransferIndexAndStatusAndDeletedAtIsNull` 은 프로덕션에서 아무도 안 불렀다(선언만 남아 있었음).
+
+### 함정
+- **sweep IT 가 같은 여정에 ACTIVE 를 여러 건 심고 있었다** → 여정당 unique 에 걸려 실패. 여정을 나눠 심자 이번엔 `uq_journey_active_per_user`(사용자당 ACTIVE 여정 1개)에 걸렸다 — **사용자까지 새로 만들어야** 한다. 배치 sweep 은 여정을 가리지 않으므로 이 수정이 테스트 의도를 바꾸지 않는다.
+- **StoreIT `@BeforeEach` 가 `journey_leg` 를 안 비웠다**: 원점 해석이 그 표를 읽게 되면서(이 PR 에서 처음 journey_leg 행을 넣는 테스트가 생김) `delete from journey_session` 이 FK 위반으로 터진다. 지우는 순서에 journey_leg 를 추가.
+- **IT 에는 `bus_route_stop` 표가 없다**(`journey-it-schema.sql` 은 `users` 만 만든다). 원점 해석이 거기까지 가면 IT 가 깨지는데, `seqOf` 가 `routeId == null` 에서 먼저 끊어 안 간다 — 그래서 테스트용 leg 는 **노선 미선택** 상태로 넣는다. 이 우연에 기대고 있다는 것을 알아 둘 것.
+- **이 PR 은 #214(PR-C)의 IT 복구 커밋을 cherry-pick 해 담았다**(`@Import` 에 `RerouteOriginResolver` + `@Sql` 에 V50). 그것 없이는 `RerouteProposalStoreIT`/`ExpiryIT` 가 컨텍스트 로드 단계에서 죽어 stage5 를 **검증할 방법이 없다**. #214 가 먼저 머지되면 같은 내용이라 충돌 없이 흡수된다.
+
+### 좌표
+- 신규 마이그레이션: `db/migration/V51__reroute_proposal_journey_active_unique.sql`(정리 UPDATE + 부분 unique). **git 미추적**(V44+ convention)
+- 변경: `RerouteProposalRepository`(supersedeActive 여정 단위, 죽은 쿼리 삭제), `RerouteProposalTxService`(origin 먼저 해석 → stillCurrent(context, origin)), `RerouteCooldownPort`·`RedisRerouteCooldownAdapter`(키에서 transferIndex 제거), `WindowCooldownEligibilityPolicy`·`RerouteTriggerEvaluator`(호출부)
+- 테스트: `JourneyRerouteProposalSchemaIT`(환승당→여정당 계약 뒤집기 + 인덱스 목록 + V51), `RerouteProposalStoreIT`(여정 단위 supersede·원점 기준 지나감 확인 + V51 + journey_leg 정리), `RerouteProposalExpiryIT`(sweep fixture 여정·사용자 분리 + V51), `RedisRerouteCooldownAdapterTest`(키 문자열), 그 밖 cooldown 호출부 4곳
+
+### 배포
+- **V51 VPS 수동배치 필요**(V44+ untracked convention). 🔴 **선행 조건: 아직 VPS 는 V49 다** — V50(origin 컬럼)이 안 올라가 있다. prod `ddl-auto: validate` 라 V50 없이 현재 main 을 올리면 부팅이 실패한다. **배포 순서 = V50 · V51 을 담은 jar 를 이 작업트리에서 `./gradlew bootJar` → 한 번에 적용**(둘 다 이 트리에만 있는 파일).
+- 인덱스 생성은 `CREATE UNIQUE INDEX`(CONCURRENTLY 아님) — reroute_proposal 은 재탐색 flag off 라 사실상 빈 표이므로 잠금 시간이 무시할 수준이다. 표가 커진 뒤에 돌릴 계획이면 CONCURRENTLY 로 바꿔야 한다.
+- 2/2(옛 인덱스·컬럼 제거)는 이 배포가 라이브에서 TTL(5분)+sweep 을 넘긴 뒤 별도 PR·별도 배포.
+
+### 검증
+- `JourneyRerouteProposalSchemaIT` **6/6**(계약 뒤집기 포함), `RerouteProposalStoreIT` **15/15**(신규 2), `RerouteProposalExpiryIT` **4/4**.
+- **뮤테이션 2건**: ①supersede 를 `transfer_index = 99` 로 좁히자 StoreIT 2건 FAILED(자리를 못 비워 unique 위반) ②cooldown 키에 `:0` 을 되돌려 붙이자 adapter 테스트 4건 FAILED. 되돌림.
+- `application.journey.*` + `adapter.out.cache.*` → **1026 tests, 1 failed** = `JourneyTransferAssessmentIT`(clean main 동일 실패, 기존 무관 — PR-1 절 참고).

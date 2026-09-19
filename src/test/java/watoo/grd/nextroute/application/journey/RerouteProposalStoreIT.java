@@ -24,6 +24,7 @@ import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteContext;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
+import watoo.grd.nextroute.application.journey.service.RerouteOriginResolver;
 import watoo.grd.nextroute.application.journey.service.RerouteProposalTxService;
 import watoo.grd.nextroute.common.config.JpaConfig;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
@@ -55,8 +56,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({JpaConfig.class, RerouteProposalTxService.class, JourneyRerouteMetrics.class,
-        RerouteProposalStoreIT.Config.class})
+@Import({JpaConfig.class, RerouteProposalTxService.class, RerouteOriginResolver.class,
+        JourneyRerouteMetrics.class, RerouteProposalStoreIT.Config.class})
 @Sql(scripts = {
         "classpath:db/it/journey-reset.sql",
         "classpath:db/migration/V35__create_journey.sql",
@@ -67,7 +68,9 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V40__create_journey_notification.sql",
         "classpath:db/migration/V41__create_journey_telemetry_event.sql",
         "classpath:db/migration/V42__create_reroute_proposal.sql",
-        "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql"
+        "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql",
+        "classpath:db/migration/V50__add_reroute_proposal_origin.sql",
+        "classpath:db/migration/V51__reroute_proposal_journey_active_unique.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DisplayName("재탐색 제안 저장")
@@ -111,6 +114,8 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     void setUp() {
         jdbcTemplate.update("delete from reroute_proposal");
         jdbcTemplate.update("delete from transfer_connection");
+        // journey_leg 가 여정을 참조한다. 원점 해석이 이 표를 읽으므로 여기서도 비운다.
+        jdbcTemplate.update("delete from journey_leg");
         jdbcTemplate.update("delete from journey_session");
         jdbcTemplate.update("delete from users");
         userId = newUser();
@@ -162,6 +167,43 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         assertThat(rows()).hasSize(2);
         assertThat(rows().get(0).get("resolved_reason")).isEqualTo("replaced");
         assertThat(activeCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("원점을 풀면 지나갔는지를 원점의 leg 번호로 본다")
+    void passedCheckUsesTheOriginWhenResolved() {
+        // 원점이 풀리려면 그 환승이 가리키는 탑승 leg 가 있어야 한다(RerouteOriginResolver).
+        newBoardingLeg(2, "ST-C");
+
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+                List.of(candidate()), NOW, NOW.plusSeconds(120))).isPresent();
+        assertThat(lastOriginLegIndex()).isEqualTo(2);
+
+        // 그 leg 를 지나면 저장하지 않는다. 기준이 원점이라는 것은 주행 중 정류장 원점
+        // (대응하는 환승 행이 아예 없다)이 생기는 PR-2·PR-4 에서 실제로 갈린다.
+        jdbcTemplate.update("update journey_session set current_leg_index = 3 where id = ?",
+                journeyId);
+
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+                List.of(candidate()), NOW, NOW.plusSeconds(120))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("다른 환승의 제안도 밀려난다 — 살아 있는 제안은 여정당 하나다(stage5)")
+    void newProposalReplacesOtherTransfersToo() {
+        newTransfer(1, 4);
+        txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+                List.of(candidate()), NOW, NOW.plusSeconds(120));
+
+        // stage5 이전에는 둘이 공존했다(환승당 하나). 원점이 leg 경계를 넘어가면서 그 단위가
+        // 성립하지 않는다 — 자리를 비우는 규칙과 부분 unique 인덱스는 짝이라 함께 좁혔다.
+        txService.store(context(1, 1), RerouteProposalKind.REMAINING_PATH,
+                List.of(candidate()), NOW, NOW.plusSeconds(120));
+
+        assertThat(rows()).hasSize(2);
+        assertThat(rows().get(0).get("resolved_reason")).isEqualTo("replaced");
+        assertThat(activeCount()).isEqualTo(1);
+        assertThat(rows().get(1).get("transfer_index")).isEqualTo(1);
     }
 
     @Test
@@ -362,6 +404,22 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
                      from_leg_index, to_leg_index, status)
                 values (now(), now(), ?, 1, ?, ?, ?, 'AT_RISK')
                 """, journeyId, transferIndex, toLegIndex - 1, toLegIndex);
+    }
+
+    /** 환승이 가리키는 탑승 leg. 원점 해석이 이 행에서 정류장을 읽는다. */
+    private void newBoardingLeg(int legIndex, String startStopId) {
+        jdbcTemplate.update("""
+                insert into journey_leg
+                    (created_at, updated_at, journey_id, route_revision, leg_index, type, state,
+                     start_stop_id)
+                values (now(), now(), ?, 1, ?, 'WAIT_BUS', 'PENDING', ?)
+                """, journeyId, legIndex, startStopId);
+    }
+
+    private Integer lastOriginLegIndex() {
+        return jdbcTemplate.queryForObject(
+                "select (origin -> 'origin' ->> 'legIndex')::int from reroute_proposal"
+                        + " where status = 'ACTIVE'", Integer.class);
     }
 
     private long newJourney(long ownerId) {

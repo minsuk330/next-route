@@ -95,7 +95,12 @@ public class RerouteProposalTxService {
     public Optional<RerouteProposalView> store(RerouteContext context, RerouteProposalKind kind,
                                                List<RerouteCandidate> candidates,
                                                Instant snapshotObservedAt, Instant expiresAt) {
-        if (!stillCurrent(context)) {
+        // 원점을 먼저 푼다. 아래 "지나갔는가" 확인이 이 값을 쓴다(stage5 — 옛 transfer_index 가
+        // 아니라 원점의 leg 번호가 기준이다).
+        Optional<RerouteOrigin> origin = originResolver.resolveTransferWait(
+                context.journeyId(), context.routeRevision(), context.transferIndex());
+
+        if (!stillCurrent(context, origin.orElse(null))) {
             metrics.recordRejected("stale-context");
             return Optional.empty();
         }
@@ -103,8 +108,9 @@ public class RerouteProposalTxService {
         countByReason(proposalRepository.resolveStale(
                 context.journeyId(), context.routeRevision(), context.now(), auditNow));
 
+        // 여정당 하나다(stage5). 자리를 비우는 규칙과 부분 unique 인덱스는 짝이라 함께 좁혔다.
         int replaced = proposalRepository.supersedeActive(
-                context.journeyId(), context.transferIndex(), context.now(), auditNow);
+                context.journeyId(), context.now(), auditNow);
         metrics.recordResolved("replaced", replaced);
 
         List<RerouteCandidate> stored = candidates.stream()
@@ -114,9 +120,7 @@ public class RerouteProposalTxService {
 
         // 이중 쓰기(PR-B stage3): 서울 좌표계 origin 과 옛 transfer_index 를 함께 남긴다.
         // 못 푸는 여정은 origin 이 null 인 채 저장되고 읽는 쪽이 옛 주소로 폴백한다.
-        Optional<RerouteOrigin> origin = originResolver.resolveTransferWait(
-                context.journeyId(), context.routeRevision(), context.transferIndex());
-
+        // (컬럼 제거는 stage5 2/2 — TTL·sweep 이 지나 옛 행이 사라진 뒤다.)
         RerouteProposal proposal = proposalRepository.save(RerouteProposal.builder()
                 .journeyId(context.journeyId())
                 .userId(context.userId())
@@ -146,14 +150,15 @@ public class RerouteProposalTxService {
      *   <li>{@code ACTIVE} — 여정이 끝났는데 제안을 심으면 끝난 여정에 살아 있는 제안이 남는다</li>
      *   <li>{@code commandVersion} — 사용자가 탑승·하차를 알렸다. 그 전의 판단이다</li>
      *   <li>{@code routeRevision} — 경로가 바뀌었다. 후보의 {@code legIndex} 가 다른 단계를 가리킨다</li>
-     *   <li>진행 단계 — 이미 그 환승을 지났다. 사용자가 할 수 있는 일이 없는 제안이 된다</li>
+     *   <li>진행 단계 — 이미 그 자리를 지났다. 사용자가 할 수 있는 일이 없는 제안이 된다.
+     *       기준은 <b>원점의 leg 번호</b>이고, 원점을 못 푼 여정만 옛 환승 행으로 폴백한다</li>
      * </ul>
      *
      * <p><b>여정 행을 잠그고 읽는다.</b> 잠그지 않으면 읽기와 삽입 사이에 탑승 명령이 커밋될 수
      * 있어, 확인 자체가 "방금까지는 맞았던 사진"이 된다 — 이 확인이 막으려던 바로 그 경합이다.
      * 명령 처리({@code JourneyCommandService})가 같은 행을 같은 순서로 잠그므로 서로 줄을 선다.
      */
-    private boolean stillCurrent(RerouteContext context) {
+    private boolean stillCurrent(RerouteContext context, RerouteOrigin origin) {
         Optional<JourneySession> found = sessionRepository
                 .findByIdAndUserIdForUpdate(context.journeyId(), context.userId());
         if (found.isEmpty()) {
@@ -165,6 +170,13 @@ public class RerouteProposalTxService {
                 || journey.getRouteRevision() != context.routeRevision()) {
             return false;
         }
+        if (origin != null) {
+            // 원점이 곧 주소다(stage5). 환승 행을 다시 읽지 않는다 — 주행 중 정류장 원점에는
+            // 대응하는 환승 행이 아예 없으므로, 그 모양이 오면 이 확인이 통째로 막아 버린다.
+            return origin.legIndex() >= journey.getCurrentLegIndex();
+        }
+        // 원점을 못 푼 여정(노선 미확정·서울 DB 미매핑)은 옛 주소로 확인한다. 전환 기간 동안
+        // 정상인 상태이고, 옛 컬럼이 사라지는 stage5 2/2 까지 이 폴백이 남는다.
         return transferRepository
                 .findByJourneyIdAndRouteRevisionAndTransferIndexAndDeletedAtIsNull(
                         context.journeyId(), context.routeRevision(), context.transferIndex())

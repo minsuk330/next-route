@@ -49,7 +49,7 @@ class WindowCooldownEligibilityPolicyTest {
     void setUp() {
         policy = new WindowCooldownEligibilityPolicy(transferRepository,
                 new RerouteTriggerPolicy(properties),
-                (journeyId, routeRevision, transferIndex, scope) -> {
+                (journeyId, routeRevision, scope) -> {
                     askedScopes.add(scope);
                     return cooldownAdmits;
                 });

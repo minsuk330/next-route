@@ -33,17 +33,17 @@ public class RedisRerouteCooldownAdapter implements RerouteCooldownPort {
      * 키를 심는 데 성공한 쪽만 통과한다.
      *
      * <p>{@code setIfAbsent(key, value, ttl)} <b>한 문장</b>으로 끝낸다. 심기와 TTL 을 두 문장으로
-     * 나누면 그 사이에 죽었을 때 만료 없는 키가 남아 그 환승이 영영 막힌다.
+     * 나누면 그 사이에 죽었을 때 만료 없는 키가 남아 그 여정이 영영 막힌다.
      */
     @Override
-    public boolean tryAdmit(Long journeyId, int routeRevision, int transferIndex, Scope scope) {
+    public boolean tryAdmit(Long journeyId, int routeRevision, Scope scope) {
         Duration cooldown = properties.getTrigger().getCooldown();
         if (cooldown.isZero()) {
             // 사실상 끈 상태. Redis 는 TTL 0 을 거부하므로 키를 심지 않고 그냥 통과시킨다.
             // 원시 발생률만 보고 싶을 때 쓰는 설정이다.
             return true;
         }
-        String key = key(journeyId, routeRevision, transferIndex, scope);
+        String key = key(journeyId, routeRevision, scope);
         try {
             return Boolean.TRUE.equals(
                     redisTemplate.opsForValue().setIfAbsent(key, "1", cooldown));
@@ -58,11 +58,13 @@ public class RedisRerouteCooldownAdapter implements RerouteCooldownPort {
      * 개정본을 키에 넣는다. 수락으로 경로가 바뀌면 이전 개정본의 cooldown 이 새 경로의 첫
      * 재탐색을 막아서는 안 된다 — 그때는 완전히 다른 상황이다.
      *
+     * <p>환승 번호는 <b>더 이상 키에 없다</b>(stage5) — 살아 있는 제안이 여정당 하나이므로 잠금도
+     * 여정 단위여야 한다. 옛 키는 TTL(기본 1분)이 지나면 저절로 사라지므로 마이그레이션이 없다.
+     *
      * <p>용도({@link Scope})도 키에 넣는다. 섞으면 아무것도 만들지 않는 shadow 방아쇠가 잠금을
      * 태워 사용자 요청이 거절된다(D6).
      */
-    private String key(Long journeyId, int routeRevision, int transferIndex, Scope scope) {
-        return KEY_PREFIX + scope.name().toLowerCase() + ":"
-                + journeyId + ":" + routeRevision + ":" + transferIndex;
+    private String key(Long journeyId, int routeRevision, Scope scope) {
+        return KEY_PREFIX + scope.name().toLowerCase() + ":" + journeyId + ":" + routeRevision;
     }
 }

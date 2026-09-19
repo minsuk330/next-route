@@ -25,6 +25,7 @@ import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteContext;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
 import watoo.grd.nextroute.application.journey.service.RerouteProposalExpiryService;
+import watoo.grd.nextroute.application.journey.service.RerouteOriginResolver;
 import watoo.grd.nextroute.application.journey.service.RerouteProposalTxService;
 import watoo.grd.nextroute.common.config.JpaConfig;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
@@ -51,7 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({JpaConfig.class, RerouteProposalExpiryService.class, RerouteProposalTxService.class,
-        JourneyRerouteMetrics.class, RerouteProposalExpiryIT.Config.class})
+        RerouteOriginResolver.class, JourneyRerouteMetrics.class, RerouteProposalExpiryIT.Config.class})
 @Sql(scripts = {
         "classpath:db/it/journey-reset.sql",
         "classpath:db/migration/V35__create_journey.sql",
@@ -62,7 +63,9 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V40__create_journey_notification.sql",
         "classpath:db/migration/V41__create_journey_telemetry_event.sql",
         "classpath:db/migration/V42__create_reroute_proposal.sql",
-        "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql"
+        "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql",
+        "classpath:db/migration/V50__add_reroute_proposal_origin.sql",
+        "classpath:db/migration/V51__reroute_proposal_journey_active_unique.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @TestPropertySource(properties = {
@@ -175,8 +178,12 @@ class RerouteProposalExpiryIT extends AbstractJourneyOutboxPostgresIT {
     @Test
     @DisplayName("한 tick 은 batch × max-sweeps 를 넘지 않는다")
     void sweepRespectsTickBound() {
-        for (int transferIndex = 0; transferIndex < BATCH_SIZE * MAX_SWEEPS + 2; transferIndex++) {
-            insertProposal(transferIndex, NOW.minusSeconds(1));
+        // 여정마다 하나씩 심는다(stage5 — 살아 있는 제안은 여정당 하나라 한 여정에 여럿을 못
+        // 넣는다). sweep 은 어차피 여정을 가리지 않고 만료된 행을 배치로 접는다.
+        for (int i = 0; i < BATCH_SIZE * MAX_SWEEPS + 2; i++) {
+            // 사용자당 ACTIVE 여정도 하나라(uq_journey_active_per_user) 사용자까지 새로 만든다.
+            long owner = newUser();
+            insertProposal(owner, newJourney(owner), 0, NOW.minusSeconds(1));
         }
 
         int expired = expiryService.sweep();
@@ -190,6 +197,10 @@ class RerouteProposalExpiryIT extends AbstractJourneyOutboxPostgresIT {
     // ── 준비 ────────────────────────────────────────────────────────────────
 
     private void insertProposal(int transferIndex, Instant expiresAt) {
+        insertProposal(userId, journeyId, transferIndex, expiresAt);
+    }
+
+    private void insertProposal(long userId, long journeyId, int transferIndex, Instant expiresAt) {
         jdbcTemplate.update("""
                 insert into reroute_proposal
                     (created_at, updated_at, journey_id, user_id, route_revision, transfer_index,

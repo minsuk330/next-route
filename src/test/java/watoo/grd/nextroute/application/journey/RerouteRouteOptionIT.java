@@ -92,8 +92,8 @@ class RerouteRouteOptionIT {
         given(snapshotPort.find(SESSION_ID, PATH_KEY)).willReturn(Optional.of(
                 new RouteSearchSnapshotPort.StoredPath(
                         null, twoTransferPath(), Instant.now().plusSeconds(600))));
-        given(cooldownPort.tryAdmit(anyLong(), org.mockito.ArgumentMatchers.anyInt(),
-                org.mockito.ArgumentMatchers.anyInt(), any())).willReturn(true);
+        given(cooldownPort.tryAdmit(anyLong(), org.mockito.ArgumentMatchers.anyInt(), any()))
+                .willReturn(true);
         given(rideDurationPort.rideDurationSeconds(anyString(), anyString(), anyString(), any()))
                 .willReturn(RideDurationResult.ok(600));
         userId = newUser();
