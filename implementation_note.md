@@ -2444,3 +2444,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `RerouteProposalStoreIT` **16/16**(신규 `원점을 못 풀면 저장하지 않는다`), `RerouteProposalExpiryIT` **4/4**, `RerouteAcceptIT` **10/10**.
 - **뮤테이션**: origin 이 없을 때 가짜 원점으로 저장하게 바꾸자 신규 테스트 FAILED → 되돌림.
 - `application.journey.*` + `application.auth.*` + `adapter.in.api.journey.*` → **1075 tests, 1 failed** = `JourneyTransferAssessmentIT`(clean main 동일, 기존 무관).
+
+### 검증 (추가 — 통합 커버리지 구멍 메움, 사용자 질문 계기)
+
+- **구멍 실측**: 이 저장소의 재탐색 통합 테스트는 *슬라이스·컴포넌트* 위주고 **여정 관통 시나리오가 없다**. 특히 두 곳이 비어 있었다.
+  1. **API 주소 계약 미검증**: `JourneyRerouteProposalControllerTest` 가 `candidates[*]` 만 단언해 `transferIndex`→`origin` 교체를 아무 테스트도 안 잡았다(필드를 지웠는데 초록불).
+  2. **여정당 1개가 흐름에서 미검증**: `RerouteRemainingPathIT` 의 계획 경로는 **환승 1개**라, 앞 제안이 뒤 제안에 자리를 내주는 장면 자체가 나오지 않았다.
+- **메운 것 (A)**: 컨트롤러 테스트에 `$.proposal.origin.{legIndex,stopId,kind}` 단언 + `transferIndex`·`realtimeAddressable` **부재** 단언. 뮤테이션(origin 을 null 로 내보냄) → FAILED 확인.
+- **메운 것 (B2)**: `RerouteRemainingPathIT` 에 **버스3·환승2 여정**을 시작하는 케이스 추가 — 환승 0 제안 → 환승 1 제안 요청 시 ①ACTIVE 는 1건 ②앞 행이 `replaced` ③origin 의 legIndex 가 바뀜. 뮤테이션(supersede 를 `1=0` 으로 무력화) → FAILED 확인.
+- **IT 함정**: 한 사용자에 ACTIVE 여정은 하나라, 두 번째 여정을 시작하려면 앞 여정을 먼저 접어야 한다. 상태 어휘는 `ACTIVE|COMPLETED|CANCELED|EXPIRED` — `ENDED` 는 check 제약 위반이다(`journey_session_status_check`).
+- 재실행: `application.journey.*` + 컨트롤러 → **968 tests, 1 failed**(기존 무관 `JourneyTransferAssessmentIT`).
+
+### 미결 (통합 커버리지)
+- **제안→수락 관통 IT 없음**: 제안 생성(실 provider)과 수락(`RerouteAcceptIT`, 제안을 손으로 심음)이 각자 논다. 둘을 잇는 시나리오는 별건.

@@ -124,6 +124,29 @@ class JourneyRerouteProposalControllerTest {
         verify(proposalService).request(USER_ID, JOURNEY_ID, 1);
     }
 
+    // ── 주소 계약 ───────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("제안의 주소는 origin 이다 — 옛 transferIndex 는 응답에 없다")
+    void proposalCarriesOriginAsItsAddress() throws Exception {
+        given(proposalService.findActive(USER_ID, JOURNEY_ID))
+                .willReturn(Optional.of(viewWithRemainingPath()));
+
+        mockMvc.perform(get("/api/journeys/{id}/reroute-proposals/active", JOURNEY_ID)
+                        .with(authentication(authUser(USER_ID))))
+                .andExpect(status().isOk())
+                // 앱이 "어느 자리에 대한 제안인지"를 읽는 값. leg 번호와 정류장이 함께 있어야
+                // 주행 중 정류장 하차(RIDE_INTERIOR)까지 가리킬 수 있다.
+                .andExpect(jsonPath("$.proposal.origin.legIndex").value(2))
+                .andExpect(jsonPath("$.proposal.origin.stopId").value("ST-C"))
+                .andExpect(jsonPath("$.proposal.origin.kind").value("TRANSFER_WAIT"))
+                // 옛 주소를 되살리면 주소가 둘이 되고, 그때부터 어느 쪽이 진짜인지 코드가 매번
+                // 골라야 한다(stage5 가 지운 이유).
+                .andExpect(jsonPath("$.proposal.transferIndex").doesNotExist())
+                // isRealtimeAddressable() 같은 파생 메서드가 속성으로 새면 계약이 조용히 늘어난다.
+                .andExpect(jsonPath("$.proposal.origin.realtimeAddressable").doesNotExist());
+    }
+
     // ── 적용 재료가 새어 나가지 않는가 ──────────────────────────────────────
 
     @Test

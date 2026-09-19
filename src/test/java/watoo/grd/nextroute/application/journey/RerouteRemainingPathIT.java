@@ -72,6 +72,7 @@ class RerouteRemainingPathIT {
 
     private static final String SESSION_ID = "sess-reroute-remaining-it";
     private static final String PATH_KEY = "0";
+    private static final String TWO_TRANSFER_SESSION = "sess-reroute-remaining-it-2";
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired RerouteProposalService rerouteProposalService;
@@ -163,7 +164,82 @@ class RerouteRemainingPathIT {
         verifyNoInteractions(odSayApiPort);
     }
 
+    @Test
+    @DisplayName("환승이 둘이어도 살아 있는 제안은 여정당 하나다 — 뒤 환승 제안이 앞 것을 밀어낸다")
+    void secondTransferProposalReplacesTheFirst() {
+        JourneySnapshot twoTransfers = startJourneyWith(TWO_TRANSFER_SESSION, threeBusPath());
+        Instant readyAt = Instant.now().plusSeconds(240);
+        givenLiveTransfer(twoTransfers.journeyId(), 0, readyAt);
+        givenLiveTransfer(twoTransfers.journeyId(), 1, readyAt);
+        // 지금 타려던 두 노선은 한참 뒤에 온다. 대안 노선이 없어 ③은 두 번 다 빈손이다.
+        givenPrediction("BL-721", readyAt.plusSeconds(1200));
+        givenPrediction("BL-900", readyAt.plusSeconds(1200));
+        givenPrediction("BL-360", readyAt.plusSeconds(60));
+        given(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
+                .willReturn(new RouteSearchResult(0, 1, 0, 0, 0, List.of(alternativePath())));
+
+        Integer firstLegIndex = requestAndReadOriginLeg(twoTransfers, 0);
+        Integer secondLegIndex = requestAndReadOriginLeg(twoTransfers, 1);
+
+        // stage5 이전에는 둘이 공존했다(환승당 하나). 지금은 뒤의 제안이 앞의 자리를 가져간다 —
+        // 사용자에게 "지금 제안"은 언제나 하나여야 하고, 수락은 어차피 여정을 끝낸다.
+        assertThat(firstLegIndex).isNotNull();
+        assertThat(secondLegIndex).isNotNull().isNotEqualTo(firstLegIndex);
+        assertThat(activeProposalCount(twoTransfers.journeyId())).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*) from reroute_proposal
+                 where journey_id = ? and status = 'SUPERSEDED' and resolved_reason = 'replaced'
+                """, Integer.class, twoTransfers.journeyId())).isEqualTo(1);
+    }
+
     // ── 준비 ────────────────────────────────────────────────────────────────
+
+    /** 제안을 하나 만들고 그 제안이 가리키는 자리(leg 번호)를 돌려준다. */
+    private Integer requestAndReadOriginLeg(JourneySnapshot target, int transferIndex) {
+        assertThat(rerouteProposalService.request(userId, target.journeyId(), transferIndex))
+                .as("환승 %s 에 대한 제안", transferIndex)
+                .isPresent();
+        return jdbcTemplate.queryForObject("""
+                select (origin -> 'origin' ->> 'legIndex')::int from reroute_proposal
+                 where journey_id = ? and status = 'ACTIVE'
+                """, Integer.class, target.journeyId());
+    }
+
+    private JourneySnapshot startJourneyWith(String sessionId, PathResult path) {
+        given(snapshotPort.find(sessionId, PATH_KEY)).willReturn(Optional.of(
+                new RouteSearchSnapshotPort.StoredPath(
+                        null, path, Instant.now().plusSeconds(600))));
+        // 사용자당 살아 있는 여정은 하나다. 앞 여정을 끝내고 새로 시작한다.
+        jdbcTemplate.update("update journey_session set status = 'CANCELED', ended_at = now()"
+                + " where user_id = ? and status = 'ACTIVE'", userId);
+        return startJourneyUseCase.start(userId, new StartJourneyCommand(sessionId, PATH_KEY, false));
+    }
+
+    /** 버스 셋, 환승 둘. 뒤 환승에도 제안을 만들 수 있는 모양이다. */
+    private PathResult threeBusPath() {
+        return new PathResult(1,
+                new PathInfo(90, 6000, 1200, 1, "정류장A", "정류장Z", null),
+                List.of(
+                        SubPathFixture.bus(20).names("정류장A", "정류장F")
+                                .coords(127.00, 37.00, 127.10, 37.10)
+                                .busStops("ST-A", "ST-F")
+                                .lanes(SubPathFixture.busLane("370", "BL-370")).build(),
+                        SubPathFixture.walk(3).names("정류장F", "정류장G").distance(150.0)
+                                .coords(127.10, 37.10, 127.20, 37.20).build(),
+                        SubPathFixture.bus(25).names("정류장G", "정류장P")
+                                .coords(127.20, 37.20, 127.30, 37.30)
+                                .busStops("ST-G", "ST-P")
+                                .lanes(SubPathFixture.busLane("721", "BL-721")).build(),
+                        SubPathFixture.walk(3).names("정류장P", "정류장Q").distance(150.0)
+                                .coords(127.30, 37.30, 127.35, 37.35).build(),
+                        SubPathFixture.bus(40).names("정류장Q", "정류장Z")
+                                .coords(127.35, 37.35, 127.50, 37.50)
+                                .busStops("ST-Q", "ST-Z")
+                                .lanes(SubPathFixture.busLane("900", "BL-900")).build()),
+                List.of());
+    }
+
+
 
     /**
      * 정적 노선표를 가짜로 준다. 시험 DB 에는 표가 없어 이것 없이는 승·하차 순번이 비고, 그러면
@@ -181,13 +257,17 @@ class RerouteRemainingPathIT {
 
     /** 평가가 근거를 채운 상태로 만든다. 실제로는 {@code TransferAssessmentWriter} 가 쓴다. */
     private void givenLiveTransfer(int transferIndex, Instant readyAt) {
+        givenLiveTransfer(journey.journeyId(), transferIndex, readyAt);
+    }
+
+    private void givenLiveTransfer(long journeyId, int transferIndex, Instant readyAt) {
         jdbcTemplate.update("""
                 update transfer_connection
                    set status = 'AT_RISK', user_ready_at = ?, confidence = 'GOOD',
                        current_leg_arrival_at = ?, calculated_at = now()
                  where journey_id = ? and transfer_index = ? and deleted_at is null
                 """, java.sql.Timestamp.from(readyAt), java.sql.Timestamp.from(readyAt),
-                journey.journeyId(), transferIndex);
+                journeyId, transferIndex);
     }
 
     private void givenPrediction(String routeId, Instant arrivalAt) {
@@ -211,10 +291,14 @@ class RerouteRemainingPathIT {
     }
 
     private int activeProposalCount() {
+        return activeProposalCount(journey.journeyId());
+    }
+
+    private int activeProposalCount(long journeyId) {
         return jdbcTemplate.queryForObject("""
                 select count(*) from reroute_proposal
                  where journey_id = ? and status = 'ACTIVE'
-                """, Integer.class, journey.journeyId());
+                """, Integer.class, journeyId);
     }
 
     /**
