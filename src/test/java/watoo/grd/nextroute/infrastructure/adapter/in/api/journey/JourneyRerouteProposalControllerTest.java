@@ -160,7 +160,10 @@ class JourneyRerouteProposalControllerTest {
                 new RerouteCandidateApply.RemainingPathApply(2, busPath()),
                 new RerouteCandidateDisplay(NOW.plusSeconds(1_500), 1_500, 240, 1, 300,
                         "REALTIME", "HIGH", NOW.minusSeconds(30), List.of("370 버스")));
-        return new RerouteProposalView(1L, JOURNEY_ID, 1, 0, null, RerouteProposalKind.REMAINING_PATH,
+        return new RerouteProposalView(1L, JOURNEY_ID, 1,
+                new watoo.grd.nextroute.application.journey.dto.RerouteOrigin(2, "ST-C", "BL-370", 4,
+                        watoo.grd.nextroute.application.journey.dto.RerouteOriginKind.TRANSFER_WAIT),
+                RerouteProposalKind.REMAINING_PATH,
                 1L, NOW.minusSeconds(30), NOW.plusSeconds(120), List.of(candidate));
     }
 

@@ -95,12 +95,18 @@ public class RerouteProposalTxService {
     public Optional<RerouteProposalView> store(RerouteContext context, RerouteProposalKind kind,
                                                List<RerouteCandidate> candidates,
                                                Instant snapshotObservedAt, Instant expiresAt) {
-        // 원점을 먼저 푼다. 아래 "지나갔는가" 확인이 이 값을 쓴다(stage5 — 옛 transfer_index 가
-        // 아니라 원점의 leg 번호가 기준이다).
-        Optional<RerouteOrigin> origin = originResolver.resolveTransferWait(
+        // 원점이 곧 주소다(stage5 2/2 — 옛 transfer_index 는 컬럼째 사라졌다). 못 풀면 저장하지
+        // 않는다: 주소 없는 행은 "어디에 대한 제안인지"를 영영 말할 수 없고, 사용자에게 보여 줘도
+        // 무엇을 하라는 것인지 가리킬 수 없다.
+        Optional<RerouteOrigin> resolved = originResolver.resolveTransferWait(
                 context.journeyId(), context.routeRevision(), context.transferIndex());
+        if (resolved.isEmpty()) {
+            metrics.recordRejected("origin-unresolved");
+            return Optional.empty();
+        }
+        RerouteOrigin origin = resolved.get();
 
-        if (!stillCurrent(context, origin.orElse(null))) {
+        if (!stillCurrent(context, origin)) {
             metrics.recordRejected("stale-context");
             return Optional.empty();
         }
@@ -118,15 +124,11 @@ public class RerouteProposalTxService {
                 .map(candidate -> candidate.withCandidateId(UUID.randomUUID().toString()))
                 .toList();
 
-        // 이중 쓰기(PR-B stage3): 서울 좌표계 origin 과 옛 transfer_index 를 함께 남긴다.
-        // 못 푸는 여정은 origin 이 null 인 채 저장되고 읽는 쪽이 옛 주소로 폴백한다.
-        // (컬럼 제거는 stage5 2/2 — TTL·sweep 이 지나 옛 행이 사라진 뒤다.)
         RerouteProposal proposal = proposalRepository.save(RerouteProposal.builder()
                 .journeyId(context.journeyId())
                 .userId(context.userId())
                 .routeRevision(context.routeRevision())
-                .transferIndex(context.transferIndex())
-                .origin(origin.map(this::toJson).orElse(null))
+                .origin(toJson(origin))
                 .kind(kind)
                 .baseCommandVersion(context.commandVersion())
                 .candidates(toJson(stored))
@@ -136,7 +138,7 @@ public class RerouteProposalTxService {
 
         metrics.recordCreated(kind.name());
         return Optional.of(new RerouteProposalView(proposal.getId(), proposal.getJourneyId(),
-                proposal.getRouteRevision(), proposal.getTransferIndex(), origin.orElse(null),
+                proposal.getRouteRevision(), origin,
                 proposal.getKind(), proposal.getBaseCommandVersion(), proposal.getSnapshotObservedAt(),
                 proposal.getExpiresAt(), stored));
     }
@@ -170,18 +172,9 @@ public class RerouteProposalTxService {
                 || journey.getRouteRevision() != context.routeRevision()) {
             return false;
         }
-        if (origin != null) {
-            // 원점이 곧 주소다(stage5). 환승 행을 다시 읽지 않는다 — 주행 중 정류장 원점에는
-            // 대응하는 환승 행이 아예 없으므로, 그 모양이 오면 이 확인이 통째로 막아 버린다.
-            return origin.legIndex() >= journey.getCurrentLegIndex();
-        }
-        // 원점을 못 푼 여정(노선 미확정·서울 DB 미매핑)은 옛 주소로 확인한다. 전환 기간 동안
-        // 정상인 상태이고, 옛 컬럼이 사라지는 stage5 2/2 까지 이 폴백이 남는다.
-        return transferRepository
-                .findByJourneyIdAndRouteRevisionAndTransferIndexAndDeletedAtIsNull(
-                        context.journeyId(), context.routeRevision(), context.transferIndex())
-                .filter(transfer -> transfer.getToLegIndex() >= journey.getCurrentLegIndex())
-                .isPresent();
+        // 원점이 곧 주소다. 환승 행을 다시 읽지 않는다 — 주행 중 정류장 원점에는 대응하는 환승
+        // 행이 아예 없으므로, 그 모양이 오면 환승 기준 확인이 통째로 막아 버린다.
+        return origin.legIndex() >= journey.getCurrentLegIndex();
     }
 
     /**
@@ -259,7 +252,7 @@ public class RerouteProposalTxService {
             return Optional.empty();
         }
         return Optional.of(new RerouteProposalView(proposal.getId(), proposal.getJourneyId(),
-                proposal.getRouteRevision(), proposal.getTransferIndex(), readOrigin(proposal),
+                proposal.getRouteRevision(), readOrigin(proposal),
                 proposal.getKind(), proposal.getBaseCommandVersion(), proposal.getSnapshotObservedAt(),
                 proposal.getExpiresAt(), envelope.candidates()));
     }

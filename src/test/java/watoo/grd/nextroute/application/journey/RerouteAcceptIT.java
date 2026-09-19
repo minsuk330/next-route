@@ -280,10 +280,10 @@ class RerouteAcceptIT {
         }
         jdbcTemplate.update("""
                 insert into reroute_proposal
-                    (created_at, updated_at, journey_id, user_id, route_revision, transfer_index,
+                    (created_at, updated_at, journey_id, user_id, route_revision,
                      kind, status, base_command_version, candidates, snapshot_observed_at,
                      expires_at)
-                values (now(), now(), ?, ?, ?, 0, 'REMAINING_PATH', 'ACTIVE', ?, ?::jsonb,
+                values (now(), now(), ?, ?, ?, 'REMAINING_PATH', 'ACTIVE', ?, ?::jsonb,
                         now(), now() + interval '2 minutes')
                 """, journey.journeyId(), userId, journey.routeRevision(),
                 journey.commandVersion(), candidates);
@@ -306,10 +306,10 @@ class RerouteAcceptIT {
         }
         jdbcTemplate.update("""
                 insert into reroute_proposal
-                    (created_at, updated_at, journey_id, user_id, route_revision, transfer_index,
+                    (created_at, updated_at, journey_id, user_id, route_revision,
                      kind, status, base_command_version, candidates, snapshot_observed_at,
                      expires_at)
-                values (now(), now(), ?, ?, ?, 0, 'ROUTE_OPTION', 'ACTIVE', ?, ?::jsonb,
+                values (now(), now(), ?, ?, ?, 'ROUTE_OPTION', 'ACTIVE', ?, ?::jsonb,
                         now(), now() + interval '2 minutes')
                 """, journey.journeyId(), userId, journey.routeRevision(),
                 journey.commandVersion(), candidates);

@@ -70,7 +70,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V42__create_reroute_proposal.sql",
         "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql",
         "classpath:db/migration/V50__add_reroute_proposal_origin.sql",
-        "classpath:db/migration/V51__reroute_proposal_journey_active_unique.sql"
+        "classpath:db/migration/V51__reroute_proposal_journey_active_unique.sql",
+        "classpath:db/migration/V52__drop_reroute_proposal_transfer_index.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DisplayName("재탐색 제안 저장")
@@ -121,6 +122,8 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         userId = newUser();
         journeyId = newJourney(userId);
         newTransfer(0, 2);
+        // 저장 경로가 이 leg 에서 원점을 만든다(stage5 2/2 — 원점 없이는 저장하지 않는다).
+        newBoardingLeg(2, "ST-C");
     }
 
     // ── 자리가 막히지 않는가 ────────────────────────────────────────────────
@@ -170,11 +173,8 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     }
 
     @Test
-    @DisplayName("원점을 풀면 지나갔는지를 원점의 leg 번호로 본다")
+    @DisplayName("지나갔는지는 원점의 leg 번호로 본다 — 환승 행을 다시 읽지 않는다")
     void passedCheckUsesTheOriginWhenResolved() {
-        // 원점이 풀리려면 그 환승이 가리키는 탑승 leg 가 있어야 한다(RerouteOriginResolver).
-        newBoardingLeg(2, "ST-C");
-
         assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
                 List.of(candidate()), NOW, NOW.plusSeconds(120))).isPresent();
         assertThat(lastOriginLegIndex()).isEqualTo(2);
@@ -189,9 +189,23 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     }
 
     @Test
+    @DisplayName("원점을 못 풀면 저장하지 않는다 — 주소 없는 제안은 만들지 않는다")
+    void proposalWithoutOriginIsNotStored() {
+        // 환승이 가리키는 탑승 leg 가 없으면 원점을 만들 수 없다. 옛 계약에서는
+        // transfer_index 만으로 저장됐지만, 그 컬럼이 사라진 지금 그런 행은 "어디에 대한
+        // 제안인지"를 영영 말할 수 없다.
+        jdbcTemplate.update("delete from journey_leg");
+
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+                List.of(candidate()), NOW, NOW.plusSeconds(120))).isEmpty();
+        assertThat(rows()).isEmpty();
+    }
+
+    @Test
     @DisplayName("다른 환승의 제안도 밀려난다 — 살아 있는 제안은 여정당 하나다(stage5)")
     void newProposalReplacesOtherTransfersToo() {
         newTransfer(1, 4);
+        newBoardingLeg(4, "ST-E");
         txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
                 List.of(candidate()), NOW, NOW.plusSeconds(120));
 
@@ -203,7 +217,9 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         assertThat(rows()).hasSize(2);
         assertThat(rows().get(0).get("resolved_reason")).isEqualTo("replaced");
         assertThat(activeCount()).isEqualTo(1);
-        assertThat(rows().get(1).get("transfer_index")).isEqualTo(1);
+        // 남은 행은 두 번째 원점(leg 4)을 가리킨다. 옛 transfer_index 는 컬럼째 사라졌고
+        // 이 값이 그 자리를 대신한다(stage5 2/2).
+        assertThat(lastOriginLegIndex()).isEqualTo(4);
     }
 
     @Test

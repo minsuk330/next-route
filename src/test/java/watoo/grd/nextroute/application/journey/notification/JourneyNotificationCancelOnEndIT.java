@@ -246,10 +246,10 @@ class JourneyNotificationCancelOnEndIT {
     private Long insertActiveProposal(Long journeyId) {
         return jdbcTemplate.queryForObject("""
                 insert into reroute_proposal
-                    (created_at, updated_at, journey_id, user_id, route_revision, transfer_index,
+                    (created_at, updated_at, journey_id, user_id, route_revision,
                      kind, status, base_command_version, candidates,
                      snapshot_observed_at, expires_at)
-                select now(), now(), s.id, s.user_id, s.route_revision, 0,
+                select now(), now(), s.id, s.user_id, s.route_revision,
                        'ROUTE_OPTION', 'ACTIVE', s.command_version,
                        '{"version":1,"candidates":[]}'::jsonb, now(), now() + interval '2 minutes'
                 from journey_session s where s.id = ?
