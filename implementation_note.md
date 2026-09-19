@@ -2382,3 +2382,39 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결 (PR-B 이후)
 - stage5(컷오버) = 여정당 unique 신규 + 키 이동 + 옛 인덱스/컬럼 제거 + V번호 신규. **별도 배포 단위**라 PR-B 에 넣지 않는다.
 - `origin` 을 실제로 채우는 것은 PR-2(원점 창)·PR-4(수락) 몫. 지금은 TRANSFER_WAIT 만 이중 쓰기로 채워진다.
+
+## 2026-09-19 journey-reroute-nextstop PR-C — composer 중간 절단 합성
+
+### 확정
+- **절단의 두 입력(자를 자리·소요)은 composer 가 만들지 않는다. 부르는 쪽이 준다** — 신규 `JourneyRevisionComposer.RideTruncation{alightStationIndex, rideSeconds}`. 근거 2개(실측):
+  1. **자를 자리를 composer 안에서 못 맞힌다**: 스냅샷 정류장 목록의 id 는 검색이 준 것(`LegacyRouteResponseMapper.toStations` :197-203 → `StationResult.stationID = StopOccurrence.sourceStopId()` = **OTP gtfsId**)이고, `RerouteOrigin.stopId` 는 **서울 id** 다. 여기서 둘을 맞히려 들면 PR-B stage1 정정이 경고한 "번역이 반만 되는" 자리를 하나 더 만든다. 서울 id 가 들어 있는 칸은 `startLocalStationID`/`endLocalStationID` 뿐이고 그건 양끝이라 중간 정류장엔 없다.
+  2. **board→X 소요를 composer 재료로 만들 수 없다**: PR-A `TruncatedRide` 는 **검색 결과 `RoutingLeg`**(stopCall 시각 보유) 전용인데, 절단 대상은 *진행 중인 여정의 스냅샷*(`PathResult`/`SubPathResult`)이라 정류장별 시각이 애초에 없다(`SubPathResult.sectionTime` = 구간 전체, 분 단위). 게다가 하차점 근거는 **실시간만**(PLAN 확정, 시간표 폴백 금지)이라 스냅샷에서 뽑을 수 있는 값이 아니다. → **PR-C 는 `TruncatedRide` 를 쓰지 않는다**(PLAN 원문 "truncated board→X(PR-A)" 는 *개념*이 같을 뿐 그 클래스를 재사용한다는 뜻이 될 수 없다).
+- **절단은 오염 가드의 예외지 해제가 아니다**: `truncation == null` 이면 기존 "구간 한가운데 거절"(snapshot-unmappable) 그대로. `truncation != null` 이면 오히려 조건이 더 좁다 — ①`origin != null` ②`kind == RIDE_INTERIOR` ③`origin.legIndex == fromLegIndex` ④실제로 구간 한가운데(=그 subPath 의 주행 leg)여야 통과. 하나라도 어긋나면 `truncation-unexpected`. 가드가 막던 사고(짝 대기 단계만 남아 다른 노선을 가리킴)는 **앞 절반을 남겨 두는 방식**으로 막는다 — 대기 단계가 여전히 타고 있는 그 노선을 가리킨다(테스트로 고정).
+- **버스만 자른다**(`trafficType==2`, 아니면 `truncation-unmappable`): 하차 정류장의 서울 id 가 `endLocalStationID`(버스 칸)에 들어가므로 지하철 구간에 쓰면 주소 체계가 섞인다. PR-A `TruncatedRide` 가 모드 정책을 호출자에 위임한 것과 달리 **여기서는 강제한다** — 그 함수는 순수 계산이지만 여기는 *저장될 스냅샷의 칸*에 값을 쓰기 때문.
+- **지어내지 않는 값**: 잘린 구간의 `distance`·`payment`·`endArsID`·`endID`·`endExit*` 는 **비운다**. 원래 값을 그대로 남기면 "그만큼 더 간다"는 뜻이 된다. `lanes`·`transferArrivals`·`start*` 는 승차 쪽이라 그대로 보존.
+- **지도선 = 남은 정류장 좌표를 이은 선**(투영 없음, PLAN 확정 그대로). 좌표가 빠진 정류장이 하나라도 있거나 2점 미만이면 null(가짜 선 금지 — `LegacyRouteResponseMapper.toPolyline` 과 같은 규칙).
+- **새 reason 어휘 `REMAINING_PATH_MID_RIDE_ACCEPTED`**(`journey_revision.reason` varchar(50), check 제약 없음 — 실측). 중간 하차는 "앞 절반을 계속 타고 간다"라 leg 경계 교체와 운영상 구별돼야 한다.
+- **`Composed.truncatedLegIndex`(nullable) 신설**: 잘린 주행 단계는 **새로 만드는 단계도 그대로 복제하는 단계도 아닌 제3의 경우**(PR-0 함정 기록과 같은 결론)라, 저장 쪽(PR-4)이 알아보려면 번호가 필요하다. 기존 5-arg 생성자는 하위호환으로 남김(truncatedLegIndex=null).
+
+### 함정
+- **잘린 구간의 소요는 스냅샷에서 초 단위로 복원되지 않는다**: `SubPathResult.sectionTime` 이 분 단위라 `Math.round(rideSeconds/60)` 로 접힌다(`JourneyCompiler` 가 다시 ×60 → 최대 ±30초 오차). 지금은 `plannedDurationSec` 이 이 반올림 값이다. **PR-4 는 entity 에 `RideTruncation.rideSeconds()` 를 직접 써야 한다**(draft 값을 그대로 쓰면 30초가 조용히 틀어진다).
+- **정류장 목록이 없는 옛 스냅샷은 중간 하차가 불가능**(`truncation-unmappable`) — PLAN 리스크 "전환 전 시작 여정은 정류장별 데이터 없어 중간하차 불가"가 코드에서 이 형태로 나타난다. ODSAY 스냅샷도 `stations` 가 비면 같은 결과.
+- 🔴 **기존 무관 but main 이 이미 깨져 있다**: `RerouteProposalStoreIT`/`RerouteProposalExpiryIT` 가 `initializationError` — `No qualifying bean of type ...RerouteOriginResolver`. PR-B stage3(#213)이 `RerouteProposalTxService` 생성자에 resolver 를 추가했는데 두 `@DataJpaTest` 의 `@Import({...})` 목록에 안 넣어서다. **내 변경 전(stash 후) clean main 에서도 같은 실패 재현 확인.** 프로덕션은 무관(`@Component` 라 컴포넌트 스캔이 잡음) — 테스트 배선만. 별건 PR 로 `@Import` 에 `RerouteOriginResolver.class` 추가 필요.
+
+### 좌표
+- 변경: `application/journey/service/JourneyRevisionComposer.java`(4-arg `compose` + `truncationRejection`/`truncate`/`spliceTruncated`/`stopLine`, `Composed.truncatedLegIndex`, `Reason.REMAINING_PATH_MID_RIDE_ACCEPTED`, 신규 `RideTruncation`)
+- 변경: `test/.../JourneyRevisionComposerTest.java`(중간 절단 8케이스 추가), `test/.../SubPathFixture.java`(`payment` 세터 — 절단이 요금을 비우는지 검증하려면 원본에 값이 있어야 함)
+- 소비자 없음(무회귀): `RerouteAcceptTxService:116` 은 3-arg 그대로 → 지금 프로덕션 동작 변화 0. 배선은 PR-4.
+
+### 배포
+- **마이그레이션 없음**. 코드만. 단 `journey_revision.reason` 에 새 값이 들어가므로 운영 대시보드/쿼리가 reason 을 열거하고 있으면 `REMAINING_PATH_MID_RIDE_ACCEPTED` 추가 필요(제약은 없어서 DB 는 안 깨진다).
+
+### 검증
+- `./gradlew test --tests "*JourneyRevisionComposerTest*"` → **16/16 green**(기존 7 + 신규 9).
+- **뮤테이션 확인**(테스트가 실제로 무는지): `truncate` 의 소요·거리를 원본 그대로 두도록 일부러 바꾸니 `truncatesRideAtMidStop`·`truncatedSnapshotRecompilesToSameLegs` 2건 FAILED → 되돌림.
+- `./gradlew test --tests "watoo.grd.nextroute.application.journey.service.*" --tests "watoo.grd.nextroute.application.route.*"` → **907 tests / 0 failures**(XML 집계).
+- 기존 무관 2건: 위 함정의 `RerouteProposalStoreIT`/`RerouteProposalExpiryIT`(clean main 에서도 동일 실패, stash 로 교차검증). `RerouteAcceptIT` 등 Postgres IT 는 이 샌드박스에 DB 가 없어 여전히 실행 불가 — PLAN 의 "⑤ 무회귀(RerouteAcceptIT)"는 **로컬 Postgres 있는 세션에서 확인 필요**(단, accept 경로는 3-arg 호출 그대로라 코드상 변화 없음).
+
+### 미결
+- PR-4 가 채울 것: `alightStationIndex` 해석(서울 origin → 스냅샷 정류장 위치), `rideSeconds` 실시간 산출, `truncatedLegIndex` 특수분기(copy+trim, progress 보존), 초 단위 `plannedDurationSec`.
+- `RerouteAcceptTxService.saveRouteOptions` 는 `legIndex < fromLegIndex` 로 복제/신규를 가른다 — 잘린 주행 단계는 `== fromLegIndex` 라 신규 쪽으로 떨어진다. 주행 단계는 노선 후보를 안 가져서(후보는 대기 단계 소유) 지금은 무해하지만 PR-4 가 확인할 것.
