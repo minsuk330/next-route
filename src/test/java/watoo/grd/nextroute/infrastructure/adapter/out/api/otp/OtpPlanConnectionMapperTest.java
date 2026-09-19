@@ -14,9 +14,11 @@ import watoo.grd.nextroute.application.route.routing.RoutingLeg;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
+import watoo.grd.nextroute.application.route.routing.StopOccurrence;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -68,6 +70,37 @@ class OtpPlanConnectionMapperTest {
         assertThat(it.fare().availability()).isEqualTo(FareAvailability.UNKNOWN);
         assertThat(it.navigationSupported()).isFalse();
         assertThat(it.navigationBlockedReasons()).contains("GEOMETRY_STREET_FALLBACK");
+    }
+
+    @Test
+    @DisplayName("stopCalls schedule → StopOccurrence 시간표 시각 채움, stopCalls 가 board·alight 포함이라 addPlace 중복 없음")
+    void mapsStopCallTiming() throws IOException {
+        RoutingOutcome outcome = mapper.map(load("otp/planconnection-stopcall-times.json"), departureAt, versions);
+
+        assertThat(outcome.success()).isTrue();
+        RoutingResult result = (RoutingResult) outcome;
+        RoutingLeg bus = result.itineraries().get(0).legs().get(0);
+
+        assertThat(bus.mode()).isEqualTo(RoutingMode.BUS);
+        // stopCalls 자체가 board(occ0)·alight(occ8) 포함 9개 → addPlace(from)/addPlace(to) 중복 추가 없어야 함(9, 11 아님).
+        assertThat(bus.stops()).hasSize(9);
+
+        StopOccurrence board = bus.stops().get(0);
+        assertThat(board.sourceStopId()).isEqualTo("1:BS_TAGO_SEB101000041");
+        assertThat(board.occurrenceIndex()).isEqualTo(0);
+        assertThat(board.scheduledDeparture()).isEqualTo(offset("2026-09-08T08:12:28+09:00"));
+
+        StopOccurrence middle = bus.stops().get(1);
+        assertThat(middle.scheduledArrival()).isEqualTo(offset("2026-09-08T08:14:10+09:00"));
+
+        StopOccurrence alight = bus.stops().get(8);
+        assertThat(alight.sourceStopId()).isEqualTo("1:BS_TAGO_SEB121000020");
+        assertThat(alight.occurrenceIndex()).isEqualTo(8);
+        assertThat(alight.scheduledArrival()).isEqualTo(offset("2026-09-08T08:28:04+09:00"));
+    }
+
+    private static Instant offset(String iso) {
+        return OffsetDateTime.parse(iso).toInstant();
     }
 
     @Test

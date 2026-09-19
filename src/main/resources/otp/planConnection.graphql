@@ -24,9 +24,8 @@ query PlanConnection(
           mode
           duration
           distance
-          realtimeState
-          start { scheduledTime estimated { time } }
-          end { scheduledTime estimated { time } }
+          start { scheduledTime }
+          end { scheduledTime }
           from { name lat lon stop { gtfsId } }
           to { name lat lon stop { gtfsId } }
           route {
@@ -44,6 +43,7 @@ query PlanConnection(
               __typename
               ... on Stop { gtfsId name lat lon }
             }
+            schedule { time { ... on ArrivalDepartureTime { arrival departure } } }
           }
           steps { distance relativeDirection streetName }
           legGeometry { length points }

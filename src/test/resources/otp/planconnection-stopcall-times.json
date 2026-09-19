@@ -1,0 +1,206 @@
+{
+  "_note": "PR-0 스파이크 산출(2026-09-15) → PR-A 실제 소비(2026-09-18). planConnection.graphql 확장 후 stopCalls 응답 shape. board→X 소요는 stopCall 시각의 순수 뺄셈이고(투영 없음), 절단 지도선은 stopCalls 좌표를 이어 그린다(투영 없음). 예: X=용산구청(occ 5) board→X = 08:22:50 - 08:12:28 = 622s, 지도선 = stopCalls[0..5] 좌표. delay 는 GraphQL Duration 스칼라(java.time.Duration.parse 포맷, 예 PT1M) — schema.graphqls:564 EstimatedTime 확인, 정수 아님(2026-09-18 PR-A 에서 수정, 원래 60 으로 잘못 박혀 있었음).",
+  "data": {
+    "planConnection": {
+      "edges": [
+        {
+          "node": {
+            "duration": 936,
+            "waitingTime": 0,
+            "walkDistance": 0.0,
+            "walkTime": 0,
+            "numberOfTransfers": 0,
+            "legs": [
+              {
+                "mode": "BUS",
+                "duration": 936.0,
+                "distance": 7056.7,
+                "start": {
+                  "scheduledTime": "2026-09-08T08:12:28+09:00"
+                },
+                "end": {
+                  "scheduledTime": "2026-09-08T08:28:04+09:00"
+                },
+                "from": {
+                  "name": "롯데백화점",
+                  "lat": 37.5645,
+                  "lon": 126.982,
+                  "stop": {
+                    "gtfsId": "1:BS_TAGO_SEB101000041"
+                  }
+                },
+                "to": {
+                  "name": "고속터미널",
+                  "lat": 37.5058,
+                  "lon": 127.004,
+                  "stop": {
+                    "gtfsId": "1:BS_TAGO_SEB121000020"
+                  }
+                },
+                "route": {
+                  "gtfsId": "1:BR_TAGO_SEB100100022",
+                  "shortName": "143",
+                  "longName": "-",
+                  "mode": "BUS",
+                  "color": null,
+                  "textColor": null,
+                  "agency": {
+                    "gtfsId": "1:A1",
+                    "name": "KTDB"
+                  }
+                },
+                "trip": {
+                  "gtfsId": "1:BR_TAGO_SEB100100022_Ord039"
+                },
+                "stopCalls": [
+                  {
+                    "stopLocation": {
+                      "__typename": "Stop",
+                      "gtfsId": "1:BS_TAGO_SEB101000041",
+                      "name": "롯데백화점",
+                      "lat": 37.5645,
+                      "lon": 126.982
+                    },
+                    "schedule": {
+                      "time": {
+                        "arrival": "2026-09-08T08:12:28+09:00",
+                        "departure": "2026-09-08T08:12:28+09:00"
+                      }
+                    }
+                  },
+                  {
+                    "stopLocation": {
+                      "__typename": "Stop",
+                      "gtfsId": "1:BS_TAGO_SEB101000045",
+                      "name": "신세계백화점",
+                      "lat": 37.5611,
+                      "lon": 126.981
+                    },
+                    "schedule": {
+                      "time": {
+                        "arrival": "2026-09-08T08:14:10+09:00",
+                        "departure": "2026-09-08T08:14:10+09:00"
+                      }
+                    }
+                  },
+                  {
+                    "stopLocation": {
+                      "__typename": "Stop",
+                      "gtfsId": "1:BS_TAGO_SEB101000048",
+                      "name": "남산3호터널",
+                      "lat": 37.5583,
+                      "lon": 126.983
+                    },
+                    "schedule": {
+                      "time": {
+                        "arrival": "2026-09-08T08:15:30+09:00",
+                        "departure": "2026-09-08T08:15:30+09:00"
+                      }
+                    }
+                  },
+                  {
+                    "stopLocation": {
+                      "__typename": "Stop",
+                      "gtfsId": "1:BS_TAGO_SEB102000056",
+                      "name": "용산한신아파트",
+                      "lat": 37.5398,
+                      "lon": 126.987
+                    },
+                    "schedule": {
+                      "time": {
+                        "arrival": "2026-09-08T08:19:40+09:00",
+                        "departure": "2026-09-08T08:19:40+09:00"
+                      }
+                    }
+                  },
+                  {
+                    "stopLocation": {
+                      "__typename": "Stop",
+                      "gtfsId": "1:BS_TAGO_SEB102000057",
+                      "name": "해방촌",
+                      "lat": 37.5378,
+                      "lon": 126.987
+                    },
+                    "schedule": {
+                      "time": {
+                        "arrival": "2026-09-08T08:20:30+09:00",
+                        "departure": "2026-09-08T08:20:30+09:00"
+                      }
+                    }
+                  },
+                  {
+                    "stopLocation": {
+                      "__typename": "Stop",
+                      "gtfsId": "1:BS_TAGO_SEB102000060",
+                      "name": "용산구청",
+                      "lat": 37.5294,
+                      "lon": 126.991
+                    },
+                    "schedule": {
+                      "time": {
+                        "arrival": "2026-09-08T08:22:50+09:00",
+                        "departure": "2026-09-08T08:22:50+09:00"
+                      }
+                    }
+                  },
+                  {
+                    "stopLocation": {
+                      "__typename": "Stop",
+                      "gtfsId": "1:BS_TAGO_SEB102000062",
+                      "name": "한강중학교앞",
+                      "lat": 37.5245,
+                      "lon": 126.992
+                    },
+                    "schedule": {
+                      "time": {
+                        "arrival": "2026-09-08T08:24:20+09:00",
+                        "departure": "2026-09-08T08:24:20+09:00"
+                      }
+                    }
+                  },
+                  {
+                    "stopLocation": {
+                      "__typename": "Stop",
+                      "gtfsId": "1:BS_TAGO_SEB121000302",
+                      "name": "반포대교남단.한강시민공원입구",
+                      "lat": 37.5078,
+                      "lon": 126.999
+                    },
+                    "schedule": {
+                      "time": {
+                        "arrival": "2026-09-08T08:26:40+09:00",
+                        "departure": "2026-09-08T08:26:40+09:00"
+                      }
+                    }
+                  },
+                  {
+                    "stopLocation": {
+                      "__typename": "Stop",
+                      "gtfsId": "1:BS_TAGO_SEB121000020",
+                      "name": "고속터미널",
+                      "lat": 37.5058,
+                      "lon": 127.004
+                    },
+                    "schedule": {
+                      "time": {
+                        "arrival": "2026-09-08T08:28:04+09:00",
+                        "departure": "2026-09-08T08:28:04+09:00"
+                      }
+                    }
+                  }
+                ],
+                "steps": [],
+                "legGeometry": {
+                  "length": 16,
+                  "points": "cygdFod`fWfTfE??nPoK??rrB_X??pK???ls@_X??r]gE??jgBwj@??nKg^"
+                },
+                "fareProducts": []
+              }
+            ]
+          }
+        }
+      ],
+      "routingErrors": []
+    }
+  }
+}

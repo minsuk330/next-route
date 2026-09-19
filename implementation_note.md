@@ -2187,6 +2187,95 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - Redis `used_memory`: 배포 전후 7.72~9.09MB 범위(무의미한 변동, B4 가드와 무관한 수준 유지).
 - **P4 Track A(A0+A1+A2) 완료 — 지하철 polyline 실서비스 라이브.** 플랜 §7 잔여 미결(geometryQuality 노출/네비 API 형상 이원화/버스 degraded 1477건/rail 2노선)은 전부 별건.
 
+## 2026-09-18 journey-reroute-nextstop PR-A (OTP 정류장별 모델) — 진행중
+
+### 확정
+- **PR-0 는 이미 끝나 있었음**(2026-09-15, 문서+fixture, 코드 0). memory "새 세션 PR-0 대기"는 그 시점 기준 stale — implementation_note 재확인으로 바로잡음. 오늘은 PR-A 착수.
+- **"OTP 전환 담당과 조율" 블로커 = 해소**: open PR 목록에 planConnection.graphql/JourneyCompiler 건드리는 것 없음(#59 outbox 만, 무관). `docs/plan/national-otp-map-migration/`(P2-B/P2-G 원본 phase 문서, 2026-09-07 작성)는 이미 실제로는 다른 번호체계(#182~209)로 진행되어 handoffs/PHASE-2.md 자체가 없음 — 그 문서의 "완료 판정"이 아니라 **실제 코드 재확인**(현재도 stopCalls 시각 미쿼리)으로 중복 없음 검증.
+- **StopCall GraphQL 스키마 실측 확인**(`tools/transit-routing-benchmark/otp-native/app/resources/org/opentripplanner/apis/gtfs/schema.graphqls`, 이 저장소에 포함된 OTP 2.9.0(포크 베이스) 스키마): PLAN 의 쿼리 문구(`schedule{time{...on ArrivalDepartureTime{arrival departure}}}` + `realTime{arrival{time delay} departure{time delay}}`)가 **스키마와 정확히 일치**. `StopCall{realTime:CallRealTime, schedule:CallSchedule, stopLocation:CallStopLocation!}`, `CallRealTime{arrival/departure: EstimatedTime}`, `EstimatedTime{delay:Duration!, time:OffsetDateTime!}`, `CallSchedule.time: CallScheduledTime`(union `ArrivalDepartureTime|TimeWindow`).
+- **StopCall 에는 GTFS stop_sequence 필드가 없다**. `stopPosition`/`stopPositionInPattern` 은 전혀 다른(legacy) `Stoptime` 타입 소속(pattern.stopTimes 계열), `Leg.stopCalls[]` 의 `StopCall` 타입엔 realTime/schedule/stopLocation 3필드뿐. → PLAN "확정 결정"의 식별 튜플 `(trip/pattern, sourceStopSequence, occurrenceIndex)` 중 **sourceStopSequence 는 planConnection 경로로 못 채움**(쿼리 자체가 불가능). `StopOccurrence.sourceStopSequence`/`tripPattern` 필드는 계속 null 유지(기존과 동일, 정직하게 비워둠 — 억지로 딴 값 채우지 않음). 실질 식별자 = leg 의 `trip.gtfsId`(이미 leg 레벨에서 쿼림) + `occurrenceIndex`(콜-로컬, 루프 재방문도 배열 위치라 유일).
+- **`Leg.stopCalls[]` 는 board/alight 양끝을 포함한다**(중간정차만이 아님) — 실측 fixture 2건(PR-0 스파이크 + 기존 `planconnection-success.json`, 후자는 테스트 주석상 실제 캡처 응답) 전부 `stopCalls[0]==leg.from`, `stopCalls[last]==leg.to` (gtfsId/좌표/이름 완전 일치). 스키마의 deprecated `intermediatePlaces`/`intermediateStops`("Use leg.stopCalls instead") 주석만 보면 "중간만"처럼 읽히지만, **실측 캡처 데이터가 우선** — 이 배포(포크)에서 stopCalls 는 양끝 포함 전량.
+
+### 함정
+- **PR-0 fixture(`planconnection-stopcall-times.json`)의 `realTime.arrival.delay` 값이 틀렸다**: `60`(순수 정수)로 써뒀지만 실제 스키마 `Duration` 스칼라는 `java.time.Duration.parse()` 포맷(ISO-8601, 예 `"PT1M"`/`"PT60S"`) 문자열. `.asInt()` 아니라 `Duration.parse(text).getSeconds()` 로 파싱해야 함. 이 fixture 는 PR-0 산출물이라 지금 고치는 중(PR-A 테스트가 소비하기로 되어 있었으므로).
+- **`OtpPlanConnectionMapper.toStops()` 의 `addPlace(from)`/`addPlace(to)` 가 `stopCalls[0]`/`stopCalls[last]` 와 중복**: 기존 코드는 `[addPlace(from), ...stopCalls(전체, from/to 포함)..., addPlace(to)]` 순서로 쌓아서 occurrenceIndex 0 과 1 이 물리적으로 같은 정류장(그리고 끝에서도 같은 일)이 됨. 기존 테스트는 `isNotEmpty()`만 확인해서 안 걸림(주석 `// from + stopCalls + to` 로 의도적 기술한 흔적은 있음). **시각을 addPlace 쪽엔 못 채운다**(from/to place 노드엔 schedule/realTime 없음, leg 레벨 start/end 뿐) → 이대로 두면 `stops().get(0)`(=board) 이 timing null 인 채 남아 board→X 뺄셈이 깨짐. PR-A 에서 고침: stopCalls 가 비지 않으면 addPlace 생략(stopCalls 를 그대로 신뢰), 비어있을 때만(방어적) 기존 addPlace 폴백 유지.
+
+### 좌표
+- src/main/java/.../infrastructure/adapter/out/api/otp/OtpPlanConnectionMapper.java:192 toStops, :209 addPlace, :279 instant() 헬퍼(재사용 대상)
+- src/main/java/.../application/route/routing/StopOccurrence.java — 7필드, 시각 없음(추가 대상)
+- src/test/java/.../OtpPlanConnectionMapperTest.java:58 — 기존 `from + stopCalls + to` 주석(중복 인지 흔적, 이번에 정정)
+- src/test/resources/otp/planconnection-success.json — 실캡처 fixture, stopCalls 양끝포함 실측 근거
+- tools/transit-routing-benchmark/otp-native/app/resources/org/opentripplanner/apis/gtfs/schema.graphqls:2424(StopCall) :193(ArrivalDepartureTime) :564(EstimatedTime) :91(union CallScheduledTime) — 이 저장소에 포함된 스키마 원본, 쿼리 문구 검증 근거
+
+- **`RoutingLeg.stops()` 자체 javadoc 이 이미 "승·하차 포함"이라 적혀 있었음**(RoutingLeg.java:17) — addPlace 중복은 이 기존 계약과도 어긋나 있었던 것. 이번 수정이 문서화된 의도에 더 맞음.
+
+### 확정 (추가 — 절단 연산 설계)
+- **`TruncatedRide`(신규, `application/route/routing/TruncatedRide.java`) 는 `JourneyLegDraft`/`JourneyCompiler` 를 거치지 않는다** — PLAN 원문은 "JourneyCompiler 절단 leg 컴파일"이라 썼지만, 실제로 안 맞는다:
+  - `JourneyLegDraft` 에는 geometry/polyline 필드 자체가 없다(startX/Y·endX/Y 양끝 좌표만) → "지도선 슬라이스"를 얹을 자리가 없음.
+  - PR-0 함정 기록이 이미 확정: 진행중 RIDE 절단의 실제 메커니즘은 **entity 레벨 `JourneyLeg.copyToRevision` + trim 변형**(PR-4 몫)이지, Draft 를 새로 컴파일하는 게 아니다("copyToRevision 만으로는 틀린다... PR-4 필요 = copyToRevisionTruncated 변형"). Draft 컴파일 경로(`emitTransit`)는 늘 `PENDING` 새 leg 를 만드는데, 절단 RIDE 는 **이미 진행중인 leg 라 PENDING 이 아니고 progress 도 보존해야** 해서 Draft 컴파일 모델 자체가 안 맞는다.
+  - 그래서 PR-A 의 "절단 연산"은 **PathResult/JourneyLegDraft 를 전혀 안 거치는 순수 함수**로 뒀다: `TruncatedRide.truncateAt(RoutingLeg, int alightOccurrenceIndex)` → `{boardAt, alightAt, rideDurationSeconds, stops(board..X)}`. PR-4 가 이 결과값을 가지고 `copyToRevisionTruncated` 류 변형에 필요한 값(endStopId/Name→X, plannedDurationSec→rideDurationSeconds, remaining*·legFraction 재계산 입력)을 채운다. **지도선은 `stops()` 좌표 자체**(별도 polyline 타입 안 만듦 — 이미 각 StopOccurrence 가 lon/lat 보유, 중복 방지).
+  - X 지정은 **occurrenceIndex 로만**(sourceStopId 단독 금지 — 루프 재방문 모호). leg.stops() 안에 없으면/board 자신이면 `IllegalArgumentException`(호출자가 이미 같은 leg.stops() 에서 뽑은 값을 주는 내부 API 계약 위반이라 방어적 null 대신 즉시 실패).
+  - 시각 = `bestDeparture(board)`/`bestArrival(alight)` = 실시간 우선, 없으면 시간표, **둘 다 없으면 0 으로 지어내지 않고 `rideDurationSeconds=null`**(mapper 의 "부재값 안 지어냄" 관례와 통일 — PLAN PR-1 의 "실시간·ML 둘 다 없음 → 후보 제외" 처리가 이 null 을 그대로 신호로 쓸 수 있음).
+  - **버스/지하철 모드 제한을 이 함수 안에서 강제하지 않음**("초기 스코프=버스만"은 PLAN 이 호출자/정책 레이어 몫으로 둔 것으로 해석 — 이 함수는 주어진 leg 를 그대로 자를 뿐, 모드 정책은 PR-2/PR-4 후보 선별 단계 책임).
+
+### 좌표 (추가)
+- src/main/java/.../application/route/routing/TruncatedRide.java — 신규, board→X 절단 순수 함수
+- src/main/java/.../application/journey/dto/JourneyLegDraft.java — geometry 필드 없음 확인(위 확정 근거)
+- src/main/java/.../application/journey/service/JourneyCompiler.java:45 compile / :186 emitTransit — 절단 경로가 왜 이걸 안 타는지의 대조군으로 확인만, 변경 없음(기존 검색 컴파일 경로 그대로 보존)
+- src/main/java/.../application/route/routing/RoutingLeg.java:17 — stops javadoc "승·하차 포함" 기존 계약 재확인
+
+### 미결
+- "버전드 스냅샷 리더(P2-G revision 바인딩)"(PLAN PR-A 3번째 불릿) — journey snapshot 에 아직 아무것도 안 씀(PR-A 는 검색/매퍼/절단연산 레이어까지만) → 지금 만들 대상 없음. PR-C/PR-4 가 실제로 truncated leg 를 revision 에 얹을 때 필요해짐. 캐리포워드.
+- `TruncatedRide` 를 실제로 소비하는 코드(PR-C composer, PR-4 copyToRevisionTruncated)는 아직 없음 — 이번 PR 은 기반만, 배선은 후속 PR.
+- `StopOccurrence.tripPattern`/`sourceStopSequence` 는 OTP StopCall 스키마 한계로 이 경로에선 영구히 null(위 확정 참고) — 나중에 누가 이 필드 채우려 하면 이 노트부터 볼 것.
+
+### 배포
+- **마이그레이션 없음**(DB 스키마 변경 0). GraphQL 쿼리 파일 + Java 코드만 — 평소 앱 재배포(빌드+배치)로 충분, VPS 수동 마이그레이션 절차 불필요.
+- 신규 쿼리 필드(`stopCalls.schedule`/`stopCalls.realTime`)는 기존 배포된 VPS OTP 서버(shadow, [[project-otp-shadow-deploy]])의 GTFS GraphQL API 스키마에 이미 존재하는 필드만 사용(schema.graphqls 실측 확인) — OTP 쪽 재배포 불필요, 앱만 새 쿼리를 보내면 됨.
+
+### 검증
+- `./gradlew test --tests OtpPlanConnectionMapperTest` GREEN(3/3, mapsSuccess 기존 회귀 없음 + 신규 mapsStopCallTiming RED→GREEN 확인).
+- `./gradlew test --tests TruncatedRideTest` GREEN(6/6, RED 먼저 확인: TruncatedRide 클래스 없음 컴파일에러 → 구현 후 통과).
+- 관련 패키지 통합 재실행(route.routing/*, route.service.LegacyRouteResponseMapperTest, route.mapping/*, route.timeline/*, RouteSearchServiceOtpWiringTest, RemainingRouteSearchServiceOtpTest, JourneyCompilerTest, JourneyNavigationGeometryServiceTest, odsay/*) 전부 GREEN, 회귀 없음.
+- `./gradlew compileJava compileTestJava` 전체 저장소 컴파일 성공(StopOccurrence 생성자 호출부 13곳 — 프로덕션 2곳 갱신, 나머지 11곳은 하위호환 7-arg 생성자로 무변경 컴파일 확인).
+- `./gradlew test`(route/journey 패키지 대상 광범위 실행) 시 221개 실패 — **전부 기존 무관**: `ApplicationContext failure threshold exceeded` ← 최초 원인은 `PSQLException: Connection refused`(Flyway/Testcontainers, 이 샌드박스에 Docker/Postgres 없음). 내 변경은 Spring 컨텍스트/DB 전혀 안 건드림(순수 GraphQL 쿼리+record+매퍼+신규 pure 클래스). XML 리포트로 원인 교차검증 완료, 재조사 불필요.
+
+### 확정 (추가 — legacy 경계 유실 처리 범위 결정, PR-A 완료 판정)
+- 새 세션에서 PLAN "리뷰가 확정한 사실"(`LegacyRouteResponseMapper:152` 유실 + `RemainingRouteSearchService.loadOtp` 가 즉시 그 lossy 변환을 탐)과 SUMMARY "건드는 곳"(LegacyRouteResponseMapper 명시)을 재확인 — 지난 세션이 이 경계 자체는 안 건드렸음을 확인, 범위 판단 필요했음.
+- **결론 = 지금 안 고침, PR-1/PR-C 착수 시점으로 이연**(버전드 스냅샷 리더를 이연한 것과 동일 이유). 실측: `RemainingRouteSearchService.loadOtp`(:120)는 `RoutingResult`를 받아 즉시 `legacyRouteResponseMapper.toLegacy(...).paths()`로 접어 `List<PathResult>`만 반환·나머지(RoutingResult/RoutingLeg/StopOccurrence)는 버림. 이 반환 타입은 현재 ④(`RemainingPathCandidateProvider`)가 그대로 소비 중이라 지금 넓히면 "④ 무회귀" 계약을 먼저 건드리게 됨. 반대로 PR-1(WAIT 체인)·PR-2(origin별 fresh search)가 정류장별 시각을 정확히 어떤 모양으로 필요로 할지 아직 안 정해져 있어, 지금 시그니처를 넓히면 추측 설계가 되어 나중에 다시 고칠 위험이 더 크다. 원재료(StopCall 시각)는 이미 `OtpPlanConnectionMapper`→`RoutingLeg.stops()`까지 닿아있으므로, 경계를 어떻게 넓힐지는 실제 소비자(PR-1/PR-C)가 자기 필요 모양대로 정하는 게 낫다.
+- **PR-A 완료 판정**: PLAN 체크리스트 4개 중 graphql 쿼리·mapper 시각채움·절단연산(TruncatedRide) 3개 완료. "legacy 경계+버전드 스냅샷 리더"는 의도적 이연(둘 다 이유 동일=아직 소비자 없음) — PR-1/PR-C 착수 시 이 절과 위 미결절 먼저 볼 것. 남은 산출물은 fresh 브랜치로 분리해 PR 오픈.
+
+### 검증 (추가, 새 세션 재확인)
+- `./gradlew compileJava compileTestJava` 재실행 OK(무출력).
+- `./gradlew test --tests "*OtpPlanConnectionMapper*" --tests "*TruncatedRide*"` 재실행 GREEN(무출력=성공, `-q`).
+
+## 2026-09-18 journey-reroute-nextstop PR-A 정정 — OTP 는 실시간을 모른다(죽은 필드 제거)
+
+### 확정 (앞 절 정정)
+- **위 PR-A 절의 `realTime` 관련 서술 전부 ~~취소~~**: "stopCalls 의 schedule + realTime 을 받아 StopOccurrence 시각을 채운다" 는 **틀렸다**. 배포된 OTP 에는 실시간 피드가 없어서 `realTime` 은 언제나 빈 값이다. 근거(실측):
+  - `build-config.json` 의 `transitFeeds` = static GTFS(`seoul-bbox-202503.gtfs.zip`) 하나뿐, GTFS-RT 항목 없음.
+  - **`router-config.json` 자체가 저장소·VPS 어디에도 없다** — OTP 에서 실시간 updater 를 다는 파일이 바로 그것이다.
+  - VPS `/srv/nextroute/otp/<graphVersion>/` 에는 `graph.obj` + `coverage-index.json` 뿐.
+  - 사용자도 "지금 실시간 안 물려있는 걸로 안다" 로 확인.
+- **역할 분리 확정**: **OTP = 정적 시간표·경로·구간 소요** / **서버 = 실시간**(버스 도착·위치 캐시 [[project-bus-realtime-cache]], 지하철 도착 API). 둘을 합치는 계산은 서버가 한다. 재탐색은 "그 정류장에 내가 도착할 시각"(서버 실시간)으로 OTP 를 부르는 구조이지, OTP 에게 "언제 도착하냐"를 묻는 구조가 아니다.
+- **제거한 것**: 쿼리의 `stopCalls.realTime{...}`(내가 PR-A 에서 추가한 것) + leg 단위 `start/end.estimated{time}`·`realtimeState`(**기존부터 있었으나 어떤 Java 코드도 안 읽고 있었음** — grep 으로 확인, 매퍼는 `start.scheduledTime`/`end.scheduledTime` 만 읽고 Enrichment 는 `staticOnly(STATIC_SCHEDULE)` 하드코딩). `StopOccurrence.realtimeArrival/realtimeDeparture` 필드도 삭제 — 영원히 null 인 칸을 모델에 두면 다음 사람이 "실시간이 있나 보다" 로 읽는다.
+- **`TruncatedRide` 의미 변경**: `boardAt`/`alightAt`/`rideDurationSeconds` 는 이제 **시간표 값**이다. 실시간 보정은 부르는 쪽(서버 캐시) 몫. 근거 = 지연은 운행 전체를 미루지 정류장 사이 소요를 바꾸지 않으므로, "구간 소요는 시간표, 기준 시각은 실시간" 분리가 안전하다.
+- **원점 후보 규칙 변경(사용자 결정)**: 버스 실시간이 안 잡히는 정류장은 **시간표로 폴백하지 않고 후보에서 제외**한다(PLAN PR-2 해당 줄도 정정). 시간표 기반 제안은 지연 중인 실제 차와 어긋나는데, 사용자는 그 제안을 믿고 내리기 때문.
+
+### 함정
+- **fixture 가 실전에 없는 데이터를 만들어 테스트를 초록불로 만들고 있었다**: `planconnection-stopcall-times.json` 에 `realTime` 9건 + `realtimeState:"UPDATED"` + `estimated` 2건이 손으로 지어 넣어져 있었고, `TruncatedRideTest.prefersRealtimeOverScheduled` 가 그 위에서 "실시간 우선" 을 통과시키고 있었다. **피드가 없으니 프로덕션에서 절대 실행될 수 없는 경로**였다. fixture 를 지어낼 때는 "이 값이 실제 배포에서 나올 수 있는 값인가" 를 먼저 확인할 것.
+- 스키마에 필드가 존재하는 것과 그 필드에 값이 오는 것은 다르다. PR-A 때 `schema.graphqls` 로 `realTime` 필드 존재를 확인한 것은 맞았지만, **그것은 "파싱된다"는 증거이지 "값이 온다"는 증거가 아니었다**. 외부 시스템 필드를 새로 받을 때는 스키마 확인 + **실제 응답 1건 확인**을 둘 다 해야 한다.
+
+### 좌표
+- 변경: `src/main/resources/otp/planConnection.graphql`(realTime·estimated·realtimeState 제거), `application/route/routing/StopOccurrence.java`(realtime 2필드 제거 + 역할분리 javadoc), `application/route/routing/TruncatedRide.java`(시간표 기반으로 명시, bestDeparture/bestArrival 제거), `infrastructure/.../otp/OtpPlanConnectionMapper.java`(realTime 파싱 제거)
+- 테스트: `TruncatedRideTest`(realtime 우선 테스트 → 시간표 전용 테스트로 교체), `OtpPlanConnectionMapperTest`(realtime 단언 제거), fixture `planconnection-stopcall-times.json`(realTime/estimated/realtimeState 전부 제거)
+- 문서: `docs/plan/journey-reroute-nextstop/PLAN.md`(리뷰 확정사실·PR-A·PR-2 세 곳 정정)
+
+### 검증
+- `./gradlew compileJava compileTestJava` OK(에러 0, 경고는 기존 `@MockBean` deprecation).
+- `TruncatedRideTest` **6/6**, `OtpPlanConnectionMapperTest` **3/3**, `LegacyRouteResponseMapperTest` **34/34** green.
+- **기존 무관 실패 1건 — `RouteResponseMapperTest.subwayNoIdCoordsKept`**: `subway.lanes()` 가 null 이길 기대하는데 `[LaneResult[name=서울4호선, ..., routeDisplayColor=#009BCE]]` 가 온다. **내 변경을 stash 하고 clean HEAD 에서 돌려도 동일하게 1건 실패** — 원인은 PR #210(routeDisplayColor)이 지하철 leg 에 lane 을 만들기 시작한 것이고, 그 PR 이 `*LegacyRouteResponseMapper*`·`*RouteSearchService*` 만 돌려서 이 클래스(`RouteResponseMapperTest`, 이름이 비슷하지만 다른 클래스)를 놓쳤다. **별건 PR 로 고칠 것**(이 PR 에 섞지 않음).
+
 ## 2026-09-18 OTP legacy routeDisplayColor — 지하철·서울 버스 고정표
 
 ### 확정
