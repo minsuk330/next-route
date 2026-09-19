@@ -2383,6 +2383,89 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - stage5(컷오버) = 여정당 unique 신규 + 키 이동 + 옛 인덱스/컬럼 제거 + V번호 신규. **별도 배포 단위**라 PR-B 에 넣지 않는다.
 - `origin` 을 실제로 채우는 것은 PR-2(원점 창)·PR-4(수락) 몫. 지금은 TRANSFER_WAIT 만 이중 쓰기로 채워진다.
 
+## 2026-09-19 journey-reroute-nextstop PR-C — composer 중간 절단 합성
+
+### 확정
+- **절단의 두 입력(자를 자리·소요)은 composer 가 만들지 않는다. 부르는 쪽이 준다** — 신규 `JourneyRevisionComposer.RideTruncation{alightStationIndex, rideSeconds}`. 근거 2개(실측):
+  1. **자를 자리를 composer 안에서 못 맞힌다**: 스냅샷 정류장 목록의 id 는 검색이 준 것(`LegacyRouteResponseMapper.toStations` :197-203 → `StationResult.stationID = StopOccurrence.sourceStopId()` = **OTP gtfsId**)이고, `RerouteOrigin.stopId` 는 **서울 id** 다. 여기서 둘을 맞히려 들면 PR-B stage1 정정이 경고한 "번역이 반만 되는" 자리를 하나 더 만든다. 서울 id 가 들어 있는 칸은 `startLocalStationID`/`endLocalStationID` 뿐이고 그건 양끝이라 중간 정류장엔 없다.
+  2. **board→X 소요를 composer 재료로 만들 수 없다**: PR-A `TruncatedRide` 는 **검색 결과 `RoutingLeg`**(stopCall 시각 보유) 전용인데, 절단 대상은 *진행 중인 여정의 스냅샷*(`PathResult`/`SubPathResult`)이라 정류장별 시각이 애초에 없다(`SubPathResult.sectionTime` = 구간 전체, 분 단위). 게다가 하차점 근거는 **실시간만**(PLAN 확정, 시간표 폴백 금지)이라 스냅샷에서 뽑을 수 있는 값이 아니다. → **PR-C 는 `TruncatedRide` 를 쓰지 않는다**(PLAN 원문 "truncated board→X(PR-A)" 는 *개념*이 같을 뿐 그 클래스를 재사용한다는 뜻이 될 수 없다).
+- **절단은 오염 가드의 예외지 해제가 아니다**: `truncation == null` 이면 기존 "구간 한가운데 거절"(snapshot-unmappable) 그대로. `truncation != null` 이면 오히려 조건이 더 좁다 — ①`origin != null` ②`kind == RIDE_INTERIOR` ③`origin.legIndex == fromLegIndex` ④실제로 구간 한가운데(=그 subPath 의 주행 leg)여야 통과. 하나라도 어긋나면 `truncation-unexpected`. 가드가 막던 사고(짝 대기 단계만 남아 다른 노선을 가리킴)는 **앞 절반을 남겨 두는 방식**으로 막는다 — 대기 단계가 여전히 타고 있는 그 노선을 가리킨다(테스트로 고정).
+- **버스만 자른다**(`trafficType==2`, 아니면 `truncation-unmappable`): 하차 정류장의 서울 id 가 `endLocalStationID`(버스 칸)에 들어가므로 지하철 구간에 쓰면 주소 체계가 섞인다. PR-A `TruncatedRide` 가 모드 정책을 호출자에 위임한 것과 달리 **여기서는 강제한다** — 그 함수는 순수 계산이지만 여기는 *저장될 스냅샷의 칸*에 값을 쓰기 때문.
+- **지어내지 않는 값**: 잘린 구간의 `distance`·`payment`·`endArsID`·`endID`·`endExit*` 는 **비운다**. 원래 값을 그대로 남기면 "그만큼 더 간다"는 뜻이 된다. `lanes`·`transferArrivals`·`start*` 는 승차 쪽이라 그대로 보존.
+- **지도선 = 남은 정류장 좌표를 이은 선**(투영 없음, PLAN 확정 그대로). 좌표가 빠진 정류장이 하나라도 있거나 2점 미만이면 null(가짜 선 금지 — `LegacyRouteResponseMapper.toPolyline` 과 같은 규칙).
+- **새 reason 어휘 `REMAINING_PATH_MID_RIDE_ACCEPTED`**(`journey_revision.reason` varchar(50), check 제약 없음 — 실측). 중간 하차는 "앞 절반을 계속 타고 간다"라 leg 경계 교체와 운영상 구별돼야 한다.
+- **`Composed.truncatedLegIndex`(nullable) 신설**: 잘린 주행 단계는 **새로 만드는 단계도 그대로 복제하는 단계도 아닌 제3의 경우**(PR-0 함정 기록과 같은 결론)라, 저장 쪽(PR-4)이 알아보려면 번호가 필요하다. 기존 5-arg 생성자는 하위호환으로 남김(truncatedLegIndex=null).
+
+### 함정
+- **잘린 구간의 소요는 스냅샷에서 초 단위로 복원되지 않는다**: `SubPathResult.sectionTime` 이 분 단위라 `Math.round(rideSeconds/60)` 로 접힌다(`JourneyCompiler` 가 다시 ×60 → 최대 ±30초 오차). 지금은 `plannedDurationSec` 이 이 반올림 값이다. **PR-4 는 entity 에 `RideTruncation.rideSeconds()` 를 직접 써야 한다**(draft 값을 그대로 쓰면 30초가 조용히 틀어진다).
+- **정류장 목록이 없는 옛 스냅샷은 중간 하차가 불가능**(`truncation-unmappable`) — PLAN 리스크 "전환 전 시작 여정은 정류장별 데이터 없어 중간하차 불가"가 코드에서 이 형태로 나타난다. ODSAY 스냅샷도 `stations` 가 비면 같은 결과.
+- 🔴 **기존 무관 but main 이 이미 깨져 있다**: `RerouteProposalStoreIT`/`RerouteProposalExpiryIT` 가 `initializationError` — `No qualifying bean of type ...RerouteOriginResolver`. PR-B stage3(#213)이 `RerouteProposalTxService` 생성자에 resolver 를 추가했는데 두 `@DataJpaTest` 의 `@Import({...})` 목록에 안 넣어서다. **내 변경 전(stash 후) clean main 에서도 같은 실패 재현 확인.** 프로덕션은 무관(`@Component` 라 컴포넌트 스캔이 잡음) — 테스트 배선만. 별건 PR 로 `@Import` 에 `RerouteOriginResolver.class` 추가 필요.
+
+### 좌표
+- 변경: `application/journey/service/JourneyRevisionComposer.java`(4-arg `compose` + `truncationRejection`/`truncate`/`spliceTruncated`/`stopLine`, `Composed.truncatedLegIndex`, `Reason.REMAINING_PATH_MID_RIDE_ACCEPTED`, 신규 `RideTruncation`)
+- 변경: `test/.../JourneyRevisionComposerTest.java`(중간 절단 8케이스 추가), `test/.../SubPathFixture.java`(`payment` 세터 — 절단이 요금을 비우는지 검증하려면 원본에 값이 있어야 함)
+- 소비자 없음(무회귀): `RerouteAcceptTxService:116` 은 3-arg 그대로 → 지금 프로덕션 동작 변화 0. 배선은 PR-4.
+
+### 배포
+- **마이그레이션 없음**. 코드만. 단 `journey_revision.reason` 에 새 값이 들어가므로 운영 대시보드/쿼리가 reason 을 열거하고 있으면 `REMAINING_PATH_MID_RIDE_ACCEPTED` 추가 필요(제약은 없어서 DB 는 안 깨진다).
+
+### 검증
+- `./gradlew test --tests "*JourneyRevisionComposerTest*"` → **16/16 green**(기존 7 + 신규 9).
+- **뮤테이션 확인**(테스트가 실제로 무는지): `truncate` 의 소요·거리를 원본 그대로 두도록 일부러 바꾸니 `truncatesRideAtMidStop`·`truncatedSnapshotRecompilesToSameLegs` 2건 FAILED → 되돌림.
+- `./gradlew test --tests "watoo.grd.nextroute.application.journey.service.*" --tests "watoo.grd.nextroute.application.route.*"` → **907 tests / 0 failures**(XML 집계).
+- 기존 무관 2건: 위 함정의 `RerouteProposalStoreIT`/`RerouteProposalExpiryIT`(clean main 에서도 동일 실패, stash 로 교차검증). `RerouteAcceptIT` 등 Postgres IT 는 이 샌드박스에 DB 가 없어 여전히 실행 불가 — PLAN 의 "⑤ 무회귀(RerouteAcceptIT)"는 **로컬 Postgres 있는 세션에서 확인 필요**(단, accept 경로는 3-arg 호출 그대로라 코드상 변화 없음).
+
+### 미결
+- PR-4 가 채울 것: `alightStationIndex` 해석(서울 origin → 스냅샷 정류장 위치), `rideSeconds` 실시간 산출, `truncatedLegIndex` 특수분기(copy+trim, progress 보존), 초 단위 `plannedDurationSec`.
+- `RerouteAcceptTxService.saveRouteOptions` 는 `legIndex < fromLegIndex` 로 복제/신규를 가른다 — 잘린 주행 단계는 `== fromLegIndex` 라 신규 쪽으로 떨어진다. 주행 단계는 노선 후보를 안 가져서(후보는 대기 단계 소유) 지금은 무해하지만 PR-4 가 확인할 것.
+
+## 2026-09-19 PR-C 후속 — PR-B stage3 가 깨뜨린 두 IT 복구 (같은 PR, 별도 커밋)
+
+### 확정
+- `RerouteProposalStoreIT`·`RerouteProposalExpiryIT` 가 `@DataJpaTest` 라 **컴포넌트 스캔이 없다** — `@Import` 에 적힌 빈만 산다. PR-B stage3 가 `RerouteProposalTxService` 생성자에 `RerouteOriginResolver` 를 추가했는데 두 `@Import` 목록을 안 늘려 `initializationError`(No qualifying bean). 프로덕션은 `@Component` 스캔이라 무관.
+- **빈만 넣으면 그다음에 또 깨진다**: 두 IT 의 `@Sql` 체인이 V43 에서 끝나는데 `RerouteProposal` 엔티티는 이제 `origin` 컬럼을 매핑한다 → **V50 도 같이 넣어야** 한다(`JourneyRerouteProposalSchemaIT` 는 stage1 에서 이미 넣어둔 것과 같은 조치). 한 증상을 고치면 바로 다음 증상이 나오는 짝이라 **둘을 한 커밋으로** 처리.
+
+### 함정 (앞선 기록 정정)
+- **~~"이 샌드박스엔 Postgres/Docker 가 없어 Postgres IT 로컬 실행 불가"~~ 취소(2026-09-19 실측)**: 지금은 붙는다. 같은 명령이 실제로 초록불로 돌았다(아래 검증 — Store 13, Expiry 4, Accept 10, Schema 5). PR-A/PR-B 세션의 "기존 무관: Connection refused" 라벨은 **그 시점의 환경 상태**였을 뿐이고, 그 라벨을 관례로 굳혀 Postgres IT 를 안 돌리면 이번 같은 배선 파손이 계속 안 잡힌다. **매 세션 한 번은 실제로 돌려 확인할 것.**
+
+### 좌표
+- 변경: `test/.../application/journey/RerouteProposalStoreIT.java`(`@Import` 에 `RerouteOriginResolver` + `@Sql` 에 V50), `test/.../application/journey/RerouteProposalExpiryIT.java`(동일)
+
+### 검증
+- `./gradlew test --tests "*RerouteProposalStoreIT*" --tests "*RerouteProposalExpiryIT*"` → **13/13, 4/4 green**(수정 전 둘 다 initializationError).
+- `./gradlew test --tests "*RerouteAcceptIT*" --tests "*JourneyRerouteProposalSchemaIT*"` → **10/10, 5/5 green** — PLAN PR-C 의 "⑤ 무회귀(RerouteAcceptIT)" 를 실제 Postgres 로 충족(이연 아님).
+## 2026-09-19 journey-reroute-nextstop PR-1 — overlay 체인 + 표준 rank()
+
+### 확정
+- **체인을 `RemainingPathEtaComposer` 안에 두지 않고 신규 `BoardingChainEtaCalculator` 로 뺐다.** 이유 = PLAN 이 요구한 "baseline 도 같은 체인"을 지키려면 **저장된 여정(`JourneyLeg`)과 방금 검색한 후보(`JourneyLegDraft`)가 같은 계산을 타야** 하는데, composer 는 초안만 안다. 계산기는 중립 `Step{legIndex, type, plannedDurationSec, BoardingQuery}` 만 받고, 두 호출자가 각자 자기 모양을 옮긴다(`RouteOptionEtaCalculator` 가 엔티티/초안을 `Segment` 로 접는 기존 선례와 같은 방식).
+- **R1("이후 대기 0") 폐기 범위 = ④ 경로만**. `RouteOptionEtaCalculator` 는 그대로 둔다 — ③(`RouteOptionCandidateProvider`)이 아직 쓰고 있고 PR-5 에서 통째로 사라진다. 지금 건드리면 폐기 예정 코드의 회귀를 떠안는다.
+- **실패 사유를 첫 대기와 그 뒤로 가른다**: 첫 대기 미해석 = `no-prediction`(옛 이름 유지), 두 번째 이후 = **`boarding-unresolved`**(신규 등재). 한 이름으로 묶으면 "체인을 켜서 제외가 얼마나 늘었는지"를 지표에서 못 읽는다.
+- **신뢰도 = 체인에서 가장 나쁜 고리**(`Result.quality`). 예전 `hasFurtherTransfer` 기반 낮춤은 폐기 — "뒤에 대기가 남아 있다"가 더 이상 근거가 아니다(이제 그 대기도 예측한다). 대신 두 번째 차가 ML 추정이면 목적지 시각도 그만큼만 믿는다.
+- **`walkingSec` 의미 확장**: 예전에는 *승차 이후* 도보만 셌는데, 체인은 **경로 전체**(정류장까지 가는 접근 도보 포함)를 센다. 근거 = 그 값이 화면에도 나가고 `rank()` 의 3순위 키이기도 한데, 접근 도보를 빼면 "멀리 걸어가서 타는 후보"가 실제보다 편해 보인다. 기존 테스트의 240 → 420 변경이 이 결정의 흔적.
+- **표준 `RerouteRanking`**(정적 유틸): `ORDER = 목적지 ETA ↑ → 환승수 ↑ → 도보 ↑ → 여유 ↓`. **개선폭(gain)으로 정렬하지 않는 이유** = gain 은 기준선이 있을 때만 존재하는 값이라, 기준선을 못 잰 요청(지금 차를 못 타는 사람 = 가장 재탐색이 필요한 사람)에서는 정렬 규칙이 사라져 자리마다 다른 순서가 나온다. 기준선이 고정된 요청 안에서는 "ETA 이른 순 = gain 큰 순"이라 옛 정렬과 결과가 같고 **동점 처리만 달라진다**. PR-2 의 "정류장당 시간표 rank 상위 1개"는 같은 비교기의 `Scheduled` 변형을 쓴다.
+- **경로 간 overlay 병렬**(신규 `rerouteOverlayExecutor`, size 4/queue 8): 후보 하나가 이제 대기 수만큼 예측을 부르므로 순차로 돌리면 예산이 앞의 한둘에서 소진돼 **검색이 준 순서가 곧 당선 순서**가 된다. 체인 *안*은 앞 승차가 다음 앵커라 순차일 수밖에 없다. 풀 포화(`RejectedExecutionException`)면 **부르는 스레드에서 실행** — 후보를 잃느니 느린 편이 낫고 예산 가드가 전체 대기를 여전히 막는다.
+- **예산 처리 변경**: 예전에는 "예산 끝 → 남은 후보는 시작도 안 함"이었는데, 병렬에서는 이미 나간 호출의 결과를 버리는 셈이라 **기다리기만 멈춘다**(끝난 것은 쓰고, 안 끝난 것만 `budget-exhausted`). 체인은 대기마다 `min(perCall, 남은 시간)` 으로 호출한다(`Budget{chainBudgetMs, perCallBudgetMs}`).
+
+### 함정
+- **기준선이 이제 예측을 여러 번 부른다**: 남은 환승 수만큼. 기준선은 예전처럼 후보 예산 밖이지만(없으면 개선폭 자체를 못 잼), 총 상한을 `remaining-path.evaluationBudgetMs` 로 걸어 뒀다. **요청 하나의 최악 대기 = 검색 + 기준선 체인 + 후보 체인(병렬)** 으로 늘었다 — 라이브에서 p95 를 볼 것.
+- **기준선이 더 늦어져 개선폭이 커 보인다(정상)**: 옛 기준선은 이후 대기를 0으로 접어 **낙관적**이었다. 체인이 그 대기를 살리면 기준선 ETA 가 뒤로 밀리고 후보의 gain 이 늘어난다. 테스트 `baselineOverlaysEveryRemainingWait` 가 이 값을 1620초로 고정해 둠 — "gain 이 갑자기 커졌다"는 관측은 버그가 아니라 이 변경이다. 반대로 후보 쪽도 같은 규칙이라 구조가 다른 후보끼리는 이제 공정하다.
+- 🔴 **기존 무관**: `JourneyTransferAssessmentIT.assessmentIsPersisted` 가 `Expecting actual not to be null` 로 실패한다. **clean main(stash 후)에서도 동일 재현** — 내 변경과 무관. 별건으로 조사 필요(재탐색과 무관한 환승 판정 저장 경로).
+
+### 좌표
+- 신규: `application/journey/service/BoardingChainEtaCalculator.java`, `application/journey/service/RerouteRanking.java`, `application/journey/config/RerouteOverlayExecutorConfig.java`
+- 변경: `RemainingPathEtaComposer`(체인 사용, `walkSecondsBefore`·estimator 조회 삭제, `Attempt.eta` 타입 교체), `RemainingPathCandidateProvider`(기준선 체인 + `storedSteps` + 병렬 overlay + `RerouteRanking` 정렬 + `Scored implements Ranked`), `JourneyRerouteMetrics`(`boarding-unresolved` 등재)
+- 무변경(의도): `RouteOptionEtaCalculator`(③ 전용, PR-5 에서 제거)
+
+### 배포
+- **마이그레이션 없음**. 새 설정 키 `journey.reroute.overlay-pool.{size,queue}`(기본 4/8) — 미설정이면 기본값이라 배포 파일 수정 불필요.
+- 재탐색은 여전히 flag off 라 프로덕션 영향 0. 켤 때 `boarding-unresolved` 비율을 먼저 볼 것(체인 때문에 제외가 늘 수 있다 — PLAN 리스크 "overlay A 제외율 폭주").
+
+### 검증
+- `BoardingChainEtaCalculatorTest` **9/9**(체인 앵커·2번째 미해석 제외·첫 대기 no-prediction·unboardable·worst quality·missing-duration·예산 0·앞 구간 건너뜀·걷기 전용).
+- `RerouteRankingTest` **6/6**(ETA 우선·환승수·도보·여유 동점·시간표 변형·빈 목록).
+- `RemainingPathEtaComposerTest` **15/15**(신규 2: 두 대기 모두 질의·두 번째 미해석 제외), `RemainingPathCandidateProviderTest` **15/15**(신규 2: 기준선 체인 앵커·rank 동점 정렬).
+- **뮤테이션 확인**: 두 번째 대기부터 앵커를 안 밀도록(옛 R1) 바꾸니 3개 FAILED(체인·composer·provider 각 층에서 하나씩) → 되돌림.
+- 전체 `application.journey.*` + `application.route.*` → **1266 tests, 1 failed** = 위 함정의 `JourneyTransferAssessmentIT`(clean main 동일 실패, 기존 무관). 나머지 전부 green. `NextrouteApplicationTests`(전체 컨텍스트 로드) green — 신규 executor 빈 배선 확인.
 ## 2026-09-19 journey-reroute-nextstop PR-B stage5 1/2 — 여정당 unique + 키 이동
 
 ### 확정

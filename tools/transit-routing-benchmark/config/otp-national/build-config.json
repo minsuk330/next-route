@@ -1,0 +1,24 @@
+{
+  "osm": [
+    {
+      "source": "file:///var/opentripplanner/national.osm.pbf"
+    }
+  ],
+  "transitFeeds": [
+    {
+      "type": "gtfs",
+      "source": "file:///var/opentripplanner/national.gtfs.zip"
+    }
+  ],
+  "maxTransferDuration": "PT10M",
+  "transferRequests": [
+    {
+      "modes": "WALK"
+    }
+  ],
+  "staticParkAndRide": false,
+  "staticBikeParkAndRide": false,
+  "areaVisibility": false,
+  "transitServiceStart": "-P1D",
+  "transitServiceEnd": "P2M"
+}

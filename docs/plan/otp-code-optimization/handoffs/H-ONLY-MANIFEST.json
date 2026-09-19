@@ -1,0 +1,175 @@
+{
+  "updated": "2026-09-15",
+  "phaseStatus": {
+    "phase0": "PASS",
+    "phase1": "PASS",
+    "phase2": "PASS",
+    "phase3": "COMPLETE_LOCAL_HELSINKI",
+    "phase4": "HISTORICAL_EVIDENCE_ONLY",
+    "phase5": "DRAFTS_READY"
+  },
+  "scope": "H-only OpenTripPlanner contribution preparation",
+  "implementationRepository": "/Users/wa/golbob/개인/OpenTripPlanner",
+  "worktree": "/private/tmp/otp-h-only-run-v83UVX",
+  "branch": "codex/otp-h-trip-times",
+  "base": {
+    "remote": "https://github.com/opentripplanner/OpenTripPlanner.git",
+    "ref": "dev-2.x",
+    "sha": "a0b62f69fc543e84687752e17dae8a66b01c5e28"
+  },
+  "historicalMixedCommit": {
+    "sha": "8dbad55ba40a36606e47f98688db958b4c3eeab0",
+    "parent": "02c0b4b537eb07bb0b284726397821682248fe20",
+    "cherryPicked": false
+  },
+  "workingTreePatch": {
+    "sha256": "ca1caaf61758100a821211c716e754a597936d182c7f63c6e6630592f29fa9a1",
+    "changedFiles": [
+      "application/src/main/java/org/opentripplanner/routing/algorithm/raptoradapter/transit/request/TripPatternForDates.java",
+      "application/src/test/java/org/opentripplanner/routing/algorithm/raptoradapter/transit/request/TripPatternForDatesTest.java"
+    ],
+    "excludedFromPatch": [
+      "DestinationArrivalPaths",
+      "PathConfig",
+      "McRangeRaptorConfig",
+      "filtering and stop-pattern index changes",
+      "frequency/search-window/graph changes",
+      "test/performance/seoul-metro"
+    ]
+  },
+  "environment": {
+    "os": "macOS 26.5.2 (Darwin 25.5.0)",
+    "architecture": "aarch64",
+    "chip": "Apple M3 Pro",
+    "cores": 11,
+    "memoryGiB": 18,
+    "javaCommandVersion": "23.0.1",
+    "mavenJavaVersion": "26.0.2.1",
+    "mavenVersion": "3.9.16",
+    "compilerRelease": 25
+  },
+  "build": {
+    "reactorInstall": {
+      "command": "mvn -q -pl application -am -DskipTests install",
+      "status": "PASS"
+    },
+    "shadedPackage": {
+      "command": "mvn -q -pl otp-shaded -am -DskipTests -Dmaven.gitcommitid.skip=true -Dgit.commit.id=a0b62f69fc543e84687752e17dae8a66b01c5e28 -Dgit.commit.id.describe=a0b62f6 -Dgit.commit.time=2026-09-14T10:20:29+00:00 -Dgit.branch=codex/otp-h-trip-times -Dgit.dirty=true -Dplugin.spotless.skip=true package",
+      "status": "PASS",
+      "jar": "otp-shaded/target/otp-shaded-2.11.0-SNAPSHOT.jar",
+      "jarSha256": "e0b57b2ed105db13fa90f32a49abb26cc2b0cabca41796d88cf88a51f4c29ab9"
+    },
+    "formatAndCheckstyle": {
+      "command": "mvn -q -pl application spotless:check checkstyle:check",
+      "status": "PASS"
+    },
+    "diffCheck": {
+      "command": "git diff --check",
+      "status": "PASS"
+    }
+  },
+  "tests": {
+    "hTarget": {
+      "command": "mvn -q -pl application -Dtest=TripPatternForDatesTest test",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "status": "PASS"
+    },
+    "directRelated": {
+      "classes": 5,
+      "tests": 80,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "status": "PASS"
+    },
+    "reactor": {
+      "command": "mvn -q -pl application -am test",
+      "tests": 8255,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 20,
+      "status": "PASS"
+    }
+  },
+  "snapshotSafetyEvidence": [
+    "TripTimes is a sealed interface; ScheduledTripTimes is final/read-only and RealTimeTripTimes is final with final state fields.",
+    "RealtimeTripTimesBuilder creates a new TripTimes instance for updates; it does not mutate a published instance.",
+    "Timetable publishes immutable trip-time lists and realtime mapping replaces TripPatternForDate instances in a copied RaptorTransitData snapshot.",
+    "The updater package documents copy-on-write publication and unchanging views for concurrent routing requests."
+  ],
+  "helsinkiSpeedTest": {
+    "status": "COMPLETE_LOCAL_EQUIVALENT",
+    "officialProfile": "Helsinki February 2026 fixture, testDate 2026-02-19, -p md -n 4 -i 3 -0",
+    "execution": {
+      "mode": "direct Java main; Maven exec goal unavailable in the local dependency cache",
+      "dockerStarted": false,
+      "jvm": "Java 26.0.2.1, -Xmx8g, -XX:+UseCompactObjectHeaders",
+      "sleepPrevention": "caffeinate -dimsu",
+      "graphBuildCommand": "caffeinate -dimsu java -Xmx8g -XX:+UseCompactObjectHeaders -jar otp-<variant>.jar --build --save <data-dir>",
+      "speedTestArgs": "--dir=<data-dir> -p md -n 4 -i 3 -0",
+      "hostCommands": "SpeedTest main with application/test-classes plus shaded JAR and Maven dependency classpath"
+    },
+    "configFiles": {
+      "buildConfigLocalSha256": "6078179077d609ce06bb588c5a272202a626091df80c94b3d768e1450bf0bc66",
+      "buildConfigRemoteSha256": "e21ecd198cfaae0426ab09f31c89d6078721cc9ba1d38e8716c927201e0899a7",
+      "speedTestConfigSha256": "d57bf882d5d8e22b82f2942cb09945eba1d21ad5ec8f4b64c3694b730163798e"
+    },
+    "data": {
+      "directory": "/private/tmp/otp-h-only-helsinki-bjMNbI",
+      "osmSha256": "6eaaff04885056857824f953e723404d4c3ff86811c528b8255a1911c198b377",
+      "gtfsSha256": "af4b8e9fe36e2014d7272378653a127f06084aa2907ee5deccdd71afda15b479"
+    },
+    "h": {
+      "directory": "/private/tmp/otp-h-only-helsinki-bjMNbI",
+      "jarSha256": "e0b57b2ed105db13fa90f32a49abb26cc2b0cabca41796d88cf88a51f4c29ab9",
+      "graphSha256": "e1cce9681eb20861a0f7e53a24d19028a124dd86e204f5be26a5b7217aeb3871",
+      "graphStats": "|V|=813280, |E|=2236006, stops=8302, patterns=1007, constrainedTransfers=4",
+      "graphBuildWallSeconds": 127.69,
+      "resultCsvSha256": "5b025c6eadedbb3b59f8715ea767ec9541f1f2db663d3dc0f584e0d413b67f90",
+      "log": "/private/tmp/otp-h-only-helsinki-bjMNbI/speedtest-h-xmx8g.log",
+      "wallSeconds": 171.98,
+      "successfulSearches": "227/408",
+      "unexpectedResults": "181/408",
+      "workerMeanMs": 56.0,
+      "totalMeanMs": 98.8
+    },
+    "a": {
+      "directory": "/private/tmp/otp-a-only-helsinki-4wN2sL",
+      "branch": "codex/otp-a-baseline",
+      "jarSha256": "772ff39a2ef4f8551afab1b053b548742fadeeacab55c6fd4c905b78419d068f",
+      "graphSha256": "178375c8ebed47178d9ec3c09c45e526bc483775aabab0043a62c7dc1b6515d0",
+      "graphStats": "|V|=813280, |E|=2236021, stops=8302, patterns=1007, constrainedTransfers=4",
+      "graphBuildWallSeconds": 127.75,
+      "resultCsvSha256": "f417493103bba636a2ab69f06c1042e7cadf08b0ebc9498334d5b0ff96f41b43",
+      "log": "/private/tmp/otp-a-only-helsinki-4wN2sL/speedtest-a-xmx8g.log",
+      "wallSeconds": 169.88,
+      "successfulSearches": "233/408",
+      "unexpectedResults": "175/408",
+      "workerMeanMs": 53.8,
+      "totalMeanMs": 97.3
+    },
+    "interpretation": "Both variants completed the local equivalent, but both differ from the checked-in expected CSV. A and H were built separately and their graphs differ by 15 edges despite identical input/config; therefore this single run is correctness evidence for execution only and performance is INCONCLUSIVE."
+  },
+  "sharedGraphValidation": {
+    "manifest": "H-ONLY-SHARED-GRAPH-MANIFEST.json",
+    "result": "H-ONLY-SHARED-GRAPH-RESULT.md",
+    "ledger": "H-ONLY-SHARED-GRAPH-RUN-LEDGER.md",
+    "status": "COMPLETE_ALLOCATION_REDUCTION_ONLY",
+    "graphSha256": "178375c8ebed47178d9ec3c09c45e526bc483775aabab0043a62c7dc1b6515d0",
+    "freshJvmPairs": 6,
+    "jfrPairs": 2,
+    "resultCsvExactAcrossRuns": true,
+    "routingTotalImprovementMeanPct": -1.3538,
+    "sampledRssPeakImprovementMeanPct": -0.9894,
+    "jfrWeightedAllocationImprovementPct": 11.370,
+    "dockerStarted": false
+  },
+  "publication": {
+    "commitCreated": false,
+    "issuePosted": false,
+    "pullRequestPosted": false
+  }
+}

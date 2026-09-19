@@ -60,16 +60,20 @@
 
 ### PR-C (기반) — composer 중간 절단 합성
 의존: PR-A.
-- [ ] `JourneyRevisionComposer`: 중간 하차 합성 = `[prefix] + [truncated board→X(PR-A)] + [candidate]`. 가드(:80-86) "다른 노선 오염" 방지 유지(명시 origin 일 때만 절단 허용). 기존 미래-WAIT 경로 불변.
+- [x] `JourneyRevisionComposer`: 중간 하차 합성 = `[prefix] + [truncated board→X] + [candidate]`. 가드(:80-86) "다른 노선 오염" 방지 유지(명시 origin 일 때만 절단 허용). 기존 미래-WAIT 경로 불변.
+- [x] **절단 입력은 부르는 쪽이 준다**(`RideTruncation{alightStationIndex, rideSeconds}`, 2026-09-19 결정): ①자를 자리 — 스냅샷 정류장 id 는 검색 id(OTP gtfsId)고 origin.stopId 는 서울 id 라, composer 안에서 맞히면 "번역이 반만 되는" 자리를 하나 더 만든다. ②소요 — 진행 중인 구간의 board→X 는 **실시간** 근거인데 composer 재료엔 없다(PR-A `TruncatedRide` 는 *검색 결과* `RoutingLeg` 용이라 진행 중 leg 엔 안 닿는다). 둘 다 PR-2/PR-4 가 푼다.
+- [x] 버스만 절단(`trafficType==2`) — 하차 정류장 id 가 버스 칸(`endLocalStationID`)에 들어가므로 지하철에 쓰면 주소 체계가 섞인다.
 - 검증: 중간하차 revision·앞 절반 보존·오염 거부 유지. ⑤ 무회귀(RerouteAcceptIT).
 
 ### PR-1 — overlay A안 체인 + rank()
 의존: PR-A(정류장별 시각).
-- [ ] `RemainingPathEtaComposer.compose` 모든 WAIT 순차 체인: running clock 으로 `BoardingTimeEstimator.estimate`(**실시간→ML** — 여기만 ML 폴백을 허용한다, 확정 결정의 "의도한 비대칭" 참고), 둘 다 없음/not boardable → 후보 제외. anchor 갱신. "이후 대기 0"(R1) 폐기. 경로 간 overlay 병렬.
-- [ ] 기존 계약 유지: enrich, 첫 대기 앞 도보 앵커, 상대 legIndex, **환승 늘면 버림**.
-- [ ] baseline 도 같은 체인 overlay(출처 통일).
-- [ ] **표준 `rank()` 신설**(목적지 ETA→환승수→도보→여유) + overlay 전 시간표 정적 변형. `RemainingPathCandidateProvider`:279 정렬 대체.
-- [ ] Metrics 사유 `boarding-unresolved` 등재.
+- [x] 신규 `BoardingChainEtaCalculator`: 모든 WAIT 순차 체인(running clock → `BoardingTimeEstimator.estimate`, **실시간→ML** 은 예측기 안에 이미 있음), 못 풀면 후보 제외. anchor 갱신. "이후 대기 0"(R1) 폐기. **체인을 composer 안에 두지 않고 별도 컴포넌트로 뺀 이유 = baseline(저장 엔티티)과 후보(검색 초안)가 같은 계산을 타야 하기 때문**(중립 `Step` 만 받는다).
+- [x] `RemainingPathEtaComposer.compose` 가 체인 사용. 기존 계약 유지: enrich, 첫 대기 앞 도보 앵커(체인의 첫 구간이라 자동), 상대 legIndex, **환승 늘면 버림**.
+- [x] baseline 도 같은 체인 overlay(출처 통일) — 대기 leg 마다 선택 노선을 읽어 질의를 만든다.
+- [x] 경로 간 overlay 병렬: 신규 `rerouteOverlayExecutor`(bulkhead, size 4/queue 8). 풀 포화 시 호출 스레드에서 실행(후보를 버리지 않는다). 예산 초과는 `budget-exhausted` 로 **그 후보만** 접고 이미 끝난 것은 쓴다.
+- [x] **표준 `RerouteRanking.rank()` 신설**(목적지 ETA→환승수→도보→여유) + overlay 전 시간표 정적 변형(`Scheduled`). `RemainingPathCandidateProvider` 의 gain 내림차순 정렬 대체(기준선 고정이면 결과 동일, 동점만 달라짐).
+- [x] Metrics 사유 `boarding-unresolved` 등재(첫 대기 실패 `no-prediction` 과 구분).
+- [x] **신뢰도 = 체인에서 가장 나쁜 고리**(`hasFurtherTransfer` 기반 낮춤 폐기 — 이제 모든 대기를 예측하므로 "뒤에 대기가 남아 있다"가 근거가 아니다).
 - 검증: 2환승 2번째 없음=제외 / 체인 anchor / baseline 동일 / 환승 늘면 버림 / rank 계약 / ④ 무회귀.
 
 ### PR-2 — 원점 창 + 정류장별 리스트

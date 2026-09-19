@@ -1,0 +1,426 @@
+{
+  "experimentId": "reduced-25-20260915",
+  "status": "R2_C1_COMPLETE_C2_SAME_SHA_REBUILD_IN_PROGRESS_REDUCED_PRESSURE_EXPLORATORY",
+  "purpose": "Test A/HF latency non-inferiority after reducing transit input to approximately 25 percent, with memory pressure gates preserved.",
+  "selection": {
+    "method": "prepare_gtfs.py bbox whole-trip filter",
+    "bboxWsen": [126.8, 37.42, 127.12, 37.62],
+    "rule": "Keep a trip only when every served stop is inside the bbox; never truncate stop_times.",
+    "calendarCenter": "20260915",
+    "calendarMarginDays": 62,
+    "calendarWindowWritten": ["20260715", "20261116"],
+    "targetRatio": 0.25,
+    "acceptedRatioRange": [0.225, 0.275],
+    "sourceTripRows": 154887,
+    "keptTripRows": 40955,
+    "keptTripRatio": 0.2644185761,
+    "sourceRouteRows": 2738,
+    "keptRouteRows": 451,
+    "sourceStopRows": 43783,
+    "keptStopRows": 8989,
+    "sourceStopTimeRows": 9584068,
+    "keptStopTimeRows": 2072174,
+    "keptTransferRows": 50
+  },
+  "inputs": {
+    "sourceGtfsZip": {
+      "path": "tools/transit-routing-benchmark/data/input/seoul-bbox-202503.gtfs.zip",
+      "sha256": "0cb23b0d9d370c6c59a2e7374c1702a58f7306a60c339b0b422f66461f5016e6"
+    },
+    "sourceGtfsDirectory": "tools/transit-routing-benchmark/data/gen/seoul-bbox-202503",
+    "reducedGtfsZip": {
+      "path": "/private/tmp/nextroute-otp-reduced25/reduced-25.gtfs.zip",
+      "sha256": "0ae5b332e652b5053ef36ac7d747d1a4342536e98cef0339d71c24ec9dd43258"
+    },
+    "osm": {
+      "path": "tools/transit-routing-benchmark/data/input/south-korea-seoul-metro.osm.pbf",
+      "sha256": "0be8f32b094def1004296e8a7edf68070ca1ede91d99679918e0cc4910bd2170",
+      "selection": "Existing Seoul metropolitan extract is kept unchanged; walking network is not reduced separately."
+    },
+    "cases": {
+      "path": "docs/plan/otp-code-optimization/handoffs/REDUCED-25-CASES.json",
+      "sha256": "1538977bf961af0adf6c97cf952b997944a2549661ff92b8d8e6791fa71e8998"
+    },
+    "prepareScript": {
+      "path": "tools/transit-routing-benchmark/runner/prepare_gtfs.py",
+      "sha256": "recorded at R0 execution"
+    },
+    "validateScript": {
+      "path": "tools/transit-routing-benchmark/runner/validate_gtfs.py",
+      "sha256": "recorded at R0 execution"
+    }
+  },
+  "graph": {
+    "path": "/private/tmp/nextroute-otp-reduced25/graph.obj",
+    "sha256": "dad699f35c7bd9f4c4ce8e345f65004f710add2db1f0913368f331efa0bd4d1e",
+    "sizeBytes": 138412032,
+    "otpVersion": "2.10.0-SNAPSHOT",
+    "vertices": 705692,
+    "edges": 1861908,
+    "stops": 8989,
+    "patterns": 540,
+    "buildXmx": "6g",
+    "buildContainerMemory": "8g",
+    "buildImage": "sha256:d67198007bb4441b07d45587320f83154de80ece3608f80408ef14c6ea847753",
+    "buildConfigSha256": "0c1298d332186a68f25b4f245dda2f3389962480096a0e91ee7e30bcbe90a0d6"
+  },
+  "artifacts": {
+    "jarA": {
+      "path": "/private/tmp/otp-baseline-src-20260913/otp-shaded/target/otp-shaded-2.10.0-SNAPSHOT.jar",
+      "sha256": "f7cacd4211a4cfe434767043cda7a0d72bfa1805ac63925c999ed70c3a44ee52"
+    },
+    "jarHF": {
+      "path": "/Users/wa/golbob/개인/OpenTripPlanner/otp-shaded/target/otp-shaded-2.10.0-SNAPSHOT.jar",
+      "sha256": "54bbdbcf7b6df4b110b7e7621eeea3f49d653b51248b59fa367a43bc2ec0db7f"
+    },
+    "otpSourceHead": "02c0b4b537eb07bb0b284726397821682248fe20",
+    "measurementRunner": {
+      "casesFileSupport": "uncommitted working-tree change in OpenTripPlanner test/performance/seoul-metro/compare_graphql.py",
+      "compareGraphqlSha256": "6ae1d2276cf23354160080e09aaab00a58f911cafa52a983e1793b025d1872f9",
+      "runIsolatedSha256": "f35dc9f6838e09ea92241e901a9f360434e5ab6378eb5c01e1e868a69b1d8a6f"
+    }
+  },
+  "runtime": {
+    "jvm": "Java 25.0.4 Temurin",
+    "gc": "G1",
+    "xmx": "10g",
+    "containerMemory": "12g",
+    "stringDeduplication": true,
+    "when": "2026-09-15T08:00:00+09:00",
+    "seed": 20260908
+  },
+  "r1Correctness": {
+    "aRun": "/private/tmp/nextroute-otp-reduced25/correctness-A2",
+    "hfRun": "/private/tmp/nextroute-otp-reduced25/correctness-HF",
+    "aRequests": 4,
+    "hfRequests": 4,
+    "aSuccessful": 4,
+    "hfSuccessful": 4,
+    "mismatchCount": 0,
+    "missingBaselineCases": [],
+    "manifestMismatch": {}
+  },
+  "r1Feasibility": {
+    "status": "REDUCED_PRESSURE_PASS_FORMAL_ZERO_SWAP_FAIL",
+    "conditions": {
+      "requestsPerOd": 100,
+      "warmupPerOd": 100,
+      "warmupStable": {"A": true, "HF": true},
+      "successfulMeasuredRequests": {"A": 400, "HF": 400},
+      "metricsStatus": {"A": "OBSERVED", "HF": "OBSERVED"},
+      "oomKilled": {"A": false, "HF": false},
+      "cleanupErrors": {"A": [], "HF": []}
+    },
+    "A": {
+      "run": "/private/tmp/nextroute-otp-reduced25/feasibility-A",
+      "peakRssBytes": 1767202816,
+      "peakContainerBytes": 1930084352,
+      "gcTotalPauseMs": 382.287,
+      "gcMaxPauseMs": 11.656,
+      "swapInPages": 38,
+      "swapOutPages": 0,
+      "p50Ms": 182.879,
+      "p95Ms": 259.448
+    },
+    "HF": {
+      "run": "/private/tmp/nextroute-otp-reduced25/feasibility-HF",
+      "peakRssBytes": 1753305088,
+      "peakContainerBytes": 1915265024,
+      "gcTotalPauseMs": 207.622,
+      "gcMaxPauseMs": 9.987,
+      "swapInPages": 82,
+      "swapOutPages": 0,
+      "p50Ms": 169.612,
+      "p95Ms": 284.85
+    },
+    "interpretation": "OTP/container pressure was materially reduced (about 1.9GB peak container RSS, no OOM), but the strict host-wide swap-in delta=0 gate was not met. R2 may be run as reduced-pressure exploratory evidence only unless a zero-swap host is provided."
+  },
+  "r2Performance": {
+    "status": "IN_PROGRESS_C2_SAME_SHA_REBUILD",
+    "classification": "REDUCED_PRESSURE_EXPLORATORY",
+    "root": "/private/tmp/nextroute-otp-reduced25/performance",
+    "conditions": {
+      "concurrency": 1,
+    "pairsCompleted": 5,
+      "pairsRequiredPerConcurrency": 5,
+      "pairOrder": ["AB", "BA", "AB", "BA", "AB"],
+      "requestsPerOd": 100,
+      "warmupPerOd": 100,
+      "xmx": "10g",
+      "containerMemory": "12g",
+      "graphSha256": "dad699f35c7bd9f4c4ce8e345f65004f710add2db1f0913368f331efa0bd4d1e",
+      "casesSha256": "1538977bf961af0adf6c97cf952b997944a2549661ff92b8d8e6791fa71e8998"
+    },
+    "pairs": [
+      {
+        "id": "c1-pair-01",
+        "order": "AB",
+        "aRun": "/private/tmp/nextroute-otp-reduced25/performance/c1/pair-01/A",
+        "hfRun": "/private/tmp/nextroute-otp-reduced25/performance/c1/pair-01/HF",
+        "successful": {"A": 400, "HF": 400},
+        "mismatchCount": {"A": 0, "HF": 0},
+        "p50Ms": {"A": 139.162, "HF": 170.003},
+        "p95Ms": {"A": 245.148, "HF": 275.705},
+        "peakContainerBytes": {"A": 1953513472, "HF": 1866141696},
+        "gcTotalPauseMs": {"A": 332.18, "HF": 195.473},
+        "gcMaxPauseMs": {"A": 9.69, "HF": 8.912},
+        "hostSwapInPages": {"A": 8, "HF": 19},
+        "hostSwapOutPages": {"A": 0, "HF": 0}
+      },
+      {
+        "id": "c1-pair-02",
+        "order": "BA",
+        "aRun": "/private/tmp/nextroute-otp-reduced25/performance/c1/pair-02/A",
+        "hfRun": "/private/tmp/nextroute-otp-reduced25/performance/c1/pair-02/HF",
+        "successful": {"A": 400, "HF": 400},
+        "mismatchCount": {"A": 0, "HF": 0},
+        "p50Ms": {"A": 168.653, "HF": 162.374},
+        "p95Ms": {"A": 259.891, "HF": 274.965},
+        "peakContainerBytes": {"A": 1872236544, "HF": 1984147456},
+        "gcTotalPauseMs": {"A": 401.079, "HF": 211.835},
+        "gcMaxPauseMs": {"A": 10.274, "HF": 9.864},
+        "hostSwapInPages": {"A": 239, "HF": 17},
+        "hostSwapOutPages": {"A": 0, "HF": 0}
+      },
+      {
+        "id": "c1-pair-03",
+        "order": "AB",
+        "aRun": "/private/tmp/nextroute-otp-reduced25/performance/c1/pair-03/A",
+        "hfRun": "/private/tmp/nextroute-otp-reduced25/performance/c1/pair-03/HF",
+        "successful": {"A": 400, "HF": 400},
+        "mismatchCount": {"A": 0, "HF": 0},
+        "p50Ms": {"A": 181.37, "HF": 193.572},
+        "p95Ms": {"A": 270.984, "HF": 282.258},
+        "peakContainerBytes": {"A": 1918935040, "HF": 1900728320},
+        "gcTotalPauseMs": {"A": 404.038, "HF": 190.552},
+        "gcMaxPauseMs": {"A": 9.379, "HF": 10.875},
+        "hostSwapInPages": {"A": 12, "HF": 20},
+        "hostSwapOutPages": {"A": 0, "HF": 0}
+      },
+      {
+        "id": "c1-pair-04",
+        "order": "BA",
+        "aRun": "/private/tmp/nextroute-otp-reduced25/performance/c1/pair-04/A",
+        "hfRun": "/private/tmp/nextroute-otp-reduced25/performance/c1/pair-04/HF",
+        "successful": {"A": 400, "HF": 400},
+        "mismatchCount": {"A": 0, "HF": 0},
+        "p50Ms": {"A": 195.921, "HF": 181.566},
+        "p95Ms": {"A": 340.15, "HF": 279.37},
+        "peakContainerBytes": {"A": 2041077760, "HF": 2006593536},
+        "gcTotalPauseMs": {"A": 417.381, "HF": 203.884},
+        "gcMaxPauseMs": {"A": 17.952, "HF": 9.965},
+        "hostSwapInPages": {"A": 1365, "HF": 307},
+        "hostSwapOutPages": {"A": 0, "HF": 0}
+      },
+      {
+        "id": "c1-pair-05",
+        "order": "AB",
+        "aRun": "/private/tmp/nextroute-otp-reduced25/performance/c1/pair-05/A",
+        "hfRun": "/private/tmp/nextroute-otp-reduced25/performance/c1/pair-05/HF",
+        "successful": {"A": 400, "HF": 400},
+        "mismatchCount": {"A": 0, "HF": 0},
+        "p50Ms": {"A": 194.391, "HF": 189.959},
+        "p95Ms": {"A": 333.364, "HF": 306.271},
+        "peakContainerBytes": {"A": 2121375744, "HF": 1993392128},
+        "gcTotalPauseMs": {"A": 370.399, "HF": 211.676},
+        "gcMaxPauseMs": {"A": 12.817, "HF": 9.592},
+        "hostSwapInPages": {"A": 451, "HF": 4},
+        "hostSwapOutPages": {"A": 0, "HF": 0}
+      }
+    ],
+    "bootstrap": {
+      "status": "EXPLORATORY_INCONCLUSIVE",
+      "script": "compare_runs.py",
+      "seed": 20260908,
+      "repetitions": 10000,
+      "metrics": {
+        "p50Ms": {"medianImprovementPercent": 2.2799409437679667, "bootstrap95": [-22.16194075969013, 7.326932794340571]},
+        "p95Ms": {"medianImprovementPercent": -4.160393233548844, "bootstrap95": [-12.464715192455165, 17.86858738791709]},
+        "observedPeakRssBytes": {"medianImprovementPercent": 1.690851321694127, "bootstrap95": [-6.592974840326391, 6.5412448757634065]}
+      },
+      "formalGate": "NOT_EVALUATED: every c1 run had non-zero host swap-in delta"
+    },
+    "next": "Continue with c2 pair-02 retry (AB); c4 remains pending",
+    "references": {
+      "c1A": "/private/tmp/nextroute-otp-reduced25/feasibility-A",
+      "c2A": {
+        "run": "/private/tmp/nextroute-otp-reduced25/feasibility-c2-A",
+        "concurrency": 2,
+        "successful": 400,
+        "p50Ms": 187.923,
+        "p95Ms": 296.745,
+        "peakContainerBytes": 3598639104,
+        "swapInPages": 20,
+        "swapOutPages": 0,
+        "formalGate": "INELIGIBLE: non-zero host swap-in"
+      }
+    },
+    "c2": {
+      "status": "BOOTSTRAP_EXPLORATORY_INCONCLUSIVE",
+      "pairsCompleted": 5,
+      "pairsRequired": 5,
+      "pairOrder": ["BA", "AB", "BA", "AB", "BA"],
+      "currentJarSha256": "dcd08dedf7060bca3f89a14bd645bf972eda4998cc3acd8e5bab17a02ce45284",
+      "reference": "/private/tmp/nextroute-otp-reduced25/feasibility-c2-A",
+      "invalidAttempts": [
+        {
+          "run": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-01",
+          "reason": "Used concurrency=1 reference; runner manifestMismatch.concurrency caused exit 1",
+          "rawPreserved": true
+        },
+        {
+          "run": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-01-retry-01",
+          "reason": "HF JAR SHA 54bb… differs from current dcd08… cohort; excluded from homogeneous bootstrap",
+          "rawPreserved": true
+        },
+        {
+          "run": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-02",
+          "reason": "HF JAR SHA 54bb… differs from current dcd08… cohort; excluded from homogeneous bootstrap",
+          "rawPreserved": true
+        },
+        {
+          "run": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-03",
+          "reason": "HF JAR SHA 54bb… differs from current dcd08… cohort; excluded from homogeneous bootstrap",
+          "rawPreserved": true
+        }
+      ],
+      "pairs": [
+        {
+          "id": "c2-pair-01-retry-01",
+          "eligibility": "EXCLUDED_JAR_SHA_54bb",
+          "order": "BA",
+          "aRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-01-retry-01/A",
+          "hfRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-01-retry-01/HF",
+          "successful": {"A": 400, "HF": 400},
+          "mismatchCount": {"A": 0, "HF": 0},
+          "p50Ms": {"A": 207.9, "HF": 194.708},
+          "p95Ms": {"A": 338.235, "HF": 313.312},
+          "peakContainerBytes": {"A": 2275143680, "HF": 1941221376},
+          "gcTotalPauseMs": {"A": 533.587, "HF": 319.237},
+          "gcMaxPauseMs": {"A": 12.264, "HF": 12.917},
+          "hostSwapInPages": {"A": 44, "HF": 40},
+          "hostSwapOutPages": {"A": 0, "HF": 0}
+        },
+        {
+          "id": "c2-pair-02",
+          "eligibility": "EXCLUDED_JAR_SHA_54bb",
+          "order": "AB",
+          "aRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-02/A",
+          "hfRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-02/HF",
+          "successful": {"A": 400, "HF": 400},
+          "mismatchCount": {"A": 0, "HF": 0},
+          "p50Ms": {"A": 203.105, "HF": 218.856},
+          "p95Ms": {"A": 340.926, "HF": 364.012},
+          "peakContainerBytes": {"A": 2957737984, "HF": 2248425472},
+          "gcTotalPauseMs": {"A": 363.486, "HF": 334.426},
+          "gcMaxPauseMs": {"A": 13.038, "HF": 31.613},
+          "hostSwapInPages": {"A": 4, "HF": 233},
+          "hostSwapOutPages": {"A": 0, "HF": 0}
+        },
+        {
+          "id": "c2-pair-03",
+          "eligibility": "EXCLUDED_JAR_SHA_54bb",
+          "order": "BA",
+          "aRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-03/A",
+          "hfRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-03/HF",
+          "successful": {"A": 400, "HF": 400},
+          "mismatchCount": {"A": 0, "HF": 0},
+          "p50Ms": {"A": 199.681, "HF": 195.654},
+          "p95Ms": {"A": 347.945, "HF": 351.396},
+          "peakContainerBytes": {"A": 4008296448, "HF": 2016927744},
+          "gcTotalPauseMs": {"A": 324.241, "HF": 280.845},
+          "gcMaxPauseMs": {"A": 27.819, "HF": 10.889},
+          "hostSwapInPages": {"A": 3852, "HF": 1508},
+          "hostSwapOutPages": {"A": 2181, "HF": 0}
+        },
+        {
+          "id": "c2-pair-04",
+          "order": "AB",
+          "aRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-04/A",
+          "hfRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-04/HF",
+          "successful": {"A": 400, "HF": 400},
+          "mismatchCount": {"A": 0, "HF": 0},
+          "p50Ms": {"A": 207.04, "HF": 207.689},
+          "p95Ms": {"A": 347.277, "HF": 343.503},
+          "peakContainerBytes": {"A": 2483212288, "HF": 1981452288},
+          "gcTotalPauseMs": {"A": 469.121, "HF": 301.593},
+          "gcMaxPauseMs": {"A": 13.97, "HF": 11.719},
+          "hostSwapInPages": {"A": 50, "HF": 571},
+          "hostSwapOutPages": {"A": 0, "HF": 0}
+        },
+        {
+          "id": "c2-pair-05",
+          "order": "BA",
+          "aRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-05/A",
+          "hfRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-05/HF",
+          "successful": {"A": 400, "HF": 400},
+          "mismatchCount": {"A": 0, "HF": 0},
+          "p50Ms": {"A": 214.455, "HF": 203.934},
+          "p95Ms": {"A": 368.272, "HF": 342.551},
+          "peakContainerBytes": {"A": 2417774592, "HF": 2008915968},
+          "gcTotalPauseMs": {"A": 567.831, "HF": 352.72},
+          "gcMaxPauseMs": {"A": 15.0, "HF": 12.0},
+          "hostSwapInPages": {"A": 48, "HF": 100},
+          "hostSwapOutPages": {"A": 0, "HF": 0}
+        },
+        {
+          "id": "c2-pair-01-retry-02",
+          "order": "BA",
+          "aRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-01-retry-02/A",
+          "hfRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-01-retry-02/HF",
+          "successful": {"A": 400, "HF": 400},
+          "mismatchCount": {"A": 0, "HF": 0},
+          "p50Ms": {"A": 212.969, "HF": 219.635},
+          "p95Ms": {"A": 349.538, "HF": 391.306},
+          "peakContainerBytes": {"A": 2779926528, "HF": 1997676544},
+          "gcTotalPauseMs": {"A": 416.169, "HF": 330.61},
+          "gcMaxPauseMs": {"A": 13.335, "HF": 14.574},
+          "hostSwapInPages": {"A": 138352, "HF": 348},
+          "hostSwapOutPages": {"A": 277020, "HF": 556}
+        },
+        {
+          "id": "c2-pair-02-retry-02",
+          "order": "AB",
+          "aRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-02-retry-02/A",
+          "hfRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-02-retry-02/HF",
+          "successful": {"A": 400, "HF": 400},
+          "mismatchCount": {"A": 0, "HF": 0},
+          "p50Ms": {"A": 248.222, "HF": 226.82},
+          "p95Ms": {"A": 609.94, "HF": 395.654},
+          "peakContainerBytes": {"A": 2408087552, "HF": 2010316800},
+          "gcTotalPauseMs": {"A": 858.028, "HF": 347.462},
+          "gcMaxPauseMs": {"A": 41.841, "HF": 34.178},
+          "hostSwapInPages": {"A": null, "HF": null},
+          "hostSwapOutPages": {"A": null, "HF": null}
+        },
+        {
+          "id": "c2-pair-03-retry-01",
+          "order": "BA",
+          "aRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-03-retry-01/A",
+          "hfRun": "/private/tmp/nextroute-otp-reduced25/performance/c2/pair-03-retry-01/HF",
+          "successful": {"A": 400, "HF": 400},
+          "mismatchCount": {"A": 0, "HF": 0},
+          "p50Ms": {"A": 186.049, "HF": 212.515},
+          "p95Ms": {"A": 305.307, "HF": 353.538},
+          "peakContainerBytes": {"A": 2180784128, "HF": 2019745792},
+          "gcTotalPauseMs": {"A": 601.059, "HF": 303.526},
+          "gcMaxPauseMs": {"A": 15.366, "HF": 13.455},
+          "hostSwapInPages": {"A": null, "HF": null},
+          "hostSwapOutPages": {"A": null, "HF": null}
+        }
+      ],
+      "bootstrap": {
+        "status": "EXPLORATORY_INCONCLUSIVE",
+        "artifact": "REDUCED-25-C2-BOOTSTRAP.json",
+        "p50MedianImprovementPercent": -0.31346599690881033,
+        "p50Bootstrap95": [-14.225284736816635, 8.6221205211464],
+        "p95MedianImprovementPercent": 1.0867405558099157,
+        "p95Bootstrap95": [-15.797541491023786, 35.13230809587829],
+        "peakRssMedianImprovementPercent": 18.240340619079536,
+        "peakRssBootstrap95": [7.991164689617089, 29.970974356243175],
+        "formalGate": "NOT_EVALUATED: host swap activity was present"
+      },
+      "next": "Proceed to c4 with a separate concurrency=4 A reference"
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "seed": 20260915,
+  "resamples": 10000,
+  "unit": "paired SpeedTest JVM pair",
+  "pairs": 6,
+  "improvementDefinition": "100 * (1 - HF / A)",
+  "metrics": {
+    "workerMeanMs": {
+      "A": 47.9833333333,
+      "HF": 58.6,
+      "improvementPercent": -22.13,
+      "ci95Percent": [-26.33, -18.36]
+    },
+    "routingTotalMeanMs": {
+      "A": 87.7333333333,
+      "HF": 96.4,
+      "improvementPercent": -9.88,
+      "ci95Percent": [-12.51, -7.57]
+    },
+    "caseTotalP50Ms": {
+      "A": 75.3333333333,
+      "HF": 79.8333333333,
+      "improvementPercent": -5.97,
+      "ci95Percent": [-7.76, -4.19]
+    },
+    "caseTotalP95Ms": {
+      "A": 163.8333333333,
+      "HF": 204.5,
+      "improvementPercent": -24.82,
+      "ci95Percent": [-26.65, -22.92]
+    },
+    "rssMedianKiB": {
+      "A": 3484776.0,
+      "HF": 3104378.6667,
+      "improvementPercent": 10.92,
+      "ci95Percent": [6.76, 14.74]
+    },
+    "rssP95KiB": {
+      "A": 5196474.6667,
+      "HF": 5072442.6667,
+      "improvementPercent": 2.40,
+      "ci95Percent": [-0.04, 5.08]
+    },
+    "rssPeakKiB": {
+      "A": 5232642.6667,
+      "HF": 5164792.0,
+      "improvementPercent": 1.29,
+      "ci95Percent": [0.17, 2.28]
+    }
+  },
+  "interpretation": {
+    "latency": "HF is slower; latency CI excludes zero improvement.",
+    "rssP95": "CI crosses zero; no material RSS-p95 reduction demonstrated.",
+    "rssPeak": "Small exploratory reduction, below the 5% target."
+  }
+}

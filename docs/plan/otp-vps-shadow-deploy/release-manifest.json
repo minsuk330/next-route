@@ -1,0 +1,59 @@
+{
+  "graphVersion": "seoul-bbox-202503-cal20260707_20261108-otp276-g4e098383",
+  "generatedAt": "2026-09-15T13:48:00+09:00",
+  "role": "OTP 수도권 dormant-shadow (VPS). 기존 2.9.0 prod graph 미대체 — 별 서비스로 기동만.",
+  "scope": {
+    "region": "Seoul metropolitan bbox (name only; not full 행정구역)",
+    "bbox": [126.5, 37.2, 127.4, 38.0],
+    "selection": "spatial: trip kept iff every served stop inside bbox (no route_id prefix)",
+    "calendarWindow": "20260707..20261108 (입력 gtfs 동일 → 2.9 manifest 와 불변)",
+    "otpTransitServiceWindow": "[-P1D, P2M] @build 20260915 -> [2026-09-14, 2026-11-16); 마지막 서비스일 2026-11-15"
+  },
+  "engine": {
+    "otpVersion": "2.10.0-SNAPSHOT",
+    "fork": "https://github.com/minsuk330/OpenTripPlanner",
+    "forkCommit": "8dbad55ba40a36606e47f98688db958b4c3eeab0",
+    "forkBaseline": "02c0b4b537eb07bb0b284726397821682248fe20",
+    "optimizations": "H+F Seoul-metro allocation opt (P4_FORMAL_PENDING — 성능 gate 미완, 완료 표기 금지)",
+    "java": 25,
+    "serializationVersionId": 276,
+    "jarSha256": "dcd08dedf7060bca3f89a14bd645bf972eda4998cc3acd8e5bab17a02ce45284"
+  },
+  "image": {
+    "ref": "ghcr.io/minsuk330/nextroute-otp:20260915-8dbad55",
+    "digest": "sha256:77c240387c804135700bb466fb61ee7c1b0d969998a6bd2420f58099416eaa5a",
+    "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+    "platform": "linux/amd64",
+    "baseImage": "eclipse-temurin:25-jre",
+    "baseImageManifestListDigest": "sha256:15090d159279e5c158473eccb48cd87f57b3e3a47511a797eb5a7a7ea6f86b0f",
+    "baseImageAmd64Digest": "sha256:65655f706a97bcd4c45ebee8fc2848ab277ae9309ad59d70e39e991b9f230fd7"
+  },
+  "inputs": {
+    "gtfsNormalizedZip": "tools/transit-routing-benchmark/data/input/seoul-bbox-202503.gtfs.zip",
+    "gtfsNormalizedSha256": "0cb23b0d9d370c6c59a2e7374c1702a58f7306a60c339b0b422f66461f5016e6",
+    "osmPbf": "tools/transit-routing-benchmark/data/input/south-korea-seoul-metro.osm.pbf",
+    "osmPbfSha256": "0be8f32b094def1004296e8a7edf68070ca1ede91d99679918e0cc4910bd2170",
+    "buildConfig": "tools/transit-routing-benchmark/config/otp-seoul/build-config.json",
+    "buildConfigSha256": "16bfbf5092ed7d3055f3fc4a4a6d69e501c93ee525627e7eea3b3ea601314160",
+    "otpConfig": "tools/transit-routing-benchmark/config/otp-seoul/otp-config.json",
+    "otpConfigSha256": "342b442d20d1cdefb2cadbdf202ff1c85692a1669b8e7dd0f1c793ad36967c38",
+    "note": "gtfs/osm SHA 는 2.9 manifest 와 동일 — graph 차이는 engine(2.9→2.10 H+F)만"
+  },
+  "graph": {
+    "localSource": "tools/transit-routing-benchmark/data/otp-seoul/graph-otp276-4e098383.obj",
+    "vpsPath": "/srv/nextroute/otp/seoul-bbox-202503-cal20260707_20261108-otp276-g4e098383/graph.obj",
+    "sha256": "4e098383e95566805f88a5de77e1cff9fe5838ef970cfa12345236d97e7ed72c",
+    "sizeBytes": 229616986,
+    "serializationHeader": "0000276",
+    "V": 808616, "E": 2068184, "stops": 43783, "patterns": 3936, "constrainedTransfers": 284
+  },
+  "deploy": {
+    "compose": "compose.yaml otp service (PR-3 #196)",
+    "otpImageEnv": "OTP_IMAGE",
+    "memLimit": "3000m", "memswapLimit": "3000m", "xmx": "1900m",
+    "healthcheckQuery": "{feeds{feedId}} (2.10 feeds=[Feed] object — {feeds} 는 검증에러)",
+    "toggle": "otpEnabled=false / defaultProvider=ODSAY (dormant shadow)",
+    "runbook": "docs/plan/otp-vps-shadow-deploy/deployment-runbook.md",
+    "serviceWindowExpiry": "2026-11-15"
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "updated": "2026-09-16",
+  "plan": "H-ONLY-HTTP-NO-PRESSURE-AGENT-PLAN.md",
+  "status": {
+    "P0": "PASS_HOST_MACOS",
+    "P1": "PASS_408_HTTP_MAPPING",
+    "P2": "PASS_ZERO_FINGERPRINT_MISMATCH",
+    "P3": "PARTIAL_OBSERVED_NO_SWAP_16RPS_10MIN",
+    "P4": "NOT_STARTED",
+    "P5": "PARTIAL_RSS_GC_CPU",
+    "P6": "NOT_STARTED",
+    "P7": "PARTIAL_LEDGER"
+  },
+  "scope": "H-only OpenTripPlanner HTTP contribution evidence; H+F mixed commit excluded",
+  "base": {
+    "sha": "a0b62f69fc543e84687752e17dae8a66b01c5e28",
+    "AJar": {
+      "path": "/private/tmp/otp-a-only-helsinki-4wN2sL/otp-a-only.jar",
+      "sha256": "772ff39a2ef4f8551afab1b053b548742fadeeacab55c6fd4c905b78419d068f"
+    },
+    "HJar": {
+      "path": "/private/tmp/otp-h-only-run-v83UVX/otp-shaded/target/otp-shaded-2.11.0-SNAPSHOT.jar",
+      "sha256": "e0b57b2ed105db13fa90f32a49abb26cc2b0cabca41796d88cf88a51f4c29ab9"
+    }
+  },
+  "environment": {
+    "os": "macOS 26.5.2 (Darwin 25.5.0)",
+    "architecture": "aarch64",
+    "cpu": "Apple M3 Pro, 11 cores",
+    "ramGiB": 18,
+    "java": "/opt/homebrew/opt/openjdk@26/bin/java 26.0.2.1",
+    "heapFlags": ["-Xms8g", "-Xmx8g", "-XX:+UseG1GC"],
+    "dockerStarted": false,
+    "swapMeasurement": "macOS vm_stat cumulative swapins/swapouts plus vm.swapusage"
+  },
+  "inputs": {
+    "graph": {
+      "path": "/private/tmp/otp-a-only-helsinki-4wN2sL/graph.obj",
+      "sha256": "178375c8ebed47178d9ec3c09c45e526bc483775aabab0043a62c7dc1b6515d0",
+      "sharedByAAndH": true
+    },
+    "corpus": {
+      "path": "/private/tmp/otp-h-only-run-v83UVX/test/performance/helsinki/travelSearch.csv",
+      "rows": 408,
+      "testDate": "2026-02-19"
+    },
+    "endpoint": "http://127.0.0.1:18080/otp/gtfs/v1/",
+    "seed": 20260915,
+    "querySha256": "6928aba31d9f99a5d505007959fd11c0e91ecdca0bdb5aac6dde4ff11c5c283"
+  },
+  "correctnessGate": {
+    "order": ["H1", "A1", "H2", "A2"],
+    "runs": 4,
+    "http200Each": 408,
+    "graphqlErrorsEach": 0,
+    "transportErrorsEach": 0,
+    "fingerprintMismatches": 0,
+    "rawRoot": "/private/tmp/otp-http-no-pressure-20260915"
+  },
+  "pilotRuns": {
+    "shortRatesRps": [4, 8, 12, 16, 24, 32],
+    "saturationExplorationRatesRps": [24, 32],
+    "shortRawRoot": "/private/tmp/otp-http-no-pressure-20260915",
+    "longPilot": {
+      "rateRps": 16,
+      "durationSeconds": 600,
+      "scheduledRequests": 9600,
+      "A": {
+        "raw": "/private/tmp/otp-http-no-pressure-20260915/PILOT10-A-16rps",
+        "corpusSha256": "dcee0869105e7606150d07c2733c9c02524a1863ab7555b2c4d7565e39f78fc1",
+        "latencyP95Ms": 311.86,
+        "rssP95MiB": 5578.2,
+        "rssPeakMiB": 5948.1,
+        "youngGc": 422,
+        "fullGc": 0,
+        "swapinsDelta": 0,
+        "swapoutsDelta": 0
+      },
+      "H": {
+        "raw": "/private/tmp/otp-http-no-pressure-20260915/PILOT10-H-16rps",
+        "corpusSha256": "8fcab2bb4a1382a9dfe7d02c84b6c0980660791d2e2ce83001f97c815fada538",
+        "latencyP95Ms": 280.36,
+        "rssP95MiB": 5574.2,
+        "rssPeakMiB": 6169.5,
+        "youngGc": 376,
+        "fullGc": 0,
+        "swapinsDelta": 0,
+        "swapoutsDelta": 0
+      }
+    }
+  },
+  "collectors": {
+    "processMonitor": {
+      "path": "http-experiment/macos_process_monitor.zsh",
+      "sha256": "96f261b32a31678209a4e6968f268f855fef6048e92c94dbefd875c57b0d91fe",
+      "targetIntervalSeconds": 0.1,
+      "unit": "KiB"
+    },
+    "swapMonitor": {
+      "path": "http-experiment/macos_swap_monitor.zsh",
+      "sha256": "bb1b84631dcfa601bc4c6a57f3586529de670a3a9499c8aa9460cedd280b5372",
+      "eventPolicy": "append SWAP_EVENT immediately when cumulative swap counter increases"
+    },
+    "httpClient": {
+      "path": "http-experiment/otp_http_corpus.py",
+      "sha256": "08878241e0e21d457dc63861a806feea8ceb2d8953beefe586dc5c95712a2881",
+      "completionDrain": "during open-loop submission and after schedule"
+    },
+    "serverWrapper": {
+      "path": "http-experiment/run_otp_server.zsh",
+      "sha256": "aadab36cfc770ce9ef27eeda450d4d19d3abea53889e5e2c1606bd956620373f"
+    }
+  },
+  "limitations": [
+    "macOS host has no Linux PSI/cgroup memory.events; no-pressure is observational only",
+    "short pilots and one 10-minute pair are exploratory, not paired bootstrap evidence",
+    "RSS is sampled Java PID RSS and is not retained heap or instantaneous maximum",
+    "P4 18-pair matrix, JFR measured-window series, soak, and statistical CI are pending"
+  ],
+  "publication": {
+    "commitCreated": false,
+    "issuePosted": false,
+    "pullRequestPosted": false,
+    "officialCiRun": false
+  }
+}
