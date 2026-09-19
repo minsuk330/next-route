@@ -59,7 +59,9 @@
 
 ### PR-C (기반) — composer 중간 절단 합성
 의존: PR-A.
-- [ ] `JourneyRevisionComposer`: 중간 하차 합성 = `[prefix] + [truncated board→X(PR-A)] + [candidate]`. 가드(:80-86) "다른 노선 오염" 방지 유지(명시 origin 일 때만 절단 허용). 기존 미래-WAIT 경로 불변.
+- [x] `JourneyRevisionComposer`: 중간 하차 합성 = `[prefix] + [truncated board→X] + [candidate]`. 가드(:80-86) "다른 노선 오염" 방지 유지(명시 origin 일 때만 절단 허용). 기존 미래-WAIT 경로 불변.
+- [x] **절단 입력은 부르는 쪽이 준다**(`RideTruncation{alightStationIndex, rideSeconds}`, 2026-09-19 결정): ①자를 자리 — 스냅샷 정류장 id 는 검색 id(OTP gtfsId)고 origin.stopId 는 서울 id 라, composer 안에서 맞히면 "번역이 반만 되는" 자리를 하나 더 만든다. ②소요 — 진행 중인 구간의 board→X 는 **실시간** 근거인데 composer 재료엔 없다(PR-A `TruncatedRide` 는 *검색 결과* `RoutingLeg` 용이라 진행 중 leg 엔 안 닿는다). 둘 다 PR-2/PR-4 가 푼다.
+- [x] 버스만 절단(`trafficType==2`) — 하차 정류장 id 가 버스 칸(`endLocalStationID`)에 들어가므로 지하철에 쓰면 주소 체계가 섞인다.
 - 검증: 중간하차 revision·앞 절반 보존·오염 거부 유지. ⑤ 무회귀(RerouteAcceptIT).
 
 ### PR-1 — overlay A안 체인 + rank()
