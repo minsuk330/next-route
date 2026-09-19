@@ -12,9 +12,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.notification.dto.BusAlertResponse;
-import watoo.grd.nextroute.application.notification.port.in.CancelBusAlertUseCase;
-import watoo.grd.nextroute.application.notification.port.in.CreateBusAlertUseCase;
-import watoo.grd.nextroute.application.notification.port.in.GetBusAlertUseCase;
+import watoo.grd.nextroute.application.notification.port.in.BusAlertUseCase;
 import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
@@ -37,9 +35,7 @@ class BusAlertControllerTest {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
-    @MockBean CreateBusAlertUseCase createBusAlertUseCase;
-    @MockBean GetBusAlertUseCase getBusAlertUseCase;
-    @MockBean CancelBusAlertUseCase cancelBusAlertUseCase;
+    @MockBean BusAlertUseCase busAlertUseCase;
     @MockBean JwtProvider jwtProvider;
     @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
     @MockBean AdminProperties adminProperties;
@@ -51,7 +47,7 @@ class BusAlertControllerTest {
 
     @Test
     void create_returns200Pending() throws Exception {
-        given(createBusAlertUseCase.create(eq(7L), any())).willReturn(
+        given(busAlertUseCase.create(eq(7L), any())).willReturn(
                 BusAlertResponse.builder().id(1L).status(AlertStatus.PENDING)
                         .stopId("S1").routeId("R1").routeName("간선143").stopName("강남역").build());
 
@@ -92,6 +88,6 @@ class BusAlertControllerTest {
         mockMvc.perform(delete("/api/notifications/bus-alert/1").with(authentication(authUser(7L))))
                 .andExpect(status().isNoContent());
 
-        verify(cancelBusAlertUseCase).cancel(7L, 1L);
+        verify(busAlertUseCase).cancel(7L, 1L);
     }
 }

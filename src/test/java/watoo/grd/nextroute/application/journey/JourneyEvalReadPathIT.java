@@ -14,7 +14,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyCommand;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
-import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
+import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.service.JourneyDueClaimService;
 import watoo.grd.nextroute.application.journey.service.JourneyEvaluationService;
@@ -66,7 +66,7 @@ class JourneyEvalReadPathIT {
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired ApplyJourneyEventUseCase applyJourneyEventUseCase;
-    @Autowired GetJourneyUseCase getJourneyUseCase;
+    @Autowired JourneyQueryUseCase getJourneyUseCase;
     @Autowired JourneyDueClaimService claimService;
     @Autowired JourneyEvaluationService evaluationService;
     @Autowired JourneySnapshotEtaComposer etaComposer;

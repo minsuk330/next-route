@@ -11,9 +11,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import watoo.grd.nextroute.application.route.dto.RecentPlaceResponse;
-import watoo.grd.nextroute.application.route.port.in.ClearSearchHistoryUseCase;
-import watoo.grd.nextroute.application.route.port.in.DeleteSearchHistoryUseCase;
-import watoo.grd.nextroute.application.route.port.in.GetSearchHistoryUseCase;
+import watoo.grd.nextroute.application.route.port.in.SearchHistoryUseCase;
 
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -24,28 +22,26 @@ import java.util.NoSuchElementException;
 @Tag(name = "[회원] 내 검색 이력")
 public class RouteSearchHistoryController {
 
-    private final GetSearchHistoryUseCase getSearchHistoryUseCase;
-    private final DeleteSearchHistoryUseCase deleteSearchHistoryUseCase;
-    private final ClearSearchHistoryUseCase clearSearchHistoryUseCase;
+    private final SearchHistoryUseCase searchHistoryUseCase;
 
     @GetMapping
     public ResponseEntity<List<RecentPlaceResponse>> getAll(
             @AuthenticationPrincipal Long userId) {
-        return ResponseEntity.ok(getSearchHistoryUseCase.getAll(userId));
+        return ResponseEntity.ok(searchHistoryUseCase.getAll(userId));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long id) {
-        deleteSearchHistoryUseCase.delete(userId, id);
+        searchHistoryUseCase.delete(userId, id);
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping
     public ResponseEntity<Void> clear(
             @AuthenticationPrincipal Long userId) {
-        clearSearchHistoryUseCase.clear(userId);
+        searchHistoryUseCase.clear(userId);
         return ResponseEntity.noContent().build();
     }
 

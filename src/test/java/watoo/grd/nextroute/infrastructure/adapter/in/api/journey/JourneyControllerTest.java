@@ -22,9 +22,8 @@ import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
-import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
+import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyProgressUseCase;
-import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.service.JourneySnapshotEtaComposer;
 import watoo.grd.nextroute.common.config.CorsConfig;
@@ -73,9 +72,8 @@ class JourneyControllerTest {
 
     @Autowired MockMvc mockMvc;
     @MockBean StartJourneyUseCase startJourneyUseCase;
-    @MockBean GetActiveJourneyUseCase getActiveJourneyUseCase;
+    @MockBean JourneyQueryUseCase getActiveJourneyUseCase;
     @MockBean ApplyJourneyEventUseCase applyJourneyEventUseCase;
-    @MockBean GetJourneyUseCase getJourneyUseCase;
     @MockBean ApplyJourneyProgressUseCase applyJourneyProgressUseCase;
     @MockBean JourneySnapshotEtaComposer etaComposer;
     @MockBean JwtProvider jwtProvider;                 // SecurityConfig 의존
@@ -379,7 +377,7 @@ class JourneyControllerTest {
     @Test
     @DisplayName("번호로 조회하면 200 과 파생 값까지 준다")
     void detail_returns200() throws Exception {
-        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+        given(getActiveJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
 
         mockMvc.perform(get("/api/journeys/5").with(authentication(authUser(7L))))
                 .andExpect(status().isOk())
@@ -391,7 +389,7 @@ class JourneyControllerTest {
     @Test
     @DisplayName("바뀐 것이 없으면 204 로 본문을 아낀다")
     void detail_unchanged_returns204() throws Exception {
-        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+        given(getActiveJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
 
         mockMvc.perform(get("/api/journeys/5?afterCommandVersion=1&afterEvaluationVersion=0")
                         .with(authentication(authUser(7L))))
@@ -401,7 +399,7 @@ class JourneyControllerTest {
     @Test
     @DisplayName("명령 번호가 올랐으면 본문을 준다")
     void detail_changed_returns200() throws Exception {
-        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+        given(getActiveJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
 
         mockMvc.perform(get("/api/journeys/5?afterCommandVersion=0")
                         .with(authentication(authUser(7L))))
@@ -411,7 +409,7 @@ class JourneyControllerTest {
     @Test
     @DisplayName("없는 여정은 404")
     void detail_notFound_returns404() throws Exception {
-        given(getJourneyUseCase.get(7L, 5L)).willReturn(Optional.empty());
+        given(getActiveJourneyUseCase.get(7L, 5L)).willReturn(Optional.empty());
 
         mockMvc.perform(get("/api/journeys/5").with(authentication(authUser(7L))))
                 .andExpect(status().isNotFound())

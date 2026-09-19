@@ -19,7 +19,7 @@ import watoo.grd.nextroute.application.journey.dto.SubwayGuidance;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
-import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
+import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.out.SubwayRingPort;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
@@ -69,7 +69,7 @@ class JourneySubwayGuidanceIT {
     private static final Instant T0 = Instant.parse("2026-08-15T09:00:00Z");
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
-    @Autowired GetActiveJourneyUseCase getActiveJourneyUseCase;
+    @Autowired JourneyQueryUseCase getActiveJourneyUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired EntityManagerFactory entityManagerFactory;
 

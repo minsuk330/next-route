@@ -14,7 +14,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyLegView;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
-import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
+import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
@@ -60,7 +60,7 @@ class JourneyStartIT {
     private static final String PATH_KEY = "0";
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
-    @Autowired GetActiveJourneyUseCase getActiveJourneyUseCase;
+    @Autowired JourneyQueryUseCase getActiveJourneyUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired EntityManager entityManager;
 

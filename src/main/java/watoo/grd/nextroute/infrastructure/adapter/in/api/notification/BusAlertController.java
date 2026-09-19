@@ -12,9 +12,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import watoo.grd.nextroute.application.notification.dto.BusAlertRequest;
 import watoo.grd.nextroute.application.notification.dto.BusAlertResponse;
-import watoo.grd.nextroute.application.notification.port.in.CancelBusAlertUseCase;
-import watoo.grd.nextroute.application.notification.port.in.CreateBusAlertUseCase;
-import watoo.grd.nextroute.application.notification.port.in.GetBusAlertUseCase;
+import watoo.grd.nextroute.application.notification.port.in.BusAlertUseCase;
 
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -25,28 +23,26 @@ import java.util.NoSuchElementException;
 @Tag(name = "[회원] 버스 도착 알림")
 public class BusAlertController {
 
-    private final CreateBusAlertUseCase createBusAlertUseCase;
-    private final GetBusAlertUseCase getBusAlertUseCase;
-    private final CancelBusAlertUseCase cancelBusAlertUseCase;
+    private final BusAlertUseCase busAlertUseCase;
 
     @PostMapping
     public ResponseEntity<BusAlertResponse> create(
             @AuthenticationPrincipal Long userId,
             @Valid @RequestBody BusAlertRequest request) {
-        return ResponseEntity.ok(createBusAlertUseCase.create(userId, request));
+        return ResponseEntity.ok(busAlertUseCase.create(userId, request));
     }
 
     @GetMapping
     public ResponseEntity<List<BusAlertResponse>> getActive(
             @AuthenticationPrincipal Long userId) {
-        return ResponseEntity.ok(getBusAlertUseCase.getActive(userId));
+        return ResponseEntity.ok(busAlertUseCase.getActive(userId));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> cancel(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long id) {
-        cancelBusAlertUseCase.cancel(userId, id);
+        busAlertUseCase.cancel(userId, id);
         return ResponseEntity.noContent().build();
     }
 

@@ -10,9 +10,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import watoo.grd.nextroute.application.route.dto.FavoriteRequest;
 import watoo.grd.nextroute.application.route.dto.FavoriteResponse;
-import watoo.grd.nextroute.application.route.port.in.AddFavoriteRouteUseCase;
-import watoo.grd.nextroute.application.route.port.in.DeleteFavoriteRouteUseCase;
-import watoo.grd.nextroute.application.route.port.in.GetFavoriteRoutesUseCase;
+import watoo.grd.nextroute.application.route.port.in.FavoriteRouteUseCase;
 
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -23,28 +21,26 @@ import java.util.NoSuchElementException;
 @Tag(name = "[회원] 즐겨찾는 경로")
 public class FavoriteController {
 
-    private final AddFavoriteRouteUseCase addFavoriteRouteUseCase;
-    private final GetFavoriteRoutesUseCase getFavoriteRoutesUseCase;
-    private final DeleteFavoriteRouteUseCase deleteFavoriteRouteUseCase;
+    private final FavoriteRouteUseCase favoriteRouteUseCase;
 
     @PostMapping
     public ResponseEntity<FavoriteResponse> add(
             @AuthenticationPrincipal Long userId,
             @Valid @RequestBody FavoriteRequest request) {
-        return ResponseEntity.ok(addFavoriteRouteUseCase.add(userId, request));
+        return ResponseEntity.ok(favoriteRouteUseCase.add(userId, request));
     }
 
     @GetMapping
     public ResponseEntity<List<FavoriteResponse>> getAll(
             @AuthenticationPrincipal Long userId) {
-        return ResponseEntity.ok(getFavoriteRoutesUseCase.getAll(userId));
+        return ResponseEntity.ok(favoriteRouteUseCase.getAll(userId));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long id) {
-        deleteFavoriteRouteUseCase.delete(userId, id);
+        favoriteRouteUseCase.delete(userId, id);
         return ResponseEntity.noContent().build();
     }
 

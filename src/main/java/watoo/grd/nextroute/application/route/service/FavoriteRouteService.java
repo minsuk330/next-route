@@ -5,9 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.route.dto.FavoriteRequest;
 import watoo.grd.nextroute.application.route.dto.FavoriteResponse;
-import watoo.grd.nextroute.application.route.port.in.AddFavoriteRouteUseCase;
-import watoo.grd.nextroute.application.route.port.in.DeleteFavoriteRouteUseCase;
-import watoo.grd.nextroute.application.route.port.in.GetFavoriteRoutesUseCase;
+import watoo.grd.nextroute.application.route.port.in.FavoriteRouteUseCase;
 import watoo.grd.nextroute.application.route.exception.FavoriteConflictException;
 import watoo.grd.nextroute.domain.route.favorite.entity.FavoriteRoute;
 import watoo.grd.nextroute.domain.route.favorite.entity.FavoriteType;
@@ -20,8 +18,7 @@ import java.util.NoSuchElementException;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class FavoriteRouteService
-        implements AddFavoriteRouteUseCase, GetFavoriteRoutesUseCase, DeleteFavoriteRouteUseCase {
+public class FavoriteRouteService implements FavoriteRouteUseCase {
 
     private final watoo.grd.nextroute.domain.route.favorite.service.FavoriteRouteService favoriteDomainService;
     private final UserRepository userRepository;

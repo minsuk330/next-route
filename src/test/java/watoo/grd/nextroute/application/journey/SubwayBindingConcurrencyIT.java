@@ -17,7 +17,7 @@ import watoo.grd.nextroute.application.journey.dto.SubwayBindingCandidate;
 import watoo.grd.nextroute.application.journey.dto.SubwayBindingDecision;
 import watoo.grd.nextroute.application.journey.dto.SubwayBoardingEvidence;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
-import watoo.grd.nextroute.application.journey.port.in.SubmitSubwayBoardingEvidenceUseCase;
+import watoo.grd.nextroute.application.journey.port.in.SubwayBindingUseCase;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
 import watoo.grd.nextroute.application.journey.service.SubwayBindingMatchTxService;
 import watoo.grd.nextroute.application.route.dto.PathResult;
@@ -71,7 +71,7 @@ class SubwayBindingConcurrencyIT {
     private static final LocalDate SERVICE_DATE = LocalDate.of(2026, 8, 14);
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
-    @Autowired SubmitSubwayBoardingEvidenceUseCase submitUseCase;
+    @Autowired SubwayBindingUseCase submitUseCase;
     @Autowired SubwayLegBindingRepository bindingRepository;
     @Autowired JourneySessionRepository sessionRepository;
     @Autowired SubwayBindingMatchTxService txService;

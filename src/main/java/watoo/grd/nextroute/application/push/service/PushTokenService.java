@@ -4,8 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.push.dto.RegisterPushTokenCommand;
-import watoo.grd.nextroute.application.push.port.in.RegisterPushTokenUseCase;
-import watoo.grd.nextroute.application.push.port.in.UnregisterPushTokenUseCase;
+import watoo.grd.nextroute.application.push.port.in.PushTokenUseCase;
 import watoo.grd.nextroute.domain.push.repository.UserPushTokenRepository;
 
 import java.time.Clock;
@@ -22,7 +21,7 @@ import java.time.LocalDateTime;
  */
 @Service
 @RequiredArgsConstructor
-public class PushTokenService implements RegisterPushTokenUseCase, UnregisterPushTokenUseCase {
+public class PushTokenService implements PushTokenUseCase {
 
     private final UserPushTokenRepository userPushTokenRepository;
     private final Clock clock;

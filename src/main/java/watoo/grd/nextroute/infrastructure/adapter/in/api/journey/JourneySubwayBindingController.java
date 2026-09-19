@@ -12,8 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import watoo.grd.nextroute.application.journey.dto.SubwayBindingView;
-import watoo.grd.nextroute.application.journey.port.in.CorrectSubwayBindingUseCase;
-import watoo.grd.nextroute.application.journey.port.in.SubmitSubwayBoardingEvidenceUseCase;
+import watoo.grd.nextroute.application.journey.port.in.SubwayBindingUseCase;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.SubwayBindingCorrectionRequest;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.SubwayBoardingEvidenceRequest;
 
@@ -32,8 +31,7 @@ import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.SubwayBoard
 @Tag(name = "[회원] 여정")
 public class JourneySubwayBindingController {
 
-    private final SubmitSubwayBoardingEvidenceUseCase submitUseCase;
-    private final CorrectSubwayBindingUseCase correctUseCase;
+    private final SubwayBindingUseCase subwayBindingUseCase;
 
     /**
      * 탑승 관측 수집.
@@ -50,7 +48,7 @@ public class JourneySubwayBindingController {
             @AuthenticationPrincipal Long userId,
             @PathVariable Long journeyId,
             @Valid @RequestBody SubwayBoardingEvidenceRequest request) {
-        return submitUseCase.submit(userId, journeyId, request.routeRevision(),
+        return subwayBindingUseCase.submit(userId, journeyId, request.routeRevision(),
                 request.legIndex(), request.toEvidence());
     }
 
@@ -65,7 +63,7 @@ public class JourneySubwayBindingController {
             @AuthenticationPrincipal Long userId,
             @PathVariable Long journeyId,
             @Valid @RequestBody SubwayBindingCorrectionRequest request) {
-        return correctUseCase.reset(userId, journeyId, request.routeRevision(),
+        return subwayBindingUseCase.reset(userId, journeyId, request.routeRevision(),
                 request.legIndex());
     }
 
@@ -75,7 +73,7 @@ public class JourneySubwayBindingController {
             @AuthenticationPrincipal Long userId,
             @PathVariable Long journeyId,
             @Valid @RequestBody SubwayBindingCorrectionRequest request) {
-        return correctUseCase.notBoarded(userId, journeyId, request.routeRevision(),
+        return subwayBindingUseCase.notBoarded(userId, journeyId, request.routeRevision(),
                 request.legIndex());
     }
 }

@@ -19,8 +19,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyEventOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyProgressUseCase;
-import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
-import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
+import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.service.JourneySnapshotEtaComposer;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
@@ -47,9 +46,8 @@ import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 public class JourneyController {
 
     private final StartJourneyUseCase startJourneyUseCase;
-    private final GetActiveJourneyUseCase getActiveJourneyUseCase;
+    private final JourneyQueryUseCase journeyQueryUseCase;
     private final ApplyJourneyEventUseCase applyJourneyEventUseCase;
-    private final GetJourneyUseCase getJourneyUseCase;
     private final ApplyJourneyProgressUseCase applyJourneyProgressUseCase;
     private final JourneySnapshotEtaComposer etaComposer;
 
@@ -71,7 +69,7 @@ public class JourneyController {
     /** 진행 중인 여정. 없으면 204 — 없는 것은 오류가 아니다. */
     @GetMapping("/active")
     public ResponseEntity<JourneySnapshot> active(@AuthenticationPrincipal Long userId) {
-        return getActiveJourneyUseCase.getActive(userId)
+        return journeyQueryUseCase.getActive(userId)
                 .map(snapshot -> etaComposer.compose(userId, snapshot))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());
@@ -90,7 +88,7 @@ public class JourneyController {
             @PathVariable Long journeyId,
             @RequestParam(required = false) Long afterCommandVersion,
             @RequestParam(required = false) Long afterEvaluationVersion) {
-        JourneySnapshot journey = getJourneyUseCase.get(userId, journeyId)
+        JourneySnapshot journey = journeyQueryUseCase.get(userId, journeyId)
                 .orElseThrow(() -> new BusinessException(JourneyErrorCode.JOURNEY_NOT_FOUND));
 
         if (unchanged(journey, afterCommandVersion, afterEvaluationVersion)) {

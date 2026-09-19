@@ -4,8 +4,9 @@ import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 
 import java.util.Optional;
 
-public interface GetActiveJourneyUseCase {
-
-    /** 진행 중인 여정. 앱이 재실행됐을 때 화면을 복원하는 경로다. */
+/** 사용자의 진행 중 여정 또는 특정 여정을 조회한다. */
+public interface JourneyQueryUseCase {
     Optional<JourneySnapshot> getActive(Long userId);
+
+    Optional<JourneySnapshot> get(Long userId, Long journeyId);
 }

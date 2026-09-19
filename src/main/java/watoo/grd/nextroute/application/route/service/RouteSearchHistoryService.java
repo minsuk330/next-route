@@ -4,9 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.route.dto.RecentPlaceResponse;
-import watoo.grd.nextroute.application.route.port.in.ClearSearchHistoryUseCase;
-import watoo.grd.nextroute.application.route.port.in.DeleteSearchHistoryUseCase;
-import watoo.grd.nextroute.application.route.port.in.GetSearchHistoryUseCase;
+import watoo.grd.nextroute.application.route.port.in.SearchHistoryUseCase;
 import watoo.grd.nextroute.application.route.port.out.SearchHistoryManagementPort;
 import watoo.grd.nextroute.domain.route.log.entity.RouteSearchHistory;
 
@@ -24,8 +22,7 @@ import java.util.NoSuchElementException;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class RouteSearchHistoryService
-        implements GetSearchHistoryUseCase, DeleteSearchHistoryUseCase, ClearSearchHistoryUseCase {
+public class RouteSearchHistoryService implements SearchHistoryUseCase {
 
     private final SearchHistoryManagementPort managementPort;
 

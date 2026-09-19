@@ -11,8 +11,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import watoo.grd.nextroute.application.push.port.in.RegisterPushTokenUseCase;
-import watoo.grd.nextroute.application.push.port.in.UnregisterPushTokenUseCase;
+import watoo.grd.nextroute.application.push.port.in.PushTokenUseCase;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.push.dto.RegisterPushTokenRequest;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.push.dto.UnregisterPushTokenRequest;
 
@@ -30,8 +29,7 @@ import watoo.grd.nextroute.infrastructure.adapter.in.api.push.dto.UnregisterPush
 @Tag(name = "[앱] 푸시 토큰")
 public class PushTokenController {
 
-    private final RegisterPushTokenUseCase registerPushTokenUseCase;
-    private final UnregisterPushTokenUseCase unregisterPushTokenUseCase;
+    private final PushTokenUseCase pushTokenUseCase;
 
     @Operation(summary = "푸시 토큰 등록·교체",
             description = "provider 가 token 을 갱신할 때마다 앱이 다시 호출한다. 같은 token 이 다른 "
@@ -39,7 +37,7 @@ public class PushTokenController {
     @PutMapping
     public ResponseEntity<Void> register(@AuthenticationPrincipal Long userId,
                                          @Valid @RequestBody RegisterPushTokenRequest request) {
-        registerPushTokenUseCase.register(userId, request.toCommand());
+        pushTokenUseCase.register(userId, request.toCommand());
         return ResponseEntity.noContent().build();
     }
 
@@ -48,7 +46,7 @@ public class PushTokenController {
     @DeleteMapping
     public ResponseEntity<Void> unregister(@AuthenticationPrincipal Long userId,
                                            @Valid @RequestBody UnregisterPushTokenRequest request) {
-        unregisterPushTokenUseCase.unregister(userId, request.token());
+        pushTokenUseCase.unregister(userId, request.token());
         return ResponseEntity.noContent().build();
     }
 }

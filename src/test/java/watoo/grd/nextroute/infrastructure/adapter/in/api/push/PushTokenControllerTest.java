@@ -15,8 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.application.push.dto.RegisterPushTokenCommand;
-import watoo.grd.nextroute.application.push.port.in.RegisterPushTokenUseCase;
-import watoo.grd.nextroute.application.push.port.in.UnregisterPushTokenUseCase;
+import watoo.grd.nextroute.application.push.port.in.PushTokenUseCase;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
@@ -60,8 +59,7 @@ class PushTokenControllerTest {
     private static final String TOKEN = "fcm-token-eXy3-abcdefghijklmnopqrstuvwxyz";
 
     @Autowired MockMvc mockMvc;
-    @MockBean RegisterPushTokenUseCase registerPushTokenUseCase;
-    @MockBean UnregisterPushTokenUseCase unregisterPushTokenUseCase;
+    @MockBean PushTokenUseCase pushTokenUseCase;
     @MockBean JwtProvider jwtProvider;
     @MockBean TokenGenerationPort tokenGenerationPort;
     @MockBean AdminProperties adminProperties;
@@ -76,7 +74,7 @@ class PushTokenControllerTest {
                         .content(body(TOKEN)))
                 .andExpect(status().isUnauthorized());
 
-        verify(registerPushTokenUseCase, never()).register(anyLong(), any());
+        verify(pushTokenUseCase, never()).register(anyLong(), any());
     }
 
     @Test
@@ -87,7 +85,7 @@ class PushTokenControllerTest {
                         .content("{\"token\":\"" + TOKEN + "\"}"))
                 .andExpect(status().isUnauthorized());
 
-        verify(unregisterPushTokenUseCase, never()).unregister(anyLong(), anyString());
+        verify(pushTokenUseCase, never()).unregister(anyLong(), anyString());
     }
 
     // ---------------------------------------------------------------- 등록
@@ -148,7 +146,7 @@ class PushTokenControllerTest {
                                 """.formatted(TOKEN)))
                 .andExpect(status().isBadRequest());
 
-        verify(registerPushTokenUseCase, never()).register(anyLong(), any());
+        verify(pushTokenUseCase, never()).register(anyLong(), any());
     }
 
     @Test
@@ -174,7 +172,7 @@ class PushTokenControllerTest {
                         .content(body(oversized)))
                 .andExpect(status().isBadRequest());
 
-        verify(registerPushTokenUseCase, never()).register(anyLong(), any());
+        verify(pushTokenUseCase, never()).register(anyLong(), any());
     }
 
     @Test
@@ -201,7 +199,7 @@ class PushTokenControllerTest {
                         .content("{\"token\":\"" + TOKEN + "\"}"))
                 .andExpect(status().isNoContent());
 
-        verify(unregisterPushTokenUseCase).unregister(USER_ID, TOKEN);
+        verify(pushTokenUseCase).unregister(USER_ID, TOKEN);
     }
 
     @Test
@@ -213,7 +211,7 @@ class PushTokenControllerTest {
                         .content("{}"))
                 .andExpect(status().isBadRequest());
 
-        verify(unregisterPushTokenUseCase, never()).unregister(anyLong(), anyString());
+        verify(pushTokenUseCase, never()).unregister(anyLong(), anyString());
     }
 
     // ---------------------------------------------------------------- helpers
@@ -231,14 +229,14 @@ class PushTokenControllerTest {
 
     private long capturedUserId() {
         ArgumentCaptor<Long> captor = ArgumentCaptor.forClass(Long.class);
-        verify(registerPushTokenUseCase).register(captor.capture(), any());
+        verify(pushTokenUseCase).register(captor.capture(), any());
         return captor.getValue();
     }
 
     private RegisterPushTokenCommand capturedCommand() {
         ArgumentCaptor<RegisterPushTokenCommand> captor =
                 ArgumentCaptor.forClass(RegisterPushTokenCommand.class);
-        verify(registerPushTokenUseCase).register(anyLong(), captor.capture());
+        verify(pushTokenUseCase).register(anyLong(), captor.capture());
         return captor.getValue();
     }
 }

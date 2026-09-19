@@ -6,8 +6,7 @@ import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegView;
 import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionView;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
-import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
-import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
+import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
@@ -30,7 +29,7 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
-public class JourneyQueryService implements GetActiveJourneyUseCase, GetJourneyUseCase {
+public class JourneyQueryService implements JourneyQueryUseCase {
 
     private final JourneySessionRepository sessionRepository;
     private final JourneyLegRepository legRepository;
