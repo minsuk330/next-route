@@ -24,6 +24,7 @@ import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteContext;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
+import watoo.grd.nextroute.application.journey.service.RerouteOriginResolver;
 import watoo.grd.nextroute.application.journey.service.RerouteProposalTxService;
 import watoo.grd.nextroute.common.config.JpaConfig;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
@@ -55,8 +56,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({JpaConfig.class, RerouteProposalTxService.class, JourneyRerouteMetrics.class,
-        RerouteProposalStoreIT.Config.class})
+@Import({JpaConfig.class, RerouteProposalTxService.class, RerouteOriginResolver.class,
+        JourneyRerouteMetrics.class, RerouteProposalStoreIT.Config.class})
 @Sql(scripts = {
         "classpath:db/it/journey-reset.sql",
         "classpath:db/migration/V35__create_journey.sql",
@@ -67,7 +68,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V40__create_journey_notification.sql",
         "classpath:db/migration/V41__create_journey_telemetry_event.sql",
         "classpath:db/migration/V42__create_reroute_proposal.sql",
-        "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql"
+        "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql",
+        "classpath:db/migration/V50__add_reroute_proposal_origin.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DisplayName("재탐색 제안 저장")

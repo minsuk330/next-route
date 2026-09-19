@@ -49,6 +49,7 @@ public final class SubPathFixture {
         private final int sectionTime;
 
         private Double distance;
+        private Integer payment;
         private List<LaneResult> lanes;
         private List<StationResult> stations;
         private String startName;
@@ -127,6 +128,11 @@ public final class SubPathFixture {
             return this;
         }
 
+        public Builder payment(Integer won) {
+            this.payment = won;
+            return this;
+        }
+
         public Builder walkSeconds(Integer seconds) {
             this.walkTotalTimeSeconds = seconds;
             return this;
@@ -148,7 +154,7 @@ public final class SubPathFixture {
             return new SubPathResult(
                     trafficType, sectionTime, distance, lanes, stations,
                     startName, endName, startX, startY, endX, endY,
-                    null, null, startId, null, wayCode, polyline,
+                    null, payment, startId, null, wayCode, polyline,
                     null, null, null, null, null, null, walkSteps,
                     startLocalStationID, endLocalStationID, startArsID, endArsID, endID,
                     walkTotalTimeSeconds, null);
