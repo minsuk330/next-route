@@ -2556,3 +2556,21 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결
 - **개발 DB 를 쓰는 `@SpringBootTest` IT 가 브랜치 간 스키마 오염에 노출된다**: stage5 마이그레이션이 로컬 개발 DB 에 적용된 뒤, 옛 엔티티를 가진 브랜치(PR-1 등)에서 `Schema-validation: missing column [transfer_index]` 로 컨텍스트가 통째로 죽었다. 이 때문에 PR-1 의 여정 관통 테스트(B1)를 **작성했다가 폐기**(실행 증거를 못 만듦). Testcontainers 로 이관(같은 저장소의 `AbstractJourneyOutboxPostgresIT` 가 선례)하거나 전용 테스트 DB 로 가르는 것이 근본 해법 — **별건**.
 - **여정 관통 테스트 재시도**: 이제 main 에 체인(PR-1)과 새 스키마(stage5)가 함께 있으므로 B1 을 main 기준으로 다시 쓰면 그냥 돈다(버스3·환승2 여정에서 후보의 두 번째 승차까지 물어보는지).
+
+## 2026-09-19 VPS 배포 — V50·V51·V52 라이브
+
+### 배포
+- **완료. VPS 스키마 v49 → v52, api·worker 둘 다 healthy.** 이미지 `nextroute:20260919-142058-9a73dd4b`(이전 = `20260918-145151-manual`, `.env` 의 `PREVIOUS_*` 에 보존 → `./deploy.sh rollback-api|rollback-worker` 로 되돌릴 수 있다).
+- 절차(실측): ①이 작업트리에서 `./gradlew bootJar` ②`unzip -l` 로 **V50·V51·V52 가 jar 안에 있는지 확인**(총 52개) ③VPS `app.jar` 를 `app.jar.bak-20260919` 로 백업 ④scp 로 교체 ⑤`DEPLOY_REVISION=9a73dd4b ./deploy.sh all`.
+- **마이그레이션은 jar 안에 실려 간다**(`BOOT-INF/classes/db/migration/`). VPS 에 .sql 을 따로 올리는 절차가 아니다 — "V18+ 수동배치"의 실제 의미는 **"그 파일을 가진 트리에서 빌드해야 한다"**. 다른 클론에서 빌드하면 파일이 없어 조용히 빠진다.
+- Flyway 로그 실측: `Current version 49` → `Migrating to 50 → 51 → 52` → `Successfully applied 3 migrations, now at version v52`. 배포 후 api·worker 에러 로그 **0건**.
+- 스키마 확인: `reroute_proposal` 에 `origin` 만 있고 **`transfer_index` 없음**, 인덱스 = `uq_reroute_proposal_journey_active`(옛 `uq_reroute_proposal_active` 사라짐) + `ix_reroute_proposal_journey`/`ix_reroute_proposal_expiry`/pkey.
+- `deploy.sh all` 은 build → api·worker 재생성 → **health gate(각 180s)** → 실패 시 이전 이미지로 자동 복구. 이번엔 둘 다 healthy 로 통과.
+
+### 함정
+- **VPS 에서 psql 을 ssh 한 줄로 부르면 따옴표가 세 겹**(로컬 zsh → ssh → docker exec sh -lc → psql)이라 `'reroute_proposal'` 같은 리터럴이 식별자로 해석돼 `column "reroute_proposal" does not exist` 가 난다. **SQL 을 파일로 써서 `scp` + `docker cp` 후 `psql -f`** 로 부르는 편이 확실하다.
+
+### 검증
+- `flyway_schema_history` 상위 4행 = 52·51·50·49 전부 `success=true`.
+- `docker ps`: `nextroute-api-1`·`nextroute-worker-1` 둘 다 `(healthy)`.
+- 재탐색은 여전히 flag off — 이 배포로 사용자에게 보이는 변화는 없다(스키마·코드만 준비된 상태).
