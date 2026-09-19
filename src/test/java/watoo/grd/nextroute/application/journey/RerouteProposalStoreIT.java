@@ -22,6 +22,7 @@ import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteContext;
+import watoo.grd.nextroute.application.journey.dto.RerouteDecision;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
 import watoo.grd.nextroute.application.journey.service.RerouteOriginResolver;
@@ -29,6 +30,7 @@ import watoo.grd.nextroute.application.journey.service.RerouteProposalTxService;
 import watoo.grd.nextroute.common.config.JpaConfig;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind;
+import watoo.grd.nextroute.domain.journey.entity.RerouteProposalStatus;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.testsupport.AbstractJourneyOutboxPostgresIT;
 
@@ -71,7 +73,9 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql",
         "classpath:db/migration/V50__add_reroute_proposal_origin.sql",
         "classpath:db/migration/V51__reroute_proposal_journey_active_unique.sql",
-        "classpath:db/migration/V52__drop_reroute_proposal_transfer_index.sql"
+        "classpath:db/migration/V52__drop_reroute_proposal_transfer_index.sql",
+        "classpath:db/migration/V53__add_reroute_alert_state.sql",
+        "classpath:db/migration/V54__add_reroute_proposal_alerted.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DisplayName("재탐색 제안 저장")
@@ -387,6 +391,121 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────
+
+    // ── 사용자의 응답(PR-3 알림 계약) ───────────────────────────────────────
+
+    @Test
+    @DisplayName("거절하면 제안이 닫히고 그 여정의 알림이 끝난다")
+    void rejectClosesProposalAndTerminatesAlerts() {
+        long proposalId = storedProposalId();
+
+        RerouteDecision decision = txService.close(journeyId, proposalId,
+                RerouteProposalStatus.REJECTED, false, NOW);
+
+        assertThat(decision.closed()).isTrue();
+        assertThat(decision.terminated()).isTrue();
+        assertThat(rows()).singleElement().satisfies(row -> {
+            assertThat(row.get("status")).isEqualTo("REJECTED");
+            assertThat(row.get("resolved_reason")).isEqualTo("rejected");
+        });
+        assertThat(journeyFlag("reroute_terminated")).isEqualTo(true);
+    }
+
+    @Test
+    @DisplayName("거절하며 계속 받기를 켜면 종료가 아니라 opt-in 이다")
+    void rejectWithOptInKeepsAlerts() {
+        long proposalId = storedProposalId();
+
+        RerouteDecision decision = txService.close(journeyId, proposalId,
+                RerouteProposalStatus.REJECTED, true, NOW);
+
+        assertThat(decision.terminated()).isFalse();
+        assertThat(decision.optIn()).isTrue();
+        assertThat(journeyFlag("reroute_alert_opt_in")).isEqualTo(true);
+    }
+
+    @Test
+    @DisplayName("무시는 여정을 끝내지 않고 무응답으로 한 번 센다")
+    void dismissCountsAsUnanswered() {
+        long proposalId = storedProposalId();
+
+        txService.close(journeyId, proposalId, RerouteProposalStatus.DISMISSED, false, NOW);
+
+        assertThat(rows()).singleElement()
+                .satisfies(row -> assertThat(row.get("status")).isEqualTo("DISMISSED"));
+        assertThat(journeyFlag("reroute_terminated")).isEqualTo(false);
+        assertThat(ignoredCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("같은 무시가 두 번 와도 한 번만 센다 — 재전송이 상한을 먹으면 안 된다")
+    void dismissIsIdempotent() {
+        long proposalId = storedProposalId();
+        txService.close(journeyId, proposalId, RerouteProposalStatus.DISMISSED, false, NOW);
+
+        RerouteDecision again = txService.close(journeyId, proposalId,
+                RerouteProposalStatus.DISMISSED, false, NOW);
+
+        assertThat(again.closed()).isFalse();
+        assertThat(ignoredCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("남의 여정 번호로는 닫지 못한다")
+    void closeRequiresMatchingJourney() {
+        long proposalId = storedProposalId();
+
+        RerouteDecision decision = txService.close(journeyId + 1, proposalId,
+                RerouteProposalStatus.REJECTED, false, NOW);
+
+        assertThat(decision.closed()).isFalse();
+        assertThat(activeCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("서버가 알린 제안이 답 없이 만료되면 무응답으로 센다")
+    void unansweredAlertBumpsTheCounter() {
+        long proposalId = storedProposalId(NOW.minusSeconds(1));
+        jdbcTemplate.update("update reroute_proposal set alerted = true where id = ?", proposalId);
+
+        txService.resolveStale(journeyId, 1, NOW);
+
+        assertThat(ignoredCount())
+                .as("알렸는데 답이 없었다 = 사용자가 무시했다")
+                .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("사용자가 직접 요청한 제안의 만료는 무응답이 아니다")
+    void expiredPullProposalIsNotUnanswered() {
+        storedProposalId(NOW.minusSeconds(1));
+
+        txService.resolveStale(journeyId, 1, NOW);
+
+        assertThat(ignoredCount())
+                .as("그 화면은 사용자가 이미 보고 있었다")
+                .isZero();
+    }
+
+    private long storedProposalId() {
+        return storedProposalId(NOW.plusSeconds(300));
+    }
+
+    private long storedProposalId(Instant expiresAt) {
+        return txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+                List.of(candidate()), NOW, expiresAt).orElseThrow().proposalId();
+    }
+
+    private Object journeyFlag(String column) {
+        return jdbcTemplate.queryForObject(
+                "select " + column + " from journey_session where id = ?", Boolean.class, journeyId);
+    }
+
+    private int ignoredCount() {
+        return jdbcTemplate.queryForObject(
+                "select reroute_ignored_count from journey_session where id = ?",
+                Integer.class, journeyId);
+    }
 
     private RerouteContext context(int routeRevision, int transferIndex) {
         return new RerouteContext(journeyId, userId, routeRevision, 1L, transferIndex, NOW);

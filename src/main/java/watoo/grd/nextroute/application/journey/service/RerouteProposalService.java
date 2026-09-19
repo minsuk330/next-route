@@ -4,13 +4,17 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
+import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteContext;
+import watoo.grd.nextroute.application.journey.dto.RerouteDecision;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
 import watoo.grd.nextroute.application.journey.port.out.RerouteCandidateProvider;
 import watoo.grd.nextroute.application.journey.port.out.RerouteEligibilityPolicy;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
+import watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind;
+import watoo.grd.nextroute.domain.journey.entity.RerouteProposalStatus;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.global.error.BusinessException;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
@@ -81,8 +85,55 @@ public class RerouteProposalService {
         if (!properties.isEnabled()) {
             return Optional.empty();
         }
-        txService.resolveStale(journeyId, journey.getRouteRevision(), Instant.now(clock));
-        return txService.findActive(journeyId);
+        Instant now = Instant.now(clock);
+        txService.resolveStale(journeyId, journey.getRouteRevision(), now);
+        return txService.findActive(journeyId).flatMap(view -> validate(view, now));
+    }
+
+    /**
+     * 목록을 여는 순간 <b>지나간 하차점을 걷어 낸다</b>(PR-3 pull validate).
+     *
+     * <p>제안은 만들어진 순간의 사진이다. 사용자가 알림을 보고 들어오기까지 몇 분이 흐르고, 그
+     * 사이 버스는 계속 달린다 — 그 정류장은 이미 지나갔을 수 있다. 지나간 자리를 그대로 보여
+     * 주면 사용자는 내릴 수 없는 곳을 고르게 되고, 그것이 이 기능에서 가장 나쁜 사고다.
+     *
+     * <p><b>저장된 행은 고치지 않는다.</b> 걸러 내기는 읽는 순간의 판단이라, 몇 초 뒤 다시 열면
+     * 또 한 자리가 사라질 수 있다. 저장을 따라 고치면 같은 판단을 두 곳이 갖게 된다.
+     *
+     * <p>전멸하면 제안 자체를 접는다({@code all-passed}) — 빈 목록을 살아 있는 제안으로 두면
+     * 여정당 하나뿐인 자리를 막아 새 제안이 만들어지지 않는다. 다시 찾는 것은 다음 방아쇠나
+     * 사용자의 "다시 찾아줘"가 한다.
+     */
+    private Optional<RerouteProposalView> validate(RerouteProposalView view, Instant now) {
+        if (!properties.getAlert().isValidateOnRead()) {
+            return Optional.of(view);
+        }
+        Instant earliest = now.plusSeconds(properties.getNextStop().getLeadTimeSec());
+        List<RerouteCandidate> alive = view.candidates().stream()
+                .filter(candidate -> reachable(candidate, earliest))
+                .toList();
+        if (alive.size() == view.candidates().size()) {
+            return Optional.of(view);
+        }
+        metrics.recordAlert("validated-out", view.candidates().size() - alive.size());
+        if (alive.isEmpty()) {
+            txService.expireValidatedOut(view.proposalId(), now);
+            return Optional.empty();
+        }
+        return Optional.of(new RerouteProposalView(view.proposalId(), view.journeyId(),
+                view.routeRevision(), view.origin(), view.kind(), view.baseCommandVersion(),
+                view.snapshotObservedAt(), view.expiresAt(), alive));
+    }
+
+    /**
+     * 이 후보의 하차점에 <b>아직 닿을 수 있는가</b>.
+     *
+     * <p>하차 정보가 없는 후보(③, PR-2 이전에 저장된 행)는 그대로 통과시킨다. 그 후보는 leg
+     * 경계에서 갈아타는 옛 모양이라 "정류장을 지나쳤다"가 성립하지 않는다.
+     */
+    private boolean reachable(RerouteCandidate candidate, Instant earliest) {
+        RerouteCandidateDisplay.AlightStop alight = candidate.display().alight();
+        return alight == null || alight.alightAt() == null || !alight.alightAt().isBefore(earliest);
     }
 
     /**
@@ -118,20 +169,62 @@ public class RerouteProposalService {
         RerouteContext context = new RerouteContext(journeyId, userId, journey.getRouteRevision(),
                 journey.getCommandVersion(), transferIndex, now);
 
+        Optional<Proposed> proposed = collect(context);
+        if (proposed.isEmpty()) {
+            metrics.recordEmpty();
+            return Optional.empty();
+        }
+        // 후보를 만드는 동안 여정이 움직였으면 저장 쪽이 빈 결과를 낸다. 그때 다음 공급자로
+        // 넘어가지 않는다 — 더 비싼 검색을 부를 이유가 없다. 상황이 바뀐 것이지 후보가
+        // 없었던 것이 아니다.
+        return store(context, proposed.get(), now.plus(properties.getProposalTtl()));
+    }
+
+    /**
+     * 공급자 사다리를 돌려 <b>첫 비어 있지 않은 종류</b>를 고른다. 저장은 하지 않는다.
+     *
+     * <p>사용자 요청(pull)과 서버 알림(push, PR-3)이 <b>같은 후보를 같은 순서로</b> 만들어야 한다.
+     * 두 경로가 각자 사다리를 돌리면 같은 상황에서 다른 목록이 나가고, 사용자는 알림을 열었을 때
+     * 아까 본 것과 다른 화면을 본다.
+     */
+    public Optional<Proposed> collect(RerouteContext context) {
         for (RerouteCandidateProvider provider : providers) {
             List<RerouteCandidate> candidates = findCandidatesSafely(provider, context);
-            if (candidates.isEmpty()) {
-                continue;
+            if (!candidates.isEmpty()) {
+                return Optional.of(new Proposed(provider.kind(), candidates));
             }
-            // 후보를 만드는 동안 여정이 움직였으면 저장 쪽이 빈 결과를 낸다. 그때 다음 공급자로
-            // 넘어가지 않는다 — 더 비싼 검색을 부를 이유가 없다. 상황이 바뀐 것이지 후보가
-            // 없었던 것이 아니다.
-            return txService.store(context, provider.kind(), candidates,
-                    observedAt(candidates, now), now.plus(properties.getProposalTtl()));
         }
-
-        metrics.recordEmpty();
         return Optional.empty();
+    }
+
+    /** 고른 후보를 저장한다. TTL 은 부르는 쪽이 정한다 — 알림 제안은 더 오래 살아야 한다. */
+    public Optional<RerouteProposalView> store(RerouteContext context, Proposed proposed,
+                                               Instant expiresAt) {
+        return txService.store(context, proposed.kind(), proposed.candidates(),
+                observedAt(proposed.candidates(), context.now()), expiresAt);
+    }
+
+    /** 사다리가 고른 종류와 그 후보들. 저장 전 단계다. */
+    public record Proposed(RerouteProposalKind kind, List<RerouteCandidate> candidates) {
+    }
+
+    /**
+     * 사용자가 제안을 닫았다 — 거절 또는 무시(PR-3 알림 계약).
+     *
+     * <p><b>스위치가 꺼져 있어도 받는다.</b> 기능을 끈 순간에도 사용자의 손에는 이미 받은 알림이
+     * 남아 있고, 그 화면의 "괜찮아요"가 오류를 뱉으면 앱은 재시도를 돈다.
+     *
+     * <p><b>멱등이다.</b> 같은 요청이 두 번 와도 한 번만 반영된다 — 두 번째 호출은 이미 닫힌
+     * 제안을 만나 아무것도 바꾸지 않고, 그래도 {@code 200} 이다. 재전송과 오류를 가르는 것은
+     * 네트워크가 흔들릴 때 가장 먼저 필요해지는 성질이다.
+     *
+     * @return 이번 호출이 실제로 닫았으면 true. 이미 닫혀 있었으면 false
+     * @throws BusinessException 남의 여정일 때
+     */
+    public RerouteDecision decide(Long userId, Long journeyId, Long proposalId,
+                                  RerouteProposalStatus decision, boolean keepAlerts) {
+        loadOwnedJourney(userId, journeyId);
+        return txService.close(journeyId, proposalId, decision, keepAlerts, Instant.now(clock));
     }
 
     /**

@@ -51,7 +51,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V37__align_journey_navigation_contract.sql",
         "classpath:db/migration/V38__add_journey_last_progress_id.sql",
         "classpath:db/migration/V39__create_user_push_token.sql",
-        "classpath:db/migration/V40__create_journey_notification.sql"
+        "classpath:db/migration/V40__create_journey_notification.sql",
+        "classpath:db/migration/V53__add_reroute_alert_state.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DisplayName("동시 claim 은 알림을 두 번 집지 않는다")

@@ -107,6 +107,62 @@ public class JourneyNotificationEnqueuer {
     }
 
     /**
+     * "더 빠른 길이 있어요" 한 건(journey-reroute-nextstop PR-3).
+     *
+     * <p>범위가 {@link JourneyNotificationScope#JOURNEY} 다 — 제안은 여정당 하나이고, 가리키는
+     * 자리는 환승이 아니라 <b>하차 정류장</b>일 수 있어 환승 번호로는 주소가 안 된다. 그래서
+     * {@code scopeId} 는 제안 번호다: 0 으로 두면 같은 여정의 다음 제안이 같은 논리 키를 만들어
+     * {@code ON CONFLICT} 에 삼켜지고, 두 번째 제안은 영영 알림이 안 나간다.
+     *
+     * <p>만료는 <b>제안의 만료 시각 그대로</b>다. 제안이 죽은 뒤에 도착한 알림은 눌러도 빈 목록만
+     * 보여 준다.
+     *
+     * @return 행이 새로 생겼으면 true. 중복이라 0행이면 false(relay 를 깨울 이유가 없다)
+     */
+    public boolean enqueueRerouteSuggested(long journeyId, int routeRevision, long proposalId,
+                                           int gainSeconds, NotificationChannel channel,
+                                           Instant now, Instant expiresAt) {
+        JourneyCheckpoint checkpoint = JourneyCheckpoint.REROUTE_SUGGESTED;
+        int scopeId = (int) proposalId;
+        String logicalKey = JourneyNotificationKeys.logical(journeyId, routeRevision,
+                JourneyNotificationScope.JOURNEY, scopeId, checkpoint);
+        String deliveryKey = JourneyNotificationKeys.delivery(logicalKey, channel);
+
+        List<Long> created = notificationRepository.enqueue(
+                journeyId, routeRevision,
+                JourneyNotificationScope.JOURNEY.name(), scopeId,
+                checkpoint.name(), channel.name(),
+                logicalKey, deliveryKey, now, expiresAt,
+                writeReroutePayload(proposalId, gainSeconds), LocalDateTime.now(clock));
+
+        if (created.isEmpty()) {
+            return false;
+        }
+        metrics.recordEnqueued(checkpoint);
+        return true;
+    }
+
+    /**
+     * 재탐색 알림의 재료.
+     *
+     * <p><b>후보를 싣지 않는다.</b> 제안은 스냅샷이고 사용자가 알림을 여는 시점에는 이미 지나간
+     * 하차점이 있을 수 있다 — 목록은 조회 경로가 그때 다시 만들어 준다. 여기 있는 것은 "어느
+     * 제안인가"와 문구용 개선폭뿐이다.
+     */
+    private String writeReroutePayload(long proposalId, int gainSeconds) {
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("proposalId", proposalId);
+            body.put("etaGainSec", gainSeconds);
+            return objectMapper.writeValueAsString(body);
+        } catch (Exception e) {
+            log.warn("[JourneyNotification] payload 직렬화 실패 proposalId={}: {}",
+                    proposalId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 이 시각을 넘기면 보내지 않는다.
      *
      * <pre>

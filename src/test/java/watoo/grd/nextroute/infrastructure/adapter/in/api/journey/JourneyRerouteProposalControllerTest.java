@@ -14,6 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
+import watoo.grd.nextroute.application.journey.dto.RerouteDecision;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
@@ -26,6 +27,7 @@ import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind;
+import watoo.grd.nextroute.domain.journey.entity.RerouteProposalStatus;
 import watoo.grd.nextroute.global.error.BusinessException;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
@@ -145,6 +147,58 @@ class JourneyRerouteProposalControllerTest {
                 .andExpect(jsonPath("$.proposal.transferIndex").doesNotExist())
                 // isRealtimeAddressable() 같은 파생 메서드가 속성으로 새면 계약이 조용히 늘어난다.
                 .andExpect(jsonPath("$.proposal.origin.realtimeAddressable").doesNotExist());
+    }
+
+    // ── 거절·무시(PR-3 알림 계약) ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("거절은 여정의 알림 상태까지 돌려준다 — 앱이 규칙을 다시 계산하지 않게")
+    void rejectReturnsJourneyAlertState() throws Exception {
+        given(proposalService.decide(USER_ID, JOURNEY_ID, 11L,
+                RerouteProposalStatus.REJECTED, false))
+                .willReturn(new RerouteDecision(true, true, false));
+
+        mockMvc.perform(post("/api/journeys/{id}/reroute-proposals/{pid}/reject",
+                        JOURNEY_ID, 11L)
+                        .with(authentication(authUser(USER_ID)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"keepAlerts":false}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.closed").value(true))
+                .andExpect(jsonPath("$.rerouteTerminated").value(true))
+                .andExpect(jsonPath("$.rerouteAlertOptIn").value(false));
+    }
+
+    @Test
+    @DisplayName("본문이 없으면 '계속 받기'는 꺼진 것으로 읽는다")
+    void missingBodyMeansNoMoreAlerts() throws Exception {
+        given(proposalService.decide(USER_ID, JOURNEY_ID, 11L,
+                RerouteProposalStatus.REJECTED, false))
+                .willReturn(new RerouteDecision(true, true, false));
+
+        mockMvc.perform(post("/api/journeys/{id}/reroute-proposals/{pid}/reject",
+                        JOURNEY_ID, 11L)
+                        .with(authentication(authUser(USER_ID))))
+                .andExpect(status().isOk());
+
+        verify(proposalService).decide(USER_ID, JOURNEY_ID, 11L,
+                RerouteProposalStatus.REJECTED, false);
+    }
+
+    @Test
+    @DisplayName("무시는 재전송이어도 200 이다 — 멱등")
+    void dismissIsIdempotentOverTheWire() throws Exception {
+        given(proposalService.decide(USER_ID, JOURNEY_ID, 11L,
+                RerouteProposalStatus.DISMISSED, false))
+                .willReturn(new RerouteDecision(false, false, false));
+
+        mockMvc.perform(post("/api/journeys/{id}/reroute-proposals/{pid}/dismiss",
+                        JOURNEY_ID, 11L)
+                        .with(authentication(authUser(USER_ID))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.closed").value(false));
     }
 
     // ── 적용 재료가 새어 나가지 않는가 ──────────────────────────────────────

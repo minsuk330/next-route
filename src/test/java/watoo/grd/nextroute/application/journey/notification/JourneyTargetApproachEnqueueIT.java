@@ -207,7 +207,11 @@ class JourneyTargetApproachEnqueueIT extends AbstractJourneyNotificationIT {
                 .containsExactlyInAnyOrder(
                         JourneyCheckpoint.TRANSFER_RISK_AT_RISK,
                         JourneyCheckpoint.TRANSFER_RISK_MISSED,
-                        JourneyCheckpoint.TRANSFER_TARGET_APPROACHING);
+                        JourneyCheckpoint.TRANSFER_TARGET_APPROACHING,
+                        // PR-3 이 넷째를 더했다. N1(하차)·N3(정류장 접근)이 아니라 "더 빠른 길이
+                        // 있다"는 신호라 서버가 보내는 것이 맞다 — 이 목록이 지키는 것은 개수가
+                        // 아니라 "서버가 보낼 수 없는 종류를 만들지 않는다"이다.
+                        JourneyCheckpoint.REROUTE_SUGGESTED);
     }
 
     private List<String> checkpoints() {

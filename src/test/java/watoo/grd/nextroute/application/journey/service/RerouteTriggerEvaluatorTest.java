@@ -38,6 +38,9 @@ class RerouteTriggerEvaluatorTest {
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final JourneyRerouteProperties properties = new JourneyRerouteProperties();
     private final JourneyRerouteMetrics metrics = new JourneyRerouteMetrics(registry);
+    /** 알림 발행은 PR-3 의 별도 관심사다. 여기서는 "방아쇠가 넘긴다"만 보면 된다. */
+    private final RerouteAlertPublisher alertPublisher =
+            org.mockito.Mockito.mock(RerouteAlertPublisher.class);
 
     /** cooldown 호출 횟수를 눈으로 센다. mock 보다 "몇 번 물었나"가 바로 읽힌다. */
     private final AtomicInteger cooldownAsked = new AtomicInteger();
@@ -155,7 +158,8 @@ class RerouteTriggerEvaluatorTest {
 
     private RerouteTriggerEvaluator evaluator(RerouteCooldownPort cooldownPort) {
         return new RerouteTriggerEvaluator(
-                new RerouteTriggerPolicy(properties), cooldownPort, metrics, properties);
+                new RerouteTriggerPolicy(properties), alertPublisher, cooldownPort,
+                metrics, properties);
     }
 
     private RerouteCooldownPort admitting(boolean admit) {

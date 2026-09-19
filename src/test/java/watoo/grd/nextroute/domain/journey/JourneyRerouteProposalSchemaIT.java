@@ -45,7 +45,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql",
         "classpath:db/migration/V50__add_reroute_proposal_origin.sql",
         "classpath:db/migration/V51__reroute_proposal_journey_active_unique.sql",
-        "classpath:db/migration/V52__drop_reroute_proposal_transfer_index.sql"
+        "classpath:db/migration/V52__drop_reroute_proposal_transfer_index.sql",
+        "classpath:db/migration/V53__add_reroute_alert_state.sql",
+        "classpath:db/migration/V54__add_reroute_proposal_alerted.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DisplayName("재탐색 제안 표 스키마(V42→V52)")
@@ -109,6 +111,33 @@ class JourneyRerouteProposalSchemaIT extends AbstractJourneyOutboxPostgresIT {
                 .isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> insertProposal("PENDING"))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("사용자의 응답도 상태 어휘다 — 거절·무시가 통과한다(V54)")
+    void decisionStatusesAreAccepted() {
+        insertProposal("REJECTED");
+        insertProposal("DISMISSED");
+
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from reroute_proposal where status in ('REJECTED','DISMISSED')",
+                Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("알림 상태 칸이 여정과 제안에 있다(V53·V54)")
+    void alertStateColumnsExist() {
+        assertThat(columnsOf("journey_session"))
+                .contains("reroute_terminated", "reroute_alert_opt_in", "reroute_ignored_count");
+        assertThat(columnsOf("reroute_proposal"))
+                .as("사용자가 직접 요청한 제안은 무응답으로 세지 않는다")
+                .contains("alerted");
+    }
+
+    private List<String> columnsOf(String table) {
+        return jdbcTemplate.queryForList("""
+                select column_name from information_schema.columns where table_name = ?
+                """, String.class, table);
     }
 
     @Test
