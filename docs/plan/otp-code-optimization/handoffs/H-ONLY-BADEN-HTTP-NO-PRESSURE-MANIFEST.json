@@ -1,0 +1,857 @@
+{
+  "schema": "otp-baden-p6-manifest-v1",
+  "generatedAt": "2026-09-17T04:13:51+00:00",
+  "environmentStatus": "ENVIRONMENT_CONTAMINATED",
+  "root": "/private/tmp/otp-baden-http-native-20260917-p6",
+  "host": {
+    "os": "macOS",
+    "cpu": "Apple M3 Pro",
+    "ramGiB": 18
+  },
+  "jvm": {
+    "java": "/opt/homebrew/opt/openjdk@26/bin/java",
+    "version": "26.0.2.1",
+    "flags": "-Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary"
+  },
+  "workload": {
+    "endpoint": "http://127.0.0.1:18080/otp/gtfs/v1",
+    "querySha256": "6edb4d0c5dba240c73c31463c35167f8a47dc3a47733d0db2883292a16c901fa",
+    "scheduleSha256": "797c8d59fd7396e2e5ec4772e58065390df226af138a9811b490879e51ced479",
+    "corpusRows": 256,
+    "arrivalRate": 8.0,
+    "workers": 32,
+    "scheduleRows": 20000,
+    "seed": 20260916,
+    "numItineraries": 3
+  },
+  "roleDefinition": {
+    "A": "upstream baseline: arrivalTimes[]/departureTimes[] flat arrays copied per request",
+    "H": "optimized code: TripTimes[]/offsetsByTrip references; no flat timetable arrays",
+    "A_SHA256": "2e1808e38a84664ffe8b976aef77023bf9240b2726778020ad968224f1f2fdc6",
+    "H_SHA256": "3d583ae579dd1d1d89e8dbd3c7983a89b82c96381c3daf38b26201cc06385b7d"
+  },
+  "assets": {
+    "baselineJar": {
+      "path": "/private/tmp/otp-baden-build-LgbuLS/otp-h-only.jar",
+      "sha256": "2e1808e38a84664ffe8b976aef77023bf9240b2726778020ad968224f1f2fdc6"
+    },
+    "hOnlyJar": {
+      "path": "/private/tmp/otp-baden-build-LgbuLS/otp-baseline.jar",
+      "sha256": "3d583ae579dd1d1d89e8dbd3c7983a89b82c96381c3daf38b26201cc06385b7d"
+    },
+    "graph": {
+      "path": "/private/tmp/otp-baden-memory-FRsabG/graph/graph.obj",
+      "sha256": "64ee49f2d24243ab21f88225d47f44aeab17017bb6a9b28a2d8d6e476b412bfc"
+    },
+    "corpus": {
+      "path": "/private/tmp/otp-baden-memory-FRsabG/official/A-rerun/travelSearch.csv",
+      "sha256": "42c6f861a704b1c6a246b2a55506267be1d4c4c49cb6f11ec8e2a962d0bef65c"
+    }
+  },
+  "analysisArtifacts": {
+    "baselineJar": "2e1808e38a84664ffe8b976aef77023bf9240b2726778020ad968224f1f2fdc6",
+    "hOnlyJar": "3d583ae579dd1d1d89e8dbd3c7983a89b82c96381c3daf38b26201cc06385b7d",
+    "graph": "64ee49f2d24243ab21f88225d47f44aeab17017bb6a9b28a2d8d6e476b412bfc",
+    "corpus": "42c6f861a704b1c6a246b2a55506267be1d4c4c49cb6f11ec8e2a962d0bef65c",
+    "p6-run-summaries.json": "fc6a610ae99d2d89ebb4b7ff037adc4edcf23a5f15c0cfc59356a75fccf8295c",
+    "p6-paired-bootstrap.json": "938423b55512011dcfedf5ba2a0cb58cbb2efef49ae66c4a4852204361a58b05",
+    "p6-gc-overlap.json": "42a01090353053bc008d5b7f8d3fd478c48453f4a2af3df1e68f6794a0bd8579",
+    "p6-integrity.json": "814f988f41e256798e83f325454598b2cc17513b402bae57c91af494e4c3e6c3"
+  },
+  "rawArchive": {
+    "path": "/Users/wa/golbob/개인/nextroute/.artifacts/otp-baden-p6",
+    "sha256": {
+      "pair01-A.tar.gz": "198ba209a1a3f1b6149e8d70518c5465277c52d04c90461a03d0f4fc6f152dad",
+      "pair01-H.tar.gz": "2ce691fc11fa42019f5f021c3de12be442322a34ff33a0e053b6f62b6b8a7e6c",
+      "pair02-A-mixed-status-20260917.tar.gz": "f0126319d6a78cd2c763ea9c6019ebe738596225c47c1920c65f388bfedf4533",
+      "pair02-A-partial-20260917.tar.gz": "87eb0e3265251374b07eaa7dbdc8bfd0ab70ccb4a083c6aa4e1ee826f9420536",
+      "pair02-A.tar.gz": "42eed1c890ac0fa344c8af00580c00028980259b5abecddd6daee03c8611b565",
+      "pair02-H.tar.gz": "61d80b9e32a8897bc2c80bcb112b3d995ae514e8e6bfface8c1d398d85ccff1a",
+      "pair03-A-out-of-order-interrupted-20260917.tar.gz": "c94835689b0970e7f86528fdc20a34e1187a5623ebfe6e4e290bfac4b3043921",
+      "pair03-A.tar.gz": "ef36376e5bb79efc42023d5f95aee26c085c85cef8ee761709647c0904ad1812",
+      "pair03-H-preflight-invalid-20260917.tar.gz": "a7dff0d5abdb910b8cdc911085193c20fd33a05ab25ff046498b01e9d498ad72",
+      "pair03-H.tar.gz": "b1d27478d147d5f345c4d3305cca82e9cee0ee38edd385ac850b95703425c69d",
+      "pair04-A.tar.gz": "8fc7c40970e65fe097f71b9f5bd3ec5d3dc34c2eed811103fc601094c584c899",
+      "pair04-H.tar.gz": "94220993e52f2fdc734625b124716e00a6b34b72c678023b670d972702dbd258",
+      "pair05-A.tar.gz": "6d6977223fb33ee0ecba3f4f5ac1f5e5737fda3568223721826f74a32752da10",
+      "pair05-H.tar.gz": "2e62b0b139c3a56f1874468cc4f4b5a73cfd5870a9b6f91709615d4dc8ad715c",
+      "pair06-H.tar.gz": "62041a14a6649f0ebbdadc217ef90e465bf4e0234efd6c3292ed9517d5c21cc3"
+    },
+    "available": true
+  },
+  "runOrder": [
+    "pair01-A",
+    "pair01-H",
+    "pair02-H",
+    "pair02-A",
+    "pair03-H",
+    "pair03-A",
+    "pair04-A",
+    "pair04-H",
+    "pair05-A",
+    "pair05-H",
+    "pair06-H"
+  ],
+  "noPressureRuns": [],
+  "runs": {
+    "pair01-A": {
+      "path": "/private/tmp/otp-baden-http-native-20260917-p6/pair01-A",
+      "role": "P6-01-H-only",
+      "jar": "/private/tmp/otp-baden-build-LgbuLS/otp-baseline.jar",
+      "jarSha256": "3d583ae579dd1d1d89e8dbd3c7983a89b82c96381c3daf38b26201cc06385b7d",
+      "graphSha256": "64ee49f2d24243ab21f88225d47f44aeab17017bb6a9b28a2d8d6e476b412bfc",
+      "corpusSha256": "42c6f861a704b1c6a246b2a55506267be1d4c4c49cb6f11ec8e2a962d0bef65c",
+      "jvm": "/opt/homebrew/opt/openjdk@26/bin/java",
+      "jvmFlags": "-Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary",
+      "cwd": "(not recorded; see canonical command)",
+      "command": "/opt/homebrew/opt/openjdk@26/bin/java -Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary -jar /private/tmp/otp-baden-build-LgbuLS/otp-baseline.jar --load --bindAddress 127.0.0.1 --port 18080 /private/tmp/otp-baden-memory-FRsabG/graph",
+      "startedAt": "2026-09-16T17:43:51+0000",
+      "finishedAt": "2026-09-16T18:25:47+0000",
+      "ready": "1",
+      "generatorExit": "0",
+      "serverExit": "0",
+      "requestMeta": {
+        "startedAt": "2026-09-16T17:44:07.042+00:00",
+        "endpoint": "http://127.0.0.1:18080/otp/gtfs/v1",
+        "corpus": "/private/tmp/otp-baden-memory-FRsabG/official/A-rerun/travelSearch.csv",
+        "date": "2022-07-25",
+        "querySha256": "6edb4d0c5dba240c73c31463c35167f8a47dc3a47733d0db2883292a16c901fa",
+        "corpusRows": 256,
+        "categories": {
+          "transit": 240,
+          "car": 16
+        },
+        "modes": {
+          "TRANSIT|WALK": 240,
+          "CAR": 16
+        },
+        "windows": {
+          "<dynamic>": 244,
+          "6h": 8,
+          "8h": 4
+        },
+        "numItineraries": 3,
+        "repeat": 1,
+        "arrivalRate": 8.0,
+        "durationS": 2500.0,
+        "seed": 20260916,
+        "workers": 32,
+        "scheduleRows": 20000,
+        "scheduleSha256": "797c8d59fd7396e2e5ec4772e58065390df226af138a9811b490879e51ced479",
+        "wallMonotonicOrigin": {
+          "epochNs": 1789580647043442000,
+          "monotonicNs": 98301041
+        }
+      },
+      "rawFiles": {
+        "requests.jsonl": "71c4a7fc792b6aefeea050fa9318b15dff2c922a0defa3fe33e1fa1ccaaa1b07",
+        "server.log": "121c6141dbfdac52e3fbe8cbaef0463826f3f3a507accf84f21ab35b17b4311e",
+        "generator.log": "eabd301b86a946ca78eaa443e1516f5458fe8bfc5ab6077d11b20d90bea24429",
+        "gc.log": "1542cd532843ec55c9ed51be3553324ee6ca659c235bc4e003f954bb6d9e78e8",
+        "process.csv": "7730c02dfa711e13195bb9e5b90fef8937b863d447eda0eab00f1eafeff59681",
+        "pressure-events.log": null,
+        "host-before-vmstat.txt": "ae2a54f0cfbba37afc5ca4d31c4baf704c34ab32d86c42e5bcc8f3506b8576c4",
+        "host-after-vmstat.txt": "b3aafba9ec52d2d2c65c12658edca2ffa263489e19779770eb2c059c6ff9f03b",
+        "nmt-before-measurement.txt": null,
+        "nmt-after-measurement.txt": null
+      },
+      "hostGate": "ENVIRONMENT_INVALID",
+      "hostDeltas": {
+        "Pageouts": 15433,
+        "Swapins": 309,
+        "Swapouts": 0
+      },
+      "fullPauseEvents": 0
+    },
+    "pair01-H": {
+      "path": "/private/tmp/otp-baden-http-native-20260917-p6/pair01-H",
+      "role": "P6-01-A-baseline",
+      "jar": "/private/tmp/otp-baden-build-LgbuLS/otp-h-only.jar",
+      "jarSha256": "2e1808e38a84664ffe8b976aef77023bf9240b2726778020ad968224f1f2fdc6",
+      "graphSha256": "64ee49f2d24243ab21f88225d47f44aeab17017bb6a9b28a2d8d6e476b412bfc",
+      "corpusSha256": "42c6f861a704b1c6a246b2a55506267be1d4c4c49cb6f11ec8e2a962d0bef65c",
+      "jvm": "/opt/homebrew/opt/openjdk@26/bin/java",
+      "jvmFlags": "-Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary",
+      "cwd": "(not recorded; see canonical command)",
+      "command": "/opt/homebrew/opt/openjdk@26/bin/java -Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary -jar /private/tmp/otp-baden-build-LgbuLS/otp-h-only.jar --load --bindAddress 127.0.0.1 --port 18080 /private/tmp/otp-baden-memory-FRsabG/graph",
+      "startedAt": "2026-09-16T18:30:00+0000",
+      "finishedAt": "2026-09-16T19:08:00+0000",
+      "ready": "0",
+      "generatorExit": "0",
+      "serverExit": "0",
+      "requestMeta": {
+        "startedAt": "2026-09-16T18:26:20.385+00:00",
+        "endpoint": "http://127.0.0.1:18080/otp/gtfs/v1",
+        "corpus": "/private/tmp/otp-baden-memory-FRsabG/official/A-rerun/travelSearch.csv",
+        "date": "2022-07-25",
+        "querySha256": "6edb4d0c5dba240c73c31463c35167f8a47dc3a47733d0db2883292a16c901fa",
+        "corpusRows": 256,
+        "categories": {
+          "transit": 240,
+          "car": 16
+        },
+        "modes": {
+          "TRANSIT|WALK": 240,
+          "CAR": 16
+        },
+        "windows": {
+          "<dynamic>": 244,
+          "6h": 8,
+          "8h": 4
+        },
+        "numItineraries": 3,
+        "repeat": 1,
+        "arrivalRate": 8.0,
+        "durationS": 2500.0,
+        "seed": 20260916,
+        "workers": 32,
+        "scheduleRows": 20000,
+        "scheduleSha256": "797c8d59fd7396e2e5ec4772e58065390df226af138a9811b490879e51ced479",
+        "wallMonotonicOrigin": {
+          "epochNs": 1789583180386775000,
+          "monotonicNs": 91265583
+        }
+      },
+      "rawFiles": {
+        "requests.jsonl": "e96319a1871a0470d2994122c70e847b3d4fb4735e7e71da193efbfaedea4e1e",
+        "server.log": "c1c936f6b1d04ba0ff14c18e3856f335a026030c9ef39783686f2c6427a8c20b",
+        "generator.log": "c022dc5cf010b8d0a24ee2afcd66ac43b2c4bfcf8c273649889e80218d756a75",
+        "gc.log": "bc06a180654715ed944c60cefbbd26513461eddbb216f12bc461a2edf50429bd",
+        "process.csv": "af432acfb116760f29d70fae24a4427c3a7d78d9ecc4d387aab3ed00331977fe",
+        "pressure-events.log": "d33492094ab27a9de5a41798211275c73fb4f8d1b9bef6f46bbe32a6be0becde",
+        "host-before-vmstat.txt": "72e788e624ad32dc8bdbddf8220b2c795e17132805f55214930126124a3eacb5",
+        "host-after-vmstat.txt": "15b12d1d5303156ecfc63280f9e1b26536dc2dcc210081cdb4db75775dd73119",
+        "nmt-before-measurement.txt": null,
+        "nmt-after-measurement.txt": "9fab3c79421ba536d6c94ecfd13e3a3109c1e0443a2d2a66fae12bc71a8df930"
+      },
+      "hostGate": "ENVIRONMENT_INVALID",
+      "hostDeltas": {
+        "Pageouts": 28301,
+        "Swapins": 500689,
+        "Swapouts": 627711
+      },
+      "fullPauseEvents": 0
+    },
+    "pair02-H": {
+      "path": "/private/tmp/otp-baden-http-native-20260917-p6/pair02-H",
+      "role": "P6-02-A-baseline",
+      "jar": "/private/tmp/otp-baden-build-LgbuLS/otp-h-only.jar",
+      "jarSha256": "2e1808e38a84664ffe8b976aef77023bf9240b2726778020ad968224f1f2fdc6",
+      "graphSha256": "64ee49f2d24243ab21f88225d47f44aeab17017bb6a9b28a2d8d6e476b412bfc",
+      "corpusSha256": "42c6f861a704b1c6a246b2a55506267be1d4c4c49cb6f11ec8e2a962d0bef65c",
+      "jvm": "/opt/homebrew/opt/openjdk@26/bin/java",
+      "jvmFlags": "-Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary",
+      "cwd": "(not recorded; see canonical command)",
+      "command": "/opt/homebrew/opt/openjdk@26/bin/java -Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary -jar /private/tmp/otp-baden-build-LgbuLS/otp-h-only.jar --load --bindAddress 127.0.0.1 --port 18080 /private/tmp/otp-baden-memory-FRsabG/graph",
+      "startedAt": "2026-09-16T19:08:33+0000",
+      "finishedAt": "2026-09-16T19:50:28+0000",
+      "ready": "1",
+      "generatorExit": "0",
+      "serverExit": "0",
+      "requestMeta": {
+        "startedAt": "2026-09-16T19:08:48.665+00:00",
+        "endpoint": "http://127.0.0.1:18080/otp/gtfs/v1",
+        "corpus": "/private/tmp/otp-baden-memory-FRsabG/official/A-rerun/travelSearch.csv",
+        "date": "2022-07-25",
+        "querySha256": "6edb4d0c5dba240c73c31463c35167f8a47dc3a47733d0db2883292a16c901fa",
+        "corpusRows": 256,
+        "categories": {
+          "transit": 240,
+          "car": 16
+        },
+        "modes": {
+          "TRANSIT|WALK": 240,
+          "CAR": 16
+        },
+        "windows": {
+          "<dynamic>": 244,
+          "6h": 8,
+          "8h": 4
+        },
+        "numItineraries": 3,
+        "repeat": 1,
+        "arrivalRate": 8.0,
+        "durationS": 2500.0,
+        "seed": 20260916,
+        "workers": 32,
+        "scheduleRows": 20000,
+        "scheduleSha256": "797c8d59fd7396e2e5ec4772e58065390df226af138a9811b490879e51ced479",
+        "wallMonotonicOrigin": {
+          "epochNs": 1789585728666542000,
+          "monotonicNs": 34767790544875
+        }
+      },
+      "rawFiles": {
+        "requests.jsonl": "95b1fcc386fc646ff697ada1137e8ea72ef9d3aa92df71f921d5312189b2314d",
+        "server.log": "2c60fc20e05e371640c5e3cd5f9e8526f74476924d094d9837696f9f6666ea27",
+        "generator.log": "3f541b86f23dec5c05e3d92160ffce223358ec229a54b90e2c52be9086f2ed32",
+        "gc.log": "5f6ca921e07a462832a162f9e28f03f092de414f94ecfd6fafaea23c711c42f3",
+        "process.csv": "4f67f9bde555396836dc4f2241e7171276e42161702eb2792aa8f09e94ef04bb",
+        "pressure-events.log": "c84310135decfdf90070121ac1c2cef645990a95c2b4847f8ca8caec67cd1e91",
+        "host-before-vmstat.txt": "41ea7cd3f7a0744e846b26cf75879e5a9879c3a0e67a989807fc5646f8dcb939",
+        "host-after-vmstat.txt": "ad466270dbb47f061b29a7595b446b87f87e6223ed38337923c72fe864db5415",
+        "nmt-before-measurement.txt": "878fee5872f812dfde676d0ac29db8d2ac7648b2c5f6d2ec68dabc23bba06fb5",
+        "nmt-after-measurement.txt": "463ebaf1afef64c0c14645eb63310b9b29a3f27f6be65dc0ec6ac752e4b0b981"
+      },
+      "hostGate": "ENVIRONMENT_INVALID",
+      "hostDeltas": {
+        "Pageouts": 147921,
+        "Swapins": 5104,
+        "Swapouts": 0
+      },
+      "fullPauseEvents": 0
+    },
+    "pair02-A": {
+      "path": "/private/tmp/otp-baden-http-native-20260917-p6/pair02-A",
+      "role": "P6-02-H-only",
+      "jar": "/private/tmp/otp-baden-build-LgbuLS/otp-baseline.jar",
+      "jarSha256": "3d583ae579dd1d1d89e8dbd3c7983a89b82c96381c3daf38b26201cc06385b7d",
+      "graphSha256": "64ee49f2d24243ab21f88225d47f44aeab17017bb6a9b28a2d8d6e476b412bfc",
+      "corpusSha256": "42c6f861a704b1c6a246b2a55506267be1d4c4c49cb6f11ec8e2a962d0bef65c",
+      "jvm": "/opt/homebrew/opt/openjdk@26/bin/java",
+      "jvmFlags": "-Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary",
+      "cwd": "(not recorded; see canonical command)",
+      "command": "/opt/homebrew/opt/openjdk@26/bin/java -Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary -jar /private/tmp/otp-baden-build-LgbuLS/otp-baseline.jar --load --bindAddress 127.0.0.1 --port 18080 /private/tmp/otp-baden-memory-FRsabG/graph",
+      "startedAt": "2026-09-16T20:59:33+0000",
+      "finishedAt": "2026-09-16T21:41:27+0000",
+      "ready": "1",
+      "generatorExit": "0",
+      "serverExit": "0",
+      "requestMeta": {
+        "startedAt": "2026-09-16T20:59:47.504+00:00",
+        "endpoint": "http://127.0.0.1:18080/otp/gtfs/v1",
+        "corpus": "/private/tmp/otp-baden-memory-FRsabG/official/A-rerun/travelSearch.csv",
+        "date": "2022-07-25",
+        "querySha256": "6edb4d0c5dba240c73c31463c35167f8a47dc3a47733d0db2883292a16c901fa",
+        "corpusRows": 256,
+        "categories": {
+          "transit": 240,
+          "car": 16
+        },
+        "modes": {
+          "TRANSIT|WALK": 240,
+          "CAR": 16
+        },
+        "windows": {
+          "<dynamic>": 244,
+          "6h": 8,
+          "8h": 4
+        },
+        "numItineraries": 3,
+        "repeat": 1,
+        "arrivalRate": 8.0,
+        "durationS": 2500.0,
+        "seed": 20260916,
+        "workers": 32,
+        "scheduleRows": 20000,
+        "scheduleSha256": "797c8d59fd7396e2e5ec4772e58065390df226af138a9811b490879e51ced479",
+        "wallMonotonicOrigin": {
+          "epochNs": 1789592387504801000,
+          "monotonicNs": 41426658899041
+        }
+      },
+      "rawFiles": {
+        "requests.jsonl": "f67f81a582e9d1a0256311e20248ffac9aacf871e80f5b67f5bbcd267638bc5f",
+        "server.log": "fc8b677472fccba4b93b860c6dcc3c7613eb30baba499cb3d820b64e84a9a5a4",
+        "generator.log": "cfc648e36969bf2c940a2e2046083d5f6f34e1a257d5c4917292af4a7e59094c",
+        "gc.log": "a674a4c4d84e8304eaf4e418234fc9e6137e54c68d4aa8b7e70bc8835c54570c",
+        "process.csv": "993bf5ca8bb30f5d6c4f91bae67c10d9c9ff13e7755ce937ee16ca16401524aa",
+        "pressure-events.log": "ff06a0de4b3190a2b05ef9b19c0a6de4cf796e5d9b41b154cf96be2a283b3d93",
+        "host-before-vmstat.txt": "d7f3eafdee4582152d1bd6c2adfa91f61c2a0ce83816e33d0a246c0ee76fee33",
+        "host-after-vmstat.txt": "1c09746440e31abc1a38b4366fe5fdac6b4b940000ffb8813e34ebb043fdffa2",
+        "nmt-before-measurement.txt": "d7e947aa7e1442def3d803022cf76c74c4a39b716ea204bf0a8cba5aec94f605",
+        "nmt-after-measurement.txt": "e3f7bcc5498e514aacec7bbd19f375d10cbfafd09299e5ee3ac34628b2eed1a2"
+      },
+      "hostGate": "ENVIRONMENT_INVALID",
+      "hostDeltas": {
+        "Pageouts": 13669,
+        "Swapins": 14103,
+        "Swapouts": 0
+      },
+      "fullPauseEvents": 0
+    },
+    "pair03-H": {
+      "path": "/private/tmp/otp-baden-http-native-20260917-p6/pair03-H",
+      "role": "P6-03-A-baseline",
+      "jar": "/private/tmp/otp-baden-build-LgbuLS/otp-h-only.jar",
+      "jarSha256": "2e1808e38a84664ffe8b976aef77023bf9240b2726778020ad968224f1f2fdc6",
+      "graphSha256": "64ee49f2d24243ab21f88225d47f44aeab17017bb6a9b28a2d8d6e476b412bfc",
+      "corpusSha256": "42c6f861a704b1c6a246b2a55506267be1d4c4c49cb6f11ec8e2a962d0bef65c",
+      "jvm": "/opt/homebrew/opt/openjdk@26/bin/java",
+      "jvmFlags": "-Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary",
+      "cwd": "(not recorded; see canonical command)",
+      "command": "/opt/homebrew/opt/openjdk@26/bin/java -Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary -jar /private/tmp/otp-baden-build-LgbuLS/otp-h-only.jar --load --bindAddress 127.0.0.1 --port 18080 /private/tmp/otp-baden-memory-FRsabG/graph",
+      "startedAt": "2026-09-16T21:41:30+0000",
+      "finishedAt": "2026-09-16T22:23:26+0000",
+      "ready": "1",
+      "generatorExit": "0",
+      "serverExit": "0",
+      "requestMeta": {
+        "startedAt": "2026-09-16T21:41:46.015+00:00",
+        "endpoint": "http://127.0.0.1:18080/otp/gtfs/v1",
+        "corpus": "/private/tmp/otp-baden-memory-FRsabG/official/A-rerun/travelSearch.csv",
+        "date": "2022-07-25",
+        "querySha256": "6edb4d0c5dba240c73c31463c35167f8a47dc3a47733d0db2883292a16c901fa",
+        "corpusRows": 256,
+        "categories": {
+          "transit": 240,
+          "car": 16
+        },
+        "modes": {
+          "TRANSIT|WALK": 240,
+          "CAR": 16
+        },
+        "windows": {
+          "<dynamic>": 244,
+          "6h": 8,
+          "8h": 4
+        },
+        "numItineraries": 3,
+        "repeat": 1,
+        "arrivalRate": 8.0,
+        "durationS": 2500.0,
+        "seed": 20260916,
+        "workers": 32,
+        "scheduleRows": 20000,
+        "scheduleSha256": "797c8d59fd7396e2e5ec4772e58065390df226af138a9811b490879e51ced479",
+        "wallMonotonicOrigin": {
+          "epochNs": 1789594906016139000,
+          "monotonicNs": 43945137129166
+        }
+      },
+      "rawFiles": {
+        "requests.jsonl": "9c76831156632f3e34722b15bd674975cdb3439f96cc776429b2b6cdfeb64ef8",
+        "server.log": "59ef558207d6125928e24eeab1198faa0e10411d3f0d351f9b4a8aa7aca02043",
+        "generator.log": "6b68666f335d7ce4bf5c131e585cd37c61fda61a5414ad3ace999b3b557ee695",
+        "gc.log": "125bc51a652a48b710518489b1d39fa8aa4616806d37bb540a3a31edb629ba47",
+        "process.csv": "79b4f868b1b30d27d9e6d640dc3469ed96f6242ff6fd1fcd5ad3510a7df2da93",
+        "pressure-events.log": "6955306098283f29fe0f44db6f68aa63ac5cfbd9626eec4cebf4887abf4f99a4",
+        "host-before-vmstat.txt": "ac052a75ae4c07357deb25407551f6bc3e4f2a70d619fe5dedb1c2eb7ab05cdc",
+        "host-after-vmstat.txt": "6d3bff32ec5cbcb177b35080980a455c6348f765cd0649eca77fabb567c19116",
+        "nmt-before-measurement.txt": "debe2d9663d92c0df86d43fba2ee4c6f825d7789946aa3f8001230a9b3bc006d",
+        "nmt-after-measurement.txt": "a52759e33577a0447508ba71614e65aae3982224ebce03bdbfc9044ddc28c3c1"
+      },
+      "hostGate": "ENVIRONMENT_INVALID",
+      "hostDeltas": {
+        "Pageouts": 36695,
+        "Swapins": 896,
+        "Swapouts": 0
+      },
+      "fullPauseEvents": 0
+    },
+    "pair03-A": {
+      "path": "/private/tmp/otp-baden-http-native-20260917-p6/pair03-A",
+      "role": "P6-03-H-only",
+      "jar": "/private/tmp/otp-baden-build-LgbuLS/otp-baseline.jar",
+      "jarSha256": "3d583ae579dd1d1d89e8dbd3c7983a89b82c96381c3daf38b26201cc06385b7d",
+      "graphSha256": "64ee49f2d24243ab21f88225d47f44aeab17017bb6a9b28a2d8d6e476b412bfc",
+      "corpusSha256": "42c6f861a704b1c6a246b2a55506267be1d4c4c49cb6f11ec8e2a962d0bef65c",
+      "jvm": "/opt/homebrew/opt/openjdk@26/bin/java",
+      "jvmFlags": "-Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary",
+      "cwd": "(not recorded; see canonical command)",
+      "command": "/opt/homebrew/opt/openjdk@26/bin/java -Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary -jar /private/tmp/otp-baden-build-LgbuLS/otp-baseline.jar --load --bindAddress 127.0.0.1 --port 18080 /private/tmp/otp-baden-memory-FRsabG/graph",
+      "startedAt": "2026-09-16T22:23:29+0000",
+      "finishedAt": "2026-09-16T23:05:23+0000",
+      "ready": "1",
+      "generatorExit": "0",
+      "serverExit": "0",
+      "requestMeta": {
+        "startedAt": "2026-09-16T22:23:43.615+00:00",
+        "endpoint": "http://127.0.0.1:18080/otp/gtfs/v1",
+        "corpus": "/private/tmp/otp-baden-memory-FRsabG/official/A-rerun/travelSearch.csv",
+        "date": "2022-07-25",
+        "querySha256": "6edb4d0c5dba240c73c31463c35167f8a47dc3a47733d0db2883292a16c901fa",
+        "corpusRows": 256,
+        "categories": {
+          "transit": 240,
+          "car": 16
+        },
+        "modes": {
+          "TRANSIT|WALK": 240,
+          "CAR": 16
+        },
+        "windows": {
+          "<dynamic>": 244,
+          "6h": 8,
+          "8h": 4
+        },
+        "numItineraries": 3,
+        "repeat": 1,
+        "arrivalRate": 8.0,
+        "durationS": 2500.0,
+        "seed": 20260916,
+        "workers": 32,
+        "scheduleRows": 20000,
+        "scheduleSha256": "797c8d59fd7396e2e5ec4772e58065390df226af138a9811b490879e51ced479",
+        "wallMonotonicOrigin": {
+          "epochNs": 1789597423616373000,
+          "monotonicNs": 46462659675041
+        }
+      },
+      "rawFiles": {
+        "requests.jsonl": "89328205321beff145c10d553ca71994f8219acd42467adb1a951f4e3968858c",
+        "server.log": "05789a70f8475dd705bab1300d27b6633c1c53c8a8193dfd630c64801dd0524a",
+        "generator.log": "0145f2f8bbb3c2d5180b447bc2fc20301cd8b5e938476e52f7fd72833b0485d5",
+        "gc.log": "2941072fc2cc8f085ddc6dbbf1c10ecdca8be36ed0cea6eedf0c9ff8559629b8",
+        "process.csv": "5541a84d144bca802fbe48c36a98c8723fa7e19e662bd10f8190f8f7dafe8972",
+        "pressure-events.log": "6c1609754d5f628c5b6deba62c650a97378ac94335f38124f38526742a8beb36",
+        "host-before-vmstat.txt": "b2aa6f56fd8665d36edecca6b31786eecf55a0377c0bc926a9c26f00a0b6d327",
+        "host-after-vmstat.txt": "0bb76f36f8545194d6fe2f49ac1f2a7fd2f4287203083cabc4906dffc4f10f03",
+        "nmt-before-measurement.txt": "30eed8d7c0e5e20e5d220b6d60b451be3b3747867176ba9f8c1233c88c36b9e7",
+        "nmt-after-measurement.txt": "826a59be5facfdb32cfd48c6c3212399dbcf296477a51606883dcb0b22e0691b"
+      },
+      "hostGate": "ENVIRONMENT_INVALID",
+      "hostDeltas": {
+        "Pageouts": 20405,
+        "Swapins": 1338,
+        "Swapouts": 0
+      },
+      "fullPauseEvents": 0
+    },
+    "pair04-A": {
+      "path": "/private/tmp/otp-baden-http-native-20260917-p6/pair04-A",
+      "role": "P6-04-H-only",
+      "jar": "/private/tmp/otp-baden-build-LgbuLS/otp-baseline.jar",
+      "jarSha256": "3d583ae579dd1d1d89e8dbd3c7983a89b82c96381c3daf38b26201cc06385b7d",
+      "graphSha256": "64ee49f2d24243ab21f88225d47f44aeab17017bb6a9b28a2d8d6e476b412bfc",
+      "corpusSha256": "42c6f861a704b1c6a246b2a55506267be1d4c4c49cb6f11ec8e2a962d0bef65c",
+      "jvm": "/opt/homebrew/opt/openjdk@26/bin/java",
+      "jvmFlags": "-Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary",
+      "cwd": "(not recorded; see canonical command)",
+      "command": "/opt/homebrew/opt/openjdk@26/bin/java -Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary -jar /private/tmp/otp-baden-build-LgbuLS/otp-baseline.jar --load --bindAddress 127.0.0.1 --port 18080 /private/tmp/otp-baden-memory-FRsabG/graph",
+      "startedAt": "2026-09-16T23:05:26+0000",
+      "finishedAt": "2026-09-16T23:47:22+0000",
+      "ready": "1",
+      "generatorExit": "0",
+      "serverExit": "0",
+      "requestMeta": {
+        "startedAt": "2026-09-16T23:05:41.996+00:00",
+        "endpoint": "http://127.0.0.1:18080/otp/gtfs/v1",
+        "corpus": "/private/tmp/otp-baden-memory-FRsabG/official/A-rerun/travelSearch.csv",
+        "date": "2022-07-25",
+        "querySha256": "6edb4d0c5dba240c73c31463c35167f8a47dc3a47733d0db2883292a16c901fa",
+        "corpusRows": 256,
+        "categories": {
+          "transit": 240,
+          "car": 16
+        },
+        "modes": {
+          "TRANSIT|WALK": 240,
+          "CAR": 16
+        },
+        "windows": {
+          "<dynamic>": 244,
+          "6h": 8,
+          "8h": 4
+        },
+        "numItineraries": 3,
+        "repeat": 1,
+        "arrivalRate": 8.0,
+        "durationS": 2500.0,
+        "seed": 20260916,
+        "workers": 32,
+        "scheduleRows": 20000,
+        "scheduleSha256": "797c8d59fd7396e2e5ec4772e58065390df226af138a9811b490879e51ced479",
+        "wallMonotonicOrigin": {
+          "epochNs": 1789599941997178000,
+          "monotonicNs": 48981067384458
+        }
+      },
+      "rawFiles": {
+        "requests.jsonl": "025fd2ce25cd715f9efe68607d6fc051360c9ce7c3e14a91c5bbe42dba3d4f4b",
+        "server.log": "5befd5f7cdbc3aa34835178e25797d7db116ff219b3022ad0d1115d0df238ced",
+        "generator.log": "bb49b86f182e0871c18cd4cad9f04db3bcc0b9ef5ee6fdda3712d7cf6dd436b3",
+        "gc.log": "0f87b97a7f947636a500f44db9e66c8fdcfcdd5144dfbf1cd6af60a8f13bc56a",
+        "process.csv": "0051d080d4a3e4330e2fbc357e8a0c3f8577c17fe9095246604eb9b2af2fc00b",
+        "pressure-events.log": "ae2e26b70df46f6cd92c796e89288b971d97b262dc5360925c4db5f5f728b2a5",
+        "host-before-vmstat.txt": "cd0924742021135cc006ea1a7f777320a681e44a7d5a78222066d49232fdebd8",
+        "host-after-vmstat.txt": "252fa9b1a4a6c39ccd3727478c3fb470c14f16ed15f08f8937a13fa5d795e25c",
+        "nmt-before-measurement.txt": "30c3782f4b969d71b8d162dc204721c77f42e163636b69d97fc8932e51be718f",
+        "nmt-after-measurement.txt": "d9ab18adc3c0cbd0b88d079bf4454c65821d922db1664f9828dfa08e7dc2e6f5"
+      },
+      "hostGate": "ENVIRONMENT_INVALID",
+      "hostDeltas": {
+        "Pageouts": 40972,
+        "Swapins": 13871,
+        "Swapouts": 5314
+      },
+      "fullPauseEvents": 0
+    },
+    "pair04-H": {
+      "path": "/private/tmp/otp-baden-http-native-20260917-p6/pair04-H",
+      "role": "P6-04-A-baseline",
+      "jar": "/private/tmp/otp-baden-build-LgbuLS/otp-h-only.jar",
+      "jarSha256": "2e1808e38a84664ffe8b976aef77023bf9240b2726778020ad968224f1f2fdc6",
+      "graphSha256": "64ee49f2d24243ab21f88225d47f44aeab17017bb6a9b28a2d8d6e476b412bfc",
+      "corpusSha256": "42c6f861a704b1c6a246b2a55506267be1d4c4c49cb6f11ec8e2a962d0bef65c",
+      "jvm": "/opt/homebrew/opt/openjdk@26/bin/java",
+      "jvmFlags": "-Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary",
+      "cwd": "(not recorded; see canonical command)",
+      "command": "/opt/homebrew/opt/openjdk@26/bin/java -Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary -jar /private/tmp/otp-baden-build-LgbuLS/otp-h-only.jar --load --bindAddress 127.0.0.1 --port 18080 /private/tmp/otp-baden-memory-FRsabG/graph",
+      "startedAt": "2026-09-16T23:47:25+0000",
+      "finishedAt": "2026-09-17T00:29:21+0000",
+      "ready": "1",
+      "generatorExit": "0",
+      "serverExit": "0",
+      "requestMeta": {
+        "startedAt": "2026-09-16T23:47:41.643+00:00",
+        "endpoint": "http://127.0.0.1:18080/otp/gtfs/v1",
+        "corpus": "/private/tmp/otp-baden-memory-FRsabG/official/A-rerun/travelSearch.csv",
+        "date": "2022-07-25",
+        "querySha256": "6edb4d0c5dba240c73c31463c35167f8a47dc3a47733d0db2883292a16c901fa",
+        "corpusRows": 256,
+        "categories": {
+          "transit": 240,
+          "car": 16
+        },
+        "modes": {
+          "TRANSIT|WALK": 240,
+          "CAR": 16
+        },
+        "windows": {
+          "<dynamic>": 244,
+          "6h": 8,
+          "8h": 4
+        },
+        "numItineraries": 3,
+        "repeat": 1,
+        "arrivalRate": 8.0,
+        "durationS": 2500.0,
+        "seed": 20260916,
+        "workers": 32,
+        "scheduleRows": 20000,
+        "scheduleSha256": "797c8d59fd7396e2e5ec4772e58065390df226af138a9811b490879e51ced479",
+        "wallMonotonicOrigin": {
+          "epochNs": 1789602461643997000,
+          "monotonicNs": 51500665617291
+        }
+      },
+      "rawFiles": {
+        "requests.jsonl": "341c02b6d1c024c5d26097c6a6824f3402ffdfdf6d3df98694340d12574e4edf",
+        "server.log": "ea17d20f0bffa480491fc2afb3793a5a814b34868b9a1ce29cee9fb8b7efdf43",
+        "generator.log": "5512ac982b96b1091242cd9afeb558e0df0a19a0cc26ae6c23168dc127e4f225",
+        "gc.log": "aeb44833b4fdababde93c168ca3d4c9ae61424a1749a3205d0f6b7809e170e80",
+        "process.csv": "bccc5727d10c1e2636773c8bc1a6bef1384d3cd6a7d39d277801040b7cc60891",
+        "pressure-events.log": "5ce0f9c45e1f968ad24e83a2c7eb0c6a4ea75341352c00087a2c6ebe25a4e24b",
+        "host-before-vmstat.txt": "49389a778004740c7769d106cc2f6f96a947d00aaf2caab67953b6ee810e28f7",
+        "host-after-vmstat.txt": "d4633b57c876199dba2eb8b648b212a7ef34932640fdf1a4de43af1cb1bc0b00",
+        "nmt-before-measurement.txt": "c1fc1cedce8554538f87c59e718a8c4be4b2762e65fae9d450076b481bce08d8",
+        "nmt-after-measurement.txt": "ba74d189e0a52e2a16f683bf619f50cb14442aafa2653a7beb1102e62c9187b6"
+      },
+      "hostGate": "ENVIRONMENT_INVALID",
+      "hostDeltas": {
+        "Pageouts": 58687,
+        "Swapins": 9616,
+        "Swapouts": 0
+      },
+      "fullPauseEvents": 0
+    },
+    "pair05-A": {
+      "path": "/private/tmp/otp-baden-http-native-20260917-p6/pair05-A",
+      "role": "P6-05-H-only",
+      "jar": "/private/tmp/otp-baden-build-LgbuLS/otp-baseline.jar",
+      "jarSha256": "3d583ae579dd1d1d89e8dbd3c7983a89b82c96381c3daf38b26201cc06385b7d",
+      "graphSha256": "64ee49f2d24243ab21f88225d47f44aeab17017bb6a9b28a2d8d6e476b412bfc",
+      "corpusSha256": "42c6f861a704b1c6a246b2a55506267be1d4c4c49cb6f11ec8e2a962d0bef65c",
+      "jvm": "/opt/homebrew/opt/openjdk@26/bin/java",
+      "jvmFlags": "-Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary",
+      "cwd": "/Users/wa/golbob/개인/nextroute",
+      "command": "/opt/homebrew/opt/openjdk@26/bin/java -Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary -Xlog:gc*,safepoint:file=/private/tmp/otp-baden-http-native-20260917-p6/pair05-A/gc.log:time,uptime,level,tags -jar /private/tmp/otp-baden-build-LgbuLS/otp-baseline.jar --load --bindAddress 127.0.0.1 --port 18080 /private/tmp/otp-baden-memory-FRsabG/graph",
+      "startedAt": "2026-09-17T00:29:24+0000",
+      "finishedAt": "2026-09-17T01:11:19+0000",
+      "ready": "1",
+      "generatorExit": "0",
+      "serverExit": "0",
+      "requestMeta": {
+        "startedAt": "2026-09-17T00:29:38.704+00:00",
+        "endpoint": "http://127.0.0.1:18080/otp/gtfs/v1",
+        "corpus": "/private/tmp/otp-baden-memory-FRsabG/official/A-rerun/travelSearch.csv",
+        "date": "2022-07-25",
+        "querySha256": "6edb4d0c5dba240c73c31463c35167f8a47dc3a47733d0db2883292a16c901fa",
+        "corpusRows": 256,
+        "categories": {
+          "transit": 240,
+          "car": 16
+        },
+        "modes": {
+          "TRANSIT|WALK": 240,
+          "CAR": 16
+        },
+        "windows": {
+          "<dynamic>": 244,
+          "6h": 8,
+          "8h": 4
+        },
+        "numItineraries": 3,
+        "repeat": 1,
+        "arrivalRate": 8.0,
+        "durationS": 2500.0,
+        "seed": 20260916,
+        "workers": 32,
+        "scheduleRows": 20000,
+        "scheduleSha256": "797c8d59fd7396e2e5ec4772e58065390df226af138a9811b490879e51ced479",
+        "wallMonotonicOrigin": {
+          "epochNs": 1789604978705045000,
+          "monotonicNs": 54018171999750
+        }
+      },
+      "rawFiles": {
+        "requests.jsonl": "2f87bc8051c4d681cbbb965976eabb3c0e9018636af000d3fafc7a9efb0f7e72",
+        "server.log": "ba035c7d580c4a216442ae87c375221b06bf63a636681c2438a0c79992b832ac",
+        "generator.log": "5cb8c6aea0f48f7f54dc6fd0be3865d4edb3adef10c47614eb75ee22cce6c08d",
+        "gc.log": "56e3863c6bc462d7516ead31bedd6349dce3ea8aafa2d0f83a06de2e74875d55",
+        "process.csv": "c043683f13fadd1b721fce68b86a93c63278ac8d830619626ee7ebb0b5580a69",
+        "pressure-events.log": "dc861660571a7399722d3311d6fe23cbc5d323bed7fd750c095fadad74e1319d",
+        "host-before-vmstat.txt": "180a638fa194e2ffc6b4acf5f90172a4b09534924eed583ec06755ac6aeda22b",
+        "host-after-vmstat.txt": "f59625031fa7a18cacfad023ffb1e9c9f1280f553946c5720beea06ebdfc72ef",
+        "nmt-before-measurement.txt": "98385a1ccb1941e5d83ab9c7364e24bd9420900b88674730d840cf9e45b31c62",
+        "nmt-after-measurement.txt": "96bb2e8dd3c64fc3d5fa36b14eff922fc28b09c0223c4301193e5217ba992f2f"
+      },
+      "hostGate": "ENVIRONMENT_INVALID",
+      "hostDeltas": {
+        "Pageouts": 11001,
+        "Swapins": 1069,
+        "Swapouts": 0
+      },
+      "fullPauseEvents": 0
+    },
+    "pair05-H": {
+      "path": "/private/tmp/otp-baden-http-native-20260917-p6/pair05-H",
+      "role": "P6-05-A-baseline",
+      "jar": "/private/tmp/otp-baden-build-LgbuLS/otp-h-only.jar",
+      "jarSha256": "2e1808e38a84664ffe8b976aef77023bf9240b2726778020ad968224f1f2fdc6",
+      "graphSha256": "64ee49f2d24243ab21f88225d47f44aeab17017bb6a9b28a2d8d6e476b412bfc",
+      "corpusSha256": "42c6f861a704b1c6a246b2a55506267be1d4c4c49cb6f11ec8e2a962d0bef65c",
+      "jvm": "/opt/homebrew/opt/openjdk@26/bin/java",
+      "jvmFlags": "-Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary",
+      "cwd": "/Users/wa/golbob/개인/nextroute",
+      "command": "/opt/homebrew/opt/openjdk@26/bin/java -Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary -Xlog:gc*,safepoint:file=/private/tmp/otp-baden-http-native-20260917-p6/pair05-H/gc.log:time,uptime,level,tags -jar /private/tmp/otp-baden-build-LgbuLS/otp-h-only.jar --load --bindAddress 127.0.0.1 --port 18080 /private/tmp/otp-baden-memory-FRsabG/graph",
+      "startedAt": "2026-09-17T01:11:22+0000",
+      "finishedAt": "2026-09-17T01:53:16+0000",
+      "ready": "1",
+      "generatorExit": "0",
+      "serverExit": "0",
+      "requestMeta": {
+        "startedAt": "2026-09-17T01:11:37.545+00:00",
+        "endpoint": "http://127.0.0.1:18080/otp/gtfs/v1",
+        "corpus": "/private/tmp/otp-baden-memory-FRsabG/official/A-rerun/travelSearch.csv",
+        "date": "2022-07-25",
+        "querySha256": "6edb4d0c5dba240c73c31463c35167f8a47dc3a47733d0db2883292a16c901fa",
+        "corpusRows": 256,
+        "categories": {
+          "transit": 240,
+          "car": 16
+        },
+        "modes": {
+          "TRANSIT|WALK": 240,
+          "CAR": 16
+        },
+        "windows": {
+          "<dynamic>": 244,
+          "6h": 8,
+          "8h": 4
+        },
+        "numItineraries": 3,
+        "repeat": 1,
+        "arrivalRate": 8.0,
+        "durationS": 2500.0,
+        "seed": 20260916,
+        "workers": 32,
+        "scheduleRows": 20000,
+        "scheduleSha256": "797c8d59fd7396e2e5ec4772e58065390df226af138a9811b490879e51ced479",
+        "wallMonotonicOrigin": {
+          "epochNs": 1789607497546464000,
+          "monotonicNs": 56536569333166
+        }
+      },
+      "rawFiles": {
+        "requests.jsonl": "6dcf9392335cad2158c4546051cdd364a7bdc5446f119f6b113a1c79a5c71edc",
+        "server.log": "ef59576c1e397c7facdae81b6be1dfdc468ea6585c95c656dcc42e4636725af8",
+        "generator.log": "e33a07c6146cbc59b53cb732ce3269bf2dac202c26d3cadb44bdc38a5fbef145",
+        "gc.log": "987f6ee585faf02fb073a5bc1c65fdac929e39d7e28fe35894a7b9a26bfc7b6e",
+        "process.csv": "c8229db84c0b966ffc3614dd41ffb21eec6aa471d1b84d7dcb5ebcd24cd4b6c5",
+        "pressure-events.log": "1befcb1e990f53358329102d741361e4e03e595b1cfe9326684c4f71b1d87801",
+        "host-before-vmstat.txt": "ecd95a83137cf52d8297e62649de77945b03c938b8be945ad134dede2461eab0",
+        "host-after-vmstat.txt": "2ecabe0bd76026af73e07d82edd8189d65cef2badd421df9ec8b53e1a2aabc2b",
+        "nmt-before-measurement.txt": "52b84c82d12a5752817df0b38ab6cc94dba716b10175c167b46e6c4ef825e14d",
+        "nmt-after-measurement.txt": "1e8f599b58c04a58f22607bc1bd1b877c3750639528119eceb0c17fbfbe38970"
+      },
+      "hostGate": "ENVIRONMENT_INVALID",
+      "hostDeltas": {
+        "Pageouts": 20154,
+        "Swapins": 933,
+        "Swapouts": 0
+      },
+      "fullPauseEvents": 0
+    },
+    "pair06-H": {
+      "path": "/private/tmp/otp-baden-http-native-20260917-p6/pair06-H",
+      "role": "P6-06-A-baseline",
+      "jar": "/private/tmp/otp-baden-build-LgbuLS/otp-h-only.jar",
+      "jarSha256": "2e1808e38a84664ffe8b976aef77023bf9240b2726778020ad968224f1f2fdc6",
+      "graphSha256": "64ee49f2d24243ab21f88225d47f44aeab17017bb6a9b28a2d8d6e476b412bfc",
+      "corpusSha256": "42c6f861a704b1c6a246b2a55506267be1d4c4c49cb6f11ec8e2a962d0bef65c",
+      "jvm": "/opt/homebrew/opt/openjdk@26/bin/java",
+      "jvmFlags": "-Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary",
+      "cwd": "/Users/wa/golbob/개인/nextroute",
+      "command": "/opt/homebrew/opt/openjdk@26/bin/java -Xms512m -Xmx10g -XX:+UseG1GC -XX:+NativeMemoryTracking=summary -Xlog:gc*,safepoint:file=/private/tmp/otp-baden-http-native-20260917-p6/pair06-H/gc.log:time,uptime,level,tags -jar /private/tmp/otp-baden-build-LgbuLS/otp-h-only.jar --load --bindAddress 127.0.0.1 --port 18080 /private/tmp/otp-baden-memory-FRsabG/graph",
+      "startedAt": "2026-09-17T01:53:19+0000",
+      "finishedAt": null,
+      "ready": "1",
+      "generatorExit": null,
+      "serverExit": null,
+      "requestMeta": {
+        "startedAt": "2026-09-17T01:53:35.644+00:00",
+        "endpoint": "http://127.0.0.1:18080/otp/gtfs/v1",
+        "corpus": "/private/tmp/otp-baden-memory-FRsabG/official/A-rerun/travelSearch.csv",
+        "date": "2022-07-25",
+        "querySha256": "6edb4d0c5dba240c73c31463c35167f8a47dc3a47733d0db2883292a16c901fa",
+        "corpusRows": 256,
+        "categories": {
+          "transit": 240,
+          "car": 16
+        },
+        "modes": {
+          "TRANSIT|WALK": 240,
+          "CAR": 16
+        },
+        "windows": {
+          "<dynamic>": 244,
+          "6h": 8,
+          "8h": 4
+        },
+        "numItineraries": 3,
+        "repeat": 1,
+        "arrivalRate": 8.0,
+        "durationS": 2500.0,
+        "seed": 20260916,
+        "workers": 32,
+        "scheduleRows": 20000,
+        "scheduleSha256": "797c8d59fd7396e2e5ec4772e58065390df226af138a9811b490879e51ced479",
+        "wallMonotonicOrigin": {
+          "epochNs": 1789610015645005000,
+          "monotonicNs": 59056672513458
+        }
+      },
+      "rawFiles": {
+        "requests.jsonl": "501a96b6a04a256bd6ad8cedd9d098f8eb4d547f2deebb1e534a0e449f487313",
+        "server.log": "61f992f90764b0d2f13bdf22bd8f479f64c67cdb00c3a94fdda36cb01d72b31c",
+        "generator.log": "ceda53b0de2aff3379f2716c23cda77082ab769ee7cf62cc348fd4bee09eed60",
+        "gc.log": "773c4558c5f034848528d320cc020097e6230f5853f37432cbc48dfd973b6092",
+        "process.csv": "9bb257e22cfa928cfd1bc528fb7fbd6e871e9a83f35ff43d2560ff1ec1d48ca2",
+        "pressure-events.log": "dfab68369d2e5dae423fc4b8a2c237106bed6451dba62f4caa7da2fa71e7d21d",
+        "host-before-vmstat.txt": "04bf698cf23dc019ee57fb3e0e4726a5ea9aa2524ce4d7d5af07ca6569888a4d",
+        "host-after-vmstat.txt": null,
+        "nmt-before-measurement.txt": "05a4eb7c18d8e42321fdc06595040083c7311349b16ecd78e46449fe7025d3ae",
+        "nmt-after-measurement.txt": null
+      },
+      "hostGate": "ENVIRONMENT_INVALID",
+      "hostDeltas": {
+        "Pageouts": null,
+        "Swapins": null,
+        "Swapouts": null
+      },
+      "fullPauseEvents": 0
+    }
+  }
+}

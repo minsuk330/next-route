@@ -43,7 +43,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V41__create_journey_telemetry_event.sql",
         "classpath:db/migration/V42__create_reroute_proposal.sql",
         "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql",
-        "classpath:db/migration/V50__add_reroute_proposal_origin.sql"
+        "classpath:db/migration/V50__add_reroute_proposal_origin.sql",
+        "classpath:db/migration/V51__reroute_proposal_journey_active_unique.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DisplayName("V42 재탐색 제안 표 스키마")
@@ -87,9 +88,22 @@ class JourneyRerouteProposalSchemaIT extends AbstractJourneyOutboxPostgresIT {
     }
 
     @Test
-    @DisplayName("다른 환승은 동시에 살아 있을 수 있다")
-    void differentTransfersCoexist() {
+    @DisplayName("다른 환승이어도 여정에 살아 있는 제안은 하나다(stage5)")
+    void onlyOneActiveProposalPerJourney() {
         insertProposal(0, "ACTIVE");
+
+        // stage5 이전에는 이 삽입이 통과했다(환승당 하나). 원점이 leg 경계를 넘어 주행 중
+        // 정류장까지 가리키게 되면서 "환승당"이라는 단위가 성립하지 않는다 — 어느 것이 지금
+        // 제안인지 사용자가 알 수 없고, 수락은 어차피 여정을 끝낸다.
+        assertThatThrownBy(() -> insertProposal(1, "ACTIVE"))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("접힌 제안은 자리를 비운다 — 다른 환승으로도 다시 들어간다")
+    void resolvedProposalFreesTheJourneySlot() {
+        insertProposal(0, "ACTIVE");
+        jdbcTemplate.update("UPDATE reroute_proposal SET status = 'SUPERSEDED'");
 
         assertThatCode(() -> insertProposal(1, "ACTIVE")).doesNotThrowAnyException();
     }
@@ -111,7 +125,9 @@ class JourneyRerouteProposalSchemaIT extends AbstractJourneyOutboxPostgresIT {
                 """, String.class);
 
         assertThat(indexes).contains(
+                // 옛 인덱스는 stage5 2/2 가 지운다. 여기 남아 있는 것이 이 단계의 정상 상태다.
                 "uq_reroute_proposal_active",
+                "uq_reroute_proposal_journey_active",
                 "ix_reroute_proposal_journey",
                 "ix_reroute_proposal_expiry");
     }

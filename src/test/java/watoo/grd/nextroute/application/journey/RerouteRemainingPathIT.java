@@ -92,8 +92,8 @@ class RerouteRemainingPathIT {
         given(snapshotPort.find(SESSION_ID, PATH_KEY)).willReturn(Optional.of(
                 new RouteSearchSnapshotPort.StoredPath(
                         null, plannedPath(), Instant.now().plusSeconds(600))));
-        given(cooldownPort.tryAdmit(anyLong(), org.mockito.ArgumentMatchers.anyInt(),
-                org.mockito.ArgumentMatchers.anyInt(), any())).willReturn(true);
+        given(cooldownPort.tryAdmit(anyLong(), org.mockito.ArgumentMatchers.anyInt(), any()))
+                .willReturn(true);
         givenStaticTables();
         userId = newUser();
         journey = startJourneyUseCase.start(userId,

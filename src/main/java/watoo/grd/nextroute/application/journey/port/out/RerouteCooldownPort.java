@@ -1,7 +1,11 @@
 package watoo.grd.nextroute.application.journey.port.out;
 
 /**
- * 같은 환승에서 재탐색을 너무 자주 하지 않게 막는다.
+ * 한 여정에서 재탐색을 너무 자주 하지 않게 막는다.
+ *
+ * <p><b>예전에는 환승 단위였다</b>(stage5 컷오버 전). 원점이 leg 경계를 넘어 주행 중 정류장까지
+ * 가리키게 되면서 "같은 환승"이라는 단위가 성립하지 않고, 살아 있는 제안도 여정당 하나가 됐다 —
+ * 잠그는 단위가 자리의 단위와 다르면 연타 한 번이 자리를 계속 갈아치운다.
  *
  * <p>방아쇠(①)는 세기만 하지만(shadow) cooldown 은 그때부터 적용한다. <b>cooldown 을 뺀 발생률은
  * ③에서 실제로 나갈 외부 호출 수와 다르기 때문</b>이다 — 재려고 만든 값이 실제와 다르면 재는
@@ -31,5 +35,5 @@ public interface RerouteCooldownPort {
     /**
      * @return 지금 찾아봐도 되면 true. 최근에 이미 찾았거나 확인 자체가 실패하면 false
      */
-    boolean tryAdmit(Long journeyId, int routeRevision, int transferIndex, Scope scope);
+    boolean tryAdmit(Long journeyId, int routeRevision, Scope scope);
 }

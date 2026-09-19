@@ -1,0 +1,30 @@
+{
+  "generatedAt": "2026-09-04T16:07:00+09:00",
+  "scope": {
+    "region": "Seoul metropolitan area",
+    "osmBbox": [126.5, 37.2, 127.4, 38.0],
+    "gtfsSelection": ["BR_1100_*", "RR_ACC1_*"]
+  },
+  "inputs": [
+    {
+      "path": "data/input/south-korea-260903.osm.pbf",
+      "description": "Original nationwide South Korea OSM PBF",
+      "sha256": "c14e2135d54e0155ea1581d12764fe4c9e688a77de12e0d34267a600d7d6bdce"
+    },
+    {
+      "path": "data/input/south-korea-seoul-metro.osm.pbf",
+      "description": "OSM extract used by both engines",
+      "sha256": "0be8f32b094def1004296e8a7edf68070ca1ede91d99679918e0cc4910bd2170"
+    },
+    {
+      "path": "data/input/seoul-ktdb-normalized.gtfs.zip",
+      "description": "Normalized KTDB GTFS used by both engines",
+      "sha256": "b8e38845046f1589794deb77d72053ba787e7d5f71c6fa0913a5cb4390f82962"
+    }
+  ],
+  "runtime": {
+    "otp": "opentripplanner/opentripplanner:2.9.0",
+    "graphhopper": "11.0",
+    "graphhopperJarSha256": "b59c024afe172ec6ec85b6327006c3138ec58c7d0bcd26253d0e42853f613def"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "generatedAt": "2026-09-16",
+  "baseCommit": "a0b62f69fc543e84687752e17dae8a66b01c5e28",
+  "graph": {
+    "path": "/private/tmp/otp-a-only-helsinki-4wN2sL/graph.obj",
+    "sha256": "178375c8ebed47178d9ec3c09c45e526bc483775aabab0043a62c7dc1b6515d0"
+  },
+  "variants": {
+    "A": {
+      "jar": "/private/tmp/otp-a-only-helsinki-4wN2sL/otp-a-only.jar",
+      "sha256": "772ff39a2ef4f8551afab1b053b548742fadeeacab55c6fd4c905b78419d068f"
+    },
+    "HF": {
+      "checkout": "/private/tmp/otp-hf-http-run-20260916",
+      "jar": "/private/tmp/otp-hf-http-run-20260916/otp-shaded/target/otp-shaded-2.11.0-SNAPSHOT.jar",
+      "sha256": "96a53bc8bdc695a370f2f4a7896943879e9daf5d574ad6f67e4a14e1bdf0fcc3",
+      "changedFiles": [
+        "application/src/main/java/org/opentripplanner/routing/algorithm/raptoradapter/transit/request/TripPatternForDates.java",
+        "application/src/test/java/org/opentripplanner/routing/algorithm/raptoradapter/transit/request/TripPatternForDatesTest.java",
+        "raptor/src/main/java/org/opentripplanner/raptor/rangeraptor/multicriteria/configure/McRangeRaptorConfig.java",
+        "raptor/src/main/java/org/opentripplanner/raptor/rangeraptor/path/DestinationArrivalPaths.java",
+        "raptor/src/main/java/org/opentripplanner/raptor/rangeraptor/path/configure/PathConfig.java"
+      ]
+    }
+  },
+  "speedTest": {
+    "rawRoot": "/private/tmp/otp-hf-shared-graph-speedtest-20260916/matrix",
+    "args": "-p md -n 4 -i 3 -0",
+    "heap": "-Xmx8g",
+    "allRunsExit0": true,
+    "allRunsExpectedMatches": "233/408",
+    "resultSha256": "f417493103bba636a2ab69f06c1042e7cadf08b0ebc9498334d5b0ff96f41b43",
+    "freshPairs": 6,
+    "swapEvents": 0,
+    "bootstrapSummary": "HF-SHARED-GRAPH-BOOTSTRAP.json"
+  },
+  "jfr": {
+    "rawRoot": "/private/tmp/otp-hf-shared-graph-speedtest-20260916/jfr",
+    "settings": "profile",
+    "excludedPreflight": "jfr-01-A (wrong default Java/incomplete classpath; no result)",
+    "runs": {
+      "A": {
+        "path": "/private/tmp/otp-hf-shared-graph-speedtest-20260916/jfr/jfr-01-A2/jfr.jfr",
+        "sha256": "a8ff27d9f5e83e4b219c55162aecc31adde19af32b2ec311aabecc67a19c0607"
+      },
+      "HF": {
+        "path": "/private/tmp/otp-hf-shared-graph-speedtest-20260916/jfr/jfr-01-HF/jfr.jfr",
+        "sha256": "ecac71db2bd4a89fe0f25a725c873bf0fa709c6ccb6c1c1e7e0be557a3445d11"
+      },
+      "A2": {
+        "path": "/private/tmp/otp-hf-shared-graph-speedtest-20260916/jfr/jfr-02-A/jfr.jfr",
+        "sha256": "3e34d0428f6b0d335093eca5cc7ecefff47948243794e6ea3733a9b4244988d8"
+      },
+      "HF2": {
+        "path": "/private/tmp/otp-hf-shared-graph-speedtest-20260916/jfr/jfr-02-HF/jfr.jfr",
+        "sha256": "e6226765fb42da818451f94f8b8f1cbe973dcb4e1750b04a6d53abf0774c850e"
+      }
+    }
+  },
+  "http": {
+    "rawRoot": "/private/tmp/otp-hf-http-no-pressure-20260916",
+    "correctnessPairs": ["HF1-ESC/A3", "HF2/A4"],
+    "pilot10m": ["PILOT10-A-16rps-HF", "PILOT10-HF-16rps"],
+    "rateRps": 16,
+    "durationSeconds": 600,
+    "scheduledRequestsPerVariant": 9600,
+    "swapEvents": 0,
+    "fullGc": 0
+  },
+  "docker": {
+    "otpStarted": false,
+    "existingPostgresRedisUntouched": true
+  }
+}

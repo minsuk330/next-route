@@ -119,7 +119,7 @@ class RerouteTriggerEvaluatorTest {
     @Test
     @DisplayName("cooldown 이 터져도 평가 결과를 흔들지 않는다")
     void cooldownFailurePropagatesToCaller() {
-        RerouteTriggerEvaluator evaluator = evaluator((journeyId, revision, transferIndex, scope) -> {
+        RerouteTriggerEvaluator evaluator = evaluator((journeyId, revision, scope) -> {
             throw new IllegalStateException("redis down");
         });
 
@@ -135,13 +135,12 @@ class RerouteTriggerEvaluatorTest {
     }
 
     @Test
-    @DisplayName("cooldown 확인은 신호가 가리키는 여정·개정본·환승으로 묻는다")
+    @DisplayName("cooldown 확인은 신호가 가리키는 여정·개정본으로 묻는다 — 환승 번호는 키가 아니다")
     void cooldownIsAskedWithSignalScope() {
-        RerouteTriggerEvaluator evaluator = evaluator((journeyId, revision, transferIndex, scope) -> {
+        RerouteTriggerEvaluator evaluator = evaluator((journeyId, revision, scope) -> {
             cooldownAsked.incrementAndGet();
             assertThat(journeyId).isEqualTo(JOURNEY_ID);
             assertThat(revision).isEqualTo(3);
-            assertThat(transferIndex).isZero();
             return true;
         });
 
@@ -160,7 +159,7 @@ class RerouteTriggerEvaluatorTest {
     }
 
     private RerouteCooldownPort admitting(boolean admit) {
-        return (journeyId, routeRevision, transferIndex, scope) -> {
+        return (journeyId, routeRevision, scope) -> {
             cooldownAsked.incrementAndGet();
             askedScopes.add(scope);
             return admit;

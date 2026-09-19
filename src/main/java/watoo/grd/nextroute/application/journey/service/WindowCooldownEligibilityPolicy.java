@@ -68,7 +68,7 @@ public class WindowCooldownEligibilityPolicy implements RerouteEligibilityPolicy
         if (!triggerPolicy.withinWindow(transfer.getUserReadyAt(), now)) {
             return Optional.of("window");
         }
-        if (!cooldownPort.tryAdmit(journey.getId(), journey.getRouteRevision(), transferIndex,
+        if (!cooldownPort.tryAdmit(journey.getId(), journey.getRouteRevision(),
                 RerouteCooldownPort.Scope.REQUEST)) {
             return Optional.of("cooldown");
         }

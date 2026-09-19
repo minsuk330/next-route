@@ -1,0 +1,21 @@
+graphhopper:
+  datareader.file: /data/input/south-korea-seoul-metro.osm.pbf
+  gtfs.file: /data/input/seoul-ktdb-normalized.gtfs.zip
+  graph.location: /data/graphhopper/graph-cache
+  custom_models.directory: /config
+  profiles:
+    - name: foot
+      custom_model_files:
+        - benchmark-foot.json
+  import.osm.ignored_highways: motorway,trunk
+  graph.encoded_values: foot_access, foot_average_speed, foot_priority, foot_road_access, hike_rating, mtb_rating, country, road_class
+
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+      bind_host: 0.0.0.0
+  admin_connectors:
+    - type: http
+      port: 8990
+      bind_host: 0.0.0.0

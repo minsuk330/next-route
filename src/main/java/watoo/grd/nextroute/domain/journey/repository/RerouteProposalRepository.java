@@ -50,10 +50,6 @@ public interface RerouteProposalRepository extends JpaRepository<RerouteProposal
     int acceptIfActive(@Param("id") Long id, @Param("candidateId") String candidateId,
                        @Param("now") Instant now, @Param("auditNow") LocalDateTime auditNow);
 
-    /** 살아 있는 제안 하나. 만료 전이({@link #resolveStale})를 먼저 돌린 뒤에 부른다. */
-    Optional<RerouteProposal> findByJourneyIdAndTransferIndexAndStatusAndDeletedAtIsNull(
-            Long journeyId, int transferIndex, RerouteProposalStatus status);
-
     /** 여정의 살아 있는 제안 전부. 조회 진입점이 환승 번호 없이 "지금 뜬 제안"을 물을 때 쓴다. */
     Optional<RerouteProposal> findFirstByJourneyIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
             Long journeyId, RerouteProposalStatus status);
@@ -90,17 +86,27 @@ public interface RerouteProposalRepository extends JpaRepository<RerouteProposal
                               @Param("now") Instant now,
                               @Param("auditNow") LocalDateTime auditNow);
 
-    /** 같은 환승의 살아 있는 제안을 새 제안에 자리를 내주게 한다. */
+    /**
+     * 그 <b>여정</b>의 살아 있는 제안을 새 제안에 자리를 내주게 한다(stage5 컷오버).
+     *
+     * <p>예전에는 같은 <b>환승</b>의 제안만 밀어냈다. 재탐색의 원점이 leg 경계를 넘어 주행 중
+     * 정류장까지 가리키게 되면서(원점 모델) 그 구분이 성립하지 않는다 — 같은 여정에 원점이 다른
+     * 제안 둘이 살아 있으면 사용자는 어느 것이 지금 제안인지 알 수 없고, 수락은 어차피 여정을
+     * 끝내는 행동이라 하나면 족하다.
+     *
+     * <p><b>자리를 비우는 규칙과 자리를 정의하는 부분 unique 인덱스는 짝이다.</b> 한쪽만 바꾸면
+     * 새 삽입이 unique 위반으로 튕기거나(코드만 좁힘) 살아 있는 제안이 여럿 남는다(인덱스만 좁힘).
+     * 그래서 이 변경과 {@code uq_reroute_proposal_journey_active} 는 같은 배포에 들어간다.
+     */
     @Modifying(clearAutomatically = false)
     @Query(value = """
             UPDATE reroute_proposal
                SET status = 'SUPERSEDED', resolved_at = :now,
                    resolved_reason = 'replaced', updated_at = :auditNow
-             WHERE journey_id = :journeyId AND transfer_index = :transferIndex
+             WHERE journey_id = :journeyId
                AND status = 'ACTIVE' AND deleted_at IS NULL
             """, nativeQuery = true)
     int supersedeActive(@Param("journeyId") Long journeyId,
-                        @Param("transferIndex") int transferIndex,
                         @Param("now") Instant now,
                         @Param("auditNow") LocalDateTime auditNow);
 

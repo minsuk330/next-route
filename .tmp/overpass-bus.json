@@ -1,0 +1,3544 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.11 87bfad18",
+  "osm3s": {
+    "timestamp_osm_base": "2026-09-18T04:25:36Z",
+    "timestamp_areas_base": "2026-09-16T16:46:29Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+
+{
+  "type": "relation",
+  "id": 2894431,
+  "tags": {
+    "name": "서울 시내버스 100",
+    "name:ko": "서울 시내버스 100",
+    "public_transport:version": "2",
+    "ref": "100",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894437,
+  "tags": {
+    "name": "서울 시내버스 101",
+    "name:ko": "서울 시내버스 101",
+    "public_transport:version": "2",
+    "ref": "101",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894443,
+  "tags": {
+    "from": "수락산역",
+    "name": "서울 시내버스 102",
+    "name:ko": "서울 시내버스 102",
+    "network": "서울 간선버스",
+    "operator": "흥안운수",
+    "public_transport:version": "2",
+    "ref": "102",
+    "route": "bus",
+    "to": "동대문역",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894468,
+  "tags": {
+    "name": "서울 버스 103",
+    "public_transport:version": "2",
+    "ref": "103",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894488,
+  "tags": {
+    "ref": "104",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894490,
+  "tags": {
+    "from": "상계주공7단지",
+    "name": "105 (숭례문 방면)",
+    "network": "서울시 간선버스",
+    "operator": "흥안운수",
+    "public_transport:version": "2",
+    "ref": "105",
+    "route": "bus",
+    "to": "숭례문",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894500,
+  "tags": {
+    "colour": "#3d5bab",
+    "from": "민락동차고지/동대문",
+    "interval": "평일배차 6~9분 주말배차 토요일 8~13분/공휴일 9~15분",
+    "name": "서울 버스 107",
+    "name:en": "Seoul Bus 107",
+    "name:ko": "서울 버스 107",
+    "network": "서울시 시내버스",
+    "operator": "대원여객",
+    "ref": "107",
+    "route": "bus",
+    "to": "동대문/민락동차고지",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894535,
+  "tags": {
+    "ref": "109",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894541,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 110B",
+    "public_transport:version": "2",
+    "ref": "110B",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894550,
+  "tags": {
+    "name": "서울 시내버스 120",
+    "name:ko": "서울 시내버스 120",
+    "ref": "120",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894563,
+  "tags": {
+    "name": "서울 시내버스 130",
+    "name:ko": "서울 시내버스 130",
+    "ref": "130",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894568,
+  "tags": {
+    "name": "서울 시내버스 140",
+    "name:ko": "서울 시내버스 140",
+    "public_transport:version": "2",
+    "ref": "140",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894571,
+  "tags": {
+    "name": "서울 시내버스 141",
+    "name:ko": "서울 시내버스 141",
+    "ref": "141",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894576,
+  "tags": {
+    "name": "서울 시내버스 142",
+    "name:ko": "서울 시내버스 142",
+    "ref": "142",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894582,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 143",
+    "public_transport:version": "2",
+    "ref": "143",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894583,
+  "tags": {
+    "name": "144",
+    "ref": "144",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894763,
+  "tags": {
+    "ref": "145",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894769,
+  "tags": {
+    "from": "강남역",
+    "name": "서울 시내버스 146",
+    "name:ko": "서울 시내버스 146",
+    "network": "서울시 간선버스",
+    "operator": "흥안운수",
+    "public_transport:version": "2",
+    "ref": "146",
+    "route": "bus",
+    "to": "상계동 주공7단지",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2894774,
+  "tags": {
+    "name": "서울 버스 147",
+    "ref": "147",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895320,
+  "tags": {
+    "name": "148",
+    "ref": "148",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895724,
+  "tags": {
+    "colour": "#3d5bab",
+    "from": "하계동",
+    "name": "서울 버스 100: 하계동 → 용산구청",
+    "operator": "한성여객",
+    "public_transport:version": "2",
+    "ref": "100",
+    "route": "bus",
+    "to": "용산구청",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895731,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 150",
+    "name:ko": "서울 버스 150",
+    "public_transport:version": "2",
+    "ref": "150",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895735,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 151",
+    "public_transport:version": "2",
+    "ref": "151",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895736,
+  "tags": {
+    "colour": "#3d5bab",
+    "from": "화계사",
+    "name": "서울 버스 152: 화계사 → 경인교육대후문",
+    "network": "서울시 간선버스",
+    "operator": "동아운수",
+    "public_transport:version": "2",
+    "ref": "152",
+    "route": "bus",
+    "to": "경인교육대후문",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895737,
+  "tags": {
+    "colour": "#3d5bab",
+    "from": "우이동도선사입구.북한산우이역",
+    "interval": "00:11:00",
+    "name": "서울 버스 163 → 대방역",
+    "name:en": "Seoul Buses route 163 → Daebang Station",
+    "name:ko": "서울 버스 163 → 대방역",
+    "network": "서울특별시 시내버스",
+    "network:ko": "서울특별시 시내버스",
+    "network:wikidata": "Q3724007",
+    "opening_hours": "Mo-Su 04:00-22:30",
+    "operator": "동아운수",
+    "ref": "163",
+    "route": "bus",
+    "to": "대방역",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895766,
+  "tags": {
+    "name": "서울 시내버스 160",
+    "name:ko": "서울 시내버스 160",
+    "public_transport:version": "2",
+    "ref": "160",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895775,
+  "tags": {
+    "name": "서울 시내버스 710",
+    "name:ko": "서울 시내버스 710",
+    "public_transport:version": "2",
+    "ref": "710",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895789,
+  "tags": {
+    "ref": "162",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895793,
+  "tags": {
+    "colour": "#3d5bab",
+    "from": "연세대",
+    "name": "서울 버스 674 → 신월동기점",
+    "name:en": "Seoul Bus Routes 674 → Sinwol-dong",
+    "network": "서울특별시 시내버스",
+    "network:ko": "서울특별시 시내버스",
+    "network:wikidata": "Q3724007",
+    "operator": "신길교통, 보광교통",
+    "public_transport:version": "2",
+    "ref": "674",
+    "route": "bus",
+    "to": "신월동종점",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895801,
+  "tags": {
+    "ref": "171",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895810,
+  "tags": {
+    "ref": "172",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895818,
+  "tags": {
+    "name": "서울 버스 201",
+    "public_transport:version": "2",
+    "ref": "201",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895820,
+  "tags": {
+    "ref": "202",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895828,
+  "tags": {
+    "name": "240",
+    "ref": "240",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895832,
+  "tags": {
+    "name": "서울 버스 241",
+    "ref": "241",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895833,
+  "tags": {
+    "name": "서울 버스 260",
+    "public_transport:version": "2",
+    "ref": "260",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895850,
+  "tags": {
+    "name": "261",
+    "ref": "261",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895858,
+  "tags": {
+    "name": "서울 버스 262",
+    "public_transport:version": "2",
+    "ref": "262",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895884,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 421",
+    "public_transport:version": "2",
+    "ref": "421",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895887,
+  "tags": {
+    "name": "서울 버스 463",
+    "ref": "463",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895911,
+  "tags": {
+    "name": "서울 버스 270",
+    "public_transport:version": "2",
+    "ref": "270",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895915,
+  "tags": {
+    "name": "서울 버스 271",
+    "public_transport:version": "2",
+    "ref": "271",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895916,
+  "tags": {
+    "name": "272",
+    "public_transport:version": "1",
+    "ref": "272",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2895930,
+  "tags": {
+    "name": "서울 버스 273",
+    "public_transport:version": "2",
+    "ref": "273",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2896193,
+  "tags": {
+    "name": "서울 버스 301",
+    "public_transport:version": "2",
+    "ref": "301",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2896203,
+  "tags": {
+    "ref": "302",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2896204,
+  "tags": {
+    "ref": "303",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2896208,
+  "tags": {
+    "ref": "320",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2896343,
+  "tags": {
+    "name": "340",
+    "ref": "340",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2896351,
+  "tags": {
+    "colour": "#3D5BAB",
+    "from": "강동공영차고지",
+    "name": "서울 버스 341: 강동공영차고지 → 성촌마을입구",
+    "network": "서울특별시 간선버스",
+    "operator": "대원여객",
+    "ref": "341",
+    "route": "bus",
+    "to": "성촌마을입구",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2896450,
+  "tags": {
+    "name": "서울 버스 360",
+    "public_transport:version": "1",
+    "ref": "360",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2896452,
+  "tags": {
+    "public_transport:version": "2",
+    "ref": "342",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2896453,
+  "tags": {
+    "name": "362",
+    "ref": "362",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2896454,
+  "tags": {
+    "name": "서울 시내버스 350",
+    "name:en": "Seoul Bus 350",
+    "name:ko": "서울 시내버스 350",
+    "public_transport:version": "1",
+    "ref": "350",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2896668,
+  "tags": {
+    "name": "서울 시내버스 370",
+    "name:en": "Seoul Bus 370",
+    "name:ko": "서울 시내버스 370",
+    "public_transport:version": "2",
+    "ref": "370",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2896711,
+  "tags": {
+    "name": "서울 버스 401",
+    "public_transport:version": "2",
+    "ref": "401",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2896719,
+  "tags": {
+    "name": "서울 시내버스 402",
+    "name:en": "Seoul Bus 402",
+    "name:ko": "서울 시내버스 402",
+    "ref": "402",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2897118,
+  "tags": {
+    "name": "406",
+    "ref": "406",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2897134,
+  "tags": {
+    "name": "서울 버스 212",
+    "public_transport:version": "2",
+    "ref": "212",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2897169,
+  "tags": {
+    "name": "121",
+    "ref": "121",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2897171,
+  "tags": {
+    "name": "서울 시내버스 420",
+    "name:en": "Seoul Bus 420",
+    "name:ko": "서울 시내버스 420",
+    "ref": "420",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2897203,
+  "tags": {
+    "name": "461",
+    "ref": "461",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2897216,
+  "tags": {
+    "name": "서울 버스 462",
+    "public_transport:version": "1",
+    "ref": "462",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2897217,
+  "tags": {
+    "name": "서울 버스 470",
+    "public_transport:version": "2",
+    "ref": "470",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2897221,
+  "tags": {
+    "name": "서울 버스 471",
+    "public_transport:version": "2",
+    "ref": "471",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2897229,
+  "tags": {
+    "name": "472",
+    "public_transport:version": "1",
+    "ref": "472",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2899064,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 500",
+    "public_transport:version": "2",
+    "ref": "500",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2899065,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 501",
+    "public_transport:version": "2",
+    "ref": "501",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2899067,
+  "tags": {
+    "public_transport:version": "2",
+    "ref": "503",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2899068,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 504",
+    "public_transport:version": "2",
+    "ref": "504",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2899069,
+  "tags": {
+    "name": "서울 버스 505 (서울역-노온사동)",
+    "public_transport:version": "2",
+    "ref": "505",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2899070,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 506",
+    "public_transport:version": "2",
+    "ref": "506",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2899071,
+  "tags": {
+    "colour": "#3d5bab",
+    "from": "동대문 역사문화공원역",
+    "name": "서울 버스 507",
+    "network": "서울시 간선버스",
+    "operator": "서울교통네트웍주식회사",
+    "public_transport:version": "2",
+    "ref": "507",
+    "route": "bus",
+    "to": "기아대교",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2905694,
+  "tags": {
+    "colour": "#3d5bab",
+    "from": "진관공영차고지",
+    "name": "서울 버스 571 → 가산동",
+    "name:en": "Seoul Buses route 571 → Gasan-dong",
+    "network": "서울특별시 시내버스",
+    "network:ko": "서울특별시 시내버스",
+    "network:wikidata": "Q3724007",
+    "operator": "신인운수",
+    "public_transport:version": "2",
+    "ref": "571",
+    "route": "bus",
+    "to": "가산동종점",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2905756,
+  "tags": {
+    "name": "600",
+    "public_transport:version": "2",
+    "ref": "600",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2905810,
+  "tags": {
+    "colour": "#3d5bab",
+    "from": "혜화역.서울연극센터(장면총리가옥)",
+    "name": "서울 버스 601 → 개화동",
+    "name:en": "Seoul Buses route 601 → Gaehwa-dong",
+    "name:ko": "서울 버스 601 → 개화동",
+    "network": "서울특별시 시내버스",
+    "network:ko": "서울특별시 시내버스",
+    "network:wikidata": "Q3724007",
+    "operator": "다모아자동차",
+    "public_transport:version": "2",
+    "ref": "601",
+    "route": "bus",
+    "to": "개화역광역환승센터",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2905811,
+  "tags": {
+    "name": "서울 버스 602",
+    "public_transport:version": "1",
+    "ref": "602",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2905812,
+  "tags": {
+    "name": "서울 버스 603",
+    "public_transport:version": "1",
+    "ref": "603",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2905814,
+  "tags": {
+    "name": "서울 버스 604",
+    "public_transport:version": "1",
+    "ref": "604",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2906216,
+  "tags": {
+    "name": "서울 버스 606",
+    "public_transport:version": "2",
+    "ref": "606",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2907209,
+  "tags": {
+    "name": "서울 버스 640",
+    "public_transport:version": "1",
+    "ref": "640",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2907234,
+  "tags": {
+    "name": "서울 버스 641",
+    "public_transport:version": "2",
+    "ref": "641",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2907286,
+  "tags": {
+    "colour": "#3d5bab",
+    "from": "노들역",
+    "name": "서울 버스 654 → 방화동",
+    "name:en": "Seoul Buses route 654 → Banghwa-dong",
+    "name:ko": "서울 버스 654 → 방화동",
+    "network": "서울시 간선버스",
+    "operator": "김포교통",
+    "public_transport:version": "2",
+    "ref": "654",
+    "route": "bus",
+    "to": "방화3동주민센터.국립국어원",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2907598,
+  "tags": {
+    "ref": "650",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2907600,
+  "tags": {
+    "name": "서울 버스 651",
+    "operator": "김포교통",
+    "ref": "651",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2907605,
+  "tags": {
+    "name": "서울 버스 652",
+    "operator": "신길운수",
+    "ref": "652",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2907910,
+  "tags": {
+    "name": "서울 버스 660",
+    "public_transport:version": "2",
+    "ref": "660",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2907915,
+  "tags": {
+    "name": "서울 버스 661",
+    "public_transport:version": "2",
+    "ref": "661",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2909680,
+  "tags": {
+    "name": "서울 버스 701",
+    "public_transport:version": "2",
+    "ref": "701",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2909681,
+  "tags": {
+    "name": "서울 버스 702A",
+    "public_transport:version": "2",
+    "ref": "702",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2909682,
+  "tags": {
+    "name": "774",
+    "ref": "774",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2909683,
+  "tags": {
+    "name": "서울 간선버스 704번",
+    "name:ko": "서울 간선버스 704번",
+    "ref": "704",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2909684,
+  "tags": {
+    "name": "773",
+    "ref": "773",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2910118,
+  "tags": {
+    "name": "708",
+    "ref": "708",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2910121,
+  "tags": {
+    "name": "서울 버스 720",
+    "public_transport:version": "2",
+    "ref": "720",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2910155,
+  "tags": {
+    "name": "서울 버스 721",
+    "public_transport:version": "2",
+    "ref": "721",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2910168,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 740",
+    "public_transport:version": "2",
+    "ref": "740",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2910191,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 750",
+    "public_transport:version": "2",
+    "ref": "750",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2910199,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 751",
+    "public_transport:version": "2",
+    "ref": "751",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2910217,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 752",
+    "public_transport:version": "2",
+    "ref": "752",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2910256,
+  "tags": {
+    "ref": "753",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 2911239,
+  "tags": {
+    "name": "761",
+    "ref": "761",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 3205861,
+  "tags": {
+    "name": "7212; Eunpyeong - Oksu",
+    "operator": "Seoul Metropolitan Bus",
+    "ref": "7212",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 4684428,
+  "tags": {
+    "name": "7011",
+    "public_transport:version": "1",
+    "ref": "7011",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 4691877,
+  "tags": {
+    "name": "마포16 (Mapo 16)",
+    "public_transport:version": "2",
+    "ref": "마포16",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 4712439,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 버스 502번(월암동행)",
+    "name:en": "Seoul City Bus No. 502 (to Wolam-dong)",
+    "name:ko": "서울특별시 시내버스 502번(월암동행)",
+    "public_transport:version": "2",
+    "ref": "502",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 4768489,
+  "tags": {
+    "name": "463",
+    "public_transport:version": "1",
+    "ref": "463",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 4781419,
+  "tags": {
+    "colour": "#5bb025",
+    "interval": "00:15;00",
+    "name": "서울 시내버스 7720",
+    "note": "To be continued to the north",
+    "public_transport:version": "1",
+    "ref": "7720",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 4872019,
+  "tags": {
+    "name": "672",
+    "public_transport:version": "1",
+    "ref": "672",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 5220911,
+  "tags": {
+    "name": "서울 시내버스 02",
+    "name:en": "Seoul Bus 02",
+    "name:ko": "서울 시내버스 02",
+    "operator": "북부운수",
+    "ref": "02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 5417730,
+  "tags": {
+    "colour": "#5bb025",
+    "from": "회기역",
+    "name": "서울 버스 동대문01: 회기역 → 경희대의료원",
+    "network": "동대문구 마을버스",
+    "operator": "우리운송",
+    "ref": "동대문01",
+    "route": "bus",
+    "to": "경희대의료원",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 5634652,
+  "tags": {
+    "name": "4432",
+    "public_transport:version": "1",
+    "ref": "4432",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 5658251,
+  "tags": {
+    "name": "서울 시내버스 04",
+    "name:en": "Seoul Bus 04",
+    "name:ko": "서울 시내버스 04",
+    "operator": "북부운수",
+    "public_transport:version": "2",
+    "ref": "04",
+    "roundtrip": "yes",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 5708687,
+  "tags": {
+    "colour": "#0085ca",
+    "from": "KTX광명역2번출구",
+    "name": "부천 버스 75 → 고강공영차고지",
+    "name:ko": "부천 버스 75 → 고강공영차고지",
+    "network": "경기도 시내버스",
+    "network:en": "G-BUS",
+    "network:ko": "경기도 시내버스",
+    "network:wikidata": "Q4859793",
+    "operator": "소신여객",
+    "operator:en": "Sosin Transportation Co., Ltd.",
+    "ref": "75",
+    "route": "bus",
+    "to": "고강공영차고지",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 5899859,
+  "tags": {
+    "name": "463",
+    "ref": "463",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 5900012,
+  "tags": {
+    "ref": "333",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 5951604,
+  "tags": {
+    "colour": "#3d5bab",
+    "from": "자동차매매단지",
+    "name": "서울 버스 673 → 이대부고",
+    "name:ko": "서울 버스 673 → 이대부고",
+    "network": "서울특별시 시내버스",
+    "operator": "신길운수",
+    "ref": "673",
+    "route": "bus",
+    "to": "이대부고",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6024921,
+  "tags": {
+    "name": "400",
+    "ref": "400",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6024954,
+  "tags": {
+    "colour": "#3d5bab",
+    "name": "서울 시내버스 405",
+    "name:en": "Seoul Bus 405",
+    "name:ko": "서울 시내버스 405",
+    "public_transport:version": "2",
+    "ref": "405",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6091493,
+  "tags": {
+    "ref": "771",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6091501,
+  "tags": {
+    "ref": "700",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6191433,
+  "tags": {
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6191434,
+  "tags": {
+    "name": "440",
+    "public_transport:version": "1",
+    "ref": "440",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6503601,
+  "tags": {
+    "from": "도촌동9단지앞",
+    "name": "9000 숭례문 행",
+    "network": "경기 성남시 직행좌석",
+    "operator": "KD transprot group",
+    "public_transport:version": "2",
+    "ref": "9300",
+    "route": "bus",
+    "to": "숭례문",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6521095,
+  "tags": {
+    "name": "광역급행버스 M4101",
+    "name:en": "M-Bus 4101",
+    "name:ko": "광역급행버스 M4101",
+    "operator": "경기고속",
+    "public_transport:version": "2",
+    "ref": "M4101",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6594587,
+  "tags": {
+    "name": "4412",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6594588,
+  "tags": {
+    "name": "3011",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6711765,
+  "tags": {
+    "name": "5012",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6711794,
+  "tags": {
+    "operator": "유성운수",
+    "ref": "7016",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6838113,
+  "tags": {
+    "name": "7022",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6838114,
+  "tags": {
+    "name": "702B",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6838115,
+  "tags": {
+    "name": "8774",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6839138,
+  "tags": {
+    "name": "7720",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6840611,
+  "tags": {
+    "name": "7613",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 6946554,
+  "tags": {
+    "colour": "blue",
+    "from": "월암종점",
+    "name": "서울 시내버스 441",
+    "network": "서울시 간선버스",
+    "operator": "우신버스",
+    "public_transport:version": "2",
+    "ref": "441",
+    "route": "bus",
+    "to": "한강버스압구정선착장B",
+    "type": "route",
+    "via": "신사사거리"
+  }
+},
+{
+  "type": "relation",
+  "id": 6982099,
+  "tags": {
+    "name": "광명시 시내버스 8507번",
+    "name:en": "Gwangmyeong Bus 8507",
+    "name:ko": "광명시 시내버스 8507번",
+    "operator": "코레일네트웍스",
+    "public_transport:version": "2",
+    "ref": "8507",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7093956,
+  "tags": {
+    "name": "관악02",
+    "name:en": "Gwanak 02",
+    "name:ko": "관악02",
+    "ref": "관악02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7172324,
+  "tags": {
+    "colour": "#3d5bab",
+    "from": "월암공영차고지",
+    "name": "서울특별시 시내버스 502번(한국은행행)",
+    "name:ko": "서울특별시 시내버스 502번(한국은행행)",
+    "network": "서울특별시",
+    "operator": "우신버스",
+    "public_transport:version": "2",
+    "ref": "502",
+    "route": "bus",
+    "to": "한국은행",
+    "type": "route",
+    "via": "한국은행"
+  }
+},
+{
+  "type": "relation",
+  "id": 7393914,
+  "tags": {
+    "name": "수원 시내버스 7770",
+    "name:en": "Suwon Bus 7770",
+    "name:ko": "수원 시내버스 7770",
+    "operator": "경진여객",
+    "ref": "7770",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7472430,
+  "tags": {
+    "name": "마포01",
+    "operator": "웅산교통",
+    "ref": "마포01",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7472431,
+  "tags": {
+    "name": "마포01",
+    "operator": "웅산교통",
+    "ref": "마포01",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7472457,
+  "tags": {
+    "name": "마포02",
+    "operator": "웅산교통",
+    "ref": "마포02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7472458,
+  "tags": {
+    "name": "마포02",
+    "operator": "웅산교통",
+    "ref": "마포02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7472470,
+  "tags": {
+    "name": "마포03",
+    "operator": "아현운수",
+    "ref": "마포03",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7472471,
+  "tags": {
+    "name": "마포03",
+    "operator": "아현운수",
+    "ref": "마포03",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7472654,
+  "tags": {
+    "name": "마포05",
+    "operator": "온누리운수",
+    "ref": "마포05",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7472655,
+  "tags": {
+    "name": "마포05",
+    "operator": "온누리운수",
+    "ref": "마포05",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7472702,
+  "tags": {
+    "name": "마포06",
+    "operator": "온누리운수",
+    "ref": "마포06",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7472703,
+  "tags": {
+    "name": "마포06",
+    "operator": "온누리운수",
+    "ref": "마포06",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474735,
+  "tags": {
+    "name": "마포07 (양화진성지 방면)",
+    "operator": "승마교통",
+    "ref": "마포07",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474764,
+  "tags": {
+    "operator": "성암운수",
+    "ref": "마포08",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474765,
+  "tags": {
+    "operator": "성암운수",
+    "ref": "마포08",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474796,
+  "tags": {
+    "name": "마포09",
+    "operator": "정암운수",
+    "ref": "마포09",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474797,
+  "tags": {
+    "name": "마포09",
+    "operator": "정암운수",
+    "ref": "마포09",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474805,
+  "tags": {
+    "operator": "정암운수",
+    "ref": "마포10",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474806,
+  "tags": {
+    "name": "마포10",
+    "operator": "정암운수",
+    "ref": "마포10",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474846,
+  "tags": {
+    "operator": "신수동마을버스",
+    "ref": "마포11",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474847,
+  "tags": {
+    "name": "마포11 (신촌지하역 방면)",
+    "operator": "신수동마을버스",
+    "ref": "마포11",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474920,
+  "tags": {
+    "operator": "신수동마을버스",
+    "ref": "마포12",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474921,
+  "tags": {
+    "name": "마포12 (신촌지하역 방면)",
+    "operator": "신수동마을버스",
+    "ref": "마포12",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474946,
+  "tags": {
+    "name": "마포13",
+    "operator": "미향운수",
+    "ref": "마포13",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474947,
+  "tags": {
+    "name": "마포13",
+    "operator": "미향운수",
+    "ref": "마포13",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474949,
+  "tags": {
+    "name": "마포14 (산울림소극장 방면)",
+    "operator": "미향운수",
+    "ref": "마포14",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474950,
+  "tags": {
+    "name": "마포14 (창전삼성아파트 방면)",
+    "operator": "미향운수",
+    "ref": "마포14",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474961,
+  "tags": {
+    "operator": "마포운수",
+    "ref": "마포15",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474962,
+  "tags": {
+    "operator": "마포운수",
+    "ref": "마포15",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474968,
+  "tags": {
+    "name": "마포17",
+    "operator": "신수동마을버스",
+    "ref": "마포17",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7474969,
+  "tags": {
+    "name": "마포17",
+    "operator": "신수동마을버스",
+    "ref": "마포17",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7475001,
+  "tags": {
+    "name": "마포18",
+    "operator": "미금마을버스",
+    "ref": "마포18",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7477868,
+  "tags": {
+    "name": "은평01",
+    "operator": "선진운수",
+    "ref": "은평01",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7477869,
+  "tags": {
+    "name": "은평01",
+    "operator": "선진운수",
+    "ref": "은평01",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7477871,
+  "tags": {
+    "name": "은평03",
+    "operator": "갈현운수",
+    "ref": "은평03",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7477872,
+  "tags": {
+    "name": "은평03",
+    "operator": "갈현운수",
+    "ref": "은평03",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7477946,
+  "tags": {
+    "name": "은평02",
+    "operator": "선진운수",
+    "ref": "은평02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7477947,
+  "tags": {
+    "name": "은평02",
+    "operator": "선진운수",
+    "ref": "은평02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7477949,
+  "tags": {
+    "name": "은평04",
+    "operator": "선진운수",
+    "ref": "은평04",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7477950,
+  "tags": {
+    "name": "은평04",
+    "operator": "선진운수",
+    "ref": "은평04",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478046,
+  "tags": {
+    "name": "은평05",
+    "operator": "영운운수",
+    "ref": "은평05",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478047,
+  "tags": {
+    "name": "은평05",
+    "operator": "영운운수",
+    "ref": "은평05",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478091,
+  "tags": {
+    "name": "은평06",
+    "operator": "영운운수",
+    "ref": "은평06",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478092,
+  "tags": {
+    "name": "은평06",
+    "operator": "영운운수",
+    "ref": "은평06",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478130,
+  "tags": {
+    "name": "은평07",
+    "operator": "영운운수",
+    "ref": "은평07",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478131,
+  "tags": {
+    "name": "은평07",
+    "operator": "영운운수",
+    "ref": "은평07",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478166,
+  "tags": {
+    "name": "은평08",
+    "operator": "갈현운수",
+    "ref": "은평08",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478167,
+  "tags": {
+    "name": "은평08",
+    "operator": "갈현운수",
+    "ref": "은평08",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478169,
+  "tags": {
+    "name": "은평09",
+    "operator": "갈현운수",
+    "ref": "은평09",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478170,
+  "tags": {
+    "name": "은평09",
+    "operator": "갈현운수",
+    "ref": "은평09",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478184,
+  "tags": {
+    "colour": "lightgreen",
+    "from": "숭실고등학교",
+    "interval": "00:18:00~00:25:00",
+    "name": "은평10",
+    "opening_hours": "Mo-Su 06:00-23:30",
+    "operator": "영운운수",
+    "ref": "은평10",
+    "route": "bus",
+    "to": "상신초교후문.산새마을종점",
+    "type": "route",
+    "wheelchair": "no"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478185,
+  "tags": {
+    "colour": "lightgreen",
+    "from": "상신초교후문.산새마을종점",
+    "interval": "00:18:00~00:25:00",
+    "name": "은평10",
+    "opening_hours": "Mo-Su 06:00-23:50",
+    "operator": "영운운수",
+    "ref": "은평10",
+    "route": "bus",
+    "to": "숭실고등학교",
+    "type": "route",
+    "wheelchair": "no"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478222,
+  "tags": {
+    "name": "용산01",
+    "operator": "남산운수",
+    "ref": "용산01",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478223,
+  "tags": {
+    "contact:phone": "+82 2-792-8953",
+    "from": "순천향병원",
+    "interval": "00:15",
+    "name": "서울 버스 용산01",
+    "name:en": "Seoul Bus Yongsan 01",
+    "opening_hours": "06:30-22:30",
+    "operator": "남산운수",
+    "public_transport:version": "2",
+    "ref": "용산01",
+    "route": "bus",
+    "to": "한남동주민센터",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478369,
+  "tags": {
+    "name": "용산02 (남영역 방면)",
+    "operator": "태영마을버스",
+    "ref": "용산02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478376,
+  "tags": {
+    "name": "용산02 (한신아파트 방면)",
+    "operator": "태영마을버스",
+    "ref": "용산02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478414,
+  "tags": {
+    "name": "용산03",
+    "operator": "남산운수",
+    "public_transport:version": "2",
+    "ref": "용산03",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478415,
+  "tags": {
+    "name": "용산03",
+    "operator": "남산운수",
+    "public_transport:version": "2",
+    "ref": "용산03",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478436,
+  "tags": {
+    "name": "용산04 (경기여상 방면)",
+    "operator": "금양운수",
+    "ref": "용산04",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478437,
+  "tags": {
+    "name": "용산04 (서울역 방면)",
+    "operator": "금양운수",
+    "ref": "용산04",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478524,
+  "tags": {
+    "name": "서대문01",
+    "operator": "부일교통",
+    "ref": "서대문01",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478525,
+  "tags": {
+    "name": "서대문01",
+    "operator": "부일교통",
+    "ref": "서대문01",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478527,
+  "tags": {
+    "name": "서대문09대",
+    "operator": "홍제교통",
+    "ref": "서대문09",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478528,
+  "tags": {
+    "name": "서대문09대",
+    "operator": "홍제교통",
+    "ref": "서대문09",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478530,
+  "tags": {
+    "name": "서대문09소",
+    "operator": "홍제교통",
+    "ref": "서대문09",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478531,
+  "tags": {
+    "name": "서대문09소",
+    "operator": "홍제교통",
+    "ref": "서대문09",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478589,
+  "tags": {
+    "name": "서대문10",
+    "operator": "홍제교통",
+    "ref": "서대문10",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478590,
+  "tags": {
+    "name": "서대문10",
+    "operator": "홍제교통",
+    "ref": "서대문10",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478592,
+  "tags": {
+    "name": "서대문11",
+    "operator": "삼하운수",
+    "ref": "서대문11",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478593,
+  "tags": {
+    "name": "서대문11",
+    "operator": "삼하운수",
+    "ref": "서대문11",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478624,
+  "tags": {
+    "name": "서대문13",
+    "operator": "삼하운수",
+    "ref": "서대문13",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478625,
+  "tags": {
+    "name": "서대문13",
+    "operator": "삼하운수",
+    "ref": "서대문13",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478627,
+  "tags": {
+    "name": "서대문12",
+    "operator": "태화운수",
+    "ref": "서대문12",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7478628,
+  "tags": {
+    "name": "서대문12",
+    "operator": "태화운수",
+    "ref": "서대문12",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481016,
+  "tags": {
+    "colour": "#5bb025",
+    "from": "홍은2동주민센터",
+    "interval": "00:06:00",
+    "name": "서울특별시 마을버스 서대문03",
+    "opening_hours": "Mo-Su 05:25-23:55",
+    "operator": "연일교통",
+    "ref": "서대문03",
+    "route": "bus",
+    "to": "신촌전철역",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481034,
+  "tags": {
+    "name": "서대문04",
+    "operator": "정원마을버스",
+    "ref": "서대문04",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481119,
+  "tags": {
+    "name": "서대문05",
+    "operator": "서북운수",
+    "ref": "서대문05",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481120,
+  "tags": {
+    "name": "서대문05",
+    "operator": "서북운수",
+    "ref": "서대문05",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481266,
+  "tags": {
+    "name": "서대문06",
+    "operator": "서북운수",
+    "ref": "서대문06",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481267,
+  "tags": {
+    "name": "서대문06",
+    "operator": "서북운수",
+    "ref": "서대문06",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481280,
+  "tags": {
+    "name": "서대문07",
+    "operator": "태화운수",
+    "ref": "서대문07",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481281,
+  "tags": {
+    "name": "서대문07",
+    "operator": "태화운수",
+    "ref": "서대문07",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481310,
+  "tags": {
+    "name": "서대문08",
+    "operator": "태화운수",
+    "ref": "서대문08",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481312,
+  "tags": {
+    "name": "서대문08",
+    "operator": "태화운수",
+    "ref": "서대문08",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481331,
+  "tags": {
+    "name": "서대문14",
+    "operator": "미향운수",
+    "ref": "서대문14",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481332,
+  "tags": {
+    "name": "서대문14",
+    "operator": "미향운수",
+    "ref": "서대문14",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481397,
+  "tags": {
+    "name": "서대문02소",
+    "operator": "충정운수",
+    "ref": "서대문02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481398,
+  "tags": {
+    "name": "서대문02소",
+    "operator": "충정운수",
+    "ref": "서대문02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481400,
+  "tags": {
+    "name": "서대문02대",
+    "operator": "충정운수",
+    "ref": "서대문02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481401,
+  "tags": {
+    "name": "서대문02대",
+    "operator": "충정운수",
+    "ref": "서대문02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7481622,
+  "tags": {
+    "operator": "유성운수",
+    "ref": "7016",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7484609,
+  "tags": {
+    "operator": "신촌교통",
+    "ref": "7711",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7484610,
+  "tags": {
+    "operator": "신촌교통",
+    "ref": "7711",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7484708,
+  "tags": {
+    "colour": "#5bb025",
+    "from": "가든아파트.수사연구소",
+    "name": "서울 버스 동대문03: 가든아파트.수사연구소 → 회기역종점",
+    "network": "동대문구 마을버스",
+    "operator": "휘경운수",
+    "ref": "동대문03",
+    "route": "bus",
+    "to": "회기역종점",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7484709,
+  "tags": {
+    "colour": "#5bb025",
+    "from": "회기역종점",
+    "name": "서울 버스 동대문03: 회기역종점 → 동대부고.은석초교앞",
+    "network": "동대문구 마을버스",
+    "operator": "휘경운수",
+    "ref": "동대문03",
+    "route": "bus",
+    "to": "동대부고.은석초교앞",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7484756,
+  "tags": {
+    "colour": "#5bb025",
+    "from": "답십리역",
+    "name": "서울 버스 동대문05: 답십리역 → 영휘원사거리.(구)홍릉사거리",
+    "network": "동대문구 마을버스",
+    "operator": "태현교통",
+    "ref": "동대문05",
+    "route": "bus",
+    "to": "영휘원사거리.(구)홍릉사거리",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7484757,
+  "tags": {
+    "colour": "#5bb025",
+    "from": "영휘원사거리.(구)홍릉사거리",
+    "name": "서울 버스 동대문05: 영휘원사거리.(구)홍릉사거리 → 부속상가",
+    "network": "동대문구 마을버스",
+    "operator": "태현교통",
+    "ref": "동대문05",
+    "route": "bus",
+    "to": "부속상가",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7484866,
+  "tags": {
+    "name": "광진01",
+    "operator": "광장운수",
+    "ref": "광진01",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7484868,
+  "tags": {
+    "name": "광진01",
+    "operator": "광장운수",
+    "ref": "광진01",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7484888,
+  "tags": {
+    "name": "광진02",
+    "operator": "구의교통",
+    "ref": "광진02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7484889,
+  "tags": {
+    "name": "광진02",
+    "operator": "구의교통",
+    "ref": "광진02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7486557,
+  "tags": {
+    "name": "광진03",
+    "operator": "구의교통",
+    "ref": "광진03",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7486558,
+  "tags": {
+    "name": "광진03",
+    "operator": "구의교통",
+    "ref": "광진03",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7486565,
+  "tags": {
+    "name": "광진04",
+    "operator": "구의교통",
+    "ref": "광진04",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7486566,
+  "tags": {
+    "name": "광진04",
+    "operator": "구의교통",
+    "ref": "광진04",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7486579,
+  "tags": {
+    "name": "광진05",
+    "operator": "한빛운수",
+    "ref": "광진05",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7486580,
+  "tags": {
+    "name": "광진05",
+    "operator": "한빛운수",
+    "ref": "광진05",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7486584,
+  "tags": {
+    "name": "중랑01",
+    "operator": "진아중화버스",
+    "ref": "중랑01",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7486585,
+  "tags": {
+    "name": "중랑01",
+    "operator": "진아중화버스",
+    "ref": "중랑01",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7486587,
+  "tags": {
+    "name": "중랑02",
+    "operator": "중랑운수",
+    "ref": "중랑02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7486588,
+  "tags": {
+    "name": "중랑02",
+    "operator": "중랑운수",
+    "ref": "중랑02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7486629,
+  "tags": {
+    "colour": "#5bb025",
+    "name": "7737",
+    "operator": "원버스",
+    "ref": "7737",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7486630,
+  "tags": {
+    "name": "7737",
+    "operator": "원버스",
+    "ref": "7737",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7486662,
+  "tags": {
+    "colour": "#3d5bab",
+    "from": "이대부고",
+    "name": "서울 버스 673 → 부천상동",
+    "name:ko": "서울 버스 673 → 부천상동",
+    "network": "서울특별시 시내버스",
+    "operator": "신길운수",
+    "ref": "673",
+    "route": "bus",
+    "to": "자동차매매단지",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7489699,
+  "tags": {
+    "operator": "유성운수",
+    "ref": "7013A",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7489700,
+  "tags": {
+    "operator": "유성운수",
+    "ref": "7013A",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7489835,
+  "tags": {
+    "operator": "유성운수",
+    "ref": "7013B",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7489836,
+  "tags": {
+    "operator": "유성운수",
+    "ref": "7013B",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7490932,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "강서보건소.9호선등촌역",
+    "name": "서울 버스 양천02 → 오목교역",
+    "name:en": "Seoul Buses route Yangcheon02 → Omokgyo Station",
+    "name:ko": "서울 버스 양천02 → 오목교역",
+    "network": "서울특별시 시내버스",
+    "operator": "목동운수",
+    "public_transport:version": "2",
+    "ref": "양천02",
+    "route": "bus",
+    "to": "오목교역.대학학원",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7490933,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "오목교역.대학학원",
+    "name": "서울 버스 양천02 → 등촌역",
+    "name:en": "Seoul Buses route Yangcheon02 → Deungchon Station",
+    "name:ko": "서울 버스 양천02 → 등촌역",
+    "network": "서울특별시 시내버스",
+    "operator": "목동운수",
+    "public_transport:version": "2",
+    "ref": "양천02",
+    "route": "bus",
+    "to": "강서보건소.9호선등촌역",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7490951,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "강서보건소.9호선등촌역",
+    "name": "서울 버스 양천01 → 당산역",
+    "name:en": "Seoul Buses route Yangcheon01 → Dangsan Station",
+    "name:ko": "서울 버스 양천01 → 당산역",
+    "network": "서울특별시 시내버스",
+    "operator": "목동운수",
+    "public_transport:version": "2",
+    "ref": "양천01",
+    "route": "bus",
+    "to": "당산역.지하철2호선",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7490952,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "당산역.지하철2호선",
+    "name": "서울 버스 양천01 → 등촌역",
+    "name:en": "Seoul Buses route Yangcheon01 → Deungchon Station",
+    "name:ko": "서울 버스 양천01 → 등촌역",
+    "network": "서울특별시 시내버스",
+    "operator": "목동운수",
+    "public_transport:version": "2",
+    "ref": "양천01",
+    "route": "bus",
+    "to": "강서보건소.9호선등촌역",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493318,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "신정이펜하우스1단지",
+    "name": "서울 버스 양천03 → 목동역",
+    "name:en": "Seoul Buses route Yangcheon03 → Mok-dong Station",
+    "name:ko": "서울 버스 양천03 → 목동역",
+    "network": "서울특별시 마을버스",
+    "operator": "신목교통",
+    "ref": "양천03",
+    "route": "bus",
+    "to": "목동역5번출구",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493319,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "목동역",
+    "name": "서울 버스 양천03 → 이펜하우스",
+    "name:ko": "서울 버스 양천03 → 이펜하우스",
+    "network": "서울특별시 시내버스",
+    "network:ko": "서울특별시 시내버스",
+    "network:wikidata": "Q3724007",
+    "operator": "신목교통",
+    "ref": "양천03",
+    "route": "bus",
+    "to": "신정이펜하우스1단지.새금성교회",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493338,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "신도림동아3차아파트",
+    "name": "서울 버스 양천04 → 양천구청역",
+    "name:en": "Seoul Buses route Yangcheon04 → Yangcheon-gu Office Station",
+    "name:ko": "서울 버스 양천04 → 양천구청역",
+    "network": "서울특별시 시내버스",
+    "operator": "우리교통",
+    "public_transport:version": "2",
+    "ref": "양천04",
+    "route": "bus",
+    "to": "양천구청역",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493339,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "양천구청역",
+    "name": "서울 버스 양천04  → 신도림역",
+    "name:en": "Seoul Buses route Yangcheon04 → Sindorim Station",
+    "name:ko": "서울 버스 양천04 → 신도림역",
+    "network": "서울특별시 시내버스",
+    "operator": "우리교통",
+    "ref": "양천04",
+    "route": "bus",
+    "to": "동아1차아파트102동",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493662,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "약수터",
+    "name": "서울 버스 강서01 → 등촌역",
+    "name:en": "Seoul Buses route Gangseo01 → Deungchon Station",
+    "name:ko": "서울 버스 강서01 → 등촌역",
+    "network": "서울특별시 시내버스",
+    "operator": "화곡운수",
+    "ref": "강서01",
+    "route": "bus",
+    "to": "하이웨이주유소",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493663,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "하이웨이주유소",
+    "name": "서울 버스 강서01 → 약수터",
+    "name:ko": "서울 버스 강서01 → 약수터",
+    "network": "서울특별시 시내버스",
+    "operator": "화곡운수",
+    "ref": "강서01",
+    "route": "bus",
+    "to": "약수터",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493665,
+  "tags": {
+    "name": "강서02",
+    "operator": "새한교통",
+    "ref": "강서02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493666,
+  "tags": {
+    "name": "강서02",
+    "operator": "새한교통",
+    "ref": "강서02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493668,
+  "tags": {
+    "name": "강서03",
+    "operator": "부민운수",
+    "ref": "강서03",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493669,
+  "tags": {
+    "name": "강서03",
+    "operator": "부민운수",
+    "ref": "강서03",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493732,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "염창역1번출구.강서평생학습관",
+    "name": "서울 버스 강서04 → 하이웨이주유소",
+    "name:ko": "서울 버스 강서04 → 하이웨이주유소",
+    "network": "서울특별시 시내버스",
+    "operator": "염동운수",
+    "ref": "강서04",
+    "route": "bus",
+    "to": "하이웨이주유소",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493733,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "하이웨이주유소",
+    "name": "서울 버스 강서04 → 염창역",
+    "name:en": "Seoul Buses route Gangseo04 Yeomchang Station",
+    "name:ko": "서울 버스 강서04 → 염창역",
+    "network": "서울특별시 시내버스",
+    "operator": "염동운수",
+    "ref": "강서04",
+    "route": "bus",
+    "to": "염창역2번출구",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493768,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "발산역.NC백화점",
+    "name": "서울 버스 강서05 → 강서농수산물시장",
+    "name:ko": "서울 버스 강서05 → 강서농수산물시장",
+    "network": "서울특별시 시내버스",
+    "operator": "대운교통",
+    "ref": "강서05",
+    "route": "bus",
+    "to": "강서면허시험장.메이필드호텔",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493769,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "강서농수산물도매시장",
+    "name": "서울 버스 강서05 → 발산역",
+    "name:en": "Seoul Buses route Gangseo05 → Balsan Station",
+    "name:ko": "서울 버스 강서05 → 발산역",
+    "network": "서울특별시 시내버스",
+    "operator": "대운교통",
+    "ref": "강서05",
+    "route": "bus",
+    "to": "발산역.NC백화점",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493806,
+  "tags": {
+    "name": "강서05-1",
+    "operator": "대운교통",
+    "ref": "강서05-1",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493807,
+  "tags": {
+    "name": "강서05-1",
+    "operator": "대운교통",
+    "ref": "강서05-1",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493840,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "벽산아파트",
+    "name": "서울 버스 강서06 → 수명산",
+    "name:en": "Seoul Buses route Gangseo06 → Sumyeongsan Mountain",
+    "name:ko": "서울 버스 강서06 → 수명산",
+    "network": "서울특별시 시내버스",
+    "operator": "염동운수",
+    "ref": "강서06",
+    "route": "bus",
+    "to": "수명산입구",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493841,
+  "tags": {
+    "colour": "#5BB025",
+    "from": "수명산입구",
+    "name": "서울 버스 강서06 → 벽산아파트",
+    "name:en": "Seoul Buses route Gangseo06 → Byeoksan Apt.",
+    "name:ko": "서울 버스 강서06 → 벽산아파트",
+    "network": "서울특별시 시내버스",
+    "operator": "염동운수",
+    "ref": "강서06",
+    "route": "bus",
+    "to": "벽산아파트",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493843,
+  "tags": {
+    "name": "강서07",
+    "operator": "염경운수",
+    "ref": "강서07",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7493844,
+  "tags": {
+    "name": "강서07",
+    "operator": "염경운수",
+    "ref": "강서07",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7494340,
+  "tags": {
+    "name": "종로01",
+    "operator": "대산교통",
+    "public_transport:version": "2",
+    "ref": "종로01",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7494341,
+  "tags": {
+    "name": "종로01",
+    "operator": "대산교통",
+    "ref": "종로01",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7494378,
+  "tags": {
+    "name": "종로02",
+    "operator": "대산교통",
+    "public_transport:version": "2",
+    "ref": "종로02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7494379,
+  "tags": {
+    "name": "종로02",
+    "operator": "대산교통",
+    "public_transport:version": "2",
+    "ref": "종로02",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7494445,
+  "tags": {
+    "name": "종로03",
+    "operator": "종로운수",
+    "ref": "종로03",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7494446,
+  "tags": {
+    "name": "종로03",
+    "operator": "종로운수",
+    "ref": "종로03",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7494462,
+  "tags": {
+    "name": "종로05",
+    "operator": "나경운수",
+    "ref": "종로05",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7494463,
+  "tags": {
+    "name": "종로05",
+    "operator": "나경운수",
+    "ref": "종로05",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7494470,
+  "tags": {
+    "name": "종로06",
+    "operator": "약수교통",
+    "ref": "종로06",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7494471,
+  "tags": {
+    "name": "종로06",
+    "operator": "약수교통",
+    "ref": "종로06",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7496902,
+  "tags": {
+    "name": "종로07",
+    "operator": "와룡운수",
+    "ref": "종로07",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7496903,
+  "tags": {
+    "name": "종로07",
+    "operator": "와룡운수",
+    "ref": "종로07",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7496916,
+  "tags": {
+    "name": "종로08",
+    "operator": "와룡운수",
+    "ref": "종로08",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7496917,
+  "tags": {
+    "name": "종로08",
+    "operator": "와룡운수",
+    "ref": "종로08",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7497185,
+  "tags": {
+    "name": "종로09 (시청역 방면)",
+    "operator": "인왕교통",
+    "ref": "종로09",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7497186,
+  "tags": {
+    "name": "종로09 (수성동계곡 방면)",
+    "operator": "인왕교통",
+    "ref": "종로09",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7497260,
+  "tags": {
+    "name": "종로11 (서울역 방면)",
+    "operator": "삼청교통",
+    "ref": "종로11",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7497261,
+  "tags": {
+    "name": "종로11 (삼청동 방면)",
+    "operator": "삼청교통",
+    "ref": "종로11",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7497274,
+  "tags": {
+    "name": "종로12",
+    "operator": "은수교통",
+    "ref": "종로12",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7497275,
+  "tags": {
+    "name": "종로12",
+    "operator": "은수교통",
+    "ref": "종로12",
+    "route": "bus",
+    "type": "route"
+  }
+},
+{
+  "type": "relation",
+  "id": 7497279,
+  "tags": {
+    "name": "종로13",
+    "operator": "약수교통",
+    "ref": "종로13",
+    "route": "bus",
+    "type": "route"
+  }
+}
+
+  ]
+}

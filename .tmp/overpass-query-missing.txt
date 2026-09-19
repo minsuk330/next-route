@@ -1,0 +1,12 @@
+[out:json][timeout:30];
+area["ISO3166-1"="KR"][admin_level=2]->.kr;
+(
+  relation(area.kr)["route"~"subway|light_rail|train"]["name"~"인천.*1호선|인천1호선"];
+  relation(area.kr)["route"~"subway|light_rail|train"]["name"~"인천.*2호선|인천2호선"];
+  relation(area.kr)["route"~"subway|light_rail|train"]["name"~"용인"];
+  relation(area.kr)["route"~"subway|light_rail|train"]["name"~"우이"];
+  relation(area.kr)["route"~"subway|light_rail|train"]["name"~"의정부"];
+  relation(area.kr)["route"~"subway|light_rail|train"]["name"~"김포"];
+  relation(area.kr)["route"~"subway|light_rail|train"]["name"~"신림"];
+);
+out tags 100;
