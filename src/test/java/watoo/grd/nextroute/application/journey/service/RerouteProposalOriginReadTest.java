@@ -51,7 +51,7 @@ class RerouteProposalOriginReadTest {
     private void storedProposal(String originJson) throws Exception {
         JsonNode origin = originJson == null ? null : objectMapper.readTree(originJson);
         RerouteProposal proposal = RerouteProposal.builder()
-                .journeyId(JOURNEY_ID).userId(1L).routeRevision(1).transferIndex(2)
+                .journeyId(JOURNEY_ID).userId(1L).routeRevision(1)
                 .origin(origin)
                 .kind(RerouteProposalKind.REMAINING_PATH)
                 .baseCommandVersion(1L)
@@ -88,8 +88,8 @@ class RerouteProposalOriginReadTest {
 
         RerouteProposalView view = service.findActive(JOURNEY_ID).orElseThrow();
 
+        // 옛 행(주소 없음)은 읽히기는 한다. 새로 저장하는 행에는 원점이 반드시 있다(stage5 2/2).
         assertThat(view.origin()).isNull();
-        assertThat(view.transferIndex()).isEqualTo(2);
     }
 
     @Test
@@ -102,6 +102,5 @@ class RerouteProposalOriginReadTest {
         RerouteProposalView view = service.findActive(JOURNEY_ID).orElseThrow();
 
         assertThat(view.origin()).isNull();
-        assertThat(view.transferIndex()).isEqualTo(2);
     }
 }

@@ -37,7 +37,9 @@ public class JourneyRerouteMetrics {
     /** 사유 태그로 받아들이는 값. 목록 밖은 {@link #UNKNOWN_REASON} 으로 접는다. */
     private static final Set<String> KNOWN_REJECTION_REASONS = Set.of(
             "disabled", "not-active", "cooldown", "window", "no-gain", "already-active",
-            "no-transfer", "past-transfer", "stale-context");
+            "no-transfer", "past-transfer", "stale-context",
+            // stage5 2/2: 원점을 못 풀어 저장을 포기했다. 주소 없는 제안은 만들지 않는다.
+            "origin-unresolved");
 
     /** 후보가 걸러진 사유. 마찬가지로 <b>목록 밖은 접는다</b>. */
     private static final Set<String> KNOWN_FILTER_REASONS = Set.of(

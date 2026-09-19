@@ -2497,3 +2497,46 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `JourneyRerouteProposalSchemaIT` **6/6**(계약 뒤집기 포함), `RerouteProposalStoreIT` **15/15**(신규 2), `RerouteProposalExpiryIT` **4/4**.
 - **뮤테이션 2건**: ①supersede 를 `transfer_index = 99` 로 좁히자 StoreIT 2건 FAILED(자리를 못 비워 unique 위반) ②cooldown 키에 `:0` 을 되돌려 붙이자 adapter 테스트 4건 FAILED. 되돌림.
 - `application.journey.*` + `adapter.out.cache.*` → **1026 tests, 1 failed** = `JourneyTransferAssessmentIT`(clean main 동일 실패, 기존 무관 — PR-1 절 참고).
+
+## 2026-09-19 PR-B stage5 2/2 — 옛 주소(transfer_index) 제거
+
+### 확정
+- **V52 = 주소 없는 ACTIVE 접기 → 옛 부분 unique 삭제 → 컬럼 삭제** 순. 1단계를 먼저 하는 이유: 컬럼이 사라지면 origin 이 null 인 ACTIVE 행은 "어디에 대한 제안인지"를 영영 못 말한다(사유 `cutover-no-origin` 으로 접는다, 지우지는 않는다 — 늦은 수락을 404/409 로 갈라야 해서).
+- **저장 시 origin 필수**(`RerouteProposalTxService.store`): 못 풀면 `metrics.recordRejected("origin-unresolved")` + 빈 결과. 주소 없는 제안을 만들지 않는 것이 이 단계의 실질 계약이다. 지표 사유 신규 등재.
+- **`stillCurrent` 의 옛 환승 폴백 제거** — 이제 origin 이 non-null 이라 분기가 아예 없다.
+- **응답 DTO 계약 변경**: `ProposalBody.transferIndex` → `origin`(RerouteOrigin 그대로 내보냄. legIndex·stopId·routeId·seq·kind). 🔴 **모바일 계약 변경**이지만 재탐색은 flag off 라 라이브 영향 0.
+- **`RerouteContext.transferIndex` 와 요청 DTO(`CreateRerouteProposalRequest.transferIndex`)는 남겼다.** PLAN 2/2 항목에는 "걷는다"고 적혀 있었지만 실제로 보니 **그 값은 저장 키가 아니라 입력**이다 — ③·④ 공급자와 `RerouteOriginResolver` 가 전부 그것으로 transfer_connection 행을 찾는다. 서버가 스스로 원점을 고르는 것은 PR-2(원점 창)의 일이라, 여기서 걷으면 대체물 없이 부수는 셈.
+
+### 함정
+- **테스트가 이 컬럼을 8개 파일에서 손으로 넣고 있었다**(reroute_proposal raw insert): RerouteAcceptIT·SubwayBindingRerouteInheritanceIT·JourneyNotificationCancelOnEndIT·WithdrawalDeletionBoundaryIT·SchemaIT·StoreIT·ExpiryIT. 컬럼 목록만 지우면 `INSERT has more expressions than target columns` 로 죽는다 — **VALUES 의 리터럴 0 도 함께** 지워야 한다.
+- **store() 가 origin 을 요구하자 ExpiryIT·StoreIT 의 대부분이 죽었다**: 두 IT 는 transfer_connection 만 심고 journey_leg 는 안 심었는데, 원점 해석이 그 leg 에서 정류장을 읽는다. 각 setUp 에 **탑승 leg(노선 미선택)** 을 추가. 노선을 채우면 `seqOf` 가 `bus_route_stop` 을 읽는데 IT 스키마에 그 표가 없다(stage5 1/2 절의 같은 함정).
+- 🔴 **Flyway 체크섬 불일치로 IT 가 통째로 죽는다**: V52 를 한 번 돌린 뒤 파일을 고치자 `Migration checksum mismatch for migration version 52` 로 컨텍스트 로드가 실패했다. **로컬 개발 DB(`nextroute-postgres-1`)에 실제로 적용돼 있기 때문** — 이 저장소의 Postgres IT 는 그 DB 를 쓴다. 복구 = `update flyway_schema_history set checksum = <새 값> where version='52'`(flyway repair 와 같은 일). **마이그레이션 파일은 한 번 돌린 뒤 고치지 말 것.**
+- **V52 의 `COMMENT` 를 두 줄 문자열로 나눠 쓰면 Postgres 가 거절한다**(인접 리터럴 연결 불가). 한 줄로 쓴다.
+
+### 좌표
+- 신규: `db/migration/V52__drop_reroute_proposal_transfer_index.sql`(git 미추적)
+- 변경: `RerouteProposal`(필드·빌더 파라미터 삭제), `RerouteProposalView`(컴포넌트 삭제), `RerouteProposalResponse`(`transferIndex`→`origin`), `RerouteProposalTxService`(origin 필수 + 폴백 삭제), `JourneyRerouteMetrics`(`origin-unresolved`)
+- 테스트: 위 8개 IT + `RerouteProposalOriginReadTest`·`RerouteProposalServiceTest`·`JourneyRerouteProposalControllerTest`(뷰 생성자)
+
+### 배포
+- **V52 VPS 수동배치**. 🔴 **1/2(V51)가 라이브에서 TTL(5분)+sweep 을 넘긴 뒤에 올린다** — 그 전에 올리면 아직 origin 이 없는 ACTIVE 행이 `cutover-no-origin` 으로 접히며 사용자가 보던 제안이 사라진다. VPS 가 V49 인 지금은 V50·V51·V52 가 한 번에 적용되므로 **빈 표에 도는 것과 같아 안전**하지만, 그 뒤 전략을 바꿔 단계 배포를 한다면 이 순서를 지킬 것.
+- 🔴 **모바일**: 제안 응답의 `transferIndex` 가 `origin` 으로 바뀐다. 재탐색 flag off 라 지금은 무영향이지만 켜기 전에 전달 필요.
+
+### 검증
+- `JourneyRerouteProposalSchemaIT` **6/6**(여정당 하나 / 접히면 자리 비움 / **transfer_index 컬럼 없음+origin 있음** / 옛 인덱스 없음 / check 제약 / kind·status).
+- `RerouteProposalStoreIT` **16/16**(신규 `원점을 못 풀면 저장하지 않는다`), `RerouteProposalExpiryIT` **4/4**, `RerouteAcceptIT` **10/10**.
+- **뮤테이션**: origin 이 없을 때 가짜 원점으로 저장하게 바꾸자 신규 테스트 FAILED → 되돌림.
+- `application.journey.*` + `application.auth.*` + `adapter.in.api.journey.*` → **1075 tests, 1 failed** = `JourneyTransferAssessmentIT`(clean main 동일, 기존 무관).
+
+### 검증 (추가 — 통합 커버리지 구멍 메움, 사용자 질문 계기)
+
+- **구멍 실측**: 이 저장소의 재탐색 통합 테스트는 *슬라이스·컴포넌트* 위주고 **여정 관통 시나리오가 없다**. 특히 두 곳이 비어 있었다.
+  1. **API 주소 계약 미검증**: `JourneyRerouteProposalControllerTest` 가 `candidates[*]` 만 단언해 `transferIndex`→`origin` 교체를 아무 테스트도 안 잡았다(필드를 지웠는데 초록불).
+  2. **여정당 1개가 흐름에서 미검증**: `RerouteRemainingPathIT` 의 계획 경로는 **환승 1개**라, 앞 제안이 뒤 제안에 자리를 내주는 장면 자체가 나오지 않았다.
+- **메운 것 (A)**: 컨트롤러 테스트에 `$.proposal.origin.{legIndex,stopId,kind}` 단언 + `transferIndex`·`realtimeAddressable` **부재** 단언. 뮤테이션(origin 을 null 로 내보냄) → FAILED 확인.
+- **메운 것 (B2)**: `RerouteRemainingPathIT` 에 **버스3·환승2 여정**을 시작하는 케이스 추가 — 환승 0 제안 → 환승 1 제안 요청 시 ①ACTIVE 는 1건 ②앞 행이 `replaced` ③origin 의 legIndex 가 바뀜. 뮤테이션(supersede 를 `1=0` 으로 무력화) → FAILED 확인.
+- **IT 함정**: 한 사용자에 ACTIVE 여정은 하나라, 두 번째 여정을 시작하려면 앞 여정을 먼저 접어야 한다. 상태 어휘는 `ACTIVE|COMPLETED|CANCELED|EXPIRED` — `ENDED` 는 check 제약 위반이다(`journey_session_status_check`).
+- 재실행: `application.journey.*` + 컨트롤러 → **968 tests, 1 failed**(기존 무관 `JourneyTransferAssessmentIT`).
+
+### 미결 (통합 커버리지)
+- **제안→수락 관통 IT 없음**: 제안 생성(실 provider)과 수락(`RerouteAcceptIT`, 제안을 손으로 심음)이 각자 논다. 둘을 잇는 시나리오는 별건.

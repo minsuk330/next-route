@@ -58,13 +58,15 @@ public class RerouteProposal extends BaseEntity {
     @Column(name = "route_revision", nullable = false)
     private int routeRevision;
 
-    @Column(name = "transfer_index", nullable = false)
-    private int transferIndex;
-
     /**
-     * {@code RerouteOriginEnvelope} 직렬화(V50, journey-reroute-nextstop PR-B). null = 아직
-     * origin 이 안 채워진 행 — {@code transferIndex} 만 있는 옛 계약 그대로다. dual-write 전환
-     * (PR-B stage3)까지는 모든 행이 null 이다.
+     * 이 제안이 가리키는 <b>자리</b>({@code RerouteOriginEnvelope} 직렬화, 서울 좌표계).
+     *
+     * <p>stage5 2/2 부터 <b>유일한 주소다</b> — 옛 {@code transfer_index} 는 컬럼째 사라졌다(V52).
+     * 그 값은 leg 경계밖에 못 가리켜 주행 중 정류장 원점을 표현할 수 없었고, 주소가 둘이면
+     * 어느 쪽이 진짜인지 코드가 매번 골라야 했다.
+     *
+     * <p>타입이 여전히 nullable 인 것은 <b>이미 접힌 옛 행</b> 때문이다. 새로 저장하는 행은
+     * 저장 경로가 원점 없이는 만들지 않는다({@code RerouteProposalTxService.store}).
      */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "origin", columnDefinition = "jsonb")
@@ -117,13 +119,12 @@ public class RerouteProposal extends BaseEntity {
     private String acceptedCandidateId;
 
     @Builder
-    public RerouteProposal(Long journeyId, Long userId, int routeRevision, int transferIndex,
+    public RerouteProposal(Long journeyId, Long userId, int routeRevision,
                            JsonNode origin, RerouteProposalKind kind, long baseCommandVersion,
                            JsonNode candidates, Instant snapshotObservedAt, Instant expiresAt) {
         this.journeyId = journeyId;
         this.userId = userId;
         this.routeRevision = routeRevision;
-        this.transferIndex = transferIndex;
         this.origin = origin;
         this.kind = kind;
         this.baseCommandVersion = baseCommandVersion;

@@ -44,10 +44,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V42__create_reroute_proposal.sql",
         "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql",
         "classpath:db/migration/V50__add_reroute_proposal_origin.sql",
-        "classpath:db/migration/V51__reroute_proposal_journey_active_unique.sql"
+        "classpath:db/migration/V51__reroute_proposal_journey_active_unique.sql",
+        "classpath:db/migration/V52__drop_reroute_proposal_transfer_index.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
-@DisplayName("V42 재탐색 제안 표 스키마")
+@DisplayName("재탐색 제안 표 스키마(V42→V52)")
 class JourneyRerouteProposalSchemaIT extends AbstractJourneyOutboxPostgresIT {
 
     @Autowired JdbcTemplate jdbcTemplate;
@@ -64,22 +65,25 @@ class JourneyRerouteProposalSchemaIT extends AbstractJourneyOutboxPostgresIT {
     }
 
     @Test
-    @DisplayName("같은 환승에 살아 있는 제안은 하나뿐이다")
-    void onlyOneActiveProposalPerTransfer() {
-        insertProposal(0, "ACTIVE");
+    @DisplayName("여정에 살아 있는 제안은 하나뿐이다")
+    void onlyOneActiveProposalPerJourney() {
+        insertProposal("ACTIVE");
 
-        assertThatThrownBy(() -> insertProposal(0, "ACTIVE"))
+        // stage5 이전에는 <b>환승당</b> 하나였다(환승 번호가 다르면 같은 여정에도 공존). 원점이
+        // leg 경계를 넘어 주행 중 정류장까지 가리키게 되면서 그 단위가 성립하지 않는다 — 어느
+        // 것이 지금 제안인지 사용자가 알 수 없고, 수락은 어차피 여정을 끝낸다.
+        assertThatThrownBy(() -> insertProposal("ACTIVE"))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
-    @DisplayName("앞선 제안을 만료로 바꾸면 같은 환승에 새 제안이 들어간다")
-    void expiredProposalFreesTheSlot() {
-        insertProposal(0, "ACTIVE");
+    @DisplayName("앞선 제안을 접으면 자리가 비어 새 제안이 들어간다")
+    void resolvedProposalFreesTheSlot() {
+        insertProposal("ACTIVE");
         jdbcTemplate.update("UPDATE reroute_proposal SET status = 'EXPIRED'");
 
         // 전체 unique 였다면 여기서 실패한다. 이 단언이 이 파일의 존재 이유다.
-        assertThatCode(() -> insertProposal(0, "ACTIVE")).doesNotThrowAnyException();
+        assertThatCode(() -> insertProposal("ACTIVE")).doesNotThrowAnyException();
 
         Integer rows = jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM reroute_proposal", Integer.class);
@@ -88,32 +92,22 @@ class JourneyRerouteProposalSchemaIT extends AbstractJourneyOutboxPostgresIT {
     }
 
     @Test
-    @DisplayName("다른 환승이어도 여정에 살아 있는 제안은 하나다(stage5)")
-    void onlyOneActiveProposalPerJourney() {
-        insertProposal(0, "ACTIVE");
+    @DisplayName("옛 주소(transfer_index)는 컬럼째 사라졌다 — 주소는 origin 하나다")
+    void transferIndexColumnIsGone() {
+        List<String> columns = jdbcTemplate.queryForList("""
+                select column_name from information_schema.columns
+                 where table_name = 'reroute_proposal'
+                """, String.class);
 
-        // stage5 이전에는 이 삽입이 통과했다(환승당 하나). 원점이 leg 경계를 넘어 주행 중
-        // 정류장까지 가리키게 되면서 "환승당"이라는 단위가 성립하지 않는다 — 어느 것이 지금
-        // 제안인지 사용자가 알 수 없고, 수락은 어차피 여정을 끝낸다.
-        assertThatThrownBy(() -> insertProposal(1, "ACTIVE"))
-                .isInstanceOf(DataIntegrityViolationException.class);
-    }
-
-    @Test
-    @DisplayName("접힌 제안은 자리를 비운다 — 다른 환승으로도 다시 들어간다")
-    void resolvedProposalFreesTheJourneySlot() {
-        insertProposal(0, "ACTIVE");
-        jdbcTemplate.update("UPDATE reroute_proposal SET status = 'SUPERSEDED'");
-
-        assertThatCode(() -> insertProposal(1, "ACTIVE")).doesNotThrowAnyException();
+        assertThat(columns).doesNotContain("transfer_index").contains("origin");
     }
 
     @Test
     @DisplayName("모르는 kind·status 는 거절된다")
     void checkConstraintsRejectUnknownVocabulary() {
-        assertThatThrownBy(() -> insertProposal(0, "ACTIVE", "SOMETHING_ELSE"))
+        assertThatThrownBy(() -> insertProposal("ACTIVE", "SOMETHING_ELSE"))
                 .isInstanceOf(DataIntegrityViolationException.class);
-        assertThatThrownBy(() -> insertProposal(1, "PENDING"))
+        assertThatThrownBy(() -> insertProposal("PENDING"))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -124,9 +118,9 @@ class JourneyRerouteProposalSchemaIT extends AbstractJourneyOutboxPostgresIT {
                 select indexname from pg_indexes where tablename = 'reroute_proposal'
                 """, String.class);
 
+        assertThat(indexes).as("옛 주소의 인덱스는 컬럼과 함께 사라졌다")
+                .doesNotContain("uq_reroute_proposal_active");
         assertThat(indexes).contains(
-                // 옛 인덱스는 stage5 2/2 가 지운다. 여기 남아 있는 것이 이 단계의 정상 상태다.
-                "uq_reroute_proposal_active",
                 "uq_reroute_proposal_journey_active",
                 "ix_reroute_proposal_journey",
                 "ix_reroute_proposal_expiry");
@@ -150,18 +144,18 @@ class JourneyRerouteProposalSchemaIT extends AbstractJourneyOutboxPostgresIT {
                 """, Long.class, userId);
     }
 
-    private void insertProposal(int transferIndex, String status) {
-        insertProposal(transferIndex, status, "ROUTE_OPTION");
+    private void insertProposal(String status) {
+        insertProposal(status, "ROUTE_OPTION");
     }
 
-    private void insertProposal(int transferIndex, String status, String kind) {
+    private void insertProposal(String status, String kind) {
         jdbcTemplate.update("""
                 INSERT INTO reroute_proposal
-                    (created_at, updated_at, journey_id, user_id, route_revision, transfer_index,
+                    (created_at, updated_at, journey_id, user_id, route_revision,
                      kind, status, base_command_version, candidates,
                      snapshot_observed_at, expires_at)
-                VALUES (now(), now(), ?, ?, 1, ?, ?, ?, 1,
+                VALUES (now(), now(), ?, ?, 1, ?, ?, 1,
                         '{"version":1,"candidates":[]}'::jsonb, now(), now() + interval '2 minutes')
-                """, journeyId, userId, transferIndex, kind, status);
+                """, journeyId, userId, kind, status);
     }
 }

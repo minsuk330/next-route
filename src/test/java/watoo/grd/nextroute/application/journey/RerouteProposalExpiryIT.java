@@ -65,7 +65,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V42__create_reroute_proposal.sql",
         "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql",
         "classpath:db/migration/V50__add_reroute_proposal_origin.sql",
-        "classpath:db/migration/V51__reroute_proposal_journey_active_unique.sql"
+        "classpath:db/migration/V51__reroute_proposal_journey_active_unique.sql",
+        "classpath:db/migration/V52__drop_reroute_proposal_transfer_index.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @TestPropertySource(properties = {
@@ -123,6 +124,7 @@ class RerouteProposalExpiryIT extends AbstractJourneyOutboxPostgresIT {
     void setUp() {
         jdbcTemplate.update("delete from reroute_proposal");
         jdbcTemplate.update("delete from transfer_connection");
+        jdbcTemplate.update("delete from journey_leg");
         jdbcTemplate.update("delete from journey_session");
         jdbcTemplate.update("delete from users");
         userId = newUser();
@@ -134,12 +136,21 @@ class RerouteProposalExpiryIT extends AbstractJourneyOutboxPostgresIT {
                      from_leg_index, to_leg_index, status)
                 values (now(), now(), ?, 1, 0, 1, 2, 'AT_RISK')
                 """, journeyId);
+        // 그 환승이 가리키는 탑승 leg. 저장 경로가 여기서 원점을 만든다(stage5 2/2 — 원점 없이는
+        // 저장하지 않는다). 노선은 일부러 비운다: 채우면 원점 해석이 bus_route_stop 을 읽는데
+        // 이 IT 스키마에는 그 표가 없다.
+        jdbcTemplate.update("""
+                insert into journey_leg
+                    (created_at, updated_at, journey_id, route_revision, leg_index, type, state,
+                     start_stop_id)
+                values (now(), now(), ?, 1, 2, 'WAIT_BUS', 'PENDING', 'ST-C')
+                """, journeyId);
     }
 
     @Test
     @DisplayName("요청이 하나도 없어도 TTL 이 지난 제안을 접는다")
     void sweepExpiresWithoutAnyRequest() {
-        insertProposal(0, NOW.minusSeconds(1));
+        insertProposal(NOW.minusSeconds(1));
 
         int expired = expiryService.sweep();
 
@@ -153,9 +164,9 @@ class RerouteProposalExpiryIT extends AbstractJourneyOutboxPostgresIT {
     }
 
     @Test
-    @DisplayName("접힌 뒤 같은 환승에 새 제안이 들어간다")
+    @DisplayName("접힌 뒤 그 여정에 새 제안이 들어간다")
     void sweepFreesTheSlot() {
-        insertProposal(0, NOW.minusSeconds(1));
+        insertProposal(NOW.minusSeconds(1));
         expiryService.sweep();
 
         // lazy 만 있을 때 막히던 자리다. 앱이 죽어 있으면 이 삽입이 영영 안 된다.
@@ -169,7 +180,7 @@ class RerouteProposalExpiryIT extends AbstractJourneyOutboxPostgresIT {
     @Test
     @DisplayName("아직 만료 안 된 제안은 건드리지 않는다")
     void sweepLeavesLiveProposals() {
-        insertProposal(0, NOW.plusSeconds(60));
+        insertProposal(NOW.plusSeconds(60));
 
         assertThat(expiryService.sweep()).isZero();
         assertThat(activeCount()).isEqualTo(1);
@@ -183,7 +194,7 @@ class RerouteProposalExpiryIT extends AbstractJourneyOutboxPostgresIT {
         for (int i = 0; i < BATCH_SIZE * MAX_SWEEPS + 2; i++) {
             // 사용자당 ACTIVE 여정도 하나라(uq_journey_active_per_user) 사용자까지 새로 만든다.
             long owner = newUser();
-            insertProposal(owner, newJourney(owner), 0, NOW.minusSeconds(1));
+            insertProposal(owner, newJourney(owner), NOW.minusSeconds(1));
         }
 
         int expired = expiryService.sweep();
@@ -196,19 +207,19 @@ class RerouteProposalExpiryIT extends AbstractJourneyOutboxPostgresIT {
 
     // ── 준비 ────────────────────────────────────────────────────────────────
 
-    private void insertProposal(int transferIndex, Instant expiresAt) {
-        insertProposal(userId, journeyId, transferIndex, expiresAt);
+    private void insertProposal(Instant expiresAt) {
+        insertProposal(userId, journeyId, expiresAt);
     }
 
-    private void insertProposal(long userId, long journeyId, int transferIndex, Instant expiresAt) {
+    private void insertProposal(long userId, long journeyId, Instant expiresAt) {
         jdbcTemplate.update("""
                 insert into reroute_proposal
-                    (created_at, updated_at, journey_id, user_id, route_revision, transfer_index,
+                    (created_at, updated_at, journey_id, user_id, route_revision,
                      kind, status, base_command_version, candidates,
                      snapshot_observed_at, expires_at)
-                values (now(), now(), ?, ?, 1, ?, 'ROUTE_OPTION', 'ACTIVE', 1,
+                values (now(), now(), ?, ?, 1, 'ROUTE_OPTION', 'ACTIVE', 1,
                         '{"version":1,"candidates":[]}'::jsonb, ?, ?)
-                """, journeyId, userId, transferIndex,
+                """, journeyId, userId,
                 java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(expiresAt));
     }
 

@@ -422,9 +422,9 @@ class WithdrawalDeletionBoundaryIT {
                 values (now(), now(), ?, ?, ?, 'PING', now(), now())""", "tel-" + uid, uid, jid);
         jdbc.update("""
                 insert into reroute_proposal
-                    (created_at, updated_at, journey_id, user_id, route_revision, transfer_index,
+                    (created_at, updated_at, journey_id, user_id, route_revision,
                      kind, status, base_command_version, candidates, snapshot_observed_at, expires_at)
-                values (now(), now(), ?, ?, 1, 0, 'ROUTE_OPTION', 'ACTIVE', 1, '[]'::jsonb, now(), now())""",
+                values (now(), now(), ?, ?, 1, 'ROUTE_OPTION', 'ACTIVE', 1, '[]'::jsonb, now(), now())""",
                 jid, uid);
         jdbc.update("""
                 insert into subway_binding_event

@@ -292,8 +292,14 @@ class RerouteProposalServiceTest {
                 .build();
     }
 
+    private watoo.grd.nextroute.application.journey.dto.RerouteOrigin origin() {
+        return new watoo.grd.nextroute.application.journey.dto.RerouteOrigin(
+                2, "ST-C", "BL-360", 4,
+                watoo.grd.nextroute.application.journey.dto.RerouteOriginKind.TRANSFER_WAIT);
+    }
+
     private RerouteProposalView view(RerouteProposalKind kind) {
-        return new RerouteProposalView(1L, JOURNEY_ID, 1, 0, null, kind, 1L, NOW,
+        return new RerouteProposalView(1L, JOURNEY_ID, 1, origin(), kind, 1L, NOW,
                 NOW.plusSeconds(120), List.of(candidate()));
     }
 }
