@@ -2268,3 +2268,28 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 미결 (stage3 2/2)
 - `supersedeActive`·`stillCurrent`·조회·cooldown 키·트리거·수락을 canonical origin 키로 옮기는 부분은 아직. 지금은 전부 `transfer_index` 기준 그대로다(무회귀 유지).
+
+## 2026-09-19 PR-B stage4 + stage3/stage5 재배치
+
+### 확정 (PLAN 순서 변경 — 중요)
+- **"supersede·stillCurrent·조회·cooldown 키·트리거·수락을 canonical origin 키로 이동"(PLAN stage3 3번째 불릿)을 stage5(컷오버)로 옮긴다.** 빼먹은 게 아니라 **지금 하면 반드시 깨지기 때문**이다.
+  - 이유 = **"자리를 정의하는 것"(부분 unique 인덱스)과 "자리를 비우는 것"(`supersedeActive`)은 짝**이고, 지금 둘 다 `(journey_id, transfer_index)` 로 정확히 일치해 있다. 목표 상태는 **여정당 1개**(stage5)라 키가 다르다.
+  - 지금 supersede 만 **여정 기준**으로 바꾸면 → insert 는 되지만 **아직 살아있어야 할 다른 환승의 제안까지 조기에 죽는다**(현재 스키마 IT `differentTransfersCoexist` 가 고정한 동작을 코드가 먼저 깸).
+  - 지금 supersede 만 **origin 기준**으로 바꾸면 → origin 이 null 인 행(전환 기간의 정상 상태)을 못 밀어내는데 DB unique 는 여전히 transfer_index 라 **새 insert 가 unique 위반으로 튕긴다**. V42 주석이 경고한 "살아있는 제안이 하나도 없는 채로 사용자를 기다린다" 의 사촌.
+  - stage5 는 순서 자체가 ①충돌 ACTIVE 정리 ②여정당 unique 생성 ③origin-only 배포 ④TTL+sweep ⑤옛 인덱스/컬럼 제거 라서 **②와 ③이 같은 배포에 들어간다** — 인덱스와 supersede 가 어긋나는 창이 없다.
+  - 🔴 **이 오류가 특히 안 잡히는 조건**: 재탐색은 flag off 라 프로덕션에 티가 안 나고, 이 경로는 Postgres IT 로만 검증되는데 이 저장소엔 CI 가 없다. "일단 옮기고 stage5 에서 맞추자" 가 최악인 이유.
+- **`request(...int)` 호환 shim 도 지금은 안 만든다**: origin 으로 부르는 진입점이 아직 없어 shim 할 대상이 없다(PR-2/PR-4 가 생길 때 함께).
+- **stage4 완료**: `RemainingPathApply` 에 nullable `origin` 추가. **새 하위타입을 만들지 않고 record 에 칸을 덧붙이는 방식** — `RouteOptionApply` 가 동적후보 스냅샷 필드를 덧붙일 때 쓴 선례 그대로다(`@JsonSubTypes` 이름 `REMAINING_PATH` 유지). 이유: origin 은 "다른 종류의 후보"가 아니라 같은 종류의 추가 정보라 `kind` 축을 늘릴 일이 아니다. 옛 저장 JSON 은 칸이 없어 null 로 읽히고 그것이 정확히 옛 동작(leg 경계 교체)이다.
+- `fromLegIndex` 로는 **중간 하차를 표현할 수 없다**는 것이 stage4 의 존재 이유: leg 를 통째로 버리는 게 아니라 중간에서 자르기 때문. 수락 경로가 어디서 자를지 알려면 후보가 그 지점을 들고 있어야 한다.
+
+### 좌표
+- 변경: `application/journey/dto/RerouteCandidateApply.java`(`RemainingPathApply` 에 `origin` + 하위호환 2-arg 생성자)
+- 신규 테스트: `dto/RemainingPathApplyOriginTest.java`
+
+### 검증
+- 재탐색 유닛 스위트 전량 **63 tests / 0 failures**: RerouteOriginResolverTest 5, RerouteProposalOriginReadTest 3, RemainingPathApplyOriginTest 4, 재탐색 제안 요청 12, 재탐색 방아쇠 계측 8, 남은 구간 재검색 후보 13, 재탐색 적격성 판정 13, 재탐색 제안 API 5.
+- **기존 무관**: `RerouteAcceptIT` 등 Postgres IT 는 `PSQLException: Connection to localhost:5432 refused` 로 컨텍스트 로드 실패(이 샌드박스에 DB 없음, PR-A 세션에서 확인된 것과 동일 원인). XML 로 원인 교차검증함.
+
+### 미결 (PR-B 이후)
+- stage5(컷오버) = 여정당 unique 신규 + 키 이동 + 옛 인덱스/컬럼 제거 + V번호 신규. **별도 배포 단위**라 PR-B 에 넣지 않는다.
+- `origin` 을 실제로 채우는 것은 PR-2(원점 창)·PR-4(수락) 몫. 지금은 TRANSFER_WAIT 만 이중 쓰기로 채워진다.
