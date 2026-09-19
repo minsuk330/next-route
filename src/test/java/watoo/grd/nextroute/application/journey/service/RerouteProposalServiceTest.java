@@ -293,7 +293,7 @@ class RerouteProposalServiceTest {
     }
 
     private RerouteProposalView view(RerouteProposalKind kind) {
-        return new RerouteProposalView(1L, JOURNEY_ID, 1, 0, kind, 1L, NOW,
+        return new RerouteProposalView(1L, JOURNEY_ID, 1, 0, null, kind, 1L, NOW,
                 NOW.plusSeconds(120), List.of(candidate()));
     }
 }

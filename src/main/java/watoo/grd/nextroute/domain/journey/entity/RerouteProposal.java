@@ -61,6 +61,15 @@ public class RerouteProposal extends BaseEntity {
     @Column(name = "transfer_index", nullable = false)
     private int transferIndex;
 
+    /**
+     * {@code RerouteOriginEnvelope} 직렬화(V50, journey-reroute-nextstop PR-B). null = 아직
+     * origin 이 안 채워진 행 — {@code transferIndex} 만 있는 옛 계약 그대로다. dual-write 전환
+     * (PR-B stage3)까지는 모든 행이 null 이다.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "origin", columnDefinition = "jsonb")
+    private JsonNode origin;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "kind", nullable = false, length = 20)
     private RerouteProposalKind kind;
@@ -109,12 +118,13 @@ public class RerouteProposal extends BaseEntity {
 
     @Builder
     public RerouteProposal(Long journeyId, Long userId, int routeRevision, int transferIndex,
-                           RerouteProposalKind kind, long baseCommandVersion, JsonNode candidates,
-                           Instant snapshotObservedAt, Instant expiresAt) {
+                           JsonNode origin, RerouteProposalKind kind, long baseCommandVersion,
+                           JsonNode candidates, Instant snapshotObservedAt, Instant expiresAt) {
         this.journeyId = journeyId;
         this.userId = userId;
         this.routeRevision = routeRevision;
         this.transferIndex = transferIndex;
+        this.origin = origin;
         this.kind = kind;
         this.baseCommandVersion = baseCommandVersion;
         this.candidates = candidates;

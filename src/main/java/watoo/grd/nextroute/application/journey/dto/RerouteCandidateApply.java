@@ -80,10 +80,28 @@ public sealed interface RerouteCandidateApply {
     /**
      * 남은 구간을 다른 경로로 갈아끼운다.
      *
+     * <h3>origin 이 왜 여기에도 있나</h3>
+     * {@code fromLegIndex} 는 <b>leg 경계</b>까지만 가리킨다. 주행 중인 버스의 <b>중간 정류장</b>에서
+     * 갈아타는 후보는 "몇 번째 leg 부터"로 표현할 수 없다 — 그 leg 를 통째로 버리는 게 아니라
+     * 중간에서 자르기 때문이다(journey-reroute-nextstop PR-B stage4). 수락 경로가 어디서 잘라야
+     * 하는지 알려면 후보 자체가 그 지점을 들고 있어야 한다.
+     *
+     * <p>{@code origin} 은 <b>nullable 이고, 없으면 옛 뜻 그대로</b>({@code fromLegIndex} 부터 교체)다.
+     * 이미 저장된 행에는 이 칸이 없으므로 Jackson 이 null 로 읽고, 그것이 정확히 옛 동작이다
+     * ({@code RouteOptionApply} 가 스냅샷 필드를 덧붙일 때 쓴 것과 같은 하위호환 방식 — 새 하위타입을
+     * 만들지 않는다).
+     *
      * @param fromLegIndex 이 leg 부터 교체한다. 그 앞은 완료·진행 구간이라 보존된다
      * @param path         경로 원본. 수락 경로가 {@code JourneyCompiler.compile(path)} 로 leg 를
      *                     만든다. <b>화면 요약만 저장하면 여기 쓸 재료가 없다</b>
+     * @param origin       중간 하차 지점(서울 좌표계). null 이면 leg 경계 교체(옛 동작)
      */
-    record RemainingPathApply(int fromLegIndex, PathResult path) implements RerouteCandidateApply {
+    record RemainingPathApply(int fromLegIndex, PathResult path, RerouteOrigin origin)
+            implements RerouteCandidateApply {
+
+        /** 옛 호출부·옛 저장 JSON 용(leg 경계 교체). */
+        public RemainingPathApply(int fromLegIndex, PathResult path) {
+            this(fromLegIndex, path, null);
+        }
     }
 }
