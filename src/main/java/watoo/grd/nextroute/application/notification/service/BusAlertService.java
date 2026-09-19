@@ -7,9 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.notification.config.BusArrivalAlertProperties;
 import watoo.grd.nextroute.application.notification.dto.BusAlertRequest;
 import watoo.grd.nextroute.application.notification.dto.BusAlertResponse;
-import watoo.grd.nextroute.application.notification.port.in.CancelBusAlertUseCase;
-import watoo.grd.nextroute.application.notification.port.in.CreateBusAlertUseCase;
-import watoo.grd.nextroute.application.notification.port.in.GetBusAlertUseCase;
+import watoo.grd.nextroute.application.notification.port.in.BusAlertUseCase;
 import watoo.grd.nextroute.domain.bus.entity.BusRouteStop;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
@@ -30,8 +28,7 @@ import java.util.NoSuchElementException;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class BusAlertService
-        implements CreateBusAlertUseCase, CancelBusAlertUseCase, GetBusAlertUseCase {
+public class BusAlertService implements BusAlertUseCase {
 
     private static final List<AlertStatus> ACTIVE =
             List.of(AlertStatus.PENDING, AlertStatus.PROCESSING);

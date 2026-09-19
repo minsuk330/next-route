@@ -12,9 +12,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.route.dto.FavoriteResponse;
 import watoo.grd.nextroute.application.route.exception.FavoriteConflictException;
-import watoo.grd.nextroute.application.route.port.in.AddFavoriteRouteUseCase;
-import watoo.grd.nextroute.application.route.port.in.DeleteFavoriteRouteUseCase;
-import watoo.grd.nextroute.application.route.port.in.GetFavoriteRoutesUseCase;
+import watoo.grd.nextroute.application.route.port.in.FavoriteRouteUseCase;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.common.config.CorsConfig;
@@ -40,9 +38,7 @@ class FavoriteControllerTest {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
-    @MockBean AddFavoriteRouteUseCase addFavoriteRouteUseCase;
-    @MockBean GetFavoriteRoutesUseCase getFavoriteRoutesUseCase;
-    @MockBean DeleteFavoriteRouteUseCase deleteFavoriteRouteUseCase;
+    @MockBean FavoriteRouteUseCase favoriteRouteUseCase;
     @MockBean JwtProvider jwtProvider; // SecurityConfig 의존
     @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
     @MockBean AdminProperties adminProperties; // SecurityConfig(AdminApiKeyFilter) 의존
@@ -57,7 +53,7 @@ class FavoriteControllerTest {
         FavoriteResponse response = FavoriteResponse.builder()
                 .id(1L).type(FavoriteType.HOME).name("우리집").address("서울시 강남구").endPlace("집")
                 .ex(127.1).ey(37.5).build();
-        given(addFavoriteRouteUseCase.add(eq(7L), any())).willReturn(response);
+        given(favoriteRouteUseCase.add(eq(7L), any())).willReturn(response);
 
         String body = """
                 {"type":"HOME","name":"우리집","address":"서울시 강남구","endPlace":"집","ex":127.1,"ey":37.5}
@@ -89,7 +85,7 @@ class FavoriteControllerTest {
 
     @Test
     void add_conflict_returns409() throws Exception {
-        given(addFavoriteRouteUseCase.add(eq(7L), any()))
+        given(favoriteRouteUseCase.add(eq(7L), any()))
                 .willThrow(new FavoriteConflictException("dup"));
 
         String body = """
@@ -108,7 +104,7 @@ class FavoriteControllerTest {
         FavoriteResponse response = FavoriteResponse.builder()
                 .id(2L).type(FavoriteType.ETC).name("헬스장").address("서울시 마포구").endPlace("짐")
                 .ex(126.9).ey(37.55).build();
-        given(addFavoriteRouteUseCase.add(eq(7L), any())).willReturn(response);
+        given(favoriteRouteUseCase.add(eq(7L), any())).willReturn(response);
 
         String body = """
                 {"type":"ETC","name":"헬스장","address":"서울시 마포구","endPlace":"짐","ex":126.9,"ey":37.55}
@@ -124,7 +120,7 @@ class FavoriteControllerTest {
 
     @Test
     void getAll_returns200WithList() throws Exception {
-        given(getFavoriteRoutesUseCase.getAll(7L)).willReturn(List.of(
+        given(favoriteRouteUseCase.getAll(7L)).willReturn(List.of(
                 FavoriteResponse.builder().id(1L).type(FavoriteType.HOME).endPlace("집")
                         .ex(127.1).ey(37.5).build()
         ));
@@ -139,12 +135,12 @@ class FavoriteControllerTest {
         mockMvc.perform(delete("/api/route/fav/1").with(authentication(authUser(7L))))
                 .andExpect(status().isNoContent());
 
-        verify(deleteFavoriteRouteUseCase).delete(7L, 1L);
+        verify(favoriteRouteUseCase).delete(7L, 1L);
     }
 
     @Test
     void delete_notFound_returns404() throws Exception {
-        willThrow(new NoSuchElementException()).given(deleteFavoriteRouteUseCase).delete(eq(7L), eq(99L));
+        willThrow(new NoSuchElementException()).given(favoriteRouteUseCase).delete(eq(7L), eq(99L));
 
         mockMvc.perform(delete("/api/route/fav/99").with(authentication(authUser(7L))))
                 .andExpect(status().isNotFound());

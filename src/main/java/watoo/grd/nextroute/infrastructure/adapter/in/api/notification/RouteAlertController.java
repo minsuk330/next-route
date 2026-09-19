@@ -14,10 +14,7 @@ import watoo.grd.nextroute.application.notification.dto.RouteAlertRequest;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertScheduleResponse;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertUpdateRequest;
 import watoo.grd.nextroute.application.notification.exception.ScheduleNotEditableException;
-import watoo.grd.nextroute.application.notification.port.in.CancelRouteAlertUseCase;
-import watoo.grd.nextroute.application.notification.port.in.CreateRouteAlertUseCase;
-import watoo.grd.nextroute.application.notification.port.in.GetRouteAlertUseCase;
-import watoo.grd.nextroute.application.notification.port.in.UpdateRouteAlertUseCase;
+import watoo.grd.nextroute.application.notification.port.in.RouteAlertUseCase;
 
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -28,16 +25,13 @@ import java.util.NoSuchElementException;
 @Tag(name = "[회원] 목표 도착시간 출발 알림")
 public class RouteAlertController {
 
-    private final CreateRouteAlertUseCase createRouteAlertUseCase;
-    private final UpdateRouteAlertUseCase updateRouteAlertUseCase;
-    private final GetRouteAlertUseCase getRouteAlertUseCase;
-    private final CancelRouteAlertUseCase cancelRouteAlertUseCase;
+    private final RouteAlertUseCase routeAlertUseCase;
 
     @PostMapping
     public ResponseEntity<RouteAlertScheduleResponse> create(
             @AuthenticationPrincipal Long userId,
             @Valid @RequestBody RouteAlertRequest request) {
-        return ResponseEntity.ok(createRouteAlertUseCase.create(userId, request));
+        return ResponseEntity.ok(routeAlertUseCase.create(userId, request));
     }
 
     @PutMapping("/{id}")
@@ -45,20 +39,20 @@ public class RouteAlertController {
             @AuthenticationPrincipal Long userId,
             @PathVariable Long id,
             @Valid @RequestBody RouteAlertUpdateRequest request) {
-        return ResponseEntity.ok(updateRouteAlertUseCase.update(userId, id, request));
+        return ResponseEntity.ok(routeAlertUseCase.update(userId, id, request));
     }
 
     @GetMapping
     public ResponseEntity<List<RouteAlertScheduleResponse>> getActive(
             @AuthenticationPrincipal Long userId) {
-        return ResponseEntity.ok(getRouteAlertUseCase.getActive(userId));
+        return ResponseEntity.ok(routeAlertUseCase.getActive(userId));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> cancel(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long id) {
-        cancelRouteAlertUseCase.cancel(userId, id);
+        routeAlertUseCase.cancel(userId, id);
         return ResponseEntity.noContent().build();
     }
 

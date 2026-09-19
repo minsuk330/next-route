@@ -4,8 +4,11 @@ import watoo.grd.nextroute.application.route.dto.RecentPlaceResponse;
 
 import java.util.List;
 
-/** 본인 검색에 등장한 최근 장소를 좌표 dedup 후 최신순으로 조회한다. */
-public interface GetSearchHistoryUseCase {
-
+/** 사용자의 검색 이력을 조회·삭제·초기화한다. */
+public interface SearchHistoryUseCase {
     List<RecentPlaceResponse> getAll(Long userId);
+
+    void delete(Long userId, Long id);
+
+    void clear(Long userId);
 }

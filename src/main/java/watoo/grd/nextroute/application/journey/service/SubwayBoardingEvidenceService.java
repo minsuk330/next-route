@@ -10,8 +10,7 @@ import watoo.grd.nextroute.application.journey.config.JourneySubwayBindingProper
 import watoo.grd.nextroute.application.journey.dto.SubwayBindingView;
 import watoo.grd.nextroute.application.journey.dto.SubwayBoardingEvidence;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
-import watoo.grd.nextroute.application.journey.port.in.CorrectSubwayBindingUseCase;
-import watoo.grd.nextroute.application.journey.port.in.SubmitSubwayBoardingEvidenceUseCase;
+import watoo.grd.nextroute.application.journey.port.in.SubwayBindingUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
@@ -68,8 +67,7 @@ import java.util.List;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class SubwayBoardingEvidenceService
-        implements SubmitSubwayBoardingEvidenceUseCase, CorrectSubwayBindingUseCase {
+public class SubwayBoardingEvidenceService implements SubwayBindingUseCase {
 
     private final JourneySessionRepository sessionRepository;
     private final JourneyLegRepository legRepository;

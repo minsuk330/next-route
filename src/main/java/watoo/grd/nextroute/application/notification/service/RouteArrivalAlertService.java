@@ -12,10 +12,7 @@ import watoo.grd.nextroute.application.notification.dto.RouteAlertRequest;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertScheduleResponse;
 import watoo.grd.nextroute.application.notification.dto.RouteAlertUpdateRequest;
 import watoo.grd.nextroute.application.notification.exception.ScheduleNotEditableException;
-import watoo.grd.nextroute.application.notification.port.in.CancelRouteAlertUseCase;
-import watoo.grd.nextroute.application.notification.port.in.CreateRouteAlertUseCase;
-import watoo.grd.nextroute.application.notification.port.in.GetRouteAlertUseCase;
-import watoo.grd.nextroute.application.notification.port.in.UpdateRouteAlertUseCase;
+import watoo.grd.nextroute.application.notification.port.in.RouteAlertUseCase;
 import watoo.grd.nextroute.domain.notification.entity.RouteAlertSchedule;
 import watoo.grd.nextroute.domain.notification.entity.RouteAlertScheduleStatus;
 import watoo.grd.nextroute.domain.notification.entity.RouteAlertStatus;
@@ -47,9 +44,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class RouteArrivalAlertService
-        implements CreateRouteAlertUseCase, UpdateRouteAlertUseCase,
-        CancelRouteAlertUseCase, GetRouteAlertUseCase {
+public class RouteArrivalAlertService implements RouteAlertUseCase {
 
     private static final Set<Integer> ALLOWED_LEAD = Set.of(0, 5, 10, 15);
 

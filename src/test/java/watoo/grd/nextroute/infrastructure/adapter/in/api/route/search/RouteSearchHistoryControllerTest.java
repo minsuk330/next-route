@@ -9,9 +9,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.route.dto.RecentPlaceResponse;
-import watoo.grd.nextroute.application.route.port.in.ClearSearchHistoryUseCase;
-import watoo.grd.nextroute.application.route.port.in.DeleteSearchHistoryUseCase;
-import watoo.grd.nextroute.application.route.port.in.GetSearchHistoryUseCase;
+import watoo.grd.nextroute.application.route.port.in.SearchHistoryUseCase;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.common.config.CorsConfig;
@@ -37,9 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class RouteSearchHistoryControllerTest {
 
     @Autowired MockMvc mockMvc;
-    @MockBean GetSearchHistoryUseCase getSearchHistoryUseCase;
-    @MockBean DeleteSearchHistoryUseCase deleteSearchHistoryUseCase;
-    @MockBean ClearSearchHistoryUseCase clearSearchHistoryUseCase;
+    @MockBean SearchHistoryUseCase searchHistoryUseCase;
     @MockBean JwtProvider jwtProvider;       // SecurityConfig 의존
     @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
     @MockBean AdminProperties adminProperties; // SecurityConfig(AdminApiKeyFilter) 의존
@@ -51,7 +47,7 @@ class RouteSearchHistoryControllerTest {
 
     @Test
     void getAll_returns200WithList() throws Exception {
-        given(getSearchHistoryUseCase.getAll(7L)).willReturn(List.of(
+        given(searchHistoryUseCase.getAll(7L)).willReturn(List.of(
                 new RecentPlaceResponse(1L, 37.5, 127.0, "카페",
                         LocalDateTime.parse("2026-07-21T10:00:00"))));
 
@@ -69,12 +65,12 @@ class RouteSearchHistoryControllerTest {
         mockMvc.perform(delete("/api/route/my/searches/1").with(authentication(authUser(7L))))
                 .andExpect(status().isNoContent());
 
-        verify(deleteSearchHistoryUseCase).delete(7L, 1L);
+        verify(searchHistoryUseCase).delete(7L, 1L);
     }
 
     @Test
     void delete_notFound_returns404() throws Exception {
-        willThrow(new NoSuchElementException()).given(deleteSearchHistoryUseCase).delete(eq(7L), eq(99L));
+        willThrow(new NoSuchElementException()).given(searchHistoryUseCase).delete(eq(7L), eq(99L));
 
         mockMvc.perform(delete("/api/route/my/searches/99").with(authentication(authUser(7L))))
                 .andExpect(status().isNotFound());
@@ -85,7 +81,7 @@ class RouteSearchHistoryControllerTest {
         mockMvc.perform(delete("/api/route/my/searches").with(authentication(authUser(7L))))
                 .andExpect(status().isNoContent());
 
-        verify(clearSearchHistoryUseCase).clear(7L);
+        verify(searchHistoryUseCase).clear(7L);
     }
 
     @Test

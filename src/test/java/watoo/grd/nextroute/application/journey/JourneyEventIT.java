@@ -14,8 +14,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyEventOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
-import watoo.grd.nextroute.application.journey.port.in.GetActiveJourneyUseCase;
-import watoo.grd.nextroute.application.journey.port.in.GetJourneyUseCase;
+import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
@@ -52,8 +51,7 @@ class JourneyEventIT {
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired ApplyJourneyEventUseCase applyJourneyEventUseCase;
-    @Autowired GetActiveJourneyUseCase getActiveJourneyUseCase;
-    @Autowired GetJourneyUseCase getJourneyUseCase;
+    @Autowired JourneyQueryUseCase getActiveJourneyUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired EntityManager entityManager;
     @MockBean RouteSearchSnapshotPort snapshotPort;
@@ -257,7 +255,7 @@ class JourneyEventIT {
     void otherUserCannotReadOrCommandJourney() {
         Long other = newUser();
 
-        assertThat(getJourneyUseCase.get(other, journey.journeyId())).isEmpty();
+        assertThat(getActiveJourneyUseCase.get(other, journey.journeyId())).isEmpty();
         assertThatThrownBy(() -> applyJourneyEventUseCase.apply(other, journey.journeyId(),
                 command(UUID.randomUUID(), JourneyEventType.CLIENT_LEG_TRANSITION_DETECTED,
                         1L, 1, 0, 1)))
