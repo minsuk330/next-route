@@ -47,6 +47,71 @@ public class JourneyRerouteProperties {
 
     private final RemainingPath remainingPath = new RemainingPath();
 
+    private final NextStop nextStop = new NextStop();
+
+    /**
+     * "주행 중 어느 정류장에서 내릴 수 있는지"의 운영값(journey-reroute-nextstop PR-2).
+     *
+     * <p>{@link RemainingPath} 와 자리를 가르는 이유 — 그쪽은 <b>경로 하나를 얼마나 깊이 볼지</b>
+     * (검색 예산·경로 수)이고 여기는 <b>원점을 몇 개나 열지</b>다. 원점이 하나 늘 때마다 검색이
+     * 통째로 한 번 더 나가므로, 요금·대기가 걱정될 때 조여야 하는 손잡이가 서로 다르다.
+     */
+    @Getter
+    @Setter
+    public static class NextStop {
+
+        /**
+         * 주행 중인 버스의 <b>중간 정류장</b>을 원점으로 열지. 꺼도 재탐색은 계속 돈다 —
+         * 계획 하차 정류장(환승 대기) 원점만 남아 ④의 옛 동작이 된다.
+         *
+         * <p>끌 수 있게 두는 이유는 PLAN 의 리스크("overlay A 제외율 폭주") 때문이다. 원점이 늘면
+         * 검색·예측 호출이 배수로 늘어나는데, 그 폭이 라이브에서만 보인다.
+         */
+        private boolean enabled = true;
+
+        /**
+         * 이만큼은 남아 있어야 하차점으로 제안한다(초).
+         *
+         * <p>알림을 읽고, 판단하고, 문 앞으로 이동하는 시간이다. 이보다 가까운 정류장을 제안하면
+         * 사용자는 이미 지나가는 정류장을 보며 서두르게 된다.
+         */
+        private int leadTimeSec = 90;
+
+        /** 열어 볼 원점 수 상한. 원점 하나가 검색 한 번이다. */
+        private int maxOrigins = 6;
+
+        /**
+         * 실시간 도착을 물어볼 정류장 수 상한.
+         *
+         * <p>{@link #maxOrigins} 와 다른 값인 이유 — 리드타임에 못 미쳐 <b>버려지는</b> 정류장도
+         * 조회는 이미 나간 뒤다. 이 상한이 없으면 남은 정류장이 서른 개인 여정에서 서른 번 묻는다.
+         */
+        private int maxStopLookups = 10;
+
+        /** 도착 조회 한 번의 시간 상한(ms). 주행 중 사용자가 이 응답을 기다린다. */
+        private long arrivalBudgetMs = 1500;
+
+        /** 내려서 다음 차로 걸어가기까지의 버퍼(초). 검색 출발 시각 = 하차 시각 + 이 값. */
+        private int boardingBufferSec = 30;
+
+        /**
+         * 첫 승차까지의 여유가 이보다 작으면 후보에서 뺀다(초) — <b>miss-risk 가드</b>.
+         *
+         * <p>방금 환승을 놓칠 뻔한 사용자에게 "내려서 곧바로 뛰어 타면 됩니다"를 제안하면 같은
+         * 일을 한 번 더 겪게 한다. 예측 오차가 그 여유보다 크기 때문이다.
+         */
+        private int missRiskMinSlackSec = 30;
+
+        /**
+         * 진행 관측이 이보다 오래됐으면 창을 열지 않는다(초).
+         *
+         * <p>지금 몇 번째 정류장인지는 앱이 보내 준 {@code remainingStops} 로 안다. 그 값이 낡으면
+         * <b>이미 지나간 정류장</b>을 앞으로 올 정류장으로 착각하고, 그 제안은 사용자를 못 내리게
+         * 한다. 모르는 편이 낫다.
+         */
+        private int progressMaxAgeSec = 180;
+    }
+
     /**
      * "환승 정류장에서 목적지까지 다른 경로를 찾을지"의 운영값(Phase 6 ④).
      *
@@ -262,6 +327,29 @@ public class JourneyRerouteProperties {
             // 0 이하면 OdSayApiPort 계약상 "부르지 말라"는 뜻이라 이 칸이 통째로 죽는다.
             throw new IllegalStateException(
                     "journey.reroute.remaining-path.search-budget-ms 는 1 이상이어야 한다");
+        }
+        if (nextStop.getLeadTimeSec() <= 0) {
+            // 0 이면 "지금 문이 닫히는 정류장"이 제안으로 나간다.
+            throw new IllegalStateException(
+                    "journey.reroute.next-stop.lead-time-sec 는 1 이상이어야 한다");
+        }
+        if (nextStop.getMaxOrigins() <= 0 || nextStop.getMaxStopLookups() <= 0) {
+            throw new IllegalStateException(
+                    "journey.reroute.next-stop 의 max-origins·max-stop-lookups 는 1 이상이어야 한다");
+        }
+        if (nextStop.getArrivalBudgetMs() <= 0) {
+            throw new IllegalStateException(
+                    "journey.reroute.next-stop.arrival-budget-ms 는 1 이상이어야 한다");
+        }
+        if (nextStop.getBoardingBufferSec() < 0 || nextStop.getMissRiskMinSlackSec() < 0) {
+            // 0 은 허용한다 — 가드를 사실상 끄고 제외율을 먼저 보고 싶을 때가 있다.
+            throw new IllegalStateException(
+                    "journey.reroute.next-stop 의 boarding-buffer-sec·miss-risk-min-slack-sec 는 "
+                            + "음수일 수 없다");
+        }
+        if (nextStop.getProgressMaxAgeSec() <= 0) {
+            throw new IllegalStateException(
+                    "journey.reroute.next-stop.progress-max-age-sec 는 1 이상이어야 한다");
         }
     }
 }

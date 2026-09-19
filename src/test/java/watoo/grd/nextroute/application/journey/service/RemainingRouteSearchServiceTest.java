@@ -19,6 +19,7 @@ import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingPort;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
 import watoo.grd.nextroute.application.route.routing.RoutingProviderSelector;
+import watoo.grd.nextroute.application.route.routing.RoutingQuery;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import watoo.grd.nextroute.application.route.service.LegacyRouteResponseMapper;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
@@ -157,6 +158,46 @@ class RemainingRouteSearchServiceTest {
         long remaining = searchDeadline.getValue().remainingMillis(Clock.systemDefaultZone());
         assertThat(remaining).isGreaterThan(3000L).isLessThanOrEqualTo(3500L);
         verify(otpConcurrencyGate).release(permit);
+    }
+
+    @Test
+    @DisplayName("원점 도달 시각으로 검색한다 — 지금이 아니다(PR-2)")
+    void otpDepartsAtGivenInstant() {
+        RoutingPort otpPort = mock(RoutingPort.class);
+        given(otpPort.provider()).willReturn(RoutingProvider.OTP);
+        given(otpPort.search(any(), any())).willReturn(otpResult());
+        LegacyRouteResponseMapper mapper = mock(LegacyRouteResponseMapper.class);
+        given(mapper.toLegacy(any(RoutingResult.class))).willReturn(searchResult(path()));
+        RemainingRouteSearchService otp = otpService(otpConcurrencyGate, otpPort, mapper);
+        given(otpConcurrencyGate.tryAcquire(any(RoutingDeadline.class), eq("worker")))
+                .willReturn(Optional.of(new OtpPermit("tok-w")));
+
+        Instant departAt = Instant.now().plusSeconds(600);
+        assertThat(otp.search(STOP_ID, WAYPOINTS, 3000, departAt)).hasSize(1);
+
+        ArgumentCaptor<RoutingQuery> query = ArgumentCaptor.forClass(RoutingQuery.class);
+        verify(otpPort).search(query.capture(), any());
+        assertThat(query.getValue().departureAt()).isEqualTo(departAt);
+    }
+
+    @Test
+    @DisplayName("이미 지난 출발 시각은 현재 시각으로 되돌린다 — 지나간 편이 답으로 나온다")
+    void pastDepartureFallsBackToNow() {
+        RoutingPort otpPort = mock(RoutingPort.class);
+        given(otpPort.provider()).willReturn(RoutingProvider.OTP);
+        given(otpPort.search(any(), any())).willReturn(otpResult());
+        LegacyRouteResponseMapper mapper = mock(LegacyRouteResponseMapper.class);
+        given(mapper.toLegacy(any(RoutingResult.class))).willReturn(searchResult(path()));
+        RemainingRouteSearchService otp = otpService(otpConcurrencyGate, otpPort, mapper);
+        given(otpConcurrencyGate.tryAcquire(any(RoutingDeadline.class), eq("worker")))
+                .willReturn(Optional.of(new OtpPermit("tok-w")));
+
+        Instant before = Instant.now();
+        otp.search(STOP_ID, WAYPOINTS, 3000, before.minusSeconds(600));
+
+        ArgumentCaptor<RoutingQuery> query = ArgumentCaptor.forClass(RoutingQuery.class);
+        verify(otpPort).search(query.capture(), any());
+        assertThat(query.getValue().departureAt()).isAfterOrEqualTo(before);
     }
 
     private RouteSearchResult searchResult(PathResult... paths) {

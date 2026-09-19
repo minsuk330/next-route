@@ -14,9 +14,12 @@ import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteContext;
+import watoo.grd.nextroute.application.journey.dto.RerouteOrigin;
+import watoo.grd.nextroute.application.journey.dto.RerouteOriginStop;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
 import watoo.grd.nextroute.application.journey.port.out.BoardingTimeEstimator;
 import watoo.grd.nextroute.application.journey.port.out.RerouteCandidateProvider;
+import watoo.grd.nextroute.application.journey.service.JourneyWaypointResolver.Coord;
 import watoo.grd.nextroute.application.journey.service.JourneyWaypointResolver.Waypoints;
 import watoo.grd.nextroute.application.journey.service.RemainingPathEtaComposer.Attempt;
 import watoo.grd.nextroute.application.journey.service.RemainingPathEtaComposer.Prepared;
@@ -76,6 +79,7 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
     private final JourneyLegRepository legRepository;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
     private final JourneyWaypointResolver waypointResolver;
+    private final UpcomingStopWindowResolver windowResolver;
     private final RemainingRouteSearchService searchService;
     private final RemainingPathEtaComposer composer;
     private final BoardingChainEtaCalculator chainCalculator;
@@ -140,22 +144,165 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
             return List.of();
         }
 
-        List<PathResult> paths = searchService.search(waitLeg.getStartStopId(), waypoints.get(),
-                properties.getRemainingPath().getSearchBudgetMs());
-        if (paths.isEmpty()) {
-            metrics.recordRemainingPaths(0, 0);
-            return List.of();
-        }
-
-        List<Candidate> candidates = prepare(paths, waitLeg);
-        metrics.recordRemainingPaths(paths.size(), candidates.size());
-        if (candidates.isEmpty()) {
+        List<Origin> origins = origins(legs, waitLeg, transfer, waypoints.get(), context);
+        List<Selected> selected = selectPerOrigin(origins, waitLeg, legs, context);
+        if (selected.isEmpty()) {
             // 남는 경로가 없으면 기준선을 재지 않는다. 잴 이유가 없다.
             return List.of();
         }
 
         Baseline baseline = measureBaseline(waitLeg, legs, transfer, context);
-        return evaluate(candidates, baseline, transfer, waitLeg, context);
+        return evaluate(selected, baseline, waitLeg, context);
+    }
+
+    /**
+     * 어디서 내릴 수 있는가 — <b>자리 목록</b>.
+     *
+     * <p>맨 앞은 언제나 <b>계획된 하차 정류장</b>이다(=곧 갈아탈 환승 정류장). 그 자리는 실시간
+     * 조회 없이도 존재한다 — 사용자는 이미 거기서 내릴 작정이고, 환승 준비 시각
+     * ({@code userReadyAt})이 곧 도달 시각이다. 그 뒤에 주행 중인 버스의 중간 정류장이 붙는다
+     * (journey-reroute-nextstop PR-2).
+     *
+     * <p><b>계획 하차점에서도 다시 검색한다.</b> PLAN 의 "계획 하차점 fresh search 안 함"은
+     * <i>기준선</i>을 다시 검색하지 않는다는 뜻으로 읽었다(기준선은 저장된 계획을 overlay 해서
+     * 잰다). 그 정류장 자체를 원점에서 빼면 ④가 하던 일(환승 정류장에서 다른 경로 찾기)과 ③이
+     * 하던 일(같은 정류장 다른 노선)이 <b>둘 다</b> 사라진다 — ③은 이 작업이 흡수하기로 한
+     * 기능이다.
+     */
+    private List<Origin> origins(List<JourneyLeg> legs, JourneyLeg waitLeg,
+                                 TransferConnection transfer, Waypoints planned,
+                                 RerouteContext context) {
+        List<Origin> origins = new ArrayList<>();
+        // 계획 하차점: 준비 완료 시각이 곧 출발 시각이다(버퍼를 또 더하지 않는다 — userReadyAt 에
+        // 이미 내려서 이동하는 시간이 들어 있다).
+        origins.add(new Origin(waitLeg.getStartStopId(), waitLeg.getStartName(), planned,
+                transfer.getUserReadyAt(), transfer.getUserReadyAt(),
+                waitLeg.getLegIndex(), null, true));
+
+        for (RerouteOriginStop stop : windowResolver.resolveRideInterior(
+                legs, waitLeg.getLegIndex(), context.now())) {
+            origins.add(new Origin(stop.origin().stopId(), stop.stopName(),
+                    new Waypoints(new Coord(stop.x(), stop.y()), planned.destination()),
+                    stop.alightAt(),
+                    stop.departAt(properties.getNextStop().getBoardingBufferSec()),
+                    stop.origin().legIndex(), stop.origin(), false));
+        }
+        return origins;
+    }
+
+    /**
+     * 자리마다 검색하고 <b>그 자리에서 가장 나은 경로 하나</b>만 남긴다.
+     *
+     * <h3>왜 자리당 하나인가</h3>
+     * 목록의 축이 하차 정류장이라 화면에는 정류장마다 한 줄이 나간다. 그런데 실시간 overlay 는
+     * 대기 수만큼 예측을 부르므로, 자리마다 네 경로를 전부 overlay 하면 화면에 안 나갈 경로에
+     * 요금과 대기를 쓴다. 그래서 <b>overlay 전에</b> 시간표 값으로 한 번 줄을 세운다 — 그때 쓰는
+     * 비교기도 {@link RerouteRanking} 이다(거르는 규칙과 보여 주는 규칙이 다르면 정작 좋은 후보가
+     * overlay 전에 잘린다).
+     *
+     * <h3>자리끼리는 나란히 돈다</h3>
+     * 검색 한 번이 최대 {@code search-budget-ms} 다. 자리를 차례로 돌리면 그 곱만큼 사용자가
+     * 기다린다 — 여섯 자리면 분 단위가 된다.
+     */
+    private List<Selected> selectPerOrigin(List<Origin> origins, JourneyLeg waitLeg,
+                                           List<JourneyLeg> legs, RerouteContext context) {
+        List<String> currentRouteIds = currentRouteIds(waitLeg, legs);
+        List<CompletableFuture<Selected>> futures = new ArrayList<>(origins.size());
+        for (Origin origin : origins) {
+            futures.add(searchAsync(origin, currentRouteIds, context));
+        }
+        List<Selected> selected = new ArrayList<>();
+        for (CompletableFuture<Selected> future : futures) {
+            try {
+                Selected result = future.join();
+                if (result != null) {
+                    selected.add(result);
+                }
+            } catch (Exception e) {
+                log.warn("[JourneyReroute] 원점 검색 실패 journeyId={}: {}",
+                        context.journeyId(), e.getMessage());
+            }
+        }
+        return selected;
+    }
+
+    private CompletableFuture<Selected> searchAsync(Origin origin, List<String> currentRouteIds,
+                                                    RerouteContext context) {
+        try {
+            return CompletableFuture.supplyAsync(
+                    () -> searchOne(origin, currentRouteIds, context), overlayExecutor);
+        } catch (RejectedExecutionException e) {
+            // 풀이 가득 찼다. 자리를 버리지 않고 이 스레드에서 돈다.
+            return CompletableFuture.completedFuture(searchOne(origin, currentRouteIds, context));
+        }
+    }
+
+    /** 자리 하나가 터져도 다른 자리를 버리지 않는다. */
+    private Selected searchOne(Origin origin, List<String> currentRouteIds, RerouteContext context) {
+        try {
+            List<PathResult> paths = searchService.search(origin.stopId(), origin.waypoints(),
+                    properties.getRemainingPath().getSearchBudgetMs(), origin.departAt());
+            if (paths.isEmpty()) {
+                metrics.recordRemainingPaths(0, 0);
+                return null;
+            }
+            List<Candidate> candidates = prepare(paths, currentRouteIds);
+            metrics.recordRemainingPaths(paths.size(), candidates.size());
+            return bestBySchedule(candidates, origin);
+        } catch (Exception e) {
+            log.warn("[JourneyReroute] 원점 검색 실패 journeyId={} stopId={}: {}",
+                    context.journeyId(), origin.stopId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * overlay 전, <b>시간표만으로</b> 그 자리의 최선을 고른다.
+     *
+     * <p>대기 시간은 아직 모른다(그것이 overlay 의 일이다). 그래서 도착 시각은 "출발 시각 + 탈
+     * 것·걷기의 계획 소요"이고, 여유는 0으로 둔다 — 모르는 값을 0으로 두면 {@link RerouteRanking}
+     * 의 마지막 기준이 사실상 동점 처리로 남는다.
+     */
+    private Selected bestBySchedule(List<Candidate> candidates, Origin origin) {
+        List<ScheduledCandidate> scheduled = new ArrayList<>(candidates.size());
+        for (Candidate candidate : candidates) {
+            Prepared prepared = candidate.prepared();
+            int transitSec = 0;
+            int walkSec = 0;
+            for (JourneyLegDraft leg : prepared.legs()) {
+                int duration = leg.plannedDurationSec() == null ? 0 : leg.plannedDurationSec();
+                transitSec += duration;
+                if (leg.type() == JourneyLegType.WALK || leg.type() == JourneyLegType.TRANSFER_WALK) {
+                    walkSec += duration;
+                }
+            }
+            scheduled.add(new ScheduledCandidate(candidate, RerouteRanking.Scheduled.of(
+                    origin.departAt().plusSeconds(transitSec), prepared.transferCount(), walkSec,
+                    origin.departAt(), origin.departAt())));
+        }
+        ScheduledCandidate best = scheduled.stream()
+                .min((left, right) -> RerouteRanking.ORDER.compare(left.scheduled(), right.scheduled()))
+                .orElse(null);
+        return best == null ? null : new Selected(origin, best.candidate());
+    }
+
+    /**
+     * 지금 경로가 쓰는 노선들. 이 노선으로 시작하는 후보는 유료 호출 전에 버린다.
+     *
+     * <p>갈아타려던 노선뿐 아니라 <b>지금 타고 있는 노선</b>도 넣는다 — 중간에 내려 같은 버스를
+     * 다시 타는 제안은 말이 되지 않는다.
+     */
+    private List<String> currentRouteIds(JourneyLeg waitLeg, List<JourneyLeg> legs) {
+        List<String> routeIds = new ArrayList<>(2);
+        if (waitLeg.getRouteId() != null && !waitLeg.getRouteId().isBlank()) {
+            routeIds.add(waitLeg.getRouteId());
+        }
+        legs.stream()
+                .filter(leg -> leg.getLegIndex() == waitLeg.getLegIndex() - 1)
+                .map(JourneyLeg::getRouteId)
+                .filter(routeId -> routeId != null && !routeId.isBlank())
+                .forEach(routeIds::add);
+        return routeIds;
     }
 
     /**
@@ -164,8 +311,7 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
      * <p>지금 타려던 노선으로 시작하는 경로는 여기서 버린다. 검색은 방금 그 경로를 만들어 준
      * 곳이라 "지금과 같은 답"이 섞여 오는 것이 정상이고, 그것을 예측까지 보내면 요금만 나간다.
      */
-    private List<Candidate> prepare(List<PathResult> paths, JourneyLeg waitLeg) {
-        String currentRouteId = waitLeg.getRouteId();
+    private List<Candidate> prepare(List<PathResult> paths, List<String> currentRouteIds) {
         List<Candidate> candidates = new ArrayList<>();
         for (PathResult path : paths) {
             if (candidates.size() >= properties.getRemainingPath().getMaxPaths()) {
@@ -176,7 +322,7 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
                 metrics.recordCandidateFiltered(prepared.failureReason());
                 continue;
             }
-            if (isSameAsCurrent(prepared, currentRouteId)) {
+            if (isSameAsCurrent(prepared, currentRouteIds)) {
                 metrics.recordCandidateFiltered("same-as-current");
                 continue;
             }
@@ -186,9 +332,10 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
     }
 
     /** <b>둘 다 해석된 경우에만</b> 견준다. 양쪽이 null 이면 "같다"가 아니라 "모른다"이다. */
-    private boolean isSameAsCurrent(Prepared prepared, String currentRouteId) {
-        return currentRouteId != null && !currentRouteId.isBlank()
-                && currentRouteId.equals(prepared.firstRouteId());
+    private boolean isSameAsCurrent(Prepared prepared, List<String> currentRouteIds) {
+        String firstRouteId = prepared.firstRouteId();
+        return firstRouteId != null && !firstRouteId.isBlank()
+                && currentRouteIds.contains(firstRouteId);
     }
 
     /**
@@ -282,42 +429,49 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
      * 로 잘린다 — <b>검색이 준 순서가 곧 당선 순서</b>가 되는 셈이다. 그래서 경로끼리는 나란히
      * 돌린다(체인 안의 대기는 앞 대기의 결과가 다음 앵커라 순차일 수밖에 없다).
      */
-    private List<RerouteCandidate> evaluate(List<Candidate> candidates, Baseline baseline,
-                                            TransferConnection transfer, JourneyLeg waitLeg,
-                                            RerouteContext context) {
+    private List<RerouteCandidate> evaluate(List<Selected> selected, Baseline baseline,
+                                            JourneyLeg waitLeg, RerouteContext context) {
         Instant startedAt = clock.instant();
-        List<Candidate> admitted = new ArrayList<>();
-        for (Candidate candidate : candidates) {
+        List<Selected> admitted = new ArrayList<>();
+        for (Selected entry : selected) {
             if (baseline != null
-                    && candidate.prepared().waitsAfterFirst() > baseline.waitsAfterFirst()) {
+                    && entry.candidate().prepared().waitsAfterFirst() > baseline.waitsAfterFirst()) {
                 // 생략한 대기 시간이 후보 쪽에만 더 많이 빠져 없는 개선폭이 만들어진다.
                 metrics.recordCandidateFiltered("more-transfers");
                 continue;
             }
-            admitted.add(candidate);
+            admitted.add(entry);
         }
 
-        List<Attempt> attempts = overlayAll(admitted, transfer, context, startedAt);
+        List<Attempt> attempts = overlayAll(admitted, context, startedAt);
         List<Scored> scored = new ArrayList<>();
         for (int i = 0; i < admitted.size(); i++) {
+            Selected entry = admitted.get(i);
             Attempt attempt = attempts.get(i);
             if (attempt.failed()) {
                 metrics.recordCandidateFiltered(attempt.filterReason());
                 continue;
             }
+            if (missesTransfer(attempt, entry.origin())) {
+                // 내리자마자 뛰어 타야 하는 제안이다. 방금 놓칠 뻔한 일을 한 번 더 겪게 한다.
+                metrics.recordCandidateFiltered("miss-risk");
+                continue;
+            }
             metrics.recordCandidateEvaluated(1);
 
             if (baseline == null) {
-                scored.add(new Scored(admitted.get(i), attempt, 0, transfer.getUserReadyAt()));
+                scored.add(new Scored(entry, attempt, 0));
                 continue;
             }
             int gainSec = (int) Duration.between(
                     attempt.eta().destinationEtaAt(), baseline.destinationEtaAt()).getSeconds();
             if (gainSec < properties.getRemainingPath().getMinimumEtaGainSeconds()) {
+                // 0/음수 절감 정류장이 여기서 사라진다 — 임계값이 0 보다 크므로 "조금 빨라지는"
+                // 자리도 함께 접힌다.
                 metrics.recordCandidateFiltered("gain-below-threshold");
                 continue;
             }
-            scored.add(new Scored(admitted.get(i), attempt, gainSec, transfer.getUserReadyAt()));
+            scored.add(new Scored(entry, attempt, gainSec));
         }
 
         if (baseline == null) {
@@ -325,12 +479,27 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
             Scored best = RerouteRanking.best(scored);
             return best == null
                     ? List.of()
-                    : List.of(toCandidate(best, waitLeg, false, context.now()));
+                    : List.of(toCandidate(best, false, context.now()));
         }
         // 개수 절단은 저장 쪽이 한다(maxCandidates). 여기서는 순서만 정한다 — 표준 규칙으로.
         return RerouteRanking.rank(scored).stream()
-                .map(entry -> toCandidate(entry, waitLeg, true, context.now()))
+                .map(entry -> toCandidate(entry, true, context.now()))
                 .toList();
+    }
+
+    /**
+     * 첫 승차까지의 여유가 임계보다 작은가 — <b>miss-risk 가드</b>.
+     *
+     * <p>걷기만으로 닿는 경로에는 탈 차가 없어 위험도 없다. 임계 0 이면 가드가 꺼진 것이다.
+     */
+    private boolean missesTransfer(Attempt attempt, Origin origin) {
+        int threshold = properties.getNextStop().getMissRiskMinSlackSec();
+        if (threshold <= 0 || attempt.estimate() == null) {
+            return false;
+        }
+        long slackSec = Duration.between(origin.departAt(), attempt.estimate().boardingAt())
+                .getSeconds();
+        return slackSec < threshold;
     }
 
     /**
@@ -340,11 +509,11 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
      * 있어야 한다. 풀이 포화면 그 자리에서 직접 돈다: 거절해 후보를 잃느니 조금 느린 편이 낫다
      * (예산 가드가 전체 대기를 여전히 막는다).
      */
-    private List<Attempt> overlayAll(List<Candidate> candidates, TransferConnection transfer,
-                                     RerouteContext context, Instant startedAt) {
+    private List<Attempt> overlayAll(List<Selected> candidates, RerouteContext context,
+                                     Instant startedAt) {
         List<CompletableFuture<Attempt>> futures = new ArrayList<>(candidates.size());
-        for (Candidate candidate : candidates) {
-            futures.add(overlayAsync(candidate, transfer, context, startedAt));
+        for (Selected candidate : candidates) {
+            futures.add(overlayAsync(candidate, context, startedAt));
         }
         List<Attempt> attempts = new ArrayList<>(futures.size());
         for (CompletableFuture<Attempt> future : futures) {
@@ -353,15 +522,15 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
         return attempts;
     }
 
-    private CompletableFuture<Attempt> overlayAsync(Candidate candidate, TransferConnection transfer,
-                                                    RerouteContext context, Instant startedAt) {
+    private CompletableFuture<Attempt> overlayAsync(Selected candidate, RerouteContext context,
+                                                    Instant startedAt) {
         try {
             return CompletableFuture.supplyAsync(
-                    () -> composeSafely(candidate, transfer, context, startedAt), overlayExecutor);
+                    () -> composeSafely(candidate, context, startedAt), overlayExecutor);
         } catch (RejectedExecutionException e) {
             // 풀이 가득 찼다. 후보를 버리지 않고 이 스레드에서 돈다.
             return CompletableFuture.completedFuture(
-                    composeSafely(candidate, transfer, context, startedAt));
+                    composeSafely(candidate, context, startedAt));
         }
     }
 
@@ -393,14 +562,16 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
      *
      * <p>바깥 {@code try/catch} 만 있으면 두 번째 후보에서 난 일시적 장애가 첫 후보까지 날린다.
      */
-    private Attempt composeSafely(Candidate candidate, TransferConnection transfer,
-                                  RerouteContext context, Instant startedAt) {
+    private Attempt composeSafely(Selected selected, RerouteContext context, Instant startedAt) {
         long remainingMs = remainingBudgetMs(startedAt);
         if (remainingMs <= 0) {
             return new Attempt(null, null, null, null, "budget-exhausted");
         }
         try {
-            return composer.compose(candidate.prepared(), transfer.getUserReadyAt(), context.now(),
+            // 앵커는 <b>그 자리의 출발 시각</b>이다. 중간 정류장에서 내리는 후보를 환승 준비
+            // 시각으로 재면 실제보다 이르거나 늦은 시각에 차를 물어보게 된다.
+            return composer.compose(selected.candidate().prepared(), selected.origin().departAt(),
+                    context.now(),
                     new BoardingChainEtaCalculator.Budget(remainingMs, interpreter.budgetMs()));
         } catch (Exception e) {
             log.warn("[JourneyReroute] 남은 구간 후보 평가 실패 journeyId={}: {}",
@@ -427,9 +598,9 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
      * 단계를 만들기 때문에, 요약만 저장하면 수락 시점에 다시 검색해야 하고 그때 다른 답이 나오면
      * 사용자가 고른 것과 다른 경로로 여정이 바뀐다.
      */
-    private RerouteCandidate toCandidate(Scored scored, JourneyLeg waitLeg,
-                                         boolean hasBaseline, Instant now) {
+    private RerouteCandidate toCandidate(Scored scored, boolean hasBaseline, Instant now) {
         Attempt attempt = scored.attempt();
+        Origin origin = scored.origin();
         BoardingChainEtaCalculator.Result eta = attempt.eta();
         BoardingEstimate estimate = attempt.estimate();
         // 이제 모든 대기를 예측하므로 "뒤에 대기가 남아 있다"는 이유로 낮추지 않는다. 대신
@@ -440,8 +611,10 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
                 : CurrentLegArrival.Quality.APPROXIMATE.name();
 
         return new RerouteCandidate(null, RerouteProposalKind.REMAINING_PATH,
-                new RerouteCandidateApply.RemainingPathApply(waitLeg.getLegIndex(),
-                        scored.candidate().path()),
+                // origin 은 중간 하차 후보에만 실린다. 계획 하차점 후보는 null 이고, 그것이
+                // 그대로 옛 뜻(leg 경계부터 교체)이라 수락 경로가 안 바뀐다.
+                new RerouteCandidateApply.RemainingPathApply(origin.fromLegIndex(),
+                        scored.candidate().path(), origin.applyOrigin()),
                 new RerouteCandidateDisplay(
                         eta.destinationEtaAt(),
                         (int) Math.max(0, Duration.between(now, eta.destinationEtaAt()).getSeconds()),
@@ -451,7 +624,9 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
                         sourceTag(estimate),
                         confidence,
                         attempt.observedAt(),
-                        summaries(scored.candidate().prepared())));
+                        summaries(scored.candidate().prepared()),
+                        new RerouteCandidateDisplay.AlightStop(origin.stopId(), origin.stopName(),
+                                origin.alightAt(), origin.planned())));
     }
 
     /** 걷기만으로 닿는 경로에는 예측이 없다. 실시간도 모델도 아니므로 정적 값이라고 말한다. */
@@ -500,16 +675,46 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
     private record Candidate(PathResult path, Prepared prepared) {
     }
 
+    /**
+     * 재탐색을 시작할 <b>한 자리</b>. 계획 하차점과 주행 중 중간 정류장이 같은 모양이라 공급자가
+     * 같은 절차를 돌 수 있다.
+     *
+     * @param alightAt     그 정류장에 내리는 시각(화면 값)
+     * @param departAt     검색·승차 예측의 기준 시각(= 내린 뒤 걸어갈 시간까지 더한 값)
+     * @param fromLegIndex 수락 시 여기부터 교체한다. 중간 정류장이면 <b>주행 중인 단계</b>다
+     * @param applyOrigin  중간 하차 후보에만 실리는 원점. 계획 하차점이면 null(= 옛 동작)
+     */
+    private record Origin(String stopId, String stopName, Waypoints waypoints, Instant alightAt,
+                          Instant departAt, int fromLegIndex, RerouteOrigin applyOrigin,
+                          boolean planned) {
+    }
+
+    /** 그 자리에서 고른 <b>하나</b>의 경로. overlay 는 이것에만 나간다. */
+    private record Selected(Origin origin, Candidate candidate) {
+    }
+
+    /** overlay 전 시간표 값으로 줄을 세우기 위한 짝. */
+    private record ScheduledCandidate(Candidate candidate, RerouteRanking.Scheduled scheduled) {
+    }
+
     /** 지금 경로의 기준값. {@code waitsAfterFirst} 는 환승 수 관문에 쓴다. */
     private record Baseline(Instant destinationEtaAt, int waitsAfterFirst) {
     }
 
     /**
      * 평가를 마친 후보. 줄 세우기 값은 {@link RerouteRanking} 이 읽는다 — 정렬 규칙을 여기서 다시
-     * 쓰지 않는 이유는 ③·④·(PR-2 의) 정류장 목록이 <b>같은 순서 규칙</b>을 써야 하기 때문이다.
+     * 쓰지 않는 이유는 ③·④·정류장 목록(PR-2)이 <b>같은 순서 규칙</b>을 써야 하기 때문이다.
      */
-    private record Scored(Candidate candidate, Attempt attempt, int gainSec, Instant anchorAt)
+    private record Scored(Selected selected, Attempt attempt, int gainSec)
             implements RerouteRanking.Ranked {
+
+        Origin origin() {
+            return selected.origin();
+        }
+
+        Candidate candidate() {
+            return selected.candidate();
+        }
 
         @Override
         public Instant destinationEtaAt() {
@@ -518,7 +723,7 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
 
         @Override
         public int transferCount() {
-            return candidate.prepared().transferCount();
+            return candidate().prepared().transferCount();
         }
 
         @Override
@@ -530,10 +735,11 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
         @Override
         public int slackSec() {
             BoardingEstimate first = attempt.estimate();
-            if (first == null || anchorAt == null) {
+            if (first == null || origin().departAt() == null) {
                 return 0;
             }
-            return (int) Math.max(0, Duration.between(anchorAt, first.boardingAt()).getSeconds());
+            return (int) Math.max(0,
+                    Duration.between(origin().departAt(), first.boardingAt()).getSeconds());
         }
     }
 }

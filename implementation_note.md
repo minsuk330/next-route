@@ -2574,3 +2574,48 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `flyway_schema_history` 상위 4행 = 52·51·50·49 전부 `success=true`.
 - `docker ps`: `nextroute-api-1`·`nextroute-worker-1` 둘 다 `(healthy)`.
 - 재탐색은 여전히 flag off — 이 배포로 사용자에게 보이는 변화는 없다(스키마·코드만 준비된 상태).
+
+## 2026-09-19 journey-reroute-nextstop PR-2 — 원점 창 + 정류장 축 목록
+
+### 확정
+- **PLAN 의 "계획 하차점 fresh search 안 함"을 좁게 읽었다**: 다시 검색하지 않는 것은 **기준선**(저장된 계획을 overlay 해서 잰다)이고, 계획 하차 **정류장 자체는 원점으로 남긴다**. 근거 = 그 자리를 빼면 ④(환승 정류장 발 재검색)와 ③(같은 정류장 다른 노선)이 **둘 다** 사라지는데, ③은 폐기가 아니라 이 작업이 **흡수**하기로 한 기능이다. 스펙(2026-09-11) 의 창 정의도 "…~ 원래 계획 하차 정류장까지"라 정류장을 포함한다.
+- **계획 하차 always 는 resolver 가 아니라 공급자가 든다.** `UpcomingStopWindowResolver` 는 **중간 정류장만** 돌려준다 — 그 자리는 이미 환승 대기 원점(`waitLeg.startStopId` + `userReadyAt`)으로 공급자에 있고, 두 곳에서 만들면 같은 정류장이 목록에 두 번 나온다.
+- **내 위치 = 앱이 보낸 `remainingStops`**(`journey_leg.remaining_stops`, 관측 180초 이내). 하차 순번에서 그만큼 뺀 값이 지금 지난 정류장이다. 그 값이 없거나 낡으면 **창을 아예 열지 않는다**(= 계획 하차점 하나로 도는 옛 동작). 지나간 정류장을 앞으로 올 정류장으로 착각하면 제안대로 못 내린다.
+- **내 차 고르기 = 도착 정보의 `sectionOrder`**. 서버는 사용자가 탄 차량을 모른다(버스엔 지하철 같은 열차 바인딩이 없다). 그래서 정류장마다 오는 한두 대 중 `sectionOrder ∈ {currentSeq, currentSeq+1}` 인 차를 내 차로 본다. 한 번 잡으면 그 뒤 정류장부터는 **같은 `vehicleId` 만** 받는다(구간 순번은 밀리지만 차량 번호는 안 밀린다).
+  - **비대칭은 의도**: 내 **앞**의 차를 잘못 잡으면 도착이 이르게 나와 자리가 버려지거나 조금 이른 시각을 말할 뿐이다. 내 **뒤**의 차를 잡으면 도착이 늦게 나와 "아직 여유 있다"가 되고 사용자가 내릴 곳을 지나친다. 그래서 `currentSeq` 미만은 절대 안 받는다.
+- **도착 시각 = `dataTimestamp` + `sectionTime`**(`RealtimeArrivalCalculator`·`SingleTransferPredictor` 와 같은 규칙). `predictTime`(exps) 이 아니다 — 이 저장소는 `sectionTime1/2`(traTime)를 도착 소요로 쓰기로 이미 정해져 있다.
+- **정류장당 후보 하나**. overlay 전에 **시간표 소요**로 줄을 세워(`RerouteRanking.Scheduled`) 그 자리의 최선 하나만 예측을 태운다. 화면의 축이 하차 정류장이라 어차피 한 줄만 나가고, overlay 는 대기 수만큼 예측을 부른다.
+- **응답은 중첩하지 않는다.** 정류장당 후보가 하나뿐이라 후보마다 `display.alight{stopId,name,alightAt,planned}` 를 달고 앱이 그것으로 구역을 나눈다. 그룹 자료구조를 만들면 껍데기만 한 겹 는다.
+- **제안 자체의 origin(저장 키)은 그대로 TRANSFER_WAIT** 이다(`RerouteProposalTxService` 가 `context.transferIndex` 로 푸는 값). 한 제안이 **여러 자리의 후보**를 담으므로 제안 단위 origin 은 "어느 환승을 구하려는 제안인가"로 남고, "어디서 내리는가"는 **후보의** `apply.origin` 이 든다. stage5 의 여정당 unique·stillCurrent 는 그대로 맞는다.
+- **`apply.origin` 은 중간 하차 후보에만 실린다.** 계획 하차점 후보는 null 이고 그것이 그대로 옛 뜻(leg 경계부터 교체)이라 composer·수락 경로가 안 바뀐다. 중간 후보의 `fromLegIndex` 는 **주행 중인 leg** 이고 `origin.legIndex` 와 같다 — PR-C 가드(`origin.legIndex() == apply.fromLegIndex()`)가 요구하는 값이다.
+- **원점끼리 검색을 병렬로 돌린다**(`rerouteOverlayExecutor` 재사용, size 4). 자리 하나가 검색 한 번(최대 3s)이라 순차로 돌리면 여섯 자리에서 분 단위가 된다. 풀 포화면 부르는 스레드에서 실행(자리를 잃느니 느린 편이 낫다).
+- **지금 타고 있는 노선도 `same-as-current` 로 거른다.** 예전에는 갈아타려던 노선만 봤는데, 중간에 내려 **같은 버스를 다시 타는** 후보가 생길 수 있다.
+
+### 함정
+- **④의 후보 수 계약이 바뀐다**: 예전에는 한 정류장에서 최대 `max-paths`(4) 개가 후보로 나왔는데, 이제 **정류장당 1개**다. 창이 안 열리는 상황(위치 모름·실시간 없음·지하철 주행)에서는 후보가 **하나**만 나온다. 기존 테스트 3개가 이 전제를 못박고 있어 함께 고쳤다(`trimsToMaxPaths`·`withoutBaselineOnlyEarliestSurvives`·`ordersByTheStandardRanking`).
+- **`max-paths` 의 뜻이 옮겨갔다**: "평가(overlay)할 경로 수"가 아니라 "**쪼개서 줄 세울** 경로 수"다. 유료 overlay 는 그중 하나에만 나간다.
+- **원점 여섯 자리 = OTP 검색 여섯 번**(병렬). `OtpConcurrencyGate` 는 검색과 합산이라 재탐색 한 건이 사용자 검색 슬롯을 밀어낼 수 있다. 포화면 그 자리만 빈손이 되고 제안은 계속 나가지만, **라이브에서 gate 포화율을 보고 `max-origins` 를 조일 것**(미결).
+- **`remainingStops` 는 앱이 보낸 값이다**(서버가 재판정하지 않는 계약, `JourneyProgressCommand`). 앱이 그 값을 안 보내면 이 기능 전체가 조용히 옛 동작으로 떨어진다 — 지표 `journey.reroute.origin.window{outcome=no-progress}` 가 그것을 말한다.
+- **ODSAY provider 에서는 미래 출발이 먹지 않는다**(API 에 출발 시각 칸 없음). 중간 정류장 후보의 시각 근거가 약해지므로, 이 기능을 켜는 것은 provider=OTP 전제다.
+
+### 좌표
+- 신규: `application/journey/dto/RerouteOriginStop.java`, `application/journey/service/UpcomingStopWindowResolver.java`
+- 변경: `RemainingRouteSearchService`(`search(..., departAt)` 오버로드 + OTP 질의 출발시각), `RemainingPathCandidateProvider`(원점 목록·자리별 검색 병렬·시간표 상위 1·miss-risk·`apply.origin`·`display.alight`), `RerouteCandidateDisplay`(`AlightStop` 추가 + 옛 생성자 유지), `JourneyRerouteProperties`(`NextStop` 블록 + validate), `JourneyRerouteMetrics`(`journey.reroute.origin.window` + 사유 `miss-risk`)
+- 테스트: `UpcomingStopWindowResolverTest`(신규 10), `RemainingPathCandidateProviderTest`(15→20), `RemainingRouteSearchServiceTest`(5→7)
+
+### 배포
+- **마이그레이션 없음.** 새 설정 키는 전부 기본값이 있어 배포 파일 수정 불필요.
+- 재탐색은 여전히 flag off → 프로덕션 영향 0. 켤 때 볼 지표 = `journey.reroute.origin.window{outcome}`(특히 `no-realtime`·`no-progress` 비율 = 이 기능의 커버리지)와 `candidate.filtered{reason=miss-risk}`.
+
+### 검증
+- `UpcomingStopWindowResolverTest` **10/10**(창·리드타임·계획하차 제외·실시간 없음 제외·뒤차 거부·낡은 관측·`remainingStops` 없음·지하철·PENDING·상한·off).
+- `RemainingPathCandidateProviderTest` **20/20**(신규 5: 중간 정류장 원점+도달시각 검색·계획 하차점 옛 모양·miss-risk·주행 노선 거르기·정류장당 overlay 1).
+- `RemainingRouteSearchServiceTest` **7/7**(신규 2: departAt 전달·지난 출발은 현재로).
+- **뮤테이션 2건**: ①내 차 고르기를 `sectionOrder <= currentSeq+1` 로 넓히자 뒤차 테스트 FAILED ②시간표 상위 1 대신 검색 순서 첫 번째를 고르자 overlay 테스트 FAILED. 둘 다 되돌림.
+- 전체 `application.journey.*` → **1007 tests, 1 failed** = `JourneyTransferAssessmentIT`(clean main 동일 실패, 기존 무관). `application.route.*` + `adapter.in.api.journey.*` 전부 green.
+- **Postgres IT 실제 실행**: `RerouteAcceptIT` 10·`RerouteProposalStoreIT` 16·`RerouteProposalExpiryIT` 4·`JourneyRerouteProposalSchemaIT` 5 → 전부 green(저장 JSON 에 새 칸이 늘어도 왕복이 깨지지 않는지 확인).
+
+### 미결
+- **원점 수 ↔ OTP gate**: `max-origins=6` 이 라이브에서 검색 슬롯을 얼마나 먹는지 미실측. 포화율 보고 조정.
+- **차량 식별**: `sectionOrder` 매칭은 근사다. `getBusPosByRtid` 로 노선 전체 위치를 한 번 받아 내 차를 먼저 확정하는 편이 정확하지만 호출이 하나 더 는다 — 커버리지 지표를 보고 판단.
+- **PR-3(알림)이 붙기 전까지 이 목록은 pull 로만 보인다.** 트리거·validate·응답 3갈래는 다음 PR.

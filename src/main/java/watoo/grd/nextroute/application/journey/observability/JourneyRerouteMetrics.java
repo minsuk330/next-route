@@ -30,6 +30,7 @@ public class JourneyRerouteMetrics {
     public static final String CANDIDATE_FILTERED = "journey.reroute.candidate.filtered";
     public static final String REMAINING_SEARCH = "journey.reroute.remaining.search";
     public static final String REMAINING_PATHS = "journey.reroute.remaining.paths";
+    public static final String ORIGIN_WINDOW = "journey.reroute.origin.window";
 
     /** 판정이 내려 준 사유를 그대로 태그에 쓰지 않기 위한 접기 값. */
     static final String UNKNOWN_REASON = "unknown";
@@ -53,7 +54,21 @@ public class JourneyRerouteMetrics {
             "same-as-current", "no-direction", "unresolved-route", "more-transfers",
             // overlay 체인(PR-1): 첫 대기가 아니라 <b>그 뒤 대기</b>를 못 풀어 버린 후보.
             // no-prediction 과 묶으면 "체인을 켜서 제외가 늘었다"를 못 읽는다.
-            "boarding-unresolved");
+            "boarding-unresolved",
+            // 원점 창(PR-2): 내려서 곧바로 뛰어 타야 하는 후보. 방금 놓칠 뻔한 환승을 한 번 더
+            // 겪게 하지 않으려고 뺀다. gain-below-threshold 와 묶으면 "여유가 없어 뺐다"가 안 보인다.
+            "miss-risk");
+
+    /**
+     * 원점 창이 정류장 하나를 어떻게 처리했는지(PR-2).
+     *
+     * <p><b>후보가 아니라 자리의 사유다.</b> {@link #CANDIDATE_FILTERED} 는 "경로를 버렸다"이고
+     * 이쪽은 "그 정류장에서는 검색조차 안 했다"인데, 둘을 뭉치면 실시간 커버리지 문제(원점이 안
+     * 열린다)와 경로 품질 문제(후보가 안 남는다)를 구분할 수 없다.
+     */
+    private static final Set<String> KNOWN_ORIGIN_OUTCOMES = Set.of(
+            "admitted", "no-progress", "stale-progress", "ambiguous-stop", "position-out-of-range",
+            "no-realtime", "below-lead-time", "arrival-blocked");
 
     /** 경로 검색 한 번의 결말. <b>{@code cache-hit} 비율이 ④의 요금을 결정한다.</b> */
     private static final Set<String> KNOWN_SEARCH_OUTCOMES = Set.of(
@@ -160,6 +175,21 @@ public class JourneyRerouteMetrics {
      * <p>둘을 함께 세야 상한(max-paths)이 실제로 무엇을 자르고 있는지 보인다. 평가 수만 두면
      * "경로가 원래 하나였다"와 "다섯 개 중 둘만 봤다"가 같은 숫자가 된다.
      */
+    /**
+     * 주행 중 하차 후보 자리 하나의 결말.
+     *
+     * <p>{@code no-realtime} 비율이 이 기능의 커버리지다 — 실시간이 안 잡히는 정류장은 시간표로
+     * 폴백하지 않고 그냥 뺀다(사용자 결정). 그 값이 높으면 창이 비어 제안 자체가 안 나간다.
+     *
+     * @param outcome {@code admitted} · {@code no-progress} · {@code stale-progress} ·
+     *                {@code ambiguous-stop} · {@code position-out-of-range} · {@code no-realtime} ·
+     *                {@code below-lead-time} · {@code arrival-blocked}
+     */
+    public void recordOriginWindow(String outcome) {
+        registry.counter(ORIGIN_WINDOW, "outcome",
+                KNOWN_ORIGIN_OUTCOMES.contains(outcome) ? outcome : UNKNOWN_REASON).increment();
+    }
+
     public void recordRemainingPaths(int given, int evaluated) {
         if (given > 0) {
             registry.counter(REMAINING_PATHS, "stage", "given").increment(given);
