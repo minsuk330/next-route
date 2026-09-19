@@ -48,11 +48,13 @@
 ### PR-B (기반) — 원점 de-transferIndex (expand→backfill→dual→cutover)
 의존: 없음(PR-A 병렬).
 - [x] 신규 `RerouteOrigin{legIndex, stopId, routeId, seq, kind{TRANSFER_WAIT, RIDE_INTERIOR}}` — **서울 좌표계**(위 "좌표계 둘" 참고, 원안의 `(trip,seq,occ)+stopGtfsId` 는 취소). 서버 파생(클라 좌표 안 받음). `routeId`/`seq` 가 없으면 실시간 조회 불가 → **그 원점은 후보에서 제외**.
-- [ ] **1 확장**: `reroute_proposal` 에 nullable origin 컬럼 + 포맷/버전 discriminator, `transfer_index NOT NULL`·기존 unique 유지. (JPA primitive int 라 선 nullable 금지.)
-- [ ] **2 백필**: 옛 proposal ⋈ `transfer_connection`(toLegIndex:54) 로 증명가능한 것만. 유일매핑 실패=legacy 유지(가짜 seq 금지).
-- [ ] **3 이중 쓰기/읽기**: TRANSFER_WAIT 는 둘 다 씀, 읽기 origin 우선·옛행 transfer_index 폴백. `request(...int)` 호환 shim. `stillCurrent`·supersede·조회·cooldown 키·트리거·뷰·수락 **전부 canonical origin 키**로 이동(`RerouteProposalTxService`:95 포함).
-- [ ] **4 candidate 봉투 버전**: `RemainingPathApply`(fromLegIndex+PathResult 뿐, `RerouteCandidateApply`:80) 에 origin/stop-occurrence 담는 호환 서브타입.
+- [x] **1 확장**: `reroute_proposal` 에 nullable origin 컬럼(V50) + 버전 discriminator(별도 컬럼 아니라 `RerouteOriginEnvelope` 봉투 안 — `candidates` 가 이미 쓰는 방식 재사용), `transfer_index NOT NULL`·기존 unique 유지. (JPA primitive int 라 선 nullable 금지.)
+- [~] **2 백필**: **안 한다(2026-09-18 결정)**. 막아 줄 사고가 없다 — ③의 폴백(origin 없으면 transfer_index)과 ⑤의 "TTL+sweep 대기 후 옛 컬럼 제거" 두 겹으로 전환 구간이 이미 덮인다. 게다가 `transfer_connection` 에는 leg 번호뿐이라 tripId/정류장을 못 주고, `journey_revision.route_snapshot` JSON 을 과거 포맷까지 파싱해야 해서 비용도 크다(flag off 라 살아있는 행도 없음).
+- [x] **3 이중 쓰기/읽기**: TRANSFER_WAIT 는 둘 다 씀(`RerouteOriginResolver`), 읽기 origin 우선·옛행 transfer_index 폴백(모르는 봉투 판은 없는 것으로). **`request(...int)` shim 은 보류** — origin 으로 부르는 진입점이 아직 없어 shim 할 대상이 없다(PR-2/PR-4 와 함께).
+- [x] **4 candidate 봉투**: `RemainingPathApply` 에 nullable `origin` 필드 추가. **새 하위타입이 아니라 record 에 칸 추가**(`RouteOptionApply` 선례) — origin 은 "다른 종류의 후보"가 아니라 같은 종류의 추가 정보라 `kind` 축을 늘릴 일이 아니다. 옛 저장 JSON 은 null 로 읽히고 그게 옛 동작이다.
 - [ ] **5 컷오버**: 충돌 ACTIVE 정리→**여정당 unique** 신규 생성→origin-only 배포→TTL(5분)+sweep 여유→옛 인덱스/컬럼 제거. **V번호 신규**, VPS 수동배치 + @Sql 3곳.
+  - **③에서 옮겨온 것 — 키 이동 전부**(`stillCurrent`·`supersedeActive`·조회·cooldown 키·트리거·수락). 이유 = **부분 unique 인덱스(자리의 정의)와 supersede(자리 비우기)는 짝**이고 지금 둘 다 `(journey_id, transfer_index)` 로 맞아 있다. 여기만 먼저 바꾸면 ⓐ여정 기준 → 아직 살아야 할 다른 환승 제안까지 죽거나(현 IT `differentTransfersCoexist` 가 고정한 동작), ⓑorigin 기준 → origin 이 null 인 행을 못 밀어내는데 인덱스는 여전히 transfer_index 라 **새 insert 가 unique 위반으로 튕긴다**. ⑤는 인덱스 교체와 코드 교체가 같은 배포라 어긋나는 창이 없다.
+  - 🔴 이 오류는 **테스트로 안 잡힌다**: 재탐색은 flag off 라 프로덕션에 티가 안 나고, 이 경로는 Postgres IT 로만 도는데 이 저장소엔 CI 가 없다.
 - 검증: origin 왕복(TRANSFER_WAIT 무회귀), 이중읽기 폴백, 공개 API 컨트롤러 테스트, 마이그레이션 IT, 여정당 unique.
 
 ### PR-C (기반) — composer 중간 절단 합성
