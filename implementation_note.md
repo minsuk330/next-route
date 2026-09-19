@@ -2418,3 +2418,19 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결
 - PR-4 가 채울 것: `alightStationIndex` 해석(서울 origin → 스냅샷 정류장 위치), `rideSeconds` 실시간 산출, `truncatedLegIndex` 특수분기(copy+trim, progress 보존), 초 단위 `plannedDurationSec`.
 - `RerouteAcceptTxService.saveRouteOptions` 는 `legIndex < fromLegIndex` 로 복제/신규를 가른다 — 잘린 주행 단계는 `== fromLegIndex` 라 신규 쪽으로 떨어진다. 주행 단계는 노선 후보를 안 가져서(후보는 대기 단계 소유) 지금은 무해하지만 PR-4 가 확인할 것.
+
+## 2026-09-19 PR-C 후속 — PR-B stage3 가 깨뜨린 두 IT 복구 (같은 PR, 별도 커밋)
+
+### 확정
+- `RerouteProposalStoreIT`·`RerouteProposalExpiryIT` 가 `@DataJpaTest` 라 **컴포넌트 스캔이 없다** — `@Import` 에 적힌 빈만 산다. PR-B stage3 가 `RerouteProposalTxService` 생성자에 `RerouteOriginResolver` 를 추가했는데 두 `@Import` 목록을 안 늘려 `initializationError`(No qualifying bean). 프로덕션은 `@Component` 스캔이라 무관.
+- **빈만 넣으면 그다음에 또 깨진다**: 두 IT 의 `@Sql` 체인이 V43 에서 끝나는데 `RerouteProposal` 엔티티는 이제 `origin` 컬럼을 매핑한다 → **V50 도 같이 넣어야** 한다(`JourneyRerouteProposalSchemaIT` 는 stage1 에서 이미 넣어둔 것과 같은 조치). 한 증상을 고치면 바로 다음 증상이 나오는 짝이라 **둘을 한 커밋으로** 처리.
+
+### 함정 (앞선 기록 정정)
+- **~~"이 샌드박스엔 Postgres/Docker 가 없어 Postgres IT 로컬 실행 불가"~~ 취소(2026-09-19 실측)**: 지금은 붙는다. 같은 명령이 실제로 초록불로 돌았다(아래 검증 — Store 13, Expiry 4, Accept 10, Schema 5). PR-A/PR-B 세션의 "기존 무관: Connection refused" 라벨은 **그 시점의 환경 상태**였을 뿐이고, 그 라벨을 관례로 굳혀 Postgres IT 를 안 돌리면 이번 같은 배선 파손이 계속 안 잡힌다. **매 세션 한 번은 실제로 돌려 확인할 것.**
+
+### 좌표
+- 변경: `test/.../application/journey/RerouteProposalStoreIT.java`(`@Import` 에 `RerouteOriginResolver` + `@Sql` 에 V50), `test/.../application/journey/RerouteProposalExpiryIT.java`(동일)
+
+### 검증
+- `./gradlew test --tests "*RerouteProposalStoreIT*" --tests "*RerouteProposalExpiryIT*"` → **13/13, 4/4 green**(수정 전 둘 다 initializationError).
+- `./gradlew test --tests "*RerouteAcceptIT*" --tests "*JourneyRerouteProposalSchemaIT*"` → **10/10, 5/5 green** — PLAN PR-C 의 "⑤ 무회귀(RerouteAcceptIT)" 를 실제 Postgres 로 충족(이연 아님).
