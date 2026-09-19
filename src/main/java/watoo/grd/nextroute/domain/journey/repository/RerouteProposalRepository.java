@@ -50,6 +50,17 @@ public interface RerouteProposalRepository extends JpaRepository<RerouteProposal
     int acceptIfActive(@Param("id") Long id, @Param("candidateId") String candidateId,
                        @Param("now") Instant now, @Param("auditNow") LocalDateTime auditNow);
 
+    /**
+     * 이 제안으로 <b>알림이 나갔다</b>고 표시한다(PR-3).
+     *
+     * <p>저장 시점이 아니라 <b>알림 행이 실제로 생긴 뒤</b> 찍는다. 보낼 채널이 없어(push 토큰
+     * 0건) 알림이 한 건도 안 나간 제안까지 표시하면, 사용자가 받지도 못한 알림이 무응답으로
+     * 세어 그 여정의 알림 상한을 스스로 깎는다.
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query("update RerouteProposal p set p.alerted = true where p.id = :id and p.alerted = false")
+    int markAlerted(@Param("id") Long id);
+
     /** 여정의 살아 있는 제안 전부. 조회 진입점이 환승 번호 없이 "지금 뜬 제안"을 물을 때 쓴다. */
     Optional<RerouteProposal> findFirstByJourneyIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
             Long journeyId, RerouteProposalStatus status);
@@ -111,25 +122,82 @@ public interface RerouteProposalRepository extends JpaRepository<RerouteProposal
                         @Param("auditNow") LocalDateTime auditNow);
 
     /**
-     * 만료된 {@code ACTIVE} 를 batch 크기만큼 접는다(배치 sweep).
+     * 이번 배치에서 접을 행들을 <b>잡아 둔다</b>(배치 sweep 1/2).
      *
-     * <p>{@code SKIP LOCKED} 라 두 인스턴스가 같은 행을 잡지 않는다. lazy 전이와 이유를
-     * 가른다({@code ttl-sweep}) — 이쪽이 대부분이면 사용자가 제안을 보지 못하고 있다는 뜻이다.
+     * <p>{@code SKIP LOCKED} 라 두 인스턴스가 같은 행을 잡지 않는다. 고르기와 접기를 두 문장으로
+     * 가른 이유는 <b>무응답 집계</b> 때문이다(PR-3) — 서버가 먼저 알린 제안이 답 없이 만료되면
+     * 그 여정의 카운터가 올라야 하는데, 한 문장으로 접어 버리면 어느 여정이 몇 건이었는지를
+     * 되돌려 받을 방법이 없다. 잠금을 쥔 채 같은 트랜잭션에서 접으므로 두 문장의 집합은 같다.
+     *
+     * @return {@code [id, journeyId, alerted]} 행들
+     */
+    @Query(value = """
+            SELECT id, journey_id, alerted FROM reroute_proposal
+             WHERE status = 'ACTIVE' AND deleted_at IS NULL
+               AND expires_at <= :now
+             ORDER BY expires_at
+             LIMIT :batchSize
+             FOR UPDATE SKIP LOCKED
+            """, nativeQuery = true)
+    List<Object[]> lockDueBatch(@Param("now") Instant now, @Param("batchSize") int batchSize);
+
+    /**
+     * 잡아 둔 행을 접는다(배치 sweep 2/2).
+     *
+     * <p>lazy 전이와 이유를 가른다({@code ttl-sweep}) — 이쪽이 대부분이면 사용자가 제안을 보지
+     * 못하고 있다는 뜻이다.
      */
     @Modifying(clearAutomatically = false)
     @Query(value = """
             UPDATE reroute_proposal
                SET status = 'EXPIRED', resolved_at = :now,
                    resolved_reason = 'ttl-sweep', updated_at = :auditNow
-             WHERE id IN (SELECT id FROM reroute_proposal
-                           WHERE status = 'ACTIVE' AND deleted_at IS NULL
-                             AND expires_at <= :now
-                           ORDER BY expires_at
-                           LIMIT :batchSize
-                           FOR UPDATE SKIP LOCKED)
+             WHERE id IN (:ids)
+               AND status = 'ACTIVE' AND deleted_at IS NULL
             """, nativeQuery = true)
-    int expireDueBatch(@Param("now") Instant now, @Param("batchSize") int batchSize,
-                       @Param("auditNow") LocalDateTime auditNow);
+    int expireByIds(@Param("ids") Collection<Long> ids, @Param("now") Instant now,
+                    @Param("auditNow") LocalDateTime auditNow);
+
+    /**
+     * 서버가 먼저 알렸는데 답 없이 만료될 제안 수(lazy 전이용, PR-3).
+     *
+     * <p>{@code resolveStale} <b>앞에서</b> 센다 — 그 문장이 상태를 바꾸고 나면 어떤 행이
+     * 무응답이었는지 알 수 없다. 개정본이 다른 행은 세지 않는다: 그것은 사용자가 무시한 것이
+     * 아니라 경로가 바뀌어 무의미해진 제안이다({@code route-changed}).
+     */
+    @Query(value = """
+            SELECT count(*) FROM reroute_proposal
+             WHERE journey_id = :journeyId
+               AND status = 'ACTIVE' AND deleted_at IS NULL
+               AND alerted = true
+               AND route_revision = :currentRevision
+               AND expires_at <= :now
+            """, nativeQuery = true)
+    int countUnansweredDue(@Param("journeyId") Long journeyId,
+                           @Param("currentRevision") int currentRevision,
+                           @Param("now") Instant now);
+
+    /**
+     * 사용자가 제안을 닫았다(PR-3 알림 계약). {@code ACTIVE} 일 때만 바뀐다.
+     *
+     * <p>한 문장인 이유는 <b>멱등</b> 때문이다. 같은 요청이 두 번 와도 두 번째는 0행이라, 부르는
+     * 쪽이 "이미 닫힌 제안"과 "방금 닫은 제안"을 행 수로 가른다 — 무응답 카운터를 두 번 올리지
+     * 않으려면 그 구분이 필요하다.
+     *
+     * @param status {@code REJECTED}(싫다) 또는 {@code DISMISSED}(무응답)
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query(value = """
+            UPDATE reroute_proposal
+               SET status = :status, resolved_at = :now,
+                   resolved_reason = :reason, updated_at = :auditNow
+             WHERE id = :id
+               AND journey_id = :journeyId
+               AND status = 'ACTIVE' AND deleted_at IS NULL
+            """, nativeQuery = true)
+    int closeIfActive(@Param("id") Long id, @Param("journeyId") Long journeyId,
+                      @Param("status") String status, @Param("reason") String reason,
+                      @Param("now") Instant now, @Param("auditNow") LocalDateTime auditNow);
 
     /**
      * 여정 종료 시 살아 있는 제안을 접는다.

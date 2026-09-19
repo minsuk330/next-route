@@ -29,7 +29,13 @@ public interface RerouteCooldownPort {
         /** 주기 평가의 방아쇠(shadow). 발생률 측정용. */
         TRIGGER,
         /** 사용자가 "다시 찾아줘"를 누른 경로. 실제 외부 호출이 나간다. */
-        REQUEST
+        REQUEST,
+        /**
+         * 서버가 먼저 알리는 경로(PR-3). <b>간격이 다르다</b> — 이 잠금이 지키는 것은 외부 호출이
+         * 아니라 <b>사용자의 주머니</b>라, 방아쇠·요청과 같은 값을 쓰면 알림 피로가 관측 주기에
+         * 끌려다닌다({@code journey.reroute.alert.cooldown}, 기본 5분).
+         */
+        ALERT
     }
 
     /**

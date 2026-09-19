@@ -91,12 +91,14 @@
 
 ### PR-3 — 알림 계약
 의존: PR-2, PR-B.
-- [ ] 트리거: 환승 위험 + 개선폭 ≥ 300s & 최선 하차점 ≥ T_min → 발행(능동, pull 유지).
-- [ ] 스냅샷 = `reroute_proposal` 재사용(PR-B origin, TTL 5분). push 한 줄 신호. pull = 항목별 `validate`(지나감 제거, 전멸 시 1회 재계산).
-- [ ] **신규 엔드포인트**: reject(+opt-in 플래그)·dismiss/ignore. **멱등 규칙**. 응답 3갈래: 수락→`reroute_terminated=true`. 거절+미체크→`reroute_terminated=true`. 거절+체크→`reroute_alert_opt_in=true`. 무시→여정당 카운트.
-- [ ] **무응답 durable 집계**: Redis TTL(:38) 로 안 됨 → 여정당 "무응답 2회 + 새/악화 에피소드" 상태를 durable(DB/proposal 이력)로. cooldown 5분.
-- [ ] 마이그레이션 V__: `journey` 에 `reroute_terminated`·`reroute_alert_opt_in`(default false) [+ 무응답 카운트 컬럼 필요 시]. VPS 수동배치 + @Sql 3곳.
-- [ ] 계약 수정 기록: "알림은 서버 먼저, 변경은 사용자만".
+- [x] 트리거: 환승 위험 → 신규 `RerouteAlertPublisher` 가 받아 **개선폭 ≥ 300s(`alert.minimum-gain-seconds`) & 최선 하차점 ≥ T_min** 일 때만 발행(능동, pull 유지). 스위치 `journey.reroute.alert.enabled`(기본 꺼짐) — 꺼져 있으면 방아쇠는 예전처럼 세기만 한다(shadow).
+  - **순서가 계약**: 스위치 → 여정 상태(종료·무응답 상한) → cooldown(5분, `Scope.ALERT`) → **후보 생성** → 문턱 → 리드타임 → 채널. cooldown 을 후보 생성 **앞**에 둔 이유 = 어차피 안 보낼 알림에 OTP·실시간·ML 을 쓰지 않는다. 채널이 0이면 **저장도 안 한다**(아무도 못 볼 제안이 여정당 하나뿐인 자리를 5분 막는다).
+- [x] 스냅샷 = `reroute_proposal` 재사용(origin, TTL **5분** = `alert.snapshot-ttl`, 사용자 요청 제안의 2분과 별도). push 한 줄 신호 = 신규 체크포인트 `REROUTE_SUGGESTED`(scope=JOURNEY, scopeId=**proposalId**). pull = 조회 시 `validate`(하차점이 리드타임 미만이면 후보 제거, 전멸이면 제안을 `all-passed` 로 접음).
+  - **정정**: "전멸 시 1회 재계산"은 **안 넣었다**. 조회 경로에 재검색을 넣으면 화면 열기가 OTP 호출이 되고, 그 자리는 transferIndex 를 되찾아야 해서 주소를 역추적하는 코드가 하나 더 생긴다. 다시 찾는 것은 다음 방아쇠나 사용자의 "다시 찾아줘"가 한다(미결로 기록).
+- [x] **신규 엔드포인트**: `POST .../{proposalId}/reject`(본문 `keepAlerts`, 없으면 false)·`POST .../{proposalId}/dismiss`. **멱등**(ACTIVE 일 때만 전이하는 한 문장, 재전송은 200+`closed:false`). 응답 3갈래: 수락→`reroute_terminated=true`(`RerouteAcceptTxService`). 거절+미체크→`reroute_terminated=true`. 거절+체크→`reroute_alert_opt_in=true`. 무시→`reroute_ignored_count++`.
+- [x] **무응답 durable 집계**: `journey_session.reroute_ignored_count`(상한 `alert.max-ignored=2`). 세는 자리 셋 = ①명시적 무시 ②lazy 만료(`resolveStale` 앞에서 `countUnansweredDue`) ③**배치 sweep**(본류 — 앱을 안 열면 lazy 가 한 번도 안 온다). sweep 은 `lockDueBatch`(FOR UPDATE SKIP LOCKED)→`expireByIds` 두 문장으로 갈라 여정별 개수를 정확히 센다. **사용자 요청 제안은 세지 않는다**(`reroute_proposal.alerted` 가 가른다).
+- [x] 마이그레이션 **V53**(`journey_session` 3칸) + **V54**(`reroute_proposal.alerted` + status CHECK 에 REJECTED·DISMISSED). **표마다 파일을 갈랐다** — 한 파일로 두면 journey 표만 만드는 @Sql 체인이 통째로 막힌다. VPS 수동배치 + @Sql **12곳**(journey 체인 9 + reroute 체인 3).
+- [x] 계약 수정 기록: "알림은 서버 먼저, 변경은 사용자만"(`RerouteTriggerEvaluator` javadoc + 노트).
 - 검증: 트리거·validate·응답 3갈래·멱등·무응답 상한/cooldown·마이그레이션 IT.
 
 ### PR-4 — apply: 진행중 RIDE 절단 + 새 꼬리

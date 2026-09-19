@@ -121,6 +121,11 @@ class RerouteAcceptIT {
         assertThat(acceptedCandidateId()).isEqualTo(candidateId);
         // 새 경로의 노선이 들어와 있다.
         assertThat(routeIdsOf(after.routeRevision())).contains("BL-360");
+        // 수락은 한 여정에 한 번이다(PR-3). 고른 길로 막 바꿨는데 또 바꾸라고 알리면 피로가
+        // 남은 이득보다 크다.
+        assertThat(jdbcTemplate.queryForObject(
+                "select reroute_terminated from journey_session where id = ?",
+                Boolean.class, journey.journeyId())).isTrue();
     }
 
     @Test

@@ -14,14 +14,15 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * 방아쇠를 세고 기록한다. <b>여기서 끝난다 — 제안을 만들지 않는다(shadow).</b>
+ * 방아쇠를 세고 기록한다. 알림이 꺼져 있으면 <b>여기서 끝난다</b>(shadow).
  *
- * <p>{@code RerouteProposalService} 를 주입받지 않는 것이 그 계약을 <b>구조로</b> 보장한다.
- * 협력자가 없으면 실수로 켜질 수도 없다.
+ * <p>~~{@code RerouteProposalService} 를 주입받지 않는 것이 그 계약을 구조로 보장한다~~ —
+ * <b>PR-3 에서 뒤집혔다.</b> 알릴 통로(⑥)가 생겼으므로 이제 신호는 {@link RerouteAlertPublisher}
+ * 로 넘어가고, 그쪽이 "깨울 만한가"를 판단해 제안을 만들고 push 한 줄을 쌓는다. 이 클래스가
+ * 여전히 세기만 하는 것은 맞다 — 발행 여부는 {@code journey.reroute.alert.enabled}(기본 꺼짐)가
+ * 정하고, 꺼져 있으면 예전과 똑같이 shadow 다.
  *
- * <p><b>③(후보 공급자)이 붙어도 이 상태를 유지한다</b>(D1). 제안은 사용자가 요청할 때만 만든다 —
- * 신호가 났다고 자동으로 만들어 봐야 알릴 통로(⑥)가 없어 아무도 못 보고, 발생률을 아직 못 잰
- * 상태에서 실시간·ML 호출만 늘어난다. 자동 생성을 켜는 것은 ⑥이 붙은 뒤의 판단이다.
+ * <p>계약은 이렇게 굳었다: <b>알림은 서버가 먼저, 경로 변경은 사용자 선택만. 자동 적용 없음.</b>
  *
  * <p>shadow 인 이유가 이 클래스의 존재 이유다. 재탐색은 외부 API 를 부르고 요금이 붙는데, 하루에
  * 몇 번 도는지 모르는 채로 외부 검색을 붙이면 <b>요금이 먼저 온다.</b> 먼저 발생률을 재고 그
@@ -40,6 +41,7 @@ import java.util.List;
 public class RerouteTriggerEvaluator {
 
     private final RerouteTriggerPolicy policy;
+    private final RerouteAlertPublisher alertPublisher;
     private final RerouteCooldownPort cooldownPort;
     private final JourneyRerouteMetrics metrics;
     private final JourneyRerouteProperties properties;
@@ -71,6 +73,10 @@ public class RerouteTriggerEvaluator {
             }
             metrics.recordTriggerAdmitted(signal.reason().tag());
             record(signal);
+            // 알림 스위치가 꺼져 있으면 여기서 끝난다(shadow 그대로). 켜져 있으면 발행 경로가
+            // 스스로 한 번 더 걸러 낸다 — 이 셈은 "찾아볼 만한가"까지고, "깨울 만한가"는
+            // 발행 경로의 판단이다.
+            alertPublisher.publish(signal, context.userId(), now);
         }
     }
 

@@ -2619,3 +2619,53 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - **원점 수 ↔ OTP gate**: `max-origins=6` 이 라이브에서 검색 슬롯을 얼마나 먹는지 미실측. 포화율 보고 조정.
 - **차량 식별**: `sectionOrder` 매칭은 근사다. `getBusPosByRtid` 로 노선 전체 위치를 한 번 받아 내 차를 먼저 확정하는 편이 정확하지만 호출이 하나 더 는다 — 커버리지 지표를 보고 판단.
 - **PR-3(알림)이 붙기 전까지 이 목록은 pull 로만 보인다.** 트리거·validate·응답 3갈래는 다음 PR.
+
+## 2026-09-19 journey-reroute-nextstop PR-3 — 알림 계약(서버가 먼저 알린다)
+
+### 확정
+- **계약이 뒤집혔다**: "제안은 사용자 요청만"(D1) → **"알림은 서버가 먼저, 경로 변경은 사용자 선택만. 자동 적용 없음."** `RerouteTriggerEvaluator` 의 "협력자가 없으니 실수로 켜질 수도 없다"는 구조적 보장은 **의도적으로 해제**했고, 대신 스위치 `journey.reroute.alert.enabled`(기본 꺼짐)가 그 자리를 맡는다.
+- **발행은 방아쇠가 아니라 신규 `RerouteAlertPublisher` 가 한다.** 방아쇠의 일은 "찾아볼 만한가"까지고, "깨울 만한가"(문턱·리드타임·상한·채널)는 다른 판단이다. 한 클래스에 두면 shadow 측정 코드와 사용자를 깨우는 코드가 같은 자리에서 자란다.
+- **판단 순서가 계약**: 스위치 → 여정 상태(종료·무응답 상한) → cooldown → 후보 생성 → 개선폭 문턱 → 리드타임 → 채널. **cooldown 이 후보 생성 앞**인 이유 = 어차피 안 보낼 알림 때문에 OTP·실시간·ML 을 부를 이유가 없다. **채널 0이면 저장도 안 한다** — 아무도 못 볼 제안이 여정당 하나뿐인 자리를 5분 막는다.
+- **알림 TTL(5분)과 요청 TTL(2분)을 가른다**(`alert.snapshot-ttl`). 누른 사람은 화면을 보고 있지만 알림은 주머니 속 진동에서 시작한다.
+- **cooldown 을 scope 별로 가른다**(`Scope.ALERT`, 5분). 방아쇠·요청 잠금은 **외부 호출**을 아끼고 알림 잠금은 **사용자의 주머니**를 아낀다 — 한 값이면 관측 주기를 조이는 일이 알림 피로를 바꾼다.
+- **무응답은 Redis 가 아니라 표다**(`journey_session.reroute_ignored_count`). "여정당 2회" 상한은 TTL 로 사라지면 뜻을 잃는다. 세는 자리 셋 = 명시적 무시 · lazy 만료 · **배치 sweep(본류 — 앱을 안 열면 lazy 전이가 한 번도 안 온다)**.
+- **`reroute_proposal.alerted` 를 둔 이유**: 사용자가 직접 요청한 제안에는 무응답이라는 개념이 없다(그 화면은 이미 보고 있었다). 이 칸이 없으면 버튼을 누른 사용자가 스스로 알림 상한을 깎는다. 표시는 **저장 시점이 아니라 알림 행이 실제로 생긴 뒤**(채널 0건이면 안 찍는다).
+- **sweep 을 두 문장으로 갈랐다**(`lockDueBatch` → `expireByIds`). 한 문장으로 접으면 어느 여정이 몇 건이었는지 되돌려 받을 수 없다. `FOR UPDATE SKIP LOCKED` 로 잡은 채 같은 트랜잭션에서 접으므로 두 문장의 집합은 같다.
+- **거절과 무시는 다른 상태다**(`REJECTED` / `DISMISSED`, V54 의 CHECK). `SUPERSEDED` 로 뭉치면 "새 제안이 밀어냈다"와 "사용자가 싫다고 했다"가 구별되지 않는데, 둘은 다음 알림 여부에 정반대로 작용한다.
+- **멱등은 한 문장이 만든다**(`closeIfActive` 는 ACTIVE 일 때만 0/1행). 재전송이면 여정 상태를 **건드리지 않는다** — 무시를 두 번 세면 재전송 한 번이 상한을 통째로 먹는다. 응답은 그래도 200 + `closed:false`.
+- **응답에 여정 알림 상태를 함께 싣는다**(`rerouteTerminated`·`rerouteAlertOptIn`). 규칙(수락 1회·거절+미체크 종료·무시 상한)을 앱이 다시 계산하면 두 벌이 되고, 어긋나는 날 사용자에게 거짓말을 한다.
+- **수락도 알림을 끝낸다**(`RerouteAcceptTxService` 에서 `terminateReroute()`). 고른 길로 막 바꿨는데 또 바꾸라고 알리면 남은 이득보다 피로가 크다 — 스펙의 "1회 한정".
+- **마이그레이션을 표마다 갈랐다**(V53 journey_session / V54 reroute_proposal). 한 파일로 두면 journey 표만 만드는 @Sql 체인(알림·텔레메트리 IT 9곳)이 `ALTER TABLE reroute_proposal` 에서 통째로 막힌다.
+- **PLAN 의 "전멸 시 1회 재계산"은 넣지 않았다.** 조회 경로에 재검색을 넣으면 화면 열기가 OTP 호출이 되고, 그 자리에서 transferIndex 를 되찾으려면 원점을 역추적하는 코드가 하나 더 생긴다. 다시 찾기는 다음 방아쇠나 사용자의 "다시 찾아줘"가 한다(미결).
+
+### 함정
+- 🔴 **V53 을 한 번 돌린 뒤 쪼갰다 — 로컬 개발 DB 를 손으로 되돌려야 했다.** 알림 IT 들이 먼저 실패하는 바람에 쪼개기로 결정했는데, 그때 이미 Flyway 가 V53 을 dev DB(`nextroute-postgres-1`)에 적용한 뒤였다. 복구 = `delete from flyway_schema_history where version='53'` + 그 파일이 만든 컬럼·제약을 손으로 되돌리기(그래야 다음 부팅이 V53·V54 를 새로 적용한다). **"마이그레이션은 한 번 돌린 뒤 고치지 말 것"이 이번에도 맞았다** — 파일을 쪼갤지는 IT 를 돌리기 **전에** 정했어야 했다.
+- **엔티티에 컬럼을 더하면 그 표를 만드는 @Sql 체인이 전부 깨진다**: `journey_session` 에 3칸을 더하자 알림·텔레메트리·스키마 IT 112건이 `column "reroute_alert_opt_in" ... does not exist` 로 죽었다. 재탐색과 무관한 체인들이라 "@Sql 3곳"이라는 기존 메모가 이번엔 틀렸다 — **journey 체인 9곳 + reroute 체인 3곳 = 12곳**.
+- **`JourneyCheckpoint` 값을 늘리면 두 곳이 컴파일·테스트로 잡는다**: `FcmMessageFactory` 의 switch 3개(messageKey·title·body)와 "어휘가 셋"을 못박은 `JourneyTargetApproachEnqueueIT`. 후자는 개수가 아니라 **"서버가 보낼 수 없는 종류를 만들지 않는다"**(N1 하차·N3 정류장 접근)를 지키는 시험이라, 넷째를 더하며 의도를 주석으로 남겼다.
+- **`FcmMessageFactoryTest` 가 messageKey 접두어를 `journey.transfer.` 로 못박고 있었다** — 재탐색 알림(`journey.reroute.suggested`)이 생기며 공통 접두어(`journey.`)로 넓혔다.
+- **알림의 `scopeId` 를 0 으로 두면 안 된다**: 논리 키가 `journeyId:rev:JOURNEY:0:REROUTE_SUGGESTED` 라 같은 여정의 **두 번째 제안이 ON CONFLICT 에 삼켜진다**. proposalId 를 넣어 제안마다 다른 키가 되게 했다.
+- ⚠ **`int scopeId` 에 proposalId(bigint)를 캐스팅해 넣는다.** 제안 번호가 21억을 넘으면 키가 겹친다 — 지금 규모에선 안 오지만 `journey_notification.scope_id` 의 타입을 넓히는 것이 근본 해법(미결).
+
+### 좌표
+- 신규 마이그레이션: `V53__add_reroute_alert_state.sql`(journey_session 3칸), `V54__add_reroute_proposal_alerted.sql`(alerted + status CHECK). **git 미추적**(V18+ convention)
+- 신규: `application/journey/service/RerouteAlertPublisher.java`, `RerouteAlertTxService.java`, `application/journey/dto/RerouteDecision.java`, `infrastructure/adapter/in/api/journey/dto/{RejectRerouteProposalRequest,RerouteProposalDecisionResponse}.java`
+- 변경: `JourneySession`(3필드+`terminateReroute`·`optInRerouteAlert`·`recordRerouteIgnored`·`isRerouteAlertAllowed`), `RerouteProposal`(`alerted`+`reject`·`dismiss`), `RerouteProposalStatus`(+REJECTED·DISMISSED), `JourneyCheckpoint`(+REROUTE_SUGGESTED), `RerouteProposalRepository`(`lockDueBatch`·`expireByIds`·`countUnansweredDue`·`closeIfActive`·`markAlerted`), `JourneySessionRepository`(`bumpRerouteIgnored`), `RerouteProposalTxService`(무응답 집계·`close`·`expireValidatedOut`), `RerouteProposalService`(`collect`/`store` 분리·`validate`·`decide`), `RerouteProposalExpiryService`(2문장 sweep + 무응답), `RerouteTriggerEvaluator`(발행 연결), `RerouteAcceptTxService`(수락=알림 종료), `JourneyNotificationEnqueuer`(`enqueueRerouteSuggested`), `FcmMessageFactory`(문구 3), `RedisRerouteCooldownAdapter`(scope 별 TTL), `RerouteCooldownPort`(+ALERT), `JourneyRerouteProperties`(`Alert` 블록+validate), `JourneyRerouteMetrics`(`journey.reroute.alert`), 컨트롤러(+reject·dismiss)
+- 테스트: `RerouteAlertPublisherTest`(신규 11), `RerouteProposalServiceTest`(12→17), `RerouteProposalStoreIT`(16→23), `RerouteProposalExpiryIT`(4→6), `JourneyRerouteProposalSchemaIT`(5→7), `JourneyRerouteProposalControllerTest`(6→9), `RerouteAcceptIT`(수락=종료 단언 추가), @Sql 체인 12곳
+
+### 배포
+- 🔴 **V53·V54 VPS 수동배치 필요**(V18+ untracked convention). VPS 는 현재 **v52** — 이 트리에서 `./gradlew bootJar` 해야 jar 안에 두 파일이 실린다.
+- prod 는 `ddl-auto: validate` 이고 `JourneySession` 이 새 3칸을, `RerouteProposal` 이 `alerted` 를 매핑한다 → **V53·V54 없이 올리면 앱이 안 뜬다**.
+- 새 설정 키 `journey.reroute.alert.*` 는 전부 기본값이 있고 **`enabled=false`** 라 compose 수정 불필요. 재탐색 자체도 여전히 flag off → 프로덕션 동작 변화 0.
+- 켤 때 순서: `journey.reroute.enabled` → `alert.enabled`. 볼 지표 = `journey.reroute.alert{outcome}`(`published` 대비 `below-threshold`·`no-lead-time`·`no-channel`·`cooldown` 비율), `unanswered`·`rejected`·`dismissed`·`opt-in`.
+
+### 검증
+- `RerouteAlertPublisherTest` **11/11**(발행·스위치 off·종료 여정·상한·opt-in 이 상한 무시·cooldown 이 검색 전 차단·문턱·리드타임·채널 0·중복·예외 삼킴).
+- `RerouteProposalServiceTest` **17/17**(신규 5: 지나간 하차점 제거·전멸 시 제안 접기·옛 후보 통과·꺼져도 거절 접수·소유권).
+- `RerouteProposalStoreIT` **23/23**(신규 7: 거절·opt-in·무시·멱등·여정 불일치·무응답 집계·요청 제안은 무응답 아님), `RerouteProposalExpiryIT` **6/6**(신규 2: sweep 무응답), `JourneyRerouteProposalSchemaIT` **7/7**(신규 2: 상태 어휘·알림 칸), `JourneyRerouteProposalControllerTest` **9/9**(신규 3).
+- **뮤테이션 2건**: ①`isRerouteAlertAllowed` 를 항상 true 로 → publisher 상한 테스트 FAILED ②`close` 의 "이미 닫힘" 분기 삭제 → StoreIT 멱등 FAILED. 둘 다 되돌림.
+- 전체 `application.journey.*` + `infrastructure.*` + `domain.journey.*` → **1493 tests, 1 failed** = `JourneyTransferAssessmentIT`(clean main 동일 실패, **기존 무관**). `application.route.*` + `NextrouteApplicationTests`(전체 컨텍스트 로드 — 신규 빈 배선 확인) green.
+
+### 미결
+- **전멸 시 재계산**(PLAN 항목): 조회 경로가 OTP 를 부르게 되는 비용과 원점 역추적 코드 때문에 뺐다. 필요해지면 PR-4 이후 별건.
+- **`scope_id` 가 int** 라 proposalId 캐스팅이 들어간다(위 함정). 표 타입 확장은 별건.
+- **알림 문구**: "더 빠른 길이 있어요 / 앱에서 새 경로를 확인하세요."로 고정. 발송을 켜기 **전**에 바꿔야 한다(켠 뒤 변경은 사용자 눈에 보인다).

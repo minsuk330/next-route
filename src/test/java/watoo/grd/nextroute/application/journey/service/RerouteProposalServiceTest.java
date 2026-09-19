@@ -9,12 +9,14 @@ import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteContext;
+import watoo.grd.nextroute.application.journey.dto.RerouteDecision;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
 import watoo.grd.nextroute.application.journey.port.out.RerouteCandidateProvider;
 import watoo.grd.nextroute.application.journey.port.out.RerouteEligibilityPolicy;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind;
+import watoo.grd.nextroute.domain.journey.entity.RerouteProposalStatus;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.global.error.BusinessException;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
@@ -29,6 +31,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -244,7 +247,91 @@ class RerouteProposalServiceTest {
         verify(txService, never()).resolveStale(anyLong(), anyInt(), any());
     }
 
+    // ── 조회 시 검증(PR-3) ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("지나간 하차점의 후보는 목록에서 뺀다")
+    void passedAlightStopsAreDropped() {
+        RerouteProposalService service = service(allowing(), List.of());
+        RerouteCandidate passed = candidateAlighting(NOW.plusSeconds(30));
+        RerouteCandidate alive = candidateAlighting(NOW.plusSeconds(600));
+        when(txService.findActive(JOURNEY_ID)).thenReturn(Optional.of(
+                new RerouteProposalView(1L, JOURNEY_ID, 1, origin(),
+                        RerouteProposalKind.REMAINING_PATH, 1L, NOW, NOW.plusSeconds(300),
+                        List.of(passed, alive))));
+
+        Optional<RerouteProposalView> result = service.findActive(USER_ID, JOURNEY_ID);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().candidates())
+                .as("리드타임(90초)에 못 미치는 하차점은 이미 못 내린다")
+                .containsExactly(alive);
+        verify(txService, never()).expireValidatedOut(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("전부 지나갔으면 제안 자체를 접는다 — 빈 목록이 자리를 막으면 안 된다")
+    void allPassedExpiresTheProposal() {
+        RerouteProposalService service = service(allowing(), List.of());
+        when(txService.findActive(JOURNEY_ID)).thenReturn(Optional.of(
+                new RerouteProposalView(1L, JOURNEY_ID, 1, origin(),
+                        RerouteProposalKind.REMAINING_PATH, 1L, NOW, NOW.plusSeconds(300),
+                        List.of(candidateAlighting(NOW.plusSeconds(30))))));
+
+        assertThat(service.findActive(USER_ID, JOURNEY_ID)).isEmpty();
+        verify(txService).expireValidatedOut(1L, NOW);
+    }
+
+    @Test
+    @DisplayName("하차 정보가 없는 옛 후보는 그대로 통과한다")
+    void legacyCandidatesWithoutAlightSurvive() {
+        RerouteProposalService service = service(allowing(), List.of());
+        when(txService.findActive(JOURNEY_ID)).thenReturn(Optional.of(view(
+                RerouteProposalKind.ROUTE_OPTION)));
+
+        assertThat(service.findActive(USER_ID, JOURNEY_ID)).isPresent();
+        verify(txService, never()).expireValidatedOut(anyLong(), any());
+    }
+
+    // ── 거절·무시(PR-3) ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("기능이 꺼져 있어도 거절은 받는다 — 사용자 손에는 이미 알림이 있다")
+    void decisionIsAcceptedEvenWhenDisabled() {
+        properties.setEnabled(false);
+        RerouteProposalService service = service(allowing(), List.of());
+        when(txService.close(JOURNEY_ID, 1L, RerouteProposalStatus.REJECTED, false, NOW))
+                .thenReturn(new RerouteDecision(true, true, false));
+
+        RerouteDecision decision = service.decide(USER_ID, JOURNEY_ID, 1L,
+                RerouteProposalStatus.REJECTED, false);
+
+        assertThat(decision.closed()).isTrue();
+        assertThat(decision.terminated()).isTrue();
+    }
+
+    @Test
+    @DisplayName("남의 여정은 거절도 못 한다")
+    void decisionRequiresOwnership() {
+        when(sessionRepository.findByIdAndUserIdAndDeletedAtIsNull(JOURNEY_ID, 99L))
+                .thenReturn(Optional.empty());
+        RerouteProposalService service = service(allowing(), List.of());
+
+        assertThatThrownBy(() -> service.decide(99L, JOURNEY_ID, 1L,
+                RerouteProposalStatus.DISMISSED, false))
+                .isInstanceOf(BusinessException.class);
+        verify(txService, never()).close(any(), any(), any(), anyBoolean(), any());
+    }
+
     // ── 준비 ────────────────────────────────────────────────────────────────
+
+    private RerouteCandidate candidateAlighting(Instant alightAt) {
+        return new RerouteCandidate("c-" + alightAt, RerouteProposalKind.REMAINING_PATH,
+                new RerouteCandidateApply.RemainingPathApply(1, null),
+                new RerouteCandidateDisplay(NOW.plusSeconds(1_200), 1_200, 600, 1, 300,
+                        "REALTIME", "GOOD", NOW, List.of("370 버스"),
+                        new RerouteCandidateDisplay.AlightStop("ST-B", "정류장B", alightAt, false)));
+    }
 
     private RerouteProposalService service(RerouteEligibilityPolicy policy,
                                            List<RerouteCandidateProvider> providers) {

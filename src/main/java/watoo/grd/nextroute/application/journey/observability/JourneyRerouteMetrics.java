@@ -31,6 +31,7 @@ public class JourneyRerouteMetrics {
     public static final String REMAINING_SEARCH = "journey.reroute.remaining.search";
     public static final String REMAINING_PATHS = "journey.reroute.remaining.paths";
     public static final String ORIGIN_WINDOW = "journey.reroute.origin.window";
+    public static final String ALERT = "journey.reroute.alert";
 
     /** 판정이 내려 준 사유를 그대로 태그에 쓰지 않기 위한 접기 값. */
     static final String UNKNOWN_REASON = "unknown";
@@ -69,6 +70,18 @@ public class JourneyRerouteMetrics {
     private static final Set<String> KNOWN_ORIGIN_OUTCOMES = Set.of(
             "admitted", "no-progress", "stale-progress", "ambiguous-stop", "position-out-of-range",
             "no-realtime", "below-lead-time", "arrival-blocked");
+
+    /**
+     * 서버가 먼저 알리는 경로의 결말(PR-3).
+     *
+     * <p><b>보낸 것과 안 보낸 이유를 같은 계량기에서 읽는다.</b> 알림은 사용자의 주머니를 울리는
+     * 유일한 통로라, "왜 안 나갔나"(상한·거절·문턱·채널 없음)를 못 가르면 기능이 조용히 죽어도
+     * 아무도 모른다.
+     */
+    private static final Set<String> KNOWN_ALERT_OUTCOMES = Set.of(
+            "published", "disabled", "terminated", "ignore-limit", "cooldown", "journey-missing",
+            "no-candidate", "below-threshold", "no-lead-time", "no-channel", "duplicate",
+            "unanswered", "rejected", "dismissed", "opt-in", "validated-out", "failed");
 
     /** 경로 검색 한 번의 결말. <b>{@code cache-hit} 비율이 ④의 요금을 결정한다.</b> */
     private static final Set<String> KNOWN_SEARCH_OUTCOMES = Set.of(
@@ -185,6 +198,28 @@ public class JourneyRerouteMetrics {
      *                {@code ambiguous-stop} · {@code position-out-of-range} · {@code no-realtime} ·
      *                {@code below-lead-time} · {@code arrival-blocked}
      */
+    /**
+     * 알림 한 번의 결말(PR-3).
+     *
+     * @param outcome {@code published} · {@code disabled} · {@code terminated} ·
+     *                {@code ignore-limit} · {@code cooldown} · {@code journey-missing} ·
+     *                {@code no-candidate} · {@code below-threshold} · {@code no-lead-time} ·
+     *                {@code no-channel} · {@code duplicate} · {@code unanswered} ·
+     *                {@code rejected} · {@code dismissed} · {@code opt-in} ·
+     *                {@code validated-out} · {@code failed}
+     */
+    public void recordAlert(String outcome) {
+        recordAlert(outcome, 1);
+    }
+
+    public void recordAlert(String outcome, long count) {
+        if (count <= 0) {
+            return;
+        }
+        registry.counter(ALERT, "outcome",
+                KNOWN_ALERT_OUTCOMES.contains(outcome) ? outcome : UNKNOWN_REASON).increment(count);
+    }
+
     public void recordOriginWindow(String outcome) {
         registry.counter(ORIGIN_WINDOW, "outcome",
                 KNOWN_ORIGIN_OUTCOMES.contains(outcome) ? outcome : UNKNOWN_REASON).increment();

@@ -10,6 +10,7 @@ import watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateEnvelope;
 import watoo.grd.nextroute.application.journey.dto.RerouteContext;
+import watoo.grd.nextroute.application.journey.dto.RerouteDecision;
 import watoo.grd.nextroute.application.journey.dto.RerouteOrigin;
 import watoo.grd.nextroute.application.journey.dto.RerouteOriginEnvelope;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
@@ -67,10 +68,69 @@ public class RerouteProposalTxService {
      */
     @Transactional
     public int resolveStale(Long journeyId, int currentRevision, Instant now) {
+        // 접기 전에 센다(PR-3). 상태를 바꾼 뒤에는 어떤 행이 "알렸는데 답이 없었던" 것인지
+        // 알 수 없고, 그 수가 곧 이 여정에 더 알려도 되는지의 근거다.
+        int unanswered = proposalRepository.countUnansweredDue(journeyId, currentRevision, now);
+
         List<String> reasons = proposalRepository.resolveStale(
                 journeyId, currentRevision, now, LocalDateTime.now(clock));
         countByReason(reasons);
+
+        if (unanswered > 0) {
+            sessionRepository.bumpRerouteIgnored(journeyId, unanswered);
+            metrics.recordAlert("unanswered", unanswered);
+        }
         return reasons.size();
+    }
+
+    /**
+     * 사용자가 제안을 닫았다 — 거절 또는 무시(PR-3 알림 계약).
+     *
+     * <p><b>멱등이다.</b> 같은 요청이 두 번 와도 상태 전이는 한 번만 일어난다({@code ACTIVE} 일
+     * 때만 바뀌는 한 문장). 두 번째 호출은 여정 상태도 건드리지 않는다 — 무시를 두 번 세면
+     * 재전송 한 번이 알림 상한을 통째로 먹는다.
+     *
+     * <p>여정 상태를 함께 바꾸는 것이 이 메서드가 트랜잭션인 이유다. 제안만 닫고 여정 플래그를
+     * 못 쓰면 다음 방아쇠가 곧바로 또 알린다 — 사용자가 방금 싫다고 말한 그 알림을.
+     *
+     * @param optInAlerts 거절하면서 "계속 알림 받기"를 켰는가. 무시에는 뜻이 없다
+     * @return 이번 호출이 실제로 닫았으면 true
+     */
+    @Transactional
+    public RerouteDecision close(Long journeyId, Long proposalId, RerouteProposalStatus decision,
+                                 boolean optInAlerts, Instant now) {
+        String reason = decision == RerouteProposalStatus.REJECTED ? "rejected" : "dismissed";
+        int closed = proposalRepository.closeIfActive(proposalId, journeyId, decision.name(),
+                reason, now, LocalDateTime.now(clock));
+
+        Optional<JourneySession> found = sessionRepository.findById(journeyId);
+        if (found.isEmpty()) {
+            return new RerouteDecision(closed > 0, false, false);
+        }
+        JourneySession journey = found.get();
+        if (closed == 0) {
+            // 이미 닫힌 제안이다(재전송·만료). 여정 상태는 건드리지 않는다 — 무시를 두 번 세면
+            // 재전송 한 번이 알림 상한을 통째로 먹는다.
+            return RerouteDecision.unchanged(
+                    journey.isRerouteTerminated(), journey.isRerouteAlertOptIn());
+        }
+
+        if (decision == RerouteProposalStatus.REJECTED) {
+            if (optInAlerts) {
+                // "이 제안은 싫지만 다음은 보여 달라." 종료가 아니라 계속이다.
+                journey.optInRerouteAlert();
+                metrics.recordAlert("opt-in");
+            } else {
+                journey.terminateReroute();
+                metrics.recordAlert("rejected");
+            }
+        } else {
+            // 무시는 의사표시가 아니다. 상한까지만 참는다.
+            journey.recordRerouteIgnored();
+            metrics.recordAlert("dismissed");
+        }
+        return new RerouteDecision(true, journey.isRerouteTerminated(),
+                journey.isRerouteAlertOptIn());
     }
 
     /**
@@ -175,6 +235,23 @@ public class RerouteProposalTxService {
         // 원점이 곧 주소다. 환승 행을 다시 읽지 않는다 — 주행 중 정류장 원점에는 대응하는 환승
         // 행이 아예 없으므로, 그 모양이 오면 환승 기준 확인이 통째로 막아 버린다.
         return origin.legIndex() >= journey.getCurrentLegIndex();
+    }
+
+    /**
+     * 후보가 <b>전부 지나가 버린</b> 제안을 접는다(PR-3 pull validate).
+     *
+     * <p>빈 목록을 살아 있는 제안으로 두면 여정당 하나뿐인 자리를 막아 새 제안이 만들어지지
+     * 않는다. 무응답으로 세지 않는 것이 중요하다 — 사용자는 알림을 <b>열었고</b>, 다만 그 사이
+     * 버스가 그 정류장들을 지나갔을 뿐이다.
+     */
+    @Transactional
+    public void expireValidatedOut(Long proposalId, Instant now) {
+        proposalRepository.findById(proposalId)
+                .filter(RerouteProposal::isActive)
+                .ifPresent(proposal -> {
+                    proposal.expire(now, "all-passed");
+                    metrics.recordResolved("all-passed", 1);
+                });
     }
 
     /**

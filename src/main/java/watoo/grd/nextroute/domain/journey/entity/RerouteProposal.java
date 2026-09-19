@@ -118,10 +118,22 @@ public class RerouteProposal extends BaseEntity {
     @Column(name = "accepted_candidate_id", length = 36)
     private String acceptedCandidateId;
 
+    /**
+     * 서버가 <b>먼저 알린</b> 제안인가(V53, PR-3).
+     *
+     * <p>사용자가 직접 요청해 만든 제안에는 "무응답"이라는 개념이 없다 — 그 화면은 사용자가 이미
+     * 보고 있다. 이 칸이 없으면 만료된 제안을 전부 무시로 세어, 버튼을 누른 사용자가 알림 상한을
+     * 스스로 깎게 된다.
+     */
+    @Column(name = "alerted", nullable = false)
+    private boolean alerted;
+
     @Builder
     public RerouteProposal(Long journeyId, Long userId, int routeRevision,
                            JsonNode origin, RerouteProposalKind kind, long baseCommandVersion,
-                           JsonNode candidates, Instant snapshotObservedAt, Instant expiresAt) {
+                           JsonNode candidates, Instant snapshotObservedAt, Instant expiresAt,
+                           boolean alerted) {
+        this.alerted = alerted;
         this.journeyId = journeyId;
         this.userId = userId;
         this.routeRevision = routeRevision;
@@ -142,6 +154,16 @@ public class RerouteProposal extends BaseEntity {
     /** 새 제안이나 개정본 변경이 자리를 가져갔다. */
     public void supersede(Instant now, String reason) {
         resolve(RerouteProposalStatus.SUPERSEDED, now, reason);
+    }
+
+    /** 사용자가 닫았다(PR-3). 그 여정의 알림을 계속 받을지는 여정 쪽이 기억한다. */
+    public void reject(Instant now) {
+        resolve(RerouteProposalStatus.REJECTED, now, "rejected");
+    }
+
+    /** 사용자가 아무 말 없이 닫았다(PR-3). 무응답 상한에 든다. */
+    public void dismiss(Instant now) {
+        resolve(RerouteProposalStatus.DISMISSED, now, "dismissed");
     }
 
     /** 사용자가 골랐다(⑤). <b>무엇을 골랐는지</b>도 함께 남긴다. */

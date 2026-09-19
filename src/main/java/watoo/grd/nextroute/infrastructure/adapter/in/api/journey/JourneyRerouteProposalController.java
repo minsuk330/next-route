@@ -11,10 +11,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
+import watoo.grd.nextroute.application.journey.dto.RerouteDecision;
 import watoo.grd.nextroute.application.journey.port.in.AcceptRerouteProposalUseCase;
 import watoo.grd.nextroute.application.journey.service.RerouteProposalService;
+import watoo.grd.nextroute.domain.journey.entity.RerouteProposalStatus;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.AcceptRerouteProposalRequest;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.CreateRerouteProposalRequest;
+import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.RejectRerouteProposalRequest;
+import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.RerouteProposalDecisionResponse;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.RerouteProposalResponse;
 
 /**
@@ -77,5 +81,44 @@ public class JourneyRerouteProposalController {
                                   @PathVariable Long proposalId,
                                   @Valid @RequestBody AcceptRerouteProposalRequest request) {
         return acceptUseCase.accept(userId, journeyId, proposalId, request.candidateId());
+    }
+
+    /**
+     * 사용자가 제안을 <b>거절한다</b>(PR-3 알림 계약).
+     *
+     * <p>거절은 의사표시다 — 기본값은 "이 여정에서는 이제 그만"이고, 본문의
+     * {@code keepAlerts} 를 켜면 다음 제안은 계속 받는다.
+     *
+     * <p><b>멱등이다.</b> 같은 요청이 두 번 와도 {@code 200} 이고 상태는 한 번만 바뀐다. 오류로
+     * 만들면 네트워크가 흔들릴 때 앱이 재시도를 돌다가 사용자에게 실패를 보여 준다.
+     */
+    @PostMapping("/{journeyId}/reroute-proposals/{proposalId}/reject")
+    public RerouteProposalDecisionResponse reject(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long journeyId,
+            @PathVariable Long proposalId,
+            @RequestBody(required = false) RejectRerouteProposalRequest request) {
+        boolean keepAlerts = request != null && request.keepAlertsOrDefault();
+        return toResponse(proposalService.decide(userId, journeyId, proposalId,
+                RerouteProposalStatus.REJECTED, keepAlerts));
+    }
+
+    /**
+     * 사용자가 제안을 <b>그냥 닫았다</b>(무시).
+     *
+     * <p>거절과 다르다. 아무 말도 하지 않은 것이라 여정의 알림을 끝내지 않고, 대신 무응답으로
+     * 세어 상한(여정당 2회)까지만 참는다. 앱이 알림 화면을 스와이프로 닫을 때 부르는 자리다.
+     */
+    @PostMapping("/{journeyId}/reroute-proposals/{proposalId}/dismiss")
+    public RerouteProposalDecisionResponse dismiss(@AuthenticationPrincipal Long userId,
+                                                   @PathVariable Long journeyId,
+                                                   @PathVariable Long proposalId) {
+        return toResponse(proposalService.decide(userId, journeyId, proposalId,
+                RerouteProposalStatus.DISMISSED, false));
+    }
+
+    private RerouteProposalDecisionResponse toResponse(RerouteDecision decision) {
+        return new RerouteProposalDecisionResponse(
+                decision.closed(), decision.terminated(), decision.optIn());
     }
 }

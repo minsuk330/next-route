@@ -125,6 +125,7 @@ public class FcmMessageFactory {
             case TRANSFER_RISK_AT_RISK -> "journey.transfer.at-risk";
             case TRANSFER_RISK_MISSED -> "journey.transfer.missed";
             case TRANSFER_TARGET_APPROACHING -> "journey.transfer.approaching";
+            case REROUTE_SUGGESTED -> "journey.reroute.suggested";
         };
     }
 
@@ -152,6 +153,7 @@ public class FcmMessageFactory {
             case TRANSFER_RISK_AT_RISK -> "환승 시간이 빠듯해요";
             case TRANSFER_RISK_MISSED -> "환승을 놓쳤어요";
             case TRANSFER_TARGET_APPROACHING -> "갈아탈 차가 곧 도착해요";
+            case REROUTE_SUGGESTED -> "더 빠른 길이 있어요";
         };
     }
 
@@ -162,6 +164,9 @@ public class FcmMessageFactory {
             case TRANSFER_RISK_AT_RISK -> "서두르면 다음 차를 탈 수 있어요.";
             case TRANSFER_RISK_MISSED -> "앱에서 새 안내를 확인하세요.";
             case TRANSFER_TARGET_APPROACHING -> "탑승 준비를 하세요.";
+            // 몇 분 빨라지는지는 넣지 않는다. 제안은 5분짜리 스냅샷이라 늦게 도착한 알림의
+            // 숫자는 이미 틀린 값이고, 바꾸는 것은 사용자가 목록을 열어서 한다.
+            case REROUTE_SUGGESTED -> "앱에서 새 경로를 확인하세요.";
         };
     }
 }

@@ -175,7 +175,9 @@ class FcmMessageFactoryTest {
         assertThat(messages).extracting(m -> m.data().get("messageKey"))
                 .as("앱이 이 키로 자기 문구를 고를 수 있어야 한다")
                 .doesNotHaveDuplicates()
-                .allSatisfy(key -> assertThat(key).startsWith("journey.transfer."));
+                // 접두어는 "무엇에 대한 알림인가"를 가른다. 환승(journey.transfer.*) 말고
+                // 재탐색(journey.reroute.*)이 생겼으므로 공통 접두어까지만 본다.
+                .allSatisfy(key -> assertThat(key).startsWith("journey."));
     }
 
     @Test

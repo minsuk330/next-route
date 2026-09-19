@@ -110,6 +110,29 @@ public class JourneySession extends BaseEntity {
     @Column(columnDefinition = "jsonb")
     private JsonNode destinationSummary;
 
+    /**
+     * 이 여정의 재탐색 알림이 끝났다(V53).
+     *
+     * <p>수락은 한 번뿐이고(고른 길로 바꿨는데 또 바꾸라고 하면 피로가 이득을 넘는다), 거절하면서
+     * "계속 받기"를 켜지 않은 것도 같은 뜻이다. 새 경로가 나중에 또 위험해져도 알리지 않는다 —
+     * 의도한 엣지케이스다.
+     */
+    @Column(nullable = false)
+    private boolean rerouteTerminated;
+
+    /** 거절하면서 "계속 알림 받기"를 켰다. 무응답 상한을 넘겨도 계속 알린다. */
+    @Column(nullable = false)
+    private boolean rerouteAlertOptIn;
+
+    /**
+     * 알렸는데 답이 없었던 횟수(TTL 만료 + 명시적 무시).
+     *
+     * <p><b>Redis 가 아니라 여기 있는 이유</b>: 상한("여정당 2회")은 TTL 로 사라지면 뜻을 잃는다.
+     * cooldown 처럼 "잠깐 참기"는 캐시가 맞지만 이 값은 여정의 상태다.
+     */
+    @Column(nullable = false)
+    private int rerouteIgnoredCount;
+
     @Builder
     public JourneySession(Long userId, Instant startedAt, Instant guidanceLeaseUntil,
                           JsonNode routeSnapshot, JsonNode destinationSummary) {
@@ -181,5 +204,41 @@ public class JourneySession extends BaseEntity {
         this.endedAt = endedAt;
         this.subwayOfflineProtectionUntil = null;
         this.nextEvaluationAt = null;
+    }
+
+    /**
+     * 이 여정에서는 더 이상 재탐색을 알리지 않는다(수락 · 거절+계속받기 미체크).
+     *
+     * <p>{@code optIn} 을 함께 끄지 <b>않는다</b> — 켠 적이 없으면 어차피 false 이고, 켠 적이
+     * 있다면 그 뜻은 "알림을 계속 받고 싶다"라서 종료와 함께 지울 이유가 없다. 실제 판단은
+     * {@link #isRerouteAlertAllowed(int)} 가 종료를 먼저 보는 것으로 끝난다.
+     */
+    public void terminateReroute() {
+        this.rerouteTerminated = true;
+    }
+
+    /** 거절했지만 다음 제안은 계속 받겠다. 종료 플래그는 서지 않는다. */
+    public void optInRerouteAlert() {
+        this.rerouteAlertOptIn = true;
+        this.rerouteTerminated = false;
+    }
+
+    /** 알렸는데 답이 없었다(만료 · 명시적 무시). 상한은 부르는 쪽이 본다. */
+    public void recordRerouteIgnored() {
+        this.rerouteIgnoredCount++;
+    }
+
+    /**
+     * 지금 재탐색을 <b>먼저 알려도 되는가</b>.
+     *
+     * <p>순서가 계약이다 — 종료가 가장 세고, 그다음이 "계속 받기"(상한을 무시한다), 마지막이
+     * 무응답 상한이다. 사용자 요청 경로({@code RerouteProposalService.request})는 이 판단을 쓰지
+     * 않는다: 사용자가 직접 누른 것은 알림이 아니다.
+     */
+    public boolean isRerouteAlertAllowed(int maxIgnored) {
+        if (rerouteTerminated) {
+            return false;
+        }
+        return rerouteAlertOptIn || rerouteIgnoredCount < maxIgnored;
     }
 }

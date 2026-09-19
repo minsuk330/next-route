@@ -37,7 +37,7 @@ public class RedisRerouteCooldownAdapter implements RerouteCooldownPort {
      */
     @Override
     public boolean tryAdmit(Long journeyId, int routeRevision, Scope scope) {
-        Duration cooldown = properties.getTrigger().getCooldown();
+        Duration cooldown = cooldownOf(scope);
         if (cooldown.isZero()) {
             // 사실상 끈 상태. Redis 는 TTL 0 을 거부하므로 키를 심지 않고 그냥 통과시킨다.
             // 원시 발생률만 보고 싶을 때 쓰는 설정이다.
@@ -52,6 +52,19 @@ public class RedisRerouteCooldownAdapter implements RerouteCooldownPort {
                     key, e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * 용도마다 다른 간격.
+     *
+     * <p>{@link Scope#ALERT} 만 따로 두는 이유 — 방아쇠·요청의 잠금은 <b>외부 호출</b>을 아끼고,
+     * 알림의 잠금은 <b>사용자의 주머니</b>를 아낀다. 한 값으로 묶으면 관측 주기를 조이는 일이
+     * 알림 피로를 바꾸고, 반대도 마찬가지다.
+     */
+    private Duration cooldownOf(Scope scope) {
+        return scope == Scope.ALERT
+                ? properties.getAlert().getCooldown()
+                : properties.getTrigger().getCooldown();
     }
 
     /**

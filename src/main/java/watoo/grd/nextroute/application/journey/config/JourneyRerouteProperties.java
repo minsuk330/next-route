@@ -49,6 +49,70 @@ public class JourneyRerouteProperties {
 
     private final NextStop nextStop = new NextStop();
 
+    private final Alert alert = new Alert();
+
+    /**
+     * "서버가 먼저 알릴지"의 운영값(journey-reroute-nextstop PR-3).
+     *
+     * <p>이 블록이 재탐색의 <b>계약을 바꾸는 스위치</b>다. 지금까지 제안은 사용자가 눌러야만
+     * 생겼고(pull), 여기를 켜면 서버가 위험을 감지해 스스로 만들어 알린다(push 한 줄 신호).
+     * <b>바꾸는 것은 여전히 사용자만 한다</b> — 자동 적용은 없다.
+     */
+    @Getter
+    @Setter
+    public static class Alert {
+
+        /**
+         * 서버 능동 발행. <b>기본 꺼짐.</b>
+         *
+         * <p>꺼져 있으면 방아쇠는 예전처럼 세기만 한다(shadow). 켜면 방아쇠 하나가 외부 검색
+         * (OTP·실시간·ML)을 부르므로, {@link JourneyRerouteProperties#enabled} 와 별도로 둔다 —
+         * 사용자 요청 경로만 열어 두고 능동 발행은 닫아 둘 수 있어야 한다.
+         */
+        private boolean enabled = false;
+
+        /**
+         * 능동 발행 제안의 유효시간. 사용자가 알림을 보고 들어올 시간까지 살아 있어야 한다.
+         *
+         * <p>사용자 요청 제안({@link JourneyRerouteProperties#proposalTtl}, 2분)보다 길다. 그쪽은
+         * 누른 사람이 화면을 보고 있지만, 이쪽은 주머니 속 진동에서 시작한다.
+         */
+        private Duration snapshotTtl = Duration.ofMinutes(5);
+
+        /**
+         * 같은 여정에 다시 알리기까지의 최소 간격.
+         *
+         * <p>방아쇠 cooldown(1분)과 <b>키가 다르다</b>. 방아쇠는 "찾아볼까"를 재는 것이고 이건
+         * 사용자의 주머니를 울리는 간격이라, 같은 값을 쓰면 알림 피로가 관측 주기에 끌려다닌다.
+         */
+        private Duration cooldown = Duration.ofMinutes(5);
+
+        /**
+         * 알림 한 건이 되려면 필요한 개선폭(초).
+         *
+         * <p>후보 자체의 문턱({@code remaining-path.minimum-eta-gain-seconds})과 같은 값에서
+         * 출발하지만 키는 따로 둔다 — 목록에 <b>보여 줄</b> 가치와 사용자를 <b>깨울</b> 가치는
+         * 다르고, 조일 때 조여야 하는 쪽은 후자다.
+         */
+        private int minimumGainSeconds = 300;
+
+        /**
+         * 답 없는 알림을 여정당 몇 번까지 보낼지.
+         *
+         * <p>넘으면 그 여정에는 더 알리지 않는다 — 사용자가 이미 "관심 없다"고 행동으로 말했다.
+         * 거절하면서 "계속 받기"를 켠 여정은 이 상한을 무시한다.
+         */
+        private int maxIgnored = 2;
+
+        /**
+         * 목록을 열었을 때 <b>지나간 하차점</b>을 걸러 낼지(pull validate).
+         *
+         * <p>끄면 알림이 만들어진 뒤 지나간 정류장이 그대로 목록에 남는다. 끌 수 있게 둔 것은
+         * 검증용이고, 운영 기본값은 켜짐이다.
+         */
+        private boolean validateOnRead = true;
+    }
+
     /**
      * "주행 중 어느 정류장에서 내릴 수 있는지"의 운영값(journey-reroute-nextstop PR-2).
      *
@@ -350,6 +414,22 @@ public class JourneyRerouteProperties {
         if (nextStop.getProgressMaxAgeSec() <= 0) {
             throw new IllegalStateException(
                     "journey.reroute.next-stop.progress-max-age-sec 는 1 이상이어야 한다");
+        }
+        if (alert.getSnapshotTtl() == null || alert.getSnapshotTtl().isZero()
+                || alert.getSnapshotTtl().isNegative()) {
+            throw new IllegalStateException("journey.reroute.alert.snapshot-ttl 은 양수여야 한다");
+        }
+        if (alert.getCooldown() == null || alert.getCooldown().isNegative()) {
+            // 0 은 허용한다 — 알림 간격을 끄고 발생률만 보고 싶을 때가 있다.
+            throw new IllegalStateException("journey.reroute.alert.cooldown 은 음수일 수 없다");
+        }
+        if (alert.getMinimumGainSeconds() <= 0) {
+            // 0 이면 "1초 빨라집니다"가 사용자의 주머니를 울린다.
+            throw new IllegalStateException(
+                    "journey.reroute.alert.minimum-gain-seconds 는 1 이상이어야 한다");
+        }
+        if (alert.getMaxIgnored() <= 0) {
+            throw new IllegalStateException("journey.reroute.alert.max-ignored 는 1 이상이어야 한다");
         }
     }
 }

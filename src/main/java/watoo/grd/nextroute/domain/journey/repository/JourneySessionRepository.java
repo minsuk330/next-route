@@ -91,6 +91,24 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
     int bumpEvaluationVersion(@Param("id") Long id, @Param("routeRevision") int routeRevision);
 
     /**
+     * 알렸는데 답이 없었던 횟수를 올린다(PR-3 알림 계약).
+     *
+     * <p><b>벌크 update 인 이유</b>: 부르는 자리가 만료 경로(lazy·sweep)라 여정 엔티티를 관리
+     * 상태로 들고 있지 않다. 여기서 엔티티를 읽어 고치면 sweep 한 배치가 여정 수만큼 SELECT 를
+     * 더 돈다. {@code clearAutomatically = false} 는 이 저장소의 관례와 같다 — 같은 트랜잭션에서
+     * 다른 엔티티를 dirty-checking 으로 고치는 경로가 있다.
+     *
+     * @param delta 이번에 센 무응답 수. 한 번에 여러 건이 만료될 수 있다
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query("""
+            update JourneySession j
+               set j.rerouteIgnoredCount = j.rerouteIgnoredCount + :delta
+             where j.id = :id and j.deletedAt is null
+            """)
+    int bumpRerouteIgnored(@Param("id") Long id, @Param("delta") int delta);
+
+    /**
      * lease 를 연장한다. 마지막 신호가 {@code coalesceBefore} 보다 오래됐을 때만 쓴다.
      *
      * <p>progress 는 15초(하차 임박 5초)마다 들어오는데 그때마다 이 행을 쓰면 여정 하나가

@@ -66,7 +66,9 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql",
         "classpath:db/migration/V50__add_reroute_proposal_origin.sql",
         "classpath:db/migration/V51__reroute_proposal_journey_active_unique.sql",
-        "classpath:db/migration/V52__drop_reroute_proposal_transfer_index.sql"
+        "classpath:db/migration/V52__drop_reroute_proposal_transfer_index.sql",
+        "classpath:db/migration/V53__add_reroute_alert_state.sql",
+        "classpath:db/migration/V54__add_reroute_proposal_alerted.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @TestPropertySource(properties = {
@@ -206,6 +208,36 @@ class RerouteProposalExpiryIT extends AbstractJourneyOutboxPostgresIT {
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("서버가 알린 제안이 답 없이 만료되면 무응답으로 센다 — 이 경로가 본류다")
+    void sweepCountsUnansweredAlerts() {
+        insertProposal(NOW.minusSeconds(1));
+        jdbcTemplate.update("update reroute_proposal set alerted = true");
+
+        expiryService.sweep();
+
+        assertThat(ignoredCount())
+                .as("사용자가 앱을 안 열면 lazy 전이가 한 번도 오지 않는다")
+                .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("사용자가 직접 요청한 제안의 만료는 무응답이 아니다")
+    void sweepIgnoresPullProposals() {
+        insertProposal(NOW.minusSeconds(1));
+
+        expiryService.sweep();
+
+        assertThat(activeCount()).isZero();
+        assertThat(ignoredCount()).isZero();
+    }
+
+    private int ignoredCount() {
+        return jdbcTemplate.queryForObject(
+                "select reroute_ignored_count from journey_session where id = ?",
+                Integer.class, journeyId);
+    }
 
     private void insertProposal(Instant expiresAt) {
         insertProposal(userId, journeyId, expiresAt);

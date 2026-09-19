@@ -27,7 +27,19 @@ public enum JourneyCheckpoint {
      * <p>상태에서 파생되지 않는다. 상태·남은 시간·현재 단계의 곱이 조건이라
      * {@link #ofTransferStatus} 가 이 값을 만들지 않는다.
      */
-    TRANSFER_TARGET_APPROACHING;
+    TRANSFER_TARGET_APPROACHING,
+
+    /**
+     * 더 빠른 경로를 찾았다(journey-reroute-nextstop PR-3).
+     *
+     * <p><b>한 줄 신호다.</b> 무엇이 얼마나 빨라지는지는 push 에 싣지 않는다 — 제안은 5분짜리
+     * 스냅샷이라 늦게 도착한 알림의 숫자는 이미 틀린 값이고, 앱은 식별자로 최신 목록을 다시
+     * 받는다({@code FcmMessageFactory} 의 "push 는 상태 저장소가 아니다").
+     *
+     * <p>범위는 {@link JourneyNotificationScope#JOURNEY} 다. 제안은 여정당 하나이고, 가리키는
+     * 자리는 환승이 아니라 <b>하차 정류장</b>일 수 있어 환승 번호로는 주소가 안 된다.
+     */
+    REROUTE_SUGGESTED;
 
     /**
      * 환승 상태에 대응하는 체크포인트.
