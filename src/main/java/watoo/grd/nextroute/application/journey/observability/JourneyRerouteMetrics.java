@@ -50,7 +50,10 @@ public class JourneyRerouteMetrics {
             "ride-duration-incomparable",
             // ④(남은 구간 재검색)가 쓰는 사유들. 목록에 없으면 조용히 unknown 으로 접혀
             // "왜 빈손인지"를 못 가른다.
-            "same-as-current", "no-direction", "unresolved-route", "more-transfers");
+            "same-as-current", "no-direction", "unresolved-route", "more-transfers",
+            // overlay 체인(PR-1): 첫 대기가 아니라 <b>그 뒤 대기</b>를 못 풀어 버린 후보.
+            // no-prediction 과 묶으면 "체인을 켜서 제외가 늘었다"를 못 읽는다.
+            "boarding-unresolved");
 
     /** 경로 검색 한 번의 결말. <b>{@code cache-hit} 비율이 ④의 요금을 결정한다.</b> */
     private static final Set<String> KNOWN_SEARCH_OUTCOMES = Set.of(
@@ -129,7 +132,8 @@ public class JourneyRerouteMetrics {
      * @param reason {@code no-prediction} · {@code unboardable} · {@code missing-duration} ·
      *               {@code gain-below-threshold} · {@code baseline-unboardable} ·
      *               {@code budget-exhausted} · {@code same-as-current} · {@code no-direction} ·
-     *               {@code unresolved-route} · {@code more-transfers}
+     *               {@code unresolved-route} · {@code more-transfers} ·
+     *               {@code boarding-unresolved}(overlay 체인의 두 번째 이후 대기)
      */
     public void recordCandidateFiltered(String reason) {
         registry.counter(CANDIDATE_FILTERED, "reason",

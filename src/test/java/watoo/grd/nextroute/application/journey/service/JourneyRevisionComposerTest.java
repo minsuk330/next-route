@@ -6,7 +6,12 @@ import org.springframework.test.util.ReflectionTestUtils;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
+import watoo.grd.nextroute.application.journey.dto.RerouteOrigin;
+import watoo.grd.nextroute.application.journey.dto.RerouteOriginKind;
+import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.dto.PathResult;
+import watoo.grd.nextroute.application.route.dto.StationResult;
+import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
@@ -19,6 +24,8 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static watoo.grd.nextroute.application.journey.service.SubPathFixture.bus;
 import static watoo.grd.nextroute.application.journey.service.SubPathFixture.busLane;
+import static watoo.grd.nextroute.application.journey.service.SubPathFixture.subway;
+import static watoo.grd.nextroute.application.journey.service.SubPathFixture.subwayLane;
 import static watoo.grd.nextroute.application.journey.service.SubPathFixture.walk;
 
 /**
@@ -137,6 +144,178 @@ class JourneyRevisionComposerTest {
         assertThat(result.failureReason()).isEqualTo("snapshot-unmappable");
     }
 
+    // ── 중간 하차 절단 ───────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("중간 하차는 앞 절반을 남긴다 — [앞 구간] + [승차→X] + [후보]")
+    void truncatesRideAtMidStop() {
+        PathResult current = twoTransitPathWithStops();
+
+        JourneyRevisionComposer.Composed composed = composer.compose(current, legsOf(current),
+                midRideApply(), new JourneyRevisionComposer.RideTruncation(2, 480)).composed();
+
+        // 두 번째 버스 구간이 통째로 사라지지 않았다. 승차→X 로 잘려 남아 있다.
+        SubPathResult truncated = composed.snapshot().subPaths().get(3);
+        assertThat(truncated.trafficType()).isEqualTo(2);
+        assertThat(truncated.startName()).isEqualTo("정류장C");
+        assertThat(truncated.endName()).isEqualTo("정류장E");
+        assertThat(truncated.endX()).isEqualTo(127.35);
+        assertThat(truncated.endY()).isEqualTo(37.35);
+        assertThat(truncated.stations()).extracting(StationResult::stationID)
+                .containsExactly("OTP:C", "OTP:D", "OTP:E");
+        // 소요는 부르는 쪽이 준 실측이다(8분). 원래 구간의 25분이 아니다.
+        assertThat(truncated.sectionTime()).isEqualTo(8);
+        // 하차 정류장 id 는 원점의 서울 id 다 — 스냅샷 정류장 id(검색 id)와 주소 체계가 다르다.
+        assertThat(truncated.endLocalStationID()).isEqualTo("ST-E-SEOUL");
+        assertThat(truncated.startLocalStationID()).isEqualTo("ST-C");
+        // 잘린 구간의 거리·요금·도착 정보는 알 수 없다. 원래 값을 남기면 "그만큼 더 간다"가 된다.
+        assertThat(truncated.distance()).isNull();
+        assertThat(truncated.payment()).isNull();
+        assertThat(truncated.endArsID()).isNull();
+
+        // 그 뒤가 후보 경로다.
+        assertThat(composed.snapshot().subPaths()).hasSize(5);
+        assertThat(composed.snapshot().subPaths().get(4).endName()).isEqualTo("목적지");
+        assertThat(composed.reason()).isEqualTo("REMAINING_PATH_MID_RIDE_ACCEPTED");
+        assertThat(composed.truncatedLegIndex()).isEqualTo(5);
+        assertThat(composed.fromLegIndex()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("지도선은 남은 정류장 좌표를 이은 선이다 — 투영하지 않는다")
+    void truncatedRideDrawsStopLine() {
+        PathResult current = twoTransitPathWithStops();
+
+        JourneyRevisionComposer.Composed composed = composer.compose(current, legsOf(current),
+                midRideApply(), new JourneyRevisionComposer.RideTruncation(2, 480)).composed();
+
+        assertThat(composed.snapshot().subPaths().get(3).polyline())
+                .containsExactly(new CoordPoint(127.25, 37.25), new CoordPoint(127.3, 37.3),
+                        new CoordPoint(127.35, 37.35));
+    }
+
+    @Test
+    @DisplayName("합성본을 다시 쪼갠 결과가 곧 새 단계 목록이다 — 절단해도 같다")
+    void truncatedSnapshotRecompilesToSameLegs() {
+        PathResult current = twoTransitPathWithStops();
+        List<JourneyLeg> currentLegs = legsOf(current);
+
+        JourneyRevisionComposer.Composed composed = composer.compose(current, currentLegs,
+                midRideApply(), new JourneyRevisionComposer.RideTruncation(2, 480)).composed();
+
+        List<JourneyLegDraft> recompiled = compiler.compile(composed.snapshot()).legs();
+        assertThat(composed.legs()).extracting(JourneyLegDraft::type)
+                .isEqualTo(recompiled.stream().map(JourneyLegDraft::type).toList());
+        // 앞 구간(대기 단계 포함)은 저장된 것과 종류가 같다.
+        assertThat(composed.legs().stream().limit(5).map(JourneyLegDraft::type))
+                .isEqualTo(currentLegs.stream().limit(5).map(JourneyLeg::getType).toList());
+        // 짝 대기 단계는 여전히 <b>타고 있는 그 노선</b>을 가리킨다. 이것이 오염 가드가 지키던 것이다.
+        assertThat(composed.legs().get(4).routeOptions())
+                .extracting(option -> option.sourceRouteId()).containsExactly("BL-802");
+        // 잘린 주행 단계의 계획 소요도 실측을 따른다.
+        assertThat(composed.legs().get(5).plannedDurationSec()).isEqualTo(480);
+        assertThat(composed.legs().get(5).endName()).isEqualTo("정류장E");
+    }
+
+    @Test
+    @DisplayName("명시 원점 없는 절단은 거절한다 — 오염 가드를 무르는 장치가 아니다")
+    void rejectsTruncationWithoutExplicitOrigin() {
+        PathResult current = twoTransitPathWithStops();
+        JourneyRevisionComposer.RideTruncation truncation =
+                new JourneyRevisionComposer.RideTruncation(2, 480);
+
+        // 원점이 아예 없다(옛 후보).
+        assertThat(composer.compose(current, legsOf(current), remainingPath(5), truncation)
+                .failureReason()).isEqualTo("truncation-unexpected");
+        // 원점이 환승 대기를 가리킨다 — 주행 중간이 아니다.
+        assertThat(composer.compose(current, legsOf(current),
+                new RerouteCandidateApply.RemainingPathApply(5, candidateFromMidStop(),
+                        new RerouteOrigin(5, "ST-E-SEOUL", "BL-802", 12,
+                                RerouteOriginKind.TRANSFER_WAIT)),
+                truncation).failureReason()).isEqualTo("truncation-unexpected");
+        // 원점이 다른 단계를 가리킨다.
+        assertThat(composer.compose(current, legsOf(current),
+                new RerouteCandidateApply.RemainingPathApply(5, candidateFromMidStop(),
+                        new RerouteOrigin(2, "ST-E-SEOUL", "BL-802", 12,
+                                RerouteOriginKind.RIDE_INTERIOR)),
+                truncation).failureReason()).isEqualTo("truncation-unexpected");
+    }
+
+    @Test
+    @DisplayName("주행 단계가 아닌 자리는 자르지 않는다")
+    void rejectsTruncationOutsideRide() {
+        PathResult current = twoTransitPathWithStops();
+
+        // legIndex=4 는 대기 단계다. 자를 주행 구간이 아니다.
+        JourneyRevisionComposer.Result result = composer.compose(current, legsOf(current),
+                new RerouteCandidateApply.RemainingPathApply(4, candidateFromMidStop(),
+                        new RerouteOrigin(4, "ST-E-SEOUL", "BL-802", 12,
+                                RerouteOriginKind.RIDE_INTERIOR)),
+                new JourneyRevisionComposer.RideTruncation(2, 480));
+
+        assertThat(result.failureReason()).isEqualTo("truncation-unexpected");
+    }
+
+    @Test
+    @DisplayName("노선만 바꾸는 수락에는 자를 자리가 없다")
+    void rejectsTruncationOnRouteOption() {
+        PathResult current = twoTransitPathWithStops();
+
+        JourneyRevisionComposer.Result result = composer.compose(current, legsOf(current),
+                new RerouteCandidateApply.RouteOptionApply(4, 1, "BL-999", "UP"),
+                new JourneyRevisionComposer.RideTruncation(2, 480));
+
+        assertThat(result.failureReason()).isEqualTo("truncation-unexpected");
+    }
+
+    @Test
+    @DisplayName("승차 정류장이거나 목록 밖이면 자를 수 없다")
+    void rejectsUnmappableAlightStop() {
+        PathResult current = twoTransitPathWithStops();
+
+        assertThat(composer.compose(current, legsOf(current), midRideApply(),
+                new JourneyRevisionComposer.RideTruncation(0, 480)).failureReason())
+                .isEqualTo("truncation-unmappable");
+        assertThat(composer.compose(current, legsOf(current), midRideApply(),
+                new JourneyRevisionComposer.RideTruncation(9, 480)).failureReason())
+                .isEqualTo("truncation-unmappable");
+    }
+
+    @Test
+    @DisplayName("정류장 목록이 없는 옛 스냅샷은 자를 수 없다")
+    void rejectsWhenSnapshotHasNoStations() {
+        // 정류장 목록 없이 저장된 구간(전환 전 여정)은 X 를 가리킬 방법이 없다.
+        PathResult current = twoTransitPath();
+
+        JourneyRevisionComposer.Result result = composer.compose(current, legsOf(current),
+                midRideApply(), new JourneyRevisionComposer.RideTruncation(2, 480));
+
+        assertThat(result.failureReason()).isEqualTo("truncation-unmappable");
+    }
+
+    @Test
+    @DisplayName("지하철 구간은 자르지 않는다 — 초기 스코프는 버스만")
+    void rejectsSubwayTruncation() {
+        PathResult current = new PathResult(1, null, List.of(
+                walk(5).names("출발지", "A역").coords(127.0, 37.0, 127.1, 37.1)
+                        .distance(300.0).build(),
+                subway(25).names("A역", "Z역").coords(127.1, 37.1, 127.5, 37.5)
+                        .subwayStations(101, 105)
+                        .stations(new StationResult(0, "OTP:A", "A역", 127.1, 37.1),
+                                new StationResult(1, "OTP:B", "B역", 127.2, 37.2),
+                                new StationResult(2, "OTP:Z", "Z역", 127.5, 37.5))
+                        .lanes(subwayLane("2호선", 2)).build()),
+                List.of());
+
+        JourneyRevisionComposer.Result result = composer.compose(current, legsOf(current),
+                new RerouteCandidateApply.RemainingPathApply(2, candidateFromMidStop(),
+                        new RerouteOrigin(2, "ST-B-SEOUL", "BL-2", 3,
+                                RerouteOriginKind.RIDE_INTERIOR)),
+                new JourneyRevisionComposer.RideTruncation(1, 480));
+
+        assertThat(result.failureReason()).isEqualTo("truncation-unmappable");
+    }
+
     @Test
     @DisplayName("노선만 바꾸는 수락은 구조를 건드리지 않는다")
     void routeOptionKeepsStructure() {
@@ -162,6 +341,41 @@ class JourneyRevisionComposerTest {
         return new PathResult(1, null, List.of(
                 bus(15).names("정류장B", "목적지").coords(127.2, 37.2, 127.5, 37.5)
                         .busStops("ST-B", "ST-Z").lanes(busLane("360", "BL-360")).build()),
+                List.of());
+    }
+
+    /** 주행 중인 두 번째 버스의 중간 정류장(정류장E)에서 내리는 후보. */
+    private RerouteCandidateApply midRideApply() {
+        return new RerouteCandidateApply.RemainingPathApply(5, candidateFromMidStop(),
+                new RerouteOrigin(5, "ST-E-SEOUL", "BL-802", 12,
+                        RerouteOriginKind.RIDE_INTERIOR));
+    }
+
+    /** 중간 하차 정류장에서 목적지까지 버스 하나. */
+    private PathResult candidateFromMidStop() {
+        return new PathResult(1, null, List.of(
+                bus(12).names("정류장E", "목적지").coords(127.35, 37.35, 127.5, 37.5)
+                        .busStops("ST-E-SEOUL", "ST-Z").lanes(busLane("471", "BL-471")).build()),
+                List.of());
+    }
+
+    /** 두 번째 버스가 정류장별 목록을 들고 있는 스냅샷. 중간 하차는 그 목록 안에서만 가능하다. */
+    private PathResult twoTransitPathWithStops() {
+        return new PathResult(1, null, List.of(
+                walk(5).names("출발지", "정류장A").coords(127.0, 37.0, 127.1, 37.1)
+                        .distance(300.0).build(),
+                bus(20).names("정류장A", "정류장B").coords(127.1, 37.1, 127.2, 37.2)
+                        .busStops("ST-A", "ST-B").lanes(busLane("721", "BL-721")).build(),
+                walk(3).names("정류장B", "정류장C").coords(127.2, 37.2, 127.25, 37.25)
+                        .distance(150.0).build(),
+                bus(25).names("정류장C", "목적지").coords(127.25, 37.25, 127.5, 37.5)
+                        .busStops("ST-C", "ST-Z").ars("11-001", "11-009")
+                        .stations(new StationResult(0, "OTP:C", "정류장C", 127.25, 37.25),
+                                new StationResult(1, "OTP:D", "정류장D", 127.3, 37.3),
+                                new StationResult(2, "OTP:E", "정류장E", 127.35, 37.35),
+                                new StationResult(3, "OTP:Z", "목적지", 127.5, 37.5))
+                        .distance(8000.0).payment(1500)
+                        .lanes(busLane("802", "BL-802")).build()),
                 List.of());
     }
 

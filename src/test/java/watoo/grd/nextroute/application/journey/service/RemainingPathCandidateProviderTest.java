@@ -4,6 +4,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties;
 import watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties;
@@ -38,6 +39,9 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.AbstractExecutorService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -47,6 +51,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -78,6 +83,16 @@ class RemainingPathCandidateProviderTest {
     private final JourneyRerouteProperties properties = new JourneyRerouteProperties();
     private final JourneyRerouteMetrics metrics = new JourneyRerouteMetrics(new SimpleMeterRegistry());
 
+    /** overlay 병렬 풀. 테스트에서는 부르는 스레드에서 그대로 돈다 — 순서·시각이 흔들리지 않는다. */
+    private final ExecutorService overlayExecutor = new AbstractExecutorService() {
+        @Override public void shutdown() { }
+        @Override public List<Runnable> shutdownNow() { return List.of(); }
+        @Override public boolean isShutdown() { return false; }
+        @Override public boolean isTerminated() { return false; }
+        @Override public boolean awaitTermination(long timeout, TimeUnit unit) { return true; }
+        @Override public void execute(Runnable command) { command.run(); }
+    };
+
     private RemainingPathCandidateProvider provider;
     private JourneyLeg waitLeg;
 
@@ -85,10 +100,10 @@ class RemainingPathCandidateProviderTest {
     void setUp() {
         provider = new RemainingPathCandidateProvider(
                 transferRepository, legRepository, routeOptionRepository, waypointResolver,
-                searchService, composer, new RouteOptionEtaCalculator(),
+                searchService, composer,
+                new BoardingChainEtaCalculator(List.of(busEstimator), Clock.fixed(NOW, ZoneOffset.UTC)),
                 new TransferPredictionInterpreter(new JourneyEvaluatorProperties()),
-                List.of(busEstimator), properties, metrics,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                properties, metrics, Clock.fixed(NOW, ZoneOffset.UTC), overlayExecutor);
 
         waitLeg = leg(2, JourneyLegType.WAIT_BUS, "ST-C", null);
         given(transferRepository.findByJourneyIdAndRouteRevisionAndTransferIndexAndDeletedAtIsNull(
@@ -171,7 +186,8 @@ class RemainingPathCandidateProviderTest {
         givenPrepared(path, prepared("BL-721", 0, 1));
 
         assertThat(provider.findCandidates(context())).isEmpty();
-        verify(composer, never()).compose(any(), any(), any(), anyLong());
+        verify(composer, never()).compose(any(), any(), any(),
+                any(BoardingChainEtaCalculator.Budget.class));
         verifyNoInteractions(busEstimator);
     }
 
@@ -185,7 +201,8 @@ class RemainingPathCandidateProviderTest {
         givenBaseline(NOW.plusSeconds(600), true);
 
         assertThat(provider.findCandidates(context())).isEmpty();
-        verify(composer, never()).compose(any(), any(), any(), anyLong());
+        verify(composer, never()).compose(any(), any(), any(),
+                any(BoardingChainEtaCalculator.Budget.class));
     }
 
     @Test
@@ -264,12 +281,64 @@ class RemainingPathCandidateProviderTest {
         givenPrepared(first, firstPrepared);
         givenPrepared(second, secondPrepared);
         givenBaseline(NOW.plusSeconds(600), true);
-        given(composer.compose(eq(firstPrepared), any(), any(), anyLong()))
+        given(composer.compose(eq(firstPrepared), any(), any(),
+                any(BoardingChainEtaCalculator.Budget.class)))
                 .willReturn(attempt(NOW.plusSeconds(2400)));
         willThrow(new IllegalStateException("provider down")).given(composer)
-                .compose(eq(secondPrepared), any(), any(), anyLong());
+                .compose(eq(secondPrepared), any(), any(),
+                        any(BoardingChainEtaCalculator.Budget.class));
 
         assertThat(provider.findCandidates(context())).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("기준선도 남은 환승을 물어본다 — 한쪽만 대기 0으로 재면 그 차이가 개선폭이 된다")
+    void baselineOverlaysEveryRemainingWait() {
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+                JOURNEY_ID, 1)).willReturn(legsWithSecondTransfer());
+        PathResult path = path("A");
+        givenSearch(path);
+        givenPrepared(path, prepared("BL-360", 1, 2));
+        // 물어본 앵커에서 300초 뒤에 탄다고 답한다.
+        given(routeOptionRepository.findById(11L)).willReturn(Optional.of(busOption()));
+        given(busEstimator.supports(JourneyLegType.WAIT_BUS)).willReturn(true);
+        given(busEstimator.estimate(any(), any(), any(), anyLong()))
+                .willAnswer(call -> BoardingOutcome.of(new BoardingEstimate(
+                        call.getArgument(1, Instant.class).plusSeconds(300), true,
+                        CurrentLegArrival.Source.REALTIME_ARRIVAL, CurrentLegArrival.Quality.GOOD,
+                        NOW, null)));
+        givenComposed(path, attempt(NOW.plusSeconds(2400)));
+
+        List<RerouteCandidate> candidates = provider.findCandidates(context());
+
+        ArgumentCaptor<Instant> anchors = ArgumentCaptor.forClass(Instant.class);
+        verify(busEstimator, times(2)).estimate(any(), anchors.capture(), any(), anyLong());
+        assertThat(anchors.getAllValues().get(0)).isEqualTo(READY_AT);
+        // 두 번째 대기의 앵커 = 첫 승차(+300) + 주행 2400 + 환승 도보 120.
+        assertThat(anchors.getAllValues().get(1)).isEqualTo(READY_AT.plusSeconds(2820));
+        // 기준선 ETA = 두 번째 승차(+300) + 주행 600 = READY_AT+3720. 두 번의 대기가 살아 있다.
+        // 개선폭 = 3720 + 300(READY_AT 오프셋) - 2400 = 1620.
+        assertThat(candidates).hasSize(1);
+        assertThat(candidates.get(0).display().etaGainSec()).isEqualTo(1620);
+    }
+
+    @Test
+    @DisplayName("같은 도착 시각이면 덜 걷는 후보가 앞이다 — 표준 줄 세우기를 쓴다")
+    void ordersByTheStandardRanking() {
+        PathResult walkMore = path("A");
+        PathResult walkLess = path("B");
+        givenSearch(walkMore, walkLess);
+        givenPrepared(walkMore, prepared("BL-360", 0, 1));
+        givenPrepared(walkLess, prepared("BL-100", 0, 1));
+        givenBaseline(NOW.plusSeconds(600), true);
+        givenComposed(walkMore, attempt(NOW.plusSeconds(2400), 900));
+        givenComposed(walkLess, attempt(NOW.plusSeconds(2400), 120));
+
+        List<RerouteCandidate> candidates = provider.findCandidates(context());
+
+        assertThat(candidates).hasSize(2);
+        assertThat(candidates.get(0).display().walkingSec()).isEqualTo(120);
+        assertThat(candidates.get(1).display().walkingSec()).isEqualTo(900);
     }
 
     @Test
@@ -297,8 +366,8 @@ class RemainingPathCandidateProviderTest {
     }
 
     private void givenComposed(PathResult path, Attempt attempt) {
-        given(composer.compose(eq(composer.prepare(path)), any(), any(), anyLong()))
-                .willReturn(attempt);
+        given(composer.compose(eq(composer.prepare(path)), any(), any(),
+                any(BoardingChainEtaCalculator.Budget.class))).willReturn(attempt);
     }
 
     private void givenBaseline(Instant boardingAt, boolean boardable) {
@@ -319,6 +388,18 @@ class RemainingPathCandidateProviderTest {
                 leg(3, JourneyLegType.RIDE_BUS, null, 2400));
     }
 
+    /** 기준선에 환승이 하나 더 남아 있는 여정. 체인이 그 대기까지 물어보는지 보는 데 쓴다. */
+    private List<JourneyLeg> legsWithSecondTransfer() {
+        return List.of(
+                leg(0, JourneyLegType.WALK, null, 180),
+                leg(1, JourneyLegType.RIDE_BUS, null, 600),
+                waitLeg,
+                leg(3, JourneyLegType.RIDE_BUS, null, 2400),
+                leg(4, JourneyLegType.TRANSFER_WALK, null, 120),
+                leg(5, JourneyLegType.WAIT_BUS, "ST-E", null),
+                leg(6, JourneyLegType.RIDE_BUS, null, 600));
+    }
+
     private Prepared prepared(String routeId, int waitsAfterFirst, int transferCount) {
         JourneyRouteOptionDraft option = new JourneyRouteOptionDraft(0, 0, routeId, "SRC",
                 "360", null, null, 5, null);
@@ -335,8 +416,16 @@ class RemainingPathCandidateProviderTest {
     }
 
     private Attempt attempt(Instant destinationEtaAt) {
+        return attempt(destinationEtaAt, 240);
+    }
+
+    private Attempt attempt(Instant destinationEtaAt, int walkingSec) {
         return new Attempt(prepared("BL-360", 0, 1),
-                new RouteOptionEtaCalculator.Result(destinationEtaAt, 1200, 240, false),
+                new BoardingChainEtaCalculator.Result(destinationEtaAt, 1200, walkingSec, 300,
+                        new BoardingEstimate(NOW.plusSeconds(900), true,
+                                CurrentLegArrival.Source.REALTIME_ARRIVAL,
+                                CurrentLegArrival.Quality.GOOD, NOW, null),
+                        CurrentLegArrival.Quality.GOOD, 1, null),
                 new BoardingEstimate(NOW.plusSeconds(900), true,
                         CurrentLegArrival.Source.REALTIME_ARRIVAL, CurrentLegArrival.Quality.GOOD,
                         NOW, null),
