@@ -20,6 +20,7 @@ import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import watoo.grd.nextroute.application.route.service.LegacyRouteResponseMapper;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -62,11 +63,28 @@ public class RemainingRouteSearchService {
      * @return 검색이 실패하면 빈 목록
      */
     public List<PathResult> search(String stopId, Waypoints waypoints, long budgetMs) {
+        return search(stopId, waypoints, budgetMs, null);
+    }
+
+    /**
+     * 출발 시각을 정해 검색한다.
+     *
+     * <p><b>왜 "지금"이 아닌가</b>(PR-2): 원점이 주행 중인 버스의 <b>앞쪽 정류장</b>이면 사용자는
+     * 지금이 아니라 몇 분 뒤에 거기 선다. 현재 시각으로 찾으면 그때는 이미 지나간 편이 답으로
+     * 나오고, 그 시각표로 만든 비교가 그대로 제안이 된다.
+     *
+     * <p><b>ODSAY 경로에는 반영되지 않는다.</b> 그쪽 API 에 출발 시각 칸이 없다 — 옛 동작(현재
+     * 시각 기준 정적 경로) 그대로다. 미래 출발이 실제로 먹는 것은 OTP 다.
+     *
+     * @param departAt 이 시각에 원점을 떠나는 경로. null 이면 현재 시각(옛 동작)
+     */
+    public List<PathResult> search(String stopId, Waypoints waypoints, long budgetMs,
+                                   Instant departAt) {
         RoutingProvider provider = providerSelector.select(false);
         List<PathResult> paths;
         try {
             paths = provider == RoutingProvider.OTP
-                    ? loadOtpGated(waypoints)
+                    ? loadOtpGated(waypoints, departAt)
                     : loadOdsay(waypoints, budgetMs);
         } catch (Exception e) {
             log.warn("[JourneyReroute] 남은 구간 검색 실패 [{}]: {}", stopId, e.getMessage());
@@ -86,7 +104,7 @@ public class RemainingRouteSearchService {
      * 예산 이중소비를 막는다. 포화·Redis 장애(fail-closed) → 빈 목록(재탐색 실패 계약, OTP-only 라
      * ODSAY 폴백 없음).
      */
-    private List<PathResult> loadOtpGated(Waypoints waypoints) {
+    private List<PathResult> loadOtpGated(Waypoints waypoints, Instant departAt) {
         // OTP 호출은 전용 예산(otpMs) 단일소스 — ODSAY 재탐색 예산(budgetMs)과 분리.
         RoutingDeadline deadline = RoutingDeadline.of(clock, routeSearchDeadlineProperties.getOtpMs());
         Optional<OtpPermit> permit = otpConcurrencyGate.tryAcquire(deadline, "worker");
@@ -95,7 +113,7 @@ public class RemainingRouteSearchService {
             return List.of();
         }
         try {
-            return loadOtp(waypoints, deadline);
+            return loadOtp(waypoints, deadline, departAt);
         } finally {
             otpConcurrencyGate.release(permit.get());
         }
@@ -114,14 +132,18 @@ public class RemainingRouteSearchService {
 
     /**
      * OTP 경로: RoutingPort → legacy paths. 실패는 kind 를 계측하되 재탐색 계약대로 빈 목록으로 끝낸다
-     * (실패가 재탐색 요청 전체를 죽이지 않음). 출발시각은 현재 시각 — 예상 환승 도착시각 전달은 시그니처
-     * 변경이 필요한 후속 작업이다.
+     * (실패가 재탐색 요청 전체를 죽이지 않음).
+     *
+     * <p>출발 시각은 <b>부르는 쪽이 준 원점 도달 시각</b>이다. 지난 시각은 받지 않는다 — 이미
+     * 지난 출발로 물으면 OTP 가 지나간 편을 답으로 준다.
      */
-    private List<PathResult> loadOtp(Waypoints waypoints, RoutingDeadline deadline) {
+    private List<PathResult> loadOtp(Waypoints waypoints, RoutingDeadline deadline, Instant departAt) {
+        Instant now = clock.instant();
+        Instant departureAt = departAt == null || departAt.isBefore(now) ? now : departAt;
         RoutingQuery query = new RoutingQuery(
                 waypoints.origin().x(), waypoints.origin().y(), null,
                 waypoints.destination().x(), waypoints.destination().y(), null,
-                clock.instant(), Set.of(), null, false, "otp-v2", RoutingProvider.OTP, null);
+                departureAt, Set.of(), null, false, "otp-v2", RoutingProvider.OTP, null);
         RoutingOutcome outcome = providerSelector.portFor(RoutingProvider.OTP).search(query, deadline);
         if (outcome instanceof RoutingFailure failure) {
             metrics.recordRemainingSearch("otp-failed-" + failure.kind());

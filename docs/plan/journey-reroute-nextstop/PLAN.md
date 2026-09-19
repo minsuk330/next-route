@@ -79,11 +79,14 @@
 
 ### PR-2 — 원점 창 + 정류장별 리스트
 의존: **PR-A**, PR-B, PR-1.
-- [ ] 신규 `UpcomingStopWindowResolver.resolve(...) → List<OriginStop{legIndex, stop식별, stopGtfsId, busEtaAt, plannedAlight}>`. 창 = 버스 ETA ≥ T_min(90s) ~ 계획 하차. cap K(6), 계획 하차 always. 버스 ETA = 실시간 위치 캐시([[project-bus-realtime-cache]]). **~~없으면 시간표 폴백~~ 취소(사용자 결정 2026-09-18): 실시간이 안 잡히는 정류장은 후보에서 제외한다.** 시간표로 "몇 시에 내릴 수 있다"를 제안하면 지연 중인 실제 차와 어긋난 안내가 되고, 사용자는 그 제안을 믿고 내린다 — 실시간이 뒷받침하는 하차점만 제안한다.
-- [ ] **재탐색을 미래 `busEtaAt` 출발로**: `RemainingRouteSearchService` 가 지금 `clock.instant()` 고정(:139) → origin 별 도달시각으로 검색하도록 API/캐시 확장(별도 작업).
-- [ ] provider 원점 루프: 각 origin fresh search→prepare→**정류장당 시간표 rank 상위 1개만 overlay**→후보. **계획 하차점 fresh search 안 함, 현재 계획 overlay 만**(기준선).
-- [ ] 선별: 정류장 그룹, 절감 = 현재계획ETA − 그 정류장 최선ETA(overlay 후). **0/음수 숨김**. 정렬·동점 = **PR-1 rank() 재사용**. **miss-risk 가드**.
-- [ ] 응답 DTO 정류장 축. 설정 `nextStop.leadTimeSec=90`·`maxOrigins=6`·`boardingBufferSec=30`·miss-risk 임계.
+- [x] 신규 `UpcomingStopWindowResolver.resolveRideInterior(legs, waitLegIndex, now) → List<RerouteOriginStop>`. 창 = 버스 ETA ≥ T_min(90s) ~ 계획 하차 **직전**. cap K(6) + 조회 상한(10). 버스 ETA = 도착 API/캐시(`SearchTimeBusQueryPort`) 의 **내 차** 도착. **~~없으면 시간표 폴백~~ 취소(사용자 결정 2026-09-18): 실시간이 안 잡히는 정류장은 후보에서 제외한다.**
+  - **정정(구현, 2026-09-19)**: "계획 하차 always" 는 resolver 가 아니라 **공급자**가 든다 — 그 자리는 이미 환승 대기 원점으로 있어서 두 곳에서 만들면 같은 정류장이 두 번 나온다. resolver 는 **중간 정류장만** 돌려준다.
+  - **정정(구현)**: 내 위치 = 앱이 보낸 `remainingStops`(관측 180초 이내), 내 차 = 도착 정보의 `sectionOrder ∈ {currentSeq, currentSeq+1}`. **내 뒤의 차는 안 받는다**(늦은 도착 → "아직 여유 있다" → 하차 지나침). 위치를 모르면 창을 안 연다.
+- [x] **재탐색을 미래 `busEtaAt` 출발로**: `RemainingRouteSearchService.search(..., departAt)` 추가(지난 시각은 현재로 되돌림). **ODSAY 경로는 출발 시각 칸이 없어 옛 동작**(OTP 만 실효).
+- [x] provider 원점 루프: 각 origin fresh search→prepare→**정류장당 시간표 rank 상위 1개만 overlay**→후보. 원점끼리는 **병렬**(`rerouteOverlayExecutor` 재사용).
+  - **정정(구현)**: "계획 하차점 fresh search 안 함"은 **기준선**을 다시 검색하지 않는다는 뜻으로 읽었다(기준선 = 저장된 계획 overlay). 계획 하차 정류장 **자체는 원점으로 남긴다** — 빼면 ④(환승 정류장 발 재검색)와 ③(같은 정류장 다른 노선)이 둘 다 사라지는데, ③은 이 작업이 흡수하기로 한 기능이다.
+- [x] 선별: 절감 = 현재계획ETA − 그 정류장 최선ETA(overlay 후). **0/음수 숨김**(임계 300s). 정렬·동점 = **PR-1 rank() 재사용**. **miss-risk 가드**(첫 승차 여유 < 30s 제외).
+- [x] 응답 DTO 정류장 축 = 후보마다 `display.alight{stopId,name,alightAt,planned}`(정류장당 후보가 하나라 **중첩 안 함**). 설정 `journey.reroute.next-stop.*`(enabled·lead-time-sec=90·max-origins=6·max-stop-lookups=10·arrival-budget-ms=1500·boarding-buffer-sec=30·miss-risk-min-slack-sec=30·progress-max-age-sec=180).
 - 검증: resolver(창·cap·계획하차·폴백·미래시각검색). provider(원점 다중·정류장당 overlay 1·계획하차 fresh안함·0절감 숨김·miss-risk·rank 재사용). ④ 무회귀.
 
 ### PR-3 — 알림 계약
