@@ -65,7 +65,11 @@ import static org.mockito.Mockito.verifyNoInteractions;
         "collector.static-data.enabled=false",
         "realtime.subway.enabled=false",
         "kma.weather.enabled=false",
-        "journey.reroute.enabled=true"
+        "journey.reroute.enabled=true",
+        // 이 IT 는 ODsay 재검색 경로를 본다(odSayApiPort 를 MockBean 으로 세움).
+        // P7 부터 코드 기본값은 OTP 라 여기서 provider 를 명시하지 않으면 OTP 분기로 새어
+        // 후보가 통째로 비고, 그 증상이 "제안이 안 만들어진다"로 나타난다.
+        "routing.provider.default-provider=ODSAY"
 })
 @DisplayName("남은 구간 재검색 제안")
 class RerouteRemainingPathIT {

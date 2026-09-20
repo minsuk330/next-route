@@ -18,31 +18,41 @@ class RoutingProviderSelectorTest {
         };
     }
 
-    private RoutingProviderSelector selector(boolean otpEnabled) {
+    /** 기본값에 기대지 않고 두 값을 매번 명시한다 — 기본값이 바뀌어도 이 테스트가 뜻을 잃지 않게. */
+    private RoutingProviderSelector selector(RoutingProvider defaultProvider, boolean otpEnabled) {
         RoutingProviderProperties props = new RoutingProviderProperties();
+        props.setDefaultProvider(defaultProvider);
         props.setOtpEnabled(otpEnabled);
         return new RoutingProviderSelector(props,
                 List.of(stub(RoutingProvider.ODSAY), stub(RoutingProvider.OTP)));
     }
 
     @Test
-    @DisplayName("기본은 ODSAY. otp-enabled 여도 내부요청 아니면 ODSAY")
-    void defaultsToOdsay() {
-        assertThat(selector(false).select(false)).isEqualTo(RoutingProvider.ODSAY);
-        assertThat(selector(false).select(true)).isEqualTo(RoutingProvider.ODSAY);   // enabled=false 라 무시
-        assertThat(selector(true).select(false)).isEqualTo(RoutingProvider.ODSAY);   // 내부요청 아님
+    @DisplayName("default-provider=OTP + enabled 면 일반 요청도 OTP (P7 전환 상태)")
+    void otpIsDefaultAfterSwitchover() {
+        assertThat(selector(RoutingProvider.OTP, true).select(false)).isEqualTo(RoutingProvider.OTP);
+        assertThat(selector(RoutingProvider.OTP, true).select(true)).isEqualTo(RoutingProvider.OTP);
     }
 
     @Test
-    @DisplayName("otp-enabled + 내부요청일 때만 OTP")
-    void otpOnlyWhenEnabledAndInternal() {
-        assertThat(selector(true).select(true)).isEqualTo(RoutingProvider.OTP);
+    @DisplayName("otp-enabled=false 면 default 가 OTP 여도 ODSAY (승인 게이트, 오설정 방어)")
+    void approvalGateOverridesDefault() {
+        assertThat(selector(RoutingProvider.OTP, false).select(false)).isEqualTo(RoutingProvider.ODSAY);
+        assertThat(selector(RoutingProvider.OTP, false).select(true)).isEqualTo(RoutingProvider.ODSAY);
+    }
+
+    @Test
+    @DisplayName("default-provider=ODSAY 로 되돌리면 일반 요청은 ODSAY (롤백 통로)")
+    void rollbackToOdsay() {
+        assertThat(selector(RoutingProvider.ODSAY, true).select(false)).isEqualTo(RoutingProvider.ODSAY);
+        // 내부/승인 경로가 청하면 여전히 OTP — 롤백은 기본값만 되돌린다.
+        assertThat(selector(RoutingProvider.ODSAY, true).select(true)).isEqualTo(RoutingProvider.OTP);
     }
 
     @Test
     @DisplayName("portFor 는 provider 별 port, 미등록은 오류")
     void portLookup() {
-        RoutingProviderSelector s = selector(true);
+        RoutingProviderSelector s = selector(RoutingProvider.OTP, true);
         assertThat(s.portFor(RoutingProvider.OTP).provider()).isEqualTo(RoutingProvider.OTP);
         RoutingProviderSelector empty = new RoutingProviderSelector(new RoutingProviderProperties(), List.of());
         assertThatThrownBy(() -> empty.portFor(RoutingProvider.OTP))

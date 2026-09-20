@@ -51,6 +51,14 @@ import static org.mockito.Mockito.when;
  */
 class RouteSearchDeadlineIT {
 
+    /** ODSAY 롤백 구성. 기본값에 기대지 않고 명시한다 — P7 부터 코드 기본값은 OTP 다. */
+    private static watoo.grd.nextroute.application.route.config.RoutingProviderProperties odsayProps() {
+        var props = new watoo.grd.nextroute.application.route.config.RoutingProviderProperties();
+        props.setDefaultProvider(watoo.grd.nextroute.application.route.routing.RoutingProvider.ODSAY);
+        return props;
+    }
+
+
     /** ODsay 응답: 도보 1구간짜리 경로 1개. mapObj 가 없어 폴리라인 보강은 적용 대상이 아니다. */
     private static final String ODSAY_BODY = """
             {"result":{"searchType":0,"busCount":0,"subwayCount":0,"trainCount":0,"airCount":0,
@@ -128,7 +136,7 @@ class RouteSearchDeadlineIT {
                 polylineEnricher, walkEnricher, mock(TransferArrivalEnricher.class), metrics,
                 deadlineProperties(),
                 new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
-                        new watoo.grd.nextroute.application.route.config.RoutingProviderProperties(), java.util.List.of()),
+                        odsayProps(), java.util.List.of()),
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class),
                         mock(watoo.grd.nextroute.domain.bus.repository.BusRouteRepository.class)),
                 new DepartureTimeResolver(java.time.Clock.systemDefaultZone()),
