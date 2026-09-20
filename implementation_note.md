@@ -2948,3 +2948,29 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결
 - 착수 순서 제안 = ①검색 갭(bbox/graph) ②시간표 기반 정적 라벨로 미커버 노선 메우기 ③KRIC 스크래핑 스파이크 또는 운영기관 제휴. **사용자 결정 대기.**
 - bbox 를 넓히면 graph 크기·heap·빌드시간이 는다(P1 capacity-report 기준 재산정 필요). 인천공항만 필요하면 west 126.5→126.4 정도의 최소 확장으로 될지 먼저 측정할 것.
+
+## 2026-09-20 탑승 대기가 프론트에 안 내려가는 건 — 조사 + 승차추정 miss 사유 계측 (S)
+
+### 확정 (조사 결과, 실측)
+- **예측 모델 배선은 정상이다.** 프로덕션에서 여정 74 가 실제로 쓴 값으로 `/api/transfer/predict` 직접 호출: 앵커 +3분 → `source=REALTIME status=AVAILABLE waitSeconds=235`, 앵커 **+15분 → `source=MODEL status=AVAILABLE waitSeconds=270 modelVersion=lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z`**. 이 호출로 ml-serve `/predict` 카운터(role=api)가 올라가는 것까지 확인. 스펙도 맞다 — 모델 `route_categories` 146개에 `100100053`·`100100061` 포함, `ML_PREDICTOR_ENABLED=true`.
+- **끊긴 자리는 여정 평가기다.** ml-serve `/predict` 는 **worker role 24시간 0건**. 평가기가 낸 예측 3건 전부 `journey_transfer_prediction_total{source="none"}`. 평가기 자체는 돈다(`claimed=3`, `duration{outcome=evaluated}=3`, `provider_slot{result=acquired}=3`, `failures=0`).
+- **그래서 프론트에 null 이 간다.** `evaluator.enabled=true` 면 조회 경로는 계산하지 않고 저장된 값만 읽는다(`JourneySnapshotEtaComposer:132` → `StoredJourneyEvaluationReader.boardingArrival`). 저장이 비면 `CurrentLegArrival.unknown()` → `eta.currentLeg` 전부 null. DB 실측: `journey_leg.predicted_end_at` 이 WAIT_BUS 89행 중 3행(마지막 2026-09-08), WAIT_SUBWAY 0행.
+- 여정 74 의 `transfer_connection`: `status=UNKNOWN source=NONE next_bus_arrival_at=NULL`, `user_ready_at=08:18:01Z`, `calculated_at=08:02:31Z` → 앵커까지 930초라 20분 창 안, 즉 `REALTIME_THEN_MODEL` 모드였는데도 모델 호출이 없었다.
+
+### 함정
+- **`source=none` 하나로는 원인을 못 가린다.** `TransferArrival.Status`(LIMITED / NO_VEHICLE / BLOCKED / STOP_MAPPING_FAILED / UNSUPPORTED_ROUTE …)가 메트릭 라벨에도, `transfer_connection` 컬럼에도, 로그에도 안 남아 있었다. 막혀서 못 물어본 것·물어봤는데 탈 차가 없던 것·애초에 정류장이 안 풀려 안 물어본 것은 **고칠 곳이 서로 다른데** 관측상 전부 같은 값이었다. 이번 PR 이 그 구멍을 메운다.
+- 같은 입력을 지금 부르면 성공한다 — 즉 코드가 틀린 게 아니라 **평가기 조건에서만** 실패한다. 남은 후보 둘: ①평가기 예산 `predictDeadlineMs=1500`(검색 2500 보다 짧다), 워커가 16:28 재시작 후 17:02 첫 여정이라 콜드 경로였을 수 있음(지금 재보면 콜드 0.25s/웜 0.012s) ②그 순간 `NO_VEHICLE`.
+
+### 좌표
+- 신규 메트릭 `journey.transfer.boarding-miss{mode,reason}` — `JourneyEvaluationMetrics.recordBoardingMiss`.
+- `BusBoardingTimeEstimator` — 예측 결과에 시각이 없으면 `reason=<status 소문자>` 로 세고 stopId/routeId/seq/status/source 를 INFO 한 줄. 물어보기 전 종료는 `no_anchor`·`no_scope`.
+- `SubwayBoardingTimeEstimator` — `no_anchor`·`no_scope`·`no_way_code`·`no_arrival_rows`(조회가 비어 옴)·`no_boardable_train`(조회는 됐는데 앵커 이후 열차 없음).
+- 읽는 법(PromQL): `sum by (mode,reason) (increase(journey_transfer_boarding_miss_total[1h]))`.
+
+### 검증
+- `./gradlew test`: **2181 tests, 1 failed, 2 skipped**. 실패 = `JourneyTransferAssessmentIT.assessmentIsPersisted` — **기존 무관**(P7 PR-1 때 baseline 확인한 그 실패).
+- 대상: `BoardingTimeEstimatorTest`(버스 4사유 + 성공 시 0 + 지하철 3사유), `TransferTargetArrivalPredictorTest` 40건 green.
+
+### 미결
+- 위 기존 실패 IT 는 사실 같은 계열이다: 평가기가 켜져 있으면 조회 경로가 계산을 안 하는데, 그 IT 는 조회가 계산하던 시절 계약을 검사한다. 이번 스코프 밖 — 고치려면 IT 가 `journey.navigation.evaluator.enabled=false` 를 명시하거나 계약 자체를 다시 정해야 한다.
+- 원인 확정은 **다음 여정 1건**이면 난다. 배포 후 `journey_transfer_boarding_miss_total` 의 reason 을 보고 ①예산이면 `predictDeadlineMs` 상향 ②`no_vehicle` 이면 정상(그 시각 그 노선에 차가 없던 것) ③`no_scope`/`stop_mapping_failed` 면 id 해석 문제로 간다.

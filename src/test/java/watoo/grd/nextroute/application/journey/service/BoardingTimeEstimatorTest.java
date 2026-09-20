@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -9,6 +11,7 @@ import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties
 import watoo.grd.nextroute.application.journey.dto.BoardingOutcome;
 import watoo.grd.nextroute.application.journey.dto.BoardingQuery;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
+import watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics;
 import watoo.grd.nextroute.application.route.dto.TransferArrival;
 import watoo.grd.nextroute.application.route.dto.TransferPredictionResult;
 import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
@@ -47,12 +50,21 @@ class BoardingTimeEstimatorTest {
 
         private final PredictTransferUseCase predictTransferUseCase = mock(PredictTransferUseCase.class);
         private final JourneyEvaluatorProperties properties = new JourneyEvaluatorProperties();
+        private final MeterRegistry registry = new SimpleMeterRegistry();
         private BusBoardingTimeEstimator estimator;
 
         @BeforeEach
         void setUp() {
             estimator = new BusBoardingTimeEstimator(
-                    predictTransferUseCase, new TransferPredictionInterpreter(properties));
+                    predictTransferUseCase, new TransferPredictionInterpreter(properties),
+                    new JourneyEvaluationMetrics(registry));
+        }
+
+        /** 못 구한 사유가 이 tag 로 남는지. 남지 않으면 운영에서 원인을 못 가린다. */
+        private double missCount(String reason) {
+            var counter = registry.find(JourneyEvaluationMetrics.BOARDING_MISS)
+                    .tag("mode", "bus").tag("reason", reason).counter();
+            return counter == null ? 0 : counter.count();
         }
 
         @Test
@@ -197,6 +209,35 @@ class BoardingTimeEstimatorTest {
                     .isInstanceOf(IllegalStateException.class);
         }
 
+        @Test
+        @DisplayName("못 구한 사유가 tag 로 남는다 — source=none 하나로는 원인을 못 가린다")
+        void recordsMissReason() {
+            givenPrediction(TransferArrival.Source.MODEL, TransferArrival.Status.NO_VEHICLE, null, false, null);
+            estimator.estimate(query(), NOW.plusSeconds(420), NOW, 1000L);
+            assertThat(missCount("no_vehicle")).isEqualTo(1);
+
+            givenPrediction(TransferArrival.Source.NONE, TransferArrival.Status.LIMITED, null, false, null);
+            estimator.estimate(query(), NOW.plusSeconds(420), NOW, 1000L);
+            assertThat(missCount("limited")).isEqualTo(1);
+
+            // 물어보기 전에 끝난 두 경우도 서로 다른 사유로 남는다.
+            estimator.estimate(query(), null, NOW, 1000L);
+            assertThat(missCount("no_anchor")).isEqualTo(1);
+            estimator.estimate(new BoardingQuery(JourneyLegType.WAIT_BUS, "ST-G", "정류장G", "BL-721", null, null),
+                    NOW.plusSeconds(420), NOW, 1000L);
+            assertThat(missCount("no_scope")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("추정에 성공하면 사유를 세지 않는다")
+        void successRecordsNoMiss() {
+            givenPrediction(TransferArrival.Source.REALTIME, TransferArrival.Status.AVAILABLE,
+                    NOW.plusSeconds(480), true, null);
+
+            assertThat(estimator.estimate(query(), NOW.plusSeconds(420), NOW, 1000L).isPresent()).isTrue();
+            assertThat(registry.find(JourneyEvaluationMetrics.BOARDING_MISS).counters()).isEmpty();
+        }
+
         private BoardingQuery query() {
             return new BoardingQuery(JourneyLegType.WAIT_BUS, "ST-G", "정류장G", "BL-721", 3, null);
         }
@@ -217,7 +258,16 @@ class BoardingTimeEstimatorTest {
     class Subway {
 
         private final SubwayRealtimeArrivalReader arrivalReader = mock(SubwayRealtimeArrivalReader.class);
-        private final SubwayBoardingTimeEstimator estimator = new SubwayBoardingTimeEstimator(arrivalReader);
+        private final MeterRegistry registry = new SimpleMeterRegistry();
+        private final SubwayBoardingTimeEstimator estimator = new SubwayBoardingTimeEstimator(
+                arrivalReader, new JourneyEvaluationMetrics(registry));
+
+        /** 못 구한 사유가 이 tag 로 남는지. */
+        private double missCount(String reason) {
+            var counter = registry.find(JourneyEvaluationMetrics.BOARDING_MISS)
+                    .tag("mode", "subway").tag("reason", reason).counter();
+            return counter == null ? 0 : counter.count();
+        }
 
         @Test
         @DisplayName("지하철 대기 단계만 맡는다")
@@ -299,6 +349,24 @@ class BoardingTimeEstimatorTest {
             given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt())).willReturn(List.of());
 
             assertThat(estimator.estimate(query(), NOW.plusSeconds(180), NOW, 0L).blocked()).isFalse();
+        }
+
+        @Test
+        @DisplayName("조회가 비어 온 것과 탈 열차가 없던 것을 다른 사유로 남긴다")
+        void recordsMissReason() {
+            given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt()))
+                    .willReturn(List.of(arrival(60), arrival(120)));
+            estimator.estimate(query(), NOW.plusSeconds(1800), NOW, 0L);
+            assertThat(missCount("no_boardable_train")).isEqualTo(1);
+
+            given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt())).willReturn(List.of());
+            estimator.estimate(query(), NOW.plusSeconds(180), NOW, 0L);
+            assertThat(missCount("no_arrival_rows")).isEqualTo(1);
+
+            // 방향을 모르면 조회 자체를 안 한다 — 그 사유도 따로 남는다.
+            estimator.estimate(new BoardingQuery(JourneyLegType.WAIT_SUBWAY, "ST-G", "정류장G", "1002", null, null),
+                    NOW.plusSeconds(180), NOW, 0L);
+            assertThat(missCount("no_way_code")).isEqualTo(1);
         }
 
         private BoardingQuery query() {

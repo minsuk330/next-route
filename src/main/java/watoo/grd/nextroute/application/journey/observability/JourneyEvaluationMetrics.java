@@ -31,6 +31,7 @@ public class JourneyEvaluationMetrics {
     public static final String INTERVAL = "journey.evaluation.interval";
     public static final String PROVIDER_SLOT = "journey.evaluation.provider-slot";
     public static final String GRACE_HELD = "journey.evaluation.grace-held";
+    public static final String BOARDING_MISS = "journey.transfer.boarding-miss";
 
     private final MeterRegistry registry;
 
@@ -101,6 +102,23 @@ public class JourneyEvaluationMetrics {
         for (TransferRiskAssessment assessment : assessments) {
             registry.counter(PREDICTION, "source", tagOf(assessment.targetSource())).increment();
         }
+    }
+
+    /**
+     * 승차 시각을 못 구한 이유.
+     *
+     * <p>{@link #PREDICTION} 의 {@code source=none} 은 "못 구했다"까지만 말한다. 그 하나로는
+     * 막혀서 못 물어본 것인지, 물어봤는데 탈 차가 없던 것인지, 애초에 정류장·노선이 안 풀려
+     * 물어보지도 않은 것인지 가릴 수 없다 — 셋은 고쳐야 할 곳이 서로 다르다.
+     *
+     * <p>{@code reason} 은 고정 집합이다. 버스는 {@code TransferArrival.Status} 이름과 조회 전
+     * 자체 사유, 지하철은 자체 사유만 쓴다. 정류장 ID 처럼 요청마다 달라지는 값은 넣지 않는다.
+     *
+     * @param mode   {@code bus} · {@code subway}
+     * @param reason 못 구한 사유
+     */
+    public void recordBoardingMiss(String mode, String reason) {
+        registry.counter(BOARDING_MISS, "mode", mode, "reason", reason).increment();
     }
 
     private static String tagOf(CurrentLegArrival.Source source) {
