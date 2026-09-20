@@ -2793,3 +2793,31 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 컴파일(main+test) 통과. 타입 참조 grep **0건**.
 - 전체 컨텍스트 로드 + `infrastructure.*` + `application.route.*` + `architecture.*` → **679 tests, 0 failed**(빈 2개가 사라져도 배선 성립).
 - `application.journey.*` + `domain.journey.*` → **1040 tests, 1 failed** = `JourneyTransferAssessmentIT`(**기존 무관**).
+
+## 2026-09-20 national-otp P7 PR-1 — provider 코드 기본값을 OTP 로
+
+### 확정 (계약)
+- `RoutingProviderProperties` 기본값 `defaultProvider=OTP`, `otpEnabled=true`. **이전까지 프로덕션 전환은 VPS compose env 주입에만 있었다** — env 가 빠지면 코드가 조용히 ODSAY 로 되돌아가는 상태였다. 코드가 전환 사실을 적게 만드는 것이 이 PR 의 전부.
+- `application.yaml` 에 `routing.provider.*` 블록 신설(`${ROUTING_PROVIDER_DEFAULT_PROVIDER:OTP}` / `${ROUTING_PROVIDER_OTP_ENABLED:true}`). 기존 VPS env 이름과 같은 키라 **배포 쪽 변경 0**(env 가 그대로 이긴다).
+- `routing.otp.*`(base-url/graph-version/coverage-index-path/shapes-enabled)는 yaml 로 안 끌어온다. 그래프 버전 같은 값이 코드와 compose 두 곳에 갈리면 어느 쪽이 산 값인지 알 수 없어진다.
+- `otp-enabled` 의 뜻을 문서로 못박음: 전환 스위치가 아니라 **승인 게이트**(P2-B). false 면 default 가 OTP 라도 ODSAY 로 내려간다. `RoutingProviderSelector` 로직은 한 줄도 안 바꿨다.
+- ODSAY 는 **롤백 통로로 보존**(사용자 결정). env 로 `default-provider=ODSAY` 만 주면 즉시 복귀.
+
+### 함정
+- **기본값을 뒤집으면 "ODSAY 를 암묵 가정하던" Spring IT 가 조용히 OTP 분기로 샌다.** `RerouteRemainingPathIT` 2케이스가 이렇게 깨졌는데, 증상이 "제안이 안 만들어진다"(Optional empty)라 provider 와 무관한 재탐색 로직 버그처럼 보인다. 이 IT 는 `OdSayApiPort` 를 MockBean 으로 세우는데 OTP 분기는 그 Mock 을 아예 안 타니 후보가 통째로 비는 것. 고침 = `@TestPropertySource` 에 `routing.provider.default-provider=ODSAY` 명시.
+- 같은 이유로 단위테스트의 `new RoutingProviderProperties()` 도 전부 위험하다 — 기본값 의존을 없애고 ODSAY 를 명시하는 `odsayProps()` 헬퍼로 바꿨다. 기본값이 또 바뀌어도 테스트 뜻이 안 흔들린다.
+- `OdSayApiPort` 를 MockBean 으로 쓰는 IT 3개 중 나머지 2개(`RerouteAcceptIT`, `SubwayBindingRerouteInheritanceIT`)는 provider 분기를 안 타서 무사했다. MockBean 존재 자체가 위험 신호는 아니고, **재검색/검색을 실제로 호출하는지**가 기준.
+
+### 좌표
+- `src/main/java/watoo/grd/nextroute/application/route/config/RoutingProviderProperties.java:19,22` (기본값 2개)
+- `src/main/resources/application.yaml:58~66` (routing.provider 블록 신설, odsay 블록 바로 위)
+- `src/test/java/watoo/grd/nextroute/application/journey/RerouteRemainingPathIT.java:64~72` (provider 고정)
+- 신규 `src/test/java/watoo/grd/nextroute/application/route/config/RoutingProviderPropertiesTest.java` (기본값 계약 가드)
+
+### 검증
+- `./gradlew test` (전체): **2205 tests, 1 failed, 3 skipped**.
+- 유일한 실패 = `JourneyTransferAssessmentIT.assessmentIsPersisted` — **기존 무관**. 이 PR 변경분을 stash 한 상태에서 같은 테스트를 돌려 baseline 에서도 동일 실패(`5 tests completed, 1 failed`)임을 확인했다.
+- 대상 테스트 green: `RoutingProviderPropertiesTest`, `RoutingProviderSelectorTest`, `RouteSearchServiceTest`, `RemainingRouteSearchService*Test`, `RouteSearch*DeadlineIT`, `RerouteRemainingPathIT`, `RerouteAcceptIT`, `SubwayBindingRerouteInheritanceIT`.
+
+### 배포
+- 마이그레이션 없음. VPS 조치 없음 — compose 의 `ROUTING_PROVIDER_*` 가 이미 같은 값이라 재배포해도 동작 변화 0. 이 PR 이후에는 그 env 를 지워도 OTP 로 남는다(원하는 상태).

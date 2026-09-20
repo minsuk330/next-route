@@ -36,6 +36,14 @@ import static org.mockito.Mockito.*;
 /** 전체 search() 경로에서 버스 provider 무응답이 요청 deadline을 넘기지 않는지 검증한다. */
 class RouteSearchRealtimeDeadlineIT {
 
+    /** ODSAY 롤백 구성. 기본값에 기대지 않고 명시한다 — P7 부터 코드 기본값은 OTP 다. */
+    private static watoo.grd.nextroute.application.route.config.RoutingProviderProperties odsayProps() {
+        var props = new watoo.grd.nextroute.application.route.config.RoutingProviderProperties();
+        props.setDefaultProvider(watoo.grd.nextroute.application.route.routing.RoutingProvider.ODSAY);
+        return props;
+    }
+
+
     private MockWebServer busServer;
 
     @BeforeEach
@@ -105,7 +113,7 @@ class RouteSearchRealtimeDeadlineIT {
                 odsay, mock(TmapPedestrianPort.class),
                 polyline, walk, transferEnricher, metrics, deadline,
                 new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
-                        new watoo.grd.nextroute.application.route.config.RoutingProviderProperties(), java.util.List.of()),
+                        odsayProps(), java.util.List.of()),
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class),
                         mock(watoo.grd.nextroute.domain.bus.repository.BusRouteRepository.class)),
                 new DepartureTimeResolver(java.time.Clock.systemDefaultZone()),

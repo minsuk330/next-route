@@ -50,18 +50,25 @@ class RouteSearchServiceTest {
 
     @BeforeEach
     void setUp() {
-        // 기본 구성: provider=ODSAY, otp-enabled=false → OTP branch·gate 는 dormant.
+        // 기본 구성: provider=ODSAY 를 명시한다(P7 이후 코드 기본값은 OTP) → OTP branch·gate 는 dormant.
         service = new RouteSearchService(
                 odSayApiPort, tmapPort,
                 polylineEnricher, walkSegmentEnricher, transferArrivalEnricher,
                 new RouteSearchMetrics(new SimpleMeterRegistry()),
                 new RouteSearchDeadlineProperties(),
-                new RoutingProviderSelector(new RoutingProviderProperties(), java.util.List.of()),
+                new RoutingProviderSelector(odsayProps(), java.util.List.of()),
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class),
                         mock(watoo.grd.nextroute.domain.bus.repository.BusRouteRepository.class)),
                 new DepartureTimeResolver(Clock.systemDefaultZone()),
                 otpConcurrencyGate,
                 Clock.systemDefaultZone());
+    }
+
+    /** ODSAY 롤백 구성. 기본값에 기대지 않고 명시한다 — P7 부터 코드 기본값은 OTP 다. */
+    private static RoutingProviderProperties odsayProps() {
+        RoutingProviderProperties props = new RoutingProviderProperties();
+        props.setDefaultProvider(RoutingProvider.ODSAY);
+        return props;
     }
 
     /** provider=OTP + otp-enabled 인 서비스. gate·mapper·otpPort 는 주입값 그대로 쓴다. */

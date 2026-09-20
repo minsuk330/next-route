@@ -55,6 +55,16 @@ server:
     mime-types: application/json
     min-response-size: 2KB
 
+# 길찾기 공급자 선택(national-otp P7). 기본은 OTP — 수도권 검색·재탐색이 OTP graph 로 나간다.
+# ODSAY 는 지우지 않은 롤백 통로라 env 로 두 값을 되돌리면 그대로 복귀한다.
+# otp-enabled 는 전환 스위치가 아니라 승인 게이트(P2-B): false 면 default 가 OTP 라도 ODSAY 로 내려간다.
+# routing.otp.*(base-url/graph-version/coverage-index-path/shapes-enabled)는 배포 env 에서만 주입한다
+# — 값이 코드와 compose 두 곳으로 갈리면 어느 쪽이 산 값인지 알 수 없게 된다.
+routing:
+  provider:
+    default-provider: ${ROUTING_PROVIDER_DEFAULT_PROVIDER:OTP}
+    otp-enabled: ${ROUTING_PROVIDER_OTP_ENABLED:true}
+
 odsay:
   api:
     key: ${ODSAY_API_KEY:test}

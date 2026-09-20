@@ -52,6 +52,14 @@ import static org.mockito.Mockito.verifyNoInteractions;
 @DisplayName("남은 구간 경로 검색")
 class RemainingRouteSearchServiceTest {
 
+    /** ODSAY 롤백 구성. 기본값에 기대지 않고 명시한다 — P7 부터 코드 기본값은 OTP 다. */
+    private static RoutingProviderProperties odsayProps() {
+        RoutingProviderProperties props = new RoutingProviderProperties();
+        props.setDefaultProvider(RoutingProvider.ODSAY);
+        return props;
+    }
+
+
     private static final String STOP_ID = "ST-C";
     private static final Waypoints WAYPOINTS =
             new Waypoints(new Coord(127.3, 37.3), new Coord(127.5, 37.5));
@@ -63,7 +71,7 @@ class RemainingRouteSearchServiceTest {
     // 기본 구성: provider=ODSAY → gate dormant(loadOtpGated 미진입).
     private final RemainingRouteSearchService service =
             new RemainingRouteSearchService(odSayApiPort, metrics,
-                    new RoutingProviderSelector(new RoutingProviderProperties(), java.util.List.of()),
+                    new RoutingProviderSelector(odsayProps(), java.util.List.of()),
                     new LegacyRouteResponseMapper(mock(OtpSeoulIdentityResolver.class), mock(BusRouteRepository.class)),
                     otpConcurrencyGate,
                     new RouteSearchDeadlineProperties(),
