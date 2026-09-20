@@ -17,6 +17,7 @@ import watoo.grd.nextroute.application.route.routing.GeometryQuality;
 import watoo.grd.nextroute.application.route.routing.RoutingItinerary;
 import watoo.grd.nextroute.application.route.routing.RoutingLeg;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
+import watoo.grd.nextroute.application.subway.service.SubwayDirectionNormalizer;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import watoo.grd.nextroute.application.route.routing.StopOccurrence;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
@@ -142,7 +143,11 @@ public class LegacyRouteResponseMapper {
         List<LaneResult> lanes = null;
         String startLocalStationID = null;
         String endLocalStationID = null;
+        Integer wayCode = null;
         if (leg.mode() == RoutingMode.SUBWAY || leg.mode() == RoutingMode.RAIL) {
+            // 방향은 실시간 도착을 <b>한쪽으로 거르는</b> 값이다. 없으면 앱이 반대 방향 열차까지
+            // 받아 목록이 두 배가 된다. 원천 라벨(상행·하행·내선·외선)을 ODsay 값 공간으로 옮긴다.
+            wayCode = SubwayDirectionNormalizer.toWayCode(leg.sourceRouteDirection());
             String routeName = leg.sourceRouteName();
             String routeDisplayColor = SubwayLineColors.colorFor(routeName);
             if (routeDisplayColor != null) {
@@ -172,10 +177,11 @@ public class LegacyRouteResponseMapper {
         List<CoordPoint> polyline = toPolyline(leg);
 
         // 채우지 못하는 legacy 필드는 null(가짜값 금지): exit/walkSteps/ArsID/지하철-id.
+        // wayCode 는 지하철 leg 에서만 채운다 — 버스는 원천에도 방향 코드가 없다.
         return new SubPathResult(
                 trafficType, sectionTime, null, lanes, stations,
                 startName, endName, startX, startY, endX, endY,
-                null, null, null, null, null, polyline,
+                null, null, null, null, wayCode, polyline,
                 null, null, null, null, null, null,
                 null, startLocalStationID, endLocalStationID, null, null, null, null, null);
     }

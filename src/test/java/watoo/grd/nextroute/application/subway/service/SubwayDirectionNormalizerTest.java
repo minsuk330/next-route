@@ -86,4 +86,47 @@ class SubwayDirectionNormalizerTest {
         assertThat(SubwayDirectionNormalizer.fromWayCode("1001", -1)).isNull();
         assertThat(SubwayDirectionNormalizer.fromWayCode("1001", null)).isNull();
     }
+
+    /** 라벨 → wayCode. OTP 노선 이름이 방향을 들고 있어서 필요해진 방향이다. */
+    @Test
+    void labelBecomesWayCode() {
+        assertThat(SubwayDirectionNormalizer.toWayCode("상행")).isEqualTo(1);
+        assertThat(SubwayDirectionNormalizer.toWayCode("하행")).isEqualTo(2);
+        assertThat(SubwayDirectionNormalizer.toWayCode("내선")).isZero();
+        assertThat(SubwayDirectionNormalizer.toWayCode("외선")).isEqualTo(1);
+        assertThat(SubwayDirectionNormalizer.toWayCode(" 상행 ")).isEqualTo(1);
+    }
+
+    /**
+     * <b>순환선 여부를 노선 id 로 묻지 않는다 — 라벨이 이미 답이다.</b>
+     *
+     * <p>내·외선으로 말하면 그 자체가 순환선이라는 뜻이다. id 로 가르려 들면 "인천2호선"처럼
+     * 번호만 같고 순환이 아닌 노선을 2호선(1002)으로 오인한다.
+     */
+    @Test
+    void labelDecidesValueSpaceNotLineNumber() {
+        assertThat(SubwayDirectionNormalizer.toWayCode("내선")).isZero();
+        assertThat(SubwayDirectionNormalizer.toWayCode("상행")).isEqualTo(1);
+    }
+
+    /** 왕복이 성립한다 — 읽는 쪽은 노선을 알고 있으므로 같은 뜻으로 되돌아온다. */
+    @Test
+    void wayCodeRoundTripsPerLine() {
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1002",
+                SubwayDirectionNormalizer.toWayCode("내선"))).isEqualTo("내선");
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1002",
+                SubwayDirectionNormalizer.toWayCode("외선"))).isEqualTo("외선");
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1001",
+                SubwayDirectionNormalizer.toWayCode("상행"))).isEqualTo("상행");
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1001",
+                SubwayDirectionNormalizer.toWayCode("하행"))).isEqualTo("하행");
+    }
+
+    /** 모르는 라벨은 null. 노선 이름에 다른 꺾쇠 표기가 생겨도 방향으로 둔갑하지 않는다. */
+    @Test
+    void doesNotGuessWayCodeFromUnknownLabel() {
+        assertThat(SubwayDirectionNormalizer.toWayCode("급행")).isNull();
+        assertThat(SubwayDirectionNormalizer.toWayCode("")).isNull();
+        assertThat(SubwayDirectionNormalizer.toWayCode(null)).isNull();
+    }
 }

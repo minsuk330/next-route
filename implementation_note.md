@@ -2851,3 +2851,37 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - **V55 VPS 수동배치 필요** (`V55__drop_odsay_route_polyline.sql`). V18+ untracked convention 이라 CI 로 안 나간다 — 누락 시 테이블만 남고 기능 영향은 없지만, 배치 전까지 정리가 안 끝난 상태다.
 - ⚠ 선행 미배포분: **V53·V54 가 아직 VPS 에 없다**(journey-reroute-nextstop). V55 를 올리기 전에 번호 순서를 확인할 것.
 - 프로덕션 영향 없음: 드롭 대상 3테이블은 polyline 27행 / seed 0행 / job 27행(PENDING 0)뿐이고, 읽는 코드가 이 PR 로 사라졌다.
+
+## 2026-09-20 OTP 지하철 방향(wayCode) 복원 + 모바일 인계 문서
+
+### 확정
+- **OTP 전환 후 모바일이 지하철 실시간을 못 부르던 원인**: 검색 응답의 지하철 칸 중 `startID`/`endID`·`wayCode`·`lanes[].subwayCode` 가 전부 null 이다(`LegacyRouteResponseMapper` 가 "지하철은 좌표 기반이라 id 를 안 채운다"로 의도한 동작). 그런데 `/api/arrivals/subway` 는 **원래 좌표 기반**(`lat`·`lon` 필수, `line_id`·`wayCode` 선택)이라 **좌표만으로 부를 수 있다** — 진짜로 잃은 것은 **방향뿐**이었다.
+- **방향은 feed 가 준다. 우리가 안 읽고 있었을 뿐**: KTDB 는 `direction_id` 를 안 주지만(전 노선 -1) `route.longName` 에 방향을 적는다. **VPS OTP 실측**으로 확인 — `서울2호선(본선)<내선>`, `신림선<상행>`. `missing.add(DIRECTION)` 의 "feed 에 방향/headsign 없음" 주석이 틀렸던 것이고, 이제 **읽어 낸 leg 에는 DIRECTION 을 안 붙인다**.
+- **표기가 두 가지다(전수 조사로 발견)**: 꺾쇠로 덧붙이는 도시철도 59개 + **이름 자리에 방향만 있는 RAIL 2개**(`[일반]교외서울의정부` 의 longName = `상행`). 처음 구현한 꺾쇠 전용 파서는 후자를 통째로 놓쳤다 — **"전 노선으로 돌려 보라"는 지시가 아니었으면 안 잡혔다.**
+- **순환선 판별은 노선 id 가 아니라 라벨이 한다**(`SubwayDirectionNormalizer.toWayCode`): 내·외선으로 말하면 그 자체가 순환선이다. id 로 가르면 `인천2호선` 이 2호선(1002)으로 둔갑해 상·하행이 내·외선 값 공간으로 나간다.
+- **값 공간은 ODsay 그대로 유지**(1=상행/2=하행, 순환 0=내선/1=외선). 앱 코드가 안 바뀌고, `외선`(1)과 `상행`(1)이 겹치는 것은 읽는 쪽이 노선을 알아 `fromWayCode` 로 정확히 되돌린다(왕복 테스트로 고정).
+- **덤으로 여정 쪽도 살아난다**: `JourneyCompiler.routeOptions` 가 `sub.wayCode()` 를 `JourneyRouteOptionDraft.wayCode` 로 옮기고, 그 값이 없으면 지하철 승차 예측이 `no-direction` 으로 죽는다. 이제 채워진다.
+- `RoutingLeg` 에 `sourceRouteDirection`(원문 라벨) 신설. **16-arg 하위호환 생성자**를 함께 둬서 23곳 생성부를 안 건드렸다(`RideTruncation`·`Composed` 선례와 같은 방식).
+
+### 함정
+- 🔴 **fixture 가 현실과 달랐다**: `planconnection-subway.json` 의 `shortName`=`1호선`·`longName`=`-` 는 실제 feed(`서울1호선`, `서울1호선(의정부-서동탄)<상행>`)와 다르다. 그 상태로 테스트를 짜면 **색상 매핑도 방향 파싱도 통과하지 못할 값**으로 초록불을 본다. 실측값으로 갱신했다.
+- **`SubwayLineColors` 에 없는 노선은 `lanes` 가 통째로 null 이다**(legacy 경계가 색이 있을 때만 만든다). 도시철도 23종은 전부 있지만 **RAIL(교외선)은 없다** → 그 구간은 앱에 노선명이 안 나간다. 문서에 적어 뒀다(미결).
+- **dev DB `subway_station` 에는 2호선이 없다**(645행, prod 는 696행에 1002 51행). 로컬에서 2호선 실시간이 빈손이어도 프로덕션 문제가 아니다.
+
+### 좌표
+- 변경: `SubwayDirectionNormalizer`(`toWayCode`·`labelFrom` 신설), `RoutingLeg`(`sourceRouteDirection` + 하위호환 생성자), `OtpPlanConnectionMapper`(longName→라벨, DIRECTION 조건부), `LegacyRouteResponseMapper`(지하철 `wayCode` 채움)
+- 신규 테스트: `GtfsRailDirectionCoverageTest`(4) + fixture `otp/gtfs-rail-routes.json`(**VPS OTP 실측 61 노선**)
+- 변경 테스트: `SubwayDirectionNormalizerTest`(9→13), `OtpPlanConnectionMapperTest`(3→5), `LegacyRouteResponseMapperTest`(+7), fixture `planconnection-subway.json` 실측값 갱신
+- 문서: `docs/plan/national-otp-map-migration/handoffs/SUBWAY-REALTIME.md`(모바일 인계)
+
+### 배포
+- **마이그레이션·설정 없음.** 검색 응답에 지하철 `wayCode` 가 다시 채워지는 것이 유일한 변화다(없던 칸이 생기는 것이라 옛 앱도 안 깨진다).
+
+### 검증
+- `GtfsRailDirectionCoverageTest` **4/4** — feed 전 노선(61)에 대해 ①방향 해석 ②wayCode 변환 ③노선별 왕복 ④도시철도 표시색. 방향 없는 노선은 `DIRECTIONLESS` 화이트리스트(서울6호선)로만 허용.
+- **뮤테이션 2건**: ①`labelFrom` 을 꺾쇠 전용으로 되돌리니 커버리지 테스트가 **RAIL 2개를 정확히 지목**하며 FAILED ②legacy 경계에서 `wayCode = null` 로 두니 `LegacyRouteResponseMapperTest` 4건 FAILED. 둘 다 되돌림.
+- 전체: `application.route.*` + `application.subway.*` + `infrastructure.*` + `application.journey.*` + `architecture.*` + 컨텍스트 로드 → **1791 tests, 1 failed** = `JourneyTransferAssessmentIT`(**기존 무관**, clean main 동일).
+
+### 미결
+- 교외선(RAIL)은 표시색이 없어 `lanes` 가 비어 나간다. 색을 넣을지, legacy 경계가 색 없이도 `lanes` 를 만들지는 별건.
+- 버스 `longName` 에도 방향이 있는지 미확인(2,676 노선). 버스는 원천에도 `wayCode` 가 없어 지금 쓸 데가 없다.
