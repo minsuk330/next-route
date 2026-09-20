@@ -2767,3 +2767,29 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 🔴 **V53·V54 VPS 수동배치**(VPS=v52, prod `ddl-auto: validate` → 없으면 앱이 안 뜬다). 이 트리에서 `./gradlew bootJar` 해야 jar 안에 실린다.
 - **모바일 HANDOFF**: ①`transferIndex` → `origin` 응답 계약 ②`REROUTE_ALIGHT_UNAVAILABLE`(409) = 목록 새로고침 ③중간 하차 확인 화면(서버는 `display.alight` 로 재료 제공).
 - 켜는 순서: `journey.reroute.enabled` → `alert.enabled`.
+
+## 2026-09-20 ③ 잔여 OTP 포트 2개 삭제 (PR-5 후속, C안)
+
+### 확정
+- **`StopPatternPort`·`RouteRideDurationPort` 계열을 전부 지웠다**(-1,082줄, 17파일). PR-5 가 ③을 지우면서 둘 다 **호출부 0** 이 됐다.
+  - stopPattern: `StopPattern`·`StopPatternPort`·`StopPatternResult`·`OtpStopPatternAdapter`·`OtpStopPatternMapper`·`stopPatterns.graphql` + 테스트 2·fixture 1
+  - rideDuration: `RideDurationResult`·`RouteRideDurationPort`·`OtpRouteRideDurationAdapter`·`OtpRouteRideDurationMapper`·`routeRideDuration.graphql` + 테스트 2·fixture 1
+- **~~PR-5 의 "`stopPatterns` 는 national-otp 후속이 쓰기로 한 질의라 남긴다"~~ 취소(2026-09-20 실측)**: 그 "후속"이 가리키던 것은 **PR4c SUMMARY 안의 "baseline OTP id 되찾기(board 정류장 재조회+resolveBus)"** 이고, 그 작업의 목적은 **③의 shadow OFF**(OTP 후보를 실제 제안으로 승격)였다. ③이 폐기된 순간 그 후속도 함께 죽는다. 근거 = `stopPatterns` 를 언급하는 플랜 문서가 ③ 전용 둘(`otp-p2f-route-option-pattern`·`otp-p2f-route-option-eta`)뿐이고, **national-otp 지도 마이그레이션 플랜(PHASE-0~8)에는 한 번도 안 나온다**(grep 실측).
+- **두 포트는 애초에 ③ 전용으로 태어났다**: PR-4(#193)가 후보 *집합*을 넓히려고 stopPattern 을, PR4c(#194)가 그 후보의 *우열 ETA* 를 정확히 하려고 rideDuration 을 만들었다. PR4c 는 "③ 실제 제안 ON" 의 마지막 조각이었고 nextstop A′ 결정으로 파킹(#194 닫힘)됐다.
+- 되살릴 필요가 생기면 **브랜치·이력에 그대로 있다**(#193 / `feat/otp-p2f-route-ride-duration`).
+
+### 함정
+- 참조 검사에서 `rideDuration` 문자열이 **관계없는 곳에 많이 걸린다**(`RoutingLeg.rideDurationSeconds`·`TruncatedRide`·`JourneyRevisionComposer.RideTruncation.rideSeconds` 등, nextstop 자체 필드). 파일명 grep 만 보고 지우면 멀쩡한 코드를 건드린다 — **타입명(`StopPatternPort`·`RouteRideDurationPort`·`OtpStopPattern*`·`OtpRouteRideDuration*`)으로 좁혀서** 확인했고 외부 참조는 **0건**이었다.
+
+### 좌표
+- 삭제(17): `application/route/routing/{StopPattern,StopPatternPort,StopPatternResult,RideDurationResult,RouteRideDurationPort}.java`, `infrastructure/adapter/out/api/otp/{OtpStopPatternAdapter,OtpStopPatternMapper,OtpRouteRideDurationAdapter,OtpRouteRideDurationMapper}.java`, `main/resources/otp/{stopPatterns,routeRideDuration}.graphql`, 테스트 4 + `test/resources/otp/{stopPatterns-success,routeRideDuration-success}.json`
+- 변경: 없음(호출부가 없어 손댈 자리가 없다).
+
+### 배포
+- **마이그레이션 없음. 설정·env 변화 없음.** 지운 GraphQL 은 앱이 시작할 때 읽는 파일 목록에 있지 않았다(각 어댑터가 자기 파일만 읽었고 그 어댑터도 함께 사라졌다).
+- OTP 서버 쪽은 무관하다 — 우리가 **안 보내는 질의가 둘 늘었을** 뿐이다.
+
+### 검증
+- 컴파일(main+test) 통과. 타입 참조 grep **0건**.
+- 전체 컨텍스트 로드 + `infrastructure.*` + `application.route.*` + `architecture.*` → **679 tests, 0 failed**(빈 2개가 사라져도 배선 성립).
+- `application.journey.*` + `domain.journey.*` → **1040 tests, 1 failed** = `JourneyTransferAssessmentIT`(**기존 무관**).
