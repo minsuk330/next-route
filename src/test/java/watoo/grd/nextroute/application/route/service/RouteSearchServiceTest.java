@@ -41,7 +41,6 @@ class RouteSearchServiceTest {
 
     @Mock OdSayApiPort odSayApiPort;
     @Mock TmapPedestrianPort tmapPort;
-    @Mock RoutePolylineEnricher polylineEnricher;
     @Mock WalkSegmentEnricher walkSegmentEnricher;
     @Mock TransferArrivalEnricher transferArrivalEnricher;
     @Mock OtpConcurrencyGate otpConcurrencyGate;
@@ -53,7 +52,7 @@ class RouteSearchServiceTest {
         // 기본 구성: provider=ODSAY 를 명시한다(P7 이후 코드 기본값은 OTP) → OTP branch·gate 는 dormant.
         service = new RouteSearchService(
                 odSayApiPort, tmapPort,
-                polylineEnricher, walkSegmentEnricher, transferArrivalEnricher,
+                walkSegmentEnricher, transferArrivalEnricher,
                 new RouteSearchMetrics(new SimpleMeterRegistry()),
                 new RouteSearchDeadlineProperties(),
                 new RoutingProviderSelector(odsayProps(), java.util.List.of()),
@@ -79,7 +78,7 @@ class RouteSearchServiceTest {
         props.setOtpEnabled(true);
         return new RouteSearchService(
                 odSayApiPort, tmapPort,
-                polylineEnricher, walkSegmentEnricher, transferArrivalEnricher,
+                walkSegmentEnricher, transferArrivalEnricher,
                 new RouteSearchMetrics(new SimpleMeterRegistry()),
                 new RouteSearchDeadlineProperties(),
                 new RoutingProviderSelector(props, List.of(otpPort)),
@@ -122,18 +121,20 @@ class RouteSearchServiceTest {
 
     // ── 테스트 ────────────────────────────────────────────────────────────
 
+    /**
+     * ODSAY 롤백 경로 회귀 가드(P7). 폴리라인 단계를 걷어낸 뒤에도 이 경로는 온전한 응답을 낸다 —
+     * 남는 보강은 도보(TMAP)와 환승 도착예측 둘뿐이고, 형상 결측이 degraded 로 새지 않아야 한다.
+     */
     @Test
-    void TC_정상_검색_흐름_enricher_호출순서() {
+    void TC_ODSAY_롤백_경로는_폴리라인_없이_도보_환승_보강만_거친다() {
         RouteSearchResult odsayResult = resultWith(List.of(walkSubPath(null, null)));
-        RouteSearchResult afterPolyline = resultWith(List.of(walkSubPath(null, null)));
         RouteSearchResult afterWalk = resultWith(List.of(
                 walkSubPath(List.of(new CoordPoint(127.0, 37.5)),
                         List.of(new WalkStep(0, "SP", 200, "이동", 127.0, 37.5)))));
         RouteSearchResult afterTransfer = afterWalk;
 
         when(odSayApiPort.searchPath(eq(127.0), eq(37.5), eq(127.01), eq(37.51), anyLong())).thenReturn(odsayResult);
-        when(polylineEnricher.enrich(eq(odsayResult), any(RouteSearchContext.class))).thenReturn(afterPolyline);
-        when(walkSegmentEnricher.enrich(eq(afterPolyline), eq(127.0), eq(37.5), eq("출발지"),
+        when(walkSegmentEnricher.enrich(eq(odsayResult), eq(127.0), eq(37.5), eq("출발지"),
                 eq(127.01), eq(37.51), eq("도착지"), any(RouteSearchContext.class),
                 any(RouteSearchDeadlineProperties.class))).thenReturn(afterWalk);
         when(transferArrivalEnricher.enrich(eq(afterWalk), any(Instant.class), any(RouteSearchContext.class)))
@@ -141,9 +142,8 @@ class RouteSearchServiceTest {
 
         RouteSearchResult result = service.search(request());
 
-        var order = inOrder(odSayApiPort, polylineEnricher, walkSegmentEnricher, transferArrivalEnricher);
+        var order = inOrder(odSayApiPort, walkSegmentEnricher, transferArrivalEnricher);
         order.verify(odSayApiPort).searchPath(eq(127.0), eq(37.5), eq(127.01), eq(37.51), anyLong());
-        order.verify(polylineEnricher).enrich(eq(odsayResult), any(RouteSearchContext.class));
         order.verify(walkSegmentEnricher).enrich(any(), eq(127.0), eq(37.5), eq("출발지"),
                 eq(127.01), eq(37.51), eq("도착지"), any(RouteSearchContext.class),
                 any(RouteSearchDeadlineProperties.class));
@@ -187,7 +187,7 @@ class RouteSearchServiceTest {
         assertThat(path.info().totalWalk()).isEqualTo(420);
 
         // 폴백 경로는 enricher 체인을 타지 않음
-        verifyNoInteractions(polylineEnricher, walkSegmentEnricher, transferArrivalEnricher);
+        verifyNoInteractions(walkSegmentEnricher, transferArrivalEnricher);
     }
 
     @Test
@@ -230,7 +230,6 @@ class RouteSearchServiceTest {
         RouteSearchResult odsay = resultWith(List.of(walkSubPath(null, null)));
         when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
                 .thenReturn(odsay);
-        when(polylineEnricher.enrich(any(), any())).thenReturn(odsay);
         // WALK 성공(적용됨), BUS_REALTIME timeout 실패 → 적용 2 / 실패 1 = PARTIAL
         when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
                 anyDouble(), anyDouble(), any(), any(RouteSearchContext.class), any()))
@@ -257,7 +256,6 @@ class RouteSearchServiceTest {
         RouteSearchResult odsay = resultWith(List.of(walkSubPath(null, null)));
         when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
                 .thenReturn(odsay);
-        when(polylineEnricher.enrich(any(), any())).thenReturn(odsay);
         when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
                 anyDouble(), anyDouble(), any(), any(RouteSearchContext.class), any()))
                 .thenAnswer(inv -> {
@@ -342,7 +340,6 @@ class RouteSearchServiceTest {
         RouteSearchResult odsay = resultWith(List.of(walkSubPath(null, null)));
         when(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
                 .thenReturn(odsay);
-        when(polylineEnricher.enrich(any(), any())).thenReturn(odsay);
         when(walkSegmentEnricher.enrich(any(), anyDouble(), anyDouble(), any(),
                 anyDouble(), anyDouble(), any(), any(), any())).thenReturn(odsay);
         when(transferArrivalEnricher.enrich(any(), any(), any())).thenReturn(odsay);

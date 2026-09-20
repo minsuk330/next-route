@@ -11,8 +11,6 @@ public enum SearchComponent {
 
     /** ODsay 대중교통 경로. 이것이 없으면 응답 자체가 성립하지 않는다. */
     ODSAY(Grade.MANDATORY),
-    /** 지하철 폴리라인(DB 캐시). */
-    POLYLINE(Grade.OPTIONAL),
     /** TMAP 보행 상세. */
     WALK(Grade.OPTIONAL),
     /** 버스 실시간 도착·위치. */

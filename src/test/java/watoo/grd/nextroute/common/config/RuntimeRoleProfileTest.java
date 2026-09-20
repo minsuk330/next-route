@@ -20,7 +20,6 @@ import watoo.grd.nextroute.application.subway.service.SubwaySegmentReloadSchedul
 import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.BusArrivalLabelBatchScheduler;
 import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.BusArrivalScheduler;
 import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.BusPositionScheduler;
-import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.OdsayRoutePolylineCollectionScheduler;
 import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.StaticDataScheduler;
 import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.WeeklyRouteRotationScheduler;
 import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.notifination.BusAlertRelayLoop;
@@ -39,7 +38,6 @@ class RuntimeRoleProfileTest {
             BusPositionScheduler.class,
             RealtimeSubwayCollector.class,
             StaticDataScheduler.class,
-            OdsayRoutePolylineCollectionScheduler.class,
             WeeklyRouteRotationScheduler.class,
             BusArrivalLabelBatchScheduler.class,
             SubwayArrivalEventBatchScheduler.class,

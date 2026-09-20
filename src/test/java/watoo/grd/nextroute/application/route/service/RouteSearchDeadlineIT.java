@@ -22,7 +22,6 @@ import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.exception.OdSayApiException;
 import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import watoo.grd.nextroute.application.route.port.out.WalkSegmentCachePort;
-import watoo.grd.nextroute.domain.route.polyline.service.OdsayRoutePolylineDataService;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.odsay.OdSayApiAdapter;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.tmap.TmapPedestrianAdapter;
 
@@ -110,9 +109,9 @@ class RouteSearchDeadlineIT {
         odSayProperties.setKey("test-key");
         odSayProperties.setBaseUrl(odsayServer.url("/").toString().replaceAll("/$", ""));
 
-        // ODsay searchPath 는 요청별 read timeout 을 걸려고 RestClient 를 호출마다 만든다(RestTemplate 은 loadLane 전용).
+        // ODsay searchPath 는 요청별 read timeout 을 걸려고 RestClient 를 호출마다 만든다.
         OdSayApiAdapter odSayAdapter =
-                new OdSayApiAdapter(new RestTemplate(), new ObjectMapper(), odSayProperties, metrics, RestClient.builder());
+                new OdSayApiAdapter(new ObjectMapper(), odSayProperties, metrics, RestClient.builder());
 
         TmapProperties tmapProperties = new TmapProperties();
         tmapProperties.setAppKey("test-key");
@@ -127,13 +126,9 @@ class RouteSearchDeadlineIT {
         WalkSegmentEnricher walkEnricher =
                 new WalkSegmentEnricher(new WalkCoordResolver(), walkCache, tmapAdapter,
                         Executors.newFixedThreadPool(4), metrics);
-        RoutePolylineEnricher polylineEnricher = new RoutePolylineEnricher(
-                mock(OdsayMapObjParser.class), mock(OdsayRoutePolylineSlicer.class),
-                mock(OdsayRoutePolylineDataService.class));
-
         service = new RouteSearchService(
                 odSayAdapter, tmapAdapter,
-                polylineEnricher, walkEnricher, mock(TransferArrivalEnricher.class), metrics,
+                walkEnricher, mock(TransferArrivalEnricher.class), metrics,
                 deadlineProperties(),
                 new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
                         odsayProps(), java.util.List.of()),
