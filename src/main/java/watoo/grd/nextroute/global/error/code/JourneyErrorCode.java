@@ -29,6 +29,15 @@ public enum JourneyErrorCode implements ErrorCode {
   /** 만료·상태·명령 번호·개정본·지나간 단계·스냅샷 불일치가 전부 이 코드로 온다. */
   REROUTE_PROPOSAL_STALE("REROUTE_PROPOSAL_STALE", "제안이 더 이상 유효하지 않습니다.",
       HttpStatus.CONFLICT),
+  /**
+   * 주행 중 중간 하차를 반영하려는데 <b>그 정류장에서 더는 내릴 수 없다</b>(PR-4).
+   *
+   * <p>{@link #REROUTE_PROPOSAL_STALE} 과 가르는 이유는 앱이 할 일이 다르기 때문이다. 이쪽은
+   * 제안이 낡은 것이 아니라 <b>버스가 그 사이 더 간 것</b>이라, 앱은 목록을 새로 받아 남은 자리를
+   * 다시 보여 주면 된다. 여정은 아무것도 바뀌지 않았다(트랜잭션째 되돌아간다).
+   */
+  REROUTE_ALIGHT_UNAVAILABLE("REROUTE_ALIGHT_UNAVAILABLE",
+      "그 정류장에서는 내릴 수 없습니다. 목록을 새로 확인해 주세요.", HttpStatus.CONFLICT),
   SUBWAY_LEG_REQUIRED("SUBWAY_LEG_REQUIRED", "지하철 단계가 아닙니다.",
       HttpStatus.UNPROCESSABLE_ENTITY),
   SUBWAY_BINDING_NOT_FOUND("SUBWAY_BINDING_NOT_FOUND", "고정된 열차가 없습니다.",

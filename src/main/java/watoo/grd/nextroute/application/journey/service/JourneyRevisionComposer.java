@@ -235,6 +235,13 @@ public class JourneyRevisionComposer {
             return null;
         }
         StationResult alight = stations.get(index);
+        if (nameMismatch(truncation.expectedStopName(), alight.stationName())) {
+            // 순번 산수로 찾은 자리에 다른 정류장이 있다. 두 정류장 목록이 어긋났다는 뜻이고,
+            // 그대로 자르면 사용자는 엉뚱한 곳에서 내리라는 안내를 받는다.
+            log.warn("[JourneyReroute] 절단 자리의 정류장 이름이 다르다 기대={} 실제={}",
+                    truncation.expectedStopName(), alight.stationName());
+            return null;
+        }
         List<StationResult> kept = List.copyOf(stations.subList(0, index + 1));
 
         return new SubPathResult(
@@ -245,6 +252,19 @@ public class JourneyRevisionComposer {
                 sub.startExitNo(), sub.startExitX(), sub.startExitY(), null, null, null,
                 sub.walkSteps(), sub.startLocalStationID(), origin.stopId(), sub.startArsID(),
                 null, null, sub.walkTotalTimeSeconds(), sub.transferArrivals());
+    }
+
+    /**
+     * 두 정류장 이름이 서로 다른가. 대조할 이름이 없으면 "다르지 않다"(대조를 건너뛴다).
+     *
+     * <p>공백만 무시한다 — 두 원천이 "강남역.6번출구"와 "강남역 .6번출구"처럼 띄어쓰기에서
+     * 갈리는 일이 흔하다. 그보다 더 느슨하게 맞추면 <b>옆 정류장</b>까지 같은 이름으로 접힌다.
+     */
+    private boolean nameMismatch(String expected, String actual) {
+        if (expected == null || actual == null) {
+            return false;
+        }
+        return !expected.replace(" ", "").equals(actual.replace(" ", ""));
     }
 
     /**
@@ -319,8 +339,17 @@ public class JourneyRevisionComposer {
      * @param alightStationIndex 자를 정류장의 구간 정류장 목록 안 위치. 0(승차 정류장)은 자를 것이
      *                           없으므로 거절된다
      * @param rideSeconds        승차 → 그 정류장까지의 소요(초)
+     * @param expectedStopName   그 자리에 있어야 하는 정류장 이름. 위치를 <b>서울 노선 순번의 차이</b>
+     *                           로 계산하므로(PR-4), 스냅샷 정류장 목록이 서울 노선과 어긋나면 엉뚱한
+     *                           정류장을 자른다. 그 어긋남을 잡는 유일한 대조점이 이름이다 —
+     *                           id 는 두 세계가 서로 다른 체계를 쓴다. null 이면 대조하지 않는다
      */
-    public record RideTruncation(int alightStationIndex, int rideSeconds) {
+    public record RideTruncation(int alightStationIndex, int rideSeconds, String expectedStopName) {
+
+        /** 이름 대조 없이 자른다(대조할 이름을 못 구한 경우·기존 호출부). */
+        public RideTruncation(int alightStationIndex, int rideSeconds) {
+            this(alightStationIndex, rideSeconds, null);
+        }
     }
 
     /**

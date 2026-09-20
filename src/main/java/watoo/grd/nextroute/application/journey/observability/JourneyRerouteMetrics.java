@@ -32,6 +32,7 @@ public class JourneyRerouteMetrics {
     public static final String REMAINING_PATHS = "journey.reroute.remaining.paths";
     public static final String ORIGIN_WINDOW = "journey.reroute.origin.window";
     public static final String ALERT = "journey.reroute.alert";
+    public static final String MID_RIDE_ACCEPT = "journey.reroute.accept.midride";
 
     /** 판정이 내려 준 사유를 그대로 태그에 쓰지 않기 위한 접기 값. */
     static final String UNKNOWN_REASON = "unknown";
@@ -82,6 +83,21 @@ public class JourneyRerouteMetrics {
             "published", "disabled", "terminated", "ignore-limit", "cooldown", "journey-missing",
             "no-candidate", "below-threshold", "no-lead-time", "no-channel", "duplicate",
             "unanswered", "rejected", "dismissed", "opt-in", "validated-out", "failed");
+
+    /**
+     * 주행 중 중간 하차 수락 한 번의 결말(PR-4).
+     *
+     * <p><b>거절 사유가 곧 이 기능의 수명이다.</b> 사용자가 이미 고른 수락을 서버가 되돌리는
+     * 자리라, {@code alight-passed}(누르는 사이 버스가 지나갔다)가 많으면 리드타임이 짧은 것이고
+     * {@code no-realtime} 이 많으면 실시간 커버리지가 문제다 — 둘은 손댈 곳이 정반대다.
+     */
+    private static final Set<String> KNOWN_MID_RIDE_OUTCOMES = Set.of(
+            "applied", "not-riding", "no-progress", "stale-progress", "ambiguous-stop",
+            "position-out-of-range", "alight-passed", "no-realtime", "arrival-blocked",
+            "below-lead-time", "no-boarding-time", "boarding-missed", "boarding-unknown",
+            // 합성이 거절한 경우(PR-C 어휘). 재확인은 통과했는데 스냅샷이 안 받아 준 자리다.
+            "truncation-unexpected", "truncation-unmappable", "snapshot-unmappable",
+            "snapshot-mismatch");
 
     /** 경로 검색 한 번의 결말. <b>{@code cache-hit} 비율이 ④의 요금을 결정한다.</b> */
     private static final Set<String> KNOWN_SEARCH_OUTCOMES = Set.of(
@@ -218,6 +234,16 @@ public class JourneyRerouteMetrics {
         }
         registry.counter(ALERT, "outcome",
                 KNOWN_ALERT_OUTCOMES.contains(outcome) ? outcome : UNKNOWN_REASON).increment(count);
+    }
+
+    /**
+     * 중간 하차 수락이 어떻게 끝났는지(PR-4).
+     *
+     * @param outcome {@code applied} 와 거절 사유들({@link #KNOWN_MID_RIDE_OUTCOMES})
+     */
+    public void recordMidRideAccept(String outcome) {
+        registry.counter(MID_RIDE_ACCEPT, "outcome",
+                KNOWN_MID_RIDE_OUTCOMES.contains(outcome) ? outcome : UNKNOWN_REASON).increment();
     }
 
     public void recordOriginWindow(String outcome) {

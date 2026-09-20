@@ -20,16 +20,24 @@ import watoo.grd.nextroute.application.journey.port.in.AcceptRerouteProposalUseC
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
+import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
 import watoo.grd.nextroute.application.route.dto.PathResult;
+import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
+import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
 import watoo.grd.nextroute.application.route.service.TransferStopResolver;
+import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
+import watoo.grd.nextroute.domain.bus.repository.RouteStopProjection;
 import watoo.grd.nextroute.global.error.BusinessException;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -38,7 +46,10 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 
 /**
@@ -65,6 +76,9 @@ class RerouteAcceptIT {
 
     private static final String SESSION_ID = "sess-reroute-accept-it";
     private static final String PATH_KEY = "0";
+    /** 타고 있는 버스의 노선 정류장: 승차 1(ST-A) … 중간 4(ST-D) … 계획 하차 5(ST-F). */
+    private static final int MID_STOP_SEQ = 4;
+    private static final String MID_STOP_ID = "ST-D";
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired AcceptRerouteProposalUseCase acceptUseCase;
@@ -76,6 +90,8 @@ class RerouteAcceptIT {
     @MockBean PredictTransferUseCase predictTransferUseCase;
     @MockBean OdSayApiPort odSayApiPort;
     @MockBean TransferStopResolver transferStopResolver;
+    @MockBean BusRouteStopRepository busRouteStopRepository;
+    @MockBean SearchTimeBusQueryPort busQueryPort;
 
     private final List<Long> createdUserIds = new ArrayList<>();
     private Long userId;
@@ -253,6 +269,65 @@ class RerouteAcceptIT {
     }
 
     @Test
+    @DisplayName("주행 중 중간 하차를 수락하면 타던 구간이 잘려 남고 진행도는 살아 있다")
+    void acceptsMidRideAlightKeepingProgress() {
+        givenRidingWithProgress();
+        String candidateId = givenMidRideProposal(MID_STOP_SEQ);
+
+        JourneySnapshot after = acceptUseCase.accept(userId, journey.journeyId(), proposalId(),
+                candidateId);
+
+        assertThat(revisionReason(after.routeRevision()))
+                .isEqualTo("REMAINING_PATH_MID_RIDE_ACCEPTED");
+        // 타던 구간은 사라지지 않는다. 하차 목표만 중간 정류장으로 당겨진다.
+        assertThat(stringOfLeg(after.routeRevision(), 1, "end_stop_id")).isEqualTo(MID_STOP_ID);
+        assertThat(stringOfLeg(after.routeRevision(), 1, "end_name")).isEqualTo("정류장D");
+        assertThat(stringOfLeg(after.routeRevision(), 1, "state")).isEqualTo("ACTIVE");
+        // 진행도·시각은 그대로다. 잃으면 앱의 GPS 엔진이 이 구간을 처음부터 다시 센다.
+        assertThat(stringOfLeg(after.routeRevision(), 1, "progress_section_id"))
+                .isEqualTo("sec-ride");
+        assertThat(intOfLeg(after.routeRevision(), 1, "progress_geometry_segment_index"))
+                .isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("""
+                select activated_at is not null from journey_leg
+                 where journey_id = ? and route_revision = ? and leg_index = 1
+                """, Boolean.class, journey.journeyId(), after.routeRevision())).isTrue();
+        // 소요는 승차 시각부터 잰 초 단위 실측이다(10분 전에 탔고 5분 뒤 내린다). 스냅샷의 분
+        // 단위를 되돌린 값이 아니다.
+        assertThat(intOfLeg(after.routeRevision(), 1, "planned_duration_sec")).isBetween(920, 940);
+        // 옛 하차점 기준의 값들은 새 하차점 기준으로 다시 잰다.
+        assertThat(intOfLeg(after.routeRevision(), 1, "remaining_stops")).isEqualTo(1);
+        assertThat(intOfLeg(after.routeRevision(), 1, "remaining_distance_meters")).isNull();
+        // 진행 비율도 잘린 구간(1→4번 정류장) 기준으로 다시 잰다. 옛 값(0.8)을 남기면 화면이
+        // "거의 다 왔다"고 말한다.
+        assertThat(jdbcTemplate.queryForObject("""
+                select progress_leg_fraction from journey_leg
+                 where journey_id = ? and route_revision = ? and leg_index = 1
+                """, java.math.BigDecimal.class, journey.journeyId(), after.routeRevision()))
+                .isEqualByComparingTo("0.666667");
+        // 그 뒤로 새 경로가 붙는다.
+        assertThat(routeIdsOf(after.routeRevision())).contains("BL-471");
+    }
+
+    @Test
+    @DisplayName("누르는 사이 그 정류장을 지나갔으면 거절하고 여정은 그대로다")
+    void rejectsMidRideAlightAfterBusPassedIt() {
+        givenRidingWithProgress();
+        // 지금 막 지난 정류장(seq 3)에서 내리라는 제안이다. 그대로 반영하면 사용자는 못 내린다.
+        String candidateId = givenMidRideProposal(3);
+
+        assertThatThrownBy(() -> acceptUseCase.accept(userId, journey.journeyId(), proposalId(),
+                candidateId))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode())
+                .isEqualTo(JourneyErrorCode.REROUTE_ALIGHT_UNAVAILABLE);
+
+        // 거절은 롤백이다 — 제안도 여정도 소모되지 않는다.
+        assertThat(routeRevisionOf()).isEqualTo(journey.routeRevision());
+        assertThat(proposalStatus()).isEqualTo("ACTIVE");
+    }
+
+    @Test
     @DisplayName("만료된 제안은 409 다")
     void rejectsExpiredProposal() {
         String candidateId = givenProposal();
@@ -268,12 +343,58 @@ class RerouteAcceptIT {
 
     // ── 준비 ────────────────────────────────────────────────────────────────
 
+    /**
+     * 첫 버스를 타고 가는 중이고 앱이 진행을 보고한 상태로 만든다(PR-4).
+     *
+     * <p>노선 정류장·실시간 도착은 <b>서버가 재확인에 쓰는 재료</b>라 여기서 심어야 한다 —
+     * 이것이 없으면 중간 하차는 "실시간이 없다"로 거절되는 것이 정상 동작이다.
+     */
+    private void givenRidingWithProgress() {
+        jdbcTemplate.update("""
+                update journey_leg
+                   set state = 'ACTIVE', activated_at = now() - interval '10 minutes',
+                       remaining_stops = 2, progress_observed_at = now(),
+                       progress_fraction = 0.4, progress_leg_fraction = 0.8,
+                       progress_section_id = 'sec-ride', progress_geometry_segment_index = 2,
+                       remaining_duration_seconds = 600, remaining_distance_meters = 1200
+                 where journey_id = ? and route_revision = ? and leg_index = 1
+                """, journey.journeyId(), journey.routeRevision());
+
+        String routeId = stringOfLeg(journey.routeRevision(), 1, "route_id");
+        given(busRouteStopRepository.findStopsByRouteId(routeId)).willReturn(routeStops());
+        // 기본은 "막혔다" — 새 노선의 승차 추정까지 여기서 답하면 무엇을 시험하는지 흐려진다.
+        given(busQueryPort.getArrInfoByStop(anyString(), anyString(), anyInt(), anyLong()))
+                .willReturn(SearchTimeBusQueryPort.BusQueryResult.blocked());
+        given(busQueryPort.getArrInfoByStop(eq(MID_STOP_ID), eq(routeId), eq(MID_STOP_SEQ),
+                anyLong()))
+                .willReturn(SearchTimeBusQueryPort.BusQueryResult.ok(List.of(midStopArrival())));
+    }
+
+    /** 중간 정류장에서 내려 다른 버스로 갈아타는 후보를 심는다. */
+    private String givenMidRideProposal(int alightSeq) {
+        String routeId = stringOfLeg(journey.routeRevision(), 1, "route_id");
+        RerouteCandidateApply apply = new RerouteCandidateApply.RemainingPathApply(
+                1, midRidePath(),
+                new watoo.grd.nextroute.application.journey.dto.RerouteOrigin(
+                        1, alightSeq == MID_STOP_SEQ ? MID_STOP_ID : "ST-" + alightSeq,
+                        routeId, alightSeq,
+                        watoo.grd.nextroute.application.journey.dto.RerouteOriginKind.RIDE_INTERIOR));
+        return givenProposalOf(apply, "REMAINING_PATH");
+    }
+
     /** ④가 만들었을 제안을 손으로 심는다. 후보 생성 자체는 ④의 시험이 본다. */
     private String givenProposal() {
+        return givenProposalOf(
+                new RerouteCandidateApply.RemainingPathApply(firstWaitLegIndex(), candidatePath()),
+                "REMAINING_PATH");
+    }
+
+    /** 후보 하나짜리 ACTIVE 제안을 심는다. 화면 값은 수락 경로가 읽지 않으므로 고정값이다. */
+    private String givenProposalOf(RerouteCandidateApply apply, String kind) {
         String candidateId = UUID.randomUUID().toString();
         RerouteCandidate candidate = new RerouteCandidate(candidateId,
-                watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind.REMAINING_PATH,
-                new RerouteCandidateApply.RemainingPathApply(firstWaitLegIndex(), candidatePath()),
+                watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind.valueOf(kind),
+                apply,
                 new RerouteCandidateDisplay(Instant.now().plusSeconds(1800), 1800, 600, 1, 300,
                         "REALTIME", "GOOD", Instant.now(), List.of("360 승차")));
         String candidates;
@@ -288,37 +409,16 @@ class RerouteAcceptIT {
                     (created_at, updated_at, journey_id, user_id, route_revision,
                      kind, status, base_command_version, candidates, snapshot_observed_at,
                      expires_at)
-                values (now(), now(), ?, ?, ?, 'REMAINING_PATH', 'ACTIVE', ?, ?::jsonb,
+                values (now(), now(), ?, ?, ?, ?, 'ACTIVE', ?, ?::jsonb,
                         now(), now() + interval '2 minutes')
-                """, journey.journeyId(), userId, journey.routeRevision(),
+                """, journey.journeyId(), userId, journey.routeRevision(), kind,
                 journey.commandVersion(), candidates);
         return candidateId;
     }
 
     /** ③(route-option)가 만들었을 제안을 손으로 심는다. apply 는 저장/동적 후보 어느 쪽이든 된다. */
     private String givenRouteOptionProposal(RerouteCandidateApply.RouteOptionApply apply) {
-        String candidateId = UUID.randomUUID().toString();
-        RerouteCandidate candidate = new RerouteCandidate(candidateId,
-                watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind.ROUTE_OPTION, apply,
-                new RerouteCandidateDisplay(Instant.now().plusSeconds(1500), 1500, 600, 1, 300,
-                        "REALTIME", "GOOD", Instant.now(), List.of("999 승차")));
-        String candidates;
-        try {
-            candidates = objectMapper.writeValueAsString(
-                    RerouteCandidateEnvelope.of(List.of(candidate)));
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-        jdbcTemplate.update("""
-                insert into reroute_proposal
-                    (created_at, updated_at, journey_id, user_id, route_revision,
-                     kind, status, base_command_version, candidates, snapshot_observed_at,
-                     expires_at)
-                values (now(), now(), ?, ?, ?, 'ROUTE_OPTION', 'ACTIVE', ?, ?::jsonb,
-                        now(), now() + interval '2 minutes')
-                """, journey.journeyId(), userId, journey.routeRevision(),
-                journey.commandVersion(), candidates);
-        return candidateId;
+        return givenProposalOf(apply, "ROUTE_OPTION");
     }
 
     private String selectedRouteIdAt(int revision, int legIndex) {
@@ -420,6 +520,13 @@ class RerouteAcceptIT {
                         SubPathFixture.bus(20).names("정류장A", "정류장F")
                                 .coords(127.00, 37.00, 127.10, 37.10)
                                 .busStops("ST-A", "ST-F")
+                                // 정류장별 목록이 있어야 중간 하차가 가능하다(PR-C). 순서는 노선
+                                // 순번 1~5 와 짝이다 — 그 차이가 곧 자를 자리다.
+                                .stations(new StationResult(0, "OTP:A", "정류장A", 127.00, 37.00),
+                                        new StationResult(1, "OTP:B", "정류장B", 127.02, 37.02),
+                                        new StationResult(2, "OTP:C", "정류장C", 127.04, 37.04),
+                                        new StationResult(3, "OTP:D", "정류장D", 127.06, 37.06),
+                                        new StationResult(4, "OTP:F", "정류장F", 127.10, 37.10))
                                 .lanes(SubPathFixture.busLane("370", "BL-370")).build(),
                         SubPathFixture.walk(3).names("정류장F", "정류장G").distance(150.0)
                                 .coords(127.10, 37.10, 127.20, 37.20).build(),
@@ -439,6 +546,74 @@ class RerouteAcceptIT {
                         .busStops("ST-G", "ST-Z")
                         .lanes(SubPathFixture.busLane("360", "BL-360")).build()),
                 List.of());
+    }
+
+    /** 중간 정류장(정류장D)에서 목적지까지 다른 버스 하나. */
+    private PathResult midRidePath() {
+        return new PathResult(1,
+                new PathInfo(30, 3900, 400, 0, "정류장D", "정류장Z", null),
+                List.of(SubPathFixture.bus(18).names("정류장D", "정류장Z")
+                        .coords(127.06, 37.06, 127.50, 37.50)
+                        .busStops(MID_STOP_ID, "ST-Z")
+                        .lanes(SubPathFixture.busLane("471", "BL-471")).build()),
+                List.of());
+    }
+
+    /** 타고 있는 노선의 정류장 목록. 이름은 스냅샷 정류장 목록과 짝이어야 한다(이름 대조). */
+    private List<RouteStopProjection> routeStops() {
+        List<String> ids = List.of("ST-A", "ST-B", "ST-C", MID_STOP_ID, "ST-F");
+        List<String> names = List.of("정류장A", "정류장B", "정류장C", "정류장D", "정류장F");
+        List<RouteStopProjection> stops = new ArrayList<>();
+        for (int i = 0; i < ids.size(); i++) {
+            stops.add(routeStop(i + 1, ids.get(i), names.get(i)));
+        }
+        return stops;
+    }
+
+    private RouteStopProjection routeStop(int seq, String stopId, String stopName) {
+        return new RouteStopProjection() {
+            @Override public Integer getSeq() { return seq; }
+            @Override public String getStopId() { return stopId; }
+            @Override public String getStopName() { return stopName; }
+            @Override public Double getLatitude() { return 37.0 + seq / 100.0; }
+            @Override public Double getLongitude() { return 127.0 + seq / 100.0; }
+            @Override public String getDirection() { return "방면"; }
+        };
+    }
+
+    /**
+     * 내 차(구간 순번 3 = 방금 지난 정류장)가 중간 정류장에 서기까지 330초.
+     *
+     * <p>분으로 접으면 16분(960초)이 되는 값을 일부러 골랐다 — 저장된 소요가 930초여야
+     * "스냅샷에서 되돌린 값이 아니라 실측 초"임이 시험으로 갈린다.
+     */
+    private BusArrivalInfo midStopArrival() {
+        int afterSec = 330;
+        return new BusArrivalInfo(
+                "BL-370", "RIDE", "370", MID_STOP_ID, "01234", "정류장D", MID_STOP_SEQ, "방면", 3, 10,
+                DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+                        .format(ZonedDateTime.now(ZoneId.of("Asia/Seoul"))),
+                "N", "N", "05:00", "23:00", afterSec + "초 후", "VEH-1",
+                "서울70사1234", 1, 3, "직전정류장", "0", "0", "0", afterSec, null, null, null,
+                null, null, null, null, afterSec, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null);
+    }
+
+    private String stringOfLeg(int revision, int legIndex, String column) {
+        return jdbcTemplate.queryForObject("select " + column + """
+                 from journey_leg
+                 where journey_id = ? and route_revision = ? and leg_index = ?
+                """, String.class, journey.journeyId(), revision, legIndex);
+    }
+
+    private Integer intOfLeg(int revision, int legIndex, String column) {
+        return jdbcTemplate.queryForObject("select " + column + """
+                 from journey_leg
+                 where journey_id = ? and route_revision = ? and leg_index = ?
+                """, Integer.class, journey.journeyId(), revision, legIndex);
     }
 
     private Long newUser() {

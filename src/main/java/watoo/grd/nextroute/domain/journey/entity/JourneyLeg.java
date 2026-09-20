@@ -212,6 +212,48 @@ public class JourneyLeg extends BaseEntity {
     }
 
     /**
+     * 타고 가는 중인 단계를 <b>더 이른 정류장에서 내리도록 잘라</b> 새 개정본으로 옮긴다
+     * (재탐색 수락, journey-reroute-nextstop PR-4).
+     *
+     * <p>이 단계는 <b>새로 만드는 단계도, 그대로 복제하는 단계도 아니다</b>. 사용자가 지금 타고
+     * 있는 바로 그 버스라 진행도는 살아야 하고({@link #copyToRevision}), 목표만 앞당겨진다.
+     * {@link #copyToRevision} 만 부르면 하차점·소요·남은 값이 전부 <b>옛 하차점 기준</b>으로 남아
+     * 화면의 "몇 분 남음"이 지나간 목적지를 가리킨다.
+     *
+     * <p>{@code remainingDistanceMeters} 는 <b>비운다.</b> 잘린 구간의 남은 거리는 이 자리에서 알 수
+     * 없고, 옛 값을 남기면 "그만큼 더 간다"는 뜻이 된다(PR-C 의 "지어내지 않는 값"과 같은 규칙).
+     * 다음 진행 보고가 오면 앱이 다시 채운다.
+     */
+    public JourneyLeg copyToRevisionTruncated(int newRouteRevision, Truncation truncation) {
+        JourneyLeg copy = copyToRevision(newRouteRevision);
+        copy.endStopId = truncation.endStopId();
+        copy.sourceEndStopId = truncation.sourceEndStopId();
+        copy.endName = truncation.endName();
+        copy.plannedDurationSec = truncation.plannedDurationSec();
+        copy.predictedEndAt = truncation.predictedEndAt();
+        copy.remainingStops = truncation.remainingStops();
+        copy.remainingDurationSeconds = truncation.remainingDurationSeconds();
+        copy.progressLegFraction = truncation.progressLegFraction();
+        copy.remainingDistanceMeters = null;
+        return copy;
+    }
+
+    /**
+     * 잘린 주행 단계가 이어받을 값들.
+     *
+     * @param plannedDurationSec      승차 → 새 하차점 소요(초). <b>스냅샷에서 되돌린 값이 아니다</b> —
+     *                                검색 결과의 구간 소요는 분 단위라 되돌리면 최대 30초가 틀어진다
+     * @param predictedEndAt          새 하차점 도착 예측(실시간)
+     * @param remainingDurationSeconds 지금부터 새 하차점까지 남은 시간(초)
+     * @param progressLegFraction     잘린 단계 기준으로 다시 잰 진행 비율. 못 재면 null
+     */
+    public record Truncation(String endStopId, String sourceEndStopId, String endName,
+                             Integer plannedDurationSec, Instant predictedEndAt,
+                             Integer remainingStops, Integer remainingDurationSeconds,
+                             BigDecimal progressLegFraction) {
+    }
+
+    /**
      * 판정·진행 흔적을 지운다. 경로가 바뀐 <b>뒤쪽</b> 단계에 쓴다.
      *
      * <p>진행도는 geometry 위의 좌표라 경로가 바뀌면 가리키는 지점이 달라지고, 예측은 옛 노선의

@@ -2669,3 +2669,45 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - **전멸 시 재계산**(PLAN 항목): 조회 경로가 OTP 를 부르게 되는 비용과 원점 역추적 코드 때문에 뺐다. 필요해지면 PR-4 이후 별건.
 - **`scope_id` 가 int** 라 proposalId 캐스팅이 들어간다(위 함정). 표 타입 확장은 별건.
 - **알림 문구**: "더 빠른 길이 있어요 / 앱에서 새 경로를 확인하세요."로 고정. 발송을 켜기 **전**에 바꿔야 한다(켠 뒤 변경은 사용자 눈에 보인다).
+
+## 2026-09-20 journey-reroute-nextstop PR-4 — 진행중 RIDE 절단 수락
+
+### 확정
+- **잘린 주행 단계는 복제도 신규도 아닌 제3의 경우**라는 PR-C 의 결론이 저장 쪽에서 `JourneyLeg.copyToRevisionTruncated(newRev, Truncation)` 로 굳었다. `rebuild` 는 `legIndex < fromLegIndex`(복제) / `>= fromLegIndex`(신규) 두 갈래였는데, 잘린 주행은 번호가 `== fromLegIndex` 라 그대로 두면 **신규 쪽으로 떨어져 진행도가 전멸**한다(= 앱 GPS 엔진 리셋). `Composed.truncatedLegIndex` 가 그 분기의 열쇠다.
+- **자를 자리는 서울 노선 순번의 차이로 찾는다**(`origin.seq - boardSeq`). 스냅샷 정류장 id 는 검색 id(OTP gtfsId/ODsay), 원점은 서울 id 라 직접 못 맞댄다(PR-C "번역이 반만 된다"). 대신 **이름 대조**를 `RideTruncation.expectedStopName` 으로 함께 넘겨 합성 단계가 확인한다 — 두 정류장 목록이 어긋나면 그 자리엔 다른 정류장이 있고, 그대로 자르면 **엉뚱한 곳에서 내리라는 안내**가 된다. 대조는 공백만 무시(`"정류장 E"=="정류장E"`); 더 느슨하게 맞추면 옆 정류장까지 접힌다.
+- **재확인은 fail closed(하차) / fail open(승차)** — 기존 비대칭(PLAN 2026-09-18 사용자 결정)을 수락 경로에서도 그대로 지킨다. 하차점 실시간이 없거나 막혔으면 **거절**(`no-realtime`·`arrival-blocked`), 갈아탈 첫 차 추정이 없거나 예측기가 터지면 **통과**(`boarding-unknown`). 근거: 못 내리는 것은 되돌릴 수 없고, 못 타는 것은 더 기다리면 된다.
+- **수락 전용 리드타임 `next-stop.accept-min-lead-sec=30`**(제안 리드타임 90 과 별도). 제안은 "읽고 판단하고 움직일" 시간을 재지만 수락은 이미 누른 뒤라 남은 것은 문 앞으로 가는 시간뿐이다. 같은 값이면 **알림 보고 바로 누른 수락이 거절된다**.
+- **전용 오류 코드 `REROUTE_ALIGHT_UNAVAILABLE`(409)**. `REROUTE_PROPOSAL_STALE` 과 가른 이유 = 앱이 할 일이 다르다. 이쪽은 제안이 낡은 게 아니라 **버스가 그 사이 더 간 것**이라 목록을 새로 받아 남은 자리를 보여 주면 된다. 여정은 트랜잭션째 되돌아가므로 제안도 ACTIVE 로 남고 다시 누를 수 있다(IT 로 고정).
+- **`plannedDurationSec` 은 초 단위 실측**(`RideTruncation.rideSeconds`, 승차 `activatedAt` → 실시간 하차 시각). PR-C 함정 그대로 — draft 값을 쓰면 스냅샷의 분 단위를 되돌린 값이라 최대 ±30초가 조용히 틀어진다. IT 는 **분으로 접으면 960 이 되는 930초**를 일부러 골라 이 차이를 뮤테이션으로 가른다.
+- **보존/재계산 경계**: 보존 = `progressGeometrySegmentIndex`·`progressFraction`·`progressSectionId`·`progressObservedAt`·`lastProgressId`·`activatedAt`·`state`(버스 geometry segment 는 정류장 사이 구간이라 **앞부분이 그대로 남는다** — 절단은 뒤를 잘라내는 것뿐이라 번호가 유효). 재계산 = `endStopId`/`endName`(초안에서), `plannedDurationSec`·`predictedEndAt`·`remainingStops`·`remainingDurationSeconds`(재확인 실측에서), `progressLegFraction`(정류장 수 비율로 다시). **비움** = `remainingDistanceMeters`(잘린 구간의 남은 거리는 알 수 없다 — 지어내지 않는다).
+- **`BusRideLocator` 로 위치·내 차 판정을 한 자리에 모았다**(PR-2 `UpcomingStopWindowResolver` 에서 추출). 제안할 때와 수락할 때 규칙이 갈리면 **제안은 탈 수 있다고 하고 수락은 못 탄다고 하는** 어긋남이 생긴다. 내 차 비대칭(`sectionOrder ∈ {current, current+1}`, 뒤차 금지)도 여기 한 벌만 남는다.
+- **지표 신설 `journey.reroute.accept.midride{outcome}`**: `applied` · `alight-passed` · `no-realtime` · `arrival-blocked` · `below-lead-time` · `not-riding` · `no-progress` · `stale-progress` · `ambiguous-stop` · `position-out-of-range` · `no-boarding-time` · `boarding-missed` · `boarding-unknown` + 합성 거절(PR-C 어휘). **사용자가 이미 고른 수락을 서버가 되돌리는 자리**라 사유별로 갈라야 손댈 곳이 보인다(`alight-passed` 많으면 리드타임, `no-realtime` 많으면 커버리지 — 정반대).
+
+### 함정
+- **재확인이 트랜잭션 안에서 외부 호출을 한다**: `journey_session` 행을 잠근 채 도착 조회(≤1.5s) + 승차 추정(≤1.5s)이 나간다. 최악 3초 동안 그 여정의 단계 전이가 막힌다. 순서를 바꿔 tx 밖에서 재확인하면 "확인한 뒤 커밋 전에 버스가 지나가는" 창이 생겨 PLAN 이 요구한 **반영 직전** 확인이 아니게 된다. 라이브에서 수락 p95 를 볼 것(미결).
+- **`RerouteAcceptTxService` 의 `saveRouteOptions` 는 잘린 주행 단계를 안 건드린다**(PR-C 미결의 답): 주행 단계 draft 는 `routeOptions` 가 비어 있고(`JourneyCompiler.emitTransit`), 선택 후보는 **짝 대기 단계**(`fromLegIndex-1`, 복제 쪽)가 `select()` 로 함께 채운다. 순서도 맞다 — newLegs 는 legIndex 오름차순이라 대기가 먼저다.
+- **`origin.routeId != ride.routeId` 면 거절한다**(`not-riding`). 순번은 노선 안에서만 뜻이 있어, 다른 노선의 seq 로 자를 자리를 계산하면 조용히 엉뚱한 정류장이 나온다.
+- **Mockito 기본값이 NPE 로 새는 자리**: IT 에서 `SearchTimeBusQueryPort` 를 `@MockBean` 으로 두고 특정 인자만 stub 하면 나머지는 null 을 돌려준다 → `result.isOk()` NPE. `anyString()...` 로 **기본 `blocked()` 를 먼저 깔고** 특정 인자를 덮었다(그 자체가 "실시간 없으면 승차 추정은 fail open" 을 시험한다).
+- **`BusQueryResult` 가 record 라 `@MockBean` 만으로는 아무 값도 안 나온다** — 위와 같은 이유로 PR-2 테스트와 같은 stub 형태를 그대로 썼다.
+
+### 좌표
+- 신규: `application/journey/service/BusRideLocator.java`(PR-2 에서 추출), `application/journey/service/RideTruncationResolver.java`
+- 변경: `RerouteAcceptTxService`(`resolveTruncation`/`requireStillBoardable`/`estimateBoarding`/`truncated` + 4-arg compose 호출 + `applyRevision`·`rebuild` 시그니처), `JourneyLeg`(`copyToRevisionTruncated` + `Truncation` record), `JourneyRevisionComposer`(`RideTruncation.expectedStopName` + `nameMismatch` 대조), `UpcomingStopWindowResolver`(locator 위임, private 판정 3개 제거), `JourneyRerouteProperties`(`next-stop.accept-min-lead-sec` + validate), `JourneyRerouteMetrics`(`accept.midride`), `JourneyErrorCode`(`REROUTE_ALIGHT_UNAVAILABLE`)
+- 테스트: `RideTruncationResolverTest`(신규 11), `JourneyRevisionComposerTest`(16→18: 이름 불일치·띄어쓰기), `RerouteAcceptIT`(10→12: 중간 하차 수락·지나간 정류장 롤백 + `givenProposalOf` 공통화), `UpcomingStopWindowResolverTest`(생성자 locator)
+
+### 배포
+- **마이그레이션 없음.** 새 설정 키 `journey.reroute.next-stop.accept-min-lead-sec` 는 기본값이 있어 compose 수정 불필요.
+- 재탐색은 여전히 flag off(`journey.reroute.enabled=false`) → 프로덕션 동작 변화 0. 켤 때 볼 지표 = `journey.reroute.accept.midride{outcome}` 의 `applied` 대비 `alight-passed`·`no-realtime` 비율.
+- **모바일 전달물**: ①`REROUTE_ALIGHT_UNAVAILABLE`(409) 를 받으면 **목록 새로고침**(제안은 아직 살아 있다) ②PLAN 의 "확인 화면(서버 요약)"은 클라 몫 — 서버는 후보의 `display.alight{stopId,name,alightAt}` 로 이미 재료를 준다.
+
+### 검증
+- `RideTruncationResolverTest` **11/11**(자리·소요·지나감 2종·실시간 없음/막힘·리드타임·수락 리드타임이 제안보다 짧음·낡은 관측·버스 아님 3종·다른 노선·승차시각 없음·진행 없음).
+- `JourneyRevisionComposerTest` **18/18**, `RerouteAcceptIT` **12/12**(실제 Postgres).
+- **뮤테이션 3건**: ①`copyToRevisionTruncated` → `copyToRevision` 으로 바꾸니 IT 가 `end_stop_id` 를 `ST-F`(옛 하차점)로 잡아 FAILED ②`alightSeq <= currentSeq` 가드를 지우니 `누르는 사이 지나간 정류장은 거절한다` FAILED ③`rideSeconds` 대신 draft 의 `plannedDurationSec` 을 쓰니 900 vs [920,940] FAILED. 셋 다 되돌림.
+- `application.journey.*` + `application.route.*` → **1327 tests, 1 failed** = `JourneyTransferAssessmentIT`(PR-1·PR-2·PR-3 세션에서 clean main 재현 확인, **기존 무관**).
+- `NextrouteApplicationTests`(전체 컨텍스트 로드 — 신규 빈 2개 배선) + `domain.journey.*` + `adapter.in.api.journey.*` + `architecture.*` → **111 tests, 0 failed**.
+
+### 미결
+- **tx 안 외부 호출 지연**(위 함정). 수락 p95 관측 후 예산 조정.
+- **PLAN PR-4 의 "확인 화면"** 은 서버 산출물이 아니라 클라 UX — 모바일 HANDOFF 로 넘어간다.
+- 다음 = **PR-5(③ `RouteOptionCandidateProvider` 제거)**. PR-2~4 가 전부 들어왔으므로 착수 조건 충족.
