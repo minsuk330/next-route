@@ -3018,3 +3018,22 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 배포
 - 마이그레이션 없음. 배포 후 실측 3종 필요: ①잠실역 8호선→청계천 `paths[2]` 303번 구간의 `transferArrivals` non-null ②검색 지연 before(0.88s)/after ③`meta.degraded` 에 `bus_realtime` 이 상시로 오르는지(오르면 예산 재조정) + 검색 1건당 `ws.bus.go.kr` 호출 수가 상한(12) 안인지.
+
+## 2026-09-20 VPS 배포 — 검색 응답 도착예측 라이브 (#238)
+
+### 배포
+- **완료. 이미지 `nextroute:20260920-180917-bf756257`**(이전 `20260920-173303-27cab2bf` 은 `.env` `PREVIOUS_*` → `./deploy.sh rollback-api|rollback-worker`). api·worker healthy, 기동 후 ERROR 로그 0건. 마이그레이션 없음.
+- 절차: `./gradlew bootJar` → jar 안 `deadline-ms: ${ROUTE_SEARCH_DEADLINE_MS:4500}` 확인 → `app.jar.bak-20260920-pre-transfer-arrival` 백업 → scp(md5 b31dc518…) → `DEPLOY_REVISION=bf756257 ./deploy.sh all`.
+
+### 검증 (잠실역 8호선 → 청계천, 프로덕션 실측)
+- **`transferArrivals` 가 채워진다.** 환승 2번 경로에서 두 구간이 서로 다른 근거로 답했다:
+  - 303번(6분 뒤 승차) → `source=REALTIME status=AVAILABLE waitSeconds=123 vehicleId=107017143`
+  - 271번(32분 뒤 승차) → `source=MODEL status=AVAILABLE waitSeconds=124 modelVersion=lgbm_2026-06-12_to_2026-08-06_corrected_20260816T060405Z`
+  - **실시간이 못 보는 먼 환승을 모델이 받는다**는 설계가 응답에서 그대로 보인다.
+- **지연**: 배포 전 0.76/0.87/0.91s → 배포 후 10회 연속 **0.88~1.16s (중앙값 ~0.95s)**. 보강이 붙었는데도 +0.1s 안팎.
+  - 단 배포 직후 표본에 **3.54s 1회**가 섞였다(콜드). 이후 10회는 전부 1.2s 이내.
+- `meta.degraded` = 10회 모두 **빈 배열**. 예산 4500ms 상향이 유효했다(3000 이었으면 콜드 표본이 잘렸다).
+- 검색 1건당 외부 호출: 10분간 `ws.bus.go.kr{role=api}` **8.3회** — 같은 OD 반복이라 15초 캐시·dedupe 가 대부분 흡수했다. 상한(12/검색) 근처도 안 간다.
+
+### 함정
+- **"보강 상한 1500ms = 지연 +1.5초"가 아니다.** 상한은 cap 이고 실제 비용은 버스 도착 API 평균 63ms + ML 100ms + wave 병렬(동시 8)이다. 실측 증가분은 ~0.1s. 예산을 정할 때 cap 을 비용으로 읽으면 과하게 잡게 된다.
