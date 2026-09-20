@@ -2974,3 +2974,21 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결
 - 위 기존 실패 IT 는 사실 같은 계열이다: 평가기가 켜져 있으면 조회 경로가 계산을 안 하는데, 그 IT 는 조회가 계산하던 시절 계약을 검사한다. 이번 스코프 밖 — 고치려면 IT 가 `journey.navigation.evaluator.enabled=false` 를 명시하거나 계약 자체를 다시 정해야 한다.
 - 원인 확정은 **다음 여정 1건**이면 난다. 배포 후 `journey_transfer_boarding_miss_total` 의 reason 을 보고 ①예산이면 `predictDeadlineMs` 상향 ②`no_vehicle` 이면 정상(그 시각 그 노선에 차가 없던 것) ③`no_scope`/`stop_mapping_failed` 면 id 해석 문제로 간다.
+
+## 2026-09-20 VPS 배포 — P7(#230·#231) + 승차추정 miss 계측(#235) 라이브
+
+### 배포
+- **완료. 이미지 `nextroute:20260920-173303-27cab2bf`**(이전 = `20260920-162800-6570fa29`, `.env` `PREVIOUS_*` 에 보존 → `./deploy.sh rollback-api|rollback-worker`). api·worker 둘 다 healthy, 기동 후 ERROR 로그 0건.
+- 절차: 이 트리에서 `./gradlew bootJar` → jar 검사(마이그레이션 56개, V53·V54·V55 포함, 폴리라인 스택 클래스 0개, `journey.transfer.boarding-miss` 문자열 존재) → VPS `app.jar` 백업(`app.jar.bak-20260920-pre-p7metric`) → scp(md5 대조 b46dc650…) → `DEPLOY_REVISION=27cab2bf ./deploy.sh all`.
+- **마이그레이션은 이번 배포에서 돌 것이 없었다.** VPS 는 이미 v55 였다 — 16:27 에 다른 세션이 올린 jar 이 (공유 작업트리에 있던) V53·V54·V55 를 함께 싣고 갔기 때문. 즉 **한동안 "테이블은 지워졌는데 코드는 그 테이블을 읽던" 상태**였다. 실해는 없었다(provider=OTP 라 폴리라인 경로를 안 타고, 수집 스케줄러 오류 로그도 0건). 이번 배포로 코드가 따라잡았다.
+- 스모크: 검색 시청→강남 `HTTP 200 t=1.59s`, `meta.outcome=full degraded=[]`. OTP provider 정상.
+
+### 함정 (이번 배포에서 실측으로 잡힌 것)
+- **재시작 직후 첫 예측은 예산에 걸린다.** 배포 직후 같은 환승예측을 4번 연속 호출: 1회차 `status=LIMITED`(모델 호출 전 예산 소진) → 이후 `MODEL AVAILABLE` `t=0.187s → 0.024s → 0.036s`. 콜드 1회만 비싸고 그 다음부터 싸다.
+- 이것이 [[2026-09-20 탑승 대기]] 조사에서 남겨둔 후보 ①(평가기 예산 `predictDeadlineMs=1500`)을 강하게 지지한다. 여정 74 는 **워커 16:28 재시작 → 17:02 첫 여정**이었고, 그 첫 평가가 콜드였다. 검색 예산(2500ms)에서도 콜드 1회차가 잘렸으니 1500ms 는 더 잘 잘린다.
+- **확정은 아니다** — 다음 여정에서 `journey_transfer_boarding_miss_total{reason="limited"}` 가 실제로 오르는지 봐야 한다. 오르면 예산 상향 또는 워밍업(기동 후 1회 사전 호출)으로 간다.
+
+### 검증
+- `docker ps`: api·worker `(healthy)`, 이미지 `20260920-173303-27cab2bf`.
+- `flyway_schema_history` 상위 = 55·54·53 전부 success(이번 배포에서 신규 적용 0건).
+- 신규 메트릭은 아직 시계열 없음 — Micrometer 카운터는 첫 증가 때 등록된다. 여정 1건 지나야 보인다.
