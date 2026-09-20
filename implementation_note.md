@@ -2926,3 +2926,25 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - **켠 뒤 볼 지표**: `journey.reroute.alert{outcome}`(`published` 대비 `no-channel`·`below-threshold`·`cooldown`), `journey.reroute.origin.window{outcome}`(`no-progress` 비율 = 앱이 `remainingStops` 를 보내는지), `journey.reroute.accept.midride{outcome}`.
 - **알림 문구**는 `"더 빠른 길이 있어요 / 앱에서 새 경로를 확인하세요."` 로 라이브가 됐다. 이제 바꾸면 사용자 눈에 보인다.
 - api 블록의 `JOURNEY_NOTIFICATION_RELAY_ENABLED=false` 는 남겨 뒀다(relay 가 worker 전용이라 무해). 정리는 별건.
+
+## 2026-09-20 지하철 실시간 전 노선 커버리지 — 조사 실측 (백로그 등록, 착수 전)
+
+### 확정
+- **목표(사용자)**: 최종적으로 **수도권 모든 지하철 노선에 실시간 정보 제공**. 지금은 조사만 끝냈고 착수 전. 백로그 = `docs/plan/subway-realtime-full-coverage/BACKLOG.md`.
+- 현행 소스 = 서울시 `realtimeStationArrival` 하나. 실제로 **19개 노선**이 들어온다(1001~1009, 1032 GTX-A, 1063 경의중앙, 1065 공항철도, 1067 경춘, 1075 수인분당, 1077 신분당, 1081 경강, 1092 우이신설, 1093 서해, 1094 신림). "1~9호선만"이 아니다.
+- 실시간 미커버 = **노선 5개 98역**: 인천1(30)·인천2(27)·김포골드(10)·의정부경전철(16)·용인에버라인(15). 공통점은 서울시가 데이터를 받아오지 않는 운영사.
+- 19개 노선 안에서 도착정보가 한 번도 안 온 역 = 5개(1호선 광명·서동탄, 경의중앙 운천·임진강, 경춘 광운대).
+- 외부 API 조사 결론: **운영기관을 가로지르는 공식 실시간 오픈API는 없다.** 코레일 열차운행정보=과거 데이터(1일 전~3개월), 인천광역시 도착정보=버스 전용, 인천교통공사=실시간 *로그* 파일만, KRIC 오픈API 60종=정적(시간표/혼잡도/공기질), ODsay=실시간 없음. 단 **KRIC 철도통합정보시스템(station.kric.go.kr)은 수도권+지방 4대도시 실시간을 화면으로 이미 통합**해 뿌린다 — 데이터는 있는데 API가 없다.
+
+### 함정
+- **서울시 API 문서(`data.seoul.go.kr` OA-12764)의 "서울시 이외의 역구간은 미제공"은 실제와 다르다.** 수집 데이터에 신창·천안·춘천·문산·광교·연천·소요산 도착정보가 전부 쌓여 있다. 문서 문구를 근거로 "서울 밖은 안 된다"고 판단하면 오진한다 — 실측(`subway_arrival_raw`)이 먼저다.
+- **실시간 갭보다 검색 갭이 더 크다(별개 축).** P1 bbox 필터(west 126.5/east 127.4)의 "경계 밖 정류장을 지나는 trip 전체 제외" 규칙 때문에 OTP graph 에서 노선 끝이 잘렸다: **공항철도 14→8역(인천공항1·2터미널·운서·영종·청라 없음 — 즉 지금 길찾기로 인천공항을 못 간다)**, 경강선 12→**0**(여주가 bbox 밖이라 노선 통째), 1호선 102→79(천안·신창), 경춘 25→14(춘천), 경의중앙 57→47(문산 이북). 외부 API 없이 bbox 조정+graph 재빌드로 고칠 수 있는 영역.
+
+### 좌표
+- 현행 수집: `SeoulSubwayApiAdapter:123`(`/realtimeStationArrival/ALL`), `:159`(`/realtimePosition` — 이쪽은 호선명 필요, `SubwayLineIdMapper.toLineName`).
+- 라벨 재료(이미 있음): `OtpLegCoverageResolver` 의 `REALTIME_CAPABLE`/`STATIC_SCHEDULE`.
+- 재현 쿼리·GraphQL 명령은 BACKLOG.md §8.
+
+### 미결
+- 착수 순서 제안 = ①검색 갭(bbox/graph) ②시간표 기반 정적 라벨로 미커버 노선 메우기 ③KRIC 스크래핑 스파이크 또는 운영기관 제휴. **사용자 결정 대기.**
+- bbox 를 넓히면 graph 크기·heap·빌드시간이 는다(P1 capacity-report 기준 재산정 필요). 인천공항만 필요하면 west 126.5→126.4 정도의 최소 확장으로 될지 먼저 측정할 것.
