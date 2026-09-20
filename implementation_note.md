@@ -2895,3 +2895,34 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 좌표
 - 신규: `docs/plan/journey-reroute-nextstop/HANDOFF.md`
+
+## 2026-09-20 VPS 배포 — V53·V54·V55 + 재탐색 알림 ON
+
+### 배포
+- **완료. 스키마 v52 → v55, api·worker 둘 다 healthy, 에러 로그 0.** 이미지 `nextroute:20260920-162800-6570fa29`(이전 = `20260919-142058-9a73dd4b`). 백업 = `app.jar.bak-20260920` · `compose.yaml.bak-20260920`.
+- 적용된 마이그레이션: **V53**(journey_session 알림 3칸) · **V54**(reroute_proposal.alerted + status CHECK) · **V55**(odsay_route_polyline 제거, P7 PR-2).
+- compose 변경 = `x-app-environment` 앵커에 **`JOURNEY_REROUTE_ALERT_ENABLED: "true"`** 한 줄. api·worker 가 함께 상속한다. 편집은 **VPS 인플레이스**(compose 는 git 이 아니고 로컬 repo 와 drift 가 있다 — 덮으면 프로덕션이 깨진다).
+- 기동 확인: `형상 마킹 ACTIVE`(coveredModes=[subway,bus], degraded=1533) · `FCM 초기화 완료` · `JourneyNotificationRelayLoop started` · `Started NextrouteApplication` ×2.
+
+### 확정 (실측으로 뒤집힌 전제)
+- 🔴 **"재탐색은 flag off 라 프로덕션 영향 0" 은 틀렸다.** `journey.reroute.enabled` 의 yaml 기본값이 **2026-08-25 커밋 `8961bed1`("feat: add test notification api")에서 `false` → `true`** 로 바뀌었고 VPS 에 override env 가 없다. 즉 그 뒤의 모든 배포에서 **재탐색 기능은 켜져 있었다**. 지금까지 아무 일도 안 일어난 이유는 플래그가 아니라 **앱이 그 엔드포인트를 안 불렀기 때문**이다(`reroute_proposal` 0행).
+  - 이 문장을 노트·PR 여러 곳에 "영향 0" 근거로 반복해 적었다 — **근거가 코드 기본값(false)이었고 yaml(true)을 안 봤다.** 앞으로 플래그 실효값은 **yaml → 그리고 컨테이너 env** 순으로 확인할 것.
+- 🔴 **발송 경로는 이미 살아 있었다.** `JOURNEY_NOTIFICATION_RELAY_ENABLED=false` 는 compose 의 **api 블록에만** 있고, relay 는 **worker 프로필 전용**이라 worker 는 yaml 기본값(true)으로 돌고 있었다. worker 는 `SENDER=fcm` + 인증서 마운트 상태. 그래서 **이번에 켠 `alert.enabled` 하나로 실제 푸시가 나간다**.
+- 프로덕션 규모(배포 시점): users 84 · journeys 73 · **active 0** · **user_push_token 1** · reroute_proposal 0. 도달 범위가 작아 알림을 켜는 위험이 낮았다.
+- 지하철 실시간 노선 표(`subway_station`)는 prod 696행(1002 51행 포함), **dev 645행(2호선 없음)** — 로컬에서 2호선이 빈손인 것은 프로덕션 문제가 아니다.
+
+### 함정
+- **144MB jar 의 scp 가 에이전트 권한에서 막힌다.** 사용자가 터미널에서 직접 올린 뒤 이어서 진행했다. 배포 절차를 자동화할 때 이 단계가 사람 손을 탄다는 것을 전제로 둘 것.
+- `deploy.sh all` 은 build → api·worker 재생성 → **health gate(각 180s)** → 실패 시 이전 이미지 자동 복구. 이번엔 둘 다 통과.
+
+### 검증
+- `flyway_schema_history` 상위 4행 = 55·54·53·52 전부 `success=true`.
+- `docker ps` = api·worker 모두 `(healthy)`, 새 이미지 태그 확인.
+- 배포 후 로그 `ERROR|Exception` = api **0건**, worker **0건**.
+- worker env 반영 확인: `JOURNEY_REROUTE_ALERT_ENABLED=true`, `JOURNEY_NOTIFICATION_SENDER=fcm`.
+
+### 미결
+- **이제 앱 차례다.** 서버는 제안을 만들고 push 도 보내지만, 앱이 `origin` 계약(`transferIndex` 삭제)과 409 `REROUTE_ALIGHT_UNAVAILABLE`, `remainingStops` 전송을 처리해야 기능이 사용자에게 닿는다 — `docs/plan/journey-reroute-nextstop/HANDOFF.md`.
+- **켠 뒤 볼 지표**: `journey.reroute.alert{outcome}`(`published` 대비 `no-channel`·`below-threshold`·`cooldown`), `journey.reroute.origin.window{outcome}`(`no-progress` 비율 = 앱이 `remainingStops` 를 보내는지), `journey.reroute.accept.midride{outcome}`.
+- **알림 문구**는 `"더 빠른 길이 있어요 / 앱에서 새 경로를 확인하세요."` 로 라이브가 됐다. 이제 바꾸면 사용자 눈에 보인다.
+- api 블록의 `JOURNEY_NOTIFICATION_RELAY_ENABLED=false` 는 남겨 뒀다(relay 가 worker 전용이라 무해). 정리는 별건.
