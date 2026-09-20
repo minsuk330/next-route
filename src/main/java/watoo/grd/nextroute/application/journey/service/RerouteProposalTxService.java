@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
 /**
  * 제안의 <b>저장과 만료 전이만</b> 맡는다. 외부 호출은 {@link RerouteProposalService} 가 한다.
  *
- * <p>둘로 나누는 이유는 후보 생성(③④)이 실시간 버스 API·ML·ODsay 를 부르기 때문이다. 그 호출을
+ * <p>둘로 나누는 이유는 후보 생성(④)이 실시간 버스 API·ML·경로 검색을 부르기 때문이다. 그 호출을
  * 트랜잭션 안에서 하면 응답을 기다리는 동안 DB 커넥션을 붙잡는다
  * ({@code JourneyStartService}/{@code JourneyStartTxService} 분리와 같은 모양).
  *

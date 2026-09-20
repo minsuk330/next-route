@@ -17,25 +17,21 @@ class JourneyReroutePropertiesTest {
     private final JourneyRerouteProperties props = new JourneyRerouteProperties();
 
     @Test
-    @DisplayName("PR4a 재산정 기본값: max-paths=4 / search-budget=3000 / max-evaluations=10 / cooldown=1분")
+    @DisplayName("PR4a 재산정 기본값: max-paths=4 / search-budget=3000 / cooldown=1분")
     void reestimatedDefaults() {
         assertThat(props.getRemainingPath().getMaxPaths())
                 .as("남은경로 평가 폭(OTP 무료 전제로 2→4)").isEqualTo(4);
         assertThat(props.getRemainingPath().getSearchBudgetMs())
                 .as("남은경로 검색 예산(지연·완결성 근거로 2000→3000)").isEqualTo(3000);
-        assertThat(props.getRouteOption().getMaxEvaluations())
-                .as("대안노선 평가 상한(사실상 전부, 3→10)").isEqualTo(10);
         assertThat(props.getTrigger().getCooldown())
                 .as("재탐색 최소간격(UX 근거로 2분→1분)").isEqualTo(Duration.ofMinutes(1));
     }
 
     @Test
-    @DisplayName("otp-search-budget: RemainingPath 평가예산 3000→4500(OTP 검색 3.5s+예측 여유), RouteOption 은 불변")
+    @DisplayName("otp-search-budget: RemainingPath 평가예산 3000→4500(OTP 검색 3.5s+예측 여유)")
     void remainingPathEvaluationBudgetRaisedForOtp() {
         assertThat(props.getRemainingPath().getEvaluationBudgetMs())
                 .as("OTP 검색 otpMs(3500) 뒤 예측 조기컷 방지").isEqualTo(4500);
-        assertThat(props.getRouteOption().getEvaluationBudgetMs())
-                .as("대안노선 평가예산은 무관 — 불변").isEqualTo(3000);
     }
 
     @Test
@@ -50,7 +46,6 @@ class JourneyReroutePropertiesTest {
     @Test
     @DisplayName("KEEP 항목은 그대로: min-eta-gain=300")
     void keepItemsUnchanged() {
-        assertThat(props.getRouteOption().getMinimumEtaGainSeconds()).isEqualTo(300);
         assertThat(props.getRemainingPath().getMinimumEtaGainSeconds()).isEqualTo(300);
     }
 

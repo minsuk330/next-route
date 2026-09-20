@@ -13,11 +13,11 @@ import java.time.Duration;
  * 재탐색 cooldown 을 Redis 키 하나로 표현한다.
  *
  * <p><b>메모리가 아니라 Redis 인 이유</b> — worker 가 둘이면 메모리 cooldown 은 worker 마다 따로
- * 돌아 같은 환승이 최대 2배로 통과한다. shadow 에서 잰 수가 ③의 실제 외부 호출 수와 달라지면
+ * 돌아 같은 환승이 최대 2배로 통과한다. shadow 에서 잰 수가 실제 외부 호출 수와 달라지면
  * 측정의 의미가 없다.
  *
  * <p><b>fail-closed</b> — Redis 장애면 통과시키지 않는다({@code RedisBusApiQuota} 와 같은 선례).
- * 여기서 열어 두면 ③이 켜진 뒤 캐시 장애가 곧 ODsay 요금이 된다.
+ * 여기서 열어 두면 재탐색이 켜진 뒤 캐시 장애가 곧 경로 검색 요금이 된다.
  */
 @Slf4j
 @Component

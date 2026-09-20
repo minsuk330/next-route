@@ -386,12 +386,17 @@ class WithdrawalDeletionBoundaryIT {
                 values (now(), now(), ?, 1, 2, 3, 4, '08:00', 62, true, 10, 5, 0, 'ACTIVE', 0)""", uid);
 
         // 여정 부모 + 자식
+        // 재탐색 알림 상태 3칸을 손으로 채운다. 이 IT 의 스키마는 마이그레이션이 아니라
+        // ddl-auto 가 만들고, Hibernate 는 원시타입 필드를 <b>기본값 없는</b> not null 로 낸다 —
+        // V53 이 default 를 주더라도 여기서는 안 온다.
         long jid = jdbc.queryForObject("""
                 insert into journey_session
                     (created_at, updated_at, user_id, status, command_version, evaluation_version,
                      route_revision, current_leg_index, started_at, last_heartbeat_at,
-                     guidance_lease_until, route_snapshot)
-                values (now(), now(), ?, 'ACTIVE', 0, 0, 1, 0, now(), now(), now(), '{}'::jsonb)
+                     guidance_lease_until, route_snapshot,
+                     reroute_terminated, reroute_alert_opt_in, reroute_ignored_count)
+                values (now(), now(), ?, 'ACTIVE', 0, 0, 1, 0, now(), now(), now(), '{}'::jsonb,
+                        false, false, 0)
                 returning id""", Long.class, uid);
         long lid = jdbc.queryForObject("""
                 insert into journey_leg
@@ -423,8 +428,10 @@ class WithdrawalDeletionBoundaryIT {
         jdbc.update("""
                 insert into reroute_proposal
                     (created_at, updated_at, journey_id, user_id, route_revision,
-                     kind, status, base_command_version, candidates, snapshot_observed_at, expires_at)
-                values (now(), now(), ?, ?, 1, 'ROUTE_OPTION', 'ACTIVE', 1, '[]'::jsonb, now(), now())""",
+                     kind, status, base_command_version, candidates, snapshot_observed_at,
+                     expires_at, alerted)
+                values (now(), now(), ?, ?, 1, 'REMAINING_PATH', 'ACTIVE', 1, '[]'::jsonb, now(),
+                        now(), false)""",
                 jid, uid);
         jdbc.update("""
                 insert into subway_binding_event

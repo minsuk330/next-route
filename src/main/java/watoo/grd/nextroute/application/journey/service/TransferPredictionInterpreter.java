@@ -16,7 +16,7 @@ import java.time.Instant;
  * 환승 예측을 <b>어떻게 묻고 어떻게 읽을지</b>. 규칙 자체는 여기 한 곳에 있다.
  *
  * <p>같은 예측을 두 곳이 쓴다 — 주기 평가({@link BusTransferTargetArrivalPredictor})와 재탐색
- * 후보 평가({@link RouteOptionCandidateProvider}). <b>두 곳이 각자 규칙을 가지면 같은 버스를 두고
+ * 후보 평가({@link BusBoardingTimeEstimator}). <b>두 곳이 각자 규칙을 가지면 같은 버스를 두고
  * 서로 다른 답을 낸다</b>: 평가는 "탈 수 있다"고 하는데 재탐색은 "이 노선이 더 낫다"고 하는 화면이
  * 나온다. 개선폭은 두 값의 뺄셈이므로 계산 방식이 갈리면 개선폭이 계산 방식의 차이가 된다.
  *

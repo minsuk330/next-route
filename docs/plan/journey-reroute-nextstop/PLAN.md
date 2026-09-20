@@ -113,8 +113,11 @@
 
 ### PR-5 — ③ 제거
 의존: PR-2~4.
-- [ ] `RouteOptionCandidateProvider`+테스트 제거, 사다리 제외. `RouteOptionEtaCalculator` 이후대기0·`RerouteProposalKind.ROUTE_OPTION` 정리. PR4c(#194 파킹) rideSec 포트 재사용 안 함 확정.
-- 검증: 컴파일 + 사다리(④만) + 넓은 회귀.
+- [x] `RouteOptionCandidateProvider`+`RouteOptionEtaCalculator`+출처 4종(Stored/Union/OtpPattern/포트)+테스트 6개 제거, 설정 `route-option.*`(클래스·yaml·validate) 제거, `RouteOptionApply` 하위타입과 수락·합성의 ROUTE_OPTION 분기(`keepsStructure`·`copyAll`·`chooseRouteOption`) 제거.
+  - **정정(구현)**: `RerouteProposalKind.ROUTE_OPTION` 은 **남긴다**. 이 enum 은 DB 컬럼을 *읽는* 어휘이고 V42 check 는 아직 그 값을 받는다 — 지우면 그 값으로 저장된 옛 행을 읽다 터진다. 만드는 쪽을 없애면 어휘는 자연히 죽는다(옛 행의 후보는 "모르는 봉투"로 거절).
+  - **정정(구현)**: **사다리 자체는 남긴다**(칸이 하나여도 `priority` 는 요금 순서라 값싼 칸이 생기면 앞자리가 필요하다). "사다리 제외"는 ③을 사다리에서 뺀다는 뜻으로 읽었다.
+  - **정정(구현)**: PR4c rideSec 포트(`RouteRideDurationPort`)와 `StopPatternPort` 는 **지우지 않았다** — 재사용은 안 하지만(PLAN 확정) `stopPatterns` 는 national-otp 후속이 쓰기로 한 질의라 다른 작업 축의 자산이다. 지금은 부르는 곳이 없다고 javadoc 에 명시(미결).
+- [x] 검증: 컴파일 + 사다리(④만, 17/17) + 넓은 회귀(1305/1 기존무관, 478/0). **덤으로 main 에서 이미 깨져 있던 `WithdrawalDeletionBoundaryIT` 7건 수리**(PR-3 의 엔티티 신규 칸 ↔ ddl-auto 가 기본값 없는 not null 을 내는 문제).
 
 ## 마이그레이션 (확정)
 - PR-B: `reroute_proposal` origin 컬럼 + 여정당 unique (V번호 1, expand→cutover).

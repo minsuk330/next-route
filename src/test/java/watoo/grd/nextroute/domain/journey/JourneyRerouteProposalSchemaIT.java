@@ -174,7 +174,7 @@ class JourneyRerouteProposalSchemaIT extends AbstractJourneyOutboxPostgresIT {
     }
 
     private void insertProposal(String status) {
-        insertProposal(status, "ROUTE_OPTION");
+        insertProposal(status, "REMAINING_PATH");
     }
 
     private void insertProposal(String status, String kind) {

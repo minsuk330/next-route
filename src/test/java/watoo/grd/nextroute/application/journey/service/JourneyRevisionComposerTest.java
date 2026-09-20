@@ -257,18 +257,6 @@ class JourneyRevisionComposerTest {
     }
 
     @Test
-    @DisplayName("노선만 바꾸는 수락에는 자를 자리가 없다")
-    void rejectsTruncationOnRouteOption() {
-        PathResult current = twoTransitPathWithStops();
-
-        JourneyRevisionComposer.Result result = composer.compose(current, legsOf(current),
-                new RerouteCandidateApply.RouteOptionApply(4, 1, "BL-999", "UP"),
-                new JourneyRevisionComposer.RideTruncation(2, 480));
-
-        assertThat(result.failureReason()).isEqualTo("truncation-unexpected");
-    }
-
-    @Test
     @DisplayName("승차 정류장이거나 목록 밖이면 자를 수 없다")
     void rejectsUnmappableAlightStop() {
         PathResult current = twoTransitPathWithStops();
@@ -340,20 +328,6 @@ class JourneyRevisionComposerTest {
                 new JourneyRevisionComposer.RideTruncation(1, 480));
 
         assertThat(result.failureReason()).isEqualTo("truncation-unmappable");
-    }
-
-    @Test
-    @DisplayName("노선만 바꾸는 수락은 구조를 건드리지 않는다")
-    void routeOptionKeepsStructure() {
-        PathResult current = twoTransitPath();
-
-        JourneyRevisionComposer.Composed composed = composer.compose(current, legsOf(current),
-                new RerouteCandidateApply.RouteOptionApply(4, 1, "BL-999", "UP")).composed();
-
-        assertThat(composed.keepsStructure()).isTrue();
-        assertThat(composed.snapshot()).isSameAs(current);
-        assertThat(composed.fromLegIndex()).isEqualTo(4);
-        assertThat(composed.reason()).isEqualTo("ROUTE_OPTION_ACCEPTED");
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────
