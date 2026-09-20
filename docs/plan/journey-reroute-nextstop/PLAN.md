@@ -103,9 +103,12 @@
 
 ### PR-4 — apply: 진행중 RIDE 절단 + 새 꼬리
 의존: PR-A, PR-C, PR-B, PR-2, PR-3, PR-0.
-- [ ] `RerouteAcceptTxService` + PR-C 합성으로 (origin X, 경로 Y): 현재 RIDE board→X 절단 + **progress 현재까지 보존**(초기화 아님, `copyToRevision` 확장) + X 이후 Y 교체, 새 revision.
-- [ ] 반영 직전 재확인(tx): X 리드 ≥ 30s / **X 가 현재 활성 trip 의 아직 안 지난 정차인지**(기존 :136 은 fromLegIndex 비교뿐) / Y 첫 탑승 boardable / 행잠금 + 조건부 update(revision 불변) / 실패=롤백.
-- [ ] UX: 확인 화면(서버 요약). 탭~커밋 사이 X 지나감 = 거절 코드 + 목록 새로고침.
+- [x] `RerouteAcceptTxService` + PR-C 합성으로 (origin X, 경로 Y): 현재 RIDE board→X 절단 + **progress 현재까지 보존**(초기화 아님, `JourneyLeg.copyToRevisionTruncated` = `copyToRevision` 확장) + X 이후 Y 교체, 새 revision.
+  - **정정(구현)**: 자를 자리는 **서울 노선 순번의 차이**(`origin.seq - boardSeq`)로 찾고, 스냅샷 정류장 목록과 어긋났는지는 **이름 대조**(`RideTruncation.expectedStopName`)가 잡는다 — id 는 두 세계가 다른 체계라 맞댈 수 없다.
+  - **정정(구현)**: `plannedDurationSec` 은 재확인이 잰 **초 단위 실측**이다(스냅샷은 분 단위). `remainingDistanceMeters` 는 비운다(알 수 없는 값을 지어내지 않는다).
+- [x] 반영 직전 재확인(tx): X 리드 ≥ `next-stop.accept-min-lead-sec`(30, 제안용 90 과 별도 키) / **X 가 아직 안 지난 정차인지**(앱 `remainingStops` + 노선 순번, 실시간 하차 시각) / Y 첫 탑승 boardable / 세션 행잠금(기존) + 실패=롤백.
+  - **정정(구현)**: 하차는 **fail closed**(실시간 없으면 거절), 승차는 **fail open**(추정 못 해도 통과). PLAN 의 비대칭(2026-09-18)을 수락 경로에도 그대로 적용.
+- [x] 탭~커밋 사이 X 지나감 = 전용 거절 코드 `REROUTE_ALIGHT_UNAVAILABLE`(409) + 목록 새로고침. **확인 화면은 클라 UX** 라 서버 산출물이 아니다(모바일 HANDOFF).
 - 검증: 절단+이식(하차점 교체·X 이후 교체·과거 불변·progress 보존), 재확인(미지난 정차·리드·boardable) 실패=롤백, 동시성, stale/재생 progress id. RerouteAcceptIT 확장.
 
 ### PR-5 — ③ 제거

@@ -53,8 +53,10 @@ class UpcomingStopWindowResolverTest {
     private final JourneyRerouteProperties properties = new JourneyRerouteProperties();
     private final JourneyRerouteMetrics metrics = new JourneyRerouteMetrics(new SimpleMeterRegistry());
 
+    private final BusRideLocator locator = new BusRideLocator(busRouteStopRepository);
+
     private final UpcomingStopWindowResolver resolver = new UpcomingStopWindowResolver(
-            busRouteStopRepository, busQueryPort, properties, metrics);
+            locator, busQueryPort, properties, metrics);
 
     @BeforeEach
     void setUp() {

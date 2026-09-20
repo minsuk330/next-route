@@ -5,15 +5,21 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties;
+import watoo.grd.nextroute.application.journey.dto.BoardingEstimate;
+import watoo.grd.nextroute.application.journey.dto.BoardingQuery;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateEnvelope;
+import watoo.grd.nextroute.application.journey.dto.RerouteOrigin;
+import watoo.grd.nextroute.application.journey.dto.RerouteOriginKind;
 import watoo.grd.nextroute.application.journey.dto.SubwayBindingAbandonReason;
 import watoo.grd.nextroute.application.journey.dto.TransferConnectionDraft;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
+import watoo.grd.nextroute.application.journey.port.out.BoardingTimeEstimator;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEvent;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
@@ -39,6 +45,7 @@ import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -82,6 +89,9 @@ public class RerouteAcceptTxService {
     private final SubwayBindingLifecycleService subwayBindingLifecycle;
     private final JourneyRevisionComposer composer;
     private final JourneyQueryService queryService;
+    private final RideTruncationResolver truncationResolver;
+    private final List<BoardingTimeEstimator> boardingEstimators;
+    private final JourneyRerouteProperties properties;
     private final JourneyRerouteMetrics metrics;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -113,17 +123,128 @@ public class RerouteAcceptTxService {
         }
 
         requireStillApplicable(journey, proposal, candidate, now);
+        List<JourneyLeg> legs = currentLegs(journey);
+        RideTruncationResolver.Resolved truncation = resolveTruncation(candidate.apply(), legs, now);
+
         JourneyRevisionComposer.Result composed = composer.compose(
-                snapshotOf(journey), currentLegs(journey), candidate.apply());
+                snapshotOf(journey), legs, candidate.apply(),
+                truncation == null ? null : truncation.toTruncation());
         if (composed.failed()) {
             metrics.recordCandidateFiltered(composed.failureReason());
+            if (truncation != null) {
+                metrics.recordMidRideAccept(composed.failureReason());
+            }
             throw new BusinessException(JourneyErrorCode.REROUTE_PROPOSAL_STALE);
         }
+        if (truncation != null) {
+            requireStillBoardable(composed.composed(), truncation, now);
+        }
 
-        applyRevision(journey, composed.composed(), candidate.apply(), now);
+        applyRevision(journey, composed.composed(), candidate.apply(), truncation, now);
         recordEvent(journey, proposalId, candidateId, now);
         metrics.recordResolved("accepted", 1);
+        if (truncation != null) {
+            metrics.recordMidRideAccept("applied");
+        }
         return queryService.snapshotOf(journey);
+    }
+
+    // ── 중간 하차 재확인 ─────────────────────────────────────────────────────
+
+    /**
+     * 주행 중인 버스를 중간에서 자르는 후보인가. 맞다면 <b>지금 다시 재어</b> 자를 자리를 정한다.
+     *
+     * <p>제안이 만들어진 값을 그대로 쓰지 않는 이유는 그 사이에도 <b>버스가 달리기 때문</b>이다.
+     * 자를 수 없게 됐으면 전용 오류로 거절한다 — 앱이 그 코드를 보고 목록을 새로 받는다.
+     *
+     * @return 중간 하차 후보가 아니면 null(옛 경로 그대로)
+     */
+    private RideTruncationResolver.Resolved resolveTruncation(RerouteCandidateApply apply,
+                                                              List<JourneyLeg> legs, Instant now) {
+        if (!(apply instanceof RerouteCandidateApply.RemainingPathApply remaining)) {
+            return null;
+        }
+        RerouteOrigin origin = remaining.origin();
+        if (origin == null || origin.kind() != RerouteOriginKind.RIDE_INTERIOR) {
+            return null;
+        }
+        JourneyLeg ride = legs.stream()
+                .filter(leg -> leg.getLegIndex() == origin.legIndex())
+                .findFirst()
+                .orElse(null);
+        RideTruncationResolver.Result result = truncationResolver.resolve(ride, origin, now);
+        if (result.failed()) {
+            log.debug("[JourneyReroute] 중간 하차를 반영할 수 없다 legIndex={} 사유={}",
+                    origin.legIndex(), result.failureReason());
+            metrics.recordMidRideAccept(result.failureReason());
+            throw new BusinessException(JourneyErrorCode.REROUTE_ALIGHT_UNAVAILABLE);
+        }
+        return result.resolved();
+    }
+
+    /**
+     * 내려서 갈아탈 <b>첫 차</b>를 아직 탈 수 있는가.
+     *
+     * <h3>못 물어보면 통과시킨다(fail open)</h3>
+     * 하차 쪽과 <b>일부러 반대</b>다. 하차는 되돌릴 수 없어 모르면 거절하지만, 승차 추정이 틀려도
+     * 손실은 정류장에서 더 기다리는 것뿐이다. 실시간이 잠깐 막혔다는 이유로 사용자가 고른 경로를
+     * 거절하면 잃는 것이 더 크다.
+     */
+    private void requireStillBoardable(JourneyRevisionComposer.Composed composed,
+                                       RideTruncationResolver.Resolved truncation, Instant now) {
+        int minSlackSec = properties.getNextStop().getMissRiskMinSlackSec();
+        if (minSlackSec <= 0) {
+            return;
+        }
+        JourneyLegDraft wait = composed.legs().stream()
+                .filter(leg -> leg.legIndex() > composed.fromLegIndex())
+                .filter(leg -> leg.type().isWaiting())
+                .findFirst()
+                .orElse(null);
+        if (wait == null) {
+            // 걷기만으로 닿는 경로다. 탈 차가 없으니 놓칠 일도 없다.
+            return;
+        }
+        Instant anchorAt = truncation.alightAt()
+                .plusSeconds(properties.getNextStop().getBoardingBufferSec());
+        BoardingEstimate estimate = estimateBoarding(wait, anchorAt, now);
+        if (estimate == null) {
+            metrics.recordMidRideAccept("boarding-unknown");
+            return;
+        }
+        long slackSec = Duration.between(anchorAt, estimate.boardingAt()).getSeconds();
+        if (!estimate.boardable() || slackSec < minSlackSec) {
+            log.debug("[JourneyReroute] 수락 직전 첫 승차를 놓친다 legIndex={} slack={}s",
+                    wait.legIndex(), slackSec);
+            metrics.recordMidRideAccept("boarding-missed");
+            throw new BusinessException(JourneyErrorCode.REROUTE_ALIGHT_UNAVAILABLE);
+        }
+    }
+
+    /** 첫 대기 단계의 승차 시각 추정. 물어볼 수 없거나 터지면 null(위 fail open). */
+    private BoardingEstimate estimateBoarding(JourneyLegDraft wait, Instant anchorAt, Instant now) {
+        JourneyRouteOptionDraft option = wait.routeOptions().isEmpty()
+                ? null : wait.routeOptions().get(0);
+        if (option == null) {
+            return null;
+        }
+        BoardingQuery query = new BoardingQuery(wait.type(), wait.startStopId(), wait.startName(),
+                option.routeId(), option.boardingSeq(), option.wayCode());
+        return boardingEstimators.stream()
+                .filter(estimator -> estimator.supports(wait.type()))
+                .findFirst()
+                .map(estimator -> {
+                    try {
+                        return estimator.estimate(query, anchorAt, now,
+                                properties.getNextStop().getArrivalBudgetMs()).estimate();
+                    } catch (RuntimeException e) {
+                        // 예측기는 예외를 올리는 계약이다. 수락 경로에서 그대로 터뜨리면 사용자가
+                        // 고른 경로가 외부 장애 때문에 사라진다.
+                        log.warn("[JourneyReroute] 수락 직전 승차 추정이 실패했다: {}", e.getMessage());
+                        return null;
+                    }
+                })
+                .orElse(null);
     }
 
     // ── 재확인 ──────────────────────────────────────────────────────────────
@@ -167,7 +288,8 @@ public class RerouteAcceptTxService {
     // ── 반영 ────────────────────────────────────────────────────────────────
 
     private void applyRevision(JourneySession journey, JourneyRevisionComposer.Composed composed,
-                               RerouteCandidateApply apply, Instant now) {
+                               RerouteCandidateApply apply,
+                               RideTruncationResolver.Resolved truncation, Instant now) {
         int oldRevision = journey.getRouteRevision();
         int newRevision = oldRevision + 1;
 
@@ -189,7 +311,8 @@ public class RerouteAcceptTxService {
         List<JourneyLeg> oldLegs = currentLegs(journey);
         List<JourneyLeg> newLegs = composed.keepsStructure()
                 ? copyAll(oldLegs, newRevision)
-                : rebuild(oldLegs, composed, newRevision, journey.getCurrentLegIndex(), now);
+                : rebuild(oldLegs, composed, newRevision, journey.getCurrentLegIndex(),
+                truncation, now);
         legRepository.saveAllAndFlush(newLegs);
 
         saveRouteOptions(oldLegs, newLegs, composed, apply);
@@ -228,10 +351,16 @@ public class RerouteAcceptTxService {
      *
      * <p>앞 구간을 재컴파일로 다시 만들지 않는 이유는 <b>진행도·증거·시각</b> 때문이다. 잃으면
      * 앱의 GPS 엔진이 진행 중인 단계를 처음부터 다시 센다.
+     *
+     * <p>중간 하차(PR-4)에는 <b>제3의 경우</b>가 하나 있다. 잘린 주행 단계는 번호가
+     * {@code fromLegIndex} 와 같아 이 규칙대로면 새로 만들어지는데, 그것은 사용자가 <b>지금 타고
+     * 있는</b> 단계라 진행도가 전멸한다. 그래서 복제한 뒤 목표만 앞당긴다
+     * ({@link JourneyLeg#copyToRevisionTruncated}).
      */
     private List<JourneyLeg> rebuild(List<JourneyLeg> oldLegs,
                                      JourneyRevisionComposer.Composed composed,
-                                     int newRevision, int currentLegIndex, Instant now) {
+                                     int newRevision, int currentLegIndex,
+                                     RideTruncationResolver.Resolved truncation, Instant now) {
         int fromLegIndex = composed.fromLegIndex();
         Map<Integer, JourneyLeg> oldByIndex = new HashMap<>();
         oldLegs.forEach(leg -> oldByIndex.put(leg.getLegIndex(), leg));
@@ -240,6 +369,12 @@ public class RerouteAcceptTxService {
         for (JourneyLegDraft draft : composed.legs()) {
             if (draft.legIndex() < fromLegIndex) {
                 legs.add(oldByIndex.get(draft.legIndex()).copyToRevision(newRevision));
+                continue;
+            }
+            if (truncation != null && composed.truncatedLegIndex() != null
+                    && draft.legIndex() == composed.truncatedLegIndex()) {
+                legs.add(truncated(oldByIndex.get(draft.legIndex()), draft, truncation,
+                        newRevision, now));
                 continue;
             }
             JourneyLeg leg = JourneyLeg.builder()
@@ -263,6 +398,28 @@ public class RerouteAcceptTxService {
             legs.add(leg);
         }
         return legs;
+    }
+
+    /**
+     * 타고 가는 중인 단계를 더 이른 정류장에서 내리도록 자른다.
+     *
+     * <p>하차점·이름은 <b>합성본을 다시 쪼갠 초안</b>에서 가져온다(스냅샷과 단계가 같아야 한다는
+     * 계약). 소요·남은 값은 <b>초안이 아니라 재확인 결과</b>에서 가져온다 — 스냅샷의 구간 소요는
+     * 분 단위라 초안을 그대로 쓰면 최대 30초가 조용히 틀어진다.
+     */
+    private JourneyLeg truncated(JourneyLeg old, JourneyLegDraft draft,
+                                 RideTruncationResolver.Resolved truncation, int newRevision,
+                                 Instant now) {
+        if (old == null) {
+            // 자를 단계가 지금 개정본에 없다. 재확인이 통과했는데 여기서 없다면 읽은 값이 어긋난 것이다.
+            throw new BusinessException(JourneyErrorCode.REROUTE_PROPOSAL_STALE);
+        }
+        int remainingSec = (int) Math.max(0,
+                Duration.between(now, truncation.alightAt()).getSeconds());
+        return old.copyToRevisionTruncated(newRevision, new JourneyLeg.Truncation(
+                draft.endStopId(), draft.sourceEndStopId(), draft.endName(),
+                truncation.rideSeconds(), truncation.alightAt(),
+                truncation.remainingStops(), remainingSec, truncation.legFraction()));
     }
 
     /**

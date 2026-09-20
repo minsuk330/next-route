@@ -174,6 +174,16 @@ public class JourneyRerouteProperties {
          * 한다. 모르는 편이 낫다.
          */
         private int progressMaxAgeSec = 180;
+
+        /**
+         * 수락을 반영하기 직전, 하차 정류장까지 이만큼은 남아 있어야 한다(초, PR-4).
+         *
+         * <p>{@link #leadTimeSec}(90) 보다 <b>짧다.</b> 제안을 만들 때는 "읽고 판단하고 움직일"
+         * 시간을 재지만, 여기서는 사용자가 이미 읽고 <b>누른 뒤</b>라 남은 것은 문 앞으로 가는
+         * 시간뿐이다. 같은 값을 쓰면 알림을 보고 바로 누른 사용자의 수락이 제 시간 안에 왔는데도
+         * 거절된다.
+         */
+        private int acceptMinLeadSec = 30;
     }
 
     /**
@@ -414,6 +424,11 @@ public class JourneyRerouteProperties {
         if (nextStop.getProgressMaxAgeSec() <= 0) {
             throw new IllegalStateException(
                     "journey.reroute.next-stop.progress-max-age-sec 는 1 이상이어야 한다");
+        }
+        if (nextStop.getAcceptMinLeadSec() < 0) {
+            // 0 은 허용한다 — 가드를 끄고 "문이 닫히는 순간의 수락"이 얼마나 오는지 보고 싶을 때가 있다.
+            throw new IllegalStateException(
+                    "journey.reroute.next-stop.accept-min-lead-sec 는 음수일 수 없다");
         }
         if (alert.getSnapshotTtl() == null || alert.getSnapshotTtl().isZero()
                 || alert.getSnapshotTtl().isNegative()) {

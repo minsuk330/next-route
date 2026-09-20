@@ -282,6 +282,32 @@ class JourneyRevisionComposerTest {
     }
 
     @Test
+    @DisplayName("그 자리의 정류장 이름이 다르면 자르지 않는다 — 두 정류장 목록이 어긋난 것이다")
+    void rejectsWhenStopNameDoesNotMatch() {
+        PathResult current = twoTransitPathWithStops();
+
+        // 부르는 쪽은 서울 노선 순번의 차이로 자리를 찾는다(PR-4). 스냅샷 목록이 한 칸 어긋나 있으면
+        // 그 자리에는 다른 정류장이 있고, 그대로 자르면 엉뚱한 곳에서 내리라는 안내가 된다.
+        JourneyRevisionComposer.Result result = composer.compose(current, legsOf(current),
+                midRideApply(),
+                new JourneyRevisionComposer.RideTruncation(2, 480, "정류장D"));
+
+        assertThat(result.failureReason()).isEqualTo("truncation-unmappable");
+    }
+
+    @Test
+    @DisplayName("이름이 띄어쓰기만 다르면 같은 정류장으로 본다")
+    void acceptsStopNameDifferingOnlyBySpacing() {
+        PathResult current = twoTransitPathWithStops();
+
+        JourneyRevisionComposer.Result result = composer.compose(current, legsOf(current),
+                midRideApply(),
+                new JourneyRevisionComposer.RideTruncation(2, 480, "정류장 E"));
+
+        assertThat(result.failed()).isFalse();
+    }
+
+    @Test
     @DisplayName("정류장 목록이 없는 옛 스냅샷은 자를 수 없다")
     void rejectsWhenSnapshotHasNoStations() {
         // 정류장 목록 없이 저장된 구간(전환 전 여정)은 X 를 가리킬 방법이 없다.
