@@ -2745,3 +2745,25 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결
 - **부르는 곳 없는 OTP 포트 2개**(`StopPatternPort`·`RouteRideDurationPort` + 어댑터·매퍼). national-otp 후속이 `stopPatterns` 를 쓰기로 되어 있어 남겼다. 그 작업이 접히면 함께 지울 것.
 - `reroute_proposal.kind` 의 DB 어휘는 그대로(ROUTE_OPTION 허용). 좁히려면 이력 행 처리 정책이 먼저다.
+
+## 2026-09-20 nextstop PR-4·PR-5 머지 + 리베이스
+
+### 배포
+- **#225(PR-4) → #226(PR-5) 순서로 main 머지 완료.** main = `233abf2b`. nextstop 8 PR(A·B·C·1~5) **전부 머지 — 코드 끝**.
+- PR-5 는 fresh main 기준이라 #225 머지 뒤 **리베이스**했다(force-with-lease). 충돌 3곳, 전부 예상대로:
+  1. `RerouteAcceptTxService.applyRevision` — PR-4 가 `rebuild(..., truncation, now)` 를 넣은 자리에 PR-5 가 `keepsStructure` 삼항을 지웠다. 해결 = **삼항 없이 truncation 넘기는 한 줄**.
+  2. `RerouteAcceptIT` — PR-5 가 지운 `givenRouteOptionProposal` 자리. 해결 = PR-5 쪽(삭제). 딸린 `selectedRouteIdAt` 도 소비자가 사라져 함께 제거.
+  3. `implementation_note.md` — 둘 다 끝에 절을 붙였다. append-only 라 **둘 다 남긴다**(PR-4 절 → PR-5 절).
+- 🔴 **force-push 직후 GitHub 은 `CONFLICTING | DIRTY` 를 답한다** — mergeability 재계산 전의 값이다. 몇 초 뒤 다시 물으면 `MERGEABLE | CLEAN`. 그 값을 보고 손대면 멀쩡한 브랜치를 다시 만지게 된다.
+- ⚠ **main 직접 커밋은 훅이 막는다**(CLAUDE.md 티어 규칙). 그리고 훅은 명령 **전체**를 거절하므로 `checkout -b && commit` 을 한 줄로 묶으면 브랜치 생성까지 안 돈다 — 브랜치를 먼저 따로 만들 것.
+
+### 검증 (합본 main 기준)
+- `application.journey.*` + `application.route.*` + `domain.journey.*` → **1320 tests, 1 failed** = `JourneyTransferAssessmentIT`(**기존 무관**, clean main 동일).
+- 전체 컨텍스트 로드 + `infrastructure.*` + `architecture.*` + `application.auth.*` → **478 tests, 0 failed**.
+- `RerouteAcceptIT` **11/11** — PR-4 의 중간 하차 2건과 PR-5 의 ③ 삭제가 한 파일에서 함께 성립함을 확인(리베이스가 맞았다는 증거).
+- 머지된 main 재컴파일(main+test) 통과.
+
+### 미결 (배포 전 남은 것)
+- 🔴 **V53·V54 VPS 수동배치**(VPS=v52, prod `ddl-auto: validate` → 없으면 앱이 안 뜬다). 이 트리에서 `./gradlew bootJar` 해야 jar 안에 실린다.
+- **모바일 HANDOFF**: ①`transferIndex` → `origin` 응답 계약 ②`REROUTE_ALIGHT_UNAVAILABLE`(409) = 목록 새로고침 ③중간 하차 확인 화면(서버는 `display.alight` 로 재료 제공).
+- 켜는 순서: `journey.reroute.enabled` → `alert.enabled`.
