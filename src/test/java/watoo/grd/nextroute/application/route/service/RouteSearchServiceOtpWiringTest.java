@@ -37,7 +37,11 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /** OTP 배선: default-provider=OTP+otp-enabled 일 때만 OTP 경로, ODsay 미호출. 기본(ODSAY)은 별도 테스트. */
 class RouteSearchServiceOtpWiringTest {
@@ -57,6 +61,14 @@ class RouteSearchServiceOtpWiringTest {
     };
 
     private RouteSearchService service(RoutingPort otpPort) {
+        // 보강기가 받은 결과를 그대로 돌려주게 둔다 — 이 헬퍼를 쓰는 시험은 매핑·실패 변환을 본다.
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any()))
+                .willAnswer(call -> call.getArgument(0));
+        return service(otpPort, enricher);
+    }
+
+    private RouteSearchService service(RoutingPort otpPort, TransferArrivalEnricher enricher) {
         RoutingProviderProperties props = new RoutingProviderProperties();
         props.setDefaultProvider(RoutingProvider.OTP);
         props.setOtpEnabled(true);
@@ -64,7 +76,7 @@ class RouteSearchServiceOtpWiringTest {
         return new RouteSearchService(
                 odsayNeverCalled, mock(watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort.class),
                 mock(WalkSegmentEnricher.class),
-                mock(TransferArrivalEnricher.class),
+                enricher,
                 new RouteSearchMetrics(new SimpleMeterRegistry()),
                 new RouteSearchDeadlineProperties(),
                 selector,
@@ -80,9 +92,8 @@ class RouteSearchServiceOtpWiringTest {
         };
     }
 
-    @Test
-    @DisplayName("OTP 경로: RoutingResult → legacy 응답, ODsay 미호출")
-    void otpPathMapsToLegacy() {
+    /** 버스 한 구간짜리 OTP 결과. 여러 시험이 같은 모양을 쓴다. */
+    private RoutingResult busItinerary() {
         RoutingLeg bus = new RoutingLeg(RoutingMode.BUS, "BUS", "1", "1:A1", "1:R", "143",
                 "1:T", null, Instant.now(), Instant.now(), 600,
                 List.of(new StopOccurrence("1:S1", null, null, 0, 126.98, 37.55, "정류장1")),
@@ -90,15 +101,61 @@ class RouteSearchServiceOtpWiringTest {
                 Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of());
         RoutingItinerary it = new RoutingItinerary(Instant.now(), 600, 0, 0, 0, false,
                 List.of(), Fare.unknown(), List.of(bus));
-        RoutingResult result = new RoutingResult(RoutingProvider.OTP, "v", "202503", "g1",
+        return new RoutingResult(RoutingProvider.OTP, "v", "202503", "g1",
                 null, null, Instant.now(), List.of(), List.of(it));
+    }
 
-        RouteSearchResult legacy = service(otpReturning(result))
+    @Test
+    @DisplayName("OTP 경로: RoutingResult → legacy 응답, ODsay 미호출")
+    void otpPathMapsToLegacy() {
+        RouteSearchResult legacy = service(otpReturning(busItinerary()))
                 .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
 
         assertThat(legacy.paths()).hasSize(1);
         assertThat(legacy.paths().get(0).subPaths().get(0).trafficType()).isEqualTo(2); // BUS
         assertThat(legacy.paths().get(0).info().payment()).isEqualTo(-1);              // UNKNOWN→-1
+    }
+
+    @Test
+    @DisplayName("실시간 요청이면 버스 도착예측을 서버가 채워 내린다 — 앱이 따로 묻지 않는다")
+    void otpPathEnrichesTransferArrivals() {
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        RouteSearchResult enriched = new RouteSearchResult(0, 0, 0, 0, 0, List.of());
+        given(enricher.enrich(any(), any(), any())).willReturn(enriched);
+
+        RouteSearchResult out = service(otpReturning(busItinerary()), enricher)
+                .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        verify(enricher).enrich(any(), any(), any());
+        // 보강기가 돌려준 결과가 그대로 응답이 된다(meta 만 감싼다).
+        assertThat(out.paths()).isSameAs(enriched.paths());
+    }
+
+    @Test
+    @DisplayName("실시간을 요구하지 않은 요청(알림 STATIC)은 보강하지 않는다")
+    void withoutRealtimeSkipsEnricher() {
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+
+        RouteSearchResult out = service(otpReturning(busItinerary()), enricher)
+                .searchWithoutRealtime(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        verifyNoInteractions(enricher);
+        assertThat(out.paths()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("보강이 값을 못 채워도 검색은 성공하고 순서도 그대로다")
+    void enricherMissKeepsSearchAlive() {
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        // 보강기가 손대지 않고 그대로 돌려주는 경우(예산 초과·provider 실패).
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
+
+        RouteSearchResult out = service(otpReturning(busItinerary()), enricher)
+                .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(out.paths()).hasSize(1);
+        assertThat(out.paths().get(0).subPaths().get(0).trafficType()).isEqualTo(2);
+        assertThat(out.paths().get(0).subPaths().get(0).transferArrivals()).isNull();
     }
 
     @Test

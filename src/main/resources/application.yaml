@@ -96,7 +96,11 @@ route:
 
   # 경로 검색 시간 예산·격리. 값 선정 근거는 docs/plan/route-search-resilience/RESULTS.md
   search:
-    deadline-ms: ${ROUTE_SEARCH_DEADLINE_MS:3000}
+    # 2026-09-20: OTP 전환 + 검색 응답에 도착예측을 싣는 계약으로 3000 → 4500.
+    # OTP 호출이 실측 0.9~2.0s(콜드는 더) 인데 그 뒤 도착예측 보강이 최대 1500ms 를 더 쓴다.
+    # 3000 이면 보강이 상시로 잘려 transferArrivals 가 빈 채 degraded 만 남는다 — 값을 실으라는
+    # 계약을 못 지킨다. 되돌리려면 env ROUTE_SEARCH_DEADLINE_MS.
+    deadline-ms: ${ROUTE_SEARCH_DEADLINE_MS:4500}
     odsay-ms: ${ROUTE_SEARCH_ODSAY_MS:2000}
     tmap-ms: ${ROUTE_SEARCH_TMAP_MS:1200}
     min-remaining-for-optional-ms: ${ROUTE_SEARCH_MIN_REMAINING_MS:150}

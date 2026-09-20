@@ -21,8 +21,13 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "route.search")
 public class RouteSearchDeadlineProperties {
 
-    /** 요청 전체 시간 예산. */
-    private long deadlineMs = 3000;
+    /**
+     * 요청 전체 시간 예산.
+     *
+     * <p>2026-09-20 에 3000 → 4500. OTP 호출(실측 0.9~2.0s)에 도착예측 보강(최대 1500ms)이 뒤따르는데
+     * 3000 이면 보강이 상시로 잘려 값이 빈 채 degraded 만 남는다.
+     */
+    private long deadlineMs = 4500;
 
     /** ODsay(필수) 단계 상한. */
     private long odsayMs = 2000;

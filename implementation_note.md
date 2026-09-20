@@ -2992,3 +2992,29 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `docker ps`: api·worker `(healthy)`, 이미지 `20260920-173303-27cab2bf`.
 - `flyway_schema_history` 상위 = 55·54·53 전부 success(이번 배포에서 신규 적용 0건).
 - 신규 메트릭은 아직 시계열 없음 — Micrometer 카운터는 첫 증가 때 등록된다. 여정 1건 지나야 보인다.
+
+## 2026-09-20 계약 되돌림 — 검색 응답이 버스 도착예측을 직접 싣는다
+
+### 확정 (계약 변경)
+- **2026-09-09 의 "검색은 정적 드롭인, 실시간·예측은 프론트가 별도 API" 계약을 사용자가 취소했다.** ODsay 시절처럼 **서버가 예측을 응답에 한 번에 실어 내린다.** 이전 계약 문서(`docs/plan/otp-search-static-seoul-id/`)는 이력으로만 남는다.
+- `RouteSearchService.runOtpSearch` 가 매핑 후 **ODSAY 분기와 같은 `TransferArrivalEnricher`** 를 탄다. 새로 만들지 않았다 — 두 분기가 다른 코드로 예측하면 같은 버스에 다른 값이 나온다.
+- **`withRealtime` 플래그는 지킨다.** `search()`(공개 길찾기)만 보강하고 `searchWithoutRealtime()`(알림 STATIC, `RouteSearchTravelTimeEstimator:49`)은 그대로 정적이다.
+- **버스 전용**(`trafficType==2`). 지하철 도착예측 모델은 없다 — 없는 값을 지어내지 않는다.
+- **순서는 그대로.** enricher 는 값만 채운다. 취소된 것은 "예측을 싣지 마라"까지이고, **"서버가 경로를 골라 주지 마라"(재정렬·강등·MISSED 숨김 금지)는 그대로 유효**하다.
+- **전체 검색 예산 3000 → 4500ms**(`route.search.deadline-ms`, `RouteSearchDeadlineProperties.deadlineMs`). 근거: OTP 호출 실측 0.9~2.0s + 보강 상한 1500ms. 3000 이면 보강이 상시로 잘려 `transferArrivals` 가 빈 채 `meta.degraded=[bus_realtime]` 만 남는다 — 값을 실으라는 계약을 못 지킨다.
+- **모바일 직접호출 HANDOFF 는 폐기**(사용자 결정). `docs/plan/transfer-predict-mobile/HANDOFF.md` 삭제 — 통로가 둘이면 모바일이 어느 쪽을 따를지 갈린다. **`/api/transfer/predict` 엔드포인트 자체는 남긴다** — 여정 평가기·재탐색이 같은 `PredictTransferUseCase` 를 쓰므로 지우면 그쪽이 죽는다.
+
+### 함정
+- **enricher 를 mock 으로만 세워 둔 테스트가 조용히 깨진다.** OTP 경로가 보강 단계를 타기 시작하면 `mock(TransferArrivalEnricher.class)` 이 null 을 돌려주고, 그 null 이 `withMeta()` 에서 NPE 로 터진다(`RouteSearchServiceTest.TC_OTP선택_permit있으면...`). 고침 = 보강기를 **받은 결과를 그대로 돌려주도록** stub. 이 함정은 "보강 단계를 하나 더 붙일 때마다" 되풀이된다.
+- enricher 가 요구하는 입력은 OTP 매핑이 **이미** 채우고 있었다(`SubPathResult.startLocalStationID`, `LaneResult.busLocalBlID`/`busNo` — `TransferArrivalEnricher:308,318`). 그래서 배선은 한 줄이었지 새 해석 코드가 필요하지 않았다. 9/9 에 id 를 채워 둔 작업이 그대로 재료가 됐다.
+
+### 좌표
+- `src/main/java/watoo/grd/nextroute/application/route/service/RouteSearchService.java` — `runSearch` 가 `withRealtime`·`searchStartedAt` 를 `runOtpSearch` 로 넘기고, 매핑 뒤 `stage(ctx, SearchComponent.BUS_REALTIME, ...)` 추가. javadoc 의 "실시간 보강은 타지 않는다" 문구 정정.
+- `src/main/resources/application.yaml` `route.search.deadline-ms` + `RouteSearchDeadlineProperties.deadlineMs` = 4500.
+- 계약 테스트: `RouteSearchServiceOtpWiringTest`(실시간 켬 → 보강 호출 / 끔 → 미호출 / 보강 빈손이어도 200·순서 유지), `RouteSearchDeadlinePropertiesTest`(예산이 OTP+보강을 담는지).
+
+### 검증
+- `./gradlew test`: **2185 tests, 1 failed, 2 skipped**. 실패 = `JourneyTransferAssessmentIT.assessmentIsPersisted` — **기존 무관**(PR #230 에서 baseline 확인).
+
+### 배포
+- 마이그레이션 없음. 배포 후 실측 3종 필요: ①잠실역 8호선→청계천 `paths[2]` 303번 구간의 `transferArrivals` non-null ②검색 지연 before(0.88s)/after ③`meta.degraded` 에 `bus_realtime` 이 상시로 오르는지(오르면 예산 재조정) + 검색 1건당 `ws.bus.go.kr` 호출 수가 상한(12) 안인지.
