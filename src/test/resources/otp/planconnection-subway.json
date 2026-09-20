@@ -31,8 +31,8 @@
                 },
                 "route": {
                   "gtfsId": "1:SR_TAGO_SEB200000001",
-                  "shortName": "1호선",
-                  "longName": "-",
+                  "shortName": "서울1호선",
+                  "longName": "서울1호선(의정부-서동탄)<상행>",
                   "mode": "SUBWAY",
                   "color": null,
                   "textColor": null,

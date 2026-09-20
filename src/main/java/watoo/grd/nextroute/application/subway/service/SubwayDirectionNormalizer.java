@@ -87,6 +87,60 @@ public final class SubwayDirectionNormalizer {
         };
     }
 
+    /**
+     * 방향 라벨을 ODsay {@code wayCode} 로 되돌린다. <b>모르는 값은 {@code null}</b>.
+     *
+     * <p>OTP 노선 이름이 방향을 들고 있어서 필요해졌다({@code 서울2호선(본선)<내선>}). 그 라벨을
+     * 검색 응답의 {@code wayCode} 칸에 채워야 앱이 지금까지 쓰던 호출을 그대로 쓸 수 있다.
+     *
+     * <p><b>순환선 여부를 노선 id 로 묻지 않는다 — 라벨이 이미 답이다.</b> 내·외선으로 말하는
+     * 노선은 그 말 자체가 순환선이라는 뜻이고, 상·하행으로 말하면 아니다. id 로 가르려 들면
+     * "인천2호선"처럼 <b>번호만 같고 순환이 아닌</b> 노선을 2호선(1002)으로 오인한다.
+     *
+     * <p>{@code 외선}(1)과 {@code 상행}(1)이 같은 숫자인 것은 ODsay 값 공간이 원래 그렇다. 읽는
+     * 쪽은 노선을 알고 있어 {@link #fromWayCode} 로 정확히 되돌린다 — 왕복이 성립한다.
+     */
+    public static Integer toWayCode(String label) {
+        if (label == null) {
+            return null;
+        }
+        return switch (label.trim()) {
+            case "상행" -> 1;
+            case "하행" -> 2;
+            case "내선" -> 0;
+            case "외선" -> 1;
+            default -> null;
+        };
+    }
+
+    /**
+     * 노선 이름에서 방향 라벨을 읽는다. 못 읽으면 {@code null}.
+     *
+     * <p>KTDB feed 는 {@code direction_id} 를 안 주고(전 노선 -1) {@code longName} 에 방향을
+     * 적는다. <b>적는 방식이 두 가지다</b>(실측 61개 노선):
+     *
+     * <ul>
+     *   <li>꺾쇠로 덧붙인다 — {@code 서울2호선(본선)<내선>}, {@code 신림선<상행>}(도시철도 59개)</li>
+     *   <li>이름 자리에 방향만 있다 — {@code 상행}(교외선 등 RAIL 2개)</li>
+     * </ul>
+     *
+     * <p>꺾쇠를 먼저 보고, 없으면 이름 전체를 라벨로 시도한다. <b>어느 쪽이든 아는 넷이 아니면
+     * null</b> 이다 — 노선 이름에 다른 꺾쇠 표기가 생기는 날 그것이 방향으로 둔갑하면, 반대
+     * 방향 열차를 조용히 고른다.
+     */
+    public static String labelFrom(String routeLongName) {
+        if (routeLongName == null) {
+            return null;
+        }
+        String value = routeLongName.trim();
+        int open = value.lastIndexOf('<');
+        int close = value.lastIndexOf('>');
+        String candidate = open >= 0 && close > open
+                ? value.substring(open + 1, close).trim()
+                : value;
+        return isKnownLabel(candidate) ? candidate : null;
+    }
+
     private static boolean isKnownLabel(String value) {
         return "상행".equals(value) || "하행".equals(value)
                 || "내선".equals(value) || "외선".equals(value);

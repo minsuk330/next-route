@@ -1,0 +1,371 @@
+{
+  "_source": "VPS OTP /otp/gtfs/v1 {routes{gtfsId shortName longName mode}} 실측 (2026-09-20). KTDB feed 의 도시철도·철도 전 노선. 여기 없는 표기가 나오면 방향 해석이 조용히 멈춘다.",
+  "routes": [
+    {
+      "gtfsId": "1:RR_ACC4_NAT1497_U",
+      "shortName": "[일반]교외서울의정부",
+      "longName": "상행",
+      "mode": "RAIL"
+    },
+    {
+      "gtfsId": "1:RR_ACC4_NAT1497_D",
+      "shortName": "[일반]교외서울의정부",
+      "longName": "하행",
+      "mode": "RAIL"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-XA-2U",
+      "shortName": "GTX-A",
+      "longName": "GTX-A(운정중앙-서울)<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-XA-2D",
+      "shortName": "GTX-A",
+      "longName": "GTX-A(운정중앙-서울)<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-KJ-2U",
+      "shortName": "경의중앙선",
+      "longName": "경의중앙선(서울역)<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-KJ-2D",
+      "shortName": "경의중앙선",
+      "longName": "경의중앙선(서울역)<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-KJ-1U",
+      "shortName": "경의중앙선",
+      "longName": "경의중앙선(용산)<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-KJ-1D",
+      "shortName": "경의중앙선",
+      "longName": "경의중앙선(용산)<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-GC-1U",
+      "shortName": "경춘선",
+      "longName": "경춘선<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-GC-1D",
+      "shortName": "경춘선",
+      "longName": "경춘선<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-AP-1U",
+      "shortName": "공항철도",
+      "longName": "공항철도<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-AP-1D",
+      "shortName": "공항철도",
+      "longName": "공항철도<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-KP-1U",
+      "shortName": "김포도시철도",
+      "longName": "김포도시철도<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-KP-1D",
+      "shortName": "김포도시철도",
+      "longName": "김포도시철도<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-01-3U",
+      "shortName": "서울1호선",
+      "longName": "서울1호선(광명셔틀)<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-01-3D",
+      "shortName": "서울1호선",
+      "longName": "서울1호선(광명셔틀)<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-01-1U",
+      "shortName": "서울1호선",
+      "longName": "서울1호선(연천-인천)<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-01-1D",
+      "shortName": "서울1호선",
+      "longName": "서울1호선(연천-인천)<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-01-4U",
+      "shortName": "서울1호선",
+      "longName": "서울1호선(용산-동인천급행)<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-01-4D",
+      "shortName": "서울1호선",
+      "longName": "서울1호선(용산-동인천급행)<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-01-7U",
+      "shortName": "서울1호선",
+      "longName": "서울1호선(의정부-서동탄)<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-01-7D",
+      "shortName": "서울1호선",
+      "longName": "서울1호선(의정부-서동탄)<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-02-1I",
+      "shortName": "서울2호선",
+      "longName": "서울2호선(본선)<내선>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-02-1O",
+      "shortName": "서울2호선",
+      "longName": "서울2호선(본선)<외선>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-02-2I",
+      "shortName": "서울2호선",
+      "longName": "서울2호선(성수지선)<내선>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-02-2O",
+      "shortName": "서울2호선",
+      "longName": "서울2호선(성수지선)<외선>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-02-3I",
+      "shortName": "서울2호선",
+      "longName": "서울2호선(신정지선)<내선>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-02-3O",
+      "shortName": "서울2호선",
+      "longName": "서울2호선(신정지선)<외선>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-03-1U",
+      "shortName": "서울3호선",
+      "longName": "서울3호선<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-03-1D",
+      "shortName": "서울3호선",
+      "longName": "서울3호선<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-04-1U",
+      "shortName": "서울4호선",
+      "longName": "서울4호선<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-04-1D",
+      "shortName": "서울4호선",
+      "longName": "서울4호선<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-05-1U",
+      "shortName": "서울5호선",
+      "longName": "서울5호선<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-05-1D",
+      "shortName": "서울5호선",
+      "longName": "서울5호선<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-06-00",
+      "shortName": "서울6호선",
+      "longName": "서울6호선",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-07-1U",
+      "shortName": "서울7호선",
+      "longName": "서울7호선<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-07-1D",
+      "shortName": "서울7호선",
+      "longName": "서울7호선<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-08-1U",
+      "shortName": "서울8호선",
+      "longName": "서울8호선<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-08-1D",
+      "shortName": "서울8호선",
+      "longName": "서울8호선<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-09-2U",
+      "shortName": "서울9호선",
+      "longName": "서울9호선(급행)<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-09-2D",
+      "shortName": "서울9호선",
+      "longName": "서울9호선(급행)<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-09-1U",
+      "shortName": "서울9호선",
+      "longName": "서울9호선(일반)<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-09-1D",
+      "shortName": "서울9호선",
+      "longName": "서울9호선(일반)<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-SH-1U",
+      "shortName": "서해선",
+      "longName": "서해선<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-SH-1D",
+      "shortName": "서해선",
+      "longName": "서해선<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-SD-1U",
+      "shortName": "수인분당선",
+      "longName": "수인분당선<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-SD-1D",
+      "shortName": "수인분당선",
+      "longName": "수인분당선<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-SL-1U",
+      "shortName": "신림선",
+      "longName": "신림선<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-SL-1D",
+      "shortName": "신림선",
+      "longName": "신림선<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-SB-1U",
+      "shortName": "신분당선",
+      "longName": "신분당선<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-SB-1D",
+      "shortName": "신분당선",
+      "longName": "신분당선<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-EB-1U",
+      "shortName": "용인경전철",
+      "longName": "용인경전철<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-EB-1D",
+      "shortName": "용인경전철",
+      "longName": "용인경전철<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-WS-1U",
+      "shortName": "우이신설경전철",
+      "longName": "우이신설경전철<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-WS-1D",
+      "shortName": "우이신설경전철",
+      "longName": "우이신설경전철<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-UI-1U",
+      "shortName": "의정부경전철",
+      "longName": "의정부경전철<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-UI-1D",
+      "shortName": "의정부경전철",
+      "longName": "의정부경전철<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-I1-1U",
+      "shortName": "인천1호선",
+      "longName": "인천1호선<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-I1-1D",
+      "shortName": "인천1호선",
+      "longName": "인천1호선<하행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-I2-1U",
+      "shortName": "인천2호선",
+      "longName": "인천2호선<상행>",
+      "mode": "SUBWAY"
+    },
+    {
+      "gtfsId": "1:RR_ACC1_S-1-I2-1D",
+      "shortName": "인천2호선",
+      "longName": "인천2호선<하행>",
+      "mode": "SUBWAY"
+    }
+  ]
+}

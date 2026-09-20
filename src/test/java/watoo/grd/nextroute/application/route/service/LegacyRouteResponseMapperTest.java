@@ -69,6 +69,17 @@ class LegacyRouteResponseMapperTest {
                 geometry, Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), null);
     }
 
+    private RoutingLeg subwayLeg(String routeShortName, String direction) {
+        LegGeometry geometry = new LegGeometry(GeometrySource.OTP_STREET,
+                GeometryQuality.STREET_FALLBACK, "test fixture", "g1", BUS_SHAPE, BUS_SHAPE);
+        List<StopOccurrence> stops = List.of(
+                new StopOccurrence("1:S1", null, null, 0, 126.982, 37.5645, "from"),
+                new StopOccurrence("1:S2", null, null, 1, 127.004, 37.5058, "to"));
+        return new RoutingLeg(RoutingMode.SUBWAY, null, "1", "1:A1", "1:R1", routeShortName,
+                direction, "1:T1", null, null, null, 600, stops, List.of(),
+                geometry, Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), null);
+    }
+
     private RoutingLeg walkLeg(String points) {
         LegGeometry geometry = new LegGeometry(GeometrySource.OTP_STREET, GeometryQuality.STREET_FALLBACK,
                 "OTP street walk", null, points, points);
@@ -153,6 +164,37 @@ class LegacyRouteResponseMapperTest {
                 Arguments.of("우이신설경전철", "#BACC50"), Arguments.of("의정부경전철", "#F0831E"),
                 Arguments.of("용인경전철", "#44A436")
         );
+    }
+
+    @ParameterizedTest(name = "{0} {1} → wayCode {2}")
+    @MethodSource("subwayDirections")
+    @DisplayName("지하철 방향 라벨을 wayCode 로 옮긴다 — 앱이 실시간 도착을 한쪽으로 거를 수 있어야 한다")
+    void subwayDirectionBecomesWayCode(String routeShortName, String direction, Integer expected) {
+        SubPathResult sub = firstSubPath(subwayLeg(routeShortName, direction));
+
+        assertThat(sub.wayCode()).isEqualTo(expected);
+    }
+
+    static Stream<Arguments> subwayDirections() {
+        return Stream.of(
+                Arguments.of("서울1호선", "상행", 1),
+                Arguments.of("서울1호선", "하행", 2),
+                // 순환선은 내·외선으로 말한다. 노선 번호가 아니라 라벨이 값 공간을 정한다.
+                Arguments.of("서울2호선", "내선", 0),
+                Arguments.of("서울2호선", "외선", 1),
+                // 방향을 못 읽은 leg 은 null 이다 — 지어내면 반대 방향 열차에 고정된다.
+                Arguments.of("서울3호선", null, null),
+                Arguments.of("서울3호선", "동쪽", null)
+        );
+    }
+
+    @Test
+    @DisplayName("버스 leg 에는 방향을 채우지 않는다 — 원천에도 없다")
+    void busHasNoWayCode() {
+        SubPathResult sub = firstSubPath(transitLeg(RoutingMode.BUS, GeometryQuality.STREET_FALLBACK,
+                BUS_SHAPE));
+
+        assertThat(sub.wayCode()).isNull();
     }
 
     @ParameterizedTest(name = "routeType={0} → {1}")

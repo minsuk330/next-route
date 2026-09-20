@@ -10,6 +10,10 @@ import java.util.Set;
  *
  * @param mode              provider 무관 수단. 미지원은 UNSUPPORTED(bus 변환 금지)
  * @param sourceDetailType  원천 세부타입(예: 고속철도) 보존용 문자열. 없으면 null
+ * @param sourceRouteDirection 원천이 말한 <b>방향 라벨</b>(상행·하행·내선·외선). 값을 해석하지 않고
+ *                          원문 그대로 보존한다 — 숫자 코드로 바꾸는 규칙은 원천마다 다르고
+ *                          (ODsay wayCode 와 서울 updnLine 의 대응이 다르다) 그 변환은 legacy
+ *                          경계가 한 자리에서 한다. 못 읽었으면 null
  * @param boardAt           구간 시작 시각(대중교통=정적 승차, 도보=이동 시작). provider 가 절대시각을 주면
  *                          채우고(OTP planConnection), 주지 않으면 null(ODsay 는 상대 소요시간만 주므로 null)
  * @param alightAt          구간 끝 시각(대중교통=정적 하차, 도보=이동 끝). boardAt 과 같은 규칙(provider 의존)
@@ -25,6 +29,7 @@ public record RoutingLeg(
         String agencyId,
         String sourceRouteId,
         String sourceRouteName,
+        String sourceRouteDirection,
         String tripId,
         LocalDate serviceDate,
         Instant boardAt,
@@ -36,6 +41,18 @@ public record RoutingLeg(
         Enrichment enrichment,
         Set<MissingAttribute> missing
 ) {
+    /** 방향을 못 읽는 원천용 하위호환 생성자. 새 칸을 null 로 두는 것이 곧 옛 동작이다. */
+    public RoutingLeg(RoutingMode mode, String sourceDetailType, String feedId, String agencyId,
+                      String sourceRouteId, String sourceRouteName, String tripId,
+                      LocalDate serviceDate, Instant boardAt, Instant alightAt,
+                      int rideDurationSeconds, List<StopOccurrence> stops,
+                      List<RoutingWalkStep> walkSteps, LegGeometry geometry,
+                      Enrichment enrichment, Set<MissingAttribute> missing) {
+        this(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName, null, tripId,
+                serviceDate, boardAt, alightAt, rideDurationSeconds, stops, walkSteps, geometry,
+                enrichment, missing);
+    }
+
     public RoutingLeg {
         stops = stops == null ? List.of() : List.copyOf(stops);
         walkSteps = walkSteps == null ? List.of() : List.copyOf(walkSteps);
@@ -49,7 +66,7 @@ public record RoutingLeg(
     /** enrichment 만 바꾼 복사본(나머지 필드 보존). 수동 전체 재생성 시 신규 필드 유실을 막는다. */
     public RoutingLeg withEnrichment(Enrichment newEnrichment) {
         return new RoutingLeg(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName,
-                tripId, serviceDate, boardAt, alightAt, rideDurationSeconds, stops, walkSteps, geometry,
-                newEnrichment, missing);
+                sourceRouteDirection, tripId, serviceDate, boardAt, alightAt, rideDurationSeconds,
+                stops, walkSteps, geometry, newEnrichment, missing);
     }
 }

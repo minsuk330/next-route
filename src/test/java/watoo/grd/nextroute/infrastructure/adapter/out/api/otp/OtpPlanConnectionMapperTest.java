@@ -36,6 +36,28 @@ class OtpPlanConnectionMapperTest {
     }
 
     @Test
+    @DisplayName("노선 이름의 꺾쇠가 방향이다 — 읽어 내면 DIRECTION 이 더 이상 '없는 속성'이 아니다")
+    void readsDirectionFromRouteLongName() throws IOException {
+        RoutingOutcome outcome = mapper.map(load("otp/planconnection-subway.json"), departureAt, versions);
+
+        RoutingLeg subway = ((RoutingResult) outcome).itineraries().get(0).legs().get(0);
+        assertThat(subway.mode()).isEqualTo(RoutingMode.SUBWAY);
+        // longName = "서울1호선(의정부-서동탄)<상행>"
+        assertThat(subway.sourceRouteDirection()).isEqualTo("상행");
+        assertThat(subway.missing()).doesNotContain(MissingAttribute.DIRECTION);
+    }
+
+    @Test
+    @DisplayName("꺾쇠가 없으면 방향은 모르는 것이다 — 지어내지 않고 DIRECTION 을 남긴다")
+    void keepsDirectionMissingWhenLongNameHasNoLabel() throws IOException {
+        RoutingOutcome outcome = mapper.map(load("otp/planconnection-success.json"), departureAt, versions);
+
+        RoutingLeg bus = ((RoutingResult) outcome).itineraries().get(0).legs().get(1);
+        assertThat(bus.sourceRouteDirection()).isNull();
+        assertThat(bus.missing()).contains(MissingAttribute.DIRECTION);
+    }
+
+    @Test
     @DisplayName("성공 응답 → RoutingResult: provider/버전/leg 매핑, 원천 ID·정차역 보존")
     void mapsSuccess() throws IOException {
         RoutingOutcome outcome = mapper.map(load("otp/planconnection-success.json"), departureAt, versions);

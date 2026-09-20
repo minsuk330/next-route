@@ -15,6 +15,7 @@ import watoo.grd.nextroute.application.route.routing.RealtimeCoverage;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
 import watoo.grd.nextroute.application.route.routing.RoutingItinerary;
 import watoo.grd.nextroute.application.route.routing.RoutingLeg;
+import watoo.grd.nextroute.application.subway.service.SubwayDirectionNormalizer;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
@@ -156,6 +157,8 @@ public class OtpPlanConnectionMapper {
         String agencyId = text(route.path("agency").path("gtfsId"));
         String sourceRouteId = text(route.path("gtfsId"));
         String sourceRouteName = text(route.path("shortName"));
+        String sourceRouteDirection =
+                SubwayDirectionNormalizer.labelFrom(text(route.path("longName")));
         if (sourceRouteId != null && sourceRouteId.contains(":")) {
             feedId = sourceRouteId.substring(0, sourceRouteId.indexOf(':'));
         }
@@ -177,14 +180,18 @@ public class OtpPlanConnectionMapper {
         if (transit) {
             // KTDB feed 한계 + P2-D 매핑 전 상태를 개별 사유로(뭉치지 않음).
             missing.add(MissingAttribute.REALTIME_ID);   // GTFS stop id ↔ 서울 API id 매핑 전
-            missing.add(MissingAttribute.DIRECTION);      // feed 에 방향/headsign 없음
+            if (sourceRouteDirection == null) {
+                // ~~feed 에 방향/headsign 없음~~ 취소: longName 이 방향을 들고 있다
+                // (서울2호선(본선)<내선>). 읽어 낸 leg 은 더 이상 "방향 없음"이 아니다.
+                missing.add(MissingAttribute.DIRECTION);
+            }
             if (route.path("color").isNull() || route.path("color").isMissingNode()) {
                 missing.add(MissingAttribute.COLOR);      // KTDB color 없음 → P3 OSM
             }
         }
 
         return new RoutingLeg(mode, transit ? otpMode : null, feedId, agencyId,
-                sourceRouteId, sourceRouteName, tripId, serviceDate,
+                sourceRouteId, sourceRouteName, sourceRouteDirection, tripId, serviceDate,
                 boardAt, alightAt, rideDurationSeconds, stops, walkSteps,
                 geometry, enrichment, missing);
     }
