@@ -102,8 +102,9 @@ public class RouteSearchService implements SearchRouteUseCase {
         // provider 전환(national-otp P2). 공개 요청은 내부 OTP 요청이 아니므로 select(false).
         // 기본 provider 는 ODSAY 라 default 구성에서는 아래 OTP branch 를 타지 않는다(회귀 0).
         if (providerSelector.select(false) == RoutingProvider.OTP) {
-            // OTP 는 단일 단계(enricher 없음)라 다단계 예산(ctx.budgetMillis) 대신 전용 otpMs 를 쓴다.
-            // 하나의 deadline 을 gate 대기와 OTP 호출이 공유한다(예산 이중소비 금지).
+            // OTP 호출 자체는 전용 otpMs 를 쓴다(다단계 예산 ctx.budgetMillis 대신). 하나의 deadline 을
+            // gate 대기와 OTP 호출이 공유한다(예산 이중소비 금지). 그 뒤 붙는 도착예측 보강은 ODSAY
+            // 분기와 똑같이 ctx 의 남은 예산 안에서 돈다.
             RoutingDeadline deadline = RoutingDeadline.of(clock, deadlineProperties.getOtpMs());
             Optional<OtpPermit> permit = otpConcurrencyGate.tryAcquire(deadline, "api");
             if (permit.isEmpty()) {
@@ -111,7 +112,7 @@ public class RouteSearchService implements SearchRouteUseCase {
                 return handleOtpSaturated(ctx);
             }
             try {
-                return runOtpSearch(request, ctx, deadline);
+                return runOtpSearch(request, ctx, deadline, withRealtime, searchStartedAt);
             } finally {
                 otpConcurrencyGate.release(permit.get());
             }
@@ -163,12 +164,16 @@ public class RouteSearchService implements SearchRouteUseCase {
     }
 
     /**
-     * OTP provider 경로. RoutingPort 로 검색해 중립 결과를 legacy 응답으로 매핑한다.
-     * ODsay 전용 enricher(지하철 폴리라인·TMAP 도보 상세·서울 실시간)는 타지 않는다 —
-     * 대중교통 형상은 P3(OSM relation), 실시간 보강은 P2-D(ID 매핑)에서 붙는다.
+     * OTP provider 경로. RoutingPort 로 검색해 중립 결과를 legacy 응답으로 매핑하고, 버스 구간에
+     * 도착예측을 채운다.
+     *
+     * <p>지하철 폴리라인(ODsay 캐시)·TMAP 도보 상세는 타지 않는다 — 대중교통 형상은 P3(OSM relation)이
+     * 이미 채우고, 도보는 OTP 가 계산한 실경로를 쓴다. <b>도착예측만</b> ODSAY 분기와 같은
+     * {@link TransferArrivalEnricher} 를 태운다(2026-09-20 계약 변경: 서버가 응답에 실어 내린다).
      */
     private RouteSearchResult runOtpSearch(RouteSearchRequest request, RouteSearchContext ctx,
-                                           RoutingDeadline deadline) {
+                                           RoutingDeadline deadline, boolean withRealtime,
+                                           Instant searchStartedAt) {
         Instant departureAt = departureTimeResolver.resolve(request.departureAt());
         RoutingQuery query = new RoutingQuery(
                 request.startX(), request.startY(), request.startName(),
@@ -188,10 +193,17 @@ public class RouteSearchService implements SearchRouteUseCase {
         if (outcome instanceof RoutingFailure failure) {
             return handleOtpFailure(failure, ctx);
         }
-        // #1 검색 응답 = 정적 ODsay 드롭인. 엔진이 준 순서(가장 빠른 것 먼저)를 그대로 유지하고
-        // 실시간 재정렬/coverage 를 서버가 하지 않는다. 실시간은 프론트가 매핑된 서울 id 로 별도 API 를 호출.
-        // 보강 total 정렬(RouteTimelineService)·coverage 는 주행중 재탐색(#2 P2-F) 소비지점에만 붙는다.
-        return legacyRouteResponseMapper.toLegacy((RoutingResult) outcome);
+        RouteSearchResult mapped = legacyRouteResponseMapper.toLegacy((RoutingResult) outcome);
+        // 요청이 실시간을 요구하지 않았으면(알림용 STATIC 경로) 보강하지 않는다 — degradation 이 아니다.
+        if (!withRealtime) {
+            return mapped;
+        }
+        // 버스 구간 도착예측. enricher 는 값만 채운다 — 엔진이 준 순서(가장 빠른 것 먼저)를 그대로 두고
+        // 재정렬·강등·MISSED 숨김은 하지 않는다(그 판단은 사용자 몫). 보강이 예산에 잘리면
+        // transferArrivals 가 비고 meta.degraded 에 bus_realtime 이 남는다 — 검색 자체는 200 이다.
+        RouteSearchResult afterBus = mapped;
+        return stage(ctx, SearchComponent.BUS_REALTIME,
+                () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx));
     }
 
     /**

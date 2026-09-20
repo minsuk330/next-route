@@ -296,6 +296,8 @@ class RouteSearchServiceTest {
         LegacyRouteResponseMapper mapper = mock(LegacyRouteResponseMapper.class);
         RouteSearchResult mapped = resultWith(List.of(walkSubPath(null, null)));
         when(mapper.toLegacy(any(RoutingResult.class))).thenReturn(mapped);
+        // OTP 경로도 도착예측 보강을 탄다(2026-09-20 계약). 보강기는 받은 결과를 그대로 돌려준다.
+        when(transferArrivalEnricher.enrich(any(), any(), any())).thenAnswer(call -> call.getArgument(0));
 
         OtpPermit permit = new OtpPermit("tok-1");
         org.mockito.ArgumentCaptor<RoutingDeadline> gateDeadline =
@@ -311,6 +313,7 @@ class RouteSearchServiceTest {
         long remaining = gateDeadline.getValue().remainingMillis(Clock.systemDefaultZone());
         assertThat(remaining).isGreaterThan(2000L).isLessThanOrEqualTo(3500L);
         verify(otpPort).search(any(), any());
+        verify(transferArrivalEnricher).enrich(any(), any(), any());   // 예측을 응답에 싣는다
         verify(otpConcurrencyGate).release(permit);   // finally 반납
         verifyNoInteractions(odSayApiPort);           // provider 안 섞음
     }
