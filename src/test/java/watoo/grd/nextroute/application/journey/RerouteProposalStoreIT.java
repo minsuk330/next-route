@@ -135,11 +135,11 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     @Test
     @DisplayName("만료된 제안이 남아 있어도 새 제안이 들어간다")
     void staleProposalDoesNotBlockNewOne() {
-        txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.minusSeconds(1));
 
         RerouteProposalView stored = txService.store(context(1, 0),
-                RerouteProposalKind.ROUTE_OPTION, List.of(candidate()), NOW, NOW.plusSeconds(120))
+                RerouteProposalKind.REMAINING_PATH, List.of(candidate()), NOW, NOW.plusSeconds(120))
                 .orElseThrow();
 
         assertThat(stored.proposalId()).isNotNull();
@@ -149,7 +149,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     @Test
     @DisplayName("개정본이 오르면 이전 개정본 제안이 route-changed 로 정리된다")
     void revisionBumpResolvesOldProposals() {
-        txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.plusSeconds(120));
 
         txService.resolveStale(journeyId, 2, NOW);
@@ -165,7 +165,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     @Test
     @DisplayName("같은 환승에 새 제안이 오면 앞선 것이 replaced 로 밀려난다")
     void newProposalReplacesPrevious() {
-        txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.plusSeconds(120));
 
         txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
@@ -179,7 +179,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     @Test
     @DisplayName("지나갔는지는 원점의 leg 번호로 본다 — 환승 행을 다시 읽지 않는다")
     void passedCheckUsesTheOriginWhenResolved() {
-        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.plusSeconds(120))).isPresent();
         assertThat(lastOriginLegIndex()).isEqualTo(2);
 
@@ -188,7 +188,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         jdbcTemplate.update("update journey_session set current_leg_index = 3 where id = ?",
                 journeyId);
 
-        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.plusSeconds(120))).isEmpty();
     }
 
@@ -200,7 +200,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         // 제안인지"를 영영 말할 수 없다.
         jdbcTemplate.update("delete from journey_leg");
 
-        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.plusSeconds(120))).isEmpty();
         assertThat(rows()).isEmpty();
     }
@@ -210,7 +210,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     void newProposalReplacesOtherTransfersToo() {
         newTransfer(1, 4);
         newBoardingLeg(4, "ST-E");
-        txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.plusSeconds(120));
 
         // stage5 이전에는 둘이 공존했다(환승당 하나). 원점이 leg 경계를 넘어가면서 그 단위가
@@ -229,9 +229,9 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     @Test
     @DisplayName("정리된 행은 지우지 않는다")
     void resolvedRowsAreKept() {
-        txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.minusSeconds(1));
-        txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.plusSeconds(120));
 
         assertThat(rows())
@@ -245,7 +245,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     @DisplayName("후보가 상한을 넘으면 잘라 저장한다")
     void candidatesAreTruncated() {
         RerouteProposalView stored = txService.store(context(1, 0),
-                RerouteProposalKind.ROUTE_OPTION,
+                RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate(), candidate(), candidate(), candidate()),
                 NOW, NOW.plusSeconds(120)).orElseThrow();
 
@@ -258,7 +258,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     @DisplayName("candidateId 는 저장 시점에 서버가 부여한다")
     void candidateIdsAreAssignedOnStore() {
         RerouteProposalView stored = txService.store(context(1, 0),
-                RerouteProposalKind.ROUTE_OPTION,
+                RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate("provider-가-넣은-값"), candidate("같은-값")),
                 NOW, NOW.plusSeconds(120)).orElseThrow();
 
@@ -271,14 +271,14 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     @Test
     @DisplayName("적용 재료가 왕복 뒤에도 남아 있다")
     void applySurvivesStorage() {
-        txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.plusSeconds(120));
 
         assertThat(txService.findActive(journeyId)).get()
                 .satisfies(view -> assertThat(view.candidates()).singleElement()
                         .satisfies(candidate -> assertThat(candidate.apply())
-                                .isEqualTo(new RerouteCandidateApply.RouteOptionApply(
-                                        1, 2, "BL-370", "UP"))));
+                                .isEqualTo(new RerouteCandidateApply.RemainingPathApply(
+                                        1, samplePath()))));
     }
 
     // ── 저장 직전 재확인 (R3) ───────────────────────────────────────────────
@@ -289,7 +289,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         jdbcTemplate.update("update journey_session set status = 'COMPLETED' where id = ?",
                 journeyId);
 
-        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.plusSeconds(120)))
                 .as("끝난 여정에 살아 있는 제안이 남는다")
                 .isEmpty();
@@ -303,7 +303,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         jdbcTemplate.update("update journey_session set command_version = 2 where id = ?",
                 journeyId);
 
-        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.plusSeconds(120))).isEmpty();
     }
 
@@ -313,7 +313,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         jdbcTemplate.update("update journey_session set route_revision = 2 where id = ?",
                 journeyId);
 
-        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.plusSeconds(120)))
                 .as("후보의 legIndex 가 다른 단계를 가리키게 된다")
                 .isEmpty();
@@ -325,7 +325,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         jdbcTemplate.update("update journey_session set current_leg_index = 4 where id = ?",
                 journeyId);
 
-        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.plusSeconds(120)))
                 .as("사용자가 할 수 있는 일이 없는 제안이 된다")
                 .isEmpty();
@@ -337,7 +337,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         jdbcTemplate.update("update journey_session set current_leg_index = 2 where id = ?",
                 journeyId);
 
-        assertThat(txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        assertThat(txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, NOW.plusSeconds(120))).isPresent();
     }
 
@@ -373,7 +373,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     private boolean attemptStore(CountDownLatch start) throws Exception {
         start.await();
         try {
-            txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+            txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                     List.of(candidate()), NOW, NOW.plusSeconds(120));
             return true;
         } catch (org.springframework.dao.DataIntegrityViolationException
@@ -492,7 +492,7 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
     }
 
     private long storedProposalId(Instant expiresAt) {
-        return txService.store(context(1, 0), RerouteProposalKind.ROUTE_OPTION,
+        return txService.store(context(1, 0), RerouteProposalKind.REMAINING_PATH,
                 List.of(candidate()), NOW, expiresAt).orElseThrow().proposalId();
     }
 
@@ -515,9 +515,15 @@ class RerouteProposalStoreIT extends AbstractJourneyOutboxPostgresIT {
         return candidate(null);
     }
 
+    /** 적용 재료의 경로 원본. 왕복이 깨지는지만 보므로 구간은 비워 둔다. */
+    private watoo.grd.nextroute.application.route.dto.PathResult samplePath() {
+        return new watoo.grd.nextroute.application.route.dto.PathResult(
+                1, null, List.of(), List.of());
+    }
+
     private RerouteCandidate candidate(String candidateId) {
-        return new RerouteCandidate(candidateId, RerouteProposalKind.ROUTE_OPTION,
-                new RerouteCandidateApply.RouteOptionApply(1, 2, "BL-370", "UP"),
+        return new RerouteCandidate(candidateId, RerouteProposalKind.REMAINING_PATH,
+                new RerouteCandidateApply.RemainingPathApply(1, samplePath()),
                 new RerouteCandidateDisplay(NOW.plusSeconds(1_200), 1_200, 180, 1, 300,
                         "REALTIME", "HIGH", NOW.minusSeconds(20), List.of("370 버스")));
     }

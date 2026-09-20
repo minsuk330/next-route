@@ -35,8 +35,8 @@ import java.util.Optional;
  * <p>모델도 답을 못 주면 모른다고 한다. 운행 중인 차량이 없으면 추정할 근거가 없고, 그 판단은
  * 데이터를 보는 모델 쪽이 하는 것이 맞다 — 여기서 거리로 미리 자르지 않는다.
  *
- * <p>근거 고르기와 결과 해석은 {@link TransferPredictionInterpreter} 가 소유한다. 재탐색 후보
- * 평가({@code RouteOptionCandidateProvider})가 같은 규칙을 써야 하기 때문이다 — 두 곳이 각자
+ * <p>근거 고르기와 결과 해석은 {@link TransferPredictionInterpreter} 가 소유한다. 재탐색의 승차
+ * 추정({@link BusBoardingTimeEstimator})이 같은 규칙을 써야 하기 때문이다 — 두 곳이 각자
  * 해석하면 같은 버스를 두고 평가와 재탐색이 서로 다른 답을 낸다.
  *
  * <p>{@link WaitBusArrivalPredictor} 와 달리 단계가 시작됐는지 보지 않는다. 아직 버스를 타고 있는

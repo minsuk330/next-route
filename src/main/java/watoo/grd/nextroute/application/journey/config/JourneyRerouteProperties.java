@@ -12,11 +12,12 @@ import java.time.Duration;
  * 재탐색의 운영값.
  *
  * <p><b>세 묶음이 한 파일에 있되 자리는 갈라 둔다.</b> 저장소 몫(TTL·후보 상한)은 최상위,
- * "언제 찾아볼지"는 {@link Trigger}, "무엇을 후보로 올릴지"는 {@link RouteOption} 이다. 판정
+ * "언제 찾아볼지"는 {@link Trigger}, "무엇을 후보로 올릴지"는 {@link RemainingPath}·{@link NextStop}
+ * 이다. 판정
  * 기준과 저장소 운영값이 <b>같은 자리에</b> 섞이면 부하 조정이 곧 재탐색 계약 변경이 된다.
  *
  * <p>(예전 주석은 "cooldown·최소 개선폭은 여기 없다"고 적었지만, ①이 {@code trigger.cooldown} 을
- * ③이 {@code route-option.*} 을 이 파일에 넣었다. 한 접두어의 값을 두 파일이 나눠 갖는 쪽이
+ * 이 파일에 넣었다. 한 접두어의 값을 두 파일이 나눠 갖는 쪽이
  * 오히려 어디를 고쳐야 할지 못 찾게 만든다 — 대신 중첩 클래스로 소유를 가른다.)
  */
 @Getter
@@ -42,8 +43,6 @@ public class JourneyRerouteProperties {
     private final Expiry expiry = new Expiry();
 
     private final Trigger trigger = new Trigger();
-
-    private final RouteOption routeOption = new RouteOption();
 
     private final RemainingPath remainingPath = new RemainingPath();
 
@@ -189,15 +188,15 @@ public class JourneyRerouteProperties {
     /**
      * "환승 정류장에서 목적지까지 다른 경로를 찾을지"의 운영값(Phase 6 ④).
      *
-     * <p>{@link RouteOption} 과 값의 뜻은 같지만 <b>키를 따로 둔다.</b> ③은 저장된 노선 후보만
-     * 보고 ④는 유료 경로 검색(ODsay)을 부르므로, 요금이 걱정될 때 조여야 하는 쪽이 서로 다르다.
-     * 한 값을 나눠 쓰면 ③을 넓히려다 ④의 요금이 함께 늘어난다.
+     * <p>값의 뜻은 {@link NextStop} 과 겹치지만 <b>키를 따로 둔다.</b> 이쪽은 "경로를 몇 개까지
+     * 평가할지"이고 그쪽은 "하차 자리를 몇 개까지 열지"라, 요금이 걱정될 때 조여야 하는 쪽이
+     * 서로 다르다.
      */
     @Getter
     @Setter
     public static class RemainingPath {
 
-        /** 이만큼 빨라지지 않으면 제안하지 않는다. ③과 같은 값이지만 키는 별도다. */
+        /** 이만큼 빨라지지 않으면 제안하지 않는다. */
         private int minimumEtaGainSeconds = 300;
 
         /**
@@ -234,66 +233,6 @@ public class JourneyRerouteProperties {
     }
 
     /**
-     * "같은 정류장의 다른 노선을 후보로 올릴지"의 운영값(Phase 6 ③).
-     *
-     * <p>여기 값이 전부 <b>요금과 대기시간</b>에 대한 것이다. 후보 하나마다 실시간·ML 조회가
-     * 나가고, 그 요청을 사용자가 화면에서 기다린다.
-     */
-    @Getter
-    @Setter
-    public static class RouteOption {
-
-        /**
-         * 이만큼 빨라지지 않으면 제안하지 않는다.
-         *
-         * <p>낮추면 "5초 빨라집니다" 같은 제안이 나가는데, 그 차이는 예측 오차보다 작다. 사용자가
-         * 뛰어서 갈아탈 이유가 되지 못하는 값을 제안으로 만들면 제안 전체의 신뢰가 깎인다.
-         */
-        private int minimumEtaGainSeconds = 300;
-
-        /**
-         * 한 요청에서 예측을 물어볼 <b>대안</b> 노선 수 상한. 기준선은 여기 포함되지 않는다.
-         *
-         * <p>10 으로 넓힌 근거(PR4a): ③은 <b>유료 라우팅이 아니다</b>(저장된 노선 후보를 실시간·ML
-         * 로 조회할 뿐). 같은 정류장의 우리 방향 노선은 보통 3~6개라 10 이면 사실상 <b>전부</b> 확인해
-         * 더 빠른 대안을 놓치지 않는다. 폭주 가드로 상한 자체는 남긴다(0/무제한 불가 — 아래 검증).
-         * 실질 대기는 {@code evaluationBudgetMs} 가 먼저 자른다.
-         */
-        private int maxEvaluations = 10;
-
-        /**
-         * <b>대안</b> 평가에 쓸 수 있는 누적 시간. 넘으면 남은 후보를 건너뛰고 이미 평가한
-         * 것으로 제안을 만든다 — 부분 결과가 빈손보다 낫다.
-         *
-         * <p>남은 예산은 <b>다음 호출의 상한으로도</b> 쓴다. 부르기 전에만 확인하면 마감 직전에
-         * 시작한 호출이 제 몫을 다 써서 예산을 넘긴다.
-         *
-         * <p>기준선 평가는 이 예산에서 빼지 않는다. 기준선이 없으면 개선폭을 잴 수 없어 어차피
-         * 빈 결과이므로 아껴 봐야 아무것도 못 낸다. 그래서 <b>요청 하나의 최악 대기 시간은
-         * {@code journey.evaluator.predict-deadline-ms}(기준선 1회) + 이 값</b>이다.
-         */
-        private long evaluationBudgetMs = 3000;
-
-        /**
-         * 대안 후보를 OTP pattern 에서 실시간으로 찾을지(national-otp P2-F PR-4). 기본 꺼짐.
-         *
-         * <p>꺼짐 = 지금까지처럼 여정 시작 때 저장한 {@code journey_leg_route_option} 만 본다. 켜짐 =
-         * 그 저장값에 <b>더해</b> OTP 가 같은 정류장에서 탈 수 있다고 답한 노선을 후보로 올린다(합집합
-         * — 순수 대체가 아니다. 기준선은 저장 선택 노선에서 나오고, 매핑 실패·OTP 장애 시 저장값으로
-         * 물러선다).
-         *
-         * <p><b>경로 검색 provider 스위치({@code routing.provider.otp-enabled})와 다른 게이트다.</b>
-         * 그쪽은 "초기 검색을 OTP 로 할지"이고 이건 "재탐색 대안 출처를 OTP pattern 으로 할지"다.
-         * 의미가 달라 키를 섞지 않는다.
-         *
-         * <p><b>이 게이트만으로 실제 제안이 나가지는 않는다.</b> OTP 후보의 목적지 ETA 는 아직 노선별
-         * 실주행을 반영하지 못한다(공통 {@code plannedDurationSec}). 후보 <b>집합</b>만 넓히는 단계이고,
-         * 우열 정확도는 PR4c(composer 재평가)가 맡는다 — 실제 제안 ON 은 그 뒤다.
-         */
-        private boolean otpPatternEnabled = false;
-    }
-
-    /**
      * "언제 찾아볼지"의 운영값(Phase 6 ①).
      *
      * <p><b>{@link JourneyRerouteProperties#enabled} 와 다른 스위치다.</b> 그쪽은 제안 기능
@@ -307,7 +246,7 @@ public class JourneyRerouteProperties {
         /**
          * 기본 켜짐. 방아쇠는 지표·로그만 남기고 제안도 외부 호출도 만들지 않는다(shadow).
          *
-         * <p>켜 두는 것이 기본값인 이유 — 하루에 몇 번 도는지 모르는 채로 후보 생성기(③)를
+         * <p>켜 두는 것이 기본값인 이유 — 하루에 몇 번 도는지 모르는 채로 후보 생성기(④)를
          * 켜면 요금이 먼저 온다. 그래도 끄는 스위치는 남긴다.
          */
         private boolean enabled = true;
@@ -371,19 +310,6 @@ public class JourneyRerouteProperties {
         if (trigger.getCooldown() == null || trigger.getCooldown().isNegative()) {
             // 0 은 허용한다 - cooldown 을 사실상 끄고 원시 발생률만 보고 싶을 때가 있다.
             throw new IllegalStateException("journey.reroute.trigger.cooldown 은 음수일 수 없다");
-        }
-        if (routeOption.getMinimumEtaGainSeconds() <= 0) {
-            // 0 이면 "1초 빨라집니다"가 제안이 된다. 예측 오차보다 작은 차이다.
-            throw new IllegalStateException(
-                    "journey.reroute.route-option.minimum-eta-gain-seconds 는 1 이상이어야 한다");
-        }
-        if (routeOption.getMaxEvaluations() <= 0) {
-            throw new IllegalStateException(
-                    "journey.reroute.route-option.max-evaluations 는 1 이상이어야 한다");
-        }
-        if (routeOption.getEvaluationBudgetMs() <= 0) {
-            throw new IllegalStateException(
-                    "journey.reroute.route-option.evaluation-budget-ms 는 1 이상이어야 한다");
         }
         if (remainingPath.getMinimumEtaGainSeconds() <= 0) {
             throw new IllegalStateException(

@@ -50,23 +50,25 @@ import java.util.concurrent.TimeoutException;
 /**
  * 환승 정류장에서 목적지까지 <b>다른 경로</b>를 찾아 후보로 올린다(Phase 6 ④).
  *
- * <p>③(같은 정류장의 다른 버스)이 빈손일 때 받는 칸이다. 지도 앱에서 길찾기를 다시 누르는 것이고,
- * 출발지는 "지금 내 위치"가 아니라 <b>곧 내릴 환승 정류장</b>이다 — 서버는 정밀 좌표를 받지 않는다.
+ * <p>사다리의 <b>유일한</b> 칸이다(journey-reroute-nextstop PR-5). 예전에는 ③(같은 정류장의 다른
+ * 버스)이 먼저 답하고 빈손일 때만 여기로 왔지만, 이제 그 일까지 이 칸이 한다 — 원점 목록에 계획
+ * 하차 정류장이 들어 있어 "같은 정류장에서 다른 노선"이 후보로 함께 나온다.
+ *
+ * <p>하는 일은 지도 앱에서 길찾기를 다시 누르는 것이고, 출발지는 "지금 내 위치"가 아니라 <b>곧
+ * 내릴 정류장</b>이다 — 서버는 정밀 좌표를 받지 않는다.
  *
  * <h2>순서가 곧 요금이다</h2>
  * <ol>
  *   <li><b>검색을 먼저</b> 한다. 검색이 빈손이면 기준선 예측이 통째로 낭비다</li>
  *   <li>경로를 쪼개 보강한다. 여기까지는 유료 호출이 없다. <b>지금 타려던 노선과 같은 경로</b>는
  *       이 단계에서 버린다 — 예측을 부르기 전이다</li>
- *   <li>남는 경로가 있을 때만 <b>기준선</b>을 잰다. 기준선은 ④가 스스로 다시 잰다(D7) —
- *       ③에게 값을 받으면 공급자 사이에 순서 의존이 생긴다</li>
+ *   <li>남는 경로가 있을 때만 <b>기준선</b>을 잰다. 기준선은 이 칸이 스스로 잰다(D7)</li>
  *   <li>후보마다 승차를 예측하고 목적지 도착 시각으로 견준다</li>
  * </ol>
  *
  * <h2>환승이 늘어나는 후보는 버린다</h2>
- * 첫 대기 이후의 대기 시간은 0으로 두는데(D4), ③에서는 그 값이 기준선과 후보에 <b>똑같이</b> 빠져
- * 뺄셈에서 상쇄됐다. ④는 경로 구조 자체를 바꾸므로 그 전제가 깨진다 — 후보의 환승이 더 많으면
- * 후보만 낙관돼 <b>없는 개선폭</b>이 만들어지고, 사용자는 더 느린 길로 갈아탄다.
+ * 경로 구조 자체가 바뀌므로, 후보의 환승이 더 많으면 후보만 낙관돼 <b>없는 개선폭</b>이 만들어지고
+ * 사용자는 더 느린 길로 갈아탄다.
  *
  * <p><b>트랜잭션 밖에서 돈다.</b> 외부 호출을 하는 코드가 DB 커넥션을 붙잡고 있으면 안 된다.
  */
@@ -96,7 +98,7 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
         return RerouteProposalKind.REMAINING_PATH;
     }
 
-    /** ③ 다음이다. 같은 정류장에서 해결되면 경로를 통째로 바꿀 이유가 없다. */
+    /** 사다리의 유일한 칸. 번호를 1 로 두는 이유는 {@code RerouteCandidateProvider#priority()} 참고. */
     @Override
     public int priority() {
         return 1;
@@ -165,9 +167,9 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
      *
      * <p><b>계획 하차점에서도 다시 검색한다.</b> PLAN 의 "계획 하차점 fresh search 안 함"은
      * <i>기준선</i>을 다시 검색하지 않는다는 뜻으로 읽었다(기준선은 저장된 계획을 overlay 해서
-     * 잰다). 그 정류장 자체를 원점에서 빼면 ④가 하던 일(환승 정류장에서 다른 경로 찾기)과 ③이
-     * 하던 일(같은 정류장 다른 노선)이 <b>둘 다</b> 사라진다 — ③은 이 작업이 흡수하기로 한
-     * 기능이다.
+     * 잰다). 그 정류장 자체를 원점에서 빼면 이 칸이 하던 일(환승 정류장에서 다른 경로 찾기)과
+     * 폐기된 ③이 하던 일(같은 정류장 다른 노선)이 <b>둘 다</b> 사라진다 — ③은 이 칸이 흡수하기로
+     * 한 기능이다.
      */
     private List<Origin> origins(List<JourneyLeg> legs, JourneyLeg waitLeg,
                                  TransferConnection transfer, Waypoints planned,
@@ -369,7 +371,7 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
             return null;
         }
         if (chained.failed()) {
-            // 지금 차를 아예 못 타는 상황이다. ③이라면 여기서 빈손이지만 ④는 계속 간다 —
+            // 지금 차를 아예 못 타는 상황이다. 기준선이 없어도 계속 간다 —
             // "못 타는 사용자"야말로 다른 경로가 필요한 사람이다.
             return null;
         }
@@ -703,7 +705,7 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
 
     /**
      * 평가를 마친 후보. 줄 세우기 값은 {@link RerouteRanking} 이 읽는다 — 정렬 규칙을 여기서 다시
-     * 쓰지 않는 이유는 ③·④·정류장 목록(PR-2)이 <b>같은 순서 규칙</b>을 써야 하기 때문이다.
+     * 쓰지 않는 이유는 후보 목록과 정류장 목록(PR-2)이 <b>같은 순서 규칙</b>을 써야 하기 때문이다.
      */
     private record Scored(Selected selected, Attempt attempt, int gainSec)
             implements RerouteRanking.Ranked {

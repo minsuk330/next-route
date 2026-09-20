@@ -26,7 +26,7 @@ import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.RerouteProp
  *
  * <p>사용자 ID 는 JWT 에서만 온다. 본문에 있어도 쓰지 않는다.
  *
- * <p>이 PR 만으로는 아무것도 보이지 않는다 — 트리거(①)와 후보 생성기(③④)가 없어 조회는 항상
+ * <p>이 PR 만으로는 아무것도 보이지 않는다 — 트리거(①)와 후보 생성기(④)가 없어 조회는 항상
  * {@code proposal: null}, 요청은 {@code 409 REROUTE_NOT_ELIGIBLE} 이다. 그것이 의도한 기본
  * 상태다.
  */

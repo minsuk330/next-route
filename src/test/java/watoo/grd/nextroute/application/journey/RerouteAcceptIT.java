@@ -145,24 +145,6 @@ class RerouteAcceptIT {
     }
 
     @Test
-    @DisplayName("저장 목록에 없는 동적 노선 후보를 수락하면 새 후보 행을 만들어 그 노선을 고른다 — 첫 후보로 조용히 대체되지 않는다")
-    void acceptsDynamicRouteOptionByInsertingNewRow() {
-        int waitLegIndex = firstWaitLegIndex();
-        // 저장 후보엔 BL-DYNAMIC 이 없다(planned=BL-370/BL-721). 저장에 없는 노선을 동적 후보로 심는다.
-        assertThat(routeIdsOf(journey.routeRevision())).doesNotContain("BL-DYNAMIC");
-        String candidateId = givenRouteOptionProposal(new RerouteCandidateApply.RouteOptionApply(
-                waitLegIndex, RerouteCandidateApply.RouteOptionApply.DYNAMIC,
-                "BL-DYNAMIC", "UP", "SRC-DYN", "999", null, 7, 20, null));
-
-        JourneySnapshot after = acceptUseCase.accept(userId, journey.journeyId(), proposalId(),
-                candidateId);
-
-        // 새 개정본에 동적 노선 행이 생겼고, 그 행이 선택돼 있다(첫 후보 fallback 아님).
-        assertThat(routeIdsOf(after.routeRevision())).contains("BL-DYNAMIC");
-        assertThat(selectedRouteIdAt(after.routeRevision(), waitLegIndex)).isEqualTo("BL-DYNAMIC");
-    }
-
-    @Test
     @DisplayName("앞 구간은 진행도·시각까지 그대로 남는다 — 재컴파일로 다시 만들지 않는다")
     void keepsPrefixLegsWithProgress() {
         givenProgressOnFirstLeg();
@@ -414,19 +396,6 @@ class RerouteAcceptIT {
                 """, journey.journeyId(), userId, journey.routeRevision(), kind,
                 journey.commandVersion(), candidates);
         return candidateId;
-    }
-
-    /** ③(route-option)가 만들었을 제안을 손으로 심는다. apply 는 저장/동적 후보 어느 쪽이든 된다. */
-    private String givenRouteOptionProposal(RerouteCandidateApply.RouteOptionApply apply) {
-        return givenProposalOf(apply, "ROUTE_OPTION");
-    }
-
-    private String selectedRouteIdAt(int revision, int legIndex) {
-        return jdbcTemplate.queryForObject("""
-                select o.route_id from journey_leg_route_option o
-                  join journey_leg l on l.selected_route_option_id = o.id
-                 where l.journey_id = ? and l.route_revision = ? and l.leg_index = ?
-                """, String.class, journey.journeyId(), revision, legIndex);
     }
 
     private void givenProgressOnFirstLeg() {

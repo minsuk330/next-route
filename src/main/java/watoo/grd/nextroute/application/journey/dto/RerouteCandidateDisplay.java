@@ -29,7 +29,7 @@ public record RerouteCandidateDisplay(
         List<String> legSummaries,
         AlightStop alight) {
 
-    /** 하차 정보가 없는 후보(③, 옛 저장 JSON)용. 새 칸을 null 로 두는 것이 곧 옛 동작이다. */
+    /** 하차 정보가 없는 후보(옛 저장 JSON)용. 새 칸을 null 로 두는 것이 곧 옛 동작이다. */
     public RerouteCandidateDisplay(Instant destinationEtaAt, int totalDurationSec, int etaGainSec,
                                    int transferCount, int walkingSec, String source,
                                    String confidence, Instant dataObservedAt,

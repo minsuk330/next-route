@@ -128,7 +128,7 @@ class RerouteProposalServiceTest {
     // ── 사다리 순서 ─────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("싼 것부터 본다 — 노선 후보가 나오면 경로 재검색은 부르지 않는다")
+    @DisplayName("싼 것부터 본다 — 앞선 칸이 답하면 뒤 칸은 부르지 않는다")
     void cheaperProviderWins() {
         RerouteProposalService service = service(allowing(), List.of(
                 recordingProvider(RerouteProposalKind.REMAINING_PATH, 1, List.of(candidate())),
@@ -347,6 +347,14 @@ class RerouteProposalServiceTest {
         return (journey, transferIndex, now) -> Optional.of(reason);
     }
 
+    /**
+     * 부른 순서를 기록하는 가짜 공급자.
+     *
+     * <p>{@code kind} 로 {@link RerouteProposalKind#ROUTE_OPTION} 을 쓰는 곳이 있는데, 그 칸(③)은
+     * <b>폐기됐다</b>(journey-reroute-nextstop PR-5). 여기서는 "값싼 칸이 하나 더 있다면"을 흉내 내는
+     * <b>대역</b>일 뿐이다 — 사다리의 순서 계약({@code priority})은 칸이 다시 늘 때를 위해 살아 있고,
+     * 그 계약을 시험하려면 서로 다른 값 두 개가 필요하다.
+     */
     private RerouteCandidateProvider recordingProvider(RerouteProposalKind kind, int priority,
                                                        List<RerouteCandidate> candidates) {
         return new RerouteCandidateProvider() {
@@ -364,8 +372,8 @@ class RerouteProposalServiceTest {
     }
 
     private RerouteCandidate candidate(Instant observedAt) {
-        return new RerouteCandidate(null, RerouteProposalKind.ROUTE_OPTION,
-                new RerouteCandidateApply.RouteOptionApply(1, 0, "BL-370", "UP"),
+        return new RerouteCandidate(null, RerouteProposalKind.REMAINING_PATH,
+                new RerouteCandidateApply.RemainingPathApply(1, null),
                 new RerouteCandidateDisplay(NOW.plusSeconds(1_200), 1_200, 120, 1, 300,
                         "REALTIME", "HIGH", observedAt, List.of("370 버스")));
     }

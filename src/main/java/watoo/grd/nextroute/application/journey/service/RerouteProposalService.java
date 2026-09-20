@@ -29,7 +29,7 @@ import java.util.Optional;
 /**
  * 재탐색 제안의 조회·요청 진입점.
  *
- * <p><b>트랜잭션이 없다.</b> 후보 생성(③④)이 실시간 버스 API·ML·ODsay 를 부르므로 그 호출을
+ * <p><b>트랜잭션이 없다.</b> 후보 생성(④)이 실시간 버스 API·ML·경로 검색을 부르므로 그 호출을
  * 트랜잭션 밖에 둔다. 저장만 {@link RerouteProposalTxService} 가 트랜잭션 안에서 한다
  * (TECHNICAL_DECISIONS §6.3).
  *
@@ -128,7 +128,7 @@ public class RerouteProposalService {
     /**
      * 이 후보의 하차점에 <b>아직 닿을 수 있는가</b>.
      *
-     * <p>하차 정보가 없는 후보(③, PR-2 이전에 저장된 행)는 그대로 통과시킨다. 그 후보는 leg
+     * <p>하차 정보가 없는 후보(PR-2 이전에 저장된 행)는 그대로 통과시킨다. 그 후보는 leg
      * 경계에서 갈아타는 옛 모양이라 "정류장을 지나쳤다"가 성립하지 않는다.
      */
     private boolean reachable(RerouteCandidate candidate, Instant earliest) {

@@ -67,16 +67,6 @@ class RerouteCandidateContractTest {
                     .hasSize(expectedLegs);
         }
 
-        @Test
-        @DisplayName("ROUTE_OPTION 의 순번이 보존된다")
-        void routeOptionSurvivesRoundTrip() throws Exception {
-            RerouteCandidateApply restored = roundTrip(
-                    new RerouteCandidateApply.RouteOptionApply(3, 1, "BL-370", "UP"));
-
-            assertThat(restored).isEqualTo(
-                    new RerouteCandidateApply.RouteOptionApply(3, 1, "BL-370", "UP"));
-        }
-
         private RerouteCandidateApply roundTrip(RerouteCandidateApply apply) throws Exception {
             return objectMapper.readValue(
                     objectMapper.writeValueAsString(apply), RerouteCandidateApply.class);
@@ -92,15 +82,11 @@ class RerouteCandidateContractTest {
         @Test
         @DisplayName("클래스 이름이 아니라 고정한 문자열이 JSON 에 박힌다")
         void namesArePinnedNotDerivedFromClass() throws Exception {
-            String routeOption = objectMapper.writeValueAsString(
-                    new RerouteCandidateApply.RouteOptionApply(0, 0, "BL-1", "UP"));
             String remainingPath = objectMapper.writeValueAsString(
                     new RerouteCandidateApply.RemainingPathApply(0, samplePath()));
 
-            assertThat(routeOption).contains("\"type\":\"ROUTE_OPTION\"");
             assertThat(remainingPath).contains("\"type\":\"REMAINING_PATH\"");
             // 클래스명이 새어 나오면 클래스를 옮기는 순간 저장된 행을 못 읽는다.
-            assertThat(routeOption).doesNotContain("RouteOptionApply");
             assertThat(remainingPath).doesNotContain("RemainingPathApply");
         }
 
@@ -108,9 +94,23 @@ class RerouteCandidateContractTest {
         @DisplayName("이름 셋이 같은 문자열이다 - DB check·enum·JSON")
         void nameMatchesKindEnum() throws Exception {
             String json = objectMapper.writeValueAsString(
-                    new RerouteCandidateApply.RouteOptionApply(0, 0, "BL-1", "UP"));
+                    new RerouteCandidateApply.RemainingPathApply(0, samplePath()));
 
-            assertThat(json).contains("\"type\":\"" + RerouteProposalKind.ROUTE_OPTION.name() + "\"");
+            assertThat(json)
+                    .contains("\"type\":\"" + RerouteProposalKind.REMAINING_PATH.name() + "\"");
+        }
+
+        @Test
+        @DisplayName("폐기된 ROUTE_OPTION 봉투는 이제 모르는 종류다 — 옛 행은 조용히 적용되지 않는다")
+        void retiredRouteOptionTypeIsRejected() {
+            // ③ 이 만들던 후보다(journey-reroute-nextstop PR-5 에서 제거). 남아 있는 옛 행을
+            // 읽어 적용하면 사라진 뜻으로 여정을 바꾸게 된다 — 거절이 맞다.
+            String json = """
+                    {"type":"ROUTE_OPTION","waitLegIndex":3,"routeOptionIndex":1}
+                    """;
+
+            assertThatThrownBy(() -> objectMapper.readValue(json, RerouteCandidateApply.class))
+                    .isInstanceOf(InvalidTypeIdException.class);
         }
 
         @Test
@@ -174,8 +174,8 @@ class RerouteCandidateContractTest {
         @DisplayName("version 과 candidates 를 감싼 모양이 유지된다")
         void envelopeSurvivesRoundTrip() throws Exception {
             RerouteCandidateEnvelope envelope = RerouteCandidateEnvelope.of(List.of(
-                    new RerouteCandidate("c1", RerouteProposalKind.ROUTE_OPTION,
-                            new RerouteCandidateApply.RouteOptionApply(1, 0, "BL-1", "UP"),
+                    new RerouteCandidate("c1", RerouteProposalKind.REMAINING_PATH,
+                            new RerouteCandidateApply.RemainingPathApply(1, samplePath()),
                             sampleDisplay())));
 
             String json = objectMapper.writeValueAsString(envelope);

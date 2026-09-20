@@ -81,15 +81,6 @@ public class JourneyRevisionComposer {
      */
     public Result compose(PathResult currentSnapshot, List<JourneyLeg> currentLegs,
                           RerouteCandidateApply apply, RideTruncation truncation) {
-        if (apply instanceof RerouteCandidateApply.RouteOptionApply routeOption) {
-            if (truncation != null) {
-                // 노선만 바꾸는 수락은 구조를 안 건드린다. 자를 자리가 없다.
-                return Result.failed("truncation-unexpected");
-            }
-            // 구조가 바뀌지 않는다. 스냅샷도 단계도 그대로 복제하고 선택 노선만 갈아끼운다.
-            return Result.of(new Composed(currentSnapshot, List.of(), List.of(),
-                    routeOption.waitLegIndex(), Reason.ROUTE_OPTION_ACCEPTED));
-        }
         RerouteCandidateApply.RemainingPathApply remaining =
                 (RerouteCandidateApply.RemainingPathApply) apply;
         return composeRemainingPath(currentSnapshot, currentLegs, remaining, truncation);
@@ -319,7 +310,6 @@ public class JourneyRevisionComposer {
 
     /** {@code journey_revision.reason} 어휘. 왜 경로가 바뀌었는지를 운영이 읽는 값이다. */
     public static final class Reason {
-        public static final String ROUTE_OPTION_ACCEPTED = "ROUTE_OPTION_ACCEPTED";
         public static final String REMAINING_PATH_ACCEPTED = "REMAINING_PATH_ACCEPTED";
         /** 중간 하차. 앞 절반을 계속 타고 가므로 leg 경계 교체와 운영상 구별해야 한다. */
         public static final String REMAINING_PATH_MID_RIDE_ACCEPTED =
@@ -356,7 +346,7 @@ public class JourneyRevisionComposer {
      * 새 개정본의 재료.
      *
      * @param legs              새 단계 <b>전부</b>(앞 구간 포함). 앞 구간은 저장 쪽이 엔티티 복제로
-     *                          덮는다. {@code ROUTE_OPTION} 이면 비어 있다 — 구조가 안 바뀐다
+     *                          덮는다
      * @param transfers         합성본이 낸 환승 전부. 접합부 환승도 여기 들어 있다
      * @param truncatedLegIndex 중간에서 잘린 주행 단계. 없으면 null.
      *                          <p>이 단계는 <b>새로 만드는 단계도, 그대로 복제하는 단계도 아니다</b>
@@ -371,11 +361,6 @@ public class JourneyRevisionComposer {
         public Composed(PathResult snapshot, List<JourneyLegDraft> legs,
                         List<TransferConnectionDraft> transfers, int fromLegIndex, String reason) {
             this(snapshot, legs, transfers, fromLegIndex, reason, null);
-        }
-
-        /** 구조가 바뀌지 않는 수락인가. */
-        public boolean keepsStructure() {
-            return legs.isEmpty();
         }
     }
 

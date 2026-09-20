@@ -11,7 +11,7 @@ import java.util.Optional;
  * <p>window·cooldown 같은 판정 기준은 전부 이쪽 소유다. 여기 두면 사용자가 버튼을 연타해도
  * 외부 검색이 연타되지 않는다 — 명시 요청도 이 관문을 지난다.
  *
- * <p>구현은 {@code WindowCooldownEligibilityPolicy}(③)다. 그것이 배선되기 전의 기본값은
+ * <p>구현은 {@code WindowCooldownEligibilityPolicy} 다. 그것이 배선되기 전의 기본값은
  * <b>항상 거절</b>이었다({@code JourneyRerouteConfig}) — 반대로 두면 판정 없이 외부 검색이 돈다.
  */
 public interface RerouteEligibilityPolicy {

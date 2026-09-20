@@ -4,7 +4,8 @@ package watoo.grd.nextroute.application.route.routing;
  * OTP 에 "이 노선을 타고 board→alight 를 가는 데 걸리는 <b>시간표 소요(초)</b>가 얼마인가"를 묻는
  * 포트(national-otp P2-F PR4c).
  *
- * <p>주행 중 재탐색 ③(같은 정류장 다른 노선) 후보의 목적지 ETA 를 잴 때, 타고 가는 소요를 원래
+ * <p><b>지금은 부르는 곳이 없다</b>(journey-reroute-nextstop PR-5 가 유일한 소비자였던 ③을 지웠다).
+ * 원래 쓰임은 — 재탐색 후보의 목적지 ETA 를 잴 때, 타고 가는 소요를 원래
  * 선택 노선 값이 아니라 <b>후보 노선의 시간표 소요</b>로 바꾸기 위한 재료다. 값은 OTP
  * {@code Trip.stoptimes} 의 {@code scheduledArrival}/{@code scheduledDeparture} 차이 —
  * <b>실시간 실주행이 아니라 시간표값</b>이다(명칭 정직화).

@@ -250,7 +250,7 @@ class JourneyNotificationCancelOnEndIT {
                      kind, status, base_command_version, candidates,
                      snapshot_observed_at, expires_at)
                 select now(), now(), s.id, s.user_id, s.route_revision,
-                       'ROUTE_OPTION', 'ACTIVE', s.command_version,
+                       'REMAINING_PATH', 'ACTIVE', s.command_version,
                        '{"version":1,"candidates":[]}'::jsonb, now(), now() + interval '2 minutes'
                 from journey_session s where s.id = ?
                 returning id

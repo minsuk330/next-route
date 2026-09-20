@@ -13,7 +13,16 @@ package watoo.grd.nextroute.domain.journey.entity;
  */
 public enum RerouteProposalKind {
 
-    /** 같은 승·하차 구간에서 다른 노선을 고른다. leg 구조는 그대로다. */
+    /**
+     * <b>폐기됨</b>(journey-reroute-nextstop PR-5). 같은 승·하차 구간에서 다른 노선을 고르던 제안.
+     *
+     * <p>값을 <b>지우지 않는 이유</b>는 이 enum 이 DB 컬럼을 <b>읽는</b> 어휘이기 때문이다. V42 의
+     * check 제약은 아직 이 값을 받아들이고, 그 값으로 저장된 옛 행이 남아 있을 수 있다. 여기서
+     * 지우면 그 행을 읽는 순간 터진다 — 만드는 쪽을 없애면 어휘는 자연히 죽는다.
+     *
+     * <p>이 종류로 <b>새 제안을 만들지 않는다</b>. 대응하는 적용 재료({@code RouteOptionApply})도
+     * 함께 사라졌으므로, 옛 행의 후보는 "모르는 봉투"로 거절된다.
+     */
     ROUTE_OPTION,
 
     /** 남은 구간을 다른 경로로 통째 갈아끼운다. */

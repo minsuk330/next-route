@@ -2711,3 +2711,37 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - **tx 안 외부 호출 지연**(위 함정). 수락 p95 관측 후 예산 조정.
 - **PLAN PR-4 의 "확인 화면"** 은 서버 산출물이 아니라 클라 UX — 모바일 HANDOFF 로 넘어간다.
 - 다음 = **PR-5(③ `RouteOptionCandidateProvider` 제거)**. PR-2~4 가 전부 들어왔으므로 착수 조건 충족.
+## 2026-09-20 journey-reroute-nextstop PR-5 — ③(노선 후보) 폐기
+
+### 확정
+- **지운 것 = ③의 생산 경로 전부**: `RouteOptionCandidateProvider`(494줄)·`RouteOptionEtaCalculator`(155)·출처 4종(`RerouteRouteOptionSource`/`StoredRouteOptionSource`/`UnionRouteOptionSource`/`OtpPatternRouteOptionSource`)·테스트 5개·`RerouteRouteOptionIT`·설정 블록 `journey.reroute.route-option.*`(클래스+yaml+validate 3개)·`RouteOptionApply` 하위타입·수락/합성의 ROUTE_OPTION 분기.
+- **`RerouteProposalKind.ROUTE_OPTION` 은 남긴다(PLAN "정리" 의 정정).** 이 enum 은 DB 컬럼을 **읽는** 어휘고 V42 의 check 제약은 아직 그 값을 받는다 — 지우면 그 값으로 저장된 옛 행을 읽는 순간 `IllegalArgumentException` 이다. 어휘를 좁히려면 이력 행을 지우거나 고쳐 써야 하는데 그건 기록을 바꾸는 일이라 하지 않았다. **만드는 쪽을 없애면 어휘는 자연히 죽는다**(javadoc 에 "폐기됨, 새로 만들지 않는다" 명시).
+- **옛 ROUTE_OPTION 행의 후보는 "모르는 봉투"로 거절된다**(`RouteOptionApply` 가 사라져 Jackson 이 `InvalidTypeIdException`). 이게 맞는 결말이다 — 사라진 뜻으로 여정을 바꾸느니 거절이 낫고, 제안은 TTL(2~5분)로 사라진다. 계약 테스트로 고정(`retiredRouteOptionTypeIsRejected`).
+- **`Composed.keepsStructure()` 도 함께 사라졌다.** "구조가 안 바뀌는 수락"은 ③ 전용 개념이었고(legs 가 비는 유일한 경우), 남기면 언제나 false 인 분기가 저장 경로 세 곳(`copyAll`·`saveRouteOptions`·`saveTransfers`)에 남는다.
+- **선택 노선은 이제 언제나 그 단계의 첫 후보다**(`firstOption`). `chooseRouteOption`(저장 후보 optionIndex / 동적 후보 새 행 insert)은 통째로 사라졌다 — 사용자가 고르는 것은 **경로 전체**이지 노선 하나가 아니다.
+- **사다리(`RerouteCandidateProvider`)는 남긴다.** 칸이 하나뿐이라도 `priority` 는 **요금 순서**를 뜻하고, 값싼 칸이 생기면 그 앞자리에 들어가야 한다. 순서 계약 테스트는 폐기된 `ROUTE_OPTION` 을 **대역**으로 쓴다(그 뜻을 주석으로 못박음 — 서로 다른 enum 값 두 개가 필요해서다).
+- **OTP 포트 2개는 지우지 않았다**(`StopPatternPort`·`RouteRideDurationPort` + 어댑터·매퍼·테스트). 소비자가 ③뿐이라 지금은 **부르는 곳이 없다**. 근거 = ①`stopPatterns` 는 national-otp 후속(baseline 의 OTP 노선 id 되찾기)이 재사용 대상으로 지목한 질의고 ②그쪽은 다른 작업 축이라 PR-5 가 임의로 걷을 자리가 아니다. javadoc 에 "지금은 부르는 곳이 없다"를 명시했다(미결).
+
+### 함정
+- 🔴 **`WithdrawalDeletionBoundaryIT` 가 main 에서 이미 7/7 깨져 있었다**(clean main stash 교차검증). 원인 = PR-3(#223)이 `JourneySession` 에 3칸·`RerouteProposal` 에 `alerted` 를 더했는데, 이 IT 의 스키마는 마이그레이션이 아니라 **ddl-auto** 가 만든다 — Hibernate 는 원시타입 필드를 **기본값 없는 not null** 로 내므로 V53 의 `default false` 가 오지 않는다. raw insert 가 `null value in column "reroute_alert_opt_in"` 로 죽는다. **이 PR 에서 고쳤다**(insert 에 4칸 추가). PR-3 세션이 `application.auth.*` 를 안 돌려 못 잡은 건이다 — **엔티티에 칸을 더하면 @Sql 체인뿐 아니라 ddl-auto IT 의 raw insert 도 본다.**
+- `RerouteAcceptTxService.requireStillApplicable` 이 쓰던 `fromLegIndexOf(apply)`(타입 분기)가 사라지고 **`RerouteCandidateApply.fromLegIndex()`** 가 인터페이스 계약이 됐다. 하위타입이 하나뿐이라 분기가 무의미해졌기 때문이지만, 종류가 다시 늘면 이 메서드가 그 계약을 강제한다.
+- 지표 `ride-duration-incomparable`(③ 공정성 게이트, PR4c)은 **생산자가 사라져** KNOWN_FILTER_REASONS 에서 뺐다. 목록에 남겨 두면 "0 인 계량기"가 대시보드에 영원히 남는다.
+
+### 좌표
+- 삭제(12): `service/{RouteOptionCandidateProvider,RouteOptionEtaCalculator,RerouteRouteOptionSource,StoredRouteOptionSource,UnionRouteOptionSource,OtpPatternRouteOptionSource}.java`, `test/.../service/{RouteOptionCandidateProviderTest,RouteOptionEtaCalculatorTest,StoredRouteOptionSourceTest,UnionRouteOptionSourceTest,OtpPatternRouteOptionSourceTest}.java`, `test/.../journey/RerouteRouteOptionIT.java`
+- 변경(주요): `RerouteAcceptTxService`(ROUTE_OPTION 분기 3곳+`chooseRouteOption`·`copyAll`·`selectByIndex`→`firstOption`), `JourneyRevisionComposer`(compose 분기·`Reason.ROUTE_OPTION_ACCEPTED`·`keepsStructure`), `RerouteCandidateApply`(하위타입 제거 + `fromLegIndex()` 계약), `JourneyRerouteProperties`(RouteOption 블록+validate), `application.yaml`(route-option 블록), `RerouteProposalKind`(폐기 주석), `RerouteCandidateProvider`(사다리 주석), `JourneyRerouteMetrics`, ③을 현재형으로 말하던 javadoc 10여 곳
+- 테스트: `RerouteCandidateContractTest`(ROUTE_OPTION 왕복 → **거절** 테스트로 교체), `RerouteProposalServiceTest`(대역 주석), `JourneyRevisionComposerTest`(16→14), `RerouteAcceptIT`(10→9, 동적 노선 수락 삭제), `RerouteProposalStoreIT`·`RerouteProposalExpiryIT`·`JourneyRerouteProposalSchemaIT`·`JourneyNotificationCancelOnEndIT` 픽스처 kind 교체, `JourneyReroutePropertiesTest`, **`WithdrawalDeletionBoundaryIT`(기존 파손 수리)**
+
+### 배포
+- **마이그레이션 없음.** 설정 키 `journey.reroute.route-option.*` 은 코드에서 사라졌다 — compose/VPS env 에 그 키를 넣어 둔 곳이 있으면 **무시된다**(Spring 은 모르는 키를 조용히 버린다). VPS compose 에는 없음(확인 필요 항목 아님).
+- 재탐색은 여전히 flag off → 프로덕션 동작 변화 0. 사라진 계량기 = `journey.reroute.candidate.filtered{reason=ride-duration-incomparable}`.
+
+### 검증
+- `application.journey.*` + `application.route.*` + `domain.journey.*` → **1305 tests, 1 failed** = `JourneyTransferAssessmentIT`(clean main 동일, **기존 무관**).
+- `NextrouteApplicationTests`(전체 컨텍스트 로드 — 빈 6개가 사라져도 배선이 성립하는지) + `infrastructure.*` + `architecture.*` + `application.auth.*` → **478 tests, 0 failed**(수리 전 7 fail).
+- 사다리 무회귀: `RerouteProposalServiceTest` 17/17(순서·폴스루·빈손).
+- 계약: `RerouteCandidateContractTest` 9/9(폐기 봉투 거절 신규 1).
+
+### 미결
+- **부르는 곳 없는 OTP 포트 2개**(`StopPatternPort`·`RouteRideDurationPort` + 어댑터·매퍼). national-otp 후속이 `stopPatterns` 를 쓰기로 되어 있어 남겼다. 그 작업이 접히면 함께 지울 것.
+- `reroute_proposal.kind` 의 DB 어휘는 그대로(ROUTE_OPTION 허용). 좁히려면 이력 행 처리 정책이 먼저다.

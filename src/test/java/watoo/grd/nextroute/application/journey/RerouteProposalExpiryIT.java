@@ -173,7 +173,7 @@ class RerouteProposalExpiryIT extends AbstractJourneyOutboxPostgresIT {
 
         // lazy 만 있을 때 막히던 자리다. 앱이 죽어 있으면 이 삽입이 영영 안 된다.
         txService.store(new RerouteContext(journeyId, userId, 1, 1L, 0, NOW),
-                RerouteProposalKind.ROUTE_OPTION, List.of(candidate()), NOW, NOW.plusSeconds(120));
+                RerouteProposalKind.REMAINING_PATH, List.of(candidate()), NOW, NOW.plusSeconds(120));
 
         assertThat(activeCount()).isEqualTo(1);
         assertThat(rows()).hasSize(2);
@@ -249,15 +249,17 @@ class RerouteProposalExpiryIT extends AbstractJourneyOutboxPostgresIT {
                     (created_at, updated_at, journey_id, user_id, route_revision,
                      kind, status, base_command_version, candidates,
                      snapshot_observed_at, expires_at)
-                values (now(), now(), ?, ?, 1, 'ROUTE_OPTION', 'ACTIVE', 1,
+                values (now(), now(), ?, ?, 1, 'REMAINING_PATH', 'ACTIVE', 1,
                         '{"version":1,"candidates":[]}'::jsonb, ?, ?)
                 """, journeyId, userId,
                 java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(expiresAt));
     }
 
     private RerouteCandidate candidate() {
-        return new RerouteCandidate(null, RerouteProposalKind.ROUTE_OPTION,
-                new RerouteCandidateApply.RouteOptionApply(1, 0, "BL-370", "UP"),
+        return new RerouteCandidate(null, RerouteProposalKind.REMAINING_PATH,
+                new RerouteCandidateApply.RemainingPathApply(1,
+                        new watoo.grd.nextroute.application.route.dto.PathResult(
+                                1, null, List.of(), List.of())),
                 new RerouteCandidateDisplay(NOW.plusSeconds(1_200), 1_200, 120, 1, 300,
                         "REALTIME", "HIGH", NOW.minusSeconds(20), List.of("370 버스")));
     }

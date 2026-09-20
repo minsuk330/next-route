@@ -3,7 +3,9 @@ package watoo.grd.nextroute.application.route.routing;
 /**
  * OTP 에 "이 정류장을 지나는 노선 pattern 이 무엇인가"를 묻는 포트(national-otp P2-F PR4b).
  *
- * <p>주행 중 재탐색 ③(같은 정류장 다른 노선)이 저장 후보 대신 실시간 pattern 에서 대안을 만들 때
+ * <p><b>지금은 부르는 곳이 없다</b>(journey-reroute-nextstop PR-5 가 유일한 소비자였던 ③을 지웠다).
+ * 남겨 두는 이유는 national-otp 후속(baseline 의 OTP 노선 id 되찾기)이 이 질의를 다시 쓰기로
+ * 되어 있어서다. 원래 쓰임은 — 주행 중 재탐색이 저장 후보 대신 실시간 pattern 에서 대안을 만들 때
  * 쓴다. 이 PR(PR-1)에서는 어댑터만 두고 <b>배선하지 않는다</b> — 소비는 PR-4.
  */
 public interface StopPatternPort {

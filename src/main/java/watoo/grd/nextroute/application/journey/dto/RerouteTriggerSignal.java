@@ -7,7 +7,7 @@ import java.time.Instant;
 /**
  * 재탐색을 찾아볼 만한 사건 하나.
  *
- * <p>이 PR 은 이 신호를 만들고 세기만 한다(shadow). 실제로 후보를 찾는 것은 ③④이고, 그때
+ * <p>이 PR 은 이 신호를 만들고 세기만 한다(shadow). 실제로 후보를 찾는 것은 ④이고, 그때
  * 이 신호가 {@code RerouteProposalService.request(...)} 로 넘어간다.
  *
  * @param previousStatus 직전 판정의 상태. 첫 평가면 null
