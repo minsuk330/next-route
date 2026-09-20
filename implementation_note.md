@@ -2885,3 +2885,13 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결
 - 교외선(RAIL)은 표시색이 없어 `lanes` 가 비어 나간다. 색을 넣을지, legacy 경계가 색 없이도 `lanes` 를 만들지는 별건.
 - 버스 `longName` 에도 방향이 있는지 미확인(2,676 노선). 버스는 원천에도 `wayCode` 가 없어 지금 쓸 데가 없다.
+## 2026-09-20 nextstop 모바일 HANDOFF 작성
+
+### 확정
+- `docs/plan/journey-reroute-nextstop/HANDOFF.md` 신설. 8 PR 에 흩어져 있던 "모바일 전달물"을 한 장으로 모았다 — 그전까지는 PR 본문과 이 노트에만 있어서 **모바일에 그대로 건넬 문서가 없었다**.
+- 담은 것 8절: ①깨지는 변경(`transferIndex`→`origin`, 요청 DTO 는 그대로) ②후보 모양(`display.alight` 축, 정류장당 1개, `walkingSec` 의미 확장) ③거절/무시 엔드포인트(멱등, 응답 3필드) ④수락 오류표(신규 `REROUTE_ALIGHT_UNAVAILABLE` vs 기존 STALE 의 차이 = "버스가 더 갔다" vs "제안이 낡았다") ⑤push data 페이로드 실물(`scopeId=proposalId`, deepLink) ⑥**`remainingStops` 의존**(안 보내면 기능 절반이 조용히 죽는다) ⑦확인 화면 재료 ⑧켜는 순서.
+- **필드·경로는 코드에서 직접 뽑았다**(추측 금지): `RerouteProposalResponse.ProposalBody`·`RerouteCandidateSummary`·`RerouteCandidateDisplay.AlightStop`·`RejectRerouteProposalRequest`·`RerouteProposalDecisionResponse`·컨트롤러 4개 경로·`FcmMessageFactory.data()`·`JourneyNotificationEnqueuer.enqueueRerouteSuggested`. 진행 보고 경로는 `PUT /api/journeys/{journeyId}/progress`(`JourneyController:177`) 로 확인.
+- **앱 배포가 플래그 ON 보다 먼저**라고 문서에 못박았다 — `origin` 을 못 읽는 옛 앱이 남아 있는 동안 켜면 제안 화면이 깨진다.
+
+### 좌표
+- 신규: `docs/plan/journey-reroute-nextstop/HANDOFF.md`
