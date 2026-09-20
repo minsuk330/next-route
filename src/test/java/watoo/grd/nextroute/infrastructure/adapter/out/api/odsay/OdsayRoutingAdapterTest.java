@@ -47,7 +47,6 @@ class OdsayRoutingAdapterTest {
             @Override public RouteSearchResult searchPath(double sx, double sy, double ex, double ey, long t) {
                 return fn.apply(sx, sy, ex, ey, t);
             }
-            @Override public List<LaneGraphicResult> loadLane(String mapObj) { return List.of(); }
         };
     }
 
@@ -70,7 +69,6 @@ class OdsayRoutingAdapterTest {
 
         OdSayApiPort port = new OdSayApiPort() {
             @Override public RouteSearchResult searchPath(double sx, double sy, double ex, double ey, long t) { return raw; }
-            @Override public List<LaneGraphicResult> loadLane(String mapObj) { return List.of(); }
         };
         OdsayRoutingAdapter adapter = new OdsayRoutingAdapter(port, clock);
 

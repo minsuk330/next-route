@@ -50,9 +50,6 @@ class RemainingRouteSearchServiceOtpTest {
                 double sx, double sy, double ex, double ey, long t) {
             throw new AssertionError("OTP 재탐색에서 ODsay 호출 금지");
         }
-        @Override public java.util.List<watoo.grd.nextroute.application.route.dto.LaneGraphicResult> loadLane(String m) {
-            return List.of();
-        }
     };
 
     private RemainingRouteSearchService service(RoutingOutcome otpOutcome) {

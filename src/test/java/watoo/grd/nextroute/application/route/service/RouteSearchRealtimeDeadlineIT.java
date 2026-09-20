@@ -99,8 +99,6 @@ class RouteSearchRealtimeDeadlineIT {
         OdSayApiPort odsay = mock(OdSayApiPort.class);
         when(odsay.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
                 .thenReturn(base);
-        RoutePolylineEnricher polyline = mock(RoutePolylineEnricher.class);
-        when(polyline.enrich(any(), any())).thenReturn(base);
         WalkSegmentEnricher walk = mock(WalkSegmentEnricher.class);
         when(walk.enrich(any(), anyDouble(), anyDouble(), any(), anyDouble(), anyDouble(), any(), any(), any()))
                 .thenReturn(base);
@@ -111,7 +109,7 @@ class RouteSearchRealtimeDeadlineIT {
         deadline.setTmapMs(100);
         RouteSearchService service = new RouteSearchService(
                 odsay, mock(TmapPedestrianPort.class),
-                polyline, walk, transferEnricher, metrics, deadline,
+                walk, transferEnricher, metrics, deadline,
                 new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
                         odsayProps(), java.util.List.of()),
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class),

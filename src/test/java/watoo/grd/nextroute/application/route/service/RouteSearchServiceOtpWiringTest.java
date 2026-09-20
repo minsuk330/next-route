@@ -46,9 +46,6 @@ class RouteSearchServiceOtpWiringTest {
         @Override public RouteSearchResult searchPath(double sx, double sy, double ex, double ey, long t) {
             throw new AssertionError("OTP 경로에서 ODsay 가 호출되면 안 됨");
         }
-        @Override public java.util.List<watoo.grd.nextroute.application.route.dto.LaneGraphicResult> loadLane(String m) {
-            return List.of();
-        }
     };
 
     /** permit 을 항상 내어주는 gate — 이 테스트는 gate 가 아니라 OTP 매핑/실패 변환을 본다. */
@@ -66,7 +63,7 @@ class RouteSearchServiceOtpWiringTest {
         RoutingProviderSelector selector = new RoutingProviderSelector(props, List.of(otpPort));
         return new RouteSearchService(
                 odsayNeverCalled, mock(watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort.class),
-                mock(RoutePolylineEnricher.class), mock(WalkSegmentEnricher.class),
+                mock(WalkSegmentEnricher.class),
                 mock(TransferArrivalEnricher.class),
                 new RouteSearchMetrics(new SimpleMeterRegistry()),
                 new RouteSearchDeadlineProperties(),

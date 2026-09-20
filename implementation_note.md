@@ -2821,3 +2821,33 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 배포
 - 마이그레이션 없음. VPS 조치 없음 — compose 의 `ROUTING_PROVIDER_*` 가 이미 같은 값이라 재배포해도 동작 변화 0. 이 PR 이후에는 그 env 를 지워도 OTP 로 남는다(원하는 상태).
+
+## 2026-09-20 national-otp P7 PR-2 — ODsay 폴리라인 스택 제거
+
+### 확정 (계약)
+- **지우는 건 폴리라인 스택뿐. ODSAY 라우팅 분기는 롤백 통로로 그대로 둔다**(사용자 결정). `OdsayRoutingAdapter`·`OdSayApiAdapter.searchPath`·`RoutingProvider.ODSAY`·`walkOnlyFallback(-98)`·TMAP 도보·환승 도착보강 전부 보존.
+- 스택은 **닫힌 고리**였다: 검색 seed(`RoutePolylineEnricher.requestCollection`) → `odsay_route_polyline_collection_job` → worker 스케줄러(60s) → `loadLane`(ODsay 유료) → `odsay_route_polyline` 캐시 → 다시 enricher 가 읽음. **진입점이 ODSAY 검색 분기 하나뿐**이라 OTP 전환 뒤 신규 유입이 0 이었고, 프로덕션 실측도 seed 0행·PENDING job 0행이었다.
+- `SearchComponent.POLYLINE` 상수 제거 = **응답 meta 계약 변화**. 검색 응답의 `meta.degraded` 목록에 `polyline` 이 다시는 안 나온다(OTP 전환 뒤로 이미 안 나오던 값). 클라는 목록을 소비만 하므로 깨지는 쪽은 없다.
+- `OdSayApiPort.loadLane` 제거로 포트가 `searchPath` 단일 메서드가 됐다. `OdSayApiAdapter` 의 `RestTemplate` 의존도 같이 사라짐 — **RestTemplate 은 loadLane 전용이었다**(searchPath 는 요청별 read timeout 때문에 RestClient 를 호출마다 만든다). RestTemplate 빈 자체는 kakao/subway 어댑터가 쓰므로 유지.
+- `LaneGraphicResult` 는 **남긴다** — `PathResult.laneGraphics` 가 legacy 응답 계약이고 `LegacyRouteResponseMapper` 가 채운다(항상 빈 목록). `OdSayLane` 도 검색 응답 `OdSaySubPath` 가 공유하므로 남긴다. 지운 DTO 는 lane 전용 4개(`OdSayLaneGraphic`/`OdSayLoadLaneResponse`/`OdSayLoadLaneResult`/`OdSayBoundary`)뿐.
+- 버스 형상 계열(`BusRoutePolyline*`, PostGIS·서울 API 축)은 **ODsay 와 무관** — 이름만 비슷하다. 손대지 않음.
+
+### 함정
+- `git rm` 이 `OdsayRoutePolylineDataService.java` 에서 막혔다 — 이전 세션이 붙여둔 미커밋 `@Deprecated`+미사용 import 때문. 이 PR 이 파일을 통째로 지우므로 `-f` 로 **삭제에 흡수**했다(별도 커밋 불필요).
+- 삭제 후 컴파일 에러가 **테스트 쪽에서만** 12개 났다. main 은 한 번에 통과 — 죽은 코드를 살아 있게 보이게 하던 건 전부 테스트였다는 뜻. 익명 `OdSayApiPort` 구현이 3곳(`RouteSearchServiceOtpWiringTest`, `RemainingRouteSearchServiceOtpTest`, `OdsayRoutingAdapterTest`)에 있어 포트 메서드를 지우면 "does not override" 로 터진다.
+- `RuntimeRoleProfileTest.WORKER_COMPONENTS` 가 worker 프로필 빈 목록을 하드코딩하고 있다 — 스케줄러를 지우면 여기도 같이 지워야 한다(컴파일로 잡히긴 한다).
+
+### 좌표
+- 삭제 26파일: `application/route/service/{RoutePolylineEnricher,OdsayRoutePolylineLoadService,OdsayRoutePolylineCollectionService,OdsayRoutePolylineSlicer,OdsayMapObjParser}`, `application/route/dto/{OdsayMapObjFragment,OdsayRoutePolylineData,OdsayRoutePolylinePoint}`, `domain/route/polyline/**`(entity 4·repository 3·service 1), `infrastructure/adapter/in/api/admin/OdsayRoutePolylineAdminController`, `infrastructure/adapter/in/scheduler/OdsayRoutePolylineCollectionScheduler`, odsay lane DTO 4, 테스트 4.
+- 수정: `OdSayApiPort.java`(loadLane 제거), `OdSayApiAdapter.java`(lane 블록 88줄 + RestTemplate 필드), `RouteSearchService.java`(폴리라인 단계·필드), `SearchComponent.java`(POLYLINE 상수).
+- 회귀 가드: `RouteSearchServiceTest.TC_ODSAY_롤백_경로는_폴리라인_없이_도보_환승_보강만_거친다`.
+
+### 검증
+- `./gradlew test` (전체): **2161 tests, 1 failed, 2 skipped**. 실패 = `JourneyTransferAssessmentIT.assessmentIsPersisted` — **기존 무관**(PR-1 에서 baseline 확인한 그 실패).
+- 테스트 총수가 2205 → 2161 로 준 것은 폴리라인 전용 테스트 4클래스(44케이스)를 지웠기 때문.
+- 남은 참조 0 확인: `rg 'OdsayRoutePolyline|RoutePolylineEnricher|OdsayMapObj|loadLane|LaneGraphic'` → V55 주석 외 히트 없음.
+
+### 배포
+- **V55 VPS 수동배치 필요** (`V55__drop_odsay_route_polyline.sql`). V18+ untracked convention 이라 CI 로 안 나간다 — 누락 시 테이블만 남고 기능 영향은 없지만, 배치 전까지 정리가 안 끝난 상태다.
+- ⚠ 선행 미배포분: **V53·V54 가 아직 VPS 에 없다**(journey-reroute-nextstop). V55 를 올리기 전에 번호 순서를 확인할 것.
+- 프로덕션 영향 없음: 드롭 대상 3테이블은 polyline 27행 / seed 0행 / job 27행(PENDING 0)뿐이고, 읽는 코드가 이 PR 로 사라졌다.

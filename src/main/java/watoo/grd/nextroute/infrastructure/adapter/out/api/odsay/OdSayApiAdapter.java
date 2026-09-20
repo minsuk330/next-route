@@ -9,7 +9,6 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 import watoo.grd.nextroute.application.route.config.OdSayProperties;
 import watoo.grd.nextroute.application.route.dto.*;
@@ -42,7 +41,6 @@ public class OdSayApiAdapter implements OdSayApiPort {
     /** 재시도 호출이 성립하려면 최소 이만큼은 남아 있어야 한다. */
     private static final long MIN_RETRY_CALL_MS = 200;
 
-    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final OdSayProperties odSayProperties;
     private final RouteSearchMetrics metrics;
@@ -244,94 +242,6 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 toPathInfo(path.getInfo()),
                 subPaths,
                 Collections.emptyList()
-        );
-    }
-
-    @Override
-    public List<LaneGraphicResult> loadLane(String mapObj) {
-        if (mapObj == null || mapObj.isBlank()) {
-            return Collections.emptyList();
-        }
-
-        String loadLaneMapObject = toLoadLaneMapObject(mapObj);
-        // apiKey는 URL 인코딩 필수 (키에 '/' 등 특수문자 포함 가능)
-        // mapObject는 URI.create()로 '@', ':' 그대로 전달 (UriComponentsBuilder는 이를 인코딩함)
-        String encodedApiKey = URLEncoder.encode(odSayProperties.getKey(), StandardCharsets.UTF_8);
-        String rawUrl = odSayProperties.getBaseUrl() + "/loadLane"
-                + "?apiKey=" + encodedApiKey
-                + "&mapObject=" + loadLaneMapObject;
-
-        try {
-            URI uri = URI.create(rawUrl);
-            String json = restTemplate.getForObject(uri, String.class);
-            if (json == null) return Collections.emptyList();
-            OdSayLoadLaneResponse response = objectMapper.readValue(json, OdSayLoadLaneResponse.class);
-
-            if (response.getError() != null && !response.getError().isNull()) {
-                JsonNode errorNode = response.getError();
-                JsonNode first = errorNode.isArray() ? errorNode.get(0) : errorNode;
-                String codeStr = first.has("code") ? first.get("code").asText() : "-1";
-                String msg = first.has("message") ? first.get("message").asText() : "Unknown ODsay error";
-                int code;
-                try { code = Integer.parseInt(codeStr); } catch (Exception ex) { code = -1; }
-                log.error("[OdSay] loadLane error: code={} msg={} mapObj={}", code, msg, loadLaneMapObject);
-                throw new OdSayApiException(code, msg);
-            }
-
-            if (response.getResult() == null || response.getResult().getLane() == null) {
-                return Collections.emptyList();
-            }
-            double[] base = parseBase(loadLaneMapObject);
-            return response.getResult().getLane().stream()
-                    .map(lane -> toLaneGraphicResult(lane, base[0], base[1]))
-                    .toList();
-        } catch (OdSayApiException e) {
-            throw e;
-        } catch (Exception e) {
-            log.warn("[OdSay] loadLane failed for mapObj={}: {}", loadLaneMapObject, e.getMessage());
-            return Collections.emptyList();
-        }
-    }
-
-    private String toLoadLaneMapObject(String mapObj) {
-        String trimmed = mapObj.trim();
-        String firstPart = trimmed.split("@", 2)[0];
-        String[] firstPartTokens = firstPart.split(":");
-        if (firstPartTokens.length == 2) {
-            return trimmed;
-        }
-
-        return "0:0@" + trimmed;
-    }
-
-    /** mapObj에서 BaseX, BaseY 추출. 형식: BaseX:BaseY@... */
-    private double[] parseBase(String mapObj) {
-        try {
-            String basePart = mapObj.split("@")[0];
-            String[] parts = basePart.split(":");
-            return new double[]{Double.parseDouble(parts[0]), Double.parseDouble(parts[1])};
-        } catch (Exception e) {
-            return new double[]{0, 0};
-        }
-    }
-
-    private LaneGraphicResult toLaneGraphicResult(OdSayLaneGraphic lane, double baseX, double baseY) {
-        List<List<CoordPoint>> sections = Collections.emptyList();
-        if (lane.getSection() != null) {
-            sections = lane.getSection().stream()
-                    .map(section -> {
-                        if (section.getGraphPos() == null) return List.<CoordPoint>of();
-                        return section.getGraphPos().stream()
-                                .filter(p -> p.getX() != null && p.getY() != null)
-                                .map(p -> new CoordPoint(baseX + p.getX(), baseY + p.getY()))
-                                .toList();
-                    })
-                    .toList();
-        }
-        return new LaneGraphicResult(
-                lane.getLaneClass() != null ? lane.getLaneClass() : 0,
-                lane.getType() != null ? lane.getType() : 0,
-                sections
         );
     }
 

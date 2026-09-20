@@ -50,7 +50,6 @@ public class RouteSearchService implements SearchRouteUseCase {
 
     private final OdSayApiPort odSayApiPort;
     private final TmapPedestrianPort tmapPort;
-    private final RoutePolylineEnricher polylineEnricher;
     private final WalkSegmentEnricher walkSegmentEnricher;
     private final TransferArrivalEnricher transferArrivalEnricher;
     private final RouteSearchMetrics metrics;
@@ -144,12 +143,7 @@ public class RouteSearchService implements SearchRouteUseCase {
                     System.nanoTime() - odsayStart);
         }
 
-        // 1. 지하철 노선 폴리라인 보강 (trafficType=1)
-        RouteSearchResult afterPolyline = result;
-        result = stage(ctx, SearchComponent.POLYLINE,
-                () -> polylineEnricher.enrich(afterPolyline, ctx));
-
-        // 2. TMAP 보행자 경로 보강 (trafficType=3)
+        // 1. TMAP 보행자 경로 보강 (trafficType=3)
         RouteSearchResult afterWalk = result;
         result = stage(ctx, SearchComponent.WALK,
                 () -> walkSegmentEnricher.enrich(afterWalk,
@@ -157,7 +151,7 @@ public class RouteSearchService implements SearchRouteUseCase {
                         request.endX(), request.endY(), request.endName(), ctx,
                         deadlineProperties));
 
-        // 3. 환승 도착예측 보강 (trafficType=2 버스) — baseline(STATIC)은 생략해 fan-out 낭비 방지.
+        // 2. 환승 도착예측 보강 (trafficType=2 버스) — baseline(STATIC)은 생략해 fan-out 낭비 방지.
         // withRealtime=false 는 요청이 실시간을 요구하지 않은 것이므로 degradation 이 아니다(단계 미적용).
         if (withRealtime) {
             RouteSearchResult afterBus = result;
