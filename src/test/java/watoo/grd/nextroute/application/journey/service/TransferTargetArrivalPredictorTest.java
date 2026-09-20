@@ -67,7 +67,9 @@ class TransferTargetArrivalPredictorTest {
         void setUp() {
             TransferPredictionInterpreter interpreter = new TransferPredictionInterpreter(properties);
             predictor = new BusTransferTargetArrivalPredictor(
-                    new BusBoardingTimeEstimator(predictTransferUseCase, interpreter),
+                    new BusBoardingTimeEstimator(predictTransferUseCase, interpreter,
+                            new watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics(
+                                    new io.micrometer.core.instrument.simple.SimpleMeterRegistry())),
                     routeOptionRepository, interpreter);
             waitLeg = waitLeg(JourneyLegType.WAIT_BUS, JourneyLegState.PENDING);
             given(routeOptionRepository.findById(OPTION_ID)).willReturn(Optional.of(busOption()));
@@ -274,7 +276,10 @@ class TransferTargetArrivalPredictorTest {
         @BeforeEach
         void setUp() {
             predictor = new SubwayTransferTargetArrivalPredictor(
-                    new SubwayBoardingTimeEstimator(arrivalReader), routeOptionRepository);
+                    new SubwayBoardingTimeEstimator(arrivalReader,
+                            new watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics(
+                                    new io.micrometer.core.instrument.simple.SimpleMeterRegistry())),
+                    routeOptionRepository);
             waitLeg = waitLeg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.PENDING);
             ReflectionTestUtils.setField(waitLeg, "routeId", "1002");
             given(routeOptionRepository.findById(OPTION_ID)).willReturn(Optional.of(subwayOption()));

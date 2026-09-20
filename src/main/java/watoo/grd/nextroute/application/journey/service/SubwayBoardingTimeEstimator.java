@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.journey.dto.BoardingOutcome;
 import watoo.grd.nextroute.application.journey.dto.BoardingQuery;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Quality;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Source;
+import watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics;
 import watoo.grd.nextroute.application.journey.port.out.BoardingTimeEstimator;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
@@ -31,7 +32,11 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class SubwayBoardingTimeEstimator implements BoardingTimeEstimator {
 
+    /** 관측용 mode tag. 버스와 지하철은 못 구하는 이유가 달라서 나눠 센다. */
+    private static final String MODE = "subway";
+
     private final SubwayRealtimeArrivalReader arrivalReader;
+    private final JourneyEvaluationMetrics metrics;
 
     @Override
     public boolean supports(JourneyLegType waitType) {
@@ -41,11 +46,13 @@ public class SubwayBoardingTimeEstimator implements BoardingTimeEstimator {
     @Override
     public BoardingOutcome estimate(BoardingQuery query, Instant anchorAt, Instant now, long budgetMs) {
         if (anchorAt == null || query.routeId() == null || query.stopId() == null) {
+            metrics.recordBoardingMiss(MODE, anchorAt == null ? "no_anchor" : "no_scope");
             return BoardingOutcome.none();
         }
         if (query.wayCode() == null) {
             // 방향을 모르면 반대 방향 열차를 집을 수 있다. 그럴듯하게 틀린 숫자보다 모름이 낫다.
             log.debug("지하철 승차 추정 불가 — stopId={}, 방향 미확정", query.stopId());
+            metrics.recordBoardingMiss(MODE, "no_way_code");
             return BoardingOutcome.none();
         }
 
@@ -59,7 +66,12 @@ public class SubwayBoardingTimeEstimator implements BoardingTimeEstimator {
                 .min(Instant::compareTo);
 
         if (boardable.isEmpty()) {
-            log.debug("지하철 승차 추정 없음 — stopId={}, 준비 시각 이후 열차가 목록에 없다", query.stopId());
+            // 조회는 됐는데 탈 열차가 없던 것과, 조회 자체가 비어 돌아온 것을 가른다 — 앞은
+            // 배차 문제이고 뒤는 노선·역 해석이나 provider 문제라 고칠 곳이 다르다.
+            String reason = arrivals.isEmpty() ? "no_arrival_rows" : "no_boardable_train";
+            log.info("지하철 승차 추정 없음 — stopId={}, routeId={}, wayCode={}, 사유={}",
+                    query.stopId(), query.routeId(), query.wayCode(), reason);
+            metrics.recordBoardingMiss(MODE, reason);
             return BoardingOutcome.none();
         }
         // 리더가 이미 앵커 이후 열차만 골랐으므로, 값이 있다는 것이 곧 탈 수 있다는 뜻이다.
