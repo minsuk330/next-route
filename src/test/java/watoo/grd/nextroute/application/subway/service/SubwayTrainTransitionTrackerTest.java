@@ -214,7 +214,7 @@ class SubwayTrainTransitionTrackerTest {
     // ── identity ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("같은 열차가 한 응답에 두 번 나오면 그 열차를 통째로 뺀다 — last-wins 금지")
+    @DisplayName("보고 시각이 같은데 스냅샷이 다르면 그 열차를 통째로 뺀다 — 순서를 가릴 근거가 없다")
     void isolatesDuplicateIdentityWithinOneResponse() {
         tracker.observe(complete("09:00:10", row("성수", SubwayTrainStatus.ARRIVED, "09:00:00")));
         tracker.observe(complete("09:01:10",
@@ -222,6 +222,68 @@ class SubwayTrainTransitionTrackerTest {
                 row("잠실", SubwayTrainStatus.ARRIVED, "09:01:00")));
 
         assertThat(log.events).isEmpty();
+    }
+
+    @Test
+    @DisplayName("중복이 recptnDt 만 다르면 최신 행으로 전이를 만든다 — 1·3·4호선 실측 10~15%")
+    void picksLatestRowWhenDuplicateIsSameStation() {
+        tracker.observe(complete("09:00:10", row("성수", SubwayTrainStatus.ARRIVED, "09:00:00")));
+
+        int created = tracker.observe(complete("09:01:10",
+                row("성수", SubwayTrainStatus.ARRIVED, "09:00:30"),
+                row("성수", SubwayTrainStatus.DEPARTED, "09:00:45")));
+
+        assertThat(created).isEqualTo(1);
+        assertThat(log.events).singleElement().satisfies(event -> {
+            assertThat(event.type()).isEqualTo(SubwayTrainEvent.Type.DEPARTED);
+            assertThat(event.stationName()).isEqualTo("성수");
+            assertThat(event.quality()).isEqualTo(SubwayTrainEvent.Quality.CORROBORATED);
+        });
+        // 격리하면 여기가 09:00:00 에 멈춘다 — 다음 관측이 두 역 밖이면 출발이 영영 안 만들어진다.
+        assertThat(log.remembered.values()).singleElement()
+                .satisfies(seen -> assertThat(seen.receivedAt()).isEqualTo(instant("09:00:45")));
+    }
+
+    @Test
+    @DisplayName("중복 두 행이 맞닿은 역이면 최신 행을 쓴다 — 앞뒤 스냅샷이다")
+    void picksLatestRowWhenDuplicateStationsAreAdjacent() {
+        tracker.observe(complete("09:00:10", row("성수", SubwayTrainStatus.ARRIVED, "09:00:00")));
+
+        int created = tracker.observe(complete("09:01:10",
+                row("성수", SubwayTrainStatus.DEPARTED, "09:00:30"),
+                row("건대입구", SubwayTrainStatus.ARRIVED, "09:00:45")));
+
+        assertThat(created).isEqualTo(2);
+        assertThat(log.events).extracting(SubwayTrainEvent::type)
+                .containsExactly(SubwayTrainEvent.Type.DEPARTED, SubwayTrainEvent.Type.ARRIVED);
+    }
+
+    @Test
+    @DisplayName("중복 두 행이 맞닿지도 않은 역이면 격리한다 — 열번이 겹친 다른 열차일 수 있다")
+    void isolatesDuplicateWhenStationsAreNotAdjacent() {
+        tracker.observe(complete("09:00:10", row("성수", SubwayTrainStatus.ARRIVED, "09:00:00")));
+
+        int created = tracker.observe(complete("09:01:10",
+                row("잠실", SubwayTrainStatus.ARRIVED, "09:00:30"),
+                row("건대입구", SubwayTrainStatus.ARRIVED, "09:00:45")));
+
+        assertThat(created).isZero();
+        assertThat(log.events).isEmpty();
+        assertThat(log.remembered.values()).singleElement()
+                .satisfies(seen -> assertThat(seen.receivedAt()).isEqualTo(instant("09:00:00")));
+    }
+
+    @Test
+    @DisplayName("같은 행이 그대로 복제됐으면 한 번만 반영한다")
+    void acceptsExactDuplicateRows() {
+        tracker.observe(complete("09:00:10", row("성수", SubwayTrainStatus.ARRIVED, "09:00:00")));
+
+        int created = tracker.observe(complete("09:01:10",
+                row("성수", SubwayTrainStatus.DEPARTED, "09:00:45"),
+                row("성수", SubwayTrainStatus.DEPARTED, "09:00:45")));
+
+        assertThat(created).isEqualTo(1);
+        assertThat(log.events).hasSize(1);
     }
 
     @Test

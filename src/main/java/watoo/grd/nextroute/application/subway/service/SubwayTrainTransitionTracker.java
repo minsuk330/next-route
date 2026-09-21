@@ -17,11 +17,12 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * 위치 스냅샷 두 장을 견줘 "이 열차가 저 역을 출발했다·도착했다"를 만든다.
@@ -77,8 +78,7 @@ public class SubwayTrainTransitionTracker {
             return 0;
         }
 
-        Map<TrainIdentity, SubwayPositionInfo> byIdentity = new HashMap<>();
-        Set<TrainIdentity> conflicted = new HashSet<>();
+        Map<TrainIdentity, List<Sample>> byIdentity = new LinkedHashMap<>();
         for (SubwayPositionInfo row : result.rows()) {
             if (!row.isTrackable()) {
                 continue;
@@ -87,26 +87,93 @@ public class SubwayTrainTransitionTracker {
             if (receivedAt == null) {
                 continue;
             }
-            TrainIdentity identity = identityOf(row, receivedAt);
-            if (byIdentity.put(identity, row) != null) {
-                // 같은 열차가 한 응답에 두 번 나왔다. 어느 쪽이 진짜인지 알 수 없으므로
-                // 마지막 것으로 덮지 않고 이 열차를 이번 회차에서 통째로 뺀다.
-                conflicted.add(identity);
-            }
-        }
-        if (!conflicted.isEmpty()) {
-            log.warn("[TrainTransition] identity 중복 — lineId={}, {}건 격리",
-                    result.lineId(), conflicted.size());
+            byIdentity.computeIfAbsent(identityOf(row, receivedAt), key -> new ArrayList<>())
+                    .add(new Sample(row, receivedAt));
         }
 
         int created = 0;
-        for (Map.Entry<TrainIdentity, SubwayPositionInfo> entry : byIdentity.entrySet()) {
-            if (conflicted.contains(entry.getKey())) {
+        int resolved = 0;
+        int quarantined = 0;
+        for (Map.Entry<TrainIdentity, List<Sample>> entry : byIdentity.entrySet()) {
+            List<Sample> samples = entry.getValue();
+            Sample chosen = samples.size() == 1
+                    ? samples.get(0)
+                    : resolveDuplicate(entry.getKey(), samples);
+            if (chosen == null) {
+                quarantined++;
                 continue;
             }
-            created += observeOne(entry.getKey(), entry.getValue(), result.fetchedAt());
+            if (samples.size() > 1) {
+                resolved++;
+            }
+            created += observeOne(entry.getKey(), chosen.row(), result.fetchedAt());
+        }
+        if (resolved > 0 || quarantined > 0) {
+            log.warn("[TrainTransition] 중복 열차 — lineId={}, 최신 채택 {}건, 격리 {}건",
+                    result.lineId(), resolved, quarantined);
         }
         return created;
+    }
+
+    /**
+     * 같은 열차가 한 응답에 여러 번 실려 왔을 때 어느 행을 쓸지 고른다.
+     *
+     * <p>실측: 1·3·4호선에서 열차의 <b>10~15%</b> 가 매 회차 중복으로 온다(2호선은 0). 두 행은
+     * 대개 {@code recptnDt} 만 다른 같은 열차의 앞뒤 스냅샷이라 <b>최신이 명확히 있다</b>.
+     *
+     * <p>예전에는 이런 열차를 그 회차에서 통째로 뺐다. 그러면 {@link SubwayTrainLogPort#remember}
+     * 까지 건너뛰어 다음 관측이 몇 분 묵은 관측과 비교되고, 그 사이 열차가 두 역 이상 움직였으면
+     * {@link #movedStation}의 인접 판정에 막혀 <b>출발 사건이 아예 안 만들어진다</b>. 출발이 없으면
+     * 그 열차는 출발 색인에 없고, 그 열차를 탄 사용자는 후보가 0이라 고정이 안 된다.
+     *
+     * <p>그래도 <b>열번이 겹친 서로 다른 열차</b>일 가능성은 남는다. 그때 최신을 고르면 두 열차
+     * 사이를 오가는 가짜 이동이 생긴다. 그래서 두 가지 경우에만 예전처럼 격리한다 —
+     * ①최신 행의 역이 다른 행의 역과 같지도 맞닿지도 않을 때 ②가장 최신이 둘인데 그 둘이 서로
+     * 다른 스냅샷일 때(순서를 가릴 근거가 없다).
+     *
+     * @return 채택할 표본. 가릴 수 없으면 {@code null}
+     */
+    private Sample resolveDuplicate(TrainIdentity identity, List<Sample> samples) {
+        Sample latest = samples.get(0);
+        for (Sample sample : samples) {
+            if (sample.receivedAt().isAfter(latest.receivedAt())) {
+                latest = sample;
+            }
+        }
+        for (Sample sample : samples) {
+            if (sample == latest) {
+                continue;
+            }
+            if (!sample.receivedAt().isBefore(latest.receivedAt())) {
+                // 같은 시각이 둘이다. 같은 스냅샷이 복제된 것이면 어느 쪽을 써도 결과가 같다.
+                if (!isSameSnapshot(sample.row(), latest.row())) {
+                    return null;
+                }
+                continue;
+            }
+            if (!isSameTrainTrack(identity, latest.row(), sample.row())) {
+                return null;
+            }
+        }
+        return latest;
+    }
+
+    /** 역·상태가 모두 같으면 같은 스냅샷이다. */
+    private boolean isSameSnapshot(SubwayPositionInfo a, SubwayPositionInfo b) {
+        return Objects.equals(a.stationId(), b.stationId()) && a.status() == b.status();
+    }
+
+    /** 같은 역이거나 맞닿은 역이면 한 열차의 앞뒤 스냅샷으로 본다. */
+    private boolean isSameTrainTrack(TrainIdentity identity,
+                                     SubwayPositionInfo latest, SubwayPositionInfo older) {
+        if (Objects.equals(latest.stationId(), older.stationId())) {
+            return true;
+        }
+        return adjacency.isAdjacent(identity.lineId(), older.stationName(), latest.stationName());
+    }
+
+    /** 응답 한 행과 그 행의 {@code recptnDt}. 시각을 두 번 파싱하지 않으려고 같이 들고 다닌다. */
+    private record Sample(SubwayPositionInfo row, Instant receivedAt) {
     }
 
     private int observeOne(TrainIdentity identity, SubwayPositionInfo row, Instant fetchedAt) {
