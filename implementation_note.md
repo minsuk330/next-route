@@ -3037,3 +3037,37 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 함정
 - **"보강 상한 1500ms = 지연 +1.5초"가 아니다.** 상한은 cap 이고 실제 비용은 버스 도착 API 평균 63ms + ML 100ms + wave 병렬(동시 8)이다. 실측 증가분은 ~0.1s. 예산을 정할 때 cap 을 비용으로 읽으면 과하게 잡게 된다.
+
+## OTP 재탐색 IT (branch test/otp-reroute-it, 2026-09-27)
+
+### 확정
+- IT 2개로 나눔: `RerouteRemainingPathOtpLiveIT`(실 OTP, 행복 경로 1개) + `RerouteRemainingPathOtpIT`(MockWebServer, 출발시각·500·GraphQL errors·gate 포화). 실 서버로는 요청 body 를 꺼낼 수 없고 죽일 수도 없어서다
+- 계획 하차점 원점의 OTP `when` = `transfer_connection.user_ready_at` (RemainingPathCandidateProvider#origins). ODSAY 에는 출발시각 칸이 없어 이 계약은 OTP IT 로만 검증 가능
+
+### 함정
+- `@MockBean OtpRoutingAdapter` 불가 ← `RoutingProviderSelector` 생성자가 부팅 때 `port.provider()` 호출, mock 은 null → `EnumMap.put(null)` NPE 로 컨텍스트 사망 / 가드: OTP 는 MockWebServer 로 대체
+- `@MockBean OtpConcurrencyGate` 기본 반환 = `Optional.empty()` = **포화** ← Mockito 가 Optional 을 비워 준다 / 가드: setUp 에서 permit stub 필수
+- 롯데백화점→고속터미널은 graph 가 **143번만** 줌(3 itinerary 전부, trip 만 다름). 계획 경로의 갈아탈 노선을 143 으로 두면 same-as-current 필터로 후보 전멸 / 가드: 계획 노선은 가짜 721
+- OTP id 가 서울 id 로 안 풀려도 에러 없음 ← `OtpSeoulIdentityResolver` 가 bus_stop/bus_route 존재검증 실패 시 empty → 후보 조용히 "예측 없음" / 가드: live IT 단언을 "예측이 서울 routeId 로 불렸다"까지 내림
+- live IT 시드 id(101000041·121000020·100100022)는 graph `g4e098383` 실측값. graph 재빌드 시 깨질 수 있음(의도된 감지)
+
+### 좌표
+- 원점 departAt: `RemainingPathCandidateProvider.java` origins() — 계획 하차점 = userReadyAt
+- OTP 요청 body `when`: `OtpRoutingAdapter.java` requestBody() — Asia/Seoul OffsetDateTime
+- 서울 id 해석: `OtpSeoulIdentityResolver.java` resolveBus()
+
+### 검증
+- `./gradlew compileTestJava` exit=0 (경고=@MockBean deprecation, 기존 무관)
+- 기준선: `RerouteRemainingPathIT` 4/4 실패 — `Connection to localhost:5432 refused` (로컬 Postgres 미기동, 기존 무관·환경)
+- `./gradlew test --tests RerouteRemainingPathIT --tests RerouteRemainingPathOtpIT` → 4/4 + 4/4 통과 (로컬 Postgres 기동 후. 앞의 5432 거부는 해소)
+- 뮤테이션: `RemainingRouteSearchService.loadOtp` 의 departureAt 을 `now` 로 고정 → 출발시각 테스트 실패(`[지금이 아니다] -0.129804S`), 나머지 3개 통과. 원복 확인(git diff 없음)
+- `RerouteRemainingPathOtpLiveIT` 터널 없이 실행 → skipped=1 (@EnabledIf 정상)
+
+### 함정 (추가)
+- `localhost:18080` 은 로컬 OTP 가 아니라 **VPS 운영 OTP 로 가는 SSH 터널**이다 ← VPS `nextroute-otp-1` 이 `127.0.0.1:18080` 에만 바인딩. 터널이 닫히면 live IT 는 조용히 skip / 가드: 돌릴 때 `ssh -N -L 18080:127.0.0.1:18080 vps` 로 명시적으로 연다. live IT 는 **운영 OTP 에 읽기 질의**를 보낸다는 점을 알고 돌릴 것
+- 실호출(터널 경유 VPS 운영 OTP): `RerouteRemainingPathOtpLiveIT` 1/1 통과, 1.46s. 운영 OTP 에 경로 질의 1건
+- 뮤테이션: `OtpSeoulIdentityResolver.resolveBus` 가 empty 반환 → live IT 실패 `Wanted but not invoked ... "100100022" ... zero interactions` (노린 "조용한 예측 누락" 그대로). 원복 확인
+- ~~시드를 빼면 live IT 가 실패한다~~ 취소: 로컬 DB 에 실 정적표가 있다(bus_stop 12,981 / bus_route 729, 143번·두 정류장 포함). 시드는 `on conflict do nothing` 이라 이 DB 에선 아무것도 안 넣고, 빈 DB(CI 등)에서만 효과가 있다
+
+### 함정 (추가 2)
+- live IT 가 터널이 열려 있어도 skip ← `@EnabledIf` 가드의 JDK HttpClient 가 기본으로 h2c 업그레이드를 붙이고, OTP 가 그 POST 를 받다가 멈춤(curl `--http2` 도 status=000 타임아웃) / 가드: `HttpClient.Version.HTTP_1_1` 고정. 2026-09-17 `JdkClientHttpRequestFactory` POST 멈춤(PR #204)과 같은 계열일 가능성 — 미검증
