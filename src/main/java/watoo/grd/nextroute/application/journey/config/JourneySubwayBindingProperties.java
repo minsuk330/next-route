@@ -45,13 +45,6 @@ public class JourneySubwayBindingProperties {
     /** {@code PENDING} 전용. 이동 시작 관측이 이보다 오래되면 판정을 포기한다. */
     private Duration matchWindow = Duration.ofMinutes(6);
 
-    /**
-     * {@code PROVISIONAL} 전용. 잠정 판정 감사행의 {@code received_at} 부터 잰다.
-     *
-     * <p>{@link #matchWindow} 와 기준 시각이 달라야 한다. 둘 다 이동 시작부터 재면 6분 넘긴
-     * 잠정 판정이 확정 기회를 못 갖고 바로 접힌다.
-     */
-    private Duration confirmWindow = Duration.ofMinutes(8);
 
     /** 관문 (1). 1위 후보의 오차가 이보다 크면 유일해도 고정하지 않는다. */
     private Duration absoluteMaxSkew = Duration.ofSeconds(150);

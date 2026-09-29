@@ -156,7 +156,7 @@ public class SubwayBindingMatchService {
                 recovered.clockSuspect(),
                 recovered.episodeFrom(), recovered.episodeTo(), currentTrainOf(binding),
                 plannedNextStation(binding, ride, recovered),
-                recovered.candidates(), arrivals, recovered.provisionalDecidedAt());
+                recovered.candidates(), arrivals);
     }
 
     /**
@@ -310,8 +310,7 @@ public class SubwayBindingMatchService {
                 resumedAt == null ? stationaryAt : resumedAt,
                 episode == null ? null : episode.getEvidenceSequence(),
                 rejectedTrains(rows),
-                candidatesOf(provisional),
-                provisional == null ? null : provisional.getReceivedAt());
+                candidatesOf(provisional));
     }
 
     private SubwayBindingEvent latest(List<SubwayBindingEvent> rows, SubwayBindingEventType type,
@@ -424,7 +423,6 @@ public class SubwayBindingMatchService {
             Instant episodeTo,
             Integer episodeSequence,
             Set<TrainIdentity> rejected,
-            List<SubwayBindingCandidate> candidates,
-            Instant provisionalDecidedAt) {
+            List<SubwayBindingCandidate> candidates) {
     }
 }

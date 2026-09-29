@@ -152,14 +152,21 @@ class SubwayRingIT {
     }
 
     @Test
-    @DisplayName("미확정 고정은 대상이 아니다 — 어느 열차인지 모른 채 링을 그리면 안 된다")
-    void skipsUnconfirmed() {
+    @DisplayName("잠정 고정도 훑는다 — 후보가 하나뿐인 한산한 시간대에도 링이 떠야 한다(2026-09-29 결정)")
+    void scansProvisional() {
         insertBinding("PROVISIONAL");
-        assertThat(ringTargets()).isEmpty();
 
+        assertThat(ringTargets()).containsExactly(rideLegId);
+    }
+
+    @Test
+    @DisplayName("PENDING 은 훑지 않는다 — 아직 어느 열차인지 하나도 고르지 못했다")
+    void skipsPending() {
+        insertBinding("PROVISIONAL");
         jdbcTemplate.update(
                 "update subway_leg_binding set status = 'PENDING' where journey_leg_id = ?",
                 rideLegId);
+
         assertThat(ringTargets()).isEmpty();
     }
 
@@ -235,9 +242,27 @@ class SubwayRingIT {
     }
 
     @Test
-    @DisplayName("미확정 고정에는 링을 만들지 않는다")
-    void unconfirmedBindingWritesNoRing() {
+    @DisplayName("잠정 고정에도 링을 만든다 — 확정과 같은 모양이다")
+    void provisionalBindingWritesRing() {
         insertBinding("PROVISIONAL");
+        given(realtimeCachePort.readSnapshot()).willReturn(Optional.of(snapshotOf(
+                arrivalRow(STATN_MIDDLE, "중간역", "99", 90))));
+
+        updateService.runOnce();
+
+        SubwayRingState saved = savedRing();
+        assertThat(saved.nextStationName()).isEqualTo("중간역");
+        assertThat(saved.quality()).isEqualTo(SubwayRingQuality.NORMAL);
+        assertThat(saved.estimatedNextStationAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("PENDING 에는 링을 만들지 않는다")
+    void pendingBindingWritesNoRing() {
+        insertBinding("PROVISIONAL");
+        jdbcTemplate.update(
+                "update subway_leg_binding set status = 'PENDING' where journey_leg_id = ?",
+                rideLegId);
 
         updateService.runOnce();
 

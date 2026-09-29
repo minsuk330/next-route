@@ -560,7 +560,6 @@ journey:
       # 아래 관문 값은 전부 잠정값이다. 실기기 관측 전에는 근거가 없어 코드가 아니라 여기 둔다.
       # 관측 해상도(열차별 p50 56초·p90 84초)에서 역산했다.
       match-window: PT6M
-      confirm-window: PT8M
       absolute-max-skew: PT150S
       clock-skew-budget: PT20S
       motion-uncertainty: PT30S

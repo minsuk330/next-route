@@ -86,8 +86,7 @@ public class SubwayTrainMatcher {
             TrainIdentity currentTrain,
             String plannedNextStation,
             List<SubwayBindingCandidate> knownCandidates,
-            Map<TrainIdentity, List<SubwayTrainEvent>> arrivalsByCandidate,
-            Instant provisionalDecidedAt
+            Map<TrainIdentity, List<SubwayTrainEvent>> arrivalsByCandidate
     ) {
     }
 
@@ -218,10 +217,9 @@ public class SubwayTrainMatcher {
      * 어긋난 채 자신 있게 확정된다. 배차간격과 같은 자릿수라 그대로 오답이다.
      */
     private SubwayBindingDecision confirmStage(MatchInput input) {
-        if (input.provisionalDecidedAt() != null
-                && expired(input.provisionalDecidedAt(), properties.getConfirmWindow(), input.now())) {
-            return SubwayBindingDecision.abandon("confirm-window-expired");
-        }
+        // 확정 창 만료로 잠정을 접지 않는다(2026-09-29). 잠정에도 링을 그리므로, 접으면 운행 중
+        // 링이 꺼진다. 잠정은 확정·교정·사용자 reset·여정/개정본 종료로만 끝난다. 늦게 온 정차
+        // 관측으로 뒤 역에서 확정될 기회는 계속 열어 둔다.
         if (input.episodeFrom() == null || input.episodeTo() == null) {
             return SubwayBindingDecision.none("no-episode");
         }
