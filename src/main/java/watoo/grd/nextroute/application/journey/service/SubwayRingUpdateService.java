@@ -102,7 +102,7 @@ public class SubwayRingUpdateService {
             return;
         }
         ringPort.save(state);
-        metrics.recordUpdated(state, observation);
+        metrics.recordUpdated(state, observation, binding.getStatus());
 
         // 원격 갱신은 링 저장과 규칙이 다르다 — 링은 latest-wins 로 덮어써도 되지만 push 는
         // 화면이 실제로 바뀔 때만, 그리고 최신인 동안만 재시도한다. 트랜잭션도 따로 연다.

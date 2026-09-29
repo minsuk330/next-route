@@ -298,6 +298,20 @@ class SubwayRingPushIT {
     }
 
     @Test
+    @DisplayName("잠정 고정도 발송한다 — 잠금화면은 잠정부터 따라온다(2026-09-29 결정)")
+    void provisionalBindingIsSent() {
+        registerTokens();
+        jdbcTemplate.update("""
+                update subway_leg_binding set status = 'PROVISIONAL' where journey_leg_id = ?
+                """, rideLegId);
+        enqueueService.enqueueIfChanged(null, ring(1, "0.4500"), rideLeg);
+
+        relayService.runOnce();
+
+        assertThat(statusOfSequence(1L)).isEqualTo("SENT");
+    }
+
+    @Test
     @DisplayName("고정이 접히면 발송하지 않는다")
     void abandonedBindingIsNotSent() {
         registerTokens();

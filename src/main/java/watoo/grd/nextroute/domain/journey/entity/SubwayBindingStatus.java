@@ -32,8 +32,14 @@ public enum SubwayBindingStatus {
         return this == PENDING || this == PROVISIONAL;
     }
 
-    /** 하차 안내를 낼 수 있는 상태인지. */
-    public boolean allowsAlightGuidance() {
-        return this == CONFIRMED;
+    /**
+     * 열차가 정해져 있는지 — 진행 링·잠금화면을 그리는 상태다.
+     *
+     * <p>잠정도 포함한다(2026-09-29 결정). 후보가 하나뿐이면 판정기는 확정하지 않으므로, 확정만
+     * 그리면 배차가 뜸한 시간대에는 링이 한 번도 안 뜬다. 하차 안내도 확정과 똑같이 낸다 —
+     * 원래 설계의 "미확정이면 하차 안내 금지"(M7 C6)는 이 결정으로 폐기됐다.
+     */
+    public boolean isBound() {
+        return this == PROVISIONAL || this == CONFIRMED;
     }
 }

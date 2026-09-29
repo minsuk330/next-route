@@ -51,7 +51,6 @@ class SubwayTrainMatcherTest {
         properties.setAbsoluteMaxSkew(Duration.ofSeconds(150));
         properties.setHeadwayBeta(0.5);
         properties.setMatchWindow(Duration.ofMinutes(6));
-        properties.setConfirmWindow(Duration.ofMinutes(8));
         properties.setEpisodeMatchTolerance(Duration.ofSeconds(90));
         matcher = new SubwayTrainMatcher(properties, new DestinationNormalizer());
     }
@@ -229,25 +228,18 @@ class SubwayTrainMatcherTest {
     // ── 후행 확정 ───────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("판정 창을 넘긴 잠정 판정도 확정 창까지는 산다 — 두 창의 기준 시각이 다르다")
-    void confirmWindowIsMeasuredFromTheProvisionalDecision() {
-        SubwayBindingDecision decision = matcher.match(
-                provisional()
-                        .withMovementStart(at(-420))
-                        .withProvisionalDecidedAt(at(-60))
-                        .withNow(at(0))
-                        .build());
+    @DisplayName("오래된 잠정도 접지 않는다 — 잠정에도 링이 그려지므로 버리면 운행 중 링이 꺼진다(2026-09-29 결정)")
+    void staleProvisionalIsNeverAbandoned() {
+        for (int minutesAgo : new int[] {1, 10, 60}) {
+            SubwayBindingDecision decision = matcher.match(
+                    provisional()
+                            .withMovementStart(at(-60 * minutesAgo - 30))
+                            .withNow(at(0))
+                            .build());
 
-        assertThat(decision.kind()).isNotEqualTo(SubwayBindingDecision.Kind.ABANDON);
-    }
-
-    @Test
-    @DisplayName("확정 창을 넘기면 접는다")
-    void abandonsAfterConfirmWindow() {
-        SubwayBindingDecision decision = matcher.match(
-                provisional().withProvisionalDecidedAt(at(-600)).build());
-
-        assertThat(decision.reason()).isEqualTo("confirm-window-expired");
+            assertThat(decision.kind()).as("%d분 전 잠정", minutesAgo)
+                    .isNotEqualTo(SubwayBindingDecision.Kind.ABANDON);
+        }
     }
 
     @Test
@@ -379,8 +371,7 @@ class SubwayTrainMatcherTest {
                 .withKnownCandidates(List.of(candidate("1001", -5, 5), candidate("2002", 115, 125)))
                 .withCurrentTrain(train("1001"))
                 .withPlannedNextStation("시청")
-                .withEpisode(at(0), at(10))
-                .withProvisionalDecidedAt(at(-60));
+                .withEpisode(at(0), at(10));
     }
 
     /** 시험이 읽히게 하려는 대역. 기본값은 "판정이 되는 상태"이고 각 시험이 한 축만 흔든다. */
@@ -401,7 +392,6 @@ class SubwayTrainMatcherTest {
         private String plannedNextStation;
         private List<SubwayBindingCandidate> knownCandidates = List.of();
         private final Map<TrainIdentity, List<SubwayTrainEvent>> arrivals = new LinkedHashMap<>();
-        private Instant provisionalDecidedAt;
 
         private InputBuilder(SubwayBindingStatus status) {
             this.status = status;
@@ -468,11 +458,6 @@ class SubwayTrainMatcherTest {
             return this;
         }
 
-        InputBuilder withProvisionalDecidedAt(Instant value) {
-            this.provisionalDecidedAt = value;
-            return this;
-        }
-
         InputBuilder withArrival(TrainIdentity identity, String stationName,
                                  long fromSeconds, long toSeconds) {
             arrivals.computeIfAbsent(identity, key -> new java.util.ArrayList<>())
@@ -486,7 +471,7 @@ class SubwayTrainMatcherTest {
             return new SubwayTrainMatcher.MatchInput(status, movementStartedAt, departures,
                     rejected, lineId, direction, boardStation, now, clockSuspect,
                     episodeFrom, episodeTo, currentTrain, plannedNextStation, knownCandidates,
-                    arrivals, provisionalDecidedAt);
+                    arrivals);
         }
     }
 }

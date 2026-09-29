@@ -115,8 +115,10 @@ GET {subway-base-url}/{key}/json/realtimePosition/0/1000/{호선명}
 | C2 | 클라이언트가 보낸 `trainNo`를 **신뢰하지 않는다**. 클라는 motion evidence만 보내고 후보 검색·고정은 서버가 한다 | 앱이 열차를 정하면 서버는 검증할 근거가 없다 |
 | C3 | **유일 후보가 아니면 고정하지 않는다.** 관문 미통과는 `PROVISIONAL` 유지 | 틀린 고정이 맞는 고정보다 훨씬 비싸다(하차역 지나침) |
 | C4 | 고정 후 **자동 교체 금지**. 누락은 freeze + `STALE` | 다른 열차로 조용히 갈아타면 사용자는 자기 화면이 왜 바뀌었는지 모른다 |
+|  | ↳ **2026-09-29 완화** — 잠정에도 링을 그리므로 잠정→교정 때 링이 새 열차로 한 번 튄다(사용자 결정). `docs/plan/subway-ring-provisional/` |
 | C5 | Island 표시 상태는 `RIDE_SUBWAY`·`SUBWAY_ALIGHT` **둘뿐** | 원본 설계 §3.2 |
 | C6 | **미확정(`PENDING`/`PROVISIONAL`) 상태에서는 하차 관련 안내를 일절 내보내지 않는다.** `SUBWAY_ALIGHT` 전환·`하차 준비`·`ALIGHT_NOW` 전부 `CONFIRMED` 이후에만 | 앞차·뒤차 어느 쪽으로 표시해도 위험(일찍 내림 / 지나침). **안전한 쪽이 존재하지 않는다** |
+|  | ↳ **2026-09-29 폐기** — 잠정에도 하차 단계·push 를 확정과 똑같이 낸다(사용자 결정, 후보 1대면 확정이 안 돼 한산 시간대 링이 안 뜨던 문제). `docs/plan/subway-ring-provisional/` |
 | C7 | 진행 링은 **DB `journey_leg.progress_*` 에 쓰지 않는다** | 그 칸은 앱 progress 보고가 소유한다(§4 근거 3) |
 | C8 | `WaitSubwayArrivalPredictor` 의 "다음 열차"는 **binding 판정에 일절 쓰지 않는다** | 관문 (2)가 통과 시 유일 best 를 보장하므로 tie-break 가 도달 불가능한 죽은 분기였다. SC-6("탈 열차를 확정하는 기능이 아니다")도 그대로 지켜진다 |
 | C9 | 열차 위치·출발 판정에 `realtimeStationArrival` 을 쓰지 않는다 | §2 |

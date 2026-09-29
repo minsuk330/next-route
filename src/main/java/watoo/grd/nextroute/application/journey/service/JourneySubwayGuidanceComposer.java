@@ -9,7 +9,6 @@ import watoo.grd.nextroute.application.journey.port.out.SubwayRingPort;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
-import watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
 
@@ -31,12 +30,15 @@ import java.util.Optional;
  * {@code WAIT_SUBWAY} 면 짝 {@code RIDE_SUBWAY} 의 고정을 메모리에서 찾아 붙인다 — 질의를 더
  * 만들지 않는다.
  *
- * <h2>확정 전에는 링을 만들지 않는다</h2>
+ * <h2>열차가 정해지면 링을 싣는다 — 잠정도</h2>
  *
- * <p>{@code PENDING}·{@code PROVISIONAL} 에서는 다음 역과 진행률을 <b>비운다</b>. 모르는 것을
- * 계획값으로 채우면 앱은 그것을 실시간으로 읽고, 그 화면을 믿은 사용자는 역을 지나친다.
- * 확정됐는데 링이 없으면(캐시 유실·갱신기 꺼짐) 상태만 {@code CONFIRMED} 로 두고 값은 비운다 —
- * {@code quality=STALE} 이 그 사실을 말한다.
+ * <p>{@code PROVISIONAL}·{@code CONFIRMED} 면 링을 싣는다(2026-09-29 결정, 이전에는 확정만).
+ * 후보가 하나뿐이면 판정기가 확정하지 않아 확정만 그리면 한산한 시간대에 링이 안 뜬다.
+ * {@code bindingStatus} 는 사실대로 {@code PROVISIONAL} 을 내리고, 앱이 확정과 <b>구분 없이</b>
+ * 그린다 — "추정/확인 중" 표시를 하지 않기로 했다(모바일 HANDOFF).
+ *
+ * <p>{@code PENDING} 에서는 여전히 다음 역과 진행률을 비운다 — 고른 열차가 없다. 열차는
+ * 정해졌는데 링이 없으면(캐시 유실·갱신기 꺼짐) 상태만 두고 값은 비운다.
  */
 @Slf4j
 @Component
@@ -66,7 +68,7 @@ public class JourneySubwayGuidanceComposer {
             return null;
         }
         String lineName = lineNameOf(currentLegIndex, legs, optionsByLeg);
-        if (binding.getStatus() != SubwayBindingStatus.CONFIRMED) {
+        if (!binding.getStatus().isBound()) {
             return SubwayGuidance.pending(binding.getStatus(), lineName, ride.getEndName());
         }
         return ringPort.find(binding.getJourneyId(), routeRevision, binding.getLegIndex(),

@@ -33,7 +33,7 @@ import java.time.Instant;
  *
  * <p>{@code props} 의 필드 상당수가 앱 쪽에서 non-optional 이다({@code routeName}·
  * {@code nextStationName}·{@code segmentProgress}). 하나라도 비면 디코딩이 통째로 실패한다.
- * 그래서 push 는 <b>{@code CONFIRMED} 이고 링이 있을 때만</b> 나간다.
+ * 그래서 push 는 <b>열차가 정해져 있고({@code PROVISIONAL}·{@code CONFIRMED}) 링이 있을 때만</b> 나간다.
  */
 @Component
 @RequiredArgsConstructor

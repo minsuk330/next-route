@@ -5,7 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
-import watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLiveActivityToken;
 import watoo.grd.nextroute.domain.journey.entity.SubwayRingPushEvent;
@@ -90,7 +89,7 @@ public class SubwayRingPushRelayTxService {
                 .findByJourneyIdAndRouteRevisionAndLegIndexAndDeletedAtIsNull(
                         row.getJourneyId(), row.getRouteRevision(), row.getLegIndex())
                 .orElse(null);
-        if (binding == null || binding.getStatus() != SubwayBindingStatus.CONFIRMED) {
+        if (binding == null || !binding.getStatus().isBound()) {
             return Optional.of("binding_gone");
         }
         if (binding.getVersion() != row.getBindingVersion()) {

@@ -160,7 +160,7 @@ public class SubwayRingPushEnqueueService {
      * 통째로 실패한다. 그런데 실패 응답은 오지 않는다 — 서버 쪽에서는 정상으로 보이고 사용자만
      * 멈춘 화면을 본다. 이 PR 이 내내 막으려는 실패가 정확히 그 모양이다.
      *
-     * <p>{@code CONFIRMED} 만 대상으로 삼는 것으로 대부분 걸러지지만, 계획 역 체인의 이름이
+     * <p>열차가 정해진 고정({@code PROVISIONAL}·{@code CONFIRMED})만 대상으로 삼는 것으로 대부분 걸러지지만, 계획 역 체인의 이름이
      * 비는 경우까지는 막지 못한다(그 값은 검색 결과에서 온다). 여기서 한 번 더 본다.
      *
      * <p>{@code estimatedNextStationAt} 은 <b>보지 않는다</b> — 그 값은 없는 것이 정상이고

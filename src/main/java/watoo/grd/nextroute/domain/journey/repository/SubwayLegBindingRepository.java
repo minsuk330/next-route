@@ -64,12 +64,14 @@ public interface SubwayLegBindingRepository extends JpaRepository<SubwayLegBindi
     List<SubwayLegBinding> findMatchable(@Param("limit") int limit);
 
     /**
-     * 진행 링 갱신 대상. <b>{@code CONFIRMED} 만 본다.</b>
+     * 진행 링 갱신 대상. <b>열차가 정해진 고정({@code PROVISIONAL}·{@code CONFIRMED})을 본다.</b>
      *
-     * <p>{@code PENDING}·{@code PROVISIONAL} 을 넣으면 아직 어느 열차인지 모르는 채로 다음 역과
-     * 진행률이 만들어진다. 앱 위젯의 필드 대부분은 non-optional 이라 그 값이 <b>실시간처럼</b>
-     * 그려지고, 틀렸을 때 사용자는 서버를 믿은 대가로 역을 지나친다. 미확정 구간의 화면은
-     * "탑승 열차 확인 중"이지 0% 링이 아니다.
+     * <p>원래는 {@code CONFIRMED} 만 봤다 — 모르는 열차로 링을 그리면 틀렸을 때 사용자가 역을
+     * 지나친다는 이유였다. 그런데 후보가 하나뿐이면 판정기가 확정하지 않아서, 배차가 뜸한
+     * 시간대에는 링이 한 번도 안 떴다. 2026-09-29 에 잠정도 그리기로 바꿨다(사용자 결정). 잠정
+     * 링이 앞차·뒷차일 수 있다는 위험은 알고 받아들였고, 벗어나는 길은 사용자 reset 이다.
+     *
+     * <p>{@code PENDING} 은 여전히 뺀다 — 고른 열차가 아예 없다.
      *
      * <p>세션 상태·개정본 조건은 {@link #findMatchable} 과 같은 이유로 있다 — 없으면 끝난 여정과
      * 옛 개정본의 확정 고정을 영원히 갱신한다. 이 표는 행을 지우지 않으므로 그 갱신은 스스로
@@ -79,7 +81,7 @@ public interface SubwayLegBindingRepository extends JpaRepository<SubwayLegBindi
             SELECT b.* FROM subway_leg_binding b
               JOIN journey_leg l     ON l.id = b.journey_leg_id
               JOIN journey_session s ON s.id = b.journey_id
-             WHERE b.status = 'CONFIRMED'
+             WHERE b.status IN ('PROVISIONAL','CONFIRMED')
                AND b.deleted_at IS NULL
                AND l.deleted_at IS NULL
                AND s.status = 'ACTIVE'

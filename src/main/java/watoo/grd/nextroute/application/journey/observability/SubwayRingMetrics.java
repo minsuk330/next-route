@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.observability;
 
+import watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -52,8 +53,11 @@ public class SubwayRingMetrics {
      * {@code arrival} 이면 신호가 늦은 것이고, {@code position} 이면 그 열차가 도착 목록에
      * 아예 없는 것이다 — 대응이 다르다.
      */
-    public void recordUpdated(SubwayRingState state, SubwayRingObservation observation) {
-        registry.counter(UPDATED, "quality", state.quality().name().toLowerCase()).increment();
+    public void recordUpdated(SubwayRingState state, SubwayRingObservation observation,
+                              SubwayBindingStatus bindingStatus) {
+        // 잠정 링이 얼마나 그려지는지 — 화면은 확정과 구분하지 않지만 서버는 사실을 남긴다.
+        registry.counter(UPDATED, "quality", state.quality().name().toLowerCase(),
+                "binding", bindingStatus.name().toLowerCase()).increment();
         registry.counter(ETA, "source", sourceOf(observation)).increment();
     }
 
