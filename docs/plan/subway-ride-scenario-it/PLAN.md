@@ -81,7 +81,7 @@ public final class MutableClock extends Clock {
 1. **출근길: 앞차 A 를 보내고 B 를 탔다** — 후보 A·B → 잠정 B → 역삼 정차 시각이 B 와 맞아 확정 B
 2. **확정 뒤 링이 차오르고 잠금화면이 따라온다** — 역삼 출발 → 선릉(남은 2) → 도착 예정 = 보고시각+110초 → 진입 0.95 → 도착 1.00 → 다음 역 삼성(남은 1). push 는 기기·Activity 주소가 제자리로, content-state `{name, props}` 에 props 문자열
 3. **"이 열차 아니에요"** — reset 뒤 다시 골라도 B 가 아니다
-4. **한산한 시간대, 후보 하나** — 잠정 B 에 머물고(역삼 로그가 맞아도 `not-discriminative`), 확정 창 8분 뒤 ABANDONED, 링은 한 번도 안 그려짐 (현재 설계를 고정 — 아래 "발견")
+4. **한산한 시간대, 후보 하나** — 확정은 안 되지만(역삼 로그가 맞아도 `not-discriminative`) **잠정 B 로 링이 뜨고, 8분 뒤에도 PROVISIONAL 유지, 하차 단계(`SUBWAY_ALIGHT`)까지 가며, 잠금화면 payload 에 PROVISIONAL 이 없다** — #244 의 계약(2026-09-29 결정)
 5. **도착 목록에 내 열차가 없다** — 위치 기록으로 선릉 도착(1.00) → 다음 tick 삼성, 도착 예정 null
 6. **실시간이 끊겼다** — 5분 뒤에도 마지막 관측 다음 역(선릉)에서 멈춤, 진행률 0, 도착 예정 null, `observedAt` 은 마지막 실제 관측 그대로, 보간 여유 0
 7. **같은 열차가 두 번 실려 온다(코레일)** — B 출발 회차에 묵은 B 행 중복 → 그래도 잠정 B (PR #240 이전이면 B 가 격리돼 후보가 A 뿐)
@@ -91,7 +91,7 @@ public final class MutableClock extends Clock {
 계획 대비 조정: "앞차 보내고 다음 차"는 1번에 합침. "잠정이 틀려 교정"은 뺐다 — 원천 지연 예산(150초) 때문에 도착 구간이 넓어, 두 열차가 3분 이상 떨어지지 않으면 구간이 겹쳐 가려낼 수 없고 3분 넘게 떨어지면 앞차가 후보에 안 오른다. 교정 규칙은 `SubwayTrainMatcherTest:343` 이 값으로 고정한다. 대신 4번(후보 하나)을 넣었다.
 
 ## 발견 (운영 코드는 안 고침 — 사용자 결정)
-- **후보가 1대뿐이면 확정이 영영 안 된다.** `SubwayTrainMatcher.confirmStage` 의 `comparable.size() < 2 → not-discriminative`(:247) 가 "후보 여럿 중 1위만 기록"뿐 아니라 "후보가 원래 하나"도 막는다. 단위 시험이 의도로 고정(`SubwayTrainMatcherTest:172,296`). 링은 CONFIRMED 에만 그려지므로 한산한 시간대에는 링이 안 뜬다.
+- **후보가 1대뿐이면 확정이 영영 안 된다.** `SubwayTrainMatcher.confirmStage` 의 `comparable.size() < 2 → not-discriminative`(:247) 가 "후보 여럿 중 1위만 기록"뿐 아니라 "후보가 원래 하나"도 막는다. 단위 시험이 의도로 고정(`SubwayTrainMatcherTest:172,296`). 링은 CONFIRMED 에만 그려지므로 한산한 시간대에는 링이 안 뜬다. → **#244 에서 해결**(잠정에도 링, 확정 창 만료 폐기). 이 PR 의 시나리오 4 는 #244 의 동작을 기대하므로 **#244 가 먼저 머지돼야 통과한다.**
 - **확정 직후 첫 잠금화면 프레임이 STALE.** 링이 tick 당 한 역만 넘어가서 첫 tick 에 "역삼 출발"을 소화하고 둘째 tick(5초 뒤)에야 선릉 도착 예정을 읽는다.
 
 ## 작업 순서

@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.mockito.ArgumentCaptor;
 import watoo.grd.nextroute.application.journey.dto.JourneyCommand;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
@@ -316,8 +317,8 @@ class SubwayRideScenarioIT {
     }
 
     @Test
-    @DisplayName("한산한 시간대: 강남을 떠난 열차가 하나뿐이면 잠정에 머물다 확정 창(8분)이 지나면 접히고, 링은 한 번도 뜨지 않는다")
-    void offPeakSingleCandidateNeverConfirms() {
+    @DisplayName("한산한 시간대: 강남을 떠난 열차가 하나뿐이어도 잠정 B 로 링이 뜨고, 8분이 지나도 꺼지지 않으며, 하차 단계와 잠금화면까지 확정과 똑같이 간다")
+    void offPeakSingleCandidateStillGetsTheRing() {
         at(-60);
         observe(train(TRAIN_B, GANGNAM, SubwayTrainStatus.ARRIVED, -65));
         at(30);
@@ -328,7 +329,7 @@ class SubwayRideScenarioIT {
         matchService.runOnce();
         assertBinding("PROVISIONAL", TRAIN_B);
 
-        // 역삼에 제때 섰고 로그도 맞는다 — 그래도 비교할 두 번째 후보가 없다.
+        // 역삼에 제때 섰다 — 비교할 두 번째 후보가 없어 확정은 여전히 안 된다.
         at(150);
         observe(train(TRAIN_B, YEOKSAM, SubwayTrainStatus.ARRIVED, 140));
         at(170);
@@ -336,13 +337,33 @@ class SubwayRideScenarioIT {
         at(175);
         matchService.runOnce();
         assertBinding("PROVISIONAL", TRAIN_B);
-        ringService.runOnce();
-        assertThat(guidance().segmentProgress()).as("미확정에는 링을 그리지 않는다").isNull();
 
-        // 확정 창이 지나면 접는다.
+        // 그래도 링과 잠금화면은 뜬다. 앱에는 사실대로 PROVISIONAL 이 가고, 앱이 구분 없이 그린다.
+        liveActivityOn();
+        SubwayGuidance leftYeoksam = ringTick(180,
+                world.arrivalRow(TRAIN_B, YEOKSAM, "2", null, sec(168)),
+                world.arrivalRow(TRAIN_B, SEOLLEUNG, "99", 110, sec(168)));
+        assertThat(leftYeoksam.bindingStatus()).isEqualTo(SubwayBindingStatus.PROVISIONAL);
+        assertThat(leftYeoksam.nextStationName()).isEqualTo(SEOLLEUNG.name());
+        assertThat(leftYeoksam.segmentProgress()).isNotNull();
+
+        // 예전에는 여기서 확정 창(8분)이 끝나 고정이 접히고 링이 꺼졌다.
         at(40 + 8 * 60 + 5);
         matchService.runOnce();
-        assertThat(bindingStatus()).isEqualTo("ABANDONED");
+        assertThat(bindingStatus()).as("운행 중 링이 꺼지지 않게 잠정을 접지 않는다").isEqualTo("PROVISIONAL");
+
+        ringTick(530, world.arrivalRow(TRAIN_B, SEOLLEUNG, "1", null, sec(525)));
+        SubwayGuidance lastLeg = ringTick(535, world.arrivalRow(TRAIN_B, SEOLLEUNG, "1", null, sec(525)));
+        assertThat(lastLeg.nextStationName()).isEqualTo(SAMSEONG.name());
+        assertThat(lastLeg.phase()).as("하차 안내도 확정과 똑같이 낸다(M7 C6 폐기)")
+                .isEqualTo(SubwayRingPhase.SUBWAY_ALIGHT);
+
+        ArgumentCaptor<JsonNode> contentState = ArgumentCaptor.forClass(JsonNode.class);
+        then(pushPort).should(atLeast(1)).send(eq("device-token"), eq("activity-token"),
+                eq("update"), anyLong(), contentState.capture());
+        assertThat(contentState.getValue().get("props").asText())
+                .as("잠금화면 payload 에는 잠정/확정 구분이 없다")
+                .doesNotContain("PROVISIONAL").contains("SUBWAY_ALIGHT");
     }
 
     @Test
