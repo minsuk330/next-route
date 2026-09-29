@@ -3071,3 +3071,33 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 함정 (추가 2)
 - live IT 가 터널이 열려 있어도 skip ← `@EnabledIf` 가드의 JDK HttpClient 가 기본으로 h2c 업그레이드를 붙이고, OTP 가 그 POST 를 받다가 멈춤(curl `--http2` 도 status=000 타임아웃) / 가드: `HttpClient.Version.HTTP_1_1` 고정. 2026-09-17 `JdkClientHttpRequestFactory` POST 멈춤(PR #204)과 같은 계열일 가능성 — 미검증
+
+## 지하철 위치 수집기 "16/16 노선 실패" (branch fix/subway-position-no-trains, 2026-09-29)
+
+### 확정
+- 원인은 호출 한도가 아니다. 서울 위치 API 는 **"데이터 없음"(INFO-200)을 errorMessage 없이 최상위 봉투**로 준다: `{"status":500,"code":"INFO-200","message":"해당하는 데이터가 없습니다.",...}`. 코드는 `errorMessage.code` 만 읽어 `code=null` → `isSuccess=false` → `ApiCallBlocker` 가 그 노선을 **자정까지** 차단했다
+- 열차 없는 노선은 매일 생긴다: 막차 뒤(00:0x~00:5x)와 첫차 전(수집 시작 04:30). 그래서 매일 전 노선이 05시 전후로 막혀 수집기가 하루 종일 죽어 있었다. 9/28·9/29 VPS 로그로 같은 패턴 확인(9/29: 00:35~00:53 5개, 04:30:03 10개, 05:11 1092)
+- 운영 키 자체는 정상: 2026-09-29 VPS 에서 worker 키로 2호선 호출 → `INFO-000`, 47편성
+- 수정: INFO-200 = `SubwayPositionFetchResult.noTrains()`(COMPLETE, 0행, 차단 없음). 추적기는 "안 보임"을 출발로 읽지 않으므로 빈 COMPLETE 는 사건 0건으로 끝난다. 최상위 code/message 도 읽어서 한도 초과(ERROR-337)가 로그에 코드째 남는다
+- 로그: 차단 중이라 안 부른 노선(`isBlocked()`)은 수집기 요약의 "실패"로 세지 않는다. 차단은 걸릴 때 `[ApiBlocker] BLOCKED` 로 한 번 남는다. 9/29 하루 3,230줄이던 `16/16 노선 실패` 가 사라진다
+
+### 함정
+- 9/21 의 "한도 초과"와 이번 증상이 로그상 똑같이 `code=null` 로 보였다 ← 두 응답 모두 최상위 봉투라서 / 가드: `SubwayPositionResponse.code()` 가 최상위도 읽음 + 테스트 `topLevelErrorCodeIsRead`
+- 도착정보 응답(`SubwayApiResponse.isSuccess`)도 같은 errorMessage 전용 판정이다. 도착 쪽은 차단을 걸지 않아 피해가 없어 이번 범위에서 뺐다(미결)
+
+### 좌표
+- 판정: `SubwayPositionResponse.java` code()/isNoData()
+- 분기: `SeoulSubwayApiAdapter.java` getRealtimePosition() — isNoData 가 isSuccess 보다 먼저
+- 요약 로그: `RealtimeSubwayPositionCollector.java` collect()
+
+### 미결
+- 진짜 오류(5xx 등 일시 장애)도 여전히 자정까지 차단된다. 한 번의 일시 오류로 그 노선 하루가 죽는 정책은 그대로다 — 별건 판단 필요
+- `SubwayApiResponse`(도착정보) 최상위 봉투 미처리
+
+### 배포
+- worker 코드 변경. VPS 배포 필요(마이그레이션 없음). 배포 전까지 매일 05시 전후로 전 노선 차단이 되풀이된다
+
+### 검증
+- RED 확인: 어댑터 테스트 3개 실패(`expected COMPLETE but was FAILED`, 두 번째 호출 `BLOCKED`, `expected "ERROR-337" but was null`), 수집기 테스트 2개 실패(차단 노선을 실패로 셈, `2/2`)
+- GREEN: `SeoulSubwayApiAdapterPositionTest` 5/5, `RealtimeSubwayPositionCollectorTest` 3/3
+- 지하철 단위 스위트 177개 통과. 같은 실행의 IT 82개 실패는 기존 무관(환경): 로컬 Postgres `Connection refused` + Docker 미기동 `Could not find a valid Docker environment`. 모두 컨텍스트/컨테이너 기동 단계 실패, 단언 실패 0
