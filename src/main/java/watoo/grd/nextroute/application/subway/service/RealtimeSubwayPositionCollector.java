@@ -58,6 +58,11 @@ public class RealtimeSubwayPositionCollector {
         for (String lineId : properties.getLines()) {
             try {
                 SubwayPositionFetchResult result = subwayApiPort.getRealtimePosition(lineId);
+                if (result.isBlocked()) {
+                    // 차단은 걸리는 순간 [ApiBlocker] 가 한 번 남긴다. 회차마다 또 세면 같은 사건이
+                    // 자정까지 15초마다 "실패"로 되풀이된다.
+                    continue;
+                }
                 if (!result.isComplete()) {
                     failed++;
                     continue;

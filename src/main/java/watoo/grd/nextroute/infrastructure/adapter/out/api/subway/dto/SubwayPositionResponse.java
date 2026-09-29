@@ -19,6 +19,14 @@ public class SubwayPositionResponse {
 
 	private ErrorMessage errorMessage;
 
+	/**
+	 * {@code errorMessage} 없이 <b>최상위</b>에 오는 결과 코드. "데이터 없음"({@code INFO-200})과
+	 * 한도 초과가 이 모양이다 — {@code {"status":500,"code":"INFO-200","message":"해당하는 데이터가 없습니다."}}.
+	 * 이것을 안 읽으면 둘 다 {@code code=null} 인 정체불명의 오류가 된다.
+	 */
+	private String code;
+	private String message;
+
 	@JsonProperty("realtimePositionList")
 	private List<SubwayPositionItem> realtimePositionList;
 
@@ -36,7 +44,16 @@ public class SubwayPositionResponse {
 	}
 
 	public String code() {
-		return errorMessage == null ? null : errorMessage.getCode();
+		return errorMessage == null ? code : errorMessage.getCode();
+	}
+
+	public String message() {
+		return errorMessage == null ? message : errorMessage.getMessage();
+	}
+
+	/** 그 노선에 지금 다니는 열차가 없다. 막차 뒤·첫차 전에 매일 온다 — 오류가 아니다. */
+	public boolean isNoData() {
+		return "INFO-200".equals(code());
 	}
 
 	/** API 가 말한 전체 건수. 응답이 완결됐는지 판단하는 근거다. */

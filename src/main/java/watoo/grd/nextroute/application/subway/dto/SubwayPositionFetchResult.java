@@ -26,6 +26,9 @@ public record SubwayPositionFetchResult(
         String errorCode
 ) {
 
+    /** {@link #blocked} 의 결과 코드. 서울 API 코드와 겹치지 않는 우리 쪽 표식이다. */
+    public static final String BLOCKED = "BLOCKED";
+
     public enum Status {
         /** 정상이고 응답이 완결됐다. 전이를 만들어도 되는 유일한 상태. */
         COMPLETE,
@@ -33,6 +36,19 @@ public record SubwayPositionFetchResult(
         PARTIAL,
         /** 호출 자체가 실패했다. */
         FAILED
+    }
+
+    /** 정상 응답이고 지금 다니는 열차가 0대다. 실패가 아니다 — 위 설명의 앞쪽 경우다. */
+    public static SubwayPositionFetchResult noTrains(String lineId, Instant fetchedAt) {
+        return new SubwayPositionFetchResult(lineId, List.of(), 0, Status.COMPLETE, fetchedAt, null);
+    }
+
+    /**
+     * 부르지 않았다 — 그 노선이 오늘 이미 오류를 내 차단 중이다. 차단은 걸리는 순간 한 번
+     * 기록되므로, 이것을 회차마다 새 실패로 세면 같은 사건이 자정까지 되풀이된다.
+     */
+    public static SubwayPositionFetchResult blocked(String lineId, Instant fetchedAt) {
+        return failed(lineId, fetchedAt, BLOCKED);
     }
 
     public static SubwayPositionFetchResult failed(String lineId, Instant fetchedAt, String errorCode) {
@@ -45,5 +61,9 @@ public record SubwayPositionFetchResult(
 
     public boolean isComplete() {
         return status == Status.COMPLETE;
+    }
+
+    public boolean isBlocked() {
+        return BLOCKED.equals(errorCode);
     }
 }

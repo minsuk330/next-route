@@ -153,7 +153,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 			return SubwayPositionFetchResult.failed(lineId, fetchedAt, "UNKNOWN_LINE");
 		}
 		if (blocker.isBlocked(API_POSITION_PREFIX + lineId)) {
-			return SubwayPositionFetchResult.failed(lineId, fetchedAt, "BLOCKED");
+			return SubwayPositionFetchResult.blocked(lineId, fetchedAt);
 		}
 
 		URI uri = URI.create(baseUrl + "/" + positionKey + "/json/realtimePosition/0/" + PAGE_SIZE
@@ -163,9 +163,15 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 		if (response == null) {
 			return SubwayPositionFetchResult.failed(lineId, fetchedAt, "CALL_FAILED");
 		}
+		if (response.isNoData()) {
+			// 막차 뒤·첫차 전에는 매일 온다. 오류로 보고 막으면 그 노선이 자정까지 죽는다 —
+			// 수집이 04:30 에 시작해 첫차 전에 전 노선이 막히던 게 이것이었다(2026-09-28·29).
+			return SubwayPositionFetchResult.noTrains(lineId, fetchedAt);
+		}
 		if (!response.isSuccess()) {
 			blocker.block(API_POSITION_PREFIX + lineId);
-			log.warn("[SubwayPosition] 비정상 응답 — lineId={}, code={}", lineId, response.code());
+			log.warn("[SubwayPosition] 비정상 응답 — lineId={}, code={}, message={}",
+					lineId, response.code(), response.message());
 			return SubwayPositionFetchResult.failed(lineId, fetchedAt, response.code());
 		}
 
