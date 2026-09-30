@@ -112,8 +112,7 @@ class RouteSearchRealtimeDeadlineIT {
                 walk, transferEnricher, metrics, deadline,
                 new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
                         odsayProps(), java.util.List.of()),
-                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class),
-                        mock(watoo.grd.nextroute.domain.bus.repository.BusRouteRepository.class)),
+                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
                 new DepartureTimeResolver(java.time.Clock.systemDefaultZone()),
                 mock(watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate.class),
                 java.time.Clock.systemDefaultZone());

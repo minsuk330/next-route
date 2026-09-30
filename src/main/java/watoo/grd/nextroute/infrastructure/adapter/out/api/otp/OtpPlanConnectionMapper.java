@@ -162,6 +162,8 @@ public class OtpPlanConnectionMapper {
         if (sourceRouteId != null && sourceRouteId.contains(":")) {
             feedId = sourceRouteId.substring(0, sourceRouteId.indexOf(':'));
         }
+        String routeColor = text(route.path("color"));
+        String sourceRouteColor = routeColor == null || routeColor.isBlank() ? null : routeColor;
         String tripId = text(legNode.path("trip").path("gtfsId"));
 
         Instant boardAt = instant(legNode.path("start").path("scheduledTime"));
@@ -185,15 +187,15 @@ public class OtpPlanConnectionMapper {
                 // (서울2호선(본선)<내선>). 읽어 낸 leg 은 더 이상 "방향 없음"이 아니다.
                 missing.add(MissingAttribute.DIRECTION);
             }
-            if (route.path("color").isNull() || route.path("color").isMissingNode()) {
-                missing.add(MissingAttribute.COLOR);      // KTDB color 없음 → P3 OSM
+            if (sourceRouteColor == null) {
+                missing.add(MissingAttribute.COLOR);      // 그래프 빌드 때 route_color 를 못 채운 노선
             }
         }
 
         return new RoutingLeg(mode, transit ? otpMode : null, feedId, agencyId,
                 sourceRouteId, sourceRouteName, sourceRouteDirection, tripId, serviceDate,
                 boardAt, alightAt, rideDurationSeconds, stops, walkSteps,
-                geometry, enrichment, missing);
+                geometry, enrichment, missing, sourceRouteColor);
     }
 
     private List<StopOccurrence> toStops(JsonNode legNode) {

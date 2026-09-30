@@ -21,6 +21,7 @@ import java.util.Set;
  * @param stops             지나는 정류장 occurrence(승·하차 포함)
  * @param walkSteps         도보 leg 의 turn. 대중교통 leg 는 빈 목록
  * @param missing           원천 부재 속성(가짜값 대신 사유로 노출)
+ * @param sourceRouteColor  원천이 준 노선 표시색(GTFS route_color, "#" 없는 6자리 hex). 없으면 null
  */
 public record RoutingLeg(
         RoutingMode mode,
@@ -39,8 +40,21 @@ public record RoutingLeg(
         List<RoutingWalkStep> walkSteps,
         LegGeometry geometry,
         Enrichment enrichment,
-        Set<MissingAttribute> missing
+        Set<MissingAttribute> missing,
+        String sourceRouteColor
 ) {
+    /** 색을 모르는 원천용 하위호환 생성자. 새 칸을 null 로 두는 것이 곧 옛 동작이다. */
+    public RoutingLeg(RoutingMode mode, String sourceDetailType, String feedId, String agencyId,
+                      String sourceRouteId, String sourceRouteName, String sourceRouteDirection,
+                      String tripId, LocalDate serviceDate, Instant boardAt, Instant alightAt,
+                      int rideDurationSeconds, List<StopOccurrence> stops,
+                      List<RoutingWalkStep> walkSteps, LegGeometry geometry,
+                      Enrichment enrichment, Set<MissingAttribute> missing) {
+        this(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName,
+                sourceRouteDirection, tripId, serviceDate, boardAt, alightAt, rideDurationSeconds,
+                stops, walkSteps, geometry, enrichment, missing, null);
+    }
+
     /** 방향을 못 읽는 원천용 하위호환 생성자. 새 칸을 null 로 두는 것이 곧 옛 동작이다. */
     public RoutingLeg(RoutingMode mode, String sourceDetailType, String feedId, String agencyId,
                       String sourceRouteId, String sourceRouteName, String tripId,
@@ -50,7 +64,7 @@ public record RoutingLeg(
                       Enrichment enrichment, Set<MissingAttribute> missing) {
         this(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName, null, tripId,
                 serviceDate, boardAt, alightAt, rideDurationSeconds, stops, walkSteps, geometry,
-                enrichment, missing);
+                enrichment, missing, null);
     }
 
     public RoutingLeg {
@@ -67,6 +81,6 @@ public record RoutingLeg(
     public RoutingLeg withEnrichment(Enrichment newEnrichment) {
         return new RoutingLeg(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName,
                 sourceRouteDirection, tripId, serviceDate, boardAt, alightAt, rideDurationSeconds,
-                stops, walkSteps, geometry, newEnrichment, missing);
+                stops, walkSteps, geometry, newEnrichment, missing, sourceRouteColor);
     }
 }

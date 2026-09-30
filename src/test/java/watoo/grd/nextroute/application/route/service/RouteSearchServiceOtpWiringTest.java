@@ -80,8 +80,7 @@ class RouteSearchServiceOtpWiringTest {
                 new RouteSearchMetrics(new SimpleMeterRegistry()),
                 new RouteSearchDeadlineProperties(),
                 selector,
-                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class),
-                        mock(watoo.grd.nextroute.domain.bus.repository.BusRouteRepository.class)),
+                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
                 new DepartureTimeResolver(Clock.systemDefaultZone()), grantingGate, Clock.systemDefaultZone());
     }
 

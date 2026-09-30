@@ -38,7 +38,8 @@ public class OtpSeoulIdentityResolver {
     private static final int NEARBY_LIMIT = 8;
 
     private static final Pattern BUS_STOP = Pattern.compile("^\\d+:BS_TAGO_SEB(\\d{9})$");
-    private static final Pattern BUS_ROUTE = Pattern.compile("^\\d+:BR_TAGO_SEB(\\d{9})$");
+    // 공항버스(6xxx)는 방향별로 route 가 갈려 _U/_D 접미사가 붙는다. 서울 노선 id 는 앞 9자리.
+    private static final Pattern BUS_ROUTE = Pattern.compile("^\\d+:BR_TAGO_SEB(\\d{9})(?:_[UD])?$");
     // 앞자리 숫자 lookbehind 로 두 자리 호선("11호선")의 뒷자리 오매치를 막는다(현재 서울 1~9호선만 스코프).
     private static final Pattern SUBWAY_LINE = Pattern.compile("(?<!\\d)([1-9])호선");
 

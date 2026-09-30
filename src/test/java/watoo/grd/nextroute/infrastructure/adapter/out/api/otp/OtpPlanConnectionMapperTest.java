@@ -48,6 +48,18 @@ class OtpPlanConnectionMapperTest {
     }
 
     @Test
+    @DisplayName("그래프가 준 route.color 를 leg 에 담는다 — 색이 있으면 COLOR 는 '없는 속성'이 아니다")
+    void readsRouteColor() throws IOException {
+        String json = new String(new ClassPathResource("otp/planconnection-subway.json").getContentAsByteArray(),
+                java.nio.charset.StandardCharsets.UTF_8).replaceFirst("\"color\": null", "\"color\": \"004A85\"");
+        RoutingOutcome outcome = mapper.map(om.readTree(json), departureAt, versions);
+
+        RoutingLeg subway = ((RoutingResult) outcome).itineraries().get(0).legs().get(0);
+        assertThat(subway.sourceRouteColor()).isEqualTo("004A85");
+        assertThat(subway.missing()).doesNotContain(MissingAttribute.COLOR);
+    }
+
+    @Test
     @DisplayName("꺾쇠가 없으면 방향은 모르는 것이다 — 지어내지 않고 DIRECTION 을 남긴다")
     void keepsDirectionMissingWhenLongNameHasNoLabel() throws IOException {
         RoutingOutcome outcome = mapper.map(load("otp/planconnection-success.json"), departureAt, versions);
