@@ -1,0 +1,22 @@
+{
+  "otpFeatures": {
+    "OnDemandRaptorTransfer": true,
+    "FlexRouting": false,
+    "DataOverlay": false,
+    "CarPooling": false,
+    "Emission": false,
+    "EmpiricalDelay": false,
+    "DebugRasterTiles": false,
+    "DebugUi": false,
+    "ReportApi": false,
+    "OjpApi": false,
+    "TriasApi": false,
+    "GoogleCloudStorage": false,
+    "SandboxAPIGeocoder": false,
+    "SandboxAPIMapboxVectorTilesApi": false,
+    "SandboxAPIParkAndRideApi": false,
+    "TransmodelGraphQlApi": false,
+    "Sorlandsbanen": false,
+    "TransferAnalyzer": false
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "_comment": "national-otp-shapes: 사용자 결정(2026-09-30)으로 pfaedle 형상 전부 적용 — bus·subway 모두 임계 없음(degraded 0). Naver 지도 육안 검토 후 채택. rail·ferry는 형상 미생성이라 coveredModes 밖(null).",
+  "bus": {},
+  "subway": {}
+}

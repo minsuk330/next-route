@@ -1,0 +1,20 @@
+{
+  "graphVersion": "national-nojeju-202503-cal20260729_20261130-otp278-shaped-g035004114e7b",
+  "coveredModes": [
+    "bus",
+    "subway"
+  ],
+  "thresholds": {
+    "bus": {},
+    "subway": {}
+  },
+  "counts": {
+    "busTrips": 306535,
+    "subwayTrips": 12489,
+    "shapeOk": 319024,
+    "degraded": 0,
+    "missing": 0,
+    "unjudged": 0
+  },
+  "degradedTripIds": []
+}
