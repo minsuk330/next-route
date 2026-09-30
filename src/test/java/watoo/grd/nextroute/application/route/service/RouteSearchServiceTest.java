@@ -56,8 +56,7 @@ class RouteSearchServiceTest {
                 new RouteSearchMetrics(new SimpleMeterRegistry()),
                 new RouteSearchDeadlineProperties(),
                 new RoutingProviderSelector(odsayProps(), java.util.List.of()),
-                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class),
-                        mock(watoo.grd.nextroute.domain.bus.repository.BusRouteRepository.class)),
+                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
                 new DepartureTimeResolver(Clock.systemDefaultZone()),
                 otpConcurrencyGate,
                 Clock.systemDefaultZone());

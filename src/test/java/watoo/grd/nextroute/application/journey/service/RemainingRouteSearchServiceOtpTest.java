@@ -69,8 +69,7 @@ class RemainingRouteSearchServiceOtpTest {
         return new RemainingRouteSearchService(odsayNeverCalled,
                 new JourneyRerouteMetrics(new SimpleMeterRegistry()),
                 new RoutingProviderSelector(props, List.of(otp)),
-                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class),
-                        mock(watoo.grd.nextroute.domain.bus.repository.BusRouteRepository.class)), grantingGate, new watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties(), clock);
+                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)), grantingGate, new watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties(), clock);
     }
 
     @Test

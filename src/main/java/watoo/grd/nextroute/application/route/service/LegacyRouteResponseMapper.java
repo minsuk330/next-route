@@ -20,8 +20,6 @@ import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.subway.service.SubwayDirectionNormalizer;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import watoo.grd.nextroute.application.route.routing.StopOccurrence;
-import watoo.grd.nextroute.domain.bus.entity.BusRoute;
-import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +43,8 @@ import java.util.Optional;
  *       ArsID/exit 는 원천 부재라 여전히 null.</li>
  *   <li>{@code totalWalk}(m) — 중립 모델이 거리(m)를 안 들고 있어 0. 시간(초)만 정확.</li>
  * </ul>
+ * 노선 표시색은 그래프 빌드 때 GTFS route_color 로 채워 OTP 가 내려준 값을 그대로 쓴다(#247). 이 매퍼는
+ * 색을 정하지 않는다. 색이 없어도 lane(노선명)은 항상 내려간다.
  * 요금은 unknown 을 0 으로 만들지 않는다: KNOWN→금액, KNOWN_ZERO→0, UNKNOWN→{@code -1} sentinel.
  */
 @Component
@@ -55,11 +55,9 @@ public class LegacyRouteResponseMapper {
 
     /** 버스 leg 의 서울 실시간 id(정류장/노선) 해석. 지하철은 좌표 기반이라 사용 안 함. */
     private final OtpSeoulIdentityResolver resolver;
-    private final BusRouteRepository busRouteRepository;
 
-    public LegacyRouteResponseMapper(OtpSeoulIdentityResolver resolver, BusRouteRepository busRouteRepository) {
+    public LegacyRouteResponseMapper(OtpSeoulIdentityResolver resolver) {
         this.resolver = resolver;
-        this.busRouteRepository = busRouteRepository;
     }
 
     private static final int TRAFFIC_SUBWAY = 1;
@@ -149,9 +147,9 @@ public class LegacyRouteResponseMapper {
             // 받아 목록이 두 배가 된다. 원천 라벨(상행·하행·내선·외선)을 ODsay 값 공간으로 옮긴다.
             wayCode = SubwayDirectionNormalizer.toWayCode(leg.sourceRouteDirection());
             String routeName = leg.sourceRouteName();
-            String routeDisplayColor = SubwayLineColors.colorFor(routeName);
-            if (routeDisplayColor != null) {
-                lanes = List.of(new LaneResult(routeName, null, null, null, null, null, routeDisplayColor));
+            if (routeName != null) {
+                lanes = List.of(new LaneResult(routeName, null, null, null, null, null,
+                        displayColor(leg)));
             }
         } else if (leg.mode() == RoutingMode.BUS) {
             String routeName = leg.sourceRouteName();
@@ -166,12 +164,8 @@ public class LegacyRouteResponseMapper {
                         .map(SeoulBusIdentity::stopId).orElse(null);
             }
             // 표시용 lane 은 버스번호로 항상 생성. busLocalBlID(실시간 호출용)는 매핑될 때만 non-null.
-            String routeDisplayColor = busLocalBlID == null ? null : busRouteRepository.findByRouteId(busLocalBlID)
-                    .map(BusRoute::getRouteType)
-                    .map(BusRouteTypeColors::colorFor)
-                    .orElse(null);
             lanes = List.of(new LaneResult(routeName, routeName, null, null, null, busLocalBlID,
-                    routeDisplayColor));
+                    displayColor(leg)));
         }
 
         List<CoordPoint> polyline = toPolyline(leg);
@@ -184,6 +178,12 @@ public class LegacyRouteResponseMapper {
                 null, null, null, null, wayCode, polyline,
                 null, null, null, null, null, null,
                 null, startLocalStationID, endLocalStationID, null, null, null, null, null);
+    }
+
+    /** GTFS route_color("B81B30") → legacy 표시색("#B81B30"). 원천에 없으면 null(가짜색 금지). */
+    private static String displayColor(RoutingLeg leg) {
+        String color = leg.sourceRouteColor();
+        return color == null ? null : "#" + color;
     }
 
     /**

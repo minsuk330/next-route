@@ -33,7 +33,7 @@ class RouteResponseMapperTest {
     private final SubwayStationRepository subwayRepo = mock(SubwayStationRepository.class);
     private final OtpSeoulIdentityResolver resolver =
             new OtpSeoulIdentityResolver(busStopRepo, busRouteRepo, subwayRepo);
-    private final LegacyRouteResponseMapper legacyMapper = new LegacyRouteResponseMapper(resolver, busRouteRepo);
+    private final LegacyRouteResponseMapper legacyMapper = new LegacyRouteResponseMapper(resolver);
     private final RouteSearchV2Mapper v2Mapper = new RouteSearchV2Mapper();
 
     /** legacy 서울 id 필드에서 프론트가 실시간을 호출하려면 stop/route 둘 다 DB 존재해야 한다. */

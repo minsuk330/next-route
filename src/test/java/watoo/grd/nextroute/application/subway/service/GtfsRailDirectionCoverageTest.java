@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
-import watoo.grd.nextroute.application.route.service.SubwayLineColors;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -110,25 +109,6 @@ class GtfsRailDirectionCoverageTest {
         byLine.forEach((line, labels) -> assertThat(labels)
                 .as("%s 의 방향이 한쪽만 읽혔다", line)
                 .hasSize(2));
-    }
-
-    @Test
-    @DisplayName("도시철도 노선명은 전부 표시색을 가진다 — 색이 없으면 앱에 노선 자체가 안 나간다")
-    void everySubwayShortNameHasDisplayColor() throws IOException {
-        List<String> colorless = new ArrayList<>();
-        for (JsonNode route : routes()) {
-            if (!"SUBWAY".equals(route.path("mode").asText())) {
-                continue;
-            }
-            String shortName = route.path("shortName").asText();
-            if (SubwayLineColors.colorFor(shortName) == null) {
-                colorless.add(shortName);
-            }
-        }
-
-        // legacy 경계는 표시색이 있을 때만 lanes 를 만든다. 색이 없으면 노선명·방향이 통째로
-        // 사라져 앱이 그 구간을 "이름 없는 지하철"로 그린다.
-        assertThat(colorless).as("표시색이 없는 도시철도 노선").isEmpty();
     }
 
     private boolean isCircular(String label) {
