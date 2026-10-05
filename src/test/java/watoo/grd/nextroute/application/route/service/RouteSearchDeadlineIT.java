@@ -128,9 +128,7 @@ class RouteSearchDeadlineIT {
                         Executors.newFixedThreadPool(4), metrics);
         service = new RouteSearchService(
                 odSayAdapter, tmapAdapter,
-                walkEnricher, mock(TransferArrivalEnricher.class),
-                new BusRouteShapeEnricher(mock(TransferStopResolver.class), mock(watoo.grd.nextroute.application.bus.port.out.BusRouteSegmentPolylinePort.class)),
-                metrics,
+                walkEnricher, mock(TransferArrivalEnricher.class), metrics,
                 deadlineProperties(),
                 new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
                         odsayProps(), java.util.List.of()),

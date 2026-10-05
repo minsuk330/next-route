@@ -53,7 +53,6 @@ class RouteSearchServiceTest {
         service = new RouteSearchService(
                 odSayApiPort, tmapPort,
                 walkSegmentEnricher, transferArrivalEnricher,
-                new BusRouteShapeEnricher(mock(TransferStopResolver.class), mock(watoo.grd.nextroute.application.bus.port.out.BusRouteSegmentPolylinePort.class)),
                 new RouteSearchMetrics(new SimpleMeterRegistry()),
                 new RouteSearchDeadlineProperties(),
                 new RoutingProviderSelector(odsayProps(), java.util.List.of()),
@@ -79,7 +78,6 @@ class RouteSearchServiceTest {
         return new RouteSearchService(
                 odSayApiPort, tmapPort,
                 walkSegmentEnricher, transferArrivalEnricher,
-                new BusRouteShapeEnricher(mock(TransferStopResolver.class), mock(watoo.grd.nextroute.application.bus.port.out.BusRouteSegmentPolylinePort.class)),
                 new RouteSearchMetrics(new SimpleMeterRegistry()),
                 new RouteSearchDeadlineProperties(),
                 new RoutingProviderSelector(props, List.of(otpPort)),

@@ -42,14 +42,4 @@ public record SubPathResult(
         // 환승 도착예측 결과 (lane별, trafficType == 2일 때만 non-null)
         List<TransferArrival> transferArrivals
 ) {
-
-    /** 폴리라인만 갈아끼운다. 버스 구간 형상을 안내 지도와 같은 원천으로 맞출 때 쓴다. */
-    public SubPathResult withPolyline(List<CoordPoint> replacement) {
-        return new SubPathResult(trafficType, sectionTime, distance, lanes, stations,
-                startName, endName, startX, startY, endX, endY, trainType, payment,
-                startId, way, wayCode, replacement,
-                startExitNo, startExitX, startExitY, endExitNo, endExitX, endExitY,
-                walkSteps, startLocalStationID, endLocalStationID, startArsID, endArsID, endID,
-                walkTotalTimeSeconds, transferArrivals);
-    }
 }

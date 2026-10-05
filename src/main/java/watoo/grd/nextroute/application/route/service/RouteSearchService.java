@@ -52,7 +52,6 @@ public class RouteSearchService implements SearchRouteUseCase {
     private final TmapPedestrianPort tmapPort;
     private final WalkSegmentEnricher walkSegmentEnricher;
     private final TransferArrivalEnricher transferArrivalEnricher;
-    private final BusRouteShapeEnricher busRouteShapeEnricher;
     private final RouteSearchMetrics metrics;
     private final RouteSearchDeadlineProperties deadlineProperties;
     // provider 전환(national-otp P2). 기본 ODSAY 라 아래 branch 는 default 에서 실행되지 않는다.
@@ -153,10 +152,7 @@ public class RouteSearchService implements SearchRouteUseCase {
                         request.endX(), request.endY(), request.endName(), ctx,
                         deadlineProperties));
 
-        // 2. 버스 구간 형상을 안내 지도와 같은 원천으로 맞춘다. 실시간 여부와 무관한 표시 보강이다.
-        result = busRouteShapeEnricher.enrich(result);
-
-        // 3. 환승 도착예측 보강 (trafficType=2 버스) — baseline(STATIC)은 생략해 fan-out 낭비 방지.
+        // 2. 환승 도착예측 보강 (trafficType=2 버스) — baseline(STATIC)은 생략해 fan-out 낭비 방지.
         // withRealtime=false 는 요청이 실시간을 요구하지 않은 것이므로 degradation 이 아니다(단계 미적용).
         if (withRealtime) {
             RouteSearchResult afterBus = result;
@@ -197,9 +193,7 @@ public class RouteSearchService implements SearchRouteUseCase {
         if (outcome instanceof RoutingFailure failure) {
             return handleOtpFailure(failure, ctx);
         }
-        // 버스 구간 형상을 안내 지도와 같은 원천(bus_route_segment_polyline)으로 맞춘다.
-        RouteSearchResult mapped = busRouteShapeEnricher.enrich(
-                legacyRouteResponseMapper.toLegacy((RoutingResult) outcome));
+        RouteSearchResult mapped = legacyRouteResponseMapper.toLegacy((RoutingResult) outcome);
         // 요청이 실시간을 요구하지 않았으면(알림용 STATIC 경로) 보강하지 않는다 — degradation 이 아니다.
         if (!withRealtime) {
             return mapped;
