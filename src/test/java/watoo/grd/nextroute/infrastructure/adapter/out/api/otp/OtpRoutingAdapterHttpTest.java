@@ -21,6 +21,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -81,5 +82,30 @@ class OtpRoutingAdapterHttpTest {
         assertThat(outcome.success()).isFalse();
         assertThat(((RoutingFailure) outcome).kind()).isEqualTo(RoutingFailure.Kind.ENGINE_ERROR);
         assertThat(((RoutingFailure) outcome).code()).isEqualTo("GRAPHQL_ERROR");
+    }
+
+    @Test
+    @DisplayName("헤더 뒤 본문이 예산을 넘기면 TIMEOUT — 예외 원문을 메시지에 싣지 않는다")
+    void bodyReadTimeoutIsTimeout() {
+        // 2026-10-05 prod 재현: Content-Type 없이 헤더만 먼저 오고 본문이 예산을 넘겼다.
+        server.enqueue(new MockResponse().setResponseCode(200)
+                .setBody("{\"data\":{}}")
+                .setBodyDelay(5, TimeUnit.SECONDS));
+
+        RoutingFailure failure = (RoutingFailure) call();
+
+        assertThat(failure.kind()).isEqualTo(RoutingFailure.Kind.TIMEOUT);
+        assertThat(failure.message()).isEqualTo("OTP 응답 시간 초과")
+                .doesNotContain("extracting");
+    }
+
+    @Test
+    @DisplayName("응답 헤더 전에 예산을 넘겨도 TIMEOUT")
+    void headerReadTimeoutIsTimeout() {
+        server.enqueue(new MockResponse().setResponseCode(200)
+                .setBody("{}")
+                .setHeadersDelay(5, TimeUnit.SECONDS));
+
+        assertThat(((RoutingFailure) call()).kind()).isEqualTo(RoutingFailure.Kind.TIMEOUT);
     }
 }
