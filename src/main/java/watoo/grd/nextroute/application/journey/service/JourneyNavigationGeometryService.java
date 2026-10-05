@@ -6,9 +6,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import watoo.grd.nextroute.domain.bus.service.BusRoutePolylineData;
-import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineSection;
-import watoo.grd.nextroute.application.bus.port.out.BusRouteSegmentPolylinePort;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeoPoint;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeometryQuality;
@@ -52,13 +49,12 @@ import java.util.stream.Collectors;
  *
  * <p>좌표 원천이 단계 종류마다 다르다.
  * <ul>
- *   <li>버스 타는 단계 — {@code bus_route_segment_polyline} 의 정류장 구간별 좌표</li>
- *   <li>지하철 타는 단계 — 시작 시 얼려 둔 검색 결과의 구간 좌표</li>
+ *   <li>버스 타는 단계 — 시작 시 얼려 둔 검색 결과의 shapes.txt 좌표를 정류장 위치에서 자른 구간</li>
+ *   <li>지하철 타는 단계 — 같은 검색 결과의 구간 좌표</li>
  *   <li>걷기 단계 — 같은 검색 결과의 TMAP 보행자 좌표</li>
  * </ul>
  *
- * <p>세 원천 모두 비어 있을 수 있다. 버스는 구간 품질이 불량할 수 있고, 지하철은 폴리라인 수집이
- * 아직 안 됐을 수 있고, 걷기는 검색이 바쁠 때 TMAP 호출을 건너뛴다. 그래서 <b>좌표가 없으면
+ * <p>세 원천 모두 비어 있을 수 있다. 버스·지하철은 shape 없는 trip 이 있고, 걷기는 검색이 바쁠 때 TMAP 호출을 건너뛴다. 그래서 <b>좌표가 없으면
  * 단계를 빼는 대신 직선으로 채우고 품질을 낮춘다.</b> 빼면 앱이 구간 수를 서버와 다르게 세고
  * 진행 순번이 어긋난다.
  */
@@ -78,7 +74,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
     private final JourneyRevisionRepository revisionRepository;
     private final JourneyLegRepository legRepository;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
-    private final BusRouteSegmentPolylinePort busPolylinePort;
+    private final BusShapeStopSplitter shapeSplitter;
     private final BusRouteStopRepository busRouteStopRepository;
     private final JourneyCompiler compiler;
     private final GeometrySegmentAllocator allocator;
@@ -128,10 +124,10 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
     // ── 버스 ────────────────────────────────────────────────────────────────
 
     /**
-     * 버스 타는 단계. 구간 좌표를 합치지 않고 구간 단위로 내려준다.
+     * 버스 타는 단계. 검색 결과의 shapes.txt 선을 정류장 구간 단위로 내려준다.
      *
-     * <p>노선·정류장 순번을 아직 해석하지 못한 단계가 있다. 그때는 실측 좌표를 찾을 수 없으니
-     * 검색 결과 좌표로, 그것도 없으면 직선으로 떨어진다.
+     * <p>노선·정류장 순번을 아직 해석하지 못한 단계가 있다. 그때는 정류장 구간을 만들 수 없으니
+     * 검색 결과 좌표를 선분 단위로, 그것도 없으면 직선으로 떨어진다.
      */
     private Built busLeg(JourneyLeg leg, JourneyLeg optionOwner,
                          Map<Long, List<JourneyLegRouteOption>> optionsByLeg,
@@ -158,24 +154,18 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                         stop.getLatitude()))
                 .toList();
 
-        List<BusRouteSegmentPolylineSection> sections = busPolylinePort.findSections(
-                option.getRouteId(), option.getBoardingSeq(), option.getAlightingSeq());
-        if (sections.isEmpty()) {
+        // 선은 검색 결과의 shapes.txt 형상이다 — "지도에서 보기"가 그리는 선과 같다. 진행 판정용
+        // 정류장 구간은 그 선을 정류장 위치에서 잘라 만든다. 선이 없으면 정류장 직선(미리보기와 같음).
+        List<SegmentGeometry> raw = shapeSplitter.split(toGeoPointsFromCoords(
+                sub == null ? null : sub.polyline()), stops);
+        if (raw.isEmpty()) {
+            raw = shapeSplitter.straight(stops);
+        }
+        if (raw.isEmpty()) {
             return new Built(withStops(snapshotLeg(leg, sub), stops), null);
         }
-
-        List<SegmentGeometry> raw = new ArrayList<>(sections.size());
-        OffsetDateTime oldest = null;
-        for (BusRouteSegmentPolylineSection section : sections) {
-            raw.add(new SegmentGeometry(
-                    0, section.sectionId(), section.fromSeq(), section.toSeq(),
-                    0.0, null,
-                    quality(section), section.qualityReason(),
-                    toGeoPoints(section.points())));
-            oldest = older(oldest, section.sourceFetchedAt());
-        }
         List<SegmentGeometry> segments = allocator.distribute(raw, leg.getPlannedDurationSec());
-        return new Built(assemble(leg, option.getRouteId(), segments, stops), oldest);
+        return new Built(assemble(leg, option.getRouteId(), segments, stops), null);
     }
 
     private boolean hasBusScope(JourneyLegRouteOption option) {
@@ -183,14 +173,6 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                 && option.getRouteId() != null && !option.getRouteId().isBlank()
                 && option.getBoardingSeq() != null && option.getAlightingSeq() != null
                 && option.getBoardingSeq() < option.getAlightingSeq();
-    }
-
-    private GeometryQuality quality(BusRouteSegmentPolylineSection section) {
-        return switch (section.qualityStatus()) {
-            case OK -> section.points().size() >= 2 ? GeometryQuality.OK : GeometryQuality.FAILED;
-            case REVIEW -> GeometryQuality.REVIEW;
-            case FAILED -> GeometryQuality.FAILED;
-        };
     }
 
     // ── 검색 결과 좌표(지하철·걷기) ────────────────────────────────────────
@@ -496,13 +478,6 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
             return current;
         }
         return current == null || candidate.isBefore(current) ? candidate : current;
-    }
-
-    private List<GeoPoint> toGeoPoints(List<BusRoutePolylineData.Point> points) {
-        if (points == null) {
-            return List.of();
-        }
-        return points.stream().map(point -> new GeoPoint(point.x(), point.y())).toList();
     }
 
     private List<GeoPoint> toGeoPointsFromCoords(List<CoordPoint> points) {
