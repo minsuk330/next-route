@@ -253,6 +253,17 @@ class LegacyRouteResponseMapperTest {
     }
 
     @Test
+    @DisplayName("경기 마을버스(노선 1:BR_3100_)도 GBIS id 로 채운다 — TAGO 로 새지 않는다")
+    void gyeonggiVillageBusFillsGbisIds() {
+        SubPathResult sub = firstSubPath(gyeonggiBusLeg("1:BR_3100_241419002"));
+
+        assertThat(sub.startLocalStationID()).isEqualTo("123000001");
+        assertThat(sub.endLocalStationID()).isEqualTo("104000279");
+        assertThat(sub.lanes()).singleElement()
+                .satisfies(lane -> assertThat(lane.busLocalBlID()).isEqualTo("241419002"));
+    }
+
+    @Test
     @DisplayName("경기 버스(GGB)는 GBIS id 로 승·하차 정류장과 노선을 채운다 — 서울 DB 에 없어도")
     void gyeonggiBusFillsGbisIds() {
         SubPathResult sub = firstSubPath(gyeonggiBusLeg("1:BR_TAGO_GGB228000184"));
