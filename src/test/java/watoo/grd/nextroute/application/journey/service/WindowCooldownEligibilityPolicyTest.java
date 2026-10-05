@@ -52,7 +52,42 @@ class WindowCooldownEligibilityPolicyTest {
                 (journeyId, routeRevision, scope) -> {
                     askedScopes.add(scope);
                     return cooldownAdmits;
-                });
+                },
+                properties);
+    }
+
+    @Test
+    @DisplayName("테스트 계정은 근거·시간 창·cooldown 없이 통과한다")
+    void testUserSkipsWindowAndCooldown() {
+        properties.setTestUserIds(java.util.Set.of(7L));
+        cooldownAdmits = false;
+        // 준비 시각이 1시간 뒤(문 밖)이고 근거도 없다.
+        givenTransfer(transfer(2, null, TransferStatus.UNKNOWN));
+
+        assertThat(policy.denialReason(journey(1), 0, NOW)).isEmpty();
+        assertThat(askedScopes).as("cooldown 잠금을 태우지 않는다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("테스트 계정도 없는 환승·지나간 환승은 거절한다")
+    void testUserStillNeedsAnUpcomingTransfer() {
+        properties.setTestUserIds(java.util.Set.of(7L));
+        givenTransfer(transfer(2, NOW.minusSeconds(1_800), TransferStatus.MISSED));
+
+        assertThat(policy.denialReason(journey(5), 0, NOW)).contains("past-transfer");
+
+        when(transferRepository.findByJourneyIdAndRouteRevisionAndTransferIndexAndDeletedAtIsNull(
+                anyLong(), anyInt(), anyInt())).thenReturn(Optional.empty());
+        assertThat(policy.denialReason(journey(1), 3, NOW)).contains("no-transfer");
+    }
+
+    @Test
+    @DisplayName("목록에 없는 계정은 평소대로 판정한다")
+    void otherUsersAreUnaffected() {
+        properties.setTestUserIds(java.util.Set.of(99L));
+        givenTransfer(transfer(2, null, TransferStatus.UNKNOWN));
+
+        assertThat(policy.denialReason(journey(1), 0, NOW)).contains("window");
     }
 
     @Test

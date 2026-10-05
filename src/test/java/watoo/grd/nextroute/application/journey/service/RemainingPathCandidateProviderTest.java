@@ -169,6 +169,23 @@ class RemainingPathCandidateProviderTest {
     }
 
     @Test
+    @DisplayName("테스트 계정은 개선폭이 임계값 미만이어도(느려도) 후보를 받는다")
+    void testUserGetsCandidateRegardlessOfGain() {
+        properties.setTestUserIds(java.util.Set.of(3L));
+        PathResult path = path("A");
+        givenSearch(path);
+        givenPrepared(path, prepared("BL-360", 0, 1));
+        givenBaseline(NOW.plusSeconds(600), true);
+        givenComposed(path, attempt(NOW.plusSeconds(2900)));
+
+        List<RerouteCandidate> candidates = provider.findCandidates(context());
+
+        assertThat(candidates).hasSize(1);
+        assertThat(candidates.get(0).display().etaGainSec()).isLessThan(
+                properties.getRemainingPath().getMinimumEtaGainSeconds());
+    }
+
+    @Test
     @DisplayName("기준선을 못 재면 가장 이른 하나만, 개선폭 0 · 신뢰도 낮춤")
     void withoutBaselineOnlyEarliestSurvives() {
         PathResult first = path("A");

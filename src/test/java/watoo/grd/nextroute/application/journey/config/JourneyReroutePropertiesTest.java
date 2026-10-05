@@ -54,4 +54,27 @@ class JourneyReroutePropertiesTest {
     void validatePasses() {
         assertThatCode(props::validate).doesNotThrowAnyException();
     }
+
+    @Test
+    @DisplayName("테스트 계정 목록: env 가 비면 빈 집합, 쉼표 구분이면 그 계정들")
+    void bindsTestUserIds() {
+        assertThat(bind("").getTestUserIds()).isEmpty();
+        assertThat(bind("").isTestUser(7L)).isFalse();
+
+        JourneyRerouteProperties bound = bind("5, 7");
+        assertThat(bound.getTestUserIds()).containsExactlyInAnyOrder(5L, 7L);
+        assertThat(bound.isTestUser(7L)).isTrue();
+        assertThat(bound.isTestUser(null)).isFalse();
+    }
+
+    private JourneyRerouteProperties bind(String testUserIds) {
+        org.springframework.boot.context.properties.bind.Binder binder =
+                new org.springframework.boot.context.properties.bind.Binder(
+                        new org.springframework.boot.context.properties.source.MapConfigurationPropertySource(
+                                java.util.Map.of("journey.reroute.test-user-ids", testUserIds)));
+        return binder.bind("journey.reroute",
+                        org.springframework.boot.context.properties.bind.Bindable.ofInstance(
+                                new JourneyRerouteProperties()))
+                .orElseGet(JourneyRerouteProperties::new);
+    }
 }

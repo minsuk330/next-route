@@ -2,6 +2,7 @@ package watoo.grd.nextroute.application.journey.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.port.out.RerouteCooldownPort;
 import watoo.grd.nextroute.application.journey.port.out.RerouteEligibilityPolicy;
@@ -47,6 +48,7 @@ public class WindowCooldownEligibilityPolicy implements RerouteEligibilityPolicy
     private final TransferConnectionRepository transferRepository;
     private final RerouteTriggerPolicy triggerPolicy;
     private final RerouteCooldownPort cooldownPort;
+    private final JourneyRerouteProperties properties;
 
     @Override
     public Optional<String> denialReason(JourneySession journey, int transferIndex, Instant now) {
@@ -61,6 +63,11 @@ public class WindowCooldownEligibilityPolicy implements RerouteEligibilityPolicy
         if (transfer.getToLegIndex() < journey.getCurrentLegIndex()) {
             // 이미 그 환승을 지나 다음 단계로 갔다. 찾아 봐야 사용자가 할 수 있는 일이 없다.
             return Optional.of("past-transfer");
+        }
+        if (properties.isTestUser(journey.getUserId())) {
+            // 시뮬레이터 수동 테스트 계정: 근거·시간 창·cooldown 을 건너뛴다. 위 두 판정은 지킨다 —
+            // 없는 환승이나 지나간 환승에 대한 제안은 수락해도 적용할 수 없다.
+            return Optional.empty();
         }
         if (!hasLiveEvidence(transfer)) {
             return Optional.of("window");
