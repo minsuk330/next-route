@@ -161,9 +161,9 @@ class RemainingRouteSearchServiceTest {
         verify(otpPort).search(any(), searchDeadline.capture());
         // 같은 인스턴스 = 대기 후 남은 예산으로 호출(단계별 새 예산 발급 아님).
         assertThat(searchDeadline.getValue()).isSameAs(gateDeadline.getValue());
-        // OTP 호출 예산 = otpMs(기본 3500), 넘긴 budgetMs(3000) 아님(단일소스).
+        // OTP 호출 예산 = otpMs(기본 8000), 넘긴 budgetMs(3000) 아님(단일소스).
         long remaining = searchDeadline.getValue().remainingMillis(Clock.systemDefaultZone());
-        assertThat(remaining).isGreaterThan(3000L).isLessThanOrEqualTo(3500L);
+        assertThat(remaining).isGreaterThan(3000L).isLessThanOrEqualTo(8000L);
         verify(otpConcurrencyGate).release(permit);
     }
 

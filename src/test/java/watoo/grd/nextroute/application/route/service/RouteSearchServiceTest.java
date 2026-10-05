@@ -308,9 +308,9 @@ class RouteSearchServiceTest {
         RouteSearchResult result = otp.search(request());
 
         assertThat(result.paths()).isNotEmpty();
-        // OTP 경로 예산 = otpMs(기본 3500), ODSAY odsayMs(2000) 재사용 아님.
+        // OTP 경로 예산 = otpMs(기본 8000), ODSAY odsayMs(2000) 재사용 아님.
         long remaining = gateDeadline.getValue().remainingMillis(Clock.systemDefaultZone());
-        assertThat(remaining).isGreaterThan(2000L).isLessThanOrEqualTo(3500L);
+        assertThat(remaining).isGreaterThan(2000L).isLessThanOrEqualTo(8000L);
         verify(otpPort).search(any(), any());
         verify(transferArrivalEnricher).enrich(any(), any(), any());   // 예측을 응답에 싣는다
         verify(otpConcurrencyGate).release(permit);   // finally 반납

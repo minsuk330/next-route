@@ -11,8 +11,12 @@ import watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties;
  *
  * <p>lease 가 유효 호출 예산보다 작으면, 아직 OTP 를 호출 중인 permit 이 ZSET score 만료로
  * 회수·재할당되어 상한이 무너진다(N 초과). 예산을 lease 위로 올리는 <b>미래의 오설정</b>을
- * 코드로 막는다 — 지금은 api 2000 / worker 3000 이라 기본 lease 8000 은 여유가 크지만,
- * 관계 자체를 검증으로 고정한다.
+ * 코드로 막는다.
+ *
+ * <p>OTP 호출 예산은 api 검색과 worker 남은경로 검색 모두 {@code route.search.otp-ms} 다
+ * ({@code RemainingRouteSearchService} 도 넘겨받은 budget 이 아니라 otpMs 로 OTP 를 부른다).
+ * 그래서 양쪽 예산에 otpMs 를 넣는다. 예전에는 api 예산으로 odsayMs 를 봐서, otpMs 를 lease 위로
+ * 올려도 기동 검증을 통과했다.
  */
 @Slf4j
 @Component
@@ -25,8 +29,9 @@ public class OtpConcurrencyConfigValidator {
 
     @PostConstruct
     void validate() {
-        long apiBudget = routeSearch.getOdsayMs();
-        long workerBudget = reroute.getRemainingPath().getSearchBudgetMs();
+        long otpBudget = routeSearch.getOtpMs();
+        long apiBudget = Math.max(routeSearch.getOdsayMs(), otpBudget);
+        long workerBudget = Math.max(reroute.getRemainingPath().getSearchBudgetMs(), otpBudget);
         long maxBudget = Math.max(apiBudget, workerBudget);
         long required = maxBudget + concurrency.getSafetyMarginMs();
 
