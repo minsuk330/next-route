@@ -20,8 +20,10 @@ class RouteSearchDeadlinePropertiesTest {
         RouteSearchDeadlineProperties props = new RouteSearchDeadlineProperties();
         TransferArrivalProperties transfer = new TransferArrivalProperties();
 
-        assertThat(props.getDeadlineMs()).isEqualTo(4500);
-        // OTP 실측 상한(2.0s 대) + 보강 상한(1.5s) 이 들어가고도 남아야 한다.
-        assertThat(props.getDeadlineMs()).isGreaterThan(2000 + transfer.getDeadlineMs());
+        assertThat(props.getOtpMs()).isEqualTo(8000);
+        assertThat(props.getDeadlineMs()).isEqualTo(9500);
+        // OTP 최대 예산 + 보강 상한(1.5s) 이 들어가야 한다.
+        assertThat(props.getDeadlineMs())
+                .isGreaterThanOrEqualTo(props.getOtpMs() + transfer.getDeadlineMs());
     }
 }

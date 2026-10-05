@@ -25,7 +25,7 @@ public class OtpConcurrencyProperties {
      * permit lease TTL(ms). holder 가 crash 로 release 를 못 타도 이 시간 뒤 ZSET score 만료로
      * 자동 회수된다(leak 방지). OTP 호출 최대 예산 + 여유보다 커야 한다(기동 검증).
      */
-    private long leaseMs = 8000;
+    private long leaseMs = 12000;
 
     /** acquire 재시도 polling 간격(ms). 실제 sleep 은 {@code min(이 값, 남은 예산)}. */
     private long retryIntervalMs = 20;
