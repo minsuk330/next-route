@@ -44,8 +44,9 @@ public class OtpSeoulIdentityResolver {
     // 공항버스(6xxx)는 방향별로 route 가 갈려 _U/_D 접미사가 붙는다. 서울 노선 id 는 앞 9자리.
     private static final Pattern BUS_ROUTE = Pattern.compile("^\\d+:BR_TAGO_SEB(\\d{9})(?:_[UD])?$");
     // 경기도 같은 규칙: 9자리 = GBIS stationId/routeId, 방향 분할 노선은 _U/_D(1,138 중 28개).
+    // 경기 마을버스는 노선만 다른 기관 코드로 온다: 1:BR_3100_<GBIS 9자리>(827개, 경기 탑승지점의 19%). 정류장은 GGB 그대로.
     private static final Pattern GG_BUS_STOP = Pattern.compile("^\\d+:BS_TAGO_GGB(\\d{9})$");
-    private static final Pattern GG_BUS_ROUTE = Pattern.compile("^\\d+:BR_TAGO_GGB(\\d{9})(?:_[UD])?$");
+    private static final Pattern GG_BUS_ROUTE = Pattern.compile("^\\d+:BR_(?:TAGO_GGB|3100_)(\\d{9})(?:_[UD])?$");
     // 서울·경기 밖: TAGO 는 접두사 포함 id 를 그대로 받는다. 구미(GMB)는 노선 id 에 하이픈이 섞인다(GMB171-110).
     private static final Pattern TAGO_BUS_STOP = Pattern.compile("^\\d+:BS_TAGO_(([A-Z]{3})\\d+)$");
     private static final Pattern TAGO_BUS_ROUTE = Pattern.compile("^\\d+:BR_TAGO_(([A-Z]{3})[\\d-]+?)(?:_[UD])?$");

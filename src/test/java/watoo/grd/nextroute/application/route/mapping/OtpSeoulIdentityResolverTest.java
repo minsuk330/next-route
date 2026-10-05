@@ -87,6 +87,16 @@ class OtpSeoulIdentityResolverTest {
     }
 
     @Test
+    @DisplayName("경기 마을버스: 노선이 1:BR_3100_<9자리> 로 와도 GBIS routeId 로 해석(고양 15번 실측값)")
+    void gyeonggiVillageBusResolved() {
+        assertThat(resolver.resolveGyeonggiBus("1:BS_TAGO_GGB228003392", "1:BR_3100_241419002", "15"))
+                .contains(new GyeonggiBusIdentity("228003392", "241419002", "15"));
+        // 다른 기관 코드(예 3657 광주 농어촌)는 경기로 보지 않는다
+        assertThat(resolver.resolveGyeonggiBus("1:BS_TAGO_GGB228003392", "1:BR_3657_0601", "318")).isEmpty();
+        assertThat(resolver.resolveGyeonggiBus("1:BS_TAGO_GGB228003392", "1:BR_3656_333000192", "율포71-1")).isEmpty();
+    }
+
+    @Test
     @DisplayName("경기 버스: 방향 분할 노선 _U/_D 접미사는 떼고 9자리만")
     void gyeonggiBusDirectionSuffix() {
         assertThat(resolver.resolveGyeonggiBus("1:BS_TAGO_GGB123000001", "1:BR_TAGO_GGB241000830_U", "1801"))
