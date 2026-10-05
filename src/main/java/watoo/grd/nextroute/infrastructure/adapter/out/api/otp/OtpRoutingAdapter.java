@@ -19,6 +19,8 @@ import watoo.grd.nextroute.application.route.routing.RoutingQuery;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.SocketTimeoutException;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
@@ -141,11 +143,18 @@ public class OtpRoutingAdapter implements RoutingPort {
                     .onStatus(status -> true, (req, res) -> { })  // 기본 예외 억제 — 아래서 분류
                     .toEntity(String.class);
         } catch (Exception e) {
-            // 연결/read timeout 등 I/O — 재시도 가능 성격이나 예산 안에서 끝나야 하므로 TIMEOUT/UPSTREAM.
-            String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-            RoutingFailure.Kind kind = msg.toLowerCase().contains("timeout")
-                    ? RoutingFailure.Kind.TIMEOUT : RoutingFailure.Kind.ENGINE_ERROR;
-            throw new OtpCallException(kind, "IO", "OTP 호출 실패: " + msg);
+            // 연결/read timeout 등 I/O. 예산 초과는 TIMEOUT(504), 그 밖은 ENGINE_ERROR(502).
+            // 메시지 문자열로 가르면 안 된다 — 본문을 읽다 끊기면 Spring 이 SocketTimeoutException 을
+            // "Error while extracting response ..." 로 감싸 "timeout" 이 사라진다(2026-10-05 장거리 검색 502).
+            // 예외 원문은 로그에만 남기고 응답 메시지에는 싣지 않는다.
+            if (isTimeout(e)) {
+                log.warn("[OTP] 응답 시간 초과 budgetMs={}", budgetMs);
+                throw new OtpCallException(RoutingFailure.Kind.TIMEOUT, "TIMEOUT",
+                        "OTP 응답 시간 초과");
+            }
+            log.warn("[OTP] 호출 실패", e);
+            throw new OtpCallException(RoutingFailure.Kind.ENGINE_ERROR, "IO",
+                    "OTP 호출 실패(" + rootCause(e).getClass().getSimpleName() + ")");
         }
         int status = response.getStatusCode().value();
         if (status >= 500) {
@@ -159,6 +168,26 @@ public class OtpRoutingAdapter implements RoutingPort {
             throw new OtpCallException(RoutingFailure.Kind.ENGINE_ERROR, "EMPTY", "OTP 빈 응답");
         }
         return responseBody;
+    }
+
+    private static boolean isTimeout(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof SocketTimeoutException || t instanceof HttpTimeoutException) {
+                return true;
+            }
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        return false;
+    }
+
+    private static Throwable rootCause(Throwable e) {
+        Throwable t = e;
+        while (t.getCause() != null && t.getCause() != t) {
+            t = t.getCause();
+        }
+        return t;
     }
 
     private String loadQuery() {
