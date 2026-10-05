@@ -96,6 +96,36 @@ class OtpSeoulIdentityResolverTest {
     }
 
     @Test
+    @DisplayName("TAGO 버스: 접두사 포함 id + 도시코드(부산 186 영도대교 실측값), DB 조회 없음")
+    void tagoBusResolved() {
+        Optional<TagoBusIdentity> r = resolver.resolveTagoBus(
+                "1:BS_TAGO_BSB167850202", "1:BR_TAGO_BSB5200186000", "186");
+
+        assertThat(r).contains(new TagoBusIdentity("21", "BSB167850202", "BSB5200186000", "186"));
+        org.mockito.Mockito.verifyNoInteractions(busStopRepo, busRouteRepo);
+    }
+
+    @Test
+    @DisplayName("TAGO 버스: 하이픈 노선 id(구미 171-1)는 그대로, _U/_D 접미사만 뗀다")
+    void tagoBusRouteIdForms() {
+        assertThat(resolver.resolveTagoBus("1:BS_TAGO_GMB119", "1:BR_TAGO_GMB171-110", "171-1"))
+                .contains(new TagoBusIdentity("37050", "GMB119", "GMB171-110", "171-1"));
+        assertThat(resolver.resolveTagoBus("1:BS_TAGO_ICB164000395", "1:BR_TAGO_ICB161000022_U", "?"))
+                .map(TagoBusIdentity::routeId).contains("ICB161000022");
+    }
+
+    @Test
+    @DisplayName("TAGO 버스: 서울·경기·표 밖 접두사·정류장/노선 접두사 불일치·null 은 empty")
+    void tagoBusOutOfScope() {
+        assertThat(resolver.resolveTagoBus("1:BS_TAGO_SEB123000001", "1:BR_TAGO_SEB100100209", "2412")).isEmpty();
+        assertThat(resolver.resolveTagoBus("1:BS_TAGO_GGB123000001", "1:BR_TAGO_GGB228000184", "5600")).isEmpty();
+        assertThat(resolver.resolveTagoBus("1:BS_TAGO_TSB309000122", "1:BR_TAGO_TSB309000001", "농어촌")).isEmpty();
+        assertThat(resolver.resolveTagoBus("1:BS_TAGO_BEB275000704", "1:BR_TAGO_BEB275000044", "531")).isEmpty();
+        assertThat(resolver.resolveTagoBus("1:BS_TAGO_BSB167850202", "1:BR_TAGO_DGB3000320000", "320")).isEmpty();
+        assertThat(resolver.resolveTagoBus(null, "1:BR_TAGO_BSB5200186000", "186")).isEmpty();
+    }
+
+    @Test
     @DisplayName("경기 버스: SEB·ICB·형식 불일치·null 은 empty")
     void gyeonggiBusOtherPrefixes() {
         assertThat(resolver.resolveGyeonggiBus("1:BS_TAGO_SEB123000001", "1:BR_TAGO_SEB100100209", "2412")).isEmpty();

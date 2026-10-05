@@ -5,20 +5,28 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.arrival.dto.BusArrivalResponse;
 import watoo.grd.nextroute.application.arrival.dto.GyeonggiBusArrival;
+import watoo.grd.nextroute.application.arrival.dto.TagoBusArrival;
 import watoo.grd.nextroute.application.arrival.port.in.GetBusArrivalUseCase;
 import watoo.grd.nextroute.application.arrival.port.out.GyeonggiBusArrivalPort;
+import watoo.grd.nextroute.application.arrival.port.out.TagoBusArrivalPort;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
+import watoo.grd.nextroute.application.route.mapping.TagoCityCodes;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.BusQueryResult;
 import watoo.grd.nextroute.domain.bus.entity.BusRouteStop;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class BusArrivalQueryService implements GetBusArrivalUseCase {
+
+    /** TAGO id 모양: 영문 3글자 접두사 + 숫자(구미 노선은 하이픈 포함). 서울·경기 id 는 숫자뿐이라 겹치지 않는다. */
+    private static final Pattern TAGO_ID = Pattern.compile("^[A-Z]{3}[\\d-]+$");
 
     /**
      * 검색 flow와 동일한 Redis 캐시(15s TTL)를 재사용한다({@link SearchTimeBusQueryPort} → CachedSearchTimeBusAdapter).
@@ -29,9 +37,14 @@ public class BusArrivalQueryService implements GetBusArrivalUseCase {
     private final BusRouteStopRepository busRouteStopRepository;
     /** 서울 순번이 없는 조합(경기 노선)은 경기도 API 로. 길찾기 응답이 경기 구간에 GBIS id 를 채운다. */
     private final GyeonggiBusArrivalPort gyeonggiBusArrivalPort;
+    /** 서울·경기 밖(접두사 포함 id, 예 BSB167850202)은 TAGO 로. 서울 DB 를 보지 않는다. */
+    private final TagoBusArrivalPort tagoBusArrivalPort;
 
     @Override
     public List<BusArrivalResponse> getArrivals(String stopId, String routeId) {
+        if (isTagoId(stopId) || isTagoId(routeId)) {
+            return getTagoArrivals(stopId, routeId);
+        }
         // (stopId, routeId) → 경유순번(seq). Seoul getArrInfoByRoute는 ord 필수.
         List<BusRouteStop> mappings = busRouteStopRepository.findByRouteIdAndStopId(routeId, stopId);
         if (mappings.isEmpty()) {
@@ -73,5 +86,25 @@ public class BusArrivalQueryService implements GetBusArrivalUseCase {
             return List.of();
         }
         return res.data().stream().map(GyeonggiArrivalMapper::toResponse).toList();
+    }
+
+    private static boolean isTagoId(String id) {
+        return id != null && TAGO_ID.matcher(id).matches();
+    }
+
+    private List<BusArrivalResponse> getTagoArrivals(String nodeId, String routeId) {
+        // 정류장·노선이 같은 지역(접두사)이고 도시코드 표에 있을 때만. 아니면 호출하지 않는다(틀린 도시코드 = 빈 결과뿐).
+        if (!isTagoId(nodeId) || !isTagoId(routeId) || !nodeId.regionMatches(0, routeId, 0, 3)) {
+            return List.of();
+        }
+        Optional<String> cityCode = TagoCityCodes.cityCodeOfId(nodeId);
+        if (cityCode.isEmpty()) {
+            return List.of();
+        }
+        BusQueryResult<TagoBusArrival> res = tagoBusArrivalPort.getArrivals(cityCode.get(), nodeId, routeId);
+        if (!res.isOk()) {
+            return List.of();
+        }
+        return TagoArrivalMapper.toResponse(routeId, res.data()).map(List::of).orElse(List.of());
     }
 }

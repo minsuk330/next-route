@@ -29,7 +29,8 @@ import java.util.regex.Pattern;
  * 기타 노선(경의중앙 1063/신분당 1075 등)·비버스/비지하철은 empty → 호출자가 STATIC_SCHEDULE 로 처리한다.
  * 추후 수도권/전국 확장 시 동일 규칙 성립 여부는 <b>미검증</b>(prefix·좌표계·라인코드 상이 가능) — 확장 전 재실측 필요.
  *
- * <p>예외: 경기 버스는 {@link #resolveGyeonggiBus} 로 따로 해석한다(GBIS 용, DB 검증 없음). 위 서울 스코프는 그대로다.
+ * <p>예외: 경기 버스는 {@link #resolveGyeonggiBus}(GBIS), 서울·경기 밖 버스는 {@link #resolveTagoBus}(TAGO)로
+ * 따로 해석한다(둘 다 DB 검증 없음). 위 서울 스코프는 그대로다.
  */
 @Slf4j
 @Component
@@ -45,6 +46,9 @@ public class OtpSeoulIdentityResolver {
     // 경기도 같은 규칙: 9자리 = GBIS stationId/routeId, 방향 분할 노선은 _U/_D(1,138 중 28개).
     private static final Pattern GG_BUS_STOP = Pattern.compile("^\\d+:BS_TAGO_GGB(\\d{9})$");
     private static final Pattern GG_BUS_ROUTE = Pattern.compile("^\\d+:BR_TAGO_GGB(\\d{9})(?:_[UD])?$");
+    // 서울·경기 밖: TAGO 는 접두사 포함 id 를 그대로 받는다. 구미(GMB)는 노선 id 에 하이픈이 섞인다(GMB171-110).
+    private static final Pattern TAGO_BUS_STOP = Pattern.compile("^\\d+:BS_TAGO_(([A-Z]{3})\\d+)$");
+    private static final Pattern TAGO_BUS_ROUTE = Pattern.compile("^\\d+:BR_TAGO_(([A-Z]{3})[\\d-]+?)(?:_[UD])?$");
     // 앞자리 숫자 lookbehind 로 두 자리 호선("11호선")의 뒷자리 오매치를 막는다(현재 서울 1~9호선만 스코프).
     private static final Pattern SUBWAY_LINE = Pattern.compile("(?<!\\d)([1-9])호선");
 
@@ -100,6 +104,20 @@ public class OtpSeoulIdentityResolver {
         return Optional.of(new GyeonggiBusIdentity(stationId, routeId, routeName));
     }
 
+    /**
+     * 서울·경기 밖 버스: {@code 1:BS_TAGO_}/{@code 1:BR_TAGO_} 만 떼고 접두사는 남긴다({@link TagoBusIdentity}).
+     * 정류장·노선 접두사가 같고 {@link TagoCityCodes} 에 도시코드가 있을 때만(SEB·GGB 는 표에 없어 자연히 제외).
+     */
+    public Optional<TagoBusIdentity> resolveTagoBus(String stopGtfsId, String routeGtfsId, String routeName) {
+        Matcher stop = match(TAGO_BUS_STOP, stopGtfsId);
+        Matcher route = match(TAGO_BUS_ROUTE, routeGtfsId);
+        if (stop == null || route == null || !stop.group(2).equals(route.group(2))) {
+            return Optional.empty();
+        }
+        return TagoCityCodes.cityCodeOf(stop.group(2))
+                .map(city -> new TagoBusIdentity(city, stop.group(1), route.group(1), routeName));
+    }
+
     /** 서울 지하철 1~9호선: route 호선 + 좌표 최근접(라인 일치). */
     public Optional<SeoulSubwayIdentity> resolveSubway(String routeName, double lat, double lon) {
         String lineId = seoulLineId(routeName);
@@ -114,6 +132,14 @@ public class OtpSeoulIdentityResolver {
                 .findFirst()
                 .map(p -> new SeoulSubwayIdentity(p.getStationId(), p.getLineId(),
                         p.getDistMeters() == null ? Double.NaN : p.getDistMeters()));
+    }
+
+    private static Matcher match(Pattern p, String s) {
+        if (s == null) {
+            return null;
+        }
+        Matcher m = p.matcher(s);
+        return m.matches() ? m : null;
     }
 
     private static String capture(Pattern p, String s) {

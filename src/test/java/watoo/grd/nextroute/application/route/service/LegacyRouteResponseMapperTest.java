@@ -278,4 +278,38 @@ class LegacyRouteResponseMapperTest {
         assertThat(sub.lanes()).singleElement()
                 .satisfies(lane -> assertThat(lane.busLocalBlID()).isEqualTo("100100209"));
     }
+
+    private RoutingLeg tagoBusLeg(String boardStop, String alightStop, String sourceRouteId, String name) {
+        LegGeometry geometry = new LegGeometry(GeometrySource.OTP_STREET,
+                GeometryQuality.STREET_FALLBACK, "test fixture", "g1", BUS_SHAPE, BUS_SHAPE);
+        List<StopOccurrence> stops = List.of(
+                new StopOccurrence(boardStop, null, null, 0, 129.036, 35.095, "from"),
+                new StopOccurrence(alightStop, null, null, 1, 129.040, 35.100, "to"));
+        return new RoutingLeg(RoutingMode.BUS, null, "1", "1:A1", sourceRouteId, name,
+                "1:T1", null, null, null, 600, stops, List.of(),
+                geometry, Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), null);
+    }
+
+    @Test
+    @DisplayName("서울·경기 밖 버스(부산)는 접두사 포함 TAGO id 로 승·하차 정류장과 노선을 채운다")
+    void tagoBusFillsPrefixedIds() {
+        SubPathResult sub = firstSubPath(tagoBusLeg(
+                "1:BS_TAGO_BSB167850202", "1:BS_TAGO_BSB167850201", "1:BR_TAGO_BSB5200186000", "186"));
+
+        assertThat(sub.startLocalStationID()).isEqualTo("BSB167850202");
+        assertThat(sub.endLocalStationID()).isEqualTo("BSB167850201");
+        assertThat(sub.lanes()).singleElement()
+                .satisfies(lane -> assertThat(lane.busLocalBlID()).isEqualTo("BSB5200186000"));
+    }
+
+    @Test
+    @DisplayName("도시코드 표 밖(농어촌 TSB)은 id 를 비운다 — 프론트가 호출하지 않게")
+    void tagoBusOutsideCityTableStaysNull() {
+        SubPathResult sub = firstSubPath(tagoBusLeg(
+                "1:BS_TAGO_TSB309000122", "1:BS_TAGO_TSB309000123", "1:BR_TAGO_TSB309000001", "농어촌"));
+
+        assertThat(sub.startLocalStationID()).isNull();
+        assertThat(sub.endLocalStationID()).isNull();
+        assertThat(sub.lanes()).singleElement().satisfies(lane -> assertThat(lane.busLocalBlID()).isNull());
+    }
 }
