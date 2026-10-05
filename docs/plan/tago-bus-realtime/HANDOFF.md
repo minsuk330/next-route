@@ -1,9 +1,6 @@
-# 모바일 인계 — 버스 실시간 ID 에 영문 접두사가 들어간다
+# 모바일 인계
 
-서울·경기 밖(부산·대구·인천 등 38개 지역) 버스 구간에서 길찾기 응답의 `startLocalStationID`·`endLocalStationID`·`lanes[].busLocalBlID` 가
-**영문 3글자로 시작하는 문자열**로 채워진다. 예: `BSB167850202`, `BSB5200186000`, 구미는 하이픈 포함 `GMB171-110`.
+경기(#251)·지방 TAGO(#252)를 합친 모바일 인계 문서는
+[`docs/plan/national-otp-map-migration/handoffs/BUS-REALTIME.md`](../national-otp-map-migration/handoffs/BUS-REALTIME.md) 에 있다.
 
-- 앱은 이 값을 **가공하지 말고 그대로** `GET /api/arrivals/bus/{stopId}/{routeId}` 에 넣으면 된다. 서버가 모양을 보고 TAGO 로 조회한다.
-- 숫자로 파싱하거나 숫자만 허용하는 검증이 있으면 이 구간에서 호출이 막힌다 — 문자열로 다룰 것.
-- 응답 형식은 서울·경기와 같다. 다른 점: `congestionNum1/2` 는 항상 0(정보 없음), 다가오는 버스가 없으면 빈 배열.
-- 농어촌 버스 등 아직 지원하지 않는 지역은 지금처럼 null 이다(호출하지 않으면 됨).
+핵심: 지방 버스 id 는 영문 3글자로 시작하는 문자열(`BSB167850202`, 하이픈 포함 `GMB171-110`) — 가공하지 말고 그대로 넘긴다.
