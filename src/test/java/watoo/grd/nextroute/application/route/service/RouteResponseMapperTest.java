@@ -69,8 +69,9 @@ class RouteResponseMapperTest {
         assertThat(bus.trafficType()).isEqualTo(2);
         assertThat(bus.stations()).isNotEmpty();
         assertThat(bus.stations().get(0).stationID()).startsWith("1:");   // 원천 gtfsId 보존
+        // 버스 형상은 shapes.txt(SHAPE_OK)라 polyline 을 싣는다
+        assertThat(bus.polyline()).hasSizeGreaterThanOrEqualTo(2);
         // 채우지 못하는 필드는 null(가짜값 금지)
-        assertThat(bus.polyline()).isNull();
         assertThat(path.info().mapObj()).isNull();
     }
 
@@ -86,7 +87,7 @@ class RouteResponseMapperTest {
         assertThat(path.navigationSupported()).isFalse();
         var bus = path.subPaths().get(1);
         assertThat(bus.mode()).isEqualTo("BUS");
-        assertThat(bus.geometryQuality()).isEqualTo("STREET_FALLBACK");
+        assertThat(bus.geometryQuality()).isEqualTo("SHAPE_OK");
         assertThat(bus.missing()).contains("REALTIME_ID", "DIRECTION");
     }
 

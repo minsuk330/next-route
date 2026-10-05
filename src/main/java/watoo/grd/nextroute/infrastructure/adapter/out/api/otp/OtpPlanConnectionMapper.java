@@ -1,9 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.otp;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
 import watoo.grd.nextroute.application.route.routing.ActualSource;
 import watoo.grd.nextroute.application.route.routing.Enrichment;
 import watoo.grd.nextroute.application.route.routing.Fare;
@@ -21,7 +19,6 @@ import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import watoo.grd.nextroute.application.route.routing.RoutingWalkStep;
-import watoo.grd.nextroute.application.route.routing.ShapeCoverageIndex;
 import watoo.grd.nextroute.application.route.routing.StopOccurrence;
 
 import java.time.Instant;
@@ -38,35 +35,14 @@ import java.util.Set;
  *
  * <p>HTTP 를 모른다(어댑터가 호출·오류처리). stable schema 필드만 읽는다(deprecated 회피).
  * 원천 부재값은 지어내지 않고 {@link MissingAttribute}/{@code UNKNOWN} 으로 남긴다.
- * 대중교통 형상은 P3 pfaedle 게이트({@link ShapeCoverageIndex})를 통과한 trip 만
- * {@link GeometryQuality#SHAPE_OK} 로, 나머지는 {@link GeometryQuality#STREET_FALLBACK}(정상 아님)로 표기한다.
+ * 대중교통 형상은 그래프에 넣은 pfaedle {@code shapes.txt} 를 그대로 믿고 {@link GeometryQuality#SHAPE_OK} 로
+ * 표기한다. trip 별 품질 게이트(coverage-index)는 걸러 내는 trip 이 없어(degraded 0) 걷어 냈다.
  */
 @Component
 public class OtpPlanConnectionMapper {
 
     /** feed 시간대(KTDB). serviceDate 해석용. */
     private static final ZoneId FEED_ZONE = ZoneId.of("Asia/Seoul");
-
-    /** P3 형상 품질 인덱스. 비활성이면 대중교통 형상 전량 STREET_FALLBACK. */
-    private final ShapeCoverageIndex shapeCoverageIndex;
-    /** 형상 마킹 킬스위치(설정). off 면 인덱스와 무관하게 STREET_FALLBACK. */
-    private final boolean shapesEnabled;
-
-    /** Spring 배선용. {@link OtpRoutingProperties#isShapesEnabled()} 로 플래그를 읽는다. */
-    @Autowired
-    public OtpPlanConnectionMapper(ShapeCoverageIndex shapeCoverageIndex, OtpRoutingProperties properties) {
-        this(shapeCoverageIndex, properties.isShapesEnabled());
-    }
-
-    public OtpPlanConnectionMapper(ShapeCoverageIndex shapeCoverageIndex, boolean shapesEnabled) {
-        this.shapeCoverageIndex = shapeCoverageIndex;
-        this.shapesEnabled = shapesEnabled;
-    }
-
-    /** 형상 마킹 비활성 매퍼(테스트/기본, 현행 STREET_FALLBACK 동작). */
-    public OtpPlanConnectionMapper() {
-        this(ShapeCoverageIndex.disabled(), false);
-    }
 
     /**
      * @param departureAt 요청 경계에서 확정한 출발시각(응답에 그대로 보존)
@@ -174,7 +150,7 @@ public class OtpPlanConnectionMapper {
         List<StopOccurrence> stops = transit ? toStops(legNode) : List.of();
         List<RoutingWalkStep> walkSteps = mode == RoutingMode.WALK ? toWalkSteps(legNode) : List.of();
 
-        LegGeometry geometry = toGeometry(legNode, transit, mode, tripId, graphVersion);
+        LegGeometry geometry = toGeometry(legNode, transit, graphVersion);
         Enrichment enrichment = Enrichment.staticOnly(
                 transit ? RealtimeCoverage.STATIC_SCHEDULE : RealtimeCoverage.NONE);
 
@@ -248,39 +224,26 @@ public class OtpPlanConnectionMapper {
         return steps;
     }
 
-    private LegGeometry toGeometry(JsonNode legNode, boolean transit,
-                                   RoutingMode mode, String tripId, String graphVersion) {
+    private LegGeometry toGeometry(JsonNode legNode, boolean transit, String graphVersion) {
         JsonNode geom = legNode.path("legGeometry");
         String points = text(geom.path("points"));
         if (points == null) {
             return LegGeometry.missing("no legGeometry");
         }
-        // 대중교통 + 형상 마킹 활성 + 이 trip 이 coverage-index 게이트 통과 → pfaedle GTFS_SHAPE(SHAPE_OK).
-        // OTP 는 shape 없는 trip 도 직선 points 를 주므로, 판정은 오직 인덱스로만 한다(points 존재로 판단 금지).
-        if (transit && shapesEnabled
-                && shapeCoverageIndex.isShapeOk(graphVersion, modeToken(mode), tripId)) {
+        // 대중교통은 그래프의 pfaedle shapes.txt 형상이다. shape 가 없는 소수 trip(약 0.5%)은 OTP 가
+        // 정류장 직선을 주는데, 앱도 polyline 이 없으면 정류장 직선으로 그리므로 결과가 같다.
+        if (transit) {
             return new LegGeometry(GeometrySource.GTFS_SHAPE, GeometryQuality.SHAPE_OK,
                     "pfaedle gtfs shape", graphVersion, points, points);
         }
-        // 그 외 대중교통: 형상 미검증 → STREET_FALLBACK(정상 아님).
         // 도보: OTP OSM 도보 경로가 최종 형상이지만 street 출처로만 표기(품질 세분화는 별건).
         return new LegGeometry(GeometrySource.OTP_STREET, GeometryQuality.STREET_FALLBACK,
-                transit ? "shape not verified (fallback)" : "OTP street walk", null, points, points);
+                "OTP street walk", null, points, points);
     }
 
     /** 형상 품질을 정상으로 볼지(네비 승인 후보). */
     private static boolean isAcceptableGeometry(GeometryQuality quality) {
         return quality == GeometryQuality.OSM_RELATION_OK || quality == GeometryQuality.SHAPE_OK;
-    }
-
-    /** RoutingMode → coverage-index 의 GTFS mode 토큰. 형상 없는 mode 는 null(never covered). */
-    private static String modeToken(RoutingMode mode) {
-        return switch (mode) {
-            case BUS -> "bus";
-            case SUBWAY -> "subway";
-            case RAIL -> "rail";
-            default -> null;
-        };
     }
 
     private RoutingMode toMode(String otpMode) {

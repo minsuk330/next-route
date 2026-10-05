@@ -92,7 +92,7 @@ class OtpPlanConnectionMapperTest {
         assertThat(bus.agencyId()).isEqualTo("1:A1");
         assertThat(bus.serviceDate()).isNotNull();
         assertThat(bus.stops()).isNotEmpty();              // from + stopCalls + to
-        assertThat(bus.geometry().quality()).isEqualTo(GeometryQuality.STREET_FALLBACK);
+        assertThat(bus.geometry().quality()).isEqualTo(GeometryQuality.SHAPE_OK);
         assertThat(bus.missing())
                 .contains(MissingAttribute.REALTIME_ID, MissingAttribute.DIRECTION, MissingAttribute.COLOR);
 
@@ -100,10 +100,10 @@ class OtpPlanConnectionMapperTest {
         assertThat(walk.walkSteps()).isNotEmpty();          // OTP steps(TMAP 대체)
         assertThat(walk.stops()).isEmpty();
 
-        // fare 없음 → UNKNOWN(0 생성 금지), 형상 fallback → 네비 미승인
+        // fare 없음 → UNKNOWN(0 생성 금지). 형상은 shapes.txt 라 형상 사유로는 막지 않는다.
         assertThat(it.fare().availability()).isEqualTo(FareAvailability.UNKNOWN);
         assertThat(it.navigationSupported()).isFalse();
-        assertThat(it.navigationBlockedReasons()).contains("GEOMETRY_STREET_FALLBACK");
+        assertThat(it.navigationBlockedReasons()).doesNotContain("GEOMETRY_STREET_FALLBACK");
     }
 
     @Test
