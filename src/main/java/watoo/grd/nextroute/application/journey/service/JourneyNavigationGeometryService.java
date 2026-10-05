@@ -6,9 +6,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import watoo.grd.nextroute.domain.bus.service.BusRoutePolylineData;
-import watoo.grd.nextroute.application.bus.dto.BusRouteSegmentPolylineSection;
-import watoo.grd.nextroute.application.bus.port.out.BusRouteSegmentPolylinePort;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeoPoint;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeometryQuality;
@@ -24,6 +21,7 @@ import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyRevision;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionRepository;
@@ -41,7 +39,9 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -49,13 +49,12 @@ import java.util.stream.Collectors;
  *
  * <p>좌표 원천이 단계 종류마다 다르다.
  * <ul>
- *   <li>버스 타는 단계 — {@code bus_route_segment_polyline} 의 정류장 구간별 좌표</li>
- *   <li>지하철 타는 단계 — 시작 시 얼려 둔 검색 결과의 구간 좌표</li>
+ *   <li>버스 타는 단계 — 시작 시 얼려 둔 검색 결과의 shapes.txt 좌표를 정류장 위치에서 자른 구간</li>
+ *   <li>지하철 타는 단계 — 같은 검색 결과의 구간 좌표</li>
  *   <li>걷기 단계 — 같은 검색 결과의 TMAP 보행자 좌표</li>
  * </ul>
  *
- * <p>세 원천 모두 비어 있을 수 있다. 버스는 구간 품질이 불량할 수 있고, 지하철은 폴리라인 수집이
- * 아직 안 됐을 수 있고, 걷기는 검색이 바쁠 때 TMAP 호출을 건너뛴다. 그래서 <b>좌표가 없으면
+ * <p>세 원천 모두 비어 있을 수 있다. 버스·지하철은 shape 없는 trip 이 있고, 걷기는 검색이 바쁠 때 TMAP 호출을 건너뛴다. 그래서 <b>좌표가 없으면
  * 단계를 빼는 대신 직선으로 채우고 품질을 낮춘다.</b> 빼면 앱이 구간 수를 서버와 다르게 세고
  * 진행 순번이 어긋난다.
  */
@@ -67,11 +66,15 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
     /** 여정을 시작할 때 세션과 1번 개정본이 같은 스냅샷을 받는다. 그 뒤로는 개정본만 바뀐다. */
     private static final int FIRST_REVISION = 1;
 
+    /** 앱 {@code isRouteDisplayColor} 와 같은 형식. 형식이 다르면 앱이 버리므로 서버에서 먼저 거른다. */
+    private static final Pattern DISPLAY_COLOR =
+            Pattern.compile("^#[0-9A-Fa-f]{6}$");
+
     private final JourneySessionRepository sessionRepository;
     private final JourneyRevisionRepository revisionRepository;
     private final JourneyLegRepository legRepository;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
-    private final BusRouteSegmentPolylinePort busPolylinePort;
+    private final BusShapeStopSplitter shapeSplitter;
     private final BusRouteStopRepository busRouteStopRepository;
     private final JourneyCompiler compiler;
     private final GeometrySegmentAllocator allocator;
@@ -110,7 +113,8 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                         new Built(withStops(snapshotLeg(leg, sub), subwayStations(sub)), null);
                 default -> new Built(snapshotLeg(leg, sub), null);
             };
-            geometries.add(built.geometry());
+            geometries.add(built.geometry().withDisplayColor(
+                    displayColor(leg, ownerOfOptions(legs, i), optionsByLeg, sub)));
             oldestFetchedAt = older(oldestFetchedAt, built.sourceFetchedAt());
         }
 
@@ -120,10 +124,10 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
     // ── 버스 ────────────────────────────────────────────────────────────────
 
     /**
-     * 버스 타는 단계. 구간 좌표를 합치지 않고 구간 단위로 내려준다.
+     * 버스 타는 단계. 검색 결과의 shapes.txt 선을 정류장 구간 단위로 내려준다.
      *
-     * <p>노선·정류장 순번을 아직 해석하지 못한 단계가 있다. 그때는 실측 좌표를 찾을 수 없으니
-     * 검색 결과 좌표로, 그것도 없으면 직선으로 떨어진다.
+     * <p>노선·정류장 순번을 아직 해석하지 못한 단계가 있다. 그때는 정류장 구간을 만들 수 없으니
+     * 검색 결과 좌표를 선분 단위로, 그것도 없으면 직선으로 떨어진다.
      */
     private Built busLeg(JourneyLeg leg, JourneyLeg optionOwner,
                          Map<Long, List<JourneyLegRouteOption>> optionsByLeg,
@@ -150,24 +154,18 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                         stop.getLatitude()))
                 .toList();
 
-        List<BusRouteSegmentPolylineSection> sections = busPolylinePort.findSections(
-                option.getRouteId(), option.getBoardingSeq(), option.getAlightingSeq());
-        if (sections.isEmpty()) {
+        // 선은 검색 결과의 shapes.txt 형상이다 — "지도에서 보기"가 그리는 선과 같다. 진행 판정용
+        // 정류장 구간은 그 선을 정류장 위치에서 잘라 만든다. 선이 없으면 정류장 직선(미리보기와 같음).
+        List<SegmentGeometry> raw = shapeSplitter.split(toGeoPointsFromCoords(
+                sub == null ? null : sub.polyline()), stops);
+        if (raw.isEmpty()) {
+            raw = shapeSplitter.straight(stops);
+        }
+        if (raw.isEmpty()) {
             return new Built(withStops(snapshotLeg(leg, sub), stops), null);
         }
-
-        List<SegmentGeometry> raw = new ArrayList<>(sections.size());
-        OffsetDateTime oldest = null;
-        for (BusRouteSegmentPolylineSection section : sections) {
-            raw.add(new SegmentGeometry(
-                    0, section.sectionId(), section.fromSeq(), section.toSeq(),
-                    0.0, null,
-                    quality(section), section.qualityReason(),
-                    toGeoPoints(section.points())));
-            oldest = older(oldest, section.sourceFetchedAt());
-        }
         List<SegmentGeometry> segments = allocator.distribute(raw, leg.getPlannedDurationSec());
-        return new Built(assemble(leg, option.getRouteId(), segments, stops), oldest);
+        return new Built(assemble(leg, option.getRouteId(), segments, stops), null);
     }
 
     private boolean hasBusScope(JourneyLegRouteOption option) {
@@ -175,14 +173,6 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                 && option.getRouteId() != null && !option.getRouteId().isBlank()
                 && option.getBoardingSeq() != null && option.getAlightingSeq() != null
                 && option.getBoardingSeq() < option.getAlightingSeq();
-    }
-
-    private GeometryQuality quality(BusRouteSegmentPolylineSection section) {
-        return switch (section.qualityStatus()) {
-            case OK -> section.points().size() >= 2 ? GeometryQuality.OK : GeometryQuality.FAILED;
-            case REVIEW -> GeometryQuality.REVIEW;
-            case FAILED -> GeometryQuality.FAILED;
-        };
     }
 
     // ── 검색 결과 좌표(지하철·걷기) ────────────────────────────────────────
@@ -280,6 +270,41 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                 points, List.of());
     }
 
+    // ── 색 ──────────────────────────────────────────────────────────────────
+
+    /**
+     * 타는 단계의 지도 선 색. 검색 응답 lane 의 {@code routeDisplayColor} 를 그대로 쓴다 — 미리보기가
+     * 같은 값으로 그리므로 두 지도가 같은 색이 된다.
+     *
+     * <p>선택된 노선 후보의 lane 색을 먼저, 없으면 색이 있는 첫 lane 을 쓴다. 도보·대기는 null.
+     */
+    private String displayColor(JourneyLeg leg, JourneyLeg optionOwner,
+                                Map<Long, List<JourneyLegRouteOption>> optionsByLeg,
+                                SubPathResult sub) {
+        if (sub == null || sub.lanes() == null || sub.lanes().isEmpty()
+                || (leg.getType() != JourneyLegType.RIDE_BUS
+                && leg.getType() != JourneyLegType.RIDE_SUBWAY)) {
+            return null;
+        }
+        JourneyLegRouteOption option = selectedOption(leg, optionOwner, optionsByLeg);
+        Integer laneIndex = option == null ? null : option.getLaneIndex();
+        if (laneIndex != null && laneIndex >= 0 && laneIndex < sub.lanes().size()) {
+            String selected = validColor(sub.lanes().get(laneIndex).routeDisplayColor());
+            if (selected != null) {
+                return selected;
+            }
+        }
+        return sub.lanes().stream()
+                .map(lane -> validColor(lane.routeDisplayColor()))
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String validColor(String color) {
+        return color != null && DISPLAY_COLOR.matcher(color).matches() ? color : null;
+    }
+
     // ── 조립 ────────────────────────────────────────────────────────────────
 
     /** 구간을 이어 붙여 지도용 전체 좌표를 만들고 단계 품질을 가장 나쁜 구간으로 정한다. */
@@ -312,7 +337,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                 geometry.legIndex(), geometry.type(), geometry.routeId(),
                 geometry.plannedDurationSeconds(), geometry.totalDistanceMeters(),
                 geometry.quality(), geometry.points(), geometry.segments(), stops,
-                geometry.maneuvers());
+                geometry.maneuvers(), geometry.displayColor());
     }
 
     /** 안내점만 갈아끼운다. {@link #withStops} 와 같은 이유로 나머지를 보존한다. */
@@ -321,7 +346,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                 geometry.legIndex(), geometry.type(), geometry.routeId(),
                 geometry.plannedDurationSeconds(), geometry.totalDistanceMeters(),
                 geometry.quality(), geometry.points(), geometry.segments(), geometry.stops(),
-                maneuvers);
+                maneuvers, geometry.displayColor());
     }
 
     /** 나쁜 쪽을 남긴다. 앱이 단계 하나만 보고 "믿어도 되는가"를 판단할 수 있어야 한다. */
@@ -453,13 +478,6 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
             return current;
         }
         return current == null || candidate.isBefore(current) ? candidate : current;
-    }
-
-    private List<GeoPoint> toGeoPoints(List<BusRoutePolylineData.Point> points) {
-        if (points == null) {
-            return List.of();
-        }
-        return points.stream().map(point -> new GeoPoint(point.x(), point.y())).toList();
     }
 
     private List<GeoPoint> toGeoPointsFromCoords(List<CoordPoint> points) {

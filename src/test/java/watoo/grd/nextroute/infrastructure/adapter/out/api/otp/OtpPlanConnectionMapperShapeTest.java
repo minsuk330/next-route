@@ -11,18 +11,17 @@ import watoo.grd.nextroute.application.route.routing.RoutingItinerary;
 import watoo.grd.nextroute.application.route.routing.RoutingLeg;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
-import watoo.grd.nextroute.application.route.routing.ShapeCoverageIndex;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * P3 형상 마킹 계약: pfaedle coverage-index 로만 SHAPE_OK 를 판정한다(PR-B1).
+ * 형상 계약: 대중교통 leg 는 그래프의 pfaedle shapes.txt 형상을 그대로 SHAPE_OK 로 싣는다.
+ * trip 별 coverage-index 게이트는 없다.
  *
- * <p>success fixture 는 버스 2개 leg(idx 1 = trip …022_Ord039, idx 3 = trip …096_Ord018)를 담는다.
+ * <p>success fixture 는 버스 2개 leg(idx 1, idx 3)를 담는다.
  */
 class OtpPlanConnectionMapperShapeTest {
 
@@ -30,29 +29,20 @@ class OtpPlanConnectionMapperShapeTest {
     private final Instant departureAt = Instant.parse("2026-09-07T23:00:00Z");
     private final OtpPlanConnectionMapper.OtpVersions versions =
             new OtpPlanConnectionMapper.OtpVersions("schema-v1", "202503", "g-abc");
+    private final OtpPlanConnectionMapper mapper = new OtpPlanConnectionMapper();
 
-    /** graphVersion=g-abc, 버스 커버, …096 만 degraded. */
-    private final ShapeCoverageIndex index = new ShapeCoverageIndex(
-            "g-abc", Set.of("bus"), Set.of("BR_TAGO_SEB100100096_Ord018"));
-
-    private JsonNode load(String path) throws IOException {
-        return om.readTree(new ClassPathResource(path).getContentAsByteArray());
-    }
-
-    private RoutingItinerary firstItinerary(OtpPlanConnectionMapper mapper, String fixture,
-                                            OtpPlanConnectionMapper.OtpVersions v) throws IOException {
-        RoutingResult result = (RoutingResult) mapper.map(load(fixture), departureAt, v);
+    private RoutingItinerary firstItinerary(String fixture) throws IOException {
+        JsonNode root = om.readTree(new ClassPathResource(fixture).getContentAsByteArray());
+        RoutingResult result = (RoutingResult) mapper.map(root, departureAt, versions);
         return result.itineraries().get(0);
     }
 
     @Test
-    @DisplayName("① index-covered 버스 trip → SHAPE_OK + GTFS_SHAPE, points 보존")
-    void coveredBusIsShapeOk() throws IOException {
-        OtpPlanConnectionMapper mapper = new OtpPlanConnectionMapper(index, true);
-        RoutingLeg bus = firstItinerary(mapper, "otp/planconnection-success.json", versions).legs().get(1);
+    @DisplayName("버스 leg → GTFS_SHAPE/SHAPE_OK, points 와 그래프 버전 보존")
+    void busIsShapeOk() throws IOException {
+        RoutingLeg bus = firstItinerary("otp/planconnection-success.json").legs().get(1);
 
         assertThat(bus.mode()).isEqualTo(RoutingMode.BUS);
-        assertThat(bus.tripId()).isEqualTo("1:BR_TAGO_SEB100100022_Ord039");
         assertThat(bus.geometry().source()).isEqualTo(GeometrySource.GTFS_SHAPE);
         assertThat(bus.geometry().quality()).isEqualTo(GeometryQuality.SHAPE_OK);
         assertThat(bus.geometry().version()).isEqualTo("g-abc");
@@ -61,24 +51,9 @@ class OtpPlanConnectionMapperShapeTest {
     }
 
     @Test
-    @DisplayName("② degraded trip → STREET_FALLBACK, itinerary 는 GEOMETRY_STREET_FALLBACK 로 네비 차단")
-    void degradedBusFallsBack() throws IOException {
-        OtpPlanConnectionMapper mapper = new OtpPlanConnectionMapper(index, true);
-        RoutingItinerary it = firstItinerary(mapper, "otp/planconnection-success.json", versions);
-
-        RoutingLeg degraded = it.legs().get(3);
-        assertThat(degraded.tripId()).isEqualTo("1:BR_TAGO_SEB100100096_Ord018");
-        assertThat(degraded.geometry().quality()).isEqualTo(GeometryQuality.STREET_FALLBACK);
-        // 하나라도 fallback 이면 여정 네비 차단 유지.
-        assertThat(it.navigationBlockedReasons()).contains("GEOMETRY_STREET_FALLBACK");
-    }
-
-    @Test
-    @DisplayName("② b: 모든 버스 leg SHAPE_OK → GEOMETRY_STREET_FALLBACK 미발행")
-    void allShapeOkNotBlocked() throws IOException {
-        ShapeCoverageIndex allOk = new ShapeCoverageIndex("g-abc", Set.of("bus"), Set.of());
-        OtpPlanConnectionMapper mapper = new OtpPlanConnectionMapper(allOk, true);
-        RoutingItinerary it = firstItinerary(mapper, "otp/planconnection-success.json", versions);
+    @DisplayName("모든 대중교통 leg 가 SHAPE_OK → GEOMETRY_STREET_FALLBACK 로 막히지 않는다")
+    void transitIsNotBlockedByGeometry() throws IOException {
+        RoutingItinerary it = firstItinerary("otp/planconnection-success.json");
 
         assertThat(it.legs()).filteredOn(RoutingLeg::isTransit)
                 .allMatch(l -> l.geometry().quality() == GeometryQuality.SHAPE_OK);
@@ -86,33 +61,21 @@ class OtpPlanConnectionMapperShapeTest {
     }
 
     @Test
-    @DisplayName("③ graphVersion mismatch → 전량 fallback(오마킹 0)")
-    void graphVersionMismatchFallsBack() throws IOException {
-        OtpPlanConnectionMapper mapper = new OtpPlanConnectionMapper(index, true);
-        var mismatch = new OtpPlanConnectionMapper.OtpVersions("schema-v1", "202503", "g-DIFFERENT");
-        RoutingItinerary it = firstItinerary(mapper, "otp/planconnection-success.json", mismatch);
-
-        assertThat(it.legs()).filteredOn(RoutingLeg::isTransit)
-                .allMatch(l -> l.geometry().quality() == GeometryQuality.STREET_FALLBACK);
-    }
-
-    @Test
-    @DisplayName("④ 비버스(지하철) leg → coveredModes=[bus] 라 fallback")
-    void subwayNotCovered() throws IOException {
-        ShapeCoverageIndex busOnly = new ShapeCoverageIndex("g-abc", Set.of("bus"), Set.of());
-        OtpPlanConnectionMapper mapper = new OtpPlanConnectionMapper(busOnly, true);
-        RoutingLeg subway = firstItinerary(mapper, "otp/planconnection-subway.json", versions).legs().get(0);
+    @DisplayName("지하철 leg 도 shapes.txt 형상 → SHAPE_OK")
+    void subwayIsShapeOk() throws IOException {
+        RoutingLeg subway = firstItinerary("otp/planconnection-subway.json").legs().get(0);
 
         assertThat(subway.mode()).isEqualTo(RoutingMode.SUBWAY);
-        assertThat(subway.geometry().quality()).isEqualTo(GeometryQuality.STREET_FALLBACK);
+        assertThat(subway.geometry().quality()).isEqualTo(GeometryQuality.SHAPE_OK);
     }
 
     @Test
-    @DisplayName("⑤ shapesEnabled=false → 인덱스 커버해도 전량 fallback")
-    void flagOffFallsBack() throws IOException {
-        OtpPlanConnectionMapper mapper = new OtpPlanConnectionMapper(index, false);
-        RoutingLeg bus = firstItinerary(mapper, "otp/planconnection-success.json", versions).legs().get(1);
+    @DisplayName("도보 leg 는 OTP 도보 경로 그대로(STREET_FALLBACK 표기)")
+    void walkStaysStreet() throws IOException {
+        RoutingLeg walk = firstItinerary("otp/planconnection-success.json").legs().get(0);
 
-        assertThat(bus.geometry().quality()).isEqualTo(GeometryQuality.STREET_FALLBACK);
+        assertThat(walk.mode()).isEqualTo(RoutingMode.WALK);
+        assertThat(walk.geometry().source()).isEqualTo(GeometrySource.OTP_STREET);
+        assertThat(walk.geometry().quality()).isEqualTo(GeometryQuality.STREET_FALLBACK);
     }
 }
