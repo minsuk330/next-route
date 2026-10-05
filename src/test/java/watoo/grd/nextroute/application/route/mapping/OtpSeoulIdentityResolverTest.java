@@ -77,6 +77,35 @@ class OtpSeoulIdentityResolverTest {
     }
 
     @Test
+    @DisplayName("경기 버스: GGB prefix strip → GBIS stationId/routeId, DB 조회 없음(5600 잠실 실측값)")
+    void gyeonggiBusResolved() {
+        Optional<GyeonggiBusIdentity> r = resolver.resolveGyeonggiBus(
+                "1:BS_TAGO_GGB123000001", "1:BR_TAGO_GGB228000184", "5600");
+
+        assertThat(r).contains(new GyeonggiBusIdentity("123000001", "228000184", "5600"));
+        org.mockito.Mockito.verifyNoInteractions(busStopRepo, busRouteRepo);
+    }
+
+    @Test
+    @DisplayName("경기 버스: 방향 분할 노선 _U/_D 접미사는 떼고 9자리만")
+    void gyeonggiBusDirectionSuffix() {
+        assertThat(resolver.resolveGyeonggiBus("1:BS_TAGO_GGB123000001", "1:BR_TAGO_GGB241000830_U", "1801"))
+                .map(GyeonggiBusIdentity::routeId).contains("241000830");
+        assertThat(resolver.resolveGyeonggiBus("1:BS_TAGO_GGB123000001", "1:BR_TAGO_GGB241000820_D", "8147"))
+                .map(GyeonggiBusIdentity::routeId).contains("241000820");
+    }
+
+    @Test
+    @DisplayName("경기 버스: SEB·ICB·형식 불일치·null 은 empty")
+    void gyeonggiBusOtherPrefixes() {
+        assertThat(resolver.resolveGyeonggiBus("1:BS_TAGO_SEB123000001", "1:BR_TAGO_SEB100100209", "2412")).isEmpty();
+        assertThat(resolver.resolveGyeonggiBus("1:BS_TAGO_ICB160000001", "1:BR_TAGO_ICB160000001", "3")).isEmpty();
+        assertThat(resolver.resolveGyeonggiBus("1:BS_TAGO_GGB123000001", "1:BR_TAGO_SEB100100209", "2412")).isEmpty();
+        assertThat(resolver.resolveGyeonggiBus("1:BS_TAGO_GGB12300000", "1:BR_TAGO_GGB228000184", "5600")).isEmpty();
+        assertThat(resolver.resolveGyeonggiBus(null, "1:BR_TAGO_GGB228000184", "5600")).isEmpty();
+    }
+
+    @Test
     @DisplayName("지하철: 서울4호선 + 좌표 → 해당 라인(1004) 최근접 statn_id")
     void subwayResolved() {
         when(subwayRepo.findNearby(anyDouble(), anyDouble(), anyDouble(), anyInt()))

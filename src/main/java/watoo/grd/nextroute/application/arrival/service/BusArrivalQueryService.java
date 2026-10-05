@@ -4,7 +4,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.arrival.dto.BusArrivalResponse;
+import watoo.grd.nextroute.application.arrival.dto.GyeonggiBusArrival;
 import watoo.grd.nextroute.application.arrival.port.in.GetBusArrivalUseCase;
+import watoo.grd.nextroute.application.arrival.port.out.GyeonggiBusArrivalPort;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.BusQueryResult;
@@ -25,13 +27,19 @@ public class BusArrivalQueryService implements GetBusArrivalUseCase {
      */
     private final SearchTimeBusQueryPort busQueryPort;
     private final BusRouteStopRepository busRouteStopRepository;
+    /** 서울 순번이 없는 조합(경기 노선)은 경기도 API 로. 길찾기 응답이 경기 구간에 GBIS id 를 채운다. */
+    private final GyeonggiBusArrivalPort gyeonggiBusArrivalPort;
 
     @Override
     public List<BusArrivalResponse> getArrivals(String stopId, String routeId) {
         // (stopId, routeId) → 경유순번(seq). Seoul getArrInfoByRoute는 ord 필수.
         List<BusRouteStop> mappings = busRouteStopRepository.findByRouteIdAndStopId(routeId, stopId);
+        if (mappings.isEmpty()) {
+            // 서울 카탈로그에 없는 조합 → 경기 노선으로 본다(경기 API 는 순번 없이 조회). 경기에도 없으면 빈 결과.
+            return getGyeonggiArrivals(stopId, routeId);
+        }
         if (mappings.size() != 1) {
-            // 매핑 없음 또는 루프노선 다중순번(모호) → 빈 결과.
+            // 루프노선 다중순번(모호) → 빈 결과. 서울 노선이 확실하므로 경기로 넘기지 않는다.
             return List.of();
         }
         Integer ord = mappings.get(0).getSeq();
@@ -56,5 +64,14 @@ public class BusArrivalQueryService implements GetBusArrivalUseCase {
                         .congestionNum2(info.congestionNum2())
                         .build())
                 .toList();
+    }
+
+    private List<BusArrivalResponse> getGyeonggiArrivals(String stationId, String routeId) {
+        BusQueryResult<GyeonggiBusArrival> res = gyeonggiBusArrivalPort.getArrival(stationId, routeId);
+        if (!res.isOk()) {
+            // 서울 경로와 같은 시맨틱: 조회 못 함(BLOCKED/ERROR)도 응답은 빈 리스트.
+            return List.of();
+        }
+        return res.data().stream().map(GyeonggiArrivalMapper::toResponse).toList();
     }
 }

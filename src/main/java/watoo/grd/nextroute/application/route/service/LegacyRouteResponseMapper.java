@@ -9,6 +9,7 @@ import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
+import watoo.grd.nextroute.application.route.mapping.GyeonggiBusIdentity;
 import watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver;
 import watoo.grd.nextroute.application.route.mapping.SeoulBusIdentity;
 import watoo.grd.nextroute.application.route.routing.EncodedPolyline;
@@ -38,7 +39,8 @@ import java.util.Optional;
  *       도보는 항상(OTP OSM 실경로). 그 외(STREET_FALLBACK/MISSING/REVIEW)는 null(가짜 직선 금지).</li>
  *   <li>{@code walkSteps} — legacy 는 TMAP turn 구조(x/y 포함)라 OTP steps 와 형태가 달라 배선하지 않는다(후속).</li>
  *   <li>버스 실시간 ID(localStationID/busLocalBlID) — {@link OtpSeoulIdentityResolver} 로 채운다(프론트가
- *       {@code /api/arrivals/bus/{stopId}/{routeId}} 를 호출하게). 매핑 안 되면 null(가짜값 금지).
+ *       {@code /api/arrivals/bus/{stopId}/{routeId}} 를 호출하게). 서울 노선은 서울 id, 경기 노선은 GBIS id
+ *       (GGB 9자리). 매핑 안 되면 null(가짜값 금지).
  *       지하철은 실시간이 좌표 기반({@code /api/arrivals/subway?lat&lon})이라 id 를 채우지 않는다 — 좌표로 충분.
  *       ArsID/exit 는 원천 부재라 여전히 null.</li>
  *   <li>{@code totalWalk}(m) — 중립 모델이 거리(m)를 안 들고 있어 0. 시간(초)만 정확.</li>
@@ -157,11 +159,22 @@ public class LegacyRouteResponseMapper {
             if (!leg.stops().isEmpty()) {
                 Optional<SeoulBusIdentity> boarding = resolver.resolveBus(
                         leg.stops().get(0).sourceStopId(), leg.sourceRouteId(), routeName);
-                startLocalStationID = boarding.map(SeoulBusIdentity::stopId).orElse(null);
-                busLocalBlID = boarding.map(SeoulBusIdentity::routeId).orElse(null);
-                endLocalStationID = resolver.resolveBus(
-                                last.sourceStopId(), leg.sourceRouteId(), routeName)
-                        .map(SeoulBusIdentity::stopId).orElse(null);
+                if (boarding.isPresent()) {
+                    startLocalStationID = boarding.get().stopId();
+                    busLocalBlID = boarding.get().routeId();
+                    endLocalStationID = resolver.resolveBus(
+                                    last.sourceStopId(), leg.sourceRouteId(), routeName)
+                            .map(SeoulBusIdentity::stopId).orElse(null);
+                } else {
+                    // 경기 노선: 같은 엔드포인트를 부르면 서버가 서울 순번이 없는 조합을 경기 API 로 보낸다.
+                    Optional<GyeonggiBusIdentity> gg = resolver.resolveGyeonggiBus(
+                            leg.stops().get(0).sourceStopId(), leg.sourceRouteId(), routeName);
+                    startLocalStationID = gg.map(GyeonggiBusIdentity::stationId).orElse(null);
+                    busLocalBlID = gg.map(GyeonggiBusIdentity::routeId).orElse(null);
+                    endLocalStationID = gg.isEmpty() ? null : resolver.resolveGyeonggiBus(
+                                    last.sourceStopId(), leg.sourceRouteId(), routeName)
+                            .map(GyeonggiBusIdentity::stationId).orElse(null);
+                }
             }
             // 표시용 lane 은 버스번호로 항상 생성. busLocalBlID(실시간 호출용)는 매핑될 때만 non-null.
             lanes = List.of(new LaneResult(routeName, routeName, null, null, null, busLocalBlID,

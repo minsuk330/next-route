@@ -156,6 +156,11 @@ kma:
     nx: ${KMA_WEATHER_NX:60}    # 서울
     ny: ${KMA_WEATHER_NY:127}   # 서울
     poll-ms: ${KMA_WEATHER_POLL_MS:600000}
+gyeonggi:
+  api:
+    # 공공데이터포털 Encoding 키(%2F 포함 그대로). 미설정이면 경기 도착 조회는 호출 없이 빈 결과.
+    bus-key: ${GYEONGGI_BUS_API:}
+    bus-arrival-base-url: https://apis.data.go.kr/6410000/busarrivalservice/v2
 seoul:
   api:
     bus-key: ${SEOUL_BUS_API:test}

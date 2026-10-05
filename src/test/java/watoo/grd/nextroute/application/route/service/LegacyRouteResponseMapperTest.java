@@ -239,4 +239,43 @@ class LegacyRouteResponseMapperTest {
             assertThat(lane.routeDisplayColor()).isEqualTo("#E60012");
         });
     }
+
+    /** 잠실역.잠실대교남단(중) → 테크노마트앞.강변역(C), 5600(경기). 2026-09-29 실 응답 id. */
+    private RoutingLeg gyeonggiBusLeg(String sourceRouteId) {
+        LegGeometry geometry = new LegGeometry(GeometrySource.OTP_STREET,
+                GeometryQuality.STREET_FALLBACK, "test fixture", "g1", BUS_SHAPE, BUS_SHAPE);
+        List<StopOccurrence> stops = List.of(
+                new StopOccurrence("1:BS_TAGO_GGB123000001", null, null, 0, 127.0985, 37.5155, "잠실역.잠실대교남단(중)"),
+                new StopOccurrence("1:BS_TAGO_GGB104000279", null, null, 1, 127.0937, 37.5369, "테크노마트앞.강변역(C)"));
+        return new RoutingLeg(RoutingMode.BUS, null, "1", "1:A1", sourceRouteId, "5600",
+                "1:T1", null, null, null, 600, stops, List.of(),
+                geometry, Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), null);
+    }
+
+    @Test
+    @DisplayName("경기 버스(GGB)는 GBIS id 로 승·하차 정류장과 노선을 채운다 — 서울 DB 에 없어도")
+    void gyeonggiBusFillsGbisIds() {
+        SubPathResult sub = firstSubPath(gyeonggiBusLeg("1:BR_TAGO_GGB228000184"));
+
+        assertThat(sub.startLocalStationID()).isEqualTo("123000001");
+        assertThat(sub.endLocalStationID()).isEqualTo("104000279");
+        assertThat(sub.lanes()).singleElement().satisfies(lane -> {
+            assertThat(lane.busNo()).isEqualTo("5600");
+            assertThat(lane.busLocalBlID()).isEqualTo("228000184");
+        });
+    }
+
+    @Test
+    @DisplayName("서울 노선은 서울 DB 매핑이 우선이고 경기 해석으로 새지 않는다")
+    void seoulBusKeepsSeoulIds() {
+        when(busStopRepository.existsByStopId("100100001")).thenReturn(true);
+        when(busRouteRepository.existsByRouteId("100100209")).thenReturn(true);
+
+        SubPathResult sub = firstSubPath(transitLeg(RoutingMode.BUS, GeometryQuality.STREET_FALLBACK, BUS_SHAPE,
+                "1:BR_TAGO_SEB100100209", "2412"));
+
+        assertThat(sub.startLocalStationID()).isEqualTo("100100001");
+        assertThat(sub.lanes()).singleElement()
+                .satisfies(lane -> assertThat(lane.busLocalBlID()).isEqualTo("100100209"));
+    }
 }
