@@ -109,7 +109,9 @@ class RouteSearchRealtimeDeadlineIT {
         deadline.setTmapMs(100);
         RouteSearchService service = new RouteSearchService(
                 odsay, mock(TmapPedestrianPort.class),
-                walk, transferEnricher, metrics, deadline,
+                walk, transferEnricher,
+                new BusRouteShapeEnricher(mock(TransferStopResolver.class), mock(watoo.grd.nextroute.application.bus.port.out.BusRouteSegmentPolylinePort.class)),
+                metrics, deadline,
                 new watoo.grd.nextroute.application.route.routing.RoutingProviderSelector(
                         odsayProps(), java.util.List.of()),
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),

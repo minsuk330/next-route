@@ -77,6 +77,7 @@ class RouteSearchServiceOtpWiringTest {
                 odsayNeverCalled, mock(watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort.class),
                 mock(WalkSegmentEnricher.class),
                 enricher,
+                new BusRouteShapeEnricher(mock(TransferStopResolver.class), mock(watoo.grd.nextroute.application.bus.port.out.BusRouteSegmentPolylinePort.class)),
                 new RouteSearchMetrics(new SimpleMeterRegistry()),
                 new RouteSearchDeadlineProperties(),
                 selector,
