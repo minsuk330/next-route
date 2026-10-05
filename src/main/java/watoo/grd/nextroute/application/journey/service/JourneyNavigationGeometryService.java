@@ -24,6 +24,7 @@ import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyRevision;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionRepository;
@@ -41,7 +42,9 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -66,6 +69,10 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
 
     /** 여정을 시작할 때 세션과 1번 개정본이 같은 스냅샷을 받는다. 그 뒤로는 개정본만 바뀐다. */
     private static final int FIRST_REVISION = 1;
+
+    /** 앱 {@code isRouteDisplayColor} 와 같은 형식. 형식이 다르면 앱이 버리므로 서버에서 먼저 거른다. */
+    private static final Pattern DISPLAY_COLOR =
+            Pattern.compile("^#[0-9A-Fa-f]{6}$");
 
     private final JourneySessionRepository sessionRepository;
     private final JourneyRevisionRepository revisionRepository;
@@ -110,7 +117,8 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                         new Built(withStops(snapshotLeg(leg, sub), subwayStations(sub)), null);
                 default -> new Built(snapshotLeg(leg, sub), null);
             };
-            geometries.add(built.geometry());
+            geometries.add(built.geometry().withDisplayColor(
+                    displayColor(leg, ownerOfOptions(legs, i), optionsByLeg, sub)));
             oldestFetchedAt = older(oldestFetchedAt, built.sourceFetchedAt());
         }
 
@@ -280,6 +288,41 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                 points, List.of());
     }
 
+    // ── 색 ──────────────────────────────────────────────────────────────────
+
+    /**
+     * 타는 단계의 지도 선 색. 검색 응답 lane 의 {@code routeDisplayColor} 를 그대로 쓴다 — 미리보기가
+     * 같은 값으로 그리므로 두 지도가 같은 색이 된다.
+     *
+     * <p>선택된 노선 후보의 lane 색을 먼저, 없으면 색이 있는 첫 lane 을 쓴다. 도보·대기는 null.
+     */
+    private String displayColor(JourneyLeg leg, JourneyLeg optionOwner,
+                                Map<Long, List<JourneyLegRouteOption>> optionsByLeg,
+                                SubPathResult sub) {
+        if (sub == null || sub.lanes() == null || sub.lanes().isEmpty()
+                || (leg.getType() != JourneyLegType.RIDE_BUS
+                && leg.getType() != JourneyLegType.RIDE_SUBWAY)) {
+            return null;
+        }
+        JourneyLegRouteOption option = selectedOption(leg, optionOwner, optionsByLeg);
+        Integer laneIndex = option == null ? null : option.getLaneIndex();
+        if (laneIndex != null && laneIndex >= 0 && laneIndex < sub.lanes().size()) {
+            String selected = validColor(sub.lanes().get(laneIndex).routeDisplayColor());
+            if (selected != null) {
+                return selected;
+            }
+        }
+        return sub.lanes().stream()
+                .map(lane -> validColor(lane.routeDisplayColor()))
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String validColor(String color) {
+        return color != null && DISPLAY_COLOR.matcher(color).matches() ? color : null;
+    }
+
     // ── 조립 ────────────────────────────────────────────────────────────────
 
     /** 구간을 이어 붙여 지도용 전체 좌표를 만들고 단계 품질을 가장 나쁜 구간으로 정한다. */
@@ -312,7 +355,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                 geometry.legIndex(), geometry.type(), geometry.routeId(),
                 geometry.plannedDurationSeconds(), geometry.totalDistanceMeters(),
                 geometry.quality(), geometry.points(), geometry.segments(), stops,
-                geometry.maneuvers());
+                geometry.maneuvers(), geometry.displayColor());
     }
 
     /** 안내점만 갈아끼운다. {@link #withStops} 와 같은 이유로 나머지를 보존한다. */
@@ -321,7 +364,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                 geometry.legIndex(), geometry.type(), geometry.routeId(),
                 geometry.plannedDurationSeconds(), geometry.totalDistanceMeters(),
                 geometry.quality(), geometry.points(), geometry.segments(), geometry.stops(),
-                maneuvers);
+                maneuvers, geometry.displayColor());
     }
 
     /** 나쁜 쪽을 남긴다. 앱이 단계 하나만 보고 "믿어도 되는가"를 판단할 수 있어야 한다. */

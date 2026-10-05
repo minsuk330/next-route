@@ -17,6 +17,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.Sto
 import watoo.grd.nextroute.application.journey.dto.ManeuverType;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
 import watoo.grd.nextroute.application.route.dto.CoordPoint;
+import watoo.grd.nextroute.application.route.dto.LaneResult;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
@@ -131,6 +132,52 @@ class JourneyNavigationGeometryServiceTest {
                 .containsExactly("승차 정류장", "중간 정류장", "하차 정류장");
         assertThat(busLeg.stops().get(1).x()).isNull();
         assertThat(busLeg.stops().get(1).y()).isNull();
+    }
+
+    @Test
+    @DisplayName("타는 단계는 선택된 lane 의 노선 색을, 도보·대기는 null 을 싣는다")
+    void ridesCarryTheSelectedLaneColor() {
+        givenJourney(walkThenColoredBus());
+        JourneyLeg wait = leg(1, JourneyLegType.WAIT_BUS, null);
+        givenLegs(leg(0, JourneyLegType.WALK, 300), wait, leg(2, JourneyLegType.RIDE_BUS, 1200));
+        JourneyLegRouteOption second = option(wait.getId(), "R2", null, null);
+        ReflectionTestUtils.setField(second, "laneIndex", 1);
+        givenOptions(second);
+
+        List<LegGeometry> legs = service.get(USER_ID, JOURNEY_ID, REVISION).legs();
+
+        assertThat(legs).extracting(LegGeometry::displayColor)
+                .containsExactly(null, null, "#53B332");
+    }
+
+    @Test
+    @DisplayName("선택 lane 에 색이 없거나 형식이 틀리면 색이 있는 첫 lane 을 쓴다")
+    void fallsBackToFirstColoredLane() {
+        givenJourney(walkThenColoredBus());
+        JourneyLeg wait = leg(1, JourneyLegType.WAIT_BUS, null);
+        givenLegs(leg(0, JourneyLegType.WALK, 300), wait, leg(2, JourneyLegType.RIDE_BUS, 1200));
+        JourneyLegRouteOption third = option(wait.getId(), "R3", null, null);
+        ReflectionTestUtils.setField(third, "laneIndex", 2);
+        givenOptions(third);
+
+        LegGeometry bus = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(2);
+
+        assertThat(bus.displayColor()).isEqualTo("#0068B7");
+    }
+
+    @Test
+    @DisplayName("지하철 단계는 lane 색을 싣는다")
+    void subwayCarriesLaneColor() {
+        SubPathResult subway = SubPathFixture.subway(6).names("성수", "구의")
+                .coords(127.0, 37.5, 127.02, 37.5)
+                .lanes(new LaneResult("서울2호선", null, 2, null, null, null, "#00A23F"))
+                .build();
+        givenJourney(new PathResult(1, null, List.of(subway), List.of()));
+        givenLegs(leg(0, JourneyLegType.RIDE_SUBWAY, 300));
+        givenOptions();
+
+        assertThat(service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(0).displayColor())
+                .isEqualTo("#00A23F");
     }
 
     @Test
@@ -624,6 +671,20 @@ class JourneyNavigationGeometryServiceTest {
                 .coords(127.001, 37.5, 127.02, 37.5)
                 .busStops("100", "200")
                 .lanes(SubPathFixture.busLane("370", "BL370"))
+                .build();
+        return new PathResult(1, null, List.of(walk, bus), List.of());
+    }
+
+    /** 걷기 → 색이 다른 lane 셋을 가진 버스. 세 번째 lane 색은 형식이 틀렸다. */
+    private PathResult walkThenColoredBus() {
+        SubPathResult walk = SubPathFixture.walk(5).names("집", "정류장")
+                .coords(127.0, 37.5, 127.001, 37.5).build();
+        SubPathResult bus = SubPathFixture.bus(20).names("정류장", "회사앞")
+                .coords(127.001, 37.5, 127.02, 37.5)
+                .busStops("100", "200")
+                .lanes(new LaneResult("302", "302", null, null, null, "BL302", "#0068B7"),
+                        new LaneResult("성동03-2", "성동03-2", null, null, null, "BL03", "#53B332"),
+                        new LaneResult("370", "370", null, null, null, "BL370", "0068B7"))
                 .build();
         return new PathResult(1, null, List.of(walk, bus), List.of());
     }

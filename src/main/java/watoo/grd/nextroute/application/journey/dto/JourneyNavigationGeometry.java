@@ -59,6 +59,9 @@ public record JourneyNavigationGeometry(
      * @param stops                   버스 승차~하차 정류장, 또는 지하철 승차~하차 역.
      *                                도보·대기 단계는 비어 있다
      * @param maneuvers               걷기 단계의 turn-by-turn 안내점. 다른 단계는 비어 있다
+     * @param displayColor            지도 선 색({@code #RRGGBB}). 검색 응답 lane 의
+     *                                {@code routeDisplayColor} 를 그대로 옮긴다. 도보·대기와 색이 없는
+     *                                노선은 null — 앱이 수단별 기본색을 쓴다
      */
     public record LegGeometry(
             int legIndex,
@@ -70,7 +73,8 @@ public record JourneyNavigationGeometry(
             List<GeoPoint> points,
             List<SegmentGeometry> segments,
             List<StopGeometry> stops,
-            List<ManeuverGeometry> maneuvers
+            List<ManeuverGeometry> maneuvers,
+            String displayColor
     ) {
 
         public LegGeometry {
@@ -79,6 +83,16 @@ public record JourneyNavigationGeometry(
             stops = stops == null ? List.of() : List.copyOf(stops);
             // 안내점은 null 대신 빈 목록이다. 앱이 "없음"과 "필드 누락"을 구분할 필요가 없어야 한다.
             maneuvers = maneuvers == null ? List.of() : List.copyOf(maneuvers);
+        }
+
+        /** 색을 붙이기 전 단계의 호출부용. 색은 {@link #withDisplayColor} 로 마지막에 붙인다. */
+        public LegGeometry(int legIndex, JourneyLegType type, String routeId,
+                           Integer plannedDurationSeconds, double totalDistanceMeters,
+                           GeometryQuality quality, List<GeoPoint> points,
+                           List<SegmentGeometry> segments, List<StopGeometry> stops,
+                           List<ManeuverGeometry> maneuvers) {
+            this(legIndex, type, routeId, plannedDurationSeconds, totalDistanceMeters,
+                    quality, points, segments, stops, maneuvers, null);
         }
 
         /** 기존 서버 코드와 테스트가 새 필드 배포 중에도 그대로 컴파일되도록 유지한다. */
@@ -97,6 +111,11 @@ public record JourneyNavigationGeometry(
                            List<SegmentGeometry> segments, List<StopGeometry> stops) {
             this(legIndex, type, routeId, plannedDurationSeconds, totalDistanceMeters,
                     quality, points, segments, stops, List.of());
+        }
+
+        public LegGeometry withDisplayColor(String color) {
+            return new LegGeometry(legIndex, type, routeId, plannedDurationSeconds,
+                    totalDistanceMeters, quality, points, segments, stops, maneuvers, color);
         }
     }
 
