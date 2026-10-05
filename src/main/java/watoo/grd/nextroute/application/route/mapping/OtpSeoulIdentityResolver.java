@@ -28,6 +28,8 @@ import java.util.regex.Pattern;
  * <p><b>스코프 하드제약: 서울 버스 + 지하철 1~9호선만.</b> 경기(BS_TAGO_GGB)·인천(BS_TAGO_ICB)·
  * 기타 노선(경의중앙 1063/신분당 1075 등)·비버스/비지하철은 empty → 호출자가 STATIC_SCHEDULE 로 처리한다.
  * 추후 수도권/전국 확장 시 동일 규칙 성립 여부는 <b>미검증</b>(prefix·좌표계·라인코드 상이 가능) — 확장 전 재실측 필요.
+ *
+ * <p>예외: 경기 버스는 {@link #resolveGyeonggiBus} 로 따로 해석한다(GBIS 용, DB 검증 없음). 위 서울 스코프는 그대로다.
  */
 @Slf4j
 @Component
@@ -40,6 +42,9 @@ public class OtpSeoulIdentityResolver {
     private static final Pattern BUS_STOP = Pattern.compile("^\\d+:BS_TAGO_SEB(\\d{9})$");
     // 공항버스(6xxx)는 방향별로 route 가 갈려 _U/_D 접미사가 붙는다. 서울 노선 id 는 앞 9자리.
     private static final Pattern BUS_ROUTE = Pattern.compile("^\\d+:BR_TAGO_SEB(\\d{9})(?:_[UD])?$");
+    // 경기도 같은 규칙: 9자리 = GBIS stationId/routeId, 방향 분할 노선은 _U/_D(1,138 중 28개).
+    private static final Pattern GG_BUS_STOP = Pattern.compile("^\\d+:BS_TAGO_GGB(\\d{9})$");
+    private static final Pattern GG_BUS_ROUTE = Pattern.compile("^\\d+:BR_TAGO_GGB(\\d{9})(?:_[UD])?$");
     // 앞자리 숫자 lookbehind 로 두 자리 호선("11호선")의 뒷자리 오매치를 막는다(현재 서울 1~9호선만 스코프).
     private static final Pattern SUBWAY_LINE = Pattern.compile("(?<!\\d)([1-9])호선");
 
@@ -80,6 +85,19 @@ public class OtpSeoulIdentityResolver {
             return Optional.empty();
         }
         return Optional.of(new SeoulBusIdentity(stopId, routeId, routeName));
+    }
+
+    /**
+     * 경기 버스: GGB prefix(+방향 접미사) strip. DB 검증 없음 — {@link GyeonggiBusIdentity} 참고.
+     * {@link #resolveBus}·{@link #resolve} 의 서울 전용 스코프는 바꾸지 않는다(다른 호출자가 서울 DB 존재를 전제).
+     */
+    public Optional<GyeonggiBusIdentity> resolveGyeonggiBus(String stopGtfsId, String routeGtfsId, String routeName) {
+        String stationId = capture(GG_BUS_STOP, stopGtfsId);
+        String routeId = capture(GG_BUS_ROUTE, routeGtfsId);
+        if (stationId == null || routeId == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new GyeonggiBusIdentity(stationId, routeId, routeName));
     }
 
     /** 서울 지하철 1~9호선: route 호선 + 좌표 최근접(라인 일치). */
