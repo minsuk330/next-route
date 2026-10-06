@@ -323,4 +323,27 @@ class LegacyRouteResponseMapperTest {
         assertThat(sub.endLocalStationID()).isNull();
         assertThat(sub.lanes()).singleElement().satisfies(lane -> assertThat(lane.busLocalBlID()).isNull());
     }
+
+    @Test
+    @DisplayName("광역급행 M버스(M+4자리)는 그래프 기본색(초록) 대신 광역 빨강 — 경기 M4130·인천 M6405·예약 노선")
+    void metropolitanExpressBusIsRed() {
+        for (String[] c : new String[][]{
+                {"1:BR_TAGO_GGB234001577", "M4130"},
+                {"1:BR_TAGO_ICB165000370", "M6405"},
+                {"1:BR_TAGO_GGB228000999", "M5443(예약)"}}) {
+            SubPathResult sub = firstSubPath(coloredLeg(RoutingMode.BUS, c[0], c[1], "53B332"));
+            assertThat(sub.lanes()).singleElement()
+                    .satisfies(lane -> assertThat(lane.routeDisplayColor()).as(c[1]).isEqualTo("#E60012"));
+        }
+    }
+
+    @Test
+    @DisplayName("M 으로 시작해도 3자리 이하(경기 마을 M101·세종 M1)나 일반 번호는 그래프 색 그대로")
+    void otherBusesKeepGraphColor() {
+        for (String name : new String[]{"M101", "M1", "5600", "M41301"}) {
+            SubPathResult sub = firstSubPath(coloredLeg(RoutingMode.BUS, "1:BR_3100_241211013", name, "53B332"));
+            assertThat(sub.lanes()).singleElement()
+                    .satisfies(lane -> assertThat(lane.routeDisplayColor()).as(name).isEqualTo("#53B332"));
+        }
+    }
 }

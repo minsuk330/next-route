@@ -26,6 +26,7 @@ import watoo.grd.nextroute.application.route.routing.StopOccurrence;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * 중립 {@link RoutingResult} → 기존 앱이 소비하는 legacy {@link RouteSearchResult}.
@@ -52,6 +53,10 @@ import java.util.Optional;
  */
 @Component
 public class LegacyRouteResponseMapper {
+
+    /** 서울 광역버스와 같은 빨강({@code seoulBusRouteType} 6). 앱 BusRouteTypeColors 의 광역 값. */
+    static final String METROPOLITAN_EXPRESS_BUS_COLOR = "#E60012";
+    private static final Pattern METROPOLITAN_EXPRESS_BUS = Pattern.compile("^M\\d{4}(?!\\d)");
 
     /** legacy payment(primitive int) 의 unknown sentinel. 구형 앱은 -1 을 "요금 미상"으로 그린다(P5 확인 대상). */
     public static final int PAYMENT_UNKNOWN = -1;
@@ -207,8 +212,22 @@ public class LegacyRouteResponseMapper {
 
     /** GTFS route_color("B81B30") → legacy 표시색("#B81B30"). 원천에 없으면 null(가짜색 금지). */
     private static String displayColor(RoutingLeg leg) {
+        if (leg.mode() == RoutingMode.BUS && isMetropolitanExpressBus(leg.sourceRouteName())) {
+            return METROPOLITAN_EXPRESS_BUS_COLOR;
+        }
         String color = leg.sourceRouteColor();
         return color == null ? null : "#" + color;
+    }
+
+    /**
+     * 수도권 광역급행 M버스(경기 M4130·인천 M6405 등) — 번호가 {@code M} + 숫자 4자리.
+     *
+     * <p>임시 규칙이다. 그래프 빌드가 노선 종류를 아는 곳은 서울 DB 뿐이라 경기·인천 노선은 전부 기본색(초록)이 된다.
+     * KTDB GTFS routes.txt 에 종류 정보가 없어서다. 경기 버스노선 API 로 종류를 받아 그래프에 색을 넣게 되면 지운다.
+     * 3자리 이하(경기 마을 M101·세종 M1)는 광역급행이 아니라서 걸리지 않게 4자리로 묶는다.
+     */
+    private static boolean isMetropolitanExpressBus(String routeName) {
+        return routeName != null && METROPOLITAN_EXPRESS_BUS.matcher(routeName).find();
     }
 
     /**
