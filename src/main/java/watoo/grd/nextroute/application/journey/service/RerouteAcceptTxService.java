@@ -95,6 +95,7 @@ public class RerouteAcceptTxService {
     private final JourneyRerouteMetrics metrics;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final RerouteRefreshSignal rerouteRefreshSignal;
 
     /**
      * @return 새 개정본이 반영된 여정. 이미 <b>같은 후보로</b> 수락된 제안이면 지금 상태를 그대로 돌려준다
@@ -142,6 +143,9 @@ public class RerouteAcceptTxService {
 
         applyRevision(journey, composed.composed(), candidate.apply(), truncation, now);
         recordEvent(journey, proposalId, candidateId, now);
+        // 새 개정본의 보드를 바로 만들고, 수락 시각을 남긴다(#264 PR-2). 같은 트랜잭션이라 수락이
+        // 롤백되면 신호도 함께 사라진다.
+        rerouteRefreshSignal.accepted(journey.getId());
         metrics.recordResolved("accepted", 1);
         if (truncation != null) {
             metrics.recordMidRideAccept("applied");

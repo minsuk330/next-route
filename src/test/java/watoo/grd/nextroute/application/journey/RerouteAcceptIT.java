@@ -23,6 +23,12 @@ import watoo.grd.nextroute.application.journey.dto.RerouteBoardSlot;
 import watoo.grd.nextroute.application.journey.dto.RerouteOriginKind;
 import watoo.grd.nextroute.application.journey.service.RerouteBoardMerger;
 import watoo.grd.nextroute.application.journey.service.RerouteBoardService;
+import watoo.grd.nextroute.application.journey.service.RerouteBoardRefreshClaimService;
+import watoo.grd.nextroute.application.journey.service.RerouteBoardRefreshService;
+import watoo.grd.nextroute.application.journey.service.RerouteRefreshSignal;
+import watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties;
+import watoo.grd.nextroute.application.journey.dto.JourneyProgressCommand;
+import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyProgressUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
@@ -90,6 +96,11 @@ class RerouteAcceptIT {
     @Autowired AcceptRerouteProposalUseCase acceptUseCase;
     @Autowired GetRerouteCandidateRouteUseCase candidateRouteUseCase;
     @Autowired RerouteBoardService boardService;
+    @Autowired RerouteRefreshSignal refreshSignal;
+    @Autowired RerouteBoardRefreshClaimService refreshClaimService;
+    @Autowired RerouteBoardRefreshService refreshService;
+    @Autowired JourneyRerouteProperties rerouteProperties;
+    @Autowired ApplyJourneyProgressUseCase progressUseCase;
     @Autowired GetJourneyNavigationGeometryUseCase geometryUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired ObjectMapper objectMapper;
@@ -124,6 +135,7 @@ class RerouteAcceptIT {
 
     @AfterEach
     void cleanUp() {
+        rerouteProperties.getBoard().setEnabled(false);
         createdUserIds.forEach(this::deleteJourneysOf);
         createdUserIds.forEach(id -> jdbcTemplate.update("delete from users where id = ?", id));
         createdUserIds.clear();
@@ -479,6 +491,138 @@ class RerouteAcceptIT {
 
         assertThat(late.stored()).isFalse();
         assertThat(proposalStatus()).isEqualTo("ACCEPTED");
+    }
+
+    // ── 보드 갱신 예약·선점(#264 PR-2) ──────────────────────────────────────
+
+    @Test
+    @DisplayName("플래그가 꺼져 있으면 갱신 신호는 아무것도 쓰지 않는다")
+    void signalIsInertWhenBoardDisabled() {
+        refreshSignal.requestNow(journey.journeyId());
+
+        assertThat(refreshAtSecondsFromNow()).isNull();
+    }
+
+    @Test
+    @DisplayName("신호는 예정을 지금으로 당긴다 — 직전 갱신이 30초 안이면 그 뒤로, 위험 신호는 우회한다")
+    void signalRespectsMinGapUnlessUrgent() {
+        rerouteProperties.getBoard().setEnabled(true);
+        jdbcTemplate.update("""
+                update journey_session set reroute_last_refresh_at = now() - interval '10 seconds',
+                       reroute_refresh_at = now() + interval '10 minutes' where id = ?
+                """, journey.journeyId());
+
+        refreshSignal.requestNow(journey.journeyId());
+        assertThat(refreshAtSecondsFromNow()).isBetween(15.0, 25.0);
+
+        refreshSignal.requestUrgent(journey.journeyId());
+        assertThat(refreshAtSecondsFromNow()).isBetween(-5.0, 2.0);
+    }
+
+    @Test
+    @DisplayName("선점 중에 온 신호는 예정을 건드리지 않고 표시만 남긴다 — 두 워커가 같은 여정을 돌지 않게")
+    void signalDuringClaimOnlyMarksDirty() {
+        rerouteProperties.getBoard().setEnabled(true);
+        jdbcTemplate.update("""
+                update journey_session set reroute_refresh_at = now() - interval '1 second' where id = ?
+                """, journey.journeyId());
+        RerouteBoardRefreshClaimService.Claim claim = claimMine();
+
+        refreshSignal.requestUrgent(journey.journeyId());
+
+        assertThat(jdbcTemplate.queryForObject(
+                "select reroute_refresh_dirty from journey_session where id = ?", Boolean.class,
+                journey.journeyId())).isTrue();
+        // 다른 워커는 같은 여정을 다시 잡지 못한다.
+        assertThat(refreshClaimService.claim()).extracting(RerouteBoardRefreshClaimService.Claim::journeyId)
+                .doesNotContain(journey.journeyId());
+        // 마무리는 표시를 보고 최소 간격 뒤로 잡는다.
+        assertThat(refreshClaimService.finish(claim)).isTrue();
+        assertThat(refreshAtSecondsFromNow()).isBetween(25.0, 35.0);
+    }
+
+    @Test
+    @DisplayName("마무리는 내 선점일 때만 쓰고, 신호가 없었으면 기본 주기 뒤로 잡는다")
+    void finishOnlyWithOwnLease() {
+        rerouteProperties.getBoard().setEnabled(true);
+        jdbcTemplate.update("""
+                update journey_session set reroute_refresh_at = now() - interval '1 second' where id = ?
+                """, journey.journeyId());
+        RerouteBoardRefreshClaimService.Claim claim = claimMine();
+
+        assertThat(refreshClaimService.finish(new RerouteBoardRefreshClaimService.Claim(
+                claim.journeyId(), claim.leaseUntil().plusSeconds(1)))).isFalse();
+        assertThat(refreshClaimService.finish(claim)).isTrue();
+        assertThat(refreshAtSecondsFromNow()).isBetween(55.0, 65.0);
+    }
+
+    @Test
+    @DisplayName("여정을 시작하면 첫 갱신이 시작 + 60초로 잡힌다")
+    void startSchedulesInitialRefresh() {
+        rerouteProperties.getBoard().setEnabled(true);
+        Long otherUser = newUser();
+
+        JourneySnapshot started = startJourneyUseCase.start(otherUser,
+                new StartJourneyCommand(SESSION_ID, PATH_KEY, false));
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select extract(epoch from (reroute_refresh_at - now())) from journey_session where id = ?
+                """, Double.class, started.journeyId())).isBetween(55.0, 65.0);
+    }
+
+    @Test
+    @DisplayName("남은 정류장 수가 줄면 보드를 바로 다시 찾게 한다. 그대로면 예정을 건드리지 않는다")
+    void stopPassedProgressRequestsRefresh() {
+        rerouteProperties.getBoard().setEnabled(true);
+        applyProgress(3, Instant.now().minusSeconds(20));
+        jdbcTemplate.update("""
+                update journey_session set reroute_last_refresh_at = now() - interval '5 minutes',
+                       reroute_refresh_at = now() + interval '10 minutes' where id = ?
+                """, journey.journeyId());
+
+        applyProgress(3, Instant.now().minusSeconds(10));
+        assertThat(refreshAtSecondsFromNow()).isGreaterThan(500.0);
+
+        applyProgress(2, Instant.now().minusSeconds(1));
+        assertThat(refreshAtSecondsFromNow()).isBetween(-5.0, 2.0);
+    }
+
+    @Test
+    @DisplayName("갱신 한 회차가 보드(v2) 행을 남긴다 — 후보가 없어도 '찾아봤다'가 기록된다")
+    void refreshWritesBoardRow() {
+        rerouteProperties.getBoard().setEnabled(true);
+
+        RerouteBoardService.Written written = refreshService.refresh(journey.journeyId()).orElseThrow();
+
+        assertThat(written.stored()).isTrue();
+        assertThat(jdbcTemplate.queryForObject("""
+                select (candidates->>'version')::int from reroute_proposal
+                 where journey_id = ? and status = 'ACTIVE'
+                """, Integer.class, journey.journeyId())).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("""
+                select refreshed_at is not null from reroute_proposal
+                 where journey_id = ? and status = 'ACTIVE'
+                """, Boolean.class, journey.journeyId())).isTrue();
+    }
+
+    private RerouteBoardRefreshClaimService.Claim claimMine() {
+        return refreshClaimService.claim().stream()
+                .filter(claim -> claim.journeyId().equals(journey.journeyId()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private Double refreshAtSecondsFromNow() {
+        return jdbcTemplate.queryForObject("""
+                select extract(epoch from (reroute_refresh_at - now())) from journey_session where id = ?
+                """, Double.class, journey.journeyId());
+    }
+
+    private void applyProgress(int remainingStops, Instant observedAt) {
+        progressUseCase.apply(userId, journey.journeyId(), new JourneyProgressCommand(
+                UUID.randomUUID(), journey.routeRevision(), 0, 0,
+                java.math.BigDecimal.valueOf(0.5), java.math.BigDecimal.valueOf(0.5), null,
+                500, 300, remainingStops, observedAt, "GOOD"));
     }
 
     private RerouteBoardService.BoardWrite boardWrite(int gainSec) {

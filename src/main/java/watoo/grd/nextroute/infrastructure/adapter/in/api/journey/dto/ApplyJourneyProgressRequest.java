@@ -28,7 +28,8 @@ import java.util.UUID;
  * @param sectionId                버스 구간 식별자. 버스가 아니면 비운다
  * @param remainingDistanceMeters  단계 끝까지 남은 거리(m)
  * @param remainingDurationSeconds 단계 끝까지 남은 시간(초)
- * @param remainingStops           남은 정류장 수. 버스가 아니면 비운다
+ * @param remainingStops           남은 정류장 수. 버스는 정류장, 지하철은 역 수(#264 — 재탐색 보드가
+ *                                 "하나 지났다"를 이 값으로 안다). 그 밖에는 비운다
  * @param observedAt               앱이 이 진행을 확정한 시각
  * @param quality                  관측 품질
  */

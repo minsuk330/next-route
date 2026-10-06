@@ -55,6 +55,7 @@ class RerouteProposalServiceTest {
 
     private final Clock clock = Clock.fixed(NOW, ZoneId.of("Asia/Seoul"));
     private final JourneySessionRepository sessionRepository = mock(JourneySessionRepository.class);
+    private final RerouteBoardRefreshService boardRefresh = mock(RerouteBoardRefreshService.class);
     private final RerouteProposalTxService txService = mock(RerouteProposalTxService.class);
     private final JourneyRerouteProperties properties = new JourneyRerouteProperties();
     private final JourneyRerouteMetrics metrics =
@@ -88,6 +89,22 @@ class RerouteProposalServiceTest {
         assertThat(callOrder)
                 .as("버튼 연타가 외부 검색 연타가 되면 안 된다")
                 .isEmpty();
+    }
+
+    @Test
+    @DisplayName("보드 모드의 요청은 새 제안을 심지 않고 보드를 지금 갱신해 그대로 보여 준다(#264)")
+    void boardModeRequestRefreshesBoard() {
+        properties.getBoard().setEnabled(true);
+        RerouteCandidateProvider provider = recordingProvider(
+                RerouteProposalKind.REMAINING_PATH, 0, List.of(candidate()));
+        RerouteProposalService service = service(allowing(), List.of(provider));
+
+        service.request(USER_ID, JOURNEY_ID, 0);
+
+        verify(boardRefresh).refresh(JOURNEY_ID);
+        verify(txService).findActive(JOURNEY_ID);
+        assertThat(callOrder).as("사건 기반 사다리를 돌리면 보드를 밀어내는 v1 제안이 생긴다").isEmpty();
+        verify(txService, never()).store(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -336,7 +353,7 @@ class RerouteProposalServiceTest {
     private RerouteProposalService service(RerouteEligibilityPolicy policy,
                                            List<RerouteCandidateProvider> providers) {
         return new RerouteProposalService(sessionRepository, txService, policy, providers,
-                properties, metrics, clock);
+                properties, metrics, clock, boardRefresh);
     }
 
     private RerouteEligibilityPolicy allowing() {

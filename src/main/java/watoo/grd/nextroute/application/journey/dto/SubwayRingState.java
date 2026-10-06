@@ -60,6 +60,17 @@ public record SubwayRingState(
      * 실제 도착 사건 없이는 만들어지지 않으므로, 1.00 이면 도착 사건을 본 것이다. 다음 tick 이
      * 이 값을 보고 구간을 넘긴다.
      */
+    /**
+     * 직전 상태보다 <b>다음 역 순번이 앞으로 갔는가</b> — 역 하나를 지났다(#264 재탐색 보드 신호).
+     *
+     * <p>고정·개정본·단계가 다른 직전 상태와는 비교하지 않는다. 다른 링의 순번을 견주면 엉뚱한 "지남"이 된다.
+     */
+    public boolean advancedFrom(SubwayRingState previous) {
+        return previous != null
+                && previous.matches(routeRevision, legIndex, bindingVersion)
+                && nextStationSequence > previous.nextStationSequence;
+    }
+
     public boolean arrivedAtNextStation() {
         return segmentProgress != null && segmentProgress.compareTo(BigDecimal.ONE) >= 0;
     }
