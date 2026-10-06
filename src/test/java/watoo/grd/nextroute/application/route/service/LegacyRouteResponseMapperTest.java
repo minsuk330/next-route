@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.route.service;
 
+import watoo.grd.nextroute.testsupport.InMemoryRegionalBusRouteStopStore;
 import org.assertj.core.data.Offset;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -47,7 +48,8 @@ class LegacyRouteResponseMapperTest {
     private final BusRouteRepository busRouteRepository = mock(BusRouteRepository.class);
     private final LegacyRouteResponseMapper mapper = new LegacyRouteResponseMapper(
             new OtpSeoulIdentityResolver(busStopRepository, busRouteRepository,
-                    mock(SubwayStationRepository.class)));
+                    mock(SubwayStationRepository.class),
+                    InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()));
 
     private RoutingLeg transitLeg(RoutingMode mode, GeometryQuality quality, String points) {
         return transitLeg(mode, quality, points, "1:R1", "143");

@@ -3133,3 +3133,46 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 단위: `RerouteCandidateRouteQueryServiceTest` 15/15, `RerouteCandidateContractTest` 11/11(신규 2), `RemainingPathCandidateProviderTest` 21/21, `JourneyRerouteProposalControllerTest` 13/13(신규 4)
 - IT(로컬 postgis 컨테이너): `RerouteAcceptIT` 14/14(신규 3: 같은 원천·ride·STALE)
 - 회귀: journey 패키지 전체 1156개 중 실패 1 = `JourneyTransferAssessmentIT` "환승이 있는 여정을 조회하면 판정이 저장되고…" — **기존 무관**(변경 stash 한 main 상태에서도 동일 실패)
+
+---
+
+## 2026-10-07 regional-bus-route-catalog (#267) — 경기·TAGO 노선 정류장 표 + TAGO 노선 단위 도시코드
+
+플랜 = `docs/plan/regional-bus-route-catalog/{PLAN,SUMMARY}.md`. 브랜치 `feat/tago-route-city-mapping`(fresh main 493af781, 스크래치 clone 에서 작업).
+
+### 확정
+- TAGO `getRouteNoList?cityCode=` 를 `routeNo` 없이 부르면 도시 노선 전체. 138개 도시 → 21,393노선, **도시 간 중복 0** → routeId → cityCode 는 함수. 양양군 0건.
+- **경기 노선도 TAGO 목록에 `GGB` 로 있다(2,158, 31개 시)** → 노선 목록을 OTP 에서 가져올 필요 없음. 경기 정류장은 경기 API 로(경기 실시간과 같은 순번 체계). 표의 경기 `route_id` 는 접두사 뗀 9자리.
+- 폐선 정리 기준 = "이번 노선 목록에 없는가". ~~"loaded_at < 실행 시작"~~ 취소 — 0건·실패 노선의 옛 값까지 지워진다(플랜 초안의 실패율 1% 조건도 함께 폐기). 목록은 한 번이라도 실패하면 실행 전체를 멈추므로 정리는 온전한 목록일 때만 돈다.
+- 도시코드 조회 = 노선 표 → 없으면 `TagoCityCodes`(접두사) 폴백. 표가 비어도(V56 미배치 포함) 지금과 같은 동작. `TagoCityCodes` 는 안정화 뒤 별건 삭제.
+- 정류장만 보는 자리(`BusRealtimeStopIds`, 노선 모름)는 "그 접두사의 실시간을 물을 수 있나"만 본다 = 표 접두사 ∪ 접두사 표. 실제 호출은 노선으로 도시를 찾는다.
+- 원천 어댑터는 `ApiCallBlocker` 를 건드리지 않는다 — 노선정보 서비스의 미등록·한도 초과가 도착 조회를 막으면 안 된다.
+
+### 함정
+- TAGO 노선 id 가 숫자만이 아니다: `BSB5201002F00`(영문) 등 OTP 에도 9개. `BusArrivalQueryService.TAGO_ID`(`[\d-]`)·`OtpSeoulIdentityResolver.TAGO_BUS_ROUTE` 가 이걸 조용히 버려 부산 9개 노선 실시간이 빠지고 있었다 ← 정규식 `[\dA-Z-]` 로 넓힘(서울·경기 id 는 숫자뿐이라 안 겹침). 정류장 id 는 실측상 숫자뿐이라 그대로.
+- 기존 접두사 표의 `ADB`(2도시)·`YDB`(3도시)·`DJB`(대전/계룡)·`WJB`(원주/횡성)는 다도시 — 두 번째 도시 노선은 틀린 cityCode 로 호출돼 빈 결과였을 가능성(미검증, 배포 후 실호출 확인 항목).
+- 처음 보는 접두사 `CCB`·`ISB` — 접두사 표에도 미확정 목록에도 없었다.
+- `BusRealtimeStopIds` 를 static 유틸에서 빈으로 바꿈 → 유일 호출자 `JourneyNavigationGeometryService` 생성자 인자 +1(시험 1곳 갱신).
+- `OtpSeoulIdentityResolver` 생성자 인자 +1 → 시험 3곳(`OtpSeoulIdentityResolverTest`, `LegacyRouteResponseMapperTest`, `RouteResponseMapperTest`) 갱신. 시험용 대역 `testsupport/InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()`.
+
+### 좌표
+- 적재: `application/regionalbus/service/RegionalBusCatalogLoadService.java`
+- 원천: `infrastructure/adapter/out/api/regionalbus/RegionalBusRouteSourceAdapter.java`
+- 저장: `infrastructure/adapter/out/persistence/regionalbus/JdbcRegionalBusRouteStopStore.java`
+- 조회: `application/route/mapping/TagoCityCodeLookup.java`
+- 스케줄러: `infrastructure/adapter/in/scheduler/RegionalBusCatalogScheduler.java`(worker, `REGIONAL_BUS_CATALOG_ENABLED`, 매월 1일 03:30 KST)
+
+### 미결
+- TAGO 경유 가상점 판별(`waypoint` null). #264 TAGO `arrprevstationcnt` 실측 후.
+- 적재 소요 실측(예상: 약 2.15만 호출, 호출당 약 0.94초 직렬 → 병렬 3 이면 약 2시간).
+
+### 배포
+- **V56 VPS 수동배치 필요**(V18+ untracked convention). 운영은 v55.
+- 순서: V56 → 이미지(api·worker) → worker env `REGIONAL_BUS_CATALOG_ENABLED=true` → 부팅 시 표가 비어 있어 1회 적재(별도 스레드) → 완료 로그 `[RegionalBusCatalog] routes=… loaded=…`.
+- api 는 적재를 안 하므로 6시간 주기 갱신으로 반영(즉시 원하면 api 재시작). worker 는 적재 직후 갱신.
+- 확인: TSB 정류장 도착 실호출, ADB·YDB 두 번째 도시 노선 실호출, 부산 `BSB5201002F00` 실호출.
+
+### 검증
+- 대상 시험: `RegionalBusCatalogLoadServiceTest` 7/7, `RegionalBusRouteSourceAdapterTest` 9/9, `JdbcRegionalBusRouteStopStoreIT` 5/5(Testcontainers postgres:17, 실제 V56 실행), `TagoCityCodeLookupTest` 6/6, `BusArrivalQueryServiceTest` 17/17(신규 2), `OtpSeoulIdentityResolverTest` 19/19(신규 2), `JourneyNavigationGeometryServiceTest`·`LegacyRouteResponseMapperTest`·`RouteResponseMapperTest` 통과
+- 전체 `./gradlew build`: 2,305건 중 실패 11 — **전부 기존 무관**. 같은 4개 클래스(`JourneyEvalReadPathIT`·`JourneyEvaluationIT`·`JourneyTransferAssessmentIT`·`BusAlertWakeupBurstIT`)를 main(493af781)에서 같은 환경으로 돌려도 똑같이 11건 실패.
+- 실행 환경(함정): 스크래치 clone 에는 gitignore 대상 `env/*.env` 가 없어 컨텍스트 IT 가 DB 접속에서 전부 죽는다(259건). 공유 로컬 DB·Redis 를 건드리지 않으려고 일회용 컨테이너를 띄웠다 — postgis/postgis:17-3.5(55432) 에 로컬 개발 DB 의 `--schema-only` + `flyway_schema_history` 만 복원(빈 DB 에 V1 부터 재생 불가), redis:7(56379), 기본값 없는 env(`GONG_API`·`KAKAO_REST_API_KEY`·`SEOUL_*`)는 더미. `env/*.env` 를 통째로 source 하면 `fcm.env` 가 FCM 을 켜 `/secrets/...` 자격증명 부재로 부팅이 죽는다 — DB·Redis 변수만 넣을 것.

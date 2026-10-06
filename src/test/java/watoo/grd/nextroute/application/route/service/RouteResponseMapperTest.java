@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.route.service;
 
+import watoo.grd.nextroute.testsupport.InMemoryRegionalBusRouteStopStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,7 +33,8 @@ class RouteResponseMapperTest {
     private final BusRouteRepository busRouteRepo = mock(BusRouteRepository.class);
     private final SubwayStationRepository subwayRepo = mock(SubwayStationRepository.class);
     private final OtpSeoulIdentityResolver resolver =
-            new OtpSeoulIdentityResolver(busStopRepo, busRouteRepo, subwayRepo);
+            new OtpSeoulIdentityResolver(busStopRepo, busRouteRepo, subwayRepo,
+                    InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup());
     private final LegacyRouteResponseMapper legacyMapper = new LegacyRouteResponseMapper(resolver);
     private final RouteSearchV2Mapper v2Mapper = new RouteSearchV2Mapper();
 

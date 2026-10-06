@@ -81,6 +81,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
     private final GeometrySegmentAllocator allocator;
     private final WalkManeuverAnchorer maneuverAnchorer;
     private final ObjectMapper objectMapper;
+    private final BusRealtimeStopIds busRealtimeStopIds;
 
     @Override
     @Transactional(readOnly = true)
@@ -212,7 +213,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                     .sorted(Comparator.comparingInt(StationResult::index))
                     .map(station -> new StopGeometry(
                             station.index(),
-                            BusRealtimeStopIds.of(station.stationID()).orElse(null),
+                            busRealtimeStopIds.of(station.stationID()).orElse(null),
                             station.stationName(),
                             station.x(),
                             station.y()))

@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.route.mapping;
 
+import watoo.grd.nextroute.testsupport.InMemoryRegionalBusRouteStopStore;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import watoo.grd.nextroute.application.route.routing.RoutingLeg;
@@ -29,7 +30,8 @@ class OtpSeoulIdentityResolverTest {
     private final BusRouteRepository busRouteRepo = mock(BusRouteRepository.class);
     private final SubwayStationRepository subwayRepo = mock(SubwayStationRepository.class);
     private final OtpSeoulIdentityResolver resolver =
-            new OtpSeoulIdentityResolver(busStopRepo, busRouteRepo, subwayRepo);
+            new OtpSeoulIdentityResolver(busStopRepo, busRouteRepo, subwayRepo,
+                    InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup());
 
     // 익명 구현체(mockito 중첩 스터빙 회피). 미사용 accessor 는 null.
     private NearbySubwayStationProjection nearby(String statnId, String lineId, double dist) {
@@ -214,5 +216,29 @@ class OtpSeoulIdentityResolverTest {
     @DisplayName("지하철: 두 자리 호선(11호선) 뒷자리 오매치 방지 → empty")
     void subwayTwoDigitLineRejected() {
         assertThat(resolver.resolveSubway("11호선", 37.5, 127.0)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("TAGO 버스: 영문 섞인 노선 id(부산 BSB5201002F00)도 TAGO 로 해석")
+    void tagoBusRouteIdWithLetters() {
+        assertThat(resolver.resolveTagoBus("1:BS_TAGO_BSB167850202", "1:BR_TAGO_BSB5201002F00", "1002"))
+                .contains(new TagoBusIdentity("21", "BSB167850202", "BSB5201002F00", "1002"));
+    }
+
+    @Test
+    @DisplayName("TAGO 버스: 노선 표가 있으면 접두사 표 밖(TSB)도 노선의 도시코드로 해석(#267)")
+    void tagoBusCityCodeFromRouteTable() {
+        InMemoryRegionalBusRouteStopStore store = new InMemoryRegionalBusRouteStopStore();
+        store.replaceRoute(watoo.grd.nextroute.application.regionalbus.dto.RegionalBusProvider.TAGO,
+                "TSB309000001", "1", "32050",
+                java.util.List.of(new watoo.grd.nextroute.application.regionalbus.dto.RegionalRouteStop(
+                        "TSB309000122", "s", 1, null, null, null, null, null)),
+                java.time.Instant.EPOCH);
+        TagoCityCodeLookup lookup = new TagoCityCodeLookup(store);
+        lookup.refresh();
+        OtpSeoulIdentityResolver withTable = new OtpSeoulIdentityResolver(busStopRepo, busRouteRepo, subwayRepo, lookup);
+
+        assertThat(withTable.resolveTagoBus("1:BS_TAGO_TSB309000122", "1:BR_TAGO_TSB309000001", "농어촌"))
+                .contains(new TagoBusIdentity("32050", "TSB309000122", "TSB309000001", "농어촌"));
     }
 }

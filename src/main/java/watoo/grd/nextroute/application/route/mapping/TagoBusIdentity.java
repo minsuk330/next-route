@@ -7,7 +7,7 @@ package watoo.grd.nextroute.application.route.mapping;
  *
  * <p>DB 존재 검증 없음({@link GyeonggiBusIdentity} 와 같은 이유 — 카탈로그 미적재, 틀리면 빈 결과뿐).
  *
- * @param cityCode {@link TagoCityCodes} 로 정한 도시코드
+ * @param cityCode {@link TagoCityCodeLookup} 이 노선으로 정한 도시코드
  */
 public record TagoBusIdentity(String cityCode, String nodeId, String routeId, String routeName) {
 }
