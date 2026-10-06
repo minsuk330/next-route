@@ -16,6 +16,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.Sto
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.route.dto.CoordPoint;
+import watoo.grd.nextroute.application.route.mapping.BusRealtimeStopIds;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
@@ -135,8 +136,8 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                          Map<String, List<RouteStopProjection>> routeStopsByRouteId) {
         JourneyLegRouteOption option = selectedOption(leg, optionOwner, optionsByLeg);
         if (!hasBusScope(option)) {
-            log.debug("버스 구간 좌표 조회 불가 — legIndex={}, 노선·순번 미해석", leg.getLegIndex());
-            return new Built(snapshotLeg(leg, sub), null);
+            log.debug("버스 구간 서울 노선표 조회 불가 — legIndex={}, 노선·순번 미해석. 검색 결과 정류장으로", leg.getLegIndex());
+            return new Built(snapshotBusLeg(leg, sub), null);
         }
 
         List<StopGeometry> stops = routeStopsByRouteId
@@ -166,6 +167,63 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
         }
         List<SegmentGeometry> segments = allocator.distribute(raw, leg.getPlannedDurationSec());
         return new Built(assemble(leg, option.getRouteId(), segments, stops), null);
+    }
+
+    /**
+     * 서울 노선표로 정류장을 못 꺼낸 버스 단계(경기·지방 노선, 순번이 모호한 서울 노선 등).
+     * 얼려 둔 검색 결과(OTP·GTFS)가 그 버스가 서는 정류장을 이미 들고 있으니 그것으로 정류장과 구간을 만든다.
+     *
+     * <p>정류장이 2곳 이상이면 서울 경로와 같은 방법(선을 정류장에서 자르기)으로 구간을 만든다 — 앱의 구간 계약이
+     * 같아야 한다. 정류장을 하나도 못 구하면 선은 내려보내되 품질을 {@code APPROXIMATE} 로 낮춰 앱이 정류장 기반
+     * 진행 판정을 기대하지 않게 한다.
+     *
+     * <p>여기서의 {@code seq} 는 서울 노선 순번이 아니라 승차 정류장부터 센 순서(0부터)다. 정류장을 세는 데는 같고,
+     * 서울 실시간 버스 위치와 대조하는 값으로는 쓰지 않는다(그 대조는 서울 노선표 경로에서만 일어난다).
+     */
+    private LegGeometry snapshotBusLeg(JourneyLeg leg, SubPathResult sub) {
+        List<StopGeometry> stops = snapshotBusStops(sub);
+        if (stops.isEmpty()) {
+            LegGeometry base = snapshotLeg(leg, sub);
+            return assemble(leg, leg.getRouteId(),
+                    withQuality(base.segments(), worse(base.quality(), GeometryQuality.APPROXIMATE), "NO_STOPS"),
+                    List.of());
+        }
+        List<SegmentGeometry> raw = shapeSplitter.split(toGeoPointsFromCoords(
+                sub == null ? null : sub.polyline()), stops);
+        if (raw.isEmpty()) {
+            raw = shapeSplitter.straight(stops);
+        }
+        if (raw.isEmpty()) {
+            return withStops(snapshotLeg(leg, sub), stops);
+        }
+        return assemble(leg, leg.getRouteId(), allocator.distribute(raw, leg.getPlannedDurationSec()), stops);
+    }
+
+    /**
+     * 검색 결과의 버스 정류장 목록. 없으면 승차·하차 두 곳이라도 만든다.
+     * {@code stopId} 는 실시간 도착 API 가 받는 id(길찾기 응답 {@code startLocalStationID} 와 같은 규칙)다.
+     */
+    private List<StopGeometry> snapshotBusStops(SubPathResult sub) {
+        if (sub == null) {
+            return List.of();
+        }
+        if (sub.stations() != null && sub.stations().size() >= 2) {
+            return sub.stations().stream()
+                    .sorted(Comparator.comparingInt(StationResult::index))
+                    .map(station -> new StopGeometry(
+                            station.index(),
+                            BusRealtimeStopIds.of(station.stationID()).orElse(null),
+                            station.stationName(),
+                            station.x(),
+                            station.y()))
+                    .toList();
+        }
+        if (sub.startX() == null || sub.startY() == null || sub.endX() == null || sub.endY() == null) {
+            return List.of();
+        }
+        return List.of(
+                new StopGeometry(0, sub.startLocalStationID(), sub.startName(), sub.startX(), sub.startY()),
+                new StopGeometry(1, sub.endLocalStationID(), sub.endName(), sub.endX(), sub.endY()));
     }
 
     private boolean hasBusScope(JourneyLegRouteOption option) {

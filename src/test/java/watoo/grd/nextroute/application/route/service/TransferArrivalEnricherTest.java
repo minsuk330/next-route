@@ -247,7 +247,8 @@ class TransferArrivalEnricherTest {
         when(stopRepo.findByStopId("1111")).thenReturn(Optional.of(busStop("1111")));
         when(routeRepo.findByRouteId(any())).thenReturn(Optional.empty());
         when(routeRepo.findByRouteNameIn(any())).thenReturn(List.of());
-        RouteSearchResult input = resultWith(List.of(busSubPath("1111", "unknownRoute", "unknownBus")));
+        // 서울 노선 id 모양(DB 엔 없음) — id 조회와 번호 폴백이 둘 다 실패하는 경로. 다른 지역 id 는 폴백 자체를 안 한다.
+        RouteSearchResult input = resultWith(List.of(busSubPath("1111", "100199999", "unknownBus")));
 
         RouteSearchResult result = enricher.enrich(input, NOW);
 
