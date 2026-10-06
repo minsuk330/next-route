@@ -429,9 +429,9 @@ class WithdrawalDeletionBoundaryIT {
                 insert into reroute_proposal
                     (created_at, updated_at, journey_id, user_id, route_revision,
                      kind, status, base_command_version, candidates, snapshot_observed_at,
-                     expires_at, alerted, board_version)
+                     expires_at, alerted, board_version, push_seq)
                 values (now(), now(), ?, ?, 1, 'REMAINING_PATH', 'ACTIVE', 1, '[]'::jsonb, now(),
-                        now(), false, 0)""",
+                        now(), false, 0, 0)""",
                 jid, uid);
         jdbc.update("""
                 insert into subway_binding_event

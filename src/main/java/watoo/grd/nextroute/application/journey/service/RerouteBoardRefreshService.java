@@ -29,6 +29,7 @@ public class RerouteBoardRefreshService {
     private final JourneySessionRepository sessionRepository;
     private final RemainingPathCandidateProvider candidateProvider;
     private final RerouteBoardService boardService;
+    private final RerouteBoardPushService pushService;
     private final Clock clock;
 
     /**
@@ -61,11 +62,16 @@ public class RerouteBoardRefreshService {
                 }
             }
         }
-        return Optional.of(boardService.write(new RerouteBoardService.BoardWrite(
+        RerouteBoardService.Written written = boardService.write(new RerouteBoardService.BoardWrite(
                 journey.getId(), journey.getUserId(), journey.getRouteRevision(),
                 journey.getCommandVersion(), journey.getCurrentLegIndex(), observedAt,
                 new RerouteBoardMerger.Input(evaluated, Set.of(),
-                        result.known() ? result.offered() : null)), now));
+                        result.known() ? result.offered() : null)), now);
+        if (written.stored()) {
+            // 조용히 갱신한 뒤, 깨울 만한지 본다(#264 PR-5). 실패해도 갱신은 성공이다.
+            pushService.considerPush(journey.getId(), written.slots(), now);
+        }
+        return Optional.of(written);
     }
 
     private static RerouteBoardMerger.Evaluated toEvaluated(

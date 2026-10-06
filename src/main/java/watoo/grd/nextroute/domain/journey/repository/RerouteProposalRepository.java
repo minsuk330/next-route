@@ -309,4 +309,40 @@ public interface RerouteProposalRepository extends JpaRepository<RerouteProposal
     /** 상태만 DB 에서 다시 읽는다. 영속성 컨텍스트의 낡은 엔티티를 보지 않기 위해 쿼리로 묻는다. */
     @Query("select p.status from RerouteProposal p where p.id = :id")
     Optional<RerouteProposalStatus> findStatusById(@Param("id") Long id);
+
+    // ── 보드 push(#264 PR-5) ─────────────────────────────────────────────────
+
+    /**
+     * push 를 보냈다고 적는다. <b>읽은 순번 그대로일 때만</b> 쓴다 — 동시에 두 회차가 같은 순번으로
+     * push 를 만들면 하나만 이긴다.
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query(value = """
+            UPDATE reroute_proposal
+               SET push_seq = push_seq + 1,
+                   last_push_slot = :slot,
+                   last_push_route = :route,
+                   last_push_gain = :gain,
+                   last_pushed_at = :now,
+                   last_push_answered = false,
+                   updated_at = :auditNow
+             WHERE id = :id AND push_seq = :expectedSeq AND status = 'ACTIVE' AND deleted_at IS NULL
+            """, nativeQuery = true)
+    int recordPush(@Param("id") Long id, @Param("expectedSeq") int expectedSeq,
+                   @Param("slot") String slot, @Param("route") String route,
+                   @Param("gain") int gain, @Param("now") Instant now,
+                   @Param("auditNow") LocalDateTime auditNow);
+
+    /**
+     * 직전 push 에 답한 것으로 적는다(경로 조회·무시·거절). 이미 답했거나 보낸 적이 없으면 0.
+     *
+     * @return 1 이면 "답 안 한 push" 가 있었다 — 부르는 쪽이 그것을 무시로 셀지 정한다
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query(value = """
+            UPDATE reroute_proposal SET last_push_answered = true
+             WHERE journey_id = :journeyId AND status = 'ACTIVE' AND deleted_at IS NULL
+               AND last_push_answered = false
+            """, nativeQuery = true)
+    int answerPush(@Param("journeyId") Long journeyId);
 }

@@ -81,7 +81,7 @@ public class JourneyRerouteMetrics {
     private static final Set<String> KNOWN_ALERT_OUTCOMES = Set.of(
             "published", "disabled", "terminated", "ignore-limit", "cooldown", "journey-missing",
             "no-candidate", "below-threshold", "no-lead-time", "no-channel", "duplicate",
-            "unanswered", "rejected", "dismissed", "opt-in", "validated-out", "failed");
+            "unanswered", "rejected", "dismissed", "opt-in", "validated-out", "failed", "merged-risk");
 
     /**
      * 주행 중 중간 하차 수락 한 번의 결말(PR-4).

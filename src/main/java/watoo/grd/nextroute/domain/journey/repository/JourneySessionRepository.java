@@ -373,4 +373,12 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
     @Query(value = "UPDATE journey_session SET reroute_accepted_at = :at WHERE id = :id",
             nativeQuery = true)
     int markRerouteAccepted(@Param("id") Long id, @Param("at") Instant at);
+
+    /**
+     * 마지막 수락 시각(V57). 보드 push 의 "수락 후 3분" 판단에만 쓴다.
+     *
+     * <p>엔티티에 매핑하지 않는다 — 매핑하면 마이그레이션을 손으로 나열하는 IT 들이 전부 이 칸을 요구하게 된다.
+     */
+    @Query(value = "SELECT reroute_accepted_at FROM journey_session WHERE id = :id", nativeQuery = true)
+    Optional<Instant> findRerouteAcceptedAt(@Param("id") Long id);
 }

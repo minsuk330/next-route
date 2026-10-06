@@ -48,12 +48,23 @@ public class JourneyNotificationEnqueuer {
     public String enqueueTransferRisk(long journeyId, int routeRevision,
                                       TransferRiskAssessment assessment,
                                       NotificationChannel channel) {
+        return enqueueTransferRisk(journeyId, routeRevision, assessment, channel, java.time.Duration.ZERO);
+    }
+
+    /**
+     * 늦춰 보내는 환승 위험 알림(#264 PR-5). 보드 모드에서는 대안이 있으면 재탐색 push 하나로 합친다 —
+     * 그 판단(보드 갱신)이 끝날 시간을 벌려고 발송 시각을 {@code delay} 만큼 미룬다. 그 사이 재탐색 push
+     * 가 나가면 이 행은 취소된다. 만료도 발송 시각 기준으로 잰다(바닥 180초가 지연에 먹히지 않게).
+     */
+    public String enqueueTransferRisk(long journeyId, int routeRevision,
+                                      TransferRiskAssessment assessment,
+                                      NotificationChannel channel, java.time.Duration delay) {
         JourneyCheckpoint checkpoint = JourneyCheckpoint.ofTransferStatus(assessment.status());
         String logicalKey = JourneyNotificationKeys.logical(journeyId, routeRevision,
                 JourneyNotificationScope.TRANSFER, assessment.transferIndex(), checkpoint);
         String deliveryKey = JourneyNotificationKeys.delivery(logicalKey, channel);
 
-        Instant now = Instant.now(clock);
+        Instant now = Instant.now(clock).plus(delay);
         Instant expiresAt = expiresAt(assessment, now);
         String payload = writePayload(assessment);
 
@@ -135,6 +146,41 @@ public class JourneyNotificationEnqueuer {
                 logicalKey, deliveryKey, now, expiresAt,
                 writeReroutePayload(proposalId, gainSeconds), LocalDateTime.now(clock));
 
+        if (created.isEmpty()) {
+            return false;
+        }
+        metrics.recordEnqueued(checkpoint);
+        return true;
+    }
+
+    /**
+     * 보드 push 한 건(#264 PR-5). 논리 키에 <b>push 순번</b>을 붙인다 — 보드는 개정본 동안 행이 하나라
+     * 제안 번호만으로는 두 번째 push 가 {@code ON CONFLICT} 에 삼켜진다.
+     *
+     * @param payload 문구 재료(정류장·노선·이득·기점 종류). 후보 목록은 싣지 않는다 — 누르면 최신 보드를 본다
+     * @return 행이 새로 생겼으면 true
+     */
+    public boolean enqueueBoardPush(long journeyId, int routeRevision, long proposalId, int pushSeq,
+                                    Map<String, Object> payload, NotificationChannel channel,
+                                    Instant now, Instant expiresAt) {
+        JourneyCheckpoint checkpoint = JourneyCheckpoint.REROUTE_SUGGESTED;
+        int scopeId = (int) proposalId;
+        String logicalKey = JourneyNotificationKeys.logical(journeyId, routeRevision,
+                JourneyNotificationScope.JOURNEY, scopeId, checkpoint) + ":p" + pushSeq;
+        String deliveryKey = JourneyNotificationKeys.delivery(logicalKey, channel);
+        String body;
+        try {
+            body = objectMapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            log.warn("[JourneyNotification] 보드 push payload 직렬화 실패 proposalId={}: {}",
+                    proposalId, e.getMessage());
+            body = "{}";
+        }
+        List<Long> created = notificationRepository.enqueue(
+                journeyId, routeRevision,
+                JourneyNotificationScope.JOURNEY.name(), scopeId,
+                checkpoint.name(), channel.name(),
+                logicalKey, deliveryKey, now, expiresAt, body, LocalDateTime.now(clock));
         if (created.isEmpty()) {
             return false;
         }

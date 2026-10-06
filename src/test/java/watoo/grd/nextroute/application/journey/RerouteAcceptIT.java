@@ -102,6 +102,8 @@ class RerouteAcceptIT {
     @Autowired JourneyRerouteProperties rerouteProperties;
     @Autowired ApplyJourneyProgressUseCase progressUseCase;
     @Autowired watoo.grd.nextroute.application.journey.service.RerouteProposalService proposalService;
+    @Autowired watoo.grd.nextroute.application.journey.service.RerouteBoardPushTxService pushTxService;
+    @Autowired watoo.grd.nextroute.domain.journey.repository.RerouteProposalRepository proposalRepository;
     @Autowired GetJourneyNavigationGeometryUseCase geometryUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired ObjectMapper objectMapper;
@@ -647,6 +649,104 @@ class RerouteAcceptIT {
 
         assertThat(after.routeRevision()).isEqualTo(journey.routeRevision() + 1);
         assertThat(routeIdsOf(after.routeRevision())).contains("BL-360");
+    }
+
+    // ── 보드 push(#264 PR-5) ───────────────────────────────────────────────
+
+    @Test
+    @DisplayName("같은 보드에서 push 를 두 번 보내면 outbox 가 두 행이다 — 순번이 멱등 키에 들어간다")
+    void twoPushesOnOneBoardAreTwoRows() {
+        RerouteBoardSlot slot = boardService.write(boardWrite(600), Instant.now()).slots().get(0);
+
+        assertThat(publish(slot)).isTrue();
+        assertThat(publish(slot)).isTrue();
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*) from journey_notification
+                 where journey_id = ? and checkpoint = 'REROUTE_SUGGESTED'
+                """, Integer.class, journey.journeyId())).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject(
+                "select push_seq from reroute_proposal where id = ?", Integer.class, proposalId())).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("재탐색 push 가 나가면 아직 안 나간 환승 위험 알림은 거둔다 — 알림은 하나만")
+    void pushCancelsPendingTransferRisk() {
+        RerouteBoardSlot slot = boardService.write(boardWrite(600), Instant.now()).slots().get(0);
+        String key = "risk-" + UUID.randomUUID();
+        jdbcTemplate.update("""
+                insert into journey_notification
+                    (created_at, updated_at, journey_id, user_id, route_revision, scope_type,
+                     scope_id, checkpoint, channel, command_version, evaluation_version,
+                     logical_checkpoint_key, delivery_key, status, attempt_count,
+                     scheduled_at, expires_at)
+                values (now(), now(), ?, ?, ?, 'TRANSFER', 0, 'TRANSFER_RISK_AT_RISK', 'PUSH', ?, 0,
+                        ?, ?, 'PENDING', 0, now() + interval '20 seconds', now() + interval '10 minutes')
+                """, journey.journeyId(), userId, journey.routeRevision(), journey.commandVersion(),
+                key, key + ":PUSH");
+
+        publish(slot);
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select status || ':' || last_failure_reason from journey_notification where delivery_key = ?
+                """, String.class, key + ":PUSH")).isEqualTo("CANCELED:superseded-by-reroute");
+    }
+
+    @Test
+    @DisplayName("답 없는 push 는 다음 판단 때 무시 1회로 한 번만 센다")
+    void unansweredPushIsCountedOnce() {
+        RerouteBoardSlot slot = boardService.write(boardWrite(600), Instant.now()).slots().get(0);
+        publish(slot);
+
+        assertThat(pushTxService.countIgnoredPush(journey.journeyId())).isTrue();
+        assertThat(pushTxService.countIgnoredPush(journey.journeyId())).isFalse();
+        assertThat(jdbcTemplate.queryForObject(
+                "select reroute_ignored_count from journey_session where id = ?", Integer.class,
+                journey.journeyId())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("보드에 대한 '무시'는 보드를 닫지 않는다 — 말풍선은 계속 갱신된다")
+    void dismissDoesNotCloseBoard() {
+        boardService.write(boardWrite(600), Instant.now());
+
+        proposalService.decide(userId, journey.journeyId(), proposalId(),
+                watoo.grd.nextroute.domain.journey.entity.RerouteProposalStatus.DISMISSED, false);
+
+        assertThat(proposalStatus()).isEqualTo("ACTIVE");
+        assertThat(jdbcTemplate.queryForObject(
+                "select reroute_ignored_count from journey_session where id = ?", Integer.class,
+                journey.journeyId())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("보드 모드에서 수락은 push 를 영구 차단하지 않는다 — 수락 시각만 남는다")
+    void boardModeAcceptDoesNotTerminate() {
+        rerouteProperties.getBoard().setEnabled(true);
+        String candidateId = boardService.write(boardWrite(600), Instant.now())
+                .slots().get(0).candidate().candidateId();
+
+        acceptUseCase.accept(userId, journey.journeyId(), proposalId(), candidateId);
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select (not reroute_terminated) and reroute_accepted_at is not null
+                  from journey_session where id = ?
+                """, Boolean.class, journey.journeyId())).isTrue();
+    }
+
+    private boolean publish(RerouteBoardSlot slot) {
+        var board = proposalRepository.findById(proposalId()).orElseThrow();
+        return pushTxService.publish(board, startedSession(),
+                new watoo.grd.nextroute.application.journey.service.RerouteBoardPushPolicy.Decision(slot,
+                        watoo.grd.nextroute.application.journey.service.RerouteBoardPushPolicy.Kind.NEW_OPPORTUNITY),
+                List.of(watoo.grd.nextroute.domain.notification.entity.NotificationChannel.PUSH), java.util.Map.of("proposalId", board.getId(), "etaGainSec", 600),
+                Instant.now());
+    }
+
+    @Autowired watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository sessionRepository;
+
+    private watoo.grd.nextroute.domain.journey.entity.JourneySession startedSession() {
+        return sessionRepository.findById(journey.journeyId()).orElseThrow();
     }
 
     private RerouteBoardRefreshClaimService.Claim claimMine() {

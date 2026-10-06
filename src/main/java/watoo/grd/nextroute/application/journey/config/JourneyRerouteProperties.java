@@ -113,6 +113,21 @@ public class JourneyRerouteProperties {
         /** 보드 유효시간 = 마지막 갱신 + 이 값. 워커가 멈추면 낡은 보드가 저절로 사라진다. */
         private Duration ttl = Duration.ofMinutes(3);
 
+        /**
+         * 환승 위험 알림을 늦춰 넣는 시간(#264 PR-5). 그 사이 보드가 갱신돼 대안이 있으면 재탐색 push
+         * 하나로 합친다. 갱신 마감(약 12초) + 선점 tick 보다 길어야 한다.
+         */
+        private int riskMergeDelaySeconds = 20;
+
+        /** push 를 막는 하차 여유. 말풍선(60초)보다 길다 — 읽고 문 앞으로 갈 시간이다. */
+        private int pushLeadTimeSec = 120;
+
+        /** 여정 시작·수락 뒤 이 시간 동안은 "새 기회" push 를 보내지 않는다(위험+대안은 보낸다). */
+        private Duration pushQuietAfterStart = Duration.ofMinutes(3);
+
+        /** 같은 후보라도 직전 push 보다 이만큼 더 빨라지면 "새 기회"로 본다. */
+        private int pushNoveltyGainSec = 120;
+
         private final Refresh refresh = new Refresh();
 
         /** 갱신 스케줄러(worker). */

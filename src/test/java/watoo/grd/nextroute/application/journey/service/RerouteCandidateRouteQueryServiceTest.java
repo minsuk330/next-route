@@ -78,7 +78,7 @@ class RerouteCandidateRouteQueryServiceTest {
 
     private final RerouteCandidateRouteQueryService service = new RerouteCandidateRouteQueryService(
             sessionRepository, proposalRepository, legRepository, routeOptionRepository, reader,
-            rideLocator, new JourneyRerouteProperties(), Clock.fixed(NOW, ZoneOffset.UTC));
+            mock(RerouteBoardPushAnswerService.class), rideLocator, new JourneyRerouteProperties(), Clock.fixed(NOW, ZoneOffset.UTC));
 
     private JourneySession journey;
     private JourneyLeg ride;

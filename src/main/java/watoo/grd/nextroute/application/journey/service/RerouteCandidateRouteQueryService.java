@@ -48,6 +48,7 @@ public class RerouteCandidateRouteQueryService implements GetRerouteCandidateRou
     private final JourneyLegRepository legRepository;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
     private final RerouteCandidateReader candidateReader;
+    private final RerouteBoardPushAnswerService pushAnswerService;
     private final BusRideLocator rideLocator;
     private final JourneyRerouteProperties properties;
     private final Clock clock;
@@ -72,6 +73,10 @@ public class RerouteCandidateRouteQueryService implements GetRerouteCandidateRou
         }
         if (!(candidate.apply() instanceof RerouteCandidateApply.RemainingPathApply remaining)) {
             throw new BusinessException(JourneyErrorCode.REROUTE_CANDIDATE_NOT_FOUND);
+        }
+        if (proposal.isBoard()) {
+            // 보드 후보를 열어 봤다 — 직전 push 에 답한 것이다(무시로 세지 않는다).
+            pushAnswerService.answered(journeyId);
         }
         return new RerouteCandidateRoute(proposalId, candidateId,
                 ride(journey, remaining, candidate.display(), now), remaining.path());
