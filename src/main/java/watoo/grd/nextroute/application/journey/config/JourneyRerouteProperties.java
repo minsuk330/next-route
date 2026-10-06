@@ -69,6 +69,8 @@ public class JourneyRerouteProperties {
 
     private final Alert alert = new Alert();
 
+    private final Board board = new Board();
+
     /**
      * "서버가 먼저 알릴지"의 운영값(journey-reroute-nextstop PR-3).
      *
@@ -76,6 +78,42 @@ public class JourneyRerouteProperties {
      * 생겼고(pull), 여기를 켜면 서버가 위험을 감지해 스스로 만들어 알린다(push 한 줄 신호).
      * <b>바꾸는 것은 여전히 사용자만 한다</b> — 자동 적용은 없다.
      */
+    /**
+     * 주기 갱신 보드(#264, reroute-periodic-board).
+     *
+     * <p><b>기존 키와 값을 나누어 둔다.</b> {@code remaining-path.minimum-eta-gain-seconds}·
+     * {@code next-stop.lead-time-sec} 는 사건 기반 경로(요청·알림·목록 거름)가 함께 쓴다. 보드 값으로
+     * 바꾸면 플래그가 꺼져 있어도 기존 동작이 바뀐다.
+     */
+    @Getter
+    @Setter
+    public static class Board {
+
+        /** 기본 꺼짐. 꺼져 있으면 기존 동작이 그대로여야 한다(모든 PR 의 회귀 조건). */
+        private boolean enabled = false;
+
+        /** 이 시간보다 가까운 하차 자리는 말풍선에서 내린다. 기점 여는 기준과 같은 값이다. */
+        private int leadTimeSec = 60;
+
+        /** 체인 전부 실시간 근거일 때의 표시 문턱. */
+        private int realtimeThresholdSec = 120;
+
+        /** ML 추정이 하나라도 섞였을 때(또는 근거를 모를 때)의 표시 문턱. */
+        private int mixedThresholdSec = 180;
+
+        /** 원래보다 늘어난 대기 1회마다 문턱에 더하는 값. */
+        private int perExtraWaitSec = 60;
+
+        /** 같은 자리의 다른 경로가 이만큼 빨라야 교체한다. */
+        private int replaceMarginSec = 60;
+
+        /** 숨긴 말풍선을 다시 띄우려면 문턱보다 이만큼 더 나아야 한다. */
+        private int reshowMarginSec = 30;
+
+        /** 보드 유효시간 = 마지막 갱신 + 이 값. 워커가 멈추면 낡은 보드가 저절로 사라진다. */
+        private Duration ttl = Duration.ofMinutes(3);
+    }
+
     @Getter
     @Setter
     public static class Alert {

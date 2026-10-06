@@ -7,11 +7,13 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import watoo.grd.nextroute.application.journey.dto.RerouteBoardSlot;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateEnvelope;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateSummary;
+import watoo.grd.nextroute.application.journey.dto.RerouteOriginKind;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind;
@@ -246,6 +248,66 @@ class RerouteCandidateContractTest {
                     objectMapper.readValue(json, RerouteCandidateEnvelope.class);
 
             assertThat(restored.isCurrentVersion()).isFalse();
+        }
+    }
+
+    // ── 보드(v2) 와 v1 의 공존 ─────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("봉투 v1·v2 공존(#264)")
+    class BoardEnvelope {
+
+        @Test
+        @DisplayName("v1 은 slots 칸 없이 예전 모양 그대로 저장된다 — 플래그 off 에서 행 모양이 바뀌지 않는다")
+        void v1ShapeIsUnchanged() throws Exception {
+            String json = objectMapper.writeValueAsString(RerouteCandidateEnvelope.of(List.of(
+                    new RerouteCandidate("c1", RerouteProposalKind.REMAINING_PATH,
+                            new RerouteCandidateApply.RemainingPathApply(1, samplePath()),
+                            sampleDisplay()))));
+
+            assertThat(json).contains("\"version\":1").contains("\"candidates\":[")
+                    .doesNotContain("slots");
+        }
+
+        @Test
+        @DisplayName("v1 행은 계속 읽힌다 — 보드 판이 생겨도 기존 경로가 만든 행이 '없음'이 되지 않는다")
+        void v1RemainsReadable() throws Exception {
+            RerouteCandidateEnvelope restored = objectMapper.readValue(
+                    objectMapper.writeValueAsString(RerouteCandidateEnvelope.of(List.of(
+                            new RerouteCandidate("c1", RerouteProposalKind.REMAINING_PATH,
+                                    new RerouteCandidateApply.RemainingPathApply(1, samplePath()),
+                                    sampleDisplay())))),
+                    RerouteCandidateEnvelope.class);
+
+            assertThat(restored.isReadable()).isTrue();
+            assertThat(restored.isBoard()).isFalse();
+            assertThat(restored.visibleCandidates()).extracting(RerouteCandidate::candidateId)
+                    .containsExactly("c1");
+        }
+
+        @Test
+        @DisplayName("v2 는 왕복을 견디고, 보이는 자리의 후보만 고를 수 있다")
+        void v2ExposesOnlyVisibleSlots() throws Exception {
+            RerouteCandidate shown = new RerouteCandidate("shown", RerouteProposalKind.REMAINING_PATH,
+                    new RerouteCandidateApply.RemainingPathApply(1, samplePath()), sampleDisplay());
+            RerouteCandidateEnvelope board = RerouteCandidateEnvelope.ofBoard(List.of(
+                    new RerouteBoardSlot(RerouteBoardSlot.stopKey("SEOUL", "ST-B"),
+                            RerouteOriginKind.RIDE_INTERIOR, RerouteBoardSlot.State.VISIBLE, shown,
+                            "fp", 300, Instant.parse("2026-10-07T09:00:00Z"), null,
+                            Instant.parse("2026-10-07T09:00:00Z"), Instant.parse("2026-10-07T09:10:00Z")),
+                    new RerouteBoardSlot(RerouteBoardSlot.stopKey("SEOUL", "ST-C"),
+                            RerouteOriginKind.RIDE_INTERIOR, RerouteBoardSlot.State.HIDDEN, null,
+                            null, 90, null, Instant.parse("2026-10-07T09:00:00Z"),
+                            Instant.parse("2026-10-07T09:00:00Z"), Instant.parse("2026-10-07T09:12:00Z"))));
+
+            String json = objectMapper.writeValueAsString(board);
+            RerouteCandidateEnvelope restored = objectMapper.readValue(json, RerouteCandidateEnvelope.class);
+
+            assertThat(json).contains("\"version\":2").contains("\"slots\":[").doesNotContain("\"candidates\"");
+            assertThat(restored).isEqualTo(board);
+            assertThat(restored.isReadable()).isTrue();
+            assertThat(restored.visibleCandidates()).extracting(RerouteCandidate::candidateId)
+                    .containsExactly("shown");
         }
     }
 

@@ -31,7 +31,7 @@ public class RerouteCandidateReader {
     /**
      * 저장된 후보 중 사용자가 고른 것.
      *
-     * <p><b>모르는 봉투 판은 없는 것으로 취급한다.</b> 새 계약으로 옛 행을 읽으면 필드 뜻이 어긋난
+     * <p><b>모르는 봉투 판은 없는 것으로 취급한다.</b> 아는 판은 v1(사건 기반)과 v2(보드)다. 새 계약으로 옛 행을 읽으면 필드 뜻이 어긋난
      * 채 수락까지 흘러가고, 그 결과는 사용자가 고르지 않은 경로로 여정이 바뀌는 것이다.
      *
      * @throws BusinessException {@code REROUTE_CANDIDATE_NOT_FOUND}
@@ -46,10 +46,12 @@ public class RerouteCandidateReader {
                     proposal.getId(), e.getMessage());
             throw new BusinessException(JourneyErrorCode.REROUTE_CANDIDATE_NOT_FOUND);
         }
-        if (!envelope.isCurrentVersion()) {
+        if (!envelope.isReadable()) {
             throw new BusinessException(JourneyErrorCode.REROUTE_CANDIDATE_NOT_FOUND);
         }
-        return envelope.candidates().stream()
+        // 보드(v2)는 보이는 자리의 후보만 고를 수 있다. 숨긴 자리를 고르게 두면 사용자가 보지
+        // 못한 경로가 적용된다.
+        return envelope.visibleCandidates().stream()
                 .filter(candidate -> candidateId.equals(candidate.candidateId()))
                 .findFirst()
                 .orElseThrow(() ->

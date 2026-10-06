@@ -3176,3 +3176,34 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 대상 시험: `RegionalBusCatalogLoadServiceTest` 7/7, `RegionalBusRouteSourceAdapterTest` 9/9, `JdbcRegionalBusRouteStopStoreIT` 5/5(Testcontainers postgres:17, 실제 V56 실행), `TagoCityCodeLookupTest` 6/6, `BusArrivalQueryServiceTest` 17/17(신규 2), `OtpSeoulIdentityResolverTest` 19/19(신규 2), `JourneyNavigationGeometryServiceTest`·`LegacyRouteResponseMapperTest`·`RouteResponseMapperTest` 통과
 - 전체 `./gradlew build`: 2,305건 중 실패 11 — **전부 기존 무관**. 같은 4개 클래스(`JourneyEvalReadPathIT`·`JourneyEvaluationIT`·`JourneyTransferAssessmentIT`·`BusAlertWakeupBurstIT`)를 main(493af781)에서 같은 환경으로 돌려도 똑같이 11건 실패.
 - 실행 환경(함정): 스크래치 clone 에는 gitignore 대상 `env/*.env` 가 없어 컨텍스트 IT 가 DB 접속에서 전부 죽는다(259건). 공유 로컬 DB·Redis 를 건드리지 않으려고 일회용 컨테이너를 띄웠다 — postgis/postgis:17-3.5(55432) 에 로컬 개발 DB 의 `--schema-only` + `flyway_schema_history` 만 복원(빈 DB 에 V1 부터 재생 불가), redis:7(56379), 기본값 없는 env(`GONG_API`·`KAKAO_REST_API_KEY`·`SEOUL_*`)는 더미. `env/*.env` 를 통째로 source 하면 `fcm.env` 가 FCM 을 켜 `/secrets/...` 자격증명 부재로 부팅이 죽는다 — DB·Redis 변수만 넣을 것.
+## 재탐색 주기 보드 PR-1 — 보드 저장 모델 + 병합 규칙 (#264, branch feat/reroute-periodic-board, 2026-10-07)
+
+### 확정
+- 보드 = 개정본당 ACTIVE `reroute_proposal` 한 행을 제자리 갱신. 봉투 v2 `{version:2, slots}`, 사건 기반 경로는 v1 쓰기 그대로(`slots` 는 NON_NULL 로 빠져 v1 행 모양 불변)
+- 읽기는 판 분기: `isReadable()`(v1|v2) + `visibleCandidates()`(v1 전체 / v2 VISIBLE 슬롯). v2 를 "현재 판"으로 올리면 플래그 off 에서도 v1 행이 전부 "없음"이 된다(리뷰 B4)
+- 보드 저장 시 `base_command_version` 을 현재 값으로 다시 찍는다 — 안 하면 구간 전이 한 번 뒤 수락이 영구 409(리뷰 B2, IT 로 고정)
+- 저장 순서 세션 FOR UPDATE → 제안(수락과 같음). `stillCurrent` = ACTIVE·commandVersion·revision·currentLegIndex 일치
+- 병합 규칙: 문턱 120/180/+60·대기, 같은 지문=숫자 갱신+id 유지, 다른 지문=+60 이상만 교체(아니면 기존 그대로), 숨김 즉시, 재표시 +30, 60초 미만·passed 제거, 언급 없는 자리=유지
+- 근거(realtimeOnly) 집계는 PR-3. 그 전엔 부르는 쪽이 false → 180초(보수)
+- 보드 설정은 `journey.reroute.board.*` 전용 키. 기존 키 값 불변(리뷰 M12)
+
+### 함정
+- `@Sql` 로 마이그레이션을 직접 나열하는 IT 3개(`RerouteProposalStoreIT`·`RerouteProposalExpiryIT`·`JourneyRerouteProposalSchemaIT`)는 새 마이그레이션을 수동 추가해야 한다 ← 엔티티에 칼럼 매핑 추가 시 `column ... does not exist`
+- `WithdrawalDeletionBoundaryIT` 는 ddl-auto 스키마라 원시타입 칼럼이 default 없는 not null ← raw insert 에 `board_version` 손으로 채움(V53 관례). PR-2 에서 journey_session 칼럼을 엔티티에 매핑하면 같은 처리 필요
+- 로컬 DB 마이그레이션 순서: V57 이 #268 의 V56 보다 먼저 로컬에 적용되면 나중에 V56 이 out-of-order 로 막힌다 ← IT 실행 동안만 #268 의 V56 파일을 작업트리에 untracked 로 둠(커밋 제외). 로컬 DB 는 이제 V56(#268 내용)·V57 적용 상태
+- #268 의 provider 코드는 `GG`/`TAGO` (PLAN 의 GYEONGGI 아님) — PR-4 에서 맞출 것
+
+### 좌표
+- 병합: `RerouteBoardMerger.merge`
+- 저장: `RerouteBoardService.write` / `RerouteProposalRepository.insertBoard`(ON CONFLICT 부분 unique)·`updateBoard`(board_version CAS)·`findStatusById`
+- 판 분기: `RerouteCandidateEnvelope.visibleCandidates`, `RerouteCandidateReader.read`, `RerouteProposalTxService.toView`
+
+### 배포
+- **V57 VPS 배치 필요(jar 포함 확인). 순서 #268(V56) → 이 PR(V57).** #268 보다 먼저 머지·배포 금지
+- 플래그 `JOURNEY_REROUTE_BOARD_ENABLED` 기본 false. PR-1 은 호출부가 없어 동작 변화 없음
+
+### 검증
+- `./gradlew compileJava compileTestJava` 통과
+- `RerouteBoardMergerTest` 23/23, `RerouteCandidateContractTest` +3(v1 모양 불변·v1 읽힘·v2 VISIBLE 만)
+- `RerouteAcceptIT` 20/20(+6: 제자리 갱신·전이 후 수락 200·stale 버림·v1 대체·숨김 자리 선택 불가·수락 후 늦은 갱신 버림)
+- 전체 `./gradlew test`: 2306 중 실패 2 = `JourneyTransferAssessmentIT`·`BusAlertWakeupBurstIT` — **기존 무관**(clean main 493af781 클론에서 동일 실패 확인)

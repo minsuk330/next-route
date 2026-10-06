@@ -19,6 +19,10 @@ import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateRoute;
 import watoo.grd.nextroute.application.journey.port.in.AcceptRerouteProposalUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetRerouteCandidateRouteUseCase;
+import watoo.grd.nextroute.application.journey.dto.RerouteBoardSlot;
+import watoo.grd.nextroute.application.journey.dto.RerouteOriginKind;
+import watoo.grd.nextroute.application.journey.service.RerouteBoardMerger;
+import watoo.grd.nextroute.application.journey.service.RerouteBoardService;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
@@ -85,6 +89,7 @@ class RerouteAcceptIT {
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired AcceptRerouteProposalUseCase acceptUseCase;
     @Autowired GetRerouteCandidateRouteUseCase candidateRouteUseCase;
+    @Autowired RerouteBoardService boardService;
     @Autowired GetJourneyNavigationGeometryUseCase geometryUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired ObjectMapper objectMapper;
@@ -380,6 +385,119 @@ class RerouteAcceptIT {
                 .isInstanceOf(BusinessException.class)
                 .extracting(error -> ((BusinessException) error).getErrorCode())
                 .isEqualTo(JourneyErrorCode.REROUTE_PROPOSAL_STALE);
+    }
+
+    // ── 보드(#264, reroute-periodic-board PR-1) ─────────────────────────────
+
+    @Test
+    @DisplayName("보드는 한 행을 제자리에서 고친다 — 처음엔 심고, 다음 회차는 판을 올린다")
+    void boardIsUpdatedInPlace() {
+        RerouteBoardService.Written first = boardService.write(boardWrite(600), Instant.now());
+        Long boardId = proposalId();
+        RerouteBoardService.Written second = boardService.write(boardWrite(660), Instant.now());
+
+        assertThat(first.outcome()).isEqualTo(RerouteBoardService.Outcome.INSERTED);
+        assertThat(second.outcome()).isEqualTo(RerouteBoardService.Outcome.UPDATED);
+        assertThat(proposalId()).isEqualTo(boardId);
+        assertThat(jdbcTemplate.queryForObject(
+                "select board_version from reroute_proposal where id = ?", Long.class, boardId))
+                .isEqualTo(2L);
+        // 같은 경로라 후보 id 가 이어진다 — 사용자가 보던 것을 그대로 고를 수 있다.
+        assertThat(second.slots().get(0).candidate().candidateId())
+                .isEqualTo(first.slots().get(0).candidate().candidateId());
+    }
+
+    @Test
+    @DisplayName("구간 전이 뒤 갱신된 보드의 후보는 수락된다 — 명령 번호를 보드가 다시 찍는다")
+    void boardCandidateIsAcceptableAfterLegTransition() {
+        boardService.write(boardWrite(600), Instant.now());
+        // 사용자가 탑승·하차를 알렸다(명령 번호 +1). 보드는 그 뒤 다시 갱신된다.
+        jdbcTemplate.update("update journey_session set command_version = command_version + 1 where id = ?",
+                journey.journeyId());
+        RerouteBoardService.Written refreshed = boardService.write(
+                boardWrite(600, journey.commandVersion() + 1), Instant.now());
+
+        JourneySnapshot after = acceptUseCase.accept(userId, journey.journeyId(), proposalId(),
+                refreshed.slots().get(0).candidate().candidateId());
+
+        assertThat(after.routeRevision()).isEqualTo(journey.routeRevision() + 1);
+    }
+
+    @Test
+    @DisplayName("계산하는 사이 여정이 움직였으면 저장하지 않는다")
+    void staleContextIsDropped() {
+        jdbcTemplate.update("update journey_session set command_version = command_version + 1 where id = ?",
+                journey.journeyId());
+
+        RerouteBoardService.Written written = boardService.write(boardWrite(600), Instant.now());
+
+        assertThat(written.outcome()).isEqualTo(RerouteBoardService.Outcome.STALE_CONTEXT);
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from reroute_proposal where journey_id = ?", Integer.class,
+                journey.journeyId())).isZero();
+    }
+
+    @Test
+    @DisplayName("사건 기반 경로가 남긴 v1 제안은 보드로 대체된다")
+    void legacyProposalIsSupersededByBoard() {
+        givenProposal();
+        Long legacyId = proposalId();
+
+        RerouteBoardService.Written written = boardService.write(boardWrite(600), Instant.now());
+
+        assertThat(written.outcome()).isEqualTo(RerouteBoardService.Outcome.INSERTED);
+        assertThat(jdbcTemplate.queryForObject(
+                "select status from reroute_proposal where id = ?", String.class, legacyId))
+                .isEqualTo("SUPERSEDED");
+    }
+
+    @Test
+    @DisplayName("숨긴 자리의 후보는 고를 수 없다")
+    void hiddenSlotIsNotSelectable() {
+        String shownId = boardService.write(boardWrite(600), Instant.now())
+                .slots().get(0).candidate().candidateId();
+        // 이득이 문턱 아래로 떨어져 숨겨진다.
+        boardService.write(boardWrite(60), Instant.now());
+
+        assertThatThrownBy(() -> candidateRouteUseCase.get(userId, journey.journeyId(),
+                proposalId(), shownId))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode())
+                .isEqualTo(JourneyErrorCode.REROUTE_CANDIDATE_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("수락이 먼저 이기면 그 뒤 도착한 갱신은 저장되지 않는다 — 세션 잠금으로 줄을 선다")
+    void refreshAfterAcceptIsDropped() {
+        String candidateId = boardService.write(boardWrite(600), Instant.now())
+                .slots().get(0).candidate().candidateId();
+        // 수락 전에 계산을 시작한 회차 — 그 시점의 여정 사진으로 만들어진다.
+        RerouteBoardService.BoardWrite inFlight = boardWrite(700);
+        acceptUseCase.accept(userId, journey.journeyId(), proposalId(), candidateId);
+
+        RerouteBoardService.Written late = boardService.write(inFlight, Instant.now());
+
+        assertThat(late.stored()).isFalse();
+        assertThat(proposalStatus()).isEqualTo("ACCEPTED");
+    }
+
+    private RerouteBoardService.BoardWrite boardWrite(int gainSec) {
+        return boardWrite(gainSec, journey.commandVersion());
+    }
+
+    /** 계획 하차점 자리 하나를 평가한 결과로 보드를 쓴다. 경로는 {@link #givenProposal} 과 같다. */
+    private RerouteBoardService.BoardWrite boardWrite(int gainSec, long commandVersion) {
+        String slot = RerouteBoardSlot.stopKey("SEOUL", "ST-F");
+        RerouteCandidate candidate = new RerouteCandidate(null,
+                watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind.REMAINING_PATH,
+                new RerouteCandidateApply.RemainingPathApply(firstWaitLegIndex(), candidatePath()),
+                new RerouteCandidateDisplay(Instant.now().plusSeconds(1800), 1800, gainSec, 1, 300,
+                        "REALTIME", "GOOD", Instant.now(), List.of("360 승차")));
+        return new RerouteBoardService.BoardWrite(journey.journeyId(), userId,
+                journey.routeRevision(), commandVersion, 0, Instant.now(),
+                new RerouteBoardMerger.Input(java.util.Map.of(slot, new RerouteBoardMerger.Evaluated(
+                        slot, RerouteOriginKind.TRANSFER_WAIT, candidate, gainSec, true, 0,
+                        "fp-360", Instant.now().plusSeconds(900))), java.util.Set.of()));
     }
 
     /** 저장 행에 든 그 후보의 {@code apply.path}. */

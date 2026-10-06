@@ -33,6 +33,8 @@ public class JourneyRerouteMetrics {
     public static final String ORIGIN_WINDOW = "journey.reroute.origin.window";
     public static final String ALERT = "journey.reroute.alert";
     public static final String MID_RIDE_ACCEPT = "journey.reroute.accept.midride";
+    public static final String BOARD_WRITE = "journey.reroute.board.write";
+    public static final String BOARD_SLOT = "journey.reroute.board.slot";
 
     /** 판정이 내려 준 사유를 그대로 태그에 쓰지 않기 위한 접기 값. */
     static final String UNKNOWN_REASON = "unknown";
@@ -254,6 +256,20 @@ public class JourneyRerouteMetrics {
         }
         if (evaluated > 0) {
             registry.counter(REMAINING_PATHS, "stage", "evaluated").increment(evaluated);
+        }
+    }
+
+    /**
+     * 보드 저장이 어떻게 끝났는지(#264). 결과는 {@code RerouteBoardService.Outcome} 의 고정 집합이다.
+     */
+    public void recordBoardWrite(String outcome) {
+        registry.counter(BOARD_WRITE, "outcome", outcome).increment();
+    }
+
+    /** 자리 전이(추가·갱신·교체·숨김·재표시·제거·유지). 태그는 고정 집합이다. */
+    public void recordBoardSlot(String transition, long count) {
+        if (count > 0) {
+            registry.counter(BOARD_SLOT, "transition", transition).increment(count);
         }
     }
 }

@@ -128,6 +128,19 @@ public class RerouteProposal extends BaseEntity {
     @Column(name = "alerted", nullable = false)
     private boolean alerted;
 
+    /**
+     * 보드 갱신 순번(V57, #264). 사건 기반 제안 행에서는 0 그대로다.
+     *
+     * <p>보드는 제자리에서 고쳐 쓰므로 조건부 UPDATE 의 기준이 필요하다. 이 값은 네이티브 쿼리가
+     * 올린다 — 엔티티로 고치면 수락 트랜잭션의 상태 CAS 와 엇갈린 쓰기를 막을 수 없다.
+     */
+    @Column(name = "board_version", nullable = false, insertable = false, updatable = false)
+    private long boardVersion;
+
+    /** 보드를 마지막으로 찾아본 시각(V57). 사건 기반 제안 행은 null 이다. */
+    @Column(name = "refreshed_at", insertable = false, updatable = false)
+    private Instant refreshedAt;
+
     @Builder
     public RerouteProposal(Long journeyId, Long userId, int routeRevision,
                            JsonNode origin, RerouteProposalKind kind, long baseCommandVersion,

@@ -241,4 +241,72 @@ public interface RerouteProposalRepository extends JpaRepository<RerouteProposal
     @Modifying(clearAutomatically = true)
     @Query("update RerouteProposal p set p.deletedAt = :now where p.userId = :userId and p.deletedAt is null")
     int softDeleteByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
+
+    // ── 보드(#264, reroute-periodic-board) ────────────────────────────────────
+
+    /**
+     * 보드를 새로 심는다. <b>이미 ACTIVE 행이 있으면 아무것도 하지 않는다</b>(빈 결과).
+     *
+     * <p>부분 unique(V51)와 같은 조건의 {@code ON CONFLICT} 다. 스케줄러와 사용자 요청이 동시에
+     * "보드 없음"을 보고 둘 다 넣으려 들면, 예외 대신 늦은 쪽이 빈 결과를 받는다.
+     *
+     * <p>{@code @Modifying} 이 아니다({@code RETURNING}). 반드시 {@code @Transactional} 안에서 부른다.
+     */
+    @Query(value = """
+            INSERT INTO reroute_proposal
+                (created_at, updated_at, journey_id, user_id, route_revision, kind, status,
+                 base_command_version, candidates, snapshot_observed_at, expires_at, alerted,
+                 board_version, refreshed_at)
+            VALUES (:auditNow, :auditNow, :journeyId, :userId, :routeRevision, 'REMAINING_PATH',
+                    'ACTIVE', :commandVersion, CAST(:candidates AS jsonb), :observedAt, :expiresAt,
+                    false, 1, :now)
+            ON CONFLICT (journey_id) WHERE status = 'ACTIVE' AND deleted_at IS NULL DO NOTHING
+            RETURNING id
+            """, nativeQuery = true)
+    List<Long> insertBoard(@Param("journeyId") Long journeyId,
+                           @Param("userId") Long userId,
+                           @Param("routeRevision") int routeRevision,
+                           @Param("commandVersion") long commandVersion,
+                           @Param("candidates") String candidates,
+                           @Param("observedAt") Instant observedAt,
+                           @Param("expiresAt") Instant expiresAt,
+                           @Param("now") Instant now,
+                           @Param("auditNow") LocalDateTime auditNow);
+
+    /**
+     * 보드를 제자리에서 고친다. <b>읽은 판이 그대로일 때만</b> 쓴다(낙관 잠금).
+     *
+     * <p>{@code base_command_version} 을 지금 값으로 다시 찍는다. 보드는 개정본 동안 한 행이라,
+     * 처음 만든 시점의 명령 번호를 두면 탑승·하차 한 번 뒤로 수락이 영원히 "낡음"이 된다
+     * ({@code RerouteCandidateReader.isStale}).
+     *
+     * @return 1 이면 반영. 0 이면 그 사이 다른 갱신·수락·만료가 끼어든 것이다
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query(value = """
+            UPDATE reroute_proposal
+               SET candidates = CAST(:candidates AS jsonb),
+                   board_version = board_version + 1,
+                   refreshed_at = :now,
+                   expires_at = :expiresAt,
+                   base_command_version = :commandVersion,
+                   snapshot_observed_at = :observedAt,
+                   updated_at = :auditNow
+             WHERE id = :id
+               AND board_version = :expectedVersion
+               AND status = 'ACTIVE'
+               AND deleted_at IS NULL
+            """, nativeQuery = true)
+    int updateBoard(@Param("id") Long id,
+                    @Param("expectedVersion") long expectedVersion,
+                    @Param("commandVersion") long commandVersion,
+                    @Param("candidates") String candidates,
+                    @Param("observedAt") Instant observedAt,
+                    @Param("expiresAt") Instant expiresAt,
+                    @Param("now") Instant now,
+                    @Param("auditNow") LocalDateTime auditNow);
+
+    /** 상태만 DB 에서 다시 읽는다. 영속성 컨텍스트의 낡은 엔티티를 보지 않기 위해 쿼리로 묻는다. */
+    @Query("select p.status from RerouteProposal p where p.id = :id")
+    Optional<RerouteProposalStatus> findStatusById(@Param("id") Long id);
 }
