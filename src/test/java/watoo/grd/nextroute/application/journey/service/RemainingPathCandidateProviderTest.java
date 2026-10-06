@@ -94,6 +94,9 @@ class RemainingPathCandidateProviderTest {
     private final BoardingTimeEstimator busEstimator = mock(BoardingTimeEstimator.class);
     private final JourneyRerouteProperties properties = new JourneyRerouteProperties();
     private final JourneyRerouteMetrics metrics = new JourneyRerouteMetrics(new SimpleMeterRegistry());
+    private final watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase
+            geometryUseCase = mock(watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase.class);
+    private final CurrentPositionEstimator positionEstimator = mock(CurrentPositionEstimator.class);
 
     /** overlay 병렬 풀. 테스트에서는 부르는 스레드에서 그대로 돈다 — 순서·시각이 흔들리지 않는다. */
     private final ExecutorService overlayExecutor = new AbstractExecutorService() {
@@ -115,7 +118,8 @@ class RemainingPathCandidateProviderTest {
                 windowResolver, searchService, composer,
                 new BoardingChainEtaCalculator(List.of(busEstimator), Clock.fixed(NOW, ZoneOffset.UTC)),
                 new TransferPredictionInterpreter(new JourneyEvaluatorProperties()),
-                properties, metrics, Clock.fixed(NOW, ZoneOffset.UTC), overlayExecutor);
+                properties, metrics, Clock.fixed(NOW, ZoneOffset.UTC), overlayExecutor,
+                geometryUseCase, positionEstimator);
 
         waitLeg = leg(2, JourneyLegType.WAIT_BUS, "ST-C", null);
         given(transferRepository.findByJourneyIdAndRouteRevisionAndTransferIndexAndDeletedAtIsNull(
@@ -486,6 +490,118 @@ class RemainingPathCandidateProviderTest {
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────
+
+    // ── 보드 진입점(#264 PR-3) ──────────────────────────────────────────────
+
+    private static final Coord DESTINATION = new Coord(127.5, 37.5);
+
+    @Test
+    @DisplayName("보드: 기다리는 중이면 그 정류장에서 찾고, 이득·근거·늘어난 대기를 넘긴다")
+    void boardWaitingStopOrigin() {
+        givenSearch(path("A"));
+        givenPrepared(path("A"), prepared("BL-360", 0, 1));
+        givenBaseline(NOW.plusSeconds(600), true);
+        givenComposed(path("A"), realtimeAttempt(NOW.plusSeconds(2400)));
+
+        RemainingPathCandidateProvider.BoardResult result = provider.evaluateBoard(boardRequest(2));
+
+        String slot = watoo.grd.nextroute.application.journey.dto.RerouteBoardSlot.stopKey(null, "ST-C");
+        assertThat(result.offered()).containsExactly(slot);
+        RemainingPathCandidateProvider.BoardEvaluation evaluation = result.evaluations().get(0);
+        assertThat(evaluation.slotKey()).isEqualTo(slot);
+        assertThat(evaluation.originKind()).isEqualTo(
+                watoo.grd.nextroute.application.journey.dto.RerouteOriginKind.WAITING_STOP);
+        // 기준선 = 지금(대기) 승차 NOW+600 + 주행 2400.
+        assertThat(evaluation.gainSec()).isEqualTo(600);
+        assertThat(evaluation.realtimeOnly()).isTrue();
+        assertThat(evaluation.extraWaits()).isZero();
+        assertThat(evaluation.candidate().display().alight().planned()).isFalse();
+    }
+
+    @Test
+    @DisplayName("보드: 걷는 중이면 진행률로 보간한 현재 위치에서 찾는다 — 교체는 이 도보 단계부터")
+    void boardCurrentPositionOrigin() {
+        given(waypointResolver.resolve(JOURNEY_ID, 1, 0)).willReturn(Optional.of(
+                new Waypoints(new Coord(127.0, 37.0), DESTINATION)));
+        given(geometryUseCase.get(any(), any(), any())).willReturn(
+                new watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry(
+                        JOURNEY_ID, 1, List.of(), null));
+        given(positionEstimator.estimate(any(), any(), any(), any())).willReturn(Optional.of(
+                new watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeoPoint(127.2, 37.2)));
+        Waypoints here = new Waypoints(new Coord(127.2, 37.2), DESTINATION);
+        given(searchService.search(eq("HERE"), eq(here), anyLong(), any())).willReturn(List.of(path("W")));
+        givenPrepared(path("W"), prepared("BL-360", 0, 1));
+        givenBaseline(NOW.plusSeconds(900), true);
+        givenComposed(path("W"), realtimeAttempt(NOW.plusSeconds(2000)));
+
+        RemainingPathCandidateProvider.BoardResult result = provider.evaluateBoard(boardRequest(0));
+
+        RemainingPathCandidateProvider.BoardEvaluation evaluation = result.evaluations().get(0);
+        assertThat(evaluation.slotKey()).isEqualTo("HERE");
+        RerouteCandidateApply.RemainingPathApply apply =
+                (RerouteCandidateApply.RemainingPathApply) evaluation.candidate().apply();
+        assertThat(apply.fromLegIndex()).isZero();
+        assertThat(apply.origin().kind()).isEqualTo(
+                watoo.grd.nextroute.application.journey.dto.RerouteOriginKind.CURRENT_POSITION);
+        assertThat(apply.origin().x()).isEqualTo(127.2);
+        assertThat(evaluation.candidate().display().alight().x()).isEqualTo(127.2);
+        assertThat(evaluation.candidate().display().alight().stopId()).isNull();
+    }
+
+    @Test
+    @DisplayName("보드: 환승 없이 타고 가는 중이면 중간 정류장만 연다 — 계획 하차점은 걷기뿐이라 열지 않는다")
+    void boardRideWithoutTransferOpensOnlyInteriorStops() {
+        JourneyLeg ride = leg(1, JourneyLegType.RIDE_BUS, null, 600);
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY_ID, 1))
+                .willReturn(List.of(leg(0, JourneyLegType.WALK, null, 180), ride,
+                        leg(2, JourneyLegType.WALK, null, 180)));
+        given(waypointResolver.resolve(JOURNEY_ID, 1, 1)).willReturn(Optional.of(
+                new Waypoints(new Coord(127.0, 37.0), DESTINATION)));
+        given(windowResolver.resolveRideInterior(any(), eq(2), eq(NOW), eq(60))).willReturn(List.of(INTERIOR));
+
+        RemainingPathCandidateProvider.BoardResult result = provider.evaluateBoard(boardRequest(1));
+
+        assertThat(result.offered()).containsExactly(
+                watoo.grd.nextroute.application.journey.dto.RerouteBoardSlot.stopKey(null, "ST-B"));
+        // 검색 빈손 = 평가 못 함 → 넘기는 평가가 없다(말풍선 유지).
+        assertThat(result.evaluations()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("보드: 경로는 왔지만 지금과 같은 것뿐이면 '평가함, 대안 없음'으로 넘긴다(숨김 대상)")
+    void boardSameAsCurrentIsEvaluatedEmpty() {
+        givenSearch(path("A"));
+        givenPrepared(path("A"), prepared("BL-999", 0, 1));
+
+        RemainingPathCandidateProvider.BoardResult result = provider.evaluateBoard(boardRequest(2));
+
+        assertThat(result.evaluations()).singleElement()
+                .satisfies(evaluation -> assertThat(evaluation.candidate()).isNull());
+    }
+
+    @Test
+    @DisplayName("보드: 후보 체인에 ML 추정이 섞이면 실시간 근거가 아니다(문턱 180초 대상)")
+    void boardModelBasedCandidateIsNotRealtimeOnly() {
+        givenSearch(path("A"));
+        givenPrepared(path("A"), prepared("BL-360", 0, 1));
+        givenBaseline(NOW.plusSeconds(600), true);
+        givenComposed(path("A"), attempt(NOW.plusSeconds(2400)));
+
+        assertThat(provider.evaluateBoard(boardRequest(2)).evaluations().get(0).realtimeOnly()).isFalse();
+    }
+
+    private RemainingPathCandidateProvider.BoardRequest boardRequest(int currentLegIndex) {
+        return new RemainingPathCandidateProvider.BoardRequest(JOURNEY_ID, 3L, 1, 5L, currentLegIndex, NOW);
+    }
+
+    private Attempt realtimeAttempt(Instant destinationEtaAt) {
+        BoardingEstimate estimate = new BoardingEstimate(NOW.plusSeconds(900), true,
+                CurrentLegArrival.Source.REALTIME_ARRIVAL, CurrentLegArrival.Quality.GOOD, NOW, null);
+        return new Attempt(prepared("BL-360", 0, 1),
+                new BoardingChainEtaCalculator.Result(destinationEtaAt, 1200, 240, 300,
+                        estimate, CurrentLegArrival.Quality.GOOD, 1, null, false),
+                estimate, NOW, null);
+    }
 
     private RerouteContext context() {
         return new RerouteContext(JOURNEY_ID, 3L, 1, 5L, 0, NOW);

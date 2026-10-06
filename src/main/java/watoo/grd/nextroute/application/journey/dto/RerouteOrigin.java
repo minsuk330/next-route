@@ -40,17 +40,30 @@ import java.util.Objects;
  * @param seq      그 노선 안에서의 정류장 순번. 같은 정류장 재방문(순환노선)을 가르는 값이기도
  *                 하다 — 실시간 캐시 키가 stopId 와 seq 를 함께 받는 이유가 그것이다. 못 풀면 null
  * @param kind     {@link RerouteOriginKind}
+ * @param x        경도. 현재 위치 기점(#264)에만 채운다. 옛 행은 null
+ * @param y        위도. {@code x} 와 같다
  */
 public record RerouteOrigin(
         int legIndex,
         String stopId,
         String routeId,
         Integer seq,
-        RerouteOriginKind kind
+        RerouteOriginKind kind,
+        Double x,
+        Double y
 ) {
     public RerouteOrigin {
-        Objects.requireNonNull(stopId, "stopId");
         Objects.requireNonNull(kind, "kind");
+        // 현재 위치 기점(#264)만 정류장이 없다. 그 밖의 자리는 정류장이 곧 주소다.
+        if (kind != RerouteOriginKind.CURRENT_POSITION) {
+            Objects.requireNonNull(stopId, "stopId");
+        }
+    }
+
+    /** 정류장 기점(좌표 없음). 이미 저장된 행·옛 호출부의 모양이다 — 새 칸은 null 로 읽힌다. */
+    public RerouteOrigin(int legIndex, String stopId, String routeId, Integer seq,
+                         RerouteOriginKind kind) {
+        this(legIndex, stopId, routeId, seq, kind, null, null);
     }
 
     /**

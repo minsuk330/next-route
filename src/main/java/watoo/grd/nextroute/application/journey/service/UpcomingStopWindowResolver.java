@@ -65,6 +65,17 @@ public class UpcomingStopWindowResolver {
      */
     public List<RerouteOriginStop> resolveRideInterior(List<JourneyLeg> legs, int waitLegIndex,
                                                        Instant now) {
+        return resolveRideInterior(legs, waitLegIndex, now,
+                properties.getNextStop().getLeadTimeSec());
+    }
+
+    /**
+     * 여유 시간을 지정하는 판(#264 보드). 보드는 말풍선 기준과 같은 60초를 쓰고, 사건 기반 경로는
+     * 기존 {@code next-stop.lead-time-sec}(90초)를 그대로 쓴다 — 같은 키를 바꾸면 플래그가 꺼져 있어도
+     * 기존 동작이 바뀐다.
+     */
+    public List<RerouteOriginStop> resolveRideInterior(List<JourneyLeg> legs, int waitLegIndex,
+                                                       Instant now, int leadTimeSec) {
         JourneyRerouteProperties.NextStop config = properties.getNextStop();
         if (!config.isEnabled()) {
             return List.of();
@@ -88,7 +99,7 @@ public class UpcomingStopWindowResolver {
             metrics.recordOriginWindow(located.failureReason());
             return List.of();
         }
-        return scan(ride, located.position(), now, config);
+        return scan(ride, located.position(), now, config, leadTimeSec);
     }
 
     /**
@@ -100,10 +111,11 @@ public class UpcomingStopWindowResolver {
      */
     private List<RerouteOriginStop> scan(JourneyLeg ride, BusRideLocator.Position position,
                                          Instant now,
-                                         JourneyRerouteProperties.NextStop config) {
+                                         JourneyRerouteProperties.NextStop config,
+                                         int leadTimeSec) {
         int currentSeq = position.currentSeq();
         int alightSeq = position.alightSeq();
-        Instant earliest = now.plusSeconds(config.getLeadTimeSec());
+        Instant earliest = now.plusSeconds(leadTimeSec);
 
         List<RerouteOriginStop> window = new ArrayList<>();
         String vehicleId = null;

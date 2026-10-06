@@ -192,6 +192,26 @@ class BoardingChainEtaCalculatorTest {
                 Step.of(5, JourneyLegType.RIDE_BUS, 300));
     }
 
+    @Test
+    @DisplayName("근거 집계: 전부 실시간이면 modelBased=false, 하나라도 모델이면 true(#264 보드 문턱)")
+    void modelBasedIsAggregatedOverTheChain() {
+        supports();
+        given(busEstimator.estimate(any(), any(), any(), anyLong()))
+                .willAnswer(call -> boarding(call.getArgument(1, Instant.class)));
+        assertThat(calculator.compute(chainOfTwoTransfers(), -1, ANCHOR, NOW, Budget.of(1000))
+                .modelBased()).isFalse();
+
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        given(busEstimator.estimate(any(), any(), any(), anyLong()))
+                .willAnswer(call -> BoardingOutcome.of(new BoardingEstimate(
+                        call.getArgument(1, Instant.class), true,
+                        calls.incrementAndGet() == 1 ? CurrentLegArrival.Source.REALTIME_ARRIVAL
+                                : CurrentLegArrival.Source.MODEL_ARRIVAL,
+                        CurrentLegArrival.Quality.GOOD, NOW, null)));
+        assertThat(calculator.compute(chainOfTwoTransfers(), -1, ANCHOR, NOW, Budget.of(1000))
+                .modelBased()).as("두 번째 차가 모델이면 목적지 시각도 모델 오차를 탄다").isTrue();
+    }
+
     private void supports() {
         given(busEstimator.supports(JourneyLegType.WAIT_BUS)).willReturn(true);
     }

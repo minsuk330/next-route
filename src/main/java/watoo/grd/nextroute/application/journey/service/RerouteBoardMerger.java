@@ -63,7 +63,8 @@ public class RerouteBoardMerger {
         for (RerouteBoardSlot slot : byKey.values()) {
             Evaluated fresh = input.evaluated().get(slot.slotKey());
             Instant alightAt = fresh != null && fresh.alightAt() != null ? fresh.alightAt() : slot.alightAt();
-            if (input.passed().contains(slot.slotKey()) || tooClose(alightAt, now)) {
+            if (input.passed().contains(slot.slotKey()) || tooClose(alightAt, now)
+                    || noLongerOffered(slot, input)) {
                 count(transitions, Transition.REMOVED);
                 continue;
             }
@@ -145,6 +146,17 @@ public class RerouteBoardMerger {
         return base + thresholds.perExtraWaitSec() * Math.max(0, fresh.extraWaits());
     }
 
+    /**
+     * 단계형 자리(현재 위치·대기 정류장·계획 하차점)가 이번 회차 기점에 없으면 그 단계는 끝났다. 버스 중간
+     * 정류장은 기점 상한·실시간 장애로 잠깐 빠질 수 있으니 시간(여유)으로만 지운다.
+     */
+    private static boolean noLongerOffered(RerouteBoardSlot slot, Input input) {
+        return input.offered() != null
+                && !input.offered().contains(slot.slotKey())
+                && !input.evaluated().containsKey(slot.slotKey())
+                && slot.originKind() != RerouteOriginKind.RIDE_INTERIOR;
+    }
+
     private boolean tooClose(Instant alightAt, Instant now) {
         return alightAt != null
                 && Duration.between(now, alightAt).compareTo(thresholds.leadTime()) < 0;
@@ -186,11 +198,17 @@ public class RerouteBoardMerger {
      *
      * @param evaluated 자리 키 → 평가 결과
      * @param passed    지났거나 더는 기점이 아닌 자리(구간 전이로 끝난 현재 위치 자리 포함)
+     * @param offered   이번 회차에 연 기점. null 이면 모른다(단계형 자리도 지우지 않는다)
      */
-    public record Input(Map<String, Evaluated> evaluated, Set<String> passed) {
+    public record Input(Map<String, Evaluated> evaluated, Set<String> passed, Set<String> offered) {
         public Input {
             evaluated = Map.copyOf(evaluated);
             passed = Set.copyOf(passed);
+            offered = offered == null ? null : Set.copyOf(offered);
+        }
+
+        public Input(Map<String, Evaluated> evaluated, Set<String> passed) {
+            this(evaluated, passed, null);
         }
     }
 

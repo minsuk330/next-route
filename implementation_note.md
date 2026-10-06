@@ -3260,3 +3260,31 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `JourneyRerouteProposalControllerTest` 16/16(+3: 보드 칸·ETag, 304, v1 모양 불변)
 - `RerouteAcceptIT` 28/28(+1: 보드 모드 조회가 보이는 후보·originKind 를 주고 행을 바꾸지 않음)
 - 전체 2358 중 실패 2 = 기존 무관 2건(동일)
+
+## 재탐색 주기 보드 PR-3 — 기점 확장 + 근거 집계 (#264, branch feat/reroute-board-origins, 2026-10-07)
+
+### 확정
+- 보드 진입점 `RemainingPathCandidateProvider.evaluateBoard` — 기점을 **지금 단계**에서 연다: 걷기=보간 현재 위치(`HERE`, `CURRENT_POSITION`), 대기=그 정류장(`WAITING_STOP`), 버스 탑승=중간 정류장(보드 여유 60초 오버로드) + 다음 환승 있으면 계획 하차점, 지하철 탑승=계획 하차점만. 환승 없으면 계획 하차점 없음. 기존 `findCandidates`(사건 기반)는 그대로
+- 자리 3분류: 평가함(후보|대안없음) / 평가 못 함(검색 빈손·예측 실패·예산·기준선 실패 → 넘기지 않음 = 말풍선 유지) / 제공함(`offered`). 병합기는 `offered` 에 없는 단계형 자리(RIDE_INTERIOR 제외)를 지운다
+- 검색 빈손은 "평가 못 함"(OTP 장애가 말풍선을 지우지 않게), 경로는 왔는데 전부 지금과 같은 노선이면 "평가함·대안 없음"(숨김)
+- 기준선 일반화: 대기 중이면 그 대기부터 now, 그 밖은 현재 단계 끝(예측→앱 보고→계획) 다음부터. 대기 수는 "현재 단계 이후 전체 대기 수" vs 후보(걷기만=0, 그 외 waitsAfterFirst+1) → extraWaits. 기존 more-transfers 거름은 사건 기반 경로에만 남음
+- 근거: `BoardingChainEtaCalculator.Result.modelBased`(체인 중 하나라도 REALTIME_ARRIVAL 아님). realtimeOnly = !기준선.modelBased && !후보.modelBased. 옛 8인자 생성자는 modelBased=true(보수)
+- 걷기 위치: `CurrentPositionEstimator` — geometry(`GetJourneyNavigationGeometryUseCase`) 의 (segmentIndex, progressFraction) 를 거리 기준 보간. progressLegFraction 미사용. 180초 낡음=모름, 보고 전·활성 180초 내=시작점
+- `RerouteOrigin` 에 x·y 추가(옛 5인자 생성자 유지), stopId 필수는 CURRENT_POSITION 만 면제. `RerouteOriginKind` += CURRENT_POSITION·WAITING_STOP(평행 enum 없음)
+- **PLAN 변경**: 도보 자르기 생략(단계 경계 교체로 충분, 걸은 진행 이력만 손실), `candidate-min-gain-seconds` 키 생략(병합기 문턱이 대신)
+
+### 함정
+- 롤백한 옛 jar 는 새 enum(CURRENT_POSITION·WAITING_STOP) 을 저장 행에서 만나면 그 후보/보드를 못 읽는다(Jackson enum 실패 → 후보 없음/404). 플래그 off 면 보드 행이 없어 무관
+
+### 좌표
+- `RemainingPathCandidateProvider.evaluateBoard / boardOrigins / plannedAlight / measureBoardBaseline / currentLegEnd`
+- `CurrentPositionEstimator`, `UpcomingStopWindowResolver.resolveRideInterior(…, leadTimeSec)`, `RerouteBoardMerger.noLongerOffered`, `RerouteBoardRefreshService`(evaluateBoard 사용)
+
+### 배포
+- 마이그레이션 없음. 플래그 off 면 동작 변화 없음(보드 진입점은 갱신기만 부름)
+
+### 검증
+- `RemainingPathCandidateProviderTest` 26/26(+5: 대기 기점·이득·근거, 걷기 기점 HERE·적용 원점, 환승 없는 탑승=중간 정류장만·검색 빈손 미평가, 같은 경로뿐=대안 없음, ML 섞임=realtimeOnly false)
+- `CurrentPositionEstimatorTest` 4/4, `BoardingChainEtaCalculatorTest` 10/10(+1 근거 집계), `RerouteBoardMergerTest`+`RerouteCandidateContractTest` 43(+6: offered 규칙 3, 원점 주소 3)
+- `RerouteAcceptIT` 29/29(+1: 걷기 현재 위치 후보가 도보 단계부터 교체 수락)
+- 전체 2375 중 실패 2 = 기존 무관 2건(동일)

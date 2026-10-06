@@ -268,6 +268,10 @@ BoardMergeResult merge(List<RerouteBoardSlot> current, MergeInput input, Instant
 
 ## PR-3 기점 확장 + 문턱 + 근거 집계 + 도보 자르기 (M5·M12·Q4·Q5·Q6)
 
+> **구현 반영(2026-10-07)** — 아래 두 항목은 구현하며 바꿨다(근거는 implementation_note PR-3).
+> - **도보 자르기(`WalkTruncationResolver`) 생략.** 걷기·기다리기 후보는 단계 경계 교체로 수락된다(`JourneyRevisionComposer` 는 원본 구간 경계만 요구하고, 걷기 단계는 자기 구간, 대기 단계는 대기+주행 구간의 앞이다). 새 경로가 현재 위치에서 시작하므로 결과가 같고, 이미 걸은 부분의 진행 이력만 사라진다.
+> - **`candidate-min-gain-seconds` 키 생략.** 보드 진입점은 문턱으로 거르지 않고 자리마다 이득을 넘기며, 표시 여부는 병합기 문턱(120/180/+60)이 정한다.
+
 ### 기점 주소
 
 - `RerouteOriginKind` 에 `CURRENT_POSITION`·`WAITING_STOP` 을 추가한다. 평행 enum 은 만들지 않는다.

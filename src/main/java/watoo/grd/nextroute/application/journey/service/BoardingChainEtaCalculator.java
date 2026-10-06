@@ -59,6 +59,7 @@ public class BoardingChainEtaCalculator {
         int boardings = 0;
         BoardingEstimate first = null;
         CurrentLegArrival.Quality worst = null;
+        boolean modelBased = false;
 
         for (Step step : steps) {
             if (step.legIndex() <= fromLegIndexExclusive) {
@@ -107,11 +108,15 @@ public class BoardingChainEtaCalculator {
                 first = estimate;
             }
             worst = worse(worst, estimate.quality());
+            if (estimate.source() != watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Source.REALTIME_ARRIVAL) {
+                modelBased = true;
+            }
             boardings++;
         }
 
         return new Result(cursor, riding, walking, waiting, first,
-                worst == null ? CurrentLegArrival.Quality.APPROXIMATE : worst, boardings, null);
+                worst == null ? CurrentLegArrival.Quality.APPROXIMATE : worst, boardings, null,
+                modelBased);
     }
 
     /**
@@ -171,13 +176,24 @@ public class BoardingChainEtaCalculator {
      *                         걷기만으로 닿는 경로면 null
      * @param quality          체인에서 가장 나쁜 고리의 신뢰도
      * @param boardings        예측한 승차 수
+     * @param modelBased       승차 예측 중 하나라도 실시간이 아니었는가(ML 등). 재탐색 보드의 표시 문턱이
+     *                         이 값으로 갈린다(#264) — 첫 고리의 출처만 보면 두 번째 차가 모델 추정이어도
+     *                         "실시간"으로 읽힌다
      */
     public record Result(Instant destinationEtaAt, int ridingSec, int walkingSec, int waitingSec,
                          BoardingEstimate firstEstimate, CurrentLegArrival.Quality quality,
-                         int boardings, String failureReason) {
+                         int boardings, String failureReason, boolean modelBased) {
+
+        /** 근거 집계 이전 모양. 모르는 근거는 보수적으로 "모델 섞임"으로 둔다. */
+        public Result(Instant destinationEtaAt, int ridingSec, int walkingSec, int waitingSec,
+                      BoardingEstimate firstEstimate, CurrentLegArrival.Quality quality,
+                      int boardings, String failureReason) {
+            this(destinationEtaAt, ridingSec, walkingSec, waitingSec, firstEstimate, quality,
+                    boardings, failureReason, true);
+        }
 
         static Result failed(String reason) {
-            return new Result(null, 0, 0, 0, null, CurrentLegArrival.Quality.UNKNOWN, 0, reason);
+            return new Result(null, 0, 0, 0, null, CurrentLegArrival.Quality.UNKNOWN, 0, reason, true);
         }
 
         public boolean failed() {
