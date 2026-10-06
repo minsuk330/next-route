@@ -329,7 +329,11 @@ public class RerouteAcceptTxService {
         journey.bumpCommandVersion();
         // 한 여정에 수락은 한 번이다(PR-3 알림 계약). 사용자가 고른 길로 막 바꿨는데 또 바꾸라고
         // 알리면, 남은 이득보다 피로가 크다 — 새 경로가 나중에 또 위험해져도 알리지 않는다.
-        journey.terminateReroute();
+        // 보드 모드(#264)에서는 영구 차단하지 않는다 — 수락 뒤 3분만 "새 기회" push 를 막는다
+        // (reroute_accepted_at, 신호가 기록). 새 경로도 더 나은 길이 생기면 알려야 한다.
+        if (!properties.getBoard().isEnabled()) {
+            journey.terminateReroute();
+        }
         // 경로가 통째로 바뀌었다. 다음 주기를 기다릴 이유가 없다.
         journey.scheduleEvaluationAt(now);
         sessionRepository.flush();

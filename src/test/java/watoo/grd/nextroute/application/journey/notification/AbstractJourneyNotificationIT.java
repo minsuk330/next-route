@@ -60,6 +60,8 @@ import java.util.Map;
         TransferTargetApproachNotifier.class, TransferTargetApproachPolicy.class,
         JourneyNotificationEnqueuer.class, JourneyEvaluationScheduleWriter.class,
         JourneyNotificationMetrics.class, JourneyRelayWaker.class, JourneyRelayWakeListener.class,
+        // 환승 위험 알림 지연(#264 보드 모드) 판단이 재탐색 설정을 본다. 기본값(보드 꺼짐)이라 동작은 같다.
+        watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties.class,
         AbstractJourneyNotificationIT.Config.class})
 @Sql(scripts = {
         // 컨테이너를 공유하므로 앞선 클래스가 만든 표를 먼저 지운다.

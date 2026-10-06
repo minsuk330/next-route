@@ -68,6 +68,7 @@ public class TransferRiskNotifier {
     private final JourneyNotificationRepository notificationRepository;
     private final JourneyNotificationEnqueuer enqueuer;
     private final JourneyNotificationProperties properties;
+    private final watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties rerouteProperties;
 
     /**
      * 나빠진 환승마다 알림을 쌓는다.
@@ -116,6 +117,11 @@ public class TransferRiskNotifier {
         return enqueuedAny;
     }
 
+    private boolean boardMode() {
+        return rerouteProperties.isEnabled() && rerouteProperties.getBoard().isEnabled()
+                && rerouteProperties.getAlert().isEnabled();
+    }
+
     /** @return 이 환승에서 알림을 쌓으려 시도했으면 true */
     private boolean handle(JourneyEvaluationOutcome outcome, NotificationContext context,
                            TransferRiskAssessment assessment, TransferConnection transfer) {
@@ -135,8 +141,14 @@ public class TransferRiskNotifier {
 
         List<String> enqueuedKeys = new ArrayList<>(context.channels().size());
         for (NotificationChannel channel : context.channels()) {
-            enqueuedKeys.add(enqueuer.enqueueTransferRisk(
-                    outcome.journeyId(), outcome.routeRevision(), assessment, channel));
+            enqueuedKeys.add(boardMode()
+                    // 보드 모드(#264 PR-5): 대안이 있으면 재탐색 push 하나로 합친다. 그 판단이 끝날
+                    // 시간을 벌려고 늦춰 넣고, 재탐색 push 가 나가면 이 행이 취소된다.
+                    ? enqueuer.enqueueTransferRisk(outcome.journeyId(), outcome.routeRevision(),
+                            assessment, channel, java.time.Duration.ofSeconds(
+                                    rerouteProperties.getBoard().getRiskMergeDelaySeconds()))
+                    : enqueuer.enqueueTransferRisk(
+                            outcome.journeyId(), outcome.routeRevision(), assessment, channel));
         }
         // 승격(AT_RISK→MISSED)으로 남은 옛 행을 밀어낸다. 두 상태는 별개 행이라 재시도로 순서가
         // 뒤집히면 사용자가 "놓쳤다" 다음에 "놓칠 것 같다"를 본다.

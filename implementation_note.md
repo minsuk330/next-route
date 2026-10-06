@@ -3288,3 +3288,34 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `CurrentPositionEstimatorTest` 4/4, `BoardingChainEtaCalculatorTest` 10/10(+1 근거 집계), `RerouteBoardMergerTest`+`RerouteCandidateContractTest` 43(+6: offered 규칙 3, 원점 주소 3)
 - `RerouteAcceptIT` 29/29(+1: 걷기 현재 위치 후보가 도보 단계부터 교체 수락)
 - 전체 2375 중 실패 2 = 기존 무관 2건(동일)
+
+## 재탐색 주기 보드 PR-5 — push 재정의 (#264, branch feat/reroute-board-push, 2026-10-07)
+
+### 확정
+- push 판단은 보드 갱신 직후 `RerouteBoardPushService.considerPush`. 정책 `RerouteBoardPushPolicy`(순수): 보이는 자리 중 이득 ≥300(alert.minimum-gain-seconds) & 하차형은 도착 ≥120초 → 최대 이득 1개. 다음 환승 AT_RISK·MISSED 면 "위험+대안"(시작·수락 3분 차단 무시), 아니면 3분 조용함 + 새로움(자리·지문 다르거나 이득 +120) 필요
+- 순서: 정책 → 직전 push 무응답이면 무시+1(answerPush CAS 로 한 번만) → 무시 상한 → cooldown ALERT 5분 → 채널 → [push_seq CAS + outbox(키 `…:REROUTE_SUGGESTED:p{seq}`) + 대기 중 TRANSFER_RISK CANCELED(`superseded-by-reroute`)] → relay 깨움
+- 환승 위험 알림 합치기(안 A): 보드+알림 켜짐이면 `TransferRiskNotifier` 가 scheduled_at = now+20s(`board.risk-merge-delay-seconds`)로 넣고 만료도 그 기준. 재탐색 push 가 나가면 취소. PROCESSING 은 못 거둠(둘 다 나감, 수용)
+- 수락: 보드 모드면 terminateReroute 안 함(accepted_at 은 PR-2 신호가 기록). 거절·무시: 보드 행(`board_version>0`)은 닫지 않고 answerPush + (거절=terminate|opt-in, 무시=ignored+1), 응답 closed=false. 사건 기반 행은 기존대로
+- 경로 조회는 push 응답(REQUIRES_NEW `RerouteBoardPushAnswerService`, 읽기 전용 트랜잭션 밖). `/active` 폴링은 응답 아님
+- 문구: `FcmMessageFactory` 가 payload(stopName·routeName·etaGainSec·originType)로 "X에서 내려 Y 타면 n분 빨라요" / "Y(으)로 가면 n분 빨라요". 재료 없으면 기존 확정 문구. 노선명은 legSummaries[0] "… 승차" 에서 추출(화면 값에 노선 칸 없음)
+- 보드 행은 alerted=false 로 두어 기존 만료 무응답 집계(countUnansweredDue)에 섞이지 않게 함
+
+### 함정
+- 같은 빈 안 `@Transactional` 메서드 호출은 프록시를 안 지나 트랜잭션이 없다 ← 쓰기를 `RerouteBoardPushTxService` 로 분리
+- `JourneySession` 에 reroute_accepted_at 을 매핑하면 마이그레이션을 손으로 나열하는 IT 9개(V53 에서 멈춤, reroute_proposal 없음)가 전부 깨진다 ← 엔티티 매핑 대신 네이티브 `findRerouteAcceptedAt`
+- 슬라이스 IT(`AbstractJourneyNotificationIT`)는 `TransferRiskNotifier` 를 @Import 하므로 새 의존성(JourneyRerouteProperties)도 @Import 필요
+- `RerouteProposal.pushSeq`(원시 int) 매핑 → ddl-auto IT(`WithdrawalDeletionBoundaryIT`) raw insert 에 push_seq 추가
+
+### 좌표
+- `RerouteBoardPushPolicy`, `RerouteBoardPushService`, `RerouteBoardPushTxService`, `RerouteBoardPushAnswerService`
+- `JourneyNotificationEnqueuer.enqueueBoardPush / enqueueTransferRisk(…, delay)`, `JourneyNotificationRepository.cancelPendingByCheckpoints`, `RerouteProposalRepository.recordPush / answerPush`
+- `RerouteProposalTxService.closeBoardPush`, `RerouteAcceptTxService`(board 모드 terminate 생략), `FcmMessageFactory.rerouteAction`
+
+### 배포
+- 마이그레이션 없음(V57 칼럼 사용). 플래그 off 면 동작 동일(위험 알림 지연·push 모두 보드+알림 켜짐 조건)
+- **운영 on 체크리스트(사용자 결정)**: V57·V58 배치 확인 → `UPDATE journey_session SET reroute_refresh_at = now() WHERE status='ACTIVE'` 백필 → `JOURNEY_REROUTE_BOARD_ENABLED=true`(api·worker) → 시뮬레이션 1건 board_version 증가·push 확인
+
+### 검증
+- `RerouteBoardPushPolicyTest` (경계값 300/120/3분/+120, 위험 우회, 최대 이득), `FcmMessageFactoryTest` +1(행동 문구 2종·폴백)
+- `RerouteAcceptIT` 34/34(+5: 같은 보드 push 2회=2행·push_seq 2, 위험 알림 취소, 무응답 1회만 집계, 보드 무시 시 ACTIVE 유지, 보드 모드 수락 비종료·accepted_at)
+- 전체 2391 중 실패 2 = 기존 무관 2건(동일)

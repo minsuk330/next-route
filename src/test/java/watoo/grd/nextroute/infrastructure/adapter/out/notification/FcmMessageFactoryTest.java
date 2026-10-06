@@ -207,6 +207,26 @@ class FcmMessageFactoryTest {
         assertThat(message.data().get("deepLink")).doesNotContain("42");
     }
 
+    @Test
+    @DisplayName("보드 push 는 행동 단위로 쓴다 — 하차형은 '정류장에서 내려 노선 타면 n분 빨라요'(#264)")
+    void boardPushBodyIsActionable() {
+        NotificationSendCommand base = withCheckpoint(command(NOW.plusSeconds(300)),
+                JourneyCheckpoint.REROUTE_SUGGESTED);
+
+        PushMessage alight = factory.from(withPayload(base, MAPPER.createObjectNode()
+                .put("etaGainSec", 360).put("originType", "RIDE_STOP")
+                .put("stopName", "성수역").put("routeName", "2412")), NOW);
+        PushMessage here = factory.from(withPayload(base, MAPPER.createObjectNode()
+                .put("etaGainSec", 420).put("originType", "CURRENT_POSITION")
+                .put("routeName", "360")), NOW);
+        PushMessage legacy = factory.from(withPayload(base, MAPPER.createObjectNode()
+                .put("proposalId", 1).put("etaGainSec", 420)), NOW);
+
+        assertThat(alight.body()).isEqualTo("성수역에서 내려 2412 타면 6분 빨라요");
+        assertThat(here.body()).isEqualTo("360(으)로 가면 7분 빨라요");
+        assertThat(legacy.body()).as("재료가 없으면 기존 확정 문구").isEqualTo("앱에서 새 경로를 확인하세요.");
+    }
+
     private NotificationSendCommand withCheckpoint(NotificationSendCommand base,
                                                    JourneyCheckpoint checkpoint) {
         return new NotificationSendCommand(base.notificationId(), base.userId(), base.journeyId(),
