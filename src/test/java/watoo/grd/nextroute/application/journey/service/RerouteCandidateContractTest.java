@@ -311,6 +311,44 @@ class RerouteCandidateContractTest {
         }
     }
 
+    @Nested
+    @DisplayName("기점 주소 확장(#264 PR-3)")
+    class OriginAddress {
+
+        @Test
+        @DisplayName("현재 위치 기점은 정류장 없이 좌표로 왕복한다")
+        void currentPositionRoundTrips() throws Exception {
+            watoo.grd.nextroute.application.journey.dto.RerouteOrigin here =
+                    new watoo.grd.nextroute.application.journey.dto.RerouteOrigin(0, null, null, null,
+                            RerouteOriginKind.CURRENT_POSITION, 127.2, 37.2);
+
+            assertThat(objectMapper.readValue(objectMapper.writeValueAsString(here),
+                    watoo.grd.nextroute.application.journey.dto.RerouteOrigin.class)).isEqualTo(here);
+        }
+
+        @Test
+        @DisplayName("좌표 칸이 없는 옛 저장 원점은 그대로 읽힌다")
+        void legacyOriginReads() throws Exception {
+            String legacy = """
+                    {"legIndex":1,"stopId":"ST-B","routeId":"BL-1","seq":4,"kind":"RIDE_INTERIOR"}
+                    """;
+
+            watoo.grd.nextroute.application.journey.dto.RerouteOrigin restored = objectMapper.readValue(
+                    legacy, watoo.grd.nextroute.application.journey.dto.RerouteOrigin.class);
+
+            assertThat(restored.stopId()).isEqualTo("ST-B");
+            assertThat(restored.x()).isNull();
+        }
+
+        @Test
+        @DisplayName("정류장 기점은 여전히 정류장이 있어야 한다")
+        void stopOriginStillRequiresStop() {
+            assertThatThrownBy(() -> new watoo.grd.nextroute.application.journey.dto.RerouteOrigin(
+                    1, null, null, null, RerouteOriginKind.WAITING_STOP))
+                    .isInstanceOf(NullPointerException.class);
+        }
+    }
+
     // ── 픽스처 ───────────────────────────────────────────────────────────────
 
     /** {@link JourneyCompilerTest} 와 같은 픽스처 도구를 쓴다. */

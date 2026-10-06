@@ -626,6 +626,29 @@ class RerouteAcceptIT {
                 .isEqualTo(before);
     }
 
+    @Test
+    @DisplayName("걷는 중 현재 위치에서 찾은 후보는 그 도보 단계부터 갈아끼워 수락된다(#264 PR-3)")
+    void currentPositionCandidateIsAcceptedFromWalkLeg() {
+        String slot = RerouteBoardSlot.HERE;
+        RerouteCandidate candidate = new RerouteCandidate(null,
+                watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind.REMAINING_PATH,
+                new RerouteCandidateApply.RemainingPathApply(0, candidatePath(),
+                        new watoo.grd.nextroute.application.journey.dto.RerouteOrigin(0, null, null, null,
+                                RerouteOriginKind.CURRENT_POSITION, 127.0, 37.5)),
+                new RerouteCandidateDisplay(Instant.now().plusSeconds(1800), 1800, 600, 1, 300,
+                        "REALTIME", "GOOD", Instant.now(), List.of("360 승차")));
+        String candidateId = boardService.write(new RerouteBoardService.BoardWrite(journey.journeyId(), userId,
+                journey.routeRevision(), journey.commandVersion(), 0, Instant.now(),
+                new RerouteBoardMerger.Input(java.util.Map.of(slot, new RerouteBoardMerger.Evaluated(slot,
+                        RerouteOriginKind.CURRENT_POSITION, candidate, 600, true, 0, "fp-here", null)),
+                        java.util.Set.of())), Instant.now()).slots().get(0).candidate().candidateId();
+
+        JourneySnapshot after = acceptUseCase.accept(userId, journey.journeyId(), proposalId(), candidateId);
+
+        assertThat(after.routeRevision()).isEqualTo(journey.routeRevision() + 1);
+        assertThat(routeIdsOf(after.routeRevision())).contains("BL-360");
+    }
+
     private RerouteBoardRefreshClaimService.Claim claimMine() {
         return refreshClaimService.claim().stream()
                 .filter(claim -> claim.journeyId().equals(journey.journeyId()))

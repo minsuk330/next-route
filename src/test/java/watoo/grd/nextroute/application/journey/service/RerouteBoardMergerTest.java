@@ -233,6 +233,46 @@ class RerouteBoardMergerTest {
         }
     }
 
+    @Nested
+    @DisplayName("이번 회차에 제공된 자리(#264 PR-3)")
+    class Offered {
+
+        @Test
+        @DisplayName("단계형 자리(현재 위치·대기·계획 하차)가 더 이상 제공되지 않으면 지운다 — 그 단계는 끝났다")
+        void stageSlotNotOfferedIsRemoved() {
+            RerouteBoardSlot here = new RerouteBoardSlot(RerouteBoardSlot.HERE,
+                    RerouteOriginKind.CURRENT_POSITION, RerouteBoardSlot.State.VISIBLE,
+                    candidate("kept", 300), "fp", 300, NOW.minusSeconds(60), null, NOW, null);
+
+            RerouteBoardMerger.Result result = merger.merge(List.of(here),
+                    new RerouteBoardMerger.Input(Map.of(), Set.of(), Set.of(SLOT)), NOW);
+
+            assertThat(result.slots()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("버스 중간 정류장 자리는 잠깐 빠져도 시간으로만 지운다")
+        void rideStopNotOfferedIsKept() {
+            RerouteBoardSlot shown = visible("kept", "fp-A", 300);
+
+            RerouteBoardMerger.Result result = merger.merge(List.of(shown),
+                    new RerouteBoardMerger.Input(Map.of(), Set.of(), Set.of()), NOW);
+
+            assertThat(result.slots()).containsExactly(shown);
+        }
+
+        @Test
+        @DisplayName("제공 목록을 모르면(null) 아무것도 지우지 않는다")
+        void unknownOfferedKeepsEverything() {
+            RerouteBoardSlot here = new RerouteBoardSlot(RerouteBoardSlot.HERE,
+                    RerouteOriginKind.CURRENT_POSITION, RerouteBoardSlot.State.VISIBLE,
+                    candidate("kept", 300), "fp", 300, NOW.minusSeconds(60), null, NOW, null);
+
+            assertThat(merger.merge(List.of(here), new RerouteBoardMerger.Input(Map.of(), Set.of(), null),
+                    NOW).slots()).containsExactly(here);
+        }
+    }
+
     // ── 준비 ────────────────────────────────────────────────────────────────
 
     private RerouteBoardMerger.Input input(RerouteBoardMerger.Evaluated... evaluated) {
