@@ -3170,3 +3170,9 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - GBIS 수집: 3,045노선 line 3,045 ok / stations 2,725 ok, 320 resultCode 4(정류장 없음 → 형상만 교체), error 0. 호출 약 5,050.
 - apply: 87,235 경기 trip → 정류장+형상 교체 84,091 / 형상만 3,077 / 무변경 67(투영 구간 0). 정류장 추가 1,008, 좌표 이동 1,093. 정류장-형상 잔차 p50 8.5 / p90 16.6 / p99 24.4 / max 139m. 형상만 교체 중 옛 정류장이 150m 넘게 떨어진 노선 44개(GBIS 정류장 목록 없음 — OTP 가 ShapeGeometryTooFar 로 직선 처리).
 - 경기 외: stop_times 1,302만 행·shapes 1,741만 행 해시 동일, routes/agency/calendar/transfers 바이트 동일. 시각 역행 0. validate_gtfs.py error_count 0.
+
+### 배포
+- 마이그레이션 없음, 앱 이미지 재빌드 없음(형상 설정은 compose env).
+- ✅ VPS `/srv/nextroute/otp/national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-g71dca926c27c/` 에 graph.obj(sha 4b55ecb1…, 912,570,783 B)·coverage-index.json(sha 638411c6…) 배치, 양쪽 sha 일치 확인(2026-10-07 05:36).
+- ⏳ compose 치환·재생성은 에이전트 권한(Production Deploy)에서 막혀 사용자 실행 대기. 치환 대상: `compose.yaml` 4곳 + `/root/apps/observability/otp/compose.otp-national.yaml` 1곳(옛 graphVersion `...-shaped-g035004114e7b`). OTP 는 두 파일로, api·worker 는 compose.yaml 만으로 재생성(.env 이미지 = 현재 실행 이미지 확인함).
+- 로컬 그래프 빌드가 머신 메모리 경합(다른 작업·시뮬레이터)으로 스왑 → 1h24m(평소 11분). 빌드 전 메모리 확인.
