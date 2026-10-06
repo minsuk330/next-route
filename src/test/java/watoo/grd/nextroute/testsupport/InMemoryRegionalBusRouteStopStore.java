@@ -66,4 +66,12 @@ public class InMemoryRegionalBusRouteStopStore implements RegionalBusRouteStopSt
     public synchronized boolean isEmpty() {
         return routes.isEmpty();
     }
+
+    @Override
+    public synchronized List<RegionalRouteStop> findRouteStops(RegionalBusProvider provider, String routeId) {
+        Row row = routes.get(new RouteKey(provider, routeId));
+        return row == null ? List.of() : row.stops().stream()
+                .sorted(java.util.Comparator.comparingInt(RegionalRouteStop::seq))
+                .toList();
+    }
 }

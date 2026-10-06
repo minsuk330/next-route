@@ -380,6 +380,11 @@ BoardMergeResult merge(List<RerouteBoardSlot> current, MergeInput input, Instant
 
 ## PR-4 경기·TAGO `RIDE_STOP` (#267 표 읽기) (B1·M11·M13)
 
+> **구현 반영(2026-10-07)**
+> - #268 의 provider 코드는 `GG`/`TAGO` 다(`RegionalBusProvider`). 원점 `provider` 칸도 그 이름을 쓴다.
+> - 할당량 분리는 **경기·TAGO 도착 조회에만** 적용했다(`reroute-gg-arrival`·`reroute-tago-arrival` 버킷). 서울 도착 조회는 사건 기반 경로 때부터 검색 할당량을 써 왔고, 어댑터 안의 차감 문맥을 바꾸는 일은 이번 범위 밖으로 둔다(미결).
+> - 경기·TAGO 도착 캐시는 워커 메모리(15초)다. 워커가 한 대라 충분하다.
+
 - **표·적재·포트는 만들지 않는다.** #267 의 `regional_bus_route_stop`(provider, route_id, city_code, stop_id, seq, turn, is_waypoint)을 읽기만 한다.
 
 ### 구간 id

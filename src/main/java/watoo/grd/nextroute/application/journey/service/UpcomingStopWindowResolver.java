@@ -50,6 +50,8 @@ import java.util.Optional;
 public class UpcomingStopWindowResolver {
 
     private final BusRideLocator locator;
+    private final RegionalRideLocator regionalLocator;
+    private final RegionalArrivalLookup regionalArrivals;
     private final SearchTimeBusQueryPort busQueryPort;
     private final JourneyRerouteProperties properties;
     private final JourneyRerouteMetrics metrics;
@@ -92,7 +94,11 @@ public class UpcomingStopWindowResolver {
             return List.of();
         }
         if (ride.getRouteId() == null || ride.getStartStopId() == null || ride.getEndStopId() == null) {
-            return List.of();
+            // 서울 노선이 아니다. 보드 모드면 경기·TAGO 노선 정류장 표(#267)로 연다(#264 PR-4). 사건 기반 경로는
+            // 지금처럼 열지 않는다 — 플래그가 꺼져 있으면 기존 동작이 그대로여야 한다.
+            return properties.getBoard().isEnabled()
+                    ? scanRegional(ride, config, now, leadTimeSec)
+                    : List.of();
         }
         BusRideLocator.Located located = locator.locate(ride, config.getProgressMaxAgeSec(), now);
         if (located.failed()) {
@@ -167,4 +173,52 @@ public class UpcomingStopWindowResolver {
         return List.copyOf(window);
     }
 
+
+    /**
+     * 경기·TAGO 버스의 중간 정류장들(#264 PR-4). 서울 {@link #scan} 과 같은 규칙이다 — 지금 위치 다음부터 계획 하차
+     * 직전까지, 승객이 내릴 수 있는 정류장(경유 가상점 제외)만, 내 차가 여유 시간 뒤에 닿는 곳만, 상한까지.
+     * 할당량이 다 떨어지면 그 회차는 멈춘다(다른 기점은 계속 돈다).
+     */
+    private List<RerouteOriginStop> scanRegional(JourneyLeg ride, JourneyRerouteProperties.NextStop config,
+                                                 Instant now, int leadTimeSec) {
+        RegionalRideLocator.Located located = regionalLocator.locate(ride, config.getProgressMaxAgeSec(), now);
+        if (located.failed()) {
+            metrics.recordOriginWindow(located.failureReason());
+            return List.of();
+        }
+        RegionalRideLocator.Position position = located.position();
+        Instant earliest = now.plusSeconds(leadTimeSec);
+        List<RerouteOriginStop> window = new ArrayList<>();
+        int lookups = 0;
+        for (int i = position.currentIndex() + 1; i < position.alightIndex(); i++) {
+            var stop = position.stops().get(i);
+            if (RegionalRideLocator.isWaypoint(stop) || stop.lat() == null || stop.lon() == null) {
+                continue;
+            }
+            if (window.size() >= config.getMaxOrigins() || lookups >= config.getMaxStopLookups()) {
+                break;
+            }
+            lookups++;
+            int expectedAway = stop.seq() - position.stops().get(position.currentIndex()).seq();
+            RegionalArrivalLookup.Lookup lookup = regionalArrivals.arrivalAt(position.provider(),
+                    position.routeId(), stop.stopId(), expectedAway);
+            if (lookup.failed()) {
+                metrics.recordOriginWindow(lookup.failureReason());
+                if (lookup.quotaExhausted() || "arrival-blocked".equals(lookup.failureReason())) {
+                    break;
+                }
+                continue;
+            }
+            if (lookup.at().isBefore(earliest)) {
+                metrics.recordOriginWindow("below-lead-time");
+                continue;
+            }
+            window.add(new RerouteOriginStop(
+                    new RerouteOrigin(ride.getLegIndex(), stop.stopId(), position.routeId(), stop.seq(),
+                            RerouteOriginKind.RIDE_INTERIOR, null, null, position.provider().name()),
+                    stop.stopName(), stop.lon(), stop.lat(), lookup.at(), false));
+            metrics.recordOriginWindow("admitted");
+        }
+        return List.copyOf(window);
+    }
 }

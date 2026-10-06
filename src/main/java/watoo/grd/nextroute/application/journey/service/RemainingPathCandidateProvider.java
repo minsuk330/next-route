@@ -345,11 +345,18 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
         return candidates;
     }
 
-    /** <b>둘 다 해석된 경우에만</b> 견준다. 양쪽이 null 이면 "같다"가 아니라 "모른다"이다. */
+    /**
+     * <b>둘 다 해석된 경우에만</b> 견준다. 양쪽이 null 이면 "같다"가 아니라 "모른다"이다.
+     *
+     * <p>원천 노선 id 도 본다(#264 PR-4). 경기·TAGO 노선은 서울 id 가 비어 있어, 원천 id 로만 "같은 버스"를 알아본다.
+     */
     private boolean isSameAsCurrent(Prepared prepared, List<String> currentRouteIds) {
         String firstRouteId = prepared.firstRouteId();
-        return firstRouteId != null && !firstRouteId.isBlank()
-                && currentRouteIds.contains(firstRouteId);
+        if (firstRouteId != null && !firstRouteId.isBlank() && currentRouteIds.contains(firstRouteId)) {
+            return true;
+        }
+        String firstSource = prepared.firstOption() == null ? null : prepared.firstOption().sourceRouteId();
+        return firstSource != null && !firstSource.isBlank() && currentRouteIds.contains(firstSource);
     }
 
     /**
@@ -899,10 +906,16 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
 
     /** "지금과 같은 경로" 거름에 쓸 노선 — 지금 타는(기다리는) 노선 + 다음에 탈 노선. */
     private List<String> boardCurrentRouteIds(List<JourneyLeg> legs, JourneyLeg current) {
-        List<String> routeIds = new ArrayList<>(2);
+        List<String> routeIds = new ArrayList<>(3);
         if (current.getRouteId() != null && !current.getRouteId().isBlank()) {
             routeIds.add(current.getRouteId());
         }
+        // 경기·TAGO 버스는 서울 id 가 없다. 고른 노선 후보의 원천 id 로 "같은 버스 다시 타기"를 거른다(#264 PR-4).
+        Optional.ofNullable(current.getSelectedRouteOptionId())
+                .flatMap(routeOptionRepository::findById)
+                .map(JourneyLegRouteOption::getSourceRouteId)
+                .filter(id -> !id.isBlank())
+                .ifPresent(routeIds::add);
         legs.stream()
                 .filter(leg -> leg.getLegIndex() > current.getLegIndex())
                 .filter(leg -> leg.getType().isWaiting())

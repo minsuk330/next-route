@@ -18,5 +18,13 @@ public interface BusApiQuotaPort {
      */
     boolean tryAcquireSearch(Endpoint endpoint);
 
+    /**
+     * 이름 붙은 일일 버킷에서 한 번을 가져간다(#264 PR-4 재탐색 전용 경기·TAGO 도착 조회). 사용자 화면용
+     * 검색 할당량과 섞지 않는다 — 재탐색이 다 써서 도착 정보 화면이 막히면 안 된다.
+     *
+     * @param dailyLimit 0 이하이면 항상 거절
+     */
+    boolean tryAcquire(String bucket, int dailyLimit);
+
     enum Endpoint { ARRIVAL, POSITION }
 }

@@ -55,8 +55,10 @@ class UpcomingStopWindowResolverTest {
 
     private final BusRideLocator locator = new BusRideLocator(busRouteStopRepository);
 
+    private final RegionalRideLocator regionalLocator = org.mockito.Mockito.mock(RegionalRideLocator.class);
+    private final RegionalArrivalLookup regionalArrivals = org.mockito.Mockito.mock(RegionalArrivalLookup.class);
     private final UpcomingStopWindowResolver resolver = new UpcomingStopWindowResolver(
-            locator, busQueryPort, properties, metrics);
+            locator, regionalLocator, regionalArrivals, busQueryPort, properties, metrics);
 
     @BeforeEach
     void setUp() {
@@ -180,6 +182,53 @@ class UpcomingStopWindowResolverTest {
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────
+
+    // ── 경기·TAGO(#264 PR-4) ───────────────────────────────────────────────
+
+    @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.DisplayName("서울 노선이 아닌 탑승은 보드가 꺼져 있으면 열지 않는다 — 사건 기반 경로는 그대로")
+    void regionalRideIsClosedWithoutBoard() {
+        JourneyLeg ride = rideLeg(3, 2, NOW);
+        ReflectionTestUtils.setField(ride, "routeId", null);
+
+        assertThat(resolver.resolveRideInterior(List.of(ride, waitLeg(4)), 4, NOW, 60)).isEmpty();
+        org.mockito.Mockito.verifyNoInteractions(regionalLocator);
+    }
+
+    @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.DisplayName("보드 모드에서는 경기·TAGO 정류장 표로 중간 정류장을 연다 — 가상점은 건너뛰고 원점에 지역을 싣는다")
+    void regionalRideOpensFromCatalog() {
+        properties.getBoard().setEnabled(true);
+        JourneyLeg ride = rideLeg(3, 2, NOW);
+        ReflectionTestUtils.setField(ride, "routeId", null);
+        List<watoo.grd.nextroute.application.regionalbus.dto.RegionalRouteStop> stops = List.of(
+                regional("A", 1, false), regional("WP", 2, true), regional("B", 3, false),
+                regional("C", 4, false), regional("D", 5, false));
+        org.mockito.BDDMockito.given(regionalLocator.locate(org.mockito.ArgumentMatchers.eq(ride),
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.eq(NOW)))
+                .willReturn(new RegionalRideLocator.Located(new RegionalRideLocator.Position(
+                        watoo.grd.nextroute.application.regionalbus.dto.RegionalBusProvider.GG, "R",
+                        stops, 0, 0, 4), null));
+        org.mockito.BDDMockito.given(regionalArrivals.arrivalAt(
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("R"),
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt()))
+                .willReturn(new RegionalArrivalLookup.Lookup(NOW.plusSeconds(300), null));
+
+        List<RerouteOriginStop> window = resolver.resolveRideInterior(List.of(ride, waitLeg(4)), 4, NOW, 60);
+
+        assertThat(window).extracting(stop -> stop.origin().stopId()).containsExactly("B", "C");
+        assertThat(window.get(0).origin().provider()).isEqualTo("GG");
+        assertThat(window.get(0).origin().seq()).isEqualTo(3);
+        // B 까지 남은 API 순번 = 3 - 1(지금 A) = 2.
+        org.mockito.Mockito.verify(regionalArrivals).arrivalAt(
+                watoo.grd.nextroute.application.regionalbus.dto.RegionalBusProvider.GG, "R", "B", 2);
+    }
+
+    private static watoo.grd.nextroute.application.regionalbus.dto.RegionalRouteStop regional(
+            String id, int seq, boolean waypoint) {
+        return new watoo.grd.nextroute.application.regionalbus.dto.RegionalRouteStop(id, id + "정류장", seq,
+                null, null, waypoint, 37.5, 127.0);
+    }
 
     /** 승차 10번, 하차 15번 정류장. 지금은 12번을 지났다(남은 정류장 {@code remainingStops}). */
     private List<JourneyLeg> legs(int remainingStops) {

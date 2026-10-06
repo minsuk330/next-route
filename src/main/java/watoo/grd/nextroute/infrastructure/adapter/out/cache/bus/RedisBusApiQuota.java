@@ -63,6 +63,29 @@ public class RedisBusApiQuota implements BusApiQuotaPort {
         }
     }
 
+    @Override
+    public boolean tryAcquire(String bucket, int dailyLimit) {
+        if (dailyLimit <= 0) {
+            return false;
+        }
+        String day = ZonedDateTime.now(clock).withZoneSameInstant(ClockConfig.KST)
+                .toLocalDate().format(DAY);
+        String key = KEY_PREFIX + bucket + ":" + day;
+        try {
+            Long count = redisTemplate.opsForValue().increment(key);
+            if (count == null) {
+                return false;
+            }
+            if (count == 1L) {
+                redisTemplate.expire(key, ttlToNextMidnight());
+            }
+            return count <= dailyLimit;
+        } catch (Exception e) {
+            log.error("[BusQuota] Redis failure — fail-closed [{}]: {}", key, e.getMessage());
+            return false;
+        }
+    }
+
     private String key(Endpoint endpoint) {
         String day = ZonedDateTime.now(clock).withZoneSameInstant(ClockConfig.KST)
                 .toLocalDate().format(DAY);

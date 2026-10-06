@@ -102,4 +102,21 @@ public class JdbcRegionalBusRouteStopStore implements RegionalBusRouteStopStore 
                 "SELECT EXISTS (SELECT 1 FROM regional_bus_route_stop)", Boolean.class);
         return !Boolean.TRUE.equals(exists);
     }
+
+    @Override
+    public List<RegionalRouteStop> findRouteStops(RegionalBusProvider provider, String routeId) {
+        return jdbcTemplate.query("""
+                SELECT stop_id, stop_name, seq, turn, up_down, waypoint, lat, lon
+                  FROM regional_bus_route_stop
+                 WHERE provider = ? AND route_id = ?
+                 ORDER BY seq
+                """, (rs, rowNum) -> new RegionalRouteStop(
+                        rs.getString("stop_id"), rs.getString("stop_name"), rs.getInt("seq"),
+                        (Boolean) rs.getObject("turn"),
+                        rs.getObject("up_down") == null ? null : rs.getInt("up_down"),
+                        (Boolean) rs.getObject("waypoint"),
+                        rs.getObject("lat") == null ? null : rs.getDouble("lat"),
+                        rs.getObject("lon") == null ? null : rs.getDouble("lon")),
+                provider.name(), routeId);
+    }
 }

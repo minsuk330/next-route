@@ -128,6 +128,18 @@ public class JourneyRerouteProperties {
         /** 같은 후보라도 직전 push 보다 이만큼 더 빨라지면 "새 기회"로 본다. */
         private int pushNoveltyGainSec = 120;
 
+        /**
+         * 재탐색 전용 경기 도착 조회 일일 상한(#264 PR-4). 키 한도의 절반을 넣는다(포털에서 확인한 값).
+         * 다 쓰면 그 지역 버스 중간 정류장 기점만 끈다.
+         */
+        private int quotaGyeonggi = 5000;
+
+        /** 재탐색 전용 TAGO 도착 조회 일일 상한. */
+        private int quotaTago = 5000;
+
+        /** 경기·TAGO 도착 조회 캐시(초). 같은 정류장·노선을 보는 여정끼리 호출을 나눠 쓴다. */
+        private int regionalArrivalCacheSeconds = 15;
+
         private final Refresh refresh = new Refresh();
 
         /** 갱신 스케줄러(worker). */

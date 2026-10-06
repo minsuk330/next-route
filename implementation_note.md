@@ -3319,3 +3319,28 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `RerouteBoardPushPolicyTest` (경계값 300/120/3분/+120, 위험 우회, 최대 이득), `FcmMessageFactoryTest` +1(행동 문구 2종·폴백)
 - `RerouteAcceptIT` 34/34(+5: 같은 보드 push 2회=2행·push_seq 2, 위험 알림 취소, 무응답 1회만 집계, 보드 무시 시 ACTIVE 유지, 보드 모드 수락 비종료·accepted_at)
 - 전체 2391 중 실패 2 = 기존 무관 2건(동일)
+
+## 재탐색 주기 보드 PR-4 — 경기·TAGO 중간 하차 기점 (#264, branch feat/reroute-board-regional, 2026-10-07)
+
+### 확정
+- #268 표(`regional_bus_route_stop`)를 읽기만 한다: `RegionalBusRouteStopStore.findRouteStops(provider, routeId)` 추가(순번 오름차순, 가상점 표시 포함)
+- `RegionalRideLocator`: 노선 = 주행 단계가 고른 노선 후보의 `sourceRouteId`(GBIS·TAGO id), GG 표에 없으면 TAGO. 정류장 조인 = 구간 `sourceStartStopId`·`sourceEndStopId`(승차 이후 첫 일치). 지금 위치 = 하차에서 앱 남은 정류장 수만큼 **가상점을 빼고** 거슬러 오름
+- `RegionalArrivalLookup`: 내 차 = "몇 정류장 전"이 [기대-1, 기대] 인 차(더 먼 = 내 뒤 차 거절). 경기 predictMin×60, TAGO arrSeconds. 재탐색 전용 일일 버킷(`reroute-gg-arrival`·`reroute-tago-arrival`, 기본 5000) 소진 시 그 회차 지역 기점 중단. 15초 메모리 캐시
+- 창: 서울 id 없는 탑승 + **보드 켜짐**일 때만 지역 스캔(사건 기반 경로는 그대로). 원점 `RerouteOrigin.provider`=GG|TAGO, stopId/routeId/seq 는 API 공간
+- 수락 자르기: `origin.isRegional()` 이면 지역 재확인. 자를 위치 = 승차 이후 **실제 정류장 수**(가상점 제외 = GTFS 순번 공간). 어긋나면 합성 단계 이름 대조가 막는다(409)
+- "같은 버스 다시 타기" 거름에 원천 노선 id 추가(`isSameAsCurrent` 가 firstOption.sourceRouteId 도 비교, 보드 currentRouteIds 에 원천 id)
+
+### 미결
+- 서울 도착 조회의 재탐색/검색 할당량 분리(어댑터 내부 차감 문맥) — 이번 범위 밖
+- 경기·TAGO 중간 하차 후보의 후보 경로 조회 `ride.stopCount` 는 null(서울 위치기만 계산)
+
+### 좌표
+- `RegionalRideLocator`, `RegionalArrivalLookup`, `UpcomingStopWindowResolver.scanRegional`, `RideTruncationResolver.resolveRegional`
+- `JdbcRegionalBusRouteStopStore.findRouteStops`, `BusApiQuotaPort.tryAcquire(bucket, limit)`, `RerouteOrigin.provider/isRegional`
+
+### 배포
+- 마이그레이션 없음(#268 의 V56 표를 읽음). 보드 플래그 off 면 동작 동일. 표가 비어 있으면(적재 전) 지역 기점은 `route-unknown` 으로 안 열림
+
+### 검증
+- `RegionalRideLocatorTest` 3/3, `RegionalArrivalLookupTest` 4/4, `UpcomingStopWindowResolverTest` 12/12(+2), `RideTruncationResolverTest` 13/13(+2), `JdbcRegionalBusRouteStopStoreIT` 6/6(+1)
+- 전체 2403 중 실패 2 = 기존 무관 2건(동일)
