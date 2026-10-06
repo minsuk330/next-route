@@ -101,6 +101,7 @@ class RerouteAcceptIT {
     @Autowired RerouteBoardRefreshService refreshService;
     @Autowired JourneyRerouteProperties rerouteProperties;
     @Autowired ApplyJourneyProgressUseCase progressUseCase;
+    @Autowired watoo.grd.nextroute.application.journey.service.RerouteProposalService proposalService;
     @Autowired GetJourneyNavigationGeometryUseCase geometryUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired ObjectMapper objectMapper;
@@ -603,6 +604,26 @@ class RerouteAcceptIT {
                 select refreshed_at is not null from reroute_proposal
                  where journey_id = ? and status = 'ACTIVE'
                 """, Boolean.class, journey.journeyId())).isTrue();
+    }
+
+    @Test
+    @DisplayName("보드 모드 조회는 보이는 후보와 보드 정보를 주고, 폴링이 행을 바꾸지 않는다(#264 PR-6)")
+    void boardModeActiveReadsBoardWithoutWriting() {
+        rerouteProperties.getBoard().setEnabled(true);
+        String shownId = boardService.write(boardWrite(600), Instant.now())
+                .slots().get(0).candidate().candidateId();
+        String before = jdbcTemplate.queryForObject(
+                "select updated_at::text from reroute_proposal where id = ?", String.class, proposalId());
+
+        var view = proposalService.findActive(userId, journey.journeyId()).orElseThrow();
+
+        assertThat(view.isBoard()).isTrue();
+        assertThat(view.board().version()).isEqualTo(1L);
+        assertThat(view.candidates()).extracting(RerouteCandidate::candidateId).containsExactly(shownId);
+        assertThat(view.board().originKinds()).containsEntry(shownId, RerouteOriginKind.TRANSFER_WAIT);
+        assertThat(jdbcTemplate.queryForObject(
+                "select updated_at::text from reroute_proposal where id = ?", String.class, proposalId()))
+                .isEqualTo(before);
     }
 
     private RerouteBoardRefreshClaimService.Claim claimMine() {

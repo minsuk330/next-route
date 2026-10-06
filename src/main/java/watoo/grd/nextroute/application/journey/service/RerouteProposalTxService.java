@@ -331,6 +331,24 @@ public class RerouteProposalTxService {
         return Optional.of(new RerouteProposalView(proposal.getId(), proposal.getJourneyId(),
                 proposal.getRouteRevision(), readOrigin(proposal),
                 proposal.getKind(), proposal.getBaseCommandVersion(), proposal.getSnapshotObservedAt(),
-                proposal.getExpiresAt(), envelope.visibleCandidates()));
+                proposal.getExpiresAt(), envelope.visibleCandidates(), boardOf(proposal, envelope)));
+    }
+
+    /** 보드(v2) 행이면 보이는 후보의 기점 종류까지 묶어 낸다. v1 은 null. */
+    private RerouteProposalView.Board boardOf(RerouteProposal proposal, RerouteCandidateEnvelope envelope) {
+        if (!envelope.isBoard()) {
+            return null;
+        }
+        java.util.Map<String, watoo.grd.nextroute.application.journey.dto.RerouteOriginKind> kinds =
+                new java.util.HashMap<>();
+        if (envelope.slots() != null) {
+            for (watoo.grd.nextroute.application.journey.dto.RerouteBoardSlot slot : envelope.slots()) {
+                if (slot.isVisible() && slot.originKind() != null) {
+                    kinds.put(slot.candidate().candidateId(), slot.originKind());
+                }
+            }
+        }
+        return new RerouteProposalView.Board(proposal.getBoardVersion(), proposal.getRefreshedAt(),
+                java.util.Map.copyOf(kinds));
     }
 }

@@ -89,8 +89,30 @@ public class RerouteProposalService {
             return Optional.empty();
         }
         Instant now = Instant.now(clock);
+        if (properties.getBoard().isEnabled()) {
+            return findActiveBoard(journeyId, journey, now);
+        }
         txService.resolveStale(journeyId, journey.getRouteRevision(), now);
         return txService.findActive(journeyId).flatMap(view -> validate(view, now));
+    }
+
+    /**
+     * 보드 모드의 조회(#264). <b>DB 에 쓰지 않는다.</b>
+     *
+     * <p>앱이 화면을 켜 둔 동안 15초마다 부른다. 여기서 만료 전이(resolveStale)나 전멸 접기를 하면 폴링이
+     * 보드를 죽였다 살리는 순환이 되고, 세션 → 제안 잠금 순서와 반대인 쓰기(제안 → 세션)가 폴링 빈도로
+     * 늘어 교착 위험이 커진다. 만료·교체는 갱신기와 만료 스케줄러가 맡고, 여기서는 <b>응답에서만</b>
+     * 거른다 — 개정본이 바뀌었거나 유효시간이 지난 보드는 없는 것으로, 곧 닿는 자리(60초 미만)는 뺀다.
+     */
+    private Optional<RerouteProposalView> findActiveBoard(Long journeyId, JourneySession journey,
+                                                           Instant now) {
+        Instant earliest = now.plusSeconds(properties.getBoard().getLeadTimeSec());
+        return txService.findActive(journeyId)
+                .filter(view -> view.routeRevision() == journey.getRouteRevision())
+                .filter(view -> view.expiresAt().isAfter(now))
+                .map(view -> view.withCandidates(view.candidates().stream()
+                        .filter(candidate -> reachable(candidate, earliest))
+                        .toList()));
     }
 
     /**
@@ -123,9 +145,7 @@ public class RerouteProposalService {
             txService.expireValidatedOut(view.proposalId(), now);
             return Optional.empty();
         }
-        return Optional.of(new RerouteProposalView(view.proposalId(), view.journeyId(),
-                view.routeRevision(), view.origin(), view.kind(), view.baseCommandVersion(),
-                view.snapshotObservedAt(), view.expiresAt(), alive));
+        return Optional.of(view.withCandidates(alive));
     }
 
     /**
