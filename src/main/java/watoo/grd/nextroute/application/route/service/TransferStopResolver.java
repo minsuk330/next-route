@@ -23,8 +23,11 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class TransferStopResolver {
 
-    /** 서울 버스 노선 id 모양. 경기(2로 시작)·TAGO(영문 접두사)와 겹치지 않는다. */
-    private static final Pattern SEOUL_ROUTE_ID = Pattern.compile("^1\\d{8}$");
+    /**
+     * 다른 지역 노선으로 <b>확인되는</b> id: 경기 GBIS(2로 시작하는 9자리), TAGO(영문 3글자 + 숫자·하이픈).
+     * 서울 노선 id 는 1로 시작해 겹치지 않는다. 모양을 모르는 id(ODsay 내부 busID 등)는 여기 걸리지 않는다.
+     */
+    private static final Pattern OTHER_REGION_ROUTE_ID = Pattern.compile("^(?:2\\d{8}|[A-Z]{3}[\\d-]+)$");
 
     private final BusStopRepository stopRepo;
     private final BusRouteRepository routeRepo;
@@ -50,7 +53,7 @@ public class TransferStopResolver {
 
     /**
      * busLocalBlID → route_id(단건 확정).
-     * 실패 시 busNo → findRoutesByNames fallback — 단 busLocalBlID 가 없거나 서울 노선 id 모양일 때만.
+     * 실패 시 busNo → findRoutesByNames fallback — 단 busLocalBlID 가 다른 지역(경기·TAGO) 노선 id 면 안 한다.
      * fallback 다건이면 empty(UNSUPPORTED_ROUTE).
      */
     public Optional<RouteResolution> resolveRoute(String busLocalBlID, String busNo) {
@@ -61,10 +64,11 @@ public class TransferStopResolver {
                 BusRoute r = route.get();
                 return Optional.of(new RouteResolution(r.getRouteId(), r.getRouteName(), false, r.getTerm()));
             }
-            // 서울 노선 id 모양(1로 시작하는 9자리)이 아니면 다른 지역 노선이다(경기 2xxxxxxxx, TAGO 영문 접두사).
-            // 번호만 같은 서울 노선으로 둔갑시키지 않는다 — 충주 103번이 서울 103번(100100008)으로 확정된 사례.
-            if (!SEOUL_ROUTE_ID.matcher(busLocalBlID).matches()) {
-                log.debug("[Resolver] busLocalBlID={} is not a Seoul route id; skip busNo fallback", busLocalBlID);
+            // 다른 지역 노선으로 확인되면 번호만 같은 서울 노선으로 둔갑시키지 않는다 — 충주 103번이 서울 103번
+            // (100100008)으로 확정된 사례. 모양을 모르는 id 는 막지 않는다: ODsay 경로는 busLocalBlID 가 비면 내부
+            // busID 를 넘기는데(JourneyCompiler.sourceRouteId), 그때는 번호 폴백이 유일한 해석 수단이다.
+            if (OTHER_REGION_ROUTE_ID.matcher(busLocalBlID).matches()) {
+                log.debug("[Resolver] busLocalBlID={} is another region's route id; skip busNo fallback", busLocalBlID);
                 return Optional.empty();
             }
             log.debug("[Resolver] busLocalBlID={} not found in repo, trying busNo fallback", busLocalBlID);
