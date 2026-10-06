@@ -323,7 +323,7 @@ public class RerouteProposalTxService {
                     proposal.getId(), e.getMessage());
             return Optional.empty();
         }
-        if (!envelope.isCurrentVersion()) {
+        if (!envelope.isReadable()) {
             log.warn("[JourneyReroute] 모르는 후보 계약 판 proposalId={} version={}",
                     proposal.getId(), envelope.version());
             return Optional.empty();
@@ -331,6 +331,6 @@ public class RerouteProposalTxService {
         return Optional.of(new RerouteProposalView(proposal.getId(), proposal.getJourneyId(),
                 proposal.getRouteRevision(), readOrigin(proposal),
                 proposal.getKind(), proposal.getBaseCommandVersion(), proposal.getSnapshotObservedAt(),
-                proposal.getExpiresAt(), envelope.candidates()));
+                proposal.getExpiresAt(), envelope.visibleCandidates()));
     }
 }

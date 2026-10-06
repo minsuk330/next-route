@@ -515,6 +515,17 @@ journey:
       # 키는 용도별로 갈린다(trigger/request). P2-F PR4a: ODsay 요금 폭 전제(2분)를 지연 상황
       # UX(더 자주 갱신)로 재산정해 1분. 중복 억제는 1분으로 충분.
       cooldown: PT1M
+    board:
+      # 주기 갱신 보드(#264). 기본 꺼짐 — 꺼져 있으면 기존 사건 기반 경로가 그대로다.
+      # 켜기 전 조건: reroute-periodic-board PR-5 까지 머지 + V57 배치 + reroute_refresh_at 백필.
+      enabled: ${JOURNEY_REROUTE_BOARD_ENABLED:false}
+      lead-time-sec: 60
+      realtime-threshold-sec: 120
+      mixed-threshold-sec: 180
+      per-extra-wait-sec: 60
+      replace-margin-sec: 60
+      reshow-margin-sec: 30
+      ttl: PT3M
     remaining-path:
       # 환승 정류장에서 목적지까지 다른 경로를 찾는 판정(④). next-stop 과 값은 겹쳐도 키는
       # 별도다 - 이쪽은 "경로를 몇 개 평가할지", 그쪽은 "하차 자리를 몇 개 열지"다.
