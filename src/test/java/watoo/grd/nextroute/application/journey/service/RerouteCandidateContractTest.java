@@ -164,6 +164,53 @@ class RerouteCandidateContractTest {
         }
     }
 
+    // ── 하차점 좌표 ─────────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("하차점 좌표(#259)")
+    class AlightCoordinates {
+
+        @Test
+        @DisplayName("좌표가 왕복을 견디고 화면 요약에도 나간다")
+        void coordinatesSurviveRoundTripAndAreExposed() throws Exception {
+            RerouteCandidateDisplay.AlightStop alight = new RerouteCandidateDisplay.AlightStop(
+                    "ST-B", "정류장B", Instant.parse("2026-10-06T09:12:30Z"), false,
+                    127.0559, 37.5446);
+
+            RerouteCandidateDisplay.AlightStop restored = objectMapper.readValue(
+                    objectMapper.writeValueAsString(alight), RerouteCandidateDisplay.AlightStop.class);
+            String exposed = objectMapper.writeValueAsString(RerouteCandidateSummary.from(
+                    new RerouteCandidate("c1", RerouteProposalKind.REMAINING_PATH,
+                            new RerouteCandidateApply.RemainingPathApply(0, samplePath()),
+                            displayWith(alight))));
+
+            assertThat(restored).isEqualTo(alight);
+            assertThat(exposed).contains("\"x\":127.0559").contains("\"y\":37.5446");
+        }
+
+        @Test
+        @DisplayName("좌표 칸이 없는 옛 저장 JSON 은 null 좌표로 읽힌다")
+        void legacyJsonReadsNullCoordinates() throws Exception {
+            String legacy = """
+                    {"stopId":"ST-B","name":"정류장B","alightAt":"2026-10-06T09:12:30Z","planned":false}
+                    """;
+
+            RerouteCandidateDisplay.AlightStop restored =
+                    objectMapper.readValue(legacy, RerouteCandidateDisplay.AlightStop.class);
+
+            assertThat(restored.stopId()).isEqualTo("ST-B");
+            assertThat(restored.x()).isNull();
+            assertThat(restored.y()).isNull();
+        }
+
+        private RerouteCandidateDisplay displayWith(RerouteCandidateDisplay.AlightStop alight) {
+            RerouteCandidateDisplay base = sampleDisplay();
+            return new RerouteCandidateDisplay(base.destinationEtaAt(), base.totalDurationSec(),
+                    base.etaGainSec(), base.transferCount(), base.walkingSec(), base.source(),
+                    base.confidence(), base.dataObservedAt(), base.legSummaries(), alight);
+        }
+    }
+
     // ── 봉투 ─────────────────────────────────────────────────────────────────
 
     @Nested

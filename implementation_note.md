@@ -3101,3 +3101,35 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - RED 확인: 어댑터 테스트 3개 실패(`expected COMPLETE but was FAILED`, 두 번째 호출 `BLOCKED`, `expected "ERROR-337" but was null`), 수집기 테스트 2개 실패(차단 노선을 실패로 셈, `2/2`)
 - GREEN: `SeoulSubwayApiAdapterPositionTest` 5/5, `RealtimeSubwayPositionCollectorTest` 3/3
 - 지하철 단위 스위트 177개 통과. 같은 실행의 IT 82개 실패는 기존 무관(환경): 로컬 Postgres `Connection refused` + Docker 미기동 `Could not find a valid Docker environment`. 모두 컨텍스트/컨테이너 기동 단계 실패, 단언 실패 0
+
+## 재탐색 후보 경로 조회 + 하차 좌표 (#259, branch feat/reroute-candidate-route, 2026-10-06)
+
+### 확정
+- 탑승 구간은 `ride` 칸 분리(b). path 앞 합성(a)은 path 가 수락 원천과 달라져 기각(사용자 결정)
+- `rideSec` 대신 `alightAt` — GET 은 제안 생성 뒤 불려 초 단위 값은 이미 낡음(사용자 승인 계약)
+- `path` 는 저장된 `RemainingPathApply.path` 를 가공 없이 반환. 타입이 검색 `paths[]` 원소와 같은 `PathResult` 라 모양이 자동으로 같다
+- 후보 읽기·stale 판정을 `RerouteCandidateReader` 로 추출해 수락·조회가 공유. 조회만 status≠ACTIVE·여정 비활성을 추가로 STALE 처리(수락은 status 를 CAS 로 본다)
+- 조회는 validate-on-read(지나간 하차점) 안 함 — 목록이 맡고 수락은 `REROUTE_ALIGHT_UNAVAILABLE` 로 막음
+- 좌표 출처 = `Origin.waypoints().origin()`(검색 출발점과 같은 값). 계획 하차점=대기 leg 시작, 중간 하차=`RerouteOriginStop.x/y`
+- 선택항목3(능동 제안 테스트 완화) 서버 변경 없음, 앱 개발 빌드가 요청 진입점 유지
+
+### 함정
+- ride 의 routeName 을 대기 leg 에서만 찾으면 안 됨 ← 주행 leg 에도 `selectedRouteOptionId` 가 들어간다(`RerouteAcceptTxService.select`) / 주행 leg 값 그대로 사용
+- 클론에서 IT 가 `password authentication failed for user "${POSTGRES_USER}"` 로 전멸 ← `env/` 는 `.example` 이 추적되는 실제 디렉터리라 `ln -s .../env env` 가 안 먹음 / 무시 대상 파일(`env/db.env` 등)을 개별 링크
+
+### 좌표
+- 조회: `RerouteCandidateRouteQueryService.java` get()/ride()/stopsUntil()
+- 공용: `RerouteCandidateReader.java` read()/isStale()
+- 좌표 주입: `RemainingPathCandidateProvider.java` toCandidate()
+- API: `JourneyRerouteProposalController.java` candidateRoute()
+
+### 배포
+- 마이그레이션 없음. api·worker 재빌드만
+- 저장 JSON(`reroute_proposal.candidates`)에 `alight.x/y` 추가 — 커스텀 Jackson 설정 없음(Spring Boot 기본 FAIL_ON_UNKNOWN_PROPERTIES=false)이라 배포 중 옛 이미지가 새 행 읽어도 무시
+- 모바일 인계: `docs/plan/reroute-candidate-route/HANDOFF.md`
+
+### 검증
+- `./gradlew compileJava compileTestJava` 통과
+- 단위: `RerouteCandidateRouteQueryServiceTest` 15/15, `RerouteCandidateContractTest` 11/11(신규 2), `RemainingPathCandidateProviderTest` 21/21, `JourneyRerouteProposalControllerTest` 13/13(신규 4)
+- IT(로컬 postgis 컨테이너): `RerouteAcceptIT` 14/14(신규 3: 같은 원천·ride·STALE)
+- 회귀: journey 패키지 전체 1156개 중 실패 1 = `JourneyTransferAssessmentIT` "환승이 있는 여정을 조회하면 판정이 저장되고…" — **기존 무관**(변경 stash 한 main 상태에서도 동일 실패)

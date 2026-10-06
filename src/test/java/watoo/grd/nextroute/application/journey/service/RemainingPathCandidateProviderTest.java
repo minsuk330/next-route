@@ -419,6 +419,9 @@ class RemainingPathCandidateProviderTest {
         assertThat(alight.stopId()).isEqualTo("ST-B");
         assertThat(alight.planned()).isFalse();
         assertThat(alight.alightAt()).isEqualTo(INTERIOR.alightAt());
+        // 말풍선 자리는 그 정류장 좌표다(#259).
+        assertThat(alight.x()).isEqualTo(127.1);
+        assertThat(alight.y()).isEqualTo(37.1);
         // 검색은 지금이 아니라 그 정류장에 내려 걸어 나가는 시각으로 나간다.
         verify(searchService).search(eq("ST-B"), eq(INTERIOR_WAYPOINTS), anyLong(),
                 eq(INTERIOR.alightAt().plusSeconds(30)));
@@ -440,6 +443,9 @@ class RemainingPathCandidateProviderTest {
         assertThat(apply.fromLegIndex()).isEqualTo(2);
         assertThat(apply.origin()).isNull();
         assertThat(candidates.get(0).display().alight().planned()).isTrue();
+        // 계획 하차점의 좌표는 대기 단계의 시작(= 검색 출발점)이다(#259).
+        assertThat(candidates.get(0).display().alight().x()).isEqualTo(127.3);
+        assertThat(candidates.get(0).display().alight().y()).isEqualTo(37.3);
     }
 
     @Test

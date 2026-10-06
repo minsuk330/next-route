@@ -17,8 +17,10 @@ import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteDecision;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
+import watoo.grd.nextroute.application.journey.dto.RerouteCandidateRoute;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
 import watoo.grd.nextroute.application.journey.port.in.AcceptRerouteProposalUseCase;
+import watoo.grd.nextroute.application.journey.port.in.GetRerouteCandidateRouteUseCase;
 import watoo.grd.nextroute.application.journey.service.RerouteProposalService;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
 import watoo.grd.nextroute.application.route.dto.PathResult;
@@ -68,6 +70,7 @@ class JourneyRerouteProposalControllerTest {
     @Autowired MockMvc mockMvc;
     @MockBean RerouteProposalService proposalService;
     @MockBean AcceptRerouteProposalUseCase acceptUseCase;
+    @MockBean GetRerouteCandidateRouteUseCase candidateRouteUseCase;
     @MockBean JwtProvider jwtProvider;                 // SecurityConfig 의존
     @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
     @MockBean AdminProperties adminProperties;         // SecurityConfig(AdminApiKeyFilter) 의존
@@ -222,6 +225,74 @@ class JourneyRerouteProposalControllerTest {
                 .doesNotContain("apply")
                 .doesNotContain("subPaths")
                 .doesNotContain("fromLegIndex");
+    }
+
+    // ── 후보 경로 조회(#259) ────────────────────────────────────────────────
+
+    private static final String CANDIDATE_ROUTE =
+            "/api/journeys/{id}/reroute-proposals/{pid}/candidates/{cid}/route";
+
+    @Test
+    @DisplayName("후보 경로는 검색 응답 paths[] 원소 모양의 path 와 지금 타는 구간 ride 로 나간다")
+    void candidateRouteCarriesSearchShapedPathAndRide() throws Exception {
+        given(candidateRouteUseCase.get(USER_ID, JOURNEY_ID, 11L, "c1"))
+                .willReturn(new RerouteCandidateRoute(11L, "c1",
+                        new RerouteCandidateRoute.Ride(1, "2412", "뚝섬역", "ST-D", "성수역",
+                                127.0559, 37.5446, 3, NOW.plusSeconds(300)),
+                        busPath()));
+
+        mockMvc.perform(get(CANDIDATE_ROUTE, JOURNEY_ID, 11L, "c1")
+                        .with(authentication(authUser(USER_ID))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.proposalId").value(11))
+                .andExpect(jsonPath("$.candidateId").value("c1"))
+                // 앱이 검색 결과 상세 화면을 그대로 태우는 칸들이다.
+                .andExpect(jsonPath("$.path.info.firstStartStation").value("정류장A"))
+                .andExpect(jsonPath("$.path.subPaths[0].lanes[0].busNo").value("370"))
+                .andExpect(jsonPath("$.ride.legIndex").value(1))
+                .andExpect(jsonPath("$.ride.routeName").value("2412"))
+                .andExpect(jsonPath("$.ride.alightStopId").value("ST-D"))
+                .andExpect(jsonPath("$.ride.alightX").value(127.0559))
+                .andExpect(jsonPath("$.ride.alightY").value(37.5446))
+                .andExpect(jsonPath("$.ride.stopCount").value(3))
+                .andExpect(jsonPath("$.ride.alightAt").exists());
+    }
+
+    @Test
+    @DisplayName("타고 있지 않으면 ride 는 null 이다")
+    void candidateRouteWithoutRide() throws Exception {
+        given(candidateRouteUseCase.get(USER_ID, JOURNEY_ID, 11L, "c1"))
+                .willReturn(new RerouteCandidateRoute(11L, "c1", null, busPath()));
+
+        mockMvc.perform(get(CANDIDATE_ROUTE, JOURNEY_ID, 11L, "c1")
+                        .with(authentication(authUser(USER_ID))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ride").doesNotExist())
+                .andExpect(jsonPath("$.path.subPaths").isArray());
+    }
+
+    @Test
+    @DisplayName("없는 후보는 404 REROUTE_CANDIDATE_NOT_FOUND 다")
+    void candidateRouteNotFound() throws Exception {
+        willThrow(new BusinessException(JourneyErrorCode.REROUTE_CANDIDATE_NOT_FOUND))
+                .given(candidateRouteUseCase).get(USER_ID, JOURNEY_ID, 11L, "nope");
+
+        mockMvc.perform(get(CANDIDATE_ROUTE, JOURNEY_ID, 11L, "nope")
+                        .with(authentication(authUser(USER_ID))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("REROUTE_CANDIDATE_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("낡은 제안은 409 REROUTE_PROPOSAL_STALE 이다")
+    void candidateRouteStale() throws Exception {
+        willThrow(new BusinessException(JourneyErrorCode.REROUTE_PROPOSAL_STALE))
+                .given(candidateRouteUseCase).get(USER_ID, JOURNEY_ID, 11L, "c1");
+
+        mockMvc.perform(get(CANDIDATE_ROUTE, JOURNEY_ID, 11L, "c1")
+                        .with(authentication(authUser(USER_ID))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("REROUTE_PROPOSAL_STALE"));
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────
