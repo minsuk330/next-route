@@ -445,6 +445,10 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
             admitted.add(entry);
         }
 
+        // 시뮬레이터 테스트 계정은 개선폭과 무관하게 후보를 받는다 — 흐름을 끝까지 보기 위해서다.
+        int minimumGainSec = properties.isTestUser(context.userId())
+                ? Integer.MIN_VALUE
+                : properties.getRemainingPath().getMinimumEtaGainSeconds();
         List<Attempt> attempts = overlayAll(admitted, context, startedAt);
         List<Scored> scored = new ArrayList<>();
         for (int i = 0; i < admitted.size(); i++) {
@@ -467,7 +471,7 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
             }
             int gainSec = (int) Duration.between(
                     attempt.eta().destinationEtaAt(), baseline.destinationEtaAt()).getSeconds();
-            if (gainSec < properties.getRemainingPath().getMinimumEtaGainSeconds()) {
+            if (gainSec < minimumGainSec) {
                 // 0/음수 절감 정류장이 여기서 사라진다 — 임계값이 0 보다 크므로 "조금 빨라지는"
                 // 자리도 함께 접힌다.
                 metrics.recordCandidateFiltered("gain-below-threshold");

@@ -7,6 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * 재탐색의 운영값.
@@ -39,6 +41,23 @@ public class JourneyRerouteProperties {
 
     /** 화면에 보이는 후보 수 상한. 넘게 들어오면 잘라 저장한다. */
     private int maxCandidates = 3;
+
+    /**
+     * 시뮬레이터 수동 테스트용 계정. <b>기본은 비어 있다</b> — 비어 있으면 아무 동작도 바뀌지 않는다.
+     *
+     * <p>이 계정의 "다른 경로 찾기" 요청은 시간 창·cooldown·진행 근거 판정과 남은경로 최소 개선폭을
+     * 건너뛴다. 시뮬레이터에서는 "환승 10분 이내 + 살아 있는 진행 + 5분 이상 빠른 경로"가 거의
+     * 맞지 않아 제안→수락→경로 교체 흐름을 끝까지 볼 수 없었다. 환승 존재·지나간 환승 판정과
+     * 수락 재검증은 그대로다 — 그 둘을 풀면 적용할 수 없는 제안이 만들어진다.
+     *
+     * <p>서버 능동 알림(push)에는 적용하지 않는다. prod 에 넣는 값이므로 본인 계정만 넣는다.
+     */
+    private Set<Long> testUserIds = new HashSet<>();
+
+    /** {@link #testUserIds} 에 든 계정인가. */
+    public boolean isTestUser(Long userId) {
+        return userId != null && testUserIds.contains(userId);
+    }
 
     private final Expiry expiry = new Expiry();
 

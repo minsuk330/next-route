@@ -482,6 +482,9 @@ journey:
     # 제안 유효시간. 넘기면 근거로 삼은 실시간 값이 이미 다른 이야기를 한다.
     proposal-ttl: PT2M
     max-candidates: 3
+    # 시뮬레이터 수동 테스트 계정(쉼표 구분 userId). 비어 있으면 아무 영향 없음. 이 계정의 "다른 경로
+    # 찾기"는 시간 창·cooldown·진행 근거·최소 개선폭을 건너뛴다. push 에는 적용 안 됨. 본인 계정만.
+    test-user-ids: ${JOURNEY_REROUTE_TEST_USER_IDS:}
     expiry:
       # lazy 전이(조회·생성·수락)를 아무도 지나가지 않을 때의 그물. TTL 의 절반 주기다.
       # worker 프로필 전용.
