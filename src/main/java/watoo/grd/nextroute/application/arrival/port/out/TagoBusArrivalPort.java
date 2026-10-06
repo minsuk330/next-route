@@ -5,7 +5,7 @@ import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.Bus
 
 /**
  * 서울·경기 밖 버스도착 조회(국토교통부 TAGO). id 는 OTP 접두사 포함 값({@code BSB167850202}),
- * cityCode 는 접두사로 정한다({@code TagoCityCodes}).
+ * cityCode 는 노선으로 정한다({@code TagoCityCodeLookup}, #267).
  *
  * <p>OK 의 data 는 다가오는 버스들(순서 보장 없음, 빈 리스트 = 다가오는 버스 없음).
  */

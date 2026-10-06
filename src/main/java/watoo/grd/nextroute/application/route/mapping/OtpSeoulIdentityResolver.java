@@ -49,20 +49,23 @@ public class OtpSeoulIdentityResolver {
     private static final Pattern GG_BUS_ROUTE = Pattern.compile("^\\d+:BR_(?:TAGO_GGB|3100_)(\\d{9})(?:_[UD])?$");
     // 서울·경기 밖: TAGO 는 접두사 포함 id 를 그대로 받는다. 구미(GMB)는 노선 id 에 하이픈이 섞인다(GMB171-110).
     private static final Pattern TAGO_BUS_STOP = Pattern.compile("^\\d+:BS_TAGO_(([A-Z]{3})\\d+)$");
-    private static final Pattern TAGO_BUS_ROUTE = Pattern.compile("^\\d+:BR_TAGO_(([A-Z]{3})[\\d-]+?)(?:_[UD])?$");
+    private static final Pattern TAGO_BUS_ROUTE = Pattern.compile("^\\d+:BR_TAGO_(([A-Z]{3})[\\dA-Z-]+?)(?:_[UD])?$");
     // 앞자리 숫자 lookbehind 로 두 자리 호선("11호선")의 뒷자리 오매치를 막는다(현재 서울 1~9호선만 스코프).
     private static final Pattern SUBWAY_LINE = Pattern.compile("(?<!\\d)([1-9])호선");
 
     private final BusStopRepository busStopRepo;
     private final BusRouteRepository busRouteRepo;
     private final SubwayStationRepository subwayRepo;
+    private final TagoCityCodeLookup tagoCityCodeLookup;
 
     public OtpSeoulIdentityResolver(BusStopRepository busStopRepo,
                                     BusRouteRepository busRouteRepo,
-                                    SubwayStationRepository subwayRepo) {
+                                    SubwayStationRepository subwayRepo,
+                                    TagoCityCodeLookup tagoCityCodeLookup) {
         this.busStopRepo = busStopRepo;
         this.busRouteRepo = busRouteRepo;
         this.subwayRepo = subwayRepo;
+        this.tagoCityCodeLookup = tagoCityCodeLookup;
     }
 
     /** leg mode 로 분기. 대중교통 아니거나 스코프 밖이면 empty(→ 호출자 STATIC). */
@@ -107,7 +110,8 @@ public class OtpSeoulIdentityResolver {
 
     /**
      * 서울·경기 밖 버스: {@code 1:BS_TAGO_}/{@code 1:BR_TAGO_} 만 떼고 접두사는 남긴다({@link TagoBusIdentity}).
-     * 정류장·노선 접두사가 같고 {@link TagoCityCodes} 에 도시코드가 있을 때만(SEB·GGB 는 표에 없어 자연히 제외).
+     * 정류장·노선 접두사가 같고 노선의 도시코드를 알 때만({@link TagoCityCodeLookup}). GGB 는 앞선 경기 분기가
+     * 먼저 잡고, SEB 는 도시코드가 없어 자연히 제외된다.
      */
     public Optional<TagoBusIdentity> resolveTagoBus(String stopGtfsId, String routeGtfsId, String routeName) {
         Matcher stop = match(TAGO_BUS_STOP, stopGtfsId);
@@ -115,7 +119,7 @@ public class OtpSeoulIdentityResolver {
         if (stop == null || route == null || !stop.group(2).equals(route.group(2))) {
             return Optional.empty();
         }
-        return TagoCityCodes.cityCodeOf(stop.group(2))
+        return tagoCityCodeLookup.cityCodeOfRoute(route.group(1))
                 .map(city -> new TagoBusIdentity(city, stop.group(1), route.group(1), routeName));
     }
 
