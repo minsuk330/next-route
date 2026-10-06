@@ -16,7 +16,9 @@ import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateEnvelope;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
+import watoo.grd.nextroute.application.journey.dto.RerouteCandidateRoute;
 import watoo.grd.nextroute.application.journey.port.in.AcceptRerouteProposalUseCase;
+import watoo.grd.nextroute.application.journey.port.in.GetRerouteCandidateRouteUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
@@ -82,6 +84,7 @@ class RerouteAcceptIT {
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired AcceptRerouteProposalUseCase acceptUseCase;
+    @Autowired GetRerouteCandidateRouteUseCase candidateRouteUseCase;
     @Autowired GetJourneyNavigationGeometryUseCase geometryUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired ObjectMapper objectMapper;
@@ -321,6 +324,77 @@ class RerouteAcceptIT {
         assertThatThrownBy(() -> acceptUseCase.accept(userId, journey.journeyId(), proposalId(),
                 candidateId))
                 .isInstanceOf(BusinessException.class);
+    }
+
+    // ── 후보 경로 조회(#259) ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("조회한 경로는 저장된 적용 재료 그대로이고, 같은 후보를 수락하면 그 경로가 적용된다")
+    void candidateRouteIsWhatAcceptApplies() throws Exception {
+        String candidateId = givenProposal();
+
+        RerouteCandidateRoute route = candidateRouteUseCase.get(userId, journey.journeyId(),
+                proposalId(), candidateId);
+
+        // 저장 행(jsonb)에서 직접 꺼낸 적용 재료와 비교한다 — 조회가 다시 검색하거나 가공하면
+        // 사용자가 본 경로와 다른 경로가 적용된다.
+        assertThat((Object) objectMapper.valueToTree(route.path()))
+                .isEqualTo(storedApplyPath(candidateId));
+        // 조회는 제안을 소모하지 않는다. 여러 후보를 열어 본 뒤 고른다.
+        assertThat(proposalStatus()).isEqualTo("ACTIVE");
+
+        JourneySnapshot after = acceptUseCase.accept(userId, journey.journeyId(), proposalId(),
+                candidateId);
+        assertThat(routeIdsOf(after.routeRevision())).contains("BL-360");
+    }
+
+    @Test
+    @DisplayName("중간 하차 후보는 지금 타는 구간과 남은 정류장 수를 함께 준다")
+    void candidateRouteCarriesCurrentRide() {
+        givenRidingWithProgress();
+        jdbcTemplate.update("update journey_session set current_leg_index = 1 where id = ?",
+                journey.journeyId());
+        String candidateId = givenMidRideProposal(MID_STOP_SEQ);
+
+        RerouteCandidateRoute route = candidateRouteUseCase.get(userId, journey.journeyId(),
+                proposalId(), candidateId);
+
+        assertThat(route.ride()).isNotNull();
+        assertThat(route.ride().legIndex()).isEqualTo(1);
+        assertThat(route.ride().alightStopId()).isEqualTo(MID_STOP_ID);
+        // 계획 하차 5번, 남은 정류장 2 → 지금 3번을 지났다. 4번까지 한 정류장.
+        assertThat(route.ride().stopCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("만료된 제안의 경로 조회는 REROUTE_PROPOSAL_STALE 이다")
+    void candidateRouteOfExpiredProposalIsStale() {
+        String candidateId = givenProposal();
+        jdbcTemplate.update("""
+                update reroute_proposal set expires_at = now() - interval '1 minute'
+                 where journey_id = ?
+                """, journey.journeyId());
+
+        assertThatThrownBy(() -> candidateRouteUseCase.get(userId, journey.journeyId(),
+                proposalId(), candidateId))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode())
+                .isEqualTo(JourneyErrorCode.REROUTE_PROPOSAL_STALE);
+    }
+
+    /** 저장 행에 든 그 후보의 {@code apply.path}. */
+    private com.fasterxml.jackson.databind.JsonNode storedApplyPath(String candidateId)
+            throws Exception {
+        String json = jdbcTemplate.queryForObject(
+                "select candidates::text from reroute_proposal where id = ?",
+                String.class, proposalId());
+        for (com.fasterxml.jackson.databind.JsonNode candidate
+                : objectMapper.readTree(json).get("candidates")) {
+            if (candidateId.equals(candidate.get("candidateId").asText())) {
+                return candidate.get("apply").get("path");
+            }
+        }
+        throw new IllegalStateException("후보가 없다: " + candidateId);
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────

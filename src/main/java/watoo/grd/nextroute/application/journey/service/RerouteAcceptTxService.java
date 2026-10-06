@@ -13,7 +13,6 @@ import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
-import watoo.grd.nextroute.application.journey.dto.RerouteCandidateEnvelope;
 import watoo.grd.nextroute.application.journey.dto.RerouteOrigin;
 import watoo.grd.nextroute.application.journey.dto.RerouteOriginKind;
 import watoo.grd.nextroute.application.journey.dto.SubwayBindingAbandonReason;
@@ -85,6 +84,7 @@ public class RerouteAcceptTxService {
     private final TransferConnectionRepository transferRepository;
     private final JourneyNotificationRepository notificationRepository;
     private final RerouteProposalRepository proposalRepository;
+    private final RerouteCandidateReader candidateReader;
     private final JourneyEventRepository eventRepository;
     private final SubwayBindingLifecycleService subwayBindingLifecycle;
     private final JourneyRevisionComposer composer;
@@ -113,7 +113,7 @@ public class RerouteAcceptTxService {
         RerouteProposal proposal = proposalRepository.findById(proposalId)
                 .filter(found -> found.getJourneyId().equals(journeyId))
                 .orElseThrow(() -> new BusinessException(JourneyErrorCode.REROUTE_PROPOSAL_NOT_FOUND));
-        RerouteCandidate candidate = candidateOf(proposal, candidateId);
+        RerouteCandidate candidate = candidateReader.read(proposal, candidateId);
 
         int changed = proposalRepository.acceptIfActive(
                 proposalId, candidateId, now, LocalDateTime.now(clock));
@@ -256,11 +256,8 @@ public class RerouteAcceptTxService {
      */
     private void requireStillApplicable(JourneySession journey, RerouteProposal proposal,
                                         RerouteCandidate candidate, Instant now) {
-        boolean stale = proposal.getRouteRevision() != journey.getRouteRevision()
-                || proposal.getBaseCommandVersion() != journey.getCommandVersion()
-                || !proposal.getExpiresAt().isAfter(now)
-                || candidate.apply().fromLegIndex() < journey.getCurrentLegIndex();
-        if (stale) {
+        // 판정은 후보 경로 조회와 같은 자리에서 한다(#259) — 본 것과 적용되는 것이 갈라지지 않게.
+        if (RerouteCandidateReader.isStale(journey, proposal, candidate, now)) {
             log.debug("[JourneyReroute] 수락 재확인 실패 journeyId={} proposalId={}",
                     journey.getId(), proposal.getId());
             throw new BusinessException(JourneyErrorCode.REROUTE_PROPOSAL_STALE);
@@ -592,32 +589,6 @@ public class RerouteAcceptTxService {
     }
 
     // ── 보조 ────────────────────────────────────────────────────────────────
-
-    /**
-     * 저장된 후보 중 사용자가 고른 것.
-     *
-     * <p><b>모르는 봉투 판은 없는 것으로 취급한다.</b> 새 계약으로 옛 행을 읽으면 필드 뜻이 어긋난
-     * 채 수락까지 흘러가고, 그 결과는 사용자가 고르지 않은 경로로 여정이 바뀌는 것이다.
-     */
-    private RerouteCandidate candidateOf(RerouteProposal proposal, String candidateId) {
-        RerouteCandidateEnvelope envelope;
-        try {
-            envelope = objectMapper.treeToValue(
-                    proposal.getCandidates(), RerouteCandidateEnvelope.class);
-        } catch (Exception e) {
-            log.warn("[JourneyReroute] 후보를 읽지 못했다 proposalId={}: {}",
-                    proposal.getId(), e.getMessage());
-            throw new BusinessException(JourneyErrorCode.REROUTE_CANDIDATE_NOT_FOUND);
-        }
-        if (!envelope.isCurrentVersion()) {
-            throw new BusinessException(JourneyErrorCode.REROUTE_CANDIDATE_NOT_FOUND);
-        }
-        return envelope.candidates().stream()
-                .filter(candidate -> candidateId.equals(candidate.candidateId()))
-                .findFirst()
-                .orElseThrow(() ->
-                        new BusinessException(JourneyErrorCode.REROUTE_CANDIDATE_NOT_FOUND));
-    }
 
     private List<JourneyLeg> currentLegs(JourneySession journey) {
         return legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(

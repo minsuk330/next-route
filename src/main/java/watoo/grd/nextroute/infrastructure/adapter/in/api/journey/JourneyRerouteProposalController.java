@@ -11,8 +11,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
+import watoo.grd.nextroute.application.journey.dto.RerouteCandidateRoute;
 import watoo.grd.nextroute.application.journey.dto.RerouteDecision;
 import watoo.grd.nextroute.application.journey.port.in.AcceptRerouteProposalUseCase;
+import watoo.grd.nextroute.application.journey.port.in.GetRerouteCandidateRouteUseCase;
 import watoo.grd.nextroute.application.journey.service.RerouteProposalService;
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposalStatus;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.AcceptRerouteProposalRequest;
@@ -38,6 +40,7 @@ public class JourneyRerouteProposalController {
 
     private final RerouteProposalService proposalService;
     private final AcceptRerouteProposalUseCase acceptUseCase;
+    private final GetRerouteCandidateRouteUseCase candidateRouteUseCase;
 
     /** 살아 있는 제안. 없으면 body 의 {@code proposal} 이 null 이다({@code 204} 가 아니다). */
     @GetMapping("/{journeyId}/reroute-proposals/active")
@@ -61,6 +64,23 @@ public class JourneyRerouteProposalController {
                                            @Valid @RequestBody CreateRerouteProposalRequest request) {
         return RerouteProposalResponse.from(
                 proposalService.request(userId, journeyId, request.transferIndexOrDefault()));
+    }
+
+    /**
+     * 후보 하나의 경로(#259). 앱이 지도 말풍선을 누를 때 부른다.
+     *
+     * <p>{@code path} 는 수락하면 적용될 값 그대로다 — 다시 검색하지 않는다. 모양은
+     * {@code /api/route/search} 의 {@code paths[]} 원소와 같다. 지금 타는 구간은 {@code ride} 로
+     * 따로 나간다.
+     *
+     * <p>제안이 낡았으면 {@code 409 REROUTE_PROPOSAL_STALE} 이다. 앱은 목록을 새로 받는다.
+     */
+    @GetMapping("/{journeyId}/reroute-proposals/{proposalId}/candidates/{candidateId}/route")
+    public RerouteCandidateRoute candidateRoute(@AuthenticationPrincipal Long userId,
+                                                @PathVariable Long journeyId,
+                                                @PathVariable Long proposalId,
+                                                @PathVariable String candidateId) {
+        return candidateRouteUseCase.get(userId, journeyId, proposalId, candidateId);
     }
 
     /**

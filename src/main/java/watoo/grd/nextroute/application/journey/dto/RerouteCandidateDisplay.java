@@ -49,7 +49,17 @@ public record RerouteCandidateDisplay(
      * @param name    화면에 나갈 이름. 못 풀면 null
      * @param alightAt 그 정류장에 <b>내리는</b> 시각(실시간 근거). 계획 하차점이면 환승 준비 시각
      * @param planned 원래 계획된 하차점인가. true 면 "계속 타고 가서 계획대로 내린다"
+     * @param x       경도(WGS84). 앱이 말풍선을 놓는 자리다(#259) — {@code stopId} 는 서울 노선
+     *                체계라 앱이 지도 정류장과 맞춰 좌표를 찾으면 경기·지방 노선에서 어긋난다.
+     *                옛 저장 JSON 이거나 못 구하면 null
+     * @param y       위도(WGS84). {@code x} 와 함께 null 이다
      */
-    public record AlightStop(String stopId, String name, Instant alightAt, boolean planned) {
+    public record AlightStop(String stopId, String name, Instant alightAt, boolean planned,
+                             Double x, Double y) {
+
+        /** 좌표가 없는 하차점(옛 저장 JSON·옛 호출부)용. */
+        public AlightStop(String stopId, String name, Instant alightAt, boolean planned) {
+            this(stopId, name, alightAt, planned, null, null);
+        }
     }
 }

@@ -631,8 +631,11 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
                         confidence,
                         attempt.observedAt(),
                         summaries(scored.candidate().prepared()),
+                        // 좌표는 검색 출발점과 같은 값이다 — 계획 하차점이면 대기 단계의 시작,
+                        // 중간 하차면 그 정류장. 앱이 말풍선을 놓는 자리다(#259).
                         new RerouteCandidateDisplay.AlightStop(origin.stopId(), origin.stopName(),
-                                origin.alightAt(), origin.planned())));
+                                origin.alightAt(), origin.planned(),
+                                origin.waypoints().origin().x(), origin.waypoints().origin().y())));
     }
 
     /** 걷기만으로 닿는 경로에는 예측이 없다. 실시간도 모델도 아니므로 정적 값이라고 말한다. */
