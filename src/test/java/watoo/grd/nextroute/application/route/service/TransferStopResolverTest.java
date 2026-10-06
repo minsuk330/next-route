@@ -65,6 +65,16 @@ class TransferStopResolverTest {
     }
 
     @Test
+    @DisplayName("모양을 모르는 id(ODsay 내부 busID·임의 문자열)는 예전처럼 번호로 폴백한다")
+    void unknownShapedIdStillFallsBack() {
+        when(routeRepo.findByRouteId(anyString())).thenReturn(Optional.empty());
+        when(routeRepo.findByRouteNameIn(List.of("370"))).thenReturn(List.of(seoulRoute("100100370", "370")));
+
+        assertThat(resolver.resolveRoute("1052", "370")).isPresent();     // ODsay busID
+        assertThat(resolver.resolveRoute("BL-370", "370")).isPresent();   // 시험 fixture 모양
+    }
+
+    @Test
     @DisplayName("경기 노선 id(234001577 M4130)는 번호 폴백 없이 empty")
     void gyeonggiIdDoesNotFallBack() {
         when(routeRepo.findByRouteId("234001577")).thenReturn(Optional.empty());
