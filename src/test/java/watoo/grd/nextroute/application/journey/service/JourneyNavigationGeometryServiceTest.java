@@ -206,6 +206,113 @@ class JourneyNavigationGeometryServiceTest {
     }
 
     @Test
+    @DisplayName("#258 서울 노선표에 없는 버스(경기 M4130)는 검색 결과 정류장으로 정류장·구간을 채운다")
+    void unresolvedBusUsesSnapshotStops() {
+        // 2026-10-06 여정 110 실측: 서울역버스환승센터 → 명동입구, M버스라 중간 정차 없음. 후보는 노선·순번 미해석.
+        SubPathResult bus = SubPathFixture.bus(10).names("서울역버스환승센터(6번승강장)(중)", "명동입구")
+                .coords(126.972733, 37.555149, 126.982597, 37.564682)
+                .busStops("101000006", "101000148")
+                .lanes(SubPathFixture.busLane("M4130", "234001577"))
+                .stations(
+                        new StationResult(0, "1:BS_TAGO_GGB101000006", "서울역버스환승센터(6번승강장)(중)",
+                                126.972733, 37.555149),
+                        new StationResult(1, "1:BS_TAGO_GGB101000148", "명동입구", 126.982597, 37.564682))
+                .polyline(new CoordPoint(126.972733, 37.555149), new CoordPoint(126.977, 37.56),
+                        new CoordPoint(126.982597, 37.564682))
+                .build();
+        givenJourney(new PathResult(1, null, List.of(walkOnly(), bus), List.of()));
+        JourneyLeg wait = leg(1, JourneyLegType.WAIT_BUS, null);
+        givenLegs(leg(0, JourneyLegType.WALK, 300), wait, leg(2, JourneyLegType.RIDE_BUS, 600));
+        givenOptions(option(wait.getId(), null, null, null));
+
+        LegGeometry busLeg = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(2);
+
+        assertThat(busLeg.stops()).extracting(s -> s.seq(), s -> s.stopId(), s -> s.stopName())
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(0, "101000006", "서울역버스환승센터(6번승강장)(중)"),
+                        org.assertj.core.groups.Tuple.tuple(1, "101000148", "명동입구"));
+        assertThat(busLeg.segments()).singleElement().satisfies(segment -> {
+            assertThat(segment.fromSeq()).isZero();
+            assertThat(segment.toSeq()).isEqualTo(1);
+        });
+        assertThat(busLeg.quality()).isEqualTo(GeometryQuality.OK);
+        assertThat(busLeg.points()).hasSize(3);
+        verify(busRouteStopRepository, never()).findStopsByRouteId(anyString());
+    }
+
+    @Test
+    @DisplayName("#258 지방(TAGO) 버스는 접두사 포함 id 로, 중간 정류장까지 순서대로 싣는다 — 섞여 와도 정렬")
+    void unresolvedRegionalBusKeepsPrefixedIdsInOrder() {
+        SubPathResult bus = SubPathFixture.bus(15).names("영도대교", "부산역")
+                .coords(129.036, 35.095, 129.040, 35.115)
+                .busStops("BSB167850202", "BSB505850000")
+                .lanes(SubPathFixture.busLane("186", "BSB5200186000"))
+                .stations(
+                        new StationResult(2, "1:BS_TAGO_BSB505850000", "부산역", 129.040, 35.115),
+                        new StationResult(0, "1:BS_TAGO_BSB167850202", "영도대교", 129.036, 35.095),
+                        new StationResult(1, "1:BS_TAGO_BSB999", "중간", 129.038, 35.105))
+                .build();
+        givenJourney(new PathResult(1, null, List.of(walkOnly(), bus), List.of()));
+        JourneyLeg wait = leg(1, JourneyLegType.WAIT_BUS, null);
+        givenLegs(leg(0, JourneyLegType.WALK, 300), wait, leg(2, JourneyLegType.RIDE_BUS, 900));
+        givenOptions();   // 후보 자체가 없음
+
+        LegGeometry busLeg = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(2);
+
+        assertThat(busLeg.stops()).extracting(s -> s.stopId())
+                .containsExactly("BSB167850202", "BSB999", "BSB505850000");
+        assertThat(busLeg.segments()).extracting(s -> s.fromSeq()).containsExactly(0, 1);
+        // 선이 없어 정류장 직선 — 실측이 아니므로 OK 가 아니다
+        assertThat(busLeg.quality()).isEqualTo(GeometryQuality.APPROXIMATE);
+    }
+
+    @Test
+    @DisplayName("#258 검색 결과에 정류장 목록이 없으면 승차·하차 두 곳이라도 싣는다")
+    void unresolvedBusWithoutStationsUsesBoardAndAlight() {
+        SubPathResult bus = SubPathFixture.bus(10).names("승차", "하차")
+                .coords(127.001, 37.5, 127.02, 37.5)
+                .busStops("228000191", "104000279")
+                .lanes(SubPathFixture.busLane("5600", "228000184"))
+                .build();
+        givenJourney(new PathResult(1, null, List.of(walkOnly(), bus), List.of()));
+        JourneyLeg wait = leg(1, JourneyLegType.WAIT_BUS, null);
+        givenLegs(leg(0, JourneyLegType.WALK, 300), wait, leg(2, JourneyLegType.RIDE_BUS, 600));
+        givenOptions(option(wait.getId(), null, null, null));
+
+        LegGeometry busLeg = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(2);
+
+        assertThat(busLeg.stops()).extracting(s -> s.seq(), s -> s.stopId(), s -> s.stopName())
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(0, "228000191", "승차"),
+                        org.assertj.core.groups.Tuple.tuple(1, "104000279", "하차"));
+        assertThat(busLeg.segments()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("#258 정류장을 하나도 못 구하면 선은 주되 품질을 OK 가 아닌 값으로 낮춘다")
+    void unresolvedBusWithoutAnyStopIsDegraded() {
+        SubPathResult bus = SubPathFixture.bus(10)
+                .lanes(SubPathFixture.busLane("M4130", "234001577"))
+                .polyline(new CoordPoint(127.001, 37.5), new CoordPoint(127.02, 37.5))
+                .build();
+        givenJourney(new PathResult(1, null, List.of(walkOnly(), bus), List.of()));
+        JourneyLeg wait = leg(1, JourneyLegType.WAIT_BUS, null);
+        givenLegs(leg(0, JourneyLegType.WALK, 300), wait, leg(2, JourneyLegType.RIDE_BUS, 600));
+        givenOptions(option(wait.getId(), null, null, null));
+
+        LegGeometry busLeg = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(2);
+
+        assertThat(busLeg.stops()).isEmpty();
+        assertThat(busLeg.points()).hasSize(2);
+        assertThat(busLeg.quality()).isNotEqualTo(GeometryQuality.OK);
+        assertThat(busLeg.segments()).extracting(s -> s.quality()).doesNotContain(GeometryQuality.OK);
+    }
+
+    private SubPathResult walkOnly() {
+        return SubPathFixture.walk(5).names("집", "정류장").coords(127.0, 37.5, 127.001, 37.5).build();
+    }
+
+    @Test
     @DisplayName("같은 노선을 여러 단계에서 사용해도 정류장은 요청당 한 번만 조회한다")
     void cachesStopsByRouteWithinRequest() {
         givenJourney(walkThenBus());
