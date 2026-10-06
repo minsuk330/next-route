@@ -21,3 +21,7 @@ data/otp-seoul/build-config.json
 data/otp-seoul/otp-config.json
 data/otp-national/shape-build/
 data/otp-national/graph-build/
+
+# GBIS route line/station cache (fetch_gbis_routes.py)
+data/input/gbis/
+data/otp-national/gbis-apply-report.json
