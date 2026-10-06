@@ -46,6 +46,7 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
     private static final String EVENT_ID_REUSED = "EVENT_ID_REUSED";
 
     private final JourneySessionRepository sessionRepository;
+    private final RerouteRefreshSignal rerouteRefreshSignal;
     private final SubwayOfflineProtectionPolicy subwayProtectionPolicy;
     private final JourneyLegRepository legRepository;
     private final JourneyEventRepository eventRepository;
@@ -140,6 +141,8 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
                     legsByIndex.get(transition.newCurrentLegIndex()), null, appliedAt);
             // 단계가 바뀌면 상황이 크게 달라진다. 다음 평가 주기를 기다리지 않는다.
             journey.scheduleEvaluationAt(appliedAt);
+            // 재탐색 보드도 같다 — 기점이 바뀌었다(#264 PR-2).
+            rerouteRefreshSignal.requestNow(journey.getId());
         }
         if (transition.newStatus() != null) {
             journey.end(transition.newStatus(), transition.endReason(), appliedAt);

@@ -271,4 +271,106 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
     @Modifying(clearAutomatically = true)
     @Query("update JourneySession s set s.deletedAt = :now where s.userId = :userId and s.deletedAt is null")
     int softDeleteByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
+
+    // ── 재탐색 보드 갱신(#264, reroute-periodic-board PR-2) ──────────────────────
+
+    /**
+     * 갱신할 때가 된 여정을 선점한다. {@code claimDueBatch} 와 같은 방식이고, 선점은
+     * {@code reroute_refresh_claimed_until} 로만 표시한다(V58) — 예정 시각과 섞지 않는다.
+     *
+     * <p>{@code @Modifying} 이 아니다({@code RETURNING}). 반드시 {@code @Transactional} 안에서 부른다.
+     */
+    @Query(value = """
+            WITH picked AS (
+                SELECT s.id FROM journey_session s
+                WHERE s.status = 'ACTIVE' AND s.deleted_at IS NULL
+                  AND s.reroute_refresh_at IS NOT NULL
+                  AND s.reroute_refresh_at <= :now
+                  AND (s.reroute_refresh_claimed_until IS NULL
+                       OR s.reroute_refresh_claimed_until <= :now)
+                ORDER BY s.reroute_refresh_at
+                LIMIT :batchSize
+                FOR UPDATE OF s SKIP LOCKED)
+            UPDATE journey_session j
+               SET reroute_refresh_claimed_until = :leaseUntil,
+                   reroute_refresh_dirty = false
+            FROM picked
+            WHERE j.id = picked.id
+            RETURNING j.id
+            """, nativeQuery = true)
+    List<Long> claimRerouteRefreshBatch(@Param("now") Instant now,
+                                        @Param("leaseUntil") Instant leaseUntil,
+                                        @Param("batchSize") int batchSize);
+
+    /**
+     * 갱신을 마치고 다음 예정을 심는다. <b>내가 잡은 선점일 때만</b> 쓴다.
+     *
+     * <p>선점 중에 신호가 왔으면({@code dirty}) 최소 간격 뒤로, 아니면 기본 주기 뒤로 잡는다. 조건 없이
+     * 쓰면 그 사이 다른 워커가 다시 잡은 선점이나 들어온 신호를 덮는다.
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query(value = """
+            UPDATE journey_session
+               SET reroute_refresh_claimed_until = NULL,
+                   reroute_last_refresh_at = :now,
+                   reroute_refresh_at = CASE WHEN reroute_refresh_dirty
+                                             THEN CAST(:dirtyAt AS timestamptz)
+                                             ELSE CAST(:nextAt AS timestamptz) END,
+                   reroute_refresh_dirty = false
+             WHERE id = :id AND reroute_refresh_claimed_until = :leaseUntil
+            """, nativeQuery = true)
+    int finishRerouteRefresh(@Param("id") Long id,
+                             @Param("leaseUntil") Instant leaseUntil,
+                             @Param("now") Instant now,
+                             @Param("nextAt") Instant nextAt,
+                             @Param("dirtyAt") Instant dirtyAt);
+
+    /**
+     * "지금 갱신해라" 신호(정류장 통과·구간 전이·수락·위험 하락).
+     *
+     * <p>선점 중이면 예정을 건드리지 않고 {@code dirty} 만 남긴다 — 앞당기면 다른 워커가 같은 여정을
+     * 다시 잡는다. 선점 중이 아니면 예정을 "지금(최소 간격 존중)"으로 당긴다. 이미 더 이른 예정이 있으면
+     * 그대로 둔다. 예정이 없던 여정(플래그를 켜기 전에 시작한 여정)은 여기서 처음 심긴다.
+     *
+     * @param bypassMinGap 위험 하락처럼 30초를 기다리면 안 되는 신호
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query(value = """
+            UPDATE journey_session
+               SET reroute_refresh_dirty = CASE
+                       WHEN reroute_refresh_claimed_until > CAST(:now AS timestamptz) THEN true
+                       ELSE reroute_refresh_dirty END,
+                   reroute_refresh_at = CASE
+                       WHEN reroute_refresh_claimed_until > CAST(:now AS timestamptz)
+                           THEN reroute_refresh_at
+                       ELSE LEAST(COALESCE(reroute_refresh_at, CAST(:farFuture AS timestamptz)),
+                                  CASE WHEN CAST(:bypassMinGap AS boolean)
+                                            OR reroute_last_refresh_at IS NULL
+                                           THEN CAST(:now AS timestamptz)
+                                       ELSE GREATEST(CAST(:now AS timestamptz),
+                                                     reroute_last_refresh_at
+                                                     + (CAST(:minGapSeconds AS integer)
+                                                        * interval '1 second')) END)
+                       END
+             WHERE id = :id AND status = 'ACTIVE' AND deleted_at IS NULL
+            """, nativeQuery = true)
+    int requestRerouteRefresh(@Param("id") Long id,
+                              @Param("now") Instant now,
+                              @Param("minGapSeconds") int minGapSeconds,
+                              @Param("bypassMinGap") boolean bypassMinGap,
+                              @Param("farFuture") Instant farFuture);
+
+    /** 예정이 없을 때만 심는다(여정 시작). 이미 신호로 잡힌 예정을 늦추지 않는다. */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query(value = """
+            UPDATE journey_session SET reroute_refresh_at = :at
+             WHERE id = :id AND reroute_refresh_at IS NULL
+            """, nativeQuery = true)
+    int scheduleRerouteRefreshIfAbsent(@Param("id") Long id, @Param("at") Instant at);
+
+    /** 수락 시각을 남긴다. 수락 후 3분 동안 "새 기회" push 를 막는 기준이다(PR-5). */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query(value = "UPDATE journey_session SET reroute_accepted_at = :at WHERE id = :id",
+            nativeQuery = true)
+    int markRerouteAccepted(@Param("id") Long id, @Param("at") Instant at);
 }

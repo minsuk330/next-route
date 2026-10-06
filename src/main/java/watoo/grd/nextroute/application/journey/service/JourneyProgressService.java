@@ -47,6 +47,7 @@ public class JourneyProgressService implements ApplyJourneyProgressUseCase {
     private final JourneyQueryService queryService;
     private final SubwayOfflineProtectionPolicy subwayProtectionPolicy;
     private final JourneyNavigationProperties properties;
+    private final RerouteRefreshSignal rerouteRefreshSignal;
     private final Clock clock;
 
     @Override
@@ -64,6 +65,8 @@ public class JourneyProgressService implements ApplyJourneyProgressUseCase {
         }
 
         JourneyLeg leg = requireLeg(journey, command);
+        // UPDATE 전에 읽어 둔다 — 조건부 UPDATE 뒤에는 영속성 컨텍스트가 비워져 직전 값을 잃는다.
+        Integer stopsBefore = leg.getRemainingStops();
         Result result = merge(leg, command);
 
         if (result == Result.APPLIED) {
@@ -82,7 +85,25 @@ public class JourneyProgressService implements ApplyJourneyProgressUseCase {
             throw new BusinessException(JourneyErrorCode.STALE_ROUTE_REVISION);
         }
         refreshSubwayProtection(refreshed, leg, command, result);
+        signalStopPassed(journeyId, stopsBefore, command, result);
         return new JourneyProgressOutcome(result, queryService.snapshotOf(refreshed));
+    }
+
+    /**
+     * 정류장·역을 하나 지났으면 재탐색 보드를 바로 다시 찾게 한다(#264 PR-2).
+     *
+     * <p>기준은 앱이 보낸 남은 정류장·역 수가 <b>줄었는가</b>다. 버스는 정류장, 지하철은 역 수다(#264
+     * 결정 3-가). 처음 온 진행 보고(직전 값 없음)는 줄었는지 알 수 없지만, 플래그를 켜기 전에 시작한 여정의
+     * 예정을 심는 기회라 함께 신호를 보낸다 — 이미 예정이 있으면 최소 간격 규칙이 막는다.
+     */
+    private void signalStopPassed(Long journeyId, Integer stopsBefore, JourneyProgressCommand command,
+                                  Result result) {
+        if (result != Result.APPLIED || command.remainingStops() == null) {
+            return;
+        }
+        if (stopsBefore == null || command.remainingStops() < stopsBefore) {
+            rerouteRefreshSignal.requestNow(journeyId);
+        }
     }
 
     /**

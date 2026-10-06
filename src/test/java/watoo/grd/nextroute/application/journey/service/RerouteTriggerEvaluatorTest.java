@@ -39,6 +39,7 @@ class RerouteTriggerEvaluatorTest {
     private final JourneyRerouteProperties properties = new JourneyRerouteProperties();
     private final JourneyRerouteMetrics metrics = new JourneyRerouteMetrics(registry);
     /** 알림 발행은 PR-3 의 별도 관심사다. 여기서는 "방아쇠가 넘긴다"만 보면 된다. */
+    private final RerouteRefreshSignal refreshSignal = org.mockito.Mockito.mock(RerouteRefreshSignal.class);
     private final RerouteAlertPublisher alertPublisher =
             org.mockito.Mockito.mock(RerouteAlertPublisher.class);
 
@@ -58,6 +59,18 @@ class RerouteTriggerEvaluatorTest {
         assertThat(askedScopes)
                 .as("아무것도 만들지 않는 셈이 사용자 요청을 2분간 막으면 안 된다")
                 .containsExactly(RerouteCooldownPort.Scope.TRIGGER);
+    }
+
+    @Test
+    @DisplayName("보드 모드에서는 제안을 만들지 않고 보드를 바로(최소 간격 우회) 다시 찾게 한다(#264)")
+    void boardModeRequestsUrgentRefreshInsteadOfPublishing() {
+        properties.getBoard().setEnabled(true);
+        RerouteTriggerEvaluator evaluator = evaluator(admitting(true));
+
+        evaluator.evaluate(context(), batch(TransferStatus.AT_RISK), NOW);
+
+        org.mockito.Mockito.verify(refreshSignal).requestUrgent(JOURNEY_ID);
+        org.mockito.Mockito.verifyNoInteractions(alertPublisher);
     }
 
     @Test
@@ -159,7 +172,7 @@ class RerouteTriggerEvaluatorTest {
     private RerouteTriggerEvaluator evaluator(RerouteCooldownPort cooldownPort) {
         return new RerouteTriggerEvaluator(
                 new RerouteTriggerPolicy(properties), alertPublisher, cooldownPort,
-                metrics, properties);
+                metrics, properties, refreshSignal);
     }
 
     private RerouteCooldownPort admitting(boolean admit) {

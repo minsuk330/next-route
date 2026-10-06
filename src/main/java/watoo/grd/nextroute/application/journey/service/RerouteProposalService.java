@@ -48,6 +48,7 @@ public class RerouteProposalService {
     private final JourneyRerouteProperties properties;
     private final JourneyRerouteMetrics metrics;
     private final Clock clock;
+    private final RerouteBoardRefreshService boardRefreshService;
 
     /**
      * 공급자를 {@code priority} 순으로 <b>주입 시점에 한 번</b> 정렬한다. 부를 때마다 정렬하면
@@ -60,7 +61,8 @@ public class RerouteProposalService {
                                   List<RerouteCandidateProvider> providers,
                                   JourneyRerouteProperties properties,
                                   JourneyRerouteMetrics metrics,
-                                  Clock clock) {
+                                  Clock clock,
+                                  RerouteBoardRefreshService boardRefreshService) {
         this.sessionRepository = sessionRepository;
         this.txService = txService;
         this.eligibilityPolicy = eligibilityPolicy;
@@ -70,6 +72,7 @@ public class RerouteProposalService {
         this.properties = properties;
         this.metrics = metrics;
         this.clock = clock;
+        this.boardRefreshService = boardRefreshService;
     }
 
     /**
@@ -164,6 +167,13 @@ public class RerouteProposalService {
         if (denial.isPresent()) {
             metrics.recordRejected(denial.get());
             throw new BusinessException(JourneyErrorCode.REROUTE_NOT_ELIGIBLE);
+        }
+
+        if (properties.getBoard().isEnabled()) {
+            // 보드 모드(#264 PR-2): 새 제안을 심지 않고 보드를 지금 한 번 갱신해 그대로 보여 준다.
+            // 따로 심으면 보드를 밀어낸다. 적격성(시간 창·cooldown, 테스트 계정 우회)은 위에서 같다.
+            boardRefreshService.refresh(journeyId);
+            return txService.findActive(journeyId);
         }
 
         RerouteContext context = new RerouteContext(journeyId, userId, journey.getRouteRevision(),

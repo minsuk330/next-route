@@ -54,6 +54,7 @@ public class SubwayRingUpdateService {
     private final SubwayRingMetrics metrics;
     private final JourneySubwayRingProperties properties;
     private final Clock clock;
+    private final RerouteRefreshSignal rerouteRefreshSignal;
 
     /** @return 훑은 건수 */
     public int runOnce() {
@@ -103,6 +104,10 @@ public class SubwayRingUpdateService {
         }
         ringPort.save(state);
         metrics.recordUpdated(state, observation, binding.getStatus());
+        // 고정 열차가 역을 하나 지났다 — 재탐색 보드를 바로 다시 찾게 한다(#264 PR-2).
+        if (state.advancedFrom(previous)) {
+            rerouteRefreshSignal.requestNow(binding.getJourneyId());
+        }
 
         // 원격 갱신은 링 저장과 규칙이 다르다 — 링은 latest-wins 로 덮어써도 되지만 push 는
         // 화면이 실제로 바뀔 때만, 그리고 최신인 동안만 재시도한다. 트랜잭션도 따로 연다.

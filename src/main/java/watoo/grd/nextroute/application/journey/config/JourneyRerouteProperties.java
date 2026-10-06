@@ -112,6 +112,37 @@ public class JourneyRerouteProperties {
 
         /** 보드 유효시간 = 마지막 갱신 + 이 값. 워커가 멈추면 낡은 보드가 저절로 사라진다. */
         private Duration ttl = Duration.ofMinutes(3);
+
+        private final Refresh refresh = new Refresh();
+
+        /** 갱신 스케줄러(worker). */
+        @Getter
+        @Setter
+        public static class Refresh {
+
+            private long tickMs = 1000;
+
+            /** 한 번에 선점할 여정 수. 실행기 크기의 두 배를 넘기면 뒤쪽이 lease 안에 못 돈다. */
+            private int batchSize = 6;
+
+            /** 선점 유지 시간. 한 회차의 최악 소요(검색·실시간·예측)보다 길어야 한다. */
+            private int leaseSeconds = 60;
+
+            /** 신호가 없을 때의 주기. */
+            private int intervalSeconds = 60;
+
+            /** 정류장 통과 신호의 최소 간격. 위험 하락은 우회한다. */
+            private int minGapSeconds = 30;
+
+            /** 여정 시작 뒤 첫 갱신까지. */
+            private int initialDelaySeconds = 60;
+
+            /**
+             * 동시에 도는 갱신 수(전용 실행기 크기). 평가기 슬롯과 <b>나누지 않는다</b> — 갱신은 몇 초씩
+             * 잡으므로 섞으면 환승 위험 판정이 굶는다.
+             */
+            private int permits = 3;
+        }
     }
 
     @Getter

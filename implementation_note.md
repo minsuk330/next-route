@@ -3207,3 +3207,31 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `RerouteBoardMergerTest` 23/23, `RerouteCandidateContractTest` +3(v1 모양 불변·v1 읽힘·v2 VISIBLE 만)
 - `RerouteAcceptIT` 20/20(+6: 제자리 갱신·전이 후 수락 200·stale 버림·v1 대체·숨김 자리 선택 불가·수락 후 늦은 갱신 버림)
 - 전체 `./gradlew test`: 2306 중 실패 2 = `JourneyTransferAssessmentIT`·`BusAlertWakeupBurstIT` — **기존 무관**(clean main 493af781 클론에서 동일 실패 확인)
+
+## 재탐색 주기 보드 PR-2 — 갱신 스케줄러 + 시점 신호 (#264, branch feat/reroute-board-refresh, 2026-10-07)
+
+### 확정
+- **V58 추가(PLAN 에 없던 것)**: `journey_session.reroute_refresh_claimed_until`. V57 의 `reroute_refresh_at` 하나로는 "선점 lease"와 "다음 예정"을 가를 수 없다(둘 다 미래 시각). 선점 중 신호가 예정을 당기면 다른 워커가 같은 여정을 다시 선점해 검색을 두 번 돈다 → 선점은 claimed_until 로만, 선점 중 신호는 `reroute_refresh_dirty` 로만
+- 마무리 CAS: `claimed_until = :lease` 일 때만, dirty 면 now+30s 아니면 now+60s. 갱신이 터져도 finally 로 마무리
+- 신호 자리: 진행 보고(remainingStops 감소, 첫 보고는 시드), 구간 전이(`JourneyCommandService`, 상태기계 아님), 여정 시작(+60s, 이미 있으면 유지), 수락(accepted_at + 즉시), 고정 열차 역 통과(`SubwayRingState.advancedFrom`), 위험 하락(보드 모드 방아쇠 → `requestUrgent` 최소간격 우회, alertPublisher 호출 안 함)
+- 보드 모드 사용자 요청: 적격성 통과 후 v1 제안 대신 보드 동기 갱신 + findActive
+- 후보 원천은 임시로 기존 공급자(다음 환승 기준). 근거 false(180s), 대기 증가 0. 문턱 미만 숨김·환승 없음·걷기/대기 기점은 PR-3
+- 지하철 진행 보고에도 남은 역 수를 받는다(결정 3-가) — 서버는 원래 막지 않았고 문서 계약만 바꿈
+- 전용 실행기 `rerouteBoardRefreshExecutor`(permits 3, queue=batch), 평가기 슬롯 비공유. 스케줄러·실행기 모두 worker + 보드 플래그 조건부 빈
+
+### 함정
+- native `CASE`/`LEAST` 안의 파라미터가 타입 없이 text 로 추론 → `column ... is of type timestamp with time zone but expression is of type text` ← 모든 파라미터에 `CAST(... AS timestamptz|boolean|integer)`
+- 신호가 트랜잭션 밖(방아쇠 평가기·링 갱신)에서 불리면 `@Modifying` 이 "No EntityManager with actual transaction" ← 신호 메서드 `@Transactional(REQUIRED)`. REQUIRES_NEW 금지: 수락·명령은 이미 세션 행을 잠근 트랜잭션이라 같은 행을 새 트랜잭션으로 쓰면 자기 잠금에 걸린다
+- 신호는 예외를 삼키므로(사용자 경로 보호) 쿼리 오류가 조용히 묻힌다 — 이번 두 함정도 IT 단언이 아니었으면 몰랐다. 신호 SQL 은 IT 로만 검증 가능
+
+### 좌표
+- 선점·마무리·신호 SQL: `JourneySessionRepository.claimRerouteRefreshBatch / finishRerouteRefresh / requestRerouteRefresh / scheduleRerouteRefreshIfAbsent / markRerouteAccepted`
+- `RerouteRefreshSignal`, `RerouteBoardRefreshClaimService`, `RerouteBoardRefreshService`, `RerouteBoardRefreshScheduler`, `RerouteBoardRefreshPoolConfig`, `RerouteRouteFingerprint`
+
+### 배포
+- **V58 VPS 배치 필요(jar 포함 확인). 순서 V57 → V58.** 보드 플래그 off 라 동작 변화 없음(신호 no-op, 스케줄러 빈 없음)
+
+### 검증
+- 단위: `SubwayRingStateAdvanceTest` 3/3, `RerouteBoardRefreshSchedulerTest` 2/2, `RerouteTriggerEvaluatorTest` 9/9(+1), `RerouteProposalServiceTest` 18/18(+1)
+- IT: `RerouteAcceptIT` 27/27(+7: 플래그 off 무쓰기, 최소간격·우회, 선점 중 dirty·재선점 불가, 마무리 lease CAS, 시작 +60s, 정류장 감소 신호, 갱신 1회가 v2 보드 행 남김)
+- 전체 `./gradlew test` 2351 중 실패 2 = `JourneyTransferAssessmentIT`·`BusAlertWakeupBurstIT` — 기존 무관(PR-1 에서 clean main 동일 확인)
