@@ -92,6 +92,19 @@ class JdbcRegionalBusRouteStopStoreIT {
         jdbc.update("DELETE FROM regional_bus_route_stop");
     }
 
+    @Test
+    @DisplayName("노선 하나의 정류장을 실시간 순번 오름차순으로 돌려준다 — 가상점 표시 포함(#264 PR-4)")
+    void findRouteStopsOrdersBySeq() {
+        store.replaceRoute(RegionalBusProvider.GG, "233000099", "7777", "31010",
+                List.of(stop("C", 3), stop("A", 1), stop("WP-B", 2)), AT);
+
+        List<RegionalRouteStop> stops = store.findRouteStops(RegionalBusProvider.GG, "233000099");
+
+        assertThat(stops).extracting(RegionalRouteStop::stopId).containsExactly("A", "WP-B", "C");
+        assertThat(stops.get(1).waypoint()).isTrue();
+        assertThat(store.findRouteStops(RegionalBusProvider.TAGO, "233000099")).isEmpty();
+    }
+
     private static RegionalRouteStop stop(String id, int seq) {
         return new RegionalRouteStop(id, id + "명", seq, seq == 2 ? Boolean.TRUE : null, null,
                 id.contains("WP") ? Boolean.TRUE : Boolean.FALSE, 37.0, 127.0);

@@ -69,7 +69,8 @@ public class JourneyRerouteMetrics {
      */
     private static final Set<String> KNOWN_ORIGIN_OUTCOMES = Set.of(
             "admitted", "no-progress", "stale-progress", "ambiguous-stop", "position-out-of-range",
-            "no-realtime", "below-lead-time", "arrival-blocked");
+            "no-realtime", "below-lead-time", "arrival-blocked",
+            "route-unknown", "stop-unjoined", "quota-exhausted");
 
     /**
      * 서버가 먼저 알리는 경로의 결말(PR-3).
