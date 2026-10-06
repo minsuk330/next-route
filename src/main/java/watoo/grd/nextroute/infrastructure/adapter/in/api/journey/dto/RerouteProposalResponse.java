@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateSummary;
 import watoo.grd.nextroute.application.journey.dto.RerouteOrigin;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
@@ -33,13 +34,20 @@ public record RerouteProposalResponse(ProposalBody proposal) {
                 view.expiresAt(), view.snapshotObservedAt(),
                 // 변환은 이 팩터리 한 자리에서만 한다. 컨트롤러에서 필드를 골라 담게 하면
                 // 나중에 필드가 하나 늘 때 적용 재료가 실수로 새어 나간다.
-                RerouteCandidateSummary.from(view.candidates())));
+                view.isBoard()
+                        ? RerouteCandidateSummary.from(view.candidates(), view.board().originKinds())
+                        : RerouteCandidateSummary.from(view.candidates()),
+                view.isBoard() ? view.board().version() : null,
+                view.isBoard() ? view.board().refreshedAt() : null));
     }
 
     /**
      * @param origin 이 제안이 가리키는 자리(서울 좌표계). 옛 {@code transferIndex} 를 대신한다
      *               (stage5 2/2) — 그 번호는 leg 경계밖에 못 가리켜 주행 중 정류장에서 내리는
      *               제안을 표현할 수 없었다. 이미 접힌 옛 행을 읽을 때만 null 이다
+     * @param boardVersion 보드(#264)면 갱신 순번. 사건 기반 제안은 칸 자체가 없다
+     * @param refreshedAt  보드를 마지막으로 찾아본 시각. 후보가 0개면 앱은 "지금 경로가 가장 빨라요"와
+     *                     이 시각을 보여 준다
      */
     public record ProposalBody(
             Long proposalId,
@@ -48,6 +56,8 @@ public record RerouteProposalResponse(ProposalBody proposal) {
             RerouteProposalKind kind,
             Instant expiresAt,
             Instant snapshotObservedAt,
-            List<RerouteCandidateSummary> candidates) {
+            List<RerouteCandidateSummary> candidates,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Long boardVersion,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Instant refreshedAt) {
     }
 }

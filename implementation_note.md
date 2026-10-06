@@ -3235,3 +3235,28 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 단위: `SubwayRingStateAdvanceTest` 3/3, `RerouteBoardRefreshSchedulerTest` 2/2, `RerouteTriggerEvaluatorTest` 9/9(+1), `RerouteProposalServiceTest` 18/18(+1)
 - IT: `RerouteAcceptIT` 27/27(+7: 플래그 off 무쓰기, 최소간격·우회, 선점 중 dirty·재선점 불가, 마무리 lease CAS, 시작 +60s, 정류장 감소 신호, 갱신 1회가 v2 보드 행 남김)
 - 전체 `./gradlew test` 2351 중 실패 2 = `JourneyTransferAssessmentIT`·`BusAlertWakeupBurstIT` — 기존 무관(PR-1 에서 clean main 동일 확인)
+
+## 재탐색 주기 보드 PR-6 — API 계약 + HANDOFF (#264, branch feat/reroute-board-api, 2026-10-07)
+
+### 확정
+- 보드 모드 `/active` 는 **DB 에 쓰지 않는다**: resolveStale·expireValidatedOut 생략. 응답에서만 거름(개정본 불일치·만료=없음, 도착 60초 미만 자리 제외). 빈 보드도 `candidates: []` 로 내보냄(접지 않음)
+- 응답 신규 칸 `boardVersion`·`refreshedAt`(ProposalBody), `originType`(후보) — 전부 `@JsonInclude(NON_NULL)` 이라 사건 기반 응답 모양 불변(테스트 고정)
+- originType 매핑: TRANSFER_WAIT→PLANNED_ALIGHT, RIDE_INTERIOR→RIDE_STOP, 그 외 enum 이름(PR-3 의 CURRENT_POSITION·WAITING_STOP)
+- ETag = 내보낸 본문 JSON 의 SHA-256 앞 16바이트. board_version 이 아니라 본문 해시인 이유: 읽는 시각에 자리가 빠지므로 버전이 같아도 내용이 바뀐다(리뷰 M2). 보드일 때만, `If-None-Match` 같으면 304
+- `RerouteProposalView` 에 `Board(version, refreshedAt, originKinds)` 추가, 옛 9인자 생성자 유지
+
+### 함정
+- `findActiveBoard` 에서 `journey.getId()` 로 조회하면 단위 테스트 픽스처(id 없는 엔티티)에서 빈 결과 ← 요청의 `journeyId` 를 그대로 사용
+
+### 좌표
+- `RerouteProposalService.findActiveBoard`, `RerouteProposalTxService.boardOf`, `RerouteCandidateSummary.from(list, kinds)`/`originType`, `JourneyRerouteProposalController.active`(ETag)
+- 모바일 인계: `docs/plan/reroute-periodic-board/HANDOFF.md`
+
+### 배포
+- 마이그레이션 없음. 플래그 off 면 응답 바이트 동일
+
+### 검증
+- `RerouteProposalServiceTest` 21/21(+3: 보드 조회 무쓰기·60초 거름, 빈 보드 유지, 만료·개정본 불일치=없음)
+- `JourneyRerouteProposalControllerTest` 16/16(+3: 보드 칸·ETag, 304, v1 모양 불변)
+- `RerouteAcceptIT` 28/28(+1: 보드 모드 조회가 보이는 후보·originKind 를 주고 행을 바꾸지 않음)
+- 전체 2358 중 실패 2 = 기존 무관 2건(동일)

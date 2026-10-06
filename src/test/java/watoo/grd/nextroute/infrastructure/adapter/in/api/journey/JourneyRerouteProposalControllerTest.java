@@ -48,6 +48,7 @@ import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -225,6 +226,61 @@ class JourneyRerouteProposalControllerTest {
                 .doesNotContain("apply")
                 .doesNotContain("subPaths")
                 .doesNotContain("fromLegIndex");
+    }
+
+    // ── 보드 응답(#264 PR-6) ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("보드면 boardVersion·refreshedAt·originType 과 ETag 를 싣는다")
+    void boardResponseCarriesBoardFieldsAndEtag() throws Exception {
+        given(proposalService.findActive(USER_ID, JOURNEY_ID)).willReturn(Optional.of(boardView()));
+
+        mockMvc.perform(get("/api/journeys/{id}/reroute-proposals/active", JOURNEY_ID)
+                        .with(authentication(authUser(USER_ID))))
+                .andExpect(status().isOk())
+                .andExpect(header().exists("ETag"))
+                .andExpect(jsonPath("$.proposal.boardVersion").value(3))
+                .andExpect(jsonPath("$.proposal.refreshedAt").exists())
+                .andExpect(jsonPath("$.proposal.candidates[0].originType").value("RIDE_STOP"));
+    }
+
+    @Test
+    @DisplayName("같은 ETag 로 다시 물으면 304 다 — 15초 폴링이 본문을 다시 받지 않는다")
+    void sameEtagIsNotModified() throws Exception {
+        given(proposalService.findActive(USER_ID, JOURNEY_ID)).willReturn(Optional.of(boardView()));
+        String etag = mockMvc.perform(get("/api/journeys/{id}/reroute-proposals/active", JOURNEY_ID)
+                        .with(authentication(authUser(USER_ID))))
+                .andReturn().getResponse().getHeader("ETag");
+
+        mockMvc.perform(get("/api/journeys/{id}/reroute-proposals/active", JOURNEY_ID)
+                        .header("If-None-Match", etag)
+                        .with(authentication(authUser(USER_ID))))
+                .andExpect(status().isNotModified());
+    }
+
+    @Test
+    @DisplayName("사건 기반 제안은 모양이 그대로다 — ETag·boardVersion·originType 이 없다")
+    void legacyResponseShapeIsUnchanged() throws Exception {
+        given(proposalService.findActive(USER_ID, JOURNEY_ID))
+                .willReturn(Optional.of(viewWithRemainingPath()));
+
+        String body = mockMvc.perform(get("/api/journeys/{id}/reroute-proposals/active", JOURNEY_ID)
+                        .with(authentication(authUser(USER_ID))))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist("ETag"))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain("boardVersion").doesNotContain("refreshedAt")
+                .doesNotContain("originType");
+    }
+
+    private RerouteProposalView boardView() {
+        RerouteProposalView legacy = viewWithRemainingPath();
+        return new RerouteProposalView(legacy.proposalId(), legacy.journeyId(), legacy.routeRevision(),
+                null, legacy.kind(), legacy.baseCommandVersion(), legacy.snapshotObservedAt(),
+                legacy.expiresAt(), legacy.candidates(),
+                new RerouteProposalView.Board(3L, NOW.minusSeconds(10), java.util.Map.of("c1",
+                        watoo.grd.nextroute.application.journey.dto.RerouteOriginKind.RIDE_INTERIOR)));
     }
 
     // ── 후보 경로 조회(#259) ────────────────────────────────────────────────

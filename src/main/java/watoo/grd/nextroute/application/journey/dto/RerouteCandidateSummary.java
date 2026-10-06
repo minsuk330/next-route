@@ -2,7 +2,10 @@ package watoo.grd.nextroute.application.journey.dto;
 
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.util.List;
+import java.util.Map;
 
 /**
  * API 로 나가는 후보. <b>{@code apply} 가 없다.</b>
@@ -18,14 +21,40 @@ import java.util.List;
 public record RerouteCandidateSummary(
         String candidateId,
         RerouteProposalKind kind,
-        RerouteCandidateDisplay display) {
+        RerouteCandidateDisplay display,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String originType) {
 
     public static RerouteCandidateSummary from(RerouteCandidate candidate) {
         return new RerouteCandidateSummary(
-                candidate.candidateId(), candidate.kind(), candidate.display());
+                candidate.candidateId(), candidate.kind(), candidate.display(), null);
     }
 
     public static List<RerouteCandidateSummary> from(List<RerouteCandidate> candidates) {
         return candidates.stream().map(RerouteCandidateSummary::from).toList();
+    }
+
+    /**
+     * 보드(#264) 후보. 기점 종류를 앱이 쓰는 이름으로 싣는다 — 앱은 이 값으로 말풍선을 하차 정류장에
+     * 놓을지(RIDE_STOP·PLANNED_ALIGHT), 내 위치·기다리는 정류장에 놓을지(CURRENT_POSITION·WAITING_STOP)
+     * 고른다. 사건 기반(v1) 후보는 이 칸이 없다(응답 모양 불변).
+     */
+    public static List<RerouteCandidateSummary> from(List<RerouteCandidate> candidates,
+                                                     Map<String, RerouteOriginKind> originKinds) {
+        return candidates.stream()
+                .map(candidate -> new RerouteCandidateSummary(candidate.candidateId(), candidate.kind(),
+                        candidate.display(), originType(originKinds.get(candidate.candidateId()))))
+                .toList();
+    }
+
+    /** 내부 기점 종류 → 앱 계약 이름. */
+    public static String originType(RerouteOriginKind kind) {
+        if (kind == null) {
+            return null;
+        }
+        return switch (kind) {
+            case TRANSFER_WAIT -> "PLANNED_ALIGHT";
+            case RIDE_INTERIOR -> "RIDE_STOP";
+            default -> kind.name();
+        };
     }
 }
