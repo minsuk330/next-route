@@ -3174,3 +3174,5 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - 대상 시험: `RegionalBusCatalogLoadServiceTest` 7/7, `RegionalBusRouteSourceAdapterTest` 9/9, `JdbcRegionalBusRouteStopStoreIT` 5/5(Testcontainers postgres:17, 실제 V56 실행), `TagoCityCodeLookupTest` 6/6, `BusArrivalQueryServiceTest` 17/17(신규 2), `OtpSeoulIdentityResolverTest` 19/19(신규 2), `JourneyNavigationGeometryServiceTest`·`LegacyRouteResponseMapperTest`·`RouteResponseMapperTest` 통과
+- 전체 `./gradlew build`: 2,305건 중 실패 11 — **전부 기존 무관**. 같은 4개 클래스(`JourneyEvalReadPathIT`·`JourneyEvaluationIT`·`JourneyTransferAssessmentIT`·`BusAlertWakeupBurstIT`)를 main(493af781)에서 같은 환경으로 돌려도 똑같이 11건 실패.
+- 실행 환경(함정): 스크래치 clone 에는 gitignore 대상 `env/*.env` 가 없어 컨텍스트 IT 가 DB 접속에서 전부 죽는다(259건). 공유 로컬 DB·Redis 를 건드리지 않으려고 일회용 컨테이너를 띄웠다 — postgis/postgis:17-3.5(55432) 에 로컬 개발 DB 의 `--schema-only` + `flyway_schema_history` 만 복원(빈 DB 에 V1 부터 재생 불가), redis:7(56379), 기본값 없는 env(`GONG_API`·`KAKAO_REST_API_KEY`·`SEOUL_*`)는 더미. `env/*.env` 를 통째로 source 하면 `fcm.env` 가 FCM 을 켜 `/secrets/...` 자격증명 부재로 부팅이 죽는다 — DB·Redis 변수만 넣을 것.
