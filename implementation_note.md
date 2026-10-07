@@ -3510,3 +3510,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 배포
 - 마이그레이션 없음. 이미지 교체만.
+
+## 2026-10-07 운영 반영: 재탐색 보드 ON + 노선 정류장 표 첫 적재
+### 배포
+- 13:05 보드 ON: VPS compose `x-app-environment` 앵커에 `JOURNEY_REROUTE_BOARD_ENABLED: "true"`(api·worker 만 렌더). 백업 `compose.yaml.bak-20261007-130424-pre-board`. 끄기 = 그 줄 삭제 + api·worker 재생성
+- 13:13 #281 배포: 이미지 `nextroute:20261007-131332-ab819324`, jar md5 99f8281f, 이전 jar `app.jar.bak-20261007-pre-catalog-retry`. 마이그레이션 없음
+### 검증
+- 첫 적재 완료 14:26: `routes=21402 loaded=21358 empty=11 failed=33 pruned=0 aborted=false elapsed=4348s`(72분, 플랜 추정 2시간보다 빠름). 표 TAGO 19,191노선 954,241행 + GG 2,167노선 148,716행
+- worker `TagoCityCodeLookup refreshed routes=19191 prefixes=49`
+### 함정
+- failed 33 = 저장 실패 17(전부 청양군 cityCode 34350 `CNB2960…`) + 원천 실패 16(debug 로그라 원인 미기록). 청양은 **TAGO 원천이 깨져 있다**: CNB296000146 82정류장 중 23개 nodeord 가 두 정류장에 겹치고 nodeid 가 노선 id 모양(CNB296000029). `uq_regional_bus_route_stop(provider, route_id, seq)` 가 그 노선만 거절 → 의도대로. 겹친 순번은 실시간 매칭이 원래 불가능하므로 고치지 않음
+- 원천 실패는 `log.debug` 라 운영에서 원인이 안 보인다. 다음에 원인이 필요하면 WARN 으로 올릴 것
+- api 의 `TagoCityCodeLookup` 은 부팅 후 6시간 주기라 첫 적재 직후엔 여전히 `routes=0`(접두사 표 폴백). api 재시작 또는 19:14 자동 갱신 후 노선 단위 도시코드 적용
+- 낮 시간 적재: 도착 조회와 키 동시세션 30을 공유. 이번 회차엔 ERROR 0
