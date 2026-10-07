@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.regionalbus.dto.RegionalRouteStop;
 import watoo.grd.nextroute.application.regionalbus.dto.TagoCity;
@@ -135,6 +136,10 @@ public class RegionalBusRouteSourceAdapter implements RegionalBusRouteSourcePort
         try {
             body = restClient.get().uri(uri).exchange((req, res) ->
                     new String(res.getBody().readAllBytes(), StandardCharsets.UTF_8));
+        } catch (ResourceAccessException e) {
+            // 연결·읽기 시간 초과 같은 I/O 오류는 잠시 뒤 다시 하면 된다. 실패로 두면 한 번의 timeout 이
+            // 적재 전체를 중단시킨다(2026-10-07 TAGO getRouteNoList Read timed out → aborted=true).
+            throw RegionalBusSourceException.retryable("call failed: " + e.getMessage());
         } catch (Exception e) {
             throw RegionalBusSourceException.failed("call failed: " + e.getMessage());
         }
