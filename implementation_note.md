@@ -3134,6 +3134,48 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - IT(로컬 postgis 컨테이너): `RerouteAcceptIT` 14/14(신규 3: 같은 원천·ride·STALE)
 - 회귀: journey 패키지 전체 1156개 중 실패 1 = `JourneyTransferAssessmentIT` "환승이 있는 여정을 조회하면 판정이 저장되고…" — **기존 무관**(변경 stash 한 main 상태에서도 동일 실패)
 
+## 2026-10-07 경기 버스 형상·정류장 GBIS 전면 교체 (L, docs/plan/gyeonggi-gbis-routes)
+
+### 확정
+- 운영 전국 그래프 형상(shaped zip sha 62a8fb2d) vs GBIS `getBusRouteLineListv2` 887노선: 50m 내 ≥95% 3% / ≥85% 62% / ≥60% 27% / <60% 7%. 서울 bbox(9/17) 형상과 등급 884/887 동일 → 전국 그래프도 같은 pfaedle 결과.
+- 정류장 표본 138노선: 순서 완전 동일 8%, 집합 Jaccard 중앙 0.92, <0.5 16%.
+- **GBIS 정류장 목록은 통과 지점을 함께 준다 — 이름이 `…(경유)` 로 끝나고 mobileNo 공백**(G7426·M6410·G1690 확인: IC·JC·대교 북단 등). 이것만 제외하면 실제 정차. 서울 쪽 정류장(신사역(중) 등)은 mobileNo 공백이어도 정차 → mobileNo 로 거르면 안 됨.
+- GBIS stationId 9자리 = 우리 stop_id `BS_TAGO_GGB<9>` (서울·인천 정류장도 같은 규칙으로 들어있음) → id 교체 없이 실시간 그대로.
+- 일부 노선은 형상은 있는데 정류장 목록이 resultCode 4(결과 없음), 예 M7111(229000102) → 형상만 교체, 정류장 유지.
+- 운영 OTP 는 `compose.yaml` + override `/root/apps/observability/otp/compose.otp-national.yaml`(graph 마운트·GC 로그) 두 파일로 뜬다 → 배포 시 둘 다 graphVersion 경로 교체(9/30 절차, docs/plan/national-otp-shapes/PLAN.md Phase 6).
+
+### 함정
+- 왕복 선 투영 후보를 "인접 선분 묶음" 으로 고르면 회차점 근처에서 갈 때·올 때가 한 묶음으로 합쳐져 귀로 정류장이 출발 쪽에 붙는다 ← 회차점에서 두 통과가 연속 선분 / 가드: 후보를 measure 50m 창 안 최근접으로 고름(test_return_leg_stations_project_on_return_leg).
+- id 가 안 맞을 때 좌표 300m 폴백이 "반경 안 아무 정류장" 을 고르면 구간이 짧게 잘림 ← 점수에 거리 없음 / 가드: 점수 = (공통 정류장 수, -끝점 거리합, -길이차) (test_coordinate_fallback_prefers_nearest_station_over_any_within_radius).
+- 이전 비교에서 `_U/_D` 접미사 노선을 `rid[-9:]` 로 잘라 누락 → 정규식 `(\d{9})(_[UD])?$` 로 9자리 추출.
+
+### 좌표
+- tools/transit-routing-benchmark/runner/fetch_gbis_routes.py — 캐시 수집(resultCode 0/4 는 재호출 안 함, flock)
+- tools/transit-routing-benchmark/runner/apply_gbis_routes.py — `choose_span`(trip→GBIS 구간), `monotone_measures`(DP 단조 투영), `synthesize_times`(LCS 앵커+거리 보간), `run`(zip 재작성)
+- tools/transit-routing-benchmark/runner/build_otp_graph.sh — `--from-shaped-zip`, `--gbis DIR`(step 2b), 출력 `*-shaped-gbis.gtfs.zip`(원본 zip 보존)
+
+### 검증
+- `python3 -m unittest runner/test_apply_gbis_routes.py` → Ran 10 tests OK.
+- 부분 캐시(1,594노선) 시험 실행: 3m14s, peak 7.0GB. rewritten 48,913 / shapeOnly 1,877 / 구간 실패 56. 정류장-형상 잔차 p50 8.8 / p90 17.2 / p99 25.1m. 최대 12.8km 는 shapeOnly(옛 정류장이 개편된 GBIS 선에서 멂) — GBIS 정류장 쪽 200m 초과 0건.
+
+### 함정 (전량 실행 후 추가)
+- **비교 도구 버그로 초기 수치가 과장됐다(정정)**: 스크래치 compare.py 의 격자 최근접 탐색이 링을 넓힐 때 가운데 칸 최솟값을 버려 거리를 키웠다. 고친 뒤 기존 pfaedle 형상 vs GBIS(887노선): 50m 내 ≥95% **67%** / ≥85% 18% / ≥60% 9% / <60% 6% (처음 보고 3/62/27/7 은 틀림). 교체 후 형상: ≥95% 96%.
+- 순환 노선을 GTFS 와 GBIS 가 다른 정류장에서 시작하면 첫·끝 id 가 GBIS 의 이웃 두 정류장에 맞아 구간이 정류장 2개짜리가 된다(216000110, 649m) ← 끝점 id 만으로 구간 선택 / 가드: 구간이 공통 정류장 절반도 못 덮고 trip 이 왕복이면 GBIS 전체 순환(`loopRotated`, 264 trip).
+- 왕복 판정을 trip 이 쓰는 shape 로 하면 짧은 회차 trip(정류장 3개)이 54정류장 순환 전체로 늘어난다 ← 같은 왕복 shape 를 공유 / 가드: trip 자신의 첫·끝 정류장 300m 이내만 왕복 + 새 구간 길이가 옛 shape_dist 의 1/2.5~2.5배(+1km) 밖이면 정류장 유지·형상만 교체(85 trip).
+- 순환에서 같은 정류장이 두 번 나오면 공통 정류장 수를 중복으로 세어 구간이 옛 trip 끝을 넘어간다 → 넘어간 정류장이 전부 마지막 시각으로 뭉침(끝 4정류장 동일 시각 478 trip) / 가드: 공통 수는 서로 다른 id 만 + 옛 첫·끝 정류장이 새 목록 중간에 맞으면 고정점에서 제외.
+- 시각 고정점을 id 만으로 잡으면 다른 통과(왕복의 반대편)에 맞은 정류장이 75초에 14km 를 가게 만든다(경기 hop >108km/h 38,115·0초 6,269) / 가드: 고정점은 앞 고정점에서 오는 속도·끝까지 가는 속도 모두 ≤25m/s, trip 전체 평균 >25m/s 면 형상만 교체. 결과 >108km/h 271(옛 피드 6,426), 0초 0.
+
+### 검증 (전량, 최종 코드)
+- `python3 -m unittest runner/test_apply_gbis_routes.py` → Ran 16 tests OK.
+- GBIS 수집: 3,045노선 line 3,045 ok / stations 2,725 ok, 320 resultCode 4(정류장 없음 → 형상만 교체), error 0. 호출 약 5,050.
+- apply: 87,235 경기 trip → 정류장+형상 교체 84,091 / 형상만 3,077 / 무변경 67(투영 구간 0). 정류장 추가 1,008, 좌표 이동 1,093. 정류장-형상 잔차 p50 8.5 / p90 16.6 / p99 24.4 / max 139m. 형상만 교체 중 옛 정류장이 150m 넘게 떨어진 노선 44개(GBIS 정류장 목록 없음 — OTP 가 ShapeGeometryTooFar 로 직선 처리).
+- 경기 외: stop_times 1,302만 행·shapes 1,741만 행 해시 동일, routes/agency/calendar/transfers 바이트 동일. 시각 역행 0. validate_gtfs.py error_count 0.
+
+### 배포
+- 마이그레이션 없음, 앱 이미지 재빌드 없음(형상 설정은 compose env).
+- ✅ VPS `/srv/nextroute/otp/national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-g71dca926c27c/` 에 graph.obj(sha 4b55ecb1…, 912,570,783 B)·coverage-index.json(sha 638411c6…) 배치, 양쪽 sha 일치 확인(2026-10-07 05:36).
+- ⏳ compose 치환·재생성은 에이전트 권한(Production Deploy)에서 막혀 사용자 실행 대기. 치환 대상: `compose.yaml` 4곳 + `/root/apps/observability/otp/compose.otp-national.yaml` 1곳(옛 graphVersion `...-shaped-g035004114e7b`). OTP 는 두 파일로, api·worker 는 compose.yaml 만으로 재생성(.env 이미지 = 현재 실행 이미지 확인함).
+- 로컬 그래프 빌드가 머신 메모리 경합(다른 작업·시뮬레이터)으로 스왑 → 1h24m(평소 11분). 빌드 전 메모리 확인.
 ---
 
 ## 2026-10-07 regional-bus-route-catalog (#267) — 경기·TAGO 노선 정류장 표 + TAGO 노선 단위 도시코드

@@ -43,12 +43,18 @@ PFAEDLE_CONFIG=""   # --pfaedle-config: full pfaedle.cfg replacing the image def
                     # (e.g. config/otp-national/pfaedle-subway-rail.cfg).
 SKIP_MATCH=0        # --skip-match: reuse the existing shape-build/gtfs-out (steps 1-2
                     # skipped), e.g. to build the graph from already reviewed passes.
+FROM_SHAPED_ZIP=0   # --from-shaped-zip: steps 1-2 skipped, gtfs-out = the profile's current
+                    # shaped zip (national: gtfs-out on disk no longer holds stop_times/shapes).
+GBIS_DIR=""         # --gbis DIR: step 2b, rewrite Gyeonggi bus trips with GBIS stations and
+                    # shapes (apply_gbis_routes.py; cache from fetch_gbis_routes.py).
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile) PROFILE="$2"; shift 2 ;;
     --input) INPUT_OVERRIDE="$2"; shift 2 ;;
     --pfaedle-config) PFAEDLE_CONFIG="$2"; shift 2 ;;
     --skip-match) SKIP_MATCH=1; shift ;;
+    --from-shaped-zip) FROM_SHAPED_ZIP=1; shift ;;
+    --gbis) GBIS_DIR="$2"; shift 2 ;;
     --report-only) REPORT_ONLY=1; shift ;;
     --from-ktdb) FROM_KTDB="$2"; shift 2 ;;
     --thresholds) THRESHOLDS="$2"; shift 2 ;;
@@ -94,6 +100,13 @@ case "$PROFILE" in
     ;;
   *) echo "--profile seoul|national is required" >&2; exit 2 ;;
 esac
+SOURCE_SHAPED_ZIP="$SHAPED_ZIP"
+if [[ -n "$GBIS_DIR" ]]; then
+  [[ "$PROFILE" == "national" ]] || { echo "--gbis is national-only" >&2; exit 2; }
+  test -d "$GBIS_DIR" || { echo "--gbis dir not found: $GBIS_DIR" >&2; exit 2; }
+  # Never overwrite the pfaedle-only zip: it is the rollback source.
+  SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-gbis.gtfs.zip"
+fi
 BUILD="$DEPLOY_DIR/shape-build"
 GTFS_IN="$BUILD/gtfs-in"
 GTFS_OUT="$BUILD/gtfs-out"
@@ -110,14 +123,19 @@ if [[ "$PROFILE" == "national" && "$REPORT_ONLY" == "0" ]]; then
   [[ "$ser_id" == "$OTP_SERIALIZATION_ID" ]] || { echo "OTP serialization id $ser_id != $OTP_SERIALIZATION_ID" >&2; exit 2; }
   "$OTP_JAVA" -version >/dev/null 2>&1 || { echo "java not runnable: $OTP_JAVA" >&2; exit 2; }
   # OTP silently builds a street-less graph when the OSM source is missing (2026-09-30).
-  [[ -f "$OTP_OSM" && $(stat -f %z "$OTP_OSM") -gt 100000000 ]] || { echo "OTP OSM missing or too small: $OTP_OSM" >&2; exit 2; }
+  [[ -f "$OTP_OSM" && $(stat -L -f %z "$OTP_OSM") -gt 100000000 ]] || { echo "OTP OSM missing or too small: $OTP_OSM" >&2; exit 2; }
 fi
-if [[ "$SKIP_MATCH" == "0" ]]; then
-  [[ -f "$OSM_ROADS" && $(stat -f %z "$OSM_ROADS") -gt 50000000 ]] || { echo "pfaedle OSM missing or too small: $OSM_ROADS" >&2; exit 2; }
+if [[ "$SKIP_MATCH" == "0" && "$FROM_SHAPED_ZIP" == "0" ]]; then
+  [[ -f "$OSM_ROADS" && $(stat -L -f %z "$OSM_ROADS") -gt 50000000 ]] || { echo "pfaedle OSM missing or too small: $OSM_ROADS" >&2; exit 2; }
 fi
 
 echo "== profile: $PROFILE =="
-if [[ "$SKIP_MATCH" == "1" ]]; then
+if [[ "$FROM_SHAPED_ZIP" == "1" ]]; then
+  test -s "$SOURCE_SHAPED_ZIP" || { echo "--from-shaped-zip: no $SOURCE_SHAPED_ZIP" >&2; exit 2; }
+  echo "== steps 1-2 skipped: gtfs-out = $SOURCE_SHAPED_ZIP (sha256 $(shasum -a 256 "$SOURCE_SHAPED_ZIP" | awk '{print $1}')) =="
+  rm -rf "$GTFS_OUT"; mkdir -p "$GTFS_OUT"
+  unzip -o -q "$SOURCE_SHAPED_ZIP" -d "$GTFS_OUT"
+elif [[ "$SKIP_MATCH" == "1" ]]; then
   test -s "$GTFS_OUT/shapes.txt" || { echo "--skip-match: no $GTFS_OUT/shapes.txt" >&2; exit 2; }
   echo "== steps 1-2 skipped: reusing $GTFS_OUT (shapes.txt lines: $(wc -l < "$GTFS_OUT/shapes.txt")) =="
 else
@@ -159,6 +177,17 @@ docker run --rm \
   "${PFAEDLE_ARGS[@]}"
 test -s "$GTFS_OUT/shapes.txt" || { echo "pfaedle produced no shapes.txt" >&2; exit 1; }
 echo "shapes.txt lines: $(wc -l < "$GTFS_OUT/shapes.txt")"
+fi
+
+if [[ -n "$GBIS_DIR" ]]; then
+  echo "== step 2b: GBIS Gyeonggi stations + shapes =="
+  rm -f "$BUILD/pre-gbis.gtfs.zip"
+  ( cd "$GTFS_OUT" && zip -q -r -X "$HERE/$BUILD/pre-gbis.gtfs.zip" . )
+  python3 runner/apply_gbis_routes.py "$BUILD/pre-gbis.gtfs.zip" "$BUILD/gbis.gtfs.zip" \
+    --gbis "$GBIS_DIR" --report "$DEPLOY_DIR/gbis-apply-report.json"
+  rm -rf "$GTFS_OUT"; mkdir -p "$GTFS_OUT"
+  unzip -o -q "$BUILD/gbis.gtfs.zip" -d "$GTFS_OUT"
+  rm -f "$BUILD/pre-gbis.gtfs.zip" "$BUILD/gbis.gtfs.zip"
 fi
 
 echo "== step 3: gate (modes=$MODES) =="
