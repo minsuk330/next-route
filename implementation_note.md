@@ -3653,3 +3653,19 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 신규: `BusVehicleMatcherTest` 5, `BusDepartureDetectorTest` 5, `RegionalBusLocationClientTest` 5(경기·TAGO 실측 픽스처 + 서울 매핑), `TrackBusVehicleWatchServiceTest` 8(관찰→고정, 유휴 60초, 애매, 0대 포기, 예산 포기, 판정 끝난 단계 제외, 기기 시계 의심, 서울 순번), `JourneyLegVehicleIT` 5(엔티티 저장이 차량 칼럼을 안 지움·판정 종료 고정·해제·제약), `RedisBusVehiclePositionCacheTest` 2, `JourneyBusVehicleControllerTest` 1 — 전부 통과
 - 변이 확인: `vehicleId` 의 `updatable = false` 를 빼면 `JourneyLegVehicleIT.entitySaveKeepsVehicle` 실패 → 원복
 - 전체 `./gradlew test --continue`: 2595 중 실패 12 = 기존 무관 10 + `RerouteRemainingPathOtpIT.otpGraphQlErrorIsEmptyWithoutOdsayFallback` 1(**변경 stash 한 main 에서도 실패** — 기존 무관, PR-3 실행 땐 통과했으니 시각 의존 간헐로 보임) + `JourneyLegVehicleIT` 1(전체 실행 중 testcontainers `TransactionException`, 단독 5/5 — `JourneyNotificationSchemaIT` 와 같은 간헐)
+
+## gtfs-id-exposure — 역·정류장 응답에 GTFS id (2026-10-07, M, #298 A안)
+### 확정
+- 시작 API(#290) 계약은 그대로. 앱이 쓰는 응답에 칸만 추가: `NearbyBusStopResult.gtfsStopId`, `StopRouteResult.routeGtfsId`, `RouteStopsResult.routeGtfsId`·`RouteStop.gtfsStopId`, `NearbySubwayStationResult.gtfsStopId`, `SubwayStationsAheadResponse.boardGtfsStopId`·`Station.gtfsStopId`·`Station.routeGtfsId`
+- 버스 = 규칙(`OtpGtfsIds`: 9자리 숫자 → `1:BS_TAGO_SEB{id}`·`1:BR_TAGO_SEB{id}`, 아니면 null). 공항버스 `_U/_D` 는 `TrackPatternSelector.routeMatches` 가 흡수(방향은 승차 뒤 하차 순서가 가름)
+- 지하철 = #283 대응 재사용: OTP 패턴 쿼리에 `gtfsId` 추가 → `RailPattern.Stop.gtfsId` → `StationsAheadCalculator.Stop.gtfsStopId`. `Station.routeGtfsId` = 대표 꼬리(`representative`) 패턴의 노선 — 남은 역 목록은 한 대표 패턴의 공통 앞부분이라 목록 안 역은 모두 같은 노선이다
+- 근처 지하철역 = `SubwayGtfsStopIndex`(캐시만: `SubwayLinePatternService.cachedPatterns`, OTP 호출 0). 기동 워밍업 전엔 null
+- 서울만(이 API 들은 서울 데이터). 경기·지방은 정류장이 앱 흐름에 들어올 때 같은 방식으로
+- 생성자 호환: `RailPattern.Stop`·`StationsAheadCalculator.Stop`·`Ahead` 는 옛 생성자를 남겼다(시험·픽스처 무변경)
+- PLAN 의 "HANDOFF 갱신"은 HANDOFF 가 아직 main 에 없어(#297 미머지) **#297 브랜치에서** 한다
+### 검증
+- 라이브(운영 OTP 터널, 읽기만, 커밋 안 함): 2호선 내선 패턴 25개, 정차 130/130 에 gtfsId. 강남(`1:RS_ACC1_S-1-0222`) → 4역 뒤 gtfsId 로 `TrackPatternSelector.select` = `…02-1I::13`. 서울 버스 규칙 id 4개 전부 `stop(id)` 존재(패턴 3~11), 640 노선 `1:BR_TAGO_SEB100100093` 이 그 정류장 패턴에 있음
+- 신규·갱신 시험: `OtpGtfsIdsTest` 2, `StopSelectionServiceTest.carriesGtfsIds`, `GetNearbyBusStopsUseCaseTest.nearbySubwayCarriesGtfsStopId`, `SubwayGtfsStopIndexTest` 2, `SubwayStationsAheadServiceTest`(board·역 gtfs id·routeGtfsId), `OtpSubwayRoutePatternAdapterTest`(gtfsId 있음/없음), `SubwayStationControllerTest`(JSON 경로), `TrackPatternSelectorTest.airportBusSuffix`
+### 배포
+- 마이그레이션 없음. 응답 칸 추가만(기존 앱 무영향)
+- 전체 `./gradlew test --continue`: 2602 중 실패 12 = 기존 무관 10 + `RerouteRemainingPathOtpIT` 1(main 에서도) + `JourneyLegVehicleIT` 1(#296 의 IT, revert #300 미머지라 아직 main 에 있음 — 전체 실행 간헐, 단독 통과). 이 PR 새 실패 0

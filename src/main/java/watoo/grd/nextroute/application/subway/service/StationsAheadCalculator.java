@@ -54,13 +54,23 @@ public final class StationsAheadCalculator {
      * @param stationId 역 ID. 못 이었으면 null
      * @param name      표시 이름
      */
-    public record Stop(String key, String stationId, String name, Integer arrivalSec, Integer departureSec) {
+    public record Stop(String key, String stationId, String name, Integer arrivalSec, Integer departureSec,
+                       String gtfsStopId) {
+
+        public Stop(String key, String stationId, String name, Integer arrivalSec, Integer departureSec) {
+            this(key, stationId, name, arrivalSec, departureSec, null);
+        }
     }
 
     public record Pattern(String routeGtfsId, String routeLongName, boolean loop, int tripCount, List<Stop> stops) {
     }
 
-    public record Ahead(Stop stop, int stopsAway, Integer minutes) {
+    /** @param routeGtfsId 이 역이 나온 패턴의 OTP 노선 id(#298) — 단독 추적 시작은 승하차가 같은 노선이어야 한다 */
+    public record Ahead(Stop stop, int stopsAway, Integer minutes, String routeGtfsId) {
+
+        public Ahead(Stop stop, int stopsAway, Integer minutes) {
+            this(stop, stopsAway, minutes, null);
+        }
     }
 
     /**
@@ -176,7 +186,8 @@ public final class StationsAheadCalculator {
     private static List<Ahead> ahead(List<Stop> stops, Tail source) {
         List<Ahead> out = new ArrayList<>(stops.size());
         for (int i = 0; i < stops.size(); i++) {
-            out.add(new Ahead(stops.get(i), i + 1, minutes(source.boardDepartureSec(), stops.get(i).arrivalSec())));
+            out.add(new Ahead(stops.get(i), i + 1, minutes(source.boardDepartureSec(), stops.get(i).arrivalSec()),
+                    source.pattern().routeGtfsId()));
         }
         return out;
     }

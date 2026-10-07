@@ -56,7 +56,7 @@ public class SubwayLinePatternWarmup {
     }
 
     /** 순환선(2호선)만 내·외선이다. */
-    static List<String> directions(String lineId) {
+    public static List<String> directions(String lineId) {
         return "1002".equals(lineId) ? List.of("내선", "외선") : List.of("상행", "하행");
     }
 }

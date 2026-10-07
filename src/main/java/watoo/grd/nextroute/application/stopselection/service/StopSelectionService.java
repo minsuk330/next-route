@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.stopselection.service;
 
+import watoo.grd.nextroute.application.route.mapping.OtpGtfsIds;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,21 +37,23 @@ public class StopSelectionService
                 .map(p -> new StopRouteResult(
                         p.getRouteId(), p.getRouteName(), p.getDirection(),
                         p.getRouteType(), p.getStartStation(), p.getEndStation(),
-                        predictionSupportService.isSupported(p.getRouteId())))
+                        predictionSupportService.isSupported(p.getRouteId()),
+                        OtpGtfsIds.seoulBusRoute(p.getRouteId())))
                 .toList();
     }
 
     @Override
     public RouteStopsResult getRouteStops(String routeId) {
         return new RouteStopsResult(routeId, predictionSupportService.isSupported(routeId),
-                fetchRouteStops(routeId));
+                fetchRouteStops(routeId), OtpGtfsIds.seoulBusRoute(routeId));
     }
 
     private List<RouteStopsResult.RouteStop> fetchRouteStops(String routeId) {
         return busRouteStopRepository.findStopsByRouteId(routeId).stream()
                 .map(p -> new RouteStopsResult.RouteStop(
                         p.getSeq(), p.getStopId(), p.getStopName(),
-                        p.getLatitude(), p.getLongitude(), p.getDirection()))
+                        p.getLatitude(), p.getLongitude(), p.getDirection(),
+                        OtpGtfsIds.seoulBusStop(p.getStopId())))
                 .toList();
     }
 

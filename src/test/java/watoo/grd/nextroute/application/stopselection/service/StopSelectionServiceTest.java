@@ -48,8 +48,8 @@ class StopSelectionServiceTest {
         List<StopRouteResult> result = service.getStopRoutes("1001");
 
         assertThat(result).containsExactly(
-                new StopRouteResult("R1", "146", "강남방면", 3, "기점A", "종점A", true),
-                new StopRouteResult("R2", "341", "잠실방면", 4, "기점B", "종점B", false)
+                new StopRouteResult("R1", "146", "강남방면", 3, "기점A", "종점A", true, null),
+                new StopRouteResult("R2", "341", "잠실방면", 4, "기점B", "종점B", false, null)
         );
     }
 
@@ -67,9 +67,23 @@ class StopSelectionServiceTest {
         assertThat(result.routeId()).isEqualTo("R1");
         assertThat(result.supportsPrediction()).isTrue();
         assertThat(result.stops()).containsExactly(
-                new RouteStopsResult.RouteStop(1, "1001", "시청앞", 37.5, 127.0, "강남방면"),
-                new RouteStopsResult.RouteStop(2, "1002", "좌표없음", null, null, "강남방면")
+                new RouteStopsResult.RouteStop(1, "1001", "시청앞", 37.5, 127.0, "강남방면", null),
+                new RouteStopsResult.RouteStop(2, "1002", "좌표없음", null, null, "강남방면", null)
         );
+    }
+
+    @Test
+    @DisplayName("서울 9자리 id 면 GTFS id 를 같이 싣는다(#298 A안)")
+    void carriesGtfsIds() {
+        given(busRouteStopRepository.findRoutesByStopId("121000091")).willReturn(List.of(
+                stopRouteProjection("100100093", "640", "신월동방면", 3, "기점", "종점")));
+        given(busRouteStopRepository.findStopsByRouteId("100100093")).willReturn(List.of(
+                routeStopProjection(40, "121000091", "강남역9번출구", 37.49, 127.02, "신월동방면")));
+
+        assertThat(service.getStopRoutes("121000091").get(0).routeGtfsId()).isEqualTo("1:BR_TAGO_SEB100100093");
+        RouteStopsResult stops = service.getRouteStops("100100093");
+        assertThat(stops.routeGtfsId()).isEqualTo("1:BR_TAGO_SEB100100093");
+        assertThat(stops.stops().get(0).gtfsStopId()).isEqualTo("1:BS_TAGO_SEB121000091");
     }
 
     @Test
@@ -108,8 +122,8 @@ class StopSelectionServiceTest {
         SearchSuggestResult result = service.suggest("143");
 
         assertThat(result.routeStops()).containsExactly(
-                new RouteStopsResult.RouteStop(1, "1001", "시청앞", 37.5, 127.0, "강남방면"),
-                new RouteStopsResult.RouteStop(2, "1002", "좌표없음", null, null, "강남방면"));
+                new RouteStopsResult.RouteStop(1, "1001", "시청앞", 37.5, 127.0, "강남방면", null),
+                new RouteStopsResult.RouteStop(2, "1002", "좌표없음", null, null, "강남방면", null));
     }
 
     @Test

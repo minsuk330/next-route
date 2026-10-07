@@ -19,7 +19,9 @@ public record SubwayStationsAheadResponse(
         boolean destinationApplied,
         EndReason endReason,
         List<Branch> branches,
-        List<Station> stations
+        List<Station> stations,
+        /** 승차역의 OTP GTFS 정류장 id(#298). 단독 추적 시작 {@code boardStopId}. 못 이으면 null */
+        String boardGtfsStopId
 ) {
 
     public enum EndReason {
@@ -35,8 +37,13 @@ public record SubwayStationsAheadResponse(
      * @param stationId 실시간 역 ID. 역 마스터에 없는 역이면 null — 그래도 빼지 않는다(빼면 stopsAway 가 틀린다)
      * @param minutes   승차역 출발 기준 예상 분(시간표 근사). 모르면 null
      */
+    /**
+     * @param gtfsStopId  OTP GTFS 정류장 id(#298) — 단독 추적 시작 {@code alightStopId}
+     * @param routeGtfsId 이 역이 나온 OTP 노선 id(#298) — 단독 추적 시작 {@code routeGtfsId}. 갈래 노선은 역마다 다를 수
+     *                    있으니 <b>하차역의 값</b>을 쓴다
+     */
     public record Station(String stationId, String stationName, int stopsAway, Integer minutes,
-                          List<Transfer> transfers) {
+                          List<Transfer> transfers, String gtfsStopId, String routeGtfsId) {
     }
 
     public record Transfer(String lineId, String lineName) {

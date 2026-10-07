@@ -69,6 +69,15 @@ public class SubwayLinePatternService {
         }
     }
 
+    /**
+     * <b>이미 적재된</b> 패턴만(낡았어도) 준다. 없으면 빈 목록 — OTP 를 부르지 않는다(#298 근처 역 GTFS id 처럼 응답 지연에
+     * 적재를 넣으면 안 되는 곳용). 채우는 것은 워밍업·{@link #patterns} 다.
+     */
+    public List<DirectedRailPattern> cachedPatterns(String lineId, String direction) {
+        Cached<List<DirectedRailPattern>> cached = patterns.get(lineId + ":" + direction);
+        return cached == null ? List.of() : cached.value();
+    }
+
     private List<DirectedRailPattern> load(String lineId, String direction) {
         Instant deadline = clock.instant().plus(LOAD_BUDGET);
         List<DirectedRailPattern> directed = new ArrayList<>();
