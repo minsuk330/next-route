@@ -3789,3 +3789,23 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - journey 패키지 단위 테스트 전부 통과. `*IT` 253 실패 = 스크래치 clone 에 DB 자격증명 없음(`password authentication failed for user "${POSTGRES_USER}"`) — 환경, 이 변경 무관(DB 미접촉)
 ### 배포
 - 마이그레이션 없음. api 만 교체. 플래그 `journey.track.enabled` 그대로(꺼지면 404)
+## 지하철 링 ETA = 앞 열차 실측 구간시간 (2026-10-07, M, 해결안 3)
+### 확정
+- **원칙 변경(사용자 결정)**: "정적 값·중위값으로 채우지 않는다" → "오늘 실제로 지나간 열차의 실측은 쓴다". 시간표·정적 소요시간은 여전히 안 씀
+- 근거 실측(Redis `realtime:subway:snapshot` 15초 표본, 22:38~23:40 전 노선 63만 행, "실제 도착" = 같은 원천의 첫 도착(1, 없으면 0) 관측): 전역 출발(3) 뒤 도착까지 API `barvlDt` 치우침 +54초·오차 55초·30초 초과 80% vs 최근 앞 열차 3대 중앙값 치우침 0·오차 15초·24%, 커버리지 82%. 노선별 1호선 85→13, 2호선 48→8, 4호선 70→15, 9호선 62→9, 5·7호선 38→21초, 공항·GTX-A 57~70초(약함). 신분당·공항·GTX-A 는 API 초 자체가 없음
+- 기각한 해결안 1·2("처음 본 시각 + 초"): 12분 2호선 표본에서 전체 오차 38→43초로 악화 — 전역 정차(5) 중엔 ETA 가 밀리는 게 맞고, 2역 이상 전(99)은 오히려 나빠짐. Codex 리뷰(여정별 기록 기각·위치 원천 섞기 위험·ETA 보존·유효기간 전달·ETA 경과 규칙) 반영
+- 수집기(worker)가 열차 단위로 기록: 그 역 행 `arvlCd=3` 처음 본 `recptnDt` = 출발, `1`·`0` = 도착 → 소요시간 표본(0<d≤900초) 최신 3개. Redis `subway:seg:dep:*`(hash, 30분) / `subway:seg:dur:*`(list, 3시간), 각 Lua 원자
+- 링: `3` + 표본 → 예정 = 출발 처음 본 시각 + 중앙값, 앵커 기준 = 출발 시각, 같은 예정이면 링 유지(push·버전 안 흔들림), 예정 경과 → 0.90 hold(ETA null, NORMAL), 유효기간 = 예정 + 120초. 표본 없음 → API 초 안 쓰고 기존 STALE 폴백. `4·5` → 진행 hold(ETA null, 상한 = 지금 값, NORMAL). `99`·`0/1/2` 그대로
+- 위치 API 역할 불변(도착 행 없을 때 구간 전환 폴백)
+### 함정
+- hash 마지막 필드를 HDEL 하면 키가 사라져 TTL -2 — 시험은 도착 전에 TTL 확인
+- 기존 시험 "전역 진입·도착에도 진행이 오른다"는 새 규칙(정차 중 hold)과 반대라 교체
+- hash TTL 은 키 전체라 다른 열차가 연장 → 도착 놓친 열차의 옛 출발 기록이 남는다 → 15분 넘은 값은 새 출발이 덮고, 900초 초과 소요시간은 버림
+### 좌표
+- `SubwaySegmentTimePort`·`RedisSubwaySegmentTimeAdapter`·`SubwaySegmentTimeRecorder`(신규), `RealtimeSubwayCollector.collect`, `SubwayRingSignalReader.measured`, `SubwayRingCalculator.fromPreviousStation/fromMeasured/hold`, `SubwayRingObservation.measured`
+### 검증
+- `SubwayRingCalculatorTest` 37(신규 `MeasuredSegment` 6 + 정차 hold), `SubwayRingSignalReaderTest` 4, `SubwaySegmentTimeRecorderTest` 2, `RedisSubwaySegmentTimeAdapterIT` 4, `SubwayRingIT`(실측 예정 케이스), Subway* 전체 549/549
+### 배포
+- 마이그레이션 없음. worker 만(수집기·링). 표본은 배포 후 앞 열차가 지나가며 쌓인다(처음 수 분 STALE 폴백 많음). 끄기 = `realtime.subway.segment-time.enabled=false`(기록 중단 → 표본 만료 후 STALE 폴백)
+- 전체 `./gradlew test --continue`: 2613 중 실패 12 = 기존 무관(JourneyEvalReadPathIT 2·JourneyEvaluationIT 7·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·간헐 JourneyNotificationSchemaIT 1), 새 실패 0
+- 🔴 배포 직후 함정(2026-10-08 00:14): 첫 표본이 전부 15초 ← 재시작 첫 회차에 이미 출발해 있던 열차가 "처음 본 출발"로 잡힘(수집 주기만큼). 매일 05:30 수집 재개 때도 같음 / 가드 = 출발은 직전 회차 코드가 4·5·99 일 때만(전이를 봤을 때만) 기록, 직전 상태는 기록기 메모리(worker 단일). 잘못 쌓인 `subway:seg:*` 는 재배포 직후 삭제

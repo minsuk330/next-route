@@ -30,8 +30,30 @@ public record SubwayRingObservation(
         SubwayTrainStatus positionStatus,
         int observedStationSequence,
         Instant estimatedArrivalAt,
-        Instant observedAt
+        Instant observedAt,
+        Instant segmentStartAt
 ) {
+
+    public SubwayRingObservation(Source source, SubwayArrivalCode code, SubwayTrainStatus positionStatus,
+                                 int observedStationSequence, Instant estimatedArrivalAt, Instant observedAt) {
+        this(source, code, positionStatus, observedStationSequence, estimatedArrivalAt, observedAt, null);
+    }
+
+    /**
+     * 전역 출발(3) 구간의 도착 예정을 <b>앞 열차 실측</b>으로 만든 관측(2026-10-07 결정).
+     *
+     * @param segmentStartAt 이 열차가 전역을 출발한 것으로 처음 보인 시각 — 링 앵커의 기준 시각
+     */
+    public static SubwayRingObservation measured(int stationSequence, Instant segmentStartAt,
+                                                 Instant estimatedArrivalAt, Instant observedAt) {
+        return new SubwayRingObservation(Source.ARRIVAL, SubwayArrivalCode.PREV_DEPARTED, null,
+                stationSequence, estimatedArrivalAt, observedAt, segmentStartAt);
+    }
+
+    /** 도착 예정이 앞 열차 실측에서 왔는가. */
+    public boolean isMeasured() {
+        return segmentStartAt != null && estimatedArrivalAt != null;
+    }
 
     public enum Source {
         /** 도착 API. 남은 초의 유일한 원천이다. */

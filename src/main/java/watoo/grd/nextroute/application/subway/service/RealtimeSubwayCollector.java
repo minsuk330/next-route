@@ -49,6 +49,7 @@ public class RealtimeSubwayCollector {
     private final SubwaySegmentLookup segmentLookup;
     private final SubwayStationIdLookup stationIdLookup;
     private final SubwayArrivalRawRecorder arrivalRawRecorder;
+    private final SubwaySegmentTimeRecorder segmentTimeRecorder;
 
     @PostConstruct
     public void registerBootTime() {
@@ -102,6 +103,12 @@ public class RealtimeSubwayCollector {
 
             cachePort.saveSnapshot(snapshot, snapshotTtlSeconds);
             cachePort.saveStatus(SubwayRealtimeStatus.ACTIVE);
+            try {
+                // 진행 링의 도착 예정 원천(구간 실측). 실패해도 수집은 성공이다.
+                segmentTimeRecorder.record(trains);
+            } catch (Exception e) {
+                log.warn("[RealtimeCollector] 구간 실측 기록 실패: {}", e.getMessage());
+            }
             //log.info("[RealtimeCollector] Saved {} trains to Redis", trains.size());
 
         } catch (Exception e) {

@@ -146,15 +146,26 @@ public class SubwayRingCalculator {
     }
 
     /**
-     * 열차가 우리 다음 역의 <b>전역</b>에 있다({@code 3/4/5}). 구간을 처음 볼 때만 0 에서 시작한다.
+     * 열차가 우리 다음 역의 <b>전역</b>에 있다({@code 3/4/5}).
      *
-     * <p>이 코드는 열차가 전역을 떠난 뒤 진입할 때까지 <b>구간 내내</b> 반복된다. 볼 때마다 0 으로
-     * 재앵커하면 앱이 보간해 둔 링이 15~30초마다 0 으로 되감긴다(2026-10-07 journey 158 실측). 같은
-     * 구간이면 지금 화면 값에서 이어 그리고, 남은 초가 없으면 멈춘다.
+     * <ul>
+     *   <li>{@code 4/5} 전역 진입·도착 — 아직 출발 전이다. 진행을 그 자리에 세운다(예정 없음, NORMAL)</li>
+     *   <li>{@code 3} 전역 출발 + 실측 예정 — 출발 시각에서 예정까지 직선. 같은 예정이면 링을 그대로 둔다</li>
+     *   <li>{@code 3} 예정 없음(실측 표본 없음) — 첫 관측은 0 STALE, 같은 구간이면 멈춘다</li>
+     * </ul>
+     *
+     * <p>같은 코드는 구간 내내 반복된다. 볼 때마다 0 으로 재앵커하면 앱 링이 15~30초마다 되감긴다(journey 158).
      */
     private SubwayRingState fromPreviousStation(SubwayRingState prior, SubwayRingContext context,
                                                 int target, SubwayRingObservation observation,
                                                 Instant now) {
+        SubwayArrivalCode code = observation.code();
+        if (code == SubwayArrivalCode.PREV_ENTERING || code == SubwayArrivalCode.PREV_ARRIVED) {
+            return hold(context, target, baseProgressOf(prior, target), observation.observedAt(), now);
+        }
+        if (observation.isMeasured()) {
+            return fromMeasured(prior, context, target, observation, now);
+        }
         if (sameSegment(prior, target)) {
             return observation.estimatedArrivalAt() == null
                     ? freeze(prior, context, target, now)
@@ -166,6 +177,45 @@ public class SubwayRingCalculator {
                 observation.estimatedArrivalAt() == null
                         ? SubwayRingQuality.STALE : SubwayRingQuality.NORMAL,
                 observedAt, now);
+    }
+
+    /**
+     * 전역 출발 + 앞 열차 실측 예정(2026-10-07 결정).
+     *
+     * <p>예정은 "출발을 처음 본 시각 + 실측 중앙값"이라 반복 관측에서 바뀌지 않는다 — 같으면 직전 링을 그대로 두어 push·
+     * 버전이 흔들리지 않는다. 예정이 지났는데 도착이 안 보이면 상한에서 멈춘다(늦는 중). 이미 다른 직선 위에서 움직이던
+     * 링이면 지금 화면 값에서 새 예정으로 이어 그린다.
+     *
+     * <p>유효기간은 예정 + 신선도 창까지 늘린다. 앵커 시각이 원천 지연만큼 과거라 앵커 + 창이면 예정 전에 앱이 시간 초과로
+     * 본다.
+     */
+    private SubwayRingState fromMeasured(SubwayRingState prior, SubwayRingContext context, int target,
+                                         SubwayRingObservation observation, Instant now) {
+        Instant eta = observation.estimatedArrivalAt();
+        BigDecimal base = baseProgressOf(prior, target);
+        if (!now.isBefore(eta)) {
+            return hold(context, target, max(base, capOf(target)), observation.observedAt(), now);
+        }
+        if (sameSegment(prior, target) && eta.equals(prior.estimatedNextStationAt())
+                && prior.quality() == SubwayRingQuality.NORMAL) {
+            return prior.refreshed(observation.observedAt(), now);
+        }
+        SubwayRingState next = base.signum() > 0 && prior != null && prior.estimatedNextStationAt() != null
+                ? reanchored(prior, context, target, observation, now)
+                : anchored(context, target, base, observation.segmentStartAt(), eta,
+                        SubwayRingQuality.NORMAL, observation.observedAt(), now);
+        Instant validUntil = eta.plus(properties.getFreshnessWindow());
+        return next.progressValidUntil() == null || next.progressValidUntil().isBefore(validUntil)
+                ? next.withProgressValidUntil(validUntil)
+                : next;
+    }
+
+    /** 링을 그 자리에 세운다 — 예정 없음, 보간 상한 = 지금 값. 정상 상황이라 NORMAL 이다("확인 중"이 아니다). */
+    private SubwayRingState hold(SubwayRingContext context, int target, BigDecimal progress,
+                                 Instant observedAt, Instant now) {
+        SubwayRingState held = anchored(context, target, progress, observedAt, null,
+                SubwayRingQuality.NORMAL, observedAt, now);
+        return held.withProgressTarget(held.segmentProgress());
     }
 
     /**
