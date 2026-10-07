@@ -3523,3 +3523,40 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 원천 실패는 `log.debug` 라 운영에서 원인이 안 보인다. 다음에 원인이 필요하면 WARN 으로 올릴 것
 - api 의 `TagoCityCodeLookup` 은 부팅 후 6시간 주기라 첫 적재 직후엔 여전히 `routes=0`(접두사 표 폴백). api 재시작 또는 19:14 자동 갱신 후 노선 단위 도시코드 적용
 - 낮 시간 적재: 도착 조회와 키 동시세션 30을 공유. 이번 회차엔 ERROR 0
+
+## standalone-track PR-2 — 노선 패턴 조회 + TRACK 시작 (2026-10-07, L 의 2/5, #265)
+### 확정
+- API(전부 `/api/journeys/track/**` = 기존 `/api/journeys/**` 인증 규칙 상속, SecurityConfig 무변경): `GET stops/near?lat&lon&mode`, `GET stops/{gtfsStopId}/patterns`, `GET routes/{routeGtfsId}/stops?from&pattern`, `POST /api/journeys/track?replace`. **replace 는 PLAN 의 본문이 아니라 쿼리 파라미터** — 일반 시작(`POST /api/journeys?replace`)과 같은 관례
+- 플래그 `journey.track.enabled`(env `JOURNEY_TRACK_ENABLED`, 기본 false) 하나가 조회·시작 전부를 404 로 막는다
+- 방향 = 정류장 패턴을 **가지**로 줄인 것(`TrackPatternSelector`): 승차 첫 등장 다음 ~ 승차 재등장 직전(순환) 또는 패턴 끝 = "한 바퀴". 같은 노선에서 남은 구간이 다른 가지의 앞부분이면 제거(단축·회차), 같으면 trip 많은 쪽. 라벨 = headsign → (순환 지하철) longName 라벨(내선·외선) → "{종점} 방면"
+- 시작 패턴 선택: 코드 힌트가 유효하면 그것, 아니면 승차 뒤 한 바퀴 안에 하차가 있는 패턴 중 구간 최단 → trip 많은 순. **순환선은 승차 "앞" 역도 한 바퀴 안이면 갈 수 있다**(정상)
+- 소요 = 오늘(없으면 어제) `tripsForDate` 중 첫 출발이 지금 이전인 가장 늦은 trip(없으면 가장 이른 것)의 `stoptimesForDate` 로 승차 출발~하차 도착. 정차 시각이 패턴과 개수·id 가 안 맞거나 ≤0 이면 422 `TRACK_SCHEDULE_UNAVAILABLE`(근사 안 함)
+- 구간 → `RoutingLeg`(`TrackLegFactory`, `OtpPlanConnectionMapper.toLeg` 와 같은 칸) → `LegacyRouteResponseMapper.toSubPath`(public 으로 열었다) → 1구간 `PathResult`(payment -1, `lastEndStation`=하차) → compile → enrich → `startTx(…, TRACK)`
+- 형상: patternGeometry 를 정류장마다 "앞 정류장 자리 이후 600점 안 최근접"으로 잘라 재인코딩(SHAPE_OK). 못 자르면 MISSING(앱 직선 폴백)
+- OTP permit 은 `TrackPatternSource.withPermit` 가 요청 하나에 하나(마감 = `route.search.otp-ms`, role api). 포화·호출 실패 = 503 `TRACK_PATTERN_UNAVAILABLE`
+- 캐시: 정류장 패턴·패턴 상세만 프로세스 메모리 10분, 키 = graphVersion|id. 낡은 코드(null)는 캐시 안 함. trip·정차 시각은 캐시 안 함
+- 동시 시작 409 번역은 `JourneyStartConflictTranslator` 로 추출(일반·추적 공용). `JourneyStartService` 의 `JourneyQueryService` 의존이 이것으로 바뀜
+- 새 오류 코드: `TRACK_STOPS_INVALID`(422), `TRACK_SCHEDULE_UNAVAILABLE`(422), `TRACK_PATTERN_UNAVAILABLE`(503)
+- 지표 `track.start{mode,result}` — result = started/conflict/compile-failed/rejected/오류코드
+- 프레임워크 신규 없음(캐시는 ConcurrentHashMap — caffeine 미도입, 키 수·TTL 단순해 직접 구현이 싸다)
+### 함정
+- 실측(운영 OTP, 2026-10-07): 지하철역은 부모 station 없는 일반 stop(`1:RS_ACC1_S-1-0222`) → `stop(id){patterns}` 로 충분. 2호선 강남 패턴 **49개**, 패턴 하나가 여러 바퀴(같은 역 최대 12회), 패턴당 trip 1~5. `PatternsAtStop`(trips{gtfsId} 포함) 2호선 강남 약 370KB·0.5~2.6초
+- headsign 은 버스·지하철 전부 null, directionId -1. 서울 버스 패턴은 왕복 한 줄(기점→회차→기점)이라 "{종점} 방면" 의 종점 = 기점(차고지) 이름이 나온다(예: 640 강남역9번출구 → "신월동우성상가 방면")
+- `pattern(id)`·`stop(id)`·`trip(id)` 없는 id 는 오류가 아니라 `data.x = null`
+- `tripsForDate(serviceDate:)`·`stoptimesForDate(serviceDate:)` 는 "2026-10-07" 형식 문자열로 동작
+- `TrackJourneyStartServiceTest` 첫 판에서 "승차 앞 역 = 거꾸로 = 422" 를 기대했는데 2호선은 순환이라 닿는 게 맞았다 — 시험을 "노선에 없는 역"으로 고침. 비순환 역순 422 는 `TrackPatternSelectorTest.reversedOrder`
+### 검증(라이브 프로브, 운영 OTP 터널, 커밋 안 함)
+- 강남(2호선) 49패턴 → 방향 2개(내선·외선, 각 남은 42역). 강남역9번출구 버스 10패턴 → 8노선. 경기 GGB206000036 → 3노선(마을버스 `BR_3100_` 포함)
+- 강남→삼성: 외선 3구간 330초, 내선 40구간 5160초(둘 다 SHAPE_OK, 오늘 trip 5개)
+### 좌표
+- `TrackPatternSelector`(가지·선택), `TrackLegFactory`(구간·형상), `TrackPatternSource`(permit·캐시), `TrackSelectionQueryService`, `TrackJourneyStartService`, `JourneyTrackController`, `OtpTransitPatternAdapter` + `otp/trackPatterns.graphql`(operationName 으로 5개 쿼리)
+- 픽스처 `src/test/resources/otp/track/`(2호선 내선 ::10 — 강남 31·74 번째 두 번)
+### 미결
+- 하차 후보에서 dropoff NONE 정차(통과역)를 빼지 않는다 — 정류장 패턴 쿼리에 pickup/dropoff 가 없다(#286 은 stoptimes 로 거른다). 필요하면 PR-5 전후로
+- M 버스 빨강 덮어쓰기(`LegacyRouteResponseMapper.displayColor`)는 방향 목록 색에 미적용(시작 후 lanes 색엔 적용됨)
+- #286 이 고치는 "OTP 방향 라벨 반대 노선 4개(KJ-2·02-2·09-*·AP-1)"는 같은 `labelFrom` 을 타므로 그 수정이 들어오면 TRACK 도 같이 고쳐진다
+### 배포
+- 마이그레이션 없음. 플래그 off 면 동작 동일(404). 켤 때 api 에 `JOURNEY_TRACK_ENABLED=true`
+### 검증
+- 신규 시험: `OtpTransitPatternAdapterTest` 7, `TrackPatternSelectorTest` 10, `TrackLegFactoryTest` 7, `TrackLegChainTest` 4(2호선 wayCode 0·서울/경기/TAGO 버스 id), `TrackJourneyStartServiceTest` 10, `TrackSelectionQueryServiceTest` 5, `JourneyTrackControllerTest` 5(익명 401 4경로 포함), `TrackJourneyStartIT` 1(일회용 postgis — 시작 → active 1구간·kind=TRACK·보드 예약 없음) — 전부 통과
+- 전체 `./gradlew test --continue`: 2465 중 실패 11 = **기존 무관 10**(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1, PR-1 때와 동일) + `JourneyNotificationSchemaIT` 1(전체 실행 중 testcontainers `TransactionException`, 단독 재실행 통과 = **간헐, 이 PR 무관** — 손댄 파일 없음)
