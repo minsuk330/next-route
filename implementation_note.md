@@ -3653,3 +3653,14 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 신규: `BusVehicleMatcherTest` 5, `BusDepartureDetectorTest` 5, `RegionalBusLocationClientTest` 5(경기·TAGO 실측 픽스처 + 서울 매핑), `TrackBusVehicleWatchServiceTest` 8(관찰→고정, 유휴 60초, 애매, 0대 포기, 예산 포기, 판정 끝난 단계 제외, 기기 시계 의심, 서울 순번), `JourneyLegVehicleIT` 5(엔티티 저장이 차량 칼럼을 안 지움·판정 종료 고정·해제·제약), `RedisBusVehiclePositionCacheTest` 2, `JourneyBusVehicleControllerTest` 1 — 전부 통과
 - 변이 확인: `vehicleId` 의 `updatable = false` 를 빼면 `JourneyLegVehicleIT.entitySaveKeepsVehicle` 실패 → 원복
 - 전체 `./gradlew test --continue`: 2595 중 실패 12 = 기존 무관 10 + `RerouteRemainingPathOtpIT.otpGraphQlErrorIsEmptyWithoutOdsayFallback` 1(**변경 stash 한 main 에서도 실패** — 기존 무관, PR-3 실행 땐 통과했으니 시각 의존 간헐로 보임) + `JourneyLegVehicleIT` 1(전체 실행 중 testcontainers `TransactionException`, 단독 5/5 — `JourneyNotificationSchemaIT` 와 같은 간헐)
+
+## standalone-track HANDOFF + 앱 설계 대조 (2026-10-07, #265)
+### 확정
+- PR-5 의 `busGuidance` 는 **넣지 않는다**(결정 5차: 단독 버스는 차량을 특정하지 않고 앱 엔진이 진행을 낸다. 남는 값 = 대기 예측 초·앱 `remainingStops` 뿐인데 둘 다 앱이 이미 가진다). 브랜치 `feat/standalone-track-pr5-bus-guidance` 의 wip 커밋 af2671a8 은 참고용으로만 남김(미푸시)
+- HANDOFF(`docs/plan/standalone-track/HANDOFF.md`)는 결정 5차 기준. 버스 차량·해제·버스 안내 절 삭제
+- nextroute-mobile `docs/plan/home-ride-tracking/DESIGN.md` 와 대조한 어긋남 5개를 HANDOFF §5 에 적음: ①버스 시작 id 공간(앱 = 서울 routeId·stopId·seq, 서버 = OTP GTFS) ②지하철 시작 id 공간(앱 = 서울 stationId·lineId, #283 stations-ahead) ③열차 선택 시점(앱 = 시작할 때, 서버 PR-3 = 시작한 여정의 대기 단계 안) ④후보(앱 = 방금 떠난 3대+곧 오는 2대, 서버 = 곧 오는 2대) ⑤탑승 후 시작(앱 `[탔어요]`, 서버 = 대기 단계부터)
+### 좌표
+- 떠난 열차 원천 후보 = `SubwayTrainLogPort.findDepartures`(M7 열차 로그). 지하철 서울 id ↔ GTFS = #283 `SubwayPatternStationMatcher`. 서울 버스 ↔ GTFS = `OtpSeoulIdentityResolver` 규칙의 역(`1:BR_TAGO_SEB{9}`·`1:BS_TAGO_SEB{9}`, 공항버스 `_U/_D` 접미사 주의)
+### 미결
+- 위 5개를 맞추는 서버 PR(시작 입력 확장 + 시작 시 열차 확정 + 떠난 열차 후보 + 탑승 후 시작) — 범위가 PLAN 밖이라 티어 판단 필요
+- PR-2 조회 3개 API 는 앱이 기존 API 를 쓰면 정리 대상
