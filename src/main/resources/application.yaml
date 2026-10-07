@@ -161,8 +161,6 @@ gyeonggi:
     # 공공데이터포털 Encoding 키(%2F 포함 그대로). 미설정이면 경기 도착 조회는 호출 없이 빈 결과.
     bus-key: ${GYEONGGI_BUS_API:}
     bus-arrival-base-url: https://apis.data.go.kr/6410000/busarrivalservice/v2
-    # 버스 위치(#265 단독 추적 차량 대조). 같은 포털 키, 일 1만.
-    bus-location-base-url: https://apis.data.go.kr/6410000/buslocationservice/v2
     # 노선정류소(#267 표 적재). 같은 포털 키.
     bus-route-base-url: https://apis.data.go.kr/6410000/busrouteservice/v2
 tago:
@@ -170,8 +168,6 @@ tago:
     # 서울·경기 밖 버스도착(국토교통부 TAGO). 포털 Encoding 키 그대로. 미설정이면 호출 없이 빈 결과.
     bus-key: ${TAGO_BUS_API:}
     bus-arrival-base-url: https://apis.data.go.kr/1613000/ArvlInfoInqireService
-    # 버스 위치(#265 단독 추적 차량 대조). 같은 포털 키.
-    bus-location-base-url: https://apis.data.go.kr/1613000/BusLcInfoInqireService
     # 노선정보: 도시별 노선 목록·노선별 경유정류소(#267 표 적재). 같은 포털 키.
     bus-route-base-url: https://apis.data.go.kr/1613000/BusRouteInfoInqireService
 seoul:
@@ -603,23 +599,6 @@ journey:
     near-radius-meters: 300
     near-limit: 30
     pattern-cache-seconds: 600
-    # 단독 추적 버스 차량 대조(#265 PR-4). worker 전용 스케줄러. 끄면 차량 칼럼은 늘 비어 있다.
-    bus:
-      enabled: ${JOURNEY_TRACK_BUS_ENABLED:false}
-      tick-ms: 15000
-      idle-poll-seconds: 60
-      near-poll-seconds: 15
-      near-stops: 2
-      match-window-seconds: 60
-      ambiguity-gap-seconds: 45
-      retry-after-seconds: 30
-      max-clock-skew-seconds: 120
-      event-retention-seconds: 600
-      # 원천별 일일 전용 상한(경기 위치 API 는 포털 일 1만을 다른 기능과 나눠 쓴다)
-      position-budget:
-        seoul: 2000
-        gyeonggi: 3000
-        tago: 20000
   subway:
     # 역에서 탈 열차를 사용자가 고른다(#265). 일반 여정에도 적용 — 단독 추적 플래그와 따로 켠다.
     selection:

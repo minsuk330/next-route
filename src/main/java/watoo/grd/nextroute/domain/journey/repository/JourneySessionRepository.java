@@ -385,8 +385,4 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
      */
     @Query(value = "SELECT reroute_accepted_at FROM journey_session WHERE id = :id", nativeQuery = true)
     Optional<Instant> findRerouteAcceptedAt(@Param("id") Long id);
-
-    /** 진행 중인 단독 추적 여정(#265 버스 차량 관찰 대상 후보). 수가 적어 전체를 읽는다. */
-    List<JourneySession> findByKindAndStatusAndDeletedAtIsNull(
-            watoo.grd.nextroute.domain.journey.entity.JourneyKind kind, JourneyStatus status);
 }

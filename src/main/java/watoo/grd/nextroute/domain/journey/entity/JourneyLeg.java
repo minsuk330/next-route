@@ -77,30 +77,9 @@ public class JourneyLeg extends BaseEntity {
     @Column(length = 64)
     private String routeId;
 
-    /**
-     * 단독 추적 버스가 실제로 탄 차량(#265, V61). 일반 여정은 쓰지 않는다(V35 부터 있던 legacy 칼럼).
-     *
-     * <p><b>엔티티 저장으로는 갱신하지 않는다</b>({@code updatable = false}). 이 엔티티에 {@code @DynamicUpdate} 가 없어
-     * 단계를 저장할 때 모든 칼럼을 다시 쓰므로, api 의 진행·명령 저장이 worker 가 쓴 차량을 낡은 값으로 덮는다. 쓰기는
-     * {@code JourneyLegRepository} 의 부분 UPDATE({@code assignVehicle} 등)만 한다. 새 행(복제)에는 그대로 실린다.
-     */
-    @Column(length = 64, updatable = false)
+    /** legacy 호환 칼럼. 1차 내비게이션에서는 실제 차량을 식별하지 않으므로 사용하지 않는다. */
+    @Column(length = 64)
     private String vehicleId;
-
-    /** {@code VEH_ID}(원천 차량 id) 또는 {@code PLAIN_NO}(차량번호, TAGO). {@link #vehicleId} 와 함께 있거나 함께 없다. */
-    @Column(length = 16, updatable = false)
-    private String vehicleIdType;
-
-    /** {@code AUTO_MATCH}(승차 시각 대조). */
-    @Column(length = 16, updatable = false)
-    private String vehicleSource;
-
-    /**
-     * 차량 판정이 끝난 시각. 차 있으면 다시 판정하지 않는다 — {@link #vehicleId} 가 비어 있으면 못 찾았거나 포기했거나
-     * 사용자가 해제한 것이다.
-     */
-    @Column(updatable = false)
-    private Instant vehicleMatchedAt;
 
     /** 검색 결과가 말한 소요시간. 실제 소요가 아니라 계획값이다. */
     private Integer plannedDurationSec;
@@ -216,9 +195,6 @@ public class JourneyLeg extends BaseEntity {
                 .build();
         copy.routeId = this.routeId;
         copy.vehicleId = this.vehicleId;
-        copy.vehicleIdType = this.vehicleIdType;
-        copy.vehicleSource = this.vehicleSource;
-        copy.vehicleMatchedAt = this.vehicleMatchedAt;
         copy.predictedEndAt = this.predictedEndAt;
         copy.remainingStops = this.remainingStops;
         copy.evidenceSource = this.evidenceSource;
