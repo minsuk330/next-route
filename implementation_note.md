@@ -3464,3 +3464,30 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 배포
 - 마이그레이션 없음. API 노출 없음(빈 등록만) — 배포해도 동작 변화 0.
+
+## #283 남은 역 목록 PR-2: 계산기·API (2026-10-07, feat/subway-stations-ahead-api)
+
+### 확정
+- `GET /api/subway/stations/{stationId}/stations-ahead?direction&destination`. 응답 = lineId·boardStationId·boardStationName·direction·destinationApplied·endReason(TERMINAL|BRANCH|LOOP)·branches·stations.
+- 오류: 404 NOT_FOUND / 400 DIRECTION_INVALID(값 공간 밖 or 그 노선에 그 방향 없음) / 422 STATION_NOT_ON_ROUTE / 503 ROUTE_UNAVAILABLE(낡은 캐시도 없을 때만).
+- LOOP 는 **승차역 재등장으로 끊긴 꼬리**일 때만. 2호선이라도 지선(신도림→까치산)은 TERMINAL.
+- branches[].destinationName = 갈래 대표 꼬리의 끝 역. 다시 보내면 그 갈래가 나온다(2호선 본선 갈래는 "대림" 같은 역 이름이 오지만 본선 선택으로 정상 동작 — 테스트 `branchDestinationRoundTrips`).
+- 환승 = 같은 정규화 이름 + ≤300m + 다른 lineId. 역 마스터 696행 통째 메모리(`SubwayLineStationIndex`).
+
+### 함정
+- 신정지선 4역이 LOOP 로 나옴 ← 순환 노선 여부만 보고 LOOP 판정 / 가드=Tail.lapped + `destinationPicksBranchOrMainLine`
+- 테스트 UnfinishedStubbingException ← given(...) 인자 안에서 mock 생성(기존 주석에 있던 함정) / 리스트 먼저 만들기
+- 모바일 `AlightRequest` 엔 표시 라벨("잠실 방면")만 있다 → 원문 direction 필드 추가 필요(HANDOFF 🔴)
+
+### 좌표
+- `application/subway/service/StationsAheadCalculator` / `SubwayStationsAheadService` / `SubwayLineStationIndex`
+- `application/arrival/dto/SubwayStationsAheadResponse`, `SubwayStationController#getStationsAhead`
+- 시나리오 테스트 = 운영 fixture(`SubwayPatternFixtures`)
+
+### 검증
+- `./gradlew test --tests 'watoo.grd.nextroute.application.subway.*' --tests 'watoo.grd.nextroute.application.arrival.*' --tests 'watoo.grd.nextroute.infrastructure.adapter.in.api.subway.*' --tests 'watoo.grd.nextroute.infrastructure.adapter.out.api.otp.*'` → 268 / 실패 0.
+- 새 테스트: StationsAheadCalculatorTest 17(강남 LOOP 42역, 성수로 안 자름, 신도림/강동/구로/가좌 분기점 빈 목록+갈래, 까치산→지선, 마천 TERMINAL, 의정부 급행 무시→구로, 9호선, 6호선, 공항철도), SubwayStationsAheadServiceTest 6, SubwayLineStationIndexTest 2, 컨트롤러 +3.
+- 전체 테스트 미실행(스크래치 clone DB env 없음).
+
+### 배포
+- 마이그레이션 없음. api 이미지 교체. 첫 호출 때 노선 패턴을 OTP 에서 받는다(노선당 1~2.5s, 이후 24h 캐시).
