@@ -21,6 +21,9 @@ import java.time.Instant;
  * @param estimatedNextStationAt  실시간 기반 다음 역 도착 예정. <b>없으면 null</b> — 앱이 보간을 멈춘다
  * @param progressValidUntil      앱이 로컬 보간을 이어가도 되는 마지막 시각
  * @param observedAt              원천이 말한 관측 시각. 도착 API 는 <b>그 행의</b> {@code recptnDt} 다
+ * @param guidanceVersion         화면이 마지막으로 <b>눈에 띄게</b> 바뀐 시각(epoch millis, #307). 같은 화면이면
+ *                                tick 이 돌아도 그대로다. 고정 세대가 바뀌어 키가 새로 생겨도 시각이라 단조다.
+ *                                0 = 아직 부여 전(배포 전 Redis 값 포함)
  */
 public record SubwayRingState(
         Long journeyId,
@@ -43,8 +46,32 @@ public record SubwayRingState(
         SubwayRingPhase phase,
         SubwayRingQuality quality,
         Instant observedAt,
-        Instant updatedAt
+        Instant updatedAt,
+        long guidanceVersion
 ) {
+
+    /** 버전 없이 만든다(계산기). 버전은 저장 직전에 갱신기가 붙인다. */
+    public SubwayRingState(Long journeyId, int routeRevision, int legIndex, int bindingVersion,
+                           int nextStationSequence, String canonicalNextStationKey,
+                           String nextStationName, String alightingStationName,
+                           Integer remainingStations, BigDecimal segmentProgress,
+                           Instant progressBaseAt, BigDecimal progressTarget,
+                           Instant estimatedNextStationAt, Instant progressValidUntil,
+                           SubwayRingPhase phase, SubwayRingQuality quality,
+                           Instant observedAt, Instant updatedAt) {
+        this(journeyId, routeRevision, legIndex, bindingVersion, nextStationSequence,
+                canonicalNextStationKey, nextStationName, alightingStationName, remainingStations,
+                segmentProgress, progressBaseAt, progressTarget, estimatedNextStationAt,
+                progressValidUntil, phase, quality, observedAt, updatedAt, 0L);
+    }
+
+    public SubwayRingState withGuidanceVersion(long version) {
+        return new SubwayRingState(journeyId, routeRevision, legIndex, bindingVersion,
+                nextStationSequence, canonicalNextStationKey, nextStationName,
+                alightingStationName, remainingStations, segmentProgress, progressBaseAt,
+                progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
+                observedAt, updatedAt, version);
+    }
 
     /** 이 상태가 그 고정 세대의 것인지. 아니면 옛 worker 가 쓴 값이다. */
     public boolean matches(int routeRevision, int legIndex, int bindingVersion) {

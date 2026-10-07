@@ -319,6 +319,39 @@ class SubwayRingIT {
         assertThat(ring.estimatedNextStationAt()).isNotNull();
     }
 
+    // ── 링 버전 (#307) ──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("링 버전: 첫 저장에 부여, 같은 화면 tick 은 그대로, 화면이 바뀌면 오른다")
+    void guidanceVersionMovesOnlyWithScreen() {
+        insertBinding("CONFIRMED");
+        SubwayRealtimeTrain enroute = arrivalRow(STATN_MIDDLE, "중간역", "99", 90);
+        given(realtimeCachePort.readSnapshot()).willReturn(Optional.of(snapshotOf(enroute)));
+
+        updateService.runOnce();
+        SubwayRingState first = lastSaved(1);
+        assertThat(first.guidanceVersion()).isPositive();
+
+        given(ringPort.find(anyLong(), anyInt(), anyInt(), anyInt())).willReturn(Optional.of(first));
+        updateService.runOnce();
+        SubwayRingState same = lastSaved(2);
+        assertThat(same.guidanceVersion()).isEqualTo(first.guidanceVersion());
+
+        given(ringPort.find(anyLong(), anyInt(), anyInt(), anyInt())).willReturn(Optional.of(same));
+        given(realtimeCachePort.readSnapshot()).willReturn(Optional.of(snapshotOf(
+                arrivalRow(STATN_MIDDLE, "중간역", "1", 0))));
+        updateService.runOnce();
+        SubwayRingState arrived = lastSaved(3);
+        assertThat(arrived.segmentProgress()).isEqualByComparingTo("1");
+        assertThat(arrived.guidanceVersion()).isGreaterThan(first.guidanceVersion());
+    }
+
+    private SubwayRingState lastSaved(int times) {
+        ArgumentCaptor<SubwayRingState> captor = ArgumentCaptor.forClass(SubwayRingState.class);
+        verify(ringPort, org.mockito.Mockito.times(times)).save(captor.capture());
+        return captor.getValue();
+    }
+
     // ── 배포 스위치 ─────────────────────────────────────────────────────────
 
     @Test

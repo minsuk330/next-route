@@ -304,6 +304,77 @@ class SubwayRingCalculatorTest {
         }
     }
 
+    @Nested
+    @DisplayName("전역 코드(3/4/5)가 같은 구간에서 반복돼도 0 으로 되감지 않는다")
+    class RepeatedPreviousStation {
+
+        @Test
+        @DisplayName("전역 출발이 30초 뒤 다시 오면 그동안의 진행을 이어 그린다(journey 158 회귀)")
+        void continuesInsteadOfResetting() {
+            SubwayRingState first = calculator.next(null, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1,
+                            T0.plusSeconds(120), T0), T0);
+            SubwayRingState again = calculator.next(first, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1,
+                            T0.plusSeconds(130), T0.plusSeconds(30)), T0.plusSeconds(30));
+
+            // 120초 구간의 1/4 을 지났다 → 0.90 의 1/4. 새 예정 시각(130초)부터 다시 보간한다.
+            assertThat(again.segmentProgress()).isEqualByComparingTo("0.225");
+            assertThat(again.progressBaseAt()).isEqualTo(T0.plusSeconds(30));
+            assertThat(again.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(130));
+            assertThat(again.quality()).isEqualTo(SubwayRingQuality.NORMAL);
+        }
+
+        @Test
+        @DisplayName("전역 진입·도착으로 바뀌어도 같은 구간이면 진행이 줄지 않는다")
+        void neverGoesBackWithinSegment() {
+            SubwayRingState state = calculator.next(null, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1,
+                            T0.plusSeconds(100), T0), T0);
+            BigDecimal last = state.segmentProgress();
+            SubwayArrivalCode[] codes = {SubwayArrivalCode.PREV_ENTERING,
+                    SubwayArrivalCode.PREV_ARRIVED, SubwayArrivalCode.PREV_DEPARTED};
+            for (int i = 0; i < codes.length; i++) {
+                Instant at = T0.plusSeconds(20L * (i + 1));
+                state = calculator.next(state, context,
+                        SubwayRingObservation.arrival(codes[i], 1, T0.plusSeconds(100), at), at);
+                assertThat(state.segmentProgress()).isGreaterThanOrEqualTo(last);
+                last = state.segmentProgress();
+            }
+            assertThat(last).isGreaterThan(BigDecimal.ZERO);
+        }
+
+        @Test
+        @DisplayName("반복 관측에 남은 초가 없으면 직전 값에 멈춘다 — 0 으로 떨어뜨리지 않는다")
+        void freezesWithoutSeconds() {
+            SubwayRingState previous = enroute(BigDecimal.valueOf(0.40), T0, T0.plusSeconds(100));
+
+            SubwayRingState state = calculator.next(previous, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1, null,
+                            T0.plusSeconds(30)), T0.plusSeconds(30));
+
+            assertThat(state.segmentProgress()).isEqualByComparingTo("0.40");
+            assertThat(state.estimatedNextStationAt()).isNull();
+            assertThat(state.quality()).isEqualTo(SubwayRingQuality.STALE);
+        }
+
+        @Test
+        @DisplayName("새 구간의 첫 전역 관측은 여전히 0 에서 시작한다")
+        void firstObservationOfSegmentStartsAtZero() {
+            SubwayRingState arrivedAtA = calculator.next(
+                    enroute(BigDecimal.valueOf(0.80), T0, T0.plusSeconds(60)), context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ARRIVED, 1, null,
+                            T0.plusSeconds(60)), T0.plusSeconds(60));
+
+            SubwayRingState towardB = calculator.next(arrivedAtA, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 2,
+                            T0.plusSeconds(200), T0.plusSeconds(80)), T0.plusSeconds(80));
+
+            assertThat(towardB.nextStationSequence()).isEqualTo(2);
+            assertThat(towardB.segmentProgress()).isEqualByComparingTo("0");
+        }
+    }
+
     // ── 국면과 남은 역 수 ───────────────────────────────────────────────────
 
     @Test

@@ -20,6 +20,10 @@ import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionView;
 import watoo.grd.nextroute.application.journey.dto.JourneyCommand;
 import watoo.grd.nextroute.application.journey.dto.JourneyEventOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
+import watoo.grd.nextroute.application.journey.dto.SubwayGuidance;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
+import watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
@@ -405,6 +409,55 @@ class JourneyControllerTest {
         mockMvc.perform(get("/api/journeys/5?afterCommandVersion=0")
                         .with(authentication(authUser(7L))))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("링 버전(#307): 같으면 204, 링이 바뀌었으면 두 버전이 그대로여도 200, JSON 에 버전 노출")
+    void detail_guidanceVersion() throws Exception {
+        given(getActiveJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(
+                snapshot(5L).withSubwayGuidance(guidance(1_791_374_000_000L))));
+
+        mockMvc.perform(get("/api/journeys/5?afterCommandVersion=1&afterEvaluationVersion=0"
+                                + "&afterGuidanceVersion=1791374000000")
+                        .with(authentication(authUser(7L))))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/journeys/5?afterCommandVersion=1&afterEvaluationVersion=0"
+                                + "&afterGuidanceVersion=1791373990000")
+                        .with(authentication(authUser(7L))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.guidanceVersion").value(1_791_374_000_000L))
+                .andExpect(jsonPath("$.subwayGuidance.version").value(1_791_374_000_000L));
+    }
+
+    @Test
+    @DisplayName("링 버전을 안 보내는 옛 앱은 두 버전만 본다 — 링이 바뀌어도 204")
+    void detail_withoutGuidanceVersion_keepsOldRule() throws Exception {
+        given(getActiveJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(
+                snapshot(5L).withSubwayGuidance(guidance(1_791_374_000_000L))));
+
+        mockMvc.perform(get("/api/journeys/5?afterCommandVersion=1&afterEvaluationVersion=0")
+                        .with(authentication(authUser(7L))))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("링이 없으면 버전 0 — 0 을 보내면 204, 링 없는 스냅샷에도 칸은 있다")
+    void detail_noRing_guidanceVersionZero() throws Exception {
+        given(getActiveJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+
+        mockMvc.perform(get("/api/journeys/5?afterGuidanceVersion=0")
+                        .with(authentication(authUser(7L))))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/journeys/5").with(authentication(authUser(7L))))
+                .andExpect(jsonPath("$.guidanceVersion").value(0));
+    }
+
+    private SubwayGuidance guidance(long version) {
+        return new SubwayGuidance(SubwayBindingStatus.CONFIRMED, SubwayRingPhase.RIDE_SUBWAY, "서울2호선",
+                "낙성대", "신림(2호선)", 4, java.math.BigDecimal.ZERO, Instant.parse("2026-10-07T11:52:24Z"),
+                new java.math.BigDecimal("0.90"), Instant.parse("2026-10-07T11:54:24Z"),
+                Instant.parse("2026-10-07T11:54:24Z"), SubwayRingQuality.NORMAL,
+                Instant.parse("2026-10-07T11:52:24Z"), version);
     }
 
     @Test
