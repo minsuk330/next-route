@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.journey;
 
+import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
@@ -27,7 +28,7 @@ class JourneyControllerAdviceTest {
   @Test
   void activeJourneyExists_putsCurrentJourneyInDetailsOnly() {
     JourneySnapshot current = JourneySnapshot.of(
-        42L, null, 1L, 0L, 1, 0, null, null,
+        42L, null, JourneyKind.NAVIGATION, 1L, 0L, 1, 0, null, null,
         Instant.parse("2026-08-04T00:00:00Z"), List.of());
 
     ResponseEntity<ErrorResponse<JourneySnapshot>> response = advice.handleActiveExists(
