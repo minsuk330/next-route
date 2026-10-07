@@ -57,6 +57,8 @@ class SubwayTrainSelectionServiceTest {
     private final SubwayRealtimeArrivalReader arrivalReader = mock(SubwayRealtimeArrivalReader.class);
     private final SubwayTrainSelectionTxService txService = mock(SubwayTrainSelectionTxService.class);
     private final ServiceDateResolver serviceDateResolver = mock(ServiceDateResolver.class);
+    private final watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort trainLogPort =
+            mock(watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort.class);
     private final JourneySubwaySelectionProperties properties = new JourneySubwaySelectionProperties();
     private SubwayTrainSelectionService service;
     private JourneySession session;
@@ -83,7 +85,7 @@ class SubwayTrainSelectionServiceTest {
                 arrival("2394", "성수", null, null)));
         given(serviceDateResolver.resolve(any(Instant.class))).willReturn(LocalDate.parse("2026-10-07"));
         service = new SubwayTrainSelectionService(properties, sessionRepository, legRepository, optionRepository,
-                arrivalReader, serviceDateResolver, txService, new SimpleMeterRegistry(),
+                arrivalReader, serviceDateResolver, trainLogPort, txService, new SimpleMeterRegistry(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -159,6 +161,51 @@ class SubwayTrainSelectionServiceTest {
         assertThatThrownBy(() -> service.candidates(2L, JOURNEY))
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(JourneyErrorCode.JOURNEY_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("방금 떠난 열차(#299)도 고를 수 있다 — 출발 로그에 있으면 그 출발의 운행일로 확정")
+    void departedTrain() {
+        // 03:58 KST 에 떠난 열차를 04:05 에 고른다 → 운행일은 전날(04:00 경계)
+        given(serviceDateResolver.resolve(any(Instant.class))).willAnswer(inv ->
+                ((Instant) inv.getArgument(0)).isBefore(NOW.minusSeconds(300))
+                        ? LocalDate.parse("2026-10-06") : LocalDate.parse("2026-10-07"));
+        given(trainLogPort.findDepartures(eq(LocalDate.parse("2026-10-07")), eq("1002"), eq("내선"),
+                eq("1002000222"), any(), any())).willReturn(List.of());
+        given(trainLogPort.findDepartures(eq(LocalDate.parse("2026-10-06")), eq("1002"), eq("내선"),
+                eq("1002000222"), any(), any())).willReturn(List.of(departure("2229")));
+
+        service.select(USER, JOURNEY, "2229", 1);
+
+        verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
+                "2229", LocalDate.parse("2026-10-06"), "1002", "내선")));
+    }
+
+    @Test
+    @DisplayName("도착 목록에도 최근 출발에도 없으면 422, 출발 로그를 못 읽어도 422")
+    void neitherArrivingNorDeparted() {
+        given(trainLogPort.findDepartures(any(), any(), any(), any(), any(), any())).willReturn(List.of());
+        assertThatThrownBy(() -> service.select(USER, JOURNEY, "9999", 1))
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.TRAIN_NOT_IN_CANDIDATES);
+
+        given(trainLogPort.findDepartures(any(), any(), any(), any(), any(), any()))
+                .willThrow(new IllegalStateException("redis down"));
+        assertThatThrownBy(() -> service.select(USER, JOURNEY, "2229", 1))
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.TRAIN_NOT_IN_CANDIDATES);
+        verify(txService, never()).bind(any(), any());
+    }
+
+    private static watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort.TrainDeparture departure(
+            String trainNo) {
+        Instant mid = NOW.minusSeconds(420);
+        return new watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort.TrainDeparture(trainNo,
+                new watoo.grd.nextroute.application.subway.dto.SubwayTrainEvent(
+                        watoo.grd.nextroute.application.subway.dto.SubwayTrainEvent.Type.DEPARTED, "1002000222", "강남",
+                        mid.minusSeconds(75), mid.plusSeconds(75),
+                        watoo.grd.nextroute.application.subway.dto.SubwayTrainEvent.Quality.CORROBORATED,
+                        "1002000211", watoo.grd.nextroute.application.subway.dto.SubwayExpressType.NORMAL));
     }
 
     private static JourneyLeg leg(int index, JourneyLegType type) {
