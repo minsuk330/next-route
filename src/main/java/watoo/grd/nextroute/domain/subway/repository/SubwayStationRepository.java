@@ -48,6 +48,30 @@ public interface SubwayStationRepository extends JpaRepository<SubwayStation, Lo
 			@Param("radiusMeters") double radiusMeters,
 			@Param("lim") int lim);
 
+	/**
+	 * {@link #findNearby} 와 같되 한 노선만 본다.
+	 *
+	 * <p>노선 조건을 거리 정렬·LIMIT 앞에 둬야 한다. 노선이 많은 환승역에서는 다른 노선 행이
+	 * LIMIT 을 다 채워 요청 노선이 반경 안에 있어도 잘려 나간다.
+	 */
+	@Query(value = """
+			SELECT statn_id AS station_id, statn_nm AS station_name, line_id,
+			       search_line_name AS line_name, latitude, longitude,
+			       ST_Distance(geom, ST_MakePoint(:lng, :lat)::geography) AS dist_meters
+			FROM subway_station
+			WHERE geom IS NOT NULL
+			  AND line_id = :lineId
+			  AND ST_DWithin(geom, ST_MakePoint(:lng, :lat)::geography, :radiusMeters)
+			ORDER BY dist_meters
+			LIMIT :lim
+			""", nativeQuery = true)
+	List<NearbySubwayStationProjection> findNearbyOnLine(
+			@Param("lat") double lat,
+			@Param("lng") double lng,
+			@Param("radiusMeters") double radiusMeters,
+			@Param("lineId") String lineId,
+			@Param("lim") int lim);
+
 	@Modifying
 	@Query(value = "UPDATE subway_station SET geom = ST_MakePoint(longitude, latitude)::geography WHERE geom IS NULL AND longitude IS NOT NULL AND latitude IS NOT NULL", nativeQuery = true)
 	void backfillGeom();
