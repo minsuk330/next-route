@@ -13,12 +13,25 @@ import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
 import watoo.grd.nextroute.global.error.BusinessException;
 import watoo.grd.nextroute.global.error.code.SubwayErrorCode;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
+import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Departed;
+import watoo.grd.nextroute.application.subway.dto.SubwayExpressType;
+import watoo.grd.nextroute.application.subway.dto.SubwayTrainEvent;
+import watoo.grd.nextroute.application.subway.dto.SubwayTrainObservation;
+import watoo.grd.nextroute.application.subway.dto.SubwayTrainStatus;
+import watoo.grd.nextroute.application.subway.dto.TrainIdentity;
+import watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort;
+import watoo.grd.nextroute.application.subway.service.ServiceDateResolver;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -30,8 +43,11 @@ class SubwayStationArrivalQueryServiceTest {
 
     private final SubwayRealtimeArrivalReader arrivalReader = mock(SubwayRealtimeArrivalReader.class);
     private final SubwayStationRepository subwayStationRepository = mock(SubwayStationRepository.class);
-    private final SubwayStationArrivalQueryService service =
-            new SubwayStationArrivalQueryService(arrivalReader, subwayStationRepository);
+    private final SubwayTrainLogPort trainLogPort = mock(SubwayTrainLogPort.class);
+    private static final Instant NOW = Instant.parse("2026-10-07T07:00:00Z"); // 16:00 KST
+    private final SubwayStationArrivalQueryService service = new SubwayStationArrivalQueryService(
+            arrivalReader, subwayStationRepository, trainLogPort, new ServiceDateResolver(),
+            Clock.fixed(NOW, ZoneId.of("Asia/Seoul")));
 
     @Test
     @DisplayName("역 ID 의 노선으로 묻고 방향별로 묶는다 — 방향 안 순서는 reader 순서(초 없는 열차 뒤) 그대로")
@@ -153,6 +169,95 @@ class SubwayStationArrivalQueryServiceTest {
         assertThat(only.stationsAway()).isEqualTo(3);
         assertThat(only.currentMessage()).isEqualTo("[3]번째 전역");
         assertThat(only.trainType()).isEqualTo("일반");
+    }
+
+    @Test
+    @DisplayName("#299 방향마다 10분 안에 떠난 열차를 최근 순 최대 3대 — 같은 열차는 한 번")
+    void departedTrainsAreRecentFirstAndCapped() {
+        givenStation(GANGNAM, "1002");
+        given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of(arrival("2231", "내선", "성수", 96)));
+        given(trainLogPort.findDepartures(LocalDate.of(2026, 10, 7), "1002", "내선", GANGNAM,
+                NOW.minusSeconds(600), NOW)).willReturn(List.of(
+                departure("2301", 540), departure("2302", 420), departure("2303", 300),
+                departure("2304", 60), departure("2304", 120)));
+
+        List<Departed> departed = service.getArrivals(GANGNAM).directions().get(0).departed();
+
+        assertThat(departed).extracting(Departed::trainNo).containsExactly("2304", "2303", "2302");
+        assertThat(departed.get(0).departedAt().toInstant()).isEqualTo(NOW.minusSeconds(60));
+    }
+
+    @Test
+    @DisplayName("#299 행선지 이름·열차 종류·지금 위치를 붙인다 — 떠난 뒤 관측이 없으면 위치는 null")
+    void departedCarriesDestinationTypeAndPosition() {
+        givenStation(GANGNAM, "1002");
+        SubwayStation terminal = mock(SubwayStation.class);
+        given(terminal.getStationName()).willReturn("성수");
+        given(subwayStationRepository.findByStationId("1002000211")).willReturn(Optional.of(terminal));
+        given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of());
+        given(trainLogPort.findDepartures(any(), eq("1002"), eq("내선"), eq(GANGNAM), any(), any()))
+                .willReturn(List.of(departure("2306", 120), departure("2305", 400)));
+        TrainIdentity moved = new TrainIdentity(LocalDate.of(2026, 10, 7), "1002", "내선", "2306");
+        given(trainLogPort.lastSeen(moved)).willReturn(Optional.of(new SubwayTrainObservation(
+                "1002000223", "역삼", SubwayTrainStatus.values()[0], NOW.minusSeconds(30), "1002000211",
+                SubwayExpressType.NORMAL)));
+        TrainIdentity stale = new TrainIdentity(LocalDate.of(2026, 10, 7), "1002", "내선", "2305");
+        given(trainLogPort.lastSeen(stale)).willReturn(Optional.of(new SubwayTrainObservation(
+                GANGNAM, "강남", SubwayTrainStatus.values()[0], NOW.minusSeconds(900), "1002000211",
+                SubwayExpressType.NORMAL)));
+
+        Direction inner = service.getArrivals(GANGNAM).directions().get(0);
+
+        assertThat(inner.direction()).isEqualTo("내선");
+        assertThat(inner.trains()).isEmpty();
+        assertThat(inner.label()).isEqualTo("성수 방면");
+        assertThat(inner.departed().get(0)).extracting(Departed::destinationName, Departed::trainType,
+                Departed::currentStationName).containsExactly("성수", "일반", "역삼");
+        assertThat(inner.departed().get(1).currentStationName()).isNull();
+    }
+
+    @Test
+    @DisplayName("#299 출발 로그를 못 읽어도 곧 오는 열차는 그대로 — 떠난 열차만 빈다")
+    void logFailureKeepsUpcomingTrains() {
+        givenStation(GANGNAM, "1002");
+        given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of(arrival("2231", "내선", "성수", 96)));
+        given(trainLogPort.findDepartures(any(), any(), any(), any(), any(), any()))
+                .willThrow(new IllegalStateException("redis down"));
+
+        Direction inner = service.getArrivals(GANGNAM).directions().get(0);
+
+        assertThat(inner.trains()).hasSize(1);
+        assertThat(inner.departed()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("#299 서비스일 경계(04:00) 직후면 전날 운행 로그도 본다")
+    void looksAtPreviousServiceDateAcrossBoundary() {
+        Instant justAfter = Instant.parse("2026-10-06T19:05:00Z"); // 04:05 KST
+        SubwayStationArrivalQueryService early = new SubwayStationArrivalQueryService(
+                arrivalReader, subwayStationRepository, trainLogPort, new ServiceDateResolver(),
+                Clock.fixed(justAfter, ZoneId.of("Asia/Seoul")));
+        givenStation(GANGNAM, "1002");
+        given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of());
+
+        early.getArrivals(GANGNAM);
+
+        verify(trainLogPort).findDepartures(eq(LocalDate.of(2026, 10, 7)), eq("1002"), eq("내선"), eq(GANGNAM), any(), any());
+        verify(trainLogPort).findDepartures(eq(LocalDate.of(2026, 10, 6)), eq("1002"), eq("내선"), eq(GANGNAM), any(), any());
+    }
+
+    @Test
+    void trainTypeFollowsArrivalVocabulary() {
+        assertThat(SubwayStationArrivalQueryService.trainType(SubwayExpressType.NORMAL)).isEqualTo("일반");
+        assertThat(SubwayStationArrivalQueryService.trainType(SubwayExpressType.EXPRESS)).isEqualTo("급행");
+        assertThat(SubwayStationArrivalQueryService.trainType(SubwayExpressType.UNKNOWN)).isNull();
+    }
+
+    private SubwayTrainLogPort.TrainDeparture departure(String trainNo, int secondsAgo) {
+        Instant mid = NOW.minusSeconds(secondsAgo);
+        return new SubwayTrainLogPort.TrainDeparture(trainNo, new SubwayTrainEvent(
+                SubwayTrainEvent.Type.DEPARTED, GANGNAM, "강남", mid.minusSeconds(75), mid.plusSeconds(75),
+                SubwayTrainEvent.Quality.CORROBORATED, "1002000211", SubwayExpressType.NORMAL));
     }
 
     private void givenStation(String stationId, String lineId) {
