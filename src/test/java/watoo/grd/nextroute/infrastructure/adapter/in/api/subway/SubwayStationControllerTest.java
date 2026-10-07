@@ -71,13 +71,15 @@ class SubwayStationControllerTest {
     void stationsAheadReturnsContract() throws Exception {
         given(aheadUseCase.getStationsAhead("1005000548", "하행", null)).willReturn(new SubwayStationsAheadResponse(
                 "1005", "1005000548", "강동", "하행", false, SubwayStationsAheadResponse.EndReason.BRANCH,
-                List.of(new SubwayStationsAheadResponse.Branch("마천", "둔촌동")), List.of()));
+                List.of(new SubwayStationsAheadResponse.Branch("마천", "둔촌동",
+                        SubwayStationsAheadResponse.EndReason.TERMINAL)), List.of()));
 
         mockMvc.perform(get("/api/subway/stations/1005000548/stations-ahead").param("direction", "하행"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.endReason").value("BRANCH"))
                 .andExpect(jsonPath("$.destinationApplied").value(false))
                 .andExpect(jsonPath("$.branches[0].destinationName").value("마천"))
+                .andExpect(jsonPath("$.branches[0].kind").value("TERMINAL"))
                 .andExpect(jsonPath("$.stations").isEmpty());
     }
 

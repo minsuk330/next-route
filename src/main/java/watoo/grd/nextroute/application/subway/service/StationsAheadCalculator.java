@@ -32,6 +32,13 @@ public final class StationsAheadCalculator {
 
     private static final String BRANCH_LINE = "지선";
 
+    /**
+     * 순환 본선 갈래의 행선지 값(#292). 본선 갈래는 한 바퀴 돌아 승차역 바로 앞(신도림이면 대림)에서
+     * 끝나는데, 그 역 이름을 주면 앱의 "○○ 방면" 표시가 <b>반대 방향</b>으로 읽힌다. 다시 보내면 본선
+     * 한 바퀴가 나온다.
+     */
+    public static final String LOOP_DESTINATION = "순환";
+
     /** 실시간 2호선 행선지 표기 중 지선을 뜻하는 것. 역 이름이 아니다. */
     static final Set<String> BRANCH_DESTINATIONS = Set.of("성수지선", "신도림지선");
 
@@ -56,7 +63,11 @@ public final class StationsAheadCalculator {
     public record Ahead(Stop stop, int stopsAway, Integer minutes) {
     }
 
-    public record Branch(String destinationName, String nextStationName) {
+    /**
+     * @param destinationName 다시 부를 때 {@code destination} 값. 순환 본선이면 {@link #LOOP_DESTINATION}
+     * @param kind            그 갈래가 어떻게 끝나는지. {@link EndReason#LOOP} 이면 순환 본선이다
+     */
+    public record Branch(String destinationName, String nextStationName, EndReason kind) {
     }
 
     public record Result(List<Ahead> stations, EndReason endReason, List<Branch> branches,
@@ -106,6 +117,9 @@ public final class StationsAheadCalculator {
         if (branchLine.isEmpty() || mainLine.isEmpty()) {
             return null;
         }
+        if (LOOP_DESTINATION.equals(destination)) {
+            return mainLine;
+        }
         String key = NORMALIZER.normalize(destination);
         boolean branchOnly = BRANCH_DESTINATIONS.contains(destination)
                 || (branchLine.stream().anyMatch(t -> indexOfName(t.stops(), key) >= 0)
@@ -141,7 +155,10 @@ public final class StationsAheadCalculator {
                 destinationApplied);
     }
 
-    /** 갈래마다 하나: 그 갈래 대표 꼬리의 끝 역(앱이 행선지로 다시 보낼 값)과 분기 다음 역. */
+    /**
+     * 갈래마다 하나: 앱이 행선지로 다시 보낼 값과 분기 다음 역. 다시 보낼 값은 그 갈래 대표 꼬리의 끝 역이고,
+     * 한 바퀴 도는 순환 본선이면 {@link #LOOP_DESTINATION} 이다.
+     */
     private static List<Branch> branches(List<Tail> tails, int length) {
         Map<String, Tail> byNext = new LinkedHashMap<>();
         tails.stream()
@@ -149,7 +166,10 @@ public final class StationsAheadCalculator {
                 .sorted(Comparator.comparingInt((Tail t) -> t.pattern().tripCount()).reversed())
                 .forEach(t -> byNext.putIfAbsent(t.stops().get(length).key(), t));
         return byNext.values().stream()
-                .map(t -> new Branch(t.stops().get(t.stops().size() - 1).name(), t.stops().get(length).name()))
+                .map(t -> t.lapped()
+                        ? new Branch(LOOP_DESTINATION, t.stops().get(length).name(), EndReason.LOOP)
+                        : new Branch(t.stops().get(t.stops().size() - 1).name(), t.stops().get(length).name(),
+                                EndReason.TERMINAL))
                 .toList();
     }
 

@@ -14,7 +14,9 @@ import watoo.grd.nextroute.global.error.code.SubwayErrorCode;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 남은 역 목록(#283). 원천은 OTP 패턴({@link SubwayLinePatternService}), 계산은
@@ -28,6 +30,13 @@ public class SubwayStationsAheadService implements GetSubwayStationsAheadUseCase
     private final SubwayStationRepository subwayStationRepository;
     private final SubwayLinePatternService linePatternService;
     private final SubwayLineStationIndex stationIndex;
+
+    /**
+     * (line, direction) → 역에 이은 패턴. 정차마다 같은 노선 역 전부와 거리를 재므로 2호선은 한 번에
+     * 약 240ms 다(#291). 원본 패턴 목록이 <b>같은 객체</b>일 때만 재사용한다 — 패턴 캐시가 갱신되면 새
+     * 목록이 오므로 저절로 다시 계산된다.
+     */
+    private final Map<String, Resolved> resolved = new ConcurrentHashMap<>();
 
     @Override
     public SubwayStationsAheadResponse getStationsAhead(String stationId, String direction, String destination) {
@@ -50,9 +59,7 @@ public class SubwayStationsAheadService implements GetSubwayStationsAheadUseCase
         }
 
         List<SubwayPatternStationMatcher.Candidate> candidates = stationIndex.candidates(lineId);
-        List<StationsAheadCalculator.Pattern> patterns = directed.stream()
-                .map(p -> resolve(p, candidates))
-                .toList();
+        List<StationsAheadCalculator.Pattern> patterns = resolvedPatterns(lineId, direction, directed, candidates);
         if (!StationsAheadCalculator.boardsAnywhere(patterns, board.getStationId())) {
             throw new BusinessException(SubwayErrorCode.SUBWAY_STATION_NOT_ON_ROUTE);
         }
@@ -67,7 +74,8 @@ public class SubwayStationsAheadService implements GetSubwayStationsAheadUseCase
                 result.destinationApplied(),
                 SubwayStationsAheadResponse.EndReason.valueOf(result.endReason().name()),
                 result.branches().stream()
-                        .map(b -> new SubwayStationsAheadResponse.Branch(b.destinationName(), b.nextStationName()))
+                        .map(b -> new SubwayStationsAheadResponse.Branch(b.destinationName(), b.nextStationName(),
+                                SubwayStationsAheadResponse.EndReason.valueOf(b.kind().name())))
                         .toList(),
                 result.stations().stream().map(a -> toStation(a, lineId, candidates)).toList());
     }
@@ -83,6 +91,22 @@ public class SubwayStationsAheadService implements GetSubwayStationsAheadUseCase
                 .orElse(List.of());
         return new SubwayStationsAheadResponse.Station(
                 stop.stationId(), stop.name(), ahead.stopsAway(), ahead.minutes(), transfers);
+    }
+
+    List<StationsAheadCalculator.Pattern> resolvedPatterns(
+            String lineId, String direction, List<DirectedRailPattern> directed,
+            List<SubwayPatternStationMatcher.Candidate> candidates) {
+        String key = lineId + ":" + direction;
+        Resolved cached = resolved.get(key);
+        if (cached != null && cached.source() == directed) {
+            return cached.patterns();
+        }
+        List<StationsAheadCalculator.Pattern> patterns = directed.stream().map(p -> resolve(p, candidates)).toList();
+        resolved.put(key, new Resolved(directed, patterns));
+        return patterns;
+    }
+
+    private record Resolved(List<DirectedRailPattern> source, List<StationsAheadCalculator.Pattern> patterns) {
     }
 
     /** OTP 정차를 역에 잇는다. 이으면 역 ID·역 마스터 이름, 못 이으면 OTP 이름(노선 괄호 제거). */

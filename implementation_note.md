@@ -3561,6 +3561,35 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 신규 시험: `OtpTransitPatternAdapterTest` 7, `TrackPatternSelectorTest` 10, `TrackLegFactoryTest` 7, `TrackLegChainTest` 4(2호선 wayCode 0·서울/경기/TAGO 버스 id), `TrackJourneyStartServiceTest` 10, `TrackSelectionQueryServiceTest` 5, `JourneyTrackControllerTest` 5(익명 401 4경로 포함), `TrackJourneyStartIT` 1(일회용 postgis — 시작 → active 1구간·kind=TRACK·보드 예약 없음) — 전부 통과
 - 전체 `./gradlew test --continue`: 2465 중 실패 11 = **기존 무관 10**(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1, PR-1 때와 동일) + `JourneyNotificationSchemaIT` 1(전체 실행 중 testcontainers `TransactionException`, 단독 재실행 통과 = **간헐, 이 PR 무관** — 손댄 파일 없음)
 
+## #292 순환 본선 갈래 이름 (2026-10-07, fix/subway-loop-branch-name, S)
+
+### 확정
+- `branches[]` 에 `kind`(LOOP|TERMINAL) 추가. 한 바퀴 도는 꼬리(lapped)의 갈래는 `destinationName="순환"`(`StationsAheadCalculator.LOOP_DESTINATION`) — 이전엔 한 바퀴 끝 역(신도림 내선이면 "대림")이라 앱 "대림 방면"이 반대 방향으로 읽혔다.
+- `destination=순환` 은 순환 노선에서 본선 선택으로 읽는다(명시 분기). 갈래 값 왕복 테스트 유지.
+- 같은 모양: 신도림 내선(순환/까치산), 성수 내선(순환/신설동).
+
+### 검증
+- `./gradlew test --tests '*StationsAhead*' --tests '*SubwayStationController*'` → 계산기 19/0(+2), 서비스 6/0, 컨트롤러 6/0.
+
+### 배포
+- 마이그레이션 없음. 응답 필드 추가(`kind`) — 하위 호환.
+## #291 지하철 도착·남은 역 지연 대비 (2026-10-07, perf/subway-ahead-latency, M)
+
+### 확정
+- 신고 지연(신분당선 도착 27s, stations-ahead 40s+)은 **서버 밖**: 그 시간대 Prometheus `http_server_requests_seconds_max` 두 API 최대 0.5s, VPS CPU ~6%, nginx 에 499 없음(닿기 전 막힘), 같은 시각 SSH timeout, 외부 측정 첫 요청 `tcp=1.14s`(SYN 재전송). 지금 외부 0.19~0.34s.
+- 그래도 구조 보강: 패턴 적재 전체 예산 5초(남은 예산을 호출별 read timeout 으로), 부팅 워밍업(별도 데몬 스레드, `!worker`), 역 연결 결과 캐시(원본 목록 동일 객체일 때만).
+- 도착 API(#277)는 Redis snapshot 만 읽는다(내부 22ms) — 변경 없음.
+
+### 함정
+- 0 이하 read timeout 을 넘기면 HTTP 클라이언트가 무한 대기로 읽는다 → 예산 소진 시 호출 자체를 안 함
+- Java 17 이라 가상 스레드 없음 → 데몬 Thread
+- 워밍업을 ApplicationReadyEvent 스레드에서 돌리면 준비 완료가 늦어져 deploy.sh healthcheck(180s) 위협
+
+### 검증
+- subway·arrival·api.subway·otp 패키지 285 / 실패 0. 신규: 예산 전달·소진·낡은 값 3, 워밍업 3, 연결 캐시 1.
+
+### 배포
+- 마이그레이션 없음. api 이미지 교체. 배포 후 `지하철 패턴 워밍업 완료 keys=38` 로그 + api 힙 증가분 확인.
 ## standalone-track PR-3 — 지하철 열차 후보·선택 (2026-10-07, L 의 3/5, #265)
 ### 확정
 - API(기존 `JourneySubwayBindingController`, `/api/journeys/{id}/subway/…`): `GET train-candidates` → `[{trainNo, destination, express, trainType, arrivalSeconds, observedAt}]`, `POST train-selection {trainNo, routeRevision}` → `SubwayBindingView`. 플래그 `journey.subway.selection.enabled`(env `JOURNEY_SUBWAY_SELECTION_ENABLED`, 기본 false, 꺼지면 404). **일반 여정에도 적용**
