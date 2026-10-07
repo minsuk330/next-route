@@ -3417,6 +3417,112 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew test --tests '*JourneySnapshotKindTest' --tests '*RerouteBoardRefreshServiceKindTest' --tests '*JourneyStartTxServiceKindTest' --tests '*JourneyKindRerouteExclusionIT' --tests '*JourneySchemaIT' --tests '*RerouteProposalStoreIT'` → 3/2/1/6/19/23 전부 통과
 - 변이 확인: 선점 SQL 의 `kind` 조건 제거 시 `JourneyKindRerouteExclusionIT` 1건 실패(시험이 조건을 잡음) → 원복
 - 전체 `./gradlew test --continue`: 2416 중 실패 17 = Withdrawal 7(내 것, 위 수정 후 7/7) + **기존 무관 10**(`JourneyEvaluationIT` 7·`JourneyEvalReadPathIT` 2·`JourneyTransferAssessmentIT` 1 — 변경 stash 한 main 에서도 같은 10건 실패 확인)
+## #277 역 ID 지하철 도착 API (2026-10-07, feat/subway-station-arrivals)
+
+### 확정
+- `GET /api/subway/stations/{stationId}/arrivals`. 소스 = `SubwayRealtimeArrivalReader.arrivals(lineId, stationId, null)`(캐시, 키 소비 0). 방향 순서 = direction 한국어 Collator, null 맨 뒤.
+- 빈 direction 의 label 도 행선지 우선(앱 `groupTrainsByDirection` 과 같음), 행선지도 없으면 "방향 정보 없음". PLAN 초안의 "빈 방향 → 무조건 방향 정보 없음"은 규칙 3 과 충돌해 앱 동작 쪽으로 정정.
+- label 충돌 시 direction 원문으로 바꾸는 건 direction 이 null 이 아닌 방향만(null 방향은 원문이 없다).
+- 운영 statn_id 중복 0건(696행 19노선) → `findByStationId` 단건 조회 안전.
+
+### 좌표
+- `SubwayStationArrivalQueryService.group` / `SubwayStationController` / `SubwayErrorCode.SUBWAY_STATION_NOT_FOUND`
+
+### 검증
+- `./gradlew test --tests '*SubwayStationArrival*' --tests '*SubwayStationController*' --tests '*SubwayArrivalQueryServiceTest'` → 9/0, 3/0, 7/0 (BUILD 성공). 전체 테스트는 미실행.
+
+### 배포
+- 마이그레이션 없음. api 이미지 교체. 플래그 없음.
+## #283 남은 역 목록 PR-1: OTP 지하철 패턴 포트·커버리지 (2026-10-07, feat/subway-stations-ahead-pr1)
+
+### 확정
+- 포트=원천만(`SubwayRoutePatternPort`), 선택·반전·분할=순수 `SubwayRoutePatternAssembler`, 캐시 24h+낡은 값=`SubwayLinePatternService`. PLAN 초안(어댑터가 다 함)에서 바꿈 — 커버리지 테스트가 운영 코드를 그대로 돌리게.
+- OTP 방향 라벨이 실시간과 반대인 노선 4: KJ-2(경의중앙 서울역), 02-2(2호선 성수지선, 내↔외), 09-*(9호선), AP-1(공항철도). 신정지선(02-3)은 같음.
+- 6호선(06-00, 방향 없음): 응암 첫 등장까지(포함)=상행, 응암부터=하행. 응암 없는 패턴은 버림.
+- 매칭: 같은 노선·같은 이름이면 ≤5km, 다르면 최근접 ≤150m. 리뷰안 500m 는 도봉(1.1km)·인천공항2터미널(~3km)에서 깨짐.
+- 실시간 행선지 대조는 OTP 이름·DB 이름 둘 다로(개명 당고개→불암산, 응암↔응암순환(상선)). 비율 5% 미만 행선지는 잡음.
+
+### 함정
+- 반대 방향 역 목록 ← OTP 라벨을 그대로 믿음 / 가드=`SubwayPatternCoverageTest.realtimeDestinationsLieAheadInTheirDirection`(9호선 반전 빼면 실패 확인함)
+- 틀린 역 연결(도봉→도봉산) ← 좌표 우선 매칭 + OTP 좌표 뒤바뀜 / 가드=이름 우선 + `nearestFallbackNeverPicksAnotherStation`(개명 목록 고정)
+- 인천2호선→1002 ← 숫자 추출 매퍼 / 가드=shortName 명시표
+- 패턴 응답 노선당 최대 1.4MB·1~2.5s(trip 마다 stoptimes, GraphQL 로 trip 수 제한 불가) → 24h 캐시
+- 리뷰가 "경강선 route 0개"라 했지만 이번 채집엔 있음(fixture 61→91 route 로 갱신된 feed)
+
+### 좌표
+- `application/subway/service/SubwayRoutePatternAssembler` / `SubwayPatternStationMatcher` / `SubwayLinePatternService`
+- `infrastructure/adapter/out/api/otp/OtpSubwayRoutePatternAdapter`
+- fixture `src/test/resources/otp/subway-patterns/` (routes-with-patterns 2.5MB, subway-stations 696행, realtime-destinations 103조합)
+
+### 미결
+- 경춘선 상행 용산 직결 행선지(OTP 패턴에 용산 없음) → 그 열차는 상봉·청량리까지만
+- 4호선 진접 연장 3역 역 마스터 누락 → stationId null 로 나감(정적 일배치 off 영향)
+
+### 검증
+- `./gradlew test --tests '*SubwayPattern*' --tests '*SubwayRoutePatternAssembler*' --tests '*OtpSubwayRoutePatternAdapter*' --tests '*SubwayLinePatternService*' --tests '*GtfsRailDirectionCoverageTest'` → 5/0, 5/0, 7/0, 3/0, 5/0, 3/0. 전체 테스트 미실행(스크래치 clone 은 DB env 없음).
+- 운영 OTP 에 어댑터 질의문(variables 포함) 그대로 POST → errors 없음.
+
+### 배포
+- 마이그레이션 없음. API 노출 없음(빈 등록만) — 배포해도 동작 변화 0.
+
+## #283 남은 역 목록 PR-2: 계산기·API (2026-10-07, feat/subway-stations-ahead-api)
+
+### 확정
+- `GET /api/subway/stations/{stationId}/stations-ahead?direction&destination`. 응답 = lineId·boardStationId·boardStationName·direction·destinationApplied·endReason(TERMINAL|BRANCH|LOOP)·branches·stations.
+- 오류: 404 NOT_FOUND / 400 DIRECTION_INVALID(값 공간 밖 or 그 노선에 그 방향 없음) / 422 STATION_NOT_ON_ROUTE / 503 ROUTE_UNAVAILABLE(낡은 캐시도 없을 때만).
+- LOOP 는 **승차역 재등장으로 끊긴 꼬리**일 때만. 2호선이라도 지선(신도림→까치산)은 TERMINAL.
+- branches[].destinationName = 갈래 대표 꼬리의 끝 역. 다시 보내면 그 갈래가 나온다(2호선 본선 갈래는 "대림" 같은 역 이름이 오지만 본선 선택으로 정상 동작 — 테스트 `branchDestinationRoundTrips`).
+- 환승 = 같은 정규화 이름 + ≤300m + 다른 lineId. 역 마스터 696행 통째 메모리(`SubwayLineStationIndex`).
+
+### 함정
+- 신정지선 4역이 LOOP 로 나옴 ← 순환 노선 여부만 보고 LOOP 판정 / 가드=Tail.lapped + `destinationPicksBranchOrMainLine`
+- 테스트 UnfinishedStubbingException ← given(...) 인자 안에서 mock 생성(기존 주석에 있던 함정) / 리스트 먼저 만들기
+- 모바일 `AlightRequest` 엔 표시 라벨("잠실 방면")만 있다 → 원문 direction 필드 추가 필요(HANDOFF 🔴)
+
+### 좌표
+- `application/subway/service/StationsAheadCalculator` / `SubwayStationsAheadService` / `SubwayLineStationIndex`
+- `application/arrival/dto/SubwayStationsAheadResponse`, `SubwayStationController#getStationsAhead`
+- 시나리오 테스트 = 운영 fixture(`SubwayPatternFixtures`)
+
+### 검증
+- `./gradlew test --tests 'watoo.grd.nextroute.application.subway.*' --tests 'watoo.grd.nextroute.application.arrival.*' --tests 'watoo.grd.nextroute.infrastructure.adapter.in.api.subway.*' --tests 'watoo.grd.nextroute.infrastructure.adapter.out.api.otp.*'` → 268 / 실패 0.
+- 새 테스트: StationsAheadCalculatorTest 17(강남 LOOP 42역, 성수로 안 자름, 신도림/강동/구로/가좌 분기점 빈 목록+갈래, 까치산→지선, 마천 TERMINAL, 의정부 급행 무시→구로, 9호선, 6호선, 공항철도), SubwayStationsAheadServiceTest 6, SubwayLineStationIndexTest 2, 컨트롤러 +3.
+- 전체 테스트 미실행(스크래치 clone DB env 없음).
+
+### 배포
+- 마이그레이션 없음. api 이미지 교체. 첫 호출 때 노선 패턴을 OTP 에서 받는다(노선당 1~2.5s, 이후 24h 캐시).
+## #276 지하철 도착 조회 line_id 엄격화 (2026-10-07, fix/subway-arrival-line-strict)
+
+### 확정
+- `resolveStation(lat, lon, lineId)`: lineId 있으면 **그 노선 역만** 찾는다(`findNearbyOnLine`, SQL 에 `line_id = :lineId`). 50m→300m 단계 확대 유지, 끝까지 없으면 empty. 다른 노선 대체 없음. lineId 없으면 최근접 그대로.
+- 노선 조건을 SQL 에 넣은 이유=구현 단순. LIMIT 5 밀림은 운영 실측 0건(300m 안 6행 이상 역 없음) — 위험 근거 아님.
+
+### 함정
+- 다른 노선 열차 반환 ← 첫 후보 반경에서 멈춤 + `selectStation` 의 `orElse(nearby.get(0))` + `size()>=2` 조건(후보 1개면 노선 확인 생략). 강남 2호선 승강장 좌표: 50m 안=2호선(0m)만, 신분당선 1077000687 은 146m.
+
+### 좌표
+- `SubwayArrivalQueryService.resolveStation` / `SubwayStationRepository.findNearbyOnLine`
+- 호출자: `/api/arrivals/subway`, `JourneyTransitIdEnricher.resolveSubwayStation`(후단에서 lineId 재필터 → 영향 없음)
+
+### 검증
+- `./gradlew test --tests '*SubwayArrivalQueryServiceTest' --tests '*JourneyTransitIdEnricherTest'` → 10/0, 3/0. 옛 service 로 돌리면 7 실패(가드 유효).
+- 운영 DB SELECT(읽기 전용): 1077 필터 반경 50·100 없음, 150 에서 강남 1077 146m 잡힘.
+
+### 배포
+- 마이그레이션 없음. 이미지 교체만.
+
+## 2026-10-07 운영 반영: 재탐색 보드 ON + 노선 정류장 표 첫 적재
+### 배포
+- 13:05 보드 ON: VPS compose `x-app-environment` 앵커에 `JOURNEY_REROUTE_BOARD_ENABLED: "true"`(api·worker 만 렌더). 백업 `compose.yaml.bak-20261007-130424-pre-board`. 끄기 = 그 줄 삭제 + api·worker 재생성
+- 13:13 #281 배포: 이미지 `nextroute:20261007-131332-ab819324`, jar md5 99f8281f, 이전 jar `app.jar.bak-20261007-pre-catalog-retry`. 마이그레이션 없음
+### 검증
+- 첫 적재 완료 14:26: `routes=21402 loaded=21358 empty=11 failed=33 pruned=0 aborted=false elapsed=4348s`(72분, 플랜 추정 2시간보다 빠름). 표 TAGO 19,191노선 954,241행 + GG 2,167노선 148,716행
+- worker `TagoCityCodeLookup refreshed routes=19191 prefixes=49`
+### 함정
+- failed 33 = 저장 실패 17(전부 청양군 cityCode 34350 `CNB2960…`) + 원천 실패 16(debug 로그라 원인 미기록). 청양은 **TAGO 원천이 깨져 있다**: CNB296000146 82정류장 중 23개 nodeord 가 두 정류장에 겹치고 nodeid 가 노선 id 모양(CNB296000029). `uq_regional_bus_route_stop(provider, route_id, seq)` 가 그 노선만 거절 → 의도대로. 겹친 순번은 실시간 매칭이 원래 불가능하므로 고치지 않음
+- 원천 실패는 `log.debug` 라 운영에서 원인이 안 보인다. 다음에 원인이 필요하면 WARN 으로 올릴 것
+- api 의 `TagoCityCodeLookup` 은 부팅 후 6시간 주기라 첫 적재 직후엔 여전히 `routes=0`(접두사 표 폴백). api 재시작 또는 19:14 자동 갱신 후 노선 단위 도시코드 적용
+- 낮 시간 적재: 도착 조회와 키 동시세션 30을 공유. 이번 회차엔 ERROR 0
 
 ## standalone-track PR-2 — 노선 패턴 조회 + TRACK 시작 (2026-10-07, L 의 2/5, #265)
 ### 확정

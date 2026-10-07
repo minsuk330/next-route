@@ -11,6 +11,7 @@ import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -28,10 +29,9 @@ class SubwayArrivalQueryServiceTest {
 
     @Test
     void resolveStation_selectsTheRequestedInternalLine() {
-        NearbySubwayStationProjection lineNine = station("923", "신논현", "1009");
         NearbySubwayStationProjection sinbundang = station("D07", "신논현", "1077");
-        given(subwayStationRepository.findNearby(37.5045, 127.0250, 50, 5))
-                .willReturn(List.of(lineNine, sinbundang));
+        given(subwayStationRepository.findNearbyOnLine(37.5045, 127.0250, 50, "1077", 5))
+                .willReturn(List.of(sinbundang));
 
         assertThat(service.resolveStation(37.5045, 127.0250, "1077"))
                 .contains(new SubwayArrivalQueryService.ResolvedStation(
@@ -73,7 +73,7 @@ class SubwayArrivalQueryServiceTest {
     @DisplayName("50m 에서 후보가 없으면 반경을 넓혀 찾는다 — 눈앞의 역을 두고 '정보 없음' 이 되면 안 된다")
     void expandsRadiusWhenNothingIsFoundNearby() {
         NearbySubwayStationProjection station = station("1075075212", "압구정로데오", "1075");
-        given(subwayStationRepository.findNearby(37.5271, 127.0402, 150.0, 5))
+        given(subwayStationRepository.findNearbyOnLine(37.5271, 127.0402, 150.0, "1075", 5))
                 .willReturn(List.of(station));
 
         assertThat(service.resolveStation(37.5271, 127.0402, "1075"))
@@ -89,7 +89,7 @@ class SubwayArrivalQueryServiceTest {
         service.resolveStation(37.5271, 127.0402, "1075");
 
         verify(subwayStationRepository, never())
-                .findNearby(anyDouble(), anyDouble(), eq(100.0), anyInt());
+                .findNearbyOnLine(anyDouble(), anyDouble(), eq(100.0), any(), anyInt());
     }
 
     @Test
@@ -98,27 +98,69 @@ class SubwayArrivalQueryServiceTest {
         assertThat(service.resolveStation(37.5271, 127.0402, "1075")).isEmpty();
 
         verify(subwayStationRepository, never())
-                .findNearby(anyDouble(), anyDouble(), eq(350.0), anyInt());
+                .findNearbyOnLine(anyDouble(), anyDouble(), eq(350.0), any(), anyInt());
     }
 
     @Test
     @DisplayName("넓힌 반경에서도 요청한 호선을 고른다 — 확대가 노선 선택 규칙을 흐리지 않는다")
     void keepsLineSelectionAtTheExpandedRadius() {
-        NearbySubwayStationProjection lineNine = station("923", "신논현", "1009");
         NearbySubwayStationProjection sinbundang = station("D07", "신논현", "1077");
-        given(subwayStationRepository.findNearby(37.5045, 127.0250, 200.0, 5))
-                .willReturn(List.of(lineNine, sinbundang));
+        given(subwayStationRepository.findNearbyOnLine(37.5045, 127.0250, 200.0, "1077", 5))
+                .willReturn(List.of(sinbundang));
 
         assertThat(service.resolveStation(37.5045, 127.0250, "1077"))
                 .contains(new SubwayArrivalQueryService.ResolvedStation(
                         "D07", "신논현", "1077"));
     }
 
+    @Test
+    @DisplayName("#276 환승역: 가까운 반경에 다른 노선만 있어도 요청 노선이 나올 때까지 넓힌다")
+    void expandsUntilTheRequestedLineAppearsAtATransferStation() {
+        // 강남역 2호선 승강장 좌표. 50m 안엔 2호선(41m)만, 신분당선은 135m.
+        NearbySubwayStationProjection lineTwo = station("1002000222", "강남", "1002");
+        NearbySubwayStationProjection sinbundang = station("D07", "강남", "1077");
+        given(subwayStationRepository.findNearby(37.4981, 127.0280, 50, 5))
+                .willReturn(List.of(lineTwo));
+        given(subwayStationRepository.findNearbyOnLine(37.4981, 127.0280, 150.0, "1077", 5))
+                .willReturn(List.of(sinbundang));
+
+        assertThat(service.resolveStation(37.4981, 127.0280, "1077"))
+                .contains(new SubwayArrivalQueryService.ResolvedStation(
+                        "D07", "강남", "1077"));
+    }
+
+    @Test
+    @DisplayName("#276 요청 노선이 한계 반경까지 없으면 빈 값 — 다른 노선 역으로 대신하지 않는다")
+    void neverFallsBackToAnotherLine() {
+        NearbySubwayStationProjection lineTwo = station("1002000222", "강남", "1002");
+        given(subwayStationRepository.findNearby(anyDouble(), anyDouble(), anyDouble(), anyInt()))
+                .willReturn(List.of(lineTwo));
+
+        assertThat(service.resolveStation(37.4981, 127.0280, "1077")).isEmpty();
+        assertThat(service.getArrivals(37.4981, 127.0280, null, "1077")).isEmpty();
+        verify(arrivalReader, never()).arrivals(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("line_id 가 없으면 지금처럼 최근접 역")
+    void nearestStationWhenNoLineIsGiven() {
+        NearbySubwayStationProjection lineTwo = station("1002000222", "강남", "1002");
+        NearbySubwayStationProjection sinbundang = station("D07", "강남", "1077");
+        given(subwayStationRepository.findNearby(37.4981, 127.0280, 50, 5))
+                .willReturn(List.of(lineTwo, sinbundang));
+
+        assertThat(service.resolveStation(37.4981, 127.0280, null))
+                .contains(new SubwayArrivalQueryService.ResolvedStation(
+                        "1002000222", "강남", "1002"));
+        verify(subwayStationRepository, never())
+                .findNearbyOnLine(anyDouble(), anyDouble(), anyDouble(), any(), anyInt());
+    }
+
     private void givenStation() {
         // 스터빙을 먼저 끝내 두고 넘긴다. given(...) 인자 안에서 또 스터빙하면 Mockito 가
         // 바깥 스터빙이 안 끝난 것으로 보고 UnfinishedStubbingException 을 던진다.
         NearbySubwayStationProjection station = station("1075075212", "압구정로데오", "1075");
-        given(subwayStationRepository.findNearby(37.5271, 127.0402, 50, 5))
+        given(subwayStationRepository.findNearbyOnLine(37.5271, 127.0402, 50, "1075", 5))
                 .willReturn(List.of(station));
     }
 
