@@ -3560,3 +3560,33 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 신규 시험: `OtpTransitPatternAdapterTest` 7, `TrackPatternSelectorTest` 10, `TrackLegFactoryTest` 7, `TrackLegChainTest` 4(2호선 wayCode 0·서울/경기/TAGO 버스 id), `TrackJourneyStartServiceTest` 10, `TrackSelectionQueryServiceTest` 5, `JourneyTrackControllerTest` 5(익명 401 4경로 포함), `TrackJourneyStartIT` 1(일회용 postgis — 시작 → active 1구간·kind=TRACK·보드 예약 없음) — 전부 통과
 - 전체 `./gradlew test --continue`: 2465 중 실패 11 = **기존 무관 10**(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1, PR-1 때와 동일) + `JourneyNotificationSchemaIT` 1(전체 실행 중 testcontainers `TransactionException`, 단독 재실행 통과 = **간헐, 이 PR 무관** — 손댄 파일 없음)
+
+## standalone-track PR-3 — 지하철 열차 후보·선택 (2026-10-07, L 의 3/5, #265)
+### 확정
+- API(기존 `JourneySubwayBindingController`, `/api/journeys/{id}/subway/…`): `GET train-candidates` → `[{trainNo, destination, express, trainType, arrivalSeconds, observedAt}]`, `POST train-selection {trainNo, routeRevision}` → `SubwayBindingView`. 플래그 `journey.subway.selection.enabled`(env `JOURNEY_SUBWAY_SELECTION_ENABLED`, 기본 false, 꺼지면 404). **일반 여정에도 적용**
+- "대기 단계" = 세션 `currentLegIndex` 단계가 WAIT_SUBWAY 이고 다음이 RIDE_SUBWAY. 아니면 409 `NOT_WAITING_FOR_SUBWAY`
+- 후보 = `WaitSubwayArrivalPredictor` 와 같은 원천(역별 실시간 `arrivalsByStation(routeId, startStopId, startName, wayCode)`) 앞 2대. 방향(`wayCode`, 대기 단계 선택 노선 후보) 모르면 빈 목록
+- 선택 검증은 후보 2대가 아니라 **지금 도착 목록 전체**에서 trainNo 를 찾는다(앞차가 들어와 순위가 밀린 열차를 거절하지 않게). 없으면 422 `TRAIN_NOT_IN_CANDIDATES`. routeRevision 다르면 409 `STALE_ROUTE_REVISION`
+- 고정: 식별 4칸 = trainNo · `ServiceDateResolver.resolve(now)` · 대기 단계 routeId(lineId) · `SubwayDirectionNormalizer.fromWayCode(lineId, wayCode)`(매처와 같은 값 공간). 없으면 `SubwayLegBinding.selected`(CONFIRMED·USER_SELECTED), 있으면 잠금(`findForUpdate`) 뒤 `selectByUser`(확정도 덮음, 이동 순번 유지, version++). 감사 `USER_SELECTED`(DECISION, chosen_* 4칸) 먼저
+- 링 게이트: `findRingTargets` 에 `(source IS DISTINCT FROM 'USER_SELECTED' OR last_movement_seq IS NOT NULL)`, 조합기(`JourneySubwayGuidanceComposer`)도 `isSelectedBeforeMovement` 면 pending 모양(상태 CONFIRMED, 진행 값 비움)
+- 이동 관측: 기존 `submit` 이 이미 이동 순번을 올린다 — USER_SELECTED 면 `boardedDetectedAt` 만 추가로 채움. 상태 그대로, 매처(`findMatchable` = PENDING/PROVISIONAL)는 안 봄
+- sweep(`abandonStaleWithoutMovement`)에 `NOT EXISTS (journey_leg.state = 'PENDING')` — 타기 전 리셋 행을 6분 뒤 접지 않음 → 이후 이동 관측으로 M7 복귀
+- `inheritTo`: USER_SELECTED 는 출처 유지, 그 밖은 INHERITED_ON_REROUTE(기존). 감사 이벤트 타입은 그대로 INHERITED_ON_REROUTE
+- 지표 `subway.selection{result}` = selected/not-in-candidates/not-waiting/stale/busy
+- 동시에 이동 관측이 행을 먼저 만들면(uk_subway_leg_binding_leg) 409 `SUBWAY_BINDING_BUSY`(재시도하면 그 행 위에 얹힘)
+### 함정
+- **`NOT (b.source = 'USER_SELECTED' AND …)` 는 source 가 null 인 행(정차 관측이 먼저 연 행)을 링에서 떨어뜨린다**(NULL 3값 논리). `IS DISTINCT FROM` 으로 씀 — `SubwayTrainSelectionIT.nullSourceStaysInRing` 이 고정
+- `SubwayBindingView` 는 "열차번호를 담지 않는다"가 원칙이지만 후보 응답은 선택 키라 trainNo 를 싣는다(별도 DTO `SubwayTrainCandidate`)
+- record 칸 이름 `wait` 은 `Object.wait()` 와 충돌해 컴파일 실패 → `waitLeg`
+- 일회용 DB 는 역 표가 비어 보강이 대기 단계 `start_stop_id` 를 못 채운다 — IT 에서 jdbc 로 채움
+### 좌표
+- `SubwayTrainSelectionService`(+Tx), `SubwayLegBinding.selected/selectByUser/markBoardedDetected/isSelectedBeforeMovement/inheritTo`, `SubwayLegBindingRepository.findRingTargets/abandonStaleWithoutMovement`, `SubwayBoardingEvidenceService.advanceSequence`, `JourneySubwayGuidanceComposer.compose`
+### 미결
+- 계승은 엔티티 단위 시험(`SubwayLegBindingSelectionTest.inheritKeepsUserSelected`)으로 고정 — 재탐색 수락 전체 IT 는 없음(수락 경로는 `inheritTo` 만 부른다)
+### 배포
+- **V60 VPS 수동배치 필요**(source·event_type CHECK 확장). 제약만 넓히므로 앱 배포 전·후 아무 때나 되지만, 플래그를 켜기 전엔 반드시 적용
+- 함정 추가: 기존 `SubwayBindingMatchIT.sweepAbandonsPendingWithoutMovement` 가 막 시작한 여정(타는 단계 PENDING)의 행을 접는 것을 기대했다 → 새 규칙과 충돌. 최근 결정 기준으로 옛 시험을 고침(타는 단계 ACTIVE 로 둔 뒤 접힘 확인)
+### 검증
+- 신규: `SubwayTrainSelectionIT` 6(일회용 postgis — 선택 4칸·감사, 이동 전 링 제외/이동 후 포함, 매처 제외, 리셋 후 sweep 생존→M7 복귀, 타는 중이면 접힘, null source 링 유지), `SubwayLegBindingSelectionTest` 4, `SubwayTrainSelectionServiceTest` 8, `JourneySubwaySelectionControllerTest` 4 — 전부 통과
+- 변이 확인: 링 게이트·sweep NOT EXISTS 를 빼면 `SubwayTrainSelectionIT` 2건 실패 → 원복
+- 전체 `./gradlew test --continue`: 2555 중 실패 12 = 기존 무관 10(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1) + `JourneyNotificationSchemaIT` 간헐 1(단독 20/20) + `SubwayBindingMatchIT` 1(위 함정, 수정 후 13/13)

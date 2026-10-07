@@ -73,6 +73,10 @@ public interface SubwayLegBindingRepository extends JpaRepository<SubwayLegBindi
      *
      * <p>{@code PENDING} 은 여전히 뺀다 — 고른 열차가 아예 없다.
      *
+     * <p><b>사용자가 역에서 고르고 아직 움직이지 않은 고정도 뺀다</b>(#265, {@code USER_SELECTED} + 이동 순번 없음).
+     * 링 계산기는 승차 다음 역을 목표로 잡아 승강장 대기용 "접근 중" 상태가 없다. 이동 시작 관측이 오면 잡힌다.
+     * 자동 판정(M7) 행은 고정될 때 이미 이동 순번이 있어({@link #findMatchable}) 이 조건에 걸리지 않는다.
+     *
      * <p>세션 상태·개정본 조건은 {@link #findMatchable} 과 같은 이유로 있다 — 없으면 끝난 여정과
      * 옛 개정본의 확정 고정을 영원히 갱신한다. 이 표는 행을 지우지 않으므로 그 갱신은 스스로
      * 멈추지 않는다.
@@ -86,6 +90,8 @@ public interface SubwayLegBindingRepository extends JpaRepository<SubwayLegBindi
                AND l.deleted_at IS NULL
                AND s.status = 'ACTIVE'
                AND b.route_revision = s.route_revision
+               -- source 는 null 일 수 있다(정차 관측이 먼저 연 행). NOT (… = …) 로 쓰면 null 이 행을 떨어뜨린다.
+               AND (b.source IS DISTINCT FROM 'USER_SELECTED' OR b.last_movement_seq IS NOT NULL)
              ORDER BY b.updated_at
              LIMIT :limit
             """, nativeQuery = true)
@@ -193,15 +199,21 @@ public interface SubwayLegBindingRepository extends JpaRepository<SubwayLegBindi
      * 사용자 reset 직후 행도 여기 걸리는데 의도한 것이다 — reset 뒤 새 관측이 영영 안 오면 그
      * 고정은 접히는 게 맞고, 접혀도 사용자 보정 API 는 그대로 동작한다(행이 남아 있다).
      *
+     * <p><b>타는 단계가 아직 시작 전({@code journey_leg.state = 'PENDING'})이면 접지 않는다</b>(#265). 역에서 고른
+     * 열차를 "이 열차 아님"으로 되돌린 직후가 그렇다 — 이동 전이니 관측이 없는 게 정상이고, 여기서 접으면 버려진 행의
+     * 관측은 무시되어 자동 판정(M7)이 영영 돌아오지 않는다. 여정이 끝나면 수명주기 정리가 따로 접는다.
+     *
      * @return 접은 행 수
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
-            UPDATE subway_leg_binding
-               SET status = 'ABANDONED', version = version + 1, updated_at = :now
-             WHERE status = 'PENDING' AND deleted_at IS NULL
-               AND last_movement_seq IS NULL
-               AND updated_at < :cutoff
+            UPDATE subway_leg_binding b
+               SET status = 'ABANDONED', version = b.version + 1, updated_at = :now
+             WHERE b.status = 'PENDING' AND b.deleted_at IS NULL
+               AND b.last_movement_seq IS NULL
+               AND b.updated_at < :cutoff
+               AND NOT EXISTS (SELECT 1 FROM journey_leg l
+                                WHERE l.id = b.journey_leg_id AND l.state = 'PENDING')
             """, nativeQuery = true)
     int abandonStaleWithoutMovement(@Param("now") LocalDateTime now,
                                     @Param("cutoff") LocalDateTime cutoff);
