@@ -61,14 +61,13 @@ POST /api/journeys/{journeyId}/subway/train-selection   {trainNo, routeRevision}
 - 지하철: 기존 링 push 계약 그대로.
 - 버스: 앱 엔진 값으로 앱이 그린다(서버 push·버스 안내 칸 없음).
 
-## 5. 앱 설계(DESIGN.md)와 어긋나는 것 — 서버 후속 작업
+## 5. 앱 설계(DESIGN.md)와 어긋나는 것 — 이슈로 진행
 
-| # | DESIGN.md | 지금 서버 | 맞추는 방향(서버) |
-|---|---|---|---|
-| 1 | 버스는 기존 서울 id 로 고른다 — 근처 정류장 `fetchNearbyBusStops`, 정류장 노선 `fetchStopRoutes`, 하차 목록 `GET /api/routes/{routeId}/stops`(seq), 노선 선 `GET /api/bus/routes/{routeId}/polyline?fromSeq&toSeq`. 서울만(경기·지방은 #267 후) | 시작이 OTP GTFS id 만 받는다 | 시작 입력에 **앱 id 공간**을 받는다: 버스 `(routeId, boardStopId·boardSeq, alightStopId·alightSeq)`. 서버가 `1:BR_TAGO_SEB{routeId}`·`1:BS_TAGO_SEB{stopId}` 로 바꿔 기존 경로 합성에 넣는다 |
-| 2 | 지하철은 서울 역 id 로 고른다 — 근처 `GET /api/nearby/subway-stations`, 하차 목록 `GET /api/subway/stations/{stationId}/stations-ahead`(#283) | 시작이 OTP GTFS 역 id 만 받는다(서울 역 id ↔ GTFS 역 id 결정적 규칙 없음) | 시작 입력에 `(lineId, boardStationId, direction, alightStationId)` 를 받고, #283 이 쓰는 OTP 패턴 ↔ 역 마스터 대응(`SubwayPatternStationMatcher`)으로 GTFS 로 바꾼다 |
-| 3 | 열차는 **시작할 때** 고른다(이미 탄 뒤 시트를 연다) — `[이 열차]` → 하차 선택 → `[추적 시작]` | 열차 선택은 이미 시작한 여정의 **대기 단계 안**에서만 | 시작 요청에 고른 열차(`trainNo`)를 함께 받아 시작 트랜잭션에서 바로 확정. 이미 탔으면 탑승 단계로 시작 |
-| 4 | 후보 = **방금 떠난 열차 최대 3대**(이 역 출발 시각·현재 위치·"가장 유력") + 곧 오는 2대 + "모르겠어요"(방향만, M7) | 곧 오는 2대만 | 떠난 열차는 M7 열차 로그(`SubwayTrainLogPort.findDepartures` — 역·방향별 출발 사건, 위치 수집기가 채움)로 만든다. DESIGN.md 3절 "짧은 버퍼"는 이미 있다 |
-| 5 | `[탔어요]` = 이미 탔다 | 시작하면 대기 단계부터 | 3 과 같이 "탑승 후 시작"이면 탑승 단계로 시작(대기 단계 건너뜀) |
+| # | 어긋남 | 진행 |
+|---|---|---|
+| 1 | 시작이 OTP GTFS id 만 받는데 앱은 서울 역·정류장·노선 id 로 고른다(근처 역·정류장, #277 역 도착, #283 stations-ahead, 정류장 노선, 노선 정류장) | **#298 A안으로 결정(2026-10-07)**: 앱이 이미 쓰는 응답에 `gtfsStopId`·`routeGtfsId`(가능하면 `patternCode`)를 같이 싣는다. 앱은 고른 값의 GTFS id 를 그대로 §1 시작에 넘긴다. 경기·지방 노선(서울 id 없음)을 어떻게 잇는지도 #298 에서 정한다 |
+| 2 | 방금 떠난 열차(최대 3대)를 주는 곳이 없다 | **#299**: #277 역 도착 응답의 방향마다 `departed` 를 싣는다 |
+| 3 | 열차를 시작할 때 고른다 | 시작 직후 단계가 `WAIT_SUBWAY` 라 #277 이 준 **곧 오는 열차**의 `trainNo` 를 바로 `train-selection` 에 보내도 된다(같은 실시간 도착 원천). **방금 떠난 열차는 지금 422** — 선택 검증이 현재 도착 목록만 본다. #299 에서 같이 고친다 |
+| 4 | `[탔어요]` = 이미 탔다 | 시작(대기 단계) 직후 앱이 탑승 전이를 바로 보내면 지금 서버로 동작한다. 별도 작업 없음 |
 
-§1 조회 3개(`/api/journeys/track/stops/**`·`/routes/**`)는 앱이 기존 API 를 쓰면 필요 없다 — 정리 대상.
+§1 조회 3개(`/api/journeys/track/stops/**`·`/routes/**`)는 A안이면 앱이 쓰지 않는다 — 정리 대상.
