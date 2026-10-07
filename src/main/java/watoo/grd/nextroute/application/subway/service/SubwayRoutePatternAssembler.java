@@ -87,6 +87,11 @@ public final class SubwayRoutePatternAssembler {
     private SubwayRoutePatternAssembler() {
     }
 
+    /** feed {@code shortName} → 내부 line_id. 명시표 밖이면 빈 값(인천2호선 등). */
+    public static java.util.Optional<String> lineIdOf(String shortName) {
+        return java.util.Optional.ofNullable(shortName == null ? null : LINE_IDS.get(shortName));
+    }
+
     /** 실시간 방향 값 공간인지. */
     public static boolean isKnownDirection(String direction) {
         return UP.equals(direction) || DOWN.equals(direction)

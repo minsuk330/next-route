@@ -38,6 +38,15 @@ public class SubwayLineStationIndex {
                 .toList();
     }
 
+    /** 노선 표시 이름({@code 2호선}). 역 마스터에 없는 노선이면 null. */
+    public String lineName(String lineId) {
+        return stations().stream()
+                .filter(s -> lineId.equals(s.getLineId()) && s.getLineName() != null)
+                .map(SubwayStation::getLineName)
+                .findFirst()
+                .orElse(null);
+    }
+
     /** 이 역에서 갈아탈 수 있는 다른 노선. 이름이 같고 {@value #TRANSFER_RADIUS_M}m 안이어야 한다. */
     public List<Transfer> transfers(String stationName, double lat, double lon, String excludeLineId) {
         String name = NORMALIZER.normalize(stationName);

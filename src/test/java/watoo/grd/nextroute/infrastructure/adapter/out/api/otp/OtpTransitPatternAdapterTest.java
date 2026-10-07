@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
+import watoo.grd.nextroute.application.route.port.out.TransitPatternPort;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPattern;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPatternDetail;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPatternUnavailableException;
@@ -79,14 +80,19 @@ class OtpTransitPatternAdapterTest {
     void stopsNear() throws Exception {
         enqueue("stops-near-gangnam.json");
 
-        List<TransitStop> stops = adapter.stopsNear(37.4979, 127.0276, 300, 30, deadline());
+        List<TransitPatternPort.NearStop> stops = adapter.stopsNear(37.4979, 127.0276, 300, 30, deadline());
 
         assertThat(stops).isNotEmpty();
-        assertThat(stops).anySatisfy(s -> {
-            assertThat(s.gtfsId()).isEqualTo("1:RS_ACC1_S-1-0222");
-            assertThat(s.mode()).isEqualTo(RoutingMode.SUBWAY);
+        assertThat(stops).anySatisfy(n -> {
+            assertThat(n.stop().gtfsId()).isEqualTo("1:RS_ACC1_S-1-0222");
+            assertThat(n.stop().mode()).isEqualTo(RoutingMode.SUBWAY);
+            assertThat(n.distanceMeters()).isEqualTo(64);
+            // 방향마다 따로 오는 같은 노선 이름은 하나로 — 호선을 정하는 근거다(#313)
+            assertThat(n.routeShortNames()).containsExactly("서울2호선");
         });
-        assertThat(stops).anySatisfy(s -> assertThat(s.mode()).isEqualTo(RoutingMode.BUS));
+        assertThat(stops).anySatisfy(n -> assertThat(n.stop().mode()).isEqualTo(RoutingMode.BUS));
+        assertThat(stops).filteredOn(n -> n.stop().gtfsId().equals("1:BS_TAGO_SEB121900088"))
+                .singleElement().extracting(TransitPatternPort.NearStop::routeShortNames).asList().isEmpty();
         JsonNode body = lastBody();
         assertThat(body.path("operationName").asText()).isEqualTo("StopsNear");
         assertThat(body.path("variables").path("radius").asInt()).isEqualTo(300);
