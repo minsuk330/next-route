@@ -9,7 +9,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Direction;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Train;
+import watoo.grd.nextroute.application.arrival.dto.SubwayStationsAheadResponse;
 import watoo.grd.nextroute.application.arrival.port.in.GetSubwayStationArrivalsUseCase;
+import watoo.grd.nextroute.application.arrival.port.in.GetSubwayStationsAheadUseCase;
 import watoo.grd.nextroute.global.error.BusinessException;
 import watoo.grd.nextroute.global.error.code.SubwayErrorCode;
 
@@ -26,6 +28,7 @@ class SubwayStationControllerTest {
 
     @Autowired MockMvc mockMvc;
     @MockBean GetSubwayStationArrivalsUseCase useCase;
+    @MockBean GetSubwayStationsAheadUseCase aheadUseCase;
 
     @Test
     void returnsDirectionsWithTrains() throws Exception {
@@ -62,5 +65,36 @@ class SubwayStationControllerTest {
         mockMvc.perform(get("/api/subway/stations/9999/arrivals"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("SUBWAY_STATION_NOT_FOUND"));
+    }
+
+    @Test
+    void stationsAheadReturnsContract() throws Exception {
+        given(aheadUseCase.getStationsAhead("1005000548", "하행", null)).willReturn(new SubwayStationsAheadResponse(
+                "1005", "1005000548", "강동", "하행", false, SubwayStationsAheadResponse.EndReason.BRANCH,
+                List.of(new SubwayStationsAheadResponse.Branch("마천", "둔촌동")), List.of()));
+
+        mockMvc.perform(get("/api/subway/stations/1005000548/stations-ahead").param("direction", "하행"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.endReason").value("BRANCH"))
+                .andExpect(jsonPath("$.destinationApplied").value(false))
+                .andExpect(jsonPath("$.branches[0].destinationName").value("마천"))
+                .andExpect(jsonPath("$.stations").isEmpty());
+    }
+
+    @Test
+    void stationsAheadRequiresDirection() throws Exception {
+        mockMvc.perform(get("/api/subway/stations/1005000548/stations-ahead"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void stationsAheadErrorsCarryCode() throws Exception {
+        given(aheadUseCase.getStationsAhead("1077000687", "하행", "광교"))
+                .willThrow(new BusinessException(SubwayErrorCode.SUBWAY_ROUTE_UNAVAILABLE));
+
+        mockMvc.perform(get("/api/subway/stations/1077000687/stations-ahead")
+                        .param("direction", "하행").param("destination", "광교"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("SUBWAY_ROUTE_UNAVAILABLE"));
     }
 }

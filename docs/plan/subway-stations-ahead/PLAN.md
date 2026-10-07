@@ -204,8 +204,8 @@ public interface SubwayLinePatternPort {
 - [x] 6. 노트 기록, PR. 이 PR 은 API 를 노출하지 않는다(빈 등록만).
 - 검증: `./gradlew test --tests '*OtpSubwayLinePattern*' --tests '*SubwayPatternStationMatcher*' --tests '*SubwayPatternCoverage*'`
 
-### PR-2 `feat/subway-stations-ahead-api` (fresh main, **#284 와 PR-1 머지 후**)
-- [ ] 7. `StationsAheadCalculator` 테스트 먼저(입력은 PR-1 fixture):
+### PR-2 `feat/subway-stations-ahead-api` (fresh main, **#284 와 PR-1 머지 후**) ✅ 구현 완료(2026-10-07, PR 은 #284·#286 머지 후 rebase 해서 연다)
+- [x] 7. `StationsAheadCalculator` 테스트 먼저(입력은 PR-1 fixture):
   - 순환 한 바퀴 컷(강남 내선 → 역삼…교대, `LOOP`)
   - 다회전 패턴 + minutes 가 같은 occurrence 기준
   - 2호선 destination=`성수` 여도 자르지 않음
@@ -217,9 +217,9 @@ public interface SubwayLinePatternPort {
   - 9호선 일반(급행 route 무시)
   - 6호선 공덕 상행 → …응암, 역촌 하행 → …봉화산
   - 연결 실패 역 유지
-- [ ] 8. 계산기 구현.
-- [ ] 9. 환승 + 서비스 + 에러코드 + 컨트롤러, 테스트(404/400/503/200 JSON).
-- [ ] 10. HANDOFF.md(모바일: `use-alight-stops.ts` `loadAlightStops` 교체, `AlightStop` 대응표, `frequent` 는 앱이 붙임). 노트, PR.
+- [x] 8. 계산기 구현.
+- [x] 9. 환승 + 서비스 + 에러코드 + 컨트롤러, 테스트(404/400/503/200 JSON).
+- [x] 10. HANDOFF.md(모바일: `use-alight-stops.ts` `loadAlightStops` 교체, `AlightStop` 대응표, `frequent` 는 앱이 붙임). 노트, PR.
 - 검증: `./gradlew test --tests '*StationsAhead*' --tests '*SubwayStationController*'`
 
 ## 결정 기록 (Opus 5.5 리뷰, 2026-10-07)
