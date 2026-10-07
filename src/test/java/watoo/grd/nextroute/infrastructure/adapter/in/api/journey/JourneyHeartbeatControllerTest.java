@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.journey;
 
+import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -97,7 +98,7 @@ class JourneyHeartbeatControllerTest {
     }
 
     private JourneySnapshot snapshot() {
-        return JourneySnapshot.of(7L, JourneyStatus.ACTIVE, 1L, 0L, 1, 0,
+        return JourneySnapshot.of(7L, JourneyStatus.ACTIVE, JourneyKind.NAVIGATION, 1L, 0L, 1, 0,
                 Instant.parse("2026-08-04T09:03:00Z"), null,
                 Instant.parse("2026-08-04T09:00:00Z"), List.of());
     }
