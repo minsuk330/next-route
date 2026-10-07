@@ -34,5 +34,17 @@ GET /api/subway/stations/{stationId}/arrivals
 ## 그대로 둘 것
 - 경로 검색·안내의 지하철 도착은 역 ID 가 없어 좌표 API(`/api/arrivals/subway`) 유지. 좌표 API 환승역 버그는 #276(PR #280) 으로 따로 고쳤다.
 
-## 아직 없는 것
-- `departed`(방금 떠난 열차) → #265 에서 같은 엔드포인트 방향별로 추가 예정.
+## 방금 떠난 열차 `departed` (#299)
+방향마다 같이 온다. 이 역을 떠난 열차, **최근 순, 최대 3대, 10분 이내**.
+```jsonc
+"departed": [
+  { "trainNo": "2306", "destinationName": "성수", "trainType": "일반",
+    "departedAt": "2026-10-07T15:51:29+09:00",
+    "currentStationName": "역삼" }
+]
+```
+- `trainNo` 는 열차 선택(#293 `train-selection`)에 그대로 쓴다(탑승 판정과 같은 원천).
+- `departedAt` 은 위치 관측 구간의 가운데다. 원천 해상도가 60~150초라 "약 3분 전"처럼 분 단위로 보여 줄 것.
+- `currentStationName` 은 떠난 뒤 위치를 아직 못 봤으면 null.
+- 곧 오는 열차가 없는 방향도 떠난 열차가 있으면 방향으로 나온다(label 은 떠난 열차 행선지로 정한다).
+- 🔴 **위치 원천이 없는 노선은 늘 `[]`**: 경의중앙(1063)·경춘(1067)·수인분당(1075)·경강(1081)·서해(1093)·신림(1094). `use-departed-trains.ts` 자리표시를 지울 때 이 노선은 "떠난 열차 정보 없음"으로 둔다.
