@@ -48,7 +48,32 @@ class StationsAheadCalculatorTest {
 
             assertThat(r.endReason()).isEqualTo(EndReason.BRANCH);
             assertThat(r.stations()).isEmpty();
-            assertThat(r.branches()).extracting(Branch::nextStationName).containsExactlyInAnyOrder("도림천", "문래");
+            assertThat(r.branches()).containsExactlyInAnyOrder(
+                    new Branch("까치산", "도림천", EndReason.TERMINAL),
+                    new Branch("순환", "문래", EndReason.LOOP));
+        }
+
+        @Test
+        @DisplayName("#292 순환 본선 갈래는 '대림'(한 바퀴 끝 역)이 아니라 '순환' — '대림 방면'은 반대 방향으로 읽힌다")
+        void loopBranchIsNamedLoopNotTheLastStation() {
+            Result r = calc("1002", "내선", "신도림", null);
+            Result again = calc("1002", "내선", "신도림", StationsAheadCalculator.LOOP_DESTINATION);
+
+            assertThat(r.branches()).extracting(Branch::destinationName).doesNotContain("대림");
+            assertThat(again.endReason()).isEqualTo(EndReason.LOOP);
+            assertThat(first(again)).isEqualTo("문래");
+            assertThat(again.stations()).hasSize(42);
+        }
+
+        @Test
+        @DisplayName("성수 내선도 같은 모양 — 본선 '순환' + 성수지선 '신설동'")
+        void seongsuInnerBranches() {
+            Result r = calc("1002", "내선", "성수", null);
+
+            assertThat(r.stations()).isEmpty();
+            assertThat(r.branches()).extracting(Branch::destinationName, Branch::kind).containsExactlyInAnyOrder(
+                    org.assertj.core.groups.Tuple.tuple("순환", EndReason.LOOP),
+                    org.assertj.core.groups.Tuple.tuple("신설동", EndReason.TERMINAL));
         }
 
         @Test

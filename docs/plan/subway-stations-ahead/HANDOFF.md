@@ -17,8 +17,8 @@ GET /api/subway/stations/{stationId}/stations-ahead?direction=내선[&destinatio
   "lineId": "1005", "boardStationId": "1005000533", "boardStationName": "방화", "direction": "하행",
   "destinationApplied": false,
   "endReason": "BRANCH",                     // TERMINAL | BRANCH | LOOP
-  "branches": [ { "destinationName": "마천", "nextStationName": "둔촌동" },
-                { "destinationName": "하남검단산", "nextStationName": "길동" } ],
+  "branches": [ { "destinationName": "마천", "nextStationName": "둔촌동", "kind": "TERMINAL" },
+                { "destinationName": "하남검단산", "nextStationName": "길동", "kind": "TERMINAL" } ],
   "stations": [ { "stationId": "1005000534", "stationName": "개화산", "stopsAway": 1, "minutes": 2,
                   "transfers": [] } ]
 }
@@ -37,6 +37,8 @@ GET /api/subway/stations/{stationId}/stations-ahead?direction=내선[&destinatio
 - `TERMINAL`: 목록 끝 = 종착(또는 받은 행선지).
 - `LOOP`(2호선): 한 바퀴, 승차역 바로 앞 역까지. 2호선은 행선지 "성수"를 보내도 자르지 않는다.
 - `BRANCH`: 목록 끝 = 분기점. 그 아래에 `branches` 를 갈래 선택지로 보여 주고, 고르면 `destination=<branches[].destinationName>` 로 다시 부른다.
+  - 갈래 표시는 **`nextStationName` 기준**("둔촌동 방면")으로 한다. `destinationName` 은 다시 부를 값이다.
+  - `kind: "LOOP"` 갈래 = 2호선 순환 본선(#292). `destinationName` 이 `"순환"` 이다 — "문래 방면 · 순환"처럼 보여 주고, 고르면 `destination=순환` 으로 다시 부르면 본선 한 바퀴가 온다. (예전 응답은 한 바퀴 끝 역 "대림"을 줬고 "대림 방면"이 반대 방향으로 읽혔다.)
   - **승차역이 곧 분기점이면 `stations: []`** 이고 `branches` 만 있다(2호선 신도림·성수, 1호선 구로, 5호선 강동, 경의중앙 가좌 등). 빈 목록을 "역 없음"으로 보이지 말 것.
 - `destinationApplied=false` 인데 destination 을 보냈다면 행선지를 갈래에서 못 찾은 것이다(공통 구간만 왔다).
 
