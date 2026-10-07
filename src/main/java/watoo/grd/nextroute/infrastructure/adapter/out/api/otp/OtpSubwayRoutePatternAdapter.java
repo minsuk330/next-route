@@ -27,13 +27,15 @@ import java.util.Map;
  *
  * <p>패턴 응답은 trip 마다 stoptimes 를 다 싣는다(2호선 본선 약 1.4MB, 1~2.5초, 2026-10-07 실측).
  * GraphQL 로 trip 수를 줄일 방법이 없어 그대로 받고, 부르는 쪽이 하루 단위로 캐시한다.
+ *
+ * <p>응답 대기 한계는 호출마다 부르는 쪽이 정한다(남은 예산). 고정 15초를 노선마다 쓰면 OTP 가 느린
+ * 날 첫 호출이 45초까지 늘었다(#291).
  */
 @Slf4j
 @Component
 public class OtpSubwayRoutePatternAdapter implements SubwayRoutePatternPort {
 
     private static final String GRAPHQL_PATH = "/otp/routers/default/index/graphql";
-    private static final Duration READ_TIMEOUT = Duration.ofSeconds(15);
 
     private static final String ROUTES_QUERY =
             "{ routes(transportModes:[SUBWAY]) { gtfsId shortName longName } }";
@@ -55,13 +57,13 @@ public class OtpSubwayRoutePatternAdapter implements SubwayRoutePatternPort {
     }
 
     @Override
-    public List<OtpRailRoute> subwayRoutes() {
-        return parseRoutes(post(Map.of("query", ROUTES_QUERY)));
+    public List<OtpRailRoute> subwayRoutes(Duration timeout) {
+        return parseRoutes(post(Map.of("query", ROUTES_QUERY), timeout));
     }
 
     @Override
-    public List<RailPattern> patterns(String routeGtfsId) {
-        JsonNode root = post(Map.of("query", PATTERNS_QUERY, "variables", Map.of("id", routeGtfsId)));
+    public List<RailPattern> patterns(String routeGtfsId, Duration timeout) {
+        JsonNode root = post(Map.of("query", PATTERNS_QUERY, "variables", Map.of("id", routeGtfsId)), timeout);
         return parsePatterns(routeGtfsId, root.path("data").path("route"));
     }
 
@@ -117,10 +119,11 @@ public class OtpSubwayRoutePatternAdapter implements SubwayRoutePatternPort {
         return node.get(field).asInt();
     }
 
-    private JsonNode post(Map<String, Object> body) {
+    private JsonNode post(Map<String, Object> body, Duration timeout) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(Duration.ofMillis(properties.getConnectTimeoutMs()));
-        factory.setReadTimeout(READ_TIMEOUT);
+        Duration connect = Duration.ofMillis(properties.getConnectTimeoutMs());
+        factory.setConnectTimeout(connect.compareTo(timeout) < 0 ? connect : timeout);
+        factory.setReadTimeout(timeout);
         RestClient client = restClientBuilder.clone().requestFactory(factory).build();
         String response = client.post()
                 .uri(properties.getBaseUrl() + GRAPHQL_PATH)

@@ -20,6 +20,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>패턴은 그래프를 다시 빌드할 때만 바뀐다. 그런데 한 번 받는 데 노선당 1~2.5초·최대 1.4MB 라
  * 요청마다 부르면 그 시간이 곧 화면 대기다.
  *
+ * <p><b>한 번 적재에 예산 {@link #LOAD_BUDGET}.</b> 노선 목록과 그 방향의 노선들(2호선 내선이면 3개)을
+ * 이 안에서 다 받아야 한다. 남은 예산을 호출마다 응답 대기 한계로 넘긴다 — 노선마다 고정 대기를 주면
+ * OTP 가 느린 날 첫 호출이 수십 초가 되고, 앱은 열차 안에서 그만큼 기다린다(#291).
+ *
  * <p><b>새로 고치다 실패하면 낡은 값을 그대로 준다.</b> 하루 지난 역 순서는 거의 언제나 맞지만,
  * 빈 목록은 "남은 역 없음(종착)"과 구분되지 않는다. 낡은 값도 없을 때만 예외를 올린다.
  */
@@ -28,6 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SubwayLinePatternService {
 
     static final Duration TTL = Duration.ofHours(24);
+    static final Duration LOAD_BUDGET = Duration.ofSeconds(5);
 
     private final SubwayRoutePatternPort port;
     private final Clock clock;
@@ -65,20 +70,31 @@ public class SubwayLinePatternService {
     }
 
     private List<DirectedRailPattern> load(String lineId, String direction) {
+        Instant deadline = clock.instant().plus(LOAD_BUDGET);
         List<DirectedRailPattern> directed = new ArrayList<>();
-        for (OtpRailRoute route : SubwayRoutePatternAssembler.selectRoutes(routes(), lineId, direction)) {
-            directed.addAll(SubwayRoutePatternAssembler.orient(route, port.patterns(route.gtfsId()), direction));
+        for (OtpRailRoute route : SubwayRoutePatternAssembler.selectRoutes(routes(deadline), lineId, direction)) {
+            directed.addAll(SubwayRoutePatternAssembler.orient(
+                    route, port.patterns(route.gtfsId(), remaining(deadline)), direction));
         }
         return List.copyOf(directed);
     }
 
-    private List<OtpRailRoute> routes() {
+    /** 남은 예산. 다 썼으면 부르지 않고 실패한다 — 0 을 넘기면 HTTP 클라이언트는 "무한 대기"로 읽는다. */
+    private Duration remaining(Instant deadline) {
+        Duration left = Duration.between(clock.instant(), deadline);
+        if (left.isNegative() || left.isZero()) {
+            throw new IllegalStateException("지하철 패턴 적재 예산(" + LOAD_BUDGET.toSeconds() + "초) 초과");
+        }
+        return left;
+    }
+
+    private List<OtpRailRoute> routes(Instant deadline) {
         Cached<List<OtpRailRoute>> cached = routes;
         if (cached != null && cached.isFresh(clock.instant())) {
             return cached.value();
         }
         try {
-            List<OtpRailRoute> loaded = List.copyOf(port.subwayRoutes());
+            List<OtpRailRoute> loaded = List.copyOf(port.subwayRoutes(remaining(deadline)));
             routes = new Cached<>(loaded, clock.instant());
             return loaded;
         } catch (RuntimeException e) {

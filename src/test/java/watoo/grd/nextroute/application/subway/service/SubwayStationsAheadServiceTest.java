@@ -59,6 +59,23 @@ class SubwayStationsAheadServiceTest {
     }
 
     @Test
+    @DisplayName("#291 같은 원본 패턴이면 역 연결을 다시 하지 않는다, 원본이 바뀌면 다시 한다")
+    void reusesResolvedPatternsForSameSource() {
+        List<DirectedRailPattern> source = List.of(new DirectedRailPattern("R", "신분당선<하행>", false, 1, List.of(
+                new RailPattern.Stop("강남", 37.4966, 127.0284, 0, 0),
+                new RailPattern.Stop("양재", 37.4844, 127.0346, 60, 60))));
+        List<DirectedRailPattern> refreshed = List.copyOf(new java.util.ArrayList<>(source));
+        List<SubwayPatternStationMatcher.Candidate> candidates = List.of(GANGNAM, YANGJAE);
+
+        var first = service.resolvedPatterns("1077", "하행", source, candidates);
+        var second = service.resolvedPatterns("1077", "하행", source, candidates);
+        var third = service.resolvedPatterns("1077", "하행", refreshed, candidates);
+
+        assertThat(second).isSameAs(first);
+        assertThat(third).isNotSameAs(first).isEqualTo(first);
+    }
+
+    @Test
     void unknownStationIs404() {
         given(repository.findByStationId("x")).willReturn(Optional.empty());
 
