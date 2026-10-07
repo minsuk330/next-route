@@ -73,7 +73,13 @@ public enum JourneyErrorCode implements ErrorCode {
       HttpStatus.UNPROCESSABLE_ENTITY),
   /** 단독 추적: 노선 패턴 원천(OTP)이 포화·장애·시간 초과. 잠시 뒤 다시 시도하면 된다. */
   TRACK_PATTERN_UNAVAILABLE("TRACK_PATTERN_UNAVAILABLE", "노선 정보를 잠시 가져올 수 없습니다.",
-      HttpStatus.SERVICE_UNAVAILABLE);
+      HttpStatus.SERVICE_UNAVAILABLE),
+  /** 지하철 열차 선택(#265): 지금 단계가 지하철을 기다리는 단계(다음이 지하철 탑승)가 아니다. */
+  NOT_WAITING_FOR_SUBWAY("NOT_WAITING_FOR_SUBWAY", "지하철을 기다리는 단계가 아닙니다.",
+      HttpStatus.CONFLICT),
+  /** 지하철 열차 선택: 고른 열차가 지금 그 역·방향 도착 목록에 없다(낡은 화면). 후보를 다시 받아 고르게 한다. */
+  TRAIN_NOT_IN_CANDIDATES("TRAIN_NOT_IN_CANDIDATES", "그 열차는 지금 도착 목록에 없습니다.",
+      HttpStatus.UNPROCESSABLE_ENTITY);
 
   private final String code;
   private final String message;

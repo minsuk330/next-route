@@ -68,7 +68,8 @@ public class JourneySubwayGuidanceComposer {
             return null;
         }
         String lineName = lineNameOf(currentLegIndex, legs, optionsByLeg);
-        if (!binding.getStatus().isBound()) {
+        if (!binding.getStatus().isBound() || binding.isSelectedBeforeMovement()) {
+            // 역에서 고르고 아직 안 움직였으면(#265) 링이 없다 — 상태(확정)만 알리고 진행 값은 비운다.
             return SubwayGuidance.pending(binding.getStatus(), lineName, ride.getEndName());
         }
         return ringPort.find(binding.getJourneyId(), routeRevision, binding.getLegIndex(),

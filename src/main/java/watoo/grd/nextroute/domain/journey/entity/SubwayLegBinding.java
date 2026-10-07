@@ -137,6 +137,53 @@ public class SubwayLegBinding extends BaseEntity {
     }
 
     /**
+     * 역에서 사용자가 고른 열차로 연다(#265). 곧바로 {@code CONFIRMED} 다.
+     *
+     * <p>열차 식별 4칸을 <b>모두</b> 채운다 — {@code subway_leg_binding_train_identity_check}(V44)가 함께 요구하고,
+     * 링도 하나라도 비면 식별을 못 만든다. 이동 순번은 비워 둔다 — 이동 시작 관측이 와야 링이 켜진다.
+     */
+    public static SubwayLegBinding selected(Long journeyLegId, Long journeyId, int routeRevision, int legIndex,
+                                            String trainNo, LocalDate serviceDate, String lineId,
+                                            String direction) {
+        SubwayLegBinding created = SubwayLegBinding.builder()
+                .journeyLegId(journeyLegId)
+                .journeyId(journeyId)
+                .routeRevision(routeRevision)
+                .legIndex(legIndex)
+                .status(SubwayBindingStatus.CONFIRMED)
+                .source(SubwayBindingSource.USER_SELECTED)
+                .build();
+        created.assignTrain(trainNo, serviceDate, lineId, direction);
+        return created;
+    }
+
+    /**
+     * 이미 있는 행(관측이 먼저 왔거나, 앞서 고르거나 되돌린 행)에 사용자가 고른 열차를 얹는다. <b>사용자 결정이라
+     * 확정도 덮는다</b> — 보정({@link #resetByUser})과 같은 자격이다.
+     *
+     * <p>이동 순번은 건드리지 않는다. 이미 움직이는 중이면 링이 바로 이어서 돈다.
+     */
+    public void selectByUser(String trainNo, LocalDate serviceDate, String lineId, String direction) {
+        this.status = SubwayBindingStatus.CONFIRMED;
+        this.source = SubwayBindingSource.USER_SELECTED;
+        this.confidence = null;
+        assignTrain(trainNo, serviceDate, lineId, direction);
+        this.version++;
+    }
+
+    /** 사용자가 고른 고정에 이동 시작 관측이 처음 왔다. 감지 시각만 채운다(상태는 그대로). */
+    public void markBoardedDetected(Instant detectedAt) {
+        if (this.boardedDetectedAt == null && detectedAt != null) {
+            this.boardedDetectedAt = detectedAt;
+        }
+    }
+
+    /** 사용자가 골랐지만 아직 이동 시작 관측이 없다 — 승강장에서 기다리는 중. 링을 켜지 않는다. */
+    public boolean isSelectedBeforeMovement() {
+        return this.source == SubwayBindingSource.USER_SELECTED && this.lastMovementSeq == null;
+    }
+
+    /**
      * 재탐색으로 개정본이 올랐지만 지하철 구간이 <b>완전히 같아</b> 그대로 이어받는다.
      *
      * <p>옛 행을 옮기지 않고 <b>새 행을 만든다.</b> 이 표는 단계와 1:1 이고 새 개정본의 단계는
@@ -158,7 +205,9 @@ public class SubwayLegBinding extends BaseEntity {
                 .legIndex(newLeg.getLegIndex())
                 .status(this.status)
                 .boardedDetectedAt(this.boardedDetectedAt)
-                .source(SubwayBindingSource.INHERITED_ON_REROUTE)
+                // 사용자가 고른 고정은 출처를 그대로 둔다(#265) — 오판율 지표가 출처로 사용자 선택을 가른다.
+                .source(this.source == SubwayBindingSource.USER_SELECTED
+                        ? SubwayBindingSource.USER_SELECTED : SubwayBindingSource.INHERITED_ON_REROUTE)
                 .confidence(this.confidence)
                 .build();
         copy.trainNo = this.trainNo;
@@ -217,6 +266,13 @@ public class SubwayLegBinding extends BaseEntity {
         }
         this.lastEpisodeSeq = sequence;
         return true;
+    }
+
+    private void assignTrain(String trainNo, LocalDate serviceDate, String lineId, String direction) {
+        this.trainNo = trainNo;
+        this.trainServiceDate = serviceDate;
+        this.trainLineId = lineId;
+        this.trainDirection = direction;
     }
 
     private void clearTrain() {
