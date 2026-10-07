@@ -3387,6 +3387,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `RegionalRideLocatorTest` 3/3, `RegionalArrivalLookupTest` 4/4, `UpcomingStopWindowResolverTest` 12/12(+2), `RideTruncationResolverTest` 13/13(+2), `JdbcRegionalBusRouteStopStoreIT` 6/6(+1)
 - 전체 2403 중 실패 2 = 기존 무관 2건(동일)
 
+## regional-catalog-io-retry (2026-10-07, S)
+### 함정
+- 운영 첫 적재 `routes=0 … aborted=true elapsed=45s` ← TAGO getRouteNoList `Read timed out` 을 `RegionalBusRouteSourceAdapter.call()` 이 `failed`(재시도 불가)로 분류. 목록 단계는 한 도시라도 실패하면 전체 중단(부분 목록으로 prune 하면 안 되므로 의도). / 가드: `ResourceAccessException`(I/O·timeout) → `retryable`, `withRetry` 3회 백오프로 넘김
+### 확정
+- 목록 단계 전부-아니면-중단은 유지. 재시도 소진 시 중단 = 다음 회차(월 1회 또는 load-on-empty 재기동)에 다시
+### 검증
+- `./gradlew test --tests '*RegionalBusRouteSourceAdapterTest' --tests '*RegionalBusCatalogLoad*'` → 10/0, 7/0 (신규 `ioErrorIsRetryable` 포함)
+### 배포
+- 마이그레이션 없음. worker 재배포 시 표가 비어 있으면 load-on-empty 로 재적재
 ## #277 역 ID 지하철 도착 API (2026-10-07, feat/subway-station-arrivals)
 
 ### 확정
