@@ -110,7 +110,7 @@ public class SubwayRingCalculator {
      * 진행이다.
      *
      * <table>
-     *   <tr><td>{@code 3/4/5} 전역</td><td>구간의 시작 — 0 앵커</td></tr>
+     *   <tr><td>{@code 3/4/5} 전역</td><td>구간 첫 관측은 0 앵커, 이후는 이어 그림(초 없으면 freeze)</td></tr>
      *   <tr><td>{@code 99} + 초</td><td>0 ~ 상한 보간</td></tr>
      *   <tr><td>{@code 99} + 초 없음</td><td>{@code [N]번째 전역} — freeze</td></tr>
      *   <tr><td>{@code 0} 진입</td><td>0.95</td></tr>
@@ -135,17 +135,37 @@ public class SubwayRingCalculator {
             case ENTERING -> anchored(context, target, properties.getApproachProgress(),
                     observedAt, null, SubwayRingQuality.NORMAL, observedAt, now);
             case DEPARTED -> advanced(context, target + 1, observedAt, now);
-            case PREV_DEPARTED, PREV_ENTERING, PREV_ARRIVED -> anchored(context, target,
-                    BigDecimal.ZERO, observedAt, observation.estimatedArrivalAt(),
-                    observation.estimatedArrivalAt() == null
-                            ? SubwayRingQuality.STALE : SubwayRingQuality.NORMAL,
-                    observedAt, now);
+            case PREV_DEPARTED, PREV_ENTERING, PREV_ARRIVED -> fromPreviousStation(prior, context,
+                    target, observation, now);
             case ENROUTE -> observation.estimatedArrivalAt() == null
                     // "[N]번째 전역" — 아직 멀다. 초가 없으므로 멈춘다.
                     ? freeze(prior, context, target, now)
                     : reanchored(prior, context, target, observation, now);
             case UNKNOWN -> freeze(prior, context, target, now);
         };
+    }
+
+    /**
+     * 열차가 우리 다음 역의 <b>전역</b>에 있다({@code 3/4/5}). 구간을 처음 볼 때만 0 에서 시작한다.
+     *
+     * <p>이 코드는 열차가 전역을 떠난 뒤 진입할 때까지 <b>구간 내내</b> 반복된다. 볼 때마다 0 으로
+     * 재앵커하면 앱이 보간해 둔 링이 15~30초마다 0 으로 되감긴다(2026-10-07 journey 158 실측). 같은
+     * 구간이면 지금 화면 값에서 이어 그리고, 남은 초가 없으면 멈춘다.
+     */
+    private SubwayRingState fromPreviousStation(SubwayRingState prior, SubwayRingContext context,
+                                                int target, SubwayRingObservation observation,
+                                                Instant now) {
+        if (sameSegment(prior, target)) {
+            return observation.estimatedArrivalAt() == null
+                    ? freeze(prior, context, target, now)
+                    : reanchored(prior, context, target, observation, now);
+        }
+        Instant observedAt = observation.observedAt();
+        return anchored(context, target, BigDecimal.ZERO, observedAt,
+                observation.estimatedArrivalAt(),
+                observation.estimatedArrivalAt() == null
+                        ? SubwayRingQuality.STALE : SubwayRingQuality.NORMAL,
+                observedAt, now);
     }
 
     /**

@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
@@ -109,6 +110,18 @@ public record JourneySnapshot(
                 routeRevision, currentLegIndex, guidanceLeaseUntil,
                 subwayOfflineProtectionUntil, serverTime,
                 currentLeg, recommendedPollSeconds, legs, eta, guidance);
+    }
+
+    /**
+     * 지하철 링 버전(#307). 링이 화면을 바꿀 때만 오른다 — {@code commandVersion}·{@code evaluationVersion} 은 링 갱신에
+     * 오르지 않아서 조건부 조회가 링 변화를 못 잡았다. 링이 없으면(지하철 아님·첫 링 전) 0.
+     *
+     * <p>레코드 칸이 아니라 {@code subwayGuidance.version} 에서 파생한다 — 칸을 더하면 {@link #withEta} 같은 재생성 경로에서
+     * 조용히 떨어질 수 있다.
+     */
+    @JsonProperty("guidanceVersion")
+    public long guidanceVersion() {
+        return subwayGuidance == null || subwayGuidance.version() == null ? 0L : subwayGuidance.version();
     }
 
     private static JourneyLegView legOf(List<JourneyLegView> legs, int index) {

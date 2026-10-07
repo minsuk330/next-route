@@ -3738,3 +3738,22 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 배포
 - 마이그레이션 없음. api(조립)·worker(링 대상·계산) 둘 다 교체
 - 전체 `./gradlew test --continue`: 2587 중 실패 12 = 기존 무관 11(`JourneyEvalReadPathIT` 2·`JourneyEvaluationIT` 7·`JourneyTransferAssessmentIT` 1·`RerouteRemainingPathOtpIT` 1) + `JourneyNotificationSchemaIT` 1(전체 실행 중 "Unable to rollback against JDBC Connection", 단독 20/20 통과 = 간헐·기존 무관). 이 PR 새 실패 0
+
+## 지하철 링 버전 + 전역 진행률 되감김 (2026-10-07, M, #307·#306)
+### 확정
+- #306 조사: 서버 링은 뒤로 가지 않았다 — `subway_ring_push_outbox`(토큰 없어 SKIPPED여도 계산된 화면 그대로 남음) journey 158 프레임 = 방배→사당→낙성대(20:53:13~20:55:59)→서울대입구→봉천. 앱의 20:54:18 `사당` 은 옛 스냅샷이 늦게 덮은 것으로 추정. 원인 증거·결론은 이슈 댓글
+- `guidanceVersion` = 링 화면 마지막 변경 시각(epoch millis). 카운터 기각(링 키가 고정 세대마다 바뀌어 0 으로 돌아감). 변경 판정 = `SubwayRingPushDecider.decide().isPresent()`(push 와 같은 기준). 같은 millis 는 +1. Redis 옛 값(칸 없음)=0 → 다음 tick 에 부여
+- 스냅샷 최상위 `guidanceVersion` 은 레코드 칸이 아니라 `@JsonProperty` 파생 메서드(`subwayGuidance.version`) — `withEta` 재생성에서 떨어질 위험 없음, 기존 생성자 무변경
+- `afterGuidanceVersion` 은 기존 두 값과 같은 `<=`. 셋 다 null 이면 200. 링 없으면 0
+- ETA 는 버전에 안 넣음(조회 시점 계산값). 첫 링을 선택 응답에 싣는 안도 안 함(#304: api 가 먼저 만들면 첫 push 유실)
+- 진행률 버그: `fromArrival` 의 `PREV_DEPARTED/ENTERING/ARRIVED` 가 같은 구간에서 반복될 때마다 0 재앵커 → 앱 링 15~30초마다 0 으로 되감김(journey 158 outbox: 낙성대 구간 4프레임 연속 0.0000, base 만 이동). 같은 구간이면 `reanchored`, 초 없으면 `freeze`, 첫 관측만 0
+### 함정
+- 앱 보간 공식 확인(`nextroute-mobile src/features/live-activity/navigation-live-activity.tsx:126-137`): base 시점 진행률 → ETA 시점 progressTarget 직선. 그래서 서버가 base 진행률을 0 으로 다시 주면 그대로 되감긴다
+### 좌표
+- `SubwayRingCalculator.fromPreviousStation`, `SubwayRingUpdateService.guidanceVersionOf`, `SubwayRingState.withGuidanceVersion`, `JourneySnapshot.guidanceVersion()`, `JourneyController.unchanged`
+### 검증
+- 회귀 시험 3건(`SubwayRingCalculatorTest$RepeatedPreviousStation`)은 수정 전 코드에서 실패·수정 후 통과 확인
+- `SubwayRing*`·`JourneyControllerTest`·`JourneySubwayGuidance*`·`JourneySnapshot*`·`SubwayRideScenarioIT`·`SubwayTrainSelectionIT` 180/180, `RedisSubwayRingAdapterIT` 7/7(버전 왕복 + 칸 없는 옛 값 = 0)
+### 배포
+- 마이그레이션 없음. worker(버전 저장·계산기) → api(스냅샷·파라미터) 순
+- 전체 `./gradlew test --continue`: 2596 중 실패 12 = 기존 무관(JourneyEvalReadPathIT 2·JourneyEvaluationIT 7·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·간헐 JourneyNotificationSchemaIT 1) — #304 때와 같은 구성, 새 실패 0

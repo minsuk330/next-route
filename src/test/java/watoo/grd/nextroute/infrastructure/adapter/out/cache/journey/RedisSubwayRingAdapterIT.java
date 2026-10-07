@@ -143,6 +143,23 @@ class RedisSubwayRingAdapterIT {
     }
 
     @Test
+    @DisplayName("링 버전(#307)이 왕복하고, 버전 칸이 없는 배포 전 값은 0 으로 읽힌다")
+    void guidanceVersionRoundTripsAndOldValuesReadAsZero() {
+        adapter.save(ring(1, 4, 0, "0.4500").withGuidanceVersion(1_791_374_000_000L));
+        assertThat(adapter.find(JOURNEY_ID, 1, 4, 0).orElseThrow().guidanceVersion())
+                .isEqualTo(1_791_374_000_000L);
+
+        String key = RedisSubwayRingAdapter.key(JOURNEY_ID, 1, 4, 0);
+        String withoutVersion = redisTemplate.opsForValue().get(key).replaceAll(",\\s*\"guidanceVersion\"\\s*:\\s*\\d+", "");
+        assertThat(withoutVersion).doesNotContain("guidanceVersion");
+        redisTemplate.opsForValue().set(key, withoutVersion);
+
+        SubwayRingState old = adapter.find(JOURNEY_ID, 1, 4, 0).orElseThrow();
+        assertThat(old.guidanceVersion()).isZero();
+        assertThat(old.segmentProgress()).isEqualByComparingTo("0.45");
+    }
+
+    @Test
     @DisplayName("깨진 값은 없는 것으로 본다 — 다음 tick 이 다시 만든다")
     void brokenValueReadsAsMissing() {
         redisTemplate.opsForValue().set(RedisSubwayRingAdapter.key(JOURNEY_ID, 1, 4, 0), "{{{");
