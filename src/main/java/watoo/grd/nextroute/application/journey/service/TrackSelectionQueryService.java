@@ -7,6 +7,7 @@ import watoo.grd.nextroute.application.journey.dto.TrackViews;
 import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPattern;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPatternDetail;
+import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.NearStop;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitStop;
 import watoo.grd.nextroute.application.route.routing.EncodedPolyline;
 import watoo.grd.nextroute.application.route.routing.GeometryQuality;
@@ -32,18 +33,33 @@ public class TrackSelectionQueryService {
 
     private final JourneyTrackProperties properties;
     private final TrackPatternSource source;
+    private final TrackRealtimeIdResolver realtimeIds;
 
     /**
      * @param mode {@code BUS} 또는 {@code SUBWAY}(철도·경전철 포함). null 이면 전부
      */
     public List<TrackViews.Stop> stopsNear(double lat, double lon, RoutingMode mode) {
         requireEnabled();
-        List<TransitStop> stops = source.withPermit(deadline -> source.port().stopsNear(lat, lon,
+        List<NearStop> stops = source.withPermit(deadline -> source.port().stopsNear(lat, lon,
                 properties.getNearRadiusMeters(), properties.getNearLimit(), deadline));
-        return stops.stream()
-                .filter(stop -> matches(mode, stop.mode()))
-                .map(stop -> new TrackViews.Stop(stop.gtfsId(), stop.name(), stop.lat(), stop.lon(), stop.mode()))
-                .toList();
+        List<TrackViews.Stop> views = new ArrayList<>();
+        for (NearStop near : stops) {
+            TransitStop stop = near.stop();
+            if (!matches(mode, stop.mode())) {
+                continue;
+            }
+            if (stop.mode() == RoutingMode.BUS) {
+                TrackRealtimeIdResolver.BusStopIds ids = realtimeIds.busStop(stop.gtfsId());
+                views.add(new TrackViews.Stop(stop.gtfsId(), stop.name(), stop.lat(), stop.lon(), stop.mode(),
+                        near.distanceMeters(), ids.arrivalStopId(), ids.arsId(), null, null, null));
+            } else {
+                for (TrackRealtimeIdResolver.SubwayStationIds ids : realtimeIds.subway(stop, near.routeShortNames())) {
+                    views.add(new TrackViews.Stop(stop.gtfsId(), stop.name(), stop.lat(), stop.lon(), stop.mode(),
+                            near.distanceMeters(), null, null, ids.arrivalStationId(), ids.lineId(), ids.lineName()));
+                }
+            }
+        }
+        return views;
     }
 
     /** 정류장에서 탈 수 있는 노선·방향. 노선 이름 순. */
@@ -56,9 +72,11 @@ public class TrackSelectionQueryService {
             if (pattern.route().mode() == RoutingMode.UNSUPPORTED || pattern.route().mode() == RoutingMode.WALK) {
                 continue;
             }
+            String arrivalRouteId = pattern.route().mode() == RoutingMode.BUS
+                    ? realtimeIds.busRoute(pattern.route().gtfsId()) : null;
             directions.add(new TrackViews.Direction(pattern.route().gtfsId(), pattern.route().mode(),
                     pattern.route().shortName(), color(pattern.route().color()), branch.directionLabel(),
-                    branch.terminalName(), pattern.code()));
+                    branch.terminalName(), pattern.code(), arrivalRouteId));
         }
         directions.sort((a, b) -> compareNullable(a.routeName(), b.routeName()));
         return directions;

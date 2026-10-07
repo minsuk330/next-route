@@ -3758,6 +3758,23 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 마이그레이션 없음. worker(버전 저장·계산기) → api(스냅샷·파라미터) 순
 - 전체 `./gradlew test --continue`: 2596 중 실패 12 = 기존 무관(JourneyEvalReadPathIT 2·JourneyEvaluationIT 7·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·간헐 JourneyNotificationSchemaIT 1) — #304 때와 같은 구성, 새 실패 0
 
+## #313 track 응답에 실시간 조회 id (2026-10-07, feat/track-realtime-ids, M)
+
+### 확정
+- Stop += distanceMeters·arrivalStopId·arsId·arrivalStationId·lineId·lineName, Direction += arrivalRouteId. 못 풀면 null.
+- 버스: `OtpSeoulIdentityResolver.busStopArrivalId/busRouteArrivalId`(신규 공개, 기존 메서드 동작 불변) — SEB=DB 존재 확인, GGB=9자리, 그 밖 TAGO 접두사 포함(`ICB121000541`). 버스 도착 API 가 id 모양으로 원천 선택.
+- 지하철: StopsNear 에 `routes{shortName}` 추가(운영 확인: 강남(2호선)→[서울2호선×2], 방향별 route 라 중복 → 중복 제거). shortName→lineId = `SubwayRoutePatternAssembler.lineIdOf`(명시표), 역 = `SubwayPatternStationMatcher`. 호선마다 한 줄.
+- `TransitPatternPort.stopsNear` 반환 = `List<NearStop(stop, distanceMeters, routeShortNames)>`.
+
+### 함정
+- 같은 물리 정류장이 SEB·GGB·ICB 로 여러 번 온다(fixture stops-near-gangnam) — 기존 동작, 이번엔 안 합침
+- 스크래치 clone 에서 journey 패키지 IT 248 실패 = DB 인증(`${POSTGRES_USER}`) 컨텍스트 로드 실패, 기존 무관
+
+### 검증
+- 단위: journey·route·subway·api.journey·otp 패키지 1430 / 실패 0(IT 제외). 신규 TrackRealtimeIdResolverTest 6, TrackSelectionQueryServiceTest +2, OtpTransitPatternAdapterTest stopsNear(routes·distance), JourneyTrackControllerTest JSON.
+
+### 배포
+- 마이그레이션 없음. api 이미지. 플래그 JOURNEY_TRACK_ENABLED 는 off 그대로(켜는 건 별도 결정).
 ## 단독 추적 하차 선택 노선 선 API (2026-10-07, M, #312)
 ### 확정
 - `GET /api/journeys/track/routes/{routeGtfsId}/shape?from&to?&pattern?` → `{points:[{x,y}], quality: SHAPE_OK|STOP_LINE}`. 대안(alightStops 에 형상 싣기)은 안 함 — 기존 응답 계약을 안 건드림

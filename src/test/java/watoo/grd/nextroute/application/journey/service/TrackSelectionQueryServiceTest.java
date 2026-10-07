@@ -45,6 +45,7 @@ class TrackSelectionQueryServiceTest {
     private final OtpConcurrencyGate gate = mock(OtpConcurrencyGate.class);
     private final JourneyTrackProperties properties = new JourneyTrackProperties();
     private final TransitPatternDetail line2 = TrackFixtures.line2Detail();
+    private final TrackRealtimeIdResolver realtimeIds = mock(TrackRealtimeIdResolver.class);
     private TrackSelectionQueryService service;
 
     @BeforeEach
@@ -55,7 +56,10 @@ class TrackSelectionQueryServiceTest {
         given(port.pattern(eq(TrackFixtures.LINE2_PATTERN), any())).willReturn(Optional.of(line2));
         service = new TrackSelectionQueryService(properties, new TrackPatternSource(port, gate,
                 new OtpRoutingProperties(), new RouteSearchDeadlineProperties(), properties,
-                Clock.fixed(Instant.parse("2026-10-07T03:00:00Z"), ZoneOffset.UTC)));
+                Clock.fixed(Instant.parse("2026-10-07T03:00:00Z"), ZoneOffset.UTC)), realtimeIds);
+        given(realtimeIds.busStop(any())).willReturn(new TrackRealtimeIdResolver.BusStopIds(null, null));
+        given(realtimeIds.subway(any(), any())).willReturn(List.of(
+                new TrackRealtimeIdResolver.SubwayStationIds(null, null, null)));
     }
 
     @Test
@@ -107,9 +111,9 @@ class TrackSelectionQueryServiceTest {
     @DisplayName("좌표 주변: SUBWAY 는 철도 포함, BUS 는 버스만")
     void stopsNearFilter() {
         given(port.stopsNear(anyDouble(), anyDouble(), anyInt(), anyInt(), any())).willReturn(List.of(
-                new TransitStop("b", "버스", 37.5, 127.0, RoutingMode.BUS),
-                new TransitStop("s", "지하철", 37.5, 127.0, RoutingMode.SUBWAY),
-                new TransitStop("r", "철도", 37.5, 127.0, RoutingMode.RAIL)));
+                near(new TransitStop("b", "버스", 37.5, 127.0, RoutingMode.BUS)),
+                near(new TransitStop("s", "지하철", 37.5, 127.0, RoutingMode.SUBWAY)),
+                near(new TransitStop("r", "철도", 37.5, 127.0, RoutingMode.RAIL))));
 
         assertThat(service.stopsNear(37.5, 127.0, RoutingMode.SUBWAY)).extracting(TrackViews.Stop::gtfsStopId)
                 .containsExactly("s", "r");
@@ -180,5 +184,40 @@ class TrackSelectionQueryServiceTest {
 
     private static boolean near(CoordPoint point, TransitStop stop) {
         return Math.hypot(point.x() - stop.lon(), point.y() - stop.lat()) < 0.003;
+    }
+
+    @Test
+    @DisplayName("#313 주변 정류장에 실시간 id — 버스는 정류장 id·ARS, 지하철은 호선마다 한 줄")
+    void stopsNearCarriesRealtimeIds() {
+        TransitStop bus = new TransitStop("1:BS_TAGO_SEB121000091", "강남역9번출구", 37.4978, 127.027, RoutingMode.BUS);
+        TransitStop subway = new TransitStop("1:RS_ACC1_S-1-X", "환승역", 37.5, 127.0, RoutingMode.SUBWAY);
+        given(port.stopsNear(anyDouble(), anyDouble(), anyInt(), anyInt(), any())).willReturn(List.of(
+                new TransitPatternPort.NearStop(bus, 67, List.of("8146")),
+                new TransitPatternPort.NearStop(subway, 90, List.of("서울2호선", "신분당선"))));
+        given(realtimeIds.busStop("1:BS_TAGO_SEB121000091"))
+                .willReturn(new TrackRealtimeIdResolver.BusStopIds("121000091", "22009"));
+        given(realtimeIds.subway(subway, List.of("서울2호선", "신분당선"))).willReturn(List.of(
+                new TrackRealtimeIdResolver.SubwayStationIds("1002000222", "1002", "2호선"),
+                new TrackRealtimeIdResolver.SubwayStationIds("1077000687", "1077", "신분당선")));
+
+        List<TrackViews.Stop> stops = service.stopsNear(37.5, 127.0, null);
+
+        assertThat(stops).hasSize(3);
+        assertThat(stops.get(0)).extracting(TrackViews.Stop::arrivalStopId, TrackViews.Stop::arsId,
+                TrackViews.Stop::distanceMeters).containsExactly("121000091", "22009", 67);
+        assertThat(stops.subList(1, 3)).extracting(TrackViews.Stop::gtfsStopId).containsOnly("1:RS_ACC1_S-1-X");
+        assertThat(stops.subList(1, 3)).extracting(TrackViews.Stop::arrivalStationId)
+                .containsExactly("1002000222", "1077000687");
+    }
+
+    @Test
+    @DisplayName("#313 방향: 지하철은 arrivalRouteId 가 null — 역 도착 API 는 역 id 만 받는다")
+    void subwayDirectionHasNoRouteId() {
+        assertThat(service.directions(TrackFixtures.GANGNAM)).extracting(TrackViews.Direction::arrivalRouteId)
+                .containsOnlyNulls();
+    }
+
+    private static TransitPatternPort.NearStop near(TransitStop stop) {
+        return new TransitPatternPort.NearStop(stop, null, List.of());
     }
 }
