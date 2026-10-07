@@ -97,7 +97,7 @@ public class JourneySubwayBindingController {
     }
 
     /**
-     * 열차를 골랐다. 곧바로 확정(CONFIRMED · USER_SELECTED)이다. 진행 링은 이동 시작 관측이 온 뒤부터 돈다.
+     * 열차를 골랐다. 곧바로 확정(CONFIRMED · USER_SELECTED)이고 진행 링도 바로 돈다(#304, 다음 갱신 tick). 열차가 아직 안 왔으면 다음 역=승차역.
      * 틀렸으면 기존 {@code binding/reset}.
      */
     @PostMapping("/{journeyId}/subway/train-selection")

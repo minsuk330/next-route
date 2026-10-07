@@ -44,7 +44,7 @@ import static org.mockito.BDDMockito.given;
  *
  * <ul>
  *   <li>선택 → CONFIRMED · USER_SELECTED · 열차 식별 4칸 + 감사 USER_SELECTED (V60 제약 통과)</li>
- *   <li>이동 전에는 링 대상이 아니고, 이동 관측 뒤에 링 대상. 상태는 그대로 확정, 판정기는 안 본다</li>
+ *   <li>고르는 즉시 링 대상(#304). 이동 관측이 와도 상태는 그대로 확정·링 대상 유지, 판정기는 안 본다</li>
  *   <li>이동 전 "이 열차 아님" 은 타는 단계가 시작 전이면 6분이 지나도 안 접힌다 → 이후 이동 관측이 오면 판정 대상</li>
  *   <li>출처가 비어 있는(정차 관측이 먼저 연) 고정도 링 대상에서 빠지지 않는다 — null 안전 조건 회귀</li>
  * </ul>
@@ -132,7 +132,7 @@ class SubwayTrainSelectionIT {
     }
 
     @Test
-    @DisplayName("선택 → CONFIRMED·USER_SELECTED·식별 4칸, 감사 USER_SELECTED. 이동 전엔 링 대상 아님")
+    @DisplayName("선택 → CONFIRMED·USER_SELECTED·식별 4칸, 감사 USER_SELECTED. 이동 전에도 바로 링 대상(#304)")
     void selectConfirmsWithFullIdentity() {
         selectionService.select(userId, journeyId, "2392", 1);
 
@@ -149,12 +149,12 @@ class SubwayTrainSelectionIT {
                 select count(*) from subway_binding_event
                  where journey_leg_id = ? and event_type = 'USER_SELECTED' and kind = 'DECISION'
                    and chosen_train_no = '2392'""", Integer.class, rideLegId)).isEqualTo(1);
-        assertThat(ringTargetIds()).doesNotContain(rideLegId);
+        assertThat(ringTargetIds()).contains(rideLegId);
     }
 
     @Test
-    @DisplayName("선택 뒤 이동 관측 → 상태 그대로, 순번·감지 시각 채움 → 링 대상. 판정기는 안 본다")
-    void movementAfterSelectionTurnsRingOn() {
+    @DisplayName("선택 뒤 이동 관측 → 상태 그대로, 순번·감지 시각 채움 → 링 대상 유지. 판정기는 안 본다")
+    void movementAfterSelectionKeepsRing() {
         selectionService.select(userId, journeyId, "2390", 1);
 
         movementStart(1);

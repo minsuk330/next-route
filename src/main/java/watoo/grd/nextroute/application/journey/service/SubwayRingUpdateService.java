@@ -82,14 +82,17 @@ public class SubwayRingUpdateService {
             // 역 체인을 못 읽으면 남은 역 수도 다음 역도 만들 수 없다. 계획값으로 지어내지 않는다.
             return;
         }
+        // 역에서 고르고 아직 안 움직였으면 열차가 승차역에 오기 전일 수 있다 — 승차역부터 본다(#304).
+        int start = binding.isSelectedBeforeMovement() ? 0 : 1;
         SubwayRingContext context = new SubwayRingContext(binding.getJourneyId(),
-                binding.getRouteRevision(), binding.getLegIndex(), binding.getVersion(), chain);
+                binding.getRouteRevision(), binding.getLegIndex(), binding.getVersion(), chain, start);
 
         SubwayRingState previous = ringPort.find(binding.getJourneyId(),
                 binding.getRouteRevision(), binding.getLegIndex(), binding.getVersion())
                 .orElse(null);
         int target = calculator.targetStationSequence(previous, context);
-        if (target < 1) {
+        if (target < 0) {
+            // 체인을 쓸 수 없다. 0 은 승차역이다(#304) — 열차를 기다리는 링이라 거르지 않는다.
             return;
         }
 

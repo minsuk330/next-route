@@ -384,6 +384,96 @@ class SubwayRingCalculatorTest {
                 .isNull();
     }
 
+    // ── 역에서 고른 열차: 승차역부터 (#304) ─────────────────────────────────
+
+    @Nested
+    @DisplayName("역에서 고르고 아직 안 움직인 열차는 승차역부터 센다")
+    class StartAtBoarding {
+
+        /** 이동 관측 전 사용자 선택 — 승차역(0) 에서 시작한다. */
+        private final SubwayRingContext selected = new SubwayRingContext(JOURNEY_ID, 1, 4, 0,
+                context.chain(), 0);
+
+        @Test
+        @DisplayName("관측이 없어도 첫 링이 나온다 — 다음 역=승차역, 남은 역=탈 정거장 수, 0 고정")
+        void firstRingWithoutObservation() {
+            SubwayRingState state = calculator.next(null, selected, null, T0);
+
+            assertThat(state.nextStationSequence()).isZero();
+            assertThat(state.nextStationName()).isEqualTo("승차역");
+            assertThat(state.remainingStations()).isEqualTo(3);
+            assertThat(state.segmentProgress()).isEqualByComparingTo("0");
+            assertThat(state.progressTarget()).isEqualByComparingTo("0");
+            assertThat(state.quality()).isEqualTo(SubwayRingQuality.STALE);
+        }
+
+        @Test
+        @DisplayName("다가오는 열차 — 도착 예정은 싣되 진행률·보간 상한은 0 이다")
+        void approachingTrainKeepsEtaButNoProgress() {
+            SubwayRingState first = calculator.next(null, selected,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 0,
+                            T0.plusSeconds(120), T0), T0);
+            SubwayRingState later = calculator.next(first, selected,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ENROUTE, 0,
+                            T0.plusSeconds(100), T0.plusSeconds(60)), T0.plusSeconds(60));
+            SubwayRingState entering = calculator.next(later, selected,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ENTERING, 0, null,
+                            T0.plusSeconds(90)), T0.plusSeconds(90));
+
+            assertThat(first.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(120));
+            assertThat(first.quality()).isEqualTo(SubwayRingQuality.NORMAL);
+            assertThat(later.nextStationSequence()).isZero();
+            assertThat(later.segmentProgress()).isEqualByComparingTo("0");
+            assertThat(later.progressTarget()).isEqualByComparingTo("0");
+            assertThat(later.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(100));
+            assertThat(entering.nextStationSequence()).isZero();
+            assertThat(entering.segmentProgress()).isEqualByComparingTo("0");
+        }
+
+        @Test
+        @DisplayName("승차역 도착 → 곧바로 다음 역 구간 0 이다(승차역 1.00 을 찍지 않는다)")
+        void arrivalAtBoardingMovesOn() {
+            SubwayRingState state = calculator.next(null, selected,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ARRIVED, 0, null, T0), T0);
+
+            assertThat(state.nextStationSequence()).isEqualTo(1);
+            assertThat(state.nextStationName()).isEqualTo("역A");
+            assertThat(state.remainingStations()).isEqualTo(3);
+            assertThat(state.segmentProgress()).isEqualByComparingTo("0");
+            assertThat(state.progressTarget()).isEqualByComparingTo("0.90");
+        }
+
+        @Test
+        @DisplayName("승차역 출발 → 다음 역 구간으로 넘어간다")
+        void departureFromBoardingMovesOn() {
+            SubwayRingState state = calculator.next(null, selected,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.DEPARTED, 0, null, T0), T0);
+
+            assertThat(state.nextStationSequence()).isEqualTo(1);
+            assertThat(state.phase()).isEqualTo(SubwayRingPhase.RIDE_SUBWAY);
+        }
+
+        @Test
+        @DisplayName("방금 떠난 열차 — 위치가 이미 승차역 뒤면 그 역부터 바로 링이다")
+        void departedTrainJumpsAhead() {
+            SubwayRingState state = calculator.next(null, selected,
+                    SubwayRingObservation.position(SubwayTrainStatus.ARRIVED, 1, T0), T0);
+
+            assertThat(state.nextStationSequence()).isEqualTo(1);
+            assertThat(state.segmentProgress()).isEqualByComparingTo("1.00");
+        }
+
+        @Test
+        @DisplayName("이동 관측으로 고정된 열차는 그대로 승차 다음 역부터다")
+        void boundByMovementStartsAfterBoarding() {
+            SubwayRingState state = calculator.next(null, context, null, T0);
+
+            assertThat(state.nextStationSequence()).isEqualTo(1);
+            assertThat(calculator.targetStationSequence(null, selected)).isZero();
+            assertThat(calculator.targetStationSequence(null, context)).isEqualTo(1);
+        }
+    }
+
     // ── 픽스처 ──────────────────────────────────────────────────────────────
 
     /** 역A(순번 1) 로 가는 중인 상태. */

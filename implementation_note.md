@@ -3717,3 +3717,24 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `SubwayTrainSelectionServiceTest` 10/10(신규 2: 떠난 열차 → 전날 운행일로 확정 / 어디에도 없음·로그 실패 422), `SubwayTrainSelectionIT` 6/6, `JourneySubwaySelectionControllerTest` 4/4, `SubwayStationArrivalQueryServiceTest` 14/14
 ### 배포
 - 마이그레이션 없음. api 교체
+
+## 지하철 열차 고르면 바로 링 (2026-10-07, M, #304)
+### 확정
+- 링 대상 질의(`findRingTargets`)에서 `USER_SELECTED + last_movement_seq IS NULL` 제외 조건 삭제. 안내 조립(`JourneySubwayGuidanceComposer`)의 `isSelectedBeforeMovement()` → pending 분기 삭제(링이 아직 없을 때 pending 은 그대로)
+- **상류 열차 = 이슈 제안안**: 이동 관측 전 사용자 선택이면 링을 **승차역(순번 0)부터** 센다(`SubwayRingContext.startSequence`, 갱신기가 `isSelectedBeforeMovement()` 로 정함). 승차역 구간은 진행률·보간 상한(`progressTarget`) **0 고정**, 도착 예정 시각은 싣는다. `remainingStations` = 탈 정거장 수(승차역 제외 = `alightingSequence`). 새 phase 없음(`RIDE_SUBWAY` 그대로) — 앱 레이아웃 추가 불필요
+- 승차역 도착(arvlCd=1 / 위치 ARRIVED)·출발 → 바로 다음 역 구간 0. 승차역에서 1.00 을 찍지 않는다(`anchored` 에서 넘김)
+- 방금 떠난 열차: 승차역 도착 목록에 없으면 위치 폴백이 승차역 뒤 역을 가리켜 그 역으로 바로 건너뛴다(기존 `fromPosition` 규칙)
+- 직전 링이 있으면 시작점은 안 쓴다 — 이동 관측이 나중에 와도 링은 이어진다. Redis 유실 뒤 이동 관측이 있으면 예전대로 1 부터
+- **첫 링 = 다음 tick(5초)**. api 에서 링을 직접 돌리지 않음: 링·push 플래그가 worker 전용 env 라 api 에선 push 가 안 나가고, api 가 먼저 링을 저장하면 worker 의 `enqueueIfChanged(previous, state)` 가 "변화 없음"으로 첫 push 를 놓친다. 배치 상한 100 > 진행 중 여정 수라 새 행은 다음 tick 에 잡힌다
+- `SubwayRingPushRelayTxService` 는 `isBound()` 만 본다 — 수정 불필요 확인
+### 함정
+- 갱신기 `processOne` 에 `target < 1 → return` 가드가 있어 승차역(0) 링이 저장되지 않았다 ← 계산기 단위 시험은 통과, `SubwayRingIT` 신규 케이스가 잡음 / 가드 = `target < 0`(체인 못 씀만 거름)
+- 계산기의 `Math.max(target, 1)` 두 곳(`targetSequence`·`anchored`)도 0 을 1 로 올려 버린다 — 0 허용으로 바꿈
+### 좌표
+- `SubwayRingCalculator`(`BOARDING_SEQUENCE`·`capOf`·`remainingOf`), `SubwayRingUpdateService.processOne`, `SubwayRingContext`(5인자 생성자 = 시작 1, 기존 호출 무변경)
+### 검증
+- `SubwayRingCalculatorTest`(신규 Nested 6), `JourneySubwayGuidanceComposerTest`(신규 2), `SubwayRingIT` 14/14(신규 1: 선택 직후 첫 링 = 승차역·남은 2·진행 0·ETA 있음), `SubwayTrainSelectionIT` 6/6(선택 즉시 링 대상으로 기대 뒤집음), `SubwayRideScenarioIT` 9/9, `SubwayBoardingEvidenceServiceTest`·`SubwayRingPush*Test` 통과
+- 일회용 DB(r304-pg, 개발 DB schema-only V58 + flyway 이력 → V59·V60 자동) + redis + 더미 env 5개(GONG_API·KAKAO_REST_API_KEY·SEOUL_BUS_USAGE·SEOUL_SUBWAY_MASTER·SEOUL_SUBWAY_ROUTE)
+### 배포
+- 마이그레이션 없음. api(조립)·worker(링 대상·계산) 둘 다 교체
+- 전체 `./gradlew test --continue`: 2587 중 실패 12 = 기존 무관 11(`JourneyEvalReadPathIT` 2·`JourneyEvaluationIT` 7·`JourneyTransferAssessmentIT` 1·`RerouteRemainingPathOtpIT` 1) + `JourneyNotificationSchemaIT` 1(전체 실행 중 "Unable to rollback against JDBC Connection", 단독 20/20 통과 = 간헐·기존 무관). 이 PR 새 실패 0

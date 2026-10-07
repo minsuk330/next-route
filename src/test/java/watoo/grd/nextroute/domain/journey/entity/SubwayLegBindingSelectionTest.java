@@ -15,7 +15,7 @@ class SubwayLegBindingSelectionTest {
     private static final LocalDate DAY = LocalDate.parse("2026-10-07");
 
     @Test
-    @DisplayName("선택은 곧바로 확정이고 식별 4칸을 다 채운다. 이동 전이라 링 대상 아님")
+    @DisplayName("선택은 곧바로 확정이고 식별 4칸을 다 채운다. 이동 전이면 링은 승차역부터")
     void selectedIsConfirmedWithFullIdentity() {
         SubwayLegBinding binding = SubwayLegBinding.selected(10L, 1L, 1, 1, "2390", DAY, "1002", "내선");
 
