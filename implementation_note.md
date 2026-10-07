@@ -3619,3 +3619,37 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 신규: `SubwayTrainSelectionIT` 6(일회용 postgis — 선택 4칸·감사, 이동 전 링 제외/이동 후 포함, 매처 제외, 리셋 후 sweep 생존→M7 복귀, 타는 중이면 접힘, null source 링 유지), `SubwayLegBindingSelectionTest` 4, `SubwayTrainSelectionServiceTest` 8, `JourneySubwaySelectionControllerTest` 4 — 전부 통과
 - 변이 확인: 링 게이트·sweep NOT EXISTS 를 빼면 `SubwayTrainSelectionIT` 2건 실패 → 원복
 - 전체 `./gradlew test --continue`: 2555 중 실패 12 = 기존 무관 10(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1) + `JourneyNotificationSchemaIT` 간헐 1(단독 20/20) + `SubwayBindingMatchIT` 1(위 함정, 수정 후 13/13)
+
+## standalone-track PR-4 — 버스 위치 + 승차 시각 대조 (2026-10-07, L 의 4/5, #265)
+### 확정 (PLAN 과 다르게 간 것 포함)
+- **대상 목록은 DB 가 소유**(PLAN 의 Redis 집합·AFTER_COMMIT 이벤트 대신): worker tick 이 `kind=TRACK`·ACTIVE 여정 중 (a) 현재 단계 WAIT_BUS 또는 (b) RIDE_BUS 이고 `vehicle_matched_at IS NULL` 을 읽는다. 시작·전이·종료마다 집합을 고칠 필요가 없고 빠뜨릴 길이 없다. 명령 트랜잭션·재전송 경로를 건드리지 않는다(PLAN 의 "apply 안에서 부르지 않는다"를 구조로 만족). 일반 여정은 대상 아님
+- **판정 종료 표시 = `vehicle_matched_at`**: 고정이면 차량 칼럼 3개 + 시각, 못 찾음·포기·애매·사용자 해제면 차량 없이 시각만. 차 있으면 다시 판정 안 함 → 중복 tick·재전송 방어가 SQL 조건(`WHERE vehicle_matched_at IS NULL`)
+- 차량 칼럼 4개(`vehicle_id` 포함)는 엔티티에서 `updatable = false` — 엔티티 저장(@DynamicUpdate 없음)이 worker 쓰기를 덮지 못한다. 쓰기는 `assignVehicle`/`finishVehicleUnmatched`/`resetVehicle` 부분 UPDATE 뿐. 복제(`copyTo`)에는 실림
+- V61 에 PLAN 외 `journey_leg_vehicle_identity_check`(id·종류·출처 함께) 추가 — 운영 `vehicle_id` 비-null 0/972 행 확인 후
+- 승차 시각 t0 = `journey_event` 에서 그 탑승 단계로 넘어간 APPLIED `CLIENT_LEG_TRANSITION_DETECTED` 의 `client_occurred_at`(서버 수신과 120초 넘게 벌어지면 `server_received_at`), 없으면 `activatedAt`
+- 대조 시점 = t0 + 창 60 + 근접 간격 15 (창 안 늦게 떠난 두 번째 차를 본 뒤 고른다). 0대면 +30초 뒤 포기, 예산 소진이면 바로 포기
+- 관찰: 기다리는 동안 노선 위치 60초, 승차 2정거장 안 접근 차 있으면 15초, 탄 뒤 대조 대기 중 15초. 노선 단위로 여정끼리 공유. 출발 = 직전 관측에서 안 지났고(앞 3정거장 안) 지금 지남(`Vehicle.isPast`: 순번 초과 또는 같은 순번에서 떠남 — 서울 stopFlag 0, 경기 stateCd 2, TAGO 상태 없음). 처음 본 차는 사건 아님
+- 승차 순번: 서울 = 노선 후보 `boardingSeq`(+ `routeId`), 경기·TAGO = #267 표에서 승차 정류장(`sourceStartStopId`) 첫 등장 `seq`. TAGO 도시코드 = `TagoCityCodeLookup.cityCodeOfRoute`
+- 예산: `BusApiQuotaPort.tryAcquire("track-bus-pos-{seoul|gyeonggi|tago}", journey.track.bus.position-budget.*)`(기본 2000/3000/20000). 서울은 이에 더해 기존 검색용 위치 경로(검색 몫 quota·차단기·캐시)를 그대로 탄다
+- 위치 캐시(PR-5 용): 관찰이 받은 성공 관측을 Redis `track:bus:pos:{provider}:{routeId}` TTL 2분에 쓴다(`BusVehiclePositionCachePort`)
+- 해제 API `POST /api/journeys/{id}/bus/vehicle/reset` → 204(지금 단계가 RIDE_BUS 아니면 409 `NOT_RIDING_BUS`). 다시 찾지 않음
+- 스케줄러 `TrackBusVehicleWatchScheduler` = worker 프로필 + `journey.track.bus.enabled`(env `JOURNEY_TRACK_BUS_ENABLED`, 기본 false)
+- 지표 `bus.position{provider,result}`(ok/limited/blocked/error/budget), `bus.match{provider,result}`(matched/ambiguous/none/budget/user-reset)
+- 신규 의존성 없음
+### 함정
+- 실측(2026-10-07): 경기 `getBusLocationListv2` → `msgBody.busLocationList[]`(vehId·plateNo·stationSeq·stateCd, 숫자형). TAGO `getRouteAcctoBusLcList` → `items.item[]`(vehicleno·nodeord·nodeid·gpslati/long), 상태 칸 없음. 픽스처 `src/test/resources/bus/position/`
+- 관찰 상태(직전 관측·출발 사건)는 worker 메모리 — worker 재시작 시 그 사이 탑승은 차량 없이 추적(수용)
+- `TrackBusVehicleWatchServiceTest` 첫 판은 조회 3번을 기대했으나 탄 뒤 대조 대기 중에도 15초마다 본다(5번) — 의도대로
+- `Snapshot.isOk()` 가 JSON 에 `ok` 로 실려 역직렬화를 깨지 않게 `@JsonIgnore`
+- `journey_leg` 에 칼럼을 매핑했으므로 V59 를 나열하는 `@Sql` IT 13개에 V61 추가(PR-1 함정과 같은 작업)
+### 좌표
+- `TrackBusVehicleWatchService`(tick·collectTargets·poll·decide·boardedAt), `BusVehicleMatcher`, `BusDepartureDetector`, `BusPositionPort`+`BusPositionAdapter`+`RegionalBusLocationClient`, `RedisBusVehiclePositionCache`, `JourneyLegRepository.assignVehicle/finishVehicleUnmatched/resetVehicle`, `JourneyEventRepository.findAppliedTransitionInto`, `TrackBusVehicleResetService`, `JourneyBusVehicleController`
+### 미결
+- 자동 해제(고정 차량이 지나갔는데 사용자 이동 없음)는 후속(PLAN 대로)
+- 서울 위치 조회는 검색 몫 quota(5000)도 함께 깎는다 — TRACK 사용량이 늘면 분리 검토
+### 배포
+- **V61 VPS 수동배치 필요** — `ddl-auto: validate` 라 앱 배포 **전에**. 켤 때 worker 에 `JOURNEY_TRACK_BUS_ENABLED=true`(api 에는 무의미 — worker 프로필 전용)
+### 검증
+- 신규: `BusVehicleMatcherTest` 5, `BusDepartureDetectorTest` 5, `RegionalBusLocationClientTest` 5(경기·TAGO 실측 픽스처 + 서울 매핑), `TrackBusVehicleWatchServiceTest` 8(관찰→고정, 유휴 60초, 애매, 0대 포기, 예산 포기, 판정 끝난 단계 제외, 기기 시계 의심, 서울 순번), `JourneyLegVehicleIT` 5(엔티티 저장이 차량 칼럼을 안 지움·판정 종료 고정·해제·제약), `RedisBusVehiclePositionCacheTest` 2, `JourneyBusVehicleControllerTest` 1 — 전부 통과
+- 변이 확인: `vehicleId` 의 `updatable = false` 를 빼면 `JourneyLegVehicleIT.entitySaveKeepsVehicle` 실패 → 원복
+- 전체 `./gradlew test --continue`: 2595 중 실패 12 = 기존 무관 10 + `RerouteRemainingPathOtpIT.otpGraphQlErrorIsEmptyWithoutOdsayFallback` 1(**변경 stash 한 main 에서도 실패** — 기존 무관, PR-3 실행 땐 통과했으니 시각 의존 간헐로 보임) + `JourneyLegVehicleIT` 1(전체 실행 중 testcontainers `TransactionException`, 단독 5/5 — `JourneyNotificationSchemaIT` 와 같은 간헐)

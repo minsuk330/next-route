@@ -30,4 +30,25 @@ public interface JourneyEventRepository extends JpaRepository<JourneyEvent, Long
                and e.deletedAt is null
             """)
     int softDeleteByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
+
+    /** 그 단계로 넘어간 적용된 전이 명령의 기기·서버 시각(#265 버스 차량 대조의 승차 시각). */
+    interface TransitionTime {
+        java.time.Instant getClientOccurredAt();
+
+        java.time.Instant getServerReceivedAt();
+    }
+
+    @org.springframework.data.jpa.repository.Query(value = """
+            SELECT client_occurred_at AS clientOccurredAt, server_received_at AS serverReceivedAt
+              FROM journey_event
+             WHERE journey_id = :journeyId AND route_revision = :routeRevision
+               AND type = 'CLIENT_LEG_TRANSITION_DETECTED' AND result = 'APPLIED'
+               AND (payload ->> 'toLegIndex') = CAST(:toLegIndex AS text)
+             ORDER BY server_received_at DESC
+             LIMIT 1
+            """, nativeQuery = true)
+    java.util.Optional<TransitionTime> findAppliedTransitionInto(
+            @org.springframework.data.repository.query.Param("journeyId") Long journeyId,
+            @org.springframework.data.repository.query.Param("routeRevision") int routeRevision,
+            @org.springframework.data.repository.query.Param("toLegIndex") int toLegIndex);
 }

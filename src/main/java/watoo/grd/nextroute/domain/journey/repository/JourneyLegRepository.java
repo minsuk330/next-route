@@ -72,4 +72,37 @@ public interface JourneyLegRepository extends JpaRepository<JourneyLeg, Long> {
                and l.deletedAt is null
             """)
     int softDeleteByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
+
+    // ── 단독 추적 버스 차량(#265 PR-4) ─────────────────────────────────────────
+    // 엔티티 저장은 차량 칼럼을 쓰지 않는다(updatable = false). 여기 세 문장만 쓴다. 판정이 끝난 행
+    // (vehicle_matched_at 있음)은 다시 판정하지 않는다 — 재시도·중복 tick 이 결과를 뒤집지 못하게 조건에 넣는다.
+
+    /** 차량을 고정한다. 이미 판정이 끝났으면 0. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE journey_leg
+               SET vehicle_id = :vehicleId, vehicle_id_type = :idType, vehicle_source = :source,
+                   vehicle_matched_at = :at
+             WHERE id = :legId AND vehicle_matched_at IS NULL
+            """, nativeQuery = true)
+    int assignVehicle(@Param("legId") Long legId, @Param("vehicleId") String vehicleId,
+                      @Param("idType") String idType, @Param("source") String source, @Param("at") Instant at);
+
+    /** 못 찾음·포기(2대 이상 갈리지 않음, 예산 소진 등). 차량 없이 판정만 끝낸다. 이미 끝났으면 0. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE journey_leg SET vehicle_matched_at = :at
+             WHERE id = :legId AND vehicle_matched_at IS NULL
+            """, nativeQuery = true)
+    int finishVehicleUnmatched(@Param("legId") Long legId, @Param("at") Instant at);
+
+    /** 사용자가 "이 버스 아님". 고정을 지우고 판정은 끝난 채로 둔다(이미 타 있어 다시 관찰하지 않는다). */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE journey_leg
+               SET vehicle_id = NULL, vehicle_id_type = NULL, vehicle_source = NULL,
+                   vehicle_matched_at = :at
+             WHERE id = :legId
+            """, nativeQuery = true)
+    int resetVehicle(@Param("legId") Long legId, @Param("at") Instant at);
 }

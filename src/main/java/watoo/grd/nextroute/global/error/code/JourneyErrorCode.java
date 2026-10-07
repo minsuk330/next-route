@@ -79,7 +79,9 @@ public enum JourneyErrorCode implements ErrorCode {
       HttpStatus.CONFLICT),
   /** 지하철 열차 선택: 고른 열차가 지금 그 역·방향 도착 목록에 없다(낡은 화면). 후보를 다시 받아 고르게 한다. */
   TRAIN_NOT_IN_CANDIDATES("TRAIN_NOT_IN_CANDIDATES", "그 열차는 지금 도착 목록에 없습니다.",
-      HttpStatus.UNPROCESSABLE_ENTITY);
+      HttpStatus.UNPROCESSABLE_ENTITY),
+  /** 버스 차량 해제(#265): 지금 단계가 버스를 타는 단계가 아니다. */
+  NOT_RIDING_BUS("NOT_RIDING_BUS", "버스를 타고 있는 단계가 아닙니다.", HttpStatus.CONFLICT);
 
   private final String code;
   private final String message;
