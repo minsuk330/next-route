@@ -68,7 +68,7 @@ class JourneyStartServiceTest {
                 new JourneyCompiler(new StopIdentityResolver()),
                 transitIdEnricher,
                 txService,
-                queryService,
+                new JourneyStartConflictTranslator(queryService),
                 new ObjectMapper(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }

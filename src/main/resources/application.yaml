@@ -593,6 +593,12 @@ journey:
       workers: 4
       max-batches: 1000
       drain-max-millis: 5000
+  # 단독 추적(#265, kind=TRACK). 켜면 /api/journeys/track/** 조회·시작이 열린다(조회도 OTP 를 부른다).
+  track:
+    enabled: ${JOURNEY_TRACK_ENABLED:false}
+    near-radius-meters: 300
+    near-limit: 30
+    pattern-cache-seconds: 600
   subway:
     binding:
       # 탑승 열차 자동 판정. 기본 꺼짐 — 켜려면 열차 위치 수집기(realtime.subway.position.enabled
