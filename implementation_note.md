@@ -3397,6 +3397,42 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 배포
 - 마이그레이션 없음. worker 재배포 시 표가 비어 있으면 load-on-empty 로 재적재
 
+## standalone-track PR-1 — journey kind + TRACK 재탐색 제외 (2026-10-07, L 의 1/5, #265)
+### 확정
+- `journey_session.kind` NOT NULL DEFAULT 'NAVIGATION' + CHECK(NAVIGATION|TRACK). 엔티티 `updatable=false`(시작 때 정해지고 안 바뀜). 빌더 기본값은 생성자에서 `null → NAVIGATION`
+- `JourneyStartTxService.start` 는 7인자(kind) 오버로드 추가, 기존 6인자는 NAVIGATION 위임 — 기존 호출부(`JourneyStartService`)·mock 시험 무변경. TRACK 이면 `scheduleInitial` 미호출
+- 보드 SQL 4개(`claimRerouteRefreshBatch`·`requestRerouteRefresh`·`scheduleRerouteRefreshIfAbsent`·`markRerouteAccepted`)에 `kind = 'NAVIGATION'`. `RerouteBoardRefreshService.refresh` 첫머리에 kind 필터(사용자 요청 제안이 선점 없이 직접 부르는 길 방어)
+- 사용자 요청 제안 409 는 새 코드 없이 기존 "no-transfer" 판정으로 나온다(TRACK = 1구간 = 환승 행 0). 고정 시험은 기존 `WindowCooldownEligibilityPolicyTest.missingTransferIsRejected`·`testUserStillNeedsAnUpcomingTransfer`(테스트 계정도 no-transfer 거절) — kind 를 보지 않으므로 TRACK 전용 시험을 따로 두지 않음
+- `JourneySnapshot.kind` 는 `status` 바로 뒤. `of(...)` 3번째 인자
+### 함정
+- 엔티티에 칼럼을 매핑하면 **마이그레이션을 손으로 나열하는 `@Sql` IT 12개**가 전부 V59 를 요구한다(insert 가 kind 를 쓰므로). `V35__create_journey.sql` 을 나열하는 IT 전부에 V59 추가함 — V60 이후 journey_session 칼럼을 또 매핑하면 같은 작업 필요(`grep -rl V35__create_journey src/test`)
+### 좌표
+- `JourneySessionRepository` 보드 섹션(`claimRerouteRefreshBatch` 등), `JourneyStartTxService.start(…, JourneyKind)`, `RerouteBoardRefreshService.refresh`, `JourneyQueryService.snapshotOf`
+- 시험: `JourneyKindRerouteExclusionIT`(6), `JourneySnapshotKindTest`(3), `JourneyStartTxServiceKindTest`(2), `RerouteBoardRefreshServiceKindTest`(1)
+### 배포
+- **V59 VPS 수동배치 필요** — 운영 `ddl-auto: validate` 라 칼럼 매핑 앱 배포 **전에** 적용. 동작 변화 없음(기존 여정 전부 NAVIGATION)
+- 함정 추가: `WithdrawalDeletionBoundaryIT` 는 **ddl-auto=create-drop** 스키마라 V59 의 DEFAULT 가 안 온다 → 손으로 쓰는 `insert into journey_session` 에 `kind` 를 넣어야 함(7건 실패로 발견, 수정 후 7/7)
+### 검증
+- 일회용 postgis(`st-pg` :55432, 로컬 dev DB `--schema-only` + `flyway_schema_history`(V58) 복원) + redis(`st-redis` :56379), env 는 db/api/auth/oauth/toss 만 export(fcm 제외)
+- `./gradlew test --tests '*JourneySnapshotKindTest' --tests '*RerouteBoardRefreshServiceKindTest' --tests '*JourneyStartTxServiceKindTest' --tests '*JourneyKindRerouteExclusionIT' --tests '*JourneySchemaIT' --tests '*RerouteProposalStoreIT'` → 3/2/1/6/19/23 전부 통과
+- 변이 확인: 선점 SQL 의 `kind` 조건 제거 시 `JourneyKindRerouteExclusionIT` 1건 실패(시험이 조건을 잡음) → 원복
+- 전체 `./gradlew test --continue`: 2416 중 실패 17 = Withdrawal 7(내 것, 위 수정 후 7/7) + **기존 무관 10**(`JourneyEvaluationIT` 7·`JourneyEvalReadPathIT` 2·`JourneyTransferAssessmentIT` 1 — 변경 stash 한 main 에서도 같은 10건 실패 확인)
+## #277 역 ID 지하철 도착 API (2026-10-07, feat/subway-station-arrivals)
+
+### 확정
+- `GET /api/subway/stations/{stationId}/arrivals`. 소스 = `SubwayRealtimeArrivalReader.arrivals(lineId, stationId, null)`(캐시, 키 소비 0). 방향 순서 = direction 한국어 Collator, null 맨 뒤.
+- 빈 direction 의 label 도 행선지 우선(앱 `groupTrainsByDirection` 과 같음), 행선지도 없으면 "방향 정보 없음". PLAN 초안의 "빈 방향 → 무조건 방향 정보 없음"은 규칙 3 과 충돌해 앱 동작 쪽으로 정정.
+- label 충돌 시 direction 원문으로 바꾸는 건 direction 이 null 이 아닌 방향만(null 방향은 원문이 없다).
+- 운영 statn_id 중복 0건(696행 19노선) → `findByStationId` 단건 조회 안전.
+
+### 좌표
+- `SubwayStationArrivalQueryService.group` / `SubwayStationController` / `SubwayErrorCode.SUBWAY_STATION_NOT_FOUND`
+
+### 검증
+- `./gradlew test --tests '*SubwayStationArrival*' --tests '*SubwayStationController*' --tests '*SubwayArrivalQueryServiceTest'` → 9/0, 3/0, 7/0 (BUILD 성공). 전체 테스트는 미실행.
+
+### 배포
+- 마이그레이션 없음. api 이미지 교체. 플래그 없음.
 ## #283 남은 역 목록 PR-1: OTP 지하철 패턴 포트·커버리지 (2026-10-07, feat/subway-stations-ahead-pr1)
 
 ### 확정
