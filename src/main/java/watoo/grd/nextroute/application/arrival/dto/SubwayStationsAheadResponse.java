@@ -1,0 +1,51 @@
+package watoo.grd.nextroute.application.arrival.dto;
+
+import java.util.List;
+
+/**
+ * 승차역부터 한 방향으로 남은 역(#283). 하차역 선택 화면이 세로 노선도로 그린다.
+ *
+ * @param destinationApplied 받은 행선지를 갈래 선택·자르기에 실제로 썼는지. 못 맞추면 false 로 공통 구간을 준다
+ * @param endReason          목록이 어디서 끝났는지
+ * @param branches           {@code endReason=BRANCH} 일 때만. 앱은 고른 갈래의 {@code destinationName} 을
+ *                           {@code destination} 으로 붙여 다시 부른다
+ * @param stations           가까운 순. 승차역이 곧 분기점이면 비어 있고 {@code branches} 만 있다
+ */
+public record SubwayStationsAheadResponse(
+        String lineId,
+        String boardStationId,
+        String boardStationName,
+        String direction,
+        boolean destinationApplied,
+        EndReason endReason,
+        List<Branch> branches,
+        List<Station> stations
+) {
+
+    public enum EndReason {
+        /** 종착(또는 받은 행선지)까지. */
+        TERMINAL,
+        /** 분기점까지. 그 뒤는 갈래마다 다르다. */
+        BRANCH,
+        /** 순환선 한 바퀴, 승차역 바로 앞까지. */
+        LOOP
+    }
+
+    /**
+     * @param stationId 실시간 역 ID. 역 마스터에 없는 역이면 null — 그래도 빼지 않는다(빼면 stopsAway 가 틀린다)
+     * @param minutes   승차역 출발 기준 예상 분(시간표 근사). 모르면 null
+     */
+    public record Station(String stationId, String stationName, int stopsAway, Integer minutes,
+                          List<Transfer> transfers) {
+    }
+
+    public record Transfer(String lineId, String lineName) {
+    }
+
+    /**
+     * @param destinationName 그 갈래 끝 역. 다시 부를 때 {@code destination} 값
+     * @param nextStationName 분기점 다음 역(갈래 표시용)
+     */
+    public record Branch(String destinationName, String nextStationName) {
+    }
+}

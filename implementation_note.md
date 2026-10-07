@@ -3387,6 +3387,110 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `RegionalRideLocatorTest` 3/3, `RegionalArrivalLookupTest` 4/4, `UpcomingStopWindowResolverTest` 12/12(+2), `RideTruncationResolverTest` 13/13(+2), `JdbcRegionalBusRouteStopStoreIT` 6/6(+1)
 - 전체 2403 중 실패 2 = 기존 무관 2건(동일)
 
+## regional-catalog-io-retry (2026-10-07, S)
+### 함정
+- 운영 첫 적재 `routes=0 … aborted=true elapsed=45s` ← TAGO getRouteNoList `Read timed out` 을 `RegionalBusRouteSourceAdapter.call()` 이 `failed`(재시도 불가)로 분류. 목록 단계는 한 도시라도 실패하면 전체 중단(부분 목록으로 prune 하면 안 되므로 의도). / 가드: `ResourceAccessException`(I/O·timeout) → `retryable`, `withRetry` 3회 백오프로 넘김
+### 확정
+- 목록 단계 전부-아니면-중단은 유지. 재시도 소진 시 중단 = 다음 회차(월 1회 또는 load-on-empty 재기동)에 다시
+### 검증
+- `./gradlew test --tests '*RegionalBusRouteSourceAdapterTest' --tests '*RegionalBusCatalogLoad*'` → 10/0, 7/0 (신규 `ioErrorIsRetryable` 포함)
+### 배포
+- 마이그레이션 없음. worker 재배포 시 표가 비어 있으면 load-on-empty 로 재적재
+
+## standalone-track PR-1 — journey kind + TRACK 재탐색 제외 (2026-10-07, L 의 1/5, #265)
+### 확정
+- `journey_session.kind` NOT NULL DEFAULT 'NAVIGATION' + CHECK(NAVIGATION|TRACK). 엔티티 `updatable=false`(시작 때 정해지고 안 바뀜). 빌더 기본값은 생성자에서 `null → NAVIGATION`
+- `JourneyStartTxService.start` 는 7인자(kind) 오버로드 추가, 기존 6인자는 NAVIGATION 위임 — 기존 호출부(`JourneyStartService`)·mock 시험 무변경. TRACK 이면 `scheduleInitial` 미호출
+- 보드 SQL 4개(`claimRerouteRefreshBatch`·`requestRerouteRefresh`·`scheduleRerouteRefreshIfAbsent`·`markRerouteAccepted`)에 `kind = 'NAVIGATION'`. `RerouteBoardRefreshService.refresh` 첫머리에 kind 필터(사용자 요청 제안이 선점 없이 직접 부르는 길 방어)
+- 사용자 요청 제안 409 는 새 코드 없이 기존 "no-transfer" 판정으로 나온다(TRACK = 1구간 = 환승 행 0). 고정 시험은 기존 `WindowCooldownEligibilityPolicyTest.missingTransferIsRejected`·`testUserStillNeedsAnUpcomingTransfer`(테스트 계정도 no-transfer 거절) — kind 를 보지 않으므로 TRACK 전용 시험을 따로 두지 않음
+- `JourneySnapshot.kind` 는 `status` 바로 뒤. `of(...)` 3번째 인자
+### 함정
+- 엔티티에 칼럼을 매핑하면 **마이그레이션을 손으로 나열하는 `@Sql` IT 12개**가 전부 V59 를 요구한다(insert 가 kind 를 쓰므로). `V35__create_journey.sql` 을 나열하는 IT 전부에 V59 추가함 — V60 이후 journey_session 칼럼을 또 매핑하면 같은 작업 필요(`grep -rl V35__create_journey src/test`)
+### 좌표
+- `JourneySessionRepository` 보드 섹션(`claimRerouteRefreshBatch` 등), `JourneyStartTxService.start(…, JourneyKind)`, `RerouteBoardRefreshService.refresh`, `JourneyQueryService.snapshotOf`
+- 시험: `JourneyKindRerouteExclusionIT`(6), `JourneySnapshotKindTest`(3), `JourneyStartTxServiceKindTest`(2), `RerouteBoardRefreshServiceKindTest`(1)
+### 배포
+- **V59 VPS 수동배치 필요** — 운영 `ddl-auto: validate` 라 칼럼 매핑 앱 배포 **전에** 적용. 동작 변화 없음(기존 여정 전부 NAVIGATION)
+- 함정 추가: `WithdrawalDeletionBoundaryIT` 는 **ddl-auto=create-drop** 스키마라 V59 의 DEFAULT 가 안 온다 → 손으로 쓰는 `insert into journey_session` 에 `kind` 를 넣어야 함(7건 실패로 발견, 수정 후 7/7)
+### 검증
+- 일회용 postgis(`st-pg` :55432, 로컬 dev DB `--schema-only` + `flyway_schema_history`(V58) 복원) + redis(`st-redis` :56379), env 는 db/api/auth/oauth/toss 만 export(fcm 제외)
+- `./gradlew test --tests '*JourneySnapshotKindTest' --tests '*RerouteBoardRefreshServiceKindTest' --tests '*JourneyStartTxServiceKindTest' --tests '*JourneyKindRerouteExclusionIT' --tests '*JourneySchemaIT' --tests '*RerouteProposalStoreIT'` → 3/2/1/6/19/23 전부 통과
+- 변이 확인: 선점 SQL 의 `kind` 조건 제거 시 `JourneyKindRerouteExclusionIT` 1건 실패(시험이 조건을 잡음) → 원복
+- 전체 `./gradlew test --continue`: 2416 중 실패 17 = Withdrawal 7(내 것, 위 수정 후 7/7) + **기존 무관 10**(`JourneyEvaluationIT` 7·`JourneyEvalReadPathIT` 2·`JourneyTransferAssessmentIT` 1 — 변경 stash 한 main 에서도 같은 10건 실패 확인)
+## #277 역 ID 지하철 도착 API (2026-10-07, feat/subway-station-arrivals)
+
+### 확정
+- `GET /api/subway/stations/{stationId}/arrivals`. 소스 = `SubwayRealtimeArrivalReader.arrivals(lineId, stationId, null)`(캐시, 키 소비 0). 방향 순서 = direction 한국어 Collator, null 맨 뒤.
+- 빈 direction 의 label 도 행선지 우선(앱 `groupTrainsByDirection` 과 같음), 행선지도 없으면 "방향 정보 없음". PLAN 초안의 "빈 방향 → 무조건 방향 정보 없음"은 규칙 3 과 충돌해 앱 동작 쪽으로 정정.
+- label 충돌 시 direction 원문으로 바꾸는 건 direction 이 null 이 아닌 방향만(null 방향은 원문이 없다).
+- 운영 statn_id 중복 0건(696행 19노선) → `findByStationId` 단건 조회 안전.
+
+### 좌표
+- `SubwayStationArrivalQueryService.group` / `SubwayStationController` / `SubwayErrorCode.SUBWAY_STATION_NOT_FOUND`
+
+### 검증
+- `./gradlew test --tests '*SubwayStationArrival*' --tests '*SubwayStationController*' --tests '*SubwayArrivalQueryServiceTest'` → 9/0, 3/0, 7/0 (BUILD 성공). 전체 테스트는 미실행.
+
+### 배포
+- 마이그레이션 없음. api 이미지 교체. 플래그 없음.
+## #283 남은 역 목록 PR-1: OTP 지하철 패턴 포트·커버리지 (2026-10-07, feat/subway-stations-ahead-pr1)
+
+### 확정
+- 포트=원천만(`SubwayRoutePatternPort`), 선택·반전·분할=순수 `SubwayRoutePatternAssembler`, 캐시 24h+낡은 값=`SubwayLinePatternService`. PLAN 초안(어댑터가 다 함)에서 바꿈 — 커버리지 테스트가 운영 코드를 그대로 돌리게.
+- OTP 방향 라벨이 실시간과 반대인 노선 4: KJ-2(경의중앙 서울역), 02-2(2호선 성수지선, 내↔외), 09-*(9호선), AP-1(공항철도). 신정지선(02-3)은 같음.
+- 6호선(06-00, 방향 없음): 응암 첫 등장까지(포함)=상행, 응암부터=하행. 응암 없는 패턴은 버림.
+- 매칭: 같은 노선·같은 이름이면 ≤5km, 다르면 최근접 ≤150m. 리뷰안 500m 는 도봉(1.1km)·인천공항2터미널(~3km)에서 깨짐.
+- 실시간 행선지 대조는 OTP 이름·DB 이름 둘 다로(개명 당고개→불암산, 응암↔응암순환(상선)). 비율 5% 미만 행선지는 잡음.
+
+### 함정
+- 반대 방향 역 목록 ← OTP 라벨을 그대로 믿음 / 가드=`SubwayPatternCoverageTest.realtimeDestinationsLieAheadInTheirDirection`(9호선 반전 빼면 실패 확인함)
+- 틀린 역 연결(도봉→도봉산) ← 좌표 우선 매칭 + OTP 좌표 뒤바뀜 / 가드=이름 우선 + `nearestFallbackNeverPicksAnotherStation`(개명 목록 고정)
+- 인천2호선→1002 ← 숫자 추출 매퍼 / 가드=shortName 명시표
+- 패턴 응답 노선당 최대 1.4MB·1~2.5s(trip 마다 stoptimes, GraphQL 로 trip 수 제한 불가) → 24h 캐시
+- 리뷰가 "경강선 route 0개"라 했지만 이번 채집엔 있음(fixture 61→91 route 로 갱신된 feed)
+
+### 좌표
+- `application/subway/service/SubwayRoutePatternAssembler` / `SubwayPatternStationMatcher` / `SubwayLinePatternService`
+- `infrastructure/adapter/out/api/otp/OtpSubwayRoutePatternAdapter`
+- fixture `src/test/resources/otp/subway-patterns/` (routes-with-patterns 2.5MB, subway-stations 696행, realtime-destinations 103조합)
+
+### 미결
+- 경춘선 상행 용산 직결 행선지(OTP 패턴에 용산 없음) → 그 열차는 상봉·청량리까지만
+- 4호선 진접 연장 3역 역 마스터 누락 → stationId null 로 나감(정적 일배치 off 영향)
+
+### 검증
+- `./gradlew test --tests '*SubwayPattern*' --tests '*SubwayRoutePatternAssembler*' --tests '*OtpSubwayRoutePatternAdapter*' --tests '*SubwayLinePatternService*' --tests '*GtfsRailDirectionCoverageTest'` → 5/0, 5/0, 7/0, 3/0, 5/0, 3/0. 전체 테스트 미실행(스크래치 clone 은 DB env 없음).
+- 운영 OTP 에 어댑터 질의문(variables 포함) 그대로 POST → errors 없음.
+
+### 배포
+- 마이그레이션 없음. API 노출 없음(빈 등록만) — 배포해도 동작 변화 0.
+
+## #283 남은 역 목록 PR-2: 계산기·API (2026-10-07, feat/subway-stations-ahead-api)
+
+### 확정
+- `GET /api/subway/stations/{stationId}/stations-ahead?direction&destination`. 응답 = lineId·boardStationId·boardStationName·direction·destinationApplied·endReason(TERMINAL|BRANCH|LOOP)·branches·stations.
+- 오류: 404 NOT_FOUND / 400 DIRECTION_INVALID(값 공간 밖 or 그 노선에 그 방향 없음) / 422 STATION_NOT_ON_ROUTE / 503 ROUTE_UNAVAILABLE(낡은 캐시도 없을 때만).
+- LOOP 는 **승차역 재등장으로 끊긴 꼬리**일 때만. 2호선이라도 지선(신도림→까치산)은 TERMINAL.
+- branches[].destinationName = 갈래 대표 꼬리의 끝 역. 다시 보내면 그 갈래가 나온다(2호선 본선 갈래는 "대림" 같은 역 이름이 오지만 본선 선택으로 정상 동작 — 테스트 `branchDestinationRoundTrips`).
+- 환승 = 같은 정규화 이름 + ≤300m + 다른 lineId. 역 마스터 696행 통째 메모리(`SubwayLineStationIndex`).
+
+### 함정
+- 신정지선 4역이 LOOP 로 나옴 ← 순환 노선 여부만 보고 LOOP 판정 / 가드=Tail.lapped + `destinationPicksBranchOrMainLine`
+- 테스트 UnfinishedStubbingException ← given(...) 인자 안에서 mock 생성(기존 주석에 있던 함정) / 리스트 먼저 만들기
+- 모바일 `AlightRequest` 엔 표시 라벨("잠실 방면")만 있다 → 원문 direction 필드 추가 필요(HANDOFF 🔴)
+
+### 좌표
+- `application/subway/service/StationsAheadCalculator` / `SubwayStationsAheadService` / `SubwayLineStationIndex`
+- `application/arrival/dto/SubwayStationsAheadResponse`, `SubwayStationController#getStationsAhead`
+- 시나리오 테스트 = 운영 fixture(`SubwayPatternFixtures`)
+
+### 검증
+- `./gradlew test --tests 'watoo.grd.nextroute.application.subway.*' --tests 'watoo.grd.nextroute.application.arrival.*' --tests 'watoo.grd.nextroute.infrastructure.adapter.in.api.subway.*' --tests 'watoo.grd.nextroute.infrastructure.adapter.out.api.otp.*'` → 268 / 실패 0.
+- 새 테스트: StationsAheadCalculatorTest 17(강남 LOOP 42역, 성수로 안 자름, 신도림/강동/구로/가좌 분기점 빈 목록+갈래, 까치산→지선, 마천 TERMINAL, 의정부 급행 무시→구로, 9호선, 6호선, 공항철도), SubwayStationsAheadServiceTest 6, SubwayLineStationIndexTest 2, 컨트롤러 +3.
+- 전체 테스트 미실행(스크래치 clone DB env 없음).
+
+### 배포
+- 마이그레이션 없음. api 이미지 교체. 첫 호출 때 노선 패턴을 OTP 에서 받는다(노선당 1~2.5s, 이후 24h 캐시).
 ## #276 지하철 도착 조회 line_id 엄격화 (2026-10-07, fix/subway-arrival-line-strict)
 
 ### 확정

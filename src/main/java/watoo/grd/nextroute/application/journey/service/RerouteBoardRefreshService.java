@@ -3,6 +3,7 @@ package watoo.grd.nextroute.application.journey.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
@@ -38,7 +39,10 @@ public class RerouteBoardRefreshService {
     public Optional<RerouteBoardService.Written> refresh(Long journeyId) {
         Optional<JourneySession> found = sessionRepository.findById(journeyId)
                 .filter(journey -> journey.getDeletedAt() == null)
-                .filter(journey -> journey.getStatus() == JourneyStatus.ACTIVE);
+                .filter(journey -> journey.getStatus() == JourneyStatus.ACTIVE)
+                // 단독 추적은 재탐색이 없다(#265). 선점 SQL 이 이미 거르지만, 사용자 요청 제안이 선점 없이
+                // 여기를 직접 부르는 길이 있어 한 번 더 막는다.
+                .filter(journey -> journey.getKind() == JourneyKind.NAVIGATION);
         if (found.isEmpty()) {
             return Optional.empty();
         }

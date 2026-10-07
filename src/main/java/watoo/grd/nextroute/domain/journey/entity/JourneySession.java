@@ -47,6 +47,15 @@ public class JourneySession extends BaseEntity {
     private JourneyStatus status;
 
     /**
+     * 일반 여정인가 단독 추적인가(V59). 시작 때 정해지고 바뀌지 않는다.
+     *
+     * <p>단독 추적은 재탐색에서 빠진다 — 거르는 곳은 보드 선점·예약 SQL 이다({@link JourneyKind}).
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16, updatable = false)
+    private JourneyKind kind;
+
+    /**
      * 사용자 명령이 반영될 때마다 오르는 번호. 탑승·하차·단계 전이·종료가 올린다.
      *
      * <p>앱이 오래된 화면을 보고 누른 명령을 서버가 걸러 내는 기준이다. 평가 결과 갱신은 이 값을
@@ -133,10 +142,15 @@ public class JourneySession extends BaseEntity {
     @Column(nullable = false)
     private int rerouteIgnoredCount;
 
+    /**
+     * @param kind 비우면 {@link JourneyKind#NAVIGATION}. 기본값을 빌더가 아니라 여기서 정한다 —
+     *             {@code @Builder.Default} 없이 필드 초기화로 두면 빌더가 조용히 {@code null} 을 넣는다
+     */
     @Builder
-    public JourneySession(Long userId, Instant startedAt, Instant guidanceLeaseUntil,
+    public JourneySession(Long userId, JourneyKind kind, Instant startedAt, Instant guidanceLeaseUntil,
                           JsonNode routeSnapshot, JsonNode destinationSummary) {
         this.userId = userId;
+        this.kind = kind == null ? JourneyKind.NAVIGATION : kind;
         this.status = JourneyStatus.ACTIVE;
         this.commandVersion = 1L;
         this.evaluationVersion = 0L;

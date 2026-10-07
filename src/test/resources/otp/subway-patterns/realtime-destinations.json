@@ -1,0 +1,623 @@
+{
+"_source": "VPS 운영 DB subway_arrival_event (line_id, direction, destination_name) 별 건수, 2026-10-07",
+"destinations": [
+{
+"lineId": "1001",
+"direction": "상행",
+"destinationName": "광운대",
+"n": 569
+},
+{
+"lineId": "1001",
+"direction": "상행",
+"destinationName": "용산",
+"n": 293
+},
+{
+"lineId": "1001",
+"direction": "상행",
+"destinationName": "양주",
+"n": 251
+},
+{
+"lineId": "1001",
+"direction": "상행",
+"destinationName": "동두천",
+"n": 184
+},
+{
+"lineId": "1001",
+"direction": "상행",
+"destinationName": "연천",
+"n": 181
+},
+{
+"lineId": "1001",
+"direction": "상행",
+"destinationName": "청량리",
+"n": 162
+},
+{
+"lineId": "1001",
+"direction": "상행",
+"destinationName": "의정부",
+"n": 133
+},
+{
+"lineId": "1001",
+"direction": "상행",
+"destinationName": "소요산",
+"n": 97
+},
+{
+"lineId": "1001",
+"direction": "상행",
+"destinationName": "구로",
+"n": 73
+},
+{
+"lineId": "1001",
+"direction": "상행",
+"destinationName": "동묘앞",
+"n": 68
+},
+{
+"lineId": "1001",
+"direction": "상행",
+"destinationName": "병점",
+"n": 17
+},
+{
+"lineId": "1001",
+"direction": "상행",
+"destinationName": "영등포",
+"n": 15
+},
+{
+"lineId": "1001",
+"direction": "하행",
+"destinationName": "인천",
+"n": 865
+},
+{
+"lineId": "1001",
+"direction": "하행",
+"destinationName": "동인천",
+"n": 334
+},
+{
+"lineId": "1001",
+"direction": "하행",
+"destinationName": "신창",
+"n": 293
+},
+{
+"lineId": "1001",
+"direction": "하행",
+"destinationName": "서동탄",
+"n": 237
+},
+{
+"lineId": "1001",
+"direction": "하행",
+"destinationName": "천안",
+"n": 202
+},
+{
+"lineId": "1001",
+"direction": "하행",
+"destinationName": "부평",
+"n": 27
+},
+{
+"lineId": "1001",
+"direction": "하행",
+"destinationName": "광명",
+"n": 16
+},
+{
+"lineId": "1001",
+"direction": "하행",
+"destinationName": "용산",
+"n": 2
+},
+{
+"lineId": "1002",
+"direction": "내선",
+"destinationName": "성수",
+"n": 1333
+},
+{
+"lineId": "1002",
+"direction": "내선",
+"destinationName": "신설동",
+"n": 69
+},
+{
+"lineId": "1002",
+"direction": "내선",
+"destinationName": "신도림",
+"n": 63
+},
+{
+"lineId": "1002",
+"direction": "내선",
+"destinationName": "까치산",
+"n": 56
+},
+{
+"lineId": "1002",
+"direction": "내선",
+"destinationName": "도림천",
+"n": 4
+},
+{
+"lineId": "1002",
+"direction": "외선",
+"destinationName": "성수",
+"n": 1128
+},
+{
+"lineId": "1002",
+"direction": "외선",
+"destinationName": "신도림",
+"n": 72
+},
+{
+"lineId": "1002",
+"direction": "외선",
+"destinationName": "성수지선",
+"n": 62
+},
+{
+"lineId": "1002",
+"direction": "외선",
+"destinationName": "신도림지선",
+"n": 44
+},
+{
+"lineId": "1002",
+"direction": "외선",
+"destinationName": "신답",
+"n": 6
+},
+{
+"lineId": "1003",
+"direction": "상행",
+"destinationName": "대화",
+"n": 726
+},
+{
+"lineId": "1003",
+"direction": "상행",
+"destinationName": "구파발",
+"n": 427
+},
+{
+"lineId": "1003",
+"direction": "상행",
+"destinationName": "독립문",
+"n": 3
+},
+{
+"lineId": "1003",
+"direction": "하행",
+"destinationName": "오금",
+"n": 1001
+},
+{
+"lineId": "1003",
+"direction": "하행",
+"destinationName": "수서",
+"n": 200
+},
+{
+"lineId": "1004",
+"direction": "상행",
+"destinationName": "불암산",
+"n": 1116
+},
+{
+"lineId": "1004",
+"direction": "상행",
+"destinationName": "진접",
+"n": 237
+},
+{
+"lineId": "1004",
+"direction": "하행",
+"destinationName": "오이도",
+"n": 806
+},
+{
+"lineId": "1004",
+"direction": "하행",
+"destinationName": "사당",
+"n": 450
+},
+{
+"lineId": "1004",
+"direction": "하행",
+"destinationName": "안산",
+"n": 85
+},
+{
+"lineId": "1004",
+"direction": "하행",
+"destinationName": "불암산",
+"n": 4
+},
+{
+"lineId": "1005",
+"direction": "상행",
+"destinationName": "방화",
+"n": 1407
+},
+{
+"lineId": "1005",
+"direction": "하행",
+"destinationName": "하남검단산",
+"n": 778
+},
+{
+"lineId": "1005",
+"direction": "하행",
+"destinationName": "마천",
+"n": 723
+},
+{
+"lineId": "1006",
+"direction": "상행",
+"destinationName": "응암순환(상선)",
+"n": 737
+},
+{
+"lineId": "1006",
+"direction": "하행",
+"destinationName": "봉화산",
+"n": 602
+},
+{
+"lineId": "1006",
+"direction": "하행",
+"destinationName": "신내",
+"n": 287
+},
+{
+"lineId": "1007",
+"direction": "상행",
+"destinationName": "도봉산",
+"n": 1124
+},
+{
+"lineId": "1007",
+"direction": "상행",
+"destinationName": "장암",
+"n": 526
+},
+{
+"lineId": "1007",
+"direction": "하행",
+"destinationName": "석남",
+"n": 939
+},
+{
+"lineId": "1007",
+"direction": "하행",
+"destinationName": "온수",
+"n": 523
+},
+{
+"lineId": "1008",
+"direction": "상행",
+"destinationName": "별내",
+"n": 644
+},
+{
+"lineId": "1008",
+"direction": "하행",
+"destinationName": "모란",
+"n": 694
+},
+{
+"lineId": "1009",
+"direction": "상행",
+"destinationName": "중앙보훈병원",
+"n": 73
+},
+{
+"lineId": "1009",
+"direction": "상행",
+"destinationName": "신논현",
+"n": 1
+},
+{
+"lineId": "1009",
+"direction": "하행",
+"destinationName": "개화",
+"n": 95
+},
+{
+"lineId": "1009",
+"direction": "하행",
+"destinationName": "김포공항",
+"n": 39
+},
+{
+"lineId": "1032",
+"direction": "상행",
+"destinationName": "운정중앙",
+"n": 114
+},
+{
+"lineId": "1032",
+"direction": "상행",
+"destinationName": "수서",
+"n": 47
+},
+{
+"lineId": "1032",
+"direction": "하행",
+"destinationName": "서울역",
+"n": 106
+},
+{
+"lineId": "1032",
+"direction": "하행",
+"destinationName": "동탄",
+"n": 35
+},
+{
+"lineId": "1063",
+"direction": "상행",
+"destinationName": "문산",
+"n": 596
+},
+{
+"lineId": "1063",
+"direction": "상행",
+"destinationName": "일산",
+"n": 40
+},
+{
+"lineId": "1063",
+"direction": "상행",
+"destinationName": "용산",
+"n": 23
+},
+{
+"lineId": "1063",
+"direction": "상행",
+"destinationName": "수색",
+"n": 1
+},
+{
+"lineId": "1063",
+"direction": "하행",
+"destinationName": "용문",
+"n": 252
+},
+{
+"lineId": "1063",
+"direction": "하행",
+"destinationName": "덕소",
+"n": 153
+},
+{
+"lineId": "1063",
+"direction": "하행",
+"destinationName": "서울",
+"n": 80
+},
+{
+"lineId": "1063",
+"direction": "하행",
+"destinationName": "지평",
+"n": 58
+},
+{
+"lineId": "1063",
+"direction": "하행",
+"destinationName": "팔당",
+"n": 54
+},
+{
+"lineId": "1063",
+"direction": "하행",
+"destinationName": "용산",
+"n": 11
+},
+{
+"lineId": "1063",
+"direction": "하행",
+"destinationName": "문산",
+"n": 1
+},
+{
+"lineId": "1065",
+"direction": "상행",
+"destinationName": "인천공항2터미널",
+"n": 295
+},
+{
+"lineId": "1065",
+"direction": "상행",
+"destinationName": "검암",
+"n": 54
+},
+{
+"lineId": "1065",
+"direction": "하행",
+"destinationName": "서울",
+"n": 321
+},
+{
+"lineId": "1067",
+"direction": "상행",
+"destinationName": "상봉",
+"n": 141
+},
+{
+"lineId": "1067",
+"direction": "상행",
+"destinationName": "용산",
+"n": 22
+},
+{
+"lineId": "1067",
+"direction": "상행",
+"destinationName": "광운대",
+"n": 21
+},
+{
+"lineId": "1067",
+"direction": "상행",
+"destinationName": "청량리",
+"n": 19
+},
+{
+"lineId": "1067",
+"direction": "하행",
+"destinationName": "춘천",
+"n": 194
+},
+{
+"lineId": "1067",
+"direction": "하행",
+"destinationName": "마석",
+"n": 32
+},
+{
+"lineId": "1067",
+"direction": "하행",
+"destinationName": "평내호평",
+"n": 3
+},
+{
+"lineId": "1075",
+"direction": "상행",
+"destinationName": "왕십리",
+"n": 1075
+},
+{
+"lineId": "1075",
+"direction": "상행",
+"destinationName": "오이도",
+"n": 47
+},
+{
+"lineId": "1075",
+"direction": "상행",
+"destinationName": "청량리",
+"n": 25
+},
+{
+"lineId": "1075",
+"direction": "상행",
+"destinationName": "죽전",
+"n": 16
+},
+{
+"lineId": "1075",
+"direction": "하행",
+"destinationName": "고색",
+"n": 530
+},
+{
+"lineId": "1075",
+"direction": "하행",
+"destinationName": "인천",
+"n": 487
+},
+{
+"lineId": "1075",
+"direction": "하행",
+"destinationName": "죽전",
+"n": 190
+},
+{
+"lineId": "1075",
+"direction": "하행",
+"destinationName": "오이도",
+"n": 116
+},
+{
+"lineId": "1077",
+"direction": "상행",
+"destinationName": "신사",
+"n": 443
+},
+{
+"lineId": "1077",
+"direction": "하행",
+"destinationName": "광교",
+"n": 468
+},
+{
+"lineId": "1081",
+"direction": "상행",
+"destinationName": "판교",
+"n": 104
+},
+{
+"lineId": "1081",
+"direction": "하행",
+"destinationName": "여주",
+"n": 83
+},
+{
+"lineId": "1081",
+"direction": "하행",
+"destinationName": "부발",
+"n": 21
+},
+{
+"lineId": "1092",
+"direction": "상행",
+"destinationName": "신설동",
+"n": 527
+},
+{
+"lineId": "1092",
+"direction": "상행",
+"destinationName": "북한산우이",
+"n": 22
+},
+{
+"lineId": "1092",
+"direction": "하행",
+"destinationName": "북한산우이",
+"n": 481
+},
+{
+"lineId": "1093",
+"direction": "상행",
+"destinationName": "대곡",
+"n": 149
+},
+{
+"lineId": "1093",
+"direction": "상행",
+"destinationName": "일산",
+"n": 60
+},
+{
+"lineId": "1093",
+"direction": "하행",
+"destinationName": "원시",
+"n": 243
+},
+{
+"lineId": "1094",
+"direction": "상행",
+"destinationName": "샛강",
+"n": 384
+},
+{
+"lineId": "1094",
+"direction": "하행",
+"destinationName": "관악산",
+"n": 369
+}
+]
+}
