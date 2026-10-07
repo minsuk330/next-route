@@ -3386,3 +3386,23 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `RegionalRideLocatorTest` 3/3, `RegionalArrivalLookupTest` 4/4, `UpcomingStopWindowResolverTest` 12/12(+2), `RideTruncationResolverTest` 13/13(+2), `JdbcRegionalBusRouteStopStoreIT` 6/6(+1)
 - 전체 2403 중 실패 2 = 기존 무관 2건(동일)
+
+## #276 지하철 도착 조회 line_id 엄격화 (2026-10-07, fix/subway-arrival-line-strict)
+
+### 확정
+- `resolveStation(lat, lon, lineId)`: lineId 있으면 **그 노선 역만** 찾는다(`findNearbyOnLine`, SQL 에 `line_id = :lineId`). 50m→300m 단계 확대 유지, 끝까지 없으면 empty. 다른 노선 대체 없음. lineId 없으면 최근접 그대로.
+- 노선 조건을 SQL 에 넣은 이유=구현 단순. LIMIT 5 밀림은 운영 실측 0건(300m 안 6행 이상 역 없음) — 위험 근거 아님.
+
+### 함정
+- 다른 노선 열차 반환 ← 첫 후보 반경에서 멈춤 + `selectStation` 의 `orElse(nearby.get(0))` + `size()>=2` 조건(후보 1개면 노선 확인 생략). 강남 2호선 승강장 좌표: 50m 안=2호선(0m)만, 신분당선 1077000687 은 146m.
+
+### 좌표
+- `SubwayArrivalQueryService.resolveStation` / `SubwayStationRepository.findNearbyOnLine`
+- 호출자: `/api/arrivals/subway`, `JourneyTransitIdEnricher.resolveSubwayStation`(후단에서 lineId 재필터 → 영향 없음)
+
+### 검증
+- `./gradlew test --tests '*SubwayArrivalQueryServiceTest' --tests '*JourneyTransitIdEnricherTest'` → 10/0, 3/0. 옛 service 로 돌리면 7 실패(가드 유효).
+- 운영 DB SELECT(읽기 전용): 1077 필터 반경 50·100 없음, 150 에서 강남 1077 146m 잡힘.
+
+### 배포
+- 마이그레이션 없음. 이미지 교체만.
