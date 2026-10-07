@@ -48,7 +48,7 @@ public class FcmMessageFactory {
         Instant providerExpiresAt = providerExpiresAt(command, now);
         return new PushMessage(
                 title(command.checkpoint()),
-                body(command.checkpoint()),
+                body(command),
                 data(command),
                 collapseKey(command),
                 // Android 는 "앞으로 몇 초", APNs 는 "언제(UTC epoch 초)". 같은 숫자를 양쪽에
@@ -155,6 +155,41 @@ public class FcmMessageFactory {
             case TRANSFER_TARGET_APPROACHING -> "갈아탈 차가 곧 도착해요";
             case REROUTE_SUGGESTED -> "더 빠른 길이 있어요";
         };
+    }
+
+    /**
+     * 보드 push(#264 PR-5)는 payload 에 정류장·노선·이득이 있으면 <b>행동 단위</b>로 쓴다. 숫자는 보낸 순간의
+     * 값이고, 누르면 앱이 최신 보드를 다시 받는다. 재료가 없으면(옛 제안 알림) 기존 확정 문구다.
+     */
+    private String body(NotificationSendCommand command) {
+        if (command.checkpoint() == JourneyCheckpoint.REROUTE_SUGGESTED && command.payload() != null) {
+            String action = rerouteAction(command.payload());
+            if (action != null) {
+                return action;
+            }
+        }
+        return body(command.checkpoint());
+    }
+
+    private String rerouteAction(com.fasterxml.jackson.databind.JsonNode payload) {
+        String route = text(payload, "routeName");
+        String stop = text(payload, "stopName");
+        int gainSec = payload.path("etaGainSec").asInt(0);
+        if (route == null || gainSec < 60) {
+            return null;
+        }
+        long minutes = Math.round(gainSec / 60.0);
+        String origin = text(payload, "originType");
+        boolean alight = "RIDE_STOP".equals(origin) || "PLANNED_ALIGHT".equals(origin);
+        if (alight && stop != null) {
+            return stop + "에서 내려 " + route + " 타면 " + minutes + "분 빨라요";
+        }
+        return route + "(으)로 가면 " + minutes + "분 빨라요";
+    }
+
+    private static String text(com.fasterxml.jackson.databind.JsonNode payload, String field) {
+        com.fasterxml.jackson.databind.JsonNode node = payload.get(field);
+        return node == null || node.isNull() || node.asText().isBlank() ? null : node.asText();
     }
 
     private String body(JourneyCheckpoint checkpoint) {

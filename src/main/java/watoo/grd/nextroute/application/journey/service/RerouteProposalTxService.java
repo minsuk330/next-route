@@ -99,6 +99,11 @@ public class RerouteProposalTxService {
     @Transactional
     public RerouteDecision close(Long journeyId, Long proposalId, RerouteProposalStatus decision,
                                  boolean optInAlerts, Instant now) {
+        Optional<RerouteProposal> target = proposalRepository.findById(proposalId)
+                .filter(found -> found.getJourneyId().equals(journeyId));
+        if (target.isPresent() && target.get().isBoard()) {
+            return closeBoardPush(journeyId, decision, optInAlerts);
+        }
         String reason = decision == RerouteProposalStatus.REJECTED ? "rejected" : "dismissed";
         int closed = proposalRepository.closeIfActive(proposalId, journeyId, decision.name(),
                 reason, now, LocalDateTime.now(clock));
@@ -131,6 +136,37 @@ public class RerouteProposalTxService {
         }
         return new RerouteDecision(true, journey.isRerouteTerminated(),
                 journey.isRerouteAlertOptIn());
+    }
+
+    /**
+     * 보드(#264)에 대한 거절·무시. <b>보드를 닫지 않는다</b> — 보드는 말풍선의 원천이라 계속 갱신된다.
+     * 대신 push 에 대한 답으로 처리한다.
+     *
+     * <ul>
+     *   <li>거절 → push 만 멈춘다(결정 2-가). "계속 받기"면 계속 받는다</li>
+     *   <li>무시 → 그 push 에 답한 것으로 닫고 무시 1회. 다음 push 판단이 같은 push 를 또 세지 않는다</li>
+     * </ul>
+     */
+    private RerouteDecision closeBoardPush(Long journeyId, RerouteProposalStatus decision, boolean optInAlerts) {
+        proposalRepository.answerPush(journeyId);
+        Optional<JourneySession> found = sessionRepository.findById(journeyId);
+        if (found.isEmpty()) {
+            return new RerouteDecision(false, false, false);
+        }
+        JourneySession journey = found.get();
+        if (decision == RerouteProposalStatus.REJECTED) {
+            if (optInAlerts) {
+                journey.optInRerouteAlert();
+                metrics.recordAlert("opt-in");
+            } else {
+                journey.terminateReroute();
+                metrics.recordAlert("rejected");
+            }
+        } else {
+            journey.recordRerouteIgnored();
+            metrics.recordAlert("dismissed");
+        }
+        return new RerouteDecision(false, journey.isRerouteTerminated(), journey.isRerouteAlertOptIn());
     }
 
     /**
@@ -323,7 +359,7 @@ public class RerouteProposalTxService {
                     proposal.getId(), e.getMessage());
             return Optional.empty();
         }
-        if (!envelope.isCurrentVersion()) {
+        if (!envelope.isReadable()) {
             log.warn("[JourneyReroute] 모르는 후보 계약 판 proposalId={} version={}",
                     proposal.getId(), envelope.version());
             return Optional.empty();
@@ -331,6 +367,24 @@ public class RerouteProposalTxService {
         return Optional.of(new RerouteProposalView(proposal.getId(), proposal.getJourneyId(),
                 proposal.getRouteRevision(), readOrigin(proposal),
                 proposal.getKind(), proposal.getBaseCommandVersion(), proposal.getSnapshotObservedAt(),
-                proposal.getExpiresAt(), envelope.candidates()));
+                proposal.getExpiresAt(), envelope.visibleCandidates(), boardOf(proposal, envelope)));
+    }
+
+    /** 보드(v2) 행이면 보이는 후보의 기점 종류까지 묶어 낸다. v1 은 null. */
+    private RerouteProposalView.Board boardOf(RerouteProposal proposal, RerouteCandidateEnvelope envelope) {
+        if (!envelope.isBoard()) {
+            return null;
+        }
+        java.util.Map<String, watoo.grd.nextroute.application.journey.dto.RerouteOriginKind> kinds =
+                new java.util.HashMap<>();
+        if (envelope.slots() != null) {
+            for (watoo.grd.nextroute.application.journey.dto.RerouteBoardSlot slot : envelope.slots()) {
+                if (slot.isVisible() && slot.originKind() != null) {
+                    kinds.put(slot.candidate().candidateId(), slot.originKind());
+                }
+            }
+        }
+        return new RerouteProposalView.Board(proposal.getBoardVersion(), proposal.getRefreshedAt(),
+                java.util.Map.copyOf(kinds));
     }
 }

@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import watoo.grd.nextroute.application.route.mapping.BusRealtimeStopIds;
+import watoo.grd.nextroute.testsupport.InMemoryRegionalBusRouteStopStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -81,7 +83,8 @@ class JourneyNavigationGeometryServiceTest {
                 new GeometrySegmentAllocator(),
                 new WalkManeuverAnchorer(new GeometrySegmentAllocator(),
                         new WalkManeuverTypeMapper()),
-                objectMapper);
+                objectMapper,
+                new BusRealtimeStopIds(InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()));
     }
 
     @Test

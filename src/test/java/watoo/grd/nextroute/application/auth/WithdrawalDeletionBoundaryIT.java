@@ -386,7 +386,7 @@ class WithdrawalDeletionBoundaryIT {
                 values (now(), now(), ?, 1, 2, 3, 4, '08:00', 62, true, 10, 5, 0, 'ACTIVE', 0)""", uid);
 
         // 여정 부모 + 자식
-        // 재탐색 알림 상태 3칸을 손으로 채운다. 이 IT 의 스키마는 마이그레이션이 아니라
+        // 재탐색 알림 상태 3칸을 손으로 채운다(reroute_proposal.board_version 도 같은 이유, V57). 이 IT 의 스키마는 마이그레이션이 아니라
         // ddl-auto 가 만들고, Hibernate 는 원시타입 필드를 <b>기본값 없는</b> not null 로 낸다 —
         // V53 이 default 를 주더라도 여기서는 안 온다.
         long jid = jdbc.queryForObject("""
@@ -429,9 +429,9 @@ class WithdrawalDeletionBoundaryIT {
                 insert into reroute_proposal
                     (created_at, updated_at, journey_id, user_id, route_revision,
                      kind, status, base_command_version, candidates, snapshot_observed_at,
-                     expires_at, alerted)
+                     expires_at, alerted, board_version, push_seq)
                 values (now(), now(), ?, ?, 1, 'REMAINING_PATH', 'ACTIVE', 1, '[]'::jsonb, now(),
-                        now(), false)""",
+                        now(), false, 0, 0)""",
                 jid, uid);
         jdbc.update("""
                 insert into subway_binding_event

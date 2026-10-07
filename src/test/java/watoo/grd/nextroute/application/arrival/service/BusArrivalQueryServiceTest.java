@@ -3,6 +3,12 @@ package watoo.grd.nextroute.application.arrival.service;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.Spy;
+import watoo.grd.nextroute.application.regionalbus.dto.RegionalBusProvider;
+import watoo.grd.nextroute.application.regionalbus.dto.RegionalRouteStop;
+import watoo.grd.nextroute.application.route.mapping.TagoCityCodeLookup;
+import watoo.grd.nextroute.testsupport.InMemoryRegionalBusRouteStopStore;
+import java.time.Instant;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.arrival.dto.BusArrivalResponse;
@@ -36,6 +42,8 @@ class BusArrivalQueryServiceTest {
     @Mock BusRouteStopRepository busRouteStopRepository;
     @Mock GyeonggiBusArrivalPort gyeonggiBusArrivalPort;
     @Mock TagoBusArrivalPort tagoBusArrivalPort;
+    /** 노선 표가 빈 조회기 — 접두사 표만 쓴다(#267 이전과 같은 동작). */
+    @Spy TagoCityCodeLookup tagoCityCodeLookup = InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup();
     @InjectMocks BusArrivalQueryService service;
 
     @Test
@@ -242,5 +250,38 @@ class BusArrivalQueryServiceTest {
         verify(tagoBusArrivalPort, never()).getArrivals(anyString(), anyString(), anyString());
         verify(busRouteStopRepository, never()).findByRouteIdAndStopId(anyString(), anyString());
         verify(gyeonggiBusArrivalPort, never()).getArrival(anyString(), anyString());
+    }
+
+    @Test
+    void getArrivals_tagoCityCodeComesFromRouteTable() {
+        // #267: 접두사 표 밖(TSB 농어촌)·다도시 접두사(ADB 두 번째 도시)도 노선 표로 도시코드를 찾는다
+        InMemoryRegionalBusRouteStopStore store = new InMemoryRegionalBusRouteStopStore();
+        List<RegionalRouteStop> stops = List.of(new RegionalRouteStop("S", "s", 1, null, null, null, null, null));
+        store.replaceRoute(RegionalBusProvider.TAGO, "TSB309000001", "1", "32050", stops, Instant.EPOCH);
+        store.replaceRoute(RegionalBusProvider.TAGO, "ADB354300207", "1", "37400", stops, Instant.EPOCH);
+        TagoCityCodeLookup lookup = new TagoCityCodeLookup(store);
+        lookup.refresh();
+        BusArrivalQueryService withTable = new BusArrivalQueryService(
+                busQueryPort, busRouteStopRepository, gyeonggiBusArrivalPort, tagoBusArrivalPort, lookup);
+        given(tagoBusArrivalPort.getArrivals(anyString(), anyString(), anyString()))
+                .willReturn(BusQueryResult.ok(List.of()));
+
+        withTable.getArrivals("TSB309000122", "TSB309000001");
+        withTable.getArrivals("ADB354000033", "ADB354300207");
+
+        verify(tagoBusArrivalPort).getArrivals("32050", "TSB309000122", "TSB309000001");
+        verify(tagoBusArrivalPort).getArrivals("37400", "ADB354000033", "ADB354300207");
+    }
+
+    @Test
+    void getArrivals_tagoRouteIdWithLetters_isTago() {
+        // 부산 일부 노선 id 는 영문을 포함한다(BSB5201002F00). 서울·경기 경로로 새면 안 된다.
+        given(tagoBusArrivalPort.getArrivals("21", "BSB167850202", "BSB5201002F00"))
+                .willReturn(BusQueryResult.ok(List.of()));
+
+        assertThat(service.getArrivals("BSB167850202", "BSB5201002F00")).isEmpty();
+
+        verify(tagoBusArrivalPort).getArrivals("21", "BSB167850202", "BSB5201002F00");
+        verify(busRouteStopRepository, never()).findByRouteIdAndStopId(anyString(), anyString());
     }
 }

@@ -46,6 +46,8 @@ import java.util.Optional;
 public class RideTruncationResolver {
 
     private final BusRideLocator locator;
+    private final RegionalRideLocator regionalLocator;
+    private final RegionalArrivalLookup regionalArrivals;
     private final SearchTimeBusQueryPort busQueryPort;
     private final JourneyRerouteProperties properties;
 
@@ -56,6 +58,9 @@ public class RideTruncationResolver {
      */
     public Result resolve(JourneyLeg ride, RerouteOrigin origin, Instant now) {
         JourneyRerouteProperties.NextStop config = properties.getNextStop();
+        if (origin != null && origin.isRegional()) {
+            return resolveRegional(ride, origin, config, now);
+        }
         String mismatch = rideMismatch(ride, origin);
         if (mismatch != null) {
             return Result.failed(mismatch);
@@ -102,6 +107,63 @@ public class RideTruncationResolver {
     }
 
     /** 이 단계를 자를 수 있는가. 자를 수 없으면 지표 태그가 될 사유. */
+    /**
+     * 경기·TAGO 버스의 중간 하차(#264 PR-4). 같은 재확인을 실시간 API 순번 공간에서 한다 — 지금 위치를 다시 재고,
+     * 그 정류장이 아직 앞에 있는지, 내 차가 수락 여유 뒤에 닿는지.
+     *
+     * <p><b>자를 위치는 경유 가상점을 뺀 수</b>다. 스냅샷의 정류장 목록(GTFS)에는 가상점이 없기 때문이다. 두 목록이
+     * 어긋나면 합성 단계의 이름 대조가 자르기를 막는다(엉뚱한 곳에서 내리라는 안내 대신 409).
+     */
+    private Result resolveRegional(JourneyLeg ride, RerouteOrigin origin,
+                                   JourneyRerouteProperties.NextStop config, Instant now) {
+        if (ride == null || origin.kind() != RerouteOriginKind.RIDE_INTERIOR
+                || ride.getType() != JourneyLegType.RIDE_BUS || ride.getState() != JourneyLegState.ACTIVE
+                || origin.seq() == null) {
+            return Result.failed("not-riding");
+        }
+        RegionalRideLocator.Located located = regionalLocator.locate(ride, config.getProgressMaxAgeSec(), now);
+        if (located.failed()) {
+            return Result.failed(located.failureReason());
+        }
+        RegionalRideLocator.Position position = located.position();
+        if (!position.routeId().equals(origin.routeId())
+                || !position.provider().name().equals(origin.provider())) {
+            return Result.failed("not-riding");
+        }
+        int target = position.indexOfStop(origin.stopId(), position.boardIndex() + 1);
+        if (target < 0 || position.stops().get(target).seq() != origin.seq()) {
+            return Result.failed("stop-unjoined");
+        }
+        if (target <= position.currentIndex() || target >= position.alightIndex()) {
+            return Result.failed("alight-passed");
+        }
+        int expectedAway = origin.seq() - position.stops().get(position.currentIndex()).seq();
+        RegionalArrivalLookup.Lookup lookup = regionalArrivals.arrivalAt(position.provider(), position.routeId(),
+                origin.stopId(), expectedAway);
+        if (lookup.failed()) {
+            return Result.failed(lookup.failureReason());
+        }
+        Instant alightAt = lookup.at();
+        if (Duration.between(now, alightAt).getSeconds() < config.getAcceptMinLeadSec()) {
+            return Result.failed("below-lead-time");
+        }
+        Instant boardedAt = ride.getActivatedAt();
+        if (boardedAt == null) {
+            return Result.failed("no-boarding-time");
+        }
+        int index = position.realStopsAfterBoard(target);
+        int total = position.realStopsAfterBoard(target);
+        int done = position.realStopsAfterBoard(position.currentIndex());
+        return Result.of(new Resolved(
+                index,
+                (int) Math.max(0, Duration.between(boardedAt, alightAt).getSeconds()),
+                position.stops().get(target).stopName(),
+                alightAt,
+                position.realStopsBetween(position.currentIndex(), target),
+                total <= 0 ? null : BigDecimal.valueOf(done).divide(BigDecimal.valueOf(total), 6,
+                        RoundingMode.HALF_UP)));
+    }
+
     private String rideMismatch(JourneyLeg ride, RerouteOrigin origin) {
         if (ride == null || origin.kind() != RerouteOriginKind.RIDE_INTERIOR) {
             return "not-riding";

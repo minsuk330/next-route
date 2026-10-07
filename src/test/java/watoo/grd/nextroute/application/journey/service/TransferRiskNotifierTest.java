@@ -57,7 +57,7 @@ class TransferRiskNotifierTest {
         enqueuer = mock(JourneyNotificationEnqueuer.class);
         properties = new JourneyNotificationProperties();
         notifier = new TransferRiskNotifier(transferRepository, notificationRepository, enqueuer,
-                properties);
+                properties, new watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties());
 
         transfer = TransferConnection.builder()
                 .journeyId(1L).routeRevision(1).transferIndex(0)

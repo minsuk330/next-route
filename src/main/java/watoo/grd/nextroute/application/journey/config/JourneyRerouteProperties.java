@@ -69,6 +69,8 @@ public class JourneyRerouteProperties {
 
     private final Alert alert = new Alert();
 
+    private final Board board = new Board();
+
     /**
      * "서버가 먼저 알릴지"의 운영값(journey-reroute-nextstop PR-3).
      *
@@ -76,6 +78,100 @@ public class JourneyRerouteProperties {
      * 생겼고(pull), 여기를 켜면 서버가 위험을 감지해 스스로 만들어 알린다(push 한 줄 신호).
      * <b>바꾸는 것은 여전히 사용자만 한다</b> — 자동 적용은 없다.
      */
+    /**
+     * 주기 갱신 보드(#264, reroute-periodic-board).
+     *
+     * <p><b>기존 키와 값을 나누어 둔다.</b> {@code remaining-path.minimum-eta-gain-seconds}·
+     * {@code next-stop.lead-time-sec} 는 사건 기반 경로(요청·알림·목록 거름)가 함께 쓴다. 보드 값으로
+     * 바꾸면 플래그가 꺼져 있어도 기존 동작이 바뀐다.
+     */
+    @Getter
+    @Setter
+    public static class Board {
+
+        /** 기본 꺼짐. 꺼져 있으면 기존 동작이 그대로여야 한다(모든 PR 의 회귀 조건). */
+        private boolean enabled = false;
+
+        /** 이 시간보다 가까운 하차 자리는 말풍선에서 내린다. 기점 여는 기준과 같은 값이다. */
+        private int leadTimeSec = 60;
+
+        /** 체인 전부 실시간 근거일 때의 표시 문턱. */
+        private int realtimeThresholdSec = 120;
+
+        /** ML 추정이 하나라도 섞였을 때(또는 근거를 모를 때)의 표시 문턱. */
+        private int mixedThresholdSec = 180;
+
+        /** 원래보다 늘어난 대기 1회마다 문턱에 더하는 값. */
+        private int perExtraWaitSec = 60;
+
+        /** 같은 자리의 다른 경로가 이만큼 빨라야 교체한다. */
+        private int replaceMarginSec = 60;
+
+        /** 숨긴 말풍선을 다시 띄우려면 문턱보다 이만큼 더 나아야 한다. */
+        private int reshowMarginSec = 30;
+
+        /** 보드 유효시간 = 마지막 갱신 + 이 값. 워커가 멈추면 낡은 보드가 저절로 사라진다. */
+        private Duration ttl = Duration.ofMinutes(3);
+
+        /**
+         * 환승 위험 알림을 늦춰 넣는 시간(#264 PR-5). 그 사이 보드가 갱신돼 대안이 있으면 재탐색 push
+         * 하나로 합친다. 갱신 마감(약 12초) + 선점 tick 보다 길어야 한다.
+         */
+        private int riskMergeDelaySeconds = 20;
+
+        /** push 를 막는 하차 여유. 말풍선(60초)보다 길다 — 읽고 문 앞으로 갈 시간이다. */
+        private int pushLeadTimeSec = 120;
+
+        /** 여정 시작·수락 뒤 이 시간 동안은 "새 기회" push 를 보내지 않는다(위험+대안은 보낸다). */
+        private Duration pushQuietAfterStart = Duration.ofMinutes(3);
+
+        /** 같은 후보라도 직전 push 보다 이만큼 더 빨라지면 "새 기회"로 본다. */
+        private int pushNoveltyGainSec = 120;
+
+        /**
+         * 재탐색 전용 경기 도착 조회 일일 상한(#264 PR-4). 키 한도의 절반을 넣는다(포털에서 확인한 값).
+         * 다 쓰면 그 지역 버스 중간 정류장 기점만 끈다.
+         */
+        private int quotaGyeonggi = 5000;
+
+        /** 재탐색 전용 TAGO 도착 조회 일일 상한. */
+        private int quotaTago = 5000;
+
+        /** 경기·TAGO 도착 조회 캐시(초). 같은 정류장·노선을 보는 여정끼리 호출을 나눠 쓴다. */
+        private int regionalArrivalCacheSeconds = 15;
+
+        private final Refresh refresh = new Refresh();
+
+        /** 갱신 스케줄러(worker). */
+        @Getter
+        @Setter
+        public static class Refresh {
+
+            private long tickMs = 1000;
+
+            /** 한 번에 선점할 여정 수. 실행기 크기의 두 배를 넘기면 뒤쪽이 lease 안에 못 돈다. */
+            private int batchSize = 6;
+
+            /** 선점 유지 시간. 한 회차의 최악 소요(검색·실시간·예측)보다 길어야 한다. */
+            private int leaseSeconds = 60;
+
+            /** 신호가 없을 때의 주기. */
+            private int intervalSeconds = 60;
+
+            /** 정류장 통과 신호의 최소 간격. 위험 하락은 우회한다. */
+            private int minGapSeconds = 30;
+
+            /** 여정 시작 뒤 첫 갱신까지. */
+            private int initialDelaySeconds = 60;
+
+            /**
+             * 동시에 도는 갱신 수(전용 실행기 크기). 평가기 슬롯과 <b>나누지 않는다</b> — 갱신은 몇 초씩
+             * 잡으므로 섞으면 환승 위험 판정이 굶는다.
+             */
+            private int permits = 3;
+        }
+    }
+
     @Getter
     @Setter
     public static class Alert {

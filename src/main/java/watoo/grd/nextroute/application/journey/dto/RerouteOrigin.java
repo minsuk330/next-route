@@ -40,17 +40,47 @@ import java.util.Objects;
  * @param seq      그 노선 안에서의 정류장 순번. 같은 정류장 재방문(순환노선)을 가르는 값이기도
  *                 하다 — 실시간 캐시 키가 stopId 와 seq 를 함께 받는 이유가 그것이다. 못 풀면 null
  * @param kind     {@link RerouteOriginKind}
+ * @param x        경도. 현재 위치 기점(#264)에만 채운다. 옛 행은 null
+ * @param y        위도. {@code x} 와 같다
+ * @param provider 경기·TAGO 기점이면 {@code GG}·{@code TAGO}(#264 PR-4). 서울은 null
  */
 public record RerouteOrigin(
         int legIndex,
         String stopId,
         String routeId,
         Integer seq,
-        RerouteOriginKind kind
+        RerouteOriginKind kind,
+        Double x,
+        Double y,
+        String provider
 ) {
     public RerouteOrigin {
-        Objects.requireNonNull(stopId, "stopId");
         Objects.requireNonNull(kind, "kind");
+        // 현재 위치 기점(#264)만 정류장이 없다. 그 밖의 자리는 정류장이 곧 주소다.
+        if (kind != RerouteOriginKind.CURRENT_POSITION) {
+            Objects.requireNonNull(stopId, "stopId");
+        }
+    }
+
+    /** 정류장 기점(좌표 없음). 이미 저장된 행·옛 호출부의 모양이다 — 새 칸은 null 로 읽힌다. */
+    public RerouteOrigin(int legIndex, String stopId, String routeId, Integer seq,
+                         RerouteOriginKind kind) {
+        this(legIndex, stopId, routeId, seq, kind, null, null, null);
+    }
+
+    /** 좌표가 있는 서울 기점(현재 위치 등). */
+    public RerouteOrigin(int legIndex, String stopId, String routeId, Integer seq,
+                         RerouteOriginKind kind, Double x, Double y) {
+        this(legIndex, stopId, routeId, seq, kind, x, y, null);
+    }
+
+    /**
+     * 경기·TAGO 기점인가(#264 PR-4). 이때 {@code stopId}·{@code routeId}·{@code seq} 는 서울 id 가 아니라
+     * 실시간 API 의 id·순번(#267 표, 경유 가상점 포함)이다. 같은 숫자 모양이라 칸으로 가른다.
+     */
+    @JsonIgnore
+    public boolean isRegional() {
+        return provider != null;
     }
 
     /**

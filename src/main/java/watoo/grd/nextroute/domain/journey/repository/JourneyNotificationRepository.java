@@ -229,4 +229,23 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
                and n.status = watoo.grd.nextroute.domain.journey.entity.JourneyNotificationStatus.PENDING
             """)
     int cancelPendingByJourneyIdIn(@Param("journeyIds") Collection<Long> journeyIds);
+
+    /**
+     * 아직 안 나간 환승 위험 알림을 거둔다 — 같은 순간 재탐색 push 가 대안을 들고 나갔다(#264 PR-5).
+     *
+     * <p>PENDING 만 건드린다. 이미 발송 중(PROCESSING)인 것은 둘 다 나가는 것으로 받아들인다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
+    @Query("""
+            update JourneyNotification n
+               set n.status = watoo.grd.nextroute.domain.journey.entity.JourneyNotificationStatus.CANCELED,
+                   n.lastFailureReason = 'superseded-by-reroute'
+             where n.journeyId = :journeyId
+               and n.routeRevision = :routeRevision
+               and n.status = watoo.grd.nextroute.domain.journey.entity.JourneyNotificationStatus.PENDING
+               and n.checkpoint in :checkpoints
+            """)
+    int cancelPendingByCheckpoints(@Param("journeyId") Long journeyId,
+                                   @Param("routeRevision") int routeRevision,
+                                   @Param("checkpoints") Collection<JourneyCheckpoint> checkpoints);
 }

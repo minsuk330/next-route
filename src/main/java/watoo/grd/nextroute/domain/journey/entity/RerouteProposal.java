@@ -128,6 +128,44 @@ public class RerouteProposal extends BaseEntity {
     @Column(name = "alerted", nullable = false)
     private boolean alerted;
 
+    /**
+     * 보드 갱신 순번(V57, #264). 사건 기반 제안 행에서는 0 그대로다.
+     *
+     * <p>보드는 제자리에서 고쳐 쓰므로 조건부 UPDATE 의 기준이 필요하다. 이 값은 네이티브 쿼리가
+     * 올린다 — 엔티티로 고치면 수락 트랜잭션의 상태 CAS 와 엇갈린 쓰기를 막을 수 없다.
+     */
+    @Column(name = "board_version", nullable = false, insertable = false, updatable = false)
+    private long boardVersion;
+
+    /** 보드를 마지막으로 찾아본 시각(V57). 사건 기반 제안 행은 null 이다. */
+    @Column(name = "refreshed_at", insertable = false, updatable = false)
+    private Instant refreshedAt;
+
+    /** 이 보드로 보낸 push 순번(V57). 멱등 키에 들어간다 — 같은 보드의 두 번째 push 가 삼켜지지 않게. */
+    @Column(name = "push_seq", nullable = false, insertable = false, updatable = false)
+    private int pushSeq;
+
+    @Column(name = "last_push_slot", insertable = false, updatable = false)
+    private String lastPushSlot;
+
+    @Column(name = "last_push_route", insertable = false, updatable = false)
+    private String lastPushRoute;
+
+    @Column(name = "last_push_gain", insertable = false, updatable = false)
+    private Integer lastPushGain;
+
+    @Column(name = "last_pushed_at", insertable = false, updatable = false)
+    private Instant lastPushedAt;
+
+    /** 직전 push 에 답했는가. null 이면 보낸 적이 없다. */
+    @Column(name = "last_push_answered", insertable = false, updatable = false)
+    private Boolean lastPushAnswered;
+
+    /** 보드(#264) 행인가. 보드는 심을 때 판이 1 부터다. */
+    public boolean isBoard() {
+        return boardVersion > 0;
+    }
+
     @Builder
     public RerouteProposal(Long journeyId, Long userId, int routeRevision,
                            JsonNode origin, RerouteProposalKind kind, long baseCommandVersion,

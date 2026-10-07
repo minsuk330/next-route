@@ -7,11 +7,13 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import watoo.grd.nextroute.application.journey.dto.RerouteBoardSlot;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateEnvelope;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateSummary;
+import watoo.grd.nextroute.application.journey.dto.RerouteOriginKind;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind;
@@ -246,6 +248,104 @@ class RerouteCandidateContractTest {
                     objectMapper.readValue(json, RerouteCandidateEnvelope.class);
 
             assertThat(restored.isCurrentVersion()).isFalse();
+        }
+    }
+
+    // ── 보드(v2) 와 v1 의 공존 ─────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("봉투 v1·v2 공존(#264)")
+    class BoardEnvelope {
+
+        @Test
+        @DisplayName("v1 은 slots 칸 없이 예전 모양 그대로 저장된다 — 플래그 off 에서 행 모양이 바뀌지 않는다")
+        void v1ShapeIsUnchanged() throws Exception {
+            String json = objectMapper.writeValueAsString(RerouteCandidateEnvelope.of(List.of(
+                    new RerouteCandidate("c1", RerouteProposalKind.REMAINING_PATH,
+                            new RerouteCandidateApply.RemainingPathApply(1, samplePath()),
+                            sampleDisplay()))));
+
+            assertThat(json).contains("\"version\":1").contains("\"candidates\":[")
+                    .doesNotContain("slots");
+        }
+
+        @Test
+        @DisplayName("v1 행은 계속 읽힌다 — 보드 판이 생겨도 기존 경로가 만든 행이 '없음'이 되지 않는다")
+        void v1RemainsReadable() throws Exception {
+            RerouteCandidateEnvelope restored = objectMapper.readValue(
+                    objectMapper.writeValueAsString(RerouteCandidateEnvelope.of(List.of(
+                            new RerouteCandidate("c1", RerouteProposalKind.REMAINING_PATH,
+                                    new RerouteCandidateApply.RemainingPathApply(1, samplePath()),
+                                    sampleDisplay())))),
+                    RerouteCandidateEnvelope.class);
+
+            assertThat(restored.isReadable()).isTrue();
+            assertThat(restored.isBoard()).isFalse();
+            assertThat(restored.visibleCandidates()).extracting(RerouteCandidate::candidateId)
+                    .containsExactly("c1");
+        }
+
+        @Test
+        @DisplayName("v2 는 왕복을 견디고, 보이는 자리의 후보만 고를 수 있다")
+        void v2ExposesOnlyVisibleSlots() throws Exception {
+            RerouteCandidate shown = new RerouteCandidate("shown", RerouteProposalKind.REMAINING_PATH,
+                    new RerouteCandidateApply.RemainingPathApply(1, samplePath()), sampleDisplay());
+            RerouteCandidateEnvelope board = RerouteCandidateEnvelope.ofBoard(List.of(
+                    new RerouteBoardSlot(RerouteBoardSlot.stopKey("SEOUL", "ST-B"),
+                            RerouteOriginKind.RIDE_INTERIOR, RerouteBoardSlot.State.VISIBLE, shown,
+                            "fp", 300, Instant.parse("2026-10-07T09:00:00Z"), null,
+                            Instant.parse("2026-10-07T09:00:00Z"), Instant.parse("2026-10-07T09:10:00Z")),
+                    new RerouteBoardSlot(RerouteBoardSlot.stopKey("SEOUL", "ST-C"),
+                            RerouteOriginKind.RIDE_INTERIOR, RerouteBoardSlot.State.HIDDEN, null,
+                            null, 90, null, Instant.parse("2026-10-07T09:00:00Z"),
+                            Instant.parse("2026-10-07T09:00:00Z"), Instant.parse("2026-10-07T09:12:00Z"))));
+
+            String json = objectMapper.writeValueAsString(board);
+            RerouteCandidateEnvelope restored = objectMapper.readValue(json, RerouteCandidateEnvelope.class);
+
+            assertThat(json).contains("\"version\":2").contains("\"slots\":[").doesNotContain("\"candidates\"");
+            assertThat(restored).isEqualTo(board);
+            assertThat(restored.isReadable()).isTrue();
+            assertThat(restored.visibleCandidates()).extracting(RerouteCandidate::candidateId)
+                    .containsExactly("shown");
+        }
+    }
+
+    @Nested
+    @DisplayName("기점 주소 확장(#264 PR-3)")
+    class OriginAddress {
+
+        @Test
+        @DisplayName("현재 위치 기점은 정류장 없이 좌표로 왕복한다")
+        void currentPositionRoundTrips() throws Exception {
+            watoo.grd.nextroute.application.journey.dto.RerouteOrigin here =
+                    new watoo.grd.nextroute.application.journey.dto.RerouteOrigin(0, null, null, null,
+                            RerouteOriginKind.CURRENT_POSITION, 127.2, 37.2);
+
+            assertThat(objectMapper.readValue(objectMapper.writeValueAsString(here),
+                    watoo.grd.nextroute.application.journey.dto.RerouteOrigin.class)).isEqualTo(here);
+        }
+
+        @Test
+        @DisplayName("좌표 칸이 없는 옛 저장 원점은 그대로 읽힌다")
+        void legacyOriginReads() throws Exception {
+            String legacy = """
+                    {"legIndex":1,"stopId":"ST-B","routeId":"BL-1","seq":4,"kind":"RIDE_INTERIOR"}
+                    """;
+
+            watoo.grd.nextroute.application.journey.dto.RerouteOrigin restored = objectMapper.readValue(
+                    legacy, watoo.grd.nextroute.application.journey.dto.RerouteOrigin.class);
+
+            assertThat(restored.stopId()).isEqualTo("ST-B");
+            assertThat(restored.x()).isNull();
+        }
+
+        @Test
+        @DisplayName("정류장 기점은 여전히 정류장이 있어야 한다")
+        void stopOriginStillRequiresStop() {
+            assertThatThrownBy(() -> new watoo.grd.nextroute.application.journey.dto.RerouteOrigin(
+                    1, null, null, null, RerouteOriginKind.WAITING_STOP))
+                    .isInstanceOf(NullPointerException.class);
         }
     }
 

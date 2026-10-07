@@ -55,6 +55,7 @@ class RerouteProposalServiceTest {
 
     private final Clock clock = Clock.fixed(NOW, ZoneId.of("Asia/Seoul"));
     private final JourneySessionRepository sessionRepository = mock(JourneySessionRepository.class);
+    private final RerouteBoardRefreshService boardRefresh = mock(RerouteBoardRefreshService.class);
     private final RerouteProposalTxService txService = mock(RerouteProposalTxService.class);
     private final JourneyRerouteProperties properties = new JourneyRerouteProperties();
     private final JourneyRerouteMetrics metrics =
@@ -88,6 +89,22 @@ class RerouteProposalServiceTest {
         assertThat(callOrder)
                 .as("버튼 연타가 외부 검색 연타가 되면 안 된다")
                 .isEmpty();
+    }
+
+    @Test
+    @DisplayName("보드 모드의 요청은 새 제안을 심지 않고 보드를 지금 갱신해 그대로 보여 준다(#264)")
+    void boardModeRequestRefreshesBoard() {
+        properties.getBoard().setEnabled(true);
+        RerouteCandidateProvider provider = recordingProvider(
+                RerouteProposalKind.REMAINING_PATH, 0, List.of(candidate()));
+        RerouteProposalService service = service(allowing(), List.of(provider));
+
+        service.request(USER_ID, JOURNEY_ID, 0);
+
+        verify(boardRefresh).refresh(JOURNEY_ID);
+        verify(txService).findActive(JOURNEY_ID);
+        assertThat(callOrder).as("사건 기반 사다리를 돌리면 보드를 밀어내는 v1 제안이 생긴다").isEmpty();
+        verify(txService, never()).store(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -247,6 +264,61 @@ class RerouteProposalServiceTest {
         verify(txService, never()).resolveStale(anyLong(), anyInt(), any());
     }
 
+    // ── 보드 모드 조회(#264 PR-6) ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("보드 모드 조회는 DB 에 쓰지 않고, 곧 닿는 자리(60초 미만)는 응답에서만 뺀다")
+    void boardModeFindActiveIsReadOnly() {
+        properties.getBoard().setEnabled(true);
+        RerouteProposalService service = service(allowing(), List.of());
+        RerouteCandidate close = candidateAlighting(NOW.plusSeconds(59));
+        RerouteCandidate alive = candidateAlighting(NOW.plusSeconds(60));
+        when(txService.findActive(JOURNEY_ID)).thenReturn(Optional.of(board(1, NOW.plusSeconds(120),
+                List.of(close, alive))));
+
+        Optional<RerouteProposalView> result = service.findActive(USER_ID, JOURNEY_ID);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().candidates()).containsExactly(alive);
+        verify(txService, never()).resolveStale(anyLong(), anyInt(), any());
+        verify(txService, never()).expireValidatedOut(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("보드 모드에서 전부 곧 닿아도 보드는 접지 않는다 — 빈 목록 + 마지막 확인 시각을 보여 준다")
+    void boardModeKeepsEmptyBoard() {
+        properties.getBoard().setEnabled(true);
+        RerouteProposalService service = service(allowing(), List.of());
+        when(txService.findActive(JOURNEY_ID)).thenReturn(Optional.of(board(1, NOW.plusSeconds(120),
+                List.of(candidateAlighting(NOW.plusSeconds(30))))));
+
+        Optional<RerouteProposalView> result = service.findActive(USER_ID, JOURNEY_ID);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().candidates()).isEmpty();
+        verify(txService, never()).expireValidatedOut(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("보드 모드에서 유효시간이 지났거나 개정본이 바뀐 보드는 없는 것으로 본다")
+    void boardModeHidesExpiredOrStaleBoard() {
+        properties.getBoard().setEnabled(true);
+        RerouteProposalService service = service(allowing(), List.of());
+
+        when(txService.findActive(JOURNEY_ID)).thenReturn(Optional.of(board(1, NOW, List.of())));
+        assertThat(service.findActive(USER_ID, JOURNEY_ID)).isEmpty();
+
+        when(txService.findActive(JOURNEY_ID)).thenReturn(Optional.of(board(2, NOW.plusSeconds(120),
+                List.of())));
+        assertThat(service.findActive(USER_ID, JOURNEY_ID)).isEmpty();
+    }
+
+    private RerouteProposalView board(int revision, Instant expiresAt, List<RerouteCandidate> candidates) {
+        return new RerouteProposalView(1L, JOURNEY_ID, revision, null,
+                RerouteProposalKind.REMAINING_PATH, 1L, NOW, expiresAt, candidates,
+                new RerouteProposalView.Board(3L, NOW.minusSeconds(10), java.util.Map.of()));
+    }
+
     // ── 조회 시 검증(PR-3) ──────────────────────────────────────────────────
 
     @Test
@@ -336,7 +408,7 @@ class RerouteProposalServiceTest {
     private RerouteProposalService service(RerouteEligibilityPolicy policy,
                                            List<RerouteCandidateProvider> providers) {
         return new RerouteProposalService(sessionRepository, txService, policy, providers,
-                properties, metrics, clock);
+                properties, metrics, clock, boardRefresh);
     }
 
     private RerouteEligibilityPolicy allowing() {

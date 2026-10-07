@@ -1,13 +1,18 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.journey;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
@@ -41,12 +46,41 @@ public class JourneyRerouteProposalController {
     private final RerouteProposalService proposalService;
     private final AcceptRerouteProposalUseCase acceptUseCase;
     private final GetRerouteCandidateRouteUseCase candidateRouteUseCase;
+    private final ObjectMapper objectMapper;
 
-    /** 살아 있는 제안. 없으면 body 의 {@code proposal} 이 null 이다({@code 204} 가 아니다). */
+    /**
+     * 살아 있는 제안. 없으면 body 의 {@code proposal} 이 null 이다({@code 204} 가 아니다).
+     *
+     * <p><b>보드(#264)면 ETag 를 붙인다.</b> 앱은 화면을 켜 둔 동안 15초마다 부르고, 바뀐 게 없으면
+     * {@code 304} 로 끝난다. ETag 는 {@code board_version} 이 아니라 <b>실제로 내보낸 본문</b>의 해시다 —
+     * 곧 닿는 자리는 읽는 시각에 빠지므로, 버전이 그대로여도 내용이 바뀔 수 있다. 사건 기반 제안은 지금과
+     * 같다(ETag 없음).
+     */
     @GetMapping("/{journeyId}/reroute-proposals/active")
-    public RerouteProposalResponse active(@AuthenticationPrincipal Long userId,
-                                          @PathVariable Long journeyId) {
-        return RerouteProposalResponse.from(proposalService.findActive(userId, journeyId));
+    public ResponseEntity<RerouteProposalResponse> active(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long journeyId,
+            @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch) {
+        RerouteProposalResponse body =
+                RerouteProposalResponse.from(proposalService.findActive(userId, journeyId));
+        if (body.proposal() == null || body.proposal().boardVersion() == null) {
+            return ResponseEntity.ok(body);
+        }
+        String etag = etagOf(body);
+        if (etag.equals(ifNoneMatch)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(etag).build();
+        }
+        return ResponseEntity.ok().eTag(etag).body(body);
+    }
+
+    private String etagOf(RerouteProposalResponse body) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(objectMapper.writeValueAsBytes(body));
+            return "\"" + java.util.HexFormat.of().formatHex(digest, 0, 16) + "\"";
+        } catch (JsonProcessingException | java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("ETag 를 만들지 못했다", e);
+        }
     }
 
     /**

@@ -48,6 +48,7 @@ public class RerouteProposalService {
     private final JourneyRerouteProperties properties;
     private final JourneyRerouteMetrics metrics;
     private final Clock clock;
+    private final RerouteBoardRefreshService boardRefreshService;
 
     /**
      * 공급자를 {@code priority} 순으로 <b>주입 시점에 한 번</b> 정렬한다. 부를 때마다 정렬하면
@@ -60,7 +61,8 @@ public class RerouteProposalService {
                                   List<RerouteCandidateProvider> providers,
                                   JourneyRerouteProperties properties,
                                   JourneyRerouteMetrics metrics,
-                                  Clock clock) {
+                                  Clock clock,
+                                  RerouteBoardRefreshService boardRefreshService) {
         this.sessionRepository = sessionRepository;
         this.txService = txService;
         this.eligibilityPolicy = eligibilityPolicy;
@@ -70,6 +72,7 @@ public class RerouteProposalService {
         this.properties = properties;
         this.metrics = metrics;
         this.clock = clock;
+        this.boardRefreshService = boardRefreshService;
     }
 
     /**
@@ -86,8 +89,30 @@ public class RerouteProposalService {
             return Optional.empty();
         }
         Instant now = Instant.now(clock);
+        if (properties.getBoard().isEnabled()) {
+            return findActiveBoard(journeyId, journey, now);
+        }
         txService.resolveStale(journeyId, journey.getRouteRevision(), now);
         return txService.findActive(journeyId).flatMap(view -> validate(view, now));
+    }
+
+    /**
+     * 보드 모드의 조회(#264). <b>DB 에 쓰지 않는다.</b>
+     *
+     * <p>앱이 화면을 켜 둔 동안 15초마다 부른다. 여기서 만료 전이(resolveStale)나 전멸 접기를 하면 폴링이
+     * 보드를 죽였다 살리는 순환이 되고, 세션 → 제안 잠금 순서와 반대인 쓰기(제안 → 세션)가 폴링 빈도로
+     * 늘어 교착 위험이 커진다. 만료·교체는 갱신기와 만료 스케줄러가 맡고, 여기서는 <b>응답에서만</b>
+     * 거른다 — 개정본이 바뀌었거나 유효시간이 지난 보드는 없는 것으로, 곧 닿는 자리(60초 미만)는 뺀다.
+     */
+    private Optional<RerouteProposalView> findActiveBoard(Long journeyId, JourneySession journey,
+                                                           Instant now) {
+        Instant earliest = now.plusSeconds(properties.getBoard().getLeadTimeSec());
+        return txService.findActive(journeyId)
+                .filter(view -> view.routeRevision() == journey.getRouteRevision())
+                .filter(view -> view.expiresAt().isAfter(now))
+                .map(view -> view.withCandidates(view.candidates().stream()
+                        .filter(candidate -> reachable(candidate, earliest))
+                        .toList()));
     }
 
     /**
@@ -120,9 +145,7 @@ public class RerouteProposalService {
             txService.expireValidatedOut(view.proposalId(), now);
             return Optional.empty();
         }
-        return Optional.of(new RerouteProposalView(view.proposalId(), view.journeyId(),
-                view.routeRevision(), view.origin(), view.kind(), view.baseCommandVersion(),
-                view.snapshotObservedAt(), view.expiresAt(), alive));
+        return Optional.of(view.withCandidates(alive));
     }
 
     /**
@@ -164,6 +187,13 @@ public class RerouteProposalService {
         if (denial.isPresent()) {
             metrics.recordRejected(denial.get());
             throw new BusinessException(JourneyErrorCode.REROUTE_NOT_ELIGIBLE);
+        }
+
+        if (properties.getBoard().isEnabled()) {
+            // 보드 모드(#264 PR-2): 새 제안을 심지 않고 보드를 지금 한 번 갱신해 그대로 보여 준다.
+            // 따로 심으면 보드를 밀어낸다. 적격성(시간 창·cooldown, 테스트 계정 우회)은 위에서 같다.
+            boardRefreshService.refresh(journeyId);
+            return txService.findActive(journeyId);
         }
 
         RerouteContext context = new RerouteContext(journeyId, userId, journey.getRouteRevision(),

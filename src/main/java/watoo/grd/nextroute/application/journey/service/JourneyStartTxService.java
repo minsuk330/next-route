@@ -59,6 +59,7 @@ public class JourneyStartTxService {
     private final JourneyNotificationRepository notificationRepository;
     private final SubwayBindingLifecycleService subwayBindingLifecycle;
     private final JourneyQueryService queryService;
+    private final RerouteRefreshSignal rerouteRefreshSignal;
 
     /**
      * 저장 순서는 고정이다.
@@ -105,6 +106,8 @@ public class JourneyStartTxService {
         List<JourneyLeg> legs = saveLegs(session, plan);
         saveRouteOptions(plan, legs);
         saveTransfers(session, plan);
+        // 재탐색 보드 첫 갱신은 시작 + 60초다(#264 PR-2). 시작 직후 3분의 push 차단은 push 판단이 맡는다.
+        rerouteRefreshSignal.scheduleInitial(session.getId());
 
         return queryService.snapshotOf(session);
     }

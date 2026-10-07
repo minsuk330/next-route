@@ -3176,3 +3176,213 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - ✅ VPS `/srv/nextroute/otp/national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-g71dca926c27c/` 에 graph.obj(sha 4b55ecb1…, 912,570,783 B)·coverage-index.json(sha 638411c6…) 배치, 양쪽 sha 일치 확인(2026-10-07 05:36).
 - ⏳ compose 치환·재생성은 에이전트 권한(Production Deploy)에서 막혀 사용자 실행 대기. 치환 대상: `compose.yaml` 4곳 + `/root/apps/observability/otp/compose.otp-national.yaml` 1곳(옛 graphVersion `...-shaped-g035004114e7b`). OTP 는 두 파일로, api·worker 는 compose.yaml 만으로 재생성(.env 이미지 = 현재 실행 이미지 확인함).
 - 로컬 그래프 빌드가 머신 메모리 경합(다른 작업·시뮬레이터)으로 스왑 → 1h24m(평소 11분). 빌드 전 메모리 확인.
+---
+
+## 2026-10-07 regional-bus-route-catalog (#267) — 경기·TAGO 노선 정류장 표 + TAGO 노선 단위 도시코드
+
+플랜 = `docs/plan/regional-bus-route-catalog/{PLAN,SUMMARY}.md`. 브랜치 `feat/tago-route-city-mapping`(fresh main 493af781, 스크래치 clone 에서 작업).
+
+### 확정
+- TAGO `getRouteNoList?cityCode=` 를 `routeNo` 없이 부르면 도시 노선 전체. 138개 도시 → 21,393노선, **도시 간 중복 0** → routeId → cityCode 는 함수. 양양군 0건.
+- **경기 노선도 TAGO 목록에 `GGB` 로 있다(2,158, 31개 시)** → 노선 목록을 OTP 에서 가져올 필요 없음. 경기 정류장은 경기 API 로(경기 실시간과 같은 순번 체계). 표의 경기 `route_id` 는 접두사 뗀 9자리.
+- 폐선 정리 기준 = "이번 노선 목록에 없는가". ~~"loaded_at < 실행 시작"~~ 취소 — 0건·실패 노선의 옛 값까지 지워진다(플랜 초안의 실패율 1% 조건도 함께 폐기). 목록은 한 번이라도 실패하면 실행 전체를 멈추므로 정리는 온전한 목록일 때만 돈다.
+- 도시코드 조회 = 노선 표 → 없으면 `TagoCityCodes`(접두사) 폴백. 표가 비어도(V56 미배치 포함) 지금과 같은 동작. `TagoCityCodes` 는 안정화 뒤 별건 삭제.
+- 정류장만 보는 자리(`BusRealtimeStopIds`, 노선 모름)는 "그 접두사의 실시간을 물을 수 있나"만 본다 = 표 접두사 ∪ 접두사 표. 실제 호출은 노선으로 도시를 찾는다.
+- 원천 어댑터는 `ApiCallBlocker` 를 건드리지 않는다 — 노선정보 서비스의 미등록·한도 초과가 도착 조회를 막으면 안 된다.
+
+### 함정
+- TAGO 노선 id 가 숫자만이 아니다: `BSB5201002F00`(영문) 등 OTP 에도 9개. `BusArrivalQueryService.TAGO_ID`(`[\d-]`)·`OtpSeoulIdentityResolver.TAGO_BUS_ROUTE` 가 이걸 조용히 버려 부산 9개 노선 실시간이 빠지고 있었다 ← 정규식 `[\dA-Z-]` 로 넓힘(서울·경기 id 는 숫자뿐이라 안 겹침). 정류장 id 는 실측상 숫자뿐이라 그대로.
+- 기존 접두사 표의 `ADB`(2도시)·`YDB`(3도시)·`DJB`(대전/계룡)·`WJB`(원주/횡성)는 다도시 — 두 번째 도시 노선은 틀린 cityCode 로 호출돼 빈 결과였을 가능성(미검증, 배포 후 실호출 확인 항목).
+- 처음 보는 접두사 `CCB`·`ISB` — 접두사 표에도 미확정 목록에도 없었다.
+- `BusRealtimeStopIds` 를 static 유틸에서 빈으로 바꿈 → 유일 호출자 `JourneyNavigationGeometryService` 생성자 인자 +1(시험 1곳 갱신).
+- `OtpSeoulIdentityResolver` 생성자 인자 +1 → 시험 3곳(`OtpSeoulIdentityResolverTest`, `LegacyRouteResponseMapperTest`, `RouteResponseMapperTest`) 갱신. 시험용 대역 `testsupport/InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()`.
+
+### 좌표
+- 적재: `application/regionalbus/service/RegionalBusCatalogLoadService.java`
+- 원천: `infrastructure/adapter/out/api/regionalbus/RegionalBusRouteSourceAdapter.java`
+- 저장: `infrastructure/adapter/out/persistence/regionalbus/JdbcRegionalBusRouteStopStore.java`
+- 조회: `application/route/mapping/TagoCityCodeLookup.java`
+- 스케줄러: `infrastructure/adapter/in/scheduler/RegionalBusCatalogScheduler.java`(worker, `REGIONAL_BUS_CATALOG_ENABLED`, 매월 1일 03:30 KST)
+
+### 미결
+- TAGO 경유 가상점 판별(`waypoint` null). #264 TAGO `arrprevstationcnt` 실측 후.
+- 적재 소요 실측(예상: 약 2.15만 호출, 호출당 약 0.94초 직렬 → 병렬 3 이면 약 2시간).
+
+### 배포
+- **V56 VPS 수동배치 필요**(V18+ untracked convention). 운영은 v55.
+- 순서: V56 → 이미지(api·worker) → worker env `REGIONAL_BUS_CATALOG_ENABLED=true` → 부팅 시 표가 비어 있어 1회 적재(별도 스레드) → 완료 로그 `[RegionalBusCatalog] routes=… loaded=…`.
+- api 는 적재를 안 하므로 6시간 주기 갱신으로 반영(즉시 원하면 api 재시작). worker 는 적재 직후 갱신.
+- 확인: TSB 정류장 도착 실호출, ADB·YDB 두 번째 도시 노선 실호출, 부산 `BSB5201002F00` 실호출.
+
+### 검증
+- 대상 시험: `RegionalBusCatalogLoadServiceTest` 7/7, `RegionalBusRouteSourceAdapterTest` 9/9, `JdbcRegionalBusRouteStopStoreIT` 5/5(Testcontainers postgres:17, 실제 V56 실행), `TagoCityCodeLookupTest` 6/6, `BusArrivalQueryServiceTest` 17/17(신규 2), `OtpSeoulIdentityResolverTest` 19/19(신규 2), `JourneyNavigationGeometryServiceTest`·`LegacyRouteResponseMapperTest`·`RouteResponseMapperTest` 통과
+- 전체 `./gradlew build`: 2,305건 중 실패 11 — **전부 기존 무관**. 같은 4개 클래스(`JourneyEvalReadPathIT`·`JourneyEvaluationIT`·`JourneyTransferAssessmentIT`·`BusAlertWakeupBurstIT`)를 main(493af781)에서 같은 환경으로 돌려도 똑같이 11건 실패.
+- 실행 환경(함정): 스크래치 clone 에는 gitignore 대상 `env/*.env` 가 없어 컨텍스트 IT 가 DB 접속에서 전부 죽는다(259건). 공유 로컬 DB·Redis 를 건드리지 않으려고 일회용 컨테이너를 띄웠다 — postgis/postgis:17-3.5(55432) 에 로컬 개발 DB 의 `--schema-only` + `flyway_schema_history` 만 복원(빈 DB 에 V1 부터 재생 불가), redis:7(56379), 기본값 없는 env(`GONG_API`·`KAKAO_REST_API_KEY`·`SEOUL_*`)는 더미. `env/*.env` 를 통째로 source 하면 `fcm.env` 가 FCM 을 켜 `/secrets/...` 자격증명 부재로 부팅이 죽는다 — DB·Redis 변수만 넣을 것.
+## 재탐색 주기 보드 PR-1 — 보드 저장 모델 + 병합 규칙 (#264, branch feat/reroute-periodic-board, 2026-10-07)
+
+### 확정
+- 보드 = 개정본당 ACTIVE `reroute_proposal` 한 행을 제자리 갱신. 봉투 v2 `{version:2, slots}`, 사건 기반 경로는 v1 쓰기 그대로(`slots` 는 NON_NULL 로 빠져 v1 행 모양 불변)
+- 읽기는 판 분기: `isReadable()`(v1|v2) + `visibleCandidates()`(v1 전체 / v2 VISIBLE 슬롯). v2 를 "현재 판"으로 올리면 플래그 off 에서도 v1 행이 전부 "없음"이 된다(리뷰 B4)
+- 보드 저장 시 `base_command_version` 을 현재 값으로 다시 찍는다 — 안 하면 구간 전이 한 번 뒤 수락이 영구 409(리뷰 B2, IT 로 고정)
+- 저장 순서 세션 FOR UPDATE → 제안(수락과 같음). `stillCurrent` = ACTIVE·commandVersion·revision·currentLegIndex 일치
+- 병합 규칙: 문턱 120/180/+60·대기, 같은 지문=숫자 갱신+id 유지, 다른 지문=+60 이상만 교체(아니면 기존 그대로), 숨김 즉시, 재표시 +30, 60초 미만·passed 제거, 언급 없는 자리=유지
+- 근거(realtimeOnly) 집계는 PR-3. 그 전엔 부르는 쪽이 false → 180초(보수)
+- 보드 설정은 `journey.reroute.board.*` 전용 키. 기존 키 값 불변(리뷰 M12)
+
+### 함정
+- `@Sql` 로 마이그레이션을 직접 나열하는 IT 3개(`RerouteProposalStoreIT`·`RerouteProposalExpiryIT`·`JourneyRerouteProposalSchemaIT`)는 새 마이그레이션을 수동 추가해야 한다 ← 엔티티에 칼럼 매핑 추가 시 `column ... does not exist`
+- `WithdrawalDeletionBoundaryIT` 는 ddl-auto 스키마라 원시타입 칼럼이 default 없는 not null ← raw insert 에 `board_version` 손으로 채움(V53 관례). PR-2 에서 journey_session 칼럼을 엔티티에 매핑하면 같은 처리 필요
+- 로컬 DB 마이그레이션 순서: V57 이 #268 의 V56 보다 먼저 로컬에 적용되면 나중에 V56 이 out-of-order 로 막힌다 ← IT 실행 동안만 #268 의 V56 파일을 작업트리에 untracked 로 둠(커밋 제외). 로컬 DB 는 이제 V56(#268 내용)·V57 적용 상태
+- #268 의 provider 코드는 `GG`/`TAGO` (PLAN 의 GYEONGGI 아님) — PR-4 에서 맞출 것
+
+### 좌표
+- 병합: `RerouteBoardMerger.merge`
+- 저장: `RerouteBoardService.write` / `RerouteProposalRepository.insertBoard`(ON CONFLICT 부분 unique)·`updateBoard`(board_version CAS)·`findStatusById`
+- 판 분기: `RerouteCandidateEnvelope.visibleCandidates`, `RerouteCandidateReader.read`, `RerouteProposalTxService.toView`
+
+### 배포
+- **V57 VPS 배치 필요(jar 포함 확인). 순서 #268(V56) → 이 PR(V57).** #268 보다 먼저 머지·배포 금지
+- 플래그 `JOURNEY_REROUTE_BOARD_ENABLED` 기본 false. PR-1 은 호출부가 없어 동작 변화 없음
+
+### 검증
+- `./gradlew compileJava compileTestJava` 통과
+- `RerouteBoardMergerTest` 23/23, `RerouteCandidateContractTest` +3(v1 모양 불변·v1 읽힘·v2 VISIBLE 만)
+- `RerouteAcceptIT` 20/20(+6: 제자리 갱신·전이 후 수락 200·stale 버림·v1 대체·숨김 자리 선택 불가·수락 후 늦은 갱신 버림)
+- 전체 `./gradlew test`: 2306 중 실패 2 = `JourneyTransferAssessmentIT`·`BusAlertWakeupBurstIT` — **기존 무관**(clean main 493af781 클론에서 동일 실패 확인)
+
+## 재탐색 주기 보드 PR-2 — 갱신 스케줄러 + 시점 신호 (#264, branch feat/reroute-board-refresh, 2026-10-07)
+
+### 확정
+- **V58 추가(PLAN 에 없던 것)**: `journey_session.reroute_refresh_claimed_until`. V57 의 `reroute_refresh_at` 하나로는 "선점 lease"와 "다음 예정"을 가를 수 없다(둘 다 미래 시각). 선점 중 신호가 예정을 당기면 다른 워커가 같은 여정을 다시 선점해 검색을 두 번 돈다 → 선점은 claimed_until 로만, 선점 중 신호는 `reroute_refresh_dirty` 로만
+- 마무리 CAS: `claimed_until = :lease` 일 때만, dirty 면 now+30s 아니면 now+60s. 갱신이 터져도 finally 로 마무리
+- 신호 자리: 진행 보고(remainingStops 감소, 첫 보고는 시드), 구간 전이(`JourneyCommandService`, 상태기계 아님), 여정 시작(+60s, 이미 있으면 유지), 수락(accepted_at + 즉시), 고정 열차 역 통과(`SubwayRingState.advancedFrom`), 위험 하락(보드 모드 방아쇠 → `requestUrgent` 최소간격 우회, alertPublisher 호출 안 함)
+- 보드 모드 사용자 요청: 적격성 통과 후 v1 제안 대신 보드 동기 갱신 + findActive
+- 후보 원천은 임시로 기존 공급자(다음 환승 기준). 근거 false(180s), 대기 증가 0. 문턱 미만 숨김·환승 없음·걷기/대기 기점은 PR-3
+- 지하철 진행 보고에도 남은 역 수를 받는다(결정 3-가) — 서버는 원래 막지 않았고 문서 계약만 바꿈
+- 전용 실행기 `rerouteBoardRefreshExecutor`(permits 3, queue=batch), 평가기 슬롯 비공유. 스케줄러·실행기 모두 worker + 보드 플래그 조건부 빈
+
+### 함정
+- native `CASE`/`LEAST` 안의 파라미터가 타입 없이 text 로 추론 → `column ... is of type timestamp with time zone but expression is of type text` ← 모든 파라미터에 `CAST(... AS timestamptz|boolean|integer)`
+- 신호가 트랜잭션 밖(방아쇠 평가기·링 갱신)에서 불리면 `@Modifying` 이 "No EntityManager with actual transaction" ← 신호 메서드 `@Transactional(REQUIRED)`. REQUIRES_NEW 금지: 수락·명령은 이미 세션 행을 잠근 트랜잭션이라 같은 행을 새 트랜잭션으로 쓰면 자기 잠금에 걸린다
+- 신호는 예외를 삼키므로(사용자 경로 보호) 쿼리 오류가 조용히 묻힌다 — 이번 두 함정도 IT 단언이 아니었으면 몰랐다. 신호 SQL 은 IT 로만 검증 가능
+
+### 좌표
+- 선점·마무리·신호 SQL: `JourneySessionRepository.claimRerouteRefreshBatch / finishRerouteRefresh / requestRerouteRefresh / scheduleRerouteRefreshIfAbsent / markRerouteAccepted`
+- `RerouteRefreshSignal`, `RerouteBoardRefreshClaimService`, `RerouteBoardRefreshService`, `RerouteBoardRefreshScheduler`, `RerouteBoardRefreshPoolConfig`, `RerouteRouteFingerprint`
+
+### 배포
+- **V58 VPS 배치 필요(jar 포함 확인). 순서 V57 → V58.** 보드 플래그 off 라 동작 변화 없음(신호 no-op, 스케줄러 빈 없음)
+
+### 검증
+- 단위: `SubwayRingStateAdvanceTest` 3/3, `RerouteBoardRefreshSchedulerTest` 2/2, `RerouteTriggerEvaluatorTest` 9/9(+1), `RerouteProposalServiceTest` 18/18(+1)
+- IT: `RerouteAcceptIT` 27/27(+7: 플래그 off 무쓰기, 최소간격·우회, 선점 중 dirty·재선점 불가, 마무리 lease CAS, 시작 +60s, 정류장 감소 신호, 갱신 1회가 v2 보드 행 남김)
+- 전체 `./gradlew test` 2351 중 실패 2 = `JourneyTransferAssessmentIT`·`BusAlertWakeupBurstIT` — 기존 무관(PR-1 에서 clean main 동일 확인)
+
+## 재탐색 주기 보드 PR-6 — API 계약 + HANDOFF (#264, branch feat/reroute-board-api, 2026-10-07)
+
+### 확정
+- 보드 모드 `/active` 는 **DB 에 쓰지 않는다**: resolveStale·expireValidatedOut 생략. 응답에서만 거름(개정본 불일치·만료=없음, 도착 60초 미만 자리 제외). 빈 보드도 `candidates: []` 로 내보냄(접지 않음)
+- 응답 신규 칸 `boardVersion`·`refreshedAt`(ProposalBody), `originType`(후보) — 전부 `@JsonInclude(NON_NULL)` 이라 사건 기반 응답 모양 불변(테스트 고정)
+- originType 매핑: TRANSFER_WAIT→PLANNED_ALIGHT, RIDE_INTERIOR→RIDE_STOP, 그 외 enum 이름(PR-3 의 CURRENT_POSITION·WAITING_STOP)
+- ETag = 내보낸 본문 JSON 의 SHA-256 앞 16바이트. board_version 이 아니라 본문 해시인 이유: 읽는 시각에 자리가 빠지므로 버전이 같아도 내용이 바뀐다(리뷰 M2). 보드일 때만, `If-None-Match` 같으면 304
+- `RerouteProposalView` 에 `Board(version, refreshedAt, originKinds)` 추가, 옛 9인자 생성자 유지
+
+### 함정
+- `findActiveBoard` 에서 `journey.getId()` 로 조회하면 단위 테스트 픽스처(id 없는 엔티티)에서 빈 결과 ← 요청의 `journeyId` 를 그대로 사용
+
+### 좌표
+- `RerouteProposalService.findActiveBoard`, `RerouteProposalTxService.boardOf`, `RerouteCandidateSummary.from(list, kinds)`/`originType`, `JourneyRerouteProposalController.active`(ETag)
+- 모바일 인계: `docs/plan/reroute-periodic-board/HANDOFF.md`
+
+### 배포
+- 마이그레이션 없음. 플래그 off 면 응답 바이트 동일
+
+### 검증
+- `RerouteProposalServiceTest` 21/21(+3: 보드 조회 무쓰기·60초 거름, 빈 보드 유지, 만료·개정본 불일치=없음)
+- `JourneyRerouteProposalControllerTest` 16/16(+3: 보드 칸·ETag, 304, v1 모양 불변)
+- `RerouteAcceptIT` 28/28(+1: 보드 모드 조회가 보이는 후보·originKind 를 주고 행을 바꾸지 않음)
+- 전체 2358 중 실패 2 = 기존 무관 2건(동일)
+
+## 재탐색 주기 보드 PR-3 — 기점 확장 + 근거 집계 (#264, branch feat/reroute-board-origins, 2026-10-07)
+
+### 확정
+- 보드 진입점 `RemainingPathCandidateProvider.evaluateBoard` — 기점을 **지금 단계**에서 연다: 걷기=보간 현재 위치(`HERE`, `CURRENT_POSITION`), 대기=그 정류장(`WAITING_STOP`), 버스 탑승=중간 정류장(보드 여유 60초 오버로드) + 다음 환승 있으면 계획 하차점, 지하철 탑승=계획 하차점만. 환승 없으면 계획 하차점 없음. 기존 `findCandidates`(사건 기반)는 그대로
+- 자리 3분류: 평가함(후보|대안없음) / 평가 못 함(검색 빈손·예측 실패·예산·기준선 실패 → 넘기지 않음 = 말풍선 유지) / 제공함(`offered`). 병합기는 `offered` 에 없는 단계형 자리(RIDE_INTERIOR 제외)를 지운다
+- 검색 빈손은 "평가 못 함"(OTP 장애가 말풍선을 지우지 않게), 경로는 왔는데 전부 지금과 같은 노선이면 "평가함·대안 없음"(숨김)
+- 기준선 일반화: 대기 중이면 그 대기부터 now, 그 밖은 현재 단계 끝(예측→앱 보고→계획) 다음부터. 대기 수는 "현재 단계 이후 전체 대기 수" vs 후보(걷기만=0, 그 외 waitsAfterFirst+1) → extraWaits. 기존 more-transfers 거름은 사건 기반 경로에만 남음
+- 근거: `BoardingChainEtaCalculator.Result.modelBased`(체인 중 하나라도 REALTIME_ARRIVAL 아님). realtimeOnly = !기준선.modelBased && !후보.modelBased. 옛 8인자 생성자는 modelBased=true(보수)
+- 걷기 위치: `CurrentPositionEstimator` — geometry(`GetJourneyNavigationGeometryUseCase`) 의 (segmentIndex, progressFraction) 를 거리 기준 보간. progressLegFraction 미사용. 180초 낡음=모름, 보고 전·활성 180초 내=시작점
+- `RerouteOrigin` 에 x·y 추가(옛 5인자 생성자 유지), stopId 필수는 CURRENT_POSITION 만 면제. `RerouteOriginKind` += CURRENT_POSITION·WAITING_STOP(평행 enum 없음)
+- **PLAN 변경**: 도보 자르기 생략(단계 경계 교체로 충분, 걸은 진행 이력만 손실), `candidate-min-gain-seconds` 키 생략(병합기 문턱이 대신)
+
+### 함정
+- 롤백한 옛 jar 는 새 enum(CURRENT_POSITION·WAITING_STOP) 을 저장 행에서 만나면 그 후보/보드를 못 읽는다(Jackson enum 실패 → 후보 없음/404). 플래그 off 면 보드 행이 없어 무관
+
+### 좌표
+- `RemainingPathCandidateProvider.evaluateBoard / boardOrigins / plannedAlight / measureBoardBaseline / currentLegEnd`
+- `CurrentPositionEstimator`, `UpcomingStopWindowResolver.resolveRideInterior(…, leadTimeSec)`, `RerouteBoardMerger.noLongerOffered`, `RerouteBoardRefreshService`(evaluateBoard 사용)
+
+### 배포
+- 마이그레이션 없음. 플래그 off 면 동작 변화 없음(보드 진입점은 갱신기만 부름)
+
+### 검증
+- `RemainingPathCandidateProviderTest` 26/26(+5: 대기 기점·이득·근거, 걷기 기점 HERE·적용 원점, 환승 없는 탑승=중간 정류장만·검색 빈손 미평가, 같은 경로뿐=대안 없음, ML 섞임=realtimeOnly false)
+- `CurrentPositionEstimatorTest` 4/4, `BoardingChainEtaCalculatorTest` 10/10(+1 근거 집계), `RerouteBoardMergerTest`+`RerouteCandidateContractTest` 43(+6: offered 규칙 3, 원점 주소 3)
+- `RerouteAcceptIT` 29/29(+1: 걷기 현재 위치 후보가 도보 단계부터 교체 수락)
+- 전체 2375 중 실패 2 = 기존 무관 2건(동일)
+
+## 재탐색 주기 보드 PR-5 — push 재정의 (#264, branch feat/reroute-board-push, 2026-10-07)
+
+### 확정
+- push 판단은 보드 갱신 직후 `RerouteBoardPushService.considerPush`. 정책 `RerouteBoardPushPolicy`(순수): 보이는 자리 중 이득 ≥300(alert.minimum-gain-seconds) & 하차형은 도착 ≥120초 → 최대 이득 1개. 다음 환승 AT_RISK·MISSED 면 "위험+대안"(시작·수락 3분 차단 무시), 아니면 3분 조용함 + 새로움(자리·지문 다르거나 이득 +120) 필요
+- 순서: 정책 → 직전 push 무응답이면 무시+1(answerPush CAS 로 한 번만) → 무시 상한 → cooldown ALERT 5분 → 채널 → [push_seq CAS + outbox(키 `…:REROUTE_SUGGESTED:p{seq}`) + 대기 중 TRANSFER_RISK CANCELED(`superseded-by-reroute`)] → relay 깨움
+- 환승 위험 알림 합치기(안 A): 보드+알림 켜짐이면 `TransferRiskNotifier` 가 scheduled_at = now+20s(`board.risk-merge-delay-seconds`)로 넣고 만료도 그 기준. 재탐색 push 가 나가면 취소. PROCESSING 은 못 거둠(둘 다 나감, 수용)
+- 수락: 보드 모드면 terminateReroute 안 함(accepted_at 은 PR-2 신호가 기록). 거절·무시: 보드 행(`board_version>0`)은 닫지 않고 answerPush + (거절=terminate|opt-in, 무시=ignored+1), 응답 closed=false. 사건 기반 행은 기존대로
+- 경로 조회는 push 응답(REQUIRES_NEW `RerouteBoardPushAnswerService`, 읽기 전용 트랜잭션 밖). `/active` 폴링은 응답 아님
+- 문구: `FcmMessageFactory` 가 payload(stopName·routeName·etaGainSec·originType)로 "X에서 내려 Y 타면 n분 빨라요" / "Y(으)로 가면 n분 빨라요". 재료 없으면 기존 확정 문구. 노선명은 legSummaries[0] "… 승차" 에서 추출(화면 값에 노선 칸 없음)
+- 보드 행은 alerted=false 로 두어 기존 만료 무응답 집계(countUnansweredDue)에 섞이지 않게 함
+
+### 함정
+- 같은 빈 안 `@Transactional` 메서드 호출은 프록시를 안 지나 트랜잭션이 없다 ← 쓰기를 `RerouteBoardPushTxService` 로 분리
+- `JourneySession` 에 reroute_accepted_at 을 매핑하면 마이그레이션을 손으로 나열하는 IT 9개(V53 에서 멈춤, reroute_proposal 없음)가 전부 깨진다 ← 엔티티 매핑 대신 네이티브 `findRerouteAcceptedAt`
+- 슬라이스 IT(`AbstractJourneyNotificationIT`)는 `TransferRiskNotifier` 를 @Import 하므로 새 의존성(JourneyRerouteProperties)도 @Import 필요
+- `RerouteProposal.pushSeq`(원시 int) 매핑 → ddl-auto IT(`WithdrawalDeletionBoundaryIT`) raw insert 에 push_seq 추가
+
+### 좌표
+- `RerouteBoardPushPolicy`, `RerouteBoardPushService`, `RerouteBoardPushTxService`, `RerouteBoardPushAnswerService`
+- `JourneyNotificationEnqueuer.enqueueBoardPush / enqueueTransferRisk(…, delay)`, `JourneyNotificationRepository.cancelPendingByCheckpoints`, `RerouteProposalRepository.recordPush / answerPush`
+- `RerouteProposalTxService.closeBoardPush`, `RerouteAcceptTxService`(board 모드 terminate 생략), `FcmMessageFactory.rerouteAction`
+
+### 배포
+- 마이그레이션 없음(V57 칼럼 사용). 플래그 off 면 동작 동일(위험 알림 지연·push 모두 보드+알림 켜짐 조건)
+- **운영 on 체크리스트(사용자 결정)**: V57·V58 배치 확인 → `UPDATE journey_session SET reroute_refresh_at = now() WHERE status='ACTIVE'` 백필 → `JOURNEY_REROUTE_BOARD_ENABLED=true`(api·worker) → 시뮬레이션 1건 board_version 증가·push 확인
+
+### 검증
+- `RerouteBoardPushPolicyTest` (경계값 300/120/3분/+120, 위험 우회, 최대 이득), `FcmMessageFactoryTest` +1(행동 문구 2종·폴백)
+- `RerouteAcceptIT` 34/34(+5: 같은 보드 push 2회=2행·push_seq 2, 위험 알림 취소, 무응답 1회만 집계, 보드 무시 시 ACTIVE 유지, 보드 모드 수락 비종료·accepted_at)
+- 전체 2391 중 실패 2 = 기존 무관 2건(동일)
+
+## 재탐색 주기 보드 PR-4 — 경기·TAGO 중간 하차 기점 (#264, branch feat/reroute-board-regional, 2026-10-07)
+
+### 확정
+- #268 표(`regional_bus_route_stop`)를 읽기만 한다: `RegionalBusRouteStopStore.findRouteStops(provider, routeId)` 추가(순번 오름차순, 가상점 표시 포함)
+- `RegionalRideLocator`: 노선 = 주행 단계가 고른 노선 후보의 `sourceRouteId`(GBIS·TAGO id), GG 표에 없으면 TAGO. 정류장 조인 = 구간 `sourceStartStopId`·`sourceEndStopId`(승차 이후 첫 일치). 지금 위치 = 하차에서 앱 남은 정류장 수만큼 **가상점을 빼고** 거슬러 오름
+- `RegionalArrivalLookup`: 내 차 = "몇 정류장 전"이 [기대-1, 기대] 인 차(더 먼 = 내 뒤 차 거절). 경기 predictMin×60, TAGO arrSeconds. 재탐색 전용 일일 버킷(`reroute-gg-arrival`·`reroute-tago-arrival`, 기본 5000) 소진 시 그 회차 지역 기점 중단. 15초 메모리 캐시
+- 창: 서울 id 없는 탑승 + **보드 켜짐**일 때만 지역 스캔(사건 기반 경로는 그대로). 원점 `RerouteOrigin.provider`=GG|TAGO, stopId/routeId/seq 는 API 공간
+- 수락 자르기: `origin.isRegional()` 이면 지역 재확인. 자를 위치 = 승차 이후 **실제 정류장 수**(가상점 제외 = GTFS 순번 공간). 어긋나면 합성 단계 이름 대조가 막는다(409)
+- "같은 버스 다시 타기" 거름에 원천 노선 id 추가(`isSameAsCurrent` 가 firstOption.sourceRouteId 도 비교, 보드 currentRouteIds 에 원천 id)
+
+### 미결
+- 서울 도착 조회의 재탐색/검색 할당량 분리(어댑터 내부 차감 문맥) — 이번 범위 밖
+- 경기·TAGO 중간 하차 후보의 후보 경로 조회 `ride.stopCount` 는 null(서울 위치기만 계산)
+
+### 좌표
+- `RegionalRideLocator`, `RegionalArrivalLookup`, `UpcomingStopWindowResolver.scanRegional`, `RideTruncationResolver.resolveRegional`
+- `JdbcRegionalBusRouteStopStore.findRouteStops`, `BusApiQuotaPort.tryAcquire(bucket, limit)`, `RerouteOrigin.provider/isRegional`
+
+### 배포
+- 마이그레이션 없음(#268 의 V56 표를 읽음). 보드 플래그 off 면 동작 동일. 표가 비어 있으면(적재 전) 지역 기점은 `route-unknown` 으로 안 열림
+
+### 검증
+- `RegionalRideLocatorTest` 3/3, `RegionalArrivalLookupTest` 4/4, `UpcomingStopWindowResolverTest` 12/12(+2), `RideTruncationResolverTest` 13/13(+2), `JdbcRegionalBusRouteStopStoreIT` 6/6(+1)
+- 전체 2403 중 실패 2 = 기존 무관 2건(동일)

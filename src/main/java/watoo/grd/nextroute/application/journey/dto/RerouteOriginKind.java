@@ -9,5 +9,12 @@ package watoo.grd.nextroute.application.journey.dto;
  */
 public enum RerouteOriginKind {
     TRANSFER_WAIT,
-    RIDE_INTERIOR
+    RIDE_INTERIOR,
+    /**
+     * 걷는 중의 현재 위치(#264 보드). 서버는 좌표를 받지 않으므로 진행률로 도보 선 위를 보간한다.
+     * 정류장이 아니라 {@code stopId} 가 없고 좌표({@code x}·{@code y})가 주소다.
+     */
+    CURRENT_POSITION,
+    /** 기다리는 정류장·역(#264 보드). 같은 정류장의 다른 노선·경로를 찾는 자리다. */
+    WAITING_STOP
 }

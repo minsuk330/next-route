@@ -14,7 +14,12 @@ import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteContext;
+import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeoPoint;
+import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
+import watoo.grd.nextroute.application.journey.dto.RerouteBoardSlot;
 import watoo.grd.nextroute.application.journey.dto.RerouteOrigin;
+import watoo.grd.nextroute.application.journey.dto.RerouteOriginKind;
+import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.journey.dto.RerouteOriginStop;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
 import watoo.grd.nextroute.application.journey.port.out.BoardingTimeEstimator;
@@ -37,6 +42,10 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -92,6 +101,9 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
 
     @Qualifier("rerouteOverlayExecutor")
     private final ExecutorService overlayExecutor;
+
+    private final GetJourneyNavigationGeometryUseCase geometryUseCase;
+    private final CurrentPositionEstimator positionEstimator;
 
     @Override
     public RerouteProposalKind kind() {
@@ -333,11 +345,18 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
         return candidates;
     }
 
-    /** <b>둘 다 해석된 경우에만</b> 견준다. 양쪽이 null 이면 "같다"가 아니라 "모른다"이다. */
+    /**
+     * <b>둘 다 해석된 경우에만</b> 견준다. 양쪽이 null 이면 "같다"가 아니라 "모른다"이다.
+     *
+     * <p>원천 노선 id 도 본다(#264 PR-4). 경기·TAGO 노선은 서울 id 가 비어 있어, 원천 id 로만 "같은 버스"를 알아본다.
+     */
     private boolean isSameAsCurrent(Prepared prepared, List<String> currentRouteIds) {
         String firstRouteId = prepared.firstRouteId();
-        return firstRouteId != null && !firstRouteId.isBlank()
-                && currentRouteIds.contains(firstRouteId);
+        if (firstRouteId != null && !firstRouteId.isBlank() && currentRouteIds.contains(firstRouteId)) {
+            return true;
+        }
+        String firstSource = prepared.firstOption() == null ? null : prepared.firstOption().sourceRouteId();
+        return firstSource != null && !firstSource.isBlank() && currentRouteIds.contains(firstSource);
     }
 
     /**
@@ -633,6 +652,8 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
                         summaries(scored.candidate().prepared()),
                         // 좌표는 검색 출발점과 같은 값이다 — 계획 하차점이면 대기 단계의 시작,
                         // 중간 하차면 그 정류장. 앱이 말풍선을 놓는 자리다(#259).
+                        // 걷기·기다리기 기점(#264)은 하차가 없다 — 정류장 칸은 그 자리(현재 위치는 stopId
+                        // 없음)이고, 좌표가 말풍선 자리다.
                         new RerouteCandidateDisplay.AlightStop(origin.stopId(), origin.stopName(),
                                 origin.alightAt(), origin.planned(),
                                 origin.waypoints().origin().x(), origin.waypoints().origin().y())));
@@ -680,6 +701,364 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
         return value == null || value.isBlank() ? null : value;
     }
 
+    // ── 보드(#264, reroute-periodic-board PR-3) ──────────────────────────────
+
+    /**
+     * 보드 한 회차 — <b>지금 진행 중인 단계</b>를 기준으로 기점을 열고, 자리마다 평가한다.
+     *
+     * <p>사건 기반 경로({@link #findCandidates})는 "다음 환승"에 묶여 있어 환승 없는 여정·걷기·기다리기에서
+     * 후보가 0개였다. 보드는 기점을 지금 단계에서 연다(#264 정리본 §3).
+     *
+     * <ul>
+     *   <li>걷기 → 진행률로 보간한 <b>현재 위치</b></li>
+     *   <li>기다리기 → 그 <b>정류장</b></li>
+     *   <li>버스 탑승 → 지금 버스의 <b>중간 정류장들</b> + 다음 환승이 있으면 <b>계획 하차점</b></li>
+     *   <li>지하철 탑승 → 다음 환승이 있으면 계획 하차점만</li>
+     * </ul>
+     *
+     * <p>이 단계에서는 문턱으로 거르지 않는다. 이득이 얼마든 자리마다 결과를 넘기고, 보일지·숨길지는
+     * {@link RerouteBoardMerger} 가 정한다. 대신 자리를 셋으로 가른다 — 평가함(후보 또는 대안 없음) /
+     * 평가 못 함(검색 빈손·예측 실패·예산, 말풍선 유지) / 제공함(이번 회차의 기점 목록).
+     */
+    public BoardResult evaluateBoard(BoardRequest request) {
+        try {
+            return collectBoard(request);
+        } catch (Exception e) {
+            log.warn("[RerouteBoard] 보드 평가 실패 journeyId={}: {}", request.journeyId(), e.getMessage());
+            return BoardResult.unknown();
+        }
+    }
+
+    private BoardResult collectBoard(BoardRequest request) {
+        List<JourneyLeg> legs = legRepository
+                .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+                        request.journeyId(), request.routeRevision());
+        JourneyLeg current = legs.stream()
+                .filter(leg -> leg.getLegIndex() == request.currentLegIndex())
+                .findFirst()
+                .orElse(null);
+        if (current == null) {
+            return BoardResult.unknown();
+        }
+        RerouteContext context = new RerouteContext(request.journeyId(), request.userId(),
+                request.routeRevision(), request.commandVersion(), -1, request.now());
+
+        List<Origin> origins = boardOrigins(legs, current, request);
+        Set<String> offered = new LinkedHashSet<>();
+        origins.forEach(origin -> offered.add(origin.slotKey()));
+        if (origins.isEmpty()) {
+            return new BoardResult(offered, List.of(), true);
+        }
+
+        List<String> currentRouteIds = boardCurrentRouteIds(legs, current);
+        List<BoardEvaluation> evaluations = new ArrayList<>();
+        List<Selected> selected = new ArrayList<>();
+        for (BoardSearch search : searchBoard(origins, currentRouteIds, context)) {
+            if (search.selected() != null) {
+                selected.add(search.selected());
+            } else if (search.evaluatedEmpty()) {
+                // 경로는 왔지만 지금과 같은 것뿐이다 — 이 자리에는 대안이 없다(숨김 대상).
+                evaluations.add(BoardEvaluation.none(search.origin()));
+            }
+            // 검색이 빈손이면 평가 못 한 자리다. 아무것도 넘기지 않는다(말풍선 유지).
+        }
+        if (selected.isEmpty()) {
+            return new BoardResult(offered, evaluations, true);
+        }
+
+        BoardBaseline baseline = measureBoardBaseline(legs, current, context);
+        if (baseline == null) {
+            // 지금 경로로 언제 닿는지 모른다. 이득을 잴 수 없으므로 후보 자리는 평가 못 한 것으로 둔다.
+            return new BoardResult(offered, evaluations, true);
+        }
+
+        Instant startedAt = clock.instant();
+        List<Attempt> attempts = overlayAll(selected, context, startedAt);
+        for (int i = 0; i < selected.size(); i++) {
+            Selected entry = selected.get(i);
+            Attempt attempt = attempts.get(i);
+            if (attempt.failed()) {
+                metrics.recordCandidateFiltered(attempt.filterReason());
+                continue;
+            }
+            if (missesTransfer(attempt, entry.origin())) {
+                metrics.recordCandidateFiltered("miss-risk");
+                evaluations.add(BoardEvaluation.none(entry.origin()));
+                continue;
+            }
+            metrics.recordCandidateEvaluated(1);
+            int gainSec = (int) Duration.between(
+                    attempt.eta().destinationEtaAt(), baseline.destinationEtaAt()).getSeconds();
+            Prepared prepared = entry.candidate().prepared();
+            int candidateWaits = prepared.walkOnly() ? 0 : prepared.waitsAfterFirst() + 1;
+            boolean realtimeOnly = !baseline.modelBased() && !attempt.eta().modelBased();
+            Scored scored = new Scored(entry, attempt, gainSec);
+            evaluations.add(new BoardEvaluation(entry.origin().slotKey(), entry.origin().originKind(),
+                    toCandidate(scored, true, request.now()), gainSec, realtimeOnly,
+                    Math.max(0, candidateWaits - baseline.totalWaits()),
+                    RerouteRouteFingerprint.of(entry.origin().slotKey(), entry.candidate().path()),
+                    entry.origin().alightAt()));
+        }
+        return new BoardResult(offered, evaluations, true);
+    }
+
+    /** 지금 단계에서 열 수 있는 기점들(#264 정리본 §3). */
+    private List<Origin> boardOrigins(List<JourneyLeg> legs, JourneyLeg current, BoardRequest request) {
+        List<Origin> origins = new ArrayList<>();
+        Optional<Waypoints> fromCurrent = waypointResolver.resolve(
+                request.journeyId(), request.routeRevision(), current.getLegIndex());
+        if (fromCurrent.isEmpty()) {
+            return origins;
+        }
+        Coord destination = fromCurrent.get().destination();
+        JourneyLegType type = current.getType();
+
+        if (type == JourneyLegType.WALK || type == JourneyLegType.TRANSFER_WALK) {
+            currentPosition(current, request).ifPresent(point -> origins.add(new Origin(null,
+                    "현재 위치", new Waypoints(new Coord(point.x(), point.y()), destination),
+                    null, request.now(), current.getLegIndex(),
+                    new RerouteOrigin(current.getLegIndex(), null, null, null,
+                            RerouteOriginKind.CURRENT_POSITION, point.x(), point.y()),
+                    false, RerouteBoardSlot.HERE, RerouteOriginKind.CURRENT_POSITION)));
+            return origins;
+        }
+        if (type.isWaiting()) {
+            String stopId = stopIdOf(current);
+            if (stopId != null) {
+                // 기다리는 정류장에서 다시 찾는다. 교체는 이 대기 단계부터(단계 경계) — 사용자는 이미 거기 있다.
+                origins.add(new Origin(stopId, current.getStartName(), fromCurrent.get(), null,
+                        request.now(), current.getLegIndex(), null, false,
+                        RerouteBoardSlot.stopKey(null, stopId), RerouteOriginKind.WAITING_STOP));
+            }
+            return origins;
+        }
+        if (type == JourneyLegType.RIDE_BUS) {
+            for (RerouteOriginStop stop : windowResolver.resolveRideInterior(legs,
+                    current.getLegIndex() + 1, request.now(), properties.getBoard().getLeadTimeSec())) {
+                origins.add(new Origin(stop.origin().stopId(), stop.stopName(),
+                        new Waypoints(new Coord(stop.x(), stop.y()), destination),
+                        stop.alightAt(),
+                        stop.departAt(properties.getNextStop().getBoardingBufferSec()),
+                        stop.origin().legIndex(), stop.origin(), false,
+                        RerouteBoardSlot.stopKey(null, stop.origin().stopId()),
+                        RerouteOriginKind.RIDE_INTERIOR));
+            }
+        }
+        plannedAlight(legs, current, request).ifPresent(origins::add);
+        return origins;
+    }
+
+    /**
+     * 탑승 중 다음 환승의 계획 하차점. 환승이 없으면 없다 — 내려서 목적지까지 걷기뿐이라 다시 찾을 것이 없다.
+     */
+    private Optional<Origin> plannedAlight(List<JourneyLeg> legs, JourneyLeg current, BoardRequest request) {
+        Optional<TransferConnection> transfer = transferRepository
+                .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByTransferIndex(
+                        request.journeyId(), request.routeRevision())
+                .stream()
+                .filter(found -> found.getToLegIndex() > current.getLegIndex())
+                .findFirst();
+        if (transfer.isEmpty() || transfer.get().getUserReadyAt() == null) {
+            return Optional.empty();
+        }
+        Optional<JourneyLeg> waitLeg = legs.stream()
+                .filter(leg -> leg.getLegIndex() == transfer.get().getToLegIndex())
+                .filter(leg -> leg.getType().isWaiting())
+                .findFirst();
+        if (waitLeg.isEmpty() || waitLeg.get().getStartStopId() == null) {
+            return Optional.empty();
+        }
+        Optional<Waypoints> waypoints = waypointResolver.resolve(
+                request.journeyId(), request.routeRevision(), waitLeg.get().getLegIndex());
+        if (waypoints.isEmpty()) {
+            return Optional.empty();
+        }
+        Instant readyAt = transfer.get().getUserReadyAt();
+        return Optional.of(new Origin(waitLeg.get().getStartStopId(), waitLeg.get().getStartName(),
+                waypoints.get(), readyAt, readyAt, waitLeg.get().getLegIndex(), null, true,
+                RerouteBoardSlot.stopKey(null, waitLeg.get().getStartStopId()),
+                RerouteOriginKind.TRANSFER_WAIT));
+    }
+
+    private Optional<GeoPoint> currentPosition(JourneyLeg current, BoardRequest request) {
+        try {
+            LegGeometry geometry = geometryUseCase.get(request.userId(), request.journeyId(),
+                            request.routeRevision())
+                    .legs().stream()
+                    .filter(leg -> leg.legIndex() == current.getLegIndex())
+                    .findFirst()
+                    .orElse(null);
+            return positionEstimator.estimate(current, geometry, request.now(),
+                    Duration.ofSeconds(properties.getNextStop().getProgressMaxAgeSec()));
+        } catch (Exception e) {
+            log.warn("[RerouteBoard] 현재 위치 추정 실패 journeyId={}: {}", request.journeyId(), e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /** 대기 정류장 id. 서울 id 가 없으면 원천 id(경기·TAGO)를 쓴다 — 자리 키로만 쓰인다. */
+    private static String stopIdOf(JourneyLeg leg) {
+        if (leg.getStartStopId() != null && !leg.getStartStopId().isBlank()) {
+            return leg.getStartStopId();
+        }
+        return leg.getSourceStartStopId();
+    }
+
+    /** "지금과 같은 경로" 거름에 쓸 노선 — 지금 타는(기다리는) 노선 + 다음에 탈 노선. */
+    private List<String> boardCurrentRouteIds(List<JourneyLeg> legs, JourneyLeg current) {
+        List<String> routeIds = new ArrayList<>(3);
+        if (current.getRouteId() != null && !current.getRouteId().isBlank()) {
+            routeIds.add(current.getRouteId());
+        }
+        // 경기·TAGO 버스는 서울 id 가 없다. 고른 노선 후보의 원천 id 로 "같은 버스 다시 타기"를 거른다(#264 PR-4).
+        Optional.ofNullable(current.getSelectedRouteOptionId())
+                .flatMap(routeOptionRepository::findById)
+                .map(JourneyLegRouteOption::getSourceRouteId)
+                .filter(id -> !id.isBlank())
+                .ifPresent(routeIds::add);
+        legs.stream()
+                .filter(leg -> leg.getLegIndex() > current.getLegIndex())
+                .filter(leg -> leg.getType().isWaiting())
+                .findFirst()
+                .map(JourneyLeg::getRouteId)
+                .filter(routeId -> routeId != null && !routeId.isBlank())
+                .ifPresent(routeIds::add);
+        return routeIds;
+    }
+
+    private List<BoardSearch> searchBoard(List<Origin> origins, List<String> currentRouteIds,
+                                          RerouteContext context) {
+        List<CompletableFuture<BoardSearch>> futures = new ArrayList<>(origins.size());
+        for (Origin origin : origins) {
+            try {
+                futures.add(CompletableFuture.supplyAsync(
+                        () -> searchBoardOne(origin, currentRouteIds, context), overlayExecutor));
+            } catch (RejectedExecutionException e) {
+                futures.add(CompletableFuture.completedFuture(
+                        searchBoardOne(origin, currentRouteIds, context)));
+            }
+        }
+        List<BoardSearch> results = new ArrayList<>(futures.size());
+        for (CompletableFuture<BoardSearch> future : futures) {
+            try {
+                results.add(future.get(properties.getRemainingPath().getSearchBudgetMs() * 2,
+                        TimeUnit.MILLISECONDS));
+            } catch (Exception e) {
+                // 기다리다 멈췄다. 평가 못 한 자리다.
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+        return results;
+    }
+
+    private BoardSearch searchBoardOne(Origin origin, List<String> currentRouteIds, RerouteContext context) {
+        try {
+            List<PathResult> paths = searchService.search(
+                    origin.stopId() == null ? origin.slotKey() : origin.stopId(), origin.waypoints(),
+                    properties.getRemainingPath().getSearchBudgetMs(), origin.departAt());
+            if (paths.isEmpty()) {
+                return new BoardSearch(origin, null, false);
+            }
+            List<Candidate> candidates = prepare(paths, currentRouteIds);
+            metrics.recordRemainingPaths(paths.size(), candidates.size());
+            Selected best = bestBySchedule(candidates, origin);
+            return new BoardSearch(origin, best, best == null);
+        } catch (Exception e) {
+            log.warn("[RerouteBoard] 원점 검색 실패 journeyId={} slot={}: {}",
+                    context.journeyId(), origin.slotKey(), e.getMessage());
+            return new BoardSearch(origin, null, false);
+        }
+    }
+
+    /**
+     * 지금 경로로 목적지에 언제 닿는지 — <b>지금 단계에서</b> 잰다(환승이 없어도 된다).
+     *
+     * <ul>
+     *   <li>기다리는 중 → 그 대기부터 지금 시각으로 체인을 돈다</li>
+     *   <li>그 밖 → 지금 단계가 끝나는 시각에서 다음 단계부터 돈다</li>
+     * </ul>
+     * 후보와 같은 체인 계산기를 쓴다 — 다른 방식으로 재면 그 차이가 곧 가짜 이득이 된다.
+     */
+    private BoardBaseline measureBoardBaseline(List<JourneyLeg> legs, JourneyLeg current,
+                                               RerouteContext context) {
+        try {
+            List<BoardingChainEtaCalculator.Step> steps = storedSteps(legs);
+            boolean waiting = current.getType().isWaiting();
+            BoardingChainEtaCalculator.Result chained = chainCalculator.compute(steps,
+                    waiting ? current.getLegIndex() - 1 : current.getLegIndex(),
+                    waiting ? context.now() : currentLegEnd(current, context.now()),
+                    context.now(), baselineBudget());
+            if (chained.failed()) {
+                return null;
+            }
+            int totalWaits = (int) legs.stream()
+                    .filter(leg -> leg.getLegIndex() >= current.getLegIndex())
+                    .filter(leg -> leg.getType().isWaiting())
+                    .count();
+            return new BoardBaseline(chained.destinationEtaAt(), totalWaits, chained.modelBased());
+        } catch (Exception e) {
+            log.warn("[RerouteBoard] 기준선 실패 journeyId={}: {}", context.journeyId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /** 지금 단계가 끝나는 시각 — 예측 → 앱 보고 → 계획 순으로 쓴다. */
+    private static Instant currentLegEnd(JourneyLeg leg, Instant now) {
+        if (leg.getPredictedEndAt() != null && leg.getPredictedEndAt().isAfter(now)) {
+            return leg.getPredictedEndAt();
+        }
+        if (leg.getProgressObservedAt() != null && leg.getRemainingDurationSeconds() != null) {
+            Instant reported = leg.getProgressObservedAt().plusSeconds(leg.getRemainingDurationSeconds());
+            return reported.isAfter(now) ? reported : now;
+        }
+        int planned = leg.getPlannedDurationSec() == null ? 0 : leg.getPlannedDurationSec();
+        if (leg.getActivatedAt() != null) {
+            Instant planEnd = leg.getActivatedAt().plusSeconds(planned);
+            return planEnd.isAfter(now) ? planEnd : now;
+        }
+        return now.plusSeconds(planned);
+    }
+
+    /** 보드 한 회차의 요청. */
+    public record BoardRequest(Long journeyId, Long userId, int routeRevision, long commandVersion,
+                               int currentLegIndex, Instant now) {
+    }
+
+    /**
+     * 보드 한 회차의 결과.
+     *
+     * @param offered     이번 회차에 연 기점(자리 키). 여기 없는 단계형 자리(현재 위치·대기·계획 하차)는 끝난 것이다
+     * @param evaluations 평가한 자리들. 평가 못 한 자리는 들어 있지 않다
+     * @param known       기점 목록을 알았는가. 모르면(단계 조회 실패) 기존 자리를 건드리지 않는다
+     */
+    public record BoardResult(Set<String> offered, List<BoardEvaluation> evaluations, boolean known) {
+
+        static BoardResult unknown() {
+            return new BoardResult(Set.of(), List.of(), false);
+        }
+    }
+
+    /**
+     * 자리 하나를 평가한 결과. {@code candidate} 가 null 이면 평가했지만 대안이 없다는 뜻이다.
+     */
+    public record BoardEvaluation(String slotKey, RerouteOriginKind originKind, RerouteCandidate candidate,
+                                  int gainSec, boolean realtimeOnly, int extraWaits,
+                                  String routeFingerprint, Instant alightAt) {
+
+        static BoardEvaluation none(Origin origin) {
+            return new BoardEvaluation(origin.slotKey(), origin.originKind(), null, 0, false, 0, null,
+                    origin.alightAt());
+        }
+    }
+
+    private record BoardSearch(Origin origin, Selected selected, boolean evaluatedEmpty) {
+    }
+
+    private record BoardBaseline(Instant destinationEtaAt, int totalWaits, boolean modelBased) {
+    }
+
     /** 검색이 준 경로 원본과 그것을 쪼갠 결과. 원본은 수락 재료로 그대로 저장된다. */
     private record Candidate(PathResult path, Prepared prepared) {
     }
@@ -695,7 +1074,14 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
      */
     private record Origin(String stopId, String stopName, Waypoints waypoints, Instant alightAt,
                           Instant departAt, int fromLegIndex, RerouteOrigin applyOrigin,
-                          boolean planned) {
+                          boolean planned, String slotKey, RerouteOriginKind originKind) {
+
+        /** 사건 기반 경로의 모양(자리 키 없음). */
+        Origin(String stopId, String stopName, Waypoints waypoints, Instant alightAt,
+               Instant departAt, int fromLegIndex, RerouteOrigin applyOrigin, boolean planned) {
+            this(stopId, stopName, waypoints, alightAt, departAt, fromLegIndex, applyOrigin, planned,
+                    null, planned ? RerouteOriginKind.TRANSFER_WAIT : RerouteOriginKind.RIDE_INTERIOR);
+        }
     }
 
     /** 그 자리에서 고른 <b>하나</b>의 경로. overlay 는 이것에만 나간다. */

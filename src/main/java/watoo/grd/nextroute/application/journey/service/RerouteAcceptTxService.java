@@ -95,6 +95,7 @@ public class RerouteAcceptTxService {
     private final JourneyRerouteMetrics metrics;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final RerouteRefreshSignal rerouteRefreshSignal;
 
     /**
      * @return 새 개정본이 반영된 여정. 이미 <b>같은 후보로</b> 수락된 제안이면 지금 상태를 그대로 돌려준다
@@ -142,6 +143,9 @@ public class RerouteAcceptTxService {
 
         applyRevision(journey, composed.composed(), candidate.apply(), truncation, now);
         recordEvent(journey, proposalId, candidateId, now);
+        // 새 개정본의 보드를 바로 만들고, 수락 시각을 남긴다(#264 PR-2). 같은 트랜잭션이라 수락이
+        // 롤백되면 신호도 함께 사라진다.
+        rerouteRefreshSignal.accepted(journey.getId());
         metrics.recordResolved("accepted", 1);
         if (truncation != null) {
             metrics.recordMidRideAccept("applied");
@@ -325,7 +329,11 @@ public class RerouteAcceptTxService {
         journey.bumpCommandVersion();
         // 한 여정에 수락은 한 번이다(PR-3 알림 계약). 사용자가 고른 길로 막 바꿨는데 또 바꾸라고
         // 알리면, 남은 이득보다 피로가 크다 — 새 경로가 나중에 또 위험해져도 알리지 않는다.
-        journey.terminateReroute();
+        // 보드 모드(#264)에서는 영구 차단하지 않는다 — 수락 뒤 3분만 "새 기회" push 를 막는다
+        // (reroute_accepted_at, 신호가 기록). 새 경로도 더 나은 길이 생기면 알려야 한다.
+        if (!properties.getBoard().isEnabled()) {
+            journey.terminateReroute();
+        }
         // 경로가 통째로 바뀌었다. 다음 주기를 기다릴 이유가 없다.
         journey.scheduleEvaluationAt(now);
         sessionRepository.flush();

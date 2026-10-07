@@ -161,11 +161,15 @@ gyeonggi:
     # 공공데이터포털 Encoding 키(%2F 포함 그대로). 미설정이면 경기 도착 조회는 호출 없이 빈 결과.
     bus-key: ${GYEONGGI_BUS_API:}
     bus-arrival-base-url: https://apis.data.go.kr/6410000/busarrivalservice/v2
+    # 노선정류소(#267 표 적재). 같은 포털 키.
+    bus-route-base-url: https://apis.data.go.kr/6410000/busrouteservice/v2
 tago:
   api:
     # 서울·경기 밖 버스도착(국토교통부 TAGO). 포털 Encoding 키 그대로. 미설정이면 호출 없이 빈 결과.
     bus-key: ${TAGO_BUS_API:}
     bus-arrival-base-url: https://apis.data.go.kr/1613000/ArvlInfoInqireService
+    # 노선정보: 도시별 노선 목록·노선별 경유정류소(#267 표 적재). 같은 포털 키.
+    bus-route-base-url: https://apis.data.go.kr/1613000/BusRouteInfoInqireService
 seoul:
   api:
     bus-key: ${SEOUL_BUS_API:test}
@@ -342,6 +346,13 @@ collector:
     enabled: ${STATIC_DATA_ENABLED:false}
     cron: "0 0 3 * * *"
     bus-route-polyline-request-interval-ms: ${BUS_ROUTE_POLYLINE_REQUEST_INTERVAL_MS:200}
+  # 경기·TAGO 노선 정류장 표(#267). worker 전용. 한 번에 약 2.15만 호출 — 월 1회 + 표가 비었을 때 부팅 직후 1회.
+  # 꺼져 있어도 TAGO 도시코드 조회는 접두사 표로 폴백하므로 지금과 같은 동작이다.
+  regional-bus-catalog:
+    enabled: ${REGIONAL_BUS_CATALOG_ENABLED:false}
+    cron: "0 30 3 1 * *"
+    concurrency: 3
+    load-on-empty: true
 
 
 # logging / cors 는 application-{dev,prod}.yaml 에서 설정
@@ -504,6 +515,26 @@ journey:
       # 키는 용도별로 갈린다(trigger/request). P2-F PR4a: ODsay 요금 폭 전제(2분)를 지연 상황
       # UX(더 자주 갱신)로 재산정해 1분. 중복 억제는 1분으로 충분.
       cooldown: PT1M
+    board:
+      # 주기 갱신 보드(#264). 기본 꺼짐 — 꺼져 있으면 기존 사건 기반 경로가 그대로다.
+      # 켜기 전 조건: reroute-periodic-board PR-5 까지 머지 + V57 배치 + reroute_refresh_at 백필.
+      enabled: ${JOURNEY_REROUTE_BOARD_ENABLED:false}
+      lead-time-sec: 60
+      realtime-threshold-sec: 120
+      mixed-threshold-sec: 180
+      per-extra-wait-sec: 60
+      replace-margin-sec: 60
+      reshow-margin-sec: 30
+      ttl: PT3M
+      refresh:
+        # worker 전용. 정류장·역 통과 신호가 없으면 interval 마다, 신호가 오면 min-gap 을 지켜 즉시.
+        tick-ms: ${JOURNEY_REROUTE_BOARD_REFRESH_TICK_MS:1000}
+        batch-size: 6
+        lease-seconds: 60
+        interval-seconds: 60
+        min-gap-seconds: 30
+        initial-delay-seconds: 60
+        permits: ${JOURNEY_REROUTE_BOARD_REFRESH_PERMITS:3}
     remaining-path:
       # 환승 정류장에서 목적지까지 다른 경로를 찾는 판정(④). next-stop 과 값은 겹쳐도 키는
       # 별도다 - 이쪽은 "경로를 몇 개 평가할지", 그쪽은 "하차 자리를 몇 개 열지"다.

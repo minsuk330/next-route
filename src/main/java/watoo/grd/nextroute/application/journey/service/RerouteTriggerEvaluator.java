@@ -45,6 +45,7 @@ public class RerouteTriggerEvaluator {
     private final RerouteCooldownPort cooldownPort;
     private final JourneyRerouteMetrics metrics;
     private final JourneyRerouteProperties properties;
+    private final RerouteRefreshSignal rerouteRefreshSignal;
 
     /**
      * 이번 평가에서 재탐색을 찾아볼 만한 사건이 있었는지 보고 세어 둔다.
@@ -73,6 +74,12 @@ public class RerouteTriggerEvaluator {
             }
             metrics.recordTriggerAdmitted(signal.reason().tag());
             record(signal);
+            if (properties.getBoard().isEnabled()) {
+                // 보드 모드(#264): 사건이 제안을 직접 만들지 않는다. 보드를 바로 다시 찾게 하고(최소
+                // 간격 우회), push 판단은 보드 갱신 뒤에 한다(PR-5). 여기서 v1 제안을 심으면 보드를 밀어낸다.
+                rerouteRefreshSignal.requestUrgent(signal.journeyId());
+                continue;
+            }
             // 알림 스위치가 꺼져 있으면 여기서 끝난다(shadow 그대로). 켜져 있으면 발행 경로가
             // 스스로 한 번 더 걸러 낸다 — 이 셈은 "찾아볼 만한가"까지고, "깨울 만한가"는
             // 발행 경로의 판단이다.
