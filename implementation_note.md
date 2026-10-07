@@ -3757,3 +3757,18 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 배포
 - 마이그레이션 없음. worker(버전 저장·계산기) → api(스냅샷·파라미터) 순
 - 전체 `./gradlew test --continue`: 2596 중 실패 12 = 기존 무관(JourneyEvalReadPathIT 2·JourneyEvaluationIT 7·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·간헐 JourneyNotificationSchemaIT 1) — #304 때와 같은 구성, 새 실패 0
+
+## 단독 추적 하차 선택 노선 선 API (2026-10-07, M, #312)
+### 확정
+- `GET /api/journeys/track/routes/{routeGtfsId}/shape?from&to?&pattern?` → `{points:[{x,y}], quality: SHAPE_OK|STOP_LINE}`. 대안(alightStops 에 형상 싣기)은 안 함 — 기존 응답 계약을 안 건드림
+- slice 는 `TrackLegFactory.geometry` 그대로 재사용 → 시작 후 안내 선과 같은 점열(테스트로 고정)
+- 패턴 고르기: `to` 있으면 시작과 같은 `TrackPatternSelector.select`(가장 짧은 구간 패턴), 없으면 하차 후보 조회와 같은 `branchFor` + 한 바퀴 끝(= alightStops 마지막 정류장)
+- 형상 못 자르면 승차~하차 정류장 직선 + `STOP_LINE`. `LegGeometry` 의 "가짜 직선 금지"는 안내 진행 판정용 규칙이고, 이 API 는 품질을 명시하므로 이슈 요구대로 직선을 준다
+- 상세 정류장 수 ≠ 정류장 패턴 정류장 수면 `TRACK_PATTERN_UNAVAILABLE`(시작과 같은 거절, 그래프 섞임 방지)
+### 좌표
+- `TrackSelectionQueryService.shape`/`shapeOf`, `TrackViews.Shape`·`ShapeQuality`, `JourneyTrackController.shape`
+### 검증
+- `TrackSelectionQueryServiceTest` 9/9(신규 4: 한 바퀴 끝·to slice·STOP_LINE·422/패턴 불일치), `JourneyTrackControllerTest` 6/6(신규 1 + 인증 1줄), `TrackLegFactoryTest` 7/7, `TrackJourneyStartServiceTest` 10/10
+- journey 패키지 단위 테스트 전부 통과. `*IT` 253 실패 = 스크래치 clone 에 DB 자격증명 없음(`password authentication failed for user "${POSTGRES_USER}"`) — 환경, 이 변경 무관(DB 미접촉)
+### 배포
+- 마이그레이션 없음. api 만 교체. 플래그 `journey.track.enabled` 그대로(꺼지면 404)

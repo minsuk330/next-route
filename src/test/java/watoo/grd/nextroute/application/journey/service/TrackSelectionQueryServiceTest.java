@@ -7,9 +7,11 @@ import watoo.grd.nextroute.application.journey.config.JourneyTrackProperties;
 import watoo.grd.nextroute.application.journey.dto.TrackViews;
 import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
 import watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties;
+import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPatternDetail;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitStop;
+import watoo.grd.nextroute.application.route.routing.EncodedPolyline;
 import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
 import watoo.grd.nextroute.application.route.routing.OtpPermit;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
@@ -114,5 +116,69 @@ class TrackSelectionQueryServiceTest {
         assertThat(service.stopsNear(37.5, 127.0, RoutingMode.BUS)).extracting(TrackViews.Stop::gtfsStopId)
                 .containsExactly("b");
         assertThat(service.stopsNear(37.5, 127.0, null)).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("노선 선(to 없음): 하차 후보 마지막(한 바퀴 끝)까지, 시작 후 안내와 같은 slice")
+    void shapeWholeLap() {
+        TrackViews.Shape shape = service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, null, null);
+
+        assertThat(shape.quality()).isEqualTo(TrackViews.ShapeQuality.SHAPE_OK);
+        assertThat(shape.points()).isEqualTo(
+                EncodedPolyline.decode(TrackLegFactory.geometry(line2, 31, 73, "g").displayPoints()));
+        assertThat(near(shape.points().get(0), line2.stops().get(31))).isTrue();
+        assertThat(near(shape.points().get(shape.points().size() - 1), line2.stops().get(73))).isTrue();
+        List<TrackViews.AlightStop> alight = service.alightStops("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, null);
+        assertThat(alight.get(alight.size() - 1).gtfsStopId()).isEqualTo(line2.stops().get(73).gtfsId());
+    }
+
+    @Test
+    @DisplayName("노선 선(to 있음): 시작과 같은 승차~하차 slice")
+    void shapeToAlight() {
+        String to = line2.stops().get(35).gtfsId();
+
+        TrackViews.Shape shape = service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, to,
+                TrackFixtures.LINE2_PATTERN);
+
+        assertThat(shape.quality()).isEqualTo(TrackViews.ShapeQuality.SHAPE_OK);
+        assertThat(shape.points()).isEqualTo(
+                EncodedPolyline.decode(TrackLegFactory.geometry(line2, 31, 35, "g").displayPoints()));
+    }
+
+    @Test
+    @DisplayName("형상이 없으면 승차~하차 정류장 직선, STOP_LINE")
+    void shapeStopLine() {
+        TransitPatternDetail noShape = new TransitPatternDetail(line2.code(), line2.route(), line2.stops(), null);
+        given(port.pattern(eq(TrackFixtures.LINE2_PATTERN), any())).willReturn(Optional.of(noShape));
+
+        TrackViews.Shape shape = service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM,
+                line2.stops().get(35).gtfsId(), null);
+
+        assertThat(shape.quality()).isEqualTo(TrackViews.ShapeQuality.STOP_LINE);
+        assertThat(shape.points()).hasSize(5);
+        assertThat(shape.points().get(0)).isEqualTo(new CoordPoint(line2.stops().get(31).lon(),
+                line2.stops().get(31).lat()));
+    }
+
+    @Test
+    @DisplayName("노선 선: 그 노선으로 못 가는 하차면 422, 상세가 정류장 패턴과 어긋나면 TRACK_PATTERN_UNAVAILABLE")
+    void shapeErrors() {
+        assertThatThrownBy(() -> service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, "1:NOWHERE", null))
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.TRACK_STOPS_INVALID);
+        assertThatThrownBy(() -> service.shape("1:OTHER", TrackFixtures.GANGNAM, null, null))
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.TRACK_STOPS_INVALID);
+
+        TransitPatternDetail shorter = new TransitPatternDetail(line2.code(), line2.route(),
+                line2.stops().subList(0, 80), line2.geometryPoints());
+        given(port.pattern(eq(TrackFixtures.LINE2_PATTERN), any())).willReturn(Optional.of(shorter));
+        assertThatThrownBy(() -> service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, null, null))
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.TRACK_PATTERN_UNAVAILABLE);
+    }
+
+    private static boolean near(CoordPoint point, TransitStop stop) {
+        return Math.hypot(point.x() - stop.lon(), point.y() - stop.lat()) < 0.003;
     }
 }

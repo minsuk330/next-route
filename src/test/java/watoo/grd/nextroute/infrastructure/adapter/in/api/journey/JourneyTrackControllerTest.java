@@ -16,6 +16,7 @@ import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartTrackCommand;
 import watoo.grd.nextroute.application.journey.dto.TrackViews;
+import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.journey.service.TrackJourneyStartService;
 import watoo.grd.nextroute.application.journey.service.TrackSelectionQueryService;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
@@ -67,6 +68,8 @@ class JourneyTrackControllerTest {
         mockMvc.perform(get("/api/journeys/track/stops/near?lat=37.5&lon=127.0")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/journeys/track/stops/1:BS_TAGO_SEB121000091/patterns"))
                 .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/journeys/track/routes/1:BR_TAGO_SEB100100093/shape?from=1:BS_X"))
+                .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/journeys/track/routes/1:BR_TAGO_SEB100100093/stops?from=1:BS_X"))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/journeys/track").contentType(MediaType.APPLICATION_JSON).content(BODY))
@@ -85,6 +88,26 @@ class JourneyTrackControllerTest {
                 .andExpect(jsonPath("$[0].directionLabel").value("내선"))
                 .andExpect(jsonPath("$[0].mode").value("SUBWAY"))
                 .andExpect(jsonPath("$[0].patternCode").value("1:RR_ACC1_S-1-02-1I::10"));
+    }
+
+    @Test
+    @DisplayName("200 — 노선 선: points 는 x=경도·y=위도, quality 문자열. to·pattern 은 선택")
+    void shape() throws Exception {
+        given(queryService.shape("1:BR_TAGO_SEB100100093", "1:BS_A", null, null)).willReturn(new TrackViews.Shape(
+                List.of(new CoordPoint(126.83, 37.52), new CoordPoint(126.84, 37.53)),
+                TrackViews.ShapeQuality.SHAPE_OK));
+
+        mockMvc.perform(get("/api/journeys/track/routes/1:BR_TAGO_SEB100100093/shape?from=1:BS_A")
+                        .with(authentication(user())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quality").value("SHAPE_OK"))
+                .andExpect(jsonPath("$.points[0].x").value(126.83))
+                .andExpect(jsonPath("$.points[0].y").value(37.52));
+
+        mockMvc.perform(get("/api/journeys/track/routes/1:BR_TAGO_SEB100100093/shape?from=1:BS_A&to=1:BS_B&pattern=p")
+                        .with(authentication(user())))
+                .andExpect(status().isOk());
+        verify(queryService).shape("1:BR_TAGO_SEB100100093", "1:BS_A", "1:BS_B", "p");
     }
 
     @Test
