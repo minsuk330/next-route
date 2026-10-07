@@ -3620,7 +3620,7 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 변이 확인: 링 게이트·sweep NOT EXISTS 를 빼면 `SubwayTrainSelectionIT` 2건 실패 → 원복
 - 전체 `./gradlew test --continue`: 2555 중 실패 12 = 기존 무관 10(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1) + `JourneyNotificationSchemaIT` 간헐 1(단독 20/20) + `SubwayBindingMatchIT` 1(위 함정, 수정 후 13/13)
 
-## standalone-track PR-4 — 버스 위치 + 승차 시각 대조 (2026-10-07, L 의 4/5, #265)
+## ~~standalone-track PR-4 — 버스 위치 + 승차 시각 대조 (2026-10-07, L 의 4/5, #265)~~ 취소: 아래 "PR-4 revert" 참고
 ### 확정 (PLAN 과 다르게 간 것 포함)
 - **대상 목록은 DB 가 소유**(PLAN 의 Redis 집합·AFTER_COMMIT 이벤트 대신): worker tick 이 `kind=TRACK`·ACTIVE 여정 중 (a) 현재 단계 WAIT_BUS 또는 (b) RIDE_BUS 이고 `vehicle_matched_at IS NULL` 을 읽는다. 시작·전이·종료마다 집합을 고칠 필요가 없고 빠뜨릴 길이 없다. 명령 트랜잭션·재전송 경로를 건드리지 않는다(PLAN 의 "apply 안에서 부르지 않는다"를 구조로 만족). 일반 여정은 대상 아님
 - **판정 종료 표시 = `vehicle_matched_at`**: 고정이면 차량 칼럼 3개 + 시각, 못 찾음·포기·애매·사용자 해제면 차량 없이 시각만. 차 있으면 다시 판정 안 함 → 중복 tick·재전송 방어가 SQL 조건(`WHERE vehicle_matched_at IS NULL`)
@@ -3671,3 +3671,14 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 배포
 - 마이그레이션 없음. api 이미지 교체.
+
+## standalone-track PR-4 revert — 단독 버스 차량 시각 대조 걷어냄 (2026-10-07, #265 결정 5차)
+### 확정
+- **#265 결정 5차(2026-10-07 13:47 KST): 단독 버스 추적은 차량을 특정하지 않는다.** 이유 = ①시각 대조는 "출발과 거의 동시에 탑승을 누른다"가 전제인데 실제로는 타고 한참 뒤 앱을 연다 → 엉뚱한 차 고정 ②같은 노선이면 어느 차든 진행이 같고 알릴 것은 "어디서 내리나"뿐 ③탑승 중 위치는 앱 GPS 를 노선 선에 투영(네이티브 버스 엔진 M5/M6)
+- PLAN v2(PR #285)가 같은 분(13:47)에 올라와 결정 5차를 반영하지 못했고, PR-4(#296)는 그 PLAN 대로 구현·머지·배포(플래그 off)됐다 → 이 PR 로 코드 전부 revert(관찰·대조·위치 어댑터·Redis 위치 캐시·해제 API·`JourneyLeg` 차량 칼럼 매핑·설정)
+- **V61 파일은 남긴다** — 운영이 이미 v61(2026-10-07 16:11 배포)이라 파일을 지우면 Flyway validate 가 "적용됐는데 로컬에 없음"으로 기동을 막는다. 칼럼 3개(`vehicle_id_type`·`vehicle_source`·`vehicle_matched_at`)는 nullable 이고 엔티티가 매핑하지 않아 아무도 안 쓴다. 정리가 필요하면 V62 drop 으로 따로
+- 운영 영향 없음: 플래그 `JOURNEY_TRACK_BUS_ENABLED` 는 설정된 적 없다(관찰 스케줄러가 한 번도 뜨지 않음, `journey_leg.vehicle_id` 비-null 0)
+### 함정
+- 구현 전에 PLAN 만 보고 issue 최신 댓글(결정)을 다시 확인하지 않았다 — **PLAN 과 issue 결정이 같은 시각에 올라오면 issue 결정이 우선**인지 착수 전에 대조할 것
+### 배포
+- 마이그레이션 변화 없음(V61 유지). 다음 앱 배포에 실려 가면 끝
