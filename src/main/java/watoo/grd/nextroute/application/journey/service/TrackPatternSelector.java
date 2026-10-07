@@ -82,11 +82,11 @@ public final class TrackPatternSelector {
     public static Optional<Branch> branchFor(String routeGtfsId, String boardStopId, String patternCode,
                                              List<TransitPattern> patterns) {
         List<Branch> routeBranches = branches(boardStopId, patterns).stream()
-                .filter(b -> routeGtfsId.equals(b.pattern().route().gtfsId()))
+                .filter(b -> routeMatches(routeGtfsId, b.pattern().route().gtfsId()))
                 .toList();
         if (patternCode != null) {
             for (TransitPattern pattern : patterns) {
-                if (patternCode.equals(pattern.code()) && routeGtfsId.equals(pattern.route().gtfsId())) {
+                if (patternCode.equals(pattern.code()) && routeMatches(routeGtfsId, pattern.route().gtfsId())) {
                     Lap lap = lap(pattern, boardStopId);
                     if (lap != null && !lap.remaining().isEmpty()) {
                         Branch raw = new Branch(pattern, lap.remaining(), lap.circular(), null);
@@ -108,7 +108,7 @@ public final class TrackPatternSelector {
                                              String patternCode, List<TransitPattern> patterns) {
         List<Selection> candidates = new ArrayList<>();
         for (TransitPattern pattern : patterns) {
-            if (!routeGtfsId.equals(pattern.route().gtfsId())) {
+            if (!routeMatches(routeGtfsId, pattern.route().gtfsId())) {
                 continue;
             }
             Lap lap = lap(pattern, boardStopId);
@@ -134,6 +134,17 @@ public final class TrackPatternSelector {
                 .comparingInt((Selection c) -> c.alightIndex() - c.boardIndex())
                 .thenComparing(Comparator.comparingInt((Selection c) -> c.pattern().tripCount()).reversed())
                 .thenComparing(c -> c.pattern().code()));
+    }
+
+    /**
+     * 요청 노선과 패턴 노선이 같은가. 서울 공항버스는 OTP 에서 방향별로 {@code _U}/{@code _D} 가 붙는데 서울 노선 id 로 만든
+     * GTFS id(#298 {@code OtpGtfsIds})에는 없다 — 접미사만 다르면 같다고 본다. 방향은 승차 뒤 하차가 오는지가 가른다.
+     */
+    static boolean routeMatches(String requested, String actual) {
+        if (requested == null || actual == null) {
+            return false;
+        }
+        return requested.equals(actual) || actual.equals(requested + "_U") || actual.equals(requested + "_D");
     }
 
     /** 패턴 정류장 id 목록에서 승차 첫 등장과 한 바퀴 끝. 승차가 없으면 null. */

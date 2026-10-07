@@ -8,5 +8,7 @@ public record StopRouteResult(
         Integer routeType,
         String startStation,
         String endStation,
-        boolean supportsPrediction
+        boolean supportsPrediction,
+        /** OTP GTFS 노선 id(#298). 공항버스 방향 접미사(_U/_D)는 붙지 않는다 — 시작이 흡수 */
+        String routeGtfsId
 ) {}

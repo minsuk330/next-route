@@ -16,7 +16,14 @@ public record RailPattern(String routeGtfsId, int tripCount, List<Stop> stops) {
     /**
      * @param arrivalSec   서비스일 자정 기준 초. 86400 을 넘을 수 있다. 없으면 null
      * @param departureSec 위와 같다
+     * @param gtfsId       OTP GTFS 정류장 id(#298). 단독 추적 시작에 넘길 값. 없으면 null
      */
-    public record Stop(String name, double lat, double lon, Integer arrivalSec, Integer departureSec) {
+    public record Stop(String name, double lat, double lon, Integer arrivalSec, Integer departureSec,
+                       String gtfsId) {
+
+        /** gtfsId 를 모르는 호출부(시험·옛 픽스처)용. */
+        public Stop(String name, double lat, double lon, Integer arrivalSec, Integer departureSec) {
+            this(name, lat, lon, arrivalSec, departureSec, null);
+        }
     }
 }

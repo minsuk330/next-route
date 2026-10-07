@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.nearby.service;
 
+import watoo.grd.nextroute.application.subway.service.SubwayGtfsStopIndex;
+import watoo.grd.nextroute.application.route.mapping.OtpGtfsIds;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +42,7 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
     private final BusRouteStopRepository busRouteStopRepository;
     private final SubwayStationRepository subwayStationRepository;
     private final PredictionSupportService predictionSupportService;
+    private final SubwayGtfsStopIndex subwayGtfsStopIndex;
 
     @Override
     public List<NearbyBusStopResult> getNearbyBusStops(double lat, double lng, int limit) {
@@ -65,7 +68,8 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
                         p.getStopId(), p.getStopName(), p.getArsId(),
                         p.getLatitude(), p.getLongitude(),
                         (int) Math.round(p.getDistMeters()),
-                        supportedStopIds.contains(p.getStopId())))
+                        supportedStopIds.contains(p.getStopId()),
+                        OtpGtfsIds.seoulBusStop(p.getStopId())))
                 .toList();
     }
 
@@ -116,7 +120,8 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
                         .map(p -> new NearbySubwayStationResult(
                                 p.getStationId(), p.getStationName(), p.getLineId(), p.getLineName(),
                                 p.getLatitude(), p.getLongitude(),
-                                (int) Math.round(p.getDistMeters())))
+                                (int) Math.round(p.getDistMeters()),
+                                subwayGtfsStopIndex.gtfsStopId(p.getLineId(), p.getStationId()).orElse(null)))
                         .toList(),
                 lim);
     }

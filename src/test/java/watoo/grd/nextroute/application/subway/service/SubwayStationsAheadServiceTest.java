@@ -39,8 +39,8 @@ class SubwayStationsAheadServiceTest {
         givenBoard();
         given(patterns.patterns("1077", "하행")).willReturn(List.of(new DirectedRailPattern(
                 "1:RR_ACC1_S-1-SB-1D", "신분당선<하행>", false, 159, List.of(
-                new RailPattern.Stop("강남(신분당선)", 37.4966, 127.0284, null, 1000),
-                new RailPattern.Stop("양재(신분당선)", 37.4844, 127.0346, 1120, 1140)))));
+                new RailPattern.Stop("강남(신분당선)", 37.4966, 127.0284, null, 1000, "1:RS_SB_GANGNAM"),
+                new RailPattern.Stop("양재(신분당선)", 37.4844, 127.0346, 1120, 1140, "1:RS_SB_YANGJAE")))));
         given(index.candidates("1077")).willReturn(List.of(GANGNAM, YANGJAE));
         given(index.transfers("양재", 37.4844, 127.0346, "1077"))
                 .willReturn(List.of(new SubwayLineStationIndex.Transfer("1003", "3호선")));
@@ -56,6 +56,10 @@ class SubwayStationsAheadServiceTest {
         assertThat(yangjae.stopsAway()).isEqualTo(1);
         assertThat(yangjae.minutes()).isEqualTo(2);
         assertThat(yangjae.transfers()).containsExactly(new SubwayStationsAheadResponse.Transfer("1003", "3호선"));
+        // #298 A안: 단독 추적 시작에 그대로 넘길 GTFS id
+        assertThat(r.boardGtfsStopId()).isEqualTo("1:RS_SB_GANGNAM");
+        assertThat(yangjae.gtfsStopId()).isEqualTo("1:RS_SB_YANGJAE");
+        assertThat(yangjae.routeGtfsId()).isEqualTo("1:RR_ACC1_S-1-SB-1D");
     }
 
     @Test

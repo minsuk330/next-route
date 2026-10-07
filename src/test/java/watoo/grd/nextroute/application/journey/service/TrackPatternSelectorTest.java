@@ -141,6 +141,21 @@ class TrackPatternSelectorTest {
                 .extracting(TrackPatternSelector.Branch::directionLabel).containsExactly("시청");
     }
 
+    @Test
+    @DisplayName("공항버스: 접미사(_U/_D) 없는 노선 id 로도 고르고, 방향은 정류장 순서가 가른다(#298)")
+    void airportBusSuffix() {
+        TransitRoute up = new TransitRoute("1:BR_TAGO_SEB100100600_U", "6001", "-", RoutingMode.BUS, "BUS", null, "1:A1");
+        TransitRoute down = new TransitRoute("1:BR_TAGO_SEB100100600_D", "6001", "-", RoutingMode.BUS, "BUS", null, "1:A1");
+        TransitPattern toAirport = new TransitPattern("u", null, up, stops("A", "B", "C"), 1);
+        TransitPattern fromAirport = new TransitPattern("d", null, down, stops("C", "B", "A"), 1);
+
+        assertThat(TrackPatternSelector.select("1:BR_TAGO_SEB100100600", "A", "C", null,
+                List.of(toAirport, fromAirport)).orElseThrow().pattern().code()).isEqualTo("u");
+        assertThat(TrackPatternSelector.select("1:BR_TAGO_SEB100100600", "C", "A", null,
+                List.of(toAirport, fromAirport)).orElseThrow().pattern().code()).isEqualTo("d");
+        assertThat(TrackPatternSelector.routeMatches("1:BR_TAGO_SEB100100600", "1:BR_TAGO_SEB1001006001")).isFalse();
+    }
+
     private static TransitPattern pattern(String code, TransitRoute route, int trips, String... ids) {
         return new TransitPattern(code, null, route, stops(ids), trips);
     }

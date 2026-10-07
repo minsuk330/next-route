@@ -6,7 +6,9 @@ import java.util.List;
 public record RouteStopsResult(
         String routeId,
         boolean supportsPrediction,
-        List<RouteStop> stops
+        List<RouteStop> stops,
+        /** OTP GTFS 노선 id(#298) */
+        String routeGtfsId
 ) {
     /** 좌표는 nullable — null이면 UI가 핀 생략. */
     public record RouteStop(
@@ -15,6 +17,8 @@ public record RouteStopsResult(
             String stopName,
             Double latitude,
             Double longitude,
-            String direction
+            String direction,
+            /** OTP GTFS 정류장 id(#298) */
+            String gtfsStopId
     ) {}
 }

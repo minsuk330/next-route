@@ -40,7 +40,7 @@ public class OtpSubwayRoutePatternAdapter implements SubwayRoutePatternPort {
     private static final String ROUTES_QUERY =
             "{ routes(transportModes:[SUBWAY]) { gtfsId shortName longName } }";
     private static final String PATTERNS_QUERY =
-            "query($id:String!){ route(id:$id){ patterns{ stops{ name lat lon } "
+            "query($id:String!){ route(id:$id){ patterns{ stops{ gtfsId name lat lon } "
                     + "trips{ stoptimes{ scheduledArrival scheduledDeparture pickupType dropoffType } } } } }";
 
     private static final String NONE = "NONE";
@@ -105,7 +105,8 @@ public class OtpSubwayRoutePatternAdapter implements SubwayRoutePatternPort {
                         stop.path("lat").asDouble(),
                         stop.path("lon").asDouble(),
                         intOrNull(time, "scheduledArrival"),
-                        intOrNull(time, "scheduledDeparture")));
+                        intOrNull(time, "scheduledDeparture"),
+                        stop.path("gtfsId").asText(null)));
             }
             patterns.add(new RailPattern(routeGtfsId, trips.size(), List.copyOf(parsed)));
         }

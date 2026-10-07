@@ -31,7 +31,7 @@ class OtpSubwayRoutePatternAdapterTest {
                 {"patterns":[{
                   "stops":[{"name":"신도림(2호선)","lat":37.5,"lon":126.8},
                            {"name":"통과역","lat":37.51,"lon":126.81},
-                           {"name":"문래","lat":37.52,"lon":126.82}],
+                           {"name":"문래","lat":37.52,"lon":126.82,"gtfsId":"1:RS_ACC1_S-1-0235"}],
                   "trips":[{"stoptimes":[
                       {"scheduledArrival":19800,"scheduledDeparture":19800,"dropoffType":"NONE"},
                       {"scheduledArrival":19860,"scheduledDeparture":19860,"pickupType":"NONE","dropoffType":"NONE"},
@@ -45,6 +45,9 @@ class OtpSubwayRoutePatternAdapterTest {
         assertThat(pattern.stops()).extracting(RailPattern.Stop::name).containsExactly("신도림(2호선)", "문래");
         assertThat(pattern.stops().get(1).arrivalSec()).isEqualTo(19920);
         assertThat(pattern.stops().get(1).departureSec()).isEqualTo(19950);
+        // #298: GTFS 정류장 id 를 읽는다. 없으면(옛 응답) null
+        assertThat(pattern.stops().get(1).gtfsId()).isEqualTo("1:RS_ACC1_S-1-0235");
+        assertThat(pattern.stops().get(0).gtfsId()).isNull();
     }
 
     @Test

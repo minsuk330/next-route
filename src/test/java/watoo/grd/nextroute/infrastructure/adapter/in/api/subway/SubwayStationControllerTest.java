@@ -77,7 +77,10 @@ class SubwayStationControllerTest {
         given(aheadUseCase.getStationsAhead("1005000548", "하행", null)).willReturn(new SubwayStationsAheadResponse(
                 "1005", "1005000548", "강동", "하행", false, SubwayStationsAheadResponse.EndReason.BRANCH,
                 List.of(new SubwayStationsAheadResponse.Branch("마천", "둔촌동",
-                        SubwayStationsAheadResponse.EndReason.TERMINAL)), List.of()));
+                        SubwayStationsAheadResponse.EndReason.TERMINAL)),
+                List.of(new SubwayStationsAheadResponse.Station("1005000549", "둔촌동", 1, 2, List.of(),
+                        "1:RS_ACC1_S-5-0549", "1:RR_ACC1_S-5-1D")),
+                "1:RS_ACC1_S-5-0548"));
 
         mockMvc.perform(get("/api/subway/stations/1005000548/stations-ahead").param("direction", "하행"))
                 .andExpect(status().isOk())
@@ -85,7 +88,9 @@ class SubwayStationControllerTest {
                 .andExpect(jsonPath("$.destinationApplied").value(false))
                 .andExpect(jsonPath("$.branches[0].destinationName").value("마천"))
                 .andExpect(jsonPath("$.branches[0].kind").value("TERMINAL"))
-                .andExpect(jsonPath("$.stations").isEmpty());
+                .andExpect(jsonPath("$.boardGtfsStopId").value("1:RS_ACC1_S-5-0548"))
+                .andExpect(jsonPath("$.stations[0].gtfsStopId").value("1:RS_ACC1_S-5-0549"))
+                .andExpect(jsonPath("$.stations[0].routeGtfsId").value("1:RR_ACC1_S-5-1D"));
     }
 
     @Test

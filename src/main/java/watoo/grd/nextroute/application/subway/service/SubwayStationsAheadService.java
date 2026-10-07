@@ -77,7 +77,8 @@ public class SubwayStationsAheadService implements GetSubwayStationsAheadUseCase
                         .map(b -> new SubwayStationsAheadResponse.Branch(b.destinationName(), b.nextStationName(),
                                 SubwayStationsAheadResponse.EndReason.valueOf(b.kind().name())))
                         .toList(),
-                result.stations().stream().map(a -> toStation(a, lineId, candidates)).toList());
+                result.stations().stream().map(a -> toStation(a, lineId, candidates)).toList(),
+                boardGtfsStopId(patterns, board.getStationId()));
     }
 
     private SubwayStationsAheadResponse.Station toStation(StationsAheadCalculator.Ahead ahead, String lineId,
@@ -90,7 +91,18 @@ public class SubwayStationsAheadService implements GetSubwayStationsAheadUseCase
                         .toList())
                 .orElse(List.of());
         return new SubwayStationsAheadResponse.Station(
-                stop.stationId(), stop.name(), ahead.stopsAway(), ahead.minutes(), transfers);
+                stop.stationId(), stop.name(), ahead.stopsAway(), ahead.minutes(), transfers,
+                stop.gtfsStopId(), ahead.routeGtfsId());
+    }
+
+    /** 승차역과 이어진 첫 패턴 정차의 GTFS id(#298). 못 찾으면 null. */
+    static String boardGtfsStopId(List<StationsAheadCalculator.Pattern> patterns, String boardStationId) {
+        return patterns.stream()
+                .flatMap(p -> p.stops().stream())
+                .filter(s -> boardStationId.equals(s.stationId()) && s.gtfsStopId() != null)
+                .map(StationsAheadCalculator.Stop::gtfsStopId)
+                .findFirst()
+                .orElse(null);
     }
 
     List<StationsAheadCalculator.Pattern> resolvedPatterns(
@@ -120,7 +132,7 @@ public class SubwayStationsAheadService implements GetSubwayStationsAheadUseCase
                     .orElseGet(() -> SubwayPatternStationMatcher.displayName(stop.name()));
             String key = matched.map(SubwayPatternStationMatcher.Candidate::stationId).orElse("name:" + name);
             stops.add(new StationsAheadCalculator.Stop(key, matched.map(SubwayPatternStationMatcher.Candidate::stationId)
-                    .orElse(null), name, stop.arrivalSec(), stop.departureSec()));
+                    .orElse(null), name, stop.arrivalSec(), stop.departureSec(), stop.gtfsId()));
         }
         return new StationsAheadCalculator.Pattern(pattern.routeGtfsId(), pattern.routeLongName(), pattern.loop(),
                 pattern.tripCount(), stops);
