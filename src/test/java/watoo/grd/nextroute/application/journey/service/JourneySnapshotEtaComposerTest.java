@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -184,7 +185,7 @@ class JourneySnapshotEtaComposerTest {
     @Test
     @DisplayName("끝난 여정은 예측도 실시간 조회도 하지 않는다")
     void finishedJourneyIsUntouched() {
-        JourneySnapshot finished = JourneySnapshot.of(JOURNEY_ID, JourneyStatus.COMPLETED,
+        JourneySnapshot finished = JourneySnapshot.of(JOURNEY_ID, JourneyStatus.COMPLETED, JourneyKind.NAVIGATION,
                 5L, 9L, REVISION, 4, NOW.plusSeconds(180), null, NOW, views());
 
         JourneySnapshot result = composer.compose(USER_ID, finished);
@@ -282,7 +283,7 @@ class JourneySnapshotEtaComposerTest {
     }
 
     private JourneySnapshot snapshot(int currentLegIndex) {
-        return JourneySnapshot.of(JOURNEY_ID, JourneyStatus.ACTIVE, 3L, 7L, REVISION,
+        return JourneySnapshot.of(JOURNEY_ID, JourneyStatus.ACTIVE, JourneyKind.NAVIGATION, 3L, 7L, REVISION,
                 currentLegIndex, NOW.plusSeconds(180), null, NOW, views());
     }
 

@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.dto;
 
+import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 
@@ -15,6 +16,8 @@ import java.util.List;
  * <p>{@code serverTime} 을 함께 준다. 기기 시계는 어긋나 있을 수 있어서, 앱이
  * {@code guidanceLeaseUntil} 까지 남은 시간을 계산하려면 서버 기준 지금이 필요하다.
  *
+ * @param kind                   일반 여정({@code NAVIGATION})인가 단독 추적({@code TRACK})인가. 앱이 화면을
+ *                               가른다 — 단독 추적이면 재탐색 UI(말풍선·제안)를 숨긴다
  * @param currentLeg             지금 지나는 단계. {@code legs} 에서 뽑은 값이라 중복이지만, 앱이
  *                               매번 순번으로 찾지 않아도 되게 함께 준다
  * @param recommendedPollSeconds 다음에 물어볼 때까지 기다릴 초. 0 이면 그만 물어도 된다
@@ -25,6 +28,7 @@ import java.util.List;
 public record JourneySnapshot(
         Long journeyId,
         JourneyStatus status,
+        JourneyKind kind,
         long commandVersion,
         long evaluationVersion,
         int routeRevision,
@@ -58,7 +62,7 @@ public record JourneySnapshot(
     }
 
     /** 저장된 상태에서 스냅샷을 만든다. 파생 값(현재 단계·폴링 간격)은 여기서 계산한다. */
-    public static JourneySnapshot of(Long journeyId, JourneyStatus status,
+    public static JourneySnapshot of(Long journeyId, JourneyStatus status, JourneyKind kind,
                                      long commandVersion, long evaluationVersion,
                                      int routeRevision, int currentLegIndex,
                                      Instant guidanceLeaseUntil,
@@ -66,7 +70,7 @@ public record JourneySnapshot(
                                      Instant serverTime,
                                      List<JourneyLegView> legs) {
         JourneyLegView current = legOf(legs, currentLegIndex);
-        return new JourneySnapshot(journeyId, status, commandVersion, evaluationVersion,
+        return new JourneySnapshot(journeyId, status, kind, commandVersion, evaluationVersion,
                 routeRevision, currentLegIndex, guidanceLeaseUntil,
                 subwayOfflineProtectionUntil, serverTime,
                 current, pollSecondsOf(status, current), legs, null, null);
@@ -78,14 +82,14 @@ public record JourneySnapshot(
      * <p>예측은 실시간 조회가 필요해 트랜잭션 밖에서 따로 계산한다. 그래서 기본 스냅샷을 만든
      * 뒤에 붙이는 모양이 된다.
      *
-     * <p><b>{@code subwayGuidance} 를 반드시 함께 옮긴다.</b> 이 메서드는 레코드를 통째로 다시
+     * <p><b>{@code subwayGuidance}·{@code kind} 를 반드시 함께 옮긴다.</b> 이 메서드는 레코드를 통째로 다시
      * 만들기 때문에 필드를 하나 더할 때마다 여기서 조용히 사라질 수 있다 — 사라지면 앱은
      * 지하철 구간에서만, 그것도 예측이 붙은 응답에서만 링을 잃는다. 시험으로 고정한다.
      *
      * @param pollSeconds 환승 위험을 반영해 좁힌 폴링 간격
      */
     public JourneySnapshot withEta(JourneyEtaView eta, int pollSeconds) {
-        return new JourneySnapshot(journeyId, status, commandVersion, evaluationVersion,
+        return new JourneySnapshot(journeyId, status, kind, commandVersion, evaluationVersion,
                 routeRevision, currentLegIndex, guidanceLeaseUntil,
                 subwayOfflineProtectionUntil, serverTime,
                 currentLeg, pollSeconds, legs, eta, subwayGuidance);
@@ -101,7 +105,7 @@ public record JourneySnapshot(
         if (guidance == null) {
             return this;
         }
-        return new JourneySnapshot(journeyId, status, commandVersion, evaluationVersion,
+        return new JourneySnapshot(journeyId, status, kind, commandVersion, evaluationVersion,
                 routeRevision, currentLegIndex, guidanceLeaseUntil,
                 subwayOfflineProtectionUntil, serverTime,
                 currentLeg, recommendedPollSeconds, legs, eta, guidance);

@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.journey;
 
+import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -92,7 +93,7 @@ class JourneyControllerTest {
     }
 
     private JourneySnapshot snapshot(Long journeyId) {
-        return JourneySnapshot.of(journeyId, JourneyStatus.ACTIVE, 1L, 0L, 1, 0,
+        return JourneySnapshot.of(journeyId, JourneyStatus.ACTIVE, JourneyKind.NAVIGATION, 1L, 0L, 1, 0,
                 Instant.parse("2026-07-31T09:03:00Z"), null,
                 Instant.parse("2026-07-31T09:00:00Z"),
                 List.of(new JourneyLegView(10L, 0, JourneyLegType.WAIT_BUS, JourneyLegState.ACTIVE,
