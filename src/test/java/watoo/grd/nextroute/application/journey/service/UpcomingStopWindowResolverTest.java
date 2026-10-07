@@ -208,7 +208,7 @@ class UpcomingStopWindowResolverTest {
                 org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.eq(NOW)))
                 .willReturn(new RegionalRideLocator.Located(new RegionalRideLocator.Position(
                         watoo.grd.nextroute.application.regionalbus.dto.RegionalBusProvider.GG, "R",
-                        stops, 0, 0, 4), null));
+                        stops, 0, 0, 4, List.of()), null));
         org.mockito.BDDMockito.given(regionalArrivals.arrivalAt(
                         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("R"),
                         org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt()))

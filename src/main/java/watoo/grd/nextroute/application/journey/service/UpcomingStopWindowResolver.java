@@ -176,7 +176,7 @@ public class UpcomingStopWindowResolver {
 
     /**
      * 경기·TAGO 버스의 중간 정류장들(#264 PR-4). 서울 {@link #scan} 과 같은 규칙이다 — 지금 위치 다음부터 계획 하차
-     * 직전까지, 승객이 내릴 수 있는 정류장(경유 가상점 제외)만, 내 차가 여유 시간 뒤에 닿는 곳만, 상한까지.
+     * 직전까지, 앱 정류장 목록에 있는 정류장만(경유 가상점·GTFS 에 없는 정류장 제외), 내 차가 여유 시간 뒤에 닿는 곳만, 상한까지.
      * 할당량이 다 떨어지면 그 회차는 멈춘다(다른 기점은 계속 돈다).
      */
     private List<RerouteOriginStop> scanRegional(JourneyLeg ride, JourneyRerouteProperties.NextStop config,
@@ -192,7 +192,8 @@ public class UpcomingStopWindowResolver {
         int lookups = 0;
         for (int i = position.currentIndex() + 1; i < position.alightIndex(); i++) {
             var stop = position.stops().get(i);
-            if (RegionalRideLocator.isWaypoint(stop) || stop.lat() == null || stop.lon() == null) {
+            // 앱이 모르는 정류장(경유 가상점, GTFS 에 없는 TAGO 정류장)은 수락 때 자를 자리가 없어 열지 않는다.
+            if (!position.isAlightable(i) || stop.lat() == null || stop.lon() == null) {
                 continue;
             }
             if (window.size() >= config.getMaxOrigins() || lookups >= config.getMaxStopLookups()) {
