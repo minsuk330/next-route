@@ -66,7 +66,8 @@ POST /api/journeys/{journeyId}/subway/train-selection   {trainNo, routeRevision}
 ```
 
 - 고르면 곧바로 확정. 진행 링은 이동 시작 관측(`boarding-evidence`)이 온 뒤부터 돈다.
-- 오류: 409 `NOT_WAITING_FOR_SUBWAY` · 422 `TRAIN_NOT_IN_CANDIDATES`(낡은 화면) · 409 `STALE_ROUTE_REVISION` · 409 `SUBWAY_BINDING_BUSY`(바로 재시도).
+- 고를 수 있는 열차 = 지금 도착 목록 전체 + 이 역·방향을 10분 안에 떠난 열차(#277 응답의 `departed`).
+- 오류: 409 `NOT_WAITING_FOR_SUBWAY` · 422 `TRAIN_NOT_IN_CANDIDATES`(도착 목록에도 10분 안 출발에도 없음 — 낡은 화면) · 409 `STALE_ROUTE_REVISION` · 409 `SUBWAY_BINDING_BUSY`(바로 재시도).
 
 ## 4. Live Activity
 
@@ -79,7 +80,7 @@ POST /api/journeys/{journeyId}/subway/train-selection   {trainNo, routeRevision}
 |---|---|---|
 | 1 | 시작이 OTP GTFS id 만 받는데 앱은 서울 역·정류장·노선 id 로 고른다 | **#298 A안 — 해결(§1 표)**. `patternCode` 는 싣지 않는다(시작이 노선·승하차로 다시 찾음). 경기·지방은 그 정류장이 앱 흐름(위 API)에 들어올 때 같은 방식으로 |
 | 2 | 방금 떠난 열차(최대 3대)를 주는 곳이 없다 | **#299 해결(#301)**: `GET /api/subway/stations/{id}/arrivals` 방향마다 `departed`(최근 3대·10분, `trainNo`·`departedAt`·`currentStationName`). 원천은 M7 출발 로그라 `trainNo` 가 열차 선택과 같은 공간. 위치 원천 없는 노선(경의중앙·경춘·수인분당·경강·서해·신림)은 늘 `[]` |
-| 3 | 열차를 시작할 때 고른다 | 시작 직후 단계가 `WAIT_SUBWAY` 라 #277 의 **곧 오는 열차** `trainNo` 는 바로 `train-selection` 에 보내면 된다. **방금 떠난 열차는 아직 422** `TRAIN_NOT_IN_CANDIDATES` — 선택 검증이 실시간 도착 목록만 본다(#301 은 응답만 더했다). **서버 후속 필요**: 선택 검증이 같은 역·방향의 최근 출발(`findDepartures`)도 받게 |
+| 3 | 열차를 시작할 때 고른다 | **해결.** 시작 직후 단계가 `WAIT_SUBWAY` 라 #277 역 도착 응답의 `trains`(곧 오는 열차)·`departed`(방금 떠난 열차, 10분 안) 어느 쪽 `trainNo` 든 바로 `train-selection` 에 보내면 된다. 떠난 열차는 서버가 같은 M7 출발 로그로 확인하고 그 출발의 운행일로 확정한다 |
 | 4 | `[탔어요]` = 이미 탔다 | 시작(대기 단계) 직후 앱이 탑승 전이를 바로 보내면 지금 서버로 동작한다. 별도 작업 없음 |
 
 §1 조회 3개(`/api/journeys/track/stops/**`·`/routes/**`)는 A안이면 앱이 쓰지 않는다 — 정리 대상.

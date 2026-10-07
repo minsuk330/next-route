@@ -3708,3 +3708,12 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 배포
 - 마이그레이션 없음. 응답 칸 추가만(기존 앱 무영향)
 - 전체 `./gradlew test --continue`: 2602 중 실패 12 = 기존 무관 10 + `RerouteRemainingPathOtpIT` 1(main 에서도) + `JourneyLegVehicleIT` 1(#296 의 IT, revert #300 미머지라 아직 main 에 있음 — 전체 실행 간헐, 단독 통과). 이 PR 새 실패 0
+
+## 지하철 열차 선택 — 방금 떠난 열차도 받기 (2026-10-07, S, #299 후속)
+### 확정
+- #301 은 역 도착 응답에 `departed` 만 더했고 `train-selection`(#293)은 실시간 도착 목록만 검증해 떠난 열차가 422 였다. 선택 검증에 "같은 역(대기 단계 `startStopId`)·방향(`fromWayCode`)을 10분 안에 떠난 열차"를 더함 — 원천 = `SubwayTrainLogPort.findDepartures`(#301 과 같은 조회·같은 10분 창). 운행일 = 그 출발 사건이 나온 운행일(04:00 경계에서 지금 운행일과 다를 수 있다)
+- 출발 로그 실패 = 422(앱이 목록을 다시 받는다). 지표 `subway.selection{result=selected-departed}`
+### 검증
+- `SubwayTrainSelectionServiceTest` 10/10(신규 2: 떠난 열차 → 전날 운행일로 확정 / 어디에도 없음·로그 실패 422), `SubwayTrainSelectionIT` 6/6, `JourneySubwaySelectionControllerTest` 4/4, `SubwayStationArrivalQueryServiceTest` 14/14
+### 배포
+- 마이그레이션 없음. api 교체
