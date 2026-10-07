@@ -67,7 +67,8 @@ public class SubwayStationsAheadService implements GetSubwayStationsAheadUseCase
                 result.destinationApplied(),
                 SubwayStationsAheadResponse.EndReason.valueOf(result.endReason().name()),
                 result.branches().stream()
-                        .map(b -> new SubwayStationsAheadResponse.Branch(b.destinationName(), b.nextStationName()))
+                        .map(b -> new SubwayStationsAheadResponse.Branch(b.destinationName(), b.nextStationName(),
+                                SubwayStationsAheadResponse.EndReason.valueOf(b.kind().name())))
                         .toList(),
                 result.stations().stream().map(a -> toStation(a, lineId, candidates)).toList());
     }

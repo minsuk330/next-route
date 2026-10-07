@@ -43,9 +43,11 @@ public record SubwayStationsAheadResponse(
     }
 
     /**
-     * @param destinationName 그 갈래 끝 역. 다시 부를 때 {@code destination} 값
-     * @param nextStationName 분기점 다음 역(갈래 표시용)
+     * @param destinationName 다시 부를 때 {@code destination} 값. 보통 그 갈래 끝 역이고, 순환 본선(2호선)이면
+     *                        {@code "순환"} 이다 — 한 바퀴 끝 역(신도림이면 대림)을 주면 "대림 방면"이 반대 방향으로 읽힌다
+     * @param nextStationName 분기점 다음 역. 갈래를 "문래 방면"처럼 보여 줄 때 쓴다
+     * @param kind            {@code LOOP}(순환 본선) 또는 {@code TERMINAL}(종착이 있는 갈래)
      */
-    public record Branch(String destinationName, String nextStationName) {
+    public record Branch(String destinationName, String nextStationName, EndReason kind) {
     }
 }
