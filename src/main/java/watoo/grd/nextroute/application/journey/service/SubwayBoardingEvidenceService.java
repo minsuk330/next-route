@@ -153,7 +153,7 @@ public class SubwayBoardingEvidenceService implements SubwayBindingUseCase {
             binding.advanceMovementSeq(evidence.sequence());
             if (binding.getSource() == SubwayBindingSource.USER_SELECTED) {
                 // 역에서 고른 열차(#265)에 첫 이동이 왔다. 상태는 이미 확정이라 그대로 두고 감지 시각만 채운다 —
-                // 이동 순번이 생겼으니 이 순간부터 링 대상이 된다. 판정기는 확정 행을 보지 않는다.
+                // 링은 고른 순간부터 돌고 있다(#304). 판정기는 확정 행을 보지 않는다.
                 binding.markBoardedDetected(evidence.movementStartedAt());
             }
         } else {

@@ -73,9 +73,10 @@ public interface SubwayLegBindingRepository extends JpaRepository<SubwayLegBindi
      *
      * <p>{@code PENDING} 은 여전히 뺀다 — 고른 열차가 아예 없다.
      *
-     * <p><b>사용자가 역에서 고르고 아직 움직이지 않은 고정도 뺀다</b>(#265, {@code USER_SELECTED} + 이동 순번 없음).
-     * 링 계산기는 승차 다음 역을 목표로 잡아 승강장 대기용 "접근 중" 상태가 없다. 이동 시작 관측이 오면 잡힌다.
-     * 자동 판정(M7) 행은 고정될 때 이미 이동 순번이 있어({@link #findMatchable}) 이 조건에 걸리지 않는다.
+     * <p><b>사용자가 역에서 고르고 아직 움직이지 않은 고정도 넣는다</b>(#304, {@code USER_SELECTED} + 이동 순번 없음).
+     * 직접 고른 열차라 이동 관측을 기다리지 않는다 — 기다리면 고르는 순간부터 탈 때까지 Live Activity 가 비어 있고,
+     * 모션 감지가 놓치면 끝까지 비어 있었다. 열차가 아직 승차역 전이면 링은 승차역부터 센다(갱신기가 정한다).
+     * 새 행은 다음 tick(5초) 에 잡힌다 — 배치 상한이 진행 중 여정 수보다 크다.
      *
      * <p>세션 상태·개정본 조건은 {@link #findMatchable} 과 같은 이유로 있다 — 없으면 끝난 여정과
      * 옛 개정본의 확정 고정을 영원히 갱신한다. 이 표는 행을 지우지 않으므로 그 갱신은 스스로
@@ -90,8 +91,6 @@ public interface SubwayLegBindingRepository extends JpaRepository<SubwayLegBindi
                AND l.deleted_at IS NULL
                AND s.status = 'ACTIVE'
                AND b.route_revision = s.route_revision
-               -- source 는 null 일 수 있다(정차 관측이 먼저 연 행). NOT (… = …) 로 쓰면 null 이 행을 떨어뜨린다.
-               AND (b.source IS DISTINCT FROM 'USER_SELECTED' OR b.last_movement_seq IS NOT NULL)
              ORDER BY b.updated_at
              LIMIT :limit
             """, nativeQuery = true)

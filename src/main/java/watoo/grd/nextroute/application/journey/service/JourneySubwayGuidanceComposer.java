@@ -37,6 +37,9 @@ import java.util.Optional;
  * {@code bindingStatus} 는 사실대로 {@code PROVISIONAL} 을 내리고, 앱이 확정과 <b>구분 없이</b>
  * 그린다 — "추정/확인 중" 표시를 하지 않기로 했다(모바일 HANDOFF).
  *
+ * <p>역에서 고르고 아직 안 움직인 고정({@code USER_SELECTED})도 링을 싣는다(#304) — 사용자가 직접 고른
+ * 열차라 이동 관측을 확인 근거로 기다리지 않는다. 열차가 아직 승차역 전이면 링의 다음 역이 승차역이다.
+ *
  * <p>{@code PENDING} 에서는 여전히 다음 역과 진행률을 비운다 — 고른 열차가 없다. 열차는
  * 정해졌는데 링이 없으면(캐시 유실·갱신기 꺼짐) 상태만 두고 값은 비운다.
  */
@@ -68,8 +71,7 @@ public class JourneySubwayGuidanceComposer {
             return null;
         }
         String lineName = lineNameOf(currentLegIndex, legs, optionsByLeg);
-        if (!binding.getStatus().isBound() || binding.isSelectedBeforeMovement()) {
-            // 역에서 고르고 아직 안 움직였으면(#265) 링이 없다 — 상태(확정)만 알리고 진행 값은 비운다.
+        if (!binding.getStatus().isBound()) {
             return SubwayGuidance.pending(binding.getStatus(), lineName, ride.getEndName());
         }
         return ringPort.find(binding.getJourneyId(), routeRevision, binding.getLegIndex(),

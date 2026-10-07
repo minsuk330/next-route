@@ -178,7 +178,7 @@ public class SubwayLegBinding extends BaseEntity {
         }
     }
 
-    /** 사용자가 골랐지만 아직 이동 시작 관측이 없다 — 승강장에서 기다리는 중. 링을 켜지 않는다. */
+    /** 사용자가 골랐지만 아직 이동 시작 관측이 없다 — 승강장에서 기다리는 중일 수 있다. 링은 승차역부터 센다(#304). */
     public boolean isSelectedBeforeMovement() {
         return this.source == SubwayBindingSource.USER_SELECTED && this.lastMovementSeq == null;
     }

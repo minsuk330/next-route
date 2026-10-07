@@ -295,6 +295,30 @@ class SubwayRingIT {
         verify(ringPort, never()).deleteByJourney(journeyId);
     }
 
+    // ── 역에서 고른 열차 (#304) ────────────────────────────────────────────
+
+    @Test
+    @DisplayName("역에서 고르고 아직 안 움직인 열차 — 바로 훑고, 첫 링은 승차역을 가리킨다")
+    void userSelectedBeforeMovementRingsFromBoarding() {
+        insertBinding("CONFIRMED");
+        jdbcTemplate.update("""
+                update subway_leg_binding set source = 'USER_SELECTED', last_movement_seq = null
+                 where journey_leg_id = ?""", rideLegId);
+        // 열차가 승차역까지 90초 남았다.
+        given(realtimeCachePort.readSnapshot()).willReturn(Optional.of(snapshotOf(
+                arrivalRow(STATN_BOARD, "승차역", "99", 90))));
+
+        assertThat(ringTargets()).containsExactly(rideLegId);
+        updateService.runOnce();
+
+        SubwayRingState ring = savedRing();
+        assertThat(ring.nextStationSequence()).isZero();
+        assertThat(ring.canonicalNextStationKey()).isEqualTo(STATN_BOARD);
+        assertThat(ring.remainingStations()).isEqualTo(2);
+        assertThat(ring.segmentProgress()).isEqualByComparingTo("0");
+        assertThat(ring.estimatedNextStationAt()).isNotNull();
+    }
+
     // ── 배포 스위치 ─────────────────────────────────────────────────────────
 
     @Test
