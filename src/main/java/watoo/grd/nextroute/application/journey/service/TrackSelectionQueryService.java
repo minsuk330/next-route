@@ -4,10 +4,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.journey.config.JourneyTrackProperties;
 import watoo.grd.nextroute.application.journey.dto.TrackViews;
+import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPattern;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPatternDetail;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.NearStop;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitStop;
+import watoo.grd.nextroute.application.route.routing.EncodedPolyline;
+import watoo.grd.nextroute.application.route.routing.GeometryQuality;
+import watoo.grd.nextroute.application.route.routing.LegGeometry;
+import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.global.error.BusinessException;
 import watoo.grd.nextroute.global.error.code.CommonErrorCode;
@@ -106,6 +111,67 @@ public class TrackSelectionQueryService {
             }
             return result;
         });
+    }
+
+    /**
+     * 하차 선택 지도의 노선 선(#312). 추적 시작({@code TrackJourneyStartService})과 같은 패턴·같은 slice
+     * ({@link TrackLegFactory#geometry}) 라 고를 때 본 선과 시작 후 선이 같다.
+     *
+     * <p>{@code toStopId} 가 있으면 시작과 같은 규칙({@link TrackPatternSelector#select})으로 패턴을 고르고 승차~하차를 자른다.
+     * 없으면 하차 후보 조회와 같은 방향({@link TrackPatternSelector#branchFor})의 한 바퀴 끝(마지막 하차 후보)까지다.
+     * 형상을 못 자르면 그 구간 정류장을 이은 직선({@code STOP_LINE}).
+     *
+     * @throws BusinessException 422 {@code TRACK_STOPS_INVALID} — 그 노선으로 그 승하차가 안 된다
+     */
+    public TrackViews.Shape shape(String routeGtfsId, String fromStopId, String toStopId, String patternCode) {
+        requireEnabled();
+        return source.withPermit(deadline -> {
+            List<TransitPattern> patterns = source.patternsAtStop(fromStopId, deadline);
+            TransitPattern pattern;
+            int boardIndex;
+            int alightIndex;
+            if (toStopId != null) {
+                TrackPatternSelector.Selection selection = TrackPatternSelector
+                        .select(routeGtfsId, fromStopId, toStopId, patternCode, patterns)
+                        .orElseThrow(() -> new BusinessException(JourneyErrorCode.TRACK_STOPS_INVALID));
+                pattern = selection.pattern();
+                boardIndex = selection.boardIndex();
+                alightIndex = selection.alightIndex();
+            } else {
+                TrackPatternSelector.Branch branch = TrackPatternSelector
+                        .branchFor(routeGtfsId, fromStopId, patternCode, patterns)
+                        .orElseThrow(() -> new BusinessException(JourneyErrorCode.TRACK_STOPS_INVALID));
+                pattern = branch.pattern();
+                TrackPatternSelector.Lap lap = TrackPatternSelector.lap(pattern, fromStopId);
+                boardIndex = lap.boardIndex();
+                alightIndex = Math.min(lap.boardIndex() + lap.remaining().size(), pattern.stops().size() - 1);
+            }
+            TransitPatternDetail detail = detail(pattern, deadline);
+            return shapeOf(detail, boardIndex, alightIndex, source.graphVersion());
+        });
+    }
+
+    private TransitPatternDetail detail(TransitPattern pattern, RoutingDeadline deadline) {
+        TransitPatternDetail detail = source.pattern(pattern.code(), deadline)
+                .orElseThrow(() -> new BusinessException(JourneyErrorCode.TRACK_PATTERN_UNAVAILABLE));
+        if (detail.stops().size() != pattern.stops().size()) {
+            // 정류장 패턴(캐시)과 상세가 다른 그래프에서 왔다. 섞어 쓰면 위치가 어긋난다(시작과 같은 거절).
+            throw new BusinessException(JourneyErrorCode.TRACK_PATTERN_UNAVAILABLE);
+        }
+        return detail;
+    }
+
+    static TrackViews.Shape shapeOf(TransitPatternDetail detail, int boardIndex, int alightIndex,
+                                    String graphVersion) {
+        LegGeometry geometry = TrackLegFactory.geometry(detail, boardIndex, alightIndex, graphVersion);
+        if (geometry.quality() == GeometryQuality.SHAPE_OK) {
+            return new TrackViews.Shape(EncodedPolyline.decode(geometry.displayPoints()),
+                    TrackViews.ShapeQuality.SHAPE_OK);
+        }
+        List<CoordPoint> line = detail.stops().subList(boardIndex, alightIndex + 1).stream()
+                .map(stop -> new CoordPoint(stop.lon(), stop.lat()))
+                .toList();
+        return new TrackViews.Shape(line, TrackViews.ShapeQuality.STOP_LINE);
     }
 
     private void requireEnabled() {

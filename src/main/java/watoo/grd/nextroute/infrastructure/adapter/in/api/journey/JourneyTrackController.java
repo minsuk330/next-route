@@ -64,6 +64,19 @@ public class JourneyTrackController {
     }
 
     /**
+     * 하차 선택 지도의 노선 선(#312). 시작 후 안내와 같은 GTFS 형상 slice. {@code to} 를 비우면 한 바퀴 끝까지(고르기 전
+     * 선 전체), 형상이 없으면 정류장 직선({@code quality=STOP_LINE}).
+     */
+    @GetMapping("/routes/{routeGtfsId}/shape")
+    public TrackViews.Shape shape(@AuthenticationPrincipal Long userId,
+                                  @PathVariable String routeGtfsId,
+                                  @RequestParam String from,
+                                  @RequestParam(required = false) String to,
+                                  @RequestParam(required = false) String pattern) {
+        return queryService.shape(routeGtfsId, from, to, pattern);
+    }
+
+    /**
      * 단독 추적 시작. 응답·409 규칙은 일반 시작({@code POST /api/journeys})과 같다. {@code replace=true} 면 진행 중인
      * 일반 여정도 접힌다.
      */
