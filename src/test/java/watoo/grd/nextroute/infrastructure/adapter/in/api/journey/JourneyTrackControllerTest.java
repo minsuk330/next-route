@@ -78,7 +78,7 @@ class JourneyTrackControllerTest {
     void directions() throws Exception {
         given(queryService.directions("1:RS_ACC1_S-1-0222")).willReturn(List.of(new TrackViews.Direction(
                 "1:RR_ACC1_S-1-02-1I", RoutingMode.SUBWAY, "서울2호선", "#00A23F", "내선", "교대(2호선)",
-                "1:RR_ACC1_S-1-02-1I::10")));
+                "1:RR_ACC1_S-1-02-1I::10", null)));
 
         mockMvc.perform(get("/api/journeys/track/stops/1:RS_ACC1_S-1-0222/patterns").with(authentication(user())))
                 .andExpect(status().isOk())
@@ -98,9 +98,15 @@ class JourneyTrackControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].index").value(0));
 
+        given(queryService.stopsNear(37.5, 127.0, RoutingMode.SUBWAY)).willReturn(List.of(new TrackViews.Stop(
+                "1:RS_ACC1_S-1-0222", "강남(2호선)", 37.4981, 127.0281, RoutingMode.SUBWAY, 64,
+                null, null, "1002000222", "1002", "2호선")));
         mockMvc.perform(get("/api/journeys/track/stops/near?lat=37.5&lon=127.0&mode=SUBWAY")
                         .with(authentication(user())))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].arrivalStationId").value("1002000222"))
+                .andExpect(jsonPath("$[0].lineId").value("1002"))
+                .andExpect(jsonPath("$[0].distanceMeters").value(64));
         verify(queryService).stopsNear(37.5, 127.0, RoutingMode.SUBWAY);
     }
 

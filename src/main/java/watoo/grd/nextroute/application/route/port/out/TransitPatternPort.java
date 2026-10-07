@@ -22,7 +22,7 @@ import java.util.Optional;
 public interface TransitPatternPort {
 
     /** 좌표 주변 정류장/역. 가까운 순. */
-    List<TransitStop> stopsNear(double lat, double lon, int radiusMeters, int limit, RoutingDeadline deadline);
+    List<NearStop> stopsNear(double lat, double lon, int radiusMeters, int limit, RoutingDeadline deadline);
 
     /** 그 정류장을 지나는 모든 패턴(가벼운 모양: 정류장 id·이름만). 정류장이 없으면 빈 목록. */
     List<TransitPattern> patternsAtStop(String gtfsStopId, RoutingDeadline deadline);
@@ -46,6 +46,16 @@ public interface TransitPatternPort {
     }
 
     record TransitStop(String gtfsId, String name, double lat, double lon, RoutingMode mode) {
+    }
+
+    /**
+     * 주변 조회 한 건(#313).
+     *
+     * @param distanceMeters  좌표에서 정류장까지. 없으면 null
+     * @param routeShortNames 그 정류장을 지나는 노선 이름(중복 제거). 지하철 정류장은 호선마다 따로라서 이것으로
+     *                        호선을 안다({@code 강남(2호선)} → {@code 서울2호선})
+     */
+    record NearStop(TransitStop stop, Integer distanceMeters, List<String> routeShortNames) {
     }
 
     /** 패턴 안의 정류장 1회 방문(같은 정류장이 여러 번 나올 수 있다 — 2호선 패턴은 한 패턴이 여러 바퀴). */

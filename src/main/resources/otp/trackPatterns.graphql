@@ -9,7 +9,7 @@
 
 query StopsNear($lat: Float!, $lon: Float!, $radius: Int!, $first: Int!) {
   stopsByRadius(lat: $lat, lon: $lon, radius: $radius, first: $first) {
-    edges { node { distance stop { gtfsId name lat lon vehicleMode } } }
+    edges { node { distance stop { gtfsId name lat lon vehicleMode routes { shortName } } } }
   }
 }
 
