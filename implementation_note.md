@@ -3433,3 +3433,34 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 배포
 - 마이그레이션 없음. api 이미지 교체. 플래그 없음.
+## #283 남은 역 목록 PR-1: OTP 지하철 패턴 포트·커버리지 (2026-10-07, feat/subway-stations-ahead-pr1)
+
+### 확정
+- 포트=원천만(`SubwayRoutePatternPort`), 선택·반전·분할=순수 `SubwayRoutePatternAssembler`, 캐시 24h+낡은 값=`SubwayLinePatternService`. PLAN 초안(어댑터가 다 함)에서 바꿈 — 커버리지 테스트가 운영 코드를 그대로 돌리게.
+- OTP 방향 라벨이 실시간과 반대인 노선 4: KJ-2(경의중앙 서울역), 02-2(2호선 성수지선, 내↔외), 09-*(9호선), AP-1(공항철도). 신정지선(02-3)은 같음.
+- 6호선(06-00, 방향 없음): 응암 첫 등장까지(포함)=상행, 응암부터=하행. 응암 없는 패턴은 버림.
+- 매칭: 같은 노선·같은 이름이면 ≤5km, 다르면 최근접 ≤150m. 리뷰안 500m 는 도봉(1.1km)·인천공항2터미널(~3km)에서 깨짐.
+- 실시간 행선지 대조는 OTP 이름·DB 이름 둘 다로(개명 당고개→불암산, 응암↔응암순환(상선)). 비율 5% 미만 행선지는 잡음.
+
+### 함정
+- 반대 방향 역 목록 ← OTP 라벨을 그대로 믿음 / 가드=`SubwayPatternCoverageTest.realtimeDestinationsLieAheadInTheirDirection`(9호선 반전 빼면 실패 확인함)
+- 틀린 역 연결(도봉→도봉산) ← 좌표 우선 매칭 + OTP 좌표 뒤바뀜 / 가드=이름 우선 + `nearestFallbackNeverPicksAnotherStation`(개명 목록 고정)
+- 인천2호선→1002 ← 숫자 추출 매퍼 / 가드=shortName 명시표
+- 패턴 응답 노선당 최대 1.4MB·1~2.5s(trip 마다 stoptimes, GraphQL 로 trip 수 제한 불가) → 24h 캐시
+- 리뷰가 "경강선 route 0개"라 했지만 이번 채집엔 있음(fixture 61→91 route 로 갱신된 feed)
+
+### 좌표
+- `application/subway/service/SubwayRoutePatternAssembler` / `SubwayPatternStationMatcher` / `SubwayLinePatternService`
+- `infrastructure/adapter/out/api/otp/OtpSubwayRoutePatternAdapter`
+- fixture `src/test/resources/otp/subway-patterns/` (routes-with-patterns 2.5MB, subway-stations 696행, realtime-destinations 103조합)
+
+### 미결
+- 경춘선 상행 용산 직결 행선지(OTP 패턴에 용산 없음) → 그 열차는 상봉·청량리까지만
+- 4호선 진접 연장 3역 역 마스터 누락 → stationId null 로 나감(정적 일배치 off 영향)
+
+### 검증
+- `./gradlew test --tests '*SubwayPattern*' --tests '*SubwayRoutePatternAssembler*' --tests '*OtpSubwayRoutePatternAdapter*' --tests '*SubwayLinePatternService*' --tests '*GtfsRailDirectionCoverageTest'` → 5/0, 5/0, 7/0, 3/0, 5/0, 3/0. 전체 테스트 미실행(스크래치 clone 은 DB env 없음).
+- 운영 OTP 에 어댑터 질의문(variables 포함) 그대로 POST → errors 없음.
+
+### 배포
+- 마이그레이션 없음. API 노출 없음(빈 등록만) — 배포해도 동작 변화 0.
