@@ -3654,6 +3654,23 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 변이 확인: `vehicleId` 의 `updatable = false` 를 빼면 `JourneyLegVehicleIT.entitySaveKeepsVehicle` 실패 → 원복
 - 전체 `./gradlew test --continue`: 2595 중 실패 12 = 기존 무관 10 + `RerouteRemainingPathOtpIT.otpGraphQlErrorIsEmptyWithoutOdsayFallback` 1(**변경 stash 한 main 에서도 실패** — 기존 무관, PR-3 실행 땐 통과했으니 시각 의존 간헐로 보임) + `JourneyLegVehicleIT` 1(전체 실행 중 testcontainers `TransactionException`, 단독 5/5 — `JourneyNotificationSchemaIT` 와 같은 간헐)
 
+## #299 역 도착 응답 departed (2026-10-07, feat/subway-departed-trains, M)
+
+### 확정
+- 원천 = 위치 수집기(M7) 출발 사건 `SubwayTrainLogPort.findDepartures`(Redis `subway:dep:{date}:{line}:{dir}:{station}` ZSET, TTL 15m). 이슈의 "새 버퍼 필요" 전제는 틀림. 탑승 판정과 같은 조회 → trainNo 가 #293 과 맞음.
+- 창 10분·최대 3대·trainNo 중복 제거(최신 사건). departedAt = event.estimate()(구간 가운데, KST offset). 행선지 = terminalId→statn_nm(요청 안 Map 캐시). trainType NORMAL/EXPRESS/SPECIAL → 일반/급행/특급. currentStationName = lastSeen 이 사건 from 이후일 때만.
+- 방향 = 곧 오는 열차 ∪ 떠난 열차. label 은 곧 오는 열차 없으면 떠난 열차 행선지.
+- 로그 조회 예외 → departed 빈 목록 + warn, trains 영향 없음.
+- 서비스일 경계 04:00 — now 와 now−10m 의 서비스일이 다르면 둘 다 조회.
+
+### 함정
+- 운영 Redis 에 출발 사건이 있는 노선 = 1001~1009·1032·1065·1077·1092(2026-10-07 실측). 설정엔 1063·1067·1075 도 있지만 사건 0 → 위치 원천이 안 줌. 1081·1093·1094 는 설정에도 없음.
+
+### 검증
+- subway·arrival·api.subway·otp 패키지 292 / 실패 0. 신규 5(최근 순 3대·창, 행선지·종류·위치, 로그 실패, 서비스일 경계, trainType) + 컨트롤러 JSON.
+
+### 배포
+- 마이그레이션 없음. api 이미지 교체.
 
 ## standalone-track PR-4 revert — 단독 버스 차량 시각 대조 걷어냄 (2026-10-07, #265 결정 5차)
 ### 확정
