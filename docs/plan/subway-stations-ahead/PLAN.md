@@ -91,6 +91,15 @@ GET /api/subway/stations/{stationId}/stations-ahead?direction=내선[&destinatio
 
 ## 설계
 
+> **PR-1 구현 중 바뀐 것(2026-10-07, 실측 근거)** — 아래 본문보다 이 박스가 우선한다.
+> - 포트는 가공 없는 원천만: `SubwayRoutePatternPort { subwayRoutes(); patterns(routeGtfsId); }`. 노선 선택·반전·6호선 분할은 순수 `SubwayRoutePatternAssembler`, 캐시·낡은 값 제공은 `SubwayLinePatternService.patterns(lineId, direction)` → `List<DirectedRailPattern>`. 커버리지 테스트가 운영 코드를 그대로 돌리게 하려고 나눴다.
+> - **반전 노선이 넷**: 경의중앙 서울역(KJ-2), 2호선 성수지선(02-2, 내선↔외선), 9호선(09-*), 공항철도(AP-1). 실시간 행선지 전수 대조로 찾았다.
+> - 매칭: 같은 이름이면 **5km** 안(500m 아님) — OTP 1호선 도봉·도봉산 좌표가 서로 바뀌어 있고(1.1km), 인천공항2터미널은 역 마스터와 ~3km. 이름이 다르면 150m(개명 7건 목록).
+> - 경강선·GTX-A 도 feed 에 노선이 있다(미지원 목록 비어 있음). 4호선 진접 연장 3역은 역 마스터에 없다(정적 일배치 off).
+> - "통과" 정차(pickup·dropoff 둘 다 NONE)는 실측 0건. 한쪽 NONE 은 패턴 양 끝(각 442건)이라 남긴다.
+> - 2호선 승차역 재등장 컷은 **순환(내선·외선)일 때만**. 6호선 하행은 응암이 두 번 나오는 게 정상이다.
+
+
 ### 1. OTP 포트 (PR-1)
 `application/subway/port/out/SubwayLinePatternPort.java`
 ```java
@@ -178,21 +187,21 @@ public interface SubwayLinePatternPort {
 
 ## 작업 순서
 
-### PR-1 `feat/subway-stations-ahead-pr1` (fresh main) — 측정·포트
-- [ ] 1. 운영 OTP 에서 fixture 채집(읽기 전용, ssh `vps` → `curl 127.0.0.1:18080/otp/routers/default/index/graphql`; 로컬 `localhost:18080` 은 운영 터널이다):
+### PR-1 `feat/subway-stations-ahead-pr1` (fresh main) — 측정·포트 ✅ 구현 완료(2026-10-07)
+- [x] 1. 운영 OTP 에서 fixture 채집(읽기 전용, ssh `vps` → `curl 127.0.0.1:18080/otp/routers/default/index/graphql`; 로컬 `localhost:18080` 은 운영 터널이다):
   - 전 SUBWAY route 목록
   - 대표 노선 패턴: 2호선 본선 내선, 5호선 하행, 신분당선 하행, 경의중앙선, 1호선, 6호선
   - 저장 위치: `src/test/resources/otp/subway-patterns/*.json`
-- [ ] 2. 응답 크기·지연 측정(노선별 바이트·ms) → 노트 `### 검증`. 크면 질의 축소안 결정.
-- [ ] 3. `SubwayLinePatternPort` + `OtpSubwayLinePatternAdapter` + 명시표. fixture 파싱 단위 테스트(MockRestServiceServer 또는 문자열 주입).
-- [ ] 4. `SubwayPatternStationMatcher` + 테스트.
-- [ ] 5. **커버리지 테스트** `SubwayPatternCoverageTest`(GtfsRailDirectionCoverageTest 방식):
+- [x] 2. 응답 크기·지연 측정(노선별 바이트·ms) → 노트 `### 검증`. 크면 질의 축소안 결정.
+- [x] 3. `SubwayLinePatternPort` + `OtpSubwayLinePatternAdapter` + 명시표. fixture 파싱 단위 테스트(MockRestServiceServer 또는 문자열 주입).
+- [x] 4. `SubwayPatternStationMatcher` + 테스트.
+- [x] 5. **커버리지 테스트** `SubwayPatternCoverageTest`(GtfsRailDirectionCoverageTest 방식):
   - 19노선 × 방향마다: route 존재, 패턴 존재, 정차→statn_id 매핑률
   - **실시간 대조**: 운영 `subway_arrival_event` 의 (line_id, direction, destination_name) 고유값을 fixture 로 저장한다(SELECT DISTINCT, 읽기 전용). 각 방향의 행선지가 그 방향 route tail 안에 있는지 검증한다. 방향 반전(KJ-2)·6호선 분할이 여기서 잡혀야 한다.
   - 운영 `subway_station` 노선 행은 fixture 로 저장(`subway-stations.json`, 696행 SELECT 결과)
   - 매칭 반례: 인천공항2터미널 오매칭 금지, 의정부·종로3가·합정·한성백제 이름 매칭 성공
   - 기준선 미달 노선(경강선·GTX-A 등)을 목록으로 박는다. 이 목록이 PR-2 범위가 된다.
-- [ ] 6. 노트 기록, PR. 이 PR 은 API 를 노출하지 않는다(빈 등록만).
+- [x] 6. 노트 기록, PR. 이 PR 은 API 를 노출하지 않는다(빈 등록만).
 - 검증: `./gradlew test --tests '*OtpSubwayLinePattern*' --tests '*SubwayPatternStationMatcher*' --tests '*SubwayPatternCoverage*'`
 
 ### PR-2 `feat/subway-stations-ahead-api` (fresh main, **#284 와 PR-1 머지 후**)
