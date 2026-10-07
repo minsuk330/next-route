@@ -29,6 +29,7 @@ import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeSnapshot;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
 import watoo.grd.nextroute.application.subway.port.out.SubwayRealtimeCachePort;
 import watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort;
+import watoo.grd.nextroute.application.subway.port.out.SubwaySegmentTimePort;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
 import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.journey.SubwayRingUpdateScheduler;
@@ -95,6 +96,7 @@ class SubwayRingIT {
     @MockBean SubwayRingPort ringPort;
     @MockBean SubwayRealtimeCachePort realtimeCachePort;
     @MockBean SubwayTrainLogPort trainLogPort;
+    @MockBean SubwaySegmentTimePort segmentTimePort;
 
     private final List<Long> createdUserIds = new ArrayList<>();
     private Long journeyId;
@@ -317,6 +319,29 @@ class SubwayRingIT {
         assertThat(ring.remainingStations()).isEqualTo(2);
         assertThat(ring.segmentProgress()).isEqualByComparingTo("0");
         assertThat(ring.estimatedNextStationAt()).isNotNull();
+    }
+
+    // ── 앞 열차 실측 예정 (2026-10-07 결정) ─────────────────────────────────
+
+    @Test
+    @DisplayName("전역 출발 행 + 실측 표본 → 첫 링의 예정 = 출발을 처음 본 시각 + 표본 중앙값, 기준 시각 = 출발")
+    void measuredEtaFromSegmentSamples() {
+        insertBinding("CONFIRMED");
+        SubwayRealtimeTrain departedPrev = arrivalRow(STATN_MIDDLE, "중간역", "3", 140);
+        given(realtimeCachePort.readSnapshot()).willReturn(Optional.of(snapshotOf(departedPrev)));
+        java.time.Instant departed = java.time.LocalDateTime.parse(departedPrev.getReceivedAt(), RECEIVED_AT)
+                .atZone(SEOUL).toInstant().minusSeconds(10);
+        given(segmentTimePort.recentSeconds(lineId, DIRECTION, STATN_MIDDLE)).willReturn(List.of(40L, 55L, 50L));
+        given(segmentTimePort.departedAt(lineId, DIRECTION, STATN_MIDDLE, TRAIN_NO))
+                .willReturn(Optional.of(departed));
+
+        updateService.runOnce();
+
+        SubwayRingState ring = savedRing();
+        assertThat(ring.canonicalNextStationKey()).isEqualTo(STATN_MIDDLE);
+        assertThat(ring.progressBaseAt()).isEqualTo(departed);
+        assertThat(ring.estimatedNextStationAt()).isEqualTo(departed.plusSeconds(50));
+        assertThat(ring.quality().name()).isEqualTo("NORMAL");
     }
 
     // ── 링 버전 (#307) ──────────────────────────────────────────────────────

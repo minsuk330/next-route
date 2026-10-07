@@ -65,6 +65,32 @@ public record SubwayRingState(
                 progressValidUntil, phase, quality, observedAt, updatedAt, 0L);
     }
 
+    /** 앱이 보간해 갈 상한만 바꾼다. 상한 = 지금 값이면 링이 그 자리에 선다(정차·예정 경과). */
+    public SubwayRingState withProgressTarget(BigDecimal target) {
+        return new SubwayRingState(journeyId, routeRevision, legIndex, bindingVersion,
+                nextStationSequence, canonicalNextStationKey, nextStationName,
+                alightingStationName, remainingStations, segmentProgress, progressBaseAt,
+                target, estimatedNextStationAt, progressValidUntil, phase, quality,
+                observedAt, updatedAt, guidanceVersion);
+    }
+
+    public SubwayRingState withProgressValidUntil(Instant validUntil) {
+        return new SubwayRingState(journeyId, routeRevision, legIndex, bindingVersion,
+                nextStationSequence, canonicalNextStationKey, nextStationName,
+                alightingStationName, remainingStations, segmentProgress, progressBaseAt,
+                progressTarget, estimatedNextStationAt, validUntil, phase, quality,
+                observedAt, updatedAt, guidanceVersion);
+    }
+
+    /** 같은 앵커를 새 관측으로 확인만 했다. 화면 값은 그대로, 관측·갱신 시각만 바뀐다. */
+    public SubwayRingState refreshed(Instant observedAt, Instant updatedAt) {
+        return new SubwayRingState(journeyId, routeRevision, legIndex, bindingVersion,
+                nextStationSequence, canonicalNextStationKey, nextStationName,
+                alightingStationName, remainingStations, segmentProgress, progressBaseAt,
+                progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
+                observedAt, updatedAt, guidanceVersion);
+    }
+
     public SubwayRingState withGuidanceVersion(long version) {
         return new SubwayRingState(journeyId, routeRevision, legIndex, bindingVersion,
                 nextStationSequence, canonicalNextStationKey, nextStationName,
