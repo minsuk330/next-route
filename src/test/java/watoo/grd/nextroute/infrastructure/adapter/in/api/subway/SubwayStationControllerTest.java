@@ -34,7 +34,9 @@ class SubwayStationControllerTest {
     void returnsDirectionsWithTrains() throws Exception {
         given(useCase.getArrivals("1002000222")).willReturn(new SubwayStationArrivalsResponse(
                 "1002000222", "1002", List.of(new Direction("내선", "내선", List.of(
-                        new Train("2231", "성수", "일반", null, 1, "전역 출발"))))));
+                        new Train("2231", "성수", "일반", null, 1, "전역 출발")),
+                        List.of(new SubwayStationArrivalsResponse.Departed("2229", "성수", "일반",
+                                java.time.OffsetDateTime.parse("2026-10-07T15:53:40+09:00"), "교대"))))));
 
         mockMvc.perform(get("/api/subway/stations/1002000222/arrivals"))
                 .andExpect(status().isOk())
@@ -44,7 +46,10 @@ class SubwayStationControllerTest {
                 .andExpect(jsonPath("$.directions[0].label").value("내선"))
                 .andExpect(jsonPath("$.directions[0].trains[0].trainNo").value("2231"))
                 .andExpect(jsonPath("$.directions[0].trains[0].stationsAway").value(1))
-                .andExpect(jsonPath("$.directions[0].trains[0].currentMessage").value("전역 출발"));
+                .andExpect(jsonPath("$.directions[0].trains[0].currentMessage").value("전역 출발"))
+                .andExpect(jsonPath("$.directions[0].departed[0].trainNo").value("2229"))
+                .andExpect(jsonPath("$.directions[0].departed[0].departedAt").value("2026-10-07T15:53:40+09:00"))
+                .andExpect(jsonPath("$.directions[0].departed[0].currentStationName").value("교대"));
     }
 
     @Test

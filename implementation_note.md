@@ -3620,7 +3620,7 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 변이 확인: 링 게이트·sweep NOT EXISTS 를 빼면 `SubwayTrainSelectionIT` 2건 실패 → 원복
 - 전체 `./gradlew test --continue`: 2555 중 실패 12 = 기존 무관 10(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1) + `JourneyNotificationSchemaIT` 간헐 1(단독 20/20) + `SubwayBindingMatchIT` 1(위 함정, 수정 후 13/13)
 
-## standalone-track PR-4 — 버스 위치 + 승차 시각 대조 (2026-10-07, L 의 4/5, #265)
+## ~~standalone-track PR-4 — 버스 위치 + 승차 시각 대조 (2026-10-07, L 의 4/5, #265)~~ 취소: 아래 "PR-4 revert" 참고
 ### 확정 (PLAN 과 다르게 간 것 포함)
 - **대상 목록은 DB 가 소유**(PLAN 의 Redis 집합·AFTER_COMMIT 이벤트 대신): worker tick 이 `kind=TRACK`·ACTIVE 여정 중 (a) 현재 단계 WAIT_BUS 또는 (b) RIDE_BUS 이고 `vehicle_matched_at IS NULL` 을 읽는다. 시작·전이·종료마다 집합을 고칠 필요가 없고 빠뜨릴 길이 없다. 명령 트랜잭션·재전송 경로를 건드리지 않는다(PLAN 의 "apply 안에서 부르지 않는다"를 구조로 만족). 일반 여정은 대상 아님
 - **판정 종료 표시 = `vehicle_matched_at`**: 고정이면 차량 칼럼 3개 + 시각, 못 찾음·포기·애매·사용자 해제면 차량 없이 시각만. 차 있으면 다시 판정 안 함 → 중복 tick·재전송 방어가 SQL 조건(`WHERE vehicle_matched_at IS NULL`)
@@ -3654,6 +3654,45 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 변이 확인: `vehicleId` 의 `updatable = false` 를 빼면 `JourneyLegVehicleIT.entitySaveKeepsVehicle` 실패 → 원복
 - 전체 `./gradlew test --continue`: 2595 중 실패 12 = 기존 무관 10 + `RerouteRemainingPathOtpIT.otpGraphQlErrorIsEmptyWithoutOdsayFallback` 1(**변경 stash 한 main 에서도 실패** — 기존 무관, PR-3 실행 땐 통과했으니 시각 의존 간헐로 보임) + `JourneyLegVehicleIT` 1(전체 실행 중 testcontainers `TransactionException`, 단독 5/5 — `JourneyNotificationSchemaIT` 와 같은 간헐)
 
+## #299 역 도착 응답 departed (2026-10-07, feat/subway-departed-trains, M)
+
+### 확정
+- 원천 = 위치 수집기(M7) 출발 사건 `SubwayTrainLogPort.findDepartures`(Redis `subway:dep:{date}:{line}:{dir}:{station}` ZSET, TTL 15m). 이슈의 "새 버퍼 필요" 전제는 틀림. 탑승 판정과 같은 조회 → trainNo 가 #293 과 맞음.
+- 창 10분·최대 3대·trainNo 중복 제거(최신 사건). departedAt = event.estimate()(구간 가운데, KST offset). 행선지 = terminalId→statn_nm(요청 안 Map 캐시). trainType NORMAL/EXPRESS/SPECIAL → 일반/급행/특급. currentStationName = lastSeen 이 사건 from 이후일 때만.
+- 방향 = 곧 오는 열차 ∪ 떠난 열차. label 은 곧 오는 열차 없으면 떠난 열차 행선지.
+- 로그 조회 예외 → departed 빈 목록 + warn, trains 영향 없음.
+- 서비스일 경계 04:00 — now 와 now−10m 의 서비스일이 다르면 둘 다 조회.
+
+### 함정
+- 운영 Redis 에 출발 사건이 있는 노선 = 1001~1009·1032·1065·1077·1092(2026-10-07 실측). 설정엔 1063·1067·1075 도 있지만 사건 0 → 위치 원천이 안 줌. 1081·1093·1094 는 설정에도 없음.
+
+### 검증
+- subway·arrival·api.subway·otp 패키지 292 / 실패 0. 신규 5(최근 순 3대·창, 행선지·종류·위치, 로그 실패, 서비스일 경계, trainType) + 컨트롤러 JSON.
+
+### 배포
+- 마이그레이션 없음. api 이미지 교체.
+
+## standalone-track PR-4 revert — 단독 버스 차량 시각 대조 걷어냄 (2026-10-07, #265 결정 5차)
+### 확정
+- **#265 결정 5차(2026-10-07 13:47 KST): 단독 버스 추적은 차량을 특정하지 않는다.** 이유 = ①시각 대조는 "출발과 거의 동시에 탑승을 누른다"가 전제인데 실제로는 타고 한참 뒤 앱을 연다 → 엉뚱한 차 고정 ②같은 노선이면 어느 차든 진행이 같고 알릴 것은 "어디서 내리나"뿐 ③탑승 중 위치는 앱 GPS 를 노선 선에 투영(네이티브 버스 엔진 M5/M6)
+- PLAN v2(PR #285)가 같은 분(13:47)에 올라와 결정 5차를 반영하지 못했고, PR-4(#296)는 그 PLAN 대로 구현·머지·배포(플래그 off)됐다 → 이 PR 로 코드 전부 revert(관찰·대조·위치 어댑터·Redis 위치 캐시·해제 API·`JourneyLeg` 차량 칼럼 매핑·설정)
+- **V61 파일은 남긴다** — 운영이 이미 v61(2026-10-07 16:11 배포)이라 파일을 지우면 Flyway validate 가 "적용됐는데 로컬에 없음"으로 기동을 막는다. 칼럼 3개(`vehicle_id_type`·`vehicle_source`·`vehicle_matched_at`)는 nullable 이고 엔티티가 매핑하지 않아 아무도 안 쓴다. 정리가 필요하면 V62 drop 으로 따로
+- 운영 영향 없음: 플래그 `JOURNEY_TRACK_BUS_ENABLED` 는 설정된 적 없다(관찰 스케줄러가 한 번도 뜨지 않음, `journey_leg.vehicle_id` 비-null 0)
+### 함정
+- 구현 전에 PLAN 만 보고 issue 최신 댓글(결정)을 다시 확인하지 않았다 — **PLAN 과 issue 결정이 같은 시각에 올라오면 issue 결정이 우선**인지 착수 전에 대조할 것
+### 배포
+- 마이그레이션 변화 없음(V61 유지). 다음 앱 배포에 실려 가면 끝
+## standalone-track HANDOFF + 앱 설계 대조 (2026-10-07, #265)
+### 확정
+- PR-5 의 `busGuidance` 는 **넣지 않는다**(결정 5차: 단독 버스는 차량을 특정하지 않고 앱 엔진이 진행을 낸다. 남는 값 = 대기 예측 초·앱 `remainingStops` 뿐인데 둘 다 앱이 이미 가진다). 브랜치 `feat/standalone-track-pr5-bus-guidance` 의 wip 커밋 af2671a8 은 참고용으로만 남김(미푸시)
+- HANDOFF(`docs/plan/standalone-track/HANDOFF.md`)는 결정 5차 기준. 버스 차량·해제·버스 안내 절 삭제
+- nextroute-mobile `docs/plan/home-ride-tracking/DESIGN.md` 와 대조한 어긋남 5개를 HANDOFF §5 에 적음: ①버스 시작 id 공간(앱 = 서울 routeId·stopId·seq, 서버 = OTP GTFS) ②지하철 시작 id 공간(앱 = 서울 stationId·lineId, #283 stations-ahead) ③열차 선택 시점(앱 = 시작할 때, 서버 PR-3 = 시작한 여정의 대기 단계 안) ④후보(앱 = 방금 떠난 3대+곧 오는 2대, 서버 = 곧 오는 2대) ⑤탑승 후 시작(앱 `[탔어요]`, 서버 = 대기 단계부터)
+### 좌표
+- 떠난 열차 원천 후보 = `SubwayTrainLogPort.findDepartures`(M7 열차 로그). 지하철 서울 id ↔ GTFS = #283 `SubwayPatternStationMatcher`. 서울 버스 ↔ GTFS = `OtpSeoulIdentityResolver` 규칙의 역(`1:BR_TAGO_SEB{9}`·`1:BS_TAGO_SEB{9}`, 공항버스 `_U/_D` 접미사 주의)
+### 미결
+- 위 5개를 맞추는 서버 PR(시작 입력 확장 + 시작 시 열차 확정 + 떠난 열차 후보 + 탑승 후 시작) — 범위가 PLAN 밖이라 티어 판단 필요
+- PR-2 조회 3개 API 는 앱이 기존 API 를 쓰면 정리 대상
+- ~~HANDOFF §5 의 "맞추는 방향(서버)" 열(시작이 앱 id 수용 = B안)~~ 취소: 같은 시각 올라온 issue #298·#299 를 못 보고 썼다. 사용자 결정(2026-10-07) = **#298 A안**(앱이 쓰는 응답에 GTFS id 싣기). §5 를 이슈 기준으로 고치고, "시작 직후 곧 오는 열차 trainNo 로 바로 선택 가능 / 떠난 열차는 422(#299 에서 같이)"를 답으로 적음
 ## gtfs-id-exposure — 역·정류장 응답에 GTFS id (2026-10-07, M, #298 A안)
 ### 확정
 - 시작 API(#290) 계약은 그대로. 앱이 쓰는 응답에 칸만 추가: `NearbyBusStopResult.gtfsStopId`, `StopRouteResult.routeGtfsId`, `RouteStopsResult.routeGtfsId`·`RouteStop.gtfsStopId`, `NearbySubwayStationResult.gtfsStopId`, `SubwayStationsAheadResponse.boardGtfsStopId`·`Station.gtfsStopId`·`Station.routeGtfsId`
