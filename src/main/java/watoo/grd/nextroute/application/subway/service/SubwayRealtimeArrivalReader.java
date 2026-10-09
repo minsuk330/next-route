@@ -116,7 +116,7 @@ public class SubwayRealtimeArrivalReader {
     /**
      * 실시간 API 응답을 캐시와 같은 모양으로 바꾼다.
      *
-     * <p>이웃 역 이름과 구간 소요시간은 채우지 않는다. 그 값들은 수집기가 도착 보간에 쓰는
+     * <p>이웃 역 이름과 구간 소요시간은 채우지 않는다(직전 역 ID·현재 역 이름은 원천에 있으니 옮긴다). 그 값들은 수집기가 도착 보간에 쓰는
      * 것이고, 여기서 필요한 것은 노선·역·방향·남은 초뿐이다.
      */
     private SubwayRealtimeTrain toTrain(SubwayArrivalInfo info) {
@@ -130,6 +130,8 @@ public class SubwayRealtimeArrivalReader {
                 .receivedAt(info.receivedAt())
                 .arrivalCode(info.arrivalCode())
                 .currentMessage(info.currentMessage())
+                .prevStationId(info.prevStationId())
+                .currentStationName(info.arrivalMsg3())
                 .destinationName(info.destinationName())
                 .trainType(info.trainType())
                 .build();

@@ -27,6 +27,12 @@ import watoo.grd.nextroute.application.subway.dto.SubwayTrainStatus;
 import watoo.grd.nextroute.application.subway.dto.TrainIdentity;
 import watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort;
 import watoo.grd.nextroute.application.subway.service.ServiceDateResolver;
+import watoo.grd.nextroute.application.subway.service.SubwayLineOrder;
+import watoo.grd.nextroute.application.subway.service.SubwayLineStationIndex;
+import watoo.grd.nextroute.application.subway.config.SubwayPositionProperties;
+import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.PositionSource;
+import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.TrainStatus;
+import java.util.Map;
 import watoo.grd.nextroute.application.arrival.port.in.GetSubwayLineStripUseCase;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.BehindEnd;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.LineStrip;
@@ -50,8 +56,12 @@ class SubwayStationArrivalQueryServiceTest {
     private final SubwayTrainLogPort trainLogPort = mock(SubwayTrainLogPort.class);
     private final GetSubwayLineStripUseCase lineStrip = mock(GetSubwayLineStripUseCase.class);
     private static final Instant NOW = Instant.parse("2026-10-07T07:00:00Z"); // 16:00 KST
+    private final SubwayLineOrder lineOrder = mock(SubwayLineOrder.class);
+    private final SubwayLineStationIndex stationIndex = mock(SubwayLineStationIndex.class);
+    private final SubwayTrainPositionResolver positionResolver = new SubwayTrainPositionResolver(
+            trainLogPort, lineOrder, stationIndex, new SubwayPositionProperties(), new ServiceDateResolver());
     private final SubwayStationArrivalQueryService service = new SubwayStationArrivalQueryService(
-            arrivalReader, subwayStationRepository, trainLogPort, new ServiceDateResolver(), lineStrip,
+            arrivalReader, subwayStationRepository, trainLogPort, new ServiceDateResolver(), positionResolver, lineStrip,
             Clock.fixed(NOW, ZoneId.of("Asia/Seoul")));
 
     @Test
@@ -240,7 +250,7 @@ class SubwayStationArrivalQueryServiceTest {
     void looksAtPreviousServiceDateAcrossBoundary() {
         Instant justAfter = Instant.parse("2026-10-06T19:05:00Z"); // 04:05 KST
         SubwayStationArrivalQueryService early = new SubwayStationArrivalQueryService(
-                arrivalReader, subwayStationRepository, trainLogPort, new ServiceDateResolver(), lineStrip,
+                arrivalReader, subwayStationRepository, trainLogPort, new ServiceDateResolver(), positionResolver, lineStrip,
                 Clock.fixed(justAfter, ZoneId.of("Asia/Seoul")));
         givenStation(GANGNAM, "1002");
         given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of());
@@ -249,6 +259,54 @@ class SubwayStationArrivalQueryServiceTest {
 
         verify(trainLogPort).findDepartures(eq(LocalDate.of(2026, 10, 7)), eq("1002"), eq("내선"), eq(GANGNAM), any(), any());
         verify(trainLogPort).findDepartures(eq(LocalDate.of(2026, 10, 6)), eq("1002"), eq("내선"), eq(GANGNAM), any(), any());
+    }
+
+    @Test
+    @DisplayName("#317 위치 API 관측을 열차에 붙인다 — 역·상태·확인 시각·원천")
+    void attachesPositionFromPositionFeed() {
+        givenStation(GANGNAM, "1002");
+        given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of(arrival("2231", "내선", "성수", 96)));
+        given(trainLogPort.lastSeenAll(any())).willReturn(Map.of(
+                new TrainIdentity(LocalDate.of(2026, 10, 7), "1002", "내선", "2231"),
+                new SubwayTrainObservation("1002000224", "선릉", SubwayTrainStatus.DEPARTED, NOW.minusSeconds(40),
+                        "1002000211", SubwayExpressType.NORMAL)));
+
+        Train train = service.getArrivals(GANGNAM).directions().get(0).trains().get(0);
+
+        assertThat(train.currentStationId()).isEqualTo("1002000224");
+        assertThat(train.currentStationName()).isEqualTo("선릉");
+        assertThat(train.status()).isEqualTo(TrainStatus.DEPARTED);
+        assertThat(train.observedAt().toInstant()).isEqualTo(NOW.minusSeconds(40));
+        assertThat(train.positionSource()).isEqualTo(PositionSource.POSITION);
+    }
+
+    @Test
+    @DisplayName("#317 위치 API 가 반대 방향으로 더 최근에 본 열차는 뺀다(회차 직후 남은 도착 행)")
+    void dropsTrainSeenMoreRecentlyInOppositeDirection() {
+        givenStation("1001000155", "1001");
+        given(arrivalReader.arrivals("1001", "1001000155", null)).willReturn(List.of(
+                arrival("K101", "하행", "병점", 120), arrival("K103", "하행", "천안", 300)));
+        given(trainLogPort.lastSeenAll(any())).willReturn(Map.of(
+                new TrainIdentity(LocalDate.of(2026, 10, 7), "1001", "상행", "K101"),
+                new SubwayTrainObservation("1001000160", "진위", SubwayTrainStatus.DEPARTED, NOW.minusSeconds(30),
+                        null, SubwayExpressType.NORMAL)));
+
+        Direction down = service.getArrivals("1001000155").directions().get(0);
+
+        assertThat(down.trains()).extracting(Train::trainNo).containsExactly("K103");
+    }
+
+    @Test
+    @DisplayName("#317 위치 조회가 실패해도 열차 목록은 그대로 — 위치만 도착 행 기준")
+    void positionFailureKeepsTrains() {
+        givenStation(GANGNAM, "1002");
+        given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of(arrival("2231", "내선", "성수", 96)));
+        given(trainLogPort.lastSeenAll(any())).willThrow(new IllegalStateException("redis down"));
+
+        List<Train> trains = service.getArrivals(GANGNAM).directions().get(0).trains();
+
+        assertThat(trains).extracting(Train::trainNo).containsExactly("2231");
+        assertThat(trains.get(0).positionSource()).isNull(); // 도착 행 99 + 현재 역 이름 없음
     }
 
     @Test

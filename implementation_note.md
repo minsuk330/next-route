@@ -3841,6 +3841,36 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 운영 OTP(터널): 88·G7426·900·M6410 등 경기 버스 leg 16개 legGeometry GBIS 선 30m 내 100%, 최대 1m. otp·api ERROR 0(10분).
 - 앱 `/api/route/search`(운정→신논현, 200, 1.15s): G7426·마을 077 subPath polyline GBIS 선 30m 내 100%, 최대 1m.
 
+## 2026-10-09 subway-arrivals-board PR-1 (#317 열차 위치)
+
+플랜 `docs/plan/subway-arrivals-board/PLAN.md` §3. 브랜치 feat/subway-arrivals-train-position (스크래치 clone).
+
+### 확정
+- 위치 API `trainSttus=3`(전역출발) = 그 행 `statnId` 역의 **바로 전역**을 떠나 statnId 로 가는 중(사용자 확정). 역 도착 응답은 (prev(X), DEPARTED) 로 그린다. M7 트래커·링은 여전히 이 값을 근거로 안 쓴다(별건)
+- 열차번호 정규화 불필요 — 도착 btrainNo ↔ 위치 trainNo 16/16(2026-08-15 항목). 플랜의 "실측 선행" 단계 삭제
+- 위치 신선도 = `SubwayPositionProperties.freshnessWindow`(5분) 재사용. 180초는 `receivedAt` 이 "원천 시각이 바뀐 마지막 시각"이라 장시간 정차 열차를 놓친다
+- 반대 방향 제거 조건 = 반대 방향 관측이 신선 **그리고** (이 방향 관측 없음 또는 더 오래됨)
+- 플랜 편차: `SubwayResolvedPatternCache` 를 따로 빼지 않았다. `SubwayLineOrder` 가 `SubwayStationsAheadService.resolvedPatterns`(같은 패키지)를 직접 써서 캐시를 공유한다 — 추출하면 stations-ahead 테스트 생성자까지 바뀌는데 얻는 게 없다
+
+### 함정
+- 급행 건너뜀 판정 첫 구현이 틀렸다: "X 쪽으로 가다 다른 후보를 먼저 만나면 탈락"을 candidate 가 **없는** 패턴(급행)에도 적용 → 완행 직전 역까지 탈락해 늘 모름 ← 가드: candidate 가 그 패턴에 실제로 나올 때만 판정(`SubwayLineOrderTest.expressSkipDoesNotMakeItAmbiguous`)
+- 스크래치 clone 에서 `@SpringBootTest` IT 는 DB 가 필요하다 → 새 Redis IT 는 컨텍스트 없이 어댑터만 testcontainers Redis 에 붙였다(`RedisSubwayTrainLogAdapterLastSeenAllIT`)
+
+### 좌표
+- 위치 해석 `application/arrival/service/SubwayTrainPositionResolver.java`
+- 노선 순서 `application/subway/service/SubwayLineOrder.java` (cachedPatterns 만, 미스 시 단일 스레드 백그라운드 적재 1회)
+- 일괄 조회 `SubwayTrainLogPort.lastSeenAll`(기본 구현=한 대씩) / Redis HMGET 오버라이드
+- 스냅샷 필드 `SubwayRealtimeTrain.prevStationId`(statnFid)·`currentStationName`(arvlMsg3) — `RealtimeSubwayCollector.toTrain`, `SubwayRealtimeArrivalReader.toTrain`
+
+### 배포
+- api + worker(스냅샷 필드는 worker 수집기가 채움). 순서 무관 — 스냅샷 JSON 은 NON_NULL·필드 추가만. 마이그레이션 없음
+
+### 검증
+- `./gradlew compileJava` 통과
+- 집중: `./gradlew test --tests '*SubwayLineOrderTest' --tests '*SubwayTrainPositionResolverTest' --tests '*SubwayStationArrivalQueryServiceTest' --tests '*SubwayStationsAheadServiceTest' --tests '*SubwayStationControllerTest' --tests '*SubwayRealtimeArrivalReaderTest' --tests '*RedisSubwayTrainLogAdapterLastSeenAllIT'` → 52/0
+- 전체 단위: `./gradlew test --tests '*Test'` → **2124/0**. 컨텍스트 IT(`*IT`)는 스크래치 clone 에 DB 가 없어 미실행(기존 무관)
+- 실호출은 배포 후(2호선 강남·수원 하행·수인분당 1역) — 미실행
+
 ## 2026-10-09 subway-arrivals-board PR-2 (#317 노선도 역 목록 + #318 초 단위)
 
 플랜 `docs/plan/subway-arrivals-board/PLAN.md` §4 (플랜 파일은 PR-1 #322 에 있음). 브랜치 feat/subway-arrivals-line-strip.

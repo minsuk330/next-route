@@ -9,6 +9,8 @@ import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Train;
 import watoo.grd.nextroute.application.arrival.port.in.GetSubwayLineStripUseCase;
 import watoo.grd.nextroute.application.arrival.port.in.GetSubwayStationArrivalsUseCase;
+import watoo.grd.nextroute.application.arrival.service.SubwayTrainPositionResolver.Placed;
+import watoo.grd.nextroute.application.arrival.service.SubwayTrainPositionResolver.Position;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalCode;
 import watoo.grd.nextroute.application.subway.dto.SubwayExpressType;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
@@ -62,6 +64,7 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
     private final SubwayStationRepository subwayStationRepository;
     private final SubwayTrainLogPort trainLogPort;
     private final ServiceDateResolver serviceDateResolver;
+    private final SubwayTrainPositionResolver positionResolver;
     private final GetSubwayLineStripUseCase lineStrip;
     private final Clock clock;
 
@@ -71,8 +74,11 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
                 .orElseThrow(() -> new BusinessException(SubwayErrorCode.SUBWAY_STATION_NOT_FOUND));
 
         List<Arrival> arrivals = arrivalReader.arrivals(station.getLineId(), station.getStationId(), null);
+        List<Placed> placed = positionResolver.place(station.getLineId(), arrivals, clock.instant()).stream()
+                .filter(p -> !p.reversed())
+                .toList();
         Map<String, List<Departed>> departed = departed(station.getLineId(), station.getStationId());
-        List<Direction> directions = group(arrivals, departed).stream()
+        List<Direction> directions = groupPlaced(placed, departed).stream()
                 .map(direction -> withStrip(direction, station))
                 .toList();
         return new SubwayStationArrivalsResponse(station.getStationId(), station.getLineId(), directions);
@@ -196,14 +202,18 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
         return group(arrivals, Map.of());
     }
 
+    static List<Direction> group(List<Arrival> arrivals, Map<String, List<Departed>> departed) {
+        return groupPlaced(arrivals.stream().map(a -> new Placed(a, null, false)).toList(), departed);
+    }
+
     /**
      * @param departed 방향 → 떠난 열차. 곧 오는 열차가 없는 방향도 떠난 열차가 있으면 나온다 — 막차 직후처럼
      *                 곧 오는 열차가 비어도 방금 탄 사용자는 자기 열차를 찾아야 한다
      */
-    static List<Direction> group(List<Arrival> arrivals, Map<String, List<Departed>> departed) {
-        Map<String, List<Arrival>> byDirection = new LinkedHashMap<>();
-        for (Arrival arrival : arrivals) {
-            byDirection.computeIfAbsent(directionOf(arrival.train()), key -> new ArrayList<>()).add(arrival);
+    static List<Direction> groupPlaced(List<Placed> arrivals, Map<String, List<Departed>> departed) {
+        Map<String, List<Placed>> byDirection = new LinkedHashMap<>();
+        for (Placed arrival : arrivals) {
+            byDirection.computeIfAbsent(directionOf(arrival.arrival().train()), key -> new ArrayList<>()).add(arrival);
         }
         departed.keySet().forEach(direction -> byDirection.computeIfAbsent(direction, key -> new ArrayList<>()));
 
@@ -239,11 +249,11 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
      * 행선지 최빈값 + " 방면". 동률이면 먼저 오는 열차의 행선지다(입력이 도착 순이라 첫 등장 순서가 곧
      * 도착 순서). 곧 오는 열차가 없으면 떠난 열차 행선지로 같은 규칙을 쓴다. 행선지가 하나도 없으면 방향 원문.
      */
-    private static String label(String direction, List<Arrival> arrivals, List<Departed> departed) {
+    private static String label(String direction, List<Placed> arrivals, List<Departed> departed) {
         Map<String, Integer> counts = new LinkedHashMap<>();
         List<String> destinations = arrivals.isEmpty()
                 ? departed.stream().map(Departed::destinationName).toList()
-                : arrivals.stream().map(a -> a.train().getDestinationName()).toList();
+                : arrivals.stream().map(a -> a.arrival().train().getDestinationName()).toList();
         for (String destination : destinations) {
             if (destination != null && !destination.isBlank()) {
                 counts.merge(destination.trim(), 1, Integer::sum);
@@ -263,8 +273,10 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
         return direction != null ? direction : UNKNOWN_DIRECTION_LABEL;
     }
 
-    private static Train toTrain(Arrival arrival) {
+    private static Train toTrain(Placed placed) {
+        Arrival arrival = placed.arrival();
         SubwayRealtimeTrain train = arrival.train();
+        Position position = placed.position();
         return new Train(
                 train.getTrainNo(),
                 train.getDestinationName(),
@@ -272,6 +284,12 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
                 arrival.arrivalSeconds(),
                 SubwayStationsAway.resolve(
                         SubwayArrivalCode.from(train.getArrivalCode()), train.getCurrentMessage()),
-                train.getCurrentMessage());
+                train.getCurrentMessage(),
+                position == null ? null : position.stationId(),
+                position == null ? null : position.stationName(),
+                position == null ? null : position.status(),
+                position == null || position.observedAt() == null
+                        ? null : OffsetDateTime.ofInstant(position.observedAt(), SEOUL),
+                position == null ? null : position.source());
     }
 }

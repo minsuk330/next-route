@@ -81,8 +81,14 @@ public record SubwayStationArrivalsResponse(
     }
 
     /**
-     * @param arrivalSeconds 지금 기준 남은 초. <b>{@code null} 이 흔하다</b> — 원천이 거리로만 답할 때
-     * @param stationsAway   조회역까지 남은 정거장 수. 조회역에 있으면 0, 모르면 {@code null}
+     * @param arrivalSeconds     지금 기준 남은 초. <b>{@code null} 이 흔하다</b> — 원천이 거리로만 답할 때
+     * @param stationsAway       조회역까지 남은 정거장 수. 조회역에 있으면 0, 모르면 {@code null}
+     * @param currentStationId   열차가 지금 있는(또는 막 떠난) 역(#317). 모르면 null. 이름만 알면 이것만 null 일 수 있다
+     * @param currentStationName 위 역 이름
+     * @param status             그 역 기준 상태. {@code DEPARTED} 면 그 역을 떠나 이 방향 다음 역으로 가는 중이다. 모르면 null
+     * @param observedAt         그 위치·상태가 <b>확인된</b> 원천 시각. 사건(진입·출발) 시각이 아니다 — 원천에 따라 상태가 그대로여도
+     *                           계속 갱신된다. 보간 앵커로 쓰지 말 것
+     * @param positionSource     위치 원천. {@code POSITION}(위치 API) 이 {@code ARRIVAL}(도착 API 의 역 정보)보다 정확하다
      */
     public record Train(
             String trainNo,
@@ -90,7 +96,29 @@ public record SubwayStationArrivalsResponse(
             String trainType,
             Integer arrivalSeconds,
             Integer stationsAway,
-            String currentMessage
+            String currentMessage,
+            String currentStationId,
+            String currentStationName,
+            TrainStatus status,
+            OffsetDateTime observedAt,
+            PositionSource positionSource
     ) {
+    }
+
+    /** 열차가 {@code currentStation} 기준 어디 있나. 원천 코드(arvlCd·trainSttus)를 세 가지로 접었다. */
+    public enum TrainStatus {
+        /** 그 역에 들어오는 중. */
+        APPROACHING,
+        /** 그 역에 서 있다. */
+        ARRIVED,
+        /** 그 역을 떠나 다음 역으로 가는 중. */
+        DEPARTED
+    }
+
+    public enum PositionSource {
+        /** 서울 실시간 위치 API(노선 단위). */
+        POSITION,
+        /** 서울 실시간 도착 API 가 함께 주는 역 정보. 위치 API 가 없는 노선(수인분당·경의중앙 등)의 대체다. */
+        ARRIVAL
     }
 }
