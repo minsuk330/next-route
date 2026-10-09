@@ -9,12 +9,17 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import watoo.grd.nextroute.application.map.dto.BusStopSnapshotPayload;
+import watoo.grd.nextroute.application.map.dto.BusStopTileSnapshot;
 import watoo.grd.nextroute.application.map.port.in.GetBusStopSnapshotUseCase;
+import watoo.grd.nextroute.application.map.port.in.GetBusStopTilesUseCase;
 
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -39,7 +44,15 @@ public class MapBusStopController {
     private static final CacheControl CACHE_CONTROL =
             CacheControl.maxAge(7, TimeUnit.DAYS).cachePublic().mustRevalidate();
 
+    /** v2 manifest: 바뀐 타일을 알려 주는 목록이라 HTTP 캐시가 들고 있으면 안 된다 — 매번 재검증(304). */
+    private static final CacheControl MANIFEST_CACHE_CONTROL = CacheControl.noCache();
+
+    /** v2 타일: URL 의 {@code v} 가 현재 버전과 같으면 그 URL 의 본문은 영원히 같다. */
+    private static final CacheControl IMMUTABLE_TILE =
+            CacheControl.maxAge(365, TimeUnit.DAYS).cachePublic().immutable();
+
     private final GetBusStopSnapshotUseCase getBusStopSnapshotUseCase;
+    private final GetBusStopTilesUseCase getBusStopTilesUseCase;
 
     @GetMapping("/snapshot")
     @Operation(summary = "서울 전체 버스정류장 스냅샷 (ETag 재검증, 변경 없으면 304)")
@@ -62,6 +75,65 @@ public class MapBusStopController {
                 .cacheControl(CACHE_CONTROL)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(payload.json());
+    }
+
+    /**
+     * 전국 정류장 타일 목록(#326). key = {@code floor(lat*10)_floor(lng*10)}, 값 = 타일 버전. 첫 빌드 전이면 503.
+     */
+    @GetMapping("/v2/tiles")
+    @Operation(summary = "전국 버스정류장 타일 목록 (key → 타일 버전, ETag 재검증)")
+    public ResponseEntity<byte[]> tiles(
+            @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
+        Optional<BusStopTileSnapshot> snapshot = getBusStopTilesUseCase.current();
+        if (snapshot.isEmpty()) {
+            return notReady();
+        }
+        String version = snapshot.get().version();
+        if (matches(ifNoneMatch, version)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
+                    .eTag(quote(version)).cacheControl(MANIFEST_CACHE_CONTROL).build();
+        }
+        return ResponseEntity.ok()
+                .eTag(quote(version))
+                .cacheControl(MANIFEST_CACHE_CONTROL)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(snapshot.get().manifestJson());
+    }
+
+    /**
+     * 타일 하나. 목록에 있는 key 만 있다(바다·빈 칸은 404). {@code v} 를 목록의 타일 버전으로 주면 1년 immutable 캐시.
+     */
+    @GetMapping("/v2/tiles/{key}")
+    @Operation(summary = "전국 버스정류장 타일 하나 (v=타일 버전이면 immutable)")
+    public ResponseEntity<byte[]> tile(
+            @PathVariable String key,
+            @RequestParam(value = "v", required = false) String v,
+            @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
+        if (!BusStopTileSnapshot.isKey(key)) {
+            return ResponseEntity.badRequest().build();
+        }
+        Optional<BusStopTileSnapshot> snapshot = getBusStopTilesUseCase.current();
+        if (snapshot.isEmpty()) {
+            return notReady();
+        }
+        BusStopTileSnapshot.Tile tile = snapshot.get().tiles().get(key);
+        if (tile == null) {
+            return ResponseEntity.notFound().build();
+        }
+        CacheControl cacheControl = tile.version().equals(v) ? IMMUTABLE_TILE : MANIFEST_CACHE_CONTROL;
+        if (matches(ifNoneMatch, tile.version())) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
+                    .eTag(quote(tile.version())).cacheControl(cacheControl).build();
+        }
+        return ResponseEntity.ok()
+                .eTag(quote(tile.version()))
+                .cacheControl(cacheControl)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(tile.json());
+    }
+
+    private ResponseEntity<byte[]> notReady() {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header(HttpHeaders.RETRY_AFTER, "30").build();
     }
 
     /** {@code W/} 프리픽스와 쿼트를 벗겨 비교한다. 콤마로 여러 개 올 수 있고 {@code *} 는 항상 매치. */

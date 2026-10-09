@@ -149,6 +149,22 @@ class OtpTransitPatternAdapterTest {
     }
 
     @Test
+    @DisplayName("사각형 안 정류장(#326 지도 타일): 노선 없이 위치·모드만, 버스·지하철 모두")
+    void stopsInBox() throws Exception {
+        enqueue("stops-in-box-gangnam.json");
+
+        List<TransitStop> stops = adapter.stopsInBox(37.494, 127.026, 37.498, 127.031, deadline());
+
+        assertThat(stops).hasSize(24);
+        assertThat(stops).filteredOn(s -> s.mode() == RoutingMode.BUS).hasSize(23);
+        assertThat(stops).extracting(TransitStop::gtfsId)
+                .contains("1:BS_TAGO_SEB121000009", "1:BS_TAGO_GGB121000009", "1:BS_TAGO_ICB121000009");
+        JsonNode body = lastBody();
+        assertThat(body.path("operationName").asText()).isEqualTo("StopsInBox");
+        assertThat(body.path("variables").path("maxLon").asDouble()).isEqualTo(127.031);
+    }
+
+    @Test
     @DisplayName("정류장 패턴: headsign 은 null 그대로, 노선·정류장·trip 수를 읽는다")
     void patternsAtStop() throws Exception {
         enqueue("patterns-at-stop-bus.json");
