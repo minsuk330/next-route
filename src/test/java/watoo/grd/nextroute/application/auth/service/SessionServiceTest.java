@@ -186,6 +186,37 @@ class SessionServiceTest {
     }
 
     @Test
+    @DisplayName("기기 신원만 있는 계정은 이름·이메일이 비고 로그인 수단 목록도 비어 있다")
+    void me_deviceOnly_returnsEmptyIdentitiesAndNulls() {
+        given(userRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(user(1L, 0)));
+        given(identityRepository.findByUserIdAndDeletedAtIsNull(1L)).willReturn(List.of(
+                identity(AuthProvider.DEVICE, null, null, LocalDateTime.now()),
+                identity(AuthProvider.DEVICE, null, null, LocalDateTime.now())));
+
+        MeResult result = service.me(1L);
+
+        assertThat(result.displayName()).isNull();
+        assertThat(result.email()).isNull();
+        assertThat(result.identities()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("기기 신원은 목록에서 빠지고 이름은 애플 쪽 값을 쓴다 — 구버전 앱이 모르는 값을 받지 않게")
+    void me_appleWithDevice_hidesDevice() {
+        given(userRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(user(1L, 0)));
+        given(identityRepository.findByUserIdAndDeletedAtIsNull(1L)).willReturn(List.of(
+                identity(AuthProvider.DEVICE, null, null, LocalDateTime.of(2026, 10, 1, 0, 0)),
+                identity(AuthProvider.APPLE, "길동", "a@privaterelay.appleid.com",
+                        LocalDateTime.of(2026, 1, 1, 0, 0))));
+
+        MeResult result = service.me(1L);
+
+        assertThat(result.displayName()).isEqualTo("길동");
+        assertThat(result.identities()).extracting(MeResult.LinkedIdentity::provider)
+                .containsExactly(AuthProvider.APPLE);
+    }
+
+    @Test
     @DisplayName("없는 사용자는 거부한다")
     void me_unknownUser_throws() {
         given(userRepository.findByIdAndDeletedAtIsNull(9L)).willReturn(Optional.empty());

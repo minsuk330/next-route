@@ -3950,3 +3950,38 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `./gradlew test --tests '*OtpTransitPatternAdapterTest' --tests '*TrackSelection*'` → 어댑터 9/0, 선택 조회 11/0
+
+## 2026-10-10 로그인 제거 → 기기 익명 계정 (L, feat/device-anonymous-auth)
+플랜=docs/plan/device-anonymous-auth/PLAN.md (Opus 5.5 리뷰 12건 반영), 모바일 인계=HANDOFF.md
+
+### 확정
+- 독립 앱 로그인 제거(사용자 결정 2026-10-09), 앱인토스는 토스 로그인 유지. 신원 입구만 `POST /api/auth/device` 로 추가하고 users·JWT·user_id 테이블·컨트롤러는 그대로.
+- V17 에서 `users.device_id` 를 지우고 토스 키로 통일했던 결정의 **반전**. 이번엔 users 칼럼이 아니라 V33 다중 신원 구조에 `auth_identity.provider='DEVICE'` 로 넣는다 — 기존 애플 계정에 기기를 붙일 수 있고, 탈퇴(신원 물리삭제)·세대 번호 무효화가 그대로 먹는다.
+- `provider_subject = hex(sha256(비밀값))`. 256비트 난수라 salt 불필요. 원문은 저장·로그·예외 메시지 어디에도 없다(테스트로 고정).
+- 무효 Bearer 는 필터가 익명으로 떨어뜨린다 → 새 가입 경로. 의도된 동작(HANDOFF 에 "reissue 일시 실패 시 익명 호출 금지" 명시).
+- 연결(Bearer + 처음 보는 해시)은 **APPLE/KAKAO 신원이 있는 계정만, DEVICE 3대까지**. 토스 전용·기기 전용 계정은 403. 이유: 훔친 access(1h)로 공격자 비밀값을 영구히 붙이는 경로라서(로그아웃은 DEVICE 를 안 지운다). 구버전 이행용 한시 통로 — 애플·카카오 로그인 삭제 때 같이 삭제.
+- 3대 상한은 count 후 insert 라 동시 연결 두 건이 살짝 넘길 수 있다 — 한시 통로의 남용 상한이라 감수.
+- 가입 한도: 새 user 생성 분기만, `X-Real-IP`(nginx 가 `$remote_addr` 로 덮음, 앱 포트 127.0.0.1) → 없으면 getRemoteAddr, **XFF 무시**. IPv6 는 /64. 기본 60/h(이통사 CGNAT). **fail-open**(버스 쿼터는 유료라 fail-closed 지만 여기서 막으면 Redis 장애 동안 신규 설치자 전원이 앱을 못 씀) + ERROR 로그 + `auth.device.signup.limit{result=limited|redis_error}` 카운터.
+- `/api/me` 의 `identities` 에서 DEVICE 제외(구버전 앱 엄격 enum 디코딩·기기별 중복 노출 방지). SessionService.me 에서 거른다.
+- 응답의 `provider` 는 연결 경로에서도 `DEVICE`.
+- 범위 밖: 여정 생성 남용 상한(계정 하나로도 무제한 → 가입 한도로는 못 막음, 별건), 애플·카카오 코드 삭제.
+
+### 함정
+- 가입 경합 재조회를 같은 트랜잭션에서 하면 안 된다: 유니크 위반 순간 트랜잭션이 rollback-only 가 되어 재조회에 성공해도 커밋에서 터진다 ← 리포지토리 `saveAndFlush` 가 바깥 트랜잭션에 참여한 채 예외를 던짐 / 가드: `DeviceLoginService` 는 메서드에 `@Transactional` 을 안 걸고 본 작업·재조회를 각각 `TransactionTemplate` 으로 연다.
+- 플랜 초안의 V56 은 낡은 작업트리(V55 에서 멈춘 브랜치)를 보고 쓴 번호였다 ← main 은 V61 / 가드: 마이그레이션 번호는 `git ls-tree origin/main src/main/resources/db/migration/` 로 확인.
+- `WithdrawalDeletionBoundaryIT` 로그의 `drop table ... cascade` 는 Testcontainers 의 create-drop 이라 로컬 DB 와 무관(놀라지 말 것).
+
+### 좌표
+- 서비스 분기: `application/auth/service/DeviceLoginService.java` (enterAnonymously / enterWithAccount / requireLinkable / resolveRace)
+- 한도: `infrastructure/adapter/out/cache/auth/RedisDeviceSignupLimitAdapter.java` (`ipKey` 는 콜론 있는 값만 InetAddress 파싱 — DNS 조회 회피)
+- 입구: `infrastructure/adapter/in/api/auth/DeviceAuthController.java`, 설정 `application.yaml` `auth.device.signup-limit-per-hour`
+- 스키마: `db/migration/V62__add_device_auth_identity.sql`
+
+### 미결
+- (추정·미검증) 기존 `OAuthLoginService.login` 은 `@Transactional` 안에서 `signUp` 의 유니크 위반을 잡고 `resolveRace`(REQUIRES_NEW)로 재조회한다. 바깥 트랜잭션은 이미 rollback-only 라 커밋 시 `UnexpectedRollbackException` 이 날 가능성 — 애플 로그인 더블탭 경합에서만 드러남. 이 PR 범위 밖, 애플·카카오 코드 삭제 예정이라 우선순위 낮음.
+- 이슈 #320(track 익명 401): 앱 사용자 전원이 토큰을 갖게 되므로 "로그인 필요 유지"로 종결 제안.
+
+### 배포
+- **V62 VPS 수동배치 필요**(V18+ convention). 빠뜨리면 기기 가입이 CHECK 제약에 막혀 500.
+- env `AUTH_DEVICE_SIGNUP_LIMIT_PER_HOUR` 선택(기본 60). 다른 env 변경 없음.
+- api 만 교체로 충분(worker 무관 경로). 배포 후 VPS 에서 curl `/api/auth/device` 발급 → `/api/me` 200 확인.
