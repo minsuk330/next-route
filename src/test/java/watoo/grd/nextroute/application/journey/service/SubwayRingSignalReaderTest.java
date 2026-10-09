@@ -94,6 +94,47 @@ class SubwayRingSignalReaderTest {
         assertThat(reader.read(train, chain, 1).estimatedArrivalAt()).isEqualTo(RECEIVED.plusSeconds(300));
     }
 
+    // ── 이미 구간을 지난 열차 (#311) ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("도착 행이 없고 위치가 구간 밖인데, 이력에 구간 역 도착이 있으면 → 하차역 도착(PASSED)")
+    void passedChainFinishes() {
+        given(cache.readSnapshot()).willReturn(Optional.empty());
+        given(trainLog.lastSeen(train)).willReturn(Optional.of(observation("1002000235", RECEIVED)));
+        given(trainLog.findArrivals(org.mockito.ArgumentMatchers.eq(train), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).willReturn(List.of(arrivedAt(NEXT, RECEIVED.minusSeconds(240))));
+
+        SubwayRingObservation observation = reader.read(train, chain, 0);
+
+        assertThat(observation.source()).isEqualTo(SubwayRingObservation.Source.PASSED);
+        assertThat(observation.observedStationSequence()).isEqualTo(1);
+        assertThat(observation.observedAt()).isEqualTo(RECEIVED);
+    }
+
+    @Test
+    @DisplayName("구간 밖인데 구간 역 도착 이력이 없으면(아직 승차역 전) 판단하지 않는다")
+    void upstreamTrainIsUnknown() {
+        given(cache.readSnapshot()).willReturn(Optional.empty());
+        given(trainLog.lastSeen(train)).willReturn(Optional.of(observation("1002000230", RECEIVED)));
+        given(trainLog.findArrivals(org.mockito.ArgumentMatchers.eq(train), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).willReturn(List.of(arrivedAt("1002000229", RECEIVED.minusSeconds(60))));
+
+        assertThat(reader.read(train, chain, 0)).isNull();
+    }
+
+    private watoo.grd.nextroute.application.subway.dto.SubwayTrainObservation observation(String stationId, Instant at) {
+        return new watoo.grd.nextroute.application.subway.dto.SubwayTrainObservation(stationId, "역",
+                watoo.grd.nextroute.application.subway.dto.SubwayTrainStatus.ARRIVED, at, "1002000211",
+                watoo.grd.nextroute.application.subway.dto.SubwayExpressType.NORMAL);
+    }
+
+    private watoo.grd.nextroute.application.subway.dto.SubwayTrainEvent arrivedAt(String stationId, Instant at) {
+        return new watoo.grd.nextroute.application.subway.dto.SubwayTrainEvent(
+                watoo.grd.nextroute.application.subway.dto.SubwayTrainEvent.Type.ARRIVED, stationId, "역",
+                at.minusSeconds(60), at, watoo.grd.nextroute.application.subway.dto.SubwayTrainEvent.Quality.CORROBORATED,
+                "1002000211", watoo.grd.nextroute.application.subway.dto.SubwayExpressType.NORMAL);
+    }
+
     private void snapshot(SubwayRealtimeTrain row) {
         given(cache.readSnapshot()).willReturn(Optional.of(SubwayRealtimeSnapshot.builder().trains(List.of(row)).build()));
     }

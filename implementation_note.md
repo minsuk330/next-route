@@ -3950,3 +3950,17 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `./gradlew test --tests '*OtpTransitPatternAdapterTest' --tests '*TrackSelection*'` → 어댑터 9/0, 선택 조회 11/0
+
+## 지하철 링 — 이미 구간을 지난 열차를 하차역 도착으로 마무리 (2026-10-09, S, #311)
+### 확정
+- #311 원인 = "곧 오는 열차" 일반 문제 아님. journey 166(강남→방배 3정거장)이 고른 8484 는 22:43 강남 출발 → **22:49:09 하차역 방배 진입** → 22:51:21 사당, 선택은 22:51:59. "방금 떠난 열차" 10분 창(#303)으로 선택 통과, 링은 승차역~하차역 체인 안에서만 열차를 찾아 끝까지 못 찾음(STALE·observedAt null). 같은 시각 167·169 는 정상(NORMAL 32/37·15/18). 근거 = 2026-10-07 전 노선 도착 스냅샷 표본 + push outbox
+- **사용자 결정: 떠난 열차는 계속 고를 수 있어야 한다 — 선택을 422 로 막지 않는다**(처음 낸 422 `TRAIN_PASSED_ALIGHTING` 안은 ~~취소~~)
+- 대신 링: 위치가 체인 밖일 때 위치 로그 역별 도착 이력(최근 30분)에 체인 역 도착이 있고 그 도착이 지금 관측보다 이르면 "구간을 지났다"(`Source.PASSED`) → 하차역 도착(1.00, SUBWAY_ALIGHT, **NORMAL**)으로 마무리. 이력 없으면(아직 승차역 전) 판단 안 함. PASSED 는 신선도 검사 제외(위치 recptnDt 지연 최대 150초 > 창 120초)
+- "아직 못 찾음" vs "관측 끊김" 구분은 새 enum 없이 기존 `observedAt == null` — Live Activity props 는 앱 엄격 디코딩이라 enum 추가는 구버전 앱을 깰 수 있다
+### 좌표
+- `SubwayRingSignalReader.passedChain`, `SubwayRingObservation.passed/Source.PASSED`, `SubwayRingCalculator` switch·`isStale`
+### 검증
+- `SubwayRingCalculatorTest`(신규: 승차역 시작이어도 PASSED → 하차역 1.00 NORMAL·이후 유지·낡은 관측이어도), `SubwayRingSignalReaderTest`(신규 2: 이력 있음 → PASSED / 이력 없음 → null). 관련 73/73
+- 전체 2638 중 실패 12 = 기존 무관 동일 구성, 새 실패 0
+### 배포
+- 마이그레이션 없음. worker 만(링)
