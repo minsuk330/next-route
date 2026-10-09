@@ -21,6 +21,11 @@ query StopsByIds($ids: [String]!) {
   stops(ids: $ids) { gtfsId name lat lon vehicleMode }
 }
 
+# 지도 정류장 타일(#326). 노선 없이 위치만 — 전국을 1° 블록으로 나눠 부른다.
+query StopsInBox($minLat: Float!, $minLon: Float!, $maxLat: Float!, $maxLon: Float!) {
+  stopsByBbox(minLat: $minLat, minLon: $minLon, maxLat: $maxLat, maxLon: $maxLon) { gtfsId name lat lon vehicleMode }
+}
+
 query PatternsAtStop($id: String!) {
   stop(id: $id) {
     gtfsId

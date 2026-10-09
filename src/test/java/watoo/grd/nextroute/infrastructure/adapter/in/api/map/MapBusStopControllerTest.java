@@ -8,7 +8,9 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.map.dto.BusStopSnapshotPayload;
+import watoo.grd.nextroute.application.map.dto.BusStopTileSnapshot;
 import watoo.grd.nextroute.application.map.port.in.GetBusStopSnapshotUseCase;
+import watoo.grd.nextroute.application.map.port.in.GetBusStopTilesUseCase;
 
 import java.nio.charset.StandardCharsets;
 
@@ -34,6 +36,88 @@ class MapBusStopControllerTest {
 
     @Autowired MockMvc mockMvc;
     @MockBean GetBusStopSnapshotUseCase getBusStopSnapshotUseCase;
+    @MockBean GetBusStopTilesUseCase getBusStopTilesUseCase;
+
+    // ── v2 전국 타일(#326) ──
+
+    private static final String TILE_VERSION = "abcdef123456";
+    private static final String TILE_BODY = """
+            {"key":"374_1270","version":"abcdef123456",\
+            "columns":["gtfsStopId","name","lat","lng","arsId"],\
+            "stops":[["1:BS_TAGO_SEB121000009","신분당선강남역",37.4958,127.029,"22010"]]}""";
+    private static final String MANIFEST = """
+            {"version":"0123456789ab","tileSize":0.1,"count":1,"tiles":{"374_1270":"abcdef123456"}}""";
+
+    private void givenTiles() {
+        given(getBusStopTilesUseCase.current()).willReturn(java.util.Optional.of(new BusStopTileSnapshot(
+                "0123456789ab", 1, java.time.Instant.EPOCH,
+                java.util.Map.of("374_1270", new BusStopTileSnapshot.Tile(TILE_VERSION,
+                        TILE_BODY.getBytes(StandardCharsets.UTF_8))),
+                MANIFEST.getBytes(StandardCharsets.UTF_8))));
+    }
+
+    @Test
+    void tiles_manifest_200_noCache_etag() throws Exception {
+        givenTiles();
+
+        mockMvc.perform(get("/api/map/bus-stops/v2/tiles"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ETAG, "\"0123456789ab\""))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-cache"))
+                .andExpect(jsonPath("$.tileSize").value(0.1))
+                .andExpect(jsonPath("$.tiles['374_1270']").value(TILE_VERSION));
+    }
+
+    @Test
+    void tiles_manifest_304_alsoWeak() throws Exception {
+        givenTiles();
+
+        mockMvc.perform(get("/api/map/bus-stops/v2/tiles").header(HttpHeaders.IF_NONE_MATCH, "\"0123456789ab\""))
+                .andExpect(status().isNotModified())
+                .andExpect(content().string(""));
+        // Tomcat gzip 은 강한 ETag 를 W/ 로 바꾼다 — 클라가 그대로 돌려보내도 304
+        mockMvc.perform(get("/api/map/bus-stops/v2/tiles").header(HttpHeaders.IF_NONE_MATCH, "W/\"0123456789ab\""))
+                .andExpect(status().isNotModified());
+    }
+
+    @Test
+    void tiles_beforeFirstBuild_503_retryAfter() throws Exception {
+        given(getBusStopTilesUseCase.current()).willReturn(java.util.Optional.empty());
+
+        mockMvc.perform(get("/api/map/bus-stops/v2/tiles"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, "30"));
+        mockMvc.perform(get("/api/map/bus-stops/v2/tiles/374_1270"))
+                .andExpect(status().isServiceUnavailable());
+    }
+
+    @Test
+    void tile_200_columnsContract_andCacheByVersionParam() throws Exception {
+        givenTiles();
+
+        mockMvc.perform(get("/api/map/bus-stops/v2/tiles/374_1270").param("v", TILE_VERSION))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ETAG, "\"" + TILE_VERSION + "\""))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "max-age=31536000, public, immutable"))
+                .andExpect(jsonPath("$.columns[0]").value("gtfsStopId"))
+                .andExpect(jsonPath("$.columns[4]").value("arsId"))
+                .andExpect(jsonPath("$.stops[0][0]").value("1:BS_TAGO_SEB121000009"));
+        // v 가 없거나 낡았으면 immutable 이 아니다 — 지금 본문 + 재검증
+        mockMvc.perform(get("/api/map/bus-stops/v2/tiles/374_1270").param("v", "old"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-cache"));
+    }
+
+    @Test
+    void tile_304_404_400() throws Exception {
+        givenTiles();
+
+        mockMvc.perform(get("/api/map/bus-stops/v2/tiles/374_1270")
+                        .header(HttpHeaders.IF_NONE_MATCH, "\"" + TILE_VERSION + "\""))
+                .andExpect(status().isNotModified());
+        mockMvc.perform(get("/api/map/bus-stops/v2/tiles/350_1250")).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/map/bus-stops/v2/tiles/abc")).andExpect(status().isBadRequest());
+    }
 
     @Test
     void snapshot_returns200WithVersionEtagAndRows() throws Exception {

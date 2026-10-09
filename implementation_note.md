@@ -3991,3 +3991,32 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `./gradlew test --tests '*Track*' --tests '*OtpTransitPatternAdapterTest'` (일회용 st-pg:55432·st-redis:56379 + 기본값 없는 env 더미) → Track* 단위 전부 0 실패(선택 조회 19/0, 시작 11/0, 형제 4/0, 컨트롤러 6/0, 어댑터 9/0), TrackJourneyStartIT 1/0
+
+## 2026-10-10 지도 정류장 전국 타일 (#326, L, feat/map-bus-stop-tiles)
+
+### 확정
+- 사용자 결정: 로딩 적은 쪽 = 0.1° 타일, 마커 키 gtfsStopId, 인증은 범위 밖(로그인 제거 진행 중). v1 `/snapshot` 유지
+- 실측: 버스 stop 210,029 → 합치기 후 205,947. 0.1° 타일 1,158개(gzip p50 1.5kB, 최대 31kB). 전국 한 파일은 gzip 2.8MB
+- Opus 리뷰(수정 후 승인) 반영: graphVersion 감지 대신 1분 점검(없으면 / 24시간 지나면 빌드), 게이트 acquire 2초 1회(role `map-build`) + 호출 새 10초 마감, 이상치 가드(<150,000 또는 이전의 80% 미만 → 게시 안 함), manifest no-cache + 타일 `?v=` immutable, 반올림 후 key, arsId 는 `OtpGtfsIds.seoulBusStop` 정방향으로 맵
+- 숫자는 `BigDecimal`(정수에서 생성, 뒤 0 제거, 지수 표기 방지)로 직렬화한다. JDK Double.toString 변화로 해시가 통째로 바뀌는 것을 막는다
+
+### 함정
+- `OtpConcurrencyGate.tryAcquire` 는 즉시 반환이 아니라 deadline 까지 대기한다(Redis 구현 :73-104) → 재시도 루프를 얹으면 몇 분씩 늘어진다
+- graphVersion 은 env 정적값 → 런타임 변경 감지 코드는 영원히 안 돈다
+- key 를 `/0.1` 로 계산하면 경계 300여 칸이 틀린다 → 서버·클라 모두 `*10` 후 floor
+- 공용 스케줄러 풀은 3 → 수십 초 빌드는 전용 스레드에서
+
+### 좌표
+- `application/map/service/BusStopTiles.java`(규칙), `NationalBusStopTileService.java`(빌드·점검), `dto/BusStopTileSnapshot.java`
+- `MapBusStopController` v2 두 엔드포인트, 인계 `docs/plan/map-bus-stop-tiles/HANDOFF.md`
+
+### 미결
+- 지방 피드끼리 같은 위치 중복(TSB 시외 vs 시내, 15m 안 6,956쌍)은 이번 범위 밖이라 마커가 겹친다. 후속 이슈
+
+### 배포
+- api 만 교체한다. 마이그레이션·플래그 없음. 부팅 후 `[MapTiles] 버스정류장 타일 빌드` 로그와 힙을 확인한다
+
+### 검증
+- 일회용 st-pg/st-redis + 더미 env 로 `./gradlew test --tests '*TrackJourneyStartIT' --tests '*Track*' --tests '*MapBusStop*' --tests '*BusStopTile*' --tests '*BusStopSnapshot*'` → 17 스위트 전부 0 실패
+  - BusStopTilesTest 6/0, NationalBusStopTileServiceTest 7/0, MapBusStopControllerTest 10/0, TrackJourneyStartIT 1/0
+- `OtpTransitPatternAdapterTest` 12/0

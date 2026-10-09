@@ -78,6 +78,17 @@ public class OtpTransitPatternAdapter implements TransitPatternPort {
     }
 
     @Override
+    public List<TransitStop> stopsInBox(double minLat, double minLon, double maxLat, double maxLon,
+                                        RoutingDeadline deadline) {
+        Map<String, Object> vars = new LinkedHashMap<>();
+        vars.put("minLat", minLat);
+        vars.put("minLon", minLon);
+        vars.put("maxLat", maxLat);
+        vars.put("maxLon", maxLon);
+        return parseStopsInBox(post("StopsInBox", vars, deadline));
+    }
+
+    @Override
     public List<TransitPattern> patternsAtStop(String gtfsStopId, RoutingDeadline deadline) {
         return parsePatternsAtStop(post("PatternsAtStop", Map.of("id", gtfsStopId), deadline));
     }
@@ -142,6 +153,17 @@ public class OtpTransitPatternAdapter implements TransitPatternPort {
     public static List<TransitStop> parseStopsByIds(JsonNode root) {
         List<TransitStop> stops = new ArrayList<>();
         for (JsonNode stop : root.path("data").path("stops")) {
+            if (stop.isNull() || text(stop.path("gtfsId")) == null) {
+                continue;
+            }
+            stops.add(toStop(stop));
+        }
+        return stops;
+    }
+
+    public static List<TransitStop> parseStopsInBox(JsonNode root) {
+        List<TransitStop> stops = new ArrayList<>();
+        for (JsonNode stop : root.path("data").path("stopsByBbox")) {
             if (stop.isNull() || text(stop.path("gtfsId")) == null) {
                 continue;
             }
