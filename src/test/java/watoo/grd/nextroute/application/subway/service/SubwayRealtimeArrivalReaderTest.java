@@ -3,6 +3,7 @@ package watoo.grd.nextroute.application.subway.service;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalInfo;
+import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
 import watoo.grd.nextroute.application.subway.port.out.SubwayApiPort;
 import watoo.grd.nextroute.application.subway.port.out.SubwayRealtimeCachePort;
 
@@ -134,6 +135,19 @@ class SubwayRealtimeArrivalReaderTest {
 
     private String secondsAgo(int seconds) {
         return LocalDateTime.now(SEOUL).minusSeconds(seconds).format(RECEIVED_AT);
+    }
+
+    @Test
+    @DisplayName("#317 직전 역 ID(statnFid)·현재 역 이름(arvlMsg3)을 옮긴다")
+    void carriesPrevStationIdAndCurrentStationName() {
+        when(apiPort.getRealtimeArrivalByStation("서울역")).thenReturn(List.of(new SubwayArrivalInfo(
+                STATION, "서울역", LINE, "상행", "1001000134", null, null, null, null, null, "0", 60, "K1",
+                null, null, null, "3", null, "남영", null, null, null)));
+
+        SubwayRealtimeTrain train = reader.arrivalsByStation(LINE, STATION, "서울역", null).get(0).train();
+
+        assertThat(train.getPrevStationId()).isEqualTo("1001000134");
+        assertThat(train.getCurrentStationName()).isEqualTo("남영");
     }
 
     private SubwayArrivalInfo arrival(String trainNo, String direction, int seconds) {

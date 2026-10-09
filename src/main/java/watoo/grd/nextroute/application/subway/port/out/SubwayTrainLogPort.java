@@ -5,7 +5,10 @@ import watoo.grd.nextroute.application.subway.dto.SubwayTrainObservation;
 import watoo.grd.nextroute.application.subway.dto.TrainIdentity;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -22,6 +25,19 @@ public interface SubwayTrainLogPort {
 
     /** 전이 감지의 좌변. 이 열차를 마지막으로 본 자리. */
     Optional<SubwayTrainObservation> lastSeen(TrainIdentity train);
+
+    /**
+     * 여러 열차의 직전 위치를 한 번에(#317 역 도착 응답). 없는 열차는 결과에 없다.
+     *
+     * <p>기본 구현은 한 대씩 묻는다. 저장소가 묶어 읽을 수 있으면 덮어쓴다.
+     */
+    default Map<TrainIdentity, SubwayTrainObservation> lastSeenAll(Collection<TrainIdentity> trains) {
+        Map<TrainIdentity, SubwayTrainObservation> out = new LinkedHashMap<>();
+        for (TrainIdentity train : trains) {
+            lastSeen(train).ifPresent(seen -> out.put(train, seen));
+        }
+        return out;
+    }
 
     void remember(TrainIdentity train, SubwayTrainObservation observation);
 
