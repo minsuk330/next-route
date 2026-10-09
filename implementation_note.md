@@ -3841,6 +3841,79 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 운영 OTP(터널): 88·G7426·900·M6410 등 경기 버스 leg 16개 legGeometry GBIS 선 30m 내 100%, 최대 1m. otp·api ERROR 0(10분).
 - 앱 `/api/route/search`(운정→신논현, 200, 1.15s): G7426·마을 077 subPath polyline GBIS 선 30m 내 100%, 최대 1m.
 
+## 2026-10-09 subway-arrivals-board PR-1 (#317 열차 위치)
+
+플랜 `docs/plan/subway-arrivals-board/PLAN.md` §3. 브랜치 feat/subway-arrivals-train-position (스크래치 clone).
+
+### 확정
+- 위치 API `trainSttus=3`(전역출발) = 그 행 `statnId` 역의 **바로 전역**을 떠나 statnId 로 가는 중(사용자 확정). 역 도착 응답은 (prev(X), DEPARTED) 로 그린다. M7 트래커·링은 여전히 이 값을 근거로 안 쓴다(별건)
+- 열차번호 정규화 불필요 — 도착 btrainNo ↔ 위치 trainNo 16/16(2026-08-15 항목). 플랜의 "실측 선행" 단계 삭제
+- 위치 신선도 = `SubwayPositionProperties.freshnessWindow`(5분) 재사용. 180초는 `receivedAt` 이 "원천 시각이 바뀐 마지막 시각"이라 장시간 정차 열차를 놓친다
+- 반대 방향 제거 조건 = 반대 방향 관측이 신선 **그리고** (이 방향 관측 없음 또는 더 오래됨)
+- 플랜 편차: `SubwayResolvedPatternCache` 를 따로 빼지 않았다. `SubwayLineOrder` 가 `SubwayStationsAheadService.resolvedPatterns`(같은 패키지)를 직접 써서 캐시를 공유한다 — 추출하면 stations-ahead 테스트 생성자까지 바뀌는데 얻는 게 없다
+
+### 함정
+- 급행 건너뜀 판정 첫 구현이 틀렸다: "X 쪽으로 가다 다른 후보를 먼저 만나면 탈락"을 candidate 가 **없는** 패턴(급행)에도 적용 → 완행 직전 역까지 탈락해 늘 모름 ← 가드: candidate 가 그 패턴에 실제로 나올 때만 판정(`SubwayLineOrderTest.expressSkipDoesNotMakeItAmbiguous`)
+- 스크래치 clone 에서 `@SpringBootTest` IT 는 DB 가 필요하다 → 새 Redis IT 는 컨텍스트 없이 어댑터만 testcontainers Redis 에 붙였다(`RedisSubwayTrainLogAdapterLastSeenAllIT`)
+
+### 좌표
+- 위치 해석 `application/arrival/service/SubwayTrainPositionResolver.java`
+- 노선 순서 `application/subway/service/SubwayLineOrder.java` (cachedPatterns 만, 미스 시 단일 스레드 백그라운드 적재 1회)
+- 일괄 조회 `SubwayTrainLogPort.lastSeenAll`(기본 구현=한 대씩) / Redis HMGET 오버라이드
+- 스냅샷 필드 `SubwayRealtimeTrain.prevStationId`(statnFid)·`currentStationName`(arvlMsg3) — `RealtimeSubwayCollector.toTrain`, `SubwayRealtimeArrivalReader.toTrain`
+
+### 배포
+- api + worker(스냅샷 필드는 worker 수집기가 채움). 순서 무관 — 스냅샷 JSON 은 NON_NULL·필드 추가만. 마이그레이션 없음
+
+### 검증
+- `./gradlew compileJava` 통과
+- 집중: `./gradlew test --tests '*SubwayLineOrderTest' --tests '*SubwayTrainPositionResolverTest' --tests '*SubwayStationArrivalQueryServiceTest' --tests '*SubwayStationsAheadServiceTest' --tests '*SubwayStationControllerTest' --tests '*SubwayRealtimeArrivalReaderTest' --tests '*RedisSubwayTrainLogAdapterLastSeenAllIT'` → 52/0
+- 전체 단위: `./gradlew test --tests '*Test'` → **2124/0**. 컨텍스트 IT(`*IT`)는 스크래치 clone 에 DB 가 없어 미실행(기존 무관)
+- 실호출은 배포 후(2호선 강남·수원 하행·수인분당 1역) — 미실행
+
+## 2026-10-09 subway-arrivals-board PR-2 (#317 노선도 역 목록 + #318 초 단위)
+
+플랜 `docs/plan/subway-arrivals-board/PLAN.md` §4 (플랜 파일은 PR-1 #322 에 있음). 브랜치 feat/subway-arrivals-line-strip.
+
+### 확정
+- **GTFS 계획 시각은 초 단위다**(분 반올림 아님) — 운영 fixture 실측: 9호선 정차 25초, 신논현→사평 115초, 5호선 강동 정차 40초. 플랜 §8-2 "거짓 정밀도" 우려 해소
+- 오는 쪽 역(behind) = 같은 방향 패턴에서 승차역 **앞** 머리를 가까운 역부터 뒤집어 남은 역과 같은 규칙(부분수열 → 소수 패턴 → 공통 접두)으로 자른다. 끝 사유 FULL/ORIGIN/BRANCH/UNKNOWN
+- 도착 응답 경로는 `cachedPatterns` 만 — 비면 `SubwayLinePatternService.loadLater`(단일 스레드·키당 1회) 후 빈 노선도
+- 플랜 편차: `LineStrip` 에 `aheadKeys`·`nextOf` 를 넣지 않았다. PR-3 는 PR-1 의 `SubwayLineOrder.nextOf` 로 충분하다
+- 플랜 편차: PR-2 는 PR-1 에 의존하지 않게 만들었다(독립 브랜치, 스택 금지). PR-1 `SubwayLineOrder` 의 자체 지연 적재기와 `loadLater` 가 겹친다 → PR-3 에서 `loadLater` 하나로 합친다
+
+### 좌표
+- 계산 `StationsAheadCalculator.behind`/`heads`/`seconds`, `Ahead` 에 초 3개
+- 서비스 `SubwayStationsAheadService.strip`(implements `GetSubwayLineStripUseCase`)
+- 응답 `SubwayStationArrivalsResponse.Direction` 4필드 + `StripStation`/`BehindEnd`/`LineStrip`, `SubwayStationsAheadResponse.Station` 초 3개
+
+### 검증
+- 운영 fixture 프로브(삭제함): 강남 내선 종합운동장·삼성·선릉·역삼(FULL, 450/330/180/60초), 수원 하행 당정·의왕·성균관대·화서(급행 패턴에도 FULL), 가산디지털단지 상행 금천구청·독산(BRANCH), 김포공항 9호선 상행 개화(ORIGIN), 방화 하행 없음(ORIGIN)
+- 전체 단위 `./gradlew test --tests '*Test'` → **2120/0**. 컨텍스트 IT 미실행(스크래치 clone DB 없음, 기존 무관)
+
+### 배포
+- api 만. 마이그레이션 없음
+
+## 2026-10-09 subway-arrivals-board PR-3 (#317 열차별 구간 앵커 + 지난 열차 제거)
+
+플랜 §5. 브랜치 feat/subway-arrivals-train-segment = PR-1(#322) + PR-2(#323) merge 위 커밋. **draft — #322·#323 머지 후 main 위로 rebase**(스택 금지 규칙상 그 전엔 머지하지 않는다).
+
+### 확정
+- 구간은 출발한 열차(status=DEPARTED)에만. to = `SubwayLineOrder.nextOf(from)`
+- departedAt = #316 구간 실측의 "전역 출발 첫 관측"(`SubwaySegmentTimePort.departedAt`, 키 = 도착하는 역) → 없으면 **POSITION 원천일 때만** 위치 API 상태가 바뀐 시각. ARRIVAL 확인 시각은 상태가 그대로여도 갱신돼 출발 시각이 아니다 → 구간 없음
+- expectedAt = departedAt + 최근 3대 실측 중앙값(MEASURED) → 없으면 + GTFS 계획 초(SCHEDULED, `SubwayLineOrder.runSeconds` = 두 역이 붙은 최다 trip 패턴). 링 원칙(오늘 실측 우선, 정적 값은 표본 없을 때만·출처 표시)과 같다
+- 지난 열차 = (위치 API 가 조회역 출발 & 도착 행보다 최신) 또는 (현재 역 ∈ 하류 3역 & ∉ 상류 4역·조회역). 판정 예외는 "안 지났다"
+- PR-2 노트의 "loadLater 하나로 합친다" 수행: `SubwayLineOrder` 의 자체 적재 스레드를 지우고 `SubwayLinePatternService.loadLater` 위임
+
+### 좌표
+- `application/arrival/service/SubwayTrainSegmentResolver.java`
+- `SubwayLineOrder.runSeconds`
+- `SubwayStationArrivalsResponse.Train.segment` / `Segment` / `SegmentSource`, `SubwayTrainPositionResolver.Placed.segment`
+
+### 검증
+- 집중: SegmentResolver 9, LineOrder 7, 도착 서비스 21(+2: 앵커·위치 출발 제거), 컨트롤러 6(segment JSON), PositionResolver 8
+- 전체 단위 `./gradlew test --tests '*Test'` (PR-1+PR-2+PR-3 합본) → **2150/0**. 컨텍스트 IT 미실행(스크래치 clone DB 없음, 기존 무관)
+
 ## 2026-10-09 subway-arrivals-board PR-4 (#317 떠난 열차 대체 + 선택 허용)
 
 플랜 `docs/plan/subway-arrivals-board/PLAN.md` §6 (플랜 파일은 PR-1 #322). 브랜치 feat/subway-arrivals-departed-fallback.

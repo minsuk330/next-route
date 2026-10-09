@@ -137,6 +137,7 @@ public class RealtimeSubwayCollector {
                 .direction(info.direction())
                 .stationName(info.stationName())
                 .prevStationName(prevName)
+                .prevStationId(info.prevStationId())
                 .nextStationName(nextName)
                 .arrivalSeconds(info.arrivalSeconds())
                 .receivedAt(info.receivedAt())
@@ -144,6 +145,7 @@ public class RealtimeSubwayCollector {
                 .nextSegmentTravelSeconds(nextSegTravel)
                 .arrivalCode(info.arrivalCode())
                 .currentMessage(info.currentMessage())
+                .currentStationName(info.arrivalMsg3())
                 .destinationName(info.destinationName())
                 .trainType(info.trainType())
                 .build();

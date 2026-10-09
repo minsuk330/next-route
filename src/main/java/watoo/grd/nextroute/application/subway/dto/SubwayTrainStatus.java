@@ -19,10 +19,10 @@ public enum SubwayTrainStatus {
     DEPARTED,
 
     /**
-     * 3 — 전역출발.
+     * 3 — 전역출발. 그 row 의 {@code statnId} 역의 <b>바로 전역</b>을 출발해 {@code statnId} 로 가는 중이다
+     * (사용자 확정 2026-10-09, 도착 API {@code arvlCd=3} 과 같은 뜻). 역 도착 응답은 이 뜻으로 위치를 그린다(#317).
      *
-     * <p><b>이 값만으로 출발 사건을 만들지 않는다.</b> 그 row 의 {@code statnId} 가 전역인지
-     * 다음 역인지 명확한 계약이 없다. 실제 trace 를 보기 전까지는 보조 근거로만 쓴다.
+     * <p><b>이 값만으로 출발 사건을 만들지는 않는다</b>(M7 트래커·링은 아직 이 값을 근거로 쓰지 않는다 — 별건).
      */
     LEFT_PREVIOUS,
 
