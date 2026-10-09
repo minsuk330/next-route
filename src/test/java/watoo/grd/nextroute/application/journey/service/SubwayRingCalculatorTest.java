@@ -469,6 +469,23 @@ class SubwayRingCalculatorTest {
         }
     }
 
+    @Test
+    @DisplayName("이미 구간을 지난 열차(#311) — 승차역에서 시작했어도 하차역 도착으로 마무리, NORMAL, 낡은 관측이어도")
+    void passedTrainFinishesAtAlighting() {
+        SubwayRingContext selected = new SubwayRingContext(JOURNEY_ID, 1, 4, 0, context.chain(), 0);
+
+        SubwayRingState state = calculator.next(null, selected,
+                SubwayRingObservation.passed(3, T0.minusSeconds(300)), T0);
+        SubwayRingState after = calculator.next(state, selected, null, T0.plusSeconds(60));
+
+        assertThat(state.nextStationSequence()).isEqualTo(3);
+        assertThat(state.nextStationName()).isEqualTo("하차역");
+        assertThat(state.segmentProgress()).isEqualByComparingTo("1.00");
+        assertThat(state.phase()).isEqualTo(SubwayRingPhase.SUBWAY_ALIGHT);
+        assertThat(state.quality()).isEqualTo(SubwayRingQuality.NORMAL);
+        assertThat(after).isEqualTo(state);
+    }
+
     // ── 국면과 남은 역 수 ───────────────────────────────────────────────────
 
     @Test

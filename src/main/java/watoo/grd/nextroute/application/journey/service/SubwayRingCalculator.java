@@ -84,6 +84,9 @@ public class SubwayRingCalculator {
         return switch (observation.source()) {
             case ARRIVAL -> fromArrival(prior, context, target, observation, now);
             case POSITION -> fromPosition(prior, context, target, observation, now);
+            // 열차가 이미 하차역을 지났다(#311). 도착은 사실이라 NORMAL — STALE 이면 앱이 끝까지 "확인 중"으로 남는다.
+            case PASSED -> anchored(context, context.chain().alightingSequence(), BigDecimal.ONE,
+                    observation.observedAt(), null, SubwayRingQuality.NORMAL, observation.observedAt(), now);
         };
     }
 
@@ -375,6 +378,10 @@ public class SubwayRingCalculator {
     }
 
     private boolean isStale(SubwayRingObservation observation, Instant now) {
+        if (observation.source() == SubwayRingObservation.Source.PASSED) {
+            // 구간을 지났다는 것은 시간이 지나도 바뀌지 않는다. 위치 원천 지연(최대 150초)으로 창을 넘겨도 마무리한다.
+            return false;
+        }
         if (observation.observedAt() == null) {
             return true;
         }

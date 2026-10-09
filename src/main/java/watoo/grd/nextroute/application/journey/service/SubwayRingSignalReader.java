@@ -205,10 +205,38 @@ public class SubwayRingSignalReader {
         SubwayTrainObservation observation = seen.get();
         int sequence = chain.sequenceOfKey(observation.stationId());
         if (sequence < 0) {
-            // 우리 구간 밖의 역이다. 아무 진행도 만들지 않는다.
-            return null;
+            // 우리 구간 밖의 역이다. 구간을 이미 지나간 열차면 하차역 도착으로 마무리하고, 아니면(아직 승차역 전 등) 진행을 만들지 않는다.
+            return passedChain(train, chain, observation) ? SubwayRingObservation.passed(chain.alightingSequence(),
+                    observation.receivedAt()) : null;
         }
         return SubwayRingObservation.position(observation.status(), sequence,
                 observation.receivedAt());
+    }
+
+    /** 구간 통과를 찾아볼 이력 폭. 방금 떠난 열차 선택 창(10분)보다 넉넉하고 2호선 한 바퀴(약 85분)보다 훨씬 짧다. */
+    private static final java.time.Duration PASSED_LOOKBACK = java.time.Duration.ofMinutes(30);
+
+    /**
+     * 지금 구간 밖에 있는 열차가 구간을 <b>이미 지나갔는가</b>(#311).
+     *
+     * <p>"방금 떠난 열차"는 10분 창으로 고를 수 있어 짧은 구간에서는 하차역을 지난 열차가 고정된다(journey 166: 8484 가
+     * 하차역 방배에 진입한 지 3분 뒤 선택). 그 열차는 구간 밖이라 지금까지는 링이 끝까지 STALE 이었다.
+     *
+     * <p>위치 로그의 역별 도착 이력에 구간 역 도착이 있고, 그 도착이 지금 관측(구간 밖)보다 이르면 구간을 지나 하차역 너머로
+     * 간 것이다. 이력이 없으면 아직 승차역 전(상류)일 수 있으므로 판단하지 않는다.
+     */
+    private boolean passedChain(TrainIdentity train, SubwayRingChain chain, SubwayTrainObservation outside) {
+        if (outside.receivedAt() == null) {
+            return false;
+        }
+        try {
+            return trainLogPort.findArrivals(train, outside.receivedAt().minus(PASSED_LOOKBACK), outside.receivedAt())
+                    .stream()
+                    .anyMatch(event -> chain.sequenceOfKey(event.stationId()) >= 0
+                            && event.to() != null && !event.to().isAfter(outside.receivedAt()));
+        } catch (RuntimeException e) {
+            log.debug("[SubwayRing] 구간 통과 이력 조회 실패 — {}", e.getMessage());
+            return false;
+        }
     }
 }
