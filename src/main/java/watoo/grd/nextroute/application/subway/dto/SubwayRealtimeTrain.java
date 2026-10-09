@@ -18,6 +18,8 @@ public class SubwayRealtimeTrain {
     private String direction;
     private String stationName;
     private String prevStationName;
+    /** 서울 {@code statnFid} — 조회역 기준 직전 역 ID. 전역 코드(3·4·5)일 때 열차가 있는 역이다(#317). */
+    private String prevStationId;
     private String nextStationName;
     private Integer arrivalSeconds;
     /** Seoul API recptnDt. 포맷: "yyyy-MM-dd HH:mm:ss" */
@@ -29,6 +31,8 @@ public class SubwayRealtimeTrain {
     /** 서울 {@code arvlCd} 원값. 뜻은 {@link SubwayArrivalCode} 가 소유한다. */
     private String arrivalCode;
     private String currentMessage;
+    /** 서울 {@code arvlMsg3} — 그 열차의 현재 역 이름(implementation_note 2026-08-15 실측). 운행중(99) 열차 위치의 원천(#317). */
+    private String currentStationName;
     private String destinationName;
     private String trainType;
 }

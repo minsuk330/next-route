@@ -34,7 +34,15 @@ class SubwayStationControllerTest {
     void returnsDirectionsWithTrains() throws Exception {
         given(useCase.getArrivals("1002000222")).willReturn(new SubwayStationArrivalsResponse(
                 "1002000222", "1002", List.of(new Direction("내선", "내선", List.of(
-                        new Train("2231", "성수", "일반", null, 1, "전역 출발")),
+                        new Train("2231", "성수", "일반", null, 1, "전역 출발", "1002000223", "역삼",
+                                SubwayStationArrivalsResponse.TrainStatus.DEPARTED,
+                                java.time.OffsetDateTime.parse("2026-10-07T15:59:20+09:00"),
+                                SubwayStationArrivalsResponse.PositionSource.POSITION,
+                                new SubwayStationArrivalsResponse.Segment("1002000223", "역삼", "1002000222", "강남",
+                                        java.time.OffsetDateTime.parse("2026-10-07T15:59:20+09:00"),
+                                        java.time.OffsetDateTime.parse("2026-10-07T16:00:50+09:00"),
+                                        SubwayStationArrivalsResponse.SegmentSource.MEASURED)),
+                        new Train("2233", "성수", "일반", 300, null, "5분 후", null, null, null, null, null, null)),
                         List.of(new SubwayStationArrivalsResponse.Departed("2229", "성수", "일반",
                                 java.time.OffsetDateTime.parse("2026-10-07T15:53:40+09:00"), "교대"))))));
 
@@ -47,6 +55,26 @@ class SubwayStationControllerTest {
                 .andExpect(jsonPath("$.directions[0].trains[0].trainNo").value("2231"))
                 .andExpect(jsonPath("$.directions[0].trains[0].stationsAway").value(1))
                 .andExpect(jsonPath("$.directions[0].trains[0].currentMessage").value("전역 출발"))
+                // #317 위치 필드 — 이름이 앱 계약이다
+                .andExpect(jsonPath("$.directions[0].trains[0].currentStationId").value("1002000223"))
+                .andExpect(jsonPath("$.directions[0].trains[0].currentStationName").value("역삼"))
+                .andExpect(jsonPath("$.directions[0].trains[0].status").value("DEPARTED"))
+                .andExpect(jsonPath("$.directions[0].trains[0].observedAt").value("2026-10-07T15:59:20+09:00"))
+                .andExpect(jsonPath("$.directions[0].trains[0].positionSource").value("POSITION"))
+                // #317 구간 앵커
+                .andExpect(jsonPath("$.directions[0].trains[0].segment.fromStationName").value("역삼"))
+                .andExpect(jsonPath("$.directions[0].trains[0].segment.toStationId").value("1002000222"))
+                .andExpect(jsonPath("$.directions[0].trains[0].segment.departedAt").value("2026-10-07T15:59:20+09:00"))
+                .andExpect(jsonPath("$.directions[0].trains[0].segment.expectedAt").value("2026-10-07T16:00:50+09:00"))
+                .andExpect(jsonPath("$.directions[0].trains[0].segment.source").value("MEASURED"))
+                .andExpect(jsonPath("$.directions[0].trains[1].segment").value(org.hamcrest.Matchers.nullValue()))
+                // 모르면 키는 있고 값이 null — 구 앱은 모르는 키를 무시한다
+                .andExpect(jsonPath("$.directions[0].trains[1].status").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.directions[0].trains[1].currentStationId").value(org.hamcrest.Matchers.nullValue()))
+                // #317 노선도 — 모르면 빈 목록·null·UNKNOWN
+                .andExpect(jsonPath("$.directions[0].stationsBehind").isEmpty())
+                .andExpect(jsonPath("$.directions[0].nextStation").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.directions[0].behindEnd").value("UNKNOWN"))
                 .andExpect(jsonPath("$.directions[0].departed[0].trainNo").value("2229"))
                 .andExpect(jsonPath("$.directions[0].departed[0].departedAt").value("2026-10-07T15:53:40+09:00"))
                 .andExpect(jsonPath("$.directions[0].departed[0].currentStationName").value("교대"));
@@ -79,7 +107,7 @@ class SubwayStationControllerTest {
                 List.of(new SubwayStationsAheadResponse.Branch("마천", "둔촌동",
                         SubwayStationsAheadResponse.EndReason.TERMINAL)),
                 List.of(new SubwayStationsAheadResponse.Station("1005000549", "둔촌동", 1, 2, List.of(),
-                        "1:RS_ACC1_S-5-0549", "1:RR_ACC1_S-5-1D")),
+                        "1:RS_ACC1_S-5-0549", "1:RR_ACC1_S-5-1D", 120, 120, 30)),
                 "1:RS_ACC1_S-5-0548"));
 
         mockMvc.perform(get("/api/subway/stations/1005000548/stations-ahead").param("direction", "하행"))
@@ -90,7 +118,11 @@ class SubwayStationControllerTest {
                 .andExpect(jsonPath("$.branches[0].kind").value("TERMINAL"))
                 .andExpect(jsonPath("$.boardGtfsStopId").value("1:RS_ACC1_S-5-0548"))
                 .andExpect(jsonPath("$.stations[0].gtfsStopId").value("1:RS_ACC1_S-5-0549"))
-                .andExpect(jsonPath("$.stations[0].routeGtfsId").value("1:RR_ACC1_S-5-1D"));
+                .andExpect(jsonPath("$.stations[0].routeGtfsId").value("1:RR_ACC1_S-5-1D"))
+                // #318 초 단위 계획
+                .andExpect(jsonPath("$.stations[0].secondsFromBoard").value(120))
+                .andExpect(jsonPath("$.stations[0].runSeconds").value(120))
+                .andExpect(jsonPath("$.stations[0].dwellSeconds").value(30));
     }
 
     @Test

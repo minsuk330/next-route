@@ -12,7 +12,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * line_id·실시간 방향의 OTP 패턴을 하루 단위로 캐시해 준다(#283).
@@ -39,6 +42,14 @@ public class SubwayLinePatternService {
 
     private volatile Cached<List<OtpRailRoute>> routes;
     private final Map<String, Cached<List<DirectedRailPattern>>> patterns = new ConcurrentHashMap<>();
+
+    /** {@link #loadLater} 의 진행 중 키. 같은 키 적재가 겹치면 OTP 를 두 번 부른다. */
+    private final Set<String> loading = ConcurrentHashMap.newKeySet();
+    private final ExecutorService loader = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "subway-pattern-load-later");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public SubwayLinePatternService(SubwayRoutePatternPort port, Clock clock) {
         this.port = port;
@@ -76,6 +87,31 @@ public class SubwayLinePatternService {
     public List<DirectedRailPattern> cachedPatterns(String lineId, String direction) {
         Cached<List<DirectedRailPattern>> cached = patterns.get(lineId + ":" + direction);
         return cached == null ? List.of() : cached.value();
+    }
+
+    /**
+     * 뒤에서 한 번 적재한다(#317). {@link #cachedPatterns} 가 비어 응답이 노선도를 비워 보낸 뒤 다음 요청을 채우려고 쓴다.
+     * 같은 키가 이미 적재 중이면 아무것도 안 한다. 실패는 로그만.
+     */
+    public void loadLater(String lineId, String direction) {
+        String key = lineId + ":" + direction;
+        if (!loading.add(key)) {
+            return;
+        }
+        try {
+            loader.execute(() -> {
+                try {
+                    patterns(lineId, direction);
+                } catch (RuntimeException e) {
+                    log.warn("[OTP] 지하철 패턴 지연 적재 실패 line={} direction={}: {}", lineId, direction, e.getMessage());
+                } finally {
+                    loading.remove(key);
+                }
+            });
+        } catch (RuntimeException e) {
+            loading.remove(key);
+            throw e;
+        }
     }
 
     private List<DirectedRailPattern> load(String lineId, String direction) {
