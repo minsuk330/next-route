@@ -71,9 +71,11 @@
     "constrainedTransfers": 342
   },
   "deploy": {
-    "at": null,
+    "at": "2026-10-07T12:57:53+09:00",
     "vpsDir": "/srv/nextroute/otp/national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-g71dca926c27c/",
-    "note": "배포 후 기록"
+    "otpHeap": "-Xmx3500m, mem_limit 4500m (변경 없음). 스왑 직후 RSS 3.76GiB",
+    "rollbackBackups": "compose.yaml / compose.otp-national.yaml .bak-20261007-gbis",
+    "note": "OTP 재생성 57초 healthy. 같은 시각 다른 세션이 api·worker 를 새 이미지(20261007-125927-21371b27)로 재배포 — compose 변경 충돌 없음(graphVersion 4곳 + REGIONAL_BUS_CATALOG_ENABLED 공존)"
   },
   "releaseBundle": {
     "note": "graph+otpImage+shapedGtfs+coverageIndex+graphVersion 한 세트. verify_release_bundle.py 로 배포 전 검증(부분 스왑 차단).",

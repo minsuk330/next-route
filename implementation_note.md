@@ -3174,7 +3174,7 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 배포
 - 마이그레이션 없음, 앱 이미지 재빌드 없음(형상 설정은 compose env).
 - ✅ VPS `/srv/nextroute/otp/national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-g71dca926c27c/` 에 graph.obj(sha 4b55ecb1…, 912,570,783 B)·coverage-index.json(sha 638411c6…) 배치, 양쪽 sha 일치 확인(2026-10-07 05:36).
-- ⏳ compose 치환·재생성은 에이전트 권한(Production Deploy)에서 막혀 사용자 실행 대기. 치환 대상: `compose.yaml` 4곳 + `/root/apps/observability/otp/compose.otp-national.yaml` 1곳(옛 graphVersion `...-shaped-g035004114e7b`). OTP 는 두 파일로, api·worker 는 compose.yaml 만으로 재생성(.env 이미지 = 현재 실행 이미지 확인함).
+- ~~⏳ compose 치환·재생성은 에이전트 권한에서 막혀 사용자 실행 대기~~ 사용자 권한 허용 후 2026-10-07 12:56 실행. 치환 대상: `compose.yaml` 4곳 + `/root/apps/observability/otp/compose.otp-national.yaml` 1곳(옛 graphVersion `...-shaped-g035004114e7b`). OTP 는 두 파일로, api·worker 는 compose.yaml 만으로 재생성(.env 이미지 = 현재 실행 이미지 확인함).
 - 로컬 그래프 빌드가 머신 메모리 경합(다른 작업·시뮬레이터)으로 스왑 → 1h24m(평소 11분). 빌드 전 메모리 확인.
 ---
 
@@ -3829,3 +3829,14 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `RegionalRideLocatorTest` 7/7(신규 4), `RideTruncationResolverTest` 14/14(신규 1), `UpcomingStopWindowResolverTest` 12/12, `JourneyPlannedBusStopReaderTest` 3/3(신규)
 - 전체 `./gradlew build`(일회용 postgis·redis): 2,411건 중 실패 10 — 전부 기존 무관 클래스(`JourneyEvalReadPathIT`·`JourneyEvaluationIT`·`JourneyTransferAssessmentIT`, #268 때 main 에서 동일 실패 확인)
+## 2026-10-07 경기 GBIS 그래프 운영 적용 (#275 후속)
+
+### 배포
+- ✅ compose.yaml 4곳 + compose.otp-national.yaml 1곳 graphVersion 치환(diff 로 OTP 5줄만 바뀐 것 확인) → otp 재생성 12:56:56→12:57:53 healthy(새 graph.obj 마운트 확인, RSS 3.76GiB/4.39GiB) → api·worker 재생성. 백업 `*.bak-20261007-gbis`. 마이그레이션 없음.
+- 동시 배포: 12:59 다른 세션이 api·worker 를 `nextroute:20261007-125927-21371b27`(#275 머지 커밋 포함) 로 재배포 + `REGIONAL_BUS_CATALOG_ENABLED`. 그 세션의 compose 백업(12:53:08)이 이미 내 치환을 담고 있어 덮어쓰기 없음 — 최종 compose 에 둘 다 존재.
+- `형상 마킹 ACTIVE` 기동 로그 문구는 현재 main 에 없음 → 확인은 컨테이너 env(`ROUTING_OTP_GRAPH_VERSION`)·`/otp/coverage-index.json` graphVersion 일치 + 실검색으로 대체.
+- 롤백: 백업 두 파일 복원 → otp(두 파일로) → api·worker 재생성. 이전 그래프 디렉터리 `...-shaped-g035004114e7b/` 보존.
+
+### 검증
+- 운영 OTP(터널): 88·G7426·900·M6410 등 경기 버스 leg 16개 legGeometry GBIS 선 30m 내 100%, 최대 1m. otp·api ERROR 0(10분).
+- 앱 `/api/route/search`(운정→신논현, 200, 1.15s): G7426·마을 077 subPath polyline GBIS 선 30m 내 100%, 최대 1m.
