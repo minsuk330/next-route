@@ -20,8 +20,53 @@ public record SubwayStationArrivalsResponse(
      * @param label     표시용. 보통 "잠실 방면", 두 방향 종착이 같으면(2호선) {@code direction} 값
      * @param trains    도착이 빠른 순. 남은 초가 없는 열차는 뒤
      * @param departed  이 역을 떠난 열차, 최근 순, 최대 3대·10분 이내. 위치 수집이 없는 노선은 늘 비어 있다
+     * @param stationsBehind    노선도용(#317): 이 방향 열차가 오는 쪽 역, <b>먼 역 → 가까운 역</b>(마지막이 직전 역), 최대 4.
+     *                          모르면 빈 목록
+     * @param nextStation       이 역 다음 역. 종착·분기점·모름이면 null
+     * @param boardDwellSeconds 이 역 정차 계획 초. 모르면 null
+     * @param behindEnd         {@code stationsBehind} 가 왜 거기서 끝났나
      */
-    public record Direction(String direction, String label, List<Train> trains, List<Departed> departed) {
+    public record Direction(String direction, String label, List<Train> trains, List<Departed> departed,
+                            List<StripStation> stationsBehind, StripStation nextStation,
+                            Integer boardDwellSeconds, BehindEnd behindEnd) {
+
+        public Direction(String direction, String label, List<Train> trains, List<Departed> departed) {
+            this(direction, label, trains, departed, List.of(), null, null, BehindEnd.UNKNOWN);
+        }
+
+        public Direction withStrip(LineStrip strip) {
+            return new Direction(direction, label, trains, departed, strip.stationsBehind(), strip.nextStation(),
+                    strip.boardDwellSeconds(), strip.behindEnd());
+        }
+    }
+
+    /**
+     * 노선도 한 칸(#317·#318). 초는 전부 GTFS <b>계획</b>(대표 패턴) 값이다.
+     *
+     * @param stationId     역 마스터에 없는 역이면 null
+     * @param secondsToHere stationsBehind: 이 역 출발 → 조회역 도착. nextStation: 조회역 출발 → 이 역 도착
+     * @param runSeconds    진행 순서로 직전 역 출발 → 이 역 도착. 직전 역→조회역 운행 초는 stationsBehind 마지막 역의
+     *                      {@code secondsToHere} 다
+     * @param dwellSeconds  이 역 정차
+     */
+    public record StripStation(String stationId, String stationName, Integer secondsToHere, Integer runSeconds,
+                               Integer dwellSeconds) {
+    }
+
+    public enum BehindEnd {
+        /** 4역을 다 채웠다. */
+        FULL,
+        /** 기점이라 짧다. */
+        ORIGIN,
+        /** 그 앞은 갈래마다 달라 합류점에서 끊었다. 목록 밖 열차는 '더 먼 곳'에 둔다. */
+        BRANCH,
+        /** 노선 패턴을 아직 모른다(캐시 미스·실패). */
+        UNKNOWN
+    }
+
+    /** 한 방향 노선도. {@link watoo.grd.nextroute.application.arrival.port.in.GetSubwayLineStripUseCase} 의 답. */
+    public record LineStrip(List<StripStation> stationsBehind, StripStation nextStation, Integer boardDwellSeconds,
+                            BehindEnd behindEnd) {
     }
 
     /**

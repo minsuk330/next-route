@@ -240,6 +240,114 @@ class StationsAheadCalculatorTest {
         }
     }
 
+    @Nested
+    @DisplayName("#317 오는 쪽 역(behind)")
+    class BehindStations {
+
+        @Test
+        @DisplayName("2호선 강남 내선: 먼 역 → 가까운 역 4개, 초는 GTFS 계획 그대로")
+        void loopLineFourStations() {
+            Behind b = behind("1002", "내선", "강남");
+
+            assertThat(b.end()).isEqualTo(BehindEnd.FULL);
+            assertThat(names(b)).containsExactly("종합운동장", "삼성", "선릉", "역삼");
+            assertThat(b.secondsToHere()).containsExactly(450, 330, 180, 60);
+            assertThat(b.runSeconds()).containsExactly(90, 90, 90, 90);
+            assertThat(b.boardDwellSeconds()).isEqualTo(30);
+        }
+
+        @Test
+        @DisplayName("1호선 수원 하행: 급행 통과 패턴이 거짓 갈래를 만들지 않는다")
+        void expressPatternDoesNotFakeABranch() {
+            Behind b = behind("1001", "하행", "수원");
+
+            assertThat(b.end()).isEqualTo(BehindEnd.FULL);
+            assertThat(names(b)).containsExactly("당정", "의왕", "성균관대", "화서");
+        }
+
+        @Test
+        @DisplayName("1호선 가산디지털단지 상행: 금천구청 앞은 갈래(광명)라 거기서 끊는다")
+        void cutsAtMergePoint() {
+            Behind b = behind("1001", "상행", "가산디지털단지");
+
+            assertThat(b.end()).isEqualTo(BehindEnd.BRANCH);
+            assertThat(names(b)).containsExactly("금천구청", "독산");
+        }
+
+        @Test
+        @DisplayName("기점이면 짧거나 비고 ORIGIN — 9호선 김포공항 상행은 개화 하나, 5호선 방화 하행은 없음")
+        void originIsShort() {
+            Behind gimpo = behind("1009", "상행", "김포공항");
+            assertThat(gimpo.end()).isEqualTo(BehindEnd.ORIGIN);
+            assertThat(names(gimpo)).containsExactly("개화");
+            assertThat(gimpo.runSeconds()).containsExactly((Integer) null); // 개화 앞이 없다
+
+            Behind banghwa = behind("1005", "하행", "방화");
+            assertThat(banghwa.end()).isEqualTo(BehindEnd.ORIGIN);
+            assertThat(banghwa.stops()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("9호선(방향 보정 노선) 신논현 하행: 오는 쪽은 언주 쪽, 다음 역은 사평")
+        void correctedDirectionLine() {
+            Behind b = behind("1009", "하행", "신논현");
+
+            assertThat(names(b)).endsWith("선정릉", "언주");
+            assertThat(calc("1009", "하행", "신논현", null).stations().get(0).stop().name()).isEqualTo("사평");
+        }
+
+        @Test
+        @DisplayName("패턴에 없는 역은 UNKNOWN")
+        void unknownStation() {
+            assertThat(StationsAheadCalculator.behind(SubwayPatternFixtures.patterns("1002", "내선"), "nope", 4).end())
+                    .isEqualTo(BehindEnd.UNKNOWN);
+        }
+    }
+
+    @Nested
+    @DisplayName("#318 남은 역 초")
+    class AheadSeconds {
+
+        @Test
+        @DisplayName("다음 역 초 = 승차역 출발 → 도착, 정차 초도 싣는다")
+        void firstStationSeconds() {
+            Ahead next = calc("1001", "하행", "수원", null).stations().get(0);
+
+            assertThat(next.stop().name()).isEqualTo("세류");
+            assertThat(next.secondsFromBoard()).isEqualTo(180);
+            assertThat(next.runSeconds()).isEqualTo(180);
+            assertThat(next.dwellSeconds()).isEqualTo(30);
+        }
+
+        @Test
+        @DisplayName("둘째 역부터 runSeconds 는 직전 역 출발 기준, secondsFromBoard 는 누적")
+        void runSecondsAreFromPreviousStop() {
+            List<Ahead> stations = calc("1002", "내선", "강남", null).stations();
+
+            Ahead second = stations.get(1);
+            assertThat(second.secondsFromBoard()).isGreaterThan(stations.get(0).secondsFromBoard());
+            assertThat(second.runSeconds()).isEqualTo(second.secondsFromBoard()
+                    - stations.get(0).secondsFromBoard() - stations.get(0).dwellSeconds());
+        }
+
+        @Test
+        @DisplayName("시각이 거꾸로거나 없으면 초를 비운다")
+        void reversedTimesAreNull() {
+            assertThat(StationsAheadCalculator.seconds(100, 50)).isNull();
+            assertThat(StationsAheadCalculator.seconds(null, 50)).isNull();
+            assertThat(StationsAheadCalculator.seconds(50, 50)).isZero();
+        }
+    }
+
+    private static Behind behind(String lineId, String direction, String board) {
+        return StationsAheadCalculator.behind(SubwayPatternFixtures.patterns(lineId, direction),
+                SubwayPatternFixtures.stationId(lineId, board), 4);
+    }
+
+    private static List<String> names(Behind b) {
+        return b.stops().stream().map(Stop::name).toList();
+    }
+
     private static Result calc(String lineId, String direction, String board, String destination) {
         return StationsAheadCalculator.calculate(SubwayPatternFixtures.patterns(lineId, direction),
                 SubwayPatternFixtures.stationId(lineId, board), destination);

@@ -60,6 +60,10 @@ class SubwayStationControllerTest {
                 // 모르면 키는 있고 값이 null — 구 앱은 모르는 키를 무시한다
                 .andExpect(jsonPath("$.directions[0].trains[1].status").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.directions[0].trains[1].currentStationId").value(org.hamcrest.Matchers.nullValue()))
+                // #317 노선도 — 모르면 빈 목록·null·UNKNOWN
+                .andExpect(jsonPath("$.directions[0].stationsBehind").isEmpty())
+                .andExpect(jsonPath("$.directions[0].nextStation").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.directions[0].behindEnd").value("UNKNOWN"))
                 .andExpect(jsonPath("$.directions[0].departed[0].trainNo").value("2229"))
                 .andExpect(jsonPath("$.directions[0].departed[0].departedAt").value("2026-10-07T15:53:40+09:00"))
                 .andExpect(jsonPath("$.directions[0].departed[0].currentStationName").value("교대"));
@@ -92,7 +96,7 @@ class SubwayStationControllerTest {
                 List.of(new SubwayStationsAheadResponse.Branch("마천", "둔촌동",
                         SubwayStationsAheadResponse.EndReason.TERMINAL)),
                 List.of(new SubwayStationsAheadResponse.Station("1005000549", "둔촌동", 1, 2, List.of(),
-                        "1:RS_ACC1_S-5-0549", "1:RR_ACC1_S-5-1D")),
+                        "1:RS_ACC1_S-5-0549", "1:RR_ACC1_S-5-1D", 120, 120, 30)),
                 "1:RS_ACC1_S-5-0548"));
 
         mockMvc.perform(get("/api/subway/stations/1005000548/stations-ahead").param("direction", "하행"))
@@ -103,7 +107,11 @@ class SubwayStationControllerTest {
                 .andExpect(jsonPath("$.branches[0].kind").value("TERMINAL"))
                 .andExpect(jsonPath("$.boardGtfsStopId").value("1:RS_ACC1_S-5-0548"))
                 .andExpect(jsonPath("$.stations[0].gtfsStopId").value("1:RS_ACC1_S-5-0549"))
-                .andExpect(jsonPath("$.stations[0].routeGtfsId").value("1:RR_ACC1_S-5-1D"));
+                .andExpect(jsonPath("$.stations[0].routeGtfsId").value("1:RR_ACC1_S-5-1D"))
+                // #318 초 단위 계획
+                .andExpect(jsonPath("$.stations[0].secondsFromBoard").value(120))
+                .andExpect(jsonPath("$.stations[0].runSeconds").value(120))
+                .andExpect(jsonPath("$.stations[0].dwellSeconds").value(30));
     }
 
     @Test
