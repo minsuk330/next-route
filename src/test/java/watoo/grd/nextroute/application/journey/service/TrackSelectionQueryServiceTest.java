@@ -16,6 +16,7 @@ import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
 import watoo.grd.nextroute.application.route.routing.OtpPermit;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.global.error.BusinessException;
+import watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpTransitPatternAdapter;
 import watoo.grd.nextroute.global.error.code.CommonErrorCode;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
@@ -215,6 +216,163 @@ class TrackSelectionQueryServiceTest {
     void subwayDirectionHasNoRouteId() {
         assertThat(service.directions(TrackFixtures.GANGNAM)).extracting(TrackViews.Direction::arrivalRouteId)
                 .containsOnlyNulls();
+    }
+
+    // ── 피드별로 쪼개진 같은 정류장(신분당선강남역 SEB/GGB/ICB 121000009, 2026-10-10 운영 OTP 실측) ──
+
+    private static final String SEB = "1:BS_TAGO_SEB121000009";
+    private static final String GGB = "1:BS_TAGO_GGB121000009";
+    private static final String ICB = "1:BS_TAGO_ICB121000009";
+    /** 경기 5100, 경기 stop 에만 선다. */
+    private static final String GGB_5100 = "1:BR_TAGO_GGB200000115";
+
+    private void givenSinbundangSiblings() {
+        given(port.stops(any(), any())).willReturn(
+                OtpTransitPatternAdapter.parseStopsByIds(TrackFixtures.json("stops-by-ids-sinbundang.json")));
+        for (String id : List.of("SEB121000009", "GGB121000009", "ICB121000009")) {
+            given(port.patternsAtStop(eq("1:BS_TAGO_" + id), any())).willReturn(OtpTransitPatternAdapter
+                    .parsePatternsAtStop(TrackFixtures.json("patterns-at-stop-" + id + ".json")));
+        }
+        given(realtimeIds.busStop(SEB)).willReturn(new TrackRealtimeIdResolver.BusStopIds("121000009", "22010"));
+        given(realtimeIds.busStop(GGB)).willReturn(new TrackRealtimeIdResolver.BusStopIds("121000009-GG", null));
+    }
+
+    @Test
+    @DisplayName("방향: 서울 stop 을 골라도 경기·인천 stop 노선까지 전부, 형제 조회는 캐시된다")
+    void directionsMergeSiblingFeeds() {
+        givenSinbundangSiblings();
+
+        List<TrackViews.Direction> directions = service.directions(SEB);
+        service.directions(SEB);
+
+        assertThat(directions).extracting(TrackViews.Direction::routeName).doesNotHaveDuplicates().isNotEmpty();
+        // 세 stop 각각에서 탈 수 있는 노선의 합(20 + 35 + 1 중 이 stop 이 종점인 5100예약 은 못 탄다)
+        List<String> boardable = List.of("SEB121000009", "GGB121000009", "ICB121000009").stream()
+                .flatMap(id -> TrackPatternSelector.branches("1:BS_TAGO_" + id, OtpTransitPatternAdapter
+                        .parsePatternsAtStop(TrackFixtures.json("patterns-at-stop-" + id + ".json"))).stream())
+                .map(b -> b.pattern().route().shortName()).distinct().toList();
+        assertThat(boardable).hasSize(55);
+        assertThat(directions.stream().map(TrackViews.Direction::routeName).distinct().toList())
+                .containsExactlyInAnyOrderElementsOf(boardable).contains("140", "5100", "M6458");
+        assertThat(directions).extracting(TrackViews.Direction::routeName).isSorted();
+        verify(port, times(1)).stops(eq(List.of(SEB, GGB, ICB)), any());
+    }
+
+    @Test
+    @DisplayName("방향: 노선마다 실제로 타는 정류장과 그 정류장 기준 도착 조회 id — 경기 노선은 경기 stop 으로 물어야 나온다")
+    void directionsCarryBoardStopAndArrivalStop() {
+        givenSinbundangSiblings();
+
+        List<TrackViews.Direction> directions = service.directions(SEB);
+
+        assertThat(directions).filteredOn(d -> d.routeName().equals("5100")).allSatisfy(d -> {
+            assertThat(d.boardStopGtfsId()).isEqualTo(GGB);
+            assertThat(d.arrivalStopId()).isEqualTo("121000009-GG");
+        });
+        assertThat(directions).filteredOn(d -> d.routeName().equals("140")).allSatisfy(d -> {
+            assertThat(d.boardStopGtfsId()).isEqualTo(SEB);
+            assertThat(d.arrivalStopId()).isEqualTo("121000009");
+        });
+        assertThat(directions).filteredOn(d -> d.routeName().equals("M6458"))
+                .extracting(TrackViews.Direction::boardStopGtfsId).containsOnly(ICB);
+    }
+
+    @Test
+    @DisplayName("방향: 형제 stop 에 같은 노선 이름·방향이 또 있으면 고른 stop 쪽만 남긴다")
+    void directionsPreferChosenStopOnDuplicate() {
+        givenSinbundangSiblings();
+        // 경기 stop 패턴을 그대로 서울 stop 에도 걸어 둔다 → 같은 노선·방향이 두 stop 에 다 있다
+        List<TransitPatternPort.TransitPattern> ggbPatterns = OtpTransitPatternAdapter
+                .parsePatternsAtStop(TrackFixtures.json("patterns-at-stop-GGB121000009.json"));
+        given(port.patternsAtStop(eq(SEB), any())).willReturn(ggbPatterns.stream()
+                .map(p -> new TransitPatternPort.TransitPattern(p.code(), p.headsign(), p.route(),
+                        p.stops().stream().map(st -> st.gtfsId().equals(GGB)
+                                ? new TransitPatternPort.PatternStop(SEB, st.name()) : st).toList(),
+                        p.tripCount()))
+                .toList());
+
+        List<TrackViews.Direction> directions = service.directions(SEB);
+
+        assertThat(directions).filteredOn(d -> d.routeName().equals("5100"))
+                .isNotEmpty().extracting(TrackViews.Direction::boardStopGtfsId).containsOnly(SEB);
+    }
+
+    @Test
+    @DisplayName("방향: 수도권 버스가 아니면(지하철) 형제를 찾지 않는다 — OTP 추가 호출 없음")
+    void directionsNoSiblingLookupForSubway() {
+        service.directions(TrackFixtures.GANGNAM);
+
+        verify(port, times(0)).stops(any(), any());
+    }
+
+    @Test
+    @DisplayName("하위 호환: 서울 stop id + 경기 노선을 넘겨도 경기 stop 에서 타는 것으로 하차 후보를 준다")
+    void alightFromSiblingStop() {
+        givenSinbundangSiblings();
+        TransitPatternPort.TransitPattern p5100 = OtpTransitPatternAdapter
+                .parsePatternsAtStop(TrackFixtures.json("patterns-at-stop-GGB121000009.json")).stream()
+                .filter(p -> p.route().gtfsId().equals(GGB_5100)).findFirst().orElseThrow();
+        TransitPatternDetail detail = new TransitPatternDetail(p5100.code(), p5100.route(),
+                p5100.stops().stream().map(st -> new TransitStop(st.gtfsId(), st.name(), 37.5, 127.0,
+                        RoutingMode.BUS)).toList(), null);
+        given(port.pattern(eq(p5100.code()), any())).willReturn(Optional.of(detail));
+
+        List<TrackViews.AlightStop> stops = service.alightStops(GGB_5100, SEB, null);
+        TrackViews.Shape shape = service.shape(GGB_5100, SEB, null, null);
+
+        assertThat(stops).isNotEmpty().noneMatch(s -> s.gtfsStopId().equals(GGB));
+        assertThat(stops.get(0).gtfsStopId())
+                .isEqualTo(p5100.stops().get(p5100.stops().indexOf(p5100.stops().stream()
+                        .filter(st -> st.gtfsId().equals(GGB)).findFirst().orElseThrow()) + 1).gtfsId());
+        assertThat(shape.points()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("하위 호환: 형제 어디에도 없는 노선이면 그대로 422")
+    void alightRouteNowhereInSiblings() {
+        givenSinbundangSiblings();
+
+        assertThatThrownBy(() -> service.alightStops("1:BR_TAGO_GGB999", SEB, null))
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.TRACK_STOPS_INVALID);
+    }
+
+    @Test
+    @DisplayName("주변: 쪼개진 같은 정류장은 한 줄 — 대표는 서울, 거리는 가장 가까운 것, 자리는 처음 만난 곳")
+    void stopsNearMergesSiblings() {
+        TransitStop seb = new TransitStop(SEB, "신분당선강남역", 37.4958, 127.028999, RoutingMode.BUS);
+        TransitStop ggb = new TransitStop(GGB, "신분당선강남역(중)", 37.495783, 127.028567, RoutingMode.BUS);
+        TransitStop icb = new TransitStop(ICB, "신분당선강남역(중)", 37.495914, 127.028557, RoutingMode.BUS);
+        TransitStop other = new TransitStop("1:BS_TAGO_SEB121000091", "강남역9번출구", 37.4978, 127.027,
+                RoutingMode.BUS);
+        given(port.stopsNear(anyDouble(), anyDouble(), anyInt(), anyInt(), any())).willReturn(List.of(
+                new TransitPatternPort.NearStop(ggb, 40, List.of()),
+                new TransitPatternPort.NearStop(other, 50, List.of()),
+                new TransitPatternPort.NearStop(icb, 55, List.of()),
+                new TransitPatternPort.NearStop(seb, 70, List.of())));
+        given(realtimeIds.busStop(SEB)).willReturn(new TrackRealtimeIdResolver.BusStopIds("121000009", "22010"));
+
+        List<TrackViews.Stop> stops = service.stopsNear(37.5, 127.0, RoutingMode.BUS);
+
+        assertThat(stops).extracting(TrackViews.Stop::gtfsStopId).containsExactly(SEB, "1:BS_TAGO_SEB121000091");
+        assertThat(stops.get(0)).extracting(TrackViews.Stop::name, TrackViews.Stop::lat,
+                TrackViews.Stop::distanceMeters, TrackViews.Stop::arrivalStopId, TrackViews.Stop::arsId)
+                .containsExactly("신분당선강남역", 37.4958, 40, "121000009", "22010");
+    }
+
+    @Test
+    @DisplayName("주변: 300m 넘게 떨어진 같은 번호·지방 피드의 같은 번호는 묶지 않는다")
+    void stopsNearDoesNotMergeFarOrRegional() {
+        TransitStop seb = new TransitStop("1:BS_TAGO_SEB104000010", "메리놀외방선교회", 37.5490, 127.0740,
+                RoutingMode.BUS);
+        TransitStop farGgb = new TransitStop("1:BS_TAGO_GGB104000010", "어린이대공원역2번출구", 37.5611, 127.0740,
+                RoutingMode.BUS);
+        TransitStop adb = new TransitStop("1:BS_TAGO_ADB354000001", "길안정류장", 36.4587, 128.8912, RoutingMode.BUS);
+        TransitStop tsb = new TransitStop("1:BS_TAGO_TSB354000001", "월전리", 36.4588, 128.8912, RoutingMode.BUS);
+        given(port.stopsNear(anyDouble(), anyDouble(), anyInt(), anyInt(), any())).willReturn(List.of(
+                near(seb), near(farGgb), near(adb), near(tsb)));
+
+        assertThat(service.stopsNear(37.5, 127.0, RoutingMode.BUS)).hasSize(4);
     }
 
     private static TransitPatternPort.NearStop near(TransitStop stop) {

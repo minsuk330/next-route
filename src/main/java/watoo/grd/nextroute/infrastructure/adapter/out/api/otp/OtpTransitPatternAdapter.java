@@ -70,6 +70,14 @@ public class OtpTransitPatternAdapter implements TransitPatternPort {
     }
 
     @Override
+    public List<TransitStop> stops(List<String> gtfsStopIds, RoutingDeadline deadline) {
+        if (gtfsStopIds.isEmpty()) {
+            return List.of();
+        }
+        return parseStopsByIds(post("StopsByIds", Map.of("ids", gtfsStopIds), deadline));
+    }
+
+    @Override
     public List<TransitPattern> patternsAtStop(String gtfsStopId, RoutingDeadline deadline) {
         return parsePatternsAtStop(post("PatternsAtStop", Map.of("id", gtfsStopId), deadline));
     }
@@ -128,6 +136,18 @@ public class OtpTransitPatternAdapter implements TransitPatternPort {
         double x = Math.toRadians(lon2 - lon1) * Math.cos(Math.toRadians((lat1 + lat2) / 2));
         double y = Math.toRadians(lat2 - lat1);
         return Math.sqrt(x * x + y * y) * EARTH_RADIUS_METERS;
+    }
+
+    /** 없는 id 는 null 원소로 온다 — 건너뛴다. */
+    public static List<TransitStop> parseStopsByIds(JsonNode root) {
+        List<TransitStop> stops = new ArrayList<>();
+        for (JsonNode stop : root.path("data").path("stops")) {
+            if (stop.isNull() || text(stop.path("gtfsId")) == null) {
+                continue;
+            }
+            stops.add(toStop(stop));
+        }
+        return stops;
     }
 
     public static List<TransitPattern> parsePatternsAtStop(JsonNode root) {

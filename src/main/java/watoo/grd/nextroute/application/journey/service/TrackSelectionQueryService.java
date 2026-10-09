@@ -19,8 +19,15 @@ import watoo.grd.nextroute.global.error.code.CommonErrorCode;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 단독 추적(#265) 선택 화면 조회: 좌표 → 정류장/역, 정류장 → 노선·방향, 방향 → 하차 후보.
@@ -43,15 +50,25 @@ public class TrackSelectionQueryService {
         List<NearStop> stops = source.withPermit(deadline -> source.port().stopsNear(lat, lon,
                 properties.getNearRadiusMeters(), properties.getNearLimit(), deadline));
         List<TrackViews.Stop> views = new ArrayList<>();
+        Map<String, List<NearStop>> groups = siblingGroups(stops);
+        Set<String> merged = new HashSet<>();
         for (NearStop near : stops) {
             TransitStop stop = near.stop();
             if (!matches(mode, stop.mode())) {
                 continue;
             }
             if (stop.mode() == RoutingMode.BUS) {
-                TrackRealtimeIdResolver.BusStopIds ids = realtimeIds.busStop(stop.gtfsId());
-                views.add(new TrackViews.Stop(stop.gtfsId(), stop.name(), stop.lat(), stop.lon(), stop.mode(),
-                        near.distanceMeters(), ids.arrivalStopId(), ids.arsId(), null, null, null));
+                List<NearStop> group = groups.getOrDefault(stop.gtfsId(), List.of(near));
+                if (!merged.add(group.get(0).stop().gtfsId())) {
+                    continue; // 묶음은 처음 만난(가장 가까운) 자리에 한 번만
+                }
+                TransitStop representative = group.get(0).stop();
+                Integer distance = group.stream().map(NearStop::distanceMeters)
+                        .filter(Objects::nonNull).min(Integer::compare).orElse(null);
+                TrackRealtimeIdResolver.BusStopIds ids = realtimeIds.busStop(representative.gtfsId());
+                views.add(new TrackViews.Stop(representative.gtfsId(), representative.name(), representative.lat(),
+                        representative.lon(), representative.mode(), distance, ids.arrivalStopId(), ids.arsId(),
+                        null, null, null));
             } else {
                 for (TrackRealtimeIdResolver.SubwayStationIds ids : realtimeIds.subway(stop, near.routeShortNames())) {
                     views.add(new TrackViews.Stop(stop.gtfsId(), stop.name(), stop.lat(), stop.lon(), stop.mode(),
@@ -62,21 +79,82 @@ public class TrackSelectionQueryService {
         return views;
     }
 
-    /** 정류장에서 탈 수 있는 노선·방향. 노선 이름 순. */
-    public List<TrackViews.Direction> directions(String gtfsStopId) {
-        requireEnabled();
-        List<TransitPattern> patterns = source.withPermit(deadline -> source.patternsAtStop(gtfsStopId, deadline));
-        List<TrackViews.Direction> directions = new ArrayList<>();
-        for (TrackPatternSelector.Branch branch : TrackPatternSelector.branches(gtfsStopId, patterns)) {
-            TransitPattern pattern = branch.pattern();
-            if (pattern.route().mode() == RoutingMode.UNSUPPORTED || pattern.route().mode() == RoutingMode.WALK) {
+    /**
+     * 피드별로 쪼개진 같은 버스 정류장 묶음(#326 앞단). 정류장 id → 그 묶음(대표가 맨 앞). 묶이지 않으면 없다.
+     * 대표는 {@link TrackStopSiblings#representativeRank}, 대표에서 {@link TrackStopSiblings#MAX_DISTANCE_METERS} 밖이면 따로 둔다.
+     * 근처 결과 안에서만 묶는다 — OTP 를 더 부르지 않는다.
+     */
+    static Map<String, List<NearStop>> siblingGroups(List<NearStop> stops) {
+        Map<String, List<NearStop>> byKey = new LinkedHashMap<>();
+        for (NearStop near : stops) {
+            String key = near.stop().mode() == RoutingMode.BUS ? TrackStopSiblings.groupKey(near.stop().gtfsId()) : null;
+            if (key != null) {
+                byKey.computeIfAbsent(key, k -> new ArrayList<>()).add(near);
+            }
+        }
+        Map<String, List<NearStop>> groups = new HashMap<>();
+        for (List<NearStop> members : byKey.values()) {
+            if (members.size() < 2) {
                 continue;
             }
-            String arrivalRouteId = pattern.route().mode() == RoutingMode.BUS
-                    ? realtimeIds.busRoute(pattern.route().gtfsId()) : null;
-            directions.add(new TrackViews.Direction(pattern.route().gtfsId(), pattern.route().mode(),
-                    pattern.route().shortName(), color(pattern.route().color()), branch.directionLabel(),
-                    branch.terminalName(), pattern.code(), arrivalRouteId));
+            List<NearStop> sorted = new ArrayList<>(members);
+            sorted.sort(Comparator.comparingInt(n -> TrackStopSiblings.representativeRank(n.stop().gtfsId())));
+            TransitStop representative = sorted.get(0).stop();
+            Set<String> close = new HashSet<>(TrackStopSiblings.within(representative,
+                    sorted.stream().map(NearStop::stop).toList()));
+            List<NearStop> group = sorted.stream()
+                    .filter(n -> n.stop() == representative || close.contains(n.stop().gtfsId()))
+                    .toList();
+            if (group.size() > 1) {
+                group.forEach(n -> groups.put(n.stop().gtfsId(), group));
+            }
+        }
+        return groups;
+    }
+
+    /**
+     * 정류장에서 탈 수 있는 노선·방향. 노선 이름 순.
+     *
+     * <p>피드별로 쪼개진 같은 정류장({@link TrackStopSiblings})의 노선까지 합친다 — 신분당선강남역 서울 stop 만 보면 경기
+     * 노선 35개가 빠진다. 같은 노선 이름·방향이 둘이면 고른 정류장 쪽을 남긴다.
+     */
+    public List<TrackViews.Direction> directions(String gtfsStopId) {
+        requireEnabled();
+        Map<String, List<TransitPattern>> patternsByStop = source.withPermit(deadline -> {
+            Map<String, List<TransitPattern>> byStop = new LinkedHashMap<>();
+            byStop.put(gtfsStopId, source.patternsAtStop(gtfsStopId, deadline));
+            for (String sibling : source.siblings(gtfsStopId, deadline)) {
+                byStop.put(sibling, source.patternsAtStop(sibling, deadline));
+            }
+            return byStop;
+        });
+        List<TrackViews.Direction> directions = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (Map.Entry<String, List<TransitPattern>> entry : patternsByStop.entrySet()) {
+            String boardStopId = entry.getKey();
+            String arrivalStopId = null;
+            Set<String> seenHere = new HashSet<>();
+            for (TrackPatternSelector.Branch branch : TrackPatternSelector.branches(boardStopId, entry.getValue())) {
+                TransitPattern pattern = branch.pattern();
+                if (pattern.route().mode() == RoutingMode.UNSUPPORTED || pattern.route().mode() == RoutingMode.WALK) {
+                    continue;
+                }
+                String key = pattern.route().mode() + "|" + pattern.route().shortName() + "|" + branch.directionLabel();
+                if (seen.contains(key)) {
+                    continue; // 앞 정류장(고른 쪽 먼저)에서 이미 나온 노선·방향
+                }
+                seenHere.add(key);
+                boolean bus = pattern.route().mode() == RoutingMode.BUS;
+                if (bus && arrivalStopId == null) {
+                    arrivalStopId = realtimeIds.busStop(boardStopId).arrivalStopId();
+                }
+                directions.add(new TrackViews.Direction(pattern.route().gtfsId(), pattern.route().mode(),
+                        pattern.route().shortName(), color(pattern.route().color()), branch.directionLabel(),
+                        branch.terminalName(), pattern.code(),
+                        bus ? realtimeIds.busRoute(pattern.route().gtfsId()) : null,
+                        boardStopId, bus ? arrivalStopId : null));
+            }
+            seen.addAll(seenHere);
         }
         directions.sort((a, b) -> compareNullable(a.routeName(), b.routeName()));
         return directions;
@@ -84,12 +162,16 @@ public class TrackSelectionQueryService {
 
     /**
      * 그 노선·방향으로 {@code fromStopId} 다음부터 갈 수 있는 정류장(한 바퀴 안). 패턴 코드가 낡았으면 노선으로 다시 찾는다.
+     * 그 노선이 {@code fromStopId} 가 아니라 형제 정류장을 지나면 그쪽에서 탄다({@link TrackPatternSource#boardingStop}) —
+     * 구버전 앱은 노선의 {@code boardStopGtfsId} 대신 고른 정류장 id 를 넘긴다.
      *
      * @throws BusinessException 422 {@code TRACK_STOPS_INVALID} — 그 노선이 그 정류장을 안 지난다
      */
-    public List<TrackViews.AlightStop> alightStops(String routeGtfsId, String fromStopId, String patternCode) {
+    public List<TrackViews.AlightStop> alightStops(String routeGtfsId, String requestedFromStopId,
+                                                   String patternCode) {
         requireEnabled();
         return source.withPermit(deadline -> {
+            String fromStopId = source.boardingStop(routeGtfsId, requestedFromStopId, deadline);
             List<TransitPattern> patterns = source.patternsAtStop(fromStopId, deadline);
             TrackPatternSelector.Branch branch = TrackPatternSelector
                     .branchFor(routeGtfsId, fromStopId, patternCode, patterns)
@@ -123,9 +205,11 @@ public class TrackSelectionQueryService {
      *
      * @throws BusinessException 422 {@code TRACK_STOPS_INVALID} — 그 노선으로 그 승하차가 안 된다
      */
-    public TrackViews.Shape shape(String routeGtfsId, String fromStopId, String toStopId, String patternCode) {
+    public TrackViews.Shape shape(String routeGtfsId, String requestedFromStopId, String toStopId,
+                                  String patternCode) {
         requireEnabled();
         return source.withPermit(deadline -> {
+            String fromStopId = source.boardingStop(routeGtfsId, requestedFromStopId, deadline);
             List<TransitPattern> patterns = source.patternsAtStop(fromStopId, deadline);
             TransitPattern pattern;
             int boardIndex;

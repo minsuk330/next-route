@@ -81,13 +81,15 @@ class JourneyTrackControllerTest {
     void directions() throws Exception {
         given(queryService.directions("1:RS_ACC1_S-1-0222")).willReturn(List.of(new TrackViews.Direction(
                 "1:RR_ACC1_S-1-02-1I", RoutingMode.SUBWAY, "서울2호선", "#00A23F", "내선", "교대(2호선)",
-                "1:RR_ACC1_S-1-02-1I::10", null)));
+                "1:RR_ACC1_S-1-02-1I::10", null, "1:RS_ACC1_S-1-0222", null)));
 
         mockMvc.perform(get("/api/journeys/track/stops/1:RS_ACC1_S-1-0222/patterns").with(authentication(user())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].directionLabel").value("내선"))
                 .andExpect(jsonPath("$[0].mode").value("SUBWAY"))
-                .andExpect(jsonPath("$[0].patternCode").value("1:RR_ACC1_S-1-02-1I::10"));
+                .andExpect(jsonPath("$[0].patternCode").value("1:RR_ACC1_S-1-02-1I::10"))
+                .andExpect(jsonPath("$[0].boardStopGtfsId").value("1:RS_ACC1_S-1-0222"))
+                .andExpect(jsonPath("$[0].arrivalStopId").doesNotExist());
     }
 
     @Test
