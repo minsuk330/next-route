@@ -4020,3 +4020,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 일회용 st-pg/st-redis + 더미 env 로 `./gradlew test --tests '*TrackJourneyStartIT' --tests '*Track*' --tests '*MapBusStop*' --tests '*BusStopTile*' --tests '*BusStopSnapshot*'` → 17 스위트 전부 0 실패
   - BusStopTilesTest 6/0, NationalBusStopTileServiceTest 7/0, MapBusStopControllerTest 10/0, TrackJourneyStartIT 1/0
 - `OtpTransitPatternAdapterTest` 12/0
+
+## 2026-10-10 지도 스냅샷·타일 gzip 미적용 수정 (S, fix/map-snapshot-weak-etag)
+
+### 함정
+- `server.compression` 이 켜져 있어도 v1 스냅샷·v2 타일이 gzip 되지 않았다(운영 `Content-Length: 872091`, 서울 타일 57,984). 원인은 Tomcat 이 **강한 ETag** 가 붙은 응답을 압축하지 않기 때문이다
+  - #160 HANDOFF 의 "gzip 233kB" 는 운영에서 한 번도 일어나지 않았다
+  - nginx 도 `gzip_types` 가 주석이라 json 을 압축하지 않는다
+- 가드: `MapBusStopController.quote` 가 약한 ETag `W/"..."` 를 낸다. `matches` 는 W/ 를 벗겨 비교하므로 기존 클라(강한 형식으로 보냄)도 304 를 받는다
+- ~~Opus 리뷰 14번 "Tomcat 은 압축 시 강한 ETag 를 W/ 로 바꾼다"~~ 틀림: Tomcat 은 바꾸지 않고 압축을 건너뛴다
+
+### 검증
+- `MapBusStopControllerTest` 10/0. 배포 후 운영에서 `Content-Encoding: gzip` 을 확인한다(아래 배포 기록)

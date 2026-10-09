@@ -62,7 +62,7 @@ class MapBusStopControllerTest {
 
         mockMvc.perform(get("/api/map/bus-stops/v2/tiles"))
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"0123456789ab\""))
+                .andExpect(header().string(HttpHeaders.ETAG, "W/\"0123456789ab\""))
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-cache"))
                 .andExpect(jsonPath("$.tileSize").value(0.1))
                 .andExpect(jsonPath("$.tiles['374_1270']").value(TILE_VERSION));
@@ -75,7 +75,7 @@ class MapBusStopControllerTest {
         mockMvc.perform(get("/api/map/bus-stops/v2/tiles").header(HttpHeaders.IF_NONE_MATCH, "\"0123456789ab\""))
                 .andExpect(status().isNotModified())
                 .andExpect(content().string(""));
-        // Tomcat gzip 은 강한 ETag 를 W/ 로 바꾼다 — 클라가 그대로 돌려보내도 304
+        // 응답 ETag 는 약한 형식(W/) — 그대로 돌려보내도, 강한 형식으로 보내도 304
         mockMvc.perform(get("/api/map/bus-stops/v2/tiles").header(HttpHeaders.IF_NONE_MATCH, "W/\"0123456789ab\""))
                 .andExpect(status().isNotModified());
     }
@@ -97,7 +97,7 @@ class MapBusStopControllerTest {
 
         mockMvc.perform(get("/api/map/bus-stops/v2/tiles/374_1270").param("v", TILE_VERSION))
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"" + TILE_VERSION + "\""))
+                .andExpect(header().string(HttpHeaders.ETAG, "W/\"" + TILE_VERSION + "\""))
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "max-age=31536000, public, immutable"))
                 .andExpect(jsonPath("$.columns[0]").value("gtfsStopId"))
                 .andExpect(jsonPath("$.columns[4]").value("arsId"))
@@ -127,7 +127,7 @@ class MapBusStopControllerTest {
 
         mockMvc.perform(get("/api/map/bus-stops/snapshot"))
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"" + VERSION + "\""))
+                .andExpect(header().string(HttpHeaders.ETAG, "W/\"" + VERSION + "\""))
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "max-age=604800, must-revalidate, public"))
                 .andExpect(jsonPath("$.version").value(VERSION))
                 .andExpect(jsonPath("$.count").value(1))
@@ -145,7 +145,7 @@ class MapBusStopControllerTest {
         mockMvc.perform(get("/api/map/bus-stops/snapshot")
                         .header(HttpHeaders.IF_NONE_MATCH, "\"" + VERSION + "\""))
                 .andExpect(status().isNotModified())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"" + VERSION + "\""))
+                .andExpect(header().string(HttpHeaders.ETAG, "W/\"" + VERSION + "\""))
                 .andExpect(content().string(""));
 
         verify(getBusStopSnapshotUseCase, never()).snapshot();
@@ -186,6 +186,6 @@ class MapBusStopControllerTest {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
 
-        assertThat(etag).isEqualTo("\"12987-1786000099\"");
+        assertThat(etag).isEqualTo("W/\"12987-1786000099\"");
     }
 }
