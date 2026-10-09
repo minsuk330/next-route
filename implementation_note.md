@@ -3913,3 +3913,28 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 집중: SegmentResolver 9, LineOrder 7, 도착 서비스 21(+2: 앵커·위치 출발 제거), 컨트롤러 6(segment JSON), PositionResolver 8
 - 전체 단위 `./gradlew test --tests '*Test'` (PR-1+PR-2+PR-3 합본) → **2150/0**. 컨텍스트 IT 미실행(스크래치 clone DB 없음, 기존 무관)
+
+## 2026-10-09 subway-arrivals-board PR-4 (#317 떠난 열차 대체 + 선택 허용)
+
+플랜 `docs/plan/subway-arrivals-board/PLAN.md` §6 (플랜 파일은 PR-1 #322). 브랜치 feat/subway-arrivals-departed-fallback.
+
+### 확정
+- **사용자 결정: 화면에 보인 떠난 열차는 원천과 무관하게 전부 고를 수 있어야 한다.** 그래서 출발 조회 창구를 `SubwayDepartureLookup` 하나로 모았다 — 역 도착 응답 `departed()` 와 열차 선택 `departedServiceDate` 가 둘 다 이것만 쓴다. 같은 열차가 두 원천에 있으면 POSITION
+- M7 자동 판정(`SubwayBindingMatchService`)은 이 창구를 쓰지 않는다 — 품질이 다른 후보를 자동 판정에 섞지 않는다. 도착 API 기록은 별도 키 `subway:adep:*`
+- 도착 API 출발 = 직전 회차 출발 전 → 이번 출발(2) 이면 그 행 recptnDt, 직전 진입·도착(0·1) → 이번에 행이 사라짐이면 (직전 관측 + 이번 수집)/2. 재시작 첫 회차 무기록, 대상 노선 행 수가 직전 절반 미만이면 회차 건너뜀
+- 대상 노선 기본 `1063,1067,1075,1081,1093,1094`(위치 출발 사건 없는 노선, #299 실측). 끄기 env `REALTIME_SUBWAY_ARRIVAL_DEPARTURE_ENABLED=false`
+- 플랜 편차: `SubwaySegmentTimeRecorder.previousCodes` 와 맵을 공유하지 않고 기록기가 대상 노선 행만 따로 든다(6개 노선이라 작다, 두 기록기의 키·보관 값이 다르다)
+- 플랜 편차: PR-1 에 의존하지 않게 만들었다. ARRIVAL 출처 떠난 열차의 `currentStationName` 은 기존 위치 로그 조회(그 노선들엔 위치 API 가 없어 null). PR-1 의 스냅샷 `arvlMsg3` 로 채우는 건 PR-3 이후
+
+### 좌표
+- 기록기 `application/subway/service/SubwayArrivalDepartureRecorder.java` ← `RealtimeSubwayCollector`(구간 실측 기록 옆, 같은 try/catch 격리)
+- 포트 `SubwayArrivalDepartureLogPort` / Redis `RedisSubwayArrivalDepartureLogAdapter`(ZSet, TTL 30분)
+- 창구 `application/subway/service/SubwayDepartureLookup.java`
+- 계약 `SubwayStationArrivalsResponse.Departed.source`(POSITION|ARRIVAL)
+
+### 검증
+- 집중: 기록기 5, Redis IT 1(컨텍스트 없이 testcontainers), 도착 서비스 +2(대체·원천 우선), 선택 서비스 +1(**ARRIVAL 출처 선택 → bind, 전엔 422**)
+- 전체 단위 `./gradlew test --tests '*Test'` → **2114/0**. 컨텍스트 IT 미실행(스크래치 clone DB 없음, 기존 무관)
+
+### 배포
+- api + worker(기록기는 worker 수집기). 마이그레이션 없음. worker 배포 전에는 대체 기록이 없어 응답이 지금과 같다
