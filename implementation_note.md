@@ -4032,3 +4032,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `MapBusStopControllerTest` 10/0. 배포 후 운영에서 `Content-Encoding: gzip` 을 확인한다(아래 배포 기록)
+
+## 2026-10-10 배포 기록 — #321·#327·#330·#331 (api)
+
+### 배포
+- 00:58 KST `3044abed`(#321·#327) → 01:15 `cb4ba30b`(#330) → 01:20 `7c336de8`(#331). 최종 api 이미지 `nextroute:20261010-012003-7c336de8`, 이전 `20261010-011539-cb4ba30b`(`./deploy.sh rollback-api`)
+- jar 백업: `app.jar.bak-20261010-pre-stop-siblings`, `-pre-map-tiles`, `-pre-weak-etag`. worker 는 바꾸지 않음(`927af672`). 마이그레이션 없음(jar 안 61개 동일)
+
+### 검증
+- 타일 빌드 로그 `tiles=1158 stops=205947 ms≈9.4s` 2회, 두 번째도 같은 version `899817f2ea7c`(해시 안정). ERROR 0
+- 운영 응답(gzip): 스냅샷 v1 872kB → 233kB, manifest 30kB → 12.7kB, 타일 `374_1270` 58kB → 13kB. 304: W/·강한 형식·v1 구 클라 모두 304. 없는 key 404, 형식 오류 400
+- `374_1270` 타일에 신분당선강남역은 `1:BS_TAGO_SEB121000009` 한 점(ARS 포함)
+- api 힙 최대 282MB / 805MB(빌드 2회 포함 25분)
