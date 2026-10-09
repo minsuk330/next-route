@@ -7,6 +7,7 @@ import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Departed;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Direction;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Train;
+import watoo.grd.nextroute.application.arrival.port.in.GetSubwayLineStripUseCase;
 import watoo.grd.nextroute.application.arrival.port.in.GetSubwayStationArrivalsUseCase;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalCode;
 import watoo.grd.nextroute.application.subway.dto.SubwayExpressType;
@@ -61,6 +62,7 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
     private final SubwayStationRepository subwayStationRepository;
     private final SubwayTrainLogPort trainLogPort;
     private final ServiceDateResolver serviceDateResolver;
+    private final GetSubwayLineStripUseCase lineStrip;
     private final Clock clock;
 
     @Override
@@ -70,8 +72,28 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
 
         List<Arrival> arrivals = arrivalReader.arrivals(station.getLineId(), station.getStationId(), null);
         Map<String, List<Departed>> departed = departed(station.getLineId(), station.getStationId());
-        return new SubwayStationArrivalsResponse(
-                station.getStationId(), station.getLineId(), group(arrivals, departed));
+        List<Direction> directions = group(arrivals, departed).stream()
+                .map(direction -> withStrip(direction, station))
+                .toList();
+        return new SubwayStationArrivalsResponse(station.getStationId(), station.getLineId(), directions);
+    }
+
+    /**
+     * 방향별 노선도(#317). 노선도는 덧붙이는 값이다 — 모르거나 실패하면 그 칸만 비우고 열차 목록은 그대로 낸다.
+     */
+    private Direction withStrip(Direction direction, SubwayStation station) {
+        if (direction.direction() == null) {
+            return direction;
+        }
+        try {
+            return lineStrip.strip(station.getLineId(), direction.direction(), station.getStationId())
+                    .map(direction::withStrip)
+                    .orElse(direction);
+        } catch (RuntimeException e) {
+            log.warn("지하철 노선도 실패 — 비워서 응답 station={} direction={}: {}",
+                    station.getStationId(), direction.direction(), e.getMessage());
+            return direction;
+        }
     }
 
     /**

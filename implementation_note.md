@@ -3840,3 +3840,26 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 운영 OTP(터널): 88·G7426·900·M6410 등 경기 버스 leg 16개 legGeometry GBIS 선 30m 내 100%, 최대 1m. otp·api ERROR 0(10분).
 - 앱 `/api/route/search`(운정→신논현, 200, 1.15s): G7426·마을 077 subPath polyline GBIS 선 30m 내 100%, 최대 1m.
+
+## 2026-10-09 subway-arrivals-board PR-2 (#317 노선도 역 목록 + #318 초 단위)
+
+플랜 `docs/plan/subway-arrivals-board/PLAN.md` §4 (플랜 파일은 PR-1 #322 에 있음). 브랜치 feat/subway-arrivals-line-strip.
+
+### 확정
+- **GTFS 계획 시각은 초 단위다**(분 반올림 아님) — 운영 fixture 실측: 9호선 정차 25초, 신논현→사평 115초, 5호선 강동 정차 40초. 플랜 §8-2 "거짓 정밀도" 우려 해소
+- 오는 쪽 역(behind) = 같은 방향 패턴에서 승차역 **앞** 머리를 가까운 역부터 뒤집어 남은 역과 같은 규칙(부분수열 → 소수 패턴 → 공통 접두)으로 자른다. 끝 사유 FULL/ORIGIN/BRANCH/UNKNOWN
+- 도착 응답 경로는 `cachedPatterns` 만 — 비면 `SubwayLinePatternService.loadLater`(단일 스레드·키당 1회) 후 빈 노선도
+- 플랜 편차: `LineStrip` 에 `aheadKeys`·`nextOf` 를 넣지 않았다. PR-3 는 PR-1 의 `SubwayLineOrder.nextOf` 로 충분하다
+- 플랜 편차: PR-2 는 PR-1 에 의존하지 않게 만들었다(독립 브랜치, 스택 금지). PR-1 `SubwayLineOrder` 의 자체 지연 적재기와 `loadLater` 가 겹친다 → PR-3 에서 `loadLater` 하나로 합친다
+
+### 좌표
+- 계산 `StationsAheadCalculator.behind`/`heads`/`seconds`, `Ahead` 에 초 3개
+- 서비스 `SubwayStationsAheadService.strip`(implements `GetSubwayLineStripUseCase`)
+- 응답 `SubwayStationArrivalsResponse.Direction` 4필드 + `StripStation`/`BehindEnd`/`LineStrip`, `SubwayStationsAheadResponse.Station` 초 3개
+
+### 검증
+- 운영 fixture 프로브(삭제함): 강남 내선 종합운동장·삼성·선릉·역삼(FULL, 450/330/180/60초), 수원 하행 당정·의왕·성균관대·화서(급행 패턴에도 FULL), 가산디지털단지 상행 금천구청·독산(BRANCH), 김포공항 9호선 상행 개화(ORIGIN), 방화 하행 없음(ORIGIN)
+- 전체 단위 `./gradlew test --tests '*Test'` → **2120/0**. 컨텍스트 IT 미실행(스크래치 clone DB 없음, 기존 무관)
+
+### 배포
+- api 만. 마이그레이션 없음
