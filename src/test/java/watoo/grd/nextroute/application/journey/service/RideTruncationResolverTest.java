@@ -198,6 +198,28 @@ class RideTruncationResolverTest {
     // ── 경기·TAGO(#264 PR-4) ───────────────────────────────────────────────
 
     @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.DisplayName("앱 정류장 목록에 없는 정류장(GTFS 에 없는 TAGO 정류장)에서는 자르지 않는다")
+    void regionalTargetMissingFromPlannedStopsIsUnjoined() {
+        JourneyLeg ride = regionalRide();
+        List<watoo.grd.nextroute.application.regionalbus.dto.RegionalRouteStop> stops = List.of(
+                regional("A", 1, false), regional("X", 2, false), regional("B", 3, false),
+                regional("C", 4, false), regional("D", 5, false));
+        org.mockito.BDDMockito.given(regionalLocator.locate(org.mockito.ArgumentMatchers.eq(ride),
+                        org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.eq(NOW)))
+                .willReturn(new RegionalRideLocator.Located(new RegionalRideLocator.Position(
+                        watoo.grd.nextroute.application.regionalbus.dto.RegionalBusProvider.GG, "R", stops,
+                        0, 0, 4, List.of("A", "B", "C", "D")), null));
+        org.mockito.BDDMockito.given(regionalArrivals.arrivalAt(
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("R"),
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt()))
+                .willReturn(new RegionalArrivalLookup.Lookup(NOW.plusSeconds(300), null));
+
+        assertThat(resolver.resolve(ride, regionalOrigin("X", 2), NOW).failureReason()).isEqualTo("stop-unjoined");
+        RideTruncationResolver.Result ok = resolver.resolve(ride, regionalOrigin("C", 4), NOW);
+        assertThat(ok.failed()).isFalse();
+    }
+
+    @org.junit.jupiter.api.Test
     @org.junit.jupiter.api.DisplayName("경기 중간 하차: 자를 위치는 경유 가상점을 뺀 수다 — 스냅샷(GTFS) 정류장 목록과 같은 공간")
     void regionalIndexSkipsWaypoints() {
         JourneyLeg ride = regionalRide();
@@ -239,7 +261,7 @@ class RideTruncationResolverTest {
                         org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.eq(NOW)))
                 .willReturn(new RegionalRideLocator.Located(new RegionalRideLocator.Position(
                         watoo.grd.nextroute.application.regionalbus.dto.RegionalBusProvider.GG, "R", stops,
-                        0, currentIndex, 4), null));
+                        0, currentIndex, 4, java.util.List.of()), null));
     }
 
     private static RerouteOrigin regionalOrigin(String stopId, int seq) {

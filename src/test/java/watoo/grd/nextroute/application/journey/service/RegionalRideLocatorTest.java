@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
@@ -28,7 +30,9 @@ class RegionalRideLocatorTest {
 
     private final InMemoryRegionalBusRouteStopStore store = new InMemoryRegionalBusRouteStopStore();
     private final JourneyLegRouteOptionRepository options = mock(JourneyLegRouteOptionRepository.class);
-    private final RegionalRideLocator locator = new RegionalRideLocator(store, options);
+    private final JourneyPlannedBusStopReader plannedReader = mock(JourneyPlannedBusStopReader.class);
+    private final RegionalRideLocator locator = new RegionalRideLocator(store, options, plannedReader);
+    private static final String TAGO_ROUTE = "DJB30300151";
 
     {
         // A(1) → WP(2, 경유 가상점) → B(3) → C(4) → D(5)
@@ -37,6 +41,55 @@ class RegionalRideLocatorTest {
                 stop("C", 4, false), stop("D", 5, false)), NOW);
         given(options.findById(9L)).willReturn(Optional.of(JourneyLegRouteOption.builder()
                 .journeyLegId(1L).optionIndex(0).laneIndex(0).sourceRouteId(ROUTE).routeName("7770").build()));
+        given(plannedReader.realtimeStopIds(anyLong(), anyInt(), anyInt())).willReturn(List.of());
+        // TAGO: A(1) → B(2) → X(3, GTFS 에 없는 실제 정류장 — 가상점 표시 없음) → C(4) → D(5)
+        store.replaceRoute(RegionalBusProvider.TAGO, TAGO_ROUTE, "1001", "25", List.of(
+                tagoStop("A", 1), tagoStop("B", 2), tagoStop("X", 3), tagoStop("C", 4), tagoStop("D", 5)), NOW);
+        given(options.findById(10L)).willReturn(Optional.of(JourneyLegRouteOption.builder()
+                .journeyLegId(2L).optionIndex(0).laneIndex(0).sourceRouteId(TAGO_ROUTE).routeName("1001").build()));
+    }
+
+    @Test
+    @DisplayName("TAGO: GTFS 에 없는 실제 정류장이 끼어도 앱의 계획 정류장 목록으로 센다(대전 1001 둔곡교차로)")
+    void tagoCountsOnPlannedStops() {
+        JourneyLeg ride = tagoRide(2);
+        given(plannedReader.realtimeStopIds(2L, 1, 1)).willReturn(List.of("A", "B", "C", "D"));
+
+        RegionalRideLocator.Position position = locator.locate(ride, 180, NOW).position();
+
+        // 앱: 남은 2개(C·D) → 지금 B(표 인덱스 1). 예전 규칙은 표에서 C·X 를 세어 X(인덱스 2)로 밀렸다.
+        assertThat(position.currentIndex()).isEqualTo(1);
+        assertThat(position.provider()).isEqualTo(RegionalBusProvider.TAGO);
+        assertThat(position.isAlightable(2)).as("X 는 앱이 모르는 정류장").isFalse();
+        assertThat(position.isAlightable(3)).isTrue();
+        assertThat(position.realStopsAfterBoard(3)).as("C 는 앱 목록 2번째").isEqualTo(2);
+        assertThat(position.realStopsAfterBoard(2)).isEqualTo(-1);
+        assertThat(position.realStopsBetween(1, 4)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("TAGO: 계획 목록이 없으면 예전 규칙(가상점만 빼고 세기)으로 물러난다")
+    void tagoFallsBackWithoutPlannedStops() {
+        RegionalRideLocator.Position position = locator.locate(tagoRide(2), 180, NOW).position();
+
+        assertThat(position.currentIndex()).as("가상점 표시가 없어 X 도 센다").isEqualTo(2);
+        assertThat(position.isAlightable(2)).isTrue();
+    }
+
+    @Test
+    @DisplayName("계획 목록의 첫·끝이 표의 승차·하차와 다르면 믿지 않고 물러난다")
+    void plannedStopsMustMatchEndpoints() {
+        given(plannedReader.realtimeStopIds(2L, 1, 1)).willReturn(List.of("A", "B", "C"));
+
+        assertThat(locator.locate(tagoRide(2), 180, NOW).position().currentIndex()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("계획 목록에서 짚은 정류장이 표에 없으면 위치를 만들지 않는다")
+    void plannedStopNotInTableIsOutOfRange() {
+        given(plannedReader.realtimeStopIds(2L, 1, 1)).willReturn(List.of("A", "Q", "C", "D"));
+
+        assertThat(locator.locate(tagoRide(2), 180, NOW).failureReason()).isEqualTo("position-out-of-range");
     }
 
     @Test
@@ -80,6 +133,17 @@ class RegionalRideLocatorTest {
         ReflectionTestUtils.setField(leg, "progressObservedAt", NOW);
         ReflectionTestUtils.setField(leg, "selectedRouteOptionId", 9L);
         return leg;
+    }
+
+    private static JourneyLeg tagoRide(int remainingStops) {
+        JourneyLeg leg = ride("A", "D", remainingStops);
+        ReflectionTestUtils.setField(leg, "journeyId", 2L);
+        ReflectionTestUtils.setField(leg, "selectedRouteOptionId", 10L);
+        return leg;
+    }
+
+    private static RegionalRouteStop tagoStop(String id, int seq) {
+        return new RegionalRouteStop(id, id + "정류장", seq, null, 0, null, 36.4, 127.3 + seq / 100.0);
     }
 
     private static RegionalRouteStop stop(String id, int seq, boolean waypoint) {

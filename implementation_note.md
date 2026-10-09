@@ -3809,3 +3809,23 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 마이그레이션 없음. worker 만(수집기·링). 표본은 배포 후 앞 열차가 지나가며 쌓인다(처음 수 분 STALE 폴백 많음). 끄기 = `realtime.subway.segment-time.enabled=false`(기록 중단 → 표본 만료 후 STALE 폴백)
 - 전체 `./gradlew test --continue`: 2613 중 실패 12 = 기존 무관(JourneyEvalReadPathIT 2·JourneyEvaluationIT 7·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·간헐 JourneyNotificationSchemaIT 1), 새 실패 0
 - 🔴 배포 직후 함정(2026-10-08 00:14): 첫 표본이 전부 15초 ← 재시작 첫 회차에 이미 출발해 있던 열차가 "처음 본 출발"로 잡힘(수집 주기만큼). 매일 05:30 수집 재개 때도 같음 / 가드 = 출발은 직전 회차 코드가 4·5·99 일 때만(전이를 봤을 때만) 기록, 직전 상태는 기록기 메모리(worker 단일). 잘못 쌓인 `subway:seg:*` 는 재배포 직후 삭제
+---
+
+## 2026-10-07 regional-ride-gtfs-stop-count — 경기·TAGO 탑승 위치를 앱의 계획 정류장 목록으로 센다 (S, #264 PR-4 후속)
+
+### 확정
+- 앱의 남은 정류장 수는 **검색 스냅샷의 GTFS 정류장 목록**(`SubPathResult.stations`, 지오메트리 `snapshotBusStops` 와 같은 원천)으로 센다. 서버도 같은 목록에서 거슬러 올라가 지금 정류장 id 를 찾고, 그 id 를 #267 표에서 찾는다(`JourneyPlannedBusStopReader` → `RegionalRideLocator.walkBackOnPlanned`).
+- 계획 목록의 첫·끝이 표의 승차·하차 정류장과 같을 때만 쓴다. 못 읽거나 안 맞으면 예전 규칙(표에서 `waypoint=true` 만 빼고 세기)으로 물러난다 — 회귀 없음.
+- 기점(`UpcomingStopWindowResolver.scanRegional`)은 앱 목록에 있는 정류장만 연다(`Position.isAlightable`). 앱이 모르는 정류장은 수락 때 자를 위치가 없다.
+- 수락 자르기(`RideTruncationResolver.resolveRegional`)는 목표·현재가 앱 목록에 없으면 `stop-unjoined`.
+
+### 함정
+- TAGO 에는 가상점 표시가 없는데 **GTFS 에 없는 실제 정류장**이 있다(대전 1001 둔곡교차로 — 도착 정보가 나오는 진짜 정류장, 2026-10-07 실측). 예전 규칙은 이 칸을 한 정거장으로 세어, 그 칸이 현재~하차 사이에 있으면 위치가 하차 쪽으로 밀렸다. 표본(#264 2026-10-06 댓글) TAGO 패턴 13개 중 7개에 1~3개.
+- 이 칸이 승차~현재 사이에 있으면 예전 규칙도 맞는다(거슬러 오르는 구간 밖). 시험 픽스처는 현재~하차 사이에 둬야 결함이 재현된다.
+
+### 좌표
+- `application/journey/service/JourneyPlannedBusStopReader.java`(신규), `RegionalRideLocator.java`(`plannedStops`·`walkBackOnPlanned`·`Position.planned/isAlightable/plannedIndexOf`), `UpcomingStopWindowResolver.java:195`, `RideTruncationResolver.java:154`
+
+### 검증
+- `RegionalRideLocatorTest` 7/7(신규 4), `RideTruncationResolverTest` 14/14(신규 1), `UpcomingStopWindowResolverTest` 12/12, `JourneyPlannedBusStopReaderTest` 3/3(신규)
+- 전체 `./gradlew build`(일회용 postgis·redis): 2,411건 중 실패 10 — 전부 기존 무관 클래스(`JourneyEvalReadPathIT`·`JourneyEvaluationIT`·`JourneyTransferAssessmentIT`, #268 때 main 에서 동일 실패 확인)
