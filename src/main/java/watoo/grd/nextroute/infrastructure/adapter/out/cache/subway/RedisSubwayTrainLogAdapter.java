@@ -17,7 +17,10 @@ import watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -66,6 +69,29 @@ public class RedisSubwayTrainLogAdapter implements SubwayTrainLogPort {
             return Optional.empty();
         }
         return parseObservation(String.valueOf(raw));
+    }
+
+    /** 노선 해시 하나에 한 번(HMGET). 역 도착 응답이 열차·방향마다 따로 물으면 왕복이 수십 번이다. */
+    @Override
+    public Map<TrainIdentity, SubwayTrainObservation> lastSeenAll(Collection<TrainIdentity> trains) {
+        Map<String, List<TrainIdentity>> byKey = new LinkedHashMap<>();
+        for (TrainIdentity train : trains) {
+            byKey.computeIfAbsent(positionKey(train), key -> new ArrayList<>()).add(train);
+        }
+        Map<TrainIdentity, SubwayTrainObservation> out = new LinkedHashMap<>();
+        for (Map.Entry<String, List<TrainIdentity>> entry : byKey.entrySet()) {
+            List<TrainIdentity> group = entry.getValue();
+            List<Object> raws = redisTemplate.opsForHash().multiGet(entry.getKey(),
+                    group.stream().map(t -> (Object) t.asHashField()).toList());
+            for (int i = 0; i < group.size() && raws != null && i < raws.size(); i++) {
+                Object raw = raws.get(i);
+                if (raw != null) {
+                    TrainIdentity train = group.get(i);
+                    parseObservation(String.valueOf(raw)).ifPresent(seen -> out.put(train, seen));
+                }
+            }
+        }
+        return out;
     }
 
     @Override
