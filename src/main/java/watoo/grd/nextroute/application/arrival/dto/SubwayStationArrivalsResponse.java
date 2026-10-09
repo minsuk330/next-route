@@ -19,7 +19,7 @@ public record SubwayStationArrivalsResponse(
      * @param direction 실시간 API 의 {@code updnLine} 원문. 원천이 비워 보내면 {@code null}
      * @param label     표시용. 보통 "잠실 방면", 두 방향 종착이 같으면(2호선) {@code direction} 값
      * @param trains    도착이 빠른 순. 남은 초가 없는 열차는 뒤
-     * @param departed  이 역을 떠난 열차, 최근 순, 최대 3대·10분 이내. 위치 수집이 없는 노선은 늘 비어 있다
+     * @param departed  이 역을 떠난 열차, 최근 순, 최대 3대·10분 이내. 위치 수집이 없는 노선은 도착 API 로 채운다(#317)
      */
     public record Direction(String direction, String label, List<Train> trains, List<Departed> departed) {
     }
@@ -30,9 +30,22 @@ public record SubwayStationArrivalsResponse(
      * @param trainNo            열차 선택(#293)에 그대로 쓰는 번호
      * @param departedAt         떠난 시각 추정(관측 구간의 가운데). 위치 원천 해상도가 60~150초라 그만큼 오차가 있다
      * @param currentStationName 지금 위치. 떠난 뒤 관측이 없으면 null
+     * @param source             출발을 안 원천(#317). 둘 다 열차 선택에 쓸 수 있다 — 정확도만 다르다
      */
     public record Departed(String trainNo, String destinationName, String trainType,
-                           OffsetDateTime departedAt, String currentStationName) {
+                           OffsetDateTime departedAt, String currentStationName, DepartureSource source) {
+
+        public Departed(String trainNo, String destinationName, String trainType,
+                        OffsetDateTime departedAt, String currentStationName) {
+            this(trainNo, destinationName, trainType, departedAt, currentStationName, DepartureSource.POSITION);
+        }
+    }
+
+    public enum DepartureSource {
+        /** 위치 API 출발 사건. 출발 시각 오차 60~150초. */
+        POSITION,
+        /** 도착 API 로 본 출발(위치 API 가 없는 노선). 수집 주기(15초) 해상도지만 원천 지연이 있다. */
+        ARRIVAL
     }
 
     /**

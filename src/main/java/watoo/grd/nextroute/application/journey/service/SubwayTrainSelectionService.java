@@ -8,7 +8,7 @@ import watoo.grd.nextroute.application.journey.config.JourneySubwaySelectionProp
 import watoo.grd.nextroute.application.journey.dto.SubwayBindingView;
 import watoo.grd.nextroute.application.journey.dto.SubwayTrainCandidate;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
-import watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort;
+import watoo.grd.nextroute.application.subway.service.SubwayDepartureLookup;
 import watoo.grd.nextroute.application.subway.service.ServiceDateResolver;
 import watoo.grd.nextroute.application.subway.service.SubwayDirectionNormalizer;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
@@ -31,7 +31,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -67,7 +66,7 @@ public class SubwayTrainSelectionService {
     private final JourneyLegRouteOptionRepository routeOptionRepository;
     private final SubwayRealtimeArrivalReader arrivalReader;
     private final ServiceDateResolver serviceDateResolver;
-    private final SubwayTrainLogPort trainLogPort;
+    private final SubwayDepartureLookup departureLookup;
     private final SubwayTrainSelectionTxService txService;
     private final MeterRegistry meterRegistry;
     private final Clock clock;
@@ -127,8 +126,8 @@ public class SubwayTrainSelectionService {
 
     /**
      * 그 열차가 이 역·방향을 {@link #DEPARTED_WINDOW} 안에 떠났으면 그 출발의 운행일. 원천은 역 도착 응답의 "떠난 열차"와
-     * 같은 M7 출발 로그({@link SubwayTrainLogPort#findDepartures})라 {@code trainNo} 공간이 같다. 로그를 못 읽으면 빈 값
-     * (= 422, 앱은 목록을 다시 받는다).
+     * 같은 창구({@link SubwayDepartureLookup})다 — 화면에 보인 떠난 열차는 위치 API 가 없는 노선이어도 고를 수 있다(#317).
+     * 못 읽으면 빈 값(= 422, 앱은 목록을 다시 받는다).
      */
     private Optional<LocalDate> departedServiceDate(Waiting waiting, String lineId, String direction, String trainNo) {
         String stationId = waiting.waitLeg().getStartStopId();
@@ -136,20 +135,15 @@ public class SubwayTrainSelectionService {
             return Optional.empty();
         }
         Instant now = clock.instant();
-        Instant from = now.minus(DEPARTED_WINDOW);
         try {
-            for (LocalDate date : new LinkedHashSet<>(List.of(serviceDateResolver.resolve(now),
-                    serviceDateResolver.resolve(from)))) {
-                boolean found = trainLogPort.findDepartures(date, lineId, direction, stationId, from, now).stream()
-                        .anyMatch(row -> trainNo.equals(row.trainNo()));
-                if (found) {
-                    return Optional.of(date);
-                }
-            }
+            return departureLookup.find(lineId, direction, stationId, now.minus(DEPARTED_WINDOW), now).stream()
+                    .filter(d -> trainNo.equals(d.trainNo()))
+                    .map(SubwayDepartureLookup.Departure::serviceDate)
+                    .findFirst();
         } catch (RuntimeException e) {
             log.warn("[SubwaySelection] 떠난 열차 조회 실패 line={} station={}: {}", lineId, stationId, e.getMessage());
+            return Optional.empty();
         }
-        return Optional.empty();
     }
 
     private List<SubwayRealtimeArrivalReader.Arrival> arrivals(Waiting waiting) {
