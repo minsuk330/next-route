@@ -3938,3 +3938,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 배포
 - api + worker(기록기는 worker 수집기). 마이그레이션 없음. worker 배포 전에는 대체 기록이 없어 응답이 지금과 같다
+
+## 2026-10-09 단독 추적 근처 정류장 직선거리화 (S, fix/track-stops-near-bbox)
+
+### 함정
+- 근처 정류장이 0개·일부만 옴 ← OTP `stopsByRadius` 의 distance 는 직선이 아니라 **도보 탐색 거리**. 좌표가 보행망에 못 붙으면(사당역 사거리 원점) 300m 안 0개, 100m 옮기면 16개. `stopsByBbox` 는 같은 곳 23개 / 가드: 사각형 조회 + 어댑터 직선거리 필터·정렬·limit
+- `stopsByRadius` 결과는 거리순이 아님(강남·서울역·주엽 실측 sorted=False) → `first` 로 자르면 가까운 정류장이 잘릴 수 있었다
+
+### 미결
+- 🔴 정류장 고르면 노선 일부만 나옴 ← 같은 실제 정류장이 피드별 stop 으로 쪼개짐(신분당선강남역 SEB 20노선 / GGB 35 / ICB 1). 수도권 SEB·GGB·ICB 는 뒤 숫자 같고 거리 p50 22m·p99 127m(3,983묶음). 지방은 뒤 숫자 겹쳐도 딴 정류장(ADB/TSB 354000001 수십 km) → 숫자만으로 묶으면 안 됨. 별건 M
+
+### 검증
+- `./gradlew test --tests '*OtpTransitPatternAdapterTest' --tests '*TrackSelection*'` → 어댑터 9/0, 선택 조회 11/0
