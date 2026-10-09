@@ -207,4 +207,31 @@ class TrackJourneyStartServiceTest {
 
         verify(txService).start(eq(1L), any(), any(), any(), eq(true), eq(NOW), eq(JourneyKind.TRACK));
     }
+
+    @Test
+    @DisplayName("하위 호환: 서울 stop id 로 경기 노선을 시작하면 경기 stop 에서 탄다(형제 정류장)")
+    void startsFromSiblingStop() {
+        String seb = "1:BS_TAGO_SEB121000009";
+        String ggb = "1:BS_TAGO_GGB121000009";
+        given(port.stops(any(), any())).willReturn(watoo.grd.nextroute.infrastructure.adapter.out.api.otp
+                .OtpTransitPatternAdapter.parseStopsByIds(TrackFixtures.json("stops-by-ids-sinbundang.json")));
+        for (String id : List.of("SEB121000009", "GGB121000009", "ICB121000009")) {
+            given(port.patternsAtStop(eq("1:BS_TAGO_" + id), any())).willReturn(watoo.grd.nextroute.infrastructure
+                    .adapter.out.api.otp.OtpTransitPatternAdapter
+                    .parsePatternsAtStop(TrackFixtures.json("patterns-at-stop-" + id + ".json")));
+        }
+        TransitPatternPort.TransitPattern p5100 = port.patternsAtStop(ggb, null).stream()
+                .filter(p -> p.route().gtfsId().equals("1:BR_TAGO_GGB200000115")).findFirst().orElseThrow();
+        int board = p5100.stops().stream().map(TransitPatternPort.PatternStop::gtfsId).toList().indexOf(ggb);
+        String alightStop = p5100.stops().get(board + 3).gtfsId();
+        // 상세가 없으면 503 으로 멈춘다 — 그 전에 경기 stop 기준으로 패턴을 골랐는지만 본다
+        given(port.pattern(eq(p5100.code()), any())).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.start(1L,
+                new StartTrackCommand("1:BR_TAGO_GGB200000115", seb, alightStop, null, false)))
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.TRACK_PATTERN_UNAVAILABLE);
+        verify(port).pattern(eq(p5100.code()), any());
+    }
+
 }

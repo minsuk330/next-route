@@ -16,6 +16,11 @@ query StopsNear($minLat: Float!, $minLon: Float!, $maxLat: Float!, $maxLon: Floa
   }
 }
 
+# 없는 id 는 배열 안 null 로 온다.
+query StopsByIds($ids: [String]!) {
+  stops(ids: $ids) { gtfsId name lat lon vehicleMode }
+}
+
 query PatternsAtStop($id: String!) {
   stop(id: $id) {
     gtfsId

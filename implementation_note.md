@@ -3964,3 +3964,30 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 2638 중 실패 12 = 기존 무관 동일 구성, 새 실패 0
 ### 배포
 - 마이그레이션 없음. worker 만(링)
+## 2026-10-10 정류장 노선 전체 표기 + 근처 목록 합치기 (M, feat/track-stop-sibling-routes)
+
+### 확정
+- 같은 정류장 판정: 수도권 3피드(SEB/GGB/ICB) 의 같은 뒤 숫자 + 대표에서 300m 이내. 지방 피드는 대상 아님(ADB/TSB 354000001 은 수십 km 떨어진 딴 정류장). 실측 수도권 3,983묶음 p50 22m·p99 127m, 1건(104000010) 1,346m → 300m 상한
+- 사용자 결정(2026-10-10): 근처 목록도 한 줄로 합친다, 대표 SEB → GGB → ICB(지도 스냅샷=서울 DB·서울 도착 API 와 같은 정류장·이름. 경기엔 옛 이름 있음: 당고개역/불암산역). 지도 전국 교체는 #326
+- 계약: `TrackViews.Direction` + `boardStopGtfsId`, `arrivalStopId`(그 노선 기준 도착 조회 id). 경기 노선은 경기 stop id 로 물어야 도착이 나온다
+- 하위 호환: alight/shape/start 의 `from` 이 그 노선을 안 지나면 `TrackPatternSource.boardingStop` 이 형제 stop 으로 바꾼다
+- 근처 합치기는 근처 결과 안에서만(OTP 추가 호출 없음). 노선 합치기는 `StopsByIds` 1회 + 형제 patternsAtStop(캐시 10분)
+
+### 함정
+- OTP `stops(ids:)` 는 없는 id 를 배열 안 null 로 준다 → 파서가 건너뜀
+- 정류장이 종점인 패턴은 그 정류장에서 못 탄다 → 신분당선강남역 노선 이름 56 중 `5100예약` 이 빠져 55. 정상
+- 같은 노선·방향 중복 제거는 형제 사이에서만. 한 정류장 안의 가지끼리는 지우지 않는다(기존 동작 유지)
+
+### 좌표
+- `application/journey/service/TrackStopSiblings.java` 규칙
+- `TrackPatternSource.siblings/boardingStop`, `TrackSelectionQueryService.siblingGroups/directions`
+- 인계 `docs/plan/track-stop-sibling-routes/HANDOFF.md`
+
+### 미결
+- #321(근처 직선거리)과 같은 파일(어댑터·graphql·어댑터 테스트)을 건드린다 → 먼저 머지된 쪽 위로 rebase
+
+### 배포
+- api 만 교체. 마이그레이션·플래그 없음
+
+### 검증
+- `./gradlew test --tests '*Track*' --tests '*OtpTransitPatternAdapterTest'` (일회용 st-pg:55432·st-redis:56379 + 기본값 없는 env 더미) → Track* 단위 전부 0 실패(선택 조회 19/0, 시작 11/0, 형제 4/0, 컨트롤러 6/0, 어댑터 9/0), TrackJourneyStartIT 1/0
