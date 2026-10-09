@@ -89,6 +89,7 @@ public record SubwayStationArrivalsResponse(
      * @param observedAt         그 위치·상태가 <b>확인된</b> 원천 시각. 사건(진입·출발) 시각이 아니다 — 원천에 따라 상태가 그대로여도
      *                           계속 갱신된다. 보간 앵커로 쓰지 말 것
      * @param positionSource     위치 원천. {@code POSITION}(위치 API) 이 {@code ARRIVAL}(도착 API 의 역 정보)보다 정확하다
+     * @param segment            달리는 중인 구간과 그 출발·도착 예정(#317·#318). <b>노선도 보간의 앵커</b>. 정차·모름이면 null
      */
     public record Train(
             String trainNo,
@@ -101,9 +102,24 @@ public record SubwayStationArrivalsResponse(
             String currentStationName,
             TrainStatus status,
             OffsetDateTime observedAt,
-            PositionSource positionSource
+            PositionSource positionSource,
+            Segment segment
     ) {
     }
+
+    /**
+     * 열차가 지금 달리는 구간. 앱은 {@code departedAt → expectedAt} 사이를 선형으로 움직인다(역행 금지는 앱 몫).
+     *
+     * @param departedAt 출발 역을 떠난 시각. 도착 API "전역 출발"을 처음 본 시각(#316 기록), 없으면 위치 API 상태가 바뀐 시각
+     * @param expectedAt 도착 예정. {@code now} 보다 과거일 수 있다(늦는 중). 모르면 null
+     * @param source     {@code expectedAt} 원천. {@code MEASURED} = 오늘 같은 구간을 지난 최근 열차 실측 중앙값,
+     *                   {@code SCHEDULED} = GTFS 계획(실측이 없을 때만). {@code expectedAt} 이 null 이면 null
+     */
+    public record Segment(String fromStationId, String fromStationName, String toStationId, String toStationName,
+                          OffsetDateTime departedAt, OffsetDateTime expectedAt, SegmentSource source) {
+    }
+
+    public enum SegmentSource { MEASURED, SCHEDULED }
 
     /** 열차가 {@code currentStation} 기준 어디 있나. 원천 코드(arvlCd·trainSttus)를 세 가지로 접었다. */
     public enum TrainStatus {

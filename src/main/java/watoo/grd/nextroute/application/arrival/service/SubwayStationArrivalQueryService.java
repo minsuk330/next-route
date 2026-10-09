@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Departed;
+import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Segment;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Direction;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Train;
 import watoo.grd.nextroute.application.arrival.port.in.GetSubwayLineStripUseCase;
@@ -65,6 +66,7 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
     private final SubwayTrainLogPort trainLogPort;
     private final ServiceDateResolver serviceDateResolver;
     private final SubwayTrainPositionResolver positionResolver;
+    private final SubwayTrainSegmentResolver segmentResolver;
     private final GetSubwayLineStripUseCase lineStrip;
     private final Clock clock;
 
@@ -76,12 +78,37 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
         List<Arrival> arrivals = arrivalReader.arrivals(station.getLineId(), station.getStationId(), null);
         List<Placed> placed = positionResolver.place(station.getLineId(), arrivals, clock.instant()).stream()
                 .filter(p -> !p.reversed())
+                .filter(p -> !passed(p, station))
+                .map(p -> p.withSegment(segment(p, station)))
                 .toList();
         Map<String, List<Departed>> departed = departed(station.getLineId(), station.getStationId());
         List<Direction> directions = groupPlaced(placed, departed).stream()
                 .map(direction -> withStrip(direction, station))
                 .toList();
         return new SubwayStationArrivalsResponse(station.getStationId(), station.getLineId(), directions);
+    }
+
+    /** 이 역을 이미 지난 열차(#317 PR-3). 판정 실패는 "안 지났다" — 목록에서 열차를 잘못 빼는 쪽이 더 나쁘다. */
+    private boolean passed(Placed placed, SubwayStation station) {
+        try {
+            SubwayRealtimeTrain train = placed.arrival().train();
+            return segmentResolver.hasPassed(station.getLineId(), train.getDirection(), station.getStationId(),
+                    placed.position(), SubwayTrainPositionResolver.parse(train.getReceivedAt()));
+        } catch (RuntimeException e) {
+            log.debug("지난 열차 판정 실패 station={}: {}", station.getStationId(), e.getMessage());
+            return false;
+        }
+    }
+
+    private Segment segment(Placed placed, SubwayStation station) {
+        try {
+            SubwayRealtimeTrain train = placed.arrival().train();
+            return segmentResolver.segment(station.getLineId(), train.getDirection(), train.getTrainNo(),
+                    placed.position());
+        } catch (RuntimeException e) {
+            log.debug("구간 앵커 계산 실패 station={}: {}", station.getStationId(), e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -290,6 +317,7 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
                 position == null ? null : position.status(),
                 position == null || position.observedAt() == null
                         ? null : OffsetDateTime.ofInstant(position.observedAt(), SEOUL),
-                position == null ? null : position.source());
+                position == null ? null : position.source(),
+                placed.segment());
     }
 }

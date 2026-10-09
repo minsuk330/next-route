@@ -37,8 +37,12 @@ class SubwayStationControllerTest {
                         new Train("2231", "성수", "일반", null, 1, "전역 출발", "1002000223", "역삼",
                                 SubwayStationArrivalsResponse.TrainStatus.DEPARTED,
                                 java.time.OffsetDateTime.parse("2026-10-07T15:59:20+09:00"),
-                                SubwayStationArrivalsResponse.PositionSource.POSITION),
-                        new Train("2233", "성수", "일반", 300, null, "5분 후", null, null, null, null, null)),
+                                SubwayStationArrivalsResponse.PositionSource.POSITION,
+                                new SubwayStationArrivalsResponse.Segment("1002000223", "역삼", "1002000222", "강남",
+                                        java.time.OffsetDateTime.parse("2026-10-07T15:59:20+09:00"),
+                                        java.time.OffsetDateTime.parse("2026-10-07T16:00:50+09:00"),
+                                        SubwayStationArrivalsResponse.SegmentSource.MEASURED)),
+                        new Train("2233", "성수", "일반", 300, null, "5분 후", null, null, null, null, null, null)),
                         List.of(new SubwayStationArrivalsResponse.Departed("2229", "성수", "일반",
                                 java.time.OffsetDateTime.parse("2026-10-07T15:53:40+09:00"), "교대"))))));
 
@@ -57,6 +61,13 @@ class SubwayStationControllerTest {
                 .andExpect(jsonPath("$.directions[0].trains[0].status").value("DEPARTED"))
                 .andExpect(jsonPath("$.directions[0].trains[0].observedAt").value("2026-10-07T15:59:20+09:00"))
                 .andExpect(jsonPath("$.directions[0].trains[0].positionSource").value("POSITION"))
+                // #317 구간 앵커
+                .andExpect(jsonPath("$.directions[0].trains[0].segment.fromStationName").value("역삼"))
+                .andExpect(jsonPath("$.directions[0].trains[0].segment.toStationId").value("1002000222"))
+                .andExpect(jsonPath("$.directions[0].trains[0].segment.departedAt").value("2026-10-07T15:59:20+09:00"))
+                .andExpect(jsonPath("$.directions[0].trains[0].segment.expectedAt").value("2026-10-07T16:00:50+09:00"))
+                .andExpect(jsonPath("$.directions[0].trains[0].segment.source").value("MEASURED"))
+                .andExpect(jsonPath("$.directions[0].trains[1].segment").value(org.hamcrest.Matchers.nullValue()))
                 // 모르면 키는 있고 값이 null — 구 앱은 모르는 키를 무시한다
                 .andExpect(jsonPath("$.directions[0].trains[1].status").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.directions[0].trains[1].currentStationId").value(org.hamcrest.Matchers.nullValue()))

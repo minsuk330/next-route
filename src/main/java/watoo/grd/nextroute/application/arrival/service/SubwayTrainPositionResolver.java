@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.PositionSource;
+import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Segment;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.TrainStatus;
 import watoo.grd.nextroute.application.subway.config.SubwayPositionProperties;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalCode;
@@ -62,7 +63,15 @@ public class SubwayTrainPositionResolver {
      * @param position 모르면 null
      * @param reversed 위치 API 가 반대 방향으로 더 최근에 본 열차 — 목록에서 뺀다
      */
-    public record Placed(Arrival arrival, Position position, boolean reversed) {
+    public record Placed(Arrival arrival, Position position, boolean reversed, Segment segment) {
+
+        public Placed(Arrival arrival, Position position, boolean reversed) {
+            this(arrival, position, reversed, null);
+        }
+
+        public Placed withSegment(Segment segment) {
+            return new Placed(arrival, position, reversed, segment);
+        }
     }
 
     /** @param stationId 이름만 알면 null */
@@ -215,7 +224,7 @@ public class SubwayTrainPositionResolver {
         return new Position(id, name, status, at, PositionSource.ARRIVAL);
     }
 
-    private static Instant parse(String receivedAt) {
+    static Instant parse(String receivedAt) {
         if (receivedAt == null) {
             return null;
         }
