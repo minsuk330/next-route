@@ -76,26 +76,52 @@ class OtpTransitPatternAdapterTest {
     }
 
     @Test
-    @DisplayName("좌표 주변: 버스 정류장과 지하철역(부모 없는 일반 stop)을 모드와 함께 읽는다")
+    @DisplayName("좌표 주변: 버스 정류장과 지하철역(부모 없는 일반 stop)을 모드와 함께, 직선거리 가까운 순으로 읽는다")
     void stopsNear() throws Exception {
         enqueue("stops-near-gangnam.json");
 
         List<TransitPatternPort.NearStop> stops = adapter.stopsNear(37.4979, 127.0276, 300, 30, deadline());
 
-        assertThat(stops).isNotEmpty();
-        assertThat(stops).anySatisfy(n -> {
-            assertThat(n.stop().gtfsId()).isEqualTo("1:RS_ACC1_S-1-0222");
-            assertThat(n.stop().mode()).isEqualTo(RoutingMode.SUBWAY);
-            assertThat(n.distanceMeters()).isEqualTo(64);
-            // 방향마다 따로 오는 같은 노선 이름은 하나로 — 호선을 정하는 근거다(#313)
-            assertThat(n.routeShortNames()).containsExactly("서울2호선");
-        });
+        // 사각형 27개 중 모서리 1개(반경 밖)를 버린다
+        assertThat(stops).hasSize(26);
+        assertThat(stops).extracting(TransitPatternPort.NearStop::distanceMeters).isSorted()
+                .allSatisfy(d -> assertThat(d).isLessThanOrEqualTo(300));
+        TransitPatternPort.NearStop first = stops.get(0);
+        assertThat(first.stop().gtfsId()).isEqualTo("1:RS_ACC1_S-1-0222");
+        assertThat(first.stop().mode()).isEqualTo(RoutingMode.SUBWAY);
+        assertThat(first.distanceMeters()).isEqualTo(48);
+        // 방향마다 따로 오는 같은 노선 이름은 하나로 — 호선을 정하는 근거다(#313)
+        assertThat(first.routeShortNames()).containsExactly("서울2호선");
         assertThat(stops).anySatisfy(n -> assertThat(n.stop().mode()).isEqualTo(RoutingMode.BUS));
-        assertThat(stops).filteredOn(n -> n.stop().gtfsId().equals("1:BS_TAGO_SEB121900088"))
-                .singleElement().extracting(TransitPatternPort.NearStop::routeShortNames).asList().isEmpty();
         JsonNode body = lastBody();
         assertThat(body.path("operationName").asText()).isEqualTo("StopsNear");
-        assertThat(body.path("variables").path("radius").asInt()).isEqualTo(300);
+        JsonNode vars = body.path("variables");
+        // 반경 300m 를 감싸는 사각형(위도 ±0.0027°, 경도 ±0.0034°)
+        assertThat(vars.path("maxLat").asDouble() - vars.path("minLat").asDouble()).isBetween(0.0053, 0.0055);
+        assertThat(vars.path("maxLon").asDouble() - vars.path("minLon").asDouble()).isBetween(0.0067, 0.0069);
+    }
+
+    @Test
+    @DisplayName("좌표 주변: 보행망에 못 붙는 좌표(사당역 사거리)에서도 반경 안 정류장을 준다 — stopsByRadius 는 0개였다")
+    void stopsNearOffStreetCoordinate() throws Exception {
+        enqueue("stops-near-sadang.json");
+
+        List<TransitPatternPort.NearStop> stops = adapter.stopsNear(37.4765, 126.9816, 300, 30, deadline());
+
+        assertThat(stops).isNotEmpty();
+        assertThat(stops).anySatisfy(n -> assertThat(n.stop().mode()).isEqualTo(RoutingMode.SUBWAY));
+        assertThat(stops).filteredOn(n -> n.stop().mode() == RoutingMode.BUS).hasSizeGreaterThanOrEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("좌표 주변: limit 개를 넘으면 가까운 것부터 자른다")
+    void stopsNearLimitKeepsNearest() throws Exception {
+        enqueue("stops-near-gangnam.json");
+
+        List<TransitPatternPort.NearStop> stops = adapter.stopsNear(37.4979, 127.0276, 300, 3, deadline());
+
+        assertThat(stops).extracting(n -> n.stop().gtfsId())
+                .containsExactly("1:RS_ACC1_S-1-0222", "1:BS_TAGO_SEB121000091", "1:BS_TAGO_SEB121900088");
     }
 
     @Test

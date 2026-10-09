@@ -7,9 +7,12 @@
 # - headsign 은 버스·지하철 모두 null, directionId=-1. 지하철 방향은 route.longName(서울2호선(본선)<내선>)
 # - pattern{trips{stoptimes}} 는 받지 않는다(제한 인자 없음, 2호선 수만 행) → TripsForDate + TripStopTimes 로 나눈다
 
-query StopsNear($lat: Float!, $lon: Float!, $radius: Int!, $first: Int!) {
-  stopsByRadius(lat: $lat, lon: $lon, radius: $radius, first: $first) {
-    edges { node { distance stop { gtfsId name lat lon vehicleMode routes { shortName } } } }
+# stopsByRadius 를 쓰지 않는다: 그 distance 는 직선이 아니라 도보 탐색 거리라, 좌표가 보행망에 붙지 못하면(큰 교차로
+# 한가운데) 반경 안 정류장이 0개로 온다(사당역 원점 0개, 100m 옮기면 16개 — 2026-10-09 실측). 순서도 거리순이 아니다.
+# 사각형으로 받아 거리·정렬·개수는 어댑터가 직선거리로 정한다.
+query StopsNear($minLat: Float!, $minLon: Float!, $maxLat: Float!, $maxLon: Float!) {
+  stopsByBbox(minLat: $minLat, minLon: $minLon, maxLat: $maxLat, maxLon: $maxLon) {
+    gtfsId name lat lon vehicleMode routes { shortName }
   }
 }
 
