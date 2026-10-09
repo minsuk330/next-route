@@ -123,6 +123,39 @@ public class OtpSeoulIdentityResolver {
                 .map(city -> new TagoBusIdentity(city, stop.group(1), route.group(1), routeName));
     }
 
+    /**
+     * 정류장 하나의 버스 도착 조회 id(#313). 노선 없이 정류장만 본다 — 주변 정류장 목록용.
+     *
+     * <p>서울은 DB 에 있을 때만(SEB 9자리), 경기는 GBIS 9자리, 그 밖은 TAGO 접두사 포함 id({@code ICB121000541}).
+     * 도착 API({@code BusArrivalQueryService})가 이 모양으로 원천을 고른다. 모르면 빈 값.
+     */
+    public Optional<String> busStopArrivalId(String stopGtfsId) {
+        String seoul = capture(BUS_STOP, stopGtfsId);
+        if (seoul != null) {
+            return busStopRepo.existsByStopId(seoul) ? Optional.of(seoul) : Optional.empty();
+        }
+        String gyeonggi = capture(GG_BUS_STOP, stopGtfsId);
+        if (gyeonggi != null) {
+            return Optional.of(gyeonggi);
+        }
+        Matcher tago = match(TAGO_BUS_STOP, stopGtfsId);
+        return tago == null ? Optional.empty() : Optional.of(tago.group(1));
+    }
+
+    /** 노선 하나의 버스 도착 조회 id(#313). 규칙은 {@link #busStopArrivalId} 와 같다(방향 접미 {@code _U/_D} 제거). */
+    public Optional<String> busRouteArrivalId(String routeGtfsId) {
+        String seoul = capture(BUS_ROUTE, routeGtfsId);
+        if (seoul != null) {
+            return busRouteRepo.existsByRouteId(seoul) ? Optional.of(seoul) : Optional.empty();
+        }
+        String gyeonggi = capture(GG_BUS_ROUTE, routeGtfsId);
+        if (gyeonggi != null) {
+            return Optional.of(gyeonggi);
+        }
+        Matcher tago = match(TAGO_BUS_ROUTE, routeGtfsId);
+        return tago == null ? Optional.empty() : Optional.of(tago.group(1));
+    }
+
     /** 서울 지하철 1~9호선: route 호선 + 좌표 최근접(라인 일치). */
     public Optional<SeoulSubwayIdentity> resolveSubway(String routeName, double lat, double lon) {
         String lineId = seoulLineId(routeName);

@@ -29,6 +29,7 @@ import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeSnapshot;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
 import watoo.grd.nextroute.application.subway.port.out.SubwayRealtimeCachePort;
 import watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort;
+import watoo.grd.nextroute.application.subway.port.out.SubwaySegmentTimePort;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
 import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.journey.SubwayRingUpdateScheduler;
@@ -95,6 +96,7 @@ class SubwayRingIT {
     @MockBean SubwayRingPort ringPort;
     @MockBean SubwayRealtimeCachePort realtimeCachePort;
     @MockBean SubwayTrainLogPort trainLogPort;
+    @MockBean SubwaySegmentTimePort segmentTimePort;
 
     private final List<Long> createdUserIds = new ArrayList<>();
     private Long journeyId;
@@ -293,6 +295,86 @@ class SubwayRingIT {
         });
 
         verify(ringPort, never()).deleteByJourney(journeyId);
+    }
+
+    // ── 역에서 고른 열차 (#304) ────────────────────────────────────────────
+
+    @Test
+    @DisplayName("역에서 고르고 아직 안 움직인 열차 — 바로 훑고, 첫 링은 승차역을 가리킨다")
+    void userSelectedBeforeMovementRingsFromBoarding() {
+        insertBinding("CONFIRMED");
+        jdbcTemplate.update("""
+                update subway_leg_binding set source = 'USER_SELECTED', last_movement_seq = null
+                 where journey_leg_id = ?""", rideLegId);
+        // 열차가 승차역까지 90초 남았다.
+        given(realtimeCachePort.readSnapshot()).willReturn(Optional.of(snapshotOf(
+                arrivalRow(STATN_BOARD, "승차역", "99", 90))));
+
+        assertThat(ringTargets()).containsExactly(rideLegId);
+        updateService.runOnce();
+
+        SubwayRingState ring = savedRing();
+        assertThat(ring.nextStationSequence()).isZero();
+        assertThat(ring.canonicalNextStationKey()).isEqualTo(STATN_BOARD);
+        assertThat(ring.remainingStations()).isEqualTo(2);
+        assertThat(ring.segmentProgress()).isEqualByComparingTo("0");
+        assertThat(ring.estimatedNextStationAt()).isNotNull();
+    }
+
+    // ── 앞 열차 실측 예정 (2026-10-07 결정) ─────────────────────────────────
+
+    @Test
+    @DisplayName("전역 출발 행 + 실측 표본 → 첫 링의 예정 = 출발을 처음 본 시각 + 표본 중앙값, 기준 시각 = 출발")
+    void measuredEtaFromSegmentSamples() {
+        insertBinding("CONFIRMED");
+        SubwayRealtimeTrain departedPrev = arrivalRow(STATN_MIDDLE, "중간역", "3", 140);
+        given(realtimeCachePort.readSnapshot()).willReturn(Optional.of(snapshotOf(departedPrev)));
+        java.time.Instant departed = java.time.LocalDateTime.parse(departedPrev.getReceivedAt(), RECEIVED_AT)
+                .atZone(SEOUL).toInstant().minusSeconds(10);
+        given(segmentTimePort.recentSeconds(lineId, DIRECTION, STATN_MIDDLE)).willReturn(List.of(40L, 55L, 50L));
+        given(segmentTimePort.departedAt(lineId, DIRECTION, STATN_MIDDLE, TRAIN_NO))
+                .willReturn(Optional.of(departed));
+
+        updateService.runOnce();
+
+        SubwayRingState ring = savedRing();
+        assertThat(ring.canonicalNextStationKey()).isEqualTo(STATN_MIDDLE);
+        assertThat(ring.progressBaseAt()).isEqualTo(departed);
+        assertThat(ring.estimatedNextStationAt()).isEqualTo(departed.plusSeconds(50));
+        assertThat(ring.quality().name()).isEqualTo("NORMAL");
+    }
+
+    // ── 링 버전 (#307) ──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("링 버전: 첫 저장에 부여, 같은 화면 tick 은 그대로, 화면이 바뀌면 오른다")
+    void guidanceVersionMovesOnlyWithScreen() {
+        insertBinding("CONFIRMED");
+        SubwayRealtimeTrain enroute = arrivalRow(STATN_MIDDLE, "중간역", "99", 90);
+        given(realtimeCachePort.readSnapshot()).willReturn(Optional.of(snapshotOf(enroute)));
+
+        updateService.runOnce();
+        SubwayRingState first = lastSaved(1);
+        assertThat(first.guidanceVersion()).isPositive();
+
+        given(ringPort.find(anyLong(), anyInt(), anyInt(), anyInt())).willReturn(Optional.of(first));
+        updateService.runOnce();
+        SubwayRingState same = lastSaved(2);
+        assertThat(same.guidanceVersion()).isEqualTo(first.guidanceVersion());
+
+        given(ringPort.find(anyLong(), anyInt(), anyInt(), anyInt())).willReturn(Optional.of(same));
+        given(realtimeCachePort.readSnapshot()).willReturn(Optional.of(snapshotOf(
+                arrivalRow(STATN_MIDDLE, "중간역", "1", 0))));
+        updateService.runOnce();
+        SubwayRingState arrived = lastSaved(3);
+        assertThat(arrived.segmentProgress()).isEqualByComparingTo("1");
+        assertThat(arrived.guidanceVersion()).isGreaterThan(first.guidanceVersion());
+    }
+
+    private SubwayRingState lastSaved(int times) {
+        ArgumentCaptor<SubwayRingState> captor = ArgumentCaptor.forClass(SubwayRingState.class);
+        verify(ringPort, org.mockito.Mockito.times(times)).save(captor.capture());
+        return captor.getValue();
     }
 
     // ── 배포 스위치 ─────────────────────────────────────────────────────────

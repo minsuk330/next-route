@@ -81,17 +81,21 @@ public class JourneyController {
      * <p>{@code afterCommandVersion}·{@code afterEvaluationVersion} 을 함께 보내면, 그 이후로
      * 바뀐 것이 없을 때 <b>204</b> 를 돌려준다. 앱이 30초마다 물어도 대부분은 바뀐 것이 없고,
      * 그때마다 전체 단계 목록을 실어 보내면 지하철에서 쓸데없이 데이터를 먹는다.
+     *
+     * <p>{@code afterGuidanceVersion}(#307) 은 지하철 링 버전이다. 링은 두 버전을 올리지 않으므로 이 값을 같이 보내야
+     * 링이 바뀐 응답을 받는다. 안 보내면 예전처럼 두 버전만 본다.
      */
     @GetMapping("/{journeyId}")
     public ResponseEntity<JourneySnapshot> detail(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long journeyId,
             @RequestParam(required = false) Long afterCommandVersion,
-            @RequestParam(required = false) Long afterEvaluationVersion) {
+            @RequestParam(required = false) Long afterEvaluationVersion,
+            @RequestParam(required = false) Long afterGuidanceVersion) {
         JourneySnapshot journey = journeyQueryUseCase.get(userId, journeyId)
                 .orElseThrow(() -> new BusinessException(JourneyErrorCode.JOURNEY_NOT_FOUND));
 
-        if (unchanged(journey, afterCommandVersion, afterEvaluationVersion)) {
+        if (unchanged(journey, afterCommandVersion, afterEvaluationVersion, afterGuidanceVersion)) {
             // 바뀐 것이 없으면 예측도 계산하지 않는다. 실시간 조회는 값이 쓰일 때만 한다.
             return ResponseEntity.noContent().build();
         }
@@ -99,16 +103,18 @@ public class JourneyController {
     }
 
     /** 앱이 들고 있는 번호가 서버와 같으면 새로 보낼 것이 없다. 한쪽만 보내도 그 값만 본다. */
-    private static boolean unchanged(JourneySnapshot journey,
-                                     Long afterCommandVersion, Long afterEvaluationVersion) {
-        if (afterCommandVersion == null && afterEvaluationVersion == null) {
+    private static boolean unchanged(JourneySnapshot journey, Long afterCommandVersion,
+                                     Long afterEvaluationVersion, Long afterGuidanceVersion) {
+        if (afterCommandVersion == null && afterEvaluationVersion == null && afterGuidanceVersion == null) {
             return false;
         }
         boolean commandSame = afterCommandVersion == null
                 || journey.commandVersion() <= afterCommandVersion;
         boolean evaluationSame = afterEvaluationVersion == null
                 || journey.evaluationVersion() <= afterEvaluationVersion;
-        return commandSame && evaluationSame;
+        boolean guidanceSame = afterGuidanceVersion == null
+                || journey.guidanceVersion() <= afterGuidanceVersion;
+        return commandSame && evaluationSame && guidanceSame;
     }
 
     /** 목적지에 도착했다. 취소와 끝나는 이유가 달라 따로 둔다. */

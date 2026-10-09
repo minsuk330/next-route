@@ -58,7 +58,28 @@ public enum JourneyErrorCode implements ErrorCode {
    * 쌓인다.
    */
   PUSH_TOKEN_NOT_FOUND("PUSH_TOKEN_NOT_FOUND", "먼저 기기 푸시 토큰을 등록해 주세요.",
-      HttpStatus.BAD_REQUEST);
+      HttpStatus.BAD_REQUEST),
+  /**
+   * 단독 추적(#265): 그 노선에 승차 → 하차 순서로 지나는 패턴이 없다(순서 역전·다른 노선의 정류장·없는 id).
+   * 앱은 노선·정류장 목록을 새로 받아 다시 고르게 한다.
+   */
+  TRACK_STOPS_INVALID("TRACK_STOPS_INVALID", "이 노선으로 갈 수 없는 승하차 조합입니다.",
+      HttpStatus.UNPROCESSABLE_ENTITY),
+  /**
+   * 단독 추적: 고른 구간의 시간표가 없어 소요를 정할 수 없다. 근사하지 않는다 — 소요가 지하철 오프라인 보호
+   * 시간에도 들어가, 틀리면 여정이 일찍 접힌다.
+   */
+  TRACK_SCHEDULE_UNAVAILABLE("TRACK_SCHEDULE_UNAVAILABLE", "이 구간의 시간표를 찾을 수 없습니다.",
+      HttpStatus.UNPROCESSABLE_ENTITY),
+  /** 단독 추적: 노선 패턴 원천(OTP)이 포화·장애·시간 초과. 잠시 뒤 다시 시도하면 된다. */
+  TRACK_PATTERN_UNAVAILABLE("TRACK_PATTERN_UNAVAILABLE", "노선 정보를 잠시 가져올 수 없습니다.",
+      HttpStatus.SERVICE_UNAVAILABLE),
+  /** 지하철 열차 선택(#265): 지금 단계가 지하철을 기다리는 단계(다음이 지하철 탑승)가 아니다. */
+  NOT_WAITING_FOR_SUBWAY("NOT_WAITING_FOR_SUBWAY", "지하철을 기다리는 단계가 아닙니다.",
+      HttpStatus.CONFLICT),
+  /** 지하철 열차 선택: 고른 열차가 지금 그 역·방향 도착 목록에 없다(낡은 화면). 후보를 다시 받아 고르게 한다. */
+  TRAIN_NOT_IN_CANDIDATES("TRAIN_NOT_IN_CANDIDATES", "그 열차는 지금 도착 목록에 없습니다.",
+      HttpStatus.UNPROCESSABLE_ENTITY);
 
   private final String code;
   private final String message;

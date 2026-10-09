@@ -273,6 +273,8 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
     int softDeleteByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 
     // ── 재탐색 보드 갱신(#264, reroute-periodic-board PR-2) ──────────────────────
+    // 단독 추적(kind = 'TRACK', #265)은 재탐색이 없다. 선점·예약·수락 기록 SQL 이 모두 kind 를 걸러,
+    // 세션을 읽은 뒤 거르는 경쟁 창 없이 보드가 아예 생기지 않게 한다.
 
     /**
      * 갱신할 때가 된 여정을 선점한다. {@code claimDueBatch} 와 같은 방식이고, 선점은
@@ -284,6 +286,7 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
             WITH picked AS (
                 SELECT s.id FROM journey_session s
                 WHERE s.status = 'ACTIVE' AND s.deleted_at IS NULL
+                  AND s.kind = 'NAVIGATION'
                   AND s.reroute_refresh_at IS NOT NULL
                   AND s.reroute_refresh_at <= :now
                   AND (s.reroute_refresh_claimed_until IS NULL
@@ -353,6 +356,7 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                                                         * interval '1 second')) END)
                        END
              WHERE id = :id AND status = 'ACTIVE' AND deleted_at IS NULL
+               AND kind = 'NAVIGATION'
             """, nativeQuery = true)
     int requestRerouteRefresh(@Param("id") Long id,
                               @Param("now") Instant now,
@@ -364,13 +368,13 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
     @Modifying(clearAutomatically = false, flushAutomatically = true)
     @Query(value = """
             UPDATE journey_session SET reroute_refresh_at = :at
-             WHERE id = :id AND reroute_refresh_at IS NULL
+             WHERE id = :id AND reroute_refresh_at IS NULL AND kind = 'NAVIGATION'
             """, nativeQuery = true)
     int scheduleRerouteRefreshIfAbsent(@Param("id") Long id, @Param("at") Instant at);
 
     /** 수락 시각을 남긴다. 수락 후 3분 동안 "새 기회" push 를 막는 기준이다(PR-5). */
     @Modifying(clearAutomatically = false, flushAutomatically = true)
-    @Query(value = "UPDATE journey_session SET reroute_accepted_at = :at WHERE id = :id",
+    @Query(value = "UPDATE journey_session SET reroute_accepted_at = :at WHERE id = :id AND kind = 'NAVIGATION'",
             nativeQuery = true)
     int markRerouteAccepted(@Param("id") Long id, @Param("at") Instant at);
 

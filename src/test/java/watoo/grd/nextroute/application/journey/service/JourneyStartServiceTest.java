@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,7 +68,7 @@ class JourneyStartServiceTest {
                 new JourneyCompiler(new StopIdentityResolver()),
                 transitIdEnricher,
                 txService,
-                queryService,
+                new JourneyStartConflictTranslator(queryService),
                 new ObjectMapper(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -88,7 +89,7 @@ class JourneyStartServiceTest {
     }
 
     private JourneySnapshot snapshot(Long journeyId) {
-        return JourneySnapshot.of(journeyId, JourneyStatus.ACTIVE, 1L, 0L, 1, 0,
+        return JourneySnapshot.of(journeyId, JourneyStatus.ACTIVE, JourneyKind.NAVIGATION, 1L, 0L, 1, 0,
                 NOW.plusSeconds(180), null, NOW, List.of());
     }
 

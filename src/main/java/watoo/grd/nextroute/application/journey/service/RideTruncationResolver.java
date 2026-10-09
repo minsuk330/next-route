@@ -152,14 +152,19 @@ public class RideTruncationResolver {
             return Result.failed("no-boarding-time");
         }
         int index = position.realStopsAfterBoard(target);
-        int total = position.realStopsAfterBoard(target);
+        int total = index;
         int done = position.realStopsAfterBoard(position.currentIndex());
+        int between = position.realStopsBetween(position.currentIndex(), target);
+        if (index < 0 || done < 0 || between < 0) {
+            // 앱 정류장 목록에 없는 자리다 — 앱이 자를 위치를 모른다.
+            return Result.failed("stop-unjoined");
+        }
         return Result.of(new Resolved(
                 index,
                 (int) Math.max(0, Duration.between(boardedAt, alightAt).getSeconds()),
                 position.stops().get(target).stopName(),
                 alightAt,
-                position.realStopsBetween(position.currentIndex(), target),
+                between,
                 total <= 0 ? null : BigDecimal.valueOf(done).divide(BigDecimal.valueOf(total), 6,
                         RoundingMode.HALF_UP)));
     }

@@ -1,0 +1,55 @@
+# OTP 2.9 GTFS GraphQL — 단독 추적(#265) 노선 패턴 조회. 한 파일에 여러 operation, 요청마다 operationName 으로 고른다.
+# stable 필드만 사용(planConnection.graphql 머리말 규칙과 같다).
+#
+# 실측(2026-10-07, 운영 그래프):
+# - 지하철역은 부모 station 이 없는 일반 stop 이다(1:RS_ACC1_S-1-0222 강남(2호선), parentStation=null) → stop(id){patterns} 로 충분
+# - 2호선 강남 패턴 49개, 패턴 하나가 여러 바퀴(같은 역 최대 12회). TripsAtStop 은 trips{gtfsId} 포함 약 370KB·2.6초
+# - headsign 은 버스·지하철 모두 null, directionId=-1. 지하철 방향은 route.longName(서울2호선(본선)<내선>)
+# - pattern{trips{stoptimes}} 는 받지 않는다(제한 인자 없음, 2호선 수만 행) → TripsForDate + TripStopTimes 로 나눈다
+
+query StopsNear($lat: Float!, $lon: Float!, $radius: Int!, $first: Int!) {
+  stopsByRadius(lat: $lat, lon: $lon, radius: $radius, first: $first) {
+    edges { node { distance stop { gtfsId name lat lon vehicleMode routes { shortName } } } }
+  }
+}
+
+query PatternsAtStop($id: String!) {
+  stop(id: $id) {
+    gtfsId
+    patterns {
+      code
+      headsign
+      route { gtfsId shortName longName mode color agency { gtfsId } }
+      stops { gtfsId name }
+      trips { gtfsId }
+    }
+  }
+}
+
+query PatternDetail($code: String!) {
+  pattern(id: $code) {
+    code
+    route { gtfsId shortName longName mode color agency { gtfsId } }
+    stops { gtfsId name lat lon vehicleMode }
+    patternGeometry { points }
+  }
+}
+
+query TripsForDate($code: String!, $date: String!) {
+  pattern(id: $code) {
+    tripsForDate(serviceDate: $date) {
+      gtfsId
+      departureStoptime(serviceDate: $date) { scheduledDeparture }
+    }
+  }
+}
+
+query TripStopTimes($id: String!, $date: String!) {
+  trip(id: $id) {
+    stoptimesForDate(serviceDate: $date) {
+      stop { gtfsId }
+      scheduledArrival
+      scheduledDeparture
+    }
+  }
+}

@@ -138,6 +138,9 @@ class SubwayBindingMatchIT {
     @DisplayName("훑지 않는 그 행은 청소 질의가 따로 접는다 — 아니면 영원히 남는다")
     void sweepAbandonsPendingWithoutMovement() {
         insertBinding("PENDING", null);
+        // 타는 단계가 시작된 뒤여야 접는다(#265 PR-3). 시작 전이면 이동 관측이 없는 게 정상이라 남긴다
+        // — 그 경우는 SubwayTrainSelectionIT.resetBeforeMovementKeepsM7Alive 가 고정한다.
+        jdbcTemplate.update("update journey_leg set state = 'ACTIVE' where id = ?", rideLegId);
         jdbcTemplate.update(
                 "update subway_leg_binding set updated_at = now() - interval '1 hour' where journey_leg_id = ?",
                 rideLegId);
