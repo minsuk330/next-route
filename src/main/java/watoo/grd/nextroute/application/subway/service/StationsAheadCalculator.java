@@ -65,12 +65,44 @@ public final class StationsAheadCalculator {
     public record Pattern(String routeGtfsId, String routeLongName, boolean loop, int tripCount, List<Stop> stops) {
     }
 
-    /** @param routeGtfsId 이 역이 나온 패턴의 OTP 노선 id(#298) — 단독 추적 시작은 승하차가 같은 노선이어야 한다 */
-    public record Ahead(Stop stop, int stopsAway, Integer minutes, String routeGtfsId) {
+    /**
+     * @param routeGtfsId      이 역이 나온 패턴의 OTP 노선 id(#298) — 단독 추적 시작은 승하차가 같은 노선이어야 한다
+     * @param secondsFromBoard 승차역 출발 → 이 역 도착 계획 초(#318). 모르면 null
+     * @param runSeconds       직전 역(첫 역이면 승차역) 출발 → 이 역 도착 계획 초
+     * @param dwellSeconds     이 역 도착 → 출발 계획 초
+     */
+    public record Ahead(Stop stop, int stopsAway, Integer minutes, String routeGtfsId,
+                        Integer secondsFromBoard, Integer runSeconds, Integer dwellSeconds) {
 
         public Ahead(Stop stop, int stopsAway, Integer minutes) {
             this(stop, stopsAway, minutes, null);
         }
+
+        public Ahead(Stop stop, int stopsAway, Integer minutes, String routeGtfsId) {
+            this(stop, stopsAway, minutes, routeGtfsId, null, null, null);
+        }
+    }
+
+    /** 승차역 앞쪽(열차가 오는 쪽) 목록이 왜 거기서 끝났나. */
+    public enum BehindEnd {
+        /** 요청한 개수를 다 채웠다. */
+        FULL,
+        /** 기점이라 더 앞이 없다. */
+        ORIGIN,
+        /** 그 앞은 갈래마다 다르다(합류점에서 끊었다). */
+        BRANCH,
+        /** 패턴에 승차역이 없다. */
+        UNKNOWN
+    }
+
+    /**
+     * @param stops            먼 역 → 가까운 역(마지막이 승차역 직전 역)
+     * @param secondsToHere    stops 와 같은 순서. 그 역 출발 → 승차역 도착 계획 초
+     * @param runSeconds       stops 와 같은 순서. 진행 순서로 직전 역 출발 → 그 역 도착
+     * @param boardDwellSeconds 승차역 정차 계획 초
+     */
+    public record Behind(List<Stop> stops, List<Integer> secondsToHere, List<Integer> runSeconds,
+                         BehindEnd end, Integer boardDwellSeconds) {
     }
 
     /**
@@ -186,10 +218,108 @@ public final class StationsAheadCalculator {
     private static List<Ahead> ahead(List<Stop> stops, Tail source) {
         List<Ahead> out = new ArrayList<>(stops.size());
         for (int i = 0; i < stops.size(); i++) {
-            out.add(new Ahead(stops.get(i), i + 1, minutes(source.boardDepartureSec(), stops.get(i).arrivalSec()),
-                    source.pattern().routeGtfsId()));
+            Stop stop = stops.get(i);
+            Integer previousDeparture = i == 0 ? source.boardDepartureSec() : stops.get(i - 1).departureSec();
+            out.add(new Ahead(stop, i + 1, minutes(source.boardDepartureSec(), stop.arrivalSec()),
+                    source.pattern().routeGtfsId(),
+                    seconds(source.boardDepartureSec(), stop.arrivalSec()),
+                    seconds(previousDeparture, stop.arrivalSec()),
+                    seconds(stop.arrivalSec(), stop.departureSec())));
         }
         return out;
+    }
+
+    /**
+     * 승차역 앞쪽(이 방향 열차가 오는 쪽) 최대 {@code n} 역(#317). 남은 역({@link #calculate})의 거울이다 — 같은 방향 패턴에서
+     * 승차역 <b>앞</b>을 잘라, 가까운 쪽부터 맞춘 공통 부분만 준다.
+     *
+     * <p>갈래 판정은 남은 역과 같은 순서로 거른다(부분수열 → 소수 패턴). 순서를 바꾸면 급행 패턴(완행의 부분수열)이
+     * 거짓 갈래를 만든다. 초는 대표 패턴(최다 trip) 기준이다.
+     */
+    public static Behind behind(List<Pattern> patterns, String boardKey, int n) {
+        List<Tail> heads = heads(patterns, boardKey, n);
+        if (heads.isEmpty()) {
+            boolean boards = boardsAnywhere(patterns, boardKey);
+            return new Behind(List.of(), List.of(), List.of(), boards ? BehindEnd.ORIGIN : BehindEnd.UNKNOWN,
+                    boards ? boardDwell(patterns, boardKey) : null);
+        }
+        List<Tail> major = withoutMinor(withoutSubsequences(heads));
+        int common = commonPrefixLength(major);
+        int take = Math.min(n, common);
+        Tail representative = major.stream()
+                .filter(t -> t.stops().size() >= take)
+                .max(Comparator.comparingInt(t -> t.pattern().tripCount()))
+                .orElseThrow();
+        BehindEnd end = take == n ? BehindEnd.FULL
+                : major.stream().anyMatch(t -> t.stops().size() > common) ? BehindEnd.BRANCH : BehindEnd.ORIGIN;
+
+        List<Stop> nearestFirst = representative.stops();
+        List<Stop> stops = new ArrayList<>(take);
+        List<Integer> toHere = new ArrayList<>(take);
+        List<Integer> run = new ArrayList<>(take);
+        for (int i = take - 1; i >= 0; i--) {
+            Stop stop = nearestFirst.get(i);
+            Stop previous = i + 1 < nearestFirst.size() ? nearestFirst.get(i + 1) : null;
+            stops.add(stop);
+            // 머리(head)의 boardDepartureSec 자리에는 승차역 <b>도착</b> 초를 담았다(heads 참고).
+            toHere.add(seconds(stop.departureSec(), representative.boardDepartureSec()));
+            run.add(previous == null ? null : seconds(previous.departureSec(), stop.arrivalSec()));
+        }
+        return new Behind(stops, toHere, run, end, boardDwell(List.of(representative.pattern()), boardKey));
+    }
+
+    /**
+     * 패턴마다 승차역 앞쪽을 <b>가까운 역부터</b> 담은 머리. 꼬리와 같은 {@link Tail} 을 쓰되 {@code boardDepartureSec} 자리에
+     * 승차역 도착 초를 둔다. 순환 패턴(한 패턴 여러 바퀴)은 앞에 {@code n} 역 이상 있는 첫 등장을 기준으로, 그 앞의
+     * 이전 등장 뒤만 자른다.
+     */
+    private static List<Tail> heads(List<Pattern> patterns, String boardKey, int n) {
+        List<Tail> heads = new ArrayList<>();
+        for (Pattern pattern : patterns) {
+            List<Stop> stops = pattern.stops();
+            int board = indexOf(stops, boardKey, 0);
+            if (board < 0) {
+                continue;
+            }
+            int previous = -1;
+            if (pattern.loop()) {
+                while (board < n) {
+                    int next = indexOf(stops, boardKey, board + 1);
+                    if (next < 0) {
+                        break;
+                    }
+                    previous = board;
+                    board = next;
+                }
+            }
+            List<Stop> head = new ArrayList<>(stops.subList(previous + 1, board));
+            if (head.isEmpty()) {
+                continue;
+            }
+            java.util.Collections.reverse(head);
+            heads.add(new Tail(pattern, List.copyOf(head), stops.get(board).arrivalSec(), false));
+        }
+        return heads;
+    }
+
+    private static Integer boardDwell(List<Pattern> patterns, String boardKey) {
+        return patterns.stream()
+                .sorted(Comparator.comparingInt(Pattern::tripCount).reversed())
+                .map(p -> {
+                    int i = indexOf(p.stops(), boardKey, 0);
+                    return i < 0 ? null : seconds(p.stops().get(i).arrivalSec(), p.stops().get(i).departureSec());
+                })
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** 두 계획 시각의 차(초). 모르거나 거꾸로면(자정 넘김 어긋남) null — {@link #minutes} 와 같은 규칙. */
+    static Integer seconds(Integer from, Integer to) {
+        if (from == null || to == null || to < from) {
+            return null;
+        }
+        return to - from;
     }
 
     /**

@@ -30,6 +30,8 @@ class SubwayStationsAheadServiceTest {
 
     private static final SubwayPatternStationMatcher.Candidate GANGNAM =
             new SubwayPatternStationMatcher.Candidate("1077000687", "강남", 37.4966, 127.0284);
+    private static final SubwayPatternStationMatcher.Candidate SINSA =
+            new SubwayPatternStationMatcher.Candidate("1077000686", "신사", 37.5163, 127.0203);
     private static final SubwayPatternStationMatcher.Candidate YANGJAE =
             new SubwayPatternStationMatcher.Candidate("1077000688", "양재", 37.4844, 127.0346);
 
@@ -60,6 +62,38 @@ class SubwayStationsAheadServiceTest {
         assertThat(r.boardGtfsStopId()).isEqualTo("1:RS_SB_GANGNAM");
         assertThat(yangjae.gtfsStopId()).isEqualTo("1:RS_SB_YANGJAE");
         assertThat(yangjae.routeGtfsId()).isEqualTo("1:RR_ACC1_S-1-SB-1D");
+    }
+
+    @Test
+    @DisplayName("#317 노선도: 적재된 패턴으로 오는 쪽 역·다음 역·초를 만든다 — OTP 는 부르지 않는다")
+    void stripFromCachedPatterns() {
+        given(patterns.cachedPatterns("1077", "하행")).willReturn(List.of(new DirectedRailPattern(
+                "R", "신분당선<하행>", false, 10, List.of(
+                new RailPattern.Stop("신사", 37.5163, 127.0203, null, 0, null),
+                new RailPattern.Stop("강남", 37.4966, 127.0284, 150, 180, null),
+                new RailPattern.Stop("양재", 37.4844, 127.0346, 300, 330, null)))));
+        given(index.candidates("1077")).willReturn(List.of(SINSA, GANGNAM, YANGJAE));
+
+        var strip = service.strip("1077", "하행", "1077000687").orElseThrow();
+
+        assertThat(strip.stationsBehind()).extracting(s -> s.stationName(), s -> s.secondsToHere(), s -> s.runSeconds())
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("신사", 150, null));
+        assertThat(strip.nextStation().stationName()).isEqualTo("양재");
+        assertThat(strip.nextStation().secondsToHere()).isEqualTo(120);
+        assertThat(strip.nextStation().dwellSeconds()).isEqualTo(30);
+        assertThat(strip.boardDwellSeconds()).isEqualTo(30);
+        assertThat(strip.behindEnd().name()).isEqualTo("ORIGIN");
+        verify(patterns, never()).patterns(any(), any());
+    }
+
+    @Test
+    @DisplayName("#317 노선도: 패턴이 아직 없으면 빈 값 + 뒤에서 적재, 방향 표기를 모르면 빈 값")
+    void stripMissLoadsLater() {
+        given(patterns.cachedPatterns("1077", "하행")).willReturn(List.of());
+
+        assertThat(service.strip("1077", "하행", "1077000687")).isEmpty();
+        verify(patterns).loadLater("1077", "하행");
+        assertThat(service.strip("1077", "북행", "1077000687")).isEmpty();
     }
 
     @Test

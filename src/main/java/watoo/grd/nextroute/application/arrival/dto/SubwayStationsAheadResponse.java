@@ -38,12 +38,16 @@ public record SubwayStationsAheadResponse(
      * @param minutes   승차역 출발 기준 예상 분(시간표 근사). 모르면 null
      */
     /**
-     * @param gtfsStopId  OTP GTFS 정류장 id(#298) — 단독 추적 시작 {@code alightStopId}
-     * @param routeGtfsId 이 역이 나온 OTP 노선 id(#298) — 단독 추적 시작 {@code routeGtfsId}. 갈래 노선은 역마다 다를 수
-     *                    있으니 <b>하차역의 값</b>을 쓴다
+     * @param gtfsStopId       OTP GTFS 정류장 id(#298) — 단독 추적 시작 {@code alightStopId}
+     * @param routeGtfsId      이 역이 나온 OTP 노선 id(#298) — 단독 추적 시작 {@code routeGtfsId}. 갈래 노선은 역마다 다를 수
+     *                         있으니 <b>하차역의 값</b>을 쓴다
+     * @param secondsFromBoard 승차역 출발 → 이 역 도착 계획 초(#318). {@code minutes} 의 초 단위. 모르면 null
+     * @param runSeconds       직전 역(첫 역이면 승차역) 출발 → 이 역 도착 계획 초
+     * @param dwellSeconds     이 역 정차 계획 초
      */
     public record Station(String stationId, String stationName, int stopsAway, Integer minutes,
-                          List<Transfer> transfers, String gtfsStopId, String routeGtfsId) {
+                          List<Transfer> transfers, String gtfsStopId, String routeGtfsId,
+                          Integer secondsFromBoard, Integer runSeconds, Integer dwellSeconds) {
     }
 
     public record Transfer(String lineId, String lineName) {

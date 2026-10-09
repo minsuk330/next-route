@@ -47,6 +47,26 @@ class SubwayLinePatternServiceTest {
     }
 
     @Test
+    @DisplayName("#317 loadLater: 뒤에서 한 번 적재해 cachedPatterns 를 채운다 — 겹친 요청은 OTP 를 다시 부르지 않는다")
+    void loadLaterFillsCacheOnce() throws Exception {
+        given(port.subwayRoutes(any())).willAnswer(invocation -> {
+            Thread.sleep(200);
+            return List.of(LINE5_DOWN);
+        });
+        given(port.patterns(eq(LINE5_DOWN.gtfsId()), any())).willReturn(List.of(PATTERN));
+
+        service.loadLater("1005", "하행");
+        service.loadLater("1005", "하행");
+
+        long deadline = System.currentTimeMillis() + 3000;
+        while (service.cachedPatterns("1005", "하행").isEmpty() && System.currentTimeMillis() < deadline) {
+            Thread.onSpinWait();
+        }
+        assertThat(service.cachedPatterns("1005", "하행")).isNotEmpty();
+        verify(port, times(1)).subwayRoutes(any());
+    }
+
+    @Test
     @DisplayName("하루가 지나면 새로 받는다")
     void reloadsAfterTtl() {
         givenOtpUp();

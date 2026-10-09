@@ -59,6 +59,8 @@ class SubwayTrainSelectionServiceTest {
     private final ServiceDateResolver serviceDateResolver = mock(ServiceDateResolver.class);
     private final watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort trainLogPort =
             mock(watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort.class);
+    private final watoo.grd.nextroute.application.subway.port.out.SubwayArrivalDepartureLogPort arrivalDepartureLog =
+            mock(watoo.grd.nextroute.application.subway.port.out.SubwayArrivalDepartureLogPort.class);
     private final JourneySubwaySelectionProperties properties = new JourneySubwaySelectionProperties();
     private SubwayTrainSelectionService service;
     private JourneySession session;
@@ -85,7 +87,10 @@ class SubwayTrainSelectionServiceTest {
                 arrival("2394", "성수", null, null)));
         given(serviceDateResolver.resolve(any(Instant.class))).willReturn(LocalDate.parse("2026-10-07"));
         service = new SubwayTrainSelectionService(properties, sessionRepository, legRepository, optionRepository,
-                arrivalReader, serviceDateResolver, trainLogPort, txService, new SimpleMeterRegistry(),
+                arrivalReader, serviceDateResolver,
+                new watoo.grd.nextroute.application.subway.service.SubwayDepartureLookup(
+                        trainLogPort, arrivalDepartureLog, serviceDateResolver),
+                txService, new SimpleMeterRegistry(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -179,6 +184,21 @@ class SubwayTrainSelectionServiceTest {
 
         verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
                 "2229", LocalDate.parse("2026-10-06"), "1002", "내선")));
+    }
+
+    @Test
+    @DisplayName("#317 위치 API 없는 노선: 도착 API 로 본 떠난 열차도 고를 수 있다(전엔 422)")
+    void departedFromArrivalFeedIsSelectable() {
+        given(serviceDateResolver.resolve(any(Instant.class))).willReturn(LocalDate.parse("2026-10-07"));
+        given(trainLogPort.findDepartures(any(), any(), any(), any(), any(), any())).willReturn(List.of());
+        given(arrivalDepartureLog.find(eq(LocalDate.parse("2026-10-07")), eq("1002"), eq("내선"), eq("1002000222"),
+                any(), any())).willReturn(List.of(new watoo.grd.nextroute.application.subway.port.out
+                .SubwayArrivalDepartureLogPort.Row("K4021", "인천", "일반", NOW.minusSeconds(120))));
+
+        service.select(USER, JOURNEY, "K4021", 1);
+
+        verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
+                "K4021", LocalDate.parse("2026-10-07"), "1002", "내선")));
     }
 
     @Test

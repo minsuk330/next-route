@@ -3,7 +3,11 @@ package watoo.grd.nextroute.application.subway.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.BehindEnd;
+import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.LineStrip;
+import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.StripStation;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationsAheadResponse;
+import watoo.grd.nextroute.application.arrival.port.in.GetSubwayLineStripUseCase;
 import watoo.grd.nextroute.application.arrival.port.in.GetSubwayStationsAheadUseCase;
 import watoo.grd.nextroute.application.subway.dto.DirectedRailPattern;
 import watoo.grd.nextroute.application.subway.dto.RailPattern;
@@ -25,7 +29,10 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class SubwayStationsAheadService implements GetSubwayStationsAheadUseCase {
+public class SubwayStationsAheadService implements GetSubwayStationsAheadUseCase, GetSubwayLineStripUseCase {
+
+    /** 노선도에 그리는 오는 쪽 역 수(#317). */
+    static final int BEHIND_COUNT = 4;
 
     private final SubwayStationRepository subwayStationRepository;
     private final SubwayLinePatternService linePatternService;
@@ -92,7 +99,49 @@ public class SubwayStationsAheadService implements GetSubwayStationsAheadUseCase
                 .orElse(List.of());
         return new SubwayStationsAheadResponse.Station(
                 stop.stationId(), stop.name(), ahead.stopsAway(), ahead.minutes(), transfers,
-                stop.gtfsStopId(), ahead.routeGtfsId());
+                stop.gtfsStopId(), ahead.routeGtfsId(),
+                ahead.secondsFromBoard(), ahead.runSeconds(), ahead.dwellSeconds());
+    }
+
+    /**
+     * 역 도착 응답의 방향별 노선도(#317). 남은 역과 같은 패턴·역 연결 캐시를 쓰되 <b>OTP 를 부르지 않는다</b> — 적재된
+     * 패턴이 없으면 empty 로 답하고 뒤에서 적재한다.
+     */
+    @Override
+    public Optional<LineStrip> strip(String lineId, String direction, String stationId) {
+        if (lineId == null || stationId == null || !SubwayRoutePatternAssembler.isKnownDirection(direction)) {
+            return Optional.empty();
+        }
+        try {
+            List<DirectedRailPattern> directed = linePatternService.cachedPatterns(lineId, direction);
+            if (directed.isEmpty()) {
+                linePatternService.loadLater(lineId, direction);
+                return Optional.empty();
+            }
+            List<StationsAheadCalculator.Pattern> patterns =
+                    resolvedPatterns(lineId, direction, directed, stationIndex.candidates(lineId));
+            if (!StationsAheadCalculator.boardsAnywhere(patterns, stationId)) {
+                return Optional.empty();
+            }
+            StationsAheadCalculator.Behind behind = StationsAheadCalculator.behind(patterns, stationId, BEHIND_COUNT);
+            List<StripStation> behindStations = new ArrayList<>(behind.stops().size());
+            for (int i = 0; i < behind.stops().size(); i++) {
+                StationsAheadCalculator.Stop stop = behind.stops().get(i);
+                behindStations.add(new StripStation(stop.stationId(), stop.name(), behind.secondsToHere().get(i),
+                        behind.runSeconds().get(i), StationsAheadCalculator.seconds(stop.arrivalSec(), stop.departureSec())));
+            }
+            StripStation next = StationsAheadCalculator.calculate(patterns, stationId, null).stations().stream()
+                    .findFirst()
+                    .map(a -> new StripStation(a.stop().stationId(), a.stop().name(), a.secondsFromBoard(),
+                            a.runSeconds(), a.dwellSeconds()))
+                    .orElse(null);
+            return Optional.of(new LineStrip(behindStations, next, behind.boardDwellSeconds(),
+                    BehindEnd.valueOf(behind.end().name())));
+        } catch (RuntimeException e) {
+            log.warn("지하철 노선도 계산 실패 — 비워서 응답 line={} direction={} station={}: {}",
+                    lineId, direction, stationId, e.getMessage());
+            return Optional.empty();
+        }
     }
 
     /** 승차역과 이어진 첫 패턴 정차의 GTFS id(#298). 못 찾으면 null. */
