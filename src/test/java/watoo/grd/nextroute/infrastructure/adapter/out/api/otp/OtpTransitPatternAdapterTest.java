@@ -70,6 +70,10 @@ class OtpTransitPatternAdapterTest {
                 .setBody(new ClassPathResource("otp/track/" + fixture).getContentAsString(StandardCharsets.UTF_8)));
     }
 
+    private static JsonNode json(String path) throws Exception {
+        return new ObjectMapper().readTree(new ClassPathResource(path).getContentAsString(StandardCharsets.UTF_8));
+    }
+
     private JsonNode lastBody() throws Exception {
         RecordedRequest request = server.takeRequest();
         return mapper.readTree(request.getBody().readUtf8());
@@ -225,6 +229,25 @@ class OtpTransitPatternAdapterTest {
         List<TransitStopTime> times = adapter.tripStopTimes("1:BR_TAGO_SEB100100093_Ord001", DAY, deadline());
         assertThat(times).hasSize(79);
         assertThat(times.get(0)).isEqualTo(new TransitStopTime("1:BS_TAGO_SEB114000190", 15600, 15610));
+    }
+
+    @Test
+    @DisplayName("정차 승하차 가능 여부: NONE 만 막힘, 값이 없으면 열림(운영 실측 — 부산 공항리무진, 앞 17곳 하차 금지·공항 2곳 승차 금지)")
+    void stopTimePickupDropoff() throws Exception {
+        List<TransitStopTime> times = OtpTransitPatternAdapter.parseTripStopTimes(
+                json("otp/track/trip-stoptimes-bus-airport.json"));
+
+        assertThat(times).hasSize(19);
+        assertThat(times.subList(0, 17)).allSatisfy(t -> {
+            assertThat(t.pickup()).isTrue();
+            assertThat(t.dropoff()).isFalse();
+        });
+        assertThat(times.subList(17, 19)).allSatisfy(t -> {
+            assertThat(t.pickup()).isFalse();
+            assertThat(t.dropoff()).isTrue();
+        });
+        assertThat(OtpTransitPatternAdapter.parseTripStopTimes(json("otp/track/trip-stoptimes-bus.json")))
+                .allSatisfy(t -> assertThat(t.pickup() && t.dropoff()).isTrue());
     }
 
     @Test

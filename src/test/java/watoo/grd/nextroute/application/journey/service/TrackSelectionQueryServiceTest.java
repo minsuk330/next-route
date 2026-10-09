@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -98,6 +99,44 @@ class TrackSelectionQueryServiceTest {
         assertThat(stops.get(0).index()).isZero();
         assertThat(stops).noneMatch(s -> s.gtfsStopId().equals(TrackFixtures.GANGNAM));
         assertThat(stops.get(0).lat()).isEqualTo(line2.stops().get(32).lat());
+    }
+
+    @Test
+    @DisplayName("하차 후보: 내릴 수 없는 정류장은 빠지고 index 는 그대로다. 승하차 가능 여부는 패턴 단위로 캐시된다")
+    void alightStopsSkipNoDropoff() {
+        given(port.tripsForDate(eq(TrackFixtures.LINE2_PATTERN), any(), any())).willReturn(TrackFixtures.line2Trips());
+        given(port.tripStopTimes(anyString(), any(), any()))
+                .willReturn(TrackFixtures.line2TimesBlocking(Set.of(), Set.of(33)));
+
+        List<TrackViews.AlightStop> stops = service.alightStops("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, null);
+        service.alightStops("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, null);
+
+        assertThat(stops).hasSize(74 - 31 - 1 - 1);
+        assertThat(stops).noneMatch(s -> s.gtfsStopId().equals(line2.stops().get(33).gtfsId()));
+        assertThat(stops.get(0).index()).isZero();
+        assertThat(stops.get(1).index()).isEqualTo(2);
+        verify(port, times(1)).tripsForDate(eq(TrackFixtures.LINE2_PATTERN), any(), any());
+        verify(port, times(1)).tripStopTimes(anyString(), any(), any());
+    }
+
+    @Test
+    @DisplayName("하차 후보: 그 정류장에서 탈 수 없는 노선이면 422")
+    void alightStopsNoPickupAtBoard() {
+        given(port.tripsForDate(eq(TrackFixtures.LINE2_PATTERN), any(), any())).willReturn(TrackFixtures.line2Trips());
+        given(port.tripStopTimes(anyString(), any(), any()))
+                .willReturn(TrackFixtures.line2TimesBlocking(Set.of(31), Set.of()));
+
+        assertThatThrownBy(() -> service.alightStops("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, null))
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.TRACK_STOPS_INVALID);
+    }
+
+    @Test
+    @DisplayName("하차 후보: 승하차 가능 여부를 모르면(운행 없음) 거르지 않는다")
+    void alightStopsWithoutTrips() {
+        assertThat(service.alightStops("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, null)).hasSize(74 - 31 - 1);
+        verify(port).tripsForDate(eq(TrackFixtures.LINE2_PATTERN), eq(java.time.LocalDate.parse("2026-10-07")), any());
+        verify(port).tripsForDate(eq(TrackFixtures.LINE2_PATTERN), eq(java.time.LocalDate.parse("2026-10-06")), any());
     }
 
     @Test

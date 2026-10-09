@@ -9,6 +9,7 @@ import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.Transit
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPatternDetail;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.NearStop;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitStop;
+import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitStopTime;
 import watoo.grd.nextroute.application.route.routing.EncodedPolyline;
 import watoo.grd.nextroute.application.route.routing.GeometryQuality;
 import watoo.grd.nextroute.application.route.routing.LegGeometry;
@@ -162,10 +163,11 @@ public class TrackSelectionQueryService {
 
     /**
      * 그 노선·방향으로 {@code fromStopId} 다음부터 갈 수 있는 정류장(한 바퀴 안). 패턴 코드가 낡았으면 노선으로 다시 찾는다.
+     * 내릴 수 없는 정류장(통과·승차 전용)은 빠진다 — {@code index} 는 그대로라 빈 번호가 생긴다.
      * 그 노선이 {@code fromStopId} 가 아니라 형제 정류장을 지나면 그쪽에서 탄다({@link TrackPatternSource#boardingStop}) —
      * 구버전 앱은 노선의 {@code boardStopGtfsId} 대신 고른 정류장 id 를 넘긴다.
      *
-     * @throws BusinessException 422 {@code TRACK_STOPS_INVALID} — 그 노선이 그 정류장을 안 지난다
+     * @throws BusinessException 422 {@code TRACK_STOPS_INVALID} — 그 노선이 그 정류장을 안 지나거나, 거기서 탈 수 없다
      */
     public List<TrackViews.AlightStop> alightStops(String routeGtfsId, String requestedFromStopId,
                                                    String patternCode) {
@@ -182,11 +184,18 @@ public class TrackSelectionQueryService {
             }
             TrackPatternSelector.Lap lap = TrackPatternSelector.lap(branch.pattern(), fromStopId);
             List<TransitStop> stops = detail.get().stops();
+            List<TransitStopTime> access = source.stopAccess(branch.pattern(), deadline).orElse(List.of());
+            if (!access.isEmpty() && !access.get(lap.boardIndex()).pickup()) {
+                throw new BusinessException(JourneyErrorCode.TRACK_STOPS_INVALID);
+            }
             List<TrackViews.AlightStop> result = new ArrayList<>();
             for (int k = 0; k < lap.remaining().size(); k++) {
                 int index = lap.boardIndex() + 1 + k;
                 if (index >= stops.size()) {
                     break;
+                }
+                if (!access.isEmpty() && !access.get(index).dropoff()) {
+                    continue;
                 }
                 TransitStop stop = stops.get(index);
                 result.add(new TrackViews.AlightStop(stop.gtfsId(), stop.name(), stop.lat(), stop.lon(), k));
