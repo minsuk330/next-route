@@ -39,6 +39,7 @@ import java.util.Optional;
 public class OtpTransitPatternAdapter implements TransitPatternPort {
 
     private static final String GRAPHQL_PATH = "/otp/routers/default/index/graphql";
+    private static final double EARTH_RADIUS_METERS = 6_371_000;
 
     private final RestClient.Builder restClientBuilder;
     private final ObjectMapper objectMapper;
@@ -58,12 +59,14 @@ public class OtpTransitPatternAdapter implements TransitPatternPort {
     @Override
     public List<NearStop> stopsNear(double lat, double lon, int radiusMeters, int limit,
                                        RoutingDeadline deadline) {
+        double dLat = Math.toDegrees(radiusMeters / EARTH_RADIUS_METERS);
+        double dLon = dLat / Math.cos(Math.toRadians(lat));
         Map<String, Object> vars = new LinkedHashMap<>();
-        vars.put("lat", lat);
-        vars.put("lon", lon);
-        vars.put("radius", radiusMeters);
-        vars.put("first", limit);
-        return parseStopsNear(post("StopsNear", vars, deadline));
+        vars.put("minLat", lat - dLat);
+        vars.put("minLon", lon - dLon);
+        vars.put("maxLat", lat + dLat);
+        vars.put("maxLon", lon + dLon);
+        return parseStopsNear(post("StopsNear", vars, deadline), lat, lon, radiusMeters, limit);
     }
 
     @Override
@@ -90,13 +93,20 @@ public class OtpTransitPatternAdapter implements TransitPatternPort {
 
     // ── 파싱(순수) ───────────────────────────────────────────────────────────────
 
-    public static List<NearStop> parseStopsNear(JsonNode root) {
+    /**
+     * 사각형 안 정류장을 직선거리로 반경 안만 남겨 가까운 순으로 {@code limit} 개. 거리는 OTP 가 아니라 여기서 잰다
+     * (graphql 머리말: stopsByRadius 는 도보 탐색 거리라 좌표에 따라 0개가 된다).
+     */
+    public static List<NearStop> parseStopsNear(JsonNode root, double lat, double lon, int radiusMeters, int limit) {
         List<NearStop> stops = new ArrayList<>();
-        for (JsonNode edge : root.path("data").path("stopsByRadius").path("edges")) {
-            JsonNode node = edge.path("node");
-            JsonNode stop = node.path("stop");
+        for (JsonNode stop : root.path("data").path("stopsByBbox")) {
             String id = text(stop.path("gtfsId"));
             if (id == null) {
+                continue;
+            }
+            TransitStop transitStop = toStop(stop);
+            int distance = (int) Math.round(distanceMeters(lat, lon, transitStop.lat(), transitStop.lon()));
+            if (distance > radiusMeters) {
                 continue;
             }
             // 노선은 방향마다 따로라 같은 이름이 두 번 온다(서울2호선 ×2).
@@ -107,11 +117,17 @@ public class OtpTransitPatternAdapter implements TransitPatternPort {
                     routeNames.add(name);
                 }
             }
-            JsonNode distance = node.path("distance");
-            stops.add(new NearStop(toStop(stop), distance.isNumber() ? distance.asInt() : null,
-                    List.copyOf(routeNames)));
+            stops.add(new NearStop(transitStop, distance, List.copyOf(routeNames)));
         }
-        return stops;
+        stops.sort(java.util.Comparator.comparingInt(NearStop::distanceMeters));
+        return stops.size() > limit ? List.copyOf(stops.subList(0, limit)) : stops;
+    }
+
+    /** 반경 수백 m 라 등장방형 근사로 충분하다. */
+    static double distanceMeters(double lat1, double lon1, double lat2, double lon2) {
+        double x = Math.toRadians(lon2 - lon1) * Math.cos(Math.toRadians((lat1 + lat2) / 2));
+        double y = Math.toRadians(lat2 - lat1);
+        return Math.sqrt(x * x + y * y) * EARTH_RADIUS_METERS;
     }
 
     public static List<TransitPattern> parsePatternsAtStop(JsonNode root) {
