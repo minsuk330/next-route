@@ -2,6 +2,7 @@ package watoo.grd.nextroute.application.subway.service;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import watoo.grd.nextroute.application.subway.dto.DirectedRailPattern;
 import watoo.grd.nextroute.application.subway.service.StationsAheadCalculator.Pattern;
 import watoo.grd.nextroute.application.subway.service.StationsAheadCalculator.Stop;
 
@@ -12,7 +13,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.timeout;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 class SubwayLineOrderTest {
@@ -65,23 +68,35 @@ class SubwayLineOrderTest {
     }
 
     @Test
-    @DisplayName("패턴이 아직 없으면 모름으로 답하고 OTP 적재는 뒤에서 한 번만")
-    void cacheMissLoadsInBackgroundOnce() {
+    @DisplayName("패턴이 아직 없으면 모름으로 답하고 적재는 패턴 서비스의 지연 적재에 맡긴다")
+    void cacheMissDelegatesBackgroundLoad() {
         SubwayLinePatternService patternService = mock(SubwayLinePatternService.class);
         given(patternService.cachedPatterns("1002", "내선")).willReturn(List.of());
-        given(patternService.patterns("1002", "내선")).willAnswer(invocation -> {
-            Thread.sleep(200);
-            return List.of();
-        });
         SubwayLineOrder order = new SubwayLineOrder(patternService, mock(SubwayLineStationIndex.class),
                 mock(SubwayStationsAheadService.class));
 
         Optional<String> first = order.prevOf("1002", "내선", "X");
-        order.prevOf("1002", "내선", "X");
-        order.nextOf("1002", "내선", "X");
 
         assertThat(first).isEmpty();
-        verify(patternService, timeout(1000).times(1)).patterns("1002", "내선");
+        verify(patternService).loadLater("1002", "내선");
+        verify(patternService, never()).patterns(any(), any());
+    }
+
+    @Test
+    @DisplayName("#317 구간 계획 초: 두 역이 붙어 있는 패턴 중 trip 최다, 모르면 empty")
+    void runSecondsFromBusiestAdjacentPattern() {
+        SubwayLinePatternService patternService = mock(SubwayLinePatternService.class);
+        SubwayStationsAheadService ahead = mock(SubwayStationsAheadService.class);
+        SubwayLineStationIndex index = mock(SubwayLineStationIndex.class);
+        List<DirectedRailPattern> directed = List.of(mock(DirectedRailPattern.class));
+        given(patternService.cachedPatterns("1001", "하행")).willReturn(directed);
+        given(ahead.resolvedPatterns(eq("1001"), eq("하행"), eq(directed), any())).willReturn(List.of(
+                new Pattern("L", "L", false, 100, List.of(new Stop("A", "A", "A", 0, 30), new Stop("B", "B", "B", 120, 150))),
+                new Pattern("E", "E", false, 10, List.of(new Stop("A", "A", "A", 0, 20), new Stop("B", "B", "B", 90, 90)))));
+        SubwayLineOrder order = new SubwayLineOrder(patternService, index, ahead);
+
+        assertThat(order.runSeconds("1001", "하행", "A", "B")).contains(90);
+        assertThat(order.runSeconds("1001", "하행", "B", "A")).isEmpty();
     }
 
     private static Pattern pattern(int trips, String... ids) {

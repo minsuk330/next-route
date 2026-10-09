@@ -3893,3 +3893,23 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 배포
 - api 만. 마이그레이션 없음
+
+## 2026-10-09 subway-arrivals-board PR-3 (#317 열차별 구간 앵커 + 지난 열차 제거)
+
+플랜 §5. 브랜치 feat/subway-arrivals-train-segment = PR-1(#322) + PR-2(#323) merge 위 커밋. **draft — #322·#323 머지 후 main 위로 rebase**(스택 금지 규칙상 그 전엔 머지하지 않는다).
+
+### 확정
+- 구간은 출발한 열차(status=DEPARTED)에만. to = `SubwayLineOrder.nextOf(from)`
+- departedAt = #316 구간 실측의 "전역 출발 첫 관측"(`SubwaySegmentTimePort.departedAt`, 키 = 도착하는 역) → 없으면 **POSITION 원천일 때만** 위치 API 상태가 바뀐 시각. ARRIVAL 확인 시각은 상태가 그대로여도 갱신돼 출발 시각이 아니다 → 구간 없음
+- expectedAt = departedAt + 최근 3대 실측 중앙값(MEASURED) → 없으면 + GTFS 계획 초(SCHEDULED, `SubwayLineOrder.runSeconds` = 두 역이 붙은 최다 trip 패턴). 링 원칙(오늘 실측 우선, 정적 값은 표본 없을 때만·출처 표시)과 같다
+- 지난 열차 = (위치 API 가 조회역 출발 & 도착 행보다 최신) 또는 (현재 역 ∈ 하류 3역 & ∉ 상류 4역·조회역). 판정 예외는 "안 지났다"
+- PR-2 노트의 "loadLater 하나로 합친다" 수행: `SubwayLineOrder` 의 자체 적재 스레드를 지우고 `SubwayLinePatternService.loadLater` 위임
+
+### 좌표
+- `application/arrival/service/SubwayTrainSegmentResolver.java`
+- `SubwayLineOrder.runSeconds`
+- `SubwayStationArrivalsResponse.Train.segment` / `Segment` / `SegmentSource`, `SubwayTrainPositionResolver.Placed.segment`
+
+### 검증
+- 집중: SegmentResolver 9, LineOrder 7, 도착 서비스 21(+2: 앵커·위치 출발 제거), 컨트롤러 6(segment JSON), PositionResolver 8
+- 전체 단위 `./gradlew test --tests '*Test'` (PR-1+PR-2+PR-3 합본) → **2150/0**. 컨텍스트 IT 미실행(스크래치 clone DB 없음, 기존 무관)
