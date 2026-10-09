@@ -3985,3 +3985,13 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - **V62 VPS 수동배치 필요**(V18+ convention). 빠뜨리면 기기 가입이 CHECK 제약에 막혀 500.
 - env `AUTH_DEVICE_SIGNUP_LIMIT_PER_HOUR` 선택(기본 60). 다른 env 변경 없음.
 - api 만 교체로 충분(worker 무관 경로). 배포 후 VPS 에서 curl `/api/auth/device` 발급 → `/api/me` 200 확인.
+
+### 검증
+- 환경: 스크래치 clone + 일회용 postgis(`da-pg`, 로컬 개발 DB schema-only + flyway 이력 V58 복원) + redis(`da-redis`). V59~V62 가 Flyway 로 실제 적용됨(`flyway_schema_history` 62 success=t).
+- `./gradlew compileJava` OK.
+- `./gradlew test --tests '*DeviceLoginServiceTest' --tests '*RedisDeviceSignupLimitAdapterTest' --tests '*DeviceAuthControllerTest' --tests '*SessionServiceTest' --tests '*OAuthLoginServiceTest'` → 56/56 통과(Device 서비스 15, 한도 7, 컨트롤러 6, Session 13, OAuth 15).
+- `./gradlew test --tests '*AuthIdentityConstraintIT' --tests '*DeviceLoginIT' --tests '*TokenGenerationIT' --tests '*WithdrawalDeletionBoundaryIT'` → 35/35 통과(제약 13, DeviceLoginIT 3, 세대 12, 탈퇴 경계 7).
+- 전체 `./gradlew test --continue` → 2729 중 13 실패, 전부 이번 변경과 무관:
+  - 기존 무관(메모리 기록과 동일): JourneyEvalReadPathIT · JourneyEvaluationIT · JourneyTransferAssessmentIT · BusAlertWakeupBurstIT
+  - 기존 무관(main `origin/main` 1cfac30a 에서 단독 재실행해도 동일 실패): RerouteRemainingPathOtpIT 1건(OTP 요청 2회 vs 기대 1회)
+  - 전체 실행에서만 나는 간헐: JourneyNotificationSchemaIT(`Unable to rollback against JDBC Connection`) — 이 브랜치에서 단독 실행 20/20 통과
