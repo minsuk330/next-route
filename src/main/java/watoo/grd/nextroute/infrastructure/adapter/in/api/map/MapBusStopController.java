@@ -161,7 +161,13 @@ public class MapBusStopController {
         return value;
     }
 
+    /**
+     * <b>약한</b> ETag({@code W/"..."}). Tomcat 은 강한 ETag 가 붙은 응답을 gzip 하지 않는다(압축하면 바이트가 달라져
+     * 강한 검증자와 어긋나므로) — 강한 ETag 였던 동안 v1 스냅샷은 872kB 를 날것으로 보냈다(2026-10-10 운영 실측, 문서의
+     * "gzip 233kB" 는 실제로 일어나지 않았다). 본문 의미가 같으면 같은 값이라는 약한 검증자가 이 용도에 맞다.
+     * {@link #matches} 는 {@code W/} 를 벗겨 비교하므로 클라가 어느 형식으로 돌려보내도 304 다.
+     */
     private String quote(String version) {
-        return "\"" + version + "\"";
+        return "W/\"" + version + "\"";
     }
 }
