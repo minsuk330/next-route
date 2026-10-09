@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
 import org.junit.jupiter.api.Test;
 import watoo.grd.nextroute.application.journey.dto.JourneyCommand;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegView;
@@ -157,7 +158,7 @@ class JourneyStateMachineTest {
 
     private JourneySnapshot journey(JourneyStatus status, long version, int revision,
                                     int currentLeg, List<JourneyLegView> legs) {
-        return JourneySnapshot.of(1L, status, version, 0L, revision, currentLeg,
+        return JourneySnapshot.of(1L, status, JourneyKind.NAVIGATION, version, 0L, revision, currentLeg,
                 NOW.plusSeconds(180), null, NOW, legs);
     }
 

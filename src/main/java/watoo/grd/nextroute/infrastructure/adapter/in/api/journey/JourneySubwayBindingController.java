@@ -1,5 +1,10 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.journey;
 
+import org.springframework.web.bind.annotation.GetMapping;
+import watoo.grd.nextroute.application.journey.dto.SubwayTrainCandidate;
+import watoo.grd.nextroute.application.journey.service.SubwayTrainSelectionService;
+import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.SubwayTrainSelectionRequest;
+import java.util.List;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +37,7 @@ import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.SubwayBoard
 public class JourneySubwayBindingController {
 
     private final SubwayBindingUseCase subwayBindingUseCase;
+    private final SubwayTrainSelectionService trainSelectionService;
 
     /**
      * 탑승 관측 수집.
@@ -75,5 +81,30 @@ public class JourneySubwayBindingController {
             @Valid @RequestBody SubwayBindingCorrectionRequest request) {
         return subwayBindingUseCase.notBoarded(userId, journeyId, request.routeRevision(),
                 request.legIndex());
+    }
+
+    /**
+     * 역에서 탈 열차 후보(#265). 지금 단계가 지하철 대기이고 다음이 탑승일 때, 그 역·방향 다음 열차(기본 2대).
+     *
+     * <p>방향을 모르면 빈 목록이다. 대기 단계가 아니면 409 {@code NOT_WAITING_FOR_SUBWAY}. 플래그
+     * {@code journey.subway.selection.enabled} 가 꺼져 있으면 404.
+     */
+    @GetMapping("/{journeyId}/subway/train-candidates")
+    public List<SubwayTrainCandidate> trainCandidates(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long journeyId) {
+        return trainSelectionService.candidates(userId, journeyId);
+    }
+
+    /**
+     * 열차를 골랐다. 곧바로 확정(CONFIRMED · USER_SELECTED)이고 진행 링도 바로 돈다(#304, 다음 갱신 tick). 열차가 아직 안 왔으면 다음 역=승차역.
+     * 틀렸으면 기존 {@code binding/reset}.
+     */
+    @PostMapping("/{journeyId}/subway/train-selection")
+    public SubwayBindingView selectTrain(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long journeyId,
+            @Valid @RequestBody SubwayTrainSelectionRequest request) {
+        return trainSelectionService.select(userId, journeyId, request.trainNo(), request.routeRevision());
     }
 }

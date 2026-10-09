@@ -32,6 +32,7 @@ class GetNearbyBusStopsUseCaseTest {
     @Mock BusRouteStopRepository busRouteStopRepository;
     @Mock SubwayStationRepository subwayStationRepository;
     @Mock PredictionSupportService predictionSupportService;
+    @Mock watoo.grd.nextroute.application.subway.service.SubwayGtfsStopIndex subwayGtfsStopIndex;
     @InjectMocks NearbyTransitService service;
 
     @Test
@@ -49,7 +50,7 @@ class GetNearbyBusStopsUseCaseTest {
         List<NearbyBusStopResult> result = service.getNearbyBusStops(37.5665, 126.9780, 5);
 
         assertThat(result).containsExactly(
-                new NearbyBusStopResult("1001", "시청앞", "01-001", 37.5665, 126.9780, 135, false)
+                new NearbyBusStopResult("1001", "시청앞", "01-001", 37.5665, 126.9780, 135, false, null)
         );
     }
 
@@ -68,7 +69,7 @@ class GetNearbyBusStopsUseCaseTest {
         List<NearbyBusStopResult> result = service.getNearbyBusStops(37.5665, 126.9780, 5);
 
         assertThat(result).containsExactly(
-                new NearbyBusStopResult("1001", "시청앞", "01-001", 37.5665, 126.9780, 135, true)
+                new NearbyBusStopResult("1001", "시청앞", "01-001", 37.5665, 126.9780, 135, true, null)
         );
     }
 
@@ -165,5 +166,26 @@ class GetNearbyBusStopsUseCaseTest {
             @Override public Double getLongitude() { return longitude; }
             @Override public Double getDistMeters() { return distMeters; }
         };
+    }
+
+    @Test
+    @DisplayName("근처 지하철역에 GTFS 정류장 id 를 싣는다(#298), 모르면 null")
+    void nearbySubwayCarriesGtfsStopId() {
+        watoo.grd.nextroute.domain.subway.repository.NearbySubwayStationProjection gangnam =
+                org.mockito.Mockito.mock(watoo.grd.nextroute.domain.subway.repository.NearbySubwayStationProjection.class);
+        org.mockito.BDDMockito.given(gangnam.getStationId()).willReturn("1002000222");
+        org.mockito.BDDMockito.given(gangnam.getLineId()).willReturn("1002");
+        org.mockito.BDDMockito.given(gangnam.getDistMeters()).willReturn(80.0);
+        org.mockito.BDDMockito.given(gangnam.getLatitude()).willReturn(37.4979);
+        org.mockito.BDDMockito.given(gangnam.getLongitude()).willReturn(127.0276);
+        org.mockito.BDDMockito.given(subwayStationRepository.findNearby(
+                org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.anyInt()))
+                .willReturn(List.of(gangnam));
+        org.mockito.BDDMockito.given(subwayGtfsStopIndex.gtfsStopId("1002", "1002000222"))
+                .willReturn(java.util.Optional.of("1:RS_ACC1_S-1-0222"));
+
+        assertThat(service.getNearbySubwayStations(37.4979, 127.0276, 5).get(0).gtfsStopId())
+                .isEqualTo("1:RS_ACC1_S-1-0222");
     }
 }

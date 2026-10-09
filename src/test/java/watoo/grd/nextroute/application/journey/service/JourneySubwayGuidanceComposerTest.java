@@ -1,0 +1,91 @@
+package watoo.grd.nextroute.application.journey.service;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+import watoo.grd.nextroute.application.journey.dto.SubwayGuidance;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
+import watoo.grd.nextroute.application.journey.port.out.SubwayRingPort;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
+import watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus;
+import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
+import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
+
+/**
+ * 역에서 고르고 아직 안 움직인 열차(#304)도 링이 있으면 안내에 싣는다. 이게 비면 앱이 Live Activity 를 못 띄운다.
+ */
+@DisplayName("지하철 안내 조립 — 사용자 선택")
+class JourneySubwayGuidanceComposerTest {
+
+    private static final Long JOURNEY = 1L;
+    private static final Instant T0 = Instant.parse("2026-10-07T03:00:00Z");
+
+    private final SubwayLegBindingRepository bindingRepository = mock(SubwayLegBindingRepository.class);
+    private final SubwayRingPort ringPort = mock(SubwayRingPort.class);
+    private final JourneySubwayGuidanceComposer composer =
+            new JourneySubwayGuidanceComposer(bindingRepository, ringPort);
+
+    private final JourneyLeg wait = leg(0, JourneyLegType.WAIT_SUBWAY);
+    private final JourneyLeg ride = leg(1, JourneyLegType.RIDE_SUBWAY);
+
+    @Test
+    @DisplayName("이동 관측 전 사용자 선택 + 링 있음 → 다음 역·남은 역·진행률을 싣는다")
+    void selectedBeforeMovementCarriesRing() {
+        SubwayLegBinding binding = SubwayLegBinding.selected(ride.getId(), JOURNEY, 1, 1,
+                "2390", LocalDate.parse("2026-10-07"), "1002", "내선");
+        given(bindingRepository.findByJourneyLegIdIn(List.of(ride.getId()))).willReturn(List.of(binding));
+        given(ringPort.find(JOURNEY, 1, 1, binding.getVersion())).willReturn(Optional.of(boardingRing(binding)));
+
+        SubwayGuidance guidance = composer.compose(1, 0, List.of(wait, ride), Map.of());
+
+        assertThat(binding.isSelectedBeforeMovement()).isTrue();
+        assertThat(guidance.bindingStatus()).isEqualTo(SubwayBindingStatus.CONFIRMED);
+        assertThat(guidance.nextStationName()).isEqualTo("강남");
+        assertThat(guidance.remainingStations()).isEqualTo(3);
+        assertThat(guidance.segmentProgress()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("링이 아직 없으면(첫 tick 전) 상태만 알리고 값은 비운다")
+    void selectedWithoutRingIsPending() {
+        SubwayLegBinding binding = SubwayLegBinding.selected(ride.getId(), JOURNEY, 1, 1,
+                "2390", LocalDate.parse("2026-10-07"), "1002", "내선");
+        given(bindingRepository.findByJourneyLegIdIn(List.of(ride.getId()))).willReturn(List.of(binding));
+        given(ringPort.find(JOURNEY, 1, 1, binding.getVersion())).willReturn(Optional.empty());
+
+        SubwayGuidance guidance = composer.compose(1, 0, List.of(wait, ride), Map.of());
+
+        assertThat(guidance.bindingStatus()).isEqualTo(SubwayBindingStatus.CONFIRMED);
+        assertThat(guidance.nextStationName()).isNull();
+        assertThat(guidance.quality()).isEqualTo(SubwayRingQuality.STALE);
+    }
+
+    private SubwayRingState boardingRing(SubwayLegBinding binding) {
+        return new SubwayRingState(JOURNEY, 1, 1, binding.getVersion(),
+                0, "1002000222", "강남", "신도림", 3,
+                BigDecimal.ZERO, T0, BigDecimal.ZERO, T0.plusSeconds(90), T0.plusSeconds(120),
+                SubwayRingPhase.RIDE_SUBWAY, SubwayRingQuality.NORMAL, T0, T0);
+    }
+
+    private static JourneyLeg leg(int index, JourneyLegType type) {
+        JourneyLeg leg = JourneyLeg.builder().journeyId(JOURNEY).routeRevision(1).legIndex(index)
+                .type(type).state(JourneyLegState.PENDING).build();
+        ReflectionTestUtils.setField(leg, "id", 100L + index);
+        return leg;
+    }
+}

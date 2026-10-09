@@ -36,7 +36,10 @@ public enum SubwayBindingEventType {
     USER_NOT_BOARDED,
 
     /** 재탐색으로 개정본이 올랐지만 구간이 그대로여서 이어받았다. */
-    INHERITED_ON_REROUTE;
+    INHERITED_ON_REROUTE,
+
+    /** 역에서 사용자가 열차를 골랐다(#265, V60). 판단 종류다. */
+    USER_SELECTED;
 
     public boolean isEvidence() {
         return this == MOVEMENT_START || this == STATION_STOP_EPISODE;

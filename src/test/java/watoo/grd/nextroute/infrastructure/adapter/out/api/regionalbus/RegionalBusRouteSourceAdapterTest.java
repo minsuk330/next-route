@@ -12,6 +12,7 @@ import watoo.grd.nextroute.application.regionalbus.dto.TagoCity;
 import watoo.grd.nextroute.application.regionalbus.dto.TagoRoute;
 import watoo.grd.nextroute.application.regionalbus.port.out.RegionalBusSourceException;
 
+import java.net.SocketTimeoutException;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /**
@@ -43,6 +45,19 @@ class RegionalBusRouteSourceAdapterTest {
     private void respond(String path, String body) {
         server.expect(requestTo(containsString(path)))
                 .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    @DisplayName("I/O 오류(읽기 시간 초과)는 재시도 가능 — 한 번의 timeout 이 적재를 중단시키지 않는다")
+    void ioErrorIsRetryable() {
+        server.expect(requestTo(containsString("/getCtyCodeList")))
+                .andRespond(withException(new SocketTimeoutException("Read timed out")));
+
+        assertThatThrownBy(() -> adapter.tagoCities())
+                .isInstanceOfSatisfying(RegionalBusSourceException.class, e -> {
+                    assertThat(e.retryable()).isTrue();
+                    assertThat(e.blocking()).isFalse();
+                });
     }
 
     @Test

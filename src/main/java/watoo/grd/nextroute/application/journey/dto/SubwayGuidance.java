@@ -33,6 +33,8 @@ import java.time.Instant;
  * @param progressTarget         이동 중 상한(기본 0.90). 앱이 여기까지만 보간한다
  * @param estimatedNextStationAt 실시간 기반. <b>없으면 null</b> — 앱은 보간을 멈춘다
  * @param observedAt             원천 실시간 데이터의 관측 시각
+ * @param version                링 화면이 마지막으로 바뀐 시각(epoch millis, #307). 여정 안에서 단조라 앱이 늦게 온
+ *                               옛 스냅샷을 버리는 데 쓴다. 링이 없으면 null
  */
 public record SubwayGuidance(
         SubwayBindingStatus bindingStatus,
@@ -50,7 +52,8 @@ public record SubwayGuidance(
         Instant progressValidUntil,
 
         SubwayRingQuality quality,
-        Instant observedAt
+        Instant observedAt,
+        Long version
 ) {
 
     /**
@@ -64,7 +67,7 @@ public record SubwayGuidance(
         return new SubwayGuidance(status, SubwayRingPhase.RIDE_SUBWAY, lineName,
                 null, alightingStationName, null,
                 null, null, null, null, null,
-                SubwayRingQuality.STALE, null);
+                SubwayRingQuality.STALE, null, null);
     }
 
     /** 확정된 고정에 링 상태를 얹는다. */
@@ -74,6 +77,7 @@ public record SubwayGuidance(
                 ring.nextStationName(), ring.alightingStationName(), ring.remainingStations(),
                 ring.segmentProgress(), ring.progressBaseAt(), ring.progressTarget(),
                 ring.estimatedNextStationAt(), ring.progressValidUntil(),
-                ring.quality(), ring.observedAt());
+                ring.quality(), ring.observedAt(),
+                ring.guidanceVersion() > 0 ? ring.guidanceVersion() : null);
     }
 }

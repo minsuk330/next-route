@@ -73,6 +73,7 @@ public class JourneyQueryService implements JourneyQueryUseCase {
         return JourneySnapshot.of(
                         session.getId(),
                         session.getStatus(),
+                        session.getKind(),
                         session.getCommandVersion(),
                         session.getEvaluationVersion(),
                         session.getRouteRevision(),

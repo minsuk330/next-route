@@ -17,6 +17,7 @@ import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -50,6 +51,7 @@ public class SubwayRingUpdateService {
     private final SubwayRingSignalReader signalReader;
     private final SubwayRingCalculator calculator;
     private final SubwayRingPushEnqueueService pushEnqueueService;
+    private final SubwayRingPushDecider pushDecider;
     private final SubwayRingPort ringPort;
     private final SubwayRingMetrics metrics;
     private final JourneySubwayRingProperties properties;
@@ -82,14 +84,17 @@ public class SubwayRingUpdateService {
             // 역 체인을 못 읽으면 남은 역 수도 다음 역도 만들 수 없다. 계획값으로 지어내지 않는다.
             return;
         }
+        // 역에서 고르고 아직 안 움직였으면 열차가 승차역에 오기 전일 수 있다 — 승차역부터 본다(#304).
+        int start = binding.isSelectedBeforeMovement() ? 0 : 1;
         SubwayRingContext context = new SubwayRingContext(binding.getJourneyId(),
-                binding.getRouteRevision(), binding.getLegIndex(), binding.getVersion(), chain);
+                binding.getRouteRevision(), binding.getLegIndex(), binding.getVersion(), chain, start);
 
         SubwayRingState previous = ringPort.find(binding.getJourneyId(),
                 binding.getRouteRevision(), binding.getLegIndex(), binding.getVersion())
                 .orElse(null);
         int target = calculator.targetStationSequence(previous, context);
-        if (target < 1) {
+        if (target < 0) {
+            // 체인을 쓸 수 없다. 0 은 승차역이다(#304) — 열차를 기다리는 링이라 거르지 않는다.
             return;
         }
 
@@ -98,10 +103,12 @@ public class SubwayRingUpdateService {
                 ? null
                 : signalReader.read(train, chain, target);
 
-        SubwayRingState state = calculator.next(previous, context, observation, clock.instant());
+        Instant now = clock.instant();
+        SubwayRingState state = calculator.next(previous, context, observation, now);
         if (state == null) {
             return;
         }
+        state = state.withGuidanceVersion(guidanceVersionOf(previous, state, now));
         ringPort.save(state);
         metrics.recordUpdated(state, observation, binding.getStatus());
         // 고정 열차가 역을 하나 지났다 — 재탐색 보드를 바로 다시 찾게 한다(#264 PR-2).
@@ -112,6 +119,20 @@ public class SubwayRingUpdateService {
         // 원격 갱신은 링 저장과 규칙이 다르다 — 링은 latest-wins 로 덮어써도 되지만 push 는
         // 화면이 실제로 바뀔 때만, 그리고 최신인 동안만 재시도한다. 트랜잭션도 따로 연다.
         pushEnqueueService.enqueueIfChanged(previous, state, ride);
+    }
+
+    /**
+     * 화면이 바뀌었을 때만 버전을 올린다(#307). 앱은 이 값으로 조건부 조회(204)를 가르고, 늦게 온 옛 스냅샷을 버린다.
+     *
+     * <p>"바뀜"은 push 와 같은 기준이다({@link SubwayRingPushDecider}) — 다음 역·국면·품질·도착·앵커 지문. 매 tick
+     * 올리면 204 가 무의미해진다. 값은 시각이라 고정 세대가 바뀌어 키가 새로 생겨도 단조다. 같은 millis 면 +1.
+     */
+    private long guidanceVersionOf(SubwayRingState previous, SubwayRingState state, Instant now) {
+        long prior = previous == null ? 0L : previous.guidanceVersion();
+        if (prior > 0 && pushDecider.decide(previous, state).isEmpty()) {
+            return prior;
+        }
+        return Math.max(now.toEpochMilli(), prior + 1);
     }
 
     /**

@@ -127,7 +127,11 @@ public class LegacyRouteResponseMapper {
         return 2;                       // 버스(또는 도보만)
     }
 
-    private SubPathResult toSubPath(RoutingLeg leg) {
+    /**
+     * 구간 하나를 legacy 구간으로. 단독 추적(#265)이 패턴에서 오려 낸 구간도 이 길을 탄다 — 실시간 id·지하철
+     * {@code wayCode} 보강을 한 자리에서 하기 위해서다.
+     */
+    public SubPathResult toSubPath(RoutingLeg leg) {
         int trafficType = switch (leg.mode()) {
             case SUBWAY, RAIL -> TRAFFIC_SUBWAY;
             case BUS -> TRAFFIC_BUS;

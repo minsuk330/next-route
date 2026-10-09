@@ -13,6 +13,7 @@ import watoo.grd.nextroute.application.journey.dto.TransferConnectionDraft;
 import watoo.grd.nextroute.application.journey.config.JourneyNavigationProperties;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEndReason;
+import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneyRevision;
@@ -78,6 +79,17 @@ public class JourneyStartTxService {
     @Transactional
     public JourneySnapshot start(Long userId, JourneyPlan plan, JsonNode routeSnapshot,
                                  JsonNode destinationSummary, boolean replace, Instant now) {
+        return start(userId, plan, routeSnapshot, destinationSummary, replace, now, JourneyKind.NAVIGATION);
+    }
+
+    /**
+     * @param kind 단독 추적({@link JourneyKind#TRACK})이면 재탐색 보드 첫 예약을 하지 않는다. 보드 SQL 도
+     *             {@code kind} 로 거르지만, 애초에 예약을 심지 않아 두 겹으로 막는다
+     */
+    @Transactional
+    public JourneySnapshot start(Long userId, JourneyPlan plan, JsonNode routeSnapshot,
+                                 JsonNode destinationSummary, boolean replace, Instant now,
+                                 JourneyKind kind) {
         User user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.NOT_FOUND));
 
@@ -86,6 +98,7 @@ public class JourneyStartTxService {
 
         JourneySession session = JourneySession.builder()
                 .userId(user.getId())
+                .kind(kind)
                 .startedAt(now)
                 .guidanceLeaseUntil(now.plus(navigationProperties.guidanceLease()))
                 .routeSnapshot(routeSnapshot)
@@ -107,7 +120,9 @@ public class JourneyStartTxService {
         saveRouteOptions(plan, legs);
         saveTransfers(session, plan);
         // 재탐색 보드 첫 갱신은 시작 + 60초다(#264 PR-2). 시작 직후 3분의 push 차단은 push 판단이 맡는다.
-        rerouteRefreshSignal.scheduleInitial(session.getId());
+        if (session.getKind() == JourneyKind.NAVIGATION) {
+            rerouteRefreshSignal.scheduleInitial(session.getId());
+        }
 
         return queryService.snapshotOf(session);
     }

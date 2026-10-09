@@ -11,6 +11,7 @@ import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
 import watoo.grd.nextroute.application.subway.dto.SubwayTrainObservation;
 import watoo.grd.nextroute.application.subway.dto.TrainIdentity;
 import watoo.grd.nextroute.application.subway.port.out.SubwayRealtimeCachePort;
+import watoo.grd.nextroute.application.subway.port.out.SubwaySegmentTimePort;
 import watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort;
 
 import java.time.Instant;
@@ -63,6 +64,7 @@ public class SubwayRingSignalReader {
 
     private final SubwayRealtimeCachePort realtimeCachePort;
     private final SubwayTrainLogPort trainLogPort;
+    private final SubwaySegmentTimePort segmentTimePort;
 
     /**
      * @param targetSequence 이번에 조회할 역의 체인 순번
@@ -97,8 +99,41 @@ public class SubwayRingSignalReader {
             return null;
         }
         SubwayArrivalCode code = SubwayArrivalCode.from(row.getArrivalCode());
+        if (code == SubwayArrivalCode.PREV_DEPARTED) {
+            return measured(train, row, targetSequence, observedAt);
+        }
+        if (code == SubwayArrivalCode.PREV_ENTERING || code == SubwayArrivalCode.PREV_ARRIVED) {
+            // 아직 전역에 서 있다. 남은 초는 출발 뒤 정해지는 정적 값이라 지금 시각에 더하면 틀린다 — 싣지 않는다.
+            return SubwayRingObservation.arrival(code, targetSequence, null, observedAt);
+        }
         return SubwayRingObservation.arrival(code, targetSequence,
                 estimatedArrivalAt(code, row, observedAt), observedAt);
+    }
+
+    /**
+     * 전역 출발(3) — 도착 예정 = 이 열차가 전역을 출발한 것으로 <b>처음</b> 보인 시각 + 이 구간을 최근 지난 열차들의 실측
+     * 소요시간 중앙값(2026-10-07 결정).
+     *
+     * <p>{@code barvlDt} 는 쓰지 않는다. 전역 출발 뒤 실측보다 평균 54초 길고(전 노선 3,820구간), 같은 값이 반복되며
+     * {@code recptnDt} 만 갱신돼 더하면 예정이 밀린다. 표본이 없으면 예정 없이 돌려준다 — 계산기가 멈춘다(STALE).
+     */
+    private SubwayRingObservation measured(TrainIdentity train, SubwayRealtimeTrain row, int targetSequence,
+                                           Instant observedAt) {
+        List<Long> recent = segmentTimePort.recentSeconds(row.getLineId(), row.getDirection(), row.getStationId());
+        if (recent.isEmpty()) {
+            return SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, targetSequence, null, observedAt);
+        }
+        Instant start = segmentTimePort.departedAt(row.getLineId(), row.getDirection(), row.getStationId(),
+                        train.trainNo())
+                .filter(at -> !at.isAfter(observedAt))
+                .orElse(observedAt);
+        return SubwayRingObservation.measured(targetSequence, start, start.plusSeconds(median(recent)), observedAt);
+    }
+
+    private static long median(List<Long> values) {
+        List<Long> sorted = values.stream().sorted().toList();
+        int mid = sorted.size() / 2;
+        return sorted.size() % 2 == 1 ? sorted.get(mid) : (sorted.get(mid - 1) + sorted.get(mid)) / 2;
     }
 
     /**

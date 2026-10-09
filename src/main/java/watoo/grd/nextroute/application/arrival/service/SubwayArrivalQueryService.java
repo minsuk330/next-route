@@ -60,34 +60,28 @@ public class SubwayArrivalQueryService implements GetSubwayArrivalUseCase {
      * <p>처음부터 넓게 찾지 않고 <b>단계로</b> 넓히는 이유는, 좁은 반경에서 답이 나오는 흔한
      * 경우의 판단 근거를 그대로 두기 위해서다. 50m 안에 후보가 있으면 이 변경 전과 똑같이
      * 동작한다. 넓힌 반경은 좁은 반경이 침묵할 때만 쓰인다.
+     *
+     * <p><b>line_id 가 있으면 그 노선 역만 찾는다(#276).</b> 다른 노선 역으로 대신하지 않는다.
+     * 환승역에서 요청 좌표가 다른 노선 승강장에 더 가까우면, 좁은 반경엔 다른 노선만 잡힌다.
+     * 예전엔 거기서 멈추고 최근접 역으로 대신해 다른 노선 열차를 내려 줬다 — 호출자는 응답을
+     * 요청한 노선으로 믿고 표시한다. 끝까지 없으면 빈 값이 낫다.
+     *
+     * <p>line_id 가 없으면 최근접 역을 쓴다.
      */
     public Optional<ResolvedStation> resolveStation(double lat, double lon, String lineId) {
+        boolean lineGiven = lineId != null && !lineId.isBlank();
         for (double radius = INITIAL_RADIUS; radius <= MAX_RADIUS; radius += RADIUS_STEP) {
-            List<NearbySubwayStationProjection> nearby =
-                    subwayStationRepository.findNearby(lat, lon, radius, CANDIDATE_LIMIT);
+            List<NearbySubwayStationProjection> nearby = lineGiven
+                    ? subwayStationRepository.findNearbyOnLine(lat, lon, radius, lineId, CANDIDATE_LIMIT)
+                    : subwayStationRepository.findNearby(lat, lon, radius, CANDIDATE_LIMIT);
             if (nearby.isEmpty()) {
                 continue;
             }
-            NearbySubwayStationProjection target = selectStation(nearby, lineId);
+            NearbySubwayStationProjection target = nearby.get(0);
             return Optional.of(new ResolvedStation(
                     target.getStationId(), target.getStationName(), target.getLineId()));
         }
         return Optional.empty();
-    }
-
-    /**
-     * 후보가 2개 이상이고 line_id가 주어지면 해당 호선으로 1개만 추출.
-     * 미지정/미일치 시 최근접(첫번째) 역 사용.
-     */
-    private NearbySubwayStationProjection selectStation(
-            List<NearbySubwayStationProjection> nearby, String lineId) {
-        if (nearby.size() >= 2 && lineId != null && !lineId.isBlank()) {
-            return nearby.stream()
-                    .filter(s -> lineId.equals(s.getLineId()))
-                    .findFirst()
-                    .orElse(nearby.get(0));
-        }
-        return nearby.get(0);
     }
 
     private List<SubwayArrivalResponse> fromSnapshot(
