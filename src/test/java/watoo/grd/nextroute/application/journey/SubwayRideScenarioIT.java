@@ -19,24 +19,23 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.utility.DockerImageName;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.mockito.ArgumentCaptor;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
+import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
+import watoo.grd.nextroute.application.journey.service.SubwayTrainSelectionTxService;
 import watoo.grd.nextroute.application.journey.dto.JourneyCommand;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
-import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventType;
 import watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
-import watoo.grd.nextroute.application.journey.dto.SubwayBoardingEvidence;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
-import watoo.grd.nextroute.application.journey.port.in.SubwayBindingUseCase;
 import watoo.grd.nextroute.application.journey.port.out.LiveActivityPushPort;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
 import watoo.grd.nextroute.application.journey.dto.SubwayGuidance;
 import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase;
 import watoo.grd.nextroute.application.journey.port.in.ManageLiveActivityTokenUseCase;
-import watoo.grd.nextroute.application.journey.service.SubwayBindingMatchService;
 import watoo.grd.nextroute.application.journey.service.SubwayRingPushRelayService;
 import watoo.grd.nextroute.application.journey.service.SubwayRingUpdateService;
 import watoo.grd.nextroute.application.subway.port.out.SubwayRealtimeCachePort;
@@ -47,16 +46,13 @@ import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
 import watoo.grd.nextroute.application.subway.dto.SubwayTrainStatus;
 import watoo.grd.nextroute.application.subway.service.SubwayStationAdjacency;
 import watoo.grd.nextroute.application.subway.service.SubwayTrainTransitionTracker;
-import watoo.grd.nextroute.domain.journey.entity.SubwayBindingConfidence;
-import watoo.grd.nextroute.domain.journey.entity.SubwayBindingEventType;
 import watoo.grd.nextroute.testsupport.MutableClock;
 import watoo.grd.nextroute.testsupport.subway.SubwayScenarioWorld;
 import watoo.grd.nextroute.testsupport.subway.SubwayScenarioWorld.TrainAt;
 
-import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -80,9 +76,9 @@ import static watoo.grd.nextroute.testsupport.subway.SubwayScenarioWorld.YEOKSAM
 /**
  * 지하철 한 번 타는 이야기를 <b>처음부터 끝까지</b> 실제 DB·Redis 위에서 돌린다.
  *
- * <p>기존 IT 는 부품 하나씩만 본다 — 판정기는 전이 로그를 직접 만들어 넣고, 링은 전이 로그와
- * 도착 캐시를 mock 으로 막는다. 그래서 "위치 응답 → 전이 추적 → 출발 색인 → 고정 → 링 → push"
- * 가 실제로 이어지는지는 아무도 확인하지 않았다. 이 시험은 그 사슬을 잇는다.
+ * <p>기존 IT 는 부품 하나씩만 본다 — 링은 전이 로그와 도착 캐시를 mock 으로 막는다. 그래서
+ * "위치 응답 → 전이 추적 → 출발 색인 → 사용자 선택 고정 → 링 → push" 가 실제로 이어지는지는 아무도 확인하지
+ * 않았다. 이 시험은 그 사슬을 잇는다. 고정은 탑승 중 열차 선택으로 만든다(모션 자동 판정기는 2026-10 제거).
  *
  * <p>가짜는 바깥 경계에만 둔다: 서울 위치·도착 API(피드를 손으로 만든다), FCM(발송 포트 mock),
  * 검색 결과 스냅샷, 시계. 그 안쪽은 전부 진짜다.
@@ -141,8 +137,8 @@ class SubwayRideScenarioIT {
 
     @Autowired MutableClock clock;
     @Autowired StartJourneyUseCase startJourneyUseCase;
-    @Autowired SubwayBindingUseCase bindingUseCase;
-    @Autowired SubwayBindingMatchService matchService;
+    @Autowired SubwayTrainSelectionTxService selectionTxService;
+    @Autowired JourneyLegRepository legRepository;
     @Autowired SubwayRingUpdateService ringService;
     @Autowired SubwayRingPushRelayService pushRelay;
     @Autowired SubwayRealtimeCachePort realtimeCache;
@@ -163,12 +159,10 @@ class SubwayRideScenarioIT {
     private Long journeyId;
     private Long rideLegId;
     private int rideLegIndex;
-    private int evidenceSeq;
 
     @BeforeEach
     void setUp() {
         clock.set(MORNING);
-        evidenceSeq = 0;
         world.clearTrainLogs(redisTemplate);
         world.seed(jdbcTemplate);
         adjacency.reload();
@@ -211,53 +205,6 @@ class SubwayRideScenarioIT {
     // ── 시나리오 ────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("출근길: 앞차 A 를 보내고 B 를 탔다 — 잠정은 둘 중 B, 역삼에 선 시각이 B 와 맞아 B 로 확정된다")
-    void rushHourBoardsSecondTrainAndConfirmsAtYeoksam() {
-        rushHourUntilProvisional();
-
-        assertBinding("PROVISIONAL", TRAIN_B);
-
-        // A 는 벌써 선릉, B 가 역삼에 섰다. 폰도 정차를 감지했다.
-        at(150);
-        observe(train(TRAIN_A, SEOLLEUNG, SubwayTrainStatus.ARRIVED, 145),
-                train(TRAIN_B, YEOKSAM, SubwayTrainStatus.ARRIVED, 140));
-        at(170);
-        stopEpisode(1, 142, 165);
-        at(175);
-        matchService.runOnce();
-
-        assertBinding("CONFIRMED", TRAIN_B);
-    }
-
-    /**
-     * 출근길 강남 승강장. A 가 먼저 떠나고 약 2분 뒤 B 가 떠난다. 사용자는 B 를 탄다.
-     *
-     * <p>두 열차가 모두 판정 창 안에 있어야 확정 단계가 비교를 할 수 있다 — 후보가 하나뿐이면
-     * 확정하지 않는 것이 판정기의 계약이다({@code SubwayTrainMatcherTest} "후보가 1대뿐이어도
-     * 잠정까지다").
-     */
-    private void rushHourUntilProvisional() {
-        at(-145);
-        observe(train(TRAIN_A, GANGNAM, SubwayTrainStatus.ARRIVED, -150));
-        at(-85);
-        observe(train(TRAIN_A, GANGNAM, SubwayTrainStatus.DEPARTED, -90));
-        at(-60);
-        observe(train(TRAIN_A, GANGNAM, SubwayTrainStatus.DEPARTED, -90),
-                train(TRAIN_B, GANGNAM, SubwayTrainStatus.ARRIVED, -65));
-        // A 는 역삼에 닿았고 B 가 강남을 떠난다.
-        at(30);
-        observe(train(TRAIN_A, YEOKSAM, SubwayTrainStatus.ARRIVED, 28),
-                train(TRAIN_B, GANGNAM, SubwayTrainStatus.DEPARTED, 20));
-
-        // 폰이 "차가 움직인다"를 감지했다.
-        at(35);
-        movementStart(25);
-        at(40);
-        matchService.runOnce();
-    }
-
-
-    @Test
     @DisplayName("확정 뒤: 선릉으로 갈수록 링이 차오르고, 도착하면 다음 역이 하차역 삼성으로 넘어가며, 매번 잠금화면이 갱신된다")
     void ringFillsTowardSeolleungAndLockScreenFollows() {
         rushHourUntilConfirmed();
@@ -298,72 +245,6 @@ class SubwayRideScenarioIT {
         JsonNode last = contentState.getValue();
         assertThat(last.has("name")).isTrue();
         assertThat(last.get("props").isTextual()).as("props 는 JSON 문자열이다 — 객체면 앱이 조용히 무시한다").isTrue();
-    }
-
-    @Test
-    @DisplayName("\"이 열차 아니에요\"를 눌렀다 — 방금 거부한 열차를 다시 고르지 않는다")
-    void userRejectsTrainAndItIsNotPickedAgain() {
-        rushHourUntilProvisional();
-        assertBinding("PROVISIONAL", TRAIN_B);
-
-        at(60);
-        bindingUseCase.reset(userId, journeyId, 1, rideLegIndex);
-        at(65);
-        matchService.runOnce();
-
-        String picked = jdbcTemplate.queryForObject(
-                "select train_no from subway_leg_binding where journey_leg_id = ?", String.class, rideLegId);
-        assertThat(picked).as(() -> "근거=" + evidenceRows()).isNotEqualTo(TRAIN_B);
-    }
-
-    @Test
-    @DisplayName("한산한 시간대: 강남을 떠난 열차가 하나뿐이어도 잠정 B 로 링이 뜨고, 8분이 지나도 꺼지지 않으며, 하차 단계와 잠금화면까지 확정과 똑같이 간다")
-    void offPeakSingleCandidateStillGetsTheRing() {
-        at(-60);
-        observe(train(TRAIN_B, GANGNAM, SubwayTrainStatus.ARRIVED, -65));
-        at(30);
-        observe(train(TRAIN_B, GANGNAM, SubwayTrainStatus.DEPARTED, 20));
-        at(35);
-        movementStart(25);
-        at(40);
-        matchService.runOnce();
-        assertBinding("PROVISIONAL", TRAIN_B);
-
-        // 역삼에 제때 섰다 — 비교할 두 번째 후보가 없어 확정은 여전히 안 된다.
-        at(150);
-        observe(train(TRAIN_B, YEOKSAM, SubwayTrainStatus.ARRIVED, 140));
-        at(170);
-        stopEpisode(1, 142, 165);
-        at(175);
-        matchService.runOnce();
-        assertBinding("PROVISIONAL", TRAIN_B);
-
-        // 그래도 링과 잠금화면은 뜬다. 앱에는 사실대로 PROVISIONAL 이 가고, 앱이 구분 없이 그린다.
-        liveActivityOn();
-        SubwayGuidance leftYeoksam = ringTick(180,
-                world.arrivalRow(TRAIN_B, YEOKSAM, "2", null, sec(168)),
-                world.arrivalRow(TRAIN_B, SEOLLEUNG, "99", 110, sec(168)));
-        assertThat(leftYeoksam.bindingStatus()).isEqualTo(SubwayBindingStatus.PROVISIONAL);
-        assertThat(leftYeoksam.nextStationName()).isEqualTo(SEOLLEUNG.name());
-        assertThat(leftYeoksam.segmentProgress()).isNotNull();
-
-        // 예전에는 여기서 확정 창(8분)이 끝나 고정이 접히고 링이 꺼졌다.
-        at(40 + 8 * 60 + 5);
-        matchService.runOnce();
-        assertThat(bindingStatus()).as("운행 중 링이 꺼지지 않게 잠정을 접지 않는다").isEqualTo("PROVISIONAL");
-
-        ringTick(530, world.arrivalRow(TRAIN_B, SEOLLEUNG, "1", null, sec(525)));
-        SubwayGuidance lastLeg = ringTick(535, world.arrivalRow(TRAIN_B, SEOLLEUNG, "1", null, sec(525)));
-        assertThat(lastLeg.nextStationName()).isEqualTo(SAMSEONG.name());
-        assertThat(lastLeg.phase()).as("하차 안내도 확정과 똑같이 낸다(M7 C6 폐기)")
-                .isEqualTo(SubwayRingPhase.SUBWAY_ALIGHT);
-
-        ArgumentCaptor<JsonNode> contentState = ArgumentCaptor.forClass(JsonNode.class);
-        then(pushPort).should(atLeast(1)).send(eq("device-token"), eq("activity-token"),
-                eq("update"), anyLong(), contentState.capture());
-        assertThat(contentState.getValue().get("props").asText())
-                .as("잠금화면 payload 에는 잠정/확정 구분이 없다")
-                .doesNotContain("PROVISIONAL").contains("SUBWAY_ALIGHT");
     }
 
     @Test
@@ -413,50 +294,6 @@ class SubwayRideScenarioIT {
     }
 
     @Test
-    @DisplayName("같은 열차가 응답에 두 번 실려 온다(코레일 구간 실측) — 그래도 B 가 떠난 걸 놓치지 않아 앞차 A 로 잘못 잡히지 않는다")
-    void duplicatedRowsStillBindTheRightTrain() {
-        at(-145);
-        observe(train(TRAIN_A, GANGNAM, SubwayTrainStatus.ARRIVED, -150));
-        at(-85);
-        observe(train(TRAIN_A, GANGNAM, SubwayTrainStatus.DEPARTED, -90));
-        at(-60);
-        observe(train(TRAIN_A, GANGNAM, SubwayTrainStatus.DEPARTED, -90),
-                train(TRAIN_B, GANGNAM, SubwayTrainStatus.ARRIVED, -65));
-        // B 가 떠나는 바로 그 회차에, 몇 초 묵은 B 행이 한 번 더 실려 온다.
-        // 예전 코드는 이 열차를 통째로 격리해 출발을 놓쳤고, 판정 시점에 후보가 A 뿐이었다.
-        at(30);
-        tracker.observe(world.positionFeedWithDuplicate(clock.instant(),
-                train(TRAIN_B, GANGNAM, SubwayTrainStatus.DEPARTED, 20),
-                train(TRAIN_B, GANGNAM, SubwayTrainStatus.ARRIVED, 5),
-                train(TRAIN_A, YEOKSAM, SubwayTrainStatus.ARRIVED, 28)));
-        at(35);
-        movementStart(25);
-        at(40);
-        matchService.runOnce();
-
-        assertBinding("PROVISIONAL", TRAIN_B);
-    }
-
-    @Test
-    @DisplayName("위치 수집이 꺼져 있다(2026-09-21 사고) — 아무 열차에도 고정하지 않고 안내는 '확인 중'에 머문다, 오류도 없다")
-    void noPositionCollectionMeansNoBinding() {
-        at(35);
-        movementStart(25);
-        at(40);
-        matchService.runOnce();
-        at(45);
-        ringService.runOnce();
-
-        assertThat(bindingStatus()).isEqualTo("PENDING");
-        assertThat(jdbcTemplate.queryForObject(
-                "select train_no from subway_leg_binding where journey_leg_id = ?", String.class, rideLegId))
-                .isNull();
-        SubwayGuidance g = guidance();
-        assertThat(g.bindingStatus()).isEqualTo(SubwayBindingStatus.PENDING);
-        assertThat(g.segmentProgress()).isNull();
-    }
-
-    @Test
     @DisplayName("삼성에서 내리고 여정을 끝냈다 — 잠금화면에 종료 프레임이 마지막 화면 그대로 나가고, 고정 기록은 남는다")
     void finishingTheJourneyEndsTheLiveActivity() {
         rushHourUntilConfirmed();
@@ -478,33 +315,38 @@ class SubwayRideScenarioIT {
         assertThat(bindingStatus()).as("확정은 감사·복구용 사실이라 지우지 않는다").isEqualTo("CONFIRMED");
     }
 
+    /**
+     * 출근길 강남 승강장. A 가 먼저 떠나고 약 2분 뒤 B 가 떠난다. 사용자는 B 를 타고 앱에서 B 를 고른다(탑승 중 선택).
+     * 위치 피드는 그대로 흘려 둔다 — 링의 위치 폴백과 출발 색인이 이 기록을 읽는다.
+     */
     private void rushHourUntilConfirmed() {
-        rushHourUntilProvisional();
+        at(-145);
+        observe(train(TRAIN_A, GANGNAM, SubwayTrainStatus.ARRIVED, -150));
+        at(-85);
+        observe(train(TRAIN_A, GANGNAM, SubwayTrainStatus.DEPARTED, -90));
+        at(-60);
+        observe(train(TRAIN_A, GANGNAM, SubwayTrainStatus.DEPARTED, -90),
+                train(TRAIN_B, GANGNAM, SubwayTrainStatus.ARRIVED, -65));
+        at(30);
+        observe(train(TRAIN_A, YEOKSAM, SubwayTrainStatus.ARRIVED, 28),
+                train(TRAIN_B, GANGNAM, SubwayTrainStatus.DEPARTED, 20));
+
+        at(35);
+        selectAboard(TRAIN_B);
+        assertBinding("CONFIRMED", TRAIN_B);
+
         at(150);
         observe(train(TRAIN_A, SEOLLEUNG, SubwayTrainStatus.ARRIVED, 145),
                 train(TRAIN_B, YEOKSAM, SubwayTrainStatus.ARRIVED, 140));
-        at(170);
-        stopEpisode(1, 142, 165);
-        at(175);
-        matchService.runOnce();
     }
 
     // ── 사용자 행동 ─────────────────────────────────────────────────────────
 
-    private void movementStart(int atSecond) {
-        Instant t = MORNING.plusSeconds(atSecond);
-        bindingUseCase.submit(userId, journeyId, 1, rideLegIndex, new SubwayBoardingEvidence(
-                SubwayBindingEventType.MOVEMENT_START, ++evidenceSeq, t, null, null,
-                "STATIONARY", "AUTOMOTIVE", SubwayBindingConfidence.HIGH, 10, null, t));
-    }
-
-    /** {@code stopNo} 번째 역(승차 다음 역이 1)에 섰다가 다시 떠났다. */
-    private void stopEpisode(int stopNo, int stationaryAtSecond, int resumedAtSecond) {
-        Instant stationary = MORNING.plusSeconds(stationaryAtSecond);
-        Instant resumed = MORNING.plusSeconds(resumedAtSecond);
-        bindingUseCase.submit(userId, journeyId, 1, rideLegIndex, new SubwayBoardingEvidence(
-                SubwayBindingEventType.STATION_STOP_EPISODE, stopNo, null, stationary, resumed,
-                "AUTOMOTIVE", "AUTOMOTIVE", SubwayBindingConfidence.HIGH, 20, null, resumed));
+    /** 이미 탄 열차를 고른다(떠난 열차·탑승 중 재선택) — 링이 승차역이 아니라 다음 역부터 센다. */
+    private void selectAboard(String trainNo) {
+        JourneyLeg ride = legRepository.findById(rideLegId).orElseThrow();
+        selectionTxService.bind(ride, new SubwayTrainSelectionTxService.ChosenTrain(trainNo,
+                LocalDate.ofInstant(MORNING, SEOUL), SubwayScenarioWorld.LINE, SubwayScenarioWorld.DIRECTION, true));
     }
 
     /** 앱이 로그인 때 기기 push 토큰을 등록해 둔다. Live Activity 토큰은 그 기기에 딸린다. */

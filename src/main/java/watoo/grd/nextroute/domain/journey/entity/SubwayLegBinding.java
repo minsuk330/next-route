@@ -88,15 +88,15 @@ public class SubwayLegBinding extends BaseEntity {
     private int version;
 
     /**
-     * 사용자 보정 세대.
-     *
-     * <p>사용자가 "다른 열차를 탔다"고 알리면 올라간다. 이 값이 없으면 판정기가 같은 관측을
-     * 다시 읽어 <b>방금 거부한 열차를 그대로 다시 고른다.</b>
+     * 사용자 보정 세대. 자동 판정기(2026-10 제거) 시절 "다른 열차를 탔다" 보정이 올렸다. 지금은 쓰는 경로가 없고
+     * 기존 행·재탐색 계승을 위해 칸만 남긴다.
      */
     @Column(name = "reset_generation", nullable = false)
     private int resetGeneration;
 
-    /** 이동 시작 관측의 마지막 순번. 정차 순번과 칸을 나눠 든다 — 각각 1 부터 세기 때문이다. */
+    /**
+     * 이동 시작 관측의 마지막 순번. 모션 증거 수신(2026-10 제거)만 채웠다 — 새 행은 늘 null 이고 기존 행 호환으로 남긴다.
+     */
     @Column(name = "last_movement_seq")
     private Integer lastMovementSeq;
 
@@ -117,23 +117,6 @@ public class SubwayLegBinding extends BaseEntity {
         this.confidence = confidence;
         this.version = 0;
         this.resetGeneration = 0;
-    }
-
-    /** 이동 시작을 받았지만 아직 열차를 고르지 못한 상태로 연다. */
-    public static SubwayLegBinding pending(Long journeyLegId, Long journeyId, int routeRevision,
-                                           int legIndex, Instant detectedAt,
-                                           SubwayBindingSource source,
-                                           SubwayBindingConfidence confidence) {
-        return SubwayLegBinding.builder()
-                .journeyLegId(journeyLegId)
-                .journeyId(journeyId)
-                .routeRevision(routeRevision)
-                .legIndex(legIndex)
-                .status(SubwayBindingStatus.PENDING)
-                .boardedDetectedAt(detectedAt)
-                .source(source)
-                .confidence(confidence)
-                .build();
     }
 
     /**
@@ -158,8 +141,8 @@ public class SubwayLegBinding extends BaseEntity {
     }
 
     /**
-     * 이미 있는 행(관측이 먼저 왔거나, 앞서 고르거나 되돌린 행)에 사용자가 고른 열차를 얹는다. <b>사용자 결정이라
-     * 확정도 덮는다</b> — 보정({@link #resetByUser})과 같은 자격이다.
+     * 이미 있는 행(앞서 고른 행, 자동 판정기 시절 행)에 사용자가 고른 열차를 얹는다. <b>사용자 결정이라
+     * 확정도 덮는다.</b>
      *
      * <p>이동 순번은 건드리지 않는다. 이미 움직이는 중이면 링이 바로 이어서 돈다.
      */
@@ -210,8 +193,7 @@ public class SubwayLegBinding extends BaseEntity {
      * <p>{@link #version} 은 0 에서 다시 시작한다. 늦게 온 갱신이 되살아나는 문제가 없는 것은
      * 그 갱신이 <b>옛 단계 번호</b>를 조건으로 걸기 때문이다 — 새 행에는 닿지 않는다.
      *
-     * <p>{@link #resetGeneration} 과 관측 순번은 <b>그대로 가져온다</b>. 근거 감사행도 함께
-     * 재발행되는데, 세대가 어긋나면 판정기가 그 근거를 하나도 못 읽어 확정 경로가 통째로 죽는다.
+     * <p>{@link #resetGeneration} 과 관측 순번은 <b>그대로 가져온다</b> — 자동 판정기 시절 행의 기록을 잃지 않는다.
      *
      * @param newLeg 새 개정본의 짝 단계
      */
@@ -238,65 +220,10 @@ public class SubwayLegBinding extends BaseEntity {
         return copy;
     }
 
-    /**
-     * 사용자가 다른 열차를 탔다고 알렸다.
-     *
-     * <p>행을 지우지 않고 되돌린다. 지우면 {@link #version} 이 0 으로 돌아가 늦게 온 갱신이
-     * 되살아난다. {@link #resetGeneration} 을 올려 이전 세대의 후보를 무효로 만든다.
-     *
-     * <p>관측 순번도 비운다 — 그래야 새 관측이 오기 전까지 판정기가 다시 고르지 않는다.
-     */
-    public void resetByUser() {
-        this.status = SubwayBindingStatus.PENDING;
-        clearTrain();
-        this.source = SubwayBindingSource.USER_MANUAL;
-        this.confidence = null;
-        this.boardedDetectedAt = null;
-        this.lastMovementSeq = null;
-        this.lastEpisodeSeq = null;
-        this.resetGeneration++;
-        this.version++;
-    }
-
-    /** 사용자가 타지 않았다고 알렸거나, 판정 시간이 지났다. */
-    public void abandon() {
-        this.status = SubwayBindingStatus.ABANDONED;
-        clearTrain();
-        this.version++;
-    }
-
-    /**
-     * 관측 순번을 앞으로만 옮긴다.
-     *
-     * @return 실제로 옮겼으면 true. 이미 본 순번이면 false
-     */
-    public boolean advanceMovementSeq(Integer sequence) {
-        if (sequence == null || (lastMovementSeq != null && sequence <= lastMovementSeq)) {
-            return false;
-        }
-        this.lastMovementSeq = sequence;
-        return true;
-    }
-
-    public boolean advanceEpisodeSeq(Integer sequence) {
-        if (sequence == null || (lastEpisodeSeq != null && sequence <= lastEpisodeSeq)) {
-            return false;
-        }
-        this.lastEpisodeSeq = sequence;
-        return true;
-    }
-
     private void assignTrain(String trainNo, LocalDate serviceDate, String lineId, String direction) {
         this.trainNo = trainNo;
         this.trainServiceDate = serviceDate;
         this.trainLineId = lineId;
         this.trainDirection = direction;
-    }
-
-    private void clearTrain() {
-        this.trainNo = null;
-        this.trainServiceDate = null;
-        this.trainLineId = null;
-        this.trainDirection = null;
     }
 }

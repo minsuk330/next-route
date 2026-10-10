@@ -17,7 +17,6 @@ import watoo.grd.nextroute.application.journey.dto.SubwayBindingView;
 import watoo.grd.nextroute.application.journey.dto.SubwayTrackabilityView;
 import watoo.grd.nextroute.application.journey.dto.SubwayTrainCandidate;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
-import watoo.grd.nextroute.application.journey.port.in.SubwayBindingUseCase;
 import watoo.grd.nextroute.application.journey.service.SubwayTrainSelectionService;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
@@ -49,7 +48,6 @@ class JourneySubwaySelectionControllerTest {
     private static final String BODY = "{\"trainNo\":\"2390\",\"routeRevision\":1}";
 
     @Autowired MockMvc mockMvc;
-    @MockBean SubwayBindingUseCase bindingUseCase;
     @MockBean SubwayTrainSelectionService selectionService;
     @MockBean JwtProvider jwtProvider;
     @MockBean TokenGenerationPort tokenGenerationPort;

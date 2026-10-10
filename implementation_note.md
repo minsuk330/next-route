@@ -4386,3 +4386,23 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 `./gradlew test --continue` → 2877 중 12 실패, 전부 기존 무관(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·JourneyNotificationSchemaIT 1 flaky)
 ### 배포
 - 마이그레이션 없음. worker 만 교체(링 갱신기). api 는 스냅샷이 Redis 값을 읽으므로 변경 불필요
+
+## 2026-10-10 지하철 탑승 증거·자동 판정기 제거 (chore/remove-subway-boarding-evidence, 앱 nextroute-mobile#15)
+
+### 확정
+- 앱 origin/main 호출 0 확인: `boarding-evidence`·`binding/reset`·`not-boarded`. 앱이 쓰는 건 `train-selection`·`train-candidates`·`trackability` 뿐
+- 판정기는 `last_movement_seq IS NOT NULL` 행만 봐서 evidence 0건이면 입력 0 — 죽은 코드였다
+- DB 무변경: 컬럼·enum(`MOTION_*`·`PROVISIONAL`)·`subway_binding_event` 행 유지. 링·계승은 기존 PROVISIONAL 행을 계속 다룬다
+- 설정 `journey.subway.binding` 은 `lock-timeout`·`algorithm-version` 만 남김. VPS env `JOURNEY_SUBWAY_BINDING_ENABLED=true` 는 무해한 잔여(읽는 곳 없음)
+### 함정
+- 조사 에이전트가 "컨트롤러 = evidence 3개 엔드포인트"라고 보고했지만 같은 컨트롤러에 선택 API 3개가 더 있었다 → 통째 삭제했다가 복원. 삭제 전 파일의 매핑 전부를 직접 볼 것
+- 엔티티 메서드를 정규식/javadoc 경계로 자르다 `inheritTo` 까지 날아갔다(컴파일이 잡음) → 정확한 시작·끝 문자열로 잘라야 한다
+### 좌표
+- infrastructure/adapter/in/api/journey/JourneySubwayBindingController.java — 선택 API 3개만 남음
+- application/journey/service/SubwayBindingLifecycleService.java inherit() — 근거 재발행 제거
+### 검증
+- `./gradlew test --tests '*Subway*' --tests '*JourneySubwayGuidance*'` → 546/546 (SubwayRideScenarioIT 4·ConcurrencyIT 1·TrainSelectionIT 9·RerouteInheritanceIT 4 실제 실행 확인)
+- 전체 `./gradlew test --continue` → 2790 중 12 실패, 전부 기존 무관(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·JourneyNotificationSchemaIT 1 flaky)
+- `git grep 'boarding-evidence|SubwayBindingMatch|SubwayTrainMatcher|SubwayBoardingEvidence|SubwayBindingUseCase|findMatchable'` → 0
+### 배포
+- 마이그레이션 없음. api(엔드포인트 제거)+worker(판정 스케줄러 제거) 교체. 순서 무관

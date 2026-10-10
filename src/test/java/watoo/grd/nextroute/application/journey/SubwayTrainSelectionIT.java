@@ -15,18 +15,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
-import watoo.grd.nextroute.application.journey.dto.SubwayBoardingEvidence;
 import watoo.grd.nextroute.application.journey.dto.SubwayTrainCandidate;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
-import watoo.grd.nextroute.application.journey.port.in.SubwayBindingUseCase;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
-import watoo.grd.nextroute.application.journey.service.SubwayBindingMatchService;
 import watoo.grd.nextroute.application.journey.service.SubwayTrainSelectionService;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
-import watoo.grd.nextroute.domain.journey.entity.SubwayBindingConfidence;
-import watoo.grd.nextroute.domain.journey.entity.SubwayBindingEventType;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
@@ -73,8 +68,6 @@ class SubwayTrainSelectionIT {
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired SubwayTrainSelectionService selectionService;
-    @Autowired SubwayBindingUseCase bindingUseCase;
-    @Autowired SubwayBindingMatchService matchService;
     @Autowired SubwayLegBindingRepository bindingRepository;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository sessionRepository;
@@ -158,53 +151,6 @@ class SubwayTrainSelectionIT {
                  where journey_leg_id = ? and event_type = 'USER_SELECTED' and kind = 'DECISION'
                    and chosen_train_no = '2392'""", Integer.class, rideLegId)).isEqualTo(1);
         assertThat(ringTargetIds()).contains(rideLegId);
-    }
-
-    @Test
-    @DisplayName("선택 뒤 이동 관측 → 상태 그대로, 순번·감지 시각 채움 → 링 대상 유지. 판정기는 안 본다")
-    void movementAfterSelectionKeepsRing() {
-        selectionService.select(userId, journeyId, "2390", 1);
-
-        movementStart(1);
-
-        SubwayLegBinding binding = bindingRepository.findByJourneyLegId(rideLegId).orElseThrow();
-        assertThat(binding.getStatus().name()).isEqualTo("CONFIRMED");
-        assertThat(binding.getTrainNo()).isEqualTo("2390");
-        assertThat(binding.getLastMovementSeq()).isEqualTo(1);
-        assertThat(binding.getBoardedDetectedAt()).isNotNull();
-        assertThat(ringTargetIds()).contains(rideLegId);
-        assertThat(bindingRepository.findMatchable(500)).extracting(SubwayLegBinding::getJourneyLegId)
-                .doesNotContain(rideLegId);
-    }
-
-    @Test
-    @DisplayName("이동 전 '이 열차 아님' — 타기 전이면 6분 지나도 안 접힌다, 이동 관측이 오면 자동 판정 대상")
-    void resetBeforeMovementKeepsM7Alive() {
-        selectionService.select(userId, journeyId, "2390", 1);
-        bindingUseCase.reset(userId, journeyId, 1, 1);
-        jdbcTemplate.update("update subway_leg_binding set updated_at = now() - interval '30 minutes' "
-                + "where journey_leg_id = ?", rideLegId);
-
-        matchService.sweepStale();
-
-        assertThat(statusOf()).isEqualTo("PENDING");
-        movementStart(1);
-        assertThat(bindingRepository.findMatchable(500)).extracting(SubwayLegBinding::getJourneyLegId)
-                .contains(rideLegId);
-    }
-
-    @Test
-    @DisplayName("타는 단계가 시작된 뒤 근거 없는 PENDING 은 그대로 접힌다(기존 동작)")
-    void sweepStillFoldsWhenRiding() {
-        selectionService.select(userId, journeyId, "2390", 1);
-        bindingUseCase.reset(userId, journeyId, 1, 1);
-        jdbcTemplate.update("update journey_leg set state = 'ACTIVE' where id = ?", rideLegId);
-        jdbcTemplate.update("update subway_leg_binding set updated_at = now() - interval '30 minutes' "
-                + "where journey_leg_id = ?", rideLegId);
-
-        matchService.sweepStale();
-
-        assertThat(statusOf()).isEqualTo("ABANDONED");
     }
 
     @Test
@@ -378,13 +324,6 @@ class SubwayTrainSelectionIT {
     private String statusOf() {
         return jdbcTemplate.queryForObject("select status from subway_leg_binding where journey_leg_id = ?",
                 String.class, rideLegId);
-    }
-
-    private void movementStart(int seq) {
-        Instant t = Instant.now();
-        bindingUseCase.submit(userId, journeyId, 1, 1, new SubwayBoardingEvidence(
-                SubwayBindingEventType.MOVEMENT_START, seq, t, null, null,
-                "STATIONARY", "AUTOMOTIVE", SubwayBindingConfidence.HIGH, 10, null, t));
     }
 
     private static SubwayRealtimeArrivalReader.Arrival arrival(String trainNo, String destination, int seconds) {
