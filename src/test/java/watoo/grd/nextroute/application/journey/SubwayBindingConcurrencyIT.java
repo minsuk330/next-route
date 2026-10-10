@@ -1,38 +1,30 @@
 package watoo.grd.nextroute.application.journey;
 
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
-import watoo.grd.nextroute.application.journey.dto.SubwayBindingCandidate;
-import watoo.grd.nextroute.application.journey.dto.SubwayBindingDecision;
-import watoo.grd.nextroute.application.journey.dto.SubwayBoardingEvidence;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
-import watoo.grd.nextroute.application.journey.port.in.SubwayBindingUseCase;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
-import watoo.grd.nextroute.application.journey.service.SubwayBindingMatchTxService;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
-import watoo.grd.nextroute.application.subway.dto.SubwayExpressType;
-import watoo.grd.nextroute.application.subway.dto.SubwayTrainEvent;
-import watoo.grd.nextroute.domain.journey.entity.SubwayBindingConfidence;
-import watoo.grd.nextroute.domain.journey.entity.SubwayBindingEventType;
-import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
+import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
+import watoo.grd.nextroute.application.journey.service.SubwayTrainSelectionTxService;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -53,7 +45,7 @@ import static org.mockito.BDDMockito.given;
  *
  * <p>여기서 막으려는 사고는 예외를 내지 않는다. {@code SubwayLegBinding} 에는 {@code @Version} 도
  * {@code @DynamicUpdate} 도 없어서, 더티체킹 UPDATE 가 매핑 칼럼 <b>전부</b>를 자기가 읽었던 낡은
- * 스냅샷으로 덮는다. 잠금이 빠지면 판정이 통째로 사라지는데 로그에도 지표에도 아무것도 안 남는다.
+ * 스냅샷으로 덮는다. 잠금이 빠지면 먼저 커밋된 선택이 통째로 사라지는데 로그에도 지표에도 아무것도 안 남는다.
  * 그 조용함은 진짜 두 커넥션이 붙어야만 재현된다.
  */
 @SpringBootTest
@@ -63,7 +55,7 @@ import static org.mockito.BDDMockito.given;
         "kma.weather.enabled=false",
         "journey.subway.binding.lock-timeout=PT1S"
 })
-@DisplayName("고정 행을 두고 판정기와 관측이 만났을 때")
+@DisplayName("고정 행을 다른 트랜잭션이 잡고 있을 때")
 class SubwayBindingConcurrencyIT {
 
     private static final String SESSION_ID = "sess-subway-binding-concurrency-it";
@@ -71,10 +63,10 @@ class SubwayBindingConcurrencyIT {
     private static final LocalDate SERVICE_DATE = LocalDate.of(2026, 8, 14);
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
-    @Autowired SubwayBindingUseCase submitUseCase;
+    @Autowired SubwayTrainSelectionTxService selectionTxService;
+    @Autowired JourneyLegRepository legRepository;
     @Autowired SubwayLegBindingRepository bindingRepository;
     @Autowired JourneySessionRepository sessionRepository;
-    @Autowired SubwayBindingMatchTxService txService;
     @Autowired TransactionTemplate transactionTemplate;
     @Autowired JdbcTemplate jdbcTemplate;
     @MockBean RouteSearchSnapshotPort snapshotPort;
@@ -117,59 +109,8 @@ class SubwayBindingConcurrencyIT {
     }
 
     @Test
-    @DisplayName("관측이 행을 잡고 있으면 판정기는 기다리지 않고 건너뛴다")
-    void matcherSkipsInsteadOfWaiting() throws Exception {
-        CountDownLatch held = new CountDownLatch(1);
-        SubwayLegBinding expected = bindingRepository.findByJourneyLegId(rideLegId).orElseThrow();
-
-        Future<?> holder = executor.submit(() -> transactionTemplate.execute(status -> {
-            bindingRepository.findForUpdate(rideLegId);
-            held.countDown();
-            sleep(800);
-            return null;
-        }));
-        assertThat(held.await(5, TimeUnit.SECONDS)).isTrue();
-
-        long startedAt = System.nanoTime();
-        boolean applied = txService.apply(expected, provisionalDecision());
-        long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
-
-        assertThat(applied).isFalse();
-        // 기다렸다면 800ms 를 넘겼을 것이다. 건너뛰었으므로 그 한참 아래에서 끝난다.
-        assertThat(elapsedMs).isLessThan(500);
-        assertThat(statusOf()).isEqualTo("PENDING");
-        holder.get(5, TimeUnit.SECONDS);
-    }
-
-    @Test
-    @DisplayName("판정이 먼저 커밋되면 뒤이은 관측이 그것을 덮지 않는다 — 순번만 얹힌다")
-    void observationDoesNotClobberACommittedDecision() throws Exception {
-        CountDownLatch decided = new CountDownLatch(1);
-
-        Future<?> matcher = executor.submit(() -> transactionTemplate.execute(status -> {
-            sessionRepository.lockActiveRevisionForShare(journeyId, 1);
-            bindingRepository.findForMatch(rideLegId);
-            bindingRepository.casBind(rideLegId, "PROVISIONAL", "2002", SERVICE_DATE,
-                    "1002", "내선", 0, 0, 1, null, LocalDateTime.now());
-            decided.countDown();
-            // 커밋 전에 관측이 도착하게 만든다. 잠금이 없으면 여기서 낡은 스냅샷이 만들어진다.
-            sleep(400);
-            return null;
-        }));
-        assertThat(decided.await(5, TimeUnit.SECONDS)).isTrue();
-
-        submitUseCase.submit(userId, journeyId, 1, rideLegIndex, movementStart(2));
-        matcher.get(5, TimeUnit.SECONDS);
-
-        assertThat(statusOf()).isEqualTo("PROVISIONAL");
-        assertThat(trainNo()).isEqualTo("2002");
-        assertThat(versionOf()).isEqualTo(1);
-        assertThat(movementSeq()).isEqualTo(2);
-    }
-
-    @Test
-    @DisplayName("잠금이 오래 풀리지 않으면 관측은 재시도 가능한 실패로 끝난다 — 무한정 매달리지 않는다")
-    void observationFailsFastWhenTheRowIsHeldTooLong() throws Exception {
+    @DisplayName("잠금이 오래 풀리지 않으면 열차 선택은 재시도 가능한 실패로 끝난다 — 무한정 매달리지 않는다")
+    void selectionFailsFastWhenTheRowIsHeldTooLong() throws Exception {
         CountDownLatch held = new CountDownLatch(1);
 
         Future<?> holder = executor.submit(() -> transactionTemplate.execute(status -> {
@@ -180,28 +121,15 @@ class SubwayBindingConcurrencyIT {
         }));
         assertThat(held.await(5, TimeUnit.SECONDS)).isTrue();
 
-        assertThatThrownBy(() ->
-                submitUseCase.submit(userId, journeyId, 1, rideLegIndex, movementStart(2)))
+        JourneyLeg ride = legRepository.findById(rideLegId).orElseThrow();
+        assertThatThrownBy(() -> selectionTxService.bind(ride,
+                new SubwayTrainSelectionTxService.ChosenTrain("2002", SERVICE_DATE, "1002", "내선")))
                 .isInstanceOf(PessimisticLockingFailureException.class);
 
         holder.get(10, TimeUnit.SECONDS);
     }
 
     // ── 도우미 ──────────────────────────────────────────────────────────────
-
-    private SubwayBoardingEvidence movementStart(int sequence) {
-        Instant now = Instant.now();
-        return new SubwayBoardingEvidence(SubwayBindingEventType.MOVEMENT_START, sequence,
-                now.minusSeconds(20), null, null, "STATIONARY", "AUTOMOTIVE",
-                SubwayBindingConfidence.HIGH, 20, true, now.minusSeconds(5));
-    }
-
-    private SubwayBindingDecision provisionalDecision() {
-        SubwayBindingCandidate candidate = new SubwayBindingCandidate("2002", SERVICE_DATE,
-                "1002", "내선", Instant.now().minusSeconds(60), Instant.now().minusSeconds(50),
-                SubwayTrainEvent.Quality.OBSERVED, null, SubwayExpressType.NORMAL, 0);
-        return SubwayBindingDecision.provisional(candidate, List.of(candidate), "t0-match");
-    }
 
     private void insertPendingBinding() {
         jdbcTemplate.update("""

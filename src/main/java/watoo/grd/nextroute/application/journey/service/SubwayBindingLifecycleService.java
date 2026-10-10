@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -16,9 +15,7 @@ import watoo.grd.nextroute.application.journey.port.out.SubwayRingPort;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
-import watoo.grd.nextroute.domain.journey.entity.SubwayBindingEvent;
 import watoo.grd.nextroute.domain.journey.entity.SubwayBindingEventType;
-import watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionRepository;
 import watoo.grd.nextroute.domain.journey.repository.SubwayBindingEventRepository;
@@ -31,7 +28,6 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -55,9 +51,9 @@ import java.util.Optional;
  *
  * <h2>기능 스위치를 보지 않는다</h2>
  *
- * <p>{@code journey.subway.binding.enabled} 를 끈 뒤에도 켜져 있던 동안 만들어진 행은 남는다.
- * 정리까지 스위치에 묶으면 그 행들이 영영 미완료로 남는다. 접는 질의는 대상이 없으면 0행이라
- * 꺼진 상태에서의 비용은 문장 하나다. 진행 링도 같은 이유로 스위치를 보지 않는다.
+ * <p>선택 기능을 끈 뒤에도 켜져 있던 동안 만들어진 행은 남는다. 정리까지 스위치에 묶으면 그 행들이 영영
+ * 미완료로 남는다. 접는 질의는 대상이 없으면 0행이라 꺼진 상태에서의 비용은 문장 하나다. 진행 링도 같은 이유로
+ * 스위치를 보지 않는다.
  *
  * <h2>진행 링은 커밋 뒤에 지운다</h2>
  *
@@ -68,9 +64,6 @@ import java.util.Optional;
 @Service
 @RequiredArgsConstructor
 public class SubwayBindingLifecycleService {
-
-    /** 근거를 되찾을 때 거슬러 읽는 감사행 수. 한 단계의 관측·판단이 이 안에 들어온다. */
-    private static final int AUDIT_SCAN_LIMIT = 100;
 
     private final SubwayLegBindingRepository bindingRepository;
     private final SubwayBindingEventRepository eventRepository;
@@ -194,9 +187,8 @@ public class SubwayBindingLifecycleService {
      * 단계에 행이 없으면 아무도 그 열차로 안내하지 않는다. 반대로 조금이라도 다른 구간을
      * 이어받으면 사용자는 <b>엉뚱한 역에서 내린다</b>.
      *
-     * <p>{@code PROVISIONAL} 도 옮긴다. 버리면 되살아날 길이 없어서다 — 이동 시작 관측은 여정당
-     * 한 번뿐이라 재탐색 뒤에 다시 오지 않고, 정차 관측만으로 열리는 행은 이동 시작 시각이 비어
-     * 판정 자체가 불가능하다. 그래서 <b>근거 감사행까지 새 단계로 재발행</b>한다.
+     * <p>{@code PROVISIONAL}(자동 판정기 시절 행)도 옮긴다 — 링이 잠정 열차로도 돌기 때문이다. 판정기가 없어 근거
+     * 감사행은 재발행하지 않는다.
      *
      * @param oldLegs 옛 개정본의 단계 전부
      * @param newLegs 새 개정본의 단계 전부(이미 저장돼 id 가 있어야 한다)
@@ -274,80 +266,9 @@ public class SubwayBindingLifecycleService {
 
     private void inherit(SubwayLegBinding binding, JourneyLeg oldLeg, JourneyLeg newLeg) {
         bindingRepository.save(binding.inheritTo(newLeg));
-        if (binding.getStatus() == SubwayBindingStatus.PROVISIONAL) {
-            reissueEvidence(binding, newLeg);
-        }
         writeInheritAudit(binding, oldLeg, newLeg);
         log.debug("[SubwayBinding] 고정 계승 journeyLegId={} -> {} status={}",
                 binding.getJourneyLegId(), newLeg.getId(), binding.getStatus());
-    }
-
-    /**
-     * 잠정 판정의 <b>근거</b>를 새 단계로 다시 발행한다.
-     *
-     * <p>행만 옮기면 판정기는 새 단계에서 근거를 하나도 못 읽어 확정으로 못 간다 — 감사행은
-     * 단계 번호로 조회되기 때문이다. 옮기는 것은 넷이다.
-     *
-     * <ul>
-     *   <li>지금 세대의 이동 시작 관측 — 후행 확정의 시각 기준</li>
-     *   <li>지금 세대의 정차 관측 — 비교할 구간</li>
-     *   <li>잠정 판정 한 줄 — 후보 목록의 원본. {@code binding_version} 은 새 행 기준 <b>0</b> 이다</li>
-     *   <li>사용자가 거부한 열차 전부 — 세대를 가리지 않는다. 빠뜨리면 방금 거부한 열차를 다시 고른다</li>
-     * </ul>
-     */
-    private void reissueEvidence(SubwayLegBinding binding, JourneyLeg newLeg) {
-        List<SubwayBindingEvent> rows = eventRepository.findByJourneyLegIdOrderByIdDesc(
-                binding.getJourneyLegId(), Limit.of(AUDIT_SCAN_LIMIT));
-
-        copy(latest(rows, SubwayBindingEventType.MOVEMENT_START,
-                binding.getResetGeneration(), binding.getLastMovementSeq()), newLeg);
-        copy(latest(rows, SubwayBindingEventType.STATION_STOP_EPISODE,
-                binding.getResetGeneration(), binding.getLastEpisodeSeq()), newLeg);
-        copy(rows.stream()
-                .filter(row -> row.getEventType() == SubwayBindingEventType.PROVISIONAL)
-                .filter(row -> row.getResetGeneration() == binding.getResetGeneration())
-                .filter(row -> Objects.equals(row.getBindingVersion(), binding.getVersion()))
-                .findFirst()
-                .orElse(null), newLeg);
-        rows.stream()
-                .filter(row -> row.getEventType() == SubwayBindingEventType.USER_RESET)
-                .forEach(row -> copy(row, newLeg));
-    }
-
-    private SubwayBindingEvent latest(List<SubwayBindingEvent> rows, SubwayBindingEventType type,
-                                      int resetGeneration, Integer sequence) {
-        if (sequence == null) {
-            return null;
-        }
-        return rows.stream()
-                .filter(row -> row.getEventType() == type)
-                .filter(row -> row.getResetGeneration() == resetGeneration)
-                .filter(row -> Objects.equals(row.getEvidenceSequence(), sequence))
-                .findFirst()
-                .orElse(null);
-    }
-
-    /**
-     * 감사행 한 줄을 새 단계로 복사한다.
-     *
-     * <p>{@code binding_version} 을 <b>0</b> 으로 다시 적는다. 새 고정 행은 version 0 에서
-     * 시작하는데, 옛 값을 그대로 옮기면 "현재 version 과 일치하는 판단만 읽는다"는 복구 규칙에
-     * 걸려 <b>옮기자마자 무효</b>가 된다.
-     */
-    private void copy(SubwayBindingEvent row, JourneyLeg newLeg) {
-        if (row == null) {
-            return;
-        }
-        eventRepository.insertIgnoringDuplicate(
-                newLeg.getId(), row.getJourneyId(),
-                newLeg.getRouteRevision(), newLeg.getLegIndex(),
-                row.getKind().name(), row.getEventType().name(),
-                row.getEvidenceSequence(), row.getAlgorithmVersion(),
-                0, row.getResetGeneration(),
-                row.getOccurredAt(), row.getReceivedAt(),
-                row.getChosenTrainNo(), row.getChosenServiceDate(),
-                row.getChosenLineId(), row.getChosenDirection(),
-                json(row.getDetail()), LocalDateTime.now(clock));
     }
 
     /** 계승했다는 사실 한 줄. 이 줄이 없으면 새 단계의 고정이 어디서 왔는지 알 수 없다. */

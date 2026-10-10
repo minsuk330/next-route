@@ -27,16 +27,14 @@ class SubwayLegBindingSelectionTest {
         assertThat(binding.getTrainDirection()).isEqualTo("내선");
         assertThat(binding.isSelectedBeforeMovement()).isTrue();
 
-        binding.advanceMovementSeq(1);
+        binding.markBoardedDetected(Instant.parse("2026-10-07T03:00:00Z"));
         assertThat(binding.isSelectedBeforeMovement()).isFalse();
     }
 
     @Test
-    @DisplayName("기존 행에 선택: 확정도 덮고 버전을 올린다. 이동 순번은 그대로")
+    @DisplayName("기존 행(자동 판정기 시절)에 선택: 확정도 덮고 버전을 올린다. 이동 순번은 그대로")
     void selectOverExisting() {
-        SubwayLegBinding binding = SubwayLegBinding.pending(10L, 1L, 1, 1, Instant.now(),
-                SubwayBindingSource.MOTION_AUTOMOTIVE, SubwayBindingConfidence.HIGH);
-        binding.advanceMovementSeq(3);
+        SubwayLegBinding binding = legacyAuto(3);
         int before = binding.getVersion();
 
         binding.selectByUser("2392", DAY, "1002", "외선");
@@ -70,8 +68,7 @@ class SubwayLegBindingSelectionTest {
         SubwayLegBinding selected = SubwayLegBinding.selected(10L, 1L, 1, 1, "2390", DAY, "1002", "내선");
         assertThat(selected.inheritTo(newLeg).getSource()).isEqualTo(SubwayBindingSource.USER_SELECTED);
 
-        SubwayLegBinding auto = SubwayLegBinding.pending(10L, 1L, 1, 1, Instant.now(),
-                SubwayBindingSource.MOTION_AUTOMOTIVE, SubwayBindingConfidence.HIGH);
+        SubwayLegBinding auto = legacyAuto(1);
         assertThat(auto.inheritTo(newLeg).getSource()).isEqualTo(SubwayBindingSource.INHERITED_ON_REROUTE);
     }
 
@@ -87,4 +84,14 @@ class SubwayLegBindingSelectionTest {
         assertThat(binding.isSelectedBeforeMovement()).isTrue();
     }
 
+
+    /** 자동 판정기(2026-10 제거)가 남긴 행 — 모션 출처·잠정·이동 순번. 이제 코드로는 못 만들어 칸을 직접 채운다. */
+    private static SubwayLegBinding legacyAuto(int movementSeq) {
+        SubwayLegBinding binding = SubwayLegBinding.selected(10L, 1L, 1, 1, "2390", DAY, "1002", "내선");
+        ReflectionTestUtils.setField(binding, "status", SubwayBindingStatus.PROVISIONAL);
+        ReflectionTestUtils.setField(binding, "source", SubwayBindingSource.MOTION_AUTOMOTIVE);
+        ReflectionTestUtils.setField(binding, "confidence", SubwayBindingConfidence.HIGH);
+        ReflectionTestUtils.setField(binding, "lastMovementSeq", movementSeq);
+        return binding;
+    }
 }

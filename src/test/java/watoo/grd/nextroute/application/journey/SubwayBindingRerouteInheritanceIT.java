@@ -25,7 +25,6 @@ import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
 import watoo.grd.nextroute.application.route.service.TransferStopResolver;
-import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -43,11 +42,7 @@ import static org.mockito.BDDMockito.given;
  * 재탐색으로 개정본이 오를 때 고정을 <b>언제 이어받고 언제 버리는지</b>.
  *
  * <p>양쪽 다 틀리면 아프다. 이어받지 말아야 할 때 이어받으면 사용자는 엉뚱한 역에서 내리고,
- * 이어받아야 할 때 버리면 탑승 중 재탐색을 수락한 여정은 <b>남은 내내 "확인 중"</b>이다 —
- * 이동 시작 관측은 여정당 한 번뿐이라 재탐색 뒤에 다시 오지 않는다.
- *
- * <p>그래서 {@code PROVISIONAL} 은 행만이 아니라 <b>근거 감사행까지</b> 새 단계로 재발행한다.
- * 그 재발행이 실제로 됐는지를 여기서 고정한다.
+ * 이어받아야 할 때 버리면 탑승 중 재탐색을 수락한 여정은 <b>남은 내내 "확인 중"</b>이다.
  */
 @SpringBootTest
 @TestPropertySource(properties = {
@@ -67,7 +62,6 @@ class SubwayBindingRerouteInheritanceIT {
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired AcceptRerouteProposalUseCase acceptUseCase;
-    @Autowired SubwayLegBindingRepository bindingRepository;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired ObjectMapper objectMapper;
 
@@ -137,29 +131,20 @@ class SubwayBindingRerouteInheritanceIT {
     }
 
     @Test
-    @DisplayName("잠정이면 근거까지 새 단계로 재발행된다 — 없으면 남은 내내 확인 중이다")
-    void inheritsProvisionalWithItsEvidence() {
+    @DisplayName("잠정(자동 판정기 시절 행)도 이어받는다 — 링이 잠정 열차로도 돈다. 근거 감사행은 재발행하지 않는다")
+    void inheritsProvisionalWithoutReissuingEvidence() {
         insertBinding("PROVISIONAL", "1001", 1);
         insertEvidence(oldRideLegId, "EVIDENCE", "MOVEMENT_START", 1, 0, null);
         insertEvidence(oldRideLegId, "DECISION", "PROVISIONAL", null, 0, "9001");
-        insertEvidence(oldRideLegId, "DECISION", "USER_RESET", null, 0, "8001");
 
         acceptRemainingPathFrom(busWaitLegIndex());
 
         Long newLegId = rideLegIdOf(journey.routeRevision() + 1);
         assertThat(statusOf(newLegId)).isEqualTo("PROVISIONAL");
-        assertThat(auditTypesOf(newLegId))
-                .contains("MOVEMENT_START", "PROVISIONAL", "USER_RESET", "INHERITED_ON_REROUTE");
-        // 판단 감사행의 binding_version 은 새 행 기준 0 이다. 옛 값을 옮기면 후보 복구가
-        // 옮기자마자 무효가 되어 후행 확정 경로가 통째로 사라진다.
-        assertThat(bindingVersionOf(newLegId, "PROVISIONAL")).isZero();
+        assertThat(trainNoOf(newLegId)).isEqualTo("1001");
         assertThat(movementSeqOf(newLegId)).isEqualTo(1);
-        // 거부한 열차는 세대를 가리지 않고 따라간다 — 안 옮기면 방금 거부한 열차를 다시 고른다.
-        assertThat(chosenTrainOf(newLegId, "USER_RESET")).isEqualTo("8001");
-        // 새 행은 판정기가 계속 볼 수 있어야 한다.
-        assertThat(bindingRepository.findMatchable(50).stream()
-                .map(watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding::getJourneyLegId))
-                .contains(newLegId);
+        // 판정기가 없어 근거를 옮길 이유가 없다 — 계승 사실 한 줄만 남는다.
+        assertThat(auditTypesOf(newLegId)).containsExactly("INHERITED_ON_REROUTE");
         // 옛 개정본 행은 접히되 열차 identity 는 남는다.
         assertThat(statusOf(oldRideLegId)).isEqualTo("ABANDONED");
         assertThat(trainNoOf(oldRideLegId)).isEqualTo("1001");
@@ -322,20 +307,6 @@ class SubwayBindingRerouteInheritanceIT {
         return jdbcTemplate.queryForList(
                 "select event_type from subway_binding_event where journey_leg_id = ?",
                 String.class, legId);
-    }
-
-    private Integer bindingVersionOf(Long legId, String eventType) {
-        return jdbcTemplate.queryForObject("""
-                select binding_version from subway_binding_event
-                 where journey_leg_id = ? and event_type = ? order by id desc limit 1
-                """, Integer.class, legId, eventType);
-    }
-
-    private String chosenTrainOf(Long legId, String eventType) {
-        return jdbcTemplate.queryForObject("""
-                select chosen_train_no from subway_binding_event
-                 where journey_leg_id = ? and event_type = ? order by id desc limit 1
-                """, String.class, legId, eventType);
     }
 
     // ── 경로 ────────────────────────────────────────────────────────────────
