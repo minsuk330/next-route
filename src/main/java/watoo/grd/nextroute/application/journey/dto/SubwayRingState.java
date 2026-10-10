@@ -1,6 +1,8 @@
 package watoo.grd.nextroute.application.journey.dto;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 
 /**
@@ -58,6 +60,9 @@ public record SubwayRingState(
         SubwayRingHoldReason holdReason,
         String holdStationName
 ) {
+
+    /** 상한이 비었을 때 앱이 쓰는 값과 같다. */
+    private static final BigDecimal DEFAULT_PROGRESS_TARGET = new BigDecimal("0.90");
 
     /** 멈춤 사유 없이 만든다(옛 모양 — Redis 에 남은 값·시험). */
     public SubwayRingState(Long journeyId, int routeRevision, int legIndex, int bindingVersion,
@@ -155,6 +160,34 @@ public record SubwayRingState(
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
                 observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, reason, stationName);
+    }
+
+    /**
+     * {@code at} 시점에 앱 화면에 보이는 진행률(#357). 앱 {@code shownSubwayProgress} 와 같은 식이다 — NORMAL 이고
+     * 예정이 앵커보다 뒤면 base 에서 상한까지 시간비로 보간하고, 아니면 base 그대로다.
+     */
+    public BigDecimal shownProgressAt(Instant at) {
+        BigDecimal base = segmentProgress == null ? BigDecimal.ZERO : segmentProgress;
+        BigDecimal cap = progressTarget == null ? DEFAULT_PROGRESS_TARGET : progressTarget;
+        if (quality != SubwayRingQuality.NORMAL || progressBaseAt == null || estimatedNextStationAt == null
+                || !estimatedNextStationAt.isAfter(progressBaseAt) || cap.compareTo(base) <= 0) {
+            return base;
+        }
+        Instant clamped = at.isBefore(progressBaseAt) ? progressBaseAt
+                : at.isAfter(estimatedNextStationAt) ? estimatedNextStationAt : at;
+        BigDecimal elapsed = BigDecimal.valueOf(Duration.between(progressBaseAt, clamped).toMillis());
+        BigDecimal span = BigDecimal.valueOf(Duration.between(progressBaseAt, estimatedNextStationAt).toMillis());
+        return base.add(cap.subtract(base).multiply(elapsed).divide(span, 4, RoundingMode.DOWN));
+    }
+
+    /** 앵커만 {@code baseAt} 의 {@code progress} 로 옮긴다. 상한은 그 값 아래로 내려가지 않는다 — 보간이 뒤로 가면 안 된다. */
+    public SubwayRingState withAnchor(BigDecimal progress, Instant baseAt) {
+        BigDecimal target = progressTarget == null || progressTarget.compareTo(progress) < 0 ? progress : progressTarget;
+        return new SubwayRingState(journeyId, routeRevision, legIndex, bindingVersion,
+                nextStationSequence, canonicalNextStationKey, nextStationName,
+                alightingStationName, remainingStations, progress, baseAt,
+                target, estimatedNextStationAt, progressValidUntil, phase, quality,
+                observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, holdReason, holdStationName);
     }
 
     /** 이 상태가 그 고정 세대의 것인지. 아니면 옛 worker 가 쓴 값이다. */

@@ -4368,3 +4368,21 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 공개 도메인 실호출: `/api/auth/device` 발급(provider=DEVICE) → `/api/me` `identities=[]`·이름/이메일 null → `/api/route/fav` 200 → 같은 비밀값 재진입 같은 userId → `/api/auth/reissue` 200 → 형식 위반 400 `INVALID_DEVICE_SECRET` → `DELETE /api/auth/me` 204 → 옛 토큰 401
 - 시험 계정(userId 96)은 탈퇴로 정리됨(auth_identity 0행, users.deleted_at 채움). 배포 후 api ERROR 0
 - 남은 것: 앱 출시(`docs/plan/device-anonymous-auth/APP-API-CHANGES.md`)
+
+## 2026-10-10 #357 push 프레임 링 되감김 — 서버 화면 단조 (fix/ring-push-monotonic)
+
+### 확정
+- 역 순번은 원래 단조였다(`targetSequence` 가 직전 상태에서만 전진, 낮은 역 관측 무시). 되감김은 **같은 구간 안 진행률**뿐
+- 원인: `segmentProgress` 는 `progressBaseAt` 시점 값이고 앱은 NORMAL+예정 있을 때 상한까지 보간한다. `freeze`·`hold`·위치 폴백 freeze 가 **저장 base** 로 멈추고, `reanchored` 는 `observedAt`(원천 지연) 기준이라 지금 화면보다 낮아진다. 앱 가드(`JourneyGuidanceLiveActivity.swift` shownSubwayProgress)는 push 프레임에 안 걸린다
+- 수정: `SubwayRingCalculator.next()` 마지막 `notBehindScreen` — 같은 고정 세대(validPrevious)·같은 nextStationSequence 에서 새 상태의 now 화면값 < 직전 now 화면값이면 `withAnchor(직전 화면값, now)`(상한 ≥ 값). 식은 앱 `shownSubwayProgress` 와 동일(`SubwayRingState.shownProgressAt`, 소수 4자리 내림)
+- 의도된 계약 변경: "멈추면 마지막 저장 base" → "멈추면 지금 화면 값". STALE 링은 보간이 없어 base=화면이라 한 번 올린 뒤 그대로(push 지문도 안정)
+### 함정
+- 기존 테스트 6개가 저장 base 로 멈추는 동작(= 되감김)을 고정하고 있었다 → 기대값을 화면값으로 수정(enrouteWithoutSecondsFreezes·noObservationFreezes·staleObservationFreezes·frozenProgressNeverGrows·dwellHoldsInPlace·freezesWithoutSeconds·positionBeforeNextStationFreezes)
+- 스크래치 IT DB: 일회용 `rp-pg`(:55434)·`rp-redis`(:56381). pg_isready 는 init 중에도 통과 → "ready to accept connections" 2회 뜬 뒤 복원해야 init 스크립트와 안 겹친다
+### 미결
+- Redis 링 유실(TTL 30분) 시 직전 상태 없이 승차 구간부터 재시작 — 별건
+### 검증
+- `./gradlew test --tests '*SubwayRing*' --tests '*SubwayGuidance*' --tests '*JourneySubwayGuidance*' --tests '*SubwayRideScenario*'` → 163/163 (신규 NeverBehindScreen 4)
+- 전체 `./gradlew test --continue` → 2877 중 12 실패, 전부 기존 무관(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·JourneyNotificationSchemaIT 1 flaky)
+### 배포
+- 마이그레이션 없음. worker 만 교체(링 갱신기). api 는 스냅샷이 Redis 값을 읽으므로 변경 불필요

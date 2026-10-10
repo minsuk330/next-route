@@ -80,15 +80,35 @@ public class SubwayRingCalculator {
             return prior;
         }
         if (observation == null || isStale(observation, now)) {
-            return freeze(prior, context, target, now);
+            return notBehindScreen(prior, freeze(prior, context, target, now), now);
         }
-        return switch (observation.source()) {
+        SubwayRingState state = switch (observation.source()) {
             case ARRIVAL -> fromArrival(prior, context, target, observation, now);
             case POSITION -> fromPosition(prior, context, target, observation, now);
             // 열차가 이미 하차역을 지났다(#311). 도착은 사실이라 NORMAL — STALE 이면 앱이 끝까지 "확인 중"으로 남는다.
             case PASSED -> anchored(context, context.chain().alightingSequence(), BigDecimal.ONE,
                     observation.observedAt(), null, SubwayRingQuality.NORMAL, observation.observedAt(), now);
         };
+        return notBehindScreen(prior, state, now);
+    }
+
+    /**
+     * 같은 구간에서 새 링이 <b>지금 화면</b>보다 뒤면 지금 화면 값에서 다시 시작한다(#357).
+     *
+     * <p>앱은 {@code progressBaseAt → estimatedNextStationAt} 사이를 보간해 그리므로 화면 값은 저장된 base 보다 앞서 있다.
+     * 멈춤(freeze·hold)이 base 로 돌아가거나, 원천 지연만큼 과거 시각({@code observedAt})으로 재앵커하면 링이 뒤로 감긴다.
+     * 앱도 같은 규칙을 갖고 있지만 실기기 push 는 앱을 거치지 않고 바로 그려진다 — 그래서 저장값부터 단조로 만든다.
+     */
+    private SubwayRingState notBehindScreen(SubwayRingState prior, SubwayRingState state, Instant now) {
+        if (prior == null || state == null || state == prior
+                || state.nextStationSequence() != prior.nextStationSequence()) {
+            return state;
+        }
+        BigDecimal shown = prior.shownProgressAt(now);
+        if (state.shownProgressAt(now).compareTo(shown) >= 0) {
+            return state;
+        }
+        return state.withAnchor(scaled(shown), now);
     }
 
     /**
@@ -260,7 +280,7 @@ public class SubwayRingCalculator {
             current = base.add(cap.subtract(base).multiply(ratio));
         }
 
-        // 서버 앵커는 뒤로 가지 않는다. 화면 역행 금지는 앱 책임이다 — 새 예정 시각이 짧으면
+        // 서버 앵커는 뒤로 가지 않는다. 지금 화면보다 뒤인지는 next() 가 마지막에 본다(#357) — 새 예정 시각이 짧으면
         // 앱이 보간하던 직선이 갈아타면서 앞으로 튈 수 있다.
         BigDecimal progress = max(base, current);
         return anchored(context, target, progress, observedAt,
