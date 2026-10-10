@@ -6,9 +6,7 @@ import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingChain;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingContext;
-import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingObservation;
-import watoo.grd.nextroute.application.journey.dto.SubwayRingStage;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 import watoo.grd.nextroute.application.journey.observability.SubwayRingMetrics;
 import watoo.grd.nextroute.application.journey.port.out.SubwayRingPort;
@@ -63,6 +61,7 @@ public class SubwayRingUpdateService {
     private final Clock clock;
     private final RerouteRefreshSignal rerouteRefreshSignal;
     private final SubwayLineOrder lineOrder;
+    private final SubwayRingAlightingEstimator alightingEstimator;
     private final JourneySessionRepository sessionRepository;
     private final JourneyNavigationProperties navigationProperties;
 
@@ -120,7 +119,8 @@ public class SubwayRingUpdateService {
         if (state == null) {
             return;
         }
-        state = withAlighting(state, chain, train);
+        SubwayRingAlightingEstimator.Estimate alighting = alightingEstimator.estimate(state, previous, chain, train, now);
+        state = state.withEstimatedAlightingAt(alighting.at(), alighting.source());
         state = state.withGuidanceVersion(guidanceVersionOf(previous, state, now));
         ringPort.save(state);
         metrics.recordUpdated(state, observation, binding.getStatus());
@@ -137,6 +137,7 @@ public class SubwayRingUpdateService {
 
     /**
      * 하차 도착 예정 + 여유로 오프라인 보호를 민다(상한 = 탑승 시작 + cap, {@link SubwayOfflineProtectionPolicy} 와 같은 식).
+     * 하차 예정이 TYPICAL(계획값 추정)이어도 민다 — 늘 채워지므로 보호가 끊기지 않고, 상한 cap 이 있어 과하게 늘지 않는다.
      * 고르면 즉시 탑승이라 계획 소요시간 기준 보호가 승강장에서 기다린 만큼 모자란다. 실패해도 링 갱신은 계속한다.
      */
     private void extendProtection(SubwayLegBinding binding, JourneyLeg ride, SubwayRingState state) {
@@ -190,51 +191,6 @@ public class SubwayRingUpdateService {
         }
         return lineOrder.segmentTimes(train.lineId(), train.direction(), from.canonicalKey(), to.canonicalKey())
                 .map(t -> new SubwayRingContext.Typical(t.dwellSeconds(), t.runSeconds()))
-                .orElse(null);
-    }
-
-    /**
-     * 하차 예정과 출처. 다음 역이 하차역이면 다음 역 예정의 출처 그대로, 아니면 남은 구간이 GTFS 계획이라 TYPICAL 이다 —
-     * 다음 역 예정이 실시간이어도 하차까지 전부를 실시간이라 말하면 과장이다.
-     */
-    private SubwayRingState withAlighting(SubwayRingState state, SubwayRingChain chain, TrainIdentity train) {
-        Instant alightingAt = alightingAtOf(state, chain, train);
-        boolean nextIsAlighting = state.nextStationSequence() == chain.alightingSequence();
-        return state.withEstimatedAlightingAt(alightingAt,
-                nextIsAlighting ? state.etaSource() : SubwayRingEtaSource.TYPICAL);
-    }
-
-    /**
-     * 하차역 도착 예정(#310) = 다음 역 도착 예정 + GTFS 계획 초(다음 역 도착 → 하차역 도착). 사용자 결정(2026-10-10): 남은
-     * 구간은 시간표만 쓴다 — 지연은 다음 역 예정에만 반영된다. 다음 역이 하차역이면 그 예정 그대로.
-     *
-     * <p>다음 역 예정이 없거나(멈춘 링) 역·계획을 모르면 null — 지어내지 않는다.
-     */
-    private Instant alightingAtOf(SubwayRingState state, SubwayRingChain chain, TrainIdentity train) {
-        Instant next = state.estimatedNextStationAt();
-        if (next == null || train == null) {
-            return null;
-        }
-        SubwayRingChain.Station nextStation = chain.at(state.nextStationSequence());
-        SubwayRingChain.Station alighting = chain.at(chain.alightingSequence());
-        if (nextStation == null || alighting == null) {
-            return null;
-        }
-        if (state.stage() == SubwayRingStage.DWELL && state.etaSource() == SubwayRingEtaSource.TYPICAL) {
-            // 정차 직선의 예정은 정차 끝이다 — 다음 역 도착은 그 뒤 운행 시간만큼 더 걸린다(리뷰 R3).
-            SubwayRingContext.Typical times = typicalOf(chain, train, state.nextStationSequence());
-            if (times == null || times.runSeconds() == null) {
-                return null;
-            }
-            next = next.plusMillis(java.math.BigDecimal.valueOf(times.runSeconds() * 1000L)
-                    .multiply(properties.getTypicalFactor()).longValue());
-        }
-        if (nextStation.sequence() == alighting.sequence()) {
-            return next;
-        }
-        return lineOrder.arrivalGapSeconds(train.lineId(), train.direction(),
-                        nextStation.canonicalKey(), alighting.canonicalKey())
-                .map(next::plusSeconds)
                 .orElse(null);
     }
 
