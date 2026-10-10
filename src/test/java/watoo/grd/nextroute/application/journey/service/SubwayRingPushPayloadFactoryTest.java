@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingHoldReason;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
@@ -110,6 +111,19 @@ class SubwayRingPushPayloadFactoryTest {
                 .path("estimatedAlightingAt").asLong()).isEqualTo(alighting.toEpochMilli());
         assertThat(propsOf(factory.contentState(JOURNEY_ID, "2호선", ring(), T0)).path("estimatedAlightingAt").isNull())
                 .isTrue();
+    }
+
+    @Test
+    @DisplayName("props 에 멈춤 이유·정차 역이 스냅샷과 같은 이름으로 실린다, 없으면 null")
+    void holdInProps() throws Exception {
+        JsonNode stopped = propsOf(factory.contentState(JOURNEY_ID, "2호선",
+                ring().withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, "신사"), T0));
+        JsonNode moving = propsOf(factory.contentState(JOURNEY_ID, "2호선", ring(), T0));
+
+        assertThat(stopped.path("holdReason").asText()).isEqualTo("PREV_STATION_STOPPED");
+        assertThat(stopped.path("holdStationName").asText()).isEqualTo("신사");
+        assertThat(moving.path("holdReason").isNull()).isTrue();
+        assertThat(moving.path("holdStationName").isNull()).isTrue();
     }
 
     /**

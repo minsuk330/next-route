@@ -98,7 +98,10 @@ public class SubwayRingPushDecider {
                 bucketedProgress(ring.segmentProgress()),
                 bucketedEta(ring.estimatedNextStationAt()),
                 // 하차 예정(#310)도 같은 30초 눈금 — 앱 Dynamic Island 오른쪽 시각이 push 로 따라온다.
-                bucketedEta(ring.estimatedAlightingAt()));
+                bucketedEta(ring.estimatedAlightingAt()),
+                // 멈춤 사유·정차 역은 앱 문구("○○ 정차 중")를 바꾼다. 같은 값이 반복되면 지문도 같다.
+                String.valueOf(ring.holdReason()),
+                String.valueOf(ring.holdStationName()));
         return hash(material);
     }
 

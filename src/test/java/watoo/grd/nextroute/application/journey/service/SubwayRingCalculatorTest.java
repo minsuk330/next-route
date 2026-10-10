@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingChain;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingContext;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingHoldReason;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingObservation;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
@@ -653,6 +654,100 @@ class SubwayRingCalculatorTest {
             assertThat(state.nextStationSequence()).isEqualTo(1);
             assertThat(calculator.targetStationSequence(null, selected)).isZero();
             assertThat(calculator.targetStationSequence(null, context)).isEqualTo(1);
+        }
+    }
+
+    @Nested
+    @DisplayName("멈춘 링은 이유를 말한다 — 진행률·예정은 그대로")
+    class HoldReason {
+
+        @Test
+        @DisplayName("전역 진입·정차(4/5) → PREV_STATION_STOPPED, 열차가 선 역 = 다음 역 바로 앞")
+        void prevStationStoppedNamesStation() {
+            SubwayRingState arrivedAtA = calculator.next(
+                    enroute(BigDecimal.valueOf(0.80), T0, T0.plusSeconds(60)), context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ARRIVED, 1, null, T0.plusSeconds(60)),
+                    T0.plusSeconds(60));
+
+            for (SubwayArrivalCode code : new SubwayArrivalCode[]{SubwayArrivalCode.PREV_ARRIVED,
+                    SubwayArrivalCode.PREV_ENTERING}) {
+                SubwayRingState held = calculator.next(arrivedAtA, context,
+                        SubwayRingObservation.arrival(code, 2, null, T0.plusSeconds(80)), T0.plusSeconds(80));
+
+                assertThat(held.nextStationName()).isEqualTo("역B");
+                assertThat(held.holdReason()).isEqualTo(SubwayRingHoldReason.PREV_STATION_STOPPED);
+                assertThat(held.holdStationName()).isEqualTo("역A");
+                assertThat(held.segmentProgress()).isEqualByComparingTo("0");
+                assertThat(held.estimatedNextStationAt()).isNull();
+                assertThat(held.quality()).isEqualTo(SubwayRingQuality.NORMAL);
+            }
+        }
+
+        @Test
+        @DisplayName("승차역 대기 구간 — 앞 역이 체인에 없어 역 이름은 null, 이유는 그대로")
+        void boardingWaitHasNoStationName() {
+            SubwayRingContext selected = new SubwayRingContext(JOURNEY_ID, 1, 4, 0, context.chain(), 0);
+
+            SubwayRingState held = calculator.next(null, selected,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_ARRIVED, 0, null, T0), T0);
+
+            assertThat(held.nextStationSequence()).isZero();
+            assertThat(held.holdReason()).isEqualTo(SubwayRingHoldReason.PREV_STATION_STOPPED);
+            assertThat(held.holdStationName()).isNull();
+        }
+
+        @Test
+        @DisplayName("실측 예정이 지났는데 도착이 안 보이면 LATE")
+        void overrunIsLate() {
+            SubwayRingState first = calculator.next(null, context,
+                    SubwayRingObservation.measured(1, T0, T0.plusSeconds(60), T0.plusSeconds(20)),
+                    T0.plusSeconds(25));
+            SubwayRingState late = calculator.next(first, context,
+                    SubwayRingObservation.measured(1, T0, T0.plusSeconds(60), T0.plusSeconds(70)),
+                    T0.plusSeconds(75));
+
+            assertThat(first.holdReason()).isNull();
+            assertThat(late.holdReason()).isEqualTo(SubwayRingHoldReason.LATE);
+            assertThat(late.holdStationName()).isNull();
+        }
+
+        @Test
+        @DisplayName("정차 뒤 출발이 보이면 이유가 지워진다")
+        void departureClearsHold() {
+            SubwayRingState dwell = calculator.next(null, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_ARRIVED, 1, null, T0.minusSeconds(20)),
+                    T0.minusSeconds(15));
+            SubwayRingState moving = calculator.next(dwell, context,
+                    SubwayRingObservation.measured(1, T0, T0.plusSeconds(60), T0.plusSeconds(10)),
+                    T0.plusSeconds(12));
+
+            assertThat(dwell.holdReason()).isEqualTo(SubwayRingHoldReason.PREV_STATION_STOPPED);
+            assertThat(moving.holdReason()).isNull();
+            assertThat(moving.holdStationName()).isNull();
+        }
+
+        @Test
+        @DisplayName("보간 중·STALE freeze·진입·도착은 이유가 없다")
+        void noReasonOtherwise() {
+            SubwayRingState held = calculator.next(null, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_ARRIVED, 1, null, T0), T0);
+
+            SubwayRingState interpolating = calculator.next(held, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ENROUTE, 1, T0.plusSeconds(90), T0.plusSeconds(10)),
+                    T0.plusSeconds(10));
+            SubwayRingState frozen = calculator.next(held, context, null, T0.plusSeconds(10));
+            SubwayRingState entering = calculator.next(held, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ENTERING, 1, null, T0.plusSeconds(10)),
+                    T0.plusSeconds(10));
+            SubwayRingState arrived = calculator.next(held, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ARRIVED, 1, null, T0.plusSeconds(10)),
+                    T0.plusSeconds(10));
+
+            assertThat(frozen.quality()).isEqualTo(SubwayRingQuality.STALE);
+            for (SubwayRingState state : List.of(interpolating, frozen, entering, arrived)) {
+                assertThat(state.holdReason()).isNull();
+                assertThat(state.holdStationName()).isNull();
+            }
         }
     }
 

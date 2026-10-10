@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingChain;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingContext;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingHoldReason;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingObservation;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
@@ -164,7 +165,8 @@ public class SubwayRingCalculator {
                                                 Instant now) {
         SubwayArrivalCode code = observation.code();
         if (code == SubwayArrivalCode.PREV_ENTERING || code == SubwayArrivalCode.PREV_ARRIVED) {
-            return hold(context, target, baseProgressOf(prior, target), observation.observedAt(), now);
+            return hold(context, target, baseProgressOf(prior, target), observation.observedAt(), now)
+                    .withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, nameOf(context, target - 1));
         }
         if (observation.isMeasured()) {
             return fromMeasured(prior, context, target, observation, now);
@@ -197,7 +199,8 @@ public class SubwayRingCalculator {
         Instant eta = observation.estimatedArrivalAt();
         BigDecimal base = baseProgressOf(prior, target);
         if (!now.isBefore(eta)) {
-            return hold(context, target, max(base, capOf(target)), observation.observedAt(), now);
+            return hold(context, target, max(base, capOf(target)), observation.observedAt(), now)
+                    .withHold(SubwayRingHoldReason.LATE, null);
         }
         if (sameSegment(prior, target) && eta.equals(prior.estimatedNextStationAt())
                 && prior.quality() == SubwayRingQuality.NORMAL) {
@@ -213,7 +216,11 @@ public class SubwayRingCalculator {
                 : next;
     }
 
-    /** 링을 그 자리에 세운다 — 예정 없음, 보간 상한 = 지금 값. 정상 상황이라 NORMAL 이다("확인 중"이 아니다). */
+    /**
+     * 링을 그 자리에 세운다 — 예정 없음, 보간 상한 = 지금 값. 정상 상황이라 NORMAL 이다("확인 중"이 아니다).
+     *
+     * <p>부르는 쪽이 {@link SubwayRingState#withHold} 로 이유를 붙인다. 이유 없이 멈춘 링은 앱이 고장과 구분하지 못한다.
+     */
     private SubwayRingState hold(SubwayRingContext context, int target, BigDecimal progress,
                                  Instant observedAt, Instant now) {
         SubwayRingState held = anchored(context, target, progress, observedAt, null,
