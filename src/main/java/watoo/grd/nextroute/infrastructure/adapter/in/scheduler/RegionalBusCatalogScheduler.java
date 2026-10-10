@@ -33,14 +33,17 @@ public class RegionalBusCatalogScheduler {
             return;
         }
         boolean empty;
+        boolean needsStopNumbers;
         try {
             empty = loadService.isEmpty();
+            needsStopNumbers = !empty && loadService.needsStopNumbers();
         } catch (RuntimeException e) {
-            log.warn("[RegionalBusCatalog] table check failed (V56 missing?): {}", e.getMessage());
+            log.warn("[RegionalBusCatalog] table check failed (V56/V64 missing?): {}", e.getMessage());
             return;
         }
-        if (empty) {
-            log.info("[RegionalBusCatalog] table empty; initial load starting");
+        if (empty || needsStopNumbers) {
+            log.info("[RegionalBusCatalog] {}; initial load starting",
+                    empty ? "table empty" : "stop numbers missing (V64)");
             Thread thread = new Thread(loadService::load, "regional-bus-catalog-initial-load");
             thread.setDaemon(true);
             thread.start();

@@ -6,6 +6,7 @@ package watoo.grd.nextroute.application.regionalbus.dto;
  * @param turn     회차 지점인가. 경기만 준다
  * @param upDown   TAGO {@code updowncd}. 경기는 null
  * @param waypoint 승객이 못 타는 경유 가상점인가. 경기는 이름의 {@code (경유)}, TAGO 는 판별 전이라 null
+ * @param stopNo   정류장 번호(표지판 번호, #266). 경기 {@code mobileNo}, TAGO {@code nodeno}. 없으면 null
  */
 public record RegionalRouteStop(
         String stopId,
@@ -15,6 +16,12 @@ public record RegionalRouteStop(
         Integer upDown,
         Boolean waypoint,
         Double lat,
-        Double lon
+        Double lon,
+        String stopNo
 ) {
+
+    public RegionalRouteStop(String stopId, String stopName, int seq, Boolean turn, Integer upDown,
+                             Boolean waypoint, Double lat, Double lon) {
+        this(stopId, stopName, seq, turn, upDown, waypoint, lat, lon, null);
+    }
 }

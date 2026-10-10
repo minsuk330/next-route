@@ -200,7 +200,8 @@ public class RegionalBusRouteSourceAdapter implements RegionalBusRouteSourcePort
                 intOrNull(i.path("updowncd")),
                 null,
                 doubleOrNull(i.path("gpslati")),
-                doubleOrNull(i.path("gpslong")));
+                doubleOrNull(i.path("gpslong")),
+                text(i.path("nodeno")));
     }
 
     static RegionalRouteStop toGyeonggiStop(JsonNode i) {
@@ -213,7 +214,8 @@ public class RegionalBusRouteSourceAdapter implements RegionalBusRouteSourcePort
                 null,
                 name != null && name.contains(WAYPOINT_MARK),
                 doubleOrNull(i.path("y")),
-                doubleOrNull(i.path("x")));
+                doubleOrNull(i.path("x")),
+                text(i.path("mobileNo")));
     }
 
     private static String text(JsonNode node) {

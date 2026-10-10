@@ -194,4 +194,23 @@ class RegionalBusRouteSourceAdapterTest {
                 "returnReasonCode":"%s"}}}
                 """.formatted(reasonCode);
     }
+
+    @Test
+    @DisplayName("#266 정류장 번호: 경기 mobileNo(앞 공백 제거), TAGO nodeno(숫자도 문자열로), 없으면 null")
+    void stopNumbers() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+        assertThat(RegionalBusRouteSourceAdapter.toGyeonggiStop(om.readTree(
+                "{\"stationId\":201000143,\"stationName\":\"곡반정동차고지\",\"stationSeq\":1,\"mobileNo\":\" 02230\"}"))
+                .stopNo()).isEqualTo("02230");
+        assertThat(RegionalBusRouteSourceAdapter.toGyeonggiStop(om.readTree(
+                "{\"stationId\":201000143,\"stationName\":\"a\",\"stationSeq\":1,\"mobileNo\":\" \"}"))
+                .stopNo()).isNull();
+        assertThat(RegionalBusRouteSourceAdapter.toTagoStop(om.readTree(
+                "{\"nodeid\":\"DJB8001783\",\"nodenm\":\"봉산동기점\",\"nodeno\":44490,\"nodeord\":1}"))
+                .stopNo()).isEqualTo("44490");
+        assertThat(RegionalBusRouteSourceAdapter.toTagoStop(om.readTree(
+                "{\"nodeid\":\"CNB1\",\"nodenm\":\"a\",\"nodeord\":1}"))
+                .stopNo()).isNull();
+    }
+
 }
