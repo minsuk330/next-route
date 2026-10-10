@@ -4496,3 +4496,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 조각 모드 `./gradlew test --tests '*SubwayRingReplayIT'` 1/1 통과(main 1010d7ee = PR-1~4 반영)
 - 전체 녹화 비교(7399): 기존 bb1aba23 STALE 120초·LATE 30초·도착 전 정지 240초+ → PR-4 STALE 0·LATE 0·정지 94초(정차 초과분)·하차 예정 100%·push 16
+
+## 2026-10-11 배포 기록 — 지하철 링 TYPICAL (#360·#363·#364·#365·#366)
+
+### 배포
+- 00:09 worker → 00:10 api, main `f88481fc`. 이미지 worker `nextroute:20261011-000947-f88481fc`, api `nextroute:20261011-001023-f88481fc`. 이전 `…-bb1aba23`(`./deploy.sh rollback-worker`·`rollback-api`)
+- jar sha256 `5c6cc801ebc9ad18…` 로컬·VPS 일치(2MB 조각 69개 업로드). 백업 `app.jar.bak-20261011-pre-ring-typical`
+- 마이그레이션 없음(운영 V64 그대로). 설정 추가분(typical-factor 등)은 yaml 기본값 — compose 변경 없음
+### 검증
+- `docker inspect` 로 두 컨테이너 새 태그 확인, 기동 16초, 배포 후 ERROR 0(api·worker)
+- 자정 무렵이라 진행 중 지하철 여정 없음 — 실여정 확인은 다음 탑승
+### 앱 인계
+- `docs/plan/subway-ring-typical-progress/HANDOFF.md` 갱신: 앱 main `e9d140a` 는 etaSource TYPICAL 시각 숨김·정차/늦음 문구·STALE 문구가 이미 맞다. 남은 것 = `alightingEtaSource` 디코드·완곡 표기, holdReason 을 "멈춤"으로 해석하는 코드 점검
