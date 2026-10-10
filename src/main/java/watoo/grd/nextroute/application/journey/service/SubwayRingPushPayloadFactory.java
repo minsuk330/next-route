@@ -45,6 +45,9 @@ public class SubwayRingPushPayloadFactory {
     static final String FIELD_NAME = "name";
     static final String FIELD_PROPS = "props";
 
+    /** {@link #staleDateSeconds} 는 발송 어댑터가 정적으로 부른다 — 읽기 전용이라 공유해도 된다. */
+    private static final ObjectMapper STALE_READER = new ObjectMapper();
+
     private final ObjectMapper objectMapper;
 
     /**
@@ -93,6 +96,29 @@ public class SubwayRingPushPayloadFactory {
         props.put("quality", ring.quality().name());
         props.put("updatedAt", updatedAt.toEpochMilli());
         return props;
+    }
+
+    /**
+     * 봉투의 {@code props.progressValidUntil}(밀리초)을 APNs {@code aps.stale-date}(epoch <b>초</b>)로 꺼낸다(#309).
+     *
+     * <p>앱 링은 시스템 타이머({@code ProgressView(timerInterval:)})라 중간에 못 멈춘다. 새 앵커가 안 오면 끝까지 차서
+     * "도착한 것처럼" 보인다. 시스템이 이 시각에 화면을 stale 로 다시 그리게 해야 위젯이 고정 링으로 바뀐다. 앱이 직접
+     * 갱신할 때는 스스로 넣지만, 백그라운드의 유일한 갱신 경로인 push 에는 서버가 넣어야 한다.
+     *
+     * <p>종료 프레임도 같은 봉투라 값이 나오지만, {@code end} 에는 붙이지 않는다(부르는 쪽 몫).
+     *
+     * @return 없거나 읽을 수 없으면 null — 그때는 키를 빼고 보낸다(지어내지 않는다)
+     */
+    public static Long staleDateSeconds(JsonNode contentState) {
+        if (contentState == null || !contentState.path(FIELD_PROPS).isTextual()) {
+            return null;
+        }
+        try {
+            JsonNode until = STALE_READER.readTree(contentState.path(FIELD_PROPS).asText()).path("progressValidUntil");
+            return until.isNumber() ? Math.floorDiv(until.asLong(), 1000L) : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** epoch <b>밀리초</b>. 봉투 밖 {@code aps.timestamp} 는 초라는 것을 잊지 말 것. */
