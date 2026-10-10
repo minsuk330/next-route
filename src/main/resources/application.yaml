@@ -629,6 +629,13 @@ journey:
       # 앱이 로컬 보간을 이어가도 되는 폭. 길면 죽은 화면이 살아 있는 척하고, 짧으면 링이
       # 자주 멈춘다. 실기기로 봐야 정해진다.
       freshness-window: PT120S
+      # TYPICAL 직선(실시간 예정이 없을 때 GTFS × 배수로 움직인다). stale-after 는 서버 시계 기준
+      # 무관측 폭, stale-source-max-age 는 원천 시각이 너무 묵은 경우의 이중 가드.
+      typical-factor: 1.2
+      default-dwell: PT30S
+      stale-after: PT60S
+      stale-source-max-age: PT240S
+      late-grace: PT30S
       # 수명주기 네 접점이 지우지만 그중 하나라도 새면 키가 영원히 남는다.
       ttl: PT30M
       push:

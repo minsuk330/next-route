@@ -10,6 +10,8 @@ import watoo.grd.nextroute.application.journey.dto.SubwayRingHoldReason;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingObservation;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingStage;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalCode;
 import watoo.grd.nextroute.application.subway.dto.SubwayTrainStatus;
@@ -832,6 +834,104 @@ class SubwayRingCalculatorTest {
                 state = calculator.next(state, context, ticks[i], now);
                 assertThat(state.nextStationSequence()).isEqualTo(1);
                 assertThat(state.shownProgressAt(now)).as("tick %d", i).isGreaterThanOrEqualTo(before);
+            }
+        }
+    }
+
+    // ── 예정 출처·단계·근거 시각(TYPICAL 계약 PR-1) ─────────────────────────────
+
+    @Nested
+    @DisplayName("예정 출처·단계·근거 시각을 싣는다 — 화면 값은 그대로")
+    class SourceAndStage {
+
+        @Test
+        @DisplayName("운행 중 남은 초 → LIVE·RUN, 실측 중앙값 → MEASURED·RUN")
+        void liveAndMeasured() {
+            SubwayRingState live = calculator.next(enroute(BigDecimal.valueOf(0.20), T0, T0.plusSeconds(100)),
+                    context, SubwayRingObservation.arrival(SubwayArrivalCode.ENROUTE, 1, T0.plusSeconds(120),
+                            T0.plusSeconds(10)), T0.plusSeconds(10));
+            assertThat(live.etaSource()).isEqualTo(SubwayRingEtaSource.LIVE);
+            assertThat(live.stage()).isEqualTo(SubwayRingStage.RUN);
+
+            SubwayRingState measured = calculator.next(null, context,
+                    SubwayRingObservation.measured(1, T0, T0.plusSeconds(90), T0.plusSeconds(5)), T0.plusSeconds(5));
+            assertThat(measured.etaSource()).isEqualTo(SubwayRingEtaSource.MEASURED);
+            assertThat(measured.stage()).isEqualTo(SubwayRingStage.RUN);
+        }
+
+        @Test
+        @DisplayName("예정이 없는 화면(정차·진입·도착·늦음·멈춤)은 출처가 없다. 단계는 정차·진입·도착·늦음")
+        void noEtaNoSource() {
+            SubwayRingState previous = enroute(BigDecimal.valueOf(0.40), T0, T0.plusSeconds(100));
+
+            SubwayRingState dwell = calculator.next(previous, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_ARRIVED, 1, null, T0.plusSeconds(20)),
+                    T0.plusSeconds(20));
+            SubwayRingState approach = calculator.next(previous, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ENTERING, 1, null, T0.plusSeconds(20)),
+                    T0.plusSeconds(20));
+            SubwayRingState arrived = calculator.next(previous, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ARRIVED, 1, null, T0.plusSeconds(20)),
+                    T0.plusSeconds(20));
+            SubwayRingState late = calculator.next(null, context,
+                    SubwayRingObservation.measured(1, T0, T0.plusSeconds(60), T0.plusSeconds(90)),
+                    T0.plusSeconds(90));
+            SubwayRingState frozen = calculator.next(previous, context, null, T0.plusSeconds(20));
+
+            assertThat(List.of(dwell, approach, arrived, late, frozen))
+                    .allSatisfy(s -> assertThat(s.etaSource()).isNull());
+            assertThat(dwell.stage()).isEqualTo(SubwayRingStage.DWELL);
+            assertThat(approach.stage()).isEqualTo(SubwayRingStage.APPROACH);
+            assertThat(arrived.stage()).isEqualTo(SubwayRingStage.ARRIVED);
+            assertThat(late.stage()).isEqualTo(SubwayRingStage.LATE);
+            assertThat(frozen.stage()).as("멈춤은 직전 단계를 이어 간다").isEqualTo(previous.stage());
+        }
+
+        @Test
+        @DisplayName("승차역 도착은 곧바로 다음 구간 시작이다 — 새 구간에 ARRIVED 를 붙이지 않는다")
+        void arrivalAtBoardingStartsRun() {
+            SubwayRingContext selected = new SubwayRingContext(JOURNEY_ID, 1, 4, 0, context.chain(), 0);
+
+            SubwayRingState state = calculator.next(null, selected,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ARRIVED, 0, null, T0), T0);
+
+            assertThat(state.nextStationSequence()).isEqualTo(1);
+            assertThat(state.stage()).isEqualTo(SubwayRingStage.RUN);
+        }
+
+        @Test
+        @DisplayName("근거 시각: 관측의 원천 시각과 서버가 처음 본 시각을 싣고, 멈춤은 직전 근거를 이어 간다")
+        void sourceTimes() {
+            Instant recptn = T0.minusSeconds(90);
+            SubwayRingState observed = calculator.next(null, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ENROUTE, 1, T0.plusSeconds(60), recptn)
+                            .withSeenAt(T0), T0);
+            assertThat(observed.sourceObservedAt()).isEqualTo(recptn);
+            assertThat(observed.sourceSeenAt()).isEqualTo(T0);
+
+            SubwayRingState frozen = calculator.next(observed, context, null, T0.plusSeconds(200));
+            assertThat(frozen.sourceObservedAt()).isEqualTo(recptn);
+            assertThat(frozen.sourceSeenAt()).isEqualTo(T0);
+        }
+
+        @Test
+        @DisplayName("관측·멈춤이 섞인 tick 열 내내 '예정 없음 ⇔ 출처 없음'")
+        void sourceIffEta() {
+            SubwayRingState state = null;
+            SubwayRingObservation[] ticks = {
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1, null, T0),
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ENROUTE, 1, T0.plusSeconds(100), T0.plusSeconds(10)),
+                    null,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_ARRIVED, 1, null, T0.plusSeconds(30)),
+                    SubwayRingObservation.measured(1, T0.plusSeconds(40), T0.plusSeconds(120), T0.plusSeconds(45)),
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ENTERING, 1, null, T0.plusSeconds(110)),
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ARRIVED, 1, null, T0.plusSeconds(120)),
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ENROUTE, 2, T0.plusSeconds(220), T0.plusSeconds(130)),
+            };
+            for (int i = 0; i < ticks.length; i++) {
+                state = calculator.next(state, context, ticks[i], T0.plusSeconds(15L * i + 5));
+                assertThat(state.etaSource() == null).as("tick %d", i)
+                        .isEqualTo(state.estimatedNextStationAt() == null);
             }
         }
     }

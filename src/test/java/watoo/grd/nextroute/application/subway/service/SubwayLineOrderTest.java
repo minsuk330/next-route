@@ -100,6 +100,45 @@ class SubwayLineOrderTest {
     }
 
     @Test
+    @DisplayName("구간 전형 시간: 정차·운행을 같은 패턴(trip 최다)에서, 정차 0 이하는 null, 모르면 empty")
+    void segmentTimesFromOnePattern() {
+        SubwayLinePatternService patternService = mock(SubwayLinePatternService.class);
+        SubwayStationsAheadService ahead = mock(SubwayStationsAheadService.class);
+        List<DirectedRailPattern> directed = List.of(mock(DirectedRailPattern.class));
+        given(patternService.cachedPatterns("1002", "내선")).willReturn(directed);
+        given(ahead.resolvedPatterns(eq("1002"), eq("내선"), eq(directed), any())).willReturn(List.of(
+                // trip 최다: A 정차 30초(0→30), 운행 90초(30→120)
+                new Pattern("L", "L", false, 100, List.of(new Stop("A", "A", "A", 0, 30), new Stop("B", "B", "B", 120, 150),
+                        new Stop("C", "C", "C", 200, 200))),
+                // 다른 패턴의 정차(50초)는 섞지 않는다
+                new Pattern("E", "E", false, 10, List.of(new Stop("A", "A", "A", 0, 50), new Stop("B", "B", "B", 100, 100)))));
+        SubwayLineOrder order = new SubwayLineOrder(patternService, mock(SubwayLineStationIndex.class), ahead);
+
+        assertThat(order.segmentTimes("1002", "내선", "A", "B"))
+                .contains(new SubwayLineOrder.SegmentTimes(30, 90));
+        assertThat(order.segmentTimes("1002", "내선", "B", "C")).as("B 정차 150-120=30")
+                .contains(new SubwayLineOrder.SegmentTimes(30, 50));
+        assertThat(order.segmentTimes("1002", "내선", "B", "A")).isEmpty();
+
+        given(ahead.resolvedPatterns(eq("1002"), eq("내선"), eq(directed), any())).willReturn(List.of(
+                new Pattern("Z", "Z", false, 1, List.of(new Stop("A", "A", "A", 40, 40), new Stop("B", "B", "B", 100, 100)))));
+        assertThat(order.segmentTimes("1002", "내선", "A", "B"))
+                .as("정차 0 은 모름").contains(new SubwayLineOrder.SegmentTimes(null, 60));
+    }
+
+    @Test
+    @DisplayName("구간 전형 시간: 패턴 캐시가 비면 empty — 링은 기존대로 둔다")
+    void segmentTimesCacheMiss() {
+        SubwayLinePatternService patternService = mock(SubwayLinePatternService.class);
+        given(patternService.cachedPatterns("1002", "내선")).willReturn(List.of());
+        SubwayLineOrder order = new SubwayLineOrder(patternService, mock(SubwayLineStationIndex.class),
+                mock(SubwayStationsAheadService.class));
+
+        assertThat(order.segmentTimes("1002", "내선", "A", "B")).isEmpty();
+        verify(patternService).loadLater("1002", "내선");
+    }
+
+    @Test
     @DisplayName("#310 다음 역 도착 → 하차역 도착 계획 초: 운행+사이 정차, trip 최다 패턴, 반대 순서·모르면 empty, 같은 역 0")
     void arrivalGapFromBusiestPattern() {
         SubwayLinePatternService patternService = mock(SubwayLinePatternService.class);

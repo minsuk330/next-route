@@ -1,6 +1,8 @@
 package watoo.grd.nextroute.application.journey.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingStage;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.DisplayName;
@@ -111,6 +113,22 @@ class SubwayRingPushPayloadFactoryTest {
                 .path("estimatedAlightingAt").asLong()).isEqualTo(alighting.toEpochMilli());
         assertThat(propsOf(factory.contentState(JOURNEY_ID, "2호선", ring(), T0)).path("estimatedAlightingAt").isNull())
                 .isTrue();
+    }
+
+    @Test
+    @DisplayName("props 에 예정 출처·하차 예정 출처가 스냅샷과 같은 이름으로 실린다, 없으면 null")
+    void etaSourceInProps() throws Exception {
+        JsonNode sourced = propsOf(factory.contentState(JOURNEY_ID, "2호선",
+                ring().withSource(SubwayRingEtaSource.TYPICAL, SubwayRingStage.RUN)
+                        .withEstimatedAlightingAt(T0.plusSeconds(400), SubwayRingEtaSource.TYPICAL), T0));
+        JsonNode plain = propsOf(factory.contentState(JOURNEY_ID, "2호선", ring(), T0));
+
+        assertThat(sourced.path("etaSource").asText()).isEqualTo("TYPICAL");
+        assertThat(sourced.path("alightingEtaSource").asText()).isEqualTo("TYPICAL");
+        assertThat(plain.path("etaSource").isNull()).isTrue();
+        assertThat(plain.path("alightingEtaSource").isNull()).isTrue();
+        assertThat(sourced.has("stage")).as("단계는 내부 전용이다").isFalse();
+        assertThat(sourced.has("sourceSeenAt")).isFalse();
     }
 
     @Test

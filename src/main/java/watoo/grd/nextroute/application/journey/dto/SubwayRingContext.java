@@ -17,11 +17,32 @@ public record SubwayRingContext(
         int legIndex,
         int bindingVersion,
         SubwayRingChain chain,
-        int startSequence
+        int startSequence,
+        Typical typical
 ) {
+
+    public SubwayRingContext(Long journeyId, int routeRevision, int legIndex, int bindingVersion,
+                             SubwayRingChain chain, int startSequence) {
+        this(journeyId, routeRevision, legIndex, bindingVersion, chain, startSequence, null);
+    }
 
     public SubwayRingContext(Long journeyId, int routeRevision, int legIndex, int bindingVersion,
                              SubwayRingChain chain) {
         this(journeyId, routeRevision, legIndex, bindingVersion, chain, 1);
+    }
+
+    /** 이번 tick 의 목표 구간 전형 시간을 붙인다. 계산기는 GTFS 를 직접 읽지 않는다. */
+    public SubwayRingContext withTypical(Typical times) {
+        return new SubwayRingContext(journeyId, routeRevision, legIndex, bindingVersion, chain, startSequence, times);
+    }
+
+    /**
+     * 목표 구간(직전 역 → 다음 역)의 GTFS 계획 시간. 갱신기가 <b>같은 패턴</b>에서 뽑는다 — 정차와 운행을 다른 패턴에서
+     * 섞으면 차가 음수가 될 수 있다.
+     *
+     * @param dwellSeconds 직전 역 도착 → 출발. 모르거나 0 이하면 null
+     * @param runSeconds   직전 역 출발 → 다음 역 도착. 모르면 null
+     */
+    public record Typical(Integer dwellSeconds, Integer runSeconds) {
     }
 }

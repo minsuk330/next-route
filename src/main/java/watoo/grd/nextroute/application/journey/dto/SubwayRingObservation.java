@@ -23,6 +23,8 @@ import java.time.Instant;
  *                                남은 초를 그대로 들지 않는 이유는 응답의 {@code recptnDt} 가
  *                                <b>행마다 다르고</b> 이미 1~2분 뒤처져 있기 때문이다
  * @param observedAt              도착은 <b>그 행의</b> {@code recptnDt}, 위치는 관측 수신 시각
+ * @param seenAt                  서버가 이 {@code observedAt} 을 처음 본 시각. 갱신기가 직전 링과 견주어 채운다 —
+ *                                원천이 같은 행을 계속 주면 처음 본 시각이 이어진다. 모르면 null
  */
 public record SubwayRingObservation(
         Source source,
@@ -31,12 +33,26 @@ public record SubwayRingObservation(
         int observedStationSequence,
         Instant estimatedArrivalAt,
         Instant observedAt,
-        Instant segmentStartAt
+        Instant segmentStartAt,
+        Instant seenAt
 ) {
+
+    public SubwayRingObservation(Source source, SubwayArrivalCode code, SubwayTrainStatus positionStatus,
+                                 int observedStationSequence, Instant estimatedArrivalAt, Instant observedAt,
+                                 Instant segmentStartAt) {
+        this(source, code, positionStatus, observedStationSequence, estimatedArrivalAt, observedAt, segmentStartAt,
+                null);
+    }
 
     public SubwayRingObservation(Source source, SubwayArrivalCode code, SubwayTrainStatus positionStatus,
                                  int observedStationSequence, Instant estimatedArrivalAt, Instant observedAt) {
         this(source, code, positionStatus, observedStationSequence, estimatedArrivalAt, observedAt, null);
+    }
+
+    /** 서버가 이 관측을 처음 본 시각을 붙인다. */
+    public SubwayRingObservation withSeenAt(Instant seen) {
+        return new SubwayRingObservation(source, code, positionStatus, observedStationSequence, estimatedArrivalAt,
+                observedAt, segmentStartAt, seen);
     }
 
     /**

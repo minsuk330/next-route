@@ -74,6 +74,39 @@ public class SubwayLineOrder {
     }
 
     /**
+     * 바로 붙은 두 역 구간의 GTFS 계획 시간 — {@code from} 정차(도착 → 출발)와 운행(출발 → {@code to} 도착)을 <b>한 패턴</b>에서
+     * 뽑는다(진행 링 TYPICAL 직선). 둘이 붙어 있는 패턴 중 trip 이 가장 많은 것. 운행을 모르면 empty, 정차는 모르거나 0 이하면
+     * null.
+     */
+    public Optional<SegmentTimes> segmentTimes(String lineId, String direction, String fromStationId,
+                                               String toStationId) {
+        if (fromStationId == null || toStationId == null) {
+            return Optional.empty();
+        }
+        StationsAheadCalculator.Pattern best = null;
+        SegmentTimes times = null;
+        for (StationsAheadCalculator.Pattern pattern : patterns(lineId, direction)) {
+            List<StationsAheadCalculator.Stop> stops = pattern.stops();
+            for (int i = 0; i + 1 < stops.size(); i++) {
+                if (fromStationId.equals(stops.get(i).stationId()) && toStationId.equals(stops.get(i + 1).stationId())
+                        && (best == null || pattern.tripCount() > best.tripCount())) {
+                    Integer run = StationsAheadCalculator.seconds(stops.get(i).departureSec(), stops.get(i + 1).arrivalSec());
+                    if (run != null) {
+                        Integer dwell = StationsAheadCalculator.seconds(stops.get(i).arrivalSec(), stops.get(i).departureSec());
+                        best = pattern;
+                        times = new SegmentTimes(dwell == null || dwell <= 0 ? null : dwell, run);
+                    }
+                }
+            }
+        }
+        return Optional.ofNullable(times);
+    }
+
+    /** @see #segmentTimes */
+    public record SegmentTimes(Integer dwellSeconds, int runSeconds) {
+    }
+
+    /**
      * {@code fromStationId} 도착 → 그 뒤 {@code toStationId} 도착까지 GTFS 계획 초(운행 + 사이 역 정차). 진행 링의 하차역 도착
      * 예정(#310)이 다음 역 예정에 더한다. 두 역을 이 순서로 지나는 패턴 중 trip 이 가장 많은 것(완행이 보통 더 많다). 순환
      * 패턴은 {@code from} 다음 첫 {@code to} 까지만 본다. 모르면 empty. 같은 역이면 0.

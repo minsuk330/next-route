@@ -16,6 +16,8 @@ import org.testcontainers.utility.DockerImageName;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingStage;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 
 import java.math.BigDecimal;
@@ -157,6 +159,44 @@ class RedisSubwayRingAdapterIT {
         SubwayRingState old = adapter.find(JOURNEY_ID, 1, 4, 0).orElseThrow();
         assertThat(old.guidanceVersion()).isZero();
         assertThat(old.segmentProgress()).isEqualByComparingTo("0.45");
+    }
+
+    @Test
+    @DisplayName("예정 출처·단계·근거 시각이 왕복하고, 그 칸이 없는 배포 전 값은 null 로 읽힌다")
+    void sourceFieldsRoundTripAndOldValuesReadAsNull() {
+        adapter.save(ring(1, 4, 0, "0.4500")
+                .withSource(SubwayRingEtaSource.MEASURED, SubwayRingStage.RUN)
+                .withEstimatedAlightingAt(T0.plusSeconds(300), SubwayRingEtaSource.TYPICAL)
+                .withSourceTimes(T0.minusSeconds(90), T0));
+        SubwayRingState saved = adapter.find(JOURNEY_ID, 1, 4, 0).orElseThrow();
+        assertThat(saved.etaSource()).isEqualTo(SubwayRingEtaSource.MEASURED);
+        assertThat(saved.alightingEtaSource()).isEqualTo(SubwayRingEtaSource.TYPICAL);
+        assertThat(saved.stage()).isEqualTo(SubwayRingStage.RUN);
+        assertThat(saved.sourceObservedAt()).isEqualTo(T0.minusSeconds(90));
+        assertThat(saved.sourceSeenAt()).isEqualTo(T0);
+
+        String key = RedisSubwayRingAdapter.key(JOURNEY_ID, 1, 4, 0);
+        String old = redisTemplate.opsForValue().get(key)
+                .replaceAll(",\\s*\"(etaSource|alightingEtaSource|stage|sourceObservedAt|sourceSeenAt)\"\\s*:\\s*(\"[^\"]*\"|[^,}]+)", "");
+        assertThat(old).doesNotContain("etaSource").doesNotContain("sourceSeenAt");
+        redisTemplate.opsForValue().set(key, old);
+
+        SubwayRingState read = adapter.find(JOURNEY_ID, 1, 4, 0).orElseThrow();
+        assertThat(read.etaSource()).isNull();
+        assertThat(read.stage()).isNull();
+        assertThat(read.sourceSeenAt()).isNull();
+        assertThat(read.segmentProgress()).isEqualByComparingTo("0.45");
+    }
+
+    @Test
+    @DisplayName("모르는 칸이 붙은 값도 읽힌다 — 롤백한 옛 코드가 새 값을 읽을 때와 같은 상황")
+    void unknownFieldsAreIgnored() {
+        adapter.save(ring(1, 4, 0, "0.4500"));
+        String key = RedisSubwayRingAdapter.key(JOURNEY_ID, 1, 4, 0);
+        String future = redisTemplate.opsForValue().get(key).replaceFirst("\\{", "{\"futureField\":\"X\",");
+        redisTemplate.opsForValue().set(key, future);
+
+        assertThat(adapter.find(JOURNEY_ID, 1, 4, 0)).isPresent();
     }
 
     @Test

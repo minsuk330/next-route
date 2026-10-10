@@ -4406,3 +4406,22 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `git grep 'boarding-evidence|SubwayBindingMatch|SubwayTrainMatcher|SubwayBoardingEvidence|SubwayBindingUseCase|findMatchable'` → 0
 ### 배포
 - 마이그레이션 없음. api(엔드포인트 제거)+worker(판정 스케줄러 제거) 교체. 순서 무관
+
+## 2026-10-10 지하철 링 TYPICAL PR-1 — 예정 출처·단계·근거 시각 계약 (feat/ring-eta-source-contract)
+
+### 확정
+- 플랜 = `docs/plan/subway-ring-typical-progress/PLAN.md` v2(Opus 리뷰 REVIEW.md 반영). 이 PR 은 **화면 동작 불변**, 칸·지문만
+- `SubwayRingState` +5칸: `etaSource`·`alightingEtaSource`(외부), `stage`·`sourceObservedAt`·`sourceSeenAt`(내부). 옛 22인자 생성자 유지, with… 전부 통과(시험 고정)
+- `sourceSeenAt` = 갱신기가 결정: 관측 원천 시각이 직전 링 `sourceObservedAt` 과 같으면 직전 `sourceSeenAt` 이어쓰기, 다르면 now. `collectedAt` 은 매 수집마다 새로 찍혀(`RealtimeSubwayCollector:100`) 이 용도로 못 씀(리뷰 R1)
+- 계산기 출처: `reanchored`→LIVE, `fromMeasured`→MEASURED, 예정 null 이면 출처 null(`stamped` 가 정규화). 단계: 정차 hold DWELL, 진입 APPROACH, 도착 ARRIVED(승차역 도착은 다음 구간 RUN — `arrivedAt` 가드), LATE, 그 외 RUN, freeze 는 직전 단계 유지
+- 하차 예정 출처: 다음 역이 하차역이면 etaSource, 아니면 TYPICAL(남은 구간 GTFS), 하차 예정 null 이면 null
+- Context `typical` = 목표 구간만 `SubwayLineOrder.segmentTimes`(정차=같은 패턴 직전 역 도착→출발, 0 이하 null; 운행=출발→도착). 계산기는 아직 안 읽음
+- 설정 5개(typical-factor 1.2·default-dwell 30s·stale-after 60s·stale-source-max-age 240s·late-grace 30s) 추가만, 미사용
+- 지문에 etaSource·alightingEtaSource 추가 → **배포 직후 진행 중 링마다 ANCHOR push 1건·guidanceVersion 1회 상승(일회성, 허용 — 리뷰 Y4)**
+### 함정
+- `anchored()` 는 승차역(0) 진행률 1 이면 `advanced()` 로 다음 구간을 만든다 → 호출부가 ARRIVED 를 덮어쓰면 새 구간에 ARRIVED 가 붙어 PR-3 의 단계 역행 금지가 그 구간을 막는다. `arrivedAt(target, …)` 로 순번이 같을 때만 붙임
+### 검증
+- `./gradlew test --tests '*SubwayRing*' --tests '*SubwayGuidance*' --tests '*JourneySubwayGuidance*' --tests '*SubwayRideScenario*' --tests '*SubwayLineOrder*'` 통과(신규: SubwayRingStateSourceTest 3·Calculator SourceAndStage 5·RedisSubwayRingAdapterIT +2·SubwayLineOrderTest +2·SubwayRingIT +1·Decider +1·Payload +1)
+- 전체 `./gradlew test --continue` → 2805 중 12 실패, 전부 기존 무관(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·JourneyNotificationSchemaIT 1)
+### 배포
+- 마이그레이션 없음. api(스냅샷 칸)+worker(링·push) 교체. 롤백 안전: 새 칸은 옛 코드가 무시(Boot 기본 매퍼), 새 enum 은 배포 후 값 추가 금지

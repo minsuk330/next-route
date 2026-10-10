@@ -16,6 +16,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.dto.SubwayBindingAbandonReason;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.out.SubwayRingPort;
@@ -211,6 +212,36 @@ class SubwayRingIT {
         assertThat(saved.remainingStations()).isEqualTo(2);
         assertThat(saved.quality()).isEqualTo(SubwayRingQuality.NORMAL);
         assertThat(saved.estimatedNextStationAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("서버가 근거를 처음 본 시각: 같은 행(같은 recptnDt)이 다시 오면 이어 쓰고, 새 행이면 새로 찍는다")
+    void sourceSeenAtCarriesOverForTheSameRow() {
+        insertBinding("CONFIRMED");
+        SubwayRealtimeTrain row = arrivalRow(STATN_MIDDLE, "중간역", "99", 90);
+        given(realtimeCachePort.readSnapshot()).willReturn(Optional.of(snapshotOf(row)));
+
+        updateService.runOnce();
+        SubwayRingState first = savedRing();
+        assertThat(first.sourceSeenAt()).isNotNull();
+        assertThat(first.sourceObservedAt()).isBefore(first.sourceSeenAt());
+        assertThat(first.etaSource()).isEqualTo(SubwayRingEtaSource.LIVE);
+
+        org.mockito.Mockito.clearInvocations(ringPort);
+        given(ringPort.find(anyLong(), anyInt(), anyInt(), anyInt())).willReturn(Optional.of(first));
+        updateService.runOnce();
+        SubwayRingState second = savedRing();
+        assertThat(second.sourceSeenAt()).as("같은 행은 처음 본 시각을 잇는다").isEqualTo(first.sourceSeenAt());
+
+        org.mockito.Mockito.clearInvocations(ringPort);
+        given(realtimeCachePort.readSnapshot()).willReturn(Optional.of(snapshotOf(SubwayRealtimeTrain.builder()
+                .trainNo(TRAIN_NO).stationId(STATN_MIDDLE).stationName("중간역").lineId(lineId)
+                .direction(DIRECTION).arrivalCode("99").arrivalSeconds(80)
+                .receivedAt(LocalDateTime.now(SEOUL).plusSeconds(1).format(RECEIVED_AT)).build())));
+        updateService.runOnce();
+        SubwayRingState third = savedRing();
+        assertThat(third.sourceSeenAt()).as("새 행은 지금으로 찍는다").isAfterOrEqualTo(first.sourceSeenAt());
+        assertThat(third.sourceObservedAt()).isAfter(first.sourceObservedAt());
     }
 
     @Test

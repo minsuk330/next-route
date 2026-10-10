@@ -101,7 +101,10 @@ public class SubwayRingPushDecider {
                 bucketedEta(ring.estimatedAlightingAt()),
                 // 멈춤 사유·정차 역은 앱 문구("○○ 정차 중")를 바꾼다. 같은 값이 반복되면 지문도 같다.
                 String.valueOf(ring.holdReason()),
-                String.valueOf(ring.holdStationName()));
+                String.valueOf(ring.holdStationName()),
+                // 예정 출처가 바뀌면 앱이 시각을 숨기거나 다시 보인다 — 같은 30초 눈금이어도 한 번 보낸다.
+                String.valueOf(ring.etaSource()),
+                String.valueOf(ring.alightingEtaSource()));
         return hash(material);
     }
 

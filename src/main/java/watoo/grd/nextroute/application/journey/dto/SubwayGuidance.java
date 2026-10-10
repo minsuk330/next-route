@@ -38,6 +38,9 @@ import java.time.Instant;
  * @param estimatedAlightingAt   하차역 도착 예정(#310). 다음 역 예정 + GTFS 계획 초. 모르면 null — 앱이 자체 추정
  * @param holdReason             링이 정상적으로 멈춘 이유({@code PREV_STATION_STOPPED}·{@code LATE}). 보간 중·STALE 이면 null
  * @param holdStationName        {@code PREV_STATION_STOPPED} 일 때 열차가 서 있는 역. 모르면(승차역 대기 구간) null
+ * @param etaSource              {@code estimatedNextStationAt} 의 출처(LIVE·MEASURED·TYPICAL). 예정이 없으면 null.
+ *                               앱은 TYPICAL 이면 도착 시각을 숨긴다
+ * @param alightingEtaSource     {@code estimatedAlightingAt} 의 출처. 다음 역이 하차역이 아니면 남은 구간이 계획값이라 TYPICAL
  */
 public record SubwayGuidance(
         SubwayBindingStatus bindingStatus,
@@ -59,8 +62,21 @@ public record SubwayGuidance(
         Long version,
         Instant estimatedAlightingAt,
         SubwayRingHoldReason holdReason,
-        String holdStationName
+        String holdStationName,
+        SubwayRingEtaSource etaSource,
+        SubwayRingEtaSource alightingEtaSource
 ) {
+
+    public SubwayGuidance(SubwayBindingStatus bindingStatus, SubwayRingPhase phase, String lineName,
+                          String nextStationName, String alightingStationName, Integer remainingStations,
+                          BigDecimal segmentProgress, Instant progressBaseAt, BigDecimal progressTarget,
+                          Instant estimatedNextStationAt, Instant progressValidUntil,
+                          SubwayRingQuality quality, Instant observedAt, Long version,
+                          Instant estimatedAlightingAt, SubwayRingHoldReason holdReason, String holdStationName) {
+        this(bindingStatus, phase, lineName, nextStationName, alightingStationName, remainingStations,
+                segmentProgress, progressBaseAt, progressTarget, estimatedNextStationAt, progressValidUntil,
+                quality, observedAt, version, estimatedAlightingAt, holdReason, holdStationName, null, null);
+    }
 
     /** 멈춤 사유 없이(옛 모양). */
     public SubwayGuidance(SubwayBindingStatus bindingStatus, SubwayRingPhase phase, String lineName,
@@ -108,6 +124,7 @@ public record SubwayGuidance(
                 ring.estimatedNextStationAt(), ring.progressValidUntil(),
                 ring.quality(), ring.observedAt(),
                 ring.guidanceVersion() > 0 ? ring.guidanceVersion() : null,
-                ring.estimatedAlightingAt(), ring.holdReason(), ring.holdStationName());
+                ring.estimatedAlightingAt(), ring.holdReason(), ring.holdStationName(),
+                ring.etaSource(), ring.alightingEtaSource());
     }
 }

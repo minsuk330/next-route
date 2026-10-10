@@ -1,6 +1,8 @@
 package watoo.grd.nextroute.application.journey.service;
 
 import org.junit.jupiter.api.DisplayName;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingStage;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
@@ -163,6 +165,20 @@ class SubwayRingPushDeciderTest {
                     ring().withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, "역Z"))).isPresent();
             assertThat(decider.decide(stopped, ring().withHold(SubwayRingHoldReason.LATE, null))).isPresent();
             assertThat(decider.decide(stopped, ring())).isPresent();
+        }
+
+        @Test
+        @DisplayName("예정 출처만 바뀌어도 보낸다 — 앱이 시각을 숨기거나 다시 보인다. 같은 출처 반복은 조용하다")
+        void etaSourceChangeSendsAnchor() {
+            SubwayRingState typical = ring().withSource(SubwayRingEtaSource.TYPICAL, SubwayRingStage.RUN);
+            SubwayRingState measured = ring().withSource(SubwayRingEtaSource.MEASURED, SubwayRingStage.RUN);
+
+            assertThat(decider.decide(typical, measured).orElseThrow().reason())
+                    .isEqualTo(SubwayRingPushReason.ANCHOR);
+            assertThat(decider.decide(typical, ring().withSource(SubwayRingEtaSource.TYPICAL, SubwayRingStage.RUN)))
+                    .isEmpty();
+            assertThat(decider.decide(ring(), ring().withSource(null, SubwayRingStage.DWELL)))
+                    .as("단계는 화면이 아니다").isEmpty();
         }
 
         @Test
