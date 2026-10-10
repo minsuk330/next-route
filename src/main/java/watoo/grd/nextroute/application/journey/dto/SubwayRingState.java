@@ -26,6 +26,10 @@ import java.time.Instant;
  *                                0 = 아직 부여 전(배포 전 Redis 값 포함)
  * @param estimatedAlightingAt    하차역 도착 예정(#310). 다음 역 도착 예정 + GTFS 계획 초(다음 역 도착 → 하차역 도착).
  *                                다음 역 예정이 없거나 계획을 모르면 null. 계산기가 아니라 갱신기가 붙인다
+ * @param holdReason              링이 멈춘 이유. 멈춤이 아니거나(보간 중·도착·진입) STALE freeze 면 null —
+ *                                STALE 은 {@code quality} 하나로만 말한다
+ * @param holdStationName         {@code PREV_STATION_STOPPED} 일 때 열차가 서 있는 역(체인의 다음 역 바로 앞).
+ *                                승차역 대기 구간은 체인에 그 역이 없어 null
  */
 public record SubwayRingState(
         Long journeyId,
@@ -50,8 +54,27 @@ public record SubwayRingState(
         Instant observedAt,
         Instant updatedAt,
         long guidanceVersion,
-        Instant estimatedAlightingAt
+        Instant estimatedAlightingAt,
+        SubwayRingHoldReason holdReason,
+        String holdStationName
 ) {
+
+    /** 멈춤 사유 없이 만든다(옛 모양 — Redis 에 남은 값·시험). */
+    public SubwayRingState(Long journeyId, int routeRevision, int legIndex, int bindingVersion,
+                           int nextStationSequence, String canonicalNextStationKey,
+                           String nextStationName, String alightingStationName,
+                           Integer remainingStations, BigDecimal segmentProgress,
+                           Instant progressBaseAt, BigDecimal progressTarget,
+                           Instant estimatedNextStationAt, Instant progressValidUntil,
+                           SubwayRingPhase phase, SubwayRingQuality quality,
+                           Instant observedAt, Instant updatedAt, long guidanceVersion,
+                           Instant estimatedAlightingAt) {
+        this(journeyId, routeRevision, legIndex, bindingVersion, nextStationSequence,
+                canonicalNextStationKey, nextStationName, alightingStationName, remainingStations,
+                segmentProgress, progressBaseAt, progressTarget, estimatedNextStationAt,
+                progressValidUntil, phase, quality, observedAt, updatedAt, guidanceVersion,
+                estimatedAlightingAt, null, null);
+    }
 
     /** 하차 예정 없이 만든다(옛 모양 — Redis 에 남은 값·시험). */
     public SubwayRingState(Long journeyId, int routeRevision, int legIndex, int bindingVersion,
@@ -89,7 +112,7 @@ public record SubwayRingState(
                 nextStationSequence, canonicalNextStationKey, nextStationName,
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 target, estimatedNextStationAt, progressValidUntil, phase, quality,
-                observedAt, updatedAt, guidanceVersion, estimatedAlightingAt);
+                observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, holdReason, holdStationName);
     }
 
     public SubwayRingState withProgressValidUntil(Instant validUntil) {
@@ -97,7 +120,7 @@ public record SubwayRingState(
                 nextStationSequence, canonicalNextStationKey, nextStationName,
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, validUntil, phase, quality,
-                observedAt, updatedAt, guidanceVersion, estimatedAlightingAt);
+                observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, holdReason, holdStationName);
     }
 
     /** 같은 앵커를 새 관측으로 확인만 했다. 화면 값은 그대로, 관측·갱신 시각만 바뀐다. */
@@ -106,7 +129,7 @@ public record SubwayRingState(
                 nextStationSequence, canonicalNextStationKey, nextStationName,
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
-                observedAt, updatedAt, guidanceVersion, estimatedAlightingAt);
+                observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, holdReason, holdStationName);
     }
 
     public SubwayRingState withEstimatedAlightingAt(Instant alightingAt) {
@@ -114,7 +137,7 @@ public record SubwayRingState(
                 nextStationSequence, canonicalNextStationKey, nextStationName,
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
-                observedAt, updatedAt, guidanceVersion, alightingAt);
+                observedAt, updatedAt, guidanceVersion, alightingAt, holdReason, holdStationName);
     }
 
     public SubwayRingState withGuidanceVersion(long version) {
@@ -122,7 +145,16 @@ public record SubwayRingState(
                 nextStationSequence, canonicalNextStationKey, nextStationName,
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
-                observedAt, updatedAt, version, estimatedAlightingAt);
+                observedAt, updatedAt, version, estimatedAlightingAt, holdReason, holdStationName);
+    }
+
+    /** 링이 왜 멈췄는지 붙인다. 진행률·예정은 건드리지 않는다 — 앱 문구("○○ 정차 중")용이다. */
+    public SubwayRingState withHold(SubwayRingHoldReason reason, String stationName) {
+        return new SubwayRingState(journeyId, routeRevision, legIndex, bindingVersion,
+                nextStationSequence, canonicalNextStationKey, nextStationName,
+                alightingStationName, remainingStations, segmentProgress, progressBaseAt,
+                progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
+                observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, reason, stationName);
     }
 
     /** 이 상태가 그 고정 세대의 것인지. 아니면 옛 worker 가 쓴 값이다. */

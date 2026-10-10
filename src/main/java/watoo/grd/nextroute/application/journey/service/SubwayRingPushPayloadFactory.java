@@ -110,6 +110,9 @@ public class SubwayRingPushPayloadFactory {
         // 하차역 도착 예정(#310). 없으면 null — 앱이 자체 추정으로 돌아간다.
         props.put("estimatedAlightingAt", millis(ring.estimatedAlightingAt()));
         props.put("quality", ring.quality().name());
+        // 링이 왜 멈췄는지. 스냅샷 subwayGuidance 와 같은 이름 — 실기기는 push 가 앱을 거치지 않는다.
+        props.put("holdReason", ring.holdReason() == null ? null : ring.holdReason().name());
+        props.put("holdStationName", ring.holdStationName());
         props.put("updatedAt", updatedAt.toEpochMilli());
         return props;
     }

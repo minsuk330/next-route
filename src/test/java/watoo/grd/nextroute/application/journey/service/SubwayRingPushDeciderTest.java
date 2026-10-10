@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingHoldReason;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingPushReason;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
@@ -147,6 +148,21 @@ class SubwayRingPushDeciderTest {
 
             assertThat(decision.reason()).isEqualTo(SubwayRingPushReason.ANCHOR);
             assertThat(decision.critical()).isFalse();
+        }
+
+        @Test
+        @DisplayName("멈춤 이유·정차 역이 바뀌면 보낸다, 같은 값이 반복되면 조용하다")
+        void holdChangeSendsAnchor() {
+            SubwayRingState stopped = ring().withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, "역A");
+
+            assertThat(decider.decide(ring(), stopped).orElseThrow().reason())
+                    .isEqualTo(SubwayRingPushReason.ANCHOR);
+            assertThat(decider.decide(stopped,
+                    ring().withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, "역A"))).isEmpty();
+            assertThat(decider.decide(stopped,
+                    ring().withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, "역Z"))).isPresent();
+            assertThat(decider.decide(stopped, ring().withHold(SubwayRingHoldReason.LATE, null))).isPresent();
+            assertThat(decider.decide(stopped, ring())).isPresent();
         }
 
         @Test
