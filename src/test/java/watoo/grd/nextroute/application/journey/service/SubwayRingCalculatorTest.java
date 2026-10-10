@@ -51,7 +51,7 @@ class SubwayRingCalculatorTest {
     class CodeBeforeSeconds {
 
         @Test
-        @DisplayName("arvlCd=99 + 초 없음 은 '아직 멀다' — freeze 하고 STALE 이다")
+        @DisplayName("arvlCd=99 + 초 없음 은 '아직 멀다' — 지금 화면 값에 freeze 하고 STALE 이다")
         void enrouteWithoutSecondsFreezes() {
             SubwayRingState previous = enroute(BigDecimal.valueOf(0.30), T0, T0.plusSeconds(100));
 
@@ -60,7 +60,8 @@ class SubwayRingCalculatorTest {
                             T0.plusSeconds(30)),
                     T0.plusSeconds(30));
 
-            assertThat(state.segmentProgress()).isEqualByComparingTo("0.30");
+            // 100초 구간의 30% → 0.30 + (0.90 - 0.30) × 0.3. 앱은 이미 이 값을 그리고 있다(#357).
+            assertThat(state.segmentProgress()).isEqualByComparingTo("0.48");
             assertThat(state.quality()).isEqualTo(SubwayRingQuality.STALE);
             assertThat(state.estimatedNextStationAt()).isNull();
         }
@@ -256,7 +257,8 @@ class SubwayRingCalculatorTest {
                     T0.plusSeconds(30));
 
             assertThat(state.nextStationSequence()).isEqualTo(2);
-            assertThat(state.segmentProgress()).isEqualByComparingTo("0.40");
+            // 앵커 = 지금 화면 값(0.40 + 0.50 × 30/60, #357).
+            assertThat(state.segmentProgress()).isEqualByComparingTo("0.65");
             assertThat(state.quality()).isEqualTo(SubwayRingQuality.STALE);
         }
     }
@@ -268,13 +270,15 @@ class SubwayRingCalculatorTest {
     class Freeze {
 
         @Test
-        @DisplayName("관측이 없으면 마지막 값에 멈추고 보간을 끊는다")
+        @DisplayName("관측이 없으면 지금 화면 값에 멈추고 보간을 끊는다")
         void noObservationFreezes() {
             SubwayRingState previous = enroute(BigDecimal.valueOf(0.55), T0, T0.plusSeconds(60));
 
             SubwayRingState state = calculator.next(previous, context, null, T0.plusSeconds(45));
 
-            assertThat(state.segmentProgress()).isEqualByComparingTo("0.55");
+            // 0.55 + (0.90 - 0.55) × 45/60 — 저장된 base(0.55)로 돌아가면 push 프레임이 링을 되감는다(#357).
+            assertThat(state.segmentProgress()).isEqualByComparingTo("0.8125");
+            assertThat(state.progressBaseAt()).isEqualTo(T0.plusSeconds(45));
             assertThat(state.estimatedNextStationAt()).isNull();
             assertThat(state.quality()).isEqualTo(SubwayRingQuality.STALE);
         }
@@ -290,7 +294,8 @@ class SubwayRingCalculatorTest {
                             late.plusSeconds(60), late),
                     late.plus(properties.getFreshnessWindow()).plusSeconds(1));
 
-            assertThat(state.segmentProgress()).isEqualByComparingTo("0.55");
+            // 예정(T0+60)이 지났으니 앱 화면은 상한에 있다 — 거기서 멈춘다.
+            assertThat(state.segmentProgress()).isEqualByComparingTo("0.90");
             assertThat(state.quality()).isEqualTo(SubwayRingQuality.STALE);
         }
 
@@ -298,10 +303,14 @@ class SubwayRingCalculatorTest {
         @DisplayName("멈춘 동안 진행률이 정적 소요시간으로 늘어나지 않는다")
         void frozenProgressNeverGrows() {
             SubwayRingState state = enroute(BigDecimal.valueOf(0.55), T0, T0.plusSeconds(60));
-            for (int tick = 1; tick <= 10; tick++) {
+            state = calculator.next(state, context, null, T0.plusSeconds(30));
+            BigDecimal frozen = state.segmentProgress();
+            for (int tick = 2; tick <= 10; tick++) {
                 state = calculator.next(state, context, null, T0.plusSeconds(tick * 30L));
             }
-            assertThat(state.segmentProgress()).isEqualByComparingTo("0.55");
+            // 첫 freeze 는 그때 화면 값(0.725)이고, 그 뒤로는 그대로다.
+            assertThat(frozen).isEqualByComparingTo("0.725");
+            assertThat(state.segmentProgress()).isEqualByComparingTo(frozen);
         }
     }
 
@@ -337,15 +346,16 @@ class SubwayRingCalculatorTest {
                         SubwayRingObservation.arrival(code, 1, T0.plusSeconds(160), T0.plusSeconds(20)),
                         T0.plusSeconds(20));
 
-                assertThat(held.segmentProgress()).isEqualByComparingTo("0.40");
-                assertThat(held.progressTarget()).isEqualByComparingTo("0.40");
+                // 100초 구간의 20% 를 그리던 중이다 → 0.40 + 0.50 × 0.2. 거기 선다.
+                assertThat(held.segmentProgress()).isEqualByComparingTo("0.50");
+                assertThat(held.progressTarget()).isEqualByComparingTo("0.50");
                 assertThat(held.estimatedNextStationAt()).isNull();
                 assertThat(held.quality()).isEqualTo(SubwayRingQuality.NORMAL);
             }
         }
 
         @Test
-        @DisplayName("반복 관측에 남은 초가 없으면 직전 값에 멈춘다 — 0 으로 떨어뜨리지 않는다")
+        @DisplayName("반복 관측에 남은 초가 없으면 지금 화면 값에 멈춘다 — 0 으로도, 직전 base 로도 떨어뜨리지 않는다")
         void freezesWithoutSeconds() {
             SubwayRingState previous = enroute(BigDecimal.valueOf(0.40), T0, T0.plusSeconds(100));
 
@@ -353,7 +363,7 @@ class SubwayRingCalculatorTest {
                     SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1, null,
                             T0.plusSeconds(30)), T0.plusSeconds(30));
 
-            assertThat(state.segmentProgress()).isEqualByComparingTo("0.40");
+            assertThat(state.segmentProgress()).isEqualByComparingTo("0.55");
             assertThat(state.estimatedNextStationAt()).isNull();
             assertThat(state.quality()).isEqualTo(SubwayRingQuality.STALE);
         }
@@ -754,6 +764,78 @@ class SubwayRingCalculatorTest {
     // ── 픽스처 ──────────────────────────────────────────────────────────────
 
     /** 역A(순번 1) 로 가는 중인 상태. */
+    // ── 화면 단조(#357) ─────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("같은 구간의 새 링은 지금 화면보다 뒤로 가지 않는다 — push 는 앱 가드를 거치지 않는다(#357)")
+    class NeverBehindScreen {
+
+        @Test
+        @DisplayName("원천 지연만큼 과거 관측으로 재앵커해도 지금 화면 값에서 이어 그린다")
+        void lateObservationDoesNotRewind() {
+            SubwayRingState previous = enroute(BigDecimal.valueOf(0.20), T0, T0.plusSeconds(100));
+            Instant now = T0.plusSeconds(80);
+
+            // 관측은 20초 전(T0+60) 것이다. 그 시각 기준 현재값은 0.62 지만 앱은 지금 0.76 을 그린다.
+            SubwayRingState state = calculator.next(previous, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ENROUTE, 1,
+                            T0.plusSeconds(140), T0.plusSeconds(60)), now);
+
+            assertThat(state.shownProgressAt(now))
+                    .isGreaterThanOrEqualTo(previous.shownProgressAt(now));
+            assertThat(state.segmentProgress()).isEqualByComparingTo("0.76");
+            assertThat(state.progressBaseAt()).isEqualTo(now);
+            assertThat(state.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(140));
+        }
+
+        @Test
+        @DisplayName("멈춘 링(STALE)은 보간하지 않으니 base 그대로가 화면이다 — 올리지 않는다")
+        void staleRingIsNotLifted() {
+            SubwayRingState frozen = calculator.next(
+                    enroute(BigDecimal.valueOf(0.55), T0, T0.plusSeconds(60)), context, null, T0.plusSeconds(30));
+
+            SubwayRingState again = calculator.next(frozen, context, null, T0.plusSeconds(200));
+
+            assertThat(again.segmentProgress()).isEqualByComparingTo(frozen.segmentProgress());
+            assertThat(again.progressBaseAt()).isEqualTo(frozen.progressBaseAt());
+        }
+
+        @Test
+        @DisplayName("구간이 바뀌면 0 에서 시작한다 — 다른 구간의 화면 값과 견주지 않는다")
+        void newSegmentStartsAtZero() {
+            SubwayRingState previous = enroute(BigDecimal.valueOf(0.80), T0, T0.plusSeconds(60));
+
+            SubwayRingState state = calculator.next(previous, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.DEPARTED, 1, null, T0.plusSeconds(50)),
+                    T0.plusSeconds(50));
+
+            assertThat(state.nextStationSequence()).isEqualTo(2);
+            assertThat(state.segmentProgress()).isEqualByComparingTo("0");
+        }
+
+        @Test
+        @DisplayName("tick 마다 화면 값이 줄지 않는다 — 관측·멈춤·재앵커가 섞여도")
+        void shownProgressIsMonotonicAcrossTicks() {
+            SubwayRingState state = calculator.next(null, context,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1, T0.plusSeconds(120), T0), T0);
+            SubwayRingObservation[] ticks = {
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ENROUTE, 1, T0.plusSeconds(150), T0.plusSeconds(10)),
+                    null,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_ARRIVED, 1, null, T0.plusSeconds(30)),
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1, T0.plusSeconds(100), T0.plusSeconds(40)),
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ENROUTE, 1, null, T0.plusSeconds(60)),
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ENROUTE, 1, T0.plusSeconds(200), T0.plusSeconds(70)),
+            };
+            for (int i = 0; i < ticks.length; i++) {
+                Instant now = T0.plusSeconds(15L * (i + 1) + 10);
+                BigDecimal before = state.shownProgressAt(now);
+                state = calculator.next(state, context, ticks[i], now);
+                assertThat(state.nextStationSequence()).isEqualTo(1);
+                assertThat(state.shownProgressAt(now)).as("tick %d", i).isGreaterThanOrEqualTo(before);
+            }
+        }
+    }
+
     private SubwayRingState enroute(BigDecimal progress, Instant baseAt, Instant estimatedAt) {
         return new SubwayRingState(JOURNEY_ID, 1, 4, 0,
                 1, "1002000201", "역A", "하차역", 3,
