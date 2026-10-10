@@ -5,11 +5,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
+import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLiveActivityToken;
 import watoo.grd.nextroute.domain.journey.entity.SubwayRingPushEvent;
 import watoo.grd.nextroute.domain.journey.entity.SubwayRingPushOutbox;
 import watoo.grd.nextroute.domain.journey.entity.SubwayRingPushStatus;
+import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
 import watoo.grd.nextroute.domain.journey.repository.SubwayLiveActivityTokenRepository;
 import watoo.grd.nextroute.domain.journey.repository.SubwayRingPushOutboxRepository;
@@ -34,6 +36,7 @@ public class SubwayRingPushRelayTxService {
     private final SubwayRingPushOutboxRepository outboxRepository;
     private final SubwayLegBindingRepository bindingRepository;
     private final SubwayLiveActivityTokenRepository tokenRepository;
+    private final JourneySessionRepository sessionRepository;
     private final JourneySubwayRingProperties properties;
     private final Clock clock;
 
@@ -94,6 +97,13 @@ public class SubwayRingPushRelayTxService {
         }
         if (binding.getVersion() != row.getBindingVersion()) {
             return Optional.of("stale_generation");
+        }
+        // 쌓인 사이 여정이 다음 단계로 넘어갔다 — 이 지하철 화면이 다음 도보·버스 화면을 덮는다(링 대상 조건과 같은 창).
+        JourneySession session = sessionRepository.findById(row.getJourneyId()).orElse(null);
+        if (session == null || session.getRouteRevision() != row.getRouteRevision()
+                || session.getCurrentLegIndex() < row.getLegIndex() - 1
+                || session.getCurrentLegIndex() > row.getLegIndex()) {
+            return Optional.of("leg_left");
         }
         return Optional.empty();
     }

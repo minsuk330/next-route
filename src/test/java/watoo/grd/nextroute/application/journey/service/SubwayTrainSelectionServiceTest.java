@@ -130,13 +130,29 @@ class SubwayTrainSelectionServiceTest {
     }
 
     @Test
-    @DisplayName("대기 단계가 아니면 409 NOT_WAITING_FOR_SUBWAY")
+    @DisplayName("지하철 대기·탑승이 아닌 단계(내린 뒤 도보)면 409 NOT_WAITING_FOR_SUBWAY")
     void notWaiting() {
-        session.moveToLeg(1);
+        JourneyLeg walk = leg(2, JourneyLegType.WALK);
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY, 1))
+                .willReturn(List.of(wait, ride, walk));
+        session.moveToLeg(2);
 
         assertThatThrownBy(() -> service.candidates(USER, JOURNEY))
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(JourneyErrorCode.NOT_WAITING_FOR_SUBWAY);
+    }
+
+    @Test
+    @DisplayName("탑승 중이면 곧 올 열차(뒤차)를 읽지 않고 떠난 열차만 후보로 낸다")
+    void ridingOffersOnlyDeparted() {
+        session.moveToLeg(1);
+        given(arrivalReader.justDepartedTrainNos("1002", "1002000222", 0)).willReturn(List.of("2386"));
+
+        List<SubwayTrainCandidate> candidates = service.candidates(USER, JOURNEY);
+
+        assertThat(candidates).extracting(SubwayTrainCandidate::trainNo).containsExactly("2386");
+        assertThat(candidates.get(0).kind()).isEqualTo(SubwayTrainCandidate.Kind.DEPARTED);
+        verify(arrivalReader, never()).arrivalsByStation(anyString(), anyString(), anyString(), anyInt());
     }
 
     @Test

@@ -1,5 +1,9 @@
 package watoo.grd.nextroute.application.journey;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
+import watoo.grd.nextroute.global.error.BusinessException;
+import watoo.grd.nextroute.application.journey.dto.SubwayTrackabilityView;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -63,6 +67,9 @@ class SubwayTrainSelectionIT {
     private static final String PATH_KEY = "0";
     private static final String LINE = "1002";
     private static final String STATION = "1002000222";
+    private static final String TRANSFER_SESSION_ID = "sess-subway-selection-transfer-it";
+    private static final String LINE_3 = "1003";
+    private static final String STATION_3 = "1003000330";
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired SubwayTrainSelectionService selectionService;
@@ -70,6 +77,7 @@ class SubwayTrainSelectionIT {
     @Autowired SubwayBindingMatchService matchService;
     @Autowired SubwayLegBindingRepository bindingRepository;
     @Autowired JdbcTemplate jdbcTemplate;
+    @Autowired watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository sessionRepository;
     @MockBean RouteSearchSnapshotPort snapshotPort;
     @MockBean SubwayRealtimeArrivalReader arrivalReader;
 
@@ -211,6 +219,155 @@ class SubwayTrainSelectionIT {
                 """, rideLegId, journeyId, LINE);
 
         assertThat(ringTargetIds()).contains(rideLegId);
+    }
+
+    @Test
+    @DisplayName("후보: 대기 중이면 곧 올 열차 뒤에 막 떠난 열차(kind 로 가른다)")
+    void waitingCandidatesIncludeDeparted() {
+        given(arrivalReader.justDepartedTrainNos(LINE, STATION, 0)).willReturn(List.of("2388"));
+
+        List<SubwayTrainCandidate> candidates = selectionService.candidates(userId, journeyId);
+
+        assertThat(candidates).extracting(SubwayTrainCandidate::trainNo).containsExactly("2390", "2392", "2388");
+        assertThat(candidates).extracting(SubwayTrainCandidate::kind).containsExactly(
+                SubwayTrainCandidate.Kind.UPCOMING, SubwayTrainCandidate.Kind.UPCOMING,
+                SubwayTrainCandidate.Kind.DEPARTED);
+        assertThat(candidates.get(2).arrivalSeconds()).isNull();
+    }
+
+    @Test
+    @DisplayName("탑승 중 '다른 열차예요': 떠난 열차만 후보, 곧 올 열차(뒤차)는 422, 떠난 열차로 다시 고르면 세대가 오른다")
+    void reselectWhileRiding() {
+        selectionService.select(userId, journeyId, "2392", 1);
+        long before = versionOf();
+        ride(20);
+        given(arrivalReader.justDepartedTrainNos(LINE, STATION, 0)).willReturn(List.of("2386"));
+
+        List<SubwayTrainCandidate> candidates = selectionService.candidates(userId, journeyId);
+        assertThat(candidates).extracting(SubwayTrainCandidate::trainNo).containsExactly("2386");
+        assertThat(candidates).extracting(SubwayTrainCandidate::kind).containsOnly(SubwayTrainCandidate.Kind.DEPARTED);
+
+        assertThatThrownBy(() -> selectionService.select(userId, journeyId, "2390", 1))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.TRAIN_NOT_IN_CANDIDATES);
+
+        selectionService.select(userId, journeyId, "2386", 1);
+        SubwayLegBinding binding = bindingRepository.findByJourneyLegId(rideLegId).orElseThrow();
+        assertThat(binding.getStatus().name()).isEqualTo("CONFIRMED");
+        assertThat(binding.getTrainNo()).isEqualTo("2386");
+        assertThat((long) binding.getVersion()).isGreaterThan(before);
+    }
+
+    @Test
+    @DisplayName("지하철을 벗어난 단계(도보)에서는 고를 수 없다 — 409")
+    void cannotSelectAfterLeavingTheSubway() {
+        jdbcTemplate.update("update journey_session set current_leg_index = 2 where id = ?", journeyId);
+
+        assertThatThrownBy(() -> selectionService.candidates(userId, journeyId))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.NOT_WAITING_FOR_SUBWAY);
+        assertThatThrownBy(() -> selectionService.select(userId, journeyId, "2390", 1))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.NOT_WAITING_FOR_SUBWAY);
+    }
+
+    @Test
+    @DisplayName("지하 환승: 앞 지하철을 탄 채 다음 탑승 구간의 열차를 고른다(legIndex 지정)")
+    void selectNextTrainDuringTransfer() {
+        given(snapshotPort.find(TRANSFER_SESSION_ID, PATH_KEY)).willReturn(Optional.of(
+                new RouteSearchSnapshotPort.StoredPath(null, transferPath(), Instant.now().plusSeconds(600))));
+        Long user = newUser();
+        Long journey = startJourneyUseCase.start(user, new StartJourneyCommand(TRANSFER_SESSION_ID, PATH_KEY, false))
+                .journeyId();
+        List<Integer> rides = jdbcTemplate.queryForList("""
+                select leg_index from journey_leg where journey_id = ? and type = 'RIDE_SUBWAY' order by leg_index
+                """, Integer.class, journey);
+        assertThat(rides).hasSize(2);
+        int firstRide = rides.get(0);
+        int nextRide = rides.get(1);
+        jdbcTemplate.update("""
+                update journey_leg set route_id = ?, start_stop_id = ?
+                 where journey_id = ? and leg_index in (?, ?)""", LINE_3, STATION_3, journey, nextRide - 1, nextRide);
+        jdbcTemplate.update("""
+                update journey_leg_route_option set way_code = 2 where journey_leg_id in (
+                    select id from journey_leg where journey_id = ? and leg_index = ?)""", journey, nextRide - 1);
+        jdbcTemplate.update("update journey_session set current_leg_index = ? where id = ?", firstRide, journey);
+        given(arrivalReader.arrivalsByStation(eq(LINE_3), eq(STATION_3), anyString(), eq(2))).willReturn(List.of(
+                new SubwayRealtimeArrivalReader.Arrival(SubwayRealtimeTrain.builder()
+                        .trainNo("3101").lineId(LINE_3).stationId(STATION_3).direction("하행")
+                        .destinationName("오금").trainType("일반").build(), 120)));
+
+        assertThat(selectionService.candidates(user, journey, nextRide))
+                .extracting(SubwayTrainCandidate::trainNo).containsExactly("3101");
+        selectionService.select(user, journey, "3101", 1, nextRide);
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select b.train_no from subway_leg_binding b join journey_leg l on l.id = b.journey_leg_id
+                 where l.journey_id = ? and l.leg_index = ?""", String.class, journey, nextRide)).isEqualTo("3101");
+        jdbcTemplate.update("delete from subway_binding_event where journey_id = ?", journey);
+        jdbcTemplate.update("delete from subway_leg_binding where journey_id = ?", journey);
+    }
+
+    @Test
+    @DisplayName("추적 가능 여부: 서울 실시간 노선·방향·역이 있으면 예, 노선 미지원·방향 모름은 이유와 함께 아니오")
+    void trackability() {
+        assertThat(selectionService.trackability(userId, journeyId, 1).trackable()).isTrue();
+
+        jdbcTemplate.update("""
+                update journey_leg_route_option set way_code = null where journey_leg_id in (
+                    select id from journey_leg where journey_id = ?)""", journeyId);
+        assertThat(selectionService.trackability(userId, journeyId, 1).reason())
+                .isEqualTo(SubwayTrackabilityView.Reason.UNKNOWN_DIRECTION);
+
+        jdbcTemplate.update("update journey_leg set route_id = 'INCHEON1' where journey_id = ? and type = 'WAIT_SUBWAY'",
+                journeyId);
+        SubwayTrackabilityView view = selectionService.trackability(userId, journeyId, 1);
+        assertThat(view.trackable()).isFalse();
+        assertThat(view.reason()).isEqualTo(SubwayTrackabilityView.Reason.NO_REALTIME_LINE);
+    }
+
+    @Test
+    @DisplayName("오프라인 보호 연장: 그 탑승 중일 때만, 늘리기만 한다")
+    void subwayProtectionOnlyExtends() {
+        ride(5);
+        Instant later = Instant.now().plusSeconds(1800);
+        Instant earlier = Instant.now().plusSeconds(600);
+
+        assertThat(sessionRepository.extendSubwayProtection(journeyId, 1, 1, later)).isEqualTo(1);
+        assertThat(sessionRepository.extendSubwayProtection(journeyId, 1, 1, earlier)).isZero();
+        assertThat(sessionRepository.extendSubwayProtection(journeyId, 1, 0, later.plusSeconds(60))).isZero();
+        Instant stored = jdbcTemplate.queryForObject(
+                "select subway_offline_protection_until from journey_session where id = ?",
+                java.sql.Timestamp.class, journeyId).toInstant();
+        assertThat(stored).isCloseTo(later, org.assertj.core.api.Assertions.within(1, java.time.temporal.ChronoUnit.SECONDS));
+    }
+
+    /** 탑승 단계로 옮긴다(분 전에 탔다). */
+    private void ride(int minutesAgo) {
+        jdbcTemplate.update("update journey_session set current_leg_index = 1 where id = ?", journeyId);
+        jdbcTemplate.update("update journey_leg set state = 'ACTIVE', activated_at = now() - make_interval(mins => ?) "
+                + "where id = ?", minutesAgo, rideLegId);
+    }
+
+    private long versionOf() {
+        return jdbcTemplate.queryForObject("select version from subway_leg_binding where journey_leg_id = ?",
+                Long.class, rideLegId);
+    }
+
+    private PathResult transferPath() {
+        return new PathResult(1, null,
+                List.of(
+                        SubPathFixture.subway(10).names("강남", "교대")
+                                .subwayStations(900222, 900223).wayCode(0)
+                                .lanes(SubPathFixture.subwayLane("2호선", 2)).build(),
+                        SubPathFixture.subway(10).names("교대", "고속터미널")
+                                .subwayStations(900330, 900339).wayCode(2)
+                                .lanes(SubPathFixture.subwayLane("3호선", 3)).build(),
+                        SubPathFixture.walk(5).names("고속터미널", "목적지").distance(300.0).build()),
+                List.of());
     }
 
     private List<Long> ringTargetIds() {

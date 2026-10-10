@@ -81,6 +81,10 @@ public interface SubwayLegBindingRepository extends JpaRepository<SubwayLegBindi
      * <p>세션 상태·개정본 조건은 {@link #findMatchable} 과 같은 이유로 있다 — 없으면 끝난 여정과
      * 옛 개정본의 확정 고정을 영원히 갱신한다. 이 표는 행을 지우지 않으므로 그 갱신은 스스로
      * 멈추지 않는다.
+     *
+     * <p><b>여정이 그 탑승의 바로 앞 대기이거나 그 탑승 중일 때만</b> 돈다. 내린 뒤에도 돌면 지하철 push 가 같은 Activity
+     * 토큰으로 다음 도보·버스 화면을 덮어쓴다. 대기(leg-1)는 남긴다 — 고르고 기다리는 동안의 링(#304). 종료 프레임은
+     * 이 목록이 아니라 {@code SubwayRingPushEnqueueService.enqueueTerminal} 이 만든다.
      */
     @Query(value = """
             SELECT b.* FROM subway_leg_binding b
@@ -91,6 +95,7 @@ public interface SubwayLegBindingRepository extends JpaRepository<SubwayLegBindi
                AND l.deleted_at IS NULL
                AND s.status = 'ACTIVE'
                AND b.route_revision = s.route_revision
+               AND s.current_leg_index IN (b.leg_index - 1, b.leg_index)
              ORDER BY b.updated_at
              LIMIT :limit
             """, nativeQuery = true)
