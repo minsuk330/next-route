@@ -53,8 +53,8 @@ class SubwayRingCalculatorTest {
     class CodeBeforeSeconds {
 
         @Test
-        @DisplayName("arvlCd=99 + 초 없음 은 '아직 멀다' — 지금 화면 값에 freeze 하고 STALE 이다")
-        void enrouteWithoutSecondsFreezes() {
+        @DisplayName("arvlCd=99 + 초 없음 은 '아직 멀다' — 새 근거가 없으니 그리던 직선을 그대로 둔다(STALE 아님)")
+        void enrouteWithoutSecondsKeepsTheLine() {
             SubwayRingState previous = enroute(BigDecimal.valueOf(0.30), T0, T0.plusSeconds(100));
 
             SubwayRingState state = calculator.next(previous, context,
@@ -62,10 +62,10 @@ class SubwayRingCalculatorTest {
                             T0.plusSeconds(30)),
                     T0.plusSeconds(30));
 
-            // 100초 구간의 30% → 0.30 + (0.90 - 0.30) × 0.3. 앱은 이미 이 값을 그리고 있다(#357).
-            assertThat(state.segmentProgress()).isEqualByComparingTo("0.48");
-            assertThat(state.quality()).isEqualTo(SubwayRingQuality.STALE);
-            assertThat(state.estimatedNextStationAt()).isNull();
+            // 100초 구간의 30% → 0.30 + (0.90 - 0.30) × 0.3. 같은 직선이 계속된다.
+            assertThat(state.shownProgressAt(T0.plusSeconds(30))).isEqualByComparingTo("0.48");
+            assertThat(state.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(100));
+            assertThat(state.quality()).isEqualTo(SubwayRingQuality.NORMAL);
         }
 
         @Test
@@ -245,8 +245,8 @@ class SubwayRingCalculatorTest {
         }
 
         @Test
-        @DisplayName("아직 다음 역에 못 왔다면 앵커에 멈춘다")
-        void positionBeforeNextStationFreezes() {
+        @DisplayName("아직 다음 역에 못 왔다면 그리던 직선을 그대로 둔다")
+        void positionBeforeNextStationKeepsTheLine() {
             SubwayRingState previous = new SubwayRingState(JOURNEY_ID, 1, 4, 0,
                     2, "1002000202", "역B", "하차역", 2,
                     BigDecimal.valueOf(0.40), T0, BigDecimal.valueOf(0.90),
@@ -259,9 +259,10 @@ class SubwayRingCalculatorTest {
                     T0.plusSeconds(30));
 
             assertThat(state.nextStationSequence()).isEqualTo(2);
-            // 앵커 = 지금 화면 값(0.40 + 0.50 × 30/60, #357).
-            assertThat(state.segmentProgress()).isEqualByComparingTo("0.65");
-            assertThat(state.quality()).isEqualTo(SubwayRingQuality.STALE);
+            // 화면 값 = 0.40 + 0.50 × 30/60 — 직선이 이어진다.
+            assertThat(state.shownProgressAt(T0.plusSeconds(30))).isEqualByComparingTo("0.65");
+            assertThat(state.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(60));
+            assertThat(state.quality()).isEqualTo(SubwayRingQuality.NORMAL);
         }
     }
 
@@ -357,17 +358,17 @@ class SubwayRingCalculatorTest {
         }
 
         @Test
-        @DisplayName("반복 관측에 남은 초가 없으면 지금 화면 값에 멈춘다 — 0 으로도, 직전 base 로도 떨어뜨리지 않는다")
-        void freezesWithoutSeconds() {
+        @DisplayName("반복 관측에 남은 초가 없고 전형 시간도 모르면 그리던 직선을 그대로 둔다 — 0 으로 떨어뜨리지 않는다")
+        void keepsTheLineWithoutSeconds() {
             SubwayRingState previous = enroute(BigDecimal.valueOf(0.40), T0, T0.plusSeconds(100));
 
             SubwayRingState state = calculator.next(previous, context,
                     SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1, null,
                             T0.plusSeconds(30)), T0.plusSeconds(30));
 
-            assertThat(state.segmentProgress()).isEqualByComparingTo("0.55");
-            assertThat(state.estimatedNextStationAt()).isNull();
-            assertThat(state.quality()).isEqualTo(SubwayRingQuality.STALE);
+            assertThat(state.shownProgressAt(T0.plusSeconds(30))).isEqualByComparingTo("0.55");
+            assertThat(state.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(100));
+            assertThat(state.quality()).isEqualTo(SubwayRingQuality.NORMAL);
         }
 
         @Test
@@ -933,6 +934,156 @@ class SubwayRingCalculatorTest {
                 assertThat(state.etaSource() == null).as("tick %d", i)
                         .isEqualTo(state.estimatedNextStationAt() == null);
             }
+        }
+    }
+
+    // ── TYPICAL 직선·서버 시계 STALE·LATE 유예(PR-2) ───────────────────────────
+
+    @Nested
+    @DisplayName("전형 시간 직선 — 정상 구간 전환은 STALE 이 아니다")
+    class TypicalSegment {
+
+        /** 모든 구간: 직전 역 정차 30초, 운행 90초. ×1.2 → 운행 108초, 정차+운행 144초. */
+        private final SubwayRingContext typical = context.withTypical(seq -> new SubwayRingContext.Typical(30, 90));
+
+        private SubwayRingObservation seen(SubwayRingObservation o, Instant seenAt) {
+            return o.withSeenAt(seenAt).withPresentAt(seenAt);
+        }
+
+        @Test
+        @DisplayName("다음 역 출발(2) → 새 구간을 서버가 본 시각부터 운행×1.2 직선으로, NORMAL·TYPICAL·RUN")
+        void departureStartsTypicalRun() {
+            Instant now = T0.plusSeconds(100);
+            SubwayRingState state = calculator.next(enroute(BigDecimal.valueOf(0.80), T0, T0.plusSeconds(60)), typical,
+                    seen(SubwayRingObservation.arrival(SubwayArrivalCode.DEPARTED, 1, null, now.minusSeconds(90)), now),
+                    now);
+
+            assertThat(state.nextStationSequence()).isEqualTo(2);
+            assertThat(state.quality()).isEqualTo(SubwayRingQuality.NORMAL);
+            assertThat(state.etaSource()).isEqualTo(SubwayRingEtaSource.TYPICAL);
+            assertThat(state.stage()).isEqualTo(SubwayRingStage.RUN);
+            assertThat(state.progressBaseAt()).as("원천 시각이 아니라 서버가 본 시각").isEqualTo(now);
+            assertThat(state.estimatedNextStationAt()).isEqualTo(now.plusSeconds(108));
+            assertThat(state.shownProgressAt(now)).as("그리자마자 점프하지 않는다").isEqualByComparingTo("0");
+            assertThat(state.progressValidUntil()).isAfter(state.estimatedNextStationAt());
+        }
+
+        @Test
+        @DisplayName("위치 폴백: 출발이면 TYPICAL 운행 직선, 도착·진입은 NORMAL(사실이다)")
+        void positionFallback() {
+            Instant now = T0.plusSeconds(40);
+            SubwayRingState departed = calculator.next(null, typical,
+                    seen(SubwayRingObservation.position(SubwayTrainStatus.DEPARTED, 1, now.minusSeconds(30)), now), now);
+            assertThat(departed.nextStationSequence()).isEqualTo(2);
+            assertThat(departed.quality()).isEqualTo(SubwayRingQuality.NORMAL);
+            assertThat(departed.etaSource()).isEqualTo(SubwayRingEtaSource.TYPICAL);
+
+            SubwayRingState arrived = calculator.next(null, typical,
+                    SubwayRingObservation.position(SubwayTrainStatus.ARRIVED, 1, now.minusSeconds(30)), now);
+            assertThat(arrived.quality()).isEqualTo(SubwayRingQuality.NORMAL);
+        }
+
+        @Test
+        @DisplayName("승차역 도착 → 다음 구간을 정차+운행(144초) 한 직선으로")
+        void boardingArrivalIncludesDwell() {
+            SubwayRingContext selected = new SubwayRingContext(JOURNEY_ID, 1, 4, 0, context.chain(), 0)
+                    .withTypical(seq -> new SubwayRingContext.Typical(30, 90));
+
+            SubwayRingState state = calculator.next(null, selected,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ARRIVED, 0, null, T0), T0);
+
+            assertThat(state.nextStationSequence()).isEqualTo(1);
+            assertThat(state.etaSource()).isEqualTo(SubwayRingEtaSource.TYPICAL);
+            assertThat(state.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(144));
+        }
+
+        @Test
+        @DisplayName("전역 출발 + 실측 표본 없음 → TYPICAL 운행 직선. 같은 행이 10 tick 반복돼도 앵커·예정이 그대로다")
+        void sameObservationKeepsTheLine() {
+            Instant first = T0.plusSeconds(5);
+            SubwayRingObservation row = SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1, null,
+                    T0.minusSeconds(80)).withSeenAt(first);
+            SubwayRingState state = calculator.next(null, typical, row.withPresentAt(first), first);
+            assertThat(state.etaSource()).isEqualTo(SubwayRingEtaSource.TYPICAL);
+            Instant eta = state.estimatedNextStationAt();
+            Instant baseAt = state.progressBaseAt();
+
+            for (int tick = 1; tick <= 10; tick++) {
+                Instant now = first.plusSeconds(5L * tick);
+                state = calculator.next(state, typical, row.withPresentAt(now), now);
+                assertThat(state.estimatedNextStationAt()).as("tick %d", tick).isEqualTo(eta);
+                assertThat(state.progressBaseAt()).as("tick %d", tick).isEqualTo(baseAt);
+                assertThat(state.quality()).isEqualTo(SubwayRingQuality.NORMAL);
+            }
+        }
+
+        @Test
+        @DisplayName("TYPICAL 예정 + 유예(30초)가 지나도 진입이 없으면 상한에서 LATE")
+        void typicalOverrunIsLate() {
+            Instant first = T0;
+            SubwayRingObservation row = SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1, null,
+                    T0.minusSeconds(80)).withSeenAt(first);
+            SubwayRingState state = calculator.next(null, typical, row.withPresentAt(first), first);
+
+            Instant beforeGrace = first.plusSeconds(108 + 20);
+            SubwayRingState waiting = calculator.next(state, typical, row.withPresentAt(beforeGrace), beforeGrace);
+            assertThat(waiting.holdReason()).isNull();
+
+            Instant afterGrace = first.plusSeconds(108 + 31);
+            SubwayRingState late = calculator.next(waiting, typical, row.withPresentAt(afterGrace), afterGrace);
+            assertThat(late.holdReason()).isEqualTo(SubwayRingHoldReason.LATE);
+            assertThat(late.stage()).isEqualTo(SubwayRingStage.LATE);
+            assertThat(late.segmentProgress()).isEqualByComparingTo("0.90");
+        }
+
+        @Test
+        @DisplayName("실측(MEASURED)도 서버가 본 시각에 앵커 — 원천 지연 90초·중앙값 60초인 짧은 구간이 첫 관측에 LATE 가 아니다(journey 202)")
+        void measuredAnchorsAtServerTime() {
+            Instant now = T0.plusSeconds(200);
+            Instant recptn = now.minusSeconds(90);
+            SubwayRingObservation measured = SubwayRingObservation.measured(1, recptn.minusSeconds(5),
+                    recptn.plusSeconds(55), recptn).withSeenAt(now).withPresentAt(now);
+
+            SubwayRingState state = calculator.next(null, typical, measured, now);
+
+            assertThat(state.holdReason()).isNull();
+            assertThat(state.etaSource()).isEqualTo(SubwayRingEtaSource.MEASURED);
+            assertThat(state.progressBaseAt()).isEqualTo(now);
+            assertThat(state.estimatedNextStationAt()).isEqualTo(now.plusSeconds(60));
+            assertThat(state.shownProgressAt(now)).isEqualByComparingTo("0");
+        }
+
+        @Test
+        @DisplayName("STALE 은 서버 시계: 원천이 90초 늦어도 방금 받았으면 아니고, 60초 못 받았거나 원천이 240초 넘게 묵었으면 STALE")
+        void staleByServerClock() {
+            SubwayRingState previous = enroute(BigDecimal.valueOf(0.30), T0, T0.plusSeconds(200));
+            Instant now = T0.plusSeconds(100);
+            SubwayRingObservation enrouteRow = SubwayRingObservation.arrival(SubwayArrivalCode.ENROUTE, 1,
+                    now.plusSeconds(100), now.minusSeconds(90)).withSeenAt(now.minusSeconds(5));
+
+            assertThat(calculator.next(previous, typical, enrouteRow.withPresentAt(now.minusSeconds(10)), now).quality())
+                    .isEqualTo(SubwayRingQuality.NORMAL);
+            assertThat(calculator.next(previous, typical, enrouteRow.withPresentAt(now.minusSeconds(61)), now).quality())
+                    .as("수집이 끊겼다").isEqualTo(SubwayRingQuality.STALE);
+
+            SubwayRingObservation frozenRow = SubwayRingObservation.arrival(SubwayArrivalCode.ENROUTE, 1,
+                    now.plusSeconds(100), now.minusSeconds(241)).withSeenAt(now.minusSeconds(241));
+            SubwayRingState frozen = calculator.next(previous, typical, frozenRow.withPresentAt(now), now);
+            assertThat(frozen.quality()).as("수집은 살아 있지만 원천이 굳었다").isEqualTo(SubwayRingQuality.STALE);
+            assertThat(frozen.estimatedNextStationAt()).as("예정이 밀리지 않고 비워진다").isNull();
+        }
+
+        @Test
+        @DisplayName("전형 시간을 모르면 전환은 예전처럼 0 STALE")
+        void unknownTypicalKeepsOldBehaviour() {
+            Instant now = T0.plusSeconds(100);
+            SubwayRingState state = calculator.next(enroute(BigDecimal.valueOf(0.80), T0, T0.plusSeconds(60)), context,
+                    seen(SubwayRingObservation.arrival(SubwayArrivalCode.DEPARTED, 1, null, now.minusSeconds(90)), now),
+                    now);
+
+            assertThat(state.nextStationSequence()).isEqualTo(2);
+            assertThat(state.quality()).isEqualTo(SubwayRingQuality.STALE);
+            assertThat(state.etaSource()).isNull();
         }
     }
 

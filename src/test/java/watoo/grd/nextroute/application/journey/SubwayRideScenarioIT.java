@@ -274,10 +274,10 @@ class SubwayRideScenarioIT {
     void ringFreezesWhenRealtimeGoesSilent() {
         rushHourUntilConfirmed();
 
-        // 도착 목록이 비었다. 위치 기록의 마지막은 "B 가 역삼에 섰다"(+140) 뿐이다.
+        // 도착 목록이 비었다. 위치 기록의 마지막은 "B 가 역삼에 섰다"(+140) 뿐이다 — 40초 전 도착은 사실이라 NORMAL.
         SubwayGuidance silent = ringTick(180);
         assertThat(silent.nextStationName()).isEqualTo(YEOKSAM.name());
-        assertThat(silent.quality()).isEqualTo(SubwayRingQuality.STALE);
+        assertThat(silent.quality()).isEqualTo(SubwayRingQuality.NORMAL);
 
         // 5분 동안 아무 관측도 없다. 시간표대로라면 벌써 삼성이다.
         at(180 + 5 * 60);

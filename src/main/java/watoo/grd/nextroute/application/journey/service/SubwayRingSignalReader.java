@@ -98,16 +98,27 @@ public class SubwayRingSignalReader {
         if (observedAt == null) {
             return null;
         }
+        Instant presentAt = collectedAt(snapshot.get());
         SubwayArrivalCode code = SubwayArrivalCode.from(row.getArrivalCode());
         if (code == SubwayArrivalCode.PREV_DEPARTED) {
-            return measured(train, row, targetSequence, observedAt);
+            return measured(train, row, targetSequence, observedAt).withPresentAt(presentAt);
         }
         if (code == SubwayArrivalCode.PREV_ENTERING || code == SubwayArrivalCode.PREV_ARRIVED) {
             // 아직 전역에 서 있다. 남은 초는 출발 뒤 정해지는 정적 값이라 지금 시각에 더하면 틀린다 — 싣지 않는다.
-            return SubwayRingObservation.arrival(code, targetSequence, null, observedAt);
+            return SubwayRingObservation.arrival(code, targetSequence, null, observedAt).withPresentAt(presentAt);
         }
         return SubwayRingObservation.arrival(code, targetSequence,
-                estimatedArrivalAt(code, row, observedAt), observedAt);
+                estimatedArrivalAt(code, row, observedAt), observedAt).withPresentAt(presentAt);
+    }
+
+    /** 스냅샷 수집 시각(서버 시계). 이 행을 서버가 마지막으로 받아 본 때다. 못 읽으면 null — 계산기가 원천 시각 규칙으로 돌아간다. */
+    private static Instant collectedAt(SubwayRealtimeSnapshot snapshot) {
+        try {
+            return snapshot.getCollectedAt() == null ? null
+                    : java.time.OffsetDateTime.parse(snapshot.getCollectedAt()).toInstant();
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
     }
 
     /**

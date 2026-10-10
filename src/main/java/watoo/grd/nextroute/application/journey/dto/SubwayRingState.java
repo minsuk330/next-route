@@ -198,6 +198,16 @@ public record SubwayRingState(
                 etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt);
     }
 
+    /** 품질만 바꾼다. 새 근거는 없지만 수집이 살아 있어 멈춘 링을 "확인 중"으로 두지 않을 때 쓴다. */
+    public SubwayRingState withQuality(SubwayRingQuality value) {
+        return new SubwayRingState(journeyId, routeRevision, legIndex, bindingVersion,
+                nextStationSequence, canonicalNextStationKey, nextStationName,
+                alightingStationName, remainingStations, segmentProgress, progressBaseAt,
+                progressTarget, estimatedNextStationAt, progressValidUntil, phase, value,
+                observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, holdReason, holdStationName,
+                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt);
+    }
+
     /** 예정 출처와 구간 안 단계를 붙인다. 진행률·예정은 건드리지 않는다. */
     public SubwayRingState withSource(SubwayRingEtaSource source, SubwayRingStage stage) {
         return new SubwayRingState(journeyId, routeRevision, legIndex, bindingVersion,

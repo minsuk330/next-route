@@ -4425,3 +4425,25 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 `./gradlew test --continue` → 2805 중 12 실패, 전부 기존 무관(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·JourneyNotificationSchemaIT 1)
 ### 배포
 - 마이그레이션 없음. api(스냅샷 칸)+worker(링·push) 교체. 롤백 안전: 새 칸은 옛 코드가 무시(Boot 기본 매퍼), 새 enum 은 배포 후 값 추가 금지
+
+## 2026-10-10 지하철 링 TYPICAL PR-2 — 구간 전환 TYPICAL 직선·서버 시계 STALE·LATE 유예 (feat/ring-typical-segment)
+
+### 확정
+- 정상 구간 전환(도착 다음 출발 2·위치 DEPARTED/LEFT_PREVIOUS·승차역 도착)은 STALE 대신 TYPICAL 직선: 앵커 = 서버가 그 사건을 처음 본 시각(`seenAt`), 예정 = 운행(출발) 또는 정차+운행(역 도착) × 1.2. 전형 시간 모르면 기존(0 STALE)
+- 표본 없는 전역 출발(3) = TYPICAL 운행 직선. 같은 구간 같은 직선이면 `keep`(refreshed, 예정·앵커 불변 → push 안 흔들림)
+- MEASURED 앵커 = 서버가 전역 출발을 처음 본 시각(`seenAt`), 예정 = 그때 + 실측 중앙값. `seenAt` 없으면(옛 경로·시험) 종전 원천 기준. 같은 구간 MEASURED/LATE 진행 중이면 keep
+- LATE = 예정 + `late-grace`(30s) 경과(서버 시각을 아는 관측만, 옛 경로는 예정 그대로)
+- STALE: 도착 관측은 **`presentAt`(스냅샷 수집 시각) 기준 60s** 또는 원천 시각 240s 초과. 위치 관측은 종전(원천 시각 + freshness 120s) — 위치는 전이 로그라 달리는 동안 갱신이 없어 서버 시계로 재면 운행 중 STALE 이 된다
+- 새 근거 없는 신선한 관측(초 없는 99·모름·위치 아직 전역·다른 역 행)은 STALE 대신 `keep` — 그리던 직선 유지, 예정+유예 지나면 LATE, 멈춘 STALE 링이면 NORMAL 로
+- 위치 ARRIVED/ENTERING 은 NORMAL(사실)
+- Context `typical` 은 순번 → 시간 함수(갱신기가 tick 안에서 memo). 구간 전환 때 다음 구간 값이 필요해서
+### 함정
+- `collectedAt` 은 행이 굳어도 매 수집 갱신 → STALE 에는 원천 240s 이중 가드가 필수(리뷰 R1)
+- 재생 하네스에서 OTP 패턴 적재가 호출당 5초 예산(코드 상수)에 걸려 실패(SSH 터널 경유) → 재생은 `REPLAY_TYPICAL` env 로 GTFS 구간 시간을 SpyBean 주입. 값은 운영 OTP GraphQL 1회(서울2호선 본선 외선 trip 최다 패턴): 서초>교대 30/60, 교대>강남 60/90, 강남>역삼 30/60, 역삼>선릉 30/90
+### 검증
+- 링 관련 테스트 통과 + 신규 `SubwayRingCalculatorTest$TypicalSegment` 8(전환 TYPICAL·위치 폴백·승차역 정차+운행·같은 행 10 tick 불변·TYPICAL LATE 유예·MEASURED 서버 앵커(journey 202)·서버 시계 STALE 3방향·전형 모름 종전)
+- 기존 시험 3건 계약 변경 반영(초 없는 99·위치 아직 전역·초 없는 전역 출발 반복 → keep NORMAL), IT 2건(MEASURED 앵커 = sourceSeenAt, 위치 도착 NORMAL)
+- 전체 `./gradlew test --continue` → 2813 중 12 실패, 전부 기존 무관
+- 재생(2호선 7399 외선 서초→선릉, 2026-10-10 22:57~23:06 KST 녹화): 기존 STALE 120초·LATE 30초·전역 정차 멈춤 240초 → PR-2 STALE 0·LATE 0·전역 정차 멈춤 240초(PR-3 대상)
+### 배포
+- 마이그레이션 없음. worker(링)+api(스냅샷) 교체
