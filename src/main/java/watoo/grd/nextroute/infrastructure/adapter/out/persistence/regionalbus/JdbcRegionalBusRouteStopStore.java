@@ -27,8 +27,8 @@ public class JdbcRegionalBusRouteStopStore implements RegionalBusRouteStopStore 
     private static final String INSERT = """
             INSERT INTO regional_bus_route_stop
                 (provider, route_id, route_no, city_code, stop_id, stop_name, seq,
-                 turn, up_down, waypoint, lat, lon, loaded_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 turn, up_down, waypoint, lat, lon, loaded_at, stop_no)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -54,6 +54,7 @@ public class JdbcRegionalBusRouteStopStore implements RegionalBusRouteStopStore 
             ps.setObject(11, stop.lat(), Types.DOUBLE);
             ps.setObject(12, stop.lon(), Types.DOUBLE);
             ps.setTimestamp(13, at);
+            ps.setString(14, stop.stopNo());
         });
     }
 
@@ -94,6 +95,39 @@ public class JdbcRegionalBusRouteStopStore implements RegionalBusRouteStopStore 
         return new HashSet<>(jdbcTemplate.queryForList("""
                 SELECT DISTINCT left(route_id, 3) FROM regional_bus_route_stop WHERE provider = 'TAGO'
                 """, String.class));
+    }
+
+    @Override
+    public Map<String, String> stopNumbers(java.util.Collection<String> stopIds) {
+        if (stopIds == null || stopIds.isEmpty()) {
+            return Map.of();
+        }
+        // 같은 정류장이 노선마다 여러 행이다. 번호가 하나로 모이면 그 값, 엇갈리면 모름(null)으로 둔다.
+        Map<String, String> out = new HashMap<>();
+        Set<String> conflicting = new HashSet<>();
+        jdbcTemplate.query(con -> {
+            var ps = con.prepareStatement(
+                    "SELECT DISTINCT stop_id, btrim(stop_no) AS stop_no FROM regional_bus_route_stop"
+                            + " WHERE stop_id = ANY (?) AND stop_no IS NOT NULL AND btrim(stop_no) <> ''");
+            ps.setArray(1, con.createArrayOf("varchar", stopIds.toArray()));
+            return ps;
+        }, (org.springframework.jdbc.core.RowCallbackHandler) rs -> {
+            String id = rs.getString("stop_id");
+            String no = rs.getString("stop_no");
+            String prev = out.putIfAbsent(id, no);
+            if (prev != null && !prev.equals(no)) {
+                conflicting.add(id);
+            }
+        });
+        conflicting.forEach(out::remove);
+        return out;
+    }
+
+    @Override
+    public boolean hasStopNumbers() {
+        Boolean exists = jdbcTemplate.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM regional_bus_route_stop WHERE stop_no IS NOT NULL)", Boolean.class);
+        return Boolean.TRUE.equals(exists);
     }
 
     @Override

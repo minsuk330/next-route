@@ -36,6 +36,14 @@ public interface RegionalBusRouteStopStore {
     boolean isEmpty();
 
     /**
+     * 정류장 ID(경기 GBIS stationId, TAGO nodeid) → 정류장 번호(#266). 번호가 없거나 노선마다 엇갈리면 빠진다.
+     */
+    Map<String, String> stopNumbers(java.util.Collection<String> stopIds);
+
+    /** 번호가 하나라도 적재돼 있는지. V64 직후 1회 재적재 판단용. */
+    boolean hasStopNumbers();
+
+    /**
      * 노선 하나의 정류장 순서(실시간 순번 오름차순). 재탐색 보드의 경기·TAGO 중간 하차 기점(#264 PR-4)이
      * 내 위치와 앞으로 지날 정류장을 이 순번 공간에서 잰다. 모르는 노선이면 빈 목록.
      */

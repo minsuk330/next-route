@@ -89,7 +89,7 @@ class TrackJourneyStartServiceTest {
                 InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()));
         service = new TrackJourneyStartService(properties, source, legacy,
                 new JourneyCompiler(new StopIdentityResolver()), enricher,
-                new JourneyGuidanceInfoEnricher(org.mockito.Mockito.mock(watoo.grd.nextroute.domain.bus.repository.BusStopRepository.class)), txService,
+                new JourneyGuidanceInfoEnricher(org.mockito.Mockito.mock(watoo.grd.nextroute.domain.bus.repository.BusStopRepository.class), org.mockito.Mockito.mock(watoo.grd.nextroute.application.regionalbus.port.out.RegionalBusRouteStopStore.class)), txService,
                 new JourneyStartConflictTranslator(mock(JourneyQueryService.class)),
                 new ObjectMapper(), meters, clock);
     }

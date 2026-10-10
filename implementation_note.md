@@ -4158,3 +4158,25 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 배포
 - **V63 VPS 수동배치 필요**(`V63__journey_leg_guidance_info.sql`, journey_leg 컬럼 6개 추가, 전부 nullable). api·worker. 진행 중 여정은 null, 새 여정부터
+
+## 2026-10-10 guidance-stop-info PR-2 (#266 경기·지방 정류장 번호)
+
+플랜 `docs/plan/guidance-stop-info/PLAN.md` §4 + §9. 브랜치 feat/guidance-regional-stop-no (PR-1 #337 머지 후 fresh main).
+
+### 확정
+- 원천 실측(2026-10-10): GBIS `getBusRouteStationListv2` `mobileNo` 145 중 134 채움(앞 공백 있음), TAGO `getRouteAcctoThrghSttnList` `nodeno` 25개 도시 표본 중 22 채움(충남 34310·34340, 영동 37350 없음)
+- 저장 = `regional_bus_route_stop.stop_no`(V64). 파서는 `text()`(trim, 빈 값 null) — TAGO `nodeno` 는 JSON 숫자라 `asText` 로 문자열화
+- 조회 = 출발 원천 ID → 정류장 표 ID 정규화(`JourneyGuidanceInfoEnricher.regionalStopId`): `…BS_TAGO_` 접두 제거 → `SEB`=서울이라 null, `GGB`=떼고 GBIS stationId, 나머지=TAGO nodeid 그대로. 서울(bus_stop) 값이 있으면 그게 우선
+- 같은 정류장이 노선마다 여러 행 — 번호가 엇갈리면 null(지어내지 않음)
+- 적재: worker 부팅 시 "표는 있는데 stop_no 가 하나도 없으면" 1회 재적재(`needsStopNumbers`). V64 배포 직후 자동으로 돈다(`collector.regional-bus-catalog.load-on-empty` 가 켜져 있을 때)
+
+### 미결
+- TAGO 군 단위(`TSB…`) 7자리 `nodeno`(예 `3370262`)가 표지판 번호인지 미확인 — 지금은 그대로 싣는다
+- TAGO 번호가 원래 앞자리 0 을 가진 도시면 JSON 숫자에서 사라졌을 수 있다(원천이 숫자로 줘서 복원 불가)
+
+### 검증
+- 신규: JourneyGuidanceInfoEnricherTest +2(경기 두 ID 모양·TAGO, 엇갈림 null·서울 원천 제외), RegionalBusRouteSourceAdapterTest +1(mobileNo trim·nodeno 숫자·없음), JdbcRegionalBusRouteStopStoreIT +1(저장·조회·엇갈림·hasStopNumbers, testcontainers postgres 로 V56+V64 실행)
+- 전체 단위 + 저장소 IT: **2270/0**
+
+### 배포
+- **V64 VPS 수동배치 필요**(`V64__regional_bus_route_stop_stop_no.sql`). worker 재시작 시 정류장 표 1회 재적재(약 2만 노선, 키 한도 주의 — #281 실측 적재 ~1시간) → 그 뒤 api
