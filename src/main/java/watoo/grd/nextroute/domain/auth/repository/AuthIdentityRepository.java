@@ -26,6 +26,8 @@ public interface AuthIdentityRepository extends JpaRepository<AuthIdentity, Long
 
     boolean existsByUserIdAndProviderAndDeletedAtIsNull(Long userId, AuthProvider provider);
 
+    long countByUserIdAndProviderAndDeletedAtIsNull(Long userId, AuthProvider provider);
+
     /**
      * 탈퇴: 그 사용자의 신원을 물리 삭제한다. 로그인 수단이 남으면 재가입을 막고 개인정보가 남는다.
      *

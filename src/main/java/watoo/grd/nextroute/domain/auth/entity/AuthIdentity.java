@@ -19,11 +19,12 @@ import java.time.LocalDateTime;
  * <p>신원의 기준은 {@code users.id} 이고 이 엔티티는 외부 회사가 매긴 번호를 그 사용자에 연결할 뿐이다.
  * {@code users.toss_user_key} 는 연결끊기 콜백 경로가 아직 쓰는 레거시 미러이며 신원 조회에 쓰지 않는다.
  *
- * <p>제약은 DB 인덱스가 소유한다(V33).
+ * <p>제약은 DB 인덱스가 소유한다(V33, V62 에서 DEVICE 예외 추가).
  * <ul>
  *   <li>{@code (provider, provider_subject)} — 한 회사의 한 번호는 한 사용자에게만</li>
- *   <li>{@code (user_id, provider)} — 한 사용자가 같은 회사를 두 번 연결 못 함</li>
- *   <li>{@code user_id where provider <> 'TOSS'} — 앱 로그인 수단은 계정당 하나</li>
+ *   <li>{@code (user_id, provider) where provider <> 'DEVICE'} — 한 사용자가 같은 회사를 두 번 연결 못 함
+ *       (기기는 여러 대 허용, 상한은 코드가 지킨다)</li>
+ *   <li>{@code user_id where provider not in ('TOSS','DEVICE')} — 앱 로그인 수단은 계정당 하나</li>
  * </ul>
  */
 @Entity

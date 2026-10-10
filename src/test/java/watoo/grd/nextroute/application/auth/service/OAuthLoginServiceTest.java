@@ -221,6 +221,15 @@ class OAuthLoginServiceTest {
     }
 
     @Test
+    @DisplayName("기기 신원으로는 공용 로그인에 들어올 수 없다 — 전용 경로(/api/auth/device)만 쓴다")
+    void deviceProvider_rejected() {
+        assertThatThrownBy(() -> login(AuthProvider.DEVICE, null))
+                .isInstanceOf(ProviderNotAllowedException.class);
+
+        verify(userRepository, never()).saveAndFlush(any(User.class));
+    }
+
+    @Test
     @DisplayName("provider 가 없으면 거부한다")
     void nullProvider_rejected() {
         assertThatThrownBy(() -> login(null, null))

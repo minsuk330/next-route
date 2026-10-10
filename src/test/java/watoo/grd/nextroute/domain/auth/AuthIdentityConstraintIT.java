@@ -122,6 +122,52 @@ class AuthIdentityConstraintIT {
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
+    // ── 기기 신원(V62) ────────────────────────────────────────────────────────
+
+    private static String deviceSubject() {
+        return "device-" + java.util.UUID.randomUUID();
+    }
+
+    @Test
+    @DisplayName("애플 계정에 기기 신원을 같이 붙일 수 있다 — 업데이트한 사용자의 데이터 보존 경로")
+    void applePlusDevice_allowed() {
+        long userId = newUser();
+        insertIdentity(userId, "APPLE", "apple-" + userId);
+
+        assertThatCode(() -> insertIdentity(userId, "DEVICE", deviceSubject())).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("한 계정에 기기 신원을 여러 개 붙일 수 있다 — 아이폰+아이패드(상한 3은 코드 몫)")
+    void multipleDevices_allowed() {
+        long userId = newUser();
+        insertIdentity(userId, "DEVICE", deviceSubject());
+
+        assertThatCode(() -> insertIdentity(userId, "DEVICE", deviceSubject())).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("같은 기기 해시를 두 사용자가 나눠 가질 수 없다")
+    void sameDeviceSubject_twoUsers_rejected() {
+        String subject = deviceSubject();
+        insertIdentity(newUser(), "DEVICE", subject);
+        long other = newUser();
+
+        assertThatThrownBy(() -> insertIdentity(other, "DEVICE", subject))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("기기 신원이 있어도 애플과 카카오는 여전히 하나만 — V62 가 앱 수단 규칙을 풀지 않았다")
+    void devicePresent_appleAndKakao_stillRejected() {
+        long userId = newUser();
+        insertIdentity(userId, "DEVICE", deviceSubject());
+        insertIdentity(userId, "APPLE", "apple-" + userId);
+
+        assertThatThrownBy(() -> insertIdentity(userId, "KAKAO", "kakao-" + userId))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
     // ── users 완화 ────────────────────────────────────────────────────────────
 
     @Test

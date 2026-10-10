@@ -80,6 +80,9 @@ public class SessionService implements SessionUseCase {
                 displayNameOf(identities),
                 emailOf(identities),
                 identities.stream()
+                        // 기기 신원은 로그인 수단 목록에 보이지 않는다. 기기마다 하나씩 생기고, 이 값을 모르는
+                        // 구버전 앱이 엄격하게 읽으면 깨진다.
+                        .filter(i -> i.getProvider() != AuthProvider.DEVICE)
                         .sorted(Comparator.comparing(AuthIdentity::getLinkedAt))
                         .map(i -> new MeResult.LinkedIdentity(i.getProvider(), i.getLinkedAt()))
                         .toList());
