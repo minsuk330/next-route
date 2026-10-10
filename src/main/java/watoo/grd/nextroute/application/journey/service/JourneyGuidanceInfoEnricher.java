@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
 import watoo.grd.nextroute.application.regionalbus.port.out.RegionalBusRouteStopStore;
+import watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex;
 import watoo.grd.nextroute.domain.bus.entity.BusStop;
 import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegGuidance;
@@ -34,8 +35,13 @@ public class JourneyGuidanceInfoEnricher {
 
     private final BusStopRepository busStopRepository;
     private final RegionalBusRouteStopStore regionalStopStore;
+    private final SubwayEntranceIndex entranceIndex;
 
     public JourneyPlan enrich(JourneyPlan plan) {
+        return withSubwayExits(withBusStopNumbers(plan));
+    }
+
+    private JourneyPlan withBusStopNumbers(JourneyPlan plan) {
         Map<String, String> arsByStopId = seoulStopNumbers(plan.legs());
         Map<String, String> regionalByStopId = regionalStopNumbers(plan.legs(), arsByStopId);
         if (arsByStopId.isEmpty() && regionalByStopId.isEmpty()) {
@@ -49,6 +55,78 @@ public class JourneyGuidanceInfoEnricher {
                         : leg)
                 .toList();
         return new JourneyPlan(legs, plan.transfers());
+    }
+
+    /**
+     * 지하철 출구 번호(#266 PR-3). 앞뒤 <b>단계 종류</b>로 정한다.
+     * <ul>
+     *   <li>하차 출구(탑승 단계 {@code endExitNo}): 바로 다음이 걷기이고 그 다음이 지하철 대기가 아닐 때, 하차역 출입구 중
+     *       그 걷기의 끝에 가장 가까운 것. 다음이 바로 대기(같은 정류장 환승)거나 걷기 뒤 지하철 대기(지하철 환승)면 null</li>
+     *   <li>승차 출구(대기·탑승 단계 {@code startExitNo}): 바로 앞이 걷기이고 그 앞이 지하철 탑승이 아닐 때, 승차역 출입구
+     *       중 그 걷기의 시작에 가장 가까운 것</li>
+     * </ul>
+     * 좌표는 draft 의 x=경도, y=위도. 출구를 못 고르면 null 이다.
+     */
+    private JourneyPlan withSubwayExits(JourneyPlan plan) {
+        List<JourneyLegDraft> legs = plan.legs();
+        if (legs.stream().noneMatch(leg -> leg.type() == JourneyLegType.WAIT_SUBWAY)) {
+            return plan;
+        }
+        List<JourneyLegDraft> out = new java.util.ArrayList<>(legs);
+        try {
+            for (int i = 0; i < legs.size(); i++) {
+                JourneyLegDraft leg = legs.get(i);
+                if (leg.type() == JourneyLegType.WAIT_SUBWAY) {
+                    String startExit = boardingExit(legs, i);
+                    out.set(i, withExits(out.get(i), startExit, out.get(i).guidance().endExitNo()));
+                    Integer ride = leg.pairedLegIndex();
+                    if (ride != null && ride == i + 1 && i + 1 < legs.size()) {
+                        JourneyLegDraft rideLeg = out.get(i + 1);
+                        out.set(i + 1, withExits(rideLeg, startExit, alightingExit(legs, i + 1)));
+                    }
+                }
+            }
+        } catch (RuntimeException e) {
+            log.warn("[Journey] 지하철 출구 계산 실패 — 출구 없이 진행: {}", e.getMessage());
+            return plan;
+        }
+        return new JourneyPlan(out, plan.transfers());
+    }
+
+    private String boardingExit(List<JourneyLegDraft> legs, int waitIndex) {
+        JourneyLegDraft wait = legs.get(waitIndex);
+        JourneyLegDraft walk = waitIndex >= 1 ? legs.get(waitIndex - 1) : null;
+        if (walk == null || !isWalk(walk.type())) {
+            return null;
+        }
+        JourneyLegDraft before = waitIndex >= 2 ? legs.get(waitIndex - 2) : null;
+        if (before != null && before.type() == JourneyLegType.RIDE_SUBWAY) {
+            return null;
+        }
+        return entranceIndex.exitToward(wait.startName(), wait.startY(), wait.startX(), walk.startY(), walk.startX())
+                .orElse(null);
+    }
+
+    private String alightingExit(List<JourneyLegDraft> legs, int rideIndex) {
+        JourneyLegDraft ride = legs.get(rideIndex);
+        JourneyLegDraft walk = rideIndex + 1 < legs.size() ? legs.get(rideIndex + 1) : null;
+        if (walk == null || !isWalk(walk.type())) {
+            return null;
+        }
+        JourneyLegDraft after = rideIndex + 2 < legs.size() ? legs.get(rideIndex + 2) : null;
+        if (after != null && after.type() == JourneyLegType.WAIT_SUBWAY) {
+            return null;
+        }
+        return entranceIndex.exitToward(ride.endName(), ride.endY(), ride.endX(), walk.endY(), walk.endX())
+                .orElse(null);
+    }
+
+    private static JourneyLegDraft withExits(JourneyLegDraft leg, String startExit, String endExit) {
+        return leg.withGuidance(leg.guidance().withExits(startExit, endExit));
+    }
+
+    private static boolean isWalk(JourneyLegType type) {
+        return type == JourneyLegType.WALK || type == JourneyLegType.TRANSFER_WALK;
     }
 
     /** 서울이 먼저(내부 ID 로 확인된 값), 없으면 경기·지방 표(출발 원천 ID 를 정류장 표 ID 로 맞춘 값). */

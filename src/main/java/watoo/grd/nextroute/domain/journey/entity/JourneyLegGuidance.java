@@ -31,6 +31,10 @@ public record JourneyLegGuidance(
         return new JourneyLegGuidance(startStopNo, endStopNo, directionName, startExitNo, endExitNo, fastAlightJson);
     }
 
+    public JourneyLegGuidance withExits(String startExitNo, String endExitNo) {
+        return new JourneyLegGuidance(startStopNo, endStopNo, directionName, startExitNo, endExitNo, fastAlightJson);
+    }
+
     public JourneyLegGuidance withDirectionName(String directionName) {
         return new JourneyLegGuidance(startStopNo, endStopNo, directionName, startExitNo, endExitNo, fastAlightJson);
     }
