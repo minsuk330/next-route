@@ -111,7 +111,8 @@ public class SubwayRingUpdateService {
                 ? null
                 : seen(previous, signalReader.read(train, chain, target), now);
         if (train != null) {
-            context = context.withTypical(typicalOf(chain, train, target));
+            java.util.Map<Integer, SubwayRingContext.Typical> memo = new java.util.HashMap<>();
+            context = context.withTypical(seq -> memo.computeIfAbsent(seq, k -> typicalOf(chain, train, k)));
         }
 
         SubwayRingState state = calculator.next(previous, context, observation, now);
@@ -179,7 +180,7 @@ public class SubwayRingUpdateService {
         return observation.withSeenAt(same ? previous.sourceSeenAt() : now);
     }
 
-    /** 목표 구간(직전 역 → 다음 역)의 GTFS 계획 시간. 승차역 대기 구간·모르는 구간은 null — 계산기가 기존대로 둔다. */
+    /** {@code target} 역으로 들어가는 구간의 GTFS 계획 시간. 승차역 대기 구간·모르는 구간은 null — 계산기가 기존대로 둔다. */
     private SubwayRingContext.Typical typicalOf(SubwayRingChain chain, TrainIdentity train, int target) {
         SubwayRingChain.Station from = chain.at(target - 1);
         SubwayRingChain.Station to = chain.at(target);

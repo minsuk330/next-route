@@ -25,6 +25,8 @@ import java.time.Instant;
  * @param observedAt              도착은 <b>그 행의</b> {@code recptnDt}, 위치는 관측 수신 시각
  * @param seenAt                  서버가 이 {@code observedAt} 을 처음 본 시각. 갱신기가 직전 링과 견주어 채운다 —
  *                                원천이 같은 행을 계속 주면 처음 본 시각이 이어진다. 모르면 null
+ * @param presentAt               서버가 우리 열차 행을 <b>마지막으로 받아 본</b> 시각(도착 스냅샷 수집 시각). STALE 판정용 — 행이
+ *                                바뀌지 않아도 수집이 살아 있으면 갱신된다. 위치 관측은 null
  */
 public record SubwayRingObservation(
         Source source,
@@ -34,8 +36,16 @@ public record SubwayRingObservation(
         Instant estimatedArrivalAt,
         Instant observedAt,
         Instant segmentStartAt,
-        Instant seenAt
+        Instant seenAt,
+        Instant presentAt
 ) {
+
+    public SubwayRingObservation(Source source, SubwayArrivalCode code, SubwayTrainStatus positionStatus,
+                                 int observedStationSequence, Instant estimatedArrivalAt, Instant observedAt,
+                                 Instant segmentStartAt, Instant seenAt) {
+        this(source, code, positionStatus, observedStationSequence, estimatedArrivalAt, observedAt, segmentStartAt,
+                seenAt, null);
+    }
 
     public SubwayRingObservation(Source source, SubwayArrivalCode code, SubwayTrainStatus positionStatus,
                                  int observedStationSequence, Instant estimatedArrivalAt, Instant observedAt,
@@ -52,7 +62,18 @@ public record SubwayRingObservation(
     /** 서버가 이 관측을 처음 본 시각을 붙인다. */
     public SubwayRingObservation withSeenAt(Instant seen) {
         return new SubwayRingObservation(source, code, positionStatus, observedStationSequence, estimatedArrivalAt,
-                observedAt, segmentStartAt, seen);
+                observedAt, segmentStartAt, seen, presentAt);
+    }
+
+    /** 서버가 우리 열차 행을 마지막으로 받아 본 시각을 붙인다(도착 스냅샷 수집 시각). */
+    public SubwayRingObservation withPresentAt(Instant present) {
+        return new SubwayRingObservation(source, code, positionStatus, observedStationSequence, estimatedArrivalAt,
+                observedAt, segmentStartAt, seenAt, present);
+    }
+
+    /** 전역 출발 실측의 구간 시간(예정 − 출발). 실측이 아니면 null. */
+    public java.time.Duration measuredDuration() {
+        return isMeasured() ? java.time.Duration.between(segmentStartAt, estimatedArrivalAt) : null;
     }
 
     /**

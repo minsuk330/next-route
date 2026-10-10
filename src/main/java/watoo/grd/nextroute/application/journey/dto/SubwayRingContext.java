@@ -18,7 +18,7 @@ public record SubwayRingContext(
         int bindingVersion,
         SubwayRingChain chain,
         int startSequence,
-        Typical typical
+        java.util.function.IntFunction<Typical> typical
 ) {
 
     public SubwayRingContext(Long journeyId, int routeRevision, int legIndex, int bindingVersion,
@@ -31,9 +31,17 @@ public record SubwayRingContext(
         this(journeyId, routeRevision, legIndex, bindingVersion, chain, 1);
     }
 
-    /** 이번 tick 의 목표 구간 전형 시간을 붙인다. 계산기는 GTFS 를 직접 읽지 않는다. */
-    public SubwayRingContext withTypical(Typical times) {
-        return new SubwayRingContext(journeyId, routeRevision, legIndex, bindingVersion, chain, startSequence, times);
+    /**
+     * 구간 전형 시간 조회를 붙인다. 계산기는 GTFS 를 직접 읽지 않는다 — 갱신기가 순번 → 시간 함수를 넘긴다. 구간 전환 때 다음
+     * 구간 값이 필요해서 목표 구간 하나가 아니라 함수다.
+     */
+    public SubwayRingContext withTypical(java.util.function.IntFunction<Typical> lookup) {
+        return new SubwayRingContext(journeyId, routeRevision, legIndex, bindingVersion, chain, startSequence, lookup);
+    }
+
+    /** {@code sequence} 역으로 들어가는 구간(직전 역 → 그 역)의 전형 시간. 모르면 null. */
+    public Typical typicalFor(int sequence) {
+        return typical == null ? null : typical.apply(sequence);
     }
 
     /**

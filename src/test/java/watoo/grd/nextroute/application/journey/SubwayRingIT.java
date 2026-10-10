@@ -355,7 +355,7 @@ class SubwayRingIT {
     // ── 앞 열차 실측 예정 (2026-10-07 결정) ─────────────────────────────────
 
     @Test
-    @DisplayName("전역 출발 행 + 실측 표본 → 첫 링의 예정 = 출발을 처음 본 시각 + 표본 중앙값, 기준 시각 = 출발")
+    @DisplayName("전역 출발 행 + 실측 표본 → 첫 링의 기준 시각 = 서버가 그 행을 처음 본 시각, 예정 = 그때 + 표본 중앙값")
     void measuredEtaFromSegmentSamples() {
         insertBinding("CONFIRMED");
         SubwayRealtimeTrain departedPrev = arrivalRow(STATN_MIDDLE, "중간역", "3", 140);
@@ -370,8 +370,10 @@ class SubwayRingIT {
 
         SubwayRingState ring = savedRing();
         assertThat(ring.canonicalNextStationKey()).isEqualTo(STATN_MIDDLE);
-        assertThat(ring.progressBaseAt()).isEqualTo(departed);
-        assertThat(ring.estimatedNextStationAt()).isEqualTo(departed.plusSeconds(50));
+        // 원천 기준 출발 시각(recptnDt 계열, 1~2분 늦음)에 앵커하면 짧은 구간은 그리자마자 예정이 지난다(journey 202).
+        assertThat(ring.progressBaseAt()).isEqualTo(ring.sourceSeenAt()).isAfter(departed);
+        assertThat(ring.estimatedNextStationAt()).isEqualTo(ring.sourceSeenAt().plusSeconds(50));
+        assertThat(ring.etaSource().name()).isEqualTo("MEASURED");
         assertThat(ring.quality().name()).isEqualTo("NORMAL");
     }
 
