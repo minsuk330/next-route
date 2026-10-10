@@ -342,6 +342,21 @@ class SubwayTrainSelectionServiceTest {
                 "2386", LocalDate.parse("2026-10-07"), "1002", "내선", true)));
     }
 
+    @Test
+    @DisplayName("대기 바로 앞 도보(역까지 걷는 중·지하 환승 통로)에서도 다음 탑승 열차를 고른다")
+    void walkRightBeforeTheWait() {
+        JourneyLeg walk = leg(0, JourneyLegType.WALK);
+        JourneyLeg wait1 = leg(1, JourneyLegType.WAIT_SUBWAY);
+        JourneyLeg ride1 = leg(2, JourneyLegType.RIDE_SUBWAY);
+        ReflectionTestUtils.setField(wait1, "selectedRouteOptionId", 99L);
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY, 1))
+                .willReturn(List.of(walk, wait1, ride1));
+        session.moveToLeg(0);
+
+        assertThat(service.candidates(USER, JOURNEY, 2)).extracting(SubwayTrainCandidate::trainNo)
+                .containsExactly("2390", "2392");
+    }
+
     private static void assertNotWaiting(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
         assertThatThrownBy(call)
                 .extracting(e -> ((BusinessException) e).getErrorCode())

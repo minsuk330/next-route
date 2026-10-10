@@ -10,6 +10,7 @@
 | WAIT_SUBWAY | 바로 다음 RIDE_SUBWAY | 곧 올 열차(최대 2) + 막 떠난 열차 | 기존 |
 | RIDE_SUBWAY | 지금 탑승 구간 | **떠난 열차만** | "다른 열차예요" — 다시 고르면 덮어씀 |
 | RIDE_SUBWAY (지하 환승) | 다음 RIDE_SUBWAY (사이 도보 0~1개) | 곧 올 열차 + 막 떠난 열차 | 고른 뒤 앱이 단계 전환을 연속 전송 |
+| WALK/TRANSFER_WALK (대기 바로 앞) | 그 다음 RIDE_SUBWAY | 곧 올 열차 + 막 떠난 열차 | 역까지 걷는 중·지하 환승 통로. 고른 뒤 앱이 도보→대기→탑승 전송 |
 
 - `legIndex` 는 **탑승(RIDE_SUBWAY) 구간 index**. 없으면 지금 단계 기준(대기면 다음 탑승, 탑승 중이면 그 탑승).
 - 그 밖(도보 등)·대상이 지하철 대기+탑승 짝이 아니면 409 `NOT_WAITING_FOR_SUBWAY`.

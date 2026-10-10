@@ -52,8 +52,8 @@ import java.util.Set;
  * <pre>
  * WAITING  지금 = 대상 탑승의 바로 앞 대기         곧 올 열차 + 막 떠난 열차
  * RIDING   지금 = 대상 탑승 (다른 열차예요)       떠난 열차만 — 승차역 도착 목록은 뒤차다
- * TRANSFER 지금 = 앞 지하철 탑승, 사이는 도보 0~1개 곧 올 열차 + 막 떠난 열차 — 지하 환승은 GPS 가 없어 앱이 하차를
- *                                                  알 수 없다. 다음 열차를 고르는 것이 하차 신호다
+ * TRANSFER 지금 = 앞 지하철 탑승(사이 도보 0~1개),   곧 올 열차 + 막 떠난 열차 — 지하 환승은 GPS 가 없어 앱이 하차를
+ *          또는 대기 바로 앞 도보                   알 수 없다. 다음 열차를 고르는 것이 하차 신호다
  * </pre>
  * 고른 뒤 틀렸으면 탑승 중에 다시 고른다. 방향은 대기 단계 노선 후보의 {@code wayCode} 다 — 모르면 후보를 내지 않는다
  * (반대 방향 열차를 집는다).
@@ -385,6 +385,11 @@ public class SubwayTrainSelectionService {
             return Phase.RIDING;
         }
         JourneyLeg now = legAt(legs, current);
+        if (now != null && current == rideIndex - 2
+                && (now.getType() == JourneyLegType.WALK || now.getType() == JourneyLegType.TRANSFER_WALK)) {
+            // 대기 바로 앞 도보(역까지 걷는 중, 또는 지하 환승 통로). 지하에서는 GPS 가 대기로 못 넘기니 여기서 고른다.
+            return Phase.TRANSFER;
+        }
         if (now == null || now.getType() != JourneyLegType.RIDE_SUBWAY || current >= rideIndex - 1) {
             return null;
         }
