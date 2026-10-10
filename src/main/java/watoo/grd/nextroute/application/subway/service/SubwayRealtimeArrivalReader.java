@@ -58,6 +58,30 @@ public class SubwayRealtimeArrivalReader {
     }
 
     /**
+     * 캐시에서 이 역을 <b>막 떠난</b>({@code arvlCd=2}) 열차 번호.
+     *
+     * <p>{@link #arrivals} 는 이 행들을 지나간 열차로 뺀다. 그런데 "곧 도착"으로 화면에 보인 열차가 고르는 사이 출발하면,
+     * 위치 API 출발 사건이 기록되기 전까지 이 행이 그 열차를 아는 유일한 근거다(열차 선택이 422 를 내던 틈).
+     *
+     * @param wayCode ODsay 방향 코드. null 이면 방향을 가리지 않는다
+     */
+    public List<String> justDepartedTrainNos(String lineId, String stationId, Integer wayCode) {
+        Optional<SubwayRealtimeSnapshot> snapshot = cachePort.readSnapshot();
+        if (snapshot.isEmpty() || snapshot.get().getTrains() == null) {
+            return List.of();
+        }
+        String direction = toDirection(lineId, wayCode);
+        return snapshot.get().getTrains().stream()
+                .filter(train -> lineId != null && lineId.equals(train.getLineId()))
+                .filter(train -> stationId != null && stationId.equals(train.getStationId()))
+                .filter(train -> direction == null || direction.equals(train.getDirection()))
+                .filter(train -> SubwayArrivalCode.from(train.getArrivalCode()) == SubwayArrivalCode.DEPARTED)
+                .map(SubwayRealtimeTrain::getTrainNo)
+                .distinct()
+                .toList();
+    }
+
+    /**
      * 역 하나를 실시간 API 로 직접 물어본다.
      *
      * <p>수집기가 꺼져 있어 캐시가 비는 환경을 위한 경로다. 전체 수집과 달리 <b>필요한 역만</b>
