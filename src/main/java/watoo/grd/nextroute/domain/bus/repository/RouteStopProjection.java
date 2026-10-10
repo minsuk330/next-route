@@ -8,4 +8,6 @@ public interface RouteStopProjection {
     Double getLatitude();
     Double getLongitude();
     String getDirection();
+    /** 정류장 번호(표지판 5자리, #266). 없으면 null. */
+    String getArsId();
 }

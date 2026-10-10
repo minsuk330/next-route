@@ -304,6 +304,7 @@ class RideTruncationResolverTest {
 
     private RouteStopProjection stop(int seq) {
         return new RouteStopProjection() {
+            @Override public String getArsId() { return null; }
             @Override public Integer getSeq() { return seq; }
             @Override public String getStopId() { return "ST-" + seq; }
             @Override public String getStopName() { return "정류장" + seq; }

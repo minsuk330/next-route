@@ -59,6 +59,7 @@ public class TrackJourneyStartService {
     private final LegacyRouteResponseMapper legacyMapper;
     private final JourneyCompiler compiler;
     private final JourneyTransitIdEnricher transitIdEnricher;
+    private final JourneyGuidanceInfoEnricher guidanceInfoEnricher;
     private final JourneyStartTxService startTxService;
     private final JourneyStartConflictTranslator conflictTranslator;
     private final ObjectMapper objectMapper;
@@ -68,6 +69,7 @@ public class TrackJourneyStartService {
     public TrackJourneyStartService(JourneyTrackProperties properties, TrackPatternSource source,
                                     LegacyRouteResponseMapper legacyMapper, JourneyCompiler compiler,
                                     JourneyTransitIdEnricher transitIdEnricher,
+                                    JourneyGuidanceInfoEnricher guidanceInfoEnricher,
                                     JourneyStartTxService startTxService,
                                     JourneyStartConflictTranslator conflictTranslator,
                                     ObjectMapper objectMapper, MeterRegistry meterRegistry, Clock clock) {
@@ -76,6 +78,7 @@ public class TrackJourneyStartService {
         this.legacyMapper = legacyMapper;
         this.compiler = compiler;
         this.transitIdEnricher = transitIdEnricher;
+        this.guidanceInfoEnricher = guidanceInfoEnricher;
         this.startTxService = startTxService;
         this.conflictTranslator = conflictTranslator;
         this.objectMapper = objectMapper;
@@ -103,7 +106,7 @@ public class TrackJourneyStartService {
                     command.routeGtfsId(), command.boardStopId(), command.alightStopId());
             throw new BusinessException(JourneyErrorCode.JOURNEY_COMPILE_FAILED);
         }
-        plan = transitIdEnricher.enrich(plan);
+        plan = guidanceInfoEnricher.enrich(transitIdEnricher.enrich(plan));
 
         JsonNode routeSnapshot = objectMapper.valueToTree(path);
         JsonNode destination = objectMapper.createObjectNode().put("name", path.info().lastEndStation());

@@ -88,7 +88,8 @@ class TrackJourneyStartServiceTest {
                 mock(BusStopRepository.class), mock(BusRouteRepository.class), mock(SubwayStationRepository.class),
                 InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()));
         service = new TrackJourneyStartService(properties, source, legacy,
-                new JourneyCompiler(new StopIdentityResolver()), enricher, txService,
+                new JourneyCompiler(new StopIdentityResolver()), enricher,
+                new JourneyGuidanceInfoEnricher(org.mockito.Mockito.mock(watoo.grd.nextroute.domain.bus.repository.BusStopRepository.class)), txService,
                 new JourneyStartConflictTranslator(mock(JourneyQueryService.class)),
                 new ObjectMapper(), meters, clock);
     }

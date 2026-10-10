@@ -67,6 +67,7 @@ class JourneyStartServiceTest {
                 snapshotPort,
                 new JourneyCompiler(new StopIdentityResolver()),
                 transitIdEnricher,
+                new JourneyGuidanceInfoEnricher(org.mockito.Mockito.mock(watoo.grd.nextroute.domain.bus.repository.BusStopRepository.class)),
                 txService,
                 new JourneyStartConflictTranslator(queryService),
                 new ObjectMapper(),

@@ -38,6 +38,7 @@ public class JourneyStartService implements StartJourneyUseCase {
     private final RouteSearchSnapshotPort snapshotPort;
     private final JourneyCompiler compiler;
     private final JourneyTransitIdEnricher transitIdEnricher;
+    private final JourneyGuidanceInfoEnricher guidanceInfoEnricher;
     private final JourneyStartTxService startTxService;
     private final JourneyStartConflictTranslator conflictTranslator;
     private final ObjectMapper objectMapper;
@@ -57,7 +58,7 @@ public class JourneyStartService implements StartJourneyUseCase {
                     command.searchSessionId(), command.pathKey());
             throw new BusinessException(JourneyErrorCode.JOURNEY_COMPILE_FAILED);
         }
-        plan = transitIdEnricher.enrich(plan);
+        plan = guidanceInfoEnricher.enrich(transitIdEnricher.enrich(plan));
 
         JsonNode routeSnapshot = objectMapper.valueToTree(stored.path());
 
