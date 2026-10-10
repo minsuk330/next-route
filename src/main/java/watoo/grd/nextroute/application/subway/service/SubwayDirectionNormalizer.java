@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.subway.service;
 
+import java.util.Set;
+
 /**
  * 방향 코드를 도착정보와 같은 한글 표기로 맞춘다. <b>원천마다 값 규칙이 다르므로 입구를 나눈다.</b>
  *
@@ -15,13 +17,19 @@ package watoo.grd.nextroute.application.subway.service;
  * 방향이 지어져 나온다. 모름은 위로 올라가 "판정하지 않음"이 되지만, 지어낸 방향은 조용히
  * 반대 방향 열차에 고정된다.
  *
- * <p><b>미검증</b>: 위 {@code updnLine} 규칙은 공식 명세 표기를 따른 것이고 실제 응답으로
- * 확인하지 않았다. 실측 전까지 이 매핑을 다른 곳에 복제하지 않는다 — 고칠 자리가 하나여야 한다.
+ * <p><b>실측(2026-10-10 운영)</b>: 같은 열차번호의 도착 API 방향과 위치 API 방향을 노선별로 대조했다. 17개 노선은
+ * 위 규칙과 일치했지만 <b>9호선(1009) 26/26, 공항철도(1065) 24/24 는 정반대</b>였다(도착 {@code 하행 → 개화} 인 열차가
+ * 위치에선 {@code 0}). 그래서 두 노선은 {@link #INVERTED_UPDN_LINES} 로 뒤집는다. 뒤집지 않으면 역 도착에서 그 노선
+ * 열차가 전부 "반대 방향으로 더 최근에 본 열차"로 빠진다(9호선 0/38역). 이 매핑을 다른 곳에 복제하지 않는다 —
+ * 고칠 자리가 하나여야 한다.
  */
 public final class SubwayDirectionNormalizer {
 
     /** 2호선. 상·하행이 아니라 내·외선으로 말한다. */
     private static final String CIRCULAR_LINE_ID = "1002";
+
+    /** 위치 API 의 상·하행이 도착 API 와 반대인 노선(실측, 클래스 주석). */
+    static final Set<String> INVERTED_UPDN_LINES = Set.of("1009", "1065");
 
     private SubwayDirectionNormalizer() {
     }
@@ -34,6 +42,15 @@ public final class SubwayDirectionNormalizer {
      * @return 상행·하행·내선·외선 중 하나. 해석하지 못하면 {@code null}
      */
     public static String fromUpDownLine(String lineId, String updnLine) {
+        String label = upDownLineAsSpecified(lineId, updnLine);
+        if (label == null || !INVERTED_UPDN_LINES.contains(lineId)) {
+            return label;
+        }
+        return "상행".equals(label) ? "하행" : "하행".equals(label) ? "상행" : label;
+    }
+
+    /** 공식 명세 규칙 그대로(뒤집기 전). */
+    private static String upDownLineAsSpecified(String lineId, String updnLine) {
         if (updnLine == null) {
             return null;
         }

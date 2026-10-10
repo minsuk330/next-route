@@ -129,4 +129,19 @@ class SubwayDirectionNormalizerTest {
         assertThat(SubwayDirectionNormalizer.toWayCode("")).isNull();
         assertThat(SubwayDirectionNormalizer.toWayCode(null)).isNull();
     }
+
+    @Test
+    /** 9호선·공항철도는 위치 API 상·하행이 도착 API 와 반대다(2026-10-10 실측 26/26, 24/24) — 뒤집는다. */
+    void invertedLines() {
+        assertThat(SubwayDirectionNormalizer.fromUpDownLine("1009", "0")).isEqualTo("하행");
+        assertThat(SubwayDirectionNormalizer.fromUpDownLine("1009", "1")).isEqualTo("상행");
+        assertThat(SubwayDirectionNormalizer.fromUpDownLine("1065", "0")).isEqualTo("하행");
+        assertThat(SubwayDirectionNormalizer.fromUpDownLine("1065", "1")).isEqualTo("상행");
+        // 한글로 와도 같은 뜻이면 같이 뒤집는다
+        assertThat(SubwayDirectionNormalizer.fromUpDownLine("1009", "상행")).isEqualTo("하행");
+        // 모르는 값은 여전히 null, 다른 노선은 그대로
+        assertThat(SubwayDirectionNormalizer.fromUpDownLine("1009", "2")).isNull();
+        assertThat(SubwayDirectionNormalizer.fromUpDownLine("1005", "0")).isEqualTo("상행");
+    }
+
 }
