@@ -50,10 +50,11 @@ class SubwayTrainSegmentResolverTest {
     }
 
     @Test
-    @DisplayName("실측 표본이 있으면 출발 + 중앙값, MEASURED")
-    void measured() {
+    @DisplayName("실측 표본이 있어도 도착 예정은 GTFS 계획 초, SCHEDULED — 실측은 진입 기준이라 짧다(2026-10-10)")
+    void scheduledEvenWithMeasuredSamples() {
         given(segmentTimePort.departedAt(LINE, DIR, G, "2231")).willReturn(Optional.of(NOW.minusSeconds(30)));
-        given(segmentTimePort.recentSeconds(LINE, DIR, G)).willReturn(List.of(70L, 95L, 80L));
+        given(segmentTimePort.recentSeconds(LINE, DIR, G)).willReturn(List.of(16L, 21L, 25L));
+        given(lineOrder.runSeconds(LINE, DIR, Y, G)).willReturn(Optional.of(90));
 
         Segment seg = resolver.segment(LINE, DIR, "2231", departedFrom(Y, PositionSource.POSITION));
 
@@ -61,15 +62,14 @@ class SubwayTrainSegmentResolverTest {
         assertThat(seg.toStationId()).isEqualTo(G);
         assertThat(seg.toStationName()).isEqualTo("강남");
         assertThat(seg.departedAt().toInstant()).isEqualTo(NOW.minusSeconds(30));
-        assertThat(seg.expectedAt().toInstant()).isEqualTo(NOW.plusSeconds(50));
-        assertThat(seg.source()).isEqualTo(SegmentSource.MEASURED);
+        assertThat(seg.expectedAt().toInstant()).isEqualTo(NOW.plusSeconds(60));
+        assertThat(seg.source()).isEqualTo(SegmentSource.SCHEDULED);
     }
 
     @Test
-    @DisplayName("실측 표본이 없으면 GTFS 계획 초, SCHEDULED. 출발 기록이 없으면 위치 API 상태가 바뀐 시각")
+    @DisplayName("GTFS 계획 초, SCHEDULED. 출발 기록이 없으면 위치 API 상태가 바뀐 시각")
     void scheduledFallback() {
         given(segmentTimePort.departedAt(any(), any(), any(), any())).willReturn(Optional.empty());
-        given(segmentTimePort.recentSeconds(any(), any(), any())).willReturn(List.of());
         given(lineOrder.runSeconds(LINE, DIR, Y, G)).willReturn(Optional.of(90));
 
         Segment seg = resolver.segment(LINE, DIR, "2231", departedFrom(Y, PositionSource.POSITION));
@@ -91,7 +91,6 @@ class SubwayTrainSegmentResolverTest {
     @DisplayName("출발 시각은 아는데 예정을 모르면 expectedAt·source 가 null")
     void unknownDuration() {
         given(segmentTimePort.departedAt(any(), any(), any(), any())).willReturn(Optional.of(NOW.minusSeconds(10)));
-        given(segmentTimePort.recentSeconds(any(), any(), any())).willReturn(List.of());
         given(lineOrder.runSeconds(any(), any(), any(), any())).willReturn(Optional.empty());
 
         Segment seg = resolver.segment(LINE, DIR, "2231", departedFrom(Y, PositionSource.ARRIVAL));
@@ -109,14 +108,6 @@ class SubwayTrainSegmentResolverTest {
 
         given(segmentTimePort.departedAt(any(), any(), any(), any())).willThrow(new IllegalStateException("down"));
         assertThat(resolver.segment(LINE, DIR, "2231", departedFrom(Y, PositionSource.ARRIVAL))).isNull();
-    }
-
-    @Test
-    @DisplayName("중앙값: 홀수는 가운데, 짝수는 가운데 둘 평균")
-    void median() {
-        assertThat(SubwayTrainSegmentResolver.median(List.of(90L))).isEqualTo(90);
-        assertThat(SubwayTrainSegmentResolver.median(List.of(100L, 60L))).isEqualTo(80);
-        assertThat(SubwayTrainSegmentResolver.median(List.of())).isNull();
     }
 
     @Test
