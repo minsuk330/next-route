@@ -169,7 +169,9 @@ public class SubwayTrainTransitionTracker {
         if (Objects.equals(latest.stationId(), older.stationId())) {
             return true;
         }
-        return adjacency.isAdjacent(identity.lineId(), older.stationName(), latest.stationName());
+        return adjacency.isAdjacent(identity.lineId(), older.stationName(), latest.stationName())
+                || adjacency.isAdjacentInOrder(identity.lineId(), identity.direction(),
+                older.stationId(), latest.stationId());
     }
 
     /** 응답 한 행과 그 행의 {@code recptnDt}. 시각을 두 번 파싱하지 않으려고 같이 들고 다닌다. */
@@ -236,7 +238,9 @@ public class SubwayTrainTransitionTracker {
      */
     private int movedStation(TrainIdentity identity,
                              SubwayTrainObservation before, SubwayTrainObservation now) {
-        if (!adjacency.isAdjacent(identity.lineId(), before.stationName(), now.stationName())) {
+        if (!adjacency.isAdjacent(identity.lineId(), before.stationName(), now.stationName())
+                && !adjacency.isAdjacentInOrder(identity.lineId(), identity.direction(),
+                before.stationId(), now.stationId())) {
             log.debug("[TrainTransition] 인접하지 않은 이동 — {} {}→{}",
                     identity.asKeySuffix(), before.stationName(), now.stationName());
             return 0;

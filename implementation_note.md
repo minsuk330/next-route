@@ -4293,6 +4293,23 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 일회용 st-pg/st-redis 전체 2833 중 실패 13 = 기존 무관 그대로(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·RerouteRemainingPathOtpLiveIT 1·JourneyNotificationSchemaIT 간헐 1). V63 관련 25건 → 0
 
+## 2026-10-10 코레일 구간 인접 판정 — 노선 순서(역 ID) 폴백 (fix/subway-adjacency-korail-sections, S)
+
+### 확정
+- `SubwayStationAdjacency` 이름 표(subway_segment)는 **서울교통공사 구간 276역뿐**. 1호선 경부·경인·경원, 3호선 일산선, 4호선 과천·안산선은 늘 "인접 아님" → 위치 출발 사건 0. 10-10 Redis `subway:dep:*` 실측: 1001=124~133(서울역~청량리)만, 1003=319~352, 1004=409~434. 수원 `departed[]` 항상 빔, 같은 원인으로 M7 판정·떠난 열차 선택도 그 구간 불가
+- 폴백: 이름 표에 없으면 `SubwayLineOrder.nextOf/prevOf`(GTFS 패턴, 역 ID, 그 열차 방향)로 바로 앞뒤인지 본다. 답이 하나일 때만 답하므로 분기역(구로·병점)은 여전히 false — 순간이동을 출발로 읽지 않는 원칙 유지
+- 코레일 구간 위치 원천은 출발(2) 상태를 거의 안 준다(10-10 실측 korail ARRIVED 448 / ENTERING 11 / DEPARTED 0) → 출발 사건은 movedStation(역 바뀜) 경로로만 생긴다
+- worker 에서 패턴 캐시가 비면 첫 호출은 false + loadLater(OTP 1회 적재). 이후부터 판정
+
+### 좌표
+- SubwayStationAdjacency.isAdjacentInOrder / SubwayTrainTransitionTracker.isSameTrainTrack·movedStation
+
+### 함정
+- 스크래치 clone 컨텍스트 IT: env 더미는 api.env 키만. oauth.env 더미 → `oauth.kakao.app-id` Long 바인딩 실패, toss.env 더미 → mTLS keystore 파일 없음으로 부팅 사망. DB/Redis 는 로컬 st-pg(55432)·st-redis(56379)
+
+### 검증
+- 단위: `--tests '*SubwayStationAdjacencyTest' --tests '*SubwayTrainTransitionTrackerTest'` → 24/0
+- 컨텍스트 IT(st-pg/st-redis): `SubwayRideScenarioIT`·`NextrouteApplicationTests`·`SubwayRingIT` → 26/0
 ## 2026-10-10 #317 이 역 전에 종착하는 열차 제외 (fix/subway-arrivals-terminates-before, S)
 
 ### 확정

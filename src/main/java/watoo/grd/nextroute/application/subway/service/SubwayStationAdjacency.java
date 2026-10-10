@@ -32,6 +32,10 @@ import java.util.Set;
  * 이름이 ID 처럼 보이지만 실제로 담긴 값은 <b>역 이름</b>이다
  * ({@code SubwayStaticDataService} 가 {@code departStationName} 을 넣는다). 그래서 이 클래스도
  * 이름으로 묻고 답한다.
+ *
+ * <p><b>{@code subway_segment} 는 서울교통공사 구간 276역뿐이다.</b> 1호선 경부·경인·경원선, 3호선 일산선, 4호선 과천·안산선
+ * 같은 코레일 구간은 이름 표에 없어 늘 "인접 아님"이었고, 그 구간에서는 출발 사건이 하나도 안 생겼다(2026-10-10 실측: 수원
+ * 떠난 열차 0, M7 판정 불가). 그래서 이름 표에 없으면 {@link #isAdjacentInOrder} 로 GTFS 노선 순서(역 ID)를 한 번 더 본다.
  */
 @Slf4j
 @Component
@@ -39,6 +43,7 @@ import java.util.Set;
 public class SubwayStationAdjacency {
 
     private final SubwaySegmentRepository subwaySegmentRepository;
+    private final SubwayLineOrder lineOrder;
 
     /** volatile: 수집 스레드가 읽고, 정적 데이터 갱신 스케줄러가 통째로 갈아 끼운다. */
     private volatile Map<String, Set<String>> neighbors = Map.of();
@@ -78,6 +83,21 @@ public class SubwayStationAdjacency {
         }
         Set<String> set = neighbors.get(key(lineId, stationName));
         return set != null && set.contains(otherStationName);
+    }
+
+    /**
+     * 이 방향 GTFS 노선 순서에서 두 역이 바로 앞뒤인지(역 ID). 이름 표({@link #isAdjacent})에 없는 구간용.
+     *
+     * <p>{@link SubwayLineOrder} 는 답이 하나일 때만 답한다 — 갈래 합류·분기역(구로·병점)은 모름이라 false 다. 순간이동을
+     * 출발로 읽지 않는다는 원칙은 그대로다. 패턴이 아직 적재 전이면 false 고 뒤에서 적재한다.
+     */
+    public boolean isAdjacentInOrder(String lineId, String direction, String stationId, String otherStationId) {
+        if (lineId == null || direction == null || stationId == null || otherStationId == null
+                || stationId.equals(otherStationId)) {
+            return false;
+        }
+        return lineOrder.nextOf(lineId, direction, stationId).filter(otherStationId::equals).isPresent()
+                || lineOrder.prevOf(lineId, direction, stationId).filter(otherStationId::equals).isPresent();
     }
 
     /** 적재 여부. 비어 있으면 인접 판정이 전부 false 라 출발 확정이 나오지 않는다. */
