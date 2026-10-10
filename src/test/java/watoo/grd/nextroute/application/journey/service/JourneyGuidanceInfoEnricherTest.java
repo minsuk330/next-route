@@ -25,7 +25,16 @@ class JourneyGuidanceInfoEnricherTest {
     private final BusStopRepository repository = mock(BusStopRepository.class);
     private final watoo.grd.nextroute.testsupport.InMemoryRegionalBusRouteStopStore regional =
             new watoo.grd.nextroute.testsupport.InMemoryRegionalBusRouteStopStore();
-    private final JourneyGuidanceInfoEnricher enricher = new JourneyGuidanceInfoEnricher(repository, regional);
+    private final JourneyGuidanceInfoEnricher enricher = new JourneyGuidanceInfoEnricher(repository, regional,
+            watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex.of(List.of(
+                    new watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex.Entrance(
+                            37.5010, 127.0012, "1", "강남역 1번 출구"),
+                    new watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex.Entrance(
+                            37.4990, 126.9988, "2", "강남역 2번 출구"),
+                    new watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex.Entrance(
+                            37.4930, 127.0140, "12", "교대역 12번 출구"),
+                    new watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex.Entrance(
+                            37.4920, 127.0138, "14", "교대역 14번 출구"))));
 
     @Test
     @DisplayName("대기 단계는 승차 정류장 번호 둘 다, 탑승 단계는 승차·하차 번호. 내부 정류장 ID 로 찾는다")
@@ -112,6 +121,52 @@ class JourneyGuidanceInfoEnricherTest {
         assertThat(out.guidance().startStopNo()).isNull();
         assertThat(JourneyGuidanceInfoEnricher.regionalStopId("1:BS_TAGO_SEB104000136")).isNull();
         assertThat(JourneyGuidanceInfoEnricher.regionalStopId("1:BS_TAGO_DJB8001783")).isEqualTo("DJB8001783");
+    }
+
+    @Test
+    @DisplayName("#266 PR-3 출구: 승차는 앞 걷기 시작점, 하차는 다음 걷기 끝점에 가까운 출구. 대기·탑승 둘 다 승차 출구")
+    void subwayExits() {
+        JourneyPlan plan = new JourneyPlan(List.of(
+                walk(0, JourneyLegType.WALK, 126.9970, 37.4970, 126.9990, 37.4990),
+                subway(1, JourneyLegType.WAIT_SUBWAY, "강남", "강남", 127.0, 37.5, 127.0, 37.5, 2),
+                subway(2, JourneyLegType.RIDE_SUBWAY, "강남", "교대", 127.0, 37.5, 127.0139, 37.4926, 1),
+                walk(3, JourneyLegType.WALK, 127.0139, 37.4926, 127.0138, 37.4900)), List.of());
+
+        List<JourneyLegDraft> legs = enricher.enrich(plan).legs();
+
+        assertThat(legs.get(1).guidance().startExitNo()).isEqualTo("2");
+        assertThat(legs.get(2).guidance()).extracting(JourneyLegGuidance::startExitNo, JourneyLegGuidance::endExitNo)
+                .containsExactly("2", "14");
+        assertThat(legs.get(0).guidance()).isEqualTo(JourneyLegGuidance.EMPTY);
+    }
+
+    @Test
+    @DisplayName("#266 PR-3 출구: 지하철↔지하철 환승(걷기 뒤 지하철 대기)·같은 정류장 환승(걷기 없음)·끝이 역이면 null")
+    void noExitOnSubwayTransfer() {
+        JourneyPlan plan = new JourneyPlan(List.of(
+                subway(0, JourneyLegType.WAIT_SUBWAY, "강남", "강남", 127.0, 37.5, 127.0, 37.5, 1),
+                subway(1, JourneyLegType.RIDE_SUBWAY, "강남", "교대", 127.0, 37.5, 127.0139, 37.4926, 0),
+                walk(2, JourneyLegType.TRANSFER_WALK, 127.0139, 37.4926, 127.0139, 37.4927),
+                subway(3, JourneyLegType.WAIT_SUBWAY, "교대", "교대", 127.0139, 37.4927, 127.0139, 37.4927, 4),
+                subway(4, JourneyLegType.RIDE_SUBWAY, "교대", "강남", 127.0139, 37.4927, 127.0, 37.5, 3)), List.of());
+
+        List<JourneyLegDraft> legs = enricher.enrich(plan).legs();
+
+        assertThat(legs.get(0).guidance().startExitNo()).isNull(); // 앞에 걷기 없음
+        assertThat(legs.get(1).guidance().endExitNo()).isNull();   // 걷기 뒤 지하철 대기 = 환승
+        assertThat(legs.get(3).guidance().startExitNo()).isNull(); // 앞 걷기 앞이 지하철 탑승
+        assertThat(legs.get(4).guidance().endExitNo()).isNull();   // 끝이 역
+    }
+
+    private static JourneyLegDraft walk(int index, JourneyLegType type, double sx, double sy, double ex, double ey) {
+        return new JourneyLegDraft(index, type, JourneyLegState.PENDING, null, null, null, null,
+                "a", "b", sx, sy, ex, ey, 60, null, List.of(), null);
+    }
+
+    private static JourneyLegDraft subway(int index, JourneyLegType type, String start, String end,
+                                          double sx, double sy, double ex, double ey, int paired) {
+        return new JourneyLegDraft(index, type, JourneyLegState.PENDING, null, null, null, null,
+                start, end, sx, sy, ex, ey, 60, null, List.of(), paired);
     }
 
     private static JourneyLegDraft sourceLeg(int index, JourneyLegType type, String sourceStart, String sourceEnd) {

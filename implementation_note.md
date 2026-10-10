@@ -4180,3 +4180,22 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 배포
 - **V64 VPS 수동배치 필요**(`V64__regional_bus_route_stop_stop_no.sql`). worker 재시작 시 정류장 표 1회 재적재(약 2만 노선, 키 한도 주의 — #281 실측 적재 ~1시간) → 그 뒤 api
+
+## 2026-10-10 guidance-stop-info PR-3 (#266 지하철 출구)
+
+플랜 §5 + §9. 브랜치 feat/guidance-subway-exit (PR-2 #338 머지 후 main).
+
+### 확정
+- 원천 = OSM `railway=subway_entrance` + `ref`. 로컬 `south-korea-260929-nojeju.osm.pbf` 에서 `tools/subway-entrances/build_entrances.sh` 로 `src/main/resources/subway/entrances.csv` 생성(ref 있는 4,462개, 이름표 4,054). 역 마스터 696 중 692역이 350m 안 출구 보유
+- OTP 그래프 출입구 기능 미사용 — 운영 포크는 `step.feature{Entrance}` 지원하나 실측 도보 단계에 안 나옴(정류장이 최근접 도로로 붙어 출입구 노드 미경유 추정)
+- 선택 = 역 반경 350m 안 출입구 중 목표(하차: 다음 걷기 끝 / 승차: 앞 걷기 시작)에 최근접. 이름표에 역 이름(displayName) 든 출구가 있으면 그것만(큰 환승역 타 역 출구 혼입 방지)
+- 단계 종류 규칙: 하차 출구는 다음이 걷기이고 그 다음이 WAIT_SUBWAY 가 아닐 때만, 승차 출구는 앞이 걷기이고 그 앞이 RIDE_SUBWAY 가 아닐 때만. 같은 정류장 환승(걷기 없음)·끝이 역이면 null
+- 플랜 편차: 목표점을 "걷기 polyline 100~150m 지점"(리뷰 🟡7b)으로 하지 않고 걷기 끝/시작 좌표 — draft 에 도보 polyline 이 없다. 오차 가능성은 HANDOFF 에 적음
+- 출입구 목록은 첫 사용 시 1회 적재(메모리 4천여 행), 적재 실패 시 출구 없이 진행
+
+### 검증
+- 신규: SubwayEntranceIndexTest 4(최근접·이름표 우선·반경·동봉 CSV 강남 10번), JourneyGuidanceInfoEnricherTest +2(승·하차 출구, 환승·끝 역 null)
+- 전체 단위 `./gradlew test --tests '*Test'` → **2269/0**
+
+### 배포
+- 리소스만(api·worker). 마이그레이션 없음. OSM 출처 표기 앱 요청(HANDOFF)
