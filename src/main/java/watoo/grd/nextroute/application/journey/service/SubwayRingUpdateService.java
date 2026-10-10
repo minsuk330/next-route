@@ -15,6 +15,7 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
+import watoo.grd.nextroute.application.subway.service.SubwayLineOrder;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -57,6 +58,7 @@ public class SubwayRingUpdateService {
     private final JourneySubwayRingProperties properties;
     private final Clock clock;
     private final RerouteRefreshSignal rerouteRefreshSignal;
+    private final SubwayLineOrder lineOrder;
 
     /** @return 훑은 건수 */
     public int runOnce() {
@@ -108,6 +110,7 @@ public class SubwayRingUpdateService {
         if (state == null) {
             return;
         }
+        state = state.withEstimatedAlightingAt(alightingAtOf(state, chain, train));
         state = state.withGuidanceVersion(guidanceVersionOf(previous, state, now));
         ringPort.save(state);
         metrics.recordUpdated(state, observation, binding.getStatus());
@@ -133,6 +136,31 @@ public class SubwayRingUpdateService {
             return prior;
         }
         return Math.max(now.toEpochMilli(), prior + 1);
+    }
+
+    /**
+     * 하차역 도착 예정(#310) = 다음 역 도착 예정 + GTFS 계획 초(다음 역 도착 → 하차역 도착). 사용자 결정(2026-10-10): 남은
+     * 구간은 시간표만 쓴다 — 지연은 다음 역 예정에만 반영된다. 다음 역이 하차역이면 그 예정 그대로.
+     *
+     * <p>다음 역 예정이 없거나(멈춘 링) 역·계획을 모르면 null — 지어내지 않는다.
+     */
+    private Instant alightingAtOf(SubwayRingState state, SubwayRingChain chain, TrainIdentity train) {
+        Instant next = state.estimatedNextStationAt();
+        if (next == null || train == null) {
+            return null;
+        }
+        SubwayRingChain.Station nextStation = chain.at(state.nextStationSequence());
+        SubwayRingChain.Station alighting = chain.at(chain.alightingSequence());
+        if (nextStation == null || alighting == null) {
+            return null;
+        }
+        if (nextStation.sequence() == alighting.sequence()) {
+            return next;
+        }
+        return lineOrder.arrivalGapSeconds(train.lineId(), train.direction(),
+                        nextStation.canonicalKey(), alighting.canonicalKey())
+                .map(next::plusSeconds)
+                .orElse(null);
     }
 
     /**

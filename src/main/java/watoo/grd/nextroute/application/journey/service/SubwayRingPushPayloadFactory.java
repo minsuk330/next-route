@@ -47,6 +47,8 @@ public class SubwayRingPushPayloadFactory {
 
     /** {@link #staleDateSeconds} 는 발송 어댑터가 정적으로 부른다 — 읽기 전용이라 공유해도 된다. */
     private static final ObjectMapper STALE_READER = new ObjectMapper();
+    /** 하차 몇 ms 전에 stale 로 다시 그릴지(앱 "곧 도착" 문턱 1분과 같다). */
+    private static final long ALIGHTING_STALE_LEAD_MILLIS = 60_000L;
 
     private final ObjectMapper objectMapper;
 
@@ -93,6 +95,8 @@ public class SubwayRingPushPayloadFactory {
         // 없으면 null 이다. 앱은 그때 보간을 멈춘다 — 만들어 내면 죽은 화면이 살아 있는 척한다.
         props.put("estimatedNextStationAt", millis(ring.estimatedNextStationAt()));
         props.put("progressValidUntil", millis(ring.progressValidUntil()));
+        // 하차역 도착 예정(#310). 없으면 null — 앱이 자체 추정으로 돌아간다.
+        props.put("estimatedAlightingAt", millis(ring.estimatedAlightingAt()));
         props.put("quality", ring.quality().name());
         props.put("updatedAt", updatedAt.toEpochMilli());
         return props;
@@ -105,17 +109,27 @@ public class SubwayRingPushPayloadFactory {
      * "도착한 것처럼" 보인다. 시스템이 이 시각에 화면을 stale 로 다시 그리게 해야 위젯이 고정 링으로 바뀐다. 앱이 직접
      * 갱신할 때는 스스로 넣지만, 백그라운드의 유일한 갱신 경로인 push 에는 서버가 넣어야 한다.
      *
+     * <p>하차 예정(#310)이 있으면 {@code min(progressValidUntil, 하차 예정 − 60초)} — 앱 규칙과 같다. 하차 1분 전에 시스템이
+     * 다시 그려 위젯이 "곧 도착"으로 바뀐다.
+     *
      * <p>종료 프레임도 같은 봉투라 값이 나오지만, {@code end} 에는 붙이지 않는다(부르는 쪽 몫).
      *
-     * @return 없거나 읽을 수 없으면 null — 그때는 키를 빼고 보낸다(지어내지 않는다)
+     * @return 둘 다 없거나 읽을 수 없으면 null — 그때는 키를 빼고 보낸다(지어내지 않는다)
      */
     public static Long staleDateSeconds(JsonNode contentState) {
         if (contentState == null || !contentState.path(FIELD_PROPS).isTextual()) {
             return null;
         }
         try {
-            JsonNode until = STALE_READER.readTree(contentState.path(FIELD_PROPS).asText()).path("progressValidUntil");
-            return until.isNumber() ? Math.floorDiv(until.asLong(), 1000L) : null;
+            JsonNode props = STALE_READER.readTree(contentState.path(FIELD_PROPS).asText());
+            JsonNode until = props.path("progressValidUntil");
+            JsonNode alighting = props.path("estimatedAlightingAt");
+            Long staleMillis = until.isNumber() ? until.asLong() : null;
+            if (alighting.isNumber()) {
+                long beforeAlighting = alighting.asLong() - ALIGHTING_STALE_LEAD_MILLIS;
+                staleMillis = staleMillis == null ? beforeAlighting : Math.min(staleMillis, beforeAlighting);
+            }
+            return staleMillis == null ? null : Math.floorDiv(staleMillis, 1000L);
         } catch (Exception e) {
             return null;
         }

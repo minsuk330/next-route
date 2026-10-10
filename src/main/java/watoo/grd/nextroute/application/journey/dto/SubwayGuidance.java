@@ -35,6 +35,7 @@ import java.time.Instant;
  * @param observedAt             원천 실시간 데이터의 관측 시각
  * @param version                링 화면이 마지막으로 바뀐 시각(epoch millis, #307). 여정 안에서 단조라 앱이 늦게 온
  *                               옛 스냅샷을 버리는 데 쓴다. 링이 없으면 null
+ * @param estimatedAlightingAt   하차역 도착 예정(#310). 다음 역 예정 + GTFS 계획 초. 모르면 null — 앱이 자체 추정
  */
 public record SubwayGuidance(
         SubwayBindingStatus bindingStatus,
@@ -53,8 +54,20 @@ public record SubwayGuidance(
 
         SubwayRingQuality quality,
         Instant observedAt,
-        Long version
+        Long version,
+        Instant estimatedAlightingAt
 ) {
+
+    /** 하차 예정 없이(옛 모양). */
+    public SubwayGuidance(SubwayBindingStatus bindingStatus, SubwayRingPhase phase, String lineName,
+                          String nextStationName, String alightingStationName, Integer remainingStations,
+                          BigDecimal segmentProgress, Instant progressBaseAt, BigDecimal progressTarget,
+                          Instant estimatedNextStationAt, Instant progressValidUntil,
+                          SubwayRingQuality quality, Instant observedAt, Long version) {
+        this(bindingStatus, phase, lineName, nextStationName, alightingStationName, remainingStations,
+                segmentProgress, progressBaseAt, progressTarget, estimatedNextStationAt, progressValidUntil,
+                quality, observedAt, version, null);
+    }
 
     /**
      * 아직 어느 열차인지 모른다. 앱은 "탑승 열차 확인 중" 화면을 그린다.
@@ -78,6 +91,7 @@ public record SubwayGuidance(
                 ring.segmentProgress(), ring.progressBaseAt(), ring.progressTarget(),
                 ring.estimatedNextStationAt(), ring.progressValidUntil(),
                 ring.quality(), ring.observedAt(),
-                ring.guidanceVersion() > 0 ? ring.guidanceVersion() : null);
+                ring.guidanceVersion() > 0 ? ring.guidanceVersion() : null,
+                ring.estimatedAlightingAt());
     }
 }
