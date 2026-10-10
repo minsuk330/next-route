@@ -27,9 +27,10 @@ class TrackRealtimeIdResolverTest {
     private final BusStopRepository busStopRepository = mock(BusStopRepository.class);
     private final BusRouteRepository busRouteRepository = mock(BusRouteRepository.class);
     private final SubwayLineStationIndex stationIndex = mock(SubwayLineStationIndex.class);
+    private final TagoCityCodeLookup cityCodes = mock(TagoCityCodeLookup.class);
     private final TrackRealtimeIdResolver resolver = new TrackRealtimeIdResolver(
             new OtpSeoulIdentityResolver(busStopRepository, busRouteRepository,
-                    mock(SubwayStationRepository.class), mock(TagoCityCodeLookup.class)),
+                    mock(SubwayStationRepository.class), cityCodes),
             busStopRepository, stationIndex);
 
     @Test
@@ -54,15 +55,17 @@ class TrackRealtimeIdResolverTest {
     }
 
     @Test
-    @DisplayName("노선: 방향 접미(_U/_D) 제거, 경기 마을버스 BR_3100_, 서울은 DB 확인")
+    @DisplayName("노선: 방향 접미(_U/_D) 제거, 경기 마을버스 BR_3100_, 서울은 DB 확인, TAGO 는 도시코드를 알 때만")
     void busRoutes() {
         given(busRouteRepository.existsByRouteId("100100118")).willReturn(true);
+        given(cityCodes.cityCodeOfRoute("BSB5201002F00")).willReturn(Optional.of("21"));
 
         assertThat(resolver.busRoute("1:BR_TAGO_SEB100100118")).isEqualTo("100100118");
         assertThat(resolver.busRoute("1:BR_TAGO_SEB100100999")).isNull();
         assertThat(resolver.busRoute("1:BR_TAGO_GGB234000026_U")).isEqualTo("234000026");
         assertThat(resolver.busRoute("1:BR_3100_241005010")).isEqualTo("241005010");
         assertThat(resolver.busRoute("1:BR_TAGO_BSB5201002F00")).isEqualTo("BSB5201002F00");
+        assertThat(resolver.busRoute("1:BR_TAGO_TSB309000001")).as("도시코드 모름").isNull();
     }
 
     @Test

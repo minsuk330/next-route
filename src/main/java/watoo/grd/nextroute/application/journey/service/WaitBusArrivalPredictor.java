@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Quality;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Source;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
 import watoo.grd.nextroute.application.journey.port.out.CurrentLegArrivalPredictor;
+import watoo.grd.nextroute.application.regionalbus.dto.RegionalBusProvider;
 import watoo.grd.nextroute.application.route.dto.TransferArrival;
 import watoo.grd.nextroute.application.route.dto.TransferPredictionResult;
 import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
@@ -19,6 +20,7 @@ import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionReposi
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * 버스를 기다리는 단계가 언제 끝나는지 — 즉 버스가 언제 오는지.
@@ -32,14 +34,23 @@ import java.util.Optional;
  * <p>기존 {@code SingleTransferPredictor} 를 그대로 쓴다. 실시간 우선, 안 되면 ML 로 내려가는
  * 규칙과 provider 차단·예산 초과 판정이 이미 그 안에 있다. 여기서 다시 만들면 두 곳의 판정이
  * 어긋난다.
+ *
+ * <p>경기·TAGO 노선은 서울 순번이 없어 그 길로 못 간다. 그때는 원천 id(경기 GBIS·TAGO 노선·정류장 id)로 지역 실시간
+ * ({@link RegionalArrivalLookup})의 다음 버스를 쓴다(#333). 모델 추정은 없다.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class WaitBusArrivalPredictor implements CurrentLegArrivalPredictor {
 
+    /** TAGO 노선 id(영문 3글자 접두사). {@code BusArrivalQueryService} 와 같은 규칙. */
+    private static final Pattern TAGO_ID = Pattern.compile("^[A-Z]{3}[\\dA-Z-]+$");
+    /** 경기 GBIS 노선 id(2로 시작하는 9자리). 서울은 1로 시작해 겹치지 않는다({@code TransferStopResolver} 와 같은 규칙). */
+    private static final Pattern GBIS_ROUTE_ID = Pattern.compile("^2\\d{8}$");
+
     private final PredictTransferUseCase predictTransferUseCase;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
+    private final RegionalArrivalLookup regionalArrivalLookup;
 
     @Override
     public boolean supports(JourneyLegType type) {
@@ -55,6 +66,9 @@ public class WaitBusArrivalPredictor implements CurrentLegArrivalPredictor {
         }
 
         Optional<JourneyLegRouteOption> option = selectedOption(leg);
+        if (option.isPresent() && isRegional(leg, option.get())) {
+            return predictRegional(leg, option.get(), now);
+        }
         if (option.isEmpty() || !hasBusScope(option.get()) || leg.getStartStopId() == null) {
             log.debug("대기 버스 ETA 조회 불가 — legIndex={}, 노선·정류장 미해석", leg.getLegIndex());
             return CurrentLegArrival.unknown();
@@ -89,6 +103,49 @@ public class WaitBusArrivalPredictor implements CurrentLegArrivalPredictor {
         boolean realtime = prediction.source() == TransferArrival.Source.REALTIME;
         boolean exact = prediction.status() == TransferArrival.Status.AVAILABLE;
         return realtime && exact ? Quality.GOOD : Quality.APPROXIMATE;
+    }
+
+    /**
+     * 서울 노선으로 풀리지 않았고 원천 노선 id 가 경기·TAGO 모양이다. 모양을 모르는 id(서울 DB 에 없는 서울 노선 등)는
+     * 지역 API 로 묻지 않는다 — 엉뚱한 원천에 물어 할당량만 쓴다.
+     */
+    private boolean isRegional(JourneyLeg leg, JourneyLegRouteOption option) {
+        return (option.getRouteId() == null || option.getRouteId().isBlank())
+                && regionalProvider(option.getSourceRouteId()) != null && hasText(leg.getSourceStartStopId());
+    }
+
+    private static RegionalBusProvider regionalProvider(String sourceRouteId) {
+        if (sourceRouteId == null) {
+            return null;
+        }
+        if (GBIS_ROUTE_ID.matcher(sourceRouteId).matches()) {
+            return RegionalBusProvider.GG;
+        }
+        return TAGO_ID.matcher(sourceRouteId).matches() ? RegionalBusProvider.TAGO : null;
+    }
+
+    private CurrentLegArrival predictRegional(JourneyLeg leg, JourneyLegRouteOption option, Instant now) {
+        RegionalBusProvider provider = regionalProvider(option.getSourceRouteId());
+        RegionalArrivalLookup.Lookup lookup = regionalArrivalLookup.nextArrival(
+                provider, option.getSourceRouteId(), leg.getSourceStartStopId());
+        if (lookup.at() == null) {
+            log.debug("대기 버스 지역 ETA 없음 — legIndex={}, provider={}, reason={}",
+                    leg.getLegIndex(), provider, lookup.failureReason());
+            return CurrentLegArrival.unknown();
+        }
+        return new CurrentLegArrival(
+                lookup.at(),
+                (int) Math.max(0, lookup.at().getEpochSecond() - now.getEpochSecond()),
+                null,
+                null,
+                Source.REALTIME_ARRIVAL,
+                // 경기는 분 단위 예측이라 근사다.
+                provider == RegionalBusProvider.TAGO ? Quality.GOOD : Quality.APPROXIMATE,
+                now);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private Optional<JourneyLegRouteOption> selectedOption(JourneyLeg leg) {

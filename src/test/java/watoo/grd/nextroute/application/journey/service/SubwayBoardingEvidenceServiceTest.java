@@ -158,10 +158,28 @@ class SubwayBoardingEvidenceServiceTest {
         SubwayBindingView view = submit(USER_ID, REVISION, RIDE_INDEX, movementStart(1));
 
         assertThat(view.status()).isEqualTo(SubwayBindingStatus.PENDING);
+        assertThat(view.realtimeSupported()).isTrue();
         SubwayLegBinding binding = bindingRepository.saved.get(0);
         assertThat(binding.getTrainNo()).isNull();
         assertThat(binding.getBoardedDetectedAt()).isEqualTo(NOW.minusSeconds(20));
         assertThat(binding.getSource()).isEqualTo(SubwayBindingSource.MOTION_AUTOMOTIVE);
+    }
+
+    @Test
+    @DisplayName("실시간 없는 지하철(서울 노선·역 id 없음 — 지방 지하철)은 판정을 열지 않고 미지원으로 답한다")
+    void regionalSubwayDoesNotOpenBinding() {
+        JourneyLeg regional = JourneyLeg.builder().journeyId(JOURNEY_ID).routeRevision(REVISION)
+                .legIndex(RIDE_INDEX).type(JourneyLegType.RIDE_SUBWAY).state(JourneyLegState.PENDING).build();
+        ReflectionTestUtils.setField(regional, "id", 100L + RIDE_INDEX);
+        when(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+                eq(JOURNEY_ID), anyInt()))
+                .thenReturn(List.of(leg(0, JourneyLegType.WALK), leg(WAIT_INDEX, JourneyLegType.WAIT_SUBWAY), regional));
+
+        SubwayBindingView view = submit(USER_ID, REVISION, WAIT_INDEX, movementStart(1));
+
+        assertThat(view.realtimeSupported()).isFalse();
+        assertThat(view.legIndex()).isEqualTo(RIDE_INDEX);
+        assertThat(bindingRepository.saved).isEmpty();
     }
 
     @Test
@@ -371,9 +389,11 @@ class SubwayBoardingEvidenceServiceTest {
                 .legIndex(index)
                 .type(type)
                 .state(JourneyLegState.PENDING)
+                .startStopId("0222")
                 .plannedDurationSec(300)
                 .build();
         ReflectionTestUtils.setField(leg, "id", 100L + index);
+        ReflectionTestUtils.setField(leg, "routeId", "1002");
         return leg;
     }
 

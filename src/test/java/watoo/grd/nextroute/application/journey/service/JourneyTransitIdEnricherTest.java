@@ -14,6 +14,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static watoo.grd.nextroute.application.journey.service.SubPathFixture.bus;
 import static watoo.grd.nextroute.application.journey.service.SubPathFixture.busLane;
@@ -63,6 +64,43 @@ class JourneyTransitIdEnricherTest {
         assertThat(ride.startStopId()).isEqualTo("STOP-A");
         assertThat(ride.endStopId()).isEqualTo("STOP-F");
         assertThat(ride.evidenceQuality()).isNull();
+    }
+
+    /** 도시코드 없는 TAGO 노선(충주 103): 실시간 id 가 비어도 번호가 같은 서울 103 이 되면 안 된다. */
+    @Test
+    void regionalBusWithoutRealtimeId_doesNotFallBackToSeoulRouteNumber() {
+        given(busResolver.resolveRoute(null, "103")).willReturn(Optional.of(
+                new TransferStopResolver.RouteResolution("100100008", "103", true, 10)));
+
+        JourneyPlan plan = enricher.enrich(compile(bus(20)
+                .busStops("1:BS_TAGO_CJB283000123", "1:BS_TAGO_CJB283000456")
+                .lanes(busLane("103", null)).build()));
+
+        assertThat(plan.legs().get(0).routeOptions()).singleElement()
+                .satisfies(option -> assertThat(option.routeId()).isNull());
+        verify(busResolver).resolveRoute(null, null);
+    }
+
+    /** 서울 피드 정류장이면 번호 폴백은 그대로다(실시간 id 를 못 푼 서울 노선의 마지막 수단). */
+    @Test
+    void seoulGtfsStop_keepsRouteNumberFallback() {
+        given(busResolver.resolveRoute(null, "370")).willReturn(Optional.of(
+                new TransferStopResolver.RouteResolution("100100576", "370", true, 8)));
+
+        JourneyPlan plan = enricher.enrich(compile(bus(20)
+                .busStops("1:BS_TAGO_SEB121000091", "1:BS_TAGO_SEB121000092")
+                .lanes(busLane("370", null)).build()));
+
+        assertThat(plan.legs().get(0).routeOptions().get(0).routeId()).isEqualTo("100100576");
+    }
+
+    @Test
+    void outsideSeoulGtfsStopShape() {
+        assertThat(JourneyTransitIdEnricher.isOutsideSeoulGtfsStop("1:BS_TAGO_GGB202000141")).isTrue();
+        assertThat(JourneyTransitIdEnricher.isOutsideSeoulGtfsStop("1:BS_ACC3_11000011")).isTrue();
+        assertThat(JourneyTransitIdEnricher.isOutsideSeoulGtfsStop("1:BS_TAGO_SEB121000091")).isFalse();
+        assertThat(JourneyTransitIdEnricher.isOutsideSeoulGtfsStop("121000091")).isFalse();
+        assertThat(JourneyTransitIdEnricher.isOutsideSeoulGtfsStop(null)).isFalse();
     }
 
     @Test

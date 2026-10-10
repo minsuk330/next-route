@@ -66,7 +66,12 @@ public class TrackSelectionQueryService {
                 TransitStop representative = group.get(0).stop();
                 Integer distance = group.stream().map(NearStop::distanceMeters)
                         .filter(Objects::nonNull).min(Integer::compare).orElse(null);
-                TrackRealtimeIdResolver.BusStopIds ids = realtimeIds.busStop(representative.gtfsId());
+                // 대표(서울 우선)가 서울 DB 에 없으면 형제(경기·인천)의 도착 id 를 쓴다(#333).
+                TrackRealtimeIdResolver.BusStopIds ids = group.stream()
+                        .map(member -> realtimeIds.busStop(member.stop().gtfsId()))
+                        .filter(found -> found.arrivalStopId() != null)
+                        .findFirst()
+                        .orElse(TrackRealtimeIdResolver.BusStopIds.NONE);
                 views.add(new TrackViews.Stop(representative.gtfsId(), representative.name(), representative.lat(),
                         representative.lon(), representative.mode(), distance, ids.arrivalStopId(), ids.arsId(),
                         null, null, null));

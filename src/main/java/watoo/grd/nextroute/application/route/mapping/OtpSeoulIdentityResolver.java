@@ -142,7 +142,10 @@ public class OtpSeoulIdentityResolver {
         return tago == null ? Optional.empty() : Optional.of(tago.group(1));
     }
 
-    /** 노선 하나의 버스 도착 조회 id(#313). 규칙은 {@link #busStopArrivalId} 와 같다(방향 접미 {@code _U/_D} 제거). */
+    /**
+     * 노선 하나의 버스 도착 조회 id(#313). 규칙은 {@link #busStopArrivalId} 와 같다(방향 접미 {@code _U/_D} 제거).
+     * TAGO 는 노선 도시코드를 알 때만 — 모르면 도착 API 가 부르지 않아 늘 빈 결과다(#333).
+     */
     public Optional<String> busRouteArrivalId(String routeGtfsId) {
         String seoul = capture(BUS_ROUTE, routeGtfsId);
         if (seoul != null) {
@@ -153,7 +156,10 @@ public class OtpSeoulIdentityResolver {
             return Optional.of(gyeonggi);
         }
         Matcher tago = match(TAGO_BUS_ROUTE, routeGtfsId);
-        return tago == null ? Optional.empty() : Optional.of(tago.group(1));
+        if (tago == null || tagoCityCodeLookup.cityCodeOfRoute(tago.group(1)).isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(tago.group(1));
     }
 
     /** 서울 지하철 1~9호선: route 호선 + 좌표 최근접(라인 일치). */

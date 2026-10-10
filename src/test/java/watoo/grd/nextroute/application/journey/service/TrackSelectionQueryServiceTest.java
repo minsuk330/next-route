@@ -400,6 +400,24 @@ class TrackSelectionQueryServiceTest {
     }
 
     @Test
+    @DisplayName("주변: 대표(서울)가 서울 DB 에 없으면 형제(경기)의 도착 id 를 싣는다(#333)")
+    void stopsNearFallsBackToSiblingArrivalId() {
+        TransitStop seb = new TransitStop(SEB, "신분당선강남역", 37.4958, 127.028999, RoutingMode.BUS);
+        TransitStop ggb = new TransitStop(GGB, "신분당선강남역(중)", 37.495783, 127.028567, RoutingMode.BUS);
+        given(port.stopsNear(anyDouble(), anyDouble(), anyInt(), anyInt(), any())).willReturn(List.of(
+                new TransitPatternPort.NearStop(ggb, 40, List.of()),
+                new TransitPatternPort.NearStop(seb, 70, List.of())));
+        given(realtimeIds.busStop(GGB)).willReturn(new TrackRealtimeIdResolver.BusStopIds("121000009", null));
+
+        List<TrackViews.Stop> stops = service.stopsNear(37.5, 127.0, RoutingMode.BUS);
+
+        assertThat(stops).singleElement().satisfies(stop -> {
+            assertThat(stop.gtfsStopId()).isEqualTo(SEB);
+            assertThat(stop.arrivalStopId()).isEqualTo("121000009");
+        });
+    }
+
+    @Test
     @DisplayName("주변: 300m 넘게 떨어진 같은 번호·지방 피드의 같은 번호는 묶지 않는다")
     void stopsNearDoesNotMergeFarOrRegional() {
         TransitStop seb = new TransitStop("1:BS_TAGO_SEB104000010", "메리놀외방선교회", 37.5490, 127.0740,

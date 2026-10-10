@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
@@ -75,6 +76,17 @@ class JourneySubwayGuidanceComposerTest {
         assertThat(guidance.quality()).isEqualTo(SubwayRingQuality.STALE);
     }
 
+    @Test
+    @DisplayName("실시간 없는 지하철(지방)은 남은 판정 행이 있어도 안내를 싣지 않는다 — \"확인 중\" 고착 방지")
+    void regionalSubwayHasNoGuidance() {
+        JourneyLeg regional = JourneyLeg.builder().journeyId(JOURNEY).routeRevision(1).legIndex(1)
+                .type(JourneyLegType.RIDE_SUBWAY).state(JourneyLegState.PENDING).build();
+        ReflectionTestUtils.setField(regional, "id", 101L);
+
+        assertThat(composer.compose(1, 0, List.of(wait, regional), Map.of())).isNull();
+        verifyNoInteractions(bindingRepository, ringPort);
+    }
+
     private SubwayRingState boardingRing(SubwayLegBinding binding) {
         return new SubwayRingState(JOURNEY, 1, 1, binding.getVersion(),
                 0, "1002000222", "강남", "신도림", 3,
@@ -84,8 +96,9 @@ class JourneySubwayGuidanceComposerTest {
 
     private static JourneyLeg leg(int index, JourneyLegType type) {
         JourneyLeg leg = JourneyLeg.builder().journeyId(JOURNEY).routeRevision(1).legIndex(index)
-                .type(type).state(JourneyLegState.PENDING).build();
+                .type(type).state(JourneyLegState.PENDING).startStopId("0222").build();
         ReflectionTestUtils.setField(leg, "id", 100L + index);
+        ReflectionTestUtils.setField(leg, "routeId", "1002");
         return leg;
     }
 }

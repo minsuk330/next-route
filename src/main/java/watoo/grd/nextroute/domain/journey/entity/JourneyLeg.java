@@ -280,6 +280,17 @@ public class JourneyLeg extends BaseEntity {
         this.activatedAt = activatedAt;
     }
 
+    /**
+     * 지하철 실시간(서울 열차 위치·도착)이 있는 노선인지 — 서울 노선 id 가 있다.
+     *
+     * <p>지방 지하철(부산·대구·대전·광주·인천 등)은 노선 id 가 비어 있다({@code SubwayLineIdMapper}). 이때 탑승 확인을
+     * 열면 영원히 "확인 중"에 머문다. 승차역 id 는 보지 않는다 — 서울 노선이어도 역 이름이 애매하면 비고, 그때도
+     * 사용자가 고른 열차(#265)로 링이 돈다.
+     */
+    public boolean hasSubwayRealtimeLine() {
+        return routeId != null && !routeId.isBlank();
+    }
+
     /** 현재 경로의 routeOption을 선택한다. 실제 차량을 확정하는 동작은 아니다. */
     public void selectRouteOption(Long journeyLegRouteOptionId, String routeId) {
         this.selectedRouteOptionId = journeyLegRouteOptionId;

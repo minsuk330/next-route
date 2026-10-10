@@ -63,6 +63,27 @@ public class RegionalArrivalLookup {
                 .orElse(Lookup.NO_REALTIME);
     }
 
+    /**
+     * 그 정류장에 그 노선의 <b>다음 버스</b>가 언제 오는지 — 기다리는 단계(#333). "내 버스"를 고르지 않고 가장 이른
+     * 도착을 쓴다. 할당량·캐시는 {@link #arrivalAt} 과 같다.
+     */
+    public Lookup nextArrival(RegionalBusProvider provider, String routeId, String stopId) {
+        Instant now = Instant.now(clock);
+        Optional<List<Approach>> approaches = approaches(provider, routeId, stopId, now);
+        if (approaches == null) {
+            return Lookup.QUOTA;
+        }
+        if (approaches.isEmpty()) {
+            return Lookup.BLOCKED;
+        }
+        return approaches.get().stream()
+                .map(Approach::seconds)
+                .filter(seconds -> seconds != null && seconds >= 0)
+                .min(Integer::compare)
+                .map(seconds -> new Lookup(now.plusSeconds(seconds), null))
+                .orElse(Lookup.NO_REALTIME);
+    }
+
     /** @return null = 할당량 소진, 빈 Optional = 조회 실패 */
     private Optional<List<Approach>> approaches(RegionalBusProvider provider, String routeId, String stopId,
                                                 Instant now) {
