@@ -122,9 +122,11 @@ public class TrackJourneyStartService {
     }
 
     private RoutingLeg buildLeg(StartTrackCommand command, RoutingDeadline deadline) {
-        List<TransitPattern> patterns = source.patternsAtStop(command.boardStopId(), deadline);
+        // 노선 목록은 형제 정류장 노선까지 합친다 — 구버전 앱은 고른 정류장 id 로 다른 피드 노선을 시작한다.
+        String boardStopId = source.boardingStop(command.routeGtfsId(), command.boardStopId(), deadline);
+        List<TransitPattern> patterns = source.patternsAtStop(boardStopId, deadline);
         TrackPatternSelector.Selection selection = TrackPatternSelector.select(command.routeGtfsId(),
-                        command.boardStopId(), command.alightStopId(), command.patternCode(), patterns)
+                        boardStopId, command.alightStopId(), command.patternCode(), patterns)
                 .orElseThrow(() -> new BusinessException(JourneyErrorCode.TRACK_STOPS_INVALID));
 
         TransitPatternDetail detail = source.pattern(selection.pattern().code(), deadline)

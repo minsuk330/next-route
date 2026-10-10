@@ -3951,6 +3951,100 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `./gradlew test --tests '*OtpTransitPatternAdapterTest' --tests '*TrackSelection*'` → 어댑터 9/0, 선택 조회 11/0
 
+## 지하철 링 — 이미 구간을 지난 열차를 하차역 도착으로 마무리 (2026-10-09, S, #311)
+### 확정
+- #311 원인 = "곧 오는 열차" 일반 문제 아님. journey 166(강남→방배 3정거장)이 고른 8484 는 22:43 강남 출발 → **22:49:09 하차역 방배 진입** → 22:51:21 사당, 선택은 22:51:59. "방금 떠난 열차" 10분 창(#303)으로 선택 통과, 링은 승차역~하차역 체인 안에서만 열차를 찾아 끝까지 못 찾음(STALE·observedAt null). 같은 시각 167·169 는 정상(NORMAL 32/37·15/18). 근거 = 2026-10-07 전 노선 도착 스냅샷 표본 + push outbox
+- **사용자 결정: 떠난 열차는 계속 고를 수 있어야 한다 — 선택을 422 로 막지 않는다**(처음 낸 422 `TRAIN_PASSED_ALIGHTING` 안은 ~~취소~~)
+- 대신 링: 위치가 체인 밖일 때 위치 로그 역별 도착 이력(최근 30분)에 체인 역 도착이 있고 그 도착이 지금 관측보다 이르면 "구간을 지났다"(`Source.PASSED`) → 하차역 도착(1.00, SUBWAY_ALIGHT, **NORMAL**)으로 마무리. 이력 없으면(아직 승차역 전) 판단 안 함. PASSED 는 신선도 검사 제외(위치 recptnDt 지연 최대 150초 > 창 120초)
+- "아직 못 찾음" vs "관측 끊김" 구분은 새 enum 없이 기존 `observedAt == null` — Live Activity props 는 앱 엄격 디코딩이라 enum 추가는 구버전 앱을 깰 수 있다
+### 좌표
+- `SubwayRingSignalReader.passedChain`, `SubwayRingObservation.passed/Source.PASSED`, `SubwayRingCalculator` switch·`isStale`
+### 검증
+- `SubwayRingCalculatorTest`(신규: 승차역 시작이어도 PASSED → 하차역 1.00 NORMAL·이후 유지·낡은 관측이어도), `SubwayRingSignalReaderTest`(신규 2: 이력 있음 → PASSED / 이력 없음 → null). 관련 73/73
+- 전체 2638 중 실패 12 = 기존 무관 동일 구성, 새 실패 0
+### 배포
+- 마이그레이션 없음. worker 만(링)
+## 2026-10-10 정류장 노선 전체 표기 + 근처 목록 합치기 (M, feat/track-stop-sibling-routes)
+
+### 확정
+- 같은 정류장 판정: 수도권 3피드(SEB/GGB/ICB) 의 같은 뒤 숫자 + 대표에서 300m 이내. 지방 피드는 대상 아님(ADB/TSB 354000001 은 수십 km 떨어진 딴 정류장). 실측 수도권 3,983묶음 p50 22m·p99 127m, 1건(104000010) 1,346m → 300m 상한
+- 사용자 결정(2026-10-10): 근처 목록도 한 줄로 합친다, 대표 SEB → GGB → ICB(지도 스냅샷=서울 DB·서울 도착 API 와 같은 정류장·이름. 경기엔 옛 이름 있음: 당고개역/불암산역). 지도 전국 교체는 #326
+- 계약: `TrackViews.Direction` + `boardStopGtfsId`, `arrivalStopId`(그 노선 기준 도착 조회 id). 경기 노선은 경기 stop id 로 물어야 도착이 나온다
+- 하위 호환: alight/shape/start 의 `from` 이 그 노선을 안 지나면 `TrackPatternSource.boardingStop` 이 형제 stop 으로 바꾼다
+- 근처 합치기는 근처 결과 안에서만(OTP 추가 호출 없음). 노선 합치기는 `StopsByIds` 1회 + 형제 patternsAtStop(캐시 10분)
+
+### 함정
+- OTP `stops(ids:)` 는 없는 id 를 배열 안 null 로 준다 → 파서가 건너뜀
+- 정류장이 종점인 패턴은 그 정류장에서 못 탄다 → 신분당선강남역 노선 이름 56 중 `5100예약` 이 빠져 55. 정상
+- 같은 노선·방향 중복 제거는 형제 사이에서만. 한 정류장 안의 가지끼리는 지우지 않는다(기존 동작 유지)
+
+### 좌표
+- `application/journey/service/TrackStopSiblings.java` 규칙
+- `TrackPatternSource.siblings/boardingStop`, `TrackSelectionQueryService.siblingGroups/directions`
+- 인계 `docs/plan/track-stop-sibling-routes/HANDOFF.md`
+
+### 미결
+- #321(근처 직선거리)과 같은 파일(어댑터·graphql·어댑터 테스트)을 건드린다 → 먼저 머지된 쪽 위로 rebase
+
+### 배포
+- api 만 교체. 마이그레이션·플래그 없음
+
+### 검증
+- `./gradlew test --tests '*Track*' --tests '*OtpTransitPatternAdapterTest'` (일회용 st-pg:55432·st-redis:56379 + 기본값 없는 env 더미) → Track* 단위 전부 0 실패(선택 조회 19/0, 시작 11/0, 형제 4/0, 컨트롤러 6/0, 어댑터 9/0), TrackJourneyStartIT 1/0
+
+## 2026-10-10 지도 정류장 전국 타일 (#326, L, feat/map-bus-stop-tiles)
+
+### 확정
+- 사용자 결정: 로딩 적은 쪽 = 0.1° 타일, 마커 키 gtfsStopId, 인증은 범위 밖(로그인 제거 진행 중). v1 `/snapshot` 유지
+- 실측: 버스 stop 210,029 → 합치기 후 205,947. 0.1° 타일 1,158개(gzip p50 1.5kB, 최대 31kB). 전국 한 파일은 gzip 2.8MB
+- Opus 리뷰(수정 후 승인) 반영: graphVersion 감지 대신 1분 점검(없으면 / 24시간 지나면 빌드), 게이트 acquire 2초 1회(role `map-build`) + 호출 새 10초 마감, 이상치 가드(<150,000 또는 이전의 80% 미만 → 게시 안 함), manifest no-cache + 타일 `?v=` immutable, 반올림 후 key, arsId 는 `OtpGtfsIds.seoulBusStop` 정방향으로 맵
+- 숫자는 `BigDecimal`(정수에서 생성, 뒤 0 제거, 지수 표기 방지)로 직렬화한다. JDK Double.toString 변화로 해시가 통째로 바뀌는 것을 막는다
+
+### 함정
+- `OtpConcurrencyGate.tryAcquire` 는 즉시 반환이 아니라 deadline 까지 대기한다(Redis 구현 :73-104) → 재시도 루프를 얹으면 몇 분씩 늘어진다
+- graphVersion 은 env 정적값 → 런타임 변경 감지 코드는 영원히 안 돈다
+- key 를 `/0.1` 로 계산하면 경계 300여 칸이 틀린다 → 서버·클라 모두 `*10` 후 floor
+- 공용 스케줄러 풀은 3 → 수십 초 빌드는 전용 스레드에서
+
+### 좌표
+- `application/map/service/BusStopTiles.java`(규칙), `NationalBusStopTileService.java`(빌드·점검), `dto/BusStopTileSnapshot.java`
+- `MapBusStopController` v2 두 엔드포인트, 인계 `docs/plan/map-bus-stop-tiles/HANDOFF.md`
+
+### 미결
+- 지방 피드끼리 같은 위치 중복(TSB 시외 vs 시내, 15m 안 6,956쌍)은 이번 범위 밖이라 마커가 겹친다. 후속 이슈
+
+### 배포
+- api 만 교체한다. 마이그레이션·플래그 없음. 부팅 후 `[MapTiles] 버스정류장 타일 빌드` 로그와 힙을 확인한다
+
+### 검증
+- 일회용 st-pg/st-redis + 더미 env 로 `./gradlew test --tests '*TrackJourneyStartIT' --tests '*Track*' --tests '*MapBusStop*' --tests '*BusStopTile*' --tests '*BusStopSnapshot*'` → 17 스위트 전부 0 실패
+  - BusStopTilesTest 6/0, NationalBusStopTileServiceTest 7/0, MapBusStopControllerTest 10/0, TrackJourneyStartIT 1/0
+- `OtpTransitPatternAdapterTest` 12/0
+
+## 2026-10-10 지도 스냅샷·타일 gzip 미적용 수정 (S, fix/map-snapshot-weak-etag)
+
+### 함정
+- `server.compression` 이 켜져 있어도 v1 스냅샷·v2 타일이 gzip 되지 않았다(운영 `Content-Length: 872091`, 서울 타일 57,984). 원인은 Tomcat 이 **강한 ETag** 가 붙은 응답을 압축하지 않기 때문이다
+  - #160 HANDOFF 의 "gzip 233kB" 는 운영에서 한 번도 일어나지 않았다
+  - nginx 도 `gzip_types` 가 주석이라 json 을 압축하지 않는다
+- 가드: `MapBusStopController.quote` 가 약한 ETag `W/"..."` 를 낸다. `matches` 는 W/ 를 벗겨 비교하므로 기존 클라(강한 형식으로 보냄)도 304 를 받는다
+- ~~Opus 리뷰 14번 "Tomcat 은 압축 시 강한 ETag 를 W/ 로 바꾼다"~~ 틀림: Tomcat 은 바꾸지 않고 압축을 건너뛴다
+
+### 검증
+- `MapBusStopControllerTest` 10/0. 배포 후 운영에서 `Content-Encoding: gzip` 을 확인한다(아래 배포 기록)
+
+## 2026-10-10 배포 기록 — #321·#327·#330·#331 (api)
+
+### 배포
+- 00:58 KST `3044abed`(#321·#327) → 01:15 `cb4ba30b`(#330) → 01:20 `7c336de8`(#331). 최종 api 이미지 `nextroute:20261010-012003-7c336de8`, 이전 `20261010-011539-cb4ba30b`(`./deploy.sh rollback-api`)
+- jar 백업: `app.jar.bak-20261010-pre-stop-siblings`, `-pre-map-tiles`, `-pre-weak-etag`. worker 는 바꾸지 않음(`927af672`). 마이그레이션 없음(jar 안 61개 동일)
+
+### 검증
+- 타일 빌드 로그 `tiles=1158 stops=205947 ms≈9.4s` 2회, 두 번째도 같은 version `899817f2ea7c`(해시 안정). ERROR 0
+- 운영 응답(gzip): 스냅샷 v1 872kB → 233kB, manifest 30kB → 12.7kB, 타일 `374_1270` 58kB → 13kB. 304: W/·강한 형식·v1 구 클라 모두 304. 없는 key 404, 형식 오류 400
+- `374_1270` 타일에 신분당선강남역은 `1:BS_TAGO_SEB121000009` 한 점(ARS 포함)
+- api 힙 최대 282MB / 805MB(빌드 2회 포함 25분)
+
 ## 2026-10-10 로그인 제거 → 기기 익명 계정 (L, feat/device-anonymous-auth)
 플랜=docs/plan/device-anonymous-auth/PLAN.md (Opus 5.5 리뷰 12건 반영), 모바일 인계=HANDOFF.md
 

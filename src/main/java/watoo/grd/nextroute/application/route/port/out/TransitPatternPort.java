@@ -24,6 +24,12 @@ public interface TransitPatternPort {
     /** 좌표 주변 정류장/역. 가까운 순. */
     List<NearStop> stopsNear(double lat, double lon, int radiusMeters, int limit, RoutingDeadline deadline);
 
+    /** id 로 정류장 여러 개. 없는 id 는 빠진다(오류 아님). 순서는 보장하지 않는다. */
+    List<TransitStop> stops(List<String> gtfsStopIds, RoutingDeadline deadline);
+
+    /** 사각형 안 모든 정류장/역(노선 없이). 경계 위 정류장은 이웃 사각형에도 나올 수 있다. */
+    List<TransitStop> stopsInBox(double minLat, double minLon, double maxLat, double maxLon, RoutingDeadline deadline);
+
     /** 그 정류장을 지나는 모든 패턴(가벼운 모양: 정류장 id·이름만). 정류장이 없으면 빈 목록. */
     List<TransitPattern> patternsAtStop(String gtfsStopId, RoutingDeadline deadline);
 

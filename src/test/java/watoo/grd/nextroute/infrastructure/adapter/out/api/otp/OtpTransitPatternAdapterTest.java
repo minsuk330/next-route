@@ -125,6 +125,46 @@ class OtpTransitPatternAdapterTest {
     }
 
     @Test
+    @DisplayName("id 로 정류장: 없는 id 는 null 원소로 와도 건너뛴다")
+    void stopsByIds() throws Exception {
+        enqueue("stops-by-ids-sinbundang.json");
+
+        List<TransitStop> stops = adapter.stops(List.of("1:BS_TAGO_SEB121000009", "1:BS_TAGO_GGB121000009",
+                "1:BS_TAGO_ICB121000009", "1:BS_TAGO_XXX1"), deadline());
+
+        assertThat(stops).extracting(TransitStop::gtfsId).containsExactly(
+                "1:BS_TAGO_SEB121000009", "1:BS_TAGO_GGB121000009", "1:BS_TAGO_ICB121000009");
+        assertThat(stops.get(1).name()).isEqualTo("신분당선강남역(중)");
+        assertThat(stops.get(1).mode()).isEqualTo(RoutingMode.BUS);
+        JsonNode body = lastBody();
+        assertThat(body.path("operationName").asText()).isEqualTo("StopsByIds");
+        assertThat(body.path("variables").path("ids")).hasSize(4);
+    }
+
+    @Test
+    @DisplayName("id 로 정류장: 빈 목록이면 OTP 를 부르지 않는다")
+    void stopsByIdsEmpty() {
+        assertThat(adapter.stops(List.of(), deadline())).isEmpty();
+        assertThat(server.getRequestCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("사각형 안 정류장(#326 지도 타일): 노선 없이 위치·모드만, 버스·지하철 모두")
+    void stopsInBox() throws Exception {
+        enqueue("stops-in-box-gangnam.json");
+
+        List<TransitStop> stops = adapter.stopsInBox(37.494, 127.026, 37.498, 127.031, deadline());
+
+        assertThat(stops).hasSize(24);
+        assertThat(stops).filteredOn(s -> s.mode() == RoutingMode.BUS).hasSize(23);
+        assertThat(stops).extracting(TransitStop::gtfsId)
+                .contains("1:BS_TAGO_SEB121000009", "1:BS_TAGO_GGB121000009", "1:BS_TAGO_ICB121000009");
+        JsonNode body = lastBody();
+        assertThat(body.path("operationName").asText()).isEqualTo("StopsInBox");
+        assertThat(body.path("variables").path("maxLon").asDouble()).isEqualTo(127.031);
+    }
+
+    @Test
     @DisplayName("정류장 패턴: headsign 은 null 그대로, 노선·정류장·trip 수를 읽는다")
     void patternsAtStop() throws Exception {
         enqueue("patterns-at-stop-bus.json");

@@ -59,13 +59,24 @@ public record SubwayRingObservation(
         /** 도착 API. 남은 초의 유일한 원천이다. */
         ARRIVAL,
         /** 위치 API. 초는 없지만 전 열차를 커버한다 — 구간 전환의 안전망. */
-        POSITION
+        POSITION,
+        /**
+         * 열차가 이미 우리 구간(승차역~하차역)을 지나갔다(#311). 위치 로그의 역별 도착 이력에 구간 역이 있고 지금은 구간
+         * 밖이다 — 하차역 너머로 갔다. 링은 하차역 도착으로 마무리한다.
+         */
+        PASSED
     }
 
     public static SubwayRingObservation arrival(SubwayArrivalCode code, int stationSequence,
                                                 Instant estimatedArrivalAt, Instant observedAt) {
         return new SubwayRingObservation(Source.ARRIVAL, code, null,
                 stationSequence, estimatedArrivalAt, observedAt);
+    }
+
+    /** 이미 구간을 지나간 열차 — {@code alightingSequence} 도착으로 마무리한다. */
+    public static SubwayRingObservation passed(int alightingSequence, Instant observedAt) {
+        return new SubwayRingObservation(Source.PASSED, null, SubwayTrainStatus.ARRIVED,
+                alightingSequence, null, observedAt);
     }
 
     public static SubwayRingObservation position(SubwayTrainStatus status, int stationSequence,
