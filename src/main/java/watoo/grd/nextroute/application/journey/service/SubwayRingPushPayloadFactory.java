@@ -60,10 +60,19 @@ public class SubwayRingPushPayloadFactory {
      */
     public ObjectNode contentState(Long journeyId, String lineName, SubwayRingState ring,
                                    Instant updatedAt) {
+        return contentState(journeyId, lineName, null, ring, updatedAt);
+    }
+
+    /**
+     * @param alightingExitNo 하차역에서 나갈 출구(#266). 없으면 키를 넣지 않는다 — 앱이 직접 그린 화면과 같은 문구가
+     *                        나가야 백그라운드에서 출구 줄이 깜빡이지 않는다
+     */
+    public ObjectNode contentState(Long journeyId, String lineName, String alightingExitNo, SubwayRingState ring,
+                                   Instant updatedAt) {
         ObjectNode envelope = objectMapper.createObjectNode();
         envelope.put(FIELD_NAME, ACTIVITY_NAME);
         // props 는 객체가 아니라 문자열이다. 객체로 넣으면 앱이 못 읽는다.
-        envelope.put(FIELD_PROPS, toJson(props(journeyId, lineName, ring, updatedAt)));
+        envelope.put(FIELD_PROPS, toJson(props(journeyId, lineName, alightingExitNo, ring, updatedAt)));
         return envelope;
     }
 
@@ -80,7 +89,7 @@ public class SubwayRingPushPayloadFactory {
      * 종료 프레임과 진행 프레임이 다른 모양으로 나간다.
      */
 
-    private ObjectNode props(Long journeyId, String lineName, SubwayRingState ring,
+    private ObjectNode props(Long journeyId, String lineName, String alightingExitNo, SubwayRingState ring,
                              Instant updatedAt) {
         ObjectNode props = objectMapper.createObjectNode();
         props.put("journeyId", journeyId);
@@ -88,6 +97,9 @@ public class SubwayRingPushPayloadFactory {
         props.put("routeName", lineName);
         props.put("nextStationName", ring.nextStationName());
         props.put("alightingStationName", ring.alightingStationName());
+        if (alightingExitNo != null && !alightingExitNo.isBlank()) {
+            props.put("alightingExitNo", alightingExitNo);
+        }
         props.put("remainingStations", ring.remainingStations());
         props.put("segmentProgress", ring.segmentProgress());
         props.put("progressBaseAt", millis(ring.progressBaseAt()));

@@ -434,6 +434,20 @@ class SubwayRingPushIT {
     }
 
     @Test
+    @DisplayName("하차 출구는 진행 프레임에 실리고 종료 프레임에도 그대로 남는다")
+    void exitNumberSurvivesIntoTheTerminal() throws Exception {
+        jdbcTemplate.update("update journey_leg set end_exit_no = '3' where id = ?", rideLegId);
+        JourneyLeg withExit = legRepository.findById(rideLegId).orElseThrow();
+        enqueueService.enqueueIfChanged(null, ring(1, "0.4500"), withExit);
+        assertThat(propsOf(payloadOfSequence(1L)).path("alightingExitNo").asText()).isEqualTo("3");
+
+        transactionTemplate.executeWithoutResult(status ->
+                lifecycleService.abandonOpen(journeyId, SubwayBindingAbandonReason.ENDED));
+
+        assertThat(propsOf(payloadOfSequence(2L)).path("alightingExitNo").asText()).isEqualTo("3");
+    }
+
+    @Test
     @DisplayName("종료 프레임의 updatedAt 은 새로 찍힌다 — 마지막 진행 프레임보다 나중이다")
     void terminalRefreshesUpdatedAt() throws Exception {
         enqueueService.enqueueIfChanged(null, ring(1, "0.4500"), rideLeg);
