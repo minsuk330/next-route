@@ -33,6 +33,7 @@ import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse
 import watoo.grd.nextroute.application.subway.service.SubwayLineOrder;
 import watoo.grd.nextroute.application.subway.port.out.SubwaySegmentTimePort;
 import watoo.grd.nextroute.application.subway.service.SubwayLineStationIndex;
+import watoo.grd.nextroute.application.subway.service.SubwayPatternStationMatcher.Candidate;
 import watoo.grd.nextroute.application.subway.config.SubwayPositionProperties;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.PositionSource;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.TrainStatus;
@@ -397,7 +398,7 @@ class SubwayStationArrivalQueryServiceTest {
     }
 
     @Test
-    @DisplayName("#317 달리는 열차에 구간 앵커 — 출발은 구간 실측 기록, 도착 예정은 최근 열차 실측 중앙값")
+    @DisplayName("#317 달리는 열차에 구간 앵커 — 출발은 구간 실측 기록, 도착 예정은 GTFS 계획 초(실측 표본은 무시)")
     void attachesSegmentAnchor() {
         givenStation(GANGNAM, "1002");
         given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of(arrival("2231", "내선", "성수", 96)));
@@ -407,7 +408,8 @@ class SubwayStationArrivalQueryServiceTest {
                         null, SubwayExpressType.NORMAL)));
         given(lineOrder.nextOf("1002", "내선", "1002000221")).willReturn(Optional.of(GANGNAM));
         given(segmentTimePort.departedAt("1002", "내선", GANGNAM, "2231")).willReturn(Optional.of(NOW.minusSeconds(50)));
-        given(segmentTimePort.recentSeconds("1002", "내선", GANGNAM)).willReturn(List.of(100L, 80L, 90L));
+        given(segmentTimePort.recentSeconds("1002", "내선", GANGNAM)).willReturn(List.of(20L, 25L, 30L));
+        given(lineOrder.runSeconds("1002", "내선", "1002000221", GANGNAM)).willReturn(Optional.of(90));
 
         Train train = service.getArrivals(GANGNAM).directions().get(0).trains().get(0);
 
@@ -416,7 +418,7 @@ class SubwayStationArrivalQueryServiceTest {
         assertThat(train.segment().toStationId()).isEqualTo(GANGNAM);
         assertThat(train.segment().departedAt().toInstant()).isEqualTo(NOW.minusSeconds(50));
         assertThat(train.segment().expectedAt().toInstant()).isEqualTo(NOW.plusSeconds(40));
-        assertThat(train.segment().source()).isEqualTo(SegmentSource.MEASURED);
+        assertThat(train.segment().source()).isEqualTo(SegmentSource.SCHEDULED);
     }
 
     @Test
@@ -436,6 +438,30 @@ class SubwayStationArrivalQueryServiceTest {
         List<Train> trains = service.getArrivals(GANGNAM).directions().get(0).trains();
 
         assertThat(trains).extracting(Train::trainNo).containsExactly("2233");
+    }
+
+    @Test
+    @DisplayName("이 역에 오기 전에 운행을 끝내는 열차는 뺀다 — 수원 상행의 진위발 병점행(2026-10-10 실측)")
+    void dropsTrainTerminatingBeforeStation() {
+        String suwon = "1001080155", seryu = "1001080156", byeongjeom = "1001080157", jinwi = "1001080163";
+        givenStation(suwon, "1001");
+        given(arrivalReader.arrivals("1001", suwon, null)).willReturn(List.of(
+                arrival("0750", "상행", "병점", null), arrival("0672", "상행", "광운대", 60)));
+        given(trainLogPort.lastSeenAll(any())).willReturn(Map.of(
+                new TrainIdentity(LocalDate.of(2026, 10, 7), "1001", "상행", "0750"),
+                new SubwayTrainObservation(jinwi, "진위", SubwayTrainStatus.ARRIVED, NOW.minusSeconds(20),
+                        null, SubwayExpressType.NORMAL),
+                new TrainIdentity(LocalDate.of(2026, 10, 7), "1001", "상행", "0672"),
+                new SubwayTrainObservation(byeongjeom, "병점", SubwayTrainStatus.ARRIVED, NOW.minusSeconds(20),
+                        null, SubwayExpressType.NORMAL)));
+        given(lineOrder.prevOf("1001", "상행", suwon)).willReturn(Optional.of(seryu));
+        given(lineOrder.prevOf("1001", "상행", seryu)).willReturn(Optional.of(byeongjeom));
+        given(stationIndex.candidates("1001")).willReturn(List.of(new Candidate(suwon, "수원", 0, 0),
+                new Candidate(seryu, "세류", 0, 0), new Candidate(byeongjeom, "병점", 0, 0)));
+
+        List<Train> trains = service.getArrivals(suwon).directions().get(0).trains();
+
+        assertThat(trains).extracting(Train::trainNo).containsExactly("0672");
     }
 
     @Test

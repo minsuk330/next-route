@@ -4310,4 +4310,28 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 단위: `--tests '*SubwayStationAdjacencyTest' --tests '*SubwayTrainTransitionTrackerTest'` → 24/0
 - 컨텍스트 IT(st-pg/st-redis): `SubwayRideScenarioIT`·`NextrouteApplicationTests`·`SubwayRingIT` → 26/0
+## 2026-10-10 #317 이 역 전에 종착하는 열차 제외 (fix/subway-arrivals-terminates-before, S)
+
+### 확정
+- 수원 `병점행 · 진위` 의 정체 = 반대 방향이 아니라 **같은 방향인데 조회역 상류(병점)에서 종착**. 도착 API 가 수원 목록에 싣는다(10-10 17시 7회 연속 실측). PR-1 의 방향 필터로는 못 잡는다
+- 판정: 조회역에서 상류로 걸으며 **열차 현재 역을 만나기 전에** 종착역 이름이 나오면 제외. 위치가 경계인 이유 = 순환선(2호선 강남 내선 성수행은 성수를 지나 한 바퀴 오는 열차 — 위치까지만 걸으면 성수를 안 만남)
+- 위치·종착 이름 모름, 이름 불일치, 판정 예외 → 남긴다(잘못 빼는 쪽이 더 나쁨). 상류 최대 20역, 갈래 합류점에서 prevOf 가 empty 라 거기서 멈춤(병점 상류는 세마/서동탄 갈래라 병점까지만)
+
+### 좌표
+- SubwayTrainSegmentResolver.terminatesBefore / SubwayStationArrivalQueryService.getArrivals 필터
+
+### 검증
+- `./gradlew test --tests '*SubwayTrainSegmentResolverTest' --tests '*SubwayStationArrivalQueryServiceTest'` → 34/0 (terminatesBeforeBoard, dropsTrainTerminatingBeforeStation)
+## 2026-10-10 #317 구간 앵커 도착 예정 = GTFS 계획 초로 통일 (fix/subway-segment-scheduled-only, S)
+
+### 확정
+- 사용자 결정: `segment.expectedAt` 은 실측 말고 **계획 시간으로 통일**. `source` 는 늘 `SCHEDULED`, enum `MEASURED` 는 계약 호환용으로만 남김
+- 링 ETA(SubwayRingSignalReader)의 실측 사용은 그대로 — 이번 변경은 역 도착 응답 `segment` 만
+
+### 함정
+- MEASURED 16~25초(이대→아현 16s, 역삼→강남 21s, 계획 90s) ← SubwaySegmentTimeRecorder 가 arvlCd 3→0(진입)을 도착으로 잼, 진입 신호가 역 닿기 한참 전에 옴 / 가드: SubwayTrainSegmentResolverTest.scheduledEvenWithMeasuredSamples
+- 실측 출처: 2026-10-10 17:09~17:18 운행 시간대 10역 6회 폴링, #317 코멘트
+
+### 검증
+- `./gradlew test --tests '*SubwayTrainSegmentResolverTest' --tests '*SubwayStationArrivalQueryServiceTest' --tests '*SubwayStationControllerTest'` → 37/0
 - 전체 `./gradlew test`(3 브랜치 합본, st-pg/st-redis) → 2838 중 실패 12. 기존 무관(main 동일): JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1. JourneyNotificationSchemaIT 1 = 'Unable to rollback against JDBC Connection' 플래키, 단독 재실행 20/0
