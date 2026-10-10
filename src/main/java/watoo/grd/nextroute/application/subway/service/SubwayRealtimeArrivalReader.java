@@ -38,6 +38,14 @@ public class SubwayRealtimeArrivalReader {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
+    /**
+     * 이보다 오래된 행({@code recptnDt} 기준)은 버린다. 막차가 종착한 뒤에도 원천은 그 노선의 마지막 행을 계속 내보낸다
+     * (2026-10-11 실측: 신분당선 00:06 "강남 도착" 행이 00:25 에도 남아 그 열차를 후보로 골랐다). 도착(1)·진입(0)은 남은
+     * 초가 0 이라 경과 보정으로 걸러지지 않는다. 진행 링의 {@code stale-source-max-age} 와 같은 240초 — recptnDt 가 평소
+     * 1~2분 늦으므로 그보다 넉넉해야 정상 행을 버리지 않는다.
+     */
+    static final Duration MAX_ROW_AGE = Duration.ofSeconds(240);
+
     private final SubwayRealtimeCachePort cachePort;
     private final SubwayApiPort subwayApiPort;
 
@@ -76,6 +84,7 @@ public class SubwayRealtimeArrivalReader {
                 .filter(train -> stationId != null && stationId.equals(train.getStationId()))
                 .filter(train -> direction == null || direction.equals(train.getDirection()))
                 .filter(train -> SubwayArrivalCode.from(train.getArrivalCode()) == SubwayArrivalCode.DEPARTED)
+                .filter(train -> !isTooOld(train, LocalDateTime.now(SEOUL)))
                 .map(SubwayRealtimeTrain::getTrainNo)
                 .distinct()
                 .toList();
@@ -127,6 +136,7 @@ public class SubwayRealtimeArrivalReader {
                 .filter(train -> stationId != null && stationId.equals(train.getStationId()))
                 .filter(train -> direction == null || direction.equals(train.getDirection()))
                 .filter(train -> !hasPassed(train, now))
+                .filter(train -> !isTooOld(train, now))
                 .forEach(train ->
                         deduped.putIfAbsent(train.getDirection() + ":" + train.getTrainNo(), train));
 
@@ -184,6 +194,19 @@ public class SubwayRealtimeArrivalReader {
      * <p>지나간 것은 초가 아니라 {@link SubwayArrivalCode#DEPARTED}(조회역 출발)가 말한다.
      * 초는 <b>진짜 예정 시각이 있었는데</b> 그마저 넘겼을 때만 근거가 된다.
      */
+    /** 원천 시각이 {@link #MAX_ROW_AGE} 를 넘었는가. 시각을 모르면 버리지 않는다. */
+    static boolean isTooOld(SubwayRealtimeTrain train, LocalDateTime now) {
+        if (train.getReceivedAt() == null) {
+            return false;
+        }
+        try {
+            LocalDateTime received = LocalDateTime.parse(train.getReceivedAt(), RECEIVED_AT_FORMAT);
+            return Duration.between(received, now).compareTo(MAX_ROW_AGE) > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private boolean hasPassed(SubwayRealtimeTrain train, LocalDateTime now) {
         if (SubwayArrivalCode.from(train.getArrivalCode()) == SubwayArrivalCode.DEPARTED) {
             return true;

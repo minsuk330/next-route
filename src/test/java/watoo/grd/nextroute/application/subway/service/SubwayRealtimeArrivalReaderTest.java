@@ -111,6 +111,36 @@ class SubwayRealtimeArrivalReaderTest {
     }
 
     @Test
+    @DisplayName("막차가 종착한 뒤 원천에 남은 도착 행은 버린다 — 19분 전 '강남 도착'을 곧 올 열차로 고르면 링이 영영 안 찬다(2026-10-11 신분당선)")
+    void dropsRowLeftOverAfterServiceEnded() {
+        when(apiPort.getRealtimeArrivalByStation(anyString()))
+                .thenReturn(List.of(train("18", 0, "1", "강남 도착", secondsAgo(19 * 60))));
+
+        assertThat(reader.arrivalsByStation(LINE, STATION, "강남", null)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("원천이 평소처럼 1~3분 늦은 행은 남긴다 — 240초까지는 정상 지연이다")
+    void keepsRowWithinUsualSourceDelay() {
+        when(apiPort.getRealtimeArrivalByStation(anyString()))
+                .thenReturn(List.of(train("6542", 0, "1", "압구정로데오 도착", secondsAgo(200))));
+
+        assertThat(reader.arrivalsByStation(LINE, STATION, "압구정로데오", null)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("막 떠난 열차 목록도 낡은 출발 행은 뺀다")
+    void justDepartedDropsOldRows() {
+        when(cachePort.readSnapshot()).thenReturn(java.util.Optional.of(
+                watoo.grd.nextroute.application.subway.dto.SubwayRealtimeSnapshot.builder().trains(List.of(
+                        departedAt("FRESH", secondsAgo(60)),
+                        departedAt("OLD", secondsAgo(600))))
+                        .build()));
+
+        assertThat(reader.justDepartedTrainNos(LINE, STATION, 1)).containsExactly("FRESH");
+    }
+
+    @Test
     @DisplayName("남은 초가 있으면 경과시간만큼 당겨서 돌려주고, 초가 있는 열차를 앞에 둔다")
     void adjustsRemainingSecondsAndSortsKnownEtaFirst() {
         when(apiPort.getRealtimeArrivalByStation(anyString())).thenReturn(List.of(
@@ -163,6 +193,11 @@ class SubwayRealtimeArrivalReaderTest {
         assertThat(reader.justDepartedTrainNos(LINE, STATION, 1)).containsExactly("K1");
         assertThat(reader.arrivals(LINE, STATION, 1)).extracting(a -> a.train().getTrainNo())
                 .containsExactly("K2");
+    }
+
+    private static SubwayRealtimeTrain departedAt(String trainNo, String receivedAt) {
+        return SubwayRealtimeTrain.builder().trainNo(trainNo).lineId(LINE).stationId(STATION)
+                .direction("상행").arrivalCode("2").arrivalSeconds(0).receivedAt(receivedAt).build();
     }
 
     private static SubwayRealtimeTrain cached(String trainNo, String stationId, String direction, String code) {
