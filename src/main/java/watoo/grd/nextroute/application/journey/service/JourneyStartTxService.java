@@ -164,6 +164,7 @@ public class JourneyStartTxService {
                     .endName(draft.endName())
                     .plannedDurationSec(draft.plannedDurationSec())
                     .evidenceQuality(draft.evidenceQuality())
+                    .guidance(draft.guidance())
                     .activatedAt(draft.state() == watoo.grd.nextroute.domain.journey.entity.JourneyLegState.ACTIVE
                             ? session.getStartedAt() : null)
                     .build());

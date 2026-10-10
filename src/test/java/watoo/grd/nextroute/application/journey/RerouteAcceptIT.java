@@ -1021,6 +1021,7 @@ class RerouteAcceptIT {
 
     private RouteStopProjection routeStop(int seq, String stopId, String stopName) {
         return new RouteStopProjection() {
+            @Override public String getArsId() { return null; }
             @Override public Integer getSeq() { return seq; }
             @Override public String getStopId() { return stopId; }
             @Override public String getStopName() { return stopName; }

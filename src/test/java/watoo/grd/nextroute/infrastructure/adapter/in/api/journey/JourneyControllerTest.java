@@ -104,7 +104,9 @@ class JourneyControllerTest {
                         "ST-A", "ST-A", "정류장A", "정류장A", null,
                         null, null, 100L,
                         List.of(new JourneyRouteOptionView(100L, 0, 0, null, "BL-370", "370",
-                                null, null, null, null)))));
+                                null, null, null, null)),
+                        "05229", "05229", null, null, null,
+                        List.of(new JourneyLegView.FastAlight("2-3", "STAIRS")))));
     }
 
     // ── 시작 ─────────────────────────────────────────────────────────────────
@@ -125,7 +127,15 @@ class JourneyControllerTest {
                 .andExpect(jsonPath("$.routeRevision").value(1))
                 .andExpect(jsonPath("$.legs[0].type").value("WAIT_BUS"))
                 .andExpect(jsonPath("$.legs[0].state").value("ACTIVE"))
-                .andExpect(jsonPath("$.legs[0].routeOptions[0].routeName").value("370"));
+                .andExpect(jsonPath("$.legs[0].routeOptions[0].routeName").value("370"))
+                // #266 안내 값 — 이름이 앱 계약. 모르면 키는 오고 값이 null
+                .andExpect(jsonPath("$.legs[0].startStopNo").value("05229"))
+                .andExpect(jsonPath("$.legs[0].endStopNo").value("05229"))
+                .andExpect(jsonPath("$.legs[0].directionName").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.legs[0].startExitNo").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.legs[0].endExitNo").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.legs[0].fastAlight[0].carDoor").value("2-3"))
+                .andExpect(jsonPath("$.legs[0].fastAlight[0].facility").value("STAIRS"));
     }
 
     @Test

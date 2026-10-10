@@ -4089,3 +4089,26 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - 기존 무관(메모리 기록과 동일): JourneyEvalReadPathIT · JourneyEvaluationIT · JourneyTransferAssessmentIT · BusAlertWakeupBurstIT
   - 기존 무관(main `origin/main` 1cfac30a 에서 단독 재실행해도 동일 실패): RerouteRemainingPathOtpIT 1건(OTP 요청 2회 vs 기대 1회)
   - 전체 실행에서만 나는 간헐: JourneyNotificationSchemaIT(`Unable to rollback against JDBC Connection`) — 이 브랜치에서 단독 실행 20/20 통과
+
+## 2026-10-10 guidance-stop-info PR-1 (#266 정류장 번호·방면 + 컬럼)
+
+플랜 `docs/plan/guidance-stop-info/PLAN.md` §3 + §9(Opus 리뷰 반영). 브랜치 feat/guidance-stop-info.
+
+### 확정
+- OTP 전환 뒤 `SubPathResult.startArsID/startExitNo` 는 늘 null(OtpPlanConnectionMapper 미채움, LegacyRouteResponseMapper:165 "가짜값 금지"). OTP GTFS stop `code` 도 서울·경기·부산 전부 null(운영 OTP 실측) → 번호·출구는 OTP 밖 원천
+- 저장 시점 = 여정 생성 1회. 방면은 Compiler `emitTransit` 이 draft 에 직접(호출 3곳 start·revision·track 무수정), 서울 정류장 번호는 `JourneyGuidanceInfoEnricher`(TransitIdEnricher 다음, 3곳에서 호출)
+- 재탐색 수락 경로: 새 단계 = `RerouteAcceptTxService` builder, 앞 구간 = `JourneyLeg.copyToRevision`(안내 값 복사), 자르기 = `copyToRevisionTruncated` 가 `Truncation.guidance`(새 draft) 의 **하차 쪽만** 덮음. 옛 8인자 Truncation 은 하차 쪽을 비운다(옛 하차점 값 금지)
+- 서울 번호는 TransitIdEnricher 가 bus_stop 존재를 확인한 내부 ID(`startStopId/endStopId`)로 `findByStopIdIn` — 접두사 규칙 재구현 안 함. 운영 bus_stop 12,986 중 ars 12,851(99%)
+- 방면 = 정차 목록 두 번째 역 `displayName`. 목록이 2점(OTP stopCalls 폴백·1정거장)이면 null
+- `fast_alight` 는 코드베이스 패턴대로 `String` + `jsonb` + `@ColumnTransformer(write="?::jsonb")`. 응답 해석 실패는 null(여정 조회 보호)
+- 지오메트리 `StopGeometry.stopNo`: 서울 노선표 경로(`findStopsByRouteId` projection 에 `bs.arsId`)만. 검색 결과 경로는 id 혼재라 null
+
+### 함정
+- 위치 인자 record 확장 → 옛 arity 보조 생성자(`JourneyLegDraft`·`JourneyLegView`·`StopGeometry`)로 호출부 파급 차단. `RouteStopProjection` 에 메서드 추가 → 테스트 익명 구현 4곳에 `getArsId()` 추가
+
+### 검증
+- 신규: JourneyGuidanceInfoEnricherTest 4, JourneyLegGuidanceCopyTest 3(복제·자르기·옛 Truncation), JourneyCompilerTest DirectionName 3, JourneyQueryServiceFastAlightTest 2, JourneyControllerTest·GeometryControllerTest JSON 이름·null
+- 전체 단위 `./gradlew test --tests '*Test'` → **2240/0**. 컨텍스트 IT 미실행(스크래치 clone DB 없음, 기존 무관). `RerouteAcceptTxService` 는 단위 테스트 파일이 없어 builder 한 줄은 IT(`RerouteAcceptIT`) 몫 — 미실행
+
+### 배포
+- **V63 VPS 수동배치 필요**(`V63__journey_leg_guidance_info.sql`, journey_leg 컬럼 6개 추가, 전부 nullable). api·worker. 진행 중 여정은 null, 새 여정부터

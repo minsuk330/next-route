@@ -389,6 +389,7 @@ public class RerouteAcceptTxService {
                     .endName(draft.endName())
                     .plannedDurationSec(draft.plannedDurationSec())
                     .evidenceQuality(draft.evidenceQuality())
+                    .guidance(draft.guidance())
                     .build();
             if (draft.legIndex() == fromLegIndex && fromLegIndex == currentLegIndex) {
                 inheritActivation(leg, oldByIndex.get(fromLegIndex), draft, now);
@@ -417,7 +418,7 @@ public class RerouteAcceptTxService {
         return old.copyToRevisionTruncated(newRevision, new JourneyLeg.Truncation(
                 draft.endStopId(), draft.sourceEndStopId(), draft.endName(),
                 truncation.rideSeconds(), truncation.alightAt(),
-                truncation.remainingStops(), remainingSec, truncation.legFraction()));
+                truncation.remainingStops(), remainingSec, truncation.legFraction(), draft.guidance()));
     }
 
     /**

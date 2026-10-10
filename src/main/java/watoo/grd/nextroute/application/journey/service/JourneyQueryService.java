@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionView;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegGuidance;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
@@ -28,8 +29,13 @@ import java.util.stream.Collectors;
  * 메모리에서 붙인다 — 환승이 많은 여정일수록 단계 수만큼의 쿼리가 그대로 지연이 된다.
  */
 @Service
+@lombok.extern.slf4j.Slf4j
 @RequiredArgsConstructor
 public class JourneyQueryService implements JourneyQueryUseCase {
+
+    /** 빠른 하차 JSON 은 저장 형식이 고정된 작은 배열이라 공용 매퍼 설정과 무관하다(#266). */
+    private static final com.fasterxml.jackson.databind.ObjectMapper FAST_ALIGHT_READER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
 
     private final JourneySessionRepository sessionRepository;
     private final JourneyLegRepository legRepository;
@@ -107,6 +113,7 @@ public class JourneyQueryService implements JourneyQueryUseCase {
                         option.getAlightingSeq()))
                 .toList();
 
+        JourneyLegGuidance guidance = leg.getGuidance();
         return new JourneyLegView(
                 leg.getId(),
                 leg.getLegIndex(),
@@ -120,6 +127,25 @@ public class JourneyQueryService implements JourneyQueryUseCase {
                 leg.getPlannedDurationSec(),
                 leg.getEvidenceQuality(),
                 leg.getSelectedRouteOptionId(),
-                options);
+                options,
+                guidance.startStopNo(),
+                guidance.endStopNo(),
+                guidance.directionName(),
+                guidance.startExitNo(),
+                guidance.endExitNo(),
+                fastAlight(guidance.fastAlightJson()));
+    }
+
+    /** 저장된 JSON 을 응답 모양으로. 깨진 값은 없는 것으로 본다 — 안내 줄 하나 때문에 여정 조회가 실패하면 안 된다. */
+    static List<JourneyLegView.FastAlight> fastAlight(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return List.of(FAST_ALIGHT_READER.readValue(json, JourneyLegView.FastAlight[].class));
+        } catch (Exception e) {
+            log.warn("[Journey] 빠른 하차 값 해석 실패 — 비움: {}", e.getMessage());
+            return null;
+        }
     }
 }

@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.dto;
 
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegGuidance;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 
@@ -24,6 +25,7 @@ import java.util.List;
  * @param evidenceQuality    실시간 대조 가능성. 식별자가 없으면 {@code "UNKNOWN"}, 아니면 null
  * @param routeOptions       노선 후보들. 기다리는 단계만 비어 있지 않다
  * @param pairedLegIndex     짝이 되는 단계의 순번(기다리기↔타고가기). 걷기는 null
+ * @param guidance           안내 시트 지점 줄 값(#266). 없으면 {@link JourneyLegGuidance#EMPTY}
  */
 public record JourneyLegDraft(
         int legIndex,
@@ -42,11 +44,32 @@ public record JourneyLegDraft(
         Integer plannedDurationSec,
         String evidenceQuality,
         List<JourneyRouteOptionDraft> routeOptions,
-        Integer pairedLegIndex
+        Integer pairedLegIndex,
+        JourneyLegGuidance guidance
 ) {
 
     public JourneyLegDraft {
         routeOptions = routeOptions == null ? List.of() : List.copyOf(routeOptions);
+        guidance = JourneyLegGuidance.orEmpty(guidance);
+    }
+
+    /** 안내 값 없이 만든다. 값은 Compiler·{@code JourneyGuidanceInfoEnricher} 가 채운다. */
+    public JourneyLegDraft(int legIndex, JourneyLegType type, JourneyLegState state,
+                           String startStopId, String endStopId,
+                           String sourceStartStopId, String sourceEndStopId,
+                           String startName, String endName,
+                           Double startX, Double startY, Double endX, Double endY,
+                           Integer plannedDurationSec, String evidenceQuality,
+                           List<JourneyRouteOptionDraft> routeOptions, Integer pairedLegIndex) {
+        this(legIndex, type, state, startStopId, endStopId, sourceStartStopId, sourceEndStopId,
+                startName, endName, startX, startY, endX, endY, plannedDurationSec, evidenceQuality,
+                routeOptions, pairedLegIndex, JourneyLegGuidance.EMPTY);
+    }
+
+    public JourneyLegDraft withGuidance(JourneyLegGuidance guidance) {
+        return new JourneyLegDraft(legIndex, type, state, startStopId, endStopId,
+                sourceStartStopId, sourceEndStopId, startName, endName, startX, startY, endX, endY,
+                plannedDurationSec, evidenceQuality, routeOptions, pairedLegIndex, guidance);
     }
 
     /** 내부 ID 해석 결과를 반영한 새 draft. Compiler는 원천 ID만 채우고 이 단계가 내부 ID를 채운다. */
@@ -57,7 +80,7 @@ public record JourneyLegDraft(
                 resolvedStartStopId, resolvedEndStopId,
                 sourceStartStopId, sourceEndStopId,
                 startName, endName, startX, startY, endX, endY,
-                plannedDurationSec, resolvedEvidenceQuality, resolvedOptions, pairedLegIndex);
+                plannedDurationSec, resolvedEvidenceQuality, resolvedOptions, pairedLegIndex, guidance);
     }
 
     /** 컴파일·해석 테스트에서 후보 개수를 명시적으로 확인할 때 쓴다. */

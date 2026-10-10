@@ -203,6 +203,7 @@ class StopSelectionServiceTest {
     private RouteStopProjection routeStopProjection(Integer seq, String stopId, String stopName,
                                                     Double lat, Double lng, String direction) {
         return new RouteStopProjection() {
+            @Override public String getArsId() { return null; }
             @Override public Integer getSeq() { return seq; }
             @Override public String getStopId() { return stopId; }
             @Override public String getStopName() { return stopName; }

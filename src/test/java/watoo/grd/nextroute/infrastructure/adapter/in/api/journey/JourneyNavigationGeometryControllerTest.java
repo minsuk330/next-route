@@ -73,6 +73,9 @@ class JourneyNavigationGeometryControllerTest {
                 .andExpect(jsonPath("$.legs[0].segments[0].geometrySegmentIndex").value(0))
                 .andExpect(jsonPath("$.legs[0].stops[0].seq").value(10))
                 .andExpect(jsonPath("$.legs[0].stops[0].stopName").value("승차 정류장"))
+                // #266 정류장 번호(서울 노선표 경로만), 모르면 null
+                .andExpect(jsonPath("$.legs[0].stops[0].stopNo").value("05229"))
+                .andExpect(jsonPath("$.legs[0].stops[1].stopNo").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.legs[0].stops[1].seq").value(11))
                 .andExpect(jsonPath("$.legs[0].stops[1].x").value((Object) null))
                 .andExpect(jsonPath("$.legs[0].stops[1].y").value((Object) null))
@@ -151,7 +154,7 @@ class JourneyNavigationGeometryControllerTest {
                 List.of(new GeoPoint(127.0, 37.5), new GeoPoint(127.004, 37.5)),
                 List.of(segment),
                 List.of(
-                        new StopGeometry(10, "S10", "승차 정류장", 127.0, 37.5),
+                        new StopGeometry(10, "S10", "승차 정류장", 127.0, 37.5, "05229"),
                         new StopGeometry(11, "S11", "하차 정류장", null, null)));
         return new JourneyNavigationGeometry(7L, 1, List.of(leg), null);
     }

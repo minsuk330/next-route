@@ -39,7 +39,8 @@ public interface BusRouteStopRepository extends JpaRepository<BusRouteStop, Long
 	/** 노선 경유 정류장 목록 (seq 순, stop 좌표 조인). */
 	@Query("""
 			SELECT brs.seq AS seq, brs.stopId AS stopId, bs.stopName AS stopName,
-			       bs.latitude AS latitude, bs.longitude AS longitude, brs.direction AS direction
+			       bs.latitude AS latitude, bs.longitude AS longitude, brs.direction AS direction,
+			       bs.arsId AS arsId
 			FROM BusRouteStop brs JOIN brs.busStop bs
 			WHERE brs.routeId = :routeId
 			ORDER BY brs.seq

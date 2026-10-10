@@ -160,14 +160,20 @@ public record JourneyNavigationGeometry(
      * @param seq      순서. 버스는 노선 내 정류장 순번, 지하철은 이 구간 안에서의 순번
      * @param stopId   정류장 식별자. <b>지하철은 null</b>
      * @param stopName 정류장·역 이름
+     * @param stopNo   버스 정류장 번호(#266). 서울 노선표 경로만 채운다 — 그 밖(경기·지방·지하철)은 null
      */
     public record StopGeometry(
             int seq,
             String stopId,
             String stopName,
             Double x,
-            Double y
+            Double y,
+            String stopNo
     ) {
+
+        public StopGeometry(int seq, String stopId, String stopName, Double x, Double y) {
+            this(seq, stopId, stopName, x, y, null);
+        }
     }
 
     /**

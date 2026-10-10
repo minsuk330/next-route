@@ -11,7 +11,9 @@ import watoo.grd.nextroute.application.route.dto.LaneResult;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
+import watoo.grd.nextroute.application.subway.service.SubwayPatternStationMatcher;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegGuidance;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 
@@ -192,6 +194,9 @@ public class JourneyCompiler {
 
         int waitIndex = legs.size();
         int rideIndex = waitIndex + 1;
+        JourneyLegGuidance guidance = subway
+                ? JourneyLegGuidance.EMPTY.withDirectionName(directionName(sub))
+                : JourneyLegGuidance.EMPTY;
 
         legs.add(new JourneyLegDraft(
                 waitIndex,
@@ -211,7 +216,8 @@ public class JourneyCompiler {
                 null,
                 JourneyLeg.EVIDENCE_QUALITY_UNKNOWN,
                 options,
-                rideIndex));
+                rideIndex,
+                guidance));
 
         legs.add(new JourneyLegDraft(
                 rideIndex,
@@ -230,9 +236,26 @@ public class JourneyCompiler {
                 sub.sectionTime() * SECONDS_PER_MINUTE,
                 JourneyLeg.EVIDENCE_QUALITY_UNKNOWN,
                 List.of(),
-                waitIndex));
+                waitIndex,
+                guidance));
 
         return Emitted.transit(index, waitIndex, rideIndex);
+    }
+
+    /**
+     * 지하철 진행 방면 = 승차역 다음 역 이름(#266). 정차 목록이 승차·하차 두 점뿐이면 null — OTP 정차 목록이 비어
+     * from/to 로 폴백한 경우라 두 번째 점이 다음 역이 아니라 하차역일 수 있다(1정거장 구간도 같이 null).
+     */
+    static String directionName(SubPathResult sub) {
+        List<StationResult> stations = sub.stations();
+        if (stations == null || stations.size() < 3) {
+            return null;
+        }
+        String name = stations.get(1).stationName();
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        return SubwayPatternStationMatcher.displayName(name);
     }
 
     /**
@@ -330,7 +353,7 @@ public class JourneyCompiler {
                 first.startName(), first.endName(),
                 first.startX(), first.startY(), first.endX(), first.endY(),
                 first.plannedDurationSec(), first.evidenceQuality(),
-                first.routeOptions(), first.pairedLegIndex()));
+                first.routeOptions(), first.pairedLegIndex(), first.guidance()));
         return legs;
     }
 
