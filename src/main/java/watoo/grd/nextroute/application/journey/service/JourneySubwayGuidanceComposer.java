@@ -59,7 +59,7 @@ public class JourneySubwayGuidanceComposer {
     public SubwayGuidance compose(int routeRevision, int currentLegIndex, List<JourneyLeg> legs,
                                   Map<Long, List<JourneyLegRouteOption>> optionsByLeg) {
         JourneyLeg ride = rideLegOf(currentLegIndex, legs);
-        if (ride == null || !ride.hasSubwayRealtimeAnchor()) {
+        if (ride == null || !ride.hasSubwayRealtimeLine()) {
             // 실시간 없는 지하철(지방)은 판정이 열리지 않는다 — 옛 판정 행이 남아 있어도 "확인 중"을 그리지 않는다.
             return null;
         }

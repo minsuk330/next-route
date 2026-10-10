@@ -241,4 +241,12 @@ class OtpSeoulIdentityResolverTest {
         assertThat(withTable.resolveTagoBus("1:BS_TAGO_TSB309000122", "1:BR_TAGO_TSB309000001", "농어촌"))
                 .contains(new TagoBusIdentity("32050", "TSB309000122", "TSB309000001", "농어촌"));
     }
+
+    @Test
+    @DisplayName("노선 도착 id(#333): TAGO 는 도시코드를 알 때만 — 모르면 도착 API 가 늘 빈 결과라 id 를 주지 않는다")
+    void busRouteArrivalIdNeedsTagoCityCode() {
+        assertThat(resolver.busRouteArrivalId("1:BR_TAGO_BSB5202029000")).contains("BSB5202029000");
+        assertThat(resolver.busRouteArrivalId("1:BR_TAGO_TSB309000001")).isEmpty();
+        assertThat(resolver.busRouteArrivalId("1:BR_TAGO_GGB233000031")).contains("233000031");
+    }
 }
