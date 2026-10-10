@@ -63,7 +63,7 @@ public class FcmLiveActivityPushAdapter implements LiveActivityPushPort {
     static final String APS_EVENT = "event";
     static final String APS_TIMESTAMP = "timestamp";
     static final String APS_CONTENT_STATE = "content-state";
-    /** epoch 초. 이 시각이 지나면 시스템이 화면을 stale 로 다시 그린다(#309). {@code update} 에만 싣는다. */
+    /** epoch 초. 이 시각에 시스템이 화면을 다시 그린다(#309). {@code update} 에만, 규칙은 {@code staleDateSeconds}. */
     static final String APS_STALE_DATE = "stale-date";
     static final String EVENT_UPDATE = "update";
 
@@ -102,6 +102,12 @@ public class FcmLiveActivityPushAdapter implements LiveActivityPushPort {
      */
     static Message message(String deviceToken, String activityToken, String event,
                            long apsTimestamp, JsonNode contentState) {
+        return message(deviceToken, activityToken, event, apsTimestamp, contentState, System.currentTimeMillis());
+    }
+
+    /** @param nowMillis 보내는 시각. 지난 {@code stale-date} 를 거르는 기준이다 */
+    static Message message(String deviceToken, String activityToken, String event,
+                           long apsTimestamp, JsonNode contentState, long nowMillis) {
         Aps.Builder apsBuilder = Aps.builder()
                 .putCustomData(APS_EVENT, event)
                 // epoch 초다. content-state 안의 시각들은 밀리초라는 것을 잊지 말 것.
@@ -109,7 +115,7 @@ public class FcmLiveActivityPushAdapter implements LiveActivityPushPort {
                 // {name, props} 두 겹 그대로. props 는 JSON 문자열이다.
                 .putCustomData(APS_CONTENT_STATE, toMap(contentState));
         Long staleDate = EVENT_UPDATE.equals(event)
-                ? SubwayRingPushPayloadFactory.staleDateSeconds(contentState) : null;
+                ? SubwayRingPushPayloadFactory.staleDateSeconds(contentState, nowMillis) : null;
         if (staleDate != null) {
             apsBuilder.putCustomData(APS_STALE_DATE, staleDate);
         }
