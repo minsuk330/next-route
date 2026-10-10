@@ -38,11 +38,12 @@ import java.time.Instant;
  * {@code arvlCd=1} 이면 "다 왔다"이고 {@code 99} 면 "아직 3정거장 전"이다. 초를 먼저 보면
  * <b>멀리 있는 열차를 90% 로 표시</b>한다.
  *
- * <h2>모르면 멈춘다</h2>
+ * <h2>모르면 느리게라도 움직이되, 추정이라고 밝힌다(2026-10-10 결정)</h2>
  *
- * <p>남은 초를 못 얻으면 정적 소요시간·최근 역간 중위값·시간표로 <b>채우지 않는다</b>. 그것은
- * 실시간처럼 보이는 추정이고, 틀렸을 때 사용자는 서버를 믿은 대가로 역을 지나친다. 링을 마지막
- * 값에 멈추고 {@link SubwayRingQuality#STALE} 로 정직하게 말한다.
+ * <p>예전 원칙은 "남은 초를 못 얻으면 시간표로 채우지 않고 멈춘다"였다. 실측(journey 202)에서 전역 정차 내내 0 에 얼고
+ * 구간마다 회색 "확인 중"이 떠 제품 결정으로 뒤집었다: 실시간·실측 예정이 없으면 GTFS 계획 시간 × 여유 배수로 직선을 그리고
+ * {@link SubwayRingEtaSource#TYPICAL} 로 밝힌다(앱은 도착 시각을 숨긴다). 지키는 것은 둘 — 되감지 않는다(#357), 진입·도착
+ * 근거 없이 상한을 넘지 않는다. {@link SubwayRingQuality#STALE} 은 서버가 새 관측을 못 받을 때만이다.
  *
  * <h2>승차역 구간은 0 에 묶는다</h2>
  *
@@ -207,9 +208,7 @@ public class SubwayRingCalculator {
                                                 Instant now) {
         SubwayArrivalCode code = observation.code();
         if (code == SubwayArrivalCode.PREV_ENTERING || code == SubwayArrivalCode.PREV_ARRIVED) {
-            return hold(context, target, baseProgressOf(prior, target), observation.observedAt(), now)
-                    .withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, nameOf(context, target - 1))
-                    .withSource(null, SubwayRingStage.DWELL);
+            return atPreviousStation(prior, context, target, observation, now);
         }
         if (observation.isMeasured()) {
             return fromMeasured(prior, context, target, observation, now);
@@ -384,14 +383,101 @@ public class SubwayRingCalculator {
     private SubwayRingState advanced(SubwayRingContext context, int nextTarget, Instant observedAt,
                                      Instant startedAt, boolean departed, Instant now) {
         int bounded = Math.min(nextTarget, context.chain().alightingSequence());
-        // 정상 구간 전환은 STALE 이 아니다. 전형 시간을 알면 바로 직선을 그린다 — 출발했으면 운행만, 역에 섰으면 정차+운행.
-        SubwayRingState typical = typicalLine(context, bounded, BigDecimal.ZERO, startedAt, !departed, observedAt, now);
+        // 정상 구간 전환은 STALE 이 아니다. 전형 시간을 알면 바로 직선을 그린다 — 출발했으면 운행, 역에 섰으면 정차부터.
+        SubwayRingState typical = departed
+                ? typicalLine(context, bounded, BigDecimal.ZERO, startedAt, false, observedAt, now)
+                : dwellLine(context, bounded, BigDecimal.ZERO, startedAt, observedAt, now);
         if (typical != null) {
             return typical;
         }
         return anchored(context, bounded, BigDecimal.ZERO, observedAt, null,
                 SubwayRingQuality.STALE, observedAt, now)
                 .withSource(null, SubwayRingStage.RUN);
+    }
+
+    /**
+     * 열차가 전역에 서 있다(4/5). 정차를 같은 구간 직선의 앞부분으로 그린다.
+     *
+     * <ul>
+     *   <li>같은 구간에서 이미 그 뒤 단계(운행·늦음·진입·도착)를 봤으면 되돌아가지 않는다 — 위치로 출발을 본 뒤 도착 API 가 늦게
+     *       전역 도착을 줘도 정차로 돌아가 멈추지 않는다(리뷰 R4)</li>
+     *   <li>정차 직선을 그리는 중이면 그대로 둔다(같은 4/5 반복에 정차 시작을 다시 잡지 않는다 — journey 158). 정차 예정이 지났으면
+     *       정차 지점에서 멈춘다(사유 유지)</li>
+     *   <li>처음이면 정차 직선: 0(또는 지금 화면) → 정차 지점, 정차 × 배수. 정차 지점 = 상한 × 정차/(정차+운행) — 정시면 운행
+     *       직선과 기울기가 같아 꺾이지 않는다</li>
+     * </ul>
+     *
+     * <p>전형 시간을 모르면 예전처럼 그 자리에 세운다.
+     */
+    private SubwayRingState atPreviousStation(SubwayRingState prior, SubwayRingContext context, int target,
+                                              SubwayRingObservation observation, Instant now) {
+        String stationName = nameOf(context, target - 1);
+        if (sameSegment(prior, target) && prior.stage() != null
+                && prior.stage().compareTo(SubwayRingStage.DWELL) > 0) {
+            return keep(prior, context, target, observation, now);
+        }
+        if (sameSegment(prior, target) && prior.stage() == SubwayRingStage.DWELL
+                && (prior.etaSource() == SubwayRingEtaSource.TYPICAL || prior.estimatedNextStationAt() == null
+                && prior.holdReason() == SubwayRingHoldReason.PREV_STATION_STOPPED
+                && prior.progressTarget() != null && prior.progressTarget().signum() > 0
+                && prior.progressTarget().compareTo(capOf(target)) < 0)) {
+            Instant eta = prior.estimatedNextStationAt();
+            if (eta != null && !now.isBefore(eta)) {
+                return hold(context, target, prior.progressTarget(), observation.observedAt(), now)
+                        .withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, stationName)
+                        .withSource(null, SubwayRingStage.DWELL);
+            }
+            return prior.refreshed(observation.observedAt(), now);
+        }
+        SubwayRingState line = dwellLine(context, target, baseProgressOf(prior, target),
+                dwellStartOf(prior, target, observation), observation.observedAt(), now);
+        if (line != null) {
+            return line;
+        }
+        return hold(context, target, baseProgressOf(prior, target), observation.observedAt(), now)
+                .withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, stationName)
+                .withSource(null, SubwayRingStage.DWELL);
+    }
+
+    /** 정차 시작 = 직전 링이 바로 그 역 도착이면 그 도착을 처음 본 시각(한 tick 늦지 않게), 아니면 이 관측을 처음 본 시각. */
+    private static Instant dwellStartOf(SubwayRingState prior, int target, SubwayRingObservation observation) {
+        if (prior != null && prior.arrivedAtNextStation() && prior.nextStationSequence() == target - 1
+                && prior.sourceSeenAt() != null) {
+            return prior.sourceSeenAt();
+        }
+        return seenOf(observation);
+    }
+
+    /**
+     * 정차 직선. 상한 대신 정차 지점까지만 그리고 예정 = 정차 끝. 이미 정차 지점을 넘었거나 정차 예정이 지났으면 정차 지점에 세운다.
+     *
+     * @return 승차역 구간이거나 전형 시간을 모르면 null
+     */
+    private SubwayRingState dwellLine(SubwayRingContext context, int target, BigDecimal base, Instant startedAt,
+                                      Instant observedAt, Instant now) {
+        if (target <= BOARDING_SEQUENCE || target > context.chain().alightingSequence() || startedAt == null) {
+            return null;
+        }
+        SubwayRingContext.Typical times = context.typicalFor(target);
+        if (times == null || times.runSeconds() == null) {
+            return null;
+        }
+        long dwell = dwellSecondsOf(times);
+        BigDecimal ceiling = scaled(capOf(target).multiply(BigDecimal.valueOf(dwell))
+                .divide(BigDecimal.valueOf(dwell + times.runSeconds()), RATIO_CONTEXT));
+        Instant eta = startedAt.plusMillis(BigDecimal.valueOf(dwell * 1000L)
+                .multiply(properties.getTypicalFactor()).longValue());
+        String stationName = nameOf(context, target - 1);
+        if (base.compareTo(ceiling) >= 0 || !now.isBefore(eta)) {
+            return hold(context, target, max(base, ceiling), observedAt, now)
+                    .withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, stationName)
+                    .withSource(null, SubwayRingStage.DWELL);
+        }
+        SubwayRingState line = anchored(context, target, base, startedAt, eta, SubwayRingQuality.NORMAL, observedAt, now)
+                .withProgressTarget(ceiling)
+                .withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, stationName)
+                .withSource(SubwayRingEtaSource.TYPICAL, SubwayRingStage.DWELL);
+        return longValidity(line, now);
     }
 
     /**

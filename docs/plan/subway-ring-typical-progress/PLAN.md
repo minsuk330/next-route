@@ -69,3 +69,9 @@ v2 = Opus 리뷰(`REVIEW.md`) 반영: 시간축 정의를 PR-1 계약으로, LAT
 ## 5. 앱 인계 (PR-1 머지 시 HANDOFF.md)
 - `etaSource` TYPICAL → 도착 시각 숨김(링은 그림). 필드 없으면 기존 동작. `alightingEtaSource` 동일.
 - `holdReason=PREV_STATION_STOPPED` 중에도 링이 느리게 움직인다(문구 유지). 회색 끊김 문구는 `quality=STALE` 일 때만.
+
+## 실행 중 정정 (2026-10-10, PR-2·PR-3 구현)
+- **정차 = 비례 정차 지점까지의 직선**(v2 의 "정차+운행 한 직선" 수정): 0 → `상한 × 정차/(정차+운행)` 을 정차 × 배수 동안. 정시면 운행 직선과 기울기가 같아 꺾이지 않고(시험 고정), 정차가 길어지면 그 지점에서 멈춘다(사유 유지). 한 직선이면 정차 초과 때 링이 정차 중에 상한까지 차 버린다 — 실녹화(교대 정차 87초 vs GTFS 60초)에서 확인. 정차 직선의 `estimatedNextStationAt` 은 정차 끝이라 하차 예정은 운행 × 배수를 더한다(리뷰 R3 대응)
+- **STALE 서버 시계는 도착 관측만**: 위치 관측은 전이 로그라 달리는 동안 갱신이 없다 → 종전(원천 시각 + freshness 120s) 유지
+- **Context typical = 순번 → 시간 함수**: 구간 전환 때 다음 구간 값이 필요
+- 재생 하네스(PR-0, `SubwayRingReplayIT`)로 PR 마다 실녹화 비교 — OTP 패턴 적재가 시험 환경에서 안 되므로 `REPLAY_TYPICAL` 로 GTFS 구간 시간 주입
