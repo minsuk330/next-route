@@ -104,7 +104,10 @@ public class SubwayRingPushDecider {
                 String.valueOf(ring.holdStationName()),
                 // 예정 출처가 바뀌면 앱이 시각을 숨기거나 다시 보인다 — 같은 30초 눈금이어도 한 번 보낸다.
                 String.valueOf(ring.etaSource()),
-                String.valueOf(ring.alightingEtaSource()));
+                String.valueOf(ring.alightingEtaSource()),
+                // 오는 중인 열차가 역을 하나 지날 때마다 대기 문구("양재 → 강남 · 1역 전")가 바뀐다(#368).
+                ring.approach() == null ? "null" : ring.approach().stationName(),
+                ring.approach() == null ? "null" : String.valueOf(ring.approach().stationsUntilBoarding()));
         return hash(material);
     }
 

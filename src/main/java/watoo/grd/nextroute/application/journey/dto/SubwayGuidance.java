@@ -4,6 +4,7 @@ import watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * 지하철 안내 — 앱이 진행 링과 Dynamic Island 를 그리는 데 필요한 전부.
@@ -42,6 +43,9 @@ import java.time.Instant;
  * @param etaSource              {@code estimatedNextStationAt} 의 출처(LIVE·MEASURED·TYPICAL). 예정이 없으면 null.
  *                               앱은 TYPICAL 이면 도착 시각을 숨긴다
  * @param alightingEtaSource     {@code estimatedAlightingAt} 의 출처. 다음 역이 하차역이 아니면 남은 구간이 계획값이라 TYPICAL
+ * @param approachingStationName 고른 열차가 아직 승차역 전일 때 지금 있는(또는 막 떠난) 역(#368). 그 밖·모름·STALE 이면 null
+ * @param stationsUntilBoarding  위 역에서 승차역까지 남은 역 수. 승차역 바로 앞 역이면 1. 같은 조건에서 null
+ * @param approachStations       열차 현재 역 → 승차역 바로 앞 역, 열차가 지나올 순서. 크기 = {@code stationsUntilBoarding}
  */
 public record SubwayGuidance(
         SubwayBindingStatus bindingStatus,
@@ -65,8 +69,25 @@ public record SubwayGuidance(
         SubwayRingHoldReason holdReason,
         String holdStationName,
         SubwayRingEtaSource etaSource,
-        SubwayRingEtaSource alightingEtaSource
+        SubwayRingEtaSource alightingEtaSource,
+        String approachingStationName,
+        Integer stationsUntilBoarding,
+        List<String> approachStations
 ) {
+
+    /** 다가오는 열차 위치 없이(옛 모양). */
+    public SubwayGuidance(SubwayBindingStatus bindingStatus, SubwayRingPhase phase, String lineName,
+                          String nextStationName, String alightingStationName, Integer remainingStations,
+                          BigDecimal segmentProgress, Instant progressBaseAt, BigDecimal progressTarget,
+                          Instant estimatedNextStationAt, Instant progressValidUntil,
+                          SubwayRingQuality quality, Instant observedAt, Long version,
+                          Instant estimatedAlightingAt, SubwayRingHoldReason holdReason, String holdStationName,
+                          SubwayRingEtaSource etaSource, SubwayRingEtaSource alightingEtaSource) {
+        this(bindingStatus, phase, lineName, nextStationName, alightingStationName, remainingStations,
+                segmentProgress, progressBaseAt, progressTarget, estimatedNextStationAt, progressValidUntil,
+                quality, observedAt, version, estimatedAlightingAt, holdReason, holdStationName,
+                etaSource, alightingEtaSource, null, null, null);
+    }
 
     public SubwayGuidance(SubwayBindingStatus bindingStatus, SubwayRingPhase phase, String lineName,
                           String nextStationName, String alightingStationName, Integer remainingStations,
@@ -126,6 +147,9 @@ public record SubwayGuidance(
                 ring.quality(), ring.observedAt(),
                 ring.guidanceVersion() > 0 ? ring.guidanceVersion() : null,
                 ring.estimatedAlightingAt(), ring.holdReason(), ring.holdStationName(),
-                ring.etaSource(), ring.alightingEtaSource());
+                ring.etaSource(), ring.alightingEtaSource(),
+                ring.approach() == null ? null : ring.approach().stationName(),
+                ring.approach() == null ? null : ring.approach().stationsUntilBoarding(),
+                ring.approach() == null ? null : ring.approach().stations());
     }
 }

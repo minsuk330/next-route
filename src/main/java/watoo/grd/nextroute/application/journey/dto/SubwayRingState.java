@@ -40,6 +40,8 @@ import java.time.Instant;
  * @param sourceObservedAt        이 상태의 근거 관측 원천 시각(도착 {@code recptnDt}·위치 수신 시각, 내부 전용)
  * @param sourceSeenAt            서버가 그 {@code sourceObservedAt} 을 <b>처음 본</b> 시각(내부 전용). 같은 근거가 반복되면
  *                                이어 쓴다 — 매 tick 새로 찍으면 굳은 원천이 늘 신선해 보인다
+ * @param approach                승차역 대기 구간에서 고른 열차가 지금 있는 역(#368). 그 밖이거나 모르면 null.
+ *                                계산기가 아니라 갱신기가 붙인다
  */
 public record SubwayRingState(
         Long journeyId,
@@ -71,8 +73,30 @@ public record SubwayRingState(
         SubwayRingEtaSource alightingEtaSource,
         SubwayRingStage stage,
         Instant sourceObservedAt,
-        Instant sourceSeenAt
+        Instant sourceSeenAt,
+        SubwayRingApproach approach
 ) {
+
+    /** 다가오는 열차 위치 없이 만든다(옛 모양 — Redis 에 남은 값·계산기). 위치는 갱신기가 붙인다. */
+    public SubwayRingState(Long journeyId, int routeRevision, int legIndex, int bindingVersion,
+                           int nextStationSequence, String canonicalNextStationKey,
+                           String nextStationName, String alightingStationName,
+                           Integer remainingStations, BigDecimal segmentProgress,
+                           Instant progressBaseAt, BigDecimal progressTarget,
+                           Instant estimatedNextStationAt, Instant progressValidUntil,
+                           SubwayRingPhase phase, SubwayRingQuality quality,
+                           Instant observedAt, Instant updatedAt, long guidanceVersion,
+                           Instant estimatedAlightingAt, SubwayRingHoldReason holdReason,
+                           String holdStationName, SubwayRingEtaSource etaSource,
+                           SubwayRingEtaSource alightingEtaSource, SubwayRingStage stage,
+                           Instant sourceObservedAt, Instant sourceSeenAt) {
+        this(journeyId, routeRevision, legIndex, bindingVersion, nextStationSequence,
+                canonicalNextStationKey, nextStationName, alightingStationName, remainingStations,
+                segmentProgress, progressBaseAt, progressTarget, estimatedNextStationAt,
+                progressValidUntil, phase, quality, observedAt, updatedAt, guidanceVersion,
+                estimatedAlightingAt, holdReason, holdStationName, etaSource, alightingEtaSource, stage,
+                sourceObservedAt, sourceSeenAt, null);
+    }
 
     /** 출처·단계·근거 시각 없이 만든다(옛 모양 — Redis 에 남은 값·시험). */
     public SubwayRingState(Long journeyId, int routeRevision, int legIndex, int bindingVersion,
@@ -149,7 +173,7 @@ public record SubwayRingState(
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 target, estimatedNextStationAt, progressValidUntil, phase, quality,
                 observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, holdReason, holdStationName,
-                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt);
+                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt, approach);
     }
 
     public SubwayRingState withProgressValidUntil(Instant validUntil) {
@@ -158,7 +182,7 @@ public record SubwayRingState(
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, validUntil, phase, quality,
                 observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, holdReason, holdStationName,
-                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt);
+                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt, approach);
     }
 
     /** 같은 앵커를 새 관측으로 확인만 했다. 화면 값은 그대로, 관측·갱신 시각만 바뀐다. */
@@ -168,7 +192,7 @@ public record SubwayRingState(
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
                 observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, holdReason, holdStationName,
-                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt);
+                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt, approach);
     }
 
     public SubwayRingState withEstimatedAlightingAt(Instant alightingAt) {
@@ -177,7 +201,7 @@ public record SubwayRingState(
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
                 observedAt, updatedAt, guidanceVersion, alightingAt, holdReason, holdStationName,
-                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt);
+                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt, approach);
     }
 
     public SubwayRingState withGuidanceVersion(long version) {
@@ -186,7 +210,7 @@ public record SubwayRingState(
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
                 observedAt, updatedAt, version, estimatedAlightingAt, holdReason, holdStationName,
-                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt);
+                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt, approach);
     }
 
     /** 링이 왜 멈췄는지 붙인다. 진행률·예정은 건드리지 않는다 — 앱 문구("○○ 정차 중")용이다. */
@@ -196,7 +220,7 @@ public record SubwayRingState(
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
                 observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, reason, stationName,
-                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt);
+                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt, approach);
     }
 
     /** 품질만 바꾼다. 새 근거는 없지만 수집이 살아 있어 멈춘 링을 "확인 중"으로 두지 않을 때 쓴다. */
@@ -206,7 +230,7 @@ public record SubwayRingState(
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, value,
                 observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, holdReason, holdStationName,
-                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt);
+                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt, approach);
     }
 
     /** 예정 출처와 구간 안 단계를 붙인다. 진행률·예정은 건드리지 않는다. */
@@ -216,7 +240,7 @@ public record SubwayRingState(
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
                 observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, holdReason, holdStationName,
-                source, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt);
+                source, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt, approach);
     }
 
     /** 하차 예정과 그 출처를 함께 붙인다(갱신기). */
@@ -226,7 +250,7 @@ public record SubwayRingState(
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
                 observedAt, updatedAt, guidanceVersion, alightingAt, holdReason, holdStationName,
-                etaSource, alightingAt == null ? null : source, stage, sourceObservedAt, sourceSeenAt);
+                etaSource, alightingAt == null ? null : source, stage, sourceObservedAt, sourceSeenAt, approach);
     }
 
     /** 근거 관측의 원천 시각과 서버가 그것을 처음 본 시각을 붙인다. */
@@ -236,7 +260,17 @@ public record SubwayRingState(
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
                 observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, holdReason, holdStationName,
-                etaSource, alightingEtaSource, stage, observed, seen);
+                etaSource, alightingEtaSource, stage, observed, seen, approach);
+    }
+
+    /** 승차역에 오는 중인 열차 위치를 붙인다(갱신기, #368). 진행률·예정은 건드리지 않는다. */
+    public SubwayRingState withApproach(SubwayRingApproach value) {
+        return new SubwayRingState(journeyId, routeRevision, legIndex, bindingVersion,
+                nextStationSequence, canonicalNextStationKey, nextStationName,
+                alightingStationName, remainingStations, segmentProgress, progressBaseAt,
+                progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
+                observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, holdReason, holdStationName,
+                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt, value);
     }
 
     /**
@@ -265,7 +299,7 @@ public record SubwayRingState(
                 alightingStationName, remainingStations, progress, baseAt,
                 target, estimatedNextStationAt, progressValidUntil, phase, quality,
                 observedAt, updatedAt, guidanceVersion, estimatedAlightingAt, holdReason, holdStationName,
-                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt);
+                etaSource, alightingEtaSource, stage, sourceObservedAt, sourceSeenAt, approach);
     }
 
     /** 이 상태가 그 고정 세대의 것인지. 아니면 옛 worker 가 쓴 값이다. */
