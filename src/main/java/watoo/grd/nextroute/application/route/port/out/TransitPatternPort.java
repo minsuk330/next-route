@@ -90,8 +90,18 @@ public interface TransitPatternPort {
     record TransitTripRef(String gtfsId, Integer firstDepartureSec) {
     }
 
-    /** 운행일 자정 기준 초. */
-    record TransitStopTime(String stopGtfsId, int scheduledArrival, int scheduledDeparture) {
+    /**
+     * 운행일 자정 기준 초.
+     *
+     * @param pickup  거기서 탈 수 있다(GTFS pickup_type 이 NONE 이 아님)
+     * @param dropoff 거기서 내릴 수 있다(GTFS drop_off_type 이 NONE 이 아님). TAGO·시외버스는 앞쪽 정류장이 승차 전용,
+     *                뒤쪽이 하차 전용인 노선이 있다
+     */
+    record TransitStopTime(String stopGtfsId, int scheduledArrival, int scheduledDeparture,
+                           boolean pickup, boolean dropoff) {
+        public TransitStopTime(String stopGtfsId, int scheduledArrival, int scheduledDeparture) {
+            this(stopGtfsId, scheduledArrival, scheduledDeparture, true, true);
+        }
     }
 
     /** OTP 호출 실패(오류·시간 초과). 포화(permit 못 얻음)는 부르는 쪽이 따로 판단한다. */

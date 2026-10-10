@@ -4089,3 +4089,21 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - 기존 무관(메모리 기록과 동일): JourneyEvalReadPathIT · JourneyEvaluationIT · JourneyTransferAssessmentIT · BusAlertWakeupBurstIT
   - 기존 무관(main `origin/main` 1cfac30a 에서 단독 재실행해도 동일 실패): RerouteRemainingPathOtpIT 1건(OTP 요청 2회 vs 기대 1회)
   - 전체 실행에서만 나는 간헐: JourneyNotificationSchemaIT(`Unable to rollback against JDBC Connection`) — 이 브랜치에서 단독 실행 20/20 통과
+## 2026-10-10 단독 추적 하차 후보에서 하차 금지 정류장 제외 (#265 잔여, fix/track-alight-skip-no-dropoff)
+
+### 확정
+- 고칠 대상은 "통과역"(승하차 둘 다 NONE)이 아니라 **하차 금지(drop_off NONE)** 다. 전국 GTFS(national-nojeju-202503) 실측: NONE/NONE 53행(44 trip, 시외 ACC3 뿐), 첫 정차가 아닌 하차 금지 33,485행·11,021 trip(TAGO 22,746·시외 ACC3 10,339·ACC5 230·PORT 144)
+- 운영 OTP 실측(2026-10-10): 부산 공항리무진 `1:BR_TAGO_BSB5202029000_D::01` 앞 17곳 SCHEDULED/NONE(하차 금지), 국제선·국내선 NONE/SCHEDULED(승차 금지) → 픽스처 `otp/track/trip-stoptimes-bus-airport.json`
+- OTP 패턴(StopPattern)은 정류장별 pickup/dropoff 까지 같은 trip 만 묶는다 → trip 하나의 정차 시각이 패턴 전체 답. `TrackPatternSource.stopAccess` 가 패턴 단위 캐시(그래프 버전 키, 10분). 첫 조회만 OTP +2회(TripsForDate·TripStopTimes)
+- 계약: 하차 후보 `index` 는 그대로(빈 번호 생김 = "몇 정거장 뒤" 의미 유지). 승차 금지 정류장에서 하차 후보 조회·시작 = 422 `TRACK_STOPS_INVALID`. 승하차 가능 여부를 모르면(오늘·어제 운행 없음, 개수 불일치) 거르지 않는다 — 시작이 시간표 없음으로 막음
+
+### 미결
+- 방향(노선) 목록에는 승차 금지 정류장 노선이 아직 뜬다(정류장 패턴마다 trip 조회가 필요해 비용 큼). 누르면 하차 후보가 422. 필요하면 별건
+- 노선 선(shape) `to` 없을 때 끝 = 한 바퀴 끝(하차 가능한 마지막이 아님). 영향 작아 그대로
+
+### 배포
+- api 만. 마이그레이션·플래그 없음
+
+### 검증
+- `./gradlew test --tests '*OtpTransitPatternAdapterTest' --tests '*TrackSelectionQueryServiceTest' --tests '*TrackJourneyStartServiceTest' --tests '*TrackLegFactoryTest' --tests '*TrackLegChainTest' --tests '*TrackPatternSelectorTest'` → 12/22/12/7/4/11, 실패 0
+- 서비스 수정만 되돌리고 같은 시험 → 34 중 4 실패(새 시험 4건이 버그를 잡음 확인)
