@@ -86,6 +86,12 @@ public class SubwayBoardingEvidenceService implements SubwayBindingUseCase {
                                     SubwayBoardingEvidence evidence) {
         JourneySession journey = activeJourney(userId, journeyId, routeRevision);
         JourneyLeg ride = rideLegOf(journeyId, routeRevision, legIndex);
+        if (!ride.hasSubwayRealtimeLine()) {
+            // 지방 지하철 — 열차를 찾을 실시간이 없다. 판정을 열면 PENDING 에 영영 머문다.
+            log.debug("[SubwayEvidence] 실시간 없는 지하철 단계 — journeyId={} legIndex={}",
+                    journeyId, ride.getLegIndex());
+            return SubwayBindingView.unsupported(ride.getLegIndex());
+        }
         Instant now = Instant.now(clock);
 
         lockGuard.applyLockTimeout();

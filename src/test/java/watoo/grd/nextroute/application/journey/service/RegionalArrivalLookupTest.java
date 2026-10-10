@@ -55,6 +55,23 @@ class RegionalArrivalLookupTest {
     }
 
     @Test
+    @DisplayName("다음 버스(기다리는 단계, #333): 몇 정류장 전이든 가장 이른 도착")
+    void nextArrivalIsEarliest() {
+        given(gyeonggi.getArrival("S", "R")).willReturn(BusQueryResult.ok(List.of(
+                new GyeonggiBusArrival("R", 9, 6, null, null, 2, 1, null, null, null))));
+
+        assertThat(lookup.nextArrival(RegionalBusProvider.GG, "R", "S").at()).isEqualTo(NOW.plusSeconds(120));
+    }
+
+    @Test
+    @DisplayName("다음 버스: 오는 차가 없으면 no-realtime")
+    void nextArrivalWithoutVehicles() {
+        given(gyeonggi.getArrival("S", "R")).willReturn(BusQueryResult.ok(List.of()));
+
+        assertThat(lookup.nextArrival(RegionalBusProvider.GG, "R", "S").failureReason()).isEqualTo("no-realtime");
+    }
+
+    @Test
     @DisplayName("같은 정류장·노선은 짧게 캐시한다 — 여정끼리 호출을 나눠 쓴다")
     void cachesShortly() {
         given(gyeonggi.getArrival("S", "R")).willReturn(BusQueryResult.ok(List.of(

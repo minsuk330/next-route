@@ -54,12 +54,13 @@ public class JourneySubwayGuidanceComposer {
     /**
      * @param legs           그 개정본의 단계 전부(순번 오름차순)
      * @param optionsByLeg   이미 읽어 둔 노선 후보. 노선 이름을 여기서 얻는다
-     * @return 지하철 구간이 아니거나 고정이 없으면 {@code null}
+     * @return 지하철 구간이 아니거나, 실시간 없는 지하철이거나, 고정이 없으면 {@code null}
      */
     public SubwayGuidance compose(int routeRevision, int currentLegIndex, List<JourneyLeg> legs,
                                   Map<Long, List<JourneyLegRouteOption>> optionsByLeg) {
         JourneyLeg ride = rideLegOf(currentLegIndex, legs);
-        if (ride == null) {
+        if (ride == null || !ride.hasSubwayRealtimeLine()) {
+            // 실시간 없는 지하철(지방)은 판정이 열리지 않는다 — 옛 판정 행이 남아 있어도 "확인 중"을 그리지 않는다.
             return null;
         }
         SubwayLegBinding binding = bindingRepository

@@ -28,8 +28,8 @@
 | 남은 역 `GET /api/subway/stations/{id}/stations-ahead` | 최상위 `boardGtfsStopId`, 역마다 `gtfsStopId`·`routeGtfsId` | `boardStopId`·`alightStopId`·**하차역의** `routeGtfsId` |
 
 - 지하철은 남은 역 응답 하나로 세 값이 다 나온다(근처 역의 `gtfsStopId` 는 서버 기동 직후 잠깐 null 일 수 있다 — 그때는 남은 역의 `boardGtfsStopId` 를 쓴다).
-- 서울만. 값이 null 이면 `[추적 시작]` 을 막고 "이 노선은 아직 추적할 수 없어요".
-- 아래 조회 3개는 앱이 위 API 를 쓰면 필요 없다(정리 대상).
+- 위 표는 서울 화면 API 경로다(서울만 — 값이 null 이면 `[추적 시작]` 을 막는다).
+- **경기·지방은 아래 track 조회 API 로 고른다(2026-10-10, #333).** 전국 GTFS 기준이고 실시간 id(#313)·형제 정류장 합치기(#327)·노선 선(#314)이 붙어 있다. 로그인 제거(기기 익명 계정, #328)로 비로그인 401 문제는 없다(#320). 앱 홈 "근처에서 타기"는 이 API 로 통일하는 것을 권장한다.
 
 ```
 GET  /api/journeys/track/stops/near?lat=&lon=&mode=BUS|SUBWAY
@@ -83,4 +83,13 @@ POST /api/journeys/{journeyId}/subway/train-selection   {trainNo, routeRevision}
 | 3 | 열차를 시작할 때 고른다 | **해결.** 시작 직후 단계가 `WAIT_SUBWAY` 라 #277 역 도착 응답의 `trains`(곧 오는 열차)·`departed`(방금 떠난 열차, 10분 안) 어느 쪽 `trainNo` 든 바로 `train-selection` 에 보내면 된다. 떠난 열차는 서버가 같은 M7 출발 로그로 확인하고 그 출발의 운행일로 확정한다 |
 | 4 | `[탔어요]` = 이미 탔다 | 시작(대기 단계) 직후 앱이 탑승 전이를 바로 보내면 지금 서버로 동작한다. 별도 작업 없음 |
 
-§1 조회 3개(`/api/journeys/track/stops/**`·`/routes/**`)는 A안이면 앱이 쓰지 않는다 — 정리 대상.
+~~§1 조회 3개는 A안이면 앱이 쓰지 않는다 — 정리 대상.~~ 취소(2026-10-10): #313·#314·#327 로 track 조회 API 가 전국(경기·지방) 선택의 주 경로가 됐다. 지우지 않는다.
+
+## 6. 경기·지방 (#333, 2026-10-10)
+
+| 대상 | 서버 동작 | 앱 |
+|---|---|---|
+| 경기·TAGO 버스 대기 | `/active` 의 대기 단계 ETA 가 GBIS·TAGO 실시간의 다음 버스로 찬다(전엔 늘 비어 있음). 경기는 분 단위라 `APPROXIMATE` | 그대로 표시 |
+| 경기·TAGO 버스 도착 조회 | `Direction.arrivalRouteId`·`arrivalStopId` 로 `GET /api/arrivals/bus/{stopId}/{routeId}`. TAGO 는 도시코드를 아는 노선만 id 가 온다(모르면 null = 실시간 없음) | null 이면 실시간 영역 숨김 |
+| 지방 지하철(부산·대구·대전·광주·인천 등) | 실시간 원천이 없다(#245). `boarding-evidence` 응답 `realtimeSupported=false`, `subwayGuidance` 는 오지 않는다(예전엔 "확인 중" 고착) | `realtimeSupported=false` 면 관측 전송을 멈추고 시간표·형상 기반 화면. 열차 선택 UI 숨김 |
+| 하차 금지 정류장 | 하차 후보에서 빠진다(#329, TAGO·시외버스 공항리무진 등). `index` 는 빈 번호가 생길 수 있다 | 그대로 |

@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * 기존 교통수단 해석 결과를 여정 실행 계획에 반영한다.
@@ -27,6 +28,8 @@ import java.util.Optional;
 @Component
 @RequiredArgsConstructor
 public class JourneyTransitIdEnricher {
+
+    private static final Pattern OUTSIDE_SEOUL_GTFS_BUS_STOP = Pattern.compile("^\\d+:BS_(?!TAGO_SEB)\\S+$");
 
     private final TransferStopResolver busResolver;
     private final SubwayArrivalQueryService subwayArrivalQueryService;
@@ -53,8 +56,9 @@ public class JourneyTransitIdEnricher {
     private JourneyLegDraft resolveBusWait(JourneyLegDraft leg, JourneyLegDraft rideLeg) {
         String stopId = resolveBusStop(leg.sourceStartStopId());
         String alightingStopId = rideLeg == null ? null : resolveBusStop(rideLeg.sourceEndStopId());
+        boolean outsideSeoul = isOutsideSeoulGtfsStop(leg.sourceStartStopId());
         List<JourneyRouteOptionDraft> options = leg.routeOptions().stream()
-                .map(option -> resolveBusOption(option, stopId, alightingStopId))
+                .map(option -> resolveBusOption(option, stopId, alightingStopId, outsideSeoul))
                 .toList();
         return leg.withResolvedStops(stopId, stopId,
                 busWaitEvidence(stopId, options), options);
@@ -87,10 +91,15 @@ public class JourneyTransitIdEnricher {
                 subwayEvidence(stopId, stopId, options), options);
     }
 
+    /**
+     * @param outsideSeoul 승차 정류장이 서울 밖 GTFS 피드다. 그때는 버스 번호로 서울 노선을 찾지 않는다 — 실시간 id 를
+     *                     못 푼 지방 노선(도시코드 없는 TAGO 접두사 등)이 번호만 같은 서울 노선이 된다(충주 103 → 서울 103)
+     */
     private JourneyRouteOptionDraft resolveBusOption(JourneyRouteOptionDraft option,
-                                                      String boardingStopId, String alightingStopId) {
+                                                      String boardingStopId, String alightingStopId,
+                                                      boolean outsideSeoul) {
         Optional<TransferStopResolver.RouteResolution> route =
-                busResolver.resolveRoute(option.sourceRouteId(), option.routeName());
+                busResolver.resolveRoute(option.sourceRouteId(), outsideSeoul ? null : option.routeName());
         if (route.isEmpty()) {
             return option;
         }
@@ -131,6 +140,11 @@ public class JourneyTransitIdEnricher {
                 .filter(station -> destinationNormalizer.compare(name, station.stationName())
                         == DestinationNormalizer.Match.KNOWN_MATCH)
                 .map(SubwayArrivalQueryService.ResolvedStation::stationId);
+    }
+
+    /** OTP GTFS 버스 정류장 id 인데 서울 피드({@code BS_TAGO_SEB})가 아니다. ODsay 숫자 id·모르는 모양은 false. */
+    static boolean isOutsideSeoulGtfsStop(String sourceStopId) {
+        return sourceStopId != null && OUTSIDE_SEOUL_GTFS_BUS_STOP.matcher(sourceStopId).matches();
     }
 
     private String resolveBusStop(String sourceStopId) {

@@ -38,7 +38,7 @@ public class TrackRealtimeIdResolver {
 
     /** @param arsId 서울 정류장 번호(5자리). 서울 밖이면 null */
     public record BusStopIds(String arrivalStopId, String arsId) {
-        static final BusStopIds NONE = new BusStopIds(null, null);
+        public static final BusStopIds NONE = new BusStopIds(null, null);
     }
 
     /** 세 값이 모두 null 이면 실시간 역을 모른다. */

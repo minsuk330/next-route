@@ -4107,6 +4107,33 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `./gradlew test --tests '*OtpTransitPatternAdapterTest' --tests '*TrackSelectionQueryServiceTest' --tests '*TrackJourneyStartServiceTest' --tests '*TrackLegFactoryTest' --tests '*TrackLegChainTest' --tests '*TrackPatternSelectorTest'` → 12/22/12/7/4/11, 실패 0
 - 서비스 수정만 되돌리고 같은 시험 → 34 중 4 실패(새 시험 4건이 버그를 잡음 확인)
+## 2026-10-10 경기·지방 단독 추적 끝까지 지원 (#333, fix/track-regional-support, PR 하나 — 사용자 결정)
+
+### 확정
+- 선택·시작은 이미 전국 GTFS. 깨지던 곳은 시작 뒤 서울 전용 부품이었다(조사 에이전트 표 → 핵심 2건 코드로 직접 확인)
+- 지하철 노선 id: `SubwayLineIdMapper.resolveOdsay` 가 이름 속 숫자만 뽑아 OTP `부산1호선`·`대구3호선`·`광주1호선`·`대전1호선`·`인천1/2호선`, 철도 `[일반]1경부서울부산`·`[고속]1호남…` 을 서울 1001~1003 으로 바꿨다(운영 OTP 노선명 99개 실측). 규칙 = NAMED_LINES → `SubwayRoutePatternAssembler.LINE_IDS` → `(서울|수도권)?N호선` 만 숫자. 이름이 있는데 모르면 empty(원천 id 숫자 폴백도 안 함). 신림선 1094·우이신설경전철 1092 복구. **일반 길찾기 여정에도 적용**
+- 지하철 탑승 확인 게이트 = 서울 노선 id 유무만(`JourneyLeg.hasSubwayRealtimeLine`). 승차역 id 는 보지 않는다 — 서울 노선이어도 역 이름 매칭이 애매하면 비고, 그때도 사용자 열차 선택으로 링이 돈다(처음엔 역 id 까지 요구했다가 `JourneySubwayGuidanceIT` 5·`SubwayBindingConcurrencyIT` 2 실패로 발견)
+- 계약: `SubwayBindingView.realtimeSupported`(신규, 기본 true). false 면 판정 행을 만들지 않고 status 는 의미 없는 PENDING. 지하철 안내(subwayGuidance)는 null
+- 버스 번호 폴백: 승차 정류장이 서울 밖 GTFS(`\d+:BS_` 이면서 `TAGO_SEB` 아님)면 번호로 서울 노선을 찾지 않는다(enricher 에서 routeName=null 로 넘김). ODsay 숫자 id·모르는 모양은 기존대로
+- 대기 ETA: 서울 routeId 가 없고 원천 노선 id 가 GBIS(`^2\d{8}$`)·TAGO(`^[A-Z]{3}…`) 모양일 때만 `RegionalArrivalLookup.nextArrival`(가장 이른 도착). 경기=APPROXIMATE(분 단위), TAGO=GOOD. 할당량·캐시는 재탐색과 공유(`reroute-gg-arrival`/`reroute-tago-arrival`)
+- 선택 화면: TAGO 노선 도착 id 는 도시코드를 알 때만. 근처 묶음 대표(서울)가 서울 DB 에 없으면 형제의 도착 id
+
+### 함정
+- 대기 ETA 지역 판정을 "routeId 없음 + sourceRouteId 있음"으로 넓게 잡으면 서울 DB 에 없는 서울 노선·ODsay 내부 id 까지 GBIS 로 묻는다 / 가드: id 모양으로만 판정
+- `RerouteRemainingPathOtpIT.otpGraphQlErrorIsEmptyWithoutOdsayFallback` 은 **main 에서도 클래스 실행 시 실패**(2026-10-10 2회 연속, 단독 실행은 통과). 처음 한 번 main 에서 통과해 이 PR 회귀로 오인 → 커밋별 bisect 로 기존 무관 확인
+
+### 미결
+- `TransferArrivalEnricher`·`RouteSearchTravelTimeEstimator` 의 번호 폴백(검색 경로)은 그대로. 지방 정류장은 서울 stopId 가 비어 순번 조회까지 안 가 영향 없음
+- 방향 목록의 TAGO 노선·정류장 접두사 불일치(정류장 BSB·노선 다른 접두사)면 도착 API 가 빈 결과 — id 는 그대로 나간다
+- 지방 지하철 실시간 원천 없음(#245)
+
+### 배포
+- api·worker 둘 다(대기 ETA=평가기 worker, 탑승 확인·선택=api). 마이그레이션·플래그 없음
+
+### 검증
+- 일회용 st-pg(:55432, V61→V62 flyway 적용)·st-redis(:56379) + api/auth/oauth/toss env(fcm 제외) → `./gradlew test --continue` 전체 2780 중 실패 13 = 기존 무관 11(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1 — main 에서 같은 실패 확인) + JourneyNotificationSchemaIT 1(간헐, 단독 20/20) + RerouteRemainingPathOtpLiveIT 1(main 에서도 실패, 실 그래프 필요)
+- 변경 관련: SubwayLineIdMapperTest 8/0, SubwayBoardingEvidenceServiceTest 21/0, JourneySubwayGuidanceComposerTest 3/0, JourneyTransitIdEnricherTest 6/0, WaitLegArrivalPredictorTest 16/0, RegionalArrivalLookupTest 6/0, OtpSeoulIdentityResolverTest 20/0, TrackRealtimeIdResolverTest 6/0, TrackSelectionQueryServiceTest 20/0, SubwayBinding*IT 37/0, JourneySubwayGuidanceIT 9/0, SubwayRideScenarioIT 9/0, SubwayTrainSelectionIT 6/0, SubwayRingIT 16/0
+
 
 
 ## 2026-10-10 guidance-stop-info PR-1 (#266 정류장 번호·방면 + 컬럼)

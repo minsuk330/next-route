@@ -2,6 +2,8 @@ package watoo.grd.nextroute.application.subway.service;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 외부 지하철 노선 표기를 서버 내부 {@code line_id}로 변환하는 단일 매핑 소스.
@@ -22,6 +24,12 @@ public final class SubwayLineIdMapper {
             Map.entry("서해선", "1093"),
             Map.entry("GTX-A", "1032")
     );
+
+    /**
+     * 숫자로 읽어도 되는 노선 이름: {@code 2호선}·{@code 서울2호선}·{@code 수도권2호선}. 그 밖에 숫자가 든 이름
+     * ({@code 부산1호선}·{@code 인천2호선}·{@code [일반]1경부서울부산})은 서울 노선이 아니다.
+     */
+    private static final Pattern CAPITAL_NUMBERED = Pattern.compile("^(?:서울|수도권)?(\\d{1,2})호선$");
 
     private SubwayLineIdMapper() {
     }
@@ -45,18 +53,26 @@ public final class SubwayLineIdMapper {
      *
      * <p>노선명을 우선하고, 이름이 없을 때만 1~99 범위의 subwayCode를 보조 근거로 쓴다.
      * 큰 ODSAY ID를 내부 line_id로 오인하지 않는다.
+     *
+     * <p>이름이 있는데 모르는 노선이면 비어 있다 — 이름 속 숫자만 뽑으면 OTP 의 {@code 부산1호선}·{@code 인천2호선}·
+     * 철도 {@code [일반]1경부서울부산} 이 서울 1·2호선이 되어 서울 열차·역이 붙는다. OTP 이름은
+     * {@link SubwayRoutePatternAssembler#LINE_IDS} 명시표로 읽는다(신림선·우이신설경전철 포함).
      */
     public static Optional<String> resolveOdsay(String routeName, String sourceRouteId) {
         String normalizedName = normalize(routeName);
         if (!normalizedName.isEmpty()) {
             String named = NAMED_LINES.get(normalizedName);
+            if (named == null) {
+                named = SubwayRoutePatternAssembler.LINE_IDS.get(normalizedName);
+            }
             if (named != null) {
                 return Optional.of(named);
             }
-            Integer numeric = numericLine(normalizedName);
-            if (numeric != null) {
-                return Optional.of(String.valueOf(1000 + numeric));
+            Matcher numbered = CAPITAL_NUMBERED.matcher(normalizedName);
+            if (numbered.matches()) {
+                return Optional.ofNullable(numericLine(numbered.group(1))).map(n -> String.valueOf(1000 + n));
             }
+            return Optional.empty();
         }
 
         Integer numeric = numericLine(sourceRouteId);
