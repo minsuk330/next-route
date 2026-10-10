@@ -200,14 +200,12 @@ enum JourneyGuidanceTransitionPolicy {
 ## 진행 절차
 승인 → (rev2 반영 완료) → PR 단위 새 세션 구현(이 파일만 읽고 시작 가능) → PR 마다 Opus 리뷰(서브에이전트 model=opus) → /verify. 구현 발견은 `implementation_note.md` append-only.
 
-## 실행 체크리스트
+## 실행 체크리스트 (2026-10-10 진행 결과)
 - [x] 앱 이슈 → minsuk330/jette-app#12
-- [ ] S1 (서버) — 이 PLAN/SUMMARY/HANDOFF 함께 커밋
-- [ ] S2 (서버)
-- [ ] S1·S2 VPS 배포 + 플래그 확인
-- [ ] A2 (앱 엔진)
-- [ ] A4 (앱 Live Activity)
-- [ ] A1 (앱, #12) — S1 배포 후
-- [ ] A3 (앱 열차 선택) — S1 배포 후
+- [x] S1 서버 → next-route#355 (Opus 리뷰 반영: aboard 플래그·보호 축소 금지·명시 노선표, 대기 바로 앞 도보 선택 허용)
+- [x] S2 서버 → next-route#354 (END 출구 보존 IT)
+- [x] A2+A4 앱 → jette-app#13 (A4 는 역 도착 플래그·종료 경로 의존이라 같은 PR 커밋으로)
+- [x] A1+A3 앱 → jette-app#14 (선택 시트 공유라 한 PR)
+- [x] 후속 이슈 등록
+- [ ] 머지 → 서버 S1·S2 VPS 배포(api+worker, 마이그레이션 없음) + 플래그 확인 → 앱 출시
 - [ ] 실기기 시나리오 1~5 기록
-- [ ] 후속 이슈 등록
