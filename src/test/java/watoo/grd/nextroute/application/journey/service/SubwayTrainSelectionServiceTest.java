@@ -217,6 +217,40 @@ class SubwayTrainSelectionServiceTest {
         verify(txService, never()).bind(any(), any());
     }
 
+    @Test
+    @DisplayName("노선도와 같은 원천(수집기 캐시)에 있는 열차는 받는다 — 역별 실시간 호출에 없어도")
+    void cachedTrainIsSelectableWithoutLiveCall() {
+        given(arrivalReader.arrivals("1002", "1002000222", 0)).willReturn(List.of(arrival("2398", "성수", "일반", 40)));
+
+        service.select(USER, JOURNEY, "2398", 1);
+
+        verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
+                "2398", LocalDate.parse("2026-10-07"), "1002", "내선")));
+        verify(arrivalReader, never()).arrivalsByStation(anyString(), anyString(), anyString(), anyInt());
+    }
+
+    @Test
+    @DisplayName("곧 도착이던 열차가 고르는 사이 출발(arvlCd=2)했고 출발 기록은 아직 없어도 받는다(전엔 422)")
+    void justDepartedBeforeDepartureLogIsSelectable() {
+        given(trainLogPort.findDepartures(any(), any(), any(), any(), any(), any())).willReturn(List.of());
+        given(arrivalReader.justDepartedTrainNos("1002", "1002000222", 0)).willReturn(List.of("2388"));
+
+        service.select(USER, JOURNEY, "2388", 1);
+
+        verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
+                "2388", LocalDate.parse("2026-10-07"), "1002", "내선")));
+    }
+
+    @Test
+    @DisplayName("후보는 노선도 원천(캐시)이 먼저, 비었을 때만 역별 실시간 호출")
+    void candidatesPreferCache() {
+        given(arrivalReader.arrivals("1002", "1002000222", 0)).willReturn(List.of(arrival("2398", "성수", "일반", 40)));
+
+        assertThat(service.candidates(USER, JOURNEY)).extracting(SubwayTrainCandidate::trainNo)
+                .containsExactly("2398");
+        verify(arrivalReader, never()).arrivalsByStation(anyString(), anyString(), anyString(), anyInt());
+    }
+
     private static watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort.TrainDeparture departure(
             String trainNo) {
         Instant mid = NOW.minusSeconds(420);
