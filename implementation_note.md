@@ -4481,3 +4481,18 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 재생(7399): 하차 예정 481/481초 채움, push 16건
 ### 배포
 - 마이그레이션 없음. worker(링)+api
+
+## 2026-10-10 지하철 링 재생 하네스·실녹화 회귀 (test/ring-replay-harness)
+
+### 확정
+- `SubwayRingReplayIT`: 녹화한 서울 도착(ALL)·위치 원본 → 운영 어댑터(RestTemplate 만 가짜) → 수집기 행 변환·구간 실측·출발 기록 → 도착 스냅샷 / 위치 추적기 → 링 갱신(5초)·push relay. 시계만 녹화 시각으로 1초씩. 매 초 앱 식(`shownSubwayProgress`)으로 화면 값을 CSV(`build/replay/…`)
+- 환경 변수 없으면 저장소 조각 `src/test/resources/replay/line2-7399-seocho-seolleung`(2호선 외선 7399 서초→선릉, 2026-10-10 22:50~23:06 KST, 6개 역 행만·필드 축소, ~800KB)으로 돌고 회귀 단언: STALE 없음·같은 구간 되감김 없음·하차 예정 항상·역당 push ≤ 6. `REPLAY_DIR` 를 주면 그 녹화로 CSV 만
+- GTFS 구간 시간은 `REPLAY_TYPICAL`(SpyBean `SubwayLineOrder.segmentTimes`·`arrivalGapSeconds`) — 시험 환경은 OTP 패턴 적재(호출당 5초 예산)를 못 한다. 값 출처: 운영 OTP GraphQL(서울2호선 본선 외선 trip 최다 패턴)
+- 도구: `tools/subway-replay/record.py`(15초 녹화, 1·2호선 도착 행 필터), `pick.py`(지난 역 많은 열차), `render.py`(CSV → HTML 비교 그래프)
+### 함정
+- `RealtimeSubwayCollector` 는 worker 프로필 전용 빈 — 하네스가 같은 부품으로 직접 만들고 `toTrain` 만 리플렉션 호출
+- Gradle 은 env 를 test 입력으로 안 봐서 재실행에 `--rerun` 필요
+- 위치 응답을 걸러 넣을 때 `errorMessage.total` 도 행 수로 맞춰야 COMPLETE 로 본다(아니면 추적기가 통째로 버림)
+### 검증
+- 조각 모드 `./gradlew test --tests '*SubwayRingReplayIT'` 1/1 통과(main 1010d7ee = PR-1~4 반영)
+- 전체 녹화 비교(7399): 기존 bb1aba23 STALE 120초·LATE 30초·도착 전 정지 240초+ → PR-4 STALE 0·LATE 0·정지 94초(정차 초과분)·하차 예정 100%·push 16
