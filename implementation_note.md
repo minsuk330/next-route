@@ -4508,3 +4508,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 자정 무렵이라 진행 중 지하철 여정 없음 — 실여정 확인은 다음 탑승
 ### 앱 인계
 - `docs/plan/subway-ring-typical-progress/HANDOFF.md` 갱신: 앱 main `e9d140a` 는 etaSource TYPICAL 시각 숨김·정차/늦음 문구·STALE 문구가 이미 맞다. 남은 것 = `alightingEtaSource` 디코드·완곡 표기, holdReason 을 "멈춤"으로 해석하는 코드 점검
+
+## 2026-10-11 지하철 도착 행 신선도 필터 (fix/subway-arrivals-drop-stale-rows)
+
+### 확정
+- 증상: 여정 210(신분당선 열차 18, 00:23 선택) 링이 승차역 0·STALE 에서 안 움직임. 원인 = 그 열차는 00:09 종착(신사)으로 운행 끝 — 원천이 막차 뒤에도 노선 마지막 행(00:06 "강남 도착")을 계속 내보냈고, 후보 목록이 그것을 "곧 도착"으로 보여 줬다. 링은 원천 240초 초과라 STALE 로 정상 판정
+- `SubwayRealtimeArrivalReader` 가 `recptnDt` 240초(`MAX_ROW_AGE`, 링 stale-source-max-age 와 같음) 넘은 행을 `select`(후보·역 도착 노선도·노선별 도착·탑승 시각 추정)와 `justDepartedTrainNos` 에서 버린다. 시각 없거나 못 읽으면 남김
+- 기존 `hasPassed` 는 출발(2)·남은 초 음수만 걸러, 남은 초 0 인 도착(1)·진입(0) 행은 몇 분 지나도 남았다
+### 검증
+- `SubwayRealtimeArrivalReaderTest` 12/12(신규 3: 막차 뒤 19분 전 도착 행 제거, 200초 지연 행 유지, 막 떠난 열차 낡은 행 제거)
+- 전체 2828 중 12 실패, 전부 기존 무관
+### 배포
+- 마이그레이션 없음. api(후보·노선도) + worker
