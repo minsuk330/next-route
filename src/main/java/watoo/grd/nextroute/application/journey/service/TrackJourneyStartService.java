@@ -142,6 +142,11 @@ public class TrackJourneyStartService {
         Trip trip = pickTrip(selection.pattern(), deadline)
                 .orElseThrow(() -> new BusinessException(JourneyErrorCode.TRACK_SCHEDULE_UNAVAILABLE));
         List<TransitStopTime> times = source.port().tripStopTimes(trip.tripId(), trip.serviceDate(), deadline);
+        if (times.size() == detail.stops().size()
+                && (!times.get(selection.boardIndex()).pickup() || !times.get(selection.alightIndex()).dropoff())) {
+            // 승차 전용 정류장에서 내리거나 하차 전용 정류장에서 타는 선택 — TAGO·시외버스에 흔하다.
+            throw new BusinessException(JourneyErrorCode.TRACK_STOPS_INVALID);
+        }
         try {
             return TrackLegFactory.build(detail, selection.boardIndex(), selection.alightIndex(),
                     times, trip.tripId(), trip.serviceDate(), source.graphVersion());
