@@ -10,8 +10,13 @@ import java.time.Instant;
  *
  * @param arrivalSeconds 지금 기준 남은 초. 원천이 미산출이면 null
  * @param trainType      원천 열차 종류 원문(일반·급행 등). 없으면 null
- * @param observedAt     원천 수신 시각
+ * @param observedAt     원천 수신 시각. 떠난 열차는 출발 시각
+ * @param kind           곧 올 열차인지, 이 역을 이미 떠난 열차인지. 떠난 열차는 {@code arrivalSeconds} 가 null 이고
+ *                       {@code destination}·{@code trainType} 도 원천에 없으면 null 이다(위치 원천은 행선지를 주지 않는다)
  */
 public record SubwayTrainCandidate(String trainNo, String destination, boolean express, String trainType,
-                                   Integer arrivalSeconds, Instant observedAt) {
+                                   Integer arrivalSeconds, Instant observedAt, Kind kind) {
+
+    /** 앱이 "이 열차 탈게요"/"이미 탔어요"를 가르는 값. */
+    public enum Kind { UPCOMING, DEPARTED }
 }

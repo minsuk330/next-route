@@ -32,7 +32,11 @@ public class SubwayTrainSelectionTxService {
     private final Clock clock;
 
     /** 고른 열차. 식별 4칸은 함께 있어야 한다(V44). */
-    public record ChosenTrain(String trainNo, LocalDate serviceDate, String lineId, String direction) {
+    /** @param aboard 이미 탄 열차(떠난 열차·탑승 중 재선택). 링이 다음 역부터 센다 */
+    public record ChosenTrain(String trainNo, LocalDate serviceDate, String lineId, String direction, boolean aboard) {
+        public ChosenTrain(String trainNo, LocalDate serviceDate, String lineId, String direction) {
+            this(trainNo, serviceDate, lineId, direction, false);
+        }
     }
 
     @Transactional
@@ -50,11 +54,16 @@ public class SubwayTrainSelectionTxService {
                 "{}", LocalDateTime.now(clock));
 
         if (binding == null) {
-            binding = bindingRepository.saveAndFlush(SubwayLegBinding.selected(ride.getId(), ride.getJourneyId(),
+            binding = SubwayLegBinding.selected(ride.getId(), ride.getJourneyId(),
                     ride.getRouteRevision(), ride.getLegIndex(), train.trainNo(), train.serviceDate(),
-                    train.lineId(), train.direction()));
+                    train.lineId(), train.direction());
+            if (train.aboard()) {
+                binding.markBoardedDetected(now);
+            }
+            binding = bindingRepository.saveAndFlush(binding);
         } else {
-            binding.selectByUser(train.trainNo(), train.serviceDate(), train.lineId(), train.direction());
+            binding.selectByUser(train.trainNo(), train.serviceDate(), train.lineId(), train.direction(),
+                    train.aboard() ? now : null);
         }
         return SubwayBindingView.from(binding);
     }

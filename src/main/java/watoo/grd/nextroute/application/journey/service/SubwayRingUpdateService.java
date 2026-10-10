@@ -18,6 +18,8 @@ import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
 import watoo.grd.nextroute.application.subway.service.SubwayLineOrder;
 
 import java.time.Clock;
+import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
+import watoo.grd.nextroute.application.journey.config.JourneyNavigationProperties;
 import java.time.Instant;
 import java.util.List;
 
@@ -59,6 +61,8 @@ public class SubwayRingUpdateService {
     private final Clock clock;
     private final RerouteRefreshSignal rerouteRefreshSignal;
     private final SubwayLineOrder lineOrder;
+    private final JourneySessionRepository sessionRepository;
+    private final JourneyNavigationProperties navigationProperties;
 
     /** @return 훑은 건수 */
     public int runOnce() {
@@ -114,6 +118,7 @@ public class SubwayRingUpdateService {
         state = state.withGuidanceVersion(guidanceVersionOf(previous, state, now));
         ringPort.save(state);
         metrics.recordUpdated(state, observation, binding.getStatus());
+        extendProtection(binding, ride, state);
         // 고정 열차가 역을 하나 지났다 — 재탐색 보드를 바로 다시 찾게 한다(#264 PR-2).
         if (state.advancedFrom(previous)) {
             rerouteRefreshSignal.requestNow(binding.getJourneyId());
@@ -122,6 +127,25 @@ public class SubwayRingUpdateService {
         // 원격 갱신은 링 저장과 규칙이 다르다 — 링은 latest-wins 로 덮어써도 되지만 push 는
         // 화면이 실제로 바뀔 때만, 그리고 최신인 동안만 재시도한다. 트랜잭션도 따로 연다.
         pushEnqueueService.enqueueIfChanged(previous, state, ride);
+    }
+
+    /**
+     * 하차 도착 예정 + 여유로 오프라인 보호를 민다(상한 = 탑승 시작 + cap, {@link SubwayOfflineProtectionPolicy} 와 같은 식).
+     * 고르면 즉시 탑승이라 계획 소요시간 기준 보호가 승강장에서 기다린 만큼 모자란다. 실패해도 링 갱신은 계속한다.
+     */
+    private void extendProtection(SubwayLegBinding binding, JourneyLeg ride, SubwayRingState state) {
+        Instant alightingAt = state.estimatedAlightingAt();
+        if (alightingAt == null || ride.getActivatedAt() == null) {
+            return;
+        }
+        Instant until = alightingAt.plus(navigationProperties.subwayProtectionBuffer());
+        Instant cap = ride.getActivatedAt().plus(navigationProperties.subwayProtectionCap());
+        try {
+            sessionRepository.extendSubwayProtection(binding.getJourneyId(), binding.getRouteRevision(),
+                    binding.getLegIndex(), until.isBefore(cap) ? until : cap);
+        } catch (RuntimeException e) {
+            log.warn("[SubwayRing] 오프라인 보호 연장 실패 — journeyId={}: {}", binding.getJourneyId(), e.getMessage());
+        }
     }
 
     /**
