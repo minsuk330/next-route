@@ -4354,3 +4354,17 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 미결
 - 수원 상행 병점행 제외 실사례 미확인(18:17~18:21 남쪽발 병점행 없음). 확인: `curl -s https://api.refit-100.site/api/subway/stations/1001080155/arrivals | jq '.directions[] | select(.direction=="상행") | .trains[] | select(.destinationName=="병점")'` 가 비면 OK
+
+## 2026-10-10 배포 기록 — #328 기기 익명 계정 (api)
+
+### 배포
+- 15:29 KST api 교체 `26fc4554` → 이미지 `nextroute:20261010-152947-26fc4554`, 이전 `20261010-012003-7c336de8`(`./deploy.sh rollback-api`). worker 는 바꾸지 않음(`927af672`)
+- jar 백업 `app.jar.bak-20261010-pre-device-auth`. 배포 전 `auth_identity` 덤프 `/root/backups/auth_identity-20261010-pre-v62.sql`(TOSS 93·APPLE 1·KAKAO 1)
+- V62 는 jar 안에 포함(마이그레이션 62개) → api 부팅 시 Flyway 가 적용(`Successfully applied 1 migration ... now at version v62`, 0.024s). 별도 수동 SQL 없음
+- 롤백 시 주의: 이전 이미지는 V62 를 모른다 — Flyway 기본값(`*:future` 무시)이라 부팅은 되고, CHECK 에 DEVICE 가 남아 있어도 구 코드 동작엔 영향 없음
+
+### 검증
+- 운영 DB: `auth_identity_provider_check` 에 DEVICE, `uq_auth_identity_single_app_provider`·`uq_auth_identity_user_provider` 조건에 DEVICE 제외 확인
+- 공개 도메인 실호출: `/api/auth/device` 발급(provider=DEVICE) → `/api/me` `identities=[]`·이름/이메일 null → `/api/route/fav` 200 → 같은 비밀값 재진입 같은 userId → `/api/auth/reissue` 200 → 형식 위반 400 `INVALID_DEVICE_SECRET` → `DELETE /api/auth/me` 204 → 옛 토큰 401
+- 시험 계정(userId 96)은 탈퇴로 정리됨(auth_identity 0행, users.deleted_at 채움). 배포 후 api ERROR 0
+- 남은 것: 앱 출시(`docs/plan/device-anonymous-auth/APP-API-CHANGES.md`)
