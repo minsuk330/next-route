@@ -4310,3 +4310,4 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 단위: `--tests '*SubwayStationAdjacencyTest' --tests '*SubwayTrainTransitionTrackerTest'` → 24/0
 - 컨텍스트 IT(st-pg/st-redis): `SubwayRideScenarioIT`·`NextrouteApplicationTests`·`SubwayRingIT` → 26/0
+- 전체 `./gradlew test`(3 브랜치 합본, st-pg/st-redis) → 2838 중 실패 12. 기존 무관(main 동일): JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1. JourneyNotificationSchemaIT 1 = 'Unable to rollback against JDBC Connection' 플래키, 단독 재실행 20/0
