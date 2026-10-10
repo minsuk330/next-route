@@ -43,8 +43,10 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class WaitBusArrivalPredictor implements CurrentLegArrivalPredictor {
 
-    /** TAGO 노선 id(영문 3글자 접두사). 그 밖의 서울 아닌 id 는 경기 GBIS 다. {@code BusArrivalQueryService} 와 같은 규칙. */
+    /** TAGO 노선 id(영문 3글자 접두사). {@code BusArrivalQueryService} 와 같은 규칙. */
     private static final Pattern TAGO_ID = Pattern.compile("^[A-Z]{3}[\\dA-Z-]+$");
+    /** 경기 GBIS 노선 id(2로 시작하는 9자리). 서울은 1로 시작해 겹치지 않는다({@code TransferStopResolver} 와 같은 규칙). */
+    private static final Pattern GBIS_ROUTE_ID = Pattern.compile("^2\\d{8}$");
 
     private final PredictTransferUseCase predictTransferUseCase;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
@@ -103,15 +105,27 @@ public class WaitBusArrivalPredictor implements CurrentLegArrivalPredictor {
         return realtime && exact ? Quality.GOOD : Quality.APPROXIMATE;
     }
 
-    /** 서울 노선으로 풀리지 않았고 원천 노선·정류장 id 가 있다 — 경기·TAGO. */
+    /**
+     * 서울 노선으로 풀리지 않았고 원천 노선 id 가 경기·TAGO 모양이다. 모양을 모르는 id(서울 DB 에 없는 서울 노선 등)는
+     * 지역 API 로 묻지 않는다 — 엉뚱한 원천에 물어 할당량만 쓴다.
+     */
     private boolean isRegional(JourneyLeg leg, JourneyLegRouteOption option) {
         return (option.getRouteId() == null || option.getRouteId().isBlank())
-                && hasText(option.getSourceRouteId()) && hasText(leg.getSourceStartStopId());
+                && regionalProvider(option.getSourceRouteId()) != null && hasText(leg.getSourceStartStopId());
+    }
+
+    private static RegionalBusProvider regionalProvider(String sourceRouteId) {
+        if (sourceRouteId == null) {
+            return null;
+        }
+        if (GBIS_ROUTE_ID.matcher(sourceRouteId).matches()) {
+            return RegionalBusProvider.GG;
+        }
+        return TAGO_ID.matcher(sourceRouteId).matches() ? RegionalBusProvider.TAGO : null;
     }
 
     private CurrentLegArrival predictRegional(JourneyLeg leg, JourneyLegRouteOption option, Instant now) {
-        RegionalBusProvider provider = TAGO_ID.matcher(option.getSourceRouteId()).matches()
-                ? RegionalBusProvider.TAGO : RegionalBusProvider.GG;
+        RegionalBusProvider provider = regionalProvider(option.getSourceRouteId());
         RegionalArrivalLookup.Lookup lookup = regionalArrivalLookup.nextArrival(
                 provider, option.getSourceRouteId(), leg.getSourceStartStopId());
         if (lookup.at() == null) {

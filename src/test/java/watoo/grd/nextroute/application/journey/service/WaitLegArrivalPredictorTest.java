@@ -31,6 +31,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @DisplayName("기다리는 단계 ETA 는 차량이 언제 오는지로 구한다")
 class WaitLegArrivalPredictorTest {
@@ -170,6 +171,16 @@ class WaitLegArrivalPredictorTest {
                     .willReturn(new RegionalArrivalLookup.Lookup(null, "no-realtime"));
 
             assertThat(busPredictor.predict(leg, null, NOW).isUnknown()).isTrue();
+        }
+
+        @Test
+        @DisplayName("모양을 모르는 원천 노선 id(서울 DB 에 없는 서울 노선 등)는 지역 API 로 묻지 않는다")
+        void unknownShapeIsNotRegional() {
+            JourneyLeg leg = regionalLeg("ST-A");
+            givenOption(regionalOption("100100118"));
+
+            assertThat(busPredictor.predict(leg, null, NOW).isUnknown()).isTrue();
+            verifyNoInteractions(regionalArrivalLookup);
         }
 
         private JourneyLeg regionalLeg(String sourceStopId) {
