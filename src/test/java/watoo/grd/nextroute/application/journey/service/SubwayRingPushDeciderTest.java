@@ -10,6 +10,7 @@ import watoo.grd.nextroute.application.journey.dto.SubwayRingHoldReason;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingPushReason;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingApproach;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 
 import java.math.BigDecimal;
@@ -165,6 +166,20 @@ class SubwayRingPushDeciderTest {
                     ring().withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, "역Z"))).isPresent();
             assertThat(decider.decide(stopped, ring().withHold(SubwayRingHoldReason.LATE, null))).isPresent();
             assertThat(decider.decide(stopped, ring())).isPresent();
+        }
+
+        @Test
+        @DisplayName("다가오는 열차가 역을 지나면 보낸다(#368). 같은 역 반복은 조용하다")
+        void approachChangeSendsAnchor() {
+            SubwayRingState two = ring().withApproach(
+                    new SubwayRingApproach("양재시민의숲", 2, java.util.List.of("양재시민의숲", "양재")));
+            SubwayRingState one = ring().withApproach(new SubwayRingApproach("양재", 1, java.util.List.of("양재")));
+
+            assertThat(decider.decide(ring(), two).orElseThrow().reason()).isEqualTo(SubwayRingPushReason.ANCHOR);
+            assertThat(decider.decide(two, one)).isPresent();
+            assertThat(decider.decide(one, ring().withApproach(
+                    new SubwayRingApproach("양재", 1, java.util.List.of("양재"))))).isEmpty();
+            assertThat(decider.decide(one, ring())).as("승차역 도착으로 비면 보낸다").isPresent();
         }
 
         @Test

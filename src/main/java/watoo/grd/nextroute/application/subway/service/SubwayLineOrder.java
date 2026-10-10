@@ -102,6 +102,17 @@ public class SubwayLineOrder {
         return Optional.ofNullable(times);
     }
 
+    /**
+     * 이 방향으로 달릴 때 {@code stationId} 앞쪽(열차가 오는 쪽) 최대 {@code n} 역, 먼 역 → 가까운 역(#368 다가오는 열차).
+     * 역 도착 노선도(#317)와 같은 {@link StationsAheadCalculator#behind} 다 — 갈래가 갈리는 합류점 너머는 자른다. 모르면 빈 목록.
+     */
+    public List<StationsAheadCalculator.Stop> behind(String lineId, String direction, String stationId, int n) {
+        if (stationId == null || n <= 0) {
+            return List.of();
+        }
+        return StationsAheadCalculator.behind(patterns(lineId, direction), stationId, n).stops();
+    }
+
     /** @see #segmentTimes */
     public record SegmentTimes(Integer dwellSeconds, int runSeconds) {
     }

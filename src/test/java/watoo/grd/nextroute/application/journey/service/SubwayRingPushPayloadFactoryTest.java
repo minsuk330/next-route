@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingHoldReason;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingApproach;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 
 import java.math.BigDecimal;
@@ -142,6 +143,22 @@ class SubwayRingPushPayloadFactoryTest {
         assertThat(stopped.path("holdStationName").asText()).isEqualTo("신사");
         assertThat(moving.path("holdReason").isNull()).isTrue();
         assertThat(moving.path("holdStationName").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("다가오는 열차 위치가 props 에 스냅샷과 같은 이름으로 실린다(#368). 없으면 null, 열차 번호는 없다")
+    void approachInProps() throws Exception {
+        JsonNode coming = propsOf(factory.contentState(JOURNEY_ID, "신분당선",
+                ring().withApproach(new SubwayRingApproach("양재", 2, java.util.List.of("양재시민의숲", "양재"))), T0));
+        JsonNode none = propsOf(factory.contentState(JOURNEY_ID, "신분당선", ring(), T0));
+
+        assertThat(coming.path("approachingStationName").asText()).isEqualTo("양재");
+        assertThat(coming.path("stationsUntilBoarding").asInt()).isEqualTo(2);
+        assertThat(coming.path("approachStations")).extracting(JsonNode::asText).containsExactly("양재시민의숲", "양재");
+        assertThat(coming.has("trainNo")).isFalse();
+        assertThat(none.path("approachingStationName").isNull()).isTrue();
+        assertThat(none.path("stationsUntilBoarding").isNull()).isTrue();
+        assertThat(none.path("approachStations").isNull()).isTrue();
     }
 
     /**

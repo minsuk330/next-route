@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingApproach;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 
 import java.time.Instant;
@@ -116,6 +117,15 @@ public class SubwayRingPushPayloadFactory {
         // 도착 예정 출처(LIVE·MEASURED·TYPICAL). 스냅샷 subwayGuidance 와 같은 이름 — TYPICAL 이면 앱이 시각을 숨긴다.
         props.put("etaSource", ring.etaSource() == null ? null : ring.etaSource().name());
         props.put("alightingEtaSource", ring.alightingEtaSource() == null ? null : ring.alightingEtaSource().name());
+        // 승차역에 오는 중인 열차 위치(#368). 대기 구간 밖이거나 모르면 셋 다 null. 열차 번호는 싣지 않는다(잠금화면).
+        SubwayRingApproach approach = ring.approach();
+        props.put("approachingStationName", approach == null ? null : approach.stationName());
+        props.put("stationsUntilBoarding", approach == null ? null : approach.stationsUntilBoarding());
+        if (approach == null) {
+            props.putNull("approachStations");
+        } else {
+            approach.stations().forEach(props.putArray("approachStations")::add);
+        }
         props.put("updatedAt", updatedAt.toEpochMilli());
         return props;
     }

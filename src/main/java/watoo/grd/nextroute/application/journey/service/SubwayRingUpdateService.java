@@ -62,6 +62,7 @@ public class SubwayRingUpdateService {
     private final RerouteRefreshSignal rerouteRefreshSignal;
     private final SubwayLineOrder lineOrder;
     private final SubwayRingAlightingEstimator alightingEstimator;
+    private final SubwayRingApproachReader approachReader;
     private final JourneySessionRepository sessionRepository;
     private final JourneyNavigationProperties navigationProperties;
 
@@ -121,6 +122,8 @@ public class SubwayRingUpdateService {
         }
         SubwayRingAlightingEstimator.Estimate alighting = alightingEstimator.estimate(state, previous, chain, train, now);
         state = state.withEstimatedAlightingAt(alighting.at(), alighting.source());
+        // 승차역 전 열차의 현재 역(#368). 버전·push 판단보다 먼저 붙여야 역을 지날 때 화면 바뀜으로 잡힌다.
+        state = state.withApproach(approachReader.read(state, previous, chain, train, now));
         state = state.withGuidanceVersion(guidanceVersionOf(previous, state, now));
         ringPort.save(state);
         metrics.recordUpdated(state, observation, binding.getStatus());
