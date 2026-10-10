@@ -63,6 +63,8 @@ query TripStopTimes($id: String!, $date: String!) {
       stop { gtfsId }
       scheduledArrival
       scheduledDeparture
+      pickupType
+      dropoffType
     }
   }
 }

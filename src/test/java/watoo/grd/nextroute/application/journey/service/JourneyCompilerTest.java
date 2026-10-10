@@ -425,4 +425,65 @@ class JourneyCompilerTest {
 
         assertThat(input).isEqualTo(copy);
     }
+
+    @Nested
+    @DisplayName("#266 지하철 방면(다음 역)")
+    class DirectionName {
+
+        @Test
+        @DisplayName("승차역 다음 역 이름이 대기·탑승 단계 둘 다에 실린다")
+        void nextStationOnWaitAndRide() {
+            JourneyPlan plan = compiler.compile(path(
+                    subway(15).names("강남", "서초")
+                            .subwayStations(222, 224)
+                            .stations(station(0, "강남"), station(1, "교대"), station(2, "서초"))
+                            .lanes(subwayLane("2호선", 2)).build()));
+
+            assertThat(plan.legs()).extracting(leg -> leg.guidance().directionName())
+                    .containsExactly("교대", "교대");
+        }
+
+        @Test
+        @DisplayName("#266 PR-4 탑승 단계에 하차 직전 역 이름(빠른 하차 방향용) — 대기 단계는 null")
+        void alightPrevName() {
+            JourneyPlan plan = compiler.compile(path(
+                    subway(15).names("강남", "서초")
+                            .subwayStations(222, 224)
+                            .stations(station(0, "강남"), station(1, "교대(2호선)"), station(2, "서초"))
+                            .lanes(subwayLane("2호선", 2)).build()));
+
+            assertThat(plan.legs()).extracting(JourneyLegDraft::alightPrevName).containsExactly(null, "교대");
+        }
+
+        @Test
+        @DisplayName("정차 목록이 승·하차 두 점뿐이면 null — OTP 폴백이라 두 번째 점이 하차역일 수 있다")
+        void twoPointStopListIsUnknown() {
+            JourneyPlan plan = compiler.compile(path(
+                    subway(3).names("강남", "교대")
+                            .subwayStations(222, 223)
+                            .stations(station(0, "강남"), station(1, "교대"))
+                            .lanes(subwayLane("2호선", 2)).build()));
+
+            assertThat(plan.legs()).extracting(leg -> leg.guidance().directionName())
+                    .containsOnlyNulls();
+        }
+
+        @Test
+        @DisplayName("버스·걷기에는 방면이 없다")
+        void busHasNoDirection() {
+            JourneyPlan plan = compiler.compile(path(
+                    walk(3).names("출발", "정류장A").distance(100.0).build(),
+                    bus(10).names("정류장A", "정류장B").busStops("ST-A", "ST-B")
+                            .stations(station(0, "정류장A"), station(1, "중간"), station(2, "정류장B"))
+                            .lanes(busLane("721", "BL-721")).build()));
+
+            assertThat(plan.legs()).extracting(leg -> leg.guidance().directionName())
+                    .containsOnlyNulls();
+        }
+
+        private watoo.grd.nextroute.application.route.dto.StationResult station(int index, String name) {
+            return new watoo.grd.nextroute.application.route.dto.StationResult(index, null, name, 127.0, 37.5);
+        }
+    }
+
 }

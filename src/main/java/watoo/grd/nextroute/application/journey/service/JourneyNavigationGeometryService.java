@@ -153,7 +153,8 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                         stop.getStopId(),
                         stop.getStopName(),
                         stop.getLongitude(),
-                        stop.getLatitude()))
+                        stop.getLatitude(),
+                        stop.getArsId()))
                 .toList();
 
         // 선은 검색 결과의 shapes.txt 형상이다 — "지도에서 보기"가 그리는 선과 같다. 진행 판정용

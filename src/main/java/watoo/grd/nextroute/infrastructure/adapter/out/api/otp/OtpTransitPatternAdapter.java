@@ -212,7 +212,9 @@ public class OtpTransitPatternAdapter implements TransitPatternPort {
         List<TransitStopTime> times = new ArrayList<>();
         for (JsonNode st : root.path("data").path("trip").path("stoptimesForDate")) {
             times.add(new TransitStopTime(text(st.path("stop").path("gtfsId")),
-                    st.path("scheduledArrival").asInt(), st.path("scheduledDeparture").asInt()));
+                    st.path("scheduledArrival").asInt(), st.path("scheduledDeparture").asInt(),
+                    !"NONE".equals(st.path("pickupType").asText()),
+                    !"NONE".equals(st.path("dropoffType").asText())));
         }
         return times;
     }

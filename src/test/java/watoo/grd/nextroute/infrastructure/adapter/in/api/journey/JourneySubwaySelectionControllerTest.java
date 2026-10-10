@@ -14,6 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.application.journey.dto.SubwayBindingView;
+import watoo.grd.nextroute.application.journey.dto.SubwayTrackabilityView;
 import watoo.grd.nextroute.application.journey.dto.SubwayTrainCandidate;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
 import watoo.grd.nextroute.application.journey.port.in.SubwayBindingUseCase;
@@ -65,20 +66,51 @@ class JourneySubwaySelectionControllerTest {
     @Test
     @DisplayName("200 — 후보에 열차번호·행선지·급행")
     void candidates() throws Exception {
-        given(selectionService.candidates(1L, 7L)).willReturn(List.of(new SubwayTrainCandidate(
-                "2390", "성수", false, "일반", 90, Instant.parse("2026-10-07T03:00:00Z"))));
+        given(selectionService.candidates(1L, 7L, null)).willReturn(List.of(
+                new SubwayTrainCandidate("2390", "성수", false, "일반", 90, Instant.parse("2026-10-07T03:00:00Z"),
+                        SubwayTrainCandidate.Kind.UPCOMING),
+                new SubwayTrainCandidate("2388", null, false, null, null, Instant.parse("2026-10-07T02:58:00Z"),
+                        SubwayTrainCandidate.Kind.DEPARTED)));
 
         mockMvc.perform(get("/api/journeys/7/subway/train-candidates").with(authentication(user())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].trainNo").value("2390"))
                 .andExpect(jsonPath("$[0].destination").value("성수"))
-                .andExpect(jsonPath("$[0].express").value(false));
+                .andExpect(jsonPath("$[0].express").value(false))
+                .andExpect(jsonPath("$[0].kind").value("UPCOMING"))
+                .andExpect(jsonPath("$[1].kind").value("DEPARTED"))
+                .andExpect(jsonPath("$[1].arrivalSeconds").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("200 — legIndex 쿼리가 대상 탑승 구간으로 전달된다(지하 환승)")
+    void candidatesForLeg() throws Exception {
+        given(selectionService.candidates(1L, 7L, 5)).willReturn(List.of());
+
+        mockMvc.perform(get("/api/journeys/7/subway/train-candidates").param("legIndex", "5")
+                        .with(authentication(user())))
+                .andExpect(status().isOk());
+        org.mockito.Mockito.verify(selectionService).candidates(1L, 7L, 5);
+    }
+
+    @Test
+    @DisplayName("200 — 추적 가능 여부와 이유")
+    void trackability() throws Exception {
+        given(selectionService.trackability(1L, 7L, 3)).willReturn(
+                SubwayTrackabilityView.no(3, SubwayTrackabilityView.Reason.NO_REALTIME_LINE));
+
+        mockMvc.perform(get("/api/journeys/7/subway/trackability").param("legIndex", "3")
+                        .with(authentication(user())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.legIndex").value(3))
+                .andExpect(jsonPath("$.trackable").value(false))
+                .andExpect(jsonPath("$.reason").value("NO_REALTIME_LINE"));
     }
 
     @Test
     @DisplayName("200 — 선택 결과 상태")
     void select() throws Exception {
-        given(selectionService.select(1L, 7L, "2390", 1))
+        given(selectionService.select(1L, 7L, "2390", 1, null))
                 .willReturn(new SubwayBindingView(SubwayBindingStatus.CONFIRMED, 1, 1));
 
         mockMvc.perform(post("/api/journeys/7/subway/train-selection").contentType(MediaType.APPLICATION_JSON)
@@ -90,7 +122,7 @@ class JourneySubwaySelectionControllerTest {
     @Test
     @DisplayName("오류 코드: 404 꺼짐 / 409 대기 아님 / 422 후보 밖 / 409 개정본 / 400 본문")
     void errors() throws Exception {
-        given(selectionService.select(eq(1L), eq(7L), anyString(), anyInt()))
+        given(selectionService.select(eq(1L), eq(7L), anyString(), anyInt(), org.mockito.ArgumentMatchers.isNull()))
                 .willThrow(new BusinessException(CommonErrorCode.NOT_FOUND))
                 .willThrow(new BusinessException(JourneyErrorCode.NOT_WAITING_FOR_SUBWAY))
                 .willThrow(new BusinessException(JourneyErrorCode.TRAIN_NOT_IN_CANDIDATES))
@@ -103,6 +135,18 @@ class JourneySubwaySelectionControllerTest {
         perform().andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("STALE_ROUTE_REVISION"));
         mockMvc.perform(post("/api/journeys/7/subway/train-selection").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"routeRevision\":1}").with(authentication(user()))).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("200 — 본문 legIndex 가 대상 탑승 구간으로 전달된다")
+    void selectForLeg() throws Exception {
+        given(selectionService.select(1L, 7L, "2390", 1, 5))
+                .willReturn(new SubwayBindingView(SubwayBindingStatus.CONFIRMED, 5, 1));
+
+        mockMvc.perform(post("/api/journeys/7/subway/train-selection").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"trainNo\":\"2390\",\"routeRevision\":1,\"legIndex\":5}")
+                        .with(authentication(user())))
+                .andExpect(status().isOk());
     }
 
     private org.springframework.test.web.servlet.ResultActions perform() throws Exception {

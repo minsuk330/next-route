@@ -45,6 +45,11 @@ public class SubwayRingPushPayloadFactory {
     static final String FIELD_NAME = "name";
     static final String FIELD_PROPS = "props";
 
+    /** {@link #staleDateSeconds} 는 발송 어댑터가 정적으로 부른다 — 읽기 전용이라 공유해도 된다. */
+    private static final ObjectMapper STALE_READER = new ObjectMapper();
+    /** 하차 몇 ms 전에 stale 로 다시 그릴지(앱 "곧 도착" 문턱 1분과 같다). */
+    private static final long ALIGHTING_STALE_LEAD_MILLIS = 60_000L;
+
     private final ObjectMapper objectMapper;
 
     /**
@@ -55,10 +60,19 @@ public class SubwayRingPushPayloadFactory {
      */
     public ObjectNode contentState(Long journeyId, String lineName, SubwayRingState ring,
                                    Instant updatedAt) {
+        return contentState(journeyId, lineName, null, ring, updatedAt);
+    }
+
+    /**
+     * @param alightingExitNo 하차역에서 나갈 출구(#266). 없으면 키를 넣지 않는다 — 앱이 직접 그린 화면과 같은 문구가
+     *                        나가야 백그라운드에서 출구 줄이 깜빡이지 않는다
+     */
+    public ObjectNode contentState(Long journeyId, String lineName, String alightingExitNo, SubwayRingState ring,
+                                   Instant updatedAt) {
         ObjectNode envelope = objectMapper.createObjectNode();
         envelope.put(FIELD_NAME, ACTIVITY_NAME);
         // props 는 객체가 아니라 문자열이다. 객체로 넣으면 앱이 못 읽는다.
-        envelope.put(FIELD_PROPS, toJson(props(journeyId, lineName, ring, updatedAt)));
+        envelope.put(FIELD_PROPS, toJson(props(journeyId, lineName, alightingExitNo, ring, updatedAt)));
         return envelope;
     }
 
@@ -75,7 +89,7 @@ public class SubwayRingPushPayloadFactory {
      * 종료 프레임과 진행 프레임이 다른 모양으로 나간다.
      */
 
-    private ObjectNode props(Long journeyId, String lineName, SubwayRingState ring,
+    private ObjectNode props(Long journeyId, String lineName, String alightingExitNo, SubwayRingState ring,
                              Instant updatedAt) {
         ObjectNode props = objectMapper.createObjectNode();
         props.put("journeyId", journeyId);
@@ -83,6 +97,9 @@ public class SubwayRingPushPayloadFactory {
         props.put("routeName", lineName);
         props.put("nextStationName", ring.nextStationName());
         props.put("alightingStationName", ring.alightingStationName());
+        if (alightingExitNo != null && !alightingExitNo.isBlank()) {
+            props.put("alightingExitNo", alightingExitNo);
+        }
         props.put("remainingStations", ring.remainingStations());
         props.put("segmentProgress", ring.segmentProgress());
         props.put("progressBaseAt", millis(ring.progressBaseAt()));
@@ -90,9 +107,58 @@ public class SubwayRingPushPayloadFactory {
         // 없으면 null 이다. 앱은 그때 보간을 멈춘다 — 만들어 내면 죽은 화면이 살아 있는 척한다.
         props.put("estimatedNextStationAt", millis(ring.estimatedNextStationAt()));
         props.put("progressValidUntil", millis(ring.progressValidUntil()));
+        // 하차역 도착 예정(#310). 없으면 null — 앱이 자체 추정으로 돌아간다.
+        props.put("estimatedAlightingAt", millis(ring.estimatedAlightingAt()));
         props.put("quality", ring.quality().name());
         props.put("updatedAt", updatedAt.toEpochMilli());
         return props;
+    }
+
+    /**
+     * 봉투의 {@code props} 로 APNs {@code aps.stale-date}(epoch <b>초</b>)를 만든다(#309·#310). 이 시각에 시스템이 화면을
+     * 다시 그려 위젯이 시스템 타이머 링을 멈춘 링으로 바꾼다.
+     *
+     * <p><b>앱 규칙과 같다</b>(nextroute-mobile {@code JourneyGuidanceLiveActivity.swift} 의 {@code redrawAt}). 앱이 직접
+     * 갱신한 화면과 push 로 갱신된 화면이 같은 순간에 다시 그려져야 한다.
+     * <ul>
+     *   <li>후보 셋: 다음 역 도착 예정(링이 상한에서 멈추게 — 없으면 끝까지 차서 "도착"처럼 보였다가 되돌아간다),
+     *       {@code progressValidUntil}, 하차 예정 − 60초("곧 도착")</li>
+     *   <li><b>지금 이후</b>인 것만, 그중 가장 이른 것 — 지난 시각을 주면 받자마자 낡은 화면이 된다(하차 직전 push)</li>
+     *   <li>링이 {@code STALE} 이면 넣지 않는다 — 이미 멈춘 화면이다</li>
+     * </ul>
+     *
+     * <p>종료 프레임도 같은 봉투라 값이 나오지만, {@code end} 에는 붙이지 않는다(부르는 쪽 몫).
+     *
+     * @param nowMillis 보내는 시각(epoch 밀리초)
+     * @return 후보가 없거나 읽을 수 없으면 null — 그때는 키를 빼고 보낸다(지어내지 않는다)
+     */
+    public static Long staleDateSeconds(JsonNode contentState, long nowMillis) {
+        if (contentState == null || !contentState.path(FIELD_PROPS).isTextual()) {
+            return null;
+        }
+        try {
+            JsonNode props = STALE_READER.readTree(contentState.path(FIELD_PROPS).asText());
+            if ("STALE".equals(props.path("quality").asText())) {
+                return null;
+            }
+            Long earliest = null;
+            for (Long candidate : new Long[]{
+                    millisOf(props, "estimatedNextStationAt", 0L),
+                    millisOf(props, "progressValidUntil", 0L),
+                    millisOf(props, "estimatedAlightingAt", ALIGHTING_STALE_LEAD_MILLIS)}) {
+                if (candidate != null && candidate > nowMillis && (earliest == null || candidate < earliest)) {
+                    earliest = candidate;
+                }
+            }
+            return earliest == null ? null : Math.floorDiv(earliest, 1000L);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Long millisOf(JsonNode props, String field, long lead) {
+        JsonNode value = props.path(field);
+        return value.isNumber() ? value.asLong() - lead : null;
     }
 
     /** epoch <b>밀리초</b>. 봉투 밖 {@code aps.timestamp} 는 초라는 것을 잊지 말 것. */

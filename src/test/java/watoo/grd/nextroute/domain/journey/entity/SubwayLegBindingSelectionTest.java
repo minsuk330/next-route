@@ -74,4 +74,17 @@ class SubwayLegBindingSelectionTest {
                 SubwayBindingSource.MOTION_AUTOMOTIVE, SubwayBindingConfidence.HIGH);
         assertThat(auto.inheritTo(newLeg).getSource()).isEqualTo(SubwayBindingSource.INHERITED_ON_REROUTE);
     }
+
+    @Test
+    @DisplayName("이미 탄 열차를 고르면(떠난 열차·탑승 중 재선택) 링이 승차역으로 되감기지 않는다")
+    void aboardSelectionIsNotBeforeMovement() {
+        SubwayLegBinding binding = SubwayLegBinding.selected(10L, 1L, 1, 1, "2390", DAY, "1002", "내선");
+        binding.selectByUser("2386", DAY, "1002", "내선", Instant.parse("2026-10-07T03:00:00Z"));
+        assertThat(binding.isSelectedBeforeMovement()).isFalse();
+
+        // 다시 곧 올 열차로 바꾸면(승강장) 승차역부터
+        binding.selectByUser("2392", DAY, "1002", "내선", null);
+        assertThat(binding.isSelectedBeforeMovement()).isTrue();
+    }
+
 }

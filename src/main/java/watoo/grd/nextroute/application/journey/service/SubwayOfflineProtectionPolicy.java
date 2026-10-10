@@ -55,7 +55,14 @@ public class SubwayOfflineProtectionPolicy {
 
         Instant fromPrediction = predictedEndAt.plus(properties.subwayProtectionBuffer());
         Instant cap = legStartedAt.plus(properties.subwayProtectionCap());
-        journey.protectSubwayUntil(fromPrediction.isBefore(cap) ? fromPrediction : cap);
+        Instant until = fromPrediction.isBefore(cap) ? fromPrediction : cap;
+        // 같은 탑승 안에서는 줄이지 않는다. 링 갱신기가 하차 도착 예정으로 늘려 둔 값을 계획 소요시간이 되돌리면 승강장에서
+        // 기다린 만큼 보호가 모자라 지하에서 만료된다. 지하철을 벗어나면 위에서 지우므로 다음 탑승으로 넘어오지 않는다.
+        Instant existing = journey.getSubwayOfflineProtectionUntil();
+        if (existing != null && existing.isAfter(until)) {
+            until = existing.isBefore(cap) ? existing : cap;
+        }
+        journey.protectSubwayUntil(until);
     }
 
     /**

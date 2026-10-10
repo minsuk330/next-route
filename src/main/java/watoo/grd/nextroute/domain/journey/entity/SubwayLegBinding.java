@@ -164,10 +164,24 @@ public class SubwayLegBinding extends BaseEntity {
      * <p>이동 순번은 건드리지 않는다. 이미 움직이는 중이면 링이 바로 이어서 돈다.
      */
     public void selectByUser(String trainNo, LocalDate serviceDate, String lineId, String direction) {
+        selectByUser(trainNo, serviceDate, lineId, direction, null);
+    }
+
+    /**
+     * @param aboardAt 이미 탄 열차를 골랐으면(떠난 열차·탑승 중 재선택) 그 시각. 링이 승차역(0)이 아니라 다음 역부터 센다 —
+     *                 이동 관측 통로가 없어진 뒤(Dynamic Island 정상화, 선택만으로 연결)에는 이것이 유일한 "탔다" 근거다.
+     *                 null 이면 아직 승강장이다(이동 관측이 없을 때만 지운다)
+     */
+    public void selectByUser(String trainNo, LocalDate serviceDate, String lineId, String direction, Instant aboardAt) {
         this.status = SubwayBindingStatus.CONFIRMED;
         this.source = SubwayBindingSource.USER_SELECTED;
         this.confidence = null;
         assignTrain(trainNo, serviceDate, lineId, direction);
+        if (aboardAt != null) {
+            this.boardedDetectedAt = aboardAt;
+        } else if (this.lastMovementSeq == null) {
+            this.boardedDetectedAt = null;
+        }
         this.version++;
     }
 
@@ -178,9 +192,13 @@ public class SubwayLegBinding extends BaseEntity {
         }
     }
 
-    /** 사용자가 골랐지만 아직 이동 시작 관측이 없다 — 승강장에서 기다리는 중일 수 있다. 링은 승차역부터 센다(#304). */
+    /**
+     * 사용자가 골랐지만 아직 이동 시작 관측도, 이미 탔다는 선택도 없다 — 승강장에서 기다리는 중일 수 있다. 링은 승차역부터
+     * 센다(#304).
+     */
     public boolean isSelectedBeforeMovement() {
-        return this.source == SubwayBindingSource.USER_SELECTED && this.lastMovementSeq == null;
+        return this.source == SubwayBindingSource.USER_SELECTED && this.lastMovementSeq == null
+                && this.boardedDetectedAt == null;
     }
 
     /**

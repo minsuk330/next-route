@@ -82,6 +82,7 @@ class SubwayRingPushIT {
     @Autowired SubwayRingPushOutboxRepository outboxRepository;
     @Autowired SubwayBindingLifecycleService lifecycleService;
     @Autowired JourneyLegRepository legRepository;
+    @Autowired watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository bindingRepository;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired TransactionTemplate transactionTemplate;
 
@@ -394,6 +395,77 @@ class SubwayRingPushIT {
         assertThat(statusOfSequence(1L)).isEqualTo("FAILED");
     }
 
+    @Test
+    @DisplayName("쌓인 사이 여정이 다음 단계로 넘어가면 발송하지 않는다 — 지하철 화면이 다음 도보 화면을 덮는다")
+    void rowAfterLegLeftIsNotSent() {
+        registerTokens();
+        enqueueService.enqueueIfChanged(null, ring(1, "0.4500"), rideLeg);
+        jdbcTemplate.update("update journey_session set current_leg_index = ? where id = ?",
+                rideLegIndex + 1, journeyId);
+
+        relayService.runOnce();
+
+        assertThat(statusOfSequence(1L)).isEqualTo("SKIPPED");
+        assertThat(jdbcTemplate.queryForObject("""
+                select last_failure_reason from subway_ring_push_outbox where journey_id = ? and sequence = 1
+                """, String.class, journeyId)).isEqualTo("leg_left");
+        verify(pushPort, never()).send(anyString(), anyString(), anyString(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("대기(앞 단계)와 탑승 중에는 발송한다 — 고르고 기다리는 동안의 링(#304)")
+    void waitingAndRidingAreSent() {
+        registerTokens();
+        jdbcTemplate.update("update journey_session set current_leg_index = ? where id = ?",
+                rideLegIndex - 1, journeyId);
+        enqueueService.enqueueIfChanged(null, ring(1, "0.4500"), rideLeg);
+        relayService.runOnce();
+        assertThat(statusOfSequence(1L)).isEqualTo("SENT");
+
+        jdbcTemplate.update("update journey_session set current_leg_index = ? where id = ?",
+                rideLegIndex, journeyId);
+        enqueueService.enqueueIfChanged(ring(1, "0.4500"), ring(2, "0.0000"), rideLeg);
+        relayService.runOnce();
+        assertThat(statusOfSequence(2L)).isEqualTo("SENT");
+    }
+
+    @Test
+    @DisplayName("링 대상은 그 탑승의 앞 대기·탑승 중일 때만 — 내린 뒤에는 갱신하지 않는다")
+    void ringTargetsFollowTheCurrentLeg() {
+        jdbcTemplate.update("update journey_session set current_leg_index = ? where id = ?",
+                rideLegIndex - 1, journeyId);
+        assertThat(ringTargetLegIds()).contains(rideLegId);
+        jdbcTemplate.update("update journey_session set current_leg_index = ? where id = ?",
+                rideLegIndex, journeyId);
+        assertThat(ringTargetLegIds()).contains(rideLegId);
+        jdbcTemplate.update("update journey_session set current_leg_index = ? where id = ?",
+                rideLegIndex + 1, journeyId);
+        assertThat(ringTargetLegIds()).doesNotContain(rideLegId);
+    }
+
+    @Test
+    @DisplayName("종료 프레임은 단계 가드와 무관하게 나간다 — 하차 뒤 끝나도 잠금화면을 치운다")
+    void terminalIsSentEvenAfterLegLeft() {
+        registerTokens();
+        enqueueService.enqueueIfChanged(null, ring(1, "0.4500"), rideLeg);
+        relayService.runOnce();
+        jdbcTemplate.update("update journey_session set current_leg_index = ? where id = ?",
+                rideLegIndex + 1, journeyId);
+
+        transactionTemplate.executeWithoutResult(status ->
+                lifecycleService.abandonOpen(journeyId, SubwayBindingAbandonReason.ENDED));
+        relayService.runOnce();
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select status from subway_ring_push_outbox where journey_id = ? and event = 'end'
+                """, String.class, journeyId)).isEqualTo("SENT");
+    }
+
+    private List<Long> ringTargetLegIds() {
+        return bindingRepository.findRingTargets(500).stream()
+                .map(watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding::getJourneyLegId).toList();
+    }
+
     // ── 종료 ────────────────────────────────────────────────────────────────
 
     @Test
@@ -431,6 +503,20 @@ class SubwayRingPushIT {
         assertThat(props.get("segmentProgress").decimalValue()).isEqualByComparingTo("0.45");
         assertThat(props.get("nextStationName").asText()).isEqualTo("역1");
         assertThat(props.get("phase").asText()).isEqualTo("RIDE_SUBWAY");
+    }
+
+    @Test
+    @DisplayName("하차 출구는 진행 프레임에 실리고 종료 프레임에도 그대로 남는다")
+    void exitNumberSurvivesIntoTheTerminal() throws Exception {
+        jdbcTemplate.update("update journey_leg set end_exit_no = '3' where id = ?", rideLegId);
+        JourneyLeg withExit = legRepository.findById(rideLegId).orElseThrow();
+        enqueueService.enqueueIfChanged(null, ring(1, "0.4500"), withExit);
+        assertThat(propsOf(payloadOfSequence(1L)).path("alightingExitNo").asText()).isEqualTo("3");
+
+        transactionTemplate.executeWithoutResult(status ->
+                lifecycleService.abandonOpen(journeyId, SubwayBindingAbandonReason.ENDED));
+
+        assertThat(propsOf(payloadOfSequence(2L)).path("alightingExitNo").asText()).isEqualTo("3");
     }
 
     @Test

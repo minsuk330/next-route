@@ -38,8 +38,8 @@ class SubwayRealtimeArrivalReaderTest {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final SubwayApiPort apiPort = mock(SubwayApiPort.class);
-    private final SubwayRealtimeArrivalReader reader =
-            new SubwayRealtimeArrivalReader(mock(SubwayRealtimeCachePort.class), apiPort);
+    private final SubwayRealtimeCachePort cachePort = mock(SubwayRealtimeCachePort.class);
+    private final SubwayRealtimeArrivalReader reader = new SubwayRealtimeArrivalReader(cachePort, apiPort);
 
     // ── 방향 ──────────────────────────────────────────────────────────────
 
@@ -148,6 +148,26 @@ class SubwayRealtimeArrivalReaderTest {
 
         assertThat(train.getPrevStationId()).isEqualTo("1001000134");
         assertThat(train.getCurrentStationName()).isEqualTo("남영");
+    }
+
+    @Test
+    @DisplayName("막 떠난 열차: 캐시에서 이 역·방향의 arvlCd=2 행만 — arrivals 가 빼는 바로 그 행들")
+    void justDepartedTrainNos() {
+        when(cachePort.readSnapshot()).thenReturn(java.util.Optional.of(
+                watoo.grd.nextroute.application.subway.dto.SubwayRealtimeSnapshot.builder().trains(List.of(
+                        cached("K1", STATION, "상행", "2"),
+                        cached("K2", STATION, "상행", "1"),
+                        cached("K3", STATION, "하행", "2"),
+                        cached("K4", "1001000134", "상행", "2"))).build()));
+
+        assertThat(reader.justDepartedTrainNos(LINE, STATION, 1)).containsExactly("K1");
+        assertThat(reader.arrivals(LINE, STATION, 1)).extracting(a -> a.train().getTrainNo())
+                .containsExactly("K2");
+    }
+
+    private static SubwayRealtimeTrain cached(String trainNo, String stationId, String direction, String code) {
+        return SubwayRealtimeTrain.builder().trainNo(trainNo).lineId(LINE).stationId(stationId)
+                .direction(direction).arrivalCode(code).arrivalSeconds(60).build();
     }
 
     private SubwayArrivalInfo arrival(String trainNo, String direction, int seconds) {

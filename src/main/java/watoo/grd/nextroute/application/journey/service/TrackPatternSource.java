@@ -10,6 +10,8 @@ import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.Transit
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPatternDetail;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPatternUnavailableException;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitStop;
+import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitStopTime;
+import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitTripRef;
 import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
 import watoo.grd.nextroute.application.route.routing.OtpPermit;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
@@ -18,6 +20,8 @@ import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -33,7 +37,7 @@ import java.util.function.Function;
  * 전체가 나눠 쓴다({@link #withPermit}) — 호출마다 잡으면 검색과 permit 을 다투다 중간에서 끊긴다. 마감은 검색과 같은
  * {@code route.search.otp-ms}.
  *
- * <p>캐시는 정류장 패턴·패턴 상세·형제 정류장만, 프로세스 메모리에 {@code patternCacheSeconds}(기본 10분). <b>키에 그래프 버전을
+ * <p>캐시는 정류장 패턴·패턴 상세·형제 정류장·승하차 가능 여부만, 프로세스 메모리에 {@code patternCacheSeconds}(기본 10분). <b>키에 그래프 버전을
  * 넣는다</b> — 패턴 코드는 그래프를 다시 빌드하면 바뀐다(P3 형상·GBIS 그래프로 자주 바뀜). trip·정차 시각은 운행일·시각
  * 따라 달라 캐시하지 않는다.
  */
@@ -42,6 +46,7 @@ import java.util.function.Function;
 public class TrackPatternSource {
 
     private static final int CACHE_MAX_ENTRIES = 2_000;
+    private static final ZoneId FEED_ZONE = ZoneId.of("Asia/Seoul");
 
     private final TransitPatternPort port;
     private final OtpConcurrencyGate gate;
@@ -53,6 +58,7 @@ public class TrackPatternSource {
     private final Map<String, Cached<List<TransitPattern>>> patternsAtStop = new ConcurrentHashMap<>();
     private final Map<String, Cached<TransitPatternDetail>> details = new ConcurrentHashMap<>();
     private final Map<String, Cached<List<String>>> siblings = new ConcurrentHashMap<>();
+    private final Map<String, Cached<List<TransitStopTime>>> stopAccess = new ConcurrentHashMap<>();
 
     public TrackPatternSource(TransitPatternPort port, OtpConcurrencyGate gate,
                               OtpRoutingProperties otpProperties,
@@ -161,6 +167,36 @@ public class TrackPatternSource {
         Optional<TransitPatternDetail> detail = port.pattern(patternCode, deadline);
         detail.ifPresent(d -> put(details, key, d));
         return detail;
+    }
+
+    /**
+     * 패턴 정류장마다 타고 내릴 수 있는지({@link TransitStopTime#pickup}·{@link TransitStopTime#dropoff}). 패턴 정류장과
+     * 같은 순서·개수다.
+     *
+     * <p>OTP 는 정류장별 승하차 가능 여부까지 같은 trip 끼리만 한 패턴으로 묶는다 — trip 하나의 정차 시각이 패턴 전체의
+     * 답이다. 그래서 시각과 달리 캐시한다. 오늘·어제 운행이 없거나 정류장 수가 패턴과 다르면 비어 있다(부르는 쪽은 거르지
+     * 않는다 — 시작이 시간표 없음으로 막는다).
+     */
+    public Optional<List<TransitStopTime>> stopAccess(TransitPattern pattern, RoutingDeadline deadline) {
+        String key = key(pattern.code());
+        Cached<List<TransitStopTime>> hit = stopAccess.get(key);
+        if (hit != null && hit.fresh(clock.instant())) {
+            return Optional.of(hit.value());
+        }
+        LocalDate today = clock.instant().atZone(FEED_ZONE).toLocalDate();
+        for (LocalDate date : List.of(today, today.minusDays(1))) {
+            List<TransitTripRef> trips = port.tripsForDate(pattern.code(), date, deadline);
+            if (trips.isEmpty()) {
+                continue;
+            }
+            List<TransitStopTime> times = port.tripStopTimes(trips.get(0).gtfsId(), date, deadline);
+            if (times.size() != pattern.stops().size()) {
+                return Optional.empty();
+            }
+            put(stopAccess, key, times);
+            return Optional.of(times);
+        }
+        return Optional.empty();
     }
 
     public String graphVersion() {

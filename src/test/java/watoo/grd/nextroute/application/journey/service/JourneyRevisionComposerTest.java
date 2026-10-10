@@ -42,7 +42,8 @@ class JourneyRevisionComposerTest {
 
     private final JourneyCompiler compiler = new JourneyCompiler(new StopIdentityResolver());
     private final JourneyTransitIdEnricher enricher = mock(JourneyTransitIdEnricher.class);
-    private final JourneyRevisionComposer composer = new JourneyRevisionComposer(compiler, enricher);
+    private final JourneyRevisionComposer composer = new JourneyRevisionComposer(compiler, enricher,
+            new JourneyGuidanceInfoEnricher(org.mockito.Mockito.mock(watoo.grd.nextroute.domain.bus.repository.BusStopRepository.class), org.mockito.Mockito.mock(watoo.grd.nextroute.application.regionalbus.port.out.RegionalBusRouteStopStore.class), new watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex(), new watoo.grd.nextroute.application.subway.service.SubwayFastAlightIndex()));
 
     JourneyRevisionComposerTest() {
         // 보강은 정적 노선표를 보는 일이라 여기서는 통과만 시킨다. 거치는지 자체는 IT 가 본다.

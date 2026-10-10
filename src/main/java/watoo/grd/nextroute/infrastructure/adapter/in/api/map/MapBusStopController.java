@@ -3,6 +3,7 @@ package watoo.grd.nextroute.infrastructure.adapter.in.api.map;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -29,6 +30,7 @@ import java.util.concurrent.TimeUnit;
  * 지도는 "전부"가 필요하다. 지도 마커를 nearby 로 그리면 팬할 때마다 다른 20개가 와서 끊겨 보인다.
  */
 @RestController
+@Profile("!worker") // 타일 서비스가 api 전용이다. 조건이 없으면 worker 가 부팅하지 못한다(WorkerProfileWiringTest).
 @RequestMapping("/api/map/bus-stops")
 @RequiredArgsConstructor
 @Tag(name = "[공용] 지도 정류장 스냅샷")

@@ -385,4 +385,27 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
      */
     @Query(value = "SELECT reroute_accepted_at FROM journey_session WHERE id = :id", nativeQuery = true)
     Optional<Instant> findRerouteAcceptedAt(@Param("id") Long id);
+
+    /**
+     * 지하철 탑승 중 오프라인 보호를 <b>늘리기만</b> 한다. 여정이 아직 그 탑승 구간일 때만.
+     *
+     * <p>열차를 고르면 곧바로 탑승으로 넘어가서 탑승 시작 시각이 승강장 시각이 된다. 계획 소요시간 기준 보호는 기다린
+     * 시간만큼 모자라 지하에서 만료된다. 링 갱신기가 하차 도착 예정으로 이 칸을 밀어 준다. 줄이지 않으므로 명령 경로가 정한
+     * 값과 다투지 않는다. 행 잠금 없이 한 문장 — 5초 tick 이 사용자 요청을 기다리지 않게.
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @org.springframework.transaction.annotation.Transactional
+    @Query("""
+            update JourneySession j
+               set j.subwayOfflineProtectionUntil = :until
+             where j.id = :id and j.status = watoo.grd.nextroute.domain.journey.entity.JourneyStatus.ACTIVE
+               and j.deletedAt is null
+               and j.routeRevision = :routeRevision
+               and j.currentLegIndex = :legIndex
+               and (j.subwayOfflineProtectionUntil is null or j.subwayOfflineProtectionUntil < :until)
+            """)
+    int extendSubwayProtection(@Param("id") Long id,
+                               @Param("routeRevision") int routeRevision,
+                               @Param("legIndex") int legIndex,
+                               @Param("until") Instant until);
 }

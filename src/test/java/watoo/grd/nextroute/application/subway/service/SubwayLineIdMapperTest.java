@@ -13,6 +13,24 @@ class SubwayLineIdMapperTest {
         assertThat(SubwayLineIdMapper.resolveOdsay("GTX-A", null)).contains("1032");
     }
 
+    /** OTP 노선명 전수(2026-10-10 운영 그래프 SUBWAY·RAIL 99개 이름)에서 뽑은 대표. */
+    @Test
+    void readsOtpRouteNamesFromTheExplicitTable() {
+        assertThat(SubwayLineIdMapper.resolveOdsay("서울2호선", null)).contains("1002");
+        assertThat(SubwayLineIdMapper.resolveOdsay("수도권 1호선", null)).contains("1001");
+        assertThat(SubwayLineIdMapper.resolveOdsay("신림선", null)).contains("1094");
+        assertThat(SubwayLineIdMapper.resolveOdsay("우이신설경전철", null)).contains("1092");
+    }
+
+    /** 이름 속 숫자만 뽑으면 지방 지하철·철도가 서울 노선이 된다(부산1호선 → 1001). */
+    @Test
+    void doesNotTurnOtherRegionLinesIntoSeoulLines() {
+        for (String name : new String[]{"부산1호선", "대구3호선", "대전1호선", "광주1호선", "인천1호선", "인천2호선",
+                "부산김해경전철", "김포도시철도", "[일반]1경부서울부산", "[고속]1호남고속서울광주"}) {
+            assertThat(SubwayLineIdMapper.resolveOdsay(name, "1:RR_ACC1_S-1-02-1I")).as(name).isEmpty();
+        }
+    }
+
     @Test
     void doesNotTreatUnknownOdsayCodeAsAnInternalId() {
         assertThat(SubwayLineIdMapper.resolveOdsay(null, "900222")).isEmpty();

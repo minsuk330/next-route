@@ -130,13 +130,29 @@ class SubwayTrainSelectionServiceTest {
     }
 
     @Test
-    @DisplayName("대기 단계가 아니면 409 NOT_WAITING_FOR_SUBWAY")
+    @DisplayName("지하철 대기·탑승이 아닌 단계(내린 뒤 도보)면 409 NOT_WAITING_FOR_SUBWAY")
     void notWaiting() {
-        session.moveToLeg(1);
+        JourneyLeg walk = leg(2, JourneyLegType.WALK);
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY, 1))
+                .willReturn(List.of(wait, ride, walk));
+        session.moveToLeg(2);
 
         assertThatThrownBy(() -> service.candidates(USER, JOURNEY))
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(JourneyErrorCode.NOT_WAITING_FOR_SUBWAY);
+    }
+
+    @Test
+    @DisplayName("탑승 중이면 곧 올 열차(뒤차)를 읽지 않고 떠난 열차만 후보로 낸다")
+    void ridingOffersOnlyDeparted() {
+        session.moveToLeg(1);
+        given(arrivalReader.justDepartedTrainNos("1002", "1002000222", 0)).willReturn(List.of("2386"));
+
+        List<SubwayTrainCandidate> candidates = service.candidates(USER, JOURNEY);
+
+        assertThat(candidates).extracting(SubwayTrainCandidate::trainNo).containsExactly("2386");
+        assertThat(candidates.get(0).kind()).isEqualTo(SubwayTrainCandidate.Kind.DEPARTED);
+        verify(arrivalReader, never()).arrivalsByStation(anyString(), anyString(), anyString(), anyInt());
     }
 
     @Test
@@ -183,7 +199,7 @@ class SubwayTrainSelectionServiceTest {
         service.select(USER, JOURNEY, "2229", 1);
 
         verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
-                "2229", LocalDate.parse("2026-10-06"), "1002", "내선")));
+                "2229", LocalDate.parse("2026-10-06"), "1002", "내선", true)));
     }
 
     @Test
@@ -198,7 +214,7 @@ class SubwayTrainSelectionServiceTest {
         service.select(USER, JOURNEY, "K4021", 1);
 
         verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
-                "K4021", LocalDate.parse("2026-10-07"), "1002", "내선")));
+                "K4021", LocalDate.parse("2026-10-07"), "1002", "내선", true)));
     }
 
     @Test
@@ -215,6 +231,40 @@ class SubwayTrainSelectionServiceTest {
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(JourneyErrorCode.TRAIN_NOT_IN_CANDIDATES);
         verify(txService, never()).bind(any(), any());
+    }
+
+    @Test
+    @DisplayName("노선도와 같은 원천(수집기 캐시)에 있는 열차는 받는다 — 역별 실시간 호출에 없어도")
+    void cachedTrainIsSelectableWithoutLiveCall() {
+        given(arrivalReader.arrivals("1002", "1002000222", 0)).willReturn(List.of(arrival("2398", "성수", "일반", 40)));
+
+        service.select(USER, JOURNEY, "2398", 1);
+
+        verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
+                "2398", LocalDate.parse("2026-10-07"), "1002", "내선")));
+        verify(arrivalReader, never()).arrivalsByStation(anyString(), anyString(), anyString(), anyInt());
+    }
+
+    @Test
+    @DisplayName("곧 도착이던 열차가 고르는 사이 출발(arvlCd=2)했고 출발 기록은 아직 없어도 받는다(전엔 422)")
+    void justDepartedBeforeDepartureLogIsSelectable() {
+        given(trainLogPort.findDepartures(any(), any(), any(), any(), any(), any())).willReturn(List.of());
+        given(arrivalReader.justDepartedTrainNos("1002", "1002000222", 0)).willReturn(List.of("2388"));
+
+        service.select(USER, JOURNEY, "2388", 1);
+
+        verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
+                "2388", LocalDate.parse("2026-10-07"), "1002", "내선", true)));
+    }
+
+    @Test
+    @DisplayName("후보는 노선도 원천(캐시)이 먼저, 비었을 때만 역별 실시간 호출")
+    void candidatesPreferCache() {
+        given(arrivalReader.arrivals("1002", "1002000222", 0)).willReturn(List.of(arrival("2398", "성수", "일반", 40)));
+
+        assertThat(service.candidates(USER, JOURNEY)).extracting(SubwayTrainCandidate::trainNo)
+                .containsExactly("2398");
+        verify(arrivalReader, never()).arrivalsByStation(anyString(), anyString(), anyString(), anyInt());
     }
 
     private static watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort.TrainDeparture departure(
@@ -241,4 +291,76 @@ class SubwayTrainSelectionServiceTest {
         return new SubwayRealtimeArrivalReader.Arrival(SubwayRealtimeTrain.builder().trainNo(no)
                 .destinationName(dest).trainType(type).receivedAt("2026-10-07 12:00:00").build(), sec);
     }
+
+    @Test
+    @DisplayName("고를 수 없는 대상: 대기 구간을 가리킨 legIndex / 이미 지난 탑승 / 사이에 도보 2개 / 사이에 버스")
+    void rejectedTargets() {
+        JourneyLeg walk = leg(2, JourneyLegType.WALK);
+        JourneyLeg walk2 = leg(3, JourneyLegType.TRANSFER_WALK);
+        JourneyLeg bus = leg(3, JourneyLegType.RIDE_BUS);
+        JourneyLeg wait2 = leg(4, JourneyLegType.WAIT_SUBWAY);
+        JourneyLeg ride2 = leg(5, JourneyLegType.RIDE_SUBWAY);
+
+        // legIndex 가 대기를 가리킴
+        assertNotWaiting(() -> service.candidates(USER, JOURNEY, 0));
+        // 이미 지난 탑승
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY, 1))
+                .willReturn(List.of(wait, ride, walk));
+        session.moveToLeg(2);
+        assertNotWaiting(() -> service.candidates(USER, JOURNEY, 1));
+        // 앞 탑승과 다음 대기 사이 도보 2개
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY, 1))
+                .willReturn(List.of(wait, ride, walk, walk2, wait2, ride2));
+        session.moveToLeg(1);
+        assertNotWaiting(() -> service.candidates(USER, JOURNEY, 5));
+        // 사이에 버스
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY, 1))
+                .willReturn(List.of(wait, ride, walk, bus, wait2, ride2));
+        assertNotWaiting(() -> service.candidates(USER, JOURNEY, 5));
+    }
+
+    @Test
+    @DisplayName("추적 가능: 명시 노선표 밖(인천1 → 1021)은 NO_REALTIME_LINE, 지하철 탑승이 아니면 409")
+    void trackabilityEdges() {
+        ReflectionTestUtils.setField(wait, "routeId", "1021");
+        assertThat(service.trackability(USER, JOURNEY, 1).reason())
+                .isEqualTo(watoo.grd.nextroute.application.journey.dto.SubwayTrackabilityView.Reason.NO_REALTIME_LINE);
+
+        assertNotWaiting(() -> service.trackability(USER, JOURNEY, 0));
+    }
+
+    @Test
+    @DisplayName("탑승 중 재선택은 이미 탄 열차로 넘긴다(aboard) — 링이 승차역으로 되감기지 않게")
+    void ridingSelectionIsAboard() {
+        session.moveToLeg(1);
+        given(arrivalReader.justDepartedTrainNos("1002", "1002000222", 0)).willReturn(List.of("2386"));
+        given(trainLogPort.findDepartures(any(), any(), any(), any(), any(), any())).willReturn(List.of());
+
+        service.select(USER, JOURNEY, "2386", 1);
+
+        verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
+                "2386", LocalDate.parse("2026-10-07"), "1002", "내선", true)));
+    }
+
+    @Test
+    @DisplayName("대기 바로 앞 도보(역까지 걷는 중·지하 환승 통로)에서도 다음 탑승 열차를 고른다")
+    void walkRightBeforeTheWait() {
+        JourneyLeg walk = leg(0, JourneyLegType.WALK);
+        JourneyLeg wait1 = leg(1, JourneyLegType.WAIT_SUBWAY);
+        JourneyLeg ride1 = leg(2, JourneyLegType.RIDE_SUBWAY);
+        ReflectionTestUtils.setField(wait1, "selectedRouteOptionId", 99L);
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY, 1))
+                .willReturn(List.of(walk, wait1, ride1));
+        session.moveToLeg(0);
+
+        assertThat(service.candidates(USER, JOURNEY, 2)).extracting(SubwayTrainCandidate::trainNo)
+                .containsExactly("2390", "2392");
+    }
+
+    private static void assertNotWaiting(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+        assertThatThrownBy(call)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.NOT_WAITING_FOR_SUBWAY);
+    }
+
 }

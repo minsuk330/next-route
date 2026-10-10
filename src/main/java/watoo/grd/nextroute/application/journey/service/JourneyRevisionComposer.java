@@ -63,6 +63,7 @@ public class JourneyRevisionComposer {
 
     private final JourneyCompiler compiler;
     private final JourneyTransitIdEnricher transitIdEnricher;
+    private final JourneyGuidanceInfoEnricher guidanceInfoEnricher;
 
     /**
      * @param currentSnapshot 지금 개정본의 경로 원본
@@ -133,7 +134,7 @@ public class JourneyRevisionComposer {
             snapshot = spliceTruncated(currentSnapshot, cut, truncated, apply.path());
         }
 
-        JourneyPlan plan = transitIdEnricher.enrich(compiler.compile(snapshot));
+        JourneyPlan plan = guidanceInfoEnricher.enrich(transitIdEnricher.enrich(compiler.compile(snapshot)));
         if (plan.legs().isEmpty()) {
             return Result.failed("snapshot-unmappable");
         }

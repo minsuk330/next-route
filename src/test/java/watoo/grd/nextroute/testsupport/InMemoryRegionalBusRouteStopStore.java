@@ -63,6 +63,27 @@ public class InMemoryRegionalBusRouteStopStore implements RegionalBusRouteStopSt
     }
 
     @Override
+    public synchronized Map<String, String> stopNumbers(java.util.Collection<String> stopIds) {
+        Map<String, String> out = new LinkedHashMap<>();
+        java.util.Set<String> conflicting = new java.util.HashSet<>();
+        routes.values().forEach(row -> row.stops().forEach(stop -> {
+            if (stopIds.contains(stop.stopId()) && stop.stopNo() != null && !stop.stopNo().isBlank()) {
+                String prev = out.putIfAbsent(stop.stopId(), stop.stopNo().trim());
+                if (prev != null && !prev.equals(stop.stopNo().trim())) {
+                    conflicting.add(stop.stopId());
+                }
+            }
+        }));
+        conflicting.forEach(out::remove);
+        return out;
+    }
+
+    @Override
+    public synchronized boolean hasStopNumbers() {
+        return routes.values().stream().flatMap(row -> row.stops().stream()).anyMatch(stop -> stop.stopNo() != null);
+    }
+
+    @Override
     public synchronized boolean isEmpty() {
         return routes.isEmpty();
     }

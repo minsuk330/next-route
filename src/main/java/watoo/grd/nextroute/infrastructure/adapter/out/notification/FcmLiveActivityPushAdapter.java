@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
 import watoo.grd.nextroute.application.journey.exception.NotificationSendException;
 import watoo.grd.nextroute.application.journey.port.out.LiveActivityPushPort;
+import watoo.grd.nextroute.application.journey.service.SubwayRingPushPayloadFactory;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -62,6 +63,16 @@ public class FcmLiveActivityPushAdapter implements LiveActivityPushPort {
     static final String APS_EVENT = "event";
     static final String APS_TIMESTAMP = "timestamp";
     static final String APS_CONTENT_STATE = "content-state";
+    /** epoch 초. 이 시각에 시스템이 화면을 다시 그린다(#309). {@code update} 에만, 규칙은 {@code staleDateSeconds}. */
+    static final String APS_STALE_DATE = "stale-date";
+    static final String EVENT_UPDATE = "update";
+    static final String EVENT_END = "end";
+    static final String APS_DISMISSAL_DATE = "dismissal-date";
+    /**
+     * 종료 화면을 남겨 두는 시간. 종료 화면은 마지막 지하철 push 를 복사한 것이라(lease 만료로 끝나면 이미 낡았다)
+     * 오래 두면 지난 "○○에서 내려요"가 잠금화면에 남는다. 없으면 iOS 가 최대 4시간 남긴다.
+     */
+    static final long END_DISMISS_AFTER_SECONDS = 15;
 
     /** 지금 사용자를 깨우는 갱신이다. 낮추면 잠금화면이 늦게 따라온다. */
     private static final String APNS_PRIORITY_HIGH = "10";
@@ -98,13 +109,28 @@ public class FcmLiveActivityPushAdapter implements LiveActivityPushPort {
      */
     static Message message(String deviceToken, String activityToken, String event,
                            long apsTimestamp, JsonNode contentState) {
-        Aps aps = Aps.builder()
+        return message(deviceToken, activityToken, event, apsTimestamp, contentState, System.currentTimeMillis());
+    }
+
+    /** @param nowMillis 보내는 시각. 지난 {@code stale-date} 를 거르는 기준이다 */
+    static Message message(String deviceToken, String activityToken, String event,
+                           long apsTimestamp, JsonNode contentState, long nowMillis) {
+        Aps.Builder apsBuilder = Aps.builder()
                 .putCustomData(APS_EVENT, event)
                 // epoch 초다. content-state 안의 시각들은 밀리초라는 것을 잊지 말 것.
                 .putCustomData(APS_TIMESTAMP, apsTimestamp)
                 // {name, props} 두 겹 그대로. props 는 JSON 문자열이다.
-                .putCustomData(APS_CONTENT_STATE, toMap(contentState))
-                .build();
+                .putCustomData(APS_CONTENT_STATE, toMap(contentState));
+        Long staleDate = EVENT_UPDATE.equals(event)
+                ? SubwayRingPushPayloadFactory.staleDateSeconds(contentState, nowMillis) : null;
+        if (staleDate != null) {
+            apsBuilder.putCustomData(APS_STALE_DATE, staleDate);
+        }
+        if (EVENT_END.equals(event)) {
+            // epoch 초다.
+            apsBuilder.putCustomData(APS_DISMISSAL_DATE, nowMillis / 1000 + END_DISMISS_AFTER_SECONDS);
+        }
+        Aps aps = apsBuilder.build();
 
         return Message.builder()
                 .setToken(deviceToken)

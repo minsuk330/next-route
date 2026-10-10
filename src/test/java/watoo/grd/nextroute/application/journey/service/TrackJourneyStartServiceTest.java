@@ -34,6 +34,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -87,7 +88,8 @@ class TrackJourneyStartServiceTest {
                 mock(BusStopRepository.class), mock(BusRouteRepository.class), mock(SubwayStationRepository.class),
                 InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()));
         service = new TrackJourneyStartService(properties, source, legacy,
-                new JourneyCompiler(new StopIdentityResolver()), enricher, txService,
+                new JourneyCompiler(new StopIdentityResolver()), enricher,
+                new JourneyGuidanceInfoEnricher(org.mockito.Mockito.mock(watoo.grd.nextroute.domain.bus.repository.BusStopRepository.class), org.mockito.Mockito.mock(watoo.grd.nextroute.application.regionalbus.port.out.RegionalBusRouteStopStore.class), new watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex(), new watoo.grd.nextroute.application.subway.service.SubwayFastAlightIndex()), txService,
                 new JourneyStartConflictTranslator(mock(JourneyQueryService.class)),
                 new ObjectMapper(), meters, clock);
     }
@@ -128,6 +130,25 @@ class TrackJourneyStartServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(CommonErrorCode.NOT_FOUND);
         verifyNoInteractions(port, gate, txService);
+    }
+
+    @Test
+    @DisplayName("하차 금지 정류장에서 내리거나 승차 금지 정류장에서 타면 422 TRACK_STOPS_INVALID")
+    void blockedBoardOrAlight() {
+        given(port.tripStopTimes(anyString(), eq(DAY), any()))
+                .willReturn(TrackFixtures.line2TimesBlocking(Set.of(), Set.of(35)));
+        assertThatThrownBy(() -> service.start(1L,
+                new StartTrackCommand(ROUTE, TrackFixtures.GANGNAM, alight, null, false)))
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.TRACK_STOPS_INVALID);
+
+        given(port.tripStopTimes(anyString(), eq(DAY), any()))
+                .willReturn(TrackFixtures.line2TimesBlocking(Set.of(31), Set.of()));
+        assertThatThrownBy(() -> service.start(1L,
+                new StartTrackCommand(ROUTE, TrackFixtures.GANGNAM, alight, null, false)))
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.TRACK_STOPS_INVALID);
+        verify(txService, never()).start(any(), any(), any(), any(), anyBoolean(), any(), any());
     }
 
     @Test

@@ -4089,6 +4089,271 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - 기존 무관(메모리 기록과 동일): JourneyEvalReadPathIT · JourneyEvaluationIT · JourneyTransferAssessmentIT · BusAlertWakeupBurstIT
   - 기존 무관(main `origin/main` 1cfac30a 에서 단독 재실행해도 동일 실패): RerouteRemainingPathOtpIT 1건(OTP 요청 2회 vs 기대 1회)
   - 전체 실행에서만 나는 간헐: JourneyNotificationSchemaIT(`Unable to rollback against JDBC Connection`) — 이 브랜치에서 단독 실행 20/20 통과
+## 2026-10-10 단독 추적 하차 후보에서 하차 금지 정류장 제외 (#265 잔여, fix/track-alight-skip-no-dropoff)
+
+### 확정
+- 고칠 대상은 "통과역"(승하차 둘 다 NONE)이 아니라 **하차 금지(drop_off NONE)** 다. 전국 GTFS(national-nojeju-202503) 실측: NONE/NONE 53행(44 trip, 시외 ACC3 뿐), 첫 정차가 아닌 하차 금지 33,485행·11,021 trip(TAGO 22,746·시외 ACC3 10,339·ACC5 230·PORT 144)
+- 운영 OTP 실측(2026-10-10): 부산 공항리무진 `1:BR_TAGO_BSB5202029000_D::01` 앞 17곳 SCHEDULED/NONE(하차 금지), 국제선·국내선 NONE/SCHEDULED(승차 금지) → 픽스처 `otp/track/trip-stoptimes-bus-airport.json`
+- OTP 패턴(StopPattern)은 정류장별 pickup/dropoff 까지 같은 trip 만 묶는다 → trip 하나의 정차 시각이 패턴 전체 답. `TrackPatternSource.stopAccess` 가 패턴 단위 캐시(그래프 버전 키, 10분). 첫 조회만 OTP +2회(TripsForDate·TripStopTimes)
+- 계약: 하차 후보 `index` 는 그대로(빈 번호 생김 = "몇 정거장 뒤" 의미 유지). 승차 금지 정류장에서 하차 후보 조회·시작 = 422 `TRACK_STOPS_INVALID`. 승하차 가능 여부를 모르면(오늘·어제 운행 없음, 개수 불일치) 거르지 않는다 — 시작이 시간표 없음으로 막음
+
+### 미결
+- 방향(노선) 목록에는 승차 금지 정류장 노선이 아직 뜬다(정류장 패턴마다 trip 조회가 필요해 비용 큼). 누르면 하차 후보가 422. 필요하면 별건
+- 노선 선(shape) `to` 없을 때 끝 = 한 바퀴 끝(하차 가능한 마지막이 아님). 영향 작아 그대로
+
+### 배포
+- api 만. 마이그레이션·플래그 없음
+
+### 검증
+- `./gradlew test --tests '*OtpTransitPatternAdapterTest' --tests '*TrackSelectionQueryServiceTest' --tests '*TrackJourneyStartServiceTest' --tests '*TrackLegFactoryTest' --tests '*TrackLegChainTest' --tests '*TrackPatternSelectorTest'` → 12/22/12/7/4/11, 실패 0
+- 서비스 수정만 되돌리고 같은 시험 → 34 중 4 실패(새 시험 4건이 버그를 잡음 확인)
+## 2026-10-10 경기·지방 단독 추적 끝까지 지원 (#333, fix/track-regional-support, PR 하나 — 사용자 결정)
+
+### 확정
+- 선택·시작은 이미 전국 GTFS. 깨지던 곳은 시작 뒤 서울 전용 부품이었다(조사 에이전트 표 → 핵심 2건 코드로 직접 확인)
+- 지하철 노선 id: `SubwayLineIdMapper.resolveOdsay` 가 이름 속 숫자만 뽑아 OTP `부산1호선`·`대구3호선`·`광주1호선`·`대전1호선`·`인천1/2호선`, 철도 `[일반]1경부서울부산`·`[고속]1호남…` 을 서울 1001~1003 으로 바꿨다(운영 OTP 노선명 99개 실측). 규칙 = NAMED_LINES → `SubwayRoutePatternAssembler.LINE_IDS` → `(서울|수도권)?N호선` 만 숫자. 이름이 있는데 모르면 empty(원천 id 숫자 폴백도 안 함). 신림선 1094·우이신설경전철 1092 복구. **일반 길찾기 여정에도 적용**
+- 지하철 탑승 확인 게이트 = 서울 노선 id 유무만(`JourneyLeg.hasSubwayRealtimeLine`). 승차역 id 는 보지 않는다 — 서울 노선이어도 역 이름 매칭이 애매하면 비고, 그때도 사용자 열차 선택으로 링이 돈다(처음엔 역 id 까지 요구했다가 `JourneySubwayGuidanceIT` 5·`SubwayBindingConcurrencyIT` 2 실패로 발견)
+- 계약: `SubwayBindingView.realtimeSupported`(신규, 기본 true). false 면 판정 행을 만들지 않고 status 는 의미 없는 PENDING. 지하철 안내(subwayGuidance)는 null
+- 버스 번호 폴백: 승차 정류장이 서울 밖 GTFS(`\d+:BS_` 이면서 `TAGO_SEB` 아님)면 번호로 서울 노선을 찾지 않는다(enricher 에서 routeName=null 로 넘김). ODsay 숫자 id·모르는 모양은 기존대로
+- 대기 ETA: 서울 routeId 가 없고 원천 노선 id 가 GBIS(`^2\d{8}$`)·TAGO(`^[A-Z]{3}…`) 모양일 때만 `RegionalArrivalLookup.nextArrival`(가장 이른 도착). 경기=APPROXIMATE(분 단위), TAGO=GOOD. 할당량·캐시는 재탐색과 공유(`reroute-gg-arrival`/`reroute-tago-arrival`)
+- 선택 화면: TAGO 노선 도착 id 는 도시코드를 알 때만. 근처 묶음 대표(서울)가 서울 DB 에 없으면 형제의 도착 id
+
+### 함정
+- 대기 ETA 지역 판정을 "routeId 없음 + sourceRouteId 있음"으로 넓게 잡으면 서울 DB 에 없는 서울 노선·ODsay 내부 id 까지 GBIS 로 묻는다 / 가드: id 모양으로만 판정
+- `RerouteRemainingPathOtpIT.otpGraphQlErrorIsEmptyWithoutOdsayFallback` 은 **main 에서도 클래스 실행 시 실패**(2026-10-10 2회 연속, 단독 실행은 통과). 처음 한 번 main 에서 통과해 이 PR 회귀로 오인 → 커밋별 bisect 로 기존 무관 확인
+
+### 미결
+- `TransferArrivalEnricher`·`RouteSearchTravelTimeEstimator` 의 번호 폴백(검색 경로)은 그대로. 지방 정류장은 서울 stopId 가 비어 순번 조회까지 안 가 영향 없음
+- 방향 목록의 TAGO 노선·정류장 접두사 불일치(정류장 BSB·노선 다른 접두사)면 도착 API 가 빈 결과 — id 는 그대로 나간다
+- 지방 지하철 실시간 원천 없음(#245)
+
+### 배포
+- api·worker 둘 다(대기 ETA=평가기 worker, 탑승 확인·선택=api). 마이그레이션·플래그 없음
+
+### 검증
+- 일회용 st-pg(:55432, V61→V62 flyway 적용)·st-redis(:56379) + api/auth/oauth/toss env(fcm 제외) → `./gradlew test --continue` 전체 2780 중 실패 13 = 기존 무관 11(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1 — main 에서 같은 실패 확인) + JourneyNotificationSchemaIT 1(간헐, 단독 20/20) + RerouteRemainingPathOtpLiveIT 1(main 에서도 실패, 실 그래프 필요)
+- 변경 관련: SubwayLineIdMapperTest 8/0, SubwayBoardingEvidenceServiceTest 21/0, JourneySubwayGuidanceComposerTest 3/0, JourneyTransitIdEnricherTest 6/0, WaitLegArrivalPredictorTest 16/0, RegionalArrivalLookupTest 6/0, OtpSeoulIdentityResolverTest 20/0, TrackRealtimeIdResolverTest 6/0, TrackSelectionQueryServiceTest 20/0, SubwayBinding*IT 37/0, JourneySubwayGuidanceIT 9/0, SubwayRideScenarioIT 9/0, SubwayTrainSelectionIT 6/0, SubwayRingIT 16/0
+
+
+
+## 2026-10-10 guidance-stop-info PR-1 (#266 정류장 번호·방면 + 컬럼)
+
+플랜 `docs/plan/guidance-stop-info/PLAN.md` §3 + §9(Opus 리뷰 반영). 브랜치 feat/guidance-stop-info.
+
+### 확정
+- OTP 전환 뒤 `SubPathResult.startArsID/startExitNo` 는 늘 null(OtpPlanConnectionMapper 미채움, LegacyRouteResponseMapper:165 "가짜값 금지"). OTP GTFS stop `code` 도 서울·경기·부산 전부 null(운영 OTP 실측) → 번호·출구는 OTP 밖 원천
+- 저장 시점 = 여정 생성 1회. 방면은 Compiler `emitTransit` 이 draft 에 직접(호출 3곳 start·revision·track 무수정), 서울 정류장 번호는 `JourneyGuidanceInfoEnricher`(TransitIdEnricher 다음, 3곳에서 호출)
+- 재탐색 수락 경로: 새 단계 = `RerouteAcceptTxService` builder, 앞 구간 = `JourneyLeg.copyToRevision`(안내 값 복사), 자르기 = `copyToRevisionTruncated` 가 `Truncation.guidance`(새 draft) 의 **하차 쪽만** 덮음. 옛 8인자 Truncation 은 하차 쪽을 비운다(옛 하차점 값 금지)
+- 서울 번호는 TransitIdEnricher 가 bus_stop 존재를 확인한 내부 ID(`startStopId/endStopId`)로 `findByStopIdIn` — 접두사 규칙 재구현 안 함. 운영 bus_stop 12,986 중 ars 12,851(99%)
+- 방면 = 정차 목록 두 번째 역 `displayName`. 목록이 2점(OTP stopCalls 폴백·1정거장)이면 null
+- `fast_alight` 는 코드베이스 패턴대로 `String` + `jsonb` + `@ColumnTransformer(write="?::jsonb")`. 응답 해석 실패는 null(여정 조회 보호)
+- 지오메트리 `StopGeometry.stopNo`: 서울 노선표 경로(`findStopsByRouteId` projection 에 `bs.arsId`)만. 검색 결과 경로는 id 혼재라 null
+
+### 함정
+- 위치 인자 record 확장 → 옛 arity 보조 생성자(`JourneyLegDraft`·`JourneyLegView`·`StopGeometry`)로 호출부 파급 차단. `RouteStopProjection` 에 메서드 추가 → 테스트 익명 구현 4곳에 `getArsId()` 추가
+
+### 검증
+- 신규: JourneyGuidanceInfoEnricherTest 4, JourneyLegGuidanceCopyTest 3(복제·자르기·옛 Truncation), JourneyCompilerTest DirectionName 3, JourneyQueryServiceFastAlightTest 2, JourneyControllerTest·GeometryControllerTest JSON 이름·null
+- 전체 단위 `./gradlew test --tests '*Test'` → **2240/0**. 컨텍스트 IT 미실행(스크래치 clone DB 없음, 기존 무관). `RerouteAcceptTxService` 는 단위 테스트 파일이 없어 builder 한 줄은 IT(`RerouteAcceptIT`) 몫 — 미실행
+
+### 배포
+- **V63 VPS 수동배치 필요**(`V63__journey_leg_guidance_info.sql`, journey_leg 컬럼 6개 추가, 전부 nullable). api·worker. 진행 중 여정은 null, 새 여정부터
+
+## 2026-10-10 guidance-stop-info PR-2 (#266 경기·지방 정류장 번호)
+
+플랜 `docs/plan/guidance-stop-info/PLAN.md` §4 + §9. 브랜치 feat/guidance-regional-stop-no (PR-1 #337 머지 후 fresh main).
+
+### 확정
+- 원천 실측(2026-10-10): GBIS `getBusRouteStationListv2` `mobileNo` 145 중 134 채움(앞 공백 있음), TAGO `getRouteAcctoThrghSttnList` `nodeno` 25개 도시 표본 중 22 채움(충남 34310·34340, 영동 37350 없음)
+- 저장 = `regional_bus_route_stop.stop_no`(V64). 파서는 `text()`(trim, 빈 값 null) — TAGO `nodeno` 는 JSON 숫자라 `asText` 로 문자열화
+- 조회 = 출발 원천 ID → 정류장 표 ID 정규화(`JourneyGuidanceInfoEnricher.regionalStopId`): `…BS_TAGO_` 접두 제거 → `SEB`=서울이라 null, `GGB`=떼고 GBIS stationId, 나머지=TAGO nodeid 그대로. 서울(bus_stop) 값이 있으면 그게 우선
+- 같은 정류장이 노선마다 여러 행 — 번호가 엇갈리면 null(지어내지 않음)
+- 적재: worker 부팅 시 "표는 있는데 stop_no 가 하나도 없으면" 1회 재적재(`needsStopNumbers`). V64 배포 직후 자동으로 돈다(`collector.regional-bus-catalog.load-on-empty` 가 켜져 있을 때)
+
+### 미결
+- TAGO 군 단위(`TSB…`) 7자리 `nodeno`(예 `3370262`)가 표지판 번호인지 미확인 — 지금은 그대로 싣는다
+- TAGO 번호가 원래 앞자리 0 을 가진 도시면 JSON 숫자에서 사라졌을 수 있다(원천이 숫자로 줘서 복원 불가)
+
+### 검증
+- 신규: JourneyGuidanceInfoEnricherTest +2(경기 두 ID 모양·TAGO, 엇갈림 null·서울 원천 제외), RegionalBusRouteSourceAdapterTest +1(mobileNo trim·nodeno 숫자·없음), JdbcRegionalBusRouteStopStoreIT +1(저장·조회·엇갈림·hasStopNumbers, testcontainers postgres 로 V56+V64 실행)
+- 전체 단위 + 저장소 IT: **2270/0**
+
+### 배포
+- **V64 VPS 수동배치 필요**(`V64__regional_bus_route_stop_stop_no.sql`). worker 재시작 시 정류장 표 1회 재적재(약 2만 노선, 키 한도 주의 — #281 실측 적재 ~1시간) → 그 뒤 api
+## 2026-10-10 9호선·공항철도 역 도착 열차 0대 (S, fix/subway-arrivals-reversed-lines)
+
+### 함정
+- 증상: `/api/subway/stations/{id}/arrivals` 9호선 0/38역, 공항철도 6/14역에서 trains 가 비어 옴(수집 스냅샷엔 9호선 142대 정상). ← 위치 API `updnLine` 의 0/1 이 두 노선만 도착 API 와 반대다. 같은 열차가 도착 `하행 → 개화`, 위치 hash `상행|9111` 로 남는다 → `SubwayTrainPositionResolver.place` 가 "반대 방향으로 더 최근에 본 열차"(reversed)로 보고 전부 뺀다
+- 실측(운영 스냅샷 vs `subway:pos:<date>:<line>` hash, 열차번호 대조): 1009 반대 26/26, 1065 반대 24/24, 나머지 15개 노선은 일치(2호선 반대 2건은 회차 중)
+- 가드: `SubwayDirectionNormalizer.INVERTED_UPDN_LINES = {1009, 1065}` 로 뒤집는다. 호출처는 위치 어댑터 한 곳이다
+- 배포 직후에는 그날 hash 에 옛 표기 필드가 남는다. 신선도 창(5분)이 지나면 무시되므로 따로 지우지 않는다
+
+### 미결
+- 신분당(1077) 12대가 위치 hash 에 양방향으로 다 있다("both"). 도착 커버는 16/16 이라 영향은 없지만 원인은 미조사
+- 2호선 성수지선 4역, 1092 신설동·북한산우이는 별건
+
+### 검증
+- `./gradlew test --tests '*Subway*'` (st-pg/st-redis + 더미 env) → 568/0. `SubwayDirectionNormalizerTest.invertedLines` 추가
+
+
+## 2026-10-10 guidance-stop-info PR-3 (#266 지하철 출구)
+
+플랜 §5 + §9. 브랜치 feat/guidance-subway-exit (PR-2 #338 머지 후 main).
+
+### 확정
+- 원천 = OSM `railway=subway_entrance` + `ref`. 로컬 `south-korea-260929-nojeju.osm.pbf` 에서 `tools/subway-entrances/build_entrances.sh` 로 `src/main/resources/subway/entrances.csv` 생성(ref 있는 4,462개, 이름표 4,054). 역 마스터 696 중 692역이 350m 안 출구 보유
+- OTP 그래프 출입구 기능 미사용 — 운영 포크는 `step.feature{Entrance}` 지원하나 실측 도보 단계에 안 나옴(정류장이 최근접 도로로 붙어 출입구 노드 미경유 추정)
+- 선택 = 역 반경 350m 안 출입구 중 목표(하차: 다음 걷기 끝 / 승차: 앞 걷기 시작)에 최근접. 이름표에 역 이름(displayName) 든 출구가 있으면 그것만(큰 환승역 타 역 출구 혼입 방지)
+- 단계 종류 규칙: 하차 출구는 다음이 걷기이고 그 다음이 WAIT_SUBWAY 가 아닐 때만, 승차 출구는 앞이 걷기이고 그 앞이 RIDE_SUBWAY 가 아닐 때만. 같은 정류장 환승(걷기 없음)·끝이 역이면 null
+- 플랜 편차: 목표점을 "걷기 polyline 100~150m 지점"(리뷰 🟡7b)으로 하지 않고 걷기 끝/시작 좌표 — draft 에 도보 polyline 이 없다. 오차 가능성은 HANDOFF 에 적음
+- 출입구 목록은 첫 사용 시 1회 적재(메모리 4천여 행), 적재 실패 시 출구 없이 진행
+
+### 검증
+- 신규: SubwayEntranceIndexTest 4(최근접·이름표 우선·반경·동봉 CSV 강남 10번), JourneyGuidanceInfoEnricherTest +2(승·하차 출구, 환승·끝 역 null)
+- 전체 단위 `./gradlew test --tests '*Test'` → **2269/0**
+
+### 배포
+- 리소스만(api·worker). 마이그레이션 없음. OSM 출처 표기 앱 요청(HANDOFF)
+
+## 2026-10-10 guidance-stop-info PR-4 (#266 빠른 하차)
+
+플랜 §6 + §9. 브랜치 feat/guidance-fast-alight (PR-3 #340 머지 후 main).
+
+### 확정
+- 원천 = 서울교통공사_빠른하차정보 `B553766/inout/getFstExit`(data.go.kr 15143840, 사용자 활용신청 완료, 기존 data.go.kr 키). 전체 2,358행·crtrYmd 20241231·1~8호선 276역. `stinNm` 필터 무시됨 → 통째 받아 `tools/subway-fast-alight/fetch_fast_alight.py` 로 `src/main/resources/subway/fast-alight.csv`(중복 제거 2,111행, `NA-NA` 제거, `"3-2,3-3 사이"` → `3-2~3-3`)
+- 방향 = **하차 직전 역이 아닌 `drtnInfo`**(리뷰 🟡5, `nextOf` 의존 제거). 한 방향뿐(종착)은 그것, 직전 역을 모르거나 남은 방향이 둘(갈래역)이면 없음. 2호선도 원천은 상행/하행이라 이 규칙이 필수
+- 하차 직전 역 이름은 Compiler 가 draft(`alightPrevName`, 저장 안 함)에 담는다 — 정차 목록 [n-2]. 호선 = 짝 대기 단계 후보의 내부 line_id(1001~1008)
+- 이름 정규화 = `SubwayPatternStationMatcher.displayName`(괄호·끝 "역" 제거: `서울역`→`서울`)
+- 성수지선(용답 방향)은 원천에 없음 → null(실측 성수 행의 방향 = 뚝섬·건대입구)
+
+### 검증
+- 신규: SubwayFastAlightIndexTest 5(방향 선택·종착·모름/갈래/호선 밖·동봉 CSV·line_id), JourneyGuidanceInfoEnricherTest +1(대기 후보 line_id·방향·JSON 왕복), JourneyCompilerTest +1(alightPrevName)
+- 전체 단위 → **2277/0**
+
+### 배포
+- 리소스만(api·worker). 마이그레이션 없음
+
+## 2026-10-10 배포 기록 — #339 9호선·공항철도 방향 반전 (worker 핫픽스)
+
+### 배포
+- 16:13 KST worker 만 교체: `nextroute:20261010-161341-927af672-hotfix-subwaydir` = 운영 worker 리비전 `927af672` + #339 수정 2파일(cherry-pick, main 아님). 이전 `20261010-005035-927af672`(`./deploy.sh rollback-worker`)
+- api 는 그대로 `26fc4554`(다른 세션 배포). `app.jar` 는 worker 빌드에 잠깐 쓰고 api jar 로 되돌렸다(백업 `app.jar.bak-20261010-api-26fc4554`)
+- main 의 #329·#336·#337·#338(V63·V64)은 이 배포에 포함하지 않았다(사용자 결정). 다음 main 배포에는 #339 가 자연히 들어간다
+- DB 에 V62 가 이미 있지만 worker jar 는 V61 까지다 → Flyway 11 기본 `ignoreMigrationPatterns=*:future` 로 부팅 정상(ERROR 0)
+
+### 검증
+- 배포 5.5분 뒤 역 도착: 9호선 0/38 → 38/38, 공항철도 6/14 → 14/14, 대조 5호선 56/56
+- 마곡나루 상행 = '중앙보훈병원 방면', 하행 = '김포공항 방면'(전에는 상행 '개화 방면'으로 뒤집혀 있었다)
+## 2026-10-10 지하철 링 Live Activity push 에 stale-date (#309, feat/ring-push-stale-date, S)
+
+### 확정
+- `aps.stale-date`(epoch 초) = 봉투 `props.progressValidUntil`(밀리초) ÷ 1000 내림. `update` 에만, 값이 없으면 키를 뺀다
+- 대기열 행(`subway_ring_push_outbox.payload`)이 이미 화면 전체를 들고 있어 DB 칸·포트 시그니처를 늘리지 않았다. 꺼내는 규칙은 봉투 모양을 소유한 `SubwayRingPushPayloadFactory.staleDateSeconds`(정적), 어댑터가 부른다
+- 종료 프레임은 SQL 이 만들지만 `end` 라 해당 없음
+
+### 배포
+- worker 만(발송=worker relay). 마이그레이션·플래그 없음
+
+### 검증
+- `FcmLiveActivityPushAdapterTest` 14/0(신규 3: update 초 단위·값 없으면 키 없음·end 없음), `SubwayRingPushPayloadFactoryTest` 5/0(신규 1: 봉투 왕복)
+## 2026-10-10 지하철 링 하차역 도착 예정 estimatedAlightingAt (#310, feat/ring-estimated-alighting, M)
+
+### 확정
+- 사용자 결정(2026-10-10): 남은 구간은 **시간표만**. `estimatedAlightingAt` = 다음 역 도착 예정 + GTFS 계획 초(다음 역 도착 → 하차역 도착, 사이 정차 포함). 지연은 다음 역 예정에만 반영된다. 다음 역 = 하차역이면 그 예정 그대로. 다음 역 예정이 없거나(멈춘 링) 계획을 모르면 null
+- 계획 초 = `SubwayLineOrder.arrivalGapSeconds`(#317 과 같은 OTP 패턴 캐시, OTP 를 부르지 않음 — 캐시 없으면 뒤에서 적재하고 이번엔 null). 두 역을 이 순서로 지나는 패턴 중 trip 최다(완행). 순환 패턴은 출발역을 다시 만나면 끊는다
+- 계산 자리 = `SubwayRingUpdateService`(계산기는 순수 함수라 노선·방향을 모름). 방향·노선은 고정 열차(`TrainIdentity`)의 것
+- 사용자 결정: push `stale-date` = min(progressValidUntil, 하차 예정 − 60초)(앱 규칙과 같음)
+- 계약: push props `estimatedAlightingAt`(epoch 밀리초, 없으면 null), 스냅샷 `subwayGuidance.estimatedAlightingAt`(Instant). push 지문에 하차 예정 30초 눈금 추가 → 바뀌면 ANCHOR push·링 버전 상승
+- `SubwayRingState`·`SubwayGuidance` 레코드 끝에 칸 추가 + 옛 모양 생성자 유지. Redis 옛 값은 null 로 읽힌다(`RedisSubwayRingAdapterIT` 7/0)
+
+### 함정
+- `RerouteProposalStoreIT` 23·`JourneySchemaIT` 1·`RerouteProposalExpiryIT` 1 실패는 **main 에서도 난다** — #337 의 V63(`journey_leg.direction_name` 등)이 `@Sql` 로 표를 만드는 IT 스크립트에 반영 안 됨. 이 PR 무관(기존 무관), 별건으로 고칠 것
+
+### 배포
+- worker(링 갱신·push) + api(스냅샷 subwayGuidance). 마이그레이션·플래그 없음
+
+### 검증
+- 단위: SubwayLineOrderTest 9/0(신규 2), SubwayRingPushDeciderTest 13/0(신규 1), SubwayRingPushPayloadFactoryTest 6/0(신규 1), FcmLiveActivityPushAdapterTest 14/0, SubwayRingCalculatorTest 38/0, JourneyControllerTest 36/0
+- 일회용 st-pg/st-redis 전체: 2824 중 실패 38 = 기존 무관 13(이전 기록과 동일 구성) + V63 IT 스크립트 25(main 에서 같은 실패 확인). 링 IT: SubwayRingIT 16/0, SubwayRingPushIT 25/0, RedisSubwayRingAdapterIT 7/0, SubwayRideScenarioIT 9/0, JourneySubwayGuidanceIT 9/0
+## 2026-10-10 링 push stale-date 를 앱 규칙에 맞춤 (#309·#310 후속, fix/ring-stale-date-match-app, S)
+
+### 확정
+- ~~#310 의 stale-date = min(progressValidUntil, 하차 − 60초)~~ 취소: 앱(`nextroute-mobile` `JourneyGuidanceLiveActivity.swift` redrawAt)과 달랐다. 새 규칙 = 후보 {다음 역 도착 예정, progressValidUntil, 하차 − 60초} 중 **보내는 시각 이후**인 것의 최솟값, 링 `quality=STALE` 이면 없음
+- 사용자 영향(어긋났을 때): ① 다음 역 예정이 빠지면 늦는 열차에서 링이 100%("도착")까지 찼다가 다음 push 에 되돌아감 ② 지난 시각을 주면 하차 직전 push 가 받자마자 낡은 화면 ③ STALE 은 영향 작음(통일)
+- "보내는 시각" = 어댑터 `System.currentTimeMillis()`(발송 시점). `message(..., nowMillis)` 오버로드로 시험 고정
+- 앱은 이미 props `estimatedAlightingAt`(optional)·자체 staleDate 를 구현해 둠 → 앱 변경 없음. 스냅샷 `subwayGuidance.estimatedAlightingAt` 은 앱 모델에 칸이 없어 아직 안 읽음(선택)
+
+### 검증
+- SubwayRingPushPayloadFactoryTest 10/0(StaleDate 5: 다음 역 먼저·지난 후보 건너뜀·하차 1분 전·지난 하차 1분 전·STALE), FcmLiveActivityPushAdapterTest 14/0, SubwayRingPushIT 25/0, SubwayRingIT 16/0, SubwayRideScenarioIT 9/0 (일회용 st-pg/st-redis)
+## 2026-10-10 @Sql IT 스크립트에 V63 추가 (fix/it-sql-v63-columns, S)
+
+### 함정
+- 마이그레이션을 나열해 표를 만드는 `@Sql` IT 14곳(V35~V59 목록)에 #337 의 V63(`journey_leg` 안내 칸 6개)이 빠져 엔티티 INSERT/SELECT 가 `column "direction_name" does not exist` 로 죽었다(RerouteProposalStoreIT 23·JourneySchemaIT 1·RerouteProposalExpiryIT 1) / 가드: 엔티티에 칸을 더하는 마이그레이션은 `grep -rl "V35__" src/test/java` 목록에도 한 줄 추가. V60·V61·V62 는 그 IT 들이 쓰는 엔티티 칸이 아니라 넣지 않았다
+
+### 검증
+- 일회용 st-pg/st-redis 전체 2833 중 실패 13 = 기존 무관 그대로(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·RerouteRemainingPathOtpLiveIT 1·JourneyNotificationSchemaIT 간헐 1). V63 관련 25건 → 0
+
+## 2026-10-10 코레일 구간 인접 판정 — 노선 순서(역 ID) 폴백 (fix/subway-adjacency-korail-sections, S)
+
+### 확정
+- `SubwayStationAdjacency` 이름 표(subway_segment)는 **서울교통공사 구간 276역뿐**. 1호선 경부·경인·경원, 3호선 일산선, 4호선 과천·안산선은 늘 "인접 아님" → 위치 출발 사건 0. 10-10 Redis `subway:dep:*` 실측: 1001=124~133(서울역~청량리)만, 1003=319~352, 1004=409~434. 수원 `departed[]` 항상 빔, 같은 원인으로 M7 판정·떠난 열차 선택도 그 구간 불가
+- 폴백: 이름 표에 없으면 `SubwayLineOrder.nextOf/prevOf`(GTFS 패턴, 역 ID, 그 열차 방향)로 바로 앞뒤인지 본다. 답이 하나일 때만 답하므로 분기역(구로·병점)은 여전히 false — 순간이동을 출발로 읽지 않는 원칙 유지
+- 코레일 구간 위치 원천은 출발(2) 상태를 거의 안 준다(10-10 실측 korail ARRIVED 448 / ENTERING 11 / DEPARTED 0) → 출발 사건은 movedStation(역 바뀜) 경로로만 생긴다
+- worker 에서 패턴 캐시가 비면 첫 호출은 false + loadLater(OTP 1회 적재). 이후부터 판정
+
+### 좌표
+- SubwayStationAdjacency.isAdjacentInOrder / SubwayTrainTransitionTracker.isSameTrainTrack·movedStation
+
+### 함정
+- 스크래치 clone 컨텍스트 IT: env 더미는 api.env 키만. oauth.env 더미 → `oauth.kakao.app-id` Long 바인딩 실패, toss.env 더미 → mTLS keystore 파일 없음으로 부팅 사망. DB/Redis 는 로컬 st-pg(55432)·st-redis(56379)
+
+### 검증
+- 단위: `--tests '*SubwayStationAdjacencyTest' --tests '*SubwayTrainTransitionTrackerTest'` → 24/0
+- 컨텍스트 IT(st-pg/st-redis): `SubwayRideScenarioIT`·`NextrouteApplicationTests`·`SubwayRingIT` → 26/0
+## 2026-10-10 #317 이 역 전에 종착하는 열차 제외 (fix/subway-arrivals-terminates-before, S)
+
+### 확정
+- 수원 `병점행 · 진위` 의 정체 = 반대 방향이 아니라 **같은 방향인데 조회역 상류(병점)에서 종착**. 도착 API 가 수원 목록에 싣는다(10-10 17시 7회 연속 실측). PR-1 의 방향 필터로는 못 잡는다
+- 판정: 조회역에서 상류로 걸으며 **열차 현재 역을 만나기 전에** 종착역 이름이 나오면 제외. 위치가 경계인 이유 = 순환선(2호선 강남 내선 성수행은 성수를 지나 한 바퀴 오는 열차 — 위치까지만 걸으면 성수를 안 만남)
+- 위치·종착 이름 모름, 이름 불일치, 판정 예외 → 남긴다(잘못 빼는 쪽이 더 나쁨). 상류 최대 20역, 갈래 합류점에서 prevOf 가 empty 라 거기서 멈춤(병점 상류는 세마/서동탄 갈래라 병점까지만)
+
+### 좌표
+- SubwayTrainSegmentResolver.terminatesBefore / SubwayStationArrivalQueryService.getArrivals 필터
+
+### 검증
+- `./gradlew test --tests '*SubwayTrainSegmentResolverTest' --tests '*SubwayStationArrivalQueryServiceTest'` → 34/0 (terminatesBeforeBoard, dropsTrainTerminatingBeforeStation)
+## 2026-10-10 #317 구간 앵커 도착 예정 = GTFS 계획 초로 통일 (fix/subway-segment-scheduled-only, S)
+
+### 확정
+- 사용자 결정: `segment.expectedAt` 은 실측 말고 **계획 시간으로 통일**. `source` 는 늘 `SCHEDULED`, enum `MEASURED` 는 계약 호환용으로만 남김
+- 링 ETA(SubwayRingSignalReader)의 실측 사용은 그대로 — 이번 변경은 역 도착 응답 `segment` 만
+
+### 함정
+- MEASURED 16~25초(이대→아현 16s, 역삼→강남 21s, 계획 90s) ← SubwaySegmentTimeRecorder 가 arvlCd 3→0(진입)을 도착으로 잼, 진입 신호가 역 닿기 한참 전에 옴 / 가드: SubwayTrainSegmentResolverTest.scheduledEvenWithMeasuredSamples
+- 실측 출처: 2026-10-10 17:09~17:18 운행 시간대 10역 6회 폴링, #317 코멘트
+
+### 검증
+- `./gradlew test --tests '*SubwayTrainSegmentResolverTest' --tests '*SubwayStationArrivalQueryServiceTest' --tests '*SubwayStationControllerTest'` → 37/0
+- 전체 `./gradlew test`(3 브랜치 합본, st-pg/st-redis) → 2838 중 실패 12. 기존 무관(main 동일): JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1. JourneyNotificationSchemaIT 1 = 'Unable to rollback against JDBC Connection' 플래키, 단독 재실행 20/0
+
+## 2026-10-10 #317 후속 3건 배포 (#350·#351·#352, main b802d2e6)
+
+### 배포
+- 18:16 KST. worker 먼저 → api. 마이그레이션 없음(jar 안 64개, 기존 VPS jar 와 목록 동일)
+- worker `nextroute:20261010-181556-b802d2e6`, api `nextroute:20261010-181637-b802d2e6`
+- 이전: 둘 다 `…-922953a4`(api `20261010-170022`, worker `20261010-165940`) → `./deploy.sh rollback-api|rollback-worker`
+- jar 백업 `app.jar.bak-20261010-pre-317-followup`, 새 jar sha256 `bcbddf409df520c6…` 로컬·VPS 일치
+- 절차: 스크래치 clone(main b802d2e6) `./gradlew bootJar` → jar 안 `isAdjacentInOrder`·`terminatesBefore` 확인 → 백업 → scp → `DEPLOY_REVISION=b802d2e6 ./deploy.sh worker` → `./deploy.sh api`. `docker inspect` 로 두 컨테이너 새 태그 확인
+- 배포 전 확인: 운영 리비전 922953a4 가 b802d2e6 의 조상(사이 커밋 = 이번 3건 + 문서·테스트뿐)
+
+### 검증
+- 배포 후 30분 ERROR 0(api·worker)
+- segment: 8역 응답 전부 `SCHEDULED`, 60~150s(이대→아현 16s → 60s, 강남→교대 90s)
+- 코레일 출발 기록: 배포 6분 만에 `subway:dep:2026-10-10:1001:*:1001080*` 키 29개(배포 전 0)
+- 수원 `departed[]`: 18:23 상행 `0474 광운대행 @화서 source=POSITION`(배포 전 늘 빔)
+
+### 미결
+- 수원 상행 병점행 제외 실사례 미확인(18:17~18:21 남쪽발 병점행 없음). 확인: `curl -s https://api.refit-100.site/api/subway/stations/1001080155/arrivals | jq '.directions[] | select(.direction=="상행") | .trains[] | select(.destinationName=="병점")'` 가 비면 OK
 
 ## 2026-10-10 배포 기록 — #328 기기 익명 계정 (api)
 

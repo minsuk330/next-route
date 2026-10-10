@@ -50,10 +50,11 @@ class SubwayTrainSegmentResolverTest {
     }
 
     @Test
-    @DisplayName("실측 표본이 있으면 출발 + 중앙값, MEASURED")
-    void measured() {
+    @DisplayName("실측 표본이 있어도 도착 예정은 GTFS 계획 초, SCHEDULED — 실측은 진입 기준이라 짧다(2026-10-10)")
+    void scheduledEvenWithMeasuredSamples() {
         given(segmentTimePort.departedAt(LINE, DIR, G, "2231")).willReturn(Optional.of(NOW.minusSeconds(30)));
-        given(segmentTimePort.recentSeconds(LINE, DIR, G)).willReturn(List.of(70L, 95L, 80L));
+        given(segmentTimePort.recentSeconds(LINE, DIR, G)).willReturn(List.of(16L, 21L, 25L));
+        given(lineOrder.runSeconds(LINE, DIR, Y, G)).willReturn(Optional.of(90));
 
         Segment seg = resolver.segment(LINE, DIR, "2231", departedFrom(Y, PositionSource.POSITION));
 
@@ -61,15 +62,14 @@ class SubwayTrainSegmentResolverTest {
         assertThat(seg.toStationId()).isEqualTo(G);
         assertThat(seg.toStationName()).isEqualTo("강남");
         assertThat(seg.departedAt().toInstant()).isEqualTo(NOW.minusSeconds(30));
-        assertThat(seg.expectedAt().toInstant()).isEqualTo(NOW.plusSeconds(50));
-        assertThat(seg.source()).isEqualTo(SegmentSource.MEASURED);
+        assertThat(seg.expectedAt().toInstant()).isEqualTo(NOW.plusSeconds(60));
+        assertThat(seg.source()).isEqualTo(SegmentSource.SCHEDULED);
     }
 
     @Test
-    @DisplayName("실측 표본이 없으면 GTFS 계획 초, SCHEDULED. 출발 기록이 없으면 위치 API 상태가 바뀐 시각")
+    @DisplayName("GTFS 계획 초, SCHEDULED. 출발 기록이 없으면 위치 API 상태가 바뀐 시각")
     void scheduledFallback() {
         given(segmentTimePort.departedAt(any(), any(), any(), any())).willReturn(Optional.empty());
-        given(segmentTimePort.recentSeconds(any(), any(), any())).willReturn(List.of());
         given(lineOrder.runSeconds(LINE, DIR, Y, G)).willReturn(Optional.of(90));
 
         Segment seg = resolver.segment(LINE, DIR, "2231", departedFrom(Y, PositionSource.POSITION));
@@ -91,7 +91,6 @@ class SubwayTrainSegmentResolverTest {
     @DisplayName("출발 시각은 아는데 예정을 모르면 expectedAt·source 가 null")
     void unknownDuration() {
         given(segmentTimePort.departedAt(any(), any(), any(), any())).willReturn(Optional.of(NOW.minusSeconds(10)));
-        given(segmentTimePort.recentSeconds(any(), any(), any())).willReturn(List.of());
         given(lineOrder.runSeconds(any(), any(), any(), any())).willReturn(Optional.empty());
 
         Segment seg = resolver.segment(LINE, DIR, "2231", departedFrom(Y, PositionSource.ARRIVAL));
@@ -109,14 +108,6 @@ class SubwayTrainSegmentResolverTest {
 
         given(segmentTimePort.departedAt(any(), any(), any(), any())).willThrow(new IllegalStateException("down"));
         assertThat(resolver.segment(LINE, DIR, "2231", departedFrom(Y, PositionSource.ARRIVAL))).isNull();
-    }
-
-    @Test
-    @DisplayName("중앙값: 홀수는 가운데, 짝수는 가운데 둘 평균")
-    void median() {
-        assertThat(SubwayTrainSegmentResolver.median(List.of(90L))).isEqualTo(90);
-        assertThat(SubwayTrainSegmentResolver.median(List.of(100L, 60L))).isEqualTo(80);
-        assertThat(SubwayTrainSegmentResolver.median(List.of())).isNull();
     }
 
     @Test
@@ -144,6 +135,25 @@ class SubwayTrainSegmentResolverTest {
 
         assertThat(resolver.hasPassed(LINE, DIR, G, left, NOW.minusSeconds(30))).isTrue();
         assertThat(resolver.hasPassed(LINE, DIR, G, left, NOW.plusSeconds(5))).isFalse();
+    }
+
+    @Test
+    @DisplayName("종착: 조회역 상류에서 열차 위치보다 먼저 종착역이 나오면 이 역에 오지 않는다(수원 상행 병점행)")
+    void terminatesBeforeBoard() {
+        given(stationIndex.candidates(LINE)).willReturn(List.of(new Candidate(S, "선릉", 0, 0),
+                new Candidate(Y, "역삼", 0, 0), new Candidate(G, "강남", 0, 0), new Candidate(J, "교대", 0, 0)));
+
+        // 교대(J) 조회, 열차는 선릉(S), 역삼행 — 역삼에서 끝난다
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, "역삼", at(S))).isTrue();
+        // 열차가 이미 종착역보다 가까이(강남) 있으면 종착역은 지난 뒤다 — 순환선의 한 바퀴 열차
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, "역삼", at(G))).isFalse();
+        // 이 역 종착은 온다
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, "교대", at(S))).isFalse();
+        // 하류 종착·모르는 이름·위치 모름은 끝내지 않는다
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, "서초", at(S))).isFalse();
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, "병점", at(S))).isFalse();
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, "역삼", null)).isFalse();
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, null, at(S))).isFalse();
     }
 
     private static Position departedFrom(String station, PositionSource source) {

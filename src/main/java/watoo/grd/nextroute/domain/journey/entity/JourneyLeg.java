@@ -9,6 +9,7 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnTransformer;
 import watoo.grd.nextroute.common.entity.BaseEntity;
 
 import java.time.Instant;
@@ -140,6 +141,26 @@ public class JourneyLeg extends BaseEntity {
      */
     private Long selectedRouteOptionId;
 
+    // ── 안내 시트 지점 줄 값(#266). 계획 값이라 진행 중에 바뀌지 않는다 ─────────────────
+    @Column(length = 16)
+    private String startStopNo;
+
+    @Column(length = 16)
+    private String endStopNo;
+
+    @Column(length = 64)
+    private String directionName;
+
+    @Column(length = 8)
+    private String startExitNo;
+
+    @Column(length = 8)
+    private String endExitNo;
+
+    @Column(columnDefinition = "jsonb")
+    @ColumnTransformer(write = "?::jsonb")
+    private String fastAlight;
+
     @Builder
     public JourneyLeg(Long journeyId, int routeRevision, int legIndex,
                       JourneyLegType type, JourneyLegState state,
@@ -147,7 +168,7 @@ public class JourneyLeg extends BaseEntity {
                       String sourceStartStopId, String sourceEndStopId,
                       String startName, String endName,
                       Integer plannedDurationSec, String evidenceQuality,
-                      Instant activatedAt) {
+                      Instant activatedAt, JourneyLegGuidance guidance) {
         this.journeyId = journeyId;
         this.routeRevision = routeRevision;
         this.legIndex = legIndex;
@@ -162,6 +183,22 @@ public class JourneyLeg extends BaseEntity {
         this.plannedDurationSec = plannedDurationSec;
         this.evidenceQuality = evidenceQuality;
         this.activatedAt = activatedAt;
+        applyGuidance(guidance);
+    }
+
+    /** 안내 시트 지점 줄 값 묶음(#266). 비어 있으면 {@link JourneyLegGuidance#EMPTY}. */
+    public JourneyLegGuidance getGuidance() {
+        return new JourneyLegGuidance(startStopNo, endStopNo, directionName, startExitNo, endExitNo, fastAlight);
+    }
+
+    private void applyGuidance(JourneyLegGuidance guidance) {
+        JourneyLegGuidance g = JourneyLegGuidance.orEmpty(guidance);
+        this.startStopNo = g.startStopNo();
+        this.endStopNo = g.endStopNo();
+        this.directionName = g.directionName();
+        this.startExitNo = g.startExitNo();
+        this.endExitNo = g.endExitNo();
+        this.fastAlight = g.fastAlightJson();
     }
 
     /**
@@ -192,6 +229,7 @@ public class JourneyLeg extends BaseEntity {
                 .plannedDurationSec(this.plannedDurationSec)
                 .evidenceQuality(this.evidenceQuality)
                 .activatedAt(this.activatedAt)
+                .guidance(getGuidance())
                 .build();
         copy.routeId = this.routeId;
         copy.vehicleId = this.vehicleId;
@@ -235,6 +273,8 @@ public class JourneyLeg extends BaseEntity {
         copy.remainingDurationSeconds = truncation.remainingDurationSeconds();
         copy.progressLegFraction = truncation.progressLegFraction();
         copy.remainingDistanceMeters = null;
+        // 하차점이 바뀌었으니 하차 쪽 안내 값(정류장 번호·출구·빠른 하차)도 새 하차점 것으로(#266)
+        copy.applyGuidance(getGuidance().withEndFrom(truncation.guidance()));
         return copy;
     }
 
@@ -246,11 +286,20 @@ public class JourneyLeg extends BaseEntity {
      * @param predictedEndAt          새 하차점 도착 예측(실시간)
      * @param remainingDurationSeconds 지금부터 새 하차점까지 남은 시간(초)
      * @param progressLegFraction     잘린 단계 기준으로 다시 잰 진행 비율. 못 재면 null
+     * @param guidance                새 하차점 기준 안내 값(#266). 하차 쪽 값만 쓴다
      */
     public record Truncation(String endStopId, String sourceEndStopId, String endName,
                              Integer plannedDurationSec, Instant predictedEndAt,
                              Integer remainingStops, Integer remainingDurationSeconds,
-                             BigDecimal progressLegFraction) {
+                             BigDecimal progressLegFraction, JourneyLegGuidance guidance) {
+
+        public Truncation(String endStopId, String sourceEndStopId, String endName,
+                          Integer plannedDurationSec, Instant predictedEndAt,
+                          Integer remainingStops, Integer remainingDurationSeconds,
+                          BigDecimal progressLegFraction) {
+            this(endStopId, sourceEndStopId, endName, plannedDurationSec, predictedEndAt, remainingStops,
+                    remainingDurationSeconds, progressLegFraction, JourneyLegGuidance.EMPTY);
+        }
     }
 
     /**
@@ -278,6 +327,17 @@ public class JourneyLeg extends BaseEntity {
     public void inheritActivation(JourneyLegState state, Instant activatedAt) {
         this.state = state;
         this.activatedAt = activatedAt;
+    }
+
+    /**
+     * 지하철 실시간(서울 열차 위치·도착)이 있는 노선인지 — 서울 노선 id 가 있다.
+     *
+     * <p>지방 지하철(부산·대구·대전·광주·인천 등)은 노선 id 가 비어 있다({@code SubwayLineIdMapper}). 이때 탑승 확인을
+     * 열면 영원히 "확인 중"에 머문다. 승차역 id 는 보지 않는다 — 서울 노선이어도 역 이름이 애매하면 비고, 그때도
+     * 사용자가 고른 열차(#265)로 링이 돈다.
+     */
+    public boolean hasSubwayRealtimeLine() {
+        return routeId != null && !routeId.isBlank();
     }
 
     /** 현재 경로의 routeOption을 선택한다. 실제 차량을 확정하는 동작은 아니다. */

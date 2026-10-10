@@ -60,6 +60,11 @@ public class RegionalBusCatalogLoadService {
         return store.isEmpty();
     }
 
+    /** 표는 있는데 정류장 번호(V64)가 하나도 없으면 1회 다시 적재해야 한다(#266). */
+    public boolean needsStopNumbers() {
+        return !store.isEmpty() && !store.hasStopNumbers();
+    }
+
     public RegionalBusCatalogLoadResult load() {
         if (!running.compareAndSet(false, true)) {
             log.info("[RegionalBusCatalog] already running; skip");

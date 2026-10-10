@@ -48,6 +48,26 @@ class FcmLiveActivityPushAdapterTest {
     }
 
     @Test
+    @DisplayName("종료(end)에는 dismissal-date(epoch 초, 보낸 시각 + 15초)를 싣는다 — 없으면 낡은 화면이 4시간 남는다")
+    void endCarriesDismissalDate() {
+        long now = 1_786_681_200_000L;
+
+        Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
+                DEVICE_TOKEN, ACTIVITY_TOKEN, "end", 1786681200L, contentState(), now));
+
+        assertThat(aps.get(FcmLiveActivityPushAdapter.APS_DISMISSAL_DATE)).isEqualTo(now / 1000 + 15);
+    }
+
+    @Test
+    @DisplayName("갱신(update)에는 dismissal-date 가 없다")
+    void updateHasNoDismissalDate() {
+        Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
+                DEVICE_TOKEN, ACTIVITY_TOKEN, "update", 1786681200L, contentState()));
+
+        assertThat(aps).doesNotContainKey(FcmLiveActivityPushAdapter.APS_DISMISSAL_DATE);
+    }
+
+    @Test
     @DisplayName("aps.timestamp 는 epoch 초다 — props 의 밀리초와 자릿수가 다르다")
     void timestampIsSeconds() {
         long seconds = 1786681200L;
@@ -102,6 +122,35 @@ class FcmLiveActivityPushAdapterTest {
 
         assertThat(headers).containsEntry("apns-push-type", "liveactivity");
         assertThat(headers).containsEntry("apns-priority", "10");
+    }
+
+    @Test
+    @DisplayName("update 에는 aps.stale-date 가 epoch 초로 실린다 — 규칙은 SubwayRingPushPayloadFactoryTest.StaleDate")
+    void updateCarriesStaleDateInSeconds() {
+        Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
+                DEVICE_TOKEN, ACTIVITY_TOKEN, "update", 1786681200L, contentStateValidUntil(1786681290500L),
+                1786681200000L));
+
+        assertThat(aps.get(FcmLiveActivityPushAdapter.APS_STALE_DATE)).isEqualTo(1786681290L);
+    }
+
+    @Test
+    @DisplayName("후보 시각이 없으면 stale-date 를 빼고 보낸다 — 지어내지 않는다")
+    void noValidUntilMeansNoStaleDate() {
+        Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
+                DEVICE_TOKEN, ACTIVITY_TOKEN, "update", 1786681200L, contentState()));
+
+        assertThat(aps).doesNotContainKey(FcmLiveActivityPushAdapter.APS_STALE_DATE);
+    }
+
+    @Test
+    @DisplayName("end 에는 stale-date 를 싣지 않는다")
+    void endHasNoStaleDate() {
+        Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
+                DEVICE_TOKEN, ACTIVITY_TOKEN, "end", 1786681200L, contentStateValidUntil(1786681290500L),
+                1786681200000L));
+
+        assertThat(aps).doesNotContainKey(FcmLiveActivityPushAdapter.APS_STALE_DATE);
     }
 
     @Test
@@ -169,6 +218,13 @@ class FcmLiveActivityPushAdapterTest {
     }
 
     // ── 도우미 ──────────────────────────────────────────────────────────────
+
+    private ObjectNode contentStateValidUntil(long validUntilMillis) {
+        ObjectNode envelope = objectMapper.createObjectNode();
+        envelope.put("name", "NavigationLiveActivity");
+        envelope.put("props", "{\"phase\":\"RIDE_SUBWAY\",\"progressValidUntil\":" + validUntilMillis + "}");
+        return envelope;
+    }
 
     private ObjectNode contentState() {
         ObjectNode envelope = objectMapper.createObjectNode();

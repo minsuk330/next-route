@@ -57,6 +57,8 @@ class JdbcRegionalBusRouteStopStoreIT {
             try (Connection c = ds.getConnection()) {
                 ScriptUtils.executeSqlScript(c, new FileSystemResource(
                         "src/main/resources/db/migration/V56__create_regional_bus_route_stop.sql"));
+                ScriptUtils.executeSqlScript(c, new FileSystemResource(
+                        "src/main/resources/db/migration/V64__regional_bus_route_stop_stop_no.sql"));
             }
             return ds;
         }
@@ -171,6 +173,23 @@ class JdbcRegionalBusRouteStopStoreIT {
         assertThat(deleted).isEqualTo(1);
         assertThat(jdbc.queryForList("SELECT DISTINCT route_id FROM regional_bus_route_stop ORDER BY 1", String.class))
                 .containsExactly("233000031", "DJB1");
+    }
+
+    @Test
+    @DisplayName("#266 정류장 번호: 저장·조회, 노선마다 엇갈리면 빠진다, 번호 유무")
+    void stopNumbers() {
+        assertThat(store.hasStopNumbers()).isFalse();
+        store.replaceRoute(RegionalBusProvider.GG, "R1", "1", null, List.of(
+                new RegionalRouteStop("202000120", "a", 1, null, null, null, null, null, " 02230"),
+                new RegionalRouteStop("202000225", "b", 2, null, null, null, null, null, "02241")), AT);
+        store.replaceRoute(RegionalBusProvider.GG, "R2", "2", null, List.of(
+                new RegionalRouteStop("202000120", "a", 1, null, null, null, null, null, "02230"),
+                new RegionalRouteStop("202000225", "b", 2, null, null, null, null, null, "09999"),
+                new RegionalRouteStop("202000300", "c", 3, null, null, null, null, null, null)), AT);
+
+        assertThat(store.hasStopNumbers()).isTrue();
+        assertThat(store.stopNumbers(Set.of("202000120", "202000225", "202000300", "none")))
+                .containsExactlyEntriesOf(java.util.Map.of("202000120", "02230"));
     }
 
     @Test

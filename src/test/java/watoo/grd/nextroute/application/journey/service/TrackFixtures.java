@@ -42,6 +42,18 @@ final class TrackFixtures {
         return OtpTransitPatternAdapter.parseTripStopTimes(json("trip-stoptimes-subway2.json"));
     }
 
+    /** 2호선 시각에서 {@code noPickup}·{@code noDropoff} 위치만 승차·하차를 막는다. */
+    static List<TransitStopTime> line2TimesBlocking(java.util.Set<Integer> noPickup, java.util.Set<Integer> noDropoff) {
+        List<TransitStopTime> times = line2Times();
+        return java.util.stream.IntStream.range(0, times.size())
+                .mapToObj(i -> {
+                    TransitStopTime t = times.get(i);
+                    return new TransitStopTime(t.stopGtfsId(), t.scheduledArrival(), t.scheduledDeparture(),
+                            !noPickup.contains(i), !noDropoff.contains(i));
+                })
+                .toList();
+    }
+
     static List<TransitTripRef> line2Trips() {
         return OtpTransitPatternAdapter.parseTripsForDate(json("trips-for-date-subway2.json"));
     }

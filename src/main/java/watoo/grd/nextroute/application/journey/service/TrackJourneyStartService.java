@@ -59,6 +59,7 @@ public class TrackJourneyStartService {
     private final LegacyRouteResponseMapper legacyMapper;
     private final JourneyCompiler compiler;
     private final JourneyTransitIdEnricher transitIdEnricher;
+    private final JourneyGuidanceInfoEnricher guidanceInfoEnricher;
     private final JourneyStartTxService startTxService;
     private final JourneyStartConflictTranslator conflictTranslator;
     private final ObjectMapper objectMapper;
@@ -68,6 +69,7 @@ public class TrackJourneyStartService {
     public TrackJourneyStartService(JourneyTrackProperties properties, TrackPatternSource source,
                                     LegacyRouteResponseMapper legacyMapper, JourneyCompiler compiler,
                                     JourneyTransitIdEnricher transitIdEnricher,
+                                    JourneyGuidanceInfoEnricher guidanceInfoEnricher,
                                     JourneyStartTxService startTxService,
                                     JourneyStartConflictTranslator conflictTranslator,
                                     ObjectMapper objectMapper, MeterRegistry meterRegistry, Clock clock) {
@@ -76,6 +78,7 @@ public class TrackJourneyStartService {
         this.legacyMapper = legacyMapper;
         this.compiler = compiler;
         this.transitIdEnricher = transitIdEnricher;
+        this.guidanceInfoEnricher = guidanceInfoEnricher;
         this.startTxService = startTxService;
         this.conflictTranslator = conflictTranslator;
         this.objectMapper = objectMapper;
@@ -103,7 +106,7 @@ public class TrackJourneyStartService {
                     command.routeGtfsId(), command.boardStopId(), command.alightStopId());
             throw new BusinessException(JourneyErrorCode.JOURNEY_COMPILE_FAILED);
         }
-        plan = transitIdEnricher.enrich(plan);
+        plan = guidanceInfoEnricher.enrich(transitIdEnricher.enrich(plan));
 
         JsonNode routeSnapshot = objectMapper.valueToTree(path);
         JsonNode destination = objectMapper.createObjectNode().put("name", path.info().lastEndStation());
@@ -139,6 +142,11 @@ public class TrackJourneyStartService {
         Trip trip = pickTrip(selection.pattern(), deadline)
                 .orElseThrow(() -> new BusinessException(JourneyErrorCode.TRACK_SCHEDULE_UNAVAILABLE));
         List<TransitStopTime> times = source.port().tripStopTimes(trip.tripId(), trip.serviceDate(), deadline);
+        if (times.size() == detail.stops().size()
+                && (!times.get(selection.boardIndex()).pickup() || !times.get(selection.alightIndex()).dropoff())) {
+            // 승차 전용 정류장에서 내리거나 하차 전용 정류장에서 타는 선택 — TAGO·시외버스에 흔하다.
+            throw new BusinessException(JourneyErrorCode.TRACK_STOPS_INVALID);
+        }
         try {
             return TrackLegFactory.build(detail, selection.boardIndex(), selection.alightIndex(),
                     times, trip.tripId(), trip.serviceDate(), source.graphVersion());
