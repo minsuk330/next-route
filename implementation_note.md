@@ -4285,3 +4285,10 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - SubwayRingPushPayloadFactoryTest 10/0(StaleDate 5: 다음 역 먼저·지난 후보 건너뜀·하차 1분 전·지난 하차 1분 전·STALE), FcmLiveActivityPushAdapterTest 14/0, SubwayRingPushIT 25/0, SubwayRingIT 16/0, SubwayRideScenarioIT 9/0 (일회용 st-pg/st-redis)
+## 2026-10-10 @Sql IT 스크립트에 V63 추가 (fix/it-sql-v63-columns, S)
+
+### 함정
+- 마이그레이션을 나열해 표를 만드는 `@Sql` IT 14곳(V35~V59 목록)에 #337 의 V63(`journey_leg` 안내 칸 6개)이 빠져 엔티티 INSERT/SELECT 가 `column "direction_name" does not exist` 로 죽었다(RerouteProposalStoreIT 23·JourneySchemaIT 1·RerouteProposalExpiryIT 1) / 가드: 엔티티에 칸을 더하는 마이그레이션은 `grep -rl "V35__" src/test/java` 목록에도 한 줄 추가. V60·V61·V62 는 그 IT 들이 쓰는 엔티티 칸이 아니라 넣지 않았다
+
+### 검증
+- 일회용 st-pg/st-redis 전체 2833 중 실패 13 = 기존 무관 그대로(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·RerouteRemainingPathOtpLiveIT 1·JourneyNotificationSchemaIT 간헐 1). V63 관련 25건 → 0
