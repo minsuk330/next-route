@@ -135,6 +135,19 @@ class SubwayTrainTransitionTrackerTest {
     }
 
     @Test
+    @DisplayName("이름 표에 없는 코레일 구간도 노선 순서로 맞닿아 있으면 출발을 확정한다(수원 → 화서)")
+    void adjacentByLineOrderConfirmsDeparture() {
+        when(adjacency.isAdjacentInOrder(LINE, DIRECTION, "ID-수원", "ID-화서")).thenReturn(true);
+
+        tracker.observe(complete("09:00:10", row("수원", SubwayTrainStatus.ARRIVED, "09:00:00")));
+        tracker.observe(complete("09:02:10", row("화서", SubwayTrainStatus.ARRIVED, "09:02:00")));
+
+        SubwayTrainEvent departure = only(SubwayTrainEvent.Type.DEPARTED);
+        assertThat(departure.stationName()).isEqualTo("수원");
+        assertThat(departure.stationId()).isEqualTo("ID-수원");
+    }
+
+    @Test
     @DisplayName("출발 표시를 놓치면 구간이 두 관측 사이로 넓어진다")
     void missedDepartureWidensTheInterval() {
         tracker.observe(complete("09:00:10", row("성수", SubwayTrainStatus.ARRIVED, "09:00:00")));
