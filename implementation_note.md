@@ -4180,3 +4180,17 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 배포
 - **V64 VPS 수동배치 필요**(`V64__regional_bus_route_stop_stop_no.sql`). worker 재시작 시 정류장 표 1회 재적재(약 2만 노선, 키 한도 주의 — #281 실측 적재 ~1시간) → 그 뒤 api
+## 2026-10-10 9호선·공항철도 역 도착 열차 0대 (S, fix/subway-arrivals-reversed-lines)
+
+### 함정
+- 증상: `/api/subway/stations/{id}/arrivals` 9호선 0/38역, 공항철도 6/14역에서 trains 가 비어 옴(수집 스냅샷엔 9호선 142대 정상). ← 위치 API `updnLine` 의 0/1 이 두 노선만 도착 API 와 반대다. 같은 열차가 도착 `하행 → 개화`, 위치 hash `상행|9111` 로 남는다 → `SubwayTrainPositionResolver.place` 가 "반대 방향으로 더 최근에 본 열차"(reversed)로 보고 전부 뺀다
+- 실측(운영 스냅샷 vs `subway:pos:<date>:<line>` hash, 열차번호 대조): 1009 반대 26/26, 1065 반대 24/24, 나머지 15개 노선은 일치(2호선 반대 2건은 회차 중)
+- 가드: `SubwayDirectionNormalizer.INVERTED_UPDN_LINES = {1009, 1065}` 로 뒤집는다. 호출처는 위치 어댑터 한 곳이다
+- 배포 직후에는 그날 hash 에 옛 표기 필드가 남는다. 신선도 창(5분)이 지나면 무시되므로 따로 지우지 않는다
+
+### 미결
+- 신분당(1077) 12대가 위치 hash 에 양방향으로 다 있다("both"). 도착 커버는 16/16 이라 영향은 없지만 원인은 미조사
+- 2호선 성수지선 4역, 1092 신설동·북한산우이는 별건
+
+### 검증
+- `./gradlew test --tests '*Subway*'` (st-pg/st-redis + 더미 env) → 568/0. `SubwayDirectionNormalizerTest.invertedLines` 추가
