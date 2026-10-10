@@ -19,6 +19,7 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionRepository;
 
 import java.time.Instant;
+import watoo.grd.nextroute.application.regionalbus.dto.RegionalBusProvider;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,8 +42,10 @@ class WaitLegArrivalPredictorTest {
     private final JourneyLegRouteOptionRepository routeOptionRepository =
             mock(JourneyLegRouteOptionRepository.class);
 
+    private final RegionalArrivalLookup regionalArrivalLookup = mock(RegionalArrivalLookup.class);
+
     private final WaitBusArrivalPredictor busPredictor =
-            new WaitBusArrivalPredictor(predictTransferUseCase, routeOptionRepository);
+            new WaitBusArrivalPredictor(predictTransferUseCase, routeOptionRepository, regionalArrivalLookup);
     private final WaitSubwayArrivalPredictor subwayPredictor =
             new WaitSubwayArrivalPredictor(arrivalReader, routeOptionRepository);
 
@@ -123,6 +126,62 @@ class WaitLegArrivalPredictorTest {
 
             assertThat(busPredictor.predict(leg, null, NOW).isUnknown()).isTrue();
             verify(predictTransferUseCase, never()).predict(anyString(), anyString(), anyInt(), any());
+        }
+    }
+
+    @Nested
+    @DisplayName("경기·지방 버스 대기 (#333)")
+    class WaitRegionalBus {
+
+        @Test
+        @DisplayName("TAGO 노선은 TAGO 실시간의 가장 이른 도착을 쓴다")
+        void tagoNextArrival() {
+            JourneyLeg leg = regionalLeg("BSB186450201");
+            givenOption(regionalOption("BSB5202029000"));
+            given(regionalArrivalLookup.nextArrival(RegionalBusProvider.TAGO, "BSB5202029000", "BSB186450201"))
+                    .willReturn(new RegionalArrivalLookup.Lookup(NOW.plusSeconds(180), null));
+
+            CurrentLegArrival arrival = busPredictor.predict(leg, null, NOW);
+
+            assertThat(arrival.arrivalAt()).isEqualTo(NOW.plusSeconds(180));
+            assertThat(arrival.remainingSeconds()).isEqualTo(180);
+            assertThat(arrival.source()).isEqualTo(Source.REALTIME_ARRIVAL);
+            assertThat(arrival.quality()).isEqualTo(Quality.GOOD);
+            verify(predictTransferUseCase, never()).predict(anyString(), anyString(), anyInt(), any());
+        }
+
+        @Test
+        @DisplayName("경기 GBIS 노선은 경기 실시간, 분 단위라 근사")
+        void gyeonggiNextArrival() {
+            JourneyLeg leg = regionalLeg("202000141");
+            givenOption(regionalOption("233000031"));
+            given(regionalArrivalLookup.nextArrival(RegionalBusProvider.GG, "233000031", "202000141"))
+                    .willReturn(new RegionalArrivalLookup.Lookup(NOW.plusSeconds(300), null));
+
+            assertThat(busPredictor.predict(leg, null, NOW).quality()).isEqualTo(Quality.APPROXIMATE);
+        }
+
+        @Test
+        @DisplayName("지역 실시간이 답을 못 주면 모른다")
+        void regionalNoRealtimeIsUnknown() {
+            JourneyLeg leg = regionalLeg("202000141");
+            givenOption(regionalOption("233000031"));
+            given(regionalArrivalLookup.nextArrival(any(), anyString(), anyString()))
+                    .willReturn(new RegionalArrivalLookup.Lookup(null, "no-realtime"));
+
+            assertThat(busPredictor.predict(leg, null, NOW).isUnknown()).isTrue();
+        }
+
+        private JourneyLeg regionalLeg(String sourceStopId) {
+            JourneyLeg leg = leg(JourneyLegType.WAIT_BUS, JourneyLegState.ACTIVE, null, null);
+            ReflectionTestUtils.setField(leg, "sourceStartStopId", sourceStopId);
+            return leg;
+        }
+
+        private JourneyLegRouteOption regionalOption(String sourceRouteId) {
+            JourneyLegRouteOption option = option(null, null, null);
+            ReflectionTestUtils.setField(option, "sourceRouteId", sourceRouteId);
+            return option;
         }
     }
 
