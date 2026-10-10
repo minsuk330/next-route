@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
 import watoo.grd.nextroute.application.journey.exception.NotificationSendException;
 import watoo.grd.nextroute.application.journey.port.out.LiveActivityPushPort;
+import watoo.grd.nextroute.application.journey.service.SubwayRingPushPayloadFactory;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -62,6 +63,9 @@ public class FcmLiveActivityPushAdapter implements LiveActivityPushPort {
     static final String APS_EVENT = "event";
     static final String APS_TIMESTAMP = "timestamp";
     static final String APS_CONTENT_STATE = "content-state";
+    /** epoch 초. 이 시각이 지나면 시스템이 화면을 stale 로 다시 그린다(#309). {@code update} 에만 싣는다. */
+    static final String APS_STALE_DATE = "stale-date";
+    static final String EVENT_UPDATE = "update";
 
     /** 지금 사용자를 깨우는 갱신이다. 낮추면 잠금화면이 늦게 따라온다. */
     private static final String APNS_PRIORITY_HIGH = "10";
@@ -98,13 +102,18 @@ public class FcmLiveActivityPushAdapter implements LiveActivityPushPort {
      */
     static Message message(String deviceToken, String activityToken, String event,
                            long apsTimestamp, JsonNode contentState) {
-        Aps aps = Aps.builder()
+        Aps.Builder apsBuilder = Aps.builder()
                 .putCustomData(APS_EVENT, event)
                 // epoch 초다. content-state 안의 시각들은 밀리초라는 것을 잊지 말 것.
                 .putCustomData(APS_TIMESTAMP, apsTimestamp)
                 // {name, props} 두 겹 그대로. props 는 JSON 문자열이다.
-                .putCustomData(APS_CONTENT_STATE, toMap(contentState))
-                .build();
+                .putCustomData(APS_CONTENT_STATE, toMap(contentState));
+        Long staleDate = EVENT_UPDATE.equals(event)
+                ? SubwayRingPushPayloadFactory.staleDateSeconds(contentState) : null;
+        if (staleDate != null) {
+            apsBuilder.putCustomData(APS_STALE_DATE, staleDate);
+        }
+        Aps aps = apsBuilder.build();
 
         return Message.builder()
                 .setToken(deviceToken)

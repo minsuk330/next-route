@@ -105,6 +105,33 @@ class FcmLiveActivityPushAdapterTest {
     }
 
     @Test
+    @DisplayName("update 에는 aps.stale-date = props.progressValidUntil(밀리초)의 epoch 초가 실린다 (#309)")
+    void updateCarriesStaleDateInSeconds() {
+        Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
+                DEVICE_TOKEN, ACTIVITY_TOKEN, "update", 1786681200L, contentStateValidUntil(1786681290500L)));
+
+        assertThat(aps.get(FcmLiveActivityPushAdapter.APS_STALE_DATE)).isEqualTo(1786681290L);
+    }
+
+    @Test
+    @DisplayName("progressValidUntil 이 없으면 stale-date 를 빼고 보낸다 — 지어내지 않는다")
+    void noValidUntilMeansNoStaleDate() {
+        Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
+                DEVICE_TOKEN, ACTIVITY_TOKEN, "update", 1786681200L, contentState()));
+
+        assertThat(aps).doesNotContainKey(FcmLiveActivityPushAdapter.APS_STALE_DATE);
+    }
+
+    @Test
+    @DisplayName("end 에는 stale-date 를 싣지 않는다")
+    void endHasNoStaleDate() {
+        Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
+                DEVICE_TOKEN, ACTIVITY_TOKEN, "end", 1786681200L, contentStateValidUntil(1786681290500L)));
+
+        assertThat(aps).doesNotContainKey(FcmLiveActivityPushAdapter.APS_STALE_DATE);
+    }
+
+    @Test
     @DisplayName("종료는 event=end 로 나간다")
     void endEventGoesOut() {
         Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
@@ -169,6 +196,13 @@ class FcmLiveActivityPushAdapterTest {
     }
 
     // ── 도우미 ──────────────────────────────────────────────────────────────
+
+    private ObjectNode contentStateValidUntil(long validUntilMillis) {
+        ObjectNode envelope = objectMapper.createObjectNode();
+        envelope.put("name", "NavigationLiveActivity");
+        envelope.put("props", "{\"phase\":\"RIDE_SUBWAY\",\"progressValidUntil\":" + validUntilMillis + "}");
+        return envelope;
+    }
 
     private ObjectNode contentState() {
         ObjectNode envelope = objectMapper.createObjectNode();

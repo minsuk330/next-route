@@ -101,6 +101,17 @@ class SubwayRingPushPayloadFactoryTest {
         return objectMapper.readTree(envelope.get("props").asText());
     }
 
+    @Test
+    @DisplayName("stale-date(#309): 만든 봉투의 progressValidUntil 을 epoch 초로 되읽는다")
+    void staleDateRoundTrip() {
+        SubwayRingState ring = ring();
+        ObjectNode envelope = factory.contentState(JOURNEY_ID, "2호선", ring, T0);
+
+        assertThat(SubwayRingPushPayloadFactory.staleDateSeconds(envelope))
+                .isEqualTo(ring.progressValidUntil().getEpochSecond());
+        assertThat(SubwayRingPushPayloadFactory.staleDateSeconds(null)).isNull();
+    }
+
     private SubwayRingState ring() {
         return new SubwayRingState(JOURNEY_ID, 1, 4, 0,
                 1, "1002000223", "역삼", "삼성", 2,

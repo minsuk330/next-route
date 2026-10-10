@@ -4244,3 +4244,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 배포 5.5분 뒤 역 도착: 9호선 0/38 → 38/38, 공항철도 6/14 → 14/14, 대조 5호선 56/56
 - 마곡나루 상행 = '중앙보훈병원 방면', 하행 = '김포공항 방면'(전에는 상행 '개화 방면'으로 뒤집혀 있었다)
+## 2026-10-10 지하철 링 Live Activity push 에 stale-date (#309, feat/ring-push-stale-date, S)
+
+### 확정
+- `aps.stale-date`(epoch 초) = 봉투 `props.progressValidUntil`(밀리초) ÷ 1000 내림. `update` 에만, 값이 없으면 키를 뺀다
+- 대기열 행(`subway_ring_push_outbox.payload`)이 이미 화면 전체를 들고 있어 DB 칸·포트 시그니처를 늘리지 않았다. 꺼내는 규칙은 봉투 모양을 소유한 `SubwayRingPushPayloadFactory.staleDateSeconds`(정적), 어댑터가 부른다
+- 종료 프레임은 SQL 이 만들지만 `end` 라 해당 없음
+
+### 배포
+- worker 만(발송=worker relay). 마이그레이션·플래그 없음
+
+### 검증
+- `FcmLiveActivityPushAdapterTest` 14/0(신규 3: update 초 단위·값 없으면 키 없음·end 없음), `SubwayRingPushPayloadFactoryTest` 5/0(신규 1: 봉투 왕복)
