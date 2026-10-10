@@ -42,6 +42,8 @@ public class SubwayTrainSegmentResolver {
     static final int PASSED_LOOKAHEAD = 3;
     /** 상류로 보는 역 수(노선도 오는 쪽 역과 같은 수). 순환선에서 상·하류가 겹치면 지나지 않은 것으로 본다. */
     static final int UPSTREAM_LOOKBACK = 4;
+    /** 종착 판정에 보는 상류 역 수. 도착 API 가 싣는 열차는 십여 역 안이다. */
+    static final int TERMINUS_LOOKBACK = 20;
 
     private final SubwayLineOrder lineOrder;
     private final SubwaySegmentTimePort segmentTimePort;
@@ -108,6 +110,31 @@ public class SubwayTrainSegmentResolver {
         Set<String> upstream = new HashSet<>(chain(lineId, direction, boardStationId, UPSTREAM_LOOKBACK, false));
         upstream.add(boardStationId);
         return !upstream.contains(position.stationId());
+    }
+
+    /**
+     * 조회역에 닿기 전에 운행을 끝내는 열차인지. 수원 상행에 실려 오는 송탄·진위의 "병점행"처럼 방향은 같은데 종착이 상류다 —
+     * 도착 API 가 그대로 싣는다(2026-10-10 실측).
+     *
+     * <p>조회역에서 상류로 걸으며 열차 현재 역을 만나기 전에 종착역 이름이 나오면 끝낸다. 열차 위치를 경계로 쓰는 이유는
+     * 순환선이다 — 2호선 강남 내선의 "성수행"은 성수를 이미 지나 한 바퀴 오는 열차라, 위치까지만 걸으면 종착역을 만나지
+     * 않는다. 위치·종착 이름을 모르면 끝내지 않는다.
+     */
+    public boolean terminatesBefore(String lineId, String direction, String boardStationId, String destinationName,
+                                    Position position) {
+        if (destinationName == null || boardStationId == null || position == null || position.stationId() == null
+                || boardStationId.equals(position.stationId())) {
+            return false;
+        }
+        for (String stationId : chain(lineId, direction, boardStationId, TERMINUS_LOOKBACK, false)) {
+            if (stationId.equals(position.stationId())) {
+                return false;
+            }
+            if (destinationName.equals(nameOf(lineId, stationId))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<String> chain(String lineId, String direction, String start, int count, boolean forward) {

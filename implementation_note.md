@@ -4292,3 +4292,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - 일회용 st-pg/st-redis 전체 2833 중 실패 13 = 기존 무관 그대로(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·RerouteRemainingPathOtpLiveIT 1·JourneyNotificationSchemaIT 간헐 1). V63 관련 25건 → 0
+
+## 2026-10-10 #317 이 역 전에 종착하는 열차 제외 (fix/subway-arrivals-terminates-before, S)
+
+### 확정
+- 수원 `병점행 · 진위` 의 정체 = 반대 방향이 아니라 **같은 방향인데 조회역 상류(병점)에서 종착**. 도착 API 가 수원 목록에 싣는다(10-10 17시 7회 연속 실측). PR-1 의 방향 필터로는 못 잡는다
+- 판정: 조회역에서 상류로 걸으며 **열차 현재 역을 만나기 전에** 종착역 이름이 나오면 제외. 위치가 경계인 이유 = 순환선(2호선 강남 내선 성수행은 성수를 지나 한 바퀴 오는 열차 — 위치까지만 걸으면 성수를 안 만남)
+- 위치·종착 이름 모름, 이름 불일치, 판정 예외 → 남긴다(잘못 빼는 쪽이 더 나쁨). 상류 최대 20역, 갈래 합류점에서 prevOf 가 empty 라 거기서 멈춤(병점 상류는 세마/서동탄 갈래라 병점까지만)
+
+### 좌표
+- SubwayTrainSegmentResolver.terminatesBefore / SubwayStationArrivalQueryService.getArrivals 필터
+
+### 검증
+- `./gradlew test --tests '*SubwayTrainSegmentResolverTest' --tests '*SubwayStationArrivalQueryServiceTest'` → 34/0 (terminatesBeforeBoard, dropsTrainTerminatingBeforeStation)

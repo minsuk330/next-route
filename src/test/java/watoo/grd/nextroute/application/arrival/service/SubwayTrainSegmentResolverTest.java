@@ -146,6 +146,25 @@ class SubwayTrainSegmentResolverTest {
         assertThat(resolver.hasPassed(LINE, DIR, G, left, NOW.plusSeconds(5))).isFalse();
     }
 
+    @Test
+    @DisplayName("종착: 조회역 상류에서 열차 위치보다 먼저 종착역이 나오면 이 역에 오지 않는다(수원 상행 병점행)")
+    void terminatesBeforeBoard() {
+        given(stationIndex.candidates(LINE)).willReturn(List.of(new Candidate(S, "선릉", 0, 0),
+                new Candidate(Y, "역삼", 0, 0), new Candidate(G, "강남", 0, 0), new Candidate(J, "교대", 0, 0)));
+
+        // 교대(J) 조회, 열차는 선릉(S), 역삼행 — 역삼에서 끝난다
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, "역삼", at(S))).isTrue();
+        // 열차가 이미 종착역보다 가까이(강남) 있으면 종착역은 지난 뒤다 — 순환선의 한 바퀴 열차
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, "역삼", at(G))).isFalse();
+        // 이 역 종착은 온다
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, "교대", at(S))).isFalse();
+        // 하류 종착·모르는 이름·위치 모름은 끝내지 않는다
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, "서초", at(S))).isFalse();
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, "병점", at(S))).isFalse();
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, "역삼", null)).isFalse();
+        assertThat(resolver.terminatesBefore(LINE, DIR, J, null, at(S))).isFalse();
+    }
+
     private static Position departedFrom(String station, PositionSource source) {
         return new Position(station, null, TrainStatus.DEPARTED, NOW.minusSeconds(40), source);
     }
