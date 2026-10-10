@@ -45,12 +45,32 @@ public class JourneySubwayRingProperties {
     private BigDecimal approachProgress = new BigDecimal("0.95");
 
     /**
-     * 앱이 로컬 보간을 이어가도 되는 폭. 관측 시각부터 잰다.
+     * 앱이 로컬 보간을 이어가도 되는 폭({@code progressValidUntil}). <b>원천 시각({@code recptnDt})</b>부터 잰다.
      *
      * <p>길면 죽은 화면이 살아 있는 척하고, 짧으면 링이 자주 멈춘다. 실기기 관측 전에는 근거가
-     * 없는 값이라 설정으로 둔다.
+     * 없는 값이라 설정으로 둔다. STALE 판정은 {@link #staleAfter} 가 따로 맡는다(PR-2).
      */
     private Duration freshnessWindow = Duration.ofSeconds(120);
+
+    // ── TYPICAL 직선(지하철 링 정차·전형 시간, docs/plan/subway-ring-typical-progress) ─────────────
+
+    /** GTFS 계획 시간에 곱하는 여유 배수. 실측(MEASURED)·실시간(LIVE)에는 곱하지 않는다. */
+    private BigDecimal typicalFactor = new BigDecimal("1.2");
+
+    /** GTFS 에서 정차 시간을 모를 때 쓰는 전역 정차 시간. */
+    private Duration defaultDwell = Duration.ofSeconds(30);
+
+    /**
+     * STALE 판정 폭 — <b>서버 시계</b> 기준. 서버가 우리 열차의 새 근거를 마지막으로 본 시각({@code sourceSeenAt})부터 잰다.
+     * 원천 시각 기준으로 재면 {@code recptnDt} 자체가 1~2분 뒤처져 있어 대부분이 STALE 이 된다.
+     */
+    private Duration staleAfter = Duration.ofSeconds(60);
+
+    /** 서버가 새로 봤더라도 원천 시각이 이보다 오래됐으면 STALE — 원천이 묵은 행을 계속 내보내는 경우의 이중 가드. */
+    private Duration staleSourceMaxAge = Duration.ofSeconds(240);
+
+    /** 예정이 이만큼 더 지나야 LATE 로 본다. */
+    private Duration lateGrace = Duration.ofSeconds(30);
 
     /**
      * ring 키 TTL. <b>반드시 둔다.</b>

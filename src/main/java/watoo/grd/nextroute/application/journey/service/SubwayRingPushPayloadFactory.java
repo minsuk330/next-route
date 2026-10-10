@@ -113,6 +113,9 @@ public class SubwayRingPushPayloadFactory {
         // 링이 왜 멈췄는지. 스냅샷 subwayGuidance 와 같은 이름 — 실기기는 push 가 앱을 거치지 않는다.
         props.put("holdReason", ring.holdReason() == null ? null : ring.holdReason().name());
         props.put("holdStationName", ring.holdStationName());
+        // 도착 예정 출처(LIVE·MEASURED·TYPICAL). 스냅샷 subwayGuidance 와 같은 이름 — TYPICAL 이면 앱이 시각을 숨긴다.
+        props.put("etaSource", ring.etaSource() == null ? null : ring.etaSource().name());
+        props.put("alightingEtaSource", ring.alightingEtaSource() == null ? null : ring.alightingEtaSource().name());
         props.put("updatedAt", updatedAt.toEpochMilli());
         return props;
     }

@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingChain;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingContext;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingObservation;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 import watoo.grd.nextroute.application.journey.observability.SubwayRingMetrics;
@@ -105,16 +106,19 @@ public class SubwayRingUpdateService {
         }
 
         TrainIdentity train = identityOf(binding);
+        Instant now = clock.instant();
         SubwayRingObservation observation = train == null
                 ? null
-                : signalReader.read(train, chain, target);
+                : seen(previous, signalReader.read(train, chain, target), now);
+        if (train != null) {
+            context = context.withTypical(typicalOf(chain, train, target));
+        }
 
-        Instant now = clock.instant();
         SubwayRingState state = calculator.next(previous, context, observation, now);
         if (state == null) {
             return;
         }
-        state = state.withEstimatedAlightingAt(alightingAtOf(state, chain, train));
+        state = withAlighting(state, chain, train);
         state = state.withGuidanceVersion(guidanceVersionOf(previous, state, now));
         ringPort.save(state);
         metrics.recordUpdated(state, observation, binding.getStatus());
@@ -160,6 +164,42 @@ public class SubwayRingUpdateService {
             return prior;
         }
         return Math.max(now.toEpochMilli(), prior + 1);
+    }
+
+    /**
+     * 서버가 이 근거를 처음 본 시각을 붙인다. 원천 시각이 직전 링의 근거와 같으면 그때 본 시각을 이어 쓴다 — 매 tick 지금으로
+     * 찍으면 원천이 굳어 있어도 늘 신선해 보인다(수집 시각 {@code collectedAt} 은 매 회차 새로 찍히므로 이 용도로 못 쓴다).
+     */
+    private static SubwayRingObservation seen(SubwayRingState previous, SubwayRingObservation observation, Instant now) {
+        if (observation == null || observation.observedAt() == null) {
+            return observation;
+        }
+        boolean same = previous != null && previous.sourceSeenAt() != null
+                && observation.observedAt().equals(previous.sourceObservedAt());
+        return observation.withSeenAt(same ? previous.sourceSeenAt() : now);
+    }
+
+    /** 목표 구간(직전 역 → 다음 역)의 GTFS 계획 시간. 승차역 대기 구간·모르는 구간은 null — 계산기가 기존대로 둔다. */
+    private SubwayRingContext.Typical typicalOf(SubwayRingChain chain, TrainIdentity train, int target) {
+        SubwayRingChain.Station from = chain.at(target - 1);
+        SubwayRingChain.Station to = chain.at(target);
+        if (from == null || to == null) {
+            return null;
+        }
+        return lineOrder.segmentTimes(train.lineId(), train.direction(), from.canonicalKey(), to.canonicalKey())
+                .map(t -> new SubwayRingContext.Typical(t.dwellSeconds(), t.runSeconds()))
+                .orElse(null);
+    }
+
+    /**
+     * 하차 예정과 출처. 다음 역이 하차역이면 다음 역 예정의 출처 그대로, 아니면 남은 구간이 GTFS 계획이라 TYPICAL 이다 —
+     * 다음 역 예정이 실시간이어도 하차까지 전부를 실시간이라 말하면 과장이다.
+     */
+    private SubwayRingState withAlighting(SubwayRingState state, SubwayRingChain chain, TrainIdentity train) {
+        Instant alightingAt = alightingAtOf(state, chain, train);
+        boolean nextIsAlighting = state.nextStationSequence() == chain.alightingSequence();
+        return state.withEstimatedAlightingAt(alightingAt,
+                nextIsAlighting ? state.etaSource() : SubwayRingEtaSource.TYPICAL);
     }
 
     /**
