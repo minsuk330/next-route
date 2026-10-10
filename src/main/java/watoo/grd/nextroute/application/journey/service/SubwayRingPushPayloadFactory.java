@@ -103,36 +103,50 @@ public class SubwayRingPushPayloadFactory {
     }
 
     /**
-     * 봉투의 {@code props.progressValidUntil}(밀리초)을 APNs {@code aps.stale-date}(epoch <b>초</b>)로 꺼낸다(#309).
+     * 봉투의 {@code props} 로 APNs {@code aps.stale-date}(epoch <b>초</b>)를 만든다(#309·#310). 이 시각에 시스템이 화면을
+     * 다시 그려 위젯이 시스템 타이머 링을 멈춘 링으로 바꾼다.
      *
-     * <p>앱 링은 시스템 타이머({@code ProgressView(timerInterval:)})라 중간에 못 멈춘다. 새 앵커가 안 오면 끝까지 차서
-     * "도착한 것처럼" 보인다. 시스템이 이 시각에 화면을 stale 로 다시 그리게 해야 위젯이 고정 링으로 바뀐다. 앱이 직접
-     * 갱신할 때는 스스로 넣지만, 백그라운드의 유일한 갱신 경로인 push 에는 서버가 넣어야 한다.
-     *
-     * <p>하차 예정(#310)이 있으면 {@code min(progressValidUntil, 하차 예정 − 60초)} — 앱 규칙과 같다. 하차 1분 전에 시스템이
-     * 다시 그려 위젯이 "곧 도착"으로 바뀐다.
+     * <p><b>앱 규칙과 같다</b>(nextroute-mobile {@code JourneyGuidanceLiveActivity.swift} 의 {@code redrawAt}). 앱이 직접
+     * 갱신한 화면과 push 로 갱신된 화면이 같은 순간에 다시 그려져야 한다.
+     * <ul>
+     *   <li>후보 셋: 다음 역 도착 예정(링이 상한에서 멈추게 — 없으면 끝까지 차서 "도착"처럼 보였다가 되돌아간다),
+     *       {@code progressValidUntil}, 하차 예정 − 60초("곧 도착")</li>
+     *   <li><b>지금 이후</b>인 것만, 그중 가장 이른 것 — 지난 시각을 주면 받자마자 낡은 화면이 된다(하차 직전 push)</li>
+     *   <li>링이 {@code STALE} 이면 넣지 않는다 — 이미 멈춘 화면이다</li>
+     * </ul>
      *
      * <p>종료 프레임도 같은 봉투라 값이 나오지만, {@code end} 에는 붙이지 않는다(부르는 쪽 몫).
      *
-     * @return 둘 다 없거나 읽을 수 없으면 null — 그때는 키를 빼고 보낸다(지어내지 않는다)
+     * @param nowMillis 보내는 시각(epoch 밀리초)
+     * @return 후보가 없거나 읽을 수 없으면 null — 그때는 키를 빼고 보낸다(지어내지 않는다)
      */
-    public static Long staleDateSeconds(JsonNode contentState) {
+    public static Long staleDateSeconds(JsonNode contentState, long nowMillis) {
         if (contentState == null || !contentState.path(FIELD_PROPS).isTextual()) {
             return null;
         }
         try {
             JsonNode props = STALE_READER.readTree(contentState.path(FIELD_PROPS).asText());
-            JsonNode until = props.path("progressValidUntil");
-            JsonNode alighting = props.path("estimatedAlightingAt");
-            Long staleMillis = until.isNumber() ? until.asLong() : null;
-            if (alighting.isNumber()) {
-                long beforeAlighting = alighting.asLong() - ALIGHTING_STALE_LEAD_MILLIS;
-                staleMillis = staleMillis == null ? beforeAlighting : Math.min(staleMillis, beforeAlighting);
+            if ("STALE".equals(props.path("quality").asText())) {
+                return null;
             }
-            return staleMillis == null ? null : Math.floorDiv(staleMillis, 1000L);
+            Long earliest = null;
+            for (Long candidate : new Long[]{
+                    millisOf(props, "estimatedNextStationAt", 0L),
+                    millisOf(props, "progressValidUntil", 0L),
+                    millisOf(props, "estimatedAlightingAt", ALIGHTING_STALE_LEAD_MILLIS)}) {
+                if (candidate != null && candidate > nowMillis && (earliest == null || candidate < earliest)) {
+                    earliest = candidate;
+                }
+            }
+            return earliest == null ? null : Math.floorDiv(earliest, 1000L);
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private static Long millisOf(JsonNode props, String field, long lead) {
+        JsonNode value = props.path(field);
+        return value.isNumber() ? value.asLong() - lead : null;
     }
 
     /** epoch <b>밀리초</b>. 봉투 밖 {@code aps.timestamp} 는 초라는 것을 잊지 말 것. */

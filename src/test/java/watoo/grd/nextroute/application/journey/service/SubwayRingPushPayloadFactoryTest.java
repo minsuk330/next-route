@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
@@ -102,34 +103,69 @@ class SubwayRingPushPayloadFactoryTest {
     }
 
     @Test
-    @DisplayName("stale-date(#309): 만든 봉투의 progressValidUntil 을 epoch 초로 되읽는다")
-    void staleDateRoundTrip() {
-        SubwayRingState ring = ring();
-        ObjectNode envelope = factory.contentState(JOURNEY_ID, "2호선", ring, T0);
-
-        assertThat(SubwayRingPushPayloadFactory.staleDateSeconds(envelope))
-                .isEqualTo(ring.progressValidUntil().getEpochSecond());
-        assertThat(SubwayRingPushPayloadFactory.staleDateSeconds(null)).isNull();
+    @DisplayName("#310 props 에 하차 예정(밀리초)이 실린다, 모르면 null")
+    void alightingEtaInProps() throws Exception {
+        Instant alighting = T0.plusSeconds(400);
+        assertThat(propsOf(factory.contentState(JOURNEY_ID, "2호선", ring().withEstimatedAlightingAt(alighting), T0))
+                .path("estimatedAlightingAt").asLong()).isEqualTo(alighting.toEpochMilli());
+        assertThat(propsOf(factory.contentState(JOURNEY_ID, "2호선", ring(), T0)).path("estimatedAlightingAt").isNull())
+                .isTrue();
     }
 
-    @Test
-    @DisplayName("#310 props 에 하차 예정(밀리초)이 실리고, stale-date 는 min(유효기간, 하차 예정 − 60초)")
-    void alightingEtaAndStaleDate() throws Exception {
-        SubwayRingState base = ring();
-        Instant alighting = base.progressValidUntil().plusSeconds(30);
-        ObjectNode envelope = factory.contentState(JOURNEY_ID, "2호선", base.withEstimatedAlightingAt(alighting), T0);
+    /**
+     * stale-date 는 앱 규칙(JourneyGuidanceLiveActivity.swift redrawAt)과 같다. 링: 다음 역 T0+90, 유효기간 T0+120.
+     */
+    @Nested
+    @DisplayName("stale-date — 앱과 같은 규칙")
+    class StaleDate {
 
-        assertThat(propsOf(envelope).path("estimatedAlightingAt").asLong()).isEqualTo(alighting.toEpochMilli());
-        assertThat(SubwayRingPushPayloadFactory.staleDateSeconds(envelope))
-                .as("하차 1분 전이 유효기간보다 이르다")
-                .isEqualTo(alighting.minusSeconds(60).getEpochSecond());
+        @Test
+        @DisplayName("다음 역 도착 예정이 가장 이르면 그때 — 늦는 열차에서 링이 꽉 찼다가 되돌아가지 않게")
+        void nextStationFirst() {
+            assertThat(staleAt(ring(), T0)).isEqualTo(T0.plusSeconds(90).getEpochSecond());
+        }
 
-        ObjectNode far = factory.contentState(JOURNEY_ID, "2호선",
-                base.withEstimatedAlightingAt(base.progressValidUntil().plusSeconds(3600)), T0);
-        assertThat(SubwayRingPushPayloadFactory.staleDateSeconds(far))
-                .isEqualTo(base.progressValidUntil().getEpochSecond());
-        assertThat(propsOf(factory.contentState(JOURNEY_ID, "2호선", base, T0)).path("estimatedAlightingAt").isNull())
-                .as("모르면 null").isTrue();
+        @Test
+        @DisplayName("다음 역 예정이 지났으면 그다음으로 이른 미래 시각(유효기간)")
+        void pastCandidatesAreSkipped() {
+            assertThat(staleAt(ring(), T0.plusSeconds(100))).isEqualTo(T0.plusSeconds(120).getEpochSecond());
+        }
+
+        @Test
+        @DisplayName("하차 1분 전이 더 이르면 그때 — '곧 도착'")
+        void alightingLeadWins() {
+            SubwayRingState ring = ring().withEstimatedAlightingAt(T0.plusSeconds(170));
+
+            assertThat(staleAt(ring, T0.plusSeconds(100))).isEqualTo(T0.plusSeconds(110).getEpochSecond());
+        }
+
+        @Test
+        @DisplayName("하차 1분 전이 이미 지났으면 넣지 않는다 — 하차 직전 push 가 바로 낡은 화면이 되면 안 된다")
+        void pastAlightingLeadIsSkipped() {
+            SubwayRingState ring = ring().withEstimatedAlightingAt(T0.plusSeconds(140));
+
+            assertThat(staleAt(ring, T0.plusSeconds(100))).as("하차 1분 전 T0+80 은 지났다")
+                    .isEqualTo(T0.plusSeconds(120).getEpochSecond());
+            assertThat(staleAt(ring, T0.plusSeconds(130))).as("셋 다 지났다").isNull();
+        }
+
+        @Test
+        @DisplayName("링이 STALE 이면 넣지 않는다 — 이미 멈춘 화면이다")
+        void staleRingHasNone() {
+            SubwayRingState frozen = new SubwayRingState(JOURNEY_ID, 1, 4, 0,
+                    1, "1002000223", "역삼", "삼성", 2,
+                    new BigDecimal("0.4500"), T0, new BigDecimal("0.4500"),
+                    null, T0.plusSeconds(120),
+                    SubwayRingPhase.RIDE_SUBWAY, SubwayRingQuality.STALE, T0, T0);
+
+            assertThat(staleAt(frozen, T0)).isNull();
+            assertThat(SubwayRingPushPayloadFactory.staleDateSeconds(null, 0L)).isNull();
+        }
+
+        private Long staleAt(SubwayRingState ring, Instant now) {
+            return SubwayRingPushPayloadFactory.staleDateSeconds(
+                    factory.contentState(JOURNEY_ID, "2호선", ring, T0), now.toEpochMilli());
+        }
     }
 
     private SubwayRingState ring() {

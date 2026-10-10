@@ -105,16 +105,17 @@ class FcmLiveActivityPushAdapterTest {
     }
 
     @Test
-    @DisplayName("update 에는 aps.stale-date = props.progressValidUntil(밀리초)의 epoch 초가 실린다 (#309)")
+    @DisplayName("update 에는 aps.stale-date 가 epoch 초로 실린다 — 규칙은 SubwayRingPushPayloadFactoryTest.StaleDate")
     void updateCarriesStaleDateInSeconds() {
         Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
-                DEVICE_TOKEN, ACTIVITY_TOKEN, "update", 1786681200L, contentStateValidUntil(1786681290500L)));
+                DEVICE_TOKEN, ACTIVITY_TOKEN, "update", 1786681200L, contentStateValidUntil(1786681290500L),
+                1786681200000L));
 
         assertThat(aps.get(FcmLiveActivityPushAdapter.APS_STALE_DATE)).isEqualTo(1786681290L);
     }
 
     @Test
-    @DisplayName("progressValidUntil 이 없으면 stale-date 를 빼고 보낸다 — 지어내지 않는다")
+    @DisplayName("후보 시각이 없으면 stale-date 를 빼고 보낸다 — 지어내지 않는다")
     void noValidUntilMeansNoStaleDate() {
         Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
                 DEVICE_TOKEN, ACTIVITY_TOKEN, "update", 1786681200L, contentState()));
@@ -126,7 +127,8 @@ class FcmLiveActivityPushAdapterTest {
     @DisplayName("end 에는 stale-date 를 싣지 않는다")
     void endHasNoStaleDate() {
         Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
-                DEVICE_TOKEN, ACTIVITY_TOKEN, "end", 1786681200L, contentStateValidUntil(1786681290500L)));
+                DEVICE_TOKEN, ACTIVITY_TOKEN, "end", 1786681200L, contentStateValidUntil(1786681290500L),
+                1786681200000L));
 
         assertThat(aps).doesNotContainKey(FcmLiveActivityPushAdapter.APS_STALE_DATE);
     }

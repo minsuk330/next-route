@@ -4275,3 +4275,13 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 단위: SubwayLineOrderTest 9/0(신규 2), SubwayRingPushDeciderTest 13/0(신규 1), SubwayRingPushPayloadFactoryTest 6/0(신규 1), FcmLiveActivityPushAdapterTest 14/0, SubwayRingCalculatorTest 38/0, JourneyControllerTest 36/0
 - 일회용 st-pg/st-redis 전체: 2824 중 실패 38 = 기존 무관 13(이전 기록과 동일 구성) + V63 IT 스크립트 25(main 에서 같은 실패 확인). 링 IT: SubwayRingIT 16/0, SubwayRingPushIT 25/0, RedisSubwayRingAdapterIT 7/0, SubwayRideScenarioIT 9/0, JourneySubwayGuidanceIT 9/0
+## 2026-10-10 링 push stale-date 를 앱 규칙에 맞춤 (#309·#310 후속, fix/ring-stale-date-match-app, S)
+
+### 확정
+- ~~#310 의 stale-date = min(progressValidUntil, 하차 − 60초)~~ 취소: 앱(`nextroute-mobile` `JourneyGuidanceLiveActivity.swift` redrawAt)과 달랐다. 새 규칙 = 후보 {다음 역 도착 예정, progressValidUntil, 하차 − 60초} 중 **보내는 시각 이후**인 것의 최솟값, 링 `quality=STALE` 이면 없음
+- 사용자 영향(어긋났을 때): ① 다음 역 예정이 빠지면 늦는 열차에서 링이 100%("도착")까지 찼다가 다음 push 에 되돌아감 ② 지난 시각을 주면 하차 직전 push 가 받자마자 낡은 화면 ③ STALE 은 영향 작음(통일)
+- "보내는 시각" = 어댑터 `System.currentTimeMillis()`(발송 시점). `message(..., nowMillis)` 오버로드로 시험 고정
+- 앱은 이미 props `estimatedAlightingAt`(optional)·자체 staleDate 를 구현해 둠 → 앱 변경 없음. 스냅샷 `subwayGuidance.estimatedAlightingAt` 은 앱 모델에 칸이 없어 아직 안 읽음(선택)
+
+### 검증
+- SubwayRingPushPayloadFactoryTest 10/0(StaleDate 5: 다음 역 먼저·지난 후보 건너뜀·하차 1분 전·지난 하차 1분 전·STALE), FcmLiveActivityPushAdapterTest 14/0, SubwayRingPushIT 25/0, SubwayRingIT 16/0, SubwayRideScenarioIT 9/0 (일회용 st-pg/st-redis)
