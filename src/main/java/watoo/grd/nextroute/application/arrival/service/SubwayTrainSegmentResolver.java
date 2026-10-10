@@ -25,8 +25,9 @@ import java.util.Set;
 /**
  * 역 도착 응답 열차마다 "지금 달리는 구간"과 그 출발·도착 예정(#317-2·#318-3), 그리고 이 역을 이미 지난 열차 판정.
  *
- * <p><b>도착 예정은 오늘 실측이 먼저다</b> — 같은 구간을 먼저 지난 최근 열차들의 소요시간 중앙값(#316 구간 실측). 도착 API
- * 남은 초는 전역 출발 뒤 평균 54초 과대라 쓰지 않는다. 실측이 없을 때만 GTFS 계획 초를 쓰고 {@code source} 로 구분한다.
+ * <p><b>도착 예정은 GTFS 계획 초다</b>(2026-10-10 사용자 결정). #316 구간 실측은 "전역 출발 → 진입(0)"을 재서 진입 신호가
+ * 역에 닿기 한참 전에 오는 구간에서 16~25초로 짧게 나온다(계획 90초). 링 ETA 에는 그 오차가 작지만, 앱이 이 값으로 열차를
+ * 움직이면 금방 구간 90% 에 닿아 멈춰 기다린다. 그래서 여기서는 실측을 쓰지 않는다 — 링 쪽 실측은 그대로다.
  *
  * <p>구간은 출발한 열차에만 있다. 정차·진입 중이면 앱은 역에 둔다.
  *
@@ -65,19 +66,8 @@ public class SubwayTrainSegmentResolver {
         if (departedAt == null) {
             return null; // 도착 API 확인 시각은 상태가 그대로여도 갱신된다 — 출발 시각으로 쓰지 않는다
         }
-        Integer seconds = null;
-        SegmentSource source = null;
-        Integer measured = median(recentSeconds(lineId, direction, to.get()));
-        if (measured != null) {
-            seconds = measured;
-            source = SegmentSource.MEASURED;
-        } else {
-            Optional<Integer> scheduled = lineOrder.runSeconds(lineId, direction, from, to.get());
-            if (scheduled.isPresent()) {
-                seconds = scheduled.get();
-                source = SegmentSource.SCHEDULED;
-            }
-        }
+        Integer seconds = lineOrder.runSeconds(lineId, direction, from, to.get()).orElse(null);
+        SegmentSource source = seconds == null ? null : SegmentSource.SCHEDULED;
         return new Segment(from, position.stationName() != null ? position.stationName() : nameOf(lineId, from),
                 to.get(), nameOf(lineId, to.get()),
                 OffsetDateTime.ofInstant(departedAt, SEOUL),
@@ -159,26 +149,6 @@ public class SubwayTrainSegmentResolver {
             log.debug("구간 출발 기록 조회 실패 line={} to={}: {}", lineId, to, e.getMessage());
             return Optional.empty();
         }
-    }
-
-    private List<Long> recentSeconds(String lineId, String direction, String to) {
-        try {
-            return segmentTimePort.recentSeconds(lineId, direction, to);
-        } catch (RuntimeException e) {
-            log.debug("구간 실측 표본 조회 실패 line={} to={}: {}", lineId, to, e.getMessage());
-            return List.of();
-        }
-    }
-
-    /** 짝수 개면 가운데 둘의 평균(내림). 없으면 null. */
-    static Integer median(List<Long> samples) {
-        if (samples == null || samples.isEmpty()) {
-            return null;
-        }
-        List<Long> sorted = samples.stream().sorted().toList();
-        int n = sorted.size();
-        long value = n % 2 == 1 ? sorted.get(n / 2) : (sorted.get(n / 2 - 1) + sorted.get(n / 2)) / 2;
-        return Math.toIntExact(value);
     }
 
     private String nameOf(String lineId, String stationId) {

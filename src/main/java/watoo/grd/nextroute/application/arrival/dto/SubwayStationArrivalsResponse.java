@@ -125,8 +125,8 @@ public record SubwayStationArrivalsResponse(
      *
      * @param departedAt 출발 역을 떠난 시각. 도착 API "전역 출발"을 처음 본 시각(#316 기록), 없으면 위치 API 상태가 바뀐 시각
      * @param expectedAt 도착 예정. {@code now} 보다 과거일 수 있다(늦는 중). 모르면 null
-     * @param source     {@code expectedAt} 원천. {@code MEASURED} = 오늘 같은 구간을 지난 최근 열차 실측 중앙값,
-     *                   {@code SCHEDULED} = GTFS 계획(실측이 없을 때만). {@code expectedAt} 이 null 이면 null
+     * @param source     {@code expectedAt} 원천. 지금은 늘 {@code SCHEDULED}(GTFS 계획). {@code MEASURED} 는 계약 호환용으로만
+     *                   남았다 — 실측은 진입 신호 기준이라 짧아 쓰지 않는다(2026-10-10). {@code expectedAt} 이 null 이면 null
      */
     public record Segment(String fromStationId, String fromStationName, String toStationId, String toStationName,
                           OffsetDateTime departedAt, OffsetDateTime expectedAt, SegmentSource source) {

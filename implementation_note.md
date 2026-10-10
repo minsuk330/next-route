@@ -4305,4 +4305,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `./gradlew test --tests '*SubwayTrainSegmentResolverTest' --tests '*SubwayStationArrivalQueryServiceTest'` → 34/0 (terminatesBeforeBoard, dropsTrainTerminatingBeforeStation)
+## 2026-10-10 #317 구간 앵커 도착 예정 = GTFS 계획 초로 통일 (fix/subway-segment-scheduled-only, S)
+
+### 확정
+- 사용자 결정: `segment.expectedAt` 은 실측 말고 **계획 시간으로 통일**. `source` 는 늘 `SCHEDULED`, enum `MEASURED` 는 계약 호환용으로만 남김
+- 링 ETA(SubwayRingSignalReader)의 실측 사용은 그대로 — 이번 변경은 역 도착 응답 `segment` 만
+
+### 함정
+- MEASURED 16~25초(이대→아현 16s, 역삼→강남 21s, 계획 90s) ← SubwaySegmentTimeRecorder 가 arvlCd 3→0(진입)을 도착으로 잼, 진입 신호가 역 닿기 한참 전에 옴 / 가드: SubwayTrainSegmentResolverTest.scheduledEvenWithMeasuredSamples
+- 실측 출처: 2026-10-10 17:09~17:18 운행 시간대 10역 6회 폴링, #317 코멘트
+
+### 검증
+- `./gradlew test --tests '*SubwayTrainSegmentResolverTest' --tests '*SubwayStationArrivalQueryServiceTest' --tests '*SubwayStationControllerTest'` → 37/0
 - 전체 `./gradlew test`(3 브랜치 합본, st-pg/st-redis) → 2838 중 실패 12. 기존 무관(main 동일): JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1. JourneyNotificationSchemaIT 1 = 'Unable to rollback against JDBC Connection' 플래키, 단독 재실행 20/0

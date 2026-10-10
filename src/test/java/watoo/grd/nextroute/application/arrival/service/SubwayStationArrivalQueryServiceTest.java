@@ -398,7 +398,7 @@ class SubwayStationArrivalQueryServiceTest {
     }
 
     @Test
-    @DisplayName("#317 달리는 열차에 구간 앵커 — 출발은 구간 실측 기록, 도착 예정은 최근 열차 실측 중앙값")
+    @DisplayName("#317 달리는 열차에 구간 앵커 — 출발은 구간 실측 기록, 도착 예정은 GTFS 계획 초(실측 표본은 무시)")
     void attachesSegmentAnchor() {
         givenStation(GANGNAM, "1002");
         given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of(arrival("2231", "내선", "성수", 96)));
@@ -408,7 +408,8 @@ class SubwayStationArrivalQueryServiceTest {
                         null, SubwayExpressType.NORMAL)));
         given(lineOrder.nextOf("1002", "내선", "1002000221")).willReturn(Optional.of(GANGNAM));
         given(segmentTimePort.departedAt("1002", "내선", GANGNAM, "2231")).willReturn(Optional.of(NOW.minusSeconds(50)));
-        given(segmentTimePort.recentSeconds("1002", "내선", GANGNAM)).willReturn(List.of(100L, 80L, 90L));
+        given(segmentTimePort.recentSeconds("1002", "내선", GANGNAM)).willReturn(List.of(20L, 25L, 30L));
+        given(lineOrder.runSeconds("1002", "내선", "1002000221", GANGNAM)).willReturn(Optional.of(90));
 
         Train train = service.getArrivals(GANGNAM).directions().get(0).trains().get(0);
 
@@ -417,7 +418,7 @@ class SubwayStationArrivalQueryServiceTest {
         assertThat(train.segment().toStationId()).isEqualTo(GANGNAM);
         assertThat(train.segment().departedAt().toInstant()).isEqualTo(NOW.minusSeconds(50));
         assertThat(train.segment().expectedAt().toInstant()).isEqualTo(NOW.plusSeconds(40));
-        assertThat(train.segment().source()).isEqualTo(SegmentSource.MEASURED);
+        assertThat(train.segment().source()).isEqualTo(SegmentSource.SCHEDULED);
     }
 
     @Test

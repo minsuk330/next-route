@@ -17,7 +17,10 @@
 
 ## 1. 선택 → 시작
 
-시작은 **OTP GTFS id** 를 받는다(`1:BS_TAGO_SEB121000091`, `1:RS_ACC1_S-1-0222` 처럼 콜론이 들어 있다). **앱은 지금 쓰는 화면 API 응답에 실린 GTFS id 를 그대로 넘긴다**(#298 A안, PR gtfs-id-exposure):
+시작은 **OTP GTFS id** 를 받는다(`1:BS_TAGO_SEB121000091`, `1:RS_ACC1_S-1-0222` 처럼 콜론이 들어 있다). id 는 두 갈래로 얻는다.
+
+- **track 조회 API(기본)** — 아래 `track/**`(#313)로 근처 정류장·역, 노선·방향, 하차 후보, 노선 선을 고르고 응답의 `gtfsStopId`·`routeGtfsId`·`boardStopGtfsId` 를 그대로 시작에 넘긴다. 앱은 기기 계정(#328)으로 늘 토큰이 있어 이 경로를 쓴다. 토큰을 아직 못 받은 순간(오프라인 첫 실행)에만 아래 서울 화면 API 로 대신한다.
+- **서울 화면 API** — 응답에 실린 GTFS id 를 넘긴다(#298 A안, PR gtfs-id-exposure):
 
 | 앱이 고르는 곳 | 응답 칸 | 시작 요청 칸 |
 |---|---|---|
@@ -30,14 +33,19 @@
 - 지하철은 남은 역 응답 하나로 세 값이 다 나온다(근처 역의 `gtfsStopId` 는 서버 기동 직후 잠깐 null 일 수 있다 — 그때는 남은 역의 `boardGtfsStopId` 를 쓴다).
 - 위 표는 서울 화면 API 경로다(서울만 — 값이 null 이면 `[추적 시작]` 을 막는다).
 - **경기·지방은 아래 track 조회 API 로 고른다(2026-10-10, #333).** 전국 GTFS 기준이고 실시간 id(#313)·형제 정류장 합치기(#327)·노선 선(#314)이 붙어 있다. 로그인 제거(기기 익명 계정, #328)로 비로그인 401 문제는 없다(#320). 앱 홈 "근처에서 타기"는 이 API 로 통일하는 것을 권장한다.
+- 어느 경로든 세 값 중 하나라도 null 이면 `[추적 시작]` 을 막고 "이 노선은 아직 추적할 수 없어요".
 
 ```
 GET  /api/journeys/track/stops/near?lat=&lon=&mode=BUS|SUBWAY
-  → [{gtfsStopId, name, lat, lon, mode}]
+  → [{gtfsStopId, name, lat, lon, mode, distanceMeters, arrivalStopId, arsId,
+      arrivalStationId, lineId, lineName}]
 GET  /api/journeys/track/stops/{gtfsStopId}/patterns
-  → [{routeGtfsId, mode, routeName, color, directionLabel, terminalName, patternCode}]
+  → [{routeGtfsId, mode, routeName, color, directionLabel, terminalName, patternCode,
+      arrivalRouteId, boardStopGtfsId, arrivalStopId}]
 GET  /api/journeys/track/routes/{routeGtfsId}/stops?from={gtfsStopId}&pattern={patternCode}
   → [{gtfsStopId, name, lat, lon, index}]
+GET  /api/journeys/track/routes/{routeGtfsId}/shape?from={gtfsStopId}&to=&pattern=
+  → {points: [{x, y}], quality: SHAPE_OK | STOP_LINE}
 POST /api/journeys/track?replace=false
   {routeGtfsId, boardStopId, alightStopId, patternCode?}
   → 201 JourneySnapshot   (단계 = WAIT_* + RIDE_*, kind=TRACK)
@@ -66,8 +74,9 @@ POST /api/journeys/{journeyId}/subway/train-selection   {trainNo, routeRevision}
 ```
 
 - 고르면 곧바로 확정. 진행 링은 이동 시작 관측(`boarding-evidence`)이 온 뒤부터 돈다.
-- 고를 수 있는 열차 = 지금 도착 목록 전체 + 이 역·방향을 10분 안에 떠난 열차(#277 응답의 `departed`).
+- 고를 수 있는 열차 = 지금 도착 목록 전체 + 이 역·방향을 10분 안에 떠난 열차(#277 응답의 `departed`, `source` 가 `POSITION`·`ARRIVAL` 어느 쪽이든 — #324).
 - 오류: 409 `NOT_WAITING_FOR_SUBWAY` · 422 `TRAIN_NOT_IN_CANDIDATES`(도착 목록에도 10분 안 출발에도 없음 — 낡은 화면) · 409 `STALE_ROUTE_REVISION` · 409 `SUBWAY_BINDING_BUSY`(바로 재시도).
+- 앱: 시작 직후 고른 열차를 보낸다. `SUBWAY_BINDING_BUSY` 면 한 번 재시도하고, 그 밖의 실패는 사용자에게 알리지 않는다(열차가 안 묶여도 서버가 자동으로 맞춘다).
 
 ## 4. Live Activity
 
@@ -78,8 +87,8 @@ POST /api/journeys/{journeyId}/subway/train-selection   {trainNo, routeRevision}
 
 | # | 어긋남 | 진행 |
 |---|---|---|
-| 1 | 시작이 OTP GTFS id 만 받는데 앱은 서울 역·정류장·노선 id 로 고른다 | **#298 A안 — 해결(§1 표)**. `patternCode` 는 싣지 않는다(시작이 노선·승하차로 다시 찾음). 경기·지방은 그 정류장이 앱 흐름(위 API)에 들어올 때 같은 방식으로 |
-| 2 | 방금 떠난 열차(최대 3대)를 주는 곳이 없다 | **#299 해결(#301)**: `GET /api/subway/stations/{id}/arrivals` 방향마다 `departed`(최근 3대·10분, `trainNo`·`departedAt`·`currentStationName`). 원천은 M7 출발 로그라 `trainNo` 가 열차 선택과 같은 공간. 위치 원천 없는 노선(경의중앙·경춘·수인분당·경강·서해·신림)은 늘 `[]` |
+| 1 | 시작이 OTP GTFS id 만 받는데 앱은 서울 역·정류장·노선 id 로 고른다 | **해결.** 기본은 #313 전국 `track/**` 조회, 서울 화면 API 는 #298 A안(§1 표). 시작 요청에 `patternCode` 는 싣지 않는다(시작이 노선·승하차로 다시 찾음) |
+| 2 | 방금 떠난 열차(최대 3대)를 주는 곳이 없다 | **#299 해결(#301)**: `GET /api/subway/stations/{id}/arrivals` 방향마다 `departed`(최근 3대·10분, `trainNo`·`departedAt`·`currentStationName`). 원천은 M7 출발 로그라 `trainNo` 가 열차 선택과 같은 공간. 위치 원천 없는 노선(경의중앙·경춘·수인분당·경강·서해 등)도 도착 피드로 채운다(#324, `source: ARRIVAL`) |
 | 3 | 열차를 시작할 때 고른다 | **해결.** 시작 직후 단계가 `WAIT_SUBWAY` 라 #277 역 도착 응답의 `trains`(곧 오는 열차)·`departed`(방금 떠난 열차, 10분 안) 어느 쪽 `trainNo` 든 바로 `train-selection` 에 보내면 된다. 떠난 열차는 서버가 같은 M7 출발 로그로 확인하고 그 출발의 운행일로 확정한다 |
 | 4 | `[탔어요]` = 이미 탔다 | 시작(대기 단계) 직후 앱이 탑승 전이를 바로 보내면 지금 서버로 동작한다. 별도 작업 없음 |
 
