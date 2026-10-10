@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import io.micrometer.core.instrument.Metrics;
+import lombok.extern.slf4j.Slf4j;
 import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPatternDetail;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitRoute;
@@ -35,12 +37,15 @@ import java.util.Set;
  * <p><b>소요는 시간표에서만 온다.</b> 정차 시각이 없거나 패턴과 어긋나면 실패다 — 근사하지 않는다. 소요는 지하철 오프라인
  * 보호 시간에도 들어가, 틀리면 여정이 일찍 접힌다.
  */
+@Slf4j
 public final class TrackLegFactory {
 
     private static final ZoneId FEED_ZONE = ZoneId.of("Asia/Seoul");
 
-    /** 정류장마다 가까운 형상점을 찾을 때 앞으로 볼 점 수. 정류장 사이 형상점은 실측 수십 개 수준이다. */
-    private static final int GEOMETRY_LOOKAHEAD = 600;
+    static final String SLICE_FAILED_METRIC = "track.geometry.slice.failed";
+
+    private static final double METERS_PER_DEGREE_LAT = 110_540.0;
+    private static final double METERS_PER_DEGREE_LON_AT_EQUATOR = 111_320.0;
 
     private TrackLegFactory() {
     }
@@ -111,58 +116,138 @@ public final class TrackLegFactory {
     }
 
     /**
-     * 패턴 형상에서 승차~하차를 잘라 낸다. 정류장마다 앞 정류장 자리 뒤에서 가장 가까운 형상점을 잡는다(여러 바퀴 패턴에서
-     * 다른 바퀴의 같은 자리로 튀지 않게). 못 자르면 형상 없음 — 앱은 정류장 직선으로 그린다(검색 결과와 같은 폴백).
+     * 패턴 형상에서 승차~하차를 잘라 낸다. 못 자르면 형상 없음 — 앱은 정류장 직선으로 그린다(검색 결과와 같은 폴백).
+     * 실패는 패턴·승하차 순번·이유를 {@code warn} 으로 남기고 {@value #SLICE_FAILED_METRIC} 를 센다.
      */
     static LegGeometry geometry(TransitPatternDetail detail, int boardIndex, int alightIndex, String graphVersion) {
         List<CoordPoint> points = EncodedPolyline.decode(detail.geometryPoints());
-        Optional<int[]> range = sliceRange(points, detail.stops(), boardIndex, alightIndex);
-        if (range.isEmpty()) {
+        Optional<List<CoordPoint>> slice = slice(points, detail.stops(), boardIndex, alightIndex);
+        if (slice.isEmpty()) {
+            String reason = points.size() < 2 ? "NO_GEOMETRY" : "NOT_ORDERED";
+            log.warn("[Track] 형상 자르기 실패 pattern={} board={} alight={} points={} reason={}",
+                    detail.code(), boardIndex, alightIndex, points.size(), reason);
+            Metrics.counter(SLICE_FAILED_METRIC, "reason", reason).increment();
             return LegGeometry.missing("pattern geometry unavailable");
         }
-        List<CoordPoint> slice = points.subList(range.get()[0], range.get()[1] + 1);
-        if (slice.size() < 2) {
-            return LegGeometry.missing("pattern geometry too short");
-        }
-        String encoded = encode(slice);
+        String encoded = encode(slice.get());
         return new LegGeometry(GeometrySource.GTFS_SHAPE, GeometryQuality.SHAPE_OK,
                 "pfaedle gtfs shape (pattern slice)", graphVersion, encoded, encoded);
     }
 
-    static Optional<int[]> sliceRange(List<CoordPoint> points, List<TransitStop> stops,
-                                      int boardIndex, int alightIndex) {
+    /**
+     * 승차~하차 선. 시작·끝은 두 정류장을 선분에 내린 수선의 발이고 그 사이는 원래 꼭짓점이다.
+     *
+     * <p>패턴 첫 정류장부터 하차까지 모든 정류장을 <b>순서를 지키는 배치 중 거리 합이 최소인 것</b>으로 선 위에 놓는다
+     * ({@link BusShapeStopSplitter} 와 같은 방식). 정류장마다 가장 가까운 점을 앞에서부터 탐욕으로 고르면, 가는 길과 오는
+     * 길이 겹치는 왕복 노선(040번)에서 한 정류장이 오는 길 점에 걸리는 순간 커서가 그쪽으로 뛰고 뒤 정류장이 모두 끝에
+     * 몰려 승차와 하차가 같은 점이 된다(#361). 거리는 꼭짓점이 아니라 선분까지 잰다 — 꼭짓점이 듬성한 구간에서 엉뚱한
+     * 바퀴의 꼭짓점이 더 가까워 보이는 것을 막는다.
+     */
+    static Optional<List<CoordPoint>> slice(List<CoordPoint> points, List<TransitStop> stops,
+                                            int boardIndex, int alightIndex) {
         if (points.size() < 2) {
             return Optional.empty();
         }
-        int cursor = 0;
-        int boardPoint = -1;
-        for (int s = 0; s <= alightIndex; s++) {
-            TransitStop stop = stops.get(s);
-            int best = cursor;
-            double bestDist = Double.MAX_VALUE;
-            int limit = Math.min(points.size(), cursor + GEOMETRY_LOOKAHEAD);
-            for (int p = cursor; p < limit; p++) {
-                double d = squaredDistance(points.get(p), stop);
-                if (d < bestDist) {
-                    bestDist = d;
-                    best = p;
-                }
-            }
-            cursor = best;
-            if (s == boardIndex) {
-                boardPoint = best;
-            }
-        }
-        if (boardPoint < 0 || cursor <= boardPoint) {
+        Cut[] cuts = place(points, stops.subList(0, alightIndex + 1));
+        Cut board = cuts[boardIndex];
+        Cut alight = cuts[alightIndex];
+        if (alight.edge < board.edge || (alight.edge == board.edge && alight.t <= board.t)) {
             return Optional.empty();
         }
-        return Optional.of(new int[]{boardPoint, cursor});
+        List<CoordPoint> line = new ArrayList<>();
+        line.add(board.point);
+        for (int v = board.edge + 1; v <= alight.edge; v++) {
+            add(line, points.get(v));
+        }
+        add(line, alight.point);
+        return line.size() < 2 ? Optional.empty() : Optional.of(line);
     }
 
-    private static double squaredDistance(CoordPoint point, TransitStop stop) {
-        double dx = (point.x() - stop.lon()) * Math.cos(Math.toRadians(stop.lat()));
-        double dy = point.y() - stop.lat();
-        return dx * dx + dy * dy;
+    /**
+     * 정류장마다 선 위 지점을 고른다. 뒤 정류장은 앞 정류장보다 앞 선분에 오지 않고, 같은 선분이면 비율이 작지 않다.
+     * 행마다 비용 두 줄만 들고 역추적용 출처만 전부 남긴다(정류장 수 × 선분 수 int).
+     */
+    private static Cut[] place(List<CoordPoint> points, List<TransitStop> stops) {
+        int edges = points.size() - 1;
+        int n = stops.size();
+        int[][] from = new int[n][edges];
+        double[] prevCost = new double[edges];
+        double[] prevT = new double[edges];
+        double[] cost = new double[edges];
+        double[] t = new double[edges];
+        for (int k = 0; k < n; k++) {
+            TransitStop stop = stops.get(k);
+            double earlierMin = Double.POSITIVE_INFINITY;
+            int earlierArg = -1;
+            for (int i = 0; i < edges; i++) {
+                Cut cut = project(stop, points, i);
+                t[i] = cut.t;
+                if (k == 0) {
+                    cost[i] = cut.distanceMeters;
+                    continue;
+                }
+                double previous = earlierMin;
+                int previousArg = earlierArg;
+                if (prevT[i] <= cut.t && prevCost[i] < previous) {
+                    previous = prevCost[i];
+                    previousArg = i;
+                }
+                cost[i] = cut.distanceMeters + previous;
+                from[k][i] = previousArg;
+                if (prevCost[i] < earlierMin) {
+                    earlierMin = prevCost[i];
+                    earlierArg = i;
+                }
+            }
+            double[] swap = prevCost;
+            prevCost = cost;
+            cost = swap;
+            swap = prevT;
+            prevT = t;
+            t = swap;
+        }
+
+        int arg = 0;
+        for (int i = 1; i < edges; i++) {
+            if (prevCost[i] < prevCost[arg]) {
+                arg = i;
+            }
+        }
+        Cut[] chosen = new Cut[n];
+        for (int k = n - 1; k >= 0; k--) {
+            chosen[k] = project(stops.get(k), points, Math.max(arg, 0));
+            arg = k > 0 ? from[k][Math.max(arg, 0)] : arg;
+        }
+        return chosen;
+    }
+
+    /** 정류장을 선분 {@code edge} 위에 수선의 발로 내린다. 정류장 위도 기준 평면 근사(수백 m 규모). */
+    private static Cut project(TransitStop stop, List<CoordPoint> points, int edge) {
+        CoordPoint a = points.get(edge);
+        CoordPoint b = points.get(edge + 1);
+        double lonScale = METERS_PER_DEGREE_LON_AT_EQUATOR * Math.cos(Math.toRadians(stop.lat()));
+        double ax = (a.x() - stop.lon()) * lonScale;
+        double ay = (a.y() - stop.lat()) * METERS_PER_DEGREE_LAT;
+        double bx = (b.x() - stop.lon()) * lonScale;
+        double by = (b.y() - stop.lat()) * METERS_PER_DEGREE_LAT;
+        double dx = bx - ax;
+        double dy = by - ay;
+        double lengthSquared = dx * dx + dy * dy;
+        double t = lengthSquared == 0 ? 0.0 : Math.max(0.0, Math.min(1.0, -(ax * dx + ay * dy) / lengthSquared));
+        CoordPoint point = t == 0.0 ? a : t == 1.0 ? b
+                : new CoordPoint(a.x() + t * (b.x() - a.x()), a.y() + t * (b.y() - a.y()));
+        return new Cut(edge, t, point, Math.hypot(ax + t * dx, ay + t * dy));
+    }
+
+    private static void add(List<CoordPoint> line, CoordPoint point) {
+        CoordPoint last = line.get(line.size() - 1);
+        if (Double.compare(last.x(), point.x()) != 0 || Double.compare(last.y(), point.y()) != 0) {
+            line.add(point);
+        }
+    }
+
+    /** 선 위 지점. {@code edge} 번째 선분의 {@code t} 비율 위치다. */
+    private record Cut(int edge, double t, CoordPoint point, double distanceMeters) {
     }
 
     /** Google encoded polyline(precision 5, 위도·경도 순). {@link EncodedPolyline#decode} 의 역. */

@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.Transit
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitStopTime;
 import watoo.grd.nextroute.application.route.routing.EncodedPolyline;
 import watoo.grd.nextroute.application.route.routing.GeometryQuality;
+import watoo.grd.nextroute.application.route.routing.LegGeometry;
 import watoo.grd.nextroute.application.route.routing.MissingAttribute;
 import watoo.grd.nextroute.application.route.routing.RoutingLeg;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
@@ -62,6 +63,42 @@ class TrackLegFactoryTest {
         assertThat(slice.size()).isGreaterThan(2).isLessThan(full.size() / 4);
         assertThat(distanceDeg(slice.get(0), detail.stops().get(31))).isLessThan(0.003);
         assertThat(distanceDeg(slice.get(slice.size() - 1), detail.stops().get(35))).isLessThan(0.003);
+    }
+
+    @Test
+    @DisplayName("형상: 왕복 노선(040번) 오는 길 남성역골목시장 → 숭실대입구역도 두 정류장을 50m 안에서 지나는 선으로 자른다")
+    void geometrySliceOnReturnLegOfOutAndBackRoute() {
+        TransitPatternDetail detail = TrackFixtures.bus040LoopDetail();
+        assertThat(detail.stops().get(66).name()).isEqualTo("남성역골목시장");
+        assertThat(detail.stops().get(73).name()).isEqualTo("숭실대입구역");
+
+        LegGeometry geometry = TrackLegFactory.geometry(detail, 66, 73, "g1");
+
+        assertThat(geometry.quality()).isEqualTo(GeometryQuality.SHAPE_OK);
+        List<CoordPoint> slice = EncodedPolyline.decode(geometry.displayPoints());
+        assertThat(slice.size()).isGreaterThan(8);
+        for (int i = 66; i <= 73; i++) {
+            assertThat(nearestMeters(slice, detail.stops().get(i)))
+                    .as("정류장 %d %s", i, detail.stops().get(i).name()).isLessThan(50);
+        }
+        assertThat(meters(slice.get(0), detail.stops().get(66))).isLessThan(50);
+        assertThat(meters(slice.get(slice.size() - 1), detail.stops().get(73))).isLessThan(50);
+    }
+
+    @Test
+    @DisplayName("형상: 왕복 노선 가는 길 구간(노들역 → 숭실대입구역)은 오는 길로 튀지 않는다")
+    void geometrySliceOnOutboundLegStaysOutbound() {
+        TransitPatternDetail detail = TrackFixtures.bus040LoopDetail();
+        List<CoordPoint> full = EncodedPolyline.decode(detail.geometryPoints());
+
+        LegGeometry geometry = TrackLegFactory.geometry(detail, 4, 13, "g1");
+
+        List<CoordPoint> slice = EncodedPolyline.decode(geometry.displayPoints());
+        assertThat(slice.size()).isLessThan(full.size() / 3);
+        for (int i = 4; i <= 13; i++) {
+            assertThat(nearestMeters(slice, detail.stops().get(i)))
+                    .as("정류장 %d %s", i, detail.stops().get(i).name()).isLessThan(50);
+        }
     }
 
     @Test
@@ -126,6 +163,26 @@ class TrackLegFactoryTest {
 
         assertThat(leg.geometry().quality()).isEqualTo(GeometryQuality.MISSING);
         assertThat(leg.stops()).hasSize(5);
+    }
+
+    private static double meters(CoordPoint point, TransitStop stop) {
+        double dx = (point.x() - stop.lon()) * 111_320.0 * Math.cos(Math.toRadians(stop.lat()));
+        double dy = (point.y() - stop.lat()) * 110_540.0;
+        return Math.hypot(dx, dy);
+    }
+
+    /** 선(선분)에서 정류장까지 가장 가까운 거리. */
+    private static double nearestMeters(List<CoordPoint> line, TransitStop stop) {
+        double best = Double.MAX_VALUE;
+        for (int i = 0; i + 1 < line.size(); i++) {
+            CoordPoint a = line.get(i);
+            CoordPoint b = line.get(i + 1);
+            for (int step = 0; step <= 20; step++) {
+                double f = step / 20.0;
+                best = Math.min(best, meters(new CoordPoint(a.x() + f * (b.x() - a.x()), a.y() + f * (b.y() - a.y())), stop));
+            }
+        }
+        return best;
     }
 
     private static double distanceDeg(CoordPoint point, TransitStop stop) {
