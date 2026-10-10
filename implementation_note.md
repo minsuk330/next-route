@@ -4214,3 +4214,21 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 배포
 - 리소스만(api·worker). 마이그레이션 없음. OSM 출처 표기 앱 요청(HANDOFF)
+
+## 2026-10-10 guidance-stop-info PR-4 (#266 빠른 하차)
+
+플랜 §6 + §9. 브랜치 feat/guidance-fast-alight (PR-3 #340 머지 후 main).
+
+### 확정
+- 원천 = 서울교통공사_빠른하차정보 `B553766/inout/getFstExit`(data.go.kr 15143840, 사용자 활용신청 완료, 기존 data.go.kr 키). 전체 2,358행·crtrYmd 20241231·1~8호선 276역. `stinNm` 필터 무시됨 → 통째 받아 `tools/subway-fast-alight/fetch_fast_alight.py` 로 `src/main/resources/subway/fast-alight.csv`(중복 제거 2,111행, `NA-NA` 제거, `"3-2,3-3 사이"` → `3-2~3-3`)
+- 방향 = **하차 직전 역이 아닌 `drtnInfo`**(리뷰 🟡5, `nextOf` 의존 제거). 한 방향뿐(종착)은 그것, 직전 역을 모르거나 남은 방향이 둘(갈래역)이면 없음. 2호선도 원천은 상행/하행이라 이 규칙이 필수
+- 하차 직전 역 이름은 Compiler 가 draft(`alightPrevName`, 저장 안 함)에 담는다 — 정차 목록 [n-2]. 호선 = 짝 대기 단계 후보의 내부 line_id(1001~1008)
+- 이름 정규화 = `SubwayPatternStationMatcher.displayName`(괄호·끝 "역" 제거: `서울역`→`서울`)
+- 성수지선(용답 방향)은 원천에 없음 → null(실측 성수 행의 방향 = 뚝섬·건대입구)
+
+### 검증
+- 신규: SubwayFastAlightIndexTest 5(방향 선택·종착·모름/갈래/호선 밖·동봉 CSV·line_id), JourneyGuidanceInfoEnricherTest +1(대기 후보 line_id·방향·JSON 왕복), JourneyCompilerTest +1(alightPrevName)
+- 전체 단위 → **2277/0**
+
+### 배포
+- 리소스만(api·worker). 마이그레이션 없음

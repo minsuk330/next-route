@@ -7,6 +7,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
 import watoo.grd.nextroute.application.regionalbus.port.out.RegionalBusRouteStopStore;
 import watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex;
+import watoo.grd.nextroute.application.subway.service.SubwayFastAlightIndex;
 import watoo.grd.nextroute.domain.bus.entity.BusStop;
 import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegGuidance;
@@ -36,9 +37,60 @@ public class JourneyGuidanceInfoEnricher {
     private final BusStopRepository busStopRepository;
     private final RegionalBusRouteStopStore regionalStopStore;
     private final SubwayEntranceIndex entranceIndex;
+    private final SubwayFastAlightIndex fastAlightIndex;
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
 
     public JourneyPlan enrich(JourneyPlan plan) {
-        return withSubwayExits(withBusStopNumbers(plan));
+        return withFastAlight(withSubwayExits(withBusStopNumbers(plan)));
+    }
+
+    /**
+     * 빠른 하차 칸·문(#266 PR-4). 지하철 탑승 단계마다 호선(대기 단계 후보의 내부 line_id, 1~8호선만) + 하차역 + 하차
+     * 직전 역으로 찾는다. 서울교통공사 구간 밖이거나 방향을 못 정하면 null.
+     */
+    private JourneyPlan withFastAlight(JourneyPlan plan) {
+        if (plan.legs().stream().noneMatch(leg -> leg.type() == JourneyLegType.RIDE_SUBWAY)) {
+            return plan;
+        }
+        Map<Integer, JourneyLegDraft> byIndex = new HashMap<>();
+        plan.legs().forEach(leg -> byIndex.put(leg.legIndex(), leg));
+        try {
+            List<JourneyLegDraft> legs = plan.legs().stream()
+                    .map(leg -> leg.type() == JourneyLegType.RIDE_SUBWAY ? withFastAlight(leg, byIndex) : leg)
+                    .toList();
+            return new JourneyPlan(legs, plan.transfers());
+        } catch (RuntimeException e) {
+            log.warn("[Journey] 빠른 하차 계산 실패 — 없이 진행: {}", e.getMessage());
+            return plan;
+        }
+    }
+
+    private JourneyLegDraft withFastAlight(JourneyLegDraft ride, Map<Integer, JourneyLegDraft> byIndex) {
+        JourneyLegDraft wait = ride.pairedLegIndex() == null ? null : byIndex.get(ride.pairedLegIndex());
+        Integer line = wait == null ? null : wait.routeOptions().stream()
+                .map(option -> SubwayFastAlightIndex.lineNoOfLineId(option.routeId()))
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .reduce((a, b) -> -1)
+                .filter(n -> n > 0)
+                .orElse(null);
+        if (line == null) {
+            return ride;
+        }
+        List<SubwayFastAlightIndex.FastAlight> found =
+                fastAlightIndex.lookup(line, ride.endName(), ride.alightPrevName());
+        if (found.isEmpty()) {
+            return ride;
+        }
+        try {
+            String json = JSON.writeValueAsString(found);
+            JourneyLegGuidance g = ride.guidance();
+            return ride.withGuidance(new JourneyLegGuidance(g.startStopNo(), g.endStopNo(), g.directionName(),
+                    g.startExitNo(), g.endExitNo(), json));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            return ride;
+        }
     }
 
     private JourneyPlan withBusStopNumbers(JourneyPlan plan) {

@@ -34,7 +34,12 @@ class JourneyGuidanceInfoEnricherTest {
                     new watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex.Entrance(
                             37.4930, 127.0140, "12", "교대역 12번 출구"),
                     new watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex.Entrance(
-                            37.4920, 127.0138, "14", "교대역 14번 출구"))));
+                            37.4920, 127.0138, "14", "교대역 14번 출구"))),
+            watoo.grd.nextroute.application.subway.service.SubwayFastAlightIndex.of(List.of(
+                    new watoo.grd.nextroute.application.subway.service.SubwayFastAlightIndex.Row(
+                            2, "교대", "서초", "3-1", "STAIRS"),
+                    new watoo.grd.nextroute.application.subway.service.SubwayFastAlightIndex.Row(
+                            2, "교대", "강남", "9-4", "STAIRS"))));
 
     @Test
     @DisplayName("대기 단계는 승차 정류장 번호 둘 다, 탑승 단계는 승차·하차 번호. 내부 정류장 ID 로 찾는다")
@@ -156,6 +161,24 @@ class JourneyGuidanceInfoEnricherTest {
         assertThat(legs.get(1).guidance().endExitNo()).isNull();   // 걷기 뒤 지하철 대기 = 환승
         assertThat(legs.get(3).guidance().startExitNo()).isNull(); // 앞 걷기 앞이 지하철 탑승
         assertThat(legs.get(4).guidance().endExitNo()).isNull();   // 끝이 역
+    }
+
+    @Test
+    @DisplayName("#266 PR-4 빠른 하차: 대기 단계 후보 line_id 로 호선, 하차 직전 역이 아닌 방향 — 강남→교대 하차면 서초 방향 행")
+    void fastAlight() {
+        JourneyLegDraft wait = new JourneyLegDraft(0, JourneyLegType.WAIT_SUBWAY, JourneyLegState.PENDING, null, null,
+                null, null, "강남", "강남", 127.0, 37.5, 127.0, 37.5, null, null,
+                List.of(new watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionDraft(
+                        0, 0, "1002", null, "2호선", null, 2, null, null)), 1);
+        JourneyLegDraft ride = new JourneyLegDraft(1, JourneyLegType.RIDE_SUBWAY, JourneyLegState.PENDING, null, null,
+                null, null, "강남", "교대", 127.0, 37.5, 127.0139, 37.4926, 60, null, List.of(), 0,
+                JourneyLegGuidance.EMPTY, "강남");
+
+        JourneyLegDraft out = enricher.enrich(new JourneyPlan(List.of(wait, ride), List.of())).legs().get(1);
+
+        assertThat(out.guidance().fastAlightJson()).isEqualTo("[{\"carDoor\":\"3-1\",\"facility\":\"STAIRS\"}]");
+        assertThat(JourneyQueryService.fastAlight(out.guidance().fastAlightJson()))
+                .containsExactly(new watoo.grd.nextroute.application.journey.dto.JourneyLegView.FastAlight("3-1", "STAIRS"));
     }
 
     private static JourneyLegDraft walk(int index, JourneyLegType type, double sx, double sy, double ex, double ey) {
