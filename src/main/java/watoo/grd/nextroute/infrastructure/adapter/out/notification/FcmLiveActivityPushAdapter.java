@@ -66,6 +66,13 @@ public class FcmLiveActivityPushAdapter implements LiveActivityPushPort {
     /** epoch 초. 이 시각에 시스템이 화면을 다시 그린다(#309). {@code update} 에만, 규칙은 {@code staleDateSeconds}. */
     static final String APS_STALE_DATE = "stale-date";
     static final String EVENT_UPDATE = "update";
+    static final String EVENT_END = "end";
+    static final String APS_DISMISSAL_DATE = "dismissal-date";
+    /**
+     * 종료 화면을 남겨 두는 시간. 종료 화면은 마지막 지하철 push 를 복사한 것이라(lease 만료로 끝나면 이미 낡았다)
+     * 오래 두면 지난 "○○에서 내려요"가 잠금화면에 남는다. 없으면 iOS 가 최대 4시간 남긴다.
+     */
+    static final long END_DISMISS_AFTER_SECONDS = 15;
 
     /** 지금 사용자를 깨우는 갱신이다. 낮추면 잠금화면이 늦게 따라온다. */
     private static final String APNS_PRIORITY_HIGH = "10";
@@ -118,6 +125,10 @@ public class FcmLiveActivityPushAdapter implements LiveActivityPushPort {
                 ? SubwayRingPushPayloadFactory.staleDateSeconds(contentState, nowMillis) : null;
         if (staleDate != null) {
             apsBuilder.putCustomData(APS_STALE_DATE, staleDate);
+        }
+        if (EVENT_END.equals(event)) {
+            // epoch 초다.
+            apsBuilder.putCustomData(APS_DISMISSAL_DATE, nowMillis / 1000 + END_DISMISS_AFTER_SECONDS);
         }
         Aps aps = apsBuilder.build();
 

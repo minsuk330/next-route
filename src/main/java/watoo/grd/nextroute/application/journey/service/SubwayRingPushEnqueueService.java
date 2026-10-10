@@ -83,7 +83,8 @@ public class SubwayRingPushEnqueueService {
             return;
         }
         ObjectNode contentState = payloadFactory.contentState(
-                current.journeyId(), lineNameOf(ride, current), current, decision.updatedAt());
+                current.journeyId(), lineNameOf(ride, current), ride.getGuidance().endExitNo(), current,
+                decision.updatedAt());
 
         insert(current.journeyId(), current.routeRevision(), current.legIndex(),
                 current.bindingVersion(), decision.reason(), decision.signature(),

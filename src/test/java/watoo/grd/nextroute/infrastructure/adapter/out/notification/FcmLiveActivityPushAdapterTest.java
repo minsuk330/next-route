@@ -48,6 +48,26 @@ class FcmLiveActivityPushAdapterTest {
     }
 
     @Test
+    @DisplayName("종료(end)에는 dismissal-date(epoch 초, 보낸 시각 + 15초)를 싣는다 — 없으면 낡은 화면이 4시간 남는다")
+    void endCarriesDismissalDate() {
+        long now = 1_786_681_200_000L;
+
+        Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
+                DEVICE_TOKEN, ACTIVITY_TOKEN, "end", 1786681200L, contentState(), now));
+
+        assertThat(aps.get(FcmLiveActivityPushAdapter.APS_DISMISSAL_DATE)).isEqualTo(now / 1000 + 15);
+    }
+
+    @Test
+    @DisplayName("갱신(update)에는 dismissal-date 가 없다")
+    void updateHasNoDismissalDate() {
+        Map<String, Object> aps = apsFields(FcmLiveActivityPushAdapter.message(
+                DEVICE_TOKEN, ACTIVITY_TOKEN, "update", 1786681200L, contentState()));
+
+        assertThat(aps).doesNotContainKey(FcmLiveActivityPushAdapter.APS_DISMISSAL_DATE);
+    }
+
+    @Test
     @DisplayName("aps.timestamp 는 epoch 초다 — props 의 밀리초와 자릿수가 다르다")
     void timestampIsSeconds() {
         long seconds = 1786681200L;

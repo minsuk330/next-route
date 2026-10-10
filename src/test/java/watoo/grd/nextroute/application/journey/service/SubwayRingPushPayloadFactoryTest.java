@@ -175,4 +175,16 @@ class SubwayRingPushPayloadFactoryTest {
                 T0.plusSeconds(90), T0.plusSeconds(120),
                 SubwayRingPhase.RIDE_SUBWAY, SubwayRingQuality.NORMAL, T0, T0);
     }
+
+    @Test
+    @DisplayName("하차 출구가 있으면 alightingExitNo 로 싣고, 없으면 키를 넣지 않는다")
+    void alightingExitNo() throws Exception {
+        assertThat(propsOf(factory.contentState(JOURNEY_ID, "2호선", "3", ring(), T0)).path("alightingExitNo").asText())
+                .isEqualTo("3");
+        assertThat(propsOf(factory.contentState(JOURNEY_ID, "2호선", null, ring(), T0)).has("alightingExitNo"))
+                .isFalse();
+        assertThat(propsOf(factory.contentState(JOURNEY_ID, "2호선", " ", ring(), T0)).has("alightingExitNo"))
+                .isFalse();
+    }
+
 }
