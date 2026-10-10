@@ -62,6 +62,11 @@ final class TrackFixtures {
         return OtpTransitPatternAdapter.parsePatternDetail(json("pattern-detail-bus.json")).orElseThrow();
     }
 
+    /** 040번: 신용산 → 사당 → 개포 → 사당 → 신용산 왕복. 가는 길과 오는 길이 겹친다(#361). */
+    static TransitPatternDetail bus040LoopDetail() {
+        return OtpTransitPatternAdapter.parsePatternDetail(json("pattern-detail-bus-loop.json")).orElseThrow();
+    }
+
     static List<TransitStopTime> bus640Times() {
         return OtpTransitPatternAdapter.parseTripStopTimes(json("trip-stoptimes-bus.json"));
     }
