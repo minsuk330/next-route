@@ -199,7 +199,7 @@ class SubwayTrainSelectionServiceTest {
         service.select(USER, JOURNEY, "2229", 1);
 
         verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
-                "2229", LocalDate.parse("2026-10-06"), "1002", "내선")));
+                "2229", LocalDate.parse("2026-10-06"), "1002", "내선", true)));
     }
 
     @Test
@@ -214,7 +214,7 @@ class SubwayTrainSelectionServiceTest {
         service.select(USER, JOURNEY, "K4021", 1);
 
         verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
-                "K4021", LocalDate.parse("2026-10-07"), "1002", "내선")));
+                "K4021", LocalDate.parse("2026-10-07"), "1002", "내선", true)));
     }
 
     @Test
@@ -254,7 +254,7 @@ class SubwayTrainSelectionServiceTest {
         service.select(USER, JOURNEY, "2388", 1);
 
         verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
-                "2388", LocalDate.parse("2026-10-07"), "1002", "내선")));
+                "2388", LocalDate.parse("2026-10-07"), "1002", "내선", true)));
     }
 
     @Test
@@ -291,4 +291,61 @@ class SubwayTrainSelectionServiceTest {
         return new SubwayRealtimeArrivalReader.Arrival(SubwayRealtimeTrain.builder().trainNo(no)
                 .destinationName(dest).trainType(type).receivedAt("2026-10-07 12:00:00").build(), sec);
     }
+
+    @Test
+    @DisplayName("고를 수 없는 대상: 대기 구간을 가리킨 legIndex / 이미 지난 탑승 / 사이에 도보 2개 / 사이에 버스")
+    void rejectedTargets() {
+        JourneyLeg walk = leg(2, JourneyLegType.WALK);
+        JourneyLeg walk2 = leg(3, JourneyLegType.TRANSFER_WALK);
+        JourneyLeg bus = leg(3, JourneyLegType.RIDE_BUS);
+        JourneyLeg wait2 = leg(4, JourneyLegType.WAIT_SUBWAY);
+        JourneyLeg ride2 = leg(5, JourneyLegType.RIDE_SUBWAY);
+
+        // legIndex 가 대기를 가리킴
+        assertNotWaiting(() -> service.candidates(USER, JOURNEY, 0));
+        // 이미 지난 탑승
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY, 1))
+                .willReturn(List.of(wait, ride, walk));
+        session.moveToLeg(2);
+        assertNotWaiting(() -> service.candidates(USER, JOURNEY, 1));
+        // 앞 탑승과 다음 대기 사이 도보 2개
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY, 1))
+                .willReturn(List.of(wait, ride, walk, walk2, wait2, ride2));
+        session.moveToLeg(1);
+        assertNotWaiting(() -> service.candidates(USER, JOURNEY, 5));
+        // 사이에 버스
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY, 1))
+                .willReturn(List.of(wait, ride, walk, bus, wait2, ride2));
+        assertNotWaiting(() -> service.candidates(USER, JOURNEY, 5));
+    }
+
+    @Test
+    @DisplayName("추적 가능: 명시 노선표 밖(인천1 → 1021)은 NO_REALTIME_LINE, 지하철 탑승이 아니면 409")
+    void trackabilityEdges() {
+        ReflectionTestUtils.setField(wait, "routeId", "1021");
+        assertThat(service.trackability(USER, JOURNEY, 1).reason())
+                .isEqualTo(watoo.grd.nextroute.application.journey.dto.SubwayTrackabilityView.Reason.NO_REALTIME_LINE);
+
+        assertNotWaiting(() -> service.trackability(USER, JOURNEY, 0));
+    }
+
+    @Test
+    @DisplayName("탑승 중 재선택은 이미 탄 열차로 넘긴다(aboard) — 링이 승차역으로 되감기지 않게")
+    void ridingSelectionIsAboard() {
+        session.moveToLeg(1);
+        given(arrivalReader.justDepartedTrainNos("1002", "1002000222", 0)).willReturn(List.of("2386"));
+        given(trainLogPort.findDepartures(any(), any(), any(), any(), any(), any())).willReturn(List.of());
+
+        service.select(USER, JOURNEY, "2386", 1);
+
+        verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
+                "2386", LocalDate.parse("2026-10-07"), "1002", "내선", true)));
+    }
+
+    private static void assertNotWaiting(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+        assertThatThrownBy(call)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.NOT_WAITING_FOR_SUBWAY);
+    }
+
 }

@@ -141,4 +141,29 @@ class SubwayOfflineProtectionPolicyTest {
                 .activatedAt(LEG_STARTED_AT)
                 .build();
     }
+
+    @Test
+    @DisplayName("같은 탑승 안에서는 줄이지 않는다 — 링 갱신기가 하차 예정으로 늘린 값을 계획 소요시간이 되돌리지 않는다")
+    void neverShrinksWithinTheRide() {
+        JourneySession journey = journey();
+        journey.protectSubwayUntil(Instant.parse("2026-08-04T09:40:00Z"));
+
+        policy.apply(journey, subwayLeg(900), null, LEG_STARTED_AT);
+
+        assertThat(journey.getSubwayOfflineProtectionUntil())
+                .isEqualTo(Instant.parse("2026-08-04T09:40:00Z"));
+    }
+
+    @Test
+    @DisplayName("줄이지 않아도 상한(단계 시작 + 60분)은 넘지 않는다")
+    void keptValueStillCapped() {
+        JourneySession journey = journey();
+        journey.protectSubwayUntil(Instant.parse("2026-08-04T11:00:00Z"));
+
+        policy.apply(journey, subwayLeg(900), null, LEG_STARTED_AT);
+
+        assertThat(journey.getSubwayOfflineProtectionUntil())
+                .isEqualTo(Instant.parse("2026-08-04T10:00:00Z"));
+    }
+
 }

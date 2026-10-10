@@ -12,7 +12,6 @@ import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionExcep
 import watoo.grd.nextroute.application.subway.service.SubwayDepartureLookup;
 import watoo.grd.nextroute.application.subway.service.ServiceDateResolver;
 import watoo.grd.nextroute.application.subway.service.SubwayDirectionNormalizer;
-import watoo.grd.nextroute.application.subway.service.SubwayLineIdMapper;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
@@ -84,6 +83,14 @@ public class SubwayTrainSelectionService {
     private final MeterRegistry meterRegistry;
     private final Clock clock;
 
+    /**
+     * 서울 실시간 도착 원천이 다루는 노선(project-subway-realtime-full-coverage, 19개). 이름 매퍼의 숫자 폴백은 1001~1099 를
+     * 전부 받아 인천1·2(subwayCode 21·22 → 1021·1022)를 지원 노선으로 잘못 낸다 — 그래서 명시한다.
+     */
+    static final java.util.Set<String> REALTIME_LINE_IDS = java.util.Set.of(
+            "1001", "1002", "1003", "1004", "1005", "1006", "1007", "1008", "1009",
+            "1032", "1063", "1065", "1067", "1075", "1077", "1081", "1092", "1093", "1094");
+
     /** 떠난 열차 후보 상한 — 오래 탄 사람에게 한 시간치 출발을 다 보여 주지 않는다. */
     static final int DEPARTED_CANDIDATE_LIMIT = 6;
 
@@ -135,7 +142,7 @@ public class SubwayTrainSelectionService {
         if (!isSubwayPair(wait, ride)) {
             throw new BusinessException(JourneyErrorCode.NOT_WAITING_FOR_SUBWAY);
         }
-        if (SubwayLineIdMapper.toLineName(wait.getRouteId()).isEmpty()) {
+        if (!REALTIME_LINE_IDS.contains(wait.getRouteId())) {
             return SubwayTrackabilityView.no(rideIndex, SubwayTrackabilityView.Reason.NO_REALTIME_LINE);
         }
         if (wait.getStartStopId() == null) {
@@ -207,8 +214,9 @@ public class SubwayTrainSelectionService {
             }
             departed = true;
         }
+        // 떠난 열차를 골랐거나 탑승 중에 다시 골랐다 — 이미 탄 열차다. 링이 승차역으로 되감기지 않게 한다.
         SubwayTrainSelectionTxService.ChosenTrain train = new SubwayTrainSelectionTxService.ChosenTrain(
-                trainNo, serviceDate, lineId, direction);
+                trainNo, serviceDate, lineId, direction, departed || riding);
         try {
             SubwayBindingView view = txService.bind(waiting.ride(), train);
             record(departed ? "selected-departed" : "selected");

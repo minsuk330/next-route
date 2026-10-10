@@ -257,6 +257,7 @@ class SubwayTrainSelectionIT {
         assertThat(binding.getStatus().name()).isEqualTo("CONFIRMED");
         assertThat(binding.getTrainNo()).isEqualTo("2386");
         assertThat((long) binding.getVersion()).isGreaterThan(before);
+        assertThat(binding.isSelectedBeforeMovement()).as("이미 탄 열차 — 링은 승차역부터가 아니다").isFalse();
     }
 
     @Test

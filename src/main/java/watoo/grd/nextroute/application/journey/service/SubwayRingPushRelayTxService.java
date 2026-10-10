@@ -100,8 +100,10 @@ public class SubwayRingPushRelayTxService {
         }
         // 쌓인 사이 여정이 다음 단계로 넘어갔다 — 이 지하철 화면이 다음 도보·버스 화면을 덮는다(링 대상 조건과 같은 창).
         JourneySession session = sessionRepository.findById(row.getJourneyId()).orElse(null);
-        if (session == null || session.getRouteRevision() != row.getRouteRevision()
-                || session.getCurrentLegIndex() < row.getLegIndex() - 1
+        if (session == null || session.getRouteRevision() != row.getRouteRevision()) {
+            return Optional.of("stale_revision");
+        }
+        if (session.getCurrentLegIndex() < row.getLegIndex() - 1
                 || session.getCurrentLegIndex() > row.getLegIndex()) {
             return Optional.of("leg_left");
         }
