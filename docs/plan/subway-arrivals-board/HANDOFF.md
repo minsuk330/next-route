@@ -48,7 +48,7 @@ PR 이 머지될 때마다 이 문서에 이어 적는다.
 | `toStationId/Name` | 향하는 다음 역 |
 | `departedAt` | from 을 떠난 시각 |
 | `expectedAt` | to 도착 예정. **지금보다 과거일 수 있다**(늦는 중). 모르면 null |
-| `source` | `MEASURED`(오늘 같은 구간을 지난 최근 열차 실측 중앙값) \| `SCHEDULED`(실측 없을 때 GTFS 계획) \| null |
+| `source` | `SCHEDULED`(GTFS 계획) \| null. **2026-10-10 부터 `MEASURED` 는 오지 않는다** — 실측이 진입 신호 기준이라 16~25초로 짧았다. 값은 계약 호환용으로 남김 |
 
 - `segment` 는 **달리는 중(`status=DEPARTED`)일 때만** 온다. 정차·진입 중이면 null → 역에 둔다
 - 보간: `departedAt → expectedAt` 사이 선형. `expectedAt` 을 넘기면 to 직전에서 멈추고 다음 응답을 기다린다. **화면 역행 금지는 앱 몫**
