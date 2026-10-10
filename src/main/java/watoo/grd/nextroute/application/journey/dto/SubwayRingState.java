@@ -24,6 +24,8 @@ import java.time.Instant;
  * @param guidanceVersion         화면이 마지막으로 <b>눈에 띄게</b> 바뀐 시각(epoch millis, #307). 같은 화면이면
  *                                tick 이 돌아도 그대로다. 고정 세대가 바뀌어 키가 새로 생겨도 시각이라 단조다.
  *                                0 = 아직 부여 전(배포 전 Redis 값 포함)
+ * @param estimatedAlightingAt    하차역 도착 예정(#310). 다음 역 도착 예정 + GTFS 계획 초(다음 역 도착 → 하차역 도착).
+ *                                다음 역 예정이 없거나 계획을 모르면 null. 계산기가 아니라 갱신기가 붙인다
  */
 public record SubwayRingState(
         Long journeyId,
@@ -47,8 +49,24 @@ public record SubwayRingState(
         SubwayRingQuality quality,
         Instant observedAt,
         Instant updatedAt,
-        long guidanceVersion
+        long guidanceVersion,
+        Instant estimatedAlightingAt
 ) {
+
+    /** 하차 예정 없이 만든다(옛 모양 — Redis 에 남은 값·시험). */
+    public SubwayRingState(Long journeyId, int routeRevision, int legIndex, int bindingVersion,
+                           int nextStationSequence, String canonicalNextStationKey,
+                           String nextStationName, String alightingStationName,
+                           Integer remainingStations, BigDecimal segmentProgress,
+                           Instant progressBaseAt, BigDecimal progressTarget,
+                           Instant estimatedNextStationAt, Instant progressValidUntil,
+                           SubwayRingPhase phase, SubwayRingQuality quality,
+                           Instant observedAt, Instant updatedAt, long guidanceVersion) {
+        this(journeyId, routeRevision, legIndex, bindingVersion, nextStationSequence,
+                canonicalNextStationKey, nextStationName, alightingStationName, remainingStations,
+                segmentProgress, progressBaseAt, progressTarget, estimatedNextStationAt,
+                progressValidUntil, phase, quality, observedAt, updatedAt, guidanceVersion, null);
+    }
 
     /** 버전 없이 만든다(계산기). 버전은 저장 직전에 갱신기가 붙인다. */
     public SubwayRingState(Long journeyId, int routeRevision, int legIndex, int bindingVersion,
@@ -71,7 +89,7 @@ public record SubwayRingState(
                 nextStationSequence, canonicalNextStationKey, nextStationName,
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 target, estimatedNextStationAt, progressValidUntil, phase, quality,
-                observedAt, updatedAt, guidanceVersion);
+                observedAt, updatedAt, guidanceVersion, estimatedAlightingAt);
     }
 
     public SubwayRingState withProgressValidUntil(Instant validUntil) {
@@ -79,7 +97,7 @@ public record SubwayRingState(
                 nextStationSequence, canonicalNextStationKey, nextStationName,
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, validUntil, phase, quality,
-                observedAt, updatedAt, guidanceVersion);
+                observedAt, updatedAt, guidanceVersion, estimatedAlightingAt);
     }
 
     /** 같은 앵커를 새 관측으로 확인만 했다. 화면 값은 그대로, 관측·갱신 시각만 바뀐다. */
@@ -88,7 +106,15 @@ public record SubwayRingState(
                 nextStationSequence, canonicalNextStationKey, nextStationName,
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
-                observedAt, updatedAt, guidanceVersion);
+                observedAt, updatedAt, guidanceVersion, estimatedAlightingAt);
+    }
+
+    public SubwayRingState withEstimatedAlightingAt(Instant alightingAt) {
+        return new SubwayRingState(journeyId, routeRevision, legIndex, bindingVersion,
+                nextStationSequence, canonicalNextStationKey, nextStationName,
+                alightingStationName, remainingStations, segmentProgress, progressBaseAt,
+                progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
+                observedAt, updatedAt, guidanceVersion, alightingAt);
     }
 
     public SubwayRingState withGuidanceVersion(long version) {
@@ -96,7 +122,7 @@ public record SubwayRingState(
                 nextStationSequence, canonicalNextStationKey, nextStationName,
                 alightingStationName, remainingStations, segmentProgress, progressBaseAt,
                 progressTarget, estimatedNextStationAt, progressValidUntil, phase, quality,
-                observedAt, updatedAt, version);
+                observedAt, updatedAt, version, estimatedAlightingAt);
     }
 
     /** 이 상태가 그 고정 세대의 것인지. 아니면 옛 worker 가 쓴 값이다. */

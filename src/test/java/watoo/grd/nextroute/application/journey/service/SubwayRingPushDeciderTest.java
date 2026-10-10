@@ -128,6 +128,16 @@ class SubwayRingPushDeciderTest {
         }
 
         @Test
+        @DisplayName("하차 예정(#310)이 30초 눈금을 넘어 바뀌면 보낸다, 몇 초 흔들림은 조용하다")
+        void alightingEtaShiftSendsAnchor() {
+            SubwayRingState base = ring().withEstimatedAlightingAt(T0.plusSeconds(600));
+
+            assertThat(decider.decide(base, ring().withEstimatedAlightingAt(T0.plusSeconds(602)))).isEmpty();
+            assertThat(decider.decide(base, ring().withEstimatedAlightingAt(T0.plusSeconds(720)))
+                    .orElseThrow().reason()).isEqualTo(SubwayRingPushReason.ANCHOR);
+        }
+
+        @Test
         @DisplayName("도착 예정이 크게 밀리면 앵커 갱신으로 보낸다 — 다만 critical 은 아니다")
         void bigEtaShiftSendsAnchor() {
             SubwayRingState delayed = ringBuilder().estimatedAt(T0.plusSeconds(300)).build();

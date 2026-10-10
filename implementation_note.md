@@ -4256,3 +4256,22 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `FcmLiveActivityPushAdapterTest` 14/0(신규 3: update 초 단위·값 없으면 키 없음·end 없음), `SubwayRingPushPayloadFactoryTest` 5/0(신규 1: 봉투 왕복)
+## 2026-10-10 지하철 링 하차역 도착 예정 estimatedAlightingAt (#310, feat/ring-estimated-alighting, M)
+
+### 확정
+- 사용자 결정(2026-10-10): 남은 구간은 **시간표만**. `estimatedAlightingAt` = 다음 역 도착 예정 + GTFS 계획 초(다음 역 도착 → 하차역 도착, 사이 정차 포함). 지연은 다음 역 예정에만 반영된다. 다음 역 = 하차역이면 그 예정 그대로. 다음 역 예정이 없거나(멈춘 링) 계획을 모르면 null
+- 계획 초 = `SubwayLineOrder.arrivalGapSeconds`(#317 과 같은 OTP 패턴 캐시, OTP 를 부르지 않음 — 캐시 없으면 뒤에서 적재하고 이번엔 null). 두 역을 이 순서로 지나는 패턴 중 trip 최다(완행). 순환 패턴은 출발역을 다시 만나면 끊는다
+- 계산 자리 = `SubwayRingUpdateService`(계산기는 순수 함수라 노선·방향을 모름). 방향·노선은 고정 열차(`TrainIdentity`)의 것
+- 사용자 결정: push `stale-date` = min(progressValidUntil, 하차 예정 − 60초)(앱 규칙과 같음)
+- 계약: push props `estimatedAlightingAt`(epoch 밀리초, 없으면 null), 스냅샷 `subwayGuidance.estimatedAlightingAt`(Instant). push 지문에 하차 예정 30초 눈금 추가 → 바뀌면 ANCHOR push·링 버전 상승
+- `SubwayRingState`·`SubwayGuidance` 레코드 끝에 칸 추가 + 옛 모양 생성자 유지. Redis 옛 값은 null 로 읽힌다(`RedisSubwayRingAdapterIT` 7/0)
+
+### 함정
+- `RerouteProposalStoreIT` 23·`JourneySchemaIT` 1·`RerouteProposalExpiryIT` 1 실패는 **main 에서도 난다** — #337 의 V63(`journey_leg.direction_name` 등)이 `@Sql` 로 표를 만드는 IT 스크립트에 반영 안 됨. 이 PR 무관(기존 무관), 별건으로 고칠 것
+
+### 배포
+- worker(링 갱신·push) + api(스냅샷 subwayGuidance). 마이그레이션·플래그 없음
+
+### 검증
+- 단위: SubwayLineOrderTest 9/0(신규 2), SubwayRingPushDeciderTest 13/0(신규 1), SubwayRingPushPayloadFactoryTest 6/0(신규 1), FcmLiveActivityPushAdapterTest 14/0, SubwayRingCalculatorTest 38/0, JourneyControllerTest 36/0
+- 일회용 st-pg/st-redis 전체: 2824 중 실패 38 = 기존 무관 13(이전 기록과 동일 구성) + V63 IT 스크립트 25(main 에서 같은 실패 확인). 링 IT: SubwayRingIT 16/0, SubwayRingPushIT 25/0, RedisSubwayRingAdapterIT 7/0, SubwayRideScenarioIT 9/0, JourneySubwayGuidanceIT 9/0

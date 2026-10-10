@@ -112,6 +112,26 @@ class SubwayRingPushPayloadFactoryTest {
         assertThat(SubwayRingPushPayloadFactory.staleDateSeconds(null)).isNull();
     }
 
+    @Test
+    @DisplayName("#310 props 에 하차 예정(밀리초)이 실리고, stale-date 는 min(유효기간, 하차 예정 − 60초)")
+    void alightingEtaAndStaleDate() throws Exception {
+        SubwayRingState base = ring();
+        Instant alighting = base.progressValidUntil().plusSeconds(30);
+        ObjectNode envelope = factory.contentState(JOURNEY_ID, "2호선", base.withEstimatedAlightingAt(alighting), T0);
+
+        assertThat(propsOf(envelope).path("estimatedAlightingAt").asLong()).isEqualTo(alighting.toEpochMilli());
+        assertThat(SubwayRingPushPayloadFactory.staleDateSeconds(envelope))
+                .as("하차 1분 전이 유효기간보다 이르다")
+                .isEqualTo(alighting.minusSeconds(60).getEpochSecond());
+
+        ObjectNode far = factory.contentState(JOURNEY_ID, "2호선",
+                base.withEstimatedAlightingAt(base.progressValidUntil().plusSeconds(3600)), T0);
+        assertThat(SubwayRingPushPayloadFactory.staleDateSeconds(far))
+                .isEqualTo(base.progressValidUntil().getEpochSecond());
+        assertThat(propsOf(factory.contentState(JOURNEY_ID, "2호선", base, T0)).path("estimatedAlightingAt").isNull())
+                .as("모르면 null").isTrue();
+    }
+
     private SubwayRingState ring() {
         return new SubwayRingState(JOURNEY_ID, 1, 4, 0,
                 1, "1002000223", "역삼", "삼성", 2,

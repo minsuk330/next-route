@@ -73,6 +73,53 @@ public class SubwayLineOrder {
         return Optional.ofNullable(seconds);
     }
 
+    /**
+     * {@code fromStationId} 도착 → 그 뒤 {@code toStationId} 도착까지 GTFS 계획 초(운행 + 사이 역 정차). 진행 링의 하차역 도착
+     * 예정(#310)이 다음 역 예정에 더한다. 두 역을 이 순서로 지나는 패턴 중 trip 이 가장 많은 것(완행이 보통 더 많다). 순환
+     * 패턴은 {@code from} 다음 첫 {@code to} 까지만 본다. 모르면 empty. 같은 역이면 0.
+     */
+    public Optional<Integer> arrivalGapSeconds(String lineId, String direction, String fromStationId,
+                                               String toStationId) {
+        if (fromStationId == null || toStationId == null) {
+            return Optional.empty();
+        }
+        if (fromStationId.equals(toStationId)) {
+            return Optional.of(0);
+        }
+        StationsAheadCalculator.Pattern best = null;
+        Integer seconds = null;
+        for (StationsAheadCalculator.Pattern pattern : patterns(lineId, direction)) {
+            Integer gap = arrivalGap(pattern.stops(), fromStationId, toStationId);
+            if (gap != null && (best == null || pattern.tripCount() > best.tripCount())) {
+                best = pattern;
+                seconds = gap;
+            }
+        }
+        return Optional.ofNullable(seconds);
+    }
+
+    static Integer arrivalGap(List<StationsAheadCalculator.Stop> stops, String fromStationId, String toStationId) {
+        for (int i = 0; i < stops.size(); i++) {
+            if (!fromStationId.equals(stops.get(i).stationId())) {
+                continue;
+            }
+            for (int j = i + 1; j < stops.size(); j++) {
+                String id = stops.get(j).stationId();
+                if (fromStationId.equals(id)) {
+                    break; // 한 바퀴 돌았다
+                }
+                if (toStationId.equals(id)) {
+                    return StationsAheadCalculator.seconds(arrivalOf(stops.get(i)), arrivalOf(stops.get(j)));
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Integer arrivalOf(StationsAheadCalculator.Stop stop) {
+        return stop.arrivalSec() != null ? stop.arrivalSec() : stop.departureSec();
+    }
+
     private List<StationsAheadCalculator.Pattern> patterns(String lineId, String direction) {
         if (lineId == null || direction == null) {
             return List.of();

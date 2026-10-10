@@ -96,7 +96,9 @@ public class SubwayRingPushDecider {
                 String.valueOf(ring.canonicalNextStationKey()),
                 String.valueOf(ring.remainingStations()),
                 bucketedProgress(ring.segmentProgress()),
-                bucketedEta(ring.estimatedNextStationAt()));
+                bucketedEta(ring.estimatedNextStationAt()),
+                // 하차 예정(#310)도 같은 30초 눈금 — 앱 Dynamic Island 오른쪽 시각이 push 로 따라온다.
+                bucketedEta(ring.estimatedAlightingAt()));
         return hash(material);
     }
 

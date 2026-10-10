@@ -99,6 +99,37 @@ class SubwayLineOrderTest {
         assertThat(order.runSeconds("1001", "하행", "B", "A")).isEmpty();
     }
 
+    @Test
+    @DisplayName("#310 다음 역 도착 → 하차역 도착 계획 초: 운행+사이 정차, trip 최다 패턴, 반대 순서·모르면 empty, 같은 역 0")
+    void arrivalGapFromBusiestPattern() {
+        SubwayLinePatternService patternService = mock(SubwayLinePatternService.class);
+        SubwayStationsAheadService ahead = mock(SubwayStationsAheadService.class);
+        List<DirectedRailPattern> directed = List.of(mock(DirectedRailPattern.class));
+        given(patternService.cachedPatterns("1002", "내선")).willReturn(directed);
+        given(ahead.resolvedPatterns(eq("1002"), eq("내선"), eq(directed), any())).willReturn(List.of(
+                new Pattern("L", "L", false, 100, List.of(new Stop("A", "A", "A", 0, 30),
+                        new Stop("B", "B", "B", 120, 150), new Stop("C", "C", "C", 240, 270))),
+                new Pattern("E", "E", false, 10, List.of(new Stop("A", "A", "A", 0, 20),
+                        new Stop("C", "C", "C", 150, 150)))));
+        SubwayLineOrder order = new SubwayLineOrder(patternService, mock(SubwayLineStationIndex.class), ahead);
+
+        assertThat(order.arrivalGapSeconds("1002", "내선", "A", "C")).as("완행(trip 100) 기준").contains(240);
+        assertThat(order.arrivalGapSeconds("1002", "내선", "B", "C")).contains(120);
+        assertThat(order.arrivalGapSeconds("1002", "내선", "C", "A")).isEmpty();
+        assertThat(order.arrivalGapSeconds("1002", "내선", "A", "Z")).isEmpty();
+        assertThat(order.arrivalGapSeconds("1002", "내선", "B", "B")).contains(0);
+    }
+
+    @Test
+    @DisplayName("#310 순환 패턴은 출발역 다음 첫 도착역까지만 — 한 바퀴 돌아 다시 만나면 끊는다")
+    void arrivalGapStopsAtLoop() {
+        List<Stop> loop = List.of(new Stop("A", "A", "A", 0, 0), new Stop("B", "B", "B", 60, 60),
+                new Stop("A", "A", "A", 120, 120), new Stop("C", "C", "C", 180, 180));
+
+        assertThat(SubwayLineOrder.arrivalGap(loop, "B", "C")).as("B 뒤 A 를 지나도 다른 역이면 계속").isEqualTo(120);
+        assertThat(SubwayLineOrder.arrivalGap(loop, "A", "C")).as("첫 A 에서는 다시 A 를 만나 끊고, 둘째 A 에서 찾는다").isEqualTo(60);
+    }
+
     private static Pattern pattern(int trips, String... ids) {
         List<Stop> stops = Arrays.stream(ids).map(id -> new Stop(id, id, id, 0, 0)).toList();
         return new Pattern("R" + trips, "R", false, trips, stops);
