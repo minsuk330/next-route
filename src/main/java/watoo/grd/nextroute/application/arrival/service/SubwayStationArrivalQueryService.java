@@ -78,6 +78,7 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
         List<Placed> placed = positionResolver.place(station.getLineId(), arrivals, clock.instant()).stream()
                 .filter(p -> !p.reversed())
                 .filter(p -> !passed(p, station))
+                .filter(p -> !terminatesBefore(p, station))
                 .map(p -> p.withSegment(segment(p, station)))
                 .toList();
         Map<String, List<Departed>> departed = departed(station.getLineId(), station.getStationId());
@@ -95,6 +96,18 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
                     placed.position(), SubwayTrainPositionResolver.parse(train.getReceivedAt()));
         } catch (RuntimeException e) {
             log.debug("지난 열차 판정 실패 station={}: {}", station.getStationId(), e.getMessage());
+            return false;
+        }
+    }
+
+    /** 이 역에 오기 전에 운행을 끝내는 열차. 판정 실패는 "온다" — 지난 열차 판정과 같은 이유. */
+    private boolean terminatesBefore(Placed placed, SubwayStation station) {
+        try {
+            SubwayRealtimeTrain train = placed.arrival().train();
+            return segmentResolver.terminatesBefore(station.getLineId(), train.getDirection(), station.getStationId(),
+                    train.getDestinationName(), placed.position());
+        } catch (RuntimeException e) {
+            log.debug("종착 판정 실패 station={}: {}", station.getStationId(), e.getMessage());
             return false;
         }
     }
