@@ -26,6 +26,7 @@ import java.util.List;
  * @param routeOptions       노선 후보들. 기다리는 단계만 비어 있지 않다
  * @param pairedLegIndex     짝이 되는 단계의 순번(기다리기↔타고가기). 걷기는 null
  * @param guidance           안내 시트 지점 줄 값(#266). 없으면 {@link JourneyLegGuidance#EMPTY}
+ * @param alightPrevName     지하철 탑승 단계의 하차 직전 역 이름(#266 빠른 하차 방향 판정용, 저장하지 않는다). 그 밖은 null
  */
 public record JourneyLegDraft(
         int legIndex,
@@ -45,7 +46,8 @@ public record JourneyLegDraft(
         String evidenceQuality,
         List<JourneyRouteOptionDraft> routeOptions,
         Integer pairedLegIndex,
-        JourneyLegGuidance guidance
+        JourneyLegGuidance guidance,
+        String alightPrevName
 ) {
 
     public JourneyLegDraft {
@@ -63,13 +65,26 @@ public record JourneyLegDraft(
                            List<JourneyRouteOptionDraft> routeOptions, Integer pairedLegIndex) {
         this(legIndex, type, state, startStopId, endStopId, sourceStartStopId, sourceEndStopId,
                 startName, endName, startX, startY, endX, endY, plannedDurationSec, evidenceQuality,
-                routeOptions, pairedLegIndex, JourneyLegGuidance.EMPTY);
+                routeOptions, pairedLegIndex, JourneyLegGuidance.EMPTY, null);
+    }
+
+    public JourneyLegDraft(int legIndex, JourneyLegType type, JourneyLegState state,
+                           String startStopId, String endStopId,
+                           String sourceStartStopId, String sourceEndStopId,
+                           String startName, String endName,
+                           Double startX, Double startY, Double endX, Double endY,
+                           Integer plannedDurationSec, String evidenceQuality,
+                           List<JourneyRouteOptionDraft> routeOptions, Integer pairedLegIndex,
+                           JourneyLegGuidance guidance) {
+        this(legIndex, type, state, startStopId, endStopId, sourceStartStopId, sourceEndStopId,
+                startName, endName, startX, startY, endX, endY, plannedDurationSec, evidenceQuality,
+                routeOptions, pairedLegIndex, guidance, null);
     }
 
     public JourneyLegDraft withGuidance(JourneyLegGuidance guidance) {
         return new JourneyLegDraft(legIndex, type, state, startStopId, endStopId,
                 sourceStartStopId, sourceEndStopId, startName, endName, startX, startY, endX, endY,
-                plannedDurationSec, evidenceQuality, routeOptions, pairedLegIndex, guidance);
+                plannedDurationSec, evidenceQuality, routeOptions, pairedLegIndex, guidance, alightPrevName);
     }
 
     /** 내부 ID 해석 결과를 반영한 새 draft. Compiler는 원천 ID만 채우고 이 단계가 내부 ID를 채운다. */
@@ -80,7 +95,8 @@ public record JourneyLegDraft(
                 resolvedStartStopId, resolvedEndStopId,
                 sourceStartStopId, sourceEndStopId,
                 startName, endName, startX, startY, endX, endY,
-                plannedDurationSec, resolvedEvidenceQuality, resolvedOptions, pairedLegIndex, guidance);
+                plannedDurationSec, resolvedEvidenceQuality, resolvedOptions, pairedLegIndex, guidance,
+                alightPrevName);
     }
 
     /** 컴파일·해석 테스트에서 후보 개수를 명시적으로 확인할 때 쓴다. */

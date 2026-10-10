@@ -444,6 +444,18 @@ class JourneyCompilerTest {
         }
 
         @Test
+        @DisplayName("#266 PR-4 탑승 단계에 하차 직전 역 이름(빠른 하차 방향용) — 대기 단계는 null")
+        void alightPrevName() {
+            JourneyPlan plan = compiler.compile(path(
+                    subway(15).names("강남", "서초")
+                            .subwayStations(222, 224)
+                            .stations(station(0, "강남"), station(1, "교대(2호선)"), station(2, "서초"))
+                            .lanes(subwayLane("2호선", 2)).build()));
+
+            assertThat(plan.legs()).extracting(JourneyLegDraft::alightPrevName).containsExactly(null, "교대");
+        }
+
+        @Test
         @DisplayName("정차 목록이 승·하차 두 점뿐이면 null — OTP 폴백이라 두 번째 점이 하차역일 수 있다")
         void twoPointStopListIsUnknown() {
             JourneyPlan plan = compiler.compile(path(

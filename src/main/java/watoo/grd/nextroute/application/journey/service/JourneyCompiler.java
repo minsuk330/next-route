@@ -237,7 +237,8 @@ public class JourneyCompiler {
                 JourneyLeg.EVIDENCE_QUALITY_UNKNOWN,
                 List.of(),
                 waitIndex,
-                guidance));
+                guidance,
+                subway ? alightPrevName(sub) : null));
 
         return Emitted.transit(index, waitIndex, rideIndex);
     }
@@ -246,6 +247,16 @@ public class JourneyCompiler {
      * 지하철 진행 방면 = 승차역 다음 역 이름(#266). 정차 목록이 승차·하차 두 점뿐이면 null — OTP 정차 목록이 비어
      * from/to 로 폴백한 경우라 두 번째 점이 다음 역이 아니라 하차역일 수 있다(1정거장 구간도 같이 null).
      */
+    /** 하차 직전 역(#266 빠른 하차 방향). 두 점뿐이면 승차역이 나온다 — 인접하지 않을 수 있지만 그때는 방향이 안 맞아 빈 결과다. */
+    static String alightPrevName(SubPathResult sub) {
+        List<StationResult> stations = sub.stations();
+        if (stations == null || stations.size() < 2) {
+            return null;
+        }
+        String name = stations.get(stations.size() - 2).stationName();
+        return name == null || name.isBlank() ? null : SubwayPatternStationMatcher.displayName(name);
+    }
+
     static String directionName(SubPathResult sub) {
         List<StationResult> stations = sub.stations();
         if (stations == null || stations.size() < 3) {
@@ -353,7 +364,7 @@ public class JourneyCompiler {
                 first.startName(), first.endName(),
                 first.startX(), first.startY(), first.endX(), first.endY(),
                 first.plannedDurationSec(), first.evidenceQuality(),
-                first.routeOptions(), first.pairedLegIndex(), first.guidance()));
+                first.routeOptions(), first.pairedLegIndex(), first.guidance(), first.alightPrevName()));
         return legs;
     }
 
