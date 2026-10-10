@@ -4335,3 +4335,22 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `./gradlew test --tests '*SubwayTrainSegmentResolverTest' --tests '*SubwayStationArrivalQueryServiceTest' --tests '*SubwayStationControllerTest'` → 37/0
 - 전체 `./gradlew test`(3 브랜치 합본, st-pg/st-redis) → 2838 중 실패 12. 기존 무관(main 동일): JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1. JourneyNotificationSchemaIT 1 = 'Unable to rollback against JDBC Connection' 플래키, 단독 재실행 20/0
+
+## 2026-10-10 #317 후속 3건 배포 (#350·#351·#352, main b802d2e6)
+
+### 배포
+- 18:16 KST. worker 먼저 → api. 마이그레이션 없음(jar 안 64개, 기존 VPS jar 와 목록 동일)
+- worker `nextroute:20261010-181556-b802d2e6`, api `nextroute:20261010-181637-b802d2e6`
+- 이전: 둘 다 `…-922953a4`(api `20261010-170022`, worker `20261010-165940`) → `./deploy.sh rollback-api|rollback-worker`
+- jar 백업 `app.jar.bak-20261010-pre-317-followup`, 새 jar sha256 `bcbddf409df520c6…` 로컬·VPS 일치
+- 절차: 스크래치 clone(main b802d2e6) `./gradlew bootJar` → jar 안 `isAdjacentInOrder`·`terminatesBefore` 확인 → 백업 → scp → `DEPLOY_REVISION=b802d2e6 ./deploy.sh worker` → `./deploy.sh api`. `docker inspect` 로 두 컨테이너 새 태그 확인
+- 배포 전 확인: 운영 리비전 922953a4 가 b802d2e6 의 조상(사이 커밋 = 이번 3건 + 문서·테스트뿐)
+
+### 검증
+- 배포 후 30분 ERROR 0(api·worker)
+- segment: 8역 응답 전부 `SCHEDULED`, 60~150s(이대→아현 16s → 60s, 강남→교대 90s)
+- 코레일 출발 기록: 배포 6분 만에 `subway:dep:2026-10-10:1001:*:1001080*` 키 29개(배포 전 0)
+- 수원 `departed[]`: 18:23 상행 `0474 광운대행 @화서 source=POSITION`(배포 전 늘 빔)
+
+### 미결
+- 수원 상행 병점행 제외 실사례 미확인(18:17~18:21 남쪽발 병점행 없음). 확인: `curl -s https://api.refit-100.site/api/subway/stations/1001080155/arrivals | jq '.directions[] | select(.direction=="상행") | .trains[] | select(.destinationName=="병점")'` 가 비면 OK
