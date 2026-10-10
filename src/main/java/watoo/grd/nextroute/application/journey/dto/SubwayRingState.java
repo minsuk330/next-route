@@ -20,7 +20,8 @@ import java.time.Instant;
  * @param canonicalNextStationKey 서울 실시간 {@code statnId}. 도착 조회의 인자로도 그대로 쓴다
  * @param segmentProgress         {@code progressBaseAt} <b>시점의</b> 확정 진행률. 지금 값이 아니다
  * @param progressTarget          앱이 보간해 갈 상한
- * @param estimatedNextStationAt  실시간 기반 다음 역 도착 예정. <b>없으면 null</b> — 앱이 보간을 멈춘다
+ * @param estimatedNextStationAt  앱 보간의 <b>종점 시각</b>(상한에 닿는 때). 보통 다음 역 도착 예정이고, 전역 정차 직선이면 정차
+ *                                끝이다. <b>없으면 null</b> — 앱이 보간을 멈춘다
  * @param progressValidUntil      앱이 로컬 보간을 이어가도 되는 마지막 시각
  * @param observedAt              원천이 말한 관측 시각. 도착 API 는 <b>그 행의</b> {@code recptnDt} 다
  * @param guidanceVersion         화면이 마지막으로 <b>눈에 띄게</b> 바뀐 시각(epoch millis, #307). 같은 화면이면

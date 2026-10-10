@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.journey.dto.SubwayRingChain;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingContext;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingObservation;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingStage;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 import watoo.grd.nextroute.application.journey.observability.SubwayRingMetrics;
 import watoo.grd.nextroute.application.journey.port.out.SubwayRingPort;
@@ -218,6 +219,15 @@ public class SubwayRingUpdateService {
         SubwayRingChain.Station alighting = chain.at(chain.alightingSequence());
         if (nextStation == null || alighting == null) {
             return null;
+        }
+        if (state.stage() == SubwayRingStage.DWELL && state.etaSource() == SubwayRingEtaSource.TYPICAL) {
+            // 정차 직선의 예정은 정차 끝이다 — 다음 역 도착은 그 뒤 운행 시간만큼 더 걸린다(리뷰 R3).
+            SubwayRingContext.Typical times = typicalOf(chain, train, state.nextStationSequence());
+            if (times == null || times.runSeconds() == null) {
+                return null;
+            }
+            next = next.plusMillis(java.math.BigDecimal.valueOf(times.runSeconds() * 1000L)
+                    .multiply(properties.getTypicalFactor()).longValue());
         }
         if (nextStation.sequence() == alighting.sequence()) {
             return next;

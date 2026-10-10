@@ -36,7 +36,8 @@ import java.time.Instant;
  * @param version                링 화면이 마지막으로 바뀐 시각(epoch millis, #307). 여정 안에서 단조라 앱이 늦게 온
  *                               옛 스냅샷을 버리는 데 쓴다. 링이 없으면 null
  * @param estimatedAlightingAt   하차역 도착 예정(#310). 다음 역 예정 + GTFS 계획 초. 모르면 null — 앱이 자체 추정
- * @param holdReason             링이 정상적으로 멈춘 이유({@code PREV_STATION_STOPPED}·{@code LATE}). 보간 중·STALE 이면 null
+ * @param holdReason             링이 느리거나 멈춘 이유({@code PREV_STATION_STOPPED}: 전역 정차 — 링은 느리게 진행할 수 있다,
+ *                               {@code LATE}: 예정 경과). 운행 직선·STALE 이면 null
  * @param holdStationName        {@code PREV_STATION_STOPPED} 일 때 열차가 서 있는 역. 모르면(승차역 대기 구간) null
  * @param etaSource              {@code estimatedNextStationAt} 의 출처(LIVE·MEASURED·TYPICAL). 예정이 없으면 null.
  *                               앱은 TYPICAL 이면 도착 시각을 숨긴다
