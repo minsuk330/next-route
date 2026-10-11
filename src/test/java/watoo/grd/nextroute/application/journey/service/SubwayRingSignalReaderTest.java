@@ -42,7 +42,9 @@ class SubwayRingSignalReaderTest {
     private final SubwayRealtimeCachePort cache = mock(SubwayRealtimeCachePort.class);
     private final SubwayTrainLogPort trainLog = mock(SubwayTrainLogPort.class);
     private final SubwaySegmentTimePort segments = mock(SubwaySegmentTimePort.class);
-    private final SubwayRingSignalReader reader = new SubwayRingSignalReader(cache, trainLog, segments);
+    private final watoo.grd.nextroute.application.subway.service.SubwayLineOrder lineOrder =
+            mock(watoo.grd.nextroute.application.subway.service.SubwayLineOrder.class);
+    private final SubwayRingSignalReader reader = new SubwayRingSignalReader(cache, trainLog, segments, lineOrder);
 
     private final TrainIdentity train = new TrainIdentity(LocalDate.parse("2026-10-07"), LINE, DIR, "7462");
     private final SubwayRingChain chain = new SubwayRingChain(List.of(
@@ -237,6 +239,67 @@ class SubwayRingSignalReaderTest {
 
         assertThat(reader.read(train, chain, 1).effectiveOrigin())
                 .isEqualTo(SubwayRingObservation.Origin.ARRIVAL_API);
+    }
+
+    // ── 승차 전 대기: 승차역 앞 역 (#379) ─────────────────────────────────────
+
+    private static final String BEFORE_BOARDING = "1002000232";
+
+    private void boardingPrevIs(String stationId) {
+        given(lineOrder.behind(LINE, DIR, PREV, 1)).willReturn(List.of(
+                new watoo.grd.nextroute.application.subway.service.StationsAheadCalculator.Stop(
+                        "k", stationId, "구로디지털단지", null, null)));
+    }
+
+    private SubwayRealtimeTrain boardingRow(String code, int seconds) {
+        return SubwayRealtimeTrain.builder().lineId(LINE).direction(DIR).stationId(PREV).trainNo("7462")
+                .arrivalCode(code).arrivalSeconds(seconds).receivedAt("2026-10-07 22:10:11").build();
+    }
+
+    @Test
+    @DisplayName("대기 링: 위치가 승차역 앞 역 출발을 먼저 보면 → 승차역 기준 전역 출발 실측, 출발 = 그 역 출발 사건")
+    void boardingWaitUsesPositionBeforeBoarding() {
+        boardingPrevIs(BEFORE_BOARDING);
+        given(cache.readSnapshot()).willReturn(Optional.of(SubwayRealtimeSnapshot.builder()
+                .trains(List.of(boardingRow("99", 150))).build()));
+        position(BEFORE_BOARDING, SubwayTrainStatus.DEPARTED, RECEIVED.plusSeconds(20));
+        given(trainLog.findDepartures(eq(train.serviceDate()), eq(LINE), eq(DIR), eq(BEFORE_BOARDING), any(), any()))
+                .willReturn(List.of(new SubwayTrainLogPort.TrainDeparture("7462",
+                        departedEvent(BEFORE_BOARDING, RECEIVED.plusSeconds(15)))));
+        given(segments.recentSeconds(LINE, DIR, PREV)).willReturn(List.of(90L));
+
+        SubwayRingObservation observation = reader.read(train, chain, 0);
+
+        assertThat(observation.code()).isEqualTo(SubwayArrivalCode.PREV_DEPARTED);
+        assertThat(observation.observedStationSequence()).isEqualTo(0);
+        assertThat(observation.segmentStartAt()).isEqualTo(RECEIVED.plusSeconds(15));
+        assertThat(observation.estimatedArrivalAt()).isEqualTo(RECEIVED.plusSeconds(105));
+        assertThat(observation.effectiveOrigin()).isEqualTo(SubwayRingObservation.Origin.POSITION_API);
+    }
+
+    @Test
+    @DisplayName("대기 링: 승차역 앞 역이 아닌 구간 밖 역이면 도착 행")
+    void boardingWaitIgnoresOtherOutsideStation() {
+        boardingPrevIs(BEFORE_BOARDING);
+        given(cache.readSnapshot()).willReturn(Optional.of(SubwayRealtimeSnapshot.builder()
+                .trains(List.of(boardingRow("99", 150))).build()));
+        position("1002000231", SubwayTrainStatus.DEPARTED, RECEIVED.plusSeconds(20));
+
+        assertThat(reader.read(train, chain, 0).effectiveOrigin())
+                .isEqualTo(SubwayRingObservation.Origin.ARRIVAL_API);
+    }
+
+    @Test
+    @DisplayName("대기 링: 승차역의 trainSttus=3(전역 출발)은 승차역 앞 역 출발 — 전역 정차(5) 행보다 앞선다")
+    void boardingLeftPreviousBeatsPrevArrived() {
+        given(cache.readSnapshot()).willReturn(Optional.of(SubwayRealtimeSnapshot.builder()
+                .trains(List.of(boardingRow("5", 60))).build()));
+        position(PREV, SubwayTrainStatus.LEFT_PREVIOUS, RECEIVED.plusSeconds(20));
+
+        SubwayRingObservation observation = reader.read(train, chain, 0);
+
+        assertThat(observation.code()).isEqualTo(SubwayArrivalCode.PREV_DEPARTED);
+        assertThat(observation.effectiveOrigin()).isEqualTo(SubwayRingObservation.Origin.POSITION_API);
     }
 
     private void position(String stationId, SubwayTrainStatus status, Instant at) {

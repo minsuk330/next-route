@@ -14,6 +14,8 @@ import watoo.grd.nextroute.application.subway.dto.TrainIdentity;
 import watoo.grd.nextroute.application.subway.port.out.SubwayRealtimeCachePort;
 import watoo.grd.nextroute.application.subway.port.out.SubwaySegmentTimePort;
 import watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort;
+import watoo.grd.nextroute.application.subway.service.StationsAheadCalculator;
+import watoo.grd.nextroute.application.subway.service.SubwayLineOrder;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -69,6 +71,7 @@ public class SubwayRingSignalReader {
     private final SubwayRealtimeCachePort realtimeCachePort;
     private final SubwayTrainLogPort trainLogPort;
     private final SubwaySegmentTimePort segmentTimePort;
+    private final SubwayLineOrder lineOrder;
 
     /**
      * @param targetSequence 이번에 조회할 역의 체인 순번
@@ -114,15 +117,19 @@ public class SubwayRingSignalReader {
         }
         int sequence = chain.sequenceOfKey(position.stationId());
         if (sequence < 0) {
-            // 구간 밖 — 도착 행이 우리 역에서 보이는 동안은 그쪽을 믿는다.
-            return null;
+            if (target != BOARDING || !isJustBeforeBoarding(train, chain, position.stationId())) {
+                // 구간 밖 — 도착 행이 우리 역에서 보이는 동안은 그쪽을 믿는다.
+                return null;
+            }
+            // 승차역 바로 앞 역(체인 밖, 순번 -1)이다 — 탑승 전 대기 링도 그 역 도착·출발을 위치로 먼저 본다(#379).
+            sequence = BOARDING - 1;
         }
         int rank = rankOf(sequence, position.status());
         int arrivalRank = rankOf(target, arrival.code());
-        if (rank < 0 || rank <= arrivalRank) {
+        if (rank == UNRANKED || rank <= arrivalRank) {
             return null;
         }
-        if (arrivalRank < 0 && !observedAt.isAfter(arrival.observedAt())) {
+        if (arrivalRank == UNRANKED && !observedAt.isAfter(arrival.observedAt())) {
             // 99(남은 초)는 어디쯤인지 말하지 않는다 — 전역 출발 뒤 운행 중일 수도 있다. 그때는 순위로 못 견주니 더 새로운
             // 쪽만 믿는다. 안 그러면 묵은 "전역 도착"이 운행 중인 링을 정차로 되돌리고 예정을 지운다(SubwayRideScenarioIT).
             return null;
@@ -136,11 +143,15 @@ public class SubwayRingSignalReader {
                     observedAt).fromPositionApi();
             case ARRIVED_STEP -> SubwayRingObservation.arrival(SubwayArrivalCode.PREV_ARRIVED, target, null,
                     observedAt).fromPositionApi();
-            case DEPARTED_STEP -> departedFromPosition(train, chain, target, observedAt).fromPositionApi();
+            case DEPARTED_STEP -> departedFromPosition(train, chain, target, position.stationId(), observedAt)
+                    .fromPositionApi();
             default -> null;
         };
     }
 
+    private static final int BOARDING = 0;
+    /** 순위를 매길 수 없다(99·모름). 승차역 앞 역 출발의 순위가 -1 이라 음수를 표시로 쓰지 않는다. */
+    private static final int UNRANKED = Integer.MIN_VALUE;
     private static final int ENTERING_STEP = 1;
     private static final int ARRIVED_STEP = 2;
     private static final int DEPARTED_STEP = 3;
@@ -151,25 +162,25 @@ public class SubwayRingSignalReader {
 
     /**
      * 위치 상태의 진행 순위. {@code trainSttus=3}(전역출발)은 그 역의 <b>바로 전역</b>을 출발했다는 뜻이다
-     * ({@link SubwayTrainStatus#LEFT_PREVIOUS}, 사용자 확정 2026-10-09). 모르면 -1.
+     * ({@link SubwayTrainStatus#LEFT_PREVIOUS}, 사용자 확정 2026-10-09). 모르면 {@link #UNRANKED}.
      */
     private static int rankOf(int sequence, SubwayTrainStatus status) {
         if (status == null) {
-            return -1;
+            return UNRANKED;
         }
         return switch (status) {
             case ENTERING -> rank(sequence, ENTERING_STEP);
             case ARRIVED -> rank(sequence, ARRIVED_STEP);
             case DEPARTED -> rank(sequence, DEPARTED_STEP);
-            case LEFT_PREVIOUS -> sequence > 0 ? rank(sequence - 1, DEPARTED_STEP) : -1;
-            case UNKNOWN -> -1;
+            case LEFT_PREVIOUS -> sequence >= BOARDING ? rank(sequence - 1, DEPARTED_STEP) : UNRANKED;
+            case UNKNOWN -> UNRANKED;
         };
     }
 
-    /** 도착 행(target 역 행) 코드의 진행 순위. 99·모름은 -1 — 어디쯤인지 말하지 않는다. */
+    /** 도착 행(target 역 행) 코드의 진행 순위. 99·모름은 {@link #UNRANKED} — 어디쯤인지 말하지 않는다. */
     private static int rankOf(int target, SubwayArrivalCode code) {
         if (code == null) {
-            return -1;
+            return UNRANKED;
         }
         return switch (code) {
             case PREV_ENTERING -> rank(target - 1, ENTERING_STEP);
@@ -178,8 +189,24 @@ public class SubwayRingSignalReader {
             case ENTERING -> rank(target, ENTERING_STEP);
             case ARRIVED -> rank(target, ARRIVED_STEP);
             case DEPARTED -> rank(target, DEPARTED_STEP);
-            case ENROUTE, UNKNOWN -> -1;
+            case ENROUTE, UNKNOWN -> UNRANKED;
         };
+    }
+
+    /** 그 역이 이 방향 승차역의 바로 앞 역인가 — 역 도착 노선도(#317)·approach(#368)와 같은 패턴 계산. 모르면 false. */
+    private boolean isJustBeforeBoarding(TrainIdentity train, SubwayRingChain chain, String stationId) {
+        SubwayRingChain.Station boarding = chain.at(BOARDING);
+        if (stationId == null || boarding == null || boarding.canonicalKey() == null) {
+            return false;
+        }
+        try {
+            List<StationsAheadCalculator.Stop> before =
+                    lineOrder.behind(train.lineId(), train.direction(), boarding.canonicalKey(), 1);
+            return !before.isEmpty() && stationId.equals(before.get(before.size() - 1).stationId());
+        } catch (RuntimeException e) {
+            log.debug("[SubwayRing] 승차역 앞 역 조회 실패 — {}", e.getMessage());
+            return false;
+        }
     }
 
     /**
@@ -188,9 +215,13 @@ public class SubwayRingSignalReader {
      * 아니다. 없으면 도착 경로의 출발 기록, 그것도 없으면 이 관측 시각.
      */
     private SubwayRingObservation departedFromPosition(TrainIdentity train, SubwayRingChain chain, int target,
-                                                       Instant observedAt) {
+                                                       String positionStationId, Instant observedAt) {
         SubwayRingChain.Station to = chain.at(target);
-        Instant departed = departureEvent(train, chain.at(target - 1), observedAt)
+        SubwayRingChain.Station previous = chain.at(target - 1);
+        // 승차역 앞 역은 체인에 없다 — 그 역 키는 위치 관측의 역(전역 출발 2)이다. trainSttus=3 이면 그 역이 승차역이라 모른다.
+        String fromKey = previous != null ? previous.canonicalKey()
+                : positionStationId != null && !positionStationId.equals(to.canonicalKey()) ? positionStationId : null;
+        Instant departed = departureEvent(train, fromKey, observedAt)
                 .or(() -> segmentTimePort.departedAt(train.lineId(), train.direction(), to.canonicalKey(),
                         train.trainNo()))
                 .filter(at -> !at.isAfter(observedAt))
@@ -201,13 +232,13 @@ public class SubwayRingSignalReader {
     /** 출발 사건을 찾아볼 폭. 한 구간 운행보다 넉넉하고 같은 번호의 다음 운행(2호선 한 바퀴)보다 훨씬 짧다. */
     private static final java.time.Duration DEPARTURE_LOOKBACK = java.time.Duration.ofMinutes(10);
 
-    private Optional<Instant> departureEvent(TrainIdentity train, SubwayRingChain.Station from, Instant observedAt) {
-        if (from == null || from.canonicalKey() == null) {
+    private Optional<Instant> departureEvent(TrainIdentity train, String fromKey, Instant observedAt) {
+        if (fromKey == null) {
             return Optional.empty();
         }
         try {
             return trainLogPort.findDepartures(train.serviceDate(), train.lineId(), train.direction(),
-                            from.canonicalKey(), observedAt.minus(DEPARTURE_LOOKBACK), observedAt)
+                            fromKey, observedAt.minus(DEPARTURE_LOOKBACK), observedAt)
                     .stream()
                     .filter(departure -> train.trainNo().equals(departure.trainNo()))
                     .map(departure -> departure.event().to())
