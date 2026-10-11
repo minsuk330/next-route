@@ -9,6 +9,7 @@ import watoo.grd.nextroute.application.subway.dto.SubwayArrivalCode;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeSnapshot;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
 import watoo.grd.nextroute.application.subway.dto.SubwayTrainObservation;
+import watoo.grd.nextroute.application.subway.dto.SubwayTrainStatus;
 import watoo.grd.nextroute.application.subway.dto.TrainIdentity;
 import watoo.grd.nextroute.application.subway.port.out.SubwayRealtimeCachePort;
 import watoo.grd.nextroute.application.subway.port.out.SubwaySegmentTimePort;
@@ -30,6 +31,9 @@ import java.util.Optional;
  *   <tr><td>진입·도착</td><td>도착 {@code arvlCd 0/1}</td><td>위치 {@code trainSttus 0/1}</td></tr>
  *   <tr><td>구간 전환</td><td>도착 {@code arvlCd 1}</td><td>위치의 현재 역 변화</td></tr>
  * </table>
+ *
+ * <p>도착 행이 있어도 위치가 <b>진행이 더 앞선</b> 사건(전역 도착·출발 포함)을 말하면 위치를 쓴다(#371) — 같은 사건이
+ * 도착 API 에는 15초쯤 늦게 보인다.
  *
  * <p>도착 API 는 역당 방향별 2대 정도만 준다. 실측으로 위치 열차의 3% 가 도착 목록에 아예 없고
  * 5% 는 먼 역에서만 잡혔다. 도착 하나에만 매달리면 그 열차를 탄 사람은 <b>여정 내내</b> 링이
@@ -73,13 +77,140 @@ public class SubwayRingSignalReader {
     public SubwayRingObservation read(TrainIdentity train, SubwayRingChain chain,
                                       int targetSequence) {
         SubwayRingChain.Station target = chain.at(targetSequence);
-        if (target != null && target.canonicalKey() != null) {
-            SubwayRingObservation arrival = fromArrival(train, target, targetSequence);
-            if (arrival != null) {
-                return arrival;
-            }
+        SubwayRingObservation arrival = target != null && target.canonicalKey() != null
+                ? fromArrival(train, target, targetSequence)
+                : null;
+        Optional<SubwayTrainObservation> seen = trainLogPort.lastSeen(train);
+        if (arrival == null) {
+            return seen.map(observation -> fromPosition(train, chain, observation)).orElse(null);
         }
-        return fromPosition(train, chain);
+        SubwayRingObservation ahead = seen
+                .map(observation -> positionAhead(train, chain, targetSequence, arrival, observation))
+                .orElse(null);
+        return ahead != null ? ahead : arrival;
+    }
+
+    // ── 두 원천 중 앞선 쪽 (#371) ─────────────────────────────────────────────
+
+    /** 위치가 도착 행보다 이만큼 넘게 묵었으면 앞서 보여도 쓰지 않는다 — 고른 순간 STALE 로 굳는다. */
+    private static final java.time.Duration POSITION_MAX_BEHIND = java.time.Duration.ofSeconds(120);
+
+    /**
+     * 위치 API 가 도착 행보다 <b>진행이 앞선</b> 사건을 말하면 그것을 target 기준 관측으로 돌려준다. 아니면 null.
+     *
+     * <p>도착 API 는 같은 사건이 위치 API 보다 15초쯤 늦게 보인다(#371 실측). 그런데 둘을 {@code recptnDt} 로 견주면 안
+     * 된다 — 도착 행은 내용이 그대로여도 수신 시각만 새로 찍힌다. 그래서 <b>진행 순위</b>(역 순번, 진입 &lt; 도착 &lt;
+     * 출발)로 견주고, 위치가 엄격히 앞설 때만 위치를 쓴다. 같으면 도착(초를 가진 쪽)이다. 순위만 오르므로 두 원천이
+     * tick 마다 엇갈려도 링이 뒤로 가지 않는다.
+     *
+     * <p>위치가 전역(target-1)의 사건이면 도착 코드 3/4/5 와 같은 관측(PREV_*)으로 바꿔 계산기의 전역 처리를 그대로
+     * 탄다. 출처는 {@link SubwayRingObservation#fromPositionApi()} 로 따로 적는다.
+     */
+    private SubwayRingObservation positionAhead(TrainIdentity train, SubwayRingChain chain, int target,
+                                                SubwayRingObservation arrival, SubwayTrainObservation position) {
+        Instant observedAt = position.receivedAt();
+        if (observedAt == null || observedAt.isBefore(arrival.observedAt().minus(POSITION_MAX_BEHIND))) {
+            return null;
+        }
+        int sequence = chain.sequenceOfKey(position.stationId());
+        if (sequence < 0) {
+            // 구간 밖 — 도착 행이 우리 역에서 보이는 동안은 그쪽을 믿는다.
+            return null;
+        }
+        int rank = rankOf(sequence, position.status());
+        if (rank < 0 || rank <= rankOf(target, arrival.code())) {
+            return null;
+        }
+        if (rank >= rank(target, ENTERING_STEP)) {
+            return SubwayRingObservation.position(position.status(), sequence, observedAt);
+        }
+        int step = rank - rank(target - 1, 0);
+        return switch (step) {
+            case ENTERING_STEP -> SubwayRingObservation.arrival(SubwayArrivalCode.PREV_ENTERING, target, null,
+                    observedAt).fromPositionApi();
+            case ARRIVED_STEP -> SubwayRingObservation.arrival(SubwayArrivalCode.PREV_ARRIVED, target, null,
+                    observedAt).fromPositionApi();
+            case DEPARTED_STEP -> departedFromPosition(train, chain, target, observedAt).fromPositionApi();
+            default -> null;
+        };
+    }
+
+    private static final int ENTERING_STEP = 1;
+    private static final int ARRIVED_STEP = 2;
+    private static final int DEPARTED_STEP = 3;
+
+    private static int rank(int sequence, int step) {
+        return sequence * 4 + step;
+    }
+
+    /**
+     * 위치 상태의 진행 순위. {@code trainSttus=3}(전역출발)은 그 역의 <b>바로 전역</b>을 출발했다는 뜻이다
+     * ({@link SubwayTrainStatus#LEFT_PREVIOUS}, 사용자 확정 2026-10-09). 모르면 -1.
+     */
+    private static int rankOf(int sequence, SubwayTrainStatus status) {
+        if (status == null) {
+            return -1;
+        }
+        return switch (status) {
+            case ENTERING -> rank(sequence, ENTERING_STEP);
+            case ARRIVED -> rank(sequence, ARRIVED_STEP);
+            case DEPARTED -> rank(sequence, DEPARTED_STEP);
+            case LEFT_PREVIOUS -> sequence > 0 ? rank(sequence - 1, DEPARTED_STEP) : -1;
+            case UNKNOWN -> -1;
+        };
+    }
+
+    /** 도착 행(target 역 행) 코드의 진행 순위. 99·모름은 -1 — 어디쯤인지 말하지 않는다. */
+    private static int rankOf(int target, SubwayArrivalCode code) {
+        if (code == null) {
+            return -1;
+        }
+        return switch (code) {
+            case PREV_ENTERING -> rank(target - 1, ENTERING_STEP);
+            case PREV_ARRIVED -> rank(target - 1, ARRIVED_STEP);
+            case PREV_DEPARTED -> rank(target - 1, DEPARTED_STEP);
+            case ENTERING -> rank(target, ENTERING_STEP);
+            case ARRIVED -> rank(target, ARRIVED_STEP);
+            case DEPARTED -> rank(target, DEPARTED_STEP);
+            case ENROUTE, UNKNOWN -> -1;
+        };
+    }
+
+    /**
+     * 위치 API 로 본 전역 출발. 실측 표본은 도착 경로와 같은 키(<b>target 역</b>)로 읽는다. 출발 시각은 위치 로그의 전역
+     * 출발 사건(처음 출발로 본 {@code recptnDt}) — {@code lastSeen} 의 수신 시각은 같은 상태여도 계속 갱신돼 사건 시각이
+     * 아니다. 없으면 도착 경로의 출발 기록, 그것도 없으면 이 관측 시각.
+     */
+    private SubwayRingObservation departedFromPosition(TrainIdentity train, SubwayRingChain chain, int target,
+                                                       Instant observedAt) {
+        SubwayRingChain.Station to = chain.at(target);
+        Instant departed = departureEvent(train, chain.at(target - 1), observedAt)
+                .or(() -> segmentTimePort.departedAt(train.lineId(), train.direction(), to.canonicalKey(),
+                        train.trainNo()))
+                .filter(at -> !at.isAfter(observedAt))
+                .orElse(observedAt);
+        return measured(train.lineId(), train.direction(), to.canonicalKey(), target, departed, observedAt);
+    }
+
+    /** 출발 사건을 찾아볼 폭. 한 구간 운행보다 넉넉하고 같은 번호의 다음 운행(2호선 한 바퀴)보다 훨씬 짧다. */
+    private static final java.time.Duration DEPARTURE_LOOKBACK = java.time.Duration.ofMinutes(10);
+
+    private Optional<Instant> departureEvent(TrainIdentity train, SubwayRingChain.Station from, Instant observedAt) {
+        if (from == null || from.canonicalKey() == null) {
+            return Optional.empty();
+        }
+        try {
+            return trainLogPort.findDepartures(train.serviceDate(), train.lineId(), train.direction(),
+                            from.canonicalKey(), observedAt.minus(DEPARTURE_LOOKBACK), observedAt)
+                    .stream()
+                    .filter(departure -> train.trainNo().equals(departure.trainNo()))
+                    .map(departure -> departure.event().to())
+                    .filter(java.util.Objects::nonNull)
+                    .max(Instant::compareTo);
+        } catch (RuntimeException e) {
+            log.debug("[SubwayRing] 전역 출발 사건 조회 실패 — {}", e.getMessage());
+            return Optional.empty();
+        }
     }
 
     // ── 도착 API ────────────────────────────────────────────────────────────
@@ -101,7 +232,12 @@ public class SubwayRingSignalReader {
         Instant presentAt = collectedAt(snapshot.get());
         SubwayArrivalCode code = SubwayArrivalCode.from(row.getArrivalCode());
         if (code == SubwayArrivalCode.PREV_DEPARTED) {
-            return measured(train, row, targetSequence, observedAt).withPresentAt(presentAt);
+            Instant start = segmentTimePort.departedAt(row.getLineId(), row.getDirection(), row.getStationId(),
+                            train.trainNo())
+                    .filter(at -> !at.isAfter(observedAt))
+                    .orElse(observedAt);
+            return measured(row.getLineId(), row.getDirection(), row.getStationId(), targetSequence, start, observedAt)
+                    .withPresentAt(presentAt);
         }
         if (code == SubwayArrivalCode.PREV_ENTERING || code == SubwayArrivalCode.PREV_ARRIVED) {
             // 아직 전역에 서 있다. 남은 초는 출발 뒤 정해지는 정적 값이라 지금 시각에 더하면 틀린다 — 싣지 않는다.
@@ -128,16 +264,12 @@ public class SubwayRingSignalReader {
      * <p>{@code barvlDt} 는 쓰지 않는다. 전역 출발 뒤 실측보다 평균 54초 길고(전 노선 3,820구간), 같은 값이 반복되며
      * {@code recptnDt} 만 갱신돼 더하면 예정이 밀린다. 표본이 없으면 예정 없이 돌려준다 — 계산기가 멈춘다(STALE).
      */
-    private SubwayRingObservation measured(TrainIdentity train, SubwayRealtimeTrain row, int targetSequence,
-                                           Instant observedAt) {
-        List<Long> recent = segmentTimePort.recentSeconds(row.getLineId(), row.getDirection(), row.getStationId());
+    private SubwayRingObservation measured(String lineId, String direction, String stationId, int targetSequence,
+                                           Instant start, Instant observedAt) {
+        List<Long> recent = segmentTimePort.recentSeconds(lineId, direction, stationId);
         if (recent.isEmpty()) {
             return SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, targetSequence, null, observedAt);
         }
-        Instant start = segmentTimePort.departedAt(row.getLineId(), row.getDirection(), row.getStationId(),
-                        train.trainNo())
-                .filter(at -> !at.isAfter(observedAt))
-                .orElse(observedAt);
         return SubwayRingObservation.measured(targetSequence, start, start.plusSeconds(median(recent)), observedAt);
     }
 
@@ -208,12 +340,8 @@ public class SubwayRingSignalReader {
      *
      * <p>남은 초는 못 얻으므로 링은 앵커에 멈추지만, 역이 바뀌면 다음 구간으로 정상 진행한다.
      */
-    private SubwayRingObservation fromPosition(TrainIdentity train, SubwayRingChain chain) {
-        Optional<SubwayTrainObservation> seen = trainLogPort.lastSeen(train);
-        if (seen.isEmpty()) {
-            return null;
-        }
-        SubwayTrainObservation observation = seen.get();
+    private SubwayRingObservation fromPosition(TrainIdentity train, SubwayRingChain chain,
+                                               SubwayTrainObservation observation) {
         int sequence = chain.sequenceOfKey(observation.stationId());
         if (sequence < 0) {
             // 우리 구간 밖의 역이다. 구간을 이미 지나간 열차면 하차역 도착으로 마무리하고, 아니면(아직 승차역 전 등) 진행을 만들지 않는다.

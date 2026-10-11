@@ -7,6 +7,10 @@ import watoo.grd.nextroute.application.journey.dto.SubwayRingObservation;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalCode;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeSnapshot;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
+import watoo.grd.nextroute.application.subway.dto.SubwayExpressType;
+import watoo.grd.nextroute.application.subway.dto.SubwayTrainEvent;
+import watoo.grd.nextroute.application.subway.dto.SubwayTrainObservation;
+import watoo.grd.nextroute.application.subway.dto.SubwayTrainStatus;
 import watoo.grd.nextroute.application.subway.dto.TrainIdentity;
 import watoo.grd.nextroute.application.subway.port.out.SubwayRealtimeCachePort;
 import watoo.grd.nextroute.application.subway.port.out.SubwaySegmentTimePort;
@@ -18,6 +22,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
@@ -120,6 +126,115 @@ class SubwayRingSignalReaderTest {
                 org.mockito.ArgumentMatchers.any())).willReturn(List.of(arrivedAt("1002000229", RECEIVED.minusSeconds(60))));
 
         assertThat(reader.read(train, chain, 0)).isNull();
+    }
+
+    // ── 두 원천 중 앞선 쪽 (#371) ───────────────────────────────────────────
+
+    private static final String PREV = "1002000233";
+
+    @Test
+    @DisplayName("도착 행은 아직 99인데 위치가 전역 도착을 말하면 → 전역 정차(PREV_ARRIVED), 출처 위치")
+    void positionPrevArrivedBeatsEnroute() {
+        snapshot(row("99", 120));
+        position(PREV, SubwayTrainStatus.ARRIVED, RECEIVED.plusSeconds(5));
+
+        SubwayRingObservation observation = reader.read(train, chain, 1);
+
+        assertThat(observation.source()).as("계산기 전역 처리를 타야 한다").isEqualTo(SubwayRingObservation.Source.ARRIVAL);
+        assertThat(observation.code()).isEqualTo(SubwayArrivalCode.PREV_ARRIVED);
+        assertThat(observation.observedStationSequence()).isEqualTo(1);
+        assertThat(observation.observedAt()).isEqualTo(RECEIVED.plusSeconds(5));
+        assertThat(observation.effectiveOrigin()).isEqualTo(SubwayRingObservation.Origin.POSITION_API);
+    }
+
+    @Test
+    @DisplayName("도착 행은 전역 정차(5)인데 위치가 전역 출발(2) → 실측 직선, 키 = target 역, 출발 = 위치 로그 출발 사건")
+    void positionPrevDepartedStartsMeasuredLine() {
+        snapshot(row("5", 60));
+        position(PREV, SubwayTrainStatus.DEPARTED, RECEIVED.plusSeconds(30));
+        given(trainLog.findDepartures(eq(train.serviceDate()), eq(LINE), eq(DIR), eq(PREV), any(), any()))
+                .willReturn(List.of(new SubwayTrainLogPort.TrainDeparture("9999", departedEvent(PREV, RECEIVED)),
+                        new SubwayTrainLogPort.TrainDeparture("7462", departedEvent(PREV, RECEIVED.plusSeconds(20)))));
+        given(segments.recentSeconds(LINE, DIR, NEXT)).willReturn(List.of(50L));
+
+        SubwayRingObservation observation = reader.read(train, chain, 1);
+
+        assertThat(observation.code()).isEqualTo(SubwayArrivalCode.PREV_DEPARTED);
+        assertThat(observation.isMeasured()).isTrue();
+        assertThat(observation.segmentStartAt()).isEqualTo(RECEIVED.plusSeconds(20));
+        assertThat(observation.estimatedArrivalAt()).isEqualTo(RECEIVED.plusSeconds(70));
+        assertThat(observation.effectiveOrigin()).isEqualTo(SubwayRingObservation.Origin.POSITION_API);
+    }
+
+    @Test
+    @DisplayName("위치 trainSttus=3 은 그 역의 전역 출발 — target 역의 3 이면 전역 출발 실측, 출발 사건 없으면 관측 시각")
+    void leftPreviousAtTargetIsPrevDeparted() {
+        snapshot(row("5", 60));
+        position(NEXT, SubwayTrainStatus.LEFT_PREVIOUS, RECEIVED.plusSeconds(30));
+        given(segments.recentSeconds(LINE, DIR, NEXT)).willReturn(List.of(50L));
+
+        SubwayRingObservation observation = reader.read(train, chain, 1);
+
+        assertThat(observation.code()).isEqualTo(SubwayArrivalCode.PREV_DEPARTED);
+        assertThat(observation.segmentStartAt()).isEqualTo(RECEIVED.plusSeconds(30));
+    }
+
+    @Test
+    @DisplayName("진행이 같으면 도착 행 — 수신 시각이 더 새로워도 위치를 쓰지 않는다")
+    void sameProgressKeepsArrival() {
+        snapshot(row("3", 140));
+        given(segments.recentSeconds(LINE, DIR, NEXT)).willReturn(List.of(50L));
+        position(PREV, SubwayTrainStatus.DEPARTED, RECEIVED.plusSeconds(40));
+
+        SubwayRingObservation observation = reader.read(train, chain, 1);
+
+        assertThat(observation.effectiveOrigin()).isEqualTo(SubwayRingObservation.Origin.ARRIVAL_API);
+        assertThat(observation.observedAt()).isEqualTo(RECEIVED);
+    }
+
+    @Test
+    @DisplayName("위치가 뒤처지면 도착 행 — 도착(1) vs 위치 진입(0)")
+    void behindPositionIgnored() {
+        snapshot(row("1", 0));
+        position(NEXT, SubwayTrainStatus.ENTERING, RECEIVED.plusSeconds(40));
+
+        SubwayRingObservation observation = reader.read(train, chain, 1);
+
+        assertThat(observation.code()).isEqualTo(SubwayArrivalCode.ARRIVED);
+        assertThat(observation.effectiveOrigin()).isEqualTo(SubwayRingObservation.Origin.ARRIVAL_API);
+    }
+
+    @Test
+    @DisplayName("target 역 사건이 위치에서 앞서면 위치 관측 그대로 — 진입(0) vs 위치 도착(1)")
+    void positionAtTargetAhead() {
+        snapshot(row("0", 0));
+        position(NEXT, SubwayTrainStatus.ARRIVED, RECEIVED.plusSeconds(10));
+
+        SubwayRingObservation observation = reader.read(train, chain, 1);
+
+        assertThat(observation.source()).isEqualTo(SubwayRingObservation.Source.POSITION);
+        assertThat(observation.positionStatus()).isEqualTo(SubwayTrainStatus.ARRIVED);
+        assertThat(observation.observedStationSequence()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("위치가 도착 행보다 2분 넘게 묵었으면 앞서 보여도 쓰지 않는다")
+    void stalePositionIgnored() {
+        snapshot(row("99", 120));
+        position(PREV, SubwayTrainStatus.ARRIVED, RECEIVED.minusSeconds(121));
+
+        assertThat(reader.read(train, chain, 1).effectiveOrigin())
+                .isEqualTo(SubwayRingObservation.Origin.ARRIVAL_API);
+    }
+
+    private void position(String stationId, SubwayTrainStatus status, Instant at) {
+        given(trainLog.lastSeen(train)).willReturn(Optional.of(new SubwayTrainObservation(stationId, "역", status, at,
+                "1002000211", SubwayExpressType.NORMAL)));
+    }
+
+    private SubwayTrainEvent departedEvent(String stationId, Instant at) {
+        return new SubwayTrainEvent(SubwayTrainEvent.Type.DEPARTED, stationId, "역", at.minusSeconds(15), at,
+                SubwayTrainEvent.Quality.CORROBORATED, "1002000211", SubwayExpressType.NORMAL);
     }
 
     private watoo.grd.nextroute.application.subway.dto.SubwayTrainObservation observation(String stationId, Instant at) {

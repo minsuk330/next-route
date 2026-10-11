@@ -241,9 +241,65 @@ class SubwayRingReplayIT {
                 }
             }
         }
+        List<Arrival> arrivals = arrivalsReflected(stations);
+        arrivals.forEach(a -> System.out.printf("[replay] %s 원천 도착 %s → 링 1.00 %s (+%ds), 원천 도착 순간 화면 %.2f%n",
+                a.station(), a.sourceAt(), a.ringAt(), a.lagSeconds(), a.shownAtSource()));
         if (!FROM_ENV) {
             assertGauge(timeline, stations.size() - 1);
+            assertLatency(arrivals);
         }
+    }
+
+    /** 위치 API 가 우리 열차의 체인 역 도착(1)을 처음 말한 원천 시각. 역 id → recptnDt. */
+    private final java.util.Map<String, Instant> sourceArrivals = new java.util.LinkedHashMap<>();
+
+    /** 역 하나의 도착 반영. */
+    record Arrival(String station, Instant sourceAt, Instant ringAt, long lagSeconds, double shownAtSource) {
+    }
+
+    /**
+     * 원천 도착(위치 API recptnDt) 대비 링이 그 역 1.00(또는 다음 구간)을 보인 첫 시각과, 원천 도착 순간의 화면 진행률(#371).
+     * 승차역은 뺀다 — 고르기 전이다.
+     */
+    private List<Arrival> arrivalsReflected(List<Station> stations) {
+        List<Arrival> out = new ArrayList<>();
+        for (int i = 1; i < stations.size(); i++) {
+            Station station = stations.get(i);
+            Instant sourceAt = sourceArrivals.get(station.id());
+            if (sourceAt == null) {
+                continue;
+            }
+            int index = i;
+            Shown reached = timeline.stream()
+                    .filter(s -> !s.at().isBefore(sourceAt))
+                    .filter(s -> (s.next().startsWith(station.name()) && s.value() >= 0.999)
+                            || indexOf(stations, s.next()) > index)
+                    .findFirst().orElse(null);
+            double shown = timeline.stream()
+                    .filter(s -> !s.at().isBefore(sourceAt) && s.next().startsWith(station.name()))
+                    .findFirst().map(Shown::value).orElse(Double.NaN);
+            if (reached != null) {
+                out.add(new Arrival(station.name(), sourceAt, reached.at(),
+                        java.time.Duration.between(sourceAt, reached.at()).toSeconds(), shown));
+            }
+        }
+        return out;
+    }
+
+    private static int indexOf(List<Station> stations, String name) {
+        for (int i = 0; i < stations.size(); i++) {
+            if (name != null && name.startsWith(stations.get(i).name())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** 원천 도착 → 링 반영. 녹화 수집 간격(약 15초)과 tick 을 빼면 서버 몫이 남는다 — #371 전 평균 약 30초. */
+    private static void assertLatency(List<Arrival> arrivals) {
+        org.assertj.core.api.Assertions.assertThat(arrivals).as("도착 반영을 하나 이상 잰다").isNotEmpty();
+        double mean = arrivals.stream().mapToLong(Arrival::lagSeconds).average().orElseThrow();
+        System.out.printf("[replay] 도착 반영 평균 +%.1fs%n", mean);
     }
 
     /** 게이지 한 초. */
@@ -311,6 +367,13 @@ class SubwayRingReplayIT {
         }
         tracker.observe(new SubwayPositionFetchResult(fetched.lineId(), fetched.rows(), fetched.totalCount(),
                 fetched.status(), f.at(), fetched.errorCode()));
+        fetched.rows().stream()
+                .filter(r -> trainNo.equals(r.trainNo())
+                        && r.status() == watoo.grd.nextroute.application.subway.dto.SubwayTrainStatus.ARRIVED
+                        && r.receivedAt() != null)
+                .forEach(r -> sourceArrivals.putIfAbsent(r.stationId(),
+                        java.time.LocalDateTime.parse(r.receivedAt(), DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                                .atZone(SEOUL).toInstant()));
         return fetched.rows().stream()
                 .filter(r -> trainNo.equals(r.trainNo()))
                 .map(r -> r.stationName() + "/" + r.status() + "@" + r.receivedAt())

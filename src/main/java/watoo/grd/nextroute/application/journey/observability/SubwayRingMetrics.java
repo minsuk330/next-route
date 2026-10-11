@@ -9,6 +9,7 @@ import watoo.grd.nextroute.application.journey.dto.SubwayRingPushReason;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 
 import java.time.Duration;
+import java.time.Instant;
 
 /**
  * 진행 링 지표.
@@ -30,6 +31,7 @@ public class SubwayRingMetrics {
     public static final String ETA = "journey.subway.ring.eta";
     public static final String FAILURES = "journey.subway.ring.failures";
     public static final String CLEARED = "journey.subway.ring.cleared";
+    public static final String REFLECT_LAG = "journey.subway.ring.reflect.lag";
 
     public static final String PUSH_ENQUEUED = "journey.subway.ring.push.enqueued";
     public static final String PUSH_SKIPPED_ENQUEUE = "journey.subway.ring.push.skipped_enqueue";
@@ -66,6 +68,20 @@ public class SubwayRingMetrics {
             return "none";
         }
         return observation.source().name().toLowerCase();
+    }
+
+    /**
+     * 화면이 바뀐 tick 에서 원천 사건 시각({@code recptnDt}) → 링 반영까지 걸린 시간(#371). {@code origin} 은 근거를 준 API.
+     * 수집 주기·원천 노출 지연·tick 이 다 들어 있다 — 실제 열차보다 링이 얼마나 늦는지의 서버 몫이다.
+     */
+    public void recordReflectLag(SubwayRingObservation observation, Instant now) {
+        if (observation == null || observation.observedAt() == null) {
+            return;
+        }
+        Duration lag = Duration.between(observation.observedAt(), now);
+        if (!lag.isNegative()) {
+            registry.timer(REFLECT_LAG, "origin", observation.effectiveOrigin().name().toLowerCase()).record(lag);
+        }
     }
 
     /** 한 건이 예외로 끝났다. 다른 건은 계속 처리된다. */
