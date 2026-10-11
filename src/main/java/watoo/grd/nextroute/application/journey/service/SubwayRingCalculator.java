@@ -187,6 +187,10 @@ public class SubwayRingCalculator {
             case ENROUTE -> observation.estimatedArrivalAt() == null
                     // "[N]번째 전역" — 아직 멀다. 초가 없으니 그리던 직선을 그대로 둔다.
                     ? keep(prior, context, target, observation, now)
+                    : onTypicalLine(prior, target)
+                    // 도착 직선을 그리는 중이면 남은 초로 다시 그리지 않는다(journey 227). 전역 정차 중에도 99 행이 남은 초를
+                    // 주는데 그 값은 출발 전이라 굳어 있어, 다시 그리면 열차가 서 있는 동안 링이 0.88 까지 찼다.
+                    ? onArrivalLine(prior, context, target, observation, now)
                     : reanchored(prior, context, target, observation, now);
             case UNKNOWN -> keep(prior, context, target, observation, now);
         };
