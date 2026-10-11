@@ -210,6 +210,9 @@ public class SubwayRingCalculator {
         if (code == SubwayArrivalCode.PREV_ENTERING || code == SubwayArrivalCode.PREV_ARRIVED) {
             return atPreviousStation(prior, context, target, observation, now);
         }
+        if (onTypicalLine(prior, target)) {
+            return departedOnLine(prior, context, target, observation, now);
+        }
         if (observation.isMeasured()) {
             return fromMeasured(prior, context, target, observation, now);
         }
@@ -238,6 +241,34 @@ public class SubwayRingCalculator {
                 observedAt, now)
                 .withSource(observation.estimatedArrivalAt() == null ? null : SubwayRingEtaSource.LIVE,
                         SubwayRingStage.RUN);
+    }
+
+    /** 같은 구간 TYPICAL 직선(도착 직선 또는 출발 뒤 운행 직선)을 그리는 중인가. */
+    private boolean onTypicalLine(SubwayRingState prior, int target) {
+        return sameSegment(prior, target) && prior.etaSource() == SubwayRingEtaSource.TYPICAL
+                && prior.estimatedNextStationAt() != null
+                && (prior.stage() == SubwayRingStage.DWELL || prior.stage() == SubwayRingStage.RUN);
+    }
+
+    /**
+     * 그리던 직선 위에서 전역 출발을 봤다. <b>앞당기지 않는다</b> — 출발 표시는 늦게 오고(journey 226: ~40초) 그 뒤 실측 표본
+     * (출발 표시 → 도착)도 짧아, 실측으로 다시 그리면 그리자마자 예정이 지나 0.9 로 뛰고 LATE 가 뜬다. 뒤처짐만 막는다: 화면이
+     * 정차 몫보다 뒤면 정차 몫에서 운행 직선을 새로 긋는다. 그 밖엔 직선 유지, "정차 중"만 뗀다.
+     */
+    private SubwayRingState departedOnLine(SubwayRingState prior, SubwayRingContext context, int target,
+                                           SubwayRingObservation observation, Instant now) {
+        BigDecimal point = dwellPointOf(context, target);
+        if (prior.shownProgressAt(now).compareTo(point) < 0) {
+            SubwayRingState run = typicalLine(context, target, point, seenOf(observation), false,
+                    observation.observedAt(), now);
+            if (run != null) {
+                return run;
+            }
+        }
+        SubwayRingState kept = keep(prior, context, target, observation, now);
+        return kept.stage() == SubwayRingStage.DWELL
+                ? kept.withHold(null, null).withSource(kept.etaSource(), SubwayRingStage.RUN)
+                : kept;
     }
 
     /**
@@ -418,17 +449,9 @@ public class SubwayRingCalculator {
             return keep(prior, context, target, observation, now);
         }
         if (sameSegment(prior, target) && prior.stage() == SubwayRingStage.DWELL
-                && (prior.etaSource() == SubwayRingEtaSource.TYPICAL || prior.estimatedNextStationAt() == null
-                && prior.holdReason() == SubwayRingHoldReason.PREV_STATION_STOPPED
-                && prior.progressTarget() != null && prior.progressTarget().signum() > 0
-                && prior.progressTarget().compareTo(capOf(target)) < 0)) {
-            Instant eta = prior.estimatedNextStationAt();
-            if (eta != null && !now.isBefore(eta)) {
-                return hold(context, target, prior.progressTarget(), observation.observedAt(), now)
-                        .withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, stationName)
-                        .withSource(null, SubwayRingStage.DWELL);
-            }
-            return prior.refreshed(observation.observedAt(), now);
+                && prior.etaSource() == SubwayRingEtaSource.TYPICAL) {
+            // 도착 직선을 그리는 중이다 — 같은 4/5 반복에 시작을 다시 잡지 않는다(journey 158).
+            return onArrivalLine(prior, context, target, observation, now);
         }
         SubwayRingState line = dwellLine(context, target, baseProgressOf(prior, target),
                 dwellStartOf(prior, target, observation), observation.observedAt(), now);
@@ -438,6 +461,19 @@ public class SubwayRingCalculator {
         return hold(context, target, baseProgressOf(prior, target), observation.observedAt(), now)
                 .withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, stationName)
                 .withSource(null, SubwayRingStage.DWELL);
+    }
+
+    /**
+     * 도착 직선 위의 반복 관측. 직선은 그대로 두고(예정이 유예까지 지나면 LATE — {@link #keep}), 화면이 정차 몫을 지나면
+     * "○○ 정차 중"을 뗀다(단계 RUN).
+     */
+    private SubwayRingState onArrivalLine(SubwayRingState prior, SubwayRingContext context, int target,
+                                          SubwayRingObservation observation, Instant now) {
+        SubwayRingState kept = keep(prior, context, target, observation, now);
+        if (kept.stage() == SubwayRingStage.DWELL && pastDwell(context, target, kept, now)) {
+            return kept.withHold(null, null).withSource(kept.etaSource(), SubwayRingStage.RUN);
+        }
+        return kept;
     }
 
     /** 정차 시작 = 직전 링이 바로 그 역 도착이면 그 도착의 시작점(한 tick 늦지 않게), 아니면 이 관측의 시작점({@link #anchorOf}). */
@@ -450,7 +486,14 @@ public class SubwayRingCalculator {
     }
 
     /**
-     * 정차 직선. 상한 대신 정차 지점까지만 그리고 예정 = 정차 끝. 이미 정차 지점을 넘었거나 정차 예정이 지났으면 정차 지점에 세운다.
+     * 도착 직선(#371 실여정 후속, 사용자 결정 2026-10-11). 전역 도착부터 이 역 도착까지 <b>한 직선</b> — 상한까지, 예정 = 시작 +
+     * (정차 + 운행) × 배수. 정차·운행을 나눠 그리지 않는다.
+     *
+     * <p>위치 API 의 출발 표시({@code trainSttus=2})는 실제 출발보다 40초쯤 늦다(journey 226: 원천 정차 63~90초, 출발 → 다음
+     * 도착 29~57초 — 2호선 계획 정차 30·운행 90 과 비율이 거꾸로). 정차 지점에서 출발을 기다리면 링이 70초 멈췄다가 0.9 로
+     * 뛰고, 그 사이 예정이 지나 가짜 LATE 가 뜬다. 원천 도착 간격(101~147초)은 고르다.
+     *
+     * <p>"○○ 정차 중"은 링이 정차 몫(상한 × 정차/(정차+운행))을 지나면 뗀다({@link #pastDwell}).
      *
      * @return 승차역 구간이거나 전형 시간을 모르면 null
      */
@@ -463,22 +506,35 @@ public class SubwayRingCalculator {
         if (times == null || times.runSeconds() == null) {
             return null;
         }
-        long dwell = dwellSecondsOf(times);
-        BigDecimal ceiling = scaled(capOf(target).multiply(BigDecimal.valueOf(dwell))
-                .divide(BigDecimal.valueOf(dwell + times.runSeconds()), RATIO_CONTEXT));
-        Instant eta = startedAt.plusMillis(BigDecimal.valueOf(dwell * 1000L)
+        long seconds = dwellSecondsOf(times) + times.runSeconds();
+        Instant eta = startedAt.plusMillis(BigDecimal.valueOf(seconds * 1000L)
                 .multiply(properties.getTypicalFactor()).longValue());
-        String stationName = nameOf(context, target - 1);
-        if (base.compareTo(ceiling) >= 0 || !now.isBefore(eta)) {
-            return hold(context, target, max(base, ceiling), observedAt, now)
-                    .withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, stationName)
-                    .withSource(null, SubwayRingStage.DWELL);
+        if (!now.isBefore(eta.plus(properties.getLateGrace()))) {
+            return late(context, target, base, observedAt, now);
         }
         SubwayRingState line = anchored(context, target, base, startedAt, eta, SubwayRingQuality.NORMAL, observedAt, now)
-                .withProgressTarget(ceiling)
-                .withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, stationName)
                 .withSource(SubwayRingEtaSource.TYPICAL, SubwayRingStage.DWELL);
+        line = pastDwell(context, target, line, now)
+                ? line.withSource(SubwayRingEtaSource.TYPICAL, SubwayRingStage.RUN)
+                : line.withHold(SubwayRingHoldReason.PREV_STATION_STOPPED, nameOf(context, target - 1));
         return longValidity(line, now);
+    }
+
+    /** 정차 몫 = 상한 × 정차/(정차+운행). 전형 시간을 모르면 0(정차 몫 없음). */
+    private BigDecimal dwellPointOf(SubwayRingContext context, int target) {
+        SubwayRingContext.Typical times = context.typicalFor(target);
+        if (times == null || times.runSeconds() == null) {
+            return BigDecimal.ZERO;
+        }
+        long dwell = dwellSecondsOf(times);
+        return scaled(capOf(target).multiply(BigDecimal.valueOf(dwell))
+                .divide(BigDecimal.valueOf(dwell + times.runSeconds()), RATIO_CONTEXT));
+    }
+
+    /** 화면 값이 정차 몫을 지났는가 — 열차는 아마 이미 출발했다(출발 표시는 늦게 온다). */
+    private boolean pastDwell(SubwayRingContext context, int target, SubwayRingState line, Instant now) {
+        BigDecimal point = dwellPointOf(context, target);
+        return point.signum() > 0 && line.shownProgressAt(now).compareTo(point) >= 0;
     }
 
     /**
@@ -523,7 +579,26 @@ public class SubwayRingCalculator {
 
     /** 서버 시각을 아는 관측이면 유예를 더한다. 모르면(옛 경로) 예정 그대로. */
     private Instant lateAt(Instant eta, SubwayRingObservation observation) {
-        return observation.seenAt() != null ? eta.plus(properties.getLateGrace()) : eta;
+        return observation.seenAt() != null ? eta.plus(graceOf(observation)) : eta;
+    }
+
+    /** 감지 지연을 이만큼까지 유예에 더한다 — 원천이 굳어 수 분 늦은 경우까지 LATE 를 미루지 않게. */
+    private static final Duration MAX_DETECTION_GRACE = Duration.ofSeconds(90);
+
+    /**
+     * LATE 유예 = max(late-grace, 이번 근거의 감지 지연(처음 본 시각 − 원천 시각), 상한 90초). 도착도 출발만큼 늦게 보인다
+     * (journey 226: 출발 27~39초·도착 19~39초) — 고정 30초면 짧은 구간마다 도착이 보이기 직전에 LATE 가 떴다.
+     */
+    private Duration graceOf(SubwayRingObservation observation) {
+        Duration grace = properties.getLateGrace();
+        if (observation == null || observation.seenAt() == null || observation.observedAt() == null) {
+            return grace;
+        }
+        Duration lag = Duration.between(observation.observedAt(), observation.seenAt());
+        if (lag.compareTo(MAX_DETECTION_GRACE) > 0) {
+            lag = MAX_DETECTION_GRACE;
+        }
+        return lag.compareTo(grace) > 0 ? lag : grace;
     }
 
     /** 예정이 지났는데 진입·도착이 안 보인다 — 상한에서 멈추고 LATE 라 말한다. */
@@ -546,7 +621,7 @@ public class SubwayRingCalculator {
         Instant eta = prior.estimatedNextStationAt();
         boolean lineWithGrace = prior.etaSource() == SubwayRingEtaSource.TYPICAL
                 || prior.etaSource() == SubwayRingEtaSource.MEASURED && observation.seenAt() != null;
-        if (eta != null && lineWithGrace && !now.isBefore(eta.plus(properties.getLateGrace()))) {
+        if (eta != null && lineWithGrace && !now.isBefore(eta.plus(graceOf(observation)))) {
             return late(context, target, prior.segmentProgress(), observation.observedAt(), now)
                     .withHold(SubwayRingHoldReason.LATE, null);
         }
@@ -614,7 +689,7 @@ public class SubwayRingCalculator {
         if (bounded == BOARDING_SEQUENCE) {
             if (progress.compareTo(BigDecimal.ONE) >= 0) {
                 // 열차가 승차역에 섰다. 승차역 구간은 끝났고 다음 역을 향해 0 에서 시작한다(정차+운행).
-                return advanced(context, BOARDING_SEQUENCE + 1, observedAt, now, false, now);
+                return advanced(context, BOARDING_SEQUENCE + 1, observedAt, anchorOf(observedAt, now), false, now);
             }
             progress = BigDecimal.ZERO;
         }
