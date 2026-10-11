@@ -1228,6 +1228,21 @@ class SubwayRingCalculatorTest {
         }
 
         @Test
+        @DisplayName("도착 직선 위에 99(남은 초) 행이 와도 다시 그리지 않는다 — 정차 중 남은 초는 굳어 있어 링을 미리 채운다(journey 227)")
+        void enrouteSecondsDoNotRedrawArrivalLine() {
+            SubwayRingState line = calculator.next(null, typical, prevArrived(T0, T0), T0);
+            Instant now = T0.plusSeconds(20);
+            SubwayRingObservation enroute = SubwayRingObservation.arrival(SubwayArrivalCode.ENROUTE, 1,
+                    T0.plusSeconds(60), T0.plusSeconds(10)).withSeenAt(now).withPresentAt(now);
+
+            SubwayRingState state = calculator.next(line, typical, enroute, now);
+
+            assertThat(state.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(144));
+            assertThat(state.etaSource()).isEqualTo(SubwayRingEtaSource.TYPICAL);
+            assertThat(state.progressBaseAt()).isEqualTo(T0);
+        }
+
+        @Test
         @DisplayName("정시 출발이면 정차 직선과 운행 직선의 기울기가 같다 — 꺾이지도 되감기지도 않는다")
         void onScheduleIsOneStraightLine() {
             SubwayRingState dwell = calculator.next(null, typical, prevArrived(T0, T0), T0);
