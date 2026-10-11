@@ -984,7 +984,7 @@ class SubwayRingCalculatorTest {
         }
 
         @Test
-        @DisplayName("승차역 도착 → 다음 구간을 정차 직선부터: 정차 지점 0.225(=0.90×30/120)까지 36초, TYPICAL·DWELL")
+        @DisplayName("승차역 도착 → 다음 구간 도착 직선: 상한 0.90 까지 (정차+운행)×1.2 = 144초, TYPICAL·DWELL·'승차역 정차 중'")
         void boardingArrivalIncludesDwell() {
             SubwayRingContext selected = new SubwayRingContext(JOURNEY_ID, 1, 4, 0, context.chain(), 0)
                     .withTypical(seq -> new SubwayRingContext.Typical(30, 90));
@@ -995,8 +995,8 @@ class SubwayRingCalculatorTest {
             assertThat(state.nextStationSequence()).isEqualTo(1);
             assertThat(state.etaSource()).isEqualTo(SubwayRingEtaSource.TYPICAL);
             assertThat(state.stage()).isEqualTo(SubwayRingStage.DWELL);
-            assertThat(state.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(36));
-            assertThat(state.progressTarget()).isEqualByComparingTo("0.225");
+            assertThat(state.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(144));
+            assertThat(state.progressTarget()).isEqualByComparingTo("0.90");
             assertThat(state.holdReason()).isEqualTo(SubwayRingHoldReason.PREV_STATION_STOPPED);
         }
 
@@ -1021,7 +1021,7 @@ class SubwayRingCalculatorTest {
         }
 
         @Test
-        @DisplayName("TYPICAL 예정 + 유예(30초)가 지나도 진입이 없으면 상한에서 LATE")
+        @DisplayName("TYPICAL 예정 + 유예(max(30초, 감지 지연))가 지나도 진입이 없으면 상한에서 LATE")
         void typicalOverrunIsLate() {
             Instant first = T0;
             SubwayRingObservation row = SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1, null,
@@ -1029,11 +1029,12 @@ class SubwayRingCalculatorTest {
             SubwayRingState state = calculator.next(null, typical, row.withPresentAt(first), first);
 
             // 원천 80초 지연 → 시작점 = 처음 본 시각 − 30초(#371), 예정 = 시작점 + 108초
-            Instant beforeGrace = first.minusSeconds(30).plusSeconds(108 + 20);
+            // 감지 지연 80초 → LATE 유예 = max(30, 80) = 80초(#371 실여정)
+            Instant beforeGrace = first.minusSeconds(30).plusSeconds(108 + 70);
             SubwayRingState waiting = calculator.next(state, typical, row.withPresentAt(beforeGrace), beforeGrace);
             assertThat(waiting.holdReason()).isNull();
 
-            Instant afterGrace = first.minusSeconds(30).plusSeconds(108 + 31);
+            Instant afterGrace = first.minusSeconds(30).plusSeconds(108 + 81);
             SubwayRingState late = calculator.next(waiting, typical, row.withPresentAt(afterGrace), afterGrace);
             assertThat(late.holdReason()).isEqualTo(SubwayRingHoldReason.LATE);
             assertThat(late.stage()).isEqualTo(SubwayRingStage.LATE);
@@ -1141,14 +1142,14 @@ class SubwayRingCalculatorTest {
         }
 
         @Test
-        @DisplayName("첫 전역 도착 → NORMAL 정차 직선 0 → 0.225, 예정 = 정차 시작 + 36초, TYPICAL·DWELL, '승차역 정차 중'")
+        @DisplayName("첫 전역 도착 → NORMAL 도착 직선 0 → 0.90, 예정 = 도착 + (정차+운행)×1.2 = 144초, TYPICAL·DWELL, '승차역 정차 중'")
         void firstDwellObservation() {
             SubwayRingState state = calculator.next(null, typical, prevArrived(T0, T0), T0);
 
             assertThat(state.quality()).isEqualTo(SubwayRingQuality.NORMAL);
             assertThat(state.segmentProgress()).isEqualByComparingTo("0");
-            assertThat(state.progressTarget()).isEqualByComparingTo("0.225");
-            assertThat(state.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(36));
+            assertThat(state.progressTarget()).isEqualByComparingTo("0.90");
+            assertThat(state.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(144));
             assertThat(state.etaSource()).isEqualTo(SubwayRingEtaSource.TYPICAL);
             assertThat(state.stage()).isEqualTo(SubwayRingStage.DWELL);
             assertThat(state.holdReason()).isEqualTo(SubwayRingHoldReason.PREV_STATION_STOPPED);
@@ -1156,26 +1157,74 @@ class SubwayRingCalculatorTest {
         }
 
         @Test
-        @DisplayName("같은 전역 도착이 반복돼도 정차 시작을 다시 잡지 않는다. 정차가 길어지면 정차 지점에서 멈춘다(사유 유지)")
+        @DisplayName("같은 전역 도착이 반복돼도 시작을 다시 잡지 않는다. 정차 몫(0.225)을 지나면 '정차 중'을 떼고 RUN, 예정+유예가 지나면 LATE")
         void repeatedAndOverrunDwell() {
             SubwayRingState state = calculator.next(null, typical, prevArrived(T0, T0), T0);
             for (int tick = 1; tick <= 6; tick++) {
                 Instant now = T0.plusSeconds(5L * tick);
                 state = calculator.next(state, typical, prevArrived(T0, now), now);
                 assertThat(state.progressBaseAt()).as("tick %d", tick).isEqualTo(T0);
-                assertThat(state.estimatedNextStationAt()).as("tick %d", tick).isEqualTo(T0.plusSeconds(36));
+                assertThat(state.estimatedNextStationAt()).as("tick %d", tick).isEqualTo(T0.plusSeconds(144));
+                assertThat(state.holdReason()).as("tick %d", tick).isEqualTo(SubwayRingHoldReason.PREV_STATION_STOPPED);
             }
-            Instant overrun = T0.plusSeconds(50);
-            SubwayRingState held = calculator.next(state, typical, prevArrived(T0, overrun), overrun);
-            assertThat(held.segmentProgress()).isEqualByComparingTo("0.225");
-            assertThat(held.estimatedNextStationAt()).isNull();
-            assertThat(held.holdReason()).isEqualTo(SubwayRingHoldReason.PREV_STATION_STOPPED);
-            assertThat(held.quality()).isEqualTo(SubwayRingQuality.NORMAL);
+            Instant pastDwell = T0.plusSeconds(50);
+            SubwayRingState running = calculator.next(state, typical, prevArrived(T0, pastDwell), pastDwell);
+            assertThat(running.holdReason()).as("화면이 정차 몫을 지났다 — 열차는 아마 출발했다").isNull();
+            assertThat(running.stage()).isEqualTo(SubwayRingStage.RUN);
+            assertThat(running.estimatedNextStationAt()).as("직선은 그대로").isEqualTo(T0.plusSeconds(144));
+            assertThat(running.shownProgressAt(pastDwell)).isGreaterThan(new BigDecimal("0.225"));
 
-            Instant later = T0.plusSeconds(90);
-            SubwayRingState still = calculator.next(held, typical, prevArrived(T0, later), later);
-            assertThat(still.segmentProgress()).isEqualByComparingTo("0.225");
-            assertThat(still.holdReason()).isEqualTo(SubwayRingHoldReason.PREV_STATION_STOPPED);
+            Instant overrun = T0.plusSeconds(144 + 31);
+            SubwayRingState late = calculator.next(running, typical, prevArrived(T0, overrun), overrun);
+            assertThat(late.holdReason()).isEqualTo(SubwayRingHoldReason.LATE);
+            assertThat(late.segmentProgress()).isEqualByComparingTo("0.90");
+        }
+
+        @Test
+        @DisplayName("도착 직선 위에서 실측 출발을 봐도 앞당기지 않는다 — 출발 표시는 늦고 실측은 짧아 그리자마자 0.9·LATE 가 된다(journey 226)")
+        void departureDoesNotPullLineForward() {
+            SubwayRingState line = calculator.next(null, typical, prevArrived(T0, T0), T0);
+            Instant departSeen = T0.plusSeconds(100);
+            // 위치 출발 표시 70초(원천), 실측 표본 29초 → 예정 T0+99 는 이미 지났다
+            SubwayRingObservation measured = SubwayRingObservation.measured(1, T0.plusSeconds(70), T0.plusSeconds(99),
+                    T0.plusSeconds(70)).withSeenAt(departSeen).withPresentAt(departSeen);
+
+            SubwayRingState state = calculator.next(line, typical, measured, departSeen);
+
+            assertThat(state.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(144));
+            assertThat(state.etaSource()).isEqualTo(SubwayRingEtaSource.TYPICAL);
+            assertThat(state.holdReason()).isNull();
+            assertThat(state.stage()).isEqualTo(SubwayRingStage.RUN);
+        }
+
+        @Test
+        @DisplayName("출발을 봤는데 화면이 정차 몫보다 뒤면 정차 몫(0.225)에서 운행 직선을 새로 긋는다 — 뒤처짐만 막는다")
+        void departureFloorsAtDwellPoint() {
+            // 늦게 받은 전역 도착: 직선이 막 시작했다(화면 0)
+            Instant now = T0.plusSeconds(5);
+            SubwayRingState line = calculator.next(null, typical, prevArrived(now, now), now);
+            Instant departSeen = now.plusSeconds(5);
+            SubwayRingState state = calculator.next(line, typical,
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1, null, departSeen)
+                            .withSeenAt(departSeen).withPresentAt(departSeen), departSeen);
+
+            assertThat(state.shownProgressAt(departSeen)).isEqualByComparingTo("0.225");
+            assertThat(state.stage()).isEqualTo(SubwayRingStage.RUN);
+            assertThat(state.estimatedNextStationAt()).isEqualTo(departSeen.plusSeconds(108));
+        }
+
+        @Test
+        @DisplayName("승차역 도착을 늦게 봤으면 도착 직선 시작 = 원천 도착 시각(처음 본 시각 − 30초까지)")
+        void boardingArrivalAnchorsAtSource() {
+            SubwayRingContext selected = new SubwayRingContext(JOURNEY_ID, 1, 4, 0, context.chain(), 0)
+                    .withTypical(seq -> new SubwayRingContext.Typical(30, 90));
+            Instant now = T0.plusSeconds(21);
+
+            SubwayRingState state = calculator.next(null, selected,
+                    SubwayRingObservation.position(SubwayTrainStatus.ARRIVED, 0, T0).withSeenAt(now), now);
+
+            assertThat(state.nextStationSequence()).isEqualTo(1);
+            assertThat(state.progressBaseAt()).isEqualTo(T0);
         }
 
         @Test
