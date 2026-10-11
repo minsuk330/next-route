@@ -180,6 +180,18 @@ class SubwayRingSignalReaderTest {
     }
 
     @Test
+    @DisplayName("도착 행이 99(남은 초)면 순위로 못 견준다 — 위치가 더 오래됐으면 도착 행(예정 유지)")
+    void enrouteBeatsOlderPosition() {
+        snapshot(row("99", 110));
+        position(PREV, SubwayTrainStatus.ARRIVED, RECEIVED.minusSeconds(28));
+
+        SubwayRingObservation observation = reader.read(train, chain, 1);
+
+        assertThat(observation.code()).isEqualTo(SubwayArrivalCode.ENROUTE);
+        assertThat(observation.estimatedArrivalAt()).isEqualTo(RECEIVED.plusSeconds(110));
+    }
+
+    @Test
     @DisplayName("진행이 같으면 도착 행 — 수신 시각이 더 새로워도 위치를 쓰지 않는다")
     void sameProgressKeepsArrival() {
         snapshot(row("3", 140));
