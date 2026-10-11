@@ -951,7 +951,7 @@ class SubwayRingCalculatorTest {
         }
 
         @Test
-        @DisplayName("다음 역 출발(2) → 새 구간을 서버가 본 시각부터 운행×1.2 직선으로, NORMAL·TYPICAL·RUN")
+        @DisplayName("다음 역 출발(2) → 새 구간 운행×1.2 직선, 원천 90초 지연이면 처음 본 시각 − 30초부터, NORMAL·TYPICAL·RUN")
         void departureStartsTypicalRun() {
             Instant now = T0.plusSeconds(100);
             SubwayRingState state = calculator.next(enroute(BigDecimal.valueOf(0.80), T0, T0.plusSeconds(60)), typical,
@@ -962,9 +962,9 @@ class SubwayRingCalculatorTest {
             assertThat(state.quality()).isEqualTo(SubwayRingQuality.NORMAL);
             assertThat(state.etaSource()).isEqualTo(SubwayRingEtaSource.TYPICAL);
             assertThat(state.stage()).isEqualTo(SubwayRingStage.RUN);
-            assertThat(state.progressBaseAt()).as("원천 시각이 아니라 서버가 본 시각").isEqualTo(now);
-            assertThat(state.estimatedNextStationAt()).isEqualTo(now.plusSeconds(108));
-            assertThat(state.shownProgressAt(now)).as("그리자마자 점프하지 않는다").isEqualByComparingTo("0");
+            assertThat(state.progressBaseAt()).as("원천 시각은 상한(30초)까지만 당긴다").isEqualTo(now.minusSeconds(30));
+            assertThat(state.estimatedNextStationAt()).isEqualTo(now.plusSeconds(78));
+            assertThat(state.shownProgressAt(now)).as("첫 프레임은 30초 몫만 앞선다").isEqualByComparingTo("0.25");
             assertThat(state.progressValidUntil()).isAfter(state.estimatedNextStationAt());
         }
 
@@ -1028,11 +1028,12 @@ class SubwayRingCalculatorTest {
                     T0.minusSeconds(80)).withSeenAt(first);
             SubwayRingState state = calculator.next(null, typical, row.withPresentAt(first), first);
 
-            Instant beforeGrace = first.plusSeconds(108 + 20);
+            // 원천 80초 지연 → 시작점 = 처음 본 시각 − 30초(#371), 예정 = 시작점 + 108초
+            Instant beforeGrace = first.minusSeconds(30).plusSeconds(108 + 20);
             SubwayRingState waiting = calculator.next(state, typical, row.withPresentAt(beforeGrace), beforeGrace);
             assertThat(waiting.holdReason()).isNull();
 
-            Instant afterGrace = first.plusSeconds(108 + 31);
+            Instant afterGrace = first.minusSeconds(30).plusSeconds(108 + 31);
             SubwayRingState late = calculator.next(waiting, typical, row.withPresentAt(afterGrace), afterGrace);
             assertThat(late.holdReason()).isEqualTo(SubwayRingHoldReason.LATE);
             assertThat(late.stage()).isEqualTo(SubwayRingStage.LATE);
@@ -1040,7 +1041,7 @@ class SubwayRingCalculatorTest {
         }
 
         @Test
-        @DisplayName("실측(MEASURED)도 서버가 본 시각에 앵커 — 원천 지연 90초·중앙값 60초인 짧은 구간이 첫 관측에 LATE 가 아니다(journey 202)")
+        @DisplayName("실측(MEASURED) 원천이 90초 늦으면 처음 본 시각 − 30초에 앵커 — 중앙값 60초인 짧은 구간이 첫 관측에 LATE 가 아니다(journey 202, #371)")
         void measuredAnchorsAtServerTime() {
             Instant now = T0.plusSeconds(200);
             Instant recptn = now.minusSeconds(90);
@@ -1051,9 +1052,43 @@ class SubwayRingCalculatorTest {
 
             assertThat(state.holdReason()).isNull();
             assertThat(state.etaSource()).isEqualTo(SubwayRingEtaSource.MEASURED);
-            assertThat(state.progressBaseAt()).isEqualTo(now);
-            assertThat(state.estimatedNextStationAt()).isEqualTo(now.plusSeconds(60));
-            assertThat(state.shownProgressAt(now)).isEqualByComparingTo("0");
+            assertThat(state.progressBaseAt()).isEqualTo(now.minusSeconds(30));
+            assertThat(state.estimatedNextStationAt()).isEqualTo(now.plusSeconds(30));
+            assertThat(state.shownProgressAt(now)).as("첫 프레임은 상한 몫(30초)까지만 앞선다").isEqualByComparingTo("0.45");
+        }
+
+        @Test
+        @DisplayName("실측(MEASURED) 원천 지연이 상한(30초) 안이면 원천 출발 시각에 앵커 — 감지 지연을 예정에 옮기지 않는다(#371)")
+        void measuredAnchorsAtSourceWithinCap() {
+            Instant now = T0.plusSeconds(200);
+            Instant departed = now.minusSeconds(25);
+            SubwayRingObservation measured = SubwayRingObservation.measured(1, departed, departed.plusSeconds(60),
+                    departed).withSeenAt(now).withPresentAt(now);
+
+            SubwayRingState state = calculator.next(null, typical, measured, now);
+
+            assertThat(state.etaSource()).isEqualTo(SubwayRingEtaSource.MEASURED);
+            assertThat(state.progressBaseAt()).isEqualTo(departed);
+            assertThat(state.estimatedNextStationAt()).as("서버가 본 시각 + 60초가 아니라 원천 출발 + 60초")
+                    .isEqualTo(departed.plusSeconds(60));
+        }
+
+        @Test
+        @DisplayName("처음 본 시각을 모르면(옛 경로) 원천 시각 그대로, 원천이 처음 본 시각보다 늦게 찍혔으면 처음 본 시각")
+        void anchorEdges() {
+            Instant now = T0.plusSeconds(200);
+            SubwayRingObservation old = SubwayRingObservation.measured(1, now.minusSeconds(90), now.minusSeconds(30),
+                    now.minusSeconds(90)).withPresentAt(now);
+            assertThat(calculator.next(null, typical, old, now).progressBaseAt()).isEqualTo(now.minusSeconds(90));
+
+            SubwayRingState departed = calculator.next(null, typical,
+                    seenRow(SubwayRingObservation.arrival(SubwayArrivalCode.DEPARTED, 1, null, now.plusSeconds(3)), now),
+                    now);
+            assertThat(departed.progressBaseAt()).isEqualTo(now);
+        }
+
+        private SubwayRingObservation seenRow(SubwayRingObservation o, Instant seenAt) {
+            return o.withSeenAt(seenAt).withPresentAt(seenAt);
         }
 
         @Test
@@ -1100,7 +1135,8 @@ class SubwayRingCalculatorTest {
         private final SubwayRingContext typical = context.withTypical(seq -> new SubwayRingContext.Typical(30, 90));
 
         private SubwayRingObservation prevArrived(Instant seenAt, Instant now) {
-            return SubwayRingObservation.arrival(SubwayArrivalCode.PREV_ARRIVED, 1, null, seenAt.minusSeconds(80))
+            // 원천 지연 없음 — 이 묶음은 정차 직선 모양을 본다. 앵커 상한은 TypicalSegment 가 본다.
+            return SubwayRingObservation.arrival(SubwayArrivalCode.PREV_ARRIVED, 1, null, seenAt)
                     .withSeenAt(seenAt).withPresentAt(now);
         }
 
@@ -1148,7 +1184,7 @@ class SubwayRingCalculatorTest {
             SubwayRingState dwell = calculator.next(null, typical, prevArrived(T0, T0), T0);
             Instant departSeen = T0.plusSeconds(36);
             SubwayRingState run = calculator.next(dwell, typical,
-                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1, null, departSeen.minusSeconds(80))
+                    SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, 1, null, departSeen)
                             .withSeenAt(departSeen).withPresentAt(departSeen), departSeen);
 
             assertThat(run.stage()).isEqualTo(SubwayRingStage.RUN);
@@ -1185,11 +1221,11 @@ class SubwayRingCalculatorTest {
         }
 
         @Test
-        @DisplayName("직전 링이 바로 그 역 도착이면 정차 시작 = 그 도착을 처음 본 시각(한 tick 늦지 않게)")
+        @DisplayName("직전 링이 바로 그 역 도착이면 정차 시작 = 그 도착의 시작점(한 tick 늦지 않게)")
         void dwellStartsAtPreviousArrival() {
             Instant arrivedSeen = T0;
             SubwayRingState arrived = calculator.next(enroute(BigDecimal.valueOf(0.80), T0.minusSeconds(60), T0), typical,
-                    SubwayRingObservation.arrival(SubwayArrivalCode.ARRIVED, 1, null, T0.minusSeconds(80))
+                    SubwayRingObservation.arrival(SubwayArrivalCode.ARRIVED, 1, null, T0.minusSeconds(10))
                             .withSeenAt(arrivedSeen).withPresentAt(arrivedSeen), arrivedSeen);
             assertThat(arrived.arrivedAtNextStation()).isTrue();
 
@@ -1199,7 +1235,7 @@ class SubwayRingCalculatorTest {
                             .withSeenAt(now).withPresentAt(now), now);
 
             assertThat(dwell.nextStationSequence()).isEqualTo(2);
-            assertThat(dwell.progressBaseAt()).isEqualTo(arrivedSeen);
+            assertThat(dwell.progressBaseAt()).as("도착 원천 시각(10초 지연, 상한 안)").isEqualTo(T0.minusSeconds(10));
             assertThat(dwell.holdStationName()).isEqualTo("역A");
         }
     }
