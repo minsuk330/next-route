@@ -118,7 +118,13 @@ public class SubwayRingSignalReader {
             return null;
         }
         int rank = rankOf(sequence, position.status());
-        if (rank < 0 || rank <= rankOf(target, arrival.code())) {
+        int arrivalRank = rankOf(target, arrival.code());
+        if (rank < 0 || rank <= arrivalRank) {
+            return null;
+        }
+        if (arrivalRank < 0 && !observedAt.isAfter(arrival.observedAt())) {
+            // 99(남은 초)는 어디쯤인지 말하지 않는다 — 전역 출발 뒤 운행 중일 수도 있다. 그때는 순위로 못 견주니 더 새로운
+            // 쪽만 믿는다. 안 그러면 묵은 "전역 도착"이 운행 중인 링을 정차로 되돌리고 예정을 지운다(SubwayRideScenarioIT).
             return null;
         }
         if (rank >= rank(target, ENTERING_STEP)) {
