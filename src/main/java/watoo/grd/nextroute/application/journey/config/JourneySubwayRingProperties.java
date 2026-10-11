@@ -27,8 +27,8 @@ public class JourneySubwayRingProperties {
     /** 기본값 off. 갱신기가 없으면 링은 만들어지지 않고 스냅샷의 안내도 비어 있다. */
     private boolean enabled = false;
 
-    /** 갱신 주기. 원천이 60~90초마다 갱신되므로 이보다 잦을 이유가 없다. */
-    private long tickMs = 5000;
+    /** 갱신 주기. 수집이 끝난 뒤 다음 tick 까지의 대기가 링 지연에 그대로 더해진다(#371). */
+    private long tickMs = 2000;
 
     /** 한 tick 에서 볼 최대 고정 수. */
     private int batchSize = 100;
