@@ -39,6 +39,9 @@ public final class StationsAheadCalculator {
      */
     public static final String LOOP_DESTINATION = "순환";
 
+    /** 실시간 2호선 순환 열차의 행선지 표기. 역 이름이지만 종착을 뜻하지 않는다. */
+    static final String LOOP_LABEL_DESTINATION = "성수";
+
     /** 실시간 2호선 행선지 표기 중 지선을 뜻하는 것. 역 이름이 아니다. */
     static final Set<String> BRANCH_DESTINATIONS = Set.of("성수지선", "신도림지선");
 
@@ -131,21 +134,50 @@ public final class StationsAheadCalculator {
 
         if (target != null && loop) {
             List<Tail> chosen = chooseLoopRoute(tails, target);
+            if (endsMidLoop(target)) {
+                Result cut = cutAt(chosen != null ? chosen : tails, target);
+                if (cut != null) {
+                    return cut;
+                }
+            }
             if (chosen != null) {
                 return common(chosen, true);
             }
         } else if (target != null) {
-            String key = NORMALIZER.normalize(target);
-            Tail best = tails.stream()
-                    .filter(t -> indexOfName(t.stops(), key) >= 0)
-                    .max(Comparator.comparingInt(t -> t.pattern().tripCount()))
-                    .orElse(null);
-            if (best != null) {
-                List<Stop> cut = best.stops().subList(0, indexOfName(best.stops(), key) + 1);
-                return new Result(ahead(cut, best), EndReason.TERMINAL, List.of(), true);
+            Result cut = cutAt(tails, target);
+            if (cut != null) {
+                return cut;
             }
         }
         return common(tails, false);
+    }
+
+    /** 행선지 역까지(포함) 자른다. 그 역을 지나는 꼬리 중 trip 이 가장 많은 것의 첫 등장. 어느 꼬리에도 없으면 null. */
+    private static Result cutAt(List<Tail> tails, String destination) {
+        String key = NORMALIZER.normalize(destination);
+        Tail best = tails.stream()
+                .filter(t -> indexOfName(t.stops(), key) >= 0)
+                .max(Comparator.comparingInt(t -> t.pattern().tripCount()))
+                .orElse(null);
+        if (best == null) {
+            return null;
+        }
+        List<Stop> cut = best.stops().subList(0, indexOfName(best.stops(), key) + 1);
+        return new Result(ahead(cut, best), EndReason.TERMINAL, List.of(), true);
+    }
+
+    /**
+     * 순환선 행선지가 <b>중간 종착역</b>인가. 2호선은 막차 시간대에 서울대입구·홍대입구·삼성·을지로입구 종착, 입고 때 신도림
+     * 종착 열차가 다닌다. 그 열차를 고른 사람에게 한 바퀴를 보여 주면 종착역 너머를 하차역으로 고를 수 있고, 열차는 거기서
+     * 운행을 끝내 링이 멈춘다(journey 230, 서울대입구행 8434).
+     *
+     * <p>순환 표시는 자르지 않는다: {@link #LOOP_DESTINATION}, 지선 표기, 그리고 {@code 성수} — 실시간 2호선 순환 열차의
+     * 행선지는 거의 다 성수다. 군자 입고 성수행도 같은 표기라 구별할 수 없어 한 바퀴로 둔다.
+     */
+    private static boolean endsMidLoop(String destination) {
+        return !LOOP_DESTINATION.equals(destination)
+                && !BRANCH_DESTINATIONS.contains(destination)
+                && !LOOP_LABEL_DESTINATION.equals(NORMALIZER.normalize(destination));
     }
 
     /**

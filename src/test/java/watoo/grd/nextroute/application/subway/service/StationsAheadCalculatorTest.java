@@ -42,6 +42,44 @@ class StationsAheadCalculatorTest {
         }
 
         @Test
+        @DisplayName("막차 서울대입구행(journey 230): 강남 내선 → 서울대입구까지만 — 종착 너머는 하차역으로 못 고른다")
+        void lastTrainCutsAtIntermediateTerminal() {
+            Result r = calc("1002", "내선", "강남", "서울대입구");
+
+            assertThat(r.endReason()).isEqualTo(EndReason.TERMINAL);
+            assertThat(r.destinationApplied()).isTrue();
+            assertThat(names(r)).containsExactly("교대", "서초", "방배", "사당", "낙성대", "서울대입구");
+            assertThat(r.stations()).extracting(Ahead::stopsAway).containsExactly(1, 2, 3, 4, 5, 6);
+        }
+
+        @Test
+        @DisplayName("행선지 표기 변형(서울대입구행)·다른 중간 종착(홍대입구·삼성 외선)도 그 역까지")
+        void otherIntermediateTerminals() {
+            assertThat(last(calc("1002", "내선", "강남", "서울대입구행"))).isEqualTo("서울대입구");
+            assertThat(last(calc("1002", "내선", "강남", "홍대입구"))).isEqualTo("홍대입구");
+            Result outer = calc("1002", "외선", "강남", "삼성");
+            assertThat(names(outer)).containsExactly("역삼", "선릉", "삼성");
+        }
+
+        @Test
+        @DisplayName("입고 신도림행: 본선 승차 → 신도림까지")
+        void depotTrainCutsAtSindorim() {
+            Result r = calc("1002", "내선", "강남", "신도림");
+
+            assertThat(r.endReason()).isEqualTo(EndReason.TERMINAL);
+            assertThat(last(r)).isEqualTo("신도림");
+        }
+
+        @Test
+        @DisplayName("노선에 없는 행선지는 지금처럼 한 바퀴")
+        void unknownLoopDestinationKeepsLap() {
+            Result r = calc("1002", "내선", "강남", "응암순환");
+
+            assertThat(r.endReason()).isEqualTo(EndReason.LOOP);
+            assertThat(r.stations()).hasSize(42);
+        }
+
+        @Test
         @DisplayName("신도림 내선: 승차역이 분기점 → 빈 목록 + 본선·신정지선 갈래")
         void sindorimIsABranchPoint() {
             Result r = calc("1002", "내선", "신도림", null);
