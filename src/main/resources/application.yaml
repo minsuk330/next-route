@@ -16,7 +16,9 @@ spring:
   task:
     scheduling:
       pool:
-        size: 3   # 공용 스케줄러 풀(수집/배치/로테이션 등). 알림 잡은 전용 풀로 격리(SchedulingConfig)
+        # 공용 스케줄러 풀(수집/배치/로테이션 등). 알림 잡은 전용 풀로 격리(SchedulingConfig).
+        # 6: 버스 위치 트리거가 한 칸을 최대 9.5초 잡는다 — 링 tick·지하철 수집이 그 뒤에 밀리지 않게(#371, 2026-10-11 실측).
+        size: 6
   data:
     redis:
       host: ${REDIS_HOST}
@@ -618,8 +620,9 @@ journey:
       # 도착이 남은 초를, 위치가 구간 전환 폴백을 맡는다. 하나만 켜면 링이 자주 STALE 이다.
       # 갱신기는 worker 프로필에서만 뜬다.
       enabled: ${JOURNEY_SUBWAY_RING_ENABLED:false}
-      # 원천이 15초마다 갱신되고 recptnDt 자체가 1~2분 뒤처져 있다. 더 자주 돌 이유가 없다.
-      tick-ms: ${JOURNEY_SUBWAY_RING_TICK_MS:5000}
+      # 수집(15초)이 끝난 뒤 다음 tick 까지의 대기가 링 지연에 그대로 더해진다(#371). 2초면 평균 1초다.
+      # tick 은 Redis·DB 읽기와 계산뿐이고 push 는 화면 지문이 바뀔 때만 나간다.
+      tick-ms: ${JOURNEY_SUBWAY_RING_TICK_MS:2000}
       batch-size: 100
       # 아래 값은 전부 잠정값이다. 실기기 관측 전에는 근거가 없어 코드가 아니라 여기 둔다.
       # 이동 중 상한을 1.00 보다 낮게 두는 이유 — 도착 전에 100% 를 찍으면 사용자는 이미
