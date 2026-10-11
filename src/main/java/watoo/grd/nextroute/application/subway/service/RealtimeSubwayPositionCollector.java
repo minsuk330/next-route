@@ -7,10 +7,15 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.subway.config.SubwayPositionProperties;
 import watoo.grd.nextroute.application.subway.dto.SubwayPositionFetchResult;
+import watoo.grd.nextroute.application.subway.port.out.SubwayActiveLinePort;
 import watoo.grd.nextroute.application.subway.port.out.SubwayApiPort;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.List;
+import java.util.Set;
 
 /**
  * 설정된 노선의 실시간 열차 위치를 주기적으로 받아 전이 추적기에 넘긴다.
@@ -29,6 +34,12 @@ import java.time.ZoneId;
  * <p>노선을 병렬로 부르면 한 회차 안에서 노선별 관측 시각이 벌어진다. 전이 판정이 시각 비교라
  * 그 벌어짐이 그대로 잡음이 된다. 순차로 돌아도 한 회차가 주기 안에 끝난다.
  *
+ * <h2>진행 중 노선은 더 자주 (#371)</h2>
+ *
+ * <p>전 노선은 {@code poll-interval-ms}(15초)마다, 진행 링이 도는 노선은 {@code active-poll-interval-ms}(5초)마다 받는다.
+ * 호출 수 제한은 없지만 VPS 수신 트래픽이 월 2TB 상한이라 전 노선을 5초로 돌리지 않는다. 회차 사이 대기가 링 지연에 그대로
+ * 더해진다(journey 226: 도착 반영 19~39초).
+ *
  * <p>도착정보 수집기({@code RealtimeSubwayCollector})와 <b>별도 빈·별도 주기</b>다. 축이 다르다 —
  * 저쪽은 전 노선을 한 번에 받고, 이쪽은 노선마다 한 번씩 받는다.
  */
@@ -43,8 +54,13 @@ public class RealtimeSubwayPositionCollector {
     private final SubwayApiPort subwayApiPort;
     private final SubwayTrainTransitionTracker transitionTracker;
     private final SubwayPositionProperties properties;
+    private final SubwayActiveLinePort activeLinePort;
+    private final Clock clock;
 
-    @Scheduled(fixedDelayString = "${realtime.subway.position.poll-interval-ms:15000}")
+    /** 마지막 전 노선 회차. 한 인스턴스(worker)에서만 돈다. */
+    private Instant lastFullAt;
+
+    @Scheduled(fixedDelayString = "${realtime.subway.position.active-poll-interval-ms:5000}")
     public void collect() {
         if (!properties.isEnabled() || properties.getLines().isEmpty()) {
             return;
@@ -52,10 +68,20 @@ public class RealtimeSubwayPositionCollector {
         if (!isActiveHours()) {
             return;
         }
+        Instant now = clock.instant();
+        boolean full = lastFullAt == null
+                || !now.isBefore(lastFullAt.plusMillis(properties.getPollIntervalMs()));
+        List<String> targets = full ? properties.getLines() : activeLines();
+        if (targets.isEmpty()) {
+            return;
+        }
+        if (full) {
+            lastFullAt = now;
+        }
 
         int events = 0;
         int failed = 0;
-        for (String lineId : properties.getLines()) {
+        for (String lineId : targets) {
             try {
                 SubwayPositionFetchResult result = subwayApiPort.getRealtimePosition(lineId);
                 if (result.isBlocked()) {
@@ -77,8 +103,17 @@ public class RealtimeSubwayPositionCollector {
 
         if (failed > 0) {
             log.warn("[PositionCollector] {}/{} 노선 실패, 사건 {}건",
-                    failed, properties.getLines().size(), events);
+                    failed, targets.size(), events);
         }
+    }
+
+    /** 진행 링이 도는 노선 중 수집 대상인 것. 설정 순서를 지킨다. */
+    private List<String> activeLines() {
+        Set<String> active = activeLinePort.activeRingLineIds();
+        if (active.isEmpty()) {
+            return List.of();
+        }
+        return properties.getLines().stream().filter(active::contains).toList();
     }
 
     /**

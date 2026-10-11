@@ -72,6 +72,21 @@ public interface SubwayLegBindingRepository extends JpaRepository<SubwayLegBindi
             """, nativeQuery = true)
     List<SubwayLegBinding> findRingTargets(@Param("limit") int limit);
 
+    /** 링 대상 고정({@link #findRingTargets} 와 같은 조건)의 노선. 위치 수집기가 이 노선만 더 자주 받는다(#371). */
+    @Query(value = """
+            SELECT DISTINCT b.train_line_id FROM subway_leg_binding b
+              JOIN journey_leg l     ON l.id = b.journey_leg_id
+              JOIN journey_session s ON s.id = b.journey_id
+             WHERE b.status IN ('PROVISIONAL','CONFIRMED')
+               AND b.deleted_at IS NULL
+               AND l.deleted_at IS NULL
+               AND s.status = 'ACTIVE'
+               AND b.route_revision = s.route_revision
+               AND s.current_leg_index IN (b.leg_index - 1, b.leg_index)
+               AND b.train_line_id IS NOT NULL
+            """, nativeQuery = true)
+    List<String> findActiveRingLineIds();
+
     /**
      * 사용자 요청 경로가 쓰는 잠금 조회. 이쪽은 건너뛸 수 없어 <b>기다리되 짧게</b> 기다린다.
      *
