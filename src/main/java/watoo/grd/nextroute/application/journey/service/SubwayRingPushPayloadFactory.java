@@ -126,6 +126,8 @@ public class SubwayRingPushPayloadFactory {
         } else {
             approach.stations().forEach(props.putArray("approachStations")::add);
         }
+        // 하차역 도착 뒤 우리 열차가 하차역을 출발한 시각(#380). 스냅샷 subwayGuidance 와 같은 이름 — 앱이 탑승을 끝낸다.
+        props.put("trainLeftAlightingAt", millis(ring.trainLeftAlightingAt()));
         props.put("updatedAt", updatedAt.toEpochMilli());
         return props;
     }
