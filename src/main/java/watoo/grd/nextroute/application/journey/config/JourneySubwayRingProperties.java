@@ -73,6 +73,12 @@ public class JourneySubwayRingProperties {
     private Duration lateGrace = Duration.ofSeconds(30);
 
     /**
+     * 직선의 시작점은 원천 사건 시각({@code recptnDt})이다(#371). 다만 서버가 처음 본 시각보다 이만큼 넘게 이른 원천은
+     * "처음 본 시각 − 이 값"으로 당겨 쓴다 — 원천이 1~2분 늦게 보이면 그리자마자 예정이 지나 LATE 로 뛴다(journey 202).
+     */
+    private Duration maxSourceLag = Duration.ofSeconds(30);
+
+    /**
      * ring 키 TTL. <b>반드시 둔다.</b>
      *
      * <p>수명주기 네 접점이 지우지만, 그 경로 중 하나라도 새면 TTL 없는 키가 쌓여

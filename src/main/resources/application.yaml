@@ -636,6 +636,8 @@ journey:
       stale-after: PT60S
       stale-source-max-age: PT240S
       late-grace: PT30S
+      # 직선 시작점 = 원천 사건 시각, 단 서버가 처음 본 시각 − 이 값보다 이르면 그 값(#371).
+      max-source-lag: PT30S
       # 수명주기 네 접점이 지우지만 그중 하나라도 새면 키가 영원히 남는다.
       ttl: PT30M
       push:

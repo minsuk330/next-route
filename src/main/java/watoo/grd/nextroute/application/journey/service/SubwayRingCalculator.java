@@ -257,8 +257,8 @@ public class SubwayRingCalculator {
             // 이미 이 구간 실측 직선을 그리는 중이다. 서버 시계 앵커는 한 번만 정한다(리뷰 R1).
             return keep(prior, context, target, observation, now);
         }
-        // 앵커 = 서버가 전역 출발을 처음 본 시각. 모르면(옛 경로) 원천 기준 출발 시각 그대로.
-        Instant start = observation.seenAt() != null ? observation.seenAt() : observation.segmentStartAt();
+        // 앵커 = 원천 출발 시각, 단 서버가 처음 본 시각 − 상한까지만(#371). 표본도 원천 시각 축이다.
+        Instant start = anchorOf(observation.segmentStartAt(), observation.seenAt());
         Instant eta = start.plus(observation.measuredDuration());
         BigDecimal base = baseProgressOf(prior, target);
         if (!now.isBefore(lateAt(eta, observation))) {
@@ -440,11 +440,11 @@ public class SubwayRingCalculator {
                 .withSource(null, SubwayRingStage.DWELL);
     }
 
-    /** 정차 시작 = 직전 링이 바로 그 역 도착이면 그 도착을 처음 본 시각(한 tick 늦지 않게), 아니면 이 관측을 처음 본 시각. */
-    private static Instant dwellStartOf(SubwayRingState prior, int target, SubwayRingObservation observation) {
+    /** 정차 시작 = 직전 링이 바로 그 역 도착이면 그 도착의 시작점(한 tick 늦지 않게), 아니면 이 관측의 시작점({@link #anchorOf}). */
+    private Instant dwellStartOf(SubwayRingState prior, int target, SubwayRingObservation observation) {
         if (prior != null && prior.arrivedAtNextStation() && prior.nextStationSequence() == target - 1
                 && prior.sourceSeenAt() != null) {
-            return prior.sourceSeenAt();
+            return anchorOf(prior.sourceObservedAt(), prior.sourceSeenAt());
         }
         return seenOf(observation);
     }
@@ -484,7 +484,7 @@ public class SubwayRingCalculator {
     /**
      * TYPICAL 직선 — 실시간·실측 예정이 없을 때 GTFS 계획 시간 × 여유 배수로 그린다. 출처를 TYPICAL 로 밝혀 앱이 시각을 숨긴다.
      *
-     * @param startedAt    서버가 그 사건(출발·도착)을 처음 본 시각. 원천 시각(1~2분 늦음)에 앵커하면 그리자마자 예정이 지나 점프한다
+     * @param startedAt    그 사건(출발·도착)의 시작점 — 원천 시각, 단 처음 본 시각 − 상한까지만({@link #anchorOf}, #371)
      * @param includeDwell 직전 역에 서 있는 동안 시작하면 정차 시간도 더한다(정차+운행 한 직선)
      * @return 승차역 구간이거나 전형 시간을 모르면 null — 부르는 쪽이 기존대로 둔다
      */
@@ -554,8 +554,27 @@ public class SubwayRingCalculator {
         return kept.quality() == SubwayRingQuality.STALE ? kept.withQuality(SubwayRingQuality.NORMAL) : kept;
     }
 
-    private static Instant seenOf(SubwayRingObservation observation) {
-        return observation.seenAt() != null ? observation.seenAt() : observation.observedAt();
+    /** 이 관측이 말하는 사건의 직선 시작점 — 원천 시각, 단 처음 본 시각 − 상한보다 이르면 그 값(#371). */
+    private Instant seenOf(SubwayRingObservation observation) {
+        return anchorOf(observation.observedAt(), observation.seenAt());
+    }
+
+    /**
+     * 직선 시작점(#371). 원천 사건 시각을 쓰되 서버가 처음 본 시각보다 {@code maxSourceLag} 넘게 이르면 거기까지만 당긴다.
+     *
+     * <p>예전에는 처음 본 시각에 앵커했다(journey 202: 원천이 1~2분 늦어 첫 관측에 바로 LATE). 그러면 원천 → 서버 감지 지연이
+     * 예정에 그대로 옮겨 실제 도착 순간 링이 0.5 근처였다(journey 225). 실측 구간시간 표본도 원천 시각 → 원천 시각이라 이쪽이
+     * 표본과 같은 축이다. 원천 시각을 모르면 처음 본 시각, 처음 본 시각을 모르면(옛 경로) 원천 시각.
+     */
+    private Instant anchorOf(Instant sourceAt, Instant seenAt) {
+        if (seenAt == null) {
+            return sourceAt;
+        }
+        if (sourceAt == null) {
+            return seenAt;
+        }
+        Instant floor = seenAt.minus(properties.getMaxSourceLag());
+        return sourceAt.isBefore(floor) ? floor : (sourceAt.isAfter(seenAt) ? seenAt : sourceAt);
     }
 
     /**
