@@ -362,7 +362,8 @@ public class SubwayRingCalculator {
                     observedAt, null, SubwayRingQuality.NORMAL, observedAt, now)
                     .withSource(null, SubwayRingStage.APPROACH);
             case DEPARTED -> advanced(context, seen + 1, observedAt, seenOf(observation), true, now);
-            // 전역출발·모름은 그 row 의 역이 전역인지 다음 역인지 계약이 없다. 근거로 쓰지 않는다.
+            // 전역출발(3)은 그 역의 바로 전역을 출발했다는 뜻이다(2026-10-09 확정) — 우리 목표보다 뒤 역이면 그 역 구간으로
+            // 넘긴다. 목표 역의 3 은 리더가 전역 출발 관측(PREV_DEPARTED)으로 바꿔 넘긴다(#371). 모름은 근거로 쓰지 않는다.
             case LEFT_PREVIOUS, UNKNOWN -> seen > target
                     ? advanced(context, seen, observedAt, seenOf(observation), true, now)
                     : keep(prior, context, target, observation, now);

@@ -27,6 +27,8 @@ import java.time.Instant;
  *                                원천이 같은 행을 계속 주면 처음 본 시각이 이어진다. 모르면 null
  * @param presentAt               서버가 우리 열차 행을 <b>마지막으로 받아 본</b> 시각(도착 스냅샷 수집 시각). STALE 판정용 — 행이
  *                                바뀌지 않아도 수집이 살아 있으면 갱신된다. 위치 관측은 null
+ * @param origin                  근거가 실제로 온 API(#371). 위치 API 의 전역 사건을 도착 관측(PREV_*)으로 바꿔 넘길 때
+ *                                {@code source} 는 계산기 분기용으로 ARRIVAL 이라 출처를 따로 적는다. null 이면 source 로 짐작
  */
 public record SubwayRingObservation(
         Source source,
@@ -37,8 +39,16 @@ public record SubwayRingObservation(
         Instant observedAt,
         Instant segmentStartAt,
         Instant seenAt,
-        Instant presentAt
+        Instant presentAt,
+        Origin origin
 ) {
+
+    public SubwayRingObservation(Source source, SubwayArrivalCode code, SubwayTrainStatus positionStatus,
+                                 int observedStationSequence, Instant estimatedArrivalAt, Instant observedAt,
+                                 Instant segmentStartAt, Instant seenAt, Instant presentAt) {
+        this(source, code, positionStatus, observedStationSequence, estimatedArrivalAt, observedAt, segmentStartAt,
+                seenAt, presentAt, null);
+    }
 
     public SubwayRingObservation(Source source, SubwayArrivalCode code, SubwayTrainStatus positionStatus,
                                  int observedStationSequence, Instant estimatedArrivalAt, Instant observedAt,
@@ -62,13 +72,27 @@ public record SubwayRingObservation(
     /** 서버가 이 관측을 처음 본 시각을 붙인다. */
     public SubwayRingObservation withSeenAt(Instant seen) {
         return new SubwayRingObservation(source, code, positionStatus, observedStationSequence, estimatedArrivalAt,
-                observedAt, segmentStartAt, seen, presentAt);
+                observedAt, segmentStartAt, seen, presentAt, origin);
     }
 
     /** 서버가 우리 열차 행을 마지막으로 받아 본 시각을 붙인다(도착 스냅샷 수집 시각). */
     public SubwayRingObservation withPresentAt(Instant present) {
         return new SubwayRingObservation(source, code, positionStatus, observedStationSequence, estimatedArrivalAt,
-                observedAt, segmentStartAt, seenAt, present);
+                observedAt, segmentStartAt, seenAt, present, origin);
+    }
+
+    /** 근거가 위치 API 에서 왔다고 적는다. */
+    public SubwayRingObservation fromPositionApi() {
+        return new SubwayRingObservation(source, code, positionStatus, observedStationSequence, estimatedArrivalAt,
+                observedAt, segmentStartAt, seenAt, presentAt, Origin.POSITION_API);
+    }
+
+    /** 근거가 실제로 온 API. */
+    public Origin effectiveOrigin() {
+        if (origin != null) {
+            return origin;
+        }
+        return source == Source.ARRIVAL ? Origin.ARRIVAL_API : Origin.POSITION_API;
     }
 
     /** 전역 출발 실측의 구간 시간(예정 − 출발). 실측이 아니면 null. */
@@ -90,6 +114,12 @@ public record SubwayRingObservation(
     /** 도착 예정이 앞 열차 실측에서 왔는가. */
     public boolean isMeasured() {
         return segmentStartAt != null && estimatedArrivalAt != null;
+    }
+
+    /** 근거를 준 API. 로그·지연 메트릭용이고 계산기 분기에는 쓰지 않는다. */
+    public enum Origin {
+        ARRIVAL_API,
+        POSITION_API
     }
 
     public enum Source {

@@ -126,6 +126,9 @@ public class SubwayRingUpdateService {
         state = state.withApproach(approachReader.read(state, previous, chain, train, now));
         state = state.withGuidanceVersion(guidanceVersionOf(previous, state, now));
         ringPort.save(state);
+        if (previous == null || state.guidanceVersion() != previous.guidanceVersion()) {
+            logChanged(binding, state, observation, now);
+        }
         metrics.recordUpdated(state, observation, binding.getStatus());
         extendProtection(binding, ride, state);
         // 고정 열차가 역을 하나 지났다 — 재탐색 보드를 바로 다시 찾게 한다(#264 PR-2).
@@ -136,6 +139,24 @@ public class SubwayRingUpdateService {
         // 원격 갱신은 링 저장과 규칙이 다르다 — 링은 latest-wins 로 덮어써도 되지만 push 는
         // 화면이 실제로 바뀔 때만, 그리고 최신인 동안만 재시도한다. 트랜잭션도 따로 연다.
         pushEnqueueService.enqueueIfChanged(previous, state, ride);
+    }
+
+    /**
+     * 화면이 바뀐 tick 에만 한 줄 — 어느 API 의 어떤 사건을 언제 반영했나(#371). 원천 원본은 운영에 남지 않으므로
+     * 링 지연을 나중에 가르려면 이 줄이 유일한 근거다.
+     */
+    private void logChanged(SubwayLegBinding binding, SubwayRingState state, SubwayRingObservation observation,
+                            Instant now) {
+        metrics.recordReflectLag(observation, now);
+        if (observation == null) {
+            return;
+        }
+        log.info("[SubwayRing] 반영 journey={} next={} stage={} progress={} origin={} code={} sttus={} observed={} seen={} lagSec={}",
+                binding.getJourneyId(), state.nextStationSequence(), state.stage(), state.segmentProgress(),
+                observation.effectiveOrigin(), observation.code(), observation.positionStatus(),
+                observation.observedAt(), observation.seenAt(),
+                observation.observedAt() == null ? null
+                        : java.time.Duration.between(observation.observedAt(), now).toSeconds());
     }
 
     /**
