@@ -31,6 +31,15 @@ public class SubwayPositionProperties {
      */
     private List<String> lines = List.of();
 
+    /** 전 노선을 받는 주기. */
+    private long pollIntervalMs = 15_000;
+
+    /**
+     * 진행 링이 도는 노선만 받는 주기(#371). 전 노선 주기보다 짧을 때만 의미가 있다 — 같거나 길면 매 회차가 전 노선이다.
+     * 수집이 끝난 뒤 다음 회차까지의 대기가 링 지연에 그대로 더해진다.
+     */
+    private long activePollIntervalMs = 5_000;
+
     /** 운행시간 시작. 도착정보 수집기와 같은 규칙. */
     private String activeHoursStart = "04:30";
 

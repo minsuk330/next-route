@@ -371,6 +371,8 @@ realtime:
     # 신호가 가리키는 시각이 계속 달라 진행 링의 구간 전환 판정이 흔들린다 — 실측으로 두 원천의
     # 현재 역이 6.6% 어긋나는데 그 불일치는 전부 갱신 시차였다.
     # 부수로 도착 API 일일 호출이 8640 → 5760 회로 줄어 공유 quota 에 여유가 생긴다.
+    # (#371) 링은 이제 두 원천을 진행 순위로 골라 시차가 흔들림이 되지 않는다 — 진행 중 노선 위치는 5초로 더 받는다.
+    # 이 응답(전 역 1.8MB, gzip 미지원)이 VPS 수신 트래픽의 대부분이라 주기를 줄이지 않는다.
     poll-interval-ms: 15000
     active-hours:
       start: "04:30"
@@ -392,6 +394,8 @@ realtime:
     position:
       enabled: ${SUBWAY_POSITION_ENABLED:false}
       poll-interval-ms: ${SUBWAY_POSITION_POLL_MS:15000}
+      # 진행 링이 도는 노선만 이 주기로 더 받는다(#371). 수신 트래픽 월 2TB 상한이라 전 노선은 위 주기 그대로.
+      active-poll-interval-ms: ${SUBWAY_POSITION_ACTIVE_POLL_MS:5000}
       active-hours:
         start: "04:30"
         end: "01:00"

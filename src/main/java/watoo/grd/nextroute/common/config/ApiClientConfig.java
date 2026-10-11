@@ -34,6 +34,8 @@ public class ApiClientConfig {
 		return builder
 				.connectTimeout(Duration.ofSeconds(5))
 				.readTimeout(Duration.ofSeconds(30))
+				// 외부 API 응답을 gzip 으로 받는다 — 서울 지하철 위치 API 는 10배 작다(수신 트래픽 월 2TB 상한).
+				.additionalInterceptors(new GzipResponseInterceptor())
 				.build();
 	}
 
