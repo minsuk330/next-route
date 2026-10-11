@@ -30,7 +30,9 @@ class SubwayRingStateSourceTest {
                 s -> s.withEstimatedAlightingAt(T0.plusSeconds(400)),
                 s -> s.withGuidanceVersion(42L),
                 s -> s.withHold(SubwayRingHoldReason.LATE, null),
-                s -> s.withAnchor(new BigDecimal("0.60"), T0.plusSeconds(10)));
+                s -> s.withAnchor(new BigDecimal("0.60"), T0.plusSeconds(10)),
+                s -> s.withSource(SubwayRingEtaSource.MEASURED, SubwayRingStage.RUN),
+                s -> s.withApproach(null));
 
         for (UnaryOperator<SubwayRingState> wither : withers) {
             SubwayRingState out = wither.apply(base);
@@ -39,6 +41,7 @@ class SubwayRingStateSourceTest {
             assertThat(out.stage()).isEqualTo(SubwayRingStage.RUN);
             assertThat(out.sourceObservedAt()).isEqualTo(T0.minusSeconds(80));
             assertThat(out.sourceSeenAt()).isEqualTo(T0.minusSeconds(5));
+            assertThat(out.trainLeftAlightingAt()).as("하차역 출발(#380)").isEqualTo(T0.plusSeconds(900));
         }
     }
 
@@ -83,6 +86,6 @@ class SubwayRingStateSourceTest {
                 SubwayRingPhase.RIDE_SUBWAY, SubwayRingQuality.NORMAL, T0, T0, 7L, T0.plusSeconds(300),
                 null, null,
                 SubwayRingEtaSource.MEASURED, SubwayRingEtaSource.TYPICAL, SubwayRingStage.RUN,
-                T0.minusSeconds(80), T0.minusSeconds(5));
+                T0.minusSeconds(80), T0.minusSeconds(5), null, T0.plusSeconds(900));
     }
 }

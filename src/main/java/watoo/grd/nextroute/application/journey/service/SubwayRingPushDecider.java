@@ -107,7 +107,9 @@ public class SubwayRingPushDecider {
                 String.valueOf(ring.alightingEtaSource()),
                 // 오는 중인 열차가 역을 하나 지날 때마다 대기 문구("양재 → 강남 · 1역 전")가 바뀐다(#368).
                 ring.approach() == null ? "null" : ring.approach().stationName(),
-                ring.approach() == null ? "null" : String.valueOf(ring.approach().stationsUntilBoarding()));
+                ring.approach() == null ? "null" : String.valueOf(ring.approach().stationsUntilBoarding()),
+                // 하차역 출발(#380) — 한 번 채워지면 앱이 탑승을 끝낸다. 채워지는 순간 한 번 보낸다.
+                String.valueOf(ring.trainLeftAlightingAt() != null));
         return hash(material);
     }
 

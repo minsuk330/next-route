@@ -46,6 +46,7 @@ import java.util.List;
  * @param approachingStationName 고른 열차가 아직 승차역 전일 때 지금 있는(또는 막 떠난) 역(#368). 그 밖·모름·STALE 이면 null
  * @param stationsUntilBoarding  위 역에서 승차역까지 남은 역 수. 승차역 바로 앞 역이면 1. 같은 조건에서 null
  * @param approachStations       열차 현재 역 → 승차역 바로 앞 역, 열차가 지나올 순서. 크기 = {@code stationsUntilBoarding}
+ * @param trainLeftAlightingAt   하차역 도착 뒤 우리 열차가 하차역을 출발한 시각(#380). 앱은 이 값이 오면 탑승을 끝낸다. 아니면 null
  */
 public record SubwayGuidance(
         SubwayBindingStatus bindingStatus,
@@ -72,8 +73,24 @@ public record SubwayGuidance(
         SubwayRingEtaSource alightingEtaSource,
         String approachingStationName,
         Integer stationsUntilBoarding,
-        List<String> approachStations
+        List<String> approachStations,
+        Instant trainLeftAlightingAt
 ) {
+
+    /** 하차역 출발 없이(옛 모양). */
+    public SubwayGuidance(SubwayBindingStatus bindingStatus, SubwayRingPhase phase, String lineName,
+                          String nextStationName, String alightingStationName, Integer remainingStations,
+                          BigDecimal segmentProgress, Instant progressBaseAt, BigDecimal progressTarget,
+                          Instant estimatedNextStationAt, Instant progressValidUntil,
+                          SubwayRingQuality quality, Instant observedAt, Long version,
+                          Instant estimatedAlightingAt, SubwayRingHoldReason holdReason, String holdStationName,
+                          SubwayRingEtaSource etaSource, SubwayRingEtaSource alightingEtaSource,
+                          String approachingStationName, Integer stationsUntilBoarding, List<String> approachStations) {
+        this(bindingStatus, phase, lineName, nextStationName, alightingStationName, remainingStations,
+                segmentProgress, progressBaseAt, progressTarget, estimatedNextStationAt, progressValidUntil,
+                quality, observedAt, version, estimatedAlightingAt, holdReason, holdStationName,
+                etaSource, alightingEtaSource, approachingStationName, stationsUntilBoarding, approachStations, null);
+    }
 
     /** 다가오는 열차 위치 없이(옛 모양). */
     public SubwayGuidance(SubwayBindingStatus bindingStatus, SubwayRingPhase phase, String lineName,
@@ -150,6 +167,7 @@ public record SubwayGuidance(
                 ring.etaSource(), ring.alightingEtaSource(),
                 ring.approach() == null ? null : ring.approach().stationName(),
                 ring.approach() == null ? null : ring.approach().stationsUntilBoarding(),
-                ring.approach() == null ? null : ring.approach().stations());
+                ring.approach() == null ? null : ring.approach().stations(),
+                ring.trainLeftAlightingAt());
     }
 }

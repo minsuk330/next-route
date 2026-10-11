@@ -132,6 +132,21 @@ class SubwayRingAlightingEstimatorTest {
         assertThat(muchLater.at()).as("늦음이 더 커지면 따라간다").isEqualTo(NOW.plusSeconds(90 + 120));
     }
 
+    @Test
+    @DisplayName("하차역에 이미 섰으면 직전 하차 예정을 지킨다 — 하차 뒤 60초마다 값이 바뀌어 push 가 나지 않게(#380)")
+    void frozenAfterAlightingArrival() {
+        SubwayRingState arrived = ring(3, null, null, SubwayRingStage.ARRIVED)
+                .withAnchor(BigDecimal.ONE, NOW.minusSeconds(30));
+        SubwayRingState previous = arrived.withEstimatedAlightingAt(NOW.minusSeconds(40), SubwayRingEtaSource.TYPICAL);
+
+        SubwayRingAlightingEstimator.Estimate later = estimator.estimate(arrived, previous, chain, TRAIN,
+                NOW.plusSeconds(120));
+
+        assertThat(later.at()).isEqualTo(NOW.minusSeconds(40));
+        assertThat(estimator.estimate(arrived, null, chain, TRAIN, NOW).at()).as("직전 값이 없으면 도착 시각")
+                .isEqualTo(NOW.minusSeconds(30));
+    }
+
     private SubwayRingState ring(int next, Instant eta, SubwayRingEtaSource source, SubwayRingStage stage) {
         return new SubwayRingState(1L, 1, 4, 0, next, "S" + next, "역" + next, "하차역", 3 - next + 1,
                 new BigDecimal("0.30"), NOW.minusSeconds(10), new BigDecimal("0.90"), eta, NOW.plusSeconds(120),

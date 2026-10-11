@@ -57,6 +57,14 @@ public class SubwayRingAlightingEstimator {
         if (nextStation == null || alighting == null) {
             return Estimate.NONE;
         }
+        if (nextStation.sequence() == alighting.sequence() && state.arrivedAtNextStation()) {
+            // 하차역에 이미 섰다 — 예정은 끝났다. 직전 값을 지키고, 없으면 도착 시각. "지금" 기준 추정을 계속 돌리면 하차 뒤에도
+            // 60초마다 값이 바뀌어 링 버전·push 가 났다(journey 227, #380).
+            if (previous != null && previous.estimatedAlightingAt() != null) {
+                return new Estimate(previous.estimatedAlightingAt(), previous.alightingEtaSource());
+            }
+            return new Estimate(state.progressBaseAt(), SubwayRingEtaSource.TYPICAL);
+        }
         Instant next = state.estimatedNextStationAt();
         boolean typical = false;
         if (next != null && state.stage() == SubwayRingStage.DWELL
