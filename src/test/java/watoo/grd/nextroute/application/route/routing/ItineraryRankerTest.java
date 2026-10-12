@@ -55,24 +55,32 @@ class ItineraryRankerTest {
     }
 
     @Test
-    @DisplayName("이름이 같아도 노선 id 가 다르면 다른 경로다 — 1호선 일반과 급행")
-    void sameNameDifferentRouteIdIsDistinct() {
+    @DisplayName("노선 id 가 달라도 보이는 이름이 같으면 한 경로다 — 1호선 계통·급행은 응답에서 구별되지 않는다")
+    void sameNameDifferentRouteIdIsOneRoute() {
         RoutingItinerary local = it(53, 5000, transit(RoutingMode.SUBWAY, "1:RR_ACC1_S-1-01-1U", "서울1호선"));
         RoutingItinerary express = it(48, 4800, transit(RoutingMode.SUBWAY, "1:RR_ACC1_S-1-01-4U", "서울1호선"));
 
-        assertThat(ItineraryRanker.rank(List.of(local, express), 1)).containsExactly(express);
-        assertThat(ItineraryRanker.rank(List.of(local, express), 5)).containsExactly(express, local);
+        assertThat(ItineraryRanker.rank(List.of(local, express), 5)).containsExactly(express);
     }
 
     @Test
-    @DisplayName("고유 경로가 상한보다 적으면 남은 출발편으로 엔진 순서대로 채운다")
-    void fillsWithRemainingDeparturesWhenDistinctIsShort() {
-        RoutingItinerary d1 = it(53, 5000, transit(RoutingMode.SUBWAY, "1:L1", "서울1호선"));
-        RoutingItinerary d2 = it(63, 5000, transit(RoutingMode.SUBWAY, "1:L1", "서울1호선"));
-        RoutingItinerary d3 = it(81, 5000, transit(RoutingMode.SUBWAY, "1:L1", "서울1호선"));
+    @DisplayName("고유 경로가 상한보다 적어도 같은 경로의 다음 편으로 채우지 않는다 — 중복으로 보인다")
+    void neverRepeatsSameRoute() {
+        // 2026-10-12 운영: 부평→서울 1호선(같은 route id·같은 역) 14:24/14:36/14:47 이 3번 나왔다.
+        RoutingItinerary d1 = it(53, 4169, transit(RoutingMode.SUBWAY, "1:L1", "서울1호선"));
+        RoutingItinerary d2 = it(65, 4169, transit(RoutingMode.SUBWAY, "1:L1", "서울1호선"));
+        RoutingItinerary d3 = it(76, 4169, transit(RoutingMode.SUBWAY, "1:L1", "서울1호선"));
 
-        assertThat(ItineraryRanker.rank(List.of(d1, d2, d3), 5)).containsExactly(d1, d2, d3);
-        assertThat(ItineraryRanker.rank(List.of(d1, d2, d3), 2)).containsExactly(d1, d2);
+        assertThat(ItineraryRanker.rank(List.of(d1, d2, d3), 5)).containsExactly(d1);
+    }
+
+    @Test
+    @DisplayName("이름을 모르는 구간은 노선 id 로 가른다")
+    void unnamedLegFallsBackToRouteId() {
+        RoutingItinerary a = it(40, 4000, transit(RoutingMode.BUS, "1:A", null));
+        RoutingItinerary b = it(41, 4100, transit(RoutingMode.BUS, "1:B", null));
+
+        assertThat(ItineraryRanker.rank(List.of(a, b), 5)).containsExactly(a, b);
     }
 
     @Test
@@ -118,8 +126,7 @@ class ItineraryRankerTest {
         RoutingItinerary a = it(41, 3444, walk(), transit(RoutingMode.BUS, "1:740", "740"), walk());
         RoutingItinerary b = it(45, 3500, transit(RoutingMode.BUS, "1:740", "740"), walk());
 
-        assertThat(ItineraryRanker.rank(List.of(a, b), 1)).containsExactly(a);
-        assertThat(ItineraryRanker.rank(List.of(a, b), 5)).containsExactly(a, b);
+        assertThat(ItineraryRanker.rank(List.of(a, b), 5)).containsExactly(a);
     }
 
     @Test
