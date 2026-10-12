@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -71,21 +72,25 @@ public class OtpRoutingAdapter implements RoutingPort {
             RoutingMode.RAIL, List.of("RAIL", "FUNICULAR"));
     /** 고정 탐색 창 안에 출발편이 없을 때 OTP 가 주는 routingErrors 코드. */
     private static final String NO_CONNECTION_IN_WINDOW = "NO_TRANSIT_CONNECTION_IN_SEARCH_WINDOW";
+    /** 역 id 로 물었는데 이 실패면 좌표로 다시 묻는다(그 id 를 모르는 그래프 등). */
+    private static final Set<String> STATION_FALLBACK_CODES = Set.of("GRAPHQL_ERROR", "LOCATION_NOT_FOUND");
 
     private final RestClient.Builder restClientBuilder;
     private final ObjectMapper objectMapper;
     private final OtpPlanConnectionMapper mapper;
     private final OtpRoutingProperties properties;
+    private final OtpStationResolver stationResolver;
     private final Clock clock;
     private final String query;
 
     public OtpRoutingAdapter(RestClient.Builder restClientBuilder, ObjectMapper objectMapper,
                              OtpPlanConnectionMapper mapper, OtpRoutingProperties properties,
-                             Clock clock) {
+                             OtpStationResolver stationResolver, Clock clock) {
         this.restClientBuilder = restClientBuilder;
         this.objectMapper = objectMapper;
         this.mapper = mapper;
         this.properties = properties;
+        this.stationResolver = stationResolver;
         this.clock = clock;
         this.query = loadQuery();
     }
@@ -97,8 +102,20 @@ public class OtpRoutingAdapter implements RoutingPort {
 
     @Override
     public RoutingOutcome search(RoutingQuery routingQuery, RoutingDeadline deadline) {
+        Endpoints snapped = endpoints(routingQuery, true);
+        RoutingOutcome outcome = searchWithWindowFallback(routingQuery, deadline, snapped);
+        if (snapped.usesStation() && outcome instanceof RoutingFailure failure
+                && STATION_FALLBACK_CODES.contains(failure.code())) {
+            log.info("[OTP] 역 id 검색 실패({}) → 좌표로 재검색", failure.code());
+            return searchWithWindowFallback(routingQuery, deadline, endpoints(routingQuery, false));
+        }
+        return outcome;
+    }
+
+    private RoutingOutcome searchWithWindowFallback(RoutingQuery routingQuery, RoutingDeadline deadline,
+                                                    Endpoints endpoints) {
         Duration window = properties.getSearchWindow();
-        RoutingOutcome outcome = searchOnce(routingQuery, deadline, window);
+        RoutingOutcome outcome = searchOnce(routingQuery, deadline, window, endpoints);
         // 고정 창 안에 출발편이 없으면 창을 빼고(OTP 자동 창) 한 번 더 묻는다. 배차가 창보다 긴
         // 지방 시외·심야는 고정 창에서 0건이 된다(2026-10-12 홍천→인제 14:00: 30분 창 0건, 자동 창 2건).
         // 같은 예산을 이어 쓴다. 예산이 바닥나면 TIMEOUT(NO_BUDGET) — 창 밖에 경로가 있는지 모르는 채
@@ -106,18 +123,49 @@ public class OtpRoutingAdapter implements RoutingPort {
         if (window != null && outcome instanceof RoutingFailure failure
                 && NO_CONNECTION_IN_WINDOW.equals(failure.code())) {
             log.info("[OTP] 탐색 창 {} 안에 연결 없음 → 자동 창으로 재검색", window);
-            return searchOnce(routingQuery, deadline, null);
+            return searchOnce(routingQuery, deadline, null, endpoints);
         }
         return outcome;
     }
 
-    private RoutingOutcome searchOnce(RoutingQuery routingQuery, RoutingDeadline deadline, Duration window) {
+    /**
+     * 출발·도착을 OTP 위치 입력으로. 장소가 역이면 그 승강장의 가상 역 id({@code stopLocation}) — 승강장과
+     * 모든 출구에서 출발해 가까운 출구에서 걷는다 — 아니면 좌표({@link OtpStationResolver}).
+     */
+    private Endpoints endpoints(RoutingQuery q, boolean snapToStations) {
+        Optional<OtpStationResolver.Snap> origin = snapToStations
+                ? stationResolver.snap(q.originLat(), q.originLon(), q.originName()) : Optional.empty();
+        Optional<OtpStationResolver.Snap> dest = snapToStations
+                ? stationResolver.snap(q.destLat(), q.destLon(), q.destName()) : Optional.empty();
+        // 같은 역 안의 출발·도착(다른 노선 승강장 등)은 좌표로 — 출구가 겹쳐 검색이 뜻을 잃는다.
+        if (origin.isPresent() && dest.isPresent()
+                && origin.get().stationName().equals(dest.get().stationName())) {
+            origin = Optional.empty();
+            dest = Optional.empty();
+        }
+        return new Endpoints(
+                location(origin.map(OtpStationResolver.Snap::stationId), q.originLat(), q.originLon()),
+                location(dest.map(OtpStationResolver.Snap::stationId), q.destLat(), q.destLon()),
+                origin.isPresent() || dest.isPresent());
+    }
+
+    private static Map<String, Object> location(Optional<String> station, double lat, double lon) {
+        return station
+                .<Map<String, Object>>map(id -> Map.of("location", Map.of("stopLocation", Map.of("stopLocationId", id))))
+                .orElseGet(() -> Map.of("location", Map.of("coordinate", Map.of("latitude", lat, "longitude", lon))));
+    }
+
+    private record Endpoints(Map<String, Object> origin, Map<String, Object> destination, boolean usesStation) {
+    }
+
+    private RoutingOutcome searchOnce(RoutingQuery routingQuery, RoutingDeadline deadline, Duration window,
+                                      Endpoints endpoints) {
         long budget = deadline.remainingMillis(clock);
         if (budget <= 0) {
             return RoutingFailure.of(RoutingFailure.Kind.TIMEOUT, "NO_BUDGET",
                     "OTP 호출 전에 시간 예산이 소진됨");
         }
-        String body = requestBody(routingQuery, window);
+        String body = requestBody(routingQuery, window, endpoints);
         String response;
         try {
             response = sendOnce(body, budget);
@@ -147,12 +195,10 @@ public class OtpRoutingAdapter implements RoutingPort {
         return mapper.map(root, routingQuery.departureAt(), versions);
     }
 
-    private String requestBody(RoutingQuery q, Duration window) {
-        Map<String, Object> coordO = Map.of("latitude", q.originLat(), "longitude", q.originLon());
-        Map<String, Object> coordD = Map.of("latitude", q.destLat(), "longitude", q.destLon());
+    private String requestBody(RoutingQuery q, Duration window, Endpoints endpoints) {
         Map<String, Object> vars = new LinkedHashMap<>();
-        vars.put("origin", Map.of("location", Map.of("coordinate", coordO)));
-        vars.put("destination", Map.of("location", Map.of("coordinate", coordD)));
+        vars.put("origin", endpoints.origin());
+        vars.put("destination", endpoints.destination());
         // offset 포함 확정 departureAt 을 feed 시간대로 표현(OTP OffsetDateTime).
         vars.put("when", q.departureAt().atZone(FEED_ZONE).toOffsetDateTime().toString());
         vars.put("first", properties.getFirst());

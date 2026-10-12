@@ -129,6 +129,23 @@ class OtpTransitPatternAdapterTest {
     }
 
     @Test
+    @DisplayName("좌표 주변: 노선이 없는 정류장(역 출구 지점)은 자르기 전에 뺀다 — 가까운 자리를 차지하지 않는다")
+    void stopsNearSkipsStopsWithoutRoutes() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
+                .setBody("{\"data\":{\"stopsByBbox\":["
+                        + "{\"gtfsId\":\"1:VEX_n1_RS_ACC1_S-1-0216\",\"name\":\"잠실역 5번출구\",\"lat\":37.5133,"
+                        + "\"lon\":127.1001,\"vehicleMode\":null,\"routes\":[]},"
+                        + "{\"gtfsId\":\"1:RS_ACC1_S-1-0216\",\"name\":\"잠실(2호선)\",\"lat\":37.5134,"
+                        + "\"lon\":127.1002,\"vehicleMode\":\"SUBWAY\",\"routes\":[{\"shortName\":\"서울2호선\"}]},"
+                        + "{\"gtfsId\":\"1:BS_1\",\"name\":\"잠실역.롯데월드\",\"lat\":37.5140,"
+                        + "\"lon\":127.1010,\"vehicleMode\":\"BUS\",\"routes\":[{\"shortName\":\"360\"}]}]}}"));
+
+        List<TransitPatternPort.NearStop> stops = adapter.stopsNear(37.5133, 127.1001, 300, 2, deadline());
+
+        assertThat(stops).extracting(n -> n.stop().gtfsId()).containsExactly("1:RS_ACC1_S-1-0216", "1:BS_1");
+    }
+
+    @Test
     @DisplayName("id 로 정류장: 없는 id 는 null 원소로 와도 건너뛴다")
     void stopsByIds() throws Exception {
         enqueue("stops-by-ids-sinbundang.json");
