@@ -12,6 +12,7 @@ import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
+import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
 import watoo.grd.nextroute.application.route.routing.RoutingPort;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
@@ -29,6 +30,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * OTP 2.9.0 planConnection 어댑터. 선택된 provider 가 OTP 일 때만 호출된다(selector 는 PR2b).
@@ -59,6 +61,14 @@ public class OtpRoutingAdapter implements RoutingPort {
     private static final List<String> ALL_TRANSIT_MODES = List.of(
             "AIRPLANE", "BUS", "CABLE_CAR", "CARPOOL", "COACH", "FERRY", "FUNICULAR", "GONDOLA",
             "MONORAIL", "RAIL", "SNOW_AND_ICE", "SUBWAY", "TAXI", "TRAM", "TROLLEYBUS");
+    /**
+     * 중립 수단 → OTP 수단. {@link RoutingQuery#modes()} 가 비어 있지 않으면 이것만 탐색한다
+     * (검색이 고유 경로를 채우려고 "지하철만"·"버스만"을 따로 묻는다 — OTP 는 지배당한 대안을 버리기 때문).
+     */
+    private static final Map<RoutingMode, List<String>> OTP_MODES = Map.of(
+            RoutingMode.BUS, List.of("BUS", "COACH", "TROLLEYBUS"),
+            RoutingMode.SUBWAY, List.of("SUBWAY", "MONORAIL", "TRAM"),
+            RoutingMode.RAIL, List.of("RAIL", "FUNICULAR"));
     /** 고정 탐색 창 안에 출발편이 없을 때 OTP 가 주는 routingErrors 코드. */
     private static final String NO_CONNECTION_IN_WINDOW = "NO_TRANSIT_CONNECTION_IN_SEARCH_WINDOW";
 
@@ -149,8 +159,10 @@ public class OtpRoutingAdapter implements RoutingPort {
         if (window != null) {
             vars.put("searchWindow", window.toString());
         }
-        if (properties.getBusReluctance() != 1.0) {
-            vars.put("modes", Map.of("transit", Map.of("transit", transitModes(properties.getBusReluctance()))));
+        // 수단 제한이 있으면 가중치와 무관하게 보낸다. 없으면 가중치가 있을 때만(1.0 이면 옛 요청과 같다).
+        if (!q.modes().isEmpty() || properties.getBusReluctance() != 1.0) {
+            vars.put("modes", Map.of("transit", Map.of("transit",
+                    transitModes(otpModes(q.modes()), properties.getBusReluctance()))));
         }
         try {
             return objectMapper.writeValueAsString(Map.of("query", query, "variables", vars));
@@ -159,9 +171,18 @@ public class OtpRoutingAdapter implements RoutingPort {
         }
     }
 
-    private static List<Map<String, Object>> transitModes(double busReluctance) {
-        List<Map<String, Object>> modes = new ArrayList<>(ALL_TRANSIT_MODES.size());
-        for (String mode : ALL_TRANSIT_MODES) {
+    private static List<String> otpModes(Set<RoutingMode> modes) {
+        if (modes.isEmpty()) {
+            return ALL_TRANSIT_MODES;
+        }
+        return ALL_TRANSIT_MODES.stream()
+                .filter(m -> modes.stream().anyMatch(rm -> OTP_MODES.getOrDefault(rm, List.of()).contains(m)))
+                .toList();
+    }
+
+    private static List<Map<String, Object>> transitModes(List<String> otpModes, double busReluctance) {
+        List<Map<String, Object>> modes = new ArrayList<>(otpModes.size());
+        for (String mode : otpModes) {
             modes.add("BUS".equals(mode)
                     ? Map.of("mode", mode, "cost", Map.of("reluctance", busReluctance))
                     : Map.of("mode", mode));

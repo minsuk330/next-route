@@ -311,7 +311,8 @@ class RouteSearchServiceTest {
         // OTP 경로 예산 = otpMs(기본 8000), ODSAY odsayMs(2000) 재사용 아님.
         long remaining = gateDeadline.getValue().remainingMillis(Clock.systemDefaultZone());
         assertThat(remaining).isGreaterThan(2000L).isLessThanOrEqualTo(8000L);
-        verify(otpPort).search(any(), any());
+        // 본 검색(전 수단)은 1회. 결과가 1개라 수단별 추가 검색이 뒤따르는 건 정상(같은 permit 안).
+        verify(otpPort).search(org.mockito.ArgumentMatchers.argThat(q -> q.modes().isEmpty()), any());
         verify(transferArrivalEnricher).enrich(any(), any(), any());   // 예측을 응답에 싣는다
         verify(otpConcurrencyGate).release(permit);   // finally 반납
         verifyNoInteractions(odSayApiPort);           // provider 안 섞음

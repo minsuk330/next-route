@@ -35,6 +35,13 @@ public class OtpRoutingProperties {
     private double busReluctance = 1.3;
     /** 검색 후보 정렬 킬스위치. false 면 엔진 순서(도착시각) 앞 {@link #displayLimit} 개. */
     private boolean rankingEnabled = true;
+    /**
+     * 검색의 고유 경로가 {@link #displayLimit} 보다 적으면 "지하철만"→"버스만"을 더 묻는다. OTP 는 지배당한 대안을
+     * 탐색 단계에서 버려 부평→서울은 1호선 하나만 남는다(2026-10-12, 수단별로 물으면 12개). false 면 본 검색만.
+     */
+    private boolean supplementaryEnabled = true;
+    /** 추가 검색 1회 예산 상한(ms). 남은 OTP 예산과 작은 쪽. */
+    private long supplementaryBudgetMs = 2000;
     /** 연결 timeout(ms). read timeout 은 호출별 남은 예산으로 결정. */
     private long connectTimeoutMs = 2000;
     private String schemaVersion = "otp-2.10.0-planConnection-v1";
@@ -62,6 +69,10 @@ public class OtpRoutingProperties {
     public void setBusReluctance(double busReluctance) { this.busReluctance = busReluctance; }
     public boolean isRankingEnabled() { return rankingEnabled; }
     public void setRankingEnabled(boolean rankingEnabled) { this.rankingEnabled = rankingEnabled; }
+    public boolean isSupplementaryEnabled() { return supplementaryEnabled; }
+    public void setSupplementaryEnabled(boolean supplementaryEnabled) { this.supplementaryEnabled = supplementaryEnabled; }
+    public long getSupplementaryBudgetMs() { return supplementaryBudgetMs; }
+    public void setSupplementaryBudgetMs(long supplementaryBudgetMs) { this.supplementaryBudgetMs = supplementaryBudgetMs; }
     public long getConnectTimeoutMs() { return connectTimeoutMs; }
     public void setConnectTimeoutMs(long connectTimeoutMs) { this.connectTimeoutMs = connectTimeoutMs; }
     public String getSchemaVersion() { return schemaVersion; }
