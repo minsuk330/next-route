@@ -69,7 +69,7 @@ class RemainingRouteSearchServiceOtpTest {
         return new RemainingRouteSearchService(odsayNeverCalled,
                 new JourneyRerouteMetrics(new SimpleMeterRegistry()),
                 new RoutingProviderSelector(props, List.of(otp)),
-                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)), grantingGate, new watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties(), clock);
+                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)), grantingGate, new watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties(), clock, new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
     }
 
     @Test
@@ -88,6 +88,29 @@ class RemainingRouteSearchServiceOtpTest {
         List<PathResult> paths = service(result).search("1:S1", WP, 2000);
         assertThat(paths).hasSize(1);
         assertThat(paths.get(0).subPaths().get(0).trafficType()).isEqualTo(2); // BUS
+    }
+
+    @Test
+    @DisplayName("후보가 많아도 엔진 순서 앞 5개만 — 재탐색은 자체 ETA 정렬이 있어 비용으로 줄 세우지 않는다")
+    void otpCandidatesCappedInEngineOrder() {
+        List<RoutingItinerary> engine = new java.util.ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            RoutingLeg bus = new RoutingLeg(RoutingMode.BUS, "BUS", "1", "1:A1", "1:R" + i, "B" + i,
+                    "1:T", null, Instant.now(), Instant.now(), 600 + 60 * i,
+                    List.of(new StopOccurrence("1:S1", null, null, 0, 127.0, 37.5, "정류장")),
+                    List.of(), LegGeometry.missing("x"),
+                    Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of());
+            // 뒤로 갈수록 비용이 낮다 — 비용 정렬을 했다면 순서가 뒤집힌다.
+            engine.add(new RoutingItinerary(Instant.now(), 600 + 60 * i, 0, 0, 0, false,
+                    List.of(), Fare.unknown(), List.of(bus), 9000 - i));
+        }
+        RoutingResult result = new RoutingResult(RoutingProvider.OTP, "v", "202503", "g",
+                null, null, Instant.now(), List.of(), engine);
+
+        List<PathResult> paths = service(result).search("1:S1", WP, 2000);
+
+        assertThat(paths).extracting(p -> p.subPaths().get(0).sectionTime())
+                .containsExactly(10, 11, 12, 13, 14);
     }
 
     @Test

@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.otp;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -30,6 +31,7 @@ class OtpRoutingAdapterHttpTest {
 
     private MockWebServer server;
     private OtpRoutingAdapter adapter;
+    private OtpRoutingProperties props;
     private final Instant now = Instant.parse("2026-09-08T00:00:00Z");
     private final Clock clock = Clock.fixed(now, ZoneOffset.UTC);
 
@@ -37,7 +39,7 @@ class OtpRoutingAdapterHttpTest {
     void setUp() throws IOException {
         server = new MockWebServer();
         server.start();
-        OtpRoutingProperties props = new OtpRoutingProperties();
+        props = new OtpRoutingProperties();
         props.setBaseUrl(server.url("/").toString().replaceAll("/$", ""));
         adapter = new OtpRoutingAdapter(RestClient.builder(), new ObjectMapper(),
                 new OtpPlanConnectionMapper(), props, clock);
@@ -61,6 +63,49 @@ class OtpRoutingAdapterHttpTest {
         server.enqueue(new MockResponse().setResponseCode(200)
                 .setHeader("Content-Type", "application/json").setBody(body));
         assertThat(call().success()).isTrue();
+    }
+
+    @Test
+    @DisplayName("요청: 후보 20개·탐색 창 30분·버스 가중치 1.3, 나머지 수단은 전부 그대로 탐색")
+    void requestCarriesCandidatePoolWindowAndBusReluctance() throws Exception {
+        enqueueSuccess();
+
+        call();
+
+        JsonNode sent = new ObjectMapper().readTree(server.takeRequest(1, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(sent.path("query").asText()).contains("generalizedCost", "$searchWindow", "$modes");
+        JsonNode vars = sent.path("variables");
+        assertThat(vars.path("first").asInt()).isEqualTo(20);
+        assertThat(vars.path("searchWindow").asText()).isEqualTo("PT30M");
+        JsonNode modes = vars.path("modes").path("transit").path("transit");
+        // 목록을 주면 그 수단만 탐색한다 → OTP TransitMode 전부를 나열해야 탐색 범위가 그대로다.
+        assertThat(modes).hasSize(15);
+        java.util.Map<String, JsonNode> byMode = new java.util.HashMap<>();
+        modes.forEach(m -> byMode.put(m.path("mode").asText(), m));
+        assertThat(byMode).containsKeys("BUS", "SUBWAY", "RAIL", "TRAM", "MONORAIL", "FERRY", "COACH");
+        assertThat(byMode.get("BUS").path("cost").path("reluctance").asDouble()).isEqualTo(1.3);
+        assertThat(byMode.get("SUBWAY").has("cost")).isFalse();
+    }
+
+    @Test
+    @DisplayName("가중치 1.0·창 미지정이면 그 변수를 보내지 않는다 — OTP 기본 탐색과 같다")
+    void neutralSettingsOmitVariables() throws Exception {
+        props.setBusReluctance(1.0);
+        props.setSearchWindow(null);
+        enqueueSuccess();
+
+        call();
+
+        JsonNode vars = new ObjectMapper().readTree(server.takeRequest(1, TimeUnit.SECONDS).getBody().readUtf8())
+                .path("variables");
+        assertThat(vars.has("modes")).isFalse();
+        assertThat(vars.has("searchWindow")).isFalse();
+    }
+
+    private void enqueueSuccess() throws IOException {
+        String body = new ClassPathResource("otp/planconnection-success.json").getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        server.enqueue(new MockResponse().setResponseCode(200)
+                .setHeader("Content-Type", "application/json").setBody(body));
     }
 
     @Test

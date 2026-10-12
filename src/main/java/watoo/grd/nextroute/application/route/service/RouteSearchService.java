@@ -10,6 +10,7 @@ import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.dto.SearchMeta;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.dto.WalkSegment;
+import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
 import watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties;
 import watoo.grd.nextroute.application.route.exception.OdSayApiException;
 import watoo.grd.nextroute.application.route.exception.TmapApiException;
@@ -21,10 +22,12 @@ import watoo.grd.nextroute.application.route.port.in.SearchRouteUseCase;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort.WalkSearchCommand;
+import watoo.grd.nextroute.application.route.routing.ItineraryRanker;
 import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
 import watoo.grd.nextroute.application.route.routing.OtpPermit;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
+import watoo.grd.nextroute.application.route.routing.RoutingItinerary;
 import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
 import watoo.grd.nextroute.application.route.routing.RoutingProviderSelector;
@@ -61,6 +64,8 @@ public class RouteSearchService implements SearchRouteUseCase {
     // OTP 글로벌 동시성 상한. otp-enabled 전엔 아래 branch 를 안 타므로 dormant.
     private final OtpConcurrencyGate otpConcurrencyGate;
     private final Clock clock;
+    // 후보 수·노출 상한·정렬 킬스위치(ItineraryRanker).
+    private final OtpRoutingProperties otpRoutingProperties;
 
     @Override
     public RouteSearchResult search(RouteSearchRequest request) {
@@ -193,17 +198,31 @@ public class RouteSearchService implements SearchRouteUseCase {
         if (outcome instanceof RoutingFailure failure) {
             return handleOtpFailure(failure, ctx);
         }
-        RouteSearchResult mapped = legacyRouteResponseMapper.toLegacy((RoutingResult) outcome);
+        RouteSearchResult mapped = legacyRouteResponseMapper.toLegacy(selectCandidates((RoutingResult) outcome));
         // 요청이 실시간을 요구하지 않았으면(알림용 STATIC 경로) 보강하지 않는다 — degradation 이 아니다.
         if (!withRealtime) {
             return mapped;
         }
-        // 버스 구간 도착예측. enricher 는 값만 채운다 — 엔진이 준 순서(가장 빠른 것 먼저)를 그대로 두고
-        // 재정렬·강등·MISSED 숨김은 하지 않는다(그 판단은 사용자 몫). 보강이 예산에 잘리면
+        // 버스 구간 도착예측. enricher 는 값만 채운다 — 위에서 정한 정적 순서를 그대로 두고
+        // 실시간 기반 재정렬·강등·MISSED 숨김은 하지 않는다(그 판단은 사용자 몫). 보강이 예산에 잘리면
         // transferArrivals 가 비고 meta.degraded 에 bus_realtime 이 남는다 — 검색 자체는 200 이다.
         RouteSearchResult afterBus = mapped;
         return stage(ctx, SearchComponent.BUS_REALTIME,
                 () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx));
+    }
+
+    /**
+     * OTP 후보 중 응답에 낼 경로를 고른다. OTP 기본 순서는 탐색 창 안 출발편의 도착시각 타임라인이라
+     * 배차 잦은 버스가 상위를 채우고 같은 노선이 반복된다(2026-10-12 실측: 강남→홍대 상위 5개에 지하철 0개).
+     * 정적 일반화비용으로만 줄 세운다 — 실시간 판단은 여기서 하지 않는다. 킬스위치가 꺼지면 엔진 순서 앞에서 자른다.
+     */
+    private RoutingResult selectCandidates(RoutingResult result) {
+        int limit = otpRoutingProperties.getDisplayLimit();
+        List<RoutingItinerary> its = result.itineraries();
+        List<RoutingItinerary> chosen = otpRoutingProperties.isRankingEnabled()
+                ? ItineraryRanker.rank(its, limit)
+                : its.subList(0, Math.min(Math.max(limit, 0), its.size()));
+        return result.withItineraries(chosen);
     }
 
     /**

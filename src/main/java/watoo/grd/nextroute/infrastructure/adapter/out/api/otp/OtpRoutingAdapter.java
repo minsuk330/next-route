@@ -25,7 +25,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -50,6 +52,13 @@ public class OtpRoutingAdapter implements RoutingPort {
 
     private static final String GRAPHQL_PATH = "/otp/routers/default/index/graphql";
     private static final ZoneId FEED_ZONE = ZoneId.of("Asia/Seoul");
+    /**
+     * OTP GTFS GraphQL {@code TransitMode} 전 값. {@code modes.transit.transit} 에 목록을 주면 <b>그 수단만</b>
+     * 탐색한다(목록이 없을 때만 전 수단) — 버스 가중치 하나를 주려 해도 나머지를 전부 나열해야 탐색 범위가 그대로다.
+     */
+    private static final List<String> ALL_TRANSIT_MODES = List.of(
+            "AIRPLANE", "BUS", "CABLE_CAR", "CARPOOL", "COACH", "FERRY", "FUNICULAR", "GONDOLA",
+            "MONORAIL", "RAIL", "SNOW_AND_ICE", "SUBWAY", "TAXI", "TRAM", "TROLLEYBUS");
 
     private final RestClient.Builder restClientBuilder;
     private final ObjectMapper objectMapper;
@@ -120,11 +129,27 @@ public class OtpRoutingAdapter implements RoutingPort {
         // offset 포함 확정 departureAt 을 feed 시간대로 표현(OTP OffsetDateTime).
         vars.put("when", q.departureAt().atZone(FEED_ZONE).toOffsetDateTime().toString());
         vars.put("first", properties.getFirst());
+        if (properties.getSearchWindow() != null) {
+            vars.put("searchWindow", properties.getSearchWindow().toString());
+        }
+        if (properties.getBusReluctance() != 1.0) {
+            vars.put("modes", Map.of("transit", Map.of("transit", transitModes(properties.getBusReluctance()))));
+        }
         try {
             return objectMapper.writeValueAsString(Map.of("query", query, "variables", vars));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    private static List<Map<String, Object>> transitModes(double busReluctance) {
+        List<Map<String, Object>> modes = new ArrayList<>(ALL_TRANSIT_MODES.size());
+        for (String mode : ALL_TRANSIT_MODES) {
+            modes.add("BUS".equals(mode)
+                    ? Map.of("mode", mode, "cost", Map.of("reluctance", busReluctance))
+                    : Map.of("mode", mode));
+        }
+        return modes;
     }
 
     private String sendOnce(String body, long budgetMs) {

@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
 import watoo.grd.nextroute.application.journey.service.JourneyWaypointResolver.Waypoints;
+import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
@@ -12,6 +13,7 @@ import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
 import watoo.grd.nextroute.application.route.routing.OtpPermit;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
+import watoo.grd.nextroute.application.route.routing.RoutingItinerary;
 import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
 import watoo.grd.nextroute.application.route.routing.RoutingProviderSelector;
@@ -56,6 +58,8 @@ public class RemainingRouteSearchService {
     // OTP 호출 예산 단일소스(api 검색과 공유). ODSAY 재탐색은 계속 budgetMs 사용.
     private final watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties routeSearchDeadlineProperties;
     private final Clock clock;
+    // 노출 상한(displayLimit). 재탐색은 엔진 순서 앞에서 자르기만 한다.
+    private final OtpRoutingProperties otpRoutingProperties;
 
     /**
      * @param stopId    곧 내릴 정류장(로그·telemetry 용). <b>미해석(null)이면 부르면 안 된다</b>
@@ -149,6 +153,13 @@ public class RemainingRouteSearchService {
             metrics.recordRemainingSearch("otp-failed-" + failure.kind());
             return List.of();
         }
-        return legacyRouteResponseMapper.toLegacy((RoutingResult) outcome).paths();
+        // 후보 풀(first)이 노출 상한보다 크다 — 재탐색은 엔진 순서(도착 빠른 순) 앞에서 자르기만 한다.
+        // 비용 정렬은 하지 않는다: 재탐색은 목적지 ETA 로 다시 줄 세우고(RerouteRanking), 후보 수가
+        // 곧 실시간 평가 횟수라 상한을 지켜야 한다.
+        RoutingResult result = (RoutingResult) outcome;
+        int limit = Math.max(otpRoutingProperties.getDisplayLimit(), 0);
+        List<RoutingItinerary> its = result.itineraries();
+        return legacyRouteResponseMapper.toLegacy(
+                result.withItineraries(its.subList(0, Math.min(limit, its.size())))).paths();
     }
 }

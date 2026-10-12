@@ -69,6 +69,11 @@ class RouteSearchServiceOtpWiringTest {
     }
 
     private RouteSearchService service(RoutingPort otpPort, TransferArrivalEnricher enricher) {
+        return service(otpPort, enricher, new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
+    }
+
+    private RouteSearchService service(RoutingPort otpPort, TransferArrivalEnricher enricher,
+                                       watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps) {
         RoutingProviderProperties props = new RoutingProviderProperties();
         props.setDefaultProvider(RoutingProvider.OTP);
         props.setOtpEnabled(true);
@@ -81,7 +86,7 @@ class RouteSearchServiceOtpWiringTest {
                 new RouteSearchDeadlineProperties(),
                 selector,
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
-                new DepartureTimeResolver(Clock.systemDefaultZone()), grantingGate, Clock.systemDefaultZone());
+                new DepartureTimeResolver(Clock.systemDefaultZone()), grantingGate, Clock.systemDefaultZone(), otpProps);
     }
 
     private RoutingPort otpReturning(RoutingOutcome outcome) {
@@ -113,6 +118,52 @@ class RouteSearchServiceOtpWiringTest {
         assertThat(legacy.paths()).hasSize(1);
         assertThat(legacy.paths().get(0).subPaths().get(0).trafficType()).isEqualTo(2); // BUS
         assertThat(legacy.paths().get(0).info().payment()).isEqualTo(-1);              // UNKNOWN→-1
+    }
+
+    @Test
+    @DisplayName("OTP 후보는 비용 순으로 줄 세워 5개만 — 뒤쪽 저비용 지하철이 1위로 올라온다")
+    void otpCandidatesRankedByCostAndCapped() {
+        RouteSearchResult legacy = service(otpReturning(busesThenCheapSubway()))
+                .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(legacy.paths()).hasSize(5);
+        assertThat(legacy.paths().get(0).subPaths().get(0).trafficType()).isEqualTo(1); // SUBWAY
+    }
+
+    @Test
+    @DisplayName("정렬 킬스위치를 끄면 엔진 순서 앞 5개 — 옛 동작")
+    void rankingDisabledKeepsEngineOrder() {
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
+        watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps = new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
+        otpProps.setRankingEnabled(false);
+
+        RouteSearchResult legacy = service(otpReturning(busesThenCheapSubway()), enricher, otpProps)
+                .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(legacy.paths()).hasSize(5);
+        assertThat(legacy.paths()).allSatisfy(p -> assertThat(p.subPaths().get(0).trafficType()).isEqualTo(2));
+    }
+
+    /** OTP 기본 순서 재현: 서로 다른 버스 6개가 앞, 비용이 가장 낮은 지하철이 7번째. */
+    private RoutingResult busesThenCheapSubway() {
+        java.util.List<RoutingItinerary> engine = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            engine.add(singleLeg(RoutingMode.BUS, "1:R" + i, "B" + i, 5000 + i));
+        }
+        engine.add(singleLeg(RoutingMode.SUBWAY, "1:S2", "서울2호선", 3557));
+        return new RoutingResult(RoutingProvider.OTP, "v", "202503", "g1",
+                null, null, Instant.now(), List.of(), engine);
+    }
+
+    private RoutingItinerary singleLeg(RoutingMode mode, String routeId, String routeName, int cost) {
+        RoutingLeg leg = new RoutingLeg(mode, mode.name(), "1", "1:A1", routeId, routeName,
+                "1:T", null, Instant.now(), Instant.now(), 600,
+                List.of(new StopOccurrence("1:S1", null, null, 0, 126.98, 37.55, "정류장1")),
+                List.of(), LegGeometry.missing("x"),
+                Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of());
+        return new RoutingItinerary(Instant.now(), 600, 0, 0, 0, false,
+                List.of(), Fare.unknown(), List.of(leg), cost);
     }
 
     @Test
