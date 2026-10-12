@@ -68,11 +68,11 @@
       public static List<RoutingItinerary> rank(List<RoutingItinerary> engineOrder, int limit)
   }
   ```
-  1. 지문 = 대중교통 leg(도보 제외) 순서대로 `mode + "|" + feedId + "|" + (sourceRouteId != null ? sourceRouteId : sourceRouteName)` 의 리스트. 도보만 = 빈 리스트(한 그룹)
-     - route id 기준: 1호선 일반(`RR_ACC1_S-1-01-1`)·급행(`01-4`)은 이름이 같지만 별개
+  1. 지문 = 대중교통 leg(도보 제외) 순서대로 `mode + "|" + (sourceRouteName != null ? sourceRouteName : sourceRouteId)` 의 리스트. 도보만 = 빈 리스트(한 그룹)
+     - ~~route id 기준~~ **이름 기준으로 변경(2026-10-12 배포 후, 사용자 중복 보고)**: 응답엔 이름만 나가서 1호선 계통·급행처럼 id 만 다른 것도 사용자에겐 같은 경로
   2. 그룹 대표 = `staticArrivalAt` 이른 것(null 뒤) → gc 낮은 것(null 뒤) → 엔진 인덱스
   3. 대표 정렬 = gc 오름차순(null 뒤) → 엔진 인덱스
-  4. 대표 수 < limit 이면 대표가 아닌 나머지를 엔진 순서로 채움(부평→서울: 고유 1개)
+  4. ~~대표 수 < limit 이면 엔진 순서로 채움~~ **폐기(2026-10-12)**: 운영에서 부평→서울 1호선이 출발시각만 달리 3번, 노원→강남 146 이 4번 나와 사용자가 중복으로 보고. 대표만 내보냄(고유 1개면 1개)
   5. limit ≤ 0 이면 빈 리스트, 입력 비면 빈 리스트
   - 도보 모드 판별은 `RoutingMode` enum 의 도보 값 사용(구현 시 확인)
   - 재사용 불가 확인: `B/application/journey/service/RerouteRouteFingerprint.java:24`(legacy `PathResult` 입력), `RerouteRanking.java:32`(cost 미사용)

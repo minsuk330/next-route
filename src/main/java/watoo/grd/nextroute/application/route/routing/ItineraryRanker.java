@@ -3,14 +3,12 @@ package watoo.grd.nextroute.application.route.routing;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
- * 엔진이 준 후보를 정적 일반화비용 순으로 줄 세우고, 같은 대중교통 흐름은 하나만 남긴다. 순수 계산.
+ * 엔진이 준 후보를 정적 일반화비용 순으로 줄 세우고, 같은 경로는 하나만 남긴다. 순수 계산.
  *
  * <p><b>왜 엔진 순서를 그대로 쓰지 않나</b>(2026-10-12 실측): OTP depart-after 기본 정렬은 도착시각이 먼저다.
  * 탐색 창 안의 출발편이 도착 순으로 늘어서므로, 배차가 잦고 노선이 많은 버스가 상위를 채우고
@@ -19,11 +17,12 @@ import java.util.Set;
  *
  * <p>규칙
  * <ol>
- *   <li>지문 = 도보가 아닌 구간을 순서대로 (수단, feed, 노선 id). 노선 id 가 없으면 노선 이름.
- *       이름이 같아도 id 가 다르면 다른 경로다(1호선 일반·급행). 도보 구간 차이는 지문에 넣지 않는다.</li>
+ *   <li>지문 = 도보가 아닌 구간을 순서대로 (수단, 노선 이름). 이름이 없으면 노선 id.
+ *       응답에는 노선 이름만 나가므로 이름이 같으면 사용자에겐 같은 경로다 — 1호선 계통(연천-인천·광운대-신창)
+ *       이나 급행처럼 id 만 다른 것도 하나로 본다. 도보 구간 차이는 지문에 넣지 않는다.</li>
  *   <li>지문마다 대표 하나 = 가장 이른 도착 → 낮은 비용 → 엔진 순서. 다음 출발편은 대표가 될 수 없다.</li>
- *   <li>대표를 비용 오름차순(모르면 뒤) → 엔진 순서로 줄 세운다.</li>
- *   <li>대표가 상한보다 적으면 남은 후보를 엔진 순서로 채운다(노선이 하나뿐인 구간).</li>
+ *   <li>대표를 비용 오름차순(모르면 뒤) → 엔진 순서로 줄 세운다. 대표만 내보낸다 — 고유 경로가 상한보다
+ *       적어도 같은 경로의 다음 편으로 채우지 않는다(2026-10-12 운영: 부평→서울 1호선이 출발시각만 달리 3번).</li>
  * </ol>
  *
  * <p>실시간 판단(놓침·지연)은 여기서 하지 않는다 — 정적 값만 본다.
@@ -51,24 +50,10 @@ public final class ItineraryRanker {
         List<Candidate> ranked = new ArrayList<>(representatives.values());
         ranked.sort(RANK_ORDER);
 
-        List<RoutingItinerary> out = new ArrayList<>(Math.min(limit, candidates.size()));
-        Set<Integer> chosen = new HashSet<>();
-        for (Candidate c : ranked) {
-            if (out.size() == limit) {
-                return List.copyOf(out);
-            }
-            out.add(c.itinerary());
-            chosen.add(c.engineIndex());
-        }
-        for (Candidate c : candidates) {
-            if (out.size() == limit) {
-                break;
-            }
-            if (!chosen.contains(c.engineIndex())) {
-                out.add(c.itinerary());
-            }
-        }
-        return List.copyOf(out);
+        return ranked.stream()
+                .limit(limit)
+                .map(Candidate::itinerary)
+                .toList();
     }
 
     private static List<String> fingerprint(RoutingItinerary itinerary) {
@@ -77,8 +62,8 @@ public final class ItineraryRanker {
             if (leg.mode() == RoutingMode.WALK) {
                 continue;
             }
-            String route = leg.sourceRouteId() != null ? leg.sourceRouteId() : leg.sourceRouteName();
-            key.add(leg.mode() + "|" + leg.feedId() + "|" + route);
+            String route = leg.sourceRouteName() != null ? leg.sourceRouteName() : leg.sourceRouteId();
+            key.add(leg.mode() + "|" + route);
         }
         return key;
     }
