@@ -162,6 +162,13 @@
     "graphVersionHash": "sha256(pfaedle zip sha + apply_gbis_routes.py sha + GBIS 캐시 sha + add_station_entrances.py sha + entrances.csv sha) 앞 12자"
   },
   "deploy": {
-    "status": "배포 전 — 배포 후 implementation_note 에 기록"
+    "at": "2026-10-12T17:00:05+09:00",
+    "vpsDir": "/srv/nextroute/otp/national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-entrances-gec71dd622424/",
+    "command": "docker compose -f compose.yaml -f /root/apps/observability/otp/compose.otp-national.yaml up -d --force-recreate --no-deps otp (compose.yaml 단독은 OTP_IMAGE=nextroute-otp:h-only-20260917 pull 실패)",
+    "otpHealthyAfterSec": 50,
+    "otpHeap": "-Xmx3500m, mem_limit 4500m (변경 없음). 기동 직후 3.74GiB, 검증 후 3.77GiB",
+    "app": "api·worker nextroute:20261012-170035-4d1b63bc (#393), 백업 app.jar.bak-20261012-pre-station-entrances",
+    "rollbackBackups": "compose.yaml / compose.otp-national.yaml .bak-20261012-165859-pre-entrances. 옛 그래프 디렉터리 ...-shaped-gbis-g71dca926c27c 유지",
+    "verified": "운영 /api/route/search: 잠실역 8호선→강남역 신분당선 2호선 20분·1700·360·7007·1100 직통, 이름 없는 같은 좌표는 이전 방식, \"강남역 스타벅스\" 는 좌표. api 로그 \"[OTP] 역 승강장 1071개 적재\", ERROR 0"
   }
 }
