@@ -13,6 +13,7 @@ import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
+import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
 import watoo.grd.nextroute.application.route.routing.RoutingQuery;
@@ -51,8 +52,12 @@ class OtpRoutingAdapterHttpTest {
     }
 
     private RoutingOutcome call() {
+        return call(Set.of());
+    }
+
+    private RoutingOutcome call(Set<RoutingMode> modes) {
         RoutingQuery q = new RoutingQuery(126.97, 37.56, "o", 127.02, 37.49, "d",
-                now, Set.of(), null, false, "v", RoutingProvider.OTP, null);
+                now, modes, null, false, "v", RoutingProvider.OTP, null);
         return adapter.search(q, RoutingDeadline.of(clock, 3000));
     }
 
@@ -141,6 +146,48 @@ class OtpRoutingAdapterHttpTest {
 
         assertThat(((RoutingFailure) outcome).kind()).isEqualTo(RoutingFailure.Kind.NO_ROUTE);
         assertThat(server.getRequestCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("지하철·철도만 물으면 버스 계열은 빼고 레일 계열만 보낸다")
+    void railOnlyModes() throws Exception {
+        enqueueSuccess();
+
+        call(Set.of(RoutingMode.SUBWAY, RoutingMode.RAIL));
+
+        assertThat(sentModeNames()).containsExactlyInAnyOrder("SUBWAY", "MONORAIL", "TRAM", "RAIL", "FUNICULAR");
+    }
+
+    @Test
+    @DisplayName("버스만 물으면 버스 계열만, 버스 가중치는 그대로")
+    void busOnlyModesKeepReluctance() throws Exception {
+        enqueueSuccess();
+
+        call(Set.of(RoutingMode.BUS));
+
+        JsonNode modes = sentVariables().path("modes").path("transit").path("transit");
+        java.util.Map<String, JsonNode> byMode = new java.util.HashMap<>();
+        modes.forEach(m -> byMode.put(m.path("mode").asText(), m));
+        assertThat(byMode).containsOnlyKeys("BUS", "COACH", "TROLLEYBUS");
+        assertThat(byMode.get("BUS").path("cost").path("reluctance").asDouble()).isEqualTo(1.3);
+    }
+
+    @Test
+    @DisplayName("가중치 1.0 이어도 수단 제한은 보낸다 — 제한이 목적이다")
+    void restrictionSentEvenWithoutReluctance() throws Exception {
+        props.setBusReluctance(1.0);
+        enqueueSuccess();
+
+        call(Set.of(RoutingMode.SUBWAY));
+
+        assertThat(sentModeNames()).containsExactlyInAnyOrder("SUBWAY", "MONORAIL", "TRAM");
+    }
+
+    private java.util.List<String> sentModeNames() throws Exception {
+        java.util.List<String> names = new java.util.ArrayList<>();
+        sentVariables().path("modes").path("transit").path("transit")
+                .forEach(m -> names.add(m.path("mode").asText()));
+        return names;
     }
 
     private void enqueueNoConnection(String code) {

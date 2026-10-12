@@ -52,12 +52,17 @@ class RemainingRouteSearchServiceOtpTest {
         }
     };
 
+    private int otpCalls;
+
     private RemainingRouteSearchService service(RoutingOutcome otpOutcome) {
         RoutingProviderProperties props = new RoutingProviderProperties();
         props.setDefaultProvider(RoutingProvider.OTP);
         props.setOtpEnabled(true);
         RoutingPort otp = new RoutingPort() {
-            @Override public RoutingOutcome search(RoutingQuery q, RoutingDeadline d) { return otpOutcome; }
+            @Override public RoutingOutcome search(RoutingQuery q, RoutingDeadline d) {
+                otpCalls++;
+                return otpOutcome;
+            }
             @Override public RoutingProvider provider() { return RoutingProvider.OTP; }
         };
         OtpConcurrencyGate grantingGate = new OtpConcurrencyGate() {
@@ -88,6 +93,8 @@ class RemainingRouteSearchServiceOtpTest {
         List<PathResult> paths = service(result).search("1:S1", WP, 2000);
         assertThat(paths).hasSize(1);
         assertThat(paths.get(0).subPaths().get(0).trafficType()).isEqualTo(2); // BUS
+        // 경로가 1개뿐이어도 재탐색은 수단별 추가 검색을 하지 않는다(후보 수 = 실시간 평가 횟수).
+        assertThat(otpCalls).isEqualTo(1);
     }
 
     @Test

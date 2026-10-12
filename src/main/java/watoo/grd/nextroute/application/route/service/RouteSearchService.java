@@ -28,6 +28,7 @@ import watoo.grd.nextroute.application.route.routing.OtpPermit;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
 import watoo.grd.nextroute.application.route.routing.RoutingItinerary;
+import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
 import watoo.grd.nextroute.application.route.routing.RoutingProviderSelector;
@@ -36,8 +37,10 @@ import watoo.grd.nextroute.application.route.routing.RoutingResult;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -190,6 +193,9 @@ public class RouteSearchService implements SearchRouteUseCase {
         RoutingOutcome outcome;
         try {
             outcome = providerSelector.portFor(RoutingProvider.OTP).search(query, deadline);
+            if (outcome instanceof RoutingResult first) {
+                outcome = supplementIfShort(first, query, deadline);
+            }
         } finally {
             metrics.recordStage(SearchComponent.ODSAY, ctx.isDegraded(SearchComponent.ODSAY),
                     System.nanoTime() - start);
@@ -209,6 +215,52 @@ public class RouteSearchService implements SearchRouteUseCase {
         RouteSearchResult afterBus = mapped;
         return stage(ctx, SearchComponent.BUS_REALTIME,
                 () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx));
+    }
+
+    /** 고유 경로가 모자랄 때 차례로 더 묻는 수단 제한. 지하철만이 싸서(0.05~0.6s) 먼저, 버스만은 0.4~1.3s. */
+    private static final List<Set<RoutingMode>> SUPPLEMENTARY_MODES = List.of(
+            Set.of(RoutingMode.SUBWAY, RoutingMode.RAIL), Set.of(RoutingMode.BUS));
+
+    /**
+     * 본 검색의 고유 경로가 노출 상한보다 적으면 수단을 제한해 더 묻고 후보를 이어 붙인다. OTP 는 지배당한 대안
+     * (더 늦게 도착·환승 많음·비용 높음)을 탐색 단계에서 버려 부평→서울은 1호선 하나만 남는다 — 수단별로 물으면
+     * 버스 대안이 살아난다(2026-10-12 실측 12개). 같은 permit 안에서 순차로 묻고, 한 번에 쓸 예산은 상한을 둔다.
+     * 추가 검색 실패는 무시한다(본 결과만으로도 응답은 성립한다).
+     */
+    private RoutingResult supplementIfShort(RoutingResult result, RoutingQuery query, RoutingDeadline deadline) {
+        int limit = otpRoutingProperties.getDisplayLimit();
+        if (!otpRoutingProperties.isRankingEnabled() || !otpRoutingProperties.isSupplementaryEnabled()) {
+            return result;
+        }
+        List<RoutingItinerary> merged = new ArrayList<>(result.itineraries());
+        int distinct = ItineraryRanker.rank(merged, limit).size();
+        for (Set<RoutingMode> modes : SUPPLEMENTARY_MODES) {
+            if (distinct >= limit) {
+                break;
+            }
+            long remaining = deadline.remainingMillis(clock);
+            if (remaining <= deadlineProperties.getMinRemainingForOptionalMs()) {
+                break;
+            }
+            RoutingDeadline budget = RoutingDeadline.of(clock,
+                    Math.min(remaining, otpRoutingProperties.getSupplementaryBudgetMs()));
+            RoutingOutcome extra;
+            try {
+                extra = providerSelector.portFor(RoutingProvider.OTP).search(query.withModes(modes), budget);
+            } catch (RuntimeException e) {
+                log.warn("[OTP] 추가 검색 {} 실패: {}", modes, e.toString());
+                continue;
+            }
+            int before = distinct;
+            if (extra instanceof RoutingResult more) {
+                merged.addAll(more.itineraries());
+                distinct = ItineraryRanker.rank(merged, limit).size();
+            }
+            log.info("[OTP] 고유 경로 {} < {} → 추가 검색 {}: {}, 합친 고유 {}", before, limit, modes,
+                    extra instanceof RoutingResult more ? "후보 " + more.itineraries().size()
+                            : ((RoutingFailure) extra).code(), distinct);
+        }
+        return result.withItineraries(merged);
     }
 
     /**
