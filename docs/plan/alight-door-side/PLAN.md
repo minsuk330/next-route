@@ -33,7 +33,7 @@
 
 ## 2. 작업 순서
 
-- [ ] **S1 데이터 도구 + CSV**
+- [x] **S1 데이터 도구 + CSV**
   - 신규 `tools/subway-platform-type/fetch_platform_type.py` (stdlib 만. xlsx 는 `zipfile` + `xml.etree` 로 읽는다 — openpyxl 추가 안 함)
     - 사용: `KRIC_SERVICE_KEY=... python3 -I tools/subway-platform-type/fetch_platform_type.py <역코드.xlsx> > src/main/resources/subway/platform-type.csv`
     - 또는 `--responses <dump.json>` 으로 이미 받은 응답에서 재생성(키 없이). `--dump <path>` 로 응답 저장.
@@ -45,7 +45,7 @@
   - 신규 `src/main/resources/subway/platform-type.csv` (스크래치 `kric-dl/stplf.json` 덤프로 생성)
   - 검증: CSV 행 수·노선별 ISLAND/SIDE 개수 출력, fixture 696역 매칭 수가 실측(§0)과 같은지.
 
-- [ ] **S2 `SubwayDoorSideIndex`** — 신규 `src/main/java/watoo/grd/nextroute/application/subway/service/SubwayDoorSideIndex.java`
+- [x] **S2 `SubwayDoorSideIndex`** — 신규 `src/main/java/watoo/grd/nextroute/application/subway/service/SubwayDoorSideIndex.java`
   - `SubwayFastAlightIndex`(같은 패키지) 형식 그대로: `@Component`, 클래스패스 CSV 지연 적재(`volatile` + `synchronized`), 적재 실패 시 경고 로그 + 빈 목록, `static of(List<Row>)` 팩토리.
   ```java
   public enum Side { LEFT, RIGHT }
@@ -70,7 +70,7 @@
     **정확히 1개**이고 type 이 ISLAND/SIDE 일 때만 값. `ISLAND` + 우측 = LEFT, `SIDE` + 우측 = RIGHT, 좌측통행이면 뒤집는다.
   - 검증: `./gradlew compileJava`
 
-- [ ] **S3 노선 끝 역 판정** — 신규 `src/main/java/watoo/grd/nextroute/application/subway/service/SubwayLineEnds.java`
+- [x] **S3 노선 끝 역 판정** — 신규 `src/main/java/watoo/grd/nextroute/application/subway/service/SubwayLineEnds.java`
   ```java
   @Component @RequiredArgsConstructor
   public class SubwayLineEnds {
@@ -87,7 +87,7 @@
   - 이유: 종착역은 도착 선로가 번갈아 바뀌어 같은 승강장이라도 문 방향이 뒤집힌다.
   - `DirectedRailPattern`/`RailPattern.Stop` 의 이름 접근자는 구현 시 확인.
 
-- [ ] **S4 도메인·마이그레이션**
+- [x] **S4 도메인·마이그레이션**
   - `src/main/java/watoo/grd/nextroute/domain/journey/entity/JourneyLegGuidance.java`: 7번째 값 `String alightDoorSide`.
     - 기존 6인자 생성자를 보조 생성자로 유지(alightDoorSide=null) — 호출부·테스트 변경 최소.
     - `EMPTY`·`withStopNos`·`withExits`·`withDirectionName` 은 값 유지, `withAlightDoorSide(String)` 추가.
@@ -99,9 +99,10 @@
     -- #335 지하철 내리는 문 방향(LEFT/RIGHT). 여정을 만들 때 한 번 채운다. null = 모름 → 앱이 줄을 숨긴다.
     ALTER TABLE journey_leg ADD COLUMN alight_door_side varchar(8);
     ```
+  - IT 13개(`grep -rln V63__journey_leg_guidance_info src/test`)의 `@Sql` 마이그레이션 목록에 V65 추가 — IT 는 Flyway 가 아니라 파일 나열로 스키마를 만든다.
   - 검증: `./gradlew compileJava`
 
-- [ ] **S5 채우기·내보내기**
+- [x] **S5 채우기·내보내기**
   - `src/main/java/watoo/grd/nextroute/application/journey/service/JourneyGuidanceInfoEnricher.java`
     - 생성자 의존성 추가: `SubwayDoorSideIndex doorSideIndex`, `SubwayLineEnds lineEnds`.
     - `enrich`(44-46) 끝에 `withDoorSide(...)`. 구조는 `withFastAlight`(52-94)와 같다: RIDE_SUBWAY 마다 짝 대기 단계(`pairedLegIndex`)의 routeOptions `routeId` 중 **하나로 정해지는** 내부 line_id
@@ -112,7 +113,7 @@
   - 생성자 직접 부르는 테스트 갱신: `JourneyStartServiceTest:70`, `TrackJourneyStartServiceTest:92`, `JourneyRevisionComposerTest:46`, `JourneyGuidanceInfoEnricherTest:23-42`. JourneyLegView 전체 인자 생성자 쓰는 테스트(`JourneyControllerTest:109`, `JourneySnapshotEtaComposerTest`, `JourneyStateMachineTest`) 컴파일 맞춤.
   - 검증: `./gradlew compileJava compileTestJava`
 
-- [ ] **S6 테스트** (계약당 1개+)
+- [x] **S6 테스트** (계약당 1개+)
   - 신규 `SubwayDoorSideIndexTest`: 섬식×우측=LEFT, 상대식×우측=RIGHT, 섬식×좌측=RIGHT, 상대식×좌측=LEFT, OTHER→empty, 표 밖 노선(1065)→empty, 괄호 이름(`양재(서초구청)`) 정규화,
     4호선 운영기관 경계(번들 CSV: S1 남태령 = 우측 기준, KR 선바위 = 좌측 기준), 같은 이름 2건 → empty, 번들 CSV 적재 + 노선별 하한(예: 1002 ≥ 45, 1001 ≥ 80 판정 가능 역 — 재생성 회귀 방지).
   - 신규 `SubwayLineEndsTest`: 순수 함수로 — 끝 역 true, 중간 회차역(다른 패턴의 중간) false, 패턴 없음 empty. 가능하면 `routes-with-patterns.json` fixture 에서 4호선 패턴을 읽어 실데이터 확인.
@@ -121,7 +122,7 @@
   - `JourneyControllerTest`: `$.legs[0].alightDoorSide` jsonPath.
   - 검증: `./gradlew test --tests '*SubwayDoorSideIndex*' --tests '*SubwayLineEnds*' --tests '*JourneyGuidanceInfoEnricher*' --tests '*JourneyLegGuidance*' --tests '*JourneyController*'` → 이후 `--tests '*Journey*' --tests '*Subway*'` 묶음. 기존부터 깨진 실패는 "기존 무관" 라벨.
 
-- [ ] **S7 문서·기록**
+- [x] **S7 문서·기록**
   - `docs/plan/guidance-stop-info/HANDOFF.md`: 3줄의 "내리는 문 방향은 #335(데이터 대기)" 를 지우고 표에 `alightDoorSide | RIDE_SUBWAY | 내리는 문 LEFT/RIGHT — #335 | 내리실 문: 왼쪽` 행 + 범위·null 조건 bullet.
   - 루트 `implementation_note.md`(공유 작업트리 쪽이 정본, append-only): `### 검증`(명령·결과·커버리지 수치), `### 배포`(**V65 VPS 수동배치 필요**, api·worker 같은 jar).
   - 이슈 #335 코멘트: 할 일 1·2·4 결과, 3(실탑승 역 10곳 대조)은 배포 후 사용자 체크리스트.
