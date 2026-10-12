@@ -79,7 +79,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V57__reroute_board.sql",
         "classpath:db/migration/V58__reroute_refresh_claim.sql",
         "classpath:db/migration/V59__journey_session_kind.sql",
-        "classpath:db/migration/V63__journey_leg_guidance_info.sql"
+        "classpath:db/migration/V63__journey_leg_guidance_info.sql",
+        "classpath:db/migration/V65__journey_leg_alight_door_side.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DisplayName("재탐색 제안 저장")

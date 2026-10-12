@@ -161,6 +161,10 @@ public class JourneyLeg extends BaseEntity {
     @ColumnTransformer(write = "?::jsonb")
     private String fastAlight;
 
+    /** 지하철 내리는 문 방향 LEFT·RIGHT(#335, V65). */
+    @Column(length = 8)
+    private String alightDoorSide;
+
     @Builder
     public JourneyLeg(Long journeyId, int routeRevision, int legIndex,
                       JourneyLegType type, JourneyLegState state,
@@ -188,7 +192,8 @@ public class JourneyLeg extends BaseEntity {
 
     /** 안내 시트 지점 줄 값 묶음(#266). 비어 있으면 {@link JourneyLegGuidance#EMPTY}. */
     public JourneyLegGuidance getGuidance() {
-        return new JourneyLegGuidance(startStopNo, endStopNo, directionName, startExitNo, endExitNo, fastAlight);
+        return new JourneyLegGuidance(startStopNo, endStopNo, directionName, startExitNo, endExitNo, fastAlight,
+                alightDoorSide);
     }
 
     private void applyGuidance(JourneyLegGuidance guidance) {
@@ -199,6 +204,7 @@ public class JourneyLeg extends BaseEntity {
         this.startExitNo = g.startExitNo();
         this.endExitNo = g.endExitNo();
         this.fastAlight = g.fastAlightJson();
+        this.alightDoorSide = g.alightDoorSide();
     }
 
     /**

@@ -62,7 +62,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V41__create_journey_telemetry_event.sql",
         "classpath:db/migration/V53__add_reroute_alert_state.sql",
         "classpath:db/migration/V59__journey_session_kind.sql",
-        "classpath:db/migration/V63__journey_leg_guidance_info.sql"
+        "classpath:db/migration/V63__journey_leg_guidance_info.sql",
+        "classpath:db/migration/V65__journey_leg_alight_door_side.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DisplayName("앱 계측 수집")
