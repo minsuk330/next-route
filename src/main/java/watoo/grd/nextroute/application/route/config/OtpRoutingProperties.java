@@ -42,6 +42,14 @@ public class OtpRoutingProperties {
     private boolean supplementaryEnabled = true;
     /** 추가 검색 1회 예산 상한(ms). 남은 OTP 예산과 작은 쪽. */
     private long supplementaryBudgetMs = 2000;
+    /**
+     * 장소 이름이 역이고 그 역 승강장이 {@link #stationSnapMeters} 안이면 그 승강장의 가상 역 id 로 검색한다
+     * ({@code OtpStationResolver}). 가상 역 = 승강장 + 역 출구 지점들이라, 버스는 가장 가까운 출구에서 걷는다
+     * (2026-10-12 잠실역→강남역: 좌표 출발은 360 직통 도보 672m+825m). 출구가 들어간 그래프에서만 효과가 있다.
+     */
+    private boolean stationSnapEnabled = true;
+    /** 장소 검색 역 좌표는 승강장에서 6~58m(잠실·강남·홍대입구·서울역 실측). 이름 조건이 있어 150m. */
+    private double stationSnapMeters = 150;
     /** 연결 timeout(ms). read timeout 은 호출별 남은 예산으로 결정. */
     private long connectTimeoutMs = 2000;
     private String schemaVersion = "otp-2.10.0-planConnection-v1";
@@ -73,6 +81,10 @@ public class OtpRoutingProperties {
     public void setSupplementaryEnabled(boolean supplementaryEnabled) { this.supplementaryEnabled = supplementaryEnabled; }
     public long getSupplementaryBudgetMs() { return supplementaryBudgetMs; }
     public void setSupplementaryBudgetMs(long supplementaryBudgetMs) { this.supplementaryBudgetMs = supplementaryBudgetMs; }
+    public boolean isStationSnapEnabled() { return stationSnapEnabled; }
+    public void setStationSnapEnabled(boolean stationSnapEnabled) { this.stationSnapEnabled = stationSnapEnabled; }
+    public double getStationSnapMeters() { return stationSnapMeters; }
+    public void setStationSnapMeters(double stationSnapMeters) { this.stationSnapMeters = stationSnapMeters; }
     public long getConnectTimeoutMs() { return connectTimeoutMs; }
     public void setConnectTimeoutMs(long connectTimeoutMs) { this.connectTimeoutMs = connectTimeoutMs; }
     public String getSchemaVersion() { return schemaVersion; }

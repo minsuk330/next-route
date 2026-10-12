@@ -33,6 +33,7 @@ class OtpRoutingAdapterHttpTest {
     private MockWebServer server;
     private OtpRoutingAdapter adapter;
     private OtpRoutingProperties props;
+    private OtpStationResolver stations;
     private final Instant now = Instant.parse("2026-09-08T00:00:00Z");
     private final Clock clock = Clock.fixed(now, ZoneOffset.UTC);
 
@@ -42,8 +43,11 @@ class OtpRoutingAdapterHttpTest {
         server.start();
         props = new OtpRoutingProperties();
         props.setBaseUrl(server.url("/").toString().replaceAll("/$", ""));
+        // 역 판별은 따로 켜서 본다 — 켜 두면 첫 검색이 역 목록을 받으러 같은 서버에 요청을 하나 더 보낸다.
+        props.setStationSnapEnabled(false);
+        stations = new OtpStationResolver(RestClient.builder(), new ObjectMapper(), props, clock);
         adapter = new OtpRoutingAdapter(RestClient.builder(), new ObjectMapper(),
-                new OtpPlanConnectionMapper(), props, clock);
+                new OtpPlanConnectionMapper(), props, stations, clock);
     }
 
     @AfterEach
@@ -56,7 +60,11 @@ class OtpRoutingAdapterHttpTest {
     }
 
     private RoutingOutcome call(Set<RoutingMode> modes) {
-        RoutingQuery q = new RoutingQuery(126.97, 37.56, "o", 127.02, 37.49, "d",
+        return call(modes, "o", "d");
+    }
+
+    private RoutingOutcome call(Set<RoutingMode> modes, String originName, String destName) {
+        RoutingQuery q = new RoutingQuery(126.97, 37.56, originName, 127.02, 37.49, destName,
                 now, modes, null, false, "v", RoutingProvider.OTP, null);
         return adapter.search(q, RoutingDeadline.of(clock, 3000));
     }
@@ -188,6 +196,134 @@ class OtpRoutingAdapterHttpTest {
         sentVariables().path("modes").path("transit").path("transit")
                 .forEach(m -> names.add(m.path("mode").asText()));
         return names;
+    }
+
+    @Test
+    @DisplayName("출발 장소가 역이고 그 승강장이 가까우면 승강장의 가상 역 id 로 묻는다 — 가까운 출구에서 걷는다")
+    void stationPlaceUsesPlatform() throws Exception {
+        // 쿼리 출발 (37.56, 126.97). 승강장은 약 22m 북쪽, 같은 역의 버스 정류장은 무시한다.
+        loadStations(37.5602, 126.97, "SUBWAY");
+        enqueueSuccess();
+
+        call(Set.of(), "가역 2호선", "d");
+
+        JsonNode vars = sentVariables();
+        assertThat(vars.path("origin").path("location").path("stopLocation").path("stopLocationId").asText())
+                .isEqualTo("1:STN_RS_A");
+        assertThat(vars.path("destination").path("location").has("coordinate")).isTrue();
+    }
+
+    @Test
+    @DisplayName("승강장에서 150m 넘게 떨어지면 좌표 그대로")
+    void farFromPlatformKeepsCoordinate() throws Exception {
+        loadStations(37.5620, 126.97, "SUBWAY"); // ≈ 222m
+        enqueueSuccess();
+
+        call(Set.of(), "가역", "d");
+
+        assertThat(sentVariables().path("origin").path("location").has("coordinate")).isTrue();
+    }
+
+    @Test
+    @DisplayName("버스 정류장만 있는 역은 판별하지 않는다")
+    void busOnlyStationIsIgnored() throws Exception {
+        loadStations(37.5601, 126.97, "BUS");
+        enqueueSuccess();
+
+        call(Set.of(), "가역", "d");
+
+        assertThat(sentVariables().path("origin").path("location").has("coordinate")).isTrue();
+    }
+
+    @Test
+    @DisplayName("역 id 검색이 GraphQL 오류면 좌표로 한 번 더 묻는다")
+    void stationErrorFallsBackToCoordinates() throws Exception {
+        loadStations(37.5602, 126.97, "SUBWAY");
+        server.enqueue(new MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
+                .setBody("{\"errors\":[{\"message\":\"Unknown stop\"}],\"data\":null}"));
+        enqueueSuccess();
+
+        RoutingOutcome outcome = call(Set.of(), "가역", "d");
+
+        assertThat(outcome.success()).isTrue();
+        assertThat(sentVariables().path("origin").path("location").has("stopLocation")).isTrue();
+        assertThat(sentVariables().path("origin").path("location").has("coordinate")).isTrue();
+    }
+
+    @Test
+    @DisplayName("이름이 역이 아니면 승강장 옆이어도 좌표 — 출구·정류장에 선 GPS 출발을 승강장으로 붙이지 않는다")
+    void nonStationNameKeepsCoordinate() throws Exception {
+        loadStations(37.5602, 126.97, "SUBWAY");
+        enqueueSuccess();
+        enqueueSuccess();
+        enqueueSuccess();
+
+        call(Set.of(), "현재 위치", "d");
+        call(Set.of(), "가역 스타벅스", "d");
+        call(Set.of(), null, "d");
+
+        for (int i = 0; i < 3; i++) {
+            assertThat(sentVariables().path("origin").path("location").has("coordinate")).isTrue();
+        }
+    }
+
+    @Test
+    @DisplayName("다른 역 이름이면 붙이지 않는다")
+    void otherStationNameKeepsCoordinate() throws Exception {
+        loadStations(37.5602, 126.97, "SUBWAY");
+        enqueueSuccess();
+
+        call(Set.of(), "나역", "d");
+
+        assertThat(sentVariables().path("origin").path("location").has("coordinate")).isTrue();
+    }
+
+    @Test
+    @DisplayName("출발·도착이 같은 역이면 둘 다 좌표")
+    void sameStationBothEndsKeepsCoordinates() throws Exception {
+        props.setStationSnapEnabled(true);
+        // 출발(37.56,126.97)·도착(37.49,127.02) 옆에 같은 역의 두 승강장
+        server.enqueue(new MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
+                .setBody("{\"data\":{\"stations\":["
+                        + "{\"gtfsId\":\"1:VST_P1\",\"name\":\"가\",\"stops\":["
+                        + "{\"gtfsId\":\"1:P1\",\"name\":\"가(1호선)\",\"lat\":37.5601,\"lon\":126.97,\"vehicleMode\":\"SUBWAY\"}]},"
+                        + "{\"gtfsId\":\"1:VST_P2\",\"name\":\"가\",\"stops\":["
+                        + "{\"gtfsId\":\"1:P2\",\"name\":\"가(2호선)\",\"lat\":37.4901,\"lon\":127.02,\"vehicleMode\":\"SUBWAY\"}]}]}}"));
+        stations.load();
+        server.takeRequest(1, TimeUnit.SECONDS);
+        enqueueSuccess();
+
+        call(Set.of(), "가역", "가역");
+
+        JsonNode vars = sentVariables();
+        assertThat(vars.path("origin").path("location").has("coordinate")).isTrue();
+        assertThat(vars.path("destination").path("location").has("coordinate")).isTrue();
+    }
+
+    @Test
+    @DisplayName("역 이름 장소 판별")
+    void stationKey() {
+        assertThat(OtpStationResolver.stationKey("잠실역 8호선")).isEqualTo("잠실");
+        assertThat(OtpStationResolver.stationKey("강남역 신분당선")).isEqualTo("강남");
+        assertThat(OtpStationResolver.stationKey("역삼역")).isEqualTo("역삼");
+        assertThat(OtpStationResolver.stationKey("총신대입구(이수)역")).isEqualTo("총신대입구");
+        assertThat(OtpStationResolver.stationKey("홍대입구")).isEqualTo("홍대입구");
+        assertThat(OtpStationResolver.stationKey("강남역 스타벅스")).isNull();
+        assertThat(OtpStationResolver.stationKey("현재 위치")).isNull();
+        assertThat(OtpStationResolver.baseName("잠실(8호선)")).isEqualTo("잠실");
+        assertThat(OtpStationResolver.baseName("서울역")).isEqualTo("서울");
+    }
+
+    /** 역 목록을 동기로 적재한다(그 요청은 여기서 소비). 승강장 하나 + 같은 역 버스 정류장 하나. */
+    private void loadStations(double lat, double lon, String mode) throws Exception {
+        props.setStationSnapEnabled(true);
+        server.enqueue(new MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
+                .setBody("{\"data\":{\"stations\":[{\"gtfsId\":\"1:STN_RS_A\",\"name\":\"가\",\"stops\":["
+                        + "{\"gtfsId\":\"1:RS_A\",\"name\":\"가(2호선)\",\"lat\":" + lat + ",\"lon\":" + lon
+                        + ",\"vehicleMode\":\"" + mode + "\"},"
+                        + "{\"gtfsId\":\"1:BS_1\",\"name\":\"가역\",\"lat\":37.56,\"lon\":126.97,\"vehicleMode\":\"BUS\"}]}]}}"));
+        stations.load();
+        assertThat(server.takeRequest(1, TimeUnit.SECONDS).getBody().readUtf8()).contains("stations");
     }
 
     private void enqueueNoConnection(String code) {

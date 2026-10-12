@@ -1,6 +1,6 @@
 # 역 출구를 OTP 그래프에 넣기 — 역에서 출발·도착할 때 출구 기준 도보 (L 티어)
 
-상태: 플랜 승인(2026-10-12). codex 논의 → 구현은 새 세션. 브랜치 `feat/otp-station-entrances`(fresh main `baf12a48` 기준).
+상태: 플랜 승인(2026-10-12) → Opus 설계 리뷰 → **설계 변경(가상 역, §2.5)** 후 같은 세션 구현. 브랜치 `feat/otp-station-entrances`(fresh main `baf12a48` 기준).
 경로 접두사 `B` = `src/main/java/watoo/grd/nextroute`, `T` = `src/test/java/watoo/grd/nextroute`, `R` = `tools/transit-routing-benchmark`.
 조사 근거: `implementation_note.md` "직통 버스가 안 보이는 원인 — 잠실역(8호선)→강남역(신분당선) 네이버 대조 (2026-10-12)".
 
@@ -36,61 +36,72 @@ OTP 포크 `/Users/wa/golbob/개인/OpenTripPlanner`(dev-2.x, 배포 jar ser.id 
 - 앱: `RouteSearchRequest`/`RoutingQuery` 는 좌표·이름만. `B/infrastructure/adapter/out/api/otp/OtpRoutingAdapter.java:150-155` 가 항상 `coordinate` 로 보냄
 - 역 ↔ GTFS: `SubwayGtfsStopIndex.gtfsStopId(lineId, stationId)`(런타임, 캐시된 패턴 기반, warmup 전 비어 있음)
 
-## 3. 작업 순서
+## 2.5 설계 변경 — 승강장마다 가상 역 (2026-10-12, 서울 로컬 그래프 실측)
 
-### PR-1. GTFS 전처리 도구 (의존 없음)
-- [ ] `R/runner/add_station_entrances.py` 신규
+처음 설계(역 하나 부모 + 출구 location_type 2 + pathways)는 실측에서 두 문제가 나와 버렸다.
+- **역 하나 부모로 출발** = 모든 노선 승강장에 비용 0 → 잠실역(8호선)→강남 2호선 도보 0 **11분**(네이버 21분). 승강장 id 출발로 바꾸면 출구·다른 노선까지 통로로 걸어 17분이지만 아래 문제가 남음
+- **pathways = 역 관통 지름길**: 출구→승강장→출구 통로가 거리보다 짧아 개찰구 없이 역을 가로지름(서울역 서부→3번→9번 출구, 영등포 북↔남). 또 pathway 붙은 승강장은 거리망에서 끊겨 **역과 무관한 좌표 검색까지 바뀜**
+
+채택 = 가상 역. 지하철 승강장 P 마다:
+- 부모 `VST_<P>`(location_type 1, 이름 = 역 기본이름, 좌표 = P)
+- 자식 = P(`parent_station` 채움) + 그 역 출구마다 `VEX_<osm_id>_<P>`(location_type **0**, 운행 없음, `stop_code`=출구번호, 이름 = label 또는 "<역>역 N번 출구")
+- pathways.txt 없음 → 승강장·환승(transfers.txt)·좌표 검색은 그대로. 바뀌는 건 `VST_` 로 출발·도착하는 검색뿐
+- 출구가 location_type 2 가 아닌 이유: OTP station childStops 는 RegularStop 만 → Entrance 는 출발점이 아님. 일반 stop 이라 OTP 가 거리망에 붙인다
+
+결과(서울 로컬, 잠실역 8호선 → 강남역 신분당선): 2호선 19분(도보8) / 360 21분(도보4) / 2000 25분(도보3) / 7007 25분(도보3). 서울역 서부·영등포·강남대로→광화문 = 기준 그래프와 같음.
+
+Opus 리뷰 반영: 역 판별에 **장소 이름 조건**(좌표만이면 출구·정류장에 선 GPS 도 역에 붙음), 재탐색은 이름 없음 → 좌표, 같은 역 양끝은 좌표, 일반철도(RS_TAGO) 승강장 제외, 출구번호 stop_code, 묶음 폭 상한·근접 미병합 쌍 리포트, 역 목록 6시간 갱신. 0m 도보 보정 불필요(앱이 첫 구간 도보를 전제하지 않음 — `LegacyRouteResponseMapper` 확인).
+
+## 3. 작업 순서 (구현 = 한 브랜치, PR 하나 + 그래프 배포)
+
+### A. GTFS 전처리 도구 ✅
+- [x] `R/runner/add_station_entrances.py`
   ```
   python3 add_station_entrances.py --in <shaped-gbis.gtfs.zip> --entrances src/main/resources/subway/entrances.csv \
-      --out <...-entrances.gtfs.zip> --report <report.json> [--exit-speed-mps 1.0] [--exit-fixed-sec 60] [--group-radius-m 500] [--exit-radius-m 350]
+      --out <...-entrances.gtfs.zip> --report <report.json> [--rail-prefix RS_] [--metro-prefix RS_ACC1_] \
+      [--group-radius-m 500] [--transfer-radius-m 1000] [--exit-radius-m 300] [--max-group-span-m 600] [--dry-run]
   ```
-  1. **역 묶음**: `routes.txt` route_type 1(지하철)/2(철도)를 타는 stop(실측상 `RS_` 접두) 대상. 키 = 기본 이름(괄호 안 노선 표기 제거, 예 "잠실(2호선)"→"잠실") + 서로 500m 안. `transfers.txt` 에 쌍으로 있으면 같은 묶음 보강. 부모 `stop_id` = `STN_<대표stop>`(결정적), `location_type=1`, 좌표 = 자식 중심, 자식 `parent_station` 채움
-  2. **출구**: entrances.csv 행 중 label 에 `<기본이름>역` 이 들어 있고 묶음 중심 350m 안 → `stop_id=ENT_<osm_id>`, `location_type=2`, `parent_station`=묶음, `stop_name`=label(예 "잠실역 5번출구"). 한 출구가 두 묶음에 맞으면 가까운 쪽
-  3. **pathways.txt**(없으면 생성): 
-     - 승강장↔출구 전부, `pathway_mode=1`, `is_bidirectional=1`, `traversal_time = round(dist_m/exit_speed + exit_fixed_sec)`, `length=dist_m`
-     - 같은 묶음 승강장끼리: `traversal_time` = transfers.txt `min_transfer_time`(양방향 중 작은 값), 없으면 `dist/1.0+60`
-     - **출구 0개 묶음은 pathway 를 만들지 않음**(승강장이 거리망 직접 연결로 남도록 — 고립 방지)
-  4. 리포트 JSON: 묶음 수, 묶음당 자식·출구 수 분포, 출구 0 묶음 목록, 매칭 안 된 출구 수, 모든 pathway 승강장이 출구 ≥1 개와 연결됐는지(불변식)
-  5. zip 의 나머지 파일은 바이트 그대로 복사(shapes·trips 등 손대지 않음)
-- [ ] `R/runner/test_add_station_entrances.py`(기존 `test_apply_gbis_routes.py` 스타일): 이름 정규화, 500m 경계, transfers 보강, 출구 매칭(label·거리), 출구 0 묶음 pathway 없음, 승강장 간 pathway 시간=min_transfer_time, 결정적 id
-- [ ] `R/runner/build_otp_graph.sh`: GBIS 단계 뒤·shape gate 앞에 `--station-entrances <csv>` 옵션 단계 추가(기본 off — 옛 빌드 재현성 유지)
-- 검증: `python3 -m pytest R/runner/test_add_station_entrances.py` + 실제 입력 zip 으로 리포트(692역 근처 기대)
+  - 묶음 = `RS_` 승강장, 기본이름(괄호 노선 표기·끝 "역" 제거) 500m 안 + transfers.txt 쌍(1000m 안). 묶음 폭 > 600m 면 실패. 입력에 이미 parent 있으면 실패
+  - 출구 = 가장 가까운 승강장 300m 안의 묶음. label 이 범위 안 다른 역 이름이면 그쪽
+  - 가상 역은 `RS_ACC1_`(도시·광역철도) 승강장만. 출구 없는 묶음은 손대지 않음
+  - 리포트: groups, groupsWithExits, exitsAssigned/Unmatched, virtualStations, exitStops, metroPlatformsWithoutStation, maxGroupSpanM, nearUnmergedPairs, params
+  - 나머지 파일 바이트 복사(shapes.txt 포함)
+- [x] `R/runner/test_add_station_entrances.py` 15개: `python3 -m unittest runner/test_add_station_entrances.py -v`(cwd `R`)
+- [x] `R/runner/build_otp_graph.sh --station-entrances <csv>`: step 2c(GBIS 뒤, gate 앞), 출력 zip 접미사 `-entrances`(옛 zip = 롤백 원천)
+- 전국 dry-run(shaped zip 62a8fb2d): 묶음 1140, 출구 있는 묶음 932, 출구 4427/4462, 가상 역 1071, 출구 정류장 5700, 최대 폭 434m
 
-### PR-2. 앱: 역이면 역 ID 로 검색 (PR-1 그래프가 있어야 의미, 코드는 병행 가능)
-- [ ] **역 판별** 신규 `B/infrastructure/adapter/out/api/otp/OtpStationResolver.java`
-  - OTP GraphQL `{ stations { gtfsId lat lon stops { gtfsId lat lon vehicleMode } } }` 를 graphVersion 단위로 캐시(앱 기동 후 첫 사용 시 로드, 실패 시 빈 캐시 = 좌표 그대로)
-  - `Optional<String> stationFor(double lat, double lon)`: 자식 승강장(SUBWAY/RAIL) 중 하나와 `station-snap-meters` 안이면 부모 gtfsId
-  - N 기본 80m — 구현 시 장소 검색(네이버·카카오) 역 좌표 vs GTFS 승강장 거리를 수도권 주요역 20곳 실측해 확정, 노트에 기록
-- [ ] `OtpRoutingAdapter.requestBody`(`:150-`): origin/destination 각각 `stationFor` 결과가 있으면 `{location:{stopLocation:{stopLocationId}}}`, 없으면 지금처럼 coordinate
-  - 역 ID 검색이 `routingErrors`/GraphQL 오류면 좌표로 1회 재검색(예산 안)
-- [ ] 설정 `B/application/route/config/OtpRoutingProperties.java`: `stationSnapEnabled=true`, `stationSnapMeters=80`
-- [ ] 매핑 확인·보정: `OtpPlanConnectionMapper`(origin leg 의 `from` 이 stop/역), `B/application/route/service/LegacyRouteResponseMapper.java:76`(`toLegacy`) — legacy 응답(앱)이 첫·마지막 subPath 를 도보로 전제하는지 확인. 전제하면 대중교통으로 바로 시작할 때 0m 도보 subPath 를 넣음. pathway 도보 leg 의 geometry 가 직선일 수 있음(지도 표시 확인)
-- [ ] 출구 안내 충돌 확인: `JourneyGuidanceInfoEnricher.java:158,172`(SubwayEntranceIndex 기반 출구 안내)와 OTP step 의 출입구 표기가 엇갈리지 않게
-- [ ] 재탐색(`RemainingRouteSearchService`)도 같은 어댑터 → 열차 안 사용자가 역에서 재탐색하면 역 출발이 됨(의도와 맞는지 경계 리뷰)
-- 테스트: `OtpRoutingAdapterHttpTest`(역 근처 좌표 → stopLocation, 먼 좌표 → coordinate, 킬스위치 off → coordinate), `OtpStationResolverTest`(경계 80m, 빈 캐시), 매퍼(첫 leg 대중교통일 때 legacy 형태)
-- 검증: `./gradlew test --tests '*OtpRoutingAdapter*' --tests '*OtpStationResolver*' --tests '*OtpPlanConnectionMapper*' --tests '*LegacyRouteResponseMapper*' --tests '*RouteSearchService*' --tests '*RemainingRouteSearch*'`
+### B. 앱 ✅
+- [x] `B/infrastructure/adapter/out/api/otp/OtpStationResolver.java`(신규): `Optional<Snap> snap(lat, lon, placeName)`, `Snap(stationId, stationName)`
+  - 장소 이름이 역 모양(`STATION_PLACE`)이고 그 이름의 RAIL 계열 승강장이 `station-snap-meters`(150) 안이면 가장 가까운 승강장의 부모 id
+  - 목록 = OTP `{ stations { gtfsId name stops { gtfsId name lat lon vehicleMode } } }`, 백그라운드 적재(성공 6h, 실패 5분, 빈 목록 30분 후 재확인). 검색은 기다리지 않음 → 목록 없으면 좌표
+- [x] `OtpRoutingAdapter`: `endpoints(q)` → 역이면 `{location:{stopLocation:{stopLocationId}}}`. 양끝이 같은 역 이름이면 둘 다 좌표. 역 id 검색이 `GRAPHQL_ERROR`/`LOCATION_NOT_FOUND` 면 좌표로 1회 재검색
+- [x] `OtpRoutingProperties`: `stationSnapEnabled=true`(킬스위치 `ROUTING_OTP_STATION_SNAP_ENABLED`), `stationSnapMeters=150`
+- [x] `OtpTransitPatternAdapter.parseStopsNear`: 노선 없는 정류장(= 출구 지점)을 자르기 전에 제외 — 단독 추적 주변 정류장 자리를 차지하지 않게. 지도 타일은 BUS 만 거르므로 그대로
+- 테스트: `./gradlew test --tests '*OtpRoutingAdapter*' --tests '*OtpTransitPatternAdapterTest' --tests '*TrackSelectionQueryServiceTest' --tests '*RouteSearchService*' --tests '*RemainingRouteSearch*'` + 전체
 
-### PR-3. 그래프 재빌드·배포 (PR-1·PR-2 머지 후, 사용자 확인)
-- [ ] `build_otp_graph.sh … --station-entrances src/main/resources/subway/entrances.csv --graph-version national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-entrances-g<sha12>`
-- [ ] 로컬 OTP(같은 jar)로 코퍼스 전후 비교(아래 검증) → 결과 노트
-- [ ] 배포(기존 절차, `implementation_note.md` :2178·:3177·:3835): `/srv/nextroute/otp/<ver>/` 에 graph.obj·coverage-index.json(sha 대조) → VPS `compose.yaml` graphVersion 4곳 + `/root/apps/observability/otp/compose.otp-national.yaml` 1곳 교체(백업) → `docker compose config -q` → `up -d otp`(healthy 대기) → `up -d api worker`
-- 되돌리기: compose graphVersion 옛 값 복구 → `up -d otp api worker`. 앱 킬스위치 `ROUTING_OTP_STATION_SNAP_ENABLED=false`
+### C. 그래프 재빌드·배포 (사용자 확인 후)
+- [ ] GBIS 재수집(VPS `/root/gbis-fetch`, flock) 완료 → 로컬로 복사(키는 VPS 밖으로 안 나감, 캐시만)
+- [ ] `build_otp_graph.sh --profile national --from-shaped-zip --gbis <cache> --station-entrances src/main/resources/subway/entrances.csv --thresholds config/otp-national/shape-gate-thresholds.json --modes bus,subway --graph-version national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-entrances-g<sha12>`(JDK 25, -Xmx12g, 배포 포크 jar)
+- [ ] 로컬 전국 OTP 로 §5 코퍼스 + 출구 연결 점검(VEX 가 거리망에 붙었는지, VST 출발 도보 성공)
+- [ ] 배포(기존 절차, `implementation_note.md` :2178·:3177·:3835): `/srv/nextroute/otp/<ver>/` 에 graph.obj·coverage-index.json(sha 대조) → VPS `compose.yaml` graphVersion 4곳 + `/root/apps/observability/otp/compose.otp-national.yaml` 1곳(백업 후 그 줄만) → `docker compose config -q` → `up -d otp`(healthy) → 앱 배포 + `up -d api worker`
+- 되돌리기: compose graphVersion 옛 값 → `up -d otp api worker`. 앱만 끄려면 `ROUTING_OTP_STATION_SNAP_ENABLED=false`
 
 ## 4. 경계 리뷰
-- 계약: 앱 요청·응답 형식 불변. 역 출발·도착 검색의 경로 구성·도보 시간이 바뀜(의도)
-- 상태: pathway 붙은 승강장은 출구로만 접근 → 출구 좌표·매칭이 틀린 역은 접근이 나빠질 수 있음(리포트 불변식 + 코퍼스)
-- 실패: 역 판별 실패·역 ID 검색 오류 → 좌표 폴백. 킬스위치
-- 그래프: 배포 포크 jar 로만 빌드(ser.id 불일치 = OTP 기동 실패, 과거 함정)
-- 환승: 같은 묶음 승강장 간 pathway 로 지금 환승 시간 유지(출구 경유로 나빠지면 안 됨)
+- 계약: 앱 요청·응답 형식 불변. 이름이 역인 장소에서 출발·도착하는 검색의 도보·경로 구성이 바뀜(의도). 응답 첫 구간이 도보 없이 대중교통일 수 있음(승강장에서 바로 탐)
+- 상태: 없음(그래프 + 무상태 캐시)
+- 실패: 역 목록 적재 실패·빈 목록 → 좌표. 역 id 검색 오류 → 좌표 재검색. 킬스위치
+- 플래그 기본값: `station-snap-enabled=true` — 옛 그래프에선 부모 역이 없어 자동 무동작
+- 그래프: 배포 포크 jar 로만 빌드(ser.id 불일치 = OTP 기동 실패, 과거 함정). 출구 정류장 5,700개가 `stopsByBbox` 에 노선 없이 나옴 → 소비처 2곳 확인(지도 타일 BUS 필터, 단독 추적 제외 처리)
 
-## 5. 검증 코퍼스 (PR-3 전후, 같은 시각)
+## 5. 검증 코퍼스 (배포 전 로컬 전국 OTP, 배포 후 운영 API)
 | OD | 기대 |
 |---|---|
-| 잠실역(8호선 좌표)→강남역(신분당선 좌표) | 360·2000 직통 등장, 2호선 도보 ≤10분, `4319>341` 같은 한 정거장 조합 사라짐 |
-| 사당 4→2, 동대문역사문화공원 4→2, 충무로 4→3 | 환승 시간 악화 없음 |
-| 서울역→잠실 | 4호선→2호선 등장 여부(미결 해소 기대) |
-| 역 아닌 좌표 출발(강남대로 중간 등) | 변화 최소 |
-| 기존 6개 OD(강남→홍대, 신촌→강남, 노원→강남, 수원→강남, 부평→서울, 홍천→인제) | 회귀 없음, 고유 5개 유지 |
+| 잠실역 8호선 → 강남역 신분당선 | 360·2000 직통 등장, 2호선 도보 ≤10분 |
+| 강남역→홍대입구역, 신촌역→강남역 | 2호선 1위 유지 |
+| 서울역→잠실역, 혜화역→낙성대역 | 회귀 없음 |
+| 서울역 서부 좌표 ↔ 동쪽, 영등포 북↔남 | 역 관통 지름길 없음(기준과 같음) |
+| 역 아닌 좌표(강남대로→광화문) | 기준과 같음 |
+| 노원→강남, 부평→서울, 수원→강남, 홍천→인제 | 회귀 없음, 고유 경로 유지 |
 
 ## 6. L 절차
-codex 와 PLAN.md 논의 → 구현은 새 세션(이 문서 기준) → /verify + 리뷰. 발견 사항은 `implementation_note.md` 에 append.
+Opus 설계 리뷰(사용자 지시 "opus 논의 진행하고 끝까지 구현") → 같은 세션 구현 → 테스트 + 로컬 전국 코퍼스 → 배포 전 사용자 확인. 발견 사항은 `implementation_note.md` "역 출구를 그래프에 — 구현" 에 append.

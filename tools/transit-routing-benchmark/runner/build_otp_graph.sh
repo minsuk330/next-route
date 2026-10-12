@@ -47,6 +47,8 @@ FROM_SHAPED_ZIP=0   # --from-shaped-zip: steps 1-2 skipped, gtfs-out = the profi
                     # shaped zip (national: gtfs-out on disk no longer holds stop_times/shapes).
 GBIS_DIR=""         # --gbis DIR: step 2b, rewrite Gyeonggi bus trips with GBIS stations and
                     # shapes (apply_gbis_routes.py; cache from fetch_gbis_routes.py).
+STATION_ENTRANCES="" # --station-entrances CSV: step 2c, one virtual station per metro platform = platform + OSM exits
+                    # (add_station_entrances.py; CSV = src/main/resources/subway/entrances.csv).
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile) PROFILE="$2"; shift 2 ;;
@@ -55,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     --skip-match) SKIP_MATCH=1; shift ;;
     --from-shaped-zip) FROM_SHAPED_ZIP=1; shift ;;
     --gbis) GBIS_DIR="$2"; shift 2 ;;
+    --station-entrances) STATION_ENTRANCES="$2"; shift 2 ;;
     --report-only) REPORT_ONLY=1; shift ;;
     --from-ktdb) FROM_KTDB="$2"; shift 2 ;;
     --thresholds) THRESHOLDS="$2"; shift 2 ;;
@@ -106,6 +109,12 @@ if [[ -n "$GBIS_DIR" ]]; then
   test -d "$GBIS_DIR" || { echo "--gbis dir not found: $GBIS_DIR" >&2; exit 2; }
   # Never overwrite the pfaedle-only zip: it is the rollback source.
   SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-gbis.gtfs.zip"
+fi
+if [[ -n "$STATION_ENTRANCES" ]]; then
+  [[ "$PROFILE" == "national" ]] || { echo "--station-entrances is national-only" >&2; exit 2; }
+  test -s "$STATION_ENTRANCES" || { echo "--station-entrances csv not found: $STATION_ENTRANCES" >&2; exit 2; }
+  # Same rule as --gbis: keep the previous zip as the rollback source.
+  SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-entrances.gtfs.zip"
 fi
 BUILD="$DEPLOY_DIR/shape-build"
 GTFS_IN="$BUILD/gtfs-in"
@@ -188,6 +197,18 @@ if [[ -n "$GBIS_DIR" ]]; then
   rm -rf "$GTFS_OUT"; mkdir -p "$GTFS_OUT"
   unzip -o -q "$BUILD/gbis.gtfs.zip" -d "$GTFS_OUT"
   rm -f "$BUILD/pre-gbis.gtfs.zip" "$BUILD/gbis.gtfs.zip"
+fi
+
+if [[ -n "$STATION_ENTRANCES" ]]; then
+  echo "== step 2c: virtual stations (platform + exits) =="
+  rm -f "$BUILD/pre-entrances.gtfs.zip"
+  ( cd "$GTFS_OUT" && zip -q -r -X "$HERE/$BUILD/pre-entrances.gtfs.zip" . )
+  python3 runner/add_station_entrances.py --in "$BUILD/pre-entrances.gtfs.zip" \
+    --entrances "$STATION_ENTRANCES" --out "$BUILD/entrances.gtfs.zip" \
+    --report "$DEPLOY_DIR/station-entrances-report.json"
+  rm -rf "$GTFS_OUT"; mkdir -p "$GTFS_OUT"
+  unzip -o -q "$BUILD/entrances.gtfs.zip" -d "$GTFS_OUT"
+  rm -f "$BUILD/pre-entrances.gtfs.zip" "$BUILD/entrances.gtfs.zip"
 fi
 
 echo "== step 3: gate (modes=$MODES) =="

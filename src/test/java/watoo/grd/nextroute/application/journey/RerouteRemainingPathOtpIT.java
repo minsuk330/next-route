@@ -104,6 +104,8 @@ class RerouteRemainingPathOtpIT {
     @DynamicPropertySource
     static void otpBaseUrl(DynamicPropertyRegistry registry) {
         registry.add("routing.otp.base-url", () -> OTP.url("/").toString().replaceAll("/$", ""));
+        // 역 판별은 첫 검색 때 역 목록을 같은 OTP 에 따로 묻는다 — 이 시험은 받은 요청 수를 센다.
+        registry.add("routing.otp.station-snap-enabled", () -> "false");
     }
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
