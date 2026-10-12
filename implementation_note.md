@@ -4520,3 +4520,17 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 2828 중 12 실패, 전부 기존 무관
 ### 배포
 - 마이그레이션 없음. api(후보·노선도) + worker
+
+## 2026-10-12 조회 없이 판정 갱신 시험 (test/journey-evaluator-refresh-without-query)
+
+### 확정
+- `JourneyRefreshWithoutQueryIT`: 조회 API 를 한 번도 부르지 않고 평가 주기(선점 → 평가)만 돈다. 다음 주기는 DB 를 과거로 돌리지 않고 평가기가 심은 `next_evaluation_at` 까지 `MutableClock` 을 넘겨 만든다(스케줄러 빈은 worker 프로필 전용이라 시험 컨텍스트에 없음)
+- 갱신 증거 = `transfer_connection.calculated_at` 증가. 값이 같으면 `evaluation_version` 은 그대로임을 함께 단언 — 번호를 증거로 삼으면 정상 갱신을 실패로 본다
+- 두 번째 시험: 조회 없는 사이 갈아탈 버스가 앞당겨지면 COMFORTABLE → MISSED + 위험 알림 행
+
+### 검증
+- `./gradlew test --tests '*JourneyRefreshWithoutQueryIT'` 2/2
+- 변형 확인: `JourneyEvaluationScheduleWriter.finish` 에서 `if (outcome.changed())` 일 때만 판정 저장 → 첫 시험 실패(calculated_at 그대로). 이 실수가 들어가면 값이 안 바뀌는 여정은 조회 경로의 낡음 기준(5분)에 걸려 UNKNOWN 이 된다. 원복 후 2/2
+
+### 배포
+- 시험만 추가. 마이그레이션·운영 코드 변경 없음
