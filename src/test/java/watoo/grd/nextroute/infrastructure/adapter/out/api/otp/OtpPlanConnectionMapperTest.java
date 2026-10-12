@@ -70,6 +70,27 @@ class OtpPlanConnectionMapperTest {
     }
 
     @Test
+    @DisplayName("엔진이 매긴 일반화비용을 담는다 — 후보 정렬 키다")
+    void readsGeneralizedCost() throws IOException {
+        com.fasterxml.jackson.databind.node.ObjectNode root =
+                (com.fasterxml.jackson.databind.node.ObjectNode) load("otp/planconnection-success.json");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) root.path("data").path("planConnection")
+                .path("edges").get(0).path("node")).put("generalizedCost", 3557);
+
+        RoutingOutcome outcome = mapper.map(root, departureAt, versions);
+
+        assertThat(((RoutingResult) outcome).itineraries().get(0).generalizedCost()).isEqualTo(3557);
+    }
+
+    @Test
+    @DisplayName("일반화비용이 없으면 null — 0 으로 지어내지 않는다")
+    void missingGeneralizedCostIsNull() throws IOException {
+        RoutingOutcome outcome = mapper.map(load("otp/planconnection-success.json"), departureAt, versions);
+
+        assertThat(((RoutingResult) outcome).itineraries().get(0).generalizedCost()).isNull();
+    }
+
+    @Test
     @DisplayName("성공 응답 → RoutingResult: provider/버전/leg 매핑, 원천 ID·정차역 보존")
     void mapsSuccess() throws IOException {
         RoutingOutcome outcome = mapper.map(load("otp/planconnection-success.json"), departureAt, versions);

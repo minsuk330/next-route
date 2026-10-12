@@ -13,6 +13,8 @@ import java.util.List;
  * @param walkSeconds              도보 초 합
  * @param navigationSupported      서버 판정(mode+ID매핑+geometry OK+진행계약). 클라 값 불신
  * @param navigationBlockedReasons 미지원 사유(코드 문자열)
+ * @param generalizedCost          엔진이 매긴 정적 일반화비용(OTP {@code generalizedCost}). 후보 정렬 키.
+ *                                 주지 않는 원천(ODsay)은 null
  */
 public record RoutingItinerary(
         Instant staticArrivalAt,
@@ -23,7 +25,8 @@ public record RoutingItinerary(
         boolean navigationSupported,
         List<String> navigationBlockedReasons,
         Fare fare,
-        List<RoutingLeg> legs
+        List<RoutingLeg> legs,
+        Integer generalizedCost
 ) {
     public RoutingItinerary {
         navigationBlockedReasons = navigationBlockedReasons == null
@@ -33,9 +36,17 @@ public record RoutingItinerary(
             fare = Fare.unknown();
         }
     }
+    /** 비용을 모르는 원천용 하위호환 생성자. 새 칸을 null 로 두는 것이 곧 옛 동작이다. */
+    public RoutingItinerary(Instant staticArrivalAt, int moveSeconds, int waitSeconds, int walkSeconds,
+                            int transferCount, boolean navigationSupported,
+                            List<String> navigationBlockedReasons, Fare fare, List<RoutingLeg> legs) {
+        this(staticArrivalAt, moveSeconds, waitSeconds, walkSeconds, transferCount, navigationSupported,
+                navigationBlockedReasons, fare, legs, null);
+    }
+
     /** legs 만 바꾼 복사본(나머지 필드 보존). */
     public RoutingItinerary withLegs(java.util.List<RoutingLeg> newLegs) {
         return new RoutingItinerary(staticArrivalAt, moveSeconds, waitSeconds, walkSeconds, transferCount,
-                navigationSupported, navigationBlockedReasons, fare, newLegs);
+                navigationSupported, navigationBlockedReasons, fare, newLegs, generalizedCost);
     }
 }

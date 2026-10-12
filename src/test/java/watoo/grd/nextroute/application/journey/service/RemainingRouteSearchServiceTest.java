@@ -74,7 +74,7 @@ class RemainingRouteSearchServiceTest {
                     new LegacyRouteResponseMapper(mock(OtpSeoulIdentityResolver.class)),
                     otpConcurrencyGate,
                     new RouteSearchDeadlineProperties(),
-                    Clock.systemDefaultZone());
+                    Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
 
     /** provider=OTP 인 재탐색 서비스. gate·otpPort·mapper 는 주입값 그대로. */
     private RemainingRouteSearchService otpService(OtpConcurrencyGate gate, RoutingPort otpPort,
@@ -85,7 +85,7 @@ class RemainingRouteSearchServiceTest {
         return new RemainingRouteSearchService(odSayApiPort, metrics,
                 new RoutingProviderSelector(props, List.of(otpPort)),
                 mapper, gate, new RouteSearchDeadlineProperties(),
-                Clock.systemDefaultZone());
+                Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
     }
 
     private RoutingResult otpResult() {

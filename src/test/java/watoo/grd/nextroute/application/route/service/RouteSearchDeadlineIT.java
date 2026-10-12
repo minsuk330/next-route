@@ -135,7 +135,7 @@ class RouteSearchDeadlineIT {
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
                 new DepartureTimeResolver(java.time.Clock.systemDefaultZone()),
                 mock(watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate.class),
-                java.time.Clock.systemDefaultZone());
+                java.time.Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
     }
 
     @AfterEach

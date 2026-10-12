@@ -119,8 +119,12 @@ public class OtpPlanConnectionMapper {
         List<String> blocked = anyTransitFallback
                 ? List.of("GEOMETRY_STREET_FALLBACK") : List.of();
 
+        // 후보 정렬 키(ItineraryRanker). 없으면 null — 0 으로 지어내면 맨 앞으로 올라간다.
+        JsonNode costNode = node.path("generalizedCost");
+        Integer generalizedCost = costNode.isNumber() ? costNode.asInt() : null;
+
         return new RoutingItinerary(arrival, moveSeconds, waitSeconds, walkSeconds,
-                transferCount, false, blocked, fare, legs);
+                transferCount, false, blocked, fare, legs, generalizedCost);
     }
 
     private RoutingLeg toLeg(JsonNode legNode, String graphVersion) {
