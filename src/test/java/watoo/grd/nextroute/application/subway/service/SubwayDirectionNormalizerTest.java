@@ -144,4 +144,39 @@ class SubwayDirectionNormalizerTest {
         assertThat(SubwayDirectionNormalizer.fromUpDownLine("1005", "0")).isEqualTo("상행");
     }
 
+    /**
+     * 6호선은 feed 에 노선이 하나뿐이라 이름에 라벨이 없다 — 승·하차역 순서로 정한다(#395). 실측(2026-10-12): 이태원 상행
+     * 행선지 응암순환·하행 봉화산, 역촌·불광·구산(순환)은 모두 하행.
+     */
+    @Test
+    void line6LabelFromStopOrder() {
+        String route = "1:RR_ACC1_S-1-06-00";
+        String itaewon = "1:RS_ACC1_S-1-2631";
+        assertThat(SubwayDirectionNormalizer.labelFor(route, "서울6호선", itaewon, "1:RS_ACC1_S-1-2626"))
+                .as("이태원 → 대흥, 응암 쪽").isEqualTo("상행");
+        assertThat(SubwayDirectionNormalizer.labelFor(route, "서울6호선", itaewon, "1:RS_ACC1_S-1-2632"))
+                .as("이태원 → 한강진, 봉화산 쪽").isEqualTo("하행");
+        assertThat(SubwayDirectionNormalizer.labelFor(route, "서울6호선", "1:RS_ACC1_S-1-2626", "1:RS_ACC1_S-1-2615"))
+                .as("대흥 → 연신내, 탄 역에서는 응암 쪽").isEqualTo("상행");
+        assertThat(SubwayDirectionNormalizer.labelFor(route, "서울6호선", "1:RS_ACC1_S-1-2612", "1:RS_ACC1_S-1-2615"))
+                .as("역촌 → 연신내, 순환 구간").isEqualTo("하행");
+        assertThat(SubwayDirectionNormalizer.labelFor(route, "서울6호선", "1:RS_ACC1_S-1-2616", "1:RS_ACC1_S-1-2626"))
+                .as("구산 → 응암 → 대흥, 순환을 돌아 나간다").isEqualTo("하행");
+        assertThat(SubwayDirectionNormalizer.labelFor(route, "서울6호선", "1:RS_ACC1_S-1-2611", "1:RS_ACC1_S-1-2626"))
+                .as("응암에서 타면 하행").isEqualTo("하행");
+    }
+
+    @Test
+    void line6UnknownStaysNullAndOtherLinesUseLongName() {
+        String route = "1:RR_ACC1_S-1-06-00";
+        assertThat(SubwayDirectionNormalizer.labelFor(route, "서울6호선", null, "1:RS_ACC1_S-1-2626")).isNull();
+        assertThat(SubwayDirectionNormalizer.labelFor(route, "서울6호선", "1:RS_ACC1_S-1-0201", "1:RS_ACC1_S-1-2626"))
+                .as("6호선 역 id 가 아니면 모른다").isNull();
+        // 다른 노선은 이름 라벨만 — 역 순서로 지어내지 않는다
+        assertThat(SubwayDirectionNormalizer.labelFor("1:RR_ACC1_S-1-05-1U", "서울5호선<상행>", null, null))
+                .isEqualTo("상행");
+        assertThat(SubwayDirectionNormalizer.labelFor("1:BR_TAGO_X", "143", "1:RS_ACC1_S-1-2631", "1:RS_ACC1_S-1-2626"))
+                .isNull();
+    }
+
 }

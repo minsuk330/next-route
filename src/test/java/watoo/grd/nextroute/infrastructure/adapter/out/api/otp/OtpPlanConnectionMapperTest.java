@@ -48,6 +48,27 @@ class OtpPlanConnectionMapperTest {
     }
 
     @Test
+    @DisplayName("6호선은 노선 이름에 라벨이 없다 — 승·하차역 순서로 방향을 정한다(#395)")
+    void line6DirectionFromStopOrder() throws IOException {
+        com.fasterxml.jackson.databind.node.ObjectNode root =
+                (com.fasterxml.jackson.databind.node.ObjectNode) load("otp/planconnection-subway.json");
+        JsonNode leg = root.path("data").path("planConnection").path("edges").get(0).path("node").path("legs").get(0);
+        com.fasterxml.jackson.databind.node.ObjectNode route = (com.fasterxml.jackson.databind.node.ObjectNode) leg.path("route");
+        route.put("gtfsId", "1:RR_ACC1_S-1-06-00");
+        route.put("longName", "서울6호선");
+        JsonNode calls = leg.path("stopCalls");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) calls.get(0).path("stopLocation"))
+                .put("gtfsId", "1:RS_ACC1_S-1-2631");                       // 이태원
+        ((com.fasterxml.jackson.databind.node.ObjectNode) calls.get(calls.size() - 1).path("stopLocation"))
+                .put("gtfsId", "1:RS_ACC1_S-1-2626");                       // 대흥
+
+        RoutingLeg subway = ((RoutingResult) mapper.map(root, departureAt, versions)).itineraries().get(0).legs().get(0);
+
+        assertThat(subway.sourceRouteDirection()).isEqualTo("상행");
+        assertThat(subway.missing()).doesNotContain(MissingAttribute.DIRECTION);
+    }
+
+    @Test
     @DisplayName("그래프가 준 route.color 를 leg 에 담는다 — 색이 있으면 COLOR 는 '없는 속성'이 아니다")
     void readsRouteColor() throws IOException {
         String json = new String(new ClassPathResource("otp/planconnection-subway.json").getContentAsByteArray(),
