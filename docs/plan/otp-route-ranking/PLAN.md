@@ -52,6 +52,9 @@
     - 전 값: AIRPLANE, BUS, CABLE_CAR, CARPOOL, COACH, FERRY, FUNICULAR, GONDOLA, MONORAIL, RAIL, SNOW_AND_ICE, SUBWAY, TAXI, TRAM, TROLLEYBUS
       (포크 `schema.graphqls` `enum TransitMode`). **목록을 주면 그 모드만 탐색**한다(`ModePreferencesMapper`: transit 미지정일 때만 `NarrowedTransitMode.all()`) → 전부 나열해야 탐색 범위 유지
     - 상수로 두고 javadoc 에 위 이유 기록
+  - **창 폴백(사용자 결정 2026-10-12, 구현 후 추가)**: 고정 창 응답이 `routingErrors` `NO_TRANSIT_CONNECTION_IN_SEARCH_WINDOW` 면
+    창을 빼고(OTP 자동 창) 같은 예산으로 1회 재검색. 실측: 홍천→인제 14:00 30분 창 0건 → 자동 창 2건(14:40·14:50 시외버스).
+    예산이 바닥나면 TIMEOUT(창 밖 경로 유무를 모른 채 "경로 없음" 금지). 다른 무경로 코드·창 미지정이면 재검색 안 함
 - [x] **4. 모델** — `B/application/route/routing/RoutingItinerary.java`
   - 마지막 컴포넌트로 `Integer generalizedCost` 추가(nullable. ODsay=null). javadoc `@param`
   - 기존 9인자 생성자를 하위호환 생성자로 유지(→ `generalizedCost=null`). `RoutingLeg` 의 하위호환 생성자 관례와 같음
@@ -94,6 +97,7 @@
 | generalizedCost 파싱, 없으면 null | `T/infrastructure/adapter/out/api/otp/OtpPlanConnectionMapperTest`(inline JSON) |
 | 요청 body: first=20, searchWindow "PT30M", BUS reluctance 1.3 + 전체 모드 | `T/infrastructure/adapter/out/api/otp/OtpRoutingAdapterHttpTest`(MockWebServer) |
 | reluctance 1.0 → modes 없음 / searchWindow null → 변수 없음 | 〃 |
+| 창 안 연결 없음 → 창 빼고 1회 재검색 / 다른 무경로·창 미지정은 재검색 안 함 | 〃 |
 | 검색: 후보 7개 → 응답 ≤5, 뒤쪽 저비용 후보가 앞으로 / rankingEnabled=false → 엔진 앞 5개 | `T/application/route/service/RouteSearchServiceOtpWiringTest` |
 | 재탐색: 후보 7개 → 엔진 순서 앞 5개 | `T/application/journey/service/RemainingRouteSearchServiceOtpTest` |
 

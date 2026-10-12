@@ -59,6 +59,8 @@ public class OtpRoutingAdapter implements RoutingPort {
     private static final List<String> ALL_TRANSIT_MODES = List.of(
             "AIRPLANE", "BUS", "CABLE_CAR", "CARPOOL", "COACH", "FERRY", "FUNICULAR", "GONDOLA",
             "MONORAIL", "RAIL", "SNOW_AND_ICE", "SUBWAY", "TAXI", "TRAM", "TROLLEYBUS");
+    /** 고정 탐색 창 안에 출발편이 없을 때 OTP 가 주는 routingErrors 코드. */
+    private static final String NO_CONNECTION_IN_WINDOW = "NO_TRANSIT_CONNECTION_IN_SEARCH_WINDOW";
 
     private final RestClient.Builder restClientBuilder;
     private final ObjectMapper objectMapper;
@@ -85,12 +87,27 @@ public class OtpRoutingAdapter implements RoutingPort {
 
     @Override
     public RoutingOutcome search(RoutingQuery routingQuery, RoutingDeadline deadline) {
+        Duration window = properties.getSearchWindow();
+        RoutingOutcome outcome = searchOnce(routingQuery, deadline, window);
+        // 고정 창 안에 출발편이 없으면 창을 빼고(OTP 자동 창) 한 번 더 묻는다. 배차가 창보다 긴
+        // 지방 시외·심야는 고정 창에서 0건이 된다(2026-10-12 홍천→인제 14:00: 30분 창 0건, 자동 창 2건).
+        // 같은 예산을 이어 쓴다. 예산이 바닥나면 TIMEOUT(NO_BUDGET) — 창 밖에 경로가 있는지 모르는 채
+        // "경로 없음"이라 하지 않는다.
+        if (window != null && outcome instanceof RoutingFailure failure
+                && NO_CONNECTION_IN_WINDOW.equals(failure.code())) {
+            log.info("[OTP] 탐색 창 {} 안에 연결 없음 → 자동 창으로 재검색", window);
+            return searchOnce(routingQuery, deadline, null);
+        }
+        return outcome;
+    }
+
+    private RoutingOutcome searchOnce(RoutingQuery routingQuery, RoutingDeadline deadline, Duration window) {
         long budget = deadline.remainingMillis(clock);
         if (budget <= 0) {
             return RoutingFailure.of(RoutingFailure.Kind.TIMEOUT, "NO_BUDGET",
                     "OTP 호출 전에 시간 예산이 소진됨");
         }
-        String body = requestBody(routingQuery);
+        String body = requestBody(routingQuery, window);
         String response;
         try {
             response = sendOnce(body, budget);
@@ -120,7 +137,7 @@ public class OtpRoutingAdapter implements RoutingPort {
         return mapper.map(root, routingQuery.departureAt(), versions);
     }
 
-    private String requestBody(RoutingQuery q) {
+    private String requestBody(RoutingQuery q, Duration window) {
         Map<String, Object> coordO = Map.of("latitude", q.originLat(), "longitude", q.originLon());
         Map<String, Object> coordD = Map.of("latitude", q.destLat(), "longitude", q.destLon());
         Map<String, Object> vars = new LinkedHashMap<>();
@@ -129,8 +146,8 @@ public class OtpRoutingAdapter implements RoutingPort {
         // offset 포함 확정 departureAt 을 feed 시간대로 표현(OTP OffsetDateTime).
         vars.put("when", q.departureAt().atZone(FEED_ZONE).toOffsetDateTime().toString());
         vars.put("first", properties.getFirst());
-        if (properties.getSearchWindow() != null) {
-            vars.put("searchWindow", properties.getSearchWindow().toString());
+        if (window != null) {
+            vars.put("searchWindow", window.toString());
         }
         if (properties.getBusReluctance() != 1.0) {
             vars.put("modes", Map.of("transit", Map.of("transit", transitModes(properties.getBusReluctance()))));
