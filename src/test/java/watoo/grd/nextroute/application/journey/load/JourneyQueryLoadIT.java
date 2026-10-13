@@ -139,6 +139,9 @@ class JourneyQueryLoadIT {
 
     private final AtomicLong providerCalls = new AtomicLong();
     private long latencyMs;
+    /** 임박하지 않은 여정에 모델이 답하는 도착까지 초. 사용자가 환승 지점에 닿은 뒤라 여유 판정이 된다. */
+    private long farModelSeconds;
+    private JourneyLoadFixture.Spec spec;
     private boolean enabledBefore;
     private JourneyLoadFixture fixture;
     private JourneyLoadFixture.Prepared prepared;
@@ -162,6 +165,7 @@ class JourneyQueryLoadIT {
         int distinctStops = interest <= 0 ? journeys : Math.min(interest, journeys);
         double nearRatio = envDouble("JQL_NEAR_RATIO", 0.2);
         int farRideSeconds = envInt("JQL_FAR_RIDE_SEC", JourneyLoadFixture.DEFAULT_RIDE_SECONDS);
+        farModelSeconds = envInt("JQL_FAR_MODEL_SEC", 300);
         Duration warmup = Duration.ofSeconds(envInt("JQL_WARMUP_SEC", 40));
         Duration window = Duration.ofSeconds(envInt("JQL_WINDOW_SEC", 120));
         int poolSize = envInt("JQL_POOL", properties.getPoolSize());
@@ -171,7 +175,7 @@ class JourneyQueryLoadIT {
         givenProviders();
 
         fixture = new JourneyLoadFixture(jdbc);
-        JourneyLoadFixture.Spec spec = new JourneyLoadFixture.Spec(
+        spec = new JourneyLoadFixture.Spec(
                 journeys, distinctStops, Instant.now(), properties.interval(), nearRatio, farRideSeconds);
         prepared = fixture.prepare(spec);
 
@@ -318,9 +322,25 @@ class JourneyQueryLoadIT {
             Thread.sleep(latencyMs);
             List<MlFeatureVector> vectors = call.getArgument(0);
             return vectors.stream()
-                    .map(v -> new MlPrediction(v.requestId(), MlPredictionStatus.AVAILABLE, 300.0, "load-test"))
+                    .map(v -> new MlPrediction(v.requestId(), MlPredictionStatus.AVAILABLE,
+                            (double) modelSecondsFor(v), "load-test"))
                     .toList();
         }).given(mlDelegate).predict(anyList());
+    }
+
+    /**
+     * 모델이 답할 도착까지 초. 임박 여정은 300초(타고 있는 사람에게 놓친 차 → 위험), 그 밖은
+     * {@code JQL_FAR_MODEL_SEC}. 모든 여정에 같은 값을 주면 먼 환승도 전부 위험이 되어 급함/비급이
+     * 갈리지 않는다(2026-10-14 진단). 노선 id 끝 번호가 관심 번호이고, 정류장이 전부 다를 때 그것이
+     * 곧 여정 순번이다.
+     */
+    private long modelSecondsFor(MlFeatureVector vector) {
+        Object routeId = vector.features().get("route_id");
+        if (spec == null || routeId == null || !routeId.toString().startsWith(JourneyLoadFixture.ROUTE_PREFIX)) {
+            return 300;
+        }
+        int interest = Integer.parseInt(routeId.toString().substring(JourneyLoadFixture.ROUTE_PREFIX.length()));
+        return spec.isNear(interest) ? 300 : farModelSeconds;
     }
 
     private <T> BusQueryResult<T> throughSharedLimiter(java.util.function.Supplier<BusQueryResult<T>> call)
