@@ -178,7 +178,13 @@ public class OtpPlanConnectionMapper {
         return new RoutingLeg(mode, transit ? otpMode : null, feedId, agencyId,
                 sourceRouteId, sourceRouteName, sourceRouteDirection, tripId, serviceDate,
                 boardAt, alightAt, rideDurationSeconds, stops, walkSteps,
-                geometry, enrichment, missing, sourceRouteColor);
+                geometry, enrichment, missing, sourceRouteColor, distance(legNode));
+    }
+
+    /** leg 거리(m). 없거나 숫자가 아니면 null — 0 으로 지어내지 않는다. */
+    private static Double distance(JsonNode legNode) {
+        JsonNode node = legNode.path("distance");
+        return node.isNumber() ? node.asDouble() : null;
     }
 
     private List<StopOccurrence> toStops(JsonNode legNode) {
