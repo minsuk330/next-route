@@ -281,15 +281,34 @@ class RouteSearchServiceOtpWiringTest {
     @DisplayName("실시간 요청이면 버스 도착예측을 서버가 채워 내린다 — 앱이 따로 묻지 않는다")
     void otpPathEnrichesTransferArrivals() {
         TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
-        RouteSearchResult enriched = new RouteSearchResult(0, 0, 0, 0, 0, List.of());
-        given(enricher.enrich(any(), any(), any())).willReturn(enriched);
+        java.util.concurrent.atomic.AtomicReference<RouteSearchResult> enriched = new java.util.concurrent.atomic.AtomicReference<>();
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> {
+            RouteSearchResult in = call.getArgument(0);
+            enriched.set(new RouteSearchResult(0, 0, 0, 0, 0, new java.util.ArrayList<>(in.paths())));
+            return enriched.get();
+        });
 
         RouteSearchResult out = service(otpReturning(busItinerary()), enricher)
                 .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
 
         verify(enricher).enrich(any(), any(), any());
         // 보강기가 돌려준 결과가 그대로 응답이 된다(meta 만 감싼다).
-        assertThat(out.paths()).isSameAs(enriched.paths());
+        assertThat(out.paths()).isSameAs(enriched.get().paths());
+    }
+
+    @Test
+    @DisplayName("후보가 전부 운행종료로 빠지면 422 ROUTE_ALL_ENDED — 빈 200 으로 '경로 없음'과 섞지 않는다(#400)")
+    void allEndedIs422() {
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willReturn(new RouteSearchResult(0, 0, 0, 0, 0, List.of()));
+
+        RouteSearchService svc = service(otpReturning(busItinerary()), enricher);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> svc.search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d")))
+                .isInstanceOf(watoo.grd.nextroute.global.error.BusinessException.class)
+                .extracting(e -> ((watoo.grd.nextroute.global.error.BusinessException) e).getErrorCode())
+                .isEqualTo(watoo.grd.nextroute.global.error.code.RouteErrorCode.ROUTE_ALL_ENDED);
     }
 
     @Test
