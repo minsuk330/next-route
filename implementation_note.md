@@ -4541,3 +4541,13 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 배포
 - 시험만 추가. 마이그레이션·운영 코드 변경 없음
+
+### 확정 (2026-10-13 추가: 대조군을 시험으로 고정)
+- 같은 순서를 "선점 시각 대조 없는 저장"으로 돌리는 대조군 3개를 `JourneyLateResultIT` 에 추가. 재선점: A=EVALUATED, B 의 최신 '여유'가 A 의 옛 '놓침'으로 덮이고 위험 알림이 쌓임. 단계 전이: 옛 단계 기준 MISSED·알림 저장. 여정 종료: 상태 조건이 따로 막아 LOST_CLAIM. → bullet 의 "확인 제거 시 3건 중 2건" 이 다시 돌릴 수 있는 근거가 됨
+- 대조군 장치 = `@SpyBean JourneyEvaluationScheduleWriter` 로 저장 직전 `next_evaluation_at` 을 그 워커의 선점 값으로 되돌린 뒤 실제 `finish` 호출(대조 조건을 늘 참으로 = 그 줄 삭제와 동치). ACTIVE 행만 되돌림
+
+### 함정
+- JPA 저장소 `@SpyBean` 에서 `callRealMethod` 불가("Cannot call abstract real method") ← 인터페이스 프록시. `getSpiedInstance()` 도 null / 가드: 구체 클래스(`JourneyEvaluationScheduleWriter`)를 가로챔
+
+### 검증
+- `./gradlew test --tests '*JourneyLateResultIT' --tests '*JourneyDueEvaluatorIT' --tests '*JourneyNotificationLostClaimIT'` → 7/7, 7/7, 2/2

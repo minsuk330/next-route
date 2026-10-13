@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,6 +31,7 @@ import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
 import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventType;
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
+import watoo.grd.nextroute.application.journey.service.JourneyEvaluationScheduleWriter;
 import watoo.grd.nextroute.testsupport.MutableClock;
 
 import java.time.Duration;
@@ -114,6 +116,8 @@ class JourneyLateResultIT {
     @Autowired MutableClock clock;
     @MockBean RouteSearchSnapshotPort snapshotPort;
     @MockBean PredictTransferUseCase predictTransferUseCase;
+    /** 대조군에서만 저장 직전에 끼어든다. 평소에는 실제 저장을 그대로 부른다. */
+    @SpyBean JourneyEvaluationScheduleWriter scheduleWriter;
 
     private final List<Long> createdUserIds = new ArrayList<>();
     private final ExecutorService workerA = Executors.newSingleThreadExecutor(r -> new Thread(r, "worker-A"));
@@ -123,12 +127,16 @@ class JourneyLateResultIT {
     private CountDownLatch releaseA;
     private Long userId;
     private Long journeyId;
+    /** true 면 저장할 때 선점 시각을 대조하지 않는다(대조군). */
+    private volatile boolean leaseCheckRemoved;
 
     @BeforeEach
     void setUp() {
         clock.set(Instant.now().truncatedTo(ChronoUnit.MICROS));
         aEntered = new CountDownLatch(1);
         releaseA = new CountDownLatch(1);
+        leaseCheckRemoved = false;
+        givenFinishEvaluationSwitch();
         given(snapshotPort.find(SESSION_ID, PATH_KEY)).willReturn(Optional.of(
                 new RouteSearchSnapshotPort.StoredPath(null, busPath(), Instant.now().plusSeconds(600))));
         givenAStopsInsideTheCall();
@@ -219,6 +227,85 @@ class JourneyLateResultIT {
         assertThat(afterCancel.nextEvaluationAt()).isNull();
         assertThat(afterCancel.calculatedAt()).isNull();
         assertThat(afterCancel.notifications()).as("끝난 여정에 위험 알림이 나가면 안 된다").isEmpty();
+    }
+
+    // ── 대조군: 저장할 때 선점 시각을 대조하지 않으면 ─────────────────────────
+    //
+    // 위 세 시험과 같은 순서를 돌리되, 저장 조건에서 "선점 때 미뤄 둔 시각이 그대로인가" 한 줄만
+    // 뺀다. 운영 코드는 그대로 두고 저장소 메서드를 이 시험 안에서만 바꿔 끼운다. 그 확인이 실제로
+    // 무엇을 막는지 — 빼면 무슨 일이 생기는지 — 를 누구든 다시 돌려 볼 수 있게 남긴다.
+
+    @Test
+    @DisplayName("대조군 · 재선점: 확인이 없으면 A 의 옛 '놓침'이 B 의 최신 '여유'를 덮고 틀린 위험 알림이 쌓인다")
+    void withoutLeaseCheckLateResultOverwritesNewer() throws Exception {
+        leaseCheckRemoved = true;
+        Future<Result> a = startWorkerA();
+
+        clock.advance(Duration.ofSeconds(61));
+        assertThat(evaluationService.evaluate(claim()).result()).isEqualTo(Result.EVALUATED);
+        State afterB = state();
+        assertThat(afterB.status()).isNotEqualTo(TransferStatus.MISSED.name());
+        assertThat(afterB.notifications()).isEmpty();
+
+        releaseA.countDown();
+
+        assertThat(a.get(WAIT_SECONDS, TimeUnit.SECONDS)).isEqualTo(Result.EVALUATED);
+        assertThat(storedStatus()).as("최신 판정이 옛 판정으로 덮였다").isEqualTo(TransferStatus.MISSED.name());
+        assertThat(notifications()).as("실제로는 탈 수 있는데 '놓쳤다' 알림이 쌓였다").isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("대조군 · 단계 전이: 확인이 없으면 옛 단계 기준 판정과 알림이 저장된다")
+    void withoutLeaseCheckStaleStepResultIsStored() throws Exception {
+        leaseCheckRemoved = true;
+        Future<Result> a = startWorkerA();
+
+        applyLegTransition(1, 2);
+        State afterTransition = state();
+
+        releaseA.countDown();
+
+        assertThat(a.get(WAIT_SECONDS, TimeUnit.SECONDS)).isEqualTo(Result.EVALUATED);
+        assertThat(state()).isNotEqualTo(afterTransition);
+        assertThat(storedStatus()).as("이미 내린 사람에게, 타고 있을 때 기준의 '놓침'")
+                .isEqualTo(TransferStatus.MISSED.name());
+        assertThat(notifications()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("대조군 · 여정 종료: 확인이 없어도 끝난 여정에는 남지 않는다 — 상태 조건이 따로 막는다")
+    void withoutLeaseCheckEndedJourneyIsStillGuarded() throws Exception {
+        leaseCheckRemoved = true;
+        Future<Result> a = startWorkerA();
+
+        cancelJourney();
+        State afterCancel = state();
+
+        releaseA.countDown();
+
+        assertThat(a.get(WAIT_SECONDS, TimeUnit.SECONDS)).isEqualTo(Result.LOST_CLAIM);
+        assertThat(state()).isEqualTo(afterCancel);
+    }
+
+    /**
+     * 저장 단계를 가로챈다.
+     *
+     * <p>대조군이 아니면 그대로 통과한다. 대조군이면 저장 직전에 여정의 다음 평가 시각을 이 워커가
+     * 선점 때 미뤄 둔 값으로 되돌려 놓고 실제 저장을 부른다. 대조 조건을 "늘 참"으로 만드는 것이라
+     * 그 한 줄을 지운 저장과 같다. 상태 조건(ACTIVE)은 그대로 남는다.
+     *
+     * <p>저장소 쪽을 가로채지 않는 이유: JPA 저장소는 인터페이스 프록시라 Mockito 가 실제 메서드로
+     * 넘겨 주지 못한다.
+     */
+    private void givenFinishEvaluationSwitch() {
+        willAnswer(call -> {
+            if (leaseCheckRemoved) {
+                JourneyDueClaim claim = call.getArgument(0);
+                jdbcTemplate.update("update journey_session set next_evaluation_at = ? where id = ? and status = 'ACTIVE'",
+                        java.sql.Timestamp.from(claim.leaseUntil()), claim.journeyId());
+            }
+            return call.callRealMethod();
+        }).given(scheduleWriter).finish(any(), any(), any(), any());
     }
 
     // ── 경합 장치 ────────────────────────────────────────────────────────────
