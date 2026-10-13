@@ -220,6 +220,8 @@ class JourneyQueryLoadIT {
             }
         }
         long providerCallsInWindow = providerCalls.get() - callsAtMeasureStart;
+        printIntervalsByNearness(spec);
+        printSlowResponseTiming(samples, measureFrom);
 
         Report report = new Report(List.copyOf(samples), errors.get(), inFlightAtStop.get(),
                 properties.getStaleAfterSeconds());
@@ -348,6 +350,65 @@ class JourneyQueryLoadIT {
         executor.setThreadNamePrefix("load-eval-");
         executor.initialize();
         return executor;
+    }
+
+    /**
+     * 실험이 끝난 시점에 여정마다 정해진 다음 계산 간격과 판정 상태를 임박/비임박으로 나눠 본다.
+     *
+     * <p>임박 여정의 판단 경과가 전체와 같게 나올 때 원인을 가른다. 둘 다 10초 간격이면 픽스처가 전원을
+     * 위험으로 만든 것이고, 간격은 갈리는데 경과가 같으면 선점 대기가 간격 차이를 덮은 것이다.
+     * 간격에는 흩뜨리기(최대 jitter 초)가 더해져 있다.
+     */
+    private void printIntervalsByNearness(JourneyLoadFixture.Spec spec) {
+        java.util.Map<Long, Integer> indexOf = new java.util.HashMap<>();
+        for (int i = 0; i < prepared.journeyIds().size(); i++) {
+            indexOf.put(prepared.journeyIds().get(i), i);
+        }
+        java.util.Map<Boolean, List<Long>> gaps = new java.util.HashMap<>();
+        java.util.Map<Boolean, java.util.Map<String, Integer>> statuses = new java.util.HashMap<>();
+        org.springframework.jdbc.core.RowCallbackHandler handler = rs -> {
+            boolean near = spec.isNear(indexOf.get(rs.getLong(1)));
+            statuses.computeIfAbsent(near, k -> new java.util.TreeMap<>())
+                    .merge(String.valueOf(rs.getString(2)), 1, Integer::sum);
+            double gap = rs.getDouble(3);
+            if (!rs.wasNull()) {
+                gaps.computeIfAbsent(near, k -> new ArrayList<>()).add(Math.round(gap));
+            }
+        };
+        jdbc.query("""
+                select s.id, t.status, extract(epoch from (s.next_evaluation_at - t.calculated_at))
+                  from journey_session s
+                  join transfer_connection t on t.journey_id = s.id and t.transfer_index = 0
+                 where s.id = any (?)
+                """, handler, (Object) prepared.journeyIds().toArray(Long[]::new));
+        for (boolean near : List.of(true, false)) {
+            List<Long> sorted = new ArrayList<>(gaps.getOrDefault(near, List.of()));
+            Collections.sort(sorted);
+            System.out.printf("다음 계산 간격(%s) n=%d p10/p50/p90 = %s / %s / %s 초, 상태 %s%n",
+                    near ? "임박" : "비임박", sorted.size(), at(sorted, 10), at(sorted, 50), at(sorted, 90),
+                    statuses.getOrDefault(near, java.util.Map.of()));
+        }
+    }
+
+    /** p99 이상으로 느린 응답이 창의 어느 구간에 몰렸는지(10초 단위). 초반에 몰리면 예열, 고르면 상시 경합이다. */
+    private void printSlowResponseTiming(List<Sample> samples, Instant measureFrom) {
+        List<Long> took = samples.stream().map(Sample::tookMs).sorted().toList();
+        if (took.isEmpty()) {
+            return;
+        }
+        long threshold = took.get(Math.max(0, (int) Math.ceil(0.99 * took.size()) - 1));
+        java.util.Map<Long, Integer> buckets = new java.util.TreeMap<>();
+        samples.stream().filter(s -> s.tookMs() >= threshold).forEach(s -> buckets.merge(
+                Duration.between(measureFrom, s.respondedAt()).toSeconds() / 10 * 10, 1, Integer::sum));
+        System.out.printf("p99 이상(%dms+) 응답 %d건의 시각 분포(창 시작 후 초 → 건수): %s%n",
+                threshold, buckets.values().stream().mapToInt(Integer::intValue).sum(), buckets);
+    }
+
+    private static String at(List<Long> sorted, int percentile) {
+        if (sorted.isEmpty()) {
+            return "-";
+        }
+        return String.valueOf(sorted.get(Math.max(0, (int) Math.ceil(percentile / 100.0 * sorted.size()) - 1)));
     }
 
     // ── 기록 ────────────────────────────────────────────────────────────────
