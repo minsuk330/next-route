@@ -169,5 +169,15 @@
     "allLineExitCopies": 1155,
     "multiPlatformGroups": 165,
     "allLinesNote": "VSA_ = 출구 있고 승강장 2개 이상인 지하철 역 묶음. 자식 = 묶음 모든 승강장 복제(일반철도 RS_TAGO_N 포함, 운행 없음) + 출구 복제. 앱은 노선 없는 역 이름에만 쓴다"
+  },
+  "deploy": {
+    "at": "2026-10-13T13:49:41+09:00",
+    "vpsDir": "/srv/nextroute/otp/national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-gf19e19a0a050/",
+    "command": "docker compose -f compose.yaml -f /root/apps/observability/otp/compose.otp-national.yaml up -d --force-recreate --no-deps otp",
+    "otpHealthyAfterSec": 52,
+    "otpHeap": "-Xmx3500m, mem_limit 4500m (변경 없음). 기동 직후 3.75GiB",
+    "app": "api·worker DEPLOY_REVISION=8716e7cb (#401), jar sha bfd7d236, 백업 app.jar.bak-20261013-pre-all-lines(=ff4e4f2c, 9c9057b9)",
+    "rollbackBackups": "compose.yaml / compose.otp-national.yaml .bak-20261013-134934-pre-alllines. 옛 그래프 디렉터리 ...-shaped-gbis-entrances-gec71dd622424 유지",
+    "verified": "운영 /api/route/search 현재 위치→\"서울역\"·\"서울역 (고속철도)\": 640>4호선 33 / 2호선>4호선 34 / 421 32 / 402 38 / 420>4호선 34 (이전: 지하철 0개). 서울역→잠실역 2호선 4호선>2호선 34분 1위. 강남대로→광화문 버스 741·470 1위 유지. api \"역 승강장 1071개 적재(모든 노선 역 승강장 363개)\", api·worker ERROR 0. 재기동 직후 첫 검색 1건은 역 목록 적재 전이라 좌표 검색(설계대로)"
   }
 }
