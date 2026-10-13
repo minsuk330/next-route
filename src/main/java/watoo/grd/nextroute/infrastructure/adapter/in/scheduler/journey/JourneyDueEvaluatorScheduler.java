@@ -69,6 +69,10 @@ public class JourneyDueEvaluatorScheduler {
      * 잡고, 늦게 끝난 워커의 결과는 소유권 확인에서 걸러진다.
      */
     private void tick() {
+        if (properties.getClaimOrder() == JourneyEvaluatorProperties.ClaimOrder.URGENT_FIRST) {
+            refill();
+            return;
+        }
         List<JourneyDueClaim> claims = claimService.claimDue();
         metrics.recordClaimed(claims.size());
         if (claims.isEmpty()) {
@@ -96,6 +100,29 @@ public class JourneyDueEvaluatorScheduler {
      *
      * @return 큐가 차서 맡기지 못했으면 null
      */
+    /**
+     * 워커가 곧바로 집을 수 있는 만큼만 선점하고, 끝나기를 기다리지 않는다.
+     *
+     * <p>배치(200건)를 한꺼번에 잡으면 처리량(초당 수 건)을 훨씬 넘는 여정이 작업 큐에 들어가 들어온
+     * 순서대로 기다린다. 그러면 선점 쿼리가 급한 환승을 먼저 골라도 실제 처리 순서는 큐가 정한다
+     * (측정: 급한 여정 판단 나이 p95 54.7 → 54.0초, 효과 없음). 그렇다고 작게 잡고 묶음이 끝나기를
+     * 기다리면 tick 사이에 워커가 논다(측정: 처리량 8.6 → 5.0회/s).
+     *
+     * <p>그래서 빈자리만큼만 잡아 넘기고 바로 돌아온다. 다음 tick 이 다시 빈자리를 채운다. 큐에는 워커
+     * 수만큼만 여분을 둬 tick 사이에도 워커가 쉬지 않게 한다. 큐가 짧으니 잡은 여정이 선점 만료 전에
+     * 시작된다.
+     */
+    private void refill() {
+        int busy = executor.getActiveCount() + executor.getThreadPoolExecutor().getQueue().size();
+        int free = properties.getPoolSize() * 2 - busy;
+        if (free <= 0) {
+            return;
+        }
+        List<JourneyDueClaim> claims = claimService.claimDue(free);
+        metrics.recordClaimed(claims.size());
+        claims.forEach(this::submit);
+    }
+
     private CompletableFuture<Void> submit(JourneyDueClaim claim) {
         try {
             return CompletableFuture.runAsync(() -> evaluateOne(claim), executor);
