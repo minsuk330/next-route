@@ -2,6 +2,10 @@
 
 브랜치: `feat/journey-evaluator-urgent-first` (fresh main `55990ddc` 기준)
 
+## 구현 중 바뀐 결정 (2026-10-14, 측정 근거는 implementation_note.md)
+- D1 개정: 순서 = **세 줄** 급함 → 기다림 상한 넘긴 여정 → 나머지. 같은 줄에 두면 계속 넘치는 동안 밀린 비급 여정이 급한 여정을 앞질렀다
+- D8 추가: URGENT_FIRST 모드의 스케줄러는 **빈자리만큼만 선점하고 기다리지 않는다**(`JourneyDueEvaluatorScheduler.refill`). 배치 200을 통째로 잡으면 작업 큐 FIFO 가 순서를 정해 순서 효과가 0이었다
+
 ## 배경
 - 평가기 처리량 = min(워커 `poolSize`, 호출 몫 `providerPermits`) ÷ 외부 지연이다. PR #409 에서 측정했다: 4/4·500ms 면 약 8회/s, 한 명당 약 2회라 약 4명/s.
 - 넘치면 선점 줄이 밀린다. 그런데 `claimDueBatch` 는 `ORDER BY next_evaluation_at` 뿐이다(`JourneySessionRepository.java:209-226`). 2분 뒤 환승하는 여정도 40분 뒤 환승하는 여정과 같은 줄에서 기다린다.

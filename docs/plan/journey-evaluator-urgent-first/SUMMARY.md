@@ -1,7 +1,7 @@
 # 평가기 선점 순서: 급한 환승 먼저
 
 ## 뭘 하나
-서버가 밀릴 때 환승이 위험하거나 임박한 여정을 먼저 계산한다. 급하지 않은 여정은 60초 넘게 밀리면 같은 줄로 올려 굶지 않게 한다. 처리량(동시 4)은 그대로 둔다.
+서버가 밀릴 때 환승이 위험하거나 임박한 여정을 먼저 계산한다(급함 → 60초 넘게 밀린 여정 → 나머지). 스케줄러는 빈자리만큼만 선점해 순서가 실제 처리 순서에 닿게 한다. 처리량(동시 4)은 그대로 둔다.
 
 ## 왜
 지금은 예정 시각 순이라, 밀리면 2분 뒤 환승하는 사람과 40분 뒤 환승하는 사람이 같은 줄에서 기다린다(PR #409 측정 한계).
@@ -14,7 +14,7 @@
 - 스위치 `claim-order`(기본 URGENT_FIRST, DUE_TIME = 롤백). 같은 빌드로 전후를 측정한다
 
 ## 건드는 곳
-V66 마이그레이션, JourneySession, JourneySessionRepository, JourneyEvaluatorProperties, application.yaml, JourneyDueClaimService, JourneyEvaluationService, JourneyEvaluationScheduleWriter, 테스트(JourneyDueEvaluatorIT·JourneyEvaluationIT·PropertiesTest·알림 IT 호출부), 하네스(#409 추가 커밋)
+JourneyDueEvaluatorScheduler(빈자리만큼 선점), V66 마이그레이션, JourneySession, JourneySessionRepository, JourneyEvaluatorProperties, application.yaml, JourneyDueClaimService, JourneyEvaluationService, JourneyEvaluationScheduleWriter, 테스트(JourneyDueEvaluatorIT·JourneyEvaluationIT·PropertiesTest·알림 IT 호출부), 하네스(#409 추가 커밋)
 
 ## 리스크
 - V66 VPS 수동배치 누락 시 운영 부팅 실패 → 노트·PR 에 명시
