@@ -69,7 +69,7 @@ class RouteSearchServiceOtpWiringTest {
     }
 
     private RouteSearchService service(RoutingPort otpPort, TransferArrivalEnricher enricher) {
-        return service(otpPort, enricher, new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
+        return service(otpPort, enricher, limitFive());
     }
 
     private RouteSearchService service(RoutingPort otpPort, TransferArrivalEnricher enricher,
@@ -135,7 +135,7 @@ class RouteSearchServiceOtpWiringTest {
     void rankingDisabledKeepsEngineOrder() {
         TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
         given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
-        watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps = new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
+        watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps = limitFive();
         otpProps.setRankingEnabled(false);
 
         RouteSearchResult legacy = service(otpReturning(busesThenCheapSubway()), enricher, otpProps)
@@ -212,12 +212,39 @@ class RouteSearchServiceOtpWiringTest {
                 .on(Set.of(), result(singleLeg(RoutingMode.BUS, "1:A", "A", 4000)));
         TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
         given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
-        watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps = new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
+        watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps = limitFive();
         otpProps.setSupplementaryEnabled(false);
 
         service(otp, enricher, otpProps).search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
 
         assertThat(otp.asked).containsExactly(Set.of());
+    }
+
+    /** 정렬·추가 검색 시험은 노출 상한 5 로 고정해 본다(기본값 10 은 아래 시험이 따로 본다). */
+    private static watoo.grd.nextroute.application.route.config.OtpRoutingProperties limitFive() {
+        watoo.grd.nextroute.application.route.config.OtpRoutingProperties p = new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
+        p.setDisplayLimit(5);
+        return p;
+    }
+
+    @Test
+    @DisplayName("기본 노출 상한은 검색 10개 — 고유 12개 후보에서 비용 순 10개(재탐색 상한 5 와 별개)")
+    void defaultDisplayLimitIsTen() {
+        java.util.List<RoutingItinerary> engine = new java.util.ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            engine.add(singleLeg(RoutingMode.BUS, "1:R" + i, "B" + i, 6000 - i));
+        }
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
+        watoo.grd.nextroute.application.route.config.OtpRoutingProperties defaults = new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
+
+        RouteSearchResult legacy = service(otpReturning(new RoutingResult(RoutingProvider.OTP, "v", "202503", "g1",
+                null, null, Instant.now(), List.of(), engine)), enricher, defaults)
+                .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(defaults.getDisplayLimit()).isEqualTo(10);
+        assertThat(defaults.getRerouteLimit()).isEqualTo(5);
+        assertThat(firstLaneNames(legacy)).containsExactly("B11", "B10", "B9", "B8", "B7", "B6", "B5", "B4", "B3", "B2");
     }
 
     private static final Set<RoutingMode> RAIL_ONLY = Set.of(RoutingMode.SUBWAY, RoutingMode.RAIL);

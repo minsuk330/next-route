@@ -20,8 +20,13 @@ public class OtpRoutingProperties {
      * 같은 노선 반복을 묶고 일반화비용 순으로 {@link #displayLimit} 개를 고른다({@code ItineraryRanker}).
      */
     private int first = 20;
-    /** 응답에 내보내는 경로 수 상한. 검색은 정렬 뒤, 재탐색은 엔진 순서 앞에서 자른다. */
-    private int displayLimit = 5;
+    /** 검색 응답에 내보내는 경로 수 상한(정렬·중복 제거 뒤). 5→10(2026-10-13, 사용자 요청). */
+    private int displayLimit = 10;
+    /**
+     * 주행 재탐색 후보 수 상한. 엔진 순서 앞에서 자른다. 후보 수가 곧 실시간 평가 횟수라
+     * 검색 노출 수({@link #displayLimit})와 따로 둔다.
+     */
+    private int rerouteLimit = 5;
     /**
      * OTP 탐색 창. null 이면 보내지 않아 OTP 가 동적으로 잡는다(실측 1h10m~2h10m). 창이 길면 결과가
      * "출발편 타임라인"이 돼 같은 노선이 반복되고 OTP 계산도 길어진다(30분: 1.4s→0.7s, 2026-10-12).
@@ -66,6 +71,8 @@ public class OtpRoutingProperties {
     private boolean realtimeEnabled = false;
 
     public String getBaseUrl() { return baseUrl; }
+    public int getRerouteLimit() { return rerouteLimit; }
+    public void setRerouteLimit(int rerouteLimit) { this.rerouteLimit = rerouteLimit; }
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
     public int getFirst() { return first; }
     public void setFirst(int first) { this.first = first; }
