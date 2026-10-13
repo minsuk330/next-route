@@ -178,6 +178,7 @@ class JourneyQueryLoadIT {
         spec = new JourneyLoadFixture.Spec(
                 journeys, distinctStops, Instant.now(), properties.interval(), nearRatio, farRideSeconds);
         prepared = fixture.prepare(spec);
+        markStartedJourneysUrgent();
 
         ThreadPoolTaskExecutor executor = null;
         AtomicBoolean evaluatorRunning = new AtomicBoolean(on);
@@ -285,6 +286,21 @@ class JourneyQueryLoadIT {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * 실제 여정 시작은 첫 평가를 급한 줄에 세운다({@code evaluation_urgent}, V66). 픽스처는 JDBC 로 직접
+     * 넣어 그 표시가 비어 있으므로 같게 맞춘다. 칼럼이 없는 스키마(V66 이전)에서는 건너뛴다.
+     */
+    private void markStartedJourneysUrgent() {
+        Integer columns = jdbc.queryForObject("""
+                select count(*) from information_schema.columns
+                 where table_name = 'journey_session' and column_name = 'evaluation_urgent'
+                """, Integer.class);
+        if (columns != null && columns > 0) {
+            jdbc.update("update journey_session set evaluation_urgent = true where id = any (?)",
+                    (Object) prepared.journeyIds().toArray(Long[]::new));
         }
     }
 
