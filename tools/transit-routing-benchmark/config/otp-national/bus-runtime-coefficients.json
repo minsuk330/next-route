@@ -1,5 +1,6 @@
 {
- "_comment": "calibrate_bus_runtimes.py: hop seconds = (secPerMeter x hop metres + secPerHop) x trip time-of-day factor. Fitted 2026-10-14 to ODsay sectionTime (60 OD, legs with >= 3 stops, first lane only, least squares on relative error). Evidence and fit scripts: docs/plan/bus-runtime-calibration/research/calibration/. Regions without ODsay samples stay unchanged.",
+ "_comment": "calibrate_bus_runtimes.py: stop pairs in --section-times use sectionTimes; other hops = (secPerMeter x hop metres + secPerHop) x trip time-of-day factor. Fitted 2026-10-14 to ODsay sectionTime (60 OD, legs with >= 3 stops, first lane only, least squares on relative error). Evidence and fit scripts: docs/plan/bus-runtime-calibration/research/calibration/. Regions without ODsay samples stay unchanged.",
+ "sectionTimes": {"scale": 0.935, "stopIdPrefixes": ["BS_TAGO_SEB", "BS_TAGO_GGB"], "_comment": "with --section-times (fetch_seoul_section_times.py, Seoul TOPIS stop-pair hourly running time): hop = scale x section seconds for the departure hour. scale 0.935 = our position-label measurements (Seoul 208 routes, weekday, all periods: ours/measured 0.963 at scale 0.9 -> 1.0)."},
  "todWindow": ["10:00:00", "16:00:00"],
  "todClamp": [0.7, 1.4],
  "detourFactor": 1.25,

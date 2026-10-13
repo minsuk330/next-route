@@ -175,6 +175,75 @@ class RetimeTest(unittest.TestCase):
         self.assertIn("tripRuntimeRatio", doc["regions"]["seoul"])
 
 
+def section_csv(path: Path, rows: list[tuple[str, str, str, float]]) -> Path:
+    path.write_text("from_stop,to_stop,hour,seconds\n" + "".join(f"{a},{b},{h},{v}\n" for a, b, h, v in rows), encoding="utf-8")
+    return path
+
+
+class SectionTimesTest(unittest.TestCase):
+    """Stop ids S0, S1 ... ; with stopIdPrefixes ["S"] the section key of S1 is "1"."""
+
+    def feed(self, trips, sections, scale=0.9):
+        c = coefficients(sectionTimes={"scale": scale, "stopIdPrefixes": ["S"]})
+        f = Feed(trips, ROUTES, c)
+        self.addCleanup(f.close)
+        sec = section_csv(Path(f.tmp.name) / "sections.csv", sections)
+        return f, sec
+
+    def test_section_hop_uses_scaled_value_for_the_departure_hour_and_formula_elsewhere(self):
+        f, sec = self.feed({"m1": (SEB, trip_rows("m1", "14:00:00", [30, 30]))},
+                           [("0", "1", "14", 200), ("0", "1", "all", 100)])
+        rep = cbr.run(f.inp, f.coef, f.out, f.rep, sec)
+        # hop 0: 0.9 * 200 = 180 s (14 h value); hop 1: formula 90 s; dwell 10
+        self.assertEqual(f.times()["m1"], [("14:00:00", "14:00:00"), ("14:03:00", "14:03:10"), ("14:04:40", "14:04:40")])
+        self.assertEqual((rep.section_hops, rep.formula_hops), (1, 1))
+
+    def test_missing_hour_falls_back_to_any_hour_median(self):
+        f, sec = self.feed({"m1": (SEB, trip_rows("m1", "03:00:00", [30]))},
+                           [("0", "1", "14", 200), ("0", "1", "all", 100)])
+        cbr.run(f.inp, f.coef, f.out, f.rep, sec)
+        self.assertEqual(f.times()["m1"][-1][0], "03:01:30")  # 0.9 * 100
+
+    def test_section_far_from_formula_is_ignored(self):
+        f, sec = self.feed({"m1": (SEB, trip_rows("m1", "14:00:00", [30]))},
+                           [("0", "1", "14", 2000), ("0", "1", "all", 2000)])
+        rep = cbr.run(f.inp, f.coef, f.out, f.rep, sec)
+        self.assertEqual(rep.section_rejected, 1)
+        self.assertEqual(f.times()["m1"][-1][0], "14:01:30")  # formula
+
+    def test_section_hops_do_not_take_the_trip_factor(self):
+        f, sec = self.feed({"m1": (SEB, trip_rows("m1", "14:00:00", [30, 30])),
+                            "r1": (SEB, trip_rows("r1", "18:00:00", [36, 36]))},
+                           [("0", "1", "all", 100)])
+        cbr.run(f.inp, f.coef, f.out, f.rep, sec)
+        # r1 factor 1.2: hop 0 section 90 (no factor), hop 1 formula 108
+        self.assertEqual(f.times()["r1"][-1][0], "18:03:28")  # 90 + 10 + 108
+
+    def test_hourly_sections_cannot_make_a_later_trip_overtake(self):
+        # 13:59 leaves in the slow 13 h slot, 14:00 in the fast 14 h slot -> would arrive first
+        f, sec = self.feed({"a": (SEB, trip_rows("a", "13:59:00", [30])), "b": (SEB, trip_rows("b", "14:00:00", [30]))},
+                           [("0", "1", "13", 400), ("0", "1", "14", 100), ("0", "1", "all", 200)], scale=1.0)
+        rep = cbr.run(f.inp, f.coef, f.out, f.rep, sec)
+        t = f.times()
+        self.assertEqual(t["a"][-1][0], "14:05:40")
+        self.assertEqual(t["b"][-1][0], "14:05:40")  # pushed to a's arrival, not earlier
+        self.assertEqual((rep.guard_raised, rep.overtaking_after), (1, 0))
+
+    def test_pair_without_all_row_fails(self):
+        f, sec = self.feed({"m1": (SEB, trip_rows("m1", "14:00:00", [30]))}, [("0", "1", "14", 100)])
+        with self.assertRaises(ValueError) as cm:
+            cbr.run(f.inp, f.coef, f.out, f.rep, sec)
+        self.assertIn("'all'", str(cm.exception))
+
+    def test_section_times_need_stop_prefixes(self):
+        f = Feed({"m1": (SEB, trip_rows("m1", "14:00:00", [30]))}, ROUTES, coefficients())
+        self.addCleanup(f.close)
+        sec = section_csv(Path(f.tmp.name) / "s.csv", [("0", "1", "all", 100)])
+        with self.assertRaises(ValueError) as cm:
+            cbr.run(f.inp, f.coef, f.out, f.rep, sec)
+        self.assertIn("stopIdPrefixes", str(cm.exception))
+
+
 class FailTest(unittest.TestCase):
     def run_with(self, coef, trips=None):
         f = Feed(trips or {"m1": (SEB, trip_rows("m1", "14:00:00", [30]))}, ROUTES, coef)

@@ -12,6 +12,9 @@ ODsay 구간 시간에 맞춰 `config/otp-national/bus-runtime-coefficients.json
 | 6 | `e2e.py fetch <port\|vps> DIR` / `e2e.py eval DIR` | 실제 OTP 응답(BUS-only 14시)의 버스 구간을 ODsay 와 비교 |
 | 7 | `itin.py`·`decomp.py` | 같은 버스 조합 경로의 전체 소요 비교와 도보·탑승·대기 분해 |
 | 8 | `fit6.py`·`fit7.py` | 기각한 개선안: 구간 거리 꺾은선, 빠른 버스(직행좌석·광역·좌석) 별도 그룹 — LOO 1%p 이내 |
+| 9 | `fit8.py`·`fit9.py`·`hybrid_eval.py` | 기각: 구간 위치별 계수, 우리 실측 정류장 쌍 혼잡 계수(60초 폴링 잡음, 10월 표본 밖 검증에서 악화) |
+| 10 | `blend_eval.py` | 채택: 서울 TOPIS 정류장 쌍 시간(`runner/fetch_seoul_section_times.py`)과 공식의 혼합 — ODsay·10월 실측·네이버 동시 평가로 w=1, scale 선택 |
+| 11 | `naver_cmp2.py`(+`naverlib.py`) | 네이버 기록값(2026-10-12 사용자 확인 5개) 대조: 앱과 같은 역 판별 + 노선 지정 질의 |
 
 결과 = `fit_results.txt`(맞춤), `e2e_results.txt`(실제 OTP 응답). OD 목록: 1일차 = `../odsay/ods.txt`, 2일차 홀드아웃 = `ods_holdout.txt`, 쿼터로 못 받은 것 = `ods_pending_quota2.txt`(ODsay 키 하루 30회).
 
