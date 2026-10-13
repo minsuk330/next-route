@@ -21,9 +21,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 class OtpRoutingAdapterBudgetTest {
 
     private final Instant now = Instant.parse("2026-09-08T00:00:00Z");
-    private final OtpRoutingAdapter adapter = new OtpRoutingAdapter(
-            RestClient.builder(), new ObjectMapper(), new OtpPlanConnectionMapper(),
-            new OtpRoutingProperties(), Clock.fixed(now, ZoneOffset.UTC));
+    private final OtpRoutingAdapter adapter = adapter();
+
+    private OtpRoutingAdapter adapter() {
+        OtpRoutingProperties props = new OtpRoutingProperties();
+        props.setStationSnapEnabled(false);
+        Clock clock = Clock.fixed(now, ZoneOffset.UTC);
+        return new OtpRoutingAdapter(RestClient.builder(), new ObjectMapper(), new OtpPlanConnectionMapper(),
+                props, new OtpStationResolver(RestClient.builder(), new ObjectMapper(), props, clock), clock);
+    }
 
     @Test
     @DisplayName("provider() == OTP")

@@ -46,7 +46,8 @@ import java.util.regex.Pattern;
  *       (GGB 9자리), 서울·경기 밖은 접두사 포함 TAGO id(BSB…). 매핑 안 되면 null(가짜값 금지).
  *       지하철은 실시간이 좌표 기반({@code /api/arrivals/subway?lat&lon})이라 id 를 채우지 않는다 — 좌표로 충분.
  *       ArsID/exit 는 원천 부재라 여전히 null.</li>
- *   <li>{@code totalWalk}(m) — 중립 모델이 거리(m)를 안 들고 있어 0. 시간(초)만 정확.</li>
+ *   <li>{@code totalWalk}(m)·도보 {@code distance}(m) — OTP leg {@code distance} 를 반올림(#399). leg 거리가 없으면 도보
+ *       turn 거리 합, 그것도 없으면 구간 {@code distance} 는 null 이고 {@code totalWalk} 합에서는 빠진다.</li>
  * </ul>
  * 노선 표시색은 그래프 빌드 때 GTFS route_color 로 채워 OTP 가 내려준 값을 쓴다(#247). 예외: 경기 버스는 그래프에
  * 유형 색이 없어 노선 유형으로 고쳐 쓰고({@link GyeonggiBusRouteTypeColors}, #391), 유형을 모르는 M버스는 광역
@@ -108,7 +109,7 @@ public class LegacyRouteResponseMapper {
         PathInfo info = new PathInfo(
                 totalTimeMin,
                 toLegacyPayment(it.fare()),
-                0,                                  // totalWalk(m): 중립 모델에 거리 없음 → 0
+                totalWalkMeters(it),                // totalWalk(m): 도보 구간 거리 합(#399)
                 it.transferCount(),
                 firstStationName(it),
                 lastStationName(it),
@@ -216,12 +217,46 @@ public class LegacyRouteResponseMapper {
 
         // 채우지 못하는 legacy 필드는 null(가짜값 금지): exit/walkSteps/ArsID/지하철-id.
         // wayCode 는 지하철 leg 에서만 채운다 — 버스는 원천에도 방향 코드가 없다.
+        Double distance = leg.mode() == RoutingMode.WALK ? walkDistance(leg) : null;
         return new SubPathResult(
-                trafficType, sectionTime, null, lanes, stations,
+                trafficType, sectionTime, distance, lanes, stations,
                 startName, endName, startX, startY, endX, endY,
                 null, null, null, null, wayCode, polyline,
                 null, null, null, null, null, null,
                 null, startLocalStationID, endLocalStationID, null, null, null, null, null);
+    }
+
+    /**
+     * 도보 구간 거리(m, 정수로 반올림). leg 거리가 우선이고, 없으면 도보 turn 거리 합. 둘 다 없으면 null — 0 으로
+     * 지어내면 앱이 "도보 0m"를 그린다(#399).
+     */
+    static Double walkDistance(RoutingLeg leg) {
+        if (leg.distanceMeters() != null) {
+            return (double) Math.round(leg.distanceMeters());
+        }
+        if (leg.walkSteps().isEmpty()) {
+            return null;
+        }
+        double sum = 0;
+        for (var step : leg.walkSteps()) {
+            sum += step.distanceMeters();
+        }
+        return (double) Math.round(sum);
+    }
+
+    /** 경로의 도보 거리 합(m). 거리를 모르는 도보 구간은 빠진다. */
+    private static int totalWalkMeters(RoutingItinerary it) {
+        int total = 0;
+        for (RoutingLeg leg : it.legs()) {
+            if (leg.mode() != RoutingMode.WALK) {
+                continue;
+            }
+            Double d = walkDistance(leg);
+            if (d != null) {
+                total += d.intValue();
+            }
+        }
+        return total;
     }
 
     /**

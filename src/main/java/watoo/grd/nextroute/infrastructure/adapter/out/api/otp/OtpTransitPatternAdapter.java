@@ -115,12 +115,15 @@ public class OtpTransitPatternAdapter implements TransitPatternPort {
     /**
      * 사각형 안 정류장을 직선거리로 반경 안만 남겨 가까운 순으로 {@code limit} 개. 거리는 OTP 가 아니라 여기서 잰다
      * (graphql 머리말: stopsByRadius 는 도보 탐색 거리라 좌표에 따라 0개가 된다).
+     *
+     * <p>지나는 노선이 없는 정류장은 자르기 전에 뺀다 — 고를 노선이 없다. 역 출구 지점(그래프 빌드가 넣는 운행 없는
+     * stop, 역 하나에 출구 수 × 승강장 수)이 여기에 해당하고, 빼지 않으면 가까운 자리를 차지해 진짜 정류장이 잘린다.
      */
     public static List<NearStop> parseStopsNear(JsonNode root, double lat, double lon, int radiusMeters, int limit) {
         List<NearStop> stops = new ArrayList<>();
         for (JsonNode stop : root.path("data").path("stopsByBbox")) {
             String id = text(stop.path("gtfsId"));
-            if (id == null) {
+            if (id == null || stop.path("routes").isEmpty()) {
                 continue;
             }
             TransitStop transitStop = toStop(stop);

@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.route.service;
 
+import watoo.grd.nextroute.global.error.BusinessException;
+import watoo.grd.nextroute.global.error.code.RouteErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -164,8 +166,8 @@ public class RouteSearchService implements SearchRouteUseCase {
         // withRealtime=false 는 요청이 실시간을 요구하지 않은 것이므로 degradation 이 아니다(단계 미적용).
         if (withRealtime) {
             RouteSearchResult afterBus = result;
-            result = stage(ctx, SearchComponent.BUS_REALTIME,
-                    () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx));
+            result = requireRideable(afterBus, stage(ctx, SearchComponent.BUS_REALTIME,
+                    () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx)));
         }
 
         return result;
@@ -209,12 +211,22 @@ public class RouteSearchService implements SearchRouteUseCase {
         if (!withRealtime) {
             return mapped;
         }
-        // 버스 구간 도착예측. enricher 는 값만 채운다 — 위에서 정한 정적 순서를 그대로 두고
-        // 실시간 기반 재정렬·강등·MISSED 숨김은 하지 않는다(그 판단은 사용자 몫). 보강이 예산에 잘리면
+        // 버스 구간 도착예측. enricher 는 값을 채우고, 실시간이 "운행종료"라 한 버스 구간을 지나는 경로만 뺀다(#400) —
+        // 남은 순서는 그대로, 놓침(MISSED)·지연 기반 재정렬·강등은 하지 않는다(그 판단은 사용자 몫). 보강이 예산에 잘리면
         // transferArrivals 가 비고 meta.degraded 에 bus_realtime 이 남는다 — 검색 자체는 200 이다.
         RouteSearchResult afterBus = mapped;
-        return stage(ctx, SearchComponent.BUS_REALTIME,
-                () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx));
+        return requireRideable(afterBus, stage(ctx, SearchComponent.BUS_REALTIME,
+                () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx)));
+    }
+
+    /** 후보가 있었는데 전부 운행종료로 빠졌으면 422 — 앱이 "지금은 탈 수 있는 경로가 없어요"를 보인다(#400). */
+    private static RouteSearchResult requireRideable(RouteSearchResult before, RouteSearchResult after) {
+        boolean hadPaths = before.paths() != null && !before.paths().isEmpty();
+        boolean nonePaths = after.paths() == null || after.paths().isEmpty();
+        if (hadPaths && nonePaths) {
+            throw new BusinessException(RouteErrorCode.ROUTE_ALL_ENDED);
+        }
+        return after;
     }
 
     /** 고유 경로가 모자랄 때 차례로 더 묻는 수단 제한. 지하철만이 싸서(0.05~0.6s) 먼저, 버스만은 0.4~1.3s. */

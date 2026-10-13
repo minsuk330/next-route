@@ -22,6 +22,7 @@ import java.util.Set;
  * @param walkSteps         도보 leg 의 turn. 대중교통 leg 는 빈 목록
  * @param missing           원천 부재 속성(가짜값 대신 사유로 노출)
  * @param sourceRouteColor  원천이 준 노선 표시색(GTFS route_color, "#" 없는 6자리 hex). 없으면 null
+ * @param distanceMeters    구간 거리(m). 원천이 주면 채운다(OTP leg {@code distance}). 모르면 null — 0 으로 지어내지 않는다
  */
 public record RoutingLeg(
         RoutingMode mode,
@@ -41,8 +42,21 @@ public record RoutingLeg(
         LegGeometry geometry,
         Enrichment enrichment,
         Set<MissingAttribute> missing,
-        String sourceRouteColor
+        String sourceRouteColor,
+        Double distanceMeters
 ) {
+    /** 거리를 모르는 원천용 하위호환 생성자. 새 칸을 null 로 두는 것이 곧 옛 동작이다. */
+    public RoutingLeg(RoutingMode mode, String sourceDetailType, String feedId, String agencyId,
+                      String sourceRouteId, String sourceRouteName, String sourceRouteDirection,
+                      String tripId, LocalDate serviceDate, Instant boardAt, Instant alightAt,
+                      int rideDurationSeconds, List<StopOccurrence> stops,
+                      List<RoutingWalkStep> walkSteps, LegGeometry geometry,
+                      Enrichment enrichment, Set<MissingAttribute> missing, String sourceRouteColor) {
+        this(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName,
+                sourceRouteDirection, tripId, serviceDate, boardAt, alightAt, rideDurationSeconds,
+                stops, walkSteps, geometry, enrichment, missing, sourceRouteColor, null);
+    }
+
     /** 색을 모르는 원천용 하위호환 생성자. 새 칸을 null 로 두는 것이 곧 옛 동작이다. */
     public RoutingLeg(RoutingMode mode, String sourceDetailType, String feedId, String agencyId,
                       String sourceRouteId, String sourceRouteName, String sourceRouteDirection,
@@ -81,6 +95,6 @@ public record RoutingLeg(
     public RoutingLeg withEnrichment(Enrichment newEnrichment) {
         return new RoutingLeg(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName,
                 sourceRouteDirection, tripId, serviceDate, boardAt, alightAt, rideDurationSeconds,
-                stops, walkSteps, geometry, newEnrichment, missing, sourceRouteColor);
+                stops, walkSteps, geometry, newEnrichment, missing, sourceRouteColor, distanceMeters);
     }
 }

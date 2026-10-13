@@ -20,6 +20,7 @@ import watoo.grd.nextroute.application.route.routing.RoutingLeg;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
+import watoo.grd.nextroute.application.route.routing.RoutingWalkStep;
 import watoo.grd.nextroute.application.route.routing.StopOccurrence;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
 import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
@@ -108,6 +109,34 @@ class LegacyRouteResponseMapperTest {
                 NOW, List.of(), List.of(itinerary));
         RouteSearchResult legacy = mapper.toLegacy(result);
         return legacy.paths().get(0).subPaths().get(0);
+    }
+
+    /** 거리·turn 을 지정한 도보 leg. */
+    private RoutingLeg walkLeg(Double distanceMeters, List<RoutingWalkStep> steps) {
+        LegGeometry geometry = new LegGeometry(GeometrySource.OTP_STREET, GeometryQuality.STREET_FALLBACK,
+                "OTP street walk", null, BUS_SHAPE, BUS_SHAPE);
+        return new RoutingLeg(RoutingMode.WALK, null, null, null, null, null, null,
+                null, null, null, null, 120, List.of(), steps,
+                geometry, Enrichment.staticOnly(RealtimeCoverage.NONE), null, null, distanceMeters);
+    }
+
+    @Test
+    @DisplayName("도보 거리를 채운다 — 구간 distance 는 leg 거리 반올림, totalWalk 는 도보 구간 합(#399)")
+    void walkDistanceAndTotalWalk() {
+        RoutingItinerary itinerary = new RoutingItinerary(NOW, 600, 0, 0, 0, false, null, null, List.of(
+                walkLeg(853.57, List.of()),
+                transitLeg(RoutingMode.BUS, GeometryQuality.SHAPE_OK, BUS_SHAPE),
+                walkLeg(null, List.of(new RoutingWalkStep(100.4, "DEPART", "a"),
+                        new RoutingWalkStep(10.2, "LEFT", "b"))),        // leg 거리 없음 → turn 합 110.6
+                walkLeg(null, List.of())));                              // 둘 다 없음 → null, 합에서 빠짐
+        RoutingResult result = new RoutingResult(RoutingProvider.OTP, "v2", "net1", "g1", null, null,
+                NOW, List.of(), List.of(itinerary));
+
+        var path = mapper.toLegacy(result).paths().get(0);
+
+        assertThat(path.subPaths()).extracting(SubPathResult::distance)
+                .containsExactly(854.0, null, 111.0, null);
+        assertThat(path.info().totalWalk()).isEqualTo(854 + 111);
     }
 
     @Test

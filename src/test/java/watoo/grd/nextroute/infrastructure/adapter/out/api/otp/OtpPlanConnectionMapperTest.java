@@ -48,6 +48,27 @@ class OtpPlanConnectionMapperTest {
     }
 
     @Test
+    @DisplayName("6호선은 노선 이름에 라벨이 없다 — 승·하차역 순서로 방향을 정한다(#395)")
+    void line6DirectionFromStopOrder() throws IOException {
+        com.fasterxml.jackson.databind.node.ObjectNode root =
+                (com.fasterxml.jackson.databind.node.ObjectNode) load("otp/planconnection-subway.json");
+        JsonNode leg = root.path("data").path("planConnection").path("edges").get(0).path("node").path("legs").get(0);
+        com.fasterxml.jackson.databind.node.ObjectNode route = (com.fasterxml.jackson.databind.node.ObjectNode) leg.path("route");
+        route.put("gtfsId", "1:RR_ACC1_S-1-06-00");
+        route.put("longName", "서울6호선");
+        JsonNode calls = leg.path("stopCalls");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) calls.get(0).path("stopLocation"))
+                .put("gtfsId", "1:RS_ACC1_S-1-2631");                       // 이태원
+        ((com.fasterxml.jackson.databind.node.ObjectNode) calls.get(calls.size() - 1).path("stopLocation"))
+                .put("gtfsId", "1:RS_ACC1_S-1-2626");                       // 대흥
+
+        RoutingLeg subway = ((RoutingResult) mapper.map(root, departureAt, versions)).itineraries().get(0).legs().get(0);
+
+        assertThat(subway.sourceRouteDirection()).isEqualTo("상행");
+        assertThat(subway.missing()).doesNotContain(MissingAttribute.DIRECTION);
+    }
+
+    @Test
     @DisplayName("그래프가 준 route.color 를 leg 에 담는다 — 색이 있으면 COLOR 는 '없는 속성'이 아니다")
     void readsRouteColor() throws IOException {
         String json = new String(new ClassPathResource("otp/planconnection-subway.json").getContentAsByteArray(),
@@ -67,6 +88,16 @@ class OtpPlanConnectionMapperTest {
         RoutingLeg bus = ((RoutingResult) outcome).itineraries().get(0).legs().get(1);
         assertThat(bus.sourceRouteDirection()).isNull();
         assertThat(bus.missing()).contains(MissingAttribute.DIRECTION);
+    }
+
+    @Test
+    @DisplayName("leg 거리(m)를 담는다 — 도보 거리·totalWalk 의 원천(#399)")
+    void readsLegDistance() throws IOException {
+        RoutingOutcome outcome = mapper.map(load("otp/planconnection-success.json"), departureAt, versions);
+
+        RoutingItinerary it = ((RoutingResult) outcome).itineraries().get(0);
+        assertThat(it.legs()).extracting(RoutingLeg::distanceMeters)
+                .containsExactly(853.57, 7056.7, 111.41, 4735.33, 416.72);
     }
 
     @Test
