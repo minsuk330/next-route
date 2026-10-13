@@ -46,13 +46,19 @@
 - VSA_P·VSA_X 는 노선이 없어 `stopsByBbox` 소비처에서 이미 걸러진다: 단독 추적 주변 정류장(`parseStopsNear` 노선 없는 정류장 제외, #393), 지도 타일(`NationalBusStopTileService` BUS 만). `StopsByIds`·`PatternsAtStop` 은 id 지정이라 무관
 
 ## 작업 순서
-- [ ] 1. build-config `subwayAccessTime: 0`
-- [ ] 2. `add_station_entrances.py` VSA 추가 + 테스트(`test_add_station_entrances.py`): 2승강장 역에 VSA·복제 생성, 1승강장 역은 VSA 없음, 일반철도 승강장 복제 포함·VST 없음, 출구 복제 id, 리포트 수치
-- [ ] 3. `OtpStationResolver` 파싱·적재·snap + `OtpRoutingAdapterHttpTest` 계약 테스트: 노선 없는 이름 → VSA, 노선 있는 이름 → VST, VSA 없으면 VST 폴백, "서울역 (고속철도)"·"서울역 공항철도"·"서울역 GTX-A" 파싱, VSA 자식 좌표로 거리 판정
-- [ ] 4. 그래프 빌드(`build_otp_graph.sh --profile national --from-shaped-zip --gbis <캐시> --station-entrances … --thresholds … --modes bus,subway --graph-version …`) → 리포트 확인
-- [ ] 5. 로컬 OTP + 코퍼스 19구간(운영 vs 새 그래프, 앱 흉내 스크립트 `corp_sw.py` 에 VSA 판별 반영) + ODsay 대조
+- [x] 1. build-config `subwayAccessTime: 0`
+- [x] 2. `add_station_entrances.py` VSA 추가 + 테스트(`test_add_station_entrances.py`): 2승강장 역에 VSA·복제 생성, 1승강장 역은 VSA 없음, 일반철도 승강장 복제 포함·VST 없음, 출구 복제 id, 리포트 수치
+- [x] 3. `OtpStationResolver` 파싱·적재·snap + `OtpRoutingAdapterHttpTest` 계약 테스트: 노선 없는 이름 → VSA, 노선 있는 이름 → VST, VSA 없으면 VST 폴백, "서울역 (고속철도)"·"서울역 공항철도"·"서울역 GTX-A" 파싱, VSA 자식 좌표로 거리 판정
+- [x] 4. 그래프 빌드(`build_otp_graph.sh --profile national --from-shaped-zip --gbis <캐시> --station-entrances … --thresholds … --modes bus,subway --graph-version …`) → 리포트 확인
+- [x] 5. 로컬 OTP + 코퍼스 19구간(운영 vs 새 그래프, 앱 흉내 스크립트 `corp_sw.py` 에 VSA 판별 반영) + ODsay 대조
 - [ ] 6. release-manifest·coverage-index·bundleHash, PR, 머지
 - [ ] 7. 배포: graph 업로드 → compose graphVersion 5곳 → OTP 재생성(관측 compose 겹침) → 앱 api·worker → 운영 API 검증
+
+## 결과 (2026-10-13 13:4x, 로컬 그래프 `…-alllines-gf19e19a0a050`)
+- VSA 163곳(승강장 복제 363·출구 복제 1,155), VST 1,071·출구 5,700 그대로. stops 219,766 / stations 1,234 / patterns 30,248 동일
+- 코퍼스 24구간(낮 14:00, 운영 vs 새): 현재 위치→"서울역" 지하철 0개 → 2호선>4호선 34분 1위(ODsay 35 1위). 서울역→잠실 4호선>2호선 37 1위(ODsay 38). 혜화→낙성대·노원→강남·왕십리→여의도 개선. 강남대로→광화문 버스 1위 유지. 도심 좌표끼리 4구간(서울역 광장·종로·영등포) 운영과 동일 = 운행 없는 정류장의 access 상한 잠식 없음
+- 시간대(현재 위치→"서울역"): 08:30 2위·14:00 1위·18:00 1위·22:32 2위·23:15 3위(심야 N75 1위). 운영은 08:30·14:00·18:00 지하철 0개
+- Opus 리뷰 반영: "왕십리역(5호선)" 괄호 노선, "서울역 KTX" 노선 없음
 
 ## 검증
 - 단위: python 테스트, `./gradlew test --tests '*OtpRoutingAdapterHttpTest' --tests '*OtpTransitPatternAdapterTest' --tests '*OtpRoutingAdapterBudgetTest'`
