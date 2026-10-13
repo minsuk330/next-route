@@ -47,6 +47,8 @@ FROM_SHAPED_ZIP=0   # --from-shaped-zip: steps 1-2 skipped, gtfs-out = the profi
                     # shaped zip (national: gtfs-out on disk no longer holds stop_times/shapes).
 GBIS_DIR=""         # --gbis DIR: step 2b, rewrite Gyeonggi bus trips with GBIS stations and
                     # shapes (apply_gbis_routes.py; cache from fetch_gbis_routes.py).
+BUS_RUNTIME_COEF="" # --bus-runtime-coefficients JSON: step 2d, re-time bus stop_times per region
+                    # (calibrate_bus_runtimes.py; config/otp-national/bus-runtime-coefficients.json).
 STATION_ENTRANCES="" # --station-entrances CSV: step 2c, one virtual station per metro platform = platform + OSM exits
                     # (add_station_entrances.py; CSV = src/main/resources/subway/entrances.csv).
 while [[ $# -gt 0 ]]; do
@@ -58,6 +60,7 @@ while [[ $# -gt 0 ]]; do
     --from-shaped-zip) FROM_SHAPED_ZIP=1; shift ;;
     --gbis) GBIS_DIR="$2"; shift 2 ;;
     --station-entrances) STATION_ENTRANCES="$2"; shift 2 ;;
+    --bus-runtime-coefficients) BUS_RUNTIME_COEF="$2"; shift 2 ;;
     --report-only) REPORT_ONLY=1; shift ;;
     --from-ktdb) FROM_KTDB="$2"; shift 2 ;;
     --thresholds) THRESHOLDS="$2"; shift 2 ;;
@@ -109,6 +112,11 @@ if [[ -n "$GBIS_DIR" ]]; then
   test -d "$GBIS_DIR" || { echo "--gbis dir not found: $GBIS_DIR" >&2; exit 2; }
   # Never overwrite the pfaedle-only zip: it is the rollback source.
   SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-gbis.gtfs.zip"
+fi
+if [[ -n "$BUS_RUNTIME_COEF" ]]; then
+  [[ "$PROFILE" == "national" ]] || { echo "--bus-runtime-coefficients is national-only" >&2; exit 2; }
+  test -s "$BUS_RUNTIME_COEF" || { echo "--bus-runtime-coefficients json not found: $BUS_RUNTIME_COEF" >&2; exit 2; }
+  SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-busrt.gtfs.zip"
 fi
 if [[ -n "$STATION_ENTRANCES" ]]; then
   [[ "$PROFILE" == "national" ]] || { echo "--station-entrances is national-only" >&2; exit 2; }
@@ -197,6 +205,18 @@ if [[ -n "$GBIS_DIR" ]]; then
   rm -rf "$GTFS_OUT"; mkdir -p "$GTFS_OUT"
   unzip -o -q "$BUILD/gbis.gtfs.zip" -d "$GTFS_OUT"
   rm -f "$BUILD/pre-gbis.gtfs.zip" "$BUILD/gbis.gtfs.zip"
+fi
+
+if [[ -n "$BUS_RUNTIME_COEF" ]]; then
+  echo "== step 2d: bus runtimes from distance + stop count (sha256 $(shasum -a 256 "$BUS_RUNTIME_COEF" | awk '{print $1}')) =="
+  rm -f "$BUILD/pre-busrt.gtfs.zip"
+  ( cd "$GTFS_OUT" && zip -q -r -X "$HERE/$BUILD/pre-busrt.gtfs.zip" . )
+  python3 runner/calibrate_bus_runtimes.py --in "$BUILD/pre-busrt.gtfs.zip" \
+    --coefficients "$BUS_RUNTIME_COEF" --out "$BUILD/busrt.gtfs.zip" \
+    --report "$DEPLOY_DIR/bus-runtime-report.json"
+  rm -rf "$GTFS_OUT"; mkdir -p "$GTFS_OUT"
+  unzip -o -q "$BUILD/busrt.gtfs.zip" -d "$GTFS_OUT"
+  rm -f "$BUILD/pre-busrt.gtfs.zip" "$BUILD/busrt.gtfs.zip"
 fi
 
 if [[ -n "$STATION_ENTRANCES" ]]; then

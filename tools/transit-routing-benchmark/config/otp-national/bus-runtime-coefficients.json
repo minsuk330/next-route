@@ -1,0 +1,14 @@
+{
+ "_comment": "calibrate_bus_runtimes.py: hop seconds = (secPerMeter x hop metres + secPerHop) x trip time-of-day factor. Fitted 2026-10-14 to ODsay sectionTime (60 OD, legs with >= 3 stops, first lane only, least squares on relative error). Evidence and fit scripts: docs/plan/bus-runtime-calibration/research/calibration/. Regions without ODsay samples stay unchanged.",
+ "todWindow": ["10:00:00", "16:00:00"],
+ "todClamp": [0.7, 1.4],
+ "detourFactor": 1.25,
+ "regions": {
+  "seoul": {"routeIdPrefixes": ["BR_TAGO_SEB"], "secPerMeter": 0.1191, "secPerHop": 52.6, "samples": {"legs": 333, "ods": 29}},
+  "gyeonggi": {"routeIdPrefixes": ["BR_TAGO_GGB", "BR_3100_"], "secPerMeter": 0.0879, "secPerHop": 59.9, "samples": {"legs": 165, "ods": 26}},
+  "incheon": {"routeIdPrefixes": ["BR_TAGO_ICB"], "secPerMeter": 0.1056, "secPerHop": 51.7, "samples": {"legs": 49, "ods": 10}},
+  "busan": {"routeIdPrefixes": ["BR_TAGO_BSB"], "secPerMeter": 0.1314, "secPerHop": 34.3, "samples": {"legs": 40, "ods": 7}},
+  "daegu": {"routeIdPrefixes": ["BR_TAGO_DGB"], "secPerMeter": 0.0869, "secPerHop": 66.3, "samples": {"legs": 90, "ods": 6}},
+  "daejeon": {"routeIdPrefixes": ["BR_TAGO_DJB"], "secPerMeter": 0.1065, "secPerHop": 65.5, "samples": {"legs": 10, "ods": 3}}
+ }
+}

@@ -1,7 +1,7 @@
 {
-  "graphVersion": "national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-gf19e19a0a050",
-  "generatedAt": "2026-10-13T13:41:31+09:00",
-  "stage": "otp-station-all-lines: build-config subwayAccessTime 0(지하철 승강장 출입마다 2분 고정 벌점 제거) + 승강장 2개 이상 역마다 모든 노선 가상 역(VSA_, 자식=승강장 복제 VSA_P_+출구 복제 VSA_X_). 그 밖 입력(GBIS 2026-10-12 캐시·OSM·jar) 이전과 같음. 이전 그래프 national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-entrances-gec71dd622424 (docs/plan/otp-station-all-lines/PLAN.md)",
+  "graphVersion": "national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-busrt-g878bd3d54af8",
+  "generatedAt": "2026-10-14T04:19:22+09:00",
+  "stage": "bus-runtime-calibration(#405): 버스 stop_times 구간 시간을 지역별 (s/m × 구간 거리 + s/정류장) × trip 시간대 계수로 재계산(서울·경기·인천·부산·대구·대전, 계수 = ODsay 60 OD 에 맞춤). 그 밖 입력(GBIS 2026-10-12 캐시·OSM·jar·build-config·가상 역) 이전과 같음. 이전 그래프 national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-gf19e19a0a050 (docs/plan/bus-runtime-calibration/PLAN.md '변경')",
   "scope": {
     "region": "전국, 제주 제외",
     "gtfsExclusion": "09-29 실험 피드(제주 노선 제외) — 생성 명령 미기록, 재생성은 후속(PLAN 후속)",
@@ -11,8 +11,8 @@
   "inputs": {
     "gtfsPreShapeZip": "data/input/national-nojeju-202503.gtfs.zip",
     "gtfsPreShapeSha256": "72e2d232bada8e3d689979c0e02ca51d1a2eaec423556f2ed56e01892ec7abfc",
-    "gtfsShapedZip": "data/input/national-nojeju-202503-shaped-gbis-entrances.gtfs.zip",
-    "gtfsShapedSha256": "10b7c7d642597a2f473048f92ccad27b869079ecfd0c012274a29cbb04256fdc",
+    "gtfsShapedZip": "data/input/national-nojeju-202503-shaped-gbis-busrt-entrances.gtfs.zip",
+    "gtfsShapedSha256": "c9fb854fc66db2241749875ce185f031ce81a2dfc16a27f84cc1193f0fc22b50",
     "otpOsmPbf": "data/input/south-korea-260929-nojeju.osm.pbf",
     "otpOsmPbfSha256": "60e68c91bc2359a292815e3f0f801ddca72d4aa18a036391921c31481dc0c355",
     "otpOsmSource": "https://download.geofabrik.de/asia/south-korea-260929.osm.pbf (md5 7775afecd9ccbf3285ace3f1fa2ec7f4)",
@@ -26,7 +26,9 @@
     "gtfsPfaedleShapedZip": "data/input/national-nojeju-202503-shaped.gtfs.zip",
     "gtfsPfaedleShapedSha256": "62a8fb2de0f3943d54c901eb3103e167bec400b144cdbba3939d156c808a9f44",
     "stationEntrancesCsv": "src/main/resources/subway/entrances.csv (저장소 루트 기준)",
-    "stationEntrancesCsvSha256": "6c8ee987079d70142f5482ac070368aefdaae6e702580d75cc11ce1c49b20eb2"
+    "stationEntrancesCsvSha256": "6c8ee987079d70142f5482ac070368aefdaae6e702580d75cc11ce1c49b20eb2",
+    "busRuntimeCoefficients": "config/otp-national/bus-runtime-coefficients.json",
+    "busRuntimeCoefficientsSha256": "bf4804d6b5c2a7f9f2d0ed63ecd3904bda837b0fb6ba73dee7e81c8fa5603ee2"
   },
   "pfaedle": {
     "image": "ghcr.io/ad-freiburg/pfaedle@sha256:af4fdc647699ea1ffe5150fd1f9d264c465c2876710ea749e8cb284f13abd20d",
@@ -43,7 +45,7 @@
     "script": "tools/transit-routing-benchmark/runner/compute_shape_quality.py",
     "thresholds": "config/otp-national/shape-gate-thresholds.json (bus·subway 임계 없음 — 전부 적용, 사용자 결정 2026-09-30)",
     "coverageIndex": "data/otp-national/coverage-index.json",
-    "coverageIndexSha256": "37fdf361c1f130a5ce9ebaa304ac53483238b71af42d595793ddc40f8c646c4b",
+    "coverageIndexSha256": "3ec1ca8320ea0584d62b68a807980251f910c56316eec39a8bc65e502784b0d9",
     "counts": {
       "busTrips": 306535,
       "subwayTrips": 12489,
@@ -52,7 +54,7 @@
       "missing": 0,
       "unjudged": 0
     },
-    "knownIssues": "OTP 빌드 이슈: BogusShapeGeometryCaught 405, ShapeGeometryTooFar 392, BogusShapeDistanceTraveled 3,402 (직전 pfaedle 그래프 443/397/3,829). HopSpeedFast 2,726"
+    "knownIssues": "OTP 빌드 이슈: BogusShapeGeometryCaught 405, ShapeGeometryTooFar 392, BogusShapeDistanceTraveled 3,402. HopSpeedFast 2,618(직전 2,726), HopSpeedSlow 24,451(직전 22,226)"
   },
   "otp": {
     "image": "local/nextroute-otp:20260920-h-only-9dbfb229b868",
@@ -62,31 +64,31 @@
     "serVerId": 278,
     "buildConfig": "config/otp-national/build-config.json",
     "otpConfig": "config/otp-national/otp-config.json",
-    "note": "그래프는 호스트 JVM(Temurin 25, -Xmx12g)으로 배포 이미지와 같은 jar 로 빌드. 2026-10-13 빌드: OTP 17m28s(전체 약 30분)",
+    "note": "그래프는 호스트 JVM(Temurin 25, -Xmx12g)으로 배포 이미지와 같은 jar 로 빌드. 2026-10-14 빌드: OTP 9m18s(전체 약 37분)",
     "buildConfigSha256": "2338a482cf08727d2f5648d5c2c759cfa01b0e464216b866022375d32ea6f24c",
     "buildConfigNote": "subwayAccessTime 0(기본 2분). AddTransitEntitiesToGraph 가 SUBWAY 정류장 streetToStopTime 으로 그래프에 박는다 — 바꾸면 재빌드"
   },
   "graph": {
     "file": "data/otp-national/graph.obj",
-    "sha256": "ed7f8debc160a4c56854f63fdb25469f0202555270f696659da6f521ca9bc0c6",
-    "sizeBytes": 917034960,
+    "sha256": "eda9b70bb5920fb31521294d56cb5ac80ed7b5434f7f5815923b9a5b731a282b",
+    "sizeBytes": 921078237,
     "stops": 219766,
     "patterns": 30248,
     "constrainedTransfers": 342,
-    "note": "stops = 이전 218,248 + VSA 승강장 복제 363 + 출구 복제 1,155. station = VST 1,071 + VSA 163. |V|=3,514,773 |E|=8,832,612",
+    "note": "stops·stations·patterns 직전과 같음(시간표만 바뀜). |transfers| 836,830(직전 836,828)",
     "stations": 1234,
-    "directTransfers": 836828
+    "directTransfers": 836830
   },
   "releaseBundle": {
     "note": "graph+otpImage+shapedGtfs+coverageIndex+graphVersion 한 세트. verify_release_bundle.py 로 배포 전 검증(부분 스왑 차단).",
     "identity": {
-      "graphVersion": "national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-gf19e19a0a050",
+      "graphVersion": "national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-busrt-g878bd3d54af8",
       "otpImage": "sha256:183773100bb2f22c00a95a1b184b8bc58e6188f2a1ff32d0cf143fa4d77e3893",
-      "shapedGtfsSha256": "10b7c7d642597a2f473048f92ccad27b869079ecfd0c012274a29cbb04256fdc",
-      "coverageIndexSha256": "37fdf361c1f130a5ce9ebaa304ac53483238b71af42d595793ddc40f8c646c4b",
-      "graphSha256": "ed7f8debc160a4c56854f63fdb25469f0202555270f696659da6f521ca9bc0c6"
+      "shapedGtfsSha256": "c9fb854fc66db2241749875ce185f031ce81a2dfc16a27f84cc1193f0fc22b50",
+      "coverageIndexSha256": "3ec1ca8320ea0584d62b68a807980251f910c56316eec39a8bc65e502784b0d9",
+      "graphSha256": "eda9b70bb5920fb31521294d56cb5ac80ed7b5434f7f5815923b9a5b731a282b"
     },
-    "bundleHash": "4f9f6761a40821f3756d75683c678ac9f9f6b528d45f3caafe23dd82bac84eb5"
+    "bundleHash": "0fe1a37b5c612ff8936e39d75394d5c99d0ffd84ccc28552bed1136777057df2"
   },
   "gbis": {
     "fetch": {
@@ -171,13 +173,83 @@
     "allLinesNote": "VSA_ = 출구 있고 승강장 2개 이상인 지하철 역 묶음. 자식 = 묶음 모든 승강장 복제(일반철도 RS_TAGO_N 포함, 운행 없음) + 출구 복제. 앱은 노선 없는 역 이름에만 쓴다"
   },
   "deploy": {
-    "at": "2026-10-13T13:49:41+09:00",
-    "vpsDir": "/srv/nextroute/otp/national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-gf19e19a0a050/",
-    "command": "docker compose -f compose.yaml -f /root/apps/observability/otp/compose.otp-national.yaml up -d --force-recreate --no-deps otp",
-    "otpHealthyAfterSec": 52,
-    "otpHeap": "-Xmx3500m, mem_limit 4500m (변경 없음). 기동 직후 3.75GiB",
-    "app": "api·worker DEPLOY_REVISION=8716e7cb (#401), jar sha bfd7d236, 백업 app.jar.bak-20261013-pre-all-lines(=ff4e4f2c, 9c9057b9)",
-    "rollbackBackups": "compose.yaml / compose.otp-national.yaml .bak-20261013-134934-pre-alllines. 옛 그래프 디렉터리 ...-shaped-gbis-entrances-gec71dd622424 유지",
-    "verified": "운영 /api/route/search 현재 위치→\"서울역\"·\"서울역 (고속철도)\": 640>4호선 33 / 2호선>4호선 34 / 421 32 / 402 38 / 420>4호선 34 (이전: 지하철 0개). 서울역→잠실역 2호선 4호선>2호선 34분 1위. 강남대로→광화문 버스 741·470 1위 유지. api \"역 승강장 1071개 적재(모든 노선 역 승강장 363개)\", api·worker ERROR 0. 재기동 직후 첫 검색 1건은 역 목록 적재 전이라 좌표 검색(설계대로)"
+    "status": "대기(사용자 확인 후 배포)",
+    "previous": {
+      "at": "2026-10-13T13:49:41+09:00",
+      "vpsDir": "/srv/nextroute/otp/national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-gf19e19a0a050/",
+      "command": "docker compose -f compose.yaml -f /root/apps/observability/otp/compose.otp-national.yaml up -d --force-recreate --no-deps otp",
+      "otpHealthyAfterSec": 52,
+      "otpHeap": "-Xmx3500m, mem_limit 4500m (변경 없음). 기동 직후 3.75GiB",
+      "app": "api·worker DEPLOY_REVISION=8716e7cb (#401), jar sha bfd7d236, 백업 app.jar.bak-20261013-pre-all-lines(=ff4e4f2c, 9c9057b9)",
+      "rollbackBackups": "compose.yaml / compose.otp-national.yaml .bak-20261013-134934-pre-alllines. 옛 그래프 디렉터리 ...-shaped-gbis-entrances-gec71dd622424 유지",
+      "verified": "운영 /api/route/search 현재 위치→\"서울역\"·\"서울역 (고속철도)\": 640>4호선 33 / 2호선>4호선 34 / 421 32 / 402 38 / 420>4호선 34 (이전: 지하철 0개). 서울역→잠실역 2호선 4호선>2호선 34분 1위. 강남대로→광화문 버스 741·470 1위 유지. api \"역 승강장 1071개 적재(모든 노선 역 승강장 363개)\", api·worker ERROR 0. 재기동 직후 첫 검색 1건은 역 목록 적재 전이라 좌표 검색(설계대로)"
+    }
+  },
+  "busRuntime": {
+    "script": "tools/transit-routing-benchmark/runner/calibrate_bus_runtimes.py",
+    "scriptSha256": "163f22e6740a250c0e30cd81228fab94ff5b342306bc98753f024e2054456d59",
+    "report": "data/otp-national/bus-runtime-report.json (커밋 안 함)",
+    "regions": {
+      "seoul": {
+        "routes": 737,
+        "trips": 62618,
+        "tripRuntimeRatio": {
+          "p10": 1.527,
+          "p50": 1.833,
+          "p90": 2.353
+        }
+      },
+      "gyeonggi": {
+        "routes": 3139,
+        "trips": 87235,
+        "tripRuntimeRatio": {
+          "p10": 1.155,
+          "p50": 1.421,
+          "p90": 1.696
+        }
+      },
+      "incheon": {
+        "routes": 339,
+        "trips": 15826,
+        "tripRuntimeRatio": {
+          "p10": 1.143,
+          "p50": 1.407,
+          "p90": 1.586
+        }
+      },
+      "busan": {
+        "routes": 299,
+        "trips": 17930,
+        "tripRuntimeRatio": {
+          "p10": 0.993,
+          "p50": 1.105,
+          "p90": 1.411
+        }
+      },
+      "daegu": {
+        "routes": 218,
+        "trips": 8172,
+        "tripRuntimeRatio": {
+          "p10": 1.08,
+          "p50": 1.336,
+          "p90": 1.744
+        }
+      },
+      "daejeon": {
+        "routes": 113,
+        "trips": 5870,
+        "tripRuntimeRatio": {
+          "p10": 1.348,
+          "p50": 1.554,
+          "p90": 1.818
+        }
+      }
+    },
+    "fallbackHops": 20151,
+    "clampedFactors": 206,
+    "guardRaised": 94,
+    "overtakingAfter": 0,
+    "graphVersionHash": "sha256(직전 해시 f19e19a0a050 + 계수 json sha + calibrate 스크립트 sha) 앞 12자",
+    "evaluation": "ODsay 대비 버스 탑승시간(로컬 OTP BUS-only 14시, 60 OD, ODsay 구간 152 짝) 오차 중앙값 29.6% → 9.4%(3정류장+ 8.9%, 2km+ 8.1%). research/calibration/"
   }
 }
