@@ -392,6 +392,10 @@ class OtpRoutingAdapterHttpTest {
         assertThat(OtpStationResolver.parse("서울역 공항철도")).isEqualTo(new OtpStationResolver.PlaceName("서울", true));
         assertThat(OtpStationResolver.parse("서울역 GTX-A")).isEqualTo(new OtpStationResolver.PlaceName("서울", true));
         assertThat(OtpStationResolver.parse("서울역 경의중앙선")).isEqualTo(new OtpStationResolver.PlaceName("서울", true));
+        assertThat(OtpStationResolver.parse("왕십리역(5호선)")).isEqualTo(new OtpStationResolver.PlaceName("왕십리", true));
+        assertThat(OtpStationResolver.parse("신촌역(경의중앙선)")).isEqualTo(new OtpStationResolver.PlaceName("신촌", true));
+        assertThat(OtpStationResolver.parse("서울역 KTX")).isEqualTo(new OtpStationResolver.PlaceName("서울", false));
+        assertThat(OtpStationResolver.parse("GS25 강남역점")).isNull();
     }
 
     /** VST_P1(가 2호선 승강장 P1) + 모든 노선 역 VSA_G(P1·P2 복제 + 출구 복제). 출발 (37.56,126.97) 옆. */

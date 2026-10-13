@@ -66,11 +66,16 @@ public class OtpStationResolver {
 
     /**
      * 역 이름 장소: "잠실역", "잠실역 8호선", "강남역 신분당선", "총신대입구(이수)역", "홍대입구", "서울역 (고속철도)",
-     * "서울역 공항철도", "서울역 GTX-A". 첫 묶음이 역 이름, 뒤에는 괄호 설명과 노선 이름(…호선/…선/…라인/…철도/GTX-X)만
-     * 올 수 있다 — "강남역 스타벅스"·"홍대입구역 9번출구" 같은 역 근처 장소는 아니다. 둘째 묶음 = 노선.
+     * "왕십리역(5호선)", "서울역 공항철도", "서울역 GTX-A", "서울역 KTX". 첫 묶음이 역 이름, 뒤에는 괄호 설명과 노선
+     * 이름(…호선/…선/…라인/…철도/GTX-X)이나 열차 종류(KTX/SRT/ITX)만 올 수 있다 — "강남역 스타벅스"·"홍대입구역 9번출구"
+     * 같은 역 근처 장소는 아니다. 둘째 묶음 = 역 뒤 괄호 안, 셋째 묶음 = 노선. 열차 종류는 노선이 아니다(모든 노선 역에
+     * 일반철도 승강장이 들어 있다).
      */
     private static final Pattern STATION_PLACE = Pattern.compile(
-            "^([^\\s()]+?)(?:\\([^)]*\\))?역?(?:\\s*\\([^)]*\\))?(?:\\s+(\\S*(?:호선|선|라인|철도)|GTX-?[A-Z]))?$");
+            "^([^\\s()]+?)(?:\\([^)]*\\))?역?(?:\\s*\\(([^)]*)\\))?"
+                    + "(?:\\s+(?:(\\S*(?:호선|선|라인|철도)|GTX-?[A-Z])|KTX|SRT|ITX))?$");
+    /** 역 뒤 괄호 안이 노선인가: "(5호선)"·"(경의중앙선)"은 노선, "(고속철도)"는 역 설명. */
+    private static final Pattern LINE_IN_PARENTHESES = Pattern.compile("\\S*(?:호선|선|라인)|GTX-?[A-Z]");
     private static final Pattern PARENTHESES = Pattern.compile("\\(.*?\\)");
 
     private final RestClient.Builder restClientBuilder;
@@ -144,7 +149,12 @@ public class OtpStationResolver {
             return null;
         }
         Matcher m = STATION_PLACE.matcher(placeName.trim());
-        return m.matches() ? new PlaceName(m.group(1), m.group(2) != null) : null;
+        if (!m.matches()) {
+            return null;
+        }
+        boolean hasLine = m.group(3) != null
+                || (m.group(2) != null && LINE_IN_PARENTHESES.matcher(m.group(2).trim()).matches());
+        return new PlaceName(m.group(1), hasLine);
     }
 
     /** "잠실역 8호선" → "잠실". 역 이름 모양이 아니면 null. */
