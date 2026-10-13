@@ -4520,3 +4520,24 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 2828 중 12 실패, 전부 기존 무관
 ### 배포
 - 마이그레이션 없음. api(후보·노선도) + worker
+
+## 2026-10-14 평가기 선점 순서: 급한 환승 먼저 (feat/journey-evaluator-urgent-first)
+
+### 확정
+- 선점 정렬 = `(evaluation_urgent OR next_evaluation_at <= now − starvationGuard) 먼저, 그다음 next_evaluation_at`. 스위치 `claim-order`(URGENT_FIRST 기본, DUE_TIME = 롤백)
+- 급함 = `JourneyEvaluationIntervalPolicy.Decision.urgent()`(AT_RISK·NEAR — 간격을 최소로 줄인 바로 그 판단) + `scheduleEvaluationAt`(시작·단계 전이·경로 교체 수락)이 true 로 심음. 평가가 끝날 때마다 `finishEvaluation` 이 다시 정한다
+- 기다림 상한 60초. `maxInterval + guard < staleAfter` 부팅 검증(기존 `max < staleAfter` 검사 **뒤**에 둬야 그 검사의 메시지가 유지된다)
+- EDF 기각: 과부하에서 이미 마감을 넘긴 비급 여정들이 가장 이른 마감이 돼 급한 여정이 다시 밀린다
+- BLOCKED(공급자 막힘)는 urgent 가 아니다(간격 정책 그대로) — 막힌 동안 급한 줄을 차지하지 않는다
+
+### 함정
+- 엔티티에 컬럼을 추가하면 `@Sql` 로 마이그레이션 목록을 직접 실행해 표를 만드는 IT 13개가 전부 "column does not exist" ← 목록에 V66 누락 / 가드: `grep -rln "db/migration/V35__create_journey.sql" src/test/java` 로 찾아 V66 추가
+- 일회용 DB 에 부하 하네스 여정이 남아 있으면(실행을 중간에 끊음) `JourneyDueEvaluatorIT.expiredLeaseIsReclaimed` 가 배치 200 을 남은 행에 빼앗겨 실패 / 가드: 실행 전 lr2 의 journey_* 비우기
+- `JourneyNotificationSchemaIT` 인덱스 시험 1건이 묶음 실행에서 "Unable to rollback against JDBC Connection", 단독 실행 20/20 → 공유 컨테이너 묶음 실행의 일시 오류(이 변경 무관)
+
+### 검증
+- 묶음: JourneyDueEvaluatorIT 11/11(신규 4: 급함 먼저·DUE_TIME 롤백·밀린 여정 같은 줄·단계 전이 급함), JourneyEvaluationIT 14/21(신규 2 통과, 실패 7 은 기존 무관: route_id null → 예측 미호출), JourneyNotification*IT 전부 통과, JourneyEvaluatorPropertiesTest 12/12(신규 2), JourneyDueEvaluatorSchedulerTest 6/6, JourneyEvaluationIntervalPolicyTest 18/18, 스키마·재탐색·텔레메트리 IT 통과(JourneyNotificationSchemaIT 는 단독 20/20)
+
+### 배포
+- **V66 VPS 수동배치 필요**(`V66__journey_session_evaluation_urgent.sql`, V18+ untracked convention). 누락 시 엔티티가 없는 컬럼을 매핑해 api·worker 부팅 실패
+- 롤백: env `JOURNEY_EVALUATOR_CLAIM_ORDER=DUE_TIME` + api·worker 재생성(컬럼은 DEFAULT false 라 남겨도 무해)

@@ -43,7 +43,9 @@ public class JourneyDueClaimService {
         Instant leaseUntil = now.plus(properties.lease());
 
         List<JourneySessionRepository.DueClaimRow> claimed = sessionRepository.claimDueBatch(
-                now, leaseUntil, properties.getBatchSize());
+                now, leaseUntil, properties.getBatchSize(),
+                properties.getClaimOrder() == JourneyEvaluatorProperties.ClaimOrder.URGENT_FIRST,
+                now.minus(properties.starvationGuard()));
         if (claimed.isEmpty()) {
             return List.of();
         }

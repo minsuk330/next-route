@@ -10,21 +10,25 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties;
+import watoo.grd.nextroute.application.journey.dto.JourneyCommand;
 import watoo.grd.nextroute.application.journey.dto.JourneyDueClaim;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
+import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.service.JourneyDueClaimService;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
+import watoo.grd.nextroute.domain.journey.entity.JourneyEventType;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -52,6 +56,7 @@ class JourneyDueEvaluatorIT {
     private static final String PATH_KEY = "0";
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
+    @Autowired ApplyJourneyEventUseCase applyJourneyEventUseCase;
     @Autowired JourneyDueClaimService claimService;
     @Autowired JourneyEvaluatorProperties properties;
     @Autowired JdbcTemplate jdbcTemplate;
@@ -172,6 +177,102 @@ class JourneyDueEvaluatorIT {
         }
 
         assertThat(claimService.claimDue()).hasSizeLessThanOrEqualTo(batchSize);
+    }
+
+    // ── 선점 순서: 급한 환승 먼저 ─────────────────────────────────────────────
+    //
+    // 배치를 1로 줄여 한 번에 하나씩 잡는다. RETURNING 은 순서를 보장하지 않으므로 "어느 것이 먼저
+    // 잡혔나"는 한 건씩 잡아서 본다.
+
+    @Test
+    @DisplayName("밀릴 때 급한 여정이 더 늦게 만기여도 먼저 잡힌다")
+    void urgentJourneyIsClaimedFirst() {
+        Long relaxed = startJourney();
+        Long urgent = startJourney();
+        dueSecondsAgo(relaxed, 30, false);
+        dueSecondsAgo(urgent, 5, true);
+
+        assertThat(claimOneAtATime(relaxed, urgent)).containsExactly(urgent, relaxed);
+    }
+
+    @Test
+    @DisplayName("DUE_TIME 이면 예전처럼 예정 시각 순이다 — 되돌리는 경로")
+    void dueTimeOrderWhenSwitchedOff() {
+        Long relaxed = startJourney();
+        Long urgent = startJourney();
+        dueSecondsAgo(relaxed, 30, false);
+        dueSecondsAgo(urgent, 5, true);
+
+        JourneyEvaluatorProperties.ClaimOrder before = properties.getClaimOrder();
+        properties.setClaimOrder(JourneyEvaluatorProperties.ClaimOrder.DUE_TIME);
+        try {
+            assertThat(claimOneAtATime(relaxed, urgent)).containsExactly(relaxed, urgent);
+        } finally {
+            properties.setClaimOrder(before);
+        }
+    }
+
+    @Test
+    @DisplayName("급하지 않아도 상한보다 오래 밀리면 급한 줄에 서서 예정 시각 순으로 잡힌다")
+    void starvedJourneyJoinsUrgentLine() {
+        Long starved = startJourney();
+        Long urgent = startJourney();
+        dueSecondsAgo(starved, properties.getStarvationGuardSeconds() + 30, false);
+        dueSecondsAgo(urgent, 5, true);
+
+        assertThat(claimOneAtATime(starved, urgent))
+                .as("급한 여정이 끝없이 들어와도 급하지 않은 여정이 낡음 기준까지 굶지 않는다")
+                .containsExactly(starved, urgent);
+    }
+
+    @Test
+    @DisplayName("단계가 바뀌면 그 여정은 급한 줄에 선다")
+    void legTransitionMarksUrgent() {
+        Long journeyId = startJourney();
+        jdbcTemplate.update("update journey_session set evaluation_urgent = false where id = ?", journeyId);
+        Long ownerId = jdbcTemplate.queryForObject(
+                "select user_id from journey_session where id = ?", Long.class, journeyId);
+
+        var outcome = applyJourneyEventUseCase.apply(ownerId, journeyId,
+                new JourneyCommand(UUID.randomUUID(), JourneyEventType.CLIENT_LEG_TRANSITION_DETECTED,
+                        1L, 1, 0, 1, Instant.now()));
+
+        assertThat(outcome.result().name()).isEqualTo("APPLIED");
+        assertThat(evaluationUrgent(journeyId)).isTrue();
+    }
+
+    /** 대상 여정만 남을 때까지 한 건씩 잡아 잡힌 순서를 돌려준다. */
+    private List<Long> claimOneAtATime(Long... targets) {
+        List<Long> wanted = List.of(targets);
+        List<Long> order = new ArrayList<>();
+        int batchBefore = properties.getBatchSize();
+        properties.setBatchSize(1);
+        try {
+            // 다른 시험이 남긴 여정이 끼어 있어도 대상만 골라 순서를 본다. 상한을 둬 무한 반복을 막는다.
+            for (int i = 0; i < 20 && order.size() < wanted.size(); i++) {
+                List<JourneyDueClaim> claimed = claimService.claimDue();
+                if (claimed.isEmpty()) {
+                    break;
+                }
+                claimed.stream().map(JourneyDueClaim::journeyId).filter(wanted::contains).forEach(order::add);
+            }
+        } finally {
+            properties.setBatchSize(batchBefore);
+        }
+        return order;
+    }
+
+    private void dueSecondsAgo(Long journeyId, long seconds, boolean urgent) {
+        jdbcTemplate.update("""
+                update journey_session
+                   set next_evaluation_at = now() - make_interval(secs => ?), evaluation_urgent = ?
+                 where id = ?
+                """, seconds, urgent, journeyId);
+    }
+
+    private boolean evaluationUrgent(Long journeyId) {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject(
+                "select evaluation_urgent from journey_session where id = ?", Boolean.class, journeyId));
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────
