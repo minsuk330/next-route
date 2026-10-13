@@ -100,6 +100,10 @@ class LegacyRouteResponseMapperTest {
     }
 
     private SubPathResult firstSubPath(RoutingLeg leg) {
+        return firstSubPath(mapper, leg);
+    }
+
+    private static SubPathResult firstSubPath(LegacyRouteResponseMapper mapper, RoutingLeg leg) {
         RoutingItinerary itinerary = new RoutingItinerary(NOW, 600, 0, 0, 0, false, null, null, List.of(leg));
         RoutingResult result = new RoutingResult(RoutingProvider.OTP, "v2", "net1", "g1", null, null,
                 NOW, List.of(), List.of(itinerary));
@@ -369,12 +373,49 @@ class LegacyRouteResponseMapperTest {
     }
 
     @Test
-    @DisplayName("M 으로 시작해도 3자리 이하(경기 마을 M101·세종 M1)나 일반 번호는 그래프 색 그대로")
+    @DisplayName("M 으로 시작해도 3자리 이하(경기 마을 M101·세종 M1)나 일반 번호는 그래프 색 그대로(유형 모르는 노선)")
     void otherBusesKeepGraphColor() {
         for (String name : new String[]{"M101", "M1", "5600", "M41301"}) {
-            SubPathResult sub = firstSubPath(coloredLeg(RoutingMode.BUS, "1:BR_3100_241211013", name, "53B332"));
+            SubPathResult sub = firstSubPath(coloredLeg(RoutingMode.BUS, "1:BR_TAGO_SJB293000001", name, "53B332"));
             assertThat(sub.lanes()).singleElement()
                     .satisfies(lane -> assertThat(lane.routeDisplayColor()).as(name).isEqualTo("#53B332"));
+        }
+    }
+
+    @Test
+    @DisplayName("#391 경기 버스는 노선 유형 색 — 직행좌석 4403·9202·8502 빨강, M4403 빨강(번들 GBIS 목록 실데이터)")
+    void gyeonggiBusUsesRouteTypeColor() {
+        for (String[] c : new String[][]{
+                {"1:BR_TAGO_GGB233000265", "4403"},
+                {"1:BR_TAGO_GGB227000035", "9202"},
+                {"1:BR_TAGO_GGB233000333", "8502"},
+                {"1:BR_TAGO_GGB234000995", "M4403"}}) {
+            SubPathResult sub = firstSubPath(coloredLeg(RoutingMode.BUS, c[0], c[1], "53B332"));
+            assertThat(sub.lanes()).singleElement()
+                    .satisfies(lane -> assertThat(lane.routeDisplayColor()).as(c[1]).isEqualTo("#E60012"));
+        }
+    }
+
+    @Test
+    @DisplayName("#391 유형별 색: 좌석=파랑, 일반=초록, 마을(BR_3100_)=노랑, 시외=보라, 표 밖 유형·모르는 노선은 그래프 색")
+    void gyeonggiRouteTypeTable() {
+        LegacyRouteResponseMapper typed = new LegacyRouteResponseMapper(
+                new OtpSeoulIdentityResolver(busStopRepository, busRouteRepository,
+                        mock(SubwayStationRepository.class),
+                        InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()),
+                GyeonggiBusRouteTypeColors.of(java.util.Map.of(
+                        "200000001", 12, "200000002", 13, "241211013", 30, "200000004", 43, "200000005", 50)));
+        String[][] cases = {
+                {"1:BR_TAGO_GGB200000001", "#0068B7"},
+                {"1:BR_TAGO_GGB200000002_U", "#53B332"},
+                {"1:BR_3100_241211013", "#F2B70A"},
+                {"1:BR_TAGO_GGB200000004", "#8652A1"},
+                {"1:BR_TAGO_GGB200000005", "#ABCDEF"},
+                {"1:BR_TAGO_GGB299999999", "#ABCDEF"}};
+        for (String[] c : cases) {
+            SubPathResult sub = firstSubPath(typed, coloredLeg(RoutingMode.BUS, c[0], "x", "ABCDEF"));
+            assertThat(sub.lanes()).singleElement()
+                    .satisfies(lane -> assertThat(lane.routeDisplayColor()).as(c[0]).isEqualTo(c[1]));
         }
     }
 }
