@@ -500,6 +500,24 @@ class JourneyQueryLoadIT {
                     .map(Sample::ageSeconds).toList(), percentile);
         }
 
+        /**
+         * 응답에 위험(놓칠 위험·놓침)이 찍힌 경우만의 판단 경과. 신선도 기준의 "위험·임박 환승"을 응답이
+         * 말한 대로 센다. 픽스처의 임박 꼬리표는 시작 때 정한 것이라, 타는 단계가 끝나 서버가 더는 급하지
+         * 않다고 본 여정(긴 간격)까지 섞인다.
+         */
+        double riskAgeSeconds(int percentile) {
+            return percentile(samples.stream()
+                    .filter(s -> s.evaluatedAt() != null
+                            && (s.status() == TransferStatus.AT_RISK || s.status() == TransferStatus.MISSED))
+                    .map(Sample::ageSeconds).toList(), percentile);
+        }
+
+        long riskCount() {
+            return samples.stream()
+                    .filter(s -> s.status() == TransferStatus.AT_RISK || s.status() == TransferStatus.MISSED)
+                    .count();
+        }
+
         /** 임박하지 않은 여정만의 판단 경과. 급한 여정을 먼저 잡으면 이쪽이 대가를 낸다. */
         double farAgeSeconds(int percentile) {
             return percentile(samples.stream()
@@ -555,6 +573,7 @@ class JourneyQueryLoadIT {
                 판단 경과 p50/p95/p99      : %.1f / %.1f / %.1f s
                 판단 경과(임박) p95        : %.1f s
                 판단 경과(비임박) p50/p95  : %.1f / %.1f s
+                판단 경과(응답이 위험) p50/p95 : %.1f / %.1f s (n=%d)
                 낡음 기준(%ds) 초과        : %d
                 모름 전체 / 비율           : %d / %.1f%%
                   첫 평가 전 / 낡음 / 그 밖 : %d / %d / %d
@@ -568,6 +587,7 @@ class JourneyQueryLoadIT {
                 r.ageSeconds(50, false), r.ageSeconds(95, false), r.ageSeconds(99, false),
                 r.ageSeconds(95, true),
                 r.farAgeSeconds(50), r.farAgeSeconds(95),
+                r.riskAgeSeconds(50), r.riskAgeSeconds(95), r.riskCount(),
                 r.staleAfterSeconds(), r.overStale(),
                 r.unknown(), r.count() == 0 ? 0 : 100.0 * r.unknown() / r.count(),
                 r.unknownNoEvaluation(), r.unknownStale(), r.unknownOther(),
@@ -584,7 +604,7 @@ class JourneyQueryLoadIT {
         if (!Files.exists(path)) {
             Files.writeString(path, String.join("\t", "at", "conditions", "count", "errors", "inflight",
                     "p50ms", "p95ms", "p99ms", "maxms", "no_eval", "age_p50", "age_p95", "age_p99",
-                    "age_near_p95", "age_far_p50", "age_far_p95", "over_stale", "unknown", "unk_no_eval", "unk_stale", "unk_other",
+                    "age_near_p95", "age_far_p50", "age_far_p95", "age_risk_p50", "age_risk_p95", "risk_n", "over_stale", "unknown", "unk_no_eval", "unk_stale", "unk_other",
                     "provider_calls") + "\n");
         }
         Files.writeString(path, String.join("\t",
@@ -594,6 +614,7 @@ class JourneyQueryLoadIT {
                 String.valueOf(r.withoutEvaluatedAt()),
                 fmt(r.ageSeconds(50, false)), fmt(r.ageSeconds(95, false)), fmt(r.ageSeconds(99, false)),
                 fmt(r.ageSeconds(95, true)), fmt(r.farAgeSeconds(50)), fmt(r.farAgeSeconds(95)),
+                fmt(r.riskAgeSeconds(50)), fmt(r.riskAgeSeconds(95)), String.valueOf(r.riskCount()),
                 String.valueOf(r.overStale()),
                 String.valueOf(r.unknown()), String.valueOf(r.unknownNoEvaluation()),
                 String.valueOf(r.unknownStale()), String.valueOf(r.unknownOther()),
