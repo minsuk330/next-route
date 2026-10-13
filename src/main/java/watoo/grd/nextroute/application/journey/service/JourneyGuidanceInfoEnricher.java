@@ -7,16 +7,19 @@ import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
 import watoo.grd.nextroute.application.regionalbus.port.out.RegionalBusRouteStopStore;
 import watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex;
+import watoo.grd.nextroute.application.subway.service.SubwayDoorSideIndex;
 import watoo.grd.nextroute.application.subway.service.SubwayFastAlightIndex;
+import watoo.grd.nextroute.application.subway.service.SubwayLineEnds;
 import watoo.grd.nextroute.domain.bus.entity.BusStop;
 import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
-import watoo.grd.nextroute.domain.journey.entity.JourneyLegGuidance;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -38,11 +41,56 @@ public class JourneyGuidanceInfoEnricher {
     private final RegionalBusRouteStopStore regionalStopStore;
     private final SubwayEntranceIndex entranceIndex;
     private final SubwayFastAlightIndex fastAlightIndex;
+    private final SubwayDoorSideIndex doorSideIndex;
+    private final SubwayLineEnds lineEnds;
 
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
 
     public JourneyPlan enrich(JourneyPlan plan) {
-        return withFastAlight(withSubwayExits(withBusStopNumbers(plan)));
+        return withDoorSide(withFastAlight(withSubwayExits(withBusStopNumbers(plan))));
+    }
+
+    /**
+     * 내리는 문 방향(#335). 지하철 탑승 단계마다 노선(대기 단계 후보의 내부 line_id 가 하나로 정해질 때) + 하차역으로
+     * 찾는다. 하차역이 노선 끝이거나 끝인지 모르면 null — 종착역은 도착 선로가 번갈아 바뀌어 문이 뒤집힌다.
+     */
+    private JourneyPlan withDoorSide(JourneyPlan plan) {
+        if (plan.legs().stream().noneMatch(leg -> leg.type() == JourneyLegType.RIDE_SUBWAY)) {
+            return plan;
+        }
+        Map<Integer, JourneyLegDraft> byIndex = new HashMap<>();
+        plan.legs().forEach(leg -> byIndex.put(leg.legIndex(), leg));
+        try {
+            List<JourneyLegDraft> legs = plan.legs().stream()
+                    .map(leg -> leg.type() == JourneyLegType.RIDE_SUBWAY ? withDoorSide(leg, byIndex) : leg)
+                    .toList();
+            return new JourneyPlan(legs, plan.transfers());
+        } catch (RuntimeException e) {
+            log.warn("[Journey] 내리는 문 방향 계산 실패 — 없이 진행: {}", e.getMessage());
+            return plan;
+        }
+    }
+
+    private JourneyLegDraft withDoorSide(JourneyLegDraft ride, Map<Integer, JourneyLegDraft> byIndex) {
+        JourneyLegDraft wait = ride.pairedLegIndex() == null ? null : byIndex.get(ride.pairedLegIndex());
+        if (wait == null) {
+            return ride;
+        }
+        List<String> lineIds = wait.routeOptions().stream()
+                .map(option -> option.routeId())
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (lineIds.size() != 1) {
+            return ride;
+        }
+        String lineId = lineIds.get(0);
+        if (!lineEnds.isLineEnd(lineId, ride.endName()).equals(Optional.of(false))) {
+            return ride;
+        }
+        return doorSideIndex.lookup(lineId, ride.endName())
+                .map(side -> ride.withGuidance(ride.guidance().withAlightDoorSide(side.name())))
+                .orElse(ride);
     }
 
     /**
@@ -84,10 +132,7 @@ public class JourneyGuidanceInfoEnricher {
             return ride;
         }
         try {
-            String json = JSON.writeValueAsString(found);
-            JourneyLegGuidance g = ride.guidance();
-            return ride.withGuidance(new JourneyLegGuidance(g.startStopNo(), g.endStopNo(), g.directionName(),
-                    g.startExitNo(), g.endExitNo(), json));
+            return ride.withGuidance(ride.guidance().withFastAlightJson(JSON.writeValueAsString(found)));
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             return ride;
         }
