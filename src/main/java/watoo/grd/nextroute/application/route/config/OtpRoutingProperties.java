@@ -41,10 +41,15 @@ public class OtpRoutingProperties {
     /** 검색 후보 정렬 킬스위치. false 면 엔진 순서(도착시각) 앞 {@link #displayLimit} 개. */
     private boolean rankingEnabled = true;
     /**
-     * 검색의 고유 경로가 {@link #displayLimit} 보다 적으면 "지하철만"→"버스만"을 더 묻는다. OTP 는 지배당한 대안을
+     * 검색의 고유 경로가 {@link #supplementaryThreshold} 보다 적으면 "지하철만"→"버스만"을 더 묻는다. OTP 는 지배당한 대안을
      * 탐색 단계에서 버려 부평→서울은 1호선 하나만 남는다(2026-10-12, 수단별로 물으면 12개). false 면 본 검색만.
      */
     private boolean supplementaryEnabled = true;
+    /**
+     * 추가 검색을 부르는 고유 경로 수 기준. 이보다 적을 때만 더 묻는다. 노출 상한({@link #displayLimit})과 따로 둔다 —
+     * 노출을 10 으로 올려도 추가 검색은 예전처럼 5 개 미만일 때만(2026-10-13, 사용자 결정).
+     */
+    private int supplementaryThreshold = 5;
     /** 추가 검색 1회 예산 상한(ms). 남은 OTP 예산과 작은 쪽. */
     private long supplementaryBudgetMs = 2000;
     /**
@@ -72,6 +77,8 @@ public class OtpRoutingProperties {
 
     public String getBaseUrl() { return baseUrl; }
     public int getRerouteLimit() { return rerouteLimit; }
+    public int getSupplementaryThreshold() { return supplementaryThreshold; }
+    public void setSupplementaryThreshold(int supplementaryThreshold) { this.supplementaryThreshold = supplementaryThreshold; }
     public void setRerouteLimit(int rerouteLimit) { this.rerouteLimit = rerouteLimit; }
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
     public int getFirst() { return first; }

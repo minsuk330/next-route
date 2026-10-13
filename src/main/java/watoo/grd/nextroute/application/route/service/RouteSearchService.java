@@ -240,7 +240,8 @@ public class RouteSearchService implements SearchRouteUseCase {
      * 추가 검색 실패는 무시한다(본 결과만으로도 응답은 성립한다).
      */
     private RoutingResult supplementIfShort(RoutingResult result, RoutingQuery query, RoutingDeadline deadline) {
-        int limit = otpRoutingProperties.getDisplayLimit();
+        // 기준은 노출 상한이 아니라 추가 검색 기준(5) — 노출을 늘려도 OTP 추가 호출은 예전과 같다.
+        int limit = otpRoutingProperties.getSupplementaryThreshold();
         if (!otpRoutingProperties.isRankingEnabled() || !otpRoutingProperties.isSupplementaryEnabled()) {
             return result;
         }

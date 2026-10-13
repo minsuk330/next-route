@@ -247,6 +247,27 @@ class RouteSearchServiceOtpWiringTest {
         assertThat(firstLaneNames(legacy)).containsExactly("B11", "B10", "B9", "B8", "B7", "B6", "B5", "B4", "B3", "B2");
     }
 
+    @Test
+    @DisplayName("기본값: 본 검색 고유 6개면 추가 검색 없이 6개 그대로 — 5개로 줄이지 않고, 추가 검색 기준은 예전처럼 5")
+    void defaultKeepsSixWithoutSupplementary() {
+        java.util.List<RoutingItinerary> engine = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            engine.add(singleLeg(RoutingMode.BUS, "1:R" + i, "B" + i, 5000 + i));
+        }
+        ScriptedOtp otp = new ScriptedOtp().on(Set.of(), new RoutingResult(RoutingProvider.OTP, "v", "202503", "g1",
+                null, null, Instant.now(), List.of(), engine));
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
+        watoo.grd.nextroute.application.route.config.OtpRoutingProperties defaults = new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
+
+        RouteSearchResult legacy = service(otp, enricher, defaults)
+                .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(defaults.getSupplementaryThreshold()).isEqualTo(5);
+        assertThat(otp.asked).containsExactly(Set.of());
+        assertThat(firstLaneNames(legacy)).containsExactly("B0", "B1", "B2", "B3", "B4", "B5");
+    }
+
     private static final Set<RoutingMode> RAIL_ONLY = Set.of(RoutingMode.SUBWAY, RoutingMode.RAIL);
     private static final Set<RoutingMode> BUS_ONLY = Set.of(RoutingMode.BUS);
 
