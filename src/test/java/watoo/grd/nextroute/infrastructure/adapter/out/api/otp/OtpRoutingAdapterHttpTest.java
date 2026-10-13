@@ -301,6 +301,70 @@ class OtpRoutingAdapterHttpTest {
     }
 
     @Test
+    @DisplayName("노선 없는 역 이름은 모든 노선 역 — 어느 노선 승강장으로도 0분에 출발·도착")
+    void lineLessNameUsesAllLinesStation() throws Exception {
+        loadAllLinesStation();
+        enqueueSuccess();
+        enqueueSuccess();
+
+        call(Set.of(), "가역", "d");
+        call(Set.of(), "가역 (고속철도)", "d");
+
+        for (int i = 0; i < 2; i++) {
+            assertThat(sentVariables().path("origin").path("location").path("stopLocation").path("stopLocationId")
+                    .asText()).isEqualTo("1:VSA_G");
+        }
+    }
+
+    @Test
+    @DisplayName("노선 있는 역 이름은 그 승강장의 가상 역 — 모든 노선 역이 있어도")
+    void lineNameUsesPlatformStationEvenWithAllLines() throws Exception {
+        loadAllLinesStation();
+        enqueueSuccess();
+
+        call(Set.of(), "가역 2호선", "d");
+
+        assertThat(sentVariables().path("origin").path("location").path("stopLocation").path("stopLocationId")
+                .asText()).isEqualTo("1:VST_P1");
+    }
+
+    @Test
+    @DisplayName("모든 노선 역은 승강장 복제 좌표로 거리를 잰다 — 일반철도 승강장 옆 역사도 붙는다")
+    void allLinesStationMatchesByPlatformCopies() throws Exception {
+        // 출발 (37.56,126.97): 지하철 승강장 P1 은 ≈ 222m(반경 밖), KTX 승강장 복제는 ≈ 11m
+        props.setStationSnapEnabled(true);
+        server.enqueue(stationsResponse("["
+                + "{\"gtfsId\":\"1:VST_P1\",\"name\":\"가\",\"stops\":["
+                + "{\"gtfsId\":\"1:P1\",\"name\":\"가(1호선)\",\"lat\":37.5620,\"lon\":126.97,\"vehicleMode\":\"SUBWAY\"}]},"
+                + "{\"gtfsId\":\"1:VSA_G\",\"name\":\"가\",\"stops\":["
+                + "{\"gtfsId\":\"1:VSA_P_P1\",\"name\":\"가(1호선)\",\"lat\":37.5620,\"lon\":126.97,\"vehicleMode\":null},"
+                + "{\"gtfsId\":\"1:VSA_P_K\",\"name\":\"가\",\"lat\":37.5601,\"lon\":126.97,\"vehicleMode\":null}]}]"));
+        stations.load();
+        server.takeRequest(1, TimeUnit.SECONDS);
+        enqueueSuccess();
+        enqueueSuccess();
+
+        call(Set.of(), "가역", "d");
+        call(Set.of(), "가역 1호선", "d");
+
+        assertThat(sentVariables().path("origin").path("location").path("stopLocation").path("stopLocationId")
+                .asText()).isEqualTo("1:VSA_G");
+        assertThat(sentVariables().path("origin").path("location").has("coordinate")).isTrue();
+    }
+
+    @Test
+    @DisplayName("모든 노선 역이 없으면(승강장 1개 역) 노선 없는 이름도 승강장의 가상 역")
+    void lineLessNameFallsBackToPlatformStation() throws Exception {
+        loadStations(37.5602, 126.97, "SUBWAY");
+        enqueueSuccess();
+
+        call(Set.of(), "가역", "d");
+
+        assertThat(sentVariables().path("origin").path("location").path("stopLocation").path("stopLocationId")
+                .asText()).isEqualTo("1:STN_RS_A");
+    }
+
+    @Test
     @DisplayName("역 이름 장소 판별")
     void stationKey() {
         assertThat(OtpStationResolver.stationKey("잠실역 8호선")).isEqualTo("잠실");
@@ -309,9 +373,45 @@ class OtpRoutingAdapterHttpTest {
         assertThat(OtpStationResolver.stationKey("총신대입구(이수)역")).isEqualTo("총신대입구");
         assertThat(OtpStationResolver.stationKey("홍대입구")).isEqualTo("홍대입구");
         assertThat(OtpStationResolver.stationKey("강남역 스타벅스")).isNull();
+        assertThat(OtpStationResolver.stationKey("홍대입구역 9번출구")).isNull();
+        assertThat(OtpStationResolver.stationKey("서울역 롯데마트")).isNull();
         assertThat(OtpStationResolver.stationKey("현재 위치")).isNull();
         assertThat(OtpStationResolver.baseName("잠실(8호선)")).isEqualTo("잠실");
         assertThat(OtpStationResolver.baseName("서울역")).isEqualTo("서울");
+    }
+
+    @Test
+    @DisplayName("노선 지정 여부: 노선 꼬리만 노선, 괄호 설명은 노선 아님")
+    void placeNameLine() {
+        assertThat(OtpStationResolver.parse("서울역")).isEqualTo(new OtpStationResolver.PlaceName("서울", false));
+        assertThat(OtpStationResolver.parse("서울역 (고속철도)"))
+                .isEqualTo(new OtpStationResolver.PlaceName("서울", false));
+        assertThat(OtpStationResolver.parse("총신대입구(이수)역"))
+                .isEqualTo(new OtpStationResolver.PlaceName("총신대입구", false));
+        assertThat(OtpStationResolver.parse("잠실역 8호선")).isEqualTo(new OtpStationResolver.PlaceName("잠실", true));
+        assertThat(OtpStationResolver.parse("서울역 공항철도")).isEqualTo(new OtpStationResolver.PlaceName("서울", true));
+        assertThat(OtpStationResolver.parse("서울역 GTX-A")).isEqualTo(new OtpStationResolver.PlaceName("서울", true));
+        assertThat(OtpStationResolver.parse("서울역 경의중앙선")).isEqualTo(new OtpStationResolver.PlaceName("서울", true));
+    }
+
+    /** VST_P1(가 2호선 승강장 P1) + 모든 노선 역 VSA_G(P1·P2 복제 + 출구 복제). 출발 (37.56,126.97) 옆. */
+    private void loadAllLinesStation() throws Exception {
+        props.setStationSnapEnabled(true);
+        server.enqueue(stationsResponse("["
+                + "{\"gtfsId\":\"1:VST_P1\",\"name\":\"가\",\"stops\":["
+                + "{\"gtfsId\":\"1:P1\",\"name\":\"가(2호선)\",\"lat\":37.5602,\"lon\":126.97,\"vehicleMode\":\"SUBWAY\"},"
+                + "{\"gtfsId\":\"1:VEX_n1_P1\",\"name\":\"가역 1번 출구\",\"lat\":37.5600,\"lon\":126.97,\"vehicleMode\":null}]},"
+                + "{\"gtfsId\":\"1:VSA_G\",\"name\":\"가\",\"stops\":["
+                + "{\"gtfsId\":\"1:VSA_P_P1\",\"name\":\"가(2호선)\",\"lat\":37.5602,\"lon\":126.97,\"vehicleMode\":null},"
+                + "{\"gtfsId\":\"1:VSA_P_P2\",\"name\":\"가(8호선)\",\"lat\":37.5610,\"lon\":126.97,\"vehicleMode\":null},"
+                + "{\"gtfsId\":\"1:VSA_X_n1_P1\",\"name\":\"가역 1번 출구\",\"lat\":37.5600,\"lon\":126.97,\"vehicleMode\":null}]}]"));
+        stations.load();
+        assertThat(server.takeRequest(1, TimeUnit.SECONDS).getBody().readUtf8()).contains("stations");
+    }
+
+    private static MockResponse stationsResponse(String stationsJson) {
+        return new MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
+                .setBody("{\"data\":{\"stations\":" + stationsJson + "}}");
     }
 
     /** 역 목록을 동기로 적재한다(그 요청은 여기서 소비). 승강장 하나 + 같은 역 버스 정류장 하나. */
