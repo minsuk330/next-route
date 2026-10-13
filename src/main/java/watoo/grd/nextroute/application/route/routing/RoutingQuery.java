@@ -36,4 +36,10 @@ public record RoutingQuery(
         }
         modes = modes == null ? Set.of() : Set.copyOf(modes);
     }
+
+    /** 허용 수단만 바꾼 복사본(나머지 필드 보존). */
+    public RoutingQuery withModes(Set<RoutingMode> newModes) {
+        return new RoutingQuery(originLon, originLat, originName, destLon, destLat, destName, departureAt,
+                newModes, maxWalkMeters, wheelchair, schemaVersion, provider, graphVersion);
+    }
 }

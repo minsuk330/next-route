@@ -12,6 +12,7 @@ import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
+import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
 import watoo.grd.nextroute.application.route.routing.RoutingPort;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
@@ -25,8 +26,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * OTP 2.9.0 planConnection 어댑터. 선택된 provider 가 OTP 일 때만 호출된다(selector 는 PR2b).
@@ -50,21 +55,42 @@ public class OtpRoutingAdapter implements RoutingPort {
 
     private static final String GRAPHQL_PATH = "/otp/routers/default/index/graphql";
     private static final ZoneId FEED_ZONE = ZoneId.of("Asia/Seoul");
+    /**
+     * OTP GTFS GraphQL {@code TransitMode} 전 값. {@code modes.transit.transit} 에 목록을 주면 <b>그 수단만</b>
+     * 탐색한다(목록이 없을 때만 전 수단) — 버스 가중치 하나를 주려 해도 나머지를 전부 나열해야 탐색 범위가 그대로다.
+     */
+    private static final List<String> ALL_TRANSIT_MODES = List.of(
+            "AIRPLANE", "BUS", "CABLE_CAR", "CARPOOL", "COACH", "FERRY", "FUNICULAR", "GONDOLA",
+            "MONORAIL", "RAIL", "SNOW_AND_ICE", "SUBWAY", "TAXI", "TRAM", "TROLLEYBUS");
+    /**
+     * 중립 수단 → OTP 수단. {@link RoutingQuery#modes()} 가 비어 있지 않으면 이것만 탐색한다
+     * (검색이 고유 경로를 채우려고 "지하철만"·"버스만"을 따로 묻는다 — OTP 는 지배당한 대안을 버리기 때문).
+     */
+    private static final Map<RoutingMode, List<String>> OTP_MODES = Map.of(
+            RoutingMode.BUS, List.of("BUS", "COACH", "TROLLEYBUS"),
+            RoutingMode.SUBWAY, List.of("SUBWAY", "MONORAIL", "TRAM"),
+            RoutingMode.RAIL, List.of("RAIL", "FUNICULAR"));
+    /** 고정 탐색 창 안에 출발편이 없을 때 OTP 가 주는 routingErrors 코드. */
+    private static final String NO_CONNECTION_IN_WINDOW = "NO_TRANSIT_CONNECTION_IN_SEARCH_WINDOW";
+    /** 역 id 로 물었는데 이 실패면 좌표로 다시 묻는다(그 id 를 모르는 그래프 등). */
+    private static final Set<String> STATION_FALLBACK_CODES = Set.of("GRAPHQL_ERROR", "LOCATION_NOT_FOUND");
 
     private final RestClient.Builder restClientBuilder;
     private final ObjectMapper objectMapper;
     private final OtpPlanConnectionMapper mapper;
     private final OtpRoutingProperties properties;
+    private final OtpStationResolver stationResolver;
     private final Clock clock;
     private final String query;
 
     public OtpRoutingAdapter(RestClient.Builder restClientBuilder, ObjectMapper objectMapper,
                              OtpPlanConnectionMapper mapper, OtpRoutingProperties properties,
-                             Clock clock) {
+                             OtpStationResolver stationResolver, Clock clock) {
         this.restClientBuilder = restClientBuilder;
         this.objectMapper = objectMapper;
         this.mapper = mapper;
         this.properties = properties;
+        this.stationResolver = stationResolver;
         this.clock = clock;
         this.query = loadQuery();
     }
@@ -76,12 +102,70 @@ public class OtpRoutingAdapter implements RoutingPort {
 
     @Override
     public RoutingOutcome search(RoutingQuery routingQuery, RoutingDeadline deadline) {
+        Endpoints snapped = endpoints(routingQuery, true);
+        RoutingOutcome outcome = searchWithWindowFallback(routingQuery, deadline, snapped);
+        if (snapped.usesStation() && outcome instanceof RoutingFailure failure
+                && STATION_FALLBACK_CODES.contains(failure.code())) {
+            log.info("[OTP] 역 id 검색 실패({}) → 좌표로 재검색", failure.code());
+            return searchWithWindowFallback(routingQuery, deadline, endpoints(routingQuery, false));
+        }
+        return outcome;
+    }
+
+    private RoutingOutcome searchWithWindowFallback(RoutingQuery routingQuery, RoutingDeadline deadline,
+                                                    Endpoints endpoints) {
+        Duration window = properties.getSearchWindow();
+        RoutingOutcome outcome = searchOnce(routingQuery, deadline, window, endpoints);
+        // 고정 창 안에 출발편이 없으면 창을 빼고(OTP 자동 창) 한 번 더 묻는다. 배차가 창보다 긴
+        // 지방 시외·심야는 고정 창에서 0건이 된다(2026-10-12 홍천→인제 14:00: 30분 창 0건, 자동 창 2건).
+        // 같은 예산을 이어 쓴다. 예산이 바닥나면 TIMEOUT(NO_BUDGET) — 창 밖에 경로가 있는지 모르는 채
+        // "경로 없음"이라 하지 않는다.
+        if (window != null && outcome instanceof RoutingFailure failure
+                && NO_CONNECTION_IN_WINDOW.equals(failure.code())) {
+            log.info("[OTP] 탐색 창 {} 안에 연결 없음 → 자동 창으로 재검색", window);
+            return searchOnce(routingQuery, deadline, null, endpoints);
+        }
+        return outcome;
+    }
+
+    /**
+     * 출발·도착을 OTP 위치 입력으로. 장소가 역이면 그 승강장의 가상 역 id({@code stopLocation}) — 승강장과
+     * 모든 출구에서 출발해 가까운 출구에서 걷는다 — 아니면 좌표({@link OtpStationResolver}).
+     */
+    private Endpoints endpoints(RoutingQuery q, boolean snapToStations) {
+        Optional<OtpStationResolver.Snap> origin = snapToStations
+                ? stationResolver.snap(q.originLat(), q.originLon(), q.originName()) : Optional.empty();
+        Optional<OtpStationResolver.Snap> dest = snapToStations
+                ? stationResolver.snap(q.destLat(), q.destLon(), q.destName()) : Optional.empty();
+        // 같은 역 안의 출발·도착(다른 노선 승강장 등)은 좌표로 — 출구가 겹쳐 검색이 뜻을 잃는다.
+        if (origin.isPresent() && dest.isPresent()
+                && origin.get().stationName().equals(dest.get().stationName())) {
+            origin = Optional.empty();
+            dest = Optional.empty();
+        }
+        return new Endpoints(
+                location(origin.map(OtpStationResolver.Snap::stationId), q.originLat(), q.originLon()),
+                location(dest.map(OtpStationResolver.Snap::stationId), q.destLat(), q.destLon()),
+                origin.isPresent() || dest.isPresent());
+    }
+
+    private static Map<String, Object> location(Optional<String> station, double lat, double lon) {
+        return station
+                .<Map<String, Object>>map(id -> Map.of("location", Map.of("stopLocation", Map.of("stopLocationId", id))))
+                .orElseGet(() -> Map.of("location", Map.of("coordinate", Map.of("latitude", lat, "longitude", lon))));
+    }
+
+    private record Endpoints(Map<String, Object> origin, Map<String, Object> destination, boolean usesStation) {
+    }
+
+    private RoutingOutcome searchOnce(RoutingQuery routingQuery, RoutingDeadline deadline, Duration window,
+                                      Endpoints endpoints) {
         long budget = deadline.remainingMillis(clock);
         if (budget <= 0) {
             return RoutingFailure.of(RoutingFailure.Kind.TIMEOUT, "NO_BUDGET",
                     "OTP 호출 전에 시간 예산이 소진됨");
         }
-        String body = requestBody(routingQuery);
+        String body = requestBody(routingQuery, window, endpoints);
         String response;
         try {
             response = sendOnce(body, budget);
@@ -111,20 +195,45 @@ public class OtpRoutingAdapter implements RoutingPort {
         return mapper.map(root, routingQuery.departureAt(), versions);
     }
 
-    private String requestBody(RoutingQuery q) {
-        Map<String, Object> coordO = Map.of("latitude", q.originLat(), "longitude", q.originLon());
-        Map<String, Object> coordD = Map.of("latitude", q.destLat(), "longitude", q.destLon());
+    private String requestBody(RoutingQuery q, Duration window, Endpoints endpoints) {
         Map<String, Object> vars = new LinkedHashMap<>();
-        vars.put("origin", Map.of("location", Map.of("coordinate", coordO)));
-        vars.put("destination", Map.of("location", Map.of("coordinate", coordD)));
+        vars.put("origin", endpoints.origin());
+        vars.put("destination", endpoints.destination());
         // offset 포함 확정 departureAt 을 feed 시간대로 표현(OTP OffsetDateTime).
         vars.put("when", q.departureAt().atZone(FEED_ZONE).toOffsetDateTime().toString());
         vars.put("first", properties.getFirst());
+        if (window != null) {
+            vars.put("searchWindow", window.toString());
+        }
+        // 수단 제한이 있으면 가중치와 무관하게 보낸다. 없으면 가중치가 있을 때만(1.0 이면 옛 요청과 같다).
+        if (!q.modes().isEmpty() || properties.getBusReluctance() != 1.0) {
+            vars.put("modes", Map.of("transit", Map.of("transit",
+                    transitModes(otpModes(q.modes()), properties.getBusReluctance()))));
+        }
         try {
             return objectMapper.writeValueAsString(Map.of("query", query, "variables", vars));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    private static List<String> otpModes(Set<RoutingMode> modes) {
+        if (modes.isEmpty()) {
+            return ALL_TRANSIT_MODES;
+        }
+        return ALL_TRANSIT_MODES.stream()
+                .filter(m -> modes.stream().anyMatch(rm -> OTP_MODES.getOrDefault(rm, List.of()).contains(m)))
+                .toList();
+    }
+
+    private static List<Map<String, Object>> transitModes(List<String> otpModes, double busReluctance) {
+        List<Map<String, Object>> modes = new ArrayList<>(otpModes.size());
+        for (String mode : otpModes) {
+            modes.add("BUS".equals(mode)
+                    ? Map.of("mode", mode, "cost", Map.of("reluctance", busReluctance))
+                    : Map.of("mode", mode));
+        }
+        return modes;
     }
 
     private String sendOnce(String body, long budgetMs) {

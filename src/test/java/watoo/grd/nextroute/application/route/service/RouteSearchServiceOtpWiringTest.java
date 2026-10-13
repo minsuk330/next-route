@@ -69,6 +69,11 @@ class RouteSearchServiceOtpWiringTest {
     }
 
     private RouteSearchService service(RoutingPort otpPort, TransferArrivalEnricher enricher) {
+        return service(otpPort, enricher, new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
+    }
+
+    private RouteSearchService service(RoutingPort otpPort, TransferArrivalEnricher enricher,
+                                       watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps) {
         RoutingProviderProperties props = new RoutingProviderProperties();
         props.setDefaultProvider(RoutingProvider.OTP);
         props.setOtpEnabled(true);
@@ -81,7 +86,7 @@ class RouteSearchServiceOtpWiringTest {
                 new RouteSearchDeadlineProperties(),
                 selector,
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
-                new DepartureTimeResolver(Clock.systemDefaultZone()), grantingGate, Clock.systemDefaultZone());
+                new DepartureTimeResolver(Clock.systemDefaultZone()), grantingGate, Clock.systemDefaultZone(), otpProps);
     }
 
     private RoutingPort otpReturning(RoutingOutcome outcome) {
@@ -116,18 +121,194 @@ class RouteSearchServiceOtpWiringTest {
     }
 
     @Test
+    @DisplayName("OTP 후보는 비용 순으로 줄 세워 5개만 — 뒤쪽 저비용 지하철이 1위로 올라온다")
+    void otpCandidatesRankedByCostAndCapped() {
+        RouteSearchResult legacy = service(otpReturning(busesThenCheapSubway()))
+                .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(legacy.paths()).hasSize(5);
+        assertThat(legacy.paths().get(0).subPaths().get(0).trafficType()).isEqualTo(1); // SUBWAY
+    }
+
+    @Test
+    @DisplayName("정렬 킬스위치를 끄면 엔진 순서 앞 5개 — 옛 동작")
+    void rankingDisabledKeepsEngineOrder() {
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
+        watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps = new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
+        otpProps.setRankingEnabled(false);
+
+        RouteSearchResult legacy = service(otpReturning(busesThenCheapSubway()), enricher, otpProps)
+                .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(legacy.paths()).hasSize(5);
+        assertThat(legacy.paths()).allSatisfy(p -> assertThat(p.subPaths().get(0).trafficType()).isEqualTo(2));
+    }
+
+    @Test
+    @DisplayName("고유 경로가 5개 미만이면 지하철만 → 버스만을 더 물어 5개를 채운다 — 같은 경로 반복은 없다")
+    void shortResultSupplementsRailThenBus() {
+        ScriptedOtp otp = new ScriptedOtp()
+                .on(Set.of(), result(singleLeg(RoutingMode.SUBWAY, "1:L1", "서울1호선", 4169),
+                        singleLeg(RoutingMode.SUBWAY, "1:L1", "서울1호선", 4169)))
+                .on(RAIL_ONLY, result(singleLeg(RoutingMode.SUBWAY, "1:L1X", "서울1호선", 4100),
+                        singleLeg(RoutingMode.RAIL, "1:KTX", "KTX", 4300)))
+                .on(BUS_ONLY, result(singleLeg(RoutingMode.BUS, "1:1400", "1400", 6000),
+                        singleLeg(RoutingMode.BUS, "1:88", "88", 6100),
+                        singleLeg(RoutingMode.BUS, "1:586", "586", 6200),
+                        singleLeg(RoutingMode.BUS, "1:581", "581", 6300)));
+
+        RouteSearchResult legacy = service(otp).search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(otp.asked).containsExactly(Set.of(), RAIL_ONLY, BUS_ONLY);
+        assertThat(firstLaneNames(legacy)).containsExactly("서울1호선", "KTX", "1400", "88", "586");
+    }
+
+    @Test
+    @DisplayName("본 검색이 고유 5개면 더 묻지 않는다")
+    void fullResultSkipsSupplementary() {
+        ScriptedOtp otp = new ScriptedOtp().on(Set.of(), busesThenCheapSubway());
+
+        service(otp).search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(otp.asked).containsExactly(Set.of());
+    }
+
+    @Test
+    @DisplayName("지하철만으로 5개가 차면 버스는 묻지 않는다")
+    void railFillsSoBusIsSkipped() {
+        ScriptedOtp otp = new ScriptedOtp()
+                .on(Set.of(), result(singleLeg(RoutingMode.BUS, "1:146", "146", 4500),
+                        singleLeg(RoutingMode.BUS, "1:3100", "3100", 4600)))
+                .on(RAIL_ONLY, result(singleLeg(RoutingMode.SUBWAY, "1:S4", "서울4호선", 5000),
+                        singleLeg(RoutingMode.SUBWAY, "1:S7", "서울7호선", 5100),
+                        singleLeg(RoutingMode.SUBWAY, "1:S3", "서울3호선", 5200)));
+
+        RouteSearchResult legacy = service(otp).search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(otp.asked).containsExactly(Set.of(), RAIL_ONLY);
+        assertThat(legacy.paths()).hasSize(5);
+    }
+
+    @Test
+    @DisplayName("추가 검색이 실패해도 본 결과로 응답한다")
+    void supplementaryFailureKeepsMainResult() {
+        ScriptedOtp otp = new ScriptedOtp()
+                .on(Set.of(), result(singleLeg(RoutingMode.BUS, "1:A", "A", 4000),
+                        singleLeg(RoutingMode.BUS, "1:B", "B", 4100)))
+                .on(RAIL_ONLY, RoutingFailure.of(RoutingFailure.Kind.NO_ROUTE, "NO_TRANSIT_CONNECTION", "x"))
+                .on(BUS_ONLY, RoutingFailure.of(RoutingFailure.Kind.TIMEOUT, "TIMEOUT", "x"));
+
+        RouteSearchResult legacy = service(otp).search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(otp.asked).containsExactly(Set.of(), RAIL_ONLY, BUS_ONLY);
+        assertThat(firstLaneNames(legacy)).containsExactly("A", "B");
+    }
+
+    @Test
+    @DisplayName("추가 검색 킬스위치를 끄면 본 검색만")
+    void supplementaryDisabled() {
+        ScriptedOtp otp = new ScriptedOtp()
+                .on(Set.of(), result(singleLeg(RoutingMode.BUS, "1:A", "A", 4000)));
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
+        watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps = new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
+        otpProps.setSupplementaryEnabled(false);
+
+        service(otp, enricher, otpProps).search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(otp.asked).containsExactly(Set.of());
+    }
+
+    private static final Set<RoutingMode> RAIL_ONLY = Set.of(RoutingMode.SUBWAY, RoutingMode.RAIL);
+    private static final Set<RoutingMode> BUS_ONLY = Set.of(RoutingMode.BUS);
+
+    /** 수단 제한별로 정해 둔 결과를 주고, 받은 수단 제한을 차례로 적어 둔다. 정하지 않은 제한은 무경로. */
+    private static final class ScriptedOtp implements RoutingPort {
+        private final java.util.Map<Set<RoutingMode>, RoutingOutcome> byModes = new java.util.HashMap<>();
+        private final java.util.List<Set<RoutingMode>> asked = new java.util.ArrayList<>();
+
+        ScriptedOtp on(Set<RoutingMode> modes, RoutingOutcome outcome) {
+            byModes.put(modes, outcome);
+            return this;
+        }
+
+        @Override public RoutingOutcome search(RoutingQuery q, RoutingDeadline d) {
+            asked.add(q.modes());
+            return byModes.getOrDefault(q.modes(),
+                    RoutingFailure.of(RoutingFailure.Kind.NO_ROUTE, "NO_TRANSIT_CONNECTION", "scripted"));
+        }
+
+        @Override public RoutingProvider provider() { return RoutingProvider.OTP; }
+    }
+
+    private RoutingResult result(RoutingItinerary... its) {
+        return new RoutingResult(RoutingProvider.OTP, "v", "202503", "g1",
+                null, null, Instant.now(), List.of(), List.of(its));
+    }
+
+    private static List<String> firstLaneNames(RouteSearchResult legacy) {
+        return legacy.paths().stream()
+                .map(p -> {
+                    var lane = p.subPaths().get(0).lanes().get(0);
+                    return lane.name() != null ? lane.name() : lane.busNo();
+                })
+                .toList();
+    }
+
+    /** OTP 기본 순서 재현: 서로 다른 버스 6개가 앞, 비용이 가장 낮은 지하철이 7번째. */
+    private RoutingResult busesThenCheapSubway() {
+        java.util.List<RoutingItinerary> engine = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            engine.add(singleLeg(RoutingMode.BUS, "1:R" + i, "B" + i, 5000 + i));
+        }
+        engine.add(singleLeg(RoutingMode.SUBWAY, "1:S2", "서울2호선", 3557));
+        return new RoutingResult(RoutingProvider.OTP, "v", "202503", "g1",
+                null, null, Instant.now(), List.of(), engine);
+    }
+
+    private RoutingItinerary singleLeg(RoutingMode mode, String routeId, String routeName, int cost) {
+        RoutingLeg leg = new RoutingLeg(mode, mode.name(), "1", "1:A1", routeId, routeName,
+                "1:T", null, Instant.now(), Instant.now(), 600,
+                List.of(new StopOccurrence("1:S1", null, null, 0, 126.98, 37.55, "정류장1")),
+                List.of(), LegGeometry.missing("x"),
+                Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of());
+        return new RoutingItinerary(Instant.now(), 600, 0, 0, 0, false,
+                List.of(), Fare.unknown(), List.of(leg), cost);
+    }
+
+    @Test
     @DisplayName("실시간 요청이면 버스 도착예측을 서버가 채워 내린다 — 앱이 따로 묻지 않는다")
     void otpPathEnrichesTransferArrivals() {
         TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
-        RouteSearchResult enriched = new RouteSearchResult(0, 0, 0, 0, 0, List.of());
-        given(enricher.enrich(any(), any(), any())).willReturn(enriched);
+        java.util.concurrent.atomic.AtomicReference<RouteSearchResult> enriched = new java.util.concurrent.atomic.AtomicReference<>();
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> {
+            RouteSearchResult in = call.getArgument(0);
+            enriched.set(new RouteSearchResult(0, 0, 0, 0, 0, new java.util.ArrayList<>(in.paths())));
+            return enriched.get();
+        });
 
         RouteSearchResult out = service(otpReturning(busItinerary()), enricher)
                 .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
 
         verify(enricher).enrich(any(), any(), any());
         // 보강기가 돌려준 결과가 그대로 응답이 된다(meta 만 감싼다).
-        assertThat(out.paths()).isSameAs(enriched.paths());
+        assertThat(out.paths()).isSameAs(enriched.get().paths());
+    }
+
+    @Test
+    @DisplayName("후보가 전부 운행종료로 빠지면 422 ROUTE_ALL_ENDED — 빈 200 으로 '경로 없음'과 섞지 않는다(#400)")
+    void allEndedIs422() {
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willReturn(new RouteSearchResult(0, 0, 0, 0, 0, List.of()));
+
+        RouteSearchService svc = service(otpReturning(busItinerary()), enricher);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> svc.search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d")))
+                .isInstanceOf(watoo.grd.nextroute.global.error.BusinessException.class)
+                .extracting(e -> ((watoo.grd.nextroute.global.error.BusinessException) e).getErrorCode())
+                .isEqualTo(watoo.grd.nextroute.global.error.code.RouteErrorCode.ROUTE_ALL_ENDED);
     }
 
     @Test

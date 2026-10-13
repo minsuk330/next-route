@@ -106,20 +106,31 @@ class TransferArrivalEnricherTest {
 
     /** predictTime2: bus2 예측시간(초). mkTm 기준. -1 이면 null로 설정. */
     private BusArrivalInfo arrivalInfo(String routeId, String mkTm, int predictTime1, int predictTime2) {
+        return arrivalInfo(routeId, mkTm, predictTime1, predictTime2, "1분", "msg2", null);
+    }
+
+    /** 운행종료 판정용 — 도착 메시지 두 개와 정류장 첫차 시각({@code yyyyMMddHHmmss}). 예측 초는 없다. */
+    private BusArrivalInfo endedInfo(String routeId, String msg1, String msg2, String firstTm) {
+        return arrivalInfo(routeId, "2026-06-06 12:59:50.0", -1, -1, msg1, msg2, firstTm);
+    }
+
+    private BusArrivalInfo arrivalInfo(String routeId, String mkTm, int predictTime1, int predictTime2,
+                                       String msg1, String msg2, String firstTm) {
+        Integer pt1 = predictTime1 < 0 ? null : predictTime1;
         Integer pt2 = predictTime2 < 0 ? null : predictTime2;
         return new BusArrivalInfo(
                 // 공통 15
                 routeId, "360", "360", "1111", null, "정류장",
                 5, null, 3, 10,
                 mkTm,
-                null, null, null, null,
+                null, null, firstTm, null,
                 // 버스1 기본 9
-                "1분", "v1", null, 0, 3, "현재정류장", "0", "0", "0",
+                msg1, "v1", null, 0, 3, "현재정류장", "0", "0", "0",
                 // 버스1 예측+계수 8
-                predictTime1, null, null, null,
+                pt1, null, null, null,
                 null, null, null, null,
                 // 버스1 구간+혼잡 6 (sectionTime1 = 도착 ETA 소스)
-                predictTime1, null,
+                pt1, null,
                 null, null, null, null,
                 // 버스1 다음정류소 4
                 null, null, null, null,
@@ -128,7 +139,7 @@ class TransferArrivalEnricherTest {
                 null, null, null,
                 null, null, null,
                 // 버스2 기본 9
-                "msg2", "v2", null, 0, 5, "다음정류장", "0", "0", "0",
+                msg2, "v2", null, 0, 5, "다음정류장", "0", "0", "0",
                 // 버스2 예측+계수 8
                 pt2, null, null, null,
                 null, null, null, null,
@@ -157,6 +168,87 @@ class TransferArrivalEnricherTest {
     }
 
     // ── 테스트 ────────────────────────────────────────────────────────────
+
+    // ── 운행종료 경로 숨김(#400) ──────────────────────────────────────────
+
+    private SubPathResult busSubPathLanes(String stopId, List<LaneResult> lanes) {
+        SubPathResult one = busSubPath(stopId, "x", "x");
+        return new SubPathResult(one.trafficType(), one.sectionTime(), one.distance(), lanes, one.stations(),
+                one.startName(), one.endName(), one.startX(), one.startY(), one.endX(), one.endY(),
+                null, null, null, null, null, null, null, null, null, null, null, null, null,
+                stopId, null, null, null, null, null, null);
+    }
+
+    private void stubRoute(String routeId, String name, BusArrivalInfo arrival) {
+        when(stopRepo.findByStopId("1111")).thenReturn(Optional.of(busStop("1111")));
+        when(routeRepo.findByRouteId(routeId)).thenReturn(Optional.of(busRoute(routeId, name)));
+        when(routeStopRepo.findByRouteIdAndStopId(routeId, "1111")).thenReturn(List.of(routeStop(routeId, "1111", 5)));
+        lenient().when(busPort.getArrInfoByStop(eq("1111"), eq(routeId), eq(5), anyLong())).thenReturn(arrOk(List.of(arrival)));
+        lenient().when(busPort.getArrInfoByStop("1111", routeId, 5)).thenReturn(arrOk(List.of(arrival)));
+    }
+
+    @Test
+    void TC_운행종료_구간을_지나는_경로는_빠지고_나머지_순서는_그대로() {
+        props.setEnabled(true);
+        lenient().when(predictionSupport.support(any())).thenReturn(PredictionSupportService.Support.UNSUPPORTED);
+        stubRoute("100100750", "750B", endedInfo("100100750", "운행종료", "운행종료", "20260606043500"));
+        stubRoute("100100360", "360", arrivalInfo("100100360", "2026-06-06 12:59:50.0", 300));
+        PathInfo info = new PathInfo(30, 1000, 0, 0, "출발", "도착", null);
+        PathResult ended = new PathResult(2, info, List.of(busSubPath("1111", "100100750", "750B")), List.of());
+        PathResult alive = new PathResult(2, info, List.of(busSubPath("1111", "100100360", "360")), List.of());
+        RouteSearchResult input = new RouteSearchResult(0, 2, 0, 0, 0, List.of(ended, alive));
+
+        RouteSearchResult out = enricher.enrich(input, NOW, RouteSearchContext.start(5000));
+
+        assertThat(out.paths()).hasSize(1);
+        assertThat(out.paths().get(0).subPaths().get(0).lanes().get(0).busNo()).isEqualTo("360");
+        assertThat(out.busCount()).isEqualTo(1);
+    }
+
+    @Test
+    void TC_같은_정류장_노선_하나라도_살아있으면_남긴다() {
+        props.setEnabled(true);
+        lenient().when(predictionSupport.support(any())).thenReturn(PredictionSupportService.Support.UNSUPPORTED);
+        stubRoute("100100750", "750B", endedInfo("100100750", "운행종료", "운행종료", "20260606043500"));
+        stubRoute("100100360", "360", arrivalInfo("100100360", "2026-06-06 12:59:50.0", 300));
+        SubPathResult twoLanes = busSubPathLanes("1111", List.of(
+                new LaneResult("750B", "750B", null, 1, null, "100100750", null),
+                new LaneResult("360", "360", null, 1, null, "100100360", null)));
+
+        RouteSearchResult out = enricher.enrich(resultWith(List.of(twoLanes)), NOW, RouteSearchContext.start(5000));
+
+        assertThat(out.paths()).hasSize(1);
+    }
+
+    @Test
+    void TC_첫차_전_운행종료는_곧_다니므로_남긴다() {
+        props.setEnabled(true);
+        lenient().when(predictionSupport.support(any())).thenReturn(PredictionSupportService.Support.UNSUPPORTED);
+        // NOW = KST 13:00, 정류장 첫차 13:05, 사용자는 걸어서 15분 뒤 도착 → 그 버스는 탈 수 있다
+        stubRoute("100100750", "750B", endedInfo("100100750", "운행종료", null, "20260606130500"));
+
+        RouteSearchResult out = enricher.enrich(resultWith(List.of(walkSubPath(15), busSubPath("1111", "100100750", "750B"))),
+                NOW, RouteSearchContext.start(5000));
+
+        assertThat(out.paths()).hasSize(1);
+    }
+
+    @Test
+    void TC_검색_예산_없는_보강은_숨기지_않는다() {
+        props.setEnabled(true);
+        lenient().when(predictionSupport.support(any())).thenReturn(PredictionSupportService.Support.UNSUPPORTED);
+        when(stopRepo.findByStopId("1111")).thenReturn(Optional.of(busStop("1111")));
+        when(routeRepo.findByRouteId("100100750")).thenReturn(Optional.of(busRoute("100100750", "750B")));
+        when(routeStopRepo.findByRouteIdAndStopId("100100750", "1111")).thenReturn(List.of(routeStop("100100750", "1111", 5)));
+        lenient().when(busPort.getArrInfoByStop(eq("1111"), eq("100100750"), eq(5), anyLong()))
+                .thenReturn(arrOk(List.of(endedInfo("100100750", "운행종료", "운행종료", "20260606043500"))));
+        lenient().when(busPort.getArrInfoByStop("1111", "100100750", 5))
+                .thenReturn(arrOk(List.of(endedInfo("100100750", "운행종료", "운행종료", "20260606043500"))));
+
+        RouteSearchResult out = enricher.enrich(resultWith(List.of(busSubPath("1111", "100100750", "750B"))), NOW);
+
+        assertThat(out.paths()).hasSize(1);
+    }
 
     @Test
     void TC_disabled_모든_lane에_DISABLED_부착() {

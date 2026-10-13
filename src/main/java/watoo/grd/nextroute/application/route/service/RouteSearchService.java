@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.route.service;
 
+import watoo.grd.nextroute.global.error.BusinessException;
+import watoo.grd.nextroute.global.error.code.RouteErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -10,6 +12,7 @@ import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.dto.SearchMeta;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.dto.WalkSegment;
+import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
 import watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties;
 import watoo.grd.nextroute.application.route.exception.OdSayApiException;
 import watoo.grd.nextroute.application.route.exception.TmapApiException;
@@ -21,10 +24,13 @@ import watoo.grd.nextroute.application.route.port.in.SearchRouteUseCase;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort.WalkSearchCommand;
+import watoo.grd.nextroute.application.route.routing.ItineraryRanker;
 import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
 import watoo.grd.nextroute.application.route.routing.OtpPermit;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
+import watoo.grd.nextroute.application.route.routing.RoutingItinerary;
+import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
 import watoo.grd.nextroute.application.route.routing.RoutingProviderSelector;
@@ -33,8 +39,10 @@ import watoo.grd.nextroute.application.route.routing.RoutingResult;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -61,6 +69,8 @@ public class RouteSearchService implements SearchRouteUseCase {
     // OTP 글로벌 동시성 상한. otp-enabled 전엔 아래 branch 를 안 타므로 dormant.
     private final OtpConcurrencyGate otpConcurrencyGate;
     private final Clock clock;
+    // 후보 수·노출 상한·정렬 킬스위치(ItineraryRanker).
+    private final OtpRoutingProperties otpRoutingProperties;
 
     @Override
     public RouteSearchResult search(RouteSearchRequest request) {
@@ -156,8 +166,8 @@ public class RouteSearchService implements SearchRouteUseCase {
         // withRealtime=false 는 요청이 실시간을 요구하지 않은 것이므로 degradation 이 아니다(단계 미적용).
         if (withRealtime) {
             RouteSearchResult afterBus = result;
-            result = stage(ctx, SearchComponent.BUS_REALTIME,
-                    () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx));
+            result = requireRideable(afterBus, stage(ctx, SearchComponent.BUS_REALTIME,
+                    () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx)));
         }
 
         return result;
@@ -185,6 +195,9 @@ public class RouteSearchService implements SearchRouteUseCase {
         RoutingOutcome outcome;
         try {
             outcome = providerSelector.portFor(RoutingProvider.OTP).search(query, deadline);
+            if (outcome instanceof RoutingResult first) {
+                outcome = supplementIfShort(first, query, deadline);
+            }
         } finally {
             metrics.recordStage(SearchComponent.ODSAY, ctx.isDegraded(SearchComponent.ODSAY),
                     System.nanoTime() - start);
@@ -193,17 +206,87 @@ public class RouteSearchService implements SearchRouteUseCase {
         if (outcome instanceof RoutingFailure failure) {
             return handleOtpFailure(failure, ctx);
         }
-        RouteSearchResult mapped = legacyRouteResponseMapper.toLegacy((RoutingResult) outcome);
+        RouteSearchResult mapped = legacyRouteResponseMapper.toLegacy(selectCandidates((RoutingResult) outcome));
         // 요청이 실시간을 요구하지 않았으면(알림용 STATIC 경로) 보강하지 않는다 — degradation 이 아니다.
         if (!withRealtime) {
             return mapped;
         }
-        // 버스 구간 도착예측. enricher 는 값만 채운다 — 엔진이 준 순서(가장 빠른 것 먼저)를 그대로 두고
-        // 재정렬·강등·MISSED 숨김은 하지 않는다(그 판단은 사용자 몫). 보강이 예산에 잘리면
+        // 버스 구간 도착예측. enricher 는 값을 채우고, 실시간이 "운행종료"라 한 버스 구간을 지나는 경로만 뺀다(#400) —
+        // 남은 순서는 그대로, 놓침(MISSED)·지연 기반 재정렬·강등은 하지 않는다(그 판단은 사용자 몫). 보강이 예산에 잘리면
         // transferArrivals 가 비고 meta.degraded 에 bus_realtime 이 남는다 — 검색 자체는 200 이다.
         RouteSearchResult afterBus = mapped;
-        return stage(ctx, SearchComponent.BUS_REALTIME,
-                () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx));
+        return requireRideable(afterBus, stage(ctx, SearchComponent.BUS_REALTIME,
+                () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx)));
+    }
+
+    /** 후보가 있었는데 전부 운행종료로 빠졌으면 422 — 앱이 "지금은 탈 수 있는 경로가 없어요"를 보인다(#400). */
+    private static RouteSearchResult requireRideable(RouteSearchResult before, RouteSearchResult after) {
+        boolean hadPaths = before.paths() != null && !before.paths().isEmpty();
+        boolean nonePaths = after.paths() == null || after.paths().isEmpty();
+        if (hadPaths && nonePaths) {
+            throw new BusinessException(RouteErrorCode.ROUTE_ALL_ENDED);
+        }
+        return after;
+    }
+
+    /** 고유 경로가 모자랄 때 차례로 더 묻는 수단 제한. 지하철만이 싸서(0.05~0.6s) 먼저, 버스만은 0.4~1.3s. */
+    private static final List<Set<RoutingMode>> SUPPLEMENTARY_MODES = List.of(
+            Set.of(RoutingMode.SUBWAY, RoutingMode.RAIL), Set.of(RoutingMode.BUS));
+
+    /**
+     * 본 검색의 고유 경로가 노출 상한보다 적으면 수단을 제한해 더 묻고 후보를 이어 붙인다. OTP 는 지배당한 대안
+     * (더 늦게 도착·환승 많음·비용 높음)을 탐색 단계에서 버려 부평→서울은 1호선 하나만 남는다 — 수단별로 물으면
+     * 버스 대안이 살아난다(2026-10-12 실측 12개). 같은 permit 안에서 순차로 묻고, 한 번에 쓸 예산은 상한을 둔다.
+     * 추가 검색 실패는 무시한다(본 결과만으로도 응답은 성립한다).
+     */
+    private RoutingResult supplementIfShort(RoutingResult result, RoutingQuery query, RoutingDeadline deadline) {
+        int limit = otpRoutingProperties.getDisplayLimit();
+        if (!otpRoutingProperties.isRankingEnabled() || !otpRoutingProperties.isSupplementaryEnabled()) {
+            return result;
+        }
+        List<RoutingItinerary> merged = new ArrayList<>(result.itineraries());
+        int distinct = ItineraryRanker.rank(merged, limit).size();
+        for (Set<RoutingMode> modes : SUPPLEMENTARY_MODES) {
+            if (distinct >= limit) {
+                break;
+            }
+            long remaining = deadline.remainingMillis(clock);
+            if (remaining <= deadlineProperties.getMinRemainingForOptionalMs()) {
+                break;
+            }
+            RoutingDeadline budget = RoutingDeadline.of(clock,
+                    Math.min(remaining, otpRoutingProperties.getSupplementaryBudgetMs()));
+            RoutingOutcome extra;
+            try {
+                extra = providerSelector.portFor(RoutingProvider.OTP).search(query.withModes(modes), budget);
+            } catch (RuntimeException e) {
+                log.warn("[OTP] 추가 검색 {} 실패: {}", modes, e.toString());
+                continue;
+            }
+            int before = distinct;
+            if (extra instanceof RoutingResult more) {
+                merged.addAll(more.itineraries());
+                distinct = ItineraryRanker.rank(merged, limit).size();
+            }
+            log.info("[OTP] 고유 경로 {} < {} → 추가 검색 {}: {}, 합친 고유 {}", before, limit, modes,
+                    extra instanceof RoutingResult more ? "후보 " + more.itineraries().size()
+                            : ((RoutingFailure) extra).code(), distinct);
+        }
+        return result.withItineraries(merged);
+    }
+
+    /**
+     * OTP 후보 중 응답에 낼 경로를 고른다. OTP 기본 순서는 탐색 창 안 출발편의 도착시각 타임라인이라
+     * 배차 잦은 버스가 상위를 채우고 같은 노선이 반복된다(2026-10-12 실측: 강남→홍대 상위 5개에 지하철 0개).
+     * 정적 일반화비용으로만 줄 세운다 — 실시간 판단은 여기서 하지 않는다. 킬스위치가 꺼지면 엔진 순서 앞에서 자른다.
+     */
+    private RoutingResult selectCandidates(RoutingResult result) {
+        int limit = otpRoutingProperties.getDisplayLimit();
+        List<RoutingItinerary> its = result.itineraries();
+        List<RoutingItinerary> chosen = otpRoutingProperties.isRankingEnabled()
+                ? ItineraryRanker.rank(its, limit)
+                : its.subList(0, Math.min(Math.max(limit, 0), its.size()));
+        return result.withItineraries(chosen);
     }
 
     /**
