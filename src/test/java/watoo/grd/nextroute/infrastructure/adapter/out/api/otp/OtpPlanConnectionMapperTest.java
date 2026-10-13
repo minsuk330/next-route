@@ -91,6 +91,16 @@ class OtpPlanConnectionMapperTest {
     }
 
     @Test
+    @DisplayName("leg 거리(m)를 담는다 — 도보 거리·totalWalk 의 원천(#399)")
+    void readsLegDistance() throws IOException {
+        RoutingOutcome outcome = mapper.map(load("otp/planconnection-success.json"), departureAt, versions);
+
+        RoutingItinerary it = ((RoutingResult) outcome).itineraries().get(0);
+        assertThat(it.legs()).extracting(RoutingLeg::distanceMeters)
+                .containsExactly(853.57, 7056.7, 111.41, 4735.33, 416.72);
+    }
+
+    @Test
     @DisplayName("엔진이 매긴 일반화비용을 담는다 — 후보 정렬 키다")
     void readsGeneralizedCost() throws IOException {
         com.fasterxml.jackson.databind.node.ObjectNode root =
