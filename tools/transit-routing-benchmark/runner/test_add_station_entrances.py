@@ -111,6 +111,36 @@ class StationRowsTest(unittest.TestCase):
         self.assertEqual(set(parent_of), {"RS_ACC1_A"})
 
 
+class AllLinesRowsTest(unittest.TestCase):
+    def test_multi_platform_station_gets_all_lines_parent_with_copies(self):
+        # "서울역" = any line, KTX included; the real platforms stay children of their VST_
+        g = ase.group_platforms([platform("RS_ACC1_A", "서울(지하)", 0), platform("RS_ACC1_B", "서울(4호선)", 2),
+                                 platform("RS_TAGO_K", "서울", 1)], [], 500, 1000)
+        ase.assign_exits(g, [ase.Exit("n1", LAT, lon(0.5), "1", "서울역 1번출구")], 300)
+        rows = {r["stop_id"]: r for r in ase.all_lines_rows(g, "RS_ACC1_")}
+        self.assertEqual(rows["VSA_RS_ACC1_A"]["location_type"], "1")
+        self.assertEqual(rows["VSA_RS_ACC1_A"]["stop_name"], "서울")
+        children = sorted(k for k, r in rows.items() if r["parent_station"] == "VSA_RS_ACC1_A")
+        self.assertEqual(children, ["VSA_P_RS_ACC1_A", "VSA_P_RS_ACC1_B", "VSA_P_RS_TAGO_K", "VSA_X_n1_RS_ACC1_A"])
+        copy = rows["VSA_P_RS_ACC1_B"]
+        self.assertEqual((copy["location_type"], copy["stop_name"]), ("0", "서울(4호선)"))
+        self.assertEqual((copy["stop_lat"], copy["stop_lon"]), (f"{LAT:.7f}", f"{lon(2):.7f}"))  # the platform's point
+        self.assertEqual(rows["VSA_X_n1_RS_ACC1_A"]["stop_code"], "1")
+
+    def test_single_platform_station_has_no_all_lines_parent(self):
+        # the app falls back to the platform's VST_, which means the same
+        g = ase.group_platforms([platform("RS_ACC1_A", "역삼", 0)], [], 500, 1000)
+        ase.assign_exits(g, [ase.Exit("n1", LAT, lon(0.5), "1", "")], 300)
+        self.assertEqual(ase.all_lines_rows(g, "RS_ACC1_"), [])
+
+    def test_station_without_exits_or_metro_has_no_all_lines_parent(self):
+        no_exits = ase.group_platforms([platform("RS_ACC1_A", "가", 0), platform("RS_ACC1_B", "가", 1)], [], 500, 1000)
+        self.assertEqual(ase.all_lines_rows(no_exits, "RS_ACC1_"), [])
+        rail_only = ase.group_platforms([platform("RS_TAGO_A", "나", 0), platform("RS_TAGO_B", "나", 1)], [], 500, 1000)
+        ase.assign_exits(rail_only, [ase.Exit("n1", LAT, lon(0.5), "1", "")], 300)
+        self.assertEqual(ase.all_lines_rows(rail_only, "RS_ACC1_"), [])
+
+
 class EndToEndTest(unittest.TestCase):
     def _feed(self, d: Path, stops_rows, transfers="") -> Path:
         src = d / "in.zip"
@@ -144,8 +174,11 @@ class EndToEndTest(unittest.TestCase):
             self.assertEqual(rows["RS_ACC1_A"]["parent_station"], "VST_RS_ACC1_A")
             self.assertEqual(rows["BS_1"]["parent_station"], "")
             self.assertEqual(rows["VEX_n1_RS_ACC1_B"]["parent_station"], "VST_RS_ACC1_B")
+            self.assertEqual(rows["VSA_P_RS_ACC1_A"]["parent_station"], "VSA_RS_ACC1_A")
             self.assertEqual(report["virtualStations"], 2)
             self.assertEqual(report["exitStops"], 2)
+            self.assertEqual((report["allLineStations"], report["allLinePlatformCopies"], report["allLineExitCopies"]),
+                             (1, 2, 1))
             self.assertEqual(report["metroPlatformsWithoutStation"], [])
             self.assertEqual(json.loads(rep.read_text(encoding="utf-8"))["groupsWithExits"], 1)
 

@@ -15,6 +15,17 @@ cost.  So this script adds, for each metro platform P of a station that has exit
 * one plain stop (``location_type=0``, no trips) per exit of the station, ``VEX_<osm_id>_<P>``, child of
   ``VST_<P>`` — OTP links it to the street, so the walk to a bus stop starts at the nearest exit.
 
+A place named without a line ("서울역", Kakao's "잠실역") means the whole station, so stations with more than
+one platform also get an all-lines parent ``VSA_<group key>`` (2026-10-13: 강남 → "서울역" picked the nearest
+platform's VST, 1호선, and an arrival by 4호선 walked 298 m more to an exit; Naver arrives on any line):
+
+* children ``VSA_P_<P>`` — a trip-less copy of every platform of the group at the platform's point, national
+  rail (``RS_TAGO_N…``) included: the real platforms already belong to their ``VST_`` and a stop has one
+  parent.  The copy links to the same street spot, so with ``subwayAccessTime: 0`` reaching it costs ~0;
+* children ``VSA_X_<osm_id>_<group key>`` — a copy of every exit, as for ``VST_``.
+
+The app picks ``VSA_`` for line-less names and ``VST_`` for "잠실역 8호선".
+
 No ``pathways.txt``: pathways make OTP route *through* stations (exit → platform → exit), a walking shortcut
 across tracks that does not exist without passing fare gates (seen locally at 서울역·영등포), and they also
 unlink platforms from the street for every coordinate search.  Platforms, transfers.txt and coordinate
@@ -45,6 +56,9 @@ from pathlib import Path
 
 PARENT_PREFIX = "VST_"
 EXIT_PREFIX = "VEX_"
+ALL_LINES_PREFIX = "VSA_"
+ALL_LINES_PLATFORM_PREFIX = "VSA_P_"
+ALL_LINES_EXIT_PREFIX = "VSA_X_"
 
 
 @dataclass
@@ -208,6 +222,28 @@ def station_rows(groups: list[Group], metro_prefix: str) -> tuple[dict[str, str]
     return parent_of, rows
 
 
+def all_lines_rows(groups: list[Group], metro_prefix: str) -> list[dict[str, str]]:
+    """New stop rows of the all-lines stations: metro stations with exits and more than one platform."""
+    rows: list[dict[str, str]] = []
+    for g in groups:
+        if not g.exits or len(g.platforms) < 2 or not any(p.stop_id.startswith(metro_prefix) for p in g.platforms):
+            continue
+        pid = ALL_LINES_PREFIX + g.key
+        lat = sum(p.lat for p in g.platforms) / len(g.platforms)
+        lon = sum(p.lon for p in g.platforms) / len(g.platforms)
+        rows.append({"stop_id": pid, "stop_name": g.name, "stop_lat": f"{lat:.7f}", "stop_lon": f"{lon:.7f}",
+                     "location_type": "1", "parent_station": ""})
+        for p in g.platforms:
+            rows.append({"stop_id": ALL_LINES_PLATFORM_PREFIX + p.stop_id, "stop_name": p.name,
+                         "stop_lat": f"{p.lat:.7f}", "stop_lon": f"{p.lon:.7f}", "location_type": "0",
+                         "parent_station": pid})
+        for e in sorted(g.exits, key=lambda e: e.osm_id):
+            rows.append({"stop_id": f"{ALL_LINES_EXIT_PREFIX}{e.osm_id}_{g.key}", "stop_code": e.ref,
+                         "stop_name": exit_name(e, g), "stop_lat": f"{e.lat:.7f}", "stop_lon": f"{e.lon:.7f}",
+                         "location_type": "0", "parent_station": pid})
+    return rows
+
+
 def read_csv(zf: zipfile.ZipFile, name: str) -> tuple[list[str], list[dict[str, str]]]:
     with zf.open(name) as fh:
         reader = csv.DictReader(io.TextIOWrapper(fh, encoding="utf-8-sig", newline=""))
@@ -253,12 +289,13 @@ def run(in_zip: Path, exits_csv: Path, out_zip: Path, report_path: Path | None, 
     exits = read_exits(exits_csv)
     unmatched = assign_exits(groups, exits, exit_radius_m)
     parent_of, new_rows = station_rows(groups, metro_prefix)
+    all_rows = all_lines_rows(groups, metro_prefix)
 
     for col in ("stop_code", "location_type", "parent_station"):
         if col not in stop_fields:
             stop_fields.append(col)
     out_rows = [dict(s, parent_station=parent_of[s["stop_id"]]) if s["stop_id"] in parent_of else s for s in stops]
-    out_rows += new_rows
+    out_rows += new_rows + all_rows
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=stop_fields, extrasaction="ignore", lineterminator="\n")
     w.writeheader()
@@ -277,6 +314,9 @@ def run(in_zip: Path, exits_csv: Path, out_zip: Path, report_path: Path | None, 
         "exitsUnmatched": len(unmatched),
         "virtualStations": len(parent_of),
         "exitStops": sum(1 for r in new_rows if r["location_type"] == "0"),
+        "allLineStations": sum(1 for r in all_rows if r["location_type"] == "1"),
+        "allLinePlatformCopies": sum(1 for r in all_rows if r["stop_id"].startswith(ALL_LINES_PLATFORM_PREFIX)),
+        "allLineExitCopies": sum(1 for r in all_rows if r["stop_id"].startswith(ALL_LINES_EXIT_PREFIX)),
         # metro platforms of stations with exits that did not get a station (must be empty)
         "metroPlatformsWithoutStation": sorted(p.stop_id for g in with_exits for p in g.platforms
                                                if p.stop_id.startswith(metro_prefix) and p.stop_id not in parent_of),
