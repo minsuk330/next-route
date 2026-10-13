@@ -4520,3 +4520,18 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 2828 중 12 실패, 전부 기존 무관
 ### 배포
 - 마이그레이션 없음. api(후보·노선도) + worker
+
+## 2026-10-13 조회 부하 하네스 (test/journey-query-latency-harness)
+
+### 확정
+- `JourneyQueryLoadIT`(env `JOURNEY_QUERY_LOAD=true`): 앱처럼 여정마다 스레드 하나로 10초 closed-loop 조회, 컨트롤러 경로(`JourneyQueryUseCase.get` + `JourneySnapshotEtaComposer.compose`) 그대로. off/on 은 `JourneyEvaluatorProperties.enabled` 를 실행 중에 뒤집는다. Redis 는 실행마다 새 컨테이너. 결과는 `JQL_OUT` TSV 로 쌓는다
+- 평가기 처리량은 **워커 수와 평가기 호출 몫(permits)의 작은 쪽 ÷ 외부 지연**: 지연 500ms·1,000건에서 4/4 = 8.4회/s·모름 85%, 워커4/몫8 = 8.5회/s·84%, 워커8/몫4 = 8.4회/s·71%, 8/8 = 15.4회/s·29%. 한쪽만 늘리면 호출 처리량은 안 오른다(둘 다 기본 4)
+
+### 함정
+- env 만 바꿔 다시 돌리면 Gradle 이 test 를 UP-TO-DATE 로 건너뜀 / 가드: `cleanTest test`
+- 시험 공통 Hikari 5 는 조회 스레드끼리 커넥션을 다퉈 off/on 을 똑같이 누른다 / 가드: 이 IT 만 10(운영 기본)
+- off 응답엔 계산 시각이 원래 없어, 지금 집계는 off 의 모름을 "첫 평가 전"으로 센다(실제 원인은 외부 실패·기한 초과). 해석 시 on 에만 원인 분류를 쓴다
+- 지연 2,000ms 는 예측 기한(1.5초) 초과라 on/off 모두 판정을 못 낸다 → 설계 평가에서 제외
+
+### 검증
+- 행렬 12회(지연 50/500/2,000 × off/on × 정류장 100 공유/전부 다름, 여정 1,000·조회 200·창 120s): 오류 0. 결과 TSV 는 로컬 기록(포폴 문서에 표로 옮김)

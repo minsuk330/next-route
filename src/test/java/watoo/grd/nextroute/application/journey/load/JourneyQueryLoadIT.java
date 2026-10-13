@@ -224,9 +224,10 @@ class JourneyQueryLoadIT {
         Report report = new Report(List.copyOf(samples), errors.get(), inFlightAtStop.get(),
                 properties.getStaleAfterSeconds());
         String conditions = String.format(
-                "mode=%s latency=%dms journeys=%d queried=%d interest=%s near=%.2f pool=%d warmup=%ds window=%ds",
+                "mode=%s latency=%dms journeys=%d queried=%d interest=%s near=%.2f pool=%d permits=%d warmup=%ds window=%ds",
                 on ? "on" : "off", latencyMs, journeys, queried,
                 interest <= 0 ? "all-distinct" : String.valueOf(distinctStops), nearRatio, poolSize,
+                properties.getProviderPermits(),
                 warmup.toSeconds(), window.toSeconds());
         print(conditions, report, providerCallsInWindow, window);
         append(conditions, report, providerCallsInWindow);
