@@ -161,6 +161,7 @@ class JourneyQueryLoadIT {
         int interest = envInt("JQL_INTEREST", 100);
         int distinctStops = interest <= 0 ? journeys : Math.min(interest, journeys);
         double nearRatio = envDouble("JQL_NEAR_RATIO", 0.2);
+        int farRideSeconds = envInt("JQL_FAR_RIDE_SEC", JourneyLoadFixture.DEFAULT_RIDE_SECONDS);
         Duration warmup = Duration.ofSeconds(envInt("JQL_WARMUP_SEC", 40));
         Duration window = Duration.ofSeconds(envInt("JQL_WINDOW_SEC", 120));
         int poolSize = envInt("JQL_POOL", properties.getPoolSize());
@@ -171,7 +172,7 @@ class JourneyQueryLoadIT {
 
         fixture = new JourneyLoadFixture(jdbc);
         JourneyLoadFixture.Spec spec = new JourneyLoadFixture.Spec(
-                journeys, distinctStops, Instant.now(), properties.interval(), nearRatio);
+                journeys, distinctStops, Instant.now(), properties.interval(), nearRatio, farRideSeconds);
         prepared = fixture.prepare(spec);
 
         ThreadPoolTaskExecutor executor = null;
@@ -226,10 +227,11 @@ class JourneyQueryLoadIT {
         Report report = new Report(List.copyOf(samples), errors.get(), inFlightAtStop.get(),
                 properties.getStaleAfterSeconds());
         String conditions = String.format(
-                "mode=%s latency=%dms journeys=%d queried=%d interest=%s near=%.2f pool=%d permits=%d warmup=%ds window=%ds",
+                "mode=%s latency=%dms journeys=%d queried=%d interest=%s near=%.2f farRide=%ds pool=%d permits=%d order=%s warmup=%ds window=%ds",
                 on ? "on" : "off", latencyMs, journeys, queried,
-                interest <= 0 ? "all-distinct" : String.valueOf(distinctStops), nearRatio, poolSize,
-                properties.getProviderPermits(),
+                interest <= 0 ? "all-distinct" : String.valueOf(distinctStops), nearRatio, farRideSeconds,
+                poolSize, properties.getProviderPermits(),
+                env("JOURNEY_NAVIGATION_EVALUATOR_CLAIM_ORDER", "default"),
                 warmup.toSeconds(), window.toSeconds());
         print(conditions, report, providerCallsInWindow, window);
         append(conditions, report, providerCallsInWindow);
@@ -462,6 +464,13 @@ class JourneyQueryLoadIT {
                     .map(Sample::ageSeconds).toList(), percentile);
         }
 
+        /** 임박하지 않은 여정만의 판단 경과. 급한 여정을 먼저 잡으면 이쪽이 대가를 낸다. */
+        double farAgeSeconds(int percentile) {
+            return percentile(samples.stream()
+                    .filter(s -> s.evaluatedAt() != null && !s.near())
+                    .map(Sample::ageSeconds).toList(), percentile);
+        }
+
         long overStale() {
             return samples.stream().filter(s -> s.ageSeconds() > staleAfterSeconds).count();
         }
@@ -509,6 +518,7 @@ class JourneyQueryLoadIT {
                 계산 시각 없는 응답        : %d
                 판단 경과 p50/p95/p99      : %.1f / %.1f / %.1f s
                 판단 경과(임박) p95        : %.1f s
+                판단 경과(비임박) p50/p95  : %.1f / %.1f s
                 낡음 기준(%ds) 초과        : %d
                 모름 전체 / 비율           : %d / %.1f%%
                   첫 평가 전 / 낡음 / 그 밖 : %d / %d / %d
@@ -521,6 +531,7 @@ class JourneyQueryLoadIT {
                 r.withoutEvaluatedAt(),
                 r.ageSeconds(50, false), r.ageSeconds(95, false), r.ageSeconds(99, false),
                 r.ageSeconds(95, true),
+                r.farAgeSeconds(50), r.farAgeSeconds(95),
                 r.staleAfterSeconds(), r.overStale(),
                 r.unknown(), r.count() == 0 ? 0 : 100.0 * r.unknown() / r.count(),
                 r.unknownNoEvaluation(), r.unknownStale(), r.unknownOther(),
@@ -537,7 +548,7 @@ class JourneyQueryLoadIT {
         if (!Files.exists(path)) {
             Files.writeString(path, String.join("\t", "at", "conditions", "count", "errors", "inflight",
                     "p50ms", "p95ms", "p99ms", "maxms", "no_eval", "age_p50", "age_p95", "age_p99",
-                    "age_near_p95", "over_stale", "unknown", "unk_no_eval", "unk_stale", "unk_other",
+                    "age_near_p95", "age_far_p50", "age_far_p95", "over_stale", "unknown", "unk_no_eval", "unk_stale", "unk_other",
                     "provider_calls") + "\n");
         }
         Files.writeString(path, String.join("\t",
@@ -546,7 +557,8 @@ class JourneyQueryLoadIT {
                 fmt(r.latencyMs(50)), fmt(r.latencyMs(95)), fmt(r.latencyMs(99)), fmt(r.maxLatencyMs()),
                 String.valueOf(r.withoutEvaluatedAt()),
                 fmt(r.ageSeconds(50, false)), fmt(r.ageSeconds(95, false)), fmt(r.ageSeconds(99, false)),
-                fmt(r.ageSeconds(95, true)), String.valueOf(r.overStale()),
+                fmt(r.ageSeconds(95, true)), fmt(r.farAgeSeconds(50)), fmt(r.farAgeSeconds(95)),
+                String.valueOf(r.overStale()),
                 String.valueOf(r.unknown()), String.valueOf(r.unknownNoEvaluation()),
                 String.valueOf(r.unknownStale()), String.valueOf(r.unknownOther()),
                 String.valueOf(providerCallsInWindow)) + "\n", StandardOpenOption.APPEND);

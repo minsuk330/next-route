@@ -59,12 +59,14 @@ public final class JourneyLoadFixture {
      * @param dueSpread       만기를 흩뜨릴 창. 0 이면 전부 같은 시각(몰림 시나리오)
      * @param nearRatio       환승이 임박한 여정의 비율. 타는 단계를 짧게 둬 평가 간격이 최소(10초)가
      *                        되게 한다. 0 이면 전부 30초 간격이다
+     * @param farRideSeconds  임박하지 않은 여정의 타는 단계 길이. 15분을 넘기면 환승이 예측 시야 밖이라
+     *                        급하지 않은(긴 간격) 여정이 된다
      */
     public record Spec(int journeys, int distinctStops, Instant dueFrom, Duration dueSpread,
-                       double nearRatio) {
+                       double nearRatio, int farRideSeconds) {
 
         public Spec(int journeys, int distinctStops, Instant dueFrom, Duration dueSpread) {
-            this(journeys, distinctStops, dueFrom, dueSpread, 0.0);
+            this(journeys, distinctStops, dueFrom, dueSpread, 0.0, DEFAULT_RIDE_SECONDS);
         }
 
         /**
@@ -233,7 +235,7 @@ public final class JourneyLoadFixture {
             String stopId = stopId(interest);
             String routeId = routeId(interest);
             args.add(new Object[]{journeyId, 0, "WALK", "COMPLETED", null, 120, null});
-            int ride = spec.isNear(offset + i) ? NEAR_RIDE_SECONDS : DEFAULT_RIDE_SECONDS;
+            int ride = spec.isNear(offset + i) ? NEAR_RIDE_SECONDS : spec.farRideSeconds();
             args.add(new Object[]{journeyId, 1, "RIDE_BUS", "ACTIVE", null, ride, routeId});
             args.add(new Object[]{journeyId, 2, "TRANSFER_WALK", "PENDING", null, 180, null});
             args.add(new Object[]{journeyId, 3, "WAIT_BUS", "PENDING", stopId, 300, routeId});
