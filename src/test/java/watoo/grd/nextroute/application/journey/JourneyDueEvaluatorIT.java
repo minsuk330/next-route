@@ -213,16 +213,18 @@ class JourneyDueEvaluatorIT {
     }
 
     @Test
-    @DisplayName("급하지 않아도 상한보다 오래 밀리면 급한 줄에 서서 예정 시각 순으로 잡힌다")
-    void starvedJourneyJoinsUrgentLine() {
-        Long starved = startJourney();
+    @DisplayName("상한보다 오래 밀린 여정은 급한 여정 뒤, 덜 밀린 여정 앞에 선다")
+    void starvedJourneyGoesBetweenUrgentAndRest() {
         Long urgent = startJourney();
-        dueSecondsAgo(starved, properties.getStarvationGuardSeconds() + 30, false);
+        Long starved = startJourney();
+        Long rest = startJourney();
         dueSecondsAgo(urgent, 5, true);
+        dueSecondsAgo(starved, properties.getStarvationGuardSeconds() + 30, false);
+        dueSecondsAgo(rest, properties.getStarvationGuardSeconds() - 30, false);
 
-        assertThat(claimOneAtATime(starved, urgent))
-                .as("급한 여정이 끝없이 들어와도 급하지 않은 여정이 낡음 기준까지 굶지 않는다")
-                .containsExactly(starved, urgent);
+        assertThat(claimOneAtATime(urgent, starved, rest))
+                .as("밀린 여정이 급한 여정을 앞지르면 계속 넘치는 동안 급한 환승이 다시 밀린다")
+                .containsExactly(urgent, starved, rest);
     }
 
     @Test

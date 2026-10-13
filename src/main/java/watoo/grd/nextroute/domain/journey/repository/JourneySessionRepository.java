@@ -197,10 +197,14 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
      * <p>만기 행은 {@code idx_journey_due}(V35) 로 고른다. 조건에 칼럼 연산을 넣으면 그 성질이
      * 깨진다.
      *
-     * <p><b>순서.</b> {@code urgentFirst} 면 급한 여정(환승 위험·임박, 시작·단계 전이 직후)과 예정
-     * 시각에서 {@code starvedBefore} 보다 오래 밀린 여정을 먼저 잡고, 같은 줄 안에서는 예정 시각
-     * 순이다. 평가기가 밀릴 때 2분 뒤 환승하는 여정이 40분 뒤 환승하는 여정 뒤에 서지 않게 한다.
-     * 밀린 여정을 같은 줄로 올리는 것은 급하지 않은 여정이 낡음 기준까지 굶지 않게 하는 상한이다.
+     * <p><b>순서.</b> {@code urgentFirst} 면 세 줄로 나눈다: 급한 여정(환승 위험·임박, 시작·단계 전이
+     * 직후) → 예정 시각에서 {@code starvedBefore} 보다 오래 밀린 여정 → 나머지. 각 줄 안에서는
+     * 예정 시각 순이다. 평가기가 밀릴 때 2분 뒤 환승하는 여정이 40분 뒤 환승하는 여정 뒤에 서지 않게
+     * 한다.
+     *
+     * <p>밀린 여정을 급한 줄과 <b>같은</b> 줄에 세우면 안 된다(측정: 계속 넘치는 동안 급하지 않은
+     * 여정 대부분이 상한을 넘고, 줄 안에서 더 오래 기다린 쪽이 앞서 급한 여정이 다시 밀렸다 — 마감
+     * 순서의 도미노와 같은 모양). 둘째 줄은 나머지보다만 앞서 굶지 않게 한다.
      * 순서를 바꾸면 만기 행 전체를 정렬하는 단계가 생긴다 — 정렬 대상은 적체 크기라 평상시 작다.
      * {@code urgentFirst} 가 false 면 예전과 같은 예정 시각 순(롤백 경로)이다.
      *
@@ -219,9 +223,10 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                 WHERE s.status = 'ACTIVE' AND s.deleted_at IS NULL
                   AND s.next_evaluation_at IS NOT NULL
                   AND s.next_evaluation_at <= :now
-                ORDER BY CASE WHEN :urgentFirst
-                                   AND (s.evaluation_urgent OR s.next_evaluation_at <= :starvedBefore)
-                              THEN 0 ELSE 1 END,
+                ORDER BY CASE WHEN NOT :urgentFirst THEN 0
+                              WHEN s.evaluation_urgent THEN 0
+                              WHEN s.next_evaluation_at <= :starvedBefore THEN 1
+                              ELSE 2 END,
                          s.next_evaluation_at
                 LIMIT :batchSize
                 FOR UPDATE OF s SKIP LOCKED)
