@@ -49,6 +49,14 @@ spring:
         batch_versioned_data: true
     open-in-view: false
 
+management:
+  metrics:
+    distribution:
+      # 기본 Timer 는 횟수·합계·최댓값만 내보내 p95·p99 를 못 구한다. 판단에 쓰는 경계만 둔다(#415).
+      slo:
+        # 외부 API 호출. 1500ms = 평가기·검색 버스 실시간 호출 기한. uri 는 ExternalApiObservationConvention 이 채운다.
+        "[http.client.requests]": 50ms,100ms,250ms,500ms,1s,1500ms,2500ms,5s
+
 server:
   compression:
     # 지도 정류장 스냅샷(실측 raw 940kB → gzip 233kB)을 위해 켠다. 다만 효과는 전역이다 —

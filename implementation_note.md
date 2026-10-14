@@ -4520,3 +4520,31 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 2828 중 12 실패, 전부 기존 무관
 ### 배포
 - 마이그레이션 없음. api(후보·노선도) + worker
+
+## #415-2 외부 API 호출 지표 보강 (2026-10-14, feat/http-client-metrics-uri)
+
+### 확정
+- `uri=none` 원인: 공공데이터 어댑터 12개가 `URI.create(...)` 완성 URI 를 넘김(키가 이미 인코딩돼 있어 템플릿으로 바꾸면 이중 인코딩 → "미등록"). 운영 none = ws.bus.go.kr·apis.data.go.kr·swopenAPI.seoul.go.kr (2026-10-14 Prometheus)
+- 해결 = 어댑터는 그대로 두고 `ExternalApiObservationConvention`(ClientRequestObservationConvention @Component, Boot 가 RestTemplate·RestClient 둘 다에 자동 적용). 주소 틀 없을 때만 경로 조각을 가림: 남김 = `[A-Za-z][A-Za-z._-]*[0-9]{0,2}`(≤64자, 20자+ 16진 제외), 나머지(키·숫자·인코딩 한글) `{}`
+- span `http.url` 도 같은 규칙 + **쿼리 전부 버림**: 기본값이 `serviceKey` 를 Tempo 로 보내고 있었음(카카오 검색어 같은 사용자 입력도 쿼리)
+- 🔴 **평가기·검색이 기다리는 호출은 지표에 아예 없었다**: `SearchTimeBusAdapter.doCallWithin`(서울 버스 실시간, 요청별 기한)·`MlArrivalPredictorAdapter.callApiWithin`(ML 기한 호출)은 JDK HttpClient 직결이라 Observation 미적용. 이슈 배경의 "서울 버스 72.8ms"는 RestTemplate 경로(수집·캐시 쪽) 수치라 평가기 경로 대표값이 아닐 수 있음 → `JdkHttpClientMetrics.send` 로 같은 이름 `http.client.requests`·같은 tag 열쇠 7개(client.name·method·uri·status·outcome·exception·error)로 기록. 기한 초과 = status IO_ERROR + exception HttpTimeoutException
+- 구간: `http.client.requests` 50ms~5s, 1500ms 포함(평가기·검색 버스 실시간 기한)
+- ML `/predict` 는 운영 30일 기록에 있음 — 현재 프로세스 기동 뒤 호출이 없었을 뿐(계측 누락 아님). 단 기한 호출 경로는 위 이유로 누락이었음
+- ODsay 어댑터의 JDK 직결은 제외(기능 미사용)
+
+### 함정
+- Prometheus 는 같은 이름 지표의 tag 열쇠가 다르면 한쪽을 버림 ← 가드: 운영 series 에서 열쇠 집합 확인 + Prometheus 레지스트리 scrape 공존 테스트(`error` tag 빼는 변형에서 실패 확인)
+- yaml `slo:` 아래 줄을 지우면 빈 맵이라 컨텍스트 자체가 안 뜸(변형 시험 때 배선 테스트 3개 전부 실패한 이유)
+- #416 과 yaml `management:` 블록이 같은 자리에 추가됨 → 나중 머지 쪽에서 한 블록으로 합칠 것(중복 최상위 키는 YAML 오류)
+
+### 좌표
+- `common/config/ExternalApiObservationConvention.java`, `common/config/JdkHttpClientMetrics.java`
+- `SearchTimeBusAdapter.doCallWithin`, `MlArrivalPredictorAdapter.callApiWithin`
+
+### 배포
+- 마이그레이션 없음. api + worker 재배포. 배포 후 확인: `count by(client_name,uri)(http_client_requests_seconds_count)` 에 none 사라짐 + `uri="/api/rest/arrive/getArrInfoByRoute",status="IO_ERROR"` 등 기한 경로 출현
+
+### 검증
+- `./gradlew test --tests '*ExternalApiObservationConventionTest' --tests '*SearchTimeBusAdapterTest' --tests '*MlArrivalPredictorAdapterTest' --tests '*RouteSearchRealtimeDeadlineIT'` → 15/0 · 5/0 · 9/0 · 1/0 (신규: 경로 가리기 11, 배선 RestTemplate·RestClient·틀 우선 3, Prometheus 공존 1, 기한 초과 지표 단언 1)
+- 변형 시험: uri() 무력화 → 배선 2 실패 / http.url 에 쿼리 복원 → 1 실패 / JDK 기록 `error` tag 제거 → Prometheus 공존 실패 / yaml client 줄 삭제 → 배선 실패. 전부 원복
+- 전체 `./gradlew cleanTest test --continue`(st-pg·st-redis + env) → 2961 중 12 실패, 전부 **기존 무관**(#415-1 기록과 같은 구성)
