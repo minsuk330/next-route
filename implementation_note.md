@@ -4564,3 +4564,17 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결
 - 200건(미포화)에서도 위험 응답 판단 경과 p95 31초 — 순서와 무관한 꼬리. 측정 잔여 효과(환승 시점 경계)인지 실제 지연(첫 평가·유예)인지 미확인
 - 단위 테스트: JourneyDueEvaluatorSchedulerTest 8/8(빈자리만큼 선점·빈자리 없으면 선점 안 함), JourneyDueEvaluatorIT 11/11(세 줄 순서)
+
+## #415-3 이벤트 기반 재평가 — 계획·PR-0 (2026-10-14, docs/event-driven-reevaluation-plan)
+
+### 확정
+- 계획 = `docs/plan/event-driven-reevaluation/{PLAN,SUMMARY,COST-MODEL}.md`. Opus 검토 반영(codex 대체): 새 칼럼 SQL 전용 + `@DynamicUpdate`, 선점 시 dirty 해제, 트리거 id 순서 잠금 CTE, 완료 `LEAST(nextAt, now+gap)`, 앱 시계 하나 + `clock.skew`, 지문은 리더 메모리, 지하철 역별 캐시는 DEL, 트리거는 `evaluation_urgent` 불간섭, PR-A → A1·A2 분할
+- PR-0 실측: 서울 버스 route-all `mkTm` 갱신 중앙값 9초(p90 20초), 관측 지연 중앙값 8~10초. 목표 부하 2,000에서 하루 100만~200만 회 필요(운영 실사용 8.3만/일) → 한도 상향 필요, 노선 감시 상한 약 520만/일
+- #410 머지(7465baf2) 전 main 합본 전체 테스트에서 `WithdrawalDeletionBoundaryIT` 7건 신규 실패 발견 → #410 브랜치에 수정 커밋(de19023c) 후 머지
+
+### 함정
+- `WithdrawalDeletionBoundaryIT` 는 ddl-auto 로 스키마를 만들어, 엔티티에 원시 boolean 을 매핑하면 기본값 없는 NOT NULL 칼럼이 생기고 직접 insert 가 깨진다 ← 가드: 새 매핑 칼럼은 그 IT insert 에 추가(또는 매핑하지 않음 — #415-3 은 SQL 전용)
+- 운영 여정 175건(대부분 시험)은 노선 공유율 추정에 못 씀 → 서울 승차 데이터 `CardBusTimeNew`(별도 키 SEOUL_BUS_USAGE)로 대체. 필드명이 시간대마다 `HR_n_GET_ON_NOPE`/`TNOPE` 로 섞여 접두사로 읽어야 함
+
+### 미결
+- 공급자 한도 상향 신청(사용자 몫), 신청 근거 숫자 = 사용자 수와 무관한 상한 약 520만/일

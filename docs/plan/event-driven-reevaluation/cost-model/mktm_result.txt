@@ -1,0 +1,4 @@
+route 100100022: snaps=241 stops=113 distinct mkTm 간격 n=141 p50=7.0 p90=14.0 | 관측지연 p50=8.0s p90=14.0s | 정류장 지문 변화 간격 n=11432 p50=10s p10=5s
+route 100100075: snaps=241 stops=75 distinct mkTm 간격 n=103 p50=9.0 p90=22.0 | 관측지연 p50=9.4s p90=20.4s | 정류장 지문 변화 간격 n=5956 p50=10s p10=5s
+route 100100290: snaps=241 stops=117 distinct mkTm 간격 n=96 p50=11.0 p90=23.0 | 관측지연 p50=9.5s p90=20.5s | 정류장 지문 변화 간격 n=8344 p50=15s p10=5s
+route 123000010: snaps=241 stops=95 distinct mkTm 간격 n=109 p50=9.0 p90=22.0 | 관측지연 p50=9.7s p90=19.8s | 정류장 지문 변화 간격 n=7717 p50=10s p10=5s
