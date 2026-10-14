@@ -17,6 +17,7 @@ import watoo.grd.nextroute.infrastructure.adapter.out.api.mlpredictor.dto.MlPred
 
 import java.util.ArrayList;
 import java.net.URI;
+import watoo.grd.nextroute.common.config.JdkHttpClientMetrics;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -37,14 +38,17 @@ public class MlArrivalPredictorAdapter implements MlArrivalPredictorPort {
 
     private final RestClient restClient;
     private final MlPredictorProperties properties;
+    private final JdkHttpClientMetrics httpMetrics;
     private final HttpClient httpClient = HttpClient.newBuilder().build();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public MlArrivalPredictorAdapter(
             @Qualifier("mlPredictorRestClient") RestClient restClient,
-            MlPredictorProperties properties) {
+            MlPredictorProperties properties,
+            JdkHttpClientMetrics httpMetrics) {
         this.restClient = restClient;
         this.properties = properties;
+        this.httpMetrics = httpMetrics;
     }
 
     @Override
@@ -85,7 +89,8 @@ public class MlArrivalPredictorAdapter implements MlArrivalPredictorPort {
                     .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
                     .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = httpMetrics.send(httpClient, request,
+                    HttpResponse.BodyHandlers.ofString());
             int status = response.statusCode();
             if (status >= 500) {
                 throw new MlPredictionException(status, "ML serving 5xx", true);

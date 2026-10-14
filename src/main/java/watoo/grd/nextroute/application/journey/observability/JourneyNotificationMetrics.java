@@ -1,10 +1,13 @@
 package watoo.grd.nextroute.application.journey.observability;
 
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
 import watoo.grd.nextroute.domain.notification.entity.NotificationChannel;
+
+import java.time.Duration;
 
 /**
  * 여정 알림 outbox 관측 지표.
@@ -26,6 +29,13 @@ public class JourneyNotificationMetrics {
     public static final String CANCELED = "journey.notification.canceled";
     public static final String TOKEN_DEACTIVATED = "journey.notification.push.token.deactivated";
     public static final String NO_ACTIVE_TOKEN = "journey.notification.push.no.active.token";
+    public static final String DELIVERY_LAG = "journey.notification.delivery-lag";
+
+    /** 적재→발송 지연 구간. 감지 SLO 와 같은 단위로 읽도록 초 단위 경계를 둔다. */
+    private static final Duration[] DELIVERY_SLO = {
+            Duration.ofMillis(500), Duration.ofSeconds(1), Duration.ofSeconds(2),
+            Duration.ofSeconds(5), Duration.ofSeconds(10), Duration.ofSeconds(30),
+            Duration.ofSeconds(60)};
 
     private final MeterRegistry registry;
 
@@ -43,6 +53,20 @@ public class JourneyNotificationMetrics {
 
     public void recordSent(NotificationChannel channel) {
         registry.counter(SENT, "channel", channel.name()).increment();
+    }
+
+    /**
+     * 적재부터 발송 성공까지. 재시도로 늦게 나간 건도 첫 적재 시각부터 잰다 — 사용자에게는 그
+     * 시간 전부가 늦은 것이다.
+     *
+     * <p>위험 판정이 알림으로 사용자에게 닿는 서버 구간의 마지막 몫이다. 평가기 지연과 더하면
+     * "데이터 변화 → 알림 발송" 전체가 된다.
+     */
+    public void recordDeliveryLag(NotificationChannel channel, Duration lag) {
+        Timer.builder(DELIVERY_LAG).tag("channel", channel.name())
+                .serviceLevelObjectives(DELIVERY_SLO)
+                .register(registry)
+                .record(lag.isNegative() ? Duration.ZERO : lag);
     }
 
     /**

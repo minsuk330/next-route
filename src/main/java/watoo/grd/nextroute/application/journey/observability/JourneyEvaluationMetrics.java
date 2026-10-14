@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -32,13 +33,96 @@ public class JourneyEvaluationMetrics {
     public static final String PROVIDER_SLOT = "journey.evaluation.provider-slot";
     public static final String GRACE_HELD = "journey.evaluation.grace-held";
     public static final String BOARDING_MISS = "journey.transfer.boarding-miss";
+    public static final String CLAIM_DURATION = "journey.evaluation.claim.duration";
+    public static final String TICK_DURATION = "journey.evaluation.tick.duration";
+    public static final String START_LAG = "journey.evaluation.start-lag";
+    public static final String QUEUE_WAIT = "journey.evaluation.queue-wait";
+    public static final String JUDGMENT = "journey.evaluation.judgment";
+
+    /*
+     * 구간 경계. 기본 Timer 는 횟수·합계·최댓값만 내보내 p95 를 구할 수 없다. 백분위 구간을 통째로
+     * 켜면(약 70개) tag 조합마다 시계열이 그만큼 늘어나므로, 판단에 쓰는 경계만 둔다.
+     *
+     * 지연 계열은 감지 SLO(긴급 10초·주의 30초·여유 2분)와 폴링 상한(180초)을 경계로 넣어
+     * "SLO 안에 든 비율"을 그대로 읽게 한다.
+     */
+    private static final Duration[] LAG_SLO = seconds(1, 5, 10, 30, 60, 120, 180);
+    private static final Duration[] EVALUATION_SLO =
+            millis(100, 250, 500, 1_000, 1_500, 2_500, 5_000, 10_000);
+    private static final Duration[] QUERY_SLO = millis(10, 50, 100, 250, 500, 1_000, 2_500);
+    private static final Duration[] TICK_SLO =
+            millis(100, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000);
 
     private final MeterRegistry registry;
 
     /** 여정 1건 평가 소요와 결말. */
     public void recordEvaluation(String outcome, long nanos) {
-        Timer.builder(DURATION).tag("outcome", outcome).register(registry)
+        Timer.builder(DURATION).tag("outcome", outcome)
+                .serviceLevelObjectives(EVALUATION_SLO)
+                .register(registry)
                 .record(nanos, TimeUnit.NANOSECONDS);
+    }
+
+    /**
+     * 선점 쿼리 한 번의 소요. 만기 여정이 늘면 가장 먼저 커지는 DB 쪽 비용이다.
+     */
+    public void recordClaimDuration(long nanos) {
+        Timer.builder(CLAIM_DURATION)
+                .serviceLevelObjectives(QUERY_SLO)
+                .register(registry)
+                .record(nanos, TimeUnit.NANOSECONDS);
+    }
+
+    /**
+     * tick 한 바퀴(선점 + 배치가 끝나기를 기다린 시간).
+     *
+     * <p>빈 tick 과 일한 tick 을 가른다. 섞으면 빈 tick 이 대부분이라 분포가 선점 쿼리 시간으로
+     * 뭉개진다.
+     *
+     * @param claimedAny 이번 tick 에 선점한 여정이 있었는지
+     */
+    public void recordTick(boolean claimedAny, long nanos) {
+        Timer.builder(TICK_DURATION).tag("claimed", claimedAny ? "some" : "none")
+                .serviceLevelObjectives(TICK_SLO)
+                .register(registry)
+                .record(nanos, TimeUnit.NANOSECONDS);
+    }
+
+    /**
+     * 예정 시각에서 평가 시작까지 늦어진 시간 — 감지 지연에 그대로 더해지는 몫이다.
+     *
+     * <p>다음 tick 까지의 대기, 선점 순서에서 밀린 시간, 실행기 큐 대기를 모두 포함한다. 이 중 큐
+     * 대기만 따로 보려면 {@link #QUEUE_WAIT} 를 본다. 둘의 차이가 선점 쪽 몫이다.
+     *
+     * <p>선점이 만료돼 다시 잡힌 여정은 예정 시각이 직전 선점 시각이 된다. 그래서 워커가 죽은
+     * 경우의 지연은 이 값에 lease 만큼 덜 잡힌다.
+     *
+     * <p>음수(예정보다 일찍 시작)는 0으로 센다. 선점 조건이 {@code next_evaluation_at <= now} 라
+     * 정상이면 나오지 않고, 나오면 시계 차이다.
+     */
+    public void recordStartLag(Duration lag) {
+        Timer.builder(START_LAG)
+                .serviceLevelObjectives(LAG_SLO)
+                .register(registry)
+                .record(lag.isNegative() ? Duration.ZERO : lag);
+    }
+
+    /** 실행기에 맡긴 뒤 worker 가 집어 갈 때까지 큐에서 기다린 시간. */
+    public void recordQueueWait(long nanos) {
+        Timer.builder(QUEUE_WAIT)
+                .serviceLevelObjectives(LAG_SLO)
+                .register(registry)
+                .record(nanos, TimeUnit.NANOSECONDS);
+    }
+
+    /**
+     * 평가를 마친 여정의 판정이 직전과 달라졌는지.
+     *
+     * <p>{@code changed=false} 비율은 "아무것도 안 바뀌었는데 돈 평가"의 크기다. 이벤트 기반
+     * 재평가가 줄일 수 있는 몫이므로, 전환 전후를 비교하는 기준선이 된다.
+     */
+    public void recordJudgment(boolean changed) {
+        registry.counter(JUDGMENT, "changed", Boolean.toString(changed)).increment();
     }
 
     /** 이번 tick 에 선점한 여정 수. */
@@ -119,6 +203,22 @@ public class JourneyEvaluationMetrics {
      */
     public void recordBoardingMiss(String mode, String reason) {
         registry.counter(BOARDING_MISS, "mode", mode, "reason", reason).increment();
+    }
+
+    private static Duration[] seconds(long... values) {
+        Duration[] out = new Duration[values.length];
+        for (int i = 0; i < values.length; i++) {
+            out[i] = Duration.ofSeconds(values[i]);
+        }
+        return out;
+    }
+
+    private static Duration[] millis(long... values) {
+        Duration[] out = new Duration[values.length];
+        for (int i = 0; i < values.length; i++) {
+            out[i] = Duration.ofMillis(values[i]);
+        }
+        return out;
     }
 
     private static String tagOf(CurrentLegArrival.Source source) {

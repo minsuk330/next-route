@@ -35,7 +35,7 @@ class JourneyNotificationLostClaimIT extends AbstractJourneyNotificationIT {
                 journey.getId(), 1, batchOf(TransferStatus.AT_RISK), true);
         boolean stored = scheduleWriter.finish(
                 new JourneyDueClaim(journey.getId(), LEASE_UNTIL, LEASE_UNTIL),
-                outcome, LEASE_UNTIL.plusSeconds(30),
+                outcome, LEASE_UNTIL.plusSeconds(30), false, 10L, LEASE_UNTIL,
                 new NotificationContext(userId, 0, List.of(NotificationChannel.PUSH)));
 
         assertThat(stored).isFalse();
@@ -54,13 +54,13 @@ class JourneyNotificationLostClaimIT extends AbstractJourneyNotificationIT {
         scheduleWriter.finish(
                 new JourneyDueClaim(journey.getId(), LEASE_UNTIL, LEASE_UNTIL),
                 new JourneyEvaluationOutcome(journey.getId(), 1, batchOf(TransferStatus.AT_RISK), true),
-                LEASE_UNTIL.plusSeconds(30),
+                LEASE_UNTIL.plusSeconds(30), false, 10L, LEASE_UNTIL,
                 new NotificationContext(userId, 0, List.of(NotificationChannel.PUSH)));
 
         boolean stored = scheduleWriter.finish(
                 new JourneyDueClaim(journey.getId(), otherWorkerLease, otherWorkerLease),
                 new JourneyEvaluationOutcome(journey.getId(), 1, batchOf(TransferStatus.AT_RISK), true),
-                otherWorkerLease.plusSeconds(30),
+                otherWorkerLease.plusSeconds(30), false, 10L, LEASE_UNTIL,
                 new NotificationContext(userId, 0, List.of(NotificationChannel.PUSH)));
 
         assertThat(stored).isTrue();

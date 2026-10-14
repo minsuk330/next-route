@@ -1,0 +1,1 @@
+\copy (SELECT rs.route_id, rs.seq, rs.stop_id, rs.section_id, rs.station_no, rs.section_distance, rs.turn_stop_id, s.ars_id, s.stop_name FROM bus_route_stop rs LEFT JOIN bus_stop s ON s.stop_id=rs.stop_id) TO STDOUT WITH CSV HEADER

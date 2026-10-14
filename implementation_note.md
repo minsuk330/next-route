@@ -4521,6 +4521,167 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 배포
 - 마이그레이션 없음. api(후보·노선도) + worker
 
+## 2026-10-14 평가기 선점 순서: 급한 환승 먼저 (feat/journey-evaluator-urgent-first)
+
+### 확정
+- 선점 정렬 = `(evaluation_urgent OR next_evaluation_at <= now − starvationGuard) 먼저, 그다음 next_evaluation_at`. 스위치 `claim-order`(URGENT_FIRST 기본, DUE_TIME = 롤백)
+- 급함 = `JourneyEvaluationIntervalPolicy.Decision.urgent()`(AT_RISK·NEAR — 간격을 최소로 줄인 바로 그 판단) + `scheduleEvaluationAt`(시작·단계 전이·경로 교체 수락)이 true 로 심음. 평가가 끝날 때마다 `finishEvaluation` 이 다시 정한다
+- 기다림 상한 60초. `maxInterval + guard < staleAfter` 부팅 검증(기존 `max < staleAfter` 검사 **뒤**에 둬야 그 검사의 메시지가 유지된다)
+- EDF 기각: 과부하에서 이미 마감을 넘긴 비급 여정들이 가장 이른 마감이 돼 급한 여정이 다시 밀린다
+- BLOCKED(공급자 막힘)는 urgent 가 아니다(간격 정책 그대로) — 막힌 동안 급한 줄을 차지하지 않는다
+
+### 함정
+- 엔티티에 컬럼을 추가하면 `@Sql` 로 마이그레이션 목록을 직접 실행해 표를 만드는 IT 13개가 전부 "column does not exist" ← 목록에 V66 누락 / 가드: `grep -rln "db/migration/V35__create_journey.sql" src/test/java` 로 찾아 V66 추가
+- 일회용 DB 에 부하 하네스 여정이 남아 있으면(실행을 중간에 끊음) `JourneyDueEvaluatorIT.expiredLeaseIsReclaimed` 가 배치 200 을 남은 행에 빼앗겨 실패 / 가드: 실행 전 lr2 의 journey_* 비우기
+- `JourneyNotificationSchemaIT` 인덱스 시험 1건이 묶음 실행에서 "Unable to rollback against JDBC Connection", 단독 실행 20/20 → 공유 컨테이너 묶음 실행의 일시 오류(이 변경 무관)
+
+### 검증
+- 묶음: JourneyDueEvaluatorIT 11/11(신규 4: 급함 먼저·DUE_TIME 롤백·밀린 여정 같은 줄·단계 전이 급함), JourneyEvaluationIT 14/21(신규 2 통과, 실패 7 은 기존 무관: route_id null → 예측 미호출), JourneyNotification*IT 전부 통과, JourneyEvaluatorPropertiesTest 12/12(신규 2), JourneyDueEvaluatorSchedulerTest 6/6, JourneyEvaluationIntervalPolicyTest 18/18, 스키마·재탐색·텔레메트리 IT 통과(JourneyNotificationSchemaIT 는 단독 20/20)
+
+### 배포
+- **V66 VPS 수동배치 필요**(`V66__journey_session_evaluation_urgent.sql`, V18+ untracked convention). 누락 시 엔티티가 없는 컬럼을 매핑해 api·worker 부팅 실패
+- 롤백: env `JOURNEY_EVALUATOR_CLAIM_ORDER=DUE_TIME` + api·worker 재생성(컬럼은 DEFAULT false 라 남겨도 무해)
+
+### 확정 (2026-10-14 측정 뒤 추가)
+- **순서만으로는 효과 0**: 200·300·400 에서 급한 여정 판단 나이 p95 그대로(300: 54.7 → 54.0초). 원인 = 스케줄러가 처리량(초당 약 4명)과 무관하게 tick 마다 최대 200건을 선점해 만기 집합이 통째로 작업 큐에 들어가고, 큐의 FIFO 가 실제 순서를 정함
+- 배치를 8로 줄이면 순서는 먹히지만(104 → 88초) 묶음 완료를 기다리느라 처리량 8.6 → 5.0회/s
+- → URGENT_FIRST 모드에서 **빈자리만큼만 선점하고 기다리지 않음**(`JourneyDueEvaluatorScheduler.refill`: 워커×2 − 실행 중 − 큐). DUE_TIME 은 예전 경로 그대로
+- ~~밀린 여정을 급한 줄과 같은 줄에 두면 … 급한 여정이 다시 밀림~~ 추정이었고 측정으로 확인되지 않음: 두 줄 vs 세 줄 p95 300건 52.9 → 52.3초, 400건 79.9 → 79.7초(차이 없음). 세 줄(급함 → 상한 넘긴 밀림 → 나머지)은 설계상 위험(같은 줄에서 더 오래 기다린 비급 여정이 급한 여정을 앞설 수 있음)을 막는 변경으로 유지. 400건 개선은 우선순위 선점과 빈자리 보충을 **함께** 적용한 결과이며 둘을 따로 뗀 측정은 없다(빈자리 보충은 URGENT_FIRST 모드에서만 켜짐)
+- 기다림 상한은 이제 "굶지 않게"만 보장한다. 급한 여정 수요가 처리량을 넘는 동안에는 비급 여정이 상한 뒤에도 기다릴 수 있다(측정: 400건에서도 낡음 300초 초과 0)
+
+### 검증 (측정, 로컬 임시 브랜치 = main + 이 기능 + #409, 푸시 안 함)
+- 조건: 지연 500ms, 워커·몫 4/4, 정류장 전부 다름, 임박 20%(타는 120초, 모델 300초 → 위험) / 나머지 80%(타는 1,800초, 모델 2,400초 → 여유·약 123초 간격), 창 120초. 지표 = 응답이 위험(AT_RISK·MISSED)인 경우의 판단 경과
+| 여정 | p50 DUE_TIME → URGENT_FIRST | p95 | 모름 | 호출/s |
+|---|---|---|---|---|
+| 200 | — | 31.3 → 30.6초 | 3.3 → 3.3% | 6.8(미포화) |
+| 250 | — | 41.9 → 42.6초 | 7.7 → 6.8% | 7.8(미포화) |
+| 300 | 16.8 → 13.3초 | 54.0 → 52.3초 | 12.0 → 11.3% | 8.4 → 8.3 |
+| 400 | 51.7 → 28.8초 | 117.9 → 79.7초 | 36.7 → 21.9% | 8.6 → 8.4 |
+- 처리량 손실 없음, 비급 여정 p95 약 128초(낡음 초과 0)
+- 기준(p95 ≤ 20초) 미달 이유: 300건부터 급한 여정 수요만으로 처리량 초과(60명 × 1/12초 ≈ 5명/s > 8.4 ÷ 2 ≈ 4.2명/s). 순서로는 못 막고 처리량을 늘려야 한다
+- 원자료: `docs/portfolio/data/b-evaluator/urgent-first-*.tsv`(로컬)
+
+### 미결
+- 200건(미포화)에서도 위험 응답 판단 경과 p95 31초 — 순서와 무관한 꼬리. 측정 잔여 효과(환승 시점 경계)인지 실제 지연(첫 평가·유예)인지 미확인
+- 단위 테스트: JourneyDueEvaluatorSchedulerTest 8/8(빈자리만큼 선점·빈자리 없으면 선점 안 함), JourneyDueEvaluatorIT 11/11(세 줄 순서)
+
+## #415-3 이벤트 기반 재평가 — 계획·PR-0 (2026-10-14, docs/event-driven-reevaluation-plan)
+
+### 확정
+- 계획 = `docs/plan/event-driven-reevaluation/{PLAN,SUMMARY,COST-MODEL}.md`. Opus 검토 반영(codex 대체): 새 칼럼 SQL 전용 + `@DynamicUpdate`, 선점 시 dirty 해제, 트리거 id 순서 잠금 CTE, 완료 `LEAST(nextAt, now+gap)`, 앱 시계 하나 + `clock.skew`, 지문은 리더 메모리, 지하철 역별 캐시는 DEL, 트리거는 `evaluation_urgent` 불간섭, PR-A → A1·A2 분할
+- PR-0 실측: 서울 버스 route-all `mkTm` 갱신 중앙값 9초(p90 20초), 관측 지연 중앙값 8~10초. 목표 부하 2,000에서 하루 100만~200만 회 필요(운영 실사용 8.3만/일) → 한도 상향 필요, 노선 감시 상한 약 520만/일
+- #410 머지(7465baf2) 전 main 합본 전체 테스트에서 `WithdrawalDeletionBoundaryIT` 7건 신규 실패 발견 → #410 브랜치에 수정 커밋(de19023c) 후 머지
+
+### 함정
+- `WithdrawalDeletionBoundaryIT` 는 ddl-auto 로 스키마를 만들어, 엔티티에 원시 boolean 을 매핑하면 기본값 없는 NOT NULL 칼럼이 생기고 직접 insert 가 깨진다 ← 가드: 새 매핑 칼럼은 그 IT insert 에 추가(또는 매핑하지 않음 — #415-3 은 SQL 전용)
+- 운영 여정 175건(대부분 시험)은 노선 공유율 추정에 못 씀 → 서울 승차 데이터 `CardBusTimeNew`(별도 키 SEOUL_BUS_USAGE)로 대체. 필드명이 시간대마다 `HR_n_GET_ON_NOPE`/`TNOPE` 로 섞여 접두사로 읽어야 함
+
+### 미결
+- 공급자 한도 상향 신청(사용자 몫), 신청 근거 숫자 = 사용자 수와 무관한 상한 약 520만/일
+## #415-3 PR-A1 재평가 트리거 핵심 (2026-10-14, feat/reeval-trigger-core)
+
+### 확정
+- V67: `journey_session.evaluation_claimed_until`·`evaluation_dirty`(NOT NULL default false)·`last_evaluated_at` + 부분 인덱스 `idx_journey_session_active_nav`. **엔티티 미매핑(SQL 전용)** + `JourneySession` `@DynamicUpdate`
+- 선점: `evaluation_claimed_until = lease`, `evaluation_dirty = false`(죽은 워커 표시 물려받기 방지)
+- 완료: dirty 면 `LEAST(:next, :now + dirtyGap)`, dirty·claimed 해제, `last_evaluated_at = :now`. dirtyGap = 이번 평가의 등급(`JourneyEvaluationIntervalPolicy.tierOf`) 최소 간격
+- 트리거 `JourneySessionRepository.requestReevaluation`: CTE `ORDER BY id FOR UPDATE`(교착 방지) → 처리 중이면 dirty 만, 아니면 `LEAST(next, GREATEST(now, last + minGap))`. RETURNING (id, claimed)
+- `ReevaluationTrigger`(포트) + `JdbcReevaluationTrigger`: 가장 급한 등급으로 중복 제거 → 급한 등급부터 상한 500 → 포화(30초 넘게 밀린 여정 200+)면 주의·여유 미룸 → 등급마다 한 트랜잭션. 미룬 여정은 `TriggerResult.deferred` 로 돌려줌(A2 가 지문 갱신 안 하고 재전송)
+- 등급 = 간격 정책과 같은 기준(위험·5분 이내 긴급 / 15분 이내 주의 / 그 밖 여유). `tierOf` 를 `decide` 와 따로 둔 이유: BACKOFF 가 근거를 덮어 원래 급한 정도가 사라짐
+- 트리거는 `evaluation_urgent` 불간섭(#410 단일 근거 유지)
+- 시계 = 앱 `:now` 하나(DB now() 기각, Clock.fixed IT 다수) + `journey.clock.skew` gauge(분 1회 `select now()`)
+- 설정 `journey.navigation.reeval.*` 기본 enabled=false·shadow=true → 이 PR 은 동작 변화 0(완료 SQL 의 dirty 분기는 dirty 가 항상 false 라 기존과 같음)
+
+### 함정
+- yaml 블록을 처음에 `journey.reroute` 아래에 넣었다(정규식으로 "다음 4칸 키"를 찾다 navigation 밖으로 나감) ← 가드: `ReevaluationDefaultsTest` 가 실제 yaml 바인딩·기본값 확인
+- "지나온 환승" = `toLegIndex < currentLegIndex`(`isUpcoming` 은 `>=`). 시험 입력을 CURRENT_LEG 로 줘서 한 번 틀림
+- `GREATEST`·`LEAST` 는 NULL 을 무시한다(Postgres) → `last_evaluated_at` NULL 이어도 `now` 로 당겨짐(시험으로 확인)
+
+### 좌표
+- `domain/journey/repository/JourneySessionRepository.java` claimDueBatch·finishEvaluation·requestReevaluation·countOverdueSince
+- `application/journey/reeval/*`, `application/journey/observability/{JourneyReevalMetrics,ClockSkewMonitor}.java`
+- `JourneyEvaluationService.nextEvaluation`(Schedule.dirtyGapSeconds), `JourneyEvaluationScheduleWriter.finish`
+
+### 배포
+- V67 Flyway 자동(tracked). 플래그 전부 off → 동작 변화 없음. 켜는 건 PR-A2(지하철 변화 감지) 이후
+
+### 검증
+- `JourneyReevaluationTriggerIT` 17/0 (앞당김·뒤로 안 밀기·NULL 처리 중 표시·dirty→완료·정책 더 이른 시각 존중·선점 dirty 해제·livelock 5회·선점 트랜잭션 중 트리거 대기→dirty·반대 순서 동시 교착 없음 20회·엔티티 저장이 트리거 칸 안 되돌림·끝난/삭제/TRACK 불변·urgent 불간섭·그림자·상한·포화 차단·중복 등급·단계 전이는 여전히 CAS 깸), `JourneyDueEvaluatorIT` 11/0, `JourneyNotificationLostClaimIT` 2/0, `JourneyEvaluationIntervalPolicyTest`(+tierOf 4)·`ClockSkewMonitorTest` 2·`ReevaluationDefaultsTest` 2 통과
+- 변형 시험 4건 모두 검출: `@DynamicUpdate` 제거→엔티티 저장 시험 실패 / 트리거가 처리 중 무시→livelock·dirty·래치·LEAST 4건 실패 / 선점이 dirty 유지→1건 / 완료 LEAST→GREATEST→2건. 전부 원복
+- Opus 코드 리뷰(High 0) 반영: ①트리거 트랜잭션 `REQUIRES_NEW` + `TransactionException` 도 잡음(호출자 트랜잭션 합류 시 등급 분리 깨짐·rollback-only 폭발) ②`last_evaluated_at`·dirty 기준 = 저장 직전 시각(계산 전 시각이면 외부 호출이 느린 여정일수록 최소 간격 무효) ③provider 차단 시 등급 RELAXED(×4 백오프를 dirty 가 무르지 않게) ④트리거 CTE `next_evaluation_at IS NOT NULL`(LEAST(NULL,x)=x 로 예정 생성 방지) ⑤상한 초과 시 섞어서 고름(작은 id 편향 → 큰 id 굶음) ⑥포화 집계는 TRACK 포함이 의도(평가기가 둘 다 선점)
+- 🔴 불변식: 선점은 `next_evaluation_at` 과 `evaluation_claimed_until` 을 **같은 값**으로 적는다. 그래서 "처리 중 아님(claimed_until ≤ now)"이면 증서도 지난 값이고 `LEAST(지난 증서, …)` 가 증서를 보존한다. 처음 쓴 만료 시험이 둘을 다르게(표시만 과거) 만들어 CAS 가 깨지는 걸로 나왔는데, 실제로 생길 수 없는 상태였다 — 시험을 불변식대로 고침. 이 불변식을 깨는 변경(선점이 둘 중 하나만 적기)은 금지
+- 추가 시험: 만료 증서 보존 + 늦은 워커 저장 / 버려진 완료 뒤 남은 처리 중 표시는 dirty 만 → 다음 선점이 지움 / 등급별 DB 실패 격리(단위) / provider 차단 시 RELAXED(단위). `JourneyReevaluationTriggerIT` 19/0, `JdbcReevaluationTriggerTest` 1/0
+- 리뷰 반영 전 전체 `./gradlew cleanTest test --continue` → 2981 중 12 실패, 전부 기존 무관
+- 리뷰 반영 후 전체 `./gradlew cleanTest test --continue` → 2985 중 12 실패, 전부 **기존 무관**(같은 구성)
+## #415-1 환승 위험 파이프라인 단계별 계측 (2026-10-14, feat/journey-pipeline-stage-metrics)
+
+### 확정
+- 새 지표 (전부 SLO 경계 구간만, 백분위 구간 통째 켜기 안 함 — tag 조합 × 약 70개 시계열 방지)
+  - `journey.evaluation.claim.duration` 선점 쿼리 1회 (10ms~2.5s)
+  - `journey.evaluation.tick.duration{claimed=none|some}` tick 한 바퀴. 빈 tick 섞으면 분포가 선점 쿼리로 뭉개져서 가름
+  - `journey.evaluation.start-lag` = 선점 전 `next_evaluation_at`(dueAt) → worker 시작. **감지 SLO 에 그대로 더해지는 몫**(다음 tick 대기 + 선점 순서 밀림 + 큐 대기 전부 포함). 경계 1·5·10·30·60·120·180초
+  - `journey.evaluation.queue-wait` = 실행기 submit → 시작. start-lag − queue-wait = 선점 쪽 몫
+  - `journey.evaluation.judgment{changed=true|false}` EVALUATED 만. false 비율 = 바뀐 것 없이 돈 평가 → 이벤트 기반 재평가(#415-3) 전후 비교 기준선
+  - `journey.notification.delivery-lag{channel}` 적재(created_at) → 발송 성공. 재시도 건도 첫 적재부터
+  - `subway.realtime.collect.duration{collector=arrival|position, scope=all|full|active}` 수집 한 바퀴
+  - 설정: `management.metrics.distribution.slo` 로 `http.server.requests`(50ms~5s)·`hikaricp.connections.acquire`(1ms~1s) 구간
+- 기존 `journey.evaluation.duration` 에도 구간 추가(100ms~10s)
+- 실행기 큐 길이·활성 스레드는 **새로 안 만듦**: Boot 가 이미 `executor_queued_tasks{name="journeyEvaluatorExecutor"}`·`executor_active_threads` 를 운영에서 내보내는 중(2026-10-14 VPS Prometheus 조회로 확인)
+- CPU·메모리 = Boot 기본 `process_cpu_usage`·`jvm_memory_used_bytes` 그대로
+- 이벤트·분배 수는 **3번으로 미룸**: 측정 대상 구조가 아직 없음. 지금은 judgment changed 비율이 그 기준선
+- 버스 수집기(BusArrival/PositionScheduler cron)는 계측 안 함: 평가기 경로가 아님(ML 수집). 평가기의 버스 조회 지연은 #415-2 `http.client.requests` 몫
+
+### 함정
+- `JourneyNotification.created_at` 은 `timestamp`(시간대 없음), 값은 `LocalDateTime.now(clock)`(KST clock, `JourneyNotificationEnqueuer`). `sent_at` 은 timestamptz. DB 에서 `sent_at - created_at` 하면 세션 시간대에 따라 9시간 어긋남 ← 가드: 앱에서 `createdAt.atZone(clock.getZone())` 로 되돌려 같은 clock 의 now 와 뺌. IT 가 UTC 변환 변형을 잡음(확인함)
+- start-lag: 선점 만료로 다시 잡힌 여정은 dueAt = 직전 leaseUntil 이라 워커 사망 지연이 lease 만큼 덜 잡힘(Javadoc 명시)
+- YAML `slo` 키는 대괄호 없어도 스칼라 Map 바인딩으로 같은 키가 됨(변형 시험에서 통과) — 테스트는 "키 누락"을 잡는 것
+
+### 좌표
+- `JourneyDueEvaluatorScheduler.tick/submit/evaluateOne` 계측 지점
+- `JourneyEvaluationService.Report` 에 `changed` 추가(4번째 필드)
+- `JourneyNotificationOutboxStateService.markSent` delivery-lag
+- `RealtimeSubwayCollector.collect` finally / `RealtimeSubwayPositionCollector.collect` 끝
+
+### 미결
+- #410(급함 우선 선점, 오픈)과 `JourneyDueEvaluatorScheduler`·claim 경로 겹침. 나중 머지 쪽이 맞춤
+- PromQL 예: `histogram_quantile(0.95, sum by (le) (rate(journey_evaluation_start_lag_seconds_bucket[5m])))`, SLO 안 비율 `rate(..._bucket{le="30.0"}[5m]) / rate(..._count[5m])`
+
+### 배포
+- 마이그레이션 없음. worker(평가기·relay·수집기) + api(http·hikari 구간) 재배포
+
+### 검증
+- `./gradlew test --tests '*JourneyDueEvaluatorSchedulerTest' --tests '*RealtimeSubwayPositionCollectorTest' --tests '*JourneyNotificationRelayIT' --tests '*MetricsDistributionConfigTest'` → 11/0 · 7/0 · 14/0 · 2/0 (신규: 스케줄러 5, 수집기 1, relay 1, 설정 2)
+- 변형 시험: delivery-lag 시간대를 UTC 로 바꾸면 relay IT 실패 / yaml `http.server.requests` 줄 삭제 시 설정 테스트 실패 — 둘 다 원복
+- 전체 `./gradlew cleanTest test --continue`(st-pg:55432·st-redis:56379 + db/api/auth/oauth/toss env) → 2955 중 12 실패, 전부 **기존 무관**(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·JourneyNotificationSchemaIT 간헐 1 — 이전 기록과 같은 구성)
+- env 없이 돌리면 293건 컨텍스트 로드 실패(`password authentication failed for user "${POSTGRES_USER}"`) — 환경 문제, 코드 무관
+- (2026-10-14 main 반영) #410 이 `tick()` 을 급함 우선 모드에서 `refill()`(빈자리만 선점, 안 기다림)로 바꿔 계측을 refill 에도 넣음: 선점 쿼리 시간, tick = 선점+넘겨주기, 빈자리 없어 선점 안 한 tick 은 `claimed=none`. DUE_TIME(롤백 경로)은 기존 배치 대기 tick 그대로
+## #415-2 외부 API 호출 지표 보강 (2026-10-14, feat/http-client-metrics-uri)
+
+### 확정
+- `uri=none` 원인: 공공데이터 어댑터 12개가 `URI.create(...)` 완성 URI 를 넘김(키가 이미 인코딩돼 있어 템플릿으로 바꾸면 이중 인코딩 → "미등록"). 운영 none = ws.bus.go.kr·apis.data.go.kr·swopenAPI.seoul.go.kr (2026-10-14 Prometheus)
+- 해결 = 어댑터는 그대로 두고 `ExternalApiObservationConvention`(ClientRequestObservationConvention @Component, Boot 가 RestTemplate·RestClient 둘 다에 자동 적용). 주소 틀 없을 때만 경로 조각을 가림: 남김 = `[A-Za-z][A-Za-z._-]*[0-9]{0,2}`(≤64자, 20자+ 16진 제외), 나머지(키·숫자·인코딩 한글) `{}`
+- span `http.url` 도 같은 규칙 + **쿼리 전부 버림**: 기본값이 `serviceKey` 를 Tempo 로 보내고 있었음(카카오 검색어 같은 사용자 입력도 쿼리)
+- 🔴 **평가기·검색이 기다리는 호출은 지표에 아예 없었다**: `SearchTimeBusAdapter.doCallWithin`(서울 버스 실시간, 요청별 기한)·`MlArrivalPredictorAdapter.callApiWithin`(ML 기한 호출)은 JDK HttpClient 직결이라 Observation 미적용. 이슈 배경의 "서울 버스 72.8ms"는 RestTemplate 경로(수집·캐시 쪽) 수치라 평가기 경로 대표값이 아닐 수 있음 → `JdkHttpClientMetrics.send` 로 같은 이름 `http.client.requests`·같은 tag 열쇠 7개(client.name·method·uri·status·outcome·exception·error)로 기록. 기한 초과 = status IO_ERROR + exception HttpTimeoutException
+- 구간: `http.client.requests` 50ms~5s, 1500ms 포함(평가기·검색 버스 실시간 기한)
+- ML `/predict` 는 운영 30일 기록에 있음 — 현재 프로세스 기동 뒤 호출이 없었을 뿐(계측 누락 아님). 단 기한 호출 경로는 위 이유로 누락이었음
+- ODsay 어댑터의 JDK 직결은 제외(기능 미사용)
+
+### 함정
+- Prometheus 는 같은 이름 지표의 tag 열쇠가 다르면 한쪽을 버림 ← 가드: 운영 series 에서 열쇠 집합 확인 + Prometheus 레지스트리 scrape 공존 테스트(`error` tag 빼는 변형에서 실패 확인)
+- yaml `slo:` 아래 줄을 지우면 빈 맵이라 컨텍스트 자체가 안 뜸(변형 시험 때 배선 테스트 3개 전부 실패한 이유)
+- #416 과 yaml `management:` 블록이 같은 자리에 추가됨 → 나중 머지 쪽에서 한 블록으로 합칠 것(중복 최상위 키는 YAML 오류)
+
+### 좌표
+- `common/config/ExternalApiObservationConvention.java`, `common/config/JdkHttpClientMetrics.java`
+- `SearchTimeBusAdapter.doCallWithin`, `MlArrivalPredictorAdapter.callApiWithin`
+
+### 배포
+- 마이그레이션 없음. api + worker 재배포. 배포 후 확인: `count by(client_name,uri)(http_client_requests_seconds_count)` 에 none 사라짐 + `uri="/api/rest/arrive/getArrInfoByRoute",status="IO_ERROR"` 등 기한 경로 출현
+
+### 검증
+- `./gradlew test --tests '*ExternalApiObservationConventionTest' --tests '*SearchTimeBusAdapterTest' --tests '*MlArrivalPredictorAdapterTest' --tests '*RouteSearchRealtimeDeadlineIT'` → 15/0 · 5/0 · 9/0 · 1/0 (신규: 경로 가리기 11, 배선 RestTemplate·RestClient·틀 우선 3, Prometheus 공존 1, 기한 초과 지표 단언 1)
+- 변형 시험: uri() 무력화 → 배선 2 실패 / http.url 에 쿼리 복원 → 1 실패 / JDK 기록 `error` tag 제거 → Prometheus 공존 실패 / yaml client 줄 삭제 → 배선 실패. 전부 원복
+- 전체 `./gradlew cleanTest test --continue`(st-pg·st-redis + env) → 2961 중 12 실패, 전부 **기존 무관**(#415-1 기록과 같은 구성)
+- (main 반영) #416 과 같은 자리에 넣은 `management.metrics.distribution.slo` 블록을 한 블록으로 합침(http.server·hikari·http.client 세 줄)
 ## 2026-10-13 조회 부하 하네스 (test/journey-query-latency-harness)
 
 ### 확정

@@ -98,7 +98,7 @@ class RemainingRouteSearchServiceOtpTest {
     }
 
     @Test
-    @DisplayName("후보가 많아도 엔진 순서 앞 5개만 — 재탐색은 자체 ETA 정렬이 있어 비용으로 줄 세우지 않는다")
+    @DisplayName("후보가 많아도 엔진 순서 앞 5개만(rerouteLimit, 검색 노출 10 과 별개) — 재탐색은 자체 ETA 정렬이 있어 비용으로 줄 세우지 않는다")
     void otpCandidatesCappedInEngineOrder() {
         List<RoutingItinerary> engine = new java.util.ArrayList<>();
         for (int i = 0; i < 7; i++) {

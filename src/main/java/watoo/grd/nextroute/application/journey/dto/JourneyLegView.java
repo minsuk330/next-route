@@ -14,7 +14,7 @@ import java.util.List;
  * <p>안내 시트 지점 줄 값(#266)은 전부 nullable — 없으면 앱이 줄을 숨긴다.
  * {@code startStopNo}/{@code endStopNo} 는 버스 정류장 번호(대기 단계는 둘 다 승차 정류장),
  * {@code directionName} 은 지하철 승차역 다음 역 이름, {@code startExitNo}/{@code endExitNo} 는 지하철 출구,
- * {@code fastAlight} 는 지하철 빠른 하차 칸·문.
+ * {@code fastAlight} 는 지하철 빠른 하차 칸·문, {@code alightDoorSide} 는 지하철 하차역 내리는 문 {@code LEFT}·{@code RIGHT}(#335).
  */
 public record JourneyLegView(
         Long legId,
@@ -35,7 +35,8 @@ public record JourneyLegView(
         String directionName,
         String startExitNo,
         String endExitNo,
-        List<FastAlight> fastAlight
+        List<FastAlight> fastAlight,
+        String alightDoorSide
 ) {
 
     public JourneyLegView {
@@ -50,7 +51,19 @@ public record JourneyLegView(
                           Long selectedRouteOptionId, List<JourneyRouteOptionView> routeOptions) {
         this(legId, legIndex, type, state, startStopId, endStopId, startName, endName, routeId,
                 plannedDurationSec, evidenceQuality, selectedRouteOptionId, routeOptions,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
+    }
+
+    /** 내리는 문 방향 없는 단계(#335 이전 계약). */
+    public JourneyLegView(Long legId, int legIndex, JourneyLegType type, JourneyLegState state,
+                          String startStopId, String endStopId, String startName, String endName,
+                          String routeId, Integer plannedDurationSec, String evidenceQuality,
+                          Long selectedRouteOptionId, List<JourneyRouteOptionView> routeOptions,
+                          String startStopNo, String endStopNo, String directionName,
+                          String startExitNo, String endExitNo, List<FastAlight> fastAlight) {
+        this(legId, legIndex, type, state, startStopId, endStopId, startName, endName, routeId,
+                plannedDurationSec, evidenceQuality, selectedRouteOptionId, routeOptions,
+                startStopNo, endStopNo, directionName, startExitNo, endExitNo, fastAlight, null);
     }
 
     /**

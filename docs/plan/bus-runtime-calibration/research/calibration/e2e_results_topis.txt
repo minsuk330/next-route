@@ -1,0 +1,38 @@
+# 3회차 그래프(TOPIS x0.935) e2e ODsay
+#### e2e_cal3
+ [all] ALL      n= 145 ratio med 1.006 [p25 0.91 p75 1.07]  |err| med   8.9%  within10%   59%  within20%   81%
+ [all] holdoutH n=  33 ratio med 0.953 [p25 0.85 p75 1.08]  |err| med  12.0%  within10%   39%  within20%   82%
+ [all] 서울       n=  45 ratio med 0.982 [p25 0.86 p75 1.08]  |err| med   9.4%  within10%   51%  within20%   82%
+ [all] 경기       n=  30 ratio med 1.007 [p25 0.93 p75 1.08]  |err| med   7.9%  within10%   63%  within20%   83%
+ [all] 인천       n=  24 ratio med 0.974 [p25 0.85 p75 1.07]  |err| med  11.2%  within10%   46%  within20%   75%
+ [all] 부산       n=  16 ratio med 1.008 [p25 0.99 p75 1.05]  |err| med   2.3%  within10%   94%  within20%  100%
+ [all] 대구       n=  18 ratio med 1.059 [p25 0.97 p75 1.10]  |err| med   8.7%  within10%   72%  within20%   83%
+ [all] 대전       n=  12 ratio med 0.989 [p25 0.88 p75 1.03]  |err| med  11.2%  within10%   42%  within20%   58%
+ [>=3stops] ALL      n= 140 ratio med 1.006 [p25 0.91 p75 1.07]  |err| med   8.4%  within10%   61%  within20%   84%
+ [>=3stops] holdoutH n=  32 ratio med 0.960 [p25 0.85 p75 1.08]  |err| med  11.8%  within10%   41%  within20%   81%
+ [>=3stops] 서울       n=  43 ratio med 0.995 [p25 0.87 p75 1.08]  |err| med   9.3%  within10%   53%  within20%   84%
+ [>=3stops] 경기       n=  28 ratio med 1.007 [p25 0.95 p75 1.07]  |err| med   7.3%  within10%   68%  within20%   89%
+ [>=3stops] 인천       n=  24 ratio med 0.974 [p25 0.85 p75 1.07]  |err| med  11.2%  within10%   46%  within20%   75%
+ [>=3stops] 부산       n=  16 ratio med 1.008 [p25 0.99 p75 1.05]  |err| med   2.3%  within10%   94%  within20%  100%
+ [>=3stops] 대구       n=  18 ratio med 1.059 [p25 0.97 p75 1.10]  |err| med   8.7%  within10%   72%  within20%   83%
+ [>=3stops] 대전       n=  11 ratio med 1.005 [p25 0.91 p75 1.10]  |err| med  10.2%  within10%   45%  within20%   64%
+ [>=2km] ALL      n= 133 ratio med 1.018 [p25 0.94 p75 1.08]  |err| med   7.8%  within10%   65%  within20%   86%
+ [>=2km] holdoutH n=  28 ratio med 1.024 [p25 0.88 p75 1.09]  |err| med  10.7%  within10%   46%  within20%   86%
+ [>=2km] 서울       n=  42 ratio med 1.001 [p25 0.87 p75 1.08]  |err| med   9.2%  within10%   55%  within20%   83%
+ [>=2km] 경기       n=  28 ratio med 1.026 [p25 0.96 p75 1.08]  |err| med   7.3%  within10%   68%  within20%   86%
+ [>=2km] 인천       n=  20 ratio med 0.993 [p25 0.96 p75 1.11]  |err| med   8.4%  within10%   55%  within20%   90%
+ [>=2km] 부산       n=  16 ratio med 1.008 [p25 0.99 p75 1.05]  |err| med   2.3%  within10%   94%  within20%  100%
+ [>=2km] 대구       n=  18 ratio med 1.059 [p25 0.97 p75 1.10]  |err| med   8.7%  within10%   72%  within20%   83%
+ [>=2km] 대전       n=   9 ratio med 1.026 [p25 0.97 p75 1.10]  |err| med   9.3%  within10%   56%  within20%   78%
+
+# 네이버 기록값 5개(naver_cmp2.py)
+prod  잠실역 8호선->강남역 신분당선 [1:VST_RS_ACC1_S-1-2815->1:VST_RS_ACC1_S-1-4307] 2000  naver  32  ours  25.1 (ride 21.6 walk  3.5) ratio 0.78
+prod  잠실역 8호선->강남역 신분당선 [1:VST_RS_ACC1_S-1-2815->1:VST_RS_ACC1_S-1-4307] 360   naver  36  ours  21.4 (ride 16.8 walk  4.6) ratio 0.59
+prod  잠실역 8호선->강남역 신분당선 [1:VST_RS_ACC1_S-1-2815->1:VST_RS_ACC1_S-1-4307] 341   naver  42  ours  24.0 (ride 22.4 walk  1.6) ratio 0.57
+prod  잠실역 8호선->강남역 신분당선 [1:VST_RS_ACC1_S-1-2815->1:VST_RS_ACC1_S-1-4307] 3412  naver  48  ours  29.4 (ride 24.8 walk  4.6) ratio 0.61
+prod  강남역->홍대입구역 [1:VSA_RS_ACC1_S-1-0222->1:VSA_RS_ACC1_S-1-0239] 740   naver  57  ours  40.7 (ride 36.4 walk  4.3) ratio 0.71
+cal3  잠실역 8호선->강남역 신분당선 [1:VST_RS_ACC1_S-1-2815->1:VST_RS_ACC1_S-1-4307] 2000  naver  32  ours  30.0 (ride 26.6 walk  3.5) ratio 0.94
+cal3  잠실역 8호선->강남역 신분당선 [1:VST_RS_ACC1_S-1-2815->1:VST_RS_ACC1_S-1-4307] 360   naver  36  ours  33.2 (ride 28.6 walk  4.6) ratio 0.92
+cal3  잠실역 8호선->강남역 신분당선 [1:VST_RS_ACC1_S-1-2815->1:VST_RS_ACC1_S-1-4307] 341   naver  42  ours  35.0 (ride 33.3 walk  1.6) ratio 0.83
+cal3  잠실역 8호선->강남역 신분당선 [1:VST_RS_ACC1_S-1-2815->1:VST_RS_ACC1_S-1-4307] 3412  naver  48  ours  43.3 (ride 38.7 walk  4.6) ratio 0.90
+cal3  강남역->홍대입구역 [1:VSA_RS_ACC1_S-1-0222->1:VSA_RS_ACC1_S-1-0239] 740   naver  57  ours  57.0 (ride 52.7 walk  4.3) ratio 1.00

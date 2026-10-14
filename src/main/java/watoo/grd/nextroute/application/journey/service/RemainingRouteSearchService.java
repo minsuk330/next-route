@@ -58,7 +58,7 @@ public class RemainingRouteSearchService {
     // OTP 호출 예산 단일소스(api 검색과 공유). ODSAY 재탐색은 계속 budgetMs 사용.
     private final watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties routeSearchDeadlineProperties;
     private final Clock clock;
-    // 노출 상한(displayLimit). 재탐색은 엔진 순서 앞에서 자르기만 한다.
+    // 재탐색 후보 상한(rerouteLimit). 재탐색은 엔진 순서 앞에서 자르기만 한다.
     private final OtpRoutingProperties otpRoutingProperties;
 
     /**
@@ -157,7 +157,7 @@ public class RemainingRouteSearchService {
         // 비용 정렬은 하지 않는다: 재탐색은 목적지 ETA 로 다시 줄 세우고(RerouteRanking), 후보 수가
         // 곧 실시간 평가 횟수라 상한을 지켜야 한다.
         RoutingResult result = (RoutingResult) outcome;
-        int limit = Math.max(otpRoutingProperties.getDisplayLimit(), 0);
+        int limit = Math.max(otpRoutingProperties.getRerouteLimit(), 0);
         List<RoutingItinerary> its = result.itineraries();
         return legacyRouteResponseMapper.toLegacy(
                 result.withItineraries(its.subList(0, Math.min(limit, its.size())))).paths();

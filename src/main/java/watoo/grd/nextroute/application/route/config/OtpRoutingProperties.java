@@ -20,8 +20,13 @@ public class OtpRoutingProperties {
      * 같은 노선 반복을 묶고 일반화비용 순으로 {@link #displayLimit} 개를 고른다({@code ItineraryRanker}).
      */
     private int first = 20;
-    /** 응답에 내보내는 경로 수 상한. 검색은 정렬 뒤, 재탐색은 엔진 순서 앞에서 자른다. */
-    private int displayLimit = 5;
+    /** 검색 응답에 내보내는 경로 수 상한(정렬·중복 제거 뒤). 5→10(2026-10-13, 사용자 요청). */
+    private int displayLimit = 10;
+    /**
+     * 주행 재탐색 후보 수 상한. 엔진 순서 앞에서 자른다. 후보 수가 곧 실시간 평가 횟수라
+     * 검색 노출 수({@link #displayLimit})와 따로 둔다.
+     */
+    private int rerouteLimit = 5;
     /**
      * OTP 탐색 창. null 이면 보내지 않아 OTP 가 동적으로 잡는다(실측 1h10m~2h10m). 창이 길면 결과가
      * "출발편 타임라인"이 돼 같은 노선이 반복되고 OTP 계산도 길어진다(30분: 1.4s→0.7s, 2026-10-12).
@@ -36,10 +41,15 @@ public class OtpRoutingProperties {
     /** 검색 후보 정렬 킬스위치. false 면 엔진 순서(도착시각) 앞 {@link #displayLimit} 개. */
     private boolean rankingEnabled = true;
     /**
-     * 검색의 고유 경로가 {@link #displayLimit} 보다 적으면 "지하철만"→"버스만"을 더 묻는다. OTP 는 지배당한 대안을
+     * 검색의 고유 경로가 {@link #supplementaryThreshold} 보다 적으면 "지하철만"→"버스만"을 더 묻는다. OTP 는 지배당한 대안을
      * 탐색 단계에서 버려 부평→서울은 1호선 하나만 남는다(2026-10-12, 수단별로 물으면 12개). false 면 본 검색만.
      */
     private boolean supplementaryEnabled = true;
+    /**
+     * 추가 검색을 부르는 고유 경로 수 기준. 이보다 적을 때만 더 묻는다. 노출 상한({@link #displayLimit})과 따로 둔다 —
+     * 노출을 10 으로 올려도 추가 검색은 예전처럼 5 개 미만일 때만(2026-10-13, 사용자 결정).
+     */
+    private int supplementaryThreshold = 5;
     /** 추가 검색 1회 예산 상한(ms). 남은 OTP 예산과 작은 쪽. */
     private long supplementaryBudgetMs = 2000;
     /**
@@ -66,6 +76,10 @@ public class OtpRoutingProperties {
     private boolean realtimeEnabled = false;
 
     public String getBaseUrl() { return baseUrl; }
+    public int getRerouteLimit() { return rerouteLimit; }
+    public int getSupplementaryThreshold() { return supplementaryThreshold; }
+    public void setSupplementaryThreshold(int supplementaryThreshold) { this.supplementaryThreshold = supplementaryThreshold; }
+    public void setRerouteLimit(int rerouteLimit) { this.rerouteLimit = rerouteLimit; }
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
     public int getFirst() { return first; }
     public void setFirst(int first) { this.first = first; }
