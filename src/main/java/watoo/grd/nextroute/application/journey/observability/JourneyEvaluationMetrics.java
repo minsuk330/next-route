@@ -38,6 +38,7 @@ public class JourneyEvaluationMetrics {
     public static final String START_LAG = "journey.evaluation.start-lag";
     public static final String QUEUE_WAIT = "journey.evaluation.queue-wait";
     public static final String JUDGMENT = "journey.evaluation.judgment";
+    public static final String REFILL = "journey.evaluation.refill";
 
     /*
      * 구간 경계. 기본 Timer 는 횟수·합계·최댓값만 내보내 p95 를 구할 수 없다. 백분위 구간을 통째로
@@ -113,6 +114,19 @@ public class JourneyEvaluationMetrics {
                 .serviceLevelObjectives(LAG_SLO)
                 .register(registry)
                 .record(nanos, TimeUnit.NANOSECONDS);
+    }
+
+    /**
+     * 빈자리 보충이 무엇 때문에 일어났고 몇 건을 잡았는지. {@code trigger=completion} 이 대부분이면 평가기가
+     * tick 박자가 아니라 워커 속도로 돌고 있다는 뜻이다.
+     *
+     * @param trigger {@code tick}·{@code completion}
+     */
+    public void recordRefill(String trigger, int claimed) {
+        registry.counter(REFILL, "trigger", trigger).increment();
+        if (claimed > 0) {
+            registry.counter(REFILL + ".claimed", "trigger", trigger).increment(claimed);
+        }
     }
 
     /**

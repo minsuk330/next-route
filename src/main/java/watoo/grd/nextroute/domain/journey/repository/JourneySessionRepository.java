@@ -415,6 +415,34 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
         Boolean getRisky();
     }
 
+    /**
+     * 조건부 조회(204)용 버전만 읽는다(#415-6). 여정 행과 지금 단계의 종류만 — 단계·노선 후보 전체를 읽지 않는다.
+     *
+     * <p>앱은 10초마다 조회하고 대부분은 "바뀐 것 없음"이다. 그때마다 여정·단계·후보 세 번을 읽으면 동시
+     * 여정 6,000 에서 조회가 커넥션 풀을 차지해 평가기까지 밀린다(부하 사다리 실측). 버전이 같으면 이 한 번으로
+     * 끝낸다. 소유자 조건은 그대로 쿼리에 넣는다.
+     */
+    @Query(value = """
+            SELECT s.command_version AS commandVersion,
+                   s.evaluation_version AS evaluationVersion,
+                   l.type AS currentLegType
+              FROM journey_session s
+              LEFT JOIN journey_leg l
+                ON l.journey_id = s.id AND l.route_revision = s.route_revision
+               AND l.leg_index = s.current_leg_index AND l.deleted_at IS NULL
+             WHERE s.id = :id AND s.user_id = :userId AND s.deleted_at IS NULL
+            """, nativeQuery = true)
+    Optional<VersionRow> findVersions(@Param("id") Long id, @Param("userId") Long userId);
+
+    /** 조건부 조회용 버전 한 줄. */
+    interface VersionRow {
+        Long getCommandVersion();
+
+        Long getEvaluationVersion();
+
+        String getCurrentLegType();
+    }
+
     /** 재평가 트리거 결과 한 줄. */
     interface ReevaluationRow {
         Long getId();

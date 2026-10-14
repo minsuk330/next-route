@@ -147,6 +147,21 @@ class JourneyInterestQueryIT {
         });
     }
 
+    @Test
+    @DisplayName("조건부 조회용 버전(#415-6): 명령·평가 번호와 지금 단계 종류를 한 번에, 남의 여정은 비어 있다")
+    void versionsForConditionalQuery() {
+        Long id = startJourney();
+        Long owner = jdbcTemplate.queryForObject("select user_id from journey_session where id = ?", Long.class, id);
+        jdbcTemplate.update("update journey_session set evaluation_version = 7 where id = ?", id);
+
+        var row = sessionRepository.findVersions(id, owner).orElseThrow();
+
+        assertThat(row.getEvaluationVersion()).isEqualTo(7L);
+        assertThat(row.getCommandVersion()).isPositive();
+        assertThat(row.getCurrentLegType()).isNotNull();
+        assertThat(sessionRepository.findVersions(id, owner + 999_999)).isEmpty();
+    }
+
     private List<JourneySessionRepository.InterestRow> rowsOf(Long journeyId) {
         return sessionRepository.findInterestRows().stream()
                 .filter(row -> row.getJourneyId().equals(journeyId))

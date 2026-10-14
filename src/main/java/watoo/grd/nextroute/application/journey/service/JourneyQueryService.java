@@ -7,6 +7,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyLegView;
 import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionView;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase;
+import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase.JourneyVersions;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegGuidance;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
@@ -56,6 +57,14 @@ public class JourneyQueryService implements JourneyQueryUseCase {
     public Optional<JourneySnapshot> get(Long userId, Long journeyId) {
         return sessionRepository.findByIdAndUserIdAndDeletedAtIsNull(journeyId, userId)
                 .map(this::snapshotOf);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<JourneyVersions> versions(Long userId, Long journeyId) {
+        return sessionRepository.findVersions(journeyId, userId)
+                .map(row -> new JourneyVersions(row.getCommandVersion(), row.getEvaluationVersion(),
+                        row.getCurrentLegType() != null && row.getCurrentLegType().endsWith("SUBWAY")));
     }
 
     /**
