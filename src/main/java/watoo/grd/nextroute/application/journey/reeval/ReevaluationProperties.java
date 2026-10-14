@@ -42,6 +42,12 @@ public class ReevaluationProperties {
     /** 위 적체가 이 수 이상이면 주의·여유 등급은 앞당기지 않는다. 0 이하면 끄기. */
     private long shedBacklogThreshold = 200;
 
+    /** 지하철 스냅숏 변화로 트리거할지(#415-3 PR-A2). {@link #enabled} 와 둘 다 켜야 돈다. */
+    private boolean subwayTrigger = false;
+
+    /** 관심 키 색인을 몇 초마다 다시 만들지. 그사이 시작한 여정은 시작 시 이미 "지금" 평가된다. */
+    private long interestRebuildSeconds = 20;
+
     public long minGapSeconds(ReevaluationTier tier) {
         return switch (tier) {
             case URGENT -> urgentMinGapSeconds;

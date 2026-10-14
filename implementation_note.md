@@ -4772,3 +4772,31 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `JOURNEY_DETECTION_LATENCY=true JDL_JOURNEYS=300 JDL_WARMUP_SEC=240 JDL_OBSERVE_SEC=420 JDL_FLIP_WINDOW_SEC=180 JDL_RIDES=600,1080,2400 ./gradlew cleanTest test --tests '*JourneyDetectionLatencyIT'` → 바뀐 60/60 감지, 위험 알림 적재 60
 - (main 반영) #416 이 스케줄러 생성자에 Clock 을 더해 `JourneyQueryLoadIT`·`JourneyDetectionLatencyIT` 생성 호출을 맞춤. 작은 규모 스모크(여정 20, 관찰 60초) 통과
+
+## #415-3 PR-A2 지하철 변화 → 재평가 (2026-10-14, feat/reeval-subway-feed)
+
+### 확정
+- `InterestIndex`: `JourneySessionRepository.findInterestRows`(진행 중 NAVIGATION 여정의 남은 WAIT_BUS·WAIT_SUBWAY 구간, 남은 환승 최소 준비 시각·위험 여부) 를 20초마다 게으르게 재구성 → 키→여정, 키→구간 역 이름. 등급은 조회 때 시각으로 다시 계산(간격 정책과 같은 `<=` 경계)
+- 키: 지하철 `(l.route_id, l.start_stop_id, fromWayCode(route, way_code))` — 평가기가 고르는 단위와 같음(Opus 확인: 라인=subwayId, 역=statnId 같은 ID 체계, 방향은 원천 updnLine 라벨 그대로 비교라 9호선·공항철도 반전도 일치). 버스 `(start_stop_id, o.route_id, o.boarding_seq)`
+- `SubwayChangeFeed`(수집기 스냅숏 저장 직후): 지문 = (노선,역,방향)별 떠나지 않은 앞 두 열차의 (열차번호, 도착코드, 현재역). 남은 초는 제외(0=미산출 잡음, #155). 비교 → 지켜보는 키만 → **구간 역 이름 + 원천 역 이름 캐시 DEL** → 트리거 → 미룬 여정 있는 키는 기준선 유지(재전송)
+- `InMemoryChangeDetector`: 첫 관측은 기준선만, 그 뒤엔 새로 나타난 키도 변화(사라졌던 역에 다음 열차) — 리더 메모리(Redis 기준선은 리더 둘일 때 깜빡여 기각)
+- `RedisLeaderLease`: 획득·갱신 Lua 하나(오류 한 번에 리더 공백 방지), 전용 스레드 TTL/3 갱신, 로컬 마감 = 시도 시작 + TTL×2/3, **worker 프로필에서만 경쟁**(api 가 키 잡아 수집 멈추는 사고 방지), 꺼지면 늘 리더. 플래그 하나 `journey.navigation.reeval.leader-lease.enabled` 를 수집기·감지가 같이 따름
+- 설정: `journey.navigation.reeval.subway-trigger=false`(enabled 와 둘 다 켜야), `interest-rebuild-seconds=20`
+
+### 함정
+- 시험 DB 는 정류장·노선 해석 표가 비어 `start_stop_id`·`route_id` 가 원천 칸(`source_*`)에만 남는다 → 관심 SQL IT 는 해석된 상태를 SQL 로 흉내냄. 운영에서 해석 실패한 구간은 평가기도 모름이라 지켜볼 키가 없는 게 맞음
+- 역 이름이 원천(statnNm)과 구간(start_name)에서 다를 수 있음("서울" vs "서울역") → 둘 다 지움
+- 수집 스레드에서 색인 재구성(DB 1회/20초)을 함 — 스케줄러 풀이 따로라 수용, 느려지면 별도 @Scheduled 로
+
+### 좌표
+- `application/journey/reeval/{InterestKey,InterestIndex,ChangeDetector,InMemoryChangeDetector,SubwayChangeFeed}.java`, `common/lock/{LeaderLease,RedisLeaderLease}.java`
+- `RealtimeSubwayCollector.collect`(리더 확인·피드 호출), `SubwayStationArrivalCachePort.evict`
+
+### 배포
+- 마이그레이션 없음. 플래그 전부 off → 동작 변화 없음. 켜는 순서: `JOURNEY_REEVAL_ENABLED=true`(그림자 유지) + `JOURNEY_REEVAL_SUBWAY_TRIGGER=true` → `journey.reeval.events/compared{source=subway}`·`journey.reeval.shadow` 확인 → `JOURNEY_REEVAL_SHADOW=false`. worker 2대 전에 `JOURNEY_REEVAL_LEADER_LEASE=true`
+
+### 검증
+- 단위: `InMemoryChangeDetectorTest` 5, `SubwayChangeFeedTest` 12, `InterestIndexTest` 7, IT: `RedisLeaderLeaseIT` 5(st-redis), `JourneyInterestQueryIT` 4 — 전부 통과
+- 변형 2건 검출: 캐시 삭제를 트리거 뒤로 → 순서 시험 실패 / 기준선 유지 무시 → 재전송 시험 2건 실패. 원복
+- Opus 코드 리뷰 High 0, Medium 3(역 이름 불일치 삭제·다시 나타난 키·리더 플래그/프로필)·Low(Lua 단일화·지하철 route 칸·재생 IT 스텁) 반영
+- 전체 `./gradlew cleanTest test --continue` → 3053 중 12 실패, 전부 **기존 무관**(같은 구성)

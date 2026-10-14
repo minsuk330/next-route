@@ -526,6 +526,13 @@ journey:
       # 예정보다 30초 넘게 밀린 여정이 200건 이상이면 평가기 포화로 보고 주의·여유는 앞당기지 않는다.
       shed-backlog-age-seconds: 30
       shed-backlog-threshold: 200
+      # 지하철 전 노선 스냅숏(15초)에서 바뀐 역을 찾아 트리거(PR-A2). enabled 와 둘 다 켜야 돈다.
+      subway-trigger: ${JOURNEY_REEVAL_SUBWAY_TRIGGER:false}
+      interest-rebuild-seconds: 20
+      # 감시는 리더 한 대만. 끄면(기본) 늘 리더 — worker 한 대인 지금과 같다. worker 를 늘리기 전에 켠다.
+      leader-lease:
+        enabled: ${JOURNEY_REEVAL_LEADER_LEASE:false}
+        ttl-ms: 10000
   reroute:
     # 기본 꺼짐. 트리거(①)와 후보 생성기(④)가 붙기 전에는 켜도 후보가 0개라 아무 일이 없지만,
     # 스위치는 그것들보다 먼저 있어야 한다. 꺼져 있으면 조회는 빈 결과, 요청은 disabled 로 거절.

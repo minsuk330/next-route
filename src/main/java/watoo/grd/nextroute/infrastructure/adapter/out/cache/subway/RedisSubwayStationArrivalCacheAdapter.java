@@ -76,4 +76,17 @@ public class RedisSubwayStationArrivalCacheAdapter implements SubwayStationArriv
             metrics.recordCacheError("write");
         }
     }
+
+    @Override
+    public void evict(String stationName) {
+        if (stationName == null) {
+            return;
+        }
+        try {
+            redisTemplate.delete(KEY_PREFIX + stationName);
+        } catch (Exception e) {
+            log.warn("[SubwayStationArrivalCache] evict failed [{}]: {}", stationName, e.getMessage());
+            metrics.recordCacheError("evict");
+        }
+    }
 }
