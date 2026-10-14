@@ -87,6 +87,10 @@ import static org.mockito.BDDMockito.willAnswer;
  * 운영 지표에 히스토그램이 없어 꼬리 분포는 모른다 — {@code JDL_SLOW_RATIO}·{@code JDL_SLOW_MS} 로
  * 가끔 튀는 호출을 따로 섞는다(운영 최대 3,971ms).
  *
+ * <p><b>이벤트 모드</b>({@code JDL_EVENT=true}, #415-3): 데이터가 바뀌는 그 순간에 재평가 트리거를 부른다 —
+ * 감시자(지하철 스냅숏·버스 노선)가 변화를 <b>처음 본</b> 순간을 흉내 낸 것이다. SLO 의 출발점과 같다. 감시자가
+ * 공급자 갱신을 보기까지의 관측 지연(버스 중앙값 8~10초, COST-MODEL.md)은 여기 포함되지 않는다.
+ *
  * <pre>
  * JOURNEY_DETECTION_LATENCY=true JDL_JOURNEYS=300 JDL_WARMUP_SEC=240 JDL_OBSERVE_SEC=240 \
  *   JDL_BUS_MS=73 JDL_ML_MS=14 JDL_OUT=build/detection.tsv \
@@ -130,6 +134,9 @@ class JourneyDetectionLatencyIT {
     @Autowired JourneyEvaluationMetrics metrics;
     @Autowired JdbcTemplate jdbc;
     @Autowired @Qualifier("busSearchConcurrencyLimiter") Semaphore sharedLimiter;
+    @Autowired watoo.grd.nextroute.application.journey.reeval.ReevaluationTrigger reevaluationTrigger;
+    @Autowired watoo.grd.nextroute.application.journey.reeval.ReevaluationProperties reevaluationProperties;
+    @Autowired org.springframework.data.redis.core.StringRedisTemplate redis;
 
     @SpyBean JourneyEvaluationService evaluationService;
     @MockBean SearchTimeBusAdapter busDelegate;
@@ -186,6 +193,12 @@ class JourneyDetectionLatencyIT {
         // 평가 간격이 다른 두 부류: 환승까지 15분 안(30초 간격) / 15분 넘음(120초, 값이 그대로면 최대 180초).
         // 측정 내내 부류가 바뀌지 않도록 길게 잡는다. 이미 위험한 여정은 바뀔 게 없어 대상이 아니다.
         int[] rides = parseRides(env("JDL_RIDES", "1080,2400"));
+        boolean eventMode = Boolean.parseBoolean(env("JDL_EVENT", "false"));
+        freshOnEvent = Boolean.parseBoolean(env("JDL_EVENT_FRESH", "true"));
+        if (eventMode) {
+            reevaluationProperties.setEnabled(true);
+            reevaluationProperties.setShadow(false);
+        }
 
         givenProviders();
         recordEvaluations();
@@ -194,6 +207,7 @@ class JourneyDetectionLatencyIT {
         spec = new JourneyLoadFixture.Spec(journeys, journeys, Instant.now(), properties.interval(),
                 0.0, JourneyLoadFixture.DEFAULT_RIDE_SECONDS, rides);
         prepared = fixture.prepare(spec);
+        Instant preparedAt = Instant.now();
 
         ThreadPoolTaskExecutor executor = executor(properties.getPoolSize());
         JourneyDueEvaluatorScheduler scheduler = new JourneyDueEvaluatorScheduler(
@@ -224,8 +238,14 @@ class JourneyDetectionLatencyIT {
                 }
             }
             flipped = true;
+            if (eventMode) {
+                scheduleEvents(preparedAt);
+            }
             Thread.sleep(observe.toMillis());
         } finally {
+            if (events != null) {
+                events.shutdownNow();
+            }
             running.set(false);
             loop.join(5_000);
             executor.shutdown();
@@ -236,7 +256,8 @@ class JourneyDetectionLatencyIT {
         printIntervalsBeforeFlip(t0, rides);
         long enqueued = countRiskNotificationsAfter(t0);
         String conditions = String.format(
-                "journeys=%d flipEvery=%d rides=%s bus=%dms ml=%dms slow=%.3f@%dms pool=%d permits=%d warmup=%ds flipWindow=%ds observe=%ds",
+                "event=%s fresh=%s journeys=%d flipEvery=%d rides=%s bus=%dms ml=%dms slow=%.3f@%dms pool=%d permits=%d warmup=%ds flipWindow=%ds observe=%ds",
+                eventMode ? "on" : "off", freshOnEvent,
                 journeys, flipEvery, env("JDL_RIDES", "1080,2400"), busMs, mlMs, slowRatio, slowMs,
                 properties.getPoolSize(), properties.getProviderPermits(), warmup.toSeconds(),
                 flipWindow.toSeconds(), observe.toSeconds());
@@ -337,6 +358,41 @@ class JourneyDetectionLatencyIT {
 
     // ── 장치 ────────────────────────────────────────────────────────────────
 
+    private java.util.concurrent.ScheduledExecutorService events;
+    /** 이벤트 때 캐시를 비울지(JDL_EVENT_FRESH, 기본 true). false 면 "새 데이터 없이 깨우기"의 대조군. */
+    private boolean freshOnEvent = true;
+
+    /**
+     * 바뀐 여정마다 바뀌는 그 순간에 재평가를 요청한다. 등급은 그 순간 환승까지 남은 시간으로 정한다
+     * (픽스처: 타는 단계 끝 = 준비 시각 근처).
+     */
+    private void scheduleEvents(Instant preparedAt) {
+        events = java.util.concurrent.Executors.newScheduledThreadPool(2);
+        long now = System.currentTimeMillis();
+        flipAtMs.forEach((index, atMs) -> {
+            Long journeyId = prepared.journeyIds().get(index);
+            long remaining = spec.rideSeconds(index) - (atMs - preparedAt.toEpochMilli()) / 1000;
+            var tier = remaining <= properties.nearTransfer().toSeconds()
+                    ? watoo.grd.nextroute.application.journey.reeval.ReevaluationTier.URGENT
+                    : remaining <= properties.farTransfer().toSeconds()
+                    ? watoo.grd.nextroute.application.journey.reeval.ReevaluationTier.CAUTION
+                    : watoo.grd.nextroute.application.journey.reeval.ReevaluationTier.RELAXED;
+            int interest = index % spec.distinctStops();
+            events.schedule(() -> {
+                if (freshOnEvent) {
+                    // 운영 감시자처럼 "새 데이터를 본 뒤" 트리거한다: 버스 감시자(PR-B)는 받은 값으로 도착
+                    // 캐시를 덮고, 지하철(PR-A2)은 역 캐시를 지운다. 여기서는 그 정류장·노선 캐시를 비워
+                    // 깨어난 평가가 바뀐 데이터를 읽게 한다(위치 시각이 바뀌어 모델 입력도 새로 계산된다).
+                    redis.delete(java.util.List.of(
+                            "bus:search:arr:" + JourneyLoadFixture.stopId(interest) + ":"
+                                    + JourneyLoadFixture.routeId(interest) + ":" + JourneyLoadFixture.BOARDING_SEQ,
+                            "bus:search:pos:" + JourneyLoadFixture.routeId(interest)));
+                }
+                reevaluationTrigger.request(Map.of(tier, java.util.Set.of(journeyId)));
+            }, Math.max(0, atMs - now), TimeUnit.MILLISECONDS);
+        });
+    }
+
     private boolean isFlipped(int index) {
         return index % flipEvery == 0;
     }
@@ -363,7 +419,7 @@ class JourneyDetectionLatencyIT {
         willAnswer(call -> throughSharedLimiter(() ->
                 BusQueryResult.ok(List.of(BusArrivalInfoFixtures.arrivalWithSectionTime(60, 240)))))
                 .given(busDelegate).getArrInfoByStop(anyString(), anyString(), anyInt());
-        willAnswer(call -> throughSharedLimiter(() -> BusQueryResult.ok(List.of(position()))))
+        willAnswer(call -> throughSharedLimiter(() -> BusQueryResult.ok(List.of(position(call.getArgument(0))))))
                 .given(busDelegate).getBusPosByRtid(anyString());
         willAnswer(call -> {
             mlCalls.incrementAndGet();
@@ -415,9 +471,21 @@ class JourneyDetectionLatencyIT {
         }
     }
 
-    private BusPositionInfo position() {
+    /**
+     * 노선 위치. 그 노선 여정의 데이터가 바뀐 뒤에는 버스가 움직인 것처럼 구간 진행 거리를 바꾼다.
+     *
+     * <p>실제 모델은 입력(위치)의 함수라, 예측이 바뀌려면 입력이 바뀌어야 한다. 출력만 바꾸면 예측 캐시가
+     * 같은 입력의 옛 예측을 돌려줘 "데이터가 바뀌었는데 판정이 그대로"인, 운영에 없는 상황이 생긴다.
+     */
+    private BusPositionInfo position(String routeId) {
+        boolean moved = false;
+        if (flipped && routeId != null && routeId.startsWith(JourneyLoadFixture.ROUTE_PREFIX)) {
+            int index = Integer.parseInt(routeId.substring(JourneyLoadFixture.ROUTE_PREFIX.length()));
+            Long flipAt = flipAtMs.get(index);
+            moved = flipAt != null && System.currentTimeMillis() >= flipAt;
+        }
         return new BusPositionInfo(
-                "veh-load", 60, 1, 500.0, 10000.0, "0", "sec-1",
+                "veh-load", 60, 1, moved ? 900.0 : 500.0, 10000.0, "0", "sec-1",
                 ZonedDateTime.now(SEOUL).format(DATA_TM), "서울70사1234", 0, 120, "S0",
                 null, null, "0", "0", 1000.0, "S1", 2, null, 127.01, 37.51, "1");
     }
