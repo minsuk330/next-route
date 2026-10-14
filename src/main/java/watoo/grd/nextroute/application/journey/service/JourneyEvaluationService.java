@@ -14,6 +14,8 @@ import watoo.grd.nextroute.application.journey.dto.TransferAssessmentBatch;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
 import watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
+import watoo.grd.nextroute.application.journey.reeval.ReevaluationProperties;
+import watoo.grd.nextroute.application.journey.reeval.ReevaluationTier;
 import watoo.grd.nextroute.application.journey.port.out.NotificationChannelResolver;
 import watoo.grd.nextroute.application.journey.service.JourneyEvaluationContextLoader.JourneyEvaluationContext;
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
@@ -59,6 +61,8 @@ public class JourneyEvaluationService {
     private final TransferAssessmentGracePolicy gracePolicy;
     private final JourneyEvaluationMetrics metrics;
     private final JourneyEvaluatorProperties properties;
+    /** 평가 중 데이터가 바뀌었을 때 다음 평가까지 둘 최소 간격의 출처(#415-3). */
+    private final ReevaluationProperties reevaluationProperties;
     /** 이 사용자에게 어느 길로 보낼지. 평가 트랜잭션 <b>밖</b>에서 부른다. */
     private final NotificationChannelResolver channelResolver;
     private final TransferTargetApproachPolicy approachPolicy;
@@ -105,8 +109,11 @@ public class JourneyEvaluationService {
                 context.journeyId(), context.routeRevision(), batch, changed);
 
         Schedule next = nextEvaluation(context, batch, now, changed);
+        NotificationContext notification = notificationContext(context, batch, now);
+        // 마친 시각은 저장 직전에 다시 잰다. 계산 전 시각을 쓰면 외부 호출이 최소 간격보다 오래 걸린
+        // 평가에서 "직전 평가 + 최소 간격"이 이미 지난 시각이 돼, 느린 여정일수록 간격 하한이 사라진다.
         boolean stored = scheduleWriter.finish(claim, outcome, next.at(), next.urgent(),
-                notificationContext(context, batch, now));
+                next.dirtyGapSeconds(), Instant.now(clock), notification);
         if (!stored) {
             return Report.lostClaim();
         }
@@ -250,11 +257,18 @@ public class JourneyEvaluationService {
                 decision.interval().toSeconds());
 
         long spread = Math.floorMod(context.journeyId(), properties.getJitterSeconds());
-        return new Schedule(now.plus(decision.interval()).plusSeconds(spread), decision.urgent());
+        ReevaluationTier tier = intervalPolicy.tierOf(batch.assessments(), context.currentLegIndex(), now,
+                batch.upstreamBlocked());
+        return new Schedule(now.plus(decision.interval()).plusSeconds(spread), decision.urgent(),
+                reevaluationProperties.minGapSeconds(tier));
     }
 
-    /** 다음 평가 시각과, 그때 먼저 잡을지. */
-    private record Schedule(Instant at, boolean urgent) {
+    /**
+     * 다음 평가 시각과, 그때 먼저 잡을지.
+     *
+     * @param dirtyGapSeconds 평가하는 동안 데이터가 바뀌었으면(#415-3) 다음 평가까지 둘 최소 간격
+     */
+    private record Schedule(Instant at, boolean urgent, long dirtyGapSeconds) {
     }
 
     /**

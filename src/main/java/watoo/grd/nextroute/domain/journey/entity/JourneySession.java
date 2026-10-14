@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.domain.journey.entity;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.hibernate.annotations.DynamicUpdate;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -31,9 +32,14 @@ import java.time.Instant;
  * <p>{@code id} 는 다른 표와 같은 순번 bigint 다. 여정 번호는 푸시 본문과 앱 링크에 실려 나가
  * 이웃 번호를 찍어 볼 수 있으므로, 조회는 반드시 소유자를 <b>쿼리 조건에</b> 넣는다
  * ({@code findByIdAndUserIdAndDeletedAtIsNull}). 꺼낸 뒤에 비교하는 방식은 언젠가 빠뜨린다.
+ *
+ * <p><b>{@code @DynamicUpdate}</b>: 바뀐 칸만 쓴다. 이 행은 평가기·재평가 트리거가 SQL 로 직접 고치는
+ * 칸(다음 평가 시각·선점·dirty)과 엔티티로 고치는 칸이 섞여 있다. 잠금 없이 읽은 엔티티를 저장하는
+ * 경로(재탐색 제안 닫기 등)가 통째로 쓰면, 그사이 SQL 이 바꾼 다음 평가 시각을 옛 값으로 되돌린다.
  */
 @Entity
 @Table(name = "journey_session")
+@DynamicUpdate
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class JourneySession extends BaseEntity {
