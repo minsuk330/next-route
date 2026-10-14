@@ -2,6 +2,7 @@ package watoo.grd.nextroute.application.subway.service;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import watoo.grd.nextroute.application.subway.observability.SubwayRealtimeMetrics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
@@ -51,6 +52,7 @@ public class RealtimeSubwayCollector {
     private final SubwayArrivalRawRecorder arrivalRawRecorder;
     private final SubwaySegmentTimeRecorder segmentTimeRecorder;
     private final SubwayArrivalDepartureRecorder arrivalDepartureRecorder;
+    private final SubwayRealtimeMetrics metrics;
 
     @PostConstruct
     public void registerBootTime() {
@@ -73,6 +75,7 @@ public class RealtimeSubwayCollector {
             return;
         }
 
+        long startedAt = System.nanoTime();
         try {
             /// api로 조회
             List<SubwayArrivalInfo> arrivals = subwayApiPort.getRealtimeArrival();
@@ -121,6 +124,8 @@ public class RealtimeSubwayCollector {
         } catch (Exception e) {
             log.error("[RealtimeCollector] Collection failed: {}", e.getMessage());
             writeErrorSnapshot();
+        } finally {
+            metrics.recordCollectCycle("arrival", "all", System.nanoTime() - startedAt);
         }
     }
 

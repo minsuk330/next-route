@@ -171,7 +171,7 @@ class JourneyEvaluatorLoadIT {
         ThreadPoolTaskExecutor executor = executor(poolSize);
         JourneyDueEvaluatorScheduler scheduler =
                 new JourneyDueEvaluatorScheduler(claimService, evaluationService, metrics,
-                        properties, executor);
+                        properties, executor, java.time.Clock.systemUTC());
 
         Thread searchLoad = withSearch ? startSearchLoad() : null;
         JourneyLoadProbe.Report report;

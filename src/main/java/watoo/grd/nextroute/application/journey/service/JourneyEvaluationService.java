@@ -118,7 +118,7 @@ public class JourneyEvaluationService {
             return Report.lostClaim();
         }
         evaluateRerouteTrigger(context, batch, now);
-        return new Report(Result.EVALUATED, batch.assessments(), batch.upstreamBlocked());
+        return new Report(Result.EVALUATED, batch.assessments(), batch.upstreamBlocked(), changed);
     }
 
     /**
@@ -315,16 +315,17 @@ public class JourneyEvaluationService {
      *
      * @param assessments     저장한 판정. 계측용이며 저장은 이미 끝난 상태다
      * @param upstreamBlocked provider 차단이 있었는지. 다음 평가는 이미 늦춰 심어 뒀다
+     * @param changed         저장한 판정이 직전과 달라졌는지. {@code EVALUATED} 일 때만 뜻이 있다
      */
     public record Report(Result result, List<TransferRiskAssessment> assessments,
-                         boolean upstreamBlocked) {
+                         boolean upstreamBlocked, boolean changed) {
 
         static Report skipped() {
-            return new Report(Result.SKIPPED, List.of(), false);
+            return new Report(Result.SKIPPED, List.of(), false, false);
         }
 
         static Report lostClaim() {
-            return new Report(Result.LOST_CLAIM, List.of(), false);
+            return new Report(Result.LOST_CLAIM, List.of(), false, false);
         }
     }
 }

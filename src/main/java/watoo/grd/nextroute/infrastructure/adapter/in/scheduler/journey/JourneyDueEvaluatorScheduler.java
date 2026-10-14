@@ -16,6 +16,9 @@ import watoo.grd.nextroute.application.journey.service.JourneyDueClaimService;
 import watoo.grd.nextroute.application.journey.service.JourneyEvaluationService;
 import watoo.grd.nextroute.application.journey.service.JourneyEvaluationService.Report;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
@@ -49,6 +52,8 @@ public class JourneyDueEvaluatorScheduler {
     @Qualifier("journeyEvaluatorExecutor")
     private final ThreadPoolTaskExecutor executor;
 
+    private final Clock clock;
+
     @Scheduled(fixedDelayString = "${journey.navigation.evaluator.tick-ms:5000}")
     public void run() {
         try {
@@ -73,9 +78,12 @@ public class JourneyDueEvaluatorScheduler {
             refill();
             return;
         }
+        long tickStartedAt = System.nanoTime();
         List<JourneyDueClaim> claims = claimService.claimDue();
+        metrics.recordClaimDuration(System.nanoTime() - tickStartedAt);
         metrics.recordClaimed(claims.size());
         if (claims.isEmpty()) {
+            metrics.recordTick(false, System.nanoTime() - tickStartedAt);
             return;
         }
 
@@ -93,13 +101,9 @@ public class JourneyDueEvaluatorScheduler {
             log.warn("[JourneyDueEvaluator] 배치가 {}ms 안에 끝나지 않았다. 남은 여정은 선점 만료 후 다시 잡힌다",
                     properties.getBatchDeadlineMs());
         }
+        metrics.recordTick(true, System.nanoTime() - tickStartedAt);
     }
 
-    /**
-     * 여정 하나를 worker 에 맡긴다.
-     *
-     * @return 큐가 차서 맡기지 못했으면 null
-     */
     /**
      * 워커가 곧바로 집을 수 있는 만큼만 선점하고, 끝나기를 기다리지 않는다.
      *
@@ -113,19 +117,34 @@ public class JourneyDueEvaluatorScheduler {
      * 시작된다.
      */
     private void refill() {
+        long tickStartedAt = System.nanoTime();
         int busy = executor.getActiveCount() + executor.getThreadPoolExecutor().getQueue().size();
         int free = properties.getPoolSize() * 2 - busy;
         if (free <= 0) {
+            // 빈자리가 없어 선점조차 안 한 tick. 포화의 신호라 빈 tick 과 같이 센다.
+            metrics.recordTick(false, System.nanoTime() - tickStartedAt);
             return;
         }
         List<JourneyDueClaim> claims = claimService.claimDue(free);
+        metrics.recordClaimDuration(System.nanoTime() - tickStartedAt);
         metrics.recordClaimed(claims.size());
         claims.forEach(this::submit);
+        // 이 모드의 tick 은 끝나기를 기다리지 않으므로 한 바퀴 = 선점 + 넘겨주기까지다.
+        metrics.recordTick(!claims.isEmpty(), System.nanoTime() - tickStartedAt);
     }
 
+    /**
+     * 여정 하나를 worker 에 맡긴다.
+     *
+     * @return 큐가 차서 맡기지 못했으면 null
+     */
     private CompletableFuture<Void> submit(JourneyDueClaim claim) {
+        long submittedAt = System.nanoTime();
         try {
-            return CompletableFuture.runAsync(() -> evaluateOne(claim), executor);
+            return CompletableFuture.runAsync(() -> {
+                metrics.recordQueueWait(System.nanoTime() - submittedAt);
+                evaluateOne(claim);
+            }, executor);
         } catch (RejectedExecutionException e) {
             // 큐가 찼다. 여기서 직접 처리하면 다음 선점이 멈추므로 포기한다. 선점 시각이 지나면
             // 다시 잡힌다.
@@ -135,12 +154,18 @@ public class JourneyDueEvaluatorScheduler {
     }
 
     private void evaluateOne(JourneyDueClaim claim) {
+        if (claim.dueAt() != null) {
+            metrics.recordStartLag(Duration.between(claim.dueAt(), Instant.now(clock)));
+        }
         long startedAt = System.nanoTime();
         try {
             Report report = evaluationService.evaluate(claim);
             metrics.recordEvaluation(report.result().name().toLowerCase(),
                     System.nanoTime() - startedAt);
             metrics.recordPredictions(report.assessments());
+            if (report.result() == JourneyEvaluationService.Result.EVALUATED) {
+                metrics.recordJudgment(report.changed());
+            }
             if (report.result() == JourneyEvaluationService.Result.LOST_CLAIM) {
                 metrics.recordLostClaim();
             }
