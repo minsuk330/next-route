@@ -89,7 +89,7 @@ class TrackJourneyStartServiceTest {
                 InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()));
         service = new TrackJourneyStartService(properties, source, legacy,
                 new JourneyCompiler(new StopIdentityResolver()), enricher,
-                new JourneyGuidanceInfoEnricher(org.mockito.Mockito.mock(watoo.grd.nextroute.domain.bus.repository.BusStopRepository.class), org.mockito.Mockito.mock(watoo.grd.nextroute.application.regionalbus.port.out.RegionalBusRouteStopStore.class), new watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex(), new watoo.grd.nextroute.application.subway.service.SubwayFastAlightIndex()), txService,
+                new JourneyGuidanceInfoEnricher(org.mockito.Mockito.mock(watoo.grd.nextroute.domain.bus.repository.BusStopRepository.class), org.mockito.Mockito.mock(watoo.grd.nextroute.application.regionalbus.port.out.RegionalBusRouteStopStore.class), new watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex(), new watoo.grd.nextroute.application.subway.service.SubwayFastAlightIndex(), new watoo.grd.nextroute.application.subway.service.SubwayDoorSideIndex(), new watoo.grd.nextroute.application.subway.service.SubwayLineEnds(org.mockito.Mockito.mock(watoo.grd.nextroute.application.subway.service.SubwayLinePatternService.class))), txService,
                 new JourneyStartConflictTranslator(mock(JourneyQueryService.class)),
                 new ObjectMapper(), meters, clock);
     }

@@ -42,7 +42,9 @@ class MlArrivalPredictorAdapterTest {
         factory.setReadTimeout(Duration.ofMillis(500));
         RestClient restClient = RestClient.builder().requestFactory(factory).build();
 
-        adapter = new MlArrivalPredictorAdapter(restClient, properties);
+        adapter = new MlArrivalPredictorAdapter(restClient, properties,
+                new watoo.grd.nextroute.common.config.JdkHttpClientMetrics(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
     }
 
     @AfterEach

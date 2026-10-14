@@ -21,6 +21,7 @@ import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepository;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -179,8 +180,16 @@ public class JourneyNotificationOutboxStateService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markSent(long notificationId) {
         notificationRepository.findById(notificationId).ifPresent(n -> {
-            n.markSent(Instant.now(clock));
+            Instant now = Instant.now(clock);
+            n.markSent(now);
             metrics.recordSent(n.getChannel());
+            if (n.getCreatedAt() != null) {
+                // created_at 은 시간대 없는 칼럼이고 적재 때 같은 clock 으로 찍었다
+                // (JourneyNotificationEnqueuer). 그래서 그 clock 의 시간대로 되돌려야 맞는다.
+                // DB now() 와 섞어 빼면 두 시계 차이가 지연에 섞인다.
+                metrics.recordDeliveryLag(n.getChannel(),
+                        Duration.between(n.getCreatedAt().atZone(clock.getZone()).toInstant(), now));
+            }
         });
     }
 

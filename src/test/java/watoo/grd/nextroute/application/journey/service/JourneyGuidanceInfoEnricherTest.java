@@ -4,6 +4,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
+import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionDraft;
+import watoo.grd.nextroute.application.subway.dto.DirectedRailPattern;
+import watoo.grd.nextroute.application.subway.dto.RailPattern;
+import watoo.grd.nextroute.application.subway.service.SubwayDoorSideIndex;
+import watoo.grd.nextroute.application.subway.service.SubwayLineEnds;
+import watoo.grd.nextroute.application.subway.service.SubwayLinePatternService;
 import watoo.grd.nextroute.domain.bus.entity.BusStop;
 import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegGuidance;
@@ -23,6 +29,7 @@ import static org.mockito.Mockito.verify;
 class JourneyGuidanceInfoEnricherTest {
 
     private final BusStopRepository repository = mock(BusStopRepository.class);
+    private final SubwayLinePatternService patternService = mock(SubwayLinePatternService.class);
     private final watoo.grd.nextroute.testsupport.InMemoryRegionalBusRouteStopStore regional =
             new watoo.grd.nextroute.testsupport.InMemoryRegionalBusRouteStopStore();
     private final JourneyGuidanceInfoEnricher enricher = new JourneyGuidanceInfoEnricher(repository, regional,
@@ -39,7 +46,13 @@ class JourneyGuidanceInfoEnricherTest {
                     new watoo.grd.nextroute.application.subway.service.SubwayFastAlightIndex.Row(
                             2, "교대", "서초", "3-1", "STAIRS"),
                     new watoo.grd.nextroute.application.subway.service.SubwayFastAlightIndex.Row(
-                            2, "교대", "강남", "9-4", "STAIRS"))));
+                            2, "교대", "강남", "9-4", "STAIRS"))),
+            SubwayDoorSideIndex.of(List.of(
+                    new SubwayDoorSideIndex.Row("S1", "2", "교대", SubwayDoorSideIndex.PlatformType.SIDE),
+                    new SubwayDoorSideIndex.Row("S1", "4", "사당", SubwayDoorSideIndex.PlatformType.ISLAND),
+                    new SubwayDoorSideIndex.Row("KR", "4", "오이도", SubwayDoorSideIndex.PlatformType.ISLAND),
+                    new SubwayDoorSideIndex.Row("S1", "5", "광화문", SubwayDoorSideIndex.PlatformType.ISLAND))),
+            new SubwayLineEnds(patternService));
 
     @Test
     @DisplayName("대기 단계는 승차 정류장 번호 둘 다, 탑승 단계는 승차·하차 번호. 내부 정류장 ID 로 찾는다")
@@ -179,6 +192,62 @@ class JourneyGuidanceInfoEnricherTest {
         assertThat(out.guidance().fastAlightJson()).isEqualTo("[{\"carDoor\":\"3-1\",\"facility\":\"STAIRS\"}]");
         assertThat(JourneyQueryService.fastAlight(out.guidance().fastAlightJson()))
                 .containsExactly(new watoo.grd.nextroute.application.journey.dto.JourneyLegView.FastAlight("3-1", "STAIRS"));
+    }
+
+    @Test
+    @DisplayName("#335 내리는 문: 대기 단계 후보 line_id + 하차역 형식 — 2호선(우측 통행) 상대식 교대는 오른쪽")
+    void alightDoorSide() {
+        given(patternService.cachedPatterns("1002", "내선")).willReturn(List.of(pattern(true, "강남", "교대", "서초")));
+
+        JourneyLegDraft out = enricher.enrich(subwayRide("1002", "강남", "교대")).legs().get(1);
+
+        assertThat(out.guidance().alightDoorSide()).isEqualTo("RIGHT");
+    }
+
+    @Test
+    @DisplayName("#335 내리는 문: 하차역이 노선 끝이면 null — 종착은 도착 선로가 바뀌어 문이 뒤집힌다. 중간 회차역은 값")
+    void alightDoorSideNullAtLineEnd() {
+        given(patternService.cachedPatterns("1004", "하행")).willReturn(List.of(
+                pattern(false, "당고개", "사당", "오이도"), pattern(false, "당고개", "사당")));
+
+        assertThat(enricher.enrich(subwayRide("1004", "금정", "오이도")).legs().get(1).guidance().alightDoorSide())
+                .isNull();
+        assertThat(enricher.enrich(subwayRide("1004", "동작", "사당")).legs().get(1).guidance().alightDoorSide())
+                .isEqualTo("LEFT");
+    }
+
+    @Test
+    @DisplayName("#335 내리는 문: 노선 끝인지 모르면(패턴 캐시 빔) null, 대기 후보 노선이 둘 이상이면 null")
+    void alightDoorSideNullWhenUnknown() {
+        assertThat(enricher.enrich(subwayRide("1005", "종로3가", "광화문")).legs().get(1).guidance().alightDoorSide())
+                .isNull();
+
+        given(patternService.cachedPatterns("1002", "내선")).willReturn(List.of(pattern(true, "강남", "교대", "서초")));
+        JourneyPlan plan = subwayRide("1002", "강남", "교대");
+        JourneyLegDraft wait = plan.legs().get(0);
+        JourneyLegDraft twoLines = new JourneyLegDraft(0, JourneyLegType.WAIT_SUBWAY, JourneyLegState.PENDING, null,
+                null, null, null, "강남", "강남", 127.0, 37.5, 127.0, 37.5, null, null,
+                List.of(wait.routeOptions().get(0), new JourneyRouteOptionDraft(1, 0, "1003", null, "3호선", null, 2,
+                        null, null)), 1);
+        JourneyLegDraft out = enricher.enrich(new JourneyPlan(List.of(twoLines, plan.legs().get(1)), List.of()))
+                .legs().get(1);
+        assertThat(out.guidance().alightDoorSide()).isNull();
+    }
+
+    private static JourneyPlan subwayRide(String lineId, String board, String alight) {
+        JourneyLegDraft wait = new JourneyLegDraft(0, JourneyLegType.WAIT_SUBWAY, JourneyLegState.PENDING, null, null,
+                null, null, board, board, 127.0, 37.5, 127.0, 37.5, null, null,
+                List.of(new JourneyRouteOptionDraft(0, 0, lineId, null, "x", null, 2, null, null)), 1);
+        JourneyLegDraft ride = new JourneyLegDraft(1, JourneyLegType.RIDE_SUBWAY, JourneyLegState.PENDING, null, null,
+                null, null, board, alight, 127.0, 37.5, 127.01, 37.49, 60, null, List.of(), 0,
+                JourneyLegGuidance.EMPTY, null);
+        return new JourneyPlan(List.of(wait, ride), List.of());
+    }
+
+    private static DirectedRailPattern pattern(boolean loop, String... stops) {
+        return new DirectedRailPattern("r", "r", loop, 1, java.util.Arrays.stream(stops)
+                .map(name -> new RailPattern.Stop(name, 0, 0, null, null))
+                .toList());
     }
 
     private static JourneyLegDraft walk(int index, JourneyLegType type, double sx, double sy, double ex, double ey) {

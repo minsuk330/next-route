@@ -21,6 +21,7 @@ import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.BusPositionIte
 
 import java.net.URI;
 import java.net.http.HttpClient;
+import watoo.grd.nextroute.common.config.JdkHttpClientMetrics;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Clock;
@@ -62,6 +63,7 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
     private final Semaphore concurrencyLimiter;
     private final TransferArrivalProperties props;
     private final Clock clock;
+    private final JdkHttpClientMetrics httpMetrics;
     /** 검색 요청마다 달라지는 잔여 예산을 HttpRequest timeout으로 전달한다. */
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofMillis(1500))
@@ -74,6 +76,7 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
             @Qualifier("busSearchConcurrencyLimiter") Semaphore concurrencyLimiter,
             TransferArrivalProperties props,
             Clock clock,
+            JdkHttpClientMetrics httpMetrics,
             @Value("${seoul.api.bus-key}") String apiKey,
             @Value("${seoul.api.bus-base-url}") String baseUrl) {
         this.restClient = restClient;
@@ -82,6 +85,7 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
         this.concurrencyLimiter = concurrencyLimiter;
         this.props = props;
         this.clock = clock;
+        this.httpMetrics = httpMetrics;
         this.apiKey = apiKey;
         this.baseUrl = baseUrl;
         this.xmlMapper = new XmlMapper();
@@ -173,7 +177,7 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
                     .timeout(Duration.ofMillis(Math.max(1, timeoutMs)))
                     .GET()
                     .build();
-            String xml = httpClient.send(request, HttpResponse.BodyHandlers.ofString()).body();
+            String xml = httpMetrics.send(httpClient, request, HttpResponse.BodyHandlers.ofString()).body();
             return parseResponse(xml, uri, itemType, endpoint, mapper);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

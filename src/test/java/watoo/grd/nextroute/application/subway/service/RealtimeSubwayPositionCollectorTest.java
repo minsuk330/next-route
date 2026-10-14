@@ -1,6 +1,8 @@
 package watoo.grd.nextroute.application.subway.service;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
+import watoo.grd.nextroute.application.subway.observability.SubwayRealtimeMetrics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,6 +41,7 @@ class RealtimeSubwayPositionCollectorTest {
     private final SubwayTrainTransitionTracker tracker = mock(SubwayTrainTransitionTracker.class);
     private final SubwayActiveLinePort activeLines = mock(SubwayActiveLinePort.class);
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-11T12:00:00Z"));
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private RealtimeSubwayPositionCollector collector;
 
     @BeforeEach
@@ -49,7 +52,8 @@ class RealtimeSubwayPositionCollectorTest {
         // 시작=끝이면 쉬는 시간이 없다. 테스트가 시계에 매이지 않게 한다.
         properties.setActiveHoursStart("00:00");
         properties.setActiveHoursEnd("00:00");
-        collector = new RealtimeSubwayPositionCollector(api, tracker, properties, activeLines, clock);
+        collector = new RealtimeSubwayPositionCollector(api, tracker, properties, activeLines, clock,
+                new SubwayRealtimeMetrics(registry));
     }
 
     @Test
@@ -61,6 +65,23 @@ class RealtimeSubwayPositionCollectorTest {
         collector.collect();
 
         assertThat(output).doesNotContain("노선 실패");
+    }
+
+    @Test
+    @DisplayName("한 바퀴 시간을 전 노선 회차·링 노선 회차로 갈라 잰다")
+    void recordsCycleDurationByScope() {
+        given(api.getRealtimePosition(anyString())).willAnswer(call ->
+                SubwayPositionFetchResult.noTrains(call.getArgument(0), Instant.now()));
+        given(activeLines.activeRingLineIds()).willReturn(java.util.Set.of("1001"));
+
+        collector.collect();
+        clock.plus(5);
+        collector.collect();
+
+        assertThat(registry.timer(SubwayRealtimeMetrics.COLLECT_CYCLE,
+                "collector", "position", "scope", "full").count()).isEqualTo(1);
+        assertThat(registry.timer(SubwayRealtimeMetrics.COLLECT_CYCLE,
+                "collector", "position", "scope", "active").count()).isEqualTo(1);
     }
 
     @Test

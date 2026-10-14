@@ -58,7 +58,8 @@ class TrackSelectionQueryServiceTest {
         given(port.pattern(eq(TrackFixtures.LINE2_PATTERN), any())).willReturn(Optional.of(line2));
         service = new TrackSelectionQueryService(properties, new TrackPatternSource(port, gate,
                 new OtpRoutingProperties(), new RouteSearchDeadlineProperties(), properties,
-                Clock.fixed(Instant.parse("2026-10-07T03:00:00Z"), ZoneOffset.UTC)), realtimeIds);
+                Clock.fixed(Instant.parse("2026-10-07T03:00:00Z"), ZoneOffset.UTC)), realtimeIds,
+                new watoo.grd.nextroute.application.route.service.GyeonggiBusRouteTypeColors());
         given(realtimeIds.busStop(any())).willReturn(new TrackRealtimeIdResolver.BusStopIds(null, null));
         given(realtimeIds.subway(any(), any())).willReturn(List.of(
                 new TrackRealtimeIdResolver.SubwayStationIds(null, null, null)));
@@ -274,6 +275,16 @@ class TrackSelectionQueryServiceTest {
         }
         given(realtimeIds.busStop(SEB)).willReturn(new TrackRealtimeIdResolver.BusStopIds("121000009", "22010"));
         given(realtimeIds.busStop(GGB)).willReturn(new TrackRealtimeIdResolver.BusStopIds("121000009-GG", null));
+    }
+
+    @Test
+    @DisplayName("#391 방향 색: 경기 직행좌석 5100 은 그래프 기본 초록이 아니라 노선 유형 빨강 — 검색 응답과 같은 규칙")
+    void gyeonggiDirectionColorByRouteType() {
+        givenSinbundangSiblings();
+
+        assertThat(service.directions(SEB)).filteredOn(d -> "5100".equals(d.routeName()))
+                .isNotEmpty()
+                .allSatisfy(d -> assertThat(d.color()).isEqualTo("#E60012"));
     }
 
     @Test

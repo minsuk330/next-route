@@ -33,6 +33,26 @@ class JourneyEvaluatorPropertiesTest {
     }
 
     @Test
+    void TC_최대_간격에_밀린_여정_상한을_더해_낡음_기준에_닿으면_부팅을_막는다() {
+        // 급하지 않은 여정은 최대 간격만큼 미뤄진 뒤 줄에서 상한만큼 더 기다릴 수 있다. 그 합이 낡음
+        // 기준에 닿으면 기다리는 동안 판정이 낡아 앱이 모름을 받는다.
+        JourneyEvaluatorProperties props = new JourneyEvaluatorProperties();
+        props.setStarvationGuardSeconds(120);   // 180 + 120 = 300 = stale-after
+
+        assertThatThrownBy(props::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("밀린 여정 상한");
+    }
+
+    @Test
+    void TC_밀린_여정_상한이_0_이하면_부팅을_막는다() {
+        JourneyEvaluatorProperties props = new JourneyEvaluatorProperties();
+        props.setStarvationGuardSeconds(0);
+
+        assertThatThrownBy(props::validate).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void TC_기본_간격이_최소와_최대_밖이면_부팅을_막는다() {
         JourneyEvaluatorProperties tooSmall = new JourneyEvaluatorProperties();
         tooSmall.setMinIntervalSeconds(60);   // 기본 30초가 최소보다 작다

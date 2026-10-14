@@ -67,12 +67,41 @@ public class TransferArrivalEnricher {
             long stageElapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - stageStartedNanos);
             return Math.max(0, Math.min(requestRemaining, stageLimitMs - stageElapsedMs));
         };
-        RouteSearchResult enriched = enrichInternal(result, searchStartedAt, remainingBudget, true);
+        Enriched enriched = enrichInternal(result, searchStartedAt, remainingBudget, true);
         if (remainingBudget.getAsLong() <= 0) {
             searchCtx.degrade(SearchComponent.BUS_REALTIME, DegradeReason.TIMEOUT);
         }
-        reportArrivalOutcomes(enriched, searchCtx);
-        return enriched;
+        reportArrivalOutcomes(enriched.result(), searchCtx);
+        return withoutEnded(enriched);
+    }
+
+    /**
+     * 실시간이 "운행종료"라고 한 버스 구간을 지나는 경로를 뺀다(#400, 2026-10-13 사용자 결정 — 이 경우만 숨김 허용). 남은 경로 순서는
+     * 그대로다. 실시간을 못 읽은 구간(경기·TAGO·차단·예산)은 판정 근거가 없어 남긴다.
+     */
+    private RouteSearchResult withoutEnded(Enriched enriched) {
+        RouteSearchResult result = enriched.result();
+        if (enriched.endedPaths().isEmpty()) {
+            return result;
+        }
+        List<PathResult> kept = new ArrayList<>();
+        int busCount = result.busCount();
+        int subwayCount = result.subwayCount();
+        for (int pi = 0; pi < result.paths().size(); pi++) {
+            PathResult path = result.paths().get(pi);
+            if (!enriched.endedPaths().contains(pi)) {
+                kept.add(path);
+                continue;
+            }
+            busCount--;
+            if (path.subPaths().stream().anyMatch(sp -> sp.trafficType() == 1)) {
+                subwayCount--;
+            }
+        }
+        log.info("[RouteSearch] 운행 종료 경로 제외 hidden={} kept={} routes={}",
+                enriched.endedPaths().size(), kept.size(), enriched.endedRoutes());
+        return new RouteSearchResult(result.searchType(), Math.max(0, busCount), Math.max(0, subwayCount),
+                result.trainCount(), result.airCount(), kept);
     }
 
     private void reportArrivalOutcomes(RouteSearchResult result, RouteSearchContext searchCtx) {
@@ -105,18 +134,25 @@ public class TransferArrivalEnricher {
         Instant deadline = props.getDeadlineMs() > 0
                 ? clock.instant().plusMillis(props.getDeadlineMs())
                 : null;
-        return enrichInternal(result, searchStartedAt, () -> remainingMillis(deadline), false);
+        return enrichInternal(result, searchStartedAt, () -> remainingMillis(deadline), false).result();
     }
 
-    private RouteSearchResult enrichInternal(RouteSearchResult result, Instant searchStartedAt,
-                                             LongSupplier remainingBudget, boolean requestBudgetAware) {
-        if (result.paths() == null || result.paths().isEmpty()) return result;
+    /** 보강 결과와, 실시간 운행종료 구간을 지나는 경로 인덱스. */
+    private record Enriched(RouteSearchResult result, Set<Integer> endedPaths, List<String> endedRoutes) {
+        static Enriched of(RouteSearchResult result) {
+            return new Enriched(result, Set.of(), List.of());
+        }
+    }
+
+    private Enriched enrichInternal(RouteSearchResult result, Instant searchStartedAt,
+                                    LongSupplier remainingBudget, boolean requestBudgetAware) {
+        if (result.paths() == null || result.paths().isEmpty()) return Enriched.of(result);
 
         List<SubPathCtx> all = collectContexts(result);
-        if (all.isEmpty()) return result;
+        if (all.isEmpty()) return Enriched.of(result);
 
         if (!props.isEnabled()) {
-            return rebuild(result, all, buildDisabledResults(all, searchStartedAt));
+            return Enriched.of(rebuild(result, all, buildDisabledResults(all, searchStartedAt)));
         }
 
         // 정적 resolve (wave 무관)
@@ -148,7 +184,24 @@ public class TransferArrivalEnricher {
                     callBudget, remainingBudget, requestBudgetAware);
         }
 
-        return rebuild(result, all, resultMap);
+        Set<Integer> endedPaths = new TreeSet<>();
+        List<String> endedRoutes = new ArrayList<>();
+        for (SubPathCtx ctx : all) {
+            if (isEnded(ctx, searchStartedAt)) {
+                endedPaths.add(ctx.pathIdx);
+                ctx.laneContexts.forEach(lc -> endedRoutes.add(lc.routeName != null ? lc.routeName : lc.routeId));
+            }
+        }
+        return new Enriched(rebuild(result, all, resultMap), endedPaths, endedRoutes);
+    }
+
+    /** 구간의 노선이 <b>전부</b> 실시간 운행종료일 때만 — 같은 정류장의 다른 노선이 살아 있으면 그걸 타면 된다. */
+    private static boolean isEnded(SubPathCtx ctx, Instant now) {
+        if (ctx.upstreamUnavailable || ctx.laneContexts.isEmpty()) {
+            return false;
+        }
+        return ctx.laneContexts.stream().allMatch(lc -> lc.arrOutcome == Outcome.OK
+                && BusServiceEnded.isEnded(lc.arrMatched, now, ctx.estimatedUserArrivalAt));
     }
 
     /**

@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.bus;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.SocketPolicy;
@@ -14,6 +15,7 @@ import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.application.route.config.TransferArrivalProperties;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
 import watoo.grd.nextroute.common.config.ClockConfig;
+import watoo.grd.nextroute.common.config.JdkHttpClientMetrics;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -39,12 +41,13 @@ class SearchTimeBusAdapterTest {
             LocalDateTime.of(2026, 6, 6, 13, 0).atZone(ClockConfig.KST).toInstant(), ClockConfig.KST);
 
     TransferArrivalProperties props = new TransferArrivalProperties();
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
 
     private SearchTimeBusAdapter adapter(Semaphore semaphore) {
         props.setExternalCallAcquireMs(50);
         return new SearchTimeBusAdapter(
                 restClient, breaker, quota, semaphore, props, CLOCK,
-                "bus-key", "http://ws.bus.go.kr/api/rest");
+                new JdkHttpClientMetrics(registry), "bus-key", "http://ws.bus.go.kr/api/rest");
     }
 
     @Test
@@ -104,7 +107,7 @@ class SearchTimeBusAdapterTest {
 
             SearchTimeBusAdapter adapter = new SearchTimeBusAdapter(
                     restClient, breaker, quota, new Semaphore(1), props, CLOCK,
-                    "bus-key", server.url("/").toString().replaceAll("/$", ""));
+                    new JdkHttpClientMetrics(registry), "bus-key", server.url("/").toString().replaceAll("/$", ""));
 
             long started = System.nanoTime();
             var result = adapter.getArrInfoByStop("1111", "R1", 3, 80);
@@ -112,6 +115,11 @@ class SearchTimeBusAdapterTest {
 
             assertThat(result.outcome()).isEqualTo(SearchTimeBusQueryPort.Outcome.ERROR);
             assertThat(elapsedMs).isLessThan(300);
+            // 기한으로 끊은 호출도 지표에 남는다 — 평가기가 기다리는 바로 그 호출이다(#415).
+            assertThat(registry.get("http.client.requests")
+                    .tags("uri", "/arrive/getArrInfoByRoute", "status", "IO_ERROR",
+                            "exception", "HttpTimeoutException")
+                    .timer().count()).isEqualTo(1);
         } finally {
             server.shutdown();
         }
