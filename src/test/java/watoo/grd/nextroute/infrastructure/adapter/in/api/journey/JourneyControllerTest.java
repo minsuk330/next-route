@@ -464,6 +464,45 @@ class JourneyControllerTest {
                 .andExpect(jsonPath("$.guidanceVersion").value(0));
     }
 
+    @Test
+    @DisplayName("버전 사전 확인(#415-6): 바뀐 것 없으면 여정 전체를 조립하지 않고 204")
+    void detail_precheckUnchanged_skipsFullLoad() throws Exception {
+        given(getActiveJourneyUseCase.versions(7L, 5L)).willReturn(Optional.of(
+                new JourneyQueryUseCase.JourneyVersions(1, 0, false)));
+
+        mockMvc.perform(get("/api/journeys/5?afterCommandVersion=1&afterEvaluationVersion=0")
+                        .with(authentication(authUser(7L))))
+                .andExpect(status().isNoContent());
+
+        org.mockito.BDDMockito.then(getActiveJourneyUseCase).should(org.mockito.Mockito.never()).get(7L, 5L);
+    }
+
+    @Test
+    @DisplayName("버전 사전 확인: 명령 번호가 올랐으면 전체를 조립해 200")
+    void detail_precheckChanged_loadsFull() throws Exception {
+        given(getActiveJourneyUseCase.versions(7L, 5L)).willReturn(Optional.of(
+                new JourneyQueryUseCase.JourneyVersions(1, 0, false)));
+        given(getActiveJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(snapshot(5L)));
+
+        mockMvc.perform(get("/api/journeys/5?afterCommandVersion=0")
+                        .with(authentication(authUser(7L))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("버전 사전 확인: 지하철 단계에서 링 번호를 물으면 두 번호로 가를 수 없어 전체 경로가 링까지 본다")
+    void detail_precheckSubwayGuidance_fallsBackToFullPath() throws Exception {
+        given(getActiveJourneyUseCase.versions(7L, 5L)).willReturn(Optional.of(
+                new JourneyQueryUseCase.JourneyVersions(1, 0, true)));
+        given(getActiveJourneyUseCase.get(7L, 5L)).willReturn(Optional.of(
+                snapshot(5L).withSubwayGuidance(guidance(1_791_374_000_000L))));
+
+        mockMvc.perform(get("/api/journeys/5?afterCommandVersion=1&afterEvaluationVersion=0"
+                                + "&afterGuidanceVersion=1791373990000")
+                        .with(authentication(authUser(7L))))
+                .andExpect(status().isOk());
+    }
+
     private SubwayGuidance guidance(long version) {
         return new SubwayGuidance(SubwayBindingStatus.CONFIRMED, SubwayRingPhase.RIDE_SUBWAY, "서울2호선",
                 "낙성대", "신림(2호선)", 4, java.math.BigDecimal.ZERO, Instant.parse("2026-10-07T11:52:24Z"),

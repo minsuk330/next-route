@@ -192,6 +192,12 @@ public class JourneyEvaluatorProperties {
      */
     private long starvationGuardSeconds = 60;
 
+    /**
+     * 급한 환승 먼저 모드에서 평가가 끝나 빈자리가 생기면 다음 tick 을 기다리지 않고 바로 채울지(#415-6).
+     * 끄면 tick 마다 워커×2 까지만 잡아 처리량 상한이 tick 박자로 정해진다(되돌리는 스위치).
+     */
+    private boolean refillOnCompletion = true;
+
     @PostConstruct
     void validate() {
         if (tickMs <= 0 || batchSize <= 0 || intervalSeconds <= 0 || leaseSeconds <= 0

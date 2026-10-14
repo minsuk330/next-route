@@ -54,6 +54,10 @@ public class JourneyDueEvaluatorScheduler {
 
     private final Clock clock;
 
+    /** 선점이 동시에 두 번 돌지 않게. tick 과 완료 보충이 겹칠 수 있다. */
+    private final java.util.concurrent.atomic.AtomicBoolean refilling =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
     @Scheduled(fixedDelayString = "${journey.navigation.evaluator.tick-ms:5000}")
     public void run() {
         try {
@@ -117,20 +121,67 @@ public class JourneyDueEvaluatorScheduler {
      * 시작된다.
      */
     private void refill() {
+        refill("tick");
+    }
+
+    /**
+     * 평가 하나가 끝나 빈자리가 워커 수만큼 생겼으면 다음 tick 을 기다리지 않고 바로 채운다(#415-6).
+     *
+     * <p>빈자리 선점(tick 마다 워커×2 까지)만 있으면 처리량 상한이 <b>워커 수가 아니라 tick 박자</b>로 정해진다
+     * — 워커 4 · tick 1초면 초당 8건이 끝이다(부하 사다리 2,000건 실측: 평가 1건 80ms 라 워커는 초당 50건을
+     * 할 수 있는데 8건만 하고, 예정→시작 지연 p50 이 180초를 넘었다). 끝날 때마다 채우면 상한이 다시 워커
+     * 수 ÷ 평가 시간이 된다.
+     *
+     * <p>빈자리가 워커 수 이상일 때만 채운다. 하나 끝날 때마다 한 건씩 선점하면 평가 수만큼 선점 쿼리가
+     * 나간다 — 묶어서 잡는다. 동시에 여러 워커가 끝나도 선점은 한 번에 하나만(겹치면 건너뛴다, 잡고 있는
+     * 쪽이 채운다).
+     */
+    private void refillOnCompletion() {
+        if (properties.getClaimOrder() != JourneyEvaluatorProperties.ClaimOrder.URGENT_FIRST
+                || !properties.isRefillOnCompletion()) {
+            return;
+        }
+        int busy = executor.getActiveCount() + executor.getThreadPoolExecutor().getQueue().size();
+        // 지금 이 스레드도 아직 활성으로 세어지므로 하나를 뺀다
+        int free = properties.getPoolSize() * 2 - (busy - 1);
+        if (free < properties.getPoolSize()) {
+            return;
+        }
+        refill("completion");
+    }
+
+    private void refill(String trigger) {
+        if (!refilling.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            refillOnce(trigger);
+        } finally {
+            refilling.set(false);
+        }
+    }
+
+    private void refillOnce(String trigger) {
+        boolean tick = "tick".equals(trigger);
         long tickStartedAt = System.nanoTime();
         int busy = executor.getActiveCount() + executor.getThreadPoolExecutor().getQueue().size();
         int free = properties.getPoolSize() * 2 - busy;
         if (free <= 0) {
             // 빈자리가 없어 선점조차 안 한 tick. 포화의 신호라 빈 tick 과 같이 센다.
-            metrics.recordTick(false, System.nanoTime() - tickStartedAt);
+            if (tick) {
+                metrics.recordTick(false, System.nanoTime() - tickStartedAt);
+            }
             return;
         }
         List<JourneyDueClaim> claims = claimService.claimDue(free);
         metrics.recordClaimDuration(System.nanoTime() - tickStartedAt);
         metrics.recordClaimed(claims.size());
+        metrics.recordRefill(trigger, claims.size());
         claims.forEach(this::submit);
-        // 이 모드의 tick 은 끝나기를 기다리지 않으므로 한 바퀴 = 선점 + 넘겨주기까지다.
-        metrics.recordTick(!claims.isEmpty(), System.nanoTime() - tickStartedAt);
+        // 이 모드의 tick 은 끝나기를 기다리지 않으므로 한 바퀴 = 선점 + 넘겨주기까지다. 완료 보충은 tick 이 아니다.
+        if (tick) {
+            metrics.recordTick(!claims.isEmpty(), System.nanoTime() - tickStartedAt);
+        }
     }
 
     /**
@@ -144,6 +195,12 @@ public class JourneyDueEvaluatorScheduler {
             return CompletableFuture.runAsync(() -> {
                 metrics.recordQueueWait(System.nanoTime() - submittedAt);
                 evaluateOne(claim);
+                try {
+                    refillOnCompletion();
+                } catch (Exception e) {
+                    // 보충 실패는 다음 tick 이 메운다. 이 평가의 결과와는 무관하다.
+                    log.warn("[JourneyDueEvaluator] 완료 후 보충 실패: {}", e.getMessage());
+                }
             }, executor);
         } catch (RejectedExecutionException e) {
             // 큐가 찼다. 여기서 직접 처리하면 다음 선점이 멈추므로 포기한다. 선점 시각이 지나면

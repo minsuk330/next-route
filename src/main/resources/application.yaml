@@ -513,6 +513,8 @@ journey:
       claim-order: ${JOURNEY_EVALUATOR_CLAIM_ORDER:URGENT_FIRST}
       # 급하지 않은 여정이 이만큼 밀리면 급한 줄로 올린다. max-interval + 이 값 < stale-after 를 부팅 검증이 강제한다.
       starvation-guard-seconds: ${JOURNEY_EVALUATOR_STARVATION_GUARD_SECONDS:60}
+      # 평가가 끝나 빈자리가 생기면 tick 을 기다리지 않고 바로 선점(#415-6). 끄면 처리량 상한 = 워커×2 ÷ tick.
+      refill-on-completion: ${JOURNEY_EVALUATOR_REFILL_ON_COMPLETION:true}
     # 이벤트 기반 재평가(#415-3). 실시간 데이터가 바뀐 여정의 다음 평가를 앞당긴다.
     # 기본 꺼짐 + 그림자 모드(켜도 DB 를 안 고치고 지표만 셈). 켜는 순서: enabled=true(그림자) → 지표 확인 → shadow=false.
     reeval:

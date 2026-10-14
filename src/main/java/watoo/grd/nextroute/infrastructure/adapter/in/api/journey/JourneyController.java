@@ -52,6 +52,13 @@ public class JourneyController {
     private final JourneySnapshotEtaComposer etaComposer;
 
     /**
+     * 조건부 조회를 버전 한 번 읽기로 먼저 가를지(#415-6). 끄면 예전처럼 매번 여정 전체를 조립한 뒤 비교한다
+     * (되돌리는 스위치).
+     */
+    @org.springframework.beans.factory.annotation.Value("${journey.query.version-precheck:true}")
+    private boolean versionPrecheck = true;
+
+    /**
      * 검색 결과 하나로 여정을 시작한다.
      *
      * <p>진행 중인 여정이 있으면 자동으로 끝내지 않고 409 로 거절한다. 갈아타려면
@@ -92,6 +99,17 @@ public class JourneyController {
             @RequestParam(required = false) Long afterCommandVersion,
             @RequestParam(required = false) Long afterEvaluationVersion,
             @RequestParam(required = false) Long afterGuidanceVersion) {
+        if (versionPrecheck && (afterCommandVersion != null || afterEvaluationVersion != null
+                || afterGuidanceVersion != null)) {
+            // 대부분의 조회는 "바뀐 것 없음"이다. 버전만 한 번 읽어 가르고, 바뀐 경우에만 전체를 조립한다(#415-6).
+            // 없거나 가를 수 없으면 아래 전체 경로가 판단한다(없는 여정의 404 도 거기서).
+            boolean unchanged = journeyQueryUseCase.versions(userId, journeyId)
+                    .map(v -> v.unchanged(afterCommandVersion, afterEvaluationVersion, afterGuidanceVersion))
+                    .orElse(false);
+            if (unchanged) {
+                return ResponseEntity.noContent().build();
+            }
+        }
         JourneySnapshot journey = journeyQueryUseCase.get(userId, journeyId)
                 .orElseThrow(() -> new BusinessException(JourneyErrorCode.JOURNEY_NOT_FOUND));
 

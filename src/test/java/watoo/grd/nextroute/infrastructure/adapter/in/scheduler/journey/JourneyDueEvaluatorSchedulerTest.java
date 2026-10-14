@@ -127,7 +127,8 @@ class JourneyDueEvaluatorSchedulerTest {
     void urgentFirstClaimsOnlyFreeCapacity() {
         properties.setClaimOrder(JourneyEvaluatorProperties.ClaimOrder.URGENT_FIRST);
         properties.setPoolSize(2);
-        given(claimService.claimDue(anyInt())).willReturn(claims(4));
+        // 끝날 때마다 보충하므로, 만기 여정이 더 없을 때는 빈 목록을 돌려줘야 멈춘다
+        given(claimService.claimDue(anyInt())).willReturn(claims(4)).willReturn(List.of());
         given(evaluationService.evaluate(any())).willReturn(evaluated());
 
         scheduler.run();
@@ -136,10 +137,45 @@ class JourneyDueEvaluatorSchedulerTest {
         then(claimService).should().claimDue(4);
         then(claimService).should(never()).claimDue();
         then(evaluationService).should(timeout(2_000).times(4)).evaluate(any());
-        // 이 모드도 선점 쿼리 시간과 한 바퀴를 잰다(#415-1)
-        assertThat(registry.timer(JourneyEvaluationMetrics.CLAIM_DURATION).count()).isEqualTo(1);
+        // 이 모드도 선점 쿼리 시간과 한 바퀴를 잰다(#415-1). 완료 보충의 선점도 쿼리 시간에는 들어간다
+        assertThat(registry.timer(JourneyEvaluationMetrics.CLAIM_DURATION).count()).isGreaterThanOrEqualTo(1);
         assertThat(registry.timer(JourneyEvaluationMetrics.TICK_DURATION, "claimed", "some").count())
                 .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("급한 환승 먼저 모드는 평가가 끝나 빈자리가 생기면 tick 을 기다리지 않고 바로 채운다 — 처리량 상한이 tick 박자가 아니라 워커 속도")
+    void refillsOnCompletionWithoutWaitingForTick() {
+        properties.setClaimOrder(JourneyEvaluatorProperties.ClaimOrder.URGENT_FIRST);
+        properties.setPoolSize(2);
+        given(claimService.claimDue(anyInt()))
+                .willReturn(claims(4))
+                .willReturn(claims(4))
+                .willReturn(List.of());
+        given(evaluationService.evaluate(any())).willReturn(evaluated());
+
+        scheduler.run();
+
+        // tick 은 한 번뿐인데 두 번째 묶음까지 평가된다
+        then(evaluationService).should(timeout(3_000).times(8)).evaluate(any());
+        assertThat(registry.counter(JourneyEvaluationMetrics.REFILL, "trigger", "completion").count())
+                .isPositive();
+    }
+
+    @Test
+    @DisplayName("완료 보충을 끄면 tick 에서만 선점한다 — 되돌리는 스위치")
+    void refillOnCompletionCanBeTurnedOff() throws Exception {
+        properties.setClaimOrder(JourneyEvaluatorProperties.ClaimOrder.URGENT_FIRST);
+        properties.setRefillOnCompletion(false);
+        properties.setPoolSize(2);
+        given(claimService.claimDue(anyInt())).willReturn(claims(4)).willReturn(claims(4));
+        given(evaluationService.evaluate(any())).willReturn(evaluated());
+
+        scheduler.run();
+        then(evaluationService).should(timeout(2_000).times(4)).evaluate(any());
+        Thread.sleep(300);
+
+        then(claimService).should(times(1)).claimDue(anyInt());
     }
 
     @Test
