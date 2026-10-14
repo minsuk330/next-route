@@ -186,7 +186,7 @@ class JourneyQueryLoadIT {
         if (on) {
             executor = executor(poolSize);
             JourneyDueEvaluatorScheduler scheduler = new JourneyDueEvaluatorScheduler(
-                    claimService, evaluationService, metrics, properties, executor);
+                    claimService, evaluationService, metrics, properties, executor, java.time.Clock.systemUTC());
             evaluator = startEvaluator(scheduler, evaluatorRunning);
         }
 

@@ -4771,3 +4771,4 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `JOURNEY_DETECTION_LATENCY=true JDL_JOURNEYS=300 JDL_WARMUP_SEC=240 JDL_OBSERVE_SEC=420 JDL_FLIP_WINDOW_SEC=180 JDL_RIDES=600,1080,2400 ./gradlew cleanTest test --tests '*JourneyDetectionLatencyIT'` → 바뀐 60/60 감지, 위험 알림 적재 60
+- (main 반영) #416 이 스케줄러 생성자에 Clock 을 더해 `JourneyQueryLoadIT`·`JourneyDetectionLatencyIT` 생성 호출을 맞춤. 작은 규모 스모크(여정 20, 관찰 60초) 통과

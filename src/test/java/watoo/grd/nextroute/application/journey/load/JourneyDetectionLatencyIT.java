@@ -197,7 +197,7 @@ class JourneyDetectionLatencyIT {
 
         ThreadPoolTaskExecutor executor = executor(properties.getPoolSize());
         JourneyDueEvaluatorScheduler scheduler = new JourneyDueEvaluatorScheduler(
-                claimService, evaluationService, metrics, properties, executor);
+                claimService, evaluationService, metrics, properties, executor, java.time.Clock.systemUTC());
         AtomicBoolean running = new AtomicBoolean(true);
         Thread loop = new Thread(() -> {
             while (running.get()) {
