@@ -244,6 +244,47 @@ class SectionTimesTest(unittest.TestCase):
         self.assertIn("stopIdPrefixes", str(cm.exception))
 
 
+LONG = ["0.0", "400.0", "37400.0", "37800.0"]  # hop 1 = 37 km non-stop (M4403 동탄 -> 강남 형태)
+
+
+class LongHopTest(unittest.TestCase):
+    def feed(self, trips, **over):
+        f = Feed(trips, ROUTES, coefficients(longHopMeters=3000, **over))
+        self.addCleanup(f.close)
+        return f
+
+    def test_long_hop_keeps_its_ktdb_time_and_short_hops_use_the_formula(self):
+        f = self.feed({"m1": (SEB, trip_rows("m1", "14:00:00", [30, 1939, 30], dists=LONG))})
+        rep = f.run()
+        # 90 s formula, 1939 s KTDB, 90 s formula; dwell 10
+        self.assertEqual(f.times()["m1"], [("14:00:00", "14:00:00"), ("14:01:30", "14:01:40"),
+                                           ("14:33:59", "14:34:09"), ("14:35:39", "14:35:39")])
+        self.assertEqual((rep.long_hops, rep.formula_hops), (1, 2))
+
+    def test_section_time_wins_over_the_long_hop_rule(self):
+        f = Feed({"m1": (SEB, trip_rows("m1", "14:00:00", [30, 1939, 30], dists=LONG))}, ROUTES,
+                 coefficients(longHopMeters=3000, sectionTimes={"scale": 0.9, "stopIdPrefixes": ["S"]}))
+        self.addCleanup(f.close)
+        sec = section_csv(Path(f.tmp.name) / "s.csv", [("1", "2", "all", 2000)])
+        rep = cbr.run(f.inp, f.coef, f.out, f.rep, sec)
+        self.assertEqual(f.times()["m1"][2][0], "14:31:40")  # 90 + 0.9*2000 + 10
+        self.assertEqual((rep.section_hops, rep.long_hops), (1, 0))
+
+    def test_long_hop_does_not_take_the_trip_factor(self):
+        f = self.feed({"m1": (SEB, trip_rows("m1", "14:00:00", [30, 1939, 30], dists=LONG)),
+                       "r1": (SEB, trip_rows("r1", "18:00:00", [36, 2327, 36], dists=LONG))})
+        f.run()
+        # r1 factor 2399/1999 = 1.2: short hops 108 s, long hop its own KTDB 2327 s
+        self.assertEqual(f.times()["r1"][-1][0], "18:42:43")  # 108 + 2327 + 108 + 20
+
+    def test_without_the_setting_long_hops_use_the_formula(self):
+        f = Feed({"m1": (SEB, trip_rows("m1", "14:00:00", [30, 1939, 30], dists=LONG))}, ROUTES, coefficients())
+        self.addCleanup(f.close)
+        rep = f.run()
+        self.assertEqual(rep.long_hops, 0)
+        self.assertEqual(f.times()["m1"][2][0], "15:04:10")  # 90 + (0.1*37000 + 50) + 10
+
+
 class FailTest(unittest.TestCase):
     def run_with(self, coef, trips=None):
         f = Feed(trips or {"m1": (SEB, trip_rows("m1", "14:00:00", [30]))}, ROUTES, coef)
@@ -262,6 +303,9 @@ class FailTest(unittest.TestCase):
         c = coefficients()
         c["regions"]["busan"] = {"routeIdPrefixes": ["BR_TAGO_BSB"], "secPerMeter": 0.1, "secPerHop": 30}
         self.assertIn("busan", self.run_with(c))
+
+    def test_long_hop_meters_must_be_positive(self):
+        self.assertIn("longHopMeters", self.run_with(coefficients(longHopMeters=0)))
 
     def test_prefix_listed_twice(self):
         c = coefficients()

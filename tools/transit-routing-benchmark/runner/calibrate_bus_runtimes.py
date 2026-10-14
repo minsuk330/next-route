@@ -12,6 +12,9 @@ Each hop (stop -> next stop) of a bus trip in a listed region gets a new running
   hourly average running time per stop pair, built by ``fetch_seoul_section_times.py``), the hop is
   ``sectionTimes.scale`` x the value for the hour the bus leaves the stop (any-hour median when that hour is
   missing).  This carries real congestion (테헤란로 slower than an open road), which a formula cannot.
+* **long hop** — a hop of at least ``longHopMeters`` with no section time keeps its KTDB running time.  The
+  formula is fitted on urban hops (0.3-1.5 km); applied to a 37 km non-stop expressway hop it gave 41 km/h
+  instead of KTDB's 69 km/h (M4403 동탄 → 강남 68 min vs Naver 45, KTDB 45.5).
 * **formula** — otherwise ``(secPerMeter x hop metres + secPerHop) x trip factor``.  KTDB's per-hop time
   carries almost no information about ODsay's (correlation of segment speeds 0.07), distance and stop count
   do.  hop metres = ``shape_dist_traveled`` difference, or the straight line x ``detourFactor`` when the feed
@@ -68,6 +71,7 @@ class Coefficients:
     detour_factor: float
     section_scale: float = 1.0
     section_stop_prefixes: tuple[str, ...] = ()
+    long_hop_meters: float | None = None
 
     def region_of(self, route_id: str) -> Region | None:
         best: tuple[int, Region] | None = None
@@ -141,8 +145,12 @@ def load_coefficients(path: Path) -> Coefficients:
     scale = float(sec.get("scale", 1.0))
     if not SECTION_SCALE_RANGE[0] <= scale <= SECTION_SCALE_RANGE[1]:
         raise ValueError(f"sectionTimes.scale {scale} outside {SECTION_SCALE_RANGE}")
+    long_hop = doc.get("longHopMeters")
+    if long_hop is not None and float(long_hop) <= 0:
+        raise ValueError(f"longHopMeters {long_hop} must be positive")
     return Coefficients(tuple(regions), (parse_time(lo), parse_time(hi)), (float(cl[0]), float(cl[1])),
-                        float(doc.get("detourFactor", 1.25)), scale, tuple(sec.get("stopIdPrefixes", ())))
+                        float(doc.get("detourFactor", 1.25)), scale, tuple(sec.get("stopIdPrefixes", ())),
+                        float(long_hop) if long_hop is not None else None)
 
 
 def load_section_times(path: Path, coef: Coefficients) -> SectionTimes:
@@ -183,7 +191,7 @@ class TripPlan:
     pattern: tuple[str, int, int]  # (route_id, stop count, hash of stop ids)
     dep0: int
     run_orig: int
-    section: array  # hop k: scaled section seconds, or -1 when the formula applies
+    section: array  # hop k: fixed seconds (scaled section time or a long hop's KTDB time), or -1 for the formula
     formula: array  # hop k: formula seconds before the trip factor
     dwell: array  # stop k: departure - arrival
     factor: float = 1.0
@@ -198,6 +206,7 @@ class Report:
     section_hops: int = 0
     formula_hops: int = 0
     section_rejected: int = 0
+    long_hops: int = 0
     guard_raised: int = 0
     overtaking_after: int = 0
 
@@ -266,12 +275,15 @@ def plan_trip(rows: list[list[str]], idx: dict[str, int], rid: str, reg: Region,
         if s is not None and not SECTION_VS_FORMULA[0] <= s / max(f, 1.0) <= SECTION_VS_FORMULA[1]:
             report.section_rejected += 1
             s = None
+        if s is not None:
+            report.section_hops += 1
+        elif coef.long_hop_meters is not None and m >= coef.long_hop_meters:
+            s = float(arr[k + 1] - dep[k])
+            report.long_hops += 1
+        else:
+            report.formula_hops += 1
         section.append(s if s is not None else -1.0)
         formula.append(f)
-        if s is None:
-            report.formula_hops += 1
-        else:
-            report.section_hops += 1
     run = sum(arr[k] - dep[k - 1] for k in range(1, len(rows)))
     pattern = (rid, len(rows), hash(tuple(sid)))  # stop ids kept out of memory
     return TripPlan(reg, pattern, dep[0], run, section, formula, array("i", (d - a for a, d in zip(arr, dep))))
@@ -417,7 +429,8 @@ def run(in_zip: Path, coef_path: Path, out_zip: Path, report_path: Path | None,
 
 
 def summary(rep: Report) -> dict:
-    return dict(sectionHops=rep.section_hops, formulaHops=rep.formula_hops, sectionRejected=rep.section_rejected,
+    return dict(sectionHops=rep.section_hops, longHops=rep.long_hops, formulaHops=rep.formula_hops,
+                sectionRejected=rep.section_rejected,
                 fallbackHops=rep.fallback_hops, clampedFactors=rep.clamped_factors, guardRaised=rep.guard_raised,
                 overtakingAfter=rep.overtaking_after)
 
