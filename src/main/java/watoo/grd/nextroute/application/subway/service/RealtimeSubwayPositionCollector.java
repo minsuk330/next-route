@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.subway.service;
 
 import lombok.RequiredArgsConstructor;
+import watoo.grd.nextroute.application.subway.observability.SubwayRealtimeMetrics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -56,6 +57,7 @@ public class RealtimeSubwayPositionCollector {
     private final SubwayPositionProperties properties;
     private final SubwayActiveLinePort activeLinePort;
     private final Clock clock;
+    private final SubwayRealtimeMetrics metrics;
 
     /** 마지막 전 노선 회차. 한 인스턴스(worker)에서만 돈다. */
     private Instant lastFullAt;
@@ -79,6 +81,7 @@ public class RealtimeSubwayPositionCollector {
             lastFullAt = now;
         }
 
+        long startedAt = System.nanoTime();
         int events = 0;
         int failed = 0;
         for (String lineId : targets) {
@@ -105,6 +108,8 @@ public class RealtimeSubwayPositionCollector {
             log.warn("[PositionCollector] {}/{} 노선 실패, 사건 {}건",
                     failed, targets.size(), events);
         }
+        metrics.recordCollectCycle("position", full ? "full" : "active",
+                System.nanoTime() - startedAt);
     }
 
     /** 진행 링이 도는 노선 중 수집 대상인 것. 설정 순서를 지킨다. */

@@ -137,8 +137,6 @@ public class OtpPlanConnectionMapper {
         String agencyId = text(route.path("agency").path("gtfsId"));
         String sourceRouteId = text(route.path("gtfsId"));
         String sourceRouteName = text(route.path("shortName"));
-        String sourceRouteDirection =
-                SubwayDirectionNormalizer.labelFrom(text(route.path("longName")));
         if (sourceRouteId != null && sourceRouteId.contains(":")) {
             feedId = sourceRouteId.substring(0, sourceRouteId.indexOf(':'));
         }
@@ -152,6 +150,11 @@ public class OtpPlanConnectionMapper {
         LocalDate serviceDate = boardAt == null ? null : boardAt.atZone(FEED_ZONE).toLocalDate();
 
         List<StopOccurrence> stops = transit ? toStops(legNode) : List.of();
+        // 6호선은 노선 이름에 라벨이 없어 승·하차역 순서로 정한다(#395).
+        String sourceRouteDirection = SubwayDirectionNormalizer.labelFor(sourceRouteId,
+                text(route.path("longName")),
+                stops.isEmpty() ? null : stops.get(0).sourceStopId(),
+                stops.isEmpty() ? null : stops.get(stops.size() - 1).sourceStopId());
         List<RoutingWalkStep> walkSteps = mode == RoutingMode.WALK ? toWalkSteps(legNode) : List.of();
 
         LegGeometry geometry = toGeometry(legNode, transit, graphVersion);
@@ -175,7 +178,13 @@ public class OtpPlanConnectionMapper {
         return new RoutingLeg(mode, transit ? otpMode : null, feedId, agencyId,
                 sourceRouteId, sourceRouteName, sourceRouteDirection, tripId, serviceDate,
                 boardAt, alightAt, rideDurationSeconds, stops, walkSteps,
-                geometry, enrichment, missing, sourceRouteColor);
+                geometry, enrichment, missing, sourceRouteColor, distance(legNode));
+    }
+
+    /** leg 거리(m). 없거나 숫자가 아니면 null — 0 으로 지어내지 않는다. */
+    private static Double distance(JsonNode legNode) {
+        JsonNode node = legNode.path("distance");
+        return node.isNumber() ? node.asDouble() : null;
     }
 
     private List<StopOccurrence> toStops(JsonNode legNode) {

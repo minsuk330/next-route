@@ -166,6 +166,28 @@ class JourneyEvaluationIT {
     }
 
     @Test
+    @DisplayName("환승이 임박하면 다음 선점에서 먼저 잡히도록 급함을 남긴다")
+    void marksUrgentWhenTransferIsNear() {
+        ridingLegTakes(60);
+        givenRealtimeArrival(600);
+
+        evaluate();
+
+        assertThat(evaluationUrgent()).isTrue();
+    }
+
+    @Test
+    @DisplayName("환승이 멀면 급함을 내린다 — 시작 때 심은 급함이 계속 남지 않는다")
+    void clearsUrgentWhenTransferIsFar() {
+        ridingLegTakes(1_800);
+        givenRealtimeArrival(600);
+
+        evaluate();
+
+        assertThat(evaluationUrgent()).isFalse();
+    }
+
+    @Test
     @DisplayName("아무것도 안 바뀌면 다음 평가를 더 미룬다")
     void lengthensIntervalWhenNothingChanges() {
         ridingLegTakes(1_800);
@@ -553,6 +575,11 @@ class JourneyEvaluationIT {
         return jdbcTemplate.queryForObject(
                 "select next_evaluation_at from journey_session where id = ?",
                 Instant.class, journeyId);
+    }
+
+    private boolean evaluationUrgent() {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject(
+                "select evaluation_urgent from journey_session where id = ?", Boolean.class, journeyId));
     }
 
     private long evaluationVersion() {

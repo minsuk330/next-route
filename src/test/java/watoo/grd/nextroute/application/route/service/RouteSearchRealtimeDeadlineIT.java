@@ -74,7 +74,10 @@ class RouteSearchRealtimeDeadlineIT {
 
         SearchTimeBusAdapter provider = new SearchTimeBusAdapter(
                 RestClient.builder().build(), breaker, quota, new Semaphore(1), transferProps,
-                Clock.systemUTC(), "test-key", busServer.url("/").toString().replaceAll("/$", ""));
+                Clock.systemUTC(),
+                new watoo.grd.nextroute.common.config.JdkHttpClientMetrics(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
+                "test-key", busServer.url("/").toString().replaceAll("/$", ""));
         BusRealtimeCacheReadPort cacheRead = mock(BusRealtimeCacheReadPort.class);
         when(cacheRead.getArrivals(any(), any(), anyInt())).thenReturn(Optional.empty());
         CachedSearchTimeBusAdapter busPort = new CachedSearchTimeBusAdapter(

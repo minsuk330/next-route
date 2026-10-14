@@ -7,6 +7,7 @@ import watoo.grd.nextroute.application.journey.dto.TrackViews;
 import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPattern;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPatternDetail;
+import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitRoute;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.NearStop;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitStop;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitStopTime;
@@ -15,6 +16,7 @@ import watoo.grd.nextroute.application.route.routing.GeometryQuality;
 import watoo.grd.nextroute.application.route.routing.LegGeometry;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
+import watoo.grd.nextroute.application.route.service.GyeonggiBusRouteTypeColors;
 import watoo.grd.nextroute.global.error.BusinessException;
 import watoo.grd.nextroute.global.error.code.CommonErrorCode;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
@@ -42,6 +44,7 @@ public class TrackSelectionQueryService {
     private final JourneyTrackProperties properties;
     private final TrackPatternSource source;
     private final TrackRealtimeIdResolver realtimeIds;
+    private final GyeonggiBusRouteTypeColors gyeonggiColors;
 
     /**
      * @param mode {@code BUS} 또는 {@code SUBWAY}(철도·경전철 포함). null 이면 전부
@@ -155,7 +158,7 @@ public class TrackSelectionQueryService {
                     arrivalStopId = realtimeIds.busStop(boardStopId).arrivalStopId();
                 }
                 directions.add(new TrackViews.Direction(pattern.route().gtfsId(), pattern.route().mode(),
-                        pattern.route().shortName(), color(pattern.route().color()), branch.directionLabel(),
+                        pattern.route().shortName(), color(pattern.route(), bus), branch.directionLabel(),
                         branch.terminalName(), pattern.code(),
                         bus ? realtimeIds.busRoute(pattern.route().gtfsId()) : null,
                         boardStopId, bus ? arrivalStopId : null));
@@ -288,8 +291,15 @@ public class TrackSelectionQueryService {
         return wanted == actual;
     }
 
-    private static String color(String raw) {
-        return raw == null ? null : "#" + raw;
+    /** 그래프 색을 쓰되, 경기 버스는 노선 유형 색이 먼저다(#391 — 검색 응답과 같은 규칙). */
+    private String color(TransitRoute route, boolean bus) {
+        if (bus) {
+            Optional<String> gyeonggi = gyeonggiColors.color(route.gtfsId());
+            if (gyeonggi.isPresent()) {
+                return gyeonggi.get();
+            }
+        }
+        return route.color() == null ? null : "#" + route.color();
     }
 
     private static int compareNullable(String a, String b) {

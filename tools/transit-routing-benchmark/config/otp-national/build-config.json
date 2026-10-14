@@ -20,5 +20,6 @@
   "staticBikeParkAndRide": false,
   "areaVisibility": false,
   "transitServiceStart": "-P1D",
-  "transitServiceEnd": "P2M"
+  "transitServiceEnd": "P2M",
+  "subwayAccessTime": 0
 }

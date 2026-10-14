@@ -39,11 +39,24 @@ public class JourneyDueClaimService {
      */
     @Transactional
     public List<JourneyDueClaim> claimDue() {
+        return claimDue(properties.getBatchSize());
+    }
+
+    /**
+     * 최대 {@code limit} 건만 선점한다.
+     *
+     * <p>워커가 곧바로 집을 수 있는 만큼만 잡을 때 쓴다. 처리 능력보다 많이 잡으면 잡은 여정이 작업
+     * 큐에서 들어온 순서대로 기다리므로, 선점 순서(급한 환승 먼저)가 실제 처리 순서에 닿지 않는다.
+     */
+    @Transactional
+    public List<JourneyDueClaim> claimDue(int limit) {
         Instant now = Instant.now(clock);
         Instant leaseUntil = now.plus(properties.lease());
 
         List<JourneySessionRepository.DueClaimRow> claimed = sessionRepository.claimDueBatch(
-                now, leaseUntil, properties.getBatchSize());
+                now, leaseUntil, Math.min(limit, properties.getBatchSize()),
+                properties.getClaimOrder() == JourneyEvaluatorProperties.ClaimOrder.URGENT_FIRST,
+                now.minus(properties.starvationGuard()));
         if (claimed.isEmpty()) {
             return List.of();
         }

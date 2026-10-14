@@ -1,6 +1,8 @@
 package watoo.grd.nextroute.application.subway.service;
 
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 방향 코드를 도착정보와 같은 한글 표기로 맞춘다. <b>원천마다 값 규칙이 다르므로 입구를 나눈다.</b>
@@ -30,6 +32,15 @@ public final class SubwayDirectionNormalizer {
 
     /** 위치 API 의 상·하행이 도착 API 와 반대인 노선(실측, 클래스 주석). */
     static final Set<String> INVERTED_UPDN_LINES = Set.of("1009", "1065");
+
+    /** 6호선 노선 — feed 에 하나뿐이고 방향 라벨이 없다(응암 순환). {@link #labelFor} 가 승·하차역 순서로 정한다. */
+    private static final String LINE6_ROUTE = "RR_ACC1_S-1-06-00";
+
+    /** 6호선 역 id. 끝 두 자리가 응암(11) → 신내(49) 순서다(서울 역 코드 + 1). */
+    private static final Pattern LINE6_STOP = Pattern.compile("RS_ACC1_S-1-26(\\d{2})$");
+
+    /** 응암 순환 마지막 역(구산). 응암(11)~구산(16)에서 타면 실시간은 하행이다. */
+    private static final int LINE6_LOOP_LAST = 16;
 
     private SubwayDirectionNormalizer() {
     }
@@ -156,6 +167,51 @@ public final class SubwayDirectionNormalizer {
                 ? value.substring(open + 1, close).trim()
                 : value;
         return isKnownLabel(candidate) ? candidate : null;
+    }
+
+    /**
+     * 탑승 구간의 방향 라벨. 노선 이름이 라벨을 들고 있으면 그것({@link #labelFrom}), <b>6호선이면 승·하차역 순서로</b>
+     * 정한다. 못 정하면 {@code null}.
+     *
+     * <p>6호선은 feed 에 노선이 하나뿐이라 이름에 라벨이 없다(#395 — 방향을 몰라 열차 선택이 언제나 422 였다). 실시간
+     * 방향은 <b>탄 역에서</b> 정해진다(실측 2026-10-12 21:17, 역촌·불광·구산 행이 모두 하행 — 순환 구간은 하행이다):
+     * <ul>
+     *   <li>응암~구산(순환)에서 타면 하행 — 순환을 돌아 봉화산 쪽으로 나간다</li>
+     *   <li>새절부터는 응암 쪽(번호가 줄어드는 쪽)으로 가면 상행(행선지 응암순환), 반대면 하행</li>
+     * </ul>
+     * 경로 패턴 쪽 같은 규칙은 {@code SubwayRoutePatternAssembler.SPLIT_ROUTES}(응암 첫 등장까지 상행)다.
+     *
+     * @param routeGtfsId 노선 gtfsId({@code 1:RR_ACC1_S-1-06-00} 처럼 feed 접두사가 붙어도 된다)
+     * @param boardStopId 승차역 gtfsId
+     * @param alightStopId 하차역 gtfsId
+     */
+    public static String labelFor(String routeGtfsId, String routeLongName, String boardStopId, String alightStopId) {
+        String label = labelFrom(routeLongName);
+        if (label != null || !isLine6(routeGtfsId)) {
+            return label;
+        }
+        Integer board = line6Order(boardStopId);
+        Integer alight = line6Order(alightStopId);
+        if (board == null || alight == null || board.equals(alight)) {
+            return null;
+        }
+        if (board <= LINE6_LOOP_LAST) {
+            return "하행";
+        }
+        return alight < board ? "상행" : "하행";
+    }
+
+    private static boolean isLine6(String routeGtfsId) {
+        return routeGtfsId != null
+                && (routeGtfsId.equals(LINE6_ROUTE) || routeGtfsId.endsWith(":" + LINE6_ROUTE));
+    }
+
+    private static Integer line6Order(String stopGtfsId) {
+        if (stopGtfsId == null) {
+            return null;
+        }
+        Matcher m = LINE6_STOP.matcher(stopGtfsId);
+        return m.find() ? Integer.valueOf(m.group(1)) : null;
     }
 
     private static boolean isKnownLabel(String value) {

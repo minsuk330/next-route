@@ -97,7 +97,8 @@ public final class TrackLegFactory {
         TransitRoute route = detail.route();
         String routeId = route.gtfsId();
         String feedId = routeId != null && routeId.contains(":") ? routeId.substring(0, routeId.indexOf(':')) : null;
-        String direction = SubwayDirectionNormalizer.labelFrom(route.longName());
+        String direction = SubwayDirectionNormalizer.labelFor(routeId, route.longName(),
+                occurrences.get(0).sourceStopId(), occurrences.get(occurrences.size() - 1).sourceStopId());
 
         Set<MissingAttribute> missing = EnumSet.of(MissingAttribute.REALTIME_ID);
         if (direction == null) {

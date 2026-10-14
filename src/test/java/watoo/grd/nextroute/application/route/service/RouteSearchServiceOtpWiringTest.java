@@ -69,7 +69,7 @@ class RouteSearchServiceOtpWiringTest {
     }
 
     private RouteSearchService service(RoutingPort otpPort, TransferArrivalEnricher enricher) {
-        return service(otpPort, enricher, new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
+        return service(otpPort, enricher, limitFive());
     }
 
     private RouteSearchService service(RoutingPort otpPort, TransferArrivalEnricher enricher,
@@ -135,7 +135,7 @@ class RouteSearchServiceOtpWiringTest {
     void rankingDisabledKeepsEngineOrder() {
         TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
         given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
-        watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps = new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
+        watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps = limitFive();
         otpProps.setRankingEnabled(false);
 
         RouteSearchResult legacy = service(otpReturning(busesThenCheapSubway()), enricher, otpProps)
@@ -212,12 +212,60 @@ class RouteSearchServiceOtpWiringTest {
                 .on(Set.of(), result(singleLeg(RoutingMode.BUS, "1:A", "A", 4000)));
         TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
         given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
-        watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps = new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
+        watoo.grd.nextroute.application.route.config.OtpRoutingProperties otpProps = limitFive();
         otpProps.setSupplementaryEnabled(false);
 
         service(otp, enricher, otpProps).search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
 
         assertThat(otp.asked).containsExactly(Set.of());
+    }
+
+    /** 정렬·추가 검색 시험은 노출 상한 5 로 고정해 본다(기본값 10 은 아래 시험이 따로 본다). */
+    private static watoo.grd.nextroute.application.route.config.OtpRoutingProperties limitFive() {
+        watoo.grd.nextroute.application.route.config.OtpRoutingProperties p = new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
+        p.setDisplayLimit(5);
+        return p;
+    }
+
+    @Test
+    @DisplayName("기본 노출 상한은 검색 10개 — 고유 12개 후보에서 비용 순 10개(재탐색 상한 5 와 별개)")
+    void defaultDisplayLimitIsTen() {
+        java.util.List<RoutingItinerary> engine = new java.util.ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            engine.add(singleLeg(RoutingMode.BUS, "1:R" + i, "B" + i, 6000 - i));
+        }
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
+        watoo.grd.nextroute.application.route.config.OtpRoutingProperties defaults = new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
+
+        RouteSearchResult legacy = service(otpReturning(new RoutingResult(RoutingProvider.OTP, "v", "202503", "g1",
+                null, null, Instant.now(), List.of(), engine)), enricher, defaults)
+                .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(defaults.getDisplayLimit()).isEqualTo(10);
+        assertThat(defaults.getRerouteLimit()).isEqualTo(5);
+        assertThat(firstLaneNames(legacy)).containsExactly("B11", "B10", "B9", "B8", "B7", "B6", "B5", "B4", "B3", "B2");
+    }
+
+    @Test
+    @DisplayName("기본값: 본 검색 고유 6개면 추가 검색 없이 6개 그대로 — 5개로 줄이지 않고, 추가 검색 기준은 예전처럼 5")
+    void defaultKeepsSixWithoutSupplementary() {
+        java.util.List<RoutingItinerary> engine = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            engine.add(singleLeg(RoutingMode.BUS, "1:R" + i, "B" + i, 5000 + i));
+        }
+        ScriptedOtp otp = new ScriptedOtp().on(Set.of(), new RoutingResult(RoutingProvider.OTP, "v", "202503", "g1",
+                null, null, Instant.now(), List.of(), engine));
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
+        watoo.grd.nextroute.application.route.config.OtpRoutingProperties defaults = new watoo.grd.nextroute.application.route.config.OtpRoutingProperties();
+
+        RouteSearchResult legacy = service(otp, enricher, defaults)
+                .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(defaults.getSupplementaryThreshold()).isEqualTo(5);
+        assertThat(otp.asked).containsExactly(Set.of());
+        assertThat(firstLaneNames(legacy)).containsExactly("B0", "B1", "B2", "B3", "B4", "B5");
     }
 
     private static final Set<RoutingMode> RAIL_ONLY = Set.of(RoutingMode.SUBWAY, RoutingMode.RAIL);
@@ -281,15 +329,34 @@ class RouteSearchServiceOtpWiringTest {
     @DisplayName("실시간 요청이면 버스 도착예측을 서버가 채워 내린다 — 앱이 따로 묻지 않는다")
     void otpPathEnrichesTransferArrivals() {
         TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
-        RouteSearchResult enriched = new RouteSearchResult(0, 0, 0, 0, 0, List.of());
-        given(enricher.enrich(any(), any(), any())).willReturn(enriched);
+        java.util.concurrent.atomic.AtomicReference<RouteSearchResult> enriched = new java.util.concurrent.atomic.AtomicReference<>();
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> {
+            RouteSearchResult in = call.getArgument(0);
+            enriched.set(new RouteSearchResult(0, 0, 0, 0, 0, new java.util.ArrayList<>(in.paths())));
+            return enriched.get();
+        });
 
         RouteSearchResult out = service(otpReturning(busItinerary()), enricher)
                 .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
 
         verify(enricher).enrich(any(), any(), any());
         // 보강기가 돌려준 결과가 그대로 응답이 된다(meta 만 감싼다).
-        assertThat(out.paths()).isSameAs(enriched.paths());
+        assertThat(out.paths()).isSameAs(enriched.get().paths());
+    }
+
+    @Test
+    @DisplayName("후보가 전부 운행종료로 빠지면 422 ROUTE_ALL_ENDED — 빈 200 으로 '경로 없음'과 섞지 않는다(#400)")
+    void allEndedIs422() {
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willReturn(new RouteSearchResult(0, 0, 0, 0, 0, List.of()));
+
+        RouteSearchService svc = service(otpReturning(busItinerary()), enricher);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> svc.search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d")))
+                .isInstanceOf(watoo.grd.nextroute.global.error.BusinessException.class)
+                .extracting(e -> ((watoo.grd.nextroute.global.error.BusinessException) e).getErrorCode())
+                .isEqualTo(watoo.grd.nextroute.global.error.code.RouteErrorCode.ROUTE_ALL_ENDED);
     }
 
     @Test

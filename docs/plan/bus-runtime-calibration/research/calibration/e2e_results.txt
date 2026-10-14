@@ -1,0 +1,164 @@
+# e2e.py eval: 운영 그래프(기준선) vs 보정 그래프(로컬), BUS-only 14시, ODsay 구간 짝
+#### e2e_prod
+ [all] ALL      n= 160 ratio med 0.704 [p25 0.59 p75 0.83]  |err| med  29.6%  within10%   17%  within20%   29%
+ [all] holdoutH n=  45 ratio med 0.590 [p25 0.50 p75 0.78]  |err| med  41.0%  within10%   11%  within20%   18%
+ [all] 서울       n=  49 ratio med 0.626 [p25 0.50 p75 0.70]  |err| med  37.4%  within10%    6%  within20%   12%
+ [all] 경기       n=  41 ratio med 0.703 [p25 0.58 p75 0.78]  |err| med  29.7%  within10%   10%  within20%   22%
+ [all] 인천       n=  29 ratio med 0.737 [p25 0.58 p75 0.80]  |err| med  26.3%  within10%   14%  within20%   24%
+ [all] 부산       n=  21 ratio med 0.996 [p25 0.97 p75 1.08]  |err| med   4.7%  within10%   76%  within20%   95%
+ [all] 대구       n=  10 ratio med 0.765 [p25 0.72 p75 0.87]  |err| med  23.5%  within10%    0%  within20%   30%
+ [all] 대전       n=  10 ratio med 0.692 [p25 0.63 p75 0.79]  |err| med  30.8%  within10%    0%  within20%   20%
+ [>=3stops] ALL      n= 157 ratio med 0.706 [p25 0.59 p75 0.83]  |err| med  29.4%  within10%   17%  within20%   30%
+ [>=3stops] holdoutH n=  42 ratio med 0.630 [p25 0.50 p75 0.79]  |err| med  37.0%  within10%   12%  within20%   19%
+ [>=3stops] 서울       n=  47 ratio med 0.641 [p25 0.54 p75 0.70]  |err| med  35.9%  within10%    6%  within20%   13%
+ [>=3stops] 경기       n=  40 ratio med 0.704 [p25 0.59 p75 0.78]  |err| med  29.6%  within10%   10%  within20%   22%
+ [>=3stops] 인천       n=  29 ratio med 0.737 [p25 0.58 p75 0.80]  |err| med  26.3%  within10%   14%  within20%   24%
+ [>=3stops] 부산       n=  21 ratio med 0.996 [p25 0.97 p75 1.08]  |err| med   4.7%  within10%   76%  within20%   95%
+ [>=3stops] 대구       n=  10 ratio med 0.765 [p25 0.72 p75 0.87]  |err| med  23.5%  within10%    0%  within20%   30%
+ [>=3stops] 대전       n=  10 ratio med 0.692 [p25 0.63 p75 0.79]  |err| med  30.8%  within10%    0%  within20%   20%
+ [>=2km] ALL      n= 143 ratio med 0.729 [p25 0.63 p75 0.87]  |err| med  27.1%  within10%   19%  within20%   33%
+ [>=2km] holdoutH n=  35 ratio med 0.662 [p25 0.57 p75 0.80]  |err| med  33.8%  within10%   14%  within20%   23%
+ [>=2km] 서울       n=  43 ratio med 0.646 [p25 0.58 p75 0.71]  |err| med  35.4%  within10%    7%  within20%   14%
+ [>=2km] 경기       n=  35 ratio med 0.710 [p25 0.61 p75 0.81]  |err| med  29.0%  within10%   11%  within20%   26%
+ [>=2km] 인천       n=  25 ratio med 0.753 [p25 0.65 p75 0.81]  |err| med  24.7%  within10%   16%  within20%   28%
+ [>=2km] 부산       n=  21 ratio med 0.996 [p25 0.97 p75 1.08]  |err| med   4.7%  within10%   76%  within20%   95%
+ [>=2km] 대구       n=  10 ratio med 0.765 [p25 0.72 p75 0.87]  |err| med  23.5%  within10%    0%  within20%   30%
+ [>=2km] 대전       n=   9 ratio med 0.726 [p25 0.64 p75 0.79]  |err| med  27.4%  within10%    0%  within20%   22%
+#### e2e_cal
+ [all] ALL      n= 152 ratio med 1.004 [p25 0.88 p75 1.08]  |err| med   9.4%  within10%   53%  within20%   77%
+ [all] holdoutH n=  38 ratio med 0.981 [p25 0.80 p75 1.08]  |err| med  13.4%  within10%   37%  within20%   68%
+ [all] 서울       n=  48 ratio med 0.977 [p25 0.82 p75 1.07]  |err| med  13.2%  within10%   44%  within20%   71%
+ [all] 경기       n=  35 ratio med 1.048 [p25 0.87 p75 1.11]  |err| med  11.5%  within10%   46%  within20%   80%
+ [all] 인천       n=  23 ratio med 0.990 [p25 0.85 p75 1.11]  |err| med  11.7%  within10%   43%  within20%   74%
+ [all] 부산       n=  16 ratio med 1.008 [p25 0.99 p75 1.05]  |err| med   2.3%  within10%   94%  within20%  100%
+ [all] 대구       n=  18 ratio med 1.059 [p25 0.97 p75 1.10]  |err| med   8.7%  within10%   72%  within20%   83%
+ [all] 대전       n=  12 ratio med 0.989 [p25 0.88 p75 1.03]  |err| med  11.2%  within10%   42%  within20%   58%
+ [>=3stops] ALL      n= 146 ratio med 1.006 [p25 0.91 p75 1.09]  |err| med   8.9%  within10%   55%  within20%   80%
+ [>=3stops] holdoutH n=  36 ratio med 0.992 [p25 0.85 p75 1.08]  |err| med  13.2%  within10%   39%  within20%   72%
+ [>=3stops] 서울       n=  45 ratio med 0.983 [p25 0.86 p75 1.07]  |err| med  12.0%  within10%   47%  within20%   76%
+ [>=3stops] 경기       n=  33 ratio med 1.055 [p25 0.93 p75 1.11]  |err| med  11.1%  within10%   48%  within20%   85%
+ [>=3stops] 인천       n=  23 ratio med 0.990 [p25 0.85 p75 1.11]  |err| med  11.7%  within10%   43%  within20%   74%
+ [>=3stops] 부산       n=  16 ratio med 1.008 [p25 0.99 p75 1.05]  |err| med   2.3%  within10%   94%  within20%  100%
+ [>=3stops] 대구       n=  18 ratio med 1.059 [p25 0.97 p75 1.10]  |err| med   8.7%  within10%   72%  within20%   83%
+ [>=3stops] 대전       n=  11 ratio med 1.005 [p25 0.91 p75 1.10]  |err| med  10.2%  within10%   45%  within20%   64%
+ [>=2km] ALL      n= 135 ratio med 1.029 [p25 0.96 p75 1.10]  |err| med   8.1%  within10%   59%  within20%   86%
+ [>=2km] holdoutH n=  29 ratio med 1.031 [p25 0.96 p75 1.10]  |err| med  10.0%  within10%   48%  within20%   86%
+ [>=2km] 서울       n=  42 ratio med 0.987 [p25 0.87 p75 1.08]  |err| med   9.8%  within10%   50%  within20%   81%
+ [>=2km] 경기       n=  31 ratio med 1.060 [p25 0.96 p75 1.12]  |err| med   9.4%  within10%   52%  within20%   87%
+ [>=2km] 인천       n=  19 ratio med 0.996 [p25 0.96 p75 1.12]  |err| med   9.0%  within10%   53%  within20%   89%
+ [>=2km] 부산       n=  16 ratio med 1.008 [p25 0.99 p75 1.05]  |err| med   2.3%  within10%   94%  within20%  100%
+ [>=2km] 대구       n=  18 ratio med 1.059 [p25 0.97 p75 1.10]  |err| med   8.7%  within10%   72%  within20%   83%
+ [>=2km] 대전       n=   9 ratio med 1.026 [p25 0.97 p75 1.10]  |err| med   9.3%  within10%   56%  within20%   78%
+
+# itin.py: 같은 버스 조합 경로 전체 소요(도보·대기 포함)
+#### e2e_prod
+ ALL      n= 171 ratio med 0.902 [p25 0.79 p75 1.02]  |err| med  11.7%  within10%   43%  within20%   71%
+ holdoutH n=  36 ratio med 0.876 [p25 0.79 p75 0.96]  |err| med  16.6%  within10%   28%  within20%   61%
+ 서울       n=  53 ratio med 0.764 [p25 0.72 p75 0.85]  |err| med  23.9%  within10%   11%  within20%   28%
+ 경기       n=  39 ratio med 0.869 [p25 0.83 p75 0.93]  |err| med  13.5%  within10%   36%  within20%   87%
+ 인천       n=  23 ratio med 0.918 [p25 0.88 p75 0.98]  |err| med   9.4%  within10%   61%  within20%  100%
+ 부산       n=  27 ratio med 1.063 [p25 1.02 p75 1.11]  |err| med   7.7%  within10%   70%  within20%   93%
+ 대구       n=  15 ratio med 0.962 [p25 0.88 p75 1.02]  |err| med   5.4%  within10%   67%  within20%   73%
+ 대전       n=  14 ratio med 0.939 [p25 0.89 p75 1.01]  |err| med   7.1%  within10%   71%  within20%   93%
+#### e2e_cal
+ ALL      n= 168 ratio med 1.128 [p25 1.07 p75 1.20]  |err| med  12.9%  within10%   33%  within20%   76%
+ holdoutH n=  32 ratio med 1.167 [p25 1.10 p75 1.20]  |err| med  16.7%  within10%   22%  within20%   72%
+ 서울       n=  54 ratio med 1.105 [p25 1.04 p75 1.18]  |err| med  11.0%  within10%   35%  within20%   83%
+ 경기       n=  36 ratio med 1.164 [p25 1.08 p75 1.20]  |err| med  16.4%  within10%   36%  within20%   72%
+ 인천       n=  19 ratio med 1.166 [p25 1.12 p75 1.22]  |err| med  16.6%  within10%   21%  within20%   63%
+ 부산       n=  22 ratio med 1.094 [p25 1.03 p75 1.13]  |err| med   9.4%  within10%   50%  within20%   95%
+ 대구       n=  22 ratio med 1.158 [p25 1.12 p75 1.22]  |err| med  15.8%  within10%   23%  within20%   68%
+ 대전       n=  15 ratio med 1.184 [p25 1.14 p75 1.27]  |err| med  18.4%  within10%   27%  within20%   53%
+
+# decomp.py: 경로 소요 분해
+#### e2e_prod n 171
+ buses=1 n=154 OTP ride 16.2 walk 9.0 wait 0.0 total 27.2 | ODsay ride 22.0 walk 6.0 total 29.5 | ride ratio 0.7 walk ratio 1.3
+ buses=2 n=17 OTP ride 23.3 walk 9.6 wait 3.3 total 34.8 | ODsay ride 35 walk 8 total 40 | ride ratio 0.6 walk ratio 1.3
+#### e2e_cal n 168
+ buses=1 n=147 OTP ride 22.1 walk 9.1 wait 0.0 total 32.6 | ODsay ride 21 walk 6 total 29 | ride ratio 1.1 walk ratio 1.4
+ buses=2 n=21 OTP ride 29.5 walk 10.1 wait 3.1 total 46.2 | ODsay ride 32 walk 8 total 39 | ride ratio 1.0 walk ratio 1.4
+
+# fit6.py 꺾은선 거리(기각)
+#### {} 731
+  dist+add  ALL n= 731 ratio med 0.980 [p25 0.84 p75 1.09]  |err| med  11.6%  within10%   45%  within20%   73%
+            H   n= 254 ratio med 0.950 [p25 0.80 p75 1.08]  |err| med  13.0%  within10%   39%  within20%   67%
+            EXP n=  52 ratio med 1.052 [p25 0.87 p75 1.20]  |err| med  17.5%  within10%   31%  within20%   54%
+  pw700     ALL n= 731 ratio med 0.981 [p25 0.83 p75 1.10]  |err| med  12.2%  within10%   41%  within20%   71%
+            H   n= 254 ratio med 0.948 [p25 0.80 p75 1.08]  |err| med  13.3%  within10%   39%  within20%   68%
+            EXP n=  52 ratio med 1.054 [p25 0.86 p75 1.20]  |err| med  18.3%  within10%   23%  within20%   50%
+  pw1000    ALL n= 731 ratio med 0.980 [p25 0.83 p75 1.10]  |err| med  12.2%  within10%   41%  within20%   71%
+            H   n= 254 ratio med 0.949 [p25 0.80 p75 1.08]  |err| med  13.0%  within10%   39%  within20%   68%
+            EXP n=  52 ratio med 1.056 [p25 0.86 p75 1.20]  |err| med  18.1%  within10%   27%  within20%   56%
+  pw1500    ALL n= 731 ratio med 0.983 [p25 0.84 p75 1.10]  |err| med  12.3%  within10%   42%  within20%   73%
+            H   n= 254 ratio med 0.952 [p25 0.80 p75 1.08]  |err| med  13.1%  within10%   41%  within20%   68%
+            EXP n=  52 ratio med 1.013 [p25 0.90 p75 1.18]  |err| med  16.9%  within10%   31%  within20%   62%
+  pw2000    ALL n= 731 ratio med 0.981 [p25 0.84 p75 1.09]  |err| med  12.1%  within10%   44%  within20%   73%
+            H   n= 254 ratio med 0.953 [p25 0.81 p75 1.08]  |err| med  13.0%  within10%   41%  within20%   68%
+            EXP n=  52 ratio med 1.013 [p25 0.89 p75 1.17]  |err| med  15.8%  within10%   33%  within20%   67%
+coef pw 1000 {'BSB': [0.1856, 0.0749, 11.9388], 'DGB': [0.1427, -0.7007, 43.2403], 'DJB': [0.1534, -0.3329, 47.5201], 'GGB': [0.1087, 0.0965, 51.9592], 'ICB': [0.1143, 0.087, 49.134], 'SEB': [0.1353, 0.0924, 47.9591]}
+coef pw 1500 {'BSB': [0.1659, 0.046, 20.2705], 'DGB': [0.1016, 0.0, 60.1606], 'DJB': [0.1574, -1.6401, 43.4962], 'GGB': [0.1209, 0.0842, 46.8416], 'ICB': [0.101, 0.1082, 54.1642], 'SEB': [0.1357, 0.0653, 47.5229]}
+#### {'minst': 3} 687
+  dist+add  ALL n= 687 ratio med 0.980 [p25 0.86 p75 1.08]  |err| med  10.5%  within10%   48%  within20%   76%
+            H   n= 231 ratio med 0.956 [p25 0.85 p75 1.08]  |err| med  10.8%  within10%   46%  within20%   71%
+            EXP n=  45 ratio med 1.022 [p25 0.91 p75 1.16]  |err| med  12.2%  within10%   40%  within20%   67%
+  pw700     ALL n= 687 ratio med 0.982 [p25 0.86 p75 1.08]  |err| med  11.3%  within10%   46%  within20%   76%
+            H   n= 231 ratio med 0.951 [p25 0.83 p75 1.08]  |err| med  11.7%  within10%   43%  within20%   73%
+            EXP n=  45 ratio med 1.034 [p25 0.89 p75 1.16]  |err| med  14.9%  within10%   33%  within20%   64%
+  pw1000    ALL n= 687 ratio med 0.983 [p25 0.86 p75 1.08]  |err| med  10.9%  within10%   47%  within20%   77%
+            H   n= 231 ratio med 0.952 [p25 0.84 p75 1.08]  |err| med  11.3%  within10%   43%  within20%   73%
+            EXP n=  45 ratio med 1.035 [p25 0.88 p75 1.17]  |err| med  15.3%  within10%   36%  within20%   69%
+  pw1500    ALL n= 687 ratio med 0.982 [p25 0.86 p75 1.08]  |err| med  10.9%  within10%   46%  within20%   76%
+            H   n= 231 ratio med 0.951 [p25 0.83 p75 1.07]  |err| med  11.1%  within10%   43%  within20%   73%
+            EXP n=  45 ratio med 1.004 [p25 0.88 p75 1.15]  |err| med  13.6%  within10%   38%  within20%   67%
+  pw2000    ALL n= 687 ratio med 0.982 [p25 0.86 p75 1.08]  |err| med  10.7%  within10%   46%  within20%   78%
+            H   n= 231 ratio med 0.957 [p25 0.84 p75 1.07]  |err| med  11.0%  within10%   42%  within20%   74%
+            EXP n=  45 ratio med 1.001 [p25 0.89 p75 1.15]  |err| med  13.9%  within10%   38%  within20%   73%
+#### {'mink': 2.0} 602
+  dist+add  ALL n= 602 ratio med 0.979 [p25 0.89 p75 1.07]  |err| med   8.7%  within10%   56%  within20%   85%
+            H   n= 188 ratio med 0.970 [p25 0.88 p75 1.07]  |err| med   8.7%  within10%   56%  within20%   86%
+            EXP n=  47 ratio med 1.066 [p25 0.92 p75 1.22]  |err| med  15.6%  within10%   34%  within20%   57%
+  pw700     ALL n= 602 ratio med 0.981 [p25 0.88 p75 1.07]  |err| med   9.0%  within10%   54%  within20%   86%
+            H   n= 188 ratio med 0.980 [p25 0.88 p75 1.07]  |err| med   9.2%  within10%   56%  within20%   87%
+            EXP n=  47 ratio med 1.077 [p25 0.88 p75 1.21]  |err| med  15.6%  within10%   28%  within20%   57%
+  pw1000    ALL n= 602 ratio med 0.977 [p25 0.88 p75 1.07]  |err| med   8.8%  within10%   55%  within20%   86%
+            H   n= 188 ratio med 0.977 [p25 0.88 p75 1.07]  |err| med   8.7%  within10%   56%  within20%   88%
+            EXP n=  47 ratio med 1.076 [p25 0.88 p75 1.21]  |err| med  15.9%  within10%   26%  within20%   57%
+  pw1500    ALL n= 602 ratio med 0.978 [p25 0.88 p75 1.07]  |err| med   8.9%  within10%   55%  within20%   86%
+            H   n= 188 ratio med 0.976 [p25 0.88 p75 1.07]  |err| med   8.8%  within10%   57%  within20%   87%
+            EXP n=  47 ratio med 1.059 [p25 0.92 p75 1.20]  |err| med  14.2%  within10%   32%  within20%   64%
+  pw2000    ALL n= 602 ratio med 0.979 [p25 0.89 p75 1.07]  |err| med   8.9%  within10%   56%  within20%   88%
+            H   n= 188 ratio med 0.976 [p25 0.89 p75 1.06]  |err| med   8.9%  within10%   57%  within20%   89%
+            EXP n=  47 ratio med 1.044 [p25 0.91 p75 1.18]  |err| med  13.6%  within10%   36%  within20%   74%
+
+# fit7.py 빠른 버스 별도 그룹(기각)
+#### {} 731
+  region           ALL n= 731 ratio med 0.980 [p25 0.84 p75 1.09]  |err| med  11.6%  within10%   45%  within20%   73%
+                   H   n= 254 ratio med 0.950 [p25 0.80 p75 1.08]  |err| med  13.0%  within10%   39%  within20%   67%
+                   EXP n=  52 ratio med 1.052 [p25 0.87 p75 1.20]  |err| med  17.5%  within10%   31%  within20%   54%
+  region+EXPcap    ALL n= 731 ratio med 0.986 [p25 0.85 p75 1.09]  |err| med  12.0%  within10%   43%  within20%   73%
+                   H   n= 254 ratio med 0.957 [p25 0.80 p75 1.07]  |err| med  12.2%  within10%   39%  within20%   69%
+                   EXP n=  52 ratio med 0.964 [p25 0.79 p75 1.10]  |err| med  15.6%  within10%   31%  within20%   60%
+   coef EXP [0.0977, 46.8955] 51
+  region+EXPregion ALL n= 731 ratio med 0.986 [p25 0.85 p75 1.09]  |err| med  12.1%  within10%   43%  within20%   73%
+                   H   n= 254 ratio med 0.958 [p25 0.81 p75 1.07]  |err| med  12.5%  within10%   39%  within20%   68%
+                   EXP n=  52 ratio med 0.980 [p25 0.82 p75 1.16]  |err| med  18.1%  within10%   31%  within20%   60%
+#### {'minst': 3} 687
+  region           ALL n= 687 ratio med 0.980 [p25 0.86 p75 1.08]  |err| med  10.5%  within10%   48%  within20%   76%
+                   H   n= 231 ratio med 0.956 [p25 0.85 p75 1.08]  |err| med  10.8%  within10%   46%  within20%   71%
+                   EXP n=  45 ratio med 1.022 [p25 0.91 p75 1.16]  |err| med  12.2%  within10%   40%  within20%   67%
+  region+EXPcap    ALL n= 687 ratio med 0.986 [p25 0.87 p75 1.08]  |err| med  10.8%  within10%   46%  within20%   78%
+                   H   n= 231 ratio med 0.959 [p25 0.84 p75 1.07]  |err| med  10.8%  within10%   45%  within20%   74%
+                   EXP n=  45 ratio med 0.997 [p25 0.83 p75 1.09]  |err| med  12.7%  within10%   40%  within20%   71%
+  region+EXPregion ALL n= 687 ratio med 0.986 [p25 0.87 p75 1.09]  |err| med  10.8%  within10%   46%  within20%   78%
+                   H   n= 231 ratio med 0.959 [p25 0.84 p75 1.08]  |err| med  10.9%  within10%   44%  within20%   73%
+                   EXP n=  45 ratio med 0.993 [p25 0.87 p75 1.13]  |err| med  13.2%  within10%   33%  within20%   67%
+#### {'mink': 2.0} 602
+  region           ALL n= 602 ratio med 0.979 [p25 0.89 p75 1.07]  |err| med   8.7%  within10%   56%  within20%   85%
+                   H   n= 188 ratio med 0.970 [p25 0.88 p75 1.07]  |err| med   8.7%  within10%   56%  within20%   86%
+                   EXP n=  47 ratio med 1.066 [p25 0.92 p75 1.22]  |err| med  15.6%  within10%   34%  within20%   57%
+  region+EXPcap    ALL n= 602 ratio med 0.984 [p25 0.88 p75 1.07]  |err| med   9.0%  within10%   54%  within20%   88%
+                   H   n= 188 ratio med 0.983 [p25 0.89 p75 1.06]  |err| med   8.7%  within10%   57%  within20%   90%
+                   EXP n=  47 ratio med 1.027 [p25 0.84 p75 1.10]  |err| med  14.4%  within10%   38%  within20%   62%
+  region+EXPregion ALL n= 602 ratio med 0.984 [p25 0.89 p75 1.07]  |err| med   9.0%  within10%   54%  within20%   88%
+                   H   n= 188 ratio med 0.986 [p25 0.89 p75 1.06]  |err| med   9.0%  within10%   55%  within20%   90%
+                   EXP n=  47 ratio med 1.037 [p25 0.85 p75 1.16]  |err| med  15.8%  within10%   30%  within20%   60%
