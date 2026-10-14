@@ -194,8 +194,19 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
      * 전에 "이 여정의 다음 평가 시각이 아직 내가 심은 값인가"를 확인한다
      * ({@code finishEvaluation}). 늦게 끝난 워커가 최신 결과를 덮는 것을 그 조건이 막는다.
      *
-     * <p>{@code idx_journey_due}(V35) 를 그대로 탄다 — 20,000행 기준 인덱스 스캔이고 정렬 단계가
-     * 없다. 조건에 칼럼 연산을 넣으면 그 성질이 깨진다.
+     * <p>만기 행은 {@code idx_journey_due}(V35) 로 고른다. 조건에 칼럼 연산을 넣으면 그 성질이
+     * 깨진다.
+     *
+     * <p><b>순서.</b> {@code urgentFirst} 면 세 줄로 나눈다: 급한 여정(환승 위험·임박, 시작·단계 전이
+     * 직후) → 예정 시각에서 {@code starvedBefore} 보다 오래 밀린 여정 → 나머지. 각 줄 안에서는
+     * 예정 시각 순이다. 평가기가 밀릴 때 2분 뒤 환승하는 여정이 40분 뒤 환승하는 여정 뒤에 서지 않게
+     * 한다.
+     *
+     * <p>밀린 여정을 급한 줄과 <b>같은</b> 줄에 세우면 안 된다(측정: 계속 넘치는 동안 급하지 않은
+     * 여정 대부분이 상한을 넘고, 줄 안에서 더 오래 기다린 쪽이 앞서 급한 여정이 다시 밀렸다 — 마감
+     * 순서의 도미노와 같은 모양). 둘째 줄은 나머지보다만 앞서 굶지 않게 한다.
+     * 순서를 바꾸면 만기 행 전체를 정렬하는 단계가 생긴다 — 정렬 대상은 적체 크기라 평상시 작다.
+     * {@code urgentFirst} 가 false 면 예전과 같은 예정 시각 순(롤백 경로)이다.
      *
      * <p>{@code @Modifying} 이 아니다({@code RETURNING} 이 결과를 돌려준다). 반드시
      * {@code @Transactional} 안에서 부른다.
@@ -212,7 +223,11 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                 WHERE s.status = 'ACTIVE' AND s.deleted_at IS NULL
                   AND s.next_evaluation_at IS NOT NULL
                   AND s.next_evaluation_at <= :now
-                ORDER BY s.next_evaluation_at
+                ORDER BY CASE WHEN NOT :urgentFirst THEN 0
+                              WHEN s.evaluation_urgent THEN 0
+                              WHEN s.next_evaluation_at <= :starvedBefore THEN 1
+                              ELSE 2 END,
+                         s.next_evaluation_at
                 LIMIT :batchSize
                 FOR UPDATE OF s SKIP LOCKED)
             UPDATE journey_session j
@@ -223,7 +238,9 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
             """, nativeQuery = true)
     List<DueClaimRow> claimDueBatch(@Param("now") Instant now,
                                     @Param("leaseUntil") Instant leaseUntil,
-                                    @Param("batchSize") int batchSize);
+                                    @Param("batchSize") int batchSize,
+                                    @Param("urgentFirst") boolean urgentFirst,
+                                    @Param("starvedBefore") Instant starvedBefore);
 
     /** 선점 결과 한 줄. 칼럼 별칭으로 매핑된다. */
     interface DueClaimRow {
@@ -247,12 +264,14 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
      * 같은 응답을 전부 다시 받는다.
      *
      * @param bump 판정 값이 직전과 달라졌는지
+     * @param urgent 다음 선점에서 먼저 잡을지(이번 판정이 환승 위험·임박)
      * @return 1이면 내 소유가 확인됐고 기록됐다. 0이면 소유권을 잃었다
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             UPDATE journey_session
                SET next_evaluation_at = :nextEvaluationAt,
+                   evaluation_urgent = :urgent,
                    evaluation_version = evaluation_version + CASE WHEN :bump THEN 1 ELSE 0 END
              WHERE id = :id
                AND status = 'ACTIVE'
@@ -262,7 +281,8 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
     int finishEvaluation(@Param("id") Long id,
                          @Param("claimedLeaseUntil") Instant claimedLeaseUntil,
                          @Param("nextEvaluationAt") Instant nextEvaluationAt,
-                         @Param("bump") boolean bump);
+                         @Param("bump") boolean bump,
+                         @Param("urgent") boolean urgent);
 
     /**
      * 탈퇴: 그 사용자의 여정을 소프트 삭제한다. 여정 기록은 남기되 조회·발송에서 빠지게 한다

@@ -104,8 +104,9 @@ public class JourneyEvaluationService {
         JourneyEvaluationOutcome outcome = new JourneyEvaluationOutcome(
                 context.journeyId(), context.routeRevision(), batch, changed);
 
-        Instant nextAt = nextEvaluationAt(context, batch, now, changed);
-        boolean stored = scheduleWriter.finish(claim, outcome, nextAt, notificationContext(context, batch, now));
+        Schedule next = nextEvaluation(context, batch, now, changed);
+        boolean stored = scheduleWriter.finish(claim, outcome, next.at(), next.urgent(),
+                notificationContext(context, batch, now));
         if (!stored) {
             return Report.lostClaim();
         }
@@ -235,9 +236,12 @@ public class JourneyEvaluationService {
      *
      * <p>직전 간격은 저장된 판정의 계산 시각에서 되읽는다. 값이 계속 그대로일 때 간격을 늘리려면
      * 직전에 얼마 만에 봤는지 알아야 하는데, 그 값이 이미 저장돼 있어 컬럼을 늘릴 필요가 없다.
+     *
+     * <p>급한지도 같은 결정에서 꺼낸다. 간격을 최소로 줄인 바로 그 이유(위험·임박)가 평가기가 밀릴 때
+     * 먼저 잡을 이유이기도 하다 — 기준을 두 벌로 두면 둘이 어긋난다.
      */
-    private Instant nextEvaluationAt(JourneyEvaluationContext context, TransferAssessmentBatch batch,
-                                     Instant now, boolean changed) {
+    private Schedule nextEvaluation(JourneyEvaluationContext context, TransferAssessmentBatch batch,
+                                    Instant now, boolean changed) {
         JourneyEvaluationIntervalPolicy.Decision decision = intervalPolicy.decide(
                 batch.assessments(), context.currentLegIndex(), now,
                 context.previousInterval(now), changed, batch.upstreamBlocked());
@@ -246,7 +250,11 @@ public class JourneyEvaluationService {
                 decision.interval().toSeconds());
 
         long spread = Math.floorMod(context.journeyId(), properties.getJitterSeconds());
-        return now.plus(decision.interval()).plusSeconds(spread);
+        return new Schedule(now.plus(decision.interval()).plusSeconds(spread), decision.urgent());
+    }
+
+    /** 다음 평가 시각과, 그때 먼저 잡을지. */
+    private record Schedule(Instant at, boolean urgent) {
     }
 
     /**

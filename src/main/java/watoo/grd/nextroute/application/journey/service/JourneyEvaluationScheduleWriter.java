@@ -52,15 +52,17 @@ public class JourneyEvaluationScheduleWriter {
      *
      * @param claim             선점 정보. {@code leaseUntil} 이 소유권 증서다
      * @param nextEvaluationAt  다음에 평가할 시각
+     * @param urgent            다음 선점에서 먼저 잡을지(환승 위험·임박)
      * @param notificationContext 발송 정보(수신자·채널). 트랜잭션 밖에서 미리 정해 온다.
      *                            알릴 것이 없으면 null
      * @return 저장했으면 true. 소유권을 잃어 결과를 버렸으면 false
      */
     @Transactional
     public boolean finish(JourneyDueClaim claim, JourneyEvaluationOutcome outcome,
-                          Instant nextEvaluationAt, NotificationContext notificationContext) {
+                          Instant nextEvaluationAt, boolean urgent,
+                          NotificationContext notificationContext) {
         int owned = sessionRepository.finishEvaluation(
-                claim.journeyId(), claim.leaseUntil(), nextEvaluationAt, outcome.changed());
+                claim.journeyId(), claim.leaseUntil(), nextEvaluationAt, outcome.changed(), urgent);
         if (owned == 0) {
             // 정상적으로 일어나는 일이다. lease 가 만료돼 다른 워커가 가져갔거나, 단계 전이가
             // 다음 평가를 앞당겼거나, 여정이 끝났다.

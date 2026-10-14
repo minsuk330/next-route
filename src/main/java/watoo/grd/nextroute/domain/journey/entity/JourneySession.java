@@ -97,6 +97,12 @@ public class JourneySession extends BaseEntity {
     /** 다음에 서버가 평가해야 할 시각. 채우는 주체는 Phase 4. */
     private Instant nextEvaluationAt;
 
+    /**
+     * 다음 선점에서 먼저 잡을지. 평가기가 밀릴 때 환승이 위험하거나 임박한 여정이 예정 시각만 보고
+     * 먼 여정 뒤에 줄 서지 않게 한다. 평가기가 매번 다시 정한다.
+     */
+    private boolean evaluationUrgent;
+
     private Instant endedAt;
 
     @Enumerated(EnumType.STRING)
@@ -193,9 +199,13 @@ public class JourneySession extends BaseEntity {
      *
      * <p>여정을 시작할 때와 단계가 바뀔 때 지금 시각으로 심는다 — 두 순간은 상황이 크게 달라져
      * 다음 주기를 기다릴 이유가 없다. 그 뒤로는 평가기가 스스로 다음 시각을 기록한다.
+     *
+     * <p>같은 이유로 급한 줄에 세운다. 평가기가 밀려 있어도 방금 버스를 탄 사람의 판단이 예정 시각만
+     * 보고 뒤로 가면 안 된다.
      */
     public void scheduleEvaluationAt(Instant evaluateAt) {
         this.nextEvaluationAt = evaluateAt;
+        this.evaluationUrgent = true;
     }
 
     public void protectSubwayUntil(Instant protectionUntil) {

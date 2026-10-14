@@ -55,7 +55,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V58__reroute_refresh_claim.sql",
         "classpath:db/migration/V59__journey_session_kind.sql",
         "classpath:db/migration/V63__journey_leg_guidance_info.sql",
-        "classpath:db/migration/V65__journey_leg_alight_door_side.sql"
+        "classpath:db/migration/V65__journey_leg_alight_door_side.sql",
+        "classpath:db/migration/V66__journey_session_evaluation_urgent.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DisplayName("단독 추적은 재탐색 보드에서 빠진다")

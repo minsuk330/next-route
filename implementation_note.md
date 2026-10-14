@@ -4520,3 +4520,47 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 2828 중 12 실패, 전부 기존 무관
 ### 배포
 - 마이그레이션 없음. api(후보·노선도) + worker
+
+## 2026-10-14 평가기 선점 순서: 급한 환승 먼저 (feat/journey-evaluator-urgent-first)
+
+### 확정
+- 선점 정렬 = `(evaluation_urgent OR next_evaluation_at <= now − starvationGuard) 먼저, 그다음 next_evaluation_at`. 스위치 `claim-order`(URGENT_FIRST 기본, DUE_TIME = 롤백)
+- 급함 = `JourneyEvaluationIntervalPolicy.Decision.urgent()`(AT_RISK·NEAR — 간격을 최소로 줄인 바로 그 판단) + `scheduleEvaluationAt`(시작·단계 전이·경로 교체 수락)이 true 로 심음. 평가가 끝날 때마다 `finishEvaluation` 이 다시 정한다
+- 기다림 상한 60초. `maxInterval + guard < staleAfter` 부팅 검증(기존 `max < staleAfter` 검사 **뒤**에 둬야 그 검사의 메시지가 유지된다)
+- EDF 기각: 과부하에서 이미 마감을 넘긴 비급 여정들이 가장 이른 마감이 돼 급한 여정이 다시 밀린다
+- BLOCKED(공급자 막힘)는 urgent 가 아니다(간격 정책 그대로) — 막힌 동안 급한 줄을 차지하지 않는다
+
+### 함정
+- 엔티티에 컬럼을 추가하면 `@Sql` 로 마이그레이션 목록을 직접 실행해 표를 만드는 IT 13개가 전부 "column does not exist" ← 목록에 V66 누락 / 가드: `grep -rln "db/migration/V35__create_journey.sql" src/test/java` 로 찾아 V66 추가
+- 일회용 DB 에 부하 하네스 여정이 남아 있으면(실행을 중간에 끊음) `JourneyDueEvaluatorIT.expiredLeaseIsReclaimed` 가 배치 200 을 남은 행에 빼앗겨 실패 / 가드: 실행 전 lr2 의 journey_* 비우기
+- `JourneyNotificationSchemaIT` 인덱스 시험 1건이 묶음 실행에서 "Unable to rollback against JDBC Connection", 단독 실행 20/20 → 공유 컨테이너 묶음 실행의 일시 오류(이 변경 무관)
+
+### 검증
+- 묶음: JourneyDueEvaluatorIT 11/11(신규 4: 급함 먼저·DUE_TIME 롤백·밀린 여정 같은 줄·단계 전이 급함), JourneyEvaluationIT 14/21(신규 2 통과, 실패 7 은 기존 무관: route_id null → 예측 미호출), JourneyNotification*IT 전부 통과, JourneyEvaluatorPropertiesTest 12/12(신규 2), JourneyDueEvaluatorSchedulerTest 6/6, JourneyEvaluationIntervalPolicyTest 18/18, 스키마·재탐색·텔레메트리 IT 통과(JourneyNotificationSchemaIT 는 단독 20/20)
+
+### 배포
+- **V66 VPS 수동배치 필요**(`V66__journey_session_evaluation_urgent.sql`, V18+ untracked convention). 누락 시 엔티티가 없는 컬럼을 매핑해 api·worker 부팅 실패
+- 롤백: env `JOURNEY_EVALUATOR_CLAIM_ORDER=DUE_TIME` + api·worker 재생성(컬럼은 DEFAULT false 라 남겨도 무해)
+
+### 확정 (2026-10-14 측정 뒤 추가)
+- **순서만으로는 효과 0**: 200·300·400 에서 급한 여정 판단 나이 p95 그대로(300: 54.7 → 54.0초). 원인 = 스케줄러가 처리량(초당 약 4명)과 무관하게 tick 마다 최대 200건을 선점해 만기 집합이 통째로 작업 큐에 들어가고, 큐의 FIFO 가 실제 순서를 정함
+- 배치를 8로 줄이면 순서는 먹히지만(104 → 88초) 묶음 완료를 기다리느라 처리량 8.6 → 5.0회/s
+- → URGENT_FIRST 모드에서 **빈자리만큼만 선점하고 기다리지 않음**(`JourneyDueEvaluatorScheduler.refill`: 워커×2 − 실행 중 − 큐). DUE_TIME 은 예전 경로 그대로
+- ~~밀린 여정을 급한 줄과 같은 줄에 두면 … 급한 여정이 다시 밀림~~ 추정이었고 측정으로 확인되지 않음: 두 줄 vs 세 줄 p95 300건 52.9 → 52.3초, 400건 79.9 → 79.7초(차이 없음). 세 줄(급함 → 상한 넘긴 밀림 → 나머지)은 설계상 위험(같은 줄에서 더 오래 기다린 비급 여정이 급한 여정을 앞설 수 있음)을 막는 변경으로 유지. 400건 개선은 우선순위 선점과 빈자리 보충을 **함께** 적용한 결과이며 둘을 따로 뗀 측정은 없다(빈자리 보충은 URGENT_FIRST 모드에서만 켜짐)
+- 기다림 상한은 이제 "굶지 않게"만 보장한다. 급한 여정 수요가 처리량을 넘는 동안에는 비급 여정이 상한 뒤에도 기다릴 수 있다(측정: 400건에서도 낡음 300초 초과 0)
+
+### 검증 (측정, 로컬 임시 브랜치 = main + 이 기능 + #409, 푸시 안 함)
+- 조건: 지연 500ms, 워커·몫 4/4, 정류장 전부 다름, 임박 20%(타는 120초, 모델 300초 → 위험) / 나머지 80%(타는 1,800초, 모델 2,400초 → 여유·약 123초 간격), 창 120초. 지표 = 응답이 위험(AT_RISK·MISSED)인 경우의 판단 경과
+| 여정 | p50 DUE_TIME → URGENT_FIRST | p95 | 모름 | 호출/s |
+|---|---|---|---|---|
+| 200 | — | 31.3 → 30.6초 | 3.3 → 3.3% | 6.8(미포화) |
+| 250 | — | 41.9 → 42.6초 | 7.7 → 6.8% | 7.8(미포화) |
+| 300 | 16.8 → 13.3초 | 54.0 → 52.3초 | 12.0 → 11.3% | 8.4 → 8.3 |
+| 400 | 51.7 → 28.8초 | 117.9 → 79.7초 | 36.7 → 21.9% | 8.6 → 8.4 |
+- 처리량 손실 없음, 비급 여정 p95 약 128초(낡음 초과 0)
+- 기준(p95 ≤ 20초) 미달 이유: 300건부터 급한 여정 수요만으로 처리량 초과(60명 × 1/12초 ≈ 5명/s > 8.4 ÷ 2 ≈ 4.2명/s). 순서로는 못 막고 처리량을 늘려야 한다
+- 원자료: `docs/portfolio/data/b-evaluator/urgent-first-*.tsv`(로컬)
+
+### 미결
+- 200건(미포화)에서도 위험 응답 판단 경과 p95 31초 — 순서와 무관한 꼬리. 측정 잔여 효과(환승 시점 경계)인지 실제 지연(첫 평가·유예)인지 미확인
+- 단위 테스트: JourneyDueEvaluatorSchedulerTest 8/8(빈자리만큼 선점·빈자리 없으면 선점 안 함), JourneyDueEvaluatorIT 11/11(세 줄 순서)

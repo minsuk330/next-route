@@ -168,6 +168,30 @@ public class JourneyEvaluatorProperties {
      */
     private long unknownGraceSeconds = 120;
 
+    /** 평가기가 밀릴 때 어느 여정부터 선점하나. */
+    public enum ClaimOrder {
+        /** 예정 시각 순. 예전 동작이고, 되돌릴 때 쓴다. */
+        DUE_TIME,
+        /** 환승이 위험·임박한 여정(과 오래 밀린 여정)을 먼저, 그 안에서는 예정 시각 순. */
+        URGENT_FIRST
+    }
+
+    /**
+     * 선점 순서.
+     *
+     * <p>처리량은 워커 수와 평가기 호출 몫이 정한다. 그 처리량을 넘는 여정이 몰리면 누군가는 기다려야
+     * 하는데, 예정 시각 순으로만 줄을 세우면 2분 뒤 환승하는 사람이 40분 뒤 환승하는 사람 뒤에 선다.
+     */
+    private ClaimOrder claimOrder = ClaimOrder.URGENT_FIRST;
+
+    /**
+     * 급하지 않은 여정이 예정 시각에서 이만큼 밀리면 급한 줄로 올린다.
+     *
+     * <p>급한 여정이 끝없이 들어와도 나머지가 굶지 않게 하는 상한이다. 최대 간격과 더해 낡음 기준보다
+     * 짧아야 한다 — 길면 급하지 않은 여정의 판정이 기다리는 동안 낡아 조회가 모름을 받는다.
+     */
+    private long starvationGuardSeconds = 60;
+
     @PostConstruct
     void validate() {
         if (tickMs <= 0 || batchSize <= 0 || intervalSeconds <= 0 || leaseSeconds <= 0
@@ -240,6 +264,14 @@ public class JourneyEvaluatorProperties {
                     "최대 평가 간격은 저장된 판정을 믿어 주는 시간보다 짧아야 한다. 길면 평가기가 "
                             + "정상인데도 조회가 그 판정을 낡았다고 버려 앱이 계속 모름을 받는다");
         }
+        if (starvationGuardSeconds <= 0) {
+            throw new IllegalStateException("밀린 여정을 올리는 상한은 0 보다 커야 한다");
+        }
+        if (maxIntervalSeconds + starvationGuardSeconds >= staleAfterSeconds) {
+            throw new IllegalStateException(
+                    "최대 평가 간격에 밀린 여정 상한을 더한 값은 저장된 판정을 믿어 주는 시간보다 짧아야 "
+                            + "한다. 길면 급하지 않은 여정이 줄에서 기다리는 동안 판정이 낡아 앱이 모름을 받는다");
+        }
     }
 
     public Duration interval() {
@@ -280,5 +312,9 @@ public class JourneyEvaluatorProperties {
 
     public Duration unknownGrace() {
         return Duration.ofSeconds(unknownGraceSeconds);
+    }
+
+    public Duration starvationGuard() {
+        return Duration.ofSeconds(starvationGuardSeconds);
     }
 }
