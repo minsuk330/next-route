@@ -88,6 +88,12 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
         return resolve(outcome, TYPE_ARRIVAL);
     }
 
+    /** 감시자 전용이라 캐시를 거치지 않는다 — 부르는 쪽이 받은 값으로 캐시를 직접 채운다. */
+    @Override
+    public BusQueryResult<BusArrivalInfo> getArrInfoByRouteAll(String routeId, long timeoutMs) {
+        return delegate.getArrInfoByRouteAll(routeId, timeoutMs);
+    }
+
     @Override
     public BusQueryResult<BusPositionInfo> getBusPosByRtid(String busRouteId) {
         return getBusPosByRtid(busRouteId, Long.MAX_VALUE);

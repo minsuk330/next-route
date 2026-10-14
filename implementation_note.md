@@ -4800,3 +4800,26 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 변형 2건 검출: 캐시 삭제를 트리거 뒤로 → 순서 시험 실패 / 기준선 유지 무시 → 재전송 시험 2건 실패. 원복
 - Opus 코드 리뷰 High 0, Medium 3(역 이름 불일치 삭제·다시 나타난 키·리더 플래그/프로필)·Low(Lua 단일화·지하철 route 칸·재생 IT 스텁) 반영
 - 전체 `./gradlew cleanTest test --continue` → 3053 중 12 실패, 전부 **기존 무관**(같은 구성)
+
+## #415-3 PR-B 버스 노선 감시자 (2026-10-14, feat/reeval-bus-route-watcher)
+
+### 확정
+- `BusRouteWatcher`(worker, 1초 tick, 리더만): `InterestIndex.busKeysByRoute`(순번 없는 키 제외 — 평가기도 안 물음)로 노선 묶음 → 노선 등급 = 구독 키 중 가장 급한 것 → 주기 긴급 10초(공급자 갱신 실측 하한)·주의 15초·여유 60초 → 급한 노선·구독 많은 노선 순, tick 당 10노선·5초 상한
+- 조회 = `SearchTimeBusQueryPort.getArrInfoByRouteAll`(신규): 공유 차단기는 따르고 **검색 몫·검색 동시 슬롯은 안 씀**, 재시도 없이 1.5초. 처음엔 `BusApiPort`(재시도 3회·30초·실패를 빈 목록으로)를 썼다가 Opus 리뷰로 교체 — 공용 스케줄러 스레드를 노선당 최대 ~96초 붙잡고, 일시 장애를 "서울 노선 아님"으로 오판해 60분 감시가 꺼졌다
+- 전용 일일 몫 `reeval-watcher-arrival`(`BusApiQuotaPort.tryAcquire`, fail-closed), 기본 0 → 한도 상향 전엔 한 번도 안 부름. BLOCKED/LIMITED → 이번 tick 중단 + `journey.reeval.bus.degraded=1`
+- 연달아 3번 비거나 실패한 노선만 60분 쉼(경기·지방 노선은 서울 API 가 결과 없음) → `journey.reeval.bus.empty-routes`
+- 지문 `BusMark`(첫 차량, 첫 차량 구간 순번, 상태 곧도착·출발대기·운행종료·운행중, 둘째 차량). 도착 예정 초 제외(실측: 정류장별 초 포함 지문은 중앙값 10초마다 바뀜) → 버스가 한 정류장 다가올 때만 이벤트. 노선별 감지기(다른 노선 키를 "사라짐"으로 보지 않게)
+- 응답을 정류장·순번별 도착 캐시에 채움(그림자 모드 제외) — 키 체계는 평가기 읽기와 같음(Opus 확인: start_stop_id = 서울 stId, boarding_seq = getStaionByRoute.seq = route-all staOrd, 수집기 primeRealtimeCache 와 같은 방식)
+
+### 함정
+- 🔴 한도 규칙: 감시자 몫 + 수집기 몫 + 검색 몫 ≤ 공급자 키 일일 한도. 몫은 따로 세도 공급자 키와 code 7 차단기는 공유 → 넘기면 수집·검색까지 자정까지 정지. yaml·클래스 주석에 명시
+- 노선당 캐시 SET ~100개(정류장 수). 목표 부하면 초당 수천 SET — 파이프라이닝은 측정 뒤(수집기와 같은 숙제)
+
+### 배포
+- 마이그레이션 없음. 플래그 off + 몫 0 → 동작 변화 없음. 켜기: 공급자 한도 상향 → `JOURNEY_REEVAL_BUS_WATCHER=true` + `JOURNEY_REEVAL_BUS_WATCHER_DAILY_LIMIT=<한도 규칙 안>` (enabled·그림자 단계는 A2 와 같음)
+
+### 검증
+- `BusRouteWatcherTest` 14(이동 시 트리거·초만 바뀜 무이벤트·주기·여유 60초·긴급 우선·몫 소진 degraded·차단 중단·3연속 빈 노선만 쉼·오류 1회는 안 쉼·캐시 채움·그림자 무쓰기·재전송·리더 교체 재기준·꺼짐/비리더), `InterestIndexTest`(+노선 묶음·순번 없는 키 제외), `SearchTimeBusAdapterTest`(+차단 시 무호출·검색 몫 안 씀·기한 안 종료) 통과
+- 변형: 지문에서 구간 순번 제거 → 이동 트리거·재전송 시험 실패. 원복
+- Opus 코드 리뷰 High 0(키 체계 일치 확인), Medium 4(오류/빈 응답 구분·스레드 점유·공유 차단기 한도 규칙·순번 없는 키) 반영
+- 전체 `./gradlew cleanTest test --continue` → 3070 중 12 실패, 전부 **기존 무관**

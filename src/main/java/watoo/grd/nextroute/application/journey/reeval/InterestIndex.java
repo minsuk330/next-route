@@ -80,6 +80,31 @@ public class InterestIndex {
         return fresh().stopNames().getOrDefault(key, Set.of());
     }
 
+    /**
+     * 버스 키를 노선별로 묶고, 키마다 지켜보는 여정 중 가장 급한 등급을 붙인다. 노선 감시자가 어느 노선을
+     * 얼마나 자주 부를지 정하는 재료다.
+     */
+    public Map<String, Map<InterestKey.Bus, ReevaluationTier>> busKeysByRoute() {
+        Snapshot current = fresh();
+        Instant now = Instant.now(clock);
+        Map<String, Map<InterestKey.Bus, ReevaluationTier>> out = new HashMap<>();
+        current.byKey().forEach((key, journeys) -> {
+            if (!(key instanceof InterestKey.Bus bus) || bus.seq() == null) {
+                // 순번이 없으면 평가기도 도착을 묻지 않는다(정류장·노선·순번이 다 있어야 조회한다).
+                return;
+            }
+            ReevaluationTier best = ReevaluationTier.RELAXED;
+            for (Long journeyId : journeys) {
+                ReevaluationTier tier = tierOf(current.urgency().get(journeyId), now);
+                if (tier.ordinal() < best.ordinal()) {
+                    best = tier;
+                }
+            }
+            out.computeIfAbsent(bus.routeId(), r -> new HashMap<>()).put(bus, best);
+        });
+        return out;
+    }
+
     /** 지금 이 키를 지켜보는 여정이 있는지. */
     public boolean watched(InterestKey key) {
         return fresh().byKey().containsKey(key);
