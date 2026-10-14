@@ -36,6 +36,18 @@ public interface SearchTimeBusQueryPort {
     }
 
     /**
+     * 노선 하나의 전 정류장 도착(서울 {@code /arrive/getArrInfoByRouteAll}). 재평가 감시자(#415-3) 전용.
+     *
+     * <p>검색 몫·검색 동시 슬롯을 쓰지 않는다 — 부르는 쪽이 자기 일일 몫을 따로 확인한다. 공유 차단기는
+     * 따른다(code 7 이면 모두가 멈춰야 한다). 재시도 없이 {@code timeoutMs} 안에 끝난다.
+     *
+     * <p>기본 구현은 {@code ERROR} 다. 시험 대역이 이 메서드를 몰라도 깨지지 않게.
+     */
+    default BusQueryResult<BusArrivalInfo> getArrInfoByRouteAll(String routeId, long timeoutMs) {
+        return BusQueryResult.error();
+    }
+
+    /**
      * @param outcome  조회 결과 종류.
      * @param data     OK일 때만 의미 있음(빈 리스트면 실제 "버스 없음"). 그 외엔 빈 리스트.
      * @param cacheHit provider 호출 없이 캐시에서 반환됐는지(검색 호출 cap·quota 미소모).

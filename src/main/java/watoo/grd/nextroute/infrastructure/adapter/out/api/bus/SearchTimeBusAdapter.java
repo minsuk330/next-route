@@ -124,6 +124,21 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
                 this::toPositionInfo, timeoutMs);
     }
 
+    @Override
+    public BusQueryResult<BusArrivalInfo> getArrInfoByRouteAll(String routeId, long timeoutMs) {
+        if (timeoutMs <= 0) {
+            return BusQueryResult.limited();
+        }
+        if (breaker.getBlockedUntil(BusApiQuotaPort.Endpoint.ARRIVAL).isPresent()) {
+            return BusQueryResult.blocked();
+        }
+        URI uri = URI.create(baseUrl + "/arrive/getArrInfoByRouteAll"
+                + "?serviceKey=" + apiKey
+                + "&busRouteId=" + routeId);
+        return doCallWithin(uri, BusArrivalItem.class, BusApiQuotaPort.Endpoint.ARRIVAL,
+                this::toArrivalInfo, timeoutMs);
+    }
+
     private <I, R> BusQueryResult<R> callApi(URI uri, Class<I> itemType,
                                              BusApiQuotaPort.Endpoint endpoint,
                                              java.util.function.Function<I, R> mapper,

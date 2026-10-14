@@ -82,6 +82,23 @@ class InterestIndexTest {
     }
 
     @Test
+    @DisplayName("버스 키를 노선별로 묶고, 키마다 지켜보는 여정 중 가장 급한 등급을 붙인다")
+    void busKeysByRouteTakeMostUrgentSubscriber() {
+        given(repository.findInterestRows()).willReturn(List.of(
+                row(1L, "WAIT_BUS", "R1", "S1", 1, null, NOW.plus(Duration.ofMinutes(30)), false),
+                row(2L, "WAIT_BUS", "R1", "S1", 1, null, NOW.plus(Duration.ofMinutes(3)), false),
+                row(3L, "WAIT_BUS", "R1", "S2", 2, null, NOW.plus(Duration.ofMinutes(10)), false),
+                row(4L, "WAIT_SUBWAY", "1004", "S426", null, 2, null, false),
+                row(5L, "WAIT_BUS", "R2", "S9", null, null, null, false)));
+
+        Map<String, Map<InterestKey.Bus, ReevaluationTier>> byRoute = index.busKeysByRoute();
+
+        assertThat(byRoute).as("순번 없는 키(R2)는 평가기도 묻지 않아 감시하지 않는다").containsOnlyKeys("R1");
+        assertThat(byRoute.get("R1")).containsEntry(new InterestKey.Bus("S1", "R1", 1), ReevaluationTier.URGENT)
+                .containsEntry(new InterestKey.Bus("S2", "R1", 2), ReevaluationTier.CAUTION);
+    }
+
+    @Test
     @DisplayName("경계: 정확히 5분은 긴급, 정확히 15분은 주의 — 간격 정책과 같다(<=)")
     void boundariesMatchIntervalPolicy() {
         given(repository.findInterestRows()).willReturn(List.of(

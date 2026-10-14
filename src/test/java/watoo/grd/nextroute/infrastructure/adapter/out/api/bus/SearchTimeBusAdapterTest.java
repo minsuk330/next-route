@@ -25,6 +25,9 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.*;
 
 /**
@@ -120,6 +123,39 @@ class SearchTimeBusAdapterTest {
                     .tags("uri", "/arrive/getArrInfoByRoute", "status", "IO_ERROR",
                             "exception", "HttpTimeoutException")
                     .timer().count()).isEqualTo(1);
+        } finally {
+            server.shutdown();
+        }
+    }
+
+    @Test
+    void TC_노선단위_조회는_차단중이면_부르지않고_검색몫도_쓰지않는다() {
+        when(breaker.getBlockedUntil(BusApiQuotaPort.Endpoint.ARRIVAL))
+                .thenReturn(Optional.of(Instant.now().plusSeconds(60)));
+
+        var result = adapter(new Semaphore(1)).getArrInfoByRouteAll("100100022", 1500);
+
+        assertThat(result.outcome()).isEqualTo(SearchTimeBusQueryPort.Outcome.BLOCKED);
+        verify(quota, never()).tryAcquireSearch(any());
+    }
+
+    @Test
+    void TC_노선단위_조회는_검색몫을_쓰지않고_기한안에_끝난다() throws Exception {
+        MockWebServer server = new MockWebServer();
+        server.start();
+        try {
+            when(breaker.getBlockedUntil(BusApiQuotaPort.Endpoint.ARRIVAL)).thenReturn(Optional.empty());
+            server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE));
+            SearchTimeBusAdapter adapter = new SearchTimeBusAdapter(
+                    restClient, breaker, quota, new Semaphore(1), props, CLOCK,
+                    new JdkHttpClientMetrics(registry), "bus-key", server.url("/").toString().replaceAll("/$", ""));
+
+            long started = System.nanoTime();
+            var result = adapter.getArrInfoByRouteAll("100100022", 80);
+
+            assertThat(result.outcome()).isEqualTo(SearchTimeBusQueryPort.Outcome.ERROR);
+            assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isLessThan(300);
+            verify(quota, never()).tryAcquireSearch(any());
         } finally {
             server.shutdown();
         }

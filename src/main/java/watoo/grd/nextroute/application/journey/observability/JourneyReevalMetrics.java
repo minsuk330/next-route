@@ -41,6 +41,33 @@ public class JourneyReevalMetrics {
         }
     }
 
+    public static final String BUS_WATCHER_CALLS = "journey.reeval.bus.calls";
+    public static final String BUS_WATCHER_DEGRADED = "journey.reeval.bus.degraded";
+    public static final String BUS_EMPTY_ROUTES = "journey.reeval.bus.empty-routes";
+
+    private final java.util.concurrent.atomic.AtomicInteger busDegraded = new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicLong busEmptyRoutes = new java.util.concurrent.atomic.AtomicLong();
+    private volatile boolean busGaugesRegistered;
+
+    /** 감시자가 공급자를 부른 횟수. 일일 몫 소비 속도다. */
+    public void recordBusWatcherCall() {
+        registry.counter(BUS_WATCHER_CALLS).increment();
+    }
+
+    /**
+     * 감시자 상태. degraded=1 이면 몫이 떨어졌거나 공급자가 막혀 감시를 멈췄다 — 그동안 버스 여정은 간격
+     * 폴링으로만 본다. 빈 노선 수 = 서울 노선이 아니라 감시 못 하는 노선(경기·지방).
+     */
+    public void recordBusWatcherState(boolean degraded, long emptyRoutes) {
+        if (!busGaugesRegistered) {
+            registry.gauge(BUS_WATCHER_DEGRADED, busDegraded);
+            registry.gauge(BUS_EMPTY_ROUTES, busEmptyRoutes);
+            busGaugesRegistered = true;
+        }
+        busDegraded.set(degraded ? 1 : 0);
+        busEmptyRoutes.set(emptyRoutes);
+    }
+
     /** 관심 키 색인 재구성. 키 수(종류별)와 걸린 시간. */
     public void recordInterestRebuild(java.util.Map<? extends Object, ?> byKey, long nanos) {
         java.util.Map<String, Integer> counts = new java.util.HashMap<>();
