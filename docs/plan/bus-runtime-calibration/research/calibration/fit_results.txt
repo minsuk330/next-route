@@ -1,0 +1,190 @@
+# fit2.py (LOO by OD, model comparison)
+######## {} n 731
+baseline n= 731 ratio med 0.644 [p25 0.53 p75 0.78]  |err| med  35.8%  within10%   10%  within20%   21%
+== mul
+  ALL     n= 731 ratio med 0.917 [p25 0.76 p75 1.08]  |err| med  17.0%  within10%   31%  within20%   57%
+  서울     n= 335 ratio med 0.923 [p25 0.74 p75 1.09]  |err| med  18.9%  within10%   30%  within20%   51%
+  경기     n= 201 ratio med 0.905 [p25 0.77 p75 1.07]  |err| med  15.3%  within10%   33%  within20%   63%
+  인천     n=  50 ratio med 0.863 [p25 0.80 p75 1.03]  |err| med  18.6%  within10%   20%  within20%   62%
+  부산     n=  42 ratio med 0.990 [p25 0.90 p75 1.08]  |err| med   8.7%  within10%   57%  within20%   86%
+  대구     n=  91 ratio med 0.912 [p25 0.67 p75 1.10]  |err| med  21.3%  within10%   23%  within20%   48%
+  대전     n=  12 ratio med 0.967 [p25 0.79 p75 1.07]  |err| med  12.0%  within10%   33%  within20%   58%
+  coef {'BSB': [1.0227], 'DGB': [1.2639], 'DJB': [1.5169], 'GGB': [1.323], 'ICB': [1.3641], 'SEB': [1.6815]}
+== add
+  ALL     n= 731 ratio med 0.980 [p25 0.84 p75 1.11]  |err| med  13.9%  within10%   38%  within20%   68%
+  서울     n= 335 ratio med 0.976 [p25 0.81 p75 1.11]  |err| med  14.3%  within10%   37%  within20%   67%
+  경기     n= 201 ratio med 0.980 [p25 0.86 p75 1.12]  |err| med  13.2%  within10%   39%  within20%   73%
+  인천     n=  50 ratio med 0.955 [p25 0.88 p75 1.08]  |err| med  10.8%  within10%   46%  within20%   76%
+  부산     n=  42 ratio med 0.989 [p25 0.90 p75 1.08]  |err| med   9.2%  within10%   62%  within20%   86%
+  대구     n=  91 ratio med 1.004 [p25 0.79 p75 1.17]  |err| med  18.7%  within10%   26%  within20%   53%
+  대전     n=  12 ratio med 0.948 [p25 0.86 p75 1.02]  |err| med  12.7%  within10%   25%  within20%   75%
+  coef {'BSB': [2.3089], 'DGB': [29.2402], 'DJB': [43.6671], 'GGB': [30.1452], 'ICB': [31.282], 'SEB': [50.1227]}
+== mul+add
+  ALL     n= 731 ratio med 0.971 [p25 0.84 p75 1.10]  |err| med  13.0%  within10%   39%  within20%   69%
+  서울     n= 335 ratio med 0.955 [p25 0.80 p75 1.10]  |err| med  13.9%  within10%   36%  within20%   65%
+  경기     n= 201 ratio med 0.979 [p25 0.86 p75 1.11]  |err| med  13.1%  within10%   38%  within20%   70%
+  인천     n=  50 ratio med 0.970 [p25 0.89 p75 1.08]  |err| med  10.2%  within10%   48%  within20%   76%
+  부산     n=  42 ratio med 0.990 [p25 0.90 p75 1.09]  |err| med   9.8%  within10%   52%  within20%   83%
+  대구     n=  91 ratio med 1.004 [p25 0.85 p75 1.10]  |err| med  13.6%  within10%   42%  within20%   67%
+  대전     n=  12 ratio med 1.005 [p25 0.88 p75 1.04]  |err| med  12.4%  within10%   33%  within20%   75%
+  coef {'BSB': [0.9579, 6.1619], 'DGB': [0.0663, 99.1776], 'DJB': [1.0285, 41.3357], 'GGB': [0.7829, 45.54], 'ICB': [0.7017, 51.0371], 'SEB': [0.7751, 64.1912]}
+== dist+add
+  ALL     n= 731 ratio med 0.980 [p25 0.84 p75 1.09]  |err| med  11.6%  within10%   45%  within20%   73%
+  서울     n= 335 ratio med 0.965 [p25 0.82 p75 1.08]  |err| med  12.1%  within10%   44%  within20%   73%
+  경기     n= 201 ratio med 1.003 [p25 0.85 p75 1.11]  |err| med  12.8%  within10%   40%  within20%   70%
+  인천     n=  50 ratio med 0.972 [p25 0.85 p75 1.09]  |err| med  12.0%  within10%   44%  within20%   76%
+  부산     n=  42 ratio med 0.993 [p25 0.93 p75 1.08]  |err| med   7.0%  within10%   67%  within20%   83%
+  대구     n=  91 ratio med 1.002 [p25 0.85 p75 1.08]  |err| med  11.2%  within10%   47%  within20%   70%
+  대전     n=  12 ratio med 1.021 [p25 0.91 p75 1.07]  |err| med   7.6%  within10%   58%  within20%   67%
+  coef {'BSB': [0.1515, 26.3796], 'DGB': [0.1015, 60.1785], 'DJB': [0.1423, 49.366], 'GGB': [0.1005, 55.2308], 'ICB': [0.1031, 53.3625], 'SEB': [0.1213, 53.7841]}
+== dist+add+mul
+  ALL     n= 731 ratio med 0.981 [p25 0.84 p75 1.09]  |err| med  12.2%  within10%   44%  within20%   73%
+  서울     n= 335 ratio med 0.978 [p25 0.82 p75 1.08]  |err| med  12.6%  within10%   43%  within20%   73%
+  경기     n= 201 ratio med 1.001 [p25 0.86 p75 1.11]  |err| med  12.2%  within10%   42%  within20%   74%
+  인천     n=  50 ratio med 0.967 [p25 0.88 p75 1.08]  |err| med  10.2%  within10%   50%  within20%   72%
+  부산     n=  42 ratio med 0.995 [p25 0.92 p75 1.11]  |err| med   9.0%  within10%   52%  within20%   76%
+  대구     n=  91 ratio med 0.988 [p25 0.85 p75 1.08]  |err| med  10.8%  within10%   47%  within20%   71%
+  대전     n=  12 ratio med 0.803 [p25 0.52 p75 0.99]  |err| med  25.3%  within10%    8%  within20%   42%
+  coef {'BSB': [0.0449, 7.9787, 0.7197], 'DGB': [0.1273, 61.7367, -0.1698], 'DJB': [0.028, 36.135, 0.9091], 'GGB': [0.0772, 48.605, 0.2433], 'ICB': [0.0281, 50.0472, 0.5351], 'SEB': [0.0908, 51.3049, 0.2759]}
+######## {'minst': 3} n 687
+baseline n= 687 ratio med 0.652 [p25 0.55 p75 0.79]  |err| med  34.9%  within10%   10%  within20%   22%
+== mul
+  ALL     n= 687 ratio med 0.931 [p25 0.78 p75 1.08]  |err| med  15.9%  within10%   34%  within20%   61%
+  서울     n= 306 ratio med 0.940 [p25 0.77 p75 1.09]  |err| med  17.8%  within10%   33%  within20%   56%
+  경기     n= 192 ratio med 0.914 [p25 0.79 p75 1.07]  |err| med  14.9%  within10%   35%  within20%   66%
+  인천     n=  49 ratio med 0.865 [p25 0.80 p75 1.04]  |err| med  18.4%  within10%   20%  within20%   65%
+  부산     n=  40 ratio med 0.980 [p25 0.90 p75 1.07]  |err| med   8.6%  within10%   57%  within20%   90%
+  대구     n=  90 ratio med 0.910 [p25 0.67 p75 1.10]  |err| med  20.9%  within10%   27%  within20%   49%
+  대전     n=  10 ratio med 0.991 [p25 0.83 p75 1.04]  |err| med  12.5%  within10%   50%  within20%   70%
+  coef {'BSB': [1.0109], 'DGB': [1.2595], 'DJB': [1.4751], 'GGB': [1.3336], 'ICB': [1.3598], 'SEB': [1.6514]}
+== add
+  ALL     n= 687 ratio med 0.980 [p25 0.85 p75 1.10]  |err| med  12.8%  within10%   40%  within20%   72%
+  서울     n= 306 ratio med 0.991 [p25 0.84 p75 1.10]  |err| med  12.8%  within10%   41%  within20%   72%
+  경기     n= 192 ratio med 0.977 [p25 0.87 p75 1.11]  |err| med  12.6%  within10%   39%  within20%   77%
+  인천     n=  49 ratio med 0.963 [p25 0.89 p75 1.08]  |err| med  10.7%  within10%   47%  within20%   78%
+  부산     n=  40 ratio med 0.984 [p25 0.90 p75 1.08]  |err| med   8.8%  within10%   62%  within20%   90%
+  대구     n=  90 ratio med 1.003 [p25 0.78 p75 1.17]  |err| med  18.3%  within10%   27%  within20%   53%
+  대전     n=  10 ratio med 0.973 [p25 0.85 p75 1.09]  |err| med  13.0%  within10%   40%  within20%   80%
+  coef {'BSB': [1.6884], 'DGB': [28.9775], 'DJB': [41.1114], 'GGB': [29.4657], 'ICB': [30.7386], 'SEB': [47.8475]}
+== mul+add
+  ALL     n= 687 ratio med 0.976 [p25 0.85 p75 1.09]  |err| med  11.9%  within10%   42%  within20%   73%
+  서울     n= 306 ratio med 0.970 [p25 0.84 p75 1.09]  |err| med  12.4%  within10%   42%  within20%   71%
+  경기     n= 192 ratio med 0.974 [p25 0.86 p75 1.11]  |err| med  12.6%  within10%   38%  within20%   74%
+  인천     n=  49 ratio med 0.970 [p25 0.89 p75 1.07]  |err| med  10.1%  within10%   49%  within20%   78%
+  부산     n=  40 ratio med 0.987 [p25 0.90 p75 1.06]  |err| med   7.7%  within10%   60%  within20%   90%
+  대구     n=  90 ratio med 0.998 [p25 0.85 p75 1.10]  |err| med  12.5%  within10%   43%  within20%   69%
+  대전     n=  10 ratio med 0.896 [p25 0.84 p75 1.08]  |err| med  13.9%  within10%   30%  within20%   80%
+  coef {'BSB': [0.7826, 21.45], 'DGB': [0.0516, 99.9484], 'DJB': [0.5222, 79.855], 'GGB': [0.6959, 50.7275], 'ICB': [0.7226, 49.1292], 'SEB': [0.7737, 62.003]}
+== dist+add
+  ALL     n= 687 ratio med 0.980 [p25 0.86 p75 1.08]  |err| med  10.5%  within10%   48%  within20%   76%
+  서울     n= 306 ratio med 0.964 [p25 0.85 p75 1.06]  |err| med  10.4%  within10%   48%  within20%   79%
+  경기     n= 192 ratio med 0.999 [p25 0.86 p75 1.09]  |err| med  11.5%  within10%   45%  within20%   72%
+  인천     n=  49 ratio med 0.976 [p25 0.86 p75 1.09]  |err| med  12.1%  within10%   45%  within20%   78%
+  부산     n=  40 ratio med 0.985 [p25 0.95 p75 1.05]  |err| med   5.2%  within10%   75%  within20%   92%
+  대구     n=  90 ratio med 0.993 [p25 0.86 p75 1.08]  |err| med  10.6%  within10%   49%  within20%   69%
+  대전     n=  10 ratio med 0.861 [p25 0.86 p75 1.02]  |err| med  14.0%  within10%   10%  within20%   70%
+  coef {'BSB': [0.1314, 34.2769], 'DGB': [0.0869, 66.2753], 'DJB': [0.1065, 65.471], 'GGB': [0.0879, 59.9242], 'ICB': [0.1056, 51.7299], 'SEB': [0.1191, 52.6251]}
+== dist+add+mul
+  ALL     n= 687 ratio med 0.979 [p25 0.86 p75 1.08]  |err| med  10.5%  within10%   49%  within20%   76%
+  서울     n= 306 ratio med 0.968 [p25 0.85 p75 1.07]  |err| med  10.7%  within10%   47%  within20%   79%
+  경기     n= 192 ratio med 1.003 [p25 0.88 p75 1.09]  |err| med  10.4%  within10%   48%  within20%   75%
+  인천     n=  49 ratio med 0.966 [p25 0.88 p75 1.08]  |err| med  10.4%  within10%   49%  within20%   71%
+  부산     n=  40 ratio med 0.983 [p25 0.94 p75 1.07]  |err| med   6.3%  within10%   72%  within20%   90%
+  대구     n=  90 ratio med 0.990 [p25 0.85 p75 1.07]  |err| med  10.6%  within10%   48%  within20%   71%
+  대전     n=  10 ratio med 0.795 [p25 0.70 p75 1.02]  |err| med  22.7%  within10%   10%  within20%   40%
+  coef {'BSB': [0.1099, 29.9102, 0.1531], 'DGB': [0.1106, 67.1641, -0.1482], 'DJB': [0.0951, 63.8751, 0.0949], 'GGB': [0.0732, 54.4528, 0.1724], 'ICB': [0.0264, 48.2011, 0.5658], 'SEB': [0.0849, 49.9756, 0.3078]}
+######## {'mink': 2.0} n 602
+baseline n= 602 ratio med 0.672 [p25 0.59 p75 0.82]  |err| med  32.9%  within10%   11%  within20%   25%
+== mul
+  ALL     n= 602 ratio med 0.933 [p25 0.79 p75 1.06]  |err| med  14.4%  within10%   38%  within20%   63%
+  서울     n= 271 ratio med 0.948 [p25 0.79 p75 1.08]  |err| med  15.5%  within10%   36%  within20%   59%
+  경기     n= 166 ratio med 0.928 [p25 0.79 p75 1.05]  |err| med  13.4%  within10%   42%  within20%   64%
+  인천     n=  46 ratio med 0.854 [p25 0.79 p75 1.02]  |err| med  17.8%  within10%   22%  within20%   63%
+  부산     n=  39 ratio med 0.973 [p25 0.90 p75 1.08]  |err| med   8.0%  within10%   59%  within20%   92%
+  대구     n=  71 ratio med 0.907 [p25 0.76 p75 1.08]  |err| med  16.8%  within10%   31%  within20%   54%
+  대전     n=   9 ratio med 0.975 [p25 0.84 p75 1.01]  |err| med   5.8%  within10%   56%  within20%   78%
+  coef {'BSB': [1.0051], 'DGB': [1.2031], 'DJB': [1.4475], 'GGB': [1.2716], 'ICB': [1.3415], 'SEB': [1.6048]}
+== add
+  ALL     n= 602 ratio med 0.982 [p25 0.87 p75 1.09]  |err| med  11.1%  within10%   46%  within20%   78%
+  서울     n= 271 ratio med 0.992 [p25 0.87 p75 1.09]  |err| med  10.8%  within10%   46%  within20%   76%
+  경기     n= 166 ratio med 0.976 [p25 0.87 p75 1.09]  |err| med  11.1%  within10%   47%  within20%   85%
+  인천     n=  46 ratio med 0.958 [p25 0.88 p75 1.09]  |err| med  11.2%  within10%   43%  within20%   78%
+  부산     n=  39 ratio med 0.979 [p25 0.91 p75 1.08]  |err| med   8.7%  within10%   59%  within20%   92%
+  대구     n=  71 ratio med 0.993 [p25 0.83 p75 1.14]  |err| med  16.4%  within10%   34%  within20%   59%
+  대전     n=   9 ratio med 0.981 [p25 0.86 p75 0.98]  |err| med   2.8%  within10%   56%  within20%  100%
+  coef {'BSB': [1.1933], 'DGB': [23.1625], 'DJB': [39.5141], 'GGB': [26.2204], 'ICB': [29.5291], 'SEB': [44.4764]}
+== mul+add
+  ALL     n= 602 ratio med 0.979 [p25 0.87 p75 1.08]  |err| med  10.3%  within10%   48%  within20%   81%
+  서울     n= 271 ratio med 0.981 [p25 0.86 p75 1.08]  |err| med  11.1%  within10%   45%  within20%   77%
+  경기     n= 166 ratio med 0.971 [p25 0.87 p75 1.09]  |err| med  10.9%  within10%   45%  within20%   84%
+  인천     n=  46 ratio med 0.966 [p25 0.90 p75 1.08]  |err| med   9.9%  within10%   52%  within20%   80%
+  부산     n=  39 ratio med 0.978 [p25 0.91 p75 1.07]  |err| med   8.0%  within10%   62%  within20%   92%
+  대구     n=  71 ratio med 0.985 [p25 0.90 p75 1.06]  |err| med   9.3%  within10%   56%  within20%   83%
+  대전     n=   9 ratio med 0.921 [p25 0.83 p75 0.94]  |err| med   8.2%  within10%   67%  within20%   78%
+  coef {'BSB': [0.7664, 22.3994], 'DGB': [0.0992, 91.3731], 'DJB': [0.546, 77.6873], 'GGB': [0.7727, 42.4406], 'ICB': [0.7389, 46.9334], 'SEB': [0.8645, 53.0838]}
+== dist+add
+  ALL     n= 602 ratio med 0.979 [p25 0.89 p75 1.07]  |err| med   8.7%  within10%   56%  within20%   85%
+  서울     n= 271 ratio med 0.964 [p25 0.87 p75 1.06]  |err| med   8.7%  within10%   57%  within20%   88%
+  경기     n= 166 ratio med 1.012 [p25 0.89 p75 1.10]  |err| med  10.2%  within10%   49%  within20%   81%
+  인천     n=  46 ratio med 0.963 [p25 0.87 p75 1.08]  |err| med   9.7%  within10%   50%  within20%   80%
+  부산     n=  39 ratio med 0.978 [p25 0.94 p75 1.05]  |err| med   5.8%  within10%   77%  within20%   95%
+  대구     n=  71 ratio med 0.988 [p25 0.90 p75 1.04]  |err| med   7.5%  within10%   59%  within20%   83%
+  대전     n=   9 ratio med 0.905 [p25 0.87 p75 0.91]  |err| med   9.5%  within10%   56%  within20%   89%
+  coef {'BSB': [0.1314, 33.6997], 'DGB': [0.0964, 56.9243], 'DJB': [0.1812, 22.4505], 'GGB': [0.0994, 51.4603], 'ICB': [0.1111, 47.7941], 'SEB': [0.1364, 40.0752]}
+== dist+add+mul
+  ALL     n= 602 ratio med 0.979 [p25 0.89 p75 1.07]  |err| med   8.8%  within10%   57%  within20%   86%
+  서울     n= 271 ratio med 0.970 [p25 0.87 p75 1.06]  |err| med   8.8%  within10%   56%  within20%   88%
+  경기     n= 166 ratio med 1.007 [p25 0.90 p75 1.09]  |err| med   9.4%  within10%   54%  within20%   85%
+  인천     n=  46 ratio med 0.959 [p25 0.88 p75 1.08]  |err| med   9.7%  within10%   52%  within20%   76%
+  부산     n=  39 ratio med 0.979 [p25 0.93 p75 1.06]  |err| med   6.5%  within10%   74%  within20%   95%
+  대구     n=  71 ratio med 0.978 [p25 0.90 p75 1.05]  |err| med   7.9%  within10%   59%  within20%   83%
+  대전     n=   9 ratio med 0.908 [p25 0.87 p75 0.92]  |err| med   9.2%  within10%   56%  within20%   89%
+  coef {'BSB': [0.1229, 31.9947, 0.06], 'DGB': [0.1178, 58.3073, -0.141], 'DJB': [0.1724, 21.5222, 0.0695], 'GGB': [0.0807, 46.0514, 0.1973], 'ICB': [0.0323, 45.5893, 0.5478], 'SEB': [0.1029, 38.0643, 0.2942]}
+
+# fit4.py (intercept = ODsay noise floor)
+#### {'mink': 2.0} 602
+== dist
+  ALL     n= 602 ratio med 0.938 [p25 0.82 p75 1.04]  |err| med  12.9%  within10%   42%  within20%   70%
+  coef {'BSB': [0.2032], 'DGB': [0.2225], 'DJB': [0.2209], 'GGB': [0.1821], 'ICB': [0.2056], 'SEB': [0.2094]}
+== odsdist+add
+  ALL     n= 602 ratio med 0.979 [p25 0.89 p75 1.06]  |err| med   8.5%  within10%   56%  within20%   85%
+  coef {'BSB': [0.1296, 35.438], 'DGB': [0.0984, 56.4551], 'DJB': [0.1785, 25.3337], 'GGB': [0.0998, 51.7937], 'ICB': [0.1127, 47.2397], 'SEB': [0.1381, 40.5799]}
+== k+dist
+  ALL     n= 602 ratio med 0.976 [p25 0.94 p75 1.02]  |err| med   4.8%  within10%   77%  within20%   94%
+  coef {'BSB': [253.2283, 0.1611], 'DGB': [336.0274, 0.1473], 'DJB': [275.0338, 0.1551], 'GGB': [434.5418, 0.1073], 'ICB': [424.4461, 0.114], 'SEB': [357.9732, 0.1345]}
+== k+dist+add
+  ALL     n= 602 ratio med 0.990 [p25 0.97 p75 1.01]  |err| med   2.5%  within10%   95%  within20%   98%
+  coef {'BSB': [272.3131, 0.081, 36.0837], 'DGB': [293.406, 0.0657, 41.1584], 'DJB': [272.4874, 0.1478, 4.4418], 'GGB': [277.6911, 0.0806, 33.4166], 'ICB': [332.4057, 0.0727, 30.9727], 'SEB': [313.7109, 0.1022, 22.7937]}
+#### {'minst': 3} 687
+== dist
+  ALL     n= 687 ratio med 0.937 [p25 0.78 p75 1.06]  |err| med  14.1%  within10%   38%  within20%   62%
+  coef {'BSB': [0.2045], 'DGB': [0.2351], 'DJB': [0.226], 'GGB': [0.1921], 'ICB': [0.2092], 'SEB': [0.2172]}
+== odsdist+add
+  ALL     n= 687 ratio med 0.979 [p25 0.86 p75 1.08]  |err| med  10.5%  within10%   48%  within20%   77%
+  coef {'BSB': [0.128, 36.8003], 'DGB': [0.0867, 66.7349], 'DJB': [0.1111, 63.8013], 'GGB': [0.0879, 60.4092], 'ICB': [0.1071, 51.2312], 'SEB': [0.1209, 52.956]}
+== k+dist
+  ALL     n= 687 ratio med 0.979 [p25 0.94 p75 1.02]  |err| med   4.6%  within10%   79%  within20%   95%
+  coef {'BSB': [265.6579, 0.1592], 'DGB': [306.2532, 0.1533], 'DJB': [291.9927, 0.1512], 'GGB': [405.6018, 0.1152], 'ICB': [388.6272, 0.1211], 'SEB': [332.4536, 0.1392]}
+== k+dist+add
+  ALL     n= 687 ratio med 0.991 [p25 0.97 p75 1.01]  |err| med   2.4%  within10%   95%  within20%   99%
+  coef {'BSB': [276.1197, 0.0803, 36.1358], 'DGB': [278.5761, 0.0701, 40.526], 'DJB': [277.928, 0.1427, 6.6494], 'GGB': [288.3283, 0.0834, 31.0713], 'ICB': [305.5616, 0.0777, 31.1126], 'SEB': [290.4418, 0.1056, 23.3583]}
+#### {} 731
+== dist
+  ALL     n= 731 ratio med 0.930 [p25 0.77 p75 1.07]  |err| med  15.6%  within10%   35%  within20%   59%
+  coef {'BSB': [0.2074], 'DGB': [0.2354], 'DJB': [0.2322], 'GGB': [0.1914], 'ICB': [0.2099], 'SEB': [0.2211]}
+== odsdist+add
+  ALL     n= 731 ratio med 0.981 [p25 0.85 p75 1.09]  |err| med  11.5%  within10%   45%  within20%   73%
+  coef {'BSB': [0.1442, 30.8051], 'DGB': [0.1018, 60.5087], 'DJB': [0.1416, 50.7317], 'GGB': [0.1003, 55.9426], 'ICB': [0.1052, 52.5751], 'SEB': [0.1234, 53.9525]}
+== k+dist
+  ALL     n= 731 ratio med 0.977 [p25 0.94 p75 1.02]  |err| med   4.8%  within10%   75%  within20%   95%
+  coef {'BSB': [259.1216, 0.1602], 'DGB': [298.8466, 0.1547], 'DJB': [266.7785, 0.1575], 'GGB': [374.5164, 0.1165], 'ICB': [367.7988, 0.1257], 'SEB': [311.5827, 0.1434]}
+== k+dist+add
+  ALL     n= 731 ratio med 0.991 [p25 0.97 p75 1.01]  |err| med   2.5%  within10%   95%  within20%   98%
+  coef {'BSB': [285.0881, 0.0792, 35.9747], 'DGB': [277.2386, 0.069, 41.131], 'DJB': [263.2743, 0.1405, 9.8936], 'GGB': [288.9106, 0.081, 32.0229], 'ICB': [306.2474, 0.0776, 31.0733], 'SEB': [284.6808, 0.1058, 23.8805]}
+
+# final_fit.py (holdout H, final coefficients)
+H holdout >=3stops n= 231 ratio med 0.948 [p25 0.84 p75 1.07]  |err| med  10.8%  within10%   48%  within20%   71%
+H holdout >=2km     n= 188 ratio med 0.991 [p25 0.91 p75 1.08]  |err| med   8.6%  within10%   57%  within20%   84%
+H holdout all       n= 254 ratio med 0.934 [p25 0.79 p75 1.06]  |err| med  11.7%  within10%   43%  within20%   65%
+baseline H >=2km n= 188 ratio med 0.647 [p25 0.56 p75 0.77]  |err| med  35.3%  within10%    6%  within20%   16%
+{'BSB': (0.1314, 34.3, 40, 7), 'DGB': (0.0869, 66.3, 90, 6), 'DJB': (0.1065, 65.5, 10, 3), 'GGB': (0.0879, 59.9, 165, 26), 'ICB': (0.1056, 51.7, 49, 10), 'SEB': (0.1191, 52.6, 333, 29)}
