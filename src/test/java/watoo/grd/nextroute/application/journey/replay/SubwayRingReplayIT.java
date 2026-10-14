@@ -193,7 +193,9 @@ class SubwayRingReplayIT {
 
         // 수집기는 worker 전용 빈이다. 행 변환(toTrain)만 쓰므로 같은 부품으로 직접 만든다.
         collector = new RealtimeSubwayCollector(null, realtimeCache, segmentLookup, stationIdLookup, null,
-                segmentTimeRecorder, departureRecorder);
+                segmentTimeRecorder, departureRecorder,
+                new watoo.grd.nextroute.application.subway.observability.SubwayRealtimeMetrics(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
         RestTemplate restTemplate = Mockito.mock(RestTemplate.class);
         SeoulSubwayApiAdapter adapter = new SeoulSubwayApiAdapter(restTemplate,
                 Mockito.mock(watoo.grd.nextroute.infrastructure.adapter.out.api.ApiCallBlocker.class, Mockito.RETURNS_DEFAULTS),
