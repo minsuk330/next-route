@@ -61,12 +61,27 @@ public final class JourneyLoadFixture {
      *                        되게 한다. 0 이면 전부 30초 간격이다
      * @param farRideSeconds  임박하지 않은 여정의 타는 단계 길이. 15분을 넘기면 환승이 예측 시야 밖이라
      *                        급하지 않은(긴 간격) 여정이 된다
+     * @param rideClasses     있으면 순번마다 돌아가며 이 타는 시간들을 쓴다(임박·비임박 구분 대신). 평가
+     *                        간격이 서로 다른 여정을 섞을 때 쓴다. null 이면 위 두 값으로 정한다
      */
     public record Spec(int journeys, int distinctStops, Instant dueFrom, Duration dueSpread,
-                       double nearRatio, int farRideSeconds) {
+                       double nearRatio, int farRideSeconds, int[] rideClasses) {
 
         public Spec(int journeys, int distinctStops, Instant dueFrom, Duration dueSpread) {
-            this(journeys, distinctStops, dueFrom, dueSpread, 0.0, DEFAULT_RIDE_SECONDS);
+            this(journeys, distinctStops, dueFrom, dueSpread, 0.0, DEFAULT_RIDE_SECONDS, null);
+        }
+
+        public Spec(int journeys, int distinctStops, Instant dueFrom, Duration dueSpread,
+                    double nearRatio, int farRideSeconds) {
+            this(journeys, distinctStops, dueFrom, dueSpread, nearRatio, farRideSeconds, null);
+        }
+
+        /** 이 순번의 여정이 타는 단계 길이. */
+        public int rideSeconds(int index) {
+            if (rideClasses != null && rideClasses.length > 0) {
+                return rideClasses[index % rideClasses.length];
+            }
+            return isNear(index) ? NEAR_RIDE_SECONDS : farRideSeconds;
         }
 
         /**
@@ -235,7 +250,7 @@ public final class JourneyLoadFixture {
             String stopId = stopId(interest);
             String routeId = routeId(interest);
             args.add(new Object[]{journeyId, 0, "WALK", "COMPLETED", null, 120, null});
-            int ride = spec.isNear(offset + i) ? NEAR_RIDE_SECONDS : spec.farRideSeconds();
+            int ride = spec.rideSeconds(offset + i);
             args.add(new Object[]{journeyId, 1, "RIDE_BUS", "ACTIVE", null, ride, routeId});
             args.add(new Object[]{journeyId, 2, "TRANSFER_WALK", "PENDING", null, 180, null});
             args.add(new Object[]{journeyId, 3, "WAIT_BUS", "PENDING", stopId, 300, routeId});
