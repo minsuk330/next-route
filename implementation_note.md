@@ -4578,3 +4578,37 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 미결
 - 공급자 한도 상향 신청(사용자 몫), 신청 근거 숫자 = 사용자 수와 무관한 상한 약 520만/일
+## #415-3 PR-A1 재평가 트리거 핵심 (2026-10-14, feat/reeval-trigger-core)
+
+### 확정
+- V67: `journey_session.evaluation_claimed_until`·`evaluation_dirty`(NOT NULL default false)·`last_evaluated_at` + 부분 인덱스 `idx_journey_session_active_nav`. **엔티티 미매핑(SQL 전용)** + `JourneySession` `@DynamicUpdate`
+- 선점: `evaluation_claimed_until = lease`, `evaluation_dirty = false`(죽은 워커 표시 물려받기 방지)
+- 완료: dirty 면 `LEAST(:next, :now + dirtyGap)`, dirty·claimed 해제, `last_evaluated_at = :now`. dirtyGap = 이번 평가의 등급(`JourneyEvaluationIntervalPolicy.tierOf`) 최소 간격
+- 트리거 `JourneySessionRepository.requestReevaluation`: CTE `ORDER BY id FOR UPDATE`(교착 방지) → 처리 중이면 dirty 만, 아니면 `LEAST(next, GREATEST(now, last + minGap))`. RETURNING (id, claimed)
+- `ReevaluationTrigger`(포트) + `JdbcReevaluationTrigger`: 가장 급한 등급으로 중복 제거 → 급한 등급부터 상한 500 → 포화(30초 넘게 밀린 여정 200+)면 주의·여유 미룸 → 등급마다 한 트랜잭션. 미룬 여정은 `TriggerResult.deferred` 로 돌려줌(A2 가 지문 갱신 안 하고 재전송)
+- 등급 = 간격 정책과 같은 기준(위험·5분 이내 긴급 / 15분 이내 주의 / 그 밖 여유). `tierOf` 를 `decide` 와 따로 둔 이유: BACKOFF 가 근거를 덮어 원래 급한 정도가 사라짐
+- 트리거는 `evaluation_urgent` 불간섭(#410 단일 근거 유지)
+- 시계 = 앱 `:now` 하나(DB now() 기각, Clock.fixed IT 다수) + `journey.clock.skew` gauge(분 1회 `select now()`)
+- 설정 `journey.navigation.reeval.*` 기본 enabled=false·shadow=true → 이 PR 은 동작 변화 0(완료 SQL 의 dirty 분기는 dirty 가 항상 false 라 기존과 같음)
+
+### 함정
+- yaml 블록을 처음에 `journey.reroute` 아래에 넣었다(정규식으로 "다음 4칸 키"를 찾다 navigation 밖으로 나감) ← 가드: `ReevaluationDefaultsTest` 가 실제 yaml 바인딩·기본값 확인
+- "지나온 환승" = `toLegIndex < currentLegIndex`(`isUpcoming` 은 `>=`). 시험 입력을 CURRENT_LEG 로 줘서 한 번 틀림
+- `GREATEST`·`LEAST` 는 NULL 을 무시한다(Postgres) → `last_evaluated_at` NULL 이어도 `now` 로 당겨짐(시험으로 확인)
+
+### 좌표
+- `domain/journey/repository/JourneySessionRepository.java` claimDueBatch·finishEvaluation·requestReevaluation·countOverdueSince
+- `application/journey/reeval/*`, `application/journey/observability/{JourneyReevalMetrics,ClockSkewMonitor}.java`
+- `JourneyEvaluationService.nextEvaluation`(Schedule.dirtyGapSeconds), `JourneyEvaluationScheduleWriter.finish`
+
+### 배포
+- V67 Flyway 자동(tracked). 플래그 전부 off → 동작 변화 없음. 켜는 건 PR-A2(지하철 변화 감지) 이후
+
+### 검증
+- `JourneyReevaluationTriggerIT` 17/0 (앞당김·뒤로 안 밀기·NULL 처리 중 표시·dirty→완료·정책 더 이른 시각 존중·선점 dirty 해제·livelock 5회·선점 트랜잭션 중 트리거 대기→dirty·반대 순서 동시 교착 없음 20회·엔티티 저장이 트리거 칸 안 되돌림·끝난/삭제/TRACK 불변·urgent 불간섭·그림자·상한·포화 차단·중복 등급·단계 전이는 여전히 CAS 깸), `JourneyDueEvaluatorIT` 11/0, `JourneyNotificationLostClaimIT` 2/0, `JourneyEvaluationIntervalPolicyTest`(+tierOf 4)·`ClockSkewMonitorTest` 2·`ReevaluationDefaultsTest` 2 통과
+- 변형 시험 4건 모두 검출: `@DynamicUpdate` 제거→엔티티 저장 시험 실패 / 트리거가 처리 중 무시→livelock·dirty·래치·LEAST 4건 실패 / 선점이 dirty 유지→1건 / 완료 LEAST→GREATEST→2건. 전부 원복
+- Opus 코드 리뷰(High 0) 반영: ①트리거 트랜잭션 `REQUIRES_NEW` + `TransactionException` 도 잡음(호출자 트랜잭션 합류 시 등급 분리 깨짐·rollback-only 폭발) ②`last_evaluated_at`·dirty 기준 = 저장 직전 시각(계산 전 시각이면 외부 호출이 느린 여정일수록 최소 간격 무효) ③provider 차단 시 등급 RELAXED(×4 백오프를 dirty 가 무르지 않게) ④트리거 CTE `next_evaluation_at IS NOT NULL`(LEAST(NULL,x)=x 로 예정 생성 방지) ⑤상한 초과 시 섞어서 고름(작은 id 편향 → 큰 id 굶음) ⑥포화 집계는 TRACK 포함이 의도(평가기가 둘 다 선점)
+- 🔴 불변식: 선점은 `next_evaluation_at` 과 `evaluation_claimed_until` 을 **같은 값**으로 적는다. 그래서 "처리 중 아님(claimed_until ≤ now)"이면 증서도 지난 값이고 `LEAST(지난 증서, …)` 가 증서를 보존한다. 처음 쓴 만료 시험이 둘을 다르게(표시만 과거) 만들어 CAS 가 깨지는 걸로 나왔는데, 실제로 생길 수 없는 상태였다 — 시험을 불변식대로 고침. 이 불변식을 깨는 변경(선점이 둘 중 하나만 적기)은 금지
+- 추가 시험: 만료 증서 보존 + 늦은 워커 저장 / 버려진 완료 뒤 남은 처리 중 표시는 dirty 만 → 다음 선점이 지움 / 등급별 DB 실패 격리(단위) / provider 차단 시 RELAXED(단위). `JourneyReevaluationTriggerIT` 19/0, `JdbcReevaluationTriggerTest` 1/0
+- 리뷰 반영 전 전체 `./gradlew cleanTest test --continue` → 2981 중 12 실패, 전부 기존 무관
+- 리뷰 반영 후 전체 `./gradlew cleanTest test --continue` → 2985 중 12 실패, 전부 **기존 무관**(같은 구성)

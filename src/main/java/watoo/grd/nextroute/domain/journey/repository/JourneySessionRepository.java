@@ -11,6 +11,7 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -186,9 +187,11 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
      * <p>고르기와 선점을 한 문장으로 한다. 나누면 그 사이에 다른 인스턴스가 같은 여정을 골라
      * 같은 여정을 두 번 평가한다 — 외부 API 호출이 그만큼 낭비된다.
      *
-     * <p><b>선점 방법은 다음 평가 시각을 미래로 미는 것이다.</b> 별도의 "처리 중" 칼럼을 두지
-     * 않는다. 밀어 둔 시각이 지나도 결과가 안 들어오면(워커가 죽었으면) 다른 워커가 자연히 다시
-     * 잡는다.
+     * <p><b>선점 방법은 다음 평가 시각을 미래로 미는 것이다.</b> 밀어 둔 시각이 지나도 결과가 안
+     * 들어오면(워커가 죽었으면) 다른 워커가 자연히 다시 잡는다. 같은 값을
+     * {@code evaluation_claimed_until} 에도 적는다(V67) — 재평가 트리거가 "지금 처리 중인가"를
+     * 보고, 처리 중이면 시각을 건드리지 않고 dirty 표시만 하게 하려는 것이다. 선점 때 dirty 를
+     * 지우는 이유: 죽은 워커가 남긴 표시를 다음 선점이 물려받으면 같은 평가를 한 번 더 한다.
      *
      * <p>여기서 넘긴 {@code leaseUntil} 은 <b>소유권 증서</b>로도 쓰인다. 평가를 마친 워커는 저장
      * 전에 "이 여정의 다음 평가 시각이 아직 내가 심은 값인가"를 확인한다
@@ -231,7 +234,9 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                 LIMIT :batchSize
                 FOR UPDATE OF s SKIP LOCKED)
             UPDATE journey_session j
-               SET next_evaluation_at = :leaseUntil
+               SET next_evaluation_at = :leaseUntil,
+                   evaluation_claimed_until = :leaseUntil,
+                   evaluation_dirty = false
             FROM picked
             WHERE j.id = picked.id
             RETURNING j.id AS id, picked.due_at AS due_at
@@ -263,14 +268,27 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
      * "바뀐 것 없음(204)"을 판단하므로, 상태·시각·근거가 그대로인데 번호를 올리면 앱이 30초마다
      * 같은 응답을 전부 다시 받는다.
      *
+     * <p><b>처리 중에 데이터가 바뀌었으면(dirty)</b> 다음 평가를 {@code now + dirtyGap} 으로 당긴다.
+     * 이번 계산은 바뀌기 전 값을 읽었을 수 있다. 다만 정책이 그보다 이른 시각을 정했으면 그쪽을 따른다
+     * — 여유 등급의 간격(30초)이 위험 판정의 최소 간격(10초)을 뒤로 미루면 안 된다.
+     *
      * @param bump 판정 값이 직전과 달라졌는지
      * @param urgent 다음 선점에서 먼저 잡을지(이번 판정이 환승 위험·임박)
+     * @param now 평가를 마친 시각. {@code last_evaluated_at} 이 된다
+     * @param dirtyGapSeconds dirty 였을 때 다음 평가까지 둘 최소 간격. 이번 평가의 등급에서 정한다
      * @return 1이면 내 소유가 확인됐고 기록됐다. 0이면 소유권을 잃었다
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             UPDATE journey_session
-               SET next_evaluation_at = :nextEvaluationAt,
+               SET next_evaluation_at = CASE WHEN evaluation_dirty
+                       THEN LEAST(CAST(:nextEvaluationAt AS timestamptz),
+                                  CAST(:now AS timestamptz)
+                                      + make_interval(secs => CAST(:dirtyGapSeconds AS double precision)))
+                       ELSE CAST(:nextEvaluationAt AS timestamptz) END,
+                   evaluation_dirty = false,
+                   evaluation_claimed_until = NULL,
+                   last_evaluated_at = :now,
                    evaluation_urgent = :urgent,
                    evaluation_version = evaluation_version + CASE WHEN :bump THEN 1 ELSE 0 END
              WHERE id = :id
@@ -282,7 +300,83 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                          @Param("claimedLeaseUntil") Instant claimedLeaseUntil,
                          @Param("nextEvaluationAt") Instant nextEvaluationAt,
                          @Param("bump") boolean bump,
-                         @Param("urgent") boolean urgent);
+                         @Param("urgent") boolean urgent,
+                         @Param("now") Instant now,
+                         @Param("dirtyGapSeconds") long dirtyGapSeconds);
+
+    /**
+     * 실시간 데이터가 바뀐 여정들의 다음 평가를 앞당긴다(#415-3 재평가 트리거).
+     *
+     * <p><b>처리 중이면 표시만 한다.</b> 평가기가 지금 그 여정을 계산하고 있으면
+     * ({@code evaluation_claimed_until > now}) 다음 평가 시각(= 선점 증서)을 건드리지 않고 dirty 만
+     * 세운다. 증서를 덮으면 진행 중 계산이 소유권을 잃어 결과를 버리고, 이벤트가 계산 시간보다 잦은
+     * 여정은 매번 버려져 영영 저장되지 않는다(livelock). dirty 는 평가를 마칠 때
+     * {@link #finishEvaluation} 이 읽어 곧바로 다음 평가를 잡는다.
+     *
+     * <p>다음 평가 시각이 비어 있는 행은 건드리지 않는다. {@code LEAST(NULL, x)} 는 x 라 예정이 없던
+     * 행에 새 예정을 만들어 버린다.
+     *
+     * <p><b>처리 중이 아니면 당기기만 한다.</b> {@code LEAST} 라 이미 더 이른 예정은 그대로 두고,
+     * 직전 평가로부터 {@code minGapSeconds} 는 지키게 한다 — 이벤트가 몰려도 여정당 평가 횟수에
+     * 하한 간격이 생긴다. lease 가 만료된 채 남은 행은 {@code LEAST(지난 lease, …)} 가 지난 lease 를
+     * 고르므로 증서가 보존된다.
+     *
+     * <p><b>잠금 순서를 id 로 고정한다.</b> 여러 행을 한 문장으로 고치면 계획 순서대로 잠그는데, 두
+     * 트리거 묶음이 겹치는 여정을 서로 다른 순서로 잡으면 교착한다. CTE 에서 id 순으로 먼저 잠근다.
+     * 선점({@code FOR UPDATE SKIP LOCKED})이 잡고 있는 행은 기다렸다가 커밋 뒤의 새 값으로 다시 판단하므로
+     * "처리 중"을 놓치지 않는다.
+     *
+     * <p>{@code @Modifying} 이 아니다({@code RETURNING}). 반드시 {@code @Transactional} 안에서 부른다.
+     *
+     * @return 바뀐 여정마다 처리 중이라 표시만 했는지
+     */
+    @Query(value = """
+            WITH t AS (
+                SELECT id, COALESCE(evaluation_claimed_until > :now, false) AS claimed
+                  FROM journey_session
+                 WHERE id IN (:ids)
+                   AND status = 'ACTIVE' AND deleted_at IS NULL AND kind = 'NAVIGATION'
+                   AND next_evaluation_at IS NOT NULL
+                 ORDER BY id
+                 FOR UPDATE)
+            UPDATE journey_session j
+               SET evaluation_dirty = j.evaluation_dirty OR t.claimed,
+                   next_evaluation_at = CASE WHEN t.claimed THEN j.next_evaluation_at
+                       ELSE LEAST(j.next_evaluation_at,
+                                  GREATEST(CAST(:now AS timestamptz),
+                                           j.last_evaluated_at
+                                               + make_interval(secs => CAST(:minGapSeconds AS double precision))))
+                       END
+              FROM t
+             WHERE j.id = t.id
+            RETURNING j.id AS id, t.claimed AS claimed
+            """, nativeQuery = true)
+    List<ReevaluationRow> requestReevaluation(@Param("ids") Collection<Long> ids,
+                                              @Param("now") Instant now,
+                                              @Param("minGapSeconds") long minGapSeconds);
+
+    /** 재평가 트리거 결과 한 줄. */
+    interface ReevaluationRow {
+        Long getId();
+
+        Boolean getClaimed();
+    }
+
+    /**
+     * 예정 시각에서 {@code before} 보다 더 밀린 진행 중 여정 수. 평가기가 포화됐는지 보는 신호다.
+     *
+     * <p>여정 종류(길안내·단독 추적)를 가리지 않는다 — 평가기가 둘 다 선점하므로 둘 다 평가기의 일이다.
+     *
+     * <p>{@code idx_journey_due}(V35) 범위 스캔이라 적체가 작을 때 싸다. 적체가 클 때만 비싸지는데,
+     * 그때는 트리거가 덜 급한 등급을 건너뛰는 근거가 되므로 정확히 셀 가치가 있다.
+     */
+    @Query(value = """
+            SELECT count(*) FROM journey_session
+             WHERE status = 'ACTIVE' AND deleted_at IS NULL
+               AND next_evaluation_at IS NOT NULL
+               AND next_evaluation_at <= :before
+            """, nativeQuery = true)
+    long countOverdueSince(@Param("before") Instant before);
 
     /**
      * 탈퇴: 그 사용자의 여정을 소프트 삭제한다. 여정 기록은 남기되 조회·발송에서 빠지게 한다
