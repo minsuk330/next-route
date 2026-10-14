@@ -50,8 +50,9 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willAnswer;
@@ -305,7 +306,7 @@ class JourneyLateResultIT {
                         java.sql.Timestamp.from(claim.leaseUntil()), claim.journeyId());
             }
             return call.callRealMethod();
-        }).given(scheduleWriter).finish(any(), any(), any(), any());
+        }).given(scheduleWriter).finish(any(), any(), any(), anyBoolean(), anyLong(), any(), any());
     }
 
     // ── 경합 장치 ────────────────────────────────────────────────────────────

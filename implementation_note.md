@@ -4712,3 +4712,4 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `./gradlew test --tests '*JourneyLateResultIT' --tests '*JourneyDueEvaluatorIT' --tests '*JourneyNotificationLostClaimIT'` → 7/7, 7/7, 2/2
+- (main 반영) #410·#420 이 `JourneyEvaluationScheduleWriter.finish` 인자를 7개로 늘려 스파이 스텁 매처를 맞춤
