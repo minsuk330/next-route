@@ -16,4 +16,10 @@ public interface SubwayStationArrivalCachePort {
     Optional<List<SubwayArrivalInfo>> find(String stationName);
 
     void put(String stationName, List<SubwayArrivalInfo> arrivals);
+
+    /**
+     * 이 역의 캐시를 지운다. 전 노선 스냅숏에서 이 역이 바뀐 것을 봤을 때, 곧 다시 평가될 여정이 더 낡은
+     * 역별 캐시를 읽고 "변화 없음"이라 하지 않게 한다(#415-3). 실패해도 예외를 내지 않는다.
+     */
+    void evict(String stationName);
 }

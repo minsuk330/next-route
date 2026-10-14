@@ -17,7 +17,46 @@ public class JourneyReevalMetrics {
     public static final String DEFERRED = "journey.reeval.deferred";
     public static final String SHADOW = "journey.reeval.shadow";
 
+    public static final String EVENTS = "journey.reeval.events";
+    public static final String COMPARED = "journey.reeval.compared";
+    public static final String INTEREST_KEYS = "journey.reeval.interest.keys";
+    public static final String INTEREST_REBUILD = "journey.reeval.interest.rebuild";
+
     private final MeterRegistry registry;
+    private final java.util.Map<String, java.util.concurrent.atomic.AtomicInteger> interestKeys =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * 비교한 키 수와 그중 바뀐 키 수. 바뀐 비율이 30% 를 넘으면 지문이 너무 예민하다는 신호다 — 거의
+     * 모든 관측이 이벤트가 되면 이벤트 기반이 아니라 폴링과 같아진다.
+     *
+     * @param source {@code subway}·{@code bus}
+     */
+    public void recordCompared(String source, int compared, int changed) {
+        if (compared > 0) {
+            registry.counter(COMPARED, "source", source).increment(compared);
+        }
+        if (changed > 0) {
+            registry.counter(EVENTS, "source", source).increment(changed);
+        }
+    }
+
+    /** 관심 키 색인 재구성. 키 수(종류별)와 걸린 시간. */
+    public void recordInterestRebuild(java.util.Map<? extends Object, ?> byKey, long nanos) {
+        java.util.Map<String, Integer> counts = new java.util.HashMap<>();
+        for (Object key : byKey.keySet()) {
+            String source = key.getClass().getSimpleName().toLowerCase();
+            counts.merge(source, 1, Integer::sum);
+        }
+        for (String source : java.util.List.of("subway", "bus")) {
+            interestKeys.computeIfAbsent(source, s -> registry.gauge(INTEREST_KEYS,
+                            io.micrometer.core.instrument.Tags.of("source", s),
+                            new java.util.concurrent.atomic.AtomicInteger()))
+                    .set(counts.getOrDefault(source, 0));
+        }
+        io.micrometer.core.instrument.Timer.builder(INTEREST_REBUILD).register(registry)
+                .record(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
+    }
 
     /** 처리 중이 아니라 다음 평가 시각을 직접 앞당긴 여정 수. */
     public void recordPulled(ReevaluationTier tier, int count) {

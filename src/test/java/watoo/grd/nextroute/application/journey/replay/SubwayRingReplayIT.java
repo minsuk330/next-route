@@ -195,7 +195,15 @@ class SubwayRingReplayIT {
         collector = new RealtimeSubwayCollector(null, realtimeCache, segmentLookup, stationIdLookup, null,
                 segmentTimeRecorder, departureRecorder,
                 new watoo.grd.nextroute.application.subway.observability.SubwayRealtimeMetrics(
-                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
+                // 재평가 피드는 꺼 둔 채로 넘긴다(null 이면 매 수집마다 예외를 삼키며 경고를 남긴다)
+                new watoo.grd.nextroute.application.journey.reeval.SubwayChangeFeed(
+                        new watoo.grd.nextroute.application.journey.reeval.ReevaluationProperties(),
+                        null, null, null, null, null),
+                new watoo.grd.nextroute.common.lock.LeaderLease() {
+                    public boolean isLeader() { return true; }
+                    public long epoch() { return 0; }
+                });
         RestTemplate restTemplate = Mockito.mock(RestTemplate.class);
         SeoulSubwayApiAdapter adapter = new SeoulSubwayApiAdapter(restTemplate,
                 Mockito.mock(watoo.grd.nextroute.infrastructure.adapter.out.api.ApiCallBlocker.class, Mockito.RETURNS_DEFAULTS),

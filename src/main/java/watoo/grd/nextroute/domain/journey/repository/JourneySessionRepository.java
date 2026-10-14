@@ -355,6 +355,66 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                                               @Param("now") Instant now,
                                               @Param("minGapSeconds") long minGapSeconds);
 
+    /**
+     * 진행 중 길안내 여정이 지금 지켜봐야 할 실시간 키(#415-3 관심 키 색인).
+     *
+     * <p>노선은 평가기가 읽는 칸과 같게 고른다 — 지하철은 구간의 노선({@code WaitSubwayArrivalPredictor}),
+     * 버스는 고른 선택지의 노선({@code BusTransferTargetArrivalPredictor}).
+     *
+     * <p>남은 대기 구간(버스·지하철) 하나가 한 줄이다. 지난 구간은 빼고, 현재 개정본만 본다. 남은 환승
+     * 중 가장 가까운 준비 시각과 위험 여부를 함께 실어 색인이 등급을 메모리에서 정하게 한다.
+     *
+     * <p>활성 행에서 출발한다(V67 {@code idx_journey_session_active_nav}). 구간·선택지는
+     * {@code uq_journey_leg_index}·PK 로 붙는다. 정류장·노선 ID 인덱스는 두지 않는다 — 역방향 찾기는
+     * 메모리 색인이 한다.
+     */
+    @Query(value = """
+            SELECT s.id AS journeyId,
+                   l.type AS legType,
+                   CASE WHEN l.type = 'WAIT_SUBWAY' THEN l.route_id
+                        ELSE COALESCE(o.route_id, l.route_id) END AS routeId,
+                   l.start_stop_id AS stopId,
+                   l.start_name AS stopName,
+                   o.boarding_seq AS boardingSeq,
+                   o.way_code AS wayCode,
+                   (SELECT min(t.user_ready_at) FROM transfer_connection t
+                     WHERE t.journey_id = s.id AND t.route_revision = s.route_revision
+                       AND t.to_leg_index >= s.current_leg_index) AS nextReadyAt,
+                   EXISTS (SELECT 1 FROM transfer_connection t
+                            WHERE t.journey_id = s.id AND t.route_revision = s.route_revision
+                              AND t.to_leg_index >= s.current_leg_index
+                              AND t.status IN ('AT_RISK', 'MISSED')) AS risky
+              FROM journey_session s
+              JOIN journey_leg l
+                ON l.journey_id = s.id AND l.route_revision = s.route_revision
+               AND l.leg_index >= s.current_leg_index
+               AND l.type IN ('WAIT_BUS', 'WAIT_SUBWAY')
+              LEFT JOIN journey_leg_route_option o ON o.id = l.selected_route_option_id
+             WHERE s.status = 'ACTIVE' AND s.deleted_at IS NULL AND s.kind = 'NAVIGATION'
+            """, nativeQuery = true)
+    List<InterestRow> findInterestRows();
+
+    /** 관심 키 한 줄. */
+    interface InterestRow {
+        Long getJourneyId();
+
+        String getLegType();
+
+        String getRouteId();
+
+        String getStopId();
+
+        String getStopName();
+
+        Integer getBoardingSeq();
+
+        Integer getWayCode();
+
+        Instant getNextReadyAt();
+
+        Boolean getRisky();
+    }
+
     /** 재평가 트리거 결과 한 줄. */
     interface ReevaluationRow {
         Long getId();

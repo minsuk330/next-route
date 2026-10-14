@@ -2,6 +2,8 @@ package watoo.grd.nextroute.application.subway.service;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import watoo.grd.nextroute.application.journey.reeval.SubwayChangeFeed;
+import watoo.grd.nextroute.common.lock.LeaderLease;
 import watoo.grd.nextroute.application.subway.observability.SubwayRealtimeMetrics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -53,6 +55,13 @@ public class RealtimeSubwayCollector {
     private final SubwaySegmentTimeRecorder segmentTimeRecorder;
     private final SubwayArrivalDepartureRecorder arrivalDepartureRecorder;
     private final SubwayRealtimeMetrics metrics;
+    /** 스냅숏에서 바뀐 역을 찾아 그 역을 지켜보는 여정의 평가를 앞당긴다(#415-3). */
+    private final SubwayChangeFeed changeFeed;
+    /**
+     * 여러 worker 중 한 대만 수집하게 한다({@code journey.navigation.reeval.leader-lease.enabled}). 끄면(기본)
+     * 늘 리더라 지금과 같다. 변화 감지와 같은 잠금이라 수집하는 인스턴스가 곧 감지하는 인스턴스다.
+     */
+    private final LeaderLease leaderLease;
 
     @PostConstruct
     public void registerBootTime() {
@@ -68,6 +77,10 @@ public class RealtimeSubwayCollector {
     @Scheduled(fixedDelayString = "${realtime.subway.poll-interval-ms:15000}")
     public void collect() {
         if (!enabled) return;
+        if (!leaderLease.isLeader()) {
+            // 다른 worker 가 수집한다. 두 대가 같이 부르면 호출 한도와 수신 트래픽이 두 배가 된다.
+            return;
+        }
 
         if (!isActiveHours()) {
             cachePort.saveStatus(SubwayRealtimeStatus.OFF_HOURS);
@@ -107,6 +120,12 @@ public class RealtimeSubwayCollector {
 
             cachePort.saveSnapshot(snapshot, snapshotTtlSeconds);
             cachePort.saveStatus(SubwayRealtimeStatus.ACTIVE);
+            try {
+                changeFeed.onSnapshot(trains);
+            } catch (Exception e) {
+                // 재평가 트리거가 실패해도 수집은 성공이다. 평가기의 간격 폴링이 안전망이다.
+                log.warn("[RealtimeCollector] 변화 감지 실패: {}", e.getMessage());
+            }
             try {
                 // 진행 링의 도착 예정 원천(구간 실측). 실패해도 수집은 성공이다.
                 segmentTimeRecorder.record(trains);
