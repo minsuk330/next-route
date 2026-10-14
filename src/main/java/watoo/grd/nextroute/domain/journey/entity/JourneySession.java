@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.domain.journey.entity;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.hibernate.annotations.DynamicUpdate;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -31,9 +32,14 @@ import java.time.Instant;
  * <p>{@code id} 는 다른 표와 같은 순번 bigint 다. 여정 번호는 푸시 본문과 앱 링크에 실려 나가
  * 이웃 번호를 찍어 볼 수 있으므로, 조회는 반드시 소유자를 <b>쿼리 조건에</b> 넣는다
  * ({@code findByIdAndUserIdAndDeletedAtIsNull}). 꺼낸 뒤에 비교하는 방식은 언젠가 빠뜨린다.
+ *
+ * <p><b>{@code @DynamicUpdate}</b>: 바뀐 칸만 쓴다. 이 행은 평가기·재평가 트리거가 SQL 로 직접 고치는
+ * 칸(다음 평가 시각·선점·dirty)과 엔티티로 고치는 칸이 섞여 있다. 잠금 없이 읽은 엔티티를 저장하는
+ * 경로(재탐색 제안 닫기 등)가 통째로 쓰면, 그사이 SQL 이 바꾼 다음 평가 시각을 옛 값으로 되돌린다.
  */
 @Entity
 @Table(name = "journey_session")
+@DynamicUpdate
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class JourneySession extends BaseEntity {
@@ -96,6 +102,12 @@ public class JourneySession extends BaseEntity {
 
     /** 다음에 서버가 평가해야 할 시각. 채우는 주체는 Phase 4. */
     private Instant nextEvaluationAt;
+
+    /**
+     * 다음 선점에서 먼저 잡을지. 평가기가 밀릴 때 환승이 위험하거나 임박한 여정이 예정 시각만 보고
+     * 먼 여정 뒤에 줄 서지 않게 한다. 평가기가 매번 다시 정한다.
+     */
+    private boolean evaluationUrgent;
 
     private Instant endedAt;
 
@@ -193,9 +205,13 @@ public class JourneySession extends BaseEntity {
      *
      * <p>여정을 시작할 때와 단계가 바뀔 때 지금 시각으로 심는다 — 두 순간은 상황이 크게 달라져
      * 다음 주기를 기다릴 이유가 없다. 그 뒤로는 평가기가 스스로 다음 시각을 기록한다.
+     *
+     * <p>같은 이유로 급한 줄에 세운다. 평가기가 밀려 있어도 방금 버스를 탄 사람의 판단이 예정 시각만
+     * 보고 뒤로 가면 안 된다.
      */
     public void scheduleEvaluationAt(Instant evaluateAt) {
         this.nextEvaluationAt = evaluateAt;
+        this.evaluationUrgent = true;
     }
 
     public void protectSubwayUntil(Instant protectionUntil) {

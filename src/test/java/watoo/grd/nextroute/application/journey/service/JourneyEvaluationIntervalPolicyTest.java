@@ -11,6 +11,8 @@ import watoo.grd.nextroute.application.journey.service.JourneyEvaluationInterval
 import watoo.grd.nextroute.application.journey.service.JourneyEvaluationIntervalPolicy.Reason;
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
 
+import watoo.grd.nextroute.application.journey.reeval.ReevaluationTier;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -251,5 +253,51 @@ class JourneyEvaluationIntervalPolicyTest {
 
         assertThat(decisions).allSatisfy(decision -> assertThat(decision.interval())
                 .isBetween(Duration.ofSeconds(20), Duration.ofSeconds(40)));
+    }
+
+    @Nested
+    @DisplayName("재평가 등급(#415-3)")
+    class ReevaluationTierOf {
+
+        @Test
+        @DisplayName("위험이 있으면 멀어도 긴급")
+        void riskIsUrgent() {
+            assertThat(policy.tierOf(List.of(transfer(TransferStatus.AT_RISK, Duration.ofMinutes(30))),
+                    CURRENT_LEG, NOW, false)).isEqualTo(ReevaluationTier.URGENT);
+        }
+
+        @Test
+        @DisplayName("5분 이내는 긴급, 15분 이내는 주의, 그 밖은 여유")
+        void byTimeToTransfer() {
+            assertThat(policy.tierOf(List.of(transfer(TransferStatus.COMFORTABLE, Duration.ofMinutes(4))),
+                    CURRENT_LEG, NOW, false)).isEqualTo(ReevaluationTier.URGENT);
+            assertThat(policy.tierOf(List.of(transfer(TransferStatus.COMFORTABLE, Duration.ofMinutes(10))),
+                    CURRENT_LEG, NOW, false)).isEqualTo(ReevaluationTier.CAUTION);
+            assertThat(policy.tierOf(List.of(transfer(TransferStatus.COMFORTABLE, Duration.ofMinutes(30))),
+                    CURRENT_LEG, NOW, false)).isEqualTo(ReevaluationTier.RELAXED);
+        }
+
+        @Test
+        @DisplayName("값이 그대로여서 간격이 늘어나도(BACKOFF) 등급은 급한 정도대로다")
+        void backoffDoesNotHideCaution() {
+            List<TransferRiskAssessment> caution = List.of(transfer(TransferStatus.COMFORTABLE, Duration.ofMinutes(10)));
+            assertThat(decide(caution, Duration.ofSeconds(60), false, false).reason())
+                    .isEqualTo(JourneyEvaluationIntervalPolicy.Reason.BACKOFF);
+            assertThat(policy.tierOf(caution, CURRENT_LEG, NOW, false)).isEqualTo(ReevaluationTier.CAUTION);
+        }
+
+        @Test
+        @DisplayName("provider 가 막혔으면 급해도 여유 — 막힌 문을 곧바로 다시 두드리지 않는다")
+        void blockedProviderIsRelaxed() {
+            assertThat(policy.tierOf(List.of(transfer(TransferStatus.AT_RISK, Duration.ofMinutes(2))),
+                    CURRENT_LEG, NOW, true)).isEqualTo(ReevaluationTier.RELAXED);
+        }
+
+        @Test
+        @DisplayName("지나온 환승은 보지 않는다")
+        void ignoresPassedTransfers() {
+            assertThat(policy.tierOf(List.of(assessment(TransferStatus.AT_RISK, Duration.ofMinutes(1), CURRENT_LEG - 1)),
+                    CURRENT_LEG, NOW, false)).isEqualTo(ReevaluationTier.RELAXED);
+        }
     }
 }

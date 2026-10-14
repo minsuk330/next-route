@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.journey.service;
 
 import lombok.RequiredArgsConstructor;
+import watoo.grd.nextroute.application.journey.reeval.ReevaluationTier;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
@@ -70,6 +71,30 @@ public class JourneyEvaluationIntervalPolicy {
         // 실제로 늘어났을 때만 근거를 BACKOFF 로 남긴다. 안 늘었는데 그렇게 적으면 지표가
         // "값이 안 바뀌어서 뜸해지고 있다"고 잘못 말한다.
         return grown.compareTo(base.interval()) > 0 ? new Decision(grown, Reason.BACKOFF) : base;
+    }
+
+    /**
+     * 이 여정의 재평가 등급(#415-3). 간격 규칙 2·3·4 와 같은 기준이다 — 위험·임박이면 긴급, 한가함
+     * 기준 안이면 주의, 그 밖은 여유. provider 가 막혔으면 여유.
+     *
+     * <p>간격 결정({@link #decide})과 따로 둔 이유: 무변화 백오프가 근거를 BACKOFF 로 덮어 원래 급한
+     * 정도가 사라진다. 재평가의 최소 간격은 급한 정도로 정해야 한다.
+     */
+    public ReevaluationTier tierOf(List<TransferRiskAssessment> assessments, int currentLegIndex,
+                                   Instant now, boolean upstreamBlocked) {
+        if (upstreamBlocked) {
+            // provider 가 막혀 다음 평가를 ×4 로 늦춰 뒀다. 급하다고 곧바로 다시 두드리면 그 백오프를
+            // 무르게 된다.
+            return ReevaluationTier.RELAXED;
+        }
+        List<TransferRiskAssessment> upcoming = assessments.stream()
+                .filter(assessment -> assessment.isUpcoming(currentLegIndex))
+                .toList();
+        return switch (baseDecision(upcoming, now).reason()) {
+            case AT_RISK, NEAR -> ReevaluationTier.URGENT;
+            case NORMAL -> ReevaluationTier.CAUTION;
+            default -> ReevaluationTier.RELAXED;
+        };
     }
 
     /** 급한 정도만 보고 정한 간격. 변화 여부는 아직 안 본다. */

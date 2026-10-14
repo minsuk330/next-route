@@ -27,10 +27,13 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 
 /**
@@ -59,6 +62,9 @@ class JourneyDueEvaluatorSchedulerTest {
         executor.setMaxPoolSize(2);
         executor.setQueueCapacity(10);
         executor.initialize();
+        // 아래 시험들은 배치를 통째로 잡고 끝나기를 기다리는 경로(DUE_TIME)를 본다. 빈자리만큼 채우는
+        // 경로(URGENT_FIRST)는 맨 아래 시험들이 따로 본다.
+        properties.setClaimOrder(JourneyEvaluatorProperties.ClaimOrder.DUE_TIME);
         scheduler = new JourneyDueEvaluatorScheduler(
                 claimService, evaluationService, metrics, properties, executor, clock);
     }
@@ -114,6 +120,54 @@ class JourneyDueEvaluatorSchedulerTest {
         scheduler.run();
 
         assertThat(registry.counter(JourneyEvaluationMetrics.LOST_CLAIM).count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("급한 환승 먼저 모드는 워커가 곧바로 집을 만큼만 선점한다")
+    void urgentFirstClaimsOnlyFreeCapacity() {
+        properties.setClaimOrder(JourneyEvaluatorProperties.ClaimOrder.URGENT_FIRST);
+        properties.setPoolSize(2);
+        given(claimService.claimDue(anyInt())).willReturn(claims(4));
+        given(evaluationService.evaluate(any())).willReturn(evaluated());
+
+        scheduler.run();
+
+        // 워커 2개 + 큐 여분 2개. 배치(200)를 통째로 잡으면 큐가 순서를 정해 급한 환승이 밀린다.
+        then(claimService).should().claimDue(4);
+        then(claimService).should(never()).claimDue();
+        then(evaluationService).should(timeout(2_000).times(4)).evaluate(any());
+        // 이 모드도 선점 쿼리 시간과 한 바퀴를 잰다(#415-1)
+        assertThat(registry.timer(JourneyEvaluationMetrics.CLAIM_DURATION).count()).isEqualTo(1);
+        assertThat(registry.timer(JourneyEvaluationMetrics.TICK_DURATION, "claimed", "some").count())
+                .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("급한 환승 먼저 모드는 빈자리가 없으면 선점하지 않는다")
+    void urgentFirstSkipsWhenWorkersAreFull() throws Exception {
+        properties.setClaimOrder(JourneyEvaluatorProperties.ClaimOrder.URGENT_FIRST);
+        properties.setPoolSize(2);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        try {
+            for (int i = 0; i < 4; i++) {
+                executor.execute(() -> {
+                    try {
+                        release.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+            }
+
+            scheduler.run();
+
+            then(claimService).should(never()).claimDue(anyInt());
+            assertThat(registry.timer(JourneyEvaluationMetrics.TICK_DURATION, "claimed", "none").count())
+                    .as("빈자리가 없어 선점 안 한 tick 도 센다 — 포화 신호")
+                    .isEqualTo(1);
+        } finally {
+            release.countDown();
+        }
     }
 
     @Test
