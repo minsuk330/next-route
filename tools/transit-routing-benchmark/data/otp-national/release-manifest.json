@@ -175,7 +175,14 @@
     "allLinesNote": "VSA_ = 출구 있고 승강장 2개 이상인 지하철 역 묶음. 자식 = 묶음 모든 승강장 복제(일반철도 RS_TAGO_N 포함, 운행 없음) + 출구 복제. 앱은 노선 없는 역 이름에만 쓴다"
   },
   "deploy": {
-    "status": "대기(사용자 확인 후 배포)",
+    "at": "2026-10-14T12:48:22+09:00",
+    "vpsDir": "/srv/nextroute/otp/national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-busrt-g42e0a79a7ddc/",
+    "command": "docker compose -f compose.yaml -f /root/apps/observability/otp/compose.otp-national.yaml up -d --force-recreate --no-deps otp → docker compose --env-file .env -f compose.yaml up -d --no-deps --force-recreate api worker",
+    "otpHealthyAfterSec": 55,
+    "otpHeap": "-Xmx3500m, mem_limit 4500m (변경 없음). 기동 직후 3.74GiB, Graph loaded |V|=3,514,773 |E|=8,832,612",
+    "app": "앱 변경 없음(api·worker 이미지 nextroute:20261013-152519-55990ddc 그대로, env ROUTING_OTP_GRAPH_VERSION·coverage-index 마운트만 바뀌어 재생성). PR #411 머지 041ad807",
+    "rollbackBackups": "compose.yaml / compose.otp-national.yaml .bak-20261014-124812-pre-busrt. 옛 그래프 디렉터리 ...-shaped-gbis-alllines-gf19e19a0a050 유지",
+    "verified": "운영 OTP: ODsay 대비 버스 탑승시간 오차 중앙값 8.9%(145 짝, 3정류장+ 8.4, 2km+ 7.8), 네이버 기록값 5개 중앙값 8%. 운영 /api/route/search 14:45: 잠실역 8호선→강남역 신분당선 2000 32분(네이버 32)·360 34분(네이버 36), 강남→홍대 740 57분(네이버 57), 강남→서울역 421 탑승 34·총 43(ODsay 34·43). 지하철만 경로 불변(2호선 16·39분). api·worker healthy, ERROR 0",
     "previous": {
       "at": "2026-10-13T13:49:41+09:00",
       "vpsDir": "/srv/nextroute/otp/national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-gf19e19a0a050/",
