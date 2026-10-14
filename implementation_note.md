@@ -4682,6 +4682,50 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 변형 시험: uri() 무력화 → 배선 2 실패 / http.url 에 쿼리 복원 → 1 실패 / JDK 기록 `error` tag 제거 → Prometheus 공존 실패 / yaml client 줄 삭제 → 배선 실패. 전부 원복
 - 전체 `./gradlew cleanTest test --continue`(st-pg·st-redis + env) → 2961 중 12 실패, 전부 **기존 무관**(#415-1 기록과 같은 구성)
 - (main 반영) #416 과 같은 자리에 넣은 `management.metrics.distribution.slo` 블록을 한 블록으로 합침(http.server·hikari·http.client 세 줄)
+## 2026-10-12 평가기 늦은 결과 경합 시험 (test/journey-evaluator-late-result)
+
+### 확정
+- `JourneyLateResultIT`: 워커 A 를 외부 호출(가짜 예측기) 안에 래치로 세워 두고, 그 사이 실제 경로를 돌린 뒤 A 를 푼다. 경우 3개(다른 워커 재선점 / 단계 전이 / 여정 취소) 모두 A=`LOST_CLAIM`, A 를 풀기 전후 DB 흔적(판정·계산 시각·평가 번호·다음 평가 시각·대기 단계 예측·알림 행) 동일. 대조군: 아무도 안 끼면 A 의 결과는 MISSED + 위험 알림으로 남는다(그래야 "반영 0건"이 의미 있다)
+- 60초 lease 만료는 `MutableClock` 을 61초 넘겨 만든다. 시작 시각은 마이크로초로 자른다 — 선점 시각을 `=` 로 비교하는데 Postgres 는 마이크로초까지만 담는다
+- 두 저장 조건이 경우를 나눠 맡는다: 선점 시각 비교 줄을 지운 변형에서 재선점·단계 전이 2개가 깨지고(EVALUATED), 여정 취소는 `status = 'ACTIVE'` 가 따로 막아 통과
+
+### 함정
+- A 가 예측기에 닿지 않음 ← `journey_leg_route_option.route_id` 가 비면 `BusBoardingTimeEstimator` 가 "노선 미해석"으로 조회를 건너뜀(노선표 데이터 없는 DB) / 가드: 시험이 route_id 를 직접 채움
+- `JourneyEvaluationIT` 7/19 실패가 **같은 원인**(route_id null → 예측 없음 → UNKNOWN). 이 브랜치는 main 코드 무변경 → 기존 무관. 별건으로 그 시험의 `resolveStopIdentity` 에 route_id 를 채우면 풀릴 것으로 보임(미확인)
+- 스크래치 clone 일회용 DB: V1 baseline 재실행 불가(`spatial_ref_sys already exists` / 시퀀스 순서). 로컬 시험 DB(V64) 스키마 덤프 + flyway 이력으로 채움. 필요 env 더미: GONG_API·KAKAO_REST_API_KEY·SEOUL_BUS_USAGE·SEOUL_SUBWAY_MASTER·SEOUL_SUBWAY_ROUTE
+
+### 검증
+- `./gradlew test --tests '*JourneyLateResultIT' --tests '*JourneyDueEvaluatorIT' --tests '*JourneyNotificationLostClaimIT' --tests '*JourneyEvaluationIT'`
+  - JourneyLateResultIT 4/4, JourneyDueEvaluatorIT 7/7, JourneyNotificationLostClaimIT 2/2
+  - JourneyEvaluationIT 12/19 — 실패 7 기존 무관(위 함정)
+- 변형 확인: `finishEvaluation` 의 `AND next_evaluation_at = :claimedLeaseUntil` 삭제 시 2/4 실패(재선점·단계 전이, `expected LOST_CLAIM but was EVALUATED`). 원복 후 4/4
+
+### 배포
+- 시험만 추가. 마이그레이션·운영 코드 변경 없음
+
+### 확정 (2026-10-13 추가: 대조군을 시험으로 고정)
+- 같은 순서를 "선점 시각 대조 없는 저장"으로 돌리는 대조군 3개를 `JourneyLateResultIT` 에 추가. 재선점: A=EVALUATED, B 의 최신 '여유'가 A 의 옛 '놓침'으로 덮이고 위험 알림이 쌓임. 단계 전이: 옛 단계 기준 MISSED·알림 저장. 여정 종료: 상태 조건이 따로 막아 LOST_CLAIM. → bullet 의 "확인 제거 시 3건 중 2건" 이 다시 돌릴 수 있는 근거가 됨
+- 대조군 장치 = `@SpyBean JourneyEvaluationScheduleWriter` 로 저장 직전 `next_evaluation_at` 을 그 워커의 선점 값으로 되돌린 뒤 실제 `finish` 호출(대조 조건을 늘 참으로 = 그 줄 삭제와 동치). ACTIVE 행만 되돌림
+
+### 함정
+- JPA 저장소 `@SpyBean` 에서 `callRealMethod` 불가("Cannot call abstract real method") ← 인터페이스 프록시. `getSpiedInstance()` 도 null / 가드: 구체 클래스(`JourneyEvaluationScheduleWriter`)를 가로챔
+
+### 검증
+- `./gradlew test --tests '*JourneyLateResultIT' --tests '*JourneyDueEvaluatorIT' --tests '*JourneyNotificationLostClaimIT'` → 7/7, 7/7, 2/2
+- (main 반영) #410·#420 이 `JourneyEvaluationScheduleWriter.finish` 인자를 7개로 늘려 스파이 스텁 매처를 맞춤
+## 2026-10-12 조회 없이 판정 갱신 시험 (test/journey-evaluator-refresh-without-query)
+
+### 확정
+- `JourneyRefreshWithoutQueryIT`: 조회 API 를 한 번도 부르지 않고 평가 주기(선점 → 평가)만 돈다. 다음 주기는 DB 를 과거로 돌리지 않고 평가기가 심은 `next_evaluation_at` 까지 `MutableClock` 을 넘겨 만든다(스케줄러 빈은 worker 프로필 전용이라 시험 컨텍스트에 없음)
+- 갱신 증거 = `transfer_connection.calculated_at` 증가. 값이 같으면 `evaluation_version` 은 그대로임을 함께 단언 — 번호를 증거로 삼으면 정상 갱신을 실패로 본다
+- 두 번째 시험: 조회 없는 사이 갈아탈 버스가 앞당겨지면 COMFORTABLE → MISSED + 위험 알림 행
+
+### 검증
+- `./gradlew test --tests '*JourneyRefreshWithoutQueryIT'` 2/2
+- 변형 확인: `JourneyEvaluationScheduleWriter.finish` 에서 `if (outcome.changed())` 일 때만 판정 저장 → 첫 시험 실패(calculated_at 그대로). 이 실수가 들어가면 값이 안 바뀌는 여정은 조회 경로의 낡음 기준(5분)에 걸려 UNKNOWN 이 된다. 원복 후 2/2
+
+### 배포
+- 시험만 추가. 마이그레이션·운영 코드 변경 없음
 ## 2026-10-13 조회 부하 하네스 (test/journey-query-latency-harness)
 
 ### 확정
