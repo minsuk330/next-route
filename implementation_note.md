@@ -4520,3 +4520,45 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 2828 중 12 실패, 전부 기존 무관
 ### 배포
 - 마이그레이션 없음. api(후보·노선도) + worker
+
+## #415-1 환승 위험 파이프라인 단계별 계측 (2026-10-14, feat/journey-pipeline-stage-metrics)
+
+### 확정
+- 새 지표 (전부 SLO 경계 구간만, 백분위 구간 통째 켜기 안 함 — tag 조합 × 약 70개 시계열 방지)
+  - `journey.evaluation.claim.duration` 선점 쿼리 1회 (10ms~2.5s)
+  - `journey.evaluation.tick.duration{claimed=none|some}` tick 한 바퀴. 빈 tick 섞으면 분포가 선점 쿼리로 뭉개져서 가름
+  - `journey.evaluation.start-lag` = 선점 전 `next_evaluation_at`(dueAt) → worker 시작. **감지 SLO 에 그대로 더해지는 몫**(다음 tick 대기 + 선점 순서 밀림 + 큐 대기 전부 포함). 경계 1·5·10·30·60·120·180초
+  - `journey.evaluation.queue-wait` = 실행기 submit → 시작. start-lag − queue-wait = 선점 쪽 몫
+  - `journey.evaluation.judgment{changed=true|false}` EVALUATED 만. false 비율 = 바뀐 것 없이 돈 평가 → 이벤트 기반 재평가(#415-3) 전후 비교 기준선
+  - `journey.notification.delivery-lag{channel}` 적재(created_at) → 발송 성공. 재시도 건도 첫 적재부터
+  - `subway.realtime.collect.duration{collector=arrival|position, scope=all|full|active}` 수집 한 바퀴
+  - 설정: `management.metrics.distribution.slo` 로 `http.server.requests`(50ms~5s)·`hikaricp.connections.acquire`(1ms~1s) 구간
+- 기존 `journey.evaluation.duration` 에도 구간 추가(100ms~10s)
+- 실행기 큐 길이·활성 스레드는 **새로 안 만듦**: Boot 가 이미 `executor_queued_tasks{name="journeyEvaluatorExecutor"}`·`executor_active_threads` 를 운영에서 내보내는 중(2026-10-14 VPS Prometheus 조회로 확인)
+- CPU·메모리 = Boot 기본 `process_cpu_usage`·`jvm_memory_used_bytes` 그대로
+- 이벤트·분배 수는 **3번으로 미룸**: 측정 대상 구조가 아직 없음. 지금은 judgment changed 비율이 그 기준선
+- 버스 수집기(BusArrival/PositionScheduler cron)는 계측 안 함: 평가기 경로가 아님(ML 수집). 평가기의 버스 조회 지연은 #415-2 `http.client.requests` 몫
+
+### 함정
+- `JourneyNotification.created_at` 은 `timestamp`(시간대 없음), 값은 `LocalDateTime.now(clock)`(KST clock, `JourneyNotificationEnqueuer`). `sent_at` 은 timestamptz. DB 에서 `sent_at - created_at` 하면 세션 시간대에 따라 9시간 어긋남 ← 가드: 앱에서 `createdAt.atZone(clock.getZone())` 로 되돌려 같은 clock 의 now 와 뺌. IT 가 UTC 변환 변형을 잡음(확인함)
+- start-lag: 선점 만료로 다시 잡힌 여정은 dueAt = 직전 leaseUntil 이라 워커 사망 지연이 lease 만큼 덜 잡힘(Javadoc 명시)
+- YAML `slo` 키는 대괄호 없어도 스칼라 Map 바인딩으로 같은 키가 됨(변형 시험에서 통과) — 테스트는 "키 누락"을 잡는 것
+
+### 좌표
+- `JourneyDueEvaluatorScheduler.tick/submit/evaluateOne` 계측 지점
+- `JourneyEvaluationService.Report` 에 `changed` 추가(4번째 필드)
+- `JourneyNotificationOutboxStateService.markSent` delivery-lag
+- `RealtimeSubwayCollector.collect` finally / `RealtimeSubwayPositionCollector.collect` 끝
+
+### 미결
+- #410(급함 우선 선점, 오픈)과 `JourneyDueEvaluatorScheduler`·claim 경로 겹침. 나중 머지 쪽이 맞춤
+- PromQL 예: `histogram_quantile(0.95, sum by (le) (rate(journey_evaluation_start_lag_seconds_bucket[5m])))`, SLO 안 비율 `rate(..._bucket{le="30.0"}[5m]) / rate(..._count[5m])`
+
+### 배포
+- 마이그레이션 없음. worker(평가기·relay·수집기) + api(http·hikari 구간) 재배포
+
+### 검증
+- `./gradlew test --tests '*JourneyDueEvaluatorSchedulerTest' --tests '*RealtimeSubwayPositionCollectorTest' --tests '*JourneyNotificationRelayIT' --tests '*MetricsDistributionConfigTest'` → 11/0 · 7/0 · 14/0 · 2/0 (신규: 스케줄러 5, 수집기 1, relay 1, 설정 2)
+- 변형 시험: delivery-lag 시간대를 UTC 로 바꾸면 relay IT 실패 / yaml `http.server.requests` 줄 삭제 시 설정 테스트 실패 — 둘 다 원복
+- 전체 `./gradlew cleanTest test --continue`(st-pg:55432·st-redis:56379 + db/api/auth/oauth/toss env) → 2955 중 12 실패, 전부 **기존 무관**(JourneyEvaluationIT 7·JourneyEvalReadPathIT 2·JourneyTransferAssessmentIT 1·RerouteRemainingPathOtpIT 1·JourneyNotificationSchemaIT 간헐 1 — 이전 기록과 같은 구성)
+- env 없이 돌리면 293건 컨텍스트 로드 실패(`password authentication failed for user "${POSTGRES_USER}"`) — 환경 문제, 코드 무관

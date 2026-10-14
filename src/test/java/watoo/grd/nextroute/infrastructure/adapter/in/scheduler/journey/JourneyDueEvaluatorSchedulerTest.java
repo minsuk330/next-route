@@ -14,8 +14,15 @@ import watoo.grd.nextroute.application.journey.service.JourneyEvaluationService;
 import watoo.grd.nextroute.application.journey.service.JourneyEvaluationService.Report;
 import watoo.grd.nextroute.application.journey.service.JourneyEvaluationService.Result;
 
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.distribution.CountAtBucket;
+
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -40,6 +47,7 @@ class JourneyDueEvaluatorSchedulerTest {
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final JourneyEvaluationMetrics metrics = new JourneyEvaluationMetrics(registry);
     private final JourneyEvaluatorProperties properties = new JourneyEvaluatorProperties();
+    private final Clock clock = Clock.fixed(Instant.parse("2026-10-14T09:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     private ThreadPoolTaskExecutor executor;
     private JourneyDueEvaluatorScheduler scheduler;
@@ -52,7 +60,7 @@ class JourneyDueEvaluatorSchedulerTest {
         executor.setQueueCapacity(10);
         executor.initialize();
         scheduler = new JourneyDueEvaluatorScheduler(
-                claimService, evaluationService, metrics, properties, executor);
+                claimService, evaluationService, metrics, properties, executor, clock);
     }
 
     @Test
@@ -101,7 +109,7 @@ class JourneyDueEvaluatorSchedulerTest {
     void countsLostClaim() {
         given(claimService.claimDue()).willReturn(claims(1));
         given(evaluationService.evaluate(any()))
-                .willReturn(new Report(Result.LOST_CLAIM, List.of(), false));
+                .willReturn(new Report(Result.LOST_CLAIM, List.of(), false, false));
 
         scheduler.run();
 
@@ -126,14 +134,93 @@ class JourneyDueEvaluatorSchedulerTest {
         assertThatCode(scheduler::run).doesNotThrowAnyException();
     }
 
+    @Test
+    @DisplayName("선점 쿼리 시간과 tick 한 바퀴를 빈 tick·일한 tick 으로 갈라 잰다")
+    void recordsClaimAndTickDuration() {
+        given(claimService.claimDue()).willReturn(List.of()).willReturn(claims(2));
+        given(evaluationService.evaluate(any())).willReturn(evaluated());
+
+        scheduler.run();
+        scheduler.run();
+
+        assertThat(registry.timer(JourneyEvaluationMetrics.CLAIM_DURATION).count()).isEqualTo(2);
+        assertThat(registry.timer(JourneyEvaluationMetrics.TICK_DURATION, "claimed", "none").count())
+                .isEqualTo(1);
+        assertThat(registry.timer(JourneyEvaluationMetrics.TICK_DURATION, "claimed", "some").count())
+                .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("예정 시각에서 평가 시작까지 늦어진 시간을 여정마다 잰다")
+    void recordsStartLagFromDueAt() {
+        Instant now = clock.instant();
+        given(claimService.claimDue()).willReturn(List.of(
+                new JourneyDueClaim(1L, now.plusSeconds(60), now.minusSeconds(40)),
+                new JourneyDueClaim(2L, now.plusSeconds(60), now.minusSeconds(4))));
+        given(evaluationService.evaluate(any())).willReturn(evaluated());
+
+        scheduler.run();
+
+        Timer lag = registry.timer(JourneyEvaluationMetrics.START_LAG);
+        assertThat(lag.count()).isEqualTo(2);
+        assertThat(lag.totalTime(TimeUnit.SECONDS)).isEqualTo(44.0);
+        assertThat(lag.max(TimeUnit.SECONDS)).isEqualTo(40.0);
+        assertThat(registry.timer(JourneyEvaluationMetrics.QUEUE_WAIT).count()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("예정보다 일찍 시작한 것처럼 보이면(시계 차이) 0으로 센다")
+    void negativeStartLagIsZero() {
+        Instant now = clock.instant();
+        given(claimService.claimDue()).willReturn(List.of(
+                new JourneyDueClaim(1L, now.plusSeconds(60), now.plusSeconds(5))));
+        given(evaluationService.evaluate(any())).willReturn(evaluated());
+
+        scheduler.run();
+
+        assertThat(registry.timer(JourneyEvaluationMetrics.START_LAG).totalTime(TimeUnit.SECONDS))
+                .isZero();
+    }
+
+    @Test
+    @DisplayName("지연 지표는 SLO 경계(10초·30초·120초) 구간을 내보낸다 — 없으면 p95 를 못 구한다")
+    void startLagExposesSloBuckets() {
+        given(claimService.claimDue()).willReturn(claims(1));
+        given(evaluationService.evaluate(any())).willReturn(evaluated());
+
+        scheduler.run();
+
+        CountAtBucket[] buckets = registry.timer(JourneyEvaluationMetrics.START_LAG)
+                .takeSnapshot().histogramCounts();
+        assertThat(Arrays.stream(buckets).map(b -> (long) b.bucket(TimeUnit.SECONDS)))
+                .contains(10L, 30L, 120L);
+    }
+
+    @Test
+    @DisplayName("판정이 바뀌었는지 센다. 소유권을 잃은 결과는 저장되지 않았으니 세지 않는다")
+    void countsJudgmentChangeOnlyForStoredResults() {
+        given(claimService.claimDue()).willReturn(claims(3));
+        given(evaluationService.evaluate(any()))
+                .willReturn(new Report(Result.EVALUATED, List.of(), false, true))
+                .willReturn(new Report(Result.EVALUATED, List.of(), false, false))
+                .willReturn(new Report(Result.LOST_CLAIM, List.of(), false, false));
+
+        scheduler.run();
+
+        assertThat(registry.counter(JourneyEvaluationMetrics.JUDGMENT, "changed", "true").count())
+                .isEqualTo(1);
+        assertThat(registry.counter(JourneyEvaluationMetrics.JUDGMENT, "changed", "false").count())
+                .isEqualTo(1);
+    }
+
     private List<JourneyDueClaim> claims(int count) {
-        Instant leaseUntil = Instant.now().plusSeconds(60);
+        Instant leaseUntil = clock.instant().plusSeconds(60);
         return java.util.stream.IntStream.rangeClosed(1, count)
-                .mapToObj(id -> new JourneyDueClaim((long) id, leaseUntil, leaseUntil.minusSeconds(30)))
+                .mapToObj(id -> new JourneyDueClaim((long) id, leaseUntil, clock.instant().minusSeconds(30)))
                 .toList();
     }
 
     private Report evaluated() {
-        return new Report(Result.EVALUATED, List.of(), false);
+        return new Report(Result.EVALUATED, List.of(), false, false);
     }
 }

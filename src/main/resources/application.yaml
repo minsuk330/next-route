@@ -49,6 +49,17 @@ spring:
         batch_versioned_data: true
     open-in-view: false
 
+management:
+  metrics:
+    distribution:
+      # 기본 Timer 는 횟수·합계·최댓값만 내보내 p95 를 못 구한다. 백분위 구간을 통째로 켜면
+      # (약 70개) uri·status tag 조합마다 그만큼 시계열이 늘어나므로 판단에 쓰는 경계만 둔다(#415).
+      slo:
+        # 조회·검색 응답. 평가 부하가 조회를 밀어내는지 보는 지표.
+        "[http.server.requests]": 50ms,100ms,250ms,500ms,1s,2500ms,5s
+        # 커넥션 풀 대기. 평가·저장이 늘 때 가장 먼저 줄 서는 곳이다.
+        "[hikaricp.connections.acquire]": 1ms,5ms,10ms,50ms,100ms,500ms,1s
+
 server:
   compression:
     # 지도 정류장 스냅샷(실측 raw 940kB → gzip 233kB)을 위해 켠다. 다만 효과는 전역이다 —

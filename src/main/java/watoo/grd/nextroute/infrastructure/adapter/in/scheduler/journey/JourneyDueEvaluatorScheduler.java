@@ -16,6 +16,9 @@ import watoo.grd.nextroute.application.journey.service.JourneyDueClaimService;
 import watoo.grd.nextroute.application.journey.service.JourneyEvaluationService;
 import watoo.grd.nextroute.application.journey.service.JourneyEvaluationService.Report;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
@@ -49,6 +52,8 @@ public class JourneyDueEvaluatorScheduler {
     @Qualifier("journeyEvaluatorExecutor")
     private final ThreadPoolTaskExecutor executor;
 
+    private final Clock clock;
+
     @Scheduled(fixedDelayString = "${journey.navigation.evaluator.tick-ms:5000}")
     public void run() {
         try {
@@ -69,9 +74,12 @@ public class JourneyDueEvaluatorScheduler {
      * 잡고, 늦게 끝난 워커의 결과는 소유권 확인에서 걸러진다.
      */
     private void tick() {
+        long tickStartedAt = System.nanoTime();
         List<JourneyDueClaim> claims = claimService.claimDue();
+        metrics.recordClaimDuration(System.nanoTime() - tickStartedAt);
         metrics.recordClaimed(claims.size());
         if (claims.isEmpty()) {
+            metrics.recordTick(false, System.nanoTime() - tickStartedAt);
             return;
         }
 
@@ -89,6 +97,7 @@ public class JourneyDueEvaluatorScheduler {
             log.warn("[JourneyDueEvaluator] 배치가 {}ms 안에 끝나지 않았다. 남은 여정은 선점 만료 후 다시 잡힌다",
                     properties.getBatchDeadlineMs());
         }
+        metrics.recordTick(true, System.nanoTime() - tickStartedAt);
     }
 
     /**
@@ -97,8 +106,12 @@ public class JourneyDueEvaluatorScheduler {
      * @return 큐가 차서 맡기지 못했으면 null
      */
     private CompletableFuture<Void> submit(JourneyDueClaim claim) {
+        long submittedAt = System.nanoTime();
         try {
-            return CompletableFuture.runAsync(() -> evaluateOne(claim), executor);
+            return CompletableFuture.runAsync(() -> {
+                metrics.recordQueueWait(System.nanoTime() - submittedAt);
+                evaluateOne(claim);
+            }, executor);
         } catch (RejectedExecutionException e) {
             // 큐가 찼다. 여기서 직접 처리하면 다음 선점이 멈추므로 포기한다. 선점 시각이 지나면
             // 다시 잡힌다.
@@ -108,12 +121,18 @@ public class JourneyDueEvaluatorScheduler {
     }
 
     private void evaluateOne(JourneyDueClaim claim) {
+        if (claim.dueAt() != null) {
+            metrics.recordStartLag(Duration.between(claim.dueAt(), Instant.now(clock)));
+        }
         long startedAt = System.nanoTime();
         try {
             Report report = evaluationService.evaluate(claim);
             metrics.recordEvaluation(report.result().name().toLowerCase(),
                     System.nanoTime() - startedAt);
             metrics.recordPredictions(report.assessments());
+            if (report.result() == JourneyEvaluationService.Result.EVALUATED) {
+                metrics.recordJudgment(report.changed());
+            }
             if (report.result() == JourneyEvaluationService.Result.LOST_CLAIM) {
                 metrics.recordLostClaim();
             }

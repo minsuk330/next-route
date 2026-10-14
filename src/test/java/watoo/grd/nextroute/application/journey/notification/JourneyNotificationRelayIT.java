@@ -2,6 +2,7 @@ package watoo.grd.nextroute.application.journey.notification;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -28,8 +29,10 @@ import watoo.grd.nextroute.testsupport.AbstractJourneyOutboxPostgresIT;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -96,6 +99,7 @@ class JourneyNotificationRelayIT extends AbstractJourneyOutboxPostgresIT {
     @Autowired JourneyNotificationOutboxStateService stateService;
     @Autowired CountingNotificationSender sender;
     @Autowired JourneyNotificationProperties properties;
+    @Autowired MeterRegistry meterRegistry;
 
     private long journeyId;
 
@@ -127,6 +131,26 @@ class JourneyNotificationRelayIT extends AbstractJourneyOutboxPostgresIT {
         assertThat(sender.sent().get(0).notificationId()).isEqualTo(id);
         assertThat(statusOf(id)).isEqualTo("SENT");
         assertThat(sentAtOf(id)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("적재부터 발송까지 걸린 시간을 적재 때 쓴 clock 의 시간대로 잰다")
+    void recordsDeliveryLagFromCreatedAt() {
+        long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(600));
+        // 적재기는 created_at 을 LocalDateTime.now(clock) 으로 찍는다(시간대 없는 칼럼). 같은 방식으로
+        // 7초 전 KST 벽시계 시각을 넣는다. UTC 로 되돌리면 9시간이 어긋나 이 검증이 깨진다.
+        LocalDateTime createdAt = LocalDateTime.ofInstant(NOW.minusSeconds(7), ZoneId.of("Asia/Seoul"));
+        jdbcTemplate.update("update journey_notification set created_at = ? where id = ?",
+                Timestamp.valueOf(createdAt), id);
+        Timer lag = meterRegistry.timer(JourneyNotificationMetrics.DELIVERY_LAG, "channel", "PUSH");
+        long before = lag.count();
+        double beforeSeconds = lag.totalTime(TimeUnit.SECONDS);
+
+        relayService.drainUntilEmpty();
+
+        assertThat(statusOf(id)).isEqualTo("SENT");
+        assertThat(lag.count() - before).isEqualTo(1);
+        assertThat(lag.totalTime(TimeUnit.SECONDS) - beforeSeconds).isEqualTo(7.0);
     }
 
     @Test
