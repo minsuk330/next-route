@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriUtils;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalInfo;
 import watoo.grd.nextroute.application.subway.dto.SubwayExpressType;
 import watoo.grd.nextroute.application.subway.dto.SubwayPositionFetchResult;
@@ -135,8 +136,12 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 
 	@Override
 	public List<SubwayArrivalInfo> getRealtimeArrivalByStation(String stationName) {
+		// 역 이름은 반드시 인코딩한다(#427). 날것의 한글을 URI 에 넣으면 HTTP 클라이언트가 요청 줄에서 '?' 로 바꿔
+		// 경로가 "/0/1000/" 로 끝나고, 서울 API 는 그것을 ALL 로 답한다 — 역 하나 대신 전 노선 약 3,000행(2MB)을
+		// 받아 0.3~0.7초를 쓴다. 우리가 역 id 로 다시 걸러 값은 맞아서 기능 시험으로는 드러나지 않았다.
 		URI uri = URI.create(baseUrl + "/" + arrivalKey
-				+ "/json/realtimeStationArrival/0/1000/" + stationName);
+				+ "/json/realtimeStationArrival/0/1000/"
+				+ UriUtils.encodePathSegment(stationName, StandardCharsets.UTF_8));
 		return callArrivalApi(uri).stream()
 				.map(this::toArrivalInfo)
 				.toList();
