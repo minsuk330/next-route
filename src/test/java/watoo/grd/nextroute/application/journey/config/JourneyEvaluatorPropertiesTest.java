@@ -151,6 +151,16 @@ class JourneyEvaluatorPropertiesTest {
                 });
     }
 
+    @Test
+    void TC_워커_16_과_함께_DB_풀은_20() throws Exception {
+        // 10 이면 지하철 사다리 6,000 에서 커넥션 대기 p95 373ms. 시험 설정(application.properties)이 5 로 덮으므로
+        // 운영 yaml 을 직접 읽는다.
+        var sources = new org.springframework.boot.env.YamlPropertySourceLoader()
+                .load("main", new org.springframework.core.io.ClassPathResource("application.yaml"));
+        Object value = sources.get(0).getProperty("spring.datasource.hikari.maximum-pool-size");
+        assertThat(String.valueOf(value)).isEqualTo("${DB_POOL_MAX_SIZE:20}");
+    }
+
     @org.springframework.boot.context.properties.EnableConfigurationProperties(JourneyEvaluatorProperties.class)
     static class Config {
     }
