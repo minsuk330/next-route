@@ -96,11 +96,20 @@ public class JourneyNotificationOutboxStateService {
         return reclaimAllowed ? reclaim(now) : 0;
     }
 
-    /** 배치 claim. 시도 횟수는 이 SQL 이 올리고, 올린 값이 증서다. */
+    /**
+     * 배치 claim. 시도 횟수는 이 SQL 이 올리고, 올린 값이 증서다. 순서는 {@code relay.claim-order}(#451 PR-2) —
+     * 기본 SCHEDULED 는 옛 SQL 그대로, PRIORITY_FIRST 는 우선순위 먼저(오래 기다린 행은 긴급과 동급).
+     */
     @Transactional
     public List<ClaimedNotification> claimBatch(Instant now, int batchSize) {
-        List<ClaimedNotification> claimed = notificationRepository.claimBatchForProcessing(
-                        now, batchSize, LocalDateTime.now(clock)).stream()
+        LocalDateTime auditNow = LocalDateTime.now(clock);
+        JourneyNotificationProperties.Relay relay = properties.getRelay();
+        List<JourneyNotificationRepository.ClaimRow> rows =
+                relay.getClaimOrder() == JourneyNotificationProperties.ClaimOrder.PRIORITY_FIRST
+                        ? notificationRepository.claimBatchForProcessingPriorityFirst(
+                                now, auditNow.minusSeconds(relay.getAgingSeconds()), batchSize, auditNow)
+                        : notificationRepository.claimBatchForProcessing(now, batchSize, auditNow);
+        List<ClaimedNotification> claimed = rows.stream()
                 .map(row -> new ClaimedNotification(row.getId(), row.getToken()))
                 .toList();
         metrics.recordClaimed(claimed.size());

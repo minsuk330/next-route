@@ -77,6 +77,7 @@ import java.util.Map;
         "classpath:db/migration/V39__create_user_push_token.sql",
         "classpath:db/migration/V68__user_push_token_quiet_update.sql",
         "classpath:db/migration/V40__create_journey_notification.sql",
+        "classpath:db/migration/V70__journey_notification_priority.sql",
         "classpath:db/migration/V53__add_reroute_alert_state.sql",
         "classpath:db/migration/V59__journey_session_kind.sql",
         "classpath:db/migration/V63__journey_leg_guidance_info.sql",

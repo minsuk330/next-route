@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyShort;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -60,7 +61,7 @@ class AdminJourneyNotificationTestServiceTest {
         given(notificationRepository.enqueue(
                 eq(JOURNEY_ID), eq(1), anyString(), anyInt(), anyString(), anyString(),
                 anyString(), anyString(), eq(NOW), eq(NOW.plusSeconds(600)),
-                anyString(), any())).willReturn(List.of(99L));
+                anyString(), anyShort(), any())).willReturn(List.of(99L));
 
         AdminJourneyNotificationTestService.QueuedTestNotification result = service.enqueue(
                 JOURNEY_ID, JourneyCheckpoint.TRANSFER_RISK_MISSED);
@@ -74,7 +75,7 @@ class AdminJourneyNotificationTestServiceTest {
                 eq(JOURNEY_ID), eq(1), eq("JOURNEY"), eq(0),
                 eq("TRANSFER_RISK_MISSED"), eq("PUSH"),
                 anyString(), anyString(), eq(NOW), eq(NOW.plusSeconds(600)),
-                payload.capture(), any());
+                payload.capture(), eq((short) 2), any());
         assertThat(payload.getValue()).contains("\"adminTest\":true");
     }
 

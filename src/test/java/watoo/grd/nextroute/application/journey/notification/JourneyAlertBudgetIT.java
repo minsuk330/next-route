@@ -67,6 +67,7 @@ import static org.mockito.Mockito.mock;
         "classpath:db/migration/V38__add_journey_last_progress_id.sql",
         "classpath:db/migration/V39__create_user_push_token.sql",
         "classpath:db/migration/V40__create_journey_notification.sql",
+        "classpath:db/migration/V70__journey_notification_priority.sql",
         "classpath:db/migration/V42__create_reroute_proposal.sql",
         "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql",
         "classpath:db/migration/V50__add_reroute_proposal_origin.sql",

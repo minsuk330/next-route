@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -214,5 +215,32 @@ class JourneyNotificationPropertiesTest {
         JourneyNotificationProperties zeroWorkers = properties();
         zeroWorkers.getRelay().setPullWorkers(0);
         assertThatThrownBy(() -> validate(zeroWorkers)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("claim 순서 기본값은 SCHEDULED(기존 순서), aging 60초")
+    void claimOrderDefaultsToScheduled() {
+        JourneyNotificationProperties.Relay relay = properties().getRelay();
+
+        assertThat(relay.getClaimOrder()).isEqualTo(JourneyNotificationProperties.ClaimOrder.SCHEDULED);
+        assertThat(relay.getAgingSeconds()).isEqualTo(60);
+    }
+
+    @Test
+    @DisplayName("claim 순서가 없거나 aging 이 0 이하면 막는다")
+    void claimOrderAndAgingAreValidated() {
+        JourneyNotificationProperties nullOrder = properties();
+        nullOrder.getRelay().setClaimOrder(null);
+        assertThatThrownBy(() -> validate(nullOrder)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("claim-order");
+
+        JourneyNotificationProperties zeroAging = properties();
+        zeroAging.getRelay().setAgingSeconds(0);
+        assertThatThrownBy(() -> validate(zeroAging)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("aging-seconds");
+
+        JourneyNotificationProperties priorityFirst = properties();
+        priorityFirst.getRelay().setClaimOrder(JourneyNotificationProperties.ClaimOrder.PRIORITY_FIRST);
+        assertThatCode(() -> validate(priorityFirst)).doesNotThrowAnyException();
     }
 }

@@ -39,6 +39,7 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
      *
      * <p>{@code @Modifying} 이 아니다(RETURNING). 반드시 {@code @Transactional} 안에서 부른다.
      *
+     * @param priority 발송 우선순위({@code NotificationPriority#value()}, #451 PR-2). 호출부마다 손으로 숫자를 쓰지 말 것
      * @return 생성된 행 id(1건). 중복이거나 여정이 끝났으면 0건
      */
     @Query(value = """
@@ -54,12 +55,12 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
                 (journey_id, user_id, route_revision, command_version, evaluation_version,
                  scope_type, scope_id, checkpoint, channel,
                  logical_checkpoint_key, delivery_key, status, scheduled_at, expires_at, payload,
-                 attempt_count, requeue_count, created_at, updated_at)
+                 attempt_count, requeue_count, priority, created_at, updated_at)
             SELECT src.journey_id, src.user_id, :routeRevision,
                    src.command_version, src.evaluation_version,
                    :scopeType, :scopeId, :checkpoint, :channel,
                    :logicalKey, :deliveryKey, 'PENDING', :now, :expiresAt,
-                   cast(:payload as jsonb), 0, 0, :auditNow, :auditNow
+                   cast(:payload as jsonb), 0, 0, :priority, :auditNow, :auditNow
             FROM src
             ON CONFLICT (delivery_key) DO NOTHING
             RETURNING id
@@ -69,7 +70,8 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
                        @Param("checkpoint") String checkpoint, @Param("channel") String channel,
                        @Param("logicalKey") String logicalKey, @Param("deliveryKey") String deliveryKey,
                        @Param("now") Instant now, @Param("expiresAt") Instant expiresAt,
-                       @Param("payload") String payload, @Param("auditNow") LocalDateTime auditNow);
+                       @Param("payload") String payload, @Param("priority") short priority,
+                       @Param("auditNow") LocalDateTime auditNow);
 
     /**
      * 같은 대상의 낡은 PENDING 을 밀어낸다.
@@ -178,6 +180,36 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
             """, nativeQuery = true)
     List<ClaimRow> claimBatchForProcessing(@Param("now") Instant now, @Param("batchSize") int batchSize,
                                            @Param("auditNow") LocalDateTime auditNow);
+
+    /**
+     * 우선순위 먼저 claim(#451 PR-2, {@code relay.claim-order=PRIORITY_FIRST}). 대상·잠금·증서는
+     * {@link #claimBatchForProcessing} 과 같고 순서만 다르다.
+     *
+     * <p>순서 = {@code CASE WHEN created_at <= :agedBefore THEN 0 ELSE priority END, scheduled_at}. 오래 기다린 행은
+     * 등급과 무관하게 긴급과 동급이 된다(굶주림 방지). 기준이 {@code scheduled_at} 이 아니라 {@code created_at} 인 이유:
+     * 일시 실패 재시도와 회수가 {@code scheduled_at} 을 뒤로 미루므로 그걸 기준으로 하면 기다린 시간을 처음부터 다시 센다.
+     * {@code created_at} 은 감사 칼럼({@code timestamp(6)}, 앱 시계)이라 {@code agedBefore} 도 앱 시계 {@link LocalDateTime} 이다.
+     *
+     * <p>정렬식 때문에 인덱스로 정렬을 끝내지 못한다(PENDING 이 수백 건 규모라 수용, 노트에 EXPLAIN).
+     */
+    @Query(value = """
+            WITH picked AS (
+                SELECT o.id FROM journey_notification o
+                WHERE o.status = 'PENDING' AND o.scheduled_at <= :now AND o.deleted_at IS NULL
+                ORDER BY CASE WHEN o.created_at <= :agedBefore THEN 0 ELSE o.priority END, o.scheduled_at
+                LIMIT :batchSize
+                FOR UPDATE OF o SKIP LOCKED)
+            UPDATE journey_notification n
+            SET status = 'PROCESSING', processing_started_at = now(),
+                attempt_count = n.attempt_count + 1, updated_at = :auditNow
+            FROM picked
+            WHERE n.id = picked.id
+            RETURNING n.id AS id, n.attempt_count AS token
+            """, nativeQuery = true)
+    List<ClaimRow> claimBatchForProcessingPriorityFirst(@Param("now") Instant now,
+                                                        @Param("agedBefore") LocalDateTime agedBefore,
+                                                        @Param("batchSize") int batchSize,
+                                                        @Param("auditNow") LocalDateTime auditNow);
 
     /**
      * heartbeat(#451). 이 인스턴스가 들고 있는 (행, 증서) 쌍의 {@code processing_started_at} 을 DB {@code now()} 로 민다.
