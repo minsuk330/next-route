@@ -5216,3 +5216,31 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew -q bootJar` 뒤 `SPLIT=1 MODE=subway RUN_TAG=split runladder-env.sh 6000 on 10m 20`: 처리 144.3/s, SLO 88.3/24.9/80.0%, 예정→시작 p95 92s, 커넥션 대기 p95 api 481ms(풀 20/20·대기 164) / worker 0.95ms, 조회 앱 p95 705ms·k6 5.89s, 앱 코어 api 0.74 + worker 0.58, system_cpu 평균 0.94, Postgres 2.56코어, 알림 불변식 0(울림 469), 남은 여정·표시 여정·토큰 0
 - 같은 방식 2,000: 처리 72.3/s, SLO 100/100/100%, 커넥션 대기 p95 1.0/0.97ms, 조회 앱 49ms·k6 62ms, 불변식 0, 남은 0
 - Java 코드 변경 없음 → 전체 시험 생략
+
+## #427 처방 4차 — 여정 버전 캐시 (2026-10-16, perf/journey-version-cache)
+### 확정
+- 조건부 조회(`GET /api/journeys/{id}?after…Version`)의 버전 확인(#424 사전 확인)을 Redis 에 캐시. 키 `journey:ver:{journeyId}`, 값 `소유자:명령:평가:지금단계종류:변경시각ms` (모르는 칸 `-`), 읽는 쪽이 본 없음 = `none`, 쓰는 쪽이 본 지워짐 = `gone`. 수명 30초(사용자 결정) = 안전망만. `journey.query.version-cache.ttl-seconds`(env `JOURNEY_QUERY_VERSION_CACHE_TTL_SECONDS`) 0 이면 끔 → 예전 DB 사전 확인
+- 캐시 칸이 담는 것 = 사전 확인이 읽는 칸 전부: `command_version`·`evaluation_version`·(`route_revision`+`current_leg_index` 로 고른) 지금 단계 `type`·`user_id`·`deleted_at`. `status` 는 사전 확인이 안 본다(끝난 여정도 버전이 같으면 204 — 예전과 같다) → 상태만 바꾸는 쓰기(만료 배치·갈아타기 취소)는 사건을 안 낸다
+- 소유자는 쿼리에서 거르지 않고(`findVersionsById`, 기존 `findVersions(id,userId)` 대체) `JourneyQueryService.versions` 가 비교 → 남의 여정은 "없음" → 컨트롤러 전체 경로가 예전처럼 404. `versions()` 의 `@Transactional(readOnly)` 제거 — 있으면 캐시 적중에도 트랜잭션 시작에서 커넥션을 빌린다
+- 읽기: GET → 적중이면 그 값으로 204/통과, 빗나가면 DB 사전 확인 후 **SET NX**(덮지 않음). 쓰기: 값을 바꾸는 트랜잭션이 `JourneyVersionChangedEvent(ids)` 를 내고 `CachedJourneyVersionAdapter.onChanged`(`AFTER_COMMIT`, `fallbackExecution=true`)가 DB 새 값을 다시 읽어 덮는다. 덮기는 Lua — 지금 칸의 명령·평가 번호 중 하나라도 더 크면 버림(늦게 도착한 옛 덮기), `gone` 은 덮지 않음(지운 여정은 되살아나지 않는다). 읽는 쪽 `none` 은 덮음(아직 안 만든 번호일 수 있어 시작이 덮어야 함)
+- Redis 장애 = DB 로 내려감(조회 실패 안 함). 지표 `journey.version.cache{result=hit|miss|error|refreshed|refresh-error}`
+- 판단 재료(SSE·long-poll 결정용, 사용자 추가 요청): `journey.query.conditional{result=not_modified|modified|first}`, `journey.query.delivery.lag{leg=WAIT|RIDE|WALK|NONE}` = 200 응답 시각 − 마지막 버전 변경 커밋 시각(덮기가 적은 `changedAt`). 잴 조건: 앱 번호가 응답 번호보다 낮고(명령 또는 평가), 캐시 번호 = 응답 번호(같은 변경), 변경 시각을 앎. **마지막 변경 기준이라 하한**(앱이 버전 여럿을 건너뛰었으면 앞 변경의 지연은 더 길다). 빗나감으로 DB 에서 채운 칸은 시각 모름 → 재지 않음
+### 함정
+- 엔티티 변경(dirty checking)은 저장소 쿼리 훑기로 못 잡는다 → 번호·단계 변경 메서드(`bumpCommandVersion`·`bumpRouteRevision`·`moveToLeg`) 부르는 자리를 손으로 전수(아래 좌표). 저장소 `@Query` 쪽은 가드 시험(`JourneyVersionWriterGuardTest`)이 SET 절을 칸 이름으로 훑어 목록 밖 쓰기를 잡는다
+- SET NX 만으로는 "덮기 둘의 엇갈림"(먼저 DB 를 읽은 덮기가 나중에 SET) 을 못 막는다 → 번호 단조성(명령·평가는 오르기만, 개정본·단계 변경은 늘 명령 번호와 함께)을 기대 Lua 비교로 막음
+- `JourneyStartTxServiceKindTest` 의 가짜 저장소는 id 를 안 매겨 `of(null)` NPE → `of(Long)` 이 null 이면 빈 사건
+- 컨트롤러 지표는 `ObjectProvider<JourneyQueryMetrics>` — 웹 슬라이스 시험(@WebMvcTest 7개)에 빈이 없어도 뜨게
+### 좌표 (쓰기 전수 — 사건을 내는 자리 6, 사건이 필요 없는 쓰기 확인 목록)
+- 사건 냄: `JourneyCommandService.java:174`(단계 전이 `moveToLeg` :141 + 명령 번호 :168, 종료 포함) · `RerouteAcceptTxService.java:344`(개정본 :331·명령 :332, 새 개정본 단계) · `JourneyProgressService.java:80`(`bumpEvaluationVersion` `JourneySessionRepository.java:92`, 1행일 때만) · `JourneyEvaluationScheduleWriter.java:79`(`finishEvaluation` `JourneySessionRepository.java:299`, 소유권 확인 + 판정 바뀜일 때만) · `JourneyStartTxService.java:124`(새 여정·단계) · `WithdrawService.java:136/155`(`softDeleteByUserId` 세션 `JourneySessionRepository.java:537`·단계 `JourneyLegRepository.java:86`, 지우기 전에 `findLiveIdsByUserId` 로 번호 확보)
+- 사건 불필요(사전 확인 칸 안 건드림, 확인함): `claimExpiredBatch`(:180, status 만) · 갈아타기 `existing.end`(`JourneyStartTxService.java:145`, status 만) · `claimDueBatch`·`releaseClaimForRetry`·`requestReevaluation`(:378, 재평가 트리거 — 예정·dirty 만) · `requestRerouteRefresh`(:625)·`finishRerouteRefresh`·`claimRerouteRefreshBatch`·`scheduleRerouteRefreshIfAbsent`·`markRerouteAccepted` · `extendLeaseIfStale`(:127, guidance lease) · `extendSubwayProtection`(:671) · `bumpRerouteIgnored` · 울릴 권리 3종 · `applyProgressIfNewer`(단계 진행 칸, 평가 번호는 위 :92 가 올림) · M7 열차 선택(`SubwayTrainSelectionTxService`, 고정 표만 — 링 버전은 사전 확인이 지하철 단계면 가르지 않음) · 텔레메트리(별도 표)
+- 단계 `type` 은 생성자에서만 정함(`JourneyLeg.java:179`), 단계 `deleted_at` 쓰기는 탈퇴뿐, 세션 `markDeleted` 호출 없음
+- 코드: `infrastructure/adapter/out/cache/journey/CachedJourneyVersionAdapter.java`, `infrastructure/adapter/out/persistence/journey/JourneyVersionPersistenceAdapter.java`, `application/journey/port/out/JourneyVersionPort.java`, `application/journey/event/JourneyVersionChangedEvent.java`, `application/journey/observability/JourneyQueryMetrics.java`, `JourneyController.detail`
+### 배포
+- 마이그레이션 없음. api·worker 둘 다 교체(worker 가 평가 완료 덮기를 낸다 — api 만 바꾸면 평가 변경이 최대 30초 늦게 보임). env 추가 없음(기본 30초)
+### 검증
+- 관련: `JourneyVersionCacheIT` 15(시작 덮기·캐시 적중 증거(DB 만 바꿔도 204)·SET NX·빗나감 채우기·명령 전이·완료(끝난 여정 새 번호 204 유지)·진행 보고·평가 완료(바뀜 200 / 그대로 204)·탈퇴 gone+404·남의 여정 404·롤백 불변·옛 덮기 버림·gone 불변·지연 기록·시각 모름이면 미기록), `RerouteAcceptIT`(+1 수락 뒤 옛 번호 200) 35, `CachedJourneyVersionAdapterTest` 10(적중·없음/지워짐·NX·깨진 값·Redis 장애·채우기 실패·수명 0 끔·지워짐 덮기·덮기 실패 삼킴·왕복), `JourneyQueryMetricsTest` 4, `JourneyVersionWriterGuardTest` 1, `JourneyInterestQueryIT`(소유자 포함·지운 여정 빈 값) — 전부 통과
+- 전체 `runfull.sh`(cleanTest test --continue): BUILD SUCCESSFUL, 3,264 시험 · 실패 0 · 건너뜀 6
+- 사다리 `SPLIT=1 MODE=subway RUN_TAG=vercache runladder-env.sh 6000 on 10m 20`(bootJar = efc00810): 처리 144.3 → 200.2/s(설정 상한), SLO 88.3/24.9/80.0 → 99.2/100/100%, api 커넥션 대기 p95 481 → 115ms, 조회 p95 앱 705 → 163ms · k6 5.89 → 0.86s, system_cpu 0.94 → 0.83, Postgres 2.56 → 2.18코어, 사전확인 DB 19.6 → 8.2%, 204 비율 96.9%, 캐시 적중 68.8%, 전달 지연 p50 5.0 / p95 9.6s, 알림 불변식 0, 남은 여정·토큰 0
+### 미결
+- 캐시 빗나감 31% 는 수명 30초가 만든다(앱 10초 폴링). 수명 연장은 낡은 204 상한을 늘리므로 사용자 결정
+- 평가기 200건/초는 설정 상한 — 올릴지와 그 다음 DB(선점 19.2%) 처방
