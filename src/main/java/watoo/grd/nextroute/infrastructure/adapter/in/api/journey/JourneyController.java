@@ -3,6 +3,8 @@ package watoo.grd.nextroute.infrastructure.adapter.in.api.journey;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import watoo.grd.nextroute.application.journey.observability.JourneyQueryMetrics;
+import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase.JourneyVersions;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -50,6 +52,8 @@ public class JourneyController {
     private final ApplyJourneyEventUseCase applyJourneyEventUseCase;
     private final ApplyJourneyProgressUseCase applyJourneyProgressUseCase;
     private final JourneySnapshotEtaComposer etaComposer;
+    /** 웹 슬라이스 시험에는 없다 — 없으면 세지 않는다. */
+    private final org.springframework.beans.factory.ObjectProvider<JourneyQueryMetrics> queryMetrics;
 
     /**
      * 조건부 조회를 버전 한 번 읽기로 먼저 가를지(#415-6). 끄면 예전처럼 매번 여정 전체를 조립한 뒤 비교한다
@@ -99,14 +103,18 @@ public class JourneyController {
             @RequestParam(required = false) Long afterCommandVersion,
             @RequestParam(required = false) Long afterEvaluationVersion,
             @RequestParam(required = false) Long afterGuidanceVersion) {
-        if (versionPrecheck && (afterCommandVersion != null || afterEvaluationVersion != null
-                || afterGuidanceVersion != null)) {
+        boolean conditional = afterCommandVersion != null || afterEvaluationVersion != null
+                || afterGuidanceVersion != null;
+        JourneyQueryMetrics metrics = queryMetrics.getIfAvailable();
+        JourneyVersions versions = null;
+        if (versionPrecheck && conditional) {
             // 대부분의 조회는 "바뀐 것 없음"이다. 버전만 한 번 읽어 가르고, 바뀐 경우에만 전체를 조립한다(#415-6).
-            // 없거나 가를 수 없으면 아래 전체 경로가 판단한다(없는 여정의 404 도 거기서).
-            boolean unchanged = journeyQueryUseCase.versions(userId, journeyId)
-                    .map(v -> v.unchanged(afterCommandVersion, afterEvaluationVersion, afterGuidanceVersion))
-                    .orElse(false);
-            if (unchanged) {
+            // 버전은 Redis 캐시가 답한다(처방 4차). 없거나 가를 수 없으면 아래 전체 경로가 판단한다(없는 여정의 404 도 거기서).
+            versions = journeyQueryUseCase.versions(userId, journeyId).orElse(null);
+            if (versions != null && versions.unchanged(afterCommandVersion, afterEvaluationVersion, afterGuidanceVersion)) {
+                if (metrics != null) {
+                    metrics.notModified();
+                }
                 return ResponseEntity.noContent().build();
             }
         }
@@ -115,7 +123,19 @@ public class JourneyController {
 
         if (unchanged(journey, afterCommandVersion, afterEvaluationVersion, afterGuidanceVersion)) {
             // 바뀐 것이 없으면 예측도 계산하지 않는다. 실시간 조회는 값이 쓰일 때만 한다.
+            if (metrics != null) {
+                metrics.notModified();
+            }
             return ResponseEntity.noContent().build();
+        }
+        if (metrics != null) {
+            if (conditional) {
+                // SSE·long-poll 판단 재료: 서버 커밋 → 앱 수신 지연(마지막 변경 기준, 모르면 재지 않음).
+                metrics.modified(versions, journey.commandVersion(), journey.evaluationVersion(),
+                        afterCommandVersion, afterEvaluationVersion, System.currentTimeMillis());
+            } else {
+                metrics.first();
+            }
         }
         return ResponseEntity.ok(etaComposer.compose(userId, journey));
     }

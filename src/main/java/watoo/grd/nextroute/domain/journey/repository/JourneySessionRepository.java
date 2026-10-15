@@ -452,22 +452,33 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
      *
      * <p>앱은 10초마다 조회하고 대부분은 "바뀐 것 없음"이다. 그때마다 여정·단계·후보 세 번을 읽으면 동시
      * 여정 6,000 에서 조회가 커넥션 풀을 차지해 평가기까지 밀린다(부하 사다리 실측). 버전이 같으면 이 한 번으로
-     * 끝낸다. 소유자 조건은 그대로 쿼리에 넣는다.
+     * 끝낸다.
+     *
+     * <p><b>소유자는 거르지 않고 돌려준다</b>(처방 4차 버전 캐시). 캐시가 여정마다 한 칸이라 주인 것과 남의 것이 같은
+     * 칸을 본다 — 소유자 비교는 부르는 쪽이 한다. 이 쿼리가 읽는 칸(명령·평가 번호, 개정본, 지금 단계 번호, 단계
+     * 종류, 소유자, 삭제)을 바꾸는 쓰기는 모두 {@code JourneyVersionChangedEvent} 를 내야 한다.
      */
     @Query(value = """
-            SELECT s.command_version AS commandVersion,
+            SELECT s.user_id AS userId,
+                   s.command_version AS commandVersion,
                    s.evaluation_version AS evaluationVersion,
                    l.type AS currentLegType
               FROM journey_session s
               LEFT JOIN journey_leg l
                 ON l.journey_id = s.id AND l.route_revision = s.route_revision
                AND l.leg_index = s.current_leg_index AND l.deleted_at IS NULL
-             WHERE s.id = :id AND s.user_id = :userId AND s.deleted_at IS NULL
+             WHERE s.id = :id AND s.deleted_at IS NULL
             """, nativeQuery = true)
-    Optional<VersionRow> findVersions(@Param("id") Long id, @Param("userId") Long userId);
+    Optional<VersionRow> findVersionsById(@Param("id") Long id);
+
+    /** 탈퇴 직전, 버전 캐시를 "없음"으로 덮을 여정들. */
+    @Query("select s.id from JourneySession s where s.userId = :userId and s.deletedAt is null")
+    List<Long> findLiveIdsByUserId(@Param("userId") Long userId);
 
     /** 조건부 조회용 버전 한 줄. */
     interface VersionRow {
+        Long getUserId();
+
         Long getCommandVersion();
 
         Long getEvaluationVersion();

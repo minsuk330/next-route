@@ -165,18 +165,21 @@ class JourneyInterestQueryIT {
     }
 
     @Test
-    @DisplayName("조건부 조회용 버전(#415-6): 명령·평가 번호와 지금 단계 종류를 한 번에, 남의 여정은 비어 있다")
+    @DisplayName("조건부 조회용 버전(#415-6): 명령·평가 번호와 지금 단계 종류를 한 번에, 소유자 포함, 지운 여정은 비어 있다")
     void versionsForConditionalQuery() {
         Long id = startJourney();
         Long owner = jdbcTemplate.queryForObject("select user_id from journey_session where id = ?", Long.class, id);
         jdbcTemplate.update("update journey_session set evaluation_version = 7 where id = ?", id);
 
-        var row = sessionRepository.findVersions(id, owner).orElseThrow();
+        var row = sessionRepository.findVersionsById(id).orElseThrow();
 
         assertThat(row.getEvaluationVersion()).isEqualTo(7L);
         assertThat(row.getCommandVersion()).isPositive();
         assertThat(row.getCurrentLegType()).isNotNull();
-        assertThat(sessionRepository.findVersions(id, owner + 999_999)).isEmpty();
+        // 소유자는 쿼리가 아니라 부르는 쪽이 거른다(버전 캐시가 여정마다 한 칸이라) — 소유자를 함께 돌려준다.
+        assertThat(row.getUserId()).isEqualTo(owner);
+        jdbcTemplate.update("update journey_session set deleted_at = now() where id = ?", id);
+        assertThat(sessionRepository.findVersionsById(id)).isEmpty();
     }
 
     private List<JourneySessionRepository.InterestRow> rowsOf(Long journeyId) {

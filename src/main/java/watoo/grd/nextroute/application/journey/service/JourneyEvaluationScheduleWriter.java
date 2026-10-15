@@ -3,6 +3,7 @@ package watoo.grd.nextroute.application.journey.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
+import watoo.grd.nextroute.application.journey.event.JourneyVersionChangedEvent;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
@@ -71,6 +72,11 @@ public class JourneyEvaluationScheduleWriter {
             // 다음 평가를 앞당겼거나, 여정이 끝났다.
             log.debug("[JourneyEvaluation] 소유권 없음 — journeyId={}, 결과 버림", claim.journeyId());
             return false;
+        }
+
+        if (outcome.changed()) {
+            // finishEvaluation 이 평가 번호를 올렸다 — 커밋 뒤 버전 캐시를 덮는다(처방 4차).
+            eventPublisher.publishEvent(JourneyVersionChangedEvent.of(claim.journeyId()));
         }
 
         assessmentWriter.write(outcome.journeyId(), outcome.routeRevision(),
