@@ -367,6 +367,11 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
      * <p>활성 행에서 출발한다(V67 {@code idx_journey_session_active_nav}). 구간·선택지는
      * {@code uq_journey_leg_index}·PK 로 붙는다. 정류장·노선 ID 인덱스는 두지 않는다 — 역방향 찾기는
      * 메모리 색인이 한다.
+     *
+     * <p><b>{@code deleted_at IS NULL} 을 빼먹지 않는다(#427).</b> 환승 부분조회에 이 조건이 없으면 부분 유니크 인덱스
+     * ({@code uq_transfer_connection_index … WHERE deleted_at IS NULL})를 못 타고 여정마다 환승 표 전체를 훑는다 —
+     * 여정 수의 제곱. 지하철 사다리 6,000 에서 재구성 1회 6.4초·DB 시간 52%, 조건을 넣으면 EXPLAIN 4,662ms → 84ms.
+     * 지운 환승·단계를 지켜보지 않는 것은 덤이다.
      */
     @Query(value = """
             SELECT s.id AS journeyId,
@@ -379,9 +384,11 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                    o.way_code AS wayCode,
                    (SELECT min(t.user_ready_at) FROM transfer_connection t
                      WHERE t.journey_id = s.id AND t.route_revision = s.route_revision
+                       AND t.deleted_at IS NULL
                        AND t.to_leg_index >= s.current_leg_index) AS nextReadyAt,
                    EXISTS (SELECT 1 FROM transfer_connection t
                             WHERE t.journey_id = s.id AND t.route_revision = s.route_revision
+                              AND t.deleted_at IS NULL
                               AND t.to_leg_index >= s.current_leg_index
                               AND t.status IN ('AT_RISK', 'MISSED')) AS risky
               FROM journey_session s
@@ -389,6 +396,7 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                 ON l.journey_id = s.id AND l.route_revision = s.route_revision
                AND l.leg_index >= s.current_leg_index
                AND l.type IN ('WAIT_BUS', 'WAIT_SUBWAY')
+               AND l.deleted_at IS NULL
               LEFT JOIN journey_leg_route_option o ON o.id = l.selected_route_option_id
              WHERE s.status = 'ACTIVE' AND s.deleted_at IS NULL AND s.kind = 'NAVIGATION'
             """, nativeQuery = true)

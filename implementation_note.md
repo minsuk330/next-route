@@ -5033,3 +5033,9 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew compileJava compileTestJava` 통과
 - `runsome.sh … --tests '*NextrouteApplicationTests' --tests '*AlertFatigueCopyTest' --tests '*AlertFatigueTransportTest' --tests '*FcmMessageFactoryTest' --tests '*RerouteBoardReplacedRiskTest' --tests '*TransferRiskNotifierTest' --tests 'watoo.grd.nextroute.application.journey.notification.*' --tests '*RerouteBoard*' --tests '*FcmNotificationSenderTest'` → 251 중 실패 0(AlertFatigueCopyTest 54, JourneyAlertBudgetIT 32, RerouteBoardReplacedRiskTest 2)
 - 전체 `runfull.sh`(cleanTest test --continue) → 3,184 중 실패 12, 건너뜀 5 = 기존 무관 목록 그대로(여정 평가 7·환승 판정 저장 1·조회 경로 2·OTP 계약 1·JourneyNotificationSchemaIT 1)
+
+## #427 처방 2 — 관심 색인 쿼리 부분 인덱스 (2026-10-15, fix/interest-index-transfer-filter)
+### 확정
+- `findInterestRows` 의 환승 부분조회 두 개에 `t.deleted_at IS NULL`, 단계 조인에 `l.deleted_at IS NULL` 추가. 없으면 부분 유니크 인덱스를 못 타 여정마다 환승 표 전체를 훑음(O(N²)) — 사다리 6,000 재구성 1회 6.4초·DB 시간 52%, EXPLAIN 4,662→84ms
+### 검증
+- `JourneyInterestQueryIT`(+지운 환승 무시)·`InterestIndexTest`·`JourneyReevaluationTriggerIT` 통과

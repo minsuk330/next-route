@@ -148,6 +148,23 @@ class JourneyInterestQueryIT {
     }
 
     @Test
+    @DisplayName("지운 환승은 준비 시각·위험 여부에 끼지 않는다(#427 — 부분 인덱스를 타는 조건)")
+    void deletedTransfersAreIgnored() {
+        Long id = startJourney();
+        Instant ready = Instant.now().plusSeconds(240).truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        jdbcTemplate.update("""
+                update transfer_connection set user_ready_at = ?, status = 'AT_RISK', deleted_at = now()
+                 where journey_id = ?""", java.sql.Timestamp.from(ready), id);
+
+        List<JourneySessionRepository.InterestRow> rows = rowsOf(id);
+
+        assertThat(rows).isNotEmpty().allSatisfy(row -> {
+            assertThat(row.getNextReadyAt()).isNull();
+            assertThat(row.getRisky()).isFalse();
+        });
+    }
+
+    @Test
     @DisplayName("조건부 조회용 버전(#415-6): 명령·평가 번호와 지금 단계 종류를 한 번에, 남의 여정은 비어 있다")
     void versionsForConditionalQuery() {
         Long id = startJourney();
