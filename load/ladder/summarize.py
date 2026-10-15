@@ -140,6 +140,16 @@ print('⑤ 알림      : 적재→발송', fmt('journey_notification_delivery_la
 print('⑥ 조회(앱)  : /api/journeys/{id}', fmt('http_server_requests_seconds', 'uri="/api/journeys/{journeyId}"', 1000, 'ms'),
       '| nearby', fmt('http_server_requests_seconds', 'uri="/api/nearby/bus-stops"', 1000, 'ms'))
 print('⑥ 조회(k6)  : journey p95/med', k6p95('journey'), '| nearby', k6p95('nearby'))
+# 처방 4차: 조건부 조회 결과(204 비율)·버전 캐시 적중·커밋→앱 수신 지연(마지막 변경 기준, 하한) — SSE/long-poll 판단 재료
+_cq = {r: s('journey_query_conditional_total', f'result="{r}"') for r in ('not_modified', 'modified', 'first')}
+print('⑥ 조건부    : 204', int(_cq['not_modified']), '/ 200', int(_cq['modified']), '/ 버전없음', int(_cq['first']),
+      f"| 204 비율 {_cq['not_modified'] / max(1, _cq['not_modified'] + _cq['modified']):.3f}",
+      '| 버전 캐시', {r: int(s('journey_version_cache_total', f'result="{r}"'))
+                   for r in ('hit', 'miss', 'error', 'refreshed', 'refresh-error')})
+print('⑥ 전달 지연 : 커밋→앱 수신 전체', fmt('journey_query_delivery_lag_seconds'),
+      '| WAIT', fmt('journey_query_delivery_lag_seconds', 'leg="WAIT"'),
+      '| RIDE', fmt('journey_query_delivery_lag_seconds', 'leg="RIDE"'),
+      '| WALK', fmt('journey_query_delivery_lag_seconds', 'leg="WALK"'))
 print('자원        : process_cpu_usage', round(s('process_cpu_usage'), 3),
       '| heap MB', round(s('jvm_memory_used_bytes', 'area="heap"') / 1e6),
       '| 평가 실행기 큐', s('executor_queued_tasks', 'name="journeyEvaluatorExecutor"'))
