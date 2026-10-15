@@ -492,6 +492,22 @@ class JourneyEvaluationIT {
                     select id from journey_leg where journey_id = ? and deleted_at is null)
                   and boarding_seq is null
                 """, journeyId);
+        // 노선 id 도 직접 채운다. 여정 시작 시 JourneyTransitIdEnricher 가 TransferStopResolver.resolveRoute 로
+        // bus_route 카탈로그(노선 id → 없으면 번호 폴백)에서 찾는데, 시험 DB 에는 그 카탈로그가 없다(정적 일배치
+        // OFF, 일회용 DB 는 0행). 그러면 route_id 가 null 로 남고 BusBoardingTimeEstimator·WaitBusArrivalPredictor
+        // 가 "노선 미해석"으로 조회를 건너뛰어 판정이 늘 UNKNOWN 이 됐다 — 카탈로그에 721 이 있던 개발 DB 에서만
+        // 통과하던 숨은 의존이었다. 값 자체는 예측기 mock 이 anyString 으로 받으므로 무엇이든 된다.
+        jdbcTemplate.update("""
+                update journey_leg_route_option set route_id = 'TEST-' || route_name
+                where journey_leg_id in (
+                    select id from journey_leg where journey_id = ? and deleted_at is null)
+                  and route_id is null
+                """, journeyId);
+        jdbcTemplate.update("""
+                update journey_leg l set route_id = o.route_id
+                from journey_leg_route_option o
+                where o.id = l.selected_route_option_id and l.journey_id = ? and l.route_id is null
+                """, journeyId);
     }
 
     /**
