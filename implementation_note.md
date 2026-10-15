@@ -5244,3 +5244,9 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결
 - 캐시 빗나감 31% 는 수명 30초가 만든다(앱 10초 폴링). 수명 연장은 낡은 204 상한을 늘리므로 사용자 결정
 - 평가기 200건/초는 설정 상한 — 올릴지와 그 다음 DB(선점 19.2%) 처방
+
+## BusAlertWakeupBurstIT 새벽 실패 (2026-10-16)
+### 함정
+- `BusAlertWakeupBurstIT` 가 01~05시(KST)에 돌리면 발송 0건으로 실패(outbox 200행 PENDING 그대로, toss 호출 0) ← `BusAlertRelayLoop.isActiveHours()` 가 운영 기본 창 `notification.bus-arrival.active-hours` 05:00~01:00 밖이면 wake 신호를 받아도 drain 하지 않는다. 테스트가 창을 고정하지 않아 낮에만 통과 / 가드: IT 의 `@DynamicPropertySource` 에 start=end=00:00(항상 활성). 테스트 config 의 `@Bean BusArrivalAlertProperties` 에 넣으면 안 먹는다 — relay 루프는 바인딩된 설정 bean 을 읽는다(02:08 실측).
+### 검증
+- 02:08 KST 단독 실행 `--tests '*BusAlertWakeupBurstIT'` 통과(allSent 880ms, p95 823ms). 수정 전 02:04·02:06 같은 명령 실패.
