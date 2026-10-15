@@ -5033,3 +5033,11 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew compileJava compileTestJava` 통과
 - `runsome.sh … --tests '*NextrouteApplicationTests' --tests '*AlertFatigueCopyTest' --tests '*AlertFatigueTransportTest' --tests '*FcmMessageFactoryTest' --tests '*RerouteBoardReplacedRiskTest' --tests '*TransferRiskNotifierTest' --tests 'watoo.grd.nextroute.application.journey.notification.*' --tests '*RerouteBoard*' --tests '*FcmNotificationSenderTest'` → 251 중 실패 0(AlertFatigueCopyTest 54, JourneyAlertBudgetIT 32, RerouteBoardReplacedRiskTest 2)
 - 전체 `runfull.sh`(cleanTest test --continue) → 3,184 중 실패 12, 건너뜀 5 = 기존 무관 목록 그대로(여정 평가 7·환승 판정 저장 1·조회 경로 2·OTP 계약 1·JourneyNotificationSchemaIT 1)
+
+## #427 처방 1 — 지하철 역별 도착 조회 역 이름 인코딩 (2026-10-15, fix/subway-station-name-encoding)
+### 확정
+- `SeoulSubwayApiAdapter.getRealtimeArrivalByStation` 이 역 이름을 날것으로 URI 에 넣었다 → Apache HttpClient 5 가 한글을 요청 줄에서 `?` 로 바꿔 `/0/1000/` 로 끝나고 서울 API 가 ALL(약 3,000행·2MB)로 답함. 역 id 로 다시 걸러 값은 맞아 기능 시험으로 안 잡힘. 같은 클래스 위치 API 는 이미 인코딩하고 있었음
+- `UriUtils.encodePathSegment(…, UTF_8)` 로 인코딩(공백도 %20). 실측(사다리 하네스): 인코딩 30~60ms·5~17KB vs 0.3~0.7초·2MB
+- 운영 영향: 평가기 지하철 대기 판정마다 2MB 수신 → 평가 지연 + 수신 데이터량(월 2TB 상한)
+### 검증
+- `SeoulSubwayApiAdapterStationArrivalTest`(나가는 주소 = 퍼센트 인코딩) + `SeoulSubwayApiAdapter*`·`CachedSubwayApiAdapterTest`·`SubwayRealtimeArrivalReaderTest` 통과
