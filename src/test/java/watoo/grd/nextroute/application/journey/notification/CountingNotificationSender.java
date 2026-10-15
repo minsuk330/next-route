@@ -64,6 +64,13 @@ class CountingNotificationSender implements NotificationSender {
         };
     }
 
+    /** 보내지 않기로 함(#428 조용한 갱신을 못 받는 기기 등). */
+    void skip(String reason) {
+        behavior = command -> {
+            throw new watoo.grd.nextroute.application.journey.exception.NotificationSkippedException(reason);
+        };
+    }
+
     /** 계약에 없는 예외. relay 가 {@code Throwable} 까지 잡는지 보는 데 쓴다. */
     void throwUnexpected() {
         behavior = command -> {

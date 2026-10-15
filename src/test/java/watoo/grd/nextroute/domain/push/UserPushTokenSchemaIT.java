@@ -59,7 +59,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import(JpaConfig.class)
-@Sql(scripts = "classpath:db/migration/V39__create_user_push_token.sql",
+@Sql(scripts = {"classpath:db/migration/V39__create_user_push_token.sql",
+        "classpath:db/migration/V68__user_push_token_quiet_update.sql"},
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 class UserPushTokenSchemaIT {
 
@@ -157,6 +158,28 @@ class UserPushTokenSchemaIT {
         assertThat(repository.findById(first).orElseThrow().getUserId()).isEqualTo(otherUserId);
         assertThat(repository.findByUserIdAndEnabledTrueAndDeletedAtIsNull(userId)).isEmpty();
         assertThat(repository.findByUserIdAndEnabledTrueAndDeletedAtIsNull(otherUserId)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("조용한 갱신 능력: 새 행은 기본 false, 알리면 저장, 목록을 안 보낸 재등록은 그대로 둔다(#428)")
+    void registerKeepsQuietUpdateCapabilityUnlessSent() {
+        Long id = register(userId, TOKEN, Instant.now());
+        assertThat(repository.findById(id).orElseThrow().isQuietUpdateSupported())
+                .as("능력을 모르는 기기에 조용한 갱신을 보내면 Android 는 소리 나는 기본 채널로 떨어진다")
+                .isFalse();
+
+        register(userId, TOKEN, Instant.now(), true);
+        assertThat(repository.findById(id).orElseThrow().isQuietUpdateSupported()).isTrue();
+
+        register(userId, TOKEN, Instant.now(), null);
+        assertThat(repository.findById(id).orElseThrow().isQuietUpdateSupported())
+                .as("능력 목록이 없는 등록 경로가 이미 알려 준 능력을 지우면 안 된다")
+                .isTrue();
+
+        register(userId, TOKEN, Instant.now(), false);
+        assertThat(repository.findById(id).orElseThrow().isQuietUpdateSupported())
+                .as("목록을 보냈는데 빠졌으면 앱이 채널을 지운 것이다")
+                .isFalse();
     }
 
     @Test
@@ -396,8 +419,13 @@ class UserPushTokenSchemaIT {
     }
 
     private Long register(long owner, String token, Instant seenAt) {
+        return register(owner, token, seenAt, null);
+    }
+
+    private Long register(long owner, String token, Instant seenAt, Boolean quietUpdateSupported) {
         return tx.execute(s -> repository.register(
-                owner, "ANDROID", "FCM", token, "PRODUCTION", seenAt, LocalDateTime.now()));
+                owner, "ANDROID", "FCM", token, "PRODUCTION", seenAt, quietUpdateSupported,
+                LocalDateTime.now()));
     }
 
     private void insertRaw(long owner, String token, LocalDateTime deletedAt) {

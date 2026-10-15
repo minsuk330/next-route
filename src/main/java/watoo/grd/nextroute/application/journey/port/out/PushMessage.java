@@ -18,10 +18,36 @@ import java.util.Map;
  * @param collapseKey 같은 열쇠를 가진 대기 중 메시지를 새 것이 덮는다. APNs 제한이 64바이트다
  * @param androidTtl 지금부터 남은 시간
  * @param apnsExpirationEpochSeconds 만료 시각의 UTC epoch 초
+ * @param delivery 울림·조용한 갱신(#428). null 이면 피로 정책 이전과 똑같이 보낸다
+ * @param androidTag 화면에 떠 있는 같은 tag 알림을 덮는다. null 이면 넣지 않는다
+ * @param androidChannelId Android 알림 채널. null 이면 넣지 않는다(앱 기본)
  */
 public record PushMessage(String title, String body, Map<String, String> data,
                           String collapseKey, Duration androidTtl,
-                          long apnsExpirationEpochSeconds, Priority priority) {
+                          long apnsExpirationEpochSeconds, Priority priority,
+                          Delivery delivery, String androidTag, String androidChannelId) {
+
+    /** 피로 정책을 쓰지 않는 메시지(정책 꺼짐·다른 종류). */
+    public PushMessage(String title, String body, Map<String, String> data,
+                       String collapseKey, Duration androidTtl,
+                       long apnsExpirationEpochSeconds, Priority priority) {
+        this(title, body, data, collapseKey, androidTtl, apnsExpirationEpochSeconds, priority,
+                null, null, null);
+    }
+
+    public boolean quiet() {
+        return delivery == Delivery.QUIET;
+    }
+
+    /**
+     * 이 알림이 기기를 울리는가(#428).
+     *
+     * <p>경로 버전마다 울림은 한 번이고, 그 뒤의 악화는 이미 떠 있는 알림을 소리 없이 고쳐 쓴다.
+     */
+    public enum Delivery {
+        ALERTING,
+        QUIET
+    }
 
     /** 전달 우선순위. 환승 위험은 즉시 행동이 필요하다(TECHNICAL_DECISIONS §2 LOCKED). */
     public enum Priority {

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties;
 import watoo.grd.nextroute.application.journey.dto.NotificationSendCommand;
 import watoo.grd.nextroute.application.journey.exception.NotificationSendException;
+import watoo.grd.nextroute.application.journey.exception.NotificationSkippedException;
 import watoo.grd.nextroute.application.journey.port.out.NotificationSender;
 
 import java.time.Clock;
@@ -121,6 +122,8 @@ public class JourneyNotificationRelayService {
         try {
             sender.send(command);
             stateService.markSent(command.notificationId());
+        } catch (NotificationSkippedException e) {
+            stateService.markSkipped(command.notificationId(), e.getReason());
         } catch (NotificationSendException e) {
             if (e.isPermanent()) {
                 log.warn("[JourneyNotificationRelay] id={} 영구 실패: {}",

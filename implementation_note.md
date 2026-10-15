@@ -4917,3 +4917,32 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - DB 커넥션 사용 횟수 548,145 → 494,874(-10%) — 그대로면 판정 행을 다시 안 씀
   - 처리 평가 수는 33,016 → 33,538 로 그대로. 이 칸은 평가기가 포화(예정→시작 p50 약 18초)라 간격이 늘어난 여정이 비운 자리를 밀린 여정이 바로 채움 → **줄어든 수요는 처리량이 아니라 대기열 길이로 나타남**. 포화가 아닌 부하에서 평가 횟수 감소로 보일 것
   - 앱 조회 p95 98 → 150ms(k6 p95 353 → 150ms, 서로 반대 방향) — 한 노트북 잡음 범위, 판단 근거로 안 씀
+
+## #428 PR-1a — 악화 알림 피로 정책 전송 계층 (2026-10-15, feat/alert-fatigue-transport)
+
+### 확정
+- 토큰 능력은 플랜의 `text[]` 대신 불리언 `user_push_token.quiet_update_supported`(V68, 기본 false) 하나. API 는 `capabilities:["quietChannel"]` 목록으로 받아 계약은 확장 가능하게 두고 저장은 단순하게. 목록 생략(null) = 기존 값 유지, 빈 목록 = false
+- 정책 대상 = 위험(AT_RISK·MISSED)·재탐색(REROUTE_SUGGESTED). 접근 알림은 켜도 메시지 그대로
+- 갱신 열쇠(정책 on) = `j{journeyId}r{revision}A`, Android `tag` 도 같은 값(collapse key 는 미전달분만 합치고, 화면의 알림은 tag 가 덮음)
+- QUIET: iOS `aps.interruption-level=passive`(Aps.putCustomData), Android `channel_id=journey_quiet`. ALERTING: tag 만
+- payload 에 `delivery` 표시가 없거나 null payload → ALERTING(울리는 쪽으로 실패)
+- 채널 능력 없는 Android + QUIET → `NotificationSkippedException` → relay `markSkipped` → `CANCELED quiet-skipped-android`(실패 아님, 재시도 없음)
+- 플래그 `journey.notification.fatigue.enabled` 기본 false. 끄면 PushMessage 새 필드 전부 null·열쇠 그대로 → SDK Message 에 tag·채널·interruption-level 없음(테스트로 고정)
+- 플랜과 다름: payload null 지표(`delivery_unknown`)는 넣지 않음 — PR-1b 에서 판정이 항상 표시를 쓰므로 null 은 직렬화 실패뿐, 기존 로그로 충분
+
+### 함정
+- 푸시 토큰 IT 들은 Flyway 를 끄고 `@Sql` 로 **실제 마이그레이션 파일**을 실행한다 → 새 마이그레이션은 `V39` 를 쓰는 모든 IT 의 `@Sql` 목록에 추가해야 함(11곳). 안 하면 "column quiet_update_supported does not exist"
+- `@Sql(scripts = "a", "b")` 는 문법 오류 — 배열 `{...}` 필요
+
+### 좌표
+- `infrastructure/adapter/out/notification/FcmMessageFactory.java` `underFatiguePolicy`·`delivery`·`routeAlertCollapseKey`
+- `FirebaseAdminMessagingClient.SdkDispatcher.toMessage`(package-private, 테스트가 Gson 으로 JSON 비교)·`androidNotification`·`aps`
+- `FcmNotificationSender.send` 조용한 갱신 건너뛰기, `JourneyNotificationOutboxStateService.markSkipped`
+
+### 배포
+- V68 tracked·Flyway 자동. 플래그 꺼진 채 배포 → 동작 변화 없음
+- 🔴 `WithdrawalDeletionBoundaryIT` 는 스키마를 ddl-auto(create-drop)로 만든다 → 원시타입 칸은 기본값 없는 not null 로 생겨, 새 칸을 모르는 원시 INSERT 가 깨짐(7건) → 엔티티에 `@ColumnDefault("false")` 로 V68 기본값을 맞춤
+
+### 검증
+- 관련: `AlertFatigueTransportTest`(10)·`FcmMessageFactoryTest`·`FcmNotificationSenderTest`·`FirebaseAdminMessagingClient*`·`JourneyNotificationRelayIT`(+건너뛰기 1)·`JourneyNotificationFcmRelayIT`·`UserPushTokenSchemaIT`(+능력 1)·`PushTokenServiceTest`·`PushTokenControllerTest`(+능력 1) = 93 통과, `WithdrawalDeletionBoundaryIT` 통과
+- 전체 `cleanTest test`: 3,096 중 실패 19 → `@ColumnDefault` 수정으로 Withdrawal 7 해소, 남은 12 = 기존 무관(여정 평가 7·환승 판정 저장 1·조회 경로 2·OTP 계약 1·JourneyNotificationSchemaIT 1)
