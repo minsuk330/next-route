@@ -37,6 +37,7 @@ public class PushTokenService implements PushTokenUseCase {
                 command.token(),
                 command.environment().name(),
                 seenAt,
+                command.quietUpdateSupported(),
                 LocalDateTime.now(clock));
     }
 

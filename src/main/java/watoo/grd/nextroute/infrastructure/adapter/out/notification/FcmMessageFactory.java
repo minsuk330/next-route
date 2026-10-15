@@ -46,17 +46,65 @@ public class FcmMessageFactory {
      */
     public PushMessage from(NotificationSendCommand command, Instant now) {
         Instant providerExpiresAt = providerExpiresAt(command, now);
+        // Android 는 "앞으로 몇 초", APNs 는 "언제(UTC epoch 초)". 같은 숫자를 양쪽에
+        // 넣으면 iOS 알림이 1970년으로 읽혀 즉시 만료된다.
+        Duration androidTtl = Duration.between(now, providerExpiresAt);
+        if (!underFatiguePolicy(command)) {
+            return new PushMessage(
+                    title(command.checkpoint()),
+                    body(command),
+                    data(command),
+                    collapseKey(command),
+                    androidTtl,
+                    providerExpiresAt.getEpochSecond(),
+                    // 환승 위험은 즉시 행동이 필요한 알림이다(TECHNICAL_DECISIONS §2 LOCKED).
+                    PushMessage.Priority.HIGH);
+        }
+        PushMessage.Delivery delivery = delivery(command);
+        String collapseKey = routeAlertCollapseKey(command);
+        Map<String, String> data = data(command);
+        data.put("delivery", delivery.name());
         return new PushMessage(
                 title(command.checkpoint()),
                 body(command),
-                data(command),
-                collapseKey(command),
-                // Android 는 "앞으로 몇 초", APNs 는 "언제(UTC epoch 초)". 같은 숫자를 양쪽에
-                // 넣으면 iOS 알림이 1970년으로 읽혀 즉시 만료된다.
-                Duration.between(now, providerExpiresAt),
+                data,
+                collapseKey,
+                androidTtl,
                 providerExpiresAt.getEpochSecond(),
-                // 환승 위험은 즉시 행동이 필요한 알림이다(TECHNICAL_DECISIONS §2 LOCKED).
-                PushMessage.Priority.HIGH);
+                PushMessage.Priority.HIGH,
+                delivery,
+                // 화면에 떠 있는 같은 경로 버전 알림을 덮는다. collapse key 는 "아직 전달 안 된" 것만 합친다.
+                collapseKey,
+                delivery == PushMessage.Delivery.QUIET ? properties.getFatigue().getQuietChannelId() : null);
+    }
+
+    /**
+     * 피로 정책(#428)의 대상인가. 위험(빠듯·놓침)과 재탐색 제안만이다 — 접근 알림("갈아탈 차가 곧
+     * 도착해요")은 악화가 아니라 안내라 상한·갱신 열쇠 어디에도 끼지 않는다.
+     */
+    boolean underFatiguePolicy(NotificationSendCommand command) {
+        return properties.getFatigue().isEnabled()
+                && command.checkpoint() != JourneyCheckpoint.TRANSFER_TARGET_APPROACHING;
+    }
+
+    /**
+     * 판정 쪽이 payload 에 적은 울림 종류. 표시가 없으면(직렬화 실패·정책 이전 행) 울림으로 본다 —
+     * 조용히 사라지는 쪽보다 한 번 더 울리는 쪽이 낫다.
+     */
+    PushMessage.Delivery delivery(NotificationSendCommand command) {
+        if (command.payload() != null
+                && PushMessage.Delivery.QUIET.name().equals(command.payload().path("delivery").asText(null))) {
+            return PushMessage.Delivery.QUIET;
+        }
+        return PushMessage.Delivery.ALERTING;
+    }
+
+    /**
+     * 경로 버전 하나에 열쇠 하나(#428). 환승이 여럿이어도, 위험이 재탐색으로 바뀌어도 같은 자리를 덮는다.
+     * 기존 열쇠({@link #collapseKey})는 환승 단위라 환승이 둘이면 알림이 둘 남았다.
+     */
+    private String routeAlertCollapseKey(NotificationSendCommand command) {
+        return "j" + command.journeyId() + "r" + command.routeRevision() + "A";
     }
 
     /**

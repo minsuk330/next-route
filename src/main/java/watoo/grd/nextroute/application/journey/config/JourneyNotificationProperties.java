@@ -91,6 +91,23 @@ public class JourneyNotificationProperties {
 
     private final Approach approach = new Approach();
 
+    private final Fatigue fatigue = new Fatigue();
+
+    /**
+     * 악화 알림 피로 정책(#428). 경로 버전마다 울림 한 번, 그 뒤는 조용한 갱신.
+     *
+     * <p>꺼져 있으면 발송 메시지가 정책 이전과 똑같다 — 갱신 열쇠·tag·채널·data 어느 것도 바뀌지 않는다.
+     */
+    @Getter
+    @Setter
+    public static class Fatigue {
+
+        private boolean enabled = false;
+
+        /** 앱이 만든 저중요도 Android 채널 이름. 앱과 글자까지 같아야 한다. */
+        private String quietChannelId = "journey_quiet";
+    }
+
     /**
      * 접근 알림(N2) 설정. "갈아탈 차가 곧 온다"를 언제 알릴지 정한다.
      *

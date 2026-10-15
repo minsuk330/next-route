@@ -14,5 +14,12 @@ public record RegisterPushTokenCommand(
         String token,
         PushPlatform platform,
         PushProvider provider,
-        PushEnvironment environment) {
+        PushEnvironment environment,
+        Boolean quietUpdateSupported) {
+
+    /** 능력 목록을 모르는 호출자(옛 앱 경로·테스트). 조용한 갱신 능력은 그대로 둔다. */
+    public RegisterPushTokenCommand(String token, PushPlatform platform, PushProvider provider,
+                                    PushEnvironment environment) {
+        this(token, platform, provider, environment, null);
+    }
 }

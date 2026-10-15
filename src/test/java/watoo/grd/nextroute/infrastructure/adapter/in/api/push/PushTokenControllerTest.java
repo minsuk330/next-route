@@ -105,6 +105,36 @@ class PushTokenControllerTest {
     }
 
     @Test
+    @DisplayName("capabilities 에 quietChannel 이 있으면 조용한 갱신 가능, 빠지면 불가, 생략하면 모름(#428)")
+    void mapsQuietChannelCapability() throws Exception {
+        mockMvc.perform(put("/api/me/push-token")
+                        .with(authentication(authUser(USER_ID)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"" + TOKEN + "\",\"platform\":\"ANDROID\","
+                                + "\"capabilities\":[\"quietChannel\",\"futureThing\"]}"))
+                .andExpect(status().isNoContent());
+        assertThat(capturedCommand().quietUpdateSupported()).isTrue();
+
+        org.mockito.Mockito.clearInvocations(pushTokenUseCase);
+        mockMvc.perform(put("/api/me/push-token")
+                        .with(authentication(authUser(USER_ID)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"" + TOKEN + "\",\"platform\":\"ANDROID\",\"capabilities\":[]}"))
+                .andExpect(status().isNoContent());
+        assertThat(capturedCommand().quietUpdateSupported()).isFalse();
+
+        org.mockito.Mockito.clearInvocations(pushTokenUseCase);
+        mockMvc.perform(put("/api/me/push-token")
+                        .with(authentication(authUser(USER_ID)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(TOKEN)))
+                .andExpect(status().isNoContent());
+        assertThat(capturedCommand().quietUpdateSupported())
+                .as("옛 앱은 목록을 안 보낸다 — 이미 저장된 능력을 지우지 않게 null 로 넘긴다")
+                .isNull();
+    }
+
+    @Test
     @DisplayName("provider·environment 를 생략하면 FCM·PRODUCTION 으로 채운다")
     void appliesDefaults() throws Exception {
         mockMvc.perform(put("/api/me/push-token")

@@ -646,6 +646,12 @@ journey:
       # 이 시간 안에 도착하면 곧 온다고 본다. 이 값이 N2 의 유효시간 상한이기도 하다 —
       # 접근 알림은 바닥·천장 clamp 없이 다음 차 도착 시각을 그대로 만료로 쓴다.
       window-seconds: 120
+    # 악화 알림 피로 정책(#428): 경로 버전마다 울림 한 번, 그 뒤는 조용한 갱신(iOS passive, Android
+    # 저중요도 채널). 끄면 발송 메시지가 정책 이전과 똑같다.
+    fatigue:
+      enabled: ${JOURNEY_NOTIFICATION_FATIGUE_ENABLED:false}
+      # 앱이 만든 Android 채널 이름. 앱과 글자까지 같아야 한다 — 없는 채널은 소리 나는 기본 채널로 떨어진다.
+      quiet-channel-id: journey_quiet
     relay:
       # 기본 꺼짐. 발송 구현은 붙었지만 ⑤(발송 직전 재검증)와 ⑥(payload 계약·문구)이 들어오기
       # 전에는 켜지 않는다 — 낡은 알림이 나가고 임시 문구가 운영에 굳는다. worker 프로필 전용.

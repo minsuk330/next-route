@@ -9,6 +9,7 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 import watoo.grd.nextroute.common.entity.BaseEntity;
 
 import java.time.Instant;
@@ -84,6 +85,20 @@ public class UserPushToken extends BaseEntity {
     /** 앱이 마지막으로 이 token 을 등록한 시각. 오래된 행을 정리할 근거를 미리 남긴다. */
     @Column(nullable = false)
     private Instant lastSeenAt;
+
+    /**
+     * 이 기기가 조용한 갱신을 받을 수 있는지(#428, V68).
+     *
+     * <p>Android 는 앱이 저중요도 채널을 만들어 둬야 소리 없이 덮인다. 없는 채널로 보내면 OS 가 소리 나는
+     * 기본 채널로 떨어뜨리므로, 앱이 등록 때 {@code capabilities:["quietChannel"]} 로 알린 기기에만
+     * 조용한 갱신을 보낸다. iOS 는 OS 가 {@code passive} 를 처리해 이 값과 무관하다.
+     *
+     * <p>{@code @ColumnDefault} 는 V68 의 기본값을 ddl-auto 스키마(경계 IT)에도 맞춘다 — 없으면 이 칸을
+     * 모르는 원시 INSERT 가 not null 위반으로 죽는다.
+     */
+    @Column(nullable = false)
+    @ColumnDefault("false")
+    private boolean quietUpdateSupported;
 
     @Builder
     public UserPushToken(Long userId, PushPlatform platform, PushProvider provider,

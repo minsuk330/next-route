@@ -6,12 +6,15 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.dto.NotificationSendCommand;
 import watoo.grd.nextroute.application.journey.exception.NotificationSendException;
+import watoo.grd.nextroute.application.journey.exception.NotificationSkippedException;
 import watoo.grd.nextroute.application.journey.observability.JourneyNotificationMetrics;
 import watoo.grd.nextroute.application.journey.port.out.FirebaseMessagingClient;
 import watoo.grd.nextroute.application.journey.port.out.FirebaseMessagingClient.PushResult;
 import watoo.grd.nextroute.application.journey.port.out.NotificationSender;
+import watoo.grd.nextroute.application.journey.port.out.PushMessage;
 import watoo.grd.nextroute.application.push.service.PushTokenDeactivationService;
 import watoo.grd.nextroute.application.push.service.PushTokenDeactivationService.ObservedToken;
+import watoo.grd.nextroute.domain.push.entity.PushPlatform;
 import watoo.grd.nextroute.domain.push.entity.UserPushToken;
 import watoo.grd.nextroute.domain.push.repository.UserPushTokenRepository;
 
@@ -57,6 +60,9 @@ public class FcmNotificationSender implements NotificationSender {
     private static final Set<String> OUR_FAULT_CODES = Set.of(
             "INVALID_ARGUMENT", "SENDER_ID_MISMATCH", "THIRD_PARTY_AUTH_ERROR");
 
+    /** 조용한 갱신을 받을 채널이 없는 Android 라 보내지 않았다(#428). */
+    static final String QUIET_SKIPPED_ANDROID = "quiet-skipped-android";
+
     /** 앱 삭제·재설치로 죽은 token. 끄는 사유는 이것 하나뿐이다. */
     private static final String UNREGISTERED = "UNREGISTERED";
 
@@ -78,8 +84,15 @@ public class FcmNotificationSender implements NotificationSender {
             throw new NotificationSendException("no-active-token", true);
         }
 
-        PushResult result = messagingClient.send(
-                messageFactory.from(command, Instant.now(clock)), target.getToken());
+        PushMessage message = messageFactory.from(command, Instant.now(clock));
+        if (message.quiet() && target.getPlatform() == PushPlatform.ANDROID
+                && !target.isQuietUpdateSupported()) {
+            // 조용한 채널이 없는 앱에 보내면 OS 가 소리 나는 기본 채널로 떨어뜨린다 — 조용하라고 보낸
+            // 갱신이 울린다(#428). 이 기기는 첫 울림만 받고, 이후 변화는 앱 화면에서 본다.
+            throw new NotificationSkippedException(QUIET_SKIPPED_ANDROID);
+        }
+
+        PushResult result = messagingClient.send(message, target.getToken());
         if (result.success()) {
             return;
         }
