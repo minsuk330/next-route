@@ -2,6 +2,8 @@
 # 부하 사다리 한 칸(#415-4). usage: run_ladder.sh <journeys> <event:on|off> [duration=10m] [read_rps=20]
 # 전제: 로컬 Postgres/Redis(POSTGRES_*, REDIS_*), env/*.env, docker(k6), 저장소 루트에서 bootJar 빌드됨.
 set -u
+# 지하철 이벤트 사다리(#427)는 따로 둔 스크립트가 맡는다 — 버스 칸은 아래 그대로.
+[[ ${MODE:-bus} == subway ]] && exec ${0:A:h}/run_subway_ladder.sh "$@"
 N=$1; EVENT=$2; DURATION=${3:-10m}; READ_RPS=${4:-20}
 HERE=${0:A:h}; REPO=${REPO:-$PWD}; OUT=${OUT:-$HERE/out}; mkdir -p $OUT
 LABEL="n${N}-refill-${REFILL:-true}-precheck-${PRECHECK:-true}-tol-${TOL:-30}"

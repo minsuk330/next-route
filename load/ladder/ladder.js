@@ -12,6 +12,7 @@ const N = parseInt(__ENV.RIDERS || String(RIDERS.length), 10);
 const DURATION = __ENV.DURATION || '10m';
 const READ_RPS = parseInt(__ENV.READ_RPS || '20', 10);
 const POLL_S = parseFloat(__ENV.POLL_S || '10');
+const MOVE = (__ENV.MOVE || 'true') !== 'false';
 
 export const options = {
   scenarios: {
@@ -46,7 +47,9 @@ export function ride() {
     s.rev = body.routeRevision;
   }
   s.iter++;
-  if (!s.moved && s.iter === 10 && s.cv) {
+  // 지하철 사다리(#427)는 전이를 끈다(MOVE=false) — 걷기 단계로 넘어가면 준비 시각이 "지금 + 도보"로 바뀌어 모두 긴급이 되고,
+  // 등급 비율(긴급 20 / 주의 30 / 여유 50)을 유지할 수 없다.
+  if (MOVE && !s.moved && s.iter === 10 && s.cv) {
     const ev = {
       eventId: crypto.randomUUID(), type: 'CLIENT_LEG_TRANSITION_DETECTED',
       baseCommandVersion: s.cv, routeRevision: s.rev || 1, fromLegIndex: 1, toLegIndex: 2,

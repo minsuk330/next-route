@@ -32,7 +32,11 @@ import java.util.Set;
 @ConfigurationProperties(prefix = "journey.notification")
 public class JourneyNotificationProperties {
 
-    private static final Set<String> KNOWN_SENDERS = Set.of("noop", "fcm");
+    /**
+     * {@code loadtest} 는 부하 실험(#427) 전용 가짜 발송처. {@code loadtest} 프로필에서만 빈이 뜨므로 프로필 없이
+     * 이 값을 주면 발송처 빈이 없어 부팅이 죽는다({@code LoadTestNotificationSender}).
+     */
+    private static final Set<String> KNOWN_SENDERS = Set.of("noop", "fcm", "loadtest");
     private static final Set<String> KNOWN_CHANNEL_RESOLVERS = Set.of("fixed", "identity");
 
     /** 평가기는 돌되 알림만 끄는 스위치. */
