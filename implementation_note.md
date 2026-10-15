@@ -5145,3 +5145,5 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `./gradlew test --tests '*reeval*' '*Reevaluation*' '*Interest*' '*DetectionLatency*'` → 82 중 실패 0(건너뜀 1). 새 계약: `ReevaluationWakeCapTest` 9건(처리량→상한·바닥/천장·콜드 스타트/모름·DB 원천+캐시·DB 실패·FIXED·트리거 500 초과·긴급 먼저·shed 유지) + `JourneyReevaluationTriggerIT.countsJourneysEvaluatedInWindow`
 - 사다리 단독(P1 만, 지하철 실제 원천 2,000, `RUN_TAG=p1`): 깨운 주기당 540(상한 평균 1,401), overflow 29,217 → 269, SLO 긴급/주의/여유 99.9/83.2/61.1 → 98.9/98.1/100%, 처리 59.4 → 65.3/s, 예정→시작 p95 13.2 → 26.2s, 남은 여정 0
+- 전체 `runfull.sh`(`cleanTest test --continue`, st-pg:55432) → **3,214 중 실패 0, 건너뜀 6**(main 3,204 + 새 10), BUILD SUCCESSFUL 5m14s
+- 합본 사다리(`measure/after-p1-p2`, P1+P2) 결과는 `load/ladder/BOTTLENECK-MAP-SUBWAY.md` "처방 2차" 절(docs/subway-ladder-prescription-2 브랜치)
