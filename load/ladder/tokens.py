@@ -1,4 +1,4 @@
-"""ladder.tsv(journeyId, userId) 에 access JWT 를 붙여 k6 가 읽을 JSON 으로 낸다.
+"""ladder.tsv(journeyId, userId[, 그 밖 칸은 무시]) 에 access JWT 를 붙여 k6 가 읽을 JSON 으로 낸다.
 usage: python3 -I tokens.py ladder.tsv out.json   (env AUTH_JWT_SECRET, AUTH_JWT_ISSUER=nextroute)"""
 import base64, hashlib, hmac, json, os, sys, time
 
@@ -21,7 +21,7 @@ def token(user_id):
 
 rows = []
 for line in open(sys.argv[1]):
-    journey, user = line.split()
+    journey, user = line.split()[:2]
     rows.append({"journeyId": int(journey), "token": token(int(user))})
 json.dump(rows, open(sys.argv[2], "w"))
 print(len(rows), "tokens")
