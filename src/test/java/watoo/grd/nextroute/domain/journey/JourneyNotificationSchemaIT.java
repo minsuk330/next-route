@@ -22,6 +22,7 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyNotification;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotificationScope;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotificationStatus;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
+import watoo.grd.nextroute.domain.journey.entity.NotificationPriority;
 import watoo.grd.nextroute.domain.journey.repository.JourneyNotificationRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.domain.notification.entity.NotificationChannel;
@@ -59,6 +60,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V39__create_user_push_token.sql",
         "classpath:db/migration/V68__user_push_token_quiet_update.sql",
         "classpath:db/migration/V40__create_journey_notification.sql",
+        "classpath:db/migration/V70__journey_notification_priority.sql",
         "classpath:db/migration/V41__create_journey_telemetry_event.sql",
         "classpath:db/migration/V53__add_reroute_alert_state.sql",
         "classpath:db/migration/V59__journey_session_kind.sql",
@@ -115,7 +117,8 @@ class JourneyNotificationSchemaIT extends AbstractJourneyOutboxPostgresIT {
         return tx().execute(status -> notificationRepository.enqueue(
                 journey.getId(), 1, "TRANSFER", scopeId, checkpoint.name(), channel.name(),
                 logicalKey, logicalKey + ":" + channel.name(), now, expiresAt,
-                "{\"transferIndex\":" + scopeId + "}", LocalDateTime.now()));
+                "{\"transferIndex\":" + scopeId + "}", NotificationPriority.of(checkpoint).value(),
+                LocalDateTime.now()));
     }
 
     private List<Long> enqueue(JourneyCheckpoint checkpoint, NotificationChannel channel) {
@@ -303,7 +306,7 @@ class JourneyNotificationSchemaIT extends AbstractJourneyOutboxPostgresIT {
         List<Long> inserted = tx().execute(status -> notificationRepository.enqueue(
                 journey.getId(), 2, "TRANSFER", 0, "TRANSFER_RISK_AT_RISK", "PUSH",
                 "k", "k:PUSH", Instant.now(), Instant.now().plusSeconds(600), null,
-                LocalDateTime.now()));
+                (short) 2, LocalDateTime.now()));
 
         assertThat(inserted).isEmpty();
     }
@@ -324,7 +327,7 @@ class JourneyNotificationSchemaIT extends AbstractJourneyOutboxPostgresIT {
         List<Long> inserted = tx().execute(status -> notificationRepository.enqueue(
                 journey.getId(), 1, "TRANSFER", 0, "TRANSFER_RISK_AT_RISK", "PUSH",
                 "k", "k:PUSH", Instant.now(), Instant.now().plusSeconds(600), null,
-                LocalDateTime.now()));
+                (short) 2, LocalDateTime.now()));
 
         assertThat(inserted).hasSize(1);
         assertThat(notificationRepository.findById(inserted.get(0)).orElseThrow().getPayload())
@@ -467,5 +470,130 @@ class JourneyNotificationSchemaIT extends AbstractJourneyOutboxPostgresIT {
 
         assertThat(canceled).isEqualTo(1);
         assertThat(status(first)).isEqualTo("CANCELED");
+    }
+
+    // ── 우선순위(#451 PR-2, V70) ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("V70: priority 칼럼은 smallint not null default 2, PENDING 부분 인덱스가 있고 옛 claim 인덱스도 남는다")
+    void v70_priorityColumnAndIndexes() {
+        assertThat(jdbcTemplate.queryForObject("""
+                select data_type || '|' || is_nullable || '|' || column_default
+                  from information_schema.columns
+                 where table_name = 'journey_notification' and column_name = 'priority'
+                """, String.class)).isEqualTo("smallint|NO|2");
+        assertThat(jdbcTemplate.queryForObject(
+                "select indexdef from pg_indexes where indexname = 'idx_journey_notification_claim_priority'",
+                String.class))
+                .contains("(priority, scheduled_at)")
+                .contains("WHERE (((status)::text = 'PENDING'::text) AND (deleted_at IS NULL))");
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from pg_indexes where indexname = 'idx_journey_notification_claim'",
+                Integer.class)).isEqualTo(1);
+
+        // 칼럼을 안 주는 옛 삽입(엔티티 저장)은 기본값 2 — 여유.
+        JourneyNotification saved = notificationRepository.saveAndFlush(JourneyNotification.builder()
+                .journeyId(journey.getId()).userId(userId).routeRevision(1).commandVersion(1).evaluationVersion(1)
+                .scopeType(JourneyNotificationScope.TRANSFER).scopeId(9)
+                .checkpoint(JourneyCheckpoint.TRANSFER_RISK_MISSED).channel(NotificationChannel.PUSH)
+                .logicalCheckpointKey("legacy").deliveryKey("legacy:PUSH")
+                .scheduledAt(Instant.now()).expiresAt(Instant.now().plusSeconds(600)).build());
+        assertThat(priority(saved.getId())).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("enqueue 는 넘겨받은 우선순위를 그대로 적는다")
+    void enqueue_writesPriority() {
+        Long missed = enqueue(JourneyCheckpoint.TRANSFER_RISK_MISSED, NotificationChannel.PUSH).get(0);
+        Long approach = enqueue(JourneyCheckpoint.TRANSFER_TARGET_APPROACHING, NotificationChannel.PUSH).get(0);
+        Long reroute = enqueue(JourneyCheckpoint.REROUTE_SUGGESTED, NotificationChannel.PUSH).get(0);
+
+        assertThat(priority(missed)).isEqualTo(0);
+        assertThat(priority(approach)).isEqualTo(1);
+        assertThat(priority(reroute)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("PRIORITY_FIRST: 긴급 → 곧 → 여유. 여유가 훨씬 일찍 예정됐어도 긴급이 먼저다(scheduled_at 은 나이를 세지 않는다)")
+    void priorityFirst_urgentBeforeRelaxed() {
+        Instant now = Instant.now();
+        Long relaxed = enqueue(JourneyCheckpoint.REROUTE_SUGGESTED, NotificationChannel.PUSH,
+                0, now.minusSeconds(300), now.plusSeconds(600)).get(0);
+        Long soon = enqueue(JourneyCheckpoint.TRANSFER_TARGET_APPROACHING, NotificationChannel.PUSH,
+                0, now.minusSeconds(200), now.plusSeconds(600)).get(0);
+        Long urgent = enqueue(JourneyCheckpoint.TRANSFER_RISK_MISSED, NotificationChannel.PUSH,
+                0, now.minusSeconds(10), now.plusSeconds(600)).get(0);
+
+        assertThat(claimOneByOne(now, true)).containsExactly(urgent, soon, relaxed);
+    }
+
+    @Test
+    @DisplayName("PRIORITY_FIRST: 적재 뒤 aging 을 넘긴 여유는 긴급과 동급 — 같으면 scheduled_at 이 이른 쪽")
+    void priorityFirst_agedRelaxedTiesWithUrgent() {
+        Instant now = Instant.now();
+        Long agedRelaxed = enqueue(JourneyCheckpoint.REROUTE_SUGGESTED, NotificationChannel.PUSH,
+                0, now.minusSeconds(20), now.plusSeconds(600)).get(0);
+        Long urgent = enqueue(JourneyCheckpoint.TRANSFER_RISK_AT_RISK, NotificationChannel.PUSH,
+                0, now.minusSeconds(10), now.plusSeconds(600)).get(0);
+        Long freshUrgent = enqueue(JourneyCheckpoint.TRANSFER_RISK_MISSED, NotificationChannel.PUSH,
+                0, now.minusSeconds(5), now.plusSeconds(600)).get(0);
+        Long soon = enqueue(JourneyCheckpoint.TRANSFER_TARGET_APPROACHING, NotificationChannel.PUSH,
+                0, now.minusSeconds(30), now.plusSeconds(600)).get(0);
+        jdbcTemplate.update("update journey_notification set created_at = ? where id = ?",
+                LocalDateTime.now().minusSeconds(120), agedRelaxed);
+
+        assertThat(claimOneByOne(now, true)).containsExactly(agedRelaxed, urgent, freshUrgent, soon);
+    }
+
+    @Test
+    @DisplayName("SCHEDULED(기본): 우선순위와 무관하게 scheduled_at 순서 그대로")
+    void scheduled_ignoresPriority() {
+        Instant now = Instant.now();
+        Long relaxed = enqueue(JourneyCheckpoint.REROUTE_SUGGESTED, NotificationChannel.PUSH,
+                0, now.minusSeconds(300), now.plusSeconds(600)).get(0);
+        Long soon = enqueue(JourneyCheckpoint.TRANSFER_TARGET_APPROACHING, NotificationChannel.PUSH,
+                0, now.minusSeconds(200), now.plusSeconds(600)).get(0);
+        Long urgent = enqueue(JourneyCheckpoint.TRANSFER_RISK_MISSED, NotificationChannel.PUSH,
+                0, now.minusSeconds(10), now.plusSeconds(600)).get(0);
+
+        assertThat(claimOneByOne(now, false)).containsExactly(relaxed, soon, urgent);
+    }
+
+    @Test
+    @DisplayName("PRIORITY_FIRST 도 아직 시각이 안 된 행은 집지 않고, 증서(올린 attempt_count)를 돌려준다")
+    void priorityFirst_keepsTargetAndToken() {
+        Instant now = Instant.now();
+        enqueue(JourneyCheckpoint.TRANSFER_RISK_MISSED, NotificationChannel.PUSH,
+                0, now.plusSeconds(60), now.plusSeconds(600));
+        Long due = enqueue(JourneyCheckpoint.REROUTE_SUGGESTED, NotificationChannel.PUSH,
+                0, now.minusSeconds(1), now.plusSeconds(600)).get(0);
+
+        List<JourneyNotificationRepository.ClaimRow> rows = tx().execute(st -> notificationRepository
+                .claimBatchForProcessingPriorityFirst(now, LocalDateTime.now().minusSeconds(60), 10,
+                        LocalDateTime.now()));
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getId()).isEqualTo(due);
+        assertThat(rows.get(0).getToken()).isEqualTo(1);
+        assertThat(status(due)).isEqualTo("PROCESSING");
+    }
+
+    /** 한 건씩 집어 집힌 순서를 본다. RETURNING 순서는 ORDER BY 를 따르지 않으므로 크기 1 로 반복한다. */
+    private List<Long> claimOneByOne(Instant now, boolean priorityFirst) {
+        List<Long> order = new java.util.ArrayList<>();
+        while (true) {
+            List<JourneyNotificationRepository.ClaimRow> rows = tx().execute(st -> priorityFirst
+                    ? notificationRepository.claimBatchForProcessingPriorityFirst(
+                            now, LocalDateTime.now().minusSeconds(60), 1, LocalDateTime.now())
+                    : notificationRepository.claimBatchForProcessing(now, 1, LocalDateTime.now()));
+            if (rows.isEmpty()) {
+                return order;
+            }
+            order.add(rows.get(0).getId());
+        }
+    }
+
+    private int priority(Long id) {
+        return jdbcTemplate.queryForObject("select priority from journey_notification where id = ?", Integer.class, id);
     }
 }

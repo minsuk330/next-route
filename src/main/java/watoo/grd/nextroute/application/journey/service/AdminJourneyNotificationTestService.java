@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties;
 import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotificationScope;
+import watoo.grd.nextroute.domain.journey.entity.NotificationPriority;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 import watoo.grd.nextroute.domain.journey.repository.JourneyNotificationRepository;
@@ -67,7 +68,7 @@ public class AdminJourneyNotificationTestService {
                 JourneyNotificationScope.JOURNEY.name(), 0,
                 checkpoint.name(), NotificationChannel.PUSH.name(),
                 logicalKey, deliveryKey, now, expiresAt, payload,
-                LocalDateTime.now(clock));
+                NotificationPriority.ADMIN_TEST.value(), LocalDateTime.now(clock));
         if (created.isEmpty()) {
             // enqueue SQL이 ACTIVE·revision을 다시 확인한다. 그 사이 여정이 종료되거나
             // 재탐색되면 테스트 알림도 운영 알림과 동일하게 조용히 폐기한다.

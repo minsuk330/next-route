@@ -69,6 +69,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V39__create_user_push_token.sql",
         "classpath:db/migration/V68__user_push_token_quiet_update.sql",
         "classpath:db/migration/V40__create_journey_notification.sql",
+        "classpath:db/migration/V70__journey_notification_priority.sql",
         "classpath:db/migration/V41__create_journey_telemetry_event.sql",
         "classpath:db/migration/V42__create_reroute_proposal.sql",
         "classpath:db/migration/V43__add_reroute_proposal_accepted_candidate.sql",

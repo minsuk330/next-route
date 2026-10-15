@@ -189,6 +189,15 @@ public class JourneyNotificationProperties {
      */
     public enum RelayMode { BATCH, PULL }
 
+    /**
+     * relay 가 PENDING 을 집는 순서(#451 PR-2). BATCH·PULL 둘 다에 적용된다.
+     * <ul>
+     *   <li>{@code SCHEDULED} — 기존. {@code ORDER BY scheduled_at}</li>
+     *   <li>{@code PRIORITY_FIRST} — 우선순위 먼저, 같으면 {@code scheduled_at}. {@code aging-seconds} 넘게 기다린 행은 긴급과 동급</li>
+     * </ul>
+     */
+    public enum ClaimOrder { SCHEDULED, PRIORITY_FIRST }
+
     @Getter
     @Setter
     public static class Relay {
@@ -207,6 +216,15 @@ public class JourneyNotificationProperties {
          * heartbeat 바로 뒤에 한다. BATCH·PULL 공통.
          */
         private long heartbeatIntervalMs = 10_000;
+
+        /** 기본 SCHEDULED(기존 순서). env {@code JOURNEY_NOTIFICATION_RELAY_CLAIM_ORDER}. */
+        private ClaimOrder claimOrder = ClaimOrder.SCHEDULED;
+
+        /**
+         * PRIORITY_FIRST 에서 굶주림 방지 기준. 적재({@code created_at}) 뒤 이만큼 지난 행은 우선순위 0 으로 친다.
+         * {@code scheduled_at} 이 아니라 {@code created_at} 기준이다 — 재시도·회수가 {@code scheduled_at} 을 미룬다.
+         */
+        private long agingSeconds = 60;
 
         /**
          * 기본 켜짐. ⑤(발송 직전 재검증)·⑥(payload 계약)이 들어와 발송이 라이브라 프로덕션 의도는
@@ -332,6 +350,13 @@ public class JourneyNotificationProperties {
         }
         if (relay.getMode() == null) {
             throw new IllegalStateException("journey.notification.relay.mode 는 BATCH 또는 PULL 이어야 한다");
+        }
+        if (relay.getClaimOrder() == null) {
+            throw new IllegalStateException(
+                    "journey.notification.relay.claim-order 는 SCHEDULED 또는 PRIORITY_FIRST 여야 한다");
+        }
+        if (relay.getAgingSeconds() <= 0) {
+            throw new IllegalStateException("journey.notification.relay.aging-seconds 는 0 보다 커야 한다(0 이면 전부 긴급과 동급)");
         }
         if (Duration.ofMillis(relay.getHeartbeatIntervalMs()).multipliedBy(4).compareTo(claimTimeout()) > 0) {
             throw new IllegalStateException(

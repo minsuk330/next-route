@@ -5354,3 +5354,41 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `runsome.sh --tests '*JourneyNotification*' '*JourneyAlertBudgetIT' '*FirebaseAdminMessaging*' '*JourneyRelay*' '*AlertFatigueTransportTest' '*LoadTestNotificationSender*'` → BUILD SUCCESSFUL, 185 시험 실패 0
 - 새 계약 시험: 회수 뒤 옛 증서 markSent 0행·새 증서 성공(`JourneyNotificationRelayIT.staleSentAfterReclaimIsDropped`), 두 트랜잭션 경합 → 늦은 실패 기록 StaleClaim·권리 그대로(`JourneyAlertBudgetIT.racingStaleWriteRollsBackClaimRelease`, pg_stat_activity 로 잠금 대기 확인), 늦은 기록 → 권리 그대로(`staleWriteKeepsAlertClaim`), heartbeat 중엔 회수 안 됨·멈추면 회수(`heartbeatKeepsRowAliveUntilItStops`), 회수 문(`reclaimGateClosesAfterLongGap`), 시도 상한 회수 몫 제외(`attemptsCapExcludesRequeues`), PULL 막힌 발송 1건에도 나머지 SENT(`pullWorkersAreIndependent`), 부팅 검증 조합 7개(`JourneyNotificationPropertiesTest`), FCM 시한 → future 취소(`FirebaseAdminMessagingClientTest.timeoutCancelsSdkFuture`)
 - 전체 `runfull.sh`(cleanTest test --continue): BUILD SUCCESSFUL 4m25s, **3,303 시험 · 실패 0 · 건너뜀 6**
+
+## #451 PR-2 relay 우선순위 — V70 priority + claim 순서 플래그 (2026-10-16, feat/relay-priority)
+### 확정
+- 칼럼 `journey_notification.priority smallint not null default 2`(V70). 적재 때 한 번 찍고 바꾸지 않는다. **엔티티에 매핑하지 않음**(SQL 전용, V67·V69 선례) — 엔티티 저장이 옛 값을 되쓸 길을 아예 없앰. 엔티티로 넣는 옛 경로(테스트 builder)는 기본값 2 로 떨어짐
+- 매핑 한 곳 = `domain/journey/entity/NotificationPriority`(enum URGENT 0·SOON 1·RELAXED 2). 1차 기준은 체크포인트(플랜 Opus 6): `TRANSFER_RISK_MISSED`·`TRANSFER_RISK_AT_RISK` → 0, `TRANSFER_TARGET_APPROACHING`(N2) → 1, `REROUTE_SUGGESTED`(재탐색 제안·보드 push 둘 다) → 2, 관리자 시험 `ADMIN_TEST` → 2(어떤 체크포인트로 시험해도). `seenTier` 안 씀
+- `of(checkpoint)` 는 enum 전부를 다루는 switch 식 — 체크포인트를 더하면 컴파일이 깨져 표를 고치게 된다
+- 적재 호출부 전수(repository `enqueue` 는 SQL 하나): `JourneyNotificationEnqueuer` 4곳(위험·접근·재탐색·보드) + `AdminJourneyNotificationTestService` 1곳. `enqueue` 에 `short priority` 인자를 **필수로** 더해 빠진 호출부는 컴파일이 안 된다. 하차(LEG 범위) 알림은 적재 호출부가 없다(scope 값만 스키마에 있음) — 생기면 `of(checkpoint)` 를 거친다
+- 플래그 `journey.notification.relay.claim-order: SCHEDULED|PRIORITY_FIRST`(env `JOURNEY_NOTIFICATION_RELAY_CLAIM_ORDER`, 기본 SCHEDULED) + `aging-seconds`(env `JOURNEY_NOTIFICATION_RELAY_AGING_SECONDS`, 기본 60). 부팅 검증: claim-order null·aging ≤ 0 이면 실패
+- 고르는 곳 = `JourneyNotificationOutboxStateService.claimBatch` 하나. BATCH(`relayOnce`)·PULL(`pullOnce`) 둘 다 `claim(size)` → 이 메서드라 두 모드에 같이 적용됨. SCHEDULED 는 옛 `claimBatchForProcessing` SQL **글자 그대로**(손 안 댐)
+- PRIORITY_FIRST SQL(`claimBatchForProcessingPriorityFirst`): 대상(`PENDING AND scheduled_at <= :now AND deleted_at IS NULL`)·`FOR UPDATE SKIP LOCKED`·증서 RETURNING(`attempt_count AS token`)·`processing_started_at = now()` 는 옛 것과 같고 `ORDER BY CASE WHEN created_at <= :agedBefore THEN 0 ELSE priority END, scheduled_at` 만 다름
+- aging 기준 = `created_at`(플랜 Opus 6). `created_at` 은 감사 칼럼 `timestamp(6)`·앱 시계(`auditNow`)라 `agedBefore = LocalDateTime.now(clock) − aging-seconds` 도 앱 시계. DB now() 를 쓰면 시험 고정 시계와 어긋남(PR-1 의 scheduled_at 과 같은 이유)
+- 인덱스: `idx_journey_notification_claim_priority (priority, scheduled_at) WHERE status='PENDING' AND deleted_at IS NULL` 추가. 옛 `idx_journey_notification_claim (scheduled_at)` 은 **안 지움** — 기본 SCHEDULED 의 `ORDER BY scheduled_at` 이 쓰고, 새 인덱스는 priority 가 앞이라 그 순서를 대신 못 한다(대체 아님)
+### 함정
+- claim 순서 시험은 크기 1 로 반복해야 한다 — `UPDATE … FROM picked RETURNING` 의 행 순서는 ORDER BY 를 따르지 않는다
+- 엔티티 builder 로 넣는 시험 행은 `commandVersion ≥ 1` 체크에 걸린다(기본 0) — V70 기본값 시험에서 밟음
+- V40 을 `@Sql` 로 직접 까는 IT 13개 전부에 V70 을 V40 바로 뒤에 더함(enqueue SQL 이 priority 칼럼을 쓴다). 새 IT 가 V40 을 깔면 V70 도 같이
+### 좌표
+- `src/main/resources/db/migration/V70__journey_notification_priority.sql`
+- `domain/journey/entity/NotificationPriority.java`
+- `JourneyNotificationRepository.enqueue(..., short priority, auditNow)`·`claimBatchForProcessingPriorityFirst(now, agedBefore, batchSize, auditNow)`
+- `JourneyNotificationOutboxStateService.claimBatch`(플래그 분기), `JourneyNotificationProperties.ClaimOrder`·`Relay.{claimOrder,agingSeconds}`·`validateRelay`
+### 미결
+- 새 부분 인덱스는 aging 이 있는 PRIORITY_FIRST 에서 **안 탄다**(아래 EXPLAIN). 쓰이는 건 aging 없는 `ORDER BY priority, scheduled_at` 일 때뿐 — PR-4 측정 뒤 aging 을 유지하면 인덱스를 지우는 별건 마이그레이션 후보(PENDING 부분 인덱스라 쓰기 비용은 작음)
+- PULL(워커 32 × claim 2)에서 claim 빈도가 높아 PENDING 이 많이 쌓인 순간(폭주) claim 마다 PENDING 전부를 정렬한다: 5,000건 ≈ 3.2ms/claim. PR-4 ① 폭주 칸에서 `relay.claim.size`·DB CPU 로 확인
+- 기본값 전환(PRIORITY_FIRST)은 PR-4 측정 뒤 별건
+### 배포
+- **V70 은 tracked·jar 포함·Flyway 자동 적용**(V65 이후 관례, 수동 배치 불필요). ALTER ADD COLUMN … DEFAULT 상수 = PG11+ 메타데이터만 바꿔 표 재작성 없음, 인덱스는 PENDING 행만이라 작음(CONCURRENTLY 아님 — 표 잠금 짧음)
+- 앱이 V70 없이 뜨면 enqueue SQL 이 `priority` 칼럼 없음으로 실패한다 → api·worker 둘 다 같은 이미지로 교체(Flyway 가 먼저 돈다). 기본 SCHEDULED 면 claim 동작 차이 없음, 차이 = 적재가 priority 를 적는 것뿐
+### 검증
+- EXPLAIN(st-pg 임시 표, 20만 행 중 PENDING 500 / 5,000, `ANALYZE`):
+  - SCHEDULED: PENDING 5,000 → `Index Scan using …scheduled_at_idx`(옛 claim 인덱스) 1.0ms. 500 → 플래너가 journey_live 인덱스 + 정렬 1.5ms
+  - PRIORITY_FIRST(aging): 500 → `Index Scan using …journey_id_idx` 500행 + `Sort`(CASE, scheduled_at) 0.57ms / 5,000 → 5,000행 정렬 427kB 3.2ms. **새 인덱스 안 탐**(정렬식이 파라미터 의존 CASE)
+  - aging 뺀 `ORDER BY priority, scheduled_at`: `Index Scan using …priority_scheduled_at_idx` 2행만 읽음 0.05ms
+  - 판단: 플랜 Opus 8 대로 수용(aging 유지)
+- 새 계약 시험: 긴급 → 곧 → 여유, 여유가 300초 일찍 예정돼도 긴급 먼저(`JourneyNotificationSchemaIT.priorityFirst_urgentBeforeRelaxed`) · aging 넘긴 여유 = 긴급과 동급, 같으면 scheduled_at(`priorityFirst_agedRelaxedTiesWithUrgent`) · SCHEDULED 는 우선순위 무시 scheduled_at 순(`scheduled_ignoresPriority`) · PRIORITY_FIRST 도 미래 행 안 집고 증서 반환(`priorityFirst_keepsTargetAndToken`) · V70 칼럼 타입·기본값·인덱스·옛 인덱스 유지(`v70_priorityColumnAndIndexes`) · enqueue 가 값 그대로 적음(`enqueue_writesPriority`) · 매핑 표(`NotificationPriorityTest`) · 적재 호출부 4곳 값 + 플래그가 SQL 고름(`JourneyNotificationPriorityWiringTest`) · 관리자 시험 MISSED 로 시험해도 2(`AdminJourneyNotificationTestServiceTest`) · 기본값·부팅 검증(`JourneyNotificationPropertiesTest`)
+- 부분: `runsome.sh` SchemaIT·PriorityTest·WiringTest·PropertiesTest·AdminTest·DetectionPayloadTest → 56 시험 중 1 실패(builder commandVersion, 고침) → 재실행 BUILD SUCCESSFUL
+- 전체 `runfull.sh`(cleanTest test --continue): 1회차 BUILD FAILED — `JourneyNotificationRelayIT`·`GuardIT`·`FcmRelayIT` 3개가 `initializationError`(컨텍스트 적재 중 `NoSuchBeanDefinitionException`). 세 클래스만 따로 돌리면 통과(`runsome.sh`), 전체 재실행 2회 모두 통과 → 이 변경과 무관한 컨텍스트 적재 흔들림으로 판단(**기존 무관 추정, 재현 안 됨** — 빈 이름은 결과 파일이 덮여 못 남김. 다시 나오면 XML 의 `No qualifying bean of type` 부터 볼 것)
+- 최종 전체: BUILD SUCCESSFUL 4m30s, **3,319 시험 · 실패 0 · 건너뜀 6**

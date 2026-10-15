@@ -11,6 +11,7 @@ import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
 import watoo.grd.nextroute.application.journey.observability.JourneyNotificationMetrics;
 import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotificationScope;
+import watoo.grd.nextroute.domain.journey.entity.NotificationPriority;
 import watoo.grd.nextroute.domain.journey.repository.JourneyNotificationRepository;
 import watoo.grd.nextroute.domain.notification.entity.NotificationChannel;
 
@@ -123,7 +124,8 @@ public class JourneyNotificationEnqueuer {
                 journeyId, routeRevision,
                 JourneyNotificationScope.TRANSFER.name(), assessment.transferIndex(),
                 checkpoint.name(), channel.name(),
-                logicalKey, deliveryKey, now, expiresAt, payload, LocalDateTime.now(clock));
+                logicalKey, deliveryKey, now, expiresAt, payload,
+                NotificationPriority.of(checkpoint).value(), LocalDateTime.now(clock));
 
         if (!created.isEmpty()) {
             recordEnqueued(checkpoint, delivery);
@@ -168,7 +170,7 @@ public class JourneyNotificationEnqueuer {
                 JourneyNotificationScope.TRANSFER.name(), assessment.transferIndex(),
                 checkpoint.name(), channel.name(),
                 logicalKey, deliveryKey, now, assessment.nextBusArrivalAt(),
-                writePayload(assessment), LocalDateTime.now(clock));
+                writePayload(assessment), NotificationPriority.of(checkpoint).value(), LocalDateTime.now(clock));
 
         if (created.isEmpty()) {
             return false;
@@ -216,7 +218,8 @@ public class JourneyNotificationEnqueuer {
                 JourneyNotificationScope.JOURNEY.name(), scopeId,
                 checkpoint.name(), channel.name(),
                 logicalKey, deliveryKey, now, expiresAt,
-                writeReroutePayload(proposalId, gainSeconds, delivery), LocalDateTime.now(clock));
+                writeReroutePayload(proposalId, gainSeconds, delivery),
+                NotificationPriority.of(checkpoint).value(), LocalDateTime.now(clock));
 
         if (created.isEmpty()) {
             return false;
@@ -269,7 +272,8 @@ public class JourneyNotificationEnqueuer {
                 journeyId, routeRevision,
                 JourneyNotificationScope.JOURNEY.name(), scopeId,
                 checkpoint.name(), channel.name(),
-                logicalKey, deliveryKey, now, expiresAt, body, LocalDateTime.now(clock));
+                logicalKey, deliveryKey, now, expiresAt, body,
+                NotificationPriority.of(checkpoint).value(), LocalDateTime.now(clock));
         if (created.isEmpty()) {
             return false;
         }

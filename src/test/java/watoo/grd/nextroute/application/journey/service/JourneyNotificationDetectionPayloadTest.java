@@ -27,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyShort;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
@@ -50,7 +51,7 @@ class JourneyNotificationDetectionPayloadTest {
     @DisplayName("처음 본 시각이 있으면 firstSeenAt·seenTier·seenSource·holdMs 를 싣는다")
     void carriesDetection() throws Exception {
         given(repository.enqueue(anyLong(), anyInt(), anyString(), anyInt(), anyString(), anyString(), anyString(),
-                anyString(), any(), any(), any(), any())).willReturn(List.of(1L));
+                anyString(), any(), any(), any(), anyShort(), any())).willReturn(List.of(1L));
 
         enqueuer.enqueueTransferRisk(1L, 1, assessment(), NotificationChannel.PUSH, Duration.ofSeconds(17),
                 PushMessage.Delivery.ALERTING, null, DetectionStamp.feed(NOW.minusSeconds(4), ReevaluationTier.CAUTION));
@@ -67,7 +68,7 @@ class JourneyNotificationDetectionPayloadTest {
     @DisplayName("처음 본 시각이 없으면(옛 호출) 칸이 없다 — payload 는 예전 그대로")
     void omitsWithoutDetection() throws Exception {
         given(repository.enqueue(anyLong(), anyInt(), anyString(), anyInt(), anyString(), anyString(), anyString(),
-                anyString(), any(), any(), any(), any())).willReturn(List.of(1L));
+                anyString(), any(), any(), any(), anyShort(), any())).willReturn(List.of(1L));
 
         enqueuer.enqueueTransferRisk(1L, 1, assessment(), NotificationChannel.PUSH);
 
@@ -79,7 +80,7 @@ class JourneyNotificationDetectionPayloadTest {
     private String capturedPayload() {
         ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
         verify(repository).enqueue(anyLong(), anyInt(), anyString(), anyInt(), anyString(), anyString(), anyString(),
-                anyString(), any(), any(), payload.capture(), any());
+                anyString(), any(), any(), payload.capture(), anyShort(), any());
         return payload.getValue();
     }
 

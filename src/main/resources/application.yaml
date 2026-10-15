@@ -712,6 +712,10 @@ journey:
       pull-claim-size: ${JOURNEY_NOTIFICATION_RELAY_PULL_CLAIM_SIZE:2}
       # 진행 중 행의 processing_started_at 갱신 주기(두 모드 공통). × 4 ≤ claim-timeout-seconds.
       heartbeat-interval-ms: ${JOURNEY_NOTIFICATION_RELAY_HEARTBEAT_INTERVAL_MS:10000}
+      # PENDING 을 집는 순서(#451 PR-2, 두 모드 공통). SCHEDULED(기존: scheduled_at 순) | PRIORITY_FIRST(놓침·빠듯 0 →
+      # 접근 1 → 그 밖 2, 같으면 scheduled_at). PRIORITY_FIRST 에서 적재 뒤 aging-seconds 넘게 기다린 행은 0 으로 친다.
+      claim-order: ${JOURNEY_NOTIFICATION_RELAY_CLAIM_ORDER:SCHEDULED}
+      aging-seconds: ${JOURNEY_NOTIFICATION_RELAY_AGING_SECONDS:60}
       sweep-interval-ms: 1000
       batch-size: 200
       workers: 4
