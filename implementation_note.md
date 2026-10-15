@@ -5175,3 +5175,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 사다리 단독(P2 만, 풀 10 상태, 6,000, `RUN_TAG=p2`): 처리 49.8 → 115.6/s, 예정→시작 p95 180 → 103s, SLO 긴급/주의/여유 56.6/0/0 → 81.5/16.6/51.4%, DB 커넥션 대기 p95 40 → 373ms(위 함정), gate=subway acquired 59,066·rejected 0, 남은 여정 0
 - 전체 `runfull.sh`(`cleanTest test --continue`, st-pg:55432) → **3,213 중 실패 0, 건너뜀 6**(main 3,204 + 새 9), BUILD SUCCESSFUL 4m57s
 - 합본 사다리(P1+P2, 풀 20) 6,000: 처리 163.5/s, SLO 89.8/46.7/99.0%, 커넥션 대기 p95 246ms — `BOTTLENECK-MAP-SUBWAY.md` "처방 2차" 절
+
+## #427 3차 처방 — 토큰 세대 캐시 (2026-10-15, feat/token-generation-cache)
+### 확정
+- 요청마다 `users.token_generation` 을 읽던 인증 필터 조회를 Redis 에 캐시(`auth:tokengen:{userId}`, 값 = 세대 번호 또는 `none`(탈퇴·없음), 수명 60초 — 사용자 결정)
+- 세대가 바뀌는 두 곳(로그아웃 `SessionService.logout`, 탈퇴 `WithdrawService.withdraw`)이 `TokenGenerationChangedEvent` 를 내고, 캐시는 **커밋 뒤**(`@TransactionalEventListener AFTER_COMMIT`) DB 새 값으로 **덮어쓴다**. 읽는 쪽은 **비어 있을 때만 채운다(SET NX)** → 옛 값을 읽어 둔 요청이 덮어쓴 새 값을 지우지 못함. 덮어쓰기 실패(Redis 장애) 때만 최대 60초 옛 토큰이 통할 수 있음(ERROR 로그·지표 `refresh-error`)
+- Redis 장애 = DB 로 내려감(인증 실패로 번지지 않음). `auth.token-generation-cache.ttl-seconds=0` 이면 끔
+- 토큰 세대 자체는 V34 부터 있던 보안 장치(로그아웃·탈퇴를 JWT 에 즉시 반영). 이번 것은 그 조회 비용만 줄이는 성능 처방
+### 함정
+- 탈퇴 시험이 SQL 로 `deleted_at` 만 찍으면 캐시가 이미 채워진 뒤라 옛 값이 남는다 → 시험 도우미가 서비스처럼 커밋 뒤 알림을 내도록 바꿈(실제 코드에는 알림 없는 세대 변경 경로가 없다)
+- `SessionServiceTest` 는 `@InjectMocks` 라 발행기 mock 이 없으면 NPE
+### 검증
+- `CachedTokenGenerationAdapterTest` 7(적중 시 DB 미호출·없음 캐시·채우기는 SET NX·변경은 덮어쓰기·Redis 장애 폴백·이상값 무시·수명 0 끔), `TokenGenerationIT`(+3: 캐시 사용·캐시 있어도 로그아웃 즉시 거부·롤백된 로그아웃은 캐시 불변), `SessionServiceTest`(+발행 확인)
+- 전체 `cleanTest test --continue`: 3,233 → 수정 뒤 재실행 BUILD SUCCESSFUL(실패 0)

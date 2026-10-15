@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.auth.service;
 
+import org.springframework.context.ApplicationEventPublisher;
+import watoo.grd.nextroute.application.auth.event.TokenGenerationChangedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -62,6 +64,7 @@ import java.util.Optional;
 public class WithdrawService implements WithdrawUseCase {
 
     private final UserRepository userRepository;
+    private final ApplicationEventPublisher eventPublisher;
     private final AuthIdentityRepository authIdentityRepository;
     private final TossUserTokenRepository tossUserTokenRepository;
     private final AppleUserTokenRepository appleUserTokenRepository;
@@ -140,6 +143,8 @@ public class WithdrawService implements WithdrawUseCase {
 
         // ── users 최종 변경 (벌크 한 방: soft delete + 세대++ + toss NULL) ─────
         int updated = userRepository.withdraw(userId, now);
+        // 세대 캐시가 커밋 직후 "없는 사용자"로 덮는다 — 안 하면 캐시 수명(1분)만큼 탈퇴한 계정의 토큰이 통한다.
+        eventPublisher.publishEvent(new TokenGenerationChangedEvent(userId));
         log.info("[Withdraw] 탈퇴 완료: userId={}, usersUpdated={}", userId, updated);
     }
 }
