@@ -97,6 +97,7 @@ class JourneyReevaluationTriggerIT {
         createdUserIds.clear();
         properties.setShadow(false);
         properties.setMaxJourneysPerRequest(500);
+        properties.setWakeCapMode(ReevaluationProperties.WakeCapMode.CAPACITY);
         properties.setShedBacklogThreshold(0);
     }
 
@@ -379,6 +380,8 @@ class JourneyReevaluationTriggerIT {
     void overflowIsDeferredUrgentFirst() {
         Long urgent = startJourney();
         Long relaxed = startJourney();
+        // 넘침 경로만 본다 — 고정 상한 1 로 둔다(처리량 계산 상한의 계약은 ReevaluationWakeCapTest)
+        properties.setWakeCapMode(ReevaluationProperties.WakeCapMode.FIXED);
         properties.setMaxJourneysPerRequest(1);
 
         TriggerResult result = trigger.request(Map.of(
@@ -435,6 +438,24 @@ class JourneyReevaluationTriggerIT {
 
         Instant now = Instant.now();
         assertThat(finish(claim, now.plusSeconds(30), now, 5)).isZero();
+    }
+
+    // ── 깨우기 상한의 처리량 원천(#427 처방 2차) ─────────────────────────────
+
+    @Test
+    @DisplayName("처리량 원천: 창 안에 판정을 저장한 진행 중 여정만 센다(창 밖·다른 인스턴스 구분 없음)")
+    void countsJourneysEvaluatedInWindow() {
+        Long recent = startJourney();
+        Long old = startJourney();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        scheduleAt(recent, now.plusSeconds(60), now.minusSeconds(60));
+        scheduleAt(old, now.plusSeconds(60), now.minusSeconds(60));
+        Instant since = now.minusSeconds(10);
+        long before = sessionRepository.countEvaluatedSince(since);
+
+        scheduleAt(recent, now.plusSeconds(60), now.minusSeconds(3));
+
+        assertThat(sessionRepository.countEvaluatedSince(since)).isEqualTo(before + 1);
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────

@@ -28,7 +28,8 @@ import java.util.Set;
  * <p>규칙:
  * <ol>
  *   <li>한 여정이 여러 등급에 있으면 가장 급한 등급 한 번만 친다.</li>
- *   <li>급한 등급부터 상한({@code max-journeys-per-request})까지 담고, 넘친 여정은 미룬다.</li>
+ *   <li>급한 등급부터 상한까지 담고, 넘친 여정은 미룬다(overflow). 상한은 기본이 평가기 처리량으로 계산한 값이다
+ *       ({@link ReevaluationWakeCap}, 고정 {@code max-journeys-per-request} 는 {@code wake-cap-mode=fixed}).</li>
  *   <li>평가기가 포화됐으면(예정보다 오래 밀린 여정이 기준 이상) 주의·여유 등급은 미룬다. 이미 일이
  *       밀린 평가기에 더 얹으면 정작 급한 여정이 늦어진다. 긴급은 그래도 보낸다.</li>
  *   <li>등급마다 한 트랜잭션. 한 등급이 실패해도 다른 등급은 반영된다.</li>
@@ -52,6 +53,7 @@ public class JdbcReevaluationTrigger implements ReevaluationTrigger {
     private final JourneyReevalMetrics metrics;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
+    private final ReevaluationWakeCap wakeCap;
 
     public JdbcReevaluationTrigger(JourneySessionRepository sessionRepository,
                                    ReevaluationProperties properties,
@@ -66,6 +68,7 @@ public class JdbcReevaluationTrigger implements ReevaluationTrigger {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.clock = clock;
+        this.wakeCap = new ReevaluationWakeCap(sessionRepository, properties, metrics, clock);
     }
 
     @Override
@@ -82,7 +85,7 @@ public class JdbcReevaluationTrigger implements ReevaluationTrigger {
 
         Instant now = Instant.now(clock);
         boolean saturated = saturated(now);
-        int room = Math.max(0, properties.getMaxJourneysPerRequest());
+        int room = wakeCap.current();
 
         Set<Long> delivered = new HashSet<>();
         Set<Long> deferred = new HashSet<>();
