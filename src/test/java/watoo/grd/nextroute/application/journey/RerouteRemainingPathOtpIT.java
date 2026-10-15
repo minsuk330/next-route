@@ -227,10 +227,23 @@ class RerouteRemainingPathOtpIT {
     private static final double DESTINATION_LAT = 37.5058;
     private static final double DESTINATION_LON = 127.004;
 
+    /**
+     * 경로 검색({@code planConnection})만 이 시험의 상대다. 같은 OTP 주소로는 부팅 직후 별도 스레드의 지하철 패턴
+     * 워밍업({@code SubwayLinePatternWarmup}, eb2e432a)도 노선 목록을 묻는다. 그 요청이 언제 닿을지는 정해져 있지
+     * 않아, 세지 않으면 "OTP 에 한 번 물었다"가 워밍업과 겹친 시험에서만 2 가 됐다(오류 응답이면 워밍업이 목록을
+     * 캐시하지 못해 노선마다 다시 물어 겹칠 확률이 더 커진다). 그 요청은 세지 않고 빈 목록으로 답한다.
+     */
+    private static final String ROUTE_SEARCH_MARKER = "planConnection(";
+
     private static void respondWith(int status, String body) {
         OTP.setDispatcher(new Dispatcher() {
             @Override
             public MockResponse dispatch(RecordedRequest request) {
+                if (!request.getBody().clone().readString(StandardCharsets.UTF_8).contains(ROUTE_SEARCH_MARKER)) {
+                    return new MockResponse().setResponseCode(200)
+                            .setHeader("Content-Type", "application/json")
+                            .setBody("{\"data\":{\"routes\":[]}}");
+                }
                 RECEIVED.add(request);
                 return new MockResponse().setResponseCode(status)
                         .setHeader("Content-Type", "application/json")

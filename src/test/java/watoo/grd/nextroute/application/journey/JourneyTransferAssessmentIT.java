@@ -44,7 +44,12 @@ import static org.mockito.BDDMockito.given;
 @TestPropertySource(properties = {
         "collector.static-data.enabled=false",
         "realtime.subway.enabled=false",
-        "kma.weather.enabled=false"
+        "kma.weather.enabled=false",
+        // 조회가 판정을 계산·저장하는 것은 평가기가 꺼진 경로뿐이다(JourneySnapshotEtaComposer.assess). 켜져 있으면
+        // 조회는 평가기가 남긴 값을 읽기만 한다(9f2e3f72, 그 경로는 JourneyEvalReadPathIT 가 본다). yaml 기본값이
+        // 8961bed1(2026-08-25)에 true 로 바뀌면서 이 시험이 엉뚱한 경로를 타게 됐다 — 꺼진 경로는 롤백 스위치로
+        // 남아 있으므로 여기서 명시해 고정한다.
+        "journey.navigation.evaluator.enabled=false"
 })
 @DisplayName("환승 판정 저장")
 class JourneyTransferAssessmentIT {
