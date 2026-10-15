@@ -5392,3 +5392,41 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 부분: `runsome.sh` SchemaIT·PriorityTest·WiringTest·PropertiesTest·AdminTest·DetectionPayloadTest → 56 시험 중 1 실패(builder commandVersion, 고침) → 재실행 BUILD SUCCESSFUL
 - 전체 `runfull.sh`(cleanTest test --continue): 1회차 BUILD FAILED — `JourneyNotificationRelayIT`·`GuardIT`·`FcmRelayIT` 3개가 `initializationError`(컨텍스트 적재 중 `NoSuchBeanDefinitionException`). 세 클래스만 따로 돌리면 통과(`runsome.sh`), 전체 재실행 2회 모두 통과 → 이 변경과 무관한 컨텍스트 적재 흔들림으로 판단(**기존 무관 추정, 재현 안 됨** — 빈 이름은 결과 파일이 덮여 못 남김. 다시 나오면 XML 의 `No qualifying bean of type` 부터 볼 것)
 - 최종 전체: BUILD SUCCESSFUL 4m30s, **3,319 시험 · 실패 0 · 건너뜀 6**
+
+## #451 PR-3 재시도 정책 + 변화 피드 Redis 분리 (2026-10-16, feat/relay-retry-backoff)
+### 확정
+- 플래그 `journey.notification.retry-policy=FIXED|EXPONENTIAL`(env `JOURNEY_NOTIFICATION_RETRY_POLICY`, 기본 FIXED). FIXED 는 PR-3 이전과 같다: 간격 = `backoff-seconds`(60), 상한 = `max-attempts`(3), 난수 안 씀(시험이 난수 호출 시 실패로 확인)
+- EXPONENTIAL(`journey.notification.retry.*`): 첫 간격 `initial-ms`(비면 아래 기본), 배수 2.0, 최대 60초, 지터 ±0.2, 실제 시도 상한 `max-attempts-cap` 8. n 번째 실제 시도 실패 뒤 간격 = min(최대, 첫 간격 × 2^(n−1)) × (1 ± 지터), 결과를 **[첫 간격, 최대] 로 자름**. 기본 수열(지터 0) 24 → 48 → 60 → 60 …
+- 첫 간격 기본 = `max(5초, httpMaxLifetime + 2초)`(플랜 Opus 3). PR-1 코드 실측: `Fcm.httpMaxLifetime() = connect + read × (1 + SDK_MAX_RETRIES 4)` = 2,000 + 4,000 × 5 = **22초** → 첫 간격 기본 **24초**
+- 지터를 아래로는 첫 간격에서 자르는 이유: 첫 간격 24초 × 0.8 = 19.2초 < HTTP 수명 22초 — 그대로 두면 "첫 간격 > HTTP 수명" 보장을 지터가 깨서 앞 시도가 SDK 안에 살아 있는데 재시도가 나간다. 그래서 첫 재시도는 [24, 28.8]초, 이후는 기준 ±20%(최대 60초에서 위를 자름)
+- 시도 상한은 PR-1 의 `sendAttempts = attempt_count − requeue_count` 그대로(플랜 Opus 8) — 정책은 상한 수만 바꾼다(`JourneyRetryBackoff.maxAttempts()`)
+- 다음 시도 시각이 만료 이상이면 기존 `expired-before-retry` 취소 경로(증서 조건부 `finishIfClaimed`, StaleClaim 시 권리 반납 롤백) 그대로. 상한 검사를 먼저 하고, 간격은 DEAD 가 아닐 때만 계산(난수 낭비·순서 혼동 방지)
+- 난수: `JourneyRetryBackoff` 생성자 2개 — `@Autowired` 운영용 = `java.util.Random`(여러 relay 워커 동시 호출에 안전), 시험용 = 주입 `RandomGenerator`(시드 고정 `SplittableRandom`)
+- 부팅 검증
+  - 공통: `retry-policy` null 금지
+  - FIXED 만: `backoff × max-attempts ≤ min-ttl`(옛 검사), `httpMaxLifetime < backoff`(PR-1), PULL 일 때 `claimTimeout + backoff < min-ttl`(PR-1)
+  - EXPONENTIAL 만: 값 범위(첫 간격·최대·상한 > 0, 배수 ≥ 1, 0 ≤ 지터 < 1, 첫 간격 ≤ 최대), **첫 간격 > httpMaxLifetime**, **claimTimeout + 첫 간격 위쪽 끝(첫 간격 × 1.2, 최대에서 자름) < min-ttl** — 모드(BATCH/PULL) 무관
+  - 그래서 EXPONENTIAL 은 회수 기준 180초(기본)와 같이 못 켠다(180 + 28.8 ≥ 180). `JOURNEY_NOTIFICATION_CLAIM_TIMEOUT_SECONDS` ≤ 151 과 같이 켜야 함(권장 45). 기본(FIXED) 부팅은 영향 없음
+- 변화 피드 분리: `RealtimeSubwayCollector` 에서 ① 스냅숏·상태 Redis 저장(`saveSnapshot`+`saveStatus(ACTIVE)`) ② 역 id → 이름 캐시 채우기(`stationIdLookup.update`) 를 각각 try/catch → WARN 로그 + `subway.realtime.collect.store.errors{collector=arrival, op=snapshot|station-lookup}` 셈, 이후 `changeFeed.onSnapshot` 은 그대로 부름. 예전엔 저장 예외가 바깥 catch 로 가 `writeErrorSnapshot` 만 하고 변화 감지를 건너뛰었다
+- "역별 캐시 채우기"는 수집기 안에 따로 없음(역별 도착 캐시 `SubwayStationArrivalCachePort` 는 수집기가 채우지 않고 변화 피드가 evict 만 하며, evict 는 이미 예외를 삼킨다). 수집기 안의 캐시 채우기 = `SubwayStationIdLookup.update`(메모리)로 읽고 감쌌다
+### 함정
+- `SplittableRandom` 은 final 이라 "난수를 부르면 실패" 스텁을 상속으로 못 만든다 → `RandomGenerator` 는 추상 메서드가 `nextLong` 하나라 람다 `() -> { throw … }` 로 만듦
+- 스냅숏 저장이 실패한 회차엔 Redis 의 스냅숏이 이전 값(TTL 25초 안) 또는 없음 — 읽는 쪽(링·도착판)은 그대로 낡거나 비게 된다. 이번 PR 은 변화 감지(→ DB 트리거)만 살린다
+### 좌표
+- `application/journey/config/JourneyNotificationProperties`: `RetryPolicy`·`retryPolicy`·`Retry`·`validateRetry`·`retryInitial/retryMax/retryFirstUpperBound/retryAttemptCap`, FIXED 한정 검사 3곳
+- `application/journey/service/JourneyRetryBackoff`(신규) · `JourneyNotificationOutboxStateService.markTransientFailure`
+- `application/subway/service/RealtimeSubwayCollector.collect` · `SubwayRealtimeMetrics.recordCollectStoreError`
+- `application.yaml` `journey.notification.retry-policy`·`retry.*`
+### 미결
+- 리더 잠금(`journey.navigation.reeval.leader-lease.enabled`, env `JOURNEY_REEVAL_LEADER_LEASE`)이 켜지면 Redis 장애 때 `RedisLeaderLease.isLeader()` 가 거짓 → 수집기도 변화 피드도 아무것도 안 한다(이번 분리가 무력). 운영 compose 엔 이 env 가 없어 꺼져 있음(플랜 Opus 7, 2026-10-16 확인; yaml 기본 false). **다중 인스턴스에서 켜면 Redis 장애 = 지하철 변화 감지 정지** — 그때는 평가기 간격 폴링만 남는다. 별건(리더 선출을 DB 잠금으로 옮기거나 Redis 장애 시 단일 인스턴스 폴백)
+- EXPONENTIAL 은 min-ttl 180초 바닥 행(MISSED)에서 24 + 48 = 72초 뒤 셋째 시도, 다음 60초가 만료를 넘기면 취소 — 바닥 행의 실제 시도 수는 FIXED(3회, 60초 간격)와 비슷하거나 많다. 효과는 PR-4 측정(③b 20% 실패 칸)
+- 재시도 간격 분포 지표는 안 넣음(발송 지연은 e2e 지표에 이미 포함). 필요하면 PR-4 에서
+### 배포
+- 마이그레이션 없음. worker 교체만. 기본 FIXED 라 동작 차이 = 수집기 저장 실패 시 변화 감지 계속 + 저장 실패 지표 신설(api 는 수집기가 worker 전용이라 영향 없음)
+- EXPONENTIAL 켜기 = `JOURNEY_NOTIFICATION_RETRY_POLICY=EXPONENTIAL` + `JOURNEY_NOTIFICATION_CLAIM_TIMEOUT_SECONDS=45`(없으면 부팅 실패, 의도)
+### 검증
+- `runsome2.sh --tests '*JourneyRetryBackoffTest' '*JourneyNotificationRetryPolicyTest' '*JourneyNotificationPropertiesTest' '*RealtimeSubwayCollectorFeedDecouplingTest' '*JourneyNotificationSloMetricsTest' '*SubwayChangeFeedTest'` → BUILD SUCCESSFUL(신규 4 + 6 + 6 + 2)
+- 새 계약 시험: 수열 24→48→60…·지터 범위·시드 고정 재현(`JourneyRetryBackoffTest`), FIXED 는 60초·상한 3·난수 안 씀(`fixedIsUnchanged` 두 곳), 만료 넘으면 expired-before-retry 취소·상한 8 → DEAD·회수 몫 제외·낡은 증서 StaleClaim(`JourneyNotificationRetryPolicyTest`), 부팅 조합 6개(`JourneyNotificationPropertiesTest` PR-3 절), Redis 저장 예외·역 이름 캐시 예외에도 트리거 요청 1회 + 저장 실패 지표(`RealtimeSubwayCollectorFeedDecouplingTest`)
+- 1회차 전체: 실패 4 = 슬라이스 IT 4개(`@Import` 에 `JourneyRetryBackoff` 빠짐, 컨텍스트 적재 실패) → 추가해 해결. 2회차: `JourneyEvaluationDedupeIT$Bus` 1건 — 다른 클론 전체 시험이 같은 st-pg 에서 동시에 돌며 due 여정을 섞음(단독 재실행 통과, **기존 무관 = 공유 DB 동시 실행**)
+- PR-2(#454) 머지 뒤 origin/main 으로 rebase(노트·PropertiesTest 끝부분 충돌 양쪽 유지, `JourneyNotificationPriorityWiringTest` 생성자에 backoff 추가)
+- 최종 전체 `runfull2.sh`(cleanTest test --continue, rebase 뒤): BUILD SUCCESSFUL 4m30s, **3,337 시험 · 실패 0 · 건너뜀 6**

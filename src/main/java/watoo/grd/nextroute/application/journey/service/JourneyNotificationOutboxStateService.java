@@ -60,6 +60,8 @@ public class JourneyNotificationOutboxStateService {
     private final JourneyNotificationProperties properties;
     private final JourneyNotificationMetrics metrics;
     private final Clock clock;
+    /** 재시도 간격·시도 상한 정책(#451 PR-3). FIXED 면 옛 {@code backoff-seconds}·{@code max-attempts} 그대로. */
+    private final JourneyRetryBackoff retryBackoff;
 
     /**
      * 워커가 죽어 PROCESSING 에 고착된 행을 회수한다. 기준은 DB {@code now()} − 회수 기준이다.
@@ -350,14 +352,17 @@ public class JourneyNotificationOutboxStateService {
             if (n.getStatus() != JourneyNotificationStatus.PROCESSING || n.getAttemptCount() != token) {
                 throw new StaleClaimException("transient", n.getId(), token);
             }
-            Instant nextAttemptAt = Instant.now(clock).plus(properties.backoff());
-            if (sendAttempts(n) >= properties.getMaxAttempts()) {
+            int attempts = sendAttempts(n);
+            if (attempts >= retryBackoff.maxAttempts()) {
                 boolean released = releaseAlertClaim(n);
                 finish(n, token, "DEAD", "max-retry: " + reason, "transient");
                 recordLost(n, "dead");
                 recordReleased(released);
                 metrics.recordFailed(n.getChannel(), "dead");
-            } else if (!nextAttemptAt.isBefore(n.getExpiresAt())) {
+                return;
+            }
+            Instant nextAttemptAt = Instant.now(clock).plus(retryBackoff.delayAfter(attempts));
+            if (!nextAttemptAt.isBefore(n.getExpiresAt())) {
                 // 재시도 시각이 만료를 넘긴다. 보내 봐야 엉뚱한 때에 도착한다.
                 boolean released = releaseAlertClaim(n);
                 finish(n, token, "CANCELED", "expired-before-retry", "transient");

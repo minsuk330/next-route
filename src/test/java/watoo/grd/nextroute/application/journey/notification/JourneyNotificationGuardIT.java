@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties;
 import watoo.grd.nextroute.application.journey.observability.JourneyNotificationMetrics;
 import watoo.grd.nextroute.application.journey.service.JourneyNotificationOutboxStateService;
+import watoo.grd.nextroute.application.journey.service.JourneyRetryBackoff;
 import watoo.grd.nextroute.application.journey.service.JourneyNotificationRelayService;
 import watoo.grd.nextroute.common.config.JpaConfig;
 import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
@@ -50,7 +51,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({JpaConfig.class, JourneyNotificationOutboxStateService.class,
+@Import({JpaConfig.class, JourneyNotificationOutboxStateService.class, JourneyRetryBackoff.class,
         JourneyNotificationRelayService.class, JourneyNotificationMetrics.class,
         watoo.grd.nextroute.application.journey.service.JourneyNotificationLeaseKeeper.class,
         watoo.grd.nextroute.application.journey.service.JourneyRelayWaker.class,

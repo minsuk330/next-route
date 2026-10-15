@@ -243,4 +243,107 @@ class JourneyNotificationPropertiesTest {
         priorityFirst.getRelay().setClaimOrder(JourneyNotificationProperties.ClaimOrder.PRIORITY_FIRST);
         assertThatCode(() -> validate(priorityFirst)).doesNotThrowAnyException();
     }
+
+    // ---- #451 PR-3 재시도 정책 부팅 검증 ----
+
+    private JourneyNotificationProperties exponential() {
+        JourneyNotificationProperties properties = properties();
+        properties.setRetryPolicy(JourneyNotificationProperties.RetryPolicy.EXPONENTIAL);
+        properties.setClaimTimeoutSeconds(45L);
+        return properties;
+    }
+
+    @Test
+    @DisplayName("EXPONENTIAL + 회수 기준 45초 기본 조합은 통과한다(BATCH·PULL 둘 다)")
+    void exponentialWithShortClaimTimeoutIsValid() {
+        assertThatCode(() -> validate(exponential())).doesNotThrowAnyException();
+        JourneyNotificationProperties pull = exponential();
+        pull.getRelay().setMode(JourneyNotificationProperties.RelayMode.PULL);
+        assertThatCode(() -> validate(pull)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("EXPONENTIAL 은 회수 기준 + 첫 간격(지터 위쪽 24 × 1.2 = 28.8초)이 유효시간 바닥 이상이면 막는다")
+    void exponentialFirstRetryPlusClaimTimeoutMustFitMinTtl() {
+        JourneyNotificationProperties properties = exponential();
+        // 회수 기준 기본(180초) 그대로면 180 + 28.8 ≥ 180
+        properties.setClaimTimeoutSeconds(null);
+
+        assertThatThrownBy(() -> validate(properties))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("첫 재시도 간격");
+
+        JourneyNotificationProperties edge = exponential();
+        // 152 + 28.8 = 180.8 ≥ 180 → 막힘, 151 + 28.8 = 179.8 → 통과
+        edge.setClaimTimeoutSeconds(152L);
+        assertThatThrownBy(() -> validate(edge)).isInstanceOf(IllegalStateException.class);
+        edge.setClaimTimeoutSeconds(151L);
+        assertThatCode(() -> validate(edge)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("EXPONENTIAL 첫 간격이 FCM HTTP 최대 수명(22초) 이하이면 막는다")
+    void exponentialFirstRetryMustOutliveHttpLifetime() {
+        JourneyNotificationProperties properties = exponential();
+        properties.getRetry().setInitialMs(22_000L);
+
+        assertThatThrownBy(() -> validate(properties))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HTTP 최대 수명");
+
+        properties.getRetry().setInitialMs(22_001L);
+        assertThatCode(() -> validate(properties)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("FIXED 의 백오프 × 시도 검사는 EXPONENTIAL 에서는 보지 않는다")
+    void fixedBudgetCheckOnlyForFixed() {
+        // 바닥 90초: FIXED 는 60 × 3 = 180 > 90 으로 막히고, EXPONENTIAL 은 45 + 28.8 < 90 이라 통과
+        JourneyNotificationProperties fixed = properties();
+        fixed.setMinTtlSeconds(90);
+        assertThatThrownBy(() -> validate(fixed))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("백오프");
+
+        JourneyNotificationProperties exp = exponential();
+        exp.setMinTtlSeconds(90);
+        assertThatCode(() -> validate(exp)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("EXPONENTIAL 값이 엉터리면 막는다(지터 ≥ 1, 배수 < 1, 상한 0, 첫 간격 > 최대)")
+    void exponentialParametersAreValidated() {
+        JourneyNotificationProperties jitter = exponential();
+        jitter.getRetry().setJitter(1.0);
+        assertThatThrownBy(() -> validate(jitter)).isInstanceOf(IllegalStateException.class);
+
+        JourneyNotificationProperties multiplier = exponential();
+        multiplier.getRetry().setMultiplier(0.5);
+        assertThatThrownBy(() -> validate(multiplier)).isInstanceOf(IllegalStateException.class);
+
+        JourneyNotificationProperties cap = exponential();
+        cap.getRetry().setMaxAttemptsCap(0);
+        assertThatThrownBy(() -> validate(cap)).isInstanceOf(IllegalStateException.class);
+
+        JourneyNotificationProperties initial = exponential();
+        initial.getRetry().setInitialMs(61_000L);
+        assertThatThrownBy(() -> validate(initial)).isInstanceOf(IllegalStateException.class);
+
+        JourneyNotificationProperties none = properties();
+        none.setRetryPolicy(null);
+        assertThatThrownBy(() -> validate(none)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("FIXED 는 HTTP 수명 < 백오프 검사를 그대로 본다(EXPONENTIAL 은 첫 간격으로 대신)")
+    void fixedKeepsHttpLifetimeVsBackoff() {
+        JourneyNotificationProperties exp = exponential();
+        // FIXED 였다면 HTTP 수명 22초 ≥ 백오프 20초로 막힘. EXPONENTIAL 은 backoff-seconds 를 쓰지 않는다
+        exp.setBackoffSeconds(20);
+        assertThatCode(() -> validate(exp)).doesNotThrowAnyException();
+
+        JourneyNotificationProperties fixed = properties();
+        fixed.setBackoffSeconds(20);
+        assertThatThrownBy(() -> validate(fixed)).isInstanceOf(IllegalStateException.class);
+    }
 }

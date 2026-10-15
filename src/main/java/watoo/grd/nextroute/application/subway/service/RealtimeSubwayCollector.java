@@ -108,7 +108,14 @@ public class RealtimeSubwayCollector {
                 }
             }
 
-            stationIdLookup.update(arrivals);
+            try {
+                // 역 id → 이름 캐시 채우기. 실패해도 이번 회차의 변화 감지는 돌아야 한다(#451 PR-3) — 이름이 비면
+                // 앞뒤 역 이름만 빈 채로 간다.
+                stationIdLookup.update(arrivals);
+            } catch (Exception e) {
+                log.warn("[RealtimeCollector] 역 이름 캐시 채우기 실패 — 변화 감지는 계속: {}", e.getMessage());
+                metrics.recordCollectStoreError("arrival", "station-lookup");
+            }
 
             List<SubwayRealtimeTrain> trains = arrivals.stream()
                     .map(this::toTrain)
@@ -120,8 +127,15 @@ public class RealtimeSubwayCollector {
                     .trains(trains)
                     .build();
 
-            cachePort.saveSnapshot(snapshot, snapshotTtlSeconds);
-            cachePort.saveStatus(SubwayRealtimeStatus.ACTIVE);
+            try {
+                cachePort.saveSnapshot(snapshot, snapshotTtlSeconds);
+                cachePort.saveStatus(SubwayRealtimeStatus.ACTIVE);
+            } catch (Exception e) {
+                // 변화 피드를 Redis 와 떼어 둔다(#451 PR-3). 스냅숏 저장이 실패해도 재평가 트리거는 DB 로 가므로
+                // 알림 경로는 살아 있어야 한다. 저장 실패는 로그·지표로만 남긴다.
+                log.warn("[RealtimeCollector] 스냅숏 저장 실패 — 변화 감지는 계속: {}", e.getMessage());
+                metrics.recordCollectStoreError("arrival", "snapshot");
+            }
             try {
                 changeFeed.onSnapshot(trains, receivedAt);
             } catch (Exception e) {
