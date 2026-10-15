@@ -5147,3 +5147,5 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `./gradlew test --tests '*JourneyEvaluationIT' '*JourneyEvaluatorPropertiesTest' '*RestTemplatePoolTest' '*JourneyDueEvaluatorIT' '*RerouteTriggerEvaluatorTest'` → 61 중 실패 0. 새 계약: 슬롯 못 잡으면 선점 해제·0~5초 뒤 재선점·claimed_until NULL / 버스 여정은 지하철 슬롯이 다 차도 평가됨 / 버스 단계 판정 / 기본값·yaml 바인딩(16·4·16·2) / 0 이면 부팅 거부 / 풀 20 / RestTemplate 호스트당 16 동시(5 초과), 대조 5 에서 막힘
 - 사다리 단독(P2 만, 풀 10 상태, 6,000, `RUN_TAG=p2`): 처리 49.8 → 115.6/s, 예정→시작 p95 180 → 103s, SLO 긴급/주의/여유 56.6/0/0 → 81.5/16.6/51.4%, DB 커넥션 대기 p95 40 → 373ms(위 함정), gate=subway acquired 59,066·rejected 0, 남은 여정 0
+- 전체 `runfull.sh`(`cleanTest test --continue`, st-pg:55432) → **3,213 중 실패 0, 건너뜀 6**(main 3,204 + 새 9), BUILD SUCCESSFUL 4m57s
+- 합본 사다리(P1+P2, 풀 20) 6,000: 처리 163.5/s, SLO 89.8/46.7/99.0%, 커넥션 대기 p95 246ms — `BOTTLENECK-MAP-SUBWAY.md` "처방 2차" 절
