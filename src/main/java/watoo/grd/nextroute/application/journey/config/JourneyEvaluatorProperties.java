@@ -198,6 +198,13 @@ public class JourneyEvaluatorProperties {
      */
     private boolean refillOnCompletion = true;
 
+    /**
+     * 판정이 "바뀌었다"고 보는 시각 차이의 하한(초). 실시간 도착 초는 공급자 생성 시각 기준이라 버스가
+     * 그대로여도 몇 초씩 움직인다 — 그 흔들림까지 바뀜으로 보면 백오프가 안 걸리고 앱이 늘 본문을 받는다.
+     * 0 이면 예전처럼 정확히 같아야 같다(되돌리는 스위치).
+     */
+    private long changeToleranceSeconds = 30;
+
     @PostConstruct
     void validate() {
         if (tickMs <= 0 || batchSize <= 0 || intervalSeconds <= 0 || leaseSeconds <= 0
@@ -282,6 +289,11 @@ public class JourneyEvaluatorProperties {
 
     public Duration interval() {
         return Duration.ofSeconds(intervalSeconds);
+    }
+
+    public Duration changeTolerance() {
+        // 0 이면 1나노초 — "정확히 같을 때만 같다"
+        return changeToleranceSeconds <= 0 ? Duration.ofNanos(1) : Duration.ofSeconds(changeToleranceSeconds);
     }
 
     public Duration lease() {

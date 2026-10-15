@@ -105,8 +105,13 @@ public class JourneyEvaluationService {
 
         TransferAssessmentBatch batch = applyGrace(computed, context, now);
         boolean changed = hasChanged(batch.assessments(), context.previousAssessments());
+        // 저장은 허용 폭 안이면 직전 값을 유지한다 — 저장값과 평가 번호가 늘 같은 것을 가리키게(AssessmentChangeRule)
+        TransferAssessmentBatch toStore = new TransferAssessmentBatch(
+                AssessmentChangeRule.stabilize(batch.assessments(), context.previousAssessments(),
+                        properties.changeTolerance()),
+                batch.boardingByLegIndex(), batch.upstreamBlocked());
         JourneyEvaluationOutcome outcome = new JourneyEvaluationOutcome(
-                context.journeyId(), context.routeRevision(), batch, changed);
+                context.journeyId(), context.routeRevision(), toStore, changed);
 
         Schedule next = nextEvaluation(context, batch, now, changed);
         NotificationContext notification = notificationContext(context, batch, now);
@@ -283,8 +288,8 @@ public class JourneyEvaluationService {
         if (assessments.isEmpty()) {
             return false;
         }
-        return assessments.stream()
-                .anyMatch(assessment -> !assessment.sameAs(previous.get(assessment.transferIndex())));
+        // 시각은 허용 폭(기본 30초) 안의 흔들림을 같은 것으로 본다. 상태·출처 변화는 즉시 바뀜.
+        return AssessmentChangeRule.anyChanged(assessments, previous, properties.changeTolerance());
     }
 
     /**

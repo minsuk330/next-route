@@ -4,7 +4,7 @@
 set -u
 N=$1; EVENT=$2; DURATION=${3:-10m}; READ_RPS=${4:-20}
 HERE=${0:A:h}; REPO=${REPO:-$PWD}; OUT=${OUT:-$HERE/out}; mkdir -p $OUT
-LABEL="n${N}-refill-${REFILL:-true}-precheck-${PRECHECK:-true}"
+LABEL="n${N}-refill-${REFILL:-true}-precheck-${PRECHECK:-true}-tol-${TOL:-30}"
 cd $REPO
 
 # 0. 공급자 호출 몫 카운터를 비운다(Redis 일 단위 카운터 — 앞 회차가 다 쓰면 평가가 공급자를 못 부르고 바로 끝나
@@ -36,6 +36,7 @@ java -Xmx2g -jar build/libs/*-SNAPSHOT.jar \
   --journey.navigation.evaluator.enabled=true \
   --journey.navigation.evaluator.refill-on-completion=${REFILL:-true} \
   --journey.query.version-precheck=${PRECHECK:-true} \
+  --journey.navigation.evaluator.change-tolerance-seconds=${TOL:-30} \
   --journey.navigation.reeval.enabled=$REEVAL --journey.navigation.reeval.shadow=false \
   >$OUT/app-$LABEL.log 2>&1 & APP=$!
 for i in {1..90}; do curl -sf localhost:8080/actuator/health >/dev/null && break; sleep 2; done

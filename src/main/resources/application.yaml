@@ -515,6 +515,8 @@ journey:
       starvation-guard-seconds: ${JOURNEY_EVALUATOR_STARVATION_GUARD_SECONDS:60}
       # 평가가 끝나 빈자리가 생기면 tick 을 기다리지 않고 바로 선점(#415-6). 끄면 처리량 상한 = 워커×2 ÷ tick.
       refill-on-completion: ${JOURNEY_EVALUATOR_REFILL_ON_COMPLETION:true}
+      # 판정 시각이 이 초 미만으로 흔들리면 "그대로"(평가 번호 안 올림, 백오프 걸림, 저장값 유지). 0 = 정확히 같을 때만.
+      change-tolerance-seconds: ${JOURNEY_EVALUATOR_CHANGE_TOLERANCE_SECONDS:30}
     # 이벤트 기반 재평가(#415-3). 실시간 데이터가 바뀐 여정의 다음 평가를 앞당긴다.
     # 기본 꺼짐 + 그림자 모드(켜도 DB 를 안 고치고 지표만 셈). 켜는 순서: enabled=true(그림자) → 지표 확인 → shadow=false.
     reeval:
