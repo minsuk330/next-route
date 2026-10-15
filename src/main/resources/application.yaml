@@ -526,7 +526,17 @@ journey:
       urgent-min-gap-seconds: 5
       caution-min-gap-seconds: 10
       relaxed-min-gap-seconds: 30
+      # 수집 한 번에 깨울 여정 수 상한(#427 처방 2차). capacity = clamp(인스턴스 전체 최근 처리량 × 다음 수집까지 15초 × 1.5,
+      # 500, 5000). 처리량 = 최근 10초 안에 판정을 저장한 여정 수 ÷ 10(DB, 5초 캐시). fixed = 예전처럼 max-journeys-per-request 고정.
+      # 넘친 여정(overflow)도 포화 차단(shed)도 기준선을 남겨 다음 수집에 다시 나온다 — 이벤트를 잃지 않는다.
+      wake-cap-mode: ${JOURNEY_REEVAL_WAKE_CAP_MODE:CAPACITY}
       max-journeys-per-request: 500
+      wake-horizon-seconds: 15
+      wake-headroom: 1.5
+      wake-cap-min: 500
+      wake-cap-max: 5000
+      wake-rate-window-seconds: 10
+      wake-rate-cache-ms: 5000
       # 예정보다 30초 넘게 밀린 여정이 200건 이상이면 평가기 포화로 보고 주의·여유는 앞당기지 않는다.
       shed-backlog-age-seconds: 30
       shed-backlog-threshold: 200

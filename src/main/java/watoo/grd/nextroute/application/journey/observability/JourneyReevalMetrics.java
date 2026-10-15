@@ -110,6 +110,31 @@ public class JourneyReevalMetrics {
         }
     }
 
+    public static final String WAKE_CAP = "journey.reeval.wake.cap";
+    public static final String WAKE_RATE = "journey.reeval.wake.rate";
+
+    private volatile double wakeCap = Double.NaN;
+    private volatile double wakeRate = Double.NaN;
+    private volatile boolean wakeGaugesRegistered;
+
+    /**
+     * 이번 요청의 깨우기 상한과 그 근거가 된 평가기 처리량(#427 처방 2차). 게이지라 마지막 값만 남는다 — 매 요청
+     * 값은 {@code journey.reeval.wake.cap.chosen} 분포로도 남긴다.
+     *
+     * @param ratePerSecond 인스턴스 전체 처리량(건/초). 고정 모드·셀 수 없음이면 음수(게이지는 NaN)
+     */
+    public void recordWakeCap(int cap, double ratePerSecond) {
+        if (!wakeGaugesRegistered) {
+            io.micrometer.core.instrument.Gauge.builder(WAKE_CAP, this, m -> m.wakeCap).register(registry);
+            io.micrometer.core.instrument.Gauge.builder(WAKE_RATE, this, m -> m.wakeRate).register(registry);
+            wakeGaugesRegistered = true;
+        }
+        wakeCap = cap;
+        wakeRate = ratePerSecond < 0 ? Double.NaN : ratePerSecond;
+        io.micrometer.core.instrument.DistributionSummary.builder(WAKE_CAP + ".chosen").register(registry)
+                .record(cap);
+    }
+
     /** 그림자 모드에서 반영했다고 친 여정 수. 켰을 때 평가기에 얹힐 일의 크기다. */
     public void recordShadow(ReevaluationTier tier, int count) {
         if (count > 0) {
