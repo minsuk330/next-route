@@ -73,6 +73,7 @@ import java.util.Map;
         "classpath:db/migration/V37__align_journey_navigation_contract.sql",
         "classpath:db/migration/V38__add_journey_last_progress_id.sql",
         "classpath:db/migration/V39__create_user_push_token.sql",
+        "classpath:db/migration/V68__user_push_token_quiet_update.sql",
         "classpath:db/migration/V40__create_journey_notification.sql",
         "classpath:db/migration/V53__add_reroute_alert_state.sql",
         "classpath:db/migration/V59__journey_session_kind.sql",

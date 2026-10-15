@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import watoo.grd.nextroute.application.journey.port.out.PushMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -276,15 +277,20 @@ public class TransferRiskNotifier {
                 JourneyNotificationScope.TRANSFER, assessment.transferIndex(),
                 JourneyCheckpoint.ofTransferStatus(assessment.status()));
 
+        // 대체하기 전에 보류 중인 옛 울림의 발송 예정 시각을 잡아 둔다 — 대체돼도 그 시각보다 늦게 울리지 않게.
+        Long heldUntilEpoch = notificationRepository.findEarliestPendingScheduledEpoch(
+                journeyId, revision, JourneyNotificationScope.TRANSFER.name(), assessment.transferIndex(),
+                RISK_CHECKPOINT_NAMES);
+
         // 승격(빠듯→놓침)으로 남은 옛 위험 알림을 밀어낸다. 접근 알림은 여기서 건드리지 않는다 — 울림일 때만
         // 아래에서 따로 취소한다.
         List<String> canceled = notificationRepository.cancelPendingByScopeReturningKeys(
                 journeyId, revision, JourneyNotificationScope.TRANSFER.name(), assessment.transferIndex(),
                 RISK_CHECKPOINT_NAMES, logicalKey, "superseded");
 
-        AlertDelivery delivery = alertBudget.decide(journeyId, revision, logicalKey, canceled);
+        PushMessage.Delivery delivery = alertBudget.decide(journeyId, revision, logicalKey, canceled);
 
-        if (delivery == AlertDelivery.QUIET && alertBudget.claimHeldByReroute(journeyId, revision)) {
+        if (delivery == PushMessage.Delivery.QUIET && alertBudget.claimHeldByReroute(journeyId, revision)) {
             // 이미 울린 것이 재탐색 제안이다. 조용한 위험 알림으로 그 할 일을 덮지 않는다. 마커는 쓴다 — 안 쓰면
             // 10초마다 같은 판단을 되풀이한다.
             alertBudget.recordQuietDominated();
@@ -295,8 +301,8 @@ public class TransferRiskNotifier {
         }
 
         // 합치기 창은 울림에만 건다. 조용한 갱신은 늦출 이유가 없다 — 이미 울린 알림을 고쳐 쓸 뿐이다.
-        Duration hold = delivery == AlertDelivery.ALERTING
-                ? alertBudget.holdFor(assessment, boardMode())
+        Duration hold = delivery == PushMessage.Delivery.ALERTING
+                ? alertBudget.holdFor(assessment, boardMode(), heldUntilEpoch)
                 : Duration.ZERO;
         boolean created = false;
         for (NotificationChannel channel : context.channels()) {
@@ -304,7 +310,7 @@ public class TransferRiskNotifier {
                     .created();
         }
 
-        if (delivery == AlertDelivery.ALERTING) {
+        if (delivery == PushMessage.Delivery.ALERTING) {
             // 울리는 위험 알림이 나가는 마당에 뒤늦게 도착하는 "곧 온다"는 거짓 안심이다(정책 이전과 같은 규칙).
             // 조용한 알림은 접근 알림을 지우지 않는다 — 소리 없는 갱신이 정작 고개를 들어야 할 알림을 없애면 안 된다.
             notificationRepository.supersedeAllPendingByScope(journeyId, revision,

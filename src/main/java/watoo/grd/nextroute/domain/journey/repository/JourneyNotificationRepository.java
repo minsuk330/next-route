@@ -303,4 +303,26 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
     List<String> cancelPendingByCheckpointsReturningKeys(@Param("journeyId") Long journeyId,
                                                          @Param("routeRevision") int routeRevision,
                                                          @Param("checkpoints") Collection<String> checkpoints);
+
+    /**
+     * 그 환승의 대기 중인 위험 알림 중 가장 이른 발송 예정 시각(epoch 초). 없으면 null.
+     *
+     * <p>합치기 창(#428)의 상한을 잰다 — 보류 중인 울림 알림이 더 나쁜 알림으로 대체돼도 첫 판정의 보류가 끝나는
+     * 시각보다 늦게 울리지 않게 한다. 대체(취소)하기 <b>전에</b> 불러야 한다.
+     */
+    @Query(value = """
+            SELECT CAST(EXTRACT(EPOCH FROM MIN(scheduled_at)) AS bigint)
+              FROM journey_notification
+             WHERE journey_id = :journeyId
+               AND route_revision = :routeRevision
+               AND scope_type = :scopeType
+               AND scope_id = :scopeId
+               AND status = 'PENDING'
+               AND checkpoint IN (:checkpoints)
+            """, nativeQuery = true)
+    Long findEarliestPendingScheduledEpoch(@Param("journeyId") Long journeyId,
+                                           @Param("routeRevision") int routeRevision,
+                                           @Param("scopeType") String scopeType,
+                                           @Param("scopeId") int scopeId,
+                                           @Param("checkpoints") Collection<String> checkpoints);
 }

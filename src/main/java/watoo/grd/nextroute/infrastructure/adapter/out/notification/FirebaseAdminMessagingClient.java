@@ -76,7 +76,7 @@ public class FirebaseAdminMessagingClient implements FirebaseMessagingClient {
         PushResult dispatch(PushMessage message, String token, long timeoutMs);
     }
 
-    private record SdkDispatcher(FirebaseMessaging messaging) implements MessageDispatcher {
+    record SdkDispatcher(FirebaseMessaging messaging) implements MessageDispatcher {
 
         @Override
         public PushResult dispatch(PushMessage message, String token, long timeoutMs) {
@@ -115,7 +115,7 @@ public class FirebaseAdminMessagingClient implements FirebaseMessagingClient {
          * 한다 — 서버만으로는 못 한다. 지금은 token 으로 간다(동작에는 영향 없다).
          */
         @SuppressWarnings("deprecation")
-        private static Message toMessage(PushMessage message, String token) {
+        static Message toMessage(PushMessage message, String token) {
             boolean high = message.priority() == PushMessage.Priority.HIGH;
             return Message.builder()
                     .setToken(token)
@@ -131,10 +131,7 @@ public class FirebaseAdminMessagingClient implements FirebaseMessagingClient {
                             .setCollapseKey(message.collapseKey())
                             // Android 는 "앞으로 몇 초"를 받는다.
                             .setTtl(Math.max(0, message.androidTtl().toMillis()))
-                            .setNotification(AndroidNotification.builder()
-                                    .setTitle(message.title())
-                                    .setBody(message.body())
-                                    .build())
+                            .setNotification(androidNotification(message))
                             .build())
                     .setApnsConfig(ApnsConfig.builder()
                             .putHeader("apns-priority",
@@ -145,9 +142,37 @@ public class FirebaseAdminMessagingClient implements FirebaseMessagingClient {
                             .putHeader("apns-expiration",
                                     String.valueOf(message.apnsExpirationEpochSeconds()))
                             .putHeader("apns-collapse-id", message.collapseKey())
-                            .setAps(Aps.builder().build())
+                            .setAps(aps(message))
                             .build())
                     .build();
+        }
+
+        /**
+         * 피로 정책(#428) 필드는 값이 있을 때만 넣는다 — 정책이 꺼지면 메시지가 이전과 똑같다.
+         *
+         * <p>조용한 갱신의 소리 없음은 <b>채널</b>이 만든다. FCM v1 은 Android 의 "한 번만 울림"을
+         * 노출하지 않아, 같은 tag 로 다시 올리면 기본 채널에선 다시 울린다.
+         */
+        private static AndroidNotification androidNotification(PushMessage message) {
+            AndroidNotification.Builder builder = AndroidNotification.builder()
+                    .setTitle(message.title())
+                    .setBody(message.body());
+            if (message.androidTag() != null) {
+                builder.setTag(message.androidTag());
+            }
+            if (message.androidChannelId() != null) {
+                builder.setChannelId(message.androidChannelId());
+            }
+            return builder.build();
+        }
+
+        /** iOS 15+ {@code passive}: 알림 센터에 조용히 놓인다(소리·진동·화면 켜짐 없음). 권한 추가 없음. */
+        private static Aps aps(PushMessage message) {
+            Aps.Builder builder = Aps.builder();
+            if (message.quiet()) {
+                builder.putCustomData("interruption-level", "passive");
+            }
+            return builder.build();
         }
     }
 }

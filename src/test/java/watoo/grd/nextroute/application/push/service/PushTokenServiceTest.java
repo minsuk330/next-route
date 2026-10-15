@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
@@ -48,7 +49,7 @@ class PushTokenServiceTest {
     @DisplayName("등록은 JWT 의 userId 와 command 값만 저장소로 넘긴다")
     void registerPassesOnlyAuthenticatedIdentity() {
         given(repository.register(anyLong(), anyString(), anyString(), anyString(), anyString(),
-                any(Instant.class), any(LocalDateTime.class))).willReturn(1L);
+                any(Instant.class), any(), any(LocalDateTime.class))).willReturn(1L);
 
         service.register(USER_ID, new RegisterPushTokenCommand(
                 TOKEN, PushPlatform.IOS, PushProvider.FCM, PushEnvironment.DEVELOPMENT));
@@ -56,7 +57,7 @@ class PushTokenServiceTest {
         ArgumentCaptor<Long> userId = ArgumentCaptor.forClass(Long.class);
         ArgumentCaptor<Instant> seenAt = ArgumentCaptor.forClass(Instant.class);
         verify(repository).register(userId.capture(), eqStr("IOS"), eqStr("FCM"), eqStr(TOKEN),
-                eqStr("DEVELOPMENT"), seenAt.capture(), any(LocalDateTime.class));
+                eqStr("DEVELOPMENT"), seenAt.capture(), isNull(), any(LocalDateTime.class));
         assertThat(userId.getValue()).isEqualTo(USER_ID);
         assertThat(seenAt.getValue()).as("시각은 고정 Clock 에서 온다").isEqualTo(NOW);
     }
@@ -65,14 +66,14 @@ class PushTokenServiceTest {
     @DisplayName("등록의 감사 시각도 같은 Clock 을 쓴다")
     void registerUsesInjectedClockForAuditColumns() {
         given(repository.register(anyLong(), anyString(), anyString(), anyString(), anyString(),
-                any(Instant.class), any(LocalDateTime.class))).willReturn(1L);
+                any(Instant.class), any(), any(LocalDateTime.class))).willReturn(1L);
 
         service.register(USER_ID, new RegisterPushTokenCommand(
                 TOKEN, PushPlatform.ANDROID, PushProvider.FCM, PushEnvironment.PRODUCTION));
 
         ArgumentCaptor<LocalDateTime> now = ArgumentCaptor.forClass(LocalDateTime.class);
         verify(repository).register(anyLong(), anyString(), anyString(), anyString(), anyString(),
-                any(Instant.class), now.capture());
+                any(Instant.class), any(), now.capture());
         assertThat(now.getValue()).isEqualTo(LocalDateTime.ofInstant(NOW, KST));
     }
 

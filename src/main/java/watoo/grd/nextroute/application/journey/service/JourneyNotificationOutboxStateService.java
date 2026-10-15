@@ -224,6 +224,21 @@ public class JourneyNotificationOutboxStateService {
         });
     }
 
+    /**
+     * 발송기가 보내지 않기로 했다(#428 조용한 갱신을 못 받는 기기 등). 실패가 아니라 취소다.
+     *
+     * <p>PROCESSING 이 아닌 행은 건드리지 않는다 — {@link #markTransientFailure} 와 같은 이유.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markSkipped(long notificationId, String reason) {
+        notificationRepository.findById(notificationId).ifPresent(n -> {
+            if (n.getStatus() != JourneyNotificationStatus.PROCESSING) {
+                return;
+            }
+            cancel(n, reason);
+        });
+    }
+
     /** 영구 실패. 재시도하지 않는다. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markPermanentFailure(long notificationId, String reason) {

@@ -56,6 +56,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V37__align_journey_navigation_contract.sql",
         "classpath:db/migration/V38__add_journey_last_progress_id.sql",
         "classpath:db/migration/V39__create_user_push_token.sql",
+        "classpath:db/migration/V68__user_push_token_quiet_update.sql",
         "classpath:db/migration/V40__create_journey_notification.sql",
         "classpath:db/migration/V53__add_reroute_alert_state.sql",
         "classpath:db/migration/V59__journey_session_kind.sql",
@@ -191,6 +192,20 @@ class JourneyNotificationRelayIT extends AbstractJourneyOutboxPostgresIT {
         relayService.drainUntilEmpty();
 
         assertThat(statusOf(id)).isEqualTo("FAILED");
+    }
+
+    @Test
+    @DisplayName("발송기가 보내지 않기로 하면 실패가 아니라 사유를 남긴 취소다(#428)")
+    void skippedIsCanceledWithReason() {
+        long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(600));
+        sender.skip("quiet-skipped-android");
+
+        relayService.drainUntilEmpty();
+
+        assertThat(statusOf(id))
+                .as("재시도하면 같은 기기에 같은 판단이 나온다 — 실패로 남기면 지표가 거짓말을 한다")
+                .isEqualTo("CANCELED");
+        assertThat(reasonOf(id)).isEqualTo("quiet-skipped-android");
     }
 
     @Test

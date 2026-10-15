@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import watoo.grd.nextroute.application.journey.port.out.PushMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -73,7 +74,7 @@ public class JourneyNotificationEnqueuer {
     public EnqueueResult enqueueTransferRisk(long journeyId, int routeRevision,
                                              TransferRiskAssessment assessment,
                                              NotificationChannel channel, java.time.Duration delay,
-                                             AlertDelivery delivery) {
+                                             PushMessage.Delivery delivery) {
         JourneyCheckpoint checkpoint = JourneyCheckpoint.ofTransferStatus(assessment.status());
         String logicalKey = JourneyNotificationKeys.logical(journeyId, routeRevision,
                 JourneyNotificationScope.TRANSFER, assessment.transferIndex(), checkpoint);
@@ -168,7 +169,7 @@ public class JourneyNotificationEnqueuer {
      */
     public boolean enqueueRerouteSuggested(long journeyId, int routeRevision, long proposalId,
                                            int gainSeconds, NotificationChannel channel,
-                                           Instant now, Instant expiresAt, AlertDelivery delivery) {
+                                           Instant now, Instant expiresAt, PushMessage.Delivery delivery) {
         JourneyCheckpoint checkpoint = JourneyCheckpoint.REROUTE_SUGGESTED;
         int scopeId = (int) proposalId;
         String logicalKey = JourneyNotificationKeys.logical(journeyId, routeRevision,
@@ -211,7 +212,7 @@ public class JourneyNotificationEnqueuer {
      */
     public boolean enqueueBoardPush(long journeyId, int routeRevision, long proposalId, int pushSeq,
                                     Map<String, Object> payload, NotificationChannel channel,
-                                    Instant now, Instant expiresAt, AlertDelivery delivery) {
+                                    Instant now, Instant expiresAt, PushMessage.Delivery delivery) {
         JourneyCheckpoint checkpoint = JourneyCheckpoint.REROUTE_SUGGESTED;
         int scopeId = (int) proposalId;
         String logicalKey = JourneyNotificationKeys.boardPush(journeyId, routeRevision, proposalId, pushSeq);
@@ -248,7 +249,7 @@ public class JourneyNotificationEnqueuer {
      * 하차점이 있을 수 있다 — 목록은 조회 경로가 그때 다시 만들어 준다. 여기 있는 것은 "어느
      * 제안인가"와 문구용 개선폭뿐이다.
      */
-    private String writeReroutePayload(long proposalId, int gainSeconds, AlertDelivery delivery) {
+    private String writeReroutePayload(long proposalId, int gainSeconds, PushMessage.Delivery delivery) {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("proposalId", proposalId);
@@ -297,7 +298,7 @@ public class JourneyNotificationEnqueuer {
         return writePayload(assessment, null);
     }
 
-    private String writePayload(TransferRiskAssessment assessment, AlertDelivery delivery) {
+    private String writePayload(TransferRiskAssessment assessment, PushMessage.Delivery delivery) {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("transferIndex", assessment.transferIndex());
@@ -321,7 +322,7 @@ public class JourneyNotificationEnqueuer {
     }
 
     /** 기존 지표는 그대로 세고, 발송 종류가 있으면(피로 정책 켜짐) 종류별로 한 번 더 센다. */
-    private void recordEnqueued(JourneyCheckpoint checkpoint, AlertDelivery delivery) {
+    private void recordEnqueued(JourneyCheckpoint checkpoint, PushMessage.Delivery delivery) {
         metrics.recordEnqueued(checkpoint);
         if (delivery != null) {
             metrics.recordEnqueuedDelivery(checkpoint, delivery.name());

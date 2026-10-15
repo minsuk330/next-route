@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import watoo.grd.nextroute.application.journey.port.out.PushMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -66,7 +67,7 @@ public class RerouteAlertTxService {
         alertBudget.lockJourney(view.journeyId());
         String logicalKey = JourneyNotificationKeys.logical(view.journeyId(), view.routeRevision(),
                 JourneyNotificationScope.JOURNEY, view.proposalId().intValue(), JourneyCheckpoint.REROUTE_SUGGESTED);
-        AlertDelivery delivery = alertBudget.decide(view.journeyId(), view.routeRevision(), logicalKey, List.of());
+        PushMessage.Delivery delivery = alertBudget.decide(view.journeyId(), view.routeRevision(), logicalKey, List.of());
         boolean enqueued = false;
         for (NotificationChannel channel : channels) {
             enqueued |= enqueuer.enqueueRerouteSuggested(view.journeyId(), view.routeRevision(),
@@ -74,7 +75,7 @@ public class RerouteAlertTxService {
         }
         if (enqueued) {
             proposalRepository.markAlerted(view.proposalId());
-        } else if (delivery == AlertDelivery.ALERTING) {
+        } else if (delivery == PushMessage.Delivery.ALERTING) {
             alertBudget.release(view.journeyId(), logicalKey);
         }
         return enqueued;

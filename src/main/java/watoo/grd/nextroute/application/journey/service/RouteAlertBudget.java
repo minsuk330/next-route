@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import watoo.grd.nextroute.application.journey.port.out.PushMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -68,20 +69,20 @@ public class RouteAlertBudget {
      * @param newLogicalKey 이번에 만들 알림의 논리 키(채널을 뺀 키). 채널이 여럿이어도 판정은 한 번이다
      * @param canceledKeys  이번 트랜잭션이 실제로 PENDING → CANCELED 로 옮긴 행의 논리 키
      */
-    public AlertDelivery decide(long journeyId, int routeRevision, String newLogicalKey,
+    public PushMessage.Delivery decide(long journeyId, int routeRevision, String newLogicalKey,
                                 Collection<String> canceledKeys) {
         Set<String> from = distinct(canceledKeys);
         if (!from.isEmpty()
                 && sessionRepository.inheritAlertClaim(journeyId, routeRevision, from, newLogicalKey) == 1) {
             metrics.recordAlertClaim("inherited");
-            return AlertDelivery.ALERTING;
+            return PushMessage.Delivery.ALERTING;
         }
         if (sessionRepository.tryClaimAlert(journeyId, routeRevision, newLogicalKey) == 1) {
             metrics.recordAlertClaim("won");
-            return AlertDelivery.ALERTING;
+            return PushMessage.Delivery.ALERTING;
         }
         metrics.recordAlertClaim("quiet");
-        return AlertDelivery.QUIET;
+        return PushMessage.Delivery.QUIET;
     }
 
     /**
@@ -138,6 +139,26 @@ public class RouteAlertBudget {
      * 마감이 아니다. 거기에 상한을 걸면 놓침은 언제나 즉시가 돼 합치기 창이 사라진다.
      */
     public Duration holdFor(TransferRiskAssessment assessment, boolean boardMode) {
+        return holdFor(assessment, boardMode, null);
+    }
+
+    /**
+     * 보류 중이던 울림을 대체하는 경우의 보류. 첫 판정의 보류가 끝나는 시각({@code heldUntilEpoch})을 넘기지 않는다
+     * — 빠듯(17초) 도중 놓침이 오면 보류가 처음부터 다시 시작돼 첫 울림이 최대 약 49초까지 밀렸다(사용자 결정
+     * 2026-10-15: 첫 판정 기준 상한).
+     *
+     * @param heldUntilEpoch 대체되는 대기 행 중 가장 이른 발송 예정 시각(epoch 초). 없으면 null
+     */
+    public Duration holdFor(TransferRiskAssessment assessment, boolean boardMode, Long heldUntilEpoch) {
+        Duration hold = baseHold(assessment, boardMode);
+        if (heldUntilEpoch == null) {
+            return hold;
+        }
+        long left = heldUntilEpoch - Instant.now(clock).getEpochSecond();
+        return left <= 0 ? Duration.ZERO : (hold.getSeconds() > left ? Duration.ofSeconds(left) : hold);
+    }
+
+    private Duration baseHold(TransferRiskAssessment assessment, boolean boardMode) {
         JourneyNotificationProperties.Fatigue fatigue = properties.getFatigue();
         int rounds = assessment.status() == TransferStatus.MISSED && boardMode ? 2 : 1;
         long hold = fatigue.getHoldRoundSeconds() * rounds + fatigue.getHoldMarginSeconds();

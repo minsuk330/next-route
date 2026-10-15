@@ -335,6 +335,19 @@ class JourneyAlertBudgetIT extends AbstractJourneyNotificationIT {
     }
 
     @Test
+    @DisplayName("보류 중 빠듯이 놓침으로 대체돼도 첫 판정의 보류 끝(17초)보다 늦게 울리지 않는다")
+    void replacementKeepsFirstHoldDeadline() {
+        setBoardMode(true);
+        evaluate(TransferStatus.AT_RISK, NotificationChannel.PUSH);
+
+        evaluate(TransferStatus.MISSED, NotificationChannel.PUSH);
+
+        assertThat(scheduledAt(row("TRANSFER_RISK_MISSED")))
+                .as("보드 모드 놓침의 자체 보류(32초)를 처음부터 다시 세면 첫 울림이 최대 49초까지 밀린다")
+                .isEqualTo(T0.plusSeconds(17));
+    }
+
+    @Test
     @DisplayName("보드 모드가 아닌 놓침 울림은 수집 1번 + 2초 = 17초")
     void missedHoldWithoutBoardMode() {
         evaluate(TransferStatus.MISSED, NotificationChannel.PUSH);

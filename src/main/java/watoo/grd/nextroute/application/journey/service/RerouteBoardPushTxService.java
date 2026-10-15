@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import watoo.grd.nextroute.application.journey.port.out.PushMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -110,7 +111,7 @@ public class RerouteBoardPushTxService {
             metrics.recordAlert("merged-risk", canceled.size());
         }
         String logicalKey = JourneyNotificationKeys.boardPush(journey.getId(), revision, board.getId(), seq + 1);
-        AlertDelivery delivery = alertBudget.decide(journey.getId(), revision, logicalKey, canceled);
+        PushMessage.Delivery delivery = alertBudget.decide(journey.getId(), revision, logicalKey, canceled);
 
         Instant expiresAt = now.plus(properties.getAlert().getSnapshotTtl());
         boolean enqueued = false;
@@ -118,7 +119,7 @@ public class RerouteBoardPushTxService {
             enqueued |= enqueuer.enqueueBoardPush(journey.getId(), revision, board.getId(),
                     seq + 1, payload, channel, now, expiresAt, delivery);
         }
-        if (!enqueued && delivery == AlertDelivery.ALERTING) {
+        if (!enqueued && delivery == PushMessage.Delivery.ALERTING) {
             // 울릴 알림이 안 생겼다. 권리를 쥔 채 두면 이 경로 버전은 다시 못 울린다.
             alertBudget.release(journey.getId(), logicalKey);
         }

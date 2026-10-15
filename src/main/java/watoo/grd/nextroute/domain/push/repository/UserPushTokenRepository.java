@@ -48,14 +48,16 @@ public interface UserPushTokenRepository extends JpaRepository<UserPushToken, Lo
      * 날 수 있다(PostgreSQL 문서화된 코너 케이스). 앱 실행당 1회 호출이라 확률이 무시할 수준이므로
      * 재시도 루프를 두지 않는다.
      *
+     * <p>{@code quietUpdateSupported} 가 null 이면(능력 목록을 안 보낸 옛 앱) 기존 값을 그대로 둔다.
+     *
      * @return 등록되거나 갱신된 행의 id. {@code DO UPDATE} 라 항상 1건이다
      */
     @Query(value = """
             INSERT INTO user_push_token
                 (user_id, platform, provider, token, environment, enabled, last_seen_at,
-                 created_at, updated_at)
+                 quiet_update_supported, created_at, updated_at)
             VALUES (:userId, :platform, :provider, :token, :environment, true,
-                    :seenAt, :now, :now)
+                    :seenAt, COALESCE(:quietUpdateSupported, false), :now, :now)
             ON CONFLICT (token) WHERE deleted_at IS NULL
             DO UPDATE SET user_id      = EXCLUDED.user_id,
                           platform     = EXCLUDED.platform,
@@ -63,6 +65,8 @@ public interface UserPushTokenRepository extends JpaRepository<UserPushToken, Lo
                           environment  = EXCLUDED.environment,
                           enabled      = true,
                           last_seen_at = EXCLUDED.last_seen_at,
+                          quiet_update_supported = COALESCE(:quietUpdateSupported,
+                                                            user_push_token.quiet_update_supported),
                           updated_at   = EXCLUDED.updated_at
             RETURNING id
             """, nativeQuery = true)
@@ -72,6 +76,7 @@ public interface UserPushTokenRepository extends JpaRepository<UserPushToken, Lo
                   @Param("token") String token,
                   @Param("environment") String environment,
                   @Param("seenAt") Instant seenAt,
+                  @Param("quietUpdateSupported") Boolean quietUpdateSupported,
                   @Param("now") LocalDateTime now);
 
     /**
