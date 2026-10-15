@@ -91,6 +91,17 @@ public class JourneyEvaluationScheduleWriter {
     }
 
     /**
+     * 공급자 슬롯을 못 잡은 선점을 풀어 {@code retryAt} 에 다시 잡히게 한다(#427 처방 2차). 풀지 않으면 lease(60초)가
+     * 만료될 때까지 아무도 그 여정을 평가하지 않는다.
+     *
+     * @return 되돌렸으면 true. 그새 소유권을 잃었으면 false(남이 정한 예정을 존중)
+     */
+    @Transactional
+    public boolean releaseForRetry(JourneyDueClaim claim, Instant retryAt) {
+        return sessionRepository.releaseClaimForRetry(claim.journeyId(), claim.leaseUntil(), retryAt) > 0;
+    }
+
+    /**
      * 대기 단계 행에 도착 예측을 적어 둔다.
      *
      * <p>조회 요청이 실시간 API 를 부르지 않고 이 값을 읽게 하려는 준비다. 저장 시점에 단계를 다시

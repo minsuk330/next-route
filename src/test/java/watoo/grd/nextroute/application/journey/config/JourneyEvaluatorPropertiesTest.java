@@ -127,6 +127,56 @@ class JourneyEvaluatorPropertiesTest {
     }
 
     @Test
+    void TC_워커는_16_버스_슬롯은_예전_실효값_4_지하철_슬롯은_16() {
+        // #427 처방 2차: 워커를 늘려도 버스(한도 있는 공급자) 동시 호출은 예전(워커 4 = 동시 4) 그대로
+        JourneyEvaluatorProperties props = new JourneyEvaluatorProperties();
+
+        assertThat(props.getPoolSize()).isEqualTo(16);
+        assertThat(props.getProviderPermits()).isEqualTo(4);
+        assertThat(props.getSubwayProviderPermits()).isEqualTo(16);
+        assertThat(props.getSlotRetrySeconds()).isEqualTo(2);
+    }
+
+    @Test
+    void TC_application_yaml_의_워커와_슬롯이_바인딩된다() {
+        new org.springframework.boot.test.context.runner.ApplicationContextRunner()
+                .withInitializer(new org.springframework.boot.test.context.ConfigDataApplicationContextInitializer())
+                .withUserConfiguration(Config.class)
+                .run(context -> {
+                    JourneyEvaluatorProperties props = context.getBean(JourneyEvaluatorProperties.class);
+                    assertThat(props.getPoolSize()).isEqualTo(16);
+                    assertThat(props.getProviderPermits()).isEqualTo(4);
+                    assertThat(props.getSubwayProviderPermits()).isEqualTo(16);
+                    assertThat(props.getSlotRetrySeconds()).isEqualTo(2);
+                });
+    }
+
+    @Test
+    void TC_워커_16_과_함께_DB_풀은_20() throws Exception {
+        // 10 이면 지하철 사다리 6,000 에서 커넥션 대기 p95 373ms. 시험 설정(application.properties)이 5 로 덮으므로
+        // 운영 yaml 을 직접 읽는다.
+        var sources = new org.springframework.boot.env.YamlPropertySourceLoader()
+                .load("main", new org.springframework.core.io.ClassPathResource("application.yaml"));
+        Object value = sources.get(0).getProperty("spring.datasource.hikari.maximum-pool-size");
+        assertThat(String.valueOf(value)).isEqualTo("${DB_POOL_MAX_SIZE:20}");
+    }
+
+    @org.springframework.boot.context.properties.EnableConfigurationProperties(JourneyEvaluatorProperties.class)
+    static class Config {
+    }
+
+    @Test
+    void TC_지하철_슬롯이나_재시도_간격이_0이면_부팅을_막는다() {
+        JourneyEvaluatorProperties noSubway = new JourneyEvaluatorProperties();
+        noSubway.setSubwayProviderPermits(0);
+        JourneyEvaluatorProperties noRetry = new JourneyEvaluatorProperties();
+        noRetry.setSlotRetrySeconds(0);
+
+        assertThatThrownBy(noSubway::validate).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(noRetry::validate).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void TC_배수가_1보다_작으면_부팅을_막는다() {
         JourneyEvaluatorProperties props = new JourneyEvaluatorProperties();
         props.setUnchangedBackoffMultiplier(0);

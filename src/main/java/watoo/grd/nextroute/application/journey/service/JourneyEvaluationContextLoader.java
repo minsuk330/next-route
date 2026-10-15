@@ -7,6 +7,8 @@ import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
+import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepository;
 
@@ -30,6 +32,11 @@ public class JourneyEvaluationContextLoader {
 
     private final JourneySessionRepository sessionRepository;
     private final TransferConnectionRepository transferRepository;
+    private final JourneyLegRepository legRepository;
+
+    /** 이 종류의 단계가 있으면 버스(한도 있는) 공급자 슬롯을 잡는다. */
+    private static final java.util.Set<JourneyLegType> BUS_LEGS =
+            java.util.EnumSet.of(JourneyLegType.WAIT_BUS, JourneyLegType.RIDE_BUS);
 
     /**
      * @return 평가할 상태가 아니면 빈 값(이미 끝난 여정, 지워진 여정)
@@ -47,8 +54,9 @@ public class JourneyEvaluationContextLoader {
                 .stream()
                 .collect(Collectors.toMap(TransferConnection::getTransferIndex,
                         TransferAssessmentMapper::fromStored));
+        boolean usesBus = legRepository.existsLegOfTypes(journeyId, journey.getRouteRevision(), BUS_LEGS);
         return Optional.of(new JourneyEvaluationContext(journey.getId(), journey.getUserId(),
-                journey.getRouteRevision(), journey.getCurrentLegIndex(), previous));
+                journey.getRouteRevision(), journey.getCurrentLegIndex(), previous, usesBus));
     }
 
     /**
@@ -56,14 +64,22 @@ public class JourneyEvaluationContextLoader {
      *
      * @param currentLegIndex     지금 진행 중인 단계. 이미 지나온 환승을 간격 계산에서 빼는 데 쓴다
      * @param previousAssessments 직전 판정. 값이 달라졌는지 견주고, 직전 평가 시각을 읽는 데 쓴다
+     * @param usesBusProvider     버스 단계가 있는지. 평가기가 버스(한도 있음)·지하철 중 어느 슬롯을 잡을지 가른다
      */
     public record JourneyEvaluationContext(
             Long journeyId,
             Long userId,
             int routeRevision,
             int currentLegIndex,
-            Map<Integer, TransferRiskAssessment> previousAssessments
+            Map<Integer, TransferRiskAssessment> previousAssessments,
+            boolean usesBusProvider
     ) {
+
+        /** 예전 모양. 슬롯을 모르면 보수적으로 버스 몫을 잡는다. */
+        public JourneyEvaluationContext(Long journeyId, Long userId, int routeRevision, int currentLegIndex,
+                                        Map<Integer, TransferRiskAssessment> previousAssessments) {
+            this(journeyId, userId, routeRevision, currentLegIndex, previousAssessments, true);
+        }
 
         /**
          * 직전 평가와 지금 사이의 간격. 판정을 저장할 때마다 갱신되는 계산 시각에서 되읽는다.

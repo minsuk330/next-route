@@ -175,9 +175,10 @@ public class JourneyEvaluationMetrics {
      * 줄이거나 {@code provider-permits} 를 올릴지 판단하는 근거가 된다.
      *
      * @param result acquired · rejected · interrupted
+     * @param gate   bus(버스 단계가 있는 여정, 한도 있는 공급자) · subway(그 밖) — #427 처방 2차
      */
-    public void recordProviderSlot(String result) {
-        registry.counter(PROVIDER_SLOT, "result", result).increment();
+    public void recordProviderSlot(String result, String gate) {
+        registry.counter(PROVIDER_SLOT, "result", result, "gate", gate).increment();
     }
 
     /**
