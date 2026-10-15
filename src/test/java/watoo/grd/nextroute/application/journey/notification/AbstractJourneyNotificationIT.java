@@ -62,6 +62,8 @@ import java.util.Map;
         JourneyNotificationMetrics.class, JourneyRelayWaker.class, JourneyRelayWakeListener.class,
         // 피로 정책(#428) 판정. 기본 꺼짐이라 기존 시험의 동작은 같다.
         watoo.grd.nextroute.application.journey.service.RouteAlertBudget.class,
+        // 문구 재료(#428 PR-2): 갈아탈 차 노선 이름. 정책이 켜졌을 때만 읽는다.
+        watoo.grd.nextroute.application.journey.service.TransferTargetRouteNames.class,
         // 환승 위험 알림 지연(#264 보드 모드) 판단이 재탐색 설정을 본다. 기본값(보드 꺼짐)이라 동작은 같다.
         watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties.class,
         AbstractJourneyNotificationIT.Config.class})

@@ -75,6 +75,19 @@ public class JourneyNotificationEnqueuer {
                                              TransferRiskAssessment assessment,
                                              NotificationChannel channel, java.time.Duration delay,
                                              PushMessage.Delivery delivery) {
+        return enqueueTransferRisk(journeyId, routeRevision, assessment, channel, delay, delivery, null);
+    }
+
+    /**
+     * 갈아탈 차 노선 이름까지 실은 환승 위험 알림(#428 PR-2). 이름은 발송 순간 문구("2호선이 3분 뒤 와요")의
+     * 재료일 뿐 push {@code data} 로는 나가지 않는다.
+     *
+     * @param routeName null 이면 payload 에 싣지 않는다 — 문구는 기존 것으로 떨어진다
+     */
+    public EnqueueResult enqueueTransferRisk(long journeyId, int routeRevision,
+                                             TransferRiskAssessment assessment,
+                                             NotificationChannel channel, java.time.Duration delay,
+                                             PushMessage.Delivery delivery, String routeName) {
         JourneyCheckpoint checkpoint = JourneyCheckpoint.ofTransferStatus(assessment.status());
         String logicalKey = JourneyNotificationKeys.logical(journeyId, routeRevision,
                 JourneyNotificationScope.TRANSFER, assessment.transferIndex(), checkpoint);
@@ -82,7 +95,7 @@ public class JourneyNotificationEnqueuer {
 
         Instant now = Instant.now(clock).plus(delay);
         Instant expiresAt = expiresAt(assessment, now);
-        String payload = writePayload(assessment, delivery);
+        String payload = writePayload(assessment, delivery, routeName);
 
         List<Long> created = notificationRepository.enqueue(
                 journeyId, routeRevision,
@@ -295,10 +308,11 @@ public class JourneyNotificationEnqueuer {
      * 여기서 예외를 내면 평가 트랜잭션 전체가 죽는다(버스 outbox 와 같은 방식).
      */
     private String writePayload(TransferRiskAssessment assessment) {
-        return writePayload(assessment, null);
+        return writePayload(assessment, null, null);
     }
 
-    private String writePayload(TransferRiskAssessment assessment, PushMessage.Delivery delivery) {
+    private String writePayload(TransferRiskAssessment assessment, PushMessage.Delivery delivery,
+                                String routeName) {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("transferIndex", assessment.transferIndex());
@@ -309,6 +323,9 @@ public class JourneyNotificationEnqueuer {
             }
             if (assessment.nextBusArrivalAt() != null) {
                 body.put("nextBusArrivalAt", assessment.nextBusArrivalAt().toString());
+            }
+            if (routeName != null) {
+                body.put("routeName", routeName);
             }
             if (delivery != null) {
                 body.put("delivery", delivery.name());

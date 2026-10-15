@@ -4999,3 +4999,37 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `JourneyAlertBudgetIT`(+`replacementKeepsFirstHoldDeadline`)·`AlertFatigueTransportTest`·`TransferRiskNotifierTest`·notification 패키지·`RerouteBoard*`·`NextrouteApplicationTests` 통과
 - 전체 `cleanTest test`(1a 머지 뒤, 플래그 우회 없이): 3,122 중 실패 12 = 기존 무관 목록 그대로
+
+## #428 PR-2 — 할 일 문구 (2026-10-15)
+
+### 확정
+- 노선 이름 출처 = 판정의 `toLegIndex` 단계(대기 단계)의 **고른 후보**(`journey_leg.selected_route_option_id` → `journey_leg_route_option.route_name`). 도착 예측기(`Bus/SubwayTransferTargetArrivalPredictor`)도 같은 후보로 도착 시각을 재므로 "노선"과 "N분"이 같은 차를 가리킨다. 고른 후보가 없으면 **후보가 하나일 때만** 그 이름, 여럿이면 생략(아무거나 고르면 다른 차의 시각이 됨). 읽기는 `TransferTargetRouteNames`, 정책 켜짐 경로(`handleWithBudget`)에서 채널 루프 밖 1회
+- 위험 payload 에 `routeName`(있을 때만) 추가 — 정책 켜짐에서만. 끄면 payload 바이트 그대로(IT `disabledOmitsRouteName`)
+- 보드 push(켜짐) payload 에 `replacedRisk`=`AT_RISK`|`MISSED` — 이번 push 가 취소한 위험 키 중 가장 심한 것(`JourneyNotificationKeys.checkpointOf`). 값은 체크포인트가 아니라 상태 이름(위험 payload `status` 와 같은 말). 취소 없으면 원본 맵 그대로. 재탐색 알림(`RerouteAlertTxService.alertWithBudget`)은 위험 행을 취소하지 않아 해당 없음
+- 문구는 **발송 시점**(`FcmMessageFactory.from` 의 `now`)에 계산. 정책 켜짐 + 접근 알림 아님일 때만 `fatigueTitle`/`fatigueBody`, 끄면 옛 `title`/`body` 그대로
+  - 빠듯: 제목 그대로 "환승 시간이 빠듯해요", 본문 "{노선}{이/가} N분 뒤 와요 — 서두르면 탈 수 있어요"(≤30초·지남 → "곧 와요", 그 위 `max(1, round(sec/60))`). 노선·도착 시각(파싱 실패 포함) 없으면 기존 본문
+  - 놓침: 본문 "{노선}{을/를} 놓쳤어요 — 눌러서 다음 차와 다른 길을 확인하세요". 시각은 안 씀(`nextBusArrivalAt` = 놓친 차). 노선 없으면 기존 본문
+  - 보드 push: `replacedRisk` 있으면 제목 "환승을 놓쳤어요"/"환승 시간이 빠듯해요", 본문은 기존 `rerouteAction`. 없으면 "더 빠른 길이 있어요"
+- 조사 = `KoreanParticles`: 마지막으로 읽히는 글자(끝 기호·공백 건너뜀) 받침. 숫자 0·1·3·6·7·8 받침, 2·4·5·9 없음 / 영문 L·M·N·R 만 받침 / 읽을 글자 없으면 "이(가)" 병기
+- 플랜과 다름: 놓침(대안 없음) "다음 {노선}은 {HH:mm}" → 다음 차 시각을 모르므로 시각 없는 할 일 문구(호출자 지시). push `data` 는 식별자만 유지(시험 `dataStaysIdentifiersOnly`)
+
+### 함정
+- `TransferRiskNotifier` 생성자 인자 추가 → 손으로 만드는 `TransferRiskNotifierTest`·`@Import` 목록(`AbstractJourneyNotificationIT`)에 `TransferTargetRouteNames` 추가 필요. 빠뜨리면 알림 IT 전부 컨텍스트 실패
+- IT 에 `journey_leg` 를 넣으면 부모 `prepareJourney` 의 `delete from journey_session` 이 FK 에 걸림 ← 단계가 후보를, 후보가 단계를 가리키는 순환 참조 / 가드: `@AfterEach` 에서 `selected_route_option_id = null` → 후보 → 단계 순 삭제
+- 조사 시험값 "경의중앙 " 은 '앙' 받침이라 "이" — 받침 없는 예시는 "오이도"
+
+### 좌표
+- `application/journey/service/TransferTargetRouteNames.java`(신규)
+- `JourneyNotificationEnqueuer.enqueueTransferRisk(…, delivery, routeName)` 오버로드·`writePayload`
+- `TransferRiskNotifier.handleWithBudget` routeName 조회
+- `RerouteBoardPushTxService.withReplacedRisk`·`publishWithBudget`
+- `infrastructure/adapter/out/notification/FcmMessageFactory.java` `fatigueTitle`·`fatigueBody`·`untilArrival`, `KoreanParticles.java`(신규)
+- 시험: `AlertFatigueCopyTest`(신규), `RerouteBoardReplacedRiskTest`(신규), `JourneyAlertBudgetIT`(+6)
+
+### 배포
+- 마이그레이션 없음. 플래그 꺼진 채 배포 → 문구·payload 변화 없음
+
+### 검증
+- `./gradlew compileJava compileTestJava` 통과
+- `runsome.sh … --tests '*NextrouteApplicationTests' --tests '*AlertFatigueCopyTest' --tests '*AlertFatigueTransportTest' --tests '*FcmMessageFactoryTest' --tests '*RerouteBoardReplacedRiskTest' --tests '*TransferRiskNotifierTest' --tests 'watoo.grd.nextroute.application.journey.notification.*' --tests '*RerouteBoard*' --tests '*FcmNotificationSenderTest'` → 251 중 실패 0(AlertFatigueCopyTest 54, JourneyAlertBudgetIT 32, RerouteBoardReplacedRiskTest 2)
+- 전체 `runfull.sh`(cleanTest test --continue) → 3,184 중 실패 12, 건너뜀 5 = 기존 무관 목록 그대로(여정 평가 7·환승 판정 저장 1·조회 경로 2·OTP 계약 1·JourneyNotificationSchemaIT 1)

@@ -65,8 +65,8 @@ public class FcmMessageFactory {
         Map<String, String> data = data(command);
         data.put("delivery", delivery.name());
         return new PushMessage(
-                title(command.checkpoint()),
-                body(command),
+                fatigueTitle(command),
+                fatigueBody(command, now),
                 data,
                 collapseKey,
                 androidTtl,
@@ -217,6 +217,74 @@ public class FcmMessageFactory {
             }
         }
         return body(command.checkpoint());
+    }
+
+    /**
+     * 할 일 문구의 제목(#428 PR-2). 위험 알림 제목은 지금 그대로다. 바뀌는 것은 <b>위험 알림을 대신한 보드 push</b>
+     * 뿐 — 대체된 위험 알림은 나가지 않으므로 그 소식을 이 제목이 전한다("환승을 놓쳤어요" + 본문은 대안 행동).
+     */
+    String fatigueTitle(NotificationSendCommand command) {
+        if (command.checkpoint() == JourneyCheckpoint.REROUTE_SUGGESTED && command.payload() != null) {
+            String replaced = text(command.payload(), "replacedRisk");
+            if ("MISSED".equals(replaced)) {
+                return title(JourneyCheckpoint.TRANSFER_RISK_MISSED);
+            }
+            if ("AT_RISK".equals(replaced)) {
+                return title(JourneyCheckpoint.TRANSFER_RISK_AT_RISK);
+            }
+        }
+        return title(command.checkpoint());
+    }
+
+    /**
+     * 할 일 문구의 본문(#428 PR-2). 숫자는 <b>보낸 순간</b>({@code now})에 계산한다 — 합치기 창·재시도로 적재와
+     * 발송 사이가 수십 초 벌어지므로, 적재 때 분을 박아 두면 "3분 뒤"가 실제로는 2분 뒤다. 재료(노선 이름·도착
+     * 시각)가 없으면 기존 확정 문구로 떨어진다.
+     *
+     * <p>놓침에는 시각을 넣지 않는다. payload 의 {@code nextBusArrivalAt} 은 <b>놓친 차</b>의 도착이고 다음 차는
+     * 모른다 — 그 시각을 "다음 차"로 적으면 이미 떠난 차를 기다리게 한다.
+     */
+    String fatigueBody(NotificationSendCommand command, Instant now) {
+        com.fasterxml.jackson.databind.JsonNode payload = command.payload();
+        if (payload != null) {
+            String route = text(payload, "routeName");
+            if (route != null && command.checkpoint() == JourneyCheckpoint.TRANSFER_RISK_AT_RISK) {
+                Instant arrival = instant(payload, "nextBusArrivalAt");
+                if (arrival != null) {
+                    return route + KoreanParticles.subject(route) + " " + untilArrival(now, arrival)
+                            + " — 서두르면 탈 수 있어요";
+                }
+            }
+            if (route != null && command.checkpoint() == JourneyCheckpoint.TRANSFER_RISK_MISSED) {
+                return route + KoreanParticles.object(route) + " 놓쳤어요 — 눌러서 다음 차와 다른 길을 확인하세요";
+            }
+        }
+        return body(command);
+    }
+
+    /**
+     * "곧 와요" / "N분 뒤 와요". 30초 이하(이미 지났어도)는 "곧" — 분 단위로 반올림하면 0분이 된다. 그 위는
+     * 분 단위 반올림이되 최소 1분(31초도 "1분 뒤").
+     */
+    static String untilArrival(Instant now, Instant arrival) {
+        long seconds = Duration.between(now, arrival).getSeconds();
+        if (seconds <= 30) {
+            return "곧 와요";
+        }
+        long minutes = Math.max(1, Math.round(seconds / 60.0));
+        return minutes + "분 뒤 와요";
+    }
+
+    private static Instant instant(com.fasterxml.jackson.databind.JsonNode payload, String field) {
+        String value = text(payload, field);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Instant.parse(value);
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
     }
 
     private String rerouteAction(com.fasterxml.jackson.databind.JsonNode payload) {

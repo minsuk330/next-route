@@ -113,16 +113,46 @@ public class RerouteBoardPushTxService {
         String logicalKey = JourneyNotificationKeys.boardPush(journey.getId(), revision, board.getId(), seq + 1);
         PushMessage.Delivery delivery = alertBudget.decide(journey.getId(), revision, logicalKey, canceled);
 
+        Map<String, Object> withReplaced = withReplacedRisk(payload, canceled);
+
         Instant expiresAt = now.plus(properties.getAlert().getSnapshotTtl());
         boolean enqueued = false;
         for (NotificationChannel channel : channels) {
             enqueued |= enqueuer.enqueueBoardPush(journey.getId(), revision, board.getId(),
-                    seq + 1, payload, channel, now, expiresAt, delivery);
+                    seq + 1, withReplaced, channel, now, expiresAt, delivery);
         }
         if (!enqueued && delivery == PushMessage.Delivery.ALERTING) {
             // 울릴 알림이 안 생겼다. 권리를 쥔 채 두면 이 경로 버전은 다시 못 울린다.
             alertBudget.release(journey.getId(), logicalKey);
         }
         return enqueued;
+    }
+
+    /**
+     * 이 push 가 대신한 위험 알림을 문구 재료로 적는다(#428 PR-2). 대체된 위험 알림은 사용자에게 안 나가므로, 그
+     * 소식("환승을 놓쳤어요")을 이 push 의 제목이 대신 전한다. 여럿을 취소했으면 가장 심한 것 — 놓침이 빠듯을
+     * 이긴다. 취소가 없으면 원본 맵 그대로(제목은 "더 빠른 길이 있어요").
+     *
+     * <p>부르는 쪽의 맵은 고치지 않고 복사본에 싣는다. 값은 체크포인트 이름이 아니라 상태 이름
+     * ({@code AT_RISK}·{@code MISSED}) — 위험 payload 의 {@code status} 와 같은 말을 쓴다.
+     */
+    static Map<String, Object> withReplacedRisk(Map<String, Object> payload, List<String> canceledKeys) {
+        String replaced = null;
+        for (String key : canceledKeys) {
+            JourneyCheckpoint checkpoint = JourneyNotificationKeys.checkpointOf(key);
+            if (checkpoint == JourneyCheckpoint.TRANSFER_RISK_MISSED) {
+                replaced = "MISSED";
+                break;
+            }
+            if (checkpoint == JourneyCheckpoint.TRANSFER_RISK_AT_RISK) {
+                replaced = "AT_RISK";
+            }
+        }
+        if (replaced == null) {
+            return payload;
+        }
+        Map<String, Object> copy = new java.util.LinkedHashMap<>(payload);
+        copy.put("replacedRisk", replaced);
+        return copy;
     }
 }
