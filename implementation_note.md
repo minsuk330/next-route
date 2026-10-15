@@ -5250,3 +5250,30 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `BusAlertWakeupBurstIT` 가 01~05시(KST)에 돌리면 발송 0건으로 실패(outbox 200행 PENDING 그대로, toss 호출 0) ← `BusAlertRelayLoop.isActiveHours()` 가 운영 기본 창 `notification.bus-arrival.active-hours` 05:00~01:00 밖이면 wake 신호를 받아도 drain 하지 않는다. 테스트가 창을 고정하지 않아 낮에만 통과 / 가드: IT 의 `@DynamicPropertySource` 에 start=end=00:00(항상 활성). 테스트 config 의 `@Bean BusArrivalAlertProperties` 에 넣으면 안 먹는다 — relay 루프는 바인딩된 설정 bean 을 읽는다(02:08 실측).
 ### 검증
 - 02:08 KST 단독 실행 `--tests '*BusAlertWakeupBurstIT'` 통과(allSent 880ms, p95 823ms). 수정 전 02:04·02:06 같은 명령 실패.
+## #446 실험 1 — 처음부터 끝까지 알림 지표 (2026-10-16, feat/notification-e2e-metric)
+### 확정
+- `journey.notification.e2e{tier,checkpoint,delivery,source}` = FCM 접수(`markSent`) − 처음 본 시각. 보류는 `journey.notification.hold{checkpoint,delivery}`(적재 때 payload `holdMs`) 로 따로. 위험 알림(빠듯·놓침)만 잰다 — 접근·재탐색·보드 push 는 `journey.notification.e2e.unmeasured{checkpoint}`
+- 처음 본 시각 출처 = **변화 피드**: 수집기가 전 노선 응답을 받은 순간(`RealtimeSubwayCollector` 의 `receivedAt`) → `SubwayChangeFeed.onSnapshot(trains, observedAt)` → `ReevaluationTrigger.request(byTier, observedAt)` → `JdbcReevaluationTrigger` 가 **깨울 여정 + 미룰 여정 모두**에 Redis `journey:seen:{id}` = `ms:등급` 을 SET NX(수명 600초). 등급 = 그 순간 색인 등급(감지 SLO 등급과 같은 것)
+- 소비 = 평가 시작(`JourneyEvaluationService.evaluate`, 계산 전) GETDEL. 계산 중 들어온 관측은 다음 평가 몫. 공급자 슬롯을 못 잡아 평가를 못 하면 되돌림(Lua, 더 이른 쪽이 남음)
+- 표시가 없으면(간격 폴링이 먼저·Redis 빔) source=`evaluation`, 처음 본 시각 = 평가 시작(**하한**), 등급 = 평가 직전 판정으로 `JourneyEvaluationIntervalPolicy.tierOf`(방금 나온 위험으로 매기면 위험 알림은 늘 긴급)
+- payload 칸 `firstSeenAt`·`seenTier`·`seenSource`·`holdMs` — 서버 안에서만 씀(FCM data 는 식별자만, `FcmMessageFactory` 불변)
+- "빠짐없이" 지표 `journey.notification.lost{checkpoint,delivery,reason}`: reason = `expired`(발송 직전 만료) · `expired-before-retry` · `dead` · `failed:<코드>`. 대체·회복·여정 종료·경로/명령 변경·lease 만료·조용한 갱신 건너뜀은 정상이라 안 셈. SLO 는 울림(ALERTING·none) 위험·재탐색만
+- "낡지 않게" `journey.notification.sent.after-expiry{checkpoint}`: 접수 시각 > expires_at. 재확인(loadTask) 뒤 공급자 왕복이 길면 생김
+- 스위치 `journey.notification.e2e.enabled`(env `JOURNEY_NOTIFICATION_E2E_ENABLED`, 기본 true) — 끄면 Redis 를 안 부르고 payload 는 하한(evaluation)만
+### 함정
+- 보류를 발송 때 `scheduled_at − created_at` 으로 되읽으면 틀림 ← 일시 실패 재시도가 `scheduled_at` 을 백오프 시각으로 미룸 / 가드: 적재 때 payload `holdMs`
+- `ReevaluationTrigger` 를 mock 한 시험은 새 2-인자 `request` 의 default 를 안 탄다(mock 은 null) → `SubwayChangeFeedTest` 를 2-인자로 바꿈
+- 미룬 여정의 표시를 안 남기면 다음 수집 때 처음 본 시각이 늦게 찍혀 e2e 가 짧게 재진다 → 미뤄도 SET NX
+### 좌표
+- `application/journey/dto/DetectionStamp.java`, `port/out/DetectionStampPort.java`, `infrastructure/adapter/out/cache/journey/RedisDetectionStampAdapter.java`
+- `JdbcReevaluationTrigger.request(map, observedAt)`, `SubwayChangeFeed.onSnapshot(trains, observedAt)`, `RealtimeSubwayCollector.collect`(receivedAt)
+- `JourneyEvaluationService.evaluate`(consume/restore)·`tierBefore`, `NotificationContext.detection`, `TransferRiskNotifier`(두 경로), `JourneyNotificationEnqueuer`(8-인자 오버로드, `FIRST_SEEN_AT` 등 상수)
+- `JourneyNotificationOutboxStateService.markSent`·`recordEndToEnd`·`recordLost`, `JourneyNotificationMetrics`(E2E·HOLD·LOST·SENT_AFTER_EXPIRY)
+### 미결
+- 접근(N2)·재탐색·보드 push 는 처음 본 시각이 없다(시간·검색이 낳는 알림) — 필요하면 출처 정의부터
+- 버스 감시자(`BusRouteWatcher`)는 1-인자 요청 → 버스 깨우기는 source=evaluation(하한)
+### 배포
+- 마이그레이션 없음. worker 교체(수집기·평가기·relay 가 worker). 켜짐 기본 — Redis 쓰기는 수집 1회당 파이프라인 1번, 평가 1회당 GETDEL 1번
+### 검증
+- `runsome.sh --tests '*JourneyNotificationSloMetricsTest' '*DetectionStampTriggerTest' '*JourneyNotificationDetectionPayloadTest' '*RedisDetectionStampAdapterIT' '*JourneyEvaluationIT' '*SubwayChangeFeedTest' '*TransferRiskNotifierTest'` → 7+2+2+6+27+12+12 통과
+- 전체 `runfull.sh`(cleanTest test --continue): BUILD SUCCESSFUL 4m34s, **3,284 시험 · 실패 0 · 건너뜀 6**

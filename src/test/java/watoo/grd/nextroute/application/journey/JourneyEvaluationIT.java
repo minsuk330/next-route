@@ -71,6 +71,7 @@ class JourneyEvaluationIT {
     @Autowired @Qualifier("journeyEvaluatorSubwayProviderLimiter") java.util.concurrent.Semaphore subwayProviderLimiter;
     @Autowired watoo.grd.nextroute.application.journey.service.JourneyEvaluationContextLoader contextLoader;
     @Autowired watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository legRepository;
+    @Autowired watoo.grd.nextroute.application.journey.port.out.DetectionStampPort detectionStamps;
     @MockBean RouteSearchSnapshotPort snapshotPort;
     @MockBean PredictTransferUseCase predictTransferUseCase;
 
@@ -442,6 +443,67 @@ class JourneyEvaluationIT {
                             baseCommandVersion++, 1, from, from + 1, Instant.now()));
             assertThat(outcome.result().name()).isEqualTo("APPLIED");
         }
+    }
+
+    // ── 처음 본 시각(#446 처음부터 끝까지 지표) ─────────────────────────────────
+
+    @Test
+    @DisplayName("변화 피드가 남긴 처음 본 시각을 평가가 꺼내 위험 알림 payload 에 싣는다 — 등급은 그때 등급")
+    void riskPayloadCarriesFeedObservation() {
+        Instant observed = Instant.now().minusSeconds(7).truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        detectionStamps.stamp(java.util.Map.of(
+                watoo.grd.nextroute.application.journey.reeval.ReevaluationTier.CAUTION,
+                java.util.Set.of(journeyId)), observed);
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(60));
+
+        assertThat(evaluate()).isEqualTo(Result.EVALUATED);
+
+        assertThat(riskPayload("firstSeenAt")).isEqualTo(observed.toString());
+        assertThat(riskPayload("seenTier")).isEqualTo("CAUTION");
+        assertThat(riskPayload("seenSource")).isEqualTo("feed");
+        assertThat(detectionStamps.consume(journeyId)).as("평가가 꺼내 지웠다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("표시가 없으면 평가 시작 시각(하한)과 source=evaluation 을 싣는다")
+    void riskPayloadFallsBackToEvaluationStart() {
+        detectionStamps.consume(journeyId);
+        Instant before = Instant.now();
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(60));
+
+        evaluate();
+
+        assertThat(riskPayload("seenSource")).isEqualTo("evaluation");
+        assertThat(Instant.parse(riskPayload("firstSeenAt"))).isBetween(before, Instant.now());
+        assertThat(riskPayload("seenTier")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("공급자 슬롯을 못 잡아 평가를 못 하면 처음 본 시각을 돌려 둔다")
+    void slotMissRestoresObservation() {
+        Instant observed = Instant.now().minusSeconds(3).truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        detectionStamps.stamp(java.util.Map.of(
+                watoo.grd.nextroute.application.journey.reeval.ReevaluationTier.URGENT,
+                java.util.Set.of(journeyId)), observed);
+        givenRealtimeArrival(600);
+        JourneyDueClaim claim = claim();
+        int permits = providerLimiter.drainPermits();
+        try {
+            assertThat(evaluationService.evaluate(claim).result()).isEqualTo(Result.SKIPPED);
+        } finally {
+            providerLimiter.release(permits);
+        }
+
+        assertThat(detectionStamps.consume(journeyId)).get()
+                .extracting(watoo.grd.nextroute.application.journey.dto.DetectionStamp::firstSeenAt)
+                .isEqualTo(observed);
+    }
+
+    private String riskPayload(String field) {
+        return jdbcTemplate.queryForObject(
+                "select payload->>'" + field + "' from journey_notification where journey_id = ?"
+                        + " and checkpoint like 'TRANSFER_RISK_%' order by id limit 1",
+                String.class, journeyId);
     }
 
     private List<String> enqueuedCheckpoints() {

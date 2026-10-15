@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties;
+import watoo.grd.nextroute.application.journey.dto.DetectionStamp;
 import watoo.grd.nextroute.application.journey.dto.JourneyDueClaim;
 import watoo.grd.nextroute.application.journey.dto.JourneyEvaluationOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
@@ -16,6 +17,7 @@ import watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMe
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.journey.reeval.ReevaluationProperties;
 import watoo.grd.nextroute.application.journey.reeval.ReevaluationTier;
+import watoo.grd.nextroute.application.journey.port.out.DetectionStampPort;
 import watoo.grd.nextroute.application.journey.port.out.NotificationChannelResolver;
 import watoo.grd.nextroute.application.journey.service.JourneyEvaluationContextLoader.JourneyEvaluationContext;
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
@@ -69,6 +71,8 @@ public class JourneyEvaluationService {
     /** 재탐색 방아쇠(Phase 6 ①). 지금은 세기만 한다 — 제안을 만들지 않는다. */
     private final RerouteTriggerEvaluator triggerEvaluator;
     private final Clock clock;
+    /** 처음 본 시각 칸(#446 처음부터 끝까지 지표). 측정 전용 — 실패해도 평가는 그대로다. */
+    private final DetectionStampPort detectionStamps;
 
     /** 평가기 몫의 provider 동시 호출 수 — 버스 단계가 있는 여정. 워커 스레드 수와 분리하는 장치다. */
     @Qualifier("journeyEvaluatorProviderLimiter")
@@ -101,11 +105,16 @@ public class JourneyEvaluationService {
         }
 
         Instant now = Instant.now(clock);
+        // 이 평가를 부른 변화를 처음 본 시각(#446). 계산 <b>전에</b> 꺼낸다 — 계산하는 동안 들어온 관측은 이 평가가 못 본
+        // 것일 수 있으니 다음 평가 몫으로 남긴다.
+        DetectionStamp detection = detectionStamps.consume(claim.journeyId()).orElse(null);
         TransferAssessmentBatch computed = computeWithProviderSlot(context);
         if (computed == null) {
             // 평가기 몫의 provider 슬롯을 못 잡았다. 선점을 풀어 곧 다시 잡히게 한다 — 그대로 두면 lease(60초)가
             // 만료될 때까지 아무도 평가하지 않는다. 워커(16)가 버스 슬롯(4)보다 많아 버스 여정이 몰리면 생긴다.
             releaseForRetry(claim);
+            // 평가를 못 했으니 처음 본 시각도 다음 평가에 돌려준다.
+            detectionStamps.restore(claim.journeyId(), detection);
             return Report.skipped();
         }
 
@@ -120,7 +129,7 @@ public class JourneyEvaluationService {
                 context.journeyId(), context.routeRevision(), toStore, changed);
 
         Schedule next = nextEvaluation(context, batch, now, changed);
-        NotificationContext notification = notificationContext(context, batch, now);
+        NotificationContext notification = notificationContext(context, batch, now, detection);
         // 마친 시각은 저장 직전에 다시 잰다. 계산 전 시각을 쓰면 외부 호출이 최소 간격보다 오래 걸린
         // 평가에서 "직전 평가 + 최소 간격"이 이미 지난 시각이 돼, 느린 여정일수록 간격 하한이 사라진다.
         boolean stored = scheduleWriter.finish(claim, outcome, next.at(), next.urgent(),
@@ -172,7 +181,8 @@ public class JourneyEvaluationService {
      * @return 알릴 것이 없으면 null
      */
     private NotificationContext notificationContext(JourneyEvaluationContext context,
-                                                    TransferAssessmentBatch batch, Instant now) {
+                                                    TransferAssessmentBatch batch, Instant now,
+                                                    DetectionStamp detection) {
         boolean anyRisk = batch.assessments().stream()
                 .anyMatch(a -> (a.status() == TransferStatus.AT_RISK
                         || a.status() == TransferStatus.MISSED)
@@ -183,7 +193,18 @@ public class JourneyEvaluationService {
             return null;
         }
         return new NotificationContext(context.userId(), context.currentLegIndex(),
-                channelResolver.resolve(context.userId()));
+                channelResolver.resolve(context.userId()),
+                detection != null ? detection : DetectionStamp.evaluation(now, tierBefore(context, now)));
+    }
+
+    /**
+     * 표시가 없을 때(간격 폴링이 먼저 잡음·Redis 빔) 처음 본 시각은 이 평가의 시작 시각(하한)이고, 등급은 <b>평가 직전</b>
+     * 판정으로 색인과 같은 규칙(평가 간격 정책의 등급)을 다시 매긴다 — 방금 나온 위험으로 매기면 위험 알림은 늘 긴급이
+     * 돼 등급별 지표가 뜻을 잃는다.
+     */
+    private ReevaluationTier tierBefore(JourneyEvaluationContext context, Instant now) {
+        return intervalPolicy.tierOf(List.copyOf(context.previousAssessments().values()),
+                context.currentLegIndex(), now, false);
     }
 
     /**

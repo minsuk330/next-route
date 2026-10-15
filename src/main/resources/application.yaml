@@ -692,6 +692,11 @@ journey:
       hold-margin-seconds: 2
       # 보류 상한 = 다음 차 도착 − 지금 − 이 값(빠듯만). 0 이하면 즉시 보낸다.
       hold-action-margin-seconds: 30
+    # 처음부터 끝까지 지표(#446): 변화 피드가 처음 본 시각(Redis journey:seen:{id}) → 위험 알림 payload → FCM 접수 때
+    # journey.notification.e2e 로 잰다. 측정 전용 — 끄면 처음 본 시각이 평가 시작(하한)으로만 남는다.
+    e2e:
+      enabled: ${JOURNEY_NOTIFICATION_E2E_ENABLED:true}
+      stamp-ttl-seconds: 600
     relay:
       # 기본 꺼짐. 발송 구현은 붙었지만 ⑤(발송 직전 재검증)와 ⑥(payload 계약·문구)이 들어오기
       # 전에는 켜지 않는다 — 낡은 알림이 나가고 임시 문구가 운영에 굳는다. worker 프로필 전용.

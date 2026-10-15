@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.reeval;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 
@@ -18,4 +19,14 @@ public interface ReevaluationTrigger {
      *         여정의 이벤트를 다음에 다시 보내야 한다(감지 기준선을 갱신하지 말 것)
      */
     TriggerResult request(Map<ReevaluationTier, Set<Long>> journeysByTier);
+
+    /**
+     * 처음 본 시각을 함께 넘기는 요청(#446). 구현은 깨우려는 여정 모두(미뤄지는 여정 포함)에 이 시각을 남겨, 그 여정의
+     * 다음 평가가 만든 알림이 "처음 본 → FCM 접수" 를 잴 수 있게 한다. 기본 구현은 시각을 버린다.
+     *
+     * @param observedAt 변화를 처음 받은 시각(수집기가 원천 응답을 받은 순간). null 이면 남기지 않는다
+     */
+    default TriggerResult request(Map<ReevaluationTier, Set<Long>> journeysByTier, Instant observedAt) {
+        return request(journeysByTier);
+    }
 }

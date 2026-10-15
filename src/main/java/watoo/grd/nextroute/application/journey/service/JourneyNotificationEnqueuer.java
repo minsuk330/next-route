@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties;
+import watoo.grd.nextroute.application.journey.dto.DetectionStamp;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
 import watoo.grd.nextroute.application.journey.observability.JourneyNotificationMetrics;
 import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
@@ -33,6 +34,12 @@ import java.util.Map;
 @Component
 @RequiredArgsConstructor
 public class JourneyNotificationEnqueuer {
+
+    /** 처음부터 끝까지 지표(#446)의 payload 칸 이름. 발송 접수 쪽이 같은 이름으로 읽는다. */
+    public static final String FIRST_SEEN_AT = "firstSeenAt";
+    public static final String SEEN_TIER = "seenTier";
+    public static final String SEEN_SOURCE = "seenSource";
+    public static final String HOLD_MS = "holdMs";
 
     private final JourneyNotificationRepository notificationRepository;
     private final JourneyNotificationProperties properties;
@@ -88,6 +95,21 @@ public class JourneyNotificationEnqueuer {
                                              TransferRiskAssessment assessment,
                                              NotificationChannel channel, java.time.Duration delay,
                                              PushMessage.Delivery delivery, String routeName) {
+        return enqueueTransferRisk(journeyId, routeRevision, assessment, channel, delay, delivery, routeName, null);
+    }
+
+    /**
+     * 처음 본 시각까지 실은 환승 위험 알림(#446). payload 에 {@code firstSeenAt}·{@code seenTier}·{@code seenSource} 를
+     * 싣고, 발송 접수 때 {@code JourneyNotificationOutboxStateService#markSent} 가 그것으로 처음부터 끝까지 지연을 잰다.
+     * 이 세 칸은 서버 안에서만 쓴다 — push {@code data} 는 식별자만 나간다({@code FcmMessageFactory}).
+     *
+     * @param detection null 이면 싣지 않는다(지표가 그 알림을 못 잰다)
+     */
+    public EnqueueResult enqueueTransferRisk(long journeyId, int routeRevision,
+                                             TransferRiskAssessment assessment,
+                                             NotificationChannel channel, java.time.Duration delay,
+                                             PushMessage.Delivery delivery, String routeName,
+                                             DetectionStamp detection) {
         JourneyCheckpoint checkpoint = JourneyCheckpoint.ofTransferStatus(assessment.status());
         String logicalKey = JourneyNotificationKeys.logical(journeyId, routeRevision,
                 JourneyNotificationScope.TRANSFER, assessment.transferIndex(), checkpoint);
@@ -95,7 +117,7 @@ public class JourneyNotificationEnqueuer {
 
         Instant now = Instant.now(clock).plus(delay);
         Instant expiresAt = expiresAt(assessment, now);
-        String payload = writePayload(assessment, delivery, routeName);
+        String payload = writePayload(assessment, delivery, routeName, detection, delay);
 
         List<Long> created = notificationRepository.enqueue(
                 journeyId, routeRevision,
@@ -308,11 +330,11 @@ public class JourneyNotificationEnqueuer {
      * 여기서 예외를 내면 평가 트랜잭션 전체가 죽는다(버스 outbox 와 같은 방식).
      */
     private String writePayload(TransferRiskAssessment assessment) {
-        return writePayload(assessment, null, null);
+        return writePayload(assessment, null, null, null, null);
     }
 
     private String writePayload(TransferRiskAssessment assessment, PushMessage.Delivery delivery,
-                                String routeName) {
+                                String routeName, DetectionStamp detection, java.time.Duration hold) {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("transferIndex", assessment.transferIndex());
@@ -329,6 +351,14 @@ public class JourneyNotificationEnqueuer {
             }
             if (delivery != null) {
                 body.put("delivery", delivery.name());
+            }
+            if (detection != null && detection.firstSeenAt() != null) {
+                body.put(FIRST_SEEN_AT, detection.firstSeenAt().toString());
+                body.put(SEEN_TIER, detection.tier() == null ? null : detection.tier().name());
+                body.put(SEEN_SOURCE, detection.source());
+                // 적재 때 정한 보류(합치기 창·보드 지연). 재시도가 scheduled_at 을 백오프 시각으로 미루므로 발송 때
+                // scheduled_at − created_at 으로는 보류를 되읽을 수 없다.
+                body.put(HOLD_MS, hold == null ? 0L : hold.toMillis());
             }
             return objectMapper.writeValueAsString(body);
         } catch (Exception e) {

@@ -68,8 +68,8 @@ class TransferRiskNotifierTest {
                 .build();
         given(transferRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByTransferIndex(
                 1L, 1)).willReturn(List.of(transfer));
-        given(enqueuer.enqueueTransferRisk(anyLong(), anyInt(), any(), any()))
-                .willReturn("delivery-key");
+        given(enqueuer.enqueueTransferRisk(anyLong(), anyInt(), any(), any(), any(), any(), any(), any()))
+                .willReturn(new JourneyNotificationEnqueuer.EnqueueResult("delivery-key", true));
     }
 
     @Test
@@ -86,7 +86,7 @@ class TransferRiskNotifierTest {
     void unknownIsNeverMarked() {
         notify(TransferStatus.UNKNOWN);
 
-        verify(enqueuer, never()).enqueueTransferRisk(anyLong(), anyInt(), any(), any());
+        verify(enqueuer, never()).enqueueTransferRisk(anyLong(), anyInt(), any(), any(), any(), any(), any(), any());
         assertThat(transfer.getLastNotifiedStatus())
                 .as("써지면 AT_RISK → UNKNOWN → AT_RISK 가 재알림이 된다")
                 .isNull();
@@ -129,7 +129,7 @@ class TransferRiskNotifierTest {
     void nullContextDoesNothing() {
         notifier.notifyWorsened(outcome(TransferStatus.AT_RISK), null);
 
-        verify(enqueuer, never()).enqueueTransferRisk(anyLong(), anyInt(), any(), any());
+        verify(enqueuer, never()).enqueueTransferRisk(anyLong(), anyInt(), any(), any(), any(), any(), any(), any());
         assertThat(transfer.getLastNotifiedStatus()).isNull();
     }
 
@@ -150,7 +150,7 @@ class TransferRiskNotifierTest {
         notifier.notifyWorsened(outcome(TransferStatus.AT_RISK),
                 new NotificationContext(7L, 5, List.of(NotificationChannel.PUSH)));
 
-        verify(enqueuer, never()).enqueueTransferRisk(anyLong(), anyInt(), any(), any());
+        verify(enqueuer, never()).enqueueTransferRisk(anyLong(), anyInt(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -185,7 +185,7 @@ class TransferRiskNotifierTest {
 
         notify(TransferStatus.AT_RISK);
 
-        verify(enqueuer, never()).enqueueTransferRisk(anyLong(), anyInt(), any(), any());
+        verify(enqueuer, never()).enqueueTransferRisk(anyLong(), anyInt(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -195,7 +195,8 @@ class TransferRiskNotifierTest {
 
         notify(TransferStatus.MISSED);
 
-        verify(enqueuer).enqueueTransferRisk(eq(1L), eq(1), any(), eq(NotificationChannel.PUSH));
+        verify(enqueuer).enqueueTransferRisk(eq(1L), eq(1), any(), eq(NotificationChannel.PUSH), any(), any(), any(),
+                any());
         assertThat(transfer.getLastNotifiedStatus()).isEqualTo("MISSED");
     }
 

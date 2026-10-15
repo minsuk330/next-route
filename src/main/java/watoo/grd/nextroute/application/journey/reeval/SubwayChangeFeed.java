@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
 import watoo.grd.nextroute.application.subway.port.out.SubwayStationArrivalCachePort;
 import watoo.grd.nextroute.common.lock.LeaderLease;
 
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -69,7 +70,15 @@ public class SubwayChangeFeed {
     }
 
     /** 수집기가 스냅숏을 저장한 직후 부른다. 실패는 삼켜 수집 성공에 영향을 주지 않는다. */
-    public synchronized void onSnapshot(List<SubwayRealtimeTrain> trains) {
+    public void onSnapshot(List<SubwayRealtimeTrain> trains) {
+        onSnapshot(trains, Instant.now());
+    }
+
+    /**
+     * @param observedAt 수집기가 원천 응답을 받은 시각 = 이 스냅숏의 변화를 서버가 처음 본 시각(#446 처음부터 끝까지
+     *                   지표의 시작점). 깨우는 여정에 남긴다
+     */
+    public synchronized void onSnapshot(List<SubwayRealtimeTrain> trains, Instant observedAt) {
         if (!properties.isEnabled() || !properties.isSubwayTrigger() || trains == null) {
             return;
         }
@@ -97,12 +106,12 @@ public class SubwayChangeFeed {
             return;
         }
 
-        Set<InterestKey.Subway> keep = deliver(watched);
+        Set<InterestKey.Subway> keep = deliver(watched, observedAt);
         detector.accept(observed, keep);
     }
 
     /** @return 반영하지 못해 기준선을 남길 키 */
-    private Set<InterestKey.Subway> deliver(Set<InterestKey.Subway> watched) {
+    private Set<InterestKey.Subway> deliver(Set<InterestKey.Subway> watched, Instant observedAt) {
         Map<InterestKey.Subway, Set<Long>> journeysByKey = new LinkedHashMap<>();
         Map<ReevaluationTier, Set<Long>> byTier = new HashMap<>();
         for (InterestKey.Subway key : watched) {
@@ -135,7 +144,7 @@ public class SubwayChangeFeed {
 
         TriggerResult result;
         try {
-            result = trigger.request(byTier);
+            result = trigger.request(byTier, observedAt);
         } catch (RuntimeException e) {
             log.warn("[SubwayChangeFeed] 트리거 실패 — 다음 스냅숏에 다시 보낸다: {}", e.getMessage());
             return watched;
