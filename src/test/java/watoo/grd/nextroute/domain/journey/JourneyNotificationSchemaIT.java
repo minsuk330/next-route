@@ -339,7 +339,8 @@ class JourneyNotificationSchemaIT extends AbstractJourneyOutboxPostgresIT {
         Long id = enqueue(JourneyCheckpoint.TRANSFER_RISK_AT_RISK, NotificationChannel.PUSH).get(0);
 
         List<Long> claimed = tx().execute(s -> notificationRepository
-                .claimBatchForProcessing(Instant.now(), 10, LocalDateTime.now()));
+                .claimBatchForProcessing(Instant.now(), 10, LocalDateTime.now())
+                .stream().map(row -> row.getId()).toList());
 
         assertThat(claimed).containsExactly(id);
         JourneyNotification loaded = notificationRepository.findById(id).orElseThrow();
@@ -356,7 +357,8 @@ class JourneyNotificationSchemaIT extends AbstractJourneyOutboxPostgresIT {
                 0, now.plusSeconds(60), now.plusSeconds(600));
 
         List<Long> claimed = tx().execute(s -> notificationRepository
-                .claimBatchForProcessing(now, 10, LocalDateTime.now()));
+                .claimBatchForProcessing(now, 10, LocalDateTime.now())
+                .stream().map(row -> row.getId()).toList());
 
         assertThat(claimed).isEmpty();
     }
@@ -369,13 +371,20 @@ class JourneyNotificationSchemaIT extends AbstractJourneyOutboxPostgresIT {
                 0, claimedAt, claimedAt.plusSeconds(1800)).get(0);
         tx().execute(s -> notificationRepository
                 .claimBatchForProcessing(claimedAt, 10, LocalDateTime.now()));
+        // 회수 기준은 DB now() 다(#451). claim 이 now() 로 찍었으므로 그 칸을 10분 전으로 돌려 고착을 만든다.
+        jdbcTemplate.update("update journey_notification set processing_started_at = now() - interval '600 seconds'"
+                + " where id = ?", id);
 
         Instant now = Instant.now();
         int reclaimed = tx().execute(s -> notificationRepository
-                .reclaimStale(now.minusSeconds(180), now));
+                .reclaimStale(180, now, LocalDateTime.now()));
 
         assertThat(reclaimed).isEqualTo(1);
         assertThat(status(id)).isEqualTo("PENDING");
+        assertThat(jdbcTemplate.queryForObject(
+                "select requeue_count from journey_notification where id = ?", Integer.class, id))
+                .as("회수는 실제 발송 시도가 아니다 — 시도 상한은 attempt_count − requeue_count 로 센다")
+                .isEqualTo(1);
     }
 
     // ── supersede / cancel ───────────────────────────────────────────────────

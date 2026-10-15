@@ -8,6 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties;
+import watoo.grd.nextroute.application.journey.dto.ClaimedNotification;
 import watoo.grd.nextroute.application.journey.observability.JourneyNotificationMetrics;
 import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotification;
@@ -25,8 +26,14 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 /**
  * 알림 SLO 지표(#446)의 계약. 발송 접수 때 "처음 본 → 접수"·보류·만료 뒤 발송을 재고, 보냈어야 했는데 끝난 행
@@ -49,6 +56,19 @@ class JourneyNotificationSloMetricsTest {
         service = new JourneyNotificationOutboxStateService(notifications, sessions,
                 mock(TransferConnectionRepository.class), properties, new JourneyNotificationMetrics(registry),
                 Clock.fixed(NOW, ZoneId.of("Asia/Seoul")));
+        // 증서 조건부 UPDATE(#451)는 늘 1행 성공으로 둔다 — 이 시험은 지표를 본다.
+        given(notifications.markSentIfClaimed(anyLong(), anyInt(), any(), any())).willReturn(1);
+        given(notifications.finishIfClaimed(anyLong(), anyInt(), anyString(), any(), any())).willReturn(1);
+        given(notifications.releaseToPendingIfClaimed(anyLong(), anyInt(), any(), any(), any())).willReturn(1);
+    }
+
+    /** 행의 attempt_count 기본값(0)이 증서다. */
+    private static ClaimedNotification claim(long id) {
+        return claim(id, 0);
+    }
+
+    private static ClaimedNotification claim(long id, int token) {
+        return new ClaimedNotification(id, token);
     }
 
     @Test
@@ -62,7 +82,7 @@ class JourneyNotificationSloMetricsTest {
         given(notifications.findById(1L)).willReturn(Optional.of(row(1L, JourneyCheckpoint.TRANSFER_RISK_AT_RISK,
                 payload, NOW.plusSeconds(180), JourneyNotificationStatus.PROCESSING)));
 
-        service.markSent(1L);
+        service.markSent(claim(1L));
 
         var e2e = registry.find(JourneyNotificationMetrics.E2E).tag("tier", "CAUTION")
                 .tag("checkpoint", "TRANSFER_RISK_AT_RISK").tag("delivery", "ALERTING").tag("source", "feed").timer();
@@ -80,7 +100,7 @@ class JourneyNotificationSloMetricsTest {
         given(notifications.findById(2L)).willReturn(Optional.of(row(2L, JourneyCheckpoint.REROUTE_SUGGESTED,
                 payload("ALERTING"), NOW.plusSeconds(60), JourneyNotificationStatus.PROCESSING)));
 
-        service.markSent(2L);
+        service.markSent(claim(2L));
 
         assertThat(registry.find(JourneyNotificationMetrics.E2E).timer()).isNull();
         assertThat(registry.find(JourneyNotificationMetrics.E2E_UNMEASURED)
@@ -93,7 +113,7 @@ class JourneyNotificationSloMetricsTest {
         given(notifications.findById(3L)).willReturn(Optional.of(row(3L, JourneyCheckpoint.TRANSFER_RISK_MISSED,
                 payload("ALERTING"), NOW.minusMillis(1), JourneyNotificationStatus.PROCESSING)));
 
-        service.markSent(3L);
+        service.markSent(claim(3L));
 
         assertThat(registry.find(JourneyNotificationMetrics.SENT_AFTER_EXPIRY)
                 .tag("checkpoint", "TRANSFER_RISK_MISSED").counter().count()).isEqualTo(1.0);
@@ -105,7 +125,7 @@ class JourneyNotificationSloMetricsTest {
         given(notifications.findById(4L)).willReturn(Optional.of(row(4L, JourneyCheckpoint.TRANSFER_RISK_AT_RISK,
                 payload("ALERTING"), NOW, JourneyNotificationStatus.PROCESSING)));
 
-        assertThat(service.loadTask(4L)).isEmpty();
+        assertThat(service.loadTask(claim(4L))).isEmpty();
 
         assertThat(lost("TRANSFER_RISK_AT_RISK", "ALERTING", "expired")).isEqualTo(1.0);
     }
@@ -117,7 +137,7 @@ class JourneyNotificationSloMetricsTest {
                 payload("ALERTING"), NOW.plusSeconds(180), JourneyNotificationStatus.PROCESSING)));
         given(sessions.findById(10L)).willReturn(Optional.empty());
 
-        assertThat(service.loadTask(5L)).isEmpty();
+        assertThat(service.loadTask(claim(5L))).isEmpty();
 
         assertThat(registry.find(JourneyNotificationMetrics.LOST).counter()).isNull();
     }
@@ -138,14 +158,16 @@ class JourneyNotificationSloMetricsTest {
         given(notifications.findById(7L)).willReturn(Optional.of(late));
         given(notifications.findById(8L)).willReturn(Optional.of(retry));
 
-        service.markTransientFailure(6L, "fcm: UNAVAILABLE");
-        service.markTransientFailure(7L, "fcm: UNAVAILABLE");
-        service.markTransientFailure(8L, "fcm: UNAVAILABLE");
+        service.markTransientFailure(claim(6L, properties.getMaxAttempts()), "fcm: UNAVAILABLE");
+        service.markTransientFailure(claim(7L, 1), "fcm: UNAVAILABLE");
+        service.markTransientFailure(claim(8L, 1), "fcm: UNAVAILABLE");
 
         assertThat(lost("TRANSFER_RISK_AT_RISK", "ALERTING", "dead")).isEqualTo(1.0);
         // payload 에 울림 종류가 없으면(피로 정책 꺼짐) none — 발송기는 울림으로 보낸다
         assertThat(lost("TRANSFER_RISK_MISSED", "none", "expired-before-retry")).isEqualTo(1.0);
-        assertThat(retry.getStatus()).isEqualTo(JourneyNotificationStatus.PENDING);
+        // 상태 변경은 증서 조건부 네이티브 UPDATE 다(#451) — 엔티티는 그대로이고 저장소 호출로 본다.
+        verify(notifications).releaseToPendingIfClaimed(eq(8L), eq(1), eq("fcm: UNAVAILABLE"),
+                eq(NOW.plus(properties.backoff())), any());
         assertThat(registry.find(JourneyNotificationMetrics.LOST).counters()).hasSize(2);
     }
 
@@ -155,7 +177,7 @@ class JourneyNotificationSloMetricsTest {
         given(notifications.findById(9L)).willReturn(Optional.of(row(9L, JourneyCheckpoint.TRANSFER_RISK_AT_RISK,
                 payload("QUIET"), NOW.plusSeconds(180), JourneyNotificationStatus.PROCESSING)));
 
-        service.markPermanentFailure(9L, "fcm: UNREGISTERED");
+        service.markPermanentFailure(claim(9L), "fcm: UNREGISTERED");
 
         assertThat(lost("TRANSFER_RISK_AT_RISK", "QUIET", "failed:UNREGISTERED")).isEqualTo(1.0);
     }

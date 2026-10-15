@@ -127,4 +127,92 @@ class JourneyNotificationPropertiesTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("ttl-max-seconds");
     }
+
+    // ── #451 relay 내구성 ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("회수 기준은 초 키가 이기고, 없으면 옛 분 키를 쓴다")
+    void claimTimeoutSecondsWinsOverMinutes() {
+        JourneyNotificationProperties properties = properties();
+        org.assertj.core.api.Assertions.assertThat(properties.claimTimeout())
+                .isEqualTo(java.time.Duration.ofMinutes(3));
+        properties.setClaimTimeoutMinutes(5);
+        org.assertj.core.api.Assertions.assertThat(properties.claimTimeout())
+                .isEqualTo(java.time.Duration.ofMinutes(5));
+        properties.setClaimTimeoutSeconds(45L);
+        org.assertj.core.api.Assertions.assertThat(properties.claimTimeout())
+                .isEqualTo(java.time.Duration.ofSeconds(45));
+    }
+
+    @Test
+    @DisplayName("PULL 권장 조합(45초·heartbeat 10초)은 통과한다")
+    void pullRecommendedIsValid() {
+        JourneyNotificationProperties properties = properties();
+        properties.getRelay().setMode(JourneyNotificationProperties.RelayMode.PULL);
+        properties.setClaimTimeoutSeconds(45L);
+
+        assertThatCode(() -> validate(properties)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("heartbeat 주기 × 4 가 회수 기준을 넘으면 막는다")
+    void heartbeatMustFitInsideClaimTimeout() {
+        JourneyNotificationProperties properties = properties();
+        properties.setClaimTimeoutSeconds(45L);
+        properties.getRelay().setHeartbeatIntervalMs(15_000);
+
+        assertThatThrownBy(() -> validate(properties))
+                .as("× 3 정확히면 회수 문(직전 heartbeat 가 기준/3 안)이 스케줄 지연에 영영 닫힌다")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("heartbeat");
+    }
+
+    @Test
+    @DisplayName("PULL 에서 회수 기준 + 백오프가 유효시간 바닥 이상이면 막는다(BATCH 기본값은 그대로 통과)")
+    void pullClaimTimeoutPlusBackoffMustFitInsideMinTtl() {
+        JourneyNotificationProperties properties = properties();
+        properties.getRelay().setMode(JourneyNotificationProperties.RelayMode.PULL);
+
+        assertThatThrownBy(() -> validate(properties))
+                .as("기본 180초 + 60초 > 180초 — 워커가 죽은 행이 회수 전에 만료된다")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("PULL");
+    }
+
+    @Test
+    @DisplayName("FCM HTTP 최대 수명 × 2 가 회수 기준 이상이면 막는다")
+    void httpLifetimeMustFitInsideClaimTimeout() {
+        JourneyNotificationProperties properties = properties();
+        properties.setClaimTimeoutSeconds(45L);
+        // 2 + 5 × 5 = 27초, × 2 = 54초 ≥ 45초
+        properties.getFcm().setReadTimeoutMs(5_000);
+
+        assertThatThrownBy(() -> validate(properties))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HTTP 최대 수명");
+    }
+
+    @Test
+    @DisplayName("FCM HTTP 최대 수명이 백오프 이상이면 막는다")
+    void httpLifetimeMustBeShorterThanBackoff() {
+        JourneyNotificationProperties properties = properties();
+        // 2 + 12 × 5 = 62초 ≥ 백오프 60초(× 2 = 124 < 180 은 통과)
+        properties.getFcm().setReadTimeoutMs(12_000);
+
+        assertThatThrownBy(() -> validate(properties))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("백오프");
+    }
+
+    @Test
+    @DisplayName("FCM 시한 0(무한)·PULL 워커 0 은 막는다")
+    void zeroTimeoutsAndWorkersAreRejected() {
+        JourneyNotificationProperties zeroRead = properties();
+        zeroRead.getFcm().setReadTimeoutMs(0);
+        assertThatThrownBy(() -> validate(zeroRead)).isInstanceOf(IllegalStateException.class);
+
+        JourneyNotificationProperties zeroWorkers = properties();
+        zeroWorkers.getRelay().setPullWorkers(0);
+        assertThatThrownBy(() -> validate(zeroWorkers)).isInstanceOf(IllegalStateException.class);
+    }
 }

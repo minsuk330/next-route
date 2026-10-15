@@ -86,8 +86,16 @@ public class JourneyNotificationProperties {
     /** 일시 실패 뒤 다시 시도하기까지의 간격(고정). */
     private long backoffSeconds = 60;
 
-    /** 이 시간을 넘겨 PROCESSING 인 행은 워커가 죽은 것으로 보고 회수한다. */
+    /**
+     * 옛 회수 기준(분). {@link #claimTimeoutSeconds} 가 비었을 때만 쓴다 — 키 호환용이다(#451).
+     */
     private long claimTimeoutMinutes = 3;
+
+    /**
+     * 이 시간 동안 heartbeat 가 없는 PROCESSING 행은 워커가 죽은 것으로 보고 회수한다(#451). 값이 있으면
+     * {@link #claimTimeoutMinutes} 보다 이긴다. 비면 분 키(기본 3분 = 180초)를 쓴다.
+     */
+    private Long claimTimeoutSeconds;
 
     private final Relay relay = new Relay();
 
@@ -172,9 +180,33 @@ public class JourneyNotificationProperties {
         }
     }
 
+    /**
+     * relay 가 행을 집는 방식(#451).
+     * <ul>
+     *   <li>{@code BATCH} — 기존. 배치 하나를 잡아 고정 풀로 보내고 전부 끝날 때까지 기다린다</li>
+     *   <li>{@code PULL} — 워커 N개가 각자 k건씩 당겨 간다. 한 워커가 막혀도 나머지가 계속 집는다</li>
+     * </ul>
+     */
+    public enum RelayMode { BATCH, PULL }
+
     @Getter
     @Setter
     public static class Relay {
+
+        /** 기본 BATCH(기존 동작). env {@code JOURNEY_NOTIFICATION_RELAY_MODE}. */
+        private RelayMode mode = RelayMode.BATCH;
+
+        /** PULL 워커 수. 각 워커가 발송 한 건 동안 커넥션 없이 기다리고, claim·기록 때만 커넥션을 쓴다. */
+        private int pullWorkers = 32;
+
+        /** PULL 워커가 한 번에 집는 건수. 작을수록 느린 발송 하나가 붙잡는 행이 적다. */
+        private int pullClaimSize = 2;
+
+        /**
+         * 진행 중 행의 {@code processing_started_at} 을 DB {@code now()} 로 갱신하는 주기. 회수는 같은 스레드가
+         * heartbeat 바로 뒤에 한다. BATCH·PULL 공통.
+         */
+        private long heartbeatIntervalMs = 10_000;
 
         /**
          * 기본 켜짐. ⑤(발송 직전 재검증)·⑥(payload 계약)이 들어와 발송이 라이브라 프로덕션 의도는
@@ -228,12 +260,34 @@ public class JourneyNotificationProperties {
         public Duration ttlMax() {
             return Duration.ofSeconds(ttlMaxSeconds);
         }
+
+        /** SDK HTTP 연결 시한({@code FirebaseOptions.setConnectTimeout}). 0 이면 무한이라 막는다. */
+        private int connectTimeoutMs = 2_000;
+
+        /** SDK HTTP 읽기 시한({@code FirebaseOptions.setReadTimeout}). 0 이면 무한이라 막는다. */
+        private int readTimeoutMs = 4_000;
+
+        /**
+         * firebase-admin 9.10.0 의 메시징 재시도 횟수. {@code ApiClientUtils.DEFAULT_RETRY_CONFIG}
+         * (maxRetries=4, 503 만, IOException 재시도 없음)이고 공개 API 로 바꿀 수 없다 — 그래서 상수로 두고 수명 계산에 넣는다.
+         */
+        public static final int SDK_MAX_RETRIES = 4;
+
+        /**
+         * HTTP 요청 하나가 SDK 안에서 살 수 있는 최대 시간 = 연결 + 읽기 × (1 + SDK 재시도). 재시도 사이 대기는 빼고 센다 —
+         * 시한 초과 때 future 를 {@code cancel(true)} 하면 그 대기가 끊겨 재시도가 멈춘다({@code RetryUnsuccessfulResponseHandler}
+         * 가 InterruptedException 에서 false). 계산은 그 취소가 없을 때도 버티게 보수적으로 둔다.
+         */
+        public Duration httpMaxLifetime() {
+            return Duration.ofMillis((long) connectTimeoutMs + (long) readTimeoutMs * (1 + SDK_MAX_RETRIES));
+        }
     }
 
     @PostConstruct
     void validate() {
         if (minTtlSeconds <= 0 || defaultTtlSeconds <= 0 || maxTtlSeconds <= 0
-                || maxAttempts <= 0 || backoffSeconds <= 0 || claimTimeoutMinutes <= 0) {
+                || maxAttempts <= 0 || backoffSeconds <= 0 || claimTimeoutMinutes <= 0
+                || (claimTimeoutSeconds != null && claimTimeoutSeconds <= 0)) {
             throw new IllegalStateException("journey.notification 설정은 모두 0 보다 커야 한다");
         }
         if (minTtlSeconds > defaultTtlSeconds || defaultTtlSeconds > maxTtlSeconds) {
@@ -257,10 +311,39 @@ public class JourneyNotificationProperties {
         // (발송 자격이 없어 sender=noop)까지 막지 않도록, 그 검증은 루프와 같은 조건의
         // JourneyRelaySenderGuard(@Profile("worker") + relay.enabled=true)로 옮겼다.
         validateApproach();
+        validateRelay();
         validateFcm();
         validateFatigue();
         if (e2e.getStampTtlSeconds() <= 0) {
             throw new IllegalStateException("journey.notification.e2e.stamp-ttl-seconds 는 0 보다 커야 한다");
+        }
+    }
+
+    /**
+     * heartbeat·회수·PULL 설정(#451).
+     *
+     * <p>heartbeat 주기 × 4 ≤ 회수 기준이다(플랜은 × 3). 회수는 "이 인스턴스의 직전 heartbeat 성공이 회수 기준/3 안"일 때만
+     * 열리는데, 주기가 정확히 그 값이면 스케줄 지연 몇 ms 로 문이 영영 닫혀 고착 행이 회수되지 않는다. 그래서 한 칸 여유를 둔다.
+     */
+    private void validateRelay() {
+        if (relay.getHeartbeatIntervalMs() <= 0 || relay.getPullWorkers() <= 0 || relay.getPullClaimSize() <= 0) {
+            throw new IllegalStateException(
+                    "journey.notification.relay heartbeat-interval-ms·pull-workers·pull-claim-size 는 0 보다 커야 한다");
+        }
+        if (relay.getMode() == null) {
+            throw new IllegalStateException("journey.notification.relay.mode 는 BATCH 또는 PULL 이어야 한다");
+        }
+        if (Duration.ofMillis(relay.getHeartbeatIntervalMs()).multipliedBy(4).compareTo(claimTimeout()) > 0) {
+            throw new IllegalStateException(
+                    "heartbeat 주기 × 4 는 회수 기준 이하여야 한다. 길면 살아 있는 워커의 행을 회수하거나 "
+                            + "회수 문(직전 heartbeat 가 회수 기준/3 안)이 열리지 않는다");
+        }
+        // 회수 기준 + 첫 백오프 < 유효시간 바닥: 회수된 행이 재시도까지 마칠 시간이 남아야 한다. 기존 BATCH 기본값
+        // (180초 + 60초 > 180초)은 이것을 못 지키므로 PULL 에서만 막는다 — 기본값을 그대로 둔 채 부팅이 죽으면 안 된다.
+        if (relay.getMode() == RelayMode.PULL && claimTimeout().plus(backoff()).compareTo(minTtl()) >= 0) {
+            throw new IllegalStateException(
+                    "PULL 모드에서는 회수 기준 + 백오프가 유효시간 바닥보다 짧아야 한다(권장 claim-timeout-seconds=45). "
+                            + "길면 워커가 죽은 행이 회수되기 전에 만료된다");
         }
     }
 
@@ -294,6 +377,19 @@ public class JourneyNotificationProperties {
                     "발송 타임아웃 × 2 는 회수 주기보다 짧아야 한다. 길면 아직 발송 중인 행을 "
                             + "회수 루프가 다시 집어 가 같은 알림이 두 번 나간다");
         }
+        if (fcm.getConnectTimeoutMs() <= 0 || fcm.getReadTimeoutMs() <= 0) {
+            throw new IllegalStateException(
+                    "journey.notification.fcm connect·read-timeout-ms 는 0 보다 커야 한다. 0 은 SDK 에서 무한이다");
+        }
+        if (fcm.httpMaxLifetime().multipliedBy(2).compareTo(claimTimeout()) >= 0) {
+            throw new IllegalStateException(
+                    "FCM HTTP 최대 수명(연결 + 읽기 × (1 + SDK 재시도 " + Fcm.SDK_MAX_RETRIES + ")) × 2 는 회수 기준보다 "
+                            + "짧아야 한다. 길면 아직 공급자와 통화 중인 행을 회수해 같은 알림이 두 번 나간다");
+        }
+        if (fcm.httpMaxLifetime().compareTo(backoff()) >= 0) {
+            throw new IllegalStateException(
+                    "FCM HTTP 최대 수명은 백오프보다 짧아야 한다. 길면 앞 시도가 아직 살아 있는데 재시도가 나간다");
+        }
         if (fcm.getTtlMaxSeconds() > maxTtlSeconds) {
             throw new IllegalStateException(
                     "fcm.ttl-max-seconds 는 max-ttl-seconds 이하여야 한다. provider 가 outbox 보다 "
@@ -323,7 +419,14 @@ public class JourneyNotificationProperties {
         return Duration.ofSeconds(backoffSeconds);
     }
 
+    /** 회수 기준. 초 키가 있으면 그것, 없으면 옛 분 키(#451 호환). */
     public Duration claimTimeout() {
-        return Duration.ofMinutes(claimTimeoutMinutes);
+        return claimTimeoutSeconds != null
+                ? Duration.ofSeconds(claimTimeoutSeconds)
+                : Duration.ofMinutes(claimTimeoutMinutes);
+    }
+
+    public Duration heartbeatInterval() {
+        return Duration.ofMillis(relay.getHeartbeatIntervalMs());
     }
 }

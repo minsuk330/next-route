@@ -18,6 +18,14 @@ import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
 import watoo.grd.nextroute.application.journey.dto.TransferAssessmentBatch;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
+import watoo.grd.nextroute.application.journey.dto.ClaimedNotification;
+import watoo.grd.nextroute.application.journey.exception.StaleClaimException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import watoo.grd.nextroute.application.journey.service.JourneyNotificationOutboxStateService;
 import watoo.grd.nextroute.application.journey.service.RerouteAlertTxService;
 import watoo.grd.nextroute.application.journey.service.RerouteBoardPushPolicy;
@@ -38,6 +46,7 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
@@ -82,6 +91,7 @@ class JourneyAlertBudgetIT extends AbstractJourneyNotificationIT {
     @Autowired RerouteAlertTxService rerouteAlertTxService;
     @Autowired JourneyNotificationOutboxStateService stateService;
     @Autowired JourneyRerouteProperties rerouteProperties;
+    @Autowired PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void enableFatigue() {
@@ -247,9 +257,10 @@ class JourneyAlertBudgetIT extends AbstractJourneyNotificationIT {
     void failedAlertingReleasesClaim() {
         evaluate(TransferStatus.AT_RISK, NotificationChannel.PUSH);
         long id = singleId();
-        assertThat(stateService.claimBatch(T0.plusSeconds(60), 10)).containsExactly(id);
+        List<ClaimedNotification> claimed = stateService.claimBatch(T0.plusSeconds(60), 10);
+        assertThat(claimed).extracting(ClaimedNotification::id).containsExactly(id);
 
-        stateService.markPermanentFailure(id, "invalid-token");
+        stateService.markPermanentFailure(claimed.get(0), "invalid-token");
 
         assertThat(claimKey()).isNull();
         evaluate(TransferStatus.MISSED, NotificationChannel.PUSH);
@@ -261,13 +272,92 @@ class JourneyAlertBudgetIT extends AbstractJourneyNotificationIT {
     void expiredAlertingReleasesClaim() {
         evaluate(TransferStatus.AT_RISK, NotificationChannel.PUSH);
         long id = singleId();
-        stateService.claimBatch(T0.plusSeconds(60), 10);
+        ClaimedNotification claim = stateService.claimBatch(T0.plusSeconds(60), 10).get(0);
         jdbcTemplate.update("update journey_notification set expires_at = ? where id = ?",
                 Timestamp.from(T0.minusSeconds(1)), id);
 
-        assertThat(stateService.loadTask(id)).isEmpty();
+        assertThat(stateService.loadTask(claim)).isEmpty();
 
         assertThat(claimKey()).isNull();
+    }
+
+    @Test
+    @DisplayName("늦은 기록(회수 뒤 재claim)은 울릴 권리를 건드리지 않는다(#451)")
+    void staleWriteKeepsAlertClaim() {
+        evaluate(TransferStatus.AT_RISK, NotificationChannel.PUSH);
+        long id = singleId();
+        String key = claimKey();
+        ClaimedNotification old = stateService.claimBatch(T0.plusSeconds(60), 10).get(0);
+        jdbcTemplate.update("update journey_notification set processing_started_at = now() - interval '1 hour'"
+                + " where id = ?", id);
+        stateService.reclaim(T0.plusSeconds(60));
+        ClaimedNotification fresh = stateService.claimBatch(T0.plusSeconds(60), 10).get(0);
+
+        assertThatThrownBy(() -> stateService.markPermanentFailure(old, "invalid-token"))
+                .isInstanceOf(StaleClaimException.class);
+        assertThatThrownBy(() -> stateService.markTransientFailure(old, "5xx"))
+                .isInstanceOf(StaleClaimException.class);
+
+        assertThat(claimKey()).as("반납이 롤백돼야 한다 — 비면 같은 경로 버전이 두 번 울린다").isEqualTo(key);
+        assertThat(status(id)).isEqualTo("PROCESSING");
+        stateService.markSent(fresh);
+        assertThat(status(id)).isEqualTo("SENT");
+        assertThat(claimKey()).isEqualTo(key);
+    }
+
+    @Test
+    @DisplayName("두 트랜잭션 경합: 회수·재claim 이 행을 잡은 사이 옛 워커의 실패 기록은 0행이고 권리 반납도 되돌린다(#451)")
+    void racingStaleWriteRollsBackClaimRelease() throws Exception {
+        evaluate(TransferStatus.AT_RISK, NotificationChannel.PUSH);
+        long id = singleId();
+        String key = claimKey();
+        ClaimedNotification old = stateService.claimBatch(T0.plusSeconds(60), 10).get(0);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        CountDownLatch rivalHoldsRow = new CountDownLatch(1);
+        CountDownLatch rivalMayCommit = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<Integer> rival = pool.submit(() -> tx.execute(s -> {
+                jdbcTemplate.update("update journey_notification set processing_started_at = now() - interval '1 hour'"
+                        + " where id = ?", id);
+                stateService.reclaim(T0.plusSeconds(60));
+                int token = stateService.claimBatch(T0.plusSeconds(60), 10).get(0).token();
+                rivalHoldsRow.countDown();
+                try {
+                    rivalMayCommit.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return token;
+            }));
+            assertThat(rivalHoldsRow.await(10, TimeUnit.SECONDS)).isTrue();
+            // 옛 워커: 커밋된 상태(PROCESSING, 옛 증서)를 읽고 권리를 반납한 뒤 알림 행 잠금에서 기다린다.
+            Future<?> late = pool.submit(() -> stateService.markPermanentFailure(old, "invalid-token"));
+            awaitLockWait();
+            rivalMayCommit.countDown();
+
+            assertThat(rival.get(10, TimeUnit.SECONDS)).isEqualTo(old.token() + 1);
+            assertThatThrownBy(() -> late.get(10, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(StaleClaimException.class);
+        } finally {
+            rivalMayCommit.countDown();
+            pool.shutdownNow();
+        }
+        assertThat(status(id)).isEqualTo("PROCESSING");
+        assertThat(claimKey()).isEqualTo(key);
+    }
+
+    /** 다른 세션이 행 잠금을 기다리기 시작할 때까지(최대 5초). 못 보면 그냥 진행한다 — 경합 없이도 결론은 같다. */
+    private void awaitLockWait() throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            Integer waiting = jdbcTemplate.queryForObject(
+                    "select count(*) from pg_stat_activity where wait_event_type = 'Lock'", Integer.class);
+            if (waiting != null && waiting > 0) {
+                return;
+            }
+            Thread.sleep(20);
+        }
     }
 
     @Test
@@ -279,9 +369,10 @@ class JourneyAlertBudgetIT extends AbstractJourneyNotificationIT {
                 assessment(1, TransferStatus.MISSED, 4, T0.minusSeconds(120))), Map.of(), false), 0,
                 NotificationChannel.PUSH);
         long quietId = ((Number) row("TRANSFER_RISK_AT_RISK").get("id")).longValue();
-        stateService.claimBatch(T0.plusSeconds(60), 10);
+        ClaimedNotification quiet = stateService.claimBatch(T0.plusSeconds(60), 10).stream()
+                .filter(c -> c.id() == quietId).findFirst().orElseThrow();
 
-        stateService.markPermanentFailure(quietId, "invalid-token");
+        stateService.markPermanentFailure(quiet, "invalid-token");
 
         assertThat(claimKey()).isEqualTo(riskKey(1, "TRANSFER_RISK_MISSED"));
     }
@@ -622,6 +713,10 @@ class JourneyAlertBudgetIT extends AbstractJourneyNotificationIT {
             return odt.toInstant();
         }
         throw new AssertionError("모르는 시각 타입: " + value);
+    }
+
+    private String status(long id) {
+        return jdbcTemplate.queryForObject("select status from journey_notification where id = ?", String.class, id);
     }
 
     private long singleId() {

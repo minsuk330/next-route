@@ -26,11 +26,19 @@ class CountingNotificationSender implements NotificationSender {
     private volatile Consumer<NotificationSendCommand> behavior = command -> {
     };
 
+    /** 시나리오는 잠금 밖에서 돈다 — 한 건을 막아 두는 시험(#451 PULL)이 다른 워커의 발송까지 막으면 안 된다. */
     @Override
-    public synchronized void send(NotificationSendCommand command) {
+    public void send(NotificationSendCommand command) {
         behavior.accept(command);
-        sent.add(command);
-        byChannel.merge(command.channel(), 1, Integer::sum);
+        synchronized (this) {
+            sent.add(command);
+            byChannel.merge(command.channel(), 1, Integer::sum);
+        }
+    }
+
+    /** 임의의 시나리오(예: 특정 행만 막기). */
+    void behave(Consumer<NotificationSendCommand> behavior) {
+        this.behavior = behavior;
     }
 
     synchronized List<NotificationSendCommand> sent() {

@@ -99,7 +99,8 @@ class JourneyNotificationAtomicClaimIT extends AbstractJourneyOutboxPostgresIT {
         }
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         Callable<List<Long>> claim = () -> tx.execute(status -> notificationRepository
-                .claimBatchForProcessing(Instant.now(), 10, LocalDateTime.now()));
+                .claimBatchForProcessing(Instant.now(), 10, LocalDateTime.now())
+                .stream().map(row -> row.getId()).toList());
 
         ExecutorService pool = Executors.newFixedThreadPool(WORKERS);
         List<Long> all = new ArrayList<>();

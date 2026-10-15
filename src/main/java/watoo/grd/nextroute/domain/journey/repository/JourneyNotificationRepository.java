@@ -143,11 +143,22 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
                                    @Param("scopeId") int scopeId,
                                    @Param("checkpoints") Collection<JourneyCheckpoint> checkpoints);
 
+    /** claim 이 돌려주는 한 줄: 행 번호와 증서(올린 뒤의 {@code attempt_count}). */
+    interface ClaimRow {
+        Long getId();
+
+        Integer getToken();
+    }
+
     /**
      * relay 배치 claim: PENDING → PROCESSING(SKIP LOCKED).
      *
      * <p>{@code attempt_count} 를 여기서 올린다 — 발송 직전 재확인이 취소한 행도 시도를 하나
-     * 쓴다는 뜻이다(버스와 동일, 수용).
+     * 쓴다는 뜻이다(버스와 동일, 수용). 올린 값이 그대로 증서다(#451).
+     *
+     * <p>대상 고르기({@code scheduled_at <= :now}, 순서)는 적재와 같은 앱 시계를 쓴다. 적재가 {@code scheduled_at} 을 앱
+     * 시계로 찍기 때문이다. 반면 {@code processing_started_at} 은 heartbeat·회수와 같은 DB {@code now()} 로 찍는다 —
+     * 회수가 인스턴스 시계 차이에 흔들리지 않게(#451).
      *
      * <p>{@code @Modifying} 이 아니다(RETURNING). {@code @Transactional} 필수.
      */
@@ -159,25 +170,89 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
                 LIMIT :batchSize
                 FOR UPDATE OF o SKIP LOCKED)
             UPDATE journey_notification n
-            SET status = 'PROCESSING', processing_started_at = :now,
+            SET status = 'PROCESSING', processing_started_at = now(),
                 attempt_count = n.attempt_count + 1, updated_at = :auditNow
             FROM picked
             WHERE n.id = picked.id
-            RETURNING n.id
+            RETURNING n.id AS id, n.attempt_count AS token
             """, nativeQuery = true)
-    List<Long> claimBatchForProcessing(@Param("now") Instant now, @Param("batchSize") int batchSize,
-                                       @Param("auditNow") LocalDateTime auditNow);
+    List<ClaimRow> claimBatchForProcessing(@Param("now") Instant now, @Param("batchSize") int batchSize,
+                                           @Param("auditNow") LocalDateTime auditNow);
 
-    /** 고착 PROCESSING 회수 → PENDING({@code scheduledAt = now}). 워커가 죽었을 때 소유권 회수. */
+    /**
+     * heartbeat(#451). 이 인스턴스가 들고 있는 (행, 증서) 쌍의 {@code processing_started_at} 을 DB {@code now()} 로 민다.
+     * 증서가 다르면(이미 회수돼 남이 잡았으면) 건드리지 않는다.
+     *
+     * @param ids    {@code {1,2,3}} 꼴의 bigint 배열 문자열
+     * @param tokens 같은 순서의 int 배열 문자열
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
+    @Query(value = """
+            UPDATE journey_notification n
+               SET processing_started_at = now()
+              FROM unnest(cast(:ids as bigint[]), cast(:tokens as int[])) AS t(id, token)
+             WHERE n.id = t.id
+               AND n.status = 'PROCESSING'
+               AND n.attempt_count = t.token
+            """, nativeQuery = true)
+    int heartbeat(@Param("ids") String ids, @Param("tokens") String tokens);
+
+    /**
+     * 고착 PROCESSING 회수 → PENDING({@code scheduledAt = now}). 워커가 죽었을 때 소유권 회수.
+     *
+     * <p>기준 시각은 DB {@code now()} 다(#451, heartbeat 와 같은 시계). 회수할 때 {@code requeue_count} 를 올린다 — 시도
+     * 상한은 {@code attempt_count − requeue_count}(실제 발송 시도)로 센다. {@code attempt_count} 는 그대로라 다음 claim 이
+     * 올리면서 옛 증서가 무효가 된다.
+     *
+     * @param now 다시 집힐 시각({@code scheduled_at}). claim 과 같은 앱 시계
+     */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query("""
-            update JourneyNotification n
-               set n.status = watoo.grd.nextroute.domain.journey.entity.JourneyNotificationStatus.PENDING,
-                   n.scheduledAt = :now
-             where n.status = watoo.grd.nextroute.domain.journey.entity.JourneyNotificationStatus.PROCESSING
-               and n.processingStartedAt < :staleBefore
-            """)
-    int reclaimStale(@Param("staleBefore") Instant staleBefore, @Param("now") Instant now);
+    @Query(value = """
+            UPDATE journey_notification
+               SET status = 'PENDING', scheduled_at = :now,
+                   requeue_count = requeue_count + 1, last_requeued_at = now(), updated_at = :auditNow
+             WHERE status = 'PROCESSING'
+               AND processing_started_at < now() - make_interval(secs => :timeoutSeconds)
+            """, nativeQuery = true)
+    int reclaimStale(@Param("timeoutSeconds") double timeoutSeconds, @Param("now") Instant now,
+                     @Param("auditNow") LocalDateTime auditNow);
+
+    // ── 증서 조건부 상태 변경(#451) ───────────────────────────────────────────────
+    //
+    // 엔티티 저장으로 바꾸면 안 된다. JourneyNotification 에 @Version·@DynamicUpdate 가 없어 dirty check UPDATE 가 모든
+    // 칼럼을 옛 값으로 덮는다 — 회수·재claim 이 올린 attempt_count 를 되돌려 울타리가 깨진다. 그래서 전부 한 문장의
+    // 조건부 UPDATE 다. 0행이면 부르는 쪽이 StaleClaimException 을 던져 같은 트랜잭션을 되돌린다.
+
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
+    @Query(value = """
+            UPDATE journey_notification
+               SET status = 'SENT', sent_at = :sentAt, updated_at = :auditNow
+             WHERE id = :id AND status = 'PROCESSING' AND attempt_count = :token
+            """, nativeQuery = true)
+    int markSentIfClaimed(@Param("id") long id, @Param("token") int token, @Param("sentAt") Instant sentAt,
+                          @Param("auditNow") LocalDateTime auditNow);
+
+    /** 끝 상태(CANCELED·FAILED·DEAD)로 옮긴다. */
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
+    @Query(value = """
+            UPDATE journey_notification
+               SET status = :status, last_failure_reason = :reason, updated_at = :auditNow
+             WHERE id = :id AND status = 'PROCESSING' AND attempt_count = :token
+            """, nativeQuery = true)
+    int finishIfClaimed(@Param("id") long id, @Param("token") int token, @Param("status") String status,
+                        @Param("reason") String reason, @Param("auditNow") LocalDateTime auditNow);
+
+    /** 일시 실패 → 백오프 시각으로 PENDING 복귀. */
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
+    @Query(value = """
+            UPDATE journey_notification
+               SET status = 'PENDING', last_failure_reason = :reason, scheduled_at = :nextAttemptAt,
+                   updated_at = :auditNow
+             WHERE id = :id AND status = 'PROCESSING' AND attempt_count = :token
+            """, nativeQuery = true)
+    int releaseToPendingIfClaimed(@Param("id") long id, @Param("token") int token, @Param("reason") String reason,
+                                  @Param("nextAttemptAt") Instant nextAttemptAt,
+                                  @Param("auditNow") LocalDateTime auditNow);
 
     /**
      * 여정 종료 시 미발송 취소.

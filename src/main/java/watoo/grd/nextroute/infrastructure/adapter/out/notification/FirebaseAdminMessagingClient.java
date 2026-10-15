@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.notification;
 
+import com.google.api.core.ApiFuture;
 import com.google.firebase.messaging.AndroidConfig;
 import com.google.firebase.messaging.AndroidNotification;
 import com.google.firebase.messaging.ApnsConfig;
@@ -21,6 +22,7 @@ import watoo.grd.nextroute.application.journey.port.out.PushMessage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 
 /**
  * Firebase Admin SDK 로 실제 발송한다. SDK 타입은 이 클래스 밖으로 나가지 않는다.
@@ -55,7 +57,7 @@ public class FirebaseAdminMessagingClient implements FirebaseMessagingClient {
     @Autowired
     public FirebaseAdminMessagingClient(FirebaseMessaging messaging,
                                         JourneyNotificationProperties properties) {
-        this(new SdkDispatcher(messaging), properties);
+        this(new SdkDispatcher(messaging::sendAsync), properties);
     }
 
     /** 테스트용 이음매. SDK 없이 시한과 오류 분류를 검증한다. */
@@ -76,18 +78,28 @@ public class FirebaseAdminMessagingClient implements FirebaseMessagingClient {
         PushResult dispatch(PushMessage message, String token, long timeoutMs);
     }
 
-    record SdkDispatcher(FirebaseMessaging messaging) implements MessageDispatcher {
+    /**
+     * @param sendAsync 운영은 {@code FirebaseMessaging::sendAsync}. 시험은 끝나지 않는 future 로 취소를 본다
+     */
+    record SdkDispatcher(Function<Message, ApiFuture<String>> sendAsync) implements MessageDispatcher {
 
+        /**
+         * 시한이 넘으면 future 를 {@code cancel(true)} 한다(#451). 안 하면 우리는 실패로 기록하고 재시도하는데 SDK 는 같은
+         * 요청을 계속 붙들고(재시도 포함) 있다가 늦게 접수시켜 두 번 울린다. 취소는 SDK 스레드를 인터럽트해 재시도 대기를
+         * 끊는다 — 이미 소켓을 읽는 중인 시도 하나는 읽기 시한까지 산다.
+         */
         @Override
         public PushResult dispatch(PushMessage message, String token, long timeoutMs) {
+            ApiFuture<String> future = sendAsync.apply(toMessage(message, token));
             try {
-                messaging.sendAsync(toMessage(message, token))
-                        .get(timeoutMs, TimeUnit.MILLISECONDS);
+                future.get(timeoutMs, TimeUnit.MILLISECONDS);
                 return PushResult.ok();
             } catch (InterruptedException e) {
+                future.cancel(true);
                 Thread.currentThread().interrupt();
                 throw new NotificationSendException("fcm-interrupted", false);
             } catch (TimeoutException e) {
+                future.cancel(true);
                 throw new NotificationSendException(
                         "fcm-timeout: " + timeoutMs + "ms 안에 답이 없다", false);
             } catch (ExecutionException e) {
