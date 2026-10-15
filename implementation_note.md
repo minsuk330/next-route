@@ -5065,3 +5065,10 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `runsome.sh --tests '*LoadTestNotificationSenderTest' --tests '*SubwayLadderFixtureTest' --tests '*SubwayLadderFixtureIT'` → 10+6+1 통과, `JourneyRelaySenderGuardTest` 2 통과
 - 사다리(`MODE=subway SUBWAY_SOURCE=real runladder-env.sh N on 10m 20`): 2,000·6,000 각 1회, 칸 끝 `leftover active_journeys=0 ladder_journeys=0 loadtest_tokens=0`. 참고 200(4분) 1회, 가상 모델 2,000 r2(r1 버림)
 - 전체 `runfull.sh`(cleanTest test --continue, 사다리와 동시 실행 안 함, 시작 전 진행 중 여정 0): 3,202 중 실패 12, 건너뜀 6 = 기존 무관 목록 그대로(여정 평가 7·환승 판정 저장 1·조회 경로 2·OTP 계약 1·JourneyNotificationSchemaIT 1)
+## #427 처방 1 — 지하철 역별 도착 조회 역 이름 인코딩 (2026-10-15, fix/subway-station-name-encoding)
+### 확정
+- `SeoulSubwayApiAdapter.getRealtimeArrivalByStation` 이 역 이름을 날것으로 URI 에 넣었다 → Apache HttpClient 5 가 한글을 요청 줄에서 `?` 로 바꿔 `/0/1000/` 로 끝나고 서울 API 가 ALL(약 3,000행·2MB)로 답함. 역 id 로 다시 걸러 값은 맞아 기능 시험으로 안 잡힘. 같은 클래스 위치 API 는 이미 인코딩하고 있었음
+- `UriUtils.encodePathSegment(…, UTF_8)` 로 인코딩(공백도 %20). 실측(사다리 하네스): 인코딩 30~60ms·5~17KB vs 0.3~0.7초·2MB
+- 운영 영향: 평가기 지하철 대기 판정마다 2MB 수신 → 평가 지연 + 수신 데이터량(월 2TB 상한)
+### 검증
+- `SeoulSubwayApiAdapterStationArrivalTest`(나가는 주소 = 퍼센트 인코딩) + `SeoulSubwayApiAdapter*`·`CachedSubwayApiAdapterTest`·`SubwayRealtimeArrivalReaderTest` 통과
