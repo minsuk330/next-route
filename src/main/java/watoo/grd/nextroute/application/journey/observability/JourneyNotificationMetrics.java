@@ -30,6 +30,8 @@ public class JourneyNotificationMetrics {
     public static final String TOKEN_DEACTIVATED = "journey.notification.push.token.deactivated";
     public static final String NO_ACTIVE_TOKEN = "journey.notification.push.no.active.token";
     public static final String DELIVERY_LAG = "journey.notification.delivery-lag";
+    public static final String ENQUEUED_DELIVERY = "journey.notification.enqueued.delivery";
+    public static final String ALERT_CLAIM = "journey.notification.alert.claim";
 
     /** 적재→발송 지연 구간. 감지 SLO 와 같은 단위로 읽도록 초 단위 경계를 둔다. */
     private static final Duration[] DELIVERY_SLO = {
@@ -106,5 +108,27 @@ public class JourneyNotificationMetrics {
      */
     public void recordNoActiveToken(NotificationChannel channel) {
         registry.counter(NO_ACTIVE_TOKEN, "channel", channel.name()).increment();
+    }
+
+    /**
+     * 피로 정책(#428)이 켜졌을 때 실제로 생긴 행을 발송 종류로 다시 센다.
+     *
+     * <p>{@link #ENQUEUED} 에 tag 를 더하지 않고 이름을 나눈 이유: 같은 이름에 tag 집합이 다른 계측이 섞이면
+     * Prometheus 등록이 깨진다. 플래그가 꺼져 있으면 이 카운터는 아예 생기지 않는다.
+     */
+    public void recordEnqueuedDelivery(JourneyCheckpoint checkpoint, String delivery) {
+        registry.counter(ENQUEUED_DELIVERY, "checkpoint", checkpoint.name(), "delivery", delivery).increment();
+    }
+
+    /**
+     * 울릴 권리 판정 결과(#428 PR-1b).
+     *
+     * @param outcome {@code won}(처음 땀)·{@code inherited}(대체한 알림이 물려받음)·{@code quiet}(이미 누가 땀)·
+     *                {@code quiet-dominated}(재탐색이 이미 울려 조용한 위험 알림을 안 보냄)·{@code released}(울릴
+     *                알림이 실제로 안 나가 돌려받음). "경로 버전당 울림 2번"이 생기면 won+inherited 와 released 의
+     *                차이부터 본다
+     */
+    public void recordAlertClaim(String outcome) {
+        registry.counter(ALERT_CLAIM, "outcome", outcome).increment();
     }
 }

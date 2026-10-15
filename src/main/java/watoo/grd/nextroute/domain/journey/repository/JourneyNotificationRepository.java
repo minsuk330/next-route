@@ -248,4 +248,81 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
     int cancelPendingByCheckpoints(@Param("journeyId") Long journeyId,
                                    @Param("routeRevision") int routeRevision,
                                    @Param("checkpoints") Collection<JourneyCheckpoint> checkpoints);
+
+    // ── 울릴 권리용 취소(#428 PR-1b) ─────────────────────────────────────────────
+    //
+    // 위의 취소들과 하는 일은 같고, <b>실제로 이 문장이 PENDING → CANCELED 로 옮긴 행의 논리 키</b>를 돌려준다는
+    // 점만 다르다. 물려받기는 "내가 취소한 행이 권리를 갖고 있었다"일 때만 맞다 — relay 가 같은 순간 그 행을
+    // PROCESSING 으로 집어 갔으면 이 문장은 그 행을 건너뛰고(READ COMMITTED 재평가) 키도 돌려주지 않는다.
+    // 따로 SELECT 한 뒤 UPDATE 하면 그 사이에 집혀 간 행까지 물려받아 두 번 울린다.
+    //
+    // {@code @Modifying} 이 아니다(RETURNING). 반드시 {@code @Transactional} 안에서 부른다. 피로 정책이 꺼져
+    // 있으면 부르지 않는다 — 꺼짐은 위의 옛 쿼리 그대로다.
+
+    /**
+     * 한 대상(환승)의 위험 알림 PENDING 을 취소한다. 승격(빠듯→놓침)과 회복이 쓴다.
+     *
+     * @param exceptLogicalKey 남길 논리 키(방금 만들 알림). 회복처럼 남길 것이 없으면 빈 문자열
+     * @return 취소된 행의 논리 키(채널마다 한 줄이라 중복될 수 있다)
+     */
+    @Query(value = """
+            UPDATE journey_notification
+               SET status = 'CANCELED', last_failure_reason = :reason
+             WHERE journey_id = :journeyId
+               AND route_revision = :routeRevision
+               AND scope_type = :scopeType
+               AND scope_id = :scopeId
+               AND status = 'PENDING'
+               AND checkpoint IN (:checkpoints)
+               AND logical_checkpoint_key <> :exceptLogicalKey
+            RETURNING logical_checkpoint_key
+            """, nativeQuery = true)
+    List<String> cancelPendingByScopeReturningKeys(@Param("journeyId") Long journeyId,
+                                                   @Param("routeRevision") int routeRevision,
+                                                   @Param("scopeType") String scopeType,
+                                                   @Param("scopeId") int scopeId,
+                                                   @Param("checkpoints") Collection<String> checkpoints,
+                                                   @Param("exceptLogicalKey") String exceptLogicalKey,
+                                                   @Param("reason") String reason);
+
+    /**
+     * 경로 버전 전체의 위험 알림 PENDING 을 취소한다. 보드 push 가 대안을 들고 나갈 때 쓴다
+     * ({@link #cancelPendingByCheckpoints} 의 키 반환판, 사유도 같은 {@code superseded-by-reroute}).
+     *
+     * @return 취소된 행의 논리 키(채널마다 한 줄이라 중복될 수 있다)
+     */
+    @Query(value = """
+            UPDATE journey_notification
+               SET status = 'CANCELED', last_failure_reason = 'superseded-by-reroute'
+             WHERE journey_id = :journeyId
+               AND route_revision = :routeRevision
+               AND status = 'PENDING'
+               AND checkpoint IN (:checkpoints)
+            RETURNING logical_checkpoint_key
+            """, nativeQuery = true)
+    List<String> cancelPendingByCheckpointsReturningKeys(@Param("journeyId") Long journeyId,
+                                                         @Param("routeRevision") int routeRevision,
+                                                         @Param("checkpoints") Collection<String> checkpoints);
+
+    /**
+     * 그 환승의 대기 중인 위험 알림 중 가장 이른 발송 예정 시각(epoch 초). 없으면 null.
+     *
+     * <p>합치기 창(#428)의 상한을 잰다 — 보류 중인 울림 알림이 더 나쁜 알림으로 대체돼도 첫 판정의 보류가 끝나는
+     * 시각보다 늦게 울리지 않게 한다. 대체(취소)하기 <b>전에</b> 불러야 한다.
+     */
+    @Query(value = """
+            SELECT CAST(EXTRACT(EPOCH FROM MIN(scheduled_at)) AS bigint)
+              FROM journey_notification
+             WHERE journey_id = :journeyId
+               AND route_revision = :routeRevision
+               AND scope_type = :scopeType
+               AND scope_id = :scopeId
+               AND status = 'PENDING'
+               AND checkpoint IN (:checkpoints)
+            """, nativeQuery = true)
+    Long findEarliestPendingScheduledEpoch(@Param("journeyId") Long journeyId,
+                                           @Param("routeRevision") int routeRevision,
+                                           @Param("scopeType") String scopeType,
+                                           @Param("scopeId") int scopeId,
+                                           @Param("checkpoints") Collection<String> checkpoints);
 }

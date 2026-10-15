@@ -97,6 +97,7 @@ public class JourneyNotificationProperties {
      * 악화 알림 피로 정책(#428). 경로 버전마다 울림 한 번, 그 뒤는 조용한 갱신.
      *
      * <p>꺼져 있으면 발송 메시지가 정책 이전과 똑같다 — 갱신 열쇠·tag·채널·data 어느 것도 바뀌지 않는다.
+     * 판정(PR-1b)도 마찬가지로 꺼져 있으면 울릴 권리 칸을 읽지도 쓰지도 않는다.
      */
     @Getter
     @Setter
@@ -106,6 +107,21 @@ public class JourneyNotificationProperties {
 
         /** 앱이 만든 저중요도 Android 채널 이름. 앱과 글자까지 같아야 한다. */
         private String quietChannelId = "journey_quiet";
+
+        /**
+         * 합치기 창의 수집 한 번(초). 첫 울림을 다음 수집 결과를 받아 본 뒤에 보낸다 — 그 사이 더 나쁜 소식이나
+         * 대안이 오면 대체해 한 번에 보낸다. 지하철 수집 주기와 같다.
+         */
+        private long holdRoundSeconds = 15;
+
+        /** 다음 수집의 평가가 끝날 여유(초). 수집 직후 바로 발송하면 그 평가가 대체할 틈이 없다. */
+        private long holdMarginSeconds = 2;
+
+        /**
+         * 행동 시간 여유(초). 빠듯 알림의 보류는 "다음 차 도착 − 지금 − 이 값"을 넘지 않는다 — 기다리다 사용자가
+         * 움직일 시간을 잃으면 합친 알림이 쓸모없다. 0 이하가 되면 즉시 보낸다.
+         */
+        private long holdActionMarginSeconds = 30;
     }
 
     /**
@@ -220,6 +236,15 @@ public class JourneyNotificationProperties {
         // JourneyRelaySenderGuard(@Profile("worker") + relay.enabled=true)로 옮겼다.
         validateApproach();
         validateFcm();
+        validateFatigue();
+    }
+
+    private void validateFatigue() {
+        if (fatigue.getHoldRoundSeconds() <= 0 || fatigue.getHoldMarginSeconds() < 0
+                || fatigue.getHoldActionMarginSeconds() < 0) {
+            throw new IllegalStateException(
+                    "journey.notification.fatigue 보류 설정은 수집 주기 > 0, 여유 ≥ 0 이어야 한다");
+        }
     }
 
     private void validateApproach() {

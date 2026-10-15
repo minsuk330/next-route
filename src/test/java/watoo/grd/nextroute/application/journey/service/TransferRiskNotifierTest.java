@@ -57,7 +57,9 @@ class TransferRiskNotifierTest {
         enqueuer = mock(JourneyNotificationEnqueuer.class);
         properties = new JourneyNotificationProperties();
         notifier = new TransferRiskNotifier(transferRepository, notificationRepository, enqueuer,
-                properties, new watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties());
+                properties, new watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties(),
+                // 피로 정책(#428) 꺼짐 — mock 의 enabled() 가 false 라 정책 이전 경로만 돈다.
+                mock(RouteAlertBudget.class));
 
         transfer = TransferConnection.builder()
                 .journeyId(1L).routeRevision(1).transferIndex(0)

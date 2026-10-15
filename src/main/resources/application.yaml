@@ -652,6 +652,13 @@ journey:
       enabled: ${JOURNEY_NOTIFICATION_FATIGUE_ENABLED:false}
       # 앱이 만든 Android 채널 이름. 앱과 글자까지 같아야 한다 — 없는 채널은 소리 나는 기본 채널로 떨어진다.
       quiet-channel-id: journey_quiet
+      # 합치기 창(PR-1b): 첫 울림을 다음 수집 결과를 받아 본 뒤 보낸다. 보류 = 수집 주기 × N + 여유
+      # (빠듯·놓침 N=1, 보드 모드 놓침 N=2 — 대안 계산을 기다린다). 켜져 있으면 보드의
+      # risk-merge-delay-seconds 대신 이 값을 쓴다.
+      hold-round-seconds: 15
+      hold-margin-seconds: 2
+      # 보류 상한 = 다음 차 도착 − 지금 − 이 값(빠듯만). 0 이하면 즉시 보낸다.
+      hold-action-margin-seconds: 30
     relay:
       # 기본 꺼짐. 발송 구현은 붙었지만 ⑤(발송 직전 재검증)와 ⑥(payload 계약·문구)이 들어오기
       # 전에는 켜지 않는다 — 낡은 알림이 나가고 임시 문구가 운영에 굳는다. worker 프로필 전용.

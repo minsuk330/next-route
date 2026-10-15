@@ -4946,3 +4946,56 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 관련: `AlertFatigueTransportTest`(10)·`FcmMessageFactoryTest`·`FcmNotificationSenderTest`·`FirebaseAdminMessagingClient*`·`JourneyNotificationRelayIT`(+건너뛰기 1)·`JourneyNotificationFcmRelayIT`·`UserPushTokenSchemaIT`(+능력 1)·`PushTokenServiceTest`·`PushTokenControllerTest`(+능력 1) = 93 통과, `WithdrawalDeletionBoundaryIT` 통과
 - 전체 `cleanTest test`: 3,096 중 실패 19 → `@ColumnDefault` 수정으로 Withdrawal 7 해소, 남은 12 = 기존 무관(여정 평가 7·환승 판정 저장 1·조회 경로 2·OTP 계약 1·JourneyNotificationSchemaIT 1)
+## #428 PR-1b — 울릴 권리 판정·합치기 창 (날짜 2026-10-15)
+
+### 확정
+- 울릴 권리 = `journey_session.alert_claim_revision/alert_claim_key`(V69, 엔티티 미매핑). 따기 `tryClaimAlert`(`IS DISTINCT FROM :rev`) / 물려받기 `inheritAlertClaim`(이번 트랜잭션이 취소한 키 → 새 키) / 돌려받기 `releaseAlertClaim`. 판정은 `RouteAlertBudget.decide` 한 곳, 채널 루프 밖에서 한 번(키 = 채널 뺀 논리 키)
+- 순서는 세 경로 모두 **대체(취소) → 판정 → 삽입**. 취소는 `UPDATE … RETURNING logical_checkpoint_key` 로 "이 문장이 실제로 PENDING→CANCELED 로 옮긴 행"만 물려받기 후보로 씀(relay 가 같은 순간 PROCESSING 으로 집어 간 행은 빠짐)
+- 잠금 순서 journey_session → reroute_proposal → journey_notification: 평가기는 `finishEvaluation` 이 이미 잠금, 보드·재탐색은 `lockForAlert`(FOR UPDATE)를 맨 앞에. relay 돌려받기는 **알림 행 상태를 바꾸기 전에** 여정 UPDATE 를 먼저 부름(반대 순서 방지), 이 행 자신은 `exceptNotificationId` 로 뺌
+- 물려받기·돌려받기에 계획보다 한 겹 더: 같은 논리 키의 **다른 채널 행**이 PROCESSING/SENT 면 물려받지 않고, PENDING/PROCESSING/SENT 가 남아 있으면 돌려받지 않음(한 채널만 실패해도 사용자는 울림을 받음)
+- 평가 한 번에 여러 환승 악화 → 회복 먼저 처리(권리 반납이 같은 평가의 악화에 쓰이게) → 악화는 심한 순·같으면 앞 환승 순으로 처리해 가장 심한 하나가 권리를 땀
+- QUIET 위험 알림: 보류 없음, 접근 알림 취소 안 함. 권리 키가 `REROUTE_SUGGESTED`(키에서 `JourneyNotificationKeys.checkpointOf` 로 읽음)면 행을 안 만들고 마커만 씀(`quiet-dominated`)
+- 합치기 창(울림 위험만): 보류 = 15×N + 2초(N=2 는 보드 모드의 놓침만). **상한(다음 차 − 지금 − 30초)은 빠듯에만** — 놓침의 `nextBusArrivalAt` 은 이미 놓친 차(대개 과거)라 걸면 놓침은 늘 즉시가 됨. 켜져 있으면 보드 `risk-merge-delay-seconds` 는 안 씀
+- 보드 push(켜짐)는 위험 알림 취소를 삽입 **앞**으로 옮김(정책 이전은 삽입 뒤·생성됐을 때만). 삽입 0행은 여정 종료·경로 변경뿐이라 그때 취소된 위험 알림도 relay 가 버릴 행
+- 끔(`fatigue.enabled=false`) = 옛 메서드 그대로 호출, 권리 칸·payload `delivery`·보류 모두 없음(IT `disabledLeavesNoTrace`)
+- 지표: `journey.notification.enqueued.delivery{checkpoint,delivery}`(기존 `enqueued` 에 tag 추가 대신 이름 분리 — tag 집합 다른 같은 이름은 Prometheus 등록이 깨짐), `journey.notification.alert.claim{outcome=won|inherited|quiet|quiet-dominated|released}`
+- `Fatigue` 설정 클래스는 PR-1a(#430)와 같은 모양으로 넣고 보류 3칸을 더함 → 머지 때 사소한 충돌 예상. 발송 종류는 이 브랜치에 `AlertDelivery` enum(1a 의 `PushMessage.Delivery` 와 값 이름 같음)
+
+### 함정
+- 같은 DB 를 쓰는 형제 브랜치(1a)가 V68 을 적용해 둔 상태라 이 브랜치의 Flyway 부팅 테스트가 `Detected applied migration not resolved locally: 68` 로 전부 죽음 ← V68 파일 없음 / 가드: 검증 때 `SPRING_FLYWAY_IGNORE_MIGRATION_PATTERNS='*:missing'` 로 돌림(코드 문제 아님, 1a 머지 뒤엔 사라짐)
+- `insert journey_notification` 를 손으로 넣을 때 `command_version >= 1` CHECK 에 걸림 ← V40 제약 / 가드: 시험 seed 는 1
+- 기존 함정 고정: 회복 뒤 같은 상태로 재악화하면 같은 발송 키라 ON CONFLICT 로 행이 안 생김 → 권리를 땄다면 반납(`recoveryReleasesClaimAndDuplicateReleasesAgain`)
+- payload 직렬화 실패(null)면 `delivery` 가 빠져 1a 는 ALERTING 으로 봄 — QUIET 였어도 울릴 수 있음(드묾, 수용)
+
+### 좌표
+- `src/main/resources/db/migration/V69__journey_session_alert_claim.sql`
+- `application/journey/service/RouteAlertBudget.java` — decide/claimHeldByReroute/release/holdFor
+- `application/journey/service/TransferRiskNotifier.java` — `notifyWorsenedWithBudget`/`handleWithBudget`/`recoverWithBudget`
+- `application/journey/service/RerouteBoardPushTxService.java#publishWithBudget`, `RerouteAlertTxService.java#alertWithBudget`
+- `application/journey/service/JourneyNotificationOutboxStateService.java#releaseAlertClaim`(cancel·markDead·expired-before-retry·markFailed 앞)
+- `domain/journey/repository/JourneySessionRepository.java` 끝(권리 SQL 5개), `JourneyNotificationRepository.java` 끝(취소 RETURNING 2개)
+- `application/journey/service/JourneyNotificationEnqueuer.java` — `delivery` 받는 오버로드 3개, `EnqueueResult`
+- 시험: `src/test/.../notification/JourneyAlertBudgetIT.java`
+
+### 미결
+- "대안 계산이 끝났는데 후보 없음 → 놓침 보류를 수집 1번 지점으로 당김"은 넣지 않음(보드 갱신 결과를 위험 행에 되먹이는 배선 필요). 지금은 보드 모드 놓침이 항상 32초
+- 보류 중 대체(빠듯→놓침)되면 새 행 보류가 처음부터 다시 잼(누적 최대 17+32초). 첫 울림 시각 상한을 둘지 결정 필요
+- 지표 `journey.notification.hold{outcome=merged|released|canceled}`(PLAN)·감사 쿼리(경로 버전당 SENT ALERTING ≥ 2)는 안 넣음
+- 1a 머지 시 `JourneyNotificationOutboxStateService`·`JourneyNotificationProperties`·`application.yaml`·`AbstractJourneyNotificationIT` 충돌 정리, 1a 의 `quiet-skipped-android` 취소도 `cancel()` 을 지나면 권리 반납 대상(QUIET 행이라 실제로는 no-op)
+
+### 배포
+- V69 tracked·Flyway 자동(수동 배치 불필요). 플래그 기본 꺼짐이라 배포만으로 동작 변화 없음
+
+### 검증
+- `./gradlew compileJava compileTestJava` 통과
+- `runsome.sh --tests '*JourneyAlertBudgetIT'` → 25/25 통과(@RepeatedTest(5) 동시 실행 포함)
+- 관련 묶음 `SPRING_FLYWAY_IGNORE_MIGRATION_PATTERNS='*:missing' runsome.sh --tests '*NextrouteApplicationTests' --tests 'watoo.grd.nextroute.application.journey.notification.*' --tests '*TransferRiskNotifierTest' --tests '*RerouteAlertPublisherTest' --tests '*RerouteAcceptIT' --tests '*JourneyNotificationSchemaIT' --tests '*RerouteBoard*'` → 218 중 실패 0
+- 전체 `SPRING_FLYWAY_IGNORE_MIGRATION_PATTERNS='*:missing' runfull.sh`(cleanTest test --continue) → 3,108 중 실패 12, 건너뜀 5 = 기존 무관 목록 그대로(여정 평가 7·환승 판정 저장 1·조회 경로 2·OTP 계약 1·JourneyNotificationSchemaIT 1)
+
+## #428 PR-1b 후속 — 1a 머지 반영·보류 상한 (2026-10-15)
+### 확정
+- PR-1a(#430) 머지 뒤 충돌 정리: 1b 의 `AlertDelivery` 를 1a 의 `PushMessage.Delivery` 로 합침(값 이름 같음)
+- 보류 상한(사용자 결정 2026-10-15): 보류 중 울림이 더 나쁜 알림으로 대체되면 새 보류는 **첫 판정의 발송 예정 시각**을 넘지 않는다(`findEarliestPendingScheduledEpoch` 를 대체 전에 조회 → `RouteAlertBudget.holdFor(…, heldUntilEpoch)`). 안 하면 빠듯 17초 → 보드 놓침 32초로 첫 울림이 최대 약 49초
+### 검증
+- `JourneyAlertBudgetIT`(+`replacementKeepsFirstHoldDeadline`)·`AlertFatigueTransportTest`·`TransferRiskNotifierTest`·notification 패키지·`RerouteBoard*`·`NextrouteApplicationTests` 통과
+- 전체 `cleanTest test`(1a 머지 뒤, 플래그 우회 없이): 3,122 중 실패 12 = 기존 무관 목록 그대로

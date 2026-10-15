@@ -60,6 +60,8 @@ import java.util.Map;
         TransferTargetApproachNotifier.class, TransferTargetApproachPolicy.class,
         JourneyNotificationEnqueuer.class, JourneyEvaluationScheduleWriter.class,
         JourneyNotificationMetrics.class, JourneyRelayWaker.class, JourneyRelayWakeListener.class,
+        // 피로 정책(#428) 판정. 기본 꺼짐이라 기존 시험의 동작은 같다.
+        watoo.grd.nextroute.application.journey.service.RouteAlertBudget.class,
         // 환승 위험 알림 지연(#264 보드 모드) 판단이 재탐색 설정을 본다. 기본값(보드 꺼짐)이라 동작은 같다.
         watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties.class,
         AbstractJourneyNotificationIT.Config.class})
@@ -78,7 +80,8 @@ import java.util.Map;
         "classpath:db/migration/V63__journey_leg_guidance_info.sql",
         "classpath:db/migration/V65__journey_leg_alight_door_side.sql",
         "classpath:db/migration/V66__journey_session_evaluation_urgent.sql",
-        "classpath:db/migration/V67__journey_reevaluation_trigger.sql"
+        "classpath:db/migration/V67__journey_reevaluation_trigger.sql",
+        "classpath:db/migration/V69__journey_session_alert_claim.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 abstract class AbstractJourneyNotificationIT extends AbstractJourneyOutboxPostgresIT {
@@ -130,6 +133,7 @@ abstract class AbstractJourneyNotificationIT extends AbstractJourneyOutboxPostgr
         properties.setEnqueueEnabled(true);
         // 설정 빈을 테스트끼리 나눠 쓴다. kill switch 를 내린 시험이 다음 시험까지 끄면 안 된다.
         properties.getApproach().setEnabled(true);
+        properties.getFatigue().setEnabled(false);
         // waker 는 빈 하나를 테스트끼리 나눠 쓴다. 앞 테스트가 남긴 신호를 비운다.
         while (relayWaker.await(0)) {
             // 남은 permit 을 모두 소진한다.
