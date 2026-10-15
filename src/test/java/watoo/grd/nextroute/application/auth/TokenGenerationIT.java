@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.auth;
 
+import watoo.grd.nextroute.application.auth.event.TokenGenerationChangedEvent;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,15 +55,20 @@ class TokenGenerationIT {
     @Autowired JwtProvider jwtProvider;
     @Autowired JwtProperties jwtProperties;
     @Autowired SessionUseCase sessionUseCase;
+    @Autowired org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+    @Autowired org.springframework.context.ApplicationEventPublisher eventPublisher;
+    @Autowired org.springframework.data.redis.core.RedisTemplate<String, String> redisTemplate;
 
     private long userId;
 
     @BeforeEach
     void createUser() {
+        // 사용자 id 는 재사용될 수 있다(시퀀스 리셋 시험 대비). 지난 시험이 남긴 캐시를 지운다.
         userId = jdbcTemplate.queryForObject("""
                 INSERT INTO users (created_at, updated_at, token_generation)
                 VALUES (now(), now(), 0) RETURNING id
                 """, Long.class);
+        redisTemplate.delete("auth:tokengen:" + userId);
     }
 
     private int storedGeneration() {
@@ -197,9 +203,61 @@ class TokenGenerationIT {
                 .isInstanceOf(watoo.grd.nextroute.application.auth.exception.SessionException.class);
     }
 
-    /** 탈퇴가 하는 일 중 이 테스트에 필요한 만큼 — {@code deleted_at} 만 찍는다. 세대는 건드리지 않는다. */
+    /**
+     * 탈퇴가 하는 일 중 이 테스트에 필요한 만큼 — {@code deleted_at} 을 찍고, 탈퇴 서비스처럼 커밋 뒤 세대 변경을
+     * 알린다(세대 캐시가 그 알림으로 "없는 사용자"를 덮어쓴다, #427). 세대 번호는 건드리지 않는다.
+     */
     private void softDeleteUser() {
-        jdbcTemplate.update("UPDATE users SET deleted_at = now() WHERE id = ?", userId);
+        transactionTemplate.executeWithoutResult(status -> {
+            jdbcTemplate.update("UPDATE users SET deleted_at = now() WHERE id = ?", userId);
+            eventPublisher.publishEvent(new TokenGenerationChangedEvent(userId));
+        });
+    }
+
+    // ── 세대 캐시(#427) ──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("세대 캐시: 한 번 확인한 뒤에는 DB 를 다시 읽지 않는다 — 알림 없이 DB 만 바꾸면 캐시 값이 쓰인다")
+    void generationIsServedFromCacheAfterFirstCheck() throws Exception {
+        String access = accessTokenNow();
+        assertThat(callProtectedWith(access)).isEqualTo(200);
+
+        // 알림 없이 DB 만 올린다 — 실제 코드는 이런 경로가 없다(로그아웃·탈퇴가 알린다). 캐시가 쓰인다는 증거다.
+        jdbcTemplate.update("UPDATE users SET token_generation = token_generation + 1 WHERE id = ?", userId);
+
+        assertThat(callProtectedWith(access))
+                .as("1분 수명 동안은 캐시 값으로 답한다 — 요청마다 DB 커넥션을 빌리지 않는 것이 이 캐시의 목적")
+                .isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("세대 캐시: 로그아웃은 캐시가 이미 채워져 있어도 다음 요청부터 바로 막힌다")
+    void logoutRejectsImmediatelyEvenWhenCached() throws Exception {
+        String access = accessTokenNow();
+        assertThat(callProtectedWith(access)).isEqualTo(200);
+
+        sessionUseCase.logout(userId);
+
+        assertThat(callProtectedWith(access))
+                .as("커밋 직후 새 세대로 덮어쓴다 — 수명(1분)을 기다리지 않는다")
+                .isEqualTo(401);
+        assertThat(redisTemplate.opsForValue().get("auth:tokengen:" + userId))
+                .isEqualTo(String.valueOf(storedGeneration()));
+    }
+
+    @Test
+    @DisplayName("세대 캐시: 로그아웃이 롤백되면 캐시도 그대로다")
+    void rolledBackLogoutDoesNotTouchCache() throws Exception {
+        String access = accessTokenNow();
+        assertThat(callProtectedWith(access)).isEqualTo(200);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            sessionUseCase.logout(userId);
+            status.setRollbackOnly();
+        });
+
+        assertThat(storedGeneration()).isZero();
+        assertThat(callProtectedWith(access)).isEqualTo(200);
     }
 
     @Test

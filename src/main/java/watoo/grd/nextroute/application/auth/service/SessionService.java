@@ -2,10 +2,12 @@ package watoo.grd.nextroute.application.auth.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.auth.dto.MeResult;
 import watoo.grd.nextroute.application.auth.dto.TokenResult;
+import watoo.grd.nextroute.application.auth.event.TokenGenerationChangedEvent;
 import watoo.grd.nextroute.application.auth.exception.SessionException;
 import watoo.grd.nextroute.application.auth.port.in.SessionUseCase;
 import watoo.grd.nextroute.common.security.JwtProvider;
@@ -35,6 +37,7 @@ public class SessionService implements SessionUseCase {
     private final UserRepository userRepository;
     private final AuthIdentityRepository identityRepository;
     private final JwtProvider jwtProvider;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional(readOnly = true)
@@ -67,6 +70,8 @@ public class SessionService implements SessionUseCase {
     @Transactional
     public void logout(long userId) {
         requireUser(userId).bumpTokenGeneration();
+        // 요청마다 세대를 확인하는 캐시가 커밋 직후 새 번호로 덮는다 — 안 하면 캐시 수명(1분)만큼 옛 토큰이 통한다.
+        eventPublisher.publishEvent(new TokenGenerationChangedEvent(userId));
     }
 
     @Override

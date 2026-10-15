@@ -271,6 +271,10 @@ auth:
     # 기기 익명 계정의 새 가입 한도(출발지 IP 별 시간당, IPv6 는 /64). 이통사 CGNAT 로 한 IP 에 사용자가 몰려 넉넉히 둔다.
     # Redis 장애 시엔 통과시킨다(fail-open). 재진입·기기 연결은 세지 않는다.
     signup-limit-per-hour: ${AUTH_DEVICE_SIGNUP_LIMIT_PER_HOUR:60}
+  # 요청마다 하는 토큰 세대 확인을 Redis 에 캐시(#427 3차 처방). 로그아웃·탈퇴는 커밋 직후 덮어써 바로 반영되고,
+  # 덮어쓰기가 실패할 때의 안전망이 이 수명이다(그 동안만 옛 토큰이 통할 수 있음, 사용자 결정 60초). 0 이면 끔.
+  token-generation-cache:
+    ttl-seconds: ${AUTH_TOKEN_GENERATION_CACHE_TTL_SECONDS:60}
 
 # 앱 OAuth provider. 값은 env/oauth.env 로 주입한다(env/oauth.env.example 참고).
 # audiences 가 비면 부팅을 막는다 — 빈 목록이 "전부 통과"로 동작하면 검증이 없는 것과 같다.

@@ -37,6 +37,7 @@ class SessionServiceTest {
     @Mock UserRepository userRepository;
     @Mock AuthIdentityRepository identityRepository;
     @Mock JwtProvider jwtProvider;
+    @Mock org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @InjectMocks SessionService service;
 
@@ -68,6 +69,10 @@ class SessionServiceTest {
         given(userRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(u));
 
         service.logout(1L);
+
+        // 세대 캐시(#427)가 커밋 뒤 새 번호로 덮도록 알린다 — 안 알리면 캐시 수명(1분)만큼 옛 토큰이 통한다
+        org.mockito.Mockito.verify(eventPublisher).publishEvent(
+                new watoo.grd.nextroute.application.auth.event.TokenGenerationChangedEvent(1L));
 
         assertThat(u.getTokenGeneration()).isEqualTo(1);
     }
