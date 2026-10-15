@@ -14,9 +14,16 @@ import java.util.List;
  * <p>채널을 트랜잭션 밖에서 정하는 이유도 같다. PR3 의 구현은 DB 를 읽는데, 그 읽기가 평가
  * 트랜잭션 안에 들어오면 트랜잭션이 그만큼 길어진다.
  *
- * @param channels 이 사용자에게 보낼 길. <b>비어 있을 수 있다</b> — 그때는 아무것도 쌓지 않고
- *                 마커도 쓰지 않는다(마커를 앞당기면 그 환승은 영영 알림이 없다)
+ * @param channels  이 사용자에게 보낼 길. <b>비어 있을 수 있다</b> — 그때는 아무것도 쌓지 않고
+ *                  마커도 쓰지 않는다(마커를 앞당기면 그 환승은 영영 알림이 없다)
+ * @param detection 이 평가를 부른 변화를 처음 본 시각·등급(#446 처음부터 끝까지 지표). 위험 알림 payload 에 실린다.
+ *                  null 이면 싣지 않는다
  */
 public record NotificationContext(long userId, int currentLegIndex,
-                                  List<NotificationChannel> channels) {
+                                  List<NotificationChannel> channels, DetectionStamp detection) {
+
+    /** 예전 모양. 처음 본 시각을 모른다. */
+    public NotificationContext(long userId, int currentLegIndex, List<NotificationChannel> channels) {
+        this(userId, currentLegIndex, channels, null);
+    }
 }

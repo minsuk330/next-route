@@ -92,6 +92,8 @@ public class RealtimeSubwayCollector {
         try {
             /// api로 조회
             List<SubwayArrivalInfo> arrivals = subwayApiPort.getRealtimeArrival();
+            // 서버가 이 스냅숏의 변화를 처음 본 시각(#446 처음부터 끝까지 지표의 시작점). 파싱·저장 전에 잰다.
+            java.time.Instant receivedAt = java.time.Instant.now();
             if (arrivals.isEmpty()) {
                 log.warn("[RealtimeCollector] Empty arrivals from API");
                 writeErrorSnapshot();
@@ -121,7 +123,7 @@ public class RealtimeSubwayCollector {
             cachePort.saveSnapshot(snapshot, snapshotTtlSeconds);
             cachePort.saveStatus(SubwayRealtimeStatus.ACTIVE);
             try {
-                changeFeed.onSnapshot(trains);
+                changeFeed.onSnapshot(trains, receivedAt);
             } catch (Exception e) {
                 // 재평가 트리거가 실패해도 수집은 성공이다. 평가기의 간격 폴링이 안전망이다.
                 log.warn("[RealtimeCollector] 변화 감지 실패: {}", e.getMessage());

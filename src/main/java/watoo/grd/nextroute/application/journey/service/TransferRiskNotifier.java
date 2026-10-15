@@ -154,14 +154,13 @@ public class TransferRiskNotifier {
 
         List<String> enqueuedKeys = new ArrayList<>(context.channels().size());
         for (NotificationChannel channel : context.channels()) {
-            enqueuedKeys.add(boardMode()
-                    // 보드 모드(#264 PR-5): 대안이 있으면 재탐색 push 하나로 합친다. 그 판단이 끝날
-                    // 시간을 벌려고 늦춰 넣고, 재탐색 push 가 나가면 이 행이 취소된다.
-                    ? enqueuer.enqueueTransferRisk(outcome.journeyId(), outcome.routeRevision(),
-                            assessment, channel, java.time.Duration.ofSeconds(
-                                    rerouteProperties.getBoard().getRiskMergeDelaySeconds()))
-                    : enqueuer.enqueueTransferRisk(
-                            outcome.journeyId(), outcome.routeRevision(), assessment, channel));
+            // 보드 모드(#264 PR-5): 대안이 있으면 재탐색 push 하나로 합친다. 그 판단이 끝날 시간을 벌려고 늦춰 넣고,
+            // 재탐색 push 가 나가면 이 행이 취소된다. 처음 본 시각(#446)은 payload 에만 실린다.
+            Duration delay = boardMode()
+                    ? Duration.ofSeconds(rerouteProperties.getBoard().getRiskMergeDelaySeconds())
+                    : Duration.ZERO;
+            enqueuedKeys.add(enqueuer.enqueueTransferRisk(outcome.journeyId(), outcome.routeRevision(),
+                    assessment, channel, delay, null, null, context.detection()).deliveryKey());
         }
         // 승격(AT_RISK→MISSED)으로 남은 옛 행을 밀어낸다. 두 상태는 별개 행이라 재시도로 순서가
         // 뒤집히면 사용자가 "놓쳤다" 다음에 "놓칠 것 같다"를 본다.
@@ -310,7 +309,7 @@ public class TransferRiskNotifier {
         boolean created = false;
         for (NotificationChannel channel : context.channels()) {
             created |= enqueuer.enqueueTransferRisk(journeyId, revision, assessment, channel, hold, delivery,
-                            routeName)
+                            routeName, context.detection())
                     .created();
         }
 

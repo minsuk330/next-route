@@ -93,6 +93,7 @@ public class JourneyNotificationOutboxStateService {
 
         Instant now = Instant.now(clock);
         if (!n.getExpiresAt().isAfter(now)) {
+            recordLost(n, "expired");
             cancel(n, "expired");
             return Optional.empty();
         }
@@ -188,10 +189,80 @@ public class JourneyNotificationOutboxStateService {
                 // created_at 은 시간대 없는 칼럼이고 적재 때 같은 clock 으로 찍었다
                 // (JourneyNotificationEnqueuer). 그래서 그 clock 의 시간대로 되돌려야 맞는다.
                 // DB now() 와 섞어 빼면 두 시계 차이가 지연에 섞인다.
-                metrics.recordDeliveryLag(n.getChannel(),
-                        Duration.between(n.getCreatedAt().atZone(clock.getZone()).toInstant(), now));
+                Instant createdAt = n.getCreatedAt().atZone(clock.getZone()).toInstant();
+                metrics.recordDeliveryLag(n.getChannel(), Duration.between(createdAt, now));
             }
+            recordEndToEnd(n, now);
         });
+    }
+
+    /**
+     * 처음 본 시각 → 접수(#446). 처음 본 시각은 위험 알림 payload 에 적재 때 실려 왔다({@code JourneyNotificationEnqueuer}).
+     * 없으면 못 잰 것으로 센다. 만료를 넘겨 접수됐는지도 여기서 본다 — 발송 직전 재확인 뒤 공급자 왕복이 길면 생길 수 있다.
+     */
+    private void recordEndToEnd(JourneyNotification n, Instant sentAt) {
+        if (n.getExpiresAt() != null && sentAt.isAfter(n.getExpiresAt())) {
+            metrics.recordSentAfterExpiry(n.getCheckpoint());
+        }
+        Instant firstSeenAt = payloadInstant(n, JourneyNotificationEnqueuer.FIRST_SEEN_AT);
+        if (firstSeenAt == null) {
+            metrics.recordE2eUnmeasured(n.getCheckpoint());
+            return;
+        }
+        // 보류는 적재 때 payload 에 적어 둔 값이다 — 재시도가 scheduled_at 을 백오프 시각으로 미뤄 되읽을 수 없다.
+        String holdMs = payloadText(n, JourneyNotificationEnqueuer.HOLD_MS, null);
+        if (holdMs != null) {
+            try {
+                metrics.recordHold(n.getCheckpoint(), deliveryOf(n), Duration.ofMillis(Long.parseLong(holdMs)));
+            } catch (NumberFormatException ignored) {
+                // 깨진 값은 보류를 못 잰 것으로 둔다.
+            }
+        }
+        metrics.recordE2e(payloadText(n, JourneyNotificationEnqueuer.SEEN_TIER, "UNKNOWN"), n.getCheckpoint(),
+                deliveryOf(n), payloadText(n, JourneyNotificationEnqueuer.SEEN_SOURCE, "unknown"),
+                Duration.between(firstSeenAt, sentAt));
+    }
+
+    /**
+     * 보냈어야 했는데 끝난 행을 센다(#446 "빠짐없이"). 상태를 바꾸기 전에 부른다 — 행 내용만 읽는다.
+     */
+    private void recordLost(JourneyNotification n, String reason) {
+        metrics.recordLost(n.getCheckpoint(), deliveryOf(n), reason);
+    }
+
+    /** payload 의 울림 종류. 없으면(피로 정책 꺼짐·정책 이전 행) {@code none} — 발송기는 그때 울림으로 보낸다. */
+    static String deliveryOf(JourneyNotification n) {
+        return payloadText(n, "delivery", "none");
+    }
+
+    private static String payloadText(JourneyNotification n, String field, String fallback) {
+        if (n.getPayload() == null) {
+            return fallback;
+        }
+        com.fasterxml.jackson.databind.JsonNode node = n.getPayload().get(field);
+        return node == null || node.isNull() ? fallback : node.asText(fallback);
+    }
+
+    private static Instant payloadInstant(JourneyNotification n, String field) {
+        String text = payloadText(n, field, null);
+        if (text == null) {
+            return null;
+        }
+        try {
+            return Instant.parse(text);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** {@code fcm: UNREGISTERED} → {@code failed:UNREGISTERED}. 지표 tag 라 코드만 남긴다. */
+    private static String failedReason(String reason) {
+        if (reason == null) {
+            return "failed:unknown";
+        }
+        String code = reason.startsWith("fcm: ") ? reason.substring(5) : reason;
+        int space = code.indexOf(' ');
+        return "failed:" + (space > 0 ? code.substring(0, space) : code);
     }
 
     /**
@@ -209,11 +280,13 @@ public class JourneyNotificationOutboxStateService {
             }
             Instant nextAttemptAt = Instant.now(clock).plus(properties.backoff());
             if (n.getAttemptCount() >= properties.getMaxAttempts()) {
+                recordLost(n, "dead");
                 releaseAlertClaim(n);
                 n.markDead("max-retry: " + reason);
                 metrics.recordFailed(n.getChannel(), "dead");
             } else if (!nextAttemptAt.isBefore(n.getExpiresAt())) {
                 // 재시도 시각이 만료를 넘긴다. 보내 봐야 엉뚱한 때에 도착한다.
+                recordLost(n, "expired-before-retry");
                 releaseAlertClaim(n);
                 n.markCanceled("expired-before-retry");
                 metrics.recordCanceled("expired");
@@ -246,6 +319,7 @@ public class JourneyNotificationOutboxStateService {
             if (n.getStatus() != JourneyNotificationStatus.PROCESSING) {
                 return;
             }
+            recordLost(n, failedReason(reason));
             releaseAlertClaim(n);
             n.markFailed(reason);
             metrics.recordFailed(n.getChannel(), "permanent");

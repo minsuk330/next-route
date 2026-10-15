@@ -32,6 +32,22 @@ public class JourneyNotificationMetrics {
     public static final String DELIVERY_LAG = "journey.notification.delivery-lag";
     public static final String ENQUEUED_DELIVERY = "journey.notification.enqueued.delivery";
     public static final String ALERT_CLAIM = "journey.notification.alert.claim";
+    public static final String E2E = "journey.notification.e2e";
+    public static final String E2E_UNMEASURED = "journey.notification.e2e.unmeasured";
+    public static final String HOLD = "journey.notification.hold";
+    public static final String LOST = "journey.notification.lost";
+    public static final String SENT_AFTER_EXPIRY = "journey.notification.sent.after-expiry";
+
+    /**
+     * 처음부터 끝까지 지연 구간(#446). 감지 SLO(긴급 15초·주의 30초·여유 120초)와 합치기 창 보류(17·32초)를 가를 수 있게
+     * 촘촘히 둔다.
+     */
+    private static final Duration[] E2E_SLO = {
+            Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofSeconds(3), Duration.ofSeconds(5),
+            Duration.ofMillis(7500), Duration.ofSeconds(10), Duration.ofSeconds(15), Duration.ofSeconds(20),
+            Duration.ofSeconds(25), Duration.ofSeconds(30), Duration.ofSeconds(45), Duration.ofSeconds(60),
+            Duration.ofSeconds(90), Duration.ofSeconds(120), Duration.ofSeconds(180), Duration.ofSeconds(300),
+            Duration.ofSeconds(600)};
 
     /** 적재→발송 지연 구간. 감지 SLO 와 같은 단위로 읽도록 초 단위 경계를 둔다. */
     private static final Duration[] DELIVERY_SLO = {
@@ -130,5 +146,51 @@ public class JourneyNotificationMetrics {
      */
     public void recordAlertClaim(String outcome) {
         registry.counter(ALERT_CLAIM, "outcome", outcome).increment();
+    }
+
+    /**
+     * 처음 본 시각 → 발송 접수(#446 알림 SLO "제때"). 합치기 창 보류가 들어 있다 — 보류만 따로 {@link #recordHold} 로 본다.
+     *
+     * @param tier     처음 본 순간의 등급(URGENT·CAUTION·RELAXED)
+     * @param delivery ALERTING·QUIET·none(피로 정책 꺼짐)
+     * @param source   feed(변화 피드가 처음 봄) · evaluation(표시 없음 — 평가 시작부터라 하한)
+     */
+    public void recordE2e(String tier, JourneyCheckpoint checkpoint, String delivery, String source, Duration lag) {
+        Timer.builder(E2E)
+                .tag("tier", tier).tag("checkpoint", checkpoint.name())
+                .tag("delivery", delivery).tag("source", source)
+                .serviceLevelObjectives(E2E_SLO)
+                .register(registry)
+                .record(lag.isNegative() ? Duration.ZERO : lag);
+    }
+
+    /** 처음 본 시각이 payload 에 없어 처음부터 끝까지를 못 잰 발송(재탐색·보드·접근 알림, 정책 이전 행). */
+    public void recordE2eUnmeasured(JourneyCheckpoint checkpoint) {
+        registry.counter(E2E_UNMEASURED, "checkpoint", checkpoint.name()).increment();
+    }
+
+    /** 합치기 창 보류 = 발송 예정 − 적재(의도된 지연). 처음부터 끝까지 지연에서 이만큼은 설계다. */
+    public void recordHold(JourneyCheckpoint checkpoint, String delivery, Duration hold) {
+        Timer.builder(HOLD)
+                .tag("checkpoint", checkpoint.name()).tag("delivery", delivery)
+                .serviceLevelObjectives(E2E_SLO)
+                .register(registry)
+                .record(hold.isNegative() ? Duration.ZERO : hold);
+    }
+
+    /**
+     * 보냈어야 했는데 못 보낸 행(#446 알림 SLO "빠짐없이"). 만료·재시도 전 만료·DEAD·영구 실패. 대체·회복·여정 종료·경로
+     * 변경·lease 만료 취소는 정상이라 여기 오지 않는다. SLO 는 울림(ALERTING·none) 위험·재탐색만 센다 — 접근·조용한 갱신도
+     * tag 로 남겨 둔다.
+     *
+     * @param reason {@code expired}·{@code expired-before-retry}·{@code dead}·{@code failed:<코드>}
+     */
+    public void recordLost(JourneyCheckpoint checkpoint, String delivery, String reason) {
+        registry.counter(LOST, "checkpoint", checkpoint.name(), "delivery", delivery, "reason", reason).increment();
+    }
+
+    /** 만료 시각을 넘겨 접수된 발송(#446 "낡지 않게"). 발송 직전 재확인 뒤 공급자 왕복이 길면 생길 수 있다. 0 이어야 한다. */
+    public void recordSentAfterExpiry(JourneyCheckpoint checkpoint) {
+        registry.counter(SENT_AFTER_EXPIRY, "checkpoint", checkpoint.name()).increment();
     }
 }

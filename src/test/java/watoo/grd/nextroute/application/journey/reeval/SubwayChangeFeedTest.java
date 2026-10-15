@@ -46,7 +46,7 @@ class SubwayChangeFeedTest {
         given(index.watched(GANGNAM_INNER)).willReturn(true);
         given(index.journeysFor(anyCollection()))
                 .willReturn(Map.of(ReevaluationTier.URGENT, Set.of(7L)));
-        given(trigger.request(any())).willReturn(new TriggerResult(Set.of(7L), Set.of()));
+        given(trigger.request(any(), any())).willReturn(new TriggerResult(Set.of(7L), Set.of()));
         feed = new SubwayChangeFeed(properties, index, trigger, cache, lease,
                 new JourneyReevalMetrics(registry));
     }
@@ -57,7 +57,7 @@ class SubwayChangeFeedTest {
         feed.onSnapshot(List.of(train("T1", "99", "역삼", 120)));
         feed.onSnapshot(List.of(train("T1", "99", "역삼", 120)));
 
-        verify(trigger, never()).request(any());
+        verify(trigger, never()).request(any(), any());
     }
 
     @Test
@@ -66,7 +66,7 @@ class SubwayChangeFeedTest {
         feed.onSnapshot(List.of(train("T1", "99", "역삼", 120)));
         feed.onSnapshot(List.of(train("T1", "99", "역삼", 0)));
 
-        verify(trigger, never()).request(any());
+        verify(trigger, never()).request(any(), any());
     }
 
     @Test
@@ -77,7 +77,7 @@ class SubwayChangeFeedTest {
 
         InOrder order = inOrder(cache, trigger);
         order.verify(cache).evict("강남");
-        order.verify(trigger).request(Map.of(ReevaluationTier.URGENT, Set.of(7L)));
+        order.verify(trigger).request(org.mockito.ArgumentMatchers.eq(Map.of(ReevaluationTier.URGENT, Set.of(7L))), any());
     }
 
     @Test
@@ -86,7 +86,7 @@ class SubwayChangeFeedTest {
         feed.onSnapshot(List.of(train("T1", "1", "강남", 0), train("T2", "99", "서초", 200)));
         feed.onSnapshot(List.of(train("T1", "2", "강남", 0), train("T2", "99", "서초", 150)));
 
-        verify(trigger).request(any());
+        verify(trigger).request(any(), any());
     }
 
     @Test
@@ -96,14 +96,14 @@ class SubwayChangeFeedTest {
         feed.onSnapshot(List.of(train("T1", "99", "역삼", 120)));
         feed.onSnapshot(List.of(train("T1", "0", "강남", 30)));
 
-        verify(trigger, never()).request(any());
+        verify(trigger, never()).request(any(), any());
         verify(cache, never()).evict(any());
     }
 
     @Test
     @DisplayName("반영 못 한 여정이 있으면 다음 스냅숏에서 같은 변화를 다시 보낸다")
     void deferredIsResent() {
-        given(trigger.request(any()))
+        given(trigger.request(any(), any()))
                 .willReturn(new TriggerResult(Set.of(), Set.of(7L)))
                 .willReturn(new TriggerResult(Set.of(7L), Set.of()));
         feed.onSnapshot(List.of(train("T1", "99", "역삼", 120)));
@@ -111,7 +111,7 @@ class SubwayChangeFeedTest {
         feed.onSnapshot(List.of(train("T1", "0", "강남", 30)));
         feed.onSnapshot(List.of(train("T1", "0", "강남", 30)));
 
-        verify(trigger, org.mockito.Mockito.times(2)).request(any());
+        verify(trigger, org.mockito.Mockito.times(2)).request(any(), any());
     }
 
     @Test
@@ -122,7 +122,7 @@ class SubwayChangeFeedTest {
         feed.onSnapshot(List.of(train("T1", "0", "강남", 30)));
 
         verify(cache, never()).evict(any());
-        verify(trigger).request(any());
+        verify(trigger).request(any(), any());
     }
 
     @Test
@@ -143,7 +143,7 @@ class SubwayChangeFeedTest {
         given(lease.epoch()).willReturn(2L);
         feed.onSnapshot(List.of(train("T1", "0", "강남", 30)));
 
-        verify(trigger, never()).request(any());
+        verify(trigger, never()).request(any(), any());
     }
 
     @Test

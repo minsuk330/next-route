@@ -97,6 +97,24 @@ public class JourneyNotificationProperties {
 
     private final Fatigue fatigue = new Fatigue();
 
+    private final E2e e2e = new E2e();
+
+    /**
+     * 처음부터 끝까지 지표(#446). 변화 피드가 처음 본 시각을 여정마다 Redis 에 남기고, 평가가 그것을 꺼내 위험 알림
+     * payload 에 싣고, 발송 접수 때 {@code journey.notification.e2e} 로 잰다.
+     *
+     * <p>측정 전용이다. 끄면 표시를 남기지도 꺼내지도 않는다 — payload 의 처음 본 시각은 평가 시작 시각(하한)으로만 남는다.
+     */
+    @Getter
+    @Setter
+    public static class E2e {
+
+        private boolean enabled = true;
+
+        /** 아무 평가도 소비하지 않은 표시의 수명. 여정이 끝나 평가가 없으면 이 시간 뒤 사라진다. */
+        private long stampTtlSeconds = 600;
+    }
+
     /**
      * 악화 알림 피로 정책(#428). 경로 버전마다 울림 한 번, 그 뒤는 조용한 갱신.
      *
@@ -241,6 +259,9 @@ public class JourneyNotificationProperties {
         validateApproach();
         validateFcm();
         validateFatigue();
+        if (e2e.getStampTtlSeconds() <= 0) {
+            throw new IllegalStateException("journey.notification.e2e.stamp-ttl-seconds 는 0 보다 커야 한다");
+        }
     }
 
     private void validateFatigue() {

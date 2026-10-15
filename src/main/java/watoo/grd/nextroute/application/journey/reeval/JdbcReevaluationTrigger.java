@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.journey.reeval;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -8,6 +9,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionTemplate;
 import watoo.grd.nextroute.application.journey.observability.JourneyReevalMetrics;
+import watoo.grd.nextroute.application.journey.port.out.DetectionStampPort;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository.ReevaluationRow;
 
@@ -54,12 +56,24 @@ public class JdbcReevaluationTrigger implements ReevaluationTrigger {
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
     private final ReevaluationWakeCap wakeCap;
+    private final DetectionStampPort detectionStamps;
 
     public JdbcReevaluationTrigger(JourneySessionRepository sessionRepository,
                                    ReevaluationProperties properties,
                                    JourneyReevalMetrics metrics,
                                    PlatformTransactionManager transactionManager,
                                    Clock clock) {
+        this(sessionRepository, properties, metrics, transactionManager, clock, DetectionStampPort.NONE);
+    }
+
+    @Autowired
+    public JdbcReevaluationTrigger(JourneySessionRepository sessionRepository,
+                                   ReevaluationProperties properties,
+                                   JourneyReevalMetrics metrics,
+                                   PlatformTransactionManager transactionManager,
+                                   Clock clock,
+                                   DetectionStampPort detectionStamps) {
+        this.detectionStamps = detectionStamps;
         this.sessionRepository = sessionRepository;
         this.properties = properties;
         this.metrics = metrics;
@@ -73,6 +87,11 @@ public class JdbcReevaluationTrigger implements ReevaluationTrigger {
 
     @Override
     public TriggerResult request(Map<ReevaluationTier, Set<Long>> journeysByTier) {
+        return request(journeysByTier, null);
+    }
+
+    @Override
+    public TriggerResult request(Map<ReevaluationTier, Set<Long>> journeysByTier, Instant observedAt) {
         Map<ReevaluationTier, Set<Long>> byTier = dedupeToMostUrgent(journeysByTier);
         Set<Long> all = new HashSet<>();
         byTier.values().forEach(all::addAll);
@@ -81,6 +100,11 @@ public class JdbcReevaluationTrigger implements ReevaluationTrigger {
         }
         if (!properties.isEnabled()) {
             return new TriggerResult(Set.of(), all);
+        }
+        if (observedAt != null && !properties.isShadow()) {
+            // 처음 본 시각(#446). 미뤄질 여정에도 남긴다 — 다음 수집에 다시 와도, 그 사이 간격 폴링이 먼저 평가해도
+            // 그 평가가 이 시각을 꺼내 "처음 본 → 접수" 를 잰다. 이미 있으면 그대로(더 이른 관측).
+            detectionStamps.stamp(byTier, observedAt);
         }
 
         Instant now = Instant.now(clock);
