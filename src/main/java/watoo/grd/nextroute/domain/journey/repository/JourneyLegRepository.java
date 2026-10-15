@@ -19,6 +19,18 @@ public interface JourneyLegRepository extends JpaRepository<JourneyLeg, Long> {
             Long journeyId, int routeRevision);
 
     /**
+     * 이 개정본에 주어진 종류의 단계가 하나라도 있는지. 평가기가 어느 공급자 슬롯(버스·지하철)을 잡을지 고르는 데
+     * 쓴다(#427 처방 2차). 지난 단계도 센다 — 평가기는 지난 환승도 다시 판정하므로 보수적으로 본다.
+     */
+    @Query("""
+            select count(l) > 0 from JourneyLeg l
+             where l.journeyId = :journeyId and l.routeRevision = :routeRevision
+               and l.deletedAt is null and l.type in :types
+            """)
+    boolean existsLegOfTypes(@Param("journeyId") Long journeyId, @Param("routeRevision") int routeRevision,
+                             @Param("types") java.util.Collection<watoo.grd.nextroute.domain.journey.entity.JourneyLegType> types);
+
+    /**
      * 더 최신 관측일 때만 progress 요약을 덮어쓴다.
      *
      * <p>여정 행을 잠그지 않는 것이 핵심이다. progress 는 여정마다 15초에 한 번씩 들어오는데

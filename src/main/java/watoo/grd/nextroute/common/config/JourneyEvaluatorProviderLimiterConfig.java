@@ -7,7 +7,7 @@ import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties
 import java.util.concurrent.Semaphore;
 
 /**
- * 평가기가 동시에 외부 provider 를 부를 수 있는 수를 제한하는 Semaphore.
+ * 평가기가 동시에 외부 provider 를 부를 수 있는 수를 제한하는 Semaphore. 버스 몫과 지하철 몫 두 개다.
  *
  * <p>버스 API 호출은 검색 요청과 공용 Semaphore({@code busSearchConcurrencyLimiter}, permit 8)를
  * 나눠 쓴다. 지금 평가기가 permit 을 최대 4개까지만 쥐는 이유는 워커 스레드가 4개이기 때문이지,
@@ -28,5 +28,15 @@ public class JourneyEvaluatorProviderLimiterConfig {
     @Bean("journeyEvaluatorProviderLimiter")
     public Semaphore journeyEvaluatorProviderLimiter(JourneyEvaluatorProperties properties) {
         return new Semaphore(properties.getProviderPermits(), true);
+    }
+
+    /**
+     * 버스 단계가 없는 여정(지하철·도보)의 평가 슬롯(#427 처방 2차). 지하철 실시간 도착은 일일 한도가 없어 버스 몫
+     * ({@code journeyEvaluatorProviderLimiter})과 나눠 넓게 둔다 — 한 Semaphore 로 두면 지하철 여정이 버스 몫을
+     * 다 쓰거나, 버스 몫에 맞춰 지하철까지 좁아진다.
+     */
+    @Bean("journeyEvaluatorSubwayProviderLimiter")
+    public Semaphore journeyEvaluatorSubwayProviderLimiter(JourneyEvaluatorProperties properties) {
+        return new Semaphore(properties.getSubwayProviderPermits(), true);
     }
 }

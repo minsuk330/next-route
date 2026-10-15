@@ -68,6 +68,9 @@ class JourneyEvaluationIT {
     @Autowired JourneyEvaluationService evaluationService;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired @Qualifier("journeyEvaluatorProviderLimiter") java.util.concurrent.Semaphore providerLimiter;
+    @Autowired @Qualifier("journeyEvaluatorSubwayProviderLimiter") java.util.concurrent.Semaphore subwayProviderLimiter;
+    @Autowired watoo.grd.nextroute.application.journey.service.JourneyEvaluationContextLoader contextLoader;
+    @Autowired watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository legRepository;
     @MockBean RouteSearchSnapshotPort snapshotPort;
     @MockBean PredictTransferUseCase predictTransferUseCase;
 
@@ -328,6 +331,52 @@ class JourneyEvaluationIT {
         } finally {
             providerLimiter.release(permits);
         }
+    }
+
+    // ── 공급자 슬롯 나누기(#427 처방 2차) ──────────────────────────────────────
+
+    @Test
+    @DisplayName("슬롯을 못 잡으면 선점을 풀어 몇 초 뒤 다시 잡히게 한다 — lease(60초) 만료를 기다리지 않는다")
+    void releasesClaimWhenProviderSlotUnavailable() {
+        givenRealtimeArrival(600);
+        JourneyDueClaim claim = claim();
+        int permits = providerLimiter.drainPermits();
+        try {
+            assertThat(evaluationService.evaluate(claim).result()).isEqualTo(Result.SKIPPED);
+        } finally {
+            providerLimiter.release(permits);
+        }
+
+        assertThat(nextEvaluationAt()).isBefore(claim.leaseUntil());
+        assertThat(secondsUntilNextEvaluation()).isBetween(0L, 5L);
+        assertThat(jdbcTemplate.queryForObject(
+                "select evaluation_claimed_until from journey_session where id = ?", Instant.class, journeyId))
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("버스 여정은 버스 몫 슬롯을 쓴다 — 지하철 몫이 다 차도 평가된다")
+    void busJourneyUsesBusGateOnly() {
+        givenRealtimeArrival(600);
+        JourneyDueClaim claim = claim();
+        int permits = subwayProviderLimiter.drainPermits();
+        try {
+            assertThat(evaluationService.evaluate(claim).result()).isEqualTo(Result.EVALUATED);
+        } finally {
+            subwayProviderLimiter.release(permits);
+        }
+    }
+
+    @Test
+    @DisplayName("슬롯 고르기의 근거: 버스 단계가 있으면 버스 몫, 지하철 단계만 찾으면 없다")
+    void contextMarksBusProvider() {
+        assertThat(contextLoader.load(journeyId)).get()
+                .extracting(c -> c.usesBusProvider()).isEqualTo(true);
+        int revision = jdbcTemplate.queryForObject(
+                "select route_revision from journey_session where id = ?", Integer.class, journeyId);
+        assertThat(legRepository.existsLegOfTypes(journeyId, revision, java.util.EnumSet.of(
+                watoo.grd.nextroute.domain.journey.entity.JourneyLegType.WAIT_SUBWAY,
+                watoo.grd.nextroute.domain.journey.entity.JourneyLegType.RIDE_SUBWAY))).isFalse();
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────

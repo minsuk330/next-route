@@ -1,6 +1,8 @@
 package watoo.grd.nextroute.common.config;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -29,9 +31,27 @@ import java.util.concurrent.Semaphore;
 @Configuration
 public class ApiClientConfig {
 
+	/**
+	 * 공용 RestTemplate(서울 지하철·버스 등).
+	 *
+	 * <p><b>연결 풀 크기를 직접 정한다(#427 처방 2차).</b> 기본(Apache HttpClient 5)은 호스트당 5개·전체 25개라,
+	 * 평가 워커를 16 으로 올리면 같은 호스트(서울 지하철 API)를 부르는 평가가 5개 넘게는 풀에서 줄을 선다 — 워커를
+	 * 늘려도 숨은 동시성 상한 5 에 걸린다. 공급자별 동시 호출은 여기가 아니라 평가기·검색의 Semaphore 가 묶는다(버스는
+	 * 평가기 4 + 검색 8). 이 풀은 그보다 넉넉하기만 하면 된다.
+	 */
 	@Bean
-	public RestTemplate restTemplate(RestTemplateBuilder builder) {
+	public RestTemplate restTemplate(RestTemplateBuilder builder,
+									 @Value("${external-api.rest-template.max-conn-per-route:32}") int maxPerRoute,
+									 @Value("${external-api.rest-template.max-conn-total:64}") int maxTotal) {
+		return pooledRestTemplate(builder, maxPerRoute, maxTotal);
+	}
+
+	static RestTemplate pooledRestTemplate(RestTemplateBuilder builder, int maxPerRoute, int maxTotal) {
 		return builder
+				.requestFactoryBuilder(ClientHttpRequestFactoryBuilder.httpComponents()
+						.withConnectionManagerCustomizer(pool -> pool
+								.setMaxConnPerRoute(maxPerRoute)
+								.setMaxConnTotal(Math.max(maxTotal, maxPerRoute))))
 				.connectTimeout(Duration.ofSeconds(5))
 				.readTimeout(Duration.ofSeconds(30))
 				// 외부 API 응답을 gzip 으로 받는다 — 서울 지하철 위치 API 는 10배 작다(수신 트래픽 월 2TB 상한).

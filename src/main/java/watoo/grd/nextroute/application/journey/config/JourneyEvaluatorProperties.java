@@ -126,8 +126,18 @@ public class JourneyEvaluatorProperties {
      */
     private int unchangedBackoffMultiplier = 2;
 
-    /** 평가 worker 스레드 수. */
-    private int poolSize = 4;
+    /**
+     * 평가 worker 스레드 수.
+     *
+     * <p>4 → 16(#427 처방 2차). 지하철 사다리 6,000 에서 평가 1건 70ms × 워커 4 ≈ 초당 57건 상한에 49.8건/s 로
+     * 붙었다. 평가는 외부 조회(I/O)를 기다리는 시간이 대부분이라 워커를 늘리면 처리량이 따라 오른다. 공급자 동시
+     * 호출은 워커 수가 아니라 아래 공급자 슬롯({@link #providerPermits}·{@link #subwayProviderPermits})이 묶는다
+     * — 워커를 늘려도 버스 몫은 그대로다.
+     *
+     * <p>가상 스레드는 쓰지 않는다. 동시성은 어차피 슬롯(최대 16)이 묶어 스레드 16개로 충분하고, 평가 경로의
+     * {@code synchronized}(드라이버·클라이언트 라이브러리)에서 캐리어 스레드가 묶이는(pinning, Java 21) 위험만 는다.
+     */
+    private int poolSize = 16;
 
     /**
      * worker 대기 큐 길이. 넘치면 그 tick 은 포기하고 다음 tick 에 다시 잡는다.
@@ -138,13 +148,27 @@ public class JourneyEvaluatorProperties {
     private int queueCapacity = 400;
 
     /**
-     * 평가기가 동시에 외부 provider 를 부를 수 있는 수.
+     * 평가기가 동시에 <b>버스(한도 있는) 공급자</b>를 부를 수 있는 수 — 버스 단계가 있는 여정의 평가 슬롯.
      *
-     * <p>버스 API 호출은 검색 요청과 공용 Semaphore(permit 8)를 나눠 쓴다. 그 앞에 평가기 전용
+     * <p>버스 API 호출은 검색 요청과 공용 Semaphore(permit 8)를 나눠 쓰고, 일일 한도도 있다. 그 앞에 평가기 전용
      * Semaphore 를 두어 <b>워커 스레드 수와 provider 동시 호출 수를 분리한다.</b> 이것이 없으면
-     * 처리량을 올리려고 {@link #poolSize} 를 키우는 순간 검색 요청 몫이 조용히 줄어든다.
+     * 처리량을 올리려고 {@link #poolSize} 를 키우는 순간 검색 요청 몫이 조용히 줄어든다. 워커를 16 으로 올려도
+     * 이 값은 예전 실효값(워커 4 = 동시 4)을 그대로 둔다.
      */
     private int providerPermits = 4;
+
+    /**
+     * 버스 단계가 <b>없는</b> 여정(지하철·도보만)의 평가 슬롯(#427 처방 2차). 서울 지하철 실시간 도착은 일일 한도가
+     * 없어(사용자 확인) 버스 몫과 따로 넓게 둔다. 워커 수와 같게 두면 지하철 여정은 워커 수만큼 동시에 돈다.
+     */
+    private int subwayProviderPermits = 16;
+
+    /**
+     * 슬롯을 못 잡은 여정을 몇 초 뒤 다시 잡을지(#427 처방 2차). 예전에는 선점(lease 60초)이 만료될 때까지 아무도
+     * 손대지 않았다 — 워커가 슬롯보다 많아지면(16 대 버스 4) 버스 여정이 몰릴 때마다 60초씩 밀린다. 선점을
+     * 풀어 이만큼 뒤로 되돌린다.
+     */
+    private long slotRetrySeconds = 2;
 
     /** provider 슬롯을 기다리는 시간. 넘으면 이번 여정은 건너뛰고 선점 만료 후 다시 잡는다. */
     private long providerAcquireMs = 300;
@@ -231,7 +255,8 @@ public class JourneyEvaluatorProperties {
 
     /** 평가기가 사용자 요청 자원을 밀어내지 않게 하는 값들의 관계. */
     private void validateResilience() {
-        if (providerPermits <= 0 || providerAcquireMs <= 0 || predictDeadlineMs <= 0
+        if (providerPermits <= 0 || subwayProviderPermits <= 0 || slotRetrySeconds <= 0
+                || providerAcquireMs <= 0 || predictDeadlineMs <= 0
                 || unknownGraceSeconds <= 0) {
             throw new IllegalStateException("평가기 격리 설정은 모두 0 보다 커야 한다");
         }
