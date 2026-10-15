@@ -38,6 +38,13 @@ class ReevaluationDefaultsTest {
                     assertThat(properties.minGapSeconds(ReevaluationTier.CAUTION)).isEqualTo(10);
                     assertThat(properties.minGapSeconds(ReevaluationTier.RELAXED)).isEqualTo(30);
                     assertThat(properties.getShedBacklogThreshold()).isEqualTo(200);
+                    // #427 처방 2차: 깨우기 상한은 처리량으로 계산, 바닥 = 예전 고정값
+                    assertThat(properties.getWakeCapMode())
+                            .isEqualTo(ReevaluationProperties.WakeCapMode.CAPACITY);
+                    assertThat(properties.getWakeCapMin()).isEqualTo(500);
+                    assertThat(properties.getWakeCapMax()).isEqualTo(5000);
+                    assertThat(properties.getWakeHorizonSeconds()).isEqualTo(15);
+                    assertThat(properties.getWakeHeadroom()).isEqualTo(1.5);
                 });
     }
 

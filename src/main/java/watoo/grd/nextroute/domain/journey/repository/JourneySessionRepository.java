@@ -475,6 +475,25 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
     long countOverdueSince(@Param("before") Instant before);
 
     /**
+     * {@code since} 이후 판정을 저장한 진행 중 여정 수 — 평가기 무리(인스턴스 전체)의 최근 처리량을 재는 데 쓴다
+     * (#427 처방 2차, 재평가 깨우기 상한).
+     *
+     * <p><b>인스턴스 전체 값이다.</b> 어느 인스턴스의 워커가 평가했든 {@code finishEvaluation} 이 같은 행의
+     * {@code last_evaluated_at} 을 쓰므로, 감시자(리더 한 대)가 이것 하나로 무리 전체의 처리량을 본다. Redis
+     * 카운터를 따로 두면 평가 한 건마다 쓰기가 하나 늘고 실패 경로도 하나 는다.
+     *
+     * <p><b>하한값이다.</b> 창 안에 두 번 평가된 여정도 한 번으로 센다(여정당 마지막 평가 시각만 남는다). 창을
+     * 최소 평가 간격(트리거 긴급 5초·폴링 10초) 근처로 짧게 두면 차이가 작다. 진행 중 행만 훑는다 — 수천 행이고,
+     * 부르는 쪽이 몇 초씩 캐시한다.
+     */
+    @Query(value = """
+            SELECT count(*) FROM journey_session
+             WHERE status = 'ACTIVE' AND deleted_at IS NULL
+               AND last_evaluated_at >= :since
+            """, nativeQuery = true)
+    long countEvaluatedSince(@Param("since") Instant since);
+
+    /**
      * 탈퇴: 그 사용자의 여정을 소프트 삭제한다. 여정 기록은 남기되 조회·발송에서 빠지게 한다
      * (due 쿼리가 {@code deleted_at IS NULL} 을 본다). 물리 삭제하지 않는 이유는 ADR 0001 참조.
      */

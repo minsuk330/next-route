@@ -33,8 +33,55 @@ public class ReevaluationProperties {
     private long cautionMinGapSeconds = 10;
     private long relaxedMinGapSeconds = 30;
 
-    /** 한 번 요청에 앞당길 여정 수 상한. 노선 장애처럼 한꺼번에 몰릴 때 선점 풀을 덮지 않게 한다. */
+    /**
+     * 한 번 요청에 앞당길 여정 수 상한. 노선 장애처럼 한꺼번에 몰릴 때 선점 풀을 덮지 않게 한다.
+     *
+     * <p>{@link WakeCapMode#FIXED} 면 이 값이 그대로 상한이다. {@link WakeCapMode#CAPACITY}(기본)에서는
+     * 쓰지 않는다 — 대신 {@link #wakeCapMin}·{@link #wakeCapMax} 사이에서 처리량으로 계산한다.
+     */
     private int maxJourneysPerRequest = 500;
+
+    /** 깨우기 상한을 어떻게 정하나(#427 처방 2차). */
+    public enum WakeCapMode {
+        /** 고정값 {@code max-journeys-per-request}. 예전 동작이고, 되돌릴 때 쓴다. */
+        FIXED,
+        /** 최근 평가기 처리량 × 다음 수집까지 시간 × 여유 배수를 {@code [min, max]} 로 자른 값. */
+        CAPACITY
+    }
+
+    /**
+     * 깨우기 상한 방식. 고정 500 은 지하철 사다리 2,000 에서 평가기가 남는데도(예정→시작 p95 13초) 매 수집 정확히
+     * 500 만 깨우고 29,217 건을 넘겼다 — 상한이 평가기가 아니라 숫자 하나에 묶여 있었다.
+     */
+    private WakeCapMode wakeCapMode = WakeCapMode.CAPACITY;
+
+    /**
+     * 다음 수집까지 시간(초) — 이번에 깨운 여정을 평가기가 이 안에 처리하면 다음 수집과 겹치지 않는다. 주 호출자인
+     * 지하철 수집 주기({@code realtime.subway.poll-interval-ms} 15초)와 맞춘다.
+     */
+    private long wakeHorizonSeconds = 15;
+
+    /**
+     * 처리량 × 시간에 곱하는 여유 배수. 1 보다 커야 한다 — 재는 처리량은 "할 수 있는 만큼"이 아니라 "실제로 한
+     * 만큼"이라, 1 이하면 일이 적을 때 잰 낮은 처리량이 상한을 낮추고 낮은 상한이 다시 처리량을 낮추는 하강
+     * 되먹임이 된다. 1.5 면 수집마다 한 칸씩 위로 더듬어 올라가고, 넘친 만큼은 포화 차단(shed)이 막는다.
+     */
+    private double wakeHeadroom = 1.5;
+
+    /** 계산 상한의 바닥. 막 켜져 처리량을 모를 때(콜드 스타트)·셀 수 없을 때도 이 값. 예전 고정값과 같다. */
+    private int wakeCapMin = 500;
+
+    /** 계산 상한의 천장. 노선 장애로 몰릴 때 선점 풀을 한꺼번에 덮지 않게 한다. */
+    private int wakeCapMax = 5000;
+
+    /**
+     * 처리량을 재는 창(초). 최근 이 시간 안에 판정을 저장한 여정 수 ÷ 이 시간. 여정당 마지막 평가 시각만 남아
+     * 창 안의 두 번째 평가는 안 세어지므로(하한), 최소 평가 간격(10초) 근처로 짧게 둔다.
+     */
+    private long wakeRateWindowSeconds = 10;
+
+    /** 잰 처리량을 다시 재기까지(밀리초). 수집·감시 tick 마다 세지 않게. */
+    private long wakeRateCacheMs = 5000;
 
     /** 예정보다 이만큼 넘게 밀린 여정 수를 포화 신호로 센다. */
     private long shedBacklogAgeSeconds = 30;

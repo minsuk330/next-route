@@ -150,6 +150,11 @@ woken = sum(pulled.values()) + sum(dirty.values())
 print(f'  수집 주기 {int(cyc)}회 | 비교 키 {int(compared)} · 바뀐 키 {int(events)} (이벤트÷조회 {events / max(1, compared):.3f})'
       f' | 깨운 여정 {woken} (주기당 {woken / max(1, cyc):.0f}) 앞당김 {pulled} dirty {dirty}'
       f' | 미룸 {by_label("journey_reeval_deferred_total", "reason")}')
+cap_n = s('journey_reeval_wake_cap_chosen_count')
+if cap_n:
+    # #427 처방 2차: 처리량으로 계산한 깨우기 상한(요청마다 분포) + 끝 시점 게이지(상한·처리량)
+    print(f'  깨우기 상한 평균 {s("journey_reeval_wake_cap_chosen_sum") / cap_n:.0f} (요청 {int(cap_n)}회)'
+          f' | 끝 시점 상한 {end_gauge("journey_reeval_wake_cap"):.0f} · 처리량 {end_gauge("journey_reeval_wake_rate"):.1f}/s')
 print('  수집 1회', fmt('subway_realtime_collect_duration_seconds', 'collector="arrival"', 1000, 'ms'),
       '| 관심 색인 재구성', fmt('journey_reeval_interest_rebuild_seconds', '', 1000, 'ms'))
 print('[④ 평가기]')
