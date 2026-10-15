@@ -52,6 +52,42 @@ STATION_REFRESH_S = float(os.environ.get("SUBWAY_STATION_REFRESH_S", "5"))
 real_state = {"body": None, "rows": [], "at": 0.0, "latency": 0.6, "fetches": 0}
 real_lock = threading.Lock()
 
+# 알림 폭주(#446 실험 2). GET /storm/start?lines=1001,1002&seconds=240[&headway=60&horizon=2700] 로 켠다(하네스가 정한
+# 시각에). 켜진 동안 그 노선의 (노선, 역, 방향) 키마다 실제 열차 대신 headway 초 간격 가짜 열차를 낸다 — 사용자 준비 시각
+# 뒤 첫 열차의 여유가 늘 headway 미만(기본 60초 < 빠듯 기준 120초)이 돼, 그 노선 여정이 한 수집 주기 안에 일제히 빠듯
+# (AT_RISK)으로 뒤집힌다. 실제 열차 "지연"으로는 이 앱의 지하철 판정이 빠듯·놓침으로 안 바뀐다(준비 뒤 첫 열차를 고르므로
+# 늦어지면 여유가 커지거나 모름) — 그래서 배차를 좁혀 폭주를 만든다(노트 #446 함정).
+#  - 전 노선 ALL(수집기): 키마다 앞 두 대만 — 지문(열차 번호)이 바뀌어 변화 피드가 깨운다. 실제 API 도 방향당 두 대 안팎
+#  - 역별(평가기): horizon 초까지 전부 — 평가기가 준비 시각 뒤 첫 열차를 고를 수 있게
+# seconds 가 지나면 저절로 실제 열차로 돌아온다(회복 → 보류 중 알림 대체 취소가 정상 경로로 나온다).
+storm = {"lines": set(), "until": 0.0, "headway": 60, "horizon": 2700, "started": 0.0}
+
+
+def storm_rows(rows, now, full):
+    """폭주 창이면 폭주 노선 행을 가짜 열차로 바꾼 목록, 아니면 그대로."""
+    if not storm["lines"] or now >= storm["until"]:
+        return rows
+    out, templates = [], {}
+    for r in rows:
+        if r.get("subwayId") in storm["lines"]:
+            templates.setdefault((r.get("subwayId"), r.get("statnId"), r.get("updnLine")), r)
+        else:
+            out.append(r)
+    stamp = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    hw, t = storm["headway"], int(now)
+    first = (t // hw + 1) * hw
+    last = t + (storm["horizon"] if full else hw * 2)
+    for tpl in templates.values():
+        for arr in range(first, last + 1, hw):
+            r = dict(tpl)
+            # 열차 번호는 도착 시각에서 — 같은 열차는 다음 응답에서도 같은 번호(지문이 1분마다 한 번 바뀐다)
+            r.update(btrainNo=f"9{(arr // hw) % 10000:04d}", barvlDt=str(arr - t), arvlCd="99",
+                     arvlMsg2=f"{(arr - t) // 60}분 후 (폭주)", arvlMsg3=tpl.get("statnNm"), recptnDt=stamp)
+            out.append(r)
+    with lock:
+        counts["storm_rows"] = counts.get("storm_rows", 0) + len(templates)
+    return out
+
 
 def fetch_real_all(key):
     import urllib.request
@@ -139,6 +175,14 @@ class Handler(BaseHTTPRequestHandler):
             # 심은 노선(LOAD-ROUTE-n)을 모델 지원 노선으로 알린다 — 먼 환승은 ML 경로를 탄다(운영과 같은 갈래)
             cats = [f"LOAD-ROUTE-{i}" for i in range(int(os.environ.get("LADDER_MAX_ROUTES", "30000")))]
             return self.send(json.dumps({"model_version": "ladder", "route_categories": cats}), "application/json")
+        if url.path.endswith("/storm/start"):
+            lines = {x for x in q.get("lines", "").split(",") if x}
+            with lock:
+                storm.update(lines=lines, started=time.time(), until=time.time() + float(q.get("seconds", "240")),
+                             headway=int(q.get("headway", "60")), horizon=int(q.get("horizon", "2700")))
+            print("storm start", lines, q, file=sys.stderr, flush=True)
+            return self.send(json.dumps({k: (sorted(v) if isinstance(v, set) else v) for k, v in storm.items()}),
+                             "application/json")
         if url.path.endswith("/counts"):
             return self.send(json.dumps(counts), "application/json")
         self.send_response(404)
@@ -179,8 +223,13 @@ class Handler(BaseHTTPRequestHandler):
             with lock:
                 counts["subway_all"] += 1
             body, rows = fetch_real_all(key)
+            served = storm_rows(rows, time.time(), full=False)
+            if served is not rows:
+                env = json.loads(body)
+                env["realtimeArrivalList"] = served
+                body = json.dumps(env, ensure_ascii=False)
             self.send(body, "application/json;charset=UTF-8")
-            SUBWAY_LOG.observe(rows, time.time())
+            SUBWAY_LOG.observe(served, time.time())
             return
         with lock:
             counts["subway_station"] += 1
@@ -204,6 +253,7 @@ class Handler(BaseHTTPRequestHandler):
         sleep_like(SUBWAY_MS)
         with real_lock:
             rows = [r for r in real_state["rows"] if r.get("statnNm") == name]
+        rows = storm_rows(rows, time.time(), full=True)
         return self.send(subway_model.envelope(rows), "application/json;charset=UTF-8")
 
     def read_body(self):

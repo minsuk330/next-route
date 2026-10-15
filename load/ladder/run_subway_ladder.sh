@@ -57,7 +57,11 @@ COMMON=(
   --journey.notification.fatigue.enabled=true
 )
 # 발송처·relay 는 운영에서도 worker 블록에만 있다(compose worker env_file 의 fcm.env). 여기선 FCM 대신 가짜 발송처.
-WORKER_ONLY=(--journey.notification.relay.enabled=true --journey.notification.sender=loadtest)
+# 접수 기록(push-*.tsv)은 worker 를 죽였다 살려도 이어 쓴다 — 재기동을 넘는 중복을 센다(#446).
+# PUSH_ARGS = 가짜 발송처 장애 주입(#446 실험 3, README). 전면 장애는 OUTAGE_* 로 하네스가 제어 파일에 시각을 적는다.
+OUTAGE_CTL=$OUT/outage-$LABEL.ctl; rm -f $OUTAGE_CTL $OUT/push-$LABEL.tsv
+WORKER_ONLY=(--journey.notification.relay.enabled=true --journey.notification.sender=loadtest
+  --loadtest.push.log-path=$OUT/push-$LABEL.tsv --loadtest.push.outage.control-file=$OUTAGE_CTL ${=PUSH_ARGS:-})
 # 지표를 긁을 JVM 들: "이름:포트". 한 JVM 이면 하나, SPLIT=1 이면 api·worker 둘.
 JVMS=(app:8080)
 if [[ ${SPLIT:-0} == 1 ]]; then
@@ -66,8 +70,16 @@ if [[ ${SPLIT:-0} == 1 ]]; then
   # worker JVM = 8081, 평가기·수집기·재평가·relay. 각자 Hikari 풀 20(기본값). 힙은 각 1g — 한 JVM 2g 를 반씩(합 동일).
   LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 java -Xmx1g -jar build/libs/*-SNAPSHOT.jar \
     --spring.profiles.active=dev,api --server.port=8080 $COMMON >$OUT/app-$LABEL.log 2>&1 & APP=$!
-  LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 java -Xmx1g -jar build/libs/*-SNAPSHOT.jar \
-    --spring.profiles.active=dev,worker,loadtest --server.port=8081 $COMMON $WORKER_ONLY >$OUT/app-$LABEL-worker.log 2>&1 & WORKER=$!
+  # worker 띄우기를 함수로 — 프로세스 장애 실험(CHAOS)이 같은 인자로 다시 띄운다. $1 = 로그 꼬리, 나머지 = 덧붙일 인자.
+  start_worker() {
+    local tail=$1; shift
+    LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 java -Xmx1g -jar build/libs/*-SNAPSHOT.jar \
+      --spring.profiles.active=dev,worker,loadtest --server.port=8081 $COMMON $WORKER_ONLY "$@" >$OUT/app-$LABEL-worker$tail.log 2>&1 &
+    echo $! >>$OUT/pids-$LABEL
+    WORKER=$!
+  }
+  : >$OUT/pids-$LABEL
+  start_worker ""
   JVMS=(api:8080 worker:8081)
 else
   LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 java -Xmx2g -jar build/libs/*-SNAPSHOT.jar \
@@ -108,6 +120,49 @@ rm -f $OUT/stop-cpu-$LABEL
   done >$OUT/cpu-$LABEL.tsv ) & CPUS=$!
 psqlq "select pg_stat_statements_reset()" >/dev/null
 T_FROM=$(date +%s)
+EVENTS=$OUT/events-$LABEL.tsv; : >$EVENTS
+ev() { printf '%s\t%s\n' "$(date +%s)" "$1" >>$EVENTS; }
+# 대기열 표본(#446): 5초마다 사다리 여정 알림의 보낼 때 된 PENDING·PENDING·PROCESSING·누적 SENT.
+rm -f $OUT/stop-queue-$LABEL
+( while [[ ! -e $OUT/stop-queue-$LABEL ]]; do
+    psqlq "select extract(epoch from now())::bigint,
+             count(*) filter (where n.status='PENDING' and n.scheduled_at <= now()),
+             count(*) filter (where n.status='PENDING'), count(*) filter (where n.status='PROCESSING'),
+             count(*) filter (where n.status='SENT')
+           from journey_notification n join journey_session s on s.id = n.journey_id
+          where s.destination_summary->>'ladder' = 'LOAD-ST'" 2>/dev/null
+    sleep 5
+  done >$OUT/queue-$LABEL.tsv ) & QUEUE=$!
+# 알림 폭주(#446 실험 2): 측정 시작 STORM_AT_S 초 뒤 STORM_LINES 노선의 배차를 좁혀 일제히 빠듯으로 뒤집는다.
+if [[ -n ${STORM_LINES:-} ]]; then
+  ( sleep ${STORM_AT_S:-120}
+    curl -s "localhost:18999/storm/start?lines=$STORM_LINES&seconds=${STORM_SECONDS:-240}" >/dev/null; ev storm-start
+    sleep ${STORM_SECONDS:-240}; ev storm-end ) &
+fi
+# 발송처 전면 장애(#446 실험 3c): 폭주 시작 OUTAGE_AFTER_STORM_S 초 뒤 OUTAGE_SECONDS 초 동안 모든 발송 실패.
+if [[ -n ${OUTAGE_SECONDS:-} ]]; then
+  ( sleep $(( ${STORM_AT_S:-120} + ${OUTAGE_AFTER_STORM_S:-15} ))
+    echo "$(date +%s) $OUTAGE_SECONDS ${OUTAGE_CODE:-UNAVAILABLE}" >$OUTAGE_CTL; ev outage-start
+    sleep $OUTAGE_SECONDS; ev outage-end ) &
+fi
+# 프로세스 장애(#446 실험 4, SPLIT=1 만): 폭주 시작 CHAOS_AFTER_STORM_S 초 뒤 worker 를 kill -9, RESTART_AFTER_S 초 뒤 다시 띄움.
+#  kill-worker  = 같은 인자로 재기동
+#  redis-down   = 닫힌 Redis 포트(1)로 재기동해 REDIS_DOWN_S 초 돌린 뒤 정상 종료하고 정상 인자로 재기동
+#                 (공유 st-redis 를 재시작하지 않으려고 "이 worker 만 Redis 를 못 보는" 장애로 흉내 낸다)
+if [[ -n ${CHAOS:-} && ${SPLIT:-0} == 1 ]]; then
+  ( sleep $(( ${STORM_AT_S:-120} + ${CHAOS_AFTER_STORM_S:-25} ))
+    kill -9 $WORKER; ev worker-kill9
+    sleep ${RESTART_AFTER_S:-8}
+    if [[ $CHAOS == redis-down ]]; then
+      start_worker "-noredis" --spring.data.redis.port=1; ev worker-start-noredis
+      sleep ${REDIS_DOWN_S:-90}
+      kill $WORKER; wait $WORKER 2>/dev/null; ev worker-stop-noredis
+      start_worker "-2"; ev worker-start
+    else
+      start_worker "-2"; ev worker-start
+    fi ) &
+  CHAOS_PID=$!
+fi
 wait $K6
 T_END=$(date +%s)
 
@@ -140,7 +195,23 @@ select count(*) from (select journey_id, route_revision from journey_notificatio
  where journey_id in (select id from journey_session where destination_summary->>'ladder' = 'LOAD-ST')
    and status = 'SENT' and checkpoint <> 'TRANSFER_TARGET_APPROACHING' and coalesce(payload->>'delivery', 'ALERTING') = 'ALERTING'
  group by 1, 2 having count(*) > 1) x" >$OUT/alerting-over1-$LABEL.txt
+# 알림 행 원본(#446) — 지우기 전에 뜬다. notification_slo.py 가 SLO 네 줄을 여기서 계산한다.
+touch $OUT/stop-queue-$LABEL; wait $QUEUE 2>/dev/null
+psqlq "
+select n.id, n.journey_id, n.route_revision, n.checkpoint, n.status, coalesce(n.payload->>'delivery', 'none'),
+       coalesce(n.payload->>'seenTier', ''), coalesce(n.payload->>'seenSource', ''),
+       coalesce(extract(epoch from (n.payload->>'firstSeenAt')::timestamptz)::text, ''),
+       coalesce(n.payload->>'holdMs', ''),
+       extract(epoch from (n.created_at at time zone 'Asia/Seoul')), extract(epoch from n.scheduled_at),
+       coalesce(extract(epoch from n.sent_at)::text, ''), extract(epoch from n.expires_at), n.attempt_count,
+       coalesce(n.last_failure_reason, '')
+  from journey_notification n join journey_session s on s.id = n.journey_id
+ where s.destination_summary->>'ladder' = 'LOAD-ST' order by n.id" >$OUT/notifrows-$LABEL.tsv
+[[ -n ${CHAOS_PID:-} ]] && wait $CHAOS_PID 2>/dev/null
 kill $APP $WORKER $FAKE 2>/dev/null; wait $APP $WORKER 2>/dev/null
+# 재기동한 worker 까지 남김없이(pids 파일), 그래도 남은 8081 은 끝낸다.
+[[ -s $OUT/pids-$LABEL ]] && kill $(cat $OUT/pids-$LABEL) 2>/dev/null
+sleep 2; pkill -f 'server.port=8081' 2>/dev/null
 
 # 6. 감지 지연(측정 창 = 워밍업 끝 ~ 끝 130초 전 — 여유 SLO 2분 안에 끝나지 못하는 꼬리를 미판정으로 세지 않게)
 python3 -I $HERE/subway_detection.py $OUT/changes-$LABEL.tsv $OUT/samples-$LABEL.tsv $OUT/seed-$LABEL.tsv \
@@ -153,5 +224,8 @@ LEFT_MARKED=$(psqlq "select count(*) from journey_session where destination_summ
 LEFT_TOKENS=$(psqlq "select count(*) from user_push_token where token like 'loadtest-%'")
 echo "leftover active_journeys=$LEFT ladder_journeys=$LEFT_MARKED loadtest_tokens=$LEFT_TOKENS" >$OUT/leftover-$LABEL.txt
 
+python3 -I $HERE/notification_slo.py $OUT/notifrows-$LABEL.tsv $OUT/queue-$LABEL.tsv $OUT/push-$LABEL.tsv \
+  $T_FROM $T_END $OUT/events-$LABEL.tsv >$OUT/slo-$LABEL.txt
 SPLIT=${SPLIT:-0} MODE=subway python3 -I $HERE/summarize.py $OUT/prom-start-$LABEL.txt $OUT/prom-$LABEL.txt $OUT/k6-$LABEL.json \
   $OUT/fake-$LABEL.json "$LABEL" $OUT | tee $OUT/summary-$LABEL.txt
+cat $OUT/slo-$LABEL.txt | tee -a $OUT/summary-$LABEL.txt

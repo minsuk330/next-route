@@ -59,3 +59,22 @@ MODE=subway REPO=$PWD OUT=load/ladder/out load/ladder/run_ladder.sh 2000 on 10m 
 ```bash
 SPLIT=1 MODE=subway RUN_TAG=split REPO=$PWD OUT=load/ladder/out load/ladder/run_ladder.sh 6000 on 10m 20
 ```
+
+## 알림 SLO 실험 (#446)
+
+지하철 사다리(`MODE=subway`, 보통 `SPLIT=1`)에 알림 쪽 부하·장애를 얹는다. 칸이 끝나면 `slo-<label>.txt`(요약 끝에도 붙음)에
+SLO 네 줄 — 제때(처음 본 → FCM 접수 p95, 등급별, 보류 따로)·한 번만·빠짐없이·낡지 않게 — 과 대기열·relay 처리량을 낸다
+(`notification_slo.py`). 결과 = `NOTIFICATION-SLO.md`.
+
+| 스위치(env) | 뜻 |
+|---|---|
+| `STORM_LINES=1001,1002,1075,1005` | 알림 폭주: 측정 시작 `STORM_AT_S`(120)초 뒤 그 노선들의 배차를 `STORM_SECONDS`(240)초 동안 60초 간격 가짜 열차로 바꿔(`/storm/start`) 그 노선 여정이 한 수집 주기 안에 일제히 빠듯이 된다. 끝나면 실제 열차로 돌아온다(회복 → 대체 취소) |
+| `PUSH_ARGS="--loadtest.push.latency-min-ms=2000 --loadtest.push.latency-max-ms=5000"` | 가짜 FCM 왕복을 [2, 5]초 고른 분포로 |
+| `PUSH_ARGS="--loadtest.push.errors=UNAVAILABLE:0.1,INTERNAL:0.05,QUOTA_EXCEEDED:0.05"` | 호출마다 코드별 비율로 실패. 영구 코드표는 FCM 발송처와 같음(`UNREGISTERED` 등은 영구, 그 밖 일시) |
+| `OUTAGE_SECONDS=60 OUTAGE_AFTER_STORM_S=15 [OUTAGE_CODE=UNAVAILABLE]` | 폭주 시작 15초 뒤 60초 동안 모든 발송 실패(하네스가 `outage-<label>.ctl` 에 시각을 적고 worker 가 1초마다 읽음) |
+| `CHAOS=kill-worker CHAOS_AFTER_STORM_S=25 RESTART_AFTER_S=8` | 폭주 시작 25초 뒤 worker `kill -9`, 8초 뒤 같은 인자로 재기동(`SPLIT=1` 만) |
+| `CHAOS=redis-down REDIS_DOWN_S=90` | 위처럼 죽인 뒤 Redis 포트 1(닫힘)로 재기동해 90초 돌리고, 정상 종료 → 정상 인자로 재기동. 공유 st-redis 는 건드리지 않는다 |
+
+- 기록 파일: `notifrows-*`(지우기 전 알림 행), `queue-*`(5초마다 보낼 때 된 PENDING·PENDING·PROCESSING·누적 SENT), `push-*`(가짜 발송처 접수 한 줄씩 — worker 를 죽였다 살려도 이어 써서 재기동을 넘는 중복을 센다), `events-*`(폭주·장애·kill 시각), `pids-*`(재기동한 worker 까지 칸 끝에 모두 끈다)
+- `CHAOS` 칸은 worker 지표가 재기동으로 0 부터 다시 쌓여 `summarize.py` 의 worker 차분이 틀린다 — SLO 는 DB·접수 기록으로 본다
+- 예: `SPLIT=1 MODE=subway RUN_TAG=storm STORM_LINES=1001,1002,1075,1005 runladder-env.sh 2000 on 10m 20`

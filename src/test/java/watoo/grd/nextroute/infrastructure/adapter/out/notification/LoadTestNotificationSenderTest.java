@@ -10,6 +10,7 @@ import org.springframework.mock.env.MockEnvironment;
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties;
 import watoo.grd.nextroute.application.journey.config.JourneyRelaySenderGuard;
 import watoo.grd.nextroute.application.journey.dto.NotificationSendCommand;
+import watoo.grd.nextroute.application.journey.exception.NotificationSendException;
 import watoo.grd.nextroute.application.journey.observability.JourneyNotificationMetrics;
 import watoo.grd.nextroute.application.journey.port.out.FirebaseMessagingClient;
 import watoo.grd.nextroute.application.journey.port.out.NotificationSender;
@@ -170,6 +171,111 @@ class LoadTestNotificationSenderTest {
                     "checkpoint", "TRANSFER_RISK_AT_RISK", "delivery", "ALERTING").count()).isEqualTo(1);
             assertThat(registry.counter(LoadTestNotificationSender.RECEIVED,
                     "checkpoint", "TRANSFER_TARGET_APPROACHING", "delivery", "none").count()).isEqualTo(1);
+        }
+    }
+
+    @Nested
+    @DisplayName("장애 주입(#446) — FCM 발송처와 같은 모양으로 실패한다")
+    class FaultInjection {
+
+        private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
+        @Test
+        @DisplayName("코드:비율 목록을 누적으로 굴린다 — 합 밖이면 성공, 비율 합 1 초과는 부팅 거부")
+        void rollsErrorsCumulatively() {
+            var rates = LoadTestNotificationSender.Faults.parseRates("UNAVAILABLE:0.1, QUOTA_EXCEEDED:0.05,UNREGISTERED:0.01");
+            double[] roll = {0};
+            var faults = new LoadTestNotificationSender.Faults(0, 0, rates, 0, 0, "UNAVAILABLE", 0,
+                    () -> 0L, () -> roll[0]);
+
+            roll[0] = 0.05;
+            assertThat(faults.rollError()).isEqualTo("UNAVAILABLE");
+            roll[0] = 0.12;
+            assertThat(faults.rollError()).isEqualTo("QUOTA_EXCEEDED");
+            roll[0] = 0.155;
+            assertThat(faults.rollError()).isEqualTo("UNREGISTERED");
+            roll[0] = 0.5;
+            assertThat(faults.rollError()).isNull();
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                    () -> LoadTestNotificationSender.Faults.parseRates("UNAVAILABLE:0.7,INTERNAL:0.4"))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+
+        @Test
+        @DisplayName("고정 창 장애: 창 안에서만 그 코드, 지연은 [min, max] 고른 분포")
+        void outageWindowAndUniformLatency() {
+            long[] now = {1_000_000L};
+            var faults = new LoadTestNotificationSender.Faults(2000, 5000, java.util.Map.of(), 1_000_000L,
+                    1_060_000L, "UNAVAILABLE", 0, () -> now[0], () -> 0.5);
+
+            assertThat(faults.outageCode()).isEqualTo("UNAVAILABLE");
+            now[0] = 1_060_000L;
+            assertThat(faults.outageCode()).isNull();
+            assertThat(faults.uniformLatencyMillis()).isEqualTo(3500L);
+        }
+
+        @Test
+        @DisplayName("일시 코드는 재시도 가능, UNREGISTERED 는 영구 — 접수 안 한 것은 세지도 기록하지도 않는다")
+        void injectedErrorsMatchFcmContract(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+            java.nio.file.Path log = dir.resolve("push.tsv");
+            LoadTestNotificationSender transient5xx = sender(registry, "UNAVAILABLE:1.0", log);
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> transient5xx.send(sendable(1L)))
+                    .isInstanceOfSatisfying(NotificationSendException.class, e -> {
+                        assertThat(e.isPermanent()).isFalse();
+                        assertThat(e.getMessage()).isEqualTo("fcm: UNAVAILABLE");
+                    });
+            LoadTestNotificationSender unregistered = sender(registry, "UNREGISTERED:1.0", log);
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> unregistered.send(sendable(2L)))
+                    .isInstanceOfSatisfying(NotificationSendException.class, e -> assertThat(e.isPermanent()).isTrue());
+
+            assertThat(registry.counter(LoadTestNotificationSender.FAULT, "code", "UNAVAILABLE").count()).isEqualTo(1);
+            assertThat(java.nio.file.Files.exists(log)).isFalse();
+        }
+
+        @Test
+        @DisplayName("제어 파일에 적힌 창 동안 전면 장애, 접수는 파일에 한 줄씩 남는다(재기동 넘는 중복 집계용)")
+        void controlFileOutageAndAcceptanceLog(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+            java.nio.file.Path ctl = dir.resolve("outage.ctl");
+            java.nio.file.Path log = dir.resolve("push.tsv");
+            MockEnvironment env = new MockEnvironment()
+                    .withProperty("loadtest.push.mean-ms", "1")
+                    .withProperty("loadtest.push.log-path", log.toString())
+                    .withProperty("loadtest.push.outage.control-file", ctl.toString());
+            LoadTestNotificationSender sender = new LoadTestNotificationSender(tokens(),
+                    new JourneyNotificationProperties(), registry, env, Clock.systemUTC());
+
+            sender.send(sendable(1L));
+            java.nio.file.Files.writeString(ctl, (Instant.now().getEpochSecond() - 1) + " 60 INTERNAL");
+            Thread.sleep(1100); // 제어 파일은 1초마다 다시 읽는다
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> sender.send(sendable(2L)))
+                    .hasMessage("fcm: INTERNAL");
+
+            var lines = java.nio.file.Files.readAllLines(log);
+            assertThat(lines).hasSize(1);
+            assertThat(lines.get(0).split("\t")).hasSize(6);
+            assertThat(lines.get(0).split("\t")[1]).isEqualTo("1");
+        }
+
+        private LoadTestNotificationSender sender(MeterRegistry registry, String errors, java.nio.file.Path log) {
+            MockEnvironment env = new MockEnvironment()
+                    .withProperty("loadtest.push.mean-ms", "1")
+                    .withProperty("loadtest.push.errors", errors)
+                    .withProperty("loadtest.push.log-path", log.toString());
+            return new LoadTestNotificationSender(tokens(), new JourneyNotificationProperties(), registry, env,
+                    Clock.systemUTC());
+        }
+
+        private UserPushTokenRepository tokens() {
+            UserPushTokenRepository repository = mock(UserPushTokenRepository.class);
+            org.mockito.BDDMockito.given(repository
+                    .findFirstByUserIdAndEnabledTrueAndDeletedAtIsNullOrderByLastSeenAtDescIdDesc(
+                            org.mockito.ArgumentMatchers.anyLong()))
+                    .willReturn(java.util.Optional.of(mock(watoo.grd.nextroute.domain.push.entity.UserPushToken.class)));
+            return repository;
+        }
+
+        private NotificationSendCommand sendable(long id) {
+            return command(id, 10L, 1, JourneyCheckpoint.TRANSFER_RISK_AT_RISK, id);
         }
     }
 
