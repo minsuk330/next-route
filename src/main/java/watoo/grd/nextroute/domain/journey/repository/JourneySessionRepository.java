@@ -610,4 +610,89 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                                @Param("routeRevision") int routeRevision,
                                @Param("legIndex") int legIndex,
                                @Param("until") Instant until);
+
+    // ── 울릴 권리(#428 PR-1b, V69) ───────────────────────────────────────────────
+    //
+    // 칸 두 개(alert_claim_revision, alert_claim_key)는 엔티티에 매핑하지 않는다. 여정 엔티티를 통째로
+    // 저장하는 경로가 옛 값을 되써 권리를 되살리거나 지우면 안 된다. 그래서 전부 native 다.
+
+    /**
+     * 위험·재탐색 알림을 쓰기 전에 여정 행을 먼저 잠근다.
+     *
+     * <p>잠금 순서를 모든 쓰기 경로에서 journey_session → reroute_proposal → journey_notification 으로 맞추려는
+     * 것이다. 평가기는 {@link #finishEvaluation} 이 이미 이 행을 잠그고 시작하므로, 보드 push·재탐색 알림도
+     * 같은 행부터 잡아야 서로 반대 순서로 기다리는 일이 없다. 잠금이 곧 "권리 판정을 한 줄로 세우기"이기도 하다.
+     */
+    @Query(value = "SELECT id FROM journey_session WHERE id = :id FOR UPDATE", nativeQuery = true)
+    Optional<Long> lockForAlert(@Param("id") Long id);
+
+    /**
+     * 이 경로 버전의 울릴 권리를 따낸다. 아직 아무도 못 땄을 때만 1행.
+     *
+     * <p>{@code IS DISTINCT FROM} 이라 칸이 비었거나(처음·돌려받은 뒤) 옛 경로 버전이면 이긴다.
+     *
+     * @return 1 이면 이 알림이 울린다. 0 이면 이미 누가 땄다
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query(value = """
+            UPDATE journey_session
+               SET alert_claim_revision = :rev, alert_claim_key = :key
+             WHERE id = :id AND alert_claim_revision IS DISTINCT FROM :rev
+            """, nativeQuery = true)
+    int tryClaimAlert(@Param("id") Long id, @Param("rev") int rev, @Param("key") String key);
+
+    /**
+     * 물려받기. 권리를 가진 알림을 이번 트랜잭션이 아직 안 나간 채로 취소했으면 권리를 새 알림으로 옮긴다.
+     *
+     * <p>그 논리 키의 다른 채널 행이 이미 발송 중이거나 나갔으면 옮기지 않는다 — 사용자는 이미 진동을 받았고,
+     * 옮기면 같은 경로 버전에서 두 번 울린다.
+     *
+     * @param fromKeys 이번 트랜잭션이 실제로 PENDING → CANCELED 로 옮긴 행의 논리 키. 비면 부르지 않는다
+     * @return 1 이면 물려받았다
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query(value = """
+            UPDATE journey_session s
+               SET alert_claim_key = :toKey
+             WHERE s.id = :id AND s.alert_claim_revision = :rev
+               AND s.alert_claim_key IN (:fromKeys)
+               AND NOT EXISTS (SELECT 1 FROM journey_notification n
+                                WHERE n.journey_id = :id
+                                  AND n.logical_checkpoint_key = s.alert_claim_key
+                                  AND n.status IN ('PROCESSING', 'SENT'))
+            """, nativeQuery = true)
+    int inheritAlertClaim(@Param("id") Long id, @Param("rev") int rev,
+                          @Param("fromKeys") Collection<String> fromKeys, @Param("toKey") String toKey);
+
+    /**
+     * 돌려받기. 권리를 가진 알림이 실제로 안 나갔으면 비워 다음 악화가 울리게 한다.
+     *
+     * <p>같은 논리 키의 다른 채널 행이 아직 살아 있거나(PENDING·PROCESSING) 이미 나갔으면(SENT) 비우지 않는다 —
+     * 한 채널만 실패했을 뿐 사용자는 울림을 받는다(또는 받을 것이다).
+     *
+     * @param keys            비울 후보 논리 키. 지금 권리를 가진 키와 같을 때만 실제로 비운다
+     * @param exceptNotificationId 지금 끝내는 행. 상태 변경이 아직 반영되기 전이라 살아 있는 행으로 세지 않게 뺀다.
+     *                        해당 없으면 0
+     * @return 1 이면 비웠다
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query(value = """
+            UPDATE journey_session s
+               SET alert_claim_revision = NULL, alert_claim_key = NULL
+             WHERE s.id = :id AND s.alert_claim_key IN (:keys)
+               AND NOT EXISTS (SELECT 1 FROM journey_notification n
+                                WHERE n.journey_id = :id
+                                  AND n.logical_checkpoint_key = s.alert_claim_key
+                                  AND n.id <> :exceptNotificationId
+                                  AND n.status IN ('PENDING', 'PROCESSING', 'SENT'))
+            """, nativeQuery = true)
+    int releaseAlertClaim(@Param("id") Long id, @Param("keys") Collection<String> keys,
+                          @Param("exceptNotificationId") long exceptNotificationId);
+
+    /** 이 경로 버전의 권리를 가진 알림의 논리 키. 아무도 안 땄거나 옛 경로 버전이면 빈 값. */
+    @Query(value = """
+            SELECT alert_claim_key FROM journey_session
+             WHERE id = :id AND alert_claim_revision = :rev
+            """, nativeQuery = true)
+    Optional<String> findAlertClaimKey(@Param("id") Long id, @Param("rev") int rev);
 }

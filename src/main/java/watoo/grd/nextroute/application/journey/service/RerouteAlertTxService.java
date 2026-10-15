@@ -4,6 +4,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
+import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
+import watoo.grd.nextroute.domain.journey.entity.JourneyNotificationScope;
 import watoo.grd.nextroute.domain.journey.repository.RerouteProposalRepository;
 import watoo.grd.nextroute.domain.notification.entity.NotificationChannel;
 
@@ -28,6 +30,7 @@ public class RerouteAlertTxService {
 
     private final JourneyNotificationEnqueuer enqueuer;
     private final RerouteProposalRepository proposalRepository;
+    private final RouteAlertBudget alertBudget;
 
     /**
      * 채널마다 한 줄씩 쌓는다.
@@ -40,6 +43,9 @@ public class RerouteAlertTxService {
     @Transactional
     public boolean alert(RerouteProposalView view, int gainSeconds,
                          List<NotificationChannel> channels, Instant now) {
+        if (alertBudget.enabled()) {
+            return alertWithBudget(view, gainSeconds, channels, now);
+        }
         boolean enqueued = false;
         for (NotificationChannel channel : channels) {
             enqueued |= enqueuer.enqueueRerouteSuggested(view.journeyId(), view.routeRevision(),
@@ -47,6 +53,29 @@ public class RerouteAlertTxService {
         }
         if (enqueued) {
             proposalRepository.markAlerted(view.proposalId());
+        }
+        return enqueued;
+    }
+
+    /**
+     * 피로 정책(#428 PR-1b)이 켜졌을 때. 여정 행을 먼저 잠그고(평가기·보드 push 와 같은 잠금 순서) 울릴 권리를
+     * 판정한 뒤 그 종류를 실어 쌓는다. 판정은 채널 루프 밖에서 한 번 — 채널마다 판정하면 두 번째 채널은 늘 조용해진다.
+     */
+    private boolean alertWithBudget(RerouteProposalView view, int gainSeconds,
+                                    List<NotificationChannel> channels, Instant now) {
+        alertBudget.lockJourney(view.journeyId());
+        String logicalKey = JourneyNotificationKeys.logical(view.journeyId(), view.routeRevision(),
+                JourneyNotificationScope.JOURNEY, view.proposalId().intValue(), JourneyCheckpoint.REROUTE_SUGGESTED);
+        AlertDelivery delivery = alertBudget.decide(view.journeyId(), view.routeRevision(), logicalKey, List.of());
+        boolean enqueued = false;
+        for (NotificationChannel channel : channels) {
+            enqueued |= enqueuer.enqueueRerouteSuggested(view.journeyId(), view.routeRevision(),
+                    view.proposalId(), gainSeconds, channel, now, view.expiresAt(), delivery);
+        }
+        if (enqueued) {
+            proposalRepository.markAlerted(view.proposalId());
+        } else if (delivery == AlertDelivery.ALERTING) {
+            alertBudget.release(view.journeyId(), logicalKey);
         }
         return enqueued;
     }

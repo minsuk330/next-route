@@ -35,4 +35,34 @@ public final class JourneyNotificationKeys {
     public static String delivery(String logicalKey, NotificationChannel channel) {
         return logicalKey + ":" + channel.name();
     }
+
+    /**
+     * 보드 push 의 논리 키. 보드는 개정본 동안 제안 행이 하나라 push 순번을 붙인다 — 제안 번호만으로는 두 번째
+     * push 가 {@code ON CONFLICT} 에 삼켜진다.
+     */
+    public static String boardPush(long journeyId, int routeRevision, long proposalId, int pushSeq) {
+        return logical(journeyId, routeRevision, JourneyNotificationScope.JOURNEY, (int) proposalId,
+                JourneyCheckpoint.REROUTE_SUGGESTED) + ":p" + pushSeq;
+    }
+
+    /**
+     * 논리 키가 가리키는 체크포인트. 형식이 다르거나 모르는 값이면 null.
+     *
+     * <p>울릴 권리 칸에는 논리 키만 남는다. "이미 울린 것이 재탐색 제안인가"를 알려고 알림 행을 다시 읽지 않게
+     * 키에서 바로 읽는다 — 키 형식을 여기서만 정하므로 여기서 읽는 것도 안전하다.
+     */
+    public static JourneyCheckpoint checkpointOf(String logicalKey) {
+        if (logicalKey == null) {
+            return null;
+        }
+        String[] parts = logicalKey.split(":");
+        if (parts.length < 5) {
+            return null;
+        }
+        try {
+            return JourneyCheckpoint.valueOf(parts[4]);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
 }

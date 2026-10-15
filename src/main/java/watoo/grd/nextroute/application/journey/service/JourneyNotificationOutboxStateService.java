@@ -172,6 +172,7 @@ public class JourneyNotificationOutboxStateService {
     }
 
     private void cancel(JourneyNotification n, String reason) {
+        releaseAlertClaim(n);
         n.markCanceled(reason);
         metrics.recordCanceled(reason);
         log.debug("[JourneyNotificationRelay] id={} 취소({})", n.getId(), reason);
@@ -208,10 +209,12 @@ public class JourneyNotificationOutboxStateService {
             }
             Instant nextAttemptAt = Instant.now(clock).plus(properties.backoff());
             if (n.getAttemptCount() >= properties.getMaxAttempts()) {
+                releaseAlertClaim(n);
                 n.markDead("max-retry: " + reason);
                 metrics.recordFailed(n.getChannel(), "dead");
             } else if (!nextAttemptAt.isBefore(n.getExpiresAt())) {
                 // 재시도 시각이 만료를 넘긴다. 보내 봐야 엉뚱한 때에 도착한다.
+                releaseAlertClaim(n);
                 n.markCanceled("expired-before-retry");
                 metrics.recordCanceled("expired");
             } else {
@@ -228,8 +231,30 @@ public class JourneyNotificationOutboxStateService {
             if (n.getStatus() != JourneyNotificationStatus.PROCESSING) {
                 return;
             }
+            releaseAlertClaim(n);
             n.markFailed(reason);
             metrics.recordFailed(n.getChannel(), "permanent");
         });
+    }
+
+    /**
+     * 돌려받기(#428 PR-1b). 이 행이 울릴 권리를 쥔 알림이었는데 SENT 가 아닌 끝 상태로 가면 권리를 비운다 — 안
+     * 비우면 그 경로 버전의 사용자는 울림을 한 번도 못 받는다. 권리를 쥔 키가 아니면 조건에 걸려 아무 일도 없다.
+     *
+     * <p><b>상태를 바꾸기 전에</b> 부른다. 이 UPDATE 가 여정 행을 잠그는데, 알림 행 변경이 먼저 flush 되면 잠금
+     * 순서가 알림 → 여정이 돼 평가기(여정 → 알림)와 반대가 된다. 같은 이유로 이 행 자신은 아직 살아 있는 상태로
+     * 보이므로 id 로 뺀다.
+     *
+     * <p>피로 정책이 꺼져 있으면 부르지 않는다 — 꺼짐은 정책 이전과 같은 DB 쓰기다. 저장소 SQL 로 한꺼번에 취소하는
+     * 대체(superseded*)는 여기를 지나지 않는다. 그쪽은 대체한 알림이 권리를 물려받는다.
+     */
+    private void releaseAlertClaim(JourneyNotification n) {
+        if (!properties.getFatigue().isEnabled()) {
+            return;
+        }
+        if (sessionRepository.releaseAlertClaim(n.getJourneyId(), List.of(n.getLogicalCheckpointKey()),
+                n.getId()) == 1) {
+            metrics.recordAlertClaim("released");
+        }
     }
 }

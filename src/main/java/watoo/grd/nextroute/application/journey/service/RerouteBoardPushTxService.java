@@ -38,6 +38,7 @@ public class RerouteBoardPushTxService {
     private final JourneyRerouteProperties properties;
     private final JourneyRerouteMetrics metrics;
     private final Clock clock;
+    private final RouteAlertBudget alertBudget;
 
     /** 직전 push 에 답이 없었으면 무시 1회로 센다. 같은 push 를 두 번 세지 않게 답한 것으로 닫는다. */
     @Transactional
@@ -55,6 +56,9 @@ public class RerouteBoardPushTxService {
     public boolean publish(RerouteProposal board, JourneySession journey,
                            RerouteBoardPushPolicy.Decision decision, List<NotificationChannel> channels,
                            Map<String, Object> payload, Instant now) {
+        if (alertBudget.enabled()) {
+            return publishWithBudget(board, journey, decision, channels, payload, now);
+        }
         RerouteBoardSlot slot = decision.slot();
         int seq = board.getPushSeq();
         if (proposalRepository.recordPush(board.getId(), seq, slot.slotKey(), slot.routeFingerprint(),
@@ -74,6 +78,49 @@ public class RerouteBoardPushTxService {
             if (canceled > 0) {
                 metrics.recordAlert("merged-risk", canceled);
             }
+        }
+        return enqueued;
+    }
+
+    /**
+     * 피로 정책(#428 PR-1b)이 켜졌을 때의 push. 순서 = 여정 행 잠금 → 순번 CAS → 위험 알림 취소 → 판정 → 삽입.
+     *
+     * <p>여정 행을 <b>가장 먼저</b> 잠근다. 평가기는 같은 행을 잠근 채 위험 알림을 쌓으므로, 둘이 동시에 돌아도
+     * 한 줄로 서서 울릴 권리를 하나만 가져간다. 순번 CAS(reroute_proposal)보다 앞이어야 잠금 순서가 모든 경로에서
+     * journey_session → reroute_proposal → journey_notification 으로 같다.
+     *
+     * <p>위험 알림 취소를 판정 <b>앞</b>으로 옮겼다(정책 이전엔 삽입 뒤). 합치기 창에 걸려 아직 안 나간 위험 알림이
+     * 권리를 쥐고 있으면, 그것을 취소한 이 push 가 권리를 물려받아 울린다 — "위험 + 대안"이 한 번에 나간다. 삽입이
+     * 0행이면(여정이 끝났거나 경로가 바뀌었다) 취소한 위험 알림도 어차피 relay 가 버릴 행이다.
+     */
+    private boolean publishWithBudget(RerouteProposal board, JourneySession journey,
+                                      RerouteBoardPushPolicy.Decision decision, List<NotificationChannel> channels,
+                                      Map<String, Object> payload, Instant now) {
+        alertBudget.lockJourney(journey.getId());
+        RerouteBoardSlot slot = decision.slot();
+        int seq = board.getPushSeq();
+        if (proposalRepository.recordPush(board.getId(), seq, slot.slotKey(), slot.routeFingerprint(),
+                slot.lastGainSec(), now, LocalDateTime.now(clock)) != 1) {
+            return false;
+        }
+        int revision = journey.getRouteRevision();
+        List<String> canceled = notificationRepository.cancelPendingByCheckpointsReturningKeys(journey.getId(),
+                revision, RISK_CHECKPOINTS.stream().map(Enum::name).toList());
+        if (!canceled.isEmpty()) {
+            metrics.recordAlert("merged-risk", canceled.size());
+        }
+        String logicalKey = JourneyNotificationKeys.boardPush(journey.getId(), revision, board.getId(), seq + 1);
+        AlertDelivery delivery = alertBudget.decide(journey.getId(), revision, logicalKey, canceled);
+
+        Instant expiresAt = now.plus(properties.getAlert().getSnapshotTtl());
+        boolean enqueued = false;
+        for (NotificationChannel channel : channels) {
+            enqueued |= enqueuer.enqueueBoardPush(journey.getId(), revision, board.getId(),
+                    seq + 1, payload, channel, now, expiresAt, delivery);
+        }
+        if (!enqueued && delivery == AlertDelivery.ALERTING) {
+            // 울릴 알림이 안 생겼다. 권리를 쥔 채 두면 이 경로 버전은 다시 못 울린다.
+            alertBudget.release(journey.getId(), logicalKey);
         }
         return enqueued;
     }

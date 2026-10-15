@@ -59,6 +59,21 @@ public class JourneyNotificationEnqueuer {
     public String enqueueTransferRisk(long journeyId, int routeRevision,
                                       TransferRiskAssessment assessment,
                                       NotificationChannel channel, java.time.Duration delay) {
+        return enqueueTransferRisk(journeyId, routeRevision, assessment, channel, delay, null).deliveryKey();
+    }
+
+    /**
+     * 발송 종류를 실은 환승 위험 알림(#428 PR-1b). 피로 정책이 켜졌을 때만 부른다.
+     *
+     * <p>울릴 권리를 딴 쪽은 "행이 실제로 생겼는가"를 알아야 한다 — 중복이라 0행이면 울릴 알림이 없으니 권리를
+     * 돌려놔야 한다. 그래서 발송 키와 생성 여부를 함께 돌려준다.
+     *
+     * @param delivery null 이면 payload 에 {@code delivery} 를 싣지 않는다(정책 이전과 같은 바이트)
+     */
+    public EnqueueResult enqueueTransferRisk(long journeyId, int routeRevision,
+                                             TransferRiskAssessment assessment,
+                                             NotificationChannel channel, java.time.Duration delay,
+                                             AlertDelivery delivery) {
         JourneyCheckpoint checkpoint = JourneyCheckpoint.ofTransferStatus(assessment.status());
         String logicalKey = JourneyNotificationKeys.logical(journeyId, routeRevision,
                 JourneyNotificationScope.TRANSFER, assessment.transferIndex(), checkpoint);
@@ -66,7 +81,7 @@ public class JourneyNotificationEnqueuer {
 
         Instant now = Instant.now(clock).plus(delay);
         Instant expiresAt = expiresAt(assessment, now);
-        String payload = writePayload(assessment);
+        String payload = writePayload(assessment, delivery);
 
         List<Long> created = notificationRepository.enqueue(
                 journeyId, routeRevision,
@@ -75,9 +90,18 @@ public class JourneyNotificationEnqueuer {
                 logicalKey, deliveryKey, now, expiresAt, payload, LocalDateTime.now(clock));
 
         if (!created.isEmpty()) {
-            metrics.recordEnqueued(checkpoint);
+            recordEnqueued(checkpoint, delivery);
         }
-        return deliveryKey;
+        return new EnqueueResult(deliveryKey, !created.isEmpty());
+    }
+
+    /**
+     * 적재 한 건의 결과.
+     *
+     * @param deliveryKey 만들려고 시도한 발송 키(행이 생겼는지와 무관)
+     * @param created     행이 새로 생겼는가. 중복·여정 종료면 false
+     */
+    public record EnqueueResult(String deliveryKey, boolean created) {
     }
 
     /**
@@ -133,6 +157,18 @@ public class JourneyNotificationEnqueuer {
     public boolean enqueueRerouteSuggested(long journeyId, int routeRevision, long proposalId,
                                            int gainSeconds, NotificationChannel channel,
                                            Instant now, Instant expiresAt) {
+        return enqueueRerouteSuggested(journeyId, routeRevision, proposalId, gainSeconds, channel,
+                now, expiresAt, null);
+    }
+
+    /**
+     * 발송 종류를 실은 재탐색 알림(#428 PR-1b).
+     *
+     * @param delivery null 이면 payload 에 {@code delivery} 를 싣지 않는다(정책 이전과 같은 바이트)
+     */
+    public boolean enqueueRerouteSuggested(long journeyId, int routeRevision, long proposalId,
+                                           int gainSeconds, NotificationChannel channel,
+                                           Instant now, Instant expiresAt, AlertDelivery delivery) {
         JourneyCheckpoint checkpoint = JourneyCheckpoint.REROUTE_SUGGESTED;
         int scopeId = (int) proposalId;
         String logicalKey = JourneyNotificationKeys.logical(journeyId, routeRevision,
@@ -144,12 +180,12 @@ public class JourneyNotificationEnqueuer {
                 JourneyNotificationScope.JOURNEY.name(), scopeId,
                 checkpoint.name(), channel.name(),
                 logicalKey, deliveryKey, now, expiresAt,
-                writeReroutePayload(proposalId, gainSeconds), LocalDateTime.now(clock));
+                writeReroutePayload(proposalId, gainSeconds, delivery), LocalDateTime.now(clock));
 
         if (created.isEmpty()) {
             return false;
         }
-        metrics.recordEnqueued(checkpoint);
+        recordEnqueued(checkpoint, delivery);
         return true;
     }
 
@@ -163,14 +199,31 @@ public class JourneyNotificationEnqueuer {
     public boolean enqueueBoardPush(long journeyId, int routeRevision, long proposalId, int pushSeq,
                                     Map<String, Object> payload, NotificationChannel channel,
                                     Instant now, Instant expiresAt) {
+        return enqueueBoardPush(journeyId, routeRevision, proposalId, pushSeq, payload, channel,
+                now, expiresAt, null);
+    }
+
+    /**
+     * 발송 종류를 실은 보드 push(#428 PR-1b). 부르는 쪽의 payload 맵은 고치지 않고 복사본에 싣는다 — 채널마다
+     * 같은 맵을 넘기므로 원본을 고치면 다음 채널이 엉뚱한 값을 볼 수 있다.
+     *
+     * @param delivery null 이면 payload 에 {@code delivery} 를 싣지 않는다(정책 이전과 같은 바이트)
+     */
+    public boolean enqueueBoardPush(long journeyId, int routeRevision, long proposalId, int pushSeq,
+                                    Map<String, Object> payload, NotificationChannel channel,
+                                    Instant now, Instant expiresAt, AlertDelivery delivery) {
         JourneyCheckpoint checkpoint = JourneyCheckpoint.REROUTE_SUGGESTED;
         int scopeId = (int) proposalId;
-        String logicalKey = JourneyNotificationKeys.logical(journeyId, routeRevision,
-                JourneyNotificationScope.JOURNEY, scopeId, checkpoint) + ":p" + pushSeq;
+        String logicalKey = JourneyNotificationKeys.boardPush(journeyId, routeRevision, proposalId, pushSeq);
         String deliveryKey = JourneyNotificationKeys.delivery(logicalKey, channel);
         String body;
         try {
-            body = objectMapper.writeValueAsString(payload);
+            Map<String, Object> withDelivery = payload;
+            if (delivery != null) {
+                withDelivery = new LinkedHashMap<>(payload);
+                withDelivery.put("delivery", delivery.name());
+            }
+            body = objectMapper.writeValueAsString(withDelivery);
         } catch (Exception e) {
             log.warn("[JourneyNotification] 보드 push payload 직렬화 실패 proposalId={}: {}",
                     proposalId, e.getMessage());
@@ -184,7 +237,7 @@ public class JourneyNotificationEnqueuer {
         if (created.isEmpty()) {
             return false;
         }
-        metrics.recordEnqueued(checkpoint);
+        recordEnqueued(checkpoint, delivery);
         return true;
     }
 
@@ -195,11 +248,14 @@ public class JourneyNotificationEnqueuer {
      * 하차점이 있을 수 있다 — 목록은 조회 경로가 그때 다시 만들어 준다. 여기 있는 것은 "어느
      * 제안인가"와 문구용 개선폭뿐이다.
      */
-    private String writeReroutePayload(long proposalId, int gainSeconds) {
+    private String writeReroutePayload(long proposalId, int gainSeconds, AlertDelivery delivery) {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("proposalId", proposalId);
             body.put("etaGainSec", gainSeconds);
+            if (delivery != null) {
+                body.put("delivery", delivery.name());
+            }
             return objectMapper.writeValueAsString(body);
         } catch (Exception e) {
             log.warn("[JourneyNotification] payload 직렬화 실패 proposalId={}: {}",
@@ -238,6 +294,10 @@ public class JourneyNotificationEnqueuer {
      * 여기서 예외를 내면 평가 트랜잭션 전체가 죽는다(버스 outbox 와 같은 방식).
      */
     private String writePayload(TransferRiskAssessment assessment) {
+        return writePayload(assessment, null);
+    }
+
+    private String writePayload(TransferRiskAssessment assessment, AlertDelivery delivery) {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("transferIndex", assessment.transferIndex());
@@ -249,11 +309,22 @@ public class JourneyNotificationEnqueuer {
             if (assessment.nextBusArrivalAt() != null) {
                 body.put("nextBusArrivalAt", assessment.nextBusArrivalAt().toString());
             }
+            if (delivery != null) {
+                body.put("delivery", delivery.name());
+            }
             return objectMapper.writeValueAsString(body);
         } catch (Exception e) {
             log.warn("[JourneyNotification] payload 직렬화 실패 journeyTransfer={}: {}",
                     assessment.transferIndex(), e.getMessage());
             return null;
+        }
+    }
+
+    /** 기존 지표는 그대로 세고, 발송 종류가 있으면(피로 정책 켜짐) 종류별로 한 번 더 센다. */
+    private void recordEnqueued(JourneyCheckpoint checkpoint, AlertDelivery delivery) {
+        metrics.recordEnqueued(checkpoint);
+        if (delivery != null) {
+            metrics.recordEnqueuedDelivery(checkpoint, delivery.name());
         }
     }
 }
