@@ -5034,6 +5034,37 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `runsome.sh … --tests '*NextrouteApplicationTests' --tests '*AlertFatigueCopyTest' --tests '*AlertFatigueTransportTest' --tests '*FcmMessageFactoryTest' --tests '*RerouteBoardReplacedRiskTest' --tests '*TransferRiskNotifierTest' --tests 'watoo.grd.nextroute.application.journey.notification.*' --tests '*RerouteBoard*' --tests '*FcmNotificationSenderTest'` → 251 중 실패 0(AlertFatigueCopyTest 54, JourneyAlertBudgetIT 32, RerouteBoardReplacedRiskTest 2)
 - 전체 `runfull.sh`(cleanTest test --continue) → 3,184 중 실패 12, 건너뜀 5 = 기존 무관 목록 그대로(여정 평가 7·환승 판정 저장 1·조회 경로 2·OTP 계약 1·JourneyNotificationSchemaIT 1)
 
+## #427 지하철 이벤트 사다리 (2026-10-15, feat/subway-event-ladder)
+
+### 확정
+- 가짜 발송처 `LoadTestNotificationSender`: `@Profile("loadtest")` + `journey.notification.sender=loadtest` 둘 다여야 뜸, `prod` 프로필과 같이면 부팅 거부. 프로필 없이 sender 만 loadtest 면 발송처 빈이 0 이라 부팅 실패(조용한 무발송보다 나음). FCM 처럼 최근 토큰 조회 + `FcmMessageFactory` 조립, 왕복만 로그정규 평균 60ms. 지표 `loadtest.push.received{checkpoint,delivery}`·`duplicate.id`·`duplicate.business`(여정·버전·종류·환승·평가 번호·울림)·`alerting.per_revision_over1`(위험·재탐색 ALERTING 만)
+- 원천: `SUBWAY_SOURCE=real`(기본) = fake_providers.py 가 서울 실시간 도착 API 프록시(ALL 은 매번 실제 왕복, 역별은 아래 버그 그대로 ALL 을 5초 캐시로 + 실측 지연만큼 sleep), `model` = 가상 열차(subway_model.py). 변화 기록은 앱 `SubwayChangeFeed` 와 같은 지문 규칙, real 의 원천 시각 = 새 지문 두 행의 최대 recptnDt
+- 심기: real 은 심기 직전 실제 ALL 에서 열차 있는 키(약 1,350, `real_keys.py`, 방향 = toWayCode 규칙·2호선 내선 0/외선 1). 지우기 표시는 역이 아니라 `journey_session.destination_summary = {"ladder":"LOAD-ST"}`. 등급 비율은 주기 부류 A 5%(5분)·B 15%(15분)·C 80%(40분) + 표본기의 10초 주기 되돌림(준비 시각 도달 시 타는 단계 시작을 now) → 준비 시각 기준 20/30/50 유지(단위 시험)
+- 감지 지연 = 공급자 변화 기록(처음 본 시각) × 표본기(1초마다 last_evaluated_at 3초 창) × 심은 키 → 처음 본 뒤 첫 판정 저장. 등급은 처음 본 직전 평가가 남긴 준비 시각·상태로 InterestIndex 규칙 재계산
+- 결론(BOTTLENECK-MAP-SUBWAY.md): 2,000·6,000 둘 다 첫 벽 = ④ 평가 1건 0.4~0.8초(역별 조회가 ALL 2MB), 6,000 은 ② 관심 색인 재구성 6.4초 동반. 알림 불변식(버전당 울림 >1, 중복) 0
+
+### 함정
+- 🔴 **운영 버그 후보: 역별 지하철 조회가 전 노선 ALL 을 받는다** ← `SeoulSubwayApiAdapter.getRealtimeArrivalByStation` 이 역 이름을 인코딩 없이 `URI.create` 에 넣고, RestTemplate(Apache HttpClient 5)이 한글을 요청 줄에서 `?` 로 보냄(`/0/1000/??`) → 서울 API 가 ALL(total 2997)로 답함(실측). 앱은 역 id 로 걸러 값은 맞아 기능 시험으론 안 보임. 비용: 1회 0.3~0.7초·2MB vs 인코딩 시 30~60ms·5~17KB. 위치 API 는 이미 `URLEncoder` 를 씀 / 가드: 처방(인코딩 + 시험)은 별건(이 작업에서 구현 안 함)
+- 🔴 `findInterestRows` 의 환승 부분조회가 `deleted_at IS NULL` 을 안 걸어 부분 유니크 인덱스를 못 탐 → 여정마다 환승 표 전체 seq scan(O(N²)). 6,000: 6,362ms/회(DB 52%), 수집 주기 안에서 돌아 수집 1회 p50 5초. EXPLAIN 에 조건 추가 시 4,662 → 84ms / 처방 별건
+- 미룬 여정의 키는 기준선을 안 바꿔 다음 스냅숏에 다시 "바뀜" → 포화 중 이벤트÷조회 0.98~0.995(진짜 비율은 200 회차 0.30). 되먹임
+- 평가 건수 가중 등급 분포는 긴급이 부풀려짐(80%). 비교는 변화 시점 여정 등급으로(가상 2,000: 25/26/46%)
+- 가짜 역별 응답이 처음엔 전부 빔 ← 위 `?` 버그(로캘 아님, JDK HttpClient·HttpURLConnection 은 정상). 가상 모델은 이름 끝 숫자로 역을 되찾음
+- 심은 안내 lease 3분이면 relay 가 `lease-expired` 로 취소 → 3시간
+- 표본기 첫판(LIKE+EXISTS)이 DB 34% → id 범위로. 그 회차(가상 r1) 버림
+- k6 전이를 켜면 모두 긴급 → `MOVE=false`
+- st-pg 에 `pg_stat_statements` 적재: `ALTER SYSTEM SET shared_preload_libraries` + `docker restart st-pg`(볼륨이라 데이터 유지) + `create extension`
+- what-if(인코딩 고친 jar 로 다음 벽 재기)는 자동 모드 권한에서 거부돼 못 돌림
+
+### 좌표
+- `infrastructure/adapter/out/notification/LoadTestNotificationSender.java`, `JourneyNotificationProperties.KNOWN_SENDERS`
+- `load/ladder/{run_subway_ladder.sh, subway_model.py, real_keys.py, subway_sampler.py, subway_detection.py, BOTTLENECK-MAP-SUBWAY.md}`, `fake_providers.py#subway_real`, `run_ladder.sh`(MODE=subway 분기)
+- 시험: `LoadTestNotificationSenderTest`(배선 6·집계 4), `SubwayLadderFixtureTest`(6), `SubwayLadderFixtureIT`(1), 시드 `SubwayLadderSeedIT`(env 게이트)
+- 운영 버그 좌표: `SeoulSubwayApiAdapter.java` `getRealtimeArrivalByStation`, `JourneySessionRepository.findInterestRows`
+
+### 검증
+- `runsome.sh --tests '*LoadTestNotificationSenderTest' --tests '*SubwayLadderFixtureTest' --tests '*SubwayLadderFixtureIT'` → 10+6+1 통과, `JourneyRelaySenderGuardTest` 2 통과
+- 사다리(`MODE=subway SUBWAY_SOURCE=real runladder-env.sh N on 10m 20`): 2,000·6,000 각 1회, 칸 끝 `leftover active_journeys=0 ladder_journeys=0 loadtest_tokens=0`. 참고 200(4분) 1회, 가상 모델 2,000 r2(r1 버림)
+- 전체 `runfull.sh`(cleanTest test --continue, 사다리와 동시 실행 안 함, 시작 전 진행 중 여정 0): 3,202 중 실패 12, 건너뜀 6 = 기존 무관 목록 그대로(여정 평가 7·환승 판정 저장 1·조회 경로 2·OTP 계약 1·JourneyNotificationSchemaIT 1)
 ## #427 처방 2 — 관심 색인 쿼리 부분 인덱스 (2026-10-15, fix/interest-index-transfer-filter)
 ### 확정
 - `findInterestRows` 의 환승 부분조회 두 개에 `t.deleted_at IS NULL`, 단계 조인에 `l.deleted_at IS NULL` 추가. 없으면 부분 유니크 인덱스를 못 타 여정마다 환승 표 전체를 훑음(O(N²)) — 사다리 6,000 재구성 1회 6.4초·DB 시간 52%, EXPLAIN 4,662→84ms
