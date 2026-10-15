@@ -77,6 +77,7 @@ public class TransferRiskNotifier {
     private final JourneyNotificationProperties properties;
     private final watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties rerouteProperties;
     private final RouteAlertBudget alertBudget;
+    private final TransferTargetRouteNames targetRouteNames;
 
     /**
      * 나빠진 환승마다 알림을 쌓는다.
@@ -304,9 +305,12 @@ public class TransferRiskNotifier {
         Duration hold = delivery == PushMessage.Delivery.ALERTING
                 ? alertBudget.holdFor(assessment, boardMode(), heldUntilEpoch)
                 : Duration.ZERO;
+        // 문구 재료(#428 PR-2): 갈아탈 차 노선 이름. 채널 루프 밖에서 한 번만 읽는다.
+        String routeName = targetRouteNames.of(journeyId, revision, assessment.toLegIndex()).orElse(null);
         boolean created = false;
         for (NotificationChannel channel : context.channels()) {
-            created |= enqueuer.enqueueTransferRisk(journeyId, revision, assessment, channel, hold, delivery)
+            created |= enqueuer.enqueueTransferRisk(journeyId, revision, assessment, channel, hold, delivery,
+                            routeName)
                     .created();
         }
 

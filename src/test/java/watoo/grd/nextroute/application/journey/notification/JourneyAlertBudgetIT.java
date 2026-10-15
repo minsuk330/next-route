@@ -95,6 +95,10 @@ class JourneyAlertBudgetIT extends AbstractJourneyNotificationIT {
         setBoardMode(false);
         // 부모의 준비가 journey_session 을 지우는데, 제안 행이 남아 있으면 FK 에 걸린다.
         jdbcTemplate.update("delete from reroute_proposal");
+        // 단계·노선 후보도 같다. 단계가 후보를 가리키는 순환 참조라 먼저 끊는다.
+        jdbcTemplate.update("update journey_leg set selected_route_option_id = null");
+        jdbcTemplate.update("delete from journey_leg_route_option");
+        jdbcTemplate.update("delete from journey_leg");
     }
 
     // ── 승격·합치기 ──────────────────────────────────────────────────────────
@@ -392,7 +396,112 @@ class JourneyAlertBudgetIT extends AbstractJourneyNotificationIT {
                 .isNull();
     }
 
+    // ── 문구 재료(#428 PR-2) ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("위험 payload 에 갈아탈 차(toLegIndex 단계의 고른 후보) 노선 이름이 실린다")
+    void riskPayloadCarriesTargetRouteName() {
+        insertWaitLeg(2, "2호선", true);
+
+        evaluate(TransferStatus.AT_RISK, NotificationChannel.PUSH);
+
+        assertThat(payloadText(row("TRANSFER_RISK_AT_RISK"), "routeName")).isEqualTo("2호선");
+    }
+
+    @Test
+    @DisplayName("갈아탈 단계를 모르거나 후보가 여럿인데 고르지 않았으면 노선 이름을 싣지 않는다")
+    void riskPayloadOmitsRouteNameWhenUnknown() {
+        evaluate(TransferStatus.AT_RISK, NotificationChannel.PUSH);
+        assertThat(payloadText(row("TRANSFER_RISK_AT_RISK"), "routeName")).isNull();
+
+        long legId = insertWaitLeg(2, "146", false);
+        insertOption(legId, 1, "360");
+        evaluate(TransferStatus.MISSED, NotificationChannel.PUSH);
+        assertThat(payloadText(row("TRANSFER_RISK_MISSED"), "routeName"))
+                .as("여러 후보 중 아무거나 고르면 문구의 노선과 도착 시각이 다른 차를 가리킬 수 있다")
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("후보가 하나뿐이면 고르지 않았어도 그 이름을 쓴다")
+    void riskPayloadUsesSoleOption() {
+        insertWaitLeg(2, "146", false);
+
+        evaluate(TransferStatus.AT_RISK, NotificationChannel.PUSH);
+
+        assertThat(payloadText(row("TRANSFER_RISK_AT_RISK"), "routeName")).isEqualTo("146");
+    }
+
+    @Test
+    @DisplayName("꺼져 있으면 노선 이름도 싣지 않는다(정책 이전과 같은 바이트)")
+    void disabledOmitsRouteName() {
+        properties.getFatigue().setEnabled(false);
+        insertWaitLeg(2, "2호선", true);
+
+        evaluate(TransferStatus.AT_RISK, NotificationChannel.PUSH);
+
+        assertThat(payloadText(row("TRANSFER_RISK_AT_RISK"), "routeName")).isNull();
+    }
+
+    @Test
+    @DisplayName("보드 push 가 놓침을 대신하면 payload 에 replacedRisk=MISSED")
+    void boardPushRecordsReplacedMissed() {
+        evaluate(TransferStatus.AT_RISK, NotificationChannel.PUSH);
+        evaluate(TransferStatus.MISSED, NotificationChannel.PUSH);
+
+        publishBoard(insertBoard(), 0);
+
+        assertThat(payloadText(row("REROUTE_SUGGESTED"), "replacedRisk")).isEqualTo("MISSED");
+    }
+
+    @Test
+    @DisplayName("보드 push 가 빠듯을 대신하면 replacedRisk=AT_RISK, 대신한 게 없으면 칸이 없다")
+    void boardPushRecordsReplacedAtRiskOrNothing() {
+        long proposalId = insertBoard();
+        publishBoard(proposalId, 0);
+        assertThat(payloadText(row("REROUTE_SUGGESTED"), "replacedRisk")).isNull();
+
+        jdbcTemplate.update("delete from journey_notification");
+        jdbcTemplate.update("update journey_session set alert_claim_revision = null, alert_claim_key = null");
+        evaluate(TransferStatus.AT_RISK, NotificationChannel.PUSH);
+        publishBoard(proposalId, 1);
+
+        assertThat(notifications()).filteredOn(r -> "REROUTE_SUGGESTED".equals(r.get("checkpoint")))
+                .singleElement()
+                .satisfies(r -> assertThat(payloadText(r, "replacedRisk")).isEqualTo("AT_RISK"));
+    }
+
     // ── 도우미 ────────────────────────────────────────────────────────────────
+
+    /** 대기 단계 하나와 노선 후보 하나. {@code select} 면 단계가 그 후보를 고른 상태로 둔다. */
+    private long insertWaitLeg(int legIndex, String routeName, boolean select) {
+        long legId = jdbcTemplate.queryForObject("""
+                insert into journey_leg (created_at, updated_at, journey_id, route_revision, leg_index, type, state)
+                values (now(), now(), ?, 1, ?, 'WAIT_SUBWAY', 'PENDING')
+                returning id
+                """, Long.class, journey.getId(), legIndex);
+        long optionId = insertOption(legId, 0, routeName);
+        if (select) {
+            jdbcTemplate.update("update journey_leg set selected_route_option_id = ? where id = ?", optionId, legId);
+        }
+        return legId;
+    }
+
+    private long insertOption(long legId, int optionIndex, String routeName) {
+        return jdbcTemplate.queryForObject("""
+                insert into journey_leg_route_option (created_at, updated_at, journey_leg_id, option_index,
+                    lane_index, route_name)
+                values (now(), now(), ?, ?, 0, ?)
+                returning id
+                """, Long.class, legId, optionIndex, routeName);
+    }
+
+    private String payloadText(Map<String, Object> row, String field) {
+        return jdbcTemplate.queryForObject(
+                "select payload ->> ? from journey_notification where id = ?", String.class,
+                field, ((Number) row.get("id")).longValue());
+    }
+
 
     private void setBoardMode(boolean on) {
         rerouteProperties.setEnabled(on);
