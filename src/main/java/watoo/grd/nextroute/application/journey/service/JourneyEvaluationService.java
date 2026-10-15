@@ -70,9 +70,13 @@ public class JourneyEvaluationService {
     private final RerouteTriggerEvaluator triggerEvaluator;
     private final Clock clock;
 
-    /** 평가기 몫의 provider 동시 호출 수. 워커 스레드 수와 분리하는 장치다. */
+    /** 평가기 몫의 provider 동시 호출 수 — 버스 단계가 있는 여정. 워커 스레드 수와 분리하는 장치다. */
     @Qualifier("journeyEvaluatorProviderLimiter")
     private final Semaphore providerLimiter;
+
+    /** 버스 단계가 없는 여정(지하철·도보)의 슬롯. 지하철 실시간은 일일 한도가 없어 따로 넓게 둔다(#427 처방 2차). */
+    @Qualifier("journeyEvaluatorSubwayProviderLimiter")
+    private final Semaphore subwayProviderLimiter;
 
     /** 평가 한 건의 결말. 실패도 종류를 갈라야 재시도 간격을 달리 줄 수 있다. */
     public enum Result {
@@ -99,7 +103,9 @@ public class JourneyEvaluationService {
         Instant now = Instant.now(clock);
         TransferAssessmentBatch computed = computeWithProviderSlot(context);
         if (computed == null) {
-            // 평가기 몫의 provider 슬롯을 못 잡았다. 선점이 만료되면 다른 tick 이 다시 잡는다.
+            // 평가기 몫의 provider 슬롯을 못 잡았다. 선점을 풀어 곧 다시 잡히게 한다 — 그대로 두면 lease(60초)가
+            // 만료될 때까지 아무도 평가하지 않는다. 워커(16)가 버스 슬롯(4)보다 많아 버스 여정이 몰리면 생긴다.
+            releaseForRetry(claim);
             return Report.skipped();
         }
 
@@ -189,29 +195,43 @@ public class JourneyEvaluationService {
      * @return 슬롯을 못 잡았으면 null
      */
     private TransferAssessmentBatch computeWithProviderSlot(JourneyEvaluationContext context) {
+        // 버스 단계가 있으면 버스(한도 있는) 몫, 없으면 지하철 몫. 여정 단위로 고르는 이유: 공급자 어댑터는 검색과
+        // 같이 쓰므로 거기서 "평가기 호출인지"를 가릴 수 없다. 지난 단계까지 보수적으로 센다(컨텍스트 로더).
+        Semaphore providerLimiter = context.usesBusProvider() ? this.providerLimiter : subwayProviderLimiter;
+        String gate = context.usesBusProvider() ? "bus" : "subway";
         boolean acquired;
         try {
             acquired = providerLimiter.tryAcquire(
                     properties.getProviderAcquireMs(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            metrics.recordProviderSlot("interrupted");
+            metrics.recordProviderSlot("interrupted", gate);
             return null;
         }
         if (!acquired) {
-            metrics.recordProviderSlot("rejected");
+            metrics.recordProviderSlot("rejected", gate);
             log.debug("[JourneyEvaluation] provider 슬롯 없음 — journeyId={}, 이번 tick 은 건너뛴다",
                     context.journeyId());
             return null;
         }
         try {
-            metrics.recordProviderSlot("acquired");
+            metrics.recordProviderSlot("acquired", gate);
             Map<Integer, LegGeometry> geometry = loadGeometry(context);
             return transferRiskEvaluator.assess(
                     context.journeyId(), context.routeRevision(), context.currentLegIndex(),
                     geometry);
         } finally {
             providerLimiter.release();
+        }
+    }
+
+    private void releaseForRetry(JourneyDueClaim claim) {
+        try {
+            scheduleWriter.releaseForRetry(claim, Instant.now(clock).plusSeconds(properties.getSlotRetrySeconds()));
+        } catch (RuntimeException e) {
+            // 못 풀면 예전처럼 lease 만료 뒤에 다시 잡힌다.
+            log.warn("[JourneyEvaluation] 슬롯 없음 — 선점을 풀지 못함 journeyId={}: {}",
+                    claim.journeyId(), e.getMessage());
         }
     }
 

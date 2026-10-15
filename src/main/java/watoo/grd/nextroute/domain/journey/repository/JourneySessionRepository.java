@@ -305,6 +305,30 @@ public interface JourneySessionRepository extends JpaRepository<JourneySession, 
                          @Param("dirtyGapSeconds") long dirtyGapSeconds);
 
     /**
+     * 선점했지만 공급자 슬롯을 못 잡아 평가하지 못한 여정을 곧 다시 잡히게 되돌린다(#427 처방 2차).
+     *
+     * <p>{@code next_evaluation_at = :claimedLeaseUntil} 이 소유권 확인이다({@link #finishEvaluation} 과 같은 규칙) —
+     * 그새 단계 전이·트리거가 예정을 바꿨거나 lease 가 만료돼 남이 가져갔으면 건드리지 않는다. 선점 표시
+     * ({@code evaluation_claimed_until})도 풀어 트리거가 "처리 중"으로 보지 않게 한다. dirty 는 그대로 둔다 — 곧 다시
+     * 평가되니 같은 일이다.
+     *
+     * @return 되돌렸으면 1
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = false)
+    @Query(value = """
+            UPDATE journey_session
+               SET next_evaluation_at = :retryAt,
+                   evaluation_claimed_until = NULL
+             WHERE id = :id
+               AND status = 'ACTIVE'
+               AND deleted_at IS NULL
+               AND next_evaluation_at = :claimedLeaseUntil
+            """, nativeQuery = true)
+    int releaseClaimForRetry(@Param("id") Long id,
+                             @Param("claimedLeaseUntil") Instant claimedLeaseUntil,
+                             @Param("retryAt") Instant retryAt);
+
+    /**
      * 실시간 데이터가 바뀐 여정들의 다음 평가를 앞당긴다(#415-3 재평가 트리거).
      *
      * <p><b>처리 중이면 표시만 한다.</b> 평가기가 지금 그 여정을 계산하고 있으면

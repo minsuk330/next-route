@@ -30,6 +30,11 @@ spring:
     username: ${POSTGRES_USER}
     password: ${POSTGRES_PASSWORD}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # 10(기본) → 20(#427 처방 2차). 평가 워커를 16 으로 올리자 지하철 사다리 6,000 에서 커넥션 대기 p95 가 40 → 373ms,
+      # 조회 p95 101 → 484ms 로 뛰었다(DB 실행 시간은 여유 — 줄은 풀에서 섰다). 운영 Postgres max_connections 100,
+      # 지금 사용 26 → api·worker 각 20 이면 약 46. 인스턴스를 4대 넘게 늘리면 (대수 × 20) 이 100 을 넘으니 함께 낮추거나 풀러를 둔다.
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
 
   jpa:
     # ddl-auto / flyway baseline 등 환경별 값은 application-{dev,prod}.yaml 참고
@@ -185,6 +190,13 @@ tago:
     bus-arrival-base-url: https://apis.data.go.kr/1613000/ArvlInfoInqireService
     # 노선정보: 도시별 노선 목록·노선별 경유정류소(#267 표 적재). 같은 포털 키.
     bus-route-base-url: https://apis.data.go.kr/1613000/BusRouteInfoInqireService
+# 공용 RestTemplate(서울 지하철·버스 등) 연결 풀(#427 처방 2차). Apache HttpClient 5 기본은 호스트당 5 — 평가 워커 16 이
+# 같은 호스트를 부르면 5 에서 줄을 선다. 공급자별 동시 호출은 평가기·검색 Semaphore 가 묶으므로 여기는 넉넉히.
+external-api:
+  rest-template:
+    max-conn-per-route: ${EXTERNAL_API_MAX_CONN_PER_ROUTE:32}
+    max-conn-total: ${EXTERNAL_API_MAX_CONN_TOTAL:64}
+
 seoul:
   api:
     bus-key: ${SEOUL_BUS_API:test}
@@ -496,13 +508,20 @@ journey:
       near-transfer-seconds: ${JOURNEY_EVALUATOR_NEAR_TRANSFER_SECONDS:300}
       far-transfer-seconds: ${JOURNEY_EVALUATOR_FAR_TRANSFER_SECONDS:900}
       unchanged-backoff-multiplier: ${JOURNEY_EVALUATOR_UNCHANGED_BACKOFF:2}
-      pool-size: 4
+      # 4 → 16(#427 처방 2차): 6,000 에서 평가 1건 70ms × 워커 4 ≈ 57건/s 상한에 붙었다. 평가는 I/O 대기가 대부분.
+      # 공급자 동시 호출은 워커가 아니라 아래 슬롯이 묶는다. DB 커넥션은 평가 중 외부 호출 동안 쥐지 않는다(짧은 쿼리만).
+      pool-size: ${JOURNEY_EVALUATOR_POOL_SIZE:16}
       # batch-size 보다 작으면 선점해 놓고 큐에서 거부되는 여정이 생긴다(부팅 검증으로 막는다).
       queue-capacity: ${JOURNEY_EVALUATOR_QUEUE_CAPACITY:400}
       # 평가기가 사용자 요청 자원을 밀어내지 않게 하는 값들.
       # provider-permits 는 워커 스레드 수와 별개로 "평가기가 동시에 외부 API 를 부를 수 있는 수"다.
       # pool-size 를 올려도 검색 요청이 쓰는 공용 Semaphore(permit 8) 몫이 줄지 않게 한다.
+      # 버스 단계가 있는 여정의 슬롯(한도 있는 공급자). 워커를 16 으로 올려도 예전 실효값 4 를 지킨다.
       provider-permits: ${JOURNEY_EVALUATOR_PROVIDER_PERMITS:4}
+      # 버스 단계가 없는 여정(지하철·도보)의 슬롯. 서울 지하철 실시간은 일일 한도가 없어 워커 수만큼.
+      subway-provider-permits: ${JOURNEY_EVALUATOR_SUBWAY_PROVIDER_PERMITS:16}
+      # 슬롯을 못 잡은 여정은 선점(60초)을 풀고 이만큼 뒤에 다시 잡힌다.
+      slot-retry-seconds: 2
       provider-acquire-ms: ${JOURNEY_EVALUATOR_PROVIDER_ACQUIRE_MS:300}
       # 환승 예측 한 건의 예산. 검색용 2500ms 보다 짧다 — 기다리는 사용자가 없다.
       # 두 배가 batch-deadline-ms 를 넘으면 부팅을 막는다(환승 두 개짜리 여정 기준).
