@@ -5277,3 +5277,31 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `runsome.sh --tests '*JourneyNotificationSloMetricsTest' '*DetectionStampTriggerTest' '*JourneyNotificationDetectionPayloadTest' '*RedisDetectionStampAdapterIT' '*JourneyEvaluationIT' '*SubwayChangeFeedTest' '*TransferRiskNotifierTest'` → 7+2+2+6+27+12+12 통과
 - 전체 `runfull.sh`(cleanTest test --continue): BUILD SUCCESSFUL 4m34s, **3,284 시험 · 실패 0 · 건너뜀 6**
+## #446 실험 2~4 — 알림 폭주·발송 장애·프로세스 장애 (2026-10-16, test/notification-fault-harness + 결과 docs/notification-slo)
+### 확정
+- 하네스(`test/notification-fault-harness`): 프록시 `/storm/start`(폭주 노선을 60초 간격 가짜 열차로 — ALL 은 키당 2대, 역별은 45분치), 가짜 발송처 장애 주입(`loadtest.push.latency-min/max-ms`·`errors=코드:비율`·`outage.*`·`outage.control-file`, 실패 모양·영구 코드표는 `FcmNotificationSender` 와 같음), 접수 기록 파일(`loadtest.push.log-path`, 줄마다 열고 닫아 kill -9 에도 남음), 러너 `STORM_*`·`PUSH_ARGS`·`OUTAGE_*`·`CHAOS=kill-worker|redis-down`, 5초 대기열 표본, `notification_slo.py`
+- SLO 목표값(문서에서 정함): 제때 = 감지 SLO + 보류 17초(긴급 32·주의 47·여유 137초)
+- 결과 요약(`load/ladder/NOTIFICATION-SLO.md`): ① 폭주만 = 모든 SLO 충족(feed p95 22.3/25.9/36.2초, 중복·잃음·만료 뒤 0). 먼저 깨진 것 = ③a 느린 FCM 2~5초에서 relay 처리량(워커 4 ÷ 왕복 ≈ 1.1건/초, relay 몫 p95 270초, 362건 미발송)
+### 함정
+- 🔴 지하철 판정은 준비 시각 뒤 첫 열차를 골라 실제 열차 "지연"으로는 빠듯·놓침이 안 생긴다 ← 폭주는 배차를 60초로 좁혀 만든다(여유 < 60초 < 빠듯 120초)
+- 🔴 relay 배치 200 × 왕복 3.5초 ÷ 워커 4 ≈ 175~190초 = 회수 기준(PROCESSING 3분)에 붙음 — 왕복이 더 길면 워커 큐에 있는 행을 회수해 다시 잡는다(③a, 중복은 0 이었지만 경계)
+- 🔴 회수 기준 3분 = 빠듯 만료 바닥 180초 → worker kill -9 뒤 고착 행이 회수 전에 만료(④a 1건 잃음)
+- 🔴 kill -9 가 FCM 접수와 `markSent` 사이에 끼면 실제 중복(④b 행 36999, 접수 1792081942.126 → 회수 뒤 1792082119.798 재발송) — 최소 한 번 계약의 몫
+- 고정 백오프 60초 × 최대 3회 → 전면 장애 허용 한계 ≈ 120초(③c' 150초 장애에 걸린 행 36/79 DEAD), 60초 장애는 60초 뒤 일제 재시도(427건/10초)
+- Redis 가 안 보이는 worker: outbox·relay·울릴 권리는 DB 라 그대로(90초에 497건 발송), 수집기가 스냅숏 Redis 저장에서 실패해 변화 피드까지 못 감 → 이벤트 감지 꺼짐(주의 감지 p95 112초)
+- worker 재기동 칸은 worker 지표가 0 부터 → `summarize.py` worker 차분 틀림(평가 건수 음수). SLO 는 DB·접수 기록으로
+- 막차 뒤(01:40) 실행한 ③c' 는 실제 열차가 적어 폭주가 79건 — 비율은 쓰지 말 것
+- 하네스 첫판 버그: 가짜 발송처 제어 파일 읽기 시각 초기값 `Long.MIN_VALUE` → `now - MIN_VALUE` 가 넘쳐 영영 안 읽음(시험이 잡음, 0 으로)
+### 좌표
+- `load/ladder/{fake_providers.py#storm_rows, run_subway_ladder.sh(start_worker·ev·QUEUE·CHAOS), notification_slo.py, README.md "알림 SLO 실험", NOTIFICATION-SLO.md}`
+- `LoadTestNotificationSender.Faults`·`currentOutage`·`appendLog`
+- 회수·만료 좌표: `JourneyNotificationProperties.claimTimeoutMinutes`(3)·`minTtlSeconds`(180)·`backoffSeconds`(60)·`maxAttempts`(3)·`Relay.batchSize`(200)·`workers`(4), `JourneyNotificationRelayService.drainParallel`
+### 미결
+- 구조 후보(근거 순): FCM 동시성·일괄 + 전역 속도 제한 > claim 단위·회수 기준(heartbeat, 회수 < 만료 바닥) > 긴급 우선 레인 > 지수 백오프+지터(만료 안 재시도) > 회수 뒤 재발송 울림 억제 > 변화 피드를 Redis 스냅숏 저장과 분리. 인스턴스 간 relay 깨우기·역압·relay 통합은 이번 근거 없음(#418 에서)
+- 놓침·조용한 갱신·재탐색 알림 경로는 지하철 사다리로 여전히 미검증
+### 검증
+- `./gradlew -q bootJar`(measure/notification-slo = 두 브랜치 합본) 뒤 `run446.sh`: `SPLIT=1 MODE=subway STORM_LINES=1001,1002,1075,1005 STORM_AT_S=120 STORM_SECONDS=240 RUN_TAG=<칸> runladder-env.sh 2000 on 10m 20` × {storm, slow(`PUSH_ARGS=--loadtest.push.latency-min-ms=2000 --loadtest.push.latency-max-ms=5000`), err20(`--loadtest.push.errors=UNAVAILABLE:0.1,INTERNAL:0.05,QUOTA_EXCEEDED:0.05`), outage(`OUTAGE_SECONDS=60`), kill(`CHAOS=kill-worker`), redis(`CHAOS=redis-down`)} + outage150 — 7칸 모두 `leftover active_journeys=0 ladder_journeys=0 loadtest_tokens=0`, 끝난 뒤 남은 java·프록시 프로세스 0
+- 칸별 수치: storm 적재 692·잃음 0 / slow 접수 361·미발송 362 / err20 DEAD 2(재시도 1:555 2:118 3:18) / outage 재시도 600·잃음 0·비우기 27초 / outage150 DEAD 36 / kill 고착 110·expired 1·relay p95 182초 / redis 중복 1·Redis 없는 90초에 발송 497
+- 스모크 `SPLIT=1 … RUN_TAG=smoke446 WARMUP_S=60 STORM_AT_S=30 STORM_SECONDS=90 CHAOS=kill-worker … 200 on 4m 5` → 적재 78, 중복 0, 남은 0
+- 하네스 시험: `runsome.sh --tests '*LoadTestNotificationSenderTest' --tests '*JourneyRelaySenderGuardTest'` 통과(장애 주입 4건 추가)
+- 전체 시험: `feat/notification-e2e-metric` 단독 `runfull.sh` → 3,284 · 실패 0 · 건너뜀 6(00:20). 합본 `measure/notification-slo`(01:53) → 3,288 · 실패 1 · 건너뜀 6, 실패 = `BusAlertWakeupBurstIT`(버스 알림 outbox, 이번 변경 무관) — **main 63a64a1e 에서도 01:57 에 같은 실패 → 기존 무관**(00:20 전체 시험에선 통과, 시각 의존 추정)
