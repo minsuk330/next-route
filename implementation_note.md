@@ -5077,3 +5077,10 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `findInterestRows` 의 환승 부분조회 두 개에 `t.deleted_at IS NULL`, 단계 조인에 `l.deleted_at IS NULL` 추가. 없으면 부분 유니크 인덱스를 못 타 여정마다 환승 표 전체를 훑음(O(N²)) — 사다리 6,000 재구성 1회 6.4초·DB 시간 52%, EXPLAIN 4,662→84ms
 ### 검증
 - `JourneyInterestQueryIT`(+지운 환승 무시)·`InterestIndexTest`·`JourneyReevaluationTriggerIT` 통과
+
+## #427 처방 뒤 재측정 (2026-10-15 18시대)
+### 검증
+- `MODE=subway RUN_TAG=fix1 runladder-env.sh {2000,6000} on 10m 20`(main 4c5a8f91 jar), 두 칸 모두 남은 진행 중 여정·표시 여정·토큰 0
+- 2,000: 평가 1건 p50 772→63ms, 처리 5.0→59.4/s, 긴급·주의·여유 SLO 53.6/0/0% → 99.9/83.2/61.1%. 다음 벽 = 분배 상한 500/주기(overflow 29,217)
+- 6,000: 처리 7.7→49.8/s(워커 4 × 70ms ≈ 57/s 상한), 예정→시작 p95 180s 그대로, DB 1위 선점 34.9%. 다음 벽 = 평가 워커 수
+- 상세 = load/ladder/BOTTLENECK-MAP-SUBWAY.md "처방 뒤 재측정"
