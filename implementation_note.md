@@ -5090,3 +5090,33 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - main `12c6d13c`(#434·#435·#436 포함) 전체 `cleanTest test --continue`: 3,204 중 실패 12, 건너뜀 6
 - 실패 12 = 기존 무관, 이번 작업 전부터 같은 구성: 여정 평가 7·환승 판정 저장 1·조회 경로가 저장된 평가 결과를 읽는다 2·남은 구간 재검색 제안 — OTP 계약 1·JourneyNotificationSchemaIT 1. 근거 = 이번 세션 작업 전 커밋 b6290a4e 의 노트에 같은 구성 기록(3,053·3,070·3,077 중 12, 원인 = 시험 고정값 route_id null → 예측 없음 → UNKNOWN 등)
 - ~~옛 커밋에서 다시 돌려 확인~~ 불가: 공유 테스트 DB 에 V68·V69 가 이미 적용돼 옛 코드로 돌리면 스키마 차이로 실패가 31건으로 늘어 비교가 안 됨(별건 함정)
+
+## 오래 실패하던 여정 시험 12건 정리 (2026-10-15)
+결론: 12건 전부 **시험 쪽 원인**(고정값·격리). 운영 코드 변경 0. 단언은 하나도 약하게 하지 않았다.
+
+### 확정
+- 이 노트의 "기존 무관" 라벨(여러 곳)은 **원인은 맞혔으나 '운영 무관'이라는 증명은 없었다** — 아래가 그 증명. 앞으로 이 12건을 "기존 무관"으로 다시 적지 말 것(이제 0건)
+
+### 함정
+- **JourneyEvaluationIT 7 · JourneyEvalReadPathIT 2** (`UNKNOWN not to be equal to UNKNOWN`, 접근 알림 0건, MODEL 대신 NONE, 대기 단계 예측 null, 평가 번호 안 오름, backoff 없음) ← `journey_leg_route_option.route_id` null. 여정 시작 시 `JourneyTransitIdEnricher.resolveBusOption` → `TransferStopResolver.resolveRoute`(bus_route 카탈로그: id → 없으면 번호 폴백)가 채우는데 **시험 DB 의 bus_route 는 0행**(st-pg 일회용, 정적 일배치 OFF). route_id 없으면 `BusBoardingTimeEstimator.hasScope`·`WaitBusArrivalPredictor.hasBusScope` 가 "노선 미해석"으로 예측기를 부르지 않음 → 판정이 늘 UNKNOWN. 즉 **노선 721 이 카탈로그에 있던 개발 DB 에서만 통과하던 숨은 데이터 의존**(시험은 f1828219, 해석기는 그 전 0ad31dcc 부터 있었음 — 운영 동작 변경이 아님)
+  - 증명: st-pg 에 `bus_route('100100999','721')`·`('100100998','370')` 두 행을 임시로 넣자 시험 코드 무변경으로 10건 중 9건 통과(남은 1 = 아래 환승 판정 저장). 확인 후 행 삭제
+  - 고침(시험): `resolveStopIdentity()` 가 정류장·순번에 더해 `route_id`(옵션 + 선택된 단계)도 채움 — 89618853
+- **JourneyTransferAssessmentIT 1** (`storedSource()` null) ← 이 시험은 "조회가 판정을 계산·저장한다"를 보는데, 그것은 **평가기 꺼짐 경로**에서만 일어난다(`JourneySnapshotEtaComposer.assess`; 켜지면 조회는 저장값만 읽음 = 9f2e3f72 의 의도된 설계). yaml 기본값 `JOURNEY_EVALUATOR_ENABLED` 가 8961bed1(2026-08-25)에 false→true 로 바뀌어 시험이 읽기 경로를 탔다. 꺼진 경로는 롤백 스위치로 남아 있으므로 계약은 유효
+  - 고침(시험): `journey.navigation.evaluator.enabled=false` 명시 — 89618853. 켜진 경로는 `JourneyEvalReadPathIT`(true 명시)가 맡음
+- **RerouteRemainingPathOtpIT 1** (OTP POST 1회 기대, 2회) ← 두 번째 요청은 재검색이 아니라 `{ routes(transportModes:[SUBWAY]) ... }` = 부팅 직후 별도 스레드의 `SubwayLinePatternWarmup`(eb2e432a)이 같은 mock OTP 에 노선 목록을 물은 것. 도착 시점이 정해지지 않은 경합이고, 오류 응답이면 워밍업이 목록을 캐시 못 해 노선마다 다시 물어 GraphQL 오류 케이스에서 주로 겹쳤다. #390(dbddc57f) 추가 검색은 재탐색에 안 붙음(커밋 본문 "Reroute is unchanged") — 가설 기각
+  - 고침(시험): dispatcher 가 `planConnection(` 이 든 요청만 세고, 나머지는 빈 목록 `{"data":{"routes":[]}}` 으로 답함 — b8b3f6ee
+- **JourneyNotificationSchemaIT 1** (전체 실행에서만, `Unable to rollback against JDBC Connection` ← `Connection is closed`) ← 직전 로그 `HikariPool marked as broken because of SQLSTATE(0A000)` + `cached plan must not change result type`. 공유 컨테이너 클래스들이 `journey-reset.sql` 로 표를 지우고 **클래스마다 다른 마이그레이션 묶음**으로 다시 만들어 `journey_session` 열 구성이 다름. 같은 설정 클래스는 컨텍스트(=Hikari 풀) 공유, pgjdbc 는 5회째부터 서버 이름 계획으로 굳힘, Hibernate insert 는 생성 키 때문에 `RETURNING *` → 열이 바뀐 표에 옛 계획 재사용 시 0A000 → Hikari 가 치명으로 보고 연결 닫음 → 롤백 실패. 재현 순서 = `JourneyKindRerouteExclusionIT` 바로 뒤의 첫 시험(setUp `saveAndFlush`, :91). 단독은 풀이 새것이라 늘 통과
+  - 고침(시험): `AbstractJourneyOutboxPostgresIT` 의 datasource URL 에 `prepareThreshold=0` — 94d66344. 운영은 실행 중 표를 다시 만들지 않아 해당 없음
+  - ⚠ Gradle 은 직전 실패 클래스를 먼저 돌린다 → 고친 뒤 같은 묶음 재실행은 순서가 바뀌어 거짓 통과. `--rerun-tasks` 로 한 번 더 돌려 Kind→Schema 순서에서 통과 확인함
+
+### 좌표
+- `src/test/java/watoo/grd/nextroute/application/journey/JourneyEvaluationIT.java#resolveStopIdentity`, `JourneyEvalReadPathIT.java#resolveStopIdentity`
+- `src/test/java/watoo/grd/nextroute/application/journey/JourneyTransferAssessmentIT.java`(@TestPropertySource)
+- `src/test/java/watoo/grd/nextroute/application/journey/RerouteRemainingPathOtpIT.java#respondWith`
+- `src/test/java/watoo/grd/nextroute/testsupport/AbstractJourneyOutboxPostgresIT.java#jdbcUrlWithoutServerPreparedStatements`
+
+### 검증
+- 수정 전 `runsome.sh --tests '*JourneyEvaluationIT' '*JourneyTransferAssessmentIT' '*JourneyEvalReadPathIT' '*RerouteRemainingPathOtpIT' '*JourneyNotificationSchemaIT'` → 51 중 11 실패(Schema 는 단독이라 통과)
+- 수정 후 같은 세 평가 클래스 → JourneyEvaluationIT 21/0 · JourneyTransferAssessmentIT 1/0 · JourneyEvalReadPathIT 5/0. `RerouteRemainingPathOtpIT` 4/0
+- 공유 컨테이너 11클래스 묶음: 수정 전 109 중 1 실패(Schema 첫 시험, 위 로그) → 수정 후 `--rerun-tasks` 109/0(Kind→Schema 순서 확인)
+- 전체 `runfull.sh`(`cleanTest test --continue`, st-pg:55432·st-redis:56379) → **3,204 중 실패 0, 건너뜀 6**, BUILD SUCCESSFUL 4m50s
