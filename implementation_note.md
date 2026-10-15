@@ -5121,6 +5121,32 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 공유 컨테이너 11클래스 묶음: 수정 전 109 중 1 실패(Schema 첫 시험, 위 로그) → 수정 후 `--rerun-tasks` 109/0(Kind→Schema 순서 확인)
 - 전체 `runfull.sh`(`cleanTest test --continue`, st-pg:55432·st-redis:56379) → **3,204 중 실패 0, 건너뜀 6**, BUILD SUCCESSFUL 4m50s
 
+## #427 처방 2차-1 — 재평가 깨우기 상한을 평가기 처리량으로 (2026-10-15, fix/reeval-wake-capacity)
+
+### 확정
+- 상한 = `clamp(인스턴스 전체 최근 처리량 × wake-horizon 15초 × wake-headroom 1.5, wake-cap-min 500, wake-cap-max 5000)`. `wake-cap-mode=FIXED` 면 예전 `max-journeys-per-request`(500) 고정(되돌리는 스위치, env `JOURNEY_REEVAL_WAKE_CAP_MODE`)
+- 처리량 원천 = DB `countEvaluatedSince(now-10s)` ÷ 10 (진행 중 행 중 `last_evaluated_at` 이 창 안). 모든 worker 인스턴스의 평가가 같은 칼럼을 쓰므로 리더 한 대가 무리 전체를 본다. Redis 카운터는 평가마다 쓰기 + 실패 경로가 늘어 안 씀. 5초 캐시(리더 메모리, 잃어도 DB 에서 다시 셈)
+- 배수 1.5(>1) 이유: 재는 값은 "한 만큼"이라 1 이하면 낮은 처리량 → 낮은 상한 → 낮은 처리량 하강 되먹임. 넘치는 쪽은 기존 shed(30초 넘게 밀린 여정 200+ 면 주의·여유 미룸)가 막음
+- 바닥 500 = 예전 고정값 → 콜드 스타트·DB 실패 시 예전 동작. 등급 순서(긴급부터)·shed·미룬 키 기준선 유지(이벤트 안 잃음) 그대로
+- 지표: 게이지 `journey.reeval.wake.cap`·`journey.reeval.wake.rate`, 분포 `journey.reeval.wake.cap.chosen`. summarize.py 에 "깨우기 상한 평균" 줄
+
+### 함정
+- 처리량은 **하한**: 창 안에서 두 번 평가된 여정은 한 번으로 셈(여정당 마지막 시각만 남음) ← 창을 최소 간격(10초) 근처로. 실측 6,000: 잰 157.7/s vs 실제 163.5/s
+- 버스 감시자는 tick(1초)마다 부를 수 있는데 상한은 지하철 수집 주기(15초) 기준 하나 ← 감시자는 지금 꺼짐(일일 몫 0). 켤 때 호출자별 시야(또는 리더 메모리 시간창 예산) 필요 — 미결
+- `JourneyReevaluationTriggerIT.overflowIsDeferredUrgentFirst` 는 고정 상한 1 로 넘침을 보던 시험 → FIXED 모드로 고정(계산 상한 계약은 `ReevaluationWakeCapTest`)
+
+### 좌표
+- `application/journey/reeval/ReevaluationWakeCap.java`(compute·current), `JdbcReevaluationTrigger.request` (`room = wakeCap.current()`)
+- `JourneySessionRepository.countEvaluatedSince`, `ReevaluationProperties` wake-*, `application.yaml` reeval.wake-*
+
+### 미결
+- 버스 감시자 켤 때 상한 시야(위 함정)
+
+### 검증
+- `./gradlew test --tests '*reeval*' '*Reevaluation*' '*Interest*' '*DetectionLatency*'` → 82 중 실패 0(건너뜀 1). 새 계약: `ReevaluationWakeCapTest` 9건(처리량→상한·바닥/천장·콜드 스타트/모름·DB 원천+캐시·DB 실패·FIXED·트리거 500 초과·긴급 먼저·shed 유지) + `JourneyReevaluationTriggerIT.countsJourneysEvaluatedInWindow`
+- 사다리 단독(P1 만, 지하철 실제 원천 2,000, `RUN_TAG=p1`): 깨운 주기당 540(상한 평균 1,401), overflow 29,217 → 269, SLO 긴급/주의/여유 99.9/83.2/61.1 → 98.9/98.1/100%, 처리 59.4 → 65.3/s, 예정→시작 p95 13.2 → 26.2s, 남은 여정 0
+- 전체 `runfull.sh`(`cleanTest test --continue`, st-pg:55432) → **3,214 중 실패 0, 건너뜀 6**(main 3,204 + 새 10), BUILD SUCCESSFUL 5m14s
+- 합본 사다리(`measure/after-p1-p2`, P1+P2) 결과는 `load/ladder/BOTTLENECK-MAP-SUBWAY.md` "처방 2차" 절(docs/subway-ladder-prescription-2 브랜치)
 ## #427 처방 2차-2 — 평가 워커 16 · 공급자 슬롯 나누기 · 연결 풀 (2026-10-15, fix/evaluator-workers)
 
 ### 확정
