@@ -21,6 +21,11 @@ import watoo.grd.nextroute.application.journey.config.JourneyNotificationPropert
 import watoo.grd.nextroute.application.journey.observability.JourneyNotificationMetrics;
 import watoo.grd.nextroute.application.journey.service.JourneyNotificationOutboxStateService;
 import watoo.grd.nextroute.application.journey.service.JourneyNotificationRelayService;
+import watoo.grd.nextroute.application.journey.dto.ClaimedNotification;
+import watoo.grd.nextroute.application.journey.exception.StaleClaimException;
+import watoo.grd.nextroute.application.journey.service.JourneyNotificationLeaseKeeper;
+import watoo.grd.nextroute.application.journey.service.JourneyRelayWaker;
+import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.journey.JourneyNotificationRelayLoop;
 import watoo.grd.nextroute.common.config.JpaConfig;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
@@ -31,10 +36,12 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * relay 가 무엇을 보내고 무엇을 안 보내는지.
@@ -48,6 +55,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({JpaConfig.class, JourneyNotificationOutboxStateService.class,
         JourneyNotificationRelayService.class, JourneyNotificationMetrics.class,
+        watoo.grd.nextroute.application.journey.service.JourneyNotificationLeaseKeeper.class,
+        watoo.grd.nextroute.application.journey.service.JourneyRelayWaker.class,
         JourneyNotificationRelayIT.Config.class})
 @Sql(scripts = {
         "classpath:db/it/journey-reset.sql",
@@ -103,6 +112,9 @@ class JourneyNotificationRelayIT extends AbstractJourneyOutboxPostgresIT {
     @Autowired CountingNotificationSender sender;
     @Autowired JourneyNotificationProperties properties;
     @Autowired MeterRegistry meterRegistry;
+    @Autowired JourneyNotificationLeaseKeeper leaseKeeper;
+    @Autowired JourneyRelayWaker relayWaker;
+    @Autowired JourneyNotificationMetrics metrics;
 
     private long journeyId;
 
@@ -293,9 +305,12 @@ class JourneyNotificationRelayIT extends AbstractJourneyOutboxPostgresIT {
     @DisplayName("이미 취소된 행은 일시 실패 기록으로 되살아나지 않는다")
     void canceledRowIsNotRevivedByFailureMark() {
         long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(600));
+        ClaimedNotification claim = stateService.claimBatch(NOW, 10).get(0);
         jdbcTemplate.update("update journey_notification set status = 'CANCELED' where id = ?", id);
 
-        stateService.markTransientFailure(id, "늦게 도착한 실패 기록");
+        assertThatThrownBy(() -> stateService.markTransientFailure(claim, "늦게 도착한 실패 기록"))
+                .as("늦은 기록은 0행 → 예외로 같은 트랜잭션을 되돌린다(#451)")
+                .isInstanceOf(StaleClaimException.class);
 
         assertThat(statusOf(id))
                 .as("되살리면 죽은 여정의 알림이 나간다")
@@ -319,13 +334,12 @@ class JourneyNotificationRelayIT extends AbstractJourneyOutboxPostgresIT {
         long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(1800));
 
         // 워커가 provider 에 넘긴 <b>직후</b>, 기록하기 <b>전에</b> 죽은 상황.
-        stateService.claimBatch(NOW, 10);
-        sender.send(stateService.loadTask(id).orElseThrow());
+        ClaimedNotification claim = stateService.claimBatch(NOW, 10).get(0);
+        sender.send(stateService.loadTask(claim).orElseThrow());
 
-        // 그 워커가 돌아오지 않아 행이 PROCESSING 에 고착됐다. 시계가 고정이라 시간을 미는
-        // 대신 행이 집힌 시각을 뒤로 돌려 같은 상태를 만든다.
-        jdbcTemplate.update("update journey_notification set processing_started_at = ? where id = ?",
-                Timestamp.from(NOW.minus(properties.claimTimeout()).minusSeconds(1)), id);
+        // 그 워커가 돌아오지 않아 행이 PROCESSING 에 고착됐다. 회수 기준은 DB now() 라(#451) 행이
+        // 집힌 시각을 DB 시계로 회수 기준보다 앞으로 돌려 같은 상태를 만든다.
+        makeStale(id);
         stateService.reclaim(NOW);
         relayService.drainUntilEmpty();
 
@@ -336,7 +350,148 @@ class JourneyNotificationRelayIT extends AbstractJourneyOutboxPostgresIT {
         assertThat(statusOf(id)).isEqualTo("SENT");
     }
 
+    // ── #451 증서·heartbeat·PULL ────────────────────────────────────────────
+
+    @Test
+    @DisplayName("heartbeat 중인 행은 회수 기준이 지나도 회수되지 않고, heartbeat 가 멈추면 회수된다")
+    void heartbeatKeepsRowAliveUntilItStops() {
+        long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(1800));
+        ClaimedNotification claim = stateService.claimBatch(NOW, 10).get(0);
+        leaseKeeper.hold(claim);
+        leaseKeeper.beat(); // 첫 주기는 회수 문이 닫혀 있다 — 직전 성공이 없다
+
+        makeStale(id);
+        assertThat(leaseKeeper.beat()).as("heartbeat 가 먼저 돌아 이 행을 지금으로 민다").isZero();
+        assertThat(statusOf(id)).isEqualTo("PROCESSING");
+
+        leaseKeeper.release(claim); // 워커가 죽었다 = 더는 heartbeat 가 없다
+        makeStale(id);
+        assertThat(leaseKeeper.beat()).isEqualTo(1);
+        assertThat(statusOf(id)).isEqualTo("PENDING");
+        assertThat(intOf("requeue_count", id)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("직전 heartbeat 성공이 회수 기준/3 보다 오래됐으면(DB 정지 직후) 그 주기는 회수하지 않는다")
+    void reclaimGateClosesAfterLongGap() {
+        long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(1800));
+        stateService.claimBatch(NOW, 10);
+        makeStale(id);
+        java.util.concurrent.atomic.AtomicLong nanos = new java.util.concurrent.atomic.AtomicLong();
+        JourneyNotificationLeaseKeeper keeper = newKeeper(nanos::get);
+
+        keeper.beat();
+        nanos.addAndGet(properties.claimTimeout().dividedBy(3).plusSeconds(1).toNanos());
+        assertThat(keeper.beat()).as("남의 행도 heartbeat 를 못 했을 수 있다").isZero();
+        assertThat(statusOf(id)).isEqualTo("PROCESSING");
+
+        nanos.addAndGet(java.time.Duration.ofSeconds(10).toNanos());
+        assertThat(keeper.beat()).as("다음 주기엔 문이 열린다").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("회수된 행에 옛 워커의 접수 기록은 0행이고 새 증서의 기록만 남는다")
+    void staleSentAfterReclaimIsDropped() {
+        long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(1800));
+        ClaimedNotification old = stateService.claimBatch(NOW, 10).get(0);
+        makeStale(id);
+        stateService.reclaim(NOW);
+        ClaimedNotification fresh = stateService.claimBatch(NOW, 10).get(0);
+        assertThat(fresh.token()).isEqualTo(old.token() + 1);
+
+        assertThatThrownBy(() -> stateService.markSent(old)).isInstanceOf(StaleClaimException.class);
+        assertThat(stateService.loadTask(old)).as("옛 증서로는 발송 직전 재확인도 통과 못 한다").isEmpty();
+        assertThat(statusOf(id)).isEqualTo("PROCESSING");
+
+        stateService.markSent(fresh);
+        assertThat(statusOf(id)).isEqualTo("SENT");
+    }
+
+    @Test
+    @DisplayName("시도 상한은 회수 몫을 뺀 실제 발송 시도로 센다")
+    void attemptsCapExcludesRequeues() {
+        long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(1800));
+        // 워커가 한 번 죽어 회수된 뒤 지금 마지막 시도라고 보이는 행: attempt 2 → claim 이 3 으로, requeue 1.
+        jdbcTemplate.update("update journey_notification set attempt_count = ?, requeue_count = 1 where id = ?",
+                properties.getMaxAttempts() - 1, id);
+        sender.failTransiently("provider 5xx");
+
+        relayService.drainUntilEmpty();
+
+        assertThat(statusOf(id))
+                .as("실제 발송 시도는 2번뿐이다 — 회수를 시도로 세면 워커 장애가 알림을 DEAD 로 만든다")
+                .isEqualTo("PENDING");
+    }
+
+    @Test
+    @DisplayName("PULL: 한 워커의 발송이 막혀도 다른 워커가 나머지를 보낸다")
+    void pullWorkersAreIndependent() throws Exception {
+        long blocked = enqueue(NOW.minusSeconds(10), NOW.plusSeconds(1800));
+        List<Long> others = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            others.add(enqueue(NOW.minusSeconds(5), NOW.plusSeconds(1800)));
+        }
+        java.util.concurrent.CountDownLatch gate = new java.util.concurrent.CountDownLatch(1);
+        sender.behave(command -> {
+            if (command.notificationId() == blocked) {
+                try {
+                    gate.await(30, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        properties.getRelay().setMode(JourneyNotificationProperties.RelayMode.PULL);
+        properties.getRelay().setPullWorkers(3);
+        properties.getRelay().setPullClaimSize(1);
+        JourneyNotificationRelayLoop loop = new JourneyNotificationRelayLoop(relayService, relayWaker, properties,
+                leaseKeeper, new org.springframework.mock.env.MockEnvironment());
+        try {
+            loop.start();
+            relayWaker.wake();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+            while (System.nanoTime() < deadline
+                    && others.stream().anyMatch(o -> !"SENT".equals(statusOf(o)))) {
+                Thread.sleep(50);
+            }
+            assertThat(others).allSatisfy(o -> assertThat(statusOf(o)).isEqualTo("SENT"));
+            assertThat(statusOf(blocked)).as("막힌 한 건만 PROCESSING 에 남는다").isEqualTo("PROCESSING");
+            assertThat(leaseKeeper.inFlightCount()).as("막힌 행은 heartbeat 대상이다").isEqualTo(1);
+        } finally {
+            gate.countDown();
+            loop.stop();
+            properties.getRelay().setMode(JourneyNotificationProperties.RelayMode.BATCH);
+            properties.getRelay().setPullWorkers(32);
+            properties.getRelay().setPullClaimSize(2);
+        }
+        assertThat(statusOf(blocked)).as("종료는 진행 중 기록을 마무리한 뒤다").isEqualTo("SENT");
+    }
+
     // ── 준비 ────────────────────────────────────────────────────────────────
+
+    /** 집힌 시각을 DB 시계로 회수 기준보다 앞으로 돌린다. 시험 시계(2026-08-06 고정)와 DB 시계가 다르다. */
+    private void makeStale(long id) {
+        jdbcTemplate.update("update journey_notification set processing_started_at = now() - make_interval(secs => ?)"
+                + " where id = ?", properties.claimTimeout().toSeconds() + 1.0, id);
+    }
+
+    private JourneyNotificationLeaseKeeper newKeeper(java.util.function.LongSupplier nanoTime) {
+        try {
+            var ctor = JourneyNotificationLeaseKeeper.class.getDeclaredConstructor(
+                    JourneyNotificationOutboxStateService.class, JourneyNotificationProperties.class,
+                    JourneyNotificationMetrics.class, Clock.class, java.util.function.LongSupplier.class);
+            ctor.setAccessible(true);
+            return ctor.newInstance(stateService, properties, metrics, Clock.fixed(NOW, ZoneId.of("Asia/Seoul")),
+                    nanoTime);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private int intOf(String column, long id) {
+        return jdbcTemplate.queryForObject(
+                "select " + column + " from journey_notification where id = ?", Integer.class, id);
+    }
 
     private long enqueue(Instant scheduledAt, Instant expiresAt) {
         String key = UUID.randomUUID().toString();

@@ -45,8 +45,13 @@ public class FirebaseConfig {
                     "FCM 자격증명을 읽을 수 없다: " + credentials + ". 볼륨 마운트를 확인한다");
         }
         try (InputStream in = Files.newInputStream(credentials)) {
+            // HTTP 시한을 직접 건다(#451). 지정하지 않으면 SDK 기본(전송 구현 기본값)이라 공급자가 늦을 때 요청 하나가
+            // 회수 기준보다 오래 살아, 회수된 행이 다시 나가는 동안 첫 요청이 접수될 수 있다. 메시징 재시도(503 만, 4회)는
+            // 공개 API 로 끌 수 없어 부팅 검증의 수명 계산에 넣었다(JourneyNotificationProperties.Fcm#httpMaxLifetime).
             FirebaseOptions options = FirebaseOptions.builder()
                     .setCredentials(GoogleCredentials.fromStream(in))
+                    .setConnectTimeout(properties.getFcm().getConnectTimeoutMs())
+                    .setReadTimeout(properties.getFcm().getReadTimeoutMs())
                     .build();
             // 같은 JVM 에서 두 번 초기화하면 SDK 가 IllegalStateException 을 던진다. 테스트가
             // 컨텍스트를 여러 벌 띄우므로 이미 있으면 그것을 쓴다.

@@ -5305,3 +5305,52 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 스모크 `SPLIT=1 … RUN_TAG=smoke446 WARMUP_S=60 STORM_AT_S=30 STORM_SECONDS=90 CHAOS=kill-worker … 200 on 4m 5` → 적재 78, 중복 0, 남은 0
 - 하네스 시험: `runsome.sh --tests '*LoadTestNotificationSenderTest' --tests '*JourneyRelaySenderGuardTest'` 통과(장애 주입 4건 추가)
 - 전체 시험: `feat/notification-e2e-metric` 단독 `runfull.sh` → 3,284 · 실패 0 · 건너뜀 6(00:20). 합본 `measure/notification-slo`(01:53) → 3,288 · 실패 1 · 건너뜀 6, 실패 = `BusAlertWakeupBurstIT`(버스 알림 outbox, 이번 변경 무관) — **main 63a64a1e 에서도 01:57 에 같은 실패 → 기존 무관**(00:20 전체 시험에선 통과, 시각 의존 추정)
+## #451 PR-1 relay 내구성 — PULL 워커 + heartbeat + 증서 조건부 기록 (2026-10-16, feat/relay-pull-fencing)
+### 확정
+- 플래그 `journey.notification.relay.mode=BATCH|PULL`(env `JOURNEY_NOTIFICATION_RELAY_MODE`, 기본 BATCH). BATCH 는 claim SQL 의 대상·순서(`scheduled_at <= :now ORDER BY scheduled_at`)·배치 200·풀 4 그대로. 바뀐 것은 안전 장치뿐: 증서·heartbeat·회수 위치·시도 상한
+- 증서 = claim RETURNING 의 올린 뒤 `attempt_count`(`ClaimedNotification(id, token)`). 상태 변경은 전부 네이티브 `UPDATE … WHERE id AND status='PROCESSING' AND attempt_count=:token`(`markSentIfClaimed`·`finishIfClaimed`·`releaseToPendingIfClaimed`). `@Version` 안 씀(엔티티에 없음, dirty check 가 attempt_count 를 옛 값으로 덮는다 — 플랜 Opus 1)
+- 0행 → `StaleClaimException(op)` 를 **트랜잭션 안에서** 던짐 → 먼저 한 `releaseAlertClaim`(여정 행 잠금) 롤백. 잠금 순서 여정 → 알림 유지. relay 가 잡아 `journey.notification.stale-write{op}` 셈. op = load·sent·transient·permanent·skipped·cancel
+- loadTask 도 증서 비교: 불일치면 아무것도 안 하고 빈 값 + stale-write{op=load}. 그 안의 취소(만료·여정 끝·경로·lease·명령·환승)는 조건부 UPDATE, 0행이면 던짐
+- 지표(#448 e2e·lost·after-expiry·released)는 바꾸기 **전에** 읽은 엔티티로 재고, 조건부 UPDATE 가 1행일 때만 센다(늦은 기록이 반납 지표를 부풀리지 않게 `released` 도 뒤로 옮김)
+- heartbeat: 전용 스레드(`journey-relay-heartbeat`, 두 모드 공통)가 `heartbeat-interval-ms`(10초)마다 한 트랜잭션에서 ① 진행 중 (id, 증서) 쌍의 `processing_started_at = now()`(unnest 두 배열, 문자열 `{..}` → `cast as bigint[]/int[]`) ② 회수. 회수는 relayOnce 에서 빠졌다
+- 회수 문: 이 인스턴스의 **직전** heartbeat 성공(주기 시작 nanoTime)이 claimTimeout/3 안일 때만. 부팅 뒤 첫 주기는 닫힘 → 회수는 둘째 주기(≈20초)부터
+- 시각: `processing_started_at`·heartbeat·회수 기준 = DB `now()`. **claim 대상 고르기(`scheduled_at <= :now`)와 회수 뒤 `scheduled_at` 은 앱 시계 유지** — 적재가 `scheduled_at` 을 앱 시계로 찍으므로 섞으면 시험 고정 시계(2026-08-06)와 DB 시계가 어긋나 "아직 안 된 행" 판정이 깨진다(플랜 Opus 5 의 "claim 시각" 을 processing_started_at 으로 좁혀 읽음)
+- 회수 = `requeue_count + 1`, `last_requeued_at = now()`. 시도 상한 = `attempt_count − requeue_count ≥ max-attempts`(`OutboxStateService.sendAttempts`). 회수가 무한 반복돼도 만료(최대 30분)가 끝낸다
+- `claim-timeout-seconds`(env `JOURNEY_NOTIFICATION_CLAIM_TIMEOUT_SECONDS`, yaml 기본 180) 신규, 있으면 이김. 코드 기본은 null → 옛 `claim-timeout-minutes`(3) 사용
+- 부팅 검증 추가: heartbeat × **4** ≤ claimTimeout(플랜은 × 3 — 정확히 × 3 이면 주기 지연 몇 ms 로 회수 문이 영영 닫혀 고착 행이 안 풀린다, 안전 쪽으로 한 칸 여유) · FCM HTTP 수명 × 2 < claimTimeout · HTTP 수명 < 백오프 · connect/read > 0 · pull-workers/claim-size/heartbeat > 0
+- `claimTimeout + 백오프 < minTtl` 은 **PULL 에서만** 실패로 막음. BATCH 기본값(180 + 60 > 180)이 이미 어기므로 전 모드에 걸면 기본값으로 부팅이 죽는다(플랜과 다름, 안전 쪽 = 기본 동작 보존). PULL 은 claim-timeout-seconds=45 를 같이 줘야 뜬다
+- FCM(firebase-admin **9.10.0** 실측, javap): `FirebaseOptions.Builder.setConnectTimeout/setReadTimeout/setWriteTimeout` 있음 → connect 2000·read 4000ms 지정(write 는 SDK 기본 그대로). 메시징 재시도 = `ApiClientUtils.DEFAULT_RETRY_CONFIG`(maxRetries 4, 503 만, maxInterval 60s, IOException 재시도 없음) — **공개 API 로 못 끈다**(`RetryConfig` 는 internal, `FirebaseMessagingClientImpl` 이 고정값 사용). 그래서 끄지 않고 상한을 수명 계산에 넣음: `httpMaxLifetime = connect + read × (1 + 4)` = 22초(× 2 = 44 < 45 PULL 권장값도 통과)
+- 시한 초과·인터럽트 때 `future.cancel(true)`. `RetryUnsuccessfulResponseHandler.handleResponse` 가 InterruptedException 이면 false(재시도 중단), 기본 전송 `ApacheHttp2Transport` 의 `ApacheHttp2Request.execute` 도 future 대기 중 인터럽트면 "Request Interrupted" IOException → 취소가 실제로 요청을 끊는다(바이트코드 확인, 실 FCM 으로는 미검증)
+- FCM 전송 계층: 9.10 기본 = `ApacheHttp2Transport`(HTTP/2 async, 풀 200/라우트 100, 동시 스트림 100). 동시 32 는 연결 하나에 다중화로 충분 — 전송 교체 불필요(측정은 PR-4)
+- PULL: 워커 32·claim 2. 깨우기는 하나만(`JourneyRelayWaker.wakeNext`, 세대 카운터 + Condition.signal), k건 꽉 찬 claim 을 한 워커가 다음을 깨움. 세대는 claim **전**에 읽고 빈 claim 뒤 그대로일 때만 잠. 예외 뒤 1초. 기존 `wake()` 는 BATCH 세마포어 + 세대 둘 다 올림
+- 종료 순서(PULL): running=false → wakeAll → 워커 join(최대 claimTimeout/2) → 남으면 인터럽트 → heartbeat 중단. BATCH 는 옛 순서(루프 인터럽트·5초 join) 뒤 heartbeat 중단
+- Hikari 경고: PULL 시작 때 `pull-workers > hikari.maximum-pool-size − journey.navigation.evaluator.pool-size − 2` 면 WARN(실패 아님). 기본값(20 − 16 − 2 = 2 < 32)이면 늘 뜸 — 측정 뒤 판단
+- 새 지표: `journey.notification.relay.inflight`(gauge) · `relay.claim.size`(summary) · `stale-write{op}` · `reclaimed` · `heartbeat.duration`
+- 발송 결과 기록을 한 번만 하도록 relay `send` 정리: 예전엔 `markSent` 가 예외면 `catch Throwable` 이 일시 실패를 또 기록했다. 이제 markSent 실패는 process 로 올라가 로그만, 행은 heartbeat 대상에서 빠져 회수 기준 뒤 재발송(최소 한 번)
+### 함정
+- 회수 기준을 앱 시계로 넘기던 옛 시험(`processing_started_at = NOW − claimTimeout`)은 DB now() 기준에서도 우연히 통과(고정 시계가 과거) — 새 시험은 `now() - make_interval(...)` 로 DB 시계에 맞춤
+- `CountingNotificationSender.send` 가 `synchronized` 라 한 건을 막으면 다른 워커 발송도 막혔다 → 시나리오를 잠금 밖으로(PULL 시험)
+- 엔티티를 고치지 않으므로 같은 트랜잭션에서 엔티티 상태를 다시 읽는 코드가 있으면 옛 값이 보인다 — 지금은 없음(지표만 읽음)
+- `releaseAlertClaim` 지표 `released` 를 알림 행 변경 성공 뒤로 옮김 — 롤백된 반납이 세지면 "울림 2번" 조사가 헛돈다
+- FirebaseOptions 시한은 FirebaseApp 공유라 링 push(`FcmLiveActivityPushAdapter`)에도 적용된다. 그쪽 `sendAsync().get` 은 이번에 안 고침(범위 밖)
+### 좌표
+- `application/journey/dto/ClaimedNotification.java`, `exception/StaleClaimException.java`
+- `application/journey/service/JourneyNotificationLeaseKeeper.java`(hold/release/beat, 회수 문)
+- `JourneyNotificationOutboxStateService`: `heartbeatAndReclaim`·`reclaim`·`claimBatch`·`loadTask(claim)`·`mark*(claim)`·`cancel(n, token, reason, lost)`·`sendAttempts`
+- `JourneyNotificationRepository`: `ClaimRow`·`claimBatchForProcessing`(RETURNING id, attempt_count AS token)·`heartbeat`·`reclaimStale(secs, now, auditNow)`·`*IfClaimed`
+- `JourneyNotificationRelayService.pullOnce`·`process`·`send`, `JourneyRelayWaker.wakeNext/wakeAll/generation/awaitChange`
+- `infrastructure/.../JourneyNotificationRelayLoop`(PULL 워커·heartbeat 스케줄·종료 순서·Hikari 경고)
+- `JourneyNotificationProperties`: `RelayMode`·`claimTimeoutSeconds`·`Relay.{mode,pullWorkers,pullClaimSize,heartbeatIntervalMs}`·`Fcm.{connectTimeoutMs,readTimeoutMs,SDK_MAX_RETRIES,httpMaxLifetime}`·`validateRelay`
+- `common/config/FirebaseConfig`(시한), `FirebaseAdminMessagingClient.SdkDispatcher(Function<Message, ApiFuture<String>>)`(cancel)
+### 미결
+- PR-4 측정 전까지 기본 BATCH·180초. PULL 켤 때는 `JOURNEY_NOTIFICATION_RELAY_MODE=PULL` + `JOURNEY_NOTIFICATION_CLAIM_TIMEOUT_SECONDS=45` 같이(아니면 부팅 실패)
+- 회수 지연이 sweep(1초)마다 → heartbeat 주기(10초)마다로 늘었다(고착 행 회수가 최대 10초 늦음). 회수 문 때문에 재기동 뒤 첫 회수는 ≥ 둘째 주기
+- 회수돼 다시 나가는 행의 소리 없는 대체(onlyAlertOnce·같은 tag)는 별건(플랜 9)
+- 링 push FCM 경로의 future 취소, write-timeout 지정은 별건
+- 회수를 heartbeat 스레드로만 하므로 relay 루프가 안 뜨는 프로세스(api)는 회수도 안 한다 — 지금도 relay 는 worker 전용이라 같음
+### 배포
+- 마이그레이션 없음. worker 교체만. 기본값이면 동작 차이 = heartbeat 스레드 추가·회수 주기 10초·증서 조건부 기록·시도 상한 계산(회수 몫 제외)·FCM 시한(연결 2초/읽기 4초) 지정
+### 검증
+- `runsome.sh --tests '*JourneyNotification*' '*JourneyAlertBudgetIT' '*FirebaseAdminMessaging*' '*JourneyRelay*' '*AlertFatigueTransportTest' '*LoadTestNotificationSender*'` → BUILD SUCCESSFUL, 185 시험 실패 0
+- 새 계약 시험: 회수 뒤 옛 증서 markSent 0행·새 증서 성공(`JourneyNotificationRelayIT.staleSentAfterReclaimIsDropped`), 두 트랜잭션 경합 → 늦은 실패 기록 StaleClaim·권리 그대로(`JourneyAlertBudgetIT.racingStaleWriteRollsBackClaimRelease`, pg_stat_activity 로 잠금 대기 확인), 늦은 기록 → 권리 그대로(`staleWriteKeepsAlertClaim`), heartbeat 중엔 회수 안 됨·멈추면 회수(`heartbeatKeepsRowAliveUntilItStops`), 회수 문(`reclaimGateClosesAfterLongGap`), 시도 상한 회수 몫 제외(`attemptsCapExcludesRequeues`), PULL 막힌 발송 1건에도 나머지 SENT(`pullWorkersAreIndependent`), 부팅 검증 조합 7개(`JourneyNotificationPropertiesTest`), FCM 시한 → future 취소(`FirebaseAdminMessagingClientTest.timeoutCancelsSdkFuture`)
+- 전체 `runfull.sh`(cleanTest test --continue): BUILD SUCCESSFUL 4m25s, **3,303 시험 · 실패 0 · 건너뜀 6**

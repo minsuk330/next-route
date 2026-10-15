@@ -6,7 +6,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties;
+import watoo.grd.nextroute.application.journey.dto.ClaimedNotification;
 import watoo.grd.nextroute.application.journey.dto.NotificationSendCommand;
+import watoo.grd.nextroute.application.journey.exception.StaleClaimException;
 import watoo.grd.nextroute.application.journey.observability.JourneyNotificationMetrics;
 import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotification;
@@ -25,7 +27,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * 발송 상태 전이의 <b>트랜잭션 경계를 모두 소유</b>한다.
@@ -40,6 +44,10 @@ import java.util.Optional;
  *
  * <p>mark 가 {@code REQUIRES_NEW} 인 이유는 relay 워커 쪽 예외가 상태 기록까지 되돌리지 않게
  * 하기 위해서다.
+ *
+ * <p><b>증서(#451).</b> 상태 변경은 전부 {@code WHERE id AND status='PROCESSING' AND attempt_count = 증서} 인 네이티브
+ * UPDATE 다. 0행이면 {@link StaleClaimException} 을 던져, 같은 트랜잭션에서 먼저 한 울릴 권리 반납까지 되돌린다. 권리
+ * 반납이 먼저인 순서(여정 → 알림 잠금)는 평가기와 같아서 바꾸지 않는다.
  */
 @Slf4j
 @Service
@@ -53,17 +61,48 @@ public class JourneyNotificationOutboxStateService {
     private final JourneyNotificationMetrics metrics;
     private final Clock clock;
 
-    /** 워커가 죽어 PROCESSING 에 고착된 행을 회수한다. */
+    /**
+     * 워커가 죽어 PROCESSING 에 고착된 행을 회수한다. 기준은 DB {@code now()} − 회수 기준이다.
+     *
+     * @param now 회수된 행이 다시 집힐 시각(claim 과 같은 앱 시계)
+     * @return 회수한 행 수
+     */
     @Transactional
-    public void reclaim(Instant now) {
-        notificationRepository.reclaimStale(now.minus(properties.claimTimeout()), now);
+    public int reclaim(Instant now) {
+        int reclaimed = notificationRepository.reclaimStale(
+                properties.claimTimeout().toMillis() / 1000.0, now, LocalDateTime.now(clock));
+        metrics.recordReclaimed(reclaimed);
+        return reclaimed;
     }
 
-    /** 배치 claim. 시도 횟수는 이 SQL 이 올린다. */
+    /**
+     * heartbeat 뒤 회수, 한 트랜잭션(#451). heartbeat 가 먼저라 이 인스턴스가 들고 있는 행은 같은 주기의 회수에 걸리지
+     * 않는다.
+     *
+     * @param inFlight     이 인스턴스가 들고 있는 행 → 증서
+     * @param reclaimAllowed 직전 heartbeat 성공이 충분히 최근일 때만 true(DB 가 멈췄다 돌아온 직후 남의 행을 쓸어 담지 않게)
+     * @return 회수한 행 수(회수를 안 했으면 0)
+     */
     @Transactional
-    public List<Long> claimBatch(Instant now, int batchSize) {
-        List<Long> claimed = notificationRepository.claimBatchForProcessing(
-                now, batchSize, LocalDateTime.now(clock));
+    public int heartbeatAndReclaim(Map<Long, Integer> inFlight, boolean reclaimAllowed, Instant now) {
+        if (!inFlight.isEmpty()) {
+            List<Map.Entry<Long, Integer>> entries = List.copyOf(inFlight.entrySet());
+            String ids = entries.stream().map(e -> String.valueOf(e.getKey()))
+                    .collect(Collectors.joining(",", "{", "}"));
+            String tokens = entries.stream().map(e -> String.valueOf(e.getValue()))
+                    .collect(Collectors.joining(",", "{", "}"));
+            notificationRepository.heartbeat(ids, tokens);
+        }
+        return reclaimAllowed ? reclaim(now) : 0;
+    }
+
+    /** 배치 claim. 시도 횟수는 이 SQL 이 올리고, 올린 값이 증서다. */
+    @Transactional
+    public List<ClaimedNotification> claimBatch(Instant now, int batchSize) {
+        List<ClaimedNotification> claimed = notificationRepository.claimBatchForProcessing(
+                        now, batchSize, LocalDateTime.now(clock)).stream()
+                .map(row -> new ClaimedNotification(row.getId(), row.getToken()))
+                .toList();
         metrics.recordClaimed(claimed.size());
         return claimed;
     }
@@ -81,37 +120,39 @@ public class JourneyNotificationOutboxStateService {
      * 번호도 같은 {@code journey_session} 행에 있어 조회가 늘지 않는다. 환승 조회만 접근 알림일
      * 때 하나 더 붙는다.
      *
-     * @return 보낼 것이 없으면 빈 값. 그때 행은 이미 CANCELED 다
+     * @return 보낼 것이 없으면 빈 값. 그때 행은 이미 CANCELED 이거나 남의 것이다
+     * @throws StaleClaimException 취소하려는데 증서가 맞지 않았다(취소·권리 반납 모두 되돌려짐)
      */
     @Transactional
-    public Optional<NotificationSendCommand> loadTask(long notificationId) {
-        JourneyNotification n = notificationRepository.findById(notificationId).orElse(null);
-        if (n == null || n.getStatus() != JourneyNotificationStatus.PROCESSING) {
-            // 회수 뒤 취소된 행이거나 다른 워커가 이미 끝냈다.
+    public Optional<NotificationSendCommand> loadTask(ClaimedNotification claim) {
+        JourneyNotification n = notificationRepository.findById(claim.id()).orElse(null);
+        if (n == null || n.getStatus() != JourneyNotificationStatus.PROCESSING
+                || n.getAttemptCount() != claim.token()) {
+            // 회수 뒤 취소된 행이거나, 다른 워커가 이미 끝냈거나, 회수돼 남이 다시 잡았다.
+            metrics.recordStaleWrite("load");
             return Optional.empty();
         }
-
         Instant now = Instant.now(clock);
         if (!n.getExpiresAt().isAfter(now)) {
-            recordLost(n, "expired");
-            cancel(n, "expired");
+            cancel(n, claim.token(), "expired", true);
             return Optional.empty();
         }
 
+        int token = claim.token();
         JourneySession journey = sessionRepository.findById(n.getJourneyId()).orElse(null);
         if (journey == null || journey.getStatus() != JourneyStatus.ACTIVE
                 || journey.getDeletedAt() != null) {
-            cancel(n, "journey-ended");
+            cancel(n, token, "journey-ended", false);
             return Optional.empty();
         }
         if (journey.getRouteRevision() != n.getRouteRevision()) {
-            cancel(n, "route-changed");
+            cancel(n, token, "route-changed", false);
             return Optional.empty();
         }
         if (!journey.getGuidanceLeaseUntil().isAfter(now)) {
             // lease 가 끝났다 = 앱이 신호를 끊었다. 화면을 보고 있지 않은 사람에게 보내는 알림은
             // 늦은 알림이고, "lease 만료 이후 발송 0" 이 Phase 5 의 완료 조건이다.
-            cancel(n, "lease-expired");
+            cancel(n, token, "lease-expired", false);
             return Optional.empty();
         }
         if (journey.getCommandVersion() != n.getCommandVersion()) {
@@ -121,10 +162,10 @@ public class JourneyNotificationOutboxStateService {
             // 평가 번호(evaluationVersion)는 <b>일부러</b> 보지 않는다. 그 값은 ETA 숫자가 몇 초
             // 흔들리기만 해도 오르므로(대기 단계는 10초 주기), 여기서 비교하면 정상 알림 대부분이
             // 발송 직전에 죽는다. 조용히 사라지는 알림이 한 번 더 가는 알림보다 나쁘다.
-            cancel(n, "command-changed");
+            cancel(n, token, "command-changed", false);
             return Optional.empty();
         }
-        if (approachLostItsMeaning(n, journey)) {
+        if (approachLostItsMeaning(n, token, journey)) {
             return Optional.empty();
         }
 
@@ -148,7 +189,7 @@ public class JourneyNotificationOutboxStateService {
      *
      * @return 뜻을 잃었으면 true. 그때 행은 이미 CANCELED 다
      */
-    private boolean approachLostItsMeaning(JourneyNotification n, JourneySession journey) {
+    private boolean approachLostItsMeaning(JourneyNotification n, int token, JourneySession journey) {
         // 접근 알림의 의미 검사는 환승 scope에만 적용한다. 관리자 테스트처럼 실제
         // TransferConnection을 가리키지 않는 JOURNEY scope 행을 transfer index 0으로
         // 잘못 해석하면, 테스트 행이 발송 직전에 조용히 취소된다.
@@ -162,28 +203,49 @@ public class JourneyNotificationOutboxStateService {
                 .orElse(null);
         if (transfer == null || transfer.getStatus() == TransferStatus.MISSED) {
             // 근거가 사라졌거나 이미 지나간 차다.
-            cancel(n, "transfer-missed");
+            cancel(n, token, "transfer-missed", false);
             return true;
         }
         if (journey.getCurrentLegIndex() > transfer.getToLegIndex()) {
-            cancel(n, "already-boarded");
+            cancel(n, token, "already-boarded", false);
             return true;
         }
         return false;
     }
 
-    private void cancel(JourneyNotification n, String reason) {
-        releaseAlertClaim(n);
-        n.markCanceled(reason);
+    /**
+     * 증서 조건부 취소. 권리 반납이 먼저(여정 → 알림 잠금 순서), 그 다음 알림 행. 알림 행이 0행이면 던져서 반납까지 되돌린다.
+     * 지표는 둘 다 성공한 뒤에 센다.
+     *
+     * @param lost 보냈어야 했는데 끝난 행인가(#446 "빠짐없이" — 만료만 해당)
+     */
+    private void cancel(JourneyNotification n, int token, String reason, boolean lost) {
+        boolean released = releaseAlertClaim(n);
+        if (notificationRepository.finishIfClaimed(n.getId(), token, "CANCELED", truncate(reason),
+                LocalDateTime.now(clock)) != 1) {
+            throw new StaleClaimException("cancel", n.getId(), token);
+        }
+        if (lost) {
+            recordLost(n, reason);
+        }
+        recordReleased(released);
         metrics.recordCanceled(reason);
         log.debug("[JourneyNotificationRelay] id={} 취소({})", n.getId(), reason);
     }
 
+    /**
+     * 접수 기록. 지표(#448 e2e·잃음·만료 뒤 발송)는 바꾸기 전에 읽은 행으로 잰다 — 조건부 UPDATE 는 엔티티를 고치지 않는다.
+     *
+     * @throws StaleClaimException 증서가 맞지 않았다. 행은 남의 것이라 그대로 둔다
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markSent(long notificationId) {
-        notificationRepository.findById(notificationId).ifPresent(n -> {
+    public void markSent(ClaimedNotification claim) {
+        notificationRepository.findById(claim.id()).ifPresent(n -> {
             Instant now = Instant.now(clock);
-            n.markSent(now);
+            if (notificationRepository.markSentIfClaimed(n.getId(), claim.token(), now,
+                    LocalDateTime.now(clock)) != 1) {
+                throw new StaleClaimException("sent", n.getId(), claim.token());
+            }
             metrics.recordSent(n.getChannel());
             if (n.getCreatedAt() != null) {
                 // created_at 은 시간대 없는 칼럼이고 적재 때 같은 clock 으로 찍었다
@@ -273,28 +335,54 @@ public class JourneyNotificationOutboxStateService {
      * {@code loadTask} 가 취소하면 mark 가 뒤따르지 않아 우연히 안전할 뿐이다.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markTransientFailure(long notificationId, String reason) {
-        notificationRepository.findById(notificationId).ifPresent(n -> {
-            if (n.getStatus() != JourneyNotificationStatus.PROCESSING) {
-                return;
+    public void markTransientFailure(ClaimedNotification claim, String reason) {
+        notificationRepository.findById(claim.id()).ifPresent(n -> {
+            int token = claim.token();
+            if (n.getStatus() != JourneyNotificationStatus.PROCESSING || n.getAttemptCount() != token) {
+                throw new StaleClaimException("transient", n.getId(), token);
             }
             Instant nextAttemptAt = Instant.now(clock).plus(properties.backoff());
-            if (n.getAttemptCount() >= properties.getMaxAttempts()) {
+            if (sendAttempts(n) >= properties.getMaxAttempts()) {
+                boolean released = releaseAlertClaim(n);
+                finish(n, token, "DEAD", "max-retry: " + reason, "transient");
                 recordLost(n, "dead");
-                releaseAlertClaim(n);
-                n.markDead("max-retry: " + reason);
+                recordReleased(released);
                 metrics.recordFailed(n.getChannel(), "dead");
             } else if (!nextAttemptAt.isBefore(n.getExpiresAt())) {
                 // 재시도 시각이 만료를 넘긴다. 보내 봐야 엉뚱한 때에 도착한다.
+                boolean released = releaseAlertClaim(n);
+                finish(n, token, "CANCELED", "expired-before-retry", "transient");
                 recordLost(n, "expired-before-retry");
-                releaseAlertClaim(n);
-                n.markCanceled("expired-before-retry");
+                recordReleased(released);
                 metrics.recordCanceled("expired");
             } else {
-                n.releaseToPending(reason, nextAttemptAt);
+                if (notificationRepository.releaseToPendingIfClaimed(n.getId(), token, truncate(reason),
+                        nextAttemptAt, LocalDateTime.now(clock)) != 1) {
+                    throw new StaleClaimException("transient", n.getId(), token);
+                }
                 metrics.recordFailed(n.getChannel(), "transient");
             }
         });
+    }
+
+    /**
+     * 실제 발송 시도 수(#451). claim 이 올린 {@code attempt_count} 에서 회수로 다시 나간 몫({@code requeue_count})을 뺀다 —
+     * 워커가 죽어 회수된 것은 공급자에게 거절당한 시도가 아니다.
+     */
+    static int sendAttempts(JourneyNotification n) {
+        return n.getAttemptCount() - n.getRequeueCount();
+    }
+
+    private void finish(JourneyNotification n, int token, String status, String reason, String op) {
+        if (notificationRepository.finishIfClaimed(n.getId(), token, status, truncate(reason),
+                LocalDateTime.now(clock)) != 1) {
+            throw new StaleClaimException(op, n.getId(), token);
+        }
+    }
+
+    /** {@code last_failure_reason} 는 varchar(500). 예상 못 한 예외 문구가 길어 기록 자체가 실패하면 안 된다. */
+    private static String truncate(String reason) {
+        return reason == null || reason.length() <= 500 ? reason : reason.substring(0, 500);
     }
 
     /**
@@ -303,25 +391,30 @@ public class JourneyNotificationOutboxStateService {
      * <p>PROCESSING 이 아닌 행은 건드리지 않는다 — {@link #markTransientFailure} 와 같은 이유.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markSkipped(long notificationId, String reason) {
-        notificationRepository.findById(notificationId).ifPresent(n -> {
-            if (n.getStatus() != JourneyNotificationStatus.PROCESSING) {
-                return;
+    public void markSkipped(ClaimedNotification claim, String reason) {
+        notificationRepository.findById(claim.id()).ifPresent(n -> {
+            if (n.getStatus() != JourneyNotificationStatus.PROCESSING || n.getAttemptCount() != claim.token()) {
+                throw new StaleClaimException("skipped", n.getId(), claim.token());
             }
-            cancel(n, reason);
+            try {
+                cancel(n, claim.token(), reason, false);
+            } catch (StaleClaimException e) {
+                throw new StaleClaimException("skipped", n.getId(), claim.token());
+            }
         });
     }
 
     /** 영구 실패. 재시도하지 않는다. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markPermanentFailure(long notificationId, String reason) {
-        notificationRepository.findById(notificationId).ifPresent(n -> {
-            if (n.getStatus() != JourneyNotificationStatus.PROCESSING) {
-                return;
+    public void markPermanentFailure(ClaimedNotification claim, String reason) {
+        notificationRepository.findById(claim.id()).ifPresent(n -> {
+            if (n.getStatus() != JourneyNotificationStatus.PROCESSING || n.getAttemptCount() != claim.token()) {
+                throw new StaleClaimException("permanent", n.getId(), claim.token());
             }
+            boolean released = releaseAlertClaim(n);
+            finish(n, claim.token(), "FAILED", reason, "permanent");
             recordLost(n, failedReason(reason));
-            releaseAlertClaim(n);
-            n.markFailed(reason);
+            recordReleased(released);
             metrics.recordFailed(n.getChannel(), "permanent");
         });
     }
@@ -337,12 +430,17 @@ public class JourneyNotificationOutboxStateService {
      * <p>피로 정책이 꺼져 있으면 부르지 않는다 — 꺼짐은 정책 이전과 같은 DB 쓰기다. 저장소 SQL 로 한꺼번에 취소하는
      * 대체(superseded*)는 여기를 지나지 않는다. 그쪽은 대체한 알림이 권리를 물려받는다.
      */
-    private void releaseAlertClaim(JourneyNotification n) {
+    private boolean releaseAlertClaim(JourneyNotification n) {
         if (!properties.getFatigue().isEnabled()) {
-            return;
+            return false;
         }
-        if (sessionRepository.releaseAlertClaim(n.getJourneyId(), List.of(n.getLogicalCheckpointKey()),
-                n.getId()) == 1) {
+        return sessionRepository.releaseAlertClaim(n.getJourneyId(), List.of(n.getLogicalCheckpointKey()),
+                n.getId()) == 1;
+    }
+
+    /** 반납 지표는 알림 행 변경까지 성공한 뒤에 센다 — 늦은 기록이면 반납이 롤백된다. */
+    private void recordReleased(boolean released) {
+        if (released) {
             metrics.recordAlertClaim("released");
         }
     }

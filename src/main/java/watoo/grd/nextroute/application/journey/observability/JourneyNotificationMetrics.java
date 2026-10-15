@@ -37,6 +37,11 @@ public class JourneyNotificationMetrics {
     public static final String HOLD = "journey.notification.hold";
     public static final String LOST = "journey.notification.lost";
     public static final String SENT_AFTER_EXPIRY = "journey.notification.sent.after-expiry";
+    public static final String STALE_WRITE = "journey.notification.stale-write";
+    public static final String RECLAIMED = "journey.notification.reclaimed";
+    public static final String RELAY_INFLIGHT = "journey.notification.relay.inflight";
+    public static final String RELAY_CLAIM_SIZE = "journey.notification.relay.claim.size";
+    public static final String HEARTBEAT_DURATION = "journey.notification.heartbeat.duration";
 
     /**
      * 처음부터 끝까지 지연 구간(#446). 감지 SLO(긴급 15초·주의 30초·여유 120초)와 합치기 창 보류(17·32초)를 가를 수 있게
@@ -67,6 +72,36 @@ public class JourneyNotificationMetrics {
         if (count > 0) {
             registry.counter(CLAIMED).increment(count);
         }
+    }
+
+    /**
+     * 증서가 맞지 않아 버린 기록(#451). 회수 뒤 다른 워커가 다시 잡은 행에 옛 워커의 기록이 늦게 온 것이다. 0 이 아니면
+     * 회수 기준이 공급자 왕복보다 짧은지부터 본다.
+     *
+     * @param op {@code load}·{@code sent}·{@code transient}·{@code permanent}·{@code skipped}·{@code cancel}
+     */
+    public void recordStaleWrite(String op) {
+        registry.counter(STALE_WRITE, "op", op).increment();
+    }
+
+    /** heartbeat 가 끊겨 회수한 행(#451). 정상 운영에서는 0 이고, 오르면 워커가 죽었거나 heartbeat 가 막힌 것이다. */
+    public void recordReclaimed(int count) {
+        registry.counter(RECLAIMED).increment(Math.max(0, count));
+    }
+
+    /** relay 한 번이 집은 건수(#451). PULL 에서 늘 k 면 워커가 모자라고, 0 이 많으면 헛돈다. */
+    public void recordClaimSize(int size) {
+        registry.summary(RELAY_CLAIM_SIZE).record(size);
+    }
+
+    /** heartbeat + 회수 한 주기의 시간(#451). 회수 기준/3 에 가까워지면 회수 문이 닫힌다. */
+    public void recordHeartbeat(Duration duration) {
+        registry.timer(HEARTBEAT_DURATION).record(duration);
+    }
+
+    /** 이 인스턴스가 들고 있는 행 수(#451). */
+    public void registerInflight(java.util.function.Supplier<Number> size) {
+        io.micrometer.core.instrument.Gauge.builder(RELAY_INFLIGHT, size).register(registry);
     }
 
     public void recordSent(NotificationChannel channel) {

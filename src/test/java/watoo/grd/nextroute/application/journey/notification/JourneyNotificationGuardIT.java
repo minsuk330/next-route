@@ -52,6 +52,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({JpaConfig.class, JourneyNotificationOutboxStateService.class,
         JourneyNotificationRelayService.class, JourneyNotificationMetrics.class,
+        watoo.grd.nextroute.application.journey.service.JourneyNotificationLeaseKeeper.class,
+        watoo.grd.nextroute.application.journey.service.JourneyRelayWaker.class,
         JourneyNotificationGuardIT.Config.class})
 @Sql(scripts = {
         "classpath:db/it/journey-reset.sql",

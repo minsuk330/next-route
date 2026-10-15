@@ -100,4 +100,17 @@ class FirebaseAdminMessagingClientTest {
             return result;
         }
     }
+
+    @Test
+    @DisplayName("시한이 넘으면 SDK future 를 취소한다 — 안 하면 늦게 접수돼 재시도와 겹친다(#451)")
+    void timeoutCancelsSdkFuture() {
+        com.google.api.core.SettableApiFuture<String> never = com.google.api.core.SettableApiFuture.create();
+        FirebaseAdminMessagingClient.SdkDispatcher dispatcher =
+                new FirebaseAdminMessagingClient.SdkDispatcher(message -> never);
+
+        assertThatThrownBy(() -> dispatcher.dispatch(MESSAGE, "token-a", 50))
+                .isInstanceOf(NotificationSendException.class)
+                .hasMessageContaining("fcm-timeout");
+        assertThat(never.isCancelled()).isTrue();
+    }
 }
