@@ -5195,3 +5195,24 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 세대 조회 DB 상위에서 사라짐(적중 82%), `BEGIN READ ONLY` 721,764 → 487,986. 끝단(처리 163.5→138.2/s, 커넥션 대기 p95 246→353ms, SLO 89.8/46.7/99.0→87.3/40.5/94.4%)은 개선 없음 — 한 회차·노트북 CPU 경합(수집 1회 p50 3.5s)과 못 가름
 ### 미결
 - 다음 측정은 운영 모양(api·worker 분리 JVM, 운영 동일 사양). 노트북 사다리로는 더 못 가름
+
+## #427 운영 모양 측정 — api·worker 분리 JVM 사다리 (2026-10-15, test/ladder-split-jvm)
+### 확정
+- `SPLIT=1`(지하철 사다리만): 같은 bootJar 두 JVM. api = `dev,api` 8080(k6 대상, worker 프로필 없음 → `!worker` 빈인 지도 타일·워밍업이 뜸, 발송처 설정 없음 = noop), worker = `dev,worker,loadtest` 8081(+ relay·loadtest 발송처 = 운영 `fcm.env` 자리). 운영 compose 의 `prod,api`/`prod,worker` 와 같은 나눔. 각 풀 20(기본값)·힙 `-Xmx1g`(한 JVM 2g 를 반씩)
+- 공통 인자는 배열 `COMMON`, worker 전용은 `WORKER_ONLY`. 기본(한 JVM) 모드의 인자 집합은 그대로(순서만 바뀜)
+- 지표 파일: api = 예전 이름, worker = `-worker` 꼬리. `summarize.py` 는 `SPLIT=1` 이면 이름+태그 같은 줄을 더하고 JVM 별 절을 찍는다. 한 JVM 요약 출력은 기존 tok 회차 파일로 재생성해 diff 0 확인(그 뒤 CPU 절만 추가)
+- CPU: 측정 창 평균 사용 코어 = `process_cpu_time_ns_total` 차이 ÷ `process_uptime_seconds` 차이. `cpu-<label>.tsv` = 15초마다 JVM 별 process/system_cpu_usage + `docker stats` Postgres
+### 함정
+- 예전 요약의 `process_cpu_usage 0.0` 은 늘 0 이었다 ← 워밍업 끝 스냅숏이 그 게이지의 첫 호출이라 0, `system_cpu_usage` 는 아예 없음. 이전 회차들의 CPU 는 cpu_time 카운터로 다시 계산(p12 1.48·tok 1.35 코어)
+- `hikaricp_connections_usage` 는 구간(버킷)이 없어 p95 가 n/a → 평균(합÷횟수)과 "쥔 시간 합 ÷ 창 = 평균 동시 점유" 로 본다
+- zsh 에서 맞는 파일이 없는 glob(`app-*split*.log`)은 명령 전체를 에러로 끝낸다 ← 대기 스크립트는 bash 로
+- 분리하면 DB 동시 접속 상한이 20 → 40. 노트북 Postgres(2.6코어)는 동시 실행이 늘자 평균 실행 시간이 1.5~2배(선점 9.7 → 14.5ms) — "풀만 키우면 된다" 는 틀림
+### 좌표
+- `load/ladder/run_subway_ladder.sh`(COMMON·WORKER_ONLY·JVMS·promsnap·CPU 표본), `load/ladder/summarize.py`(diff·JVMS 합치기·JVM 별 절·CPU 절), `load/ladder/run_ladder.sh`(버스 + SPLIT=1 거절)
+### 미결
+- 운영 4코어·7GB(OTP·ML·관측 동거)에서 같은 칸 — 노트북 6,000 이 앱 1.3 + Postgres 2.6 코어라 운영은 CPU 가 먼저일 가능성
+- api 조회 한 건의 커넥션 점유(평균 16.7ms, DB 실행은 그 일부) 줄이기
+### 검증
+- `./gradlew -q bootJar` 뒤 `SPLIT=1 MODE=subway RUN_TAG=split runladder-env.sh 6000 on 10m 20`: 처리 144.3/s, SLO 88.3/24.9/80.0%, 예정→시작 p95 92s, 커넥션 대기 p95 api 481ms(풀 20/20·대기 164) / worker 0.95ms, 조회 앱 p95 705ms·k6 5.89s, 앱 코어 api 0.74 + worker 0.58, system_cpu 평균 0.94, Postgres 2.56코어, 알림 불변식 0(울림 469), 남은 여정·표시 여정·토큰 0
+- 같은 방식 2,000: 처리 72.3/s, SLO 100/100/100%, 커넥션 대기 p95 1.0/0.97ms, 조회 앱 49ms·k6 62ms, 불변식 0, 남은 0
+- Java 코드 변경 없음 → 전체 시험 생략

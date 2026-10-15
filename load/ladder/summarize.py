@@ -50,6 +50,17 @@ def diff(start, end):
 
 
 COUNTER_SUFFIX = ('_total', '_count', '_sum')
+
+
+def end_gauge_d(d, name):
+    return sum(v for (n, l), v in d['end'].items() if n == name)
+
+
+def start_gauge_d(d, name):
+    # scalars 의 게이지 = 워밍업 끝 값
+    return sum(v for (n, l), v in d['scalars'].items() if n == name)
+
+
 # SPLIT=1(api·worker 분리 JVM): api 스냅숏은 예전 이름, worker 는 같은 이름에 -worker 꼬리.
 # 이름+태그가 같은 줄은 더한다(카운터·히스토그램 = 두 JVM 합). JVM 별로 봐야 하는 값(풀 대기·CPU)은 아래 절에서 따로.
 JVMS = {'app': diff(start_path, end_path)}
@@ -137,7 +148,9 @@ if len(JVMS) > 1:
     print('── JVM 별 (SPLIT=1) ──')
     for name, d in JVMS.items():
         print(f'  [{name}] 커넥션 대기', fmt('hikaricp_connections_acquire_seconds', '', 1000, 'ms', d),
-              '| 커넥션 사용', fmt('hikaricp_connections_usage_seconds', '', 1000, 'ms', d),
+              '| 커넥션 쥔 시간 평균', f"{s('hikaricp_connections_usage_seconds_sum', '', d) / max(1, s('hikaricp_connections_usage_seconds_count', '', d)) * 1000:.1f}ms"
+              f" (n={int(s('hikaricp_connections_usage_seconds_count', '', d))})",
+              '| 커넥션 쥔 시간 합/창', f"{s('hikaricp_connections_usage_seconds_sum', '', d) / max(1, end_gauge_d(d, 'process_uptime_seconds') - start_gauge_d(d, 'process_uptime_seconds')):.1f}개",
               '| 풀 active/pending(워밍업 끝)', int(s('hikaricp_connections_active', '', d)), '/', int(s('hikaricp_connections_pending', '', d)))
         print(f'  [{name}] process_cpu_usage', round(s('process_cpu_usage', '', d), 3),
               '| system_cpu_usage', round(s('system_cpu_usage', '', d), 3),
@@ -150,15 +163,6 @@ if len(JVMS) > 1:
 
 if os.environ.get("MODE") != "subway":
     sys.exit(0)
-
-
-def end_gauge_d(d, name):
-    return sum(v for (n, l), v in d['end'].items() if n == name)
-
-
-def start_gauge_d(d, name):
-    # scalars 의 게이지 = 워밍업 끝 값
-    return sum(v for (n, l), v in d['scalars'].items() if n == name)
 
 
 def end_gauge(name, match=''):
