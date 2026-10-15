@@ -40,3 +40,22 @@ MODE=subway REPO=$PWD OUT=load/ladder/out load/ladder/run_ladder.sh 2000 on 10m 
 ```
 
 전제: st-pg 에 `pg_stat_statements` 적재(`ALTER SYSTEM SET shared_preload_libraries='pg_stat_statements'` + 재시작 + `create extension`). 칸 시작에 통계를 비우고(워밍업 끝), 끝나면 지우기 뒤 남은 진행 중 여정 0 을 확인한다.
+
+### 운영 모양: api·worker 분리 JVM (`SPLIT=1`)
+
+기본(한 JVM, `dev,worker,loadtest`, 힙 2g, Hikari 풀 20 하나)은 그대로다. `SPLIT=1` 이면 같은 bootJar 로 JVM 두 개를 띄운다 — 운영 compose 의 `api`(`prod,api`)·`worker`(`prod,worker`) 컨테이너와 같은 역할 나눔.
+
+| JVM | 프로필 | 포트 | 하는 일 |
+|---|---|---|---|
+| api | `dev,api` | 8080 (k6 대상) | 여정 조회·주변 정류장. worker 프로필이 없으니 `!worker` 빈(지도 타일·워밍업)이 뜨고, 발송처 설정 없음 = noop (운영 api 와 같음) |
+| worker | `dev,worker,loadtest` | 8081 | 수집기·재평가·평가기·relay·가짜 발송처(운영의 `fcm.env` 자리) |
+
+- 각자 Hikari 풀 20(기본값, #440), 힙 각 `-Xmx1g`(한 JVM 2g 를 반씩 — 합이 같아야 비교가 된다. 운영 앱 컨테이너는 `-Xmx` 없이 컨테이너 메모리의 1/4).
+- 둘 다 같은 가짜 공급자·프록시(18999)·DB·Redis 를 본다.
+- 지표: `prom-start-<label>.txt`·`prom-<label>.txt` = api, 같은 이름에 `-worker` 꼬리 = worker. `summarize.py` 는 `SPLIT=1` 이면 이름+태그가 같은 줄을 더하고(카운터·히스토그램 = 두 JVM 합) "JVM 별" 절에 풀 대기·CPU·힙을 따로 찍는다.
+- CPU: 두 모드 모두 `cpu-<label>.tsv`(15초마다 JVM 별 `process/system_cpu_usage` + Postgres 컨테이너 CPU)와, 측정 창 평균 사용 코어(`process_cpu_time_ns_total` 차이 ÷ `process_uptime_seconds` 차이)를 요약에 붙인다. 예전 요약의 `process_cpu_usage 0.0` 은 워밍업 끝 스냅숏이 첫 호출이라 늘 0 이던 값이다.
+- 버스 사다리(`MODE` 없음)는 분리를 지원하지 않는다(`SPLIT=1` 이면 멈춤).
+
+```bash
+SPLIT=1 MODE=subway RUN_TAG=split REPO=$PWD OUT=load/ladder/out load/ladder/run_ladder.sh 6000 on 10m 20
+```

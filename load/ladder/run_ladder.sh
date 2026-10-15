@@ -4,6 +4,7 @@
 set -u
 # 지하철 이벤트 사다리(#427)는 따로 둔 스크립트가 맡는다 — 버스 칸은 아래 그대로.
 [[ ${MODE:-bus} == subway ]] && exec ${0:A:h}/run_subway_ladder.sh "$@"
+[[ ${SPLIT:-0} == 1 ]] && { echo "SPLIT=1(api·worker 분리 JVM)은 지하철 사다리(MODE=subway)만 지원"; exit 2; }
 N=$1; EVENT=$2; DURATION=${3:-10m}; READ_RPS=${4:-20}
 HERE=${0:A:h}; REPO=${REPO:-$PWD}; OUT=${OUT:-$HERE/out}; mkdir -p $OUT
 LABEL="n${N}-refill-${REFILL:-true}-precheck-${PRECHECK:-true}-tol-${TOL:-30}"

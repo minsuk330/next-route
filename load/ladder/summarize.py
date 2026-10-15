@@ -3,6 +3,7 @@
 워밍업이 끝난 시점(prom-start)과 끝(prom-end) 두 스냅숏의 차이만 센다 — 누적값을 그대로 쓰면 심은 여정이
 한꺼번에 만기된 기동 직후가 섞인다.
 usage: python3 -I summarize.py prom-start.txt prom-end.txt k6.json fake.json label [out_dir]
+SPLIT=1 이면 같은 경로의 *-worker.txt 두 장을 더 읽어 두 JVM 을 합치고 JVM 별 절(풀 대기·CPU·힙)을 붙인다.
 MODE=subway 이면 지하철 사다리(#427) 절도 붙인다: 감지 지연(detection-*.txt), 재평가·알림 불변식, pg_stat_statements 비중."""
 import json, os, re, sys
 from collections import defaultdict
@@ -34,22 +35,54 @@ def parse(path):
     return b, sc
 
 
-b0, s0 = parse(start_path)
-b1, s1 = parse(end_path)
-buckets = defaultdict(list)
-for key, rows in b1.items():
-    before = b0.get(key, {})
-    buckets[key] = [(le, c - before.get(le, 0.0)) for le, c in rows.items()]
-# 카운터는 차이, 게이지(cpu·heap·큐)는 끝 값이 아니라 워밍업 끝(부하 중) 값을 쓴다
+def diff(start, end):
+    b0, s0 = parse(start)
+    b1, s1 = parse(end)
+    bk = defaultdict(list)
+    for key, rows in b1.items():
+        before = b0.get(key, {})
+        bk[key] = [(le, c - before.get(le, 0.0)) for le, c in rows.items()]
+    # 카운터는 차이, 게이지(cpu·heap·큐)는 끝 값이 아니라 워밍업 끝(부하 중) 값을 쓴다
+    sc = {}
+    for key, v in s1.items():
+        sc[key] = v - s0.get(key, 0.0) if key[0].endswith(COUNTER_SUFFIX) else s0.get(key, v)
+    return {'buckets': bk, 'scalars': sc, 'end': s1}
+
+
 COUNTER_SUFFIX = ('_total', '_count', '_sum')
-scalars = {}
-for key, v in s1.items():
-    scalars[key] = v - s0.get(key, 0.0) if key[0].endswith(COUNTER_SUFFIX) else s0.get(key, v)
 
 
-def pct(name, match='', q=0.95):
+def end_gauge_d(d, name):
+    return sum(v for (n, l), v in d['end'].items() if n == name)
+
+
+def start_gauge_d(d, name):
+    # scalars 의 게이지 = 워밍업 끝 값
+    return sum(v for (n, l), v in d['scalars'].items() if n == name)
+
+
+# SPLIT=1(api·worker 분리 JVM): api 스냅숏은 예전 이름, worker 는 같은 이름에 -worker 꼬리.
+# 이름+태그가 같은 줄은 더한다(카운터·히스토그램 = 두 JVM 합). JVM 별로 봐야 하는 값(풀 대기·CPU)은 아래 절에서 따로.
+JVMS = {'app': diff(start_path, end_path)}
+if os.environ.get('SPLIT') == '1':
+    ws, we = (p.replace('.txt', '-worker.txt') for p in (start_path, end_path))
+    JVMS = {'api': JVMS['app'], 'worker': diff(ws, we)}
+buckets, scalars, s1 = defaultdict(list), defaultdict(float), defaultdict(float)
+for d in JVMS.values():
+    for key, rows in d['buckets'].items():
+        acc = dict(buckets.get(key, []))
+        for le, c in rows:
+            acc[le] = acc.get(le, 0.0) + c
+        buckets[key] = list(acc.items())
+    for key, v in d['scalars'].items():
+        scalars[key] += v
+    for key, v in d['end'].items():
+        s1[key] += v
+
+
+def pct(name, match='', q=0.95, data=None):
     agg = defaultdict(float)
-    for (n, lbl), rows in buckets.items():
+    for (n, lbl), rows in (data['buckets'] if data else buckets).items():
         if n == name and match in lbl:
             for le, c in rows:
                 agg[le] += c
@@ -71,13 +104,13 @@ def pct(name, match='', q=0.95):
     return items[-1][0], total
 
 
-def s(name, match=''):
-    return sum(v for (n, l), v in scalars.items() if n == name and match in l)
+def s(name, match='', data=None):
+    return sum(v for (n, l), v in (data['scalars'] if data else scalars).items() if n == name and match in l)
 
 
-def fmt(name, match='', unit=1.0, u='s'):
-    p50, n = pct(name, match, 0.5)
-    p95, _ = pct(name, match, 0.95)
+def fmt(name, match='', unit=1.0, u='s', data=None):
+    p50, n = pct(name, match, 0.5, data)
+    p95, _ = pct(name, match, 0.95, data)
     if p95 is None:
         return 'n/a'
     return f'p50 {p50*unit:.2f}{u} / p95 {p95*unit:.2f}{u} (n={int(n)})'
@@ -110,6 +143,22 @@ print('⑥ 조회(k6)  : journey p95/med', k6p95('journey'), '| nearby', k6p95('
 print('자원        : process_cpu_usage', round(s('process_cpu_usage'), 3),
       '| heap MB', round(s('jvm_memory_used_bytes', 'area="heap"') / 1e6),
       '| 평가 실행기 큐', s('executor_queued_tasks', 'name="journeyEvaluatorExecutor"'))
+if len(JVMS) > 1:
+    # 분리 JVM: 위 숫자는 두 JVM 합(process_cpu_usage 도 합 — 각자 '전체 코어 대비' 몫이라 더하면 앱 전체 몫).
+    print('── JVM 별 (SPLIT=1) ──')
+    for name, d in JVMS.items():
+        print(f'  [{name}] 커넥션 대기', fmt('hikaricp_connections_acquire_seconds', '', 1000, 'ms', d),
+              '| 커넥션 쥔 시간 평균', f"{s('hikaricp_connections_usage_seconds_sum', '', d) / max(1, s('hikaricp_connections_usage_seconds_count', '', d)) * 1000:.1f}ms"
+              f" (n={int(s('hikaricp_connections_usage_seconds_count', '', d))})",
+              '| 커넥션 쥔 시간 합/창', f"{s('hikaricp_connections_usage_seconds_sum', '', d) / max(1, end_gauge_d(d, 'process_uptime_seconds') - start_gauge_d(d, 'process_uptime_seconds')):.1f}개",
+              '| 풀 active/pending(워밍업 끝)', int(s('hikaricp_connections_active', '', d)), '/', int(s('hikaricp_connections_pending', '', d)))
+        print(f'  [{name}] process_cpu_usage', round(s('process_cpu_usage', '', d), 3),
+              '| system_cpu_usage', round(s('system_cpu_usage', '', d), 3),
+              '| heap MB', round(s('jvm_memory_used_bytes', 'area="heap"', d) / 1e6),
+              '| GC pause 합 s', round(s('jvm_gc_pause_seconds_sum', '', d), 1),
+              '| http.server 요청', int(s('http_server_requests_seconds_count', '', d)),
+              '| 평가', int(s('journey_evaluation_duration_seconds_count', 'outcome="evaluated"', d)),
+              '| 수집 주기', int(s('subway_realtime_collect_duration_seconds_count', 'collector="arrival"', d)))
 
 
 if os.environ.get("MODE") != "subway":
@@ -165,6 +214,25 @@ print('  예정→시작', fmt('journey_evaluation_start_lag_seconds'), '| 평�
 print('  선점 쿼리', fmt('journey_evaluation_claim_duration_seconds', '', 1000, 'ms'), '| DB 커넥션 대기', fmt('hikaricp_connections_acquire_seconds', '', 1000, 'ms'),
       '| 커넥션 사용', fmt('hikaricp_connections_usage_seconds', '', 1000, 'ms'))
 print('  지하철 역별 캐시', by_label('subway_station_arrival_cache_requests_total', 'result'))
+print('[CPU — 측정 창]')
+for name, d in JVMS.items():
+    win = end_gauge_d(d, 'process_uptime_seconds') - start_gauge_d(d, 'process_uptime_seconds')
+    used = s('process_cpu_time_ns_total', '', d) / 1e9
+    print(f'  [{name}] 평균 사용 코어 {used / max(1, win):.2f} (CPU 시간 {used:.0f}s ÷ 창 {win:.0f}s)')
+cpu_path = os.path.join(out_dir, f'cpu-{label}.tsv')
+if os.path.exists(cpu_path):
+    rows = defaultdict(list)
+    for line in open(cpu_path):
+        f = line.rstrip('\n').split('\t')
+        if len(f) >= 3 and f[2]:
+            rows[(f[1], 'p')].append(float(f[2]))
+        if len(f) >= 4 and f[3]:
+            rows[(f[1], 's')].append(float(f[3]))
+    def avgmax(v):
+        return f'평균 {sum(v) / len(v):.2f} / 최대 {max(v):.2f} (n={len(v)})' if v else 'n/a'
+    for (n_, kind), v in sorted(rows.items()):
+        what = {'p': 'Postgres 사용 코어' if n_ == 'pg' else 'process_cpu_usage(전체 코어 대비)', 's': 'system_cpu_usage'}[kind]
+        print(f'  표본 [{n_}] {what} {avgmax(v)}')
 print('[⑤ 알림]')
 print('  적재(종류·울림)', {k: int(v) for (n_, k), v in [((n, l), v) for (n, l), v in scalars.items() if n == 'journey_notification_enqueued_delivery_total' and v]})
 print('  울릴 권리', by_label('journey_notification_alert_claim_total', 'outcome'), '| 취소', by_label('journey_notification_canceled_total', 'reason'),
