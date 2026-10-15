@@ -2,6 +2,8 @@ package watoo.grd.nextroute.application.journey.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
+import watoo.grd.nextroute.application.journey.event.JourneyVersionChangedEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
@@ -61,6 +63,7 @@ public class JourneyStartTxService {
     private final SubwayBindingLifecycleService subwayBindingLifecycle;
     private final JourneyQueryService queryService;
     private final RerouteRefreshSignal rerouteRefreshSignal;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 저장 순서는 고정이다.
@@ -117,6 +120,8 @@ public class JourneyStartTxService {
                 .build());
 
         List<JourneyLeg> legs = saveLegs(session, plan);
+        // 새 번호다. 만들기 전에 누가 이 번호를 물어 캐시에 "없음"이 남았을 수 있다 — 커밋 뒤 덮는다(처방 4차).
+        eventPublisher.publishEvent(JourneyVersionChangedEvent.of(session.getId()));
         saveRouteOptions(plan, legs);
         saveTransfers(session, plan);
         // 재탐색 보드 첫 갱신은 시작 + 60초다(#264 PR-2). 시작 직후 3분의 push 차단은 push 판단이 맡는다.

@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionView;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase;
 import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase.JourneyVersions;
+import watoo.grd.nextroute.application.journey.port.out.JourneyVersionPort;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegGuidance;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
@@ -42,6 +43,7 @@ public class JourneyQueryService implements JourneyQueryUseCase {
     private final JourneyLegRepository legRepository;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
     private final JourneySubwayGuidanceComposer subwayGuidanceComposer;
+    private final JourneyVersionPort versionPort;
     private final Clock clock;
 
     @Override
@@ -59,12 +61,18 @@ public class JourneyQueryService implements JourneyQueryUseCase {
                 .map(this::snapshotOf);
     }
 
+    /**
+     * 트랜잭션을 열지 않는다(처방 4차) — 열면 캐시가 답하는 경우에도 시작 시점에 커넥션을 빌린다. 캐시가 비었을 때의
+     * DB 읽기는 저장소가 스스로 짧게 연다.
+     *
+     * <p>소유자는 여기서 거른다. 버전 캐시가 여정마다 한 칸이라 원천이 소유자를 거르지 않고 함께 돌려준다.
+     */
     @Override
-    @Transactional(readOnly = true)
     public Optional<JourneyVersions> versions(Long userId, Long journeyId) {
-        return sessionRepository.findVersions(journeyId, userId)
-                .map(row -> new JourneyVersions(row.getCommandVersion(), row.getEvaluationVersion(),
-                        row.getCurrentLegType() != null && row.getCurrentLegType().endsWith("SUBWAY")));
+        return versionPort.find(journeyId)
+                .filter(entry -> userId != null && entry.userId() == userId)
+                .map(entry -> new JourneyVersions(entry.commandVersion(), entry.evaluationVersion(),
+                        entry.subwayLeg(), entry.currentLegType(), entry.changedAtEpochMs()));
     }
 
     /**

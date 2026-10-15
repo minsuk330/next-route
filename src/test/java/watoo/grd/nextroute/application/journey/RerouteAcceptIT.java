@@ -106,6 +106,7 @@ class RerouteAcceptIT {
     @Autowired watoo.grd.nextroute.domain.journey.repository.RerouteProposalRepository proposalRepository;
     @Autowired GetJourneyNavigationGeometryUseCase geometryUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
+    @Autowired watoo.grd.nextroute.infrastructure.adapter.in.api.journey.JourneyController journeyController;
     @Autowired ObjectMapper objectMapper;
 
     @MockBean RouteSearchSnapshotPort snapshotPort;
@@ -165,6 +166,23 @@ class RerouteAcceptIT {
         assertThat(jdbcTemplate.queryForObject(
                 "select reroute_terminated from journey_session where id = ?",
                 Boolean.class, journey.journeyId())).isTrue();
+    }
+
+    @Test
+    @DisplayName("버전 캐시(처방 4차): 수락이 커밋 뒤 캐시를 덮는다 — 옛 번호로 물으면 낡은 204 가 아니라 200")
+    void acceptRefreshesVersionCache() {
+        long cmd = journey.commandVersion();
+        long eval = journey.evaluationVersion();
+        assertThat(journeyController.detail(userId, journey.journeyId(), cmd, eval, null).getStatusCode().value())
+                .as("캐시를 채운다").isEqualTo(204);
+        String candidateId = givenProposal();
+
+        JourneySnapshot after = acceptUseCase.accept(userId, journey.journeyId(), proposalId(), candidateId);
+
+        assertThat(journeyController.detail(userId, journey.journeyId(), cmd, eval, null).getStatusCode().value())
+                .isEqualTo(200);
+        assertThat(journeyController.detail(userId, journey.journeyId(), after.commandVersion(),
+                after.evaluationVersion(), null).getStatusCode().value()).isEqualTo(204);
     }
 
     @Test

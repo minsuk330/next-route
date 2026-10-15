@@ -701,6 +701,11 @@ journey:
       workers: 4
       max-batches: 1000
       drain-max-millis: 5000
+  query:
+    # 조건부 조회(204) 버전 확인을 Redis 에 캐시(#427 처방 4차). 버전을 바꾸는 쓰기는 커밋 직후 덮어써 바로 반영되고,
+    # 덮어쓰기가 실패할 때의 안전망이 이 수명이다(그 동안 앱이 바뀐 화면을 늦게 받음, 사용자 결정 30초). 0 이면 끔.
+    version-cache:
+      ttl-seconds: ${JOURNEY_QUERY_VERSION_CACHE_TTL_SECONDS:30}
   # 단독 추적(#265, kind=TRACK). 켜면 /api/journeys/track/** 조회·시작이 열린다(조회도 OTP 를 부른다).
   track:
     enabled: ${JOURNEY_TRACK_ENABLED:false}

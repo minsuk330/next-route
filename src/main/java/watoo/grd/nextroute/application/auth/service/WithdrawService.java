@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.auth.service;
 
 import org.springframework.context.ApplicationEventPublisher;
+import watoo.grd.nextroute.application.journey.event.JourneyVersionChangedEvent;
 import watoo.grd.nextroute.application.auth.event.TokenGenerationChangedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +35,7 @@ import watoo.grd.nextroute.domain.user.entity.User;
 import watoo.grd.nextroute.domain.user.repository.UserRepository;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -130,6 +132,9 @@ public class WithdrawService implements WithdrawUseCase {
             tossUserTokenRepository.deleteAllByUserKey(tossUserKey);
         }
 
+        // 버전 캐시를 "지워짐"으로 덮을 여정들. 소프트 삭제 뒤에는 deleted_at 으로 가려 못 찾는다.
+        List<Long> journeyIds = journeySessionRepository.findLiveIdsByUserId(userId);
+
         // ── 소프트 삭제 (여정 계열 9개, 순서 무관) ────────────────────────────
         journeyLegRouteOptionRepository.softDeleteByUserId(userId, now);
         journeyLegRepository.softDeleteByUserId(userId, now);
@@ -145,6 +150,10 @@ public class WithdrawService implements WithdrawUseCase {
         int updated = userRepository.withdraw(userId, now);
         // 세대 캐시가 커밋 직후 "없는 사용자"로 덮는다 — 안 하면 캐시 수명(1분)만큼 탈퇴한 계정의 토큰이 통한다.
         eventPublisher.publishEvent(new TokenGenerationChangedEvent(userId));
+        if (!journeyIds.isEmpty()) {
+            // 여정 조건부 조회 캐시도 커밋 직후 "지워짐"으로 덮는다(처방 4차).
+            eventPublisher.publishEvent(JourneyVersionChangedEvent.of(journeyIds));
+        }
         log.info("[Withdraw] 탈퇴 완료: userId={}, usersUpdated={}", userId, updated);
     }
 }

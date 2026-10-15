@@ -3,6 +3,8 @@ package watoo.grd.nextroute.application.journey.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
+import watoo.grd.nextroute.application.journey.event.JourneyVersionChangedEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties;
@@ -96,6 +98,7 @@ public class RerouteAcceptTxService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final RerouteRefreshSignal rerouteRefreshSignal;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * @return 새 개정본이 반영된 여정. 이미 <b>같은 후보로</b> 수락된 제안이면 지금 상태를 그대로 돌려준다
@@ -337,6 +340,8 @@ public class RerouteAcceptTxService {
         // 경로가 통째로 바뀌었다. 다음 주기를 기다릴 이유가 없다.
         journey.scheduleEvaluationAt(now);
         sessionRepository.flush();
+        // 개정본·명령 번호·지금 단계가 바뀌었다 — 커밋 뒤 버전 캐시를 덮는다(처방 4차).
+        eventPublisher.publishEvent(JourneyVersionChangedEvent.of(journey.getId()));
 
         // 이전 개정본을 근거로 만든 알림은 나가면 안 된다. 사유가 곧 운영 신호다.
         notificationRepository.cancelPendingByJourneyId(journey.getId(), "route-changed");

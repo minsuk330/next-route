@@ -60,7 +60,8 @@ class JourneyStartTxServiceKindTest {
                 sessionRepository, mock(JourneyRevisionRepository.class), legRepository,
                 mock(JourneyLegRouteOptionRepository.class), mock(TransferConnectionRepository.class),
                 mock(JourneyNotificationRepository.class), mock(SubwayBindingLifecycleService.class),
-                mock(JourneyQueryService.class), rerouteRefreshSignal);
+                mock(JourneyQueryService.class), rerouteRefreshSignal,
+                mock(org.springframework.context.ApplicationEventPublisher.class));
     }
 
     @Test

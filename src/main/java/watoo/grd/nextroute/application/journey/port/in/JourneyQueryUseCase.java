@@ -21,8 +21,15 @@ public interface JourneyQueryUseCase {
 
     /**
      * @param subwayLeg 지금 단계가 지하철(대기·탑승)인지. 지하철이면 링 버전이 따로 있어 버전 두 개만으로는 가를 수 없다
+     * @param currentLegType 지금 단계 종류. 전달 지연 지표의 태그(대기·탑승·도보는 앱 조회 간격이 다르다)
+     * @param changedAtEpochMs 마지막 버전 변경 커밋 시각. 모르면 null(전달 지연을 재지 않는다)
      */
-    record JourneyVersions(long commandVersion, long evaluationVersion, boolean subwayLeg) {
+    record JourneyVersions(long commandVersion, long evaluationVersion, boolean subwayLeg,
+                           String currentLegType, Long changedAtEpochMs) {
+
+        public JourneyVersions(long commandVersion, long evaluationVersion, boolean subwayLeg) {
+            this(commandVersion, evaluationVersion, subwayLeg, null, null);
+        }
 
         /**
          * 앱이 들고 있는 번호와 같으면 true. 링 번호를 물었는데 지하철 단계면 여기서 가를 수 없어 false — 전체

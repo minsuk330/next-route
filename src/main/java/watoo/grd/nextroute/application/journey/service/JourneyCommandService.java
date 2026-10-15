@@ -1,6 +1,8 @@
 package watoo.grd.nextroute.application.journey.service;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
+import watoo.grd.nextroute.application.journey.event.JourneyVersionChangedEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.dto.JourneyCommand;
@@ -57,6 +59,7 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
     private final JourneyStateMachine stateMachine;
     private final JourneyQueryService queryService;
     private final Clock clock;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -166,6 +169,10 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
         }
         legRepository.flush();
         sessionRepository.flush();
+        if (transition.commandVersionIncrement() || transition.newCurrentLegIndex() != null) {
+            // 조건부 조회(204)를 가르는 값이 바뀌었다 — 커밋 뒤 버전 캐시를 덮는다(처방 4차).
+            eventPublisher.publishEvent(JourneyVersionChangedEvent.of(journey.getId()));
+        }
     }
 
     /**

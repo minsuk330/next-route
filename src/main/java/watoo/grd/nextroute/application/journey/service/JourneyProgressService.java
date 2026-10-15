@@ -2,6 +2,8 @@ package watoo.grd.nextroute.application.journey.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
+import watoo.grd.nextroute.application.journey.event.JourneyVersionChangedEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.config.JourneyNavigationProperties;
@@ -49,6 +51,7 @@ public class JourneyProgressService implements ApplyJourneyProgressUseCase {
     private final JourneyNavigationProperties properties;
     private final RerouteRefreshSignal rerouteRefreshSignal;
     private final Clock clock;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -72,7 +75,10 @@ public class JourneyProgressService implements ApplyJourneyProgressUseCase {
         if (result == Result.APPLIED) {
             // 개정본을 조건에 넣는다. 이 요청이 도는 사이 재탐색 수락(⑤)이 경로를 갈아끼웠을 수
             // 있는데, 여기서는 여정 행을 잠그지 않으므로 그 경합을 막을 다른 장치가 없다.
-            sessionRepository.bumpEvaluationVersion(journeyId, command.routeRevision());
+            if (sessionRepository.bumpEvaluationVersion(journeyId, command.routeRevision()) > 0) {
+                // 평가 번호가 올랐다 — 커밋 뒤 버전 캐시를 덮는다(처방 4차).
+                eventPublisher.publishEvent(JourneyVersionChangedEvent.of(journeyId));
+            }
         }
         extendLease(journeyId);
 
