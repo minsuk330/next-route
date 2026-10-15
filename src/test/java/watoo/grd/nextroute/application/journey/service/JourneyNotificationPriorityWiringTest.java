@@ -116,7 +116,7 @@ class JourneyNotificationPriorityWiringTest {
 
     private JourneyNotificationOutboxStateService stateService() {
         return new JourneyNotificationOutboxStateService(repository, mock(JourneySessionRepository.class),
-                mock(TransferConnectionRepository.class), properties, metrics, CLOCK);
+                mock(TransferConnectionRepository.class), properties, metrics, CLOCK, new JourneyRetryBackoff(properties));
     }
 
     private static TransferRiskAssessment assessment(TransferStatus status) {

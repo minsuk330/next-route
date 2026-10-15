@@ -27,6 +27,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import watoo.grd.nextroute.application.journey.service.JourneyNotificationOutboxStateService;
+import watoo.grd.nextroute.application.journey.service.JourneyRetryBackoff;
 import watoo.grd.nextroute.application.journey.service.RerouteAlertTxService;
 import watoo.grd.nextroute.application.journey.service.RerouteBoardPushPolicy;
 import watoo.grd.nextroute.application.journey.service.RerouteBoardPushTxService;
@@ -58,7 +59,7 @@ import static org.mockito.Mockito.mock;
  */
 @DisplayName("울릴 권리 — 경로 버전당 울림 한 번")
 @Import({RerouteBoardPushTxService.class, RerouteAlertTxService.class,
-        JourneyNotificationOutboxStateService.class, JourneyRerouteMetrics.class})
+        JourneyNotificationOutboxStateService.class, JourneyRetryBackoff.class, JourneyRerouteMetrics.class})
 @Sql(scripts = {
         "classpath:db/it/journey-reset.sql",
         "classpath:db/migration/V35__create_journey.sql",

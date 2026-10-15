@@ -55,7 +55,7 @@ class JourneyNotificationSloMetricsTest {
     void setUp() {
         service = new JourneyNotificationOutboxStateService(notifications, sessions,
                 mock(TransferConnectionRepository.class), properties, new JourneyNotificationMetrics(registry),
-                Clock.fixed(NOW, ZoneId.of("Asia/Seoul")));
+                Clock.fixed(NOW, ZoneId.of("Asia/Seoul")), new JourneyRetryBackoff(properties));
         // 증서 조건부 UPDATE(#451)는 늘 1행 성공으로 둔다 — 이 시험은 지표를 본다.
         given(notifications.markSentIfClaimed(anyLong(), anyInt(), any(), any())).willReturn(1);
         given(notifications.finishIfClaimed(anyLong(), anyInt(), anyString(), any(), any())).willReturn(1);

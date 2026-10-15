@@ -22,6 +22,7 @@ public class SubwayRealtimeMetrics {
     public static final String CACHE_ERRORS = "subway.station.arrival.cache.errors";
     public static final String SINGLEFLIGHT = "singleflight.requests";
     public static final String COLLECT_CYCLE = "subway.realtime.collect.duration";
+    public static final String COLLECT_STORE_ERRORS = "subway.realtime.collect.store.errors";
 
     /*
      * 수집 한 바퀴 경계. 수집 주기(위치 5초·도착 15초)를 넘기는지가 판단 기준이라 두 주기를
@@ -68,5 +69,15 @@ public class SubwayRealtimeMetrics {
                 .serviceLevelObjectives(COLLECT_SLO)
                 .register(registry)
                 .record(nanos, TimeUnit.NANOSECONDS);
+    }
+
+    /**
+     * 수집기의 저장 단계 실패(#451 PR-3). 스냅숏 Redis 저장이 죽어도 변화 피드는 돌게 했으니, 저장 실패가 조용히
+     * 묻히지 않도록 따로 센다.
+     *
+     * @param op {@code snapshot}(스냅숏·상태 Redis 저장) · {@code station-lookup}(역 id → 이름 캐시 채우기)
+     */
+    public void recordCollectStoreError(String collector, String op) {
+        registry.counter(COLLECT_STORE_ERRORS, "collector", collector, "op", op).increment();
     }
 }

@@ -97,6 +97,17 @@ public class JourneyNotificationProperties {
      */
     private Long claimTimeoutSeconds;
 
+    /**
+     * 일시 실패 뒤 재시도 간격 정책(#451). env {@code JOURNEY_NOTIFICATION_RETRY_POLICY}.
+     * <ul>
+     *   <li>{@code FIXED}(기본) — 지금과 같다. {@link #backoffSeconds} 고정 간격, {@link #maxAttempts} 회</li>
+     *   <li>{@code EXPONENTIAL} — {@link Retry} 의 첫 간격 × 배수, 상한·지터, 시도 상한 {@link Retry#maxAttemptsCap}</li>
+     * </ul>
+     */
+    private RetryPolicy retryPolicy = RetryPolicy.FIXED;
+
+    private final Retry retry = new Retry();
+
     private final Relay relay = new Relay();
 
     private final Fcm fcm = new Fcm();
@@ -178,6 +189,33 @@ public class JourneyNotificationProperties {
         public Duration window() {
             return Duration.ofSeconds(windowSeconds);
         }
+    }
+
+    public enum RetryPolicy { FIXED, EXPONENTIAL }
+
+    /**
+     * EXPONENTIAL 재시도 설정(#451 PR-3). FIXED 에서는 읽지 않는다.
+     *
+     * <p>n 번째 실제 시도가 일시 실패하면 다음 간격 = min(최대, 첫 간격 × 배수^(n−1)) 에 ±지터를 곱하고, 결과를
+     * [첫 간격, 최대] 로 자른다. 아래로 자르는 이유: 첫 간격은 FCM HTTP 최대 수명보다 길어야 하는데(앞 시도가 아직 살아
+     * 있을 때 재시도가 나가면 두 번 울린다), 지터가 그 아래로 끌어내리면 이 보장이 깨진다.
+     */
+    @Getter
+    @Setter
+    public static class Retry {
+
+        /** 첫 간격(ms). 비면 {@code max(5초, FCM HTTP 최대 수명 + 2초)} — 기본 연결 2초·읽기 4초면 24초. */
+        private Long initialMs;
+
+        private double multiplier = 2.0;
+
+        private long maxSeconds = 60;
+
+        /** ±비율. 0.2 = 간격의 80~120%. 같은 순간 실패한 행들이 같은 순간 다시 몰리지 않게 흩는다. */
+        private double jitter = 0.2;
+
+        /** 실제 발송 시도({@code attempt_count − requeue_count}) 상한. 넘기면 DEAD. */
+        private int maxAttemptsCap = 8;
     }
 
     /**
@@ -312,7 +350,12 @@ public class JourneyNotificationProperties {
             throw new IllegalStateException(
                     "유효시간은 min ≤ 기본 ≤ max 순서여야 한다. 뒤집히면 clamp 가 기본값을 쓰지 않는다");
         }
-        if (backoffSeconds * maxAttempts > minTtlSeconds) {
+        if (retryPolicy == null) {
+            throw new IllegalStateException("journey.notification.retry-policy 는 FIXED 또는 EXPONENTIAL 이어야 한다");
+        }
+        // 고정 간격 예산 검사는 FIXED 에서만. EXPONENTIAL 은 간격이 늘어 이 곱이 뜻이 없고, 만료를 넘는 재시도는
+        // expired-before-retry 로 끝난다(validateRetry 가 첫 간격만 본다).
+        if (retryPolicy == RetryPolicy.FIXED && backoffSeconds * maxAttempts > minTtlSeconds) {
             throw new IllegalStateException(
                     "백오프 × 최대 시도가 유효시간 바닥을 넘으면 안 된다. 넘으면 만료 바닥에 걸린 "
                             + "행(MISSED)이 재시도를 한 번도 못 하고 취소된다");
@@ -331,6 +374,7 @@ public class JourneyNotificationProperties {
         validateApproach();
         validateRelay();
         validateFcm();
+        validateRetry();
         validateFatigue();
         if (e2e.getStampTtlSeconds() <= 0) {
             throw new IllegalStateException("journey.notification.e2e.stamp-ttl-seconds 는 0 보다 커야 한다");
@@ -365,11 +409,73 @@ public class JourneyNotificationProperties {
         }
         // 회수 기준 + 첫 백오프 < 유효시간 바닥: 회수된 행이 재시도까지 마칠 시간이 남아야 한다. 기존 BATCH 기본값
         // (180초 + 60초 > 180초)은 이것을 못 지키므로 PULL 에서만 막는다 — 기본값을 그대로 둔 채 부팅이 죽으면 안 된다.
-        if (relay.getMode() == RelayMode.PULL && claimTimeout().plus(backoff()).compareTo(minTtl()) >= 0) {
+        // EXPONENTIAL 은 validateRetry 가 모드와 무관하게 같은 검사를 첫 간격으로 한다.
+        if (retryPolicy == RetryPolicy.FIXED && relay.getMode() == RelayMode.PULL
+                && claimTimeout().plus(backoff()).compareTo(minTtl()) >= 0) {
             throw new IllegalStateException(
                     "PULL 모드에서는 회수 기준 + 백오프가 유효시간 바닥보다 짧아야 한다(권장 claim-timeout-seconds=45). "
                             + "길면 워커가 죽은 행이 회수되기 전에 만료된다");
         }
+    }
+
+    /**
+     * EXPONENTIAL 재시도 검사(#451 PR-3). FIXED 는 위의 옛 검사 그대로다.
+     *
+     * <ul>
+     *   <li>첫 간격 &gt; FCM HTTP 최대 수명 — 앞 시도가 SDK 안에서 아직 살아 있는데 재시도가 나가면 두 번 울린다</li>
+     *   <li>첫 간격(지터 위쪽 끝) + 회수 기준 &lt; 유효시간 바닥 — 워커가 죽어 회수된 행도 재시도 한 번은 할 시간이 남아야
+     *       한다. 모드와 무관하게 본다(BATCH 기본 180초 회수 기준이면 걸린다 → EXPONENTIAL 은 회수 기준을 줄여 켠다)</li>
+     * </ul>
+     */
+    private void validateRetry() {
+        if (retryPolicy != RetryPolicy.EXPONENTIAL) {
+            return;
+        }
+        if ((retry.getInitialMs() != null && retry.getInitialMs() <= 0) || retry.getMaxSeconds() <= 0
+                || retry.getMaxAttemptsCap() <= 0 || retry.getMultiplier() < 1.0
+                || retry.getJitter() < 0 || retry.getJitter() >= 1.0) {
+            throw new IllegalStateException(
+                    "journey.notification.retry 는 initial-ms·max-seconds·max-attempts-cap > 0, multiplier ≥ 1, "
+                            + "0 ≤ jitter < 1 이어야 한다");
+        }
+        if (retryInitial().compareTo(retryMax()) > 0) {
+            throw new IllegalStateException("journey.notification.retry 첫 간격은 max-seconds 이하여야 한다");
+        }
+        if (retryInitial().compareTo(fcm.httpMaxLifetime()) <= 0) {
+            throw new IllegalStateException(
+                    "EXPONENTIAL 첫 재시도 간격은 FCM HTTP 최대 수명(" + fcm.httpMaxLifetime().toMillis()
+                            + "ms)보다 길어야 한다. 짧으면 앞 시도가 아직 살아 있는데 재시도가 나가 두 번 울린다");
+        }
+        if (claimTimeout().plus(retryFirstUpperBound()).compareTo(minTtl()) >= 0) {
+            throw new IllegalStateException(
+                    "EXPONENTIAL 에서는 회수 기준 + 첫 재시도 간격(지터 포함)이 유효시간 바닥보다 짧아야 한다"
+                            + "(권장 claim-timeout-seconds=45). 길면 회수된 행이 재시도 전에 만료된다");
+        }
+    }
+
+    /** EXPONENTIAL 첫 간격. 설정이 없으면 {@code max(5초, FCM HTTP 최대 수명 + 2초)}. */
+    public Duration retryInitial() {
+        if (retry.getInitialMs() != null) {
+            return Duration.ofMillis(retry.getInitialMs());
+        }
+        Duration derived = fcm.httpMaxLifetime().plusSeconds(2);
+        Duration floor = Duration.ofSeconds(5);
+        return derived.compareTo(floor) > 0 ? derived : floor;
+    }
+
+    public Duration retryMax() {
+        return Duration.ofSeconds(retry.getMaxSeconds());
+    }
+
+    /** 첫 간격이 지터로 늘 수 있는 최대값(최대 간격으로 자름). */
+    public Duration retryFirstUpperBound() {
+        Duration up = Duration.ofMillis((long) Math.ceil(retryInitial().toMillis() * (1 + retry.getJitter())));
+        return up.compareTo(retryMax()) > 0 ? retryMax() : up;
+    }
+
+    /** 정책별 실제 발송 시도 상한. FIXED = {@link #maxAttempts}, EXPONENTIAL = {@link Retry#maxAttemptsCap}. */
+    public int retryAttemptCap() {
+        return retryPolicy == RetryPolicy.EXPONENTIAL ? retry.getMaxAttemptsCap() : maxAttempts;
     }
 
     private void validateFatigue() {
@@ -411,7 +517,7 @@ public class JourneyNotificationProperties {
                     "FCM HTTP 최대 수명(연결 + 읽기 × (1 + SDK 재시도 " + Fcm.SDK_MAX_RETRIES + ")) × 2 는 회수 기준보다 "
                             + "짧아야 한다. 길면 아직 공급자와 통화 중인 행을 회수해 같은 알림이 두 번 나간다");
         }
-        if (fcm.httpMaxLifetime().compareTo(backoff()) >= 0) {
+        if (retryPolicy == RetryPolicy.FIXED && fcm.httpMaxLifetime().compareTo(backoff()) >= 0) {
             throw new IllegalStateException(
                     "FCM HTTP 최대 수명은 백오프보다 짧아야 한다. 길면 앞 시도가 아직 살아 있는데 재시도가 나간다");
         }

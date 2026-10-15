@@ -21,6 +21,7 @@ import watoo.grd.nextroute.application.journey.observability.JourneyNotification
 import watoo.grd.nextroute.application.journey.port.out.FirebaseMessagingClient;
 import watoo.grd.nextroute.application.journey.port.out.NotificationSender;
 import watoo.grd.nextroute.application.journey.service.JourneyNotificationOutboxStateService;
+import watoo.grd.nextroute.application.journey.service.JourneyRetryBackoff;
 import watoo.grd.nextroute.application.journey.service.JourneyNotificationRelayService;
 import watoo.grd.nextroute.application.push.service.PushTokenDeactivationService;
 import watoo.grd.nextroute.common.config.JpaConfig;
@@ -52,7 +53,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({JpaConfig.class, JourneyNotificationOutboxStateService.class,
+@Import({JpaConfig.class, JourneyNotificationOutboxStateService.class, JourneyRetryBackoff.class,
         JourneyNotificationRelayService.class, JourneyNotificationMetrics.class,
         watoo.grd.nextroute.application.journey.service.JourneyNotificationLeaseKeeper.class,
         watoo.grd.nextroute.application.journey.service.JourneyRelayWaker.class,
