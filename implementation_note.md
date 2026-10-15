@@ -5120,3 +5120,30 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 수정 후 같은 세 평가 클래스 → JourneyEvaluationIT 21/0 · JourneyTransferAssessmentIT 1/0 · JourneyEvalReadPathIT 5/0. `RerouteRemainingPathOtpIT` 4/0
 - 공유 컨테이너 11클래스 묶음: 수정 전 109 중 1 실패(Schema 첫 시험, 위 로그) → 수정 후 `--rerun-tasks` 109/0(Kind→Schema 순서 확인)
 - 전체 `runfull.sh`(`cleanTest test --continue`, st-pg:55432·st-redis:56379) → **3,204 중 실패 0, 건너뜀 6**, BUILD SUCCESSFUL 4m50s
+
+## #427 처방 2차-2 — 평가 워커 16 · 공급자 슬롯 나누기 · 연결 풀 (2026-10-15, fix/evaluator-workers)
+
+### 확정
+- 워커 `pool-size` 4 → 16(env `JOURNEY_EVALUATOR_POOL_SIZE`). 플랫폼 스레드 — 동시성은 슬롯(최대 16)이 묶어 가상 스레드 이득이 없고, Java 21 `synchronized` pinning 위험만 는다
+- 공급자 슬롯을 **여정 단위로** 둘로: 버스 단계(WAIT_BUS·RIDE_BUS)가 있는 여정 = 기존 `journeyEvaluatorProviderLimiter`(`provider-permits` 4, 예전 실효값 유지 — 버스 일일 한도·검색 공용 permit 8 보호), 그 밖 = 새 `journeyEvaluatorSubwayProviderLimiter`(`subway-provider-permits` 16, 지하철 실시간은 한도 없음). 어댑터가 검색과 공용이라 "평가기 호출인지"를 어댑터에서 못 가려 여정 단위로 고름. 지난 단계도 세는 보수적 판정(`JourneyLegRepository.existsLegOfTypes`, 컨텍스트 로더의 같은 읽기 트랜잭션)
+- 슬롯을 못 잡으면 선점을 풀어 `now + slot-retry-seconds(2)` 로 되돌림(`releaseClaimForRetry`, `next_evaluation_at = :claimedLeaseUntil` 소유권 확인 + `evaluation_claimed_until = NULL`). 예전엔 lease 60초 만료까지 방치 — 워커(16) > 버스 슬롯(4) 이 되면 버스 여정이 몰릴 때마다 60초씩 밀린다
+- 공용 RestTemplate 연결 풀: HttpClient 5 기본 호스트당 5·전체 25 → 32·64(`external-api.rest-template.*`). 그대로면 워커 16 이 같은 호스트(서울 지하철)에서 5 에 줄을 서는 **숨은 상한**. 공급자별 동시성은 Semaphore 가 묶으므로 풀은 넉넉하기만 하면 됨
+- Hikari `maximum-pool-size` 10(기본) → 20(env `DB_POOL_MAX_SIZE`). 운영 Postgres max_connections 100, 사용 26(2026-10-15 VPS 실측) → api·worker 각 20 ≈ 46. 인스턴스 4대 넘게 늘리면 (대수×20) > 100 → 낮추거나 풀러
+- 지표 `journey.evaluation.provider-slot` 에 `gate=bus|subway` 태그
+
+### 함정
+- 🔴 워커만 16 으로 올리고 DB 풀 10 이면(사다리 6,000 P2 단독 회차) 커넥션 대기 p95 40 → **373ms**, 조회(앱) p95 101 → 484ms, k6 p95 4.3s. DB 실행 시간은 여유(pgss 합 ≈ 0.4 코어) — 줄은 풀에서 섰다 ← 가드: 풀 20 커밋(64b86714) + yaml 계약 시험
+- 시험 설정 `src/test/resources/application.properties` 가 `hikari.maximum-pool-size=5` 로 덮는다 ← 풀 계약 시험은 운영 yaml 을 `YamlPropertySourceLoader` 로 직접 읽음
+- 같은 작업 트리에서 전체 시험이 도는 중에 브랜치를 바꾸면 소스가 바뀐다 ← 시험 중 checkout 금지(P1 전체 시험 재실행함)
+
+### 좌표
+- `JourneyEvaluationService.computeWithProviderSlot`·`releaseForRetry`, `JourneyEvaluationScheduleWriter.releaseForRetry`, `JourneySessionRepository.releaseClaimForRetry`
+- `JourneyEvaluationContextLoader`(usesBusProvider), `JourneyEvaluatorProviderLimiterConfig`(두 Semaphore), `ApiClientConfig.pooledRestTemplate`, `JourneyEvaluatorProperties`(poolSize·subwayProviderPermits·slotRetrySeconds)
+
+### 미결
+- 운영 VPS 4코어 — 워커 16 의 CPU 몫은 운영 동일 사양에서 따로 재야 함(노트북 11코어 측정)
+- 혼합(버스+지하철) 부하에서 버스 슬롯 거절·재시도 빈도는 미측정(지하철 사다리라 gate=bus 0건)
+
+### 검증
+- `./gradlew test --tests '*JourneyEvaluationIT' '*JourneyEvaluatorPropertiesTest' '*RestTemplatePoolTest' '*JourneyDueEvaluatorIT' '*RerouteTriggerEvaluatorTest'` → 61 중 실패 0. 새 계약: 슬롯 못 잡으면 선점 해제·0~5초 뒤 재선점·claimed_until NULL / 버스 여정은 지하철 슬롯이 다 차도 평가됨 / 버스 단계 판정 / 기본값·yaml 바인딩(16·4·16·2) / 0 이면 부팅 거부 / 풀 20 / RestTemplate 호스트당 16 동시(5 초과), 대조 5 에서 막힘
+- 사다리 단독(P2 만, 풀 10 상태, 6,000, `RUN_TAG=p2`): 처리 49.8 → 115.6/s, 예정→시작 p95 180 → 103s, SLO 긴급/주의/여유 56.6/0/0 → 81.5/16.6/51.4%, DB 커넥션 대기 p95 40 → 373ms(위 함정), gate=subway acquired 59,066·rejected 0, 남은 여정 0
