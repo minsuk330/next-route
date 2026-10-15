@@ -5188,3 +5188,10 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `CachedTokenGenerationAdapterTest` 7(적중 시 DB 미호출·없음 캐시·채우기는 SET NX·변경은 덮어쓰기·Redis 장애 폴백·이상값 무시·수명 0 끔), `TokenGenerationIT`(+3: 캐시 사용·캐시 있어도 로그아웃 즉시 거부·롤백된 로그아웃은 캐시 불변), `SessionServiceTest`(+발행 확인)
 - 전체 `cleanTest test --continue`: 3,233 → 수정 뒤 재실행 BUILD SUCCESSFUL(실패 0)
+
+## #427 3차 처방 측정 — 토큰 세대 캐시 (2026-10-15)
+### 검증
+- `MODE=subway RUN_TAG=tok runladder-env.sh 6000 on 10m 20`(main 132b831f), 남은 여정·토큰 0
+- 세대 조회 DB 상위에서 사라짐(적중 82%), `BEGIN READ ONLY` 721,764 → 487,986. 끝단(처리 163.5→138.2/s, 커넥션 대기 p95 246→353ms, SLO 89.8/46.7/99.0→87.3/40.5/94.4%)은 개선 없음 — 한 회차·노트북 CPU 경합(수집 1회 p50 3.5s)과 못 가름
+### 미결
+- 다음 측정은 운영 모양(api·worker 분리 JVM, 운영 동일 사양). 노트북 사다리로는 더 못 가름
