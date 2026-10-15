@@ -70,6 +70,9 @@ class BusAlertWakeupBurstIT extends AbstractBusAlertOutboxPostgresIT {
         registry.add("notification.bus-arrival.outbox-relay-workers",
                 () -> String.valueOf(intEnv("BUS_ALERT_WAKEUP_BURST_WORKERS", 32)));
         registry.add("notification.bus-arrival.outbox-sweep-interval-ms", () -> "60000");
+        // relay 루프는 운영 기본 창(05:00~01:00) 밖에서 쉰다. 고정하지 않으면 01~05시에 돌린 실행만 발송 0건으로 실패한다.
+        registry.add("notification.bus-arrival.active-hours.start", () -> "00:00");
+        registry.add("notification.bus-arrival.active-hours.end", () -> "00:00");
     }
 
     @Autowired BusAlertDispatchService dispatchService;
