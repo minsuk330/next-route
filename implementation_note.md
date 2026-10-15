@@ -5072,3 +5072,8 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 운영 영향: 평가기 지하철 대기 판정마다 2MB 수신 → 평가 지연 + 수신 데이터량(월 2TB 상한)
 ### 검증
 - `SeoulSubwayApiAdapterStationArrivalTest`(나가는 주소 = 퍼센트 인코딩) + `SeoulSubwayApiAdapter*`·`CachedSubwayApiAdapterTest`·`SubwayRealtimeArrivalReaderTest` 통과
+## #427 처방 2 — 관심 색인 쿼리 부분 인덱스 (2026-10-15, fix/interest-index-transfer-filter)
+### 확정
+- `findInterestRows` 의 환승 부분조회 두 개에 `t.deleted_at IS NULL`, 단계 조인에 `l.deleted_at IS NULL` 추가. 없으면 부분 유니크 인덱스를 못 타 여정마다 환승 표 전체를 훑음(O(N²)) — 사다리 6,000 재구성 1회 6.4초·DB 시간 52%, EXPLAIN 4,662→84ms
+### 검증
+- `JourneyInterestQueryIT`(+지운 환승 무시)·`InterestIndexTest`·`JourneyReevaluationTriggerIT` 통과
