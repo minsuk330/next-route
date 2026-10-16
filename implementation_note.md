@@ -5532,3 +5532,14 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 사슬: `run458.sh "w1-base:1:none:fast" "w2-none:2:none:fast" "w2-killleader:2:kill-leader:fast" "w2-killslow:2:kill-worker:slow"`(각 `SPLIT=1 MODE=subway LEADER_LEASE=true STORM_LINES=1001,1002,1075,1005 STORM_AT_S=120 STORM_SECONDS=240 runladder-env.sh 2000 on 10m 20`) — 4칸 모두 `leftover active_journeys=0 ladder_journeys=0 loadtest_tokens=0`, 마지막 확인 시 java·프록시 0
 - 스모크: `smoke`(여정 100·4분·kill-leader) 리더 인계 8s/18s, `smoke2`(kill-worker CHAOS_TARGET=2, 정리 수정 뒤) `procs java=0 proxy=0`
 - src/main 변경 없음 → 컴파일·시험 생략(하네스만)
+
+## 커밋 직전 kill — 늦은 기록 재현 IT (2026-10-16)
+### 확정
+- 부하 실험의 kill -9 는 옛 발송기(A)를 죽여 "A 가 늦게 기록"하는 장면이 안 생긴다 → 실험의 "중복 0"은 증서 효과의 근거가 못 된다. 래치로 순서를 고정한 `JourneyNotificationLateWriteIT` 로 메움
+- 장면: A claim(증서 1) → FCM 접수 직후 기록 전 정지 → 처리 시작 시각을 DB 시계로 회수 기준 너머로 → 회수 → B claim(증서 2) → (B 보내는 중 | B SENT 뒤) A 기록
+- 증서가 막는 것 = 늦은 기록이 상태를 덮는 것(B 가 보내는 중인 행을 SENT·PENDING·FAILED 로, 울릴 권리 반납). **발송 중복은 못 막는다** — A·B 둘 다 FCM 접수(시험이 sender.count()==2 로 고정). "중복 발송 0"을 증서 효과로 말하지 말 것
+- 재확인~기록 사이 경합(권리 반납 UPDATE 는 실행됐는데 알림 행 기록 0행)은 `getFatigue().isEnabled()` 호출에 한 번 끼어드는 HookedProperties 로 재현. 반납 SQL 은 자기 행을 빼고 세므로 실제로 비운다 → 롤백이 되돌리는 것까지 확인
+### 검증
+- 새 IT 4/4, 3회 반복 4/4
+- 변형 검출(각각 의도한 시험 하나만 깨짐): M1 markSentIfClaimed 증서 조건 삭제 → 늦은 접수 기록 시험 / M2 일시 실패 재확인·SQL 증서 삭제 → 늦은 일시 실패 시험 / M3 영구 실패 기록 0행을 삼킴(롤백 없음) → 경합 롤백 시험 / M4 LeaseKeeper.release 를 증서 무관 remove → 늦은 접수 기록 시험(B 의 heartbeat 대상이 지워짐)
+- 전체 `./gradlew cleanTest test --continue`: 3,345 중 실패 0(건너뜀 6), BUILD SUCCESSFUL 4m 32s. src/main 변경 없음(시험만)
