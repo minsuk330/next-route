@@ -7,10 +7,26 @@ set -u
 N=$1; EVENT=$2; DURATION=${3:-10m}; READ_RPS=${4:-20}
 [[ $EVENT == on ]] || { echo "지하철 사다리는 이벤트 on 만 잰다(폴링 대비는 #423)"; exit 2; }
 HERE=${0:A:h}; REPO=${REPO:-$PWD}; OUT=${OUT:-$HERE/out}; mkdir -p $OUT
-PG=${PG_CONTAINER:-st-pg}; PGU=${POSTGRES_USER:-myuser}; PGD=${POSTGRES_DB:-mydatabase}
+# DB·Redis 주소는 env(POSTGRES_HOST/PORT/USER/PASSWORD/DB, REDIS_HOST/PORT)로 받는다 — 앱(application.yaml)도 같은 env 를 읽는다.
+# 하네스의 psql 은 기본이 로컬 컨테이너(docker exec st-pg). PG_CONTAINER= (빈 값)이면 주소로 붙는다(원격 DB, #458 VM 단계).
+PG=${PG_CONTAINER-st-pg}; PGU=${POSTGRES_USER:-myuser}; PGD=${POSTGRES_DB:-mydatabase}
 SOURCE=${SUBWAY_SOURCE:-real}   # real = 서울 실시간 도착 API(프록시), model = 가상 열차(subway_model.py)
 LABEL="subway-${SOURCE}-n${N}-${RUN_TAG:-r1}"
-psqlq() { docker exec -i $PG psql -U $PGU -d $PGD -At -F $'\t' -c "$1"; }
+if [[ -n $PG ]]; then
+  psqlq() { docker exec -i $PG psql -U $PGU -d $PGD -At -F $'\t' -c "$1"; }
+else
+  psqlq() { PGPASSWORD=${POSTGRES_PASSWORD:-} psql -h ${POSTGRES_HOST:-localhost} -p ${POSTGRES_PORT:-5432} -U $PGU -d $PGD -At -F $'\t' -c "$1"; }
+fi
+rcli() { redis-cli -h ${REDIS_HOST:-localhost} -p ${REDIS_PORT:-6379} "$@"; }
+# worker 대수(#458, SPLIT=1 만). worker i 는 포트 8080+i, 지표 이름 worker(1번)·worker2·worker3…
+WORKERS=${WORKERS:-1}
+(( WORKERS >= 1 )) || { echo "WORKERS 는 1 이상"; exit 2; }
+[[ $WORKERS -gt 1 && ${SPLIT:-0} != 1 ]] && { echo "WORKERS>1 은 SPLIT=1 만"; exit 2; }
+# 수집 리더 잠금(journey.navigation.reeval.leader-lease). 끄면 모든 worker 가 "늘 리더"라 2대면 둘 다 수집한다 — 2대 이상이면 기본 켬.
+LEASE=${LEADER_LEASE:-$([[ $WORKERS -gt 1 ]] && echo true || echo false)}
+LEASE_KEY=lease:realtime-watch
+wport() { echo $((8080 + $1)); }
+wname() { [[ $1 == 1 ]] && echo worker || echo worker$1; }
 cd $REPO
 
 # 0. 지난 회차 지우기(버스·지하철 둘 다) — 남은 여정이 있으면 칸 이름보다 큰 부하를 잰다(버스 사다리 함정).
@@ -59,9 +75,12 @@ COMMON=(
 # 발송처·relay 는 운영에서도 worker 블록에만 있다(compose worker env_file 의 fcm.env). 여기선 FCM 대신 가짜 발송처.
 # 접수 기록(push-*.tsv)은 worker 를 죽였다 살려도 이어 쓴다 — 재기동을 넘는 중복을 센다(#446).
 # PUSH_ARGS = 가짜 발송처 장애 주입(#446 실험 3, README). 전면 장애는 OUTAGE_* 로 하네스가 제어 파일에 시각을 적는다.
-OUTAGE_CTL=$OUT/outage-$LABEL.ctl; rm -f $OUTAGE_CTL $OUT/push-$LABEL.tsv
+# 접수 기록은 worker 마다 따로(push-$LABEL-w<i>.tsv) — 집계(notification_slo.py)가 합쳐 인스턴스 사이 중복까지 센다(#458).
+OUTAGE_CTL=$OUT/outage-$LABEL.ctl; rm -f $OUTAGE_CTL $OUT/push-$LABEL.tsv $OUT/push-$LABEL-w*.tsv
 WORKER_ONLY=(--journey.notification.relay.enabled=true --journey.notification.sender=loadtest
-  --loadtest.push.log-path=$OUT/push-$LABEL.tsv --loadtest.push.outage.control-file=$OUTAGE_CTL ${=PUSH_ARGS:-})
+  --loadtest.push.outage.control-file=$OUTAGE_CTL
+  --journey.navigation.reeval.leader-lease.enabled=$LEASE --logging.level.watoo.grd.nextroute.common.lock=INFO
+  ${=PUSH_ARGS:-})
 # 지표를 긁을 JVM 들: "이름:포트". 한 JVM 이면 하나, SPLIT=1 이면 api·worker 둘.
 JVMS=(app:8080)
 if [[ ${SPLIT:-0} == 1 ]]; then
@@ -70,29 +89,40 @@ if [[ ${SPLIT:-0} == 1 ]]; then
   # worker JVM = 8081, 평가기·수집기·재평가·relay. 각자 Hikari 풀 20(기본값). 힙은 각 1g — 한 JVM 2g 를 반씩(합 동일).
   LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 java -Xmx1g -jar build/libs/*-SNAPSHOT.jar \
     --spring.profiles.active=dev,api --server.port=8080 $COMMON >$OUT/app-$LABEL.log 2>&1 & APP=$!
-  # worker 띄우기를 함수로 — 프로세스 장애 실험(CHAOS)이 같은 인자로 다시 띄운다. $1 = 로그 꼬리, 나머지 = 덧붙일 인자.
+  # worker 띄우기를 함수로 — 프로세스 장애 실험(CHAOS)이 같은 인자로 다시 띄운다.
+  # $1 = worker 번호, $2 = 로그 꼬리, 나머지 = 덧붙일 인자. pids 파일에 "번호 pid" 를 덧붙인다(같은 번호는 마지막 줄이 지금 것).
   start_worker() {
-    local tail=$1; shift
+    local i=$1 tail=$2; shift 2
     LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 java -Xmx1g -jar build/libs/*-SNAPSHOT.jar \
-      --spring.profiles.active=dev,worker,loadtest --server.port=8081 $COMMON $WORKER_ONLY "$@" >$OUT/app-$LABEL-worker$tail.log 2>&1 &
-    echo $! >>$OUT/pids-$LABEL
-    WORKER=$!
+      --spring.profiles.active=dev,worker,loadtest --server.port=$(wport $i) $COMMON $WORKER_ONLY \
+      --loadtest.push.log-path=$OUT/push-$LABEL-w$i.tsv "$@" >$OUT/app-$LABEL-$(wname $i)$tail.log 2>&1 &
+    echo "$i $!" >>$OUT/pids-$LABEL
   }
   : >$OUT/pids-$LABEL
-  start_worker ""
-  JVMS=(api:8080 worker:8081)
+  JVMS=(api:8080)
+  for i in {1..$WORKERS}; do start_worker $i ""; JVMS+=($(wname $i):$(wport $i)); done
 else
   LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 java -Xmx2g -jar build/libs/*-SNAPSHOT.jar \
-    --spring.profiles.active=dev,worker,loadtest $COMMON $WORKER_ONLY >$OUT/app-$LABEL.log 2>&1 & APP=$!
-  WORKER=
+    --spring.profiles.active=dev,worker,loadtest $COMMON $WORKER_ONLY \
+    --loadtest.push.log-path=$OUT/push-$LABEL-w1.tsv >$OUT/app-$LABEL.log 2>&1 & APP=$!
 fi
+wpid() { awk -v i=$1 '$1==i{p=$2} END{print p}' $OUT/pids-$LABEL; }
+# 지금 리더인 worker 번호(journey_reeval_leader 게이지 = 1). 잠금 값은 인스턴스마다 무작위 UUID 라 Redis 값만으로는
+# 누구인지 모른다 — 게이지로 찾고, 표본기가 Redis 키(값 앞 8자·PTTL)를 같이 적어 "키 하나·주인 하나"를 따로 남긴다.
+leader_idx() {
+  local i v
+  for i in {1..$WORKERS}; do
+    v=$(curl -s -m 2 localhost:$(wport $i)/actuator/prometheus 2>/dev/null | awk '/^journey_reeval_leader /{print int($2)}')
+    [[ $v == 1 ]] && { echo $i; return; }
+  done
+}
 for j in $JVMS; do
   for i in {1..90}; do curl -sf localhost:${j#*:}/actuator/health >/dev/null && break; sleep 2; done
 done
 # 지표 스냅숏: 한 JVM 이면 예전 이름 그대로(prom-start-$LABEL.txt), 분리면 api 가 그 이름, worker 는 -worker 꼬리.
 promsnap() { # $1 = prom-start | prom
   for j in $JVMS; do
-    local suffix=""; [[ ${j%%:*} == worker ]] && suffix="-worker"
+    local suffix=""; [[ ${j%%:*} == worker* ]] && suffix="-${j%%:*}"   # worker → -worker, worker2 → -worker2
     curl -s localhost:${j#*:}/actuator/prometheus >$OUT/$1-$LABEL$suffix.txt
   done
 }
@@ -115,13 +145,28 @@ rm -f $OUT/stop-cpu-$LABEL
       curl -s localhost:${j#*:}/actuator/prometheus | awk -v t=$(date +%s) -v n=${j%%:*} \
         '/^process_cpu_usage /{p=$2} /^system_cpu_usage /{s=$2} END{print t"\t"n"\t"p"\t"s}'
     done
-    docker stats --no-stream --format "{{.CPUPerc}}" $PG | tr -d '%' | awk -v t=$(date +%s) '{print t"\tpg\t"$1/100"\t"}'
+    [[ -n $PG ]] && docker stats --no-stream --format "{{.CPUPerc}}" $PG | tr -d '%' | awk -v t=$(date +%s) '{print t"\tpg\t"$1/100"\t"}'
     sleep 15
   done >$OUT/cpu-$LABEL.tsv ) & CPUS=$!
 psqlq "select pg_stat_statements_reset()" >/dev/null
 T_FROM=$(date +%s)
 EVENTS=$OUT/events-$LABEL.tsv; : >$EVENTS
 ev() { printf '%s\t%s\n' "$(date +%s)" "$1" >>$EVENTS; }
+# 수집 리더 표본(#458, 1초마다): worker 별 리더 게이지·수집 성공 누적(subway_realtime_collect_duration count) + Redis 잠금 키.
+# leader_check.py 가 "리더 2대 이상인 순간"·"두 대가 같이 수집한 주기"·"리더 kill → 다음 수집 성공" 을 여기서 센다.
+rm -f $OUT/stop-leader-$LABEL
+if [[ ${SPLIT:-0} == 1 ]]; then
+  ( while [[ ! -e $OUT/stop-leader-$LABEL ]]; do
+      t=$(date +%s)
+      for i in {1..$WORKERS}; do
+        curl -s -m 1 localhost:$(wport $i)/actuator/prometheus 2>/dev/null | awk -v t=$t -v n=$(wname $i) '
+          /^journey_reeval_leader /{l=int($2)} /^subway_realtime_collect_duration_seconds_count\{.*collector="arrival"/{c+=$2}
+          END{print t"\t"n"\t"(l==""?"down":l)"\t"(c==""?0:c)}'
+      done
+      printf '%s\tredis\t%s\t%s\n' $t "$(rcli get $LEASE_KEY 2>/dev/null | cut -c1-8)" "$(rcli pttl $LEASE_KEY 2>/dev/null)"
+      sleep 1
+    done >$OUT/leader-$LABEL.tsv ) & LEADERS=$!
+fi
 # 대기열 표본(#446): 5초마다 사다리 여정 알림의 보낼 때 된 PENDING·PENDING·PROCESSING·누적 SENT.
 rm -f $OUT/stop-queue-$LABEL
 ( while [[ ! -e $OUT/stop-queue-$LABEL ]]; do
@@ -149,17 +194,28 @@ fi
 #  kill-worker  = 같은 인자로 재기동
 #  redis-down   = 닫힌 Redis 포트(1)로 재기동해 REDIS_DOWN_S 초 돌린 뒤 정상 종료하고 정상 인자로 재기동
 #                 (공유 st-redis 를 재시작하지 않으려고 "이 worker 만 Redis 를 못 보는" 장애로 흉내 낸다)
+#  kill-leader  = (#458) 지금 수집 리더인 worker(게이지로 찾음)를 죽이고 같은 인자로 재기동. CHAOS_TARGET 무시
+#  대상(#458): CHAOS_TARGET = 번호(기본 1) | leader | nonleader. 사건 이름에 대상이 붙는다(worker-kill9:w2:leader).
 if [[ -n ${CHAOS:-} && ${SPLIT:-0} == 1 ]]; then
   ( sleep $(( ${STORM_AT_S:-120} + ${CHAOS_AFTER_STORM_S:-25} ))
-    kill -9 $WORKER; ev worker-kill9
+    target=${CHAOS_TARGET:-1}; [[ $CHAOS == kill-leader ]] && target=leader
+    lead=$(leader_idx)
+    case $target in
+      leader) T=$lead ;;
+      nonleader) T=""; for i in {1..$WORKERS}; do [[ $i != $lead ]] && { T=$i; break; }; done ;;
+      *) T=$target ;;
+    esac
+    [[ -z $T ]] && { ev "chaos-skip:no-target($target,leader=${lead:-none})"; exit 0; }
+    role=nonleader; [[ $T == $lead ]] && role=leader
+    kill -9 $(wpid $T); ev "worker-kill9:w$T:$role"
     sleep ${RESTART_AFTER_S:-8}
     if [[ $CHAOS == redis-down ]]; then
-      start_worker "-noredis" --spring.data.redis.port=1; ev worker-start-noredis
+      start_worker $T "-noredis" --spring.data.redis.port=1; ev "worker-start-noredis:w$T"
       sleep ${REDIS_DOWN_S:-90}
-      kill $WORKER; wait $WORKER 2>/dev/null; ev worker-stop-noredis
-      start_worker "-2"; ev worker-start
+      P=$(wpid $T); kill $P; while kill -0 $P 2>/dev/null; do sleep 1; done; ev "worker-stop-noredis:w$T"
+      start_worker $T "-r"; ev "worker-start:w$T"
     else
-      start_worker "-2"; ev worker-start
+      start_worker $T "-r"; ev "worker-start:w$T"
     fi ) &
   CHAOS_PID=$!
 fi
@@ -208,10 +264,20 @@ select n.id, n.journey_id, n.route_revision, n.checkpoint, n.status, coalesce(n.
   from journey_notification n join journey_session s on s.id = n.journey_id
  where s.destination_summary->>'ladder' = 'LOAD-ST' order by n.id" >$OUT/notifrows-$LABEL.tsv
 [[ -n ${CHAOS_PID:-} ]] && wait $CHAOS_PID 2>/dev/null
-kill $APP $WORKER $FAKE 2>/dev/null; wait $APP $WORKER 2>/dev/null
-# 재기동한 worker 까지 남김없이(pids 파일), 그래도 남은 8081 은 끝낸다.
-[[ -s $OUT/pids-$LABEL ]] && kill $(cat $OUT/pids-$LABEL) 2>/dev/null
-sleep 2; pkill -f 'server.port=8081' 2>/dev/null
+touch $OUT/stop-leader-$LABEL; [[ -n ${LEADERS:-} ]] && wait $LEADERS 2>/dev/null
+kill $APP $FAKE 2>/dev/null; wait $APP 2>/dev/null
+# 재기동한 worker 까지 남김없이(pids 파일 둘째 칸), 그래도 남은 worker 포트는 끝낸다.
+[[ -s $OUT/pids-$LABEL ]] && kill $(awk '{print $2}' $OUT/pids-$LABEL) 2>/dev/null
+sleep 2
+if [[ ${SPLIT:-0} == 1 ]]; then for i in {1..$WORKERS}; do pkill -f "server.port=$(wport $i)" 2>/dev/null; done; fi
+# 정상 종료가 길다(relay 워커 128 + 발송 중 행 정리) — 다음 칸이 같은 포트로 뜨기 전에 다 내려갔는지 기다리고, 30초 넘으면 -9.
+#  대상은 이 칸이 띄운 pid 만(같은 기계의 다른 세션 JVM 을 건드리지 않게).
+MINE=($APP); [[ -s $OUT/pids-$LABEL ]] && MINE+=($(awk '{print $2}' $OUT/pids-$LABEL))
+for k in {1..30}; do
+  alive=(); for p in $MINE; do kill -0 $p 2>/dev/null && alive+=($p); done
+  (( ${#alive} == 0 )) && break; sleep 1
+done
+(( ${#alive} > 0 )) && kill -9 $alive 2>/dev/null
 
 # 6. 감지 지연(측정 창 = 워밍업 끝 ~ 끝 130초 전 — 여유 SLO 2분 안에 끝나지 못하는 꼬리를 미판정으로 세지 않게)
 python3 -I $HERE/subway_detection.py $OUT/changes-$LABEL.tsv $OUT/samples-$LABEL.tsv $OUT/seed-$LABEL.tsv \
@@ -224,8 +290,14 @@ LEFT_MARKED=$(psqlq "select count(*) from journey_session where destination_summ
 LEFT_TOKENS=$(psqlq "select count(*) from user_push_token where token like 'loadtest-%'")
 echo "leftover active_journeys=$LEFT ladder_journeys=$LEFT_MARKED loadtest_tokens=$LEFT_TOKENS" >$OUT/leftover-$LABEL.txt
 
-python3 -I $HERE/notification_slo.py $OUT/notifrows-$LABEL.tsv $OUT/queue-$LABEL.tsv $OUT/push-$LABEL.tsv \
+# 접수 기록: worker 별 파일을 쉼표로 묶어 넘긴다 — 합산해서 세고, 같은 행이 두 파일에 나오면 인스턴스 사이 중복.
+PUSHES=(${(f)"$(ls $OUT/push-$LABEL-w*.tsv 2>/dev/null)"})
+python3 -I $HERE/notification_slo.py $OUT/notifrows-$LABEL.tsv $OUT/queue-$LABEL.tsv ${(j:,:)PUSHES} \
   $T_FROM $T_END $OUT/events-$LABEL.tsv >$OUT/slo-$LABEL.txt
 SPLIT=${SPLIT:-0} MODE=subway python3 -I $HERE/summarize.py $OUT/prom-start-$LABEL.txt $OUT/prom-$LABEL.txt $OUT/k6-$LABEL.json \
   $OUT/fake-$LABEL.json "$LABEL" $OUT | tee $OUT/summary-$LABEL.txt
 cat $OUT/slo-$LABEL.txt | tee -a $OUT/summary-$LABEL.txt
+if [[ -s $OUT/leader-$LABEL.tsv ]]; then
+  python3 -I $HERE/leader_check.py $OUT/leader-$LABEL.tsv $OUT/events-$LABEL.tsv $T_FROM >$OUT/leader-$LABEL.txt
+  cat $OUT/leader-$LABEL.txt | tee -a $OUT/summary-$LABEL.txt
+fi

@@ -4,7 +4,7 @@ usage: python3 -I notification_slo.py <notifrows.tsv> <queue.tsv> <pushlog.tsv> 
 
 - notifrows.tsv : run_subway_ladder.sh 가 지우기 전에 뜬 사다리 여정 알림 행(칸 순서는 아래 COLS)
 - queue.tsv     : 5초마다 대기열 표본(epoch, 보낼 때 된 PENDING, PENDING 전체, PROCESSING, 누적 SENT)
-- pushlog.tsv   : 가짜 발송처가 접수할 때마다 남긴 줄(epoch_ms, 행 번호, 업무 키, 종류, 울림, 여정|버전). JVM 을 죽였다
+- pushlog.tsv   : (쉼표로 여럿 가능 — worker 별 파일, #458) 가짜 발송처가 접수할 때마다 남긴 줄(epoch_ms, 행 번호, 업무 키, 종류, 울림, 여정|버전). JVM 을 죽였다
                   살려도 파일은 이어진다 — 재기동을 넘는 중복을 여기서 센다
 - events.tsv    : (선택) 하네스가 일으킨 사건(epoch, 이름) — 폭주 시작·장애 시작/끝·worker 강제 종료/재기동
 
@@ -116,10 +116,19 @@ def main():
     revs = collections.Counter((r["journey"], r["revision"]) for r in sent if alerting(r))
     over = sum(1 for v in revs.values() if v > 1)
     print(f"  DB: 경로 버전당 울림 SENT >1 = {over} (울림 SENT {sum(revs.values())}, 버전 {len(revs)})")
-    try:
-        push = [l.rstrip("\n").split("\t") for l in open(push_path, encoding="utf-8") if l.strip()]
-    except FileNotFoundError:
-        push = []
+    # 접수 기록은 worker 마다 따로 쓴다(#458) — 쉼표로 묶어 받아 합친다. 같은 행 번호가 두 파일에 나오면 인스턴스 사이 중복.
+    push, files = [], collections.defaultdict(set)
+    per_file = {}
+    for fp in [x for x in push_path.split(",") if x]:
+        try:
+            lines = [l.rstrip("\n").split("\t") for l in open(fp, encoding="utf-8") if l.strip()]
+        except FileNotFoundError:
+            lines = []
+        per_file[fp.rsplit("-", 1)[-1].replace(".tsv", "")] = len(lines)
+        for p in lines:
+            if len(p) >= 6:
+                files[p[1]].add(fp)
+        push += lines
     ids = collections.Counter(p[1] for p in push if len(p) >= 6)
     biz = collections.Counter(p[2] for p in push if len(p) >= 6)
     alert_rev = collections.Counter(p[5] for p in push
@@ -127,6 +136,9 @@ def main():
     print(f"  가짜 발송처 접수 {len(push)}줄(재기동 넘어 누적) · 같은 행 번호 2번+ {sum(1 for v in ids.values() if v > 1)}"
           f" · 같은 업무 키 2번+ {sum(1 for v in biz.values() if v > 1)}"
           f" · 경로 버전당 울림 2번+ {sum(1 for v in alert_rev.values() if v > 1)}")
+    if len(per_file) > 1:
+        cross = sum(1 for v in files.values() if len(v) > 1)
+        print(f"  인스턴스별 접수 {per_file} · 두 인스턴스 이상이 같은 행을 보냄 {cross}")
     dup_ids = [k for k, v in ids.items() if v > 1][:10]
     if dup_ids:
         print(f"  중복 행 번호(앞 10) {dup_ids}")

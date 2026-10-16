@@ -76,5 +76,22 @@ SLO 네 줄 — 제때(처음 본 → FCM 접수 p95, 등급별, 보류 따로)�
 | `CHAOS=redis-down REDIS_DOWN_S=90` | 위처럼 죽인 뒤 Redis 포트 1(닫힘)로 재기동해 90초 돌리고, 정상 종료 → 정상 인자로 재기동. 공유 st-redis 는 건드리지 않는다 |
 
 - 기록 파일: `notifrows-*`(지우기 전 알림 행), `queue-*`(5초마다 보낼 때 된 PENDING·PENDING·PROCESSING·누적 SENT), `push-*`(가짜 발송처 접수 한 줄씩 — worker 를 죽였다 살려도 이어 써서 재기동을 넘는 중복을 센다), `events-*`(폭주·장애·kill 시각), `pids-*`(재기동한 worker 까지 칸 끝에 모두 끈다)
-- `CHAOS` 칸은 worker 지표가 재기동으로 0 부터 다시 쌓여 `summarize.py` 의 worker 차분이 틀린다 — SLO 는 DB·접수 기록으로 본다
+- `CHAOS` 칸은 worker 지표가 재기동으로 0 부터 다시 쌓인다 — `summarize.py` 는 누적이 줄었으면 끝 값을 재기동 뒤 몫으로 쓴다(#458). SLO 는 DB·접수 기록으로 본다
 - 예: `SPLIT=1 MODE=subway RUN_TAG=storm STORM_LINES=1001,1002,1075,1005 runladder-env.sh 2000 on 10m 20`
+
+## worker 여러 대 (#458)
+
+`SPLIT=1` 에서 `WORKERS=N`(기본 1)이면 worker JVM 을 N 개 띄운다. worker i = 포트 `8080+i`, 지표 이름 `worker`(1번)·`worker2`·…,
+스냅숏 `prom-<label>-worker.txt`·`-worker2.txt`…, 로그 `app-<label>-worker2.log`(재기동은 `-r` 꼬리). 결과 = `MULTI-WORKER.md`.
+
+| 스위치(env) | 뜻 |
+|---|---|
+| `WORKERS=2` | worker 두 대. 2 이상이면 수집 리더 잠금(`journey.navigation.reeval.leader-lease.enabled`)을 자동으로 켠다 — 안 켜면 두 대가 다 "늘 리더"라 같이 수집한다 |
+| `LEADER_LEASE=true\|false` | 위 자동값 덮기. 1대 기준선을 같은 조건으로 재려면 `LEADER_LEASE=true` |
+| `CHAOS=kill-leader` | 폭주 시작 `CHAOS_AFTER_STORM_S` 뒤 **지금 리더인** worker(`journey_reeval_leader` 게이지 1)를 `kill -9`, `RESTART_AFTER_S` 뒤 재기동 |
+| `CHAOS=kill-worker CHAOS_TARGET=2\|leader\|nonleader` | 대상 지정 kill(기본 1). `redis-down` 도 같은 대상 규칙 |
+| `PG_CONTAINER=` (빈 값) | 하네스 psql 을 `docker exec` 대신 `POSTGRES_HOST/PORT` 주소로(원격 DB). Postgres CPU 표본(docker stats)은 빠진다 |
+
+- 접수 기록은 worker 마다 `push-<label>-w<i>.tsv`. `notification_slo.py` 가 쉼표로 묶어 받아 합쳐 세고, 같은 행 번호가 두 파일에 나오면 "두 인스턴스 이상이 같은 행을 보냄" 으로 따로 센다
+- `leader-<label>.tsv`: 1초마다 worker 별 리더 게이지·수집 성공 누적 + Redis 잠금 키(값 앞 8자·PTTL). `leader_check.py` → `leader-<label>.txt`(요약 끝에도 붙음): 리더 두 대 이상인 표본, 두 대가 7초 안에 같이 수집한 쌍, kill 뒤 다른 worker 가 리더가 되기까지·다음 수집 성공까지
+- 예: `SPLIT=1 MODE=subway WORKERS=2 CHAOS=kill-leader RUN_TAG=w2-kl STORM_LINES=1001,1002,1075,1005 runladder-env.sh 2000 on 10m 20`

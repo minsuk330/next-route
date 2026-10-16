@@ -3,7 +3,7 @@
 워밍업이 끝난 시점(prom-start)과 끝(prom-end) 두 스냅숏의 차이만 센다 — 누적값을 그대로 쓰면 심은 여정이
 한꺼번에 만기된 기동 직후가 섞인다.
 usage: python3 -I summarize.py prom-start.txt prom-end.txt k6.json fake.json label [out_dir]
-SPLIT=1 이면 같은 경로의 *-worker.txt 두 장을 더 읽어 두 JVM 을 합치고 JVM 별 절(풀 대기·CPU·힙)을 붙인다.
+SPLIT=1 이면 같은 경로의 *-worker*.txt(worker 여러 대면 -worker·-worker2·…)를 더 읽어 JVM 들을 합치고 JVM 별 절(풀 대기·CPU·힙)을 붙인다.
 MODE=subway 이면 지하철 사다리(#427) 절도 붙인다: 감지 지연(detection-*.txt), 재평가·알림 불변식, pg_stat_statements 비중."""
 import json, os, re, sys
 from collections import defaultdict
@@ -45,7 +45,12 @@ def diff(start, end):
     # 카운터는 차이, 게이지(cpu·heap·큐)는 끝 값이 아니라 워밍업 끝(부하 중) 값을 쓴다
     sc = {}
     for key, v in s1.items():
-        sc[key] = v - s0.get(key, 0.0) if key[0].endswith(COUNTER_SUFFIX) else s0.get(key, v)
+        if key[0].endswith(COUNTER_SUFFIX):
+            # 재기동(CHAOS)으로 누적이 0 부터 다시 쌓였으면 끝 값이 곧 재기동 뒤 몫이다(음수 차분 막기, #458)
+            before = s0.get(key, 0.0)
+            sc[key] = v - before if v >= before else v
+        else:
+            sc[key] = s0.get(key, v)
     return {'buckets': bk, 'scalars': sc, 'end': s1}
 
 
@@ -64,9 +69,15 @@ def start_gauge_d(d, name):
 # SPLIT=1(api·worker 분리 JVM): api 스냅숏은 예전 이름, worker 는 같은 이름에 -worker 꼬리.
 # 이름+태그가 같은 줄은 더한다(카운터·히스토그램 = 두 JVM 합). JVM 별로 봐야 하는 값(풀 대기·CPU)은 아래 절에서 따로.
 JVMS = {'app': diff(start_path, end_path)}
+# worker 여러 대(#458, WORKERS=N): -worker(1번)·-worker2·… 를 모두 읽는다.
 if os.environ.get('SPLIT') == '1':
-    ws, we = (p.replace('.txt', '-worker.txt') for p in (start_path, end_path))
-    JVMS = {'api': JVMS['app'], 'worker': diff(ws, we)}
+    import glob
+    JVMS = {'api': JVMS['app']}
+    for ws in sorted(glob.glob(glob.escape(start_path[:-4]) + '-worker*.txt')):
+        suffix = ws[len(start_path) - 4 + 1:-4]
+        we = end_path[:-4] + '-' + suffix + '.txt'
+        if os.path.exists(we):
+            JVMS[suffix] = diff(ws, we)
 buckets, scalars, s1 = defaultdict(list), defaultdict(float), defaultdict(float)
 for d in JVMS.values():
     for key, rows in d['buckets'].items():
@@ -234,9 +245,10 @@ if os.path.exists(cpu_path):
     rows = defaultdict(list)
     for line in open(cpu_path):
         f = line.rstrip('\n').split('\t')
-        if len(f) >= 3 and f[2]:
+        # JVM 이 막 뜨거나 재기동 직후엔 게이지가 NaN 이다 — 평균을 nan 으로 만들지 않게 뺀다(#458)
+        if len(f) >= 3 and f[2] and f[2].lower() != 'nan':
             rows[(f[1], 'p')].append(float(f[2]))
-        if len(f) >= 4 and f[3]:
+        if len(f) >= 4 and f[3] and f[3].lower() != 'nan':
             rows[(f[1], 's')].append(float(f[3]))
     def avgmax(v):
         return f'평균 {sum(v) / len(v):.2f} / 최대 {max(v):.2f} (n={len(v)})' if v else 'n/a'

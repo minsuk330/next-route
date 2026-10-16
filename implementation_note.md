@@ -5502,3 +5502,33 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 중복(가짜 발송처 같은 행·업무 키·경로 버전당 울림 2번+)·stale-write 모든 칸 0
 - 스모크(03:21, 모델 원천 200 여정 3분, AFTER 설정): 부팅 검증 통과·PULL WARN 확인, 남은 0
 - 코드 변경 없음(문서·노트만) → 컴파일·시험 생략
+
+## #458 준비 — worker N대 하네스·H1 노트북 확인 (2026-10-16)
+### 확정
+- worker 2대 H1(노트북, 11:22~12:09 실 API, 여정 2,000 + 폭주): 네 칸 모두 중복 0(행 번호·업무 키·인스턴스 사이)·경로 버전당 울림 2번+ 0(DB·발송처)·잃음 0·만료 뒤 발송 0·리더 2대 이상 표본 0·두 대 7초 안 같이 수집 0. 리더 kill → 다른 대 리더 10s / 다음 수집 17s / 수집 공백 21s. 결과 = `load/ladder/MULTI-WORKER.md`
+- 처리량(H2)·병목(H3)은 판정 안 함 — 노트북 CPU 경합(system_cpu_usage 평균 0.7~0.8, 최대 1.0)
+- 리더 잠금은 코드 기본값 **false**(`journey.navigation.reeval.leader-lease.enabled`). 끄면 모든 worker 가 "늘 리더" → 2대가 같이 수집·같이 변화 감지. 하네스는 WORKERS>1 이면 자동으로 켬(`LEADER_LEASE` 로 덮기). 운영에서 worker 를 늘릴 땐 이 플래그를 먼저 켜야 함
+- 리더 찾기 = worker 별 `journey_reeval_leader` 게이지. Redis 키 값은 인스턴스마다 무작위 UUID 라 값만으로 누가 주인인지 모름 → 표본기가 키 값 앞 8자·PTTL 을 따로 적어 "키 하나·주인 하나"를 남김(앱 코드에 토큰 로그를 넣지 않으려고)
+- 중복 합산 = 파일 합산(worker 별 `push-<label>-w<i>.tsv` 를 notification_slo.py 가 합침 + 같은 행 번호가 두 파일에 나오면 인스턴스 사이 중복). Redis 공유 집계를 안 한 이유: 같은 줄 형식을 그대로 쓰고 앱(src/main) 변경이 없으며, 측정 대상인 Redis 에 하네스 쓰기를 섞지 않음. VM 에선 칸 끝에 scp 로 모으면 됨
+- Redis 장애 = 기존 `CHAOS=redis-down`(그 worker 만 닫힌 포트로 재기동) 유지, st-redis 재시작 안 함. H1 에선 안 돌림
+- 인계 상한 ≈ TTL 10s + 갱신 주기 3.3s + 수집 고정 지연 15s ≈ 28s(kill -9 라 @PreDestroy 해제 없음)
+### 함정
+- 칸 끝 "java=1" 2번(w2-none, w2-killslow) ← worker 정상 종료(relay 워커 128·발송 중 행)가 3초 넘게 걸림 / 하네스가 이 칸 pid 만 최대 30초 기다렸다 -9(다른 세션 JVM 을 안 건드리게 pgrep 패턴 대신 pid). 고친 뒤 스모크2 java=0
+- 재기동 worker 의 카운터가 0 부터 → summarize.py 차분 음수 / 끝 값이 시작보다 작으면 끝 값을 재기동 뒤 몫으로
+- 재기동 직후 system_cpu_usage NaN → 표본 평균 nan / summarize.py 가 nan 표본을 뺌
+- 리더가 어느 worker 가 될지는 부팅 순서 경쟁이라 칸마다 다름(w2 가 리더였던 칸 있음) → kill-leader 는 번호가 아니라 게이지로 대상을 찾음
+- worker 로그 꼬리: 재기동 `-2` 가 worker2 와 헷갈려 `-r` 로 바꿈(`app-<label>-worker2-r.log`)
+- 한 JVM 모드(SPLIT=0)도 접수 기록 이름이 `push-<label>-w1.tsv` 로 바뀜(예전 `push-<label>.tsv`)
+### 좌표
+- `load/ladder/run_subway_ladder.sh`: WORKERS·LEASE·wport/wname(머리), start_worker·wpid·leader_idx(3. 앱), 리더 표본기(4. 측정 시작 뒤), CHAOS 대상(kill-leader·CHAOS_TARGET), 정리(pid 대기 후 -9), 끝에 leader_check.py
+- `load/ladder/leader_check.py`(신규), `notification_slo.py`(쉼표 여러 파일·인스턴스 사이 중복), `summarize.py`(-worker* glob·음수 차분·nan)
+- 칸 원본: `load/ladder/out/*-subway-real-n2000-{w1-base,w2-none,w2-killleader,w2-killslow}.*`, 스모크 `*-n100-{smoke,smoke2}.*`(gitignore). 사슬 스크립트 `/Users/wa/.claude/jobs/8e8c6a78/tmp/run458.sh`(저장소 밖)
+### 미결
+- VM 단계: worker 호스트 목록 env + ssh 기동/kill, 접수 기록 scp 수집, DB 기계 CPU(docker stats 대신), Redis 진짜 재시작 장애
+- 칸마다 1회만(이슈는 3회 번갈아). VM 에서 3회
+- 느린 FCM 칸의 울림 p95 67s 는 기준선(느린 FCM·1대)이 없어 비교 안 함
+### 검증
+- `zsh -n load/ladder/run_subway_ladder.sh` OK, `python3 -m py_compile leader_check.py notification_slo.py summarize.py` OK
+- 사슬: `run458.sh "w1-base:1:none:fast" "w2-none:2:none:fast" "w2-killleader:2:kill-leader:fast" "w2-killslow:2:kill-worker:slow"`(각 `SPLIT=1 MODE=subway LEADER_LEASE=true STORM_LINES=1001,1002,1075,1005 STORM_AT_S=120 STORM_SECONDS=240 runladder-env.sh 2000 on 10m 20`) — 4칸 모두 `leftover active_journeys=0 ladder_journeys=0 loadtest_tokens=0`, 마지막 확인 시 java·프록시 0
+- 스모크: `smoke`(여정 100·4분·kill-leader) 리더 인계 8s/18s, `smoke2`(kill-worker CHAOS_TARGET=2, 정리 수정 뒤) `procs java=0 proxy=0`
+- src/main 변경 없음 → 컴파일·시험 생략(하네스만)
