@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.notification;
 
+import org.springframework.test.context.TestPropertySource;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -76,6 +77,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V67__journey_reevaluation_trigger.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
+// 고정 백오프(60초 × 3회) 기대값으로 쓴 시험이다. EXPONENTIAL 기본(#451 후속)은 JourneyNotificationRetryPolicyTest 가 진다.
+@TestPropertySource(properties = "journey.notification.retry-policy=FIXED")
 @DisplayName("FCM 발송기를 끼운 relay 전 구간")
 class JourneyNotificationFcmRelayIT extends AbstractJourneyOutboxPostgresIT {
 

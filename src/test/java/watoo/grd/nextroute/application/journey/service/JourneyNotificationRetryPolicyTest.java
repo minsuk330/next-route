@@ -114,6 +114,32 @@ class JourneyNotificationRetryPolicyTest {
     }
 
     @Test
+    @DisplayName("EXPONENTIAL: 정상 간격이 만료를 넘어도 만료 − HTTP 수명(22초)이 지금 + 첫 간격(24초) 뒤면 마지막 한 번을 거기로 당긴다")
+    void exponentialClampsLastRetryBeforeExpiry() {
+        JourneyNotificationOutboxStateService service = service(exponentialNoJitter());
+        // 세 번째 시도 뒤 60초는 만료(55초 뒤)를 넘는다 → 55 − 22 = 33초 뒤 ≥ 24초 → 33초에 마지막 시도
+        given(notifications.findById(8L)).willReturn(Optional.of(row(8L, 3, 0, NOW.plusSeconds(55))));
+
+        service.markTransientFailure(new ClaimedNotification(8L, 3), "fcm: UNAVAILABLE");
+
+        verify(notifications).releaseToPendingIfClaimed(eq(8L), eq(3), any(), eq(NOW.plusSeconds(33)), any());
+        verify(notifications, never()).finishIfClaimed(anyLong(), anyInt(), anyString(), any(), any());
+    }
+
+    @Test
+    @DisplayName("FIXED 는 당기지 않는다 — 만료를 넘으면 그대로 expired-before-retry")
+    void fixedDoesNotClamp() {
+        JourneyNotificationProperties properties = new JourneyNotificationProperties();
+        properties.setRetryPolicy(RetryPolicy.FIXED);
+        JourneyNotificationOutboxStateService service = service(properties);
+        given(notifications.findById(9L)).willReturn(Optional.of(row(9L, 1, 0, NOW.plusSeconds(59))));
+
+        service.markTransientFailure(new ClaimedNotification(9L, 1), "fcm: UNAVAILABLE");
+
+        verify(notifications).finishIfClaimed(eq(9L), eq(1), eq("CANCELED"), eq("expired-before-retry"), any());
+    }
+
+    @Test
     @DisplayName("EXPONENTIAL: 증서가 낡았으면 정책과 무관하게 StaleClaim(울타리 유지)")
     void exponentialKeepsFencing() {
         JourneyNotificationOutboxStateService service = service(exponentialNoJitter());
@@ -126,9 +152,10 @@ class JourneyNotificationRetryPolicyTest {
     }
 
     @Test
-    @DisplayName("FIXED(기본): 지금과 같다 — 늘 지금 + 60초, 실제 시도 3 에서 DEAD")
+    @DisplayName("FIXED: #451 이전과 같다 — 늘 지금 + 60초, 실제 시도 3 에서 DEAD")
     void fixedIsUnchanged() {
         JourneyNotificationProperties properties = new JourneyNotificationProperties();
+        properties.setRetryPolicy(RetryPolicy.FIXED);
         JourneyNotificationOutboxStateService service = service(properties);
         given(notifications.findById(6L)).willReturn(Optional.of(row(6L, 2, 0, NOW.plusSeconds(1800))));
         given(notifications.findById(7L)).willReturn(Optional.of(row(7L, 3, 0, NOW.plusSeconds(1800))));

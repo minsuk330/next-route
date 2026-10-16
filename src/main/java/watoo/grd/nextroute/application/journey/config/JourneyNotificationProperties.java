@@ -93,18 +93,18 @@ public class JourneyNotificationProperties {
 
     /**
      * 이 시간 동안 heartbeat 가 없는 PROCESSING 행은 워커가 죽은 것으로 보고 회수한다(#451). 값이 있으면
-     * {@link #claimTimeoutMinutes} 보다 이긴다. 비면 분 키(기본 3분 = 180초)를 쓴다.
+     * {@link #claimTimeoutMinutes} 보다 이긴다. 기본 45초(#451 후속, PULL 측정). 비우면(null) 분 키를 쓴다.
      */
-    private Long claimTimeoutSeconds;
+    private Long claimTimeoutSeconds = 45L;
 
     /**
      * 일시 실패 뒤 재시도 간격 정책(#451). env {@code JOURNEY_NOTIFICATION_RETRY_POLICY}.
      * <ul>
-     *   <li>{@code FIXED}(기본) — 지금과 같다. {@link #backoffSeconds} 고정 간격, {@link #maxAttempts} 회</li>
-     *   <li>{@code EXPONENTIAL} — {@link Retry} 의 첫 간격 × 배수, 상한·지터, 시도 상한 {@link Retry#maxAttemptsCap}</li>
+     *   <li>{@code FIXED} — #451 이전 동작. {@link #backoffSeconds} 고정 간격, {@link #maxAttempts} 회</li>
+     *   <li>{@code EXPONENTIAL}(기본, #451 후속) — {@link Retry} 의 첫 간격 × 배수, 상한·지터, 시도 상한 {@link Retry#maxAttemptsCap}</li>
      * </ul>
      */
-    private RetryPolicy retryPolicy = RetryPolicy.FIXED;
+    private RetryPolicy retryPolicy = RetryPolicy.EXPONENTIAL;
 
     private final Retry retry = new Retry();
 
@@ -240,8 +240,8 @@ public class JourneyNotificationProperties {
     @Setter
     public static class Relay {
 
-        /** 기본 BATCH(기존 동작). env {@code JOURNEY_NOTIFICATION_RELAY_MODE}. */
-        private RelayMode mode = RelayMode.BATCH;
+        /** 기본 PULL(#451 후속 측정으로 전환). BATCH = #451 이전 동작. env {@code JOURNEY_NOTIFICATION_RELAY_MODE}. */
+        private RelayMode mode = RelayMode.PULL;
 
         /** PULL 워커 수. 각 워커가 발송 한 건 동안 커넥션 없이 기다리고, claim·기록 때만 커넥션을 쓴다. */
         private int pullWorkers = 32;

@@ -5430,3 +5430,29 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 1회차 전체: 실패 4 = 슬라이스 IT 4개(`@Import` 에 `JourneyRetryBackoff` 빠짐, 컨텍스트 적재 실패) → 추가해 해결. 2회차: `JourneyEvaluationDedupeIT$Bus` 1건 — 다른 클론 전체 시험이 같은 st-pg 에서 동시에 돌며 due 여정을 섞음(단독 재실행 통과, **기존 무관 = 공유 DB 동시 실행**)
 - PR-2(#454) 머지 뒤 origin/main 으로 rebase(노트·PropertiesTest 끝부분 충돌 양쪽 유지, `JourneyNotificationPriorityWiringTest` 생성자에 backoff 추가)
 - 최종 전체 `runfull2.sh`(cleanTest test --continue, rebase 뒤): BUILD SUCCESSFUL 4m30s, **3,337 시험 · 실패 0 · 건너뜀 6**
+
+## #451 후속 — 재시도 클램프·회수 순서·기본값 전환 (2026-10-16, fix/relay-retry-clamp-reclaim-order)
+### 확정
+- 근거 = PR #456 측정(`load/ladder/NOTIFICATION-SLO.md` "처방 뒤 (#451)"). 측정에서 나온 결함 2개 + 권고 기본값을 한 PR 로
+- EXPONENTIAL 마지막 재시도 클램프: 정상 다음 시각 ≥ 만료면 `만료 − FCM HTTP 최대 수명(22초)` 로 당긴다. 그 시각이 `지금 + 첫 간격(24초)` 보다 이르면 당기지 않고 기존 `expired-before-retry` 취소. 하한을 첫 간격으로 둔 이유 = 앞 시도가 SDK 안에서 아직 살아 있을 수 있음(부팅 검증 "첫 간격 > HTTP 수명"과 같은 논리). 상한을 만료 − HTTP 수명으로 둔 이유 = 마지막 시도가 끝까지 재시도해도 만료 전에 끝남. 당길 수 있으면 가장 늦은 시각을 쓴다(장애가 끝났을 확률이 가장 큼)
+- FIXED 는 클램프 안 함(#451 이전 동작 보존, 롤백 경로가 바뀌면 안 됨)
+- 회수(`reclaimStale`)는 `scheduled_at = LEAST(scheduled_at, :now)` — 원래 예정 시각 유지. PROCESSING 행의 scheduled_at 은 집힐 때 이미 지난 값이라 사실상 원래 값 그대로, 회수 즉시 줄 앞에서 다시 집힘. 회수 시점은 `last_requeued_at` 이 따로 남으므로 scheduled_at 덮어쓰기에 기대던 지표·코드 없음(grep 확인)
+- 기본값: relay.mode PULL, claim-timeout-seconds 45, retry-policy EXPONENTIAL. claim-order 는 SCHEDULED 유지(측정상 효과 0 — 폭주 알림이 전부 priority 0). Java 필드 기본값과 yaml env 기본값 둘 다 바꿈
+- PULL 커넥션 여유 로그 WARN → INFO: 측정(Hikari 20·워커 32)에서 acquire p95 < 1ms·pending 최대 0. 기본값에서 상시 WARN 이면 진짜 경고가 묻힘
+### 함정
+- 🔴 `@ConfigurationProperties` 클래스를 `@Bean new JourneyNotificationProperties()` 로 만든 시험도 yaml 바인딩을 받는다 → bean 안에서 setRetryPolicy(FIXED) 해도 yaml 기본(EXPONENTIAL)이 덮음. `@TestPropertySource(properties = "journey.notification.retry-policy=FIXED")` 로 고정해야 함(RelayIT·FcmRelayIT)
+- 클램프 시험 숫자: 지터 0 수열 24→48→60. "정상 ≥ 만료"이면서 "만료 − 22 ≥ 24" 이려면 만료 ≥ 46. 2번째 시도(48초)로는 만료 46~48 만 해당 → 3번째 시도(60초)·만료 55초로 씀(→ 33초)
+### 좌표
+- `JourneyNotificationOutboxStateService.retryAt`(markTransientFailure 바로 아래), `JourneyNotificationRepository.reclaimStale`, `JourneyNotificationProperties`(mode·retryPolicy·claimTimeoutSeconds 기본값), `application.yaml` journey.notification(retry-policy·claim-timeout-seconds·relay.mode), `JourneyNotificationRelayLoop.warnIfPoolTooSmall`
+### 미결
+- 클램프 뒤 ③c'(150초 장애) 재측정 — 42건 잃음이 0 으로 가는지
+- 느린 FCM 처리량(PULL 32 ÷ 3.5초 ≈ 9건/초)으로 긴급·주의 SLO 미달 — 다음 구조 변경 후보(비동기 발송)
+- `idx_journey_notification_claim_priority` 삭제(SCHEDULED 기본이면 쓰는 쿼리 없음) — 별건 마이그레이션
+- 우선순위 매핑을 체크포인트가 아니라 긴급 등급(seenTier) 기준으로 — 별건
+### 배포
+- 마이그레이션 없음. worker 만 relay 를 돌리지만 설정 빈은 api 도 읽으므로 api·worker 같은 이미지로
+- 운영 compose 에 아래 env 가 없으면 배포 즉시 PULL·EXPONENTIAL·45초로 바뀐다. 롤백 = worker env 에 `JOURNEY_NOTIFICATION_RELAY_MODE=BATCH`, `JOURNEY_NOTIFICATION_RETRY_POLICY=FIXED`, `JOURNEY_NOTIFICATION_CLAIM_TIMEOUT_SECONDS=180` 셋을 같이(하나만 되돌리면 부팅 검증에 걸릴 수 있음: FIXED+PULL 은 회수 + 백오프 < 바닥 180 이 필요)
+### 검증
+- 관련 묶음(`*JourneyNotification*`·`*JourneyRetryBackoff*`·`*Fcm*`·`*Firebase*`·`*AlertFatigue*`·`*JourneyAlertBudget*`·`*TransferRiskNotifier*`·`*AdminJourneyNotification*`·`*LoadTestNotificationSender*`·`*RouteAlertDispatch*`·`*JourneyLateResultIT*`·`*BusAlertOutboxIT*`) 346개 실패 0
+- 전체 `./gradlew cleanTest test --continue`(st-pg·st-redis): 3,341개 실패 0·오류 0·건너뜀 6, BUILD SUCCESSFUL 4m 27s
+- 새 계약 시험: `JourneyNotificationRetryPolicyTest.exponentialClampsLastRetryBeforeExpiry`·`fixedDoesNotClamp`, `JourneyNotificationRelayIT.reclaimedRowKeepsItsPlaceInLine`, `JourneyNotificationPropertiesTest.defaultsAreMeasuredConfiguration`

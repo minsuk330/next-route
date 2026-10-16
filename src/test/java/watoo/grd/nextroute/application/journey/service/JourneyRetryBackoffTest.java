@@ -85,9 +85,10 @@ class JourneyRetryBackoffTest {
     }
 
     @Test
-    @DisplayName("FIXED(기본)는 지금과 같다 — 늘 backoff-seconds, 상한 max-attempts, 난수를 쓰지 않는다")
+    @DisplayName("FIXED 는 #451 이전과 같다 — 늘 backoff-seconds, 상한 max-attempts, 난수를 쓰지 않는다")
     void fixedIsUnchanged() {
         JourneyNotificationProperties properties = new JourneyNotificationProperties();
+        properties.setRetryPolicy(RetryPolicy.FIXED);
         JourneyRetryBackoff backoff = new JourneyRetryBackoff(properties, () -> {
             throw new AssertionError("FIXED 는 난수를 쓰면 안 된다");
         });

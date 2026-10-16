@@ -49,6 +49,11 @@ class JourneyNotificationSloMetricsTest {
     private final JourneySessionRepository sessions = mock(JourneySessionRepository.class);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final JourneyNotificationProperties properties = new JourneyNotificationProperties();
+
+    {
+        // 고정 백오프 기대값으로 쓴 시험(#451 후속에서 기본이 EXPONENTIAL 로 바뀜).
+        properties.setRetryPolicy(JourneyNotificationProperties.RetryPolicy.FIXED);
+    }
     private JourneyNotificationOutboxStateService service;
 
     @BeforeEach

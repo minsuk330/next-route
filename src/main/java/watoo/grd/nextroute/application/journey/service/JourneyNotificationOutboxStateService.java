@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties;
+import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties.RetryPolicy;
 import watoo.grd.nextroute.application.journey.dto.ClaimedNotification;
 import watoo.grd.nextroute.application.journey.dto.NotificationSendCommand;
 import watoo.grd.nextroute.application.journey.exception.StaleClaimException;
@@ -361,7 +362,8 @@ public class JourneyNotificationOutboxStateService {
                 metrics.recordFailed(n.getChannel(), "dead");
                 return;
             }
-            Instant nextAttemptAt = Instant.now(clock).plus(retryBackoff.delayAfter(attempts));
+            Instant now = Instant.now(clock);
+            Instant nextAttemptAt = retryAt(now, retryBackoff.delayAfter(attempts), n.getExpiresAt());
             if (!nextAttemptAt.isBefore(n.getExpiresAt())) {
                 // 재시도 시각이 만료를 넘긴다. 보내 봐야 엉뚱한 때에 도착한다.
                 boolean released = releaseAlertClaim(n);
@@ -377,6 +379,20 @@ public class JourneyNotificationOutboxStateService {
                 metrics.recordFailed(n.getChannel(), "transient");
             }
         });
+    }
+
+    /**
+     * 다음 시도 시각(#451 후속). EXPONENTIAL 에서 정상 간격이 만료를 넘으면 마지막 한 번을 {@code 만료 − FCM HTTP 최대 수명}
+     * 으로 당긴다 — 장애가 끝난 뒤 수명이 남았는데 버리던 행(③c' 150초 장애 42건)을 살린다. 당긴 시각도 지금 + 첫 간격보다
+     * 이르면(앞 시도가 SDK 안에서 아직 살아 있을 수 있다) 당기지 않고 그대로 돌려줘 호출자가 취소한다. FIXED 는 그대로다.
+     */
+    Instant retryAt(Instant now, Duration delay, Instant expiresAt) {
+        Instant normal = now.plus(delay);
+        if (normal.isBefore(expiresAt) || properties.getRetryPolicy() != RetryPolicy.EXPONENTIAL) {
+            return normal;
+        }
+        Instant last = expiresAt.minus(properties.getFcm().httpMaxLifetime());
+        return last.isBefore(now.plus(properties.retryInitial())) ? normal : last;
     }
 
     /**
