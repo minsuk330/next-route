@@ -382,7 +382,7 @@ public final class SubwayLadderFixture {
     }
 
     /** 경로 응답과 비슷한 분량(조회 비용 반영). 지하철 구간(trafficType 1). */
-    private static final String SNAPSHOT;
+    static final String SNAPSHOT;
 
     static {
         StringBuilder legs = new StringBuilder();

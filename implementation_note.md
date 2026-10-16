@@ -5543,3 +5543,27 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 새 IT 4/4, 3회 반복 4/4
 - 변형 검출(각각 의도한 시험 하나만 깨짐): M1 markSentIfClaimed 증서 조건 삭제 → 늦은 접수 기록 시험 / M2 일시 실패 재확인·SQL 증서 삭제 → 늦은 일시 실패 시험 / M3 영구 실패 기록 0행을 삼킴(롤백 없음) → 경합 롤백 시험 / M4 LeaseKeeper.release 를 증서 무관 remove → 늦은 접수 기록 시험(B 의 heartbeat 대상이 지워짐)
 - 전체 `./gradlew cleanTest test --continue`: 3,345 중 실패 0(건너뜀 6), BUILD SUCCESSFUL 4m 32s. src/main 변경 없음(시험만)
+
+## 발송 용량 하네스 (#461 PR-1, 2026-10-16)
+### 확정
+- 아웃박스 직접 적재(open-loop): 생성기가 벽시계 일정표로 tick(200ms)마다 모자란 만큼 INSERT, 적재 시각은 DB `clock_timestamp()` 로 돌려받아 기록(stdin 에 쓴 시각 ≠ 커밋 시각)
+- 운영 적재와 맞춘 값: checkpoint TRANSFER_RISK_AT_RISK, `priority=0`(NotificationPriority.URGENT — 기본값 2 로 두면 claim 순서가 운영과 다름), created_at = `clock_timestamp() at time zone 'Asia/Seoul'`(KST 벽시계 timestamp)
+- 지연 = `sent_at − (created_at AT TIME ZONE 'Asia/Seoul')` — created_at 은 timestamp(KST), sent_at 은 timestamptz 라 그냥 빼면 세션 TZ 만큼 어긋남
+- 단계 지표는 행 created_at 으로 귀속(앞 단계 잔여가 다음 단계 lag 에 안 섞임). 한계점 = (a) SENT/s < 속도×0.95 이고 대기열 기울기>0, (b) 잃음>0. 32초(끝-끝 긴급 SLO, 감지+보류 포함)는 따로 표시만
+- 생성기 `--stop-on-knee`(기본 켬): 단계 끝 보낼 때 된 PENDING 이 max(20, 들어온 양×5%) 넘게 늘면 `#knee` 남기고 멈춤. 단계 120초(사용자 결정: 180→120, 한계점에서 바로 중단)
+- worker 인자: 평가기·재평가·지하철 수집·만료·링·재탐색 알림/보드·**피로 정책 off**(켜면 기록에 울릴 권리 잠금이 붙음), relay PULL, `pull-workers`, `DB_POOL_MAX_SIZE`
+### 함정
+- 생성기 첫 스모크 `uq_journey_notification_delivery` 위반 ← `cross join lateral (select gen_random_uuid())` 가 비상관이라 한 번만 평가됨 / 가드: uuid 를 행 CTE(`picked`) 칼럼으로 생성
+- 가짜 발송처 접수 TSV(`loadtest.push.log-path`)는 줄마다 synchronized + 파일 열고 닫기 → 수백 건/초에서 하네스가 병목 / 가드: 기본 끔(`PUSH_LOG=1`), 중복은 `loadtest_push_duplicate_id` 지표
+- `loadtest.push.duplicate.business` 는 payload 업무 키(평가 번호·울림)로 셈 → 생성기 payload 엔 없어 판정에 안 씀
+- 플랜의 IT 경로 `journey/load` 는 틀림 → 실제 패키지 `application/journey/load`. `SubwayLadderFixture.SNAPSHOT` 을 package-private 로 열어 재사용
+### 좌표
+- `src/test/java/watoo/grd/nextroute/application/journey/load/RelayCapacitySeedIT.java`(신규, 표지 `LOAD-RELAY`, 토큰 `loadtest-relay-`)
+- `load/ladder/relay_load_gen.py`·`run_relay_capacity.sh`·`relay_capacity.py`(신규), README "발송 용량 (#461)" 절
+- 사슬 `/Users/wa/.claude/jobs/8e8c6a78/tmp/run461.sh`(저장소 밖, mkdir 잠금 단일 실행), env 래퍼 `runrelay-env.sh`
+### 검증
+- `./gradlew compileTestJava bootJar` OK, `python3 -m py_compile` 3개 OK, `zsh -n run_relay_capacity.sh` OK
+- 시드 왕복: `RELAY_SEED=true RELAY_SESSIONS=50` 심기 → lease 유효·토큰 행 확인 → 실행기 시작 정리로 0
+- 스모크 `smoke`(60ms, 10건/초 60초, 워밍업 없음): 적재 600 = SENT 600, 잃음 0, 중복 0, lag p50/p95/p99 0.15/0.47/0.78초, 일정 오차 p95 8ms, leftover 0
+- 스모크 `smoke-knee`(2~5초, 워커 8, 1→10→20건/초 60초): 단계 2(10건/초)에서 멈춤(대기열 +459), SENT 2.2건/초 ≈ 8÷3.5초(H1 예측 2.3), 만료 잃음 16, leftover 0
+- src/main 변경 없음(시험·하네스만)

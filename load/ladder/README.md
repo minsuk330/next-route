@@ -95,3 +95,23 @@ SLO 네 줄 — 제때(처음 본 → FCM 접수 p95, 등급별, 보류 따로)�
 - 접수 기록은 worker 마다 `push-<label>-w<i>.tsv`. `notification_slo.py` 가 쉼표로 묶어 받아 합쳐 세고, 같은 행 번호가 두 파일에 나오면 "두 인스턴스 이상이 같은 행을 보냄" 으로 따로 센다
 - `leader-<label>.tsv`: 1초마다 worker 별 리더 게이지·수집 성공 누적 + Redis 잠금 키(값 앞 8자·PTTL). `leader_check.py` → `leader-<label>.txt`(요약 끝에도 붙음): 리더 두 대 이상인 표본, 두 대가 7초 안에 같이 수집한 쌍, kill 뒤 다른 worker 가 리더가 되기까지·다음 수집 성공까지
 - 예: `SPLIT=1 MODE=subway WORKERS=2 CHAOS=kill-leader RUN_TAG=w2-kl STORM_LINES=1001,1002,1075,1005 runladder-env.sh 2000 on 10m 20`
+
+## 발송 용량 (#461)
+
+relay 만 떼어 알림 **양**을 계단식으로 올린다. 평가기·지하철 API 를 거치지 않고 생성기(`relay_load_gen.py`)가
+`journey_notification` 에 PENDING 행을 정해진 속도로 직접 넣는다(open-loop). 발송 경로는 운영 그대로, 가짜 발송처 지연만 바꾼다.
+
+```bash
+# env(POSTGRES_*, REDIS_*) 를 실은 셸에서, 저장소 루트, bootJar 빌드 뒤
+PUSH_MEAN_MS=60 load/ladder/run_relay_capacity.sh A-r1 "10:120,25:120,50:120,100:120,200:120,400:120,800:120"
+PUSH_MIN_MS=2000 PUSH_MAX_MS=5000 load/ladder/run_relay_capacity.sh B-r1 "5:120,10:120,20:120,30:120,35:120,40:120,80:120"
+PUSH_MIN_MS=2000 PUSH_MAX_MS=5000 PULL_WORKERS=32 load/ladder/run_relay_capacity.sh Bp-r1 "2:120,5:120,7:120,9:120,10:120,20:120"
+```
+
+- 순서: 사다리 표지 지우기 → `RelayCapacitySeedIT` 로 여정·토큰 심기(`SESSIONS`, 기본 2,000) → worker JVM 하나(평가기·재평가·수집기·피로 정책 끔)
+  → 워밍업(`WARMUP`, 기본 10건/초 60초, 단계 0) → 단계들(단계 120초, 대기열이 늘어난 단계에서 멈춤 — `STOP_ON_KNEE=0` 이면 끝까지) → 대기열이 빌 때까지(`DRAIN_MAX_S`) → 행 덤프 → 지우기 → `relay_capacity.py` 표.
+- 산출물(`out/`): `gen-`(일정표 대비 실제 적재 시각) `rows-`(행별 epoch) `queue-`(5초) `cpu-`(5초, JVM·Postgres) `prom-`(10초, hikari·heartbeat·GC·스레드·중복)
+  `pgss-`(단계별 상위 20 문장) `summary-`(표) `leftover-`.
+- 단계 지표는 행의 `created_at` 으로 귀속한다. lag = `sent_at − created_at`(relay 몫만, 깨우기 신호가 없어 하한 약 1초).
+  한계점 = (a) 초당 SENT < 들어온 속도 × 0.95 이고 대기열 기울기 > 0, (b) 잃음 > 0 중 처음 걸린 단계. 끝-끝 긴급 32초 초과는 따로 표시.
+- 가짜 발송처 접수 TSV 는 기본 끔(`PUSH_LOG=1` 로 켬) — 줄마다 파일을 여닫는 synchronized 라 수백 건/초에서 하네스가 병목이 된다.
