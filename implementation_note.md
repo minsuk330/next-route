@@ -5456,3 +5456,23 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 관련 묶음(`*JourneyNotification*`·`*JourneyRetryBackoff*`·`*Fcm*`·`*Firebase*`·`*AlertFatigue*`·`*JourneyAlertBudget*`·`*TransferRiskNotifier*`·`*AdminJourneyNotification*`·`*LoadTestNotificationSender*`·`*RouteAlertDispatch*`·`*JourneyLateResultIT*`·`*BusAlertOutboxIT*`) 346개 실패 0
 - 전체 `./gradlew cleanTest test --continue`(st-pg·st-redis): 3,341개 실패 0·오류 0·건너뜀 6, BUILD SUCCESSFUL 4m 27s
 - 새 계약 시험: `JourneyNotificationRetryPolicyTest.exponentialClampsLastRetryBeforeExpiry`·`fixedDoesNotClamp`, `JourneyNotificationRelayIT.reclaimedRowKeepsItsPlaceInLine`, `JourneyNotificationPropertiesTest.defaultsAreMeasuredConfiguration`
+
+### 측정 (같은 날 09:06~10:14, #457 코드 976a1880 jar, `run451.sh`, 앞 #456 칸과 같은 하네스·조건)
+- 제때 p95(feed 기준 긴급/주의/여유, 목표 ≤32/≤47/≤137초), relay 몫 p95, 잃음:
+
+| 칸 | #451 처방 전 | #456 처방 뒤(워커 32) | #457 기본값(워커 32) | #457 + 워커 128 |
+|---|---|---|---|---|
+| 폭주 | 24.0/24.5/39.3 | 20.7/21.6/53.6 | — | 21.4/21.3/37.9, relay 0.2 |
+| 느린 FCM 2~5초 | 240/306/311 | 78/76/94 | 68/65/93, relay 51 | **30.0/32.2/44.7 ✅, relay 10.0** |
+| 오류 20% | 80/83/114, DEAD 7 | 46/50/50, 잃음 0 | — | 46/50/61, 잃음 0 |
+| 장애 150초 | DEAD 713 | 잃음 42 | **잃음 14** (클램프) | — |
+| kill -9 + 느린 FCM | 163/303/303 | 61/106/129, relay 92 | 79/70/113, relay 63 | — |
+
+- 한 번만(같은 업무 키 2번+)·만료 뒤 발송: 새 6칸 모두 0. 남은 행 정리 6칸 모두 0
+- 워커 128 커넥션: 빠른 FCM 에서 깨어날 때 Hikari pending 순간 최대 6(폭주)·12(오류 20%), acquire 최대 0.35초 — 그러나 커넥션 대기 p95 0.96ms·평가 예정→시작 p95 4.1초·평가 등급 p95 17.3초로 워커 32 와 같음. Postgres CPU 0.64 vs 0.63 코어
+- → 기본 pull-workers 128 로 올림(이 커밋)
+### 함정 (측정)
+- 장애 150초 잃음 14 가 남는 이유: 장애 중 적재된 바닥 수명(180초) 행은 장애가 끝날 때 `만료 − 22초 < 지금 + 24초` 라 당길 자리가 없다. 하한(첫 간격)은 두 번 울림 방지라 줄이지 않는다. 150초는 설계 허용(약 120초) 밖
+- 클램프로 살린 행은 만료 직전에 나가므로 장애 150초 칸의 제때 p95 는 오히려 늘어난다(199 → 215초). 잃는 것보다 늦게라도 가는 쪽을 택함
+- kill 칸 긴급 p95 는 61 → 79초로 늘었지만(n=132·145) p99·max 는 112·115 → 81·89초로 줄었다. kill 시각에 무엇이 PROCESSING 이었는지가 칸마다 달라 꼬리 모양이 바뀐다. relay 몫 p95 는 92 → 63초로 줄어 회수 순서 수정이 듣는다
+- 워커 128 기본값 커밋 뒤 전체 `cleanTest test --continue`: 3,341개 실패 0·오류 0·건너뜀 6, BUILD SUCCESSFUL 4m 21s

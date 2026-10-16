@@ -41,7 +41,7 @@ class JourneyNotificationPropertiesTest {
     }
 
     @Test
-    @DisplayName("기본값은 PULL·EXPONENTIAL·회수 45초·SCHEDULED 다(#451 후속), 옛 기본값 조합도 통과한다")
+    @DisplayName("기본값은 PULL(워커 128)·EXPONENTIAL·회수 45초·SCHEDULED 다(#451 후속), 옛 기본값 조합도 통과한다")
     void defaultsAreMeasuredConfiguration() {
         JourneyNotificationProperties properties = properties();
         org.assertj.core.api.Assertions.assertThat(properties.getRelay().getMode())
@@ -49,6 +49,7 @@ class JourneyNotificationPropertiesTest {
         org.assertj.core.api.Assertions.assertThat(properties.getRetryPolicy())
                 .isEqualTo(JourneyNotificationProperties.RetryPolicy.EXPONENTIAL);
         org.assertj.core.api.Assertions.assertThat(properties.claimTimeout()).isEqualTo(java.time.Duration.ofSeconds(45));
+        org.assertj.core.api.Assertions.assertThat(properties.getRelay().getPullWorkers()).isEqualTo(128);
         org.assertj.core.api.Assertions.assertThat(properties.getRelay().getClaimOrder())
                 .isEqualTo(JourneyNotificationProperties.ClaimOrder.SCHEDULED);
         assertThatCode(() -> validate(legacy())).as("env 로 BATCH·FIXED·180초 롤백").doesNotThrowAnyException();

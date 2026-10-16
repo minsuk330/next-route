@@ -720,7 +720,8 @@ journey:
       enabled: ${JOURNEY_NOTIFICATION_RELAY_ENABLED:true}
       # BATCH(#451 이전: 배치 200 → 풀 4 → 전부 대기) | PULL(기본, 워커 N개가 k건씩 당김, #451).
       mode: ${JOURNEY_NOTIFICATION_RELAY_MODE:PULL}
-      pull-workers: ${JOURNEY_NOTIFICATION_RELAY_PULL_WORKERS:32}
+      # 동시 발송 상한. 느린 FCM(2~5초)에서 128 이어야 긴급·주의 SLO 를 지켰다(32 는 초당 약 9건, #451 후속 측정).
+      pull-workers: ${JOURNEY_NOTIFICATION_RELAY_PULL_WORKERS:128}
       pull-claim-size: ${JOURNEY_NOTIFICATION_RELAY_PULL_CLAIM_SIZE:2}
       # 진행 중 행의 processing_started_at 갱신 주기(두 모드 공통). × 4 ≤ claim-timeout-seconds.
       heartbeat-interval-ms: ${JOURNEY_NOTIFICATION_RELAY_HEARTBEAT_INTERVAL_MS:10000}

@@ -243,8 +243,12 @@ public class JourneyNotificationProperties {
         /** 기본 PULL(#451 후속 측정으로 전환). BATCH = #451 이전 동작. env {@code JOURNEY_NOTIFICATION_RELAY_MODE}. */
         private RelayMode mode = RelayMode.PULL;
 
-        /** PULL 워커 수. 각 워커가 발송 한 건 동안 커넥션 없이 기다리고, claim·기록 때만 커넥션을 쓴다. */
-        private int pullWorkers = 32;
+        /**
+         * PULL 워커 수 = 동시 발송 상한. 각 워커가 발송 한 건 동안 커넥션 없이 기다리고, claim·기록 때만 커넥션을 쓴다.
+         * 기본 128(#451 후속): 느린 FCM(2~5초)에서 32 는 초당 약 9건이라 긴급·주의 SLO 를 못 지켰고(p95 68·65초),
+         * 128 은 30·32초로 지켰다. Hikari 20 에서 커넥션 대기 p95 약 1ms(32 와 같음), 평가기 지연 변화 없음.
+         */
+        private int pullWorkers = 128;
 
         /** PULL 워커가 한 번에 집는 건수. 작을수록 느린 발송 하나가 붙잡는 행이 적다. */
         private int pullClaimSize = 2;
