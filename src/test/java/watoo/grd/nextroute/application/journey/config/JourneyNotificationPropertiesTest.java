@@ -21,6 +21,15 @@ class JourneyNotificationPropertiesTest {
         return new JourneyNotificationProperties();
     }
 
+    /** #451 이전 기본값(BATCH·FIXED·회수 3분). 옛 검사가 그대로 살아 있는지 보는 시험이 쓴다. */
+    private JourneyNotificationProperties legacy() {
+        JourneyNotificationProperties properties = new JourneyNotificationProperties();
+        properties.getRelay().setMode(JourneyNotificationProperties.RelayMode.BATCH);
+        properties.setRetryPolicy(JourneyNotificationProperties.RetryPolicy.FIXED);
+        properties.setClaimTimeoutSeconds(null);
+        return properties;
+    }
+
     private void validate(JourneyNotificationProperties properties) {
         ReflectionTestUtils.invokeMethod(properties, "validate");
     }
@@ -29,6 +38,21 @@ class JourneyNotificationPropertiesTest {
     @DisplayName("기본값 조합은 통과한다")
     void defaultsAreValid() {
         assertThatCode(() -> validate(properties())).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("기본값은 PULL(워커 128)·EXPONENTIAL·회수 45초·SCHEDULED 다(#451 후속), 옛 기본값 조합도 통과한다")
+    void defaultsAreMeasuredConfiguration() {
+        JourneyNotificationProperties properties = properties();
+        org.assertj.core.api.Assertions.assertThat(properties.getRelay().getMode())
+                .isEqualTo(JourneyNotificationProperties.RelayMode.PULL);
+        org.assertj.core.api.Assertions.assertThat(properties.getRetryPolicy())
+                .isEqualTo(JourneyNotificationProperties.RetryPolicy.EXPONENTIAL);
+        org.assertj.core.api.Assertions.assertThat(properties.claimTimeout()).isEqualTo(java.time.Duration.ofSeconds(45));
+        org.assertj.core.api.Assertions.assertThat(properties.getRelay().getPullWorkers()).isEqualTo(128);
+        org.assertj.core.api.Assertions.assertThat(properties.getRelay().getClaimOrder())
+                .isEqualTo(JourneyNotificationProperties.ClaimOrder.SCHEDULED);
+        assertThatCode(() -> validate(legacy())).as("env 로 BATCH·FIXED·180초 롤백").doesNotThrowAnyException();
     }
 
     @Test
@@ -45,7 +69,7 @@ class JourneyNotificationPropertiesTest {
     @Test
     @DisplayName("재시도 예산이 유효시간 바닥을 넘으면 막는다")
     void retryBudgetMustFitInsideMinTtl() {
-        JourneyNotificationProperties properties = properties();
+        JourneyNotificationProperties properties = legacy();
         // 원안이던 60초 바닥이 여기 걸린다 — 60초 × 3회 = 180초 > 60초.
         properties.setMinTtlSeconds(60);
 
@@ -134,7 +158,7 @@ class JourneyNotificationPropertiesTest {
     @Test
     @DisplayName("회수 기준은 초 키가 이기고, 없으면 옛 분 키를 쓴다")
     void claimTimeoutSecondsWinsOverMinutes() {
-        JourneyNotificationProperties properties = properties();
+        JourneyNotificationProperties properties = legacy();
         org.assertj.core.api.Assertions.assertThat(properties.claimTimeout())
                 .isEqualTo(java.time.Duration.ofMinutes(3));
         properties.setClaimTimeoutMinutes(5);
@@ -171,7 +195,7 @@ class JourneyNotificationPropertiesTest {
     @Test
     @DisplayName("PULL 에서 회수 기준 + 백오프가 유효시간 바닥 이상이면 막는다(BATCH 기본값은 그대로 통과)")
     void pullClaimTimeoutPlusBackoffMustFitInsideMinTtl() {
-        JourneyNotificationProperties properties = properties();
+        JourneyNotificationProperties properties = legacy();
         properties.getRelay().setMode(JourneyNotificationProperties.RelayMode.PULL);
 
         assertThatThrownBy(() -> validate(properties))
@@ -196,7 +220,7 @@ class JourneyNotificationPropertiesTest {
     @Test
     @DisplayName("FCM HTTP 최대 수명이 백오프 이상이면 막는다")
     void httpLifetimeMustBeShorterThanBackoff() {
-        JourneyNotificationProperties properties = properties();
+        JourneyNotificationProperties properties = legacy();
         // 2 + 12 × 5 = 62초 ≥ 백오프 60초(× 2 = 124 < 180 은 통과)
         properties.getFcm().setReadTimeoutMs(12_000);
 
@@ -299,7 +323,7 @@ class JourneyNotificationPropertiesTest {
     @DisplayName("FIXED 의 백오프 × 시도 검사는 EXPONENTIAL 에서는 보지 않는다")
     void fixedBudgetCheckOnlyForFixed() {
         // 바닥 90초: FIXED 는 60 × 3 = 180 > 90 으로 막히고, EXPONENTIAL 은 45 + 28.8 < 90 이라 통과
-        JourneyNotificationProperties fixed = properties();
+        JourneyNotificationProperties fixed = legacy();
         fixed.setMinTtlSeconds(90);
         assertThatThrownBy(() -> validate(fixed))
                 .isInstanceOf(IllegalStateException.class)
@@ -342,7 +366,7 @@ class JourneyNotificationPropertiesTest {
         exp.setBackoffSeconds(20);
         assertThatCode(() -> validate(exp)).doesNotThrowAnyException();
 
-        JourneyNotificationProperties fixed = properties();
+        JourneyNotificationProperties fixed = legacy();
         fixed.setBackoffSeconds(20);
         assertThatThrownBy(() -> validate(fixed)).isInstanceOf(IllegalStateException.class);
     }

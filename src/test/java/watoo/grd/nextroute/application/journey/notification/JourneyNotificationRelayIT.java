@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.notification;
 
+import org.springframework.test.context.TestPropertySource;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -77,6 +78,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V67__journey_reevaluation_trigger.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
+// 고정 백오프(60초 × 3회) 기대값으로 쓴 시험이다. EXPONENTIAL 기본(#451 후속)은 JourneyNotificationRetryPolicyTest 가 진다.
+@TestPropertySource(properties = "journey.notification.retry-policy=FIXED")
 @DisplayName("relay 는 아직 유효한 알림만 보낸다")
 class JourneyNotificationRelayIT extends AbstractJourneyOutboxPostgresIT {
 
@@ -389,6 +392,24 @@ class JourneyNotificationRelayIT extends AbstractJourneyOutboxPostgresIT {
 
         nanos.addAndGet(java.time.Duration.ofSeconds(10).toNanos());
         assertThat(keeper.beat()).as("다음 주기엔 문이 열린다").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("회수된 행은 원래 예정 시각을 지켜 뒤에 들어온 행보다 먼저 다시 집힌다(#451 후속)")
+    void reclaimedRowKeepsItsPlaceInLine() {
+        long early = enqueue(NOW.minusSeconds(60), NOW.plusSeconds(1800));
+        ClaimedNotification claim = stateService.claimBatch(NOW, 1).get(0);
+        assertThat(claim.id()).isEqualTo(early);
+        long later = enqueue(NOW.minusSeconds(10), NOW.plusSeconds(1800));
+
+        makeStale(early);
+        stateService.reclaim(NOW);
+
+        assertThat(scheduledAtOf(early))
+                .as("now 로 덮으면 회수된 행이 줄 맨 뒤로 가 회수 뒤에도 수십 초를 더 기다린다(④a' 45초 회수 → 85~94초 접수)")
+                .isEqualTo(NOW.minusSeconds(60));
+        assertThat(stateService.claimBatch(NOW, 1).get(0).id()).isEqualTo(early);
+        assertThat(statusOf(later)).isEqualTo("PENDING");
     }
 
     @Test

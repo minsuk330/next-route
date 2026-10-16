@@ -5431,6 +5431,51 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - PR-2(#454) 머지 뒤 origin/main 으로 rebase(노트·PropertiesTest 끝부분 충돌 양쪽 유지, `JourneyNotificationPriorityWiringTest` 생성자에 backoff 추가)
 - 최종 전체 `runfull2.sh`(cleanTest test --continue, rebase 뒤): BUILD SUCCESSFUL 4m30s, **3,337 시험 · 실패 0 · 건너뜀 6**
 
+## #451 후속 — 재시도 클램프·회수 순서·기본값 전환 (2026-10-16, fix/relay-retry-clamp-reclaim-order)
+### 확정
+- 근거 = PR #456 측정(`load/ladder/NOTIFICATION-SLO.md` "처방 뒤 (#451)"). 측정에서 나온 결함 2개 + 권고 기본값을 한 PR 로
+- EXPONENTIAL 마지막 재시도 클램프: 정상 다음 시각 ≥ 만료면 `만료 − FCM HTTP 최대 수명(22초)` 로 당긴다. 그 시각이 `지금 + 첫 간격(24초)` 보다 이르면 당기지 않고 기존 `expired-before-retry` 취소. 하한을 첫 간격으로 둔 이유 = 앞 시도가 SDK 안에서 아직 살아 있을 수 있음(부팅 검증 "첫 간격 > HTTP 수명"과 같은 논리). 상한을 만료 − HTTP 수명으로 둔 이유 = 마지막 시도가 끝까지 재시도해도 만료 전에 끝남. 당길 수 있으면 가장 늦은 시각을 쓴다(장애가 끝났을 확률이 가장 큼)
+- FIXED 는 클램프 안 함(#451 이전 동작 보존, 롤백 경로가 바뀌면 안 됨)
+- 회수(`reclaimStale`)는 `scheduled_at = LEAST(scheduled_at, :now)` — 원래 예정 시각 유지. PROCESSING 행의 scheduled_at 은 집힐 때 이미 지난 값이라 사실상 원래 값 그대로, 회수 즉시 줄 앞에서 다시 집힘. 회수 시점은 `last_requeued_at` 이 따로 남으므로 scheduled_at 덮어쓰기에 기대던 지표·코드 없음(grep 확인)
+- 기본값: relay.mode PULL, claim-timeout-seconds 45, retry-policy EXPONENTIAL. claim-order 는 SCHEDULED 유지(측정상 효과 0 — 폭주 알림이 전부 priority 0). Java 필드 기본값과 yaml env 기본값 둘 다 바꿈
+- PULL 커넥션 여유 로그 WARN → INFO: 측정(Hikari 20·워커 32)에서 acquire p95 < 1ms·pending 최대 0. 기본값에서 상시 WARN 이면 진짜 경고가 묻힘
+### 함정
+- 🔴 `@ConfigurationProperties` 클래스를 `@Bean new JourneyNotificationProperties()` 로 만든 시험도 yaml 바인딩을 받는다 → bean 안에서 setRetryPolicy(FIXED) 해도 yaml 기본(EXPONENTIAL)이 덮음. `@TestPropertySource(properties = "journey.notification.retry-policy=FIXED")` 로 고정해야 함(RelayIT·FcmRelayIT)
+- 클램프 시험 숫자: 지터 0 수열 24→48→60. "정상 ≥ 만료"이면서 "만료 − 22 ≥ 24" 이려면 만료 ≥ 46. 2번째 시도(48초)로는 만료 46~48 만 해당 → 3번째 시도(60초)·만료 55초로 씀(→ 33초)
+### 좌표
+- `JourneyNotificationOutboxStateService.retryAt`(markTransientFailure 바로 아래), `JourneyNotificationRepository.reclaimStale`, `JourneyNotificationProperties`(mode·retryPolicy·claimTimeoutSeconds 기본값), `application.yaml` journey.notification(retry-policy·claim-timeout-seconds·relay.mode), `JourneyNotificationRelayLoop.warnIfPoolTooSmall`
+### 미결
+- 클램프 뒤 ③c'(150초 장애) 재측정 — 42건 잃음이 0 으로 가는지
+- 느린 FCM 처리량(PULL 32 ÷ 3.5초 ≈ 9건/초)으로 긴급·주의 SLO 미달 — 다음 구조 변경 후보(비동기 발송)
+- `idx_journey_notification_claim_priority` 삭제(SCHEDULED 기본이면 쓰는 쿼리 없음) — 별건 마이그레이션
+- 우선순위 매핑을 체크포인트가 아니라 긴급 등급(seenTier) 기준으로 — 별건
+### 배포
+- 마이그레이션 없음. worker 만 relay 를 돌리지만 설정 빈은 api 도 읽으므로 api·worker 같은 이미지로
+- 운영 compose 에 아래 env 가 없으면 배포 즉시 PULL·EXPONENTIAL·45초로 바뀐다. 롤백 = worker env 에 `JOURNEY_NOTIFICATION_RELAY_MODE=BATCH`, `JOURNEY_NOTIFICATION_RETRY_POLICY=FIXED`, `JOURNEY_NOTIFICATION_CLAIM_TIMEOUT_SECONDS=180` 셋을 같이(하나만 되돌리면 부팅 검증에 걸릴 수 있음: FIXED+PULL 은 회수 + 백오프 < 바닥 180 이 필요)
+### 검증
+- 관련 묶음(`*JourneyNotification*`·`*JourneyRetryBackoff*`·`*Fcm*`·`*Firebase*`·`*AlertFatigue*`·`*JourneyAlertBudget*`·`*TransferRiskNotifier*`·`*AdminJourneyNotification*`·`*LoadTestNotificationSender*`·`*RouteAlertDispatch*`·`*JourneyLateResultIT*`·`*BusAlertOutboxIT*`) 346개 실패 0
+- 전체 `./gradlew cleanTest test --continue`(st-pg·st-redis): 3,341개 실패 0·오류 0·건너뜀 6, BUILD SUCCESSFUL 4m 27s
+- 새 계약 시험: `JourneyNotificationRetryPolicyTest.exponentialClampsLastRetryBeforeExpiry`·`fixedDoesNotClamp`, `JourneyNotificationRelayIT.reclaimedRowKeepsItsPlaceInLine`, `JourneyNotificationPropertiesTest.defaultsAreMeasuredConfiguration`
+
+### 측정 (같은 날 09:06~10:14, #457 코드 976a1880 jar, `run451.sh`, 앞 #456 칸과 같은 하네스·조건)
+- 제때 p95(feed 기준 긴급/주의/여유, 목표 ≤32/≤47/≤137초), relay 몫 p95, 잃음:
+
+| 칸 | #451 처방 전 | #456 처방 뒤(워커 32) | #457 기본값(워커 32) | #457 + 워커 128 |
+|---|---|---|---|---|
+| 폭주 | 24.0/24.5/39.3 | 20.7/21.6/53.6 | — | 21.4/21.3/37.9, relay 0.2 |
+| 느린 FCM 2~5초 | 240/306/311 | 78/76/94 | 68/65/93, relay 51 | **30.0/32.2/44.7 ✅, relay 10.0** |
+| 오류 20% | 80/83/114, DEAD 7 | 46/50/50, 잃음 0 | — | 46/50/61, 잃음 0 |
+| 장애 150초 | DEAD 713 | 잃음 42 | **잃음 14** (클램프) | — |
+| kill -9 + 느린 FCM | 163/303/303 | 61/106/129, relay 92 | 79/70/113, relay 63 | — |
+
+- 한 번만(같은 업무 키 2번+)·만료 뒤 발송: 새 6칸 모두 0. 남은 행 정리 6칸 모두 0
+- 워커 128 커넥션: 빠른 FCM 에서 깨어날 때 Hikari pending 순간 최대 6(폭주)·12(오류 20%), acquire 최대 0.35초 — 그러나 커넥션 대기 p95 0.96ms·평가 예정→시작 p95 4.1초·평가 등급 p95 17.3초로 워커 32 와 같음. Postgres CPU 0.64 vs 0.63 코어
+- → 기본 pull-workers 128 로 올림(이 커밋)
+### 함정 (측정)
+- 장애 150초 잃음 14 가 남는 이유: 장애 중 적재된 바닥 수명(180초) 행은 장애가 끝날 때 `만료 − 22초 < 지금 + 24초` 라 당길 자리가 없다. 하한(첫 간격)은 두 번 울림 방지라 줄이지 않는다. 150초는 설계 허용(약 120초) 밖
+- 클램프로 살린 행은 만료 직전에 나가므로 장애 150초 칸의 제때 p95 는 오히려 늘어난다(199 → 215초). 잃는 것보다 늦게라도 가는 쪽을 택함
+- kill 칸 긴급 p95 는 61 → 79초로 늘었지만(n=132·145) p99·max 는 112·115 → 81·89초로 줄었다. kill 시각에 무엇이 PROCESSING 이었는지가 칸마다 달라 꼬리 모양이 바뀐다. relay 몫 p95 는 92 → 63초로 줄어 회수 순서 수정이 듣는다
+- 워커 128 기본값 커밋 뒤 전체 `cleanTest test --continue`: 3,341개 실패 0·오류 0·건너뜀 6, BUILD SUCCESSFUL 4m 21s
 ## #451 PR-4 relay 내구성 측정 — 처방 전후 알림 SLO (2026-10-16, docs/relay-resilience-results)
 ### 확정
 - 결과 = `load/ladder/NOTIFICATION-SLO.md` "처방 뒤 (#451)" 절. main 3736c200, 06:00~08:57 KST, BEFORE(기본값)·AFTER(PULL + PRIORITY_FIRST + EXPONENTIAL + claim 45초)를 칸마다 번갈아 같은 아침에 측정. ③a 는 PULL 만 칸 추가

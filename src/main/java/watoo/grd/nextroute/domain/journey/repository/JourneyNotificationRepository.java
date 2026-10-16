@@ -230,7 +230,10 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
     int heartbeat(@Param("ids") String ids, @Param("tokens") String tokens);
 
     /**
-     * 고착 PROCESSING 회수 → PENDING({@code scheduledAt = now}). 워커가 죽었을 때 소유권 회수.
+     * 고착 PROCESSING 회수 → PENDING({@code scheduledAt = LEAST(원래, now)}). 워커가 죽었을 때 소유권 회수.
+     *
+     * <p>원래 예정 시각을 지킨다(#451 후속). {@code now} 로 덮으면 회수된 행이 대기열 맨 뒤로 가 회수 뒤에도 수십 초를 더
+     * 기다렸다(④a' 회수 45.6초 → 접수 85~94초). 원래 시각은 이미 지났으므로 바로 집힌다.
      *
      * <p>기준 시각은 DB {@code now()} 다(#451, heartbeat 와 같은 시계). 회수할 때 {@code requeue_count} 를 올린다 — 시도
      * 상한은 {@code attempt_count − requeue_count}(실제 발송 시도)로 센다. {@code attempt_count} 는 그대로라 다음 claim 이
@@ -241,7 +244,7 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(value = """
             UPDATE journey_notification
-               SET status = 'PENDING', scheduled_at = :now,
+               SET status = 'PENDING', scheduled_at = LEAST(scheduled_at, :now),
                    requeue_count = requeue_count + 1, last_requeued_at = now(), updated_at = :auditNow
              WHERE status = 'PROCESSING'
                AND processing_started_at < now() - make_interval(secs => :timeoutSeconds)

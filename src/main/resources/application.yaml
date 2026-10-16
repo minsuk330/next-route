@@ -661,10 +661,11 @@ journey:
     max-ttl-seconds: 1800
     max-attempts: 3
     backoff-seconds: 60
-    # 재시도 간격 정책(#451 PR-3). FIXED = 위 backoff-seconds·max-attempts 그대로(기본, 지금과 같음).
-    # EXPONENTIAL = retry.* (첫 간격 × 2 씩, 최대 60초, ±20% 지터, 실제 시도 8회 상한). 만료를 넘는 재시도는 취소.
+    # 재시도 간격 정책(#451 PR-3). FIXED = 위 backoff-seconds·max-attempts 그대로(#451 이전 동작).
+    # EXPONENTIAL(기본, #451 후속) = retry.* (첫 간격 × 2 씩, 최대 60초, ±20% 지터, 실제 시도 8회 상한).
+    # 정상 간격이 만료를 넘으면 마지막 한 번을 만료 − FCM HTTP 최대 수명으로 당기고, 그것도 안 되면 취소.
     # EXPONENTIAL 은 첫 간격 + claim-timeout-seconds < min-ttl-seconds 를 부팅에서 보므로 claim-timeout-seconds=45 와 같이 켠다.
-    retry-policy: ${JOURNEY_NOTIFICATION_RETRY_POLICY:FIXED}
+    retry-policy: ${JOURNEY_NOTIFICATION_RETRY_POLICY:EXPONENTIAL}
     retry:
       # 비우면 max(5초, FCM HTTP 최대 수명 + 2초) = 기본 24초(연결 2 + 읽기 4 × 5 = 22초 + 2초).
       initial-ms: ${JOURNEY_NOTIFICATION_RETRY_INITIAL_MS:}
@@ -673,9 +674,9 @@ journey:
       jitter: 0.2
       max-attempts-cap: 8
     # 이 시간 동안 heartbeat 가 없는 PROCESSING 행은 워커가 죽은 것으로 보고 회수한다(#451, 초 단위).
-    # 옛 claim-timeout-minutes 도 읽지만 이 값이 이긴다. 기본 180초 = 옛 3분. PULL 에서는 45초 권장.
+    # 옛 claim-timeout-minutes 도 읽지만 이 값이 이긴다. 기본 45초(#451 후속). BATCH·FIXED 로 되돌리면 180 으로 같이 되돌린다.
     # sender 는 자체 타임아웃을 이 값보다 짧게 둘 의무가 있다(fcm.timeout-ms·HTTP 수명을 부팅에서 검증).
-    claim-timeout-seconds: ${JOURNEY_NOTIFICATION_CLAIM_TIMEOUT_SECONDS:180}
+    claim-timeout-seconds: ${JOURNEY_NOTIFICATION_CLAIM_TIMEOUT_SECONDS:45}
     fcm:
       # 서비스 계정 JSON 의 경로. sender=fcm 인데 비면 부팅을 막는다.
       # worker 컨테이너에만 읽기 전용으로 마운트한다(compose.yaml).
@@ -717,9 +718,10 @@ journey:
       # 기본 꺼짐. 발송 구현은 붙었지만 ⑤(발송 직전 재검증)와 ⑥(payload 계약·문구)이 들어오기
       # 전에는 켜지 않는다 — 낡은 알림이 나가고 임시 문구가 운영에 굳는다. worker 프로필 전용.
       enabled: ${JOURNEY_NOTIFICATION_RELAY_ENABLED:true}
-      # BATCH(기존: 배치 200 → 풀 4 → 전부 대기) | PULL(워커 N개가 k건씩 당김, #451).
-      mode: ${JOURNEY_NOTIFICATION_RELAY_MODE:BATCH}
-      pull-workers: ${JOURNEY_NOTIFICATION_RELAY_PULL_WORKERS:32}
+      # BATCH(#451 이전: 배치 200 → 풀 4 → 전부 대기) | PULL(기본, 워커 N개가 k건씩 당김, #451).
+      mode: ${JOURNEY_NOTIFICATION_RELAY_MODE:PULL}
+      # 동시 발송 상한. 느린 FCM(2~5초)에서 128 이어야 긴급·주의 SLO 를 지켰다(32 는 초당 약 9건, #451 후속 측정).
+      pull-workers: ${JOURNEY_NOTIFICATION_RELAY_PULL_WORKERS:128}
       pull-claim-size: ${JOURNEY_NOTIFICATION_RELAY_PULL_CLAIM_SIZE:2}
       # 진행 중 행의 processing_started_at 갱신 주기(두 모드 공통). × 4 ≤ claim-timeout-seconds.
       heartbeat-interval-ms: ${JOURNEY_NOTIFICATION_RELAY_HEARTBEAT_INTERVAL_MS:10000}

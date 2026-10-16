@@ -182,7 +182,8 @@ public class JourneyNotificationRelayLoop implements SmartLifecycle {
 
     /**
      * PULL 워커는 claim·기록 때 커넥션을 하나씩 쓴다. 평가기 풀과 합쳐 Hikari 풀을 넘기면 커넥션 대기가 생긴다. 풀 크기가
-     * 프로필마다 달라 실패로 막지 않고 경고만 남긴다.
+     * 프로필마다 달라 실패로 막지 않는다. INFO 다(#451 후속): 워커는 발송 동안 커넥션을 쥐지 않아 여유를 넘어도 실측
+     * 대기가 거의 없었다(Hikari 20, 워커 32·128 모두 acquire p95 약 1ms. 128 은 빠른 FCM 에서 깨어날 때 pending 순간 6~12, acquire 최대 0.35초). 기본값에서 상시 WARN 이면 경고가 묻힌다.
      */
     private void warnIfPoolTooSmall() {
         int pool = environment.getProperty("spring.datasource.hikari.maximum-pool-size", Integer.class, 10);
@@ -190,7 +191,7 @@ public class JourneyNotificationRelayLoop implements SmartLifecycle {
         int budget = pool - evaluator - 2;
         int workers = properties.getRelay().getPullWorkers();
         if (workers > budget) {
-            log.warn("[JourneyNotificationRelayLoop] pull-workers={} 가 커넥션 여유(hikari {} − 평가기 {} − 2 = {})를 넘는다. "
+            log.info("[JourneyNotificationRelayLoop] pull-workers={} 가 커넥션 여유(hikari {} − 평가기 {} − 2 = {})를 넘는다. "
                     + "동시에 claim·기록하면 커넥션 대기가 생긴다(hikaricp.connections.acquire 를 본다)",
                     workers, pool, evaluator, budget);
         }
