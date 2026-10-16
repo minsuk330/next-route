@@ -5476,3 +5476,29 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 클램프로 살린 행은 만료 직전에 나가므로 장애 150초 칸의 제때 p95 는 오히려 늘어난다(199 → 215초). 잃는 것보다 늦게라도 가는 쪽을 택함
 - kill 칸 긴급 p95 는 61 → 79초로 늘었지만(n=132·145) p99·max 는 112·115 → 81·89초로 줄었다. kill 시각에 무엇이 PROCESSING 이었는지가 칸마다 달라 꼬리 모양이 바뀐다. relay 몫 p95 는 92 → 63초로 줄어 회수 순서 수정이 듣는다
 - 워커 128 기본값 커밋 뒤 전체 `cleanTest test --continue`: 3,341개 실패 0·오류 0·건너뜀 6, BUILD SUCCESSFUL 4m 21s
+## #451 PR-4 relay 내구성 측정 — 처방 전후 알림 SLO (2026-10-16, docs/relay-resilience-results)
+### 확정
+- 결과 = `load/ladder/NOTIFICATION-SLO.md` "처방 뒤 (#451)" 절. main 3736c200, 06:00~08:57 KST, BEFORE(기본값)·AFTER(PULL + PRIORITY_FIRST + EXPONENTIAL + claim 45초)를 칸마다 번갈아 같은 아침에 측정. ③a 는 PULL 만 칸 추가
+- AFTER 설정은 worker 에만 인자로 줌(`PUSH_ARGS` 가 `WORKER_ONLY` 뒤에 붙는 것을 이용): `--journey.notification.relay.mode=PULL --journey.notification.relay.claim-order=PRIORITY_FIRST --journey.notification.retry-policy=EXPONENTIAL --journey.notification.claim-timeout-seconds=45`. api JVM 은 기본값(relay 안 돎)
+- Hikari 풀 20(기본) 유지. PULL 시작 WARN("커넥션 여유 2 를 넘는다")은 뜨지만 acquire p95 < 1ms·pending 최대 0 — 워커가 발송 동안 커넥션을 안 쥐어서. 풀 증설 불필요
+- 권고: PULL + 45초 기본 전환 / EXPONENTIAL 은 마지막 간격 클램프 수정과 함께 전환 / claim-order 는 SCHEDULED 유지 / `idx_journey_notification_claim_priority` 는 별건 마이그레이션으로 삭제 후보
+### 함정
+- 🔴 ④a(빠른 FCM) kill -9 는 kill 순간 PROCESSING 0 이면 아무것도 안 잰다 — BEFORE·AFTER 둘 다 그랬다(5초 표본). #446 ④a 의 110행 고착은 타이밍 운. "발송 중에 죽음"을 확실히 하려면 느린 FCM 을 같이 얹는다(④a' = `CHAOS=kill-worker` + 2~5초 지연)
+- 🔴 우선순위는 체크포인트로 매겨 빠듯(AT_RISK)·놓침이 모두 0 → 폭주(전부 빠듯)에서 PRIORITY_FIRST = SCHEDULED. 긴급 등급(seenTier)을 먼저 보내는 효과는 이 매핑으로는 안 생긴다
+- 🔴 EXPONENTIAL: 다음 간격이 만료를 넘으면 남은 수명이 있어도 바로 `expired-before-retry` 취소(`JourneyNotificationOutboxStateService.markTransientFailure` 의 `nextAttemptAt >= expiresAt`). ③c' 150초 장애에서 바닥 수명(197초) 행 42건이 장애 끝 뒤 32초 남기고 버려짐. 수정안 = 마지막 간격을 min(다음 간격, 만료 − 여유) 로 당기기(이번 PR 에서 구현 안 함)
+- EXPONENTIAL 24 + 48 = 72초 > 60초 → 60초 장애에선 고정 60초보다 relay p95 +19초(62.7 → 81.3초). 잃음은 둘 다 0
+- 회수가 `scheduled_at = :now` 로 다시 써서(`JourneyNotificationRepository.reclaimStale`) 회수 행이 대기열 맨 뒤로 감 — ④a' AFTER 회수 45.6초인데 접수 85~94초. aging 은 created_at 기준이지만 폭주 행이 전부 priority 0 이라 결국 scheduled_at 순
+- 하네스 표본기(`/Users/wa/.claude/jobs/8e8c6a78/tmp/run451.sh`, 저장소 밖)는 worker 재기동 때 카운터가 0 부터 → 최대값으로 읽음
+### 좌표
+- `JourneyNotificationOutboxStateService.java:364-369`(만료 넘는 재시도 취소), `JourneyNotificationRepository.java:241-250`(reclaimStale 의 scheduled_at = :now)
+- 칸 원본: `load/ladder/out/{slo,notifrows,queue,push,events,pgss,cpu,summary}-subway-real-n2000-{b,a}-{storm,slow,err20,outage,outage150,kill,killslow}.*`, `p-slow`(gitignore — 커밋 안 됨)
+### 미결
+- 위 함정 3개(마지막 간격 클램프·회수 행 줄 순서·우선순위 기준)는 별건 이슈 후보. 마지막 간격 클램프 뒤 ③c' 재측정 필요
+- 느린 FCM 에서 긴급·주의 SLO 는 여전히 못 지킴(PULL 32 ÷ 3.5초 ≈ 9건/초) — 워커 수 조정 또는 비동기 발송은 별건
+- Redis 장애 칸(④b)은 PR-3 변화 피드 분리 효과를 재지 않음
+### 검증
+- 사슬 3개: `run451.sh "b-slow:before:slow" "a-slow:after:slow"` / `b-kill a-kill b-storm a-storm b-err20 a-err20 b-outage a-outage b-outage150 a-outage150 p-slow` / `b-killslow a-killslow` (각 `SPLIT=1 MODE=subway STORM_LINES=1001,1002,1075,1005 STORM_AT_S=120 STORM_SECONDS=240 runladder-env.sh 2000 on 10m 20`)
+- 15칸 모두 `leftover active_journeys=0 ladder_journeys=0 loadtest_tokens=0`, 칸마다 끝난 뒤 java·프록시 프로세스 0
+- 중복(가짜 발송처 같은 행·업무 키·경로 버전당 울림 2번+)·stale-write 모든 칸 0
+- 스모크(03:21, 모델 원천 200 여정 3분, AFTER 설정): 부팅 검증 통과·PULL WARN 확인, 남은 0
+- 코드 변경 없음(문서·노트만) → 컴파일·시험 생략
