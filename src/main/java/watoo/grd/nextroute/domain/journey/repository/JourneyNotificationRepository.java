@@ -256,6 +256,10 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
     //
     // 엔티티 저장으로 바꾸면 안 된다. JourneyNotification 에 @Version·@DynamicUpdate 가 없어 dirty check UPDATE 가 모든
     // 칼럼을 옛 값으로 덮는다 — 회수·재claim 이 올린 attempt_count 를 되돌려 울타리가 깨진다. 그래서 전부 한 문장의
+    /** 지금 시도 번호. 부하 실험의 증서 끔 칸(#464)에서만 쓴다. */
+    @Query(value = "SELECT attempt_count FROM journey_notification WHERE id = :id", nativeQuery = true)
+    Integer findAttemptCount(@Param("id") long id);
+
     // 조건부 UPDATE 다. 0행이면 부르는 쪽이 StaleClaimException 을 던져 같은 트랜잭션을 되돌린다.
 
     @Modifying(flushAutomatically = true, clearAutomatically = false)

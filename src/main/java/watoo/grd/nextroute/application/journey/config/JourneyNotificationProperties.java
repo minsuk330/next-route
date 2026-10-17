@@ -259,6 +259,13 @@ public class JourneyNotificationProperties {
          */
         private long heartbeatIntervalMs = 10_000;
 
+        /**
+         * 부하 실험 전용(#464): 기록의 증서(시도 번호) 검사를 끈다. 기록할 때 지금 DB 의 시도 번호를 증서로 써서, 어느 시도의
+         * 기록인지 보지 않던 #451 이전 조건을 재현한다(상태 조건은 그대로라 이전보다 보수적이다). {@code sender=loadtest}
+         * 가 아니면 부팅을 막는다.
+         */
+        private boolean loadtestUnfenced = false;
+
         /** 기본 SCHEDULED(기존 순서). env {@code JOURNEY_NOTIFICATION_RELAY_CLAIM_ORDER}. */
         private ClaimOrder claimOrder = ClaimOrder.SCHEDULED;
 
@@ -402,6 +409,10 @@ public class JourneyNotificationProperties {
         if (relay.getClaimOrder() == null) {
             throw new IllegalStateException(
                     "journey.notification.relay.claim-order 는 SCHEDULED 또는 PRIORITY_FIRST 여야 한다");
+        }
+        if (relay.isLoadtestUnfenced() && !"loadtest".equals(sender)) {
+            throw new IllegalStateException(
+                    "journey.notification.relay.loadtest-unfenced 는 부하 실험(sender=loadtest) 전용이다");
         }
         if (relay.getAgingSeconds() <= 0) {
             throw new IllegalStateException("journey.notification.relay.aging-seconds 는 0 보다 커야 한다(0 이면 전부 긴급과 동급)");

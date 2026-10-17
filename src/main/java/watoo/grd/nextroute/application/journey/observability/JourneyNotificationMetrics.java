@@ -39,6 +39,7 @@ public class JourneyNotificationMetrics {
     public static final String SENT_AFTER_EXPIRY = "journey.notification.sent.after-expiry";
     public static final String STALE_WRITE = "journey.notification.stale-write";
     public static final String RECLAIMED = "journey.notification.reclaimed";
+    public static final String LOADTEST_UNFENCED_LATE_WRITE = "journey.notification.loadtest.unfenced-late-write";
     public static final String RELAY_INFLIGHT = "journey.notification.relay.inflight";
     public static final String RELAY_CLAIM_SIZE = "journey.notification.relay.claim.size";
     public static final String HEARTBEAT_DURATION = "journey.notification.heartbeat.duration";
@@ -82,6 +83,11 @@ public class JourneyNotificationMetrics {
      */
     public void recordStaleWrite(String op) {
         registry.counter(STALE_WRITE, "op", op).increment();
+    }
+
+    /** 증서 끔 칸(#464)에서 옛 시도의 기록이 검사 없이 기록 단계로 넘어간 수. 운영에서는 늘 0 이다. */
+    public void recordLoadtestUnfencedLateWrite(String op) {
+        registry.counter(LOADTEST_UNFENCED_LATE_WRITE, "op", op).increment();
     }
 
     /** heartbeat 가 끊겨 회수한 행(#451). 정상 운영에서는 0 이고, 오르면 워커가 죽었거나 heartbeat 가 막힌 것이다. */

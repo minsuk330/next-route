@@ -180,6 +180,7 @@ class JourneyNotificationLateWriteIT extends AbstractJourneyOutboxPostgresIT {
     @AfterEach
     void tearDown() {
         properties.getFatigue().setEnabled(false);
+        properties.getRelay().setLoadtestUnfenced(false);
         workers.shutdownNow();
     }
 
@@ -266,6 +267,32 @@ class JourneyNotificationLateWriteIT extends AbstractJourneyOutboxPostgresIT {
         assertThat(alertClaimKey())
                 .as("반납하면 이미 울린 경로 버전에서 다음 악화가 또 울린다")
                 .isEqualTo(logicalKeyOf(id));
+    }
+
+    @Test
+    @DisplayName("부하 실험의 증서 끔(#464)에서는 같은 장면의 늦은 일시 실패가 행을 재시도 대기로 되돌린다(대조군)")
+    void unfencedLateTransientFailureRequeuesReclaimedRow() throws Exception {
+        properties.getRelay().setLoadtestUnfenced(true);
+        double before = unfencedLateWrites("transient");
+        long id = enqueueHoldingAlertClaim();
+        Scene scene = Scene.bothBlocked(sender);
+        scene.failAAfterRelease(new NotificationSendException("provider 5xx", false));
+
+        Future<?> a = workers.submit(relayService::relayOnce);
+        scene.awaitAAccepted();
+        reclaimAsAnotherInstance(id);
+        Future<?> b = workers.submit(relayService::relayOnce);
+        scene.awaitBAccepted();
+
+        scene.releaseA();
+        a.get(WAIT_SECONDS, TimeUnit.SECONDS);
+
+        assertThat(statusOf(id)).as("B 가 보내는 중인데 A 의 기록이 행을 되돌렸다 → B 뒤에 세 번째 발송").isEqualTo("PENDING");
+        assertThat(unfencedLateWrites("transient") - before).isEqualTo(1);
+        assertThat(staleWrites("transient")).isZero();
+
+        scene.releaseB();
+        b.get(WAIT_SECONDS, TimeUnit.SECONDS);
     }
 
     @Test
@@ -408,6 +435,11 @@ class JourneyNotificationLateWriteIT extends AbstractJourneyOutboxPostgresIT {
 
     private double staleWrites(String op) {
         return staleCount(op) - staleBase.getOrDefault(op, 0.0);
+    }
+
+    private double unfencedLateWrites(String op) {
+        var counter = meterRegistry.find(JourneyNotificationMetrics.LOADTEST_UNFENCED_LATE_WRITE).tag("op", op).counter();
+        return counter == null ? 0 : counter.count();
     }
 
     private double staleCount(String op) {

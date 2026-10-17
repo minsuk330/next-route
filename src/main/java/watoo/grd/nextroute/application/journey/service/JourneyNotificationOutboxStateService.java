@@ -282,7 +282,8 @@ public class JourneyNotificationOutboxStateService {
     public void markSent(ClaimedNotification claim, SendTask task) {
         NotificationSendCommand c = task.command();
         Instant now = Instant.now(clock);
-        if (notificationRepository.markSentIfClaimed(claim.id(), claim.token(), now,
+        int token = writeToken(claim, "sent");
+        if (notificationRepository.markSentIfClaimed(claim.id(), token, now,
                 LocalDateTime.now(clock)) != 1) {
             throw new StaleClaimException("sent", claim.id(), claim.token());
         }
@@ -377,7 +378,7 @@ public class JourneyNotificationOutboxStateService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markTransientFailure(ClaimedNotification claim, String reason) {
         notificationRepository.findById(claim.id()).ifPresent(n -> {
-            int token = claim.token();
+            int token = writeToken(claim, "transient");
             if (n.getStatus() != JourneyNotificationStatus.PROCESSING || n.getAttemptCount() != token) {
                 throw new StaleClaimException("transient", n.getId(), token);
             }
@@ -438,6 +439,28 @@ public class JourneyNotificationOutboxStateService {
         }
     }
 
+    /**
+     * 기록에 쓸 증서. 평소에는 claim 이 받은 시도 번호 그대로다. 부하 실험의 증서 끔 칸(#464,
+     * {@code relay.loadtest-unfenced})에서는 지금 DB 의 시도 번호를 쓴다 — 회수 뒤 다른 워커가 다시 집은 행에도 옛 시도의
+     * 기록이 들어간다. 그렇게 넘어간 수를 따로 센다.
+     */
+    private int writeToken(ClaimedNotification claim, String op) {
+        if (!properties.getRelay().isLoadtestUnfenced()) {
+            return claim.token();
+        }
+        Integer current = notificationRepository.findAttemptCount(claim.id());
+        if (current == null) {
+            return claim.token();
+        }
+        if (current != claim.token()) {
+            metrics.recordLoadtestUnfencedLateWrite(op);
+            // 실험 분석기(relay_fault.py)가 이 id 의 뒤이은 접수를 따라가 추가 발송인지 가른다
+            log.warn("[JourneyNotificationOutbox] id={} 증서 끔 늦은 기록 통과({}) claim={} current={}",
+                    claim.id(), op, claim.token(), current);
+        }
+        return current;
+    }
+
     /** {@code last_failure_reason} 는 varchar(500). 예상 못 한 예외 문구가 길어 기록 자체가 실패하면 안 된다. */
     private static String truncate(String reason) {
         return reason == null || reason.length() <= 500 ? reason : reason.substring(0, 500);
@@ -451,11 +474,12 @@ public class JourneyNotificationOutboxStateService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markSkipped(ClaimedNotification claim, String reason) {
         notificationRepository.findById(claim.id()).ifPresent(n -> {
-            if (n.getStatus() != JourneyNotificationStatus.PROCESSING || n.getAttemptCount() != claim.token()) {
+            int token = writeToken(claim, "skipped");
+            if (n.getStatus() != JourneyNotificationStatus.PROCESSING || n.getAttemptCount() != token) {
                 throw new StaleClaimException("skipped", n.getId(), claim.token());
             }
             try {
-                cancel(n, claim.token(), reason, false);
+                cancel(n, token, reason, false);
             } catch (StaleClaimException e) {
                 throw new StaleClaimException("skipped", n.getId(), claim.token());
             }
@@ -466,11 +490,12 @@ public class JourneyNotificationOutboxStateService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markPermanentFailure(ClaimedNotification claim, String reason) {
         notificationRepository.findById(claim.id()).ifPresent(n -> {
-            if (n.getStatus() != JourneyNotificationStatus.PROCESSING || n.getAttemptCount() != claim.token()) {
+            int token = writeToken(claim, "permanent");
+            if (n.getStatus() != JourneyNotificationStatus.PROCESSING || n.getAttemptCount() != token) {
                 throw new StaleClaimException("permanent", n.getId(), claim.token());
             }
             boolean released = releaseAlertClaim(n);
-            finish(n, claim.token(), "FAILED", reason, "permanent");
+            finish(n, token, "FAILED", reason, "permanent");
             recordLost(n, failedReason(reason));
             recordReleased(released);
             metrics.recordFailed(n.getChannel(), "permanent");

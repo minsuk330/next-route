@@ -83,6 +83,20 @@ class JourneyNotificationPropertiesTest {
     // (프로필 무관 config 빈이 api 까지 막던 문제). 그 계약은 JourneyRelaySenderGuardTest 가 진다.
 
     @Test
+    @DisplayName("증서 끔(#464)은 부하 실험 발송처에서만 허용한다")
+    void unfencedOnlyWithLoadtestSender() {
+        JourneyNotificationProperties properties = properties();
+        properties.getRelay().setLoadtestUnfenced(true);
+
+        assertThatThrownBy(() -> validate(properties))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("loadtest-unfenced");
+
+        properties.setSender("loadtest");
+        assertThatCode(() -> validate(properties)).doesNotThrowAnyException();
+    }
+
+    @Test
     @DisplayName("모르는 sender 이름은 막는다")
     void unknownSenderIsRejected() {
         JourneyNotificationProperties properties = properties();
