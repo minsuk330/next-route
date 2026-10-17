@@ -5582,3 +5582,19 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - prom 덤프의 hikaricp_connections_usage_seconds 는 단계별 시계열에 없다(끝 덤프에만) → 단계별 보유 시간은 active 게이지 평균으로 대신 봄
 ### 결과 문서
 - load/ladder/RELAY-CAPACITY.md
+
+## 발송 건당 DB 왕복 줄이기 (#461 후속, 2026-10-17)
+### 확정
+- 발송 직전 재확인(`loadSendTask`)이 알림 + 여정 행을 JPQL left join 한 문장으로 읽는다(`JourneyNotificationRepository.findWithJourney`). 둘 다 영속 컨텍스트에 올라가 취소·권리 반납 순서는 그대로
+- 접수 기록 `markSent(claim, SendTask)` 는 알림 행을 다시 읽지 않는다. 지표 값(채널·체크포인트·payload·만료·created_at)은 적재 뒤 안 바뀌어 재확인 때 읽은 값으로 잰다. 상태 판단은 여전히 증서 조건부 UPDATE
+- 옛 `loadTask(claim)`·`markSent(claim)` 은 남김(시험·다른 호출자) — 새 경로에 위임
+### 좌표
+- JourneyNotificationOutboxStateService `loadSendTask`·`markSent(ClaimedNotification, SendTask)`, JourneyNotificationRelayService `process`·`send`, dto/SendTask
+### 검증
+- 건당 SQL 5문장 → 3문장(pgss 한계점 단계: 알림 select 1/건, 토큰 select 1/건, SENT UPDATE 1/건)
+- 측정 OPT-r1~r3(풀 20·워커 128·60ms, Ax 와 같은 계단): 한계점 3회 모두 1,600건/초(그 단계 SENT 1,223·1,177·1,119/s). 1,200건/초는 3/3 따라잡음(Ax 1/3). 최대 처리량은 Ax(1,021~1,307/s)와 같은 범위 → 왕복 수가 주범은 아님
+### 함정
+- 한계점 단계 claim 은 초당 약 600회(pull-claim-size 2), 평균 0.2ms(400/s) → 1.1ms(1,600/s). 128 워커가 같은 대기열 머리를 SKIP LOCKED 로 훑는 경합이 다음 후보 → pull-claim-size 8·16 측정
+- 풀 40(P40) 회차 중 노트북 정지 2번(Hikari "Thread starvation or clock leap" 3m44s·5m30s) → P40-r1·r2 오염. 측정 사슬은 `caffeinate -ims` 로 잠자기 막고, 요약 전 app 로그에서 "clock leap" 부터 확인할 것
+- 측정 사슬이 `cleanTest test --tests *SeedIT` 를 같은 REPO 에서 부르면 직전 테스트 결과 XML 이 지워진다 → 테스트 결과는 바로 복사해 둘 것
+- 전체 `./gradlew cleanTest test --continue`(st-pg·st-redis + env, 2026-10-17 16:43): BUILD SUCCESSFUL 6m19s, 481 클래스 3,348 테스트, 실패 0·오류 0·건너뜀 7. 새 시험 = JourneyNotificationSloMetricsTest#markSentWithTaskDoesNotReread, JourneyNotificationRelayIT#staleSendTaskAfterReclaimIsDropped

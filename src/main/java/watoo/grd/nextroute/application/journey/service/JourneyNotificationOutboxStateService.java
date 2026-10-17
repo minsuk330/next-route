@@ -9,8 +9,10 @@ import watoo.grd.nextroute.application.journey.config.JourneyNotificationPropert
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties.RetryPolicy;
 import watoo.grd.nextroute.application.journey.dto.ClaimedNotification;
 import watoo.grd.nextroute.application.journey.dto.NotificationSendCommand;
+import watoo.grd.nextroute.application.journey.dto.SendTask;
 import watoo.grd.nextroute.application.journey.exception.StaleClaimException;
 import watoo.grd.nextroute.application.journey.observability.JourneyNotificationMetrics;
+import com.fasterxml.jackson.databind.JsonNode;
 import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotification;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotificationScope;
@@ -132,12 +134,24 @@ public class JourneyNotificationOutboxStateService {
      * 번호도 같은 {@code journey_session} 행에 있어 조회가 늘지 않는다. 환승 조회만 접근 알림일
      * 때 하나 더 붙는다.
      *
+     * <p>알림 행과 여정 행은 한 문장으로 읽는다(#461 후속 — 발송 용량의 병목이 건당 커넥션 왕복이었다).
+     *
      * @return 보낼 것이 없으면 빈 값. 그때 행은 이미 CANCELED 이거나 남의 것이다
      * @throws StaleClaimException 취소하려는데 증서가 맞지 않았다(취소·권리 반납 모두 되돌려짐)
      */
     @Transactional
     public Optional<NotificationSendCommand> loadTask(ClaimedNotification claim) {
-        JourneyNotification n = notificationRepository.findById(claim.id()).orElse(null);
+        return loadSendTask(claim).map(SendTask::command);
+    }
+
+    /**
+     * {@link #loadTask} 와 같은 재확인. 접수 기록({@link #markSent(ClaimedNotification, SendTask)})이 행을 다시 읽지 않게
+     * 적재 시각을 같이 돌려준다.
+     */
+    @Transactional
+    public Optional<SendTask> loadSendTask(ClaimedNotification claim) {
+        Object[] row = notificationRepository.findWithJourney(claim.id()).stream().findFirst().orElse(null);
+        JourneyNotification n = row == null ? null : (JourneyNotification) row[0];
         if (n == null || n.getStatus() != JourneyNotificationStatus.PROCESSING
                 || n.getAttemptCount() != claim.token()) {
             // 회수 뒤 취소된 행이거나, 다른 워커가 이미 끝냈거나, 회수돼 남이 다시 잡았다.
@@ -151,7 +165,7 @@ public class JourneyNotificationOutboxStateService {
         }
 
         int token = claim.token();
-        JourneySession journey = sessionRepository.findById(n.getJourneyId()).orElse(null);
+        JourneySession journey = (JourneySession) row[1];
         if (journey == null || journey.getStatus() != JourneyStatus.ACTIVE
                 || journey.getDeletedAt() != null) {
             cancel(n, token, "journey-ended", false);
@@ -181,10 +195,10 @@ public class JourneyNotificationOutboxStateService {
             return Optional.empty();
         }
 
-        return Optional.of(new NotificationSendCommand(n.getId(), n.getUserId(), n.getJourneyId(),
+        return Optional.of(new SendTask(new NotificationSendCommand(n.getId(), n.getUserId(), n.getJourneyId(),
                 n.getRouteRevision(), n.getScopeType(), n.getScopeId(), n.getCheckpoint(),
                 n.getChannel(), n.getCommandVersion(), n.getEvaluationVersion(),
-                n.getPayload(), n.getExpiresAt()));
+                n.getPayload(), n.getExpiresAt()), n.getCreatedAt()));
     }
 
     /**
@@ -252,48 +266,62 @@ public class JourneyNotificationOutboxStateService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markSent(ClaimedNotification claim) {
-        notificationRepository.findById(claim.id()).ifPresent(n -> {
-            Instant now = Instant.now(clock);
-            if (notificationRepository.markSentIfClaimed(n.getId(), claim.token(), now,
-                    LocalDateTime.now(clock)) != 1) {
-                throw new StaleClaimException("sent", n.getId(), claim.token());
-            }
-            metrics.recordSent(n.getChannel());
-            if (n.getCreatedAt() != null) {
-                // created_at 은 시간대 없는 칼럼이고 적재 때 같은 clock 으로 찍었다
-                // (JourneyNotificationEnqueuer). 그래서 그 clock 의 시간대로 되돌려야 맞는다.
-                // DB now() 와 섞어 빼면 두 시계 차이가 지연에 섞인다.
-                Instant createdAt = n.getCreatedAt().atZone(clock.getZone()).toInstant();
-                metrics.recordDeliveryLag(n.getChannel(), Duration.between(createdAt, now));
-            }
-            recordEndToEnd(n, now);
-        });
+        notificationRepository.findById(claim.id()).ifPresent(n -> markSent(claim, new SendTask(
+                new NotificationSendCommand(n.getId(), n.getUserId(), n.getJourneyId(), n.getRouteRevision(),
+                        n.getScopeType(), n.getScopeId(), n.getCheckpoint(), n.getChannel(), n.getCommandVersion(),
+                        n.getEvaluationVersion(), n.getPayload(), n.getExpiresAt()),
+                n.getCreatedAt())));
+    }
+
+    /**
+     * 접수 기록, 행을 다시 읽지 않는 쪽(#461 후속). 증서 조건부 UPDATE 한 문장이고, 지표는 재확인 때 읽은 값으로 잰다.
+     *
+     * @throws StaleClaimException 증서가 맞지 않았다. 행은 남의 것이라 그대로 둔다
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markSent(ClaimedNotification claim, SendTask task) {
+        NotificationSendCommand c = task.command();
+        Instant now = Instant.now(clock);
+        if (notificationRepository.markSentIfClaimed(claim.id(), claim.token(), now,
+                LocalDateTime.now(clock)) != 1) {
+            throw new StaleClaimException("sent", claim.id(), claim.token());
+        }
+        metrics.recordSent(c.channel());
+        if (task.createdAt() != null) {
+            // created_at 은 시간대 없는 칼럼이고 적재 때 같은 clock 으로 찍었다
+            // (JourneyNotificationEnqueuer). 그래서 그 clock 의 시간대로 되돌려야 맞는다.
+            // DB now() 와 섞어 빼면 두 시계 차이가 지연에 섞인다.
+            Instant createdAt = task.createdAt().atZone(clock.getZone()).toInstant();
+            metrics.recordDeliveryLag(c.channel(), Duration.between(createdAt, now));
+        }
+        recordEndToEnd(c.checkpoint(), c.payload(), c.expiresAt(), now);
     }
 
     /**
      * 처음 본 시각 → 접수(#446). 처음 본 시각은 위험 알림 payload 에 적재 때 실려 왔다({@code JourneyNotificationEnqueuer}).
      * 없으면 못 잰 것으로 센다. 만료를 넘겨 접수됐는지도 여기서 본다 — 발송 직전 재확인 뒤 공급자 왕복이 길면 생길 수 있다.
      */
-    private void recordEndToEnd(JourneyNotification n, Instant sentAt) {
-        if (n.getExpiresAt() != null && sentAt.isAfter(n.getExpiresAt())) {
-            metrics.recordSentAfterExpiry(n.getCheckpoint());
+    private void recordEndToEnd(JourneyCheckpoint checkpoint, JsonNode payload, Instant expiresAt, Instant sentAt) {
+        if (expiresAt != null && sentAt.isAfter(expiresAt)) {
+            metrics.recordSentAfterExpiry(checkpoint);
         }
-        Instant firstSeenAt = payloadInstant(n, JourneyNotificationEnqueuer.FIRST_SEEN_AT);
+        Instant firstSeenAt = payloadInstant(payload, JourneyNotificationEnqueuer.FIRST_SEEN_AT);
         if (firstSeenAt == null) {
-            metrics.recordE2eUnmeasured(n.getCheckpoint());
+            metrics.recordE2eUnmeasured(checkpoint);
             return;
         }
+        String delivery = payloadText(payload, "delivery", "none");
         // 보류는 적재 때 payload 에 적어 둔 값이다 — 재시도가 scheduled_at 을 백오프 시각으로 미뤄 되읽을 수 없다.
-        String holdMs = payloadText(n, JourneyNotificationEnqueuer.HOLD_MS, null);
+        String holdMs = payloadText(payload, JourneyNotificationEnqueuer.HOLD_MS, null);
         if (holdMs != null) {
             try {
-                metrics.recordHold(n.getCheckpoint(), deliveryOf(n), Duration.ofMillis(Long.parseLong(holdMs)));
+                metrics.recordHold(checkpoint, delivery, Duration.ofMillis(Long.parseLong(holdMs)));
             } catch (NumberFormatException ignored) {
                 // 깨진 값은 보류를 못 잰 것으로 둔다.
             }
         }
-        metrics.recordE2e(payloadText(n, JourneyNotificationEnqueuer.SEEN_TIER, "UNKNOWN"), n.getCheckpoint(),
-                deliveryOf(n), payloadText(n, JourneyNotificationEnqueuer.SEEN_SOURCE, "unknown"),
+        metrics.recordE2e(payloadText(payload, JourneyNotificationEnqueuer.SEEN_TIER, "UNKNOWN"), checkpoint,
+                delivery, payloadText(payload, JourneyNotificationEnqueuer.SEEN_SOURCE, "unknown"),
                 Duration.between(firstSeenAt, sentAt));
     }
 
@@ -306,19 +334,19 @@ public class JourneyNotificationOutboxStateService {
 
     /** payload 의 울림 종류. 없으면(피로 정책 꺼짐·정책 이전 행) {@code none} — 발송기는 그때 울림으로 보낸다. */
     static String deliveryOf(JourneyNotification n) {
-        return payloadText(n, "delivery", "none");
+        return payloadText(n.getPayload(), "delivery", "none");
     }
 
-    private static String payloadText(JourneyNotification n, String field, String fallback) {
-        if (n.getPayload() == null) {
+    private static String payloadText(JsonNode payload, String field, String fallback) {
+        if (payload == null) {
             return fallback;
         }
-        com.fasterxml.jackson.databind.JsonNode node = n.getPayload().get(field);
+        JsonNode node = payload.get(field);
         return node == null || node.isNull() ? fallback : node.asText(fallback);
     }
 
-    private static Instant payloadInstant(JourneyNotification n, String field) {
-        String text = payloadText(n, field, null);
+    private static Instant payloadInstant(JsonNode payload, String field) {
+        String text = payloadText(payload, field, null);
         if (text == null) {
             return null;
         }

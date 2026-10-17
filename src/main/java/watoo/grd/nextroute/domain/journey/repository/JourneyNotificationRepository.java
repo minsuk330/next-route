@@ -267,6 +267,13 @@ public interface JourneyNotificationRepository extends JpaRepository<JourneyNoti
     int markSentIfClaimed(@Param("id") long id, @Param("token") int token, @Param("sentAt") Instant sentAt,
                           @Param("auditNow") LocalDateTime auditNow);
 
+    /**
+     * 발송 직전 재확인용 — 알림 행과 그 여정 행을 한 문장으로 읽는다(#461 후속). 둘 다 영속 컨텍스트에 올라간다.
+     * 여정이 없으면 두 번째 칸이 null 이다. 알림이 없으면 빈 목록.
+     */
+    @Query("select n, s from JourneyNotification n left join JourneySession s on s.id = n.journeyId where n.id = :id")
+    List<Object[]> findWithJourney(@Param("id") long id);
+
     /** 끝 상태(CANCELED·FAILED·DEAD)로 옮긴다. */
     @Modifying(flushAutomatically = true, clearAutomatically = false)
     @Query(value = """

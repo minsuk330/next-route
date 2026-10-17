@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties;
 import watoo.grd.nextroute.application.journey.dto.ClaimedNotification;
+import watoo.grd.nextroute.application.journey.dto.NotificationSendCommand;
+import watoo.grd.nextroute.application.journey.dto.SendTask;
 import watoo.grd.nextroute.application.journey.observability.JourneyNotificationMetrics;
 import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
 import watoo.grd.nextroute.domain.journey.entity.JourneyNotification;
@@ -22,6 +24,7 @@ import watoo.grd.nextroute.domain.notification.entity.NotificationChannel;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
@@ -33,6 +36,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -76,6 +80,11 @@ class JourneyNotificationSloMetricsTest {
         return new ClaimedNotification(id, token);
     }
 
+    /** {@code findWithJourney} 한 행 — 여정 칸은 비운다(만료·여정 끝 판정은 여정 행 없이도 나온다). */
+    private static List<Object[]> withJourney(JourneyNotification n) {
+        return List.<Object[]>of(new Object[]{n, null});
+    }
+
     @Test
     @DisplayName("접수 때 처음 본 시각부터 잰다 — 등급·종류·울림·출처 tag, 보류는 payload 의 적재 때 값")
     void recordsEndToEndWithTags() {
@@ -97,6 +106,29 @@ class JourneyNotificationSloMetricsTest {
         var hold = registry.find(JourneyNotificationMetrics.HOLD).tag("delivery", "ALERTING").timer();
         assertThat(hold.totalTime(TimeUnit.SECONDS)).isEqualTo(17.0);
         assertThat(registry.find(JourneyNotificationMetrics.SENT_AFTER_EXPIRY).counter()).isNull();
+    }
+
+    @Test
+    @DisplayName("재확인 때 읽은 값으로 접수를 기록하면 알림 행을 다시 읽지 않는다 — 지표는 같게 잰다(#461 후속)")
+    void markSentWithTaskDoesNotReread() {
+        ObjectNode payload = payload("ALERTING");
+        payload.put("firstSeenAt", NOW.minusSeconds(21).toString());
+        payload.put("seenTier", "CAUTION");
+        payload.put("seenSource", "feed");
+        JourneyNotification n = row(9L, JourneyCheckpoint.TRANSFER_RISK_AT_RISK, payload, NOW.minusMillis(1),
+                JourneyNotificationStatus.PROCESSING);
+        SendTask task = new SendTask(new NotificationSendCommand(9L, 1L, 10L, 1, JourneyNotificationScope.TRANSFER, 0,
+                JourneyCheckpoint.TRANSFER_RISK_AT_RISK, NotificationChannel.PUSH, 0, 0, payload, NOW.minusMillis(1)),
+                n.getCreatedAt());
+
+        service.markSent(claim(9L), task);
+
+        verify(notifications, never()).findById(anyLong());
+        verify(notifications).markSentIfClaimed(eq(9L), eq(0), eq(NOW), any());
+        assertThat(registry.find(JourneyNotificationMetrics.E2E).tag("tier", "CAUTION").timer().totalTime(
+                TimeUnit.SECONDS)).isEqualTo(21.0);
+        assertThat(registry.find(JourneyNotificationMetrics.SENT_AFTER_EXPIRY)
+                .tag("checkpoint", "TRANSFER_RISK_AT_RISK").counter().count()).isEqualTo(1.0);
     }
 
     @Test
@@ -127,8 +159,8 @@ class JourneyNotificationSloMetricsTest {
     @Test
     @DisplayName("발송 직전에 만료된 행은 잃은 것(expired)이다")
     void expiredBeforeSendIsLost() {
-        given(notifications.findById(4L)).willReturn(Optional.of(row(4L, JourneyCheckpoint.TRANSFER_RISK_AT_RISK,
-                payload("ALERTING"), NOW, JourneyNotificationStatus.PROCESSING)));
+        given(notifications.findWithJourney(4L)).willReturn(withJourney(row(4L,
+                JourneyCheckpoint.TRANSFER_RISK_AT_RISK, payload("ALERTING"), NOW, JourneyNotificationStatus.PROCESSING)));
 
         assertThat(service.loadTask(claim(4L))).isEmpty();
 
@@ -138,9 +170,9 @@ class JourneyNotificationSloMetricsTest {
     @Test
     @DisplayName("여정이 끝나 취소된 행은 잃은 것이 아니다(정상 취소)")
     void journeyEndedIsNotLost() {
-        given(notifications.findById(5L)).willReturn(Optional.of(row(5L, JourneyCheckpoint.TRANSFER_RISK_AT_RISK,
+        // 여정 행이 없으면 한 문장 조회의 두 번째 칸이 null 이다.
+        given(notifications.findWithJourney(5L)).willReturn(withJourney(row(5L, JourneyCheckpoint.TRANSFER_RISK_AT_RISK,
                 payload("ALERTING"), NOW.plusSeconds(180), JourneyNotificationStatus.PROCESSING)));
-        given(sessions.findById(10L)).willReturn(Optional.empty());
 
         assertThat(service.loadTask(claim(5L))).isEmpty();
 

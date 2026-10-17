@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.journey.config.JourneyNotificationProperties;
 import watoo.grd.nextroute.application.journey.dto.ClaimedNotification;
 import watoo.grd.nextroute.application.journey.dto.NotificationSendCommand;
+import watoo.grd.nextroute.application.journey.dto.SendTask;
 import watoo.grd.nextroute.application.journey.exception.NotificationSendException;
 import watoo.grd.nextroute.application.journey.exception.NotificationSkippedException;
 import watoo.grd.nextroute.application.journey.exception.StaleClaimException;
@@ -150,7 +151,7 @@ public class JourneyNotificationRelayService {
      */
     private void process(ClaimedNotification claim) {
         try {
-            stateService.loadTask(claim).ifPresent(command -> send(claim, command));
+            stateService.loadSendTask(claim).ifPresent(task -> send(claim, task));
         } catch (StaleClaimException e) {
             metrics.recordStaleWrite(e.getOp());
             log.info("[JourneyNotificationRelay] id={} 늦은 기록 버림({})", claim.id(), e.getOp());
@@ -165,7 +166,8 @@ public class JourneyNotificationRelayService {
      * 보내고 결과를 기록한다. 발송 결과를 먼저 정하고 기록은 그 뒤에 한 번만 한다 — 접수 기록이 실패했다고 일시 실패로
      * 다시 기록하면 늦은 기록이 두 번 된다.
      */
-    private void send(ClaimedNotification claim, NotificationSendCommand command) {
+    private void send(ClaimedNotification claim, SendTask task) {
+        NotificationSendCommand command = task.command();
         try {
             sender.send(command);
         } catch (NotificationSkippedException e) {
@@ -188,7 +190,7 @@ public class JourneyNotificationRelayService {
             stateService.markTransientFailure(claim, "unexpected: " + t);
             return;
         }
-        stateService.markSent(claim);
+        stateService.markSent(claim, task);
     }
 
     private ExecutorService pool(int workers) {

@@ -24,6 +24,7 @@ import watoo.grd.nextroute.application.journey.service.JourneyNotificationOutbox
 import watoo.grd.nextroute.application.journey.service.JourneyRetryBackoff;
 import watoo.grd.nextroute.application.journey.service.JourneyNotificationRelayService;
 import watoo.grd.nextroute.application.journey.dto.ClaimedNotification;
+import watoo.grd.nextroute.application.journey.dto.SendTask;
 import watoo.grd.nextroute.application.journey.exception.StaleClaimException;
 import watoo.grd.nextroute.application.journey.service.JourneyNotificationLeaseKeeper;
 import watoo.grd.nextroute.application.journey.service.JourneyRelayWaker;
@@ -428,6 +429,26 @@ class JourneyNotificationRelayIT extends AbstractJourneyOutboxPostgresIT {
 
         stateService.markSent(fresh);
         assertThat(statusOf(id)).isEqualTo("SENT");
+    }
+
+    @Test
+    @DisplayName("재확인 결과로 접수를 기록해도(행 재조회 없음) 옛 증서는 0행이고 새 증서만 SENT 가 된다(#461 후속)")
+    void staleSendTaskAfterReclaimIsDropped() {
+        long id = enqueue(NOW.minusSeconds(1), NOW.plusSeconds(1800));
+        ClaimedNotification old = stateService.claimBatch(NOW, 10).get(0);
+        SendTask oldTask = stateService.loadSendTask(old).orElseThrow();
+        makeStale(id);
+        stateService.reclaim(NOW);
+        ClaimedNotification fresh = stateService.claimBatch(NOW, 10).get(0);
+        SendTask freshTask = stateService.loadSendTask(fresh).orElseThrow();
+
+        assertThatThrownBy(() -> stateService.markSent(old, oldTask)).isInstanceOf(StaleClaimException.class);
+        assertThat(statusOf(id)).isEqualTo("PROCESSING");
+
+        stateService.markSent(fresh, freshTask);
+        assertThat(statusOf(id)).isEqualTo("SENT");
+        assertThat(freshTask.command().notificationId()).isEqualTo(id);
+        assertThat(freshTask.createdAt()).as("적재 시각을 같이 읽어 와야 지연 지표를 잰다").isNotNull();
     }
 
     @Test
