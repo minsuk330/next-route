@@ -5598,3 +5598,26 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 풀 40(P40) 회차 중 노트북 정지 2번(Hikari "Thread starvation or clock leap" 3m44s·5m30s) → P40-r1·r2 오염. 측정 사슬은 `caffeinate -ims` 로 잠자기 막고, 요약 전 app 로그에서 "clock leap" 부터 확인할 것
 - 측정 사슬이 `cleanTest test --tests *SeedIT` 를 같은 REPO 에서 부르면 직전 테스트 결과 XML 이 지워진다 → 테스트 결과는 바로 복사해 둘 것
 - 전체 `./gradlew cleanTest test --continue`(st-pg·st-redis + env, 2026-10-17 16:43): BUILD SUCCESSFUL 6m19s, 481 클래스 3,348 테스트, 실패 0·오류 0·건너뜀 7. 새 시험 = JourneyNotificationSloMetricsTest#markSentWithTaskDoesNotReread, JourneyNotificationRelayIT#staleSendTaskAfterReclaimIsDropped
+
+## #464 발송 장애 주입: heartbeat 회수와 fencing token 끔/켬 (2026-10-17)
+### 확정
+- 증서 끔 = 테스트 전용 `journey.notification.relay.loadtest-unfenced`(기본 false, sender≠loadtest 면 부팅 거부). 기록 때 지금 DB 시도 번호를 증서로 쓴다 → #451 이전("어느 시도의 기록인지 안 봄") 재현. 상태 조건(PROCESSING)은 남겨서 이전 코드(markSent 는 상태도 안 봄)보다 보수적 → 끔 칸 피해 건수는 하한
+- 회수 기준 180초 칸은 코드 우회 없이 `min-ttl-seconds=600` 으로 부팅 검사(회수 기준 + 첫 재시도 < 유효시간 바닥) 통과. 적재기가 expires_at 을 직접 쓰므로 바닥 설정은 검사 말고 안 쓰인다
+- heartbeat 스레드는 회수 기준과 무관하게 늘 돈다 → "180 대 45" 칸 차이로 heartbeat 의 DB 대가를 잴 수 없다. 대가는 heartbeat 타이머와 pg_stat_statements 의 heartbeat UPDATE 몫으로 직접 잰다
+- 회수는 `scheduled_at = LEAST(scheduled_at, now)` 로 원래 순서를 지킨다(976a1880, 10-16). NOTIFICATION-SLO ④a' 의 "재접수 85~94초(대기열 뒤로)" 는 그 이전 값
+### 함정
+- 🔴 같은 st-pg 를 다른 세션의 용량 실험(run_relay_capacity.sh, 17:38~, 포트 8081, 표지 LOAD-RELAY)이 쓰는 중에 스모크를 돌려 서로의 여정을 지움(내 적재기 FK 오류, 행 24만 섞임). 그 세션의 17:38 회차는 오염 가능 ← 같은 표지·같은 DB·시작/끝 정리 / 가드: 별도 DB `nr464`(mydatabase 스키마 + flyway 이력 복사), 포트 8091·8092, mydatabase 면 실행 거부, 여정은 한 번만 심고 회차마다 알림 행만 지움, pg_stat_statements_reset 은 자기 DB 만
+- pg_stat_statements_reset() 인자 없이 부르면 서버 전체를 지운다 → 같은 서버의 다른 실험 단계 통계가 사라진다
+### 좌표
+- 끔 스위치: JourneyNotificationOutboxStateService.writeToken, JourneyNotificationRepository.findAttemptCount, JourneyNotificationMetrics.LOADTEST_UNFENCED_LATE_WRITE
+- 하네스: load/ladder/run_relay_fault.sh, relay_fault.py (스크래치 래퍼 run464-env.sh 가 env 와 POSTGRES_DB=nr464 를 준다)
+### 검증
+- `./gradlew test --tests '*JourneyNotificationLateWriteIT' --tests '*JourneyNotificationPropertiesTest' --tests '*JourneyNotificationRelayIT'` → 5/0, 26/0, 22/0 (늦은 기록 IT 에 끔 대조군 1개 추가: 같은 장면에서 PENDING 으로 되돌아감)
+- 스모크(별도 DB): kill 10건/초 90초 → 적재 900 = SENT 900, 잃음 0, A 가 든 23건 → B 가 45.8초에 26건 회수, 재접수 p50 50.3초
+
+#### #464 보완: 늦은 실패 기록 → 추가 발송 행 단위 추적 (2026-10-17)
+- 확정: "2번 접수된 행 수" 끔/켬 비교는 지표로 못 쓴다 — fenceON-r1 105 > fenceOFF-r1 80. A 가 정지 전에 이미 보낸 행을 B 가 다시 보내도 2번이 남아 최소 한 번 보장 몫과 섞인다. 접수 순서 BB(되돌림의 모양)만 끔 10 / 켬 0
+- 가드: 끔 모드 늦은 기록 통과 시 WARN 에 id·op·claim·current 를 남김(writeToken). 켬 쪽은 기존 INFO "늦은 기록 버림" 을 RelayService=INFO 로 띄워 남김. 분석=load/ladder/relay_fault_trace.py(늦은 transient 뒤 같은 id 접수 = 추가 발송)
+- 함정: 돌고 있는 zsh 하네스 파일을 고치면 실행 중 회차가 깨질 수 있어, 하네스 수정·bootJar 재빌드는 본 사슬 잠금이 풀린 뒤 run464-trace.sh 가 한다
+- 검증(2026-10-17 20:42): `./gradlew cleanTest test --tests "*JourneyNotificationLateWriteIT" --tests "*JourneyNotificationPropertiesTest" --tests "*JourneyNotificationRelayIT"` → 5/0, 26/0, 22/0 BUILD SUCCESSFUL. 본 측정 12회 + 보완 1쌍 결과=load/ladder/RELAY-FAULT.md
+- 함정: relay_fault_trace.py 첫판은 "늦은 기록 뒤 접수"를 추가 발송으로 셌다 → 그 시점에 발송 중이던 B 의 정상 발송까지 잡힘. 행별 접수 −1 로 고침(A 시도는 실패라 접수 없음). 정규식이 통과·버림 두 줄을 같이 잡던 것도 분리
