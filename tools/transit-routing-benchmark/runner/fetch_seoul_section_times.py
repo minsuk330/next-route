@@ -47,16 +47,17 @@ def fetch_page(key: str, page: int, cache: Path | None) -> list[dict]:
         return json.loads(f.read_text())
     s, e = (page - 1) * PAGE + 1, page * PAGE
     url = f"http://openapi.seoul.go.kr:8088/{key}/json/{SERVICE}/{s}/{e}/"
-    for attempt in range(3):
+    for attempt in range(8):
         try:
             body = urllib.request.urlopen(url, timeout=60).read().decode()
-            break
         except OSError:
-            time.sleep(3 * (attempt + 1))
+            time.sleep(min(5 * (attempt + 1), 30))
+            continue
+        if key not in body:
+            break
+        time.sleep(min(5 * (attempt + 1), 30))  # error pages echo the request URL (key); never keep or print them
     else:
-        raise SystemExit(f"page {page}: request failed 3 times")
-    if key in body:
-        raise SystemExit(f"page {page}: response echoes the key, dropped")
+        raise SystemExit(f"page {page}: no usable response after 8 attempts")
     doc = json.loads(body)
     if SERVICE not in doc:
         raise SystemExit(f"page {page}: {str(doc)[:200]}")
