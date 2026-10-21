@@ -104,6 +104,25 @@ class SubwayTrainTransitionTrackerTest {
     }
 
     @Test
+    @DisplayName("S3 directAt 원문(9 = ITX)이 직전 위치·출발·도착 사건까지 따라간다 — enum 은 UNKNOWN 으로 접힌다")
+    void rawDirectAtFollowsEvents() {
+        tracker.observe(complete("09:00:10", itx(row("성수", SubwayTrainStatus.ARRIVED, "09:00:00"))));
+        tracker.observe(complete("09:01:10", itx(row("건대입구", SubwayTrainStatus.ARRIVED, "09:01:00"))));
+
+        assertThat(log.events).isNotEmpty().allSatisfy(event -> {
+            assertThat(event.express()).isEqualTo(SubwayExpressType.UNKNOWN);
+            assertThat(event.directAtRaw()).isEqualTo("9");
+        });
+        assertThat(log.remembered.values()).allSatisfy(seen -> assertThat(seen.directAtRaw()).isEqualTo("9"));
+    }
+
+    private static SubwayPositionInfo itx(SubwayPositionInfo row) {
+        return new SubwayPositionInfo(row.lineId(), row.trainNo(), row.stationId(), row.stationName(),
+                row.direction(), row.terminalId(), row.terminalName(), row.status(), SubwayExpressType.UNKNOWN,
+                row.receivedAt(), row.lastReceivedDate(), "9");
+    }
+
+    @Test
     @DisplayName("선행 관측 없이 나타난 출발 표시는 잠정이다")
     void departureWithoutPriorPresenceStaysObserved() {
         // 직전이 이미 출발 상태였다 — 원천이 같은 값을 계속 내보내는 경우와 구분되지 않는다

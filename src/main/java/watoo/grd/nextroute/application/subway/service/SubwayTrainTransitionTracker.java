@@ -187,7 +187,7 @@ public class SubwayTrainTransitionTracker {
 
         SubwayTrainObservation now = new SubwayTrainObservation(
                 row.stationId(), row.stationName(), row.status(), receivedAt,
-                row.terminalId(), row.express());
+                row.terminalId(), row.express(), row.directAtRaw());
 
         Optional<SubwayTrainObservation> previous = logPort.lastSeen(identity);
         if (previous.isEmpty()) {
@@ -258,7 +258,7 @@ public class SubwayTrainTransitionTracker {
         logPort.append(identity, new SubwayTrainEvent(
                 SubwayTrainEvent.Type.DEPARTED, before.stationId(), before.stationName(),
                 lowerBound(before.receivedAt()), upper, SubwayTrainEvent.Quality.CORROBORATED,
-                before.terminalId(), before.express()));
+                before.terminalId(), before.express(), before.directAtRaw()));
         created++;
 
         if (now.status().isAtStation()) {
@@ -271,12 +271,12 @@ public class SubwayTrainTransitionTracker {
     private SubwayTrainEvent departure(SubwayTrainObservation at, Instant from, Instant to,
                                        SubwayTrainEvent.Quality quality) {
         return new SubwayTrainEvent(SubwayTrainEvent.Type.DEPARTED, at.stationId(), at.stationName(),
-                from, to, quality, at.terminalId(), at.express());
+                from, to, quality, at.terminalId(), at.express(), at.directAtRaw());
     }
 
     private SubwayTrainEvent arrival(SubwayTrainObservation at, Instant from, Instant to) {
         return new SubwayTrainEvent(SubwayTrainEvent.Type.ARRIVED, at.stationId(), at.stationName(),
-                from, to, SubwayTrainEvent.Quality.CORROBORATED, at.terminalId(), at.express());
+                from, to, SubwayTrainEvent.Quality.CORROBORATED, at.terminalId(), at.express(), at.directAtRaw());
     }
 
     /**
