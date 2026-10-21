@@ -11,15 +11,23 @@ import watoo.grd.nextroute.application.journey.dto.JourneyLegView;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyEtaView.NextAction;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
+import watoo.grd.nextroute.application.journey.dto.SubwayGuidance;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingStage;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
+import watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus;
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
@@ -276,7 +284,152 @@ class JourneySnapshotEtaComposerTest {
         assertThat(result.eta().alighting()).isNull();
     }
 
+    // ── 아직 승차역에 오지 않은 지하철 열차(#469) ─────────────────────────────
+    //
+    // 0=WALK(120), 1=WAIT_SUBWAY, 2=RIDE_SUBWAY(120, 현재), 3=WALK(300). 방금 열차를 골라 타는 단계가 됐고,
+    // 이동 단계 계산은 "지금 + 계획 120초"를 낸다. 열차는 5분 뒤(09:05) 승차역에 온다.
+
+    private static final Instant TRAIN_AT_BOARDING = NOW.plusSeconds(300);
+
+    @Test
+    @DisplayName("고른 열차가 아직 승차역 전이면 현재 단계 도착은 링의 하차 예정이다 — 열차 대기가 들어간다")
+    void trainNotYetAtBoardingUsesRingAlighting() {
+        useSubwayRoute();
+        givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+        // 링: 09:05 승차역 도착 + 하차역까지 150초 → 09:07:30
+        Instant ringAlighting = TRAIN_AT_BOARDING.plusSeconds(150);
+
+        JourneySnapshot result = composer.compose(USER_ID,
+                snapshot(2).withSubwayGuidance(subwayGuidance(0, TRAIN_AT_BOARDING, ringAlighting)));
+
+        assertThat(result.eta().currentLeg().arrivalAt()).isEqualTo(ringAlighting);
+        assertThat(result.eta().currentLeg().remainingSeconds()).isEqualTo(450);
+        assertThat(result.eta().currentLeg().source()).isEqualTo(CurrentLegArrival.Source.REALTIME_ARRIVAL);
+        assertThat(result.eta().currentLeg().quality()).isEqualTo(CurrentLegArrival.Quality.GOOD);
+        // 열차 승차역 도착(09:05) + 구간(150초) + 남은 걷기(300초) = 09:12:30
+        assertThat(result.eta().journeyEta()).isEqualTo(Instant.parse("2026-08-04T09:12:30Z"));
+        assertThat(result.eta().nextAction().at()).isEqualTo(ringAlighting);
+        // 응답 모양은 그대로다 — 지하철 하차 예측은 여전히 싣지 않는다
+        assertThat(result.eta().alighting()).isNull();
+    }
+
+    @Test
+    @DisplayName("링에 하차 예정이 없으면 열차의 승차역 도착에 계획 소요시간을 더한다")
+    void trainNotYetAtBoardingWithoutRingAlightingAddsWaitToPlanned() {
+        useSubwayRoute();
+        givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+
+        JourneySnapshot result = composer.compose(USER_ID,
+                snapshot(2).withSubwayGuidance(subwayGuidance(0, TRAIN_AT_BOARDING, null)));
+
+        // 09:05 + 계획 120초 = 09:07, + 걷기 300초 = 09:12
+        assertThat(result.eta().currentLeg().arrivalAt()).isEqualTo(TRAIN_AT_BOARDING.plusSeconds(120));
+        assertThat(result.eta().journeyEta()).isEqualTo(Instant.parse("2026-08-04T09:12:00Z"));
+    }
+
+    @Test
+    @DisplayName("열차 도착 예정이 이미 지났는데 아직 안 왔으면 지금부터 계획 소요시간을 센다")
+    void lateTrainCountsFromNow() {
+        useSubwayRoute();
+        givenCurrentArrival(arrival(NOW.minusSeconds(60), CurrentLegArrival.Quality.APPROXIMATE));
+
+        JourneySnapshot result = composer.compose(USER_ID,
+                snapshot(2).withSubwayGuidance(subwayGuidance(0, NOW.minusSeconds(30), null)));
+
+        assertThat(result.eta().currentLeg().arrivalAt()).isEqualTo(NOW.plusSeconds(120));
+    }
+
+    @Test
+    @DisplayName("링이 열차가 언제 오는지 모르면 지어내지 않고 이동 단계 계산을 그대로 둔다")
+    void unknownTrainArrivalKeepsMovingEstimate() {
+        useSubwayRoute();
+        givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+
+        JourneySnapshot result = composer.compose(USER_ID,
+                snapshot(2).withSubwayGuidance(subwayGuidance(0, null, null)));
+
+        assertThat(result.eta().currentLeg().arrivalAt()).isEqualTo(NOW.plusSeconds(120));
+        assertThat(result.eta().currentLeg().source())
+                .isEqualTo(CurrentLegArrival.Source.CLIENT_GEOMETRY_PROGRESS);
+        assertThat(result.eta().journeyEta()).isEqualTo(NOW.plusSeconds(420));
+    }
+
+    @Test
+    @DisplayName("열차가 이미 승차역을 지났으면(탄 열차를 고른 경우 포함) 지금과 같다 — 링 하차 예정을 쓰지 않는다")
+    void trainPastBoardingKeepsMovingEstimate() {
+        useSubwayRoute();
+        givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+
+        // 링이 다음 구간(1)을 향한다 — 열차가 승차역에 섰거나 떠났다
+        JourneySnapshot result = composer.compose(USER_ID,
+                snapshot(2).withSubwayGuidance(subwayGuidance(1, NOW.plusSeconds(90), NOW.plusSeconds(200))));
+
+        assertThat(result.eta().currentLeg().arrivalAt()).isEqualTo(NOW.plusSeconds(120));
+        assertThat(result.eta().currentLeg().source())
+                .isEqualTo(CurrentLegArrival.Source.CLIENT_GEOMETRY_PROGRESS);
+        assertThat(result.eta().journeyEta()).isEqualTo(NOW.plusSeconds(420));
+    }
+
+    @Test
+    @DisplayName("열차를 아직 못 정했으면(링 없음) 지금과 같다")
+    void pendingBindingKeepsMovingEstimate() {
+        useSubwayRoute();
+        givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+
+        JourneySnapshot result = composer.compose(USER_ID, snapshot(2).withSubwayGuidance(
+                SubwayGuidance.pending(SubwayBindingStatus.PENDING, "서울2호선", "교대")));
+
+        assertThat(result.eta().currentLeg().arrivalAt()).isEqualTo(NOW.plusSeconds(120));
+        assertThat(result.eta().journeyEta()).isEqualTo(NOW.plusSeconds(420));
+    }
+
+    @Test
+    @DisplayName("열차 도착이 추정(TYPICAL)이거나 링이 멈췄으면 품질을 낮춘다")
+    void typicalOrStaleRingIsApproximate() {
+        useSubwayRoute();
+        givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+        SubwayRingState typical = ringState(0, TRAIN_AT_BOARDING, TRAIN_AT_BOARDING.plusSeconds(150))
+                .withSource(SubwayRingEtaSource.TYPICAL, SubwayRingStage.RUN);
+        SubwayRingState stale = ringState(0, TRAIN_AT_BOARDING, TRAIN_AT_BOARDING.plusSeconds(150))
+                .withQuality(SubwayRingQuality.STALE);
+
+        var fromTypical = composer.compose(USER_ID, snapshot(2).withSubwayGuidance(
+                SubwayGuidance.of(SubwayBindingStatus.CONFIRMED, "서울2호선", typical))).eta().currentLeg();
+        var fromStale = composer.compose(USER_ID, snapshot(2).withSubwayGuidance(
+                SubwayGuidance.of(SubwayBindingStatus.CONFIRMED, "서울2호선", stale))).eta().currentLeg();
+
+        assertThat(fromTypical.arrivalAt()).isEqualTo(TRAIN_AT_BOARDING.plusSeconds(150));
+        assertThat(fromTypical.quality()).isEqualTo(CurrentLegArrival.Quality.APPROXIMATE);
+        assertThat(fromStale.quality()).isEqualTo(CurrentLegArrival.Quality.APPROXIMATE);
+    }
+
     // ── 준비 ────────────────────────────────────────────────────────────────
+
+    private void useSubwayRoute() {
+        legs = List.of(
+                leg(0, JourneyLegType.WALK, 120),
+                leg(1, JourneyLegType.WAIT_SUBWAY, null),
+                leg(2, JourneyLegType.RIDE_SUBWAY, 120),
+                leg(3, JourneyLegType.WALK, 300));
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+                JOURNEY_ID, REVISION)).willReturn(legs);
+    }
+
+    /** 강남(0, 승차역) → 교대(1, 하차역). 열차 도착 예정은 실시간(LIVE)이다. */
+    private SubwayGuidance subwayGuidance(int nextStationSequence, Instant nextStationAt, Instant alightingAt) {
+        return SubwayGuidance.of(SubwayBindingStatus.CONFIRMED, "서울2호선",
+                ringState(nextStationSequence, nextStationAt, alightingAt));
+    }
+
+    private SubwayRingState ringState(int nextStationSequence, Instant nextStationAt, Instant alightingAt) {
+        return new SubwayRingState(JOURNEY_ID, REVISION, 2, 0,
+                nextStationSequence, "100000022" + nextStationSequence,
+                nextStationSequence == 0 ? "강남" : "교대", "교대", 1,
+                BigDecimal.ZERO, NOW, BigDecimal.ZERO, nextStationAt, NOW.plusSeconds(600),
+                SubwayRingPhase.RIDE_SUBWAY, SubwayRingQuality.NORMAL, NOW, NOW, 1L)
+                .withSource(nextStationAt == null ? null : SubwayRingEtaSource.LIVE, SubwayRingStage.RUN)
+                .withEstimatedAlightingAt(alightingAt, SubwayRingEtaSource.TYPICAL);
+    }
 
     private void givenCurrentArrival(CurrentLegArrival arrival) {
         given(arrivalService.predict(any(), any())).willReturn(arrival);

@@ -146,6 +146,62 @@ class ClientGeometryProgressArrivalPredictorTest {
     }
 
     @Test
+    @DisplayName("구간 순번 없이 남은 시간만 온 새 보고는 그 남은 시간을 쓴다 — 0번 구간부터 다시 재지 않는다(#469)")
+    void freshReportWithoutSegmentUsesReportedRemaining() {
+        // 지하철 앱은 남은 역 수가 바뀔 때 "링 하차 예정 − 지금"을 순번 없이 보낸다
+        Instant observedAt = NOW.minusSeconds(10);
+        JourneyLeg leg = leg(JourneyLegType.RIDE_SUBWAY, observedAt, null, null, null, 420);
+        ReflectionTestUtils.setField(leg, "remainingStops", 2);
+
+        CurrentLegArrival arrival = predictor.predict(leg, geometry(GeometryQuality.OK), NOW);
+
+        assertThat(arrival.arrivalAt()).isEqualTo(observedAt.plusSeconds(420));
+        assertThat(arrival.remainingSeconds()).isEqualTo(420);
+        assertThat(arrival.remainingStops()).isEqualTo(2);
+        assertThat(arrival.source()).isEqualTo(Source.CLIENT_GEOMETRY_PROGRESS);
+        assertThat(arrival.quality()).isEqualTo(Quality.GOOD);
+        assertThat(arrival.observedAt()).isEqualTo(observedAt);
+    }
+
+    @Test
+    @DisplayName("구간 순번 없는 보고는 좌표가 없어도 남은 시간을 쓴다")
+    void reportWithoutSegmentNeedsNoGeometry() {
+        Instant observedAt = NOW.minusSeconds(10);
+        JourneyLeg leg = leg(JourneyLegType.RIDE_SUBWAY, observedAt, null, null, null, 420);
+        ReflectionTestUtils.setField(leg, "activatedAt", NOW.minusSeconds(60));
+
+        CurrentLegArrival arrival = predictor.predict(leg, null, NOW);
+
+        assertThat(arrival.arrivalAt()).isEqualTo(observedAt.plusSeconds(420));
+        assertThat(arrival.source()).isEqualTo(Source.CLIENT_GEOMETRY_PROGRESS);
+    }
+
+    @Test
+    @DisplayName("구간 순번이 있으면 남은 시간이 함께 와도 좌표로 잰다 — 지금과 같다")
+    void reportWithSegmentStillUsesGeometry() {
+        Instant observedAt = NOW.minusSeconds(30);
+        JourneyLeg leg = leg(JourneyLegType.RIDE_SUBWAY, observedAt, 1, 0.5, null, 999);
+
+        CurrentLegArrival arrival = predictor.predict(leg, geometry(GeometryQuality.OK), NOW);
+
+        // 두 번째 구간 50% → 남은 330초
+        assertThat(arrival.remainingSeconds()).isEqualTo(330);
+        assertThat(arrival.arrivalAt()).isEqualTo(Instant.parse("2026-08-04T09:15:00Z"));
+    }
+
+    @Test
+    @DisplayName("구간 순번도 남은 시간도 없으면 지금처럼 0번 구간부터 잰다")
+    void reportWithoutSegmentOrRemainingStartsFromFirstSegment() {
+        Instant observedAt = NOW.minusSeconds(10);
+        JourneyLeg leg = leg(JourneyLegType.RIDE_SUBWAY, observedAt, null, null, null, null);
+
+        CurrentLegArrival arrival = predictor.predict(leg, geometry(GeometryQuality.OK), NOW);
+
+        assertThat(arrival.remainingSeconds()).isEqualTo(600);
+        assertThat(arrival.arrivalAt()).isEqualTo(observedAt.plusSeconds(600));
+    }
+
+    @Test
     @DisplayName("남은 정류장 수는 앱이 보낸 값을 그대로 전달한다")
     void passesRemainingStopsThrough() {
         JourneyLeg leg = leg(JourneyLegType.RIDE_BUS, NOW.minusSeconds(10), 1, 0.5, null, null);

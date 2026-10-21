@@ -14,6 +14,9 @@ import watoo.grd.nextroute.application.journey.dto.JourneyLegView;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
+import watoo.grd.nextroute.application.journey.dto.SubwayGuidance;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
@@ -23,6 +26,7 @@ import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -123,6 +127,7 @@ public class JourneySnapshotEtaComposer {
      *       방금 올라온 진행도가 즉시 반영돼 화면이 부드럽게 움직인다</li>
      *   <li><b>대기</b> — 평가기가 켜져 있으면 저장된 값을 읽는다. 이 구간은 앱이 10초마다 묻는
      *       가장 잦은 조회여서, 그때마다 실시간을 부르면 호출량이 사용자 수에 비례한다</li>
+     *   <li><b>지하철 탑승인데 고른 열차가 아직 승차역 전</b> — 스냅샷에 실린 링으로 열차 대기를 넣는다(#469)</li>
      * </ul>
      */
     private CurrentLegArrival currentLegArrival(JourneySnapshot snapshot, JourneyLeg currentLeg,
@@ -133,7 +138,51 @@ public class JourneySnapshotEtaComposer {
         if (evaluatorProperties.isEnabled() && currentLeg.getType().isWaiting()) {
             return storedEvaluationReader.boardingArrival(currentLeg, now);
         }
-        return arrivalService.predict(currentLeg, geometry.get(snapshot.currentLegIndex()));
+        CurrentLegArrival moving = arrivalService.predict(currentLeg, geometry.get(snapshot.currentLegIndex()));
+        return afterChosenTrainArrives(snapshot.subwayGuidance(), currentLeg, moving, now);
+    }
+
+    /**
+     * 고른 지하철 열차가 아직 승차역에 오지 않았으면 그 열차를 기다리는 시간을 넣는다(#469).
+     *
+     * <p>역에서 열차를 고르면 곧바로 타는 단계가 된다(2026-10-10 결정). 이동 단계 계산은 "단계 시작(또는 마지막 관측)
+     * + 계획 소요시간"이라, 열차가 5분 뒤에 와도 지금 떠난 것처럼 나온다. 열차가 언제 오는지는 링만 안다 — 승차역
+     * 구간 링의 하차 예정은 <b>열차의 승차역 도착 + 하차역까지 간격</b>이다.
+     * <ul>
+     *   <li>링의 하차 예정이 있으면 그것</li>
+     *   <li>없으면(간격을 모른다) 열차의 승차역 도착(이미 지났으면 지금) + 계획 소요시간</li>
+     *   <li>둘 다 없으면 그대로 둔다 — 열차가 언제 오는지 모르는데 지어내지 않는다</li>
+     * </ul>
+     *
+     * <p>열차가 승차역에 섰거나 떠난 뒤(이미 탄 열차를 고른 경우 포함)는 건드리지 않는다. 그때는 앱 진행도가 답이다.
+     */
+    private CurrentLegArrival afterChosenTrainArrives(SubwayGuidance guidance, JourneyLeg leg,
+                                                      CurrentLegArrival moving, Instant now) {
+        if (leg.getType() != JourneyLegType.RIDE_SUBWAY || guidance == null || !guidance.trainBeforeBoarding()) {
+            return moving;
+        }
+        Instant arrivalAt = guidance.estimatedAlightingAt();
+        if (arrivalAt == null) {
+            Instant trainAt = guidance.estimatedNextStationAt();
+            Integer planned = leg.getPlannedDurationSec();
+            if (trainAt == null || planned == null) {
+                return moving;
+            }
+            arrivalAt = (trainAt.isBefore(now) ? now : trainAt).plusSeconds(planned);
+        }
+        return new CurrentLegArrival(arrivalAt,
+                (int) Math.max(0, Duration.between(now, arrivalAt).toSeconds()),
+                moving.remainingDistanceMeters(), moving.remainingStops(),
+                CurrentLegArrival.Source.REALTIME_ARRIVAL, trainArrivalQuality(guidance), now);
+    }
+
+    /** 열차의 승차역 도착이 실시간·실측이고 링이 살아 있을 때만 믿을 만하다. 남은 구간은 어차피 계획값이다. */
+    private static CurrentLegArrival.Quality trainArrivalQuality(SubwayGuidance guidance) {
+        boolean measured = guidance.etaSource() == SubwayRingEtaSource.LIVE
+                || guidance.etaSource() == SubwayRingEtaSource.MEASURED;
+        return measured && guidance.quality() == SubwayRingQuality.NORMAL
+                ? CurrentLegArrival.Quality.GOOD
+                : CurrentLegArrival.Quality.APPROXIMATE;
     }
 
     /**

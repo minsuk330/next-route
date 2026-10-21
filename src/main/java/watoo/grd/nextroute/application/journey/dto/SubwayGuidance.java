@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus;
 
 import java.math.BigDecimal;
@@ -47,6 +48,8 @@ import java.util.List;
  * @param stationsUntilBoarding  위 역에서 승차역까지 남은 역 수. 승차역 바로 앞 역이면 1. 같은 조건에서 null
  * @param approachStations       열차 현재 역 → 승차역 바로 앞 역, 열차가 지나올 순서. 크기 = {@code stationsUntilBoarding}
  * @param trainLeftAlightingAt   하차역 도착 뒤 우리 열차가 하차역을 출발한 시각(#380). 앱은 이 값이 오면 탑승을 끝낸다. 아니면 null
+ * @param trainBeforeBoarding    고른 열차가 아직 승차역에 서지 않았다 — 링이 승차역 구간이다(#304). <b>서버 안에서만 쓴다</b>:
+ *                               응답에 싣지 않는다. 여정 ETA 가 열차 대기를 더하는 근거다(#469). 링이 없으면 false
  */
 public record SubwayGuidance(
         SubwayBindingStatus bindingStatus,
@@ -74,8 +77,26 @@ public record SubwayGuidance(
         String approachingStationName,
         Integer stationsUntilBoarding,
         List<String> approachStations,
-        Instant trainLeftAlightingAt
+        Instant trainLeftAlightingAt,
+        @JsonIgnore boolean trainBeforeBoarding
 ) {
+
+    /** 승차역 전 여부 없이(옛 모양·시험). 링이 있어도 승차역 구간인지 모르면 false 다. */
+    public SubwayGuidance(SubwayBindingStatus bindingStatus, SubwayRingPhase phase, String lineName,
+                          String nextStationName, String alightingStationName, Integer remainingStations,
+                          BigDecimal segmentProgress, Instant progressBaseAt, BigDecimal progressTarget,
+                          Instant estimatedNextStationAt, Instant progressValidUntil,
+                          SubwayRingQuality quality, Instant observedAt, Long version,
+                          Instant estimatedAlightingAt, SubwayRingHoldReason holdReason, String holdStationName,
+                          SubwayRingEtaSource etaSource, SubwayRingEtaSource alightingEtaSource,
+                          String approachingStationName, Integer stationsUntilBoarding, List<String> approachStations,
+                          Instant trainLeftAlightingAt) {
+        this(bindingStatus, phase, lineName, nextStationName, alightingStationName, remainingStations,
+                segmentProgress, progressBaseAt, progressTarget, estimatedNextStationAt, progressValidUntil,
+                quality, observedAt, version, estimatedAlightingAt, holdReason, holdStationName,
+                etaSource, alightingEtaSource, approachingStationName, stationsUntilBoarding, approachStations,
+                trainLeftAlightingAt, false);
+    }
 
     /** 하차역 출발 없이(옛 모양). */
     public SubwayGuidance(SubwayBindingStatus bindingStatus, SubwayRingPhase phase, String lineName,
@@ -168,6 +189,8 @@ public record SubwayGuidance(
                 ring.approach() == null ? null : ring.approach().stationName(),
                 ring.approach() == null ? null : ring.approach().stationsUntilBoarding(),
                 ring.approach() == null ? null : ring.approach().stations(),
-                ring.trainLeftAlightingAt());
+                ring.trainLeftAlightingAt(),
+                // 체인은 승차역을 0 으로 센다. 열차가 승차역에 서면 링은 곧바로 다음 구간(1)으로 넘어간다.
+                ring.nextStationSequence() == 0 && !ring.arrivedAtNextStation());
     }
 }

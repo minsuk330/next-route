@@ -24,7 +24,8 @@ import java.time.Instant;
  *
  * <h2>세 갈래</h2>
  * <ol>
- *   <li>최근 관측이 있다 → 그 관측 시각 기준으로 절대 ETA 를 고정한다</li>
+ *   <li>최근 관측이 있다 → 그 관측 시각 기준으로 절대 ETA 를 고정한다. 구간 순번 없이 남은 시간만 왔으면
+ *       그 남은 시간을 쓴다</li>
  *   <li>관측이 오래됐다(터널·GPS 소실) → <b>이전에 고정한 ETA 를 그대로 유지</b>하고 품질만 낮춘다</li>
  *   <li>관측이 아예 없다 → 계획 소요시간으로 근사하고 품질을 낮춘다</li>
  * </ol>
@@ -56,6 +57,9 @@ public class ClientGeometryProgressArrivalPredictor implements CurrentLegArrival
         if (isStale(observedAt, now)) {
             return keepLastFixedArrival(leg, observedAt);
         }
+        if (leg.getProgressGeometrySegmentIndex() == null && leg.getRemainingDurationSeconds() != null) {
+            return fromReportedRemaining(leg, observedAt);
+        }
         if (geometry == null || geometry.segments().isEmpty()) {
             return fromPlannedDuration(leg);
         }
@@ -74,6 +78,24 @@ public class ClientGeometryProgressArrivalPredictor implements CurrentLegArrival
                 leg.getRemainingStops(),
                 Source.CLIENT_GEOMETRY_PROGRESS,
                 worse(Quality.GOOD, geometry.quality()),
+                observedAt);
+    }
+
+    /**
+     * 앱이 구간 순번 없이 남은 시간만 보냈다 — 지하철에서 남은 역 수가 바뀔 때 링의 하차 예정으로 보내는 보고가 이렇다(#469).
+     *
+     * <p>순번이 없는 것을 0번 구간으로 읽으면 단계를 처음부터 다시 타는 셈이 된다. 그래서 이 보고가 60초 넘게 묵어서야
+     * 맞는 값으로 바뀌었다. 새 보고여도 앱이 말한 남은 시간을 관측 시각에 더한다.
+     */
+    private CurrentLegArrival fromReportedRemaining(JourneyLeg leg, Instant observedAt) {
+        int remainingSeconds = leg.getRemainingDurationSeconds();
+        return new CurrentLegArrival(
+                observedAt.plusSeconds(remainingSeconds),
+                remainingSeconds,
+                leg.getRemainingDistanceMeters(),
+                leg.getRemainingStops(),
+                Source.CLIENT_GEOMETRY_PROGRESS,
+                Quality.GOOD,
                 observedAt);
     }
 
