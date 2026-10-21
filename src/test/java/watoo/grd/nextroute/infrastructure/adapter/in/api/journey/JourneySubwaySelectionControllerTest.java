@@ -66,22 +66,30 @@ class JourneySubwaySelectionControllerTest {
                 .content(BODY)).andExpect(status().isUnauthorized());
     }
 
-    /** 구버전(S3 전) 응답과 같은 입력의 후보 셋 — 일반, 서지 않는 급행(플래그 꺼짐), 떠난 열차. */
-    private static List<SubwayTrainCandidate> threeCandidates() {
+    /**
+     * 구버전(S3 전) 응답과 같은 입력의 후보 셋 — 일반, 서지 않는 급행(플래그 꺼짐), 떠난 열차, 남은 초 없이 거리만 아는
+     * 열차(#489).
+     */
+    private static List<SubwayTrainCandidate> fourCandidates() {
         return List.of(
                 new SubwayTrainCandidate("2390", "성수", false, "일반", 90, Instant.parse("2026-10-07T03:00:00Z"),
-                        SubwayTrainCandidate.Kind.UPCOMING, TrainKind.NORMAL, "일반", true, true, null, null),
+                        SubwayTrainCandidate.Kind.UPCOMING, null, "99", TrainKind.NORMAL, "일반", true, true, null,
+                        null),
                 new SubwayTrainCandidate("9600", "중앙보훈병원", true, "급행", 330,
-                        Instant.parse("2026-10-07T03:00:00Z"), SubwayTrainCandidate.Kind.UPCOMING, TrainKind.EXPRESS,
-                        "급행", false, true, false, "1009-express"),
+                        Instant.parse("2026-10-07T03:00:00Z"), SubwayTrainCandidate.Kind.UPCOMING, null, "99",
+                        TrainKind.EXPRESS, "급행", false, true, false, "1009-express"),
                 new SubwayTrainCandidate("2388", null, false, null, null, Instant.parse("2026-10-07T02:58:00Z"),
-                        SubwayTrainCandidate.Kind.DEPARTED, TrainKind.UNKNOWN, null, true, true, null, null));
+                        SubwayTrainCandidate.Kind.DEPARTED, null, null, TrainKind.UNKNOWN, null, true, true, null,
+                        null),
+                new SubwayTrainCandidate("2394", "성수", false, "일반", null, Instant.parse("2026-10-07T03:00:00Z"),
+                        SubwayTrainCandidate.Kind.UPCOMING, 3, "99", TrainKind.NORMAL, "일반", true, true, null,
+                        null));
     }
 
     @Test
-    @DisplayName("200 — 후보에 열차번호·행선지·급행, 그리고 S3 새 칸(trainKind·trainLabel·trackable·정차·서비스)")
+    @DisplayName("200 — 후보에 열차번호·행선지·급행·남은 역(#489), 그리고 S3 새 칸(trainKind·trainLabel·trackable·정차·서비스)")
     void candidates() throws Exception {
-        given(selectionService.candidates(1L, 7L, null)).willReturn(threeCandidates());
+        given(selectionService.candidates(1L, 7L, null)).willReturn(fourCandidates());
 
         mockMvc.perform(get("/api/journeys/7/subway/train-candidates").with(authentication(user())))
                 .andExpect(status().isOk())
@@ -89,6 +97,7 @@ class JourneySubwaySelectionControllerTest {
                 .andExpect(jsonPath("$[0].destination").value("성수"))
                 .andExpect(jsonPath("$[0].express").value(false))
                 .andExpect(jsonPath("$[0].kind").value("UPCOMING"))
+                .andExpect(jsonPath("$[0].arrivalCode").value("99"))
                 .andExpect(jsonPath("$[0].trainKind").value("NORMAL"))
                 .andExpect(jsonPath("$[0].trackable").value(true))
                 .andExpect(jsonPath("$[1].trainKind").value("EXPRESS"))
@@ -98,13 +107,16 @@ class JourneySubwaySelectionControllerTest {
                 .andExpect(jsonPath("$[1].stopsAtAlighting").value(false))
                 .andExpect(jsonPath("$[1].expressServiceId").value("1009-express"))
                 .andExpect(jsonPath("$[2].kind").value("DEPARTED"))
-                .andExpect(jsonPath("$[2].arrivalSeconds").doesNotExist());
+                .andExpect(jsonPath("$[2].arrivalSeconds").doesNotExist())
+                .andExpect(jsonPath("$[3].arrivalSeconds").doesNotExist())
+                .andExpect(jsonPath("$[3].stationsAway").value(3))
+                .andExpect(jsonPath("$[3].arrivalCode").value("99"));
     }
 
     @Test
     @DisplayName("구버전 앱 호환: S3 전 응답 fixture 의 모든 칸이 같은 이름·같은 값으로 남는다(kind 는 여전히 UPCOMING/DEPARTED)")
     void legacyAppResponseShape() throws Exception {
-        given(selectionService.candidates(1L, 7L, null)).willReturn(threeCandidates());
+        given(selectionService.candidates(1L, 7L, null)).willReturn(fourCandidates());
         ObjectMapper om = new ObjectMapper();
         JsonNode legacy = om.readTree(getClass().getResourceAsStream("/journey/train-candidates-legacy-v1.json"));
 

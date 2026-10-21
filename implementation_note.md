@@ -5622,6 +5622,31 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 검증(2026-10-17 20:42): `./gradlew cleanTest test --tests "*JourneyNotificationLateWriteIT" --tests "*JourneyNotificationPropertiesTest" --tests "*JourneyNotificationRelayIT"` → 5/0, 26/0, 22/0 BUILD SUCCESSFUL. 본 측정 12회 + 보완 1쌍 결과=load/ladder/RELAY-FAULT.md
 - 함정: relay_fault_trace.py 첫판은 "늦은 기록 뒤 접수"를 추가 발송으로 셌다 → 그 시점에 발송 중이던 B 의 정상 발송까지 잡힘. 행별 접수 −1 로 고침(A 시도는 실패라 접수 없음). 정규식이 통과·버림 두 줄을 같이 잡던 것도 분리
 
+## PR-G1 OTP GTFS 지하철 보정 + 시간표 기간 연장 (2026-10-21)
+### 확정
+- 시간표 만료의 원인 두 겹: ① calendar.txt `B1` 20260729..20261130 = 09-29 전국 피드를 만들 때 `prepare_gtfs.py --calendar-center 20260929 --calendar-margin-days 62` 창(명령 미기록, 날짜로 역산). `select_calendar` 는 원본 기간과 교집합이라 창을 뒤로 못 민다 → `runner/extend_calendar.py`(end_date 만 늘림) ② OTP `build-config.json` `transitServiceStart/End` = `-P1D`/`P2M`(빌드일 기준). calendar 를 03-31 로 늘려도 그래프는 빌드일+2개월에서 소리 없이 끝난다 → extend_calendar 가 build-config 와 대조해 실패시킴
+- 운행일 1일 = 힙 약 3.5MB: OTP 는 시작 때 운행일마다 패턴별 `TripPatternForDate` 를 만든다(`RaptorTransitDataMapper.mapTripPatterns`). 09-30 그래프(63일) 로컬 적재 히스토그램: TripPatternForDate 1,906,128개(=63×30,256) 76MB + TripTimes[] 116MB + FrequencyEntry[] 31MB
+- VPS: 호스트 7.9GB 중 available 407MB, swap 1.1GB 사용, OTP 컨테이너 3.98/4.39GiB(Xmx3500m) → 힙을 못 늘린다. 그래서 창 = 기존 P2M 그대로(빌드일 10-21 → 10-20..12-21, 63일 = 09-30 운영 그래프와 같은 길이, 지금 운영 43일보다 +70MB). 03-31(163일)은 +420MB 라 기각
+- 보정 연산 id 는 zip 원본 id(접두 없음). OTP 는 `1:` 피드 접두(`1:RR_ACC1_S-1-01-4D_Ord036`, 패턴 `1:RR_ACC1_S-1-01-4D::03`). 설정에 `1:` 가 있으면 실패
+- 덕계 끼우기는 방향마다 따로(하행 덕정→덕계→양주, 상행 양주→덕계→덕정). 시각은 같은 노선에서 앞 역을 가장 가까운 시각에 떠나는 완행(덕계 정차)에서 가져온다: 하행 +180 도착·30 정차·뒤 +60, 상행 +270·30·+60. 설정 `expect` 로 고정해 시간표가 다르면 실패. shape_dist 는 그 trip 의 shape 에 역 좌표를 투영(pfaedle 값과 약 15m 차)
+- K5851(Ord069) 은 도심 다음 팔당을 통과하는 급행이라 "자르기"만으론 안 됨 → 팔당 행을 새로 넣고 마지막 역으로(승차 불가·하차 가능). 편성 식별이 전제라 실시간 확인 전까지 `enabled: false`
+### 함정
+- 화전 VEX 출구 이름은 "1번 출구"·"한국공항대역 2번출구"(OSM 라벨, 오타 포함)라 접두 "화전" 이 없어 안 바뀐다 → stops 변경 9행(당고개 7 + 화전 2). PLAN 의 "stops 7행" 은 당고개만 센 값
+- `--skip-match` 단독은 SHAPED_ZIP = pfaedle zip 이라 4단계가 롤백 원천을 덮어쓴다. `--from-zip` 은 입력 이름 + 접미사로만 쓴다(같은 이름이면 거부)
+- K5851 실시간 대조(2026-10-21 18:53~19:50, VPS `realtime:subway:snapshot` 60초 폴링, 읽기만): 5851 = 경의중앙 하행 급행 팔당행, 서빙고·한남·응봉·중랑·망우·양원·양정 통과(Ord069 와 같은 패턴). 그러나 시각이 Ord069 보다 16~23분 이르다(용산 19:06:51 vs 19:24, 청량리 19:27 vs 19:44, 덕소 19:49 vs 20:13). KTDB 중 시각이 맞는 건 Ord067(문산 17:54 완행 팔당행, -7~+4분). 같은 때 급행 5707 용문행이 팔당 19:49 → **Ord069 자르기는 끔(`enabled: false`)**. 실제 고칠 것은 "Ord067 을 용산 동쪽 급행 패턴으로" 일 가능성 — 사람 확인 뒤 별건
+### 미결
+- K5851: Ord067 급행화(retemplate 와 비슷하나 서쪽은 완행, 동쪽만 급행)로 바꿀지, KTDB 시각 차(저녁 경의중앙 15~20분)를 어떻게 볼지 사용자 결정
+- 화전 VEX "한국공항대역 2번출구" 는 OSM 라벨 오타. 보정 범위 밖(출구 CSV 쪽)
+- 시간표 창을 03-31 까지 늘리려면 OTP 힙(+약 420MB)을 VPS 에 확보해야 함
+### 검증
+- `cd tools/transit-routing-benchmark && python3 -m unittest discover -s runner -p 'test_*.py'` → 95/0 (신규: test_apply_subway_corrections 22, test_extend_calendar 10)
+- 운영 zip(0d491355…) 에 적용: stops 9행·trips 15행(shape_id)·stop_times 30 trip(861→951행), 추월 쌍 41 검사 0, trip 320,594 그대로. 출력에 다시 적용 → 전부 alreadyApplied, 바이트 동일(sha 2f860e09…). 경인 15편 종착 +300초(Ord076 +330)
+- 풀린 zip 비교(운영 zip ↔ 새 zip): calendar 1행, stops 9행, trips 15행, stop_times 30 trip, shapes·routes·transfers·agency·attributions 동일
+- 최종 빌드(설정 d419b474…, apply 37a92e85…, extend 547cf4d0…): graphVersion `national-nojeju-202503-cal20260729_20261221-otp278-shaped-gbis-alllines-busrt-subwayfix-ge58b47ba1c66`, graph.obj sha a9afeb64… 920,906,094 B, shaped zip sha b8c675f2…, coverage-index sha 1f534fdc…, bundleHash 18f9952d…(`verify_release_bundle.py` OK). OTP 15m16s, |Stops| 219,766, |Patterns| 30,246(-2: 11역 특급 패턴 둘)
+- 로컬 OTP `--load -Xmx3500m`: full GC 뒤 힙 2.64GiB/3.42GiB, RSS 3.31GiB, TripPatternForDate 1,905,498(=63×30,246). serviceTimeRange 10-20..12-22 00:00
+- GraphQL(운영 OTP 같은 질의 대비, 2026-10-22 08:30): §5 코퍼스 12 + 버스만 5 = 17/17 동일. 4D·4U 11역 패턴 0, 1D·1U 덕계 없는 급행 패턴 0, 불암산·한국항공대 조회됨. 대방→동인천 09:24 Ord036 09:28(운영 Ord037 09:34), 덕계→청량리 07:05 Ord024 38분(운영 45분), 12-01·12-21 지하철 경로 나옴·12-22 도보만
+### 배포
+- 그래프만(앱 변경 없음). 순서·명령은 PR 본문. 운행일 43→63일이라 OTP 힙 약 +70MB — 배포 뒤 `docker stats`·GC 로그 확인. **다음 만료 2026-12-21**: 12월 초 `--from-zip` 재빌드
 ## subway-express PR-S1 카탈로그·분류기·정차 패턴 해석기 (2026-10-21)
 ### 확정
 - 카탈로그 12계통 `src/main/resources/subway/express-catalog.json`. stops 순서는 서비스별 `listedDirection` — 9호선만 상행(김포공항→중앙보훈병원이 도착 API 상행, 하행 행선지 = 개화·김포공항), 나머지 하행

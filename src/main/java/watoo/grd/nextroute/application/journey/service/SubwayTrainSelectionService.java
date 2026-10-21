@@ -10,12 +10,14 @@ import watoo.grd.nextroute.application.journey.dto.SubwayTrackabilityView;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingChain;
 import watoo.grd.nextroute.application.journey.dto.SubwayTrainCandidate;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
+import watoo.grd.nextroute.application.subway.dto.SubwayArrivalCode;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
 import watoo.grd.nextroute.application.subway.dto.TrainKind;
 import watoo.grd.nextroute.application.subway.service.SubwayDepartureLookup;
 import watoo.grd.nextroute.application.subway.service.ServiceDateResolver;
 import watoo.grd.nextroute.application.subway.service.SubwayDirectionNormalizer;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
+import watoo.grd.nextroute.application.subway.service.SubwayStationsAway;
 import watoo.grd.nextroute.application.subway.service.SubwayTrainKindJudge;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
@@ -327,12 +329,12 @@ public class SubwayTrainSelectionService {
 
     /**
      * 떠난 열차 후보. 예전엔 행선지·종류를 비워 냈다({@code express=false} 고정) — 이제 원천에 있는 만큼 싣는다. 위치 원천은
-     * 행선지 이름이 없어(종착 역 id 만) {@code destination} 이 null 이다.
+     * 행선지 이름이 없어(종착 역 id 만) {@code destination} 이 null 이다. 남은 정거장·도착 코드는 없다(#489, null).
      */
     private static SubwayTrainCandidate departedCandidate(String trainNo, String destination, String trainType,
                                                           Instant departedAt, SubwayTrainKindJudge.Judgement judgement) {
         return candidate(trainNo, destination, trainType, null, departedAt, SubwayTrainCandidate.Kind.DEPARTED,
-                judgement);
+                null, null, judgement);
     }
 
     /** 수집기 캐시 — 역 도착 노선도와 같은 원천이다. */
@@ -444,11 +446,12 @@ public class SubwayTrainSelectionService {
 
     private static SubwayTrainCandidate candidate(String trainNo, String destination, String trainType,
                                                   Integer arrivalSeconds, Instant observedAt,
-                                                  SubwayTrainCandidate.Kind kind,
-                                                  SubwayTrainKindJudge.Judgement judgement) {
+                                                  SubwayTrainCandidate.Kind kind, Integer stationsAway,
+                                                  String arrivalCode, SubwayTrainKindJudge.Judgement judgement) {
         return new SubwayTrainCandidate(trainNo, destination, judgement.kind() == TrainKind.EXPRESS, trainType,
-                arrivalSeconds, observedAt, kind, judgement.kind(), judgement.label(), judgement.trackable(),
-                judgement.stopsAtBoarding(), judgement.stopsAtAlighting(), judgement.serviceId());
+                arrivalSeconds, observedAt, kind, stationsAway, arrivalCode, judgement.kind(), judgement.label(),
+                judgement.trackable(), judgement.stopsAtBoarding(), judgement.stopsAtAlighting(),
+                judgement.serviceId());
     }
 
     /** @param alightStationId 하차역 id. 모르면 null 을 준다 */
@@ -543,13 +546,17 @@ public class SubwayTrainSelectionService {
 
     /**
      * 곧 올 열차 후보. {@code express} 는 분류기 결과다 — 예전 {@code contains("급행")} 은 특급을 빠뜨리고, 공항철도 직통·
-     * 1호선 구로 급행(모든 역 정차)을 급행으로, ITX 를 일반으로 봤다.
+     * 1호선 구로 급행(모든 역 정차)을 급행으로, ITX 를 일반으로 봤다. 남은 초가 없는 열차에는 거리를 붙인다 — 역 도착
+     * 조회({@code SubwayArrivalQueryService})와 같은 계산(#489).
      */
     private static SubwayTrainCandidate toCandidate(SubwayRealtimeArrivalReader.Arrival arrival,
                                                     SubwayTrainKindJudge.Judgement judgement) {
         SubwayRealtimeTrain row = arrival.train();
+        Integer stationsAway = SubwayStationsAway.resolve(
+                SubwayArrivalCode.from(row.getArrivalCode()), row.getCurrentMessage());
         return candidate(row.getTrainNo(), row.getDestinationName(), row.getTrainType(), arrival.arrivalSeconds(),
-                observedAt(row.getReceivedAt()), SubwayTrainCandidate.Kind.UPCOMING, judgement);
+                observedAt(row.getReceivedAt()), SubwayTrainCandidate.Kind.UPCOMING, stationsAway,
+                row.getArrivalCode(), judgement);
     }
 
     private static java.time.Instant observedAt(String receivedAt) {

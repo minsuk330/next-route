@@ -33,6 +33,27 @@ public final class SubwayDirectionNormalizer {
     /** 위치 API 의 상·하행이 도착 API 와 반대인 노선(실측, 클래스 주석). */
     static final Set<String> INVERTED_UPDN_LINES = Set.of("1009", "1065");
 
+    /**
+     * feed 노선 이름의 방향 라벨이 도착 API 와 반대인 노선(feed 접두사 뺀 gtfsId). {@link #realtimeLabelFrom} 이 뒤집는다.
+     *
+     * <p>실측(2026-10-07 실시간 행선지 전수 대조, 2026-10-21 도착 API 로 다시 확인):
+     * <ul>
+     *   <li>경의중앙선 서울역 노선({@code KJ-2}): {@code <하행>} 이 서울→문산인데 도착 API 는 문산행을 {@code 상행} 이라 부른다</li>
+     *   <li>2호선 성수지선({@code 02-2}): {@code <내선>} 이 신설동→성수인데 도착 API 내선 행선지는 신설동이다.
+     *       신정지선({@code 02-3})은 같다</li>
+     *   <li>9호선({@code 09-*}): {@code <상행>} 이 개화 쪽인데 도착 API 상행 행선지는 중앙보훈병원이다</li>
+     *   <li>공항철도({@code AP-1}): {@code <상행>} 이 인천공항2터미널→서울인데 도착 API 상행 행선지는 인천공항2터미널이다</li>
+     * </ul>
+     * 위치 API 반전({@link #INVERTED_UPDN_LINES})과는 다른 표다 — 원천이 다르고 노선도 다르다(9호선·공항철도만 겹친다).
+     * 뒤집지 않으면 검색 {@code wayCode} 가 반대로 나가 열차 고르기·실시간 도착이 반대 방향 열차를 보여 준다(#488).
+     */
+    static final Set<String> REVERSED_LABEL_ROUTES = Set.of(
+            "RR_ACC1_S-1-KJ-2U", "RR_ACC1_S-1-KJ-2D",
+            "RR_ACC1_S-1-02-2I", "RR_ACC1_S-1-02-2O",
+            "RR_ACC1_S-1-09-1U", "RR_ACC1_S-1-09-1D",
+            "RR_ACC1_S-1-09-2U", "RR_ACC1_S-1-09-2D",
+            "RR_ACC1_S-1-AP-1U", "RR_ACC1_S-1-AP-1D");
+
     /** 6호선 노선 — feed 에 하나뿐이고 방향 라벨이 없다(응암 순환). {@link #labelFor} 가 승·하차역 순서로 정한다. */
     private static final String LINE6_ROUTE = "RR_ACC1_S-1-06-00";
 
@@ -170,8 +191,30 @@ public final class SubwayDirectionNormalizer {
     }
 
     /**
-     * 탑승 구간의 방향 라벨. 노선 이름이 라벨을 들고 있으면 그것({@link #labelFrom}), <b>6호선이면 승·하차역 순서로</b>
-     * 정한다. 못 정하면 {@code null}.
+     * 노선 이름의 라벨을 도착 API 표기로 맞춘다. 라벨이 반대인 노선({@link #REVERSED_LABEL_ROUTES})은 뒤집는다. 못 읽으면
+     * {@code null}.
+     *
+     * <p>라벨을 실시간 방향으로 쓰는 곳은 {@link #labelFrom} 이 아니라 이것을 부른다.
+     *
+     * @param routeGtfsId 노선 gtfsId({@code 1:RR_ACC1_S-1-09-1U} 처럼 feed 접두사가 붙어도 된다)
+     */
+    public static String realtimeLabelFrom(String routeGtfsId, String routeLongName) {
+        String label = labelFrom(routeLongName);
+        if (label == null || !REVERSED_LABEL_ROUTES.contains(withoutFeed(routeGtfsId))) {
+            return label;
+        }
+        return switch (label) {
+            case "상행" -> "하행";
+            case "하행" -> "상행";
+            case "내선" -> "외선";
+            case "외선" -> "내선";
+            default -> label;
+        };
+    }
+
+    /**
+     * 탑승 구간의 방향 라벨(도착 API 표기). 노선 이름이 라벨을 들고 있으면 그것({@link #realtimeLabelFrom}),
+     * <b>6호선이면 승·하차역 순서로</b> 정한다. 못 정하면 {@code null}.
      *
      * <p>6호선은 feed 에 노선이 하나뿐이라 이름에 라벨이 없다(#395 — 방향을 몰라 열차 선택이 언제나 422 였다). 실시간
      * 방향은 <b>탄 역에서</b> 정해진다(실측 2026-10-12 21:17, 역촌·불광·구산 행이 모두 하행 — 순환 구간은 하행이다):
@@ -186,7 +229,7 @@ public final class SubwayDirectionNormalizer {
      * @param alightStopId 하차역 gtfsId
      */
     public static String labelFor(String routeGtfsId, String routeLongName, String boardStopId, String alightStopId) {
-        String label = labelFrom(routeLongName);
+        String label = realtimeLabelFrom(routeGtfsId, routeLongName);
         if (label != null || !isLine6(routeGtfsId)) {
             return label;
         }
@@ -202,8 +245,16 @@ public final class SubwayDirectionNormalizer {
     }
 
     private static boolean isLine6(String routeGtfsId) {
-        return routeGtfsId != null
-                && (routeGtfsId.equals(LINE6_ROUTE) || routeGtfsId.endsWith(":" + LINE6_ROUTE));
+        return LINE6_ROUTE.equals(withoutFeed(routeGtfsId));
+    }
+
+    /** {@code 1:RR_ACC1_S-1-09-1U} → {@code RR_ACC1_S-1-09-1U}. 접두사가 없으면 그대로. */
+    private static String withoutFeed(String routeGtfsId) {
+        if (routeGtfsId == null) {
+            return null;
+        }
+        int colon = routeGtfsId.indexOf(':');
+        return colon < 0 ? routeGtfsId : routeGtfsId.substring(colon + 1);
     }
 
     private static Integer line6Order(String stopGtfsId) {

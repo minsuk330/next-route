@@ -302,6 +302,55 @@ class SubwayTrainSelectionServiceTest {
                 .trainType("일반").arrivalCode("2").build(), null);
     }
 
+    @Test
+    @DisplayName("#489 남은 초를 모르는 열차에 남은 역 수·도착 코드를 싣는다 — 역 도착 조회와 같은 계산")
+    void candidatesCarryStationsAwayWhenSecondsUnknown() {
+        properties.setCandidateCount(6);
+        given(arrivalReader.arrivals("1002", "1002000222", 0)).willReturn(List.of(
+                coded("2396", null, "0", "강남 진입"),
+                coded("2398", null, "1", "강남 도착"),
+                coded("2400", null, "3", "전역 출발"),
+                coded("2402", null, "99", "[3]번째 전역 (역삼)"),
+                coded("2404", 150, "99", "2분 30초 후"),
+                coded("2406", null, "99", "이상한 문구")));
+
+        List<SubwayTrainCandidate> candidates = service.candidates(USER, JOURNEY);
+
+        assertThat(candidates).filteredOn(c -> c.kind() == SubwayTrainCandidate.Kind.UPCOMING)
+                .extracting(SubwayTrainCandidate::trainNo, SubwayTrainCandidate::arrivalSeconds,
+                        SubwayTrainCandidate::stationsAway, SubwayTrainCandidate::arrivalCode)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("2396", null, 0, "0"),
+                        org.assertj.core.groups.Tuple.tuple("2398", null, 0, "1"),
+                        org.assertj.core.groups.Tuple.tuple("2400", null, 1, "3"),
+                        org.assertj.core.groups.Tuple.tuple("2402", null, 3, "99"),
+                        org.assertj.core.groups.Tuple.tuple("2404", 150, null, "99"),
+                        org.assertj.core.groups.Tuple.tuple("2406", null, null, "99"));
+    }
+
+    @Test
+    @DisplayName("#489 떠난 열차는 남은 역 수·도착 코드가 없다")
+    void departedCandidatesHaveNoDistance() {
+        given(arrivalReader.arrivals("1002", "1002000222", 0)).willReturn(List.of());
+        given(arrivalReader.arrivalsByStation(anyString(), anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(trainLogPort.findDepartures(any(), any(), any(), any(), any(), any()))
+                .willReturn(List.of(departure("2388")));
+
+        assertThat(service.candidates(USER, JOURNEY))
+                .isNotEmpty()
+                .allSatisfy(c -> {
+                    assertThat(c.kind()).isEqualTo(SubwayTrainCandidate.Kind.DEPARTED);
+                    assertThat(c.stationsAway()).isNull();
+                    assertThat(c.arrivalCode()).isNull();
+                });
+    }
+
+    private static SubwayRealtimeArrivalReader.Arrival coded(String no, Integer sec, String code, String message) {
+        return new SubwayRealtimeArrivalReader.Arrival(SubwayRealtimeTrain.builder().trainNo(no)
+                .destinationName("성수").trainType("일반").arrivalCode(code).currentMessage(message)
+                .receivedAt("2026-10-07 12:00:00").build(), sec);
+    }
+
     private static SubwayRealtimeArrivalReader.Arrival arrival(String no, String dest, String type, Integer sec) {
         return new SubwayRealtimeArrivalReader.Arrival(SubwayRealtimeTrain.builder().trainNo(no)
                 .destinationName(dest).trainType(type).receivedAt("2026-10-07 12:00:00").build(), sec);

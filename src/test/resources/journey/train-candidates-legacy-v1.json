@@ -4,5 +4,7 @@
   {"trainNo": "9600", "destination": "중앙보훈병원", "express": true, "trainType": "급행", "arrivalSeconds": 330,
    "observedAt": "2026-10-07T03:00:00Z", "kind": "UPCOMING"},
   {"trainNo": "2388", "destination": null, "express": false, "trainType": null, "arrivalSeconds": null,
-   "observedAt": "2026-10-07T02:58:00Z", "kind": "DEPARTED"}
+   "observedAt": "2026-10-07T02:58:00Z", "kind": "DEPARTED"},
+  {"trainNo": "2394", "destination": "성수", "express": false, "trainType": "일반", "arrivalSeconds": null,
+   "observedAt": "2026-10-07T03:00:00Z", "kind": "UPCOMING"}
 ]

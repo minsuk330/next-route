@@ -14,6 +14,10 @@
 #                shapes.txt. Image is pinned by digest (NOT :latest); ENTRYPOINT is
 #                `pfaedle`, so pass ARGS ONLY (a stray `pfaedle` word is read as a
 #                second feed → "Multiple feeds only allowed in filter mode").
+#   2b-2f — national zip→zip edits, in this order: 2b GBIS (--gbis), 2d bus runtimes
+#              (--bus-runtime-coefficients), 2e subway corrections (--subway-corrections),
+#              2c virtual stations (--station-entrances), 2f calendar end (--calendar-end).
+#              --from-zip <finished feed> skips 1-2c and runs only 2e/2f on it.
 #   3. gate  — compute_shape_quality.py prints the per-trip metric distribution and,
 #              when --thresholds is given, writes coverage-index.json.
 #   4. package — zip the shaped feed and (unless --report-only) rebuild the OTP graph.
@@ -53,9 +57,18 @@ BUS_SECTION_TIMES="" # --bus-section-times CSV: with step 2d, stop-pair hourly r
                     # fetch_seoul_section_times.py) used instead of the formula where a pair is known.
 STATION_ENTRANCES="" # --station-entrances CSV: step 2c, one virtual station per metro platform = platform + OSM exits
                     # (add_station_entrances.py; CSV = src/main/resources/subway/entrances.csv).
+SUBWAY_CORRECTIONS="" # --subway-corrections JSON: step 2e (after 2d, before 2c), hand fixes to the KTDB metro
+                    # timetable (apply_subway_corrections.py; config/otp-national/subway-corrections.json).
+CALENDAR_END=""     # --calendar-end YYYYMMDD: step 2f, move calendar.txt end_date later (extend_calendar.py). Fails
+                    # when build-config.json transitServiceEnd (P2M from today) would cut the graph earlier.
+FROM_ZIP=""         # --from-zip PATH: steps 1-2c skipped, start from a finished feed (e.g. the deployed zip) and
+                    # run only 2e/2f on it. The output zip is PATH + suffixes, so PATH is never overwritten.
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile) PROFILE="$2"; shift 2 ;;
+    --subway-corrections) SUBWAY_CORRECTIONS="$2"; shift 2 ;;
+    --calendar-end) CALENDAR_END="$2"; shift 2 ;;
+    --from-zip) FROM_ZIP="$2"; shift 2 ;;
     --input) INPUT_OVERRIDE="$2"; shift 2 ;;
     --pfaedle-config) PFAEDLE_CONFIG="$2"; shift 2 ;;
     --skip-match) SKIP_MATCH=1; shift ;;
@@ -110,6 +123,21 @@ case "$PROFILE" in
   *) echo "--profile seoul|national is required" >&2; exit 2 ;;
 esac
 SOURCE_SHAPED_ZIP="$SHAPED_ZIP"
+if [[ -n "$FROM_ZIP" ]]; then
+  [[ "$PROFILE" == "national" ]] || { echo "--from-zip is national-only" >&2; exit 2; }
+  # The rebuild-from-deployed-feed path: everything before 2e is already in the zip.
+  [[ -z "$GBIS_DIR$BUS_RUNTIME_COEF$BUS_SECTION_TIMES$STATION_ENTRANCES$INPUT_OVERRIDE$PFAEDLE_CONFIG" ]] \
+    || { echo "--from-zip skips steps 1-2c; drop --gbis/--bus-runtime-*/--station-entrances/--input/--pfaedle-config" >&2; exit 2; }
+  [[ "$SKIP_MATCH$FROM_SHAPED_ZIP" == "00" ]] || { echo "--from-zip excludes --skip-match/--from-shaped-zip" >&2; exit 2; }
+  [[ -n "$SUBWAY_CORRECTIONS$CALENDAR_END" ]] \
+    || { echo "--from-zip needs --subway-corrections and/or --calendar-end (else it would rebuild the same feed)" >&2; exit 2; }
+  [[ "$FROM_ZIP" != /* && "$FROM_ZIP" == *.gtfs.zip ]] \
+    || { echo "--from-zip must be a *.gtfs.zip path relative to tools/transit-routing-benchmark" >&2; exit 2; }
+  test -s "$FROM_ZIP" || { echo "--from-zip not found: $FROM_ZIP" >&2; exit 2; }
+  # Output = input name + suffixes below. Unlike --skip-match (which packages into the pfaedle zip), this
+  # can never land on the from-zip, the pfaedle zip or an earlier rollback zip.
+  SHAPED_ZIP="$FROM_ZIP"
+fi
 if [[ -n "$GBIS_DIR" ]]; then
   [[ "$PROFILE" == "national" ]] || { echo "--gbis is national-only" >&2; exit 2; }
   test -d "$GBIS_DIR" || { echo "--gbis dir not found: $GBIS_DIR" >&2; exit 2; }
@@ -131,6 +159,20 @@ if [[ -n "$STATION_ENTRANCES" ]]; then
   # Same rule as --gbis: keep the previous zip as the rollback source.
   SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-entrances.gtfs.zip"
 fi
+if [[ -n "$SUBWAY_CORRECTIONS" ]]; then
+  [[ "$PROFILE" == "national" ]] || { echo "--subway-corrections is national-only" >&2; exit 2; }
+  test -s "$SUBWAY_CORRECTIONS" || { echo "--subway-corrections json not found: $SUBWAY_CORRECTIONS" >&2; exit 2; }
+  SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-subwayfix.gtfs.zip"
+fi
+if [[ -n "$CALENDAR_END" ]]; then
+  [[ "$PROFILE" == "national" ]] || { echo "--calendar-end is national-only (seoul: --from-ktdb window)" >&2; exit 2; }
+  [[ "$CALENDAR_END" =~ ^[0-9]{8}$ ]] || { echo "--calendar-end must be YYYYMMDD" >&2; exit 2; }
+  SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-calend${CALENDAR_END}.gtfs.zip"
+fi
+if [[ -n "$FROM_ZIP" ]]; then
+  [[ "$SHAPED_ZIP" != "$FROM_ZIP" && "$SHAPED_ZIP" != "$SOURCE_SHAPED_ZIP" ]] \
+    || { echo "refusing to package into $SHAPED_ZIP" >&2; exit 2; }
+fi
 BUILD="$DEPLOY_DIR/shape-build"
 GTFS_IN="$BUILD/gtfs-in"
 GTFS_OUT="$BUILD/gtfs-out"
@@ -149,12 +191,35 @@ if [[ "$PROFILE" == "national" && "$REPORT_ONLY" == "0" ]]; then
   # OTP silently builds a street-less graph when the OSM source is missing (2026-09-30).
   [[ -f "$OTP_OSM" && $(stat -L -f %z "$OTP_OSM") -gt 100000000 ]] || { echo "OTP OSM missing or too small: $OTP_OSM" >&2; exit 2; }
 fi
-if [[ "$SKIP_MATCH" == "0" && "$FROM_SHAPED_ZIP" == "0" ]]; then
+if [[ "$SKIP_MATCH" == "0" && "$FROM_SHAPED_ZIP" == "0" && -z "$FROM_ZIP" ]]; then
   [[ -f "$OSM_ROADS" && $(stat -L -f %z "$OSM_ROADS") -gt 50000000 ]] || { echo "pfaedle OSM missing or too small: $OSM_ROADS" >&2; exit 2; }
 fi
 
+# zip→zip steps 2e/2f chain through PENDING_ZIP instead of unzipping/rezipping gtfs-out between them;
+# unstage() puts the feed back into gtfs-out before anything that reads the directory.
+PENDING_ZIP=""
+stage_in() {   # $1 = where to zip gtfs-out when no zip holds the current feed; prints the step's input zip
+  if [[ -n "$PENDING_ZIP" ]]; then echo "$PENDING_ZIP"; return; fi
+  rm -f "$1"; ( cd "$GTFS_OUT" && zip -q -r -X "$HERE/$1" . ); echo "$1"
+}
+stage_done() { # $1 = step input, $2 = step output
+  [[ "$1" == "$FROM_ZIP" ]] || rm -f "$1"
+  PENDING_ZIP="$2"
+}
+unstage() {
+  [[ -n "$PENDING_ZIP" ]] || return 0
+  rm -rf "$GTFS_OUT"; mkdir -p "$GTFS_OUT"
+  unzip -o -q "$PENDING_ZIP" -d "$GTFS_OUT"
+  [[ "$PENDING_ZIP" == "$FROM_ZIP" ]] || rm -f "$PENDING_ZIP"
+  PENDING_ZIP=""
+}
+
 echo "== profile: $PROFILE =="
-if [[ "$FROM_SHAPED_ZIP" == "1" ]]; then
+if [[ -n "$FROM_ZIP" ]]; then
+  echo "== steps 1-2c skipped: --from-zip $FROM_ZIP (sha256 $(shasum -a 256 "$FROM_ZIP" | awk '{print $1}')) =="
+  mkdir -p "$BUILD"
+  PENDING_ZIP="$FROM_ZIP"
+elif [[ "$FROM_SHAPED_ZIP" == "1" ]]; then
   test -s "$SOURCE_SHAPED_ZIP" || { echo "--from-shaped-zip: no $SOURCE_SHAPED_ZIP" >&2; exit 2; }
   echo "== steps 1-2 skipped: gtfs-out = $SOURCE_SHAPED_ZIP (sha256 $(shasum -a 256 "$SOURCE_SHAPED_ZIP" | awk '{print $1}')) =="
   rm -rf "$GTFS_OUT"; mkdir -p "$GTFS_OUT"
@@ -228,7 +293,16 @@ if [[ -n "$BUS_RUNTIME_COEF" ]]; then
   rm -f "$BUILD/pre-busrt.gtfs.zip" "$BUILD/busrt.gtfs.zip"
 fi
 
+if [[ -n "$SUBWAY_CORRECTIONS" ]]; then
+  echo "== step 2e: subway corrections (sha256 $(shasum -a 256 "$SUBWAY_CORRECTIONS" | awk '{print $1}')) =="
+  step_in="$(stage_in "$BUILD/pre-subwayfix.gtfs.zip")"
+  python3 runner/apply_subway_corrections.py --in "$step_in" --corrections "$SUBWAY_CORRECTIONS" \
+    --out "$BUILD/subwayfix.gtfs.zip" --report "$DEPLOY_DIR/subway-corrections-report.json"
+  stage_done "$step_in" "$BUILD/subwayfix.gtfs.zip"
+fi
+
 if [[ -n "$STATION_ENTRANCES" ]]; then
+  unstage
   echo "== step 2c: virtual stations (platform + exits) =="
   rm -f "$BUILD/pre-entrances.gtfs.zip"
   ( cd "$GTFS_OUT" && zip -q -r -X "$HERE/$BUILD/pre-entrances.gtfs.zip" . )
@@ -239,6 +313,15 @@ if [[ -n "$STATION_ENTRANCES" ]]; then
   unzip -o -q "$BUILD/entrances.gtfs.zip" -d "$GTFS_OUT"
   rm -f "$BUILD/pre-entrances.gtfs.zip" "$BUILD/entrances.gtfs.zip"
 fi
+
+if [[ -n "$CALENDAR_END" ]]; then
+  echo "== step 2f: calendar end_date -> $CALENDAR_END (checked against config/otp-national/build-config.json) =="
+  step_in="$(stage_in "$BUILD/pre-calendar.gtfs.zip")"
+  python3 runner/extend_calendar.py --in "$step_in" --out "$BUILD/calendar.gtfs.zip" --end "$CALENDAR_END" \
+    --otp-build-config config/otp-national/build-config.json --report "$DEPLOY_DIR/calendar-report.json"
+  stage_done "$step_in" "$BUILD/calendar.gtfs.zip"
+fi
+unstage
 
 echo "== step 3: gate (modes=$MODES) =="
 GATE_ARGS=("$GTFS_OUT" --modes "$MODES" --metrics-out "$BUILD/coverage-metrics.csv")
