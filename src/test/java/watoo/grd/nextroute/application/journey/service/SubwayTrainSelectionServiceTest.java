@@ -120,7 +120,8 @@ class SubwayTrainSelectionServiceTest {
         service.select(USER, JOURNEY, "2394", 1);
 
         verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
-                "2394", LocalDate.parse("2026-10-07"), "1002", "내선")));
+                "2394", LocalDate.parse("2026-10-07"), "1002", "내선", false,
+                watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.UNKNOWN, null, null)));
     }
 
     @Test
@@ -209,7 +210,8 @@ class SubwayTrainSelectionServiceTest {
         service.select(USER, JOURNEY, "2229", 1);
 
         verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
-                "2229", LocalDate.parse("2026-10-06"), "1002", "내선", true)));
+                "2229", LocalDate.parse("2026-10-06"), "1002", "내선", true,
+                watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.NORMAL, null, null)));
     }
 
     @Test
@@ -224,7 +226,8 @@ class SubwayTrainSelectionServiceTest {
         service.select(USER, JOURNEY, "K4021", 1);
 
         verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
-                "K4021", LocalDate.parse("2026-10-07"), "1002", "내선", true)));
+                "K4021", LocalDate.parse("2026-10-07"), "1002", "내선", true,
+                watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.NORMAL, null, null)));
     }
 
     @Test
@@ -251,7 +254,8 @@ class SubwayTrainSelectionServiceTest {
         service.select(USER, JOURNEY, "2398", 1);
 
         verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
-                "2398", LocalDate.parse("2026-10-07"), "1002", "내선")));
+                "2398", LocalDate.parse("2026-10-07"), "1002", "내선", false,
+                watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.NORMAL, null, null)));
         verify(arrivalReader, never()).arrivalsByStation(anyString(), anyString(), anyString(), anyInt());
     }
 
@@ -264,7 +268,8 @@ class SubwayTrainSelectionServiceTest {
         service.select(USER, JOURNEY, "2388", 1);
 
         verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
-                "2388", LocalDate.parse("2026-10-07"), "1002", "내선", true)));
+                "2388", LocalDate.parse("2026-10-07"), "1002", "내선", true,
+                watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.NORMAL, null, null)));
     }
 
     @Test
@@ -403,7 +408,8 @@ class SubwayTrainSelectionServiceTest {
         service.select(USER, JOURNEY, "2386", 1);
 
         verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
-                "2386", LocalDate.parse("2026-10-07"), "1002", "내선", true)));
+                "2386", LocalDate.parse("2026-10-07"), "1002", "내선", true,
+                watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.NORMAL, null, null)));
     }
 
     @Test
@@ -516,7 +522,12 @@ class SubwayTrainSelectionServiceTest {
         assertThat(service.candidates(USER, JOURNEY).get(0).trackable()).isTrue();
         service.select(USER, JOURNEY, "9600", 1);
         verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
-                "9600", LocalDate.parse("2026-10-07"), "1009", "상행")));
+                "9600", LocalDate.parse("2026-10-07"), "1009", "상행", false,
+                watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.EXPRESS, "1009-express", "2026-10-21")));
+        // 일반 열차는 종류만(subway-express PR-S4)
+        verify(txService).bind(eq(ride), eq(new SubwayTrainSelectionTxService.ChosenTrain(
+                "9100", LocalDate.parse("2026-10-07"), "1009", "상행", false,
+                watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.NORMAL, null, null)));
     }
 
     @Test

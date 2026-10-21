@@ -103,6 +103,22 @@ public class SubwayLegBinding extends BaseEntity {
     @Column(name = "last_episode_seq")
     private Integer lastEpisodeSeq;
 
+    /**
+     * 묶인 열차의 종류(subway-express PR-S4, V72). null = 배포 전 행(미분류) — 링 갱신이 한 번 분류해 채운다
+     * ({@link #classifyIfUnclassified}).
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "train_kind", length = 10)
+    private SubwayBindingTrainKind trainKind;
+
+    /** 급행 카탈로그 서비스 id. {@link SubwayBindingTrainKind#EXPRESS} 면 반드시 있다(V72 CHECK). */
+    @Column(name = "train_service_id", length = 40)
+    private String trainServiceId;
+
+    /** 바인딩 때 해석한 카탈로그 판(기록용). */
+    @Column(name = "catalog_version", length = 20)
+    private String catalogVersion;
+
     @Builder
     private SubwayLegBinding(Long journeyLegId, Long journeyId, int routeRevision, int legIndex,
                              SubwayBindingStatus status, Instant boardedDetectedAt,
@@ -128,6 +144,19 @@ public class SubwayLegBinding extends BaseEntity {
     public static SubwayLegBinding selected(Long journeyLegId, Long journeyId, int routeRevision, int legIndex,
                                             String trainNo, LocalDate serviceDate, String lineId,
                                             String direction) {
+        return selected(journeyLegId, journeyId, routeRevision, legIndex, trainNo, serviceDate, lineId, direction,
+                null, null, null);
+    }
+
+    /**
+     * @param trainKind      고른 열차의 종류(subway-express PR-S4). null 이면 미분류 — 링이 한 번 분류한다
+     * @param serviceId      급행 카탈로그 서비스 id. 급행이면 반드시 준다
+     * @param catalogVersion 그 서비스를 해석한 카탈로그 판
+     */
+    public static SubwayLegBinding selected(Long journeyLegId, Long journeyId, int routeRevision, int legIndex,
+                                            String trainNo, LocalDate serviceDate, String lineId,
+                                            String direction, SubwayBindingTrainKind trainKind, String serviceId,
+                                            String catalogVersion) {
         SubwayLegBinding created = SubwayLegBinding.builder()
                 .journeyLegId(journeyLegId)
                 .journeyId(journeyId)
@@ -136,7 +165,7 @@ public class SubwayLegBinding extends BaseEntity {
                 .status(SubwayBindingStatus.CONFIRMED)
                 .source(SubwayBindingSource.USER_SELECTED)
                 .build();
-        created.assignTrain(trainNo, serviceDate, lineId, direction);
+        created.assignTrain(trainNo, serviceDate, lineId, direction, trainKind, serviceId, catalogVersion);
         return created;
     }
 
@@ -156,10 +185,19 @@ public class SubwayLegBinding extends BaseEntity {
      *                 null 이면 아직 승강장이다(이동 관측이 없을 때만 지운다)
      */
     public void selectByUser(String trainNo, LocalDate serviceDate, String lineId, String direction, Instant aboardAt) {
+        selectByUser(trainNo, serviceDate, lineId, direction, aboardAt, null, null, null);
+    }
+
+    /**
+     * 열차 종류와 함께 고른다(subway-express PR-S4). 종류는 열차마다 다르므로 <b>늘 덮는다</b> — 앞 열차의 급행 서비스가 새 열차에
+     * 남으면 일반 열차를 급행 정차역만으로 센다.
+     */
+    public void selectByUser(String trainNo, LocalDate serviceDate, String lineId, String direction, Instant aboardAt,
+                             SubwayBindingTrainKind trainKind, String serviceId, String catalogVersion) {
         this.status = SubwayBindingStatus.CONFIRMED;
         this.source = SubwayBindingSource.USER_SELECTED;
         this.confidence = null;
-        assignTrain(trainNo, serviceDate, lineId, direction);
+        assignTrain(trainNo, serviceDate, lineId, direction, trainKind, serviceId, catalogVersion);
         if (aboardAt != null) {
             this.boardedDetectedAt = aboardAt;
         } else if (this.lastMovementSeq == null) {
@@ -217,13 +255,40 @@ public class SubwayLegBinding extends BaseEntity {
         copy.resetGeneration = this.resetGeneration;
         copy.lastMovementSeq = this.lastMovementSeq;
         copy.lastEpisodeSeq = this.lastEpisodeSeq;
+        copy.trainKind = this.trainKind;
+        copy.trainServiceId = this.trainServiceId;
+        copy.catalogVersion = this.catalogVersion;
         return copy;
     }
 
-    private void assignTrain(String trainNo, LocalDate serviceDate, String lineId, String direction) {
+    /**
+     * 배포 전 행(종류 null)에 링 갱신이 분류한 종류를 얹는다(subway-express PR-S4). 이미 분류됐으면 아무것도 하지 않는다.
+     * {@link #version} 은 올리지 않는다 — 링 키(고정 세대)가 바뀌면 진행이 처음부터 다시 시작한다. DB 쓰기는
+     * {@code SubwayLegBindingRepository.classifyIfUnclassified} 가 같은 조건으로 한다.
+     *
+     * @return 이번에 채웠으면 true
+     */
+    public boolean classifyIfUnclassified(SubwayBindingTrainKind kind, String serviceId, String catalog) {
+        if (this.trainKind != null || kind == null
+                || (kind == SubwayBindingTrainKind.EXPRESS && serviceId == null)) {
+            return false;
+        }
+        this.trainKind = kind;
+        this.trainServiceId = serviceId;
+        this.catalogVersion = catalog;
+        return true;
+    }
+
+    private void assignTrain(String trainNo, LocalDate serviceDate, String lineId, String direction,
+                             SubwayBindingTrainKind kind, String serviceId, String catalog) {
         this.trainNo = trainNo;
         this.trainServiceDate = serviceDate;
         this.trainLineId = lineId;
         this.trainDirection = direction;
+        // 급행인데 서비스를 모르면 V72 CHECK 가 막는다 — 미분류로 두어 링이 다시 분류하게 한다
+        boolean express = kind == SubwayBindingTrainKind.EXPRESS;
+        this.trainKind = express && serviceId == null ? null : kind;
+        this.trainServiceId = this.trainKind == null ? null : serviceId;
+        this.catalogVersion = this.trainKind == null ? null : catalog;
     }
 }
