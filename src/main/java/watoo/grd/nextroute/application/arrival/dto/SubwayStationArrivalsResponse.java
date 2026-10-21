@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.arrival.dto;
 
+import watoo.grd.nextroute.application.subway.dto.TrainKind;
+
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -73,16 +75,26 @@ public record SubwayStationArrivalsResponse(
      * 이 역을 방금 떠난 열차(#299). 사용자는 대개 타고 나서 앱을 연다 — 자기 열차는 이미 떠난 쪽에 있다.
      *
      * @param trainNo            열차 선택(#293)에 그대로 쓰는 번호
+     * @param trainType          원천 표기(일반·급행·특급·ITX). 위치 원천은 {@code directAt} 을 옮긴 값(9 → ITX). 모르면 null
      * @param departedAt         떠난 시각 추정(관측 구간의 가운데). 위치 원천 해상도가 60~150초라 그만큼 오차가 있다
      * @param currentStationName 지금 위치. 떠난 뒤 관측이 없으면 null
      * @param source             출발을 안 원천(#317). 둘 다 열차 선택에 쓸 수 있다 — 정확도만 다르다
+     * @param trainKind          열차 종류(subway-express PR-S3). {@link Train#trainKind} 와 같다
+     * @param trainLabel         표시 이름. UNKNOWN 은 null
+     * @param stopsHere          이 역에 서는 열차인가. {@link Train#stopsHere} 와 같다
      */
     public record Departed(String trainNo, String destinationName, String trainType,
-                           OffsetDateTime departedAt, String currentStationName, DepartureSource source) {
+                           OffsetDateTime departedAt, String currentStationName, DepartureSource source,
+                           TrainKind trainKind, String trainLabel, Boolean stopsHere) {
 
         public Departed(String trainNo, String destinationName, String trainType,
                         OffsetDateTime departedAt, String currentStationName) {
             this(trainNo, destinationName, trainType, departedAt, currentStationName, DepartureSource.POSITION);
+        }
+
+        public Departed(String trainNo, String destinationName, String trainType,
+                        OffsetDateTime departedAt, String currentStationName, DepartureSource source) {
+            this(trainNo, destinationName, trainType, departedAt, currentStationName, source, null, null, null);
         }
     }
 
@@ -103,6 +115,11 @@ public record SubwayStationArrivalsResponse(
      *                           계속 갱신된다. 보간 앵커로 쓰지 말 것
      * @param positionSource     위치 원천. {@code POSITION}(위치 API) 이 {@code ARRIVAL}(도착 API 의 역 정보)보다 정확하다
      * @param segment            달리는 중인 구간과 그 출발·도착 예정(#317·#318). <b>노선도 보간의 앵커</b>. 정차·모름이면 null
+     * @param trainKind          열차 종류(subway-express PR-S3, NORMAL·EXPRESS·DIRECT·ITX·UNKNOWN). 행이 아니라 열차 단위 판정 —
+     *                           {@code trainType} 원문은 같은 열차라도 역 행마다 '일반'/'급행'이 섞인다. 모르면 UNKNOWN
+     * @param trainLabel         표시 이름(일반·급행·직통·ITX-청춘). UNKNOWN 은 null
+     * @param stopsHere          이 역에 서는 열차인가. 지나치는 급행도 목록에서 빼지 않고 {@code false} 로 둔다(D5). 일반 열차는
+     *                           {@code true}, 정차역을 모르는 급행·ITX·직통은 null
      */
     public record Train(
             String trainNo,
@@ -116,8 +133,19 @@ public record SubwayStationArrivalsResponse(
             TrainStatus status,
             OffsetDateTime observedAt,
             PositionSource positionSource,
-            Segment segment
+            Segment segment,
+            TrainKind trainKind,
+            String trainLabel,
+            Boolean stopsHere
     ) {
+
+        /** 열차 종류 없이(시험·옛 호출부). */
+        public Train(String trainNo, String destinationName, String trainType, Integer arrivalSeconds,
+                     Integer stationsAway, String currentMessage, String currentStationId, String currentStationName,
+                     TrainStatus status, OffsetDateTime observedAt, PositionSource positionSource, Segment segment) {
+            this(trainNo, destinationName, trainType, arrivalSeconds, stationsAway, currentMessage, currentStationId,
+                    currentStationName, status, observedAt, positionSource, segment, null, null, null);
+        }
     }
 
     /**

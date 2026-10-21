@@ -7,15 +7,18 @@ import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.journey.config.JourneySubwaySelectionProperties;
 import watoo.grd.nextroute.application.journey.dto.SubwayBindingView;
 import watoo.grd.nextroute.application.journey.dto.SubwayTrackabilityView;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingChain;
 import watoo.grd.nextroute.application.journey.dto.SubwayTrainCandidate;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
 import watoo.grd.nextroute.application.subway.dto.SubwayArrivalCode;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
+import watoo.grd.nextroute.application.subway.dto.TrainKind;
 import watoo.grd.nextroute.application.subway.service.SubwayDepartureLookup;
 import watoo.grd.nextroute.application.subway.service.ServiceDateResolver;
 import watoo.grd.nextroute.application.subway.service.SubwayDirectionNormalizer;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
 import watoo.grd.nextroute.application.subway.service.SubwayStationsAway;
+import watoo.grd.nextroute.application.subway.service.SubwayTrainKindJudge;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
@@ -41,6 +44,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * 역에서 탈 열차를 사용자가 고른다(#265). <b>일반 여정에도 적용된다.</b>
@@ -60,6 +64,10 @@ import java.util.Set;
  * </pre>
  * 고른 뒤 틀렸으면 탑승 중에 다시 고른다. 방향은 대기 단계 노선 후보의 {@code wayCode} 다 — 모르면 후보를 내지 않는다
  * (반대 방향 열차를 집는다).
+ *
+ * <p><b>열차 종류(subway-express PR-S3)</b>: 후보마다 {@link SubwayTrainKindJudge} 로 종류·정차 여부·추적 가능 여부를 붙인다.
+ * 서지 않는 급행도 목록에서 빼지 않는다(D5) — 앱이 흐리게 보여 주고, 고르면 422 다. 급행은 플래그
+ * {@code subway.express.tracking.enabled} 가 꺼져 있으면(기본) 고를 수 없다({@code TRAIN_NOT_TRACKABLE}).
  */
 @lombok.extern.slf4j.Slf4j
 @Service
@@ -85,6 +93,9 @@ public class SubwayTrainSelectionService {
     private final SubwayTrainSelectionTxService txService;
     private final MeterRegistry meterRegistry;
     private final Clock clock;
+    private final SubwayTrainKindJudge kindJudge;
+    private final JourneySubwayStationChainReader stationChainReader;
+    private final SubwayRingStationResolver stationResolver;
 
     /**
      * 서울 실시간 도착 원천이 다루는 노선(project-subway-realtime-full-coverage, 19개). 이름 매퍼의 숫자 폴백은 1001~1099 를
@@ -112,6 +123,7 @@ public class SubwayTrainSelectionService {
     public List<SubwayTrainCandidate> candidates(Long userId, Long journeyId, Integer rideLegIndex) {
         requireEnabled();
         Waiting waiting = waiting(userId, journeyId, rideLegIndex);
+        Stops stops = stops(waiting);
         List<SubwayTrainCandidate> result = new ArrayList<>();
         if (waiting.phase() != Phase.RIDING) {
             List<SubwayRealtimeArrivalReader.Arrival> arrivals = cachedArrivals(waiting);
@@ -120,11 +132,11 @@ public class SubwayTrainSelectionService {
             }
             arrivals.stream()
                     .limit(properties.getCandidateCount())
-                    .map(SubwayTrainSelectionService::toCandidate)
+                    .map(arrival -> toCandidate(arrival, judge(arrivalTrain(waiting, arrival), stops)))
                     .forEach(result::add);
         }
         Set<String> seen = new LinkedHashSet<>(result.stream().map(SubwayTrainCandidate::trainNo).toList());
-        departedCandidates(waiting).stream()
+        departedCandidates(waiting, stops).stream()
                 .filter(candidate -> seen.add(candidate.trainNo()))
                 .forEach(result::add);
         return result;
@@ -192,31 +204,43 @@ public class SubwayTrainSelectionService {
         // 후보 수가 아니라 지금 도착 목록 전체에서 찾는다 — 앞차가 막 들어와 순위가 밀린 열차를 거절하지 않게.
         // 탑승 중이면 승차역 도착 목록은 뒤차다 — 떠난 열차만 받는다.
         boolean riding = waiting.phase() == Phase.RIDING;
-        List<String> cached = riding ? List.of() : trainNos(cachedArrivals(waiting));
-        List<String> live = List.of();
-        List<String> justDeparted = List.of();
-        if (!riding && !cached.contains(trainNo)) {
-            live = trainNos(liveArrivals(waiting));
+        List<SubwayRealtimeArrivalReader.Arrival> cached = riding ? List.of() : cachedArrivals(waiting);
+        List<SubwayRealtimeArrivalReader.Arrival> live = List.of();
+        List<SubwayRealtimeArrivalReader.Arrival> justDeparted = List.of();
+        Optional<SubwayRealtimeArrivalReader.Arrival> found = find(cached, trainNo);
+        if (!riding && found.isEmpty()) {
+            live = liveArrivals(waiting);
+            found = find(live, trainNo);
         }
-        if (!cached.contains(trainNo) && !live.contains(trainNo)) {
+        SubwayTrainKindJudge.Train chosen;
+        if (found.isPresent()) {
+            chosen = arrivalTrain(waiting, found.get());
+        } else {
             justDeparted = justDeparted(waiting);
-            if (!justDeparted.contains(trainNo)) {
+            found = find(justDeparted, trainNo);
+            if (found.isPresent()) {
+                chosen = arrivalTrain(waiting, found.get());
+            } else {
                 // 이 역을 이미 떠난 열차인지 본다(#299 의 departed 를 고른 경우). 그 열차의 운행일은 출발 사건의
                 // 운행일이다 — 04:00 경계를 걸치면 지금 운행일과 다르다.
-                Optional<LocalDate> departedOn = departedServiceDate(waiting, lineId, direction, trainNo);
-                if (departedOn.isEmpty()) {
+                Optional<SubwayDepartureLookup.Departure> departure = departures(waiting, lineId, direction).stream()
+                        .filter(d -> trainNo.equals(d.trainNo()))
+                        .findFirst();
+                if (departure.isEmpty()) {
                     record("not-in-candidates");
                     // 요청 본문은 접근 로그에 안 남는다. 무엇을 골랐고 무엇이 보였는지 없으면 원인을 못 가른다.
                     log.warn("[SubwaySelection] 목록에 없는 열차 journeyId={} trainNo={} line={} station={} "
                                     + "direction={} cached={} live={} justDeparted={}",
                             journeyId, trainNo, lineId, waiting.waitLeg().getStartStopId(), direction,
-                            cached, live, justDeparted);
+                            trainNos(cached), trainNos(live), trainNos(justDeparted));
                     throw new BusinessException(JourneyErrorCode.TRAIN_NOT_IN_CANDIDATES);
                 }
-                serviceDate = departedOn.get();
+                serviceDate = departure.get().serviceDate();
+                chosen = departureTrain(waiting, departure.get());
             }
             departed = true;
         }
+        rejectUntrackable(journeyId, chosen, judge(chosen, stops(waiting)));
         // 떠난 열차를 골랐거나 탑승 중에 다시 골랐다 — 이미 탄 열차다. 링이 승차역으로 되감기지 않게 한다.
         SubwayTrainSelectionTxService.ChosenTrain train = new SubwayTrainSelectionTxService.ChosenTrain(
                 trainNo, serviceDate, lineId, direction, departed || riding);
@@ -232,15 +256,21 @@ public class SubwayTrainSelectionService {
     }
 
     /**
-     * 그 열차가 이 역·방향을 {@link #DEPARTED_WINDOW} 안에 떠났으면 그 출발의 운행일. 원천은 역 도착 응답의 "떠난 열차"와
-     * 같은 창구({@link SubwayDepartureLookup})다 — 화면에 보인 떠난 열차는 위치 API 가 없는 노선이어도 고를 수 있다(#317).
-     * 못 읽으면 빈 값(= 422, 앱은 목록을 다시 받는다).
+     * 고른 열차가 실시간으로 따라갈 수 없으면 422(subway-express PR-S3). 구버전 앱은 후보의 {@code trackable} 을 모르므로
+     * 서버가 막는다(E2). 목록에 있는지(422 {@code TRAIN_NOT_IN_CANDIDATES})를 먼저 본 뒤다.
      */
-    private Optional<LocalDate> departedServiceDate(Waiting waiting, String lineId, String direction, String trainNo) {
-        return departures(waiting, lineId, direction).stream()
-                .filter(d -> trainNo.equals(d.trainNo()))
-                .map(SubwayDepartureLookup.Departure::serviceDate)
-                .findFirst();
+    private void rejectUntrackable(Long journeyId, SubwayTrainKindJudge.Train train,
+                                   SubwayTrainKindJudge.Judgement judgement) {
+        if (judgement.trackable()) {
+            return;
+        }
+        boolean skips = judgement.verdict() == SubwayTrainKindJudge.Verdict.SKIPS_STATION;
+        record(skips ? "skips-station" : "not-trackable");
+        log.info("[SubwaySelection] 추적 불가 열차 journeyId={} trainNo={} line={} kind={} service={} "
+                        + "stopsAtBoarding={} stopsAtAlighting={} verdict={}",
+                journeyId, train.trainNo(), train.lineId(), judgement.kind(), judgement.serviceId(),
+                judgement.stopsAtBoarding(), judgement.stopsAtAlighting(), judgement.verdict());
+        throw new BusinessException(skips ? JourneyErrorCode.TRAIN_SKIPS_STATION : JourneyErrorCode.TRAIN_NOT_TRACKABLE);
     }
 
     /**
@@ -275,27 +305,36 @@ public class SubwayTrainSelectionService {
     }
 
     /** 떠난 열차 후보 — 캐시의 막 떠난 열차(출발 기록 전 틈)를 앞에, 그다음 출발 기록. */
-    private List<SubwayTrainCandidate> departedCandidates(Waiting waiting) {
+    private List<SubwayTrainCandidate> departedCandidates(Waiting waiting, Stops stops) {
         String lineId = waiting.waitLeg().getRouteId();
         String direction = SubwayDirectionNormalizer.fromWayCode(lineId, waiting.wayCode());
         List<SubwayTrainCandidate> result = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
-        for (String trainNo : justDeparted(waiting)) {
-            if (seen.add(trainNo)) {
-                result.add(departedCandidate(trainNo, null));
+        for (SubwayRealtimeArrivalReader.Arrival arrival : justDeparted(waiting)) {
+            if (result.size() < DEPARTED_CANDIDATE_LIMIT && seen.add(arrival.train().getTrainNo())) {
+                SubwayRealtimeTrain row = arrival.train();
+                result.add(departedCandidate(row.getTrainNo(), row.getDestinationName(), row.getTrainType(), null,
+                        judge(arrivalTrain(waiting, arrival), stops)));
             }
         }
         for (SubwayDepartureLookup.Departure departure : departures(waiting, lineId, direction)) {
-            if (seen.add(departure.trainNo())) {
-                result.add(departedCandidate(departure.trainNo(), departure.departedAt()));
+            if (result.size() < DEPARTED_CANDIDATE_LIMIT && seen.add(departure.trainNo())) {
+                result.add(departedCandidate(departure.trainNo(), departure.destinationName(),
+                        departure.trainTypeLabel(), departure.departedAt(),
+                        judge(departureTrain(waiting, departure), stops)));
             }
         }
-        return result.stream().limit(DEPARTED_CANDIDATE_LIMIT).toList();
+        return result;
     }
 
-    private static SubwayTrainCandidate departedCandidate(String trainNo, Instant departedAt) {
-        return new SubwayTrainCandidate(trainNo, null, false, null, null, departedAt,
-                SubwayTrainCandidate.Kind.DEPARTED, null, null);
+    /**
+     * 떠난 열차 후보. 예전엔 행선지·종류를 비워 냈다({@code express=false} 고정) — 이제 원천에 있는 만큼 싣는다. 위치 원천은
+     * 행선지 이름이 없어(종착 역 id 만) {@code destination} 이 null 이다. 남은 정거장·도착 코드는 없다(#489, null).
+     */
+    private static SubwayTrainCandidate departedCandidate(String trainNo, String destination, String trainType,
+                                                          Instant departedAt, SubwayTrainKindJudge.Judgement judgement) {
+        return candidate(trainNo, destination, trainType, null, departedAt, SubwayTrainCandidate.Kind.DEPARTED,
+                null, null, judgement);
     }
 
     /** 수집기 캐시 — 역 도착 노선도와 같은 원천이다. */
@@ -315,11 +354,11 @@ public class SubwayTrainSelectionService {
                 waiting.waitLeg().getStartName(), waiting.wayCode());
     }
 
-    private List<String> justDeparted(Waiting waiting) {
+    private List<SubwayRealtimeArrivalReader.Arrival> justDeparted(Waiting waiting) {
         if (!hasStop(waiting)) {
             return List.of();
         }
-        return arrivalReader.justDepartedTrainNos(waiting.waitLeg().getRouteId(), waiting.waitLeg().getStartStopId(),
+        return arrivalReader.justDeparted(waiting.waitLeg().getRouteId(), waiting.waitLeg().getStartStopId(),
                 waiting.wayCode());
     }
 
@@ -331,6 +370,92 @@ public class SubwayTrainSelectionService {
 
     private static List<String> trainNos(List<SubwayRealtimeArrivalReader.Arrival> arrivals) {
         return arrivals.stream().map(arrival -> arrival.train().getTrainNo()).toList();
+    }
+
+    private static Optional<SubwayRealtimeArrivalReader.Arrival> find(List<SubwayRealtimeArrivalReader.Arrival> arrivals,
+                                                                      String trainNo) {
+        return arrivals.stream()
+                .filter(arrival -> arrival.train() != null && trainNo.equals(arrival.train().getTrainNo()))
+                .findFirst();
+    }
+
+    // ── 열차 종류·정차(subway-express PR-S3) ─────────────────────────────────────
+
+    /**
+     * 정차 여부를 물을 두 역. 하차역은 계획 역 체인의 마지막 역 id 다(링과 같은 체인) — 개정본 스냅숏을 다시 쪼개야 해서
+     * 급행으로 판정된 열차가 있을 때만 한 번 읽는다.
+     */
+    private Stops stops(Waiting waiting) {
+        return new Stops(waiting.waitLeg().getStartStopId(), memoize(() -> alightStationId(waiting)));
+    }
+
+    private String alightStationId(Waiting waiting) {
+        try {
+            List<String> names = stationChainReader.stationNames(waiting.session().getId(),
+                    waiting.session().getRouteRevision(), waiting.ride().getLegIndex());
+            SubwayRingChain chain = stationResolver.chainOf(waiting.ride().getRouteId(), names);
+            if (!chain.isUsable()) {
+                return null;
+            }
+            return chain.at(chain.alightingSequence()).canonicalKey();
+        } catch (RuntimeException e) {
+            log.warn("[SubwaySelection] 하차역 해석 실패 journeyId={}: {}", waiting.session().getId(), e.getMessage());
+            return null;
+        }
+    }
+
+    private static <T> Supplier<T> memoize(Supplier<T> supplier) {
+        return new Supplier<>() {
+            private boolean done;
+            private T value;
+
+            @Override
+            public T get() {
+                if (!done) {
+                    value = supplier.get();
+                    done = true;
+                }
+                return value;
+            }
+        };
+    }
+
+    private SubwayTrainKindJudge.Judgement judge(SubwayTrainKindJudge.Train train, Stops stops) {
+        return kindJudge.judge(train, stops.boardStationId(), stops.alightStationId());
+    }
+
+    /** 도착 원천의 열차. 종류 근거는 같은 원천에서 그 열차의 모든 행(reader 가 모은다). */
+    private static SubwayTrainKindJudge.Train arrivalTrain(Waiting waiting, SubwayRealtimeArrivalReader.Arrival arrival) {
+        SubwayRealtimeTrain row = arrival.train();
+        String lineId = waiting.waitLeg().getRouteId();
+        return new SubwayTrainKindJudge.Train(lineId, direction(waiting, row.getDirection()), row.getTrainNo(),
+                row.getDestinationName(), arrival.sightings());
+    }
+
+    /** 출발 기록의 열차. 위치 원천은 행선지 이름 대신 종착 역 id 와 {@code directAt} 원문이 근거다. */
+    private static SubwayTrainKindJudge.Train departureTrain(Waiting waiting, SubwayDepartureLookup.Departure departure) {
+        return new SubwayTrainKindJudge.Train(waiting.waitLeg().getRouteId(), direction(waiting, null),
+                departure.trainNo(), departure.destinationOrTerminal(), List.of(departure.sighting()));
+    }
+
+    /** 대기 단계 방향(도착 API 표기). 그걸 모르면 행의 방향. */
+    private static String direction(Waiting waiting, String rowDirection) {
+        String direction = SubwayDirectionNormalizer.fromWayCode(waiting.waitLeg().getRouteId(), waiting.wayCode());
+        return direction != null ? direction : rowDirection;
+    }
+
+    private static SubwayTrainCandidate candidate(String trainNo, String destination, String trainType,
+                                                  Integer arrivalSeconds, Instant observedAt,
+                                                  SubwayTrainCandidate.Kind kind, Integer stationsAway,
+                                                  String arrivalCode, SubwayTrainKindJudge.Judgement judgement) {
+        return new SubwayTrainCandidate(trainNo, destination, judgement.kind() == TrainKind.EXPRESS, trainType,
+                arrivalSeconds, observedAt, kind, stationsAway, arrivalCode, judgement.kind(), judgement.label(),
+                judgement.trackable(), judgement.stopsAtBoarding(), judgement.stopsAtAlighting(),
+                judgement.serviceId());
+    }
+
+    /** @param alightStationId 하차역 id. 모르면 null 을 준다 */
+    private record Stops(String boardStationId, Supplier<String> alightStationId) {
     }
 
     /** 지하 환승에서 앞 탑승과 다음 대기 사이에 올 수 있는 도보 구간 수 상한. */
@@ -419,16 +544,19 @@ public class SubwayTrainSelectionService {
         return legs.stream().filter(leg -> leg.getLegIndex() == index).findFirst().orElse(null);
     }
 
-    /** 남은 초가 없는 열차에 거리를 붙인다 — 역 도착 조회({@code SubwayArrivalQueryService})와 같은 계산(#489). */
-    private static SubwayTrainCandidate toCandidate(SubwayRealtimeArrivalReader.Arrival arrival) {
-        SubwayRealtimeTrain train = arrival.train();
-        String type = train.getTrainType();
-        boolean express = type != null && type.contains("급행");
+    /**
+     * 곧 올 열차 후보. {@code express} 는 분류기 결과다 — 예전 {@code contains("급행")} 은 특급을 빠뜨리고, 공항철도 직통·
+     * 1호선 구로 급행(모든 역 정차)을 급행으로, ITX 를 일반으로 봤다. 남은 초가 없는 열차에는 거리를 붙인다 — 역 도착
+     * 조회({@code SubwayArrivalQueryService})와 같은 계산(#489).
+     */
+    private static SubwayTrainCandidate toCandidate(SubwayRealtimeArrivalReader.Arrival arrival,
+                                                    SubwayTrainKindJudge.Judgement judgement) {
+        SubwayRealtimeTrain row = arrival.train();
         Integer stationsAway = SubwayStationsAway.resolve(
-                SubwayArrivalCode.from(train.getArrivalCode()), train.getCurrentMessage());
-        return new SubwayTrainCandidate(train.getTrainNo(), train.getDestinationName(),
-                express, type, arrival.arrivalSeconds(), observedAt(train.getReceivedAt()),
-                SubwayTrainCandidate.Kind.UPCOMING, stationsAway, train.getArrivalCode());
+                SubwayArrivalCode.from(row.getArrivalCode()), row.getCurrentMessage());
+        return candidate(row.getTrainNo(), row.getDestinationName(), row.getTrainType(), arrival.arrivalSeconds(),
+                observedAt(row.getReceivedAt()), SubwayTrainCandidate.Kind.UPCOMING, stationsAway,
+                row.getArrivalCode(), judgement);
     }
 
     private static java.time.Instant observedAt(String receivedAt) {

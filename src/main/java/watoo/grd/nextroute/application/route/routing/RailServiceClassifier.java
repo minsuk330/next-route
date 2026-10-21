@@ -137,7 +137,8 @@ public class RailServiceClassifier {
             return TrainKind.DIRECT;
         }
         Optional<String> lineId = SubwayRoutePatternAssembler.lineIdOf(shortName);
-        if (lineId.isEmpty() || !catalogLines().contains(lineId.get())) {
+        // 파일 정의로 본다(S3 hasServices) — 역 마스터 적재 전이라 서비스를 아직 역에 못 이었어도 급행 노선이다.
+        if (lineId.isEmpty() || !catalog.hasServices(lineId.get())) {
             return TrainKind.NORMAL;
         }
         // 방향 라벨은 쓰지 않는다 — OTP 라벨은 노선마다 실시간과 반대일 수 있고(9호선·공항철도 등), 카탈로그 노선은 전부
@@ -225,11 +226,6 @@ public class RailServiceClassifier {
             out.add(new PlannedStop(stop.name(), stop.lon(), stop.lat()));
         }
         return out;
-    }
-
-    private Set<String> catalogLines() {
-        return catalog.services().stream().map(SubwayExpressCatalog.ExpressService::lineId)
-                .collect(Collectors.toUnmodifiableSet());
     }
 
     /**

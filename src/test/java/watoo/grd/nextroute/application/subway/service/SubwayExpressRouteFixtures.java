@@ -71,6 +71,16 @@ public final class SubwayExpressRouteFixtures {
                 mock(SubwayLinePatternService.class));
     }
 
+    /**
+     * 카탈로그가 역 마스터를 아직 못 읽은(부팅 직후, S3 보류 상태) 분류기. 서비스는 역에 못 이었지만 파일 정의는 있다.
+     * 경로 검색 쪽 역 잇기·패턴 캐시는 데워져 있다.
+     */
+    public static RailServiceClassifier pendingCatalogRailServiceClassifier() {
+        SubwayExpressCatalog pending = SubwayExpressCatalog.of(line -> List.of());
+        return new RailServiceClassifier(pending, new SubwayStopPatternResolver(pending, warmLineOrder()),
+                stationIndex(), mock(SubwayLinePatternService.class));
+    }
+
     /** fixture 노선의 OTP 패턴들(정차 이름·좌표). */
     public static List<RailPattern> routePatterns(String routeGtfsId) {
         List<RailPattern> patterns = SubwayPatternFixtures.PATTERNS.get(routeGtfsId);

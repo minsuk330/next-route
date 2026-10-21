@@ -217,10 +217,16 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 				SubwayTrainStatus.from(item.getTrainSttus()),
 				SubwayExpressType.from(item.getDirectAt()),
 				item.getRecptnDt(),
-				item.getLastRecptnDt()
+				item.getLastRecptnDt(),
+				// enum 이 9(ITX-청춘)를 UNKNOWN 으로 접기 전 원문(subway-express PR-S3). 열차 종류 분류기가 읽는다
+				blankToNull(item.getDirectAt())
 		);
 	}
 
+
+	private static String blankToNull(String value) {
+		return value == null || value.isBlank() ? null : value.trim();
+	}
 
   @Override
 	public List<SubwaySegmentInfo> getStationDistance() {

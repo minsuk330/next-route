@@ -16,6 +16,8 @@ import java.time.Instant;
  * @param from    사건이 일어났을 수 있는 가장 이른 시각
  * @param to      가장 늦은 시각
  * @param quality {@link Quality}
+ * @param directAtRaw 위치 API {@code directAt} 원문(subway-express PR-S3). {@code express} 는 9(ITX)를 UNKNOWN 으로
+ *                    접으므로 원문을 함께 싣는다. 옛 기록이면 null
  */
 public record SubwayTrainEvent(
         Type type,
@@ -25,8 +27,15 @@ public record SubwayTrainEvent(
         Instant to,
         Quality quality,
         String terminalId,
-        SubwayExpressType express
+        SubwayExpressType express,
+        String directAtRaw
 ) {
+
+    /** {@code directAt} 원문 없이(옛 호출부·시험). */
+    public SubwayTrainEvent(Type type, String stationId, String stationName, Instant from, Instant to,
+                            Quality quality, String terminalId, SubwayExpressType express) {
+        this(type, stationId, stationName, from, to, quality, terminalId, express, null);
+    }
 
     public enum Type {
         ARRIVED,
@@ -75,6 +84,6 @@ public record SubwayTrainEvent(
 
     public SubwayTrainEvent corroborated(Instant narrowedFrom, Instant narrowedTo) {
         return new SubwayTrainEvent(type, stationId, stationName,
-                narrowedFrom, narrowedTo, Quality.CORROBORATED, terminalId, express);
+                narrowedFrom, narrowedTo, Quality.CORROBORATED, terminalId, express, directAtRaw);
     }
 }

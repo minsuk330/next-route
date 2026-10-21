@@ -392,6 +392,14 @@ collector:
 
 # logging / cors 는 application-{dev,prod}.yaml 에서 설정
 
+subway:
+  express:
+    tracking:
+      # 급행 열차 추적(subway-express PR-S3·S4). 기본 꺼짐 — 꺼져 있으면 급행 열차는 열차 고르기 후보에
+      # trackable=false 로 보이고 고르면 422 TRAIN_NOT_TRACKABLE. 일반 열차는 영향 없음.
+      # S4(통과역 신호·급행 링 체인)를 9호선·1호선 급행 실제 탑승 녹화로 검증한 뒤 켠다.
+      enabled: ${SUBWAY_EXPRESS_TRACKING_ENABLED:false}
+
 realtime:
   subway:
     # enabled / persist-raw-arrivals 는 application-{dev,prod}.yaml 에서 설정

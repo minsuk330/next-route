@@ -188,6 +188,18 @@ class RailServiceClassifierTest {
     }
 
     @Test
+    @DisplayName("카탈로그가 역 마스터를 아직 못 읽어도(S3 보류) 급행 노선은 파일 정의로 알아본다 — 일반으로 떨어뜨리지 않는다")
+    void pendingCatalogStillKnowsExpressLines() {
+        RailServiceClassifier pending = SubwayExpressRouteFixtures.pendingCatalogRailServiceClassifier();
+
+        assertThat(pending.classify(leg(L9_EXPRESS_D, "서울9호선", L9_EXPRESS_LONG, pattern(L9_EXPRESS_D, 16),
+                "가양", "염창"))).isEqualTo(TrainKind.EXPRESS);
+        assertThat(pending.classify(leg(L1_GYEONGIN_D, "서울1호선", L1_GYEONGIN_LONG,
+                patternWhere(L1_GYEONGIN_D, p -> p.size() == 7), "용산", "구로"))).isEqualTo(TrainKind.NORMAL);
+        assertThat(pending.catalogVersion()).isEqualTo("2026-10-21");
+    }
+
+    @Test
     @DisplayName("annotate — 모든 철도 구간에 종류를 붙이고 나머지 값은 보존한다")
     void annotate() {
         RoutingLeg express = leg(L9_EXPRESS_D, "서울9호선", L9_EXPRESS_LONG, pattern(L9_EXPRESS_D, 16), "가양", "염창");

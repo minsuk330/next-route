@@ -220,16 +220,20 @@ public class RedisSubwayTrainLogAdapter implements SubwayTrainLogPort {
      * 직전 위치는 JSON 이 아니라 구분자로 붙인다.
      *
      * <p>노선마다 수십 대, 회차마다 통째로 다시 쓰이는 값이라 파싱 비용이 그대로 수집 주기에
-     * 얹힌다. 필드가 여섯 개로 고정이라 구분자로 충분하다.
+     * 얹힌다. 필드 수가 고정이라 구분자로 충분하다.
+     *
+     * <p><b>칸은 뒤에만 붙인다.</b> 일곱째 칸 {@code directAt} 원문(subway-express PR-S3)이 그렇게 붙었다 — 옛 reader 는
+     * {@code length < 6} 만 보고 앞 여섯 칸만 읽으므로 롤백해도 새 값을 그대로 읽는다. 새 reader 는 여섯 칸짜리 옛 값을
+     * 원문 null 로 읽는다.
      */
-    private String serialize(SubwayTrainObservation o) {
+    static String serialize(SubwayTrainObservation o) {
         return String.join(SEP,
                 nullToEmpty(o.stationId()), nullToEmpty(o.stationName()), o.status().name(),
                 String.valueOf(o.receivedAt().getEpochSecond()),
-                nullToEmpty(o.terminalId()), o.express().name());
+                nullToEmpty(o.terminalId()), o.express().name(), nullToEmpty(o.directAtRaw()));
     }
 
-    private Optional<SubwayTrainObservation> parseObservation(String raw) {
+    static Optional<SubwayTrainObservation> parseObservation(String raw) {
         String[] parts = raw.split("\\" + SEP, -1);
         if (parts.length < 6) {
             return Optional.empty();
@@ -239,7 +243,8 @@ public class RedisSubwayTrainLogAdapter implements SubwayTrainLogPort {
                     emptyToNull(parts[0]), emptyToNull(parts[1]),
                     SubwayTrainStatus.valueOf(parts[2]),
                     Instant.ofEpochSecond(Long.parseLong(parts[3])),
-                    emptyToNull(parts[4]), SubwayExpressType.valueOf(parts[5])));
+                    emptyToNull(parts[4]), SubwayExpressType.valueOf(parts[5]),
+                    parts.length > 6 ? emptyToNull(parts[6]) : null));
         } catch (Exception e) {
             log.warn("[TrainLog] 직전 위치 파싱 실패 — {}", raw);
             return Optional.empty();
@@ -279,13 +284,17 @@ public class RedisSubwayTrainLogAdapter implements SubwayTrainLogPort {
      *
      * <p>{@code terminalId}·{@code express} 를 사건에 <b>박아 둔다</b>. 판정 시점에 현재 위치를
      * 다시 읽으면 그 열차는 이미 사라졌거나 종착·급행 정보가 바뀌어 있을 수 있다.
+     *
+     * <p>{@code directAtRaw}(subway-express PR-S3)는 {@code express} enum 이 접는 9(ITX)를 남긴다. {@code express} 의
+     * 값 공간은 그대로라 옛 reader 의 {@code valueOf} 가 깨지지 않고, 모르는 칸은 Spring 기본 {@code ObjectMapper}
+     * ({@code FAIL_ON_UNKNOWN_PROPERTIES=false})가 무시한다 — 롤백 안전. 옛 줄은 원문 null 로 읽힌다.
      */
     record DepartureRow(String trainNo, long from, long to, String quality,
-                        String stationName, String terminalId, String express) {
+                        String stationName, String terminalId, String express, String directAtRaw) {
 
         static DepartureRow of(String trainNo, SubwayTrainEvent e) {
             return new DepartureRow(trainNo, e.from().getEpochSecond(), e.to().getEpochSecond(),
-                    e.quality().name(), e.stationName(), e.terminalId(), e.express().name());
+                    e.quality().name(), e.stationName(), e.terminalId(), e.express().name(), e.directAtRaw());
         }
 
         SubwayTrainEvent.Quality qualityEnum() {
@@ -300,25 +309,25 @@ public class RedisSubwayTrainLogAdapter implements SubwayTrainLogPort {
             return new SubwayTrainEvent(type, stationId, stationName,
                     Instant.ofEpochSecond(from), Instant.ofEpochSecond(to),
                     SubwayTrainEvent.Quality.valueOf(quality), terminalId,
-                    SubwayExpressType.valueOf(express));
+                    SubwayExpressType.valueOf(express), directAtRaw);
         }
     }
 
-    /** 열차 기준 도착 색인의 한 줄. */
+    /** 열차 기준 도착 색인의 한 줄. {@code directAtRaw} 는 {@link DepartureRow} 와 같은 이유로 덧붙였다. */
     record ArrivalRow(String stationId, String stationName, long from, long to,
-                      String terminalId, String express) {
+                      String terminalId, String express, String directAtRaw) {
 
         static ArrivalRow of(SubwayTrainEvent e) {
             return new ArrivalRow(e.stationId(), e.stationName(),
                     e.from().getEpochSecond(), e.to().getEpochSecond(),
-                    e.terminalId(), e.express().name());
+                    e.terminalId(), e.express().name(), e.directAtRaw());
         }
 
         SubwayTrainEvent toEvent() {
             return new SubwayTrainEvent(SubwayTrainEvent.Type.ARRIVED, stationId, stationName,
                     Instant.ofEpochSecond(from), Instant.ofEpochSecond(to),
                     SubwayTrainEvent.Quality.CORROBORATED, terminalId,
-                    SubwayExpressType.valueOf(express));
+                    SubwayExpressType.valueOf(express), directAtRaw);
         }
     }
 }

@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.subway;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -10,6 +11,7 @@ import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Direction;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Train;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationsAheadResponse;
+import watoo.grd.nextroute.application.subway.dto.TrainKind;
 import watoo.grd.nextroute.application.arrival.port.in.GetSubwayStationArrivalsUseCase;
 import watoo.grd.nextroute.application.arrival.port.in.GetSubwayStationsAheadUseCase;
 import watoo.grd.nextroute.global.error.BusinessException;
@@ -102,7 +104,7 @@ class SubwayStationControllerTest {
 
     @Test
     void stationsAheadReturnsContract() throws Exception {
-        given(aheadUseCase.getStationsAhead("1005000548", "하행", null)).willReturn(new SubwayStationsAheadResponse(
+        given(aheadUseCase.getStationsAhead("1005000548", "하행", null, null)).willReturn(new SubwayStationsAheadResponse(
                 "1005", "1005000548", "강동", "하행", false, SubwayStationsAheadResponse.EndReason.BRANCH,
                 List.of(new SubwayStationsAheadResponse.Branch("마천", "둔촌동",
                         SubwayStationsAheadResponse.EndReason.TERMINAL)),
@@ -126,6 +128,33 @@ class SubwayStationControllerTest {
     }
 
     @Test
+    @DisplayName("S3 trainNo 를 넘기면 train{kind,label,serviceId,stopsAtBoard} 와 역마다 stopsHere·expressStopsAway")
+    void stationsAheadWithTrain() throws Exception {
+        given(aheadUseCase.getStationsAhead("1009000907", "상행", null, "9600")).willReturn(
+                new SubwayStationsAheadResponse("1009", "1009000907", "가양", "상행", false,
+                        SubwayStationsAheadResponse.EndReason.TERMINAL, List.of(),
+                        List.of(new SubwayStationsAheadResponse.Station("1009000908", "증미", 1, 2, List.of(),
+                                        null, null, null, null, null, false, null),
+                                new SubwayStationsAheadResponse.Station("1009000910", "염창", 3, 5, List.of(),
+                                        null, null, null, null, null, true, 1)),
+                        null, new SubwayStationsAheadResponse.TrainInfo(TrainKind.EXPRESS, "급행", "1009-express",
+                        true)));
+
+        mockMvc.perform(get("/api/subway/stations/1009000907/stations-ahead").param("direction", "상행")
+                        .param("trainNo", "9600"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.train.kind").value("EXPRESS"))
+                .andExpect(jsonPath("$.train.label").value("급행"))
+                .andExpect(jsonPath("$.train.serviceId").value("1009-express"))
+                .andExpect(jsonPath("$.train.stopsAtBoard").value(true))
+                .andExpect(jsonPath("$.stations[0].stopsHere").value(false))
+                .andExpect(jsonPath("$.stations[0].stopsAway").value(1))
+                .andExpect(jsonPath("$.stations[1].stopsHere").value(true))
+                .andExpect(jsonPath("$.stations[1].stopsAway").value(3))
+                .andExpect(jsonPath("$.stations[1].expressStopsAway").value(1));
+    }
+
+    @Test
     void stationsAheadRequiresDirection() throws Exception {
         mockMvc.perform(get("/api/subway/stations/1005000548/stations-ahead"))
                 .andExpect(status().isBadRequest());
@@ -133,7 +162,7 @@ class SubwayStationControllerTest {
 
     @Test
     void stationsAheadErrorsCarryCode() throws Exception {
-        given(aheadUseCase.getStationsAhead("1077000687", "하행", "광교"))
+        given(aheadUseCase.getStationsAhead("1077000687", "하행", "광교", null))
                 .willThrow(new BusinessException(SubwayErrorCode.SUBWAY_ROUTE_UNAVAILABLE));
 
         mockMvc.perform(get("/api/subway/stations/1077000687/stations-ahead")

@@ -6,7 +6,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
+import watoo.grd.nextroute.application.subway.dto.SubwayExpressType;
 import watoo.grd.nextroute.application.subway.dto.SubwayPositionFetchResult;
+import watoo.grd.nextroute.application.subway.dto.SubwayPositionInfo;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.ApiCallBlocker;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -118,6 +120,33 @@ class SeoulSubwayApiAdapterPositionTest {
         assertThat(result.status()).isEqualTo(SubwayPositionFetchResult.Status.COMPLETE);
         assertThat(result.rows()).hasSize(1);
         assertThat(result.rows().get(0).trainNo()).isEqualTo("2300");
+        server.verify();
+    }
+
+    /** 경춘선 ITX-청춘(2026-10-21 운영 실측 번호 2029). directAt 9 는 enum 이 UNKNOWN 으로 접는다. */
+    private static final String ITX_TRAIN = """
+            {"errorMessage":{"status":200,"code":"INFO-000","message":"정상 처리되었습니다.","total":1},
+             "realtimePositionList":[{"subwayId":"1067","subwayNm":"경춘선","statnId":"1067080117",
+               "statnNm":"회기","trainNo":"2029","lastRecptnDt":"20261021","recptnDt":"2026-10-21 20:21:00",
+               "updnLine":"1","statnTid":"1067080140","statnTnm":"춘천","trainSttus":"2",
+               "directAt":"9","lstcarAt":"0"}]}
+            """;
+
+    @Test
+    @DisplayName("S3 directAt 원문을 enum 옆에 보존한다 — 9(ITX)는 enum 이 UNKNOWN 이라 원문만 남는다. 0 도 원문 그대로")
+    void keepsRawDirectAt() {
+        server.expect(once(), requestTo(containsString("/realtimePosition/")))
+                .andRespond(withSuccess(ITX_TRAIN, MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo(containsString("/realtimePosition/")))
+                .andRespond(withSuccess(ONE_TRAIN, MediaType.APPLICATION_JSON));
+
+        SubwayPositionInfo itx = adapter.getRealtimePosition("1067").rows().get(0);
+        SubwayPositionInfo normal = adapter.getRealtimePosition(LINE_2).rows().get(0);
+
+        assertThat(itx.express()).isEqualTo(SubwayExpressType.UNKNOWN);
+        assertThat(itx.directAtRaw()).isEqualTo("9");
+        assertThat(normal.express()).isEqualTo(SubwayExpressType.NORMAL);
+        assertThat(normal.directAtRaw()).isEqualTo("0");
         server.verify();
     }
 

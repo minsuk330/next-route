@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -31,6 +32,12 @@ import java.util.function.Supplier;
  * {@link SubwayLineStationIndex#candidates} 로 역 id 에 잇는다. <b>이름 하나라도 못 이은 서비스는 끄고 경고를 남긴다</b> —
  * 틀린 역에 이은 패턴은 지나치는 역을 정차로, 서는 역을 통과로 만든다. 꺼진 서비스의 열차는 해석 실패(추적 불가)로
  * 가서 안전하다.
+ *
+ * <p><b>역 마스터가 아직 비었으면 끄지 않는다</b>(subway-express PR-S3). 그 노선 역 목록이 비어 있으면 "이름이 틀렸다"가
+ * 아니라 "아직 못 읽었다"라서, 그 노선 서비스는 보류하고 {@link #RETRY_INTERVAL} 뒤 호출에서 다시 잇는다. 모든 노선을
+ * 이은 뒤에는 다시 풀지 않는다(volatile 읽기 하나). 역 목록이 있는데 이름이 없으면 예전처럼 영구히 끈다.
+ * 열차 종류 판정에 쓰는 번호 규칙({@link #isTrainNoAuthoritativeExpress}·{@link #isAllStopTrain}·{@link #hasServices})은
+ * 역 id 가 필요 없어 파일 정의를 바로 본다 — 역 마스터 적재 전에도 4호선 44xx 가 급행이다.
  *
  * <p><b>열차 고르기 규칙</b>({@link #resolve}): 같은 노선 서비스 중 ① {@code trainNos} ② {@code trainNoRanges}
  * (제외 번호 빼고) ③ {@code within}(현재 역, 모르면 행선지가 그 목록 안) ④ 종류만({@code kind}) 순서로, 처음 답이 나온
@@ -135,42 +142,64 @@ public class SubwayExpressCatalog {
     record Service(ExpressService info, Match match, Set<String> within, List<ResolvedElement> elements) {
     }
 
-    /** @param stationIds 노선 → (정규화 이름 → 역 id). 이름이 겹치는 역은 빠진다 */
-    record State(String version, List<Service> services, Map<String, Map<String, String>> stationIds) {
+    /**
+     * @param stationIds   노선 → (정규화 이름 → 역 id). 이름이 겹치는 역은 빠진다. 빈 노선은 넣지 않는다
+     * @param pendingLines 역 목록이 비어 아직 잇지 못한 노선. 비어 있어야 완성(다시 풀지 않음)이다
+     */
+    record State(String version, List<Service> services, Map<String, Map<String, String>> stationIds,
+                 Set<String> pendingLines) {
+
+        boolean complete() {
+            return pendingLines.isEmpty();
+        }
     }
+
+    /** 역 마스터가 빈 노선을 다시 이어 보는 간격. 그 사이 호출은 지금 상태(보류 노선 서비스 없음)로 답한다. */
+    static final Duration RETRY_INTERVAL = Duration.ofSeconds(30);
 
     private final Function<String, List<SubwayPatternStationMatcher.Candidate>> candidates;
     private final Supplier<Catalog> source;
+    private final long retryNanos;
 
     private volatile Catalog catalog;
     private volatile State state;
+    /** 보류 노선을 다시 이어 볼 수 있는 {@link System#nanoTime()}. {@link #state} 보다 먼저 쓴다. */
+    private volatile long retryAtNanos;
+    private boolean pendingLogged;
 
     @Autowired
     public SubwayExpressCatalog(SubwayLineStationIndex stationIndex) {
-        this(stationIndex::candidates, SubwayExpressCatalog::loadBundled);
+        this(stationIndex::candidates, SubwayExpressCatalog::loadBundled, RETRY_INTERVAL);
     }
 
     private SubwayExpressCatalog(Function<String, List<SubwayPatternStationMatcher.Candidate>> candidates,
-                                 Supplier<Catalog> source) {
+                                 Supplier<Catalog> source, Duration retryInterval) {
         this.candidates = candidates;
         this.source = source;
+        this.retryNanos = retryInterval.toNanos();
     }
 
-    /** 번들 파일을 주어진 역 목록으로 읽는다(시험용). */
+    /** 번들 파일을 주어진 역 목록으로 읽는다(시험용). 보류 노선은 다음 호출에 바로 다시 잇는다. */
     public static SubwayExpressCatalog of(Function<String, List<SubwayPatternStationMatcher.Candidate>> candidates) {
-        return new SubwayExpressCatalog(candidates, SubwayExpressCatalog::loadBundled);
+        return new SubwayExpressCatalog(candidates, SubwayExpressCatalog::loadBundled, Duration.ZERO);
     }
 
-    /** 주어진 JSON 을 주어진 역 목록으로 읽는다(시험용). */
+    /** 주어진 JSON 을 주어진 역 목록으로 읽는다(시험용). 보류 노선은 다음 호출에 바로 다시 잇는다. */
     public static SubwayExpressCatalog of(String json,
                                           Function<String, List<SubwayPatternStationMatcher.Candidate>> candidates) {
+        return of(json, candidates, Duration.ZERO);
+    }
+
+    /** 다시 잇는 간격까지 주는 시험용. */
+    static SubwayExpressCatalog of(String json, Function<String, List<SubwayPatternStationMatcher.Candidate>> candidates,
+                                   Duration retryInterval) {
         return new SubwayExpressCatalog(candidates, () -> {
             try {
                 return parse(OM.readTree(json));
             } catch (IOException e) {
                 throw new IllegalArgumentException(e);
             }
-        });
+        }, retryInterval);
     }
 
     // ── 조회 ─────────────────────────────────────────────────────────────
@@ -243,15 +272,24 @@ public class SubwayExpressCatalog {
                 .anyMatch(rule -> rule.match().trainNos().contains(no) || rule.match().inRange(no));
     }
 
-    /** 번호만으로 급행인 열차인가(실시간 '일반' 표시를 뒤집는 근거, 4호선 K44xx). */
+    /**
+     * 번호만으로 급행인 열차인가(실시간 '일반' 표시를 뒤집는 근거, 4호선 K44xx). 파일 정의를 본다 — 역 id 에 잇지 못한(보류·
+     * 꺼진) 서비스의 열차도 급행이다. 급행인데 일반으로 보면 지나치는 역을 정차로 세고, 급행으로 보면 해석 실패(추적 불가)로
+     * 안전하게 막힌다.
+     */
     public boolean isTrainNoAuthoritativeExpress(String lineId, String trainNo) {
         String no = SubwayTrainIdentity.catalogNumber(trainNo);
         if (lineId == null || no == null) {
             return false;
         }
-        return state().services().stream()
-                .filter(s -> lineId.equals(s.info().lineId()) && s.match().trainNoAuthoritative())
-                .anyMatch(s -> s.match().trainNos().contains(no) || s.match().inRange(no));
+        return catalog().services().stream()
+                .filter(d -> lineId.equals(d.lineId()) && d.match().trainNoAuthoritative())
+                .anyMatch(d -> d.match().trainNos().contains(no) || d.match().inRange(no));
+    }
+
+    /** 이 노선에 급행 서비스 정의가 있는가(역 id 에 이었는지와 무관). */
+    public boolean hasServices(String lineId) {
+        return lineId != null && catalog().services().stream().anyMatch(d -> lineId.equals(d.lineId()));
     }
 
     /**
@@ -298,7 +336,16 @@ public class SubwayExpressCatalog {
         if (lineId == null || key == null) {
             return Optional.empty();
         }
-        return Optional.ofNullable(state().stationIds().computeIfAbsent(lineId, this::indexLine).get(key));
+        Map<String, Map<String, String>> byLine = state().stationIds();
+        Map<String, String> ids = byLine.get(lineId);
+        if (ids == null) {
+            ids = indexLine(lineId);
+            if (!ids.isEmpty()) {
+                // 빈 표는 남기지 않는다 — 역 마스터 적재 전 첫 호출이 그 노선을 영구히 못 잇게 만든다
+                byLine.putIfAbsent(lineId, ids);
+            }
+        }
+        return Optional.ofNullable(ids.get(key));
     }
 
     // ── 내부 ─────────────────────────────────────────────────────────────
@@ -336,17 +383,24 @@ public class SubwayExpressCatalog {
         }
     }
 
+    /**
+     * 역 id 에 이은 상태. 완성되면 volatile 읽기 하나로 끝난다. 보류 노선이 있으면 {@link #RETRY_INTERVAL} 마다 한 호출만
+     * (잠금 안에서) 다시 잇고, 나머지 호출은 기다리지 않고 지금 상태로 답한다.
+     */
     State state() {
         State loaded = state;
-        if (loaded == null) {
-            synchronized (this) {
-                if (state == null) {
-                    state = resolveAll(catalog());
-                }
-                loaded = state;
-            }
+        if (loaded != null && (loaded.complete() || System.nanoTime() - retryAtNanos < 0)) {
+            return loaded;
         }
-        return loaded;
+        synchronized (this) {
+            loaded = state;
+            if (loaded == null || (!loaded.complete() && System.nanoTime() - retryAtNanos >= 0)) {
+                loaded = resolveAll(catalog());
+                retryAtNanos = System.nanoTime() + retryNanos;
+                state = loaded;
+            }
+            return loaded;
+        }
     }
 
     private Catalog catalog() {
@@ -366,8 +420,14 @@ public class SubwayExpressCatalog {
     private State resolveAll(Catalog catalog) {
         Map<String, Map<String, String>> byLine = new HashMap<>();
         List<Service> services = new ArrayList<>();
+        Set<String> pending = new LinkedHashSet<>();
         for (Definition def : catalog.services()) {
             Map<String, String> ids = byLine.computeIfAbsent(def.lineId(), this::indexLine);
+            if (ids.isEmpty()) {
+                // 역 목록이 비었다 = 역 마스터를 아직 못 읽었다. 이름이 틀린 것과 다르다 — 끄지 않고 다음에 다시 잇는다
+                pending.add(def.lineId());
+                continue;
+            }
             List<String> missing = new ArrayList<>();
             List<ResolvedElement> elements = new ArrayList<>();
             for (Element element : def.elements()) {
@@ -389,9 +449,23 @@ public class SubwayExpressCatalog {
                     catalog.version(), def.effectiveFrom(), def.source(), def.match().trainNoAuthoritative()),
                     def.match(), Set.copyOf(within), List.copyOf(elements)));
         }
-        log.info("[Subway] 급행 카탈로그 적재 version={} services={}/{}", catalog.version(), services.size(),
-                catalog.services().size());
-        return new State(catalog.version(), List.copyOf(services), new ConcurrentHashMap<>(byLine));
+        if (pending.isEmpty()) {
+            log.info("[Subway] 급행 카탈로그 적재 version={} services={}/{}", catalog.version(), services.size(),
+                    catalog.services().size());
+        } else if (!pendingLogged) {
+            pendingLogged = true;
+            log.warn("[Subway] 급행 카탈로그 — 역 마스터가 빈 노선 보류, {}초 뒤 다시 잇는다 lines={} services={}/{}",
+                    RETRY_INTERVAL.toSeconds(), pending, services.size(), catalog.services().size());
+        } else {
+            log.debug("[Subway] 급행 카탈로그 — 아직 보류 lines={}", pending);
+        }
+        Map<String, Map<String, String>> stationIds = new ConcurrentHashMap<>();
+        byLine.forEach((lineId, ids) -> {
+            if (!ids.isEmpty()) {
+                stationIds.put(lineId, ids);
+            }
+        });
+        return new State(catalog.version(), List.copyOf(services), stationIds, Set.copyOf(pending));
     }
 
     private static String idOf(Map<String, String> ids, String name, List<String> missing) {

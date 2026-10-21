@@ -50,6 +50,19 @@ class SubwayLineStationIndexTest {
         assertThat(index.candidates("1002")).hasSize(1);
     }
 
+    @Test
+    @DisplayName("빈 역 마스터는 남기지 않는다 — 적재 전 첫 호출 뒤에 적재되면 다음 호출이 읽는다(급행 카탈로그 재시도의 전제)")
+    void emptyMasterIsNotCached() {
+        List<SubwayStation> stations = List.of(station("1", "강남", "1002", "2호선", 37.49, 127.02));
+        given(repository.findAll()).willReturn(List.of()).willReturn(stations);
+
+        assertThat(index.candidates("1002")).isEmpty();
+        assertThat(index.candidates("1002")).hasSize(1);
+        index.candidates("1002");
+
+        verify(repository, times(2)).findAll();
+    }
+
     static SubwayStation station(String id, String name, String lineId, String lineName, double lat, double lon) {
         SubwayStation s = mock(SubwayStation.class);
         given(s.getStationId()).willReturn(id);

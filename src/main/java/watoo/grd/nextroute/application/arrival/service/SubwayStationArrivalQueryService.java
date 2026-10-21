@@ -23,6 +23,7 @@ import watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader.Arrival;
 import watoo.grd.nextroute.application.subway.service.SubwayStationsAway;
+import watoo.grd.nextroute.application.subway.service.SubwayTrainKindJudge;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
 import watoo.grd.nextroute.global.error.BusinessException;
@@ -68,6 +69,7 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
     private final SubwayTrainSegmentResolver segmentResolver;
     private final GetSubwayLineStripUseCase lineStrip;
     private final Clock clock;
+    private final SubwayTrainKindJudge kindJudge;
 
     @Override
     public SubwayStationArrivalsResponse getArrivals(String stationId) {
@@ -82,10 +84,37 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
                 .map(p -> p.withSegment(segment(p, station)))
                 .toList();
         Map<String, List<Departed>> departed = departed(station.getLineId(), station.getStationId());
-        List<Direction> directions = groupPlaced(placed, departed).stream()
+        List<Direction> directions = groupPlaced(placed, departed, p -> toTrain(p, kindOf(p, station))).stream()
                 .map(direction -> withStrip(direction, station))
                 .toList();
         return new SubwayStationArrivalsResponse(station.getStationId(), station.getLineId(), directions);
+    }
+
+    /**
+     * 열차 종류·이 역 정차(subway-express PR-S3). 종류 근거는 같은 snapshot 의 그 열차 모든 행이다(reader 가 모은다).
+     * 판정 실패는 "모름"(null) — 목록을 깨뜨리지 않는다.
+     */
+    private SubwayTrainKindJudge.Judgement kindOf(Placed placed, SubwayStation station) {
+        try {
+            SubwayRealtimeTrain train = placed.arrival().train();
+            return kindJudge.judge(new SubwayTrainKindJudge.Train(station.getLineId(), train.getDirection(),
+                            train.getTrainNo(), train.getDestinationName(), placed.arrival().sightings()),
+                    station.getStationId(), null);
+        } catch (RuntimeException e) {
+            log.debug("열차 종류 판정 실패 station={}: {}", station.getStationId(), e.getMessage());
+            return null;
+        }
+    }
+
+    private SubwayTrainKindJudge.Judgement kindOf(SubwayDepartureLookup.Departure row, String lineId,
+                                                  String direction, String stationId) {
+        try {
+            return kindJudge.judge(new SubwayTrainKindJudge.Train(lineId, direction, row.trainNo(),
+                    row.destinationOrTerminal(), List.of(row.sighting())), stationId, null);
+        } catch (RuntimeException e) {
+            log.debug("떠난 열차 종류 판정 실패 station={}: {}", stationId, e.getMessage());
+            return null;
+        }
     }
 
     /** 이 역을 이미 지난 열차(#317 PR-3). 판정 실패는 "안 지났다" — 목록에서 열차를 잘못 빼는 쪽이 더 나쁘다. */
@@ -156,7 +185,7 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
             for (String direction : directionsOf(lineId)) {
                 List<Departed> rows = departureLookup.find(lineId, direction, stationId, from, now).stream()
                         .limit(DEPARTED_LIMIT)
-                        .map(d -> toDeparted(d, lineId, direction, stationNames))
+                        .map(d -> toDeparted(d, lineId, direction, stationNames, kindOf(d, lineId, direction, stationId)))
                         .toList();
                 if (!rows.isEmpty()) {
                     byDirection.put(direction, rows);
@@ -170,7 +199,7 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
     }
 
     private Departed toDeparted(SubwayDepartureLookup.Departure row, String lineId, String direction,
-                                Map<String, String> stationNames) {
+                                Map<String, String> stationNames, SubwayTrainKindJudge.Judgement kind) {
         TrainIdentity identity = new TrainIdentity(row.serviceDate(), lineId, direction, row.trainNo());
         String current = trainLogPort.lastSeen(identity)
                 .filter(seen -> seen.receivedAt() != null && !seen.receivedAt().isBefore(row.observedFrom()))
@@ -180,10 +209,13 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
         return new Departed(
                 row.trainNo(),
                 position ? stationName(row.terminalId(), stationNames) : row.destinationName(),
-                position ? trainType(row.express()) : row.trainType(),
+                row.trainTypeLabel(),
                 OffsetDateTime.ofInstant(row.departedAt(), SEOUL),
                 current,
-                position ? DepartureSource.POSITION : DepartureSource.ARRIVAL);
+                position ? DepartureSource.POSITION : DepartureSource.ARRIVAL,
+                kind == null ? null : kind.kind(),
+                kind == null ? null : kind.label(),
+                kind == null ? null : kind.stopsAtBoarding());
     }
 
     private String stationName(String stationId, Map<String, String> cache) {
@@ -195,17 +227,12 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
                 .orElse(null));
     }
 
-    /** 도착 응답의 {@code trainType} 표기(일반·급행·특급)에 맞춘다. 모르면 null. */
+    /**
+     * 도착 응답의 {@code trainType} 표기(일반·급행·특급)에 맞춘다. 모르면 null. 9(ITX)는 enum 이 접어 버리므로 원문이 필요하다 —
+     * {@link SubwayDepartureLookup.Departure#trainTypeLabel}.
+     */
     static String trainType(SubwayExpressType express) {
-        if (express == null) {
-            return null;
-        }
-        return switch (express) {
-            case NORMAL -> "일반";
-            case EXPRESS -> "급행";
-            case SPECIAL -> "특급";
-            case UNKNOWN -> null;
-        };
+        return SubwayDepartureLookup.Departure.trainTypeLabel(express, null);
     }
 
     /** 순환선(2호선)만 내·외선이다. */
@@ -235,6 +262,11 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
      *                 곧 오는 열차가 비어도 방금 탄 사용자는 자기 열차를 찾아야 한다
      */
     static List<Direction> groupPlaced(List<Placed> arrivals, Map<String, List<Departed>> departed) {
+        return groupPlaced(arrivals, departed, placed -> toTrain(placed, null));
+    }
+
+    static List<Direction> groupPlaced(List<Placed> arrivals, Map<String, List<Departed>> departed,
+                                       java.util.function.Function<Placed, Train> toTrain) {
         Map<String, List<Placed>> byDirection = new LinkedHashMap<>();
         for (Placed arrival : arrivals) {
             byDirection.computeIfAbsent(directionOf(arrival.arrival().train()), key -> new ArrayList<>()).add(arrival);
@@ -258,7 +290,7 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
                         label = direction;
                     }
                     return new Direction(direction, label,
-                            byDirection.get(direction).stream().map(SubwayStationArrivalQueryService::toTrain).toList(),
+                            byDirection.get(direction).stream().map(toTrain).toList(),
                             departed.getOrDefault(direction, List.of()));
                 })
                 .toList();
@@ -297,7 +329,7 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
         return direction != null ? direction : UNKNOWN_DIRECTION_LABEL;
     }
 
-    private static Train toTrain(Placed placed) {
+    private static Train toTrain(Placed placed, SubwayTrainKindJudge.Judgement kind) {
         Arrival arrival = placed.arrival();
         SubwayRealtimeTrain train = arrival.train();
         Position position = placed.position();
@@ -315,6 +347,9 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
                 position == null || position.observedAt() == null
                         ? null : OffsetDateTime.ofInstant(position.observedAt(), SEOUL),
                 position == null ? null : position.source(),
-                placed.segment());
+                placed.segment(),
+                kind == null ? null : kind.kind(),
+                kind == null ? null : kind.label(),
+                kind == null ? null : kind.stopsAtBoarding());
     }
 }
