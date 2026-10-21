@@ -45,10 +45,47 @@ public class SubwayDepartureLookup {
     /**
      * @param observedFrom 출발이 일어났을 수 있는 가장 이른 시각. 그 뒤 위치 관측만 "떠난 뒤 위치"로 쓴다
      * @param destinationName 도착 API 원천일 때만. 위치 원천은 {@code terminalId} 로 이름을 찾는다
+     * @param directAtRaw 위치 원천의 {@code directAt} 원문(subway-express PR-S3). 9 = ITX-청춘. 도착 원천·옛 기록은 null
      */
     public record Departure(String trainNo, LocalDate serviceDate, Instant departedAt, Instant observedFrom,
                             Source source, String terminalId, SubwayExpressType express,
-                            String destinationName, String trainType) {
+                            String destinationName, String trainType, String directAtRaw) {
+
+        /**
+         * 도착 응답의 {@code trainType} 표기(일반·급행·특급·ITX). 도착 원천은 원문, 위치 원천은 {@code directAt} 를 옮긴다.
+         * 모르면 null.
+         */
+        public String trainTypeLabel() {
+            return source == Source.ARRIVAL ? trainType : trainTypeLabel(express, directAtRaw);
+        }
+
+        /** 위치 API {@code directAt} → 도착 응답 {@code trainType} 표기. 9 는 enum 이 UNKNOWN 으로 접으므로 원문을 본다. */
+        public static String trainTypeLabel(SubwayExpressType express, String directAtRaw) {
+            if (directAtRaw != null && "9".equals(directAtRaw.trim())) {
+                return "ITX";
+            }
+            if (express == null) {
+                return null;
+            }
+            return switch (express) {
+                case NORMAL -> "일반";
+                case EXPRESS -> "급행";
+                case SPECIAL -> "특급";
+                case UNKNOWN -> null;
+            };
+        }
+
+        /** 열차 종류 분류기에 넘길 근거(subway-express PR-S3). */
+        public SubwayTrainKindClassifier.Sighting sighting() {
+            return source == Source.ARRIVAL
+                    ? SubwayTrainKindClassifier.Sighting.ofTrainType(trainType)
+                    : SubwayTrainKindClassifier.Sighting.ofDirectAt(express, directAtRaw);
+        }
+
+        /** 행선지 이름, 모르면 종착 역 id(위치 원천). 급행 정차 해석기가 둘 다 받는다. */
+        public String destinationOrTerminal() {
+            return destinationName != null ? destinationName : terminalId;
+        }
     }
 
     /** 최근 출발 순. 같은 열차는 한 번. */
@@ -61,7 +98,8 @@ public class SubwayDepartureLookup {
                 for (SubwayTrainLogPort.TrainDeparture row
                         : trainLogPort.findDepartures(date, lineId, direction, stationId, from, to)) {
                     keepLatest(byTrain, new Departure(row.trainNo(), date, row.event().estimate(), row.event().from(),
-                            Source.POSITION, row.event().terminalId(), row.event().express(), null, null));
+                            Source.POSITION, row.event().terminalId(), row.event().express(), null, null,
+                            row.event().directAtRaw()));
                 }
             } catch (RuntimeException e) {
                 log.warn("떠난 열차 위치 원천 조회 실패 line={} station={}: {}", lineId, stationId, e.getMessage());
@@ -76,7 +114,7 @@ public class SubwayDepartureLookup {
                         continue;
                     }
                     keepLatest(byTrain, new Departure(row.trainNo(), date, row.departedAt(), row.departedAt(),
-                            Source.ARRIVAL, null, null, row.destinationName(), row.trainType()));
+                            Source.ARRIVAL, null, null, row.destinationName(), row.trainType(), null));
                 }
             } catch (RuntimeException e) {
                 log.warn("떠난 열차 도착 원천 조회 실패 line={} station={}: {}", lineId, stationId, e.getMessage());

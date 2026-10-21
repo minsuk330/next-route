@@ -15,10 +15,13 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 실시간 지하철 snapshot 에서 특정 노선·역·방향의 열차를 읽는다.
@@ -74,19 +77,50 @@ public class SubwayRealtimeArrivalReader {
      * @param wayCode ODsay 방향 코드. null 이면 방향을 가리지 않는다
      */
     public List<String> justDepartedTrainNos(String lineId, String stationId, Integer wayCode) {
+        return justDeparted(lineId, stationId, wayCode).stream()
+                .map(arrival -> arrival.train().getTrainNo())
+                .toList();
+    }
+
+    /**
+     * {@link #justDepartedTrainNos} 와 같은 열차를 행째로. 남은 초는 없다(null). 열차 종류 근거({@link Arrival#trainTypes})는
+     * 같은 snapshot 의 그 열차 모든 행에서 모은다(subway-express PR-S3).
+     */
+    public List<Arrival> justDeparted(String lineId, String stationId, Integer wayCode) {
         Optional<SubwayRealtimeSnapshot> snapshot = cachePort.readSnapshot();
         if (snapshot.isEmpty() || snapshot.get().getTrains() == null) {
             return List.of();
         }
+        List<SubwayRealtimeTrain> trains = snapshot.get().getTrains();
+        Map<String, Set<String>> types = trainTypesByTrain(trains, lineId);
         String direction = toDirection(lineId, wayCode);
-        return snapshot.get().getTrains().stream()
+        Map<String, SubwayRealtimeTrain> byTrainNo = new LinkedHashMap<>();
+        trains.stream()
                 .filter(train -> lineId != null && lineId.equals(train.getLineId()))
                 .filter(train -> stationId != null && stationId.equals(train.getStationId()))
                 .filter(train -> direction == null || direction.equals(train.getDirection()))
                 .filter(train -> SubwayArrivalCode.from(train.getArrivalCode()) == SubwayArrivalCode.DEPARTED)
                 .filter(train -> !isTooOld(train, LocalDateTime.now(SEOUL)))
-                .map(SubwayRealtimeTrain::getTrainNo)
-                .distinct()
+                .forEach(train -> byTrainNo.putIfAbsent(train.getTrainNo(), train));
+        return byTrainNo.values().stream()
+                .map(train -> new Arrival(train, null, types.get(trainKey(train))))
+                .toList();
+    }
+
+    /**
+     * 캐시 snapshot 에서 그 열차(노선·원문 번호)의 모든 행 — 역마다 한 행씩, 방향 구분 없이(subway-express PR-S3 하차역 고르기).
+     * 도착 API 는 열차 기준이 아니라 역 기준이라 한 열차가 여러 역의 행으로 나온다.
+     */
+    public List<SubwayRealtimeTrain> trainRows(String lineId, String trainNo) {
+        if (lineId == null || trainNo == null) {
+            return List.of();
+        }
+        Optional<SubwayRealtimeSnapshot> snapshot = cachePort.readSnapshot();
+        if (snapshot.isEmpty() || snapshot.get().getTrains() == null) {
+            return List.of();
+        }
+        return snapshot.get().getTrains().stream()
+                .filter(train -> lineId.equals(train.getLineId()) && trainNo.equals(train.getTrainNo()))
                 .toList();
     }
 
@@ -129,6 +163,7 @@ public class SubwayRealtimeArrivalReader {
                                  String lineId, String stationId, Integer wayCode) {
         LocalDateTime now = LocalDateTime.now(SEOUL);
         String direction = toDirection(lineId, wayCode);
+        Map<String, Set<String>> types = trainTypesByTrain(trains, lineId);
 
         Map<String, SubwayRealtimeTrain> deduped = new LinkedHashMap<>();
         trains.stream()
@@ -143,8 +178,34 @@ public class SubwayRealtimeArrivalReader {
         return deduped.values().stream()
                 .sorted(Comparator.comparingInt(train ->
                         Optional.ofNullable(adjustedSeconds(train, now)).orElse(Integer.MAX_VALUE)))
-                .map(train -> new Arrival(train, adjustedSeconds(train, now)))
+                .map(train -> new Arrival(train, adjustedSeconds(train, now), types.get(trainKey(train))))
                 .toList();
+    }
+
+    /**
+     * 노선 하나의 열차별 {@code trainType} 모음(subway-express PR-S3). 도착 API {@code trainType} 은 열차가 아니라 행마다
+     * 달라서(같은 급행 열차가 어느 역 행에선 '일반') 종류는 열차 단위로 모아 정한다 —
+     * {@link SubwayTrainKindClassifier#classifyTrain}. 같은 원천 한 장의 모든 행을 쓴다(오래된 행·지난 행도 근거다).
+     */
+    static Map<String, Set<String>> trainTypesByTrain(List<SubwayRealtimeTrain> trains, String lineId) {
+        Map<String, Set<String>> types = new HashMap<>();
+        if (lineId == null) {
+            return types;
+        }
+        for (SubwayRealtimeTrain train : trains) {
+            if (train == null || !lineId.equals(train.getLineId()) || train.getTrainNo() == null) {
+                continue;
+            }
+            Set<String> seen = types.computeIfAbsent(trainKey(train), key -> new LinkedHashSet<>());
+            if (train.getTrainType() != null && !train.getTrainType().isBlank()) {
+                seen.add(train.getTrainType().trim());
+            }
+        }
+        return types;
+    }
+
+    private static String trainKey(SubwayRealtimeTrain train) {
+        return train.getLineId() + "|" + train.getTrainNo();
     }
 
     /**
@@ -247,11 +308,34 @@ public class SubwayRealtimeArrivalReader {
      * 열차 하나와 보정된 남은 초.
      *
      * @param arrivalSeconds 보정 후 남은 초. 알 수 없으면 null
+     * @param trainTypes     같은 원천에서 이 열차(노선·원문 번호)의 모든 행이 말한 {@code trainType}(subway-express PR-S3).
+     *                       행마다 달라서 열차 종류는 이 모음으로 정한다. 비어 있을 수 있다
      */
-    public record Arrival(SubwayRealtimeTrain train, Integer arrivalSeconds) {
+    public record Arrival(SubwayRealtimeTrain train, Integer arrivalSeconds, Set<String> trainTypes) {
+
+        public Arrival {
+            Set<String> merged = new LinkedHashSet<>();
+            if (trainTypes != null) {
+                trainTypes.stream().filter(t -> t != null && !t.isBlank()).forEach(merged::add);
+            }
+            if (train != null && train.getTrainType() != null && !train.getTrainType().isBlank()) {
+                merged.add(train.getTrainType().trim());
+            }
+            trainTypes = Set.copyOf(merged);
+        }
+
+        /** 이 행 하나만 근거로(역별 실시간 호출·시험). */
+        public Arrival(SubwayRealtimeTrain train, Integer arrivalSeconds) {
+            this(train, arrivalSeconds, null);
+        }
 
         public boolean hasSeconds() {
             return arrivalSeconds != null;
+        }
+
+        /** 열차 종류 분류기에 넘길 근거. */
+        public List<SubwayTrainKindClassifier.Sighting> sightings() {
+            return trainTypes.stream().map(SubwayTrainKindClassifier.Sighting::ofTrainType).toList();
         }
     }
 }

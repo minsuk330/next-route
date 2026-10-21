@@ -19,7 +19,8 @@ import static org.mockito.Mockito.verify;
 class SubwaySegmentTimeRecorderTest {
 
     private final SubwaySegmentTimePort port = mock(SubwaySegmentTimePort.class);
-    private final SubwaySegmentTimeRecorder recorder = new SubwaySegmentTimeRecorder(port);
+    private final SubwaySegmentTimeRecorder recorder =
+            new SubwaySegmentTimeRecorder(port, SubwayExpressFixtures.classifier());
 
     {
         ReflectionTestUtils.setField(recorder, "enabled", true);
@@ -56,6 +57,43 @@ class SubwaySegmentTimeRecorderTest {
         recorder.record(List.of(SubwayRealtimeTrain.builder().arrivalCode("3").build()));
 
         verify(port, never()).recordDeparted(anyString(), anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    @DisplayName("급행 열차는 표본에서 뺀다 — 같은 열차의 다른 역 행이 '일반'이어도(열차 단위). 4호선 급행은 번호로")
+    void excludesNonNormalTrainsPerTrain() {
+        // 9호선 9687: 중앙보훈병원 행은 '급행', 올림픽공원 행은 '일반'으로 온다(행마다 다름)
+        SubwayRealtimeTrain expressRow = train("1009", "9687", "1009000938", "급행", "1");
+        SubwayRealtimeTrain flippedRow = train("1009", "9687", "1009000937", "일반", "1");
+        // 4호선 4405: 행은 전부 '일반'이지만 번호(44xx)로 급행
+        SubwayRealtimeTrain line4 = train("1004", "4405", "1004000415", "일반", "1");
+        // 9호선 근거 없는 행: 급행 노선이라 일반으로 보지 않는다
+        SubwayRealtimeTrain unknownOnExpressLine = train("1009", "9001", "1009000920", null, "1");
+
+        recorder.record(List.of(expressRow, flippedRow, line4, unknownOnExpressLine));
+
+        verify(port, never()).recordArrived(anyString(), anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    @DisplayName("일반 열차·1호선 구로 급행(14xx, 모든 역 정차)·일반만 다니는 노선의 종류 모름은 남긴다")
+    void keepsNormalTrains() {
+        recorder.record(List.of(train("1009", "9100", "1009000920", "일반", "1"),
+                train("1001", "1406", "1001000139", "급행", "1"),
+                train("1002", "2001", "1002000222", null, "1")));
+
+        verify(port).recordArrived(org.mockito.ArgumentMatchers.eq("1009"), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.eq("9100"), any());
+        verify(port).recordArrived(org.mockito.ArgumentMatchers.eq("1001"), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.eq("1406"), any());
+        verify(port).recordArrived(org.mockito.ArgumentMatchers.eq("1002"), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.eq("2001"), any());
+    }
+
+    private static SubwayRealtimeTrain train(String lineId, String trainNo, String stationId, String trainType,
+                                             String code) {
+        return SubwayRealtimeTrain.builder().lineId(lineId).direction("상행").stationId(stationId).trainNo(trainNo)
+                .trainType(trainType).arrivalCode(code).receivedAt("2026-10-07 22:10:11").build();
     }
 
     private SubwayRealtimeTrain row(String code) {
