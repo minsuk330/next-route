@@ -77,7 +77,9 @@ class RemainingRouteSearchServiceOtpTest {
                 new JourneyRerouteMetrics(new SimpleMeterRegistry()),
                 new RoutingProviderSelector(props, List.of(otp)),
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)), grantingGate, new watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties(), clock, new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
-                new WalkCoordResolver());
+                new WalkCoordResolver(),
+                new watoo.grd.nextroute.application.route.routing.ExpressFilterPolicy(
+                        watoo.grd.nextroute.application.subway.service.SubwayExpressFixtures.railServiceClassifier()));
     }
 
     @Test
@@ -98,6 +100,31 @@ class RemainingRouteSearchServiceOtpTest {
         assertThat(paths.get(0).subPaths().get(0).trafficType()).isEqualTo(2); // BUS
         // 경로가 1개뿐이어도 재탐색은 수단별 추가 검색을 하지 않는다(후보 수 = 실시간 평가 횟수).
         assertThat(otpCalls).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("재탐색도 검색과 같은 정책으로 DIRECT 경로를 자르기 전에 뺀다(subway-express S2), 급행·열차 종류는 그대로 싣는다")
+    void rerouteDropsDirectAndKeepsTrainKind() {
+        List<RoutingItinerary> engine = new java.util.ArrayList<>();
+        for (watoo.grd.nextroute.application.subway.dto.TrainKind kind : List.of(
+                watoo.grd.nextroute.application.subway.dto.TrainKind.DIRECT,
+                watoo.grd.nextroute.application.subway.dto.TrainKind.EXPRESS,
+                watoo.grd.nextroute.application.subway.dto.TrainKind.NORMAL)) {
+            RoutingLeg rail = new RoutingLeg(RoutingMode.SUBWAY, "SUBWAY", "1", "1:A1", "1:R-" + kind, "서울9호선",
+                    "1:T", null, Instant.now(), Instant.now(), 600,
+                    List.of(new StopOccurrence("1:S1", null, null, 0, 127.0, 37.5, "가양"),
+                            new StopOccurrence("1:S2", null, null, 1, 127.02, 37.49, "염창")),
+                    List.of(), LegGeometry.missing("x"),
+                    Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of()).withTrainKind(kind);
+            engine.add(new RoutingItinerary(Instant.now(), 600, 0, 0, 0, false, List.of(), Fare.unknown(),
+                    List.of(rail)));
+        }
+        RoutingResult result = new RoutingResult(RoutingProvider.OTP, "v", "202503", "g",
+                null, null, Instant.now(), List.of(), engine);
+
+        List<PathResult> paths = service(result).search("1:S1", WP, 2000);
+
+        assertThat(paths).extracting(p -> p.subPaths().get(0).trainKind()).containsExactly("EXPRESS", "NORMAL");
     }
 
     @Test

@@ -7,12 +7,14 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 
 /**
  * 다른 패키지 시험이 급행 판정을 운영 fixture({@code otp/subway-patterns/}, 2026-10-07)로 돌리게 하는 공개 도구
  * (subway-express S2). 패턴 캐시가 데워진 운영 상태와 같다 — {@link SubwayLineOrder#allStopPath} 정적 계산을 쓴다.
+ *
+ * <p>스텁은 전부 lenient — 부르는 시험이 엄격 스텁(MockitoExtension)이어도 안 쓴 스텁으로 실패하지 않게.
  */
 public final class SubwayExpressFixtures {
 
@@ -33,13 +35,13 @@ public final class SubwayExpressFixtures {
     /** 패턴 캐시가 빈(부팅 직후·worker 첫 재탐색) 해석기. */
     public static SubwayStopPatternResolver coldResolver() {
         SubwayLineOrder lineOrder = mock(SubwayLineOrder.class);
-        given(lineOrder.allStopPath(any(), any(), any(), any())).willReturn(List.of());
+        lenient().when(lineOrder.allStopPath(any(), any(), any(), any())).thenReturn(List.of());
         return new SubwayStopPatternResolver(catalog(), lineOrder);
     }
 
     public static SubwayLineOrder warmLineOrder() {
         SubwayLineOrder lineOrder = mock(SubwayLineOrder.class);
-        given(lineOrder.allStopPath(any(), any(), any(), any())).willAnswer(inv -> {
+        lenient().when(lineOrder.allStopPath(any(), any(), any(), any())).thenAnswer(inv -> {
             String board = inv.getArgument(2);
             String alight = inv.getArgument(3);
             if (board == null || alight == null) {
@@ -53,7 +55,7 @@ public final class SubwayExpressFixtures {
 
     public static SubwayLineStationIndex stationIndex() {
         SubwayLineStationIndex index = mock(SubwayLineStationIndex.class);
-        given(index.candidates(anyString())).willAnswer(inv ->
+        lenient().when(index.candidates(anyString())).thenAnswer(inv ->
                 SubwayPatternFixtures.STATIONS.getOrDefault(inv.<String>getArgument(0), List.of()));
         return index;
     }

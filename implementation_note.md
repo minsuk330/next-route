@@ -5679,3 +5679,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 확정(코디네이터 결정): 1호선 1401–1416 용산↔구로 '구로 급행'은 급행 선로만 쓰고 모든 역(용산 노량진 대방 신길 영등포 신도림 구로)에 서므로 NORMAL. 급행 배지 없음, 급행 서비스 아님. 조사 아티팩트 판단과 같음
 - 확정: 카탈로그에 서비스가 아닌 최상위 `allStopTrains`(lineId + 번호 규칙)를 둔다. 경인 match 에서 14xx 를 뺐고(번호 권위도 같이 빠짐) 분류기는 ITX 다음·'급행' 앞에서 `isAllStopTrain` → NORMAL(실시간 trainType '급행'·directAt 1 무시). 서비스는 그대로 12개
 - 검증: `./gradlew test --tests '*SubwayExpressCatalogTest' --tests '*SubwayTrainKindClassifierTest' --tests '*SubwayTrainIdentityTest' --tests '*SubwayStopPatternResolverTest' --tests '*SubwayLineOrderTest'` → 58/0, 42/0, 61/0, 15/0, 11/0. `./gradlew test --tests '*Test' --continue` → 394 클래스 2,910 테스트, 실패 0·오류 0·건너뜀 1. IT 는 빈 구성 변화 없어 재실행 안 함(직전 94/672/실패 0)
+
+## subway-express PR-S2 경로 검색 급행 표시·급행 끄기·여정 단계(V71) (2026-10-21, feat/subway-express-route)
+### 확정
+- 판정 한 곳 = `RailServiceClassifier.annotate`(OtpRoutingAdapter.searchOnce, 본·추가·재탐색 검색 공통). 매퍼는 `sourceRouteLongName`·`patternCode` 만 담고 판정 안 함(trainKind null). 단독 추적만 `classify` 직접
+- 규칙: 버스·도보 null → ITX(route `1:RR_ACC4_NATZ200_U/D`·이름 ITX) → 이름에 '직통' DIRECT(안전장치) → 카탈로그 서비스 없는 노선 NORMAL(2·3·5호선·공항철도·간선 철도) → **구간 기준**: 승·하차 사이 완행 경로(`allStopPathEitherDirection`)에 계획 정차열에 없는 역이 하나라도 있으면 EXPRESS, 없으면 NORMAL → 완행 경로 모르면 longName '급행' 이면 EXPRESS, 아니면 NORMAL
+  - PLAN 규칙 1(노선 이름 급행 → EXPRESS)을 구간 기준으로 바꿈: OTP 가 1호선 14xx '구로 급행'(용산~구로 모든 역)을 `서울1호선(용산-동인천급행)` 7역 패턴에 넣어서(S1 발견). 9호선 급행 노선은 fixture 패턴 둘(16역·12역) 다 급행 정차만이라 이름 기준과 결과가 같고, 다른 점은 붙은 두 정차역 구간(봉은사→종합운동장)이 NORMAL 이 되는 것뿐
+- 노선형 급행 route id(급행 끄기·일반 대안) = `1:RR_ACC1_S-1-09-2U/D`, `01-4U/D`(용산-동인천급행), `01-6U/D`(서울-신창급행). 운영 OTP 2026-10-21 `routes(transportModes:[RAIL,SUBWAY])` 209개 대조. ITX = `1:RR_ACC4_NATZ200_U/D`(shortName `[일반]ITX청춘(천마산.신내)`, RAIL)
+- `01-4D/U` 제외는 14xx 구로 급행(일반 판정) trip 도 같이 뺀다 — OTP 필터가 노선 단위라. 급행 끄기 때 용산~구로 일반 trip 은 1호선 본선(01-1)으로 대신 나온다
+- 방향: 분류기는 `SubwayRoutePatternAssembler.realtimeDirection`(반전표 적용)을 선호 방향으로 주되, 실제 경로는 두 방향 중 두 역을 이 순서로 지나는 쪽(`allStopPathEitherDirection`, 순환선만 선호 방향 필요). 검색 응답 wayCode 는 OTP 라벨 그대로(9호선은 실시간과 반대) — 이 PR 은 손대지 않음
+- OTP 2.9 스키마(운영 introspection): `PlanPreferencesInput.transit: TransitPreferencesInput{filters:[TransitFilterInput!]}`, `TransitFilterInput{include,exclude:[TransitFilterSelectInput!]}`, `TransitFilterSelectInput{routes,agencies}`
+### 함정
+- `SubwayRoutePatternAssembler.REVERSED_ROUTES.contains(null)` → NPE(`Set.of`) ← route id 없는 구간 / 가드: `realtimeDirection` 이 id null 이면 `labelFrom` 만
+- OTP 정류장 이름 키 = `SubwayPatternStationMatcher.key`(이으면 역 id, 아니면 `name:`+표시 이름) — `SubwayStationsAheadService.resolve` 가 패턴 정차에 붙이는 키와 같은 규칙이어야 계획 정차열과 완행 경로가 맞대어진다

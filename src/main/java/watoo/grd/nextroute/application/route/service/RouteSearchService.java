@@ -24,6 +24,7 @@ import watoo.grd.nextroute.application.route.port.in.SearchRouteUseCase;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort.WalkSearchCommand;
+import watoo.grd.nextroute.application.route.routing.ExpressFilterPolicy;
 import watoo.grd.nextroute.application.route.routing.ItineraryRanker;
 import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
 import watoo.grd.nextroute.application.route.routing.OtpPermit;
@@ -35,7 +36,9 @@ import watoo.grd.nextroute.application.route.routing.RoutingOutcome;
 import watoo.grd.nextroute.application.route.routing.RoutingProvider;
 import watoo.grd.nextroute.application.route.routing.RoutingProviderSelector;
 import watoo.grd.nextroute.application.route.routing.RoutingQuery;
+import watoo.grd.nextroute.application.route.routing.RoutingLeg;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
+import watoo.grd.nextroute.application.subway.dto.TrainKind;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -73,6 +76,8 @@ public class RouteSearchService implements SearchRouteUseCase {
     private final OtpRoutingProperties otpRoutingProperties;
     // OTP 도보 구간 끝점 이름·좌표(#468). ODSAY 분기는 WalkSegmentEnricher 가 같은 규칙을 쓴다.
     private final WalkCoordResolver walkCoordResolver;
+    // 급행 끄기·DIRECT 제외(subway-express S2). 재탐색과 같은 정책 객체.
+    private final ExpressFilterPolicy expressFilterPolicy;
 
     @Override
     public RouteSearchResult search(RouteSearchRequest request) {
@@ -188,18 +193,25 @@ public class RouteSearchService implements SearchRouteUseCase {
                                            RoutingDeadline deadline, boolean withRealtime,
                                            Instant searchStartedAt) {
         Instant departureAt = departureTimeResolver.resolve(request.departureAt());
+        boolean excludeExpress = request.excludesExpress();
         RoutingQuery query = new RoutingQuery(
                 request.startX(), request.startY(), request.startName(),
                 request.endX(), request.endY(), request.endName(),
                 departureAt, java.util.Set.of(), null, false, "otp-v2",
-                RoutingProvider.OTP, null);
+                RoutingProvider.OTP, null, expressFilterPolicy.routeExclusions(excludeExpress));
 
         long start = System.nanoTime();
         RoutingOutcome outcome;
         try {
             outcome = providerSelector.portFor(RoutingProvider.OTP).search(query, deadline);
             if (outcome instanceof RoutingResult first) {
-                outcome = supplementIfShort(first, query, deadline);
+                // 후보 풀은 사후 필터 전 값으로 모은다(DIRECT 만 언제나 뺀다) — 0건 해제(D10)가 풀 값으로 돌아간다.
+                List<RoutingItinerary> pool = new ArrayList<>(expressFilterPolicy.filter(first.itineraries(), false));
+                supplementIfShort(pool, query, deadline, excludeExpress);
+                if (!excludeExpress) {
+                    recoverNormalAlternatives(pool, query, deadline);
+                }
+                outcome = first.withItineraries(applyExpressFilter(pool, query, deadline, excludeExpress, ctx));
             }
         } finally {
             metrics.recordStage(SearchComponent.ODSAY, ctx.isDegraded(SearchComponent.ODSAY),
@@ -246,42 +258,197 @@ public class RouteSearchService implements SearchRouteUseCase {
      * (더 늦게 도착·환승 많음·비용 높음)을 탐색 단계에서 버려 부평→서울은 1호선 하나만 남는다 — 수단별로 물으면
      * 버스 대안이 살아난다(2026-10-12 실측 12개). 같은 permit 안에서 순차로 묻고, 한 번에 쓸 예산은 상한을 둔다.
      * 추가 검색 실패는 무시한다(본 결과만으로도 응답은 성립한다).
+     *
+     * <p>고유 경로 수는 급행 사후 필터 <b>뒤</b> 값이다(subway-express S2) — 급행만 남는 경로를 세면 급행 끄기에서 추가
+     * 검색을 건너뛴다. 추가 검색도 본 검색의 제외 노선을 그대로 들고 간다({@link RoutingQuery#withModes}).
+     *
+     * @param pool 사후 필터 전 후보(DIRECT 제외). 여기에 이어 붙인다
      */
-    private RoutingResult supplementIfShort(RoutingResult result, RoutingQuery query, RoutingDeadline deadline) {
+    private void supplementIfShort(List<RoutingItinerary> pool, RoutingQuery query, RoutingDeadline deadline,
+                                   boolean excludeExpress) {
         // 기준은 노출 상한이 아니라 추가 검색 기준(5) — 노출을 늘려도 OTP 추가 호출은 예전과 같다.
         int limit = otpRoutingProperties.getSupplementaryThreshold();
         if (!otpRoutingProperties.isRankingEnabled() || !otpRoutingProperties.isSupplementaryEnabled()) {
-            return result;
+            return;
         }
-        List<RoutingItinerary> merged = new ArrayList<>(result.itineraries());
-        int distinct = ItineraryRanker.rank(merged, limit).size();
+        int distinct = distinctAfterFilter(pool, limit, excludeExpress);
         for (Set<RoutingMode> modes : SUPPLEMENTARY_MODES) {
             if (distinct >= limit) {
                 break;
             }
-            long remaining = deadline.remainingMillis(clock);
-            if (remaining <= deadlineProperties.getMinRemainingForOptionalMs()) {
+            Optional<RoutingDeadline> budget = optionalBudget(deadline);
+            if (budget.isEmpty()) {
                 break;
             }
-            RoutingDeadline budget = RoutingDeadline.of(clock,
-                    Math.min(remaining, otpRoutingProperties.getSupplementaryBudgetMs()));
             RoutingOutcome extra;
             try {
-                extra = providerSelector.portFor(RoutingProvider.OTP).search(query.withModes(modes), budget);
+                extra = providerSelector.portFor(RoutingProvider.OTP).search(query.withModes(modes), budget.get());
             } catch (RuntimeException e) {
                 log.warn("[OTP] 추가 검색 {} 실패: {}", modes, e.toString());
                 continue;
             }
             int before = distinct;
             if (extra instanceof RoutingResult more) {
-                merged.addAll(more.itineraries());
-                distinct = ItineraryRanker.rank(merged, limit).size();
+                pool.addAll(expressFilterPolicy.filter(more.itineraries(), false));
+                distinct = distinctAfterFilter(pool, limit, excludeExpress);
             }
             log.info("[OTP] 고유 경로 {} < {} → 추가 검색 {}: {}, 합친 고유 {}", before, limit, modes,
                     extra instanceof RoutingResult more ? "후보 " + more.itineraries().size()
                             : ((RoutingFailure) extra).code(), distinct);
         }
-        return result.withItineraries(merged);
+    }
+
+    private int distinctAfterFilter(List<RoutingItinerary> pool, int limit, boolean excludeExpress) {
+        return ItineraryRanker.rank(expressFilterPolicy.filter(pool, excludeExpress), limit).size();
+    }
+
+    /** 추가 검색 한 번에 쓸 예산. 남은 OTP 예산이 선택 단계 하한 이하면 empty(묻지 않는다). */
+    private Optional<RoutingDeadline> optionalBudget(RoutingDeadline deadline) {
+        long remaining = deadline.remainingMillis(clock);
+        if (remaining <= deadlineProperties.getMinRemainingForOptionalMs()) {
+            return Optional.empty();
+        }
+        return Optional.of(RoutingDeadline.of(clock,
+                Math.min(remaining, otpRoutingProperties.getSupplementaryBudgetMs())));
+    }
+
+    /**
+     * 같은 노선의 일반 대안 되찾기(subway-express S2, D2). OTP 는 급행이 지배하면 일반 열차를 버린다(김포공항→고속터미널
+     * 08:00 실측: 9호선 급행 4건만). 노출할 경로 중 <b>노선형 급행</b> 구간이 든 것마다 후보 풀에 같은 노선 흐름의 일반 짝이
+     * 있는지 보고, 하나라도 없으면 <b>원래 수단 그대로</b>(버스 환승 포함) 노선형 급행 route 만 빼고 한 번 더 묻는다
+     * (추가 검색과 같은 예산 규칙). 고유 경로 수가 넉넉해도 따로 검사한다.
+     *
+     * <p>정차 패턴형 급행(수인분당·경의중앙 등)은 OTP 가 노선 단위로만 거를 수 있어 되찾지 못한다(한계, PLAN §6-8).
+     */
+    private void recoverNormalAlternatives(List<RoutingItinerary> pool, RoutingQuery query, RoutingDeadline deadline) {
+        if (!otpRoutingProperties.isRankingEnabled() || !otpRoutingProperties.isSupplementaryEnabled()) {
+            return;
+        }
+        Set<String> expressRoutes = expressFilterPolicy.expressRouteIds();
+        List<RoutingItinerary> shown = ItineraryRanker.rank(pool, otpRoutingProperties.getDisplayLimit());
+        Optional<RoutingItinerary> unpaired = shown.stream()
+                .filter(it -> it.legs().stream().anyMatch(leg -> isRouteTypeExpress(leg, expressRoutes)))
+                .filter(it -> !hasNormalPair(it, pool))
+                .findFirst();
+        if (unpaired.isEmpty()) {
+            return;
+        }
+        Optional<RoutingDeadline> budget = optionalBudget(deadline);
+        if (budget.isEmpty()) {
+            log.info("[OTP] 일반 대안 되찾기 생략 — 예산 부족");
+            return;
+        }
+        RoutingOutcome extra;
+        try {
+            extra = providerSelector.portFor(RoutingProvider.OTP).search(
+                    query.withExcludedRouteIds(expressRoutes), budget.get());
+        } catch (RuntimeException e) {
+            log.warn("[OTP] 일반 대안 되찾기 실패: {}", e.toString());
+            return;
+        }
+        if (extra instanceof RoutingResult more) {
+            pool.addAll(expressFilterPolicy.filter(more.itineraries(), false));
+        }
+        log.info("[OTP] 일반 대안 되찾기 {}: {}", ItineraryRanker.fingerprint(unpaired.get()),
+                extra instanceof RoutingResult more ? "후보 " + more.itineraries().size()
+                        : ((RoutingFailure) extra).code());
+    }
+
+    private static boolean isRouteTypeExpress(RoutingLeg leg, Set<String> expressRoutes) {
+        return leg.trainKind() == TrainKind.EXPRESS && leg.sourceRouteId() != null
+                && expressRoutes.contains(leg.sourceRouteId());
+    }
+
+    /**
+     * 같은 노선 흐름(도보 뺀 구간마다 수단·노선 이름)에서 이 경로의 급행 구간 자리가 전부 급행이 아닌 경로가 풀에 있는가.
+     */
+    static boolean hasNormalPair(RoutingItinerary express, List<RoutingItinerary> pool) {
+        List<RoutingLeg> legs = transitLegs(express);
+        for (RoutingItinerary other : pool) {
+            List<RoutingLeg> otherLegs = transitLegs(other);
+            if (other == express || otherLegs.size() != legs.size()) {
+                continue;
+            }
+            boolean pair = true;
+            for (int i = 0; i < legs.size() && pair; i++) {
+                RoutingLeg a = legs.get(i);
+                RoutingLeg b = otherLegs.get(i);
+                pair = a.mode() == b.mode() && java.util.Objects.equals(routeLabel(a), routeLabel(b))
+                        && (a.trainKind() != TrainKind.EXPRESS || b.trainKind() != TrainKind.EXPRESS);
+            }
+            if (pair) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<RoutingLeg> transitLegs(RoutingItinerary it) {
+        return it.legs().stream().filter(leg -> leg.mode() != RoutingMode.WALK).toList();
+    }
+
+    private static String routeLabel(RoutingLeg leg) {
+        return leg.sourceRouteName() != null ? leg.sourceRouteName() : leg.sourceRouteId();
+    }
+
+    /**
+     * 급행 끄기 사후 필터와 0건 해제(subway-express S2, D10). 급행을 켠 요청은 DIRECT 만 이미 빠진 풀 그대로다.
+     *
+     * <ul>
+     *   <li>필터 뒤 남으면 그것 — 적용됨({@code requested(EXPRESS_FILTER)})</li>
+     *   <li>필터 전에도 0건이면 진짜 무경로 — 아무 표시 없이 빈 결과</li>
+     *   <li>필터로 0건이면 노선형 급행 route 를 빼고 <b>원래 수단</b>으로 한 번 더 묻는다. 거기서 일반 경로가 나오면 그것,
+     *       그래도 0건이면 필터를 풀고 {@code express_filter}, 다시 묻기가 실패·시간 초과(예산 부족 포함)면 필터를 풀고
+     *       {@code express_filter_unverified}</li>
+     * </ul>
+     */
+    private List<RoutingItinerary> applyExpressFilter(List<RoutingItinerary> pool, RoutingQuery query,
+                                                      RoutingDeadline deadline, boolean excludeExpress,
+                                                      RouteSearchContext ctx) {
+        if (!excludeExpress) {
+            return pool;
+        }
+        List<RoutingItinerary> kept = expressFilterPolicy.filter(pool, true);
+        if (!kept.isEmpty() || pool.isEmpty()) {
+            if (!kept.isEmpty()) {
+                ctx.requested(SearchComponent.EXPRESS_FILTER);
+            }
+            return kept;
+        }
+        Optional<RoutingDeadline> budget = optionalBudget(deadline);
+        RoutingOutcome retry;
+        if (budget.isEmpty()) {
+            retry = RoutingFailure.of(RoutingFailure.Kind.TIMEOUT, "NO_BUDGET", "급행 끄기 다시 묻기 예산 부족");
+        } else {
+            try {
+                retry = providerSelector.portFor(RoutingProvider.OTP).search(
+                        query.withExcludedRouteIds(expressFilterPolicy.expressRouteIds()), budget.get());
+            } catch (RuntimeException e) {
+                retry = RoutingFailure.of(RoutingFailure.Kind.ENGINE_ERROR, "EXCEPTION", e.toString());
+            }
+        }
+        if (retry instanceof RoutingResult more) {
+            List<RoutingItinerary> normal = expressFilterPolicy.filter(more.itineraries(), true);
+            if (!normal.isEmpty()) {
+                log.info("[OTP] 급행 끄기 0건 → 다시 묻기에서 일반 경로 {}건", normal.size());
+                ctx.requested(SearchComponent.EXPRESS_FILTER);
+                return normal;
+            }
+            log.info("[OTP] 급행 끄기 0건 → 다시 묻기도 일반 경로 0건, 필터 해제");
+            ctx.degrade(SearchComponent.EXPRESS_FILTER, DegradeReason.EMPTY_RESULT);
+            return pool;
+        }
+        RoutingFailure failure = (RoutingFailure) retry;
+        if (failure.kind() == RoutingFailure.Kind.NO_ROUTE || failure.kind() == RoutingFailure.Kind.OUT_OF_SCOPE) {
+            // 무경로 답도 "일반 경로 0건"을 확인한 것이다 — 실패가 아니다.
+            log.info("[OTP] 급행 끄기 0건 → 다시 묻기 무경로({}), 필터 해제", failure.code());
+            ctx.degrade(SearchComponent.EXPRESS_FILTER, DegradeReason.EMPTY_RESULT);
+            return pool;
+        }
+        log.info("[OTP] 급행 끄기 0건 → 다시 묻기 실패({}), 확인 못 한 채 필터 해제", failure.code());
+        ctx.degrade(SearchComponent.EXPRESS_FILTER_UNVERIFIED,
+                failure.kind() == RoutingFailure.Kind.TIMEOUT ? DegradeReason.TIMEOUT : DegradeReason.UPSTREAM_ERROR);
+        return pool;
     }
 
     /**
