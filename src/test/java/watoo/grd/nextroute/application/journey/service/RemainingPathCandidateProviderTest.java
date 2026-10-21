@@ -78,8 +78,9 @@ class RemainingPathCandidateProviderTest {
     private static final RerouteOriginStop INTERIOR = new RerouteOriginStop(
             new RerouteOrigin(1, "ST-B", "BL-RIDE", 12, RerouteOriginKind.RIDE_INTERIOR),
             "정류장B", 127.1, 37.1, NOW.plusSeconds(180), false);
+    /** 출발점만 그 정류장으로 바뀌고 이름도 그 정류장 이름이다(#474). 목적지는 그대로다. */
     private static final Waypoints INTERIOR_WAYPOINTS =
-            new Waypoints(new Coord(127.1, 37.1), new Coord(127.5, 37.5));
+            new Waypoints(new Coord(127.1, 37.1), new Coord(127.5, 37.5), "정류장B", null);
 
     private final TransferConnectionRepository transferRepository =
             mock(TransferConnectionRepository.class);
@@ -432,6 +433,41 @@ class RemainingPathCandidateProviderTest {
     }
 
     @Test
+    @DisplayName("어느 자리에서 다시 찾든 목적지 이름은 지금 개정본의 것을 들고 간다 — 출발 이름만 그 자리 것이다(#474)")
+    void everyOriginSearchesWithCurrentDestinationName() {
+        given(waypointResolver.resolve(JOURNEY_ID, 1, 2)).willReturn(Optional.of(
+                new Waypoints(new Coord(127.3, 37.3), DESTINATION, "정류장C", "코엑스")));
+        givenWindow();
+
+        provider.findCandidates(context());
+
+        verify(searchService).search(eq("ST-C"),
+                eq(new Waypoints(new Coord(127.3, 37.3), DESTINATION, "정류장C", "코엑스")),
+                anyLong(), any());
+        verify(searchService).search(eq("ST-B"),
+                eq(new Waypoints(new Coord(127.1, 37.1), DESTINATION, "정류장B", "코엑스")),
+                anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("보드: 걷는 중 현재 위치 기점은 '현재 위치'에서 지금 개정본 목적지로 찾는다(#474)")
+    void boardCurrentPositionCarriesDestinationName() {
+        given(waypointResolver.resolve(JOURNEY_ID, 1, 0)).willReturn(Optional.of(
+                new Waypoints(new Coord(127.0, 37.0), DESTINATION, "출발지", "코엑스")));
+        given(geometryUseCase.get(any(), any(), any())).willReturn(
+                new watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry(
+                        JOURNEY_ID, 1, List.of(), null));
+        given(positionEstimator.estimate(any(), any(), any(), any())).willReturn(Optional.of(
+                new watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeoPoint(127.2, 37.2)));
+
+        provider.evaluateBoard(boardRequest(0));
+
+        verify(searchService).search(eq("HERE"),
+                eq(new Waypoints(new Coord(127.2, 37.2), DESTINATION, "현재 위치", "코엑스")),
+                anyLong(), any());
+    }
+
+    @Test
     @DisplayName("계획 하차점 후보는 origin 없이 옛 모양 그대로다")
     void plannedAlightKeepsLegacyShape() {
         PathResult path = path("A");
@@ -528,7 +564,7 @@ class RemainingPathCandidateProviderTest {
                         JOURNEY_ID, 1, List.of(), null));
         given(positionEstimator.estimate(any(), any(), any(), any())).willReturn(Optional.of(
                 new watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeoPoint(127.2, 37.2)));
-        Waypoints here = new Waypoints(new Coord(127.2, 37.2), DESTINATION);
+        Waypoints here = new Waypoints(new Coord(127.2, 37.2), DESTINATION, "현재 위치", null);
         given(searchService.search(eq("HERE"), eq(here), anyLong(), any())).willReturn(List.of(path("W")));
         givenPrepared(path("W"), prepared("BL-360", 0, 1));
         givenBaseline(NOW.plusSeconds(900), true);

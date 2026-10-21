@@ -86,6 +86,12 @@ import java.util.concurrent.TimeoutException;
 @RequiredArgsConstructor
 public class RemainingPathCandidateProvider implements RerouteCandidateProvider {
 
+    /**
+     * 걷는 중 기점의 이름. 화면 말풍선 줄과 재검색 경로의 첫 걷기 시작 이름(#474)에 같은 값을 쓴다 —
+     * 처음 검색 때 앱이 출발지로 보내는 이름도 이것이다.
+     */
+    private static final String CURRENT_POSITION_NAME = "현재 위치";
+
     private final TransferConnectionRepository transferRepository;
     private final JourneyLegRepository legRepository;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
@@ -196,7 +202,7 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
         for (RerouteOriginStop stop : windowResolver.resolveRideInterior(
                 legs, waitLeg.getLegIndex(), context.now())) {
             origins.add(new Origin(stop.origin().stopId(), stop.stopName(),
-                    new Waypoints(new Coord(stop.x(), stop.y()), planned.destination()),
+                    planned.departingFrom(new Coord(stop.x(), stop.y()), stop.stopName()),
                     stop.alightAt(),
                     stop.departAt(properties.getNextStop().getBoardingBufferSec()),
                     stop.origin().legIndex(), stop.origin(), false));
@@ -810,12 +816,13 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
         if (fromCurrent.isEmpty()) {
             return origins;
         }
-        Coord destination = fromCurrent.get().destination();
         JourneyLegType type = current.getType();
 
         if (type == JourneyLegType.WALK || type == JourneyLegType.TRANSFER_WALK) {
             currentPosition(current, request).ifPresent(point -> origins.add(new Origin(null,
-                    "현재 위치", new Waypoints(new Coord(point.x(), point.y()), destination),
+                    CURRENT_POSITION_NAME,
+                    fromCurrent.get().departingFrom(new Coord(point.x(), point.y()),
+                            CURRENT_POSITION_NAME),
                     null, request.now(), current.getLegIndex(),
                     new RerouteOrigin(current.getLegIndex(), null, null, null,
                             RerouteOriginKind.CURRENT_POSITION, point.x(), point.y()),
@@ -836,7 +843,8 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
             for (RerouteOriginStop stop : windowResolver.resolveRideInterior(legs,
                     current.getLegIndex() + 1, request.now(), properties.getBoard().getLeadTimeSec())) {
                 origins.add(new Origin(stop.origin().stopId(), stop.stopName(),
-                        new Waypoints(new Coord(stop.x(), stop.y()), destination),
+                        fromCurrent.get().departingFrom(new Coord(stop.x(), stop.y()),
+                                stop.stopName()),
                         stop.alightAt(),
                         stop.departAt(properties.getNextStop().getBoardingBufferSec()),
                         stop.origin().legIndex(), stop.origin(), false,

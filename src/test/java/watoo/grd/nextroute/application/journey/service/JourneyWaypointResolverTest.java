@@ -74,6 +74,68 @@ class JourneyWaypointResolverTest {
     }
 
     @Test
+    @DisplayName("이름도 같은 단계에서 집는다 — 출발은 그 단계의 시작 이름, 도착은 마지막 단계의 끝 이름(#474)")
+    void namesComeFromSameLegs() {
+        givenRevision(1, twoTransitPath());
+        JourneyLegDraft secondWait = compiler.compile(twoTransitPath()).legs().stream()
+                .filter(leg -> leg.type().isWaiting())
+                .skip(1)
+                .findFirst()
+                .orElseThrow();
+
+        JourneyWaypointResolver.Waypoints waypoints =
+                resolver.resolve(JOURNEY_ID, 1, secondWait.legIndex()).orElseThrow();
+
+        assertThat(waypoints.originName()).isEqualTo("정류장C");
+        // 마지막 걷기의 끝 이름 = 처음 검색 때 고른 목적지 이름(#471).
+        assertThat(waypoints.destinationName()).isEqualTo("목적지");
+    }
+
+    @Test
+    @DisplayName("목적지 이름이 비어 있어도 좌표가 있으면 찾는다 — 이름은 지어내지 않고 null 로 둔다")
+    void missingDestinationNameStillResolves() {
+        PathResult path = new PathResult(1, null, List.of(
+                bus(20).names("정류장A", "정류장B").coords(127.1, 37.1, 127.2, 37.2)
+                        .lanes(busLane("721", "BL-721")).busStops("ST-A", "ST-B").build(),
+                walk(4).coords(127.2, 37.2, 127.5, 37.5).build()),
+                List.of());
+        givenRevision(1, path);
+
+        JourneyWaypointResolver.Waypoints waypoints = resolver.resolve(JOURNEY_ID, 1, 0).orElseThrow();
+
+        assertThat(waypoints.destination().x()).isEqualTo(127.5);
+        assertThat(waypoints.destinationName()).isNull();
+    }
+
+    @Test
+    @DisplayName("#471 전 OTP 스냅샷처럼 마지막 걷기에 좌표가 없으면 예전처럼 빈 결과다 — 재검색을 하지 않는다")
+    void preFillOtpSnapshotWithoutWalkCoordsIsEmpty() {
+        PathResult path = new PathResult(1, null, List.of(
+                bus(20).names("정류장A", "정류장B").coords(127.1, 37.1, 127.2, 37.2)
+                        .lanes(busLane("721", "BL-721")).busStops("ST-A", "ST-B").build(),
+                walk(4).build()),
+                List.of());
+        givenRevision(1, path);
+
+        assertThat(resolver.resolve(JOURNEY_ID, 1, 0)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("출발점만 바꿔도 목적지 좌표·이름은 그대로다")
+    void departingFromKeepsDestination() {
+        JourneyWaypointResolver.Waypoints planned = new JourneyWaypointResolver.Waypoints(
+                new JourneyWaypointResolver.Coord(127.3, 37.3),
+                new JourneyWaypointResolver.Coord(127.5, 37.5), "정류장C", "코엑스");
+
+        JourneyWaypointResolver.Waypoints moved =
+                planned.departingFrom(new JourneyWaypointResolver.Coord(127.1, 37.1), "정류장B");
+
+        assertThat(moved).isEqualTo(new JourneyWaypointResolver.Waypoints(
+                new JourneyWaypointResolver.Coord(127.1, 37.1),
+                new JourneyWaypointResolver.Coord(127.5, 37.5), "정류장B", "코엑스"));
+    }
+
+    @Test
     @DisplayName("개정본은 번호로 집는다 — ACTIVE 를 읽으면 옛 단계와 새 좌표가 섞인다")
     void looksUpByRevisionNumber() {
         givenRevision(3, twoTransitPath());

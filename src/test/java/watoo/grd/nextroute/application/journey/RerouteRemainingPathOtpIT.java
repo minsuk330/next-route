@@ -22,10 +22,14 @@ import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.out.RerouteCooldownPort;
+import watoo.grd.nextroute.application.journey.service.JourneyWaypointResolver.Coord;
+import watoo.grd.nextroute.application.journey.service.JourneyWaypointResolver.Waypoints;
+import watoo.grd.nextroute.application.journey.service.RemainingRouteSearchService;
 import watoo.grd.nextroute.application.journey.service.RerouteProposalService;
 import watoo.grd.nextroute.application.journey.service.SubPathFixture;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
 import watoo.grd.nextroute.application.route.dto.PathResult;
+import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.dto.TransferArrival;
 import watoo.grd.nextroute.application.route.dto.TransferPredictionResult;
 import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
@@ -110,6 +114,7 @@ class RerouteRemainingPathOtpIT {
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired RerouteProposalService rerouteProposalService;
+    @Autowired RemainingRouteSearchService remainingRouteSearchService;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired ObjectMapper objectMapper;
 
@@ -172,6 +177,30 @@ class RerouteRemainingPathOtpIT {
                 .isEqualTo(TRANSFER_LON);
         assertThat(variables.at("/destination/location/coordinate/latitude").asDouble())
                 .isEqualTo(DESTINATION_LAT);
+    }
+
+    @Test
+    @DisplayName("OTP 재검색 경로의 걷기에도 이름이 있다 — 정류장 옆은 그 정류장, 마지막 걷기 끝은 원래 목적지(#474)")
+    void otpRerouteWalksAreNamed() {
+        Waypoints waypoints = new Waypoints(new Coord(TRANSFER_LON, TRANSFER_LAT),
+                new Coord(DESTINATION_LON, DESTINATION_LAT), "롯데백화점", "고속터미널 정문");
+
+        List<PathResult> paths = remainingRouteSearchService.search("ST-G", waypoints, 3000);
+
+        // 실 어댑터(HTTP·GraphQL 파싱)와 legacy 매핑을 거친 OTP 걷기 구간은 정류장이 없어 이름이 비어 온다.
+        assertThat(paths).isNotEmpty().allSatisfy(path -> {
+            List<SubPathResult> subs = path.subPaths();
+            SubPathResult first = subs.get(0);
+            SubPathResult last = subs.get(subs.size() - 1);
+            assertThat(first.trafficType()).isEqualTo(3);
+            assertThat(first.startName()).isEqualTo("롯데백화점");
+            assertThat(first.endName()).isNotBlank().isEqualTo(subs.get(1).startName());
+            assertThat(last.trafficType()).isEqualTo(3);
+            assertThat(last.startName()).isNotBlank().isEqualTo(subs.get(subs.size() - 2).endName());
+            assertThat(last.endName()).isEqualTo("고속터미널 정문");
+            assertThat(last.endX()).isEqualTo(DESTINATION_LON);
+            assertThat(last.endY()).isEqualTo(DESTINATION_LAT);
+        });
     }
 
     @Test
