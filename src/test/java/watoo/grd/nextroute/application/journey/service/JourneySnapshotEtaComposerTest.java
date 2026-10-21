@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties;
+import watoo.grd.nextroute.application.journey.config.JourneyTransferRiskProperties;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegView;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
@@ -18,14 +19,17 @@ import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingStage;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
+import watoo.grd.nextroute.application.journey.dto.TransferTargetArrival;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 import watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus;
+import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
+import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepository;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -37,8 +41,11 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 @DisplayName("스냅샷에 현재 단계·환승·목적지 예측을 얹는다")
@@ -71,7 +78,7 @@ class JourneySnapshotEtaComposerTest {
         evaluatorProperties = new JourneyEvaluatorProperties();
         composer = new JourneySnapshotEtaComposer(
                 legRepository, geometryUseCase, arrivalService, transferRiskEvaluator,
-                storedEvaluationReader, evaluatorProperties,
+                storedEvaluationReader, evaluatorProperties, new ChosenSubwayTrainWait(),
                 java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC));
 
         legs = List.of(
@@ -401,6 +408,64 @@ class JourneySnapshotEtaComposerTest {
         assertThat(fromTypical.arrivalAt()).isEqualTo(TRAIN_AT_BOARDING.plusSeconds(150));
         assertThat(fromTypical.quality()).isEqualTo(CurrentLegArrival.Quality.APPROXIMATE);
         assertThat(fromStale.quality()).isEqualTo(CurrentLegArrival.Quality.APPROXIMATE);
+    }
+
+    @Test
+    @DisplayName("조회 경로의 환승 판정도 같은 열차 대기 규칙을 쓴다 — 지하철→버스 여정 도착이 낙관적이지 않다(#476)")
+    void transferAssessmentUsesSameChosenTrainWait() {
+        // 0=WAIT_SUBWAY, 1=RIDE_SUBWAY(현재, 120초), 2=TRANSFER_WALK(120초), 3=WAIT_BUS, 4=RIDE_BUS(600초), 5=WALK(180초)
+        legs = List.of(
+                leg(0, JourneyLegType.WAIT_SUBWAY, null),
+                leg(1, JourneyLegType.RIDE_SUBWAY, 120),
+                leg(2, JourneyLegType.TRANSFER_WALK, 120),
+                leg(3, JourneyLegType.WAIT_BUS, null),
+                leg(4, JourneyLegType.RIDE_BUS, 600),
+                leg(5, JourneyLegType.WALK, 180));
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+                JOURNEY_ID, REVISION)).willReturn(legs);
+        // 열차 대기 없는 이동 계산은 09:02 하차다. 고른 열차는 09:05 에 와서 09:07 에 하차역에 닿는다.
+        givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+        SubwayGuidance guidance = subwayGuidance(0, TRAIN_AT_BOARDING, TRAIN_AT_BOARDING.plusSeconds(120));
+
+        // 판정기는 진짜로 돌린다(평가기 꺼짐 = 조회 경로가 계산). 링은 스냅샷과 같은 조립기에서 읽는다.
+        TransferConnectionRepository transferRepository = mock(TransferConnectionRepository.class);
+        given(transferRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByTransferIndex(
+                JOURNEY_ID, REVISION)).willReturn(List.of(TransferConnection.builder()
+                .journeyId(JOURNEY_ID).routeRevision(REVISION).transferIndex(0)
+                .fromLegIndex(1).walkLegIndex(2).toLegIndex(3).build()));
+        JourneySubwayGuidanceComposer guidanceComposer = mock(JourneySubwayGuidanceComposer.class);
+        given(guidanceComposer.compose(eq(REVISION), eq(1), any(), any())).willReturn(guidance);
+        // 버스는 09:06·09:10·09:20 에 온다. 준비 시각 뒤 첫 버스를 답한다.
+        TransferTargetArrivalService targetArrivalService = mock(TransferTargetArrivalService.class);
+        willAnswer(call -> {
+            Instant readyAt = call.getArgument(1);
+            Instant bus = List.of(NOW.plusSeconds(360), NOW.plusSeconds(600), NOW.plusSeconds(1200)).stream()
+                    .filter(at -> !at.isBefore(readyAt)).findFirst().orElseThrow();
+            return TransferTargetArrival.of(arrival(bus, CurrentLegArrival.Quality.GOOD));
+        }).given(targetArrivalService).predictBoarding(eq(legs.get(3)), any(), any());
+
+        ChosenSubwayTrainWait sharedRule = spy(new ChosenSubwayTrainWait());
+        JourneyTransferRiskProperties riskProperties = new JourneyTransferRiskProperties();
+        java.time.Clock clock = java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC);
+        TransferRiskEvaluator evaluator = new TransferRiskEvaluator(transferRepository, legRepository,
+                arrivalService, targetArrivalService, new TransferReadinessCalculator(riskProperties),
+                new TransferRiskPolicy(riskProperties), new TransferAssessmentWriter(transferRepository),
+                guidanceComposer, sharedRule, clock);
+        JourneySnapshotEtaComposer requestPath = new JourneySnapshotEtaComposer(legRepository, geometryUseCase,
+                arrivalService, evaluator, storedEvaluationReader, evaluatorProperties, sharedRule, clock);
+
+        JourneySnapshot result = requestPath.compose(USER_ID, snapshot(1).withSubwayGuidance(guidance));
+
+        assertThat(result.eta().currentLeg().arrivalAt()).isEqualTo(Instant.parse("2026-08-04T09:07:00Z"));
+        var transfer = result.eta().activeTransfer();
+        // 현재 단계 도착에서 이어진다: 09:07 + 하차 30초 + 도보 120초. 대기를 빼면 09:04:30 이라 09:06 버스를 탄다고 본다
+        assertThat(transfer.userReadyAt()).isEqualTo(Instant.parse("2026-08-04T09:09:30Z"));
+        assertThat(transfer.nextBusArrivalAt()).isEqualTo(Instant.parse("2026-08-04T09:10:00Z"));
+        assertThat(transfer.transferSlackSeconds()).isEqualTo(30);
+        // 09:10 버스 + 600 + 180. 대기를 빼면 09:06 버스 기준 09:19 로 낙관적이었다
+        assertThat(result.eta().journeyEta()).isEqualTo(Instant.parse("2026-08-04T09:23:00Z"));
+        // 조립기(현재 단계)와 판정기(환승 준비)가 같은 규칙을 같은 안내로 불렀다
+        verify(sharedRule, times(2)).afterChosenTrainArrives(eq(guidance), eq(legs.get(1)), any(), eq(NOW));
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────

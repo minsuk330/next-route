@@ -5,10 +5,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
+import watoo.grd.nextroute.application.journey.dto.SubwayGuidance;
 import watoo.grd.nextroute.application.journey.dto.TransferAssessmentBatch;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
 import watoo.grd.nextroute.application.journey.dto.TransferTargetArrival;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
@@ -40,6 +42,9 @@ import java.util.stream.Collectors;
  * 준비 시각을 구한 뒤에 대기 leg 을 묻는다. 지금 시각으로 물으면 사용자가 도착하기 전에 지나갈
  * 차량을 답으로 받는다.
  *
+ * <p>지하철을 타는 단계에서 고른 열차가 아직 승차역 전이면 그 열차를 기다리는 시간도 앞 단계 도착에 들어간다(#476).
+ * 규칙은 ETA 조립기의 현재 단계 도착과 같은 {@link ChosenSubwayTrainWait} 다.
+ *
  * <h2>저장하는 메서드와 하지 않는 메서드</h2>
  *
  * 판정 결과를 저장하는 이유는 떨림 방지가 <b>직전 상태</b>를 필요로 하기 때문이다. 다만 쓰는
@@ -59,6 +64,10 @@ public class TransferRiskEvaluator {
     private final TransferReadinessCalculator readinessCalculator;
     private final TransferRiskPolicy riskPolicy;
     private final TransferAssessmentWriter assessmentWriter;
+    /** 지금 타는 지하철의 링을 스냅샷과 같은 방법으로 읽는다(#476). */
+    private final JourneySubwayGuidanceComposer subwayGuidanceComposer;
+    /** 고른 지하철 열차의 대기. ETA 조립기와 같은 규칙이다(#469·#476). */
+    private final ChosenSubwayTrainWait chosenTrainWait;
     private final Clock clock;
 
     /**
@@ -74,17 +83,19 @@ public class TransferRiskEvaluator {
         if (transfers.isEmpty()) {
             return TransferAssessmentBatch.empty();
         }
-        Map<Integer, JourneyLeg> legsByIndex = legRepository
+        List<JourneyLeg> legs = legRepository
                 .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
-                        journeyId, routeRevision)
-                .stream()
+                        journeyId, routeRevision);
+        Map<Integer, JourneyLeg> legsByIndex = legs.stream()
                 .collect(Collectors.toMap(JourneyLeg::getLegIndex, Function.identity()));
 
         Instant now = Instant.now(clock);
+        SubwayGuidance currentGuidance = currentSubwayGuidance(
+                journeyId, routeRevision, currentLegIndex, legs, legsByIndex, transfers);
         Map<Integer, TransferTargetArrival> boardingByLegIndex = new java.util.HashMap<>();
         List<TransferRiskAssessment> assessments = transfers.stream()
                 .map(transfer -> assessOne(transfer, legsByIndex, geometryByLegIndex, now,
-                        currentLegIndex, boardingByLegIndex))
+                        currentLegIndex, currentGuidance, boardingByLegIndex))
                 .toList();
         boolean upstreamBlocked = boardingByLegIndex.values().stream()
                 .anyMatch(TransferTargetArrival::upstreamBlocked);
@@ -110,9 +121,10 @@ public class TransferRiskEvaluator {
                                              Map<Integer, JourneyLeg> legsByIndex,
                                              Map<Integer, LegGeometry> geometryByLegIndex,
                                              Instant now, int currentLegIndex,
+                                             SubwayGuidance currentGuidance,
                                              Map<Integer, TransferTargetArrival> boardingByLegIndex) {
-        CurrentLegArrival fromArrival = predictCurrent(
-                transfer.getFromLegIndex(), legsByIndex, geometryByLegIndex);
+        CurrentLegArrival fromArrival = predictCurrent(transfer.getFromLegIndex(), legsByIndex,
+                geometryByLegIndex, currentLegIndex, currentGuidance, now);
 
         Instant userReadyAt = readinessCalculator.userReadyAt(
                 fromArrival.arrivalAt(), walkSeconds(transfer, legsByIndex),
@@ -135,14 +147,57 @@ public class TransferRiskEvaluator {
                 slack, confidence, now, toArrival.source(), target.modelVersion());
     }
 
-    /** 타고 있는(또는 걷고 있는) 단계가 언제 끝나는지. 외부 호출이 없는 계산이다. */
+    /**
+     * 타고 있는(또는 걷고 있는) 단계가 언제 끝나는지. 외부 호출이 없는 계산이다.
+     *
+     * <p>지금 단계면 고른 지하철 열차의 대기를 넣는다(#476). 빼면 준비 시각이 열차 대기만큼 일러, 그 시각 기준으로
+     * 고른 버스를 실제로는 놓치는데도 여유가 있다고 판정한다. 안내는 지금 단계의 것이라 다른 단계에는 대지 않는다.
+     */
     private CurrentLegArrival predictCurrent(int legIndex, Map<Integer, JourneyLeg> legsByIndex,
-                                             Map<Integer, LegGeometry> geometryByLegIndex) {
+                                             Map<Integer, LegGeometry> geometryByLegIndex,
+                                             int currentLegIndex, SubwayGuidance currentGuidance,
+                                             Instant now) {
         JourneyLeg leg = legsByIndex.get(legIndex);
         if (leg == null) {
             return CurrentLegArrival.unknown();
         }
-        return arrivalService.predict(leg, geometryByLegIndex.get(legIndex));
+        CurrentLegArrival moving = arrivalService.predict(leg, geometryByLegIndex.get(legIndex));
+        if (legIndex != currentLegIndex) {
+            return moving;
+        }
+        return chosenTrainWait.afterChosenTrainArrives(currentGuidance, leg, moving, now);
+    }
+
+    /**
+     * 지금 타는 지하철의 안내(링). 그 단계에서 내려 갈아타는 환승이 있을 때만 읽는다(#476).
+     *
+     * <p>판정기는 스냅샷 없이 돈다(평가기 워커). 그래서 스냅샷과 <b>같은 조립기</b>로 읽는다 — 실시간 노선 여부, 고정
+     * 상태, 링 세대 확인이 스냅샷의 안내와 같아야 화면의 현재 단계 도착과 환승 판정이 같은 열차를 본다. 노선 이름은
+     * 쓰지 않으므로 노선 후보는 넘기지 않는다.
+     *
+     * <p>읽는 값은 고정 한 행(DB, 단계 id 유일 색인)과 링 한 키(Redis GET)다. 외부 API 는 부르지 않는다. 지하철을
+     * 타는 중이 아니거나 그 단계 뒤에 환승이 없으면 아무것도 읽지 않는다.
+     *
+     * @return 읽을 이유가 없거나 못 읽었으면 null — 열차 대기 없이 지금처럼 계산한다
+     */
+    private SubwayGuidance currentSubwayGuidance(Long journeyId, int routeRevision, int currentLegIndex,
+                                                 List<JourneyLeg> legs, Map<Integer, JourneyLeg> legsByIndex,
+                                                 List<TransferConnection> transfers) {
+        JourneyLeg current = legsByIndex.get(currentLegIndex);
+        boolean ridingSubwayIntoTransfer = current != null
+                && current.getType() == JourneyLegType.RIDE_SUBWAY
+                && transfers.stream().anyMatch(transfer -> transfer.getFromLegIndex() == currentLegIndex);
+        if (!ridingSubwayIntoTransfer) {
+            return null;
+        }
+        try {
+            return subwayGuidanceComposer.compose(routeRevision, currentLegIndex, legs, Map.of());
+        } catch (RuntimeException e) {
+            // 링은 판정을 더 정확하게 할 뿐이다. 못 읽었다고 판정 전체를 버리지 않는다(링 없음과 같게 둔다).
+            log.warn("[TransferRisk] 지하철 안내 조회 실패 — journeyId={}, 열차 대기 없이 판정한다: {}",
+                    journeyId, e.getMessage());
+            return null;
+        }
     }
 
     /**
