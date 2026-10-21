@@ -61,13 +61,29 @@ public class SubwayLinePatternService {
      * @throws RuntimeException OTP 호출이 실패했고 낡은 값도 없을 때
      */
     public List<DirectedRailPattern> patterns(String lineId, String direction) {
-        String key = lineId + ":" + direction;
+        return patterns(lineId, direction, false);
+    }
+
+    /**
+     * 노선형 급행({@code 서울9호선(급행)}·{@code 서울1호선(용산-동인천급행)} 등) 노선의 패턴(subway-express PR-S4). 급행 구간 시간을
+     * 일반 패턴과 섞지 않고 따로 든다 — {@link #patterns} 는 급행 노선을 뺀다({@link SubwayRoutePatternAssembler#selectRoutes}).
+     * 정차 패턴형 급행(수인분당 등)은 일반 노선 안의 패턴이라 {@link #patterns} 쪽에 있다.
+     *
+     * @return 그 방향 급행 노선 패턴. 급행 노선이 없으면 빈 목록
+     * @throws RuntimeException OTP 호출이 실패했고 낡은 값도 없을 때
+     */
+    public List<DirectedRailPattern> expressPatterns(String lineId, String direction) {
+        return patterns(lineId, direction, true);
+    }
+
+    private List<DirectedRailPattern> patterns(String lineId, String direction, boolean express) {
+        String key = cacheKey(lineId, direction, express);
         Cached<List<DirectedRailPattern>> cached = patterns.get(key);
         if (cached != null && cached.isFresh(clock.instant())) {
             return cached.value();
         }
         try {
-            List<DirectedRailPattern> loaded = load(lineId, direction);
+            List<DirectedRailPattern> loaded = load(lineId, direction, express);
             patterns.put(key, new Cached<>(loaded, clock.instant()));
             return loaded;
         } catch (RuntimeException e) {
@@ -85,8 +101,26 @@ public class SubwayLinePatternService {
      * 적재를 넣으면 안 되는 곳용). 채우는 것은 워밍업·{@link #patterns} 다.
      */
     public List<DirectedRailPattern> cachedPatterns(String lineId, String direction) {
-        Cached<List<DirectedRailPattern>> cached = patterns.get(lineId + ":" + direction);
+        Cached<List<DirectedRailPattern>> cached = patterns.get(cacheKey(lineId, direction, false));
         return cached == null ? List.of() : cached.value();
+    }
+
+    /**
+     * <b>이미 적재된</b> 노선형 급행 패턴만(낡았어도, subway-express PR-S4). 키 {@code line:dir:express}. 없으면 빈 목록 — OTP 를
+     * 부르지 않는다. 채우는 것은 워밍업({@link SubwayLinePatternWarmup})·{@link #loadExpressLater}.
+     */
+    public List<DirectedRailPattern> cachedExpressPatterns(String lineId, String direction) {
+        Cached<List<DirectedRailPattern>> cached = patterns.get(cacheKey(lineId, direction, true));
+        return cached == null ? List.of() : cached.value();
+    }
+
+    /** 급행 노선 패턴을 이미 한 번 받았는가(빈 목록이어도). 받지 않았으면 뒤에서 적재를 건다. */
+    public boolean expressLoaded(String lineId, String direction) {
+        return patterns.containsKey(cacheKey(lineId, direction, true));
+    }
+
+    static String cacheKey(String lineId, String direction, boolean express) {
+        return lineId + ":" + direction + (express ? ":express" : "");
     }
 
     /**
@@ -103,14 +137,23 @@ public class SubwayLinePatternService {
      * 같은 키가 이미 적재 중이면 아무것도 안 한다. 실패는 로그만.
      */
     public void loadLater(String lineId, String direction) {
-        String key = lineId + ":" + direction;
+        loadLater(lineId, direction, false);
+    }
+
+    /** {@link #loadLater} 의 급행 노선판. */
+    public void loadExpressLater(String lineId, String direction) {
+        loadLater(lineId, direction, true);
+    }
+
+    private void loadLater(String lineId, String direction, boolean express) {
+        String key = cacheKey(lineId, direction, express);
         if (!loading.add(key)) {
             return;
         }
         try {
             loader.execute(() -> {
                 try {
-                    patterns(lineId, direction);
+                    patterns(lineId, direction, express);
                 } catch (RuntimeException e) {
                     log.warn("[OTP] 지하철 패턴 지연 적재 실패 line={} direction={}: {}", lineId, direction, e.getMessage());
                 } finally {
@@ -123,10 +166,14 @@ public class SubwayLinePatternService {
         }
     }
 
-    private List<DirectedRailPattern> load(String lineId, String direction) {
+    private List<DirectedRailPattern> load(String lineId, String direction, boolean express) {
         Instant deadline = clock.instant().plus(LOAD_BUDGET);
         List<DirectedRailPattern> directed = new ArrayList<>();
-        for (OtpRailRoute route : SubwayRoutePatternAssembler.selectRoutes(routes(deadline), lineId, direction)) {
+        List<OtpRailRoute> all = routes(deadline);
+        List<OtpRailRoute> selected = express
+                ? SubwayRoutePatternAssembler.selectExpressRoutes(all, lineId, direction)
+                : SubwayRoutePatternAssembler.selectRoutes(all, lineId, direction);
+        for (OtpRailRoute route : selected) {
             directed.addAll(SubwayRoutePatternAssembler.orient(
                     route, port.patterns(route.gtfsId(), remaining(deadline)), direction));
         }

@@ -109,6 +109,24 @@ public final class SubwayRoutePatternAssembler {
     }
 
     /**
+     * 이 line_id·방향의 <b>노선형 급행</b> 노선(이름에 "급행", subway-express PR-S4). 방향 라벨은 일반 노선과 같은 반전표를
+     * 탄다 — 9호선 급행({@code 09-2U/D})은 반대, 1호선 경인·경부 급행({@code 01-4U/D}·{@code 01-6U/D})은 그대로다(시험이 지킨다).
+     */
+    public static List<OtpRailRoute> selectExpressRoutes(List<OtpRailRoute> routes, String lineId, String direction) {
+        List<OtpRailRoute> selected = new ArrayList<>();
+        for (OtpRailRoute route : routes) {
+            if (!lineId.equals(LINE_IDS.get(route.shortName()))
+                    || route.longName() == null || !route.longName().contains(EXPRESS)) {
+                continue;
+            }
+            if (direction.equals(realtimeLabel(route))) {
+                selected.add(route);
+            }
+        }
+        return selected;
+    }
+
+    /**
      * 노선의 패턴을 요청 방향으로 맞춘다. 가르는 노선이면 그 방향 쪽 절반만 남긴다.
      *
      * <p>가를 역이 없는 패턴(회차 구간만 도는 짧은 패턴)은 방향을 알 수 없어 뺀다. 그 구간은

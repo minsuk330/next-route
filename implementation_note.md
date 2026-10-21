@@ -5785,6 +5785,53 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `SubwayStationsAheadService.resolve` 의 패턴 키 규칙은 S3 가 바꾸지 않음 → `SubwayPatternStationMatcher.key` 그대로 맞다. application.yaml 은 S3 의 `subway.express.tracking` 만 추가(이 PR 무관)
 - 검증: `./gradlew compileJava compileTestJava` 통과. `./gradlew test --tests '*Test' --continue` → 407 클래스 3,032 테스트 실패 0·오류 0·건너뜀 1. `./gradlew test --tests '*IT' --continue`(로컬 env) → 95 클래스 677 테스트 실패 0·오류 0·건너뜀 7, 4m48s. V71 은 병합 뒤에도 origin/main 에 없음(V70 까지)
 
+## subway-express PR-S4 급행 추적 — 바인딩 종류(V72)·급행 링 체인·통과역 신호·급행 구간 시간 (2026-10-21, feat/subway-express-tracking)
+### 확정
+- 바인딩 종류는 domain enum `SubwayBindingTrainKind {NORMAL, EXPRESS, UNKNOWN}`(application `TrainKind` 를 엔티티로 끌어오지 않음). 선택 시 `SubwayTrainKindJudge.Judgement` → NORMAL/EXPRESS(서비스 있음)/그 밖 UNKNOWN. 일반만 다니는 노선의 UNKNOWN(원천이 trainType 비움)도 UNKNOWN 으로 적는다 — 링은 계획 체인(= 완행)이라 결과 같음
+- `selectByUser(...)` 옛 시그니처(종류 없음)는 종류를 **null 로 덮는다**(앞 열차의 급행 서비스가 새 열차에 남지 않게) → 링이 다시 분류
+- 배포 전 행(null) 분류는 `SubwayBoundTrainResolver` 가 링 tick 에서 한 번: 도착 스냅숏의 그 열차 모든 행 + lastSeen 위치 → `classifyTrain`. 결과를 조건부 UPDATE(`id·version 같고 train_kind IS NULL`)로 적고 **version·updated_at 은 안 건드림**(version = 링 키, 올리면 링 처음부터)
+- 링 체인 주입 한 곳 `SubwayRingUpdateService.chainOf` → `SubwayRingChainBuilder.build`. 일반 열차 확장은 "계획이 완행 경로의 부분수열인데 역이 빠졌을 때만" — 계획 == 완행이면 원래 체인 객체 그대로(기존 링 시험 무변경 근거)
+- ~~급행 체인을 못 만들면(패턴·완행 경로 모름, 승·하차역 미정차) **빈 체인** → 그 tick 링 안 그림~~ 취소: #482 사용자 결정(2026-10-22) — 해석 실패(패턴·완행 경로 모름)는 UNKNOWN 과 같이 **계획 체인**. 빈 체인은 승·하차역에 서지 않는 급행만. 해석 실패 급행은 선택 단계에서 이미 422 라 링에 오는 경우는 카탈로그에서 서비스가 사라졌거나 패턴 캐시가 빈 순간뿐
+- 일반 열차 경로(pattern null)는 `SubwayLineOrder` 옛 4인자 메서드를 그대로 부른다(5인자 오버로드 안 탐) — 목(mock) 4인자 스텁을 쓰는 기존 시험이 그대로 돈다
+- 지나치는 역 관측의 사건 시각: 위치 로그 역별 도착(`findArrivals`)의 그 역 첫 `to`, 없으면 관측 시각. 신선도(isStale)는 관측 시각(위치 수신·도착 행 recptnDt)으로, 시간 앵커는 사건 시각(`SubwayRingObservation.passedAt` = `segmentStartAt` 칸)으로 나눴다 — 사건 시각으로 신선도를 재면 지나친 뒤 다음 정차역 전까지 STALE 로 굳는다
+- 같은 구간에서 직전 앵커 진행(`segmentProgress`)이 지나친 지점 이상이면 그대로 둔다(반복 관측·도착 행 recptnDt 가 tick 마다 바뀌어도 예정이 밀리지 않게). 보정은 지나치는 역마다 한 번
+- 표본 오용 방지 규칙: 실측 표본(`subway:seg:dur:{line}:{dir}:{도착역}`)은 S3 이후 일반 열차만 남으므로 구간 = "완행 기준 바로 앞 역 → 도착역". 관측 구간의 출발역이 그 역(지나치는 역이 있으면 마지막 지나친 역, 없으면 체인 앞 역)이 아니면 표본을 안 쓴다. 일반 체인에서는 언제나 같아 동작 무변경
+- geometry 버전 키 = `{routeRevision}:{catalogVersion}[:{바인딩 판}]`, 바인딩 판 = 지하철 고정마다 `{legIndex}.{version}{N|E|U|빈칸}` 를 `-` 로 이음(예 `1:2026-10-21:1.0E`). 고정 없는 여정은 S2 키 그대로(배포만으로 앱 캐시가 깨지지 않게). 앱은 문자열 동일성만 본다
+- 라벨: `SubwayRingState.trainKind/trainLabel`(새 칸, Boot ObjectMapper 는 모르는 칸 무시 → 롤백 안전), `SubwayGuidance.trainKind/trainLabel`, push props `trainKind`·`trainLabel`. 셋 다 링 상태에서 읽어 같은 값. 급행 라벨은 서비스 label 이 아니라 D8 대로 "급행" 하나
+- 급행 링은 플래그(`subway.express.tracking.enabled`)와 무관하게 돈다 — 플래그는 S3 선택 관문이라 새 EXPRESS 바인딩은 플래그 꺼짐이면 안 생긴다. EXPRESS 가 되는 길은 배포 전 행의 지연 분류뿐이고, 그 행에는 급행 체인이 예전 계획 체인보다 맞다
+### 함정
+- 위치 API 는 급행이 **지나치는 역에서도 진입·도착·출발(0·1·2)** 을 낸다(2026-10-21 녹화 9712: 증미 1, 신목동 1, 국회의사당 1, 흑석 1, 구반포 1). 상태 코드로 정차/통과를 가를 수 없다 ← 체인의 passingBefore 로만 가른다
+- 도착 API 는 급행 행을 정차역에만 낸다. 목표 정차역 행의 "전역 진입(4)" 은 완행 기준 전역 = 마지막 지나친 역(녹화: 염창 행 4 가 9712 등촌 진입 21:47:33 직후 21:47:36). PLAN 의 4·5 → PASSING 가정이 실측과 맞다
+- `SubwayStationsAheadService.resolvedPatterns` 캐시 키는 `line:direction` 이고 원천 목록 동일성(==)으로 무효화 → 급행 목록을 같은 키로 넣으면 일반·급행이 번갈아 캐시를 덮는다 ← 급행은 direction 자리에 `{dir}:express` 를 넘긴다
+- 공유 로컬 DB(5432)는 V71 이고 Flyway outOfOrder 가 꺼져 있다 — V72 를 거기 적용하면 S5(V73) 브랜치 IT 가 깨진다 ← IT 는 버리는 컨테이너(postgis 17-3.5 :55432 에 pg_dump 전체 복사, redis :56379)에서만 돌렸다
+- 같은 이유로 **운영 배포 순서도 V72 → V73** 이어야 한다(S5 를 먼저 배포하면 S4 의 V72 가 out-of-order 로 거부돼 기동 실패)
+### 좌표
+- `application/journey/service/SubwayRingChainBuilder`·`SubwayBoundTrainResolver`·`SubwayBoundStopsResolver`, `SubwayRingUpdateService.chainOf/typicalOf`
+- `SubwayRingChain.Station.passingBefore`·`sequenceOfPassing`·`pattern`, `SubwayRingObservation.Source.PASSING`·`passingFraction`·`passedAt`
+- `SubwayRingSignalReader.passingAhead/positionAt/passingObservation/passingFraction/passingAware/allStopPrevious`, `departedFromPosition(…, leftPassing)`, `measured(…, fromKey, chain)`
+- `SubwayRingCalculator.fromPassing/passingPoint`, `fromPreviousStation`(passingFraction 분기), `fromMeasured`(하한)
+- `SubwayLineOrder.segmentTimes/arrivalGapSeconds(…, ResolvedPattern)`·`exactMatch`, `SubwayLinePatternService.expressPatterns/cachedExpressPatterns/loadExpressLater/expressLoaded`, `SubwayRoutePatternAssembler.selectExpressRoutes`, `SubwayLinePatternWarmup.EXPRESS_LINE_IDS`
+- `SubwayStopPatternResolver.resolveService`, `SubwayTrainKindJudge`(지표), `SubwayLegBindingRepository.classifyIfUnclassified`, `db/migration/V72__subway_binding_train_kind.sql`
+- 재생: `tools/subway-replay/record.py`(KEEP_LINES)·`trim.py`, `src/test/resources/replay/line9-9712-express-gayang-goter`·`line9-9226-normal-gayang-dangsan`, `SubwayRingExpressReplayIT`
+### 미결
+- 1호선 경부 급행 녹화는 같은 녹화(position-1호선)에 있으나 재생 조각은 9호선만 만들었다. 경부 A·B 급행(trainNo 별 예외 정차)·경인 급행 재생은 후속
+- 지나치는 역 진행 비율은 완행 구간 운행 시간 비례 — 급행은 지나치는 역에서 감속하지 않아 실제보다 조금 늦게 본다(녹화 오차에 포함)
+- 하차 예정 오차는 링 기존 방식(TYPICAL ×1.2 여유)이라 늦게 치우친다(일반 9226 +111s). 급행 고유 문제는 아니다
+- 플래그 켜기 조건: 이 PR 배포 뒤 운영에서 9호선·1호선 급행 실제 탑승 녹화 1회 이상 재생 통과 + `subway.express.unresolved{stage=ring}` 0
+### 배포
+- **V72 마이그레이션 — Flyway 가 jar 에서 적용**(V65 이후 관례, V71 과 같다). `ALTER TABLE subway_leg_binding ADD COLUMN train_kind/train_service_id/catalog_version`(nullable, 메타데이터만) + CHECK 2개(기존 행 전부 null 이라 즉시 통과). api·worker 같은 이미지로 교체
+- **순서: S4(V72) 를 S5(V73) 보다 먼저 배포**. 거꾸로면 V72 가 out-of-order 로 거부된다
+- 롤백: 구버전은 새 칸을 매핑하지 않음(validate 통과), Redis 링 상태의 새 칸·push props 새 키는 무시된다. CHECK 는 null 을 받으므로 구버전 INSERT/UPDATE 그대로 통과(IT 로 확인)
+- 플래그 `subway.express.tracking.enabled` 기본 false 유지
+- #482(급행 계획 + 일반 열차 → 급행 체인으로 다음 역·남은 역·예정 계산)를 이 PR 이 닫는다. 수정 지점은 `SubwayRingUpdateService.chainOf` → `SubwayRingChainBuilder` 하나, 플래그와 무관
+- 다른 세션(#483 계산기 ENTERING/ARRIVED 앵커·`typicalOf`, #481, #480) 리베이스 대비 변경 범위: `SubwayRingCalculator` = `next`(switch 에 PASSING 한 줄)·`fromPreviousStation`(passingFraction 분기 2줄)·`fromMeasured`(하한 3줄) + 새 메서드 `fromPassing`·`passingPoint`. `SubwayRingUpdateService` = `processOne`(train·bound 계산을 체인 앞으로, `withTrain`)·`typicalOf`(pattern 있을 때만 5인자 오버로드)·`chainOf`(빌더) + 필드 2. `SubwayRingSignalReader` = `read`(fromArrival 인자)·`positionAhead`·`departedFromPosition`·`fromArrival`·`measured`·`fromPosition`·`passedChain` + 새 메서드 `passingAhead`·`positionAt`·`passingObservation`·`passingEvent`·`passingFraction`·`passingAware`·`allStopPrevious`
+### 검증
+- `./gradlew compileJava compileTestJava` 통과(경고는 기존)
+- `./gradlew test --tests '*Test' --continue` → 414 클래스 3,088 테스트 실패 0·오류 0·건너뜀 1 (S2 병합 기준 407/3,032)
+- `./gradlew test --tests '*IT' --continue` → 96 클래스 682 테스트 실패 0·오류 0·건너뜀 7 — **버리는 컨테이너**(postgis/postgis:17-3.5 :55432 에 공유 로컬 DB pg_dump 전체 복사 → Flyway V72 적용, redis:7-alpine :56379). 공유 로컬 DB(V71)는 건드리지 않음. #482 반영 뒤 관련 IT(`SubwayRideScenarioIT` 5, `SubwayRingExpressReplayIT` 2, `SubwayBindingSchemaIT` 15) 다시 통과
+- 녹화 재생: 9712 급행 하차 예정 평균|e| 41s(치우침 +36s, 최대 517s, 마지막 구간 69s), 고속터미널 링 1.00 = 원천 도착 +19s, 다음 역은 정차역 6개뿐. 같은 녹화를 예전 경로(UNKNOWN 계획 체인)로 돌리면 평균|e| 468s·최대 1,060s. 일반 9226 평균|e| 111s(+111s, 기존 TYPICAL ×1.2), 당산 +15s
+- 운영 OTP fixture: 9호선 급행 가양→염창 계획 210s vs 완행 운행 합 310s
+
 ## subway-express PR-S5 재탐색이 급행 끄기를 따름 (V73) (2026-10-21, feat/subway-express-reroute)
 ### 확정
 - 흐름: `GET /api/route/search?excludeExpress` → `RouteSearchController` 가 `request.excludesExpress()` 를 `RouteSearchSnapshotRecorder.attach(userId, result, excludeExpress)` 로 → `RouteSearchSnapshotPort.save(owner, result, excludeExpress, expiresAt)` → Redis `StoredSnapshot.excludeExpress`(끝 칸, `Boolean`) → `find` 가 `StoredPath.excludeExpress`(boolean) 로 돌려줌 → `JourneyStartService` → `JourneyStartTxService.start(…, NAVIGATION, excludeExpress)` → `journey_session.exclude_express`(V73) → 재탐색 세 진입점(`RerouteProposalService.request`·`RerouteAlertPublisher`·`RerouteBoardRefreshService.refresh`)이 `journey.isExcludeExpress()` 를 `RerouteContext`/`BoardRequest` 끝 칸으로 → `RemainingPathCandidateProvider.searchOne`/`searchBoardOne` → `RemainingRouteSearchService.search(…, departAt, excludeExpress)`

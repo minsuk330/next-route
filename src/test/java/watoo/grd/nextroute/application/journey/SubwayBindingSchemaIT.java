@@ -47,6 +47,7 @@ class SubwayBindingSchemaIT {
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
+    @Autowired watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository bindingRepository;
     @MockBean RouteSearchSnapshotPort snapshotPort;
 
     private final List<Long> createdUserIds = new ArrayList<>();
@@ -136,6 +137,77 @@ class SubwayBindingSchemaIT {
         assertThat(jdbcTemplate.queryForObject(
                 "select count(*) from subway_leg_binding where journey_id = ?",
                 Integer.class, journeyId)).isEqualTo(1);
+    }
+
+    // ── 열차 종류(V72, subway-express PR-S4) ─────────────────────────────
+
+    @Test
+    @DisplayName("V72: 종류는 NORMAL·EXPRESS·UNKNOWN 만, 급행은 서비스 id 가 반드시 있다, null(미분류)은 받는다")
+    void trainKindChecks() {
+        insertBinding("CONFIRMED", "9600");
+
+        assertThatThrownBy(() -> setKind("DIRECT", null)).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> setKind("EXPRESS", null)).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatCode(() -> setKind("EXPRESS", "1009-express")).doesNotThrowAnyException();
+        assertThatCode(() -> setKind("NORMAL", null)).doesNotThrowAnyException();
+        assertThatCode(() -> setKind("UNKNOWN", null)).doesNotThrowAnyException();
+        assertThatCode(() -> setKind(null, null)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("V72 배포: 배포 전에 묶인 급행(종류 null)을 링이 한 번 분류해 적는다 — 세대 그대로, 두 번째는 0 행")
+    void deployClassifiesExistingExpressBindingOnce() {
+        // 배포 전 코드가 쓴 모양 그대로(새 칸 없이) — 9호선 급행 9600
+        insertBinding("CONFIRMED", "9600");
+        Long id = bindingId();
+        var before = bindingRepository.findById(id).orElseThrow();
+        assertThat(before.getTrainKind()).as("배포 전 행은 미분류").isNull();
+
+        int first = bindingRepository.classifyIfUnclassified(id, before.getVersion(), "EXPRESS", "1009-express",
+                "2026-10-21");
+        int second = bindingRepository.classifyIfUnclassified(id, before.getVersion(), "NORMAL", null, null);
+        int staleGeneration = bindingRepository.classifyIfUnclassified(id, before.getVersion() + 1, "NORMAL", null,
+                null);
+
+        assertThat(first).isEqualTo(1);
+        assertThat(second).as("이미 분류됨").isZero();
+        assertThat(staleGeneration).isZero();
+        var after = bindingRepository.findById(id).orElseThrow();
+        assertThat(after.getTrainKind()).isEqualTo(watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.EXPRESS);
+        assertThat(after.getTrainServiceId()).isEqualTo("1009-express");
+        assertThat(after.getCatalogVersion()).isEqualTo("2026-10-21");
+        assertThat(after.getVersion()).as("링 키(세대)는 그대로").isEqualTo(before.getVersion());
+    }
+
+    @Test
+    @DisplayName("V72 롤백: 칼럼만 남은 채 구버전 코드가 새 칸 없이 쓰고 읽어도 된다(전부 nullable, 기존 CHECK 무변경)")
+    void rollbackOldCodeStillWritesAndReads() {
+        insertBinding("CONFIRMED", "9600");
+        setKind("EXPRESS", "1009-express");
+
+        // 구버전의 갱신(새 칸을 모르는 UPDATE)과 조회(옛 칼럼 목록)
+        assertThatCode(() -> jdbcTemplate.update("""
+                update subway_leg_binding set status = 'CONFIRMED', train_no = '9602', version = version + 1,
+                       updated_at = now() where journey_id = ?
+                """, journeyId)).doesNotThrowAnyException();
+        assertThat(jdbcTemplate.queryForObject("""
+                select train_no from subway_leg_binding where journey_id = ?
+                """, String.class, journeyId)).isEqualTo("9602");
+        // 다른 단계에 구버전이 새로 넣는 행도 들어간다
+        jdbcTemplate.update("delete from subway_leg_binding where journey_id = ?", journeyId);
+        assertThatCode(() -> insertBinding("CONFIRMED", "9100")).doesNotThrowAnyException();
+    }
+
+    private void setKind(String kind, String serviceId) {
+        jdbcTemplate.update("""
+                update subway_leg_binding set train_kind = ?, train_service_id = ?, train_line_id = '1009'
+                 where journey_id = ?
+                """, kind, serviceId, journeyId);
+    }
+
+    private Long bindingId() {
+        return jdbcTemplate.queryForObject("select id from subway_leg_binding where journey_id = ?", Long.class,
+                journeyId);
     }
 
     // ── 감사 표 ──────────────────────────────────────────────────────────

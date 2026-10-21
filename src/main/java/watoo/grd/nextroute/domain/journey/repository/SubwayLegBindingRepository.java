@@ -103,6 +103,25 @@ public interface SubwayLegBindingRepository extends JpaRepository<SubwayLegBindi
     @Query("select b from SubwayLegBinding b where b.journeyLegId = :legId and b.deletedAt is null")
     Optional<SubwayLegBinding> findForUpdate(@Param("legId") Long legId);
 
+    /**
+     * 배포 전 행(종류 null)을 링 갱신이 한 번 분류해 채운다(subway-express PR-S4, V72).
+     *
+     * <p>잠금 없이 조건부 한 문장이다 — 종류가 아직 null 이고 고정 세대가 그대로일 때만 쓴다. 그 사이 사용자가 다른 열차를 골랐으면
+     * (세대가 올랐으면) 0 행이다. {@code version}·{@code updated_at} 은 건드리지 않는다: 세대가 오르면 링이 처음부터 다시 시작하고,
+     * {@code updated_at} 은 링 대상의 순번이다.
+     *
+     * @return 고친 행 수(0 또는 1)
+     */
+    @org.springframework.transaction.annotation.Transactional
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
+    @Query(value = """
+            UPDATE subway_leg_binding
+               SET train_kind = :kind, train_service_id = :serviceId, catalog_version = :catalogVersion
+             WHERE id = :id AND version = :version AND train_kind IS NULL
+            """, nativeQuery = true)
+    int classifyIfUnclassified(@Param("id") Long id, @Param("version") int version, @Param("kind") String kind,
+                               @Param("serviceId") String serviceId, @Param("catalogVersion") String catalogVersion);
+
     // ── 수명주기(여정이 끝나거나 개정본이 오를 때) ──────────────────────────
 
     /**

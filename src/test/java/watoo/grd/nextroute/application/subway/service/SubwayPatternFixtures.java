@@ -52,6 +52,16 @@ final class SubwayPatternFixtures {
         return out;
     }
 
+    /** 노선형 급행 노선의 패턴(subway-express S4, {@code SubwayLinePatternService.expressPatterns} 와 같은 선택). */
+    static List<StationsAheadCalculator.Pattern> expressPatterns(String lineId, String direction) {
+        List<StationsAheadCalculator.Pattern> out = new ArrayList<>();
+        for (OtpRailRoute route : SubwayRoutePatternAssembler.selectExpressRoutes(ROUTES, lineId, direction)) {
+            SubwayRoutePatternAssembler.orient(route, PATTERNS.get(route.gtfsId()), direction)
+                    .forEach(p -> out.add(SubwayStationsAheadService.resolve(p, STATIONS.get(lineId))));
+        }
+        return out;
+    }
+
     static String stationId(String lineId, String name) {
         return STATIONS.get(lineId).stream()
                 .filter(c -> name.equals(NORMALIZER.normalize(c.stationName())))

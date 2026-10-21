@@ -22,6 +22,7 @@ import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.routing.RailServiceClassifier;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
+import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyRevision;
@@ -85,6 +86,8 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
     private final BusRealtimeStopIds busRealtimeStopIds;
     // 지하철 단계 완행 전체 역(allStops)·버전 키의 카탈로그 판(subway-express S2).
     private final RailServiceClassifier railServiceClassifier;
+    // 묶인 열차 기준 역 목록·버전 키의 바인딩 판(subway-express S4).
+    private final SubwayBoundStopsResolver boundStops;
 
     @Override
     @Transactional(readOnly = true)
@@ -102,6 +105,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                 .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(journeyId, revision);
         Map<Long, List<JourneyLegRouteOption>> optionsByLeg = loadRouteOptions(legs);
         Snapshot snapshot = recompile(snapshotOf(journey, revision));
+        Map<Long, SubwayLegBinding> bindings = boundStops.bindingsOf(legs);
 
         List<LegGeometry> geometries = new ArrayList<>(legs.size());
         Map<String, List<RouteStopProjection>> routeStopsByRouteId = new HashMap<>();
@@ -114,8 +118,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                         routeStopsByRouteId);
                 case WAIT_BUS, WAIT_SUBWAY -> new Built(waitLeg(leg, sub), null);
                 case WALK, TRANSFER_WALK -> new Built(walkLeg(leg, sub), null);
-                case RIDE_SUBWAY -> new Built(withStops(snapshotLeg(leg, sub), subwayStations(sub))
-                        .withAllStops(subwayAllStops(leg, sub)), null);
+                case RIDE_SUBWAY -> new Built(subwayRide(leg, sub, bindings.get(leg.getId())), null);
                 default -> new Built(snapshotLeg(leg, sub), null);
             };
             geometries.add(built.geometry().withDisplayColor(
@@ -124,7 +127,75 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
         }
 
         return new JourneyNavigationGeometry(journeyId, revision, geometries, oldestFetchedAt,
-                JourneyNavigationGeometry.versionKey(revision, railServiceClassifier.catalogVersion()));
+                JourneyNavigationGeometry.versionKey(revision, railServiceClassifier.catalogVersion(),
+                        SubwayBoundStopsResolver.versionToken(bindings.values())));
+    }
+
+    /**
+     * 지하철 타는 단계. 열차가 아직 안 묶였으면 S2 그대로(계획 정차열 + 완행 {@code allStops}). 묶였으면(subway-express S4) 그
+     * 열차의 정차역으로 바꾼다:
+     *
+     * <ul>
+     *   <li>급행 — 계획 첫·끝 역 사이를 완행으로 펼치고 그 열차가 서는 역만 {@code trainStops=true}, {@code stops} 는 서는 역만.
+     *       패턴을 못 만들거나 승·하차역에 서지 않으면 S2 그대로</li>
+     *   <li>일반 — 계획이 급행 정차열이었으면 완행으로 펼쳐 전부 서는 역({@code stops} = 완행). 계획이 이미 완행이면 그대로</li>
+     *   <li>모름·배포 전 미분류 — S2 그대로</li>
+     * </ul>
+     * 구버전 앱은 {@code stops} 를 그대로 세므로, 이 교체로 남은 역 수가 실제 열차 기준이 된다.
+     */
+    private LegGeometry subwayRide(JourneyLeg leg, SubPathResult sub, SubwayLegBinding binding) {
+        LegGeometry planned = withStops(snapshotLeg(leg, sub), subwayStations(sub))
+                .withAllStops(subwayAllStops(leg, sub));
+        if (binding == null || binding.getTrainKind() == null
+                || binding.getTrainKind() == watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.UNKNOWN) {
+            return planned;
+        }
+        boolean express = binding.getTrainKind()
+                == watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.EXPRESS;
+        if (!express && planned.allStops() != null
+                && planned.allStops().stream().allMatch(stop -> Boolean.TRUE.equals(stop.trainStops()))) {
+            return planned; // 일반 열차 · 완행 계획 — 바꿀 것이 없다
+        }
+        Optional<List<RailServiceClassifier.RailStop>> expanded = expandPlanned(sub);
+        if (expanded.isEmpty()) {
+            return planned;
+        }
+        Optional<watoo.grd.nextroute.application.subway.service.SubwayStopPatternResolver.ResolvedPattern> pattern =
+                express ? boundStops.patternOf(binding) : Optional.empty();
+        if (express && pattern.isEmpty()) {
+            return planned;
+        }
+        List<RailServiceClassifier.RailStop> path = expanded.get();
+        List<StopGeometry> all = new ArrayList<>(path.size());
+        List<StopGeometry> stops = new ArrayList<>(path.size());
+        for (int i = 0; i < path.size(); i++) {
+            RailServiceClassifier.RailStop stop = path.get(i);
+            boolean stopsHere = !express || pattern.get().stopsAt(stop.stationId());
+            all.add(new StopGeometry(i, null, stop.name(), stop.lon(), stop.lat(), null, stopsHere));
+            if (stopsHere) {
+                stops.add(new StopGeometry(stops.size(), null, stop.name(), stop.lon(), stop.lat()));
+            }
+        }
+        if (!Boolean.TRUE.equals(all.get(0).trainStops()) || !Boolean.TRUE.equals(all.get(all.size() - 1).trainStops())) {
+            return planned; // 승·하차역에 서지 않는 열차 — 고를 수 없었어야 한다. 계획을 지킨다
+        }
+        return withStops(planned, stops).withAllStops(all);
+    }
+
+    /** 계획 정차열의 첫·끝 역 사이 완행 경로(좌표·역 id 포함). 못 펼치면 empty. */
+    private Optional<List<RailServiceClassifier.RailStop>> expandPlanned(SubPathResult sub) {
+        List<StopGeometry> planned = subwayStations(sub);
+        if (planned.size() < 2 || sub.lanes() == null || sub.lanes().isEmpty()) {
+            return Optional.empty();
+        }
+        List<RailServiceClassifier.PlannedStop> plannedStops = new ArrayList<>(planned.size());
+        for (StopGeometry stop : planned) {
+            if (stop.stopName() == null || stop.x() == null || stop.y() == null) {
+                return Optional.empty();
+            }
+            plannedStops.add(new RailServiceClassifier.PlannedStop(stop.stopName(), stop.x(), stop.y()));
+        }
+        return railServiceClassifier.expandAllStops(sub.lanes().get(0).name(), plannedStops);
     }
 
     // ── 버스 ────────────────────────────────────────────────────────────────

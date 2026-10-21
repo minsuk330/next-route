@@ -29,6 +29,10 @@ import java.time.Instant;
  *                                바뀌지 않아도 수집이 살아 있으면 갱신된다. 위치 관측은 null
  * @param origin                  근거가 실제로 온 API(#371). 위치 API 의 전역 사건을 도착 관측(PREV_*)으로 바꿔 넘길 때
  *                                {@code source} 는 계산기 분기용으로 ARRIVAL 이라 출처를 따로 적는다. null 이면 source 로 짐작
+ * @param passingFraction         급행이 <b>지나치는 역</b>에서 본 관측(subway-express PR-S4)이면 그 역이 구간
+ *                                ({@code observedStationSequence} 앞 정차역 → 그 역) 안에서 차지하는 진행 비율(완행 구간 시간 비례, 0~1).
+ *                                {@link Source#PASSING} 은 늘 있고, 실측 관측(전역 출발)은 그 전역이 지나친 역이면 진행 하한으로 싣는다.
+ *                                그 밖은 null
  */
 public record SubwayRingObservation(
         Source source,
@@ -40,8 +44,16 @@ public record SubwayRingObservation(
         Instant segmentStartAt,
         Instant seenAt,
         Instant presentAt,
-        Origin origin
+        Origin origin,
+        java.math.BigDecimal passingFraction
 ) {
+
+    public SubwayRingObservation(Source source, SubwayArrivalCode code, SubwayTrainStatus positionStatus,
+                                 int observedStationSequence, Instant estimatedArrivalAt, Instant observedAt,
+                                 Instant segmentStartAt, Instant seenAt, Instant presentAt, Origin origin) {
+        this(source, code, positionStatus, observedStationSequence, estimatedArrivalAt, observedAt, segmentStartAt,
+                seenAt, presentAt, origin, null);
+    }
 
     public SubwayRingObservation(Source source, SubwayArrivalCode code, SubwayTrainStatus positionStatus,
                                  int observedStationSequence, Instant estimatedArrivalAt, Instant observedAt,
@@ -72,19 +84,28 @@ public record SubwayRingObservation(
     /** 서버가 이 관측을 처음 본 시각을 붙인다. */
     public SubwayRingObservation withSeenAt(Instant seen) {
         return new SubwayRingObservation(source, code, positionStatus, observedStationSequence, estimatedArrivalAt,
-                observedAt, segmentStartAt, seen, presentAt, origin);
+                observedAt, segmentStartAt, seen, presentAt, origin, passingFraction);
     }
 
     /** 서버가 우리 열차 행을 마지막으로 받아 본 시각을 붙인다(도착 스냅샷 수집 시각). */
     public SubwayRingObservation withPresentAt(Instant present) {
         return new SubwayRingObservation(source, code, positionStatus, observedStationSequence, estimatedArrivalAt,
-                observedAt, segmentStartAt, seenAt, present, origin);
+                observedAt, segmentStartAt, seenAt, present, origin, passingFraction);
     }
 
     /** 근거가 위치 API 에서 왔다고 적는다. */
     public SubwayRingObservation fromPositionApi() {
         return new SubwayRingObservation(source, code, positionStatus, observedStationSequence, estimatedArrivalAt,
-                observedAt, segmentStartAt, seenAt, presentAt, Origin.POSITION_API);
+                observedAt, segmentStartAt, seenAt, presentAt, Origin.POSITION_API, passingFraction);
+    }
+
+    /**
+     * 실측 관측의 시작점(전역 출발)이 급행이 지나친 역이다 — 그 역의 구간 진행 비율을 싣는다(subway-express PR-S4). 계산기는 이
+     * 값을 진행 하한으로 쓴다: 그 시각에 열차는 이미 구간의 그만큼을 왔다.
+     */
+    public SubwayRingObservation withPassingFraction(java.math.BigDecimal fraction) {
+        return new SubwayRingObservation(source, code, positionStatus, observedStationSequence, estimatedArrivalAt,
+                observedAt, segmentStartAt, seenAt, presentAt, origin, fraction);
     }
 
     /** 근거가 실제로 온 API. */
@@ -131,7 +152,14 @@ public record SubwayRingObservation(
          * 열차가 이미 우리 구간(승차역~하차역)을 지나갔다(#311). 위치 로그의 역별 도착 이력에 구간 역이 있고 지금은 구간
          * 밖이다 — 하차역 너머로 갔다. 링은 하차역 도착으로 마무리한다.
          */
-        PASSED
+        PASSED,
+        /**
+         * 급행이 <b>서지 않고 지나는 역</b>에서 본 열차(subway-express PR-S4). {@code observedStationSequence} 는 그 역을 지나 도착할
+         * 정차역(곧 열차가 들어 있는 구간), {@code passingFraction} 은 구간 안 진행 비율이다. 정차·도착이 아니다 — 계산기는
+         * 목표를 앞으로만 당기고(되돌리지 않는다) 구간 시작 시각은 그대로 둔 채 남은 시간만 고친다.
+         * {@code position(DEPARTED, k-1)} 로 바꾸면 안 된다: 목표가 k 면 무시되고, 뒤처졌으면 그 시각부터 급행 구간 전체를 새로 센다.
+         */
+        PASSING
     }
 
     public static SubwayRingObservation arrival(SubwayArrivalCode code, int stationSequence,
@@ -144,6 +172,25 @@ public record SubwayRingObservation(
     public static SubwayRingObservation passed(int alightingSequence, Instant observedAt) {
         return new SubwayRingObservation(Source.PASSED, null, SubwayTrainStatus.ARRIVED,
                 alightingSequence, null, observedAt);
+    }
+
+    /**
+     * 지나치는 역에서 본 열차(subway-express PR-S4).
+     *
+     * @param segmentSequence 그 역을 지나 도착할 정차역의 체인 순번
+     * @param fraction        구간 안 진행 비율(0~1)
+     * @param observedAt      이 관측의 원천 시각(신선도 판정용 — 위치 수신 시각·도착 행 {@code recptnDt})
+     * @param passedAt        열차가 그 역에 처음 보인 사건 시각(시간 앵커). {@code segmentStartAt} 칸에 싣는다
+     */
+    public static SubwayRingObservation passing(int segmentSequence, java.math.BigDecimal fraction,
+                                                SubwayTrainStatus status, Instant observedAt, Instant passedAt) {
+        return new SubwayRingObservation(Source.PASSING, null, status, segmentSequence, null, observedAt,
+                passedAt == null ? observedAt : passedAt, null, null, null, fraction);
+    }
+
+    /** {@link Source#PASSING} 의 사건 시각(지나치는 역에 처음 보인 때). 아니면 null. */
+    public Instant passedAt() {
+        return source == Source.PASSING ? segmentStartAt : null;
     }
 
     public static SubwayRingObservation position(SubwayTrainStatus status, int stationSequence,

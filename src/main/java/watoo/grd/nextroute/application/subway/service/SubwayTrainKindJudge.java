@@ -38,12 +38,25 @@ public class SubwayTrainKindJudge {
     private final SubwayStopPatternResolver resolver;
     private final SubwayExpressTrackingProperties properties;
 
+    private final io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
     public SubwayTrainKindJudge(SubwayTrainKindClassifier classifier, SubwayStopPatternResolver resolver,
                                 SubwayExpressTrackingProperties properties) {
+        this(classifier, resolver, properties, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SubwayTrainKindJudge(SubwayTrainKindClassifier classifier, SubwayStopPatternResolver resolver,
+                                SubwayExpressTrackingProperties properties,
+                                io.micrometer.core.instrument.MeterRegistry meterRegistry) {
         this.classifier = classifier;
         this.resolver = resolver;
         this.properties = properties;
+        this.meterRegistry = meterRegistry;
     }
+
+    /** 급행인데 서비스·정차역을 못 정했다(subway-express PR-S4). 추적 불가로 막는다 — 지표로 빈도를 본다(실측 예: 1615 인천행 급행). */
+    static final String UNRESOLVED_METRIC = "subway.express.unresolved";
 
     /**
      * 판정할 열차.
@@ -123,6 +136,8 @@ public class SubwayTrainKindJudge {
         Optional<ResolvedPattern> resolved = resolver.resolve(train.lineId(), train.direction(), train.trainNo(),
                 train.destination(), boardStationId);
         if (resolved.isEmpty()) {
+            meterRegistry.counter(UNRESOLVED_METRIC, "line", train.lineId() == null ? "unknown" : train.lineId(),
+                    "stage", "judge").increment();
             return new Judgement(TrainKind.EXPRESS, null, null, null, Verdict.NOT_TRACKABLE, null);
         }
         ResolvedPattern pattern = resolved.get();
