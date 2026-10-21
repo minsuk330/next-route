@@ -2,17 +2,36 @@ package watoo.grd.nextroute.application.journey.service;
 
 import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataIntegrityViolationException;
+import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
+import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.exception.ActiveJourneyExistsException;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
 import watoo.grd.nextroute.application.route.dto.PathResult;
+import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
+import watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver;
 import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
+import watoo.grd.nextroute.application.route.routing.Enrichment;
+import watoo.grd.nextroute.application.route.routing.Fare;
+import watoo.grd.nextroute.application.route.routing.LegGeometry;
+import watoo.grd.nextroute.application.route.routing.RealtimeCoverage;
+import watoo.grd.nextroute.application.route.routing.RoutingItinerary;
+import watoo.grd.nextroute.application.route.routing.RoutingLeg;
+import watoo.grd.nextroute.application.route.routing.RoutingMode;
+import watoo.grd.nextroute.application.route.routing.RoutingProvider;
+import watoo.grd.nextroute.application.route.routing.RoutingResult;
+import watoo.grd.nextroute.application.route.routing.StopOccurrence;
+import watoo.grd.nextroute.application.route.service.LegacyRouteResponseMapper;
+import watoo.grd.nextroute.application.route.service.WalkCoordResolver;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 import watoo.grd.nextroute.global.error.BusinessException;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
@@ -23,6 +42,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -223,5 +243,60 @@ class JourneyStartServiceTest {
         verify(txService).start(eq(USER_ID),
                 org.mockito.ArgumentMatchers.argThat(plan -> plan.legs().size() == 3),
                 any(), any(), eq(false), eq(NOW));
+    }
+
+    // ── 장소 목적지 걷기 이름(#468) ──────────────────────────────────────────
+
+    /** 강남(2호선) → 삼성, 앞뒤 걷기. OTP 결과 모양 그대로 걷기 leg 에는 정류장이 없다. */
+    private static RoutingResult otpGangnamToCoex() {
+        RoutingLeg walkIn = otpWalkLeg();
+        RoutingLeg subway = new RoutingLeg(RoutingMode.SUBWAY, "SUBWAY", "1", "1:A1", "1:S2", "서울2호선",
+                "1:T", null, NOW, NOW.plusSeconds(600), 600,
+                List.of(new StopOccurrence("1:RS_222", null, null, 0, 127.0276, 37.4979, "강남"),
+                        new StopOccurrence("1:RS_219", null, null, 1, 127.0630, 37.5088, "삼성")),
+                List.of(), LegGeometry.missing("x"),
+                Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of());
+        RoutingLeg walkOut = otpWalkLeg();
+        RoutingItinerary it = new RoutingItinerary(NOW.plusSeconds(1200), 600, 0, 600, 0, false,
+                List.of(), Fare.unknown(), List.of(walkIn, subway, walkOut));
+        return new RoutingResult(RoutingProvider.OTP, "v", "202503", "g1",
+                null, null, NOW, List.of(), List.of(it));
+    }
+
+    private static RoutingLeg otpWalkLeg() {
+        return new RoutingLeg(RoutingMode.WALK, null, null, null, null, null, null, null,
+                NOW, NOW.plusSeconds(300), 300, List.of(), List.of(), LegGeometry.missing("walk"),
+                Enrichment.staticOnly(RealtimeCoverage.NONE), Set.of());
+    }
+
+    /**
+     * 검색이 채운 걷기 끝점 이름이 스냅샷(JSON) 왕복을 거쳐 여정 단계까지 간다. 앱은 여정 시작 때 이름을 다시 보내지
+     * 않으므로({@code searchSessionId, pathKey} 만) 이 사슬이 끊기면 '출발지'·'도착지'로 보인다.
+     */
+    @Test
+    @DisplayName("장소 목적지 OTP 경로: 첫 걷기 출발 이름과 마지막 걷기 목적지 이름이 여정 단계에 실린다")
+    void otpPlaceDestination_walkLegsCarryEndpointNames() throws Exception {
+        RouteSearchResult searched = new WalkCoordResolver().fillWalkEndpoints(
+                new LegacyRouteResponseMapper(mock(OtpSeoulIdentityResolver.class)).toLegacy(otpGangnamToCoex()),
+                127.0270, 37.4985, "현재 위치", 127.0590, 37.5115, "코엑스");
+        // 스냅샷 저장소(RedisRouteSearchSnapshotAdapter)와 같은 JSON 왕복 — 저장 형식에서 이름이 살아남는지까지 본다.
+        ObjectMapper json = new ObjectMapper().registerModule(new JavaTimeModule());
+        RouteSearchResult stored = json.readValue(json.writeValueAsString(searched), RouteSearchResult.class);
+        givenStoredPath(USER_ID, stored.paths().get(0));
+        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any())).willReturn(snapshot(1L));
+
+        service.start(USER_ID, command());
+
+        ArgumentCaptor<JourneyPlan> plan = ArgumentCaptor.forClass(JourneyPlan.class);
+        verify(txService).start(eq(USER_ID), plan.capture(), any(), any(), eq(false), eq(NOW));
+        List<JourneyLegDraft> legs = plan.getValue().legs();
+        assertThat(legs).extracting(JourneyLegDraft::type).containsExactly(
+                JourneyLegType.WALK, JourneyLegType.WAIT_SUBWAY, JourneyLegType.RIDE_SUBWAY, JourneyLegType.WALK);
+        assertThat(legs.get(0).startName()).isEqualTo("현재 위치");
+        assertThat(legs.get(0).endName()).isEqualTo("강남");
+        assertThat(legs.get(3).startName()).isEqualTo("삼성");
+        assertThat(legs.get(3).endName()).isEqualTo("코엑스");
+        assertThat(legs.get(3).endX()).isEqualTo(127.0590);
+        assertThat(legs.get(3).endY()).isEqualTo(37.5115);
     }
 }

@@ -118,7 +118,8 @@ class RouteSearchRealtimeDeadlineIT {
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
                 new DepartureTimeResolver(java.time.Clock.systemDefaultZone()),
                 mock(watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate.class),
-                java.time.Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
+                java.time.Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
+                new WalkCoordResolver());
 
         long started = System.nanoTime();
         RouteSearchResult result = service.search(
