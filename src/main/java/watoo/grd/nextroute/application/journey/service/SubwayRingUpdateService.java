@@ -50,7 +50,6 @@ public class SubwayRingUpdateService {
     private final SubwayLegBindingRepository bindingRepository;
     private final JourneyLegRepository legRepository;
     private final JourneySubwayStationChainReader stationChainReader;
-    private final SubwayRingStationResolver stationResolver;
     private final SubwayRingSignalReader signalReader;
     private final SubwayRingCalculator calculator;
     private final SubwayRingPushEnqueueService pushEnqueueService;
@@ -66,6 +65,8 @@ public class SubwayRingUpdateService {
     private final SubwayRingTrainLeftReader trainLeftReader;
     private final JourneySessionRepository sessionRepository;
     private final JourneyNavigationProperties navigationProperties;
+    private final SubwayBoundTrainResolver boundTrainResolver;
+    private final SubwayRingChainBuilder chainBuilder;
 
     /** @return 훑은 건수 */
     public int runOnce() {
@@ -88,7 +89,10 @@ public class SubwayRingUpdateService {
         if (ride == null) {
             return;
         }
-        SubwayRingChain chain = chainOf(binding, ride);
+        TrainIdentity train = identityOf(binding);
+        // 묶인 열차의 종류·급행 패턴(subway-express PR-S4). 배포 전 행이면 여기서 한 번 분류해 적는다.
+        SubwayBoundTrainResolver.BoundTrain bound = boundTrainResolver.resolve(binding, train);
+        SubwayRingChain chain = chainOf(binding, ride, bound);
         if (!chain.isUsable()) {
             // 역 체인을 못 읽으면 남은 역 수도 다음 역도 만들 수 없다. 계획값으로 지어내지 않는다.
             return;
@@ -107,7 +111,6 @@ public class SubwayRingUpdateService {
             return;
         }
 
-        TrainIdentity train = identityOf(binding);
         Instant now = clock.instant();
         SubwayRingObservation observation = train == null
                 ? null
@@ -121,6 +124,8 @@ public class SubwayRingUpdateService {
         if (state == null) {
             return;
         }
+        // 열차 종류 라벨(subway-express PR-S4). 링 lineName 은 바꾸지 않는다 — 앱이 배지를 따로 그린다.
+        state = state.withTrain(bound.kindName(), bound.label());
         SubwayRingAlightingEstimator.Estimate alighting = alightingEstimator.estimate(state, previous, chain, train, now);
         state = state.withEstimatedAlightingAt(alighting.at(), alighting.source());
         // 승차역 전 열차의 현재 역(#368). 버전·push 판단보다 먼저 붙여야 역을 지날 때 화면 바뀜으로 잡힌다.
@@ -216,7 +221,11 @@ public class SubwayRingUpdateService {
         if (from == null || to == null) {
             return null;
         }
-        return lineOrder.segmentTimes(train.lineId(), train.direction(), from.canonicalKey(), to.canonicalKey())
+        // 급행이면 정차열이 정확히 같은 OTP 급행 패턴의 시간만(subway-express PR-S4). 없으면 null — 완행 합으로 지어내지 않는다.
+        return (chain.pattern() == null
+                ? lineOrder.segmentTimes(train.lineId(), train.direction(), from.canonicalKey(), to.canonicalKey())
+                : lineOrder.segmentTimes(train.lineId(), train.direction(), from.canonicalKey(), to.canonicalKey(),
+                        chain.pattern()))
                 .map(t -> new SubwayRingContext.Typical(t.dwellSeconds(), t.runSeconds()))
                 .orElse(null);
     }
@@ -227,10 +236,13 @@ public class SubwayRingUpdateService {
      * <p>이름 해석은 여기서 한 번만 한다. 그 뒤의 판정은 전부 {@code statnId} 로만 하므로 역명
      * 표기가 흔들려도({@code 성수}/{@code 성수종착}) 링이 리셋되지 않는다.
      */
-    private SubwayRingChain chainOf(SubwayLegBinding binding, JourneyLeg ride) {
+    private SubwayRingChain chainOf(SubwayLegBinding binding, JourneyLeg ride,
+                                    SubwayBoundTrainResolver.BoundTrain bound) {
         List<String> names = stationChainReader.stationNames(binding.getJourneyId(),
                 binding.getRouteRevision(), ride.getLegIndex());
-        return stationResolver.chainOf(ride.getRouteId(), names);
+        // 묶인 열차 기준 체인(subway-express PR-S4): 일반·급행이면 완행 경로로 펼치거나 정차역만 남긴다. 미분류·모름은 계획 그대로.
+        return chainBuilder.build(ride.getRouteId(), binding.getTrainDirection(), names, bound.kind(),
+                bound.pattern());
     }
 
     /** 열차 identity 는 네 값이 함께 있어야 한다. 하나만 비어도 어느 열차도 가리키지 못한다. */

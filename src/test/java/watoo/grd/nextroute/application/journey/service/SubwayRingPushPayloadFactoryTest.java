@@ -43,6 +43,26 @@ class SubwayRingPushPayloadFactoryTest {
             new SubwayRingPushPayloadFactory(objectMapper);
 
     @Test
+    @DisplayName("열차 종류·표시 이름(subway-express PR-S4): 스냅샷 subwayGuidance 와 같은 이름, routeName 은 그대로, 모르면 null")
+    void trainKindInProps() throws Exception {
+        JsonNode express = propsOf(factory.contentState(JOURNEY_ID, "9호선", ring().withTrain("EXPRESS", "급행"), T0));
+        JsonNode unknown = propsOf(factory.contentState(JOURNEY_ID, "9호선", ring(), T0));
+
+        assertThat(express.path("trainKind").asText()).isEqualTo("EXPRESS");
+        assertThat(express.path("trainLabel").asText()).isEqualTo("급행");
+        assertThat(express.path("routeName").asText()).isEqualTo("9호선");
+        assertThat(unknown.path("trainKind").isNull()).isTrue();
+        assertThat(unknown.path("trainLabel").isNull()).isTrue();
+        assertThat(watoo.grd.nextroute.application.journey.dto.SubwayGuidance.of(
+                watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus.CONFIRMED, "9호선",
+                ring().withTrain("EXPRESS", "급행"))).satisfies(g -> {
+                    assertThat(g.trainKind()).isEqualTo(express.path("trainKind").asText());
+                    assertThat(g.trainLabel()).isEqualTo(express.path("trainLabel").asText());
+                    assertThat(g.lineName()).isEqualTo("9호선");
+                });
+    }
+
+    @Test
     @DisplayName("봉투는 두 겹이고 props 는 JSON 문자열이다 — 한 겹이면 앱이 조용히 무시한다")
     void contentStateIsATwoLayerEnvelope() throws Exception {
         ObjectNode envelope = factory.contentState(JOURNEY_ID, "2호선", ring(), T0.plusSeconds(5));

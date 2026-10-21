@@ -112,6 +112,27 @@ class SubwayRingApproachReaderTest {
         assertThat(reader.read(waiting(), waiting().withApproach(before), chain, TRAIN, NOW)).isEqualTo(before);
     }
 
+    @Test
+    @DisplayName("급행(subway-express PR-S4): 남은 역은 열차가 서는 역만 센다 — 지금 있는 역은 지나치는 역이어도 위치로 남긴다")
+    void expressCountsOnlyStops() {
+        // 가상의 급행: 청계산입구·양재 정차, 양재시민의숲 통과
+        var service = new watoo.grd.nextroute.application.subway.service.SubwayExpressCatalog.ExpressService(
+                "1077-test", LINE, "급행", DIR, "t", null, List.of(), false);
+        var pattern = new watoo.grd.nextroute.application.subway.service.SubwayStopPatternResolver.ResolvedPattern(
+                service, DIR, List.of("1077006804", "1077006802", GANGNAM), null);
+        SubwayRingChain express = new SubwayRingChain(chain.stations(), pattern);
+
+        seenAt("1077006804", NOW.minusSeconds(20));
+        SubwayRingApproach fromStop = reader.read(waiting(), null, express, TRAIN, NOW);
+        assertThat(fromStop.stations()).containsExactly("청계산입구", "양재");
+        assertThat(fromStop.stationsUntilBoarding()).isEqualTo(2);
+
+        seenAt("1077006803", NOW.minusSeconds(20));
+        SubwayRingApproach fromPassing = reader.read(waiting(), null, express, TRAIN, NOW);
+        assertThat(fromPassing.stationName()).isEqualTo("양재시민의숲");
+        assertThat(fromPassing.stations()).containsExactly("양재시민의숲", "양재");
+    }
+
     private void seenAt(String stationId, Instant at) {
         when(trainLog.lastSeen(TRAIN)).thenReturn(Optional.of(
                 new SubwayTrainObservation(stationId, null, SubwayTrainStatus.DEPARTED, at, null, null)));

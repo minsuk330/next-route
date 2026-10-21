@@ -88,6 +88,8 @@ public class SubwayRingCalculator {
         SubwayRingState state = switch (observation.source()) {
             case ARRIVAL -> fromArrival(prior, context, target, observation, now);
             case POSITION -> fromPosition(prior, context, target, observation, now);
+            // 급행이 지나치는 역(subway-express PR-S4) — 정차·도착이 아니라 구간 안 진행이다
+            case PASSING -> fromPassing(prior, context, target, observation, now);
             // 열차가 이미 하차역을 지났다(#311). 도착은 사실이라 NORMAL — STALE 이면 앱이 끝까지 "확인 중"으로 남는다.
             case PASSED -> anchored(context, context.chain().alightingSequence(), BigDecimal.ONE,
                     observation.observedAt(), null, SubwayRingQuality.NORMAL, observation.observedAt(), now)
@@ -214,7 +216,11 @@ public class SubwayRingCalculator {
         if (code == SubwayArrivalCode.PREV_ENTERING || code == SubwayArrivalCode.PREV_ARRIVED) {
             return atPreviousStation(prior, context, target, observation, now);
         }
-        if (onTypicalLine(prior, target)) {
+        if (observation.passingFraction() != null && !observation.isMeasured()) {
+            // 급행이 떠난 전역은 지나친 역이다 — 예정 없는 전역 출발로 그 시각부터 구간 전체를 새로 세지 않는다(subway-express PR-S4)
+            return fromPassing(prior, context, target, observation, now);
+        }
+        if (onTypicalLine(prior, target) && observation.passingFraction() == null) {
             return departedOnLine(prior, context, target, observation, now);
         }
         if (observation.isMeasured()) {
@@ -296,6 +302,10 @@ public class SubwayRingCalculator {
         Instant start = anchorOf(observation.segmentStartAt(), observation.seenAt());
         Instant eta = start.plus(observation.measuredDuration());
         BigDecimal base = baseProgressOf(prior, target);
+        if (observation.passingFraction() != null) {
+            // 떠난 역이 급행이 지나친 역이면 그 시각에 열차는 이미 구간의 그만큼을 왔다 — 진행 하한(subway-express PR-S4)
+            base = max(base, passingPoint(target, observation));
+        }
         if (!now.isBefore(lateAt(eta, observation))) {
             return late(context, target, base, observation.observedAt(), now);
         }
@@ -403,6 +413,63 @@ public class SubwayRingCalculator {
                     ? advanced(context, seen, observedAt, seenOf(observation), true, now)
                     : keep(prior, context, target, observation, now);
         };
+    }
+
+    // ── 급행이 지나치는 역 (subway-express PR-S4) ──────────────────────────────
+
+    /**
+     * 열차가 급행이 서지 않는 역에 있다(또는 막 지났다) — 구간 {@code seen}(앞 정차역 → {@code seen}) 안의 진행 비율
+     * {@code passingFraction} 지점이다. <b>목표 전진</b>과 <b>시간 앵커 보정</b>을 나눈다.
+     *
+     * <ul>
+     *   <li>목표 전진: 앞으로만 — 구간이 목표보다 뒤면 새 정보가 없다(그리던 직선 유지). 앞이면 그 구간으로 건너뛴다(정차역 도착을
+     *       놓쳤다)</li>
+     *   <li>시간 앵커: 구간 시작 시각은 그대로 두고 남은 시간만 고친다 — 예정 = 지나친 시각 + (1 − 비율) × 급행 구간 운행 × 배수.
+     *       지나친 역 관측 시각부터 구간 전체 시간을 새로 세지 않는다. 진행은 그 지점(상한 × 비율)에서 이어 그린다</li>
+     *   <li>같은 구간에서 이미 그 지점 이상을 앵커로 쓰는 중이면 그대로 둔다 — 같은 역 관측이 tick 마다 반복된다. 정차 표시
+     *       ("○○ 정차 중")는 뗀다: 열차는 이미 떠났다</li>
+     *   <li>급행 구간 시간을 모르면(정차열이 같은 OTP 패턴 없음) 직전 예정이 있으면 그것까지, 없으면 그 지점에 세운다</li>
+     * </ul>
+     */
+    private SubwayRingState fromPassing(SubwayRingState prior, SubwayRingContext context, int target,
+                                        SubwayRingObservation observation, Instant now) {
+        int seen = observation.observedStationSequence();
+        if (seen < target || seen <= BOARDING_SEQUENCE || seen > context.chain().alightingSequence()) {
+            return keep(prior, context, target, observation, now);
+        }
+        BigDecimal point = passingPoint(seen, observation);
+        if (sameSegment(prior, seen) && prior.segmentProgress().compareTo(point) >= 0) {
+            SubwayRingState kept = keep(prior, context, seen, observation, now);
+            return kept.stage() == SubwayRingStage.DWELL
+                    ? kept.withHold(null, null).withSource(kept.etaSource(), SubwayRingStage.RUN)
+                    : kept;
+        }
+        Instant passedAt = observation.passedAt() != null ? observation.passedAt() : observation.observedAt();
+        Instant at = anchorOf(passedAt, observation.seenAt());
+        SubwayRingContext.Typical times = context.typicalFor(seen);
+        if (times != null && times.runSeconds() != null) {
+            BigDecimal remaining = BigDecimal.ONE.subtract(clamp01(observation.passingFraction()));
+            Instant eta = at.plusMillis(BigDecimal.valueOf(times.runSeconds() * 1000L).multiply(remaining)
+                    .multiply(properties.getTypicalFactor()).longValue());
+            if (!now.isBefore(eta.plus(graceOf(observation)))) {
+                return late(context, seen, point, observation.observedAt(), now);
+            }
+            return longValidity(anchored(context, seen, point, at, eta, SubwayRingQuality.NORMAL,
+                    observation.observedAt(), now).withSource(SubwayRingEtaSource.TYPICAL, SubwayRingStage.RUN), now);
+        }
+        if (sameSegment(prior, seen) && prior.estimatedNextStationAt() != null
+                && prior.estimatedNextStationAt().isAfter(at)) {
+            return anchored(context, seen, point, at, prior.estimatedNextStationAt(), SubwayRingQuality.NORMAL,
+                    observation.observedAt(), now).withSource(prior.etaSource(), SubwayRingStage.RUN);
+        }
+        return hold(context, seen, point, observation.observedAt(), now).withSource(null, SubwayRingStage.RUN);
+    }
+
+    /** 지나친 역 지점 = 상한 × 구간 안 진행 비율. */
+    private BigDecimal passingPoint(int target, SubwayRingObservation observation) {
+        BigDecimal fraction = observation.passingFraction() == null ? BigDecimal.ZERO
+                : clamp01(observation.passingFraction());
+        return scaled(capOf(target).multiply(fraction));
     }
 
     // ── 상태 만들기 ─────────────────────────────────────────────────────────

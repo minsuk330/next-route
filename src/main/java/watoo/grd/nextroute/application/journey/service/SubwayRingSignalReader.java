@@ -81,7 +81,7 @@ public class SubwayRingSignalReader {
                                       int targetSequence) {
         SubwayRingChain.Station target = chain.at(targetSequence);
         SubwayRingObservation arrival = target != null && target.canonicalKey() != null
-                ? fromArrival(train, target, targetSequence)
+                ? fromArrival(train, chain, target, targetSequence)
                 : null;
         Optional<SubwayTrainObservation> seen = trainLogPort.lastSeen(train);
         if (arrival == null) {
@@ -116,6 +116,11 @@ public class SubwayRingSignalReader {
             return null;
         }
         int sequence = chain.sequenceOfKey(position.stationId());
+        int passingSegment = sequence < 0 ? chain.sequenceOfPassing(position.stationId()) : -1;
+        if (passingSegment >= 0) {
+            // 급행이 지나치는 역(subway-express PR-S4) — 구간 안이다. 도착 행보다 앞설 때만 쓴다.
+            return passingAhead(train, chain, target, arrival, position, passingSegment);
+        }
         if (sequence < 0) {
             if (target != BOARDING || !isJustBeforeBoarding(train, chain, position.stationId())) {
                 // 구간 밖 — 도착 행이 우리 역에서 보이는 동안은 그쪽을 믿는다.
@@ -135,18 +140,136 @@ public class SubwayRingSignalReader {
             return null;
         }
         if (rank >= rank(target, ENTERING_STEP)) {
-            return SubwayRingObservation.position(position.status(), sequence, observedAt);
+            return positionAt(train, chain, position, sequence);
         }
         int step = rank - rank(target - 1, 0);
+        // 전역출발(3)을 목표 역에서 봤는데 목표 앞에 지나치는 역이 있으면, 떠난 역은 앞 정차역이 아니라 마지막 지나친 역이다
+        boolean leftPassing = position.status() == SubwayTrainStatus.LEFT_PREVIOUS && sequence == target
+                && chain.at(target) != null && chain.at(target).hasPassing();
         return switch (step) {
             case ENTERING_STEP -> SubwayRingObservation.arrival(SubwayArrivalCode.PREV_ENTERING, target, null,
                     observedAt).fromPositionApi();
             case ARRIVED_STEP -> SubwayRingObservation.arrival(SubwayArrivalCode.PREV_ARRIVED, target, null,
                     observedAt).fromPositionApi();
-            case DEPARTED_STEP -> departedFromPosition(train, chain, target, position.stationId(), observedAt)
-                    .fromPositionApi();
+            case DEPARTED_STEP -> departedFromPosition(train, chain, target, position.stationId(), observedAt,
+                    leftPassing).fromPositionApi();
             default -> null;
         };
+    }
+
+    // ── 급행이 지나치는 역 (subway-express PR-S4) ─────────────────────────────
+
+    /**
+     * 위치가 지나치는 역이면 도착 행보다 앞설 때만 그것을 쓴다. 지나치는 역의 진행 순위는 앞 정차역 출발과 목표 역 진입 사이다.
+     *
+     * <ul>
+     *   <li>구간이 목표보다 뒤 — 쓰지 않는다(되돌리지 않는다)</li>
+     *   <li>목표 구간인데 도착 행이 이미 목표 역 진입·도착·출발을 말한다 — 도착 행</li>
+     *   <li>목표 구간인데 도착 행도 지나치는 역 진행을 말하고 그쪽이 같거나 앞선다 — 도착 행</li>
+     *   <li>도착 행이 99(어디쯤인지 모름)면 더 새로운 쪽만 믿는다(기존 규칙과 같다)</li>
+     * </ul>
+     */
+    private SubwayRingObservation passingAhead(TrainIdentity train, SubwayRingChain chain, int target,
+                                               SubwayRingObservation arrival, SubwayTrainObservation position,
+                                               int segment) {
+        if (segment < target) {
+            return null;
+        }
+        if (segment == target) {
+            SubwayArrivalCode code = arrival.code();
+            if (code == SubwayArrivalCode.ENTERING || code == SubwayArrivalCode.ARRIVED
+                    || code == SubwayArrivalCode.DEPARTED) {
+                return null;
+            }
+            java.math.BigDecimal fraction = passingFraction(train, chain, segment, position.stationId());
+            if (arrival.passingFraction() != null && arrival.passingFraction().compareTo(fraction) >= 0) {
+                return null;
+            }
+            if (rankOf(target, code) == UNRANKED && !position.receivedAt().isAfter(arrival.observedAt())) {
+                return null;
+            }
+        }
+        return passingObservation(train, chain, segment, position.stationId(), position.status(),
+                position.receivedAt()).fromPositionApi();
+    }
+
+    /**
+     * 체인 역의 위치 관측. 전역출발(3)인데 그 역 앞에 지나치는 역이 있으면 떠난 역은 마지막 지나친 역이다 — 구간 안 진행으로
+     * 바꾼다(그대로 두면 계산기가 그 시각부터 급행 구간 전체 시간을 새로 센다).
+     */
+    private SubwayRingObservation positionAt(TrainIdentity train, SubwayRingChain chain,
+                                             SubwayTrainObservation position, int sequence) {
+        SubwayRingChain.Station station = chain.at(sequence);
+        if (position.status() == SubwayTrainStatus.LEFT_PREVIOUS && station != null && station.hasPassing()) {
+            return passingObservation(train, chain, sequence, station.lastPassing(), position.status(),
+                    position.receivedAt());
+        }
+        return SubwayRingObservation.position(position.status(), sequence, position.receivedAt());
+    }
+
+    /** 지나치는 역 관측. 사건 시각은 그 역 도착 사건(처음 보인 때), 없으면 이 관측 시각이다. */
+    private SubwayRingObservation passingObservation(TrainIdentity train, SubwayRingChain chain, int segment,
+                                                     String passingKey, SubwayTrainStatus status,
+                                                     Instant observedAt) {
+        java.math.BigDecimal fraction = passingFraction(train, chain, segment, passingKey);
+        Instant passedAt = passingEvent(train, passingKey, observedAt).orElse(observedAt);
+        return SubwayRingObservation.passing(segment, fraction, status, observedAt, passedAt);
+    }
+
+    /** 지나치는 역에 처음 보인 사건 시각(위치 로그의 역별 도착). 모르면 empty. */
+    private Optional<Instant> passingEvent(TrainIdentity train, String stationId, Instant observedAt) {
+        if (stationId == null || observedAt == null) {
+            return Optional.empty();
+        }
+        try {
+            return trainLogPort.findArrivals(train, observedAt.minus(DEPARTURE_LOOKBACK), observedAt).stream()
+                    .filter(event -> stationId.equals(event.stationId()) && event.to() != null
+                            && !event.to().isAfter(observedAt))
+                    .map(watoo.grd.nextroute.application.subway.dto.SubwayTrainEvent::to)
+                    .min(Instant::compareTo);
+        } catch (RuntimeException e) {
+            log.debug("[SubwayRing] 지나치는 역 사건 조회 실패 — {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * 지나치는 역이 구간(앞 정차역 → {@code segment} 정차역) 안에서 차지하는 진행 비율. 완행 구간 운행 시간의 누적 비율이다(급행은
+     * 지나치는 역에 서지 않으므로 정차 시간은 넣지 않는다). 한 구간이라도 시간을 모르면 역 수로 고르게 나눈다.
+     */
+    java.math.BigDecimal passingFraction(TrainIdentity train, SubwayRingChain chain, int segment, String passingKey) {
+        SubwayRingChain.Station to = chain.at(segment);
+        SubwayRingChain.Station from = chain.at(segment - 1);
+        if (to == null || from == null || !to.passingBefore().contains(passingKey)) {
+            return java.math.BigDecimal.ZERO;
+        }
+        List<String> path = new java.util.ArrayList<>();
+        path.add(from.canonicalKey());
+        path.addAll(to.passingBefore());
+        path.add(to.canonicalKey());
+        int index = path.indexOf(passingKey);
+        long total = 0;
+        long upTo = 0;
+        boolean known = true;
+        for (int i = 0; i + 1 < path.size() && known; i++) {
+            Optional<SubwayLineOrder.SegmentTimes> times = path.get(i) == null || path.get(i + 1) == null
+                    ? Optional.empty()
+                    : lineOrder.segmentTimes(train.lineId(), train.direction(), path.get(i), path.get(i + 1));
+            if (times.isEmpty() || times.get().runSeconds() <= 0) {
+                known = false;
+            } else {
+                total += times.get().runSeconds();
+                if (i < index) {
+                    upTo += times.get().runSeconds();
+                }
+            }
+        }
+        if (!known || total <= 0) {
+            return java.math.BigDecimal.valueOf(index).divide(java.math.BigDecimal.valueOf(path.size() - 1L), 4,
+                    java.math.RoundingMode.HALF_UP);
+        }
+        return java.math.BigDecimal.valueOf(upTo).divide(java.math.BigDecimal.valueOf(total), 4,
+                java.math.RoundingMode.HALF_UP);
     }
 
     private static final int BOARDING = 0;
@@ -215,18 +338,40 @@ public class SubwayRingSignalReader {
      * 아니다. 없으면 도착 경로의 출발 기록, 그것도 없으면 이 관측 시각.
      */
     private SubwayRingObservation departedFromPosition(TrainIdentity train, SubwayRingChain chain, int target,
-                                                       String positionStationId, Instant observedAt) {
+                                                       String positionStationId, Instant observedAt,
+                                                       boolean leftPassing) {
         SubwayRingChain.Station to = chain.at(target);
         SubwayRingChain.Station previous = chain.at(target - 1);
         // 승차역 앞 역은 체인에 없다 — 그 역 키는 위치 관측의 역(전역 출발 2)이다. trainSttus=3 이면 그 역이 승차역이라 모른다.
-        String fromKey = previous != null ? previous.canonicalKey()
+        // 급행(subway-express PR-S4): 목표 역에서 본 전역출발이면 떠난 역은 마지막 지나친 역이다.
+        String fromKey = leftPassing ? to.lastPassing()
+                : previous != null ? previous.canonicalKey()
                 : positionStationId != null && !positionStationId.equals(to.canonicalKey()) ? positionStationId : null;
         Instant departed = departureEvent(train, fromKey, observedAt)
                 .or(() -> segmentTimePort.departedAt(train.lineId(), train.direction(), to.canonicalKey(),
                         train.trainNo()))
                 .filter(at -> !at.isAfter(observedAt))
                 .orElse(observedAt);
-        return measured(train.lineId(), train.direction(), to.canonicalKey(), target, departed, observedAt);
+        SubwayRingObservation measured = measured(train.lineId(), train.direction(), to.canonicalKey(), target,
+                departed, observedAt, previous == null ? null : fromKey, chain);
+        if (leftPassing) {
+            return passingAware(train, chain, target, measured, departed, observedAt);
+        }
+        return measured;
+    }
+
+    /**
+     * 목표 역 앞에 지나치는 역이 있고 열차가 마지막 지나친 역을 떠났다. 실측이면 그 진행 비율을 하한으로 싣고, 실측이 없으면 구간
+     * 안 진행(PASSING)으로 넘긴다 — 예정 없는 전역 출발로 넘기면 계산기가 그 시각부터 급행 구간 전체 시간을 센다.
+     */
+    private SubwayRingObservation passingAware(TrainIdentity train, SubwayRingChain chain, int target,
+                                               SubwayRingObservation measured, Instant departed, Instant observedAt) {
+        SubwayRingChain.Station to = chain.at(target);
+        java.math.BigDecimal fraction = passingFraction(train, chain, target, to.lastPassing());
+        if (measured.isMeasured()) {
+            return measured.withPassingFraction(fraction);
+        }
+        return SubwayRingObservation.passing(target, fraction, SubwayTrainStatus.LEFT_PREVIOUS, observedAt, departed);
     }
 
     /** 출발 사건을 찾아볼 폭. 한 구간 운행보다 넉넉하고 같은 번호의 다음 운행(2호선 한 바퀴)보다 훨씬 짧다. */
@@ -252,8 +397,8 @@ public class SubwayRingSignalReader {
 
     // ── 도착 API ────────────────────────────────────────────────────────────
 
-    private SubwayRingObservation fromArrival(TrainIdentity train, SubwayRingChain.Station target,
-                                              int targetSequence) {
+    private SubwayRingObservation fromArrival(TrainIdentity train, SubwayRingChain chain,
+                                              SubwayRingChain.Station target, int targetSequence) {
         Optional<SubwayRealtimeSnapshot> snapshot = realtimeCachePort.readSnapshot();
         if (snapshot.isEmpty() || snapshot.get().getTrains() == null) {
             return null;
@@ -273,8 +418,20 @@ public class SubwayRingSignalReader {
                             train.trainNo())
                     .filter(at -> !at.isAfter(observedAt))
                     .orElse(observedAt);
-            return measured(row.getLineId(), row.getDirection(), row.getStationId(), targetSequence, start, observedAt)
-                    .withPresentAt(presentAt);
+            // 도착 행의 "전역"은 완행 기준 바로 앞 역이다 — 급행이면 마지막 지나친 역(표본 구간과 같다, subway-express PR-S4)
+            SubwayRingObservation measured = measured(row.getLineId(), row.getDirection(), row.getStationId(),
+                    targetSequence, start, observedAt, allStopPrevious(chain, targetSequence), chain);
+            if (target.hasPassing()) {
+                return passingAware(train, chain, targetSequence, measured, start, observedAt).withPresentAt(presentAt);
+            }
+            return measured.withPresentAt(presentAt);
+        }
+        if ((code == SubwayArrivalCode.PREV_ENTERING || code == SubwayArrivalCode.PREV_ARRIVED) && target.hasPassing()) {
+            // 급행이 서지 않는 전역(마지막 지나친 역)에 들어서거나 있다 — 정차가 아니라 구간 안 진행이다(subway-express PR-S4).
+            // 가정: 도착 API 의 전역 = 완행 기준 바로 앞 역. 녹화로 검증 전까지 subway.express.tracking.enabled=false.
+            return passingObservation(train, chain, targetSequence, target.lastPassing(),
+                    code == SubwayArrivalCode.PREV_ARRIVED ? SubwayTrainStatus.ARRIVED : SubwayTrainStatus.ENTERING,
+                    observedAt).withPresentAt(presentAt);
         }
         if (code == SubwayArrivalCode.PREV_ENTERING || code == SubwayArrivalCode.PREV_ARRIVED) {
             // 아직 전역에 서 있다. 남은 초는 출발 뒤 정해지는 정적 값이라 지금 시각에 더하면 틀린다 — 싣지 않는다.
@@ -302,12 +459,27 @@ public class SubwayRingSignalReader {
      * {@code recptnDt} 만 갱신돼 더하면 예정이 밀린다. 표본이 없으면 예정 없이 돌려준다 — 계산기가 멈춘다(STALE).
      */
     private SubwayRingObservation measured(String lineId, String direction, String stationId, int targetSequence,
-                                           Instant start, Instant observedAt) {
+                                           Instant start, Instant observedAt, String fromKey, SubwayRingChain chain) {
+        // 표본은 일반 열차의 "완행 기준 바로 앞 역 → 이 역" 구간이다(S3 이후 일반 열차만 남는다). 관측 구간의 출발역이 그 역이 아니면
+        // (급행이 앞 정차역을 떠났는데 사이에 지나치는 역이 있다) 다른 구간이라 쓰지 않는다(subway-express PR-S4).
+        if (fromKey != null && !fromKey.equals(allStopPrevious(chain, targetSequence))) {
+            return SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, targetSequence, null, observedAt);
+        }
         List<Long> recent = segmentTimePort.recentSeconds(lineId, direction, stationId);
         if (recent.isEmpty()) {
             return SubwayRingObservation.arrival(SubwayArrivalCode.PREV_DEPARTED, targetSequence, null, observedAt);
         }
         return SubwayRingObservation.measured(targetSequence, start, start.plusSeconds(median(recent)), observedAt);
+    }
+
+    /** 그 정차역의 완행 기준 바로 앞 역 — 지나치는 역이 있으면 마지막 지나친 역, 없으면 체인의 앞 역. 모르면 null. */
+    private static String allStopPrevious(SubwayRingChain chain, int sequence) {
+        SubwayRingChain.Station station = chain.at(sequence);
+        if (station != null && station.hasPassing()) {
+            return station.lastPassing();
+        }
+        SubwayRingChain.Station previous = chain.at(sequence - 1);
+        return previous == null ? null : previous.canonicalKey();
     }
 
     private static long median(List<Long> values) {
@@ -381,12 +553,17 @@ public class SubwayRingSignalReader {
                                                SubwayTrainObservation observation) {
         int sequence = chain.sequenceOfKey(observation.stationId());
         if (sequence < 0) {
+            int passingSegment = chain.sequenceOfPassing(observation.stationId());
+            if (passingSegment >= 0) {
+                // 급행이 지나치는 역 — 구간 <b>안</b>이다(subway-express PR-S4). 구간 밖으로 보면 하차역 PASSED 로 뛴다(9호선 급행 등촌).
+                return passingObservation(train, chain, passingSegment, observation.stationId(), observation.status(),
+                        observation.receivedAt());
+            }
             // 우리 구간 밖의 역이다. 구간을 이미 지나간 열차면 하차역 도착으로 마무리하고, 아니면(아직 승차역 전 등) 진행을 만들지 않는다.
             return passedChain(train, chain, observation) ? SubwayRingObservation.passed(chain.alightingSequence(),
                     observation.receivedAt()) : null;
         }
-        return SubwayRingObservation.position(observation.status(), sequence,
-                observation.receivedAt());
+        return positionAt(train, chain, observation, sequence);
     }
 
     /** 구간 통과를 찾아볼 이력 폭. 방금 떠난 열차 선택 창(10분)보다 넉넉하고 2호선 한 바퀴(약 85분)보다 훨씬 짧다. */
@@ -408,7 +585,8 @@ public class SubwayRingSignalReader {
         try {
             return trainLogPort.findArrivals(train, outside.receivedAt().minus(PASSED_LOOKBACK), outside.receivedAt())
                     .stream()
-                    .anyMatch(event -> chain.sequenceOfKey(event.stationId()) >= 0
+                    .anyMatch(event -> (chain.sequenceOfKey(event.stationId()) >= 0
+                            || chain.sequenceOfPassing(event.stationId()) >= 0)
                             && event.to() != null && !event.to().isAfter(outside.receivedAt()));
         } catch (RuntimeException e) {
             log.debug("[SubwayRing] 구간 통과 이력 조회 실패 — {}", e.getMessage());

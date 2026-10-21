@@ -90,8 +90,12 @@ public class SubwayRingAlightingEstimator {
             return sticky(new Estimate(next, typical ? SubwayRingEtaSource.TYPICAL : state.etaSource()), previous,
                     fromNow);
         }
-        Optional<Integer> gap = lineOrder.arrivalGapSeconds(train.lineId(), train.direction(),
-                nextStation.canonicalKey(), alighting.canonicalKey());
+        // 급행이면 정차열이 정확히 같은 OTP 급행 패턴의 계획만(subway-express PR-S4). 없으면 모름 — 완행 합으로 지어내지 않는다.
+        Optional<Integer> gap = chain.pattern() == null
+                ? lineOrder.arrivalGapSeconds(train.lineId(), train.direction(), nextStation.canonicalKey(),
+                        alighting.canonicalKey())
+                : lineOrder.arrivalGapSeconds(train.lineId(), train.direction(), nextStation.canonicalKey(),
+                        alighting.canonicalKey(), chain.pattern());
         if (gap.isEmpty()) {
             return Estimate.NONE;
         }
@@ -139,7 +143,10 @@ public class SubwayRingAlightingEstimator {
         if (from == null || to == null) {
             return Optional.empty();
         }
-        return lineOrder.segmentTimes(train.lineId(), train.direction(), from.canonicalKey(), to.canonicalKey())
+        return (chain.pattern() == null
+                ? lineOrder.segmentTimes(train.lineId(), train.direction(), from.canonicalKey(), to.canonicalKey())
+                : lineOrder.segmentTimes(train.lineId(), train.direction(), from.canonicalKey(), to.canonicalKey(),
+                        chain.pattern()))
                 .map(SubwayLineOrder.SegmentTimes::runSeconds);
     }
 

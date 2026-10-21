@@ -64,6 +64,7 @@ class JourneyNavigationGeometryServiceTest {
     private JourneyLegRepository legRepository;
     private JourneyLegRouteOptionRepository routeOptionRepository;
     private BusRouteStopRepository busRouteStopRepository;
+    private watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository bindingRepository;
     private JourneyNavigationGeometryService service;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -75,6 +76,7 @@ class JourneyNavigationGeometryServiceTest {
         legRepository = mock(JourneyLegRepository.class);
         routeOptionRepository = mock(JourneyLegRouteOptionRepository.class);
         busRouteStopRepository = mock(BusRouteStopRepository.class);
+        bindingRepository = mock(watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository.class);
         service = new JourneyNavigationGeometryService(
                 sessionRepository, revisionRepository, legRepository, routeOptionRepository,
                 new BusShapeStopSplitter(),
@@ -85,7 +87,9 @@ class JourneyNavigationGeometryServiceTest {
                         new WalkManeuverTypeMapper()),
                 objectMapper,
                 new BusRealtimeStopIds(InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()),
-                watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier());
+                watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier(),
+                new SubwayBoundStopsResolver(bindingRepository,
+                        watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.resolver()));
     }
 
     @Test
@@ -239,6 +243,88 @@ class JourneyNavigationGeometryServiceTest {
         JourneyNavigationGeometry walkOnly = service.get(USER_ID, JOURNEY_ID, REVISION);
         assertThat(walkOnly.legs().get(0).allStops()).isNull();
         assertThat(objectMapper.writeValueAsString(walkOnly)).doesNotContain("allStops");
+    }
+
+    // ── subway-express S4: 묶인 열차 기준 역 목록·버전 키 ─────────────────────────
+
+    /** 9호선 완행 계획 가양→염창(좌표는 fixture 역 마스터). */
+    private PathResult line9AllStops() {
+        List<String> names = List.of("가양", "증미", "등촌", "염창");
+        List<StationResult> stations = new java.util.ArrayList<>();
+        for (int i = 0; i < names.size(); i++) {
+            String name = names.get(i);
+            var station = watoo.grd.nextroute.application.subway.service.SubwayExpressFixtures.stations("1009").stream()
+                    .filter(st -> st.getStationName().equals(name)).findFirst().orElseThrow();
+            stations.add(new StationResult(i, "1:" + i, name, station.getLongitude(), station.getLatitude()));
+        }
+        SubPathResult subway = SubPathFixture.subway(4).names("가양", "염창")
+                .coords(stations.get(0).x(), stations.get(0).y(), stations.get(3).x(), stations.get(3).y())
+                .stations(stations.toArray(StationResult[]::new))
+                .lanes(new LaneResult("서울9호선", null, null, null, null, null, "#BDB092"))
+                .trainKind("NORMAL")
+                .build();
+        return new PathResult(1, null, List.of(subway), List.of());
+    }
+
+    private void givenBinding(JourneyLeg ride, watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind kind,
+                              String serviceId) {
+        var binding = watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding.selected(ride.getId(), JOURNEY_ID,
+                REVISION, ride.getLegIndex(), "9600", java.time.LocalDate.parse("2026-10-21"), "1009", "상행", kind,
+                serviceId, serviceId == null ? null : "2026-10-21");
+        when(bindingRepository.findByJourneyLegIdIn(any())).thenReturn(List.of(binding));
+    }
+
+    @Test
+    @DisplayName("S4 급행을 묶으면 완행 계획이어도 stops 는 그 열차가 서는 역만, allStops 는 지나치는 역 false, 버전 키에 바인딩 판")
+    void boundExpressReplacesStops() throws Exception {
+        givenJourney(line9AllStops());
+        JourneyLeg ride = leg(0, JourneyLegType.RIDE_SUBWAY, 240);
+        givenLegs(ride);
+        givenOptions();
+        givenBinding(ride, watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.EXPRESS, "1009-express");
+
+        JourneyNavigationGeometry geometry = service.get(USER_ID, JOURNEY_ID, REVISION);
+        JourneyNavigationGeometry.LegGeometry leg = geometry.legs().get(0);
+
+        assertThat(leg.stops()).extracting(StopGeometry::stopName).containsExactly("가양", "염창");
+        assertThat(leg.stops()).extracting(StopGeometry::seq).containsExactly(0, 1);
+        assertThat(leg.allStops()).extracting(StopGeometry::stopName).containsExactly("가양", "증미", "등촌", "염창");
+        assertThat(leg.allStops()).extracting(StopGeometry::trainStops).containsExactly(true, false, false, true);
+        assertThat(geometry.geometryVersion()).isEqualTo("1:2026-10-21:0.0E");
+    }
+
+    @Test
+    @DisplayName("S4 급행 계획인데 일반 열차를 묶으면 stops 를 완행으로 펼친다(전부 서는 역)")
+    void boundNormalOnExpressPlanExpands() {
+        givenJourney(line9Express("EXPRESS"));
+        JourneyLeg ride = leg(0, JourneyLegType.RIDE_SUBWAY, 240);
+        givenLegs(ride);
+        givenOptions();
+        givenBinding(ride, watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.NORMAL, null);
+
+        JourneyNavigationGeometry geometry = service.get(USER_ID, JOURNEY_ID, REVISION);
+        JourneyNavigationGeometry.LegGeometry leg = geometry.legs().get(0);
+
+        assertThat(leg.stops()).extracting(StopGeometry::stopName).containsExactly("가양", "증미", "등촌", "염창");
+        assertThat(leg.allStops()).extracting(StopGeometry::trainStops).containsOnly(true);
+        assertThat(geometry.geometryVersion()).isEqualTo("1:2026-10-21:0.0N");
+    }
+
+    @Test
+    @DisplayName("S4 미분류(배포 전) 바인딩은 S2 그대로, 버전 키에는 판만(종류 머리글자 없음) — 분류되면 키가 바뀐다")
+    void unclassifiedBindingKeepsS2() {
+        givenJourney(line9Express("EXPRESS"));
+        JourneyLeg ride = leg(0, JourneyLegType.RIDE_SUBWAY, 240);
+        givenLegs(ride);
+        givenOptions();
+        givenBinding(ride, null, null);
+
+        JourneyNavigationGeometry geometry = service.get(USER_ID, JOURNEY_ID, REVISION);
+
+        assertThat(geometry.legs().get(0).stops()).extracting(StopGeometry::stopName).containsExactly("가양", "염창");
+        assertThat(geometry.legs().get(0).allStops()).extracting(StopGeometry::trainStops)
+                .containsExactly(true, false, false, true);
+        assertThat(geometry.geometryVersion()).isEqualTo("1:2026-10-21:0.0");
     }
 
     @Test

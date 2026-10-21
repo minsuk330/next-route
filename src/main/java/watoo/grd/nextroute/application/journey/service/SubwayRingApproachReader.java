@@ -12,6 +12,7 @@ import watoo.grd.nextroute.application.subway.dto.SubwayTrainObservation;
 import watoo.grd.nextroute.application.subway.dto.TrainIdentity;
 import watoo.grd.nextroute.application.subway.port.out.SubwayTrainLogPort;
 import watoo.grd.nextroute.application.subway.service.StationsAheadCalculator;
+import watoo.grd.nextroute.application.subway.service.SubwayStopPatternResolver;
 import watoo.grd.nextroute.application.subway.service.SubwayLineOrder;
 
 import java.time.Instant;
@@ -56,7 +57,7 @@ public class SubwayRingApproachReader {
         }
         Optional<SubwayRingApproach> fresh;
         try {
-            fresh = fromPosition(train, board.canonicalKey(), now);
+            fresh = fromPosition(train, board.canonicalKey(), chain.pattern(), now);
         } catch (RuntimeException e) {
             log.debug("[SubwayRing] 다가오는 열차 위치 실패 — journeyId={}: {}", state.journeyId(), e.getMessage());
             fresh = Optional.empty();
@@ -76,7 +77,8 @@ public class SubwayRingApproachReader {
     /**
      * @return 관측이 있고 낡지 않았으면 그 위치. 승차역 자체에 있으면 남은 역 0(부르는 쪽이 비운다). 앞쪽 목록에 없으면 empty
      */
-    private Optional<SubwayRingApproach> fromPosition(TrainIdentity train, String boardKey, Instant now) {
+    private Optional<SubwayRingApproach> fromPosition(TrainIdentity train, String boardKey,
+                                                      SubwayStopPatternResolver.ResolvedPattern pattern, Instant now) {
         Optional<SubwayTrainObservation> seen = trainLogPort.lastSeen(train);
         if (seen.isEmpty() || seen.get().stationId() == null || seen.get().receivedAt() == null
                 || seen.get().receivedAt().isBefore(now.minus(properties.getStaleSourceMaxAge()))) {
@@ -91,9 +93,14 @@ public class SubwayRingApproachReader {
                 lineOrder.behind(train.lineId(), train.direction(), boardKey, MAX_STATIONS);
         for (int i = 0; i < behind.size(); i++) {
             if (at.equals(behind.get(i).stationId())) {
-                List<String> names = behind.subList(i, behind.size()).stream()
-                        .map(StationsAheadCalculator.Stop::name)
-                        .toList();
+                // 급행이면 열차가 서는 역만 센다(D9, subway-express PR-S4). 지금 있는 역은 지나치는 역이어도 남긴다 — 어디 있는지다
+                List<StationsAheadCalculator.Stop> ahead = behind.subList(i, behind.size());
+                List<String> names = new java.util.ArrayList<>(ahead.size());
+                for (int j = 0; j < ahead.size(); j++) {
+                    if (j == 0 || pattern == null || pattern.stopsAt(ahead.get(j).stationId())) {
+                        names.add(ahead.get(j).name());
+                    }
+                }
                 return Optional.of(new SubwayRingApproach(names.get(0), names.size(), names));
             }
         }

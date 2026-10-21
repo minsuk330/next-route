@@ -16,8 +16,9 @@ import java.util.List;
  * @param routeRevision   이 좌표가 속한 경로 개정본. 앱 캐시 fencing 키의 일부다
  * @param legs            단계별 좌표. 저장된 단계 순서를 그대로 따른다
  * @param sourceFetchedAt 좌표 원천 중 가장 오래된 수집 시각. 없으면 null
- * @param geometryVersion 이 응답의 버전 키(subway-express S2) — {@code {routeRevision}:{급행 카탈로그 판}}. 바뀌면 앱이 다시
- *                        받는다(카탈로그가 바뀌면 {@code allStops} 의 정차 표시가 달라진다). 열차 바인딩 판은 PR-S4 에서 덧붙인다.
+ * @param geometryVersion 이 응답의 버전 키(subway-express S2·S4) — {@code {routeRevision}:{급행 카탈로그 판}[:{바인딩 판}]}.
+ *                        바인딩 판은 지하철 고정이 있을 때만 붙는다({@code SubwayBoundStopsResolver.versionToken}, 예 {@code 3:2026-10-21:1.0E}).
+ *                        바뀌면 앱이 다시 받는다(카탈로그·묶인 열차가 바뀌면 {@code stops}·{@code allStops} 가 달라진다).
  *                        구버전 앱은 무시한다
  */
 public record JourneyNavigationGeometry(
@@ -41,6 +42,17 @@ public record JourneyNavigationGeometry(
     /** 버전 키: {@code {routeRevision}:{카탈로그 판}}. 카탈로그 판을 모르면 {@code -}. */
     public static String versionKey(int routeRevision, String catalogVersion) {
         return routeRevision + ":" + (catalogVersion == null ? "-" : catalogVersion);
+    }
+
+    /**
+     * 버전 키(subway-express S4): {@code {routeRevision}:{카탈로그 판}[:{바인딩 판}]}. 바인딩 판은 지하철 고정이 있을 때만 붙는다
+     * — 고정 없는 여정은 S2 키 그대로다(배포만으로 앱 캐시가 깨지지 않는다). 앱은 키를 <b>통째로 같은지만</b> 본다.
+     *
+     * @param bindingToken {@code SubwayBoundStopsResolver.versionToken} — 예 {@code 1.0E}, 고정이 없으면 null
+     */
+    public static String versionKey(int routeRevision, String catalogVersion, String bindingToken) {
+        String key = versionKey(routeRevision, catalogVersion);
+        return bindingToken == null || bindingToken.isBlank() ? key : key + ":" + bindingToken;
     }
 
     /**

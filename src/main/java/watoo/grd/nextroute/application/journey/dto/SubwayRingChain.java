@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.journey.dto;
 
+import watoo.grd.nextroute.application.subway.service.SubwayStopPatternResolver.ResolvedPattern;
+
 import java.util.List;
 
 /**
@@ -12,17 +14,52 @@ import java.util.List;
  * 바뀌었는지를 판정한다 — 역명은 표기가 흔들려서({@code 성수}/{@code 성수종착}) 같은 역인데
  * 링이 0 으로 리셋된다. 해석하지 못한 역은 {@code null} 이고, 그 역은 도착 조회를 못 해
  * 위치 폴백만 남는다.
+ *
+ * <p><b>급행(subway-express PR-S4)</b>: 묶인 열차가 급행이면 체인은 그 열차가 <b>서는 역만</b>이다
+ * ({@code SubwayRingChainBuilder}). 지나치는 역은 다음 정차역의 {@link Station#passingBefore} 에 붙는다 — 남은 역·다음 역은
+ * 정차역만 세고(D9), 지나치는 역의 실시간 관측은 진행 근거로만 쓴다({@link #sequenceOfPassing}).
+ *
+ * @param pattern 묶인 급행 열차의 해석된 정차 패턴. 일반·모름이면 null
  */
-public record SubwayRingChain(List<Station> stations) {
+public record SubwayRingChain(List<Station> stations, ResolvedPattern pattern) {
 
     public SubwayRingChain {
         stations = stations == null ? List.of() : List.copyOf(stations);
     }
 
+    /** 급행 패턴 없이(일반·모름 — 예전 모양). */
+    public SubwayRingChain(List<Station> stations) {
+        this(stations, null);
+    }
+
     /**
-     * @param sequence 승차역을 0 으로 세는 순번
+     * @param sequence      승차역을 0 으로 세는 순번
+     * @param passingBefore 직전 정차역과 이 역 사이에서 열차가 <b>서지 않고 지나는</b> 역 키(진행 순서). 일반 열차는 빈 목록
      */
-    public record Station(int sequence, String canonicalKey, String name) {
+    public record Station(int sequence, String canonicalKey, String name, List<String> passingBefore) {
+
+        public Station {
+            passingBefore = passingBefore == null ? List.of() : List.copyOf(passingBefore);
+        }
+
+        public Station(int sequence, String canonicalKey, String name) {
+            this(sequence, canonicalKey, name, List.of());
+        }
+
+        /** 직전 정차역과의 사이에 지나치는 역이 있는가(급행 구간). */
+        public boolean hasPassing() {
+            return !passingBefore.isEmpty();
+        }
+
+        /** 이 역 직전에 지나는 역(완행 기준 전역). 지나치는 역이 없으면 null. */
+        public String lastPassing() {
+            return passingBefore.isEmpty() ? null : passingBefore.get(passingBefore.size() - 1);
+        }
+    }
+
+    /** 지나치는 역이 하나라도 있는 체인인가(급행). */
+    public boolean hasPassing() {
+        return stations.stream().anyMatch(Station::hasPassing);
     }
 
     public boolean isUsable() {
@@ -59,6 +96,22 @@ public record SubwayRingChain(List<Station> stations) {
         }
         for (Station station : stations) {
             if (canonicalKey.equals(station.canonicalKey())) {
+                return station.sequence();
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * 그 역이 <b>지나치는 역</b>이면 그 역을 지나 도착할 정차역의 순번(곧 열차가 그 역에 있을 때 들어 있는 구간). 정차역이거나
+     * 체인 밖이면 {@code -1}.
+     */
+    public int sequenceOfPassing(String key) {
+        if (key == null) {
+            return -1;
+        }
+        for (Station station : stations) {
+            if (station.passingBefore().contains(key)) {
                 return station.sequence();
             }
         }

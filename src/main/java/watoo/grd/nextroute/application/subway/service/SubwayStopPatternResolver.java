@@ -143,6 +143,38 @@ public class SubwayStopPatternResolver {
     }
 
     /**
+     * 바인딩 때 해석해 둔 서비스로 정차 패턴을 다시 만든다(subway-express PR-S4 링). 서비스는 바꾸지 않는다 — 여정 도중
+     * 카탈로그가 바뀌어도 그 서비스 id 를 계속 쓴다. 열차별 예외 정차는 {@code trainNo} 로 지금 다시 계산한다.
+     *
+     * @param destination 행선지 이름이나 종착 역 id. 알면 종착역까지로 자르고, 모르면(null) 자르지 않는다
+     * @return 서비스가 카탈로그에서 사라졌거나 방향·각역 구간을 못 펼치면 empty
+     */
+    public Optional<ResolvedPattern> resolveService(String serviceId, String lineId, String direction, String trainNo,
+                                                    String destination) {
+        if (serviceId == null) {
+            return Optional.empty();
+        }
+        SubwayTrainIdentity train = SubwayTrainIdentity.of(lineId, direction, trainNo, destination);
+        Optional<ExpressService> service = catalog.service(serviceId);
+        if (train.direction() == null || service.isEmpty() || !service.get().lineId().equals(lineId)) {
+            return Optional.empty();
+        }
+        Optional<SubwayStopPattern> pattern = catalog.pattern(serviceId, train.direction(), train.trainNo(),
+                lineOrder::allStopPath);
+        if (pattern.isEmpty()) {
+            return Optional.empty();
+        }
+        List<String> stops = pattern.get().stopIds();
+        String terminal = train.terminalId() != null ? train.terminalId()
+                : train.destinationName() == null ? null : catalog.stationId(lineId, train.destinationName()).orElse(null);
+        int at = terminal == null ? -1 : stops.indexOf(terminal);
+        if (at < 0) {
+            return Optional.of(new ResolvedPattern(service.get(), train.direction(), stops, null));
+        }
+        return Optional.of(new ResolvedPattern(service.get(), train.direction(), stops.subList(0, at + 1), terminal));
+    }
+
+    /**
      * 완행 경로를 정차역만 남긴다. 각 정차역에 직전 정차역과의 사이에서 지나친 역({@code passingBefore})을 붙인다.
      * 마지막 정차역 뒤에 남은 통과역은 버린다 — 하차역이 그 안이면 이 열차는 하차역에 서지 않는다는 뜻이고, 그 판단은
      * {@link ResolvedPattern#stopsAt} 으로 한다.
