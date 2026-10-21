@@ -362,14 +362,64 @@ class JourneySnapshotEtaComposerTest {
     }
 
     @Test
-    @DisplayName("열차가 이미 승차역을 지났으면(탄 열차를 고른 경우 포함) 지금과 같다 — 링 하차 예정을 쓰지 않는다")
-    void trainPastBoardingKeepsMovingEstimate() {
+    @DisplayName("#481 탄 뒤에도 링의 하차 예정이 있으면 그것이다 — 화면 요약과 잠금화면이 같은 도착을 말한다")
+    void afterBoardingUsesRingAlighting() {
+        useSubwayRoute();
+        // 앱 진행도는 지하에서 끊겨 "탑승 + 계획"에 고정됐다
+        givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+
+        // 링이 다음 구간(1)을 향한다 — 열차가 승차역을 떠났고, 늦어서 하차 예정은 200초 뒤다
+        JourneySnapshot result = composer.compose(USER_ID,
+                snapshot(2).withSubwayGuidance(subwayGuidance(1, NOW.plusSeconds(90), NOW.plusSeconds(200))));
+
+        assertThat(result.eta().currentLeg().arrivalAt()).isEqualTo(NOW.plusSeconds(200));
+        assertThat(result.eta().currentLeg().source()).isEqualTo(CurrentLegArrival.Source.REALTIME_ARRIVAL);
+        assertThat(result.eta().currentLeg().quality()).isEqualTo(CurrentLegArrival.Quality.GOOD);
+        // 하차 예정 + 남은 걷기 300초
+        assertThat(result.eta().journeyEta()).isEqualTo(NOW.plusSeconds(500));
+    }
+
+    @Test
+    @DisplayName("#481 탄 뒤 링이 시간 따라 늦어지면 journeyEta 도 같이 움직인다(1분 안)")
+    void afterBoardingJourneyEtaFollowsTheRing() {
         useSubwayRoute();
         givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
 
-        // 링이 다음 구간(1)을 향한다 — 열차가 승차역에 섰거나 떠났다
+        for (int alighting : new int[]{200, 320, 440}) {
+            JourneySnapshot result = composer.compose(USER_ID, snapshot(2).withSubwayGuidance(
+                    subwayGuidance(1, NOW.plusSeconds(90), NOW.plusSeconds(alighting))));
+            assertThat(result.eta().journeyEta()).isEqualTo(NOW.plusSeconds(alighting + 300L));
+        }
+    }
+
+    @Test
+    @DisplayName("#481 탄 뒤 링이 멈췄어도(STALE) 마지막 하차 예정을 쓰되 품질은 낮춘다. 이미 지났으면 지금")
+    void afterBoardingStaleRingUsesLastAlighting() {
+        useSubwayRoute();
+        givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+        SubwayRingState stale = ringState(1, NOW.plusSeconds(90), NOW.plusSeconds(200))
+                .withQuality(SubwayRingQuality.STALE);
+        SubwayRingState overdue = ringState(1, NOW.minusSeconds(60), NOW.minusSeconds(10));
+
+        var fromStale = composer.compose(USER_ID, snapshot(2).withSubwayGuidance(
+                SubwayGuidance.of(SubwayBindingStatus.CONFIRMED, "서울2호선", stale))).eta().currentLeg();
+        var fromOverdue = composer.compose(USER_ID, snapshot(2).withSubwayGuidance(
+                SubwayGuidance.of(SubwayBindingStatus.CONFIRMED, "서울2호선", overdue))).eta().currentLeg();
+
+        assertThat(fromStale.arrivalAt()).isEqualTo(NOW.plusSeconds(200));
+        assertThat(fromStale.quality()).isEqualTo(CurrentLegArrival.Quality.APPROXIMATE);
+        assertThat(fromOverdue.arrivalAt()).isEqualTo(NOW);
+        assertThat(fromOverdue.remainingSeconds()).isZero();
+    }
+
+    @Test
+    @DisplayName("#481 탄 뒤 링에 하차 예정이 없으면 지금과 같다 — 앱 진행도")
+    void afterBoardingWithoutRingAlightingKeepsMovingEstimate() {
+        useSubwayRoute();
+        givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+
         JourneySnapshot result = composer.compose(USER_ID,
-                snapshot(2).withSubwayGuidance(subwayGuidance(1, NOW.plusSeconds(90), NOW.plusSeconds(200))));
+                snapshot(2).withSubwayGuidance(subwayGuidance(1, NOW.plusSeconds(90), null)));
 
         assertThat(result.eta().currentLeg().arrivalAt()).isEqualTo(NOW.plusSeconds(120));
         assertThat(result.eta().currentLeg().source())

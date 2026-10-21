@@ -319,10 +319,11 @@ class TransferRiskEvaluatorTest {
     }
 
     @Test
-    @DisplayName("열차를 이미 탔으면(링이 승차역을 지남) 준비 시각은 지금과 같다")
-    void boardedTrainKeepsMovingEstimate() {
+    @DisplayName("#481 열차를 탄 뒤(링이 승차역을 지남)에도 준비 시각은 링의 하차 예정 기준이다 — 링이 늦으면 여유가 준다")
+    void boardedTrainUsesRingAlighting() {
         JourneyLeg subwayLeg = useSubwayRide();
         givenTransfers(transfer(0, 0, 1, 2, null));
+        // 앱 진행도는 "탑승 + 계획"에 고정(지하에서 GPS 끊김)
         givenArrival(subwayLeg, arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
         given(guidanceComposer.compose(eq(REVISION), eq(0), any(), any()))
                 .willReturn(guidance(1, NOW.plusSeconds(60), NOW.plusSeconds(200)));
@@ -330,9 +331,10 @@ class TransferRiskEvaluatorTest {
 
         TransferRiskAssessment assessment = evaluate().get(0);
 
-        assertThat(assessment.currentLegArrivalAt()).isEqualTo(NOW.plusSeconds(120));
-        assertThat(assessment.userReadyAt()).isEqualTo(Instant.parse("2026-08-04T09:04:30Z"));
-        assertThat(assessment.transferSlackSeconds()).isEqualTo(330);
+        assertThat(assessment.currentLegArrivalAt()).isEqualTo(NOW.plusSeconds(200));
+        // 하차 예정 09:03:20 + 환승 도보 150초
+        assertThat(assessment.userReadyAt()).isEqualTo(Instant.parse("2026-08-04T09:05:50Z"));
+        assertThat(assessment.transferSlackSeconds()).isEqualTo(250);
     }
 
     @Test
