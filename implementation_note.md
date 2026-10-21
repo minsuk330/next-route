@@ -5831,3 +5831,46 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew test --tests '*IT' --continue` → 96 클래스 682 테스트 실패 0·오류 0·건너뜀 7 — **버리는 컨테이너**(postgis/postgis:17-3.5 :55432 에 공유 로컬 DB pg_dump 전체 복사 → Flyway V72 적용, redis:7-alpine :56379). 공유 로컬 DB(V71)는 건드리지 않음. #482 반영 뒤 관련 IT(`SubwayRideScenarioIT` 5, `SubwayRingExpressReplayIT` 2, `SubwayBindingSchemaIT` 15) 다시 통과
 - 녹화 재생: 9712 급행 하차 예정 평균|e| 41s(치우침 +36s, 최대 517s, 마지막 구간 69s), 고속터미널 링 1.00 = 원천 도착 +19s, 다음 역은 정차역 6개뿐. 같은 녹화를 예전 경로(UNKNOWN 계획 체인)로 돌리면 평균|e| 468s·최대 1,060s. 일반 9226 평균|e| 111s(+111s, 기존 TYPICAL ×1.2), 당산 +15s
 - 운영 OTP fixture: 9호선 급행 가양→염창 계획 210s vs 완행 운행 합 310s
+
+## subway-express PR-S5 재탐색이 급행 끄기를 따름 (V73) (2026-10-21, feat/subway-express-reroute)
+### 확정
+- 흐름: `GET /api/route/search?excludeExpress` → `RouteSearchController` 가 `request.excludesExpress()` 를 `RouteSearchSnapshotRecorder.attach(userId, result, excludeExpress)` 로 → `RouteSearchSnapshotPort.save(owner, result, excludeExpress, expiresAt)` → Redis `StoredSnapshot.excludeExpress`(끝 칸, `Boolean`) → `find` 가 `StoredPath.excludeExpress`(boolean) 로 돌려줌 → `JourneyStartService` → `JourneyStartTxService.start(…, NAVIGATION, excludeExpress)` → `journey_session.exclude_express`(V73) → 재탐색 세 진입점(`RerouteProposalService.request`·`RerouteAlertPublisher`·`RerouteBoardRefreshService.refresh`)이 `journey.isExcludeExpress()` 를 `RerouteContext`/`BoardRequest` 끝 칸으로 → `RemainingPathCandidateProvider.searchOne`/`searchBoardOne` → `RemainingRouteSearchService.search(…, departAt, excludeExpress)`
+- 저장하는 값 = **요청값**. 검색이 D10 으로 필터를 풀어 `meta.degraded=express_filter` 여도 true 로 남는다(사용자 선호). 재탐색에서 풀려도 세션 값은 안 바뀐다(`updatable = false`, 변경 메서드 없음)
+- 재탐색 순서(`RemainingRouteSearchService.loadOtp`): `routeExclusions(excludeExpress)` 로 OTP 질의 → `filter(pool, false)`(DIRECT 언제나 제거) → `applyExpressFilter`(급행 끄기면 EXPRESS 구간 경로 제거, 그래서 0건인데 풀은 있으면 해제) → **그 다음** `rerouteLimit` 로 자르기. 자른 뒤 거르면 앞 5칸이 급행일 때 일반 경로가 상한 밖으로 밀려 빈손이 된다(시험 `excludeExpressFiltersBeforeTruncation`)
+- 재탐색 D10 은 **다시 묻지 않는다**: 본 검색의 다시 묻기 = "원래 수단 + 노선형 급행 제외" 질의인데 재탐색 첫 질의가 이미 정확히 그것(추가 검색이 없음). 같은 질의로 permit·예산을 또 쓸 이유가 없다. 재탐색 응답엔 meta 가 없어 해제는 `log.info` 만
+- 단독 추적(`TrackJourneyStartService`)은 검색을 거치지 않아 근거가 없음 → 7인자 `start(…, TRACK)` 그대로 false. 배포 전 여정·옛 스냅샷(칸 없음)도 false = 옛 동작
+- 호환: `StoredPath`·`RerouteContext`·`BoardRequest` 는 옛 인자 생성자 유지(false). IT 30여 곳의 `new StoredPath(owner, path, expiresAt)` 무변경. `save`·`attach` 는 시그니처 교체(호출부 1곳씩, 시험 4개 갱신)
+- ODSAY 재탐색은 급행을 판정하지 않아 값 무시(본 검색과 같음)
+### 함정
+- `WithdrawalDeletionBoundaryIT` 7건 실패 `null value in column "exclude_express"` ← 그 IT 스키마는 ddl-auto(create-drop)라 원시타입 칸에 DB 기본값이 없고 손 INSERT 가 칸을 빠뜨림 / 가드: INSERT 에 `exclude_express=false` 추가(V59 kind·V66 evaluation_urgent 와 같은 처방). 새 원시타입 칸을 엔티티에 넣으면 이 IT 의 손 INSERT 를 같이 고칠 것
+- 공유 로컬 개발 DB(`nextroute-postgres-1`, V71)에 V73 을 먼저 적용하면, 같은 DB 로 IT 를 도는 S4(V72) 쪽이 Flyway 검증에서 죽는다(outOfOrder 꺼짐 — V72 가 "적용 안 됨·최신보다 낮음"). 반대로 S4 가 먼저 V72 를 깔면 이 브랜치가 "적용됐는데 파일 없음"으로 죽는다 / 가드: 이 PR 의 IT 는 일회용 `s5-pg`(postgis 17-3.5, :55433, 개발 DB `--schema-only` + `flyway_schema_history` 복원, V71)·`s5-redis`(:56380)에서 돌림. **공유 DB 는 V71 그대로 — S4 와 S5 가 둘 다 머지된 뒤 V72→V73 순서로 깔린다**
+- `@Sql` 로 마이그레이션을 직접 까는 IT 15개: V73 을 V71 옆이 아니라 **V59(journey_session_kind) 바로 뒤**에 넣음 — S4 가 V72 를 V71 옆에 넣을 때 같은 줄 충돌을 피하려고
+### 좌표
+- `db/migration/V73__journey_session_exclude_express.sql`, `JourneySession.excludeExpress`
+- `RouteSearchSnapshotPort.save/StoredPath`, `RedisRouteSearchSnapshotAdapter.StoredSnapshot`, `RouteSearchSnapshotRecorder.attach`, `RouteSearchController.search`
+- `JourneyStartService.start`, `JourneyStartTxService.start`(8인자)
+- `RerouteContext.excludeExpress`, `RemainingPathCandidateProvider.BoardRequest.excludeExpress`·`searchOne`·`searchBoardOne`·`collectBoard`, `RerouteProposalService.request`, `RerouteAlertPublisher`, `RerouteBoardRefreshService.refresh`
+- `RemainingRouteSearchService.search(5인자)`·`loadOtp`·`applyExpressFilter`
+### 미결
+- 재탐색 해제(D10)를 앱에 알릴 칸이 없다 — 제안 카드에 급행이 섞여 보일 수 있다(배지로는 보임). 필요하면 별건
+- 여정 중 급행 끄기를 바꾸는 API 는 없다(시작 검색 값 고정)
+### 배포
+- **V73 마이그레이션 — Flyway 가 jar 에서 적용**(V65 이후 관례 tracked·jar 포함, 수동 배치 불필요, V71 과 같음). `ALTER TABLE journey_session ADD COLUMN exclude_express boolean NOT NULL DEFAULT false` — PG 11+ 는 상수 기본값이라 표 재작성 없음(메타데이터만)
+- 순서: S4(V72) 와 같은 배포면 V72→V73 순서로 같이 나간다. **S5 만 먼저 나가면 V72 가 나중에 들어올 때 outOfOrder 꺼짐이라 운영 Flyway 가 V72 를 거부한다** → S4 를 먼저(또는 같이) 머지·배포할 것(PLAN 배포 순서 S4 → 플래그 → S5 와 같음)
+- 엔티티가 `exclude_express` 를 매핑 → api·worker 같은 이미지로 교체(Flyway 가 먼저 돈다). 롤백: 구버전은 칼럼을 매핑하지 않아 validate 통과, Redis 스냅샷의 새 칸은 구버전이 무시
+- 배포 순간 Redis 에 있던 스냅샷(TTL 10분)은 칸이 없어 false — 그 사이 시작한 급행 끄기 여정은 재탐색에서 급행 포함(10분 창)
+### 검증
+- `./gradlew compileJava compileTestJava` 통과
+- 대상 시험: `RemainingRouteSearchServiceOtpTest` 9/0(제외 route 전파·자르기 전 필터·급행뿐이면 해제·DIRECT 뿐이면 빈손), `RemainingPathCandidateProviderTest` 30/0(findCandidates·보드 둘 다 true 전파), `RerouteBoardRefreshServiceKindTest` 2/0, `JourneyStartServiceTest` 11/0, `RedisRouteSearchSnapshotAdapterTest` 13/0(옛 JSON false·왕복 true/false), `RouteSearchSnapshotRecorderTest` 8/0·`RouteSearchControllerTest` 8/0(D10 해제 결과여도 true 저장), `RouteSearchControllerBindingTest`·`RemainingRouteSearchServiceTest`·`TrackJourneyStartServiceTest`·`JourneyStartTxServiceKindTest` 통과
+- 대상 IT(일회용 DB): `JourneySchemaIT` 21/0(V73 왕복·기본값·updatable=false), `JourneyStartIT`(세션 저장 true/false), `RerouteRemainingPathOtpIT` 8/0(급행 끄기 여정 → OTP `preferences.transit.filters[0].exclude[0].routes` 6개, 기본 여정은 preferences 없음, 9호선 급행뿐 응답 → 해제해 EXPRESS 경로 반환 + 세션 true 유지 + 다음 재탐색도 제외), `RerouteRemainingPathIT` 5/0
+- `./gradlew test --tests '*Test' --continue` → 407 클래스 3,045 테스트 실패 0·오류 0·건너뜀 1
+- `./gradlew test --tests '*IT' --continue`(env db·auth·api, POSTGRES/REDIS=localhost **일회용 :55433/:56380**, 1회, 4m14s) → 95 클래스 682 테스트 중 실패 7(`WithdrawalDeletionBoundaryIT` 전부, 위 함정 — 이 PR 원인) → 고친 뒤 그 클래스만 재실행 7/0. 나머지 실패 0·건너뜀 7
+- V73 번호: origin/main(00c94f4a) V71 까지, 열린 PR 에 V72~V79 없음(2026-10-21 푸시 직전). S4 가 V72
+
+#### subway-express PR-S5 보완: origin/main(#496 S4, V72) 병합 (2026-10-22)
+- 충돌: `implementation_note.md` 만 → S4·S5 절 둘 다 남김(S4 먼저). 코드 충돌 없음
+- 확정: V72 는 `subway_leg_binding`(V44) 을 바꾼다. `@Sql` 로 마이그레이션을 까는 IT 15개는 V44 를 깔지 않아 V72 를 넣으면 표가 없어 실패 → 그 목록엔 V73 만(S4 도 넣지 않았다). Flyway 로 도는 IT·운영은 V72→V73 순서
+- 검증: `./gradlew compileJava compileTestJava` 통과. `./gradlew test --tests '*Test' --continue` → 414 클래스 3,101 테스트 실패 0·오류 0·건너뜀 1. `./gradlew test --tests '*IT' --continue`(일회용 `s5-pg` :55433 = 개발 DB 스키마+flyway 이력 V71 → 부팅 때 V72·V73 적용 확인, `s5-redis` :56380, 1회 6m12s) → 96 클래스 688 테스트 실패 3·건너뜀 6
+  - `SubwayRingExpressReplayIT` 2(S4 신규): 급행 카탈로그가 역 마스터(`subway_station`)로 역을 잇는데 일회용 DB 는 스키마만이라 비어 9호선 서비스 보류 ← 환경. 공개 역 마스터 645행만 공유 DB 에서 읽어 넣고 그 클래스 재실행 2/0
+  - `RerouteRemainingPathOtpLiveIT` 1: 로컬 OTP 가 떠 있어 `@EnabledIf(otpReachable)` 로 켜졌고, 시험의 `route.search.otp-ms=15000` 이 기본 `lease-ms`(12000) 검증기에 걸려 컨텍스트 로드 실패 ← **기존 무관**(이 PR 은 설정·그 시험 무변경, 노트 4134행의 "main 에서도 실패" 와 같은 시험). 지난 실행엔 OTP 가 없어 건너뜀
+  - 일회용 컨테이너 삭제. 공유 개발 DB(:5432) 는 읽기(역 마스터 덤프)만, 쓰기 없음

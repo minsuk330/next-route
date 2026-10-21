@@ -93,6 +93,17 @@ public class JourneyStartTxService {
     public JourneySnapshot start(Long userId, JourneyPlan plan, JsonNode routeSnapshot,
                                  JsonNode destinationSummary, boolean replace, Instant now,
                                  JourneyKind kind) {
+        return start(userId, plan, routeSnapshot, destinationSummary, replace, now, kind, false);
+    }
+
+    /**
+     * @param excludeExpress 시작 검색의 급행 끄기 요청값(subway-express S5). 세션에 남아 재탐색이 같은 급행 정책으로 찾는다.
+     *                       단독 추적은 검색을 거치지 않아 근거가 없으므로 false 다
+     */
+    @Transactional
+    public JourneySnapshot start(Long userId, JourneyPlan plan, JsonNode routeSnapshot,
+                                 JsonNode destinationSummary, boolean replace, Instant now,
+                                 JourneyKind kind, boolean excludeExpress) {
         User user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.NOT_FOUND));
 
@@ -102,6 +113,7 @@ public class JourneyStartTxService {
         JourneySession session = JourneySession.builder()
                 .userId(user.getId())
                 .kind(kind)
+                .excludeExpress(excludeExpress)
                 .startedAt(now)
                 .guidanceLeaseUntil(now.plus(navigationProperties.guidanceLease()))
                 .routeSnapshot(routeSnapshot)

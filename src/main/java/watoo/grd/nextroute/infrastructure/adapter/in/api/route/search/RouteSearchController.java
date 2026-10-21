@@ -42,7 +42,8 @@ public class RouteSearchController {
             @AuthenticationPrincipal Long userId,
             @Valid RouteSearchRequest request) {
         RouteSearchResult result = searchRouteUseCase.search(request);
-        result = snapshotRecorder.attach(userId, result);
+        // 급행 끄기는 요청값으로 남긴다(D10 해제와 무관) — 여정 재탐색이 같은 선호로 찾는다(subway-express S5).
+        result = snapshotRecorder.attach(userId, result, request.excludesExpress());
         if (userId != null) {
             recordSearchHistoryUseCase.record(userId, request, result);
         }

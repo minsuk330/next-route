@@ -23,6 +23,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -46,7 +47,7 @@ class RouteSearchControllerBindingTest {
     private RouteSearchRequest searchWith(String extraQuery) throws Exception {
         RouteSearchResult empty = new RouteSearchResult(0, 0, 0, 0, 0, List.of());
         given(searchRouteUseCase.search(any())).willReturn(empty);
-        given(snapshotRecorder.attach(any(), any())).willReturn(empty);
+        given(snapshotRecorder.attach(any(), any(), anyBoolean())).willReturn(empty);
 
         mockMvc.perform(get("/api/route/search?startX=127.0&startY=37.5&endX=127.01&endY=37.51" + extraQuery))
                 .andExpect(status().isOk());

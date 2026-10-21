@@ -49,6 +49,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -263,7 +264,7 @@ class RemainingPathCandidateProviderTest {
     @Test
     @DisplayName("검색이 빈손이면 기준선을 재지 않는다 — 잴 이유가 없다")
     void emptySearchSkipsBaseline() {
-        given(searchService.search(eq("ST-C"), eq(WAYPOINTS), anyLong(), any()))
+        given(searchService.search(eq("ST-C"), eq(WAYPOINTS), anyLong(), any(), anyBoolean()))
                 .willReturn(List.of());
 
         assertThat(provider.findCandidates(context())).isEmpty();
@@ -429,7 +430,7 @@ class RemainingPathCandidateProviderTest {
         assertThat(alight.y()).isEqualTo(37.1);
         // 검색은 지금이 아니라 그 정류장에 내려 걸어 나가는 시각으로 나간다.
         verify(searchService).search(eq("ST-B"), eq(INTERIOR_WAYPOINTS), anyLong(),
-                eq(INTERIOR.alightAt().plusSeconds(30)));
+                eq(INTERIOR.alightAt().plusSeconds(30)), eq(false));
     }
 
     @Test
@@ -443,10 +444,40 @@ class RemainingPathCandidateProviderTest {
 
         verify(searchService).search(eq("ST-C"),
                 eq(new Waypoints(new Coord(127.3, 37.3), DESTINATION, "정류장C", "코엑스")),
-                anyLong(), any());
+                anyLong(), any(), eq(false));
         verify(searchService).search(eq("ST-B"),
                 eq(new Waypoints(new Coord(127.1, 37.1), DESTINATION, "정류장B", "코엑스")),
-                anyLong(), any());
+                anyLong(), any(), eq(false));
+    }
+
+    @Test
+    @DisplayName("급행 끄기 여정은 남은 구간 재검색에 그 값을 그대로 넘긴다(subway-express S5)")
+    void excludeExpressReachesRemainingSearch() {
+        PathResult path = path("A");
+        givenSearch(path);
+        givenPrepared(path, prepared("BL-360", 0, 1));
+        givenBaseline(NOW.plusSeconds(600), true);
+        givenComposed(path, attempt(NOW.plusSeconds(2400)));
+
+        provider.findCandidates(new RerouteContext(JOURNEY_ID, 3L, 1, 5L, 0, NOW, true));
+
+        verify(searchService).search(eq("ST-C"), eq(WAYPOINTS), anyLong(), any(), eq(true));
+    }
+
+    @Test
+    @DisplayName("보드 회차도 여정의 급행 끄기로 찾는다(subway-express S5)")
+    void boardPassesExcludeExpress() {
+        given(waypointResolver.resolve(JOURNEY_ID, 1, 0)).willReturn(Optional.of(
+                new Waypoints(new Coord(127.0, 37.0), DESTINATION, "출발지", "코엑스")));
+        given(geometryUseCase.get(any(), any(), any())).willReturn(
+                new watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry(
+                        JOURNEY_ID, 1, List.of(), null));
+        given(positionEstimator.estimate(any(), any(), any(), any())).willReturn(Optional.of(
+                new watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeoPoint(127.2, 37.2)));
+
+        provider.evaluateBoard(new RemainingPathCandidateProvider.BoardRequest(JOURNEY_ID, 3L, 1, 5L, 0, NOW, true));
+
+        verify(searchService).search(eq("HERE"), any(), anyLong(), any(), eq(true));
     }
 
     @Test
@@ -464,7 +495,7 @@ class RemainingPathCandidateProviderTest {
 
         verify(searchService).search(eq("HERE"),
                 eq(new Waypoints(new Coord(127.2, 37.2), DESTINATION, "현재 위치", "코엑스")),
-                anyLong(), any());
+                anyLong(), any(), eq(false));
     }
 
     @Test
@@ -565,7 +596,7 @@ class RemainingPathCandidateProviderTest {
         given(positionEstimator.estimate(any(), any(), any(), any())).willReturn(Optional.of(
                 new watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.GeoPoint(127.2, 37.2)));
         Waypoints here = new Waypoints(new Coord(127.2, 37.2), DESTINATION, "현재 위치", null);
-        given(searchService.search(eq("HERE"), eq(here), anyLong(), any())).willReturn(List.of(path("W")));
+        given(searchService.search(eq("HERE"), eq(here), anyLong(), any(), anyBoolean())).willReturn(List.of(path("W")));
         givenPrepared(path("W"), prepared("BL-360", 0, 1));
         givenBaseline(NOW.plusSeconds(900), true);
         givenComposed(path("W"), realtimeAttempt(NOW.plusSeconds(2000)));
@@ -644,7 +675,7 @@ class RemainingPathCandidateProviderTest {
     }
 
     private void givenSearch(PathResult... paths) {
-        given(searchService.search(eq("ST-C"), eq(WAYPOINTS), anyLong(), any()))
+        given(searchService.search(eq("ST-C"), eq(WAYPOINTS), anyLong(), any(), anyBoolean()))
                 .willReturn(List.of(paths));
     }
 
@@ -655,7 +686,7 @@ class RemainingPathCandidateProviderTest {
     }
 
     private void givenInteriorSearch(PathResult... paths) {
-        given(searchService.search(eq("ST-B"), eq(INTERIOR_WAYPOINTS), anyLong(), any()))
+        given(searchService.search(eq("ST-B"), eq(INTERIOR_WAYPOINTS), anyLong(), any(), anyBoolean()))
                 .willReturn(List.of(paths));
     }
 

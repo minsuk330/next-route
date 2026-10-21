@@ -34,10 +34,12 @@ public class RouteSearchSnapshotRecorder {
     private final Clock clock;
 
     /**
-     * @param ownerUserId 검색을 수행한 사용자. 익명 검색이면 null.
+     * @param ownerUserId    검색을 수행한 사용자. 익명 검색이면 null.
+     * @param excludeExpress 요청의 급행 끄기(subway-express S5). 결과의 {@code meta.degraded} 가 필터 해제(D10)를 말해도
+     *                       <b>요청값</b>을 그대로 저장한다 — 사용자 선호이지 이번 검색의 결과가 아니다
      * @return 스냅샷 필드가 채워진 결과. 저장이 생략·실패했으면 원본(+degraded 표시).
      */
-    public RouteSearchResult attach(Long ownerUserId, RouteSearchResult result) {
+    public RouteSearchResult attach(Long ownerUserId, RouteSearchResult result, boolean excludeExpress) {
         if (!properties.isEnabled() || result == null) {
             return result;
         }
@@ -51,7 +53,7 @@ public class RouteSearchSnapshotRecorder {
 
         String searchSessionId;
         try {
-            searchSessionId = snapshotPort.save(ownerUserId, keyed, expiresAt);
+            searchSessionId = snapshotPort.save(ownerUserId, keyed, excludeExpress, expiresAt);
         } catch (Exception e) {
             // 포트 계약상 예외는 나오지 않지만, 계약이 깨져도 검색 응답을 실패시키지 않는다.
             log.warn("[RouteSnapshot] 스냅샷 저장 중 예외 — 검색 응답은 유지한다: {}", e.toString());

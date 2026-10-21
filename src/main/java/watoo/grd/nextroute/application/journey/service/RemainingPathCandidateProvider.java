@@ -261,7 +261,8 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
     private Selected searchOne(Origin origin, List<String> currentRouteIds, RerouteContext context) {
         try {
             List<PathResult> paths = searchService.search(origin.stopId(), origin.waypoints(),
-                    properties.getRemainingPath().getSearchBudgetMs(), origin.departAt());
+                    properties.getRemainingPath().getSearchBudgetMs(), origin.departAt(),
+                    context.excludeExpress());
             if (paths.isEmpty()) {
                 metrics.recordRemainingPaths(0, 0);
                 return null;
@@ -747,7 +748,8 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
             return BoardResult.unknown();
         }
         RerouteContext context = new RerouteContext(request.journeyId(), request.userId(),
-                request.routeRevision(), request.commandVersion(), -1, request.now());
+                request.routeRevision(), request.commandVersion(), -1, request.now(),
+                request.excludeExpress());
 
         List<Origin> origins = boardOrigins(legs, current, request);
         Set<String> offered = new LinkedHashSet<>();
@@ -965,7 +967,8 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
         try {
             List<PathResult> paths = searchService.search(
                     origin.stopId() == null ? origin.slotKey() : origin.stopId(), origin.waypoints(),
-                    properties.getRemainingPath().getSearchBudgetMs(), origin.departAt());
+                    properties.getRemainingPath().getSearchBudgetMs(), origin.departAt(),
+                    context.excludeExpress());
             if (paths.isEmpty()) {
                 return new BoardSearch(origin, null, false);
             }
@@ -1029,9 +1032,19 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
         return now.plusSeconds(planned);
     }
 
-    /** 보드 한 회차의 요청. */
+    /**
+     * 보드 한 회차의 요청.
+     *
+     * @param excludeExpress 여정 세션의 급행 끄기(시작 검색의 요청값, subway-express S5)
+     */
     public record BoardRequest(Long journeyId, Long userId, int routeRevision, long commandVersion,
-                               int currentLegIndex, Instant now) {
+                               int currentLegIndex, Instant now, boolean excludeExpress) {
+
+        /** 급행 끄기를 모르는 호출부·시험용(false = 급행 포함). */
+        public BoardRequest(Long journeyId, Long userId, int routeRevision, long commandVersion,
+                            int currentLegIndex, Instant now) {
+            this(journeyId, userId, routeRevision, commandVersion, currentLegIndex, now, false);
+        }
     }
 
     /**

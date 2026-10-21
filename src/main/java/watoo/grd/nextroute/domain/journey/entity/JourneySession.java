@@ -62,6 +62,15 @@ public class JourneySession extends BaseEntity {
     private JourneyKind kind;
 
     /**
+     * 여정을 시작한 검색의 급행 끄기 선호(V73, subway-express S5). 재탐색이 같은 급행 정책으로 찾는 기준이다.
+     *
+     * <p><b>원래 요청값</b>이다 — 그 검색이 일반 경로 0건이라 필터를 풀었어도(D10) 사용자는 급행을 끈 채다. 시작 때 정해지고
+     * 바뀌지 않는다. 단독 추적·배포 전 여정은 false(급행 포함 = 옛 동작).
+     */
+    @Column(nullable = false, updatable = false)
+    private boolean excludeExpress;
+
+    /**
      * 사용자 명령이 반영될 때마다 오르는 번호. 탑승·하차·단계 전이·종료가 올린다.
      *
      * <p>앱이 오래된 화면을 보고 누른 명령을 서버가 걸러 내는 기준이다. 평가 결과 갱신은 이 값을
@@ -157,12 +166,14 @@ public class JourneySession extends BaseEntity {
     /**
      * @param kind 비우면 {@link JourneyKind#NAVIGATION}. 기본값을 빌더가 아니라 여기서 정한다 —
      *             {@code @Builder.Default} 없이 필드 초기화로 두면 빌더가 조용히 {@code null} 을 넣는다
+     * @param excludeExpress 시작 검색의 급행 끄기(원래 요청값). 빌더에서 빼면 false
      */
     @Builder
     public JourneySession(Long userId, JourneyKind kind, Instant startedAt, Instant guidanceLeaseUntil,
-                          JsonNode routeSnapshot, JsonNode destinationSummary) {
+                          JsonNode routeSnapshot, JsonNode destinationSummary, boolean excludeExpress) {
         this.userId = userId;
         this.kind = kind == null ? JourneyKind.NAVIGATION : kind;
+        this.excludeExpress = excludeExpress;
         this.status = JourneyStatus.ACTIVE;
         this.commandVersion = 1L;
         this.evaluationVersion = 0L;

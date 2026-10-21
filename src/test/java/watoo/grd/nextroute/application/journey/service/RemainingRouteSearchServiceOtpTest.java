@@ -55,6 +55,7 @@ class RemainingRouteSearchServiceOtpTest {
     };
 
     private int otpCalls;
+    private RoutingQuery lastQuery;
 
     private RemainingRouteSearchService service(RoutingOutcome otpOutcome) {
         RoutingProviderProperties props = new RoutingProviderProperties();
@@ -63,6 +64,7 @@ class RemainingRouteSearchServiceOtpTest {
         RoutingPort otp = new RoutingPort() {
             @Override public RoutingOutcome search(RoutingQuery q, RoutingDeadline d) {
                 otpCalls++;
+                lastQuery = q;
                 return otpOutcome;
             }
             @Override public RoutingProvider provider() { return RoutingProvider.OTP; }
@@ -193,6 +195,86 @@ class RemainingRouteSearchServiceOtpTest {
                 null, null, Instant.now(), Instant.now(), seconds,
                 List.of(), List.of(), LegGeometry.missing("x"),
                 Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of());
+    }
+
+    // ── 급행 끄기(subway-express S5) ─────────────────────────────────────────
+
+    /** 9호선 가양→염창 한 구간 경로. 종류별로 노선 id 를 달리해 결과에서 구분한다. */
+    private static RoutingItinerary rail(watoo.grd.nextroute.application.subway.dto.TrainKind kind, int seconds) {
+        RoutingLeg leg = new RoutingLeg(RoutingMode.SUBWAY, "SUBWAY", "1", "1:A1", "1:R-" + kind + "-" + seconds,
+                "서울9호선", "1:T", null, Instant.now(), Instant.now(), seconds,
+                List.of(new StopOccurrence("1:S1", null, null, 0, 127.0, 37.5, "가양"),
+                        new StopOccurrence("1:S2", null, null, 1, 127.02, 37.49, "염창")),
+                List.of(), LegGeometry.missing("x"),
+                Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of()).withTrainKind(kind);
+        return new RoutingItinerary(Instant.now(), seconds, 0, 0, 0, false, List.of(), Fare.unknown(), List.of(leg));
+    }
+
+    private static RoutingResult otp(List<RoutingItinerary> itineraries) {
+        return new RoutingResult(RoutingProvider.OTP, "v", "202503", "g",
+                null, null, Instant.now(), List.of(), itineraries);
+    }
+
+    @Test
+    @DisplayName("급행 끄기 여정: 노선형 급행 route 를 OTP 탐색에서 빼고 묻는다(본 검색과 같은 제외 목록)")
+    void excludeExpressSendsRouteExclusions() {
+        RemainingRouteSearchService service = service(otp(List.of(
+                rail(watoo.grd.nextroute.application.subway.dto.TrainKind.NORMAL, 600))));
+
+        service.search("1:S1", WP, 2000, null, true);
+        assertThat(lastQuery.excludedRouteIds())
+                .isNotEmpty()
+                .containsExactlyInAnyOrderElementsOf(
+                        watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures
+                                .railServiceClassifier().expressRouteIds());
+
+        service.search("1:S1", WP, 2000, null, false);
+        assertThat(lastQuery.excludedRouteIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("급행 끄기 여정: 급행 경로를 자르기 전에 뺀다 — 앞 칸을 급행이 채워도 일반 경로가 상한 안에 남는다")
+    void excludeExpressFiltersBeforeTruncation() {
+        List<RoutingItinerary> engine = new java.util.ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            engine.add(rail(watoo.grd.nextroute.application.subway.dto.TrainKind.EXPRESS, 600 + 60 * i));
+        }
+        engine.add(rail(watoo.grd.nextroute.application.subway.dto.TrainKind.DIRECT, 900));
+        engine.add(rail(watoo.grd.nextroute.application.subway.dto.TrainKind.NORMAL, 960));
+        engine.add(rail(watoo.grd.nextroute.application.subway.dto.TrainKind.NORMAL, 1020));
+
+        List<PathResult> off = service(otp(engine)).search("1:S1", WP, 2000, null, true);
+        assertThat(off).extracting(p -> p.subPaths().get(0).trainKind()).containsExactly("NORMAL", "NORMAL");
+        assertThat(off).extracting(p -> p.subPaths().get(0).sectionTime()).containsExactly(16, 17);
+
+        // 급행 포함 여정은 옛 동작 그대로 — DIRECT 만 빠지고 엔진 순서 앞 5개(전부 급행).
+        List<PathResult> on = service(otp(engine)).search("1:S1", WP, 2000, null, false);
+        assertThat(on).hasSize(5).extracting(p -> p.subPaths().get(0).trainKind()).containsOnly("EXPRESS");
+    }
+
+    @Test
+    @DisplayName("급행 끄기 여정인데 급행 경로뿐이면 필터를 푼다(D10) — 다시 묻지 않는다(첫 질의가 이미 노선형 급행 제외)")
+    void excludeExpressRelaxesWhenOnlyExpressRemains() {
+        RemainingRouteSearchService service = service(otp(List.of(
+                rail(watoo.grd.nextroute.application.subway.dto.TrainKind.DIRECT, 500),
+                rail(watoo.grd.nextroute.application.subway.dto.TrainKind.EXPRESS, 600),
+                rail(watoo.grd.nextroute.application.subway.dto.TrainKind.EXPRESS, 660))));
+
+        List<PathResult> paths = service.search("1:S1", WP, 2000, null, true);
+
+        // 해제해도 DIRECT 는 언제나 빠진다.
+        assertThat(paths).extracting(p -> p.subPaths().get(0).trainKind()).containsExactly("EXPRESS", "EXPRESS");
+        assertThat(otpCalls).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("급행 끄기 여정의 진짜 무경로(DIRECT 뿐)는 해제하지 않고 빈 목록")
+    void excludeExpressTrueNoRouteStaysEmpty() {
+        List<PathResult> paths = service(otp(List.of(
+                rail(watoo.grd.nextroute.application.subway.dto.TrainKind.DIRECT, 500))))
+                .search("1:S1", WP, 2000, null, true);
+
+        assertThat(paths).isEmpty();
     }
 
     @Test

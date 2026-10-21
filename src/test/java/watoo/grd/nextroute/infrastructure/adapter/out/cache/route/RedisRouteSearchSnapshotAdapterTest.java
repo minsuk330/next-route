@@ -84,7 +84,7 @@ class RedisRouteSearchSnapshotAdapterTest {
     void saveThenFindRoundTrip() {
         Instant expiresAt = Instant.now().plusSeconds(600);
 
-        String sessionId = adapter.save(42L, result(3), expiresAt);
+        String sessionId = adapter.save(42L, result(3), false, expiresAt);
 
         assertThat(sessionId).isNotBlank();
         assertThat(redisTemplate.hasKey("route:snapshot:" + sessionId)).isTrue();
@@ -101,7 +101,7 @@ class RedisRouteSearchSnapshotAdapterTest {
     @Test
     @DisplayName("익명 검색은 ownerUserId 가 null 로 저장된다")
     void anonymousSearchStoresNullOwner() {
-        String sessionId = adapter.save(null, result(1), Instant.now().plusSeconds(600));
+        String sessionId = adapter.save(null, result(1), false, Instant.now().plusSeconds(600));
 
         assertThat(adapter.find(sessionId, "0")).isPresent();
         assertThat(adapter.find(sessionId, "0").get().ownerUserId()).isNull();
@@ -112,7 +112,7 @@ class RedisRouteSearchSnapshotAdapterTest {
     void savedKeyHasTtl() {
         properties.setTtlSeconds(600);
 
-        String sessionId = adapter.save(1L, result(1), Instant.now().plusSeconds(600));
+        String sessionId = adapter.save(1L, result(1), false, Instant.now().plusSeconds(600));
 
         Long ttl = redisTemplate.getExpire("route:snapshot:" + sessionId, TimeUnit.SECONDS);
         assertThat(ttl).isBetween(1L, 600L);
@@ -125,7 +125,7 @@ class RedisRouteSearchSnapshotAdapterTest {
     void findAfterTtlExpiryIsEmpty() throws Exception {
         properties.setTtlSeconds(1);
 
-        String sessionId = adapter.save(1L, result(2), Instant.now().plusSeconds(1));
+        String sessionId = adapter.save(1L, result(2), false, Instant.now().plusSeconds(1));
         assertThat(adapter.find(sessionId, "0")).isPresent();
 
         TimeUnit.MILLISECONDS.sleep(1500);
@@ -144,7 +144,7 @@ class RedisRouteSearchSnapshotAdapterTest {
     @Test
     @DisplayName("범위 밖 pathKey 는 empty 다 — 예외를 던지지 않는다")
     void findOutOfRangePathKeyIsEmpty() {
-        String sessionId = adapter.save(1L, result(3), Instant.now().plusSeconds(600));
+        String sessionId = adapter.save(1L, result(3), false, Instant.now().plusSeconds(600));
 
         assertThat(adapter.find(sessionId, "99")).isEmpty();
         assertThat(adapter.find(sessionId, "-1")).isEmpty();
@@ -153,7 +153,7 @@ class RedisRouteSearchSnapshotAdapterTest {
     @Test
     @DisplayName("숫자가 아닌 pathKey 는 empty 다 — 예외를 던지지 않는다")
     void findNonNumericPathKeyIsEmpty() {
-        String sessionId = adapter.save(1L, result(3), Instant.now().plusSeconds(600));
+        String sessionId = adapter.save(1L, result(3), false, Instant.now().plusSeconds(600));
 
         assertThat(adapter.find(sessionId, "abc")).isEmpty();
         assertThat(adapter.find(sessionId, "")).isEmpty();
@@ -188,6 +188,8 @@ class RedisRouteSearchSnapshotAdapterTest {
         SubPathResult sub = found.get().path().subPaths().get(0);
         assertThat(sub.startName()).isEqualTo("가양");
         assertThat(sub.trainKind()).isNull();
+        // 급행 끄기 칸(subway-express S5)도 없던 저장분이다 — 급행 포함(옛 동작)으로 읽는다.
+        assertThat(found.get().excludeExpress()).isFalse();
     }
 
     @Test
@@ -199,10 +201,38 @@ class RedisRouteSearchSnapshotAdapterTest {
         RouteSearchResult result = new RouteSearchResult(0, 0, 1, 0, 0,
                 List.of(new PathResult(1, info(20), List.of(express), List.of()))).withPathKeys();
 
-        String sessionId = adapter.save(7L, result, Instant.now().plusSeconds(600));
+        String sessionId = adapter.save(7L, result, false, Instant.now().plusSeconds(600));
 
         assertThat(adapter.find(sessionId, "0").orElseThrow().path().subPaths().get(0).trainKind())
                 .isEqualTo("EXPRESS");
+    }
+
+    // ── 급행 끄기(subway-express S5) ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("급행 끄기 요청값이 StoredPath 까지 살아 나온다 — StoredSnapshot 만 늘리면 find 반환에서 사라진다")
+    void excludeExpressRoundTrip() {
+        String on = adapter.save(7L, result(2), true, Instant.now().plusSeconds(600));
+        String off = adapter.save(7L, result(2), false, Instant.now().plusSeconds(600));
+
+        assertThat(adapter.find(on, "1").orElseThrow().excludeExpress()).isTrue();
+        assertThat(adapter.find(off, "1").orElseThrow().excludeExpress()).isFalse();
+        assertThat(redisTemplate.opsForValue().get("route:snapshot:" + on)).contains("\"excludeExpress\":true");
+    }
+
+    @Test
+    @DisplayName("급행 끄기 칸만 없는 옛 스냅샷 JSON 은 false 로 읽힌다(배포 전 저장분, 앱 구버전 검색)")
+    void oldSnapshotWithoutExcludeExpressIsFalse() {
+        String old = "{\"ownerUserId\":7,\"expiresAtEpochMilli\":" + Instant.now().plusSeconds(600).toEpochMilli()
+                + ",\"result\":{\"searchType\":0,\"busCount\":1,\"subwayCount\":0,\"trainCount\":0,"
+                + "\"airCount\":0,\"paths\":[{\"pathType\":2,\"info\":{\"totalTime\":20,\"payment\":1400,"
+                + "\"totalWalk\":0,\"transferCount\":0},\"subPaths\":[],\"laneGraphics\":[],\"pathKey\":\"0\"}]}}";
+        redisTemplate.opsForValue().set("route:snapshot:old-express", old);
+
+        StoredPath found = adapter.find("old-express", "0").orElseThrow();
+
+        assertThat(found.excludeExpress()).isFalse();
+        assertThat(found.ownerUserId()).isEqualTo(7L);
     }
 
     // ── Redis 장애 ────────────────────────────────────────────────────────────
@@ -213,7 +243,7 @@ class RedisRouteSearchSnapshotAdapterTest {
         RedisRouteSearchSnapshotAdapter broken = new RedisRouteSearchSnapshotAdapter(
                 template(brokenFactory()), objectMapper, properties);
 
-        assertThat(broken.save(1L, result(1), Instant.now().plusSeconds(600))).isNull();
+        assertThat(broken.save(1L, result(1), false, Instant.now().plusSeconds(600))).isNull();
         assertThat(broken.find("any-session", "0")).isEmpty();
     }
 
