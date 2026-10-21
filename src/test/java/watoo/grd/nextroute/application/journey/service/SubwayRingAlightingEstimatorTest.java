@@ -116,6 +116,21 @@ class SubwayRingAlightingEstimatorTest {
     }
 
     @Test
+    @DisplayName("#483 진입 램프의 예정(지금 + 몇 초)은 쓰지 않는다 — 예정 없는 진입과 같은 값·출처")
+    void approachRampEtaIsIgnored() {
+        SubwayRingAlightingEstimator.Estimate withoutEta = estimator.estimate(
+                ring(1, null, null, SubwayRingStage.APPROACH), null, chain, TRAIN, NOW);
+        SubwayRingAlightingEstimator.Estimate ramp = estimator.estimate(
+                ring(1, NOW.plusSeconds(6), SubwayRingEtaSource.TYPICAL, SubwayRingStage.APPROACH), null, chain, TRAIN, NOW);
+        SubwayRingAlightingEstimator.Estimate rampAtAlighting = estimator.estimate(
+                ring(3, NOW.plusSeconds(6), SubwayRingEtaSource.TYPICAL, SubwayRingStage.APPROACH), null, chain, TRAIN, NOW);
+
+        assertThat(ramp).isEqualTo(withoutEta);
+        assertThat(rampAtAlighting.at()).isEqualTo(NOW);
+        assertThat(rampAtAlighting.source()).isEqualTo(SubwayRingEtaSource.TYPICAL);
+    }
+
+    @Test
     @DisplayName("정차 직선이면 예정(정차 끝) + 운행×1.2 가 다음 역 도착")
     void dwellLineAddsRun() {
         SubwayRingState ring = ring(2, NOW.plusSeconds(20), SubwayRingEtaSource.TYPICAL, SubwayRingStage.DWELL);

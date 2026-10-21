@@ -65,7 +65,8 @@ public class SubwayRingAlightingEstimator {
             }
             return new Estimate(state.progressBaseAt(), SubwayRingEtaSource.TYPICAL);
         }
-        Instant next = state.estimatedNextStationAt();
+        // 진입 직선(#483)의 예정은 그리기용(지금 + 몇 초)이다 — 다음 역 도착은 "지금"으로 본다(아래 nextArrivalWithoutEta).
+        Instant next = state.stage() == SubwayRingStage.APPROACH ? null : state.estimatedNextStationAt();
         boolean typical = false;
         if (next != null && state.stage() == SubwayRingStage.DWELL
                 && state.etaSource() == SubwayRingEtaSource.TYPICAL) {
