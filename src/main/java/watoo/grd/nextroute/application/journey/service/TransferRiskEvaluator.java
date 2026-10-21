@@ -3,6 +3,8 @@ package watoo.grd.nextroute.application.journey.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import watoo.grd.nextroute.application.journey.config.JourneyTransferRiskProperties;
+import watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
 import watoo.grd.nextroute.application.journey.dto.SubwayGuidance;
@@ -68,6 +70,8 @@ public class TransferRiskEvaluator {
     private final JourneySubwayGuidanceComposer subwayGuidanceComposer;
     /** 고른 지하철 열차의 대기. ETA 조립기와 같은 규칙이다(#469·#476). */
     private final ChosenSubwayTrainWait chosenTrainWait;
+    private final JourneyEvaluationMetrics metrics;
+    private final JourneyTransferRiskProperties riskProperties;
     private final Clock clock;
 
     /**
@@ -80,12 +84,15 @@ public class TransferRiskEvaluator {
         List<TransferConnection> transfers = transferRepository
                 .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByTransferIndex(
                         journeyId, routeRevision);
-        if (transfers.isEmpty()) {
-            return TransferAssessmentBatch.empty();
-        }
         List<JourneyLeg> legs = legRepository
                 .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
                         journeyId, routeRevision);
+        // 환승이 없어도 남은 대기(첫 승차)는 예측한다(#480). 둘 다 없거나 스위치가 꺼졌으면 할 일이 없다.
+        boolean predictAllWaits = riskProperties.isPredictAllWaits();
+        if (transfers.isEmpty() && (!predictAllWaits || legs.stream()
+                .noneMatch(leg -> leg.getLegIndex() >= currentLegIndex && leg.getType().isWaiting()))) {
+            return TransferAssessmentBatch.empty();
+        }
         Map<Integer, JourneyLeg> legsByIndex = legs.stream()
                 .collect(Collectors.toMap(JourneyLeg::getLegIndex, Function.identity()));
 
@@ -93,10 +100,17 @@ public class TransferRiskEvaluator {
         SubwayGuidance currentGuidance = currentSubwayGuidance(
                 journeyId, routeRevision, currentLegIndex, legs, legsByIndex, transfers);
         Map<Integer, TransferTargetArrival> boardingByLegIndex = new java.util.HashMap<>();
+        // 단계 도착은 단계마다 한 번만 센다 — 환승 판정과 남은 대기 예측이 같은 값을 쓰고, 열차 대기 규칙도 한 번만 탄다.
+        Map<Integer, CurrentLegArrival> arrivals = new java.util.HashMap<>();
+        java.util.function.IntFunction<CurrentLegArrival> arrivalOf = legIndex -> arrivals.computeIfAbsent(legIndex,
+                index -> predictCurrent(index, legsByIndex, geometryByLegIndex, currentLegIndex, currentGuidance, now));
         List<TransferRiskAssessment> assessments = transfers.stream()
-                .map(transfer -> assessOne(transfer, legsByIndex, geometryByLegIndex, now,
-                        currentLegIndex, currentGuidance, boardingByLegIndex))
+                .map(transfer -> assessOne(transfer, legsByIndex, now, currentLegIndex, arrivalOf,
+                        boardingByLegIndex))
                 .toList();
+        if (predictAllWaits) {
+            predictWaitsAhead(legsByIndex, transfers, currentLegIndex, arrivalOf, now, boardingByLegIndex);
+        }
         boolean upstreamBlocked = boardingByLegIndex.values().stream()
                 .anyMatch(TransferTargetArrival::upstreamBlocked);
         return new TransferAssessmentBatch(assessments, Map.copyOf(boardingByLegIndex), upstreamBlocked);
@@ -119,12 +133,10 @@ public class TransferRiskEvaluator {
 
     private TransferRiskAssessment assessOne(TransferConnection transfer,
                                              Map<Integer, JourneyLeg> legsByIndex,
-                                             Map<Integer, LegGeometry> geometryByLegIndex,
                                              Instant now, int currentLegIndex,
-                                             SubwayGuidance currentGuidance,
+                                             java.util.function.IntFunction<CurrentLegArrival> arrivalOf,
                                              Map<Integer, TransferTargetArrival> boardingByLegIndex) {
-        CurrentLegArrival fromArrival = predictCurrent(transfer.getFromLegIndex(), legsByIndex,
-                geometryByLegIndex, currentLegIndex, currentGuidance, now);
+        CurrentLegArrival fromArrival = arrivalOf.apply(transfer.getFromLegIndex());
 
         Instant userReadyAt = readinessCalculator.userReadyAt(
                 fromArrival.arrivalAt(), walkSeconds(transfer, legsByIndex),
@@ -148,6 +160,70 @@ public class TransferRiskEvaluator {
     }
 
     /**
+     * 환승 판정이 답을 못 낸 남은 대기의 승차 예측(#480). 지금 단계부터 시계를 굴린다 — 대기면 그 예측, 도보·탑승이면
+     * 계획 소요시간을 더하고, 그 시각을 다음 대기의 앵커로 쓴다({@link BoardingChainEtaCalculator} 와 같은 굴림).
+     *
+     * <ul>
+     *   <li><b>첫 승차 대기</b>는 어떤 환승의 도착 쪽도 아니라 예측 대상이 아니었다 — 안내 시작부터 탈 때까지 도착 예정이
+     *       비었다("시간 확인 중"). 지금 그 대기에 서 있으면 앵커는 지금이다</li>
+     *   <li><b>아직 시작 전인 환승</b>은 출발 단계 도착을 몰라(앵커 없음) 대기 예측이 비었다. 여기서 굴린 시각으로 채운다</li>
+     * </ul>
+     *
+     * <p>환승 판정(상태·여유·알림)은 바꾸지 않는다 — 계획 시간으로 굴린 앵커로 먼 환승을 "위험"이라 부르지 않게. 채운 값은
+     * 대기 단계 행의 도착 예측으로만 쓰인다(목적지 도착·대기 단계 도착). 앞 대기를 못 풀면 그 뒤는 앵커가 없어 멈춘다.
+     *
+     * <p>앞 단계가 이미 시작된 환승의 대기({@link #covered})는 판정이 방금 물었다 — 그 답을 그대로 쓰고 다시 묻지 않는다(못
+     * 구했어도). 실패한 조회를 같은 tick 에 한 번 더 부르지 않게.
+     */
+    private void predictWaitsAhead(Map<Integer, JourneyLeg> legsByIndex, List<TransferConnection> transfers,
+                                   int currentLegIndex, java.util.function.IntFunction<CurrentLegArrival> arrivalOf,
+                                   Instant now, Map<Integer, TransferTargetArrival> boardingByLegIndex) {
+        Instant cursor = null;
+        for (int index = currentLegIndex; legsByIndex.containsKey(index); index++) {
+            JourneyLeg leg = legsByIndex.get(index);
+            if (!leg.getType().isWaiting()) {
+                if (index == currentLegIndex) {
+                    CurrentLegArrival current = arrivalOf.apply(index);
+                    cursor = current == null ? null : current.arrivalAt();
+                } else if (cursor != null && leg.getPlannedDurationSec() != null) {
+                    cursor = cursor.plusSeconds(leg.getPlannedDurationSec());
+                } else {
+                    cursor = null;
+                }
+                if (cursor == null) {
+                    return;
+                }
+                continue;
+            }
+            TransferTargetArrival known = boardingByLegIndex.get(index);
+            if (!covered(transfers, index, currentLegIndex)) {
+                Instant anchor = index == currentLegIndex ? now : cursor;
+                if (anchor == null) {
+                    return;
+                }
+                TransferTargetArrival predicted = targetArrivalService.predictBoarding(leg, anchor, now);
+                metrics.recordWaitAhead(index == currentLegIndex ? "current" : "later",
+                        predicted.upstreamBlocked() ? "blocked"
+                                : predicted.arrival().arrivalAt() == null ? "unknown" : "known");
+                if (known == null || predicted.arrival().arrivalAt() != null) {
+                    boardingByLegIndex.put(index, predicted);
+                }
+                known = predicted;
+            }
+            cursor = known == null ? null : known.arrival().arrivalAt();
+            if (cursor == null) {
+                return;
+            }
+        }
+    }
+
+    /** 앞 단계가 진행 중이거나 지난 환승의 대기인가 — 판정이 그 대기를 이미 물었다. */
+    static boolean covered(List<TransferConnection> transfers, int waitLegIndex, int currentLegIndex) {
+        return transfers.stream()
+                .anyMatch(t -> t.getToLegIndex() == waitLegIndex && t.getFromLegIndex() <= currentLegIndex);
+    }
+
+    /**
      * 타고 있는(또는 걷고 있는) 단계가 언제 끝나는지. 외부 호출이 없는 계산이다.
      *
      * <p>지금 단계면 고른 지하철 열차의 대기를 넣는다(#476). 빼면 준비 시각이 열차 대기만큼 일러, 그 시각 기준으로
@@ -162,6 +238,9 @@ public class TransferRiskEvaluator {
             return CurrentLegArrival.unknown();
         }
         CurrentLegArrival moving = arrivalService.predict(leg, geometryByLegIndex.get(legIndex));
+        if (moving == null) {
+            moving = CurrentLegArrival.unknown();
+        }
         if (legIndex != currentLegIndex) {
             return moving;
         }

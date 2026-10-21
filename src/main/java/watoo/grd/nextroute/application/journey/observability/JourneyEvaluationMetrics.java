@@ -39,6 +39,7 @@ public class JourneyEvaluationMetrics {
     public static final String QUEUE_WAIT = "journey.evaluation.queue-wait";
     public static final String JUDGMENT = "journey.evaluation.judgment";
     public static final String REFILL = "journey.evaluation.refill";
+    public static final String WAIT_AHEAD = "journey.evaluation.wait-ahead";
 
     /*
      * 구간 경계. 기본 Timer 는 횟수·합계·최댓값만 내보내 p95 를 구할 수 없다. 백분위 구간을 통째로
@@ -218,6 +219,17 @@ public class JourneyEvaluationMetrics {
      */
     public void recordBoardingMiss(String mode, String reason) {
         registry.counter(BOARDING_MISS, "mode", mode, "reason", reason).increment();
+    }
+
+    /**
+     * 환승 판정 밖 대기(첫 승차·시작 전 환승)의 승차 예측을 물은 수(#480). 이 PR 이 늘리는 실시간 조회량이 바로 이것이다 —
+     * 배포 전후 provider 슬롯·호출 지표와 함께 본다.
+     *
+     * @param position {@code current}(지금 그 대기에 서 있다) · {@code later}(앞 단계에서 굴린 앵커)
+     * @param result   {@code known} · {@code unknown} · {@code blocked}
+     */
+    public void recordWaitAhead(String position, String result) {
+        registry.counter(WAIT_AHEAD, "position", position, "result", result).increment();
     }
 
     private static Duration[] seconds(long... values) {

@@ -57,6 +57,62 @@ class JourneyEvaluationIntervalPolicyTest {
     }
 
     @Nested
+    @DisplayName("#480 환승 아닌 대기(첫 승차)가 남으면 BOARDING — 기본 간격, 비긴급, 예측이 지나기 전에 다시")
+    class WaitAhead {
+
+        private JourneyEvaluationIntervalPolicy.WaitsAhead waits(Instant earliest) {
+            return new JourneyEvaluationIntervalPolicy.WaitsAhead(true, earliest);
+        }
+
+        @Test
+        @DisplayName("환승이 없고 첫 승차가 남았으면 기본 간격 30초·비긴급·주의 등급 — 한가함(2분)으로 두지 않는다")
+        void plainWaitIsBoardingInterval() {
+            Decision decision = policy.decide(List.of(), CURRENT_LEG, NOW, null, false, false,
+                    waits(NOW.plusSeconds(600)));
+
+            assertThat(decision.reason()).isEqualTo(Reason.BOARDING);
+            assertThat(decision.interval()).isEqualTo(Duration.ofSeconds(30));
+            assertThat(decision.urgent()).isFalse();
+            assertThat(policy.tierOf(List.of(), CURRENT_LEG, NOW, false, waits(NOW.plusSeconds(600))))
+                    .isEqualTo(watoo.grd.nextroute.application.journey.reeval.ReevaluationTier.CAUTION);
+        }
+
+        @Test
+        @DisplayName("예측이 간격보다 일찍 지나면 그 전에 다시 본다 — 최소 간격(10초) 아래로는 아니다")
+        void capsBeforePredictionPasses() {
+            assertThat(policy.decide(List.of(), CURRENT_LEG, NOW, null, false, false,
+                    waits(NOW.plusSeconds(20))).interval()).isEqualTo(Duration.ofSeconds(20));
+            assertThat(policy.decide(List.of(), CURRENT_LEG, NOW, null, false, false,
+                    waits(NOW.plusSeconds(3))).interval()).isEqualTo(Duration.ofSeconds(10));
+        }
+
+        @Test
+        @DisplayName("값이 그대로면 늘리되 예측이 지나기 전으로 자른다. 예측을 모르면 자르지 않는다")
+        void backoffIsCappedByPrediction() {
+            Decision capped = policy.decide(List.of(), CURRENT_LEG, NOW, Duration.ofSeconds(30), false, false,
+                    waits(NOW.plusSeconds(45)));
+            assertThat(capped.interval()).isEqualTo(Duration.ofSeconds(45));
+            assertThat(capped.reason()).isEqualTo(Reason.BOARDING);
+
+            Decision unknown = policy.decide(List.of(), CURRENT_LEG, NOW, Duration.ofSeconds(30), false, false,
+                    waits(null));
+            assertThat(unknown.reason()).isEqualTo(Reason.BACKOFF);
+        }
+
+        @Test
+        @DisplayName("환승이 임박하면 환승 규칙이 이긴다(10초·긴급). 대기가 없으면 예전처럼 한가함")
+        void transferRuleWinsAndNoneIsIdle() {
+            Decision near = policy.decide(List.of(transfer(TransferStatus.COMFORTABLE, Duration.ofMinutes(2))),
+                    CURRENT_LEG, NOW, null, false, false, waits(NOW.plusSeconds(600)));
+            assertThat(near.reason()).isEqualTo(Reason.NEAR);
+            assertThat(near.urgent()).isTrue();
+
+            assertThat(policy.decide(List.of(), CURRENT_LEG, NOW, null, false, false,
+                    JourneyEvaluationIntervalPolicy.WaitsAhead.NONE).reason()).isEqualTo(Reason.IDLE);
+        }
+    }
+
+    @Nested
     @DisplayName("급한 정도로 정한다")
     class ByUrgency {
 

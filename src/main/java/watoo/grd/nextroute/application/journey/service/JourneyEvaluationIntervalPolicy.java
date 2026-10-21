@@ -53,6 +53,18 @@ public class JourneyEvaluationIntervalPolicy {
     public Decision decide(List<TransferRiskAssessment> assessments, int currentLegIndex,
                            Instant now, Duration previousInterval,
                            boolean changed, boolean upstreamBlocked) {
+        return decide(assessments, currentLegIndex, now, previousInterval, changed, upstreamBlocked, WaitsAhead.NONE);
+    }
+
+    /**
+     * @param waits 환승이 아닌 남은 대기(첫 승차 등, #480). 있으면 한가함(IDLE) 자리에 {@link Reason#BOARDING}(기본 간격,
+     *              비긴급)을 두고, 그 대기의 저장할 예측이 지나기 전에 다시 평가한다. 환승 없는 여정의 첫 승차가 IDLE(2분,
+     *              백오프 3분)이면 서 있는 동안 예측이 낡는다. 긴급 줄(10초·선점 우선)에는 넣지 않는다 — 정류장에서 기다리는
+     *              사용자 전원이 위험 알림과 같은 줄에 서게 된다
+     */
+    public Decision decide(List<TransferRiskAssessment> assessments, int currentLegIndex,
+                           Instant now, Duration previousInterval,
+                           boolean changed, boolean upstreamBlocked, WaitsAhead waits) {
         if (upstreamBlocked) {
             return new Decision(
                     clamp(properties.interval().multipliedBy(BLOCKED_BACKOFF_MULTIPLIER)),
@@ -63,14 +75,24 @@ public class JourneyEvaluationIntervalPolicy {
                 .filter(assessment -> assessment.isUpcoming(currentLegIndex))
                 .toList();
 
-        Decision base = baseDecision(upcoming, now);
+        Decision base = baseDecision(upcoming, now, waits);
         if (base.urgent() || changed) {
-            return base;
+            return beforeBoarding(base, waits, now);
         }
         Duration grown = backoff(base.interval(), previousInterval);
         // 실제로 늘어났을 때만 근거를 BACKOFF 로 남긴다. 안 늘었는데 그렇게 적으면 지표가
         // "값이 안 바뀌어서 뜸해지고 있다"고 잘못 말한다.
-        return grown.compareTo(base.interval()) > 0 ? new Decision(grown, Reason.BACKOFF) : base;
+        return beforeBoarding(grown.compareTo(base.interval()) > 0 ? new Decision(grown, Reason.BACKOFF) : base,
+                waits, now);
+    }
+
+    /** 저장할 첫 승차 예측이 지나기 전에 다시 본다 — 지난 예측은 조회에서 모름이 된다(#480). 최소 간격 아래로는 줄이지 않는다. */
+    private Decision beforeBoarding(Decision chosen, WaitsAhead waits, Instant now) {
+        if (waits.earliestBoardingAt() == null) {
+            return chosen;
+        }
+        Duration until = clamp(Duration.between(now, waits.earliestBoardingAt()));
+        return until.compareTo(chosen.interval()) < 0 ? new Decision(until, Reason.BOARDING) : chosen;
     }
 
     /**
@@ -82,6 +104,12 @@ public class JourneyEvaluationIntervalPolicy {
      */
     public ReevaluationTier tierOf(List<TransferRiskAssessment> assessments, int currentLegIndex,
                                    Instant now, boolean upstreamBlocked) {
+        return tierOf(assessments, currentLegIndex, now, upstreamBlocked, WaitsAhead.NONE);
+    }
+
+    /** @param waits {@link #decide} 와 같다. 첫 승차(BOARDING)는 주의 등급 — 긴급이 아니다 */
+    public ReevaluationTier tierOf(List<TransferRiskAssessment> assessments, int currentLegIndex,
+                                   Instant now, boolean upstreamBlocked, WaitsAhead waits) {
         if (upstreamBlocked) {
             // provider 가 막혀 다음 평가를 ×4 로 늦춰 뒀다. 급하다고 곧바로 다시 두드리면 그 백오프를
             // 무르게 된다.
@@ -90,14 +118,22 @@ public class JourneyEvaluationIntervalPolicy {
         List<TransferRiskAssessment> upcoming = assessments.stream()
                 .filter(assessment -> assessment.isUpcoming(currentLegIndex))
                 .toList();
-        return switch (baseDecision(upcoming, now).reason()) {
+        return switch (baseDecision(upcoming, now, waits).reason()) {
             case AT_RISK, NEAR -> ReevaluationTier.URGENT;
-            case NORMAL -> ReevaluationTier.CAUTION;
+            case NORMAL, BOARDING -> ReevaluationTier.CAUTION;
             default -> ReevaluationTier.RELAXED;
         };
     }
 
     /** 급한 정도만 보고 정한 간격. 변화 여부는 아직 안 본다. */
+    private Decision baseDecision(List<TransferRiskAssessment> upcoming, Instant now, WaitsAhead waits) {
+        Decision byTransfers = baseDecision(upcoming, now);
+        // 환승 쪽이 한가할 때만 첫 승차가 간격을 정한다. 위험·임박·보통이면 그쪽이 이미 더 촘촘하다.
+        return byTransfers.reason() == Reason.IDLE && waits.present()
+                ? new Decision(clamp(properties.interval()), Reason.BOARDING)
+                : byTransfers;
+    }
+
     private Decision baseDecision(List<TransferRiskAssessment> upcoming, Instant now) {
         if (upcoming.stream().anyMatch(this::risky)) {
             return new Decision(clamp(properties.minInterval()), Reason.AT_RISK);
@@ -163,6 +199,16 @@ public class JourneyEvaluationIntervalPolicy {
      *
      * @param reason 지표 tag 로 쓴다. 고정 집합이라 시계열이 늘어나지 않는다
      */
+    /**
+     * 환승이 아닌 남은 대기(#480).
+     *
+     * @param present            지금이거나 앞으로 올 그런 대기가 있다
+     * @param earliestBoardingAt 그 대기들의 저장할 승차 예측 중 가장 이른 것. 모르면 null
+     */
+    public record WaitsAhead(boolean present, Instant earliestBoardingAt) {
+        public static final WaitsAhead NONE = new WaitsAhead(false, null);
+    }
+
     public record Decision(Duration interval, Reason reason) {
 
         /** 급해서 정한 간격인지. 이 경우 값이 그대로여도 간격을 늘리지 않는다. */
@@ -183,6 +229,8 @@ public class JourneyEvaluationIntervalPolicy {
         /** 환승이 멀거나 남은 환승이 없다. */
         IDLE,
         /** 확인해도 값이 그대로라 간격을 늘렸다. */
-        BACKOFF
+        BACKOFF,
+        /** 환승은 없거나 멀지만 첫 승차 등 환승 아닌 대기가 남았다(#480). 기본 간격, 비긴급. */
+        BOARDING
     }
 }

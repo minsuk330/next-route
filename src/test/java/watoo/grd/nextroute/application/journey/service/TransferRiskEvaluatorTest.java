@@ -13,7 +13,9 @@ import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingStage;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
+import watoo.grd.nextroute.application.journey.dto.TransferAssessmentBatch;
 import watoo.grd.nextroute.application.journey.dto.TransferTargetArrival;
+import watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
@@ -39,6 +41,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -61,6 +64,9 @@ class TransferRiskEvaluatorTest {
     /** 조립기와 같은 규칙 — 진짜 규칙을 감싸 판정기가 부르는지 확인한다. */
     private ChosenSubwayTrainWait chosenTrainWait;
     private TransferRiskEvaluator evaluator;
+    private final JourneyTransferRiskProperties riskProperties = new JourneyTransferRiskProperties();
+    private final io.micrometer.core.instrument.simple.SimpleMeterRegistry meterRegistry =
+            new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
 
     /** 0=RIDE_BUS(환승 전), 1=TRANSFER_WALK(120초), 2=WAIT_BUS(환승 대상) */
     private JourneyLeg rideLeg;
@@ -87,6 +93,8 @@ class TransferRiskEvaluatorTest {
                 assessmentWriter,
                 guidanceComposer,
                 chosenTrainWait,
+                new watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics(meterRegistry),
+                riskProperties,
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
         rideLeg = leg(0, JourneyLegType.RIDE_BUS, 1200);
@@ -195,12 +203,133 @@ class TransferRiskEvaluatorTest {
     }
 
     @Test
-    @DisplayName("환승이 없으면 아무것도 하지 않는다")
-    void noTransfersMeansEmpty() {
+    @DisplayName("환승도 남은 대기도 없으면 아무것도 하지 않는다 — 실시간 조회 없음")
+    void noTransfersNoWaitsMeansEmpty() {
         given(transferRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByTransferIndex(
                 JOURNEY_ID, REVISION)).willReturn(List.of());
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+                JOURNEY_ID, REVISION)).willReturn(List.of(rideLeg, walkLeg));
 
-        assertThat(evaluate()).isEmpty();
+        TransferAssessmentBatch batch = evaluator.assess(JOURNEY_ID, REVISION, RIDING_LEG_INDEX, Map.of());
+
+        assertThat(batch.assessments()).isEmpty();
+        assertThat(batch.boardingByLegIndex()).isEmpty();
+        verifyNoInteractions(targetArrivalService);
+    }
+
+    @Test
+    @DisplayName("#480 환승이 없어도 첫 승차 대기는 예측한다 — 그 대기에 서 있으면 앵커는 지금")
+    void firstBoardingWaitIsPredictedWithoutTransfers() {
+        given(transferRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByTransferIndex(
+                JOURNEY_ID, REVISION)).willReturn(List.of());
+        givenBoarding(arrival(NOW.plusSeconds(240), CurrentLegArrival.Quality.GOOD));
+
+        TransferAssessmentBatch batch = evaluator.assess(JOURNEY_ID, REVISION, 2, Map.of());
+
+        assertThat(batch.assessments()).isEmpty();
+        verify(targetArrivalService).predictBoarding(eq(waitLeg), eq(NOW), eq(NOW));
+        assertThat(batch.boardingByLegIndex().get(2).arrival().arrivalAt()).isEqualTo(NOW.plusSeconds(240));
+        assertThat(meterRegistry.find(JourneyEvaluationMetrics.WAIT_AHEAD)
+                .tag("position", "current").tag("result", "known").counter().count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("#480 앞 단계가 남았으면 그 단계 도착 + 계획 소요시간이 첫 대기의 앵커다(안내 시작 직후)")
+    void firstWaitAnchorRollsForwardFromCurrentLeg() {
+        given(transferRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByTransferIndex(
+                JOURNEY_ID, REVISION)).willReturn(List.of());
+        // 0=RIDE_BUS(현재, 09:05 도착) → 1=TRANSFER_WALK(120초) → 2=WAIT_BUS
+        givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+
+        TransferAssessmentBatch batch = evaluator.assess(JOURNEY_ID, REVISION, RIDING_LEG_INDEX, Map.of());
+
+        verify(targetArrivalService).predictBoarding(eq(waitLeg), eq(NOW.plusSeconds(420)), eq(NOW));
+        assertThat(batch.boardingByLegIndex().get(2).arrival().arrivalAt()).isEqualTo(NOW.plusSeconds(600));
+        assertThat(meterRegistry.find(JourneyEvaluationMetrics.WAIT_AHEAD)
+                .tag("position", "later").tag("result", "known").counter().count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("#480 진행 중 환승의 대기는 판정이 못 구했어도 다시 묻지 않는다 — 실패한 조회를 같은 tick 에 두 번 부르지 않게")
+    void coveredWaitIsNotAskedAgainEvenIfUnknown() {
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
+        // targetArrivalService 기본 = unknown
+
+        evaluator.assess(JOURNEY_ID, REVISION, RIDING_LEG_INDEX, Map.of());
+
+        verify(targetArrivalService, times(1)).predictBoarding(eq(waitLeg), any(), any());
+    }
+
+    @Test
+    @DisplayName("#480 시작 전 환승의 대기는 첫 승차 + 계획 탑승·도보로 굴린 앵커로 묻고, 환승 판정은 예전처럼 UNKNOWN 이다")
+    void preStartTransferWaitIsPredictedButAssessmentStaysUnknown() {
+        // 0=WALK(현재, 60초) 1=WAIT_BUS(첫 승차) 2=RIDE_BUS(1200) 3=TRANSFER_WALK(120) 4=WAIT_BUS(환승 대상)
+        JourneyLeg walk = leg(0, JourneyLegType.WALK, 60);
+        JourneyLeg firstWait = leg(1, JourneyLegType.WAIT_BUS, null);
+        JourneyLeg ride = leg(2, JourneyLegType.RIDE_BUS, 1200);
+        JourneyLeg transferWalk = leg(3, JourneyLegType.TRANSFER_WALK, 120);
+        JourneyLeg secondWait = leg(4, JourneyLegType.WAIT_BUS, null);
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY_ID, REVISION))
+                .willReturn(List.of(walk, firstWait, ride, transferWalk, secondWait));
+        givenTransfers(transfer(0, 2, 3, 4, null));
+        givenArrival(walk, arrival(NOW.plusSeconds(60), CurrentLegArrival.Quality.GOOD));
+        given(targetArrivalService.predictBoarding(eq(firstWait), any(), any()))
+                .willReturn(TransferTargetArrival.of(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD)));
+        given(targetArrivalService.predictBoarding(eq(secondWait), eq(NOW.plusSeconds(1620)), any()))
+                .willReturn(TransferTargetArrival.of(arrival(NOW.plusSeconds(1800), CurrentLegArrival.Quality.APPROXIMATE)));
+
+        TransferAssessmentBatch batch = evaluator.assess(JOURNEY_ID, REVISION, 0, Map.of());
+
+        verify(targetArrivalService).predictBoarding(eq(firstWait), eq(NOW.plusSeconds(60)), eq(NOW));
+        // 09:05 승차 + 1200 + 120 = 09:27
+        verify(targetArrivalService).predictBoarding(eq(secondWait), eq(NOW.plusSeconds(1620)), eq(NOW));
+        assertThat(batch.boardingByLegIndex().get(1).arrival().arrivalAt()).isEqualTo(NOW.plusSeconds(300));
+        assertThat(batch.boardingByLegIndex().get(4).arrival().arrivalAt()).isEqualTo(NOW.plusSeconds(1800));
+        assertThat(batch.assessments()).singleElement()
+                .satisfies(a -> assertThat(a.status()).isEqualTo(TransferStatus.UNKNOWN));
+    }
+
+    @Test
+    @DisplayName("#480 스위치를 끄면 예전처럼 환승 대기만 — 환승이 없으면 아무것도 묻지 않는다")
+    void switchOffRestoresTransferOnly() {
+        riskProperties.setPredictAllWaits(false);
+        given(transferRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByTransferIndex(
+                JOURNEY_ID, REVISION)).willReturn(List.of());
+        givenBoarding(arrival(NOW.plusSeconds(240), CurrentLegArrival.Quality.GOOD));
+
+        TransferAssessmentBatch batch = evaluator.assess(JOURNEY_ID, REVISION, 2, Map.of());
+
+        assertThat(batch.boardingByLegIndex()).isEmpty();
+        verifyNoInteractions(targetArrivalService);
+    }
+
+    @Test
+    @DisplayName("#480 환승이 그 대기를 이미 예측했으면 다시 묻지 않는다 — 판정과 같은 값을 쓴다")
+    void transferPredictionIsReused() {
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+
+        TransferAssessmentBatch batch = evaluator.assess(JOURNEY_ID, REVISION, RIDING_LEG_INDEX, Map.of());
+
+        verify(targetArrivalService, times(1)).predictBoarding(eq(waitLeg), any(), any());
+        assertThat(batch.boardingByLegIndex().get(2).arrival().arrivalAt()).isEqualTo(NOW.plusSeconds(600));
+        assertThat(meterRegistry.find(JourneyEvaluationMetrics.WAIT_AHEAD).counter()).isNull();
+    }
+
+    @Test
+    @DisplayName("#480 앞 단계 도착을 모르면 앵커가 없어 묻지 않는다 — 지어내지 않는다")
+    void unknownCurrentArrivalStopsTheRoll() {
+        given(transferRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByTransferIndex(
+                JOURNEY_ID, REVISION)).willReturn(List.of());
+        givenArrival(rideLeg, CurrentLegArrival.unknown());
+
+        TransferAssessmentBatch batch = evaluator.assess(JOURNEY_ID, REVISION, RIDING_LEG_INDEX, Map.of());
+
+        assertThat(batch.boardingByLegIndex()).isEmpty();
+        verifyNoInteractions(targetArrivalService);
     }
 
     @Test
