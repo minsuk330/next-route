@@ -5866,3 +5866,11 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew test --tests '*Test' --continue` → 407 클래스 3,045 테스트 실패 0·오류 0·건너뜀 1
 - `./gradlew test --tests '*IT' --continue`(env db·auth·api, POSTGRES/REDIS=localhost **일회용 :55433/:56380**, 1회, 4m14s) → 95 클래스 682 테스트 중 실패 7(`WithdrawalDeletionBoundaryIT` 전부, 위 함정 — 이 PR 원인) → 고친 뒤 그 클래스만 재실행 7/0. 나머지 실패 0·건너뜀 7
 - V73 번호: origin/main(00c94f4a) V71 까지, 열린 PR 에 V72~V79 없음(2026-10-21 푸시 직전). S4 가 V72
+
+#### subway-express PR-S5 보완: origin/main(#496 S4, V72) 병합 (2026-10-22)
+- 충돌: `implementation_note.md` 만 → S4·S5 절 둘 다 남김(S4 먼저). 코드 충돌 없음
+- 확정: V72 는 `subway_leg_binding`(V44) 을 바꾼다. `@Sql` 로 마이그레이션을 까는 IT 15개는 V44 를 깔지 않아 V72 를 넣으면 표가 없어 실패 → 그 목록엔 V73 만(S4 도 넣지 않았다). Flyway 로 도는 IT·운영은 V72→V73 순서
+- 검증: `./gradlew compileJava compileTestJava` 통과. `./gradlew test --tests '*Test' --continue` → 414 클래스 3,101 테스트 실패 0·오류 0·건너뜀 1. `./gradlew test --tests '*IT' --continue`(일회용 `s5-pg` :55433 = 개발 DB 스키마+flyway 이력 V71 → 부팅 때 V72·V73 적용 확인, `s5-redis` :56380, 1회 6m12s) → 96 클래스 688 테스트 실패 3·건너뜀 6
+  - `SubwayRingExpressReplayIT` 2(S4 신규): 급행 카탈로그가 역 마스터(`subway_station`)로 역을 잇는데 일회용 DB 는 스키마만이라 비어 9호선 서비스 보류 ← 환경. 공개 역 마스터 645행만 공유 DB 에서 읽어 넣고 그 클래스 재실행 2/0
+  - `RerouteRemainingPathOtpLiveIT` 1: 로컬 OTP 가 떠 있어 `@EnabledIf(otpReachable)` 로 켜졌고, 시험의 `route.search.otp-ms=15000` 이 기본 `lease-ms`(12000) 검증기에 걸려 컨텍스트 로드 실패 ← **기존 무관**(이 PR 은 설정·그 시험 무변경, 노트 4134행의 "main 에서도 실패" 와 같은 시험). 지난 실행엔 OTP 가 없어 건너뜀
+  - 일회용 컨테이너 삭제. 공유 개발 DB(:5432) 는 읽기(역 마스터 덤프)만, 쓰기 없음
