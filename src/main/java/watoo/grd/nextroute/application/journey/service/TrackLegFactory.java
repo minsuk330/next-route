@@ -108,12 +108,15 @@ public final class TrackLegFactory {
             missing.add(MissingAttribute.COLOR);
         }
 
+        // 열차 종류는 여기서 판정하지 않는다(OTP 매퍼와 같다). 단독 추적은 어댑터를 안 거치므로 부르는 쪽
+        // (TrackJourneyStartService)이 RailServiceClassifier 로 직접 붙인다(subway-express S2).
         return new RoutingLeg(route.mode(), route.otpMode(), feedId, route.agencyGtfsId(),
                 routeId, route.shortName(), direction, tripId, serviceDate,
                 midnight.plusSeconds(departSec), midnight.plusSeconds(arriveSec), duration,
                 occurrences, List.of(),
                 geometry(detail, boardIndex, alightIndex, graphVersion),
-                Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), missing, route.color());
+                Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), missing, route.color(), null,
+                route.longName(), detail.code(), null);
     }
 
     /**

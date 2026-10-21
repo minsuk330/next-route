@@ -16,6 +16,7 @@ import org.testcontainers.utility.DockerImageName;
 import watoo.grd.nextroute.application.route.config.RouteSnapshotProperties;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
 import watoo.grd.nextroute.application.route.dto.PathResult;
+import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort.StoredPath;
 
@@ -166,6 +167,42 @@ class RedisRouteSearchSnapshotAdapterTest {
         redisTemplate.opsForValue().set("route:snapshot:broken", "{not json");
 
         assertThat(adapter.find("broken", "0")).isEmpty();
+    }
+
+    // ── 열차 종류(subway-express S2) ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("trainKind 가 없는 옛 스냅샷 JSON 도 읽힌다 — 칸이 null 로 들어온다(배포 전 저장분)")
+    void oldSnapshotWithoutTrainKindDeserializes() {
+        String old = "{\"ownerUserId\":7,\"expiresAtEpochMilli\":" + Instant.now().plusSeconds(600).toEpochMilli()
+                + ",\"result\":{\"searchType\":0,\"busCount\":0,\"subwayCount\":1,\"trainCount\":0,"
+                + "\"airCount\":0,\"paths\":[{\"pathType\":1,\"info\":{\"totalTime\":20,\"payment\":1400,"
+                + "\"totalWalk\":0,\"transferCount\":0,\"firstStartStation\":\"가양\",\"lastEndStation\":\"염창\"},"
+                + "\"subPaths\":[{\"trafficType\":1,\"sectionTime\":4,\"startName\":\"가양\","
+                + "\"endName\":\"염창\",\"wayCode\":1}],\"laneGraphics\":[],\"pathKey\":\"0\"}]}}";
+        redisTemplate.opsForValue().set("route:snapshot:old", old);
+
+        Optional<StoredPath> found = adapter.find("old", "0");
+
+        assertThat(found).isPresent();
+        SubPathResult sub = found.get().path().subPaths().get(0);
+        assertThat(sub.startName()).isEqualTo("가양");
+        assertThat(sub.trainKind()).isNull();
+    }
+
+    @Test
+    @DisplayName("trainKind 를 실은 스냅샷은 왕복 후에도 값이 남는다 — 여정 시작이 이 값을 단계로 옮긴다")
+    void trainKindRoundTrip() {
+        SubPathResult express = new SubPathResult(1, 4, null, List.of(), List.of(), "가양", "염창",
+                126.85, 37.56, 126.87, 37.55, null, null, null, null, 1, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, "EXPRESS");
+        RouteSearchResult result = new RouteSearchResult(0, 0, 1, 0, 0,
+                List.of(new PathResult(1, info(20), List.of(express), List.of()))).withPathKeys();
+
+        String sessionId = adapter.save(7L, result, Instant.now().plusSeconds(600));
+
+        assertThat(adapter.find(sessionId, "0").orElseThrow().path().subPaths().get(0).trainKind())
+                .isEqualTo("EXPRESS");
     }
 
     // ── Redis 장애 ────────────────────────────────────────────────────────────

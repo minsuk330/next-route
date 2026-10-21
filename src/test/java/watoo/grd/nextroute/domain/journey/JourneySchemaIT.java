@@ -83,6 +83,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V59__journey_session_kind.sql",
         "classpath:db/migration/V63__journey_leg_guidance_info.sql",
         "classpath:db/migration/V65__journey_leg_alight_door_side.sql",
+        "classpath:db/migration/V71__journey_leg_train_kind.sql",
         "classpath:db/migration/V66__journey_session_evaluation_urgent.sql",
         "classpath:db/migration/V67__journey_reevaluation_trigger.sql"
 },
@@ -310,6 +311,36 @@ class JourneySchemaIT {
         assertThat(saved.getCreatedAt()).isNotNull();
         assertThat(saved.getUpdatedAt()).isNotNull();
         assertThat(saved.getDeletedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("V71 열차 종류가 단계 안내 값과 함께 저장·조회된다(subway-express S2, null 은 null 그대로)")
+    void trainKind_roundTrips() {
+        JourneySession session = sessionRepository.saveAndFlush(newSession(Instant.now()));
+        JourneyLeg express = legRepository.saveAndFlush(JourneyLeg.builder()
+                .journeyId(session.getId()).routeRevision(1).legIndex(0)
+                .type(JourneyLegType.RIDE_SUBWAY).state(JourneyLegState.ACTIVE)
+                .startName("가양").endName("염창").plannedDurationSec(240)
+                .evidenceQuality(JourneyLeg.EVIDENCE_QUALITY_UNKNOWN)
+                .guidance(watoo.grd.nextroute.domain.journey.entity.JourneyLegGuidance.EMPTY
+                        .withDirectionName("증미").withTrainKind("EXPRESS"))
+                .build());
+        JourneyLeg bus = legRepository.saveAndFlush(JourneyLeg.builder()
+                .journeyId(session.getId()).routeRevision(1).legIndex(1)
+                .type(JourneyLegType.RIDE_BUS).state(JourneyLegState.PENDING)
+                .startName("a").endName("b").plannedDurationSec(300)
+                .evidenceQuality(JourneyLeg.EVIDENCE_QUALITY_UNKNOWN)
+                .build());
+
+        assertThat(jdbcTemplate.queryForObject("select train_kind from journey_leg where id = ?", String.class,
+                express.getId())).isEqualTo("EXPRESS");
+        assertThat(legRepository.findById(express.getId()).orElseThrow().getGuidance().trainKind())
+                .isEqualTo("EXPRESS");
+        assertThat(legRepository.findById(express.getId()).orElseThrow().getGuidance().directionName())
+                .isEqualTo("증미");
+        assertThat(legRepository.findById(bus.getId()).orElseThrow().getGuidance().trainKind()).isNull();
+        assertThat(jdbcTemplate.queryForObject("select character_maximum_length from information_schema.columns"
+                + " where table_name = 'journey_leg' and column_name = 'train_kind'", Integer.class)).isEqualTo(16);
     }
 
     @Test

@@ -329,7 +329,8 @@ public class WalkSegmentEnricher {
                 sp.startLocalStationID(), sp.endLocalStationID(),
                 sp.startArsID(), sp.endArsID(), sp.endID(),
                 segment.totalTime() > 0 ? segment.totalTime() : null,
-                sp.transferArrivals()
+                sp.transferArrivals(),
+                sp.trainKind()
         );
     }
 

@@ -111,8 +111,9 @@ public class JourneyQueryService implements JourneyQueryUseCase {
                         legs, optionsByLeg));
     }
 
-    private JourneyLegView toView(JourneyLeg leg,
-                                  Map<Long, List<JourneyLegRouteOption>> optionsByLeg) {
+    /** 저장된 단계 → 응답 모양. 안내 값(#266)·열차 종류(subway-express S2)는 {@link JourneyLeg#getGuidance} 에서. */
+    static JourneyLegView toView(JourneyLeg leg,
+                                 Map<Long, List<JourneyLegRouteOption>> optionsByLeg) {
         List<JourneyRouteOptionView> options = optionsByLeg
                 .getOrDefault(leg.getId(), List.of())
                 .stream()
@@ -151,7 +152,8 @@ public class JourneyQueryService implements JourneyQueryUseCase {
                 guidance.startExitNo(),
                 guidance.endExitNo(),
                 fastAlight(guidance.fastAlightJson()),
-                guidance.alightDoorSide());
+                guidance.alightDoorSide(),
+                guidance.trainKind());
     }
 
     /** 저장된 JSON 을 응답 모양으로. 깨진 값은 없는 것으로 본다 — 안내 줄 하나 때문에 여정 조회가 실패하면 안 된다. */

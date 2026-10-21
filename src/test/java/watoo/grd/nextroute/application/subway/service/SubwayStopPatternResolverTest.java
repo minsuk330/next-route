@@ -229,6 +229,40 @@ class SubwayStopPatternResolverTest {
         }
     }
 
+    @Nested
+    @DisplayName("allStopPathEitherDirection — 방향 라벨 없이(subway-express S2)")
+    class EitherDirection {
+
+        private SubwayStopPatternResolver resolverWith(List<Pattern> up, List<Pattern> down) {
+            SubwayLineOrder lineOrder = mock(SubwayLineOrder.class);
+            given(lineOrder.allStopPath(any(), any(), any(), any())).willAnswer(inv -> SubwayLineOrder.allStopPath(
+                    "상행".equals(inv.getArgument(1)) ? up : down, inv.getArgument(2), inv.getArgument(3)));
+            return new SubwayStopPatternResolver(SubwayExpressCatalogTest.CATALOG, lineOrder);
+        }
+
+        @Test
+        @DisplayName("직선 노선은 두 역을 이 순서로 지나는 방향이 하나 — 그 방향의 완행 경로")
+        void linear() {
+            SubwayStopPatternResolver resolver = resolverWith(
+                    List.of(pattern(10, "C", "B", "A")), List.of(pattern(10, "A", "B", "C")));
+
+            assertThat(resolver.allStopPathEitherDirection("1009", null, "A", "C")).containsExactly("A", "B", "C");
+            assertThat(resolver.allStopPathEitherDirection("1009", null, "C", "A")).containsExactly("C", "B", "A");
+            assertThat(resolver.allStopPathEitherDirection(null, null, "A", "C")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("두 방향 다 지나면(순환) 선호 방향, 선호가 없으면 empty — 고르지 않는다")
+        void loopNeedsPreference() {
+            SubwayStopPatternResolver resolver = resolverWith(
+                    List.of(pattern(10, "A", "B", "C", "A")), List.of(pattern(10, "A", "D", "C", "A")));
+
+            assertThat(resolver.allStopPathEitherDirection("1009", null, "A", "C")).isEmpty();
+            assertThat(resolver.allStopPathEitherDirection("1009", "하행", "A", "C")).containsExactly("A", "D", "C");
+            assertThat(resolver.allStopPathEitherDirection("1009", "상행", "A", "C")).containsExactly("A", "B", "C");
+        }
+    }
+
     private static Pattern pattern(int trips, String... keys) {
         return new Pattern("R", "R", false, trips,
                 Arrays.stream(keys).map(k -> new Stop(k, k, k, null, null)).toList());

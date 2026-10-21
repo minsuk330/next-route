@@ -66,6 +66,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V59__journey_session_kind.sql",
         "classpath:db/migration/V63__journey_leg_guidance_info.sql",
         "classpath:db/migration/V65__journey_leg_alight_door_side.sql",
+        "classpath:db/migration/V71__journey_leg_train_kind.sql",
         "classpath:db/migration/V66__journey_session_evaluation_urgent.sql",
         "classpath:db/migration/V67__journey_reevaluation_trigger.sql"
 },

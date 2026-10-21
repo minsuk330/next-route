@@ -778,7 +778,7 @@ public class TransferArrivalEnricher {
                 sp.walkSteps(),
                 sp.startLocalStationID(), sp.endLocalStationID(),
                 sp.startArsID(), sp.endArsID(), sp.endID(),
-                sp.walkTotalTimeSeconds(), arrivals
+                sp.walkTotalTimeSeconds(), arrivals, sp.trainKind()
         );
     }
 

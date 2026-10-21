@@ -17,6 +17,13 @@ public enum SearchComponent {
     BUS_REALTIME(Grade.OPTIONAL),
     /** ML 도착 예측. */
     ML(Grade.OPTIONAL),
+    /**
+     * 급행 끄기(subway-express S2). 요청이 급행을 뺐는데 일반 경로가 0건이라 필터를 풀었다(D10) — 응답 경로에 급행이 있다.
+     * 앱은 "급행 포함 결과" 안내를 띄운다. 필터가 지켜졌으면 적용만 표시(requested)한다.
+     */
+    EXPRESS_FILTER(Grade.OPTIONAL),
+    /** 급행 끄기에서 일반 대안 다시 묻기가 실패·시간 초과라 확인하지 못한 채 필터를 풀었다(D10). 앱 안내는 위와 같다. */
+    EXPRESS_FILTER_UNVERIFIED(Grade.OPTIONAL),
     /** 검색 이력 저장. 응답 내용과 무관. */
     SEARCH_LOG(Grade.AUXILIARY);
 

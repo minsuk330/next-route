@@ -136,7 +136,9 @@ class RouteSearchDeadlineIT {
                 new DepartureTimeResolver(java.time.Clock.systemDefaultZone()),
                 mock(watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate.class),
                 java.time.Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
-                new WalkCoordResolver());
+                new WalkCoordResolver(),
+                new watoo.grd.nextroute.application.route.routing.ExpressFilterPolicy(
+                        watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier()));
     }
 
     @AfterEach

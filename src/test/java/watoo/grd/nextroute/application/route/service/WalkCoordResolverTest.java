@@ -45,7 +45,7 @@ class WalkCoordResolverTest {
                 startExitNo, startExitX, startExitY,
                 endExitNo,   endExitX,   endExitY,
                 null,
-                null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null
         );
     }
 
@@ -62,7 +62,7 @@ class WalkCoordResolverTest {
                 null, null, null,
                 null, null, null,
                 null,
-                null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null
         );
     }
 
@@ -233,7 +233,7 @@ class WalkCoordResolverTest {
                 List.of(new CoordPoint(127.0, 37.5), new CoordPoint(127.001, 37.501)),
                 null, null, null, null, null, null,
                 null,
-                null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null
         );
     }
 
@@ -285,6 +285,23 @@ class WalkCoordResolverTest {
         assertThat(subPathsOf(out).get(1)).isSameAs(subway);
         assertThat(out.paths().get(0).pathKey()).isEqualTo("0");
         assertThat(out.paths().get(0).info()).isEqualTo(in.paths().get(0).info());
+    }
+
+    @Test
+    @DisplayName("걷기 끝점 복사본도 trainKind 를 흘리지 않는다 — 지하철 구간은 그대로, 다시 만든 걷기 구간도 칸 보존(S2)")
+    void fillWalkEndpoints_keepsTrainKind() {
+        SubPathResult subway = watoo.grd.nextroute.application.journey.service.SubPathFixture.withTrainKind(
+                otpSubway("가양", 126.8544, 37.5614, "염창", 126.8747, 37.5469), "EXPRESS");
+        SubPathResult marked = watoo.grd.nextroute.application.journey.service.SubPathFixture.withTrainKind(
+                otpWalk(), "MARK");
+
+        RouteSearchResult out = resolver.fillWalkEndpoints(resultOf(marked, subway, otpWalk()),
+                126.85, 37.56, "출발지", 126.88, 37.54, "도착지");
+
+        assertThat(subPathsOf(out).get(0).startName()).isEqualTo("출발지");
+        assertThat(subPathsOf(out).get(0).trainKind()).isEqualTo("MARK");
+        assertThat(subPathsOf(out).get(1).trainKind()).isEqualTo("EXPRESS");
+        assertThat(subPathsOf(out).get(2).trainKind()).isNull();
     }
 
     @Test

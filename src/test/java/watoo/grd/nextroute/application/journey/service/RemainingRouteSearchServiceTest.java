@@ -76,7 +76,9 @@ class RemainingRouteSearchServiceTest {
                     otpConcurrencyGate,
                     new RouteSearchDeadlineProperties(),
                     Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
-                new WalkCoordResolver());
+                new WalkCoordResolver(),
+                new watoo.grd.nextroute.application.route.routing.ExpressFilterPolicy(
+                        watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier()));
 
     /** provider=OTP 인 재탐색 서비스. gate·otpPort·mapper 는 주입값 그대로. */
     private RemainingRouteSearchService otpService(OtpConcurrencyGate gate, RoutingPort otpPort,
@@ -88,7 +90,9 @@ class RemainingRouteSearchServiceTest {
                 new RoutingProviderSelector(props, List.of(otpPort)),
                 mapper, gate, new RouteSearchDeadlineProperties(),
                 Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
-                new WalkCoordResolver());
+                new WalkCoordResolver(),
+                new watoo.grd.nextroute.application.route.routing.ExpressFilterPolicy(
+                        watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier()));
     }
 
     private RoutingResult otpResult() {
@@ -293,7 +297,7 @@ class RemainingRouteSearchServiceTest {
         SubPathResult sub = new SubPathResult(2, 15, null, null, null,
                 "정류장C", "정류장D", 127.3, 37.3, 127.5, 37.5,
                 null, null, null, null, null, null, null, null, null, null, null, null, null,
-                "ST-C", "ST-D", null, null, null, null, null);
+                "ST-C", "ST-D", null, null, null, null, null, null);
         return new PathResult(1, null, List.of(sub), List.of());
     }
 }

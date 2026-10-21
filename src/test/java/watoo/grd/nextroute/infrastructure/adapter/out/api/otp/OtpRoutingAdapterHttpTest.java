@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.otp;
 
+import watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.mockwebserver.MockResponse;
@@ -47,7 +49,7 @@ class OtpRoutingAdapterHttpTest {
         props.setStationSnapEnabled(false);
         stations = new OtpStationResolver(RestClient.builder(), new ObjectMapper(), props, clock);
         adapter = new OtpRoutingAdapter(RestClient.builder(), new ObjectMapper(),
-                new OtpPlanConnectionMapper(), props, stations, clock);
+                new OtpPlanConnectionMapper(), props, stations, clock, SubwayExpressRouteFixtures.railServiceClassifier());
     }
 
     @AfterEach
@@ -189,6 +191,61 @@ class OtpRoutingAdapterHttpTest {
         call(Set.of(RoutingMode.SUBWAY));
 
         assertThat(sentModeNames()).containsExactlyInAnyOrder("SUBWAY", "MONORAIL", "TRAM");
+    }
+
+    @Test
+    @DisplayName("제외 노선이 있으면 preferences.transit.filters[].exclude.routes 로 보낸다(급행 끄기, subway-express S2)")
+    void excludedRoutesSentAsTransitFilter() throws Exception {
+        enqueueSuccess();
+        RoutingQuery q = new RoutingQuery(126.97, 37.56, "o", 127.02, 37.49, "d", now, Set.of(), null, false, "v",
+                RoutingProvider.OTP, null, Set.of("1:RR_ACC1_S-1-09-2D", "1:RR_ACC1_S-1-09-2U"));
+
+        adapter.search(q, RoutingDeadline.of(clock, 3000));
+
+        JsonNode sent = new ObjectMapper().readTree(server.takeRequest(1, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(sent.path("query").asText()).contains("$preferences: PlanPreferencesInput",
+                "preferences: $preferences", "trip { gtfsId pattern { code } }");
+        JsonNode filters = sent.path("variables").path("preferences").path("transit").path("filters");
+        assertThat(filters).hasSize(1);
+        java.util.List<String> routes = new java.util.ArrayList<>();
+        filters.get(0).path("exclude").get(0).path("routes").forEach(r -> routes.add(r.asText()));
+        assertThat(routes).containsExactly("1:RR_ACC1_S-1-09-2D", "1:RR_ACC1_S-1-09-2U");
+    }
+
+    @Test
+    @DisplayName("제외 노선이 없으면 preferences 를 보내지 않는다 — 옛 요청과 같다")
+    void noExclusionOmitsPreferences() throws Exception {
+        enqueueSuccess();
+
+        call();
+
+        assertThat(sentVariables().has("preferences")).isFalse();
+    }
+
+    @Test
+    @DisplayName("수단 제한 복사본(추가 검색)도 제외 노선을 그대로 들고 간다")
+    void withModesKeepsExclusion() {
+        RoutingQuery q = new RoutingQuery(126.97, 37.56, "o", 127.02, 37.49, "d", now, Set.of(), null, false, "v",
+                RoutingProvider.OTP, null, Set.of("1:X"));
+
+        assertThat(q.withModes(Set.of(RoutingMode.BUS)).excludedRouteIds()).containsExactly("1:X");
+        assertThat(q.withExcludedRouteIds(Set.of()).excludedRouteIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("응답 철도 구간에 열차 종류가 붙어 나온다 — 판정은 어댑터 경계 한 곳(annotate)")
+    void annotatesTrainKind() throws Exception {
+        String body = new ClassPathResource("otp/planconnection-subway.json")
+                .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        server.enqueue(new MockResponse().setResponseCode(200)
+                .setHeader("Content-Type", "application/json").setBody(body));
+
+        RoutingOutcome outcome = call();
+
+        watoo.grd.nextroute.application.route.routing.RoutingLeg subway =
+                ((watoo.grd.nextroute.application.route.routing.RoutingResult) outcome).itineraries().get(0)
+                        .legs().get(0);
+        assertThat(subway.trainKind()).isEqualTo(watoo.grd.nextroute.application.subway.dto.TrainKind.NORMAL);
     }
 
     private java.util.List<String> sentModeNames() throws Exception {

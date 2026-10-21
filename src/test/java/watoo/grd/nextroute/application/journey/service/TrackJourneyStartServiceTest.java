@@ -91,7 +91,8 @@ class TrackJourneyStartServiceTest {
                 new JourneyCompiler(new StopIdentityResolver()), enricher,
                 new JourneyGuidanceInfoEnricher(org.mockito.Mockito.mock(watoo.grd.nextroute.domain.bus.repository.BusStopRepository.class), org.mockito.Mockito.mock(watoo.grd.nextroute.application.regionalbus.port.out.RegionalBusRouteStopStore.class), new watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex(), new watoo.grd.nextroute.application.subway.service.SubwayFastAlightIndex(), new watoo.grd.nextroute.application.subway.service.SubwayDoorSideIndex(), new watoo.grd.nextroute.application.subway.service.SubwayLineEnds(org.mockito.Mockito.mock(watoo.grd.nextroute.application.subway.service.SubwayLinePatternService.class))), txService,
                 new JourneyStartConflictTranslator(mock(JourneyQueryService.class)),
-                new ObjectMapper(), meters, clock);
+                new ObjectMapper(), meters, clock,
+                watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier());
     }
 
     @Test
@@ -109,6 +110,21 @@ class TrackJourneyStartServiceTest {
         assertThat(destination.getValue().path("name").asText()).isEqualTo(line2.stops().get(35).name());
         verify(gate).release(any());
         assertThat(meters.counter("track.start", "mode", "SUBWAY", "result", "started").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("단독 추적은 어댑터를 안 거쳐도 분류기로 열차 종류를 붙인다 — 2호선은 NORMAL, 스냅샷·단계 둘 다(subway-express S2)")
+    void classifiesTrainKind() {
+        service.start(1L, new StartTrackCommand(ROUTE, TrackFixtures.GANGNAM, alight, null, false));
+
+        ArgumentCaptor<JourneyPlan> plan = ArgumentCaptor.forClass(JourneyPlan.class);
+        ArgumentCaptor<com.fasterxml.jackson.databind.JsonNode> snapshot =
+                ArgumentCaptor.forClass(com.fasterxml.jackson.databind.JsonNode.class);
+        verify(txService).start(eq(1L), plan.capture(), snapshot.capture(), any(), eq(false), eq(NOW),
+                eq(JourneyKind.TRACK));
+        assertThat(plan.getValue().legs()).extracting(leg -> leg.guidance().trainKind())
+                .containsExactly("NORMAL", "NORMAL");
+        assertThat(snapshot.getValue().path("subPaths").get(0).path("trainKind").asText()).isEqualTo("NORMAL");
     }
 
     @Test

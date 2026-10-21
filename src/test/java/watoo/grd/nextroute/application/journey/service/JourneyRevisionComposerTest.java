@@ -183,6 +183,41 @@ class JourneyRevisionComposerTest {
     }
 
     @Test
+    @DisplayName("후보의 급행 지하철 구간은 새 개정본 스냅샷·단계 안내 값에 trainKind 를 그대로 싣는다(subway-express S2)")
+    void candidateExpressKindReachesSnapshotAndLegs() {
+        PathResult current = twoTransitPath();
+        PathResult candidate = new PathResult(1, null, List.of(
+                walk(2).names("정류장B", "가양").coords(127.2, 37.2, 127.21, 37.21).distance(100.0).build(),
+                subway(4).names("가양", "목적지").coords(127.21, 37.21, 127.5, 37.5)
+                        .subwayStations(4105, 4108).lanes(subwayLane("서울9호선", 9)).trainKind("EXPRESS").build()),
+                List.of());
+
+        JourneyRevisionComposer.Composed composed = composer.compose(current, legsOf(current),
+                new RerouteCandidateApply.RemainingPathApply(4, candidate)).composed();
+
+        List<SubPathResult> subs = composed.snapshot().subPaths();
+        assertThat(subs.get(subs.size() - 1).trainKind()).isEqualTo("EXPRESS");
+        assertThat(composed.legs()).filteredOn(leg -> leg.type() == JourneyLegType.WAIT_SUBWAY
+                        || leg.type() == JourneyLegType.RIDE_SUBWAY)
+                .extracting(leg -> leg.guidance().trainKind()).containsExactly("EXPRESS", "EXPRESS");
+    }
+
+    @Test
+    @DisplayName("중간 하차로 자른 구간 복사본도 trainKind 칸을 흘리지 않는다(값은 복사 경로 확인용 표지)")
+    void truncatedCopyKeepsTrainKind() {
+        PathResult base = twoTransitPathWithStops();
+        List<SubPathResult> subs = new java.util.ArrayList<>(base.subPaths());
+        subs.set(3, SubPathFixture.withTrainKind(subs.get(3), "MARK"));
+        PathResult current = new PathResult(1, null, subs, List.of());
+
+        JourneyRevisionComposer.Composed composed = composer.compose(current, legsOf(current),
+                midRideApply(), new JourneyRevisionComposer.RideTruncation(2, 480)).composed();
+
+        assertThat(composed.snapshot().subPaths().get(3).endName()).isEqualTo("정류장E");
+        assertThat(composed.snapshot().subPaths().get(3).trainKind()).isEqualTo("MARK");
+    }
+
+    @Test
     @DisplayName("지도선은 남은 정류장 좌표를 이은 선이다 — 투영하지 않는다")
     void truncatedRideDrawsStopLine() {
         PathResult current = twoTransitPathWithStops();

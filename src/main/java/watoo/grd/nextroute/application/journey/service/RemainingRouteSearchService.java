@@ -9,6 +9,7 @@ import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.RouteSearchResult;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
+import watoo.grd.nextroute.application.route.routing.ExpressFilterPolicy;
 import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
 import watoo.grd.nextroute.application.route.routing.OtpPermit;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
@@ -69,6 +70,8 @@ public class RemainingRouteSearchService {
     // 재탐색 후보 상한(rerouteLimit). 재탐색은 엔진 순서 앞에서 자르기만 한다.
     private final OtpRoutingProperties otpRoutingProperties;
     private final WalkCoordResolver walkCoordResolver;
+    // 검색과 같은 급행 정책(subway-express S2). 지금은 DIRECT 제외만 — 급행 끄기 전파는 S5(세션 저장 값)다.
+    private final ExpressFilterPolicy expressFilterPolicy;
 
     /**
      * @param stopId    곧 내릴 정류장(로그·telemetry 용). <b>미해석(null)이면 부르면 안 된다</b>
@@ -165,7 +168,8 @@ public class RemainingRouteSearchService {
         // 후보 풀(first)이 노출 상한보다 크다 — 재탐색은 엔진 순서(도착 빠른 순) 앞에서 자르기만 한다.
         // 비용 정렬은 하지 않는다: 재탐색은 목적지 ETA 로 다시 줄 세우고(RerouteRanking), 후보 수가
         // 곧 실시간 평가 횟수라 상한을 지켜야 한다.
-        RoutingResult result = (RoutingResult) outcome;
+        // 자르기 전에 검색과 같은 정책을 건다(DIRECT 는 언제나 제외, 급행 끄기는 S5 에서 세션 값으로).
+        RoutingResult result = expressFilterPolicy.filter((RoutingResult) outcome, false);
         int limit = Math.max(otpRoutingProperties.getRerouteLimit(), 0);
         List<RoutingItinerary> its = result.itineraries();
         RouteSearchResult legacy = legacyRouteResponseMapper.toLegacy(

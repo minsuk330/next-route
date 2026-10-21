@@ -12,7 +12,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class JourneyLegGuidanceCopyTest {
 
     private static final JourneyLegGuidance ORIGINAL = new JourneyLegGuidance(
-            "05229", "05263", "교대", "3", "10", "[{\"carDoor\":\"2-3\",\"facility\":\"STAIRS\"}]", "LEFT");
+            "05229", "05263", "교대", "3", "10", "[{\"carDoor\":\"2-3\",\"facility\":\"STAIRS\"}]", "LEFT",
+            "EXPRESS");
 
     @Test
     @DisplayName("앞 구간 복제는 안내 값을 그대로 가져간다")
@@ -30,8 +31,27 @@ class JourneyLegGuidanceCopyTest {
         JourneyLeg copy = leg().copyToRevisionTruncated(2, new JourneyLeg.Truncation(
                 "104000150", "104000150", "새 하차", 300, Instant.EPOCH, 3, 200, BigDecimal.ZERO, newEnd));
 
+        // 열차 종류는 타고 있는 그 열차 값 그대로 — 새 하차점 값(null)으로 갈아 끼우지 않는다
         assertThat(copy.getGuidance())
-                .isEqualTo(new JourneyLegGuidance("05229", "05240", "교대", "3", "4", null, "RIGHT"));
+                .isEqualTo(new JourneyLegGuidance("05229", "05240", "교대", "3", "4", null, "RIGHT", "EXPRESS"));
+    }
+
+    @Test
+    @DisplayName("모든 with* 와 withEndFrom 이 열차 종류를 보존한다(subway-express S2)")
+    void everyWitherKeepsTrainKind() {
+        assertThat(ORIGINAL.withStopNos("1", "2").trainKind()).isEqualTo("EXPRESS");
+        assertThat(ORIGINAL.withExits("1", "2").trainKind()).isEqualTo("EXPRESS");
+        assertThat(ORIGINAL.withDirectionName("x").trainKind()).isEqualTo("EXPRESS");
+        assertThat(ORIGINAL.withFastAlightJson(null).trainKind()).isEqualTo("EXPRESS");
+        assertThat(ORIGINAL.withAlightDoorSide("RIGHT").trainKind()).isEqualTo("EXPRESS");
+        assertThat(ORIGINAL.withEndFrom(JourneyLegGuidance.EMPTY).trainKind()).isEqualTo("EXPRESS");
+        assertThat(ORIGINAL.withEndFrom(null).trainKind()).isEqualTo("EXPRESS");
+        assertThat(ORIGINAL.withTrainKind("NORMAL"))
+                .isEqualTo(new JourneyLegGuidance("05229", "05263", "교대", "3", "10",
+                        ORIGINAL.fastAlightJson(), "LEFT", "NORMAL"));
+        // 옛 생성자(7·6인자)는 열차 종류를 모른다
+        assertThat(new JourneyLegGuidance("a", "b", "c", "d", "e", null, "LEFT").trainKind()).isNull();
+        assertThat(new JourneyLegGuidance("a", "b", "c", "d", "e", null).trainKind()).isNull();
     }
 
     @Test

@@ -194,8 +194,9 @@ public class JourneyCompiler {
 
         int waitIndex = legs.size();
         int rideIndex = waitIndex + 1;
+        // 열차 종류(subway-express S2)는 기다리기·타고 가기 두 단계에 같이 싣는다 — 기다리는 단계에서 이미 "급행"을 보여야 한다.
         JourneyLegGuidance guidance = subway
-                ? JourneyLegGuidance.EMPTY.withDirectionName(directionName(sub))
+                ? JourneyLegGuidance.EMPTY.withDirectionName(directionName(sub)).withTrainKind(sub.trainKind())
                 : JourneyLegGuidance.EMPTY;
 
         legs.add(new JourneyLegDraft(

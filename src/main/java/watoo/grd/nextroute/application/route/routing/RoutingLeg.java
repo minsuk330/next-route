@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.route.routing;
 
+import watoo.grd.nextroute.application.subway.dto.TrainKind;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -23,6 +25,10 @@ import java.util.Set;
  * @param missing           원천 부재 속성(가짜값 대신 사유로 노출)
  * @param sourceRouteColor  원천이 준 노선 표시색(GTFS route_color, "#" 없는 6자리 hex). 없으면 null
  * @param distanceMeters    구간 거리(m). 원천이 주면 채운다(OTP leg {@code distance}). 모르면 null — 0 으로 지어내지 않는다
+ * @param sourceRouteLongName 원천 노선 긴 이름({@code 서울9호선(급행)<하행>}). 방향·급행 표기를 들고 있다. 없으면 null
+ * @param patternCode       원천 trip 패턴 코드(OTP {@code trip.pattern.code}, {@code 1:RR_ACC1_S-1-SD-1D::05}). 없으면 null
+ * @param trainKind         철도 구간 열차 종류(subway-express). 어댑터 경계의 {@code RailServiceClassifier} 가 한 번
+ *                          채운다. 매퍼는 판정하지 않는다(null). 버스·도보는 언제나 null
  */
 public record RoutingLeg(
         RoutingMode mode,
@@ -43,8 +49,25 @@ public record RoutingLeg(
         Enrichment enrichment,
         Set<MissingAttribute> missing,
         String sourceRouteColor,
-        Double distanceMeters
+        Double distanceMeters,
+        String sourceRouteLongName,
+        String patternCode,
+        TrainKind trainKind
 ) {
+    /** 노선 긴 이름·패턴·열차 종류를 모르는 원천용 하위호환 생성자. 새 칸을 null 로 두는 것이 곧 옛 동작이다. */
+    public RoutingLeg(RoutingMode mode, String sourceDetailType, String feedId, String agencyId,
+                      String sourceRouteId, String sourceRouteName, String sourceRouteDirection,
+                      String tripId, LocalDate serviceDate, Instant boardAt, Instant alightAt,
+                      int rideDurationSeconds, List<StopOccurrence> stops,
+                      List<RoutingWalkStep> walkSteps, LegGeometry geometry,
+                      Enrichment enrichment, Set<MissingAttribute> missing, String sourceRouteColor,
+                      Double distanceMeters) {
+        this(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName,
+                sourceRouteDirection, tripId, serviceDate, boardAt, alightAt, rideDurationSeconds,
+                stops, walkSteps, geometry, enrichment, missing, sourceRouteColor, distanceMeters,
+                null, null, null);
+    }
+
     /** 거리를 모르는 원천용 하위호환 생성자. 새 칸을 null 로 두는 것이 곧 옛 동작이다. */
     public RoutingLeg(RoutingMode mode, String sourceDetailType, String feedId, String agencyId,
                       String sourceRouteId, String sourceRouteName, String sourceRouteDirection,
@@ -95,6 +118,15 @@ public record RoutingLeg(
     public RoutingLeg withEnrichment(Enrichment newEnrichment) {
         return new RoutingLeg(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName,
                 sourceRouteDirection, tripId, serviceDate, boardAt, alightAt, rideDurationSeconds,
-                stops, walkSteps, geometry, newEnrichment, missing, sourceRouteColor, distanceMeters);
+                stops, walkSteps, geometry, newEnrichment, missing, sourceRouteColor, distanceMeters,
+                sourceRouteLongName, patternCode, trainKind);
+    }
+
+    /** 열차 종류만 바꾼 복사본(나머지 필드 보존). */
+    public RoutingLeg withTrainKind(TrainKind newTrainKind) {
+        return new RoutingLeg(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName,
+                sourceRouteDirection, tripId, serviceDate, boardAt, alightAt, rideDurationSeconds,
+                stops, walkSteps, geometry, enrichment, missing, sourceRouteColor, distanceMeters,
+                sourceRouteLongName, patternCode, newTrainKind);
     }
 }

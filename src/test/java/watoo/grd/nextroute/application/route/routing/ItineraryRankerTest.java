@@ -2,6 +2,7 @@ package watoo.grd.nextroute.application.route.routing;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import watoo.grd.nextroute.application.subway.dto.TrainKind;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -55,12 +56,34 @@ class ItineraryRankerTest {
     }
 
     @Test
-    @DisplayName("노선 id 가 달라도 보이는 이름이 같으면 한 경로다 — 1호선 계통·급행은 응답에서 구별되지 않는다")
+    @DisplayName("노선 id 가 달라도 보이는 이름이 같으면 한 경로다 — 1호선 계통(연천-인천·광운대-신창)")
     void sameNameDifferentRouteIdIsOneRoute() {
-        RoutingItinerary local = it(53, 5000, transit(RoutingMode.SUBWAY, "1:RR_ACC1_S-1-01-1U", "서울1호선"));
-        RoutingItinerary express = it(48, 4800, transit(RoutingMode.SUBWAY, "1:RR_ACC1_S-1-01-4U", "서울1호선"));
+        RoutingItinerary a = it(53, 5000, transit(RoutingMode.SUBWAY, "1:RR_ACC1_S-1-01-1U", "서울1호선"));
+        RoutingItinerary b = it(48, 4800, transit(RoutingMode.SUBWAY, "1:RR_ACC1_S-1-01-2U", "서울1호선"));
 
-        assertThat(ItineraryRanker.rank(List.of(local, express), 5)).containsExactly(express);
+        assertThat(ItineraryRanker.rank(List.of(a, b), 5)).containsExactly(b);
+    }
+
+    @Test
+    @DisplayName("같은 노선이어도 급행과 일반은 다른 경로다 — 응답이 trainKind 로 둘을 구별해 보인다(subway-express D2)")
+    void expressAndNormalOnSameLineAreTwoRoutes() {
+        RoutingItinerary local = it(53, 5000,
+                transit(RoutingMode.SUBWAY, "1:RR_ACC1_S-1-09-1D", "서울9호선").withTrainKind(TrainKind.NORMAL));
+        RoutingItinerary express = it(48, 4800,
+                transit(RoutingMode.SUBWAY, "1:RR_ACC1_S-1-09-2D", "서울9호선").withTrainKind(TrainKind.EXPRESS));
+
+        assertThat(ItineraryRanker.rank(List.of(local, express), 5)).containsExactly(express, local);
+    }
+
+    @Test
+    @DisplayName("열차 종류 null 과 NORMAL 은 한 경로다(판정 전 원천·ODsay 와 섞여도 갈라지지 않는다)")
+    void nullKindAndNormalAreOneRoute() {
+        RoutingItinerary unknown = it(53, 5000, transit(RoutingMode.SUBWAY, "1:S9", "서울9호선"));
+        RoutingItinerary normal = it(48, 4800,
+                transit(RoutingMode.SUBWAY, "1:S9", "서울9호선").withTrainKind(TrainKind.NORMAL));
+
+        assertThat(ItineraryRanker.rank(List.of(unknown, normal), 5)).containsExactly(normal);
+        assertThat(ItineraryRanker.fingerprint(unknown)).isEqualTo(ItineraryRanker.fingerprint(normal));
     }
 
     @Test

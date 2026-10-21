@@ -5724,3 +5724,63 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 충돌: `SubwayTrainCandidate`·`SubwayTrainSelectionService`·그 단위 시험·컨트롤러 시험. 해소: #492 의 `stationsAway`·`arrivalCode` 를 `kind` 바로 뒤(main 순서 그대로)에 두고 S3 칸 6개를 그 뒤에 붙임. `toCandidate` 는 거리(#489)와 열차 단위 판정을 둘 다, 떠난 열차는 거리 칸 null. 구버전 응답 fixture 에 거리만 아는 열차 한 건 추가
 - #490(`REVERSED_LABEL_ROUTES`·`realtimeLabelFrom`)은 검색·단독 추적 wayCode 를 도착 API 표기로 맞춘다 — 9호선 상행 = 중앙보훈병원 방면. 카탈로그 `listedDirection`·`SubwayTrainIdentity.direction`(라벨 통과)과 같은 약속이라 S3 코드 수정 없음. 선택 서비스가 `fromWayCode` 로 얻는 방향이 9호선에서 이제 맞게 나온다. `fromUpDownLine` 은 #490 이 건드리지 않음
 - 검증: 대상 시험(선택 31/0, 컨트롤러 8/0, 방향 정규화 19/0, 심판·하차역·카탈로그·준비·identity·도착판) 통과. `./gradlew test --tests '*Test' --continue` → 2,969 시험, 실패 0·오류 0·건너뜀 1. `./gradlew test --tests '*IT' --continue`(로컬 env) → 95 클래스 676 시험, 실패 0·오류 0·건너뜀 7, 4m12s
+
+## subway-express PR-S2 경로 검색 급행 표시·급행 끄기·여정 단계(V71) (2026-10-21, feat/subway-express-route)
+### 확정
+- 판정 한 곳 = `RailServiceClassifier.annotate`(OtpRoutingAdapter.searchOnce, 본·추가·재탐색 검색 공통). 매퍼는 `sourceRouteLongName`·`patternCode` 만 담고 판정 안 함(trainKind null). 단독 추적만 `classify` 직접
+- 규칙: 버스·도보 null → ITX(route `1:RR_ACC4_NATZ200_U/D`·이름 ITX) → 이름에 '직통' DIRECT(안전장치) → 카탈로그 서비스 없는 노선 NORMAL(2·3·5호선·공항철도·간선 철도) → **구간 기준**: 승·하차 사이 완행 경로(`allStopPathEitherDirection`)에 계획 정차열에 없는 역이 하나라도 있으면 EXPRESS, 없으면 NORMAL → 완행 경로 모르면 longName '급행' 이면 EXPRESS, 아니면 NORMAL
+  - PLAN 규칙 1(노선 이름 급행 → EXPRESS)을 구간 기준으로 바꿈: OTP 가 1호선 14xx '구로 급행'(용산~구로 모든 역)을 `서울1호선(용산-동인천급행)` 7역 패턴에 넣어서(S1 발견). 9호선 급행 노선은 fixture 패턴 둘(16역·12역) 다 급행 정차만이라 이름 기준과 결과가 같고, 다른 점은 붙은 두 정차역 구간(봉은사→종합운동장)이 NORMAL 이 되는 것뿐
+- 노선형 급행 route id(급행 끄기·일반 대안) = `1:RR_ACC1_S-1-09-2U/D`, `01-4U/D`(용산-동인천급행), `01-6U/D`(서울-신창급행). 운영 OTP 2026-10-21 `routes(transportModes:[RAIL,SUBWAY])` 209개 대조. ITX = `1:RR_ACC4_NATZ200_U/D`(shortName `[일반]ITX청춘(천마산.신내)`, RAIL)
+- `01-4D/U` 제외는 14xx 구로 급행(일반 판정) trip 도 같이 뺀다 — OTP 필터가 노선 단위라. 급행 끄기 때 용산~구로 일반 trip 은 1호선 본선(01-1)으로 대신 나온다
+- ~~방향: 분류기는 `SubwayRoutePatternAssembler.realtimeDirection`(반전표 적용)을 선호 방향으로 주되~~ 취소: 형제 PR #490 이 반전표를 `SubwayDirectionNormalizer` 로 옮겨 assembler 를 고치므로 충돌을 피하려고 assembler 를 건드리지 않음. 분류기는 방향 라벨 없이 두 방향 중 두 역을 이 순서로 지나는 쪽(`allStopPathEitherDirection`, preferred=null) — 카탈로그 노선은 전부 직선이라 답이 하나다. 검색 응답 wayCode 는 OTP 라벨 그대로(9호선은 실시간과 반대, #490 이 고침) — 이 PR 은 손대지 않음
+- OTP 2.9 스키마(운영 introspection): `PlanPreferencesInput.transit: TransitPreferencesInput{filters:[TransitFilterInput!]}`, `TransitFilterInput{include,exclude:[TransitFilterSelectInput!]}`, `TransitFilterSelectInput{routes,agencies}`
+### 함정
+- `SubwayRoutePatternAssembler.REVERSED_ROUTES.contains(null)` → NPE(`Set.of`) ← route id 없는 구간 / 가드: `realtimeDirection` 이 id null 이면 `labelFrom` 만
+- OTP 정류장 이름 키 = `SubwayPatternStationMatcher.key`(이으면 역 id, 아니면 `name:`+표시 이름) — `SubwayStationsAheadService.resolve` 가 패턴 정차에 붙이는 키와 같은 규칙이어야 계획 정차열과 완행 경로가 맞대어진다
+- 급행 끄기 흐름(`RouteSearchService.runOtpSearch`): 후보 풀 = 사후 필터 **전** 값(DIRECT 만 언제나 뺌) → 추가 검색(고유 수는 `filter(pool, excludeExpress)` 뒤 값) → (급행 켬일 때만) 일반 대안 되찾기 → `applyExpressFilter`(D10). 0건 해제가 풀 값으로 돌아가야 해서 풀과 필터 결과를 나눴다
+- D10 meta: 해제(다시 묻기도 일반 0건, 무경로 답 포함) = `express_filter/empty_result`, 다시 묻기 실패·시간 초과·예산 부족 = `express_filter_unverified/timeout|upstream_error`. 필터가 지켜지면 `requested(EXPRESS_FILTER)` 만(degraded 없음). 둘 다 OPTIONAL 등급이라 해제 때 outcome 이 partial/base_only 로 내려간다(meta.outcome·지표). **앱은 두 component 모두 "급행 포함 결과" 안내**
+- D10 다시 묻기는 본 검색과 같은 질의(원래 수단 + 노선형 급행 제외)라 대개 같은 답이다 — 정차 패턴형 급행만 남는 경우의 확인 장치 + 실패 구분용. 0건 경로에서만 1회(+0.05~1.5s)
+- 일반 대안 되찾기 짝 판정(`hasNormalPair`): 도보 뺀 구간 수·수단·노선 이름이 같고, 급행 구간 자리마다 상대가 급행이 아니면 짝. 노출 상한 안 경로 중 **노선형 급행 route** 구간이 든 것만 검사(정차 패턴형은 OTP 가 못 거르니 묻지 않음)
+### 함정
+- 시험 공용 fixture 의 Mockito 스텁이 엄격 스텁(MockitoExtension) 시험에서 UnnecessaryStubbing 으로 실패 ← 시험 세션 안에서 만든 mock 스텁도 추적됨 / 가드: `SubwayExpressFixtures` 스텁 전부 `lenient()`
+- 여정 단계 열차 종류(V71): `JourneyLegGuidance.trainKind`(8번째 칸, 7·6인자 호환 생성자) → `JourneyLeg.trainKind`(`train_kind varchar(16)`) → `JourneyLegView.trainKind`. 원천은 개정본 스냅샷 subPath.trainKind, 단계 칸은 사본. `withEndFrom` 은 **자기 trainKind 를 유지**(자르기 = 타고 있는 그 열차). 컴파일러가 지하철 대기·탑승 두 단계에 같이 싣는다
+- `RerouteRouteFingerprint`: kind 가 null·NORMAL 이 아니면 구간 끝에 `:EXPRESS` 등. 기존 해시 그대로(시험이 `sha1("slot|1:9:가양>염창")` 앞 12바이트 `7278f6c4285336a73392b142` 로 고정)
+- geometry: `stops` 불변, `allStops`(지하철 타는 단계만, NON_NULL) = 급행이면 S1 완행 경로 + `trainStops`, 일반·모름·펼치기 실패면 계획 정차열 전부 true. `geometryVersion` = `{routeRevision}:{카탈로그 판}`(모르면 `-`), 바인딩 판은 S4
+### 함정
+- 형제 PR 충돌: #491(S3)이 같은 경로 `src/test/.../subway/service/SubwayExpressFixtures.java` 를 새로 만든다(add/add) → 이 PR 은 `SubwayExpressRouteFixtures` 로. #490 이 `SubwayRoutePatternAssembler` 반전표를 `SubwayDirectionNormalizer` 로 옮긴다 → 이 PR 은 그 파일 무변경
+- V40~V70 을 `@Sql` 로 직접 까는 IT 15개(엔티티가 `train_kind` 를 매핑하므로 칼럼이 없으면 INSERT 실패) → V65 바로 뒤에 V71 추가. 새 IT 가 V65 를 깔면 V71 도 같이
+- `Map.of().getOrDefault(null, …)` NPE ← id 없는(저장 전) 단계로 `toView` 시험 / 가드: 시험은 HashMap
+- (정정) 위 S2 절의 두 번째·세 번째 `### 함정` 머리 아래 '급행 끄기 흐름'~'일반 대안 되찾기 짝 판정' 4줄과 '여정 단계 열차 종류'~'geometry' 3줄은 **확정** 항목이다 — 이어 붙이다 머리를 잘못 달았다. 첫 `### 함정` 의 '`REVERSED_ROUTES.contains(null)` NPE' 줄은 ~~취소~~: `realtimeDirection` 을 되돌려(형제 PR #490 충돌 회피) 더는 해당 없음
+### 확정(이어서)
+- 운영 OTP 실측(2026-10-21, 읽기 전용): 새 질의(`trip { gtfsId pattern { code } }`·`$preferences`) 오류 없음. 마곡나루→신논현 08:00 제외 없음 = 9호선 급행 4건만(`09-2D::01`, 9역, 일반은 지배당해 빠짐) / 노선형 급행 6 route 제외 = 일반 5건(`09-1D::01`, 21역). 두 응답을 `src/test/resources/otp/planconnection-line9-express-{only,excluded}.json` 로 넣어 매퍼+분류기+검색 흐름 시험(`RouteSearchServiceOtpWiringTest.liveLine9*`, `RailServiceClassifierTest.liveOtpResponses`)
+- 선릉→수원(수인분당, 지하철만) 08:00 = 31역 완행만 — 그 창엔 정차 패턴형 급행 trip 없음
+- 알림 소요시간 추정(`RouteSearchTravelTimeEstimator`)도 같은 `RouteSearchService` 를 타서 일반 대안 되찾기 1회가 붙을 수 있다(급행 기본 포함, 결과는 최소 소요라 급행이 그대로 뽑힌다). PLAN 범위 밖 항목이라 그대로 둠
+### 좌표
+- `application/route/routing/RailServiceClassifier`(classify·annotate·expandAllStops·expressRouteIds·catalogVersion·verifyExpressRoutesOnce), `ExpressFilterPolicy`
+- `RouteSearchService.runOtpSearch`·`supplementIfShort`·`recoverNormalAlternatives`·`hasNormalPair`·`applyExpressFilter`, `RemainingRouteSearchService.loadOtp`(DIRECT 제외)
+- `OtpRoutingAdapter.searchOnce`(annotate)·`requestBody`(preferences), `OtpPlanConnectionMapper.toLeg`, `planConnection.graphql`
+- `SubwayStopPatternResolver.allStopPathEitherDirection`, `SubwayPatternStationMatcher.key`, `SubwayLinePatternService.cachedRoutes`
+- `JourneyLegGuidance`·`JourneyLeg.trainKind`·`JourneyCompiler.emitTransit`·`JourneyLegView`·`JourneyQueryService.toView`·`RerouteRouteFingerprint`·`TrackJourneyStartService.start`
+- `JourneyNavigationGeometryService.subwayAllStops`, `JourneyNavigationGeometry.versionKey`·`LegGeometry.allStops`·`StopGeometry.trainStops`
+- `db/migration/V71__journey_leg_train_kind.sql`, 시험 공용 `SubwayExpressRouteFixtures`
+### 미결
+- 패턴 캐시가 빈 때(부팅 직후 몇 초·worker 노선별 첫 재탐색) 이름 기준 폴백 — 14xx 구로 급행이 EXPRESS 로 보일 수 있다
+- 정차 패턴형 급행(수인분당·경의중앙 등) 일반 대안 보장 못 함(OTP 필터가 노선 단위)
+- 재탐색 급행 끄기 전파 = S5(V73). geometry 바인딩 판 = S4
+- 운영 확인 남은 것: 수인분당 급행 운행 시각대의 선릉→수원 급행·일반 쌍
+### 배포
+- **V71 마이그레이션 — Flyway 가 jar 에서 적용**(V65 이후 관례 tracked·jar 포함, 수동 배치 불필요). `ALTER TABLE journey_leg ADD COLUMN train_kind varchar(16)` = nullable, 메타데이터만(표 재작성 없음)
+- 엔티티가 `train_kind` 를 매핑 → api·worker 둘 다 같은 이미지로 교체(Flyway 가 먼저 돈다). 롤백: 구버전은 칼럼을 매핑하지 않아 validate 통과, 새 JSON 칸(`trainKind`)은 Spring ObjectMapper 가 무시
+- 플래그 없음. 새 응답 칸은 전부 optional(구버전 앱 무시). 검색 OTP 호출: 되찾기 최대 +1회·급행 끄기 0건 경로 +1회
+### 검증
+- `./gradlew compileJava compileTestJava` 통과(경고는 기존 MockBean 폐기 예고뿐)
+- 대상 시험: `RailServiceClassifierTest` 18/0(14xx 구로 급행 NORMAL, 9호선 급행 EXPRESS·봉은사→종합운동장 NORMAL, 수인분당 SD-1D 급행 패턴 죽전→고색 EXPRESS·왕십리→선릉 NORMAL, ITX, 공항철도 NORMAL, 직통 DIRECT, 캐시 빈 때 폴백, 운영 실측 응답), `RouteSearchServiceOtpWiringTest` 29/0(제외 id 전파·사후 필터·되찾기 호출/생략·D10 `express_filter`/`express_filter_unverified`·다시 묻기 성공·진짜 무경로·DIRECT·운영 실측 2), `ItineraryRankerTest` 13/0, `OtpRoutingAdapterHttpTest`·`OtpPlanConnectionMapperTest`·`LegacyRouteResponseMapperTest`·`RouteSearchControllerBindingTest`·`RedisRouteSearchSnapshotAdapterTest`(옛 JSON) ·복사 경로(Transfer/WalkCoord/WalkSegment/RevisionComposer)·`JourneyLegGuidanceCopyTest`(모든 with*)·`JourneyCompilerTest`·`RerouteRouteFingerprintTest`·`JourneyNavigationGeometryServiceTest`·`TrackJourneyStartServiceTest`·`SubwayStopPatternResolverTest$EitherDirection` 전부 실패 0
+- `./gradlew test --tests '*Test' --continue`: 402 클래스 2,970 테스트 실패 0·오류 0·건너뜀 1(리베이스 전) → origin/main(#485·#490·#492) 위로 리베이스 뒤 403 클래스 2,977 테스트 실패 0·오류 0·건너뜀 1
+- `./gradlew test --tests '*IT' --continue`(로컬 env db·auth·api, POSTGRES_HOST/REDIS_HOST=localhost, Docker, 리베이스 전 1회): 95 클래스 674 테스트 실패 0·오류 0·건너뜀 7, 3m42s. 리베이스 뒤 관련분 `*Journey*IT`·`*Subway*IT`·`*RouteSearch*IT`·`*Reroute*IT` 68 클래스 564 테스트 실패 0·건너뜀 5, 3m
+- V71 번호: origin/main(e1f0c3da)·열린 PR(#491 #426 #59) 모두 V70 까지 — 비어 있음(2026-10-21 푸시 직전 확인)
+
+#### subway-express PR-S2 보완: origin/main(#491 S3) 병합 (2026-10-21)
+- 충돌: `implementation_note.md` 만(S3·S2 절이 둘 다 S1 절 뒤에 붙음) → 둘 다 남김(S3 먼저). 시험 도구는 S3 `SubwayExpressFixtures` 와 이 PR `SubwayExpressRouteFixtures` 가 같은 패키지에 나란히 — 이름이 달라 충돌 없음(정리는 별건)
+- 확정: S3 가 `SubwayExpressCatalog` 를 "역 마스터가 빈 노선은 보류·30초 뒤 재시도"로 바꿨다 → 보류 중엔 `services()` 에 그 노선이 없다. 분류기의 카탈로그 노선 판정을 `catalog.services()` 에서 S3 의 `hasServices(lineId)`(파일 정의)로 바꿈 — 부팅 직후 9호선 급행이 NORMAL 로 떨어지지 않게. 시험 `RailServiceClassifierTest.pendingCatalogStillKnowsExpressLines`(옛 판정이면 9호선 가양→염창이 NORMAL 이라 실패)
+- `SubwayStationsAheadService.resolve` 의 패턴 키 규칙은 S3 가 바꾸지 않음 → `SubwayPatternStationMatcher.key` 그대로 맞다. application.yaml 은 S3 의 `subway.express.tracking` 만 추가(이 PR 무관)
+- 검증: `./gradlew compileJava compileTestJava` 통과. `./gradlew test --tests '*Test' --continue` → 407 클래스 3,032 테스트 실패 0·오류 0·건너뜀 1. `./gradlew test --tests '*IT' --continue`(로컬 env) → 95 클래스 677 테스트 실패 0·오류 0·건너뜀 7, 4m48s. V71 은 병합 뒤에도 origin/main 에 없음(V70 까지)

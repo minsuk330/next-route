@@ -87,7 +87,9 @@ class RouteSearchServiceOtpWiringTest {
                 selector,
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
                 new DepartureTimeResolver(Clock.systemDefaultZone()), grantingGate, Clock.systemDefaultZone(), otpProps,
-                new WalkCoordResolver());
+                new WalkCoordResolver(),
+                new watoo.grd.nextroute.application.route.routing.ExpressFilterPolicy(
+                        watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier()));
     }
 
     private RoutingPort otpReturning(RoutingOutcome outcome) {
@@ -465,5 +467,280 @@ class RouteSearchServiceOtpWiringTest {
         assertThat(subs.get(0).endName()).isEqualTo("서울역");
         assertThat(subs.get(1).endName()).isEqualTo("시청");
         assertThat(subs.get(1).endX()).isEqualTo(126.9769);
+    }
+
+    // ── 급행 끄기·일반 대안 되찾기·0건 해제(subway-express S2) ─────────────────────
+
+    private static final Set<String> EXPRESS_ROUTES = Set.of(
+            "1:RR_ACC1_S-1-09-2U", "1:RR_ACC1_S-1-09-2D", "1:RR_ACC1_S-1-01-4U", "1:RR_ACC1_S-1-01-4D",
+            "1:RR_ACC1_S-1-01-6U", "1:RR_ACC1_S-1-01-6D");
+
+    /** 질의(수단·제외 노선)마다 결과를 정하는 OTP. 받은 질의를 차례로 적는다. 정하지 않은 질의는 무경로. */
+    private static final class QueryScriptedOtp implements RoutingPort {
+        private final java.util.List<java.util.Map.Entry<java.util.function.Predicate<RoutingQuery>, RoutingOutcome>>
+                rules = new java.util.ArrayList<>();
+        private final java.util.List<RoutingQuery> asked = new java.util.ArrayList<>();
+
+        QueryScriptedOtp on(Set<RoutingMode> modes, Set<String> excluded, RoutingOutcome outcome) {
+            rules.add(java.util.Map.entry(q -> q.modes().equals(modes) && q.excludedRouteIds().equals(excluded),
+                    outcome));
+            return this;
+        }
+
+        @Override public RoutingOutcome search(RoutingQuery q, RoutingDeadline d) {
+            asked.add(q);
+            return rules.stream().filter(r -> r.getKey().test(q)).map(java.util.Map.Entry::getValue).findFirst()
+                    .orElse(RoutingFailure.of(RoutingFailure.Kind.NO_ROUTE, "NO_TRANSIT_CONNECTION", "scripted"));
+        }
+
+        @Override public RoutingProvider provider() { return RoutingProvider.OTP; }
+    }
+
+    /** 어댑터가 열차 종류를 붙인 뒤 모양의 지하철 한 구간 경로. */
+    private RoutingItinerary rail(String routeId, String routeName, watoo.grd.nextroute.application.subway.dto.TrainKind kind,
+                                  int cost) {
+        RoutingLeg leg = singleLeg(RoutingMode.SUBWAY, routeId, routeName, cost).legs().get(0).withTrainKind(kind);
+        return new RoutingItinerary(Instant.now(), 600, 0, 0, 0, false, List.of(), Fare.unknown(), List.of(leg), cost);
+    }
+
+    private static RouteSearchRequest request(Boolean excludeExpress) {
+        return new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d", null, excludeExpress);
+    }
+
+    private static List<String> kinds(RouteSearchResult legacy) {
+        return legacy.paths().stream().map(p -> String.valueOf(p.subPaths().get(0).trainKind())).toList();
+    }
+
+    private static List<String> degraded(RouteSearchResult legacy) {
+        return legacy.meta().degraded().stream().map(d -> d.component() + "/" + d.reason()).toList();
+    }
+
+    private static final watoo.grd.nextroute.application.subway.dto.TrainKind EXPRESS =
+            watoo.grd.nextroute.application.subway.dto.TrainKind.EXPRESS;
+    private static final watoo.grd.nextroute.application.subway.dto.TrainKind NORMAL =
+            watoo.grd.nextroute.application.subway.dto.TrainKind.NORMAL;
+    private static final watoo.grd.nextroute.application.subway.dto.TrainKind DIRECT =
+            watoo.grd.nextroute.application.subway.dto.TrainKind.DIRECT;
+
+    @Test
+    @DisplayName("급행 끄기: 본·추가 검색 모두 노선형 급행 route 를 OTP 에서 빼고 묻는다(제외 id 전파)")
+    void excludeExpressPropagatesRouteExclusions() {
+        QueryScriptedOtp otp = new QueryScriptedOtp()
+                .on(Set.of(), EXPRESS_ROUTES, result(rail("1:RR_ACC1_S-1-09-1D", "서울9호선", NORMAL, 4000)));
+
+        service(otp).search(request(true));
+
+        assertThat(otp.asked).isNotEmpty();
+        assertThat(otp.asked).allSatisfy(q -> assertThat(q.excludedRouteIds()).isEqualTo(EXPRESS_ROUTES));
+        assertThat(otp.asked).extracting(RoutingQuery::modes).containsExactly(Set.of(), RAIL_ONLY, BUS_ONLY);
+    }
+
+    @Test
+    @DisplayName("급행 끄기: 정차 패턴형 급행 경로는 사후 필터로 빠지고 고유 경로 수도 필터 뒤 값으로 센다")
+    void excludeExpressPostFiltersPatternExpress() {
+        QueryScriptedOtp otp = new QueryScriptedOtp()
+                .on(Set.of(), EXPRESS_ROUTES, result(
+                        rail("1:RR_ACC1_S-1-SD-1D", "수인분당선", EXPRESS, 3000),
+                        rail("1:RR_ACC1_S-1-SD-1D", "수인분당선", NORMAL, 3500)));
+
+        RouteSearchResult legacy = service(otp).search(request(true));
+
+        assertThat(kinds(legacy)).containsExactly("NORMAL");
+        assertThat(degraded(legacy)).isEmpty();
+        // 필터 뒤 고유 1개 < 5 라 추가 검색을 계속 물었다
+        assertThat(otp.asked).extracting(RoutingQuery::modes).containsExactly(Set.of(), RAIL_ONLY, BUS_ONLY);
+    }
+
+    @Test
+    @DisplayName("급행 켬: 급행 경로와 같은 노선 일반 짝이 둘 다 나온다(고유 지문이 다르다)")
+    void expressAndNormalBothShown() {
+        QueryScriptedOtp otp = new QueryScriptedOtp()
+                .on(Set.of(), Set.of(), result(
+                        rail("1:RR_ACC1_S-1-09-2D", "서울9호선", EXPRESS, 3000),
+                        rail("1:RR_ACC1_S-1-09-1D", "서울9호선", NORMAL, 3600)));
+
+        RouteSearchResult legacy = service(otp).search(request(null));
+
+        assertThat(kinds(legacy)).containsExactly("EXPRESS", "NORMAL");
+        // 짝이 이미 있으니 되찾기 검색은 없다(제외 노선을 단 질의가 없다)
+        assertThat(otp.asked).allSatisfy(q -> assertThat(q.excludedRouteIds()).isEmpty());
+    }
+
+    @Test
+    @DisplayName("일반 대안 되찾기: 노선형 급행만 있으면 원래 수단 그대로 급행 route 만 빼고 한 번 더 묻는다")
+    void recoversNormalAlternative() {
+        QueryScriptedOtp otp = new QueryScriptedOtp()
+                .on(Set.of(), Set.of(), result(
+                        rail("1:RR_ACC1_S-1-09-2D", "서울9호선", EXPRESS, 3000),
+                        singleLeg(RoutingMode.BUS, "1:R1", "B1", 5000),
+                        singleLeg(RoutingMode.BUS, "1:R2", "B2", 5001),
+                        singleLeg(RoutingMode.BUS, "1:R3", "B3", 5002),
+                        singleLeg(RoutingMode.BUS, "1:R4", "B4", 5003)))
+                .on(Set.of(), EXPRESS_ROUTES, result(rail("1:RR_ACC1_S-1-09-1D", "서울9호선", NORMAL, 3600)));
+
+        RouteSearchResult legacy = service(otp).search(request(false));
+
+        // 고유 5개라 추가 검색은 없었지만 짝 검사는 따로 한다
+        assertThat(otp.asked).hasSize(2);
+        assertThat(otp.asked.get(1).modes()).isEmpty();
+        assertThat(otp.asked.get(1).excludedRouteIds()).isEqualTo(EXPRESS_ROUTES);
+        assertThat(kinds(legacy)).containsExactly("EXPRESS", "NORMAL", "null", "null", "null");
+    }
+
+    @Test
+    @DisplayName("일반 대안 되찾기 생략: 정차 패턴형 급행은 OTP 가 노선으로 못 거르니 묻지 않는다(한계)")
+    void patternExpressDoesNotTriggerRecovery() {
+        QueryScriptedOtp otp = new QueryScriptedOtp()
+                .on(Set.of(), Set.of(), result(rail("1:RR_ACC1_S-1-SD-1D", "수인분당선", EXPRESS, 3000)));
+
+        service(otp).search(request(false));
+
+        assertThat(otp.asked).allSatisfy(q -> assertThat(q.excludedRouteIds()).isEmpty());
+    }
+
+    @Test
+    @DisplayName("0건 해제(D10): 필터로 0건 → 원래 수단으로 다시 묻기 → 그래도 0건이면 급행 포함 결과 + express_filter")
+    void relaxesWhenNoNormalPath() {
+        RoutingResult onlyExpress = result(rail("1:RR_ACC1_S-1-SD-1D", "수인분당선", EXPRESS, 3000));
+        QueryScriptedOtp otp = new QueryScriptedOtp().on(Set.of(), EXPRESS_ROUTES, onlyExpress);
+
+        RouteSearchResult legacy = service(otp).search(request(true));
+
+        assertThat(kinds(legacy)).containsExactly("EXPRESS");
+        assertThat(degraded(legacy)).containsExactly("express_filter/empty_result");
+        // 본 + 추가(지하철·버스) + 다시 묻기(원래 수단·노선형 급행 제외)
+        RoutingQuery retry = otp.asked.get(otp.asked.size() - 1);
+        assertThat(retry.modes()).isEmpty();
+        assertThat(retry.excludedRouteIds()).isEqualTo(EXPRESS_ROUTES);
+        assertThat(otp.asked).hasSize(4);
+    }
+
+    @Test
+    @DisplayName("0건 해제(D10): 다시 묻기가 시간 초과면 확인 못 한 채 풀고 express_filter_unverified")
+    void relaxesUnverifiedWhenRetryFails() {
+        RoutingResult onlyExpress = result(rail("1:RR_ACC1_S-1-SD-1D", "수인분당선", EXPRESS, 3000));
+        RoutingPort otp = new RoutingPort() {
+            private int calls;
+            @Override public RoutingOutcome search(RoutingQuery q, RoutingDeadline d) {
+                calls++;
+                if (q.modes().isEmpty() && calls > 1) {
+                    return RoutingFailure.of(RoutingFailure.Kind.TIMEOUT, "TIMEOUT", "x");
+                }
+                return q.modes().isEmpty() ? onlyExpress
+                        : RoutingFailure.of(RoutingFailure.Kind.NO_ROUTE, "NO_TRANSIT_CONNECTION", "x");
+            }
+            @Override public RoutingProvider provider() { return RoutingProvider.OTP; }
+        };
+
+        RouteSearchResult legacy = service(otp).search(request(true));
+
+        assertThat(kinds(legacy)).containsExactly("EXPRESS");
+        assertThat(degraded(legacy)).containsExactly("express_filter_unverified/timeout");
+    }
+
+    @Test
+    @DisplayName("0건 해제(D10): 다시 묻기에서 일반 경로가 나오면 그것만 — 표시 없음")
+    void retryFindsNormal() {
+        RoutingPort otp = new RoutingPort() {
+            private int calls;
+            @Override public RoutingOutcome search(RoutingQuery q, RoutingDeadline d) {
+                if (!q.modes().isEmpty()) {
+                    return RoutingFailure.of(RoutingFailure.Kind.NO_ROUTE, "NO_TRANSIT_CONNECTION", "x");
+                }
+                calls++;
+                return calls == 1 ? result(rail("1:RR_ACC1_S-1-SD-1D", "수인분당선", EXPRESS, 3000))
+                        : result(rail("1:RR_ACC1_S-1-SD-1D", "수인분당선", NORMAL, 3900));
+            }
+            @Override public RoutingProvider provider() { return RoutingProvider.OTP; }
+        };
+
+        RouteSearchResult legacy = service(otp).search(request(true));
+
+        assertThat(kinds(legacy)).containsExactly("NORMAL");
+        assertThat(degraded(legacy)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("진짜 무경로(필터 전에도 0건)는 다시 묻지 않고 표시도 없다")
+    void trueNoRouteStaysDistinct() {
+        QueryScriptedOtp otp = new QueryScriptedOtp().on(Set.of(), EXPRESS_ROUTES, result());
+
+        RouteSearchResult legacy = service(otp).search(request(true));
+
+        assertThat(legacy.paths()).isEmpty();
+        assertThat(degraded(legacy)).isEmpty();
+        assertThat(otp.asked).extracting(RoutingQuery::modes).containsExactly(Set.of(), RAIL_ONLY, BUS_ONLY);
+    }
+
+    @Test
+    @DisplayName("DIRECT 구간이 든 경로는 급행 옵션과 무관하게 언제나 빠진다(D3 안전장치)")
+    void directAlwaysRemoved() {
+        QueryScriptedOtp otp = new QueryScriptedOtp()
+                .on(Set.of(), Set.of(), result(rail("1:RR_ACC1_S-1-AP-9D", "공항철도", DIRECT, 2000),
+                        rail("1:RR_ACC1_S-1-AP-1D", "공항철도", NORMAL, 3000)));
+
+        assertThat(kinds(service(otp).search(request(null)))).containsExactly("NORMAL");
+    }
+
+    // ── 운영 실측 응답(2026-10-21 마곡나루→신논현 08:00, 운영 OTP 읽기 전용) ─────────────────
+
+    /**
+     * 운영 OTP 가 실제로 준 응답을 매퍼 + 분류기(운영 fixture)로 돌리는 OTP — 어댑터 searchOnce 와 같은 단계다. 제외 노선이
+     * 없으면 9호선 급행만 4건(일반은 지배당해 빠짐), 노선형 급행을 빼면 일반만 5건. 버스만은 무경로.
+     */
+    private RoutingPort liveLine9Otp(java.util.List<RoutingQuery> asked) {
+        watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpPlanConnectionMapper mapper =
+                new watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpPlanConnectionMapper();
+        watoo.grd.nextroute.application.route.routing.RailServiceClassifier classifier =
+                watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier();
+        return new RoutingPort() {
+            @Override public RoutingOutcome search(RoutingQuery q, RoutingDeadline d) {
+                asked.add(q);
+                if (q.modes().equals(BUS_ONLY)) {
+                    return RoutingFailure.of(RoutingFailure.Kind.NO_ROUTE, "NO_TRANSIT_CONNECTION", "live");
+                }
+                String file = q.excludedRouteIds().isEmpty()
+                        ? "otp/planconnection-line9-express-only.json" : "otp/planconnection-line9-express-excluded.json";
+                try {
+                    com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper()
+                            .readTree(new org.springframework.core.io.ClassPathResource(file).getContentAsByteArray());
+                    return classifier.annotate(mapper.map(root, q.departureAt(),
+                            new watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpPlanConnectionMapper
+                                    .OtpVersions("s", "n", "g")));
+                } catch (java.io.IOException e) {
+                    throw new java.io.UncheckedIOException(e);
+                }
+            }
+            @Override public RoutingProvider provider() { return RoutingProvider.OTP; }
+        };
+    }
+
+    @Test
+    @DisplayName("운영 실측: 마곡나루→신논현은 급행만 오지만 일반 대안을 되찾아 급행·일반 둘 다 낸다")
+    void liveLine9ExpressAndRecoveredNormal() {
+        java.util.List<RoutingQuery> asked = new java.util.ArrayList<>();
+
+        RouteSearchResult legacy = service(liveLine9Otp(asked)).search(request(null));
+
+        assertThat(kinds(legacy)).containsExactly("EXPRESS", "NORMAL");
+        assertThat(legacy.paths().get(0).subPaths()).filteredOn(sp -> sp.trafficType() == 1)
+                .extracting(sp -> sp.stations().size()).containsExactly(9);
+        assertThat(legacy.paths().get(1).subPaths()).filteredOn(sp -> sp.trafficType() == 1)
+                .extracting(sp -> sp.stations().size()).containsExactly(21);
+        // 본 + 지하철만 + 버스만 + 되찾기(원래 수단·노선형 급행 제외) 1회
+        assertThat(asked).filteredOn(q -> !q.excludedRouteIds().isEmpty()).singleElement()
+                .satisfies(q -> assertThat(q.modes()).isEmpty());
+    }
+
+    @Test
+    @DisplayName("운영 실측: 급행 끄기면 OTP 가 급행 노선을 빼고 일반만 — 0건 해제 없음")
+    void liveLine9ExcludeExpress() {
+        java.util.List<RoutingQuery> asked = new java.util.ArrayList<>();
+
+        RouteSearchResult legacy = service(liveLine9Otp(asked)).search(request(true));
+
+        assertThat(kinds(legacy)).containsExactly("NORMAL");
+        assertThat(degraded(legacy)).isEmpty();
+        assertThat(asked).allSatisfy(q -> assertThat(q.excludedRouteIds()).isEqualTo(EXPRESS_ROUTES));
     }
 }
