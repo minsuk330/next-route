@@ -56,6 +56,44 @@ public final class SubwayExpressFixtures {
         return SubwayPatternFixtures.stationId(lineId, NORMALIZER.normalize(name));
     }
 
+    /** fixture 역 마스터의 그 노선 역 전부(역 id·이름) — 링 역 해석기의 역 마스터 대역(subway-express S4). */
+    public static List<watoo.grd.nextroute.domain.subway.entity.SubwayStation> stations(String lineId) {
+        return SubwayPatternFixtures.STATIONS.getOrDefault(lineId, List.of()).stream()
+                .map(c -> watoo.grd.nextroute.domain.subway.entity.SubwayStation.builder()
+                        .stationId(c.stationId()).stationName(c.stationName()).lineId(lineId)
+                        .latitude(c.lat()).longitude(c.lon()).build())
+                .toList();
+    }
+
+    /** fixture 완행 경로(양 끝 포함). */
+    public static List<String> allStopPath(String lineId, String direction, String board, String alight) {
+        return SubwayLineOrder.allStopPath(SubwayPatternFixtures.patterns(lineId, direction), board, alight);
+    }
+
+    /**
+     * 운영 fixture 패턴(일반 + 노선형 급행)으로 도는 <b>진짜</b> {@link SubwayLineOrder}(subway-express S4). 패턴 서비스·역 연결 캐시만
+     * 대역이다 — 구간 시간·급행 정확 일치 계산은 운영 코드 그대로다.
+     */
+    public static SubwayLineOrder fixtureLineOrder() {
+        SubwayLinePatternService patternService = mock(SubwayLinePatternService.class);
+        List<watoo.grd.nextroute.application.subway.dto.DirectedRailPattern> marker =
+                List.of(mock(watoo.grd.nextroute.application.subway.dto.DirectedRailPattern.class));
+        org.mockito.Mockito.lenient().when(patternService.cachedPatterns(any(), any())).thenReturn(marker);
+        org.mockito.Mockito.lenient().when(patternService.cachedExpressPatterns(any(), any())).thenReturn(marker);
+        org.mockito.Mockito.lenient().when(patternService.expressLoaded(any(), any())).thenReturn(true);
+        SubwayStationsAheadService ahead = mock(SubwayStationsAheadService.class);
+        org.mockito.Mockito.lenient().when(ahead.resolvedPatterns(any(), any(), any(), any())).thenAnswer(inv -> {
+            String lineId = inv.getArgument(0);
+            String key = inv.getArgument(1);
+            return key.endsWith(":express")
+                    ? SubwayPatternFixtures.expressPatterns(lineId, key.substring(0, key.length() - ":express".length()))
+                    : SubwayPatternFixtures.patterns(lineId, key);
+        });
+        SubwayLineStationIndex index = mock(SubwayLineStationIndex.class);
+        org.mockito.Mockito.lenient().when(index.candidates(any())).thenReturn(List.of());
+        return new SubwayLineOrder(patternService, index, ahead);
+    }
+
     public static List<String> stationIds(String lineId, String... names) {
         return java.util.Arrays.stream(names).map(name -> stationId(lineId, name)).toList();
     }

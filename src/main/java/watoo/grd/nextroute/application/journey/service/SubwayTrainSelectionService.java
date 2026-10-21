@@ -22,6 +22,7 @@ import watoo.grd.nextroute.application.subway.service.SubwayTrainKindJudge;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
+import watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
@@ -240,10 +241,13 @@ public class SubwayTrainSelectionService {
             }
             departed = true;
         }
-        rejectUntrackable(journeyId, chosen, judge(chosen, stops(waiting)));
+        SubwayTrainKindJudge.Judgement judgement = judge(chosen, stops(waiting));
+        rejectUntrackable(journeyId, chosen, judgement);
         // 떠난 열차를 골랐거나 탑승 중에 다시 골랐다 — 이미 탄 열차다. 링이 승차역으로 되감기지 않게 한다.
+        // 종류·급행 서비스를 함께 묶는다(subway-express PR-S4) — 링이 그 열차의 정차역만으로 센다.
         SubwayTrainSelectionTxService.ChosenTrain train = new SubwayTrainSelectionTxService.ChosenTrain(
-                trainNo, serviceDate, lineId, direction, departed || riding);
+                trainNo, serviceDate, lineId, direction, departed || riding, bindingKindOf(judgement),
+                judgement.serviceId(), judgement.pattern() == null ? null : judgement.pattern().catalogVersion());
         try {
             SubwayBindingView view = txService.bind(waiting.ride(), train);
             record(departed ? "selected-departed" : "selected");
@@ -271,6 +275,18 @@ public class SubwayTrainSelectionService {
                 journeyId, train.trainNo(), train.lineId(), judgement.kind(), judgement.serviceId(),
                 judgement.stopsAtBoarding(), judgement.stopsAtAlighting(), judgement.verdict());
         throw new BusinessException(skips ? JourneyErrorCode.TRAIN_SKIPS_STATION : JourneyErrorCode.TRAIN_NOT_TRACKABLE);
+    }
+
+    /**
+     * 바인딩에 적을 종류(V72). 고를 수 있는 열차만 온다 — 일반, 해석된 급행, 일반만 다니는 노선의 모름. 직통·ITX 는 422 로
+     * 이미 막혔다(혹시 오면 모름).
+     */
+    static SubwayBindingTrainKind bindingKindOf(SubwayTrainKindJudge.Judgement judgement) {
+        return switch (judgement.kind()) {
+            case NORMAL -> SubwayBindingTrainKind.NORMAL;
+            case EXPRESS -> judgement.serviceId() == null ? SubwayBindingTrainKind.UNKNOWN : SubwayBindingTrainKind.EXPRESS;
+            case UNKNOWN, DIRECT, ITX -> SubwayBindingTrainKind.UNKNOWN;
+        };
     }
 
     /**

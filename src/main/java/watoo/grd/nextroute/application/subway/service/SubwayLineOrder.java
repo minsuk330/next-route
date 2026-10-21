@@ -117,6 +117,132 @@ public class SubwayLineOrder {
     public record SegmentTimes(Integer dwellSeconds, int runSeconds) {
     }
 
+    // ── 급행 정차 패턴(subway-express PR-S4) ─────────────────────────────────
+
+    /**
+     * 급행 열차의 정차역 두 곳({@code from} → 바로 다음 정차역 {@code to}) GTFS 계획 시간. {@code pattern} 이 null 이면
+     * {@link #segmentTimes(String, String, String, String)} 와 같다(일반 열차).
+     *
+     * <p><b>정차열이 정확히 같은 OTP 패턴만</b> 쓴다: 노선형 급행 패턴({@link SubwayLinePatternService#cachedExpressPatterns})과
+     * 일반 노선 안의 패턴 중 {@code from}·{@code to} 가 붙어 있고, 겹치는 구간 전체의 정차열이 열차의 정차열과 같은 것. 없으면
+     * empty — 완행 구간 합으로 지어내지 않는다(9호선 급행 가양→염창 계획 210초 vs 완행 합−정차 310초, 20~60% 과대).
+     */
+    public Optional<SegmentTimes> segmentTimes(String lineId, String direction, String fromStationId,
+                                               String toStationId, SubwayStopPatternResolver.ResolvedPattern pattern) {
+        if (pattern == null) {
+            return segmentTimes(lineId, direction, fromStationId, toStationId);
+        }
+        int a = pattern.stopIds().indexOf(fromStationId);
+        if (fromStationId == null || toStationId == null || a < 0 || a + 1 >= pattern.stopIds().size()
+                || !toStationId.equals(pattern.stopIds().get(a + 1))) {
+            return Optional.empty();
+        }
+        Match best = bestExactMatch(lineId, direction, pattern.stopIds(), a, a + 1);
+        if (best == null) {
+            return Optional.empty();
+        }
+        List<StationsAheadCalculator.Stop> stops = best.pattern().stops();
+        Integer run = StationsAheadCalculator.seconds(stops.get(best.index()).departureSec(),
+                stops.get(best.index() + 1).arrivalSec());
+        if (run == null) {
+            return Optional.empty();
+        }
+        Integer dwell = StationsAheadCalculator.seconds(stops.get(best.index()).arrivalSec(),
+                stops.get(best.index()).departureSec());
+        return Optional.of(new SegmentTimes(dwell == null || dwell <= 0 ? null : dwell, run));
+    }
+
+    /**
+     * 급행 열차의 정차역 {@code from} 도착 → 그 뒤 정차역 {@code to} 도착 GTFS 계획 초. {@code pattern} 이 null 이면
+     * {@link #arrivalGapSeconds(String, String, String, String)} 와 같다. 정차열이 정확히 같은 패턴만, 없으면 empty.
+     */
+    public Optional<Integer> arrivalGapSeconds(String lineId, String direction, String fromStationId,
+                                               String toStationId, SubwayStopPatternResolver.ResolvedPattern pattern) {
+        if (pattern == null) {
+            return arrivalGapSeconds(lineId, direction, fromStationId, toStationId);
+        }
+        if (fromStationId == null || toStationId == null) {
+            return Optional.empty();
+        }
+        if (fromStationId.equals(toStationId)) {
+            return Optional.of(0);
+        }
+        int a = pattern.stopIds().indexOf(fromStationId);
+        int b = pattern.stopIds().indexOf(toStationId);
+        if (a < 0 || b <= a) {
+            return Optional.empty();
+        }
+        Match best = bestExactMatch(lineId, direction, pattern.stopIds(), a, b);
+        if (best == null) {
+            return Optional.empty();
+        }
+        List<StationsAheadCalculator.Stop> stops = best.pattern().stops();
+        return Optional.ofNullable(StationsAheadCalculator.seconds(arrivalOf(stops.get(best.index())),
+                arrivalOf(stops.get(best.index() + (b - a)))));
+    }
+
+    /** OTP 패턴 하나에서 열차 정차열 {@code [a..b]} 가 시작하는 자리. */
+    private record Match(StationsAheadCalculator.Pattern pattern, int index) {
+    }
+
+    /** 정차열이 정확히 같은 패턴 중 trip 최다. 노선형 급행 패턴과 일반 노선 패턴(정차 패턴형 급행 trip)을 함께 본다. */
+    private Match bestExactMatch(String lineId, String direction, List<String> stopIds, int a, int b) {
+        Match best = null;
+        List<StationsAheadCalculator.Pattern> candidates = new ArrayList<>(expressPatterns(lineId, direction));
+        candidates.addAll(patterns(lineId, direction));
+        for (StationsAheadCalculator.Pattern pattern : candidates) {
+            int at = exactMatch(pattern.stops(), stopIds, a, b);
+            if (at >= 0 && (best == null || pattern.tripCount() > best.pattern().tripCount())) {
+                best = new Match(pattern, at);
+            }
+        }
+        return best;
+    }
+
+    /**
+     * {@code stops} 에서 열차 정차열 {@code stopIds[a..b]} 가 빈틈없이 이어지고, 그 앞뒤로 둘이 겹치는 동안 정차열이 끝까지 같으면
+     * {@code stopIds[a]} 의 자리, 아니면 -1. 겹치는 구간에 한 역이라도 다르면(다른 급행 서비스·완행) 쓰지 않는다.
+     */
+    static int exactMatch(List<StationsAheadCalculator.Stop> stops, List<String> stopIds, int a, int b) {
+        String first = stopIds.get(a);
+        for (int i = 0; i < stops.size(); i++) {
+            if (!first.equals(stops.get(i).stationId())) {
+                continue;
+            }
+            int offset = i - a;
+            int lo = Math.max(0, -offset);
+            int hi = Math.min(stopIds.size() - 1, stops.size() - 1 - offset);
+            if (b > hi) {
+                continue;
+            }
+            boolean same = true;
+            for (int k = lo; k <= hi && same; k++) {
+                same = stopIds.get(k).equals(stops.get(k + offset).stationId());
+            }
+            if (same) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** 이미 적재된 노선형 급행 패턴. 없으면 빈 목록이고, 한 번도 안 받았으면 뒤에서 적재를 건다. */
+    private List<StationsAheadCalculator.Pattern> expressPatterns(String lineId, String direction) {
+        if (lineId == null || direction == null) {
+            return List.of();
+        }
+        List<DirectedRailPattern> directed = patternService.cachedExpressPatterns(lineId, direction);
+        if (directed.isEmpty()) {
+            if (!patternService.expressLoaded(lineId, direction)) {
+                patternService.loadExpressLater(lineId, direction);
+            }
+            return List.of();
+        }
+        // 역 연결 캐시 키를 일반 패턴과 나눈다(같은 키면 두 목록이 번갈아 캐시를 덮는다)
+        return stationsAheadService.resolvedPatterns(lineId, direction + ":express", directed,
+                stationIndex.candidates(lineId));
+    }
+
     /**
      * 이 방향으로 {@code boardStationId} → {@code alightStationId} 를 완행으로 갈 때 지나는 역(양 끝 포함, subway-express).
      * 두 역을 이 순서로 지나는 캐시 패턴 중 <b>사이 역이 가장 많은 것</b> — 같은 노선 일반 노선에 섞인 급행 trip 패턴

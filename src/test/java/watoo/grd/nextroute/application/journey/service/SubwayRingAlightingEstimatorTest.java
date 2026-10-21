@@ -64,6 +64,29 @@ class SubwayRingAlightingEstimatorTest {
     }
 
     @Test
+    @DisplayName("급행 체인(subway-express PR-S4)이면 급행 정차 패턴의 계획 간격을 묻는다 — 완행 간격을 쓰지 않는다")
+    void expressChainUsesPatternGap() {
+        var service = new watoo.grd.nextroute.application.subway.service.SubwayExpressCatalog.ExpressService(
+                "x", "1002", "급행", "외선", "t", null, List.of(), false);
+        var pattern = new watoo.grd.nextroute.application.subway.service.SubwayStopPatternResolver.ResolvedPattern(
+                service, "외선", List.of("S0", "S1", "S3"), null);
+        SubwayRingChain express = new SubwayRingChain(List.of(
+                new SubwayRingChain.Station(0, "S0", "승차역"),
+                new SubwayRingChain.Station(1, "S1", "역A"),
+                new SubwayRingChain.Station(2, "S3", "하차역", List.of("S2"))), pattern);
+        given(lineOrder.arrivalGapSeconds("1002", "외선", "S1", "S3", pattern)).willReturn(Optional.of(150));
+        SubwayRingState ring = ring(1, NOW.plusSeconds(60), SubwayRingEtaSource.LIVE, SubwayRingStage.RUN);
+
+        SubwayRingAlightingEstimator.Estimate e = estimator.estimate(ring, null, express, TRAIN, NOW);
+
+        assertThat(e.at()).isEqualTo(NOW.plusSeconds(60 + 150));
+
+        given(lineOrder.arrivalGapSeconds("1002", "외선", "S1", "S3", pattern)).willReturn(Optional.empty());
+        assertThat(estimator.estimate(ring, null, express, TRAIN, NOW).at()).as("급행 계획을 모르면 지어내지 않는다")
+                .isNull();
+    }
+
+    @Test
     @DisplayName("다음 역이 하차역이면 그 예정과 출처 그대로")
     void nextIsAlighting() {
         SubwayRingState ring = ring(3, NOW.plusSeconds(40), SubwayRingEtaSource.MEASURED, SubwayRingStage.RUN);

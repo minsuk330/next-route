@@ -67,6 +67,33 @@ public class SubwayRingStationResolver {
     }
 
     /**
+     * 역 id 의 표시 이름(subway-express PR-S4 — 계획에 없던 완행·급행 체인 역). 역 마스터 이름 그대로다. 모르면 null.
+     */
+    public String nameOf(String lineId, String stationId) {
+        if (lineId == null || stationId == null) {
+            return null;
+        }
+        Map<String, String> cached = namesById.get(lineId);
+        if (cached == null) {
+            Map<String, String> loaded = new HashMap<>();
+            for (SubwayStation station : stationRepository.findByLineId(lineId)) {
+                if (station.getStationId() != null && station.getStationName() != null) {
+                    loaded.putIfAbsent(station.getStationId(), station.getStationName());
+                }
+            }
+            if (loaded.isEmpty()) {
+                return null;
+            }
+            cached = Map.copyOf(loaded);
+            namesById.put(lineId, cached);
+        }
+        return cached.get(stationId);
+    }
+
+    /** {@code lineId → (statnId → 역 이름)}. 체인 확장(급행·완행)에만 쓴다. */
+    private final Map<String, Map<String, String>> namesById = new ConcurrentHashMap<>();
+
+    /**
      * 같은 이름이 여럿이면 <b>먼저 읽은 것</b>을 남긴다.
      *
      * <p>지선을 든 노선에서 실제로 일어난다. 어느 쪽을 고르든 조회역이 한 칸 어긋날 수 있는데,

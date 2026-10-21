@@ -50,6 +50,9 @@ import java.util.List;
  * @param trainLeftAlightingAt   하차역 도착 뒤 우리 열차가 하차역을 출발한 시각(#380). 앱은 이 값이 오면 탑승을 끝낸다. 아니면 null
  * @param trainBeforeBoarding    고른 열차가 아직 승차역에 서지 않았다 — 링이 승차역 구간이다(#304). <b>서버 안에서만 쓴다</b>:
  *                               응답에 싣지 않는다. 여정 ETA·환승 판정이 열차 대기를 더하는 근거다(#469·#476). 링이 없으면 false
+ * @param trainKind              묶인 열차 종류(subway-express PR-S4): {@code NORMAL}·{@code EXPRESS}·{@code UNKNOWN}. 링이 없거나
+ *                               배포 전 바인딩이 아직 분류 전이면 null. 앱은 이 값을 계획 {@code trainKind} 보다 앞세운다
+ * @param trainLabel             표시 이름(일반·급행). 모름이면 null. {@code lineName} 은 바꾸지 않는다 — 앱이 배지를 따로 그린다
  */
 public record SubwayGuidance(
         SubwayBindingStatus bindingStatus,
@@ -78,8 +81,27 @@ public record SubwayGuidance(
         Integer stationsUntilBoarding,
         List<String> approachStations,
         Instant trainLeftAlightingAt,
-        @JsonIgnore boolean trainBeforeBoarding
+        @JsonIgnore boolean trainBeforeBoarding,
+        String trainKind,
+        String trainLabel
 ) {
+
+    /** 열차 종류 없이(옛 모양·시험, subway-express PR-S4 전). */
+    public SubwayGuidance(SubwayBindingStatus bindingStatus, SubwayRingPhase phase, String lineName,
+                          String nextStationName, String alightingStationName, Integer remainingStations,
+                          BigDecimal segmentProgress, Instant progressBaseAt, BigDecimal progressTarget,
+                          Instant estimatedNextStationAt, Instant progressValidUntil,
+                          SubwayRingQuality quality, Instant observedAt, Long version,
+                          Instant estimatedAlightingAt, SubwayRingHoldReason holdReason, String holdStationName,
+                          SubwayRingEtaSource etaSource, SubwayRingEtaSource alightingEtaSource,
+                          String approachingStationName, Integer stationsUntilBoarding, List<String> approachStations,
+                          Instant trainLeftAlightingAt, boolean trainBeforeBoarding) {
+        this(bindingStatus, phase, lineName, nextStationName, alightingStationName, remainingStations,
+                segmentProgress, progressBaseAt, progressTarget, estimatedNextStationAt, progressValidUntil,
+                quality, observedAt, version, estimatedAlightingAt, holdReason, holdStationName,
+                etaSource, alightingEtaSource, approachingStationName, stationsUntilBoarding, approachStations,
+                trainLeftAlightingAt, trainBeforeBoarding, null, null);
+    }
 
     /** 승차역 전 여부 없이(옛 모양·시험). 링이 있어도 승차역 구간인지 모르면 false 다. */
     public SubwayGuidance(SubwayBindingStatus bindingStatus, SubwayRingPhase phase, String lineName,
@@ -191,6 +213,8 @@ public record SubwayGuidance(
                 ring.approach() == null ? null : ring.approach().stations(),
                 ring.trainLeftAlightingAt(),
                 // 체인은 승차역을 0 으로 센다. 열차가 승차역에 서면 링은 곧바로 다음 구간(1)으로 넘어간다.
-                ring.nextStationSequence() == 0 && !ring.arrivedAtNextStation());
+                ring.nextStationSequence() == 0 && !ring.arrivedAtNextStation(),
+                // 묶인 열차 종류(subway-express PR-S4). push 와 같은 값 — 링에서 읽는다
+                ring.trainKind(), ring.trainLabel());
     }
 }

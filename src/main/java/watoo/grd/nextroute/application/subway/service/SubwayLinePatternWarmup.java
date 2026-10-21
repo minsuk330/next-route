@@ -51,9 +51,27 @@ public class SubwayLinePatternWarmup {
                 }
             }
         }
+        // 급행 카탈로그 노선의 노선형 급행 패턴(subway-express PR-S4). 급행 링의 구간 시간이 이것을 쓴다.
+        for (String lineId : new TreeSet<>(EXPRESS_LINE_IDS)) {
+            for (String direction : directions(lineId)) {
+                keys++;
+                try {
+                    patterns += patternService.expressPatterns(lineId, direction).size();
+                } catch (RuntimeException e) {
+                    failed++;
+                    log.warn("[OTP] 급행 패턴 워밍업 실패 line={} direction={}: {}", lineId, direction, e.getMessage());
+                }
+            }
+        }
         log.info("지하철 패턴 워밍업 완료 keys={} patterns={} failed={} ms={}",
                 keys, patterns, failed, System.currentTimeMillis() - started);
     }
+
+    /**
+     * 급행 카탈로그({@code subway/express-catalog.json})에 서비스가 있는 노선. 카탈로그를 부팅 때 읽지 않으려고 적어 둔다 —
+     * 카탈로그와 어긋나지 않는지는 시험이 지킨다.
+     */
+    static final java.util.Set<String> EXPRESS_LINE_IDS = java.util.Set.of("1001", "1004", "1009", "1063", "1067", "1075");
 
     /** 순환선(2호선)만 내·외선이다. */
     public static List<String> directions(String lineId) {

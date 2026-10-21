@@ -2,7 +2,8 @@
 import json, os, sys, time, urllib.parse, urllib.request
 from datetime import datetime, timezone
 
-KEEP_LINES = {'1001', '1002'}
+# 도착(ALL) 응답에서 남길 노선. 환경변수 KEEP_LINES=1001,1009 로 바꾼다(급행 녹화, subway-express S4).
+KEEP_LINES = set((os.environ.get('KEEP_LINES') or '1001,1002').split(','))
 
 def load_env(path):
     env = {}

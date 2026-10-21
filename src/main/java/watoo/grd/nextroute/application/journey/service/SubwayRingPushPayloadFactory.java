@@ -96,6 +96,10 @@ public class SubwayRingPushPayloadFactory {
         props.put("journeyId", journeyId);
         props.put("phase", ring.phase().name());
         props.put("routeName", lineName);
+        // 묶인 열차 종류·표시 이름(subway-express PR-S4). 스냅샷 subwayGuidance 와 같은 이름·값 — 다르면 Live Activity 배지가
+        // 앱 로컬 갱신과 push 사이에서 깜빡인다. routeName 은 그대로다(앱이 배지를 따로 그린다). 모르면 null.
+        props.put("trainKind", ring.trainKind());
+        props.put("trainLabel", ring.trainLabel());
         props.put("nextStationName", ring.nextStationName());
         props.put("alightingStationName", ring.alightingStationName());
         if (alightingExitNo != null && !alightingExitNo.isBlank()) {

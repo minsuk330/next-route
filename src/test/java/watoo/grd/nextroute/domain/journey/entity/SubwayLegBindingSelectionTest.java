@@ -85,6 +85,65 @@ class SubwayLegBindingSelectionTest {
     }
 
 
+    // ── 열차 종류(subway-express PR-S4, V72) ─────────────────────────────────
+
+    @Test
+    @DisplayName("V72: 고른 열차의 종류·급행 서비스·카탈로그 판을 싣고, 재탐색 계승이 그대로 옮긴다")
+    void trainKindIsStoredAndInherited() {
+        SubwayLegBinding binding = SubwayLegBinding.selected(10L, 1L, 1, 1, "9600", DAY, "1009", "상행",
+                SubwayBindingTrainKind.EXPRESS, "1009-express", "2026-10-21");
+        assertThat(binding.getTrainKind()).isEqualTo(SubwayBindingTrainKind.EXPRESS);
+        assertThat(binding.getTrainServiceId()).isEqualTo("1009-express");
+        assertThat(binding.getCatalogVersion()).isEqualTo("2026-10-21");
+
+        JourneyLeg newLeg = JourneyLeg.builder().journeyId(1L).routeRevision(2).legIndex(3)
+                .type(JourneyLegType.RIDE_SUBWAY).state(JourneyLegState.PENDING).build();
+        ReflectionTestUtils.setField(newLeg, "id", 20L);
+        SubwayLegBinding inherited = binding.inheritTo(newLeg);
+        assertThat(inherited.getTrainKind()).isEqualTo(SubwayBindingTrainKind.EXPRESS);
+        assertThat(inherited.getTrainServiceId()).isEqualTo("1009-express");
+        assertThat(inherited.getCatalogVersion()).isEqualTo("2026-10-21");
+    }
+
+    @Test
+    @DisplayName("다른 열차를 고르면 종류를 늘 덮는다 — 종류 없이 고르면 미분류(null), 앞 급행 서비스가 남지 않는다")
+    void reselectOverwritesKind() {
+        SubwayLegBinding binding = SubwayLegBinding.selected(10L, 1L, 1, 1, "9600", DAY, "1009", "상행",
+                SubwayBindingTrainKind.EXPRESS, "1009-express", "2026-10-21");
+
+        binding.selectByUser("9100", DAY, "1009", "상행", null, SubwayBindingTrainKind.NORMAL, null, null);
+        assertThat(binding.getTrainKind()).isEqualTo(SubwayBindingTrainKind.NORMAL);
+        assertThat(binding.getTrainServiceId()).isNull();
+
+        binding.selectByUser("9602", DAY, "1009", "상행");
+        assertThat(binding.getTrainKind()).isNull();
+        assertThat(binding.getCatalogVersion()).isNull();
+    }
+
+    @Test
+    @DisplayName("급행인데 서비스가 없으면 미분류로 둔다(V72 CHECK 를 어기지 않는다)")
+    void expressWithoutServiceIsUnclassified() {
+        SubwayLegBinding binding = SubwayLegBinding.selected(10L, 1L, 1, 1, "9600", DAY, "1009", "상행",
+                SubwayBindingTrainKind.EXPRESS, null, "2026-10-21");
+
+        assertThat(binding.getTrainKind()).isNull();
+        assertThat(binding.getCatalogVersion()).isNull();
+    }
+
+    @Test
+    @DisplayName("배포 전 행의 지연 분류: null 일 때만 한 번, 버전은 그대로(링 키 불변)")
+    void classifyOnlyWhenUnclassified() {
+        SubwayLegBinding binding = SubwayLegBinding.selected(10L, 1L, 1, 1, "9600", DAY, "1009", "상행");
+        int version = binding.getVersion();
+
+        assertThat(binding.classifyIfUnclassified(SubwayBindingTrainKind.EXPRESS, null, null)).isFalse();
+        assertThat(binding.classifyIfUnclassified(SubwayBindingTrainKind.EXPRESS, "1009-express", "2026-10-21"))
+                .isTrue();
+        assertThat(binding.classifyIfUnclassified(SubwayBindingTrainKind.NORMAL, null, null)).isFalse();
+        assertThat(binding.getTrainKind()).isEqualTo(SubwayBindingTrainKind.EXPRESS);
+        assertThat(binding.getVersion()).isEqualTo(version);
+    }
+
     /** 자동 판정기(2026-10 제거)가 남긴 행 — 모션 출처·잠정·이동 순번. 이제 코드로는 못 만들어 칸을 직접 채운다. */
     private static SubwayLegBinding legacyAuto(int movementSeq) {
         SubwayLegBinding binding = SubwayLegBinding.selected(10L, 1L, 1, 1, "2390", DAY, "1002", "내선");
