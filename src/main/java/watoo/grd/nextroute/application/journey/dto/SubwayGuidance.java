@@ -49,7 +49,7 @@ import java.util.List;
  * @param approachStations       열차 현재 역 → 승차역 바로 앞 역, 열차가 지나올 순서. 크기 = {@code stationsUntilBoarding}
  * @param trainLeftAlightingAt   하차역 도착 뒤 우리 열차가 하차역을 출발한 시각(#380). 앱은 이 값이 오면 탑승을 끝낸다. 아니면 null
  * @param trainBeforeBoarding    고른 열차가 아직 승차역에 서지 않았다 — 링이 승차역 구간이다(#304). <b>서버 안에서만 쓴다</b>:
- *                               응답에 싣지 않는다. 여정 ETA 가 열차 대기를 더하는 근거다(#469). 링이 없으면 false
+ *                               응답에 싣지 않는다. 여정 ETA·환승 판정이 열차 대기를 더하는 근거다(#469·#476). 링이 없으면 false
  */
 public record SubwayGuidance(
         SubwayBindingStatus bindingStatus,

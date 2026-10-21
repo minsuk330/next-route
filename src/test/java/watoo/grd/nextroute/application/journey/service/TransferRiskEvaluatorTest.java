@@ -6,16 +6,24 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import watoo.grd.nextroute.application.journey.config.JourneyTransferRiskProperties;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
+import watoo.grd.nextroute.application.journey.dto.SubwayGuidance;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingStage;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
 import watoo.grd.nextroute.application.journey.dto.TransferTargetArrival;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
+import watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus;
 import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepository;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -30,7 +38,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @DisplayName("환승 위험도를 판정하고 근거와 함께 남긴다")
 class TransferRiskEvaluatorTest {
@@ -47,6 +57,9 @@ class TransferRiskEvaluatorTest {
     private CurrentLegArrivalService arrivalService;
     private TransferTargetArrivalService targetArrivalService;
     private TransferAssessmentWriter assessmentWriter;
+    private JourneySubwayGuidanceComposer guidanceComposer;
+    /** 조립기와 같은 규칙 — 진짜 규칙을 감싸 판정기가 부르는지 확인한다. */
+    private ChosenSubwayTrainWait chosenTrainWait;
     private TransferRiskEvaluator evaluator;
 
     /** 0=RIDE_BUS(환승 전), 1=TRANSFER_WALK(120초), 2=WAIT_BUS(환승 대상) */
@@ -65,11 +78,15 @@ class TransferRiskEvaluatorTest {
 
         JourneyTransferRiskProperties properties = new JourneyTransferRiskProperties();
         assessmentWriter = new TransferAssessmentWriter(transferRepository);
+        guidanceComposer = mock(JourneySubwayGuidanceComposer.class);
+        chosenTrainWait = spy(new ChosenSubwayTrainWait());
         evaluator = new TransferRiskEvaluator(transferRepository, legRepository, arrivalService,
                 targetArrivalService,
                 new TransferReadinessCalculator(properties),
                 new TransferRiskPolicy(properties),
                 assessmentWriter,
+                guidanceComposer,
+                chosenTrainWait,
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
         rideLeg = leg(0, JourneyLegType.RIDE_BUS, 1200);
@@ -246,6 +263,143 @@ class TransferRiskEvaluatorTest {
 
         assertThat(assessment.targetSource()).isEqualTo(CurrentLegArrival.Source.MODEL_ARRIVAL);
         assertThat(assessment.modelVersion()).isEqualTo("bus-eta-v3");
+    }
+
+    // ── 고른 지하철 열차의 대기(#476) ─────────────────────────────────────────
+    //
+    // 지하철(현재, 계획 120초) → 환승 걷기(120초) → 버스 대기. 고른 열차는 09:05 에 승차역에 와서 09:07 에 하차역에 닿는다.
+    // 다음 버스는 09:10 에 온다. 열차 대기를 빼면 09:02 하차 → 09:04:30 준비(여유 330초, 넉넉),
+    // 넣으면 09:07 하차 → 09:09:30 준비(여유 30초, 위험)다.
+
+    private static final Instant TRAIN_AT_BOARDING = Instant.parse("2026-08-04T09:05:00Z");
+    private static final Instant TRAIN_AT_ALIGHTING = Instant.parse("2026-08-04T09:07:00Z");
+
+    @Test
+    @DisplayName("고른 열차가 승차역 전이면 준비 시각에 열차 대기가 들어가고 여유가 그만큼 준다")
+    void chosenTrainWaitDelaysReadinessAndShrinksSlack() {
+        JourneyLeg subwayLeg = useSubwayRide();
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        CurrentLegArrival moving = arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD);
+        givenArrival(subwayLeg, moving);
+        SubwayGuidance guidance = guidance(0, TRAIN_AT_BOARDING, TRAIN_AT_ALIGHTING);
+        given(guidanceComposer.compose(eq(REVISION), eq(0), any(), any())).willReturn(guidance);
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+
+        TransferRiskAssessment assessment = evaluate().get(0);
+
+        assertThat(assessment.currentLegArrivalAt()).isEqualTo(TRAIN_AT_ALIGHTING);
+        // 09:07 하차 + 30초 하차 + 120초 도보
+        assertThat(assessment.userReadyAt()).isEqualTo(Instant.parse("2026-08-04T09:09:30Z"));
+        // 열차 대기(300초)만큼 여유가 준다: 330 → 30
+        assertThat(assessment.transferSlackSeconds()).isEqualTo(30);
+        assertThat(assessment.status()).isEqualTo(TransferStatus.AT_RISK);
+        // 갈아탈 버스도 늦어진 준비 시각 기준으로 묻는다 — 그 전에 지나갈 버스를 답으로 받지 않는다
+        ArgumentCaptor<Instant> anchor = ArgumentCaptor.forClass(Instant.class);
+        verify(targetArrivalService).predictBoarding(eq(waitLeg), anchor.capture(), eq(NOW));
+        assertThat(anchor.getValue()).isEqualTo(Instant.parse("2026-08-04T09:09:30Z"));
+        // 조립기와 같은 규칙을 쓴다
+        verify(chosenTrainWait).afterChosenTrainArrives(guidance, subwayLeg, moving, NOW);
+    }
+
+    @Test
+    @DisplayName("링에 하차 예정이 없으면 열차의 승차역 도착 + 계획 소요시간으로 준비 시각을 잡는다")
+    void chosenTrainWaitWithoutRingAlightingUsesPlannedRide() {
+        JourneyLeg subwayLeg = useSubwayRide();
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        givenArrival(subwayLeg, arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+        given(guidanceComposer.compose(eq(REVISION), eq(0), any(), any()))
+                .willReturn(guidance(0, TRAIN_AT_BOARDING, null));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+
+        TransferRiskAssessment assessment = evaluate().get(0);
+
+        // 09:05 + 계획 120초 = 09:07 하차
+        assertThat(assessment.userReadyAt()).isEqualTo(Instant.parse("2026-08-04T09:09:30Z"));
+        assertThat(assessment.transferSlackSeconds()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("열차를 이미 탔으면(링이 승차역을 지남) 준비 시각은 지금과 같다")
+    void boardedTrainKeepsMovingEstimate() {
+        JourneyLeg subwayLeg = useSubwayRide();
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        givenArrival(subwayLeg, arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+        given(guidanceComposer.compose(eq(REVISION), eq(0), any(), any()))
+                .willReturn(guidance(1, NOW.plusSeconds(60), NOW.plusSeconds(200)));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+
+        TransferRiskAssessment assessment = evaluate().get(0);
+
+        assertThat(assessment.currentLegArrivalAt()).isEqualTo(NOW.plusSeconds(120));
+        assertThat(assessment.userReadyAt()).isEqualTo(Instant.parse("2026-08-04T09:04:30Z"));
+        assertThat(assessment.transferSlackSeconds()).isEqualTo(330);
+    }
+
+    @Test
+    @DisplayName("링이 없으면(열차 미정·고정 없음) 준비 시각은 지금과 같다")
+    void withoutRingKeepsMovingEstimate() {
+        JourneyLeg subwayLeg = useSubwayRide();
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        givenArrival(subwayLeg, arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+        given(guidanceComposer.compose(eq(REVISION), eq(0), any(), any())).willReturn(null);
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+
+        TransferRiskAssessment assessment = evaluate().get(0);
+
+        assertThat(assessment.userReadyAt()).isEqualTo(Instant.parse("2026-08-04T09:04:30Z"));
+        assertThat(assessment.transferSlackSeconds()).isEqualTo(330);
+    }
+
+    @Test
+    @DisplayName("링을 못 읽어도 판정을 버리지 않고 열차 대기 없이 계산한다")
+    void guidanceReadFailureFallsBackToMovingEstimate() {
+        JourneyLeg subwayLeg = useSubwayRide();
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        givenArrival(subwayLeg, arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+        given(guidanceComposer.compose(eq(REVISION), eq(0), any(), any()))
+                .willThrow(new IllegalStateException("db down"));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+
+        TransferRiskAssessment assessment = evaluate().get(0);
+
+        assertThat(assessment.userReadyAt()).isEqualTo(Instant.parse("2026-08-04T09:04:30Z"));
+        assertThat(assessment.transferSlackSeconds()).isEqualTo(330);
+    }
+
+    @Test
+    @DisplayName("지하철을 타는 중이 아니면 링을 읽지 않는다 — 버스 탑승·지하철에서 내린 뒤")
+    void readsRingOnlyWhileRidingSubwayIntoTransfer() {
+        // 버스 탑승(기본 픽스처)
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        givenArrival(rideLeg, arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.GOOD));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+        evaluate();
+        // 지하철에서 내려 환승 걷기 중
+        JourneyLeg subwayLeg = useSubwayRide();
+        givenArrival(subwayLeg, arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+        evaluator.assess(JOURNEY_ID, REVISION, 1, Map.of());
+
+        verifyNoInteractions(guidanceComposer);
+    }
+
+    /** 0=RIDE_SUBWAY(현재, 계획 120초), 1=TRANSFER_WALK(120초), 2=WAIT_BUS. */
+    private JourneyLeg useSubwayRide() {
+        JourneyLeg subwayLeg = leg(0, JourneyLegType.RIDE_SUBWAY, 120);
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+                JOURNEY_ID, REVISION)).willReturn(List.of(subwayLeg, walkLeg, waitLeg));
+        return subwayLeg;
+    }
+
+    /** 승차역(0) → 하차역(1) 링. 열차 도착 예정은 실시간(LIVE)이다. */
+    private SubwayGuidance guidance(int nextStationSequence, Instant nextStationAt, Instant alightingAt) {
+        SubwayRingState ring = new SubwayRingState(JOURNEY_ID, REVISION, 0, 0,
+                nextStationSequence, "100000022" + nextStationSequence,
+                nextStationSequence == 0 ? "강남" : "교대", "교대", 1,
+                BigDecimal.ZERO, NOW, BigDecimal.ZERO, nextStationAt, NOW.plusSeconds(600),
+                SubwayRingPhase.RIDE_SUBWAY, SubwayRingQuality.NORMAL, NOW, NOW, 1L)
+                .withSource(nextStationAt == null ? null : SubwayRingEtaSource.LIVE, SubwayRingStage.RUN)
+                .withEstimatedAlightingAt(alightingAt, SubwayRingEtaSource.TYPICAL);
+        return SubwayGuidance.of(SubwayBindingStatus.CONFIRMED, "서울2호선", ring);
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────
