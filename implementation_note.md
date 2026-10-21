@@ -5677,7 +5677,7 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 좌표
 - `SubwayTrainKindClassifier.classifyTrain`·`onlyNormalTrains`·`actsAsNormal`, `SubwayTrainKindJudge.judge`, `SubwayRealtimeArrivalReader.trainTypesByTrain`·`justDeparted`·`trainRows`, `SubwayTrainSelectionService.rejectUntrackable`·`stops`·`alightStationId`, `SubwayStationArrivalQueryService.kindOf`, `SubwayStationsAheadQueryService.withTrain`, `RedisSubwayTrainLogAdapter.serialize/parseObservation`·`DepartureRow`·`ArrivalRow`, `SubwayDepartureLookup.Departure.trainTypeLabel`
 ### 미결
-- 4호선 급행이 번호 권위에만 기대는데, 카탈로그가 꺼지면(역 마스터 적재 전 첫 요청) NORMAL 로 추적된다. S4 전에 카탈로그 상태 지표 또는 지연 재시도 검토
+- ~~4호선 급행이 번호 권위에만 기대는데, 카탈로그가 꺼지면(역 마스터 적재 전 첫 요청) NORMAL 로 추적된다. S4 전에 카탈로그 상태 지표 또는 지연 재시도 검토~~ 취소: 같은 PR 보완 커밋에서 해결(아래 "PR-S3 보완")
 - `subway.express.unresolved` 지표는 PLAN 대로 S4(지금은 info 로그 `추적 불가 열차` + `subway.selection{result=not-trackable|skips-station}`)
 ### 배포
 - 마이그레이션 없음. 플래그 `SUBWAY_EXPRESS_TRACKING_ENABLED` 기본 false — compose 에 넣지 않으면 꺼진 채로 나간다(의도). S4 녹화 검증 뒤 켠다
@@ -5687,3 +5687,10 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 대상 시험(분류기·심판·선택·도착판·하차역 고르기·리더·기록기·위치 어댑터·추적기·Redis 호환·컨트롤러 둘) 전부 통과: Judge 10/0, AheadQuery 7/0, Compat 4/0, Classifier 48/0, Selection 29/0, StationArrival 27/0, Reader 14/0, Recorder 5/0, Position 6/0, Tracker 22/0, SelectionController 8/0, StationController 7/0
 - `./gradlew test --tests '*Test' --continue` → 397 클래스 2,958 시험, 실패 0·오류 0·건너뜀 1 (S1 직후 394/2,910)
 - `./gradlew test --tests '*IT' --continue`(로컬 env db·auth·api, POSTGRES_HOST/REDIS_HOST=localhost, Docker) → 95 클래스 676 시험, 실패 0·오류 0·건너뜀 7, 3m39s. `SubwayTrainSelectionIT` 12/0(플래그 기본 false, 후보 종류·정차 칸, 422 두 종·고정 행 0)
+
+#### subway-express PR-S3 보완: 역 마스터 적재 전 카탈로그 영구 꺼짐 해결 (2026-10-21)
+- 확정: 카탈로그 `resolveAll` 은 노선 역 목록이 **비면 보류**(`State.pendingLines`, 끄지 않음·경고 한 번), 역 목록이 있는데 이름이 없으면 예전처럼 영구히 끈다. 보류가 있으면 `RETRY_INTERVAL`(30초)마다 한 호출만 잠금 안에서 다시 잇고 나머지는 지금 상태로 바로 답한다. 완성 뒤에는 volatile 읽기 하나(다시 잇지 않음). `retryAtNanos` 를 `state` 보다 먼저 써서 새 상태를 본 스레드가 새 재시도 시각도 본다
+- 확정: 번호 규칙(`isTrainNoAuthoritativeExpress`·`isAllStopTrain`)과 새 `hasServices`(분류기 `onlyNormalTrains`)는 역 id 가 필요 없어 **파일 정의**를 본다 — 적재 전에도, 이름 오류로 꺼진 서비스여도 4호선 44xx 는 EXPRESS(해석 실패 → 추적 불가로 안전). 예전엔 resolved 서비스만 봐서 꺼진 서비스의 열차가 NORMAL 로 추적될 수 있었다
+- 확정: `SubwayLineStationIndex` 는 빈 역 마스터를 캐시하지 않는다(카탈로그 재시도의 전제 — 안 고치면 인덱스가 빈 목록을 영구히 돌려준다). 빈 동안은 호출마다 `findAll` 이지만 빈 표라 싸다. `stationId()` 의 노선별 표도 빈 표는 남기지 않는다
+- 함정: 노선 하나가 역 마스터에 끝내 없으면(카탈로그 lineId 오타 등) 30초마다 재시도가 영원히 돈다(경고는 첫 번만, 이후 debug). 비용은 노선별 빈 조회뿐
+- 검증: `SubwayExpressCatalogReadinessTest` 5/0(① 빈 마스터 첫 호출 → 보류·4401 은 이미 EXPRESS → 적재 뒤 12서비스·4401 → 1004-ansan 해석 ② 이름 없는 서비스만 영구히 끔 ③ 완성 뒤 역 목록 재조회 0 ④ 재시도 간격 안 재조회 0 ⑤ 16스레드 동시 첫 호출 → 노선별 1회), `SubwayLineStationIndexTest` 3/0, 카탈로그·분류기·심판·해석기·선택·도착판·하차역·기록기 시험 통과. `./gradlew test --tests '*Test' --continue` → 2,964 시험, 실패 0·오류 0·건너뜀 1. IT 는 빈 구성 변화 없음(생성자 시그니처 동일)이라 재실행 안 함(직전 95/676/실패 0)

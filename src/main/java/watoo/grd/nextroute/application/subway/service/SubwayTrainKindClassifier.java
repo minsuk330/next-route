@@ -112,7 +112,7 @@ public class SubwayTrainKindClassifier {
         if (lineId == null || ITX_LINE_ID.equals(lineId)) {
             return false;
         }
-        return catalog == null || catalog.services().stream().noneMatch(service -> lineId.equals(service.lineId()));
+        return catalog == null || !catalog.hasServices(lineId);
     }
 
     /** 일반 열차로 다뤄도 되는가: {@link TrainKind#NORMAL}, 또는 일반만 다니는 노선의 {@link TrainKind#UNKNOWN}. */

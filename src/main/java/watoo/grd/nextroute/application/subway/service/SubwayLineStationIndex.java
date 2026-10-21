@@ -74,7 +74,10 @@ public class SubwayLineStationIndex {
         List<SubwayStation> cached = all;
         if (cached == null) {
             cached = List.copyOf(repository.findAll());
-            all = cached;
+            if (!cached.isEmpty()) {
+                // 빈 표는 남기지 않는다 — 역 마스터 적재 전 첫 호출이 재시작 전까지 모든 역 연결(급행 카탈로그 포함)을 끈다
+                all = cached;
+            }
         }
         return cached;
     }
