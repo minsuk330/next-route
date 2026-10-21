@@ -438,7 +438,9 @@ class JourneyControllerTest {
                         .with(authentication(authUser(7L))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.guidanceVersion").value(1_791_374_000_000L))
-                .andExpect(jsonPath("$.subwayGuidance.version").value(1_791_374_000_000L));
+                .andExpect(jsonPath("$.subwayGuidance.version").value(1_791_374_000_000L))
+                // 승차역 전 여부(#469)는 서버 안에서만 쓴다
+                .andExpect(jsonPath("$.subwayGuidance.trainBeforeBoarding").doesNotExist());
     }
 
     @Test
