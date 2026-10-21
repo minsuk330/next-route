@@ -118,6 +118,53 @@ public class SubwayLineOrder {
     }
 
     /**
+     * 이 방향으로 {@code boardStationId} → {@code alightStationId} 를 완행으로 갈 때 지나는 역(양 끝 포함, subway-express).
+     * 두 역을 이 순서로 지나는 캐시 패턴 중 <b>사이 역이 가장 많은 것</b> — 같은 노선 일반 노선에 섞인 급행 trip 패턴
+     * (수인분당 {@code SD-1D::05} 등)보다 완행이 길다. 같으면 trip 이 많은 것. 순환 패턴은 승차역이 다시 나오기 전까지만
+     * 본다. 모르면 빈 목록 — OTP 를 부르지 않는다(없으면 뒤에서 적재만 건다).
+     *
+     * @return 역 id. 역에 못 이은 정차는 {@code name:…} 키로 들어간다(사이 역 개수를 지키려고)
+     */
+    public List<String> allStopPath(String lineId, String direction, String boardStationId, String alightStationId) {
+        if (boardStationId == null || alightStationId == null) {
+            return List.of();
+        }
+        return allStopPath(patterns(lineId, direction), boardStationId, alightStationId);
+    }
+
+    static List<String> allStopPath(List<StationsAheadCalculator.Pattern> patterns, String boardStationId,
+                                    String alightStationId) {
+        if (boardStationId.equals(alightStationId)) {
+            return List.of(boardStationId);
+        }
+        List<String> best = List.of();
+        int bestTrips = -1;
+        for (StationsAheadCalculator.Pattern pattern : patterns) {
+            List<StationsAheadCalculator.Stop> stops = pattern.stops();
+            for (int i = 0; i < stops.size(); i++) {
+                if (!boardStationId.equals(stops.get(i).key())) {
+                    continue;
+                }
+                for (int j = i + 1; j < stops.size(); j++) {
+                    String key = stops.get(j).key();
+                    if (boardStationId.equals(key)) {
+                        break; // 한 바퀴 돌았다
+                    }
+                    if (alightStationId.equals(key)) {
+                        int size = j - i + 1;
+                        if (size > best.size() || (size == best.size() && pattern.tripCount() > bestTrips)) {
+                            best = stops.subList(i, j + 1).stream().map(StationsAheadCalculator.Stop::key).toList();
+                            bestTrips = pattern.tripCount();
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
      * {@code fromStationId} 도착 → 그 뒤 {@code toStationId} 도착까지 GTFS 계획 초(운행 + 사이 역 정차). 진행 링의 하차역 도착
      * 예정(#310)이 다음 역 예정에 더한다. 두 역을 이 순서로 지나는 패턴 중 trip 이 가장 많은 것(완행이 보통 더 많다). 순환
      * 패턴은 {@code from} 다음 첫 {@code to} 까지만 본다. 모르면 empty. 같은 역이면 0.

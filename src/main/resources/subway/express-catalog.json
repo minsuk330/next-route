@@ -1,0 +1,249 @@
+{
+  "version": "2026-10-21",
+  "_doc": [
+    "수도권 급행 정차 패턴 카탈로그(subway-express D7). 정답 원천은 이 파일이다 — OTP·국토부 파일로 정답을 삼지 않는다.",
+    "stops 는 listedDirection 으로 달릴 때의 순서다. 반대 방향은 역순. 이름은 역 마스터 정규화명(괄호 접미사·끝 '역' 없음).",
+    "stops 항목: {name} 정차, {name, onlyTrains} 그 열차번호만 정차, {name, directions} 그 방향만 정차, {allStops:{from,to}} 완행 순서 그대로 각역 정차.",
+    "match: trainNos > trainNoRanges(excludeTrainNos 제외) > within(현재 역, 모르면 행선지가 그 목록 안) > kind 순으로 고른다. 번호는 카탈로그 비교용 번호(K·선행 0 제거).",
+    "trainNoAuthoritative=true 는 실시간 trainType/directAt 이 '일반'으로 와도 번호만으로 급행이라는 뜻이다. 근거: 시간표 API 실측(2026-10-21 평일·토·휴일)에서 그 번호대에 급행 아닌 열차가 없고, 실시간 도착 API trainType 은 행마다 다르다(1호선 급행도 서울교통공사 구간·먼 예측 행은 '일반', 4호선 급행은 전부 '일반').",
+    "effectiveFrom 은 이 정차 패턴을 확인한 시행일(정차역 변경 또는 대조한 시간표 개정). 시간표 개정 공지가 나오면 tools/subway-express/fetch_trainnos.py 로 다시 대조한다.",
+    "직통(공항철도 A1001-A1056)과 ITX-청춘은 넣지 않는다 — SubwayTrainKindClassifier 가 DIRECT/ITX 로 따로 판정한다."
+  ],
+  "services": [
+    {
+      "id": "1001-gyeongin",
+      "lineId": "1001",
+      "label": "급행",
+      "listedDirection": "하행",
+      "match": {"trainNoRanges": [["1000", "1099"], ["1100", "1199"], ["1200", "1299"], ["1401", "1416"]], "trainNoAuthoritative": true},
+      "stops": [
+        {"name": "용산"}, {"name": "노량진"}, {"name": "대방"}, {"name": "신길"}, {"name": "영등포"}, {"name": "신도림"},
+        {"name": "구로"}, {"name": "개봉"}, {"name": "역곡"}, {"name": "부천"}, {"name": "송내"}, {"name": "부평"},
+        {"name": "동암"}, {"name": "주안"}, {"name": "제물포"}, {"name": "동인천"}
+      ],
+      "note": "12xx 는 용산·구로↔부평 단축, 14xx 는 용산↔구로 '구로 급행'(급행 선로, 이 구간은 각역 정차). 종착 범위로 자른다.",
+      "source": [
+        "https://info.korail.com/info/selectBbsNttView.do?key=911&bbsNo=199&nttNo=26752",
+        "https://www.fnnews.com/news/202605201043392977",
+        "http://openapi.seoul.go.kr:8088/ (SearchSTNTimeTableByIDService, tools/subway-express/fetch_trainnos.py 2026-10-21)"
+      ],
+      "effectiveFrom": "2026-05-26"
+    },
+    {
+      "id": "1001-gyeongbu-a",
+      "lineId": "1001",
+      "label": "급행",
+      "listedDirection": "하행",
+      "match": {"trainNoRanges": [["1900", "1999"]], "excludeTrainNos": ["1902", "1904", "1945"], "trainNoAuthoritative": true},
+      "stops": [
+        {"name": "청량리"}, {"name": "제기동"}, {"name": "신설동"}, {"name": "동묘앞"}, {"name": "동대문"},
+        {"name": "종로5가"}, {"name": "종로3가"}, {"name": "종각"}, {"name": "시청"}, {"name": "서울"}, {"name": "남영"},
+        {"name": "용산"}, {"name": "노량진"}, {"name": "대방"}, {"name": "신길"}, {"name": "영등포"}, {"name": "신도림"},
+        {"name": "구로"}, {"name": "가산디지털단지"},
+        {"name": "금천구청", "onlyTrains": ["1903", "1905", "1906", "1907", "1908", "1937", "1939", "1940", "1941", "1942", "1943", "1944", "1947"]},
+        {"name": "안양"}, {"name": "금정"},
+        {"name": "의왕", "onlyTrains": ["1903", "1905", "1906", "1907", "1908", "1937", "1939", "1940", "1941", "1942", "1943", "1944", "1947"]},
+        {"name": "성균관대"}, {"name": "수원"}, {"name": "병점"}, {"name": "오산"}, {"name": "서정리"}, {"name": "평택"},
+        {"name": "성환"}, {"name": "두정"}, {"name": "천안"}, {"name": "봉명"}, {"name": "쌍용"}, {"name": "아산"},
+        {"name": "탕정"}, {"name": "배방"}, {"name": "온양온천"}, {"name": "신창"}
+      ],
+      "note": "천안-신창은 일부 열차만 연장(각역). 구로 시종착 열차 있음. 종착 범위로 자른다.",
+      "source": [
+        "https://info.korail.com/info/contents.do?key=863",
+        "https://namu.wiki/w/%EC%88%98%EB%8F%84%EA%B6%8C%20%EC%A0%84%EC%B2%A0%201%ED%98%B8%EC%84%A0/%EA%B8%89%ED%96%89",
+        "http://openapi.seoul.go.kr:8088/ (SearchSTNTimeTableByIDService, tools/subway-express/fetch_trainnos.py 2026-10-21)"
+      ],
+      "effectiveFrom": "2026-09-01"
+    },
+    {
+      "id": "1001-gyeongbu-b",
+      "lineId": "1001",
+      "label": "급행",
+      "listedDirection": "하행",
+      "match": {"trainNos": ["1902", "1904", "1945"], "trainNoAuthoritative": true},
+      "stops": [
+        {"name": "서울"}, {"name": "영등포", "directions": ["상행"]}, {"name": "금천구청"}, {"name": "안양"},
+        {"name": "군포"}, {"name": "의왕"}, {"name": "성균관대"}, {"name": "수원"}, {"name": "병점"}, {"name": "오산"},
+        {"name": "서정리"}, {"name": "평택"}, {"name": "성환"}, {"name": "두정"}, {"name": "천안"}, {"name": "봉명"},
+        {"name": "쌍용"}, {"name": "아산"}, {"name": "탕정"}, {"name": "배방"}, {"name": "온양온천"}, {"name": "신창"}
+      ],
+      "note": "평일 3회(상행 1902·1904, 하행 1945). 시간표 API 는 상행 1902·1904 의 노량진에 도착 시각만 있다(출발 00:00:00, 종착 아님) — 정차 근거로 보지 않았다.",
+      "source": [
+        "https://info.korail.com/info/contents.do?key=863",
+        "http://openapi.seoul.go.kr:8088/ (SearchSTNTimeTableByIDService, tools/subway-express/fetch_trainnos.py 2026-10-21)"
+      ],
+      "effectiveFrom": "2026-09-01"
+    },
+    {
+      "id": "1001-gyeongwon",
+      "lineId": "1001",
+      "label": "급행",
+      "listedDirection": "하행",
+      "match": {"trainNoRanges": [["1600", "1699"]], "trainNoAuthoritative": true},
+      "stops": [
+        {"name": "동두천"}, {"name": "동두천중앙"}, {"name": "지행"}, {"name": "덕정"}, {"name": "덕계"}, {"name": "양주"},
+        {"name": "의정부"}, {"name": "회룡"}, {"name": "도봉산"}, {"name": "창동"},
+        {"allStops": {"from": "광운대", "to": "인천"}}
+      ],
+      "note": "광운대 이남은 인천까지 각역(부평·광운대 시종착 열차 있음). 덕계는 2026-02-28 시간표 개정부터 정차.",
+      "source": [
+        "https://www.twig24.com/news/local_govern/news_local/2026/02/24/20260224500010",
+        "https://info.korail.com/info/contents.do?key=863",
+        "http://openapi.seoul.go.kr:8088/ (SearchSTNTimeTableByIDService, tools/subway-express/fetch_trainnos.py 2026-10-21)"
+      ],
+      "effectiveFrom": "2026-02-28"
+    },
+    {
+      "id": "1004-ansan",
+      "lineId": "1004",
+      "label": "급행",
+      "listedDirection": "하행",
+      "match": {"trainNoRanges": [["4400", "4499"]], "trainNoAuthoritative": true},
+      "stops": [
+        {"allStops": {"from": "불암산", "to": "금정"}},
+        {"name": "산본"}, {"name": "상록수"}, {"name": "중앙"}, {"name": "초지"}, {"name": "안산"}, {"name": "정왕"},
+        {"name": "오이도"}
+      ],
+      "note": "평일 7회(오전 상행 4402-4408, 오후 하행 4401-4405). 실시간 trainType·directAt 이 '일반'으로 오고 시간표 EXPRESS_YN 도 G 다 — 번호만이 근거.",
+      "source": [
+        "https://info.korail.com/info/contents.do?key=863",
+        "http://openapi.seoul.go.kr:8088/ (SearchSTNTimeTableByIDService, tools/subway-express/fetch_trainnos.py 2026-10-21)"
+      ],
+      "effectiveFrom": "2026-09-01"
+    },
+    {
+      "id": "1009-express",
+      "lineId": "1009",
+      "label": "급행",
+      "listedDirection": "상행",
+      "match": {"kind": "EXPRESS"},
+      "stops": [
+        {"name": "김포공항"}, {"name": "마곡나루"}, {"name": "가양"}, {"name": "염창"}, {"name": "당산"}, {"name": "여의도"},
+        {"name": "노량진"}, {"name": "동작"}, {"name": "고속터미널"}, {"name": "신논현"}, {"name": "선정릉"}, {"name": "봉은사"},
+        {"name": "종합운동장"}, {"name": "석촌"}, {"name": "올림픽공원"}, {"name": "중앙보훈병원"}
+      ],
+      "note": "실시간 방향은 김포공항→중앙보훈병원이 상행이다(도착 API 기준, SubwayDirectionNormalizer 의 9호선 반전 뒤 값).",
+      "source": [
+        "https://www.metro9.co.kr/kor/sub01_04.do",
+        "https://mediahub.seoul.go.kr/archives/2019693"
+      ],
+      "effectiveFrom": "2018-12-01"
+    },
+    {
+      "id": "1075-bundang",
+      "lineId": "1075",
+      "label": "급행",
+      "listedDirection": "하행",
+      "match": {"kind": "EXPRESS"},
+      "stops": [
+        {"name": "청량리"}, {"name": "왕십리"}, {"name": "서울숲"}, {"name": "압구정로데오"}, {"name": "강남구청"},
+        {"name": "선정릉"}, {"name": "선릉"}, {"name": "한티"}, {"name": "도곡"}, {"name": "구룡"}, {"name": "개포동"},
+        {"name": "대모산입구"}, {"name": "수서"}, {"name": "복정"}, {"name": "가천대"}, {"name": "태평"}, {"name": "모란"},
+        {"name": "야탑"}, {"name": "이매"}, {"name": "서현"}, {"name": "수내"}, {"name": "정자"}, {"name": "미금"},
+        {"name": "오리"}, {"name": "죽전"}, {"name": "기흥"}, {"name": "망포"}, {"name": "수원시청"}, {"name": "수원"},
+        {"name": "고색"}
+      ],
+      "note": "청량리는 상행 1회만 간다 — 열차번호 근거가 없어 종착 범위로 자른다(왕십리행이면 청량리 없음).",
+      "source": [
+        "https://namu.wiki/w/%EC%88%98%EB%8F%84%EA%B6%8C%20%EC%A0%84%EC%B2%A0%20%EC%88%98%EC%9D%B8%C2%B7%EB%B6%84%EB%8B%B9%EC%84%A0",
+        "https://info.korail.com/info/contents.do?key=863"
+      ],
+      "effectiveFrom": "2026-09-01"
+    },
+    {
+      "id": "1075-suin",
+      "lineId": "1075",
+      "label": "급행",
+      "listedDirection": "하행",
+      "match": {
+        "kind": "EXPRESS",
+        "within": ["오이도", "달월", "월곶", "소래포구", "인천논현", "호구포", "남동인더스파크", "원인재", "연수", "송도", "인하대",
+          "숭의", "신포", "인천"]
+      },
+      "stops": [
+        {"name": "오이도"}, {"name": "소래포구"}, {"name": "인천논현"}, {"name": "원인재"}, {"name": "연수"}, {"name": "인하대"},
+        {"name": "인천"}
+      ],
+      "note": "분당 구간 급행과 이어지지 않는다. 같은 노선이라 열차가 오이도-인천 구간에 있을 때만 이 서비스다.",
+      "source": [
+        "https://namu.wiki/w/%EC%88%98%EB%8F%84%EA%B6%8C%20%EC%A0%84%EC%B2%A0%20%EC%88%98%EC%9D%B8%C2%B7%EB%B6%84%EB%8B%B9%EC%84%A0",
+        "https://info.korail.com/info/contents.do?key=863"
+      ],
+      "effectiveFrom": "2026-09-01"
+    },
+    {
+      "id": "1063-seoul",
+      "lineId": "1063",
+      "label": "급행",
+      "listedDirection": "하행",
+      "match": {"trainNoRanges": [["2500", "2599"]]},
+      "stops": [
+        {"name": "문산"}, {"name": "금촌"}, {"name": "운정"}, {"name": "야당"}, {"name": "탄현"}, {"name": "일산"}, {"name": "백마"},
+        {"name": "대곡"}, {"name": "행신"}, {"name": "디지털미디어시티"}, {"name": "가좌"}, {"name": "신촌"}, {"name": "서울"}
+      ],
+      "source": [
+        "https://namu.wiki/w/%EC%88%98%EB%8F%84%EA%B6%8C%20%EC%A0%84%EC%B2%A0%20%EA%B2%BD%EC%9D%98%C2%B7%EC%A4%91%EC%95%99%EC%84%A0/%EC%9A%B4%ED%96%89%20%EA%B3%84%ED%86%B5",
+        "https://info.korail.com/info/contents.do?key=863"
+      ],
+      "effectiveFrom": "2026-09-01"
+    },
+    {
+      "id": "1063-gyeongui",
+      "lineId": "1063",
+      "label": "급행",
+      "listedDirection": "하행",
+      "match": {"trainNoRanges": [["5700", "5799"]]},
+      "stops": [
+        {"name": "문산"}, {"name": "금촌"}, {"name": "금릉"}, {"name": "운정"}, {"name": "야당"}, {"name": "탄현"}, {"name": "일산"},
+        {"name": "백마"}, {"name": "대곡"}, {"name": "행신"}, {"name": "디지털미디어시티"}, {"name": "가좌"}, {"name": "홍대입구"},
+        {"name": "공덕"},
+        {"allStops": {"from": "용산", "to": "용문"}}
+      ],
+      "note": "용산 동쪽은 종점까지 각역(팔당 종착 열차 있음). 종착 범위로 자른다.",
+      "source": [
+        "https://namu.wiki/w/%EC%88%98%EB%8F%84%EA%B6%8C%20%EC%A0%84%EC%B2%A0%20%EA%B2%BD%EC%9D%98%C2%B7%EC%A4%91%EC%95%99%EC%84%A0/%EC%9A%B4%ED%96%89%20%EA%B3%84%ED%86%B5",
+        "https://info.korail.com/info/contents.do?key=863"
+      ],
+      "effectiveFrom": "2026-09-01"
+    },
+    {
+      "id": "1063-jungang",
+      "lineId": "1063",
+      "label": "급행",
+      "listedDirection": "하행",
+      "match": {"trainNoRanges": [["5800", "5899"]]},
+      "stops": [
+        {"allStops": {"from": "문산", "to": "용산"}},
+        {"name": "이촌"}, {"name": "옥수"}, {"name": "왕십리"}, {"name": "청량리"}, {"name": "회기"}, {"name": "상봉"},
+        {"name": "구리"}, {"name": "도농"}, {"name": "덕소"}, {"name": "도심"},
+        {"name": "팔당", "onlyTrains": ["5851"]},
+        {"name": "양수"}, {"name": "양평"}, {"name": "용문"}
+      ],
+      "note": "용산 서쪽은 각역(일산·수색 시발 있음). K5851 은 문산 출발 팔당 종착 퇴근 급행.",
+      "source": [
+        "https://namu.wiki/w/%EC%88%98%EB%8F%84%EA%B6%8C%20%EC%A0%84%EC%B2%A0%20%EA%B2%BD%EC%9D%98%C2%B7%EC%A4%91%EC%95%99%EC%84%A0/%EC%9A%B4%ED%96%89%20%EA%B3%84%ED%86%B5",
+        "https://info.korail.com/info/contents.do?key=863"
+      ],
+      "effectiveFrom": "2026-09-01"
+    },
+    {
+      "id": "1067-express",
+      "lineId": "1067",
+      "label": "급행",
+      "listedDirection": "하행",
+      "match": {"kind": "EXPRESS"},
+      "stops": [
+        {"name": "청량리"}, {"name": "회기"}, {"name": "상봉"}, {"name": "신내"}, {"name": "갈매"}, {"name": "별내"},
+        {"name": "퇴계원"}, {"name": "사릉"}, {"name": "평내호평"}, {"name": "마석"}, {"name": "청평"}, {"name": "가평"},
+        {"name": "강촌"}, {"name": "남춘천"}, {"name": "춘천"}
+      ],
+      "note": "전동차 급행(84xx, directAt 1). ITX-청춘은 분류기가 ITX 로 따로 판정한다.",
+      "source": [
+        "https://namu.wiki/w/%EC%8B%A0%EB%82%B4%EC%97%AD",
+        "https://namu.wiki/w/%EA%B0%88%EB%A7%A4%EC%97%AD",
+        "https://namu.wiki/w/%EC%88%98%EB%8F%84%EA%B6%8C%20%EC%A0%84%EC%B2%A0%20%EA%B2%BD%EC%B6%98%EC%84%A0"
+      ],
+      "effectiveFrom": "2024-12-20"
+    }
+  ]
+}

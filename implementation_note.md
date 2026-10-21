@@ -5621,3 +5621,31 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 함정: 돌고 있는 zsh 하네스 파일을 고치면 실행 중 회차가 깨질 수 있어, 하네스 수정·bootJar 재빌드는 본 사슬 잠금이 풀린 뒤 run464-trace.sh 가 한다
 - 검증(2026-10-17 20:42): `./gradlew cleanTest test --tests "*JourneyNotificationLateWriteIT" --tests "*JourneyNotificationPropertiesTest" --tests "*JourneyNotificationRelayIT"` → 5/0, 26/0, 22/0 BUILD SUCCESSFUL. 본 측정 12회 + 보완 1쌍 결과=load/ladder/RELAY-FAULT.md
 - 함정: relay_fault_trace.py 첫판은 "늦은 기록 뒤 접수"를 추가 발송으로 셌다 → 그 시점에 발송 중이던 B 의 정상 발송까지 잡힘. 행별 접수 −1 로 고침(A 시도는 실패라 접수 없음). 정규식이 통과·버림 두 줄을 같이 잡던 것도 분리
+
+## subway-express PR-S1 카탈로그·분류기·정차 패턴 해석기 (2026-10-21)
+### 확정
+- 카탈로그 12계통 `src/main/resources/subway/express-catalog.json`. stops 순서는 서비스별 `listedDirection` — 9호선만 상행(김포공항→중앙보훈병원이 도착 API 상행, 하행 행선지 = 개화·김포공항), 나머지 하행
+- 1·4호선 match 는 `tools/subway-express/fetch_trainnos.py`(시간표 API 124역·상하행·평일/토/휴일) 실측: 경인 10xx·11xx·12xx 블록 깨끗(1001–1184, 1251–1265) + 14xx(1401–1416 용산↔구로 '구로 급행', 통과역이 없어 도구가 못 잡음 → 실시간·시간표 급행 표시 근거로 경인에 넣음), A 19xx − {1902,1904,1945}, B {1902,1904,1945}, 경원 16xx(1601–1615), 4호선 44xx(4401–4408). A 금천구청·의왕 13편은 PLAN 실측과 일치
+- 번호 권위(`trainNoAuthoritative`) = 4호선 + 1호선 네 서비스. 분류기 규칙 ③ 과 ④ 사이에 '카탈로그 번호 권위 → EXPRESS' 단계 추가(PLAN 규칙에 없음). 근거: 4호선 급행은 위치 API directAt 0·시간표 EXPRESS_YN G, 1호선은 도착 API trainType 이 행마다 다름(운영 스냅숏 531편 중 13편 혼재 — 1932 가 종로3가 행에서 '일반', 먼 예측 행도 '일반')
+- 수인분당 두 서비스는 번호(63xx)로 못 가름 → `within`(오이도~인천 완행 14역)에 현재 역(모르면 행선지)이 있으면 수인, 없으면 분당, 둘 다 모르면 답 안 함
+- 해석 실패는 empty: 서비스 0/2+개, 각역 구간 못 펼침(OTP 패턴 캐시 없음), 행선지가 서지 않는 역. 열차별 예외 정차는 번호를 모르면 뺀다
+- 번호 모양(실측): 시간표 `K1056`, 도착·위치 `1056`, 1호선·GTX-A 선행 0 `0660`·`0067`, 공항 `A1031` → 비교용은 K·선행 0 제거, A 유지. 저장 identity 는 원문
+- 새 빈 3개는 등록만, 요청 경로에서 안 부름(동작 변경 없음)
+### 함정
+- `SubwayDirectionNormalizer.fromUpDownLine` 은 이미 한글 라벨인 입력도 9호선·공항철도에서 뒤집는다 ← 라벨을 위치 API 의미로 읽음 / 가드: `SubwayTrainIdentity.direction` 은 라벨 그대로, `0`/`1` 만 넘김(`SubwayTrainIdentityTest#labelIsNotInvertedForInvertedLines`). 첫 시험에서 9호선·공항 표본 5건이 반대 방향으로 나와 발견
+- `Set.of(...).contains(null)` 은 NPE — lineId null 로 `fromUpDownLine` 부르면 터짐. identity 는 lineId null 이면 숫자 방향을 null 로
+- 시간표 API 1호선 통과 행 = ARRIVETIME 00:00:00 + LEFTTIME 통과 시각(둘 다 0 아님). 시발역도 ARRIVETIME 0 → ORIGINSTATION 으로 가름. 4호선 급행·경부 B급행(구로·신도림·가산 등)은 통과역 시간표에 행 자체가 없음
+- B급행 상행 1902·1904 노량진 = 도착 시각만(LEFTTIME 0, 종착 아님) → 도구는 '정차 불분명'으로 따로 적음
+- `DestinationNormalizer` 가 끝 '행' 을 떼서 '지행' → '지'. 양쪽 같은 정규화라 매칭은 맞음 — 정규화 없이 이름을 비교하면 틀림
+- fixture OTP 1호선 패턴에 덕계가 이미 있다(PLAN G1 의 '덕계 삽입'은 운영 graph 대상) — 카탈로그 부분수열 시험은 예외 없이 통과
+### 미결
+- B급행 상행 노량진 정차 여부(시간표 도착 시각만) — 녹화로 확인. 지금은 PLAN 대로 미정차
+- 14xx '구로 급행'을 급행 배지로 보일지(조사 아티팩트는 일반 취급 제안) — S3 전에 결정
+- 1063 25xx·57xx·58xx 는 도구 대상 아님(실시간 표시 일관, 번호 권위 없음)
+### 좌표
+- `SubwayExpressCatalog.resolve`·`pattern`·`isTrainNoAuthoritativeExpress`, `SubwayTrainKindClassifier.decide`, `SubwayLineOrder.allStopPath`, `SubwayStopPatternResolver.resolve`·`trim`, `SubwayTrainIdentity.direction`
+### 검증
+- `./gradlew compileJava compileTestJava` 통과(경고는 기존)
+- 새 시험 `./gradlew test --tests '*SubwayExpressCatalogTest' --tests '*SubwayTrainKindClassifierTest' --tests '*SubwayTrainIdentityTest' --tests '*SubwayStopPatternResolverTest' --tests '*SubwayLineOrderTest'` → 57/0, 41/0, 61/0, 15/0, 11/0
+- `./gradlew test --tests '*Test' --continue` → 394 클래스 2,908 테스트, 실패 0·오류 0·건너뜀 1
+- `./gradlew test --tests '*IT' --continue`(로컬 env db·auth·api, POSTGRES_HOST/REDIS_HOST=localhost, Docker) → 94 클래스 672 테스트, 실패 0·오류 0·건너뜀 7, 8m31s. 새 빈 3개가 컨텍스트에 붙어도 부팅·기존 IT 무변화
