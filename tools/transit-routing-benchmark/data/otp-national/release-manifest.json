@@ -1,18 +1,20 @@
 {
-  "graphVersion": "national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-busrt-g51763a9267f9",
-  "generatedAt": "2026-10-20T12:15:04+09:00",
-  "stage": "bus-runtime-calibration #413/#414: 3km 이상 구간(TOPIS 없음)은 KTDB 원래 시간 유지 + 서울 TOPIS 배율 0.98 + 구간 시간 평일 10일(2026-09-28~10-13, 대체공휴일 10-05·한글날 10-09 제외). 그 밖 입력 이전과 같음. 이전 그래프 national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-busrt-g42e0a79a7ddc",
+  "graphVersion": "national-nojeju-202503-cal20260729_20261221-otp278-shaped-gbis-alllines-busrt-subwayfix-ge58b47ba1c66",
+  "generatedAt": "2026-10-21T20:15:44+09:00",
+  "stage": "subway-express PR-G1: 지하철 시간표 보정(경인 특급→급행 15편, 경원 급행 덕계 정차 15편, 역명 2곳, K5851 끔) + calendar 끝 20261130→20261221. 버스·그 밖 입력은 이전과 같음(--from-zip 운영 zip). 이전 그래프 national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-busrt-g51763a9267f9",
   "scope": {
     "region": "전국, 제주 제외",
     "gtfsExclusion": "09-29 실험 피드(제주 노선 제외) — 생성 명령 미기록, 재생성은 후속(PLAN 후속)",
     "osmExclusion": "osmium extract -b 124.0,33.7,132.0,39.0 --strategy complete_ways",
-    "calendarWindow": "20260729..20261130"
+    "calendarWindow": "20260729..20261221 (calendar.txt). 그래프 운행일 = 빌드일-1 ~ 빌드일+2개월 ∩ calendar",
+    "serviceDays": "2026-10-20..2026-12-21 (63일, 빌드 2026-10-21)",
+    "expires": "2026-12-21 까지 유효. 12-22 부터 대중교통 없음 → 그 전에 재빌드 (build_otp_graph.sh --from-zip <이 zip> --calendar-end <빌드일+2개월> …)"
   },
   "inputs": {
     "gtfsPreShapeZip": "data/input/national-nojeju-202503.gtfs.zip",
     "gtfsPreShapeSha256": "72e2d232bada8e3d689979c0e02ca51d1a2eaec423556f2ed56e01892ec7abfc",
-    "gtfsShapedZip": "data/input/national-nojeju-202503-shaped-gbis-busrt-entrances.gtfs.zip",
-    "gtfsShapedSha256": "0d491355a7b320557bebc0045a24f0a0f0fecdb953786f215477f25fd8821434",
+    "gtfsShapedZip": "data/input/national-nojeju-202503-shaped-gbis-busrt-entrances-subwayfix-calend20261221.gtfs.zip",
+    "gtfsShapedSha256": "b8c675f2ef2dd526b5f89cd518987ba5c3143e3881b1f89c33eb81955ddbf633",
     "otpOsmPbf": "data/input/south-korea-260929-nojeju.osm.pbf",
     "otpOsmPbfSha256": "60e68c91bc2359a292815e3f0f801ddca72d4aa18a036391921c31481dc0c355",
     "otpOsmSource": "https://download.geofabrik.de/asia/south-korea-260929.osm.pbf (md5 7775afecd9ccbf3285ace3f1fa2ec7f4)",
@@ -30,7 +32,11 @@
     "busRuntimeCoefficients": "config/otp-national/bus-runtime-coefficients.json",
     "busRuntimeCoefficientsSha256": "15a877be47ca094b1f4cc4bf624f1ab48c88a6b9620140b1f205f430a5a7369b",
     "busSectionTimes": "seoul-section-times-10d.csv (fetch_seoul_section_times.py --weekdays 10 --exclude-dates 20261009,20261005,20260924,20260925; 10-13·12·08·07·06·02·01·09-30·29·28, 833,747행, 쌍 32,518. 커밋 안 함)",
-    "busSectionTimesSha256": "575af18888571d6ae2ff86c27e66a6c3028c8ca711039433271f113252374e2d"
+    "busSectionTimesSha256": "575af18888571d6ae2ff86c27e66a6c3028c8ca711039433271f113252374e2d",
+    "gtfsFromZip": "data/input/national-nojeju-202503-shaped-gbis-busrt-entrances.gtfs.zip (직전 운영 번들의 shaped GTFS)",
+    "gtfsFromZipSha256": "0d491355a7b320557bebc0045a24f0a0f0fecdb953786f215477f25fd8821434",
+    "subwayCorrections": "config/otp-national/subway-corrections.json",
+    "subwayCorrectionsSha256": "d419b4748b0d774b1139b4015c28b36ec80f7e9aa12210028daf36edcc4bab8e"
   },
   "pfaedle": {
     "image": "ghcr.io/ad-freiburg/pfaedle@sha256:af4fdc647699ea1ffe5150fd1f9d264c465c2876710ea749e8cb284f13abd20d",
@@ -47,7 +53,7 @@
     "script": "tools/transit-routing-benchmark/runner/compute_shape_quality.py",
     "thresholds": "config/otp-national/shape-gate-thresholds.json (bus·subway 임계 없음 — 전부 적용, 사용자 결정 2026-09-30)",
     "coverageIndex": "data/otp-national/coverage-index.json",
-    "coverageIndexSha256": "8c32ac7d147472c21efafdb5c1bb07d87e0e800abde0d7d87f587bc6e5e4f632",
+    "coverageIndexSha256": "1f534fdc76f1c780d74a90708772579c1c2d106227c4eb17672c663789d40696",
     "counts": {
       "busTrips": 306535,
       "subwayTrips": 12489,
@@ -56,7 +62,7 @@
       "missing": 0,
       "unjudged": 0
     },
-    "knownIssues": "OTP 빌드 이슈: BogusShapeGeometryCaught 405, ShapeGeometryTooFar 392, BogusShapeDistanceTraveled 3,402. HopSpeedFast 2,888(직전 2,726), HopSpeedSlow 25,608(직전 22,226)"
+    "knownIssues": "OTP 빌드 이슈: BogusShapeGeometryCaught 405, ShapeGeometryTooFar 392, BogusShapeDistanceTraveled 3,402. HopSpeedFast 2,844(직전 2,888), HopSpeedSlow 25,781(직전 25,608)"
   },
   "otp": {
     "image": "local/nextroute-otp:20260920-h-only-9dbfb229b868",
@@ -66,31 +72,31 @@
     "serVerId": 278,
     "buildConfig": "config/otp-national/build-config.json",
     "otpConfig": "config/otp-national/otp-config.json",
-    "note": "그래프는 호스트 JVM(Temurin 25, -Xmx12g)으로 배포 이미지와 같은 jar 로 빌드. 2026-10-20 빌드: OTP 6m06s(전체 약 19분)",
+    "note": "그래프는 호스트 JVM(Temurin 25, -Xmx12g)으로 배포 이미지와 같은 jar 로 빌드. 2026-10-21 빌드(--from-zip 운영 zip + 2e·2f): OTP 15m16s(로컬 메모리 압박으로 직전 6m06s 보다 김), 전체 약 23분",
     "buildConfigSha256": "2338a482cf08727d2f5648d5c2c759cfa01b0e464216b866022375d32ea6f24c",
     "buildConfigNote": "subwayAccessTime 0(기본 2분). AddTransitEntitiesToGraph 가 SUBWAY 정류장 streetToStopTime 으로 그래프에 박는다 — 바꾸면 재빌드"
   },
   "graph": {
     "file": "data/otp-national/graph.obj",
-    "sha256": "b40fc2d864a279b1fb312184f6622cb138381f7444ad4af1b09d6d625a6babfc",
-    "sizeBytes": 920911125,
+    "sha256": "a9afeb64308ded211b047e8a2afc6e17b7b08f5c2ce1d3d39349ce916a9be389",
+    "sizeBytes": 920906094,
     "stops": 219766,
-    "patterns": 30248,
+    "patterns": 30246,
     "constrainedTransfers": 342,
-    "note": "stops·stations·patterns 직전과 같음(시간표만 바뀜). |transfers| 836,830(직전 836,828)",
+    "note": "패턴 30,248 → 30,246(경인 특급 11역 패턴 4D·4U 사라짐). 덕계 넣은 급행은 새 패턴(1D 11역·53역, 1U 11역·53역). |V|=3,514,779 |E|=8,832,625",
     "stations": 1234,
-    "directTransfers": 836830
+    "directTransfers": 836828
   },
   "releaseBundle": {
     "note": "graph+otpImage+shapedGtfs+coverageIndex+graphVersion 한 세트. verify_release_bundle.py 로 배포 전 검증(부분 스왑 차단).",
     "identity": {
-      "graphVersion": "national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-busrt-g51763a9267f9",
+      "graphVersion": "national-nojeju-202503-cal20260729_20261221-otp278-shaped-gbis-alllines-busrt-subwayfix-ge58b47ba1c66",
       "otpImage": "sha256:183773100bb2f22c00a95a1b184b8bc58e6188f2a1ff32d0cf143fa4d77e3893",
-      "shapedGtfsSha256": "0d491355a7b320557bebc0045a24f0a0f0fecdb953786f215477f25fd8821434",
-      "coverageIndexSha256": "8c32ac7d147472c21efafdb5c1bb07d87e0e800abde0d7d87f587bc6e5e4f632",
-      "graphSha256": "b40fc2d864a279b1fb312184f6622cb138381f7444ad4af1b09d6d625a6babfc"
+      "shapedGtfsSha256": "b8c675f2ef2dd526b5f89cd518987ba5c3143e3881b1f89c33eb81955ddbf633",
+      "coverageIndexSha256": "1f534fdc76f1c780d74a90708772579c1c2d106227c4eb17672c663789d40696",
+      "graphSha256": "a9afeb64308ded211b047e8a2afc6e17b7b08f5c2ce1d3d39349ce916a9be389"
     },
-    "bundleHash": "d9ad99673f31e78b2416454dab6a8e6c3adeb646225c718dbe708c3e0a048c0e"
+    "bundleHash": "18f9952d083aee185cfda071073d97d9cb36dc78325fb3c79d5f6e32a8c5f72e"
   },
   "gbis": {
     "fetch": {
@@ -192,7 +198,8 @@
       "app": "앱 변경 없음(api·worker 이미지 nextroute:20261013-152519-55990ddc 그대로, env ROUTING_OTP_GRAPH_VERSION·coverage-index 마운트만 바뀌어 재생성). PR #411 머지 041ad807",
       "rollbackBackups": "compose.yaml / compose.otp-national.yaml .bak-20261014-124812-pre-busrt. 옛 그래프 디렉터리 ...-shaped-gbis-alllines-gf19e19a0a050 유지",
       "verified": "운영 OTP: ODsay 대비 버스 탑승시간 오차 중앙값 8.9%(145 짝, 3정류장+ 8.4, 2km+ 7.8), 네이버 기록값 5개 중앙값 8%. 운영 /api/route/search 14:45: 잠실역 8호선→강남역 신분당선 2000 32분(네이버 32)·360 34분(네이버 36), 강남→홍대 740 57분(네이버 57), 강남→서울역 421 탑승 34·총 43(ODsay 34·43). 지하철만 경로 불변(2호선 16·39분). api·worker healthy, ERROR 0"
-    }
+    },
+    "pending": "이 번들(national-nojeju-202503-cal20260729_20261221-otp278-shaped-gbis-alllines-busrt-subwayfix-ge58b47ba1c66)은 배포 전. 아래 at·vpsDir 는 지금 운영 중인 national-nojeju-202503-cal20260729_20261130-otp278-shaped-gbis-alllines-busrt-g51763a9267f9 기록"
   },
   "busRuntime": {
     "script": "tools/transit-routing-benchmark/runner/calibrate_bus_runtimes.py",
@@ -266,5 +273,74 @@
     "formulaHops": 6269547,
     "sectionRejected": 65320,
     "longHops": 82930
+  },
+  "subwayCorrections": {
+    "script": "tools/transit-routing-benchmark/runner/apply_subway_corrections.py",
+    "scriptSha256": "37a92e855cfc3a9fadc03ef90cbbdbc5cbcd0a6de9039f25cb9883e30dd85618",
+    "config": "config/otp-national/subway-corrections.json",
+    "configSha256": "d419b4748b0d774b1139b4015c28b36ec80f7e9aa12210028daf36edcc4bab8e",
+    "report": "data/otp-national/subway-corrections-report.json (커밋 안 함)",
+    "operations": {
+      "gyeongin-tokgeup-to-geuphaeng-down": "applied 8",
+      "gyeongin-tokgeup-to-geuphaeng-up": "applied 7",
+      "gyeongwon-express-dukgye-down": "applied 8",
+      "gyeongwon-express-dukgye-up": "applied 7",
+      "k5851-ends-at-paldang": "disabled",
+      "rename-dangogae-bulamsan": "applied 7",
+      "rename-hwajeon-hanggongdae": "applied 2",
+      "arex-direct-absent": "checked"
+    },
+    "changes": {
+      "stopsRows": 9,
+      "tripsRows": 15,
+      "stopTimesTrips": 30,
+      "stopTimesRowsIn": 861,
+      "stopTimesRowsOut": 951
+    },
+    "guards": {
+      "trips": 320594,
+      "stopTimesTrips": 320594,
+      "overtakingPairsChecked": 41,
+      "overtaking": 0,
+      "monotonicTrips": 30
+    },
+    "k5851": "끔. 2026-10-21 실시간 대조: 5851(급행 팔당행)은 Ord069 와 정차 패턴이 같지만 16~23분 이르다. 시각은 Ord069 이웃 Ord067(문산 17:54 완행 팔당행, -5~+5분)과 맞음. 근거는 설정 identification",
+    "graphVersionHash": "sha256(직전 해시 51763a9267f9 + 보정 json sha + apply_subway_corrections.py sha + extend_calendar.py sha + '20261221') 앞 12자"
+  },
+  "calendar": {
+    "script": "tools/transit-routing-benchmark/runner/extend_calendar.py",
+    "scriptSha256": "547cf4d04f158282b7d86d4c5e66b6061a2475aa7165bb9d5581391fb78fa693",
+    "report": "data/otp-national/calendar-report.json (커밋 안 함)",
+    "services": [
+      {
+        "serviceId": "B1",
+        "before": "20260729..20261130",
+        "after": "20260729..20261221",
+        "status": "applied"
+      }
+    ],
+    "graph": {
+      "buildDay": "2026-10-21",
+      "transitServiceStart": "-P1D",
+      "transitServiceEnd": "P2M",
+      "otpWindow": "2026-10-20..2026-12-21",
+      "serviceDays": "2026-10-20..2026-12-21",
+      "days": 63,
+      "expiresAfter": "2026-12-21"
+    },
+    "origin": "09-29 전국 피드를 만들 때 prepare_gtfs.py 창(20260929 ± 62일)으로 잘림. KTDB 원본 기간(2017~2030)은 버린 창이라 끝만 늘려도 같은 시간표",
+    "heap": "OTP 는 운행일마다 패턴별 TripPatternForDate 를 만든다: 하루 약 3.5MB(2026-10-21 63일 그래프 실측). 이번 63일 = 직전 운영(43일)보다 약 +70MB. 03-31 까지면 163일, +420MB 라 Xmx3500m(VPS 여유 메모리 400MB)에 안 들어감",
+    "heapMeasured": "이 그래프를 로컬 -Xmx3500m 로 적재, full GC 뒤 힙 2.64GiB(2,764,302K)/3.42GiB, RSS 3.31GiB. TripPatternForDate 1,905,498 = 63일 × 30,246 패턴, +TripTimes[]·FrequencyEntry[] 합 223MB(하루 3.5MB)"
+  },
+  "verification": {
+    "at": "2026-10-21 20:20 로컬 OTP(--load, -Xmx3500m) GraphQL, 기준 = 운영 OTP 같은 질의(2026-10-22 08:30)",
+    "serviceTimeRange": "2026-10-20 00:00 .. 2026-12-22 00:00 KST (운영 2026-10-19 .. 2026-12-01)",
+    "corpus": "docs/plan/otp-station-entrances/PLAN.md §5 12 OD + 버스만 5 OD: 17/17 첫 5개 경로(소요·노선·시각) 운영과 같음",
+    "patterns": "4D·4U 11역 패턴 없음(운영 4D::03 8편·4U::05 7편 → 16역 패턴 75·78편). 1D·1U 에 덕정·양주 있고 덕계 없는 패턴 0(운영 1D::01·::07, 1U::02·::07)",
+    "stops": "stops(name) 불암산·한국항공대 나옴, 당고개·화전 지하철 역 없음",
+    "planConnection": "대방→동인천 09:24: Ord036 09:28(운영 Ord037 09:34). 덕계→청량리 07:05: Ord024 07:07:30 38분(운영 Ord026 07:20:30 45분). 동인천→대방 07:34: Ord019 직통 41분(운영 영등포 환승)",
+    "calendar": "강남→홍대 08:30: 12-01·12-10·12-21 지하철 경로(운영 도보만), 12-22 도보만",
+    "k5851": "Ord069 그대로 용문행(연산 끔)",
+    "zipDiff": "운영 zip ↔ 새 zip 풀어서 비교: calendar 1행, stops 9행, trips 15행(shape_id), stop_times 30 trip, shapes·routes·transfers·agency·attributions 같음"
   }
 }
