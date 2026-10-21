@@ -15,6 +15,7 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
 import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 
@@ -92,7 +93,7 @@ public class JourneyEvaluationScheduleWriter {
             eventPublisher.publishEvent(new JourneyOutboxEnqueuedEvent());
         }
 
-        storeBoardingPredictions(outcome);
+        storeBoardingPredictions(outcome, now);
         return true;
     }
 
@@ -113,8 +114,12 @@ public class JourneyEvaluationScheduleWriter {
      * <p>조회 요청이 실시간 API 를 부르지 않고 이 값을 읽게 하려는 준비다. 저장 시점에 단계를 다시
      * 읽는다 — 계산하는 동안 재탐색으로 단계가 교체됐을 수 있고, 그때 계산에 쓴 엔티티를 그대로
      * 쓰면 이미 버려진 행을 되살린다.
+     *
+     * <p><b>한 번 못 구했다고 쓸 만한 값을 지우지 않는다(#480).</b> 지하철 원천은 열차를 한 tick 빼먹기도 하고("탈 열차
+     * 없음"), 그때마다 지우면 도착 예정이 "시간 확인 중"으로 깜박인다. 직전 예측이 아직 앞날이고 {@link #UNKNOWN_GRACE}
+     * 안에 본 것이면 그대로 둔다. 그보다 오래 못 구하면 지운다 — 탈 수 없게 된 열차를 붙잡고 있지 않게.
      */
-    private void storeBoardingPredictions(JourneyEvaluationOutcome outcome) {
+    private void storeBoardingPredictions(JourneyEvaluationOutcome outcome, Instant now) {
         Map<Integer, TransferTargetArrival> boarding = outcome.batch().boardingByLegIndex();
         if (boarding.isEmpty()) {
             return;
@@ -126,6 +131,9 @@ public class JourneyEvaluationScheduleWriter {
                 continue;
             }
             CurrentLegArrival arrival = target.arrival();
+            if (arrival.arrivalAt() == null && stillUsable(leg, now)) {
+                continue;
+            }
             leg.applyBoardingPrediction(
                     arrival.arrivalAt(),
                     arrival.source() == null ? null : arrival.source().name(),
@@ -133,4 +141,14 @@ public class JourneyEvaluationScheduleWriter {
                     arrival.observedAt());
         }
     }
+
+    /** 못 구한 평가가 직전 예측을 지우지 않는 폭(#480). 평가 간격 하한(10초)의 몇 배 — 원천이 한두 번 빼먹는 틈을 덮는다. */
+    static final Duration UNKNOWN_GRACE = Duration.ofSeconds(90);
+
+    private static boolean stillUsable(JourneyLeg leg, Instant now) {
+        return leg.getPredictedEndAt() != null && leg.getPredictedEndAt().isAfter(now)
+                && leg.getEvidenceObservedAt() != null
+                && !leg.getEvidenceObservedAt().isBefore(now.minus(UNKNOWN_GRACE));
+    }
+
 }

@@ -278,7 +278,8 @@ class TransferTargetArrivalPredictorTest {
             predictor = new SubwayTransferTargetArrivalPredictor(
                     new SubwayBoardingTimeEstimator(arrivalReader,
                             new watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics(
-                                    new io.micrometer.core.instrument.simple.SimpleMeterRegistry())),
+                                    new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
+                            mock(watoo.grd.nextroute.application.subway.service.SubwayLineOrder.class)),
                     routeOptionRepository);
             waitLeg = waitLeg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.PENDING);
             ReflectionTestUtils.setField(waitLeg, "routeId", "1002");

@@ -113,6 +113,21 @@ public class SubwayLineOrder {
         return StationsAheadCalculator.behind(patterns(lineId, direction), stationId, n).stops();
     }
 
+    /**
+     * 이 방향으로 {@code n} 역 앞(열차가 오는 쪽) 역을 출발해 {@code stationId} 에 닿기까지의 계획 초(#480). 남은 초 없이
+     * "[N]번째 전역"으로만 답하는 열차의 도착을 어림한다. 그 앞이 갈래로 갈리거나 기점이라 {@code n} 역을 못 채우면 빈 값.
+     */
+    public Optional<Integer> secondsFromBehind(String lineId, String direction, String stationId, int n) {
+        if (stationId == null || n <= 0) {
+            return Optional.empty();
+        }
+        StationsAheadCalculator.Behind behind = StationsAheadCalculator.behind(patterns(lineId, direction), stationId, n);
+        if (behind.stops().size() < n || behind.secondsToHere().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(behind.secondsToHere().get(0));
+    }
+
     /** @see #segmentTimes */
     public record SegmentTimes(Integer dwellSeconds, int runSeconds) {
     }
