@@ -36,11 +36,11 @@ public class RedisRouteSearchSnapshotAdapter implements RouteSearchSnapshotPort 
     private final RouteSnapshotProperties properties;
 
     @Override
-    public String save(Long ownerUserId, RouteSearchResult result, Instant expiresAt) {
+    public String save(Long ownerUserId, RouteSearchResult result, boolean excludeExpress, Instant expiresAt) {
         String searchSessionId = UUID.randomUUID().toString();
         try {
             String json = objectMapper.writeValueAsString(
-                    new StoredSnapshot(ownerUserId, expiresAt.toEpochMilli(), result));
+                    new StoredSnapshot(ownerUserId, expiresAt.toEpochMilli(), result, excludeExpress));
             redisTemplate.opsForValue().set(
                     key(searchSessionId), json, Duration.ofSeconds(properties.getTtlSeconds()));
             return searchSessionId;
@@ -92,7 +92,8 @@ public class RedisRouteSearchSnapshotAdapter implements RouteSearchSnapshotPort 
         return Optional.of(new StoredPath(
                 snapshot.ownerUserId(),
                 paths.get(index),
-                Instant.ofEpochMilli(snapshot.expiresAtEpochMilli())));
+                Instant.ofEpochMilli(snapshot.expiresAtEpochMilli()),
+                Boolean.TRUE.equals(snapshot.excludeExpress())));
     }
 
     private String key(String searchSessionId) {
@@ -102,7 +103,11 @@ public class RedisRouteSearchSnapshotAdapter implements RouteSearchSnapshotPort 
     /**
      * Redis 에 실제로 담기는 형태. 만료시각은 {@code Instant} 직렬화 설정에 의존하지 않도록
      * epoch milli 로 고정한다.
+     *
+     * <p>{@code excludeExpress}(subway-express S5)는 끝 칸·박싱 타입이다 — 배포 전에 저장된 스냅샷(칸 없음)은 null 로
+     * 읽혀 false 가 된다. 구버전 reader 는 모르는 칸을 무시한다.
      */
-    record StoredSnapshot(Long ownerUserId, long expiresAtEpochMilli, RouteSearchResult result) {
+    record StoredSnapshot(Long ownerUserId, long expiresAtEpochMilli, RouteSearchResult result,
+                          Boolean excludeExpress) {
     }
 }

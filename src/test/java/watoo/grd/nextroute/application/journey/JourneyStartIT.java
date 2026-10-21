@@ -154,6 +154,25 @@ class JourneyStartIT {
     // ── 저장 결과 ────────────────────────────────────────────────────────────
 
     @Test
+    @DisplayName("검색 스냅샷의 급행 끄기가 여정 세션에 저장된다 — 칸 없는 옛 스냅샷은 false(subway-express S5)")
+    void start_persistsExcludeExpress() {
+        Long userId = newUser();
+        given(snapshotPort.find(SESSION_ID, PATH_KEY)).willReturn(Optional.of(
+                new RouteSearchSnapshotPort.StoredPath(null, twoBusPath(), Instant.now().plusSeconds(600), true)));
+
+        JourneySnapshot on = start(userId, false);
+
+        assertThat(jdbcTemplate.queryForObject("select exclude_express from journey_session where id = ?",
+                Boolean.class, on.journeyId())).isTrue();
+
+        givenSnapshotOwnedBy(null, twoBusPath());
+        JourneySnapshot off = start(userId, true);
+
+        assertThat(jdbcTemplate.queryForObject("select exclude_express from journey_session where id = ?",
+                Boolean.class, off.journeyId())).isFalse();
+    }
+
+    @Test
     @DisplayName("시작하면 단계와 환승이 함께 저장되고 첫 단계만 진행 중이다")
     void start_persistsLegsAndTransfers() {
         Long userId = newUser();

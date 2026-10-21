@@ -12,6 +12,7 @@ import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
+import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
 import watoo.grd.nextroute.global.error.BusinessException;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
@@ -63,8 +64,10 @@ public class JourneyStartService implements StartJourneyUseCase {
         JsonNode routeSnapshot = objectMapper.valueToTree(stored.path());
 
         try {
+            // 급행 끄기는 검색 요청값 그대로 세션에 남긴다(D10 으로 풀렸어도) — 재탐색이 같은 선호로 찾는다(subway-express S5).
             return startTxService.start(userId, plan, routeSnapshot,
-                    destinationSummary(stored.path()), command.replace(), clock.instant());
+                    destinationSummary(stored.path()), command.replace(), clock.instant(),
+                    JourneyKind.NAVIGATION, stored.excludeExpress());
         } catch (DataIntegrityViolationException e) {
             throw conflictTranslator.translate(e, userId);
         }

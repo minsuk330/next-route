@@ -81,6 +81,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V70__journey_notification_priority.sql",
         "classpath:db/migration/V53__add_reroute_alert_state.sql",
         "classpath:db/migration/V59__journey_session_kind.sql",
+        "classpath:db/migration/V73__journey_session_exclude_express.sql",
         "classpath:db/migration/V63__journey_leg_guidance_info.sql",
         "classpath:db/migration/V65__journey_leg_alight_door_side.sql",
         "classpath:db/migration/V71__journey_leg_train_kind.sql",
@@ -341,6 +342,48 @@ class JourneySchemaIT {
         assertThat(legRepository.findById(bus.getId()).orElseThrow().getGuidance().trainKind()).isNull();
         assertThat(jdbcTemplate.queryForObject("select character_maximum_length from information_schema.columns"
                 + " where table_name = 'journey_leg' and column_name = 'train_kind'", Integer.class)).isEqualTo(16);
+    }
+
+    @Test
+    @DisplayName("V73 급행 끄기가 세션에 저장되고, 빼면 false·직접 INSERT 는 DB 기본값 false, 이후 수정은 반영되지 않는다(subway-express S5)")
+    void excludeExpress_roundTrips() {
+        // 사람당 진행 중 여정 하나(부분 유일 인덱스) — 다음 행을 넣기 전에 끝낸다.
+        JourneySession off = sessionRepository.saveAndFlush(newSession(Instant.now()));
+        assertThat(sessionRepository.findById(off.getId()).orElseThrow().isExcludeExpress()).isFalse();
+        endNow(off);
+
+        JourneySession on = sessionRepository.saveAndFlush(JourneySession.builder()
+                .userId(userId).startedAt(Instant.now()).guidanceLeaseUntil(Instant.now().plusSeconds(180))
+                .routeSnapshot(json("{\"pathType\":1}")).excludeExpress(true).build());
+        assertThat(jdbcTemplate.queryForObject("select exclude_express from journey_session where id = ?",
+                Boolean.class, on.getId())).isTrue();
+        assertThat(sessionRepository.findById(on.getId()).orElseThrow().isExcludeExpress()).isTrue();
+        endNow(on);
+
+        // 배포 전 행·엔티티를 거치지 않는 INSERT 는 DB 기본값(false)이다.
+        Long raw = jdbcTemplate.queryForObject("""
+                insert into journey_session
+                    (created_at, updated_at, user_id, status, started_at,
+                     last_heartbeat_at, guidance_lease_until, route_snapshot)
+                values (now(), now(), ?, 'ACTIVE', now(), now(), now(), '{}') returning id
+                """, Long.class, userId);
+        assertThat(jdbcTemplate.queryForObject("select exclude_express from journey_session where id = ?",
+                Boolean.class, raw)).isFalse();
+
+        // 시작 때 정해진 선호다 — 엔티티 값을 바꿔 저장해도 칼럼은 그대로(updatable = false).
+        JourneySession reloaded = sessionRepository.findById(on.getId()).orElseThrow();
+        ReflectionTestUtils.setField(reloaded, "excludeExpress", false);
+        reloaded.bumpCommandVersion();
+        sessionRepository.saveAndFlush(reloaded);
+        assertThat(jdbcTemplate.queryForObject("select exclude_express from journey_session where id = ?",
+                Boolean.class, on.getId())).isTrue();
+    }
+
+    private void endNow(JourneySession session) {
+        JourneySession loaded = sessionRepository.findById(session.getId()).orElseThrow();
+        loaded.end(JourneyStatus.CANCELED,
+                watoo.grd.nextroute.domain.journey.entity.JourneyEndReason.SUPERSEDED, Instant.now());
+        sessionRepository.saveAndFlush(loaded);
     }
 
     @Test

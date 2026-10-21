@@ -68,6 +68,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V70__journey_notification_priority.sql",
         "classpath:db/migration/V53__add_reroute_alert_state.sql",
         "classpath:db/migration/V59__journey_session_kind.sql",
+        "classpath:db/migration/V73__journey_session_exclude_express.sql",
         "classpath:db/migration/V63__journey_leg_guidance_info.sql",
         "classpath:db/migration/V65__journey_leg_alight_door_side.sql",
         "classpath:db/migration/V71__journey_leg_train_kind.sql",

@@ -24,6 +24,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
@@ -111,14 +112,14 @@ class RouteSearchControllerTest {
     void anonymousSearchGetsSessionId() {
         RouteSearchRequest request = request();
         when(searchRouteUseCase.search(request)).thenReturn(result());
-        when(snapshotPort.save(any(), any(), any())).thenReturn("session-anon");
+        when(snapshotPort.save(any(), any(), anyBoolean(), any())).thenReturn("session-anon");
 
         RouteSearchResult body = controller.search(null, request).getBody();
 
         assertThat(body.searchSessionId()).isEqualTo("session-anon");
         assertThat(body.expiresAt()).isEqualTo(NOW.plusSeconds(600));
         assertThat(body.paths()).extracting(PathResult::pathKey).containsExactly("0", "1");
-        verify(snapshotPort).save(isNull(), eq(body.withSnapshot(null, null)), eq(NOW.plusSeconds(600)));
+        verify(snapshotPort).save(isNull(), eq(body.withSnapshot(null, null)), eq(false), eq(NOW.plusSeconds(600)));
     }
 
     @Test
@@ -126,13 +127,40 @@ class RouteSearchControllerTest {
     void authenticatedSearchGetsSessionId() {
         RouteSearchRequest request = request();
         when(searchRouteUseCase.search(request)).thenReturn(result());
-        when(snapshotPort.save(any(), any(), any())).thenReturn("session-42");
+        when(snapshotPort.save(any(), any(), anyBoolean(), any())).thenReturn("session-42");
 
         RouteSearchResult body = controller.search(42L, request).getBody();
 
         assertThat(body.searchSessionId()).isEqualTo("session-42");
-        verify(snapshotPort).save(eq(42L), any(), any());
+        verify(snapshotPort).save(eq(42L), any(), anyBoolean(), any());
         verify(recordSearchHistoryUseCase).record(42L, request, body);
+    }
+
+    @Test
+    @DisplayName("급행 끄기 검색은 스냅샷에 true 로 남는다 — D10 으로 필터가 풀린 결과여도 요청값 그대로(subway-express S5)")
+    void excludeExpressKeptEvenWhenRelaxed() {
+        RouteSearchRequest request = new RouteSearchRequest(127.0, 37.5, 127.01, 37.51, "출발지", "도착지",
+                null, true);
+        RouteSearchResult relaxed = result().withMeta(new SearchMeta("partial",
+                List.of(new SearchMeta.DegradedComponent("express_filter", "empty_result"))));
+        when(searchRouteUseCase.search(request)).thenReturn(relaxed);
+        when(snapshotPort.save(any(), any(), anyBoolean(), any())).thenReturn("session-x");
+
+        controller.search(42L, request);
+
+        verify(snapshotPort).save(eq(42L), any(), eq(true), any());
+    }
+
+    @Test
+    @DisplayName("급행 끄기를 안 보낸 검색(구버전 앱)은 false 로 남는다")
+    void excludeExpressAbsentIsFalse() {
+        RouteSearchRequest request = request();
+        when(searchRouteUseCase.search(request)).thenReturn(result());
+        when(snapshotPort.save(any(), any(), anyBoolean(), any())).thenReturn("session-x");
+
+        controller.search(42L, request);
+
+        verify(snapshotPort).save(eq(42L), any(), eq(false), any());
     }
 
     @Test
@@ -140,7 +168,7 @@ class RouteSearchControllerTest {
     void snapshotFailureKeepsExistingResponse() {
         RouteSearchRequest request = request();
         when(searchRouteUseCase.search(request)).thenReturn(result());
-        when(snapshotPort.save(any(), any(), any())).thenThrow(new RuntimeException("redis down"));
+        when(snapshotPort.save(any(), any(), anyBoolean(), any())).thenThrow(new RuntimeException("redis down"));
 
         var response = controller.search(null, request);
         RouteSearchResult body = response.getBody();
