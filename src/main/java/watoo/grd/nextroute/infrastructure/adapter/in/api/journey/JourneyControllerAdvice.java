@@ -21,7 +21,13 @@ import java.time.Instant;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class JourneyControllerAdvice {
 
-  /** 현재 여정을 details에 담아 앱이 이어서 보기를 바로 그릴 수 있게 한다. */
+  /**
+   * 현재 여정을 details에 담아 앱이 이어서 보기를 바로 그릴 수 있게 한다.
+   *
+   * <p><b>이 스냅샷의 {@code eta} 는 늘 null 이다(#475).</b> 예측 합성({@code JourneySnapshotEtaAttacher})은
+   * 컨트롤러가 성공 응답에만 얹는다. 오류 본문에서 합성하면 이 advice 가 올라가는 모든 웹 슬라이스가 합성기를
+   * 알아야 한다. 도착 예정이 필요하면 앱은 {@code GET /api/journeys/active} 로 다시 받는다.
+   */
   @ExceptionHandler(ActiveJourneyExistsException.class)
   public ResponseEntity<ErrorResponse<JourneySnapshot>> handleActiveExists(
       ActiveJourneyExistsException exception,

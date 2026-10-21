@@ -182,7 +182,7 @@ class JourneyControllerTest {
     // ── 오류 번역 ────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("진행 중인 여정이 있으면 409 와 그 여정을 함께 준다")
+    @DisplayName("진행 중인 여정이 있으면 409 와 그 여정을 함께 준다 — 예측은 싣지 않는다(#475)")
     void start_conflict_returns409WithCurrentJourney() throws Exception {
         willThrow(new ActiveJourneyExistsException(snapshot(42L)))
                 .given(startJourneyUseCase).start(eq(7L), any(StartJourneyCommand.class));
@@ -192,7 +192,9 @@ class JourneyControllerTest {
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ACTIVE_JOURNEY_EXISTS"))
-                .andExpect(jsonPath("$.details.journeyId").value(42));
+                .andExpect(jsonPath("$.details.journeyId").value(42))
+                .andExpect(jsonPath("$.details.eta").value(org.hamcrest.Matchers.nullValue()));
+        org.mockito.BDDMockito.then(etaComposer).shouldHaveNoInteractions();
     }
 
     @Test
