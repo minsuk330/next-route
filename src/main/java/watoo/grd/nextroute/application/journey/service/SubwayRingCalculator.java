@@ -434,7 +434,9 @@ public class SubwayRingCalculator {
             return keep(prior, context, target, observation, now);
         }
         BigDecimal point = passingPoint(seen, observation);
-        if (sameSegment(prior, seen) && prior.segmentProgress().compareTo(point) >= 0) {
+        // 진입 직선(#483)의 앵커는 램프 시작값(0.95 아님)이다. 진입 뒤에 온 통과역 신호는 늦게 온 것 — 이미 지났다.
+        if (sameSegment(prior, seen) && (prior.stage() == SubwayRingStage.APPROACH
+                || prior.segmentProgress().compareTo(point) >= 0)) {
             SubwayRingState kept = keep(prior, context, seen, observation, now);
             return kept.stage() == SubwayRingStage.DWELL
                     ? kept.withHold(null, null).withSource(kept.etaSource(), SubwayRingStage.RUN)
