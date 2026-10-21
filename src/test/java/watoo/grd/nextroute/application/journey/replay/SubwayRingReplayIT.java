@@ -318,7 +318,7 @@ class SubwayRingReplayIT {
 
     private final List<Shown> timeline = new ArrayList<>();
 
-    /** 녹화 조각 회귀: STALE 없음, 같은 구간 되감김 없음, 하차 예정 늘 있음, 역당 push 6건 이하. */
+    /** 녹화 조각 회귀: STALE 없음, 같은 구간 되감김·한 번에 30%p 넘는 전진(#483) 없음, 하차 예정 늘 있음, 역당 push 6건 이하. */
     private static void assertGauge(List<Shown> timeline, int segments) {
         org.assertj.core.api.Assertions.assertThat(timeline).isNotEmpty();
         org.assertj.core.api.Assertions.assertThat(timeline).as("회색 STALE 이 없다")
@@ -333,6 +333,17 @@ class SubwayRingReplayIT {
                         .isGreaterThanOrEqualTo(a.value() - 1e-4);
             }
         }
+        // 도착(1.00)은 구간을 마치는 사건이라 뺀다. 진입·재앵커가 느린 직선 위에서 한 번에 뛰면 안 된다(#483).
+        double maxRise = 0;
+        for (int i = 1; i < timeline.size(); i++) {
+            Shown a = timeline.get(i - 1);
+            Shown b = timeline.get(i);
+            if (a.next().equals(b.next()) && b.value() < 0.999) {
+                maxRise = Math.max(maxRise, b.value() - a.value());
+            }
+        }
+        System.out.printf("[replay] 같은 구간 1초 최대 전진 %.3f%n", maxRise);
+        org.assertj.core.api.Assertions.assertThat(maxRise).as("한 번에 30%%p 넘게 뛰지 않는다(#483)").isLessThanOrEqualTo(0.30);
         int pushes = timeline.get(timeline.size() - 1).pushesSoFar() - timeline.get(0).pushesSoFar();
         org.assertj.core.api.Assertions.assertThat(pushes).as("역당 push 6건 이하").isLessThanOrEqualTo(6 * segments);
     }

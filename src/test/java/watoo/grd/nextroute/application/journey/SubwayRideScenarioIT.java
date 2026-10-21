@@ -225,9 +225,12 @@ class SubwayRideScenarioIT {
         assertThat(enRoute.quality()).isEqualTo(SubwayRingQuality.NORMAL);
         assertThat(enRoute.estimatedNextStationAt()).isEqualTo(sec(168 + 110));
 
+        // 진입 — 지금 화면 값에서 0.95 까지 짧은 직선(#483). 앵커는 화면 자리 그대로, 몇 초 뒤 0.95 에 닿는다.
         SubwayGuidance entering = ringTick(240,
                 world.arrivalRow(TRAIN_B, SEOLLEUNG, "0", null, sec(235)));
-        assertThat(entering.segmentProgress()).isEqualByComparingTo("0.95");
+        assertThat(entering.progressTarget()).isEqualByComparingTo("0.95");
+        assertThat(entering.segmentProgress()).isLessThan(entering.progressTarget());
+        assertThat(entering.estimatedNextStationAt()).isAfter(sec(240));
 
         SubwayGuidance arrived = ringTick(285,
                 world.arrivalRow(TRAIN_B, SEOLLEUNG, "1", null, sec(280)));

@@ -45,6 +45,12 @@ public class JourneySubwayRingProperties {
     private BigDecimal approachProgress = new BigDecimal("0.95");
 
     /**
+     * 진입을 봤을 때 지금 화면 값에서 {@link #approachProgress} 까지 잇는 직선의 길이(#483). 0 이면 예전처럼 곧바로 박는다.
+     * 느린 TYPICAL 직선 위에서 진입이 오면 한 번에 30%p 넘게 뛰었다(journey 290).
+     */
+    private Duration approachRamp = Duration.ofSeconds(6);
+
+    /**
      * 앱이 로컬 보간을 이어가도 되는 폭({@code progressValidUntil}). <b>원천 시각({@code recptnDt})</b>부터 잰다.
      *
      * <p>길면 죽은 화면이 살아 있는 척하고, 짧으면 링이 자주 멈춘다. 실기기 관측 전에는 근거가
