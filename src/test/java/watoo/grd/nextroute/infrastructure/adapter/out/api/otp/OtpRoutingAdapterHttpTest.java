@@ -1,6 +1,6 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.otp;
 
-import watoo.grd.nextroute.application.subway.service.SubwayExpressFixtures;
+import watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -49,7 +49,7 @@ class OtpRoutingAdapterHttpTest {
         props.setStationSnapEnabled(false);
         stations = new OtpStationResolver(RestClient.builder(), new ObjectMapper(), props, clock);
         adapter = new OtpRoutingAdapter(RestClient.builder(), new ObjectMapper(),
-                new OtpPlanConnectionMapper(), props, stations, clock, SubwayExpressFixtures.railServiceClassifier());
+                new OtpPlanConnectionMapper(), props, stations, clock, SubwayExpressRouteFixtures.railServiceClassifier());
     }
 
     @AfterEach

@@ -136,14 +136,6 @@ public final class SubwayRoutePatternAssembler {
         return directed;
     }
 
-    /** 노선 id·긴 이름의 실시간 방향 라벨({@link #realtimeLabel} 공개판, subway-express S2). 못 읽으면 null. */
-    public static String realtimeDirection(String routeGtfsId, String longName) {
-        if (routeGtfsId == null) {
-            return SubwayDirectionNormalizer.labelFrom(longName); // Set.of(...).contains(null) 은 NPE
-        }
-        return realtimeLabel(new OtpRailRoute(routeGtfsId, null, longName));
-    }
-
     /** OTP 라벨에 반전표를 적용한 실시간 라벨. 못 읽으면 null. */
     static String realtimeLabel(OtpRailRoute route) {
         return SubwayDirectionNormalizer.realtimeLabelFrom(route.gtfsId(), route.longName());

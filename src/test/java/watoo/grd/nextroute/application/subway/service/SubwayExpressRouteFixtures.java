@@ -16,11 +16,11 @@ import static org.mockito.Mockito.mock;
  *
  * <p>스텁은 전부 lenient — 부르는 시험이 엄격 스텁(MockitoExtension)이어도 안 쓴 스텁으로 실패하지 않게.
  */
-public final class SubwayExpressFixtures {
+public final class SubwayExpressRouteFixtures {
 
     private static final DestinationNormalizer NORMALIZER = new DestinationNormalizer();
 
-    private SubwayExpressFixtures() {
+    private SubwayExpressRouteFixtures() {
     }
 
     public static SubwayExpressCatalog catalog() {

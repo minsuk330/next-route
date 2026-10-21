@@ -7,7 +7,7 @@ import watoo.grd.nextroute.application.route.routing.RailServiceClassifier.Plann
 import watoo.grd.nextroute.application.route.routing.RailServiceClassifier.RailStop;
 import watoo.grd.nextroute.application.subway.dto.RailPattern;
 import watoo.grd.nextroute.application.subway.dto.TrainKind;
-import watoo.grd.nextroute.application.subway.service.SubwayExpressFixtures;
+import watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures;
 import watoo.grd.nextroute.application.subway.service.SubwayPatternStationMatcher;
 
 import java.time.Instant;
@@ -32,7 +32,7 @@ class RailServiceClassifierTest {
     private static final String L1_GYEONGIN_LONG = "서울1호선(용산-동인천급행)<하행>";
     private static final String SD_D = "1:RR_ACC1_S-1-SD-1D";
 
-    private final RailServiceClassifier classifier = SubwayExpressFixtures.railServiceClassifier();
+    private final RailServiceClassifier classifier = SubwayExpressRouteFixtures.railServiceClassifier();
 
     @Nested
     @DisplayName("노선형 급행(9·1호선) — 구간에서 건너뛴 역이 있어야 급행")
@@ -174,7 +174,7 @@ class RailServiceClassifierTest {
     @DisplayName("패턴 캐시가 빈 때(부팅 직후·worker 첫 재탐색) — 노선 이름으로만")
     class ColdCache {
 
-        private final RailServiceClassifier cold = SubwayExpressFixtures.coldRailServiceClassifier();
+        private final RailServiceClassifier cold = SubwayExpressRouteFixtures.coldRailServiceClassifier();
 
         @Test
         @DisplayName("급행 이름 노선은 EXPRESS, 정차 패턴형은 NORMAL(알 수 없어 일반으로 둔다)")
@@ -223,7 +223,7 @@ class RailServiceClassifierTest {
 
         assertThat(all).extracting(RailStop::name).containsExactly("가양", "증미", "등촌", "염창");
         assertThat(all).extracting(RailStop::trainStops).containsExactly(true, false, false, true);
-        assertThat(all.get(1).stationId()).isEqualTo(SubwayExpressFixtures.stationId("1009", "증미"));
+        assertThat(all.get(1).stationId()).isEqualTo(SubwayExpressRouteFixtures.stationId("1009", "증미"));
         assertThat(all.get(1).lon()).isNotNull();
         assertThat(RailServiceClassifier.skipsAny(all)).isTrue();
     }
@@ -243,7 +243,7 @@ class RailServiceClassifierTest {
     }
 
     private static List<RailPattern.Stop> patternWhere(String routeId, Predicate<List<RailPattern.Stop>> test) {
-        return SubwayExpressFixtures.routePatterns(routeId).stream().map(RailPattern::stops).filter(test)
+        return SubwayExpressRouteFixtures.routePatterns(routeId).stream().map(RailPattern::stops).filter(test)
                 .findFirst().orElseThrow(() -> new IllegalArgumentException(routeId));
     }
 

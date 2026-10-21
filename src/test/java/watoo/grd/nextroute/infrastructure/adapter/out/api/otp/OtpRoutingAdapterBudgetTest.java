@@ -1,6 +1,6 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.otp;
 
-import watoo.grd.nextroute.application.subway.service.SubwayExpressFixtures;
+import watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
@@ -31,7 +31,7 @@ class OtpRoutingAdapterBudgetTest {
         Clock clock = Clock.fixed(now, ZoneOffset.UTC);
         return new OtpRoutingAdapter(RestClient.builder(), new ObjectMapper(), new OtpPlanConnectionMapper(),
                 props, new OtpStationResolver(RestClient.builder(), new ObjectMapper(), props, clock), clock,
-                SubwayExpressFixtures.railServiceClassifier());
+                SubwayExpressRouteFixtures.railServiceClassifier());
     }
 
     @Test

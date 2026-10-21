@@ -79,7 +79,7 @@ class RemainingRouteSearchServiceOtpTest {
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)), grantingGate, new watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties(), clock, new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
                 new WalkCoordResolver(),
                 new watoo.grd.nextroute.application.route.routing.ExpressFilterPolicy(
-                        watoo.grd.nextroute.application.subway.service.SubwayExpressFixtures.railServiceClassifier()));
+                        watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier()));
     }
 
     @Test

@@ -135,8 +135,9 @@ public class RailServiceClassifier {
         if (lineId.isEmpty() || !catalogLines().contains(lineId.get())) {
             return TrainKind.NORMAL;
         }
-        String preferred = SubwayRoutePatternAssembler.realtimeDirection(routeId, longName);
-        Optional<List<RailStop>> expanded = expand(lineId.get(), preferred, planned(leg));
+        // 방향 라벨은 쓰지 않는다 — OTP 라벨은 노선마다 실시간과 반대일 수 있고(9호선·공항철도 등), 카탈로그 노선은 전부
+        // 직선이라 두 역을 이 순서로 지나는 방향이 하나뿐이다(allStopPathEitherDirection).
+        Optional<List<RailStop>> expanded = expand(lineId.get(), null, planned(leg));
         if (expanded.isPresent()) {
             return skipsAny(expanded.get()) ? TrainKind.EXPRESS : TrainKind.NORMAL;
         }
