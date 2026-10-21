@@ -35,7 +35,7 @@ import java.util.Optional;
  *
  * <p>{@link SubwayStopPatternResolver#resolveService} — 서비스 id 는 바꾸지 않고 열차별 예외 정차만 번호로 지금 계산한다.
  * 못 만들면(서비스가 카탈로그에서 사라짐·각역 구간 모름) 지표 {@code subway.express.unresolved{stage=ring}} 을 올리고 패턴
- * 없이 돌려준다 — 체인 빌더가 빈 체인을 만들어 링을 그리지 않는다.
+ * 없이 돌려준다 — 체인 빌더가 계획 체인을 쓴다(#482 결정, 예전 동작).
  */
 @Slf4j
 @Component

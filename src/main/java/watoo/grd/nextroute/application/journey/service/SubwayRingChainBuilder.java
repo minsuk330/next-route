@@ -22,9 +22,16 @@ import java.util.List;
  * 4. NORMAL  → 계획 체인이 완행 경로의 <b>부분수열인데 역이 빠졌으면</b> 완행 경로로 펼친다(OTP 계획이 급행 trip 인데 일반 열차를 탄
  *              경우 — 중간역 관측이 구간 밖으로 보여 하차역 PASSED 로 뛰던 버그). 같거나 어긋나면 계획 그대로
  * 5. EXPRESS → 완행 경로를 열차가 서는 역만 남기고({@link SubwayStopPatternResolver#trim}) 지나치는 역을 다음 정차역의
- *              {@code passingBefore} 에 붙인다. 순번은 정차역만 다시 센다. 탑승·하차역에 서지 않거나 패턴·완행 경로를 모르면 <b>빈
- *              체인</b> — 링을 그리지 않는다(지나치는 역을 정차로 세는 링보다 낫다. 완행 경로는 뒤에서 적재되면 다음 tick 에 선다)
+ *              {@code passingBefore} 에 붙인다. 순번은 정차역만 다시 센다. 탑승·하차역에 서지 않으면 <b>빈 체인</b> — 링을
+ *              그리지 않는다(그 열차로는 하차역에 못 간다)
+ * 6. 해석 실패(패턴 모름·완행 경로 모름) → 계획 체인 그대로(#482 결정: UNKNOWN 과 같이 예전 동작)
  * </pre>
+ *
+ * <p>#482(급행 계획 + 일반 열차 → 다음 역·남은 역·예정이 급행 체인으로 계산됨)를 닫는다. 플래그
+ * ({@code subway.express.tracking.enabled})와 무관하다 — 일반 열차는 늘 추적한다.
+ *
+ * <p>지선이 있는 노선의 같은 이름 역은 계획 이름 해석({@link SubwayRingStationResolver#chainOf})이 먼저 읽은 id 를 쓴다. 그 id 가
+ * 이 방향 완행 경로에 없거나 순서가 어긋나면 펼치지 않고 계획 체인을 지킨다(지어내지 않는다).
  */
 @Component
 @RequiredArgsConstructor
@@ -49,18 +56,18 @@ public class SubwayRingChainBuilder {
             return planned;
         }
         boolean express = kind == SubwayBindingTrainKind.EXPRESS;
-        if (!planned.isUsable()) {
-            return express ? EMPTY : planned;
+        if (!planned.isUsable() || (express && pattern == null)) {
+            return planned;
         }
         String board = planned.at(0).canonicalKey();
         String alight = planned.at(planned.alightingSequence()).canonicalKey();
-        if (express && (pattern == null || !pattern.stopsAt(board) || !pattern.stopsAt(alight))) {
+        if (express && board != null && alight != null && (!pattern.stopsAt(board) || !pattern.stopsAt(alight))) {
             return EMPTY;
         }
         List<String> allStops = board == null || alight == null
                 ? List.of() : patternResolver.allStopPath(lineId, direction, board, alight);
         if (allStops.size() < 2) {
-            return express ? EMPTY : planned;
+            return planned;
         }
         return express ? trimmed(lineId, planned, allStops, pattern) : expanded(lineId, planned, allStops);
     }

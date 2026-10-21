@@ -136,7 +136,7 @@ class SubwayBoundTrainResolverTest {
     }
 
     @Test
-    @DisplayName("묶인 급행 서비스가 카탈로그에 없으면 패턴 없음 + 지표(stage=ring) — 빈 체인으로 링을 그리지 않는다")
+    @DisplayName("묶인 급행 서비스가 카탈로그에 없으면 패턴 없음 + 지표(stage=ring) — 링은 계획 체인(#482)")
     void missingServiceIsUnresolved() {
         SubwayLegBinding binding = SubwayLegBinding.selected(10L, 1L, 1, 1, "9600", DAY, "1009", "상행",
                 SubwayBindingTrainKind.EXPRESS, "1009-gone", "2026-01-01");

@@ -151,6 +151,9 @@ class SubwayRideScenarioIT {
     @Autowired StringRedisTemplate redisTemplate;
 
     @MockBean RouteSearchSnapshotPort snapshotPort;
+    /** 9호선 시나리오(#482)만 완행 경로를 운영 OTP fixture 로 준다 — 시험 환경은 OTP 패턴을 적재하지 않는다. */
+    @org.springframework.boot.test.mock.mockito.SpyBean
+    watoo.grd.nextroute.application.subway.service.SubwayLineOrder lineOrder;
     @MockBean LiveActivityPushPort pushPort;
 
     private final SubwayScenarioWorld world = new SubwayScenarioWorld();
@@ -341,6 +344,87 @@ class SubwayRideScenarioIT {
     }
 
     // ── 사용자 행동 ─────────────────────────────────────────────────────────
+
+    // ── #482: 급행 계획 + 일반 열차 (subway-express PR-S4) ──────────────────────
+
+    @Test
+    @DisplayName("#482 9호선 급행 계획(가양→염창)인데 일반 열차를 골랐다 — 다음 역은 증미, 남은 역 3(급행 체인이면 염창·1)")
+    void line9ExpressPlanButNormalTrain() {
+        var fixture = watoo.grd.nextroute.application.subway.service.SubwayExpressFixtures.fixtureLineOrder();
+        org.mockito.Mockito.doAnswer(inv -> "1009".equals(inv.getArgument(0))
+                        ? fixture.allStopPath(inv.getArgument(0), inv.getArgument(1), inv.getArgument(2),
+                        inv.getArgument(3))
+                        : inv.callRealMethod())
+                .when(lineOrder).allStopPath(any(), any(), any(), any());
+        List<Long> seeded = seedLine9Stations();
+        try {
+            String gayang = "1009000907";
+            String jeungmi = "1009000908";
+            given(snapshotPort.find("sess-line9-482", PATH_KEY)).willReturn(Optional.of(
+                    new RouteSearchSnapshotPort.StoredPath(null, new PathResult(1, null, List.of(
+                            SubPathFixture.subway(4).names("가양", "염창").subwayStations(900907, 900910).wayCode(1)
+                                    .lanes(SubPathFixture.subwayLane("9호선", 9))
+                                    .stations(new StationResult(0, "900907", "가양", null, null),
+                                            new StationResult(1, "900910", "염창", null, null))
+                                    .trainKind("EXPRESS")
+                                    .build(),
+                            SubPathFixture.walk(5).names("염창", "목적지").distance(300.0).build()), List.of()),
+                            MORNING.plusSeconds(3600))));
+            userId = newUser();
+            journeyId = startJourneyUseCase.start(userId, new StartJourneyCommand("sess-line9-482", PATH_KEY, false))
+                    .journeyId();
+            rideLegId = jdbcTemplate.queryForObject("""
+                    select id from journey_leg where journey_id = ? and type = 'RIDE_SUBWAY'
+                     order by leg_index limit 1
+                    """, Long.class, journeyId);
+            jdbcTemplate.update("update journey_leg set start_stop_id = ? where id = ?", gayang, rideLegId);
+            // 사용자가 일반 열차 9100 을 탔다(선택 시 판정 NORMAL — 플래그와 무관)
+            selectionTxService.bind(legRepository.findById(rideLegId).orElseThrow(),
+                    new SubwayTrainSelectionTxService.ChosenTrain("9100", LocalDate.ofInstant(MORNING, SEOUL),
+                            "1009", "상행", true,
+                            watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind.NORMAL, null, null));
+
+            at(10);
+            realtimeCache.saveSnapshot(watoo.grd.nextroute.application.subway.dto.SubwayRealtimeSnapshot.builder()
+                    .collectedAt(LocalDateTime.ofInstant(sec(10), SEOUL).atZone(SEOUL)
+                            .format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME))
+                    .trains(List.of(watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain.builder()
+                            .trainNo("9100").stationId(jeungmi).stationName("증미").lineId("1009").direction("상행")
+                            .arrivalCode("99").arrivalSeconds(60).trainType("일반")
+                            .receivedAt(LocalDateTime.ofInstant(sec(5), SEOUL)
+                                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
+                            .build()))
+                    .build(), 60);
+            ringService.runOnce();
+            SubwayGuidance g = guidance();
+
+            assertThat(g).isNotNull();
+            assertThat(g.nextStationName()).isEqualTo("증미");
+            assertThat(g.remainingStations()).isEqualTo(3);
+            assertThat(g.alightingStationName()).isEqualTo("염창");
+            assertThat(g.trainKind()).isEqualTo("NORMAL");
+            assertThat(g.trainLabel()).isEqualTo("일반");
+        } finally {
+            seeded.forEach(id -> jdbcTemplate.update("delete from subway_station where id = ?", id));
+        }
+    }
+
+    /** 9호선 역 마스터가 없으면 넣는다(로컬 DB 는 개발 역 마스터를 함께 쓴다). */
+    private List<Long> seedLine9Stations() {
+        List<Long> ids = new ArrayList<>();
+        for (var station : watoo.grd.nextroute.application.subway.service.SubwayExpressFixtures.stations("1009")) {
+            Integer exists = jdbcTemplate.queryForObject(
+                    "select count(*) from subway_station where line_id = '1009' and statn_id = ?", Integer.class,
+                    station.getStationId());
+            if (exists == null || exists == 0) {
+                ids.add(jdbcTemplate.queryForObject("""
+                        insert into subway_station (created_at, updated_at, line_id, statn_id, statn_nm)
+                        values (now(), now(), '1009', ?, ?) returning id
+                        """, Long.class, station.getStationId(), station.getStationName()));
+            }
+        }
+        return ids;
+    }
 
     /** 이미 탄 열차를 고른다(떠난 열차·탑승 중 재선택) — 링이 승차역이 아니라 다음 역부터 센다. */
     private void selectAboard(String trainNo) {

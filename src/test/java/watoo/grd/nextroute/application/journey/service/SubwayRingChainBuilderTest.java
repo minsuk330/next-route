@@ -38,11 +38,14 @@ class SubwayRingChainBuilderTest {
 
     @BeforeEach
     void setUp() {
+        resolver = SubwayExpressFixtures.resolver();
+        builder = new SubwayRingChainBuilder(stationResolver(), resolver);
+    }
+
+    private static SubwayRingStationResolver stationResolver() {
         SubwayStationRepository repository = mock(SubwayStationRepository.class);
         given(repository.findByLineId(anyString())).willAnswer(inv -> SubwayExpressFixtures.stations(inv.getArgument(0)));
-        resolver = SubwayExpressFixtures.resolver();
-        builder = new SubwayRingChainBuilder(new SubwayRingStationResolver(repository, new DestinationNormalizer()),
-                resolver);
+        return new SubwayRingStationResolver(repository, new DestinationNormalizer());
     }
 
     private ResolvedPattern express9600() {
@@ -121,7 +124,7 @@ class SubwayRingChainBuilderTest {
     }
 
     @Test
-    @DisplayName("급행이 탑승역·하차역에 서지 않거나 패턴을 모르면 빈 체인 — 링을 그리지 않는다")
+    @DisplayName("급행이 탑승역·하차역에 서지 않으면 빈 체인 — 링을 그리지 않는다")
     void expressNotStoppingOrUnresolvedIsEmpty() {
         List<String> fromDeungchon = ALL_STOP_GAYANG_SINNONHYEON.subList(2, ALL_STOP_GAYANG_SINNONHYEON.size());
         List<String> toSeonyudo = ALL_STOP_GAYANG_SINNONHYEON.subList(0, 6);
@@ -130,8 +133,49 @@ class SubwayRingChainBuilderTest {
                 .as("탑승 등촌").isFalse();
         assertThat(builder.build(LINE9, UP, toSeonyudo, SubwayBindingTrainKind.EXPRESS, express9600()).isUsable())
                 .as("하차 선유도").isFalse();
-        assertThat(builder.build(LINE9, UP, ALL_STOP_GAYANG_SINNONHYEON, SubwayBindingTrainKind.EXPRESS, null)
-                .isUsable()).as("패턴 모름").isFalse();
+    }
+
+    @Test
+    @DisplayName("#482 (c) 급행인데 해석 실패(패턴 모름)·완행 경로 모름이면 계획 체인 그대로 — 모름(UNKNOWN)과 같다")
+    void unresolvedExpressKeepsPlannedChain() {
+        SubwayRingChain planned = builder.build(LINE9, UP, EXPRESS_GAYANG_SINNONHYEON, null, null);
+
+        assertThat(builder.build(LINE9, UP, EXPRESS_GAYANG_SINNONHYEON, SubwayBindingTrainKind.EXPRESS, null))
+                .isEqualTo(planned);
+        SubwayRingChainBuilder cold = new SubwayRingChainBuilder(stationResolver(),
+                watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.coldResolver());
+        assertThat(cold.build(LINE9, UP, EXPRESS_GAYANG_SINNONHYEON, SubwayBindingTrainKind.EXPRESS, express9600()))
+                .as("완행 경로를 아직 모른다").isEqualTo(planned);
+        assertThat(cold.build(LINE9, UP, EXPRESS_GAYANG_SINNONHYEON, SubwayBindingTrainKind.NORMAL, null))
+                .isEqualTo(planned);
+    }
+
+    @Test
+    @DisplayName("#482 (a) journey 294 모양: 급행 계획 동작→신논현 + 일반 열차 — 완행 체인, 다음 역 구반포, 남은 역 5(급행 체인이면 2)")
+    void issue482ExpressPlanNormalTrain() {
+        List<String> expressPlan = List.of("동작", "고속터미널", "신논현");
+        SubwayRingChain planned = builder.build(LINE9, UP, expressPlan, null, null);
+        SubwayRingChain normal = builder.build(LINE9, UP, expressPlan, SubwayBindingTrainKind.NORMAL, null);
+
+        assertThat(planned.alightingSequence()).as("고치기 전: 급행 체인").isEqualTo(2);
+        assertThat(normal.stations()).extracting(SubwayRingChain.Station::name)
+                .containsExactly("동작", "구반포", "신반포", "고속터미널", "사평", "신논현");
+        // 링의 남은 역 = 하차역 순번 - max(목표,1) + 1 — 탑승 직후 목표 1
+        assertThat(normal.alightingSequence() - 1 + 1).isEqualTo(5);
+        assertThat(normal.at(1).name()).isEqualTo("구반포");
+        assertThat(normal.sequenceOfKey(id("사평"))).as("고속터미널 다음 역은 사평").isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("#482 (b) 완행 계획 + 급행 열차 — 정차역만 남긴다, 하차역에 서지 않으면 빈 체인")
+    void normalPlanExpressTrain() {
+        SubwayRingChain trimmed = builder.build(LINE9, UP, ALL_STOP_GAYANG_SINNONHYEON.subList(0, 7),
+                SubwayBindingTrainKind.EXPRESS, express9600());
+        assertThat(trimmed.stations()).extracting(SubwayRingChain.Station::name).containsExactly("가양", "염창", "당산");
+
+        SubwayRingChain notServed = builder.build(LINE9, UP, ALL_STOP_GAYANG_SINNONHYEON.subList(0, 3),
+                SubwayBindingTrainKind.EXPRESS, express9600());
+        assertThat(notServed.isUsable()).as("하차 등촌 — 급행이 서지 않는다").isFalse();
     }
 
     @Test
