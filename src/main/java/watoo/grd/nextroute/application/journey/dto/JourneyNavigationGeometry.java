@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 
 import java.time.OffsetDateTime;
@@ -15,16 +16,31 @@ import java.util.List;
  * @param routeRevision   이 좌표가 속한 경로 개정본. 앱 캐시 fencing 키의 일부다
  * @param legs            단계별 좌표. 저장된 단계 순서를 그대로 따른다
  * @param sourceFetchedAt 좌표 원천 중 가장 오래된 수집 시각. 없으면 null
+ * @param geometryVersion 이 응답의 버전 키(subway-express S2) — {@code {routeRevision}:{급행 카탈로그 판}}. 바뀌면 앱이 다시
+ *                        받는다(카탈로그가 바뀌면 {@code allStops} 의 정차 표시가 달라진다). 열차 바인딩 판은 PR-S4 에서 덧붙인다.
+ *                        구버전 앱은 무시한다
  */
 public record JourneyNavigationGeometry(
         Long journeyId,
         int routeRevision,
         List<LegGeometry> legs,
-        OffsetDateTime sourceFetchedAt
+        OffsetDateTime sourceFetchedAt,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String geometryVersion
 ) {
 
     public JourneyNavigationGeometry {
         legs = legs == null ? List.of() : List.copyOf(legs);
+    }
+
+    /** 버전 키 없는 호출부(시험·옛 조립)용. */
+    public JourneyNavigationGeometry(Long journeyId, int routeRevision, List<LegGeometry> legs,
+                                     OffsetDateTime sourceFetchedAt) {
+        this(journeyId, routeRevision, legs, sourceFetchedAt, null);
+    }
+
+    /** 버전 키: {@code {routeRevision}:{카탈로그 판}}. 카탈로그 판을 모르면 {@code -}. */
+    public static String versionKey(int routeRevision, String catalogVersion) {
+        return routeRevision + ":" + (catalogVersion == null ? "-" : catalogVersion);
     }
 
     /**
@@ -62,6 +78,10 @@ public record JourneyNavigationGeometry(
      * @param displayColor            지도 선 색({@code #RRGGBB}). 검색 응답 lane 의
      *                                {@code routeDisplayColor} 를 그대로 옮긴다. 도보·대기와 색이 없는
      *                                노선은 null — 앱이 수단별 기본색을 쓴다
+     * @param allStops                지하철 타는 단계만(subway-express S2): 승차역~하차역 <b>완행 전체 역</b>과 역마다
+     *                                {@code trainStops}(이 열차가 서는가). 급행이면 지나치는 역이 {@code false} 로 끼고,
+     *                                일반이면 {@code stops} 와 같은 역에 전부 {@code true}. {@code stops} 는 그대로 계획
+     *                                정차열이다 — 구버전 앱이 그것을 센다. 다른 단계는 null(응답에서 빠짐)
      */
     public record LegGeometry(
             int legIndex,
@@ -74,7 +94,8 @@ public record JourneyNavigationGeometry(
             List<SegmentGeometry> segments,
             List<StopGeometry> stops,
             List<ManeuverGeometry> maneuvers,
-            String displayColor
+            String displayColor,
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<StopGeometry> allStops
     ) {
 
         public LegGeometry {
@@ -83,6 +104,18 @@ public record JourneyNavigationGeometry(
             stops = stops == null ? List.of() : List.copyOf(stops);
             // 안내점은 null 대신 빈 목록이다. 앱이 "없음"과 "필드 누락"을 구분할 필요가 없어야 한다.
             maneuvers = maneuvers == null ? List.of() : List.copyOf(maneuvers);
+            // 완행 전체 역은 지하철 타는 단계만 — 없음(null)과 빈 목록을 구분한다
+            allStops = allStops == null ? null : List.copyOf(allStops);
+        }
+
+        /** 완행 전체 역(subway-express S2) 이전 호출부용. */
+        public LegGeometry(int legIndex, JourneyLegType type, String routeId,
+                           Integer plannedDurationSeconds, double totalDistanceMeters,
+                           GeometryQuality quality, List<GeoPoint> points,
+                           List<SegmentGeometry> segments, List<StopGeometry> stops,
+                           List<ManeuverGeometry> maneuvers, String displayColor) {
+            this(legIndex, type, routeId, plannedDurationSeconds, totalDistanceMeters,
+                    quality, points, segments, stops, maneuvers, displayColor, null);
         }
 
         /** 색을 붙이기 전 단계의 호출부용. 색은 {@link #withDisplayColor} 로 마지막에 붙인다. */
@@ -115,7 +148,13 @@ public record JourneyNavigationGeometry(
 
         public LegGeometry withDisplayColor(String color) {
             return new LegGeometry(legIndex, type, routeId, plannedDurationSeconds,
-                    totalDistanceMeters, quality, points, segments, stops, maneuvers, color);
+                    totalDistanceMeters, quality, points, segments, stops, maneuvers, color, allStops);
+        }
+
+        /** 완행 전체 역만 갈아끼운다(나머지 보존). */
+        public LegGeometry withAllStops(List<StopGeometry> newAllStops) {
+            return new LegGeometry(legIndex, type, routeId, plannedDurationSeconds,
+                    totalDistanceMeters, quality, points, segments, stops, maneuvers, displayColor, newAllStops);
         }
     }
 
@@ -161,6 +200,8 @@ public record JourneyNavigationGeometry(
      * @param stopId   정류장 식별자. <b>지하철은 null</b>
      * @param stopName 정류장·역 이름
      * @param stopNo   버스 정류장 번호(#266). 서울 노선표 경로만 채운다 — 그 밖(경기·지방·지하철)은 null
+     * @param trainStops 지하철 {@code allStops} 에서만: 이 열차가 이 역에 서는가(subway-express S2). {@code stops} 와 버스는
+     *                   null(응답에서 빠짐)
      */
     public record StopGeometry(
             int seq,
@@ -168,11 +209,16 @@ public record JourneyNavigationGeometry(
             String stopName,
             Double x,
             Double y,
-            String stopNo
+            String stopNo,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean trainStops
     ) {
 
         public StopGeometry(int seq, String stopId, String stopName, Double x, Double y) {
-            this(seq, stopId, stopName, x, y, null);
+            this(seq, stopId, stopName, x, y, null, null);
+        }
+
+        public StopGeometry(int seq, String stopId, String stopName, Double x, Double y, String stopNo) {
+            this(seq, stopId, stopName, x, y, stopNo, null);
         }
     }
 

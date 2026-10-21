@@ -20,6 +20,7 @@ import watoo.grd.nextroute.application.route.mapping.BusRealtimeStopIds;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
+import watoo.grd.nextroute.application.route.routing.RailServiceClassifier;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
@@ -82,6 +83,8 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
     private final WalkManeuverAnchorer maneuverAnchorer;
     private final ObjectMapper objectMapper;
     private final BusRealtimeStopIds busRealtimeStopIds;
+    // 지하철 단계 완행 전체 역(allStops)·버전 키의 카탈로그 판(subway-express S2).
+    private final RailServiceClassifier railServiceClassifier;
 
     @Override
     @Transactional(readOnly = true)
@@ -111,8 +114,8 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                         routeStopsByRouteId);
                 case WAIT_BUS, WAIT_SUBWAY -> new Built(waitLeg(leg, sub), null);
                 case WALK, TRANSFER_WALK -> new Built(walkLeg(leg, sub), null);
-                case RIDE_SUBWAY ->
-                        new Built(withStops(snapshotLeg(leg, sub), subwayStations(sub)), null);
+                case RIDE_SUBWAY -> new Built(withStops(snapshotLeg(leg, sub), subwayStations(sub))
+                        .withAllStops(subwayAllStops(leg, sub)), null);
                 default -> new Built(snapshotLeg(leg, sub), null);
             };
             geometries.add(built.geometry().withDisplayColor(
@@ -120,7 +123,8 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
             oldestFetchedAt = older(oldestFetchedAt, built.sourceFetchedAt());
         }
 
-        return new JourneyNavigationGeometry(journeyId, revision, geometries, oldestFetchedAt);
+        return new JourneyNavigationGeometry(journeyId, revision, geometries, oldestFetchedAt,
+                JourneyNavigationGeometry.versionKey(revision, railServiceClassifier.catalogVersion()));
     }
 
     // ── 버스 ────────────────────────────────────────────────────────────────
@@ -279,6 +283,50 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
     }
 
     /**
+     * 지하철 타는 단계의 완행 전체 역({@code allStops}, subway-express S2). 새 앱이 'N개 역'·남은 역을 이 열차가 서는 역만으로
+     * 센다(D9). {@code stops}(계획 정차열)는 손대지 않는다 — 구버전 앱이 그것을 센다.
+     *
+     * <ul>
+     *   <li>급행(일반·모름이 아닌 종류)이면 계획 정차열의 첫·끝 역 사이를 완행 순서로 펼치고(S1 해석기) 계획 정차열에 있는
+     *       역만 {@code trainStops=true}</li>
+     *   <li>일반·모름이거나 펼치지 못하면 계획 정차열 그대로 전부 {@code true} — 세는 값은 같다(계획 정차열이 곧 이 열차가 서는
+     *       역이다). 지나치는 역만 못 보여 준다</li>
+     * </ul>
+     * 미바인딩 여정 기준이다. 열차가 묶이면(S4) 그 열차의 해석된 패턴으로 바꾼다.
+     */
+    private List<StopGeometry> subwayAllStops(JourneyLeg leg, SubPathResult sub) {
+        List<StopGeometry> planned = subwayStations(sub);
+        List<StopGeometry> asTrainStops = planned.stream()
+                .map(s -> new StopGeometry(s.seq(), s.stopId(), s.stopName(), s.x(), s.y(), null, true))
+                .toList();
+        String kind = sub != null && sub.trainKind() != null ? sub.trainKind() : leg.getGuidance().trainKind();
+        if (kind == null || "NORMAL".equals(kind) || planned.size() < 2 || sub.lanes() == null
+                || sub.lanes().isEmpty()) {
+            return asTrainStops;
+        }
+        List<RailServiceClassifier.PlannedStop> plannedStops = new ArrayList<>(planned.size());
+        for (StopGeometry stop : planned) {
+            if (stop.stopName() == null || stop.x() == null || stop.y() == null) {
+                return asTrainStops;
+            }
+            plannedStops.add(new RailServiceClassifier.PlannedStop(stop.stopName(), stop.x(), stop.y()));
+        }
+        Optional<List<RailServiceClassifier.RailStop>> expanded = railServiceClassifier.expandAllStops(
+                sub.lanes().get(0).name(), plannedStops);
+        if (expanded.isEmpty()) {
+            return asTrainStops;
+        }
+        List<RailServiceClassifier.RailStop> stops = expanded.get();
+        List<StopGeometry> out = new ArrayList<>(stops.size());
+        for (int i = 0; i < stops.size(); i++) {
+            RailServiceClassifier.RailStop stop = stops.get(i);
+            // 지하철 stopId 는 비운다(subwayStations 와 같은 이유 — 검색·실시간 역 id 체계가 다르다)
+            out.add(new StopGeometry(i, null, stop.name(), stop.lon(), stop.lat(), null, stop.trainStops()));
+        }
+        return out;
+    }
+
+    /**
      * 걷는 단계. 기존 좌표 조립에 turn-by-turn 안내점만 얹는다.
      *
      * <p>안내점은 <b>얼려 둔 검색 결과의 {@code walkSteps}</b> 에서 나온다. 조회 때 TMAP 을 다시
@@ -397,7 +445,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                 geometry.legIndex(), geometry.type(), geometry.routeId(),
                 geometry.plannedDurationSeconds(), geometry.totalDistanceMeters(),
                 geometry.quality(), geometry.points(), geometry.segments(), stops,
-                geometry.maneuvers(), geometry.displayColor());
+                geometry.maneuvers(), geometry.displayColor(), geometry.allStops());
     }
 
     /** 안내점만 갈아끼운다. {@link #withStops} 와 같은 이유로 나머지를 보존한다. */
@@ -406,7 +454,7 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                 geometry.legIndex(), geometry.type(), geometry.routeId(),
                 geometry.plannedDurationSeconds(), geometry.totalDistanceMeters(),
                 geometry.quality(), geometry.points(), geometry.segments(), geometry.stops(),
-                maneuvers, geometry.displayColor());
+                maneuvers, geometry.displayColor(), geometry.allStops());
     }
 
     /** 나쁜 쪽을 남긴다. 앱이 단계 하나만 보고 "믿어도 되는가"를 판단할 수 있어야 한다. */

@@ -89,6 +89,11 @@ public class RailServiceClassifier {
     public record PlannedStop(String name, double lon, double lat) {
     }
 
+    /** 급행 카탈로그 판(geometry 버전 키). 못 읽었으면 null. */
+    public String catalogVersion() {
+        return catalog.version();
+    }
+
     /** OTP 가 노선 단위로 거를 수 있는 노선형 급행 route id. */
     public Set<String> expressRouteIds() {
         return EXPRESS_ROUTE_IDS;

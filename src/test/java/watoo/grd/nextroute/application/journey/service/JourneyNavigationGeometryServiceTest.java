@@ -84,7 +84,8 @@ class JourneyNavigationGeometryServiceTest {
                 new WalkManeuverAnchorer(new GeometrySegmentAllocator(),
                         new WalkManeuverTypeMapper()),
                 objectMapper,
-                new BusRealtimeStopIds(InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()));
+                new BusRealtimeStopIds(InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()),
+                watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier());
     }
 
     @Test
@@ -177,6 +178,83 @@ class JourneyNavigationGeometryServiceTest {
         LegGeometry bus = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(2);
 
         assertThat(bus.displayColor()).isEqualTo("#0068B7");
+    }
+
+    // ── subway-express S2: allStops·버전 키 ─────────────────────────────────
+
+    /** 9호선 급행 가양→염창(증미·등촌 통과). 좌표는 운영 OTP fixture. */
+    private PathResult line9Express(String trainKind) {
+        SubPathResult subway = SubPathFixture.subway(4).names("가양", "염창")
+                .coords(126.854271, 37.561558, 126.874771, 37.546974)
+                .stations(
+                        new StationResult(0, "1:G", "가양", 126.854271, 37.561558),
+                        new StationResult(1, "1:Y", "염창", 126.874771, 37.546974))
+                .lanes(new LaneResult("서울9호선", null, null, null, null, null, "#BDB092"))
+                .trainKind(trainKind)
+                .build();
+        return new PathResult(1, null, List.of(subway), List.of());
+    }
+
+    @Test
+    @DisplayName("급행 지하철 단계: stops 는 계획 정차열 그대로, allStops 는 완행 전체 역에 통과역 trainStops=false")
+    void expressSubwayAllStops() throws Exception {
+        givenJourney(line9Express("EXPRESS"));
+        givenLegs(leg(0, JourneyLegType.RIDE_SUBWAY, 240));
+        givenOptions();
+
+        JourneyNavigationGeometry geometry = service.get(USER_ID, JOURNEY_ID, REVISION);
+        JourneyNavigationGeometry.LegGeometry ride = geometry.legs().get(0);
+
+        assertThat(ride.stops()).extracting(StopGeometry::stopName).containsExactly("가양", "염창");
+        assertThat(ride.stops()).extracting(StopGeometry::trainStops).containsOnlyNulls();
+        assertThat(ride.allStops()).extracting(StopGeometry::stopName).containsExactly("가양", "증미", "등촌", "염창");
+        assertThat(ride.allStops()).extracting(StopGeometry::trainStops).containsExactly(true, false, false, true);
+        assertThat(ride.allStops()).extracting(StopGeometry::seq).containsExactly(0, 1, 2, 3);
+        assertThat(ride.allStops()).extracting(StopGeometry::stopId).containsOnlyNulls();
+        assertThat(ride.allStops().get(1).x()).isNotNull();
+        assertThat(ride.displayColor()).isEqualTo("#BDB092");
+
+        String json = objectMapper.writeValueAsString(geometry);
+        assertThat(json).contains("\"geometryVersion\":\"1:2026-10-21\"");
+        // 구버전 앱이 세는 stops 에는 새 칸이 나가지 않는다
+        com.fasterxml.jackson.databind.JsonNode leg = objectMapper.readTree(json).path("legs").get(0);
+        assertThat(leg.path("stops").get(0).has("trainStops")).isFalse();
+        assertThat(leg.path("allStops").get(1).path("trainStops").asBoolean(true)).isFalse();
+    }
+
+    @Test
+    @DisplayName("일반·모름 지하철 단계: allStops 는 계획 정차열에 전부 trainStops=true, 다른 단계는 allStops 가 없다")
+    void normalSubwayAndOtherLegs() throws Exception {
+        givenJourney(subwayWithStations());
+        givenLegs(leg(0, JourneyLegType.RIDE_SUBWAY, 300));
+        givenOptions();
+
+        JourneyNavigationGeometry.LegGeometry ride = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(0);
+
+        assertThat(ride.allStops()).extracting(StopGeometry::stopName).containsExactly("성수", "건대입구", "구의");
+        assertThat(ride.allStops()).extracting(StopGeometry::trainStops).containsOnly(true);
+
+        givenJourney(walkWithPolyline());
+        givenLegs(leg(0, JourneyLegType.WALK, 300));
+        JourneyNavigationGeometry walkOnly = service.get(USER_ID, JOURNEY_ID, REVISION);
+        assertThat(walkOnly.legs().get(0).allStops()).isNull();
+        assertThat(objectMapper.writeValueAsString(walkOnly)).doesNotContain("allStops");
+    }
+
+    @Test
+    @DisplayName("급행인데 완행 순서를 모르면(서울 노선 아님) 계획 정차열 그대로 — 세는 값은 같다")
+    void expressUnknownLineFallsBack() {
+        SubPathResult subway = SubPathFixture.subway(4).names("A", "B")
+                .stations(new StationResult(0, "1:A", "A", 127.0, 37.5), new StationResult(1, "1:B", "B", 127.1, 37.5))
+                .lanes(new LaneResult("부산1호선", null, null, null, null, null, null)).trainKind("EXPRESS").build();
+        givenJourney(new PathResult(1, null, List.of(subway), List.of()));
+        givenLegs(leg(0, JourneyLegType.RIDE_SUBWAY, 240));
+        givenOptions();
+
+        JourneyNavigationGeometry.LegGeometry ride = service.get(USER_ID, JOURNEY_ID, REVISION).legs().get(0);
+
+        assertThat(ride.allStops()).extracting(StopGeometry::stopName).containsExactly("A", "B");
+        assertThat(ride.allStops()).extracting(StopGeometry::trainStops).containsOnly(true);
     }
 
     @Test
