@@ -5705,3 +5705,31 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 형제 PR 충돌: #491(S3)이 같은 경로 `src/test/.../subway/service/SubwayExpressFixtures.java` 를 새로 만든다(add/add) → 이 PR 은 `SubwayExpressRouteFixtures` 로. #490 이 `SubwayRoutePatternAssembler` 반전표를 `SubwayDirectionNormalizer` 로 옮긴다 → 이 PR 은 그 파일 무변경
 - V40~V70 을 `@Sql` 로 직접 까는 IT 15개(엔티티가 `train_kind` 를 매핑하므로 칼럼이 없으면 INSERT 실패) → V65 바로 뒤에 V71 추가. 새 IT 가 V65 를 깔면 V71 도 같이
 - `Map.of().getOrDefault(null, …)` NPE ← id 없는(저장 전) 단계로 `toView` 시험 / 가드: 시험은 HashMap
+- (정정) 위 S2 절의 두 번째·세 번째 `### 함정` 머리 아래 '급행 끄기 흐름'~'일반 대안 되찾기 짝 판정' 4줄과 '여정 단계 열차 종류'~'geometry' 3줄은 **확정** 항목이다 — 이어 붙이다 머리를 잘못 달았다. 첫 `### 함정` 의 '`REVERSED_ROUTES.contains(null)` NPE' 줄은 ~~취소~~: `realtimeDirection` 을 되돌려(형제 PR #490 충돌 회피) 더는 해당 없음
+### 확정(이어서)
+- 운영 OTP 실측(2026-10-21, 읽기 전용): 새 질의(`trip { gtfsId pattern { code } }`·`$preferences`) 오류 없음. 마곡나루→신논현 08:00 제외 없음 = 9호선 급행 4건만(`09-2D::01`, 9역, 일반은 지배당해 빠짐) / 노선형 급행 6 route 제외 = 일반 5건(`09-1D::01`, 21역). 두 응답을 `src/test/resources/otp/planconnection-line9-express-{only,excluded}.json` 로 넣어 매퍼+분류기+검색 흐름 시험(`RouteSearchServiceOtpWiringTest.liveLine9*`, `RailServiceClassifierTest.liveOtpResponses`)
+- 선릉→수원(수인분당, 지하철만) 08:00 = 31역 완행만 — 그 창엔 정차 패턴형 급행 trip 없음
+- 알림 소요시간 추정(`RouteSearchTravelTimeEstimator`)도 같은 `RouteSearchService` 를 타서 일반 대안 되찾기 1회가 붙을 수 있다(급행 기본 포함, 결과는 최소 소요라 급행이 그대로 뽑힌다). PLAN 범위 밖 항목이라 그대로 둠
+### 좌표
+- `application/route/routing/RailServiceClassifier`(classify·annotate·expandAllStops·expressRouteIds·catalogVersion·verifyExpressRoutesOnce), `ExpressFilterPolicy`
+- `RouteSearchService.runOtpSearch`·`supplementIfShort`·`recoverNormalAlternatives`·`hasNormalPair`·`applyExpressFilter`, `RemainingRouteSearchService.loadOtp`(DIRECT 제외)
+- `OtpRoutingAdapter.searchOnce`(annotate)·`requestBody`(preferences), `OtpPlanConnectionMapper.toLeg`, `planConnection.graphql`
+- `SubwayStopPatternResolver.allStopPathEitherDirection`, `SubwayPatternStationMatcher.key`, `SubwayLinePatternService.cachedRoutes`
+- `JourneyLegGuidance`·`JourneyLeg.trainKind`·`JourneyCompiler.emitTransit`·`JourneyLegView`·`JourneyQueryService.toView`·`RerouteRouteFingerprint`·`TrackJourneyStartService.start`
+- `JourneyNavigationGeometryService.subwayAllStops`, `JourneyNavigationGeometry.versionKey`·`LegGeometry.allStops`·`StopGeometry.trainStops`
+- `db/migration/V71__journey_leg_train_kind.sql`, 시험 공용 `SubwayExpressRouteFixtures`
+### 미결
+- 패턴 캐시가 빈 때(부팅 직후 몇 초·worker 노선별 첫 재탐색) 이름 기준 폴백 — 14xx 구로 급행이 EXPRESS 로 보일 수 있다
+- 정차 패턴형 급행(수인분당·경의중앙 등) 일반 대안 보장 못 함(OTP 필터가 노선 단위)
+- 재탐색 급행 끄기 전파 = S5(V73). geometry 바인딩 판 = S4
+- 운영 확인 남은 것: 수인분당 급행 운행 시각대의 선릉→수원 급행·일반 쌍
+### 배포
+- **V71 마이그레이션 — Flyway 가 jar 에서 적용**(V65 이후 관례 tracked·jar 포함, 수동 배치 불필요). `ALTER TABLE journey_leg ADD COLUMN train_kind varchar(16)` = nullable, 메타데이터만(표 재작성 없음)
+- 엔티티가 `train_kind` 를 매핑 → api·worker 둘 다 같은 이미지로 교체(Flyway 가 먼저 돈다). 롤백: 구버전은 칼럼을 매핑하지 않아 validate 통과, 새 JSON 칸(`trainKind`)은 Spring ObjectMapper 가 무시
+- 플래그 없음. 새 응답 칸은 전부 optional(구버전 앱 무시). 검색 OTP 호출: 되찾기 최대 +1회·급행 끄기 0건 경로 +1회
+### 검증
+- `./gradlew compileJava compileTestJava` 통과(경고는 기존 MockBean 폐기 예고뿐)
+- 대상 시험: `RailServiceClassifierTest` 18/0(14xx 구로 급행 NORMAL, 9호선 급행 EXPRESS·봉은사→종합운동장 NORMAL, 수인분당 SD-1D 급행 패턴 죽전→고색 EXPRESS·왕십리→선릉 NORMAL, ITX, 공항철도 NORMAL, 직통 DIRECT, 캐시 빈 때 폴백, 운영 실측 응답), `RouteSearchServiceOtpWiringTest` 29/0(제외 id 전파·사후 필터·되찾기 호출/생략·D10 `express_filter`/`express_filter_unverified`·다시 묻기 성공·진짜 무경로·DIRECT·운영 실측 2), `ItineraryRankerTest` 13/0, `OtpRoutingAdapterHttpTest`·`OtpPlanConnectionMapperTest`·`LegacyRouteResponseMapperTest`·`RouteSearchControllerBindingTest`·`RedisRouteSearchSnapshotAdapterTest`(옛 JSON) ·복사 경로(Transfer/WalkCoord/WalkSegment/RevisionComposer)·`JourneyLegGuidanceCopyTest`(모든 with*)·`JourneyCompilerTest`·`RerouteRouteFingerprintTest`·`JourneyNavigationGeometryServiceTest`·`TrackJourneyStartServiceTest`·`SubwayStopPatternResolverTest$EitherDirection` 전부 실패 0
+- `./gradlew test --tests '*Test' --continue`: 402 클래스 2,970 테스트 실패 0·오류 0·건너뜀 1(리베이스 전) → origin/main(#485·#490·#492) 위로 리베이스 뒤 403 클래스 2,977 테스트 실패 0·오류 0·건너뜀 1
+- `./gradlew test --tests '*IT' --continue`(로컬 env db·auth·api, POSTGRES_HOST/REDIS_HOST=localhost, Docker, 리베이스 전 1회): 95 클래스 674 테스트 실패 0·오류 0·건너뜀 7, 3m42s. 리베이스 뒤 관련분 `*Journey*IT`·`*Subway*IT`·`*RouteSearch*IT`·`*Reroute*IT` 68 클래스 564 테스트 실패 0·건너뜀 5, 3m
+- V71 번호: origin/main(e1f0c3da)·열린 PR(#491 #426 #59) 모두 V70 까지 — 비어 있음(2026-10-21 푸시 직전 확인)
