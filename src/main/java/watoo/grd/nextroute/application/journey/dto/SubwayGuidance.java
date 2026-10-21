@@ -53,6 +53,9 @@ import java.util.List;
  * @param trainKind              묶인 열차 종류(subway-express PR-S4): {@code NORMAL}·{@code EXPRESS}·{@code UNKNOWN}. 링이 없거나
  *                               배포 전 바인딩이 아직 분류 전이면 null. 앱은 이 값을 계획 {@code trainKind} 보다 앞세운다
  * @param trainLabel             표시 이름(일반·급행). 모름이면 null. {@code lineName} 은 바꾸지 않는다 — 앱이 배지를 따로 그린다
+ * @param bindingVersion         묶인 열차의 판(#501) — 노선 경로 {@code geometryVersion} 의 바인딩 판과 같은 값이다. 열차를 다시
+ *                               고르면 오른다. 같은 종류의 다른 급행(1호선 경부 A↔B)으로 바꿔도 {@code trainKind} 는 그대로라
+ *                               앱이 이 값으로 노선 경로를 다시 받는다. 링이 없거나 아직 확인 중이면 null
  */
 public record SubwayGuidance(
         SubwayBindingStatus bindingStatus,
@@ -83,8 +86,27 @@ public record SubwayGuidance(
         Instant trainLeftAlightingAt,
         @JsonIgnore boolean trainBeforeBoarding,
         String trainKind,
-        String trainLabel
+        String trainLabel,
+        Integer bindingVersion
 ) {
+
+    /** 열차 판 없이(subway-express PR-S4 모양, #501 전). */
+    public SubwayGuidance(SubwayBindingStatus bindingStatus, SubwayRingPhase phase, String lineName,
+                          String nextStationName, String alightingStationName, Integer remainingStations,
+                          BigDecimal segmentProgress, Instant progressBaseAt, BigDecimal progressTarget,
+                          Instant estimatedNextStationAt, Instant progressValidUntil,
+                          SubwayRingQuality quality, Instant observedAt, Long version,
+                          Instant estimatedAlightingAt, SubwayRingHoldReason holdReason, String holdStationName,
+                          SubwayRingEtaSource etaSource, SubwayRingEtaSource alightingEtaSource,
+                          String approachingStationName, Integer stationsUntilBoarding, List<String> approachStations,
+                          Instant trainLeftAlightingAt, boolean trainBeforeBoarding,
+                          String trainKind, String trainLabel) {
+        this(bindingStatus, phase, lineName, nextStationName, alightingStationName, remainingStations,
+                segmentProgress, progressBaseAt, progressTarget, estimatedNextStationAt, progressValidUntil,
+                quality, observedAt, version, estimatedAlightingAt, holdReason, holdStationName,
+                etaSource, alightingEtaSource, approachingStationName, stationsUntilBoarding, approachStations,
+                trainLeftAlightingAt, trainBeforeBoarding, trainKind, trainLabel, null);
+    }
 
     /** 열차 종류 없이(옛 모양·시험, subway-express PR-S4 전). */
     public SubwayGuidance(SubwayBindingStatus bindingStatus, SubwayRingPhase phase, String lineName,
@@ -215,6 +237,8 @@ public record SubwayGuidance(
                 // 체인은 승차역을 0 으로 센다. 열차가 승차역에 서면 링은 곧바로 다음 구간(1)으로 넘어간다.
                 ring.nextStationSequence() == 0 && !ring.arrivedAtNextStation(),
                 // 묶인 열차 종류(subway-express PR-S4). push 와 같은 값 — 링에서 읽는다
-                ring.trainKind(), ring.trainLabel());
+                ring.trainKind(), ring.trainLabel(),
+                // 노선 경로 geometryVersion 과 같은 판(#501). 링은 지금 판의 키로만 읽히므로 바인딩 판과 같다
+                ring.bindingVersion());
     }
 }

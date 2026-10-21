@@ -5874,3 +5874,14 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - `SubwayRingExpressReplayIT` 2(S4 신규): 급행 카탈로그가 역 마스터(`subway_station`)로 역을 잇는데 일회용 DB 는 스키마만이라 비어 9호선 서비스 보류 ← 환경. 공개 역 마스터 645행만 공유 DB 에서 읽어 넣고 그 클래스 재실행 2/0
   - `RerouteRemainingPathOtpLiveIT` 1: 로컬 OTP 가 떠 있어 `@EnabledIf(otpReachable)` 로 켜졌고, 시험의 `route.search.otp-ms=15000` 이 기본 `lease-ms`(12000) 검증기에 걸려 컨텍스트 로드 실패 ← **기존 무관**(이 PR 은 설정·그 시험 무변경, 노트 4134행의 "main 에서도 실패" 와 같은 시험). 지난 실행엔 OTP 가 없어 건너뜀
   - 일회용 컨테이너 삭제. 공유 개발 DB(:5432) 는 읽기(역 마스터 덤프)만, 쓰기 없음
+
+## 2026-10-22 guidance-binding-version (#501)
+### 확정
+- `SubwayGuidance.bindingVersion` = 링 상태의 `bindingVersion` = `subway_leg_binding.version`. 노선 경로 `geometryVersion` 의 바인딩 조각(`{legIndex}.{version}{N|E|U}`)과 같은 값이다. 링은 지금 판의 키로만 읽히므로(composer 의 `ring.matches`) 따로 대조하지 않는다
+- 확인 중(`pending`)이면 null. push payload 는 링에서 따로 만들므로 바뀌지 않는다
+### 함정
+- 배포 전 행을 링이 한 번 분류할 때는 `trainKind` 만 채우고 `version` 은 올리지 않는다(`SubwayLegBinding` 266행 부근). 앱의 노선 경로 재요청 키는 `bindingVersion` 과 `trainKind` 를 **둘 다** 넣어야 이 경우도 잡힌다
+### 좌표
+- src/main/java/watoo/grd/nextroute/application/journey/dto/SubwayGuidance.java — `of` 에서 옮겨 싣는다
+### 검증
+- `./gradlew test --tests 'watoo.grd.nextroute.application.journey.*Test' --tests 'watoo.grd.nextroute.infrastructure.adapter.in.api.journey.*Test'`: 175 클래스, 실패 0
