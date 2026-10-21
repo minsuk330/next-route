@@ -59,7 +59,8 @@ class RouteSearchServiceTest {
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
                 new DepartureTimeResolver(Clock.systemDefaultZone()),
                 otpConcurrencyGate,
-                Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
+                Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
+                new WalkCoordResolver());
     }
 
     /** ODSAY 롤백 구성. 기본값에 기대지 않고 명시한다 — P7 부터 코드 기본값은 OTP 다. */
@@ -84,7 +85,8 @@ class RouteSearchServiceTest {
                 mapper,
                 new DepartureTimeResolver(Clock.systemDefaultZone()),
                 gate,
-                Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
+                Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
+                new WalkCoordResolver());
     }
 
     private RoutingResult otpResult() {

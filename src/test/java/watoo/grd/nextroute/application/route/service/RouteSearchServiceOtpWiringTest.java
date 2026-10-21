@@ -86,7 +86,8 @@ class RouteSearchServiceOtpWiringTest {
                 new RouteSearchDeadlineProperties(),
                 selector,
                 new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
-                new DepartureTimeResolver(Clock.systemDefaultZone()), grantingGate, Clock.systemDefaultZone(), otpProps);
+                new DepartureTimeResolver(Clock.systemDefaultZone()), grantingGate, Clock.systemDefaultZone(), otpProps,
+                new WalkCoordResolver());
     }
 
     private RoutingPort otpReturning(RoutingOutcome outcome) {
@@ -400,5 +401,69 @@ class RouteSearchServiceOtpWiringTest {
                 .isInstanceOf(OdSayApiException.class)
                 .satisfies(e -> assertThat(((OdSayApiException) e).getKind())
                         .isEqualTo(OdSayApiException.Kind.TIMEOUT));
+    }
+
+    // ── 도보 구간 끝점(#468) ────────────────────────────────────────────────
+
+    /** OTP 도보 leg: 정류장 목록이 없다(OtpPlanConnectionMapper 가 걷기에는 만들지 않는다). */
+    private static RoutingLeg otpWalkLeg() {
+        return new RoutingLeg(RoutingMode.WALK, null, null, null, null, null, null, null,
+                Instant.now(), Instant.now(), 300, List.of(), List.of(), LegGeometry.missing("walk"),
+                Enrichment.staticOnly(RealtimeCoverage.NONE), Set.of());
+    }
+
+    private static RoutingLeg otpSubwayLeg(StopOccurrence board, StopOccurrence alight) {
+        return new RoutingLeg(RoutingMode.SUBWAY, "SUBWAY", "1", "1:A1", "1:S2", "서울2호선",
+                "1:T", null, Instant.now(), Instant.now(), 600, List.of(board, alight),
+                List.of(), LegGeometry.missing("x"),
+                Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of());
+    }
+
+    private static RoutingResult itinerary(RoutingLeg... legs) {
+        RoutingItinerary it = new RoutingItinerary(Instant.now(), 600, 0, 600, 0, false,
+                List.of(), Fare.unknown(), List.of(legs));
+        return new RoutingResult(RoutingProvider.OTP, "v", "202503", "g1",
+                null, null, Instant.now(), List.of(), List.of(it));
+    }
+
+    @Test
+    @DisplayName("장소 목적지 OTP 경로: 첫 걷기 시작·마지막 걷기 끝이 요청 출발·도착 이름과 좌표다(#468)")
+    void otpPlaceDestinationFillsWalkEndpoints() {
+        StopOccurrence gangnam = new StopOccurrence("1:RS_222", null, null, 0, 127.0276, 37.4979, "강남");
+        StopOccurrence samseong = new StopOccurrence("1:RS_219", null, null, 1, 127.0630, 37.5088, "삼성");
+
+        RouteSearchResult legacy = service(otpReturning(itinerary(
+                otpWalkLeg(), otpSubwayLeg(gangnam, samseong), otpWalkLeg())))
+                .search(new RouteSearchRequest(127.0270, 37.4985, 127.0590, 37.5115, "현재 위치", "코엑스"));
+
+        List<watoo.grd.nextroute.application.route.dto.SubPathResult> subs = legacy.paths().get(0).subPaths();
+        assertThat(subs).extracting(s -> s.trafficType()).containsExactly(3, 1, 3);
+        assertThat(subs.get(0).startName()).isEqualTo("현재 위치");
+        assertThat(subs.get(0).startX()).isEqualTo(127.0270);
+        assertThat(subs.get(0).endName()).isEqualTo("강남");
+        assertThat(subs.get(2).startName()).isEqualTo("삼성");
+        assertThat(subs.get(2).endName()).isEqualTo("코엑스");
+        assertThat(subs.get(2).endX()).isEqualTo(127.0590);
+        assertThat(subs.get(2).endY()).isEqualTo(37.5115);
+        assertThat(subs.get(1).startName()).isEqualTo("강남");
+        assertThat(subs.get(1).endName()).isEqualTo("삼성");
+    }
+
+    @Test
+    @DisplayName("역 목적지 OTP 경로는 하차역에서 끝난다 — 실시간 없는 검색도 같은 규칙으로 걷기만 채운다")
+    void otpStationDestinationKeepsTransitEnd() {
+        StopOccurrence seoul = new StopOccurrence("1:RS_150", null, null, 0, 126.9707, 37.5547, "서울역");
+        StopOccurrence cityHall = new StopOccurrence("1:RS_151", null, null, 1, 126.9769, 37.5657, "시청");
+
+        RouteSearchResult legacy = service(otpReturning(itinerary(otpWalkLeg(), otpSubwayLeg(seoul, cityHall))))
+                .searchWithoutRealtime(new RouteSearchRequest(126.9700, 37.5550, 126.9769, 37.5657,
+                        "현재 위치", "시청역"));
+
+        List<watoo.grd.nextroute.application.route.dto.SubPathResult> subs = legacy.paths().get(0).subPaths();
+        assertThat(subs).extracting(s -> s.trafficType()).containsExactly(3, 1);
+        assertThat(subs.get(0).startName()).isEqualTo("현재 위치");
+        assertThat(subs.get(0).endName()).isEqualTo("서울역");
+        assertThat(subs.get(1).endName()).isEqualTo("시청");
+        assertThat(subs.get(1).endX()).isEqualTo(126.9769);
     }
 }

@@ -71,6 +71,8 @@ public class RouteSearchService implements SearchRouteUseCase {
     private final Clock clock;
     // 후보 수·노출 상한·정렬 킬스위치(ItineraryRanker).
     private final OtpRoutingProperties otpRoutingProperties;
+    // OTP 도보 구간 끝점 이름·좌표(#468). ODSAY 분기는 WalkSegmentEnricher 가 같은 규칙을 쓴다.
+    private final WalkCoordResolver walkCoordResolver;
 
     @Override
     public RouteSearchResult search(RouteSearchRequest request) {
@@ -178,7 +180,8 @@ public class RouteSearchService implements SearchRouteUseCase {
      * 도착예측을 채운다.
      *
      * <p>지하철 폴리라인(ODsay 캐시)·TMAP 도보 상세는 타지 않는다 — 대중교통 형상은 P3(OSM relation)이
-     * 이미 채우고, 도보는 OTP 가 계산한 실경로를 쓴다. <b>도착예측만</b> ODSAY 분기와 같은
+     * 이미 채우고, 도보는 OTP 가 계산한 실경로를 쓴다(도보 끝점 이름·좌표만 {@link WalkCoordResolver} 로 채운다).
+     * <b>도착예측만</b> ODSAY 분기와 같은
      * {@link TransferArrivalEnricher} 를 태운다(2026-09-20 계약 변경: 서버가 응답에 실어 내린다).
      */
     private RouteSearchResult runOtpSearch(RouteSearchRequest request, RouteSearchContext ctx,
@@ -206,7 +209,12 @@ public class RouteSearchService implements SearchRouteUseCase {
         if (outcome instanceof RoutingFailure failure) {
             return handleOtpFailure(failure, ctx);
         }
-        RouteSearchResult mapped = legacyRouteResponseMapper.toLegacy(selectCandidates((RoutingResult) outcome));
+        // 도보 구간 이름·좌표는 ODSAY 분기와 같은 규칙으로 요청·인접 역에서 채운다(TMAP 없이, #468). OTP 도보 구간은
+        // 정류장 목록이 없어 비어 나온다. 이 값이 검색 스냅샷에 실려 여정 단계의 첫·끝 걷기 이름이 된다.
+        RouteSearchResult mapped = walkCoordResolver.fillWalkEndpoints(
+                legacyRouteResponseMapper.toLegacy(selectCandidates((RoutingResult) outcome)),
+                request.startX(), request.startY(), request.startName(),
+                request.endX(), request.endY(), request.endName());
         // 요청이 실시간을 요구하지 않았으면(알림용 STATIC 경로) 보강하지 않는다 — degradation 이 아니다.
         if (!withRealtime) {
             return mapped;
