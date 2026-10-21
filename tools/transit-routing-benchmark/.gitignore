@@ -25,3 +25,7 @@ data/otp-national/graph-build/
 # GBIS route line/station cache (fetch_gbis_routes.py)
 data/input/gbis/
 data/otp-national/gbis-apply-report.json
+
+# per-build reports (summaries go into release-manifest.json)
+data/otp-national/subway-corrections-report.json
+data/otp-national/calendar-report.json
