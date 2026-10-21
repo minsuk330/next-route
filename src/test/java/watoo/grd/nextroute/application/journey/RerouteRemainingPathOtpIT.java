@@ -248,6 +248,91 @@ class RerouteRemainingPathOtpIT {
         verifyNoInteractions(odSayApiPort);
     }
 
+    // ── 급행 끄기(subway-express S5) ─────────────────────────────────────────
+
+    /** 노선형 급행 route(9호선·1호선 경인/경부 급행). 본 검색의 급행 끄기와 같은 목록이어야 한다. */
+    private static final List<String> EXPRESS_ROUTES = List.of(
+            "1:RR_ACC1_S-1-01-4D", "1:RR_ACC1_S-1-01-4U", "1:RR_ACC1_S-1-01-6D", "1:RR_ACC1_S-1-01-6U",
+            "1:RR_ACC1_S-1-09-2D", "1:RR_ACC1_S-1-09-2U");
+
+    @Test
+    @DisplayName("급행 끄기 검색으로 시작한 여정의 재탐색은 OTP 에 노선형 급행 제외를 실어 묻는다 — 스냅샷 → 세션 → 재검색")
+    void excludeExpressJourneyReroutesWithoutExpressRoutes() throws IOException {
+        journey = startWithExcludeExpress();
+        assertThat(sessionExcludeExpress()).isTrue();
+        Instant readyAt = Instant.now().plusSeconds(600);
+        givenLiveTransfer(readyAt);
+        givenPrediction("BL-721", readyAt.plusSeconds(1200));
+
+        rerouteProposalService.request(userId, journey.journeyId(), 0);
+
+        assertThat(RECEIVED).hasSize(1);
+        JsonNode variables = objectMapper.readTree(
+                RECEIVED.get(0).getBody().readString(StandardCharsets.UTF_8)).path("variables");
+        List<String> excluded = new ArrayList<>();
+        variables.at("/preferences/transit/filters/0/exclude/0/routes").forEach(id -> excluded.add(id.asText()));
+        assertThat(excluded).containsExactlyElementsOf(EXPRESS_ROUTES);
+    }
+
+    @Test
+    @DisplayName("급행 포함 여정(옛 스냅샷·기본)의 재탐색은 제외 없이 묻는다 — 옛 동작 그대로")
+    void defaultJourneyReroutesWithExpress() throws IOException {
+        assertThat(sessionExcludeExpress()).isFalse();
+        Instant readyAt = Instant.now().plusSeconds(600);
+        givenLiveTransfer(readyAt);
+        givenPrediction("BL-721", readyAt.plusSeconds(1200));
+
+        rerouteProposalService.request(userId, journey.journeyId(), 0);
+
+        assertThat(RECEIVED).hasSize(1);
+        JsonNode variables = objectMapper.readTree(
+                RECEIVED.get(0).getBody().readString(StandardCharsets.UTF_8)).path("variables");
+        assertThat(variables.path("preferences").isMissingNode() || variables.path("preferences").isNull())
+                .as("급행 제외 필터 없음").isTrue();
+    }
+
+    @Test
+    @DisplayName("재검색이 급행뿐이라 필터를 풀어도(D10) 세션의 급행 끄기는 그대로이고, 다음 재검색도 제외를 실어 묻는다")
+    void relaxedRerouteKeepsSessionPreference() throws IOException {
+        journey = startWithExcludeExpress();
+        // 9호선 급행만 4건(운영 실측 응답) — 급행 끄기면 일반 0건이라 필터를 푼다.
+        respondWith(200, fixture("otp/planconnection-line9-express-only.json"));
+        Waypoints waypoints = new Waypoints(new Coord(TRANSFER_LON, TRANSFER_LAT),
+                new Coord(DESTINATION_LON, DESTINATION_LAT), "롯데백화점", "고속터미널 정문");
+
+        List<PathResult> relaxed = remainingRouteSearchService.search("ST-G", waypoints, 3000, null, true);
+
+        assertThat(relaxed).as("빈손 대신 급행 포함 결과").isNotEmpty();
+        assertThat(relaxed).allSatisfy(path -> assertThat(path.subPaths())
+                .filteredOn(sub -> sub.trafficType() == 1)
+                .extracting(SubPathResult::trainKind).containsOnly("EXPRESS"));
+
+        Instant readyAt = Instant.now().plusSeconds(600);
+        givenLiveTransfer(readyAt);
+        givenPrediction("BL-721", readyAt.plusSeconds(1200));
+        rerouteProposalService.request(userId, journey.journeyId(), 0);
+
+        assertThat(sessionExcludeExpress()).as("해제는 그 재검색 한 번의 일 — 세션 선호는 그대로").isTrue();
+        assertThat(RECEIVED).hasSize(2);
+        JsonNode second = objectMapper.readTree(
+                RECEIVED.get(1).getBody().readString(StandardCharsets.UTF_8)).path("variables");
+        assertThat(second.at("/preferences/transit/filters/0/exclude/0/routes").size())
+                .isEqualTo(EXPRESS_ROUTES.size());
+    }
+
+    /** 급행 끄기 검색 스냅샷으로 여정을 갈아 시작한다(setUp 의 기본 여정을 대체). */
+    private JourneySnapshot startWithExcludeExpress() {
+        given(snapshotPort.find(SESSION_ID, PATH_KEY)).willReturn(Optional.of(
+                new RouteSearchSnapshotPort.StoredPath(
+                        null, plannedPath(), Instant.now().plusSeconds(600), true)));
+        return startJourneyUseCase.start(userId, new StartJourneyCommand(SESSION_ID, PATH_KEY, true));
+    }
+
+    private boolean sessionExcludeExpress() {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject(
+                "select exclude_express from journey_session where id = ?", Boolean.class, journey.journeyId()));
+    }
+
     // ── 준비 ────────────────────────────────────────────────────────────────
 
     /** 롯데백화점(환승) → 고속터미널(목적지). 픽스처 응답과 같은 좌표다. */

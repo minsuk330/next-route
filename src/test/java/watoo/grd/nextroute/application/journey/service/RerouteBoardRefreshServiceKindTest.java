@@ -48,10 +48,32 @@ class RerouteBoardRefreshServiceKindTest {
         verify(pushService, never()).considerPush(any(), any(), any());
     }
 
+    @Test
+    @DisplayName("보드 회차는 여정 세션의 급행 끄기를 후보 공급자에 넘긴다(subway-express S5)")
+    void passesSessionExcludeExpress() {
+        given(sessionRepository.findById(7L)).willReturn(Optional.of(session(JourneyKind.NAVIGATION, true)));
+        given(candidateProvider.evaluateBoard(any())).willReturn(
+                new RemainingPathCandidateProvider.BoardResult(java.util.Set.of(), java.util.List.of(), true));
+        given(boardService.write(any(), any())).willReturn(new RerouteBoardService.Written(
+                RerouteBoardService.Outcome.STALE_CONTEXT, java.util.List.of(), java.util.Map.of()));
+
+        service.refresh(7L);
+
+        org.mockito.ArgumentCaptor<RemainingPathCandidateProvider.BoardRequest> request =
+                org.mockito.ArgumentCaptor.forClass(RemainingPathCandidateProvider.BoardRequest.class);
+        verify(candidateProvider).evaluateBoard(request.capture());
+        assertThat(request.getValue().excludeExpress()).isTrue();
+    }
+
     private static JourneySession session(JourneyKind kind) {
+        return session(kind, false);
+    }
+
+    private static JourneySession session(JourneyKind kind, boolean excludeExpress) {
         return JourneySession.builder()
                 .userId(1L)
                 .kind(kind)
+                .excludeExpress(excludeExpress)
                 .startedAt(NOW)
                 .guidanceLeaseUntil(NOW.plusSeconds(180))
                 .routeSnapshot(new ObjectMapper().createObjectNode())

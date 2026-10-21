@@ -52,7 +52,7 @@ public class RerouteBoardRefreshService {
         RemainingPathCandidateProvider.BoardResult result = candidateProvider.evaluateBoard(
                 new RemainingPathCandidateProvider.BoardRequest(journey.getId(), journey.getUserId(),
                         journey.getRouteRevision(), journey.getCommandVersion(),
-                        journey.getCurrentLegIndex(), now));
+                        journey.getCurrentLegIndex(), now, journey.isExcludeExpress()));
 
         Map<String, RerouteBoardMerger.Evaluated> evaluated = new HashMap<>();
         Instant observedAt = now;

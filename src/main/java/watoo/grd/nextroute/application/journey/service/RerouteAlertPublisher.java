@@ -100,7 +100,7 @@ public class RerouteAlertPublisher {
 
         RerouteContext context = new RerouteContext(journey.getId(), userId,
                 journey.getRouteRevision(), journey.getCommandVersion(),
-                signal.transferIndex(), now);
+                signal.transferIndex(), now, journey.isExcludeExpress());
         Optional<Proposed> proposed = proposalService.collect(context);
         if (proposed.isEmpty()) {
             metrics.recordAlert("no-candidate");

@@ -197,7 +197,7 @@ public class RerouteProposalService {
         }
 
         RerouteContext context = new RerouteContext(journeyId, userId, journey.getRouteRevision(),
-                journey.getCommandVersion(), transferIndex, now);
+                journey.getCommandVersion(), transferIndex, now, journey.isExcludeExpress());
 
         Optional<Proposed> proposed = collect(context);
         if (proposed.isEmpty()) {

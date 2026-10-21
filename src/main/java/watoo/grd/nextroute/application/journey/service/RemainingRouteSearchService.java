@@ -70,7 +70,7 @@ public class RemainingRouteSearchService {
     // 재탐색 후보 상한(rerouteLimit). 재탐색은 엔진 순서 앞에서 자르기만 한다.
     private final OtpRoutingProperties otpRoutingProperties;
     private final WalkCoordResolver walkCoordResolver;
-    // 검색과 같은 급행 정책(subway-express S2). 지금은 DIRECT 제외만 — 급행 끄기 전파는 S5(세션 저장 값)다.
+    // 검색과 같은 급행 정책(subway-express S2). 급행 끄기는 여정 세션 값(시작 검색의 요청값, S5)으로 건다.
     private final ExpressFilterPolicy expressFilterPolicy;
 
     /**
@@ -96,11 +96,23 @@ public class RemainingRouteSearchService {
      */
     public List<PathResult> search(String stopId, Waypoints waypoints, long budgetMs,
                                    Instant departAt) {
+        return search(stopId, waypoints, budgetMs, departAt, false);
+    }
+
+    /**
+     * 급행 끄기를 따라 검색한다(subway-express S5).
+     *
+     * <p>OTP 경로만 적용된다 — ODSAY 는 급행을 판정하지 않는다(본 검색과 같다).
+     *
+     * @param excludeExpress 여정 세션의 급행 끄기(시작 검색의 요청값). true 면 본 검색과 같은 순서로 급행을 뺀다
+     */
+    public List<PathResult> search(String stopId, Waypoints waypoints, long budgetMs,
+                                   Instant departAt, boolean excludeExpress) {
         RoutingProvider provider = providerSelector.select(false);
         List<PathResult> paths;
         try {
             paths = provider == RoutingProvider.OTP
-                    ? loadOtpGated(waypoints, departAt)
+                    ? loadOtpGated(waypoints, departAt, excludeExpress)
                     : loadOdsay(waypoints, budgetMs);
         } catch (Exception e) {
             log.warn("[JourneyReroute] 남은 구간 검색 실패 [{}]: {}", stopId, e.getMessage());
@@ -120,7 +132,7 @@ public class RemainingRouteSearchService {
      * 예산 이중소비를 막는다. 포화·Redis 장애(fail-closed) → 빈 목록(재탐색 실패 계약, OTP-only 라
      * ODSAY 폴백 없음).
      */
-    private List<PathResult> loadOtpGated(Waypoints waypoints, Instant departAt) {
+    private List<PathResult> loadOtpGated(Waypoints waypoints, Instant departAt, boolean excludeExpress) {
         // OTP 호출은 전용 예산(otpMs) 단일소스 — ODSAY 재탐색 예산(budgetMs)과 분리.
         RoutingDeadline deadline = RoutingDeadline.of(clock, routeSearchDeadlineProperties.getOtpMs());
         Optional<OtpPermit> permit = otpConcurrencyGate.tryAcquire(deadline, "worker");
@@ -129,7 +141,7 @@ public class RemainingRouteSearchService {
             return List.of();
         }
         try {
-            return loadOtp(waypoints, deadline, departAt);
+            return loadOtp(waypoints, deadline, departAt, excludeExpress);
         } finally {
             otpConcurrencyGate.release(permit.get());
         }
@@ -152,14 +164,21 @@ public class RemainingRouteSearchService {
      *
      * <p>출발 시각은 <b>부르는 쪽이 준 원점 도달 시각</b>이다. 지난 시각은 받지 않는다 — 이미
      * 지난 출발로 물으면 OTP 가 지나간 편을 답으로 준다.
+     *
+     * <p><b>급행 끄기(subway-express S5)는 본 검색과 같은 순서</b>로 건 뒤에 자른다: 노선형 급행은 OTP 탐색에서 빼고
+     * ({@link ExpressFilterPolicy#routeExclusions}), 결과에서 DIRECT 를 언제나 빼고 → 급행 끄기면 EXPRESS 구간 든 경로를 빼고
+     * → 그래서 0건이면 필터를 푼다({@link #applyExpressFilter}). 자른 뒤에 거르면 앞 칸을 급행이 채운 경우 일반 경로가 상한
+     * 밖으로 밀려 빈손이 된다.
      */
-    private List<PathResult> loadOtp(Waypoints waypoints, RoutingDeadline deadline, Instant departAt) {
+    private List<PathResult> loadOtp(Waypoints waypoints, RoutingDeadline deadline, Instant departAt,
+                                     boolean excludeExpress) {
         Instant now = clock.instant();
         Instant departureAt = departAt == null || departAt.isBefore(now) ? now : departAt;
         RoutingQuery query = new RoutingQuery(
                 waypoints.origin().x(), waypoints.origin().y(), null,
                 waypoints.destination().x(), waypoints.destination().y(), null,
-                departureAt, Set.of(), null, false, "otp-v2", RoutingProvider.OTP, null);
+                departureAt, Set.of(), null, false, "otp-v2", RoutingProvider.OTP, null,
+                expressFilterPolicy.routeExclusions(excludeExpress));
         RoutingOutcome outcome = providerSelector.portFor(RoutingProvider.OTP).search(query, deadline);
         if (outcome instanceof RoutingFailure failure) {
             metrics.recordRemainingSearch("otp-failed-" + failure.kind());
@@ -167,14 +186,40 @@ public class RemainingRouteSearchService {
         }
         // 후보 풀(first)이 노출 상한보다 크다 — 재탐색은 엔진 순서(도착 빠른 순) 앞에서 자르기만 한다.
         // 비용 정렬은 하지 않는다: 재탐색은 목적지 ETA 로 다시 줄 세우고(RerouteRanking), 후보 수가
-        // 곧 실시간 평가 횟수라 상한을 지켜야 한다.
-        // 자르기 전에 검색과 같은 정책을 건다(DIRECT 는 언제나 제외, 급행 끄기는 S5 에서 세션 값으로).
-        RoutingResult result = expressFilterPolicy.filter((RoutingResult) outcome, false);
+        // 곧 실시간 평가 횟수라 상한을 지켜야 한다. 급행 정책은 자르기 전에 건다.
+        RoutingResult first = (RoutingResult) outcome;
+        List<RoutingItinerary> its = applyExpressFilter(
+                expressFilterPolicy.filter(first.itineraries(), false), excludeExpress);
         int limit = Math.max(otpRoutingProperties.getRerouteLimit(), 0);
-        List<RoutingItinerary> its = result.itineraries();
         RouteSearchResult legacy = legacyRouteResponseMapper.toLegacy(
-                result.withItineraries(its.subList(0, Math.min(limit, its.size()))));
+                first.withItineraries(its.subList(0, Math.min(limit, its.size()))));
         return fillWalkEndpoints(legacy, waypoints).paths();
+    }
+
+    /**
+     * 급행 끄기 사후 필터와 0건 처리(본 검색 {@code RouteSearchService.applyExpressFilter} 와 같은 판단).
+     *
+     * <ul>
+     *   <li>급행을 켠 여정은 풀 그대로(DIRECT 는 이미 빠졌다)</li>
+     *   <li>필터 뒤 남으면 그것. 필터 전에도 0건이면 진짜 무경로 — 빈 목록</li>
+     *   <li>필터로 0건이면(정차 패턴형 급행만 남음) <b>필터를 푼다</b>(D10). 재탐색은 본 검색과 달리 다시 묻지 않는다 —
+     *       본 검색의 다시 묻기는 "원래 수단 + 노선형 급행 제외" 질의인데, 재탐색의 첫 질의가 이미 바로 그것이다(추가 검색이
+     *       없다). 같은 질의를 또 보내 permit·예산을 쓸 이유가 없다. 해제를 알릴 응답 meta 도 없다 — 로그만 남긴다</li>
+     * </ul>
+     * 세션의 급행 끄기 값은 바꾸지 않는다 — 해제는 이 재검색 한 번의 일이다.
+     *
+     * @param pool DIRECT 를 뺀 엔진 순서 후보
+     */
+    private List<RoutingItinerary> applyExpressFilter(List<RoutingItinerary> pool, boolean excludeExpress) {
+        if (!excludeExpress) {
+            return pool;
+        }
+        List<RoutingItinerary> kept = expressFilterPolicy.filter(pool, true);
+        if (kept.isEmpty() && !pool.isEmpty()) {
+            log.info("[JourneyReroute] 급행 끄기로 남은 구간 경로 0건 → 필터 해제(후보 {})", pool.size());
+            return pool;
+        }
+        return kept;
     }
 
     /**

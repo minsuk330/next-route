@@ -7,7 +7,15 @@ import java.time.Instant;
  *
  * <p>여정 엔티티를 그대로 넘기지 않는 이유는 공급자가 <b>트랜잭션 밖에서</b> 돌기 때문이다.
  * 준영속 엔티티를 들고 외부 API 를 부르면 그 사이 lazy 로딩이 터진다.
+ *
+ * @param excludeExpress 여정 세션의 급행 끄기(시작 검색의 요청값, subway-express S5). 남은 구간 재검색이 이 값으로 급행을 거른다
  */
 public record RerouteContext(Long journeyId, Long userId, int routeRevision,
-                             long commandVersion, int transferIndex, Instant now) {
+                             long commandVersion, int transferIndex, Instant now, boolean excludeExpress) {
+
+    /** 급행 끄기를 모르는 호출부·시험용(false = 급행 포함). */
+    public RerouteContext(Long journeyId, Long userId, int routeRevision,
+                          long commandVersion, int transferIndex, Instant now) {
+        this(journeyId, userId, routeRevision, commandVersion, transferIndex, now, false);
+    }
 }
