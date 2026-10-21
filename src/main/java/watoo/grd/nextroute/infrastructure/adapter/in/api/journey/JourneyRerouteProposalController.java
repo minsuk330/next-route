@@ -46,6 +46,7 @@ public class JourneyRerouteProposalController {
     private final RerouteProposalService proposalService;
     private final AcceptRerouteProposalUseCase acceptUseCase;
     private final GetRerouteCandidateRouteUseCase candidateRouteUseCase;
+    private final JourneySnapshotEtaAttacher etaAttacher;
     private final ObjectMapper objectMapper;
 
     /**
@@ -124,7 +125,8 @@ public class JourneyRerouteProposalController {
      * <b>사용자의 선택</b>이라, 재전송 규칙도 되짚어야 할 조건도 다르다.
      *
      * <p>응답은 새 개정본이 반영된 여정 스냅샷이다. 앱은 그 {@code routeRevision} 으로 geometry 를
-     * 다시 받아 지도와 진행 엔진을 한꺼번에 갈아끼운다.
+     * 다시 받아 지도와 진행 엔진을 한꺼번에 갈아끼운다. 스냅샷에는 조회와 같은 예측을 얹는다(#470) — 앱은
+     * 이 응답으로 스냅샷을 갈아끼운다.
      *
      * <p>제안이 만들어진 뒤 사용자가 누르기까지 최대 2분이 있어, 그 사이 여정이 움직였으면
      * {@code 409 REROUTE_PROPOSAL_STALE} 이다. 같은 후보로 다시 누른 재전송은 {@code 200} 이다.
@@ -134,7 +136,8 @@ public class JourneyRerouteProposalController {
                                   @PathVariable Long journeyId,
                                   @PathVariable Long proposalId,
                                   @Valid @RequestBody AcceptRerouteProposalRequest request) {
-        return acceptUseCase.accept(userId, journeyId, proposalId, request.candidateId());
+        return etaAttacher.forWrite(userId,
+                acceptUseCase.accept(userId, journeyId, proposalId, request.candidateId()));
     }
 
     /**

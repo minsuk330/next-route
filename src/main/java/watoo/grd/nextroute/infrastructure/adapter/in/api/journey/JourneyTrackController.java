@@ -38,6 +38,7 @@ public class JourneyTrackController {
 
     private final TrackSelectionQueryService queryService;
     private final TrackJourneyStartService startService;
+    private final JourneySnapshotEtaAttacher etaAttacher;
 
     /** 좌표 주변 정류장/역. {@code mode} = BUS 또는 SUBWAY(철도 포함), 비우면 전부. */
     @GetMapping("/stops/near")
@@ -78,13 +79,13 @@ public class JourneyTrackController {
 
     /**
      * 단독 추적 시작. 응답·409 규칙은 일반 시작({@code POST /api/journeys})과 같다. {@code replace=true} 면 진행 중인
-     * 일반 여정도 접힌다.
+     * 일반 여정도 접힌다. 응답 스냅샷에는 조회와 같은 예측을 얹는다(#470).
      */
     @PostMapping
     public ResponseEntity<JourneySnapshot> start(@AuthenticationPrincipal Long userId,
                                                  @RequestParam(defaultValue = "false") boolean replace,
                                                  @Valid @RequestBody StartTrackRequest request) {
         JourneySnapshot snapshot = startService.start(userId, request.toCommand(replace));
-        return ResponseEntity.status(HttpStatus.CREATED).body(snapshot);
+        return ResponseEntity.status(HttpStatus.CREATED).body(etaAttacher.forWrite(userId, snapshot));
     }
 }

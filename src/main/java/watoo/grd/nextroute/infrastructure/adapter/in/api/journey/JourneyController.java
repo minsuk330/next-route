@@ -23,7 +23,6 @@ import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyProgressUseCase;
 import watoo.grd.nextroute.application.journey.port.in.JourneyQueryUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
-import watoo.grd.nextroute.application.journey.service.JourneySnapshotEtaComposer;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventResult;
 import watoo.grd.nextroute.domain.journey.entity.JourneyEventType;
 import watoo.grd.nextroute.infrastructure.adapter.in.api.journey.dto.ApplyJourneyEventRequest;
@@ -51,7 +50,8 @@ public class JourneyController {
     private final JourneyQueryUseCase journeyQueryUseCase;
     private final ApplyJourneyEventUseCase applyJourneyEventUseCase;
     private final ApplyJourneyProgressUseCase applyJourneyProgressUseCase;
-    private final JourneySnapshotEtaComposer etaComposer;
+    /** 스냅샷을 돌려주는 응답은 모두 여기서 예측을 얹는다(#470). 진행 보고만 예외다. */
+    private final JourneySnapshotEtaAttacher etaAttacher;
     /** 웹 슬라이스 시험에는 없다 — 없으면 세지 않는다. */
     private final org.springframework.beans.factory.ObjectProvider<JourneyQueryMetrics> queryMetrics;
 
@@ -74,14 +74,14 @@ public class JourneyController {
             @RequestParam(defaultValue = "false") boolean replace,
             @Valid @RequestBody StartJourneyRequest request) {
         JourneySnapshot snapshot = startJourneyUseCase.start(userId, request.toCommand(replace));
-        return ResponseEntity.status(HttpStatus.CREATED).body(snapshot);
+        return ResponseEntity.status(HttpStatus.CREATED).body(etaAttacher.forWrite(userId, snapshot));
     }
 
     /** 진행 중인 여정. 없으면 204 — 없는 것은 오류가 아니다. */
     @GetMapping("/active")
     public ResponseEntity<JourneySnapshot> active(@AuthenticationPrincipal Long userId) {
         return journeyQueryUseCase.getActive(userId)
-                .map(snapshot -> etaComposer.compose(userId, snapshot))
+                .map(snapshot -> etaAttacher.forQuery(userId, snapshot))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }
@@ -137,7 +137,7 @@ public class JourneyController {
                 metrics.first();
             }
         }
-        return ResponseEntity.ok(etaComposer.compose(userId, journey));
+        return ResponseEntity.ok(etaAttacher.forQuery(userId, journey));
     }
 
     /** 앱이 들고 있는 번호가 서버와 같으면 새로 보낼 것이 없다. 한쪽만 보내도 그 값만 본다. */
@@ -185,7 +185,7 @@ public class JourneyController {
         JourneyEventOutcome outcome = applyJourneyEventUseCase.apply(userId, journeyId,
                 request.toCommand(type));
         return ResponseEntity.status(statusOf(outcome.result()))
-                .body(JourneyEventResponse.from(outcome));
+                .body(etaAttacher.forEvent(userId, outcome));
     }
 
     /**
@@ -205,7 +205,7 @@ public class JourneyController {
         JourneyEventOutcome outcome =
                 applyJourneyEventUseCase.apply(userId, journeyId, request.toCommand());
         return ResponseEntity.status(statusOf(outcome.result()))
-                .body(JourneyEventResponse.from(outcome));
+                .body(etaAttacher.forEvent(userId, outcome));
     }
 
     /**
@@ -217,6 +217,10 @@ public class JourneyController {
      * <p>재전송·역순 요청도 200 이다. 앱은 응답의 결과 값과 함께 실린 최신 스냅샷을 보고
      * 화면을 맞추면 되고, 왜 반영되지 않았는지 따로 물어볼 필요가 없다. 같은 관측 시각에 다른
      * 내용이 온 경우만 409 다.
+     *
+     * <p><b>응답 스냅샷에 예측({@code eta})을 얹지 않는다 — 늘 null 이다(#470).</b> 여정마다 15초(하차 임박
+     * 5초)에 한 번 오는 가장 잦은 요청이라 예측 합성 비용을 붙이지 않는다(이유는
+     * {@link JourneySnapshotEtaAttacher}). 앱은 이 응답으로 스냅샷을 갈아끼울 때 직전 {@code eta} 를 유지한다.
      */
     @PutMapping("/{journeyId}/progress")
     public JourneyProgressResponse applyProgress(
