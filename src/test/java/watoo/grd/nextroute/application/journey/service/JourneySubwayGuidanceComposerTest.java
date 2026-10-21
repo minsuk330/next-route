@@ -12,6 +12,7 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 import watoo.grd.nextroute.domain.journey.entity.SubwayBindingStatus;
+import watoo.grd.nextroute.domain.journey.entity.SubwayBindingTrainKind;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
 
@@ -74,6 +75,36 @@ class JourneySubwayGuidanceComposerTest {
         assertThat(guidance.bindingStatus()).isEqualTo(SubwayBindingStatus.CONFIRMED);
         assertThat(guidance.nextStationName()).isNull();
         assertThat(guidance.quality()).isEqualTo(SubwayRingQuality.STALE);
+    }
+
+    @Test
+    @DisplayName("같은 종류의 다른 급행으로 다시 고르면 trainKind 는 그대로여도 bindingVersion 이 오른다(#501)")
+    void reselectSameKindBumpsBindingVersion() {
+        SubwayLegBinding binding = SubwayLegBinding.selected(ride.getId(), JOURNEY, 1, 1,
+                "1901", LocalDate.parse("2026-10-07"), "1001", "하행",
+                SubwayBindingTrainKind.EXPRESS, "1001-gyeongbu-a", "2026-10-21");
+        given(bindingRepository.findByJourneyLegIdIn(List.of(ride.getId()))).willReturn(List.of(binding));
+        given(ringPort.find(JOURNEY, 1, 1, binding.getVersion())).willReturn(Optional.of(boardingRing(binding)));
+        SubwayGuidance first = composer.compose(1, 0, List.of(wait, ride), Map.of());
+
+        binding.selectByUser("1951", LocalDate.parse("2026-10-07"), "1001", "하행", null,
+                SubwayBindingTrainKind.EXPRESS, "1001-gyeongbu-b", "2026-10-21");
+        given(ringPort.find(JOURNEY, 1, 1, binding.getVersion())).willReturn(Optional.of(boardingRing(binding)));
+        SubwayGuidance second = composer.compose(1, 0, List.of(wait, ride), Map.of());
+
+        assertThat(first.bindingVersion()).isEqualTo(binding.getVersion() - 1);
+        assertThat(second.bindingVersion()).isEqualTo(binding.getVersion());
+    }
+
+    @Test
+    @DisplayName("링이 없어 확인 중이면 bindingVersion 은 싣지 않는다 — 앱이 노선 경로를 다시 받을 근거가 없다")
+    void pendingHasNoBindingVersion() {
+        SubwayLegBinding binding = SubwayLegBinding.selected(ride.getId(), JOURNEY, 1, 1,
+                "2390", LocalDate.parse("2026-10-07"), "1002", "내선");
+        given(bindingRepository.findByJourneyLegIdIn(List.of(ride.getId()))).willReturn(List.of(binding));
+        given(ringPort.find(JOURNEY, 1, 1, binding.getVersion())).willReturn(Optional.empty());
+
+        assertThat(composer.compose(1, 0, List.of(wait, ride), Map.of()).bindingVersion()).isNull();
     }
 
     @Test
