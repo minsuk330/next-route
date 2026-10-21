@@ -25,11 +25,14 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 남은 역 목록(#283). 원천은 OTP 패턴({@link SubwayLinePatternService}), 계산은
  * {@link StationsAheadCalculator}, 역 연결은 {@link SubwayPatternStationMatcher}.
+ *
+ * <p>열차별 정차(subway-express PR-S3)는 {@link SubwayStationsAheadQueryService} 가 이 결과 위에 붙인다 — 급행 해석기가
+ * {@link SubwayLineOrder} 를 거쳐 이 빈을 쓰므로 여기서 해석기를 부르면 빈 순환이 생긴다.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class SubwayStationsAheadService implements GetSubwayStationsAheadUseCase, GetSubwayLineStripUseCase {
+public class SubwayStationsAheadService implements GetSubwayLineStripUseCase {
 
     /** 노선도에 그리는 오는 쪽 역 수(#317). */
     static final int BEHIND_COUNT = 4;
@@ -45,7 +48,7 @@ public class SubwayStationsAheadService implements GetSubwayStationsAheadUseCase
      */
     private final Map<String, Resolved> resolved = new ConcurrentHashMap<>();
 
-    @Override
+    /** 완행 기준 남은 역. 예외는 {@link GetSubwayStationsAheadUseCase} 참고. */
     public SubwayStationsAheadResponse getStationsAhead(String stationId, String direction, String destination) {
         SubwayStation board = subwayStationRepository.findByStationId(stationId)
                 .orElseThrow(() -> new BusinessException(SubwayErrorCode.SUBWAY_STATION_NOT_FOUND));

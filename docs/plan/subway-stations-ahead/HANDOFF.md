@@ -4,7 +4,7 @@
 `src/features/ride-tracking/use-alight-stops.ts` 의 `loadAlightStops` 지하철 분기(지금 `placeholderSubwayStops`)를 아래 API 호출로 바꾼다.
 
 ```
-GET /api/subway/stations/{stationId}/stations-ahead?direction=내선[&destination=성수]
+GET /api/subway/stations/{stationId}/stations-ahead?direction=내선[&destination=성수][&trainNo=2390]
 ```
 - `stationId`: 승차역 서울 실시간 역 ID(`/api/nearby/subway-stations`·#277 와 같은 값). `AlightRequest.boardStopId`.
 - `direction`: **#277 응답 `directions[].direction` 원문**(`상행`·`하행`·`내선`·`외선`).
@@ -33,6 +33,12 @@ GET /api/subway/stations/{stationId}/stations-ahead?direction=내선[&destinatio
 | `code` | `null` |
 | `frequent` | 앱이 추적 기록으로 붙인다(서버 필드 아님) |
 
+## 급행 열차 정차(subway-express PR-S3)
+`&trainNo=<탄 열차 번호>`(#277 `trains[].trainNo`)를 붙이면 그 열차 기준 정차가 함께 온다. 안 붙이면 아래 칸은 전부 null(예전과 같음).
+- 최상위 `train`: `{kind, label, serviceId, stopsAtBoard}`. `kind` = `NORMAL`·`EXPRESS`·`DIRECT`·`ITX`·`UNKNOWN`(문자열로 받을 것).
+- `stations[].stopsHere`: 급행으로 해석된 열차만 `true`/`false`(그 열차 종착 이후 역도 `false`). 일반 열차·모름은 null. **서지 않는 역도 목록에 남는다** — 흐리게, 고를 수 없게.
+- `stations[].expressStopsAway`: 급행이 서는 역만 센 정거장 수(서는 역에만). `stopsAway` 는 완행 기준 그대로다.
+
 ## endReason 별 화면
 - `TERMINAL`: 목록 끝 = 종착(또는 받은 행선지).
 - `LOOP`(2호선): 한 바퀴, 승차역 바로 앞 역까지. 2호선은 행선지 "성수"를 보내도 자르지 않는다.
@@ -54,5 +60,4 @@ GET /api/subway/stations/{stationId}/stations-ahead?direction=내선[&destinatio
 서버가 노선 데이터를 하루 캐시한다. 앱 `staleTime` 10분 그대로 둬도 된다. queryKey 에 `direction` 원문과 `destination` 을 넣을 것.
 
 ## 범위 밖
-- 급행 열차 정차역(일반 열차 기준으로 준다)
 - 경춘선 용산 직결 열차(상봉·청량리까지만)

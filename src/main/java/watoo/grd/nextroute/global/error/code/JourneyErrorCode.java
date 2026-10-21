@@ -79,6 +79,15 @@ public enum JourneyErrorCode implements ErrorCode {
       HttpStatus.CONFLICT),
   /** 지하철 열차 선택: 고른 열차가 지금 그 역·방향 도착 목록에 없다(낡은 화면). 후보를 다시 받아 고르게 한다. */
   TRAIN_NOT_IN_CANDIDATES("TRAIN_NOT_IN_CANDIDATES", "그 열차는 지금 도착 목록에 없습니다.",
+      HttpStatus.UNPROCESSABLE_ENTITY),
+  /**
+   * 지하철 열차 선택(subway-express PR-S3): 실시간으로 따라갈 수 없는 열차 — ITX-청춘·공항철도 직통, 정차역을 모르는 급행,
+   * 급행 추적 플래그({@code subway.express.tracking.enabled})가 꺼졌을 때의 급행.
+   */
+  TRAIN_NOT_TRACKABLE("TRAIN_NOT_TRACKABLE", "이 열차는 실시간으로 따라갈 수 없습니다.",
+      HttpStatus.UNPROCESSABLE_ENTITY),
+  /** 지하철 열차 선택(subway-express PR-S3): 탑승역이나 하차역에 서지 않는 급행, 또는 하차역 전에 운행을 마치는 급행. */
+  TRAIN_SKIPS_STATION("TRAIN_SKIPS_STATION", "이 열차는 타는 역이나 내리는 역에 서지 않습니다.",
       HttpStatus.UNPROCESSABLE_ENTITY);
 
   private final String code;

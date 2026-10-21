@@ -6,7 +6,10 @@ import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Direction;
 import watoo.grd.nextroute.application.arrival.dto.SubwayStationArrivalsResponse.Train;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
+import watoo.grd.nextroute.application.subway.dto.TrainKind;
+import watoo.grd.nextroute.application.subway.service.SubwayExpressFixtures;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
+import watoo.grd.nextroute.application.subway.service.SubwayTrainKindJudge;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader.Arrival;
 import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
@@ -74,9 +77,11 @@ class SubwayStationArrivalQueryServiceTest {
     private final SubwaySegmentTimePort segmentTimePort = mock(SubwaySegmentTimePort.class);
     private final SubwayTrainSegmentResolver segmentResolver =
             new SubwayTrainSegmentResolver(lineOrder, segmentTimePort, stationIndex);
+    private final SubwayTrainKindJudge kindJudge =
+            SubwayExpressFixtures.judge(SubwayExpressFixtures.tracking(false));
     private final SubwayStationArrivalQueryService service = new SubwayStationArrivalQueryService(
             arrivalReader, subwayStationRepository, trainLogPort, lookup(), positionResolver, segmentResolver, lineStrip,
-            Clock.fixed(NOW, ZoneId.of("Asia/Seoul")));
+            Clock.fixed(NOW, ZoneId.of("Asia/Seoul")), kindJudge);
 
     @Test
     @DisplayName("역 ID 의 노선으로 묻고 방향별로 묶는다 — 방향 안 순서는 reader 순서(초 없는 열차 뒤) 그대로")
@@ -265,7 +270,7 @@ class SubwayStationArrivalQueryServiceTest {
         Instant justAfter = Instant.parse("2026-10-06T19:05:00Z"); // 04:05 KST
         SubwayStationArrivalQueryService early = new SubwayStationArrivalQueryService(
                 arrivalReader, subwayStationRepository, trainLogPort, lookup(), positionResolver, segmentResolver, lineStrip,
-                Clock.fixed(justAfter, ZoneId.of("Asia/Seoul")));
+                Clock.fixed(justAfter, ZoneId.of("Asia/Seoul")), kindJudge);
         givenStation(GANGNAM, "1002");
         given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of());
 
@@ -462,6 +467,62 @@ class SubwayStationArrivalQueryServiceTest {
         List<Train> trains = service.getArrivals(suwon).directions().get(0).trains();
 
         assertThat(trains).extracting(Train::trainNo).containsExactly("0672");
+    }
+
+    @Test
+    @DisplayName("S3 지나치는 급행도 목록에 남기고 stopsHere=false — 9호선 등촌. 종류는 열차 단위(이 역 행 '일반'이어도 급행)")
+    void passingExpressStaysMarked() {
+        String deungchon = SubwayExpressFixtures.stationId("1009", "등촌");
+        givenStation(deungchon, "1009");
+        Arrival express = new Arrival(line9("9600", "일반"), 120, java.util.Set.of("급행"));
+        Arrival normal = new Arrival(line9("9100", "일반"), 240);
+        given(arrivalReader.arrivals("1009", deungchon, null)).willReturn(List.of(express, normal));
+
+        List<Train> trains = service.getArrivals(deungchon).directions().get(0).trains();
+
+        assertThat(trains).extracting(Train::trainNo).containsExactly("9600", "9100");
+        assertThat(trains.get(0)).extracting(Train::trainType, Train::trainKind, Train::trainLabel, Train::stopsHere)
+                .containsExactly("일반", TrainKind.EXPRESS, "급행", false);
+        assertThat(trains.get(1)).extracting(Train::trainKind, Train::trainLabel, Train::stopsHere)
+                .containsExactly(TrainKind.NORMAL, "일반", true);
+    }
+
+    @Test
+    @DisplayName("S3 급행 정차역(가양)에서는 급행도 stopsHere=true")
+    void expressStopsHere() {
+        String gayang = SubwayExpressFixtures.stationId("1009", "가양");
+        givenStation(gayang, "1009");
+        given(arrivalReader.arrivals("1009", gayang, null)).willReturn(List.of(new Arrival(line9("9600", "급행"), 60)));
+
+        Train train = service.getArrivals(gayang).directions().get(0).trains().get(0);
+
+        assertThat(train.trainKind()).isEqualTo(TrainKind.EXPRESS);
+        assertThat(train.stopsHere()).isTrue();
+    }
+
+    @Test
+    @DisplayName("S3 ITX 매핑: 위치 기록만 있는 떠난 ITX(원시 directAt 9)는 trainType 'ITX'·종류 ITX — 예전엔 null")
+    void departedItxFromPosition() {
+        String cheongnyangni = SubwayExpressFixtures.stationId("1067", "청량리");
+        givenStation(cheongnyangni, "1067");
+        given(arrivalReader.arrivals("1067", cheongnyangni, null)).willReturn(List.of());
+        Instant mid = NOW.minusSeconds(120);
+        given(trainLogPort.findDepartures(any(), eq("1067"), eq("하행"), eq(cheongnyangni), any(), any()))
+                .willReturn(List.of(new SubwayTrainLogPort.TrainDeparture("2029", new SubwayTrainEvent(
+                        SubwayTrainEvent.Type.DEPARTED, cheongnyangni, "청량리", mid.minusSeconds(30),
+                        mid.plusSeconds(30), SubwayTrainEvent.Quality.CORROBORATED, null,
+                        SubwayExpressType.UNKNOWN, "9"))));
+
+        Departed itx = service.getArrivals(cheongnyangni).directions().get(0).departed().get(0);
+
+        assertThat(itx).extracting(Departed::trainType, Departed::trainKind, Departed::trainLabel, Departed::stopsHere)
+                .containsExactly("ITX", TrainKind.ITX, "ITX-청춘", null);
+    }
+
+    private static SubwayRealtimeTrain line9(String trainNo, String trainType) {
+        return SubwayRealtimeTrain.builder().lineId("1009").trainNo(trainNo).direction("상행")
+                .destinationName("중앙보훈병원").arrivalCode("99").currentMessage("전역 출발").trainType(trainType)
+                .build();
     }
 
     @Test

@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.journey;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +20,7 @@ import watoo.grd.nextroute.application.journey.dto.SubwayTrackabilityView;
 import watoo.grd.nextroute.application.journey.dto.SubwayTrainCandidate;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
 import watoo.grd.nextroute.application.journey.service.SubwayTrainSelectionService;
+import watoo.grd.nextroute.application.subway.dto.TrainKind;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
@@ -27,9 +30,11 @@ import watoo.grd.nextroute.global.error.GlobalExceptionHandler;
 import watoo.grd.nextroute.global.error.code.CommonErrorCode;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -61,14 +66,22 @@ class JourneySubwaySelectionControllerTest {
                 .content(BODY)).andExpect(status().isUnauthorized());
     }
 
-    @Test
-    @DisplayName("200 — 후보에 열차번호·행선지·급행")
-    void candidates() throws Exception {
-        given(selectionService.candidates(1L, 7L, null)).willReturn(List.of(
+    /** 구버전(S3 전) 응답과 같은 입력의 후보 셋 — 일반, 서지 않는 급행(플래그 꺼짐), 떠난 열차. */
+    private static List<SubwayTrainCandidate> threeCandidates() {
+        return List.of(
                 new SubwayTrainCandidate("2390", "성수", false, "일반", 90, Instant.parse("2026-10-07T03:00:00Z"),
-                        SubwayTrainCandidate.Kind.UPCOMING),
+                        SubwayTrainCandidate.Kind.UPCOMING, TrainKind.NORMAL, "일반", true, true, null, null),
+                new SubwayTrainCandidate("9600", "중앙보훈병원", true, "급행", 330,
+                        Instant.parse("2026-10-07T03:00:00Z"), SubwayTrainCandidate.Kind.UPCOMING, TrainKind.EXPRESS,
+                        "급행", false, true, false, "1009-express"),
                 new SubwayTrainCandidate("2388", null, false, null, null, Instant.parse("2026-10-07T02:58:00Z"),
-                        SubwayTrainCandidate.Kind.DEPARTED)));
+                        SubwayTrainCandidate.Kind.DEPARTED, TrainKind.UNKNOWN, null, true, true, null, null));
+    }
+
+    @Test
+    @DisplayName("200 — 후보에 열차번호·행선지·급행, 그리고 S3 새 칸(trainKind·trainLabel·trackable·정차·서비스)")
+    void candidates() throws Exception {
+        given(selectionService.candidates(1L, 7L, null)).willReturn(threeCandidates());
 
         mockMvc.perform(get("/api/journeys/7/subway/train-candidates").with(authentication(user())))
                 .andExpect(status().isOk())
@@ -76,8 +89,43 @@ class JourneySubwaySelectionControllerTest {
                 .andExpect(jsonPath("$[0].destination").value("성수"))
                 .andExpect(jsonPath("$[0].express").value(false))
                 .andExpect(jsonPath("$[0].kind").value("UPCOMING"))
-                .andExpect(jsonPath("$[1].kind").value("DEPARTED"))
-                .andExpect(jsonPath("$[1].arrivalSeconds").doesNotExist());
+                .andExpect(jsonPath("$[0].trainKind").value("NORMAL"))
+                .andExpect(jsonPath("$[0].trackable").value(true))
+                .andExpect(jsonPath("$[1].trainKind").value("EXPRESS"))
+                .andExpect(jsonPath("$[1].trainLabel").value("급행"))
+                .andExpect(jsonPath("$[1].trackable").value(false))
+                .andExpect(jsonPath("$[1].stopsAtBoarding").value(true))
+                .andExpect(jsonPath("$[1].stopsAtAlighting").value(false))
+                .andExpect(jsonPath("$[1].expressServiceId").value("1009-express"))
+                .andExpect(jsonPath("$[2].kind").value("DEPARTED"))
+                .andExpect(jsonPath("$[2].arrivalSeconds").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("구버전 앱 호환: S3 전 응답 fixture 의 모든 칸이 같은 이름·같은 값으로 남는다(kind 는 여전히 UPCOMING/DEPARTED)")
+    void legacyAppResponseShape() throws Exception {
+        given(selectionService.candidates(1L, 7L, null)).willReturn(threeCandidates());
+        ObjectMapper om = new ObjectMapper();
+        JsonNode legacy = om.readTree(getClass().getResourceAsStream("/journey/train-candidates-legacy-v1.json"));
+
+        String body = mockMvc.perform(get("/api/journeys/7/subway/train-candidates").with(authentication(user())))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        JsonNode now = om.readTree(body);
+
+        assertThat(now).hasSize(legacy.size());
+        for (int i = 0; i < legacy.size(); i++) {
+            JsonNode old = legacy.get(i);
+            JsonNode cur = now.get(i);
+            old.fieldNames().forEachRemaining(field -> {
+                JsonNode was = old.get(field);
+                JsonNode is = cur.get(field);
+                if (was.isNull()) {
+                    assertThat(is == null || is.isNull()).as(field).isTrue();
+                } else {
+                    assertThat(is).as(field).isEqualTo(was);
+                }
+            });
+        }
     }
 
     @Test
@@ -118,18 +166,24 @@ class JourneySubwaySelectionControllerTest {
     }
 
     @Test
-    @DisplayName("오류 코드: 404 꺼짐 / 409 대기 아님 / 422 후보 밖 / 409 개정본 / 400 본문")
+    @DisplayName("오류 코드: 404 꺼짐 / 409 대기 아님 / 422 후보 밖·추적 불가·미정차 / 409 개정본 / 400 본문")
     void errors() throws Exception {
         given(selectionService.select(eq(1L), eq(7L), anyString(), anyInt(), org.mockito.ArgumentMatchers.isNull()))
                 .willThrow(new BusinessException(CommonErrorCode.NOT_FOUND))
                 .willThrow(new BusinessException(JourneyErrorCode.NOT_WAITING_FOR_SUBWAY))
                 .willThrow(new BusinessException(JourneyErrorCode.TRAIN_NOT_IN_CANDIDATES))
+                .willThrow(new BusinessException(JourneyErrorCode.TRAIN_NOT_TRACKABLE))
+                .willThrow(new BusinessException(JourneyErrorCode.TRAIN_SKIPS_STATION))
                 .willThrow(new StaleRouteRevisionException(2));
 
         perform().andExpect(status().isNotFound());
         perform().andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("NOT_WAITING_FOR_SUBWAY"));
         perform().andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("TRAIN_NOT_IN_CANDIDATES"));
+        perform().andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("TRAIN_NOT_TRACKABLE"));
+        perform().andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("TRAIN_SKIPS_STATION"));
         perform().andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("STALE_ROUTE_REVISION"));
         mockMvc.perform(post("/api/journeys/7/subway/train-selection").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"routeRevision\":1}").with(authentication(user()))).andExpect(status().isBadRequest());
