@@ -5625,7 +5625,7 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ## subway-express PR-S1 카탈로그·분류기·정차 패턴 해석기 (2026-10-21)
 ### 확정
 - 카탈로그 12계통 `src/main/resources/subway/express-catalog.json`. stops 순서는 서비스별 `listedDirection` — 9호선만 상행(김포공항→중앙보훈병원이 도착 API 상행, 하행 행선지 = 개화·김포공항), 나머지 하행
-- 1·4호선 match 는 `tools/subway-express/fetch_trainnos.py`(시간표 API 124역·상하행·평일/토/휴일) 실측: 경인 10xx·11xx·12xx 블록 깨끗(1001–1184, 1251–1265) + 14xx(1401–1416 용산↔구로 '구로 급행', 통과역이 없어 도구가 못 잡음 → 실시간·시간표 급행 표시 근거로 경인에 넣음), A 19xx − {1902,1904,1945}, B {1902,1904,1945}, 경원 16xx(1601–1615), 4호선 44xx(4401–4408). A 금천구청·의왕 13편은 PLAN 실측과 일치
+- 1·4호선 match 는 `tools/subway-express/fetch_trainnos.py`(시간표 API 124역·상하행·평일/토/휴일) 실측: 경인 10xx·11xx·12xx 블록 깨끗(1001–1184, 1251–1265) ~~+ 14xx(1401–1416 용산↔구로 '구로 급행', 통과역이 없어 도구가 못 잡음 → 실시간·시간표 급행 표시 근거로 경인에 넣음)~~ 취소: 아래 보완 — 일반으로 결정, A 19xx − {1902,1904,1945}, B {1902,1904,1945}, 경원 16xx(1601–1615), 4호선 44xx(4401–4408). A 금천구청·의왕 13편은 PLAN 실측과 일치
 - 번호 권위(`trainNoAuthoritative`) = 4호선 + 1호선 네 서비스. 분류기 규칙 ③ 과 ④ 사이에 '카탈로그 번호 권위 → EXPRESS' 단계 추가(PLAN 규칙에 없음). 근거: 4호선 급행은 위치 API directAt 0·시간표 EXPRESS_YN G, 1호선은 도착 API trainType 이 행마다 다름(운영 스냅숏 531편 중 13편 혼재 — 1932 가 종로3가 행에서 '일반', 먼 예측 행도 '일반')
 - 수인분당 두 서비스는 번호(63xx)로 못 가름 → `within`(오이도~인천 완행 14역)에 현재 역(모르면 행선지)이 있으면 수인, 없으면 분당, 둘 다 모르면 답 안 함
 - 해석 실패는 empty: 서비스 0/2+개, 각역 구간 못 펼침(OTP 패턴 캐시 없음), 행선지가 서지 않는 역. 열차별 예외 정차는 번호를 모르면 뺀다
@@ -5640,7 +5640,7 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - fixture OTP 1호선 패턴에 덕계가 이미 있다(PLAN G1 의 '덕계 삽입'은 운영 graph 대상) — 카탈로그 부분수열 시험은 예외 없이 통과
 ### 미결
 - B급행 상행 노량진 정차 여부(시간표 도착 시각만) — 녹화로 확인. 지금은 PLAN 대로 미정차
-- 14xx '구로 급행'을 급행 배지로 보일지(조사 아티팩트는 일반 취급 제안) — S3 전에 결정
+- ~~14xx '구로 급행'을 급행 배지로 보일지(조사 아티팩트는 일반 취급 제안) — S3 전에 결정~~ 취소: 일반으로 결정(아래 보완)
 - 1063 25xx·57xx·58xx 는 도구 대상 아님(실시간 표시 일관, 번호 권위 없음)
 ### 좌표
 - `SubwayExpressCatalog.resolve`·`pattern`·`isTrainNoAuthoritativeExpress`, `SubwayTrainKindClassifier.decide`, `SubwayLineOrder.allStopPath`, `SubwayStopPatternResolver.resolve`·`trim`, `SubwayTrainIdentity.direction`
@@ -5649,3 +5649,8 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 새 시험 `./gradlew test --tests '*SubwayExpressCatalogTest' --tests '*SubwayTrainKindClassifierTest' --tests '*SubwayTrainIdentityTest' --tests '*SubwayStopPatternResolverTest' --tests '*SubwayLineOrderTest'` → 57/0, 41/0, 61/0, 15/0, 11/0
 - `./gradlew test --tests '*Test' --continue` → 394 클래스 2,908 테스트, 실패 0·오류 0·건너뜀 1
 - `./gradlew test --tests '*IT' --continue`(로컬 env db·auth·api, POSTGRES_HOST/REDIS_HOST=localhost, Docker) → 94 클래스 672 테스트, 실패 0·오류 0·건너뜀 7, 8m31s. 새 빈 3개가 컨텍스트에 붙어도 부팅·기존 IT 무변화
+
+#### subway-express PR-S1 보완: 14xx '구로 급행' = 일반 (2026-10-21)
+- 확정(코디네이터 결정): 1호선 1401–1416 용산↔구로 '구로 급행'은 급행 선로만 쓰고 모든 역(용산 노량진 대방 신길 영등포 신도림 구로)에 서므로 NORMAL. 급행 배지 없음, 급행 서비스 아님. 조사 아티팩트 판단과 같음
+- 확정: 카탈로그에 서비스가 아닌 최상위 `allStopTrains`(lineId + 번호 규칙)를 둔다. 경인 match 에서 14xx 를 뺐고(번호 권위도 같이 빠짐) 분류기는 ITX 다음·'급행' 앞에서 `isAllStopTrain` → NORMAL(실시간 trainType '급행'·directAt 1 무시). 서비스는 그대로 12개
+- 검증: `./gradlew test --tests '*SubwayExpressCatalogTest' --tests '*SubwayTrainKindClassifierTest' --tests '*SubwayTrainIdentityTest' --tests '*SubwayStopPatternResolverTest' --tests '*SubwayLineOrderTest'` → 58/0, 42/0, 61/0, 15/0, 11/0. `./gradlew test --tests '*Test' --continue` → 394 클래스 2,910 테스트, 실패 0·오류 0·건너뜀 1. IT 는 빈 구성 변화 없어 재실행 안 함(직전 94/672/실패 0)

@@ -72,6 +72,19 @@ class SubwayTrainKindClassifierTest {
     }
 
     @Test
+    @DisplayName("②′ 구로 급행(1호선 1401–1416)은 실시간이 '급행'이어도 일반 — 모든 역에 선다")
+    void allStopExpressIsNormal() {
+        assertThat(classifier.classify("1001", "1406", "급행", null)).isEqualTo(TrainKind.NORMAL);
+        assertThat(classifier.classify("1001", "1401", null, SubwayExpressType.EXPRESS)).isEqualTo(TrainKind.NORMAL);
+        assertThat(classifier.classify("1001", "K1413", "급행", SubwayExpressType.EXPRESS)).isEqualTo(TrainKind.NORMAL);
+        assertThat(classifier.classifyRaw("1001", "1416", null, "1")).isEqualTo(TrainKind.NORMAL);
+        // 범위 밖·다른 노선은 그대로
+        assertThat(classifier.classify("1001", "1417", "급행", null)).isEqualTo(TrainKind.EXPRESS);
+        assertThat(classifier.classify("1001", "1101", "급행", null)).isEqualTo(TrainKind.EXPRESS);
+        assertThat(classifier.classify("1004", "1406", "급행", null)).isEqualTo(TrainKind.EXPRESS);
+    }
+
+    @Test
     @DisplayName("④ '일반' 또는 directAt 0 → 일반, ⑤ 그 밖 → 모름(일반으로 승격하지 않음)")
     void normalAndUnknown() {
         assertThat(classifier.classify("1002", "2001", "일반", null)).isEqualTo(TrainKind.NORMAL);

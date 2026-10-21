@@ -298,11 +298,39 @@ class SubwayExpressCatalogTest {
         assertThat(CATALOG.isTrainNoAuthoritativeExpress("1004", "K4405")).isTrue();
         assertThat(CATALOG.isTrainNoAuthoritativeExpress("1004", "4302")).isFalse();
         assertThat(CATALOG.isTrainNoAuthoritativeExpress("1001", "1932")).isTrue();
-        assertThat(CATALOG.isTrainNoAuthoritativeExpress("1001", "1406")).isTrue();
+        assertThat(CATALOG.isTrainNoAuthoritativeExpress("1001", "1406")).isFalse();  // 구로 급행은 일반(allStopTrains)
         assertThat(CATALOG.isTrainNoAuthoritativeExpress("1001", "0660")).isFalse();
         assertThat(CATALOG.isTrainNoAuthoritativeExpress("1063", "2510")).isFalse();  // 실시간 표시를 따른다
         assertThat(CATALOG.isTrainNoAuthoritativeExpress("1009", "9625")).isFalse();
         assertThat(CATALOG.isTrainNoAuthoritativeExpress(null, "4402")).isFalse();
+    }
+
+    @Test
+    @DisplayName("구로 급행(1호선 1401–1416)은 급행 표시지만 모든 역 정차 — 서비스가 아니고 allStopTrains 다")
+    void allStopTrainsAreNotAService() throws IOException {
+        assertThat(raw().allStopTrains()).hasSize(1);
+        assertThat(CATALOG.isAllStopTrain("1001", "1401")).isTrue();
+        assertThat(CATALOG.isAllStopTrain("1001", "K1416")).isTrue();
+        assertThat(CATALOG.isAllStopTrain("1001", "1417")).isFalse();
+        assertThat(CATALOG.isAllStopTrain("1001", "1101")).isFalse();
+        assertThat(CATALOG.isAllStopTrain("1004", "1406")).isFalse();
+        assertThat(CATALOG.isAllStopTrain(null, "1406")).isFalse();
+        assertThat(resolved("1001", "상행", "1406", "용산", id("1001", "노량진"))).isEmpty();
+        assertThat(resolved("1001", "하행", "1401", "구로", null)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("allStopTrains 번호는 어느 급행 서비스 번호 규칙과도 겹치지 않는다")
+    void allStopTrainsDoNotOverlapServices() {
+        for (int n = 0; n <= 9999; n++) {
+            String no = String.valueOf(n);
+            for (SubwayExpressCatalog.Service s : CATALOG.state().services()) {
+                if (CATALOG.isAllStopTrain(s.info().lineId(), no)) {
+                    assertThat(s.match().trainNos().contains(no) || s.match().inRange(no))
+                            .as(s.info().id() + " " + no).isFalse();
+                }
+            }
+        }
     }
 
     @Test

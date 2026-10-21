@@ -65,7 +65,12 @@ public class SubwayExpressCatalog {
 
     // ── 파일 모양 ─────────────────────────────────────────────────────────
 
-    record Catalog(String version, List<Definition> services) {
+    /** @param allStopTrains 급행으로 표시되지만 모든 역에 서는 열차(서비스 아님, 분류기가 NORMAL 로 본다) */
+    record Catalog(String version, List<Definition> services, List<AllStopRule> allStopTrains) {
+    }
+
+    /** 노선 하나의 '표시만 급행' 번호 규칙. {@link Match} 의 번호 부분만 쓴다. */
+    record AllStopRule(String lineId, Match match) {
     }
 
     record Definition(String id, String lineId, String label, String listedDirection, Match match,
@@ -224,6 +229,20 @@ public class SubwayExpressCatalog {
         return picked == null ? Optional.empty() : picked.map(Service::info);
     }
 
+    /**
+     * 운영사가 급행으로 표시하지만 운행 구간 모든 역에 서는 열차인가(1호선 용산↔구로 '구로 급행' 1401–1416). 분류기가 실시간
+     * '급행' 표시를 뒤집어 일반으로 보는 근거다. 이런 열차는 어느 서비스에도 속하지 않는다.
+     */
+    public boolean isAllStopTrain(String lineId, String trainNo) {
+        String no = SubwayTrainIdentity.catalogNumber(trainNo);
+        if (lineId == null || no == null) {
+            return false;
+        }
+        return catalog().allStopTrains().stream()
+                .filter(rule -> lineId.equals(rule.lineId()))
+                .anyMatch(rule -> rule.match().trainNos().contains(no) || rule.match().inRange(no));
+    }
+
     /** 번호만으로 급행인 열차인가(실시간 '일반' 표시를 뒤집는 근거, 4호선 K44xx). */
     public boolean isTrainNoAuthoritativeExpress(String lineId, String trainNo) {
         String no = SubwayTrainIdentity.catalogNumber(trainNo);
@@ -337,7 +356,7 @@ public class SubwayExpressCatalog {
                 loaded = source.get();
             } catch (RuntimeException e) {
                 log.warn("[Subway] 급행 카탈로그 적재 실패 — 급행 해석 없이 진행: {}", e.getMessage());
-                loaded = new Catalog(null, List.of());
+                loaded = new Catalog(null, List.of(), List.of());
             }
             catalog = loaded;
         }
@@ -415,12 +434,7 @@ public class SubwayExpressCatalog {
         List<Definition> services = new ArrayList<>();
         for (JsonNode s : root.path("services")) {
             JsonNode m = s.path("match");
-            List<int[]> ranges = new ArrayList<>();
-            for (JsonNode r : m.path("trainNoRanges")) {
-                ranges.add(new int[]{Integer.parseInt(SubwayTrainIdentity.catalogNumber(r.get(0).asText())),
-                        Integer.parseInt(SubwayTrainIdentity.catalogNumber(r.get(1).asText()))});
-            }
-            Match match = new Match(text(m, "kind"), numbers(m.path("trainNos")), List.copyOf(ranges),
+            Match match = new Match(text(m, "kind"), numbers(m.path("trainNos")), ranges(m.path("trainNoRanges")),
                     numbers(m.path("excludeTrainNos")), List.copyOf(strings(m.path("within"))),
                     m.path("trainNoAuthoritative").asBoolean(false));
             List<Element> elements = new ArrayList<>();
@@ -438,7 +452,21 @@ public class SubwayExpressCatalog {
                     s.path("listedDirection").asText("하행"), match, List.copyOf(elements),
                     List.copyOf(strings(s.path("source"))), effective == null ? null : LocalDate.parse(effective)));
         }
-        return new Catalog(text(root, "version"), List.copyOf(services));
+        List<AllStopRule> allStop = new ArrayList<>();
+        for (JsonNode a : root.path("allStopTrains")) {
+            allStop.add(new AllStopRule(a.path("lineId").asText(), new Match(null, numbers(a.path("trainNos")),
+                    ranges(a.path("trainNoRanges")), numbers(a.path("excludeTrainNos")), List.of(), false)));
+        }
+        return new Catalog(text(root, "version"), List.copyOf(services), List.copyOf(allStop));
+    }
+
+    private static List<int[]> ranges(JsonNode array) {
+        List<int[]> ranges = new ArrayList<>();
+        for (JsonNode r : array) {
+            ranges.add(new int[]{Integer.parseInt(SubwayTrainIdentity.catalogNumber(r.get(0).asText())),
+                    Integer.parseInt(SubwayTrainIdentity.catalogNumber(r.get(1).asText()))});
+        }
+        return List.copyOf(ranges);
     }
 
     private static String text(JsonNode node, String field) {

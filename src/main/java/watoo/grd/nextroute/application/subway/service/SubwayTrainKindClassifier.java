@@ -12,6 +12,9 @@ import java.util.regex.Pattern;
  * <ol>
  *   <li>공항철도(1065) {@code A1001–A1056} → {@link TrainKind#DIRECT} — 실시간은 직통을 '급행'으로 준다</li>
  *   <li>{@code trainType} 에 "ITX" 또는 원시 {@code directAt} 9 → {@link TrainKind#ITX}</li>
+ *   <li>카탈로그 {@code allStopTrains}(급행 표시지만 모든 역 정차, 1호선 용산↔구로 '구로 급행' 1401–1416) →
+ *       {@link TrainKind#NORMAL}. 실시간이 '급행'으로 줘도 일반으로 본다 — 서는 역이 일반과 같아 급행 배지가 틀린 안내다.
+ *       이 단계가 '급행' 보다 먼저여야 한다</li>
  *   <li>{@code trainType} 에 "급행"·"특급" 또는 {@code directAt} 1·7 → {@link TrainKind#EXPRESS}</li>
  *   <li>카탈로그가 번호만으로 급행이라 한 열차 → {@link TrainKind#EXPRESS}. 4호선 K44xx 는 실시간 trainType·directAt 이
  *       '일반'으로 오고 시간표 API 도 EXPRESS_YN=G 다(2026-10-21 실측). 지나치는 역 시간표에 아예 없는 것만이 근거라
@@ -56,6 +59,9 @@ public class SubwayTrainKindClassifier {
         String type = trainType == null ? "" : trainType.trim();
         if (type.toUpperCase().contains("ITX") || "9".equals(raw)) {
             return TrainKind.ITX;
+        }
+        if (catalog != null && catalog.isAllStopTrain(lineId, trainNo)) {
+            return TrainKind.NORMAL;
         }
         if (type.contains("급행") || type.contains("특급")
                 || directAt == SubwayExpressType.EXPRESS || directAt == SubwayExpressType.SPECIAL) {
