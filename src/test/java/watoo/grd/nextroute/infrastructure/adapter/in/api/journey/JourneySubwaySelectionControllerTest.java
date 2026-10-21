@@ -66,9 +66,11 @@ class JourneySubwaySelectionControllerTest {
     void candidates() throws Exception {
         given(selectionService.candidates(1L, 7L, null)).willReturn(List.of(
                 new SubwayTrainCandidate("2390", "성수", false, "일반", 90, Instant.parse("2026-10-07T03:00:00Z"),
-                        SubwayTrainCandidate.Kind.UPCOMING),
+                        SubwayTrainCandidate.Kind.UPCOMING, null, "99"),
                 new SubwayTrainCandidate("2388", null, false, null, null, Instant.parse("2026-10-07T02:58:00Z"),
-                        SubwayTrainCandidate.Kind.DEPARTED)));
+                        SubwayTrainCandidate.Kind.DEPARTED, null, null),
+                new SubwayTrainCandidate("2394", "성수", false, "일반", null, Instant.parse("2026-10-07T03:00:00Z"),
+                        SubwayTrainCandidate.Kind.UPCOMING, 3, "99")));
 
         mockMvc.perform(get("/api/journeys/7/subway/train-candidates").with(authentication(user())))
                 .andExpect(status().isOk())
@@ -77,7 +79,11 @@ class JourneySubwaySelectionControllerTest {
                 .andExpect(jsonPath("$[0].express").value(false))
                 .andExpect(jsonPath("$[0].kind").value("UPCOMING"))
                 .andExpect(jsonPath("$[1].kind").value("DEPARTED"))
-                .andExpect(jsonPath("$[1].arrivalSeconds").doesNotExist());
+                .andExpect(jsonPath("$[1].arrivalSeconds").doesNotExist())
+                .andExpect(jsonPath("$[0].arrivalCode").value("99"))
+                .andExpect(jsonPath("$[2].arrivalSeconds").doesNotExist())
+                .andExpect(jsonPath("$[2].stationsAway").value(3))
+                .andExpect(jsonPath("$[2].arrivalCode").value("99"));
     }
 
     @Test
