@@ -9,10 +9,13 @@ import watoo.grd.nextroute.application.journey.dto.SubwayBindingView;
 import watoo.grd.nextroute.application.journey.dto.SubwayTrackabilityView;
 import watoo.grd.nextroute.application.journey.dto.SubwayTrainCandidate;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
+import watoo.grd.nextroute.application.subway.dto.SubwayArrivalCode;
+import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
 import watoo.grd.nextroute.application.subway.service.SubwayDepartureLookup;
 import watoo.grd.nextroute.application.subway.service.ServiceDateResolver;
 import watoo.grd.nextroute.application.subway.service.SubwayDirectionNormalizer;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
+import watoo.grd.nextroute.application.subway.service.SubwayStationsAway;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
@@ -292,7 +295,7 @@ public class SubwayTrainSelectionService {
 
     private static SubwayTrainCandidate departedCandidate(String trainNo, Instant departedAt) {
         return new SubwayTrainCandidate(trainNo, null, false, null, null, departedAt,
-                SubwayTrainCandidate.Kind.DEPARTED);
+                SubwayTrainCandidate.Kind.DEPARTED, null, null);
     }
 
     /** 수집기 캐시 — 역 도착 노선도와 같은 원천이다. */
@@ -416,12 +419,16 @@ public class SubwayTrainSelectionService {
         return legs.stream().filter(leg -> leg.getLegIndex() == index).findFirst().orElse(null);
     }
 
+    /** 남은 초가 없는 열차에 거리를 붙인다 — 역 도착 조회({@code SubwayArrivalQueryService})와 같은 계산(#489). */
     private static SubwayTrainCandidate toCandidate(SubwayRealtimeArrivalReader.Arrival arrival) {
-        String type = arrival.train().getTrainType();
+        SubwayRealtimeTrain train = arrival.train();
+        String type = train.getTrainType();
         boolean express = type != null && type.contains("급행");
-        return new SubwayTrainCandidate(arrival.train().getTrainNo(), arrival.train().getDestinationName(),
-                express, type, arrival.arrivalSeconds(), observedAt(arrival.train().getReceivedAt()),
-                SubwayTrainCandidate.Kind.UPCOMING);
+        Integer stationsAway = SubwayStationsAway.resolve(
+                SubwayArrivalCode.from(train.getArrivalCode()), train.getCurrentMessage());
+        return new SubwayTrainCandidate(train.getTrainNo(), train.getDestinationName(),
+                express, type, arrival.arrivalSeconds(), observedAt(train.getReceivedAt()),
+                SubwayTrainCandidate.Kind.UPCOMING, stationsAway, train.getArrivalCode());
     }
 
     private static java.time.Instant observedAt(String receivedAt) {

@@ -8,14 +8,21 @@ import java.time.Instant;
  * <p>{@link SubwayBindingView} 와 달리 <b>열차번호를 싣는다</b> — 선택 요청의 키다. 앱이 이 값으로 다른 판단을 하지
  * 않게 HANDOFF 에 적는다.
  *
- * @param arrivalSeconds 지금 기준 남은 초. 원천이 미산출이면 null
+ * @param arrivalSeconds 지금 기준 남은 초. 원천이 미산출이면 null — 그때는 {@code stationsAway} 가 대신 답한다.
+ *                       null 을 "곧 도착"으로 읽지 않는다(#489: 3개 역 밖 열차가 곧 도착으로 보였다)
  * @param trainType      원천 열차 종류 원문(일반·급행 등). 없으면 null
  * @param observedAt     원천 수신 시각. 떠난 열차는 출발 시각
  * @param kind           곧 올 열차인지, 이 역을 이미 떠난 열차인지. 떠난 열차는 {@code arrivalSeconds} 가 null 이고
  *                       {@code destination}·{@code trainType} 도 원천에 없으면 null 이다(위치 원천은 행선지를 주지 않는다)
+ * @param stationsAway   승차역까지 남은 정거장 수. 진입·도착이면 0, 모르면 null. 역 도착 조회
+ *                       ({@code /api/arrivals/subway})와 같은 계산({@code SubwayStationsAway})이라 같은 열차에 같은 값이다.
+ *                       떠난 열차는 null
+ * @param arrivalCode    서울 {@code arvlCd} 원문(0 진입·1 도착·2 출발·3~5 전역·99 운행 중). 역 도착 조회와 같은 값.
+ *                       떠난 열차는 null
  */
 public record SubwayTrainCandidate(String trainNo, String destination, boolean express, String trainType,
-                                   Integer arrivalSeconds, Instant observedAt, Kind kind) {
+                                   Integer arrivalSeconds, Instant observedAt, Kind kind,
+                                   Integer stationsAway, String arrivalCode) {
 
     /** 앱이 "이 열차 탈게요"/"이미 탔어요"를 가르는 값. */
     public enum Kind { UPCOMING, DEPARTED }
