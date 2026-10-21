@@ -11,8 +11,10 @@ import watoo.grd.nextroute.application.journey.dto.JourneyEvaluationOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
 import watoo.grd.nextroute.application.journey.dto.NotificationContext;
+import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.TransferAssessmentBatch;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
+import watoo.grd.nextroute.application.journey.dto.TransferTargetArrival;
 import watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.journey.reeval.ReevaluationProperties;
@@ -23,6 +25,7 @@ import watoo.grd.nextroute.application.journey.service.JourneyEvaluationContextL
 import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -119,16 +122,19 @@ public class JourneyEvaluationService {
         }
 
         TransferAssessmentBatch batch = applyGrace(computed, context, now);
-        boolean changed = hasChanged(batch.assessments(), context.previousAssessments());
+        Map<Integer, TransferTargetArrival> outside = outsideAssessments(batch, context.currentLegIndex());
+        boolean changed = hasChanged(batch.assessments(), context.previousAssessments())
+                || boardingsChanged(outside, context.previousBoardings(), now);
         // 저장은 허용 폭 안이면 직전 값을 유지한다 — 저장값과 평가 번호가 늘 같은 것을 가리키게(AssessmentChangeRule)
         TransferAssessmentBatch toStore = new TransferAssessmentBatch(
                 AssessmentChangeRule.stabilize(batch.assessments(), context.previousAssessments(),
                         properties.changeTolerance()),
-                batch.boardingByLegIndex(), batch.upstreamBlocked());
+                stabilizeBoardings(batch.boardingByLegIndex(), outside, context.previousBoardings(), now),
+                batch.upstreamBlocked());
         JourneyEvaluationOutcome outcome = new JourneyEvaluationOutcome(
                 context.journeyId(), context.routeRevision(), toStore, changed);
 
-        Schedule next = nextEvaluation(context, batch, now, changed);
+        Schedule next = nextEvaluation(context, batch, toStore, now, changed);
         NotificationContext notification = notificationContext(context, batch, now, detection);
         // 마친 시각은 저장 직전에 다시 잰다. 계산 전 시각을 쓰면 외부 호출이 최소 간격보다 오래 걸린
         // 평가에서 "직전 평가 + 최소 간격"이 이미 지난 시각이 돼, 느린 여정일수록 간격 하한이 사라진다.
@@ -294,17 +300,18 @@ public class JourneyEvaluationService {
      * 먼저 잡을 이유이기도 하다 — 기준을 두 벌로 두면 둘이 어긋난다.
      */
     private Schedule nextEvaluation(JourneyEvaluationContext context, TransferAssessmentBatch batch,
-                                    Instant now, boolean changed) {
+                                    TransferAssessmentBatch toStore, Instant now, boolean changed) {
+        JourneyEvaluationIntervalPolicy.WaitsAhead waits = waitsAhead(toStore, context.currentLegIndex());
         JourneyEvaluationIntervalPolicy.Decision decision = intervalPolicy.decide(
                 batch.assessments(), context.currentLegIndex(), now,
-                context.previousInterval(now), changed, batch.upstreamBlocked());
+                context.previousInterval(now), changed, batch.upstreamBlocked(), waits);
 
         metrics.recordInterval(decision.reason().name().toLowerCase(),
                 decision.interval().toSeconds());
 
         long spread = Math.floorMod(context.journeyId(), properties.getJitterSeconds());
         ReevaluationTier tier = intervalPolicy.tierOf(batch.assessments(), context.currentLegIndex(), now,
-                batch.upstreamBlocked());
+                batch.upstreamBlocked(), waits);
         return new Schedule(now.plus(decision.interval()).plusSeconds(spread), decision.urgent(),
                 reevaluationProperties.minGapSeconds(tier));
     }
@@ -324,6 +331,109 @@ public class JourneyEvaluationService {
      * 판단하므로 <b>도착 시각만 바뀐 경우에도 올려야 한다.</b> 상태만 비교하면 앱이 계속 204 를
      * 받아 새 도착 시각을 영원히 못 본다.
      */
+    /**
+     * 판정이 담지 못하는 대기 예측(#480) — 지금이거나 앞으로 올 대기 중 환승 대상이 아니거나, 그 환승의 앞 단계가 아직 시작 전인
+     * 것. 앞 단계가 진행 중인 환승의 대기는 판정이 맡는다(변화·안정화 모두 판정 쪽 규칙).
+     */
+    private static Map<Integer, TransferTargetArrival> outsideAssessments(TransferAssessmentBatch batch,
+                                                                         int currentLegIndex) {
+        Map<Integer, TransferTargetArrival> outside = new java.util.HashMap<>();
+        batch.boardingByLegIndex().forEach((legIndex, target) -> {
+            boolean covered = batch.assessments().stream()
+                    .anyMatch(a -> a.toLegIndex() == legIndex && a.fromLegIndex() <= currentLegIndex);
+            if (legIndex >= currentLegIndex && !covered) {
+                outside.put(legIndex, target);
+            }
+        });
+        return outside;
+    }
+
+    /**
+     * 판정 밖 대기 예측이 저장값과 달라졌는지(#480). 환승 없는 여정은 판정이 비어 {@link #hasChanged} 가 늘 false 라, 이게 없으면
+     * 평가 번호가 안 올라 앱이 새 도착 예정을 못 본다(204).
+     *
+     * <ul>
+     *   <li>이번에 못 구했으면: 저장기가 직전 예측을 지킬 때({@link JourneyEvaluationScheduleWriter#stillUsable})는 같다, 지울 때는
+     *       바뀜이다 — 지워졌는데 번호가 그대로면 앱이 지난 차의 도착 예정을 계속 본다</li>
+     *   <li>허용 폭(판정과 같은 30초) 안이면 같다. 둘 다 "지금 무렵"(지금 + 폭 이전)이면 같다 — 열차가 역에 서 있는 동안 매 평가
+     *       "지금"이 새로 나와 번호가 오르지 않게</li>
+     *   <li>저장값이 곧(미래 폭 안) 지날 참인데 새 값이 그 폭 너머로 밀렸으면 폭 안이어도 바뀜이다 — 옛 값이 지나 조회가 모름이 된다</li>
+     * </ul>
+     */
+    private boolean boardingsChanged(Map<Integer, TransferTargetArrival> outside,
+                                     Map<Integer, JourneyEvaluationContextLoader.StoredBoarding> previous, Instant now) {
+        return outside.entrySet().stream()
+                .anyMatch(entry -> !sameBoarding(entry.getValue().arrival().arrivalAt(),
+                        previous.get(entry.getKey()), now));
+    }
+
+    private boolean sameBoarding(Instant fresh, JourneyEvaluationContextLoader.StoredBoarding storedBoarding,
+                                 Instant now) {
+        Instant stored = storedBoarding == null ? null : storedBoarding.predictedEndAt();
+        if (fresh == null) {
+            return stored == null
+                    || JourneyEvaluationScheduleWriter.stillUsable(stored, storedBoarding.observedAt(), now);
+        }
+        if (stored == null) {
+            return false;
+        }
+        if (fresh.equals(stored)) {
+            return true;
+        }
+        Duration tolerance = properties.changeTolerance();
+        Instant soon = now.plus(tolerance);
+        if (!stored.isAfter(soon) && !fresh.isAfter(soon)) {
+            return true;
+        }
+        if (stored.isAfter(now) && !stored.isAfter(soon)) {
+            return false;
+        }
+        return Duration.between(stored, fresh).abs().compareTo(tolerance) <= 0;
+    }
+
+    /**
+     * 판정 밖 대기 예측이 저장값과 같으면(허용 폭 안) 저장값 시각을 그대로 둔다 — 근거(출처·품질·관측 시각)만 새것. 폭 안의 변화를
+     * 매번 저장하면 기준이 조금씩 따라 움직여, 몇 분이 밀려도 한 번에 폭을 넘지 않아 평가 번호가 영영 안 오른다. 이미 지난
+     * 저장값은 붙잡지 않는다(조회가 모름으로 본다).
+     */
+    private Map<Integer, TransferTargetArrival> stabilizeBoardings(
+            Map<Integer, TransferTargetArrival> all, Map<Integer, TransferTargetArrival> outside,
+            Map<Integer, JourneyEvaluationContextLoader.StoredBoarding> previous, Instant now) {
+        if (outside.isEmpty()) {
+            return all;
+        }
+        Map<Integer, TransferTargetArrival> out = new java.util.HashMap<>(all);
+        outside.forEach((legIndex, target) -> {
+            CurrentLegArrival fresh = target.arrival();
+            JourneyEvaluationContextLoader.StoredBoarding storedBoarding = previous.get(legIndex);
+            Instant stored = storedBoarding == null ? null : storedBoarding.predictedEndAt();
+            if (fresh.arrivalAt() == null || stored == null || !stored.isAfter(now)
+                    || fresh.arrivalAt().equals(stored) || !sameBoarding(fresh.arrivalAt(), storedBoarding, now)) {
+                return;
+            }
+            out.put(legIndex, new TransferTargetArrival(new CurrentLegArrival(stored,
+                    (int) Math.max(0, Duration.between(now, stored).toSeconds()), fresh.remainingDistanceMeters(),
+                    fresh.remainingStops(), fresh.source(), fresh.quality(), fresh.observedAt()),
+                    target.modelVersion(), target.upstreamBlocked()));
+        });
+        return Map.copyOf(out);
+    }
+
+    /** 판정 밖 남은 대기 — 간격 규칙용(#480). 이른 예측은 저장할 값(안정화 뒤) 기준이다 — 그 값이 지나기 전에 다시 본다. */
+    private static JourneyEvaluationIntervalPolicy.WaitsAhead waitsAhead(TransferAssessmentBatch toStore,
+                                                                         int currentLegIndex) {
+        Map<Integer, TransferTargetArrival> outside = outsideAssessments(toStore, currentLegIndex);
+        if (outside.isEmpty()) {
+            return JourneyEvaluationIntervalPolicy.WaitsAhead.NONE;
+        }
+        Instant earliest = outside.values().stream()
+                .map(target -> target.arrival().arrivalAt())
+                .filter(java.util.Objects::nonNull)
+                .min(Instant::compareTo)
+                .orElse(null);
+        return new JourneyEvaluationIntervalPolicy.WaitsAhead(true, earliest);
+    }
+
     private boolean hasChanged(List<TransferRiskAssessment> assessments,
                                Map<Integer, TransferRiskAssessment> previous) {
         if (assessments.isEmpty()) {

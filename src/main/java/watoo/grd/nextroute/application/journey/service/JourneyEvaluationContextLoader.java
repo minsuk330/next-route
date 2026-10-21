@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.journey.dto.TransferRiskAssessment;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneySession;
 import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 import watoo.grd.nextroute.domain.journey.entity.TransferConnection;
@@ -14,6 +15,7 @@ import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepositor
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -54,9 +56,19 @@ public class JourneyEvaluationContextLoader {
                 .stream()
                 .collect(Collectors.toMap(TransferConnection::getTransferIndex,
                         TransferAssessmentMapper::fromStored));
-        boolean usesBus = legRepository.existsLegOfTypes(journeyId, journey.getRouteRevision(), BUS_LEGS);
+        List<JourneyLeg> legs = legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+                journeyId, journey.getRouteRevision());
+        boolean usesBus = legs.stream().anyMatch(leg -> BUS_LEGS.contains(leg.getType()));
+        Map<Integer, StoredBoarding> previousBoardings = new java.util.HashMap<>();
+        for (JourneyLeg leg : legs) {
+            if (leg.getType().isWaiting() && leg.getPredictedEndAt() != null) {
+                previousBoardings.put(leg.getLegIndex(),
+                        new StoredBoarding(leg.getPredictedEndAt(), leg.getEvidenceObservedAt()));
+            }
+        }
         return Optional.of(new JourneyEvaluationContext(journey.getId(), journey.getUserId(),
-                journey.getRouteRevision(), journey.getCurrentLegIndex(), previous, usesBus));
+                journey.getRouteRevision(), journey.getCurrentLegIndex(), previous, usesBus,
+                Map.copyOf(previousBoardings)));
     }
 
     /**
@@ -65,6 +77,7 @@ public class JourneyEvaluationContextLoader {
      * @param currentLegIndex     지금 진행 중인 단계. 이미 지나온 환승을 간격 계산에서 빼는 데 쓴다
      * @param previousAssessments 직전 판정. 값이 달라졌는지 견주고, 직전 평가 시각을 읽는 데 쓴다
      * @param usesBusProvider     버스 단계가 있는지. 평가기가 버스(한도 있음)·지하철 중 어느 슬롯을 잡을지 가른다
+     * @param previousBoardings   대기 단계 순번 → 저장된 승차 예측(#480). 환승 없는 여정도 그 값이 바뀌면 평가 번호를 올린다
      */
     public record JourneyEvaluationContext(
             Long journeyId,
@@ -72,8 +85,15 @@ public class JourneyEvaluationContextLoader {
             int routeRevision,
             int currentLegIndex,
             Map<Integer, TransferRiskAssessment> previousAssessments,
-            boolean usesBusProvider
+            boolean usesBusProvider,
+            Map<Integer, StoredBoarding> previousBoardings
     ) {
+
+        public JourneyEvaluationContext(Long journeyId, Long userId, int routeRevision, int currentLegIndex,
+                                        Map<Integer, TransferRiskAssessment> previousAssessments,
+                                        boolean usesBusProvider) {
+            this(journeyId, userId, routeRevision, currentLegIndex, previousAssessments, usesBusProvider, Map.of());
+        }
 
         /** 예전 모양. 슬롯을 모르면 보수적으로 버스 몫을 잡는다. */
         public JourneyEvaluationContext(Long journeyId, Long userId, int routeRevision, int currentLegIndex,
@@ -89,12 +109,24 @@ public class JourneyEvaluationContextLoader {
          * @return 직전 평가 기록이 없으면 null
          */
         public Duration previousInterval(Instant now) {
-            return previousAssessments.values().stream()
+            Instant lastAt = previousAssessments.values().stream()
                     .map(TransferRiskAssessment::calculatedAt)
                     .filter(Objects::nonNull)
                     .max(Instant::compareTo)
-                    .map(lastAt -> Duration.between(lastAt, now))
+                    // 환승 없는 여정은 판정이 없다 — 대기 예측의 근거 시각(평가마다 새로 적힌다)으로 직전 평가를 읽는다(#480).
+                    // 없으면 백오프가 안 돼 첫 차를 오래 기다리는 동안 30초마다 외부 조회를 한다. 판정이 있으면 판정 시각이
+                    // 기준이다(대기 근거 시각은 판정과 별개로 늘 최근이라 섞으면 백오프가 막힌다).
+                    .or(() -> previousBoardings.values().stream()
+                            .map(StoredBoarding::observedAt)
+                            .filter(Objects::nonNull)
+                            .max(Instant::compareTo))
                     .orElse(null);
+            return lastAt == null ? null : Duration.between(lastAt, now);
         }
     }
+
+    /** 대기 단계 행에 저장된 승차 예측과 그 근거 시각(#480). */
+    public record StoredBoarding(Instant predictedEndAt, Instant observedAt) {
+    }
+
 }

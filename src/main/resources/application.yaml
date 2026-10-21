@@ -480,6 +480,9 @@ batch:
     correction-window-minutes: 10
 
 journey:
+  transfer-risk:
+    # #480 환승 판정 밖 대기(첫 승차 등)도 예측한다. 슬롯·호출량이 버거우면 false 로 되돌린다.
+    predict-all-waits: ${JOURNEY_PREDICT_ALL_WAITS:true}
   navigation:
     # 만료 판정 기준(lease 180초 + 유예 120초)·지하철 보호 상한은 JourneyNavigationProperties 의
     # 기본값을 쓴다. 여기 있는 값은 "얼마나 자주, 몇 건씩 훑을지"뿐이다.

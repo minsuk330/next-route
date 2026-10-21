@@ -40,6 +40,12 @@ public class JourneyTransferRiskProperties {
      */
     private long hysteresisSeconds = 60;
 
+    /**
+     * 환승 판정 밖 대기(첫 승차, 아직 시작 전인 환승의 대기)도 평가기가 예측한다(#480). 기본 켬. 끄면 예전처럼 환승 대기만
+     * 묻는다 — 배포 뒤 공급자 슬롯·호출량이 버거우면 env {@code JOURNEY_PREDICT_ALL_WAITS=false} 로 되돌리는 스위치다.
+     */
+    private boolean predictAllWaits = true;
+
     @PostConstruct
     void validate() {
         if (alightingBufferSeconds < 0 || hysteresisSeconds < 0 || catchableSeconds < 0) {

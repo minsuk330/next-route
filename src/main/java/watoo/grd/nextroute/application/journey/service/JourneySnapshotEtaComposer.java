@@ -86,7 +86,7 @@ public class JourneySnapshotEtaComposer {
                 currentLegEta(currentArrival),
                 alighting(snapshot, currentArrival),
                 activeTransferEta(activeTransfer),
-                journeyEta(snapshot, legsByIndex, currentArrival, activeTransfer),
+                journeyEta(snapshot, legsByIndex, currentArrival, activeTransfer, now),
                 nextAction(snapshot, currentArrival, activeTransfer),
                 evaluatedAt(activeTransfer, currentArrival));
 
@@ -209,13 +209,16 @@ public class JourneySnapshotEtaComposer {
      * 목적지 도착 예측.
      *
      * <p>현재 단계 종료 시각에서 시작해 남은 단계의 계획 소요시간을 더한다. 대기 단계는 계획
-     * 소요시간이 없으므로, 그 값을 아는 환승이 있으면 거기서 다시 기준을 잡고 없으면 전체를
+     * 소요시간이 없으므로 <b>그 대기의</b> 승차 예측에서 다시 기준을 잡고({@link #boardingAt}), 없으면 전체를
      * 모른다고 한다. 대기 시간을 0으로 두면 목적지 도착이 늘 낙관적으로 나온다.
+     *
+     * <p>예전에는 모든 대기를 다음 환승 하나의 차량 도착으로 건너뛰었다 — 첫 승차 대기(환승이 아니다)는 늘 모름이었고,
+     * 대기가 둘이면 첫 대기에 둘째 대기의 차량 시각이 쓰였다(#480).
      */
     private java.time.Instant journeyEta(JourneySnapshot snapshot,
                                          Map<Integer, JourneyLeg> legsByIndex,
                                          CurrentLegArrival currentArrival,
-                                         TransferRiskAssessment activeTransfer) {
+                                         TransferRiskAssessment activeTransfer, Instant now) {
         if (currentArrival.isUnknown() || currentArrival.arrivalAt() == null) {
             return null;
         }
@@ -226,10 +229,11 @@ public class JourneySnapshotEtaComposer {
                 return null;
             }
             if (leg.getType().isWaiting()) {
-                if (activeTransfer == null || activeTransfer.nextBusArrivalAt() == null) {
+                java.time.Instant boarding = boardingAt(leg, activeTransfer, now);
+                if (boarding == null) {
                     return null;
                 }
-                cursor = activeTransfer.nextBusArrivalAt();
+                cursor = boarding.isAfter(cursor) ? boarding : cursor;
                 continue;
             }
             Integer planned = leg.getPlannedDurationSec();
@@ -239,6 +243,24 @@ public class JourneySnapshotEtaComposer {
             cursor = cursor.plusSeconds(planned);
         }
         return cursor;
+    }
+
+    /**
+     * 그 대기 단계의 승차 예측. 그 대기가 바로 다음 환승의 도착 쪽이면 그 환승의 차량 도착(환승 카드와 같은 값 — 예전 동작),
+     * 아니면 평가기가 단계 행에 적어 둔 값(첫 승차 등, #480). 모르면 null.
+     */
+    private Instant boardingAt(JourneyLeg wait, TransferRiskAssessment activeTransfer, Instant now) {
+        if (activeTransfer != null && activeTransfer.toLegIndex() == wait.getLegIndex()
+                && activeTransfer.nextBusArrivalAt() != null) {
+            return activeTransfer.nextBusArrivalAt();
+        }
+        if (evaluatorProperties.isEnabled()) {
+            CurrentLegArrival stored = storedEvaluationReader.boardingArrival(wait, now);
+            if (stored != null && !stored.isUnknown() && stored.arrivalAt() != null) {
+                return stored.arrivalAt();
+            }
+        }
+        return null;
     }
 
     /** 사용자가 지금 할 일. 환승이 위험하면 그것이 우선이다. */

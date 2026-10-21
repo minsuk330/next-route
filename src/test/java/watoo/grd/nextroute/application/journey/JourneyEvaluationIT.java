@@ -134,6 +134,103 @@ class JourneyEvaluationIT {
     }
 
     @Test
+    @DisplayName("#480 아직 첫 차를 기다리는 중이면 그 대기도 예측해 남긴다 — 환승 판정 밖 대기")
+    void storesFirstBoardingPredictionBeforeBoarding() {
+        startWaitingJourney();
+        givenRealtimeArrival(600);
+
+        assertThat(evaluate()).isEqualTo(Result.EVALUATED);
+
+        assertThat(firstWaitPredictedEndAt()).isNotNull();
+        assertThat(firstWaitEvidenceSource()).isEqualTo("REALTIME_ARRIVAL");
+    }
+
+    @Test
+    @DisplayName("#480 첫 대기 예측만 바뀌어도 평가 번호가 오르고, 그대로면 안 오른다 — 앱이 204 만 받지 않게")
+    void firstWaitPredictionChangeBumpsVersion() {
+        startWaitingJourney();
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(600));
+        evaluate();
+        long afterFirst = evaluationVersion();
+
+        makeDue();
+        evaluate();
+        assertThat(evaluationVersion()).as("그대로면 안 오른다").isEqualTo(afterFirst);
+
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(720));
+        makeDue();
+        evaluate();
+        assertThat(evaluationVersion()).as("2분 늦어지면 오른다").isEqualTo(afterFirst + 1);
+    }
+
+    @Test
+    @DisplayName("#480 첫 차를 기다리면 다음 평가를 기본 간격(30초 + 흩뜨림)으로 둔다 — 한가함(2분)이 아니다. 급함은 남기지 않는다")
+    void boardingIntervalWhileWaitingForFirstVehicle() {
+        startWaitingJourney();
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(600));
+
+        evaluate();
+
+        assertThat(secondsUntilNextEvaluation()).isLessThanOrEqualTo(37);
+        assertThat(evaluationUrgent()).isFalse();
+    }
+
+    @Test
+    @DisplayName("#480 못 구한 평가는 유예(90초) 안이면 첫 대기 예측도 번호도 그대로, 유예를 넘겨 지워지면 번호가 오른다")
+    void clearedFirstWaitPredictionBumpsVersion() {
+        startWaitingJourney();
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(600));
+        evaluate();
+        long afterFirst = evaluationVersion();
+        Instant kept = firstWaitPredictedEndAt();
+
+        givenBlocked();
+        makeDue();
+        evaluate();
+        assertThat(firstWaitPredictedEndAt()).as("유예 안 — 지키다").isEqualTo(kept);
+        assertThat(evaluationVersion()).isEqualTo(afterFirst);
+
+        jdbcTemplate.update("""
+                update journey_leg set evidence_observed_at = now() - interval '100 seconds'
+                where journey_id = ? and leg_index = 0
+                """, journeyId);
+        makeDue();
+        evaluate();
+        assertThat(firstWaitPredictedEndAt()).as("유예를 넘겼다 — 지운다").isNull();
+        assertThat(evaluationVersion()).as("지운 것도 바뀜 — 앱이 지난 차를 보지 않게").isEqualTo(afterFirst + 1);
+    }
+
+    @Test
+    @DisplayName("#480 차가 정류장에 와 있는 동안(예측 = 지금 무렵) 평가마다 번호를 올리지 않는다")
+    void arrivingVehicleDoesNotBumpEveryEvaluation() {
+        startWaitingJourney();
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(5));
+        evaluate();
+        long afterFirst = evaluationVersion();
+
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(8));
+        makeDue();
+        evaluate();
+
+        assertThat(evaluationVersion()).isEqualTo(afterFirst);
+    }
+
+    @Test
+    @DisplayName("#480 첫 대기 예측이 그대로면 간격을 늘린다 — 환승 없는 여정도 직전 평가 시각을 안다")
+    void backsOffWhenFirstWaitPredictionUnchanged() {
+        startWaitingJourney();
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(900));
+        evaluate();
+        // 30초 전 평가였던 것처럼 — 이 여정은 뒤에 환승이 있어(아직 UNKNOWN) 판정 시각이 기준이다
+        agePreviousEvaluation(30);
+
+        makeDue();
+        evaluate();
+
+        assertThat(secondsUntilNextEvaluation()).isGreaterThan(37);
+    }
+
+    @Test
     @DisplayName("평가가 끝나면 다음 평가 시각을 다시 심는다")
     void reschedulesAfterEvaluation() {
         givenRealtimeArrival(600);
@@ -564,6 +661,30 @@ class JourneyEvaluationIT {
                 TransferArrival.Source.NONE, TransferArrival.Status.BLOCKED,
                 Instant.now(), call.getArgument(3)))
                 .given(predictTransferUseCase).predict(anyString(), anyString(), anyInt(), any(), any(), anyLong());
+    }
+
+    /** 새 여정을 시작만 하고 타지 않는다 — 지금 단계가 첫 승차 대기(0)다. 그 정류장·노선도 채운다. */
+    private void startWaitingJourney() {
+        journeyId = startJourney();
+        resolveStopIdentity();
+        jdbcTemplate.update("""
+                update journey_leg set start_stop_id = 'ST-F'
+                where journey_id = ? and leg_index = 0 and start_stop_id is null
+                """, journeyId);
+    }
+
+    private Instant firstWaitPredictedEndAt() {
+        return jdbcTemplate.queryForObject("""
+                select predicted_end_at from journey_leg
+                where journey_id = ? and leg_index = 0 and deleted_at is null
+                """, Instant.class, journeyId);
+    }
+
+    private String firstWaitEvidenceSource() {
+        return jdbcTemplate.queryForObject("""
+                select evidence_source from journey_leg
+                where journey_id = ? and leg_index = 0 and deleted_at is null
+                """, String.class, journeyId);
     }
 
     private Long startJourney() {

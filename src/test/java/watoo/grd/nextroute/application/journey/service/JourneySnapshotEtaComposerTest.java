@@ -254,7 +254,67 @@ class JourneySnapshotEtaComposerTest {
 
         assertThat(result.eta().currentLeg().arrivalAt()).isEqualTo(NOW.plusSeconds(300));
         verify(arrivalService).predict(any(), any());
-        verify(storedEvaluationReader, never()).boardingArrival(any(), any());
+        // 지금 단계(탑승)는 저장값을 읽지 않는다. 뒤쪽 대기의 승차 예측은 목적지 도착에 쓰려고 읽는다(#480).
+        verify(storedEvaluationReader, never()).boardingArrival(
+                org.mockito.ArgumentMatchers.argThat(leg -> leg != null && leg.getLegIndex() == 0), any());
+    }
+
+    @Test
+    @DisplayName("#480 안내 시작 직후(첫 도보) 첫 승차 대기에 저장된 예측이 있으면 목적지 도착이 나온다 — 대기를 0 으로 두지 않는다")
+    void firstWaitPredictionGivesJourneyEtaRightAfterStart() {
+        evaluatorProperties.setEnabled(true);
+        useSubwayRoute();   // 0=WALK(120, 현재) 1=WAIT_SUBWAY 2=RIDE_SUBWAY(120) 3=WALK(300)
+        given(storedEvaluationReader.assessments(anyLong(), anyInt(), any())).willReturn(List.of());
+        givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+        // 평가기가 첫 대기에 적어 둔 승차 예측: 09:05(걸어서 닿는 09:02 뒤 3분)
+        given(storedEvaluationReader.boardingArrival(
+                org.mockito.ArgumentMatchers.argThat(leg -> leg != null && leg.getLegIndex() == 1), any()))
+                .willReturn(arrival(NOW.plusSeconds(300), CurrentLegArrival.Quality.APPROXIMATE));
+
+        JourneySnapshot result = composer.compose(USER_ID, snapshot(0));
+
+        // 09:05 승차 + 120초 탑승 + 300초 걷기 = 09:12
+        assertThat(result.eta().journeyEta()).isEqualTo(NOW.plusSeconds(720));
+    }
+
+    @Test
+    @DisplayName("#480 대기가 둘이면 각 대기가 자기 승차 예측으로 넘어간다 — 첫 대기에 둘째 대기의 차량 시각을 쓰지 않는다")
+    void eachWaitUsesItsOwnPrediction() {
+        evaluatorProperties.setEnabled(true);
+        legs = List.of(
+                leg(0, JourneyLegType.WALK, 60),
+                leg(1, JourneyLegType.WAIT_BUS, null),
+                leg(2, JourneyLegType.RIDE_BUS, 600),
+                leg(3, JourneyLegType.TRANSFER_WALK, 120),
+                leg(4, JourneyLegType.WAIT_BUS, null),
+                leg(5, JourneyLegType.RIDE_BUS, 300));
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+                JOURNEY_ID, REVISION)).willReturn(legs);
+        given(storedEvaluationReader.assessments(anyLong(), anyInt(), any())).willReturn(List.of());
+        givenCurrentArrival(arrival(NOW.plusSeconds(60), CurrentLegArrival.Quality.GOOD));
+        given(storedEvaluationReader.boardingArrival(
+                org.mockito.ArgumentMatchers.argThat(leg -> leg != null && leg.getLegIndex() == 1), any()))
+                .willReturn(arrival(NOW.plusSeconds(240), CurrentLegArrival.Quality.GOOD));
+        given(storedEvaluationReader.boardingArrival(
+                org.mockito.ArgumentMatchers.argThat(leg -> leg != null && leg.getLegIndex() == 4), any()))
+                .willReturn(arrival(NOW.plusSeconds(1200), CurrentLegArrival.Quality.APPROXIMATE));
+
+        JourneySnapshot result = composer.compose(USER_ID, snapshot(0));
+
+        // 09:04 승차 + 600 + 120 = 09:16 도착, 둘째 차 09:20 승차 + 300 = 09:25
+        assertThat(result.eta().journeyEta()).isEqualTo(NOW.plusSeconds(1500));
+    }
+
+    @Test
+    @DisplayName("#480 뒤쪽 대기 예측이 없으면 지금처럼 모름이다 — 대기 시간을 0 으로 지어내지 않는다")
+    void missingLaterWaitPredictionIsUnknown() {
+        evaluatorProperties.setEnabled(true);
+        useSubwayRoute();
+        given(storedEvaluationReader.assessments(anyLong(), anyInt(), any())).willReturn(List.of());
+        givenCurrentArrival(arrival(NOW.plusSeconds(120), CurrentLegArrival.Quality.GOOD));
+        given(storedEvaluationReader.boardingArrival(any(), any())).willReturn(CurrentLegArrival.unknown());
+
+        assertThat(composer.compose(USER_ID, snapshot(0)).eta().journeyEta()).isNull();
     }
 
     @Test
@@ -500,7 +560,10 @@ class JourneySnapshotEtaComposerTest {
         TransferRiskEvaluator evaluator = new TransferRiskEvaluator(transferRepository, legRepository,
                 arrivalService, targetArrivalService, new TransferReadinessCalculator(riskProperties),
                 new TransferRiskPolicy(riskProperties), new TransferAssessmentWriter(transferRepository),
-                guidanceComposer, sharedRule, clock);
+                guidanceComposer, sharedRule,
+                new watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
+                riskProperties, clock);
         JourneySnapshotEtaComposer requestPath = new JourneySnapshotEtaComposer(legRepository, geometryUseCase,
                 arrivalService, evaluator, storedEvaluationReader, evaluatorProperties, sharedRule, clock);
 

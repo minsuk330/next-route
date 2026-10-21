@@ -146,9 +146,14 @@ public class JourneyEvaluationScheduleWriter {
     static final Duration UNKNOWN_GRACE = Duration.ofSeconds(90);
 
     private static boolean stillUsable(JourneyLeg leg, Instant now) {
-        return leg.getPredictedEndAt() != null && leg.getPredictedEndAt().isAfter(now)
-                && leg.getEvidenceObservedAt() != null
-                && !leg.getEvidenceObservedAt().isBefore(now.minus(UNKNOWN_GRACE));
+        return stillUsable(leg.getPredictedEndAt(), leg.getEvidenceObservedAt(), now);
+    }
+
+    /** 못 구한 평가가 이 저장 예측을 지키는지 — 평가 서비스도 같은 규칙으로 "지워짐 = 바뀜"을 판단한다(#480). */
+    static boolean stillUsable(Instant predictedEndAt, Instant evidenceObservedAt, Instant now) {
+        return predictedEndAt != null && predictedEndAt.isAfter(now)
+                && evidenceObservedAt != null
+                && !evidenceObservedAt.isBefore(now.minus(UNKNOWN_GRACE));
     }
 
 }

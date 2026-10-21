@@ -160,6 +160,27 @@ class SubwayLineOrderTest {
     }
 
     @Test
+    @DisplayName("#480 N 역 앞 출발 → 이 역 도착 계획 초 — N 번째 앞 역(먼 역)이 기준, N 역을 못 채우면 empty")
+    void secondsFromBehind() {
+        SubwayLinePatternService patternService = mock(SubwayLinePatternService.class);
+        SubwayStationsAheadService ahead = mock(SubwayStationsAheadService.class);
+        List<DirectedRailPattern> directed = List.of(mock(DirectedRailPattern.class));
+        given(patternService.cachedPatterns("1003", "하행")).willReturn(directed);
+        // A(출발 30) → B(도착 120, 출발 150) → C(도착 240, 출발 270) → D(도착 360)
+        given(ahead.resolvedPatterns(eq("1003"), eq("하행"), eq(directed), any())).willReturn(List.of(
+                new Pattern("L", "L", false, 100, List.of(new Stop("A", "A", "A", 0, 30),
+                        new Stop("B", "B", "B", 120, 150), new Stop("C", "C", "C", 240, 270),
+                        new Stop("D", "D", "D", 360, 360)))));
+        SubwayLineOrder order = new SubwayLineOrder(patternService, mock(SubwayLineStationIndex.class), ahead);
+
+        assertThat(order.secondsFromBehind("1003", "하행", "D", 1)).as("C 출발 270 → D 도착 360").contains(90);
+        assertThat(order.secondsFromBehind("1003", "하행", "D", 3)).as("A 출발 30 → D 도착 360").contains(330);
+        assertThat(order.secondsFromBehind("1003", "하행", "D", 4)).as("기점 너머").isEmpty();
+        assertThat(order.secondsFromBehind("1003", "하행", "D", 0)).isEmpty();
+        assertThat(order.secondsFromBehind("1003", "하행", null, 1)).isEmpty();
+    }
+
+    @Test
     @DisplayName("#310 순환 패턴은 출발역 다음 첫 도착역까지만 — 한 바퀴 돌아 다시 만나면 끊는다")
     void arrivalGapStopsAtLoop() {
         List<Stop> loop = List.of(new Stop("A", "A", "A", 0, 0), new Stop("B", "B", "B", 60, 60),
