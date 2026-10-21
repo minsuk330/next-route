@@ -14,6 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.application.journey.dto.JourneyProgressOutcome;
+import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.exception.ProgressTimestampConflictException;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyEventUseCase;
 import watoo.grd.nextroute.application.journey.port.in.ApplyJourneyProgressUseCase;
@@ -23,6 +24,8 @@ import watoo.grd.nextroute.application.journey.service.JourneySnapshotEtaCompose
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
+import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
+import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 import watoo.grd.nextroute.global.error.GlobalExceptionHandler;
 
 import java.time.Instant;
@@ -30,6 +33,8 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -43,7 +48,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(JourneyController.class)
 @Import({SecurityConfig.class, CorsConfig.class,
-        GlobalExceptionHandler.class, JourneyControllerAdvice.class})
+        GlobalExceptionHandler.class, JourneyControllerAdvice.class, JourneySnapshotEtaAttacher.class})
 @DisplayName("progress API 계약")
 class JourneyProgressApiTest {
 
@@ -115,6 +120,26 @@ class JourneyProgressApiTest {
                                 {"routeRevision":1,"legIndex":0}
                                 """))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("#470 진행 보고 응답은 예측을 얹지 않는다 — eta 키는 오고 값이 null, 합성을 부르지 않는다")
+    void progressOmitsEta() throws Exception {
+        // 가장 잦은 요청(15초, 하차 임박 5초)이라 합성 비용을 붙이지 않는다. 앱은 직전 eta 를 유지한다.
+        JourneySnapshot active = JourneySnapshot.of(7L, JourneyStatus.ACTIVE, JourneyKind.NAVIGATION,
+                1L, 3L, 1, 0, Instant.parse("2026-08-04T09:03:00Z"), null,
+                Instant.parse("2026-08-04T09:00:00Z"), List.of());
+        given(applyJourneyProgressUseCase.apply(any(), any(), any())).willReturn(
+                new JourneyProgressOutcome(JourneyProgressOutcome.Result.APPLIED, active));
+
+        mockMvc.perform(put("/api/journeys/7/progress")
+                        .with(authentication(authUser(1L))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.journey.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.journey.eta").value(org.hamcrest.Matchers.nullValue()));
+
+        verify(etaComposer, never()).compose(any(), any());
     }
 
     @Test

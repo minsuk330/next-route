@@ -13,6 +13,8 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
+import watoo.grd.nextroute.application.journey.dto.JourneyEtaView;
+import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidate;
 import watoo.grd.nextroute.application.journey.dto.RerouteDecision;
 import watoo.grd.nextroute.application.journey.dto.RerouteCandidateApply;
@@ -21,6 +23,7 @@ import watoo.grd.nextroute.application.journey.dto.RerouteCandidateRoute;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
 import watoo.grd.nextroute.application.journey.port.in.AcceptRerouteProposalUseCase;
 import watoo.grd.nextroute.application.journey.port.in.GetRerouteCandidateRouteUseCase;
+import watoo.grd.nextroute.application.journey.service.JourneySnapshotEtaComposer;
 import watoo.grd.nextroute.application.journey.service.RerouteProposalService;
 import watoo.grd.nextroute.application.route.dto.PathInfo;
 import watoo.grd.nextroute.application.route.dto.PathResult;
@@ -28,6 +31,8 @@ import watoo.grd.nextroute.application.journey.service.SubPathFixture;
 import watoo.grd.nextroute.common.config.CorsConfig;
 import watoo.grd.nextroute.common.security.JwtProvider;
 import watoo.grd.nextroute.common.security.SecurityConfig;
+import watoo.grd.nextroute.domain.journey.entity.JourneyKind;
+import watoo.grd.nextroute.domain.journey.entity.JourneyStatus;
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposalKind;
 import watoo.grd.nextroute.domain.journey.entity.RerouteProposalStatus;
 import watoo.grd.nextroute.global.error.BusinessException;
@@ -60,7 +65,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 나쁜 크기이고, 앱은 그 값을 쓰지도 않는다.
  */
 @WebMvcTest(JourneyRerouteProposalController.class)
-@Import({SecurityConfig.class, CorsConfig.class})
+@Import({SecurityConfig.class, CorsConfig.class, JourneySnapshotEtaAttacher.class})
 @DisplayName("재탐색 제안 API")
 class JourneyRerouteProposalControllerTest {
 
@@ -72,6 +77,7 @@ class JourneyRerouteProposalControllerTest {
     @MockBean RerouteProposalService proposalService;
     @MockBean AcceptRerouteProposalUseCase acceptUseCase;
     @MockBean GetRerouteCandidateRouteUseCase candidateRouteUseCase;
+    @MockBean JourneySnapshotEtaComposer etaComposer;
     @MockBean JwtProvider jwtProvider;                 // SecurityConfig 의존
     @MockBean TokenGenerationPort tokenGenerationPort; // SecurityConfig(JwtAuthFilter) 의존
     @MockBean AdminProperties adminProperties;         // SecurityConfig(AdminApiKeyFilter) 의존
@@ -349,6 +355,29 @@ class JourneyRerouteProposalControllerTest {
                         .with(authentication(authUser(USER_ID))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("REROUTE_PROPOSAL_STALE"));
+    }
+
+    // ── 수락 ────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("#470 수락 응답의 스냅샷도 조회와 같은 예측을 싣는다 — 앱은 이 응답으로 스냅샷을 갈아끼운다")
+    void acceptCarriesEta() throws Exception {
+        JourneySnapshot accepted = JourneySnapshot.of(JOURNEY_ID, JourneyStatus.ACTIVE,
+                JourneyKind.NAVIGATION, 3L, 1L, 2, 2, NOW.plusSeconds(180), null, NOW, List.of());
+        given(acceptUseCase.accept(USER_ID, JOURNEY_ID, 1L, "c1")).willReturn(accepted);
+        given(etaComposer.compose(eq(USER_ID), any())).willAnswer(call -> {
+            JourneySnapshot snapshot = call.getArgument(1);
+            return snapshot.withEta(new JourneyEtaView(null, null, null,
+                    NOW.plusSeconds(1_500), null, null), snapshot.recommendedPollSeconds());
+        });
+
+        mockMvc.perform(post("/api/journeys/{id}/reroute-proposals/{pid}/accept", JOURNEY_ID, 1L)
+                        .with(authentication(authUser(USER_ID)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"candidateId\":\"c1\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.routeRevision").value(2))
+                .andExpect(jsonPath("$.eta.journeyEta").value("2026-08-11T09:25:00Z"));
     }
 
     // ── 준비 ────────────────────────────────────────────────────────────────

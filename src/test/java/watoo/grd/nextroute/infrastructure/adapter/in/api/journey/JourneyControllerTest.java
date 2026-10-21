@@ -18,6 +18,7 @@ import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
 import watoo.grd.nextroute.application.journey.dto.JourneyLegView;
 import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionView;
 import watoo.grd.nextroute.application.journey.dto.JourneyCommand;
+import watoo.grd.nextroute.application.journey.dto.JourneyEtaView;
 import watoo.grd.nextroute.application.journey.dto.JourneyEventOutcome;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.SubwayGuidance;
@@ -68,7 +69,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 인증 없는 호출이 401 인지를 여기서 함께 본다.
  */
 @WebMvcTest(JourneyController.class)
-@Import({SecurityConfig.class, CorsConfig.class})
+@Import({SecurityConfig.class, CorsConfig.class, JourneySnapshotEtaAttacher.class})
 class JourneyControllerTest {
 
     private static final String BODY = """
@@ -641,6 +642,91 @@ class JourneyControllerTest {
                         .with(authentication(authUser(7L)))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest());
+    }
+
+    // ── 예측(#470) ───────────────────────────────────────────────────────────
+    // 앱은 스냅샷이 실린 응답마다 스냅샷을 통째로 갈아끼운다. 조회만 예측을 싣던 때에는 다른 응답으로
+    // 갈아끼우는 순간 도착 예정이 사라지고, 조건부 조회가 204 라 다음 번호까지 돌아오지 않았다.
+
+    private static final Instant JOURNEY_ETA = Instant.parse("2026-07-31T09:22:00Z");
+
+    /** 합성기가 받은 스냅샷에 목적지 예측을 얹어 돌려준다. 사용자 번호가 그대로 넘어가는지도 함께 본다. */
+    private void givenEtaComposed() {
+        given(etaComposer.compose(eq(7L), any())).willAnswer(call -> {
+            JourneySnapshot snapshot = call.getArgument(1);
+            return snapshot.withEta(new JourneyEtaView(null, null, null, JOURNEY_ETA, null, null),
+                    snapshot.recommendedPollSeconds());
+        });
+    }
+
+    @Test
+    @DisplayName("#470 시작 응답도 조회와 같은 예측을 싣는다")
+    void start_carriesEta() throws Exception {
+        givenEtaComposed();
+        given(startJourneyUseCase.start(eq(7L), any(StartJourneyCommand.class)))
+                .willReturn(snapshot(1L));
+
+        mockMvc.perform(post("/api/journeys")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.eta.journeyEta").value("2026-07-31T09:22:00Z"));
+    }
+
+    @Test
+    @DisplayName("#470 조회 응답은 그대로 예측을 싣는다 — 쓰기 응답과 같은 합성이다")
+    void active_carriesEta() throws Exception {
+        givenEtaComposed();
+        given(getActiveJourneyUseCase.getActive(7L)).willReturn(Optional.of(snapshot(5L)));
+
+        mockMvc.perform(get("/api/journeys/active").with(authentication(authUser(7L))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.eta.journeyEta").value("2026-07-31T09:22:00Z"));
+    }
+
+    @Test
+    @DisplayName("#470 이벤트 응답의 스냅샷도 예측을 싣는다")
+    void applyEvent_carriesEta() throws Exception {
+        givenEtaComposed();
+        givenOutcome(JourneyEventResult.APPLIED, null);
+
+        mockMvc.perform(post("/api/journeys/5/events")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(EVENT_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("APPLIED"))
+                .andExpect(jsonPath("$.journey.eta.journeyEta").value("2026-07-31T09:22:00Z"));
+    }
+
+    @Test
+    @DisplayName("#470 거절·충돌 응답의 스냅샷도 예측을 싣는다 — 앱은 그것으로 화면을 다시 그린다")
+    void rejectedEvent_carriesEta() throws Exception {
+        givenEtaComposed();
+        givenOutcome(JourneyEventResult.CONFLICT, null);
+
+        mockMvc.perform(post("/api/journeys/5/events")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(EVENT_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.journey.eta.journeyEta").value("2026-07-31T09:22:00Z"));
+    }
+
+    @Test
+    @DisplayName("#470 도착·취소 응답의 스냅샷도 같은 합성을 탄다")
+    void end_carriesEta() throws Exception {
+        givenEtaComposed();
+        givenOutcome(JourneyEventResult.APPLIED, null);
+
+        mockMvc.perform(post("/api/journeys/5/complete")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(END_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.journey.eta.journeyEta").value("2026-07-31T09:22:00Z"));
+        mockMvc.perform(delete("/api/journeys/5")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(END_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.journey.eta.journeyEta").value("2026-07-31T09:22:00Z"));
     }
 
     // ── 보호 ─────────────────────────────────────────────────────────────────

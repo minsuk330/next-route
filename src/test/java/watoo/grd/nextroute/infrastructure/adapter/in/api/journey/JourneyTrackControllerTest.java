@@ -13,10 +13,12 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
+import watoo.grd.nextroute.application.journey.dto.JourneyEtaView;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.StartTrackCommand;
 import watoo.grd.nextroute.application.journey.dto.TrackViews;
 import watoo.grd.nextroute.application.route.dto.CoordPoint;
+import watoo.grd.nextroute.application.journey.service.JourneySnapshotEtaComposer;
 import watoo.grd.nextroute.application.journey.service.TrackJourneyStartService;
 import watoo.grd.nextroute.application.journey.service.TrackSelectionQueryService;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
@@ -48,7 +50,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * {@code /api/journeys/**} 아래에 있어야 익명에 안 열린다.
  */
 @WebMvcTest(JourneyTrackController.class)
-@Import({SecurityConfig.class, CorsConfig.class, GlobalExceptionHandler.class, JourneyControllerAdvice.class})
+@Import({SecurityConfig.class, CorsConfig.class, GlobalExceptionHandler.class, JourneyControllerAdvice.class,
+        JourneySnapshotEtaAttacher.class})
 class JourneyTrackControllerTest {
 
     private static final String BODY = """
@@ -58,6 +61,7 @@ class JourneyTrackControllerTest {
     @Autowired MockMvc mockMvc;
     @MockBean TrackSelectionQueryService queryService;
     @MockBean TrackJourneyStartService startService;
+    @MockBean JourneySnapshotEtaComposer etaComposer;
     @MockBean JwtProvider jwtProvider;
     @MockBean TokenGenerationPort tokenGenerationPort;
     @MockBean AdminProperties adminProperties;
@@ -136,16 +140,22 @@ class JourneyTrackControllerTest {
     }
 
     @Test
-    @DisplayName("201 — 시작. replace 는 쿼리 파라미터")
+    @DisplayName("201 — 시작. replace 는 쿼리 파라미터, 스냅샷에는 조회와 같은 예측을 얹는다(#470)")
     void start() throws Exception {
         given(startService.start(eq(1L), any())).willReturn(JourneySnapshot.of(9L, JourneyStatus.ACTIVE,
                 JourneyKind.TRACK, 1L, 0L, 1, 0, Instant.parse("2026-10-07T03:03:00Z"), null,
                 Instant.parse("2026-10-07T03:00:00Z"), List.of()));
+        given(etaComposer.compose(eq(1L), any())).willAnswer(call -> {
+            JourneySnapshot snapshot = call.getArgument(1);
+            return snapshot.withEta(new JourneyEtaView(null, null, null,
+                    Instant.parse("2026-10-07T03:12:00Z"), null, null), snapshot.recommendedPollSeconds());
+        });
 
         mockMvc.perform(post("/api/journeys/track?replace=true").contentType(MediaType.APPLICATION_JSON)
                         .content(BODY).with(authentication(user())))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.kind").value("TRACK"));
+                .andExpect(jsonPath("$.kind").value("TRACK"))
+                .andExpect(jsonPath("$.eta.journeyEta").value("2026-10-07T03:12:00Z"));
         verify(startService).start(1L, new StartTrackCommand("1:RR_ACC1_S-1-02-1I", "1:RS_ACC1_S-1-0222",
                 "1:RS_ACC1_S-1-0226", "1:RR_ACC1_S-1-02-1I::10", true));
     }

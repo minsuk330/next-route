@@ -22,6 +22,11 @@ import java.util.List;
  * @param currentLeg             지금 지나는 단계. {@code legs} 에서 뽑은 값이라 중복이지만, 앱이
  *                               매번 순번으로 찾지 않아도 되게 함께 준다
  * @param recommendedPollSeconds 다음에 물어볼 때까지 기다릴 초. 0 이면 그만 물어도 된다
+ * @param eta                    예측. 진행 중인 여정이면 진행 보고({@code PUT /progress})를 뺀 모든 성공 응답의
+ *                               스냅샷에 실린다(#470). 진행 중인 여정에서 null 이면 "이 응답은 예측을 계산하지
+ *                               않았다"는 뜻이라 앱은 직전 값을 유지한다. "모른다"는 이 안의 칸이 null 인
+ *                               것으로 나타낸다. 끝난 여정은 늘 null 이다. 오류 응답의 details 에 실린
+ *                               스냅샷(409 {@code ACTIVE_JOURNEY_EXISTS})에는 싣지 않는다
  * @param subwayGuidance         지하철 진행 안내. 지금 지하철 구간이 아니면 {@code null}.
  *                               <b>단계 안이 아니라 최상위</b>에 둔다 — 모바일의 기존 계약이고,
  *                               앱은 이 값 하나만 보고 Dynamic Island 를 그린다
