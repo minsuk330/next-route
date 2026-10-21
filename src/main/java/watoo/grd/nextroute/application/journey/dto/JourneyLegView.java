@@ -15,6 +15,8 @@ import java.util.List;
  * {@code startStopNo}/{@code endStopNo} 는 버스 정류장 번호(대기 단계는 둘 다 승차 정류장),
  * {@code directionName} 은 지하철 승차역 다음 역 이름, {@code startExitNo}/{@code endExitNo} 는 지하철 출구,
  * {@code fastAlight} 는 지하철 빠른 하차 칸·문, {@code alightDoorSide} 는 지하철 하차역 내리는 문 {@code LEFT}·{@code RIGHT}(#335).
+ * {@code trainKind} 는 지하철 단계(기다리기·타고 가기)의 열차 종류 {@code NORMAL}·{@code EXPRESS}·{@code DIRECT}·{@code ITX}
+ * (subway-express S2) — 앱 단계({@code JourneyLeg}) 배지의 근거다. 버스·도보·배포 전 여정은 null.
  */
 public record JourneyLegView(
         Long legId,
@@ -36,7 +38,8 @@ public record JourneyLegView(
         String startExitNo,
         String endExitNo,
         List<FastAlight> fastAlight,
-        String alightDoorSide
+        String alightDoorSide,
+        String trainKind
 ) {
 
     public JourneyLegView {
@@ -51,7 +54,7 @@ public record JourneyLegView(
                           Long selectedRouteOptionId, List<JourneyRouteOptionView> routeOptions) {
         this(legId, legIndex, type, state, startStopId, endStopId, startName, endName, routeId,
                 plannedDurationSec, evidenceQuality, selectedRouteOptionId, routeOptions,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null);
     }
 
     /** 내리는 문 방향 없는 단계(#335 이전 계약). */
@@ -63,7 +66,19 @@ public record JourneyLegView(
                           String startExitNo, String endExitNo, List<FastAlight> fastAlight) {
         this(legId, legIndex, type, state, startStopId, endStopId, startName, endName, routeId,
                 plannedDurationSec, evidenceQuality, selectedRouteOptionId, routeOptions,
-                startStopNo, endStopNo, directionName, startExitNo, endExitNo, fastAlight, null);
+                startStopNo, endStopNo, directionName, startExitNo, endExitNo, fastAlight, null, null);
+    }
+
+    /** 열차 종류 없는 단계(subway-express S2 이전 계약). */
+    public JourneyLegView(Long legId, int legIndex, JourneyLegType type, JourneyLegState state,
+                          String startStopId, String endStopId, String startName, String endName,
+                          String routeId, Integer plannedDurationSec, String evidenceQuality,
+                          Long selectedRouteOptionId, List<JourneyRouteOptionView> routeOptions,
+                          String startStopNo, String endStopNo, String directionName,
+                          String startExitNo, String endExitNo, List<FastAlight> fastAlight, String alightDoorSide) {
+        this(legId, legIndex, type, state, startStopId, endStopId, startName, endName, routeId,
+                plannedDurationSec, evidenceQuality, selectedRouteOptionId, routeOptions,
+                startStopNo, endStopNo, directionName, startExitNo, endExitNo, fastAlight, alightDoorSide, null);
     }
 
     /**

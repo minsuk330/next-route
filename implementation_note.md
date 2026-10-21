@@ -5687,8 +5687,14 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - PLAN 규칙 1(노선 이름 급행 → EXPRESS)을 구간 기준으로 바꿈: OTP 가 1호선 14xx '구로 급행'(용산~구로 모든 역)을 `서울1호선(용산-동인천급행)` 7역 패턴에 넣어서(S1 발견). 9호선 급행 노선은 fixture 패턴 둘(16역·12역) 다 급행 정차만이라 이름 기준과 결과가 같고, 다른 점은 붙은 두 정차역 구간(봉은사→종합운동장)이 NORMAL 이 되는 것뿐
 - 노선형 급행 route id(급행 끄기·일반 대안) = `1:RR_ACC1_S-1-09-2U/D`, `01-4U/D`(용산-동인천급행), `01-6U/D`(서울-신창급행). 운영 OTP 2026-10-21 `routes(transportModes:[RAIL,SUBWAY])` 209개 대조. ITX = `1:RR_ACC4_NATZ200_U/D`(shortName `[일반]ITX청춘(천마산.신내)`, RAIL)
 - `01-4D/U` 제외는 14xx 구로 급행(일반 판정) trip 도 같이 뺀다 — OTP 필터가 노선 단위라. 급행 끄기 때 용산~구로 일반 trip 은 1호선 본선(01-1)으로 대신 나온다
-- 방향: 분류기는 `SubwayRoutePatternAssembler.realtimeDirection`(반전표 적용)을 선호 방향으로 주되, 실제 경로는 두 방향 중 두 역을 이 순서로 지나는 쪽(`allStopPathEitherDirection`, 순환선만 선호 방향 필요). 검색 응답 wayCode 는 OTP 라벨 그대로(9호선은 실시간과 반대) — 이 PR 은 손대지 않음
+- ~~방향: 분류기는 `SubwayRoutePatternAssembler.realtimeDirection`(반전표 적용)을 선호 방향으로 주되~~ 취소: 형제 PR #490 이 반전표를 `SubwayDirectionNormalizer` 로 옮겨 assembler 를 고치므로 충돌을 피하려고 assembler 를 건드리지 않음. 분류기는 방향 라벨 없이 두 방향 중 두 역을 이 순서로 지나는 쪽(`allStopPathEitherDirection`, preferred=null) — 카탈로그 노선은 전부 직선이라 답이 하나다. 검색 응답 wayCode 는 OTP 라벨 그대로(9호선은 실시간과 반대, #490 이 고침) — 이 PR 은 손대지 않음
 - OTP 2.9 스키마(운영 introspection): `PlanPreferencesInput.transit: TransitPreferencesInput{filters:[TransitFilterInput!]}`, `TransitFilterInput{include,exclude:[TransitFilterSelectInput!]}`, `TransitFilterSelectInput{routes,agencies}`
 ### 함정
 - `SubwayRoutePatternAssembler.REVERSED_ROUTES.contains(null)` → NPE(`Set.of`) ← route id 없는 구간 / 가드: `realtimeDirection` 이 id null 이면 `labelFrom` 만
 - OTP 정류장 이름 키 = `SubwayPatternStationMatcher.key`(이으면 역 id, 아니면 `name:`+표시 이름) — `SubwayStationsAheadService.resolve` 가 패턴 정차에 붙이는 키와 같은 규칙이어야 계획 정차열과 완행 경로가 맞대어진다
+- 급행 끄기 흐름(`RouteSearchService.runOtpSearch`): 후보 풀 = 사후 필터 **전** 값(DIRECT 만 언제나 뺌) → 추가 검색(고유 수는 `filter(pool, excludeExpress)` 뒤 값) → (급행 켬일 때만) 일반 대안 되찾기 → `applyExpressFilter`(D10). 0건 해제가 풀 값으로 돌아가야 해서 풀과 필터 결과를 나눴다
+- D10 meta: 해제(다시 묻기도 일반 0건, 무경로 답 포함) = `express_filter/empty_result`, 다시 묻기 실패·시간 초과·예산 부족 = `express_filter_unverified/timeout|upstream_error`. 필터가 지켜지면 `requested(EXPRESS_FILTER)` 만(degraded 없음). 둘 다 OPTIONAL 등급이라 해제 때 outcome 이 partial/base_only 로 내려간다(meta.outcome·지표). **앱은 두 component 모두 "급행 포함 결과" 안내**
+- D10 다시 묻기는 본 검색과 같은 질의(원래 수단 + 노선형 급행 제외)라 대개 같은 답이다 — 정차 패턴형 급행만 남는 경우의 확인 장치 + 실패 구분용. 0건 경로에서만 1회(+0.05~1.5s)
+- 일반 대안 되찾기 짝 판정(`hasNormalPair`): 도보 뺀 구간 수·수단·노선 이름이 같고, 급행 구간 자리마다 상대가 급행이 아니면 짝. 노출 상한 안 경로 중 **노선형 급행 route** 구간이 든 것만 검사(정차 패턴형은 OTP 가 못 거르니 묻지 않음)
+### 함정
+- 시험 공용 fixture 의 Mockito 스텁이 엄격 스텁(MockitoExtension) 시험에서 UnnecessaryStubbing 으로 실패 ← 시험 세션 안에서 만든 mock 스텁도 추적됨 / 가드: `SubwayExpressFixtures` 스텁 전부 `lenient()`

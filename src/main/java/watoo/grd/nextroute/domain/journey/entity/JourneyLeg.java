@@ -165,6 +165,10 @@ public class JourneyLeg extends BaseEntity {
     @Column(length = 8)
     private String alightDoorSide;
 
+    /** 지하철 단계 열차 종류 NORMAL·EXPRESS·DIRECT·ITX(subway-express S2, V71). 개정본 스냅샷 subPath.trainKind 의 사본. */
+    @Column(length = 16)
+    private String trainKind;
+
     @Builder
     public JourneyLeg(Long journeyId, int routeRevision, int legIndex,
                       JourneyLegType type, JourneyLegState state,
@@ -193,7 +197,7 @@ public class JourneyLeg extends BaseEntity {
     /** 안내 시트 지점 줄 값 묶음(#266). 비어 있으면 {@link JourneyLegGuidance#EMPTY}. */
     public JourneyLegGuidance getGuidance() {
         return new JourneyLegGuidance(startStopNo, endStopNo, directionName, startExitNo, endExitNo, fastAlight,
-                alightDoorSide);
+                alightDoorSide, trainKind);
     }
 
     private void applyGuidance(JourneyLegGuidance guidance) {
@@ -205,6 +209,7 @@ public class JourneyLeg extends BaseEntity {
         this.endExitNo = g.endExitNo();
         this.fastAlight = g.fastAlightJson();
         this.alightDoorSide = g.alightDoorSide();
+        this.trainKind = g.trainKind();
     }
 
     /**

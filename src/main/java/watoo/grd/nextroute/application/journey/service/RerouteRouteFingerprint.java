@@ -15,6 +15,9 @@ import java.util.HexFormat;
  * <p>같은 자리에서 다시 찾은 경로가 <b>같은 경로</b>면 숫자만 고치고 candidateId 를 유지하고, 다른
  * 경로면 충분히 나을 때만 바꾼다. 그 판단의 기준이 "탈 것과 내릴 곳"이다 — 하차 자리 + 대중교통 구간마다
  * (첫 노선, 타는 곳, 내리는 곳). 소요·도착 시각은 넣지 않는다. 그 값은 매번 바뀌어도 같은 경로다.
+ *
+ * <p>열차 종류가 일반이 아니면(급행·ITX 등, subway-express S2) 그 구간 끝에 {@code :EXPRESS} 처럼 덧붙인다 — 같은 노선의 급행과
+ * 일반은 다른 경로다. 일반·모름(null)이면 덧붙이지 않는다 — 기존 지문 해시가 그대로다(진행 중 후보의 candidateId 유지).
  */
 public final class RerouteRouteFingerprint {
 
@@ -30,6 +33,9 @@ public final class RerouteRouteFingerprint {
                 }
                 key.append('|').append(sub.trafficType()).append(':').append(routeOf(sub))
                         .append(':').append(sub.startName()).append('>').append(sub.endName());
+                if (sub.trainKind() != null && !"NORMAL".equals(sub.trainKind())) {
+                    key.append(':').append(sub.trainKind());
+                }
             }
         }
         return sha1(key.toString());

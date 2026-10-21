@@ -427,6 +427,44 @@ class JourneyCompilerTest {
     }
 
     @Nested
+    @DisplayName("subway-express S2 열차 종류")
+    class TrainKind {
+
+        @Test
+        @DisplayName("지하철 구간의 trainKind 가 대기·탑승 두 단계 안내 값에 실린다")
+        void expressOnWaitAndRide() {
+            JourneyPlan plan = compiler.compile(path(
+                    subway(4).names("가양", "염창")
+                            .subwayStations(4105, 4108)
+                            .stations(station(0, "가양"), station(1, "염창"))
+                            .lanes(subwayLane("서울9호선", 9)).trainKind("EXPRESS").build()));
+
+            assertThat(plan.legs()).extracting(JourneyLegDraft::type)
+                    .containsExactly(JourneyLegType.WAIT_SUBWAY, JourneyLegType.RIDE_SUBWAY);
+            assertThat(plan.legs()).extracting(leg -> leg.guidance().trainKind())
+                    .containsExactly("EXPRESS", "EXPRESS");
+        }
+
+        @Test
+        @DisplayName("버스·걷기·종류 없는(배포 전 스냅샷) 지하철은 null")
+        void nullWhenAbsent() {
+            JourneyPlan plan = compiler.compile(path(
+                    walk(3).names("출발", "정류장A").distance(100.0).build(),
+                    bus(10).names("정류장A", "강남").busStops("ST-A", "ST-B")
+                            .lanes(busLane("721", "BL-721")).build(),
+                    subway(15).names("강남", "서초").subwayStations(222, 224)
+                            .stations(station(0, "강남"), station(1, "교대"), station(2, "서초"))
+                            .lanes(subwayLane("2호선", 2)).build()));
+
+            assertThat(plan.legs()).extracting(leg -> leg.guidance().trainKind()).containsOnlyNulls();
+        }
+
+        private watoo.grd.nextroute.application.route.dto.StationResult station(int index, String name) {
+            return new watoo.grd.nextroute.application.route.dto.StationResult(index, null, name, 127.0, 37.5);
+        }
+    }
+
+    @Nested
     @DisplayName("#266 지하철 방면(다음 역)")
     class DirectionName {
 

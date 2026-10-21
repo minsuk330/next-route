@@ -25,4 +25,31 @@ class JourneyQueryServiceFastAlightTest {
         assertThat(JourneyQueryService.fastAlight(" ")).isNull();
         assertThat(JourneyQueryService.fastAlight("{not json")).isNull();
     }
+
+    @Test
+    @DisplayName("단계의 열차 종류가 응답 trainKind 로 나간다 — 없으면 null(subway-express S2)")
+    void trainKindToView() {
+        watoo.grd.nextroute.domain.journey.entity.JourneyLeg express =
+                watoo.grd.nextroute.domain.journey.entity.JourneyLeg.builder()
+                        .journeyId(1L).routeRevision(1).legIndex(1)
+                        .type(watoo.grd.nextroute.domain.journey.entity.JourneyLegType.RIDE_SUBWAY)
+                        .state(watoo.grd.nextroute.domain.journey.entity.JourneyLegState.PENDING)
+                        .startName("가양").endName("염창")
+                        .guidance(watoo.grd.nextroute.domain.journey.entity.JourneyLegGuidance.EMPTY
+                                .withTrainKind("EXPRESS").withAlightDoorSide("LEFT"))
+                        .build();
+        watoo.grd.nextroute.domain.journey.entity.JourneyLeg bus =
+                watoo.grd.nextroute.domain.journey.entity.JourneyLeg.builder()
+                        .journeyId(1L).routeRevision(1).legIndex(2)
+                        .type(watoo.grd.nextroute.domain.journey.entity.JourneyLegType.RIDE_BUS)
+                        .state(watoo.grd.nextroute.domain.journey.entity.JourneyLegState.PENDING)
+                        .startName("a").endName("b")
+                        .build();
+
+        JourneyLegView view = JourneyQueryService.toView(express, new java.util.HashMap<>());
+
+        assertThat(view.trainKind()).isEqualTo("EXPRESS");
+        assertThat(view.alightDoorSide()).isEqualTo("LEFT");
+        assertThat(JourneyQueryService.toView(bus, new java.util.HashMap<>()).trainKind()).isNull();
+    }
 }
