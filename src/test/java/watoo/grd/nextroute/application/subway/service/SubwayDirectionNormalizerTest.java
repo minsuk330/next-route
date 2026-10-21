@@ -145,6 +145,49 @@ class SubwayDirectionNormalizerTest {
     }
 
     /**
+     * feed 라벨이 도착 API 와 반대인 노선은 검색 방향에서도 뒤집는다(#488). 실측 2026-10-21 도착 API: 신논현 9호선 상행
+     * 중앙보훈병원행·하행 개화행, 서울역 공항철도 상행 인천공항2터미널행, 서울역 경의중앙선 상행 문산행, 용답 2호선 외선 성수행.
+     */
+    @Test
+    void reversedFeedLabelsBecomeArrivalLabels() {
+        assertThat(SubwayDirectionNormalizer.labelFor("1:RR_ACC1_S-1-09-1U", "서울9호선(일반)<상행>", null, null))
+                .as("9호선 <상행>(가양 → 개화)은 도착 API 하행").isEqualTo("하행");
+        assertThat(SubwayDirectionNormalizer.labelFor("1:RR_ACC1_S-1-09-2D", "서울9호선(급행)<하행>", null, null))
+                .as("9호선 급행 <하행>(당산 → 중앙보훈병원)은 도착 API 상행").isEqualTo("상행");
+        assertThat(SubwayDirectionNormalizer.labelFor("1:RR_ACC1_S-1-AP-1U", "공항철도<상행>", null, null))
+                .as("공항철도 <상행>(인천공항 → 서울)은 도착 API 하행").isEqualTo("하행");
+        assertThat(SubwayDirectionNormalizer.labelFor("1:RR_ACC1_S-1-AP-1D", "공항철도<하행>", null, null))
+                .isEqualTo("상행");
+        assertThat(SubwayDirectionNormalizer.labelFor("1:RR_ACC1_S-1-KJ-2D", "경의중앙선(서울역)<하행>", null, null))
+                .as("경의중앙선 서울역 노선 <하행>(서울 → 문산)은 도착 API 상행").isEqualTo("상행");
+        assertThat(SubwayDirectionNormalizer.labelFor("1:RR_ACC1_S-1-02-2I", "서울2호선(성수지선)<내선>", null, null))
+                .as("성수지선 <내선>(신설동 → 성수)은 도착 API 외선").isEqualTo("외선");
+        // 접두사가 없어도 같은 노선이다
+        assertThat(SubwayDirectionNormalizer.realtimeLabelFrom("RR_ACC1_S-1-09-1D", "서울9호선(일반)<하행>"))
+                .isEqualTo("상행");
+    }
+
+    @Test
+    void sameLabelRoutesStayAsIs() {
+        assertThat(SubwayDirectionNormalizer.labelFor("1:RR_ACC1_S-1-02-3I", "서울2호선(신정지선)<내선>", null, null))
+                .as("신정지선 <내선>(신도림 → 까치산)은 도착 API 도 내선").isEqualTo("내선");
+        assertThat(SubwayDirectionNormalizer.labelFor("1:RR_ACC1_S-1-KJ-1U", "경의중앙선<상행>", null, null))
+                .isEqualTo("상행");
+        // 이름만 보는 labelFrom 은 뒤집지 않는다 — 실시간 방향이 필요한 곳은 realtimeLabelFrom/labelFor 를 쓴다
+        assertThat(SubwayDirectionNormalizer.labelFrom("서울9호선(일반)<상행>")).isEqualTo("상행");
+    }
+
+    /** 검색 응답 wayCode 까지 이어 보면: 신논현 → 노량진(개화 쪽)은 wayCode 2, 그 값이 열차 고르기에서 하행으로 읽힌다. */
+    @Test
+    void line9WestboundSearchLegReadsAsDownInArrivals() {
+        String label = SubwayDirectionNormalizer.labelFor("1:RR_ACC1_S-1-09-1U", "서울9호선(일반)<상행>",
+                "1:RS_ACC1_S-1-4125", "1:RS_ACC1_S-1-4117");
+        Integer wayCode = SubwayDirectionNormalizer.toWayCode(label);
+        assertThat(wayCode).isEqualTo(2);
+        assertThat(SubwayDirectionNormalizer.fromWayCode("1009", wayCode)).isEqualTo("하행");
+    }
+
+    /**
      * 6호선은 feed 에 노선이 하나뿐이라 이름에 라벨이 없다 — 승·하차역 순서로 정한다(#395). 실측(2026-10-12): 이태원 상행
      * 행선지 응암순환·하행 봉화산, 역촌·불광·구산(순환)은 모두 하행.
      */

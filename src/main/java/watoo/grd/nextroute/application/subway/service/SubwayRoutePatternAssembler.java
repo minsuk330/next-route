@@ -7,7 +7,6 @@ import watoo.grd.nextroute.application.subway.dto.RailPattern;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * OTP 노선을 내부 line_id·실시간 방향 라벨로 골라 맞춘다(#283). I/O 없음.
@@ -18,13 +17,9 @@ import java.util.Set;
  * (2026-10-07, 실시간 행선지 전수 대조). 하나라도 놓치면 그 노선만 <b>반대 방향 역 목록</b>이
  * 조용히 나간다.
  * <ul>
- *   <li>경의중앙선 서울역 노선({@code KJ-2}): {@code <하행>} 이 서울→문산인데 실시간은 문산행을
- *       {@code 상행} 이라 부른다.</li>
- *   <li>2호선 성수지선({@code 02-2}): {@code <내선>} 이 신설동→성수인데 실시간 내선 행선지는 신설동이다.
- *       같은 2호선이라도 신정지선({@code 02-3})은 실시간과 같다.</li>
- *   <li>9호선({@code 09-*}): {@code <하행>} 이 개화→중앙보훈병원인데 실시간 하행 행선지는 개화다.</li>
- *   <li>공항철도({@code AP-1}): {@code <상행>} 이 인천공항2터미널→서울인데 실시간 상행 행선지는
- *       인천공항2터미널이다.</li>
+ *   <li>반대인 넷(경의중앙선 서울역 노선·2호선 성수지선·9호선·공항철도): 표와 근거는
+ *       {@link SubwayDirectionNormalizer#REVERSED_LABEL_ROUTES}. 검색 {@code wayCode} 도 같은 표를 써야 해서
+ *       그쪽 한 곳에 둔다(#488).</li>
  *   <li>6호선: 노선이 하나뿐이고 방향이 없다(응암 순환). 실시간은 응암까지 가는 쪽이 상행
  *       (행선지 {@code 응암순환(상선)}), 응암부터 순환을 돌아 나오는 쪽이 하행이다 → 패턴을
  *       응암 첫 등장에서 둘로 가른다.</li>
@@ -65,14 +60,6 @@ public final class SubwayRoutePatternAssembler {
             Map.entry("서해선", "1093"),
             Map.entry("신림선", "1094")
     );
-
-    /** 라벨이 실시간과 반대인 노선. 근거는 클래스 주석. */
-    static final Set<String> REVERSED_ROUTES = Set.of(
-            "1:RR_ACC1_S-1-KJ-2U", "1:RR_ACC1_S-1-KJ-2D",
-            "1:RR_ACC1_S-1-02-2I", "1:RR_ACC1_S-1-02-2O",
-            "1:RR_ACC1_S-1-09-1U", "1:RR_ACC1_S-1-09-1D",
-            "1:RR_ACC1_S-1-09-2U", "1:RR_ACC1_S-1-09-2D",
-            "1:RR_ACC1_S-1-AP-1U", "1:RR_ACC1_S-1-AP-1D");
 
     /** 방향 없는 노선 → 패턴을 가를 역(정규화 이름). 그 역 첫 등장까지(포함)가 상행이다. */
     static final Map<String, String> SPLIT_ROUTES = Map.of(
@@ -151,17 +138,7 @@ public final class SubwayRoutePatternAssembler {
 
     /** OTP 라벨에 반전표를 적용한 실시간 라벨. 못 읽으면 null. */
     static String realtimeLabel(OtpRailRoute route) {
-        String label = SubwayDirectionNormalizer.labelFrom(route.longName());
-        if (label == null || !REVERSED_ROUTES.contains(route.gtfsId())) {
-            return label;
-        }
-        return switch (label) {
-            case UP -> DOWN;
-            case DOWN -> UP;
-            case "내선" -> "외선";
-            case "외선" -> "내선";
-            default -> label;
-        };
+        return SubwayDirectionNormalizer.realtimeLabelFrom(route.gtfsId(), route.longName());
     }
 
     private static boolean isLoop(String direction) {
