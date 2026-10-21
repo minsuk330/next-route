@@ -96,6 +96,28 @@ class SubwayRingCalculatorPassingTest {
     }
 
     @Test
+    @DisplayName("#483 진입 직선 뒤 늦게 온 지나치는 역 관측은 진입을 되돌리지 않는다 — 램프 앵커(0.95 아님)를 진행으로 읽지 않는다")
+    void latePassingAfterApproachKeepsTheRamp() {
+        // 염창 구간 운행 직선 0.36(지나친 40%) → 진입: 화면 값에서 0.95 까지 램프
+        SubwayRingState passed = calculator.next(null, context, passing(1, "0.40", T0, T0), T0);
+        Instant t1 = T0.plusSeconds(40);
+        SubwayRingState entering = calculator.next(passed, context,
+                SubwayRingObservation.arrival(SubwayArrivalCode.ENTERING, 1, null, t1), t1);
+        assertThat(entering.stage()).isEqualTo(SubwayRingStage.APPROACH);
+        // 화면 = 0.36 + 0.54 × 40/151.2 ≈ 0.50. 아래 지나침 지점(0.63)보다 낮다
+        assertThat(entering.segmentProgress()).as("램프 앵커는 화면 값").isLessThan(new BigDecimal("0.63"));
+
+        // 늦게 온 "70% 지나침" — 램프 앵커보다 앞선 지점이지만 열차는 이미 진입했다
+        Instant t2 = t1.plusSeconds(2);
+        SubwayRingState late = calculator.next(entering, context, passing(1, "0.70", T0.plusSeconds(30), t2), t2);
+
+        assertThat(late.stage()).isEqualTo(SubwayRingStage.APPROACH);
+        assertThat(late.estimatedNextStationAt()).isEqualTo(entering.estimatedNextStationAt());
+        assertThat(late.progressBaseAt()).isEqualTo(entering.progressBaseAt());
+        assertThat(late.shownProgressAt(t1.plus(properties.getApproachRamp()))).isEqualByComparingTo("0.95");
+    }
+
+    @Test
     @DisplayName("되돌아가지 않는다 — 앞 구간의 지나치는 역 관측은 지금 목표를 바꾸지 않는다")
     void neverMovesBackwards() {
         SubwayRingState atSecondSegment = calculator.next(null, context, passing(2, "0.50", T0, T0), T0);
