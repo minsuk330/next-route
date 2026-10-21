@@ -173,7 +173,7 @@ public class TransferRiskEvaluator {
      * 대기 단계 행의 도착 예측으로만 쓰인다(목적지 도착·대기 단계 도착). 앞 대기를 못 풀면 그 뒤는 앵커가 없어 멈춘다.
      *
      * <p>앞 단계가 이미 시작된 환승의 대기({@link #covered})는 판정이 방금 물었다 — 그 답을 그대로 쓰고 다시 묻지 않는다(못
-     * 구했어도). 실패한 조회를 같은 tick 에 한 번 더 부르지 않게.
+     * 구했어도). 실패한 조회를 같은 tick 에 한 번 더 부르지 않게. 시작 전 환승도 판정이 답을 냈으면 그 답을 쓴다.
      */
     private void predictWaitsAhead(Map<Integer, JourneyLeg> legsByIndex, List<TransferConnection> transfers,
                                    int currentLegIndex, java.util.function.IntFunction<CurrentLegArrival> arrivalOf,
@@ -196,7 +196,10 @@ public class TransferRiskEvaluator {
                 continue;
             }
             TransferTargetArrival known = boardingByLegIndex.get(index);
-            if (!covered(transfers, index, currentLegIndex)) {
+            boolean answered = known != null && known.arrival().arrivalAt() != null;
+            // 판정이 이미 답한 대기(진행 중 환승, 또는 앵커가 잡혀 답이 나온 환승)는 그 답을 쓴다 — 같은 대기를 한 평가에서 두 번
+            // 묻지 않고, 판정 카드와 대기 예측이 다른 값을 갖지 않게.
+            if (!covered(transfers, index, currentLegIndex) && !answered) {
                 Instant anchor = index == currentLegIndex ? now : cursor;
                 if (anchor == null) {
                     return;

@@ -176,6 +176,61 @@ class JourneyEvaluationIT {
     }
 
     @Test
+    @DisplayName("#480 못 구한 평가는 유예(90초) 안이면 첫 대기 예측도 번호도 그대로, 유예를 넘겨 지워지면 번호가 오른다")
+    void clearedFirstWaitPredictionBumpsVersion() {
+        startWaitingJourney();
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(600));
+        evaluate();
+        long afterFirst = evaluationVersion();
+        Instant kept = firstWaitPredictedEndAt();
+
+        givenBlocked();
+        makeDue();
+        evaluate();
+        assertThat(firstWaitPredictedEndAt()).as("유예 안 — 지키다").isEqualTo(kept);
+        assertThat(evaluationVersion()).isEqualTo(afterFirst);
+
+        jdbcTemplate.update("""
+                update journey_leg set evidence_observed_at = now() - interval '100 seconds'
+                where journey_id = ? and leg_index = 0
+                """, journeyId);
+        makeDue();
+        evaluate();
+        assertThat(firstWaitPredictedEndAt()).as("유예를 넘겼다 — 지운다").isNull();
+        assertThat(evaluationVersion()).as("지운 것도 바뀜 — 앱이 지난 차를 보지 않게").isEqualTo(afterFirst + 1);
+    }
+
+    @Test
+    @DisplayName("#480 차가 정류장에 와 있는 동안(예측 = 지금 무렵) 평가마다 번호를 올리지 않는다")
+    void arrivingVehicleDoesNotBumpEveryEvaluation() {
+        startWaitingJourney();
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(5));
+        evaluate();
+        long afterFirst = evaluationVersion();
+
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(8));
+        makeDue();
+        evaluate();
+
+        assertThat(evaluationVersion()).isEqualTo(afterFirst);
+    }
+
+    @Test
+    @DisplayName("#480 첫 대기 예측이 그대로면 간격을 늘린다 — 환승 없는 여정도 직전 평가 시각을 안다")
+    void backsOffWhenFirstWaitPredictionUnchanged() {
+        startWaitingJourney();
+        givenFixedRealtimeArrival(Instant.now().plusSeconds(900));
+        evaluate();
+        // 30초 전 평가였던 것처럼 — 이 여정은 뒤에 환승이 있어(아직 UNKNOWN) 판정 시각이 기준이다
+        agePreviousEvaluation(30);
+
+        makeDue();
+        evaluate();
+
+        assertThat(secondsUntilNextEvaluation()).isGreaterThan(37);
+    }
+
+    @Test
     @DisplayName("평가가 끝나면 다음 평가 시각을 다시 심는다")
     void reschedulesAfterEvaluation() {
         givenRealtimeArrival(600);

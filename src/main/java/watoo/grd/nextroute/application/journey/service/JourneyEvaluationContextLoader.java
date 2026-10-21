@@ -59,10 +59,11 @@ public class JourneyEvaluationContextLoader {
         List<JourneyLeg> legs = legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
                 journeyId, journey.getRouteRevision());
         boolean usesBus = legs.stream().anyMatch(leg -> BUS_LEGS.contains(leg.getType()));
-        Map<Integer, Instant> previousBoardings = new java.util.HashMap<>();
+        Map<Integer, StoredBoarding> previousBoardings = new java.util.HashMap<>();
         for (JourneyLeg leg : legs) {
             if (leg.getType().isWaiting() && leg.getPredictedEndAt() != null) {
-                previousBoardings.put(leg.getLegIndex(), leg.getPredictedEndAt());
+                previousBoardings.put(leg.getLegIndex(),
+                        new StoredBoarding(leg.getPredictedEndAt(), leg.getEvidenceObservedAt()));
             }
         }
         return Optional.of(new JourneyEvaluationContext(journey.getId(), journey.getUserId(),
@@ -85,7 +86,7 @@ public class JourneyEvaluationContextLoader {
             int currentLegIndex,
             Map<Integer, TransferRiskAssessment> previousAssessments,
             boolean usesBusProvider,
-            Map<Integer, Instant> previousBoardings
+            Map<Integer, StoredBoarding> previousBoardings
     ) {
 
         public JourneyEvaluationContext(Long journeyId, Long userId, int routeRevision, int currentLegIndex,
@@ -108,12 +109,24 @@ public class JourneyEvaluationContextLoader {
          * @return 직전 평가 기록이 없으면 null
          */
         public Duration previousInterval(Instant now) {
-            return previousAssessments.values().stream()
+            Instant lastAt = previousAssessments.values().stream()
                     .map(TransferRiskAssessment::calculatedAt)
                     .filter(Objects::nonNull)
                     .max(Instant::compareTo)
-                    .map(lastAt -> Duration.between(lastAt, now))
+                    // 환승 없는 여정은 판정이 없다 — 대기 예측의 근거 시각(평가마다 새로 적힌다)으로 직전 평가를 읽는다(#480).
+                    // 없으면 백오프가 안 돼 첫 차를 오래 기다리는 동안 30초마다 외부 조회를 한다. 판정이 있으면 판정 시각이
+                    // 기준이다(대기 근거 시각은 판정과 별개로 늘 최근이라 섞으면 백오프가 막힌다).
+                    .or(() -> previousBoardings.values().stream()
+                            .map(StoredBoarding::observedAt)
+                            .filter(Objects::nonNull)
+                            .max(Instant::compareTo))
                     .orElse(null);
+            return lastAt == null ? null : Duration.between(lastAt, now);
         }
     }
+
+    /** 대기 단계 행에 저장된 승차 예측과 그 근거 시각(#480). */
+    public record StoredBoarding(Instant predictedEndAt, Instant observedAt) {
+    }
+
 }

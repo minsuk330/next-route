@@ -100,6 +100,16 @@ class JourneyEvaluationIntervalPolicyTest {
         }
 
         @Test
+        @DisplayName("긴급 결정(위험·임박)은 예측 시각으로 자르지 않는다 — 긴급 줄에 남는다")
+        void urgentDecisionIsNotCapped() {
+            Decision atRisk = policy.decide(List.of(transfer(TransferStatus.AT_RISK, Duration.ofMinutes(10))),
+                    CURRENT_LEG, NOW, null, false, false, waits(NOW.plusSeconds(3)));
+
+            assertThat(atRisk.reason()).isEqualTo(Reason.AT_RISK);
+            assertThat(atRisk.urgent()).isTrue();
+        }
+
+        @Test
         @DisplayName("환승이 임박하면 환승 규칙이 이긴다(10초·긴급). 대기가 없으면 예전처럼 한가함")
         void transferRuleWinsAndNoneIsIdle() {
             Decision near = policy.decide(List.of(transfer(TransferStatus.COMFORTABLE, Duration.ofMinutes(2))),

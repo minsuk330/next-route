@@ -292,6 +292,26 @@ class TransferRiskEvaluatorTest {
     }
 
     @Test
+    @DisplayName("#480 시작 전 환승도 판정이 답을 냈으면 그 답을 쓴다 — 같은 대기를 두 번 묻지 않는다")
+    void preStartTransferAnsweredByAssessmentIsReused() {
+        // 지금 = 0(걷기), 환승 from 은 아직 시작 전이지만 이동 계산이 도착을 낸 경우
+        JourneyLeg walk = leg(0, JourneyLegType.WALK, 60);
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY_ID, REVISION))
+                .willReturn(List.of(walk, leg(1, JourneyLegType.RIDE_BUS, 1200),
+                        leg(2, JourneyLegType.TRANSFER_WALK, 120), leg(3, JourneyLegType.WAIT_BUS, null)));
+        givenTransfers(transfer(0, 1, 2, 3, null));
+        given(arrivalService.predict(any(), any())).willReturn(arrival(NOW.plusSeconds(1260), CurrentLegArrival.Quality.GOOD));
+        given(targetArrivalService.predictBoarding(any(), any(), any()))
+                .willReturn(TransferTargetArrival.of(arrival(NOW.plusSeconds(1600), CurrentLegArrival.Quality.GOOD)));
+
+        TransferAssessmentBatch batch = evaluator.assess(JOURNEY_ID, REVISION, 0, Map.of());
+
+        verify(targetArrivalService, times(1)).predictBoarding(
+                org.mockito.ArgumentMatchers.argThat(l -> l != null && l.getLegIndex() == 3), any(), any());
+        assertThat(batch.boardingByLegIndex().get(3).arrival().arrivalAt()).isEqualTo(NOW.plusSeconds(1600));
+    }
+
+    @Test
     @DisplayName("#480 스위치를 끄면 예전처럼 환승 대기만 — 환승이 없으면 아무것도 묻지 않는다")
     void switchOffRestoresTransferOnly() {
         riskProperties.setPredictAllWaits(false);

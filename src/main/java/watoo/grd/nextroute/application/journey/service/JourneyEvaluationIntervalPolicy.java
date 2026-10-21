@@ -88,7 +88,8 @@ public class JourneyEvaluationIntervalPolicy {
 
     /** 저장할 첫 승차 예측이 지나기 전에 다시 본다 — 지난 예측은 조회에서 모름이 된다(#480). 최소 간격 아래로는 줄이지 않는다. */
     private Decision beforeBoarding(Decision chosen, WaitsAhead waits, Instant now) {
-        if (waits.earliestBoardingAt() == null) {
+        if (chosen.urgent() || waits.earliestBoardingAt() == null) {
+            // 위험·임박 결정은 이미 최소 간격이고 긴급 줄에 남아야 한다 — 비긴급 BOARDING 으로 덮지 않는다.
             return chosen;
         }
         Duration until = clamp(Duration.between(now, waits.earliestBoardingAt()));

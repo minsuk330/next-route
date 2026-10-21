@@ -134,7 +134,7 @@ public class JourneyEvaluationService {
         JourneyEvaluationOutcome outcome = new JourneyEvaluationOutcome(
                 context.journeyId(), context.routeRevision(), toStore, changed);
 
-        Schedule next = nextEvaluation(context, batch, now, changed);
+        Schedule next = nextEvaluation(context, batch, toStore, now, changed);
         NotificationContext notification = notificationContext(context, batch, now, detection);
         // 마친 시각은 저장 직전에 다시 잰다. 계산 전 시각을 쓰면 외부 호출이 최소 간격보다 오래 걸린
         // 평가에서 "직전 평가 + 최소 간격"이 이미 지난 시각이 돼, 느린 여정일수록 간격 하한이 사라진다.
@@ -300,8 +300,8 @@ public class JourneyEvaluationService {
      * 먼저 잡을 이유이기도 하다 — 기준을 두 벌로 두면 둘이 어긋난다.
      */
     private Schedule nextEvaluation(JourneyEvaluationContext context, TransferAssessmentBatch batch,
-                                    Instant now, boolean changed) {
-        JourneyEvaluationIntervalPolicy.WaitsAhead waits = waitsAhead(batch, context.currentLegIndex());
+                                    TransferAssessmentBatch toStore, Instant now, boolean changed) {
+        JourneyEvaluationIntervalPolicy.WaitsAhead waits = waitsAhead(toStore, context.currentLegIndex());
         JourneyEvaluationIntervalPolicy.Decision decision = intervalPolicy.decide(
                 batch.assessments(), context.currentLegIndex(), now,
                 context.previousInterval(now), changed, batch.upstreamBlocked(), waits);
@@ -350,45 +350,65 @@ public class JourneyEvaluationService {
 
     /**
      * 판정 밖 대기 예측이 저장값과 달라졌는지(#480). 환승 없는 여정은 판정이 비어 {@link #hasChanged} 가 늘 false 라, 이게 없으면
-     * 평가 번호가 안 올라 앱이 새 도착 예정을 못 본다(204). 허용 폭은 판정과 같다 — 단 저장값이 곧 지날 참이면(지금 + 폭 안) 폭
-     * 안의 흔들림도 바뀜으로 본다. 그대로 두면 옛 값이 지나 조회가 모름이 된다. 이번에 못 구한 것은 바뀜으로 치지 않는다 — 저장기가
-     * 최근 예측을 지키고({@code JourneyEvaluationScheduleWriter}) 같은 값이 매번 다시 나가지 않게.
+     * 평가 번호가 안 올라 앱이 새 도착 예정을 못 본다(204).
+     *
+     * <ul>
+     *   <li>이번에 못 구했으면: 저장기가 직전 예측을 지킬 때({@link JourneyEvaluationScheduleWriter#stillUsable})는 같다, 지울 때는
+     *       바뀜이다 — 지워졌는데 번호가 그대로면 앱이 지난 차의 도착 예정을 계속 본다</li>
+     *   <li>허용 폭(판정과 같은 30초) 안이면 같다. 둘 다 "지금 무렵"(지금 + 폭 이전)이면 같다 — 열차가 역에 서 있는 동안 매 평가
+     *       "지금"이 새로 나와 번호가 오르지 않게</li>
+     *   <li>저장값이 곧(미래 폭 안) 지날 참인데 새 값이 그 폭 너머로 밀렸으면 폭 안이어도 바뀜이다 — 옛 값이 지나 조회가 모름이 된다</li>
+     * </ul>
      */
-    private boolean boardingsChanged(Map<Integer, TransferTargetArrival> outside, Map<Integer, Instant> previous,
-                                     Instant now) {
+    private boolean boardingsChanged(Map<Integer, TransferTargetArrival> outside,
+                                     Map<Integer, JourneyEvaluationContextLoader.StoredBoarding> previous, Instant now) {
         return outside.entrySet().stream()
                 .anyMatch(entry -> !sameBoarding(entry.getValue().arrival().arrivalAt(),
                         previous.get(entry.getKey()), now));
     }
 
-    private boolean sameBoarding(Instant fresh, Instant stored, Instant now) {
-        if (fresh == null || fresh.equals(stored)) {
-            return true;
+    private boolean sameBoarding(Instant fresh, JourneyEvaluationContextLoader.StoredBoarding storedBoarding,
+                                 Instant now) {
+        Instant stored = storedBoarding == null ? null : storedBoarding.predictedEndAt();
+        if (fresh == null) {
+            return stored == null
+                    || JourneyEvaluationScheduleWriter.stillUsable(stored, storedBoarding.observedAt(), now);
         }
         if (stored == null) {
             return false;
         }
+        if (fresh.equals(stored)) {
+            return true;
+        }
         Duration tolerance = properties.changeTolerance();
-        boolean imminent = stored.isBefore(now.plus(tolerance));
-        return !imminent && Duration.between(stored, fresh).abs().compareTo(tolerance) <= 0;
+        Instant soon = now.plus(tolerance);
+        if (!stored.isAfter(soon) && !fresh.isAfter(soon)) {
+            return true;
+        }
+        if (stored.isAfter(now) && !stored.isAfter(soon)) {
+            return false;
+        }
+        return Duration.between(stored, fresh).abs().compareTo(tolerance) <= 0;
     }
 
     /**
      * 판정 밖 대기 예측이 저장값과 같으면(허용 폭 안) 저장값 시각을 그대로 둔다 — 근거(출처·품질·관측 시각)만 새것. 폭 안의 변화를
-     * 매번 저장하면 기준이 조금씩 따라 움직여, 몇 분이 밀려도 한 번에 폭을 넘지 않아 평가 번호가 영영 안 오른다.
+     * 매번 저장하면 기준이 조금씩 따라 움직여, 몇 분이 밀려도 한 번에 폭을 넘지 않아 평가 번호가 영영 안 오른다. 이미 지난
+     * 저장값은 붙잡지 않는다(조회가 모름으로 본다).
      */
-    private Map<Integer, TransferTargetArrival> stabilizeBoardings(Map<Integer, TransferTargetArrival> all,
-                                                                  Map<Integer, TransferTargetArrival> outside,
-                                                                  Map<Integer, Instant> previous, Instant now) {
+    private Map<Integer, TransferTargetArrival> stabilizeBoardings(
+            Map<Integer, TransferTargetArrival> all, Map<Integer, TransferTargetArrival> outside,
+            Map<Integer, JourneyEvaluationContextLoader.StoredBoarding> previous, Instant now) {
         if (outside.isEmpty()) {
             return all;
         }
         Map<Integer, TransferTargetArrival> out = new java.util.HashMap<>(all);
         outside.forEach((legIndex, target) -> {
             CurrentLegArrival fresh = target.arrival();
-            Instant stored = previous.get(legIndex);
-            if (fresh.arrivalAt() == null || stored == null || fresh.arrivalAt().equals(stored)
-                    || !sameBoarding(fresh.arrivalAt(), stored, now)) {
+            JourneyEvaluationContextLoader.StoredBoarding storedBoarding = previous.get(legIndex);
+            Instant stored = storedBoarding == null ? null : storedBoarding.predictedEndAt();
+            if (fresh.arrivalAt() == null || stored == null || !stored.isAfter(now)
+                    || fresh.arrivalAt().equals(stored) || !sameBoarding(fresh.arrivalAt(), storedBoarding, now)) {
                 return;
             }
             out.put(legIndex, new TransferTargetArrival(new CurrentLegArrival(stored,
@@ -399,20 +419,14 @@ public class JourneyEvaluationService {
         return Map.copyOf(out);
     }
 
-    /** 환승이 아닌 남은 대기 — 간격 규칙용(#480). 이른 예측은 저장할 값 기준. */
-    private static JourneyEvaluationIntervalPolicy.WaitsAhead waitsAhead(TransferAssessmentBatch batch,
+    /** 판정 밖 남은 대기 — 간격 규칙용(#480). 이른 예측은 저장할 값(안정화 뒤) 기준이다 — 그 값이 지나기 전에 다시 본다. */
+    private static JourneyEvaluationIntervalPolicy.WaitsAhead waitsAhead(TransferAssessmentBatch toStore,
                                                                          int currentLegIndex) {
-        java.util.Set<Integer> transferWaits = batch.assessments().stream()
-                .map(TransferRiskAssessment::toLegIndex)
-                .collect(java.util.stream.Collectors.toSet());
-        List<TransferTargetArrival> plain = batch.boardingByLegIndex().entrySet().stream()
-                .filter(entry -> entry.getKey() >= currentLegIndex && !transferWaits.contains(entry.getKey()))
-                .map(Map.Entry::getValue)
-                .toList();
-        if (plain.isEmpty()) {
+        Map<Integer, TransferTargetArrival> outside = outsideAssessments(toStore, currentLegIndex);
+        if (outside.isEmpty()) {
             return JourneyEvaluationIntervalPolicy.WaitsAhead.NONE;
         }
-        Instant earliest = plain.stream()
+        Instant earliest = outside.values().stream()
                 .map(target -> target.arrival().arrivalAt())
                 .filter(java.util.Objects::nonNull)
                 .min(Instant::compareTo)

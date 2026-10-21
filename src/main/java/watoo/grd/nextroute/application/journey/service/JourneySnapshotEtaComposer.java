@@ -246,18 +246,19 @@ public class JourneySnapshotEtaComposer {
     }
 
     /**
-     * 그 대기 단계의 승차 예측. 평가기가 단계 행에 적어 둔 값(첫 승차 포함, #480)이 먼저, 없으면 그 대기가 바로 다음 환승의
-     * 도착 쪽일 때만 그 환승의 차량 도착. 모르면 null.
+     * 그 대기 단계의 승차 예측. 그 대기가 바로 다음 환승의 도착 쪽이면 그 환승의 차량 도착(환승 카드와 같은 값 — 예전 동작),
+     * 아니면 평가기가 단계 행에 적어 둔 값(첫 승차 등, #480). 모르면 null.
      */
     private Instant boardingAt(JourneyLeg wait, TransferRiskAssessment activeTransfer, Instant now) {
+        if (activeTransfer != null && activeTransfer.toLegIndex() == wait.getLegIndex()
+                && activeTransfer.nextBusArrivalAt() != null) {
+            return activeTransfer.nextBusArrivalAt();
+        }
         if (evaluatorProperties.isEnabled()) {
             CurrentLegArrival stored = storedEvaluationReader.boardingArrival(wait, now);
             if (stored != null && !stored.isUnknown() && stored.arrivalAt() != null) {
                 return stored.arrivalAt();
             }
-        }
-        if (activeTransfer != null && activeTransfer.toLegIndex() == wait.getLegIndex()) {
-            return activeTransfer.nextBusArrivalAt();
         }
         return null;
     }
