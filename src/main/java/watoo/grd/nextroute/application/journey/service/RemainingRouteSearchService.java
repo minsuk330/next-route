@@ -20,6 +20,7 @@ import watoo.grd.nextroute.application.route.routing.RoutingProviderSelector;
 import watoo.grd.nextroute.application.route.routing.RoutingQuery;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import watoo.grd.nextroute.application.route.service.LegacyRouteResponseMapper;
+import watoo.grd.nextroute.application.route.service.WalkCoordResolver;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -42,6 +43,13 @@ import java.util.Set;
  *
  * <p>검색이 실패해도 <b>예외를 올리지 않고 빈 목록</b>이다. 재검색은 "있으면 좋은" 기능이라
  * 검색이 죽었다고 재탐색 요청 전체를 실패시키지 않는다.
+ *
+ * <h2>걷기 구간 이름·좌표는 여기서 채운다(#474)</h2>
+ * <p>검색은 좌표로만 나가서 두 provider 모두 걷기 구간의 이름·좌표를 비워 준다(OTP 는 걷기 구간에
+ * 정류장이 없고, ODSAY 원본은 {@code WalkSegmentEnricher} 를 타지 않는다). 수락하면 이 경로가 그대로
+ * 새 개정본의 단계가 되므로, 비워 두면 목적지 이름이 사라진다. 처음 검색과 같은 규칙
+ * ({@link WalkCoordResolver#fillWalkEndpoints})으로 채운다 — 출발은 재검색 원점, 도착은 지금
+ * 개정본의 목적지({@link Waypoints} 의 이름·좌표). TMAP 은 부르지 않는다(재탐색 예산).
  */
 @Slf4j
 @Component
@@ -60,6 +68,7 @@ public class RemainingRouteSearchService {
     private final Clock clock;
     // 재탐색 후보 상한(rerouteLimit). 재탐색은 엔진 순서 앞에서 자르기만 한다.
     private final OtpRoutingProperties otpRoutingProperties;
+    private final WalkCoordResolver walkCoordResolver;
 
     /**
      * @param stopId    곧 내릴 정류장(로그·telemetry 용). <b>미해석(null)이면 부르면 안 된다</b>
@@ -131,7 +140,7 @@ public class RemainingRouteSearchService {
         if (result == null || result.paths() == null) {
             return List.of();
         }
-        return result.paths();
+        return fillWalkEndpoints(result, waypoints).paths();
     }
 
     /**
@@ -159,7 +168,22 @@ public class RemainingRouteSearchService {
         RoutingResult result = (RoutingResult) outcome;
         int limit = Math.max(otpRoutingProperties.getRerouteLimit(), 0);
         List<RoutingItinerary> its = result.itineraries();
-        return legacyRouteResponseMapper.toLegacy(
-                result.withItineraries(its.subList(0, Math.min(limit, its.size())))).paths();
+        RouteSearchResult legacy = legacyRouteResponseMapper.toLegacy(
+                result.withItineraries(its.subList(0, Math.min(limit, its.size()))));
+        return fillWalkEndpoints(legacy, waypoints).paths();
+    }
+
+    /**
+     * 걷기 구간의 시작·끝 이름과 좌표를 채운다. 교통수단 옆 걷기는 그 정류장·역(출구) 이름이고, 첫
+     * 걷기 시작은 원점, 마지막 걷기 끝은 목적지다.
+     *
+     * <p>원점·목적지 이름을 모르면(지금 개정본 스냅샷에 없으면) 처음 검색과 같은 대체 이름
+     * '출발'·'도착'이 들어간다 — 이름 규칙을 검색 경로마다 따로 두지 않는다. 좌표는 어느 경우든 채워진다.
+     */
+    private RouteSearchResult fillWalkEndpoints(RouteSearchResult result, Waypoints waypoints) {
+        return walkCoordResolver.fillWalkEndpoints(result,
+                waypoints.origin().x(), waypoints.origin().y(), waypoints.originName(),
+                waypoints.destination().x(), waypoints.destination().y(),
+                waypoints.destinationName());
     }
 }

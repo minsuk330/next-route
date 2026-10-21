@@ -22,6 +22,7 @@ import watoo.grd.nextroute.application.route.routing.RoutingProviderSelector;
 import watoo.grd.nextroute.application.route.routing.RoutingQuery;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import watoo.grd.nextroute.application.route.service.LegacyRouteResponseMapper;
+import watoo.grd.nextroute.application.route.service.WalkCoordResolver;
 import org.mockito.ArgumentCaptor;
 
 import java.time.Clock;
@@ -74,7 +75,8 @@ class RemainingRouteSearchServiceTest {
                     new LegacyRouteResponseMapper(mock(OtpSeoulIdentityResolver.class)),
                     otpConcurrencyGate,
                     new RouteSearchDeadlineProperties(),
-                    Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
+                    Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
+                new WalkCoordResolver());
 
     /** provider=OTP 인 재탐색 서비스. gate·otpPort·mapper 는 주입값 그대로. */
     private RemainingRouteSearchService otpService(OtpConcurrencyGate gate, RoutingPort otpPort,
@@ -85,7 +87,8 @@ class RemainingRouteSearchServiceTest {
         return new RemainingRouteSearchService(odSayApiPort, metrics,
                 new RoutingProviderSelector(props, List.of(otpPort)),
                 mapper, gate, new RouteSearchDeadlineProperties(),
-                Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
+                Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
+                new WalkCoordResolver());
     }
 
     private RoutingResult otpResult() {
@@ -205,6 +208,81 @@ class RemainingRouteSearchServiceTest {
         ArgumentCaptor<RoutingQuery> query = ArgumentCaptor.forClass(RoutingQuery.class);
         verify(otpPort).search(query.capture(), any());
         assertThat(query.getValue().departureAt()).isAfterOrEqualTo(before);
+    }
+
+    // ── 걷기 구간 이름·좌표(#474) ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("ODSAY 원본 걷기 구간에 이름·좌표를 채운다 — 첫 걷기는 원점, 마지막 걷기 끝은 원래 목적지(#474)")
+    void odsayWalksAreNamedFromOriginAndDestination() {
+        given(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
+                .willReturn(searchResult(walkBusWalkSubwayWalk()));
+
+        List<SubPathResult> subs = service.search(STOP_ID,
+                new Waypoints(new Coord(127.3, 37.3), new Coord(127.5, 37.5), "정류장C", "코엑스"),
+                2000).get(0).subPaths();
+
+        assertWalk(subs.get(0), "정류장C", 127.3, 37.3, "정류장E", 127.31, 37.31);
+        assertWalk(subs.get(4), "삼성", 127.49, 37.49, "코엑스", 127.5, 37.5);
+    }
+
+    @Test
+    @DisplayName("교통수단 옆 걷기는 그 정류장·역 이름이다 — 교통수단 구간은 건드리지 않는다(#474)")
+    void transitAdjacentWalkTakesStopNames() {
+        PathResult raw = walkBusWalkSubwayWalk();
+        given(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
+                .willReturn(searchResult(raw));
+
+        List<SubPathResult> subs = service.search(STOP_ID,
+                new Waypoints(new Coord(127.3, 37.3), new Coord(127.5, 37.5), "정류장C", "코엑스"),
+                2000).get(0).subPaths();
+
+        assertWalk(subs.get(2), "정류장F", 127.4, 37.4, "강남", 127.41, 37.41);
+        assertThat(subs.get(1)).isEqualTo(raw.subPaths().get(1));
+        assertThat(subs.get(3)).isEqualTo(raw.subPaths().get(3));
+    }
+
+    @Test
+    @DisplayName("지금 개정본에 목적지 이름이 없으면 처음 검색과 같은 대체 이름 '도착'이다 — 좌표는 채우고 터지지 않는다")
+    void missingDestinationNameFallsBackLikeFirstSearch() {
+        given(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
+                .willReturn(searchResult(walkBusWalkSubwayWalk()));
+
+        List<SubPathResult> subs = service.search(STOP_ID,
+                new Waypoints(new Coord(127.3, 37.3), new Coord(127.5, 37.5), "정류장C", null),
+                2000).get(0).subPaths();
+
+        assertWalk(subs.get(4), "삼성", 127.49, 37.49, "도착", 127.5, 37.5);
+        assertWalk(subs.get(0), "정류장C", 127.3, 37.3, "정류장E", 127.31, 37.31);
+    }
+
+    private static void assertWalk(SubPathResult walk, String startName, double startX, double startY,
+                                   String endName, double endX, double endY) {
+        assertThat(walk.trafficType()).isEqualTo(3);
+        assertThat(walk.startName()).isEqualTo(startName);
+        assertThat(walk.startX()).isEqualTo(startX);
+        assertThat(walk.startY()).isEqualTo(startY);
+        assertThat(walk.endName()).isEqualTo(endName);
+        assertThat(walk.endX()).isEqualTo(endX);
+        assertThat(walk.endY()).isEqualTo(endY);
+    }
+
+    /**
+     * ODSAY 원본 모양: 걷기 구간에는 이름·좌표가 없고 교통수단 구간에만 있다.
+     * 원점 C → 걷기 → 버스 E→F → 걷기 → 지하철 강남→삼성 → 걷기 → 목적지.
+     */
+    private PathResult walkBusWalkSubwayWalk() {
+        return new PathResult(1, null, List.of(
+                SubPathFixture.walk(2).distance(120.0).build(),
+                SubPathFixture.bus(10).names("정류장E", "정류장F")
+                        .coords(127.31, 37.31, 127.4, 37.4).busStops("ST-E", "ST-F")
+                        .lanes(SubPathFixture.busLane("360", "BL-360")).build(),
+                SubPathFixture.walk(3).distance(200.0).build(),
+                SubPathFixture.subway(8).names("강남", "삼성")
+                        .coords(127.41, 37.41, 127.49, 37.49)
+                        .lanes(SubPathFixture.subwayLane("2호선", 2)).build(),
+                SubPathFixture.walk(4).distance(300.0).build()),
+                List.of());
     }
 
     private RouteSearchResult searchResult(PathResult... paths) {

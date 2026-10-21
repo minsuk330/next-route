@@ -12,6 +12,7 @@ import org.springframework.test.context.TestPropertySource;
 import watoo.grd.nextroute.application.journey.dto.JourneySnapshot;
 import watoo.grd.nextroute.application.journey.dto.RerouteProposalView;
 import watoo.grd.nextroute.application.journey.dto.StartJourneyCommand;
+import watoo.grd.nextroute.application.journey.port.in.AcceptRerouteProposalUseCase;
 import watoo.grd.nextroute.application.journey.port.in.StartJourneyUseCase;
 import watoo.grd.nextroute.application.journey.port.out.RerouteCooldownPort;
 import watoo.grd.nextroute.application.journey.service.RerouteProposalService;
@@ -29,6 +30,7 @@ import watoo.grd.nextroute.application.route.service.TransferStopResolver;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -77,9 +79,11 @@ class RerouteRemainingPathIT {
     private static final String SESSION_ID = "sess-reroute-remaining-it";
     private static final String PATH_KEY = "0";
     private static final String TWO_TRANSFER_SESSION = "sess-reroute-remaining-it-2";
+    private static final String PLACE_SESSION = "sess-reroute-remaining-it-place";
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired RerouteProposalService rerouteProposalService;
+    @Autowired AcceptRerouteProposalUseCase acceptUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
 
     @MockBean RouteSearchSnapshotPort snapshotPort;
@@ -196,6 +200,36 @@ class RerouteRemainingPathIT {
                 """, Integer.class, twoTransfers.journeyId())).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("재탐색을 수락한 새 개정본의 걷기 단계에 이름이 있다 — 마지막 걷기 끝은 원래 목적지다(#474)")
+    void acceptedRerouteKeepsWalkNames() {
+        JourneySnapshot toPlace = startJourneyWith(PLACE_SESSION, placeDestinationPath());
+        Instant readyAt = Instant.now().plusSeconds(240);
+        givenLiveTransfer(toPlace.journeyId(), 0, readyAt);
+        givenPrediction("BL-721", readyAt.plusSeconds(1200));
+        givenPrediction("BL-360", readyAt.plusSeconds(60));
+        // ODSAY 원본 모양: 걷기 구간에는 이름·좌표가 없다(WalkSegmentEnricher 를 타지 않는다).
+        given(odSayApiPort.searchPath(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
+                .willReturn(new RouteSearchResult(0, 1, 0, 0, 0, List.of(namelessWalkAlternative())));
+
+        RerouteProposalView proposal =
+                rerouteProposalService.request(userId, toPlace.journeyId(), 0).orElseThrow();
+        JourneySnapshot after = acceptUseCase.accept(userId, toPlace.journeyId(),
+                proposal.proposalId(), proposal.candidates().get(0).candidateId());
+
+        assertThat(after.routeRevision()).isEqualTo(toPlace.routeRevision() + 1);
+        List<Map<String, Object>> walks = jdbcTemplate.queryForList("""
+                select leg_index, type, start_name, end_name from journey_leg
+                 where journey_id = ? and route_revision = ? and deleted_at is null
+                   and type in ('WALK', 'TRANSFER_WALK')
+                 order by leg_index
+                """, toPlace.journeyId(), after.routeRevision());
+        assertThat(walks).extracting(row -> row.get("start_name") + "→" + row.get("end_name"))
+                .as("앞 구간 걷기는 그대로, 재검색 경로의 걷기는 원점·정류장·목적지 이름")
+                .containsExactly("현재 위치→정류장A", "정류장F→정류장G", "정류장G→정류장H",
+                        "정류장Y→코엑스");
+    }
+
     // ── 준비 ────────────────────────────────────────────────────────────────
 
     /** 제안을 하나 만들고 그 제안이 가리키는 자리(leg 번호)를 돌려준다. */
@@ -217,6 +251,45 @@ class RerouteRemainingPathIT {
         jdbcTemplate.update("update journey_session set status = 'CANCELED', ended_at = now()"
                 + " where user_id = ? and status = 'ACTIVE'", userId);
         return startJourneyUseCase.start(userId, new StartJourneyCommand(sessionId, PATH_KEY, false));
+    }
+
+    /**
+     * 장소 목적지(코엑스)로 끝나는 경로. 처음 검색이 채운 걷기 이름(#471)이 그대로 들어 있다 — 마지막
+     * 걷기의 끝 이름이 재탐색의 목적지 이름이 된다.
+     */
+    private PathResult placeDestinationPath() {
+        return new PathResult(1,
+                new PathInfo(75, 4000, 1100, 1, "정류장A", "정류장Z", null),
+                List.of(
+                        SubPathFixture.walk(5).names("현재 위치", "정류장A").distance(300.0)
+                                .coords(126.95, 36.95, 127.00, 37.00).build(),
+                        SubPathFixture.bus(20).names("정류장A", "정류장F")
+                                .coords(127.00, 37.00, 127.10, 37.10)
+                                .busStops("ST-A", "ST-F")
+                                .lanes(SubPathFixture.busLane("370", "BL-370")).build(),
+                        SubPathFixture.walk(3).names("정류장F", "정류장G").distance(150.0)
+                                .coords(127.10, 37.10, 127.20, 37.20).build(),
+                        SubPathFixture.bus(40).names("정류장G", "정류장Z")
+                                .coords(127.20, 37.20, 127.45, 37.45)
+                                .busStops("ST-G", "ST-Z")
+                                .lanes(SubPathFixture.busLane("721", "BL-721")).build(),
+                        SubPathFixture.walk(4).names("정류장Z", "코엑스").distance(300.0)
+                                .coords(127.45, 37.45, 127.50, 37.50).build()),
+                List.of());
+    }
+
+    /** 재검색이 준 다른 경로. ODSAY 원본처럼 걷기 구간에 이름·좌표가 없다. */
+    private PathResult namelessWalkAlternative() {
+        return new PathResult(1,
+                new PathInfo(25, 3800, 400, 0, "정류장H", "정류장Y", null),
+                List.of(
+                        SubPathFixture.walk(1).distance(50.0).build(),
+                        SubPathFixture.bus(15).names("정류장H", "정류장Y")
+                                .coords(127.21, 37.21, 127.44, 37.44)
+                                .busStops("ST-H", "ST-Y")
+                                .lanes(SubPathFixture.busLane("360", "BL-360")).build(),
+                        SubPathFixture.walk(5).distance(350.0).build()),
+                List.of());
     }
 
     /** 버스 셋, 환승 둘. 뒤 환승에도 제안을 만들 수 있는 모양이다. */

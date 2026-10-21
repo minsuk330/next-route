@@ -69,16 +69,39 @@ public class JourneyWaypointResolver {
             log.debug("[JourneyReroute] 좌표를 못 찾았다 journeyId={} legIndex={}", journeyId, legIndex);
             return Optional.empty();
         }
+        // 이름도 같은 단계에서 집는다(#474). 재검색은 좌표로만 나가 걷기 구간 이름이 비어 오는데, 장소
+        // 목적지 이름은 마지막 단계의 끝 이름에만 남아 있다(세션 destinationSummary 는 마지막 정류장이다).
         return Optional.of(new Waypoints(
                 new Coord(origin.get().startX(), origin.get().startY()),
-                new Coord(destination.endX(), destination.endY())));
+                new Coord(destination.endX(), destination.endY()),
+                origin.get().startName(),
+                destination.endName()));
     }
 
     /**
-     * @param origin      그 단계의 시작 좌표. 재검색의 출발점이다
-     * @param destination 마지막 단계의 끝 좌표. 목적지는 바뀌지 않는다
+     * @param origin          그 단계의 시작 좌표. 재검색의 출발점이다
+     * @param destination     마지막 단계의 끝 좌표. 목적지는 바뀌지 않는다
+     * @param originName      출발점 이름. 재검색 경로의 첫 걷기 시작 이름이 된다. 모르면 null
+     * @param destinationName 마지막 단계의 끝 이름(= 원래 목적지 이름). 재검색 경로의 마지막 걷기 끝
+     *                        이름이 된다. 스냅샷에 없으면 null — 여기서 지어내지 않는다. (#471 전에
+     *                        OTP 로 시작해 걷기로 끝나는 여정은 끝 좌표도 없어 애초에 빈 결과다)
      */
-    public record Waypoints(Coord origin, Coord destination) {
+    public record Waypoints(Coord origin, Coord destination, String originName,
+                            String destinationName) {
+
+        /** 이름 없이 좌표만. */
+        public Waypoints(Coord origin, Coord destination) {
+            this(origin, destination, null, null);
+        }
+
+        /**
+         * 출발점만 바꾼다. 목적지 좌표·이름은 어느 자리에서 다시 찾든 같다.
+         *
+         * @param originName 그 자리 이름. 모르면 null
+         */
+        public Waypoints departingFrom(Coord origin, String originName) {
+            return new Waypoints(origin, destination, originName, destinationName);
+        }
     }
 
     /** 경도(x) · 위도(y). 검색 API 가 받는 순서를 그대로 쓴다. */

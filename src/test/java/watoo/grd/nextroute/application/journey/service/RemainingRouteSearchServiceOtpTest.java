@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.journey.service.JourneyWaypointResolver.C
 import watoo.grd.nextroute.application.journey.service.JourneyWaypointResolver.Waypoints;
 import watoo.grd.nextroute.application.route.config.RoutingProviderProperties;
 import watoo.grd.nextroute.application.route.dto.PathResult;
+import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.routing.Enrichment;
 import watoo.grd.nextroute.application.route.routing.Fare;
@@ -28,6 +29,7 @@ import watoo.grd.nextroute.application.route.routing.RoutingQuery;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import watoo.grd.nextroute.application.route.routing.StopOccurrence;
 import watoo.grd.nextroute.application.route.service.LegacyRouteResponseMapper;
+import watoo.grd.nextroute.application.route.service.WalkCoordResolver;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -74,7 +76,8 @@ class RemainingRouteSearchServiceOtpTest {
         return new RemainingRouteSearchService(odsayNeverCalled,
                 new JourneyRerouteMetrics(new SimpleMeterRegistry()),
                 new RoutingProviderSelector(props, List.of(otp)),
-                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)), grantingGate, new watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties(), clock, new watoo.grd.nextroute.application.route.config.OtpRoutingProperties());
+                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)), grantingGate, new watoo.grd.nextroute.application.route.config.RouteSearchDeadlineProperties(), clock, new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
+                new WalkCoordResolver());
     }
 
     @Test
@@ -118,6 +121,51 @@ class RemainingRouteSearchServiceOtpTest {
 
         assertThat(paths).extracting(p -> p.subPaths().get(0).sectionTime())
                 .containsExactly(10, 11, 12, 13, 14);
+    }
+
+    @Test
+    @DisplayName("OTP 걷기 구간도 이름·좌표를 채운다 — 첫 걷기는 원점, 버스 옆은 그 정류장, 마지막 걷기 끝은 원래 목적지(#474)")
+    void otpWalksAreNamedFromOriginStopsAndDestination() {
+        RoutingLeg bus = new RoutingLeg(RoutingMode.BUS, "BUS", "1", "1:A1", "1:R", "143",
+                "1:T", null, Instant.now(), Instant.now(), 600,
+                List.of(new StopOccurrence("1:S1", null, null, 0, 127.02, 37.48, "정류장1"),
+                        new StopOccurrence("1:S2", null, null, 5, 127.08, 37.42, "정류장2")),
+                List.of(), LegGeometry.missing("x"),
+                Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of());
+        RoutingItinerary it = new RoutingItinerary(Instant.now(), 600, 0, 300, 0, false,
+                List.of(), Fare.unknown(), List.of(walkLeg(120), bus, walkLeg(180)));
+        RoutingResult result = new RoutingResult(RoutingProvider.OTP, "v", "202503", "g",
+                null, null, Instant.now(), List.of(), List.of(it));
+        Waypoints named = new Waypoints(new Coord(127.0, 37.5), new Coord(127.1, 37.4),
+                "정류장A", "코엑스");
+
+        List<SubPathResult> subs = service(result).search("1:S1", named, 2000).get(0).subPaths();
+
+        SubPathResult first = subs.get(0);
+        assertThat(first.trafficType()).isEqualTo(3);
+        assertThat(first.startName()).isEqualTo("정류장A");
+        assertThat(first.startX()).isEqualTo(127.0);
+        assertThat(first.startY()).isEqualTo(37.5);
+        assertThat(first.endName()).isEqualTo("정류장1");
+        assertThat(first.endX()).isEqualTo(127.02);
+        assertThat(first.endY()).isEqualTo(37.48);
+
+        SubPathResult last = subs.get(2);
+        assertThat(last.trafficType()).isEqualTo(3);
+        assertThat(last.startName()).isEqualTo("정류장2");
+        assertThat(last.startX()).isEqualTo(127.08);
+        assertThat(last.startY()).isEqualTo(37.42);
+        assertThat(last.endName()).isEqualTo("코엑스");
+        assertThat(last.endX()).isEqualTo(127.1);
+        assertThat(last.endY()).isEqualTo(37.4);
+    }
+
+    /** OTP 걷기 구간. 정류장이 없어 legacy 로 옮기면 이름·좌표가 비어 나온다. */
+    private static RoutingLeg walkLeg(int seconds) {
+        return new RoutingLeg(RoutingMode.WALK, "WALK", null, null, null, null,
+                null, null, Instant.now(), Instant.now(), seconds,
+                List.of(), List.of(), LegGeometry.missing("x"),
+                Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of());
     }
 
     @Test
