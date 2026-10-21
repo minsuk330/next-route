@@ -293,7 +293,7 @@ class RemainingRouteSearchServiceTest {
         SubPathResult sub = new SubPathResult(2, 15, null, null, null,
                 "정류장C", "정류장D", 127.3, 37.3, 127.5, 37.5,
                 null, null, null, null, null, null, null, null, null, null, null, null, null,
-                "ST-C", "ST-D", null, null, null, null, null);
+                "ST-C", "ST-D", null, null, null, null, null, null);
         return new PathResult(1, null, List.of(sub), List.of());
     }
 }

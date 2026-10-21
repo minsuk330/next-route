@@ -91,7 +91,8 @@ class TrackJourneyStartServiceTest {
                 new JourneyCompiler(new StopIdentityResolver()), enricher,
                 new JourneyGuidanceInfoEnricher(org.mockito.Mockito.mock(watoo.grd.nextroute.domain.bus.repository.BusStopRepository.class), org.mockito.Mockito.mock(watoo.grd.nextroute.application.regionalbus.port.out.RegionalBusRouteStopStore.class), new watoo.grd.nextroute.application.subway.service.SubwayEntranceIndex(), new watoo.grd.nextroute.application.subway.service.SubwayFastAlightIndex(), new watoo.grd.nextroute.application.subway.service.SubwayDoorSideIndex(), new watoo.grd.nextroute.application.subway.service.SubwayLineEnds(org.mockito.Mockito.mock(watoo.grd.nextroute.application.subway.service.SubwayLinePatternService.class))), txService,
                 new JourneyStartConflictTranslator(mock(JourneyQueryService.class)),
-                new ObjectMapper(), meters, clock);
+                new ObjectMapper(), meters, clock,
+                watoo.grd.nextroute.application.subway.service.SubwayExpressFixtures.railServiceClassifier());
     }
 
     @Test

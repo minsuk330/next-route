@@ -386,7 +386,8 @@ public class RouteSearchService implements SearchRouteUseCase {
                 segment.steps(),
                 null, null, null, null, null,        // ODsay 버스 식별자
                 walkSeconds,
-                null                   // transferArrivals
+                null,                  // transferArrivals
+                null                   // trainKind(도보)
         );
         PathInfo info = new PathInfo(
                 totalTimeMin, 0, segment.totalDistance(), 0,

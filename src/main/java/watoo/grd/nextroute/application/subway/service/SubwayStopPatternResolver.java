@@ -74,6 +74,39 @@ public class SubwayStopPatternResolver {
     }
 
     /**
+     * 실시간 방향 라벨을 모를 때의 완행 경로(subway-express S2 경로 검색·geometry). 노선의 두 방향 중 두 역을 이 순서로
+     * 지나는 쪽이 하나면 그 경로다. 둘 다면(순환선) {@code preferredDirection} 쪽, 그것도 아니면 empty — 고르지 않는다.
+     *
+     * <p>OTP 노선 라벨은 노선마다 실시간과 반대일 수 있어({@code SubwayRoutePatternAssembler} 반전표) 라벨 대신 역 순서로
+     * 정한다. 직선 노선은 두 역을 이 순서로 지나는 방향이 하나뿐이다.
+     *
+     * @param preferredDirection 둘 다 지날 때 고를 방향. 모르면 null
+     */
+    public List<String> allStopPathEitherDirection(String lineId, String preferredDirection, String boardStationId,
+                                                   String alightStationId) {
+        if (lineId == null) {
+            return List.of();
+        }
+        List<String> found = List.of();
+        String foundDirection = null;
+        for (String direction : SubwayLinePatternWarmup.directions(lineId)) {
+            List<String> path = lineOrder.allStopPath(lineId, direction, boardStationId, alightStationId);
+            if (path.isEmpty()) {
+                continue;
+            }
+            if (!found.isEmpty()) {
+                if (direction.equals(preferredDirection)) {
+                    return path;
+                }
+                return foundDirection.equals(preferredDirection) ? found : List.of();
+            }
+            found = path;
+            foundDirection = direction;
+        }
+        return found;
+    }
+
+    /**
      * 급행 열차 하나의 정차 패턴. 호출부는 이미 급행으로 판정한 열차만 넘긴다.
      *
      * @param destination      행선지 이름이나 종착 역 id(위치 기반 출발 기록은 이름 없이 terminalId 만 있다)

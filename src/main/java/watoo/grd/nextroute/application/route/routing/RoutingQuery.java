@@ -11,6 +11,8 @@ import java.util.Set;
  * @param maxWalkMeters 접근 도보 상한(있으면). 캐시 키에 정렬 직렬화로 반영
  * @param provider     상위 서비스가 선택한 provider(어댑터는 이것만 호출)
  * @param graphVersion 고정할 graph 버전(있으면). ODsay 는 무시
+ * @param excludedRouteIds 탐색에서 뺄 원천 route id(급행 끄기·일반 대안 되찾기, subway-express S2). 비면 거르지 않는다.
+ *                     OTP 만 쓴다(ODsay 는 무시)
  */
 public record RoutingQuery(
         double originLon,
@@ -25,8 +27,17 @@ public record RoutingQuery(
         boolean wheelchair,
         String schemaVersion,
         RoutingProvider provider,
-        String graphVersion
+        String graphVersion,
+        Set<String> excludedRouteIds
 ) {
+    /** 제외 노선 없는 호출부용. 빈 집합이 곧 옛 동작이다. */
+    public RoutingQuery(double originLon, double originLat, String originName, double destLon, double destLat,
+                        String destName, Instant departureAt, Set<RoutingMode> modes, Integer maxWalkMeters,
+                        boolean wheelchair, String schemaVersion, RoutingProvider provider, String graphVersion) {
+        this(originLon, originLat, originName, destLon, destLat, destName, departureAt, modes, maxWalkMeters,
+                wheelchair, schemaVersion, provider, graphVersion, Set.of());
+    }
+
     public RoutingQuery {
         if (departureAt == null) {
             throw new IllegalArgumentException("departureAt must be resolved at request boundary");
@@ -35,11 +46,18 @@ public record RoutingQuery(
             throw new IllegalArgumentException("provider must be selected by upstream service");
         }
         modes = modes == null ? Set.of() : Set.copyOf(modes);
+        excludedRouteIds = excludedRouteIds == null ? Set.of() : Set.copyOf(excludedRouteIds);
     }
 
-    /** 허용 수단만 바꾼 복사본(나머지 필드 보존). */
+    /** 허용 수단만 바꾼 복사본(나머지 필드 보존 — 제외 노선도 그대로 간다). */
     public RoutingQuery withModes(Set<RoutingMode> newModes) {
         return new RoutingQuery(originLon, originLat, originName, destLon, destLat, destName, departureAt,
-                newModes, maxWalkMeters, wheelchair, schemaVersion, provider, graphVersion);
+                newModes, maxWalkMeters, wheelchair, schemaVersion, provider, graphVersion, excludedRouteIds);
+    }
+
+    /** 제외 노선만 바꾼 복사본(나머지 필드 보존). */
+    public RoutingQuery withExcludedRouteIds(Set<String> newExcludedRouteIds) {
+        return new RoutingQuery(originLon, originLat, originName, destLon, destLat, destName, departureAt,
+                modes, maxWalkMeters, wheelchair, schemaVersion, provider, graphVersion, newExcludedRouteIds);
     }
 }

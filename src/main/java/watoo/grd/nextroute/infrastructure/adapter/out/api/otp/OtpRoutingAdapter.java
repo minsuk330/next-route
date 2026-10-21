@@ -10,6 +10,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.route.config.OtpRoutingProperties;
+import watoo.grd.nextroute.application.route.routing.RailServiceClassifier;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingFailure;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
@@ -81,17 +82,20 @@ public class OtpRoutingAdapter implements RoutingPort {
     private final OtpRoutingProperties properties;
     private final OtpStationResolver stationResolver;
     private final Clock clock;
+    private final RailServiceClassifier classifier;
     private final String query;
 
     public OtpRoutingAdapter(RestClient.Builder restClientBuilder, ObjectMapper objectMapper,
                              OtpPlanConnectionMapper mapper, OtpRoutingProperties properties,
-                             OtpStationResolver stationResolver, Clock clock) {
+                             OtpStationResolver stationResolver, Clock clock,
+                             RailServiceClassifier classifier) {
         this.restClientBuilder = restClientBuilder;
         this.objectMapper = objectMapper;
         this.mapper = mapper;
         this.properties = properties;
         this.stationResolver = stationResolver;
         this.clock = clock;
+        this.classifier = classifier;
         this.query = loadQuery();
     }
 
@@ -192,7 +196,8 @@ public class OtpRoutingAdapter implements RoutingPort {
                 properties.getGraphVersion());
         // 실시간 coverage 배선은 #1 검색 응답이 소비하지 않는다(정적 드롭인). 주행중 재탐색(#2 P2-F)이
         // 소비지점에서 적용한다 → 여기서는 중립 결과를 그대로 반환. OtpLegCoverageResolver 는 #2 용으로 존치.
-        return mapper.map(root, routingQuery.departureAt(), versions);
+        // 열차 종류는 여기 한 곳에서 붙인다(subway-express S2) — 본·추가·재탐색 검색이 모두 이 길을 탄다.
+        return classifier.annotate(mapper.map(root, routingQuery.departureAt(), versions));
     }
 
     private String requestBody(RoutingQuery q, Duration window, Endpoints endpoints) {
@@ -209,6 +214,11 @@ public class OtpRoutingAdapter implements RoutingPort {
         if (!q.modes().isEmpty() || properties.getBusReluctance() != 1.0) {
             vars.put("modes", Map.of("transit", Map.of("transit",
                     transitModes(otpModes(q.modes()), properties.getBusReluctance()))));
+        }
+        // 제외 노선(급행 끄기·일반 대안 되찾기). 비면 보내지 않는다 — 옛 요청과 같다.
+        if (!q.excludedRouteIds().isEmpty()) {
+            vars.put("preferences", Map.of("transit", Map.of("filters", List.of(
+                    Map.of("exclude", List.of(Map.of("routes", q.excludedRouteIds().stream().sorted().toList())))))));
         }
         try {
             return objectMapper.writeValueAsString(Map.of("query", query, "variables", vars));

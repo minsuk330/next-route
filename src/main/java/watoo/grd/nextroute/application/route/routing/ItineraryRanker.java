@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.route.routing;
 
+import watoo.grd.nextroute.application.subway.dto.TrainKind;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -17,9 +19,11 @@ import java.util.Map;
  *
  * <p>규칙
  * <ol>
- *   <li>지문 = 도보가 아닌 구간을 순서대로 (수단, 노선 이름). 이름이 없으면 노선 id.
+ *   <li>지문 = 도보가 아닌 구간을 순서대로 (수단, 노선 이름[, 열차 종류]). 이름이 없으면 노선 id.
  *       응답에는 노선 이름만 나가므로 이름이 같으면 사용자에겐 같은 경로다 — 1호선 계통(연천-인천·광운대-신창)
- *       이나 급행처럼 id 만 다른 것도 하나로 본다. 도보 구간 차이는 지문에 넣지 않는다.</li>
+ *       처럼 id 만 다른 것은 하나로 본다. <b>열차 종류가 일반이 아니면(급행·ITX 등) 지문에 덧붙인다</b>(subway-express
+ *       S2, D2) — 응답이 {@code trainKind} 로 급행을 보여 주므로 같은 노선의 급행·일반은 다른 경로다. 종류 null 과
+ *       NORMAL 은 같은 지문이다. 도보 구간 차이는 지문에 넣지 않는다.</li>
  *   <li>지문마다 대표 하나 = 가장 이른 도착 → 낮은 비용 → 엔진 순서. 다음 출발편은 대표가 될 수 없다.</li>
  *   <li>대표를 비용 오름차순(모르면 뒤) → 엔진 순서로 줄 세운다. 대표만 내보낸다 — 고유 경로가 상한보다
  *       적어도 같은 경로의 다음 편으로 채우지 않는다(2026-10-12 운영: 부평→서울 1호선이 출발시각만 달리 3번).</li>
@@ -56,14 +60,18 @@ public final class ItineraryRanker {
                 .toList();
     }
 
-    private static List<String> fingerprint(RoutingItinerary itinerary) {
+    /** 같은 경로를 가르는 지문(규칙은 클래스 주석). 일반 대안 되찾기({@code RouteSearchService})도 같은 규칙을 쓴다. */
+    public static List<String> fingerprint(RoutingItinerary itinerary) {
         List<String> key = new ArrayList<>();
         for (RoutingLeg leg : itinerary.legs()) {
             if (leg.mode() == RoutingMode.WALK) {
                 continue;
             }
             String route = leg.sourceRouteName() != null ? leg.sourceRouteName() : leg.sourceRouteId();
-            key.add(leg.mode() + "|" + route);
+            TrainKind kind = leg.trainKind();
+            key.add(kind == null || kind == TrainKind.NORMAL
+                    ? leg.mode() + "|" + route
+                    : leg.mode() + "|" + route + "|" + kind);
         }
         return key;
     }

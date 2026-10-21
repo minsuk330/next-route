@@ -218,12 +218,15 @@ public class LegacyRouteResponseMapper {
         // 채우지 못하는 legacy 필드는 null(가짜값 금지): exit/walkSteps/ArsID/지하철-id.
         // wayCode 는 지하철 leg 에서만 채운다 — 버스는 원천에도 방향 코드가 없다.
         Double distance = leg.mode() == RoutingMode.WALK ? walkDistance(leg) : null;
+        // 열차 종류는 철도 구간만(subway-express S2). 판정은 어댑터 경계에서 이미 끝났다 — 여기서는 옮기기만 한다.
+        String trainKind = (leg.mode() == RoutingMode.SUBWAY || leg.mode() == RoutingMode.RAIL)
+                && leg.trainKind() != null ? leg.trainKind().name() : null;
         return new SubPathResult(
                 trafficType, sectionTime, distance, lanes, stations,
                 startName, endName, startX, startY, endX, endY,
                 null, null, null, null, wayCode, polyline,
                 null, null, null, null, null, null,
-                null, startLocalStationID, endLocalStationID, null, null, null, null, null);
+                null, startLocalStationID, endLocalStationID, null, null, null, null, null, trainKind);
     }
 
     /**

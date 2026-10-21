@@ -78,7 +78,7 @@ class TransferArrivalEnricherTest {
                 null, null, null, null, null, null,
                 null, null, null, null, null, null,
                 null,
-                startLocalStationID, null, null, null, null, null, null
+                startLocalStationID, null, null, null, null, null, null, null
         );
     }
 
@@ -90,7 +90,7 @@ class TransferArrivalEnricherTest {
                 null, null, null, null, null, null,
                 null, null, null, null, null, null,
                 null,
-                null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null
         );
     }
 
@@ -176,7 +176,7 @@ class TransferArrivalEnricherTest {
         return new SubPathResult(one.trafficType(), one.sectionTime(), one.distance(), lanes, one.stations(),
                 one.startName(), one.endName(), one.startX(), one.startY(), one.endX(), one.endY(),
                 null, null, null, null, null, null, null, null, null, null, null, null, null,
-                stopId, null, null, null, null, null, null);
+                stopId, null, null, null, null, null, null, null);
     }
 
     private void stubRoute(String routeId, String name, BusArrivalInfo arrival) {
@@ -203,6 +203,22 @@ class TransferArrivalEnricherTest {
         assertThat(out.paths()).hasSize(1);
         assertThat(out.paths().get(0).subPaths().get(0).lanes().get(0).busNo()).isEqualTo("360");
         assertThat(out.busCount()).isEqualTo(1);
+    }
+
+    @Test
+    void TC_도착예측_복사본이_trainKind_를_보존한다() {
+        // 버스 구간에 넣은 값은 복사 경로 확인용 표지다(subway-express S2 — 도착예측을 실은 복사본이 새 칸을 흘리지 않는다).
+        props.setEnabled(true);
+        lenient().when(predictionSupport.support(any())).thenReturn(PredictionSupportService.Support.UNSUPPORTED);
+        stubRoute("100100360", "360", arrivalInfo("100100360", "2026-06-06 12:59:50.0", 300));
+        SubPathResult bus = watoo.grd.nextroute.application.journey.service.SubPathFixture.withTrainKind(
+                busSubPath("1111", "100100360", "360"), "MARK");
+
+        RouteSearchResult out = enricher.enrich(resultWith(List.of(bus)), NOW, RouteSearchContext.start(5000));
+
+        SubPathResult enriched = out.paths().get(0).subPaths().get(0);
+        assertThat(enriched.transferArrivals()).isNotEmpty();
+        assertThat(enriched.trainKind()).isEqualTo("MARK");
     }
 
     @Test

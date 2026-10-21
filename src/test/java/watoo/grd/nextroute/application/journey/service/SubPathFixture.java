@@ -31,6 +31,19 @@ public final class SubPathFixture {
         return new Builder(1, minutes);
     }
 
+    /**
+     * 열차 종류만 바꾼 복사본. 복사 경로(도착예측·도보 보강·재탐색 합성)가 {@code trainKind} 를 흘리지 않는지 보는 시험이
+     * 쓴다 — 버스·도보 구간에 넣은 값은 그 확인용 표지다.
+     */
+    public static SubPathResult withTrainKind(SubPathResult sp, String trainKind) {
+        return new SubPathResult(sp.trafficType(), sp.sectionTime(), sp.distance(), sp.lanes(), sp.stations(),
+                sp.startName(), sp.endName(), sp.startX(), sp.startY(), sp.endX(), sp.endY(),
+                sp.trainType(), sp.payment(), sp.startId(), sp.way(), sp.wayCode(), sp.polyline(),
+                sp.startExitNo(), sp.startExitX(), sp.startExitY(), sp.endExitNo(), sp.endExitX(), sp.endExitY(),
+                sp.walkSteps(), sp.startLocalStationID(), sp.endLocalStationID(), sp.startArsID(), sp.endArsID(),
+                sp.endID(), sp.walkTotalTimeSeconds(), sp.transferArrivals(), trainKind);
+    }
+
     public static LaneResult busLane(String busNo, String localBlId) {
         return new LaneResult(busNo, busNo, null, null, null, localBlId, null);
     }
@@ -49,6 +62,7 @@ public final class SubPathFixture {
         private final int sectionTime;
 
         private Double distance;
+        private String trainKind;
         private Integer payment;
         private List<LaneResult> lanes;
         private List<StationResult> stations;
@@ -150,6 +164,12 @@ public final class SubPathFixture {
             return this;
         }
 
+        /** 철도 구간 열차 종류({@code EXPRESS} 등, subway-express S2). */
+        public Builder trainKind(String trainKind) {
+            this.trainKind = trainKind;
+            return this;
+        }
+
         public SubPathResult build() {
             return new SubPathResult(
                     trafficType, sectionTime, distance, lanes, stations,
@@ -157,7 +177,7 @@ public final class SubPathFixture {
                     null, payment, startId, null, wayCode, polyline,
                     null, null, null, null, null, null, walkSteps,
                     startLocalStationID, endLocalStationID, startArsID, endArsID, endID,
-                    walkTotalTimeSeconds, null);
+                    walkTotalTimeSeconds, null, trainKind);
         }
     }
 }

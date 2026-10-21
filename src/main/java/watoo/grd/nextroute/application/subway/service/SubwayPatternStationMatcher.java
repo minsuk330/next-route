@@ -67,6 +67,15 @@ public final class SubwayPatternStationMatcher {
         return Optional.empty();
     }
 
+    /**
+     * 패턴 비교 키. 이으면 역 id, 못 이으면 {@code name:} + 표시 이름 — {@code SubwayStationsAheadService.resolve} 가
+     * 패턴 정차에 붙이는 {@code StationsAheadCalculator.Stop#key} 와 같은 규칙이다(같은 OTP 정차는 같은 키가 된다).
+     */
+    public static String key(String otpName, double lat, double lon, List<Candidate> candidates) {
+        return match(otpName, lat, lon, candidates).map(Candidate::stationId)
+                .orElseGet(() -> "name:" + displayName(otpName));
+    }
+
     /** 표시용 이름. OTP 가 붙인 노선 괄호({@code 강남(2호선)})를 뗀다. */
     public static String displayName(String otpName) {
         return NORMALIZER.normalize(otpName);

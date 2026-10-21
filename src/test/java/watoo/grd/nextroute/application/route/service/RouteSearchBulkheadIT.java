@@ -157,7 +157,7 @@ class RouteSearchBulkheadIT {
                 null,
                 null, null, null, null, null, null,
                 null,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null);
         PathInfo info = new PathInfo(10, 0, 640, 0, "출발", "도착", null);
         return new RouteSearchResult(0, 0, 0, 0, 0,
                 List.of(new PathResult(3, info, List.of(walk), Collections.emptyList())));

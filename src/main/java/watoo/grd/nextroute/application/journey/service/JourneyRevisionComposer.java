@@ -243,7 +243,7 @@ public class JourneyRevisionComposer {
                 sub.trainType(), null, sub.startId(), sub.way(), sub.wayCode(), stopLine(kept),
                 sub.startExitNo(), sub.startExitX(), sub.startExitY(), null, null, null,
                 sub.walkSteps(), sub.startLocalStationID(), origin.stopId(), sub.startArsID(),
-                null, null, sub.walkTotalTimeSeconds(), sub.transferArrivals());
+                null, null, sub.walkTotalTimeSeconds(), sub.transferArrivals(), sub.trainKind());
     }
 
     /**

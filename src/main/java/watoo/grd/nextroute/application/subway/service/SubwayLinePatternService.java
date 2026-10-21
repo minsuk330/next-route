@@ -90,6 +90,15 @@ public class SubwayLinePatternService {
     }
 
     /**
+     * <b>이미 적재된</b> 지하철 노선 목록(낡았어도). 없으면 빈 목록 — OTP 를 부르지 않는다. 급행 노선 id 가 그래프에
+     * 아직 있는지 대조하는 데 쓴다(subway-express S2, 그래프 재빌드 때 id 가 바뀔 수 있다).
+     */
+    public List<OtpRailRoute> cachedRoutes() {
+        Cached<List<OtpRailRoute>> cached = routes;
+        return cached == null ? List.of() : cached.value();
+    }
+
+    /**
      * 뒤에서 한 번 적재한다(#317). {@link #cachedPatterns} 가 비어 응답이 노선도를 비워 보낸 뒤 다음 요청을 채우려고 쓴다.
      * 같은 키가 이미 적재 중이면 아무것도 안 한다. 실패는 로그만.
      */

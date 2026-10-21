@@ -1,7 +1,9 @@
 # OTP 2.9.0 GTFS GraphQL — 수도권 planConnection (national-otp P2-B).
 # stable 필드만 사용(deprecated startTime/endTime/intermediatePlaces 회피, schema.graphqls 검증).
 # 변수: origin/destination(PlanLabeledLocationInput), when(OffsetDateTime, offset 포함 확정 departureAt), first(Int),
-#       searchWindow(Duration, null=OTP 동적 창), modes(PlanModesInput, null=전 수단 기본 비용).
+#       searchWindow(Duration, null=OTP 동적 창), modes(PlanModesInput, null=전 수단 기본 비용),
+#       preferences(PlanPreferencesInput, null=기본. 급행 끄기는 transit.filters[].exclude.routes, subway-express S2).
+# trip.pattern.code = 같은 정차 순서 trip 묶음(급행 판정 근거 보존용, 판정은 RailServiceClassifier).
 # generalizedCost = 앱 후보 정렬 키(ItineraryRanker). OTP 기본 순서는 도착시각 타임라인이다.
 query PlanConnection(
   $origin: PlanLabeledLocationInput!
@@ -10,6 +12,7 @@ query PlanConnection(
   $first: Int!
   $searchWindow: Duration
   $modes: PlanModesInput
+  $preferences: PlanPreferencesInput
 ) {
   planConnection(
     origin: $origin
@@ -18,6 +21,7 @@ query PlanConnection(
     first: $first
     searchWindow: $searchWindow
     modes: $modes
+    preferences: $preferences
   ) {
     edges {
       node {
@@ -44,7 +48,7 @@ query PlanConnection(
             textColor
             agency { gtfsId name }
           }
-          trip { gtfsId }
+          trip { gtfsId pattern { code } }
           stopCalls {
             stopLocation {
               __typename

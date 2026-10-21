@@ -143,6 +143,10 @@ public class OtpPlanConnectionMapper {
         String routeColor = text(route.path("color"));
         String sourceRouteColor = routeColor == null || routeColor.isBlank() ? null : routeColor;
         String tripId = text(legNode.path("trip").path("gtfsId"));
+        // 급행 판정 근거(subway-express S2). 매퍼는 판정하지 않고 원천 값만 보존한다 — 판정은 어댑터 경계의
+        // RailServiceClassifier 한 곳(본·추가·재탐색 검색 모두 같은 규칙).
+        String sourceRouteLongName = text(route.path("longName"));
+        String patternCode = text(legNode.path("trip").path("pattern").path("code"));
 
         Instant boardAt = instant(legNode.path("start").path("scheduledTime"));
         Instant alightAt = instant(legNode.path("end").path("scheduledTime"));
@@ -152,7 +156,7 @@ public class OtpPlanConnectionMapper {
         List<StopOccurrence> stops = transit ? toStops(legNode) : List.of();
         // 6호선은 노선 이름에 라벨이 없어 승·하차역 순서로 정한다(#395).
         String sourceRouteDirection = SubwayDirectionNormalizer.labelFor(sourceRouteId,
-                text(route.path("longName")),
+                sourceRouteLongName,
                 stops.isEmpty() ? null : stops.get(0).sourceStopId(),
                 stops.isEmpty() ? null : stops.get(stops.size() - 1).sourceStopId());
         List<RoutingWalkStep> walkSteps = mode == RoutingMode.WALK ? toWalkSteps(legNode) : List.of();
@@ -178,7 +182,8 @@ public class OtpPlanConnectionMapper {
         return new RoutingLeg(mode, transit ? otpMode : null, feedId, agencyId,
                 sourceRouteId, sourceRouteName, sourceRouteDirection, tripId, serviceDate,
                 boardAt, alightAt, rideDurationSeconds, stops, walkSteps,
-                geometry, enrichment, missing, sourceRouteColor, distance(legNode));
+                geometry, enrichment, missing, sourceRouteColor, distance(legNode),
+                sourceRouteLongName, patternCode, null);
     }
 
     /** leg 거리(m). 없거나 숫자가 아니면 null — 0 으로 지어내지 않는다. */

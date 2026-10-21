@@ -18,6 +18,7 @@ import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.Transit
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitPatternDetail;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitStopTime;
 import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitTripRef;
+import watoo.grd.nextroute.application.route.routing.RailServiceClassifier;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingLeg;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
@@ -65,6 +66,7 @@ public class TrackJourneyStartService {
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
     private final Clock clock;
+    private final RailServiceClassifier railServiceClassifier;
 
     public TrackJourneyStartService(JourneyTrackProperties properties, TrackPatternSource source,
                                     LegacyRouteResponseMapper legacyMapper, JourneyCompiler compiler,
@@ -72,7 +74,8 @@ public class TrackJourneyStartService {
                                     JourneyGuidanceInfoEnricher guidanceInfoEnricher,
                                     JourneyStartTxService startTxService,
                                     JourneyStartConflictTranslator conflictTranslator,
-                                    ObjectMapper objectMapper, MeterRegistry meterRegistry, Clock clock) {
+                                    ObjectMapper objectMapper, MeterRegistry meterRegistry, Clock clock,
+                                    RailServiceClassifier railServiceClassifier) {
         this.properties = properties;
         this.source = source;
         this.legacyMapper = legacyMapper;
@@ -84,6 +87,7 @@ public class TrackJourneyStartService {
         this.objectMapper = objectMapper;
         this.meterRegistry = meterRegistry;
         this.clock = clock;
+        this.railServiceClassifier = railServiceClassifier;
     }
 
     public JourneySnapshot start(Long userId, StartTrackCommand command) {
@@ -97,6 +101,8 @@ public class TrackJourneyStartService {
             record(null, e.getErrorCode().getCode());
             throw e;
         }
+        // 단독 추적은 OTP 검색 어댑터를 안 거친다 — 열차 종류를 검색과 같은 분류기로 직접 붙인다(subway-express S2).
+        leg = leg.withTrainKind(railServiceClassifier.classify(leg));
 
         PathResult path = toPath(legacyMapper.toSubPath(leg), leg);
         JourneyPlan plan = compiler.compile(path);

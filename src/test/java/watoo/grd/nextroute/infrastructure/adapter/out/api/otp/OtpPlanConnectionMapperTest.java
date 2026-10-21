@@ -48,6 +48,35 @@ class OtpPlanConnectionMapperTest {
     }
 
     @Test
+    @DisplayName("노선 긴 이름·trip 패턴 코드를 보존하고 열차 종류는 판정하지 않는다(subway-express S2 — 판정은 어댑터 경계)")
+    void keepsLongNameAndPatternCodeWithoutClassifying() throws IOException {
+        com.fasterxml.jackson.databind.node.ObjectNode root =
+                (com.fasterxml.jackson.databind.node.ObjectNode) load("otp/planconnection-subway.json");
+        com.fasterxml.jackson.databind.node.ObjectNode trip = (com.fasterxml.jackson.databind.node.ObjectNode)
+                root.path("data").path("planConnection").path("edges").get(0).path("node").path("legs").get(0)
+                        .path("trip");
+        trip.putObject("pattern").put("code", "1:RR_ACC1_S-1-01-1U::03");
+
+        RoutingLeg subway = ((RoutingResult) mapper.map(root, departureAt, versions)).itineraries().get(0).legs().get(0);
+
+        assertThat(subway.sourceRouteLongName()).isEqualTo("서울1호선(의정부-서동탄)<상행>");
+        assertThat(subway.patternCode()).isEqualTo("1:RR_ACC1_S-1-01-1U::03");
+        assertThat(subway.trainKind()).isNull();
+        // 같은 구간을 enrichment 만 바꿔 복사해도 새 칸이 살아 있다
+        assertThat(subway.withEnrichment(subway.enrichment()).patternCode()).isEqualTo("1:RR_ACC1_S-1-01-1U::03");
+    }
+
+    @Test
+    @DisplayName("trip 에 pattern 이 없는 옛 응답이면 패턴 코드는 null")
+    void patternCodeMissing() throws IOException {
+        RoutingLeg subway = ((RoutingResult) mapper.map(load("otp/planconnection-subway.json"), departureAt, versions))
+                .itineraries().get(0).legs().get(0);
+
+        assertThat(subway.patternCode()).isNull();
+        assertThat(subway.sourceRouteLongName()).isEqualTo("서울1호선(의정부-서동탄)<상행>");
+    }
+
+    @Test
     @DisplayName("6호선은 노선 이름에 라벨이 없다 — 승·하차역 순서로 방향을 정한다(#395)")
     void line6DirectionFromStopOrder() throws IOException {
         com.fasterxml.jackson.databind.node.ObjectNode root =

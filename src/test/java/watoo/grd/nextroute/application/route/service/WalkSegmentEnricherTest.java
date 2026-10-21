@@ -58,7 +58,7 @@ class WalkSegmentEnricherTest {
                 null, null, null,
                 null, null, null,
                 null,
-                null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null
         );
     }
 
@@ -77,7 +77,7 @@ class WalkSegmentEnricherTest {
                 startExitNo, startExitX, startExitY,
                 endExitNo, endExitX, endExitY,
                 null,
-                null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null
         );
     }
 
@@ -129,6 +129,26 @@ class WalkSegmentEnricherTest {
         assertThat(enriched.startName()).isEqualTo("출발지");
         assertThat(enriched.endName()).isEqualTo("도착지");
         verify(cache).put(any(), eq(sampleSegment()), eq(Duration.ofDays(7)));
+    }
+
+    @Test
+    void TC_도보_보강_복사본도_trainKind_를_보존하고_지하철_구간은_그대로() {
+        // 걷기 구간에 넣은 값은 복사 경로 확인용 표지다(subway-express S2 — 새 칸을 흘리지 않는다).
+        SubPathResult firstWalk = watoo.grd.nextroute.application.journey.service.SubPathFixture.withTrainKind(
+                walk(127.0, 37.5, 127.01, 37.49, "출발", "강남"), "MARK");
+        SubPathResult express = watoo.grd.nextroute.application.journey.service.SubPathFixture.withTrainKind(
+                subway("강남", 127.01, 37.49, "교대", 127.02, 37.48, null, null, null, null, null, null), "EXPRESS");
+        RouteSearchResult original = resultOf(List.of(firstWalk, express));
+
+        when(cache.get(any())).thenReturn(Optional.of(sampleSegment()));
+
+        RouteSearchResult result = enricher.enrich(original,
+                127.0, 37.5, "출발지",
+                127.02, 37.48, "도착지");
+
+        assertThat(result.paths().get(0).subPaths().get(0).polyline()).hasSize(2);
+        assertThat(result.paths().get(0).subPaths().get(0).trainKind()).isEqualTo("MARK");
+        assertThat(result.paths().get(0).subPaths().get(1).trainKind()).isEqualTo("EXPRESS");
     }
 
     @Test

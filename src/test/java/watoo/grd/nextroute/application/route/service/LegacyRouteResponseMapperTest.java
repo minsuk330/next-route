@@ -418,4 +418,31 @@ class LegacyRouteResponseMapperTest {
                     .satisfies(lane -> assertThat(lane.routeDisplayColor()).as(c[0]).isEqualTo(c[1]));
         }
     }
+
+    @Test
+    @DisplayName("철도 구간의 열차 종류를 trainKind 로 옮긴다 — 버스·도보·판정 전(null)은 null(subway-express S2)")
+    void trainKindOnRailOnly() {
+        assertThat(firstSubPath(subwayLeg("서울9호선", "하행")
+                .withTrainKind(watoo.grd.nextroute.application.subway.dto.TrainKind.EXPRESS)).trainKind())
+                .isEqualTo("EXPRESS");
+        assertThat(firstSubPath(subwayLeg("서울2호선", "내선")
+                .withTrainKind(watoo.grd.nextroute.application.subway.dto.TrainKind.NORMAL)).trainKind())
+                .isEqualTo("NORMAL");
+        assertThat(firstSubPath(subwayLeg("서울9호선", "하행")).trainKind()).isNull();
+        assertThat(firstSubPath(coloredLeg(RoutingMode.BUS, "1:BR_740", "740", "53B332")
+                .withTrainKind(watoo.grd.nextroute.application.subway.dto.TrainKind.EXPRESS)).trainKind()).isNull();
+        assertThat(firstSubPath(walkLeg(BUS_SHAPE)).trainKind()).isNull();
+    }
+
+    @Test
+    @DisplayName("trainKind 가 null 이면 JSON 에서 빠진다(구버전 앱·도보 구간 응답 모양 그대로)")
+    void trainKindOmittedWhenNull() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+        String bus = om.writeValueAsString(firstSubPath(coloredLeg(RoutingMode.BUS, "1:BR_740", "740", "53B332")));
+        String express = om.writeValueAsString(firstSubPath(subwayLeg("서울9호선", "하행")
+                .withTrainKind(watoo.grd.nextroute.application.subway.dto.TrainKind.EXPRESS)));
+
+        assertThat(bus).doesNotContain("trainKind");
+        assertThat(express).contains("\"trainKind\":\"EXPRESS\"");
+    }
 }
