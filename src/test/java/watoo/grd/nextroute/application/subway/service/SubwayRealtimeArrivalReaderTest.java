@@ -195,6 +195,47 @@ class SubwayRealtimeArrivalReaderTest {
                 .containsExactly("K2");
     }
 
+    @Test
+    @DisplayName("S3 열차 종류 근거: 같은 snapshot 의 그 열차 모든 역 행의 trainType 을 모은다 — 이 역 행이 '일반'이어도")
+    void collectsTrainTypesAcrossRows() {
+        when(cachePort.readSnapshot()).thenReturn(java.util.Optional.of(
+                watoo.grd.nextroute.application.subway.dto.SubwayRealtimeSnapshot.builder().trains(List.of(
+                        typed("1932", STATION, "1", "일반"),
+                        typed("1932", "1001000140", "99", "급행"),
+                        typed("1932", "1001000141", "2", null),
+                        typed("1101", STATION, "2", "일반"),
+                        typed("1101", "1001000130", "99", "급행"),
+                        typed("0660", STATION, "1", "일반"))).build()));
+
+        List<SubwayRealtimeArrivalReader.Arrival> upcoming = reader.arrivals(LINE, STATION, 1);
+        assertThat(upcoming).extracting(a -> a.train().getTrainNo()).containsExactly("1932", "0660");
+        assertThat(upcoming.get(0).trainTypes()).containsExactlyInAnyOrder("일반", "급행");
+        assertThat(upcoming.get(1).trainTypes()).containsExactly("일반");
+
+        List<SubwayRealtimeArrivalReader.Arrival> departed = reader.justDeparted(LINE, STATION, 1);
+        assertThat(departed).extracting(a -> a.train().getTrainNo()).containsExactly("1101");
+        assertThat(departed.get(0).arrivalSeconds()).isNull();
+        assertThat(departed.get(0).trainTypes()).containsExactlyInAnyOrder("일반", "급행");
+
+        assertThat(reader.trainRows(LINE, "1932")).hasSize(3);
+        assertThat(reader.trainRows(LINE, "9999")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("S3 역별 실시간 호출·시험의 Arrival 은 그 행 하나가 근거")
+    void singleRowArrivalCarriesItsOwnType() {
+        SubwayRealtimeArrivalReader.Arrival arrival = new SubwayRealtimeArrivalReader.Arrival(
+                typed("1", STATION, "1", "급행"), 30);
+
+        assertThat(arrival.trainTypes()).containsExactly("급행");
+        assertThat(new SubwayRealtimeArrivalReader.Arrival(null, 30).trainTypes()).isEmpty();
+    }
+
+    private static SubwayRealtimeTrain typed(String trainNo, String stationId, String code, String trainType) {
+        return SubwayRealtimeTrain.builder().trainNo(trainNo).lineId(LINE).stationId(stationId)
+                .direction("상행").arrivalCode(code).arrivalSeconds(60).trainType(trainType).build();
+    }
+
     private static SubwayRealtimeTrain departedAt(String trainNo, String receivedAt) {
         return SubwayRealtimeTrain.builder().trainNo(trainNo).lineId(LINE).stationId(STATION)
                 .direction("상행").arrivalCode("2").arrivalSeconds(0).receivedAt(receivedAt).build();

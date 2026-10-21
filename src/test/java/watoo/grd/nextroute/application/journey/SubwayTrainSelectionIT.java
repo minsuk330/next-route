@@ -21,7 +21,11 @@ import watoo.grd.nextroute.application.journey.service.SubPathFixture;
 import watoo.grd.nextroute.application.journey.service.SubwayTrainSelectionService;
 import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.port.out.RouteSearchSnapshotPort;
+import watoo.grd.nextroute.application.subway.config.SubwayExpressTrackingProperties;
+import watoo.grd.nextroute.application.subway.dto.TrainKind;
+import watoo.grd.nextroute.application.subway.service.SubwayExpressCatalog;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
+import watoo.grd.nextroute.application.subway.service.SubwayStopPatternResolver;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
@@ -73,6 +77,9 @@ class SubwayTrainSelectionIT {
     @Autowired watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository sessionRepository;
     @MockBean RouteSearchSnapshotPort snapshotPort;
     @MockBean SubwayRealtimeArrivalReader arrivalReader;
+    /** 일회용 DB 엔 역 마스터가 비어 카탈로그가 역 id 를 못 잇는다 — 급행 정차 해석만 갈아 끼운다(S3). */
+    @MockBean SubwayStopPatternResolver patternResolver;
+    @Autowired SubwayExpressTrackingProperties expressTracking;
 
     private final List<Long> users = new ArrayList<>();
     private Long userId;
@@ -170,7 +177,7 @@ class SubwayTrainSelectionIT {
     @Test
     @DisplayName("후보: 대기 중이면 곧 올 열차 뒤에 막 떠난 열차(kind 로 가른다)")
     void waitingCandidatesIncludeDeparted() {
-        given(arrivalReader.justDepartedTrainNos(LINE, STATION, 0)).willReturn(List.of("2388"));
+        given(arrivalReader.justDeparted(LINE, STATION, 0)).willReturn(List.of(departedRow("2388")));
 
         List<SubwayTrainCandidate> candidates = selectionService.candidates(userId, journeyId);
 
@@ -187,7 +194,7 @@ class SubwayTrainSelectionIT {
         selectionService.select(userId, journeyId, "2392", 1);
         long before = versionOf();
         ride(20);
-        given(arrivalReader.justDepartedTrainNos(LINE, STATION, 0)).willReturn(List.of("2386"));
+        given(arrivalReader.justDeparted(LINE, STATION, 0)).willReturn(List.of(departedRow("2386")));
 
         List<SubwayTrainCandidate> candidates = selectionService.candidates(userId, journeyId);
         assertThat(candidates).extracting(SubwayTrainCandidate::trainNo).containsExactly("2386");
@@ -324,6 +331,71 @@ class SubwayTrainSelectionIT {
     private String statusOf() {
         return jdbcTemplate.queryForObject("select status from subway_leg_binding where journey_leg_id = ?",
                 String.class, rideLegId);
+    }
+
+    @Test
+    @DisplayName("S3 플래그 기본값: subway.express.tracking.enabled=false")
+    void expressTrackingIsOffByDefault() {
+        assertThat(expressTracking.isEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("S3 후보: 열차 종류·표시 이름·정차 여부·추적 가능을 싣는다 — 급행은 플래그 꺼짐이면 고를 수 없다")
+    void candidatesCarryKindAndStops() {
+        given(arrivalReader.arrivalsByStation(eq(LINE), eq(STATION), anyString(), eq(0))).willReturn(List.of(
+                arrival("2390", "성수", 90), arrival("2392", "성수", 330, "급행")));
+        given(patternResolver.resolve(eq(LINE), eq("내선"), eq("2392"), any(), eq(STATION)))
+                .willReturn(Optional.of(pattern(STATION, "1002000240")));
+
+        List<SubwayTrainCandidate> candidates = selectionService.candidates(userId, journeyId);
+
+        assertThat(candidates.get(0).trainKind()).isEqualTo(TrainKind.NORMAL);
+        assertThat(candidates.get(0).trainLabel()).isEqualTo("일반");
+        assertThat(candidates.get(0).trackable()).isTrue();
+        assertThat(candidates.get(1).trainKind()).isEqualTo(TrainKind.EXPRESS);
+        assertThat(candidates.get(1).express()).isTrue();
+        assertThat(candidates.get(1).expressServiceId()).isEqualTo("it-express");
+        assertThat(candidates.get(1).stopsAtBoarding()).isTrue();
+        assertThat(candidates.get(1).trackable()).isFalse();
+    }
+
+    @Test
+    @DisplayName("S3 선택 422 두 종: 탑승역에 서지 않는 급행 → TRAIN_SKIPS_STATION, 정차역 모르는 급행 → TRAIN_NOT_TRACKABLE."
+            + " 둘 다 고정 행이 생기지 않는다")
+    void selectRejectsUntrackableExpress() {
+        given(arrivalReader.arrivalsByStation(eq(LINE), eq(STATION), anyString(), eq(0))).willReturn(List.of(
+                arrival("2392", "성수", 330, "급행"), arrival("2394", "성수", 600, "급행")));
+        given(patternResolver.resolve(eq(LINE), eq("내선"), eq("2392"), any(), eq(STATION)))
+                .willReturn(Optional.of(pattern("1002000221", "1002000240")));
+
+        assertThatThrownBy(() -> selectionService.select(userId, journeyId, "2392", 1))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.TRAIN_SKIPS_STATION);
+        assertThatThrownBy(() -> selectionService.select(userId, journeyId, "2394", 1))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(JourneyErrorCode.TRAIN_NOT_TRACKABLE);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from subway_leg_binding where journey_leg_id = ?",
+                Integer.class, rideLegId)).isZero();
+    }
+
+    private static SubwayStopPatternResolver.ResolvedPattern pattern(String... stopIds) {
+        return new SubwayStopPatternResolver.ResolvedPattern(new SubwayExpressCatalog.ExpressService("it-express",
+                LINE, "급행", "내선", "it", null, List.of(), false), "내선", List.of(stopIds), null);
+    }
+
+    private static SubwayRealtimeArrivalReader.Arrival departedRow(String trainNo) {
+        return new SubwayRealtimeArrivalReader.Arrival(SubwayRealtimeTrain.builder()
+                .trainNo(trainNo).lineId(LINE).stationId(STATION).direction("내선")
+                .destinationName("성수").trainType("일반").arrivalCode("2").build(), null);
+    }
+
+    private static SubwayRealtimeArrivalReader.Arrival arrival(String trainNo, String destination, int seconds,
+                                                               String trainType) {
+        return new SubwayRealtimeArrivalReader.Arrival(SubwayRealtimeTrain.builder()
+                .trainNo(trainNo).lineId(LINE).stationId(STATION).direction("내선")
+                .destinationName(destination).trainType(trainType).build(), seconds);
     }
 
     private static SubwayRealtimeArrivalReader.Arrival arrival(String trainNo, String destination, int seconds) {

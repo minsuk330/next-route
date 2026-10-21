@@ -34,11 +34,15 @@ public class SubwayStationController {
     @Operation(summary = "승차역부터 한 방향으로 남은 역 (하차역 선택)",
             description = "direction 은 도착 API 의 direction(상행·하행·내선·외선). destination(탄 열차 행선지)을 주면 "
                     + "분기 노선에서 그 갈래 끝까지 준다. 분기점에서 멈추면 endReason=BRANCH 와 branches 를 준다. "
+                    + "trainNo(탄 열차 번호)를 주면 train{kind,label,serviceId,stopsAtBoard} 와 역마다 stopsHere·"
+                    + "expressStopsAway(급행이 서는 역만 센 수)를 채운다. stopsAway 는 완행 기준 그대로다. "
                     + "없는 역 404, 방향 400, 운행 정보에 없는 역 422, 노선 정보 일시 불가 503")
     public ResponseEntity<SubwayStationsAheadResponse> getStationsAhead(
             @PathVariable String stationId,
             @RequestParam String direction,
-            @RequestParam(required = false) String destination) {
-        return ResponseEntity.ok(getSubwayStationsAheadUseCase.getStationsAhead(stationId, direction, destination));
+            @RequestParam(required = false) String destination,
+            @RequestParam(required = false) String trainNo) {
+        return ResponseEntity.ok(getSubwayStationsAheadUseCase.getStationsAhead(stationId, direction, destination,
+                trainNo));
     }
 }

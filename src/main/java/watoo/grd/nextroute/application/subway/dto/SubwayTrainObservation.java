@@ -9,6 +9,7 @@ import java.time.Instant;
  * 직전 관측을 따로 들고 있어야 한다.
  *
  * @param receivedAt 원천이 말한 {@code recptnDt}. <b>사건 발생 시각이 아니라 최종수신시간</b>이다
+ * @param directAtRaw 위치 API {@code directAt} 원문(subway-express PR-S3). 옛 기록이면 null
  */
 public record SubwayTrainObservation(
         String stationId,
@@ -16,8 +17,15 @@ public record SubwayTrainObservation(
         SubwayTrainStatus status,
         Instant receivedAt,
         String terminalId,
-        SubwayExpressType express
+        SubwayExpressType express,
+        String directAtRaw
 ) {
+
+    /** {@code directAt} 원문 없이(옛 호출부·시험). */
+    public SubwayTrainObservation(String stationId, String stationName, SubwayTrainStatus status, Instant receivedAt,
+                                  String terminalId, SubwayExpressType express) {
+        this(stationId, stationName, status, receivedAt, terminalId, express, null);
+    }
 
     public boolean isSameStation(SubwayTrainObservation other) {
         return other != null && stationId != null && stationId.equals(other.stationId());

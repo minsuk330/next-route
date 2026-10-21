@@ -22,6 +22,8 @@ package watoo.grd.nextroute.application.subway.dto;
  *                     이 값을 출발·도착 시각으로 단정하면 안 된다
  * @param lastReceivedDate {@code lastRecptnDt}. 최종수신날짜. {@code receivedAt} 이 시각만
  *                     담고 오는 경우를 위해 함께 보존한다
+ * @param directAtRaw  {@code directAt} 원문(subway-express PR-S3). {@link SubwayExpressType} 는 9(ITX-청춘)를
+ *                     {@code UNKNOWN} 으로 접는데 그 enum 은 롤백 안전 때문에 바꾸지 않는다 — 원문을 옆에 함께 싣는다
  */
 public record SubwayPositionInfo(
         String lineId,
@@ -34,8 +36,17 @@ public record SubwayPositionInfo(
         SubwayTrainStatus status,
         SubwayExpressType express,
         String receivedAt,
-        String lastReceivedDate
+        String lastReceivedDate,
+        String directAtRaw
 ) {
+
+    /** {@code directAt} 원문 없이(옛 호출부·시험). */
+    public SubwayPositionInfo(String lineId, String trainNo, String stationId, String stationName, String direction,
+                              String terminalId, String terminalName, SubwayTrainStatus status,
+                              SubwayExpressType express, String receivedAt, String lastReceivedDate) {
+        this(lineId, trainNo, stationId, stationName, direction, terminalId, terminalName, status, express,
+                receivedAt, lastReceivedDate, null);
+    }
 
     /** 위치로 쓸 수 있는 최소 조건. 하나라도 없으면 전이 판정의 근거가 되지 못한다. */
     public boolean isTrackable() {

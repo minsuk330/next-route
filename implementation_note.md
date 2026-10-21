@@ -5679,3 +5679,48 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 확정(코디네이터 결정): 1호선 1401–1416 용산↔구로 '구로 급행'은 급행 선로만 쓰고 모든 역(용산 노량진 대방 신길 영등포 신도림 구로)에 서므로 NORMAL. 급행 배지 없음, 급행 서비스 아님. 조사 아티팩트 판단과 같음
 - 확정: 카탈로그에 서비스가 아닌 최상위 `allStopTrains`(lineId + 번호 규칙)를 둔다. 경인 match 에서 14xx 를 뺐고(번호 권위도 같이 빠짐) 분류기는 ITX 다음·'급행' 앞에서 `isAllStopTrain` → NORMAL(실시간 trainType '급행'·directAt 1 무시). 서비스는 그대로 12개
 - 검증: `./gradlew test --tests '*SubwayExpressCatalogTest' --tests '*SubwayTrainKindClassifierTest' --tests '*SubwayTrainIdentityTest' --tests '*SubwayStopPatternResolverTest' --tests '*SubwayLineOrderTest'` → 58/0, 42/0, 61/0, 15/0, 11/0. `./gradlew test --tests '*Test' --continue` → 394 클래스 2,910 테스트, 실패 0·오류 0·건너뜀 1. IT 는 빈 구성 변화 없어 재실행 안 함(직전 94/672/실패 0)
+
+## subway-express PR-S3 실시간 표시 — 열차 종류·정차·추적 가능 (2026-10-21, feat/subway-express-realtime)
+### 확정
+- 종류는 **열차 단위**: `SubwayTrainKindClassifier.classifyTrain(lineId, 원문 trainNo, sightings)` — 근거마다 S1 단계로 판정 후 DIRECT > ITX > EXPRESS > NORMAL > UNKNOWN 중 가장 앞선 것. 근거 0개면 번호만. 근거 = 같은 snapshot 의 그 (노선, 원문 번호) 모든 역 행 trainType(`SubwayRealtimeArrivalReader.Arrival.trainTypes`) + 위치 기록(enum+원문 directAt) + 출발 기록 1건. 방향은 키에 넣지 않음(지시대로 (lineId, raw trainNo))
+- 운영 스냅숏 재실측(2026-10-21 20:21, 3,067행·606편): 행마다 '일반'/'급행' 섞인 열차 13편 = 1호선 11xx·19xx 12편 + 4호선 4403. 전부 번호 권위 노선이라 S1 행 단위로도 이미 급행 — 열차 단위 규칙은 번호 권위 없는 노선(9·수인분당·경의중앙·경춘)의 같은 현상 대비. 반대(일반 열차의 '급행' 행)는 0건. fixture `src/test/resources/subway/express/realtime-mixed-train-types.json`
+- 실측: trainType 은 모든 행에 있음(null 0). 급행 열차는 **지나치는 역에도 행이 있다**(4403 남태령·선바위 99, 수인분당 6313 오리·보정, ITX 2032 금곡 4) → 도착판·열차 고르기에 통과 열차가 실제로 나온다 → `stopsHere=false`/`TRAIN_SKIPS_STATION` 가 실제로 쓰인다
+- `SubwayTrainKindJudge`(신규, 열차 고르기·도착판·하차역 고르기 공용): NORMAL → 추적 가능·탑승 정차 true·하차 null(일반 열차 종착 범위는 S3 범위 밖, 예전 동작) / EXPRESS → S1 resolver(현재 역 = 탑승역) → 탑승·하차 정차(종착 이후 false) → false 하나라도 있으면 SKIPS_STATION(플래그보다 먼저), 해석 실패·하차역 모름·플래그 꺼짐 → NOT_TRACKABLE / ITX·DIRECT → NOT_TRACKABLE / UNKNOWN → 일반만 다니는 노선(카탈로그 서비스 없음, 1067 제외)이면 추적 가능, 아니면 NOT_TRACKABLE
+- UNKNOWN 처리는 PLAN 식(`trackable = NORMAL or ...`)보다 넓다: 2호선 등에서 원천이 trainType 을 비우면 예전처럼 고를 수 있게 함(급행이 될 수 없는 노선). PLAN 의 select 422 목록에도 UNKNOWN 이 없어서 후보 trackable 과 select 를 같은 규칙으로 맞춤
+- 플래그 `subway.express.tracking.enabled`(env `SUBWAY_EXPRESS_TRACKING_ENABLED`, 기본 false). 꺼짐 = 급행은 후보 trackable=false, 고르면 422 TRAIN_NOT_TRACKABLE. 사용자 영향: 지금까지 급행을 고르면 일반처럼(지나치는 역을 정차로) 추적됐는데, 배포 후엔 급행 선택이 막힌다(구버전 앱은 일반 오류로 보임). PLAN §2 배포 순서·리스크 3 과 일치
+- 하차역 = 계획 역 체인 마지막 canonicalKey(`JourneySubwayStationChainReader` + `SubwayRingStationResolver`, 링과 같은 체인). 급행으로 해석된 후보가 있을 때만 한 번 읽음(memoize)
+- 후보 `express` 는 이제 `trainKind == EXPRESS`(특급 포함, 직통·14xx 제외). `kind`(UPCOMING/DEPARTED) 는 그대로
+- 떠난 열차 후보: 막 떠난 열차는 snapshot 행의 destination·trainType, 출발 기록은 ARRIVAL 원천 destinationName·trainType, POSITION 원천은 destination null(종착 id 만)·trainType 은 directAt 를 옮긴 값(9 → "ITX"). `Departure.trainTypeLabel()` 로 도착판과 공용
+- `directAtRaw`: `SubwayPositionInfo`·`SubwayTrainObservation`·`SubwayTrainEvent`·`Departure` 끝에 추가(옛 arity 생성자 유지). Redis 직전 위치는 7번째 칸(옛 reader 는 `length<6` 만 봐서 그대로 읽음), 출발·도착 줄은 JSON 칸 `directAtRaw`(Spring 기본 ObjectMapper 가 모르는 칸 무시). `SubwayExpressType` 값 공간 무변경
+- 하차역 고르기: 열차 정차는 `SubwayStationsAheadQueryService`(신규 `GetSubwayStationsAheadUseCase` 구현)가 기존 계산 결과 위에 붙임. 열차 근거 = snapshot `trainRows` + 위치 `lastSeen`(운행일=지금) + 요청 destination. 실패하면 열차 없이 목록만
+- 구간 시간 표본(`SubwaySegmentTimeRecorder`): 회차의 그 열차 모든 행으로 열차 단위 판정 → `actsAsNormal`(NORMAL 또는 일반만 다니는 노선의 UNKNOWN)만 남김. 14xx 구로 급행(모든 역 정차, NORMAL)은 남김
+### 함정
+- `SubwayStationsAheadService` 에 심판을 넣으면 빈 순환: judge → resolver → `SubwayLineOrder` → `SubwayStationsAheadService` ← 그래서 use case 구현을 새 `SubwayStationsAheadQueryService` 로 옮기고 기존 빈은 `GetSubwayLineStripUseCase` 만 구현
+- 컨트롤러가 4인자 `getStationsAhead` 를 부르므로 3인자(default 메서드)로 stub 한 MockBean 시험은 null 을 받는다 ← 시험을 4인자 stub 으로 바꿈
+- IT DB 는 역 마스터가 비어 카탈로그 서비스가 전부 꺼진다(S1 `resolveAll` 이 이름→id 실패 서비스를 끔) → 번호 권위(4호선 44xx)도 꺼져 NORMAL 로 분류된다. 운영은 역 마스터가 있어 해당 없음. 단 `SubwayLineStationIndex.all`·카탈로그 `state` 가 첫 호출 결과를 영구 캐시하므로 역 마스터가 빈 채로 첫 요청이 오면 재시작 전까지 급행 해석이 꺼진다(S1 설계, S3 는 그 위에서 '추적 불가'로 안전하게 실패. 다만 4호선 급행은 NORMAL 로 오판 가능 — 미결로 남김)
+- IT 에서 급행 정차 해석이 필요한 경우 `SubwayStopPatternResolver` 만 MockBean(역 마스터 없이)
+### 좌표
+- `SubwayTrainKindClassifier.classifyTrain`·`onlyNormalTrains`·`actsAsNormal`, `SubwayTrainKindJudge.judge`, `SubwayRealtimeArrivalReader.trainTypesByTrain`·`justDeparted`·`trainRows`, `SubwayTrainSelectionService.rejectUntrackable`·`stops`·`alightStationId`, `SubwayStationArrivalQueryService.kindOf`, `SubwayStationsAheadQueryService.withTrain`, `RedisSubwayTrainLogAdapter.serialize/parseObservation`·`DepartureRow`·`ArrivalRow`, `SubwayDepartureLookup.Departure.trainTypeLabel`
+### 미결
+- ~~4호선 급행이 번호 권위에만 기대는데, 카탈로그가 꺼지면(역 마스터 적재 전 첫 요청) NORMAL 로 추적된다. S4 전에 카탈로그 상태 지표 또는 지연 재시도 검토~~ 취소: 같은 PR 보완 커밋에서 해결(아래 "PR-S3 보완")
+- `subway.express.unresolved` 지표는 PLAN 대로 S4(지금은 info 로그 `추적 불가 열차` + `subway.selection{result=not-trackable|skips-station}`)
+### 배포
+- 마이그레이션 없음. 플래그 `SUBWAY_EXPRESS_TRACKING_ENABLED` 기본 false — compose 에 넣지 않으면 꺼진 채로 나간다(의도). S4 녹화 검증 뒤 켠다
+- 배포 직후부터 급행·ITX·직통 선택이 422(TRAIN_NOT_TRACKABLE / TRAIN_SKIPS_STATION). 구버전 앱은 일반 오류로 본다
+### 검증
+- `./gradlew compileJava compileTestJava` 통과(경고는 기존)
+- 대상 시험(분류기·심판·선택·도착판·하차역 고르기·리더·기록기·위치 어댑터·추적기·Redis 호환·컨트롤러 둘) 전부 통과: Judge 10/0, AheadQuery 7/0, Compat 4/0, Classifier 48/0, Selection 29/0, StationArrival 27/0, Reader 14/0, Recorder 5/0, Position 6/0, Tracker 22/0, SelectionController 8/0, StationController 7/0
+- `./gradlew test --tests '*Test' --continue` → 397 클래스 2,958 시험, 실패 0·오류 0·건너뜀 1 (S1 직후 394/2,910)
+- `./gradlew test --tests '*IT' --continue`(로컬 env db·auth·api, POSTGRES_HOST/REDIS_HOST=localhost, Docker) → 95 클래스 676 시험, 실패 0·오류 0·건너뜀 7, 3m39s. `SubwayTrainSelectionIT` 12/0(플래그 기본 false, 후보 종류·정차 칸, 422 두 종·고정 행 0)
+
+#### subway-express PR-S3 보완: 역 마스터 적재 전 카탈로그 영구 꺼짐 해결 (2026-10-21)
+- 확정: 카탈로그 `resolveAll` 은 노선 역 목록이 **비면 보류**(`State.pendingLines`, 끄지 않음·경고 한 번), 역 목록이 있는데 이름이 없으면 예전처럼 영구히 끈다. 보류가 있으면 `RETRY_INTERVAL`(30초)마다 한 호출만 잠금 안에서 다시 잇고 나머지는 지금 상태로 바로 답한다. 완성 뒤에는 volatile 읽기 하나(다시 잇지 않음). `retryAtNanos` 를 `state` 보다 먼저 써서 새 상태를 본 스레드가 새 재시도 시각도 본다
+- 확정: 번호 규칙(`isTrainNoAuthoritativeExpress`·`isAllStopTrain`)과 새 `hasServices`(분류기 `onlyNormalTrains`)는 역 id 가 필요 없어 **파일 정의**를 본다 — 적재 전에도, 이름 오류로 꺼진 서비스여도 4호선 44xx 는 EXPRESS(해석 실패 → 추적 불가로 안전). 예전엔 resolved 서비스만 봐서 꺼진 서비스의 열차가 NORMAL 로 추적될 수 있었다
+- 확정: `SubwayLineStationIndex` 는 빈 역 마스터를 캐시하지 않는다(카탈로그 재시도의 전제 — 안 고치면 인덱스가 빈 목록을 영구히 돌려준다). 빈 동안은 호출마다 `findAll` 이지만 빈 표라 싸다. `stationId()` 의 노선별 표도 빈 표는 남기지 않는다
+- 함정: 노선 하나가 역 마스터에 끝내 없으면(카탈로그 lineId 오타 등) 30초마다 재시도가 영원히 돈다(경고는 첫 번만, 이후 debug). 비용은 노선별 빈 조회뿐
+- 검증: `SubwayExpressCatalogReadinessTest` 5/0(① 빈 마스터 첫 호출 → 보류·4401 은 이미 EXPRESS → 적재 뒤 12서비스·4401 → 1004-ansan 해석 ② 이름 없는 서비스만 영구히 끔 ③ 완성 뒤 역 목록 재조회 0 ④ 재시도 간격 안 재조회 0 ⑤ 16스레드 동시 첫 호출 → 노선별 1회), `SubwayLineStationIndexTest` 3/0, 카탈로그·분류기·심판·해석기·선택·도착판·하차역·기록기 시험 통과. `./gradlew test --tests '*Test' --continue` → 2,964 시험, 실패 0·오류 0·건너뜀 1. IT 는 빈 구성 변화 없음(생성자 시그니처 동일)이라 재실행 안 함(직전 95/676/실패 0)
+
+#### subway-express PR-S3 보완: origin/main(#490·#492) 병합 (2026-10-21)
+- 충돌: `SubwayTrainCandidate`·`SubwayTrainSelectionService`·그 단위 시험·컨트롤러 시험. 해소: #492 의 `stationsAway`·`arrivalCode` 를 `kind` 바로 뒤(main 순서 그대로)에 두고 S3 칸 6개를 그 뒤에 붙임. `toCandidate` 는 거리(#489)와 열차 단위 판정을 둘 다, 떠난 열차는 거리 칸 null. 구버전 응답 fixture 에 거리만 아는 열차 한 건 추가
+- #490(`REVERSED_LABEL_ROUTES`·`realtimeLabelFrom`)은 검색·단독 추적 wayCode 를 도착 API 표기로 맞춘다 — 9호선 상행 = 중앙보훈병원 방면. 카탈로그 `listedDirection`·`SubwayTrainIdentity.direction`(라벨 통과)과 같은 약속이라 S3 코드 수정 없음. 선택 서비스가 `fromWayCode` 로 얻는 방향이 9호선에서 이제 맞게 나온다. `fromUpDownLine` 은 #490 이 건드리지 않음
+- 검증: 대상 시험(선택 31/0, 컨트롤러 8/0, 방향 정규화 19/0, 심판·하차역·카탈로그·준비·identity·도착판) 통과. `./gradlew test --tests '*Test' --continue` → 2,969 시험, 실패 0·오류 0·건너뜀 1. `./gradlew test --tests '*IT' --continue`(로컬 env) → 95 클래스 676 시험, 실패 0·오류 0·건너뜀 7, 4m12s

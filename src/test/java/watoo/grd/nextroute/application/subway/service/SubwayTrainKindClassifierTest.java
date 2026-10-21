@@ -7,6 +7,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import watoo.grd.nextroute.application.subway.dto.SubwayExpressType;
 import watoo.grd.nextroute.application.subway.dto.TrainKind;
+import watoo.grd.nextroute.application.subway.service.SubwayTrainKindClassifier.Sighting;
 
 import java.util.List;
 
@@ -112,6 +113,89 @@ class SubwayTrainKindClassifierTest {
         assertThat(TrainKind.DIRECT.label()).isEqualTo("직통");
         assertThat(TrainKind.ITX.label()).isEqualTo("ITX-청춘");
         assertThat(TrainKind.UNKNOWN.label()).isNull();
+    }
+
+    @Test
+    @DisplayName("열차 단위: 한 행이라도 '급행'이면 급행 — 행마다 판정하면 같은 열차가 일반으로 갈린다")
+    void perTrainAnyExpressRowWins() {
+        List<Sighting> rows = List.of(Sighting.ofTrainType("일반"), Sighting.ofTrainType("급행"),
+                Sighting.ofTrainType("일반"));
+
+        assertThat(classifier.classify("1009", "9687", "일반", null)).isEqualTo(TrainKind.NORMAL);
+        assertThat(classifier.classifyTrain("1009", "9687", rows)).isEqualTo(TrainKind.EXPRESS);
+        assertThat(classifier.classifyTrain("1009", "9687", List.of(Sighting.ofTrainType("특급"),
+                Sighting.ofTrainType("일반")))).isEqualTo(TrainKind.EXPRESS);
+    }
+
+    @Test
+    @DisplayName("열차 단위 우선순위: DIRECT > ITX > EXPRESS > NORMAL > UNKNOWN")
+    void perTrainPrecedence() {
+        assertThat(classifier.classifyTrain("1067", "2032", List.of(Sighting.ofTrainType("급행"),
+                Sighting.ofTrainType("ITX")))).isEqualTo(TrainKind.ITX);
+        assertThat(classifier.classifyTrain("1065", "A1043", List.of(Sighting.ofTrainType("급행"),
+                Sighting.ofTrainType("일반")))).isEqualTo(TrainKind.DIRECT);
+        assertThat(classifier.classifyTrain("1002", "2001", List.of(Sighting.ofTrainType(null),
+                Sighting.ofTrainType("일반")))).isEqualTo(TrainKind.NORMAL);
+        assertThat(classifier.classifyTrain("1002", "2001", List.of(Sighting.ofTrainType(null))))
+                .isEqualTo(TrainKind.UNKNOWN);
+    }
+
+    @Test
+    @DisplayName("열차 단위: 4호선 급행(4401–4408)은 일반·directAt 0 으로만 와도 번호로 급행, 구로 급행 14xx 는 '급행' 행이 있어도 일반")
+    void perTrainNumberRules() {
+        assertThat(classifier.classifyTrain("1004", "4405", List.of(Sighting.ofTrainType("일반"),
+                Sighting.ofDirectAt(SubwayExpressType.NORMAL, "0")))).isEqualTo(TrainKind.EXPRESS);
+        assertThat(classifier.classifyTrain("1001", "1406", List.of(Sighting.ofTrainType("급행"),
+                Sighting.ofTrainType("일반"), Sighting.ofDirectAt(SubwayExpressType.EXPRESS, "1"))))
+                .isEqualTo(TrainKind.NORMAL);
+    }
+
+    @Test
+    @DisplayName("열차 단위: 근거가 없으면 번호만 — 번호 권위 급행은 EXPRESS, 직통은 DIRECT, 그 밖은 UNKNOWN")
+    void perTrainWithoutSightings() {
+        assertThat(classifier.classifyTrain("1004", "4402", List.of())).isEqualTo(TrainKind.EXPRESS);
+        assertThat(classifier.classifyTrain("1065", "A1031", null)).isEqualTo(TrainKind.DIRECT);
+        assertThat(classifier.classifyTrain("1009", "9625", List.of())).isEqualTo(TrainKind.UNKNOWN);
+    }
+
+    @Test
+    @DisplayName("열차 단위: 위치 기록의 원시 directAt 9 는 ITX — enum 은 9 를 UNKNOWN 으로 접는다. 원시가 없으면 enum 을 본다")
+    void perTrainRawDirectAt() {
+        assertThat(classifier.classifyTrain("1067", "2032",
+                List.of(Sighting.ofDirectAt(SubwayExpressType.UNKNOWN, "9")))).isEqualTo(TrainKind.ITX);
+        assertThat(classifier.classifyTrain("1067", "2032",
+                List.of(Sighting.ofDirectAt(SubwayExpressType.UNKNOWN, null)))).isEqualTo(TrainKind.UNKNOWN);
+        assertThat(classifier.classifyTrain("1009", "9687",
+                List.of(Sighting.ofDirectAt(SubwayExpressType.EXPRESS, null)))).isEqualTo(TrainKind.EXPRESS);
+    }
+
+    @Test
+    @DisplayName("운영 스냅숏(2026-10-21 20:21): 행마다 '일반'/'급행'이 섞인 13편은 열차 단위로 전부 급행, 대조군은 제 종류")
+    void perTrainProductionSnapshot() throws Exception {
+        com.fasterxml.jackson.databind.JsonNode doc = new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                getClass().getResourceAsStream("/subway/express/realtime-mixed-train-types.json"));
+        java.util.Map<String, List<Sighting>> byTrain = new java.util.LinkedHashMap<>();
+        for (com.fasterxml.jackson.databind.JsonNode row : doc.get("rows")) {
+            String key = row.get("lineId").asText() + "|" + row.get("trainNo").asText();
+            String type = row.get("trainType").asText();
+            byTrain.computeIfAbsent(key, k -> new java.util.ArrayList<>()).add(Sighting.ofTrainType(type));
+        }
+        List<String> mixed = new java.util.ArrayList<>();
+        doc.get("mixedTrains").forEach(n -> mixed.add(n.asText()));
+
+        assertThat(mixed).hasSize(13);
+        for (String key : mixed) {
+            String[] k = key.split("\\|");
+            assertThat(classifier.classifyTrain(k[0], k[1], byTrain.get(key))).as(key).isEqualTo(TrainKind.EXPRESS);
+        }
+        // 오늘 섞인 13편은 모두 번호 권위 노선(1·4호선)이라 행 단위도 번호로 막힌다. 열차 단위 규칙은 번호 권위가 없는
+        // 노선(9호선·수인분당·경의중앙·경춘)에 같은 현상이 생겨도 막는다(perTrainAnyExpressRowWins)
+        assertThat(classifier.classifyTrain("1004", "4405", byTrain.get("1004|4405"))).isEqualTo(TrainKind.EXPRESS);
+        assertThat(classifier.classifyTrain("1067", "2032", byTrain.get("1067|2032"))).isEqualTo(TrainKind.ITX);
+        assertThat(classifier.classifyTrain("1065", "A1043", byTrain.get("1065|A1043"))).isEqualTo(TrainKind.DIRECT);
+        assertThat(classifier.classifyTrain("1009", "9687", byTrain.get("1009|9687"))).isEqualTo(TrainKind.EXPRESS);
+        byTrain.keySet().stream().filter(k -> k.startsWith("1002|")).forEach(key -> assertThat(
+                classifier.classifyTrain("1002", key.substring(5), byTrain.get(key))).isEqualTo(TrainKind.NORMAL));
     }
 
     static List<RealtimeTrainSamples.Sample> samples() {
