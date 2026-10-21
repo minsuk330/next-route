@@ -5719,3 +5719,8 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 확정: `SubwayLineStationIndex` 는 빈 역 마스터를 캐시하지 않는다(카탈로그 재시도의 전제 — 안 고치면 인덱스가 빈 목록을 영구히 돌려준다). 빈 동안은 호출마다 `findAll` 이지만 빈 표라 싸다. `stationId()` 의 노선별 표도 빈 표는 남기지 않는다
 - 함정: 노선 하나가 역 마스터에 끝내 없으면(카탈로그 lineId 오타 등) 30초마다 재시도가 영원히 돈다(경고는 첫 번만, 이후 debug). 비용은 노선별 빈 조회뿐
 - 검증: `SubwayExpressCatalogReadinessTest` 5/0(① 빈 마스터 첫 호출 → 보류·4401 은 이미 EXPRESS → 적재 뒤 12서비스·4401 → 1004-ansan 해석 ② 이름 없는 서비스만 영구히 끔 ③ 완성 뒤 역 목록 재조회 0 ④ 재시도 간격 안 재조회 0 ⑤ 16스레드 동시 첫 호출 → 노선별 1회), `SubwayLineStationIndexTest` 3/0, 카탈로그·분류기·심판·해석기·선택·도착판·하차역·기록기 시험 통과. `./gradlew test --tests '*Test' --continue` → 2,964 시험, 실패 0·오류 0·건너뜀 1. IT 는 빈 구성 변화 없음(생성자 시그니처 동일)이라 재실행 안 함(직전 95/676/실패 0)
+
+#### subway-express PR-S3 보완: origin/main(#490·#492) 병합 (2026-10-21)
+- 충돌: `SubwayTrainCandidate`·`SubwayTrainSelectionService`·그 단위 시험·컨트롤러 시험. 해소: #492 의 `stationsAway`·`arrivalCode` 를 `kind` 바로 뒤(main 순서 그대로)에 두고 S3 칸 6개를 그 뒤에 붙임. `toCandidate` 는 거리(#489)와 열차 단위 판정을 둘 다, 떠난 열차는 거리 칸 null. 구버전 응답 fixture 에 거리만 아는 열차 한 건 추가
+- #490(`REVERSED_LABEL_ROUTES`·`realtimeLabelFrom`)은 검색·단독 추적 wayCode 를 도착 API 표기로 맞춘다 — 9호선 상행 = 중앙보훈병원 방면. 카탈로그 `listedDirection`·`SubwayTrainIdentity.direction`(라벨 통과)과 같은 약속이라 S3 코드 수정 없음. 선택 서비스가 `fromWayCode` 로 얻는 방향이 9호선에서 이제 맞게 나온다. `fromUpDownLine` 은 #490 이 건드리지 않음
+- 검증: 대상 시험(선택 31/0, 컨트롤러 8/0, 방향 정규화 19/0, 심판·하차역·카탈로그·준비·identity·도착판) 통과. `./gradlew test --tests '*Test' --continue` → 2,969 시험, 실패 0·오류 0·건너뜀 1. `./gradlew test --tests '*IT' --continue`(로컬 env) → 95 클래스 676 시험, 실패 0·오류 0·건너뜀 7, 4m12s
