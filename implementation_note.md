@@ -5698,3 +5698,10 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 일반 대안 되찾기 짝 판정(`hasNormalPair`): 도보 뺀 구간 수·수단·노선 이름이 같고, 급행 구간 자리마다 상대가 급행이 아니면 짝. 노출 상한 안 경로 중 **노선형 급행 route** 구간이 든 것만 검사(정차 패턴형은 OTP 가 못 거르니 묻지 않음)
 ### 함정
 - 시험 공용 fixture 의 Mockito 스텁이 엄격 스텁(MockitoExtension) 시험에서 UnnecessaryStubbing 으로 실패 ← 시험 세션 안에서 만든 mock 스텁도 추적됨 / 가드: `SubwayExpressFixtures` 스텁 전부 `lenient()`
+- 여정 단계 열차 종류(V71): `JourneyLegGuidance.trainKind`(8번째 칸, 7·6인자 호환 생성자) → `JourneyLeg.trainKind`(`train_kind varchar(16)`) → `JourneyLegView.trainKind`. 원천은 개정본 스냅샷 subPath.trainKind, 단계 칸은 사본. `withEndFrom` 은 **자기 trainKind 를 유지**(자르기 = 타고 있는 그 열차). 컴파일러가 지하철 대기·탑승 두 단계에 같이 싣는다
+- `RerouteRouteFingerprint`: kind 가 null·NORMAL 이 아니면 구간 끝에 `:EXPRESS` 등. 기존 해시 그대로(시험이 `sha1("slot|1:9:가양>염창")` 앞 12바이트 `7278f6c4285336a73392b142` 로 고정)
+- geometry: `stops` 불변, `allStops`(지하철 타는 단계만, NON_NULL) = 급행이면 S1 완행 경로 + `trainStops`, 일반·모름·펼치기 실패면 계획 정차열 전부 true. `geometryVersion` = `{routeRevision}:{카탈로그 판}`(모르면 `-`), 바인딩 판은 S4
+### 함정
+- 형제 PR 충돌: #491(S3)이 같은 경로 `src/test/.../subway/service/SubwayExpressFixtures.java` 를 새로 만든다(add/add) → 이 PR 은 `SubwayExpressRouteFixtures` 로. #490 이 `SubwayRoutePatternAssembler` 반전표를 `SubwayDirectionNormalizer` 로 옮긴다 → 이 PR 은 그 파일 무변경
+- V40~V70 을 `@Sql` 로 직접 까는 IT 15개(엔티티가 `train_kind` 를 매핑하므로 칼럼이 없으면 INSERT 실패) → V65 바로 뒤에 V71 추가. 새 IT 가 V65 를 깔면 V71 도 같이
+- `Map.of().getOrDefault(null, …)` NPE ← id 없는(저장 전) 단계로 `toView` 시험 / 가드: 시험은 HashMap

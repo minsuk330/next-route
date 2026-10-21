@@ -206,6 +206,34 @@ class RailServiceClassifierTest {
     }
 
     @Test
+    @DisplayName("운영 실측 응답(마곡나루→신논현): 9호선 급행 9역 구간 = EXPRESS, 급행 노선 뺀 일반 21역 구간 = NORMAL")
+    void liveOtpResponses() throws Exception {
+        watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpPlanConnectionMapper mapper =
+                new watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpPlanConnectionMapper();
+        watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpPlanConnectionMapper.OtpVersions v =
+                new watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpPlanConnectionMapper.OtpVersions(
+                        "s", "n", "g");
+        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        RoutingResult express = classifier.annotate((RoutingResult) mapper.map(om.readTree(
+                new org.springframework.core.io.ClassPathResource("otp/planconnection-line9-express-only.json")
+                        .getContentAsByteArray()), T0, v));
+        RoutingResult normal = classifier.annotate((RoutingResult) mapper.map(om.readTree(
+                new org.springframework.core.io.ClassPathResource("otp/planconnection-line9-express-excluded.json")
+                        .getContentAsByteArray()), T0, v));
+
+        assertThat(express.itineraries()).hasSize(4).allSatisfy(it -> assertThat(it.legs())
+                .filteredOn(l -> l.mode() == RoutingMode.SUBWAY).singleElement().satisfies(l -> {
+                    assertThat(l.trainKind()).isEqualTo(TrainKind.EXPRESS);
+                    assertThat(l.patternCode()).isEqualTo("1:RR_ACC1_S-1-09-2D::01");
+                    assertThat(l.sourceRouteLongName()).isEqualTo("서울9호선(급행)<하행>");
+                }));
+        assertThat(normal.itineraries()).hasSize(5).allSatisfy(it -> assertThat(it.legs())
+                .filteredOn(l -> l.mode() == RoutingMode.SUBWAY).singleElement()
+                .satisfies(l -> assertThat(l.trainKind()).isEqualTo(TrainKind.NORMAL)));
+    }
+
+    @Test
     @DisplayName("노선형 급행 route id = 9호선 급행·1호선 경인·경부 급행(상·하행)")
     void expressRouteIds() {
         assertThat(classifier.expressRouteIds()).containsExactlyInAnyOrder(

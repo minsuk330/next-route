@@ -681,4 +681,66 @@ class RouteSearchServiceOtpWiringTest {
 
         assertThat(kinds(service(otp).search(request(null)))).containsExactly("NORMAL");
     }
+
+    // ── 운영 실측 응답(2026-10-21 마곡나루→신논현 08:00, 운영 OTP 읽기 전용) ─────────────────
+
+    /**
+     * 운영 OTP 가 실제로 준 응답을 매퍼 + 분류기(운영 fixture)로 돌리는 OTP — 어댑터 searchOnce 와 같은 단계다. 제외 노선이
+     * 없으면 9호선 급행만 4건(일반은 지배당해 빠짐), 노선형 급행을 빼면 일반만 5건. 버스만은 무경로.
+     */
+    private RoutingPort liveLine9Otp(java.util.List<RoutingQuery> asked) {
+        watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpPlanConnectionMapper mapper =
+                new watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpPlanConnectionMapper();
+        watoo.grd.nextroute.application.route.routing.RailServiceClassifier classifier =
+                watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier();
+        return new RoutingPort() {
+            @Override public RoutingOutcome search(RoutingQuery q, RoutingDeadline d) {
+                asked.add(q);
+                if (q.modes().equals(BUS_ONLY)) {
+                    return RoutingFailure.of(RoutingFailure.Kind.NO_ROUTE, "NO_TRANSIT_CONNECTION", "live");
+                }
+                String file = q.excludedRouteIds().isEmpty()
+                        ? "otp/planconnection-line9-express-only.json" : "otp/planconnection-line9-express-excluded.json";
+                try {
+                    com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper()
+                            .readTree(new org.springframework.core.io.ClassPathResource(file).getContentAsByteArray());
+                    return classifier.annotate(mapper.map(root, q.departureAt(),
+                            new watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpPlanConnectionMapper
+                                    .OtpVersions("s", "n", "g")));
+                } catch (java.io.IOException e) {
+                    throw new java.io.UncheckedIOException(e);
+                }
+            }
+            @Override public RoutingProvider provider() { return RoutingProvider.OTP; }
+        };
+    }
+
+    @Test
+    @DisplayName("운영 실측: 마곡나루→신논현은 급행만 오지만 일반 대안을 되찾아 급행·일반 둘 다 낸다")
+    void liveLine9ExpressAndRecoveredNormal() {
+        java.util.List<RoutingQuery> asked = new java.util.ArrayList<>();
+
+        RouteSearchResult legacy = service(liveLine9Otp(asked)).search(request(null));
+
+        assertThat(kinds(legacy)).containsExactly("EXPRESS", "NORMAL");
+        assertThat(legacy.paths().get(0).subPaths()).filteredOn(sp -> sp.trafficType() == 1)
+                .extracting(sp -> sp.stations().size()).containsExactly(9);
+        assertThat(legacy.paths().get(1).subPaths()).filteredOn(sp -> sp.trafficType() == 1)
+                .extracting(sp -> sp.stations().size()).containsExactly(21);
+        // 본 + 지하철만 + 버스만 + 되찾기(원래 수단·노선형 급행 제외) 1회
+        assertThat(asked).filteredOn(q -> !q.excludedRouteIds().isEmpty()).singleElement()
+                .satisfies(q -> assertThat(q.modes()).isEmpty());
+    }
+
+    @Test
+    @DisplayName("운영 실측: 급행 끄기면 OTP 가 급행 노선을 빼고 일반만 — 0건 해제 없음")
+    void liveLine9ExcludeExpress() {
+        java.util.List<RoutingQuery> asked = new java.util.ArrayList<>();
+
+        RouteSearchResult legacy = service(liveLine9Otp(asked)).search(request(true));
+
+        assertThat(kinds(legacy)).containsExactly("NORMAL");
+        assertThat(degraded(legacy)).isEmpty();
+        assertThat(asked).allSatisfy(q -> assertThat(q.excludedRouteIds()).isEqualTo(EXPRESS_ROUTES));
+    }
 }
