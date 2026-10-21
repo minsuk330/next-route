@@ -259,8 +259,10 @@ class BoardingTimeEstimatorTest {
 
         private final SubwayRealtimeArrivalReader arrivalReader = mock(SubwayRealtimeArrivalReader.class);
         private final MeterRegistry registry = new SimpleMeterRegistry();
+        private final watoo.grd.nextroute.application.subway.service.SubwayLineOrder lineOrder =
+                mock(watoo.grd.nextroute.application.subway.service.SubwayLineOrder.class);
         private final SubwayBoardingTimeEstimator estimator = new SubwayBoardingTimeEstimator(
-                arrivalReader, new JourneyEvaluationMetrics(registry));
+                arrivalReader, new JourneyEvaluationMetrics(registry), lineOrder);
 
         /** 못 구한 사유가 이 tag 로 남는지. */
         private double missCount(String reason) {
@@ -302,6 +304,62 @@ class BoardingTimeEstimatorTest {
             BoardingOutcome outcome = estimator.estimate(query(), NOW.plusSeconds(180), NOW, 0L);
 
             assertThat(outcome.estimate().boardingAt()).isEqualTo(NOW.plusSeconds(300));
+        }
+
+        @Test
+        @DisplayName("#480 남은 초가 없어도 '[N]번째 전역'이면 그 역 출발 → 이 역 도착 계획 초로 어림한다(APPROXIMATE)")
+        void estimatesTrainWithoutSecondsFromStationsAway() {
+            // 3호선(1003) wayCode 2 → 하행. 3번째 전역 출발부터 이 역까지 계획 240초.
+            given(lineOrder.secondsFromBehind("1003", "하행", "ST-G", 3)).willReturn(java.util.Optional.of(240));
+            given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt()))
+                    .willReturn(List.of(coded("99", "[3]번째 전역 (역삼)"), arrival(420)));
+
+            BoardingOutcome outcome = estimator.estimate(line3(), NOW.plusSeconds(180), NOW, 0L);
+
+            assertThat(outcome.estimate().boardingAt()).isEqualTo(NOW.plusSeconds(240));
+            assertThat(outcome.estimate().quality()).isEqualTo(CurrentLegArrival.Quality.APPROXIMATE);
+            assertThat(outcome.estimate().source()).isEqualTo(CurrentLegArrival.Source.REALTIME_ARRIVAL);
+        }
+
+        @Test
+        @DisplayName("#480 진입·도착(0 역)은 지금이다 — 원천이 사건으로 답했으니 GOOD")
+        void enteringTrainWithoutSecondsIsNow() {
+            given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt()))
+                    .willReturn(List.of(coded("0", "정류장G 진입"), arrival(300)));
+
+            BoardingOutcome outcome = estimator.estimate(line3(), NOW, NOW, 0L);
+
+            assertThat(outcome.estimate().boardingAt()).isEqualTo(NOW);
+            assertThat(outcome.estimate().quality()).isEqualTo(CurrentLegArrival.Quality.GOOD);
+        }
+
+        @Test
+        @DisplayName("#480 남은 초가 있는 열차가 더 빠르면 그 열차다(GOOD). 거리도 모르는 열차·계획 초가 없는 열차는 세지 않는다")
+        void secondsWinAndUnknownDistanceIsIgnored() {
+            given(lineOrder.secondsFromBehind("1003", "하행", "ST-G", 5)).willReturn(java.util.Optional.of(600));
+            given(lineOrder.secondsFromBehind("1003", "하행", "ST-G", 2)).willReturn(java.util.Optional.empty());
+            given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt()))
+                    .willReturn(List.of(coded("99", "[5]번째 전역"), coded("99", "[2]번째 전역"),
+                            coded("99", "이상한 문구"), arrival(300)));
+
+            BoardingOutcome outcome = estimator.estimate(line3(), NOW.plusSeconds(180), NOW, 0L);
+
+            assertThat(outcome.estimate().boardingAt()).isEqualTo(NOW.plusSeconds(300));
+            assertThat(outcome.estimate().quality()).isEqualTo(CurrentLegArrival.Quality.GOOD);
+        }
+
+        @Test
+        @DisplayName("#480 남은 초 없는 열차만 있어 예전엔 '탈 열차 없음'이던 경우도 값이 나온다")
+        void onlyTrainsWithoutSecondsStillGiveAnEstimate() {
+            given(lineOrder.secondsFromBehind("1003", "하행", "ST-G", 1)).willReturn(java.util.Optional.of(150));
+            given(arrivalReader.arrivalsByStation(any(), any(), any(), anyInt()))
+                    .willReturn(List.of(coded("3", "전역 출발")));
+
+            BoardingOutcome outcome = estimator.estimate(line3(), NOW.plusSeconds(60), NOW, 0L);
+
+            assertThat(outcome.isPresent()).isTrue();
+            assertThat(outcome.estimate().boardingAt()).isEqualTo(NOW.plusSeconds(150));
+            assertThat(missCount("no_boardable_train")).isZero();
         }
 
         @Test
@@ -375,6 +433,17 @@ class BoardingTimeEstimatorTest {
 
         private SubwayRealtimeArrivalReader.Arrival arrival(int seconds) {
             return new SubwayRealtimeArrivalReader.Arrival(null, seconds);
+        }
+
+        /** 순환선이 아닌 노선 — wayCode 2 가 하행이다(2호선은 0/1 이라 2 면 방향 모름). */
+        private BoardingQuery line3() {
+            return new BoardingQuery(JourneyLegType.WAIT_SUBWAY, "ST-G", "정류장G", "1003", null, 2);
+        }
+
+        private SubwayRealtimeArrivalReader.Arrival coded(String code, String message) {
+            return new SubwayRealtimeArrivalReader.Arrival(
+                    watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain.builder().trainNo("T" + code)
+                            .arrivalCode(code).currentMessage(message).build(), null);
         }
     }
 }
