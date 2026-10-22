@@ -209,17 +209,42 @@ class OtpRoutingAdapterHttpTest {
         assertThat(filters).hasSize(1);
         java.util.List<String> routes = new java.util.ArrayList<>();
         filters.get(0).path("exclude").get(0).path("routes").forEach(r -> routes.add(r.asText()));
-        assertThat(routes).containsExactly("1:RR_ACC1_S-1-09-2D", "1:RR_ACC1_S-1-09-2U");
+        // 공항철도 직통은 요청과 무관하게 언제나 같이 뺀다(D3, #495)
+        assertThat(routes).containsExactly("1:RR_ACC1_S-1-09-2D", "1:RR_ACC1_S-1-09-2U",
+                "1:RR_ACC4_NATE971_D", "1:RR_ACC4_NATE971_U");
     }
 
     @Test
-    @DisplayName("제외 노선이 없으면 preferences 를 보내지 않는다 — 옛 요청과 같다")
-    void noExclusionOmitsPreferences() throws Exception {
+    @DisplayName("제외 노선이 없어도 공항철도 직통(RR_ACC4_NATE971_U/D)은 언제나 탐색에서 뺀다 — D3, #495")
+    void directRoutesAlwaysExcluded() throws Exception {
         enqueueSuccess();
 
         call();
 
-        assertThat(sentVariables().has("preferences")).isFalse();
+        JsonNode filters = sentVariables().path("preferences").path("transit").path("filters");
+        assertThat(filters).hasSize(1);
+        java.util.List<String> routes = new java.util.ArrayList<>();
+        filters.get(0).path("exclude").get(0).path("routes").forEach(r -> routes.add(r.asText()));
+        assertThat(routes).containsExactly("1:RR_ACC4_NATE971_D", "1:RR_ACC4_NATE971_U");
+    }
+
+    @Test
+    @DisplayName("운영 실측(2026-10-22 서울역→인천공항1터미널 10:00, 역 id 출발): 직통 구간은 DIRECT, 공항철도 본선은 NORMAL")
+    void liveArexDirectAnnotatedDirect() throws Exception {
+        String body = new ClassPathResource("otp/planconnection-arex-direct.json")
+                .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        server.enqueue(new MockResponse().setResponseCode(200)
+                .setHeader("Content-Type", "application/json").setBody(body));
+
+        RoutingOutcome outcome = call();
+
+        java.util.List<watoo.grd.nextroute.application.route.routing.RoutingItinerary> its =
+                ((watoo.grd.nextroute.application.route.routing.RoutingResult) outcome).itineraries();
+        assertThat(its).extracting(it -> it.legs().get(0).sourceRouteId())
+                .containsExactly("1:RR_ACC4_NATE971_D", "1:RR_ACC1_S-1-AP-1D");
+        assertThat(its).extracting(it -> it.legs().get(0).trainKind()).containsExactly(
+                watoo.grd.nextroute.application.subway.dto.TrainKind.DIRECT,
+                watoo.grd.nextroute.application.subway.dto.TrainKind.NORMAL);
     }
 
     @Test

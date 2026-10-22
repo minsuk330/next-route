@@ -109,6 +109,18 @@
       "lineStops": ["RS_ACC1_S-1-4201", "RS_ACC1_S-1-4202", "RS_ACC1_S-1-4203", "RS_ACC1_S-1-4204", "RS_ACC1_S-1-4206",
                     "RS_ACC1_S-1-4207", "RS_ACC1_S-1-4208", "RS_ACC1_S-1-4209", "RS_ACC1_S-1-4210", "RS_ACC1_S-1-4217",
                     "RS_ACC1_S-1-4211", "RS_ACC1_S-1-4212", "RS_ACC1_S-1-4213", "RS_ACC1_S-1-4215"]
+    },
+    {
+      "id": "arex-incheon-airport-t2-point",
+      "op": "move_stop",
+      "why": "#495: KTDB 인천공항2터미널 점(37.460949, 126.467949)이 실제 역에서 3.17 km 동남쪽(공항화물청사 서쪽 들판)이다. OTP 가 이 점을 거리망에 붙여 2터미널 목적지가 본선을 못 타고 1터미널+셔틀로 나온다. 그래서 출구도 못 붙어 VST_ 가 없다. pfaedle 은 이 점으로 1터미널→2터미널 shape 를 직선으로 끝냈다(shp_1_6·199 끝, shp_1_386·387 시작). 다른 공항철도 13역은 카카오·OSM 과 85 m 안",
+      "source": "OSM node 5919544839 (railway=station, name=인천공항2터미널, operator=공항철도주식회사; south-korea-260929 Geofabrik). 교차 확인: 카카오 '인천공항2터미널역 공항철도'(subway_station 1065006511) 37.468800, 126.433641 — 18 m. TAGO 국가철도 RS_TAGO_NATC30058 37.470371, 126.432129 — 197 m",
+      "stopId": "RS_ACC1_S-1-4215",
+      "routeIds": ["RR_ACC1_S-1-AP-1D", "RR_ACC1_S-1-AP-1U"],
+      "before": {"lat": 37.460949, "lon": 126.467949},
+      "after": {"lat": 37.4689424, "lon": 126.4334747},
+      "expectMoveM": 3174,
+      "expectShapeEnds": 4
     }
   ]
 }

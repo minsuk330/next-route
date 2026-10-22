@@ -150,7 +150,19 @@ class RailServiceClassifierTest {
         }
 
         @Test
-        @DisplayName("이름에 직통 = DIRECT(안전장치 — 운영 그래프에는 없다)")
+        @DisplayName("공항철도 직통 = DIRECT — 운영 그래프의 국가철도판 [일반]서울공-인천국(RR_ACC4_NATE971_U/D). 이름에 '직통'이 없다(#495)")
+        void arexDirectNationalRoute() {
+            // 운영 OTP 2026-10-22: 서울역 → 인천공항1터미널 → 인천공항2터미널 3역, 방향마다 26 trip, longName 은 라벨만
+            assertThat(classifier.classify(rail(RoutingMode.RAIL, "1:RR_ACC4_NATE971_D", "[일반]서울공-인천국", "하행")))
+                    .isEqualTo(TrainKind.DIRECT);
+            assertThat(classifier.classify(rail(RoutingMode.RAIL, "1:RR_ACC4_NATE971_U", "[일반]서울공-인천국", "상행")))
+                    .isEqualTo(TrainKind.DIRECT);
+            assertThat(classifier.directRouteIds())
+                    .containsExactlyInAnyOrder("1:RR_ACC4_NATE971_U", "1:RR_ACC4_NATE971_D");
+        }
+
+        @Test
+        @DisplayName("이름에 직통 = DIRECT(안전장치 — 노선 id 가 바뀐 그래프)")
         void direct() {
             RoutingLeg leg = rail(RoutingMode.SUBWAY, "1:RR_ACC1_S-1-AP-9D", "공항철도", "공항철도(직통)<하행>");
 

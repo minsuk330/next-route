@@ -743,4 +743,39 @@ class RouteSearchServiceOtpWiringTest {
         assertThat(degraded(legacy)).isEmpty();
         assertThat(asked).allSatisfy(q -> assertThat(q.excludedRouteIds()).isEqualTo(EXPRESS_ROUTES));
     }
+
+    // ── 운영 실측 응답(2026-10-22 서울역→인천공항1터미널 10:00, 역 id 출발, 운영 OTP 읽기 전용, #495) ───────────
+
+    @Test
+    @DisplayName("운영 실측: 서울역→인천공항1터미널 — 공항철도 직통(RR_ACC4_NATE971) 경로는 빠지고 공항철도 본선이 나온다, wayCode 1(상행)")
+    void liveArexDirectRemoved() {
+        RoutingPort otp = new RoutingPort() {
+            @Override public RoutingOutcome search(RoutingQuery q, RoutingDeadline d) {
+                if (q.modes().equals(BUS_ONLY)) {
+                    return RoutingFailure.of(RoutingFailure.Kind.NO_ROUTE, "NO_TRANSIT_CONNECTION", "live");
+                }
+                try {
+                    com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper()
+                            .readTree(new org.springframework.core.io.ClassPathResource(
+                                    "otp/planconnection-arex-direct.json").getContentAsByteArray());
+                    return watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures
+                            .railServiceClassifier().annotate(
+                                    new watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpPlanConnectionMapper()
+                                            .map(root, q.departureAt(),
+                                                    new watoo.grd.nextroute.infrastructure.adapter.out.api.otp
+                                                            .OtpPlanConnectionMapper.OtpVersions("s", "n", "g")));
+                } catch (java.io.IOException e) {
+                    throw new java.io.UncheckedIOException(e);
+                }
+            }
+            @Override public RoutingProvider provider() { return RoutingProvider.OTP; }
+        };
+
+        RouteSearchResult legacy = service(otp).search(request(null));
+
+        assertThat(firstLaneNames(legacy)).containsExactly("공항철도");
+        assertThat(kinds(legacy)).containsExactly("NORMAL");
+        // AP-1D 의 OTP 라벨 <하행> 은 도착 API 와 반대라 상행(1)으로 나간다(#488). 직통이 남았을 때는 하행(2)이었다
+        assertThat(legacy.paths().get(0).subPaths().get(0).wayCode()).isEqualTo(1);
+    }
 }
