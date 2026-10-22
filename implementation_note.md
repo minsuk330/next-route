@@ -5914,3 +5914,23 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 같은 녹화 재생(운영 코드), 옛 값 → 새 값: 9호선 일반 9226 하차 예정 평균|e| 111→33초(최대 346→131, 마지막 구간 34→9), 급행 9712 41→29초(치우침 +36→−16, 최대 517→137). 도착 반영 +29.8초는 그대로(원천)
 - 링 IT(`SubwayRingIT` 17, `SubwayRingPushIT` 30, `SubwayRideScenarioIT` 5, `SubwayRingReplayIT` 1, `SubwayRingExpressReplayIT` 2, `JourneySubwayGuidanceIT` 9) 실패 0, 단위 420 클래스 실패 0
+
+## 2026-10-22 7호선 하행 빠진 trip 채우기 (#385, fix/line7-down-trips)
+### 확정
+- KTDB 원본(`202503_GTFS_DataSet`)부터 `RR_ACC1_S-1-07-1D` 75편(전부 16:00 이후) vs `-1U` 204편. 우리 단계 문제 아님. 다른 수도권 RR_ACC1 44쌍은 균형
+- 서울 시간표 API(`SearchSTNTimeTableByIDService`, WEEK_TAG 1, 7호선 53역 × 상·하행, 2026-10-22 받음)가 KTDB 와 **초 단위까지 같다**: 상행 204/204, 하행 75/75 짝(첫 출발·역별 시각 차 p50/p90/max 모두 0초, 정차역 목록 동일). INOUT_TAG 2 = 장암→석남 = 1D. 역 매핑은 이름이 아니라 코드: API `STATION_CD` == GTFS `RS_ACC1_S-1-{code}` (53/53, 까치울~석남 3753~3763 포함)
+- API 하행 216편 − KTDB 짝 75 = **141편 추가**(05~16시). 시작 시각 분포 05:11 06:16 07:23 08:18 09:9 10:11 11~15:10 16:10 17:16 18:11 19:11 20:10 21:7 22:6 23:5 24:2 — 상행과 비슷
+- 도구: `runner/seoul_timetable_trips.py fetch|build`(API → 캐시 → 데이터 파일, 짝짓기 검증 수치를 파일 `validation` 에 기록), `runner/add_missing_trips.py`(새 2g 단계), 데이터 `config/otp-national/added-trips/line7-down-weekday.json`(출처 URL `{KEY}` 자리표시, 받은 날, WEEK_TAG; 키 없음). trip id `RR_ACC1_S-1-07-1D_T{열차번호}`
+- trip 은 같은 노선 기존 trip 을 틀로 쓴다: 같은 정차 목록이면 가장 가까운 출발 trip 의 trips 행(service B1·shape_id)과 seq·승하차·shape_dist 복사(123편). 1D 에 없는 패턴(온수→석남 13, 신풍·내방·청담·태릉입구·건대입구→석남 각 1)은 장암→석남 trip(`shp_1_424`)의 연속 구간을 잘라 1..n 재번호, 첫/끝 승하차는 틀 첫/끝 행, shape_dist 는 그 shape 위치 그대로(18편)
+- `build_otp_graph.sh --add-trips <json>`(반복 가능): 2d 다음 2e 앞, 접미사 `-addtrips`, 리포트 `added-trips-report.json`. `--from-zip` 단독 사유로도 인정
+### 함정
+- KTDB 는 서비스가 `B1`(매일) 하나 = 평일 시간표를 주말에도 쓴다(상행도 평일 API 와 일치). 주말 실제 편수는 약 20% 적다(장암 85→77, 도봉산 198→159, 온수 212→162). 이번 추가도 평일 기준 — 다른 노선과 같은 정책
+- 03:00 전 출발은 전날 운행일(24:xx), 자정 넘는 시각은 24:xx 로 이어 붙인다. 7호선엔 통과 행(ARRIVETIME 00:00:00) 0건
+### 검증
+- `python3 -m unittest discover -s runner -p 'test_*.py'` → 106/0 (신규 test_add_missing_trips 11)
+- 운영 입력 zip(0d491355…)에 2g: trip 320,594→320,735, stop_times +6,158행, 패턴 안 추월 쌍 135 검사 0, 다시 적용 → 141 alreadyApplied·바이트 동일. 출력 `data/input/national-nojeju-202503-shaped-gbis-busrt-entrances-addtrips.gtfs.zip` sha b9487184…
+- 독립 점검: trip id 유일, stop_times 묶음 = trips 수, 1D 216/1U 204, 시각·seq·shape_dist 증가, stop·shape 존재, 첫/끝 승하차 0/1·1/0, calendar B1
+- 이어서 2e(subway-corrections) 적용 → 이전 빌드와 같은 변경(stops 9, trips 15, stop_times 30 trip), trip 수 가드 통과
+- 7호선만 뽑은 작은 피드로 OTP(운영 jar 9dbfb229) `--build`: 420 trip, StopTimes 검증 이슈 0, |Patterns| 29(기존 23 + 1D 새 패턴 6)
+### 미결
+- 그래프 재빌드·배포 안 함. 다음 빌드: `runner/build_otp_graph.sh --profile national --from-zip data/input/national-nojeju-202503-shaped-gbis-busrt-entrances.gtfs.zip --add-trips config/otp-national/added-trips/line7-down-weekday.json --subway-corrections config/otp-national/subway-corrections.json --calendar-end <빌드일+2개월> --thresholds config/otp-national/shape-gate-thresholds.json --modes bus,subway --graph-version …-addtrips…`
