@@ -5975,3 +5975,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 7호선만 뽑은 작은 피드로 OTP(운영 jar 9dbfb229) `--build`: 420 trip, StopTimes 검증 이슈 0, |Patterns| 29(기존 23 + 1D 새 패턴 6)
 ### 미결
 - 그래프 재빌드·배포 안 함. 다음 빌드: `runner/build_otp_graph.sh --profile national --from-zip data/input/national-nojeju-202503-shaped-gbis-busrt-entrances.gtfs.zip --add-trips config/otp-national/added-trips/line7-down-weekday.json --subway-corrections config/otp-national/subway-corrections.json --calendar-end <빌드일+2개월> --thresholds config/otp-national/shape-gate-thresholds.json --modes bus,subway --graph-version …-addtrips…`
+
+## 2026-10-22 그래프 재빌드·배포 — 7호선 하행 보충 + 공항철도 보정 (#385, #495)
+### 배포
+- graphVersion `national-nojeju-202503-cal20260729_20261222-otp278-shaped-gbis-alllines-busrt-addtrips-subwayfix-osmfix-g9910d427f7d3`(해시 = 직전 e58b47ba1c66 + added-trips json + add_missing_trips.py + 보정 json + apply_subway_corrections.py + osm-patches.osc + osmfix pbf + extend_calendar.py + "20261222", 구분자 없이 이은 sha256 앞 12자)
+- graph.obj sha `08bafaaa…1d0a` 920,975,160 B, coverage-index sha `73fc352e…fe80`(shapeOk 319,165, degraded 0), bundleHash `9f0775b9…`(`verify_release_bundle.py` OK). 빌드 20m06s(OTP 10m59s)
+- |Stops| 219,766 그대로, |Patterns| 30,246 → 30,252(+6, 7호선 1D 새 패턴), |E| +34(OSM 이음)
+- 운영 교체 2026-10-22 17:56(OTP 재생성 55초) → api·worker `8822e311`(#518 직통 제외) 17:57. compose 백업 `*.bak-20261022-175634-pre-addtrips`, jar 백업 `app.jar.bak-20261022-175745-pre-8822e311`. 옛 그래프 디렉터리는 남겨 둠
+- 운행일 2026-10-21..12-22(63일), serviceTimeRange 끝 12-23 00:00 KST. **다음 만료 2026-12-22**
+### 검증(운영)
+- 노원→학동 09:00: 7호선 하행 34분 1위(전: 7호선 없음). 서울역 좌표→인천공항1터미널: 공항철도 본선 도보 661m, wayCode 1(전: 6001 버스). →인천공항2터미널(실좌표): 공항철도 직행 76분 1위. 직통(NATE971) 경로 없음
+- OTP 메모리 3.82/4.395 GiB(전 3.88), ERROR 0, Full GC 0
+### 재빌드 명령(다음 번)
+- `runner/apply_osm_patches.sh data/input/south-korea-260929-nojeju.osm.pbf config/otp-national/osm-patches.osc data/input/south-korea-260929-nojeju-osmfix.osm.pbf` 뒤 `OTP_OSM=data/input/south-korea-260929-nojeju-osmfix.osm.pbf runner/build_otp_graph.sh --profile national --from-zip data/input/national-nojeju-202503-shaped-gbis-busrt-entrances.gtfs.zip --add-trips config/otp-national/added-trips/line7-down-weekday.json --subway-corrections config/otp-national/subway-corrections.json --calendar-end <빌드일+2개월> --thresholds config/otp-national/shape-gate-thresholds.json --modes bus,subway --graph-version …`
