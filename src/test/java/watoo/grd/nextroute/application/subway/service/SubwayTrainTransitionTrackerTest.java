@@ -59,7 +59,8 @@ class SubwayTrainTransitionTrackerTest {
         props.setSourceLagBudget(Duration.ofSeconds(150));
         props.setFreshnessWindow(Duration.ofMinutes(5));
 
-        tracker = new SubwayTrainTransitionTracker(log, adjacency, new ServiceDateResolver(), props);
+        tracker = new SubwayTrainTransitionTracker(log, adjacency, new ServiceDateResolver(), props,
+                mock(SubwayExpressSegmentTimeRecorder.class));
     }
 
     // ── 사라짐·불완전 응답 ────────────────────────────────────────────────

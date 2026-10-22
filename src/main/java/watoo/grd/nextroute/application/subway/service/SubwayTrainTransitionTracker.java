@@ -66,6 +66,7 @@ public class SubwayTrainTransitionTracker {
     private final SubwayStationAdjacency adjacency;
     private final ServiceDateResolver serviceDateResolver;
     private final SubwayPositionProperties properties;
+    private final SubwayExpressSegmentTimeRecorder expressSegments;
 
     /**
      * 노선 하나의 응답을 반영한다.
@@ -202,6 +203,8 @@ public class SubwayTrainTransitionTracker {
             // 원천이 아직 갱신되지 않았거나 시각이 역행했다. 둘 다 새 사건이 아니다.
             return 0;
         }
+        // 급행 구간 실측(#497). 인접 여부와 무관하다 — 급행은 정차역 사이가 원래 인접하지 않는다.
+        expressSegments.observe(identity, before, now);
 
         int created = now.isSameStation(before)
                 ? atSameStation(identity, before, now)

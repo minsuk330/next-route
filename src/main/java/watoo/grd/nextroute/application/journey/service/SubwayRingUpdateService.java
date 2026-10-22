@@ -11,6 +11,7 @@ import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
 import watoo.grd.nextroute.application.journey.observability.SubwayRingMetrics;
 import watoo.grd.nextroute.application.journey.port.out.SubwayRingPort;
 import watoo.grd.nextroute.application.subway.dto.TrainIdentity;
+import watoo.grd.nextroute.application.subway.port.out.SubwayExpressSegmentTimePort;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.repository.JourneyLegRepository;
@@ -67,6 +68,7 @@ public class SubwayRingUpdateService {
     private final JourneyNavigationProperties navigationProperties;
     private final SubwayBoundTrainResolver boundTrainResolver;
     private final SubwayRingChainBuilder chainBuilder;
+    private final SubwayExpressSegmentTimePort expressSegmentTimes;
 
     /** @return 훑은 건수 */
     public int runOnce() {
@@ -126,7 +128,8 @@ public class SubwayRingUpdateService {
         }
         // 열차 종류 라벨(subway-express PR-S4). 링 lineName 은 바꾸지 않는다 — 앱이 배지를 따로 그린다.
         state = state.withTrain(bound.kindName(), bound.label());
-        SubwayRingAlightingEstimator.Estimate alighting = alightingEstimator.estimate(state, previous, chain, train, now);
+        SubwayRingAlightingEstimator.Estimate alighting = alightingEstimator.estimate(state, previous, chain, train, now,
+                context::typicalFor);
         state = state.withEstimatedAlightingAt(alighting.at(), alighting.source());
         // 승차역 전 열차의 현재 역(#368). 버전·push 판단보다 먼저 붙여야 역을 지날 때 화면 바뀜으로 잡힌다.
         state = state.withApproach(approachReader.read(state, previous, chain, train, now));
@@ -222,12 +225,39 @@ public class SubwayRingUpdateService {
             return null;
         }
         // 급행이면 정차열이 정확히 같은 OTP 급행 패턴의 시간만(subway-express PR-S4). 없으면 null — 완행 합으로 지어내지 않는다.
-        return (chain.pattern() == null
+        SubwayRingContext.Typical planned = (chain.pattern() == null
                 ? lineOrder.segmentTimes(train.lineId(), train.direction(), from.canonicalKey(), to.canonicalKey())
                 : lineOrder.segmentTimes(train.lineId(), train.direction(), from.canonicalKey(), to.canonicalKey(),
                         chain.pattern()))
                 .map(t -> new SubwayRingContext.Typical(t.dwellSeconds(), t.runSeconds()))
                 .orElse(null);
+        return chain.hasPassing() ? measuredExpress(train, from, to, planned) : planned;
+    }
+
+    /** 급행 실측 표본이 이만큼은 있어야 계획 시간을 갈아 끼운다 — 한두 편은 지연 한 번에 휘둘린다. */
+    public static final int MIN_EXPRESS_SAMPLES = 3;
+    /** 실측에서 정차 몫을 빼고 남는 운행 시간의 하한. */
+    private static final int MIN_EXPRESS_RUN_SECONDS = 30;
+
+    /**
+     * 급행 구간은 실측 중앙값(정차역 도착 → 다음 정차역 도착, 정차 포함)으로 정차+운행을 맞춘다(#497). 정차 몫은 계획값(없으면
+     * 기본 정차)을 두고 나머지를 운행으로 본다 — 직선은 앞 역 도착에서 정차+운행으로 그려지므로 합만 맞으면 된다. 표본이 모자라면
+     * 계획 그대로. 1948 안양→가산디지털단지: GTFS 직선 약 9분, 실제 7분 34초(2026-10-21 녹화).
+     */
+    private SubwayRingContext.Typical measuredExpress(TrainIdentity train, SubwayRingChain.Station from,
+                                                      SubwayRingChain.Station to, SubwayRingContext.Typical planned) {
+        List<Long> samples = expressSegmentTimes.recentSeconds(train.lineId(), train.direction(), from.canonicalKey(),
+                to.canonicalKey());
+        if (samples.size() < MIN_EXPRESS_SAMPLES) {
+            return planned;
+        }
+        List<Long> sorted = samples.stream().sorted().toList();
+        long median = sorted.get(sorted.size() / 2);
+        int dwell = planned != null && planned.dwellSeconds() != null
+                ? planned.dwellSeconds()
+                : (int) properties.getDefaultDwell().toSeconds();
+        int run = (int) Math.max(median - dwell, MIN_EXPRESS_RUN_SECONDS);
+        return new SubwayRingContext.Typical(dwell, run);
     }
 
     /**
