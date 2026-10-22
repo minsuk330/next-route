@@ -21,6 +21,12 @@ stations were renamed.  ``config/otp-national/subway-corrections.json`` lists th
 * ``rename`` — stop_name of ``stopId`` and of its virtual copies (``VST_<id>``, ``VEX_…_<id>``,
   ``VSA_P_<id>`` from add_station_entrances.py) that start with ``from`` start with ``to`` instead.  Ids stay.
 * ``assert_absent`` — no trip of ``routeIds`` skips a stop of ``lineStops`` (공항철도 직통 is not routed, D3).
+* ``move_stop`` — ``stopId`` (a metro platform whose KTDB point is wrong) moves from ``before`` to ``after`` (lat/lon,
+  ``source`` names where ``after`` comes from).  Its virtual copies at the same point (``VST_<id>``, ``VSA_P_<id>``)
+  move with it; exits (``VEX_``/``VSA_X_``) keep their OSM points.  pfaedle ends a shape on the stop it could not
+  match, so the end point of every shape of ``routeIds`` whose trips start or end at the stop and that sits on
+  ``before`` moves too (``expectShapeEnds`` of them).  shape_dist_traveled stays: the stop keeps its distance and
+  OTP places stops by it.  ``expectMoveM`` pins the distance so a typo in a coordinate fails the build.
 
 An op with ``"enabled": false`` is validated but not applied (K5851 until the train is identified).  Ids are
 raw GTFS ids as in the zip; OTP shows them feed-scoped (``1:RR_ACC1_S-1-01-4D_Ord036``, pattern
@@ -58,7 +64,7 @@ from calibrate_bus_runtimes import format_time, parse_time  # noqa: E402  (same 
 METRO_ROUTE_TYPE = "1"
 METRO_STOP_PREFIX = "RS_ACC1_"  # add_station_entrances.py --metro-prefix
 TRIP_OPS = ("retemplate", "insert_stop", "truncate_after")
-OPS = TRIP_OPS + ("rename", "assert_absent")
+OPS = TRIP_OPS + ("rename", "assert_absent", "move_stop")
 ZIP64_FORCE_BYTES = 1 << 30
 BOM = b"\xef\xbb\xbf"
 
@@ -185,7 +191,8 @@ def load_corrections(path: Path) -> dict:
                 "truncate_after": ("routeId", "trips", "expectTrips", "keepThrough", "beforeTail", "terminal",
                                    "expect"),
                 "rename": ("stopId", "from", "to"),
-                "assert_absent": ("routeIds", "lineStops")}[kind]
+                "assert_absent": ("routeIds", "lineStops"),
+                "move_stop": ("stopId", "routeIds", "before", "after", "expectMoveM", "expectShapeEnds", "source")}[kind]
         missing = [k for k in need if k not in op]
         if missing:
             raise CorrectionError(f"{oid}: missing {missing}")
@@ -213,6 +220,15 @@ def load_corrections(path: Path) -> dict:
             if "stopId" not in op["terminal"] or op["terminal"]["stopId"] in op["beforeTail"]:
                 raise CorrectionError(f"{oid}: terminal.stopId must be a stop the trip does not serve now")
             _check_expect(oid, op["expect"], ("arriveAfterPrevSec",))
+        if kind == "move_stop":
+            for k in ("before", "after"):
+                pt = op[k]
+                if not (isinstance(pt, dict) and all(isinstance(pt.get(c), (int, float)) for c in ("lat", "lon"))):
+                    raise CorrectionError(f"{oid}: {k} must be {{lat, lon}} numbers")
+            if not (isinstance(op["expectMoveM"], int) and isinstance(op["expectShapeEnds"], int)):
+                raise CorrectionError(f"{oid}: expectMoveM and expectShapeEnds must be integers")
+            if not (isinstance(op["source"], str) and op["source"].strip()):
+                raise CorrectionError(f"{oid}: source must say where 'after' comes from")
         if kind == "rename":
             f, t = op["from"], op["to"]
             if not f or not t or f.startswith(t) or t.startswith(f):
@@ -255,6 +271,8 @@ class Feed:
     rows: dict[str, list[list[str]]]  # trip_id -> stop_times rows by stop_sequence (loaded routes only)
     new_rows: dict[str, list[list[str]]] = field(default_factory=dict)
     shapes: dict[str, list[tuple[float, float, float]]] = field(default_factory=dict)  # (lat, lon, dist)
+    shape_ends: dict[str, dict[str, tuple[int, str, str]]] = field(default_factory=dict)  # first/last: (seq, lat, lon)
+    shape_moves: dict[tuple[str, int], tuple[str, str]] = field(default_factory=dict)  # (shape, seq) -> (lat, lon)
 
     def shape_id(self, tid: str) -> str:
         return self.trips.get(self.trip_line[tid], "shape_id") if "shape_id" in self.trips.col else ""
@@ -363,6 +381,37 @@ def load_shapes(zf: zipfile.ZipFile, shape_ids: set[str]) -> dict[str, list[tupl
     if missing:
         raise CorrectionError(f"shapes not in shapes.txt: {missing}")
     return {s: [p[1:] for p in sorted(v)] for s, v in pts.items()}
+
+
+def load_shape_ends(zf: zipfile.ZipFile, shape_ids: set[str]) -> dict[str, dict[str, tuple[int, str, str]]]:
+    """First and last point (shape_pt_sequence, raw lat, raw lon) of the given shapes."""
+    if not shape_ids:
+        return {}
+    ends: dict[str, dict[str, tuple[int, str, str]]] = {}
+    with zf.open("shapes.txt") as f:
+        lines = io.BufferedReader(f, 1 << 20)
+        header = parse_line(next(lines).removeprefix(BOM))
+        col = {h: i for i, h in enumerate(header)}
+        wanted = {s.encode("utf-8") for s in shape_ids}
+        for ln in lines:
+            if trip_id_of(ln, col["shape_id"]) not in wanted:
+                continue
+            r = parse_line(ln)
+            pt = (int(r[col["shape_pt_sequence"]]), r[col["shape_pt_lat"]], r[col["shape_pt_lon"]])
+            e = ends.setdefault(r[col["shape_id"]], {"first": pt, "last": pt})
+            if pt[0] < e["first"][0]:
+                e["first"] = pt
+            if pt[0] > e["last"][0]:
+                e["last"] = pt
+    missing = sorted(shape_ids - ends.keys())
+    if missing:
+        raise CorrectionError(f"shapes not in shapes.txt: {missing}")
+    return ends
+
+
+def metres(a: tuple[float, float], b: tuple[float, float]) -> float:
+    ky = 111320.0
+    return math.hypot((a[1] - b[1]) * ky * math.cos(math.radians(a[0])), (a[0] - b[0]) * ky)
 
 
 MAX_STOP_TO_SHAPE_M = 50.0
@@ -651,8 +700,83 @@ def op_assert_absent(feed: Feed, op: dict) -> dict:
     return dict(tripsChecked=n)
 
 
+SAME_POINT_M = 1.0  # a stop or shape point within this of before/after is in that state
+MOVE_TOLERANCE_M = 5.0  # expectMoveM vs the before -> after distance
+POINT_COPY_PREFIXES = ("VST_", "VSA_P_")  # add_station_entrances.py copies that sit on the platform point
+
+
+def fmt_coord(raw: str, value: float) -> str:
+    """At least 6 decimals (0.1 m), more when the row already had more (VST_ rows carry 7)."""
+    decimals = max(6, len(raw.split(".", 1)[1]) if "." in raw else 0)
+    return f"{value:.{decimals}f}"
+
+
+def op_move_stop(feed: Feed, op: dict) -> dict:
+    oid, sid = op["id"], op["stopId"]
+    if not sid.startswith(METRO_STOP_PREFIX):
+        raise CorrectionError(f"{oid}: {sid} is not a metro platform ({METRO_STOP_PREFIX}*)")
+    before = (float(op["before"]["lat"]), float(op["before"]["lon"]))
+    after = (float(op["after"]["lat"]), float(op["after"]["lon"]))
+    moved = metres(before, after)
+    if abs(moved - op["expectMoveM"]) > MOVE_TOLERANCE_M:
+        raise CorrectionError(f"{oid}: before -> after is {moved:.0f} m, expectMoveM {op['expectMoveM']}")
+
+    def state(lat: str, lon: str) -> str:
+        p = (float(lat), float(lon))
+        return "before" if metres(p, before) <= SAME_POINT_M else "after" if metres(p, after) <= SAME_POINT_M else ""
+
+    t, c_id = feed.stops, feed.stops.col["stop_id"]
+    family = [k for k, r in enumerate(t.rows) if r is not None
+              and (r[c_id] == sid or (r[c_id].endswith("_" + sid) and r[c_id].startswith(POINT_COPY_PREFIXES)))]
+    base = [k for k in family if t.rows[k][c_id] == sid]
+    if not base:
+        raise CorrectionError(f"{oid}: stop {sid} not in stops.txt")
+    if not state(t.get(base[0], "stop_lat"), t.get(base[0], "stop_lon")):
+        raise CorrectionError(f"{oid}: {sid} is at {t.get(base[0], 'stop_lat')},{t.get(base[0], 'stop_lon')}, "
+                              f"neither before nor after")
+    done, already, other = [], [], []
+    for k in family:
+        stop, lat, lon = t.rows[k][c_id], t.get(k, "stop_lat"), t.get(k, "stop_lon")
+        st = state(lat, lon)
+        if st == "before":
+            t.set(k, "stop_lat", fmt_coord(lat, after[0]))
+            t.set(k, "stop_lon", fmt_coord(lon, after[1]))
+            done.append(dict(stop=stop, before=[lat, lon], after=[t.get(k, "stop_lat"), t.get(k, "stop_lon")]))
+        elif st == "after":
+            already.append(stop)
+        else:
+            other.append(dict(stop=stop, point=[lat, lon]))
+
+    ends: set[tuple[str, str]] = set()
+    for rid in op["routeIds"]:
+        if not feed.route_trips[rid]:
+            raise CorrectionError(f"{oid}: route {rid} has no trips")
+        for tid in feed.route_trips[rid]:
+            s = feed.stop_ids(tid)
+            if sid in (s[0], s[-1]) and not feed.shape_id(tid):
+                raise CorrectionError(f"{oid}: trip {tid} ends at {sid} without a shape")
+            if s[0] == sid:
+                ends.add((feed.shape_id(tid), "first"))
+            if s[-1] == sid:
+                ends.add((feed.shape_id(tid), "last"))
+    if len(ends) != op["expectShapeEnds"]:
+        raise CorrectionError(f"{oid}: {len(ends)} shape ends at {sid}, expectShapeEnds {op['expectShapeEnds']}")
+    for shape, end in sorted(ends):
+        seq, lat, lon = feed.shape_ends[shape][end]
+        st = state(lat, lon)
+        if st == "before":
+            feed.shape_moves[(shape, seq)] = (fmt_coord(lat, after[0]), fmt_coord(lon, after[1]))
+            done.append(dict(shape=shape, end=end, seq=seq, before=[lat, lon], after=list(feed.shape_moves[(shape, seq)])))
+        elif st == "after":
+            already.append(f"{shape}:{end}")
+        else:
+            raise CorrectionError(f"{oid}: {shape} {end} point {lat},{lon} is neither before nor after — "
+                                  f"pfaedle matched it, do not move it")
+    return dict(applied=done, alreadyApplied=already, untouched=other, moveM=round(moved))
+
+
 OP_FUNCS = {"retemplate": op_retemplate, "insert_stop": op_insert_stop, "truncate_after": op_truncate_after,
-            "rename": op_rename, "assert_absent": op_assert_absent}
+            "rename": op_rename, "assert_absent": op_assert_absent, "move_stop": op_move_stop}
 
 
 # --------------------------------------------------------------------------- #
@@ -738,7 +862,7 @@ def run(in_zip: Path, corrections: Path, out_zip: Path, report_path: Path | None
     doc = load_corrections(corrections)
     ops = enabled_ops(doc)
     route_ids = {op["routeId"] for op in ops if op["op"] in TRIP_OPS}
-    route_ids |= {r for op in ops if op["op"] == "assert_absent" for r in op["routeIds"]}
+    route_ids |= {r for op in ops if op["op"] in ("assert_absent", "move_stop") for r in op["routeIds"]}
     with zipfile.ZipFile(in_zip) as src:
         feed, groups_in = load_feed(src, route_ids)
         for rid in route_ids:
@@ -747,6 +871,8 @@ def run(in_zip: Path, corrections: Path, out_zip: Path, report_path: Path | None
         placing = [t for op in ops if op["op"] in ("insert_stop", "truncate_after") for t in op["trips"]
                    if t in feed.trip_line]
         feed.shapes = load_shapes(src, {feed.shape_id(t) for t in placing} - {""})
+        feed.shape_ends = load_shape_ends(src, {feed.shape_id(t) for op in ops if op["op"] == "move_stop"
+                                                for rid in op["routeIds"] for t in feed.route_trips[rid]} - {""})
         results = apply(feed, doc)
         changed = {t for t, rows in feed.new_rows.items() if rows != feed.rows[t]}
         for t in changed:
@@ -763,6 +889,8 @@ def run(in_zip: Path, corrections: Path, out_zip: Path, report_path: Path | None
                     write_member(dst, info, feed.trips.to_bytes())
                 elif info.filename == "stop_times.txt":
                     rows_in, rows_out, groups_out = write_stop_times(src, dst, info, feed, changed_b)
+                elif info.filename == "shapes.txt" and feed.shape_moves:
+                    write_shapes(src, dst, info, feed)
                 else:
                     copy_member(src, dst, info)
         if groups_out != groups_in:
@@ -777,6 +905,7 @@ def run(in_zip: Path, corrections: Path, out_zip: Path, report_path: Path | None
         output=str(out_zip), outputSha256=sha256_file(out_zip),
         operations=results,
         changes=dict(stopsRows=len(feed.stops.changed), tripsRows=len(feed.trips.changed),
+                     shapesRows=len(feed.shape_moves),
                      stopTimesTrips=len(changed), stopTimesRowsIn=rows_in, stopTimesRowsOut=rows_out),
         guards=dict(trips=len(feed.trip_line), stopTimesTrips=groups_out, overtakingPairsChecked=pairs,
                     overtaking=0, monotonicTrips=len(changed)),
@@ -821,6 +950,29 @@ def write_stop_times(src: zipfile.ZipFile, dst: zipfile.ZipFile, info: zipfile.Z
                 cur_out = tid
             w.write(ln)
     return rows_in, rows_out, groups
+
+
+def write_shapes(src: zipfile.ZipFile, dst: zipfile.ZipFile, info: zipfile.ZipInfo, feed: Feed) -> None:
+    """Stream shapes.txt: original bytes except the moved end points (lat/lon only)."""
+    with src.open(info) as f, dst.open(out_info(info), "w", force_zip64=info.file_size > ZIP64_FORCE_BYTES) as w:
+        lines = io.BufferedReader(f, 1 << 20)
+        header_line = next(lines)
+        w.write(header_line)
+        col = {h: i for i, h in enumerate(parse_line(header_line.removeprefix(BOM)))}
+        wanted = {s.encode("utf-8") for s, _ in feed.shape_moves}
+        hit = 0
+        for ln in lines:
+            if trip_id_of(ln, col["shape_id"]) in wanted:
+                r = parse_line(ln)
+                key = (r[col["shape_id"]], int(r[col["shape_pt_sequence"]]))
+                if key in feed.shape_moves:
+                    r[col["shape_pt_lat"]], r[col["shape_pt_lon"]] = feed.shape_moves[key]
+                    w.write(format_line(r, line_end(ln) or b"\n"))
+                    hit += 1
+                    continue
+            w.write(ln)
+    if hit != len(feed.shape_moves):
+        raise CorrectionError(f"shapes.txt: moved {hit} points, expected {len(feed.shape_moves)}")
 
 
 def main() -> int:

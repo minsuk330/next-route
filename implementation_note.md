@@ -5936,4 +5936,22 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 새 시험 5개(분류기 1·어댑터 3·검색 흐름 1)가 수정 전 실패, 수정 뒤 통과. `./gradlew test --tests '*Test' --continue`: 420 클래스 3,165 테스트 실패 0·오류 0·건너뜀 1
 ### 미결
-- 서울역 좌표 출발 본선 승강장 거리 연결(1,887m), 본선 인천공항2터미널 좌표 오류 — 12월 재빌드 때 같이
+- ~~서울역 좌표 출발 본선 승강장 거리 연결(1,887m), 본선 인천공항2터미널 좌표 오류 — 12월 재빌드 때 같이~~ → 아래 재빌드 입력 보정
+
+## 2026-10-22 공항철도 재빌드 입력 보정 — 인천공항2터미널 점·서울역 맞이방 이음 (#495 후속, fix/arex-national-route)
+### 확정
+- **인천공항2터미널 = KTDB 좌표 오류**: `RS_ACC1_S-1-4215` 가 37.460949, 126.467949(공항화물청사 서쪽 들판)로 실제 역에서 3,174 m. 카카오(`subway_station` 1065006511)·OSM node 5919544839 둘 다 3.15 km 넘게 어긋남. 그래서 출구도 못 붙어 `VST_` 가 없고, pfaedle 은 1터미널→이 점을 직선으로 끝냈다(shp_1_6·199 끝, shp_1_386·387 시작)
+- **서울(공항철도) = 좌표는 맞다**(카카오 17 m·OSM 14 m). 원인은 OSM 거리망: 서울역 맞이방(2층 footbridge) 서쪽 계단 → footway w331947399 가 node 11197892119 에서 끝나고 2.8 m 옆 보도 w1201492608(node 11139418710, 청파로 쪽)과 안 이어져 있다. 승강장은 서쪽 주차장 통로에 붙어서 동쪽(역사·광장)에서 오면 남쪽으로 돌아 1,888 m. OSM 원본에서도 최단 1,493 m(우리 다익스트라) — OTP 문제가 아니라 데이터 끊김
+- 나머지 공항철도 12역은 카카오와 85 m 안(공덕 55·홍대입구 85·DMC 82·김포공항 41·청라 47·인천공항1터미널 27, 나머지 ≤17). 200 m 넘는 것은 2터미널 하나
+- pathways 는 쓰지 않는다 — add_station_entrances.py 가 이미 기각(선로 가로지르는 지름길, 좌표 검색에서 승강장이 거리망에서 떨어짐)
+### 보정
+- `subway-corrections.json` op `arex-incheon-airport-t2-point`(새 op `move_stop`): 4215 → 37.468942, 126.433475(OSM node 5919544839, 카카오와 18 m). 같은 점 사본(`VST_`·`VSA_P_`)도 같이, 출구는 그대로. 그 역에서 시작·끝나는 shape 의 끝점(4개)도 옮긴다. `shape_dist_traveled` 는 그대로(OTP 가 정류장을 거리로 놓는다). `expectMoveM`(±5 m)·`expectShapeEnds` 로 가드, 재실행은 alreadyApplied
+- `config/otp-national/osm-patches.osc` + `runner/apply_osm_patches.sh`: 새 footway -495001(11197892119 ↔ 11139418710). 원본 pbf 는 그대로, 새 pbf 를 `OTP_OSM` 으로 넘긴다(build_otp_graph.sh 무변경 — 7호선 브랜치와 충돌 회피). 참조 node 가 원본에 없으면 실패
+### 검증
+- 운영 입력 zip 에 보정 적용(읽기만) → `tools/transit-routing-benchmark/data/input/national-nojeju-202503-shaped-gbis-busrt-entrances-subwayfix.gtfs.zip` sha256 5c87ce76…6664. 입력 대비 좌표 바뀐 행은 stops 4215 1행·shapes 4행뿐. 그 밖 stops 9행·trips 15행·stop_times 30 trip 은 기존 PR-G1 op(이름 바꾸기·급행 보정), transfers·routes·calendar 등은 바이트 동일. trip 수 320,594 그대로, 앞지르기 0
+- 작은 그래프(운영 jar 9dbfb229, OSM 2개 bbox + 공항철도 trip 312개만): 서울역 좌표(126.9707, 37.5547)→공덕 공항철도 도보 1,888 m(28분) → 661 m(13분). 서부 청파로 출발 316 m 그대로. 인천공항2터미널 실제 좌표 ↔ 1터미널: 경로 없음 → 도보 1 m + 공항철도 5분
+### 함정
+- `--from-zip` 재빌드는 출구 단계(2c)를 건너뛰어 4215 에 `VST_`/출구가 생기지 않는다 — "인천공항2터미널역" 이름 검색은 역 id 가 아니라 좌표로 간다(이제 좌표가 맞아 탈 수 있다). 출구까지 원하면 전체 빌드 때 entrances 단계를 다시 돌릴 것
+- 1터미널→2터미널 shape 는 여전히 직선(약 2.9 km). 그림만 거칠고 시간표는 그대로
+### 재빌드 명령(7호선 보충과 같이)
+- `runner/apply_osm_patches.sh data/input/south-korea-260929-nojeju.osm.pbf config/otp-national/osm-patches.osc data/input/south-korea-260929-nojeju-osmfix.osm.pbf` 뒤 `OTP_OSM=data/input/south-korea-260929-nojeju-osmfix.osm.pbf runner/build_otp_graph.sh --profile national --from-zip … --add-trips … --subway-corrections config/otp-national/subway-corrections.json …`. 서버 8cd67f40(직통 제외)과 같이 배포

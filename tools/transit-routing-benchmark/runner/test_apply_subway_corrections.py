@@ -104,7 +104,8 @@ def corrections(**over) -> dict:
     return doc
 
 
-def write_feed(path: Path, trips: dict | None = None) -> None:
+def write_feed(path: Path, trips: dict | None = None, extra_stops: tuple[str, ...] = (),
+               extra_shapes: str = "") -> None:
     trips = trips if trips is not None else TRIPS
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("agency.txt", "agency_id,agency_name,agency_url,agency_timezone\nA1,a,http://a,Asia/Seoul\n")
@@ -115,20 +116,20 @@ def write_feed(path: Path, trips: dict | None = None) -> None:
             (f'"{r}",B1,{t},,{s}\n' if r == "BR_1" else f"{r},B1,{t},,{s}\n") for t, (r, s, _) in trips.items()))
         z.writestr("stops.txt", "stop_id,stop_name,stop_lat,stop_lon,location_type,parent_station\n"
                    + "".join(f"{s},{s[-2:]},{lat},{lon},0,\n" for s, lat, lon, _ in M + N + K + A)
-                   + "\n".join(STOPS_EXTRA) + "\n")
+                   + "\n".join(STOPS_EXTRA + list(extra_stops)) + "\n")
         z.writestr("stop_times.txt", ST_HEADER + "\n" + "".join(l + "\n" for _, _, ls in trips.values() for l in ls))
         shapes = "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled\n"
         for sid, pts in (("shpM", M), ("shpMx", M), ("shpN", N), ("shpK", K), ("shpA", A)):
             shapes += "".join(f"{sid},{lat},{lon},{i + 1},{d!r}\n" for i, (_, lat, lon, d) in enumerate(pts))
-        z.writestr("shapes.txt", shapes)
+        z.writestr("shapes.txt", shapes + extra_shapes)
 
 
 class Fixture:
-    def __init__(self, doc: dict | None = None, trips: dict | None = None):
+    def __init__(self, doc: dict | None = None, trips: dict | None = None, **feed_extra):
         self.tmp = tempfile.TemporaryDirectory()
         d = Path(self.tmp.name)
         self.inp, self.out, self.cfg, self.rep = d / "in.zip", d / "out.zip", d / "c.json", d / "r.json"
-        write_feed(self.inp, trips)
+        write_feed(self.inp, trips, **feed_extra)
         self.cfg.write_text(json.dumps(doc or corrections(), ensure_ascii=False), encoding="utf-8")
 
     def run(self, inp: Path | None = None, out: Path | None = None) -> dict:
@@ -208,7 +209,7 @@ class AppliesOperations(unittest.TestCase):
         self.assertIn('BUS1,07:00:00,07:00:00,"BS_1",1,,0,1,,1', b["stop_times.txt"].decode())
         diff = [(x, y) for x, y in zip(a["trips.txt"].decode().splitlines(), b["trips.txt"].decode().splitlines()) if x != y]
         self.assertEqual(diff, [("R4D,B1,X1,,shpMx", "R4D,B1,X1,,shpM")])
-        self.assertEqual(self.rep["changes"], dict(stopsRows=3, tripsRows=1, stopTimesTrips=3,
+        self.assertEqual(self.rep["changes"], dict(stopsRows=3, tripsRows=1, shapesRows=0, stopTimesTrips=3,
                                                    stopTimesRowsIn=3 + 3 + 4, stopTimesRowsOut=5 + 4 + 3))
 
     def test_rerun_on_output_is_already_applied_and_byte_identical(self):
@@ -288,6 +289,96 @@ class Fails(unittest.TestCase):
         self.assertIn("not a metro route", self.run_doc(doc))
 
 
+# 공항철도 인천공항2터미널(#495): KTDB 점이 3 km 어긋났고 pfaedle 이 그 점에서 shape 를 끝냈다. 여기서는 A3 이 그 역이다.
+A3 = A[3][0]
+A3_AFTER = dict(lat=37.51, lon=127.33)  # 1113 m 북쪽
+MOVE_STOPS = (f"VST_{A3},A3,37.5,127.33,1,", f"VSA_P_{A3},A3,37.5000000,127.3300000,0,VSA_X",
+              f"VEX_n9_{A3},A3역 1번 출구,37.4995,127.3302,0,VST_{A3}")
+# 하행(A0→A3)은 shpA 의 끝, 상행(A3→A0)은 shpAU 의 시작이 A3 위에 있다
+MOVE_SHAPES = "".join(f"shpAU,{lat},{lon},{i + 1},{3000.0 - d!r}\n" for i, (_, lat, lon, d) in enumerate(reversed(A)))
+MOVE_TRIPS = dict(TRIPS, AU1=("RAP", "shpAU", trip("AU1", "05:30:00", ids(A, 3, 2, 1, 0), [HOP] * 3)))
+
+
+def move_doc(**over) -> dict:
+    op = dict(id="t2", op="move_stop", stopId=A3, routeIds=["RAP"], before=dict(lat=37.5, lon=127.33),
+              after=A3_AFTER, expectMoveM=1113, expectShapeEnds=2, source="test")
+    op.update(over)
+    return {"version": "test", "operations": [op]}
+
+
+class MovesStop(unittest.TestCase):
+    def setUp(self):
+        self.f = Fixture(move_doc(), MOVE_TRIPS, extra_stops=MOVE_STOPS, extra_shapes=MOVE_SHAPES)
+        self.rep = self.f.run()
+
+    def tearDown(self):
+        self.f.tmp.cleanup()
+
+    def stops(self, zip_path: Path | None = None) -> dict[str, list[str]]:
+        return {l.split(",")[0]: l.split(",") for l in self.f.lines("stops.txt", zip_path)[1:] if l}
+
+    def test_platform_and_same_point_copies_move_exits_stay(self):
+        st = self.stops()
+        self.assertEqual(st[A3][2:4], ["37.510000", "127.330000"])
+        self.assertEqual(st[f"VST_{A3}"][2:4], ["37.510000", "127.330000"])
+        self.assertEqual(st[f"VSA_P_{A3}"][2:4], ["37.5100000", "127.3300000"])  # 7 decimals kept
+        self.assertEqual(st[f"VEX_n9_{A3}"][2:4], ["37.4995", "127.3302"])
+        op = self.rep["operations"][0]
+        self.assertEqual((op["status"], op["moveM"]), ("applied", 1113))
+        self.assertEqual(op["untouched"], [])  # exits are not copies of the platform point
+
+    def test_shape_end_points_on_the_stop_move_dist_and_other_points_stay(self):
+        def rows(z: Path | None) -> dict[str, list[list[str]]]:
+            out: dict[str, list[list[str]]] = {}
+            for l in self.f.lines("shapes.txt", z)[1:]:
+                out.setdefault(l.split(",")[0], []).append(l.split(","))
+            return out
+        a, b = rows(self.f.inp), rows(None)
+        self.assertEqual(b["shpA"][-1], ["shpA", "37.510000", "127.330000", "4", "3000.0"])
+        self.assertEqual(b["shpAU"][0], ["shpAU", "37.510000", "127.330000", "1", "0.0"])
+        self.assertEqual(b["shpA"][:-1], a["shpA"][:-1])
+        self.assertEqual(b["shpAU"][1:], a["shpAU"][1:])
+        for sid in ("shpM", "shpMx", "shpN", "shpK"):
+            self.assertEqual(a[sid], b[sid], sid)
+        self.assertEqual(self.rep["changes"]["shapesRows"], 2)
+        self.assertEqual(self.rep["changes"]["stopTimesTrips"], 0)
+        self.assertEqual(self.f.lines("stop_times.txt", self.f.inp), self.f.lines("stop_times.txt"))
+
+    def test_rerun_is_already_applied_and_byte_identical(self):
+        again = Path(self.f.tmp.name) / "again.zip"
+        rep2 = self.f.run(inp=self.f.out, out=again)
+        self.assertEqual(rep2["operations"][0]["status"], "alreadyApplied")
+        self.assertEqual(self.f.out.read_bytes(), again.read_bytes())
+
+
+class MoveStopFails(unittest.TestCase):
+    def run_doc(self, doc: dict) -> str:
+        f = Fixture(doc, MOVE_TRIPS, extra_stops=MOVE_STOPS, extra_shapes=MOVE_SHAPES)
+        try:
+            with self.assertRaises(asc.CorrectionError) as cm:
+                f.run()
+            self.assertFalse(f.out.exists(), "no output on failure")
+            return str(cm.exception)
+        finally:
+            f.tmp.cleanup()
+
+    def test_move_distance_differs_from_expect(self):
+        self.assertIn("expectMoveM", self.run_doc(move_doc(expectMoveM=3000)))
+
+    def test_stop_in_neither_state(self):
+        self.assertIn("neither before nor after", self.run_doc(move_doc(before=dict(lat=37.49, lon=127.33),
+                                                                         expectMoveM=2226)))
+
+    def test_shape_end_count_differs(self):
+        self.assertIn("expectShapeEnds", self.run_doc(move_doc(expectShapeEnds=1)))
+
+    def test_not_a_metro_platform(self):
+        self.assertIn("not a metro platform", self.run_doc(move_doc(stopId="BS_2")))
+
+    def test_source_required(self):
+        self.assertIn("source", self.run_doc(move_doc(source=" ")))
+
+
 class DisabledOp(unittest.TestCase):
     def test_disabled_op_is_validated_but_not_applied(self):
         f = Fixture(corrections(truncate=dict(enabled=False, disabledReason="not identified")))
@@ -311,6 +402,10 @@ class RealConfig(unittest.TestCase):
         ops = {o["id"]: o for o in doc["operations"]}
         self.assertEqual(ops["gyeongwon-express-dukgye-down"]["between"],
                          list(reversed(ops["gyeongwon-express-dukgye-up"]["between"])))
+        t2 = ops["arex-incheon-airport-t2-point"]
+        self.assertEqual((t2["op"], t2["stopId"]), ("move_stop", "RS_ACC1_S-1-4215"))
+        moved = asc.metres((t2["before"]["lat"], t2["before"]["lon"]), (t2["after"]["lat"], t2["after"]["lon"]))
+        self.assertLessEqual(abs(moved - t2["expectMoveM"]), asc.MOVE_TOLERANCE_M)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OTP 거리망 OSM 손보정 (#495). 그래프 빌드 전에 runner/apply_osm_patches.sh 로 OTP_OSM 에 적용한다.
+  원천 OSM 은 고치지 않는다(Geofabrik 260929 위에 덧댄다). 새 way 는 음수 id.
+
+  -495001 서울역 맞이방 서쪽 계단 끝 이음:
+    맞이방(2층 footbridge w331947402·w331947866 …) → 계단 w331947401 → footway w331947399 가 서부역 쪽
+    node 11197892119(37.5553605, 126.9692054)에서 끝나고, 2.8 m 옆 footway w1201492608 의
+    node 11139418710(37.5553350, 126.9692063, 청파로 횡단보도로 이어짐)과 안 붙어 있다.
+    그래서 동쪽(역사·광장·1·4호선 출구)에서 서쪽 공항철도 서울 승강장(RS_ACC1_S-1-4201, 서쪽 주차장 통로에 붙음)까지
+    OTP 가 남쪽으로 돌아 1,888 m 를 걷게 했다(운영 OTP 2026-10-22, 직선 150 m). 맞이방은 개찰구 밖 공용 통로다.
+-->
+<osmChange version="0.6" generator="nextroute">
+  <create>
+    <way id="-495001" version="1">
+      <nd ref="11197892119"/>
+      <nd ref="11139418710"/>
+      <tag k="highway" v="footway"/>
+      <tag k="note" v="nextroute #495: 서울역 맞이방 서쪽 계단 끝과 청파로 쪽 보도 2.8 m 이음"/>
+    </way>
+  </create>
+</osmChange>
