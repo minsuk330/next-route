@@ -145,6 +145,41 @@ class SubwayDirectionNormalizerTest {
     }
 
     /**
+     * 2호선 성수지선 열차는 위치 API 내·외선이 도착 API 와 반대다(2026-10-22 운영 실측, 같은 열차번호 대조 4/4: 1602 용두·용답
+     * {@code updnLine=0}·종착 성수지선 ↔ 도착 {@code 외선 "성수지선행 - 용두방면"}, 1599·1601 {@code updnLine=1}·종착 신설동 ↔
+     * 도착 {@code 내선 "신설동행"}). 본선·신정지선은 그대로다.
+     */
+    @Test
+    void seongsuBranchPositionIsInverted() {
+        assertThat(SubwayDirectionNormalizer.fromPositionRow("1002", "0", "1002002113", "1002000211", "성수지선"))
+                .as("용두, 성수로 가는 1602").isEqualTo("외선");
+        assertThat(SubwayDirectionNormalizer.fromPositionRow("1002", "1", "1002002111", "1002002114", "신설동"))
+                .as("용답, 신설동으로 가는 1601").isEqualTo("내선");
+        assertThat(SubwayDirectionNormalizer.fromPositionRow("1002", "1", "1002002114", "1002002114", "신설동"))
+                .as("신설동 도착 1599").isEqualTo("내선");
+        assertThat(SubwayDirectionNormalizer.fromPositionRow("1002", "1", "1002000211", "1002002114", "신설동"))
+                .as("성수(본선 역 id)에서 신설동으로 떠나는 지선 열차 — 종착으로 가린다").isEqualTo("내선");
+        assertThat(SubwayDirectionNormalizer.fromPositionRow("1002", "0", "1002000211", "1002000211", "성수지선"))
+                .as("성수에 들어온 지선 열차").isEqualTo("외선");
+    }
+
+    @Test
+    void otherPositionRowsKeepTheLineRule() {
+        assertThat(SubwayDirectionNormalizer.fromPositionRow("1002", "0", "1002000210", "1002000211", "성수종착"))
+                .as("본선 뚝섬, 성수종착 3224").isEqualTo("내선");
+        assertThat(SubwayDirectionNormalizer.fromPositionRow("1002", "1", "1002000212", "1002000211", "성수종착"))
+                .as("본선 건대입구 2241").isEqualTo("외선");
+        assertThat(SubwayDirectionNormalizer.fromPositionRow("1002", "0", "1002002341", "1002002343", "까치산"))
+                .as("신정지선 도림천 5600 — 도착 API 내선 까치산행과 같다").isEqualTo("내선");
+        assertThat(SubwayDirectionNormalizer.fromPositionRow("1002", "1", "1002002341", "1002000234", "신도림지선"))
+                .as("신정지선 도림천 5597 — 도착 API 외선 신도림지선행과 같다").isEqualTo("외선");
+        assertThat(SubwayDirectionNormalizer.fromPositionRow("1009", "1", "1009000917", "1009000938", "중앙보훈병원"))
+                .as("9호선 반전은 그대로").isEqualTo("상행");
+        assertThat(SubwayDirectionNormalizer.fromPositionRow("1002", "2", "1002002113", "1002000211", "성수지선"))
+                .as("모르는 값은 지선에서도 null").isNull();
+    }
+
+    /**
      * feed 라벨이 도착 API 와 반대인 노선은 검색 방향에서도 뒤집는다(#488). 실측 2026-10-21 도착 API: 신논현 9호선 상행
      * 중앙보훈병원행·하행 개화행, 서울역 공항철도 상행 인천공항2터미널행, 서울역 경의중앙선 상행 문산행, 용답 2호선 외선 성수행.
      */

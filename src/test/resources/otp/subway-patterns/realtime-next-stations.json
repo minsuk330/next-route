@@ -1,0 +1,9294 @@
+{
+"_source": "서울 realtimeStationArrival/ALL 운영 키 원문 11회(2026-10-22T14:03:37+0900~2026-10-22T14:41:07+0900). 행마다 (subwayId, statnNm, updnLine, trainLineNm 의 'Y방면') 건수. Y 가 조회역 자신인 행(종착)은 뺐다",
+"next": [
+{
+"lineId": "1001",
+"stationName": "가능",
+"direction": "상행",
+"nextStationName": "녹양",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "가능",
+"direction": "하행",
+"nextStationName": "의정부",
+"n": 27
+},
+{
+"lineId": "1001",
+"stationName": "가산디지털단지",
+"direction": "상행",
+"nextStationName": "구로",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "가산디지털단지",
+"direction": "하행",
+"nextStationName": "독산",
+"n": 43
+},
+{
+"lineId": "1001",
+"stationName": "간석",
+"direction": "상행",
+"nextStationName": "동암",
+"n": 26
+},
+{
+"lineId": "1001",
+"stationName": "간석",
+"direction": "하행",
+"nextStationName": "주안",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "개봉",
+"direction": "상행",
+"nextStationName": "구일",
+"n": 31
+},
+{
+"lineId": "1001",
+"stationName": "개봉",
+"direction": "하행",
+"nextStationName": "오류동",
+"n": 40
+},
+{
+"lineId": "1001",
+"stationName": "관악",
+"direction": "상행",
+"nextStationName": "석수",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "관악",
+"direction": "하행",
+"nextStationName": "안양",
+"n": 43
+},
+{
+"lineId": "1001",
+"stationName": "광운대",
+"direction": "상행",
+"nextStationName": "월계",
+"n": 43
+},
+{
+"lineId": "1001",
+"stationName": "광운대",
+"direction": "하행",
+"nextStationName": "석계",
+"n": 28
+},
+{
+"lineId": "1001",
+"stationName": "구로",
+"direction": "상행",
+"nextStationName": "신도림",
+"n": 38
+},
+{
+"lineId": "1001",
+"stationName": "구로",
+"direction": "하행",
+"nextStationName": "가산디지털단지",
+"n": 10
+},
+{
+"lineId": "1001",
+"stationName": "구로",
+"direction": "하행",
+"nextStationName": "구일",
+"n": 34
+},
+{
+"lineId": "1001",
+"stationName": "구일",
+"direction": "상행",
+"nextStationName": "구로",
+"n": 31
+},
+{
+"lineId": "1001",
+"stationName": "구일",
+"direction": "하행",
+"nextStationName": "개봉",
+"n": 37
+},
+{
+"lineId": "1001",
+"stationName": "군포",
+"direction": "상행",
+"nextStationName": "금정",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "군포",
+"direction": "하행",
+"nextStationName": "당정",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "금정",
+"direction": "상행",
+"nextStationName": "명학",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "금정",
+"direction": "하행",
+"nextStationName": "군포",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "금천구청",
+"direction": "상행",
+"nextStationName": "독산",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "금천구청",
+"direction": "하행",
+"nextStationName": "석수",
+"n": 41
+},
+{
+"lineId": "1001",
+"stationName": "남영",
+"direction": "상행",
+"nextStationName": "서울",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "남영",
+"direction": "하행",
+"nextStationName": "용산",
+"n": 33
+},
+{
+"lineId": "1001",
+"stationName": "노량진",
+"direction": "상행",
+"nextStationName": "용산",
+"n": 37
+},
+{
+"lineId": "1001",
+"stationName": "노량진",
+"direction": "하행",
+"nextStationName": "대방",
+"n": 37
+},
+{
+"lineId": "1001",
+"stationName": "녹양",
+"direction": "상행",
+"nextStationName": "양주",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "녹양",
+"direction": "하행",
+"nextStationName": "가능",
+"n": 26
+},
+{
+"lineId": "1001",
+"stationName": "녹천",
+"direction": "상행",
+"nextStationName": "창동",
+"n": 43
+},
+{
+"lineId": "1001",
+"stationName": "녹천",
+"direction": "하행",
+"nextStationName": "월계",
+"n": 29
+},
+{
+"lineId": "1001",
+"stationName": "당정",
+"direction": "상행",
+"nextStationName": "군포",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "당정",
+"direction": "하행",
+"nextStationName": "의왕",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "대방",
+"direction": "상행",
+"nextStationName": "노량진",
+"n": 38
+},
+{
+"lineId": "1001",
+"stationName": "대방",
+"direction": "하행",
+"nextStationName": "신길",
+"n": 38
+},
+{
+"lineId": "1001",
+"stationName": "덕계",
+"direction": "상행",
+"nextStationName": "덕정",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "덕계",
+"direction": "하행",
+"nextStationName": "양주",
+"n": 22
+},
+{
+"lineId": "1001",
+"stationName": "덕정",
+"direction": "상행",
+"nextStationName": "지행",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "덕정",
+"direction": "하행",
+"nextStationName": "덕계",
+"n": 21
+},
+{
+"lineId": "1001",
+"stationName": "도봉",
+"direction": "상행",
+"nextStationName": "도봉산",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "도봉",
+"direction": "하행",
+"nextStationName": "방학",
+"n": 28
+},
+{
+"lineId": "1001",
+"stationName": "도봉산",
+"direction": "상행",
+"nextStationName": "망월사",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "도봉산",
+"direction": "하행",
+"nextStationName": "도봉",
+"n": 28
+},
+{
+"lineId": "1001",
+"stationName": "도원",
+"direction": "상행",
+"nextStationName": "제물포",
+"n": 24
+},
+{
+"lineId": "1001",
+"stationName": "도원",
+"direction": "하행",
+"nextStationName": "동인천",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "도화",
+"direction": "상행",
+"nextStationName": "주안",
+"n": 25
+},
+{
+"lineId": "1001",
+"stationName": "도화",
+"direction": "하행",
+"nextStationName": "제물포",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "독산",
+"direction": "상행",
+"nextStationName": "가산디지털단지",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "독산",
+"direction": "하행",
+"nextStationName": "금천구청",
+"n": 43
+},
+{
+"lineId": "1001",
+"stationName": "동대문",
+"direction": "상행",
+"nextStationName": "동묘앞",
+"n": 49
+},
+{
+"lineId": "1001",
+"stationName": "동대문",
+"direction": "하행",
+"nextStationName": "종로5가",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "동두천",
+"direction": "상행",
+"nextStationName": "소요산",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "동두천",
+"direction": "하행",
+"nextStationName": "보산",
+"n": 15
+},
+{
+"lineId": "1001",
+"stationName": "동두천중앙",
+"direction": "상행",
+"nextStationName": "보산",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "동두천중앙",
+"direction": "하행",
+"nextStationName": "지행",
+"n": 21
+},
+{
+"lineId": "1001",
+"stationName": "동묘앞",
+"direction": "상행",
+"nextStationName": "신설동",
+"n": 51
+},
+{
+"lineId": "1001",
+"stationName": "동묘앞",
+"direction": "하행",
+"nextStationName": "동대문",
+"n": 43
+},
+{
+"lineId": "1001",
+"stationName": "동암",
+"direction": "상행",
+"nextStationName": "백운",
+"n": 27
+},
+{
+"lineId": "1001",
+"stationName": "동암",
+"direction": "하행",
+"nextStationName": "간석",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "동인천",
+"direction": "상행",
+"nextStationName": "도원",
+"n": 21
+},
+{
+"lineId": "1001",
+"stationName": "동인천",
+"direction": "하행",
+"nextStationName": "인천",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "두정",
+"direction": "상행",
+"nextStationName": "직산",
+"n": 33
+},
+{
+"lineId": "1001",
+"stationName": "두정",
+"direction": "하행",
+"nextStationName": "천안",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "망월사",
+"direction": "상행",
+"nextStationName": "회룡",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "망월사",
+"direction": "하행",
+"nextStationName": "도봉산",
+"n": 28
+},
+{
+"lineId": "1001",
+"stationName": "명학",
+"direction": "상행",
+"nextStationName": "안양",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "명학",
+"direction": "하행",
+"nextStationName": "금정",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "방학",
+"direction": "상행",
+"nextStationName": "도봉",
+"n": 43
+},
+{
+"lineId": "1001",
+"stationName": "방학",
+"direction": "하행",
+"nextStationName": "창동",
+"n": 28
+},
+{
+"lineId": "1001",
+"stationName": "배방",
+"direction": "상행",
+"nextStationName": "탕정",
+"n": 16
+},
+{
+"lineId": "1001",
+"stationName": "배방",
+"direction": "하행",
+"nextStationName": "온양온천",
+"n": 25
+},
+{
+"lineId": "1001",
+"stationName": "백운",
+"direction": "상행",
+"nextStationName": "부평",
+"n": 27
+},
+{
+"lineId": "1001",
+"stationName": "백운",
+"direction": "하행",
+"nextStationName": "동암",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "병점",
+"direction": "상행",
+"nextStationName": "세류",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "병점",
+"direction": "하행",
+"nextStationName": "세마",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "보산",
+"direction": "상행",
+"nextStationName": "동두천",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "보산",
+"direction": "하행",
+"nextStationName": "동두천중앙",
+"n": 15
+},
+{
+"lineId": "1001",
+"stationName": "봉명",
+"direction": "상행",
+"nextStationName": "천안",
+"n": 20
+},
+{
+"lineId": "1001",
+"stationName": "봉명",
+"direction": "하행",
+"nextStationName": "쌍용(나사렛대)",
+"n": 19
+},
+{
+"lineId": "1001",
+"stationName": "부개",
+"direction": "상행",
+"nextStationName": "송내",
+"n": 28
+},
+{
+"lineId": "1001",
+"stationName": "부개",
+"direction": "하행",
+"nextStationName": "부평",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "부천",
+"direction": "상행",
+"nextStationName": "소사",
+"n": 29
+},
+{
+"lineId": "1001",
+"stationName": "부천",
+"direction": "하행",
+"nextStationName": "중동",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "부평",
+"direction": "상행",
+"nextStationName": "부개",
+"n": 28
+},
+{
+"lineId": "1001",
+"stationName": "부평",
+"direction": "하행",
+"nextStationName": "백운",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "서울",
+"direction": "상행",
+"nextStationName": "시청",
+"n": 48
+},
+{
+"lineId": "1001",
+"stationName": "서울",
+"direction": "하행",
+"nextStationName": "남영",
+"n": 51
+},
+{
+"lineId": "1001",
+"stationName": "서정리",
+"direction": "상행",
+"nextStationName": "송탄",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "서정리",
+"direction": "하행",
+"nextStationName": "지제",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "석계",
+"direction": "상행",
+"nextStationName": "광운대",
+"n": 43
+},
+{
+"lineId": "1001",
+"stationName": "석계",
+"direction": "하행",
+"nextStationName": "신이문",
+"n": 25
+},
+{
+"lineId": "1001",
+"stationName": "석수",
+"direction": "상행",
+"nextStationName": "금천구청",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "석수",
+"direction": "하행",
+"nextStationName": "관악",
+"n": 41
+},
+{
+"lineId": "1001",
+"stationName": "성균관대",
+"direction": "상행",
+"nextStationName": "의왕",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "성균관대",
+"direction": "하행",
+"nextStationName": "화서",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "성환",
+"direction": "상행",
+"nextStationName": "평택",
+"n": 39
+},
+{
+"lineId": "1001",
+"stationName": "성환",
+"direction": "하행",
+"nextStationName": "직산",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "세류",
+"direction": "상행",
+"nextStationName": "수원",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "세류",
+"direction": "하행",
+"nextStationName": "병점",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "세마",
+"direction": "상행",
+"nextStationName": "병점",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "세마",
+"direction": "하행",
+"nextStationName": "오산대",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "소사",
+"direction": "상행",
+"nextStationName": "역곡",
+"n": 29
+},
+{
+"lineId": "1001",
+"stationName": "소사",
+"direction": "하행",
+"nextStationName": "부천",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "소요산",
+"direction": "상행",
+"nextStationName": "청산",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "소요산",
+"direction": "하행",
+"nextStationName": "동두천",
+"n": 12
+},
+{
+"lineId": "1001",
+"stationName": "송내",
+"direction": "상행",
+"nextStationName": "중동",
+"n": 28
+},
+{
+"lineId": "1001",
+"stationName": "송내",
+"direction": "하행",
+"nextStationName": "부개",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "송탄",
+"direction": "상행",
+"nextStationName": "진위",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "송탄",
+"direction": "하행",
+"nextStationName": "서정리",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "수원",
+"direction": "상행",
+"nextStationName": "화서",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "수원",
+"direction": "하행",
+"nextStationName": "세류",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "시청",
+"direction": "상행",
+"nextStationName": "종각",
+"n": 52
+},
+{
+"lineId": "1001",
+"stationName": "시청",
+"direction": "하행",
+"nextStationName": "서울",
+"n": 49
+},
+{
+"lineId": "1001",
+"stationName": "신길",
+"direction": "상행",
+"nextStationName": "대방",
+"n": 37
+},
+{
+"lineId": "1001",
+"stationName": "신길",
+"direction": "하행",
+"nextStationName": "영등포",
+"n": 38
+},
+{
+"lineId": "1001",
+"stationName": "신도림",
+"direction": "상행",
+"nextStationName": "영등포",
+"n": 37
+},
+{
+"lineId": "1001",
+"stationName": "신도림",
+"direction": "하행",
+"nextStationName": "구로",
+"n": 39
+},
+{
+"lineId": "1001",
+"stationName": "신설동",
+"direction": "상행",
+"nextStationName": "제기동",
+"n": 52
+},
+{
+"lineId": "1001",
+"stationName": "신설동",
+"direction": "하행",
+"nextStationName": "동묘앞",
+"n": 42
+},
+{
+"lineId": "1001",
+"stationName": "신이문",
+"direction": "상행",
+"nextStationName": "석계",
+"n": 43
+},
+{
+"lineId": "1001",
+"stationName": "신이문",
+"direction": "하행",
+"nextStationName": "외대앞",
+"n": 25
+},
+{
+"lineId": "1001",
+"stationName": "신창",
+"direction": "상행",
+"nextStationName": "온양온천",
+"n": 8
+},
+{
+"lineId": "1001",
+"stationName": "쌍용(나사렛대)",
+"direction": "상행",
+"nextStationName": "봉명",
+"n": 19
+},
+{
+"lineId": "1001",
+"stationName": "쌍용(나사렛대)",
+"direction": "하행",
+"nextStationName": "아산",
+"n": 20
+},
+{
+"lineId": "1001",
+"stationName": "아산",
+"direction": "상행",
+"nextStationName": "쌍용(나사렛대)",
+"n": 18
+},
+{
+"lineId": "1001",
+"stationName": "아산",
+"direction": "하행",
+"nextStationName": "탕정",
+"n": 22
+},
+{
+"lineId": "1001",
+"stationName": "안양",
+"direction": "상행",
+"nextStationName": "관악",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "안양",
+"direction": "하행",
+"nextStationName": "명학",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "양주",
+"direction": "상행",
+"nextStationName": "덕계",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "양주",
+"direction": "하행",
+"nextStationName": "녹양",
+"n": 26
+},
+{
+"lineId": "1001",
+"stationName": "역곡",
+"direction": "상행",
+"nextStationName": "온수",
+"n": 30
+},
+{
+"lineId": "1001",
+"stationName": "역곡",
+"direction": "하행",
+"nextStationName": "소사",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "연천",
+"direction": "하행",
+"nextStationName": "전곡",
+"n": 4
+},
+{
+"lineId": "1001",
+"stationName": "영등포",
+"direction": "상행",
+"nextStationName": "신길",
+"n": 38
+},
+{
+"lineId": "1001",
+"stationName": "영등포",
+"direction": "하행",
+"nextStationName": "신도림",
+"n": 36
+},
+{
+"lineId": "1001",
+"stationName": "오류동",
+"direction": "상행",
+"nextStationName": "개봉",
+"n": 30
+},
+{
+"lineId": "1001",
+"stationName": "오류동",
+"direction": "하행",
+"nextStationName": "온수",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "오산",
+"direction": "상행",
+"nextStationName": "오산대",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "오산",
+"direction": "하행",
+"nextStationName": "진위",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "오산대",
+"direction": "상행",
+"nextStationName": "세마",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "오산대",
+"direction": "하행",
+"nextStationName": "오산",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "온수",
+"direction": "상행",
+"nextStationName": "오류동",
+"n": 30
+},
+{
+"lineId": "1001",
+"stationName": "온수",
+"direction": "하행",
+"nextStationName": "역곡",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "온양온천",
+"direction": "상행",
+"nextStationName": "배방",
+"n": 14
+},
+{
+"lineId": "1001",
+"stationName": "온양온천",
+"direction": "하행",
+"nextStationName": "신창",
+"n": 26
+},
+{
+"lineId": "1001",
+"stationName": "외대앞",
+"direction": "상행",
+"nextStationName": "신이문",
+"n": 43
+},
+{
+"lineId": "1001",
+"stationName": "외대앞",
+"direction": "하행",
+"nextStationName": "회기",
+"n": 25
+},
+{
+"lineId": "1001",
+"stationName": "용산",
+"direction": "상행",
+"nextStationName": "남영",
+"n": 38
+},
+{
+"lineId": "1001",
+"stationName": "용산",
+"direction": "하행",
+"nextStationName": "노량진",
+"n": 37
+},
+{
+"lineId": "1001",
+"stationName": "월계",
+"direction": "상행",
+"nextStationName": "녹천",
+"n": 43
+},
+{
+"lineId": "1001",
+"stationName": "월계",
+"direction": "하행",
+"nextStationName": "광운대",
+"n": 29
+},
+{
+"lineId": "1001",
+"stationName": "의왕",
+"direction": "상행",
+"nextStationName": "당정",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "의왕",
+"direction": "하행",
+"nextStationName": "성균관대",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "의정부",
+"direction": "상행",
+"nextStationName": "가능",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "의정부",
+"direction": "하행",
+"nextStationName": "회룡",
+"n": 27
+},
+{
+"lineId": "1001",
+"stationName": "인천",
+"direction": "상행",
+"nextStationName": "동인천",
+"n": 17
+},
+{
+"lineId": "1001",
+"stationName": "전곡",
+"direction": "상행",
+"nextStationName": "연천",
+"n": 14
+},
+{
+"lineId": "1001",
+"stationName": "전곡",
+"direction": "하행",
+"nextStationName": "청산",
+"n": 8
+},
+{
+"lineId": "1001",
+"stationName": "제기동",
+"direction": "상행",
+"nextStationName": "청량리",
+"n": 53
+},
+{
+"lineId": "1001",
+"stationName": "제기동",
+"direction": "하행",
+"nextStationName": "신설동",
+"n": 38
+},
+{
+"lineId": "1001",
+"stationName": "제물포",
+"direction": "상행",
+"nextStationName": "도화",
+"n": 25
+},
+{
+"lineId": "1001",
+"stationName": "제물포",
+"direction": "하행",
+"nextStationName": "도원",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "종각",
+"direction": "상행",
+"nextStationName": "종로3가",
+"n": 47
+},
+{
+"lineId": "1001",
+"stationName": "종각",
+"direction": "하행",
+"nextStationName": "시청",
+"n": 49
+},
+{
+"lineId": "1001",
+"stationName": "종로3가",
+"direction": "상행",
+"nextStationName": "종로5가",
+"n": 49
+},
+{
+"lineId": "1001",
+"stationName": "종로3가",
+"direction": "하행",
+"nextStationName": "종각",
+"n": 47
+},
+{
+"lineId": "1001",
+"stationName": "종로5가",
+"direction": "상행",
+"nextStationName": "동대문",
+"n": 50
+},
+{
+"lineId": "1001",
+"stationName": "종로5가",
+"direction": "하행",
+"nextStationName": "종로3가",
+"n": 48
+},
+{
+"lineId": "1001",
+"stationName": "주안",
+"direction": "상행",
+"nextStationName": "간석",
+"n": 26
+},
+{
+"lineId": "1001",
+"stationName": "주안",
+"direction": "하행",
+"nextStationName": "도화",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "중동",
+"direction": "상행",
+"nextStationName": "부천",
+"n": 28
+},
+{
+"lineId": "1001",
+"stationName": "중동",
+"direction": "하행",
+"nextStationName": "송내",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "지제",
+"direction": "상행",
+"nextStationName": "서정리",
+"n": 41
+},
+{
+"lineId": "1001",
+"stationName": "지제",
+"direction": "하행",
+"nextStationName": "평택",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "지행",
+"direction": "상행",
+"nextStationName": "동두천중앙",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "지행",
+"direction": "하행",
+"nextStationName": "덕정",
+"n": 21
+},
+{
+"lineId": "1001",
+"stationName": "직산",
+"direction": "상행",
+"nextStationName": "성환",
+"n": 35
+},
+{
+"lineId": "1001",
+"stationName": "직산",
+"direction": "하행",
+"nextStationName": "두정",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "진위",
+"direction": "상행",
+"nextStationName": "오산",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "진위",
+"direction": "하행",
+"nextStationName": "송탄",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "창동",
+"direction": "상행",
+"nextStationName": "방학",
+"n": 43
+},
+{
+"lineId": "1001",
+"stationName": "창동",
+"direction": "하행",
+"nextStationName": "녹천",
+"n": 29
+},
+{
+"lineId": "1001",
+"stationName": "천안",
+"direction": "상행",
+"nextStationName": "두정",
+"n": 30
+},
+{
+"lineId": "1001",
+"stationName": "천안",
+"direction": "하행",
+"nextStationName": "봉명",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "청량리",
+"direction": "상행",
+"nextStationName": "회기",
+"n": 66
+},
+{
+"lineId": "1001",
+"stationName": "청량리",
+"direction": "하행",
+"nextStationName": "제기동",
+"n": 42
+},
+{
+"lineId": "1001",
+"stationName": "청산",
+"direction": "상행",
+"nextStationName": "전곡",
+"n": 12
+},
+{
+"lineId": "1001",
+"stationName": "청산",
+"direction": "하행",
+"nextStationName": "소요산",
+"n": 9
+},
+{
+"lineId": "1001",
+"stationName": "탕정",
+"direction": "상행",
+"nextStationName": "아산",
+"n": 17
+},
+{
+"lineId": "1001",
+"stationName": "탕정",
+"direction": "하행",
+"nextStationName": "배방",
+"n": 23
+},
+{
+"lineId": "1001",
+"stationName": "평택",
+"direction": "상행",
+"nextStationName": "지제",
+"n": 41
+},
+{
+"lineId": "1001",
+"stationName": "평택",
+"direction": "하행",
+"nextStationName": "성환",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "화서",
+"direction": "상행",
+"nextStationName": "성균관대",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "화서",
+"direction": "하행",
+"nextStationName": "수원",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "회기",
+"direction": "상행",
+"nextStationName": "외대앞",
+"n": 43
+},
+{
+"lineId": "1001",
+"stationName": "회기",
+"direction": "하행",
+"nextStationName": "청량리",
+"n": 25
+},
+{
+"lineId": "1001",
+"stationName": "회룡",
+"direction": "상행",
+"nextStationName": "의정부",
+"n": 44
+},
+{
+"lineId": "1001",
+"stationName": "회룡",
+"direction": "하행",
+"nextStationName": "망월사",
+"n": 28
+},
+{
+"lineId": "1002",
+"stationName": "강남",
+"direction": "내선",
+"nextStationName": "교대",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "강남",
+"direction": "외선",
+"nextStationName": "역삼",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "강변",
+"direction": "내선",
+"nextStationName": "잠실나루",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "강변",
+"direction": "외선",
+"nextStationName": "구의",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "건대입구",
+"direction": "내선",
+"nextStationName": "구의",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "건대입구",
+"direction": "외선",
+"nextStationName": "성수",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "교대",
+"direction": "내선",
+"nextStationName": "서초",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "교대",
+"direction": "외선",
+"nextStationName": "강남",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "구로디지털단지",
+"direction": "내선",
+"nextStationName": "대림",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "구로디지털단지",
+"direction": "외선",
+"nextStationName": "신대방",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "구의",
+"direction": "내선",
+"nextStationName": "강변",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "구의",
+"direction": "외선",
+"nextStationName": "건대입구",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "낙성대",
+"direction": "내선",
+"nextStationName": "서울대입구",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "낙성대",
+"direction": "외선",
+"nextStationName": "사당",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "당산",
+"direction": "내선",
+"nextStationName": "합정",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "당산",
+"direction": "외선",
+"nextStationName": "영등포구청",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "대림",
+"direction": "내선",
+"nextStationName": "신도림",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "대림",
+"direction": "외선",
+"nextStationName": "구로디지털단지",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "도림천",
+"direction": "내선",
+"nextStationName": "양천구청",
+"n": 11
+},
+{
+"lineId": "1002",
+"stationName": "도림천",
+"direction": "외선",
+"nextStationName": "신도림",
+"n": 11
+},
+{
+"lineId": "1002",
+"stationName": "동대문역사문화공원",
+"direction": "내선",
+"nextStationName": "신당",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "동대문역사문화공원",
+"direction": "외선",
+"nextStationName": "을지로4가",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "뚝섬",
+"direction": "내선",
+"nextStationName": "성수",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "뚝섬",
+"direction": "외선",
+"nextStationName": "한양대",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "문래",
+"direction": "내선",
+"nextStationName": "영등포구청",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "문래",
+"direction": "외선",
+"nextStationName": "신도림",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "방배",
+"direction": "내선",
+"nextStationName": "사당",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "방배",
+"direction": "외선",
+"nextStationName": "서초",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "봉천",
+"direction": "내선",
+"nextStationName": "신림",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "봉천",
+"direction": "외선",
+"nextStationName": "서울대입구",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "사당",
+"direction": "내선",
+"nextStationName": "낙성대",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "사당",
+"direction": "외선",
+"nextStationName": "방배",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "삼성",
+"direction": "내선",
+"nextStationName": "선릉",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "삼성",
+"direction": "외선",
+"nextStationName": "종합운동장",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "상왕십리",
+"direction": "내선",
+"nextStationName": "왕십리",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "상왕십리",
+"direction": "외선",
+"nextStationName": "신당",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "서울대입구",
+"direction": "내선",
+"nextStationName": "봉천",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "서울대입구",
+"direction": "외선",
+"nextStationName": "낙성대",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "서초",
+"direction": "내선",
+"nextStationName": "방배",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "서초",
+"direction": "외선",
+"nextStationName": "교대",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "선릉",
+"direction": "내선",
+"nextStationName": "역삼",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "선릉",
+"direction": "외선",
+"nextStationName": "삼성",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "성수",
+"direction": "내선",
+"nextStationName": "건대입구",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "성수",
+"direction": "외선",
+"nextStationName": "뚝섬",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "시청",
+"direction": "내선",
+"nextStationName": "을지로입구",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "시청",
+"direction": "외선",
+"nextStationName": "충정로",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "신답",
+"direction": "내선",
+"nextStationName": "용두",
+"n": 11
+},
+{
+"lineId": "1002",
+"stationName": "신답",
+"direction": "외선",
+"nextStationName": "용답",
+"n": 11
+},
+{
+"lineId": "1002",
+"stationName": "신당",
+"direction": "내선",
+"nextStationName": "상왕십리",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "신당",
+"direction": "외선",
+"nextStationName": "동대문역사문화공원",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "신대방",
+"direction": "내선",
+"nextStationName": "구로디지털단지",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "신대방",
+"direction": "외선",
+"nextStationName": "신림",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "신도림",
+"direction": "내선",
+"nextStationName": "문래",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "신도림",
+"direction": "외선",
+"nextStationName": "대림",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "신림",
+"direction": "내선",
+"nextStationName": "신대방",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "신림",
+"direction": "외선",
+"nextStationName": "봉천",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "신설동",
+"direction": "외선",
+"nextStationName": "용두",
+"n": 11
+},
+{
+"lineId": "1002",
+"stationName": "신정네거리",
+"direction": "내선",
+"nextStationName": "까치산",
+"n": 11
+},
+{
+"lineId": "1002",
+"stationName": "신정네거리",
+"direction": "외선",
+"nextStationName": "양천구청",
+"n": 11
+},
+{
+"lineId": "1002",
+"stationName": "신촌",
+"direction": "내선",
+"nextStationName": "이대",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "신촌",
+"direction": "외선",
+"nextStationName": "홍대입구",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "아현",
+"direction": "내선",
+"nextStationName": "충정로",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "아현",
+"direction": "외선",
+"nextStationName": "이대",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "양천구청",
+"direction": "내선",
+"nextStationName": "신정네거리",
+"n": 11
+},
+{
+"lineId": "1002",
+"stationName": "양천구청",
+"direction": "외선",
+"nextStationName": "도림천",
+"n": 11
+},
+{
+"lineId": "1002",
+"stationName": "역삼",
+"direction": "내선",
+"nextStationName": "강남",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "역삼",
+"direction": "외선",
+"nextStationName": "선릉",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "영등포구청",
+"direction": "내선",
+"nextStationName": "당산",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "영등포구청",
+"direction": "외선",
+"nextStationName": "문래",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "왕십리",
+"direction": "내선",
+"nextStationName": "한양대",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "왕십리",
+"direction": "외선",
+"nextStationName": "상왕십리",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "용답",
+"direction": "내선",
+"nextStationName": "신답",
+"n": 11
+},
+{
+"lineId": "1002",
+"stationName": "용답",
+"direction": "외선",
+"nextStationName": "성수",
+"n": 11
+},
+{
+"lineId": "1002",
+"stationName": "용두",
+"direction": "내선",
+"nextStationName": "신설동",
+"n": 11
+},
+{
+"lineId": "1002",
+"stationName": "용두",
+"direction": "외선",
+"nextStationName": "신답",
+"n": 11
+},
+{
+"lineId": "1002",
+"stationName": "을지로3가",
+"direction": "내선",
+"nextStationName": "을지로4가",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "을지로3가",
+"direction": "외선",
+"nextStationName": "을지로입구",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "을지로4가",
+"direction": "내선",
+"nextStationName": "동대문역사문화공원",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "을지로4가",
+"direction": "외선",
+"nextStationName": "을지로3가",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "을지로입구",
+"direction": "내선",
+"nextStationName": "을지로3가",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "을지로입구",
+"direction": "외선",
+"nextStationName": "시청",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "이대",
+"direction": "내선",
+"nextStationName": "아현",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "이대",
+"direction": "외선",
+"nextStationName": "신촌",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "잠실",
+"direction": "내선",
+"nextStationName": "잠실새내",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "잠실",
+"direction": "외선",
+"nextStationName": "잠실나루",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "잠실나루",
+"direction": "내선",
+"nextStationName": "잠실",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "잠실나루",
+"direction": "외선",
+"nextStationName": "강변",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "잠실새내",
+"direction": "내선",
+"nextStationName": "종합운동장",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "잠실새내",
+"direction": "외선",
+"nextStationName": "잠실",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "종합운동장",
+"direction": "내선",
+"nextStationName": "삼성",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "종합운동장",
+"direction": "외선",
+"nextStationName": "잠실새내",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "충정로",
+"direction": "내선",
+"nextStationName": "시청",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "충정로",
+"direction": "외선",
+"nextStationName": "아현",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "한양대",
+"direction": "내선",
+"nextStationName": "뚝섬",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "한양대",
+"direction": "외선",
+"nextStationName": "왕십리",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "합정",
+"direction": "내선",
+"nextStationName": "홍대입구",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "합정",
+"direction": "외선",
+"nextStationName": "당산",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "홍대입구",
+"direction": "내선",
+"nextStationName": "신촌",
+"n": 22
+},
+{
+"lineId": "1002",
+"stationName": "홍대입구",
+"direction": "외선",
+"nextStationName": "합정",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "가락시장",
+"direction": "상행",
+"nextStationName": "수서",
+"n": 11
+},
+{
+"lineId": "1003",
+"stationName": "가락시장",
+"direction": "하행",
+"nextStationName": "경찰병원",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "경복궁",
+"direction": "상행",
+"nextStationName": "독립문",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "경복궁",
+"direction": "하행",
+"nextStationName": "안국",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "경찰병원",
+"direction": "상행",
+"nextStationName": "가락시장",
+"n": 11
+},
+{
+"lineId": "1003",
+"stationName": "경찰병원",
+"direction": "하행",
+"nextStationName": "오금",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "고속터미널",
+"direction": "상행",
+"nextStationName": "잠원",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "고속터미널",
+"direction": "하행",
+"nextStationName": "교대",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "교대",
+"direction": "상행",
+"nextStationName": "고속터미널",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "교대",
+"direction": "하행",
+"nextStationName": "남부터미널",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "구파발",
+"direction": "상행",
+"nextStationName": "지축",
+"n": 36
+},
+{
+"lineId": "1003",
+"stationName": "구파발",
+"direction": "하행",
+"nextStationName": "연신내",
+"n": 23
+},
+{
+"lineId": "1003",
+"stationName": "금호",
+"direction": "상행",
+"nextStationName": "약수",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "금호",
+"direction": "하행",
+"nextStationName": "옥수",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "남부터미널",
+"direction": "상행",
+"nextStationName": "교대",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "남부터미널",
+"direction": "하행",
+"nextStationName": "양재",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "녹번",
+"direction": "상행",
+"nextStationName": "불광",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "녹번",
+"direction": "하행",
+"nextStationName": "홍제",
+"n": 19
+},
+{
+"lineId": "1003",
+"stationName": "대곡",
+"direction": "상행",
+"nextStationName": "백석",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "대곡",
+"direction": "하행",
+"nextStationName": "화정",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "대청",
+"direction": "상행",
+"nextStationName": "학여울",
+"n": 17
+},
+{
+"lineId": "1003",
+"stationName": "대청",
+"direction": "하행",
+"nextStationName": "일원",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "대치",
+"direction": "상행",
+"nextStationName": "도곡",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "대치",
+"direction": "하행",
+"nextStationName": "학여울",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "대화",
+"direction": "하행",
+"nextStationName": "주엽",
+"n": 14
+},
+{
+"lineId": "1003",
+"stationName": "도곡",
+"direction": "상행",
+"nextStationName": "매봉",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "도곡",
+"direction": "하행",
+"nextStationName": "대치",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "독립문",
+"direction": "상행",
+"nextStationName": "무악재",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "독립문",
+"direction": "하행",
+"nextStationName": "경복궁",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "동대입구",
+"direction": "상행",
+"nextStationName": "충무로",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "동대입구",
+"direction": "하행",
+"nextStationName": "약수",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "마두",
+"direction": "상행",
+"nextStationName": "정발산",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "마두",
+"direction": "하행",
+"nextStationName": "백석",
+"n": 20
+},
+{
+"lineId": "1003",
+"stationName": "매봉",
+"direction": "상행",
+"nextStationName": "양재",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "매봉",
+"direction": "하행",
+"nextStationName": "도곡",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "무악재",
+"direction": "상행",
+"nextStationName": "홍제",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "무악재",
+"direction": "하행",
+"nextStationName": "독립문",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "백석",
+"direction": "상행",
+"nextStationName": "마두",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "백석",
+"direction": "하행",
+"nextStationName": "대곡",
+"n": 21
+},
+{
+"lineId": "1003",
+"stationName": "불광",
+"direction": "상행",
+"nextStationName": "연신내",
+"n": 33
+},
+{
+"lineId": "1003",
+"stationName": "불광",
+"direction": "하행",
+"nextStationName": "녹번",
+"n": 35
+},
+{
+"lineId": "1003",
+"stationName": "삼송",
+"direction": "상행",
+"nextStationName": "원흥",
+"n": 13
+},
+{
+"lineId": "1003",
+"stationName": "삼송",
+"direction": "하행",
+"nextStationName": "지축",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "수서",
+"direction": "상행",
+"nextStationName": "일원",
+"n": 11
+},
+{
+"lineId": "1003",
+"stationName": "수서",
+"direction": "하행",
+"nextStationName": "가락시장",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "신사",
+"direction": "상행",
+"nextStationName": "압구정",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "신사",
+"direction": "하행",
+"nextStationName": "잠원",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "안국",
+"direction": "상행",
+"nextStationName": "경복궁",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "안국",
+"direction": "하행",
+"nextStationName": "종로3가",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "압구정",
+"direction": "상행",
+"nextStationName": "옥수",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "압구정",
+"direction": "하행",
+"nextStationName": "신사",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "약수",
+"direction": "상행",
+"nextStationName": "동대입구",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "약수",
+"direction": "하행",
+"nextStationName": "금호",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "양재",
+"direction": "상행",
+"nextStationName": "남부터미널",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "양재",
+"direction": "하행",
+"nextStationName": "매봉",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "연신내",
+"direction": "상행",
+"nextStationName": "구파발",
+"n": 36
+},
+{
+"lineId": "1003",
+"stationName": "연신내",
+"direction": "하행",
+"nextStationName": "불광",
+"n": 24
+},
+{
+"lineId": "1003",
+"stationName": "오금",
+"direction": "상행",
+"nextStationName": "경찰병원",
+"n": 11
+},
+{
+"lineId": "1003",
+"stationName": "옥수",
+"direction": "상행",
+"nextStationName": "금호",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "옥수",
+"direction": "하행",
+"nextStationName": "압구정",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "원당",
+"direction": "상행",
+"nextStationName": "화정",
+"n": 20
+},
+{
+"lineId": "1003",
+"stationName": "원당",
+"direction": "하행",
+"nextStationName": "원흥",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "원흥",
+"direction": "상행",
+"nextStationName": "원당",
+"n": 16
+},
+{
+"lineId": "1003",
+"stationName": "원흥",
+"direction": "하행",
+"nextStationName": "삼송",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "을지로3가",
+"direction": "상행",
+"nextStationName": "종로3가",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "을지로3가",
+"direction": "하행",
+"nextStationName": "충무로",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "일원",
+"direction": "상행",
+"nextStationName": "대청",
+"n": 14
+},
+{
+"lineId": "1003",
+"stationName": "일원",
+"direction": "하행",
+"nextStationName": "수서",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "잠원",
+"direction": "상행",
+"nextStationName": "신사",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "잠원",
+"direction": "하행",
+"nextStationName": "고속터미널",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "정발산",
+"direction": "상행",
+"nextStationName": "주엽",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "정발산",
+"direction": "하행",
+"nextStationName": "마두",
+"n": 18
+},
+{
+"lineId": "1003",
+"stationName": "종로3가",
+"direction": "상행",
+"nextStationName": "안국",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "종로3가",
+"direction": "하행",
+"nextStationName": "을지로3가",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "주엽",
+"direction": "상행",
+"nextStationName": "대화",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "주엽",
+"direction": "하행",
+"nextStationName": "정발산",
+"n": 17
+},
+{
+"lineId": "1003",
+"stationName": "지축",
+"direction": "상행",
+"nextStationName": "삼송",
+"n": 25
+},
+{
+"lineId": "1003",
+"stationName": "지축",
+"direction": "하행",
+"nextStationName": "구파발",
+"n": 29
+},
+{
+"lineId": "1003",
+"stationName": "충무로",
+"direction": "상행",
+"nextStationName": "을지로3가",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "충무로",
+"direction": "하행",
+"nextStationName": "동대입구",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "학여울",
+"direction": "상행",
+"nextStationName": "대치",
+"n": 20
+},
+{
+"lineId": "1003",
+"stationName": "학여울",
+"direction": "하행",
+"nextStationName": "대청",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "홍제",
+"direction": "상행",
+"nextStationName": "녹번",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "홍제",
+"direction": "하행",
+"nextStationName": "무악재",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "화정",
+"direction": "상행",
+"nextStationName": "대곡",
+"n": 22
+},
+{
+"lineId": "1003",
+"stationName": "화정",
+"direction": "하행",
+"nextStationName": "원당",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "경마공원",
+"direction": "상행",
+"nextStationName": "선바위",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "경마공원",
+"direction": "하행",
+"nextStationName": "대공원",
+"n": 15
+},
+{
+"lineId": "1004",
+"stationName": "고잔",
+"direction": "상행",
+"nextStationName": "중앙",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "고잔",
+"direction": "하행",
+"nextStationName": "초지",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "과천",
+"direction": "상행",
+"nextStationName": "대공원",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "과천",
+"direction": "하행",
+"nextStationName": "정부과천청사",
+"n": 19
+},
+{
+"lineId": "1004",
+"stationName": "금정",
+"direction": "상행",
+"nextStationName": "범계",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "금정",
+"direction": "하행",
+"nextStationName": "산본",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "길음",
+"direction": "상행",
+"nextStationName": "미아사거리",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "길음",
+"direction": "하행",
+"nextStationName": "성신여대입구",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "남태령",
+"direction": "상행",
+"nextStationName": "사당",
+"n": 31
+},
+{
+"lineId": "1004",
+"stationName": "남태령",
+"direction": "하행",
+"nextStationName": "선바위",
+"n": 25
+},
+{
+"lineId": "1004",
+"stationName": "노원",
+"direction": "상행",
+"nextStationName": "상계",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "노원",
+"direction": "하행",
+"nextStationName": "창동",
+"n": 20
+},
+{
+"lineId": "1004",
+"stationName": "대공원",
+"direction": "상행",
+"nextStationName": "경마공원",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "대공원",
+"direction": "하행",
+"nextStationName": "과천",
+"n": 18
+},
+{
+"lineId": "1004",
+"stationName": "대야미",
+"direction": "상행",
+"nextStationName": "수리산",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "대야미",
+"direction": "하행",
+"nextStationName": "반월",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "동대문",
+"direction": "상행",
+"nextStationName": "혜화",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "동대문",
+"direction": "하행",
+"nextStationName": "동대문역사문화공원",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "동대문역사문화공원",
+"direction": "상행",
+"nextStationName": "동대문",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "동대문역사문화공원",
+"direction": "하행",
+"nextStationName": "충무로",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "동작",
+"direction": "상행",
+"nextStationName": "이촌",
+"n": 34
+},
+{
+"lineId": "1004",
+"stationName": "동작",
+"direction": "하행",
+"nextStationName": "총신대입구(이수)",
+"n": 29
+},
+{
+"lineId": "1004",
+"stationName": "명동",
+"direction": "상행",
+"nextStationName": "충무로",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "명동",
+"direction": "하행",
+"nextStationName": "회현",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "미아",
+"direction": "상행",
+"nextStationName": "수유",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "미아",
+"direction": "하행",
+"nextStationName": "미아사거리",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "미아사거리",
+"direction": "상행",
+"nextStationName": "미아",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "미아사거리",
+"direction": "하행",
+"nextStationName": "길음",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "반월",
+"direction": "상행",
+"nextStationName": "대야미",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "반월",
+"direction": "하행",
+"nextStationName": "상록수",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "범계",
+"direction": "상행",
+"nextStationName": "평촌",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "범계",
+"direction": "하행",
+"nextStationName": "금정",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "사당",
+"direction": "상행",
+"nextStationName": "총신대입구(이수)",
+"n": 29
+},
+{
+"lineId": "1004",
+"stationName": "사당",
+"direction": "하행",
+"nextStationName": "남태령",
+"n": 40
+},
+{
+"lineId": "1004",
+"stationName": "산본",
+"direction": "상행",
+"nextStationName": "금정",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "산본",
+"direction": "하행",
+"nextStationName": "수리산",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "삼각지",
+"direction": "상행",
+"nextStationName": "숙대입구",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "삼각지",
+"direction": "하행",
+"nextStationName": "신용산",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "상계",
+"direction": "상행",
+"nextStationName": "불암산",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "상계",
+"direction": "하행",
+"nextStationName": "노원",
+"n": 17
+},
+{
+"lineId": "1004",
+"stationName": "상록수",
+"direction": "상행",
+"nextStationName": "반월",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "상록수",
+"direction": "하행",
+"nextStationName": "한대앞",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "서울",
+"direction": "상행",
+"nextStationName": "회현",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "서울",
+"direction": "하행",
+"nextStationName": "숙대입구",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "선바위",
+"direction": "상행",
+"nextStationName": "남태령",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "선바위",
+"direction": "하행",
+"nextStationName": "경마공원",
+"n": 13
+},
+{
+"lineId": "1004",
+"stationName": "성신여대입구",
+"direction": "상행",
+"nextStationName": "길음",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "성신여대입구",
+"direction": "하행",
+"nextStationName": "한성대입구",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "수리산",
+"direction": "상행",
+"nextStationName": "산본",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "수리산",
+"direction": "하행",
+"nextStationName": "대야미",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "수유",
+"direction": "상행",
+"nextStationName": "쌍문",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "수유",
+"direction": "하행",
+"nextStationName": "미아",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "숙대입구",
+"direction": "상행",
+"nextStationName": "서울",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "숙대입구",
+"direction": "하행",
+"nextStationName": "삼각지",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "신길온천",
+"direction": "상행",
+"nextStationName": "안산",
+"n": 19
+},
+{
+"lineId": "1004",
+"stationName": "신길온천",
+"direction": "하행",
+"nextStationName": "정왕",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "신용산",
+"direction": "상행",
+"nextStationName": "삼각지",
+"n": 21
+},
+{
+"lineId": "1004",
+"stationName": "신용산",
+"direction": "하행",
+"nextStationName": "이촌",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "쌍문",
+"direction": "상행",
+"nextStationName": "창동",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "쌍문",
+"direction": "하행",
+"nextStationName": "수유",
+"n": 21
+},
+{
+"lineId": "1004",
+"stationName": "안산",
+"direction": "상행",
+"nextStationName": "초지",
+"n": 20
+},
+{
+"lineId": "1004",
+"stationName": "안산",
+"direction": "하행",
+"nextStationName": "신길온천",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "오이도",
+"direction": "상행",
+"nextStationName": "정왕",
+"n": 13
+},
+{
+"lineId": "1004",
+"stationName": "이촌",
+"direction": "상행",
+"nextStationName": "신용산",
+"n": 20
+},
+{
+"lineId": "1004",
+"stationName": "이촌",
+"direction": "하행",
+"nextStationName": "동작",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "인덕원",
+"direction": "상행",
+"nextStationName": "정부과천청사",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "인덕원",
+"direction": "하행",
+"nextStationName": "평촌",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "정부과천청사",
+"direction": "상행",
+"nextStationName": "과천",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "정부과천청사",
+"direction": "하행",
+"nextStationName": "인덕원",
+"n": 21
+},
+{
+"lineId": "1004",
+"stationName": "정왕",
+"direction": "상행",
+"nextStationName": "신길온천",
+"n": 16
+},
+{
+"lineId": "1004",
+"stationName": "정왕",
+"direction": "하행",
+"nextStationName": "오이도",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "중앙",
+"direction": "상행",
+"nextStationName": "한대앞",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "중앙",
+"direction": "하행",
+"nextStationName": "고잔",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "창동",
+"direction": "상행",
+"nextStationName": "노원",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "창동",
+"direction": "하행",
+"nextStationName": "쌍문",
+"n": 20
+},
+{
+"lineId": "1004",
+"stationName": "초지",
+"direction": "상행",
+"nextStationName": "고잔",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "초지",
+"direction": "하행",
+"nextStationName": "안산",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "총신대입구(이수)",
+"direction": "상행",
+"nextStationName": "동작",
+"n": 28
+},
+{
+"lineId": "1004",
+"stationName": "총신대입구(이수)",
+"direction": "하행",
+"nextStationName": "사당",
+"n": 25
+},
+{
+"lineId": "1004",
+"stationName": "충무로",
+"direction": "상행",
+"nextStationName": "동대문역사문화공원",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "충무로",
+"direction": "하행",
+"nextStationName": "명동",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "평촌",
+"direction": "상행",
+"nextStationName": "인덕원",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "평촌",
+"direction": "하행",
+"nextStationName": "범계",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "한대앞",
+"direction": "상행",
+"nextStationName": "상록수",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "한대앞",
+"direction": "하행",
+"nextStationName": "중앙",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "한성대입구",
+"direction": "상행",
+"nextStationName": "성신여대입구",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "한성대입구",
+"direction": "하행",
+"nextStationName": "혜화",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "혜화",
+"direction": "상행",
+"nextStationName": "한성대입구",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "혜화",
+"direction": "하행",
+"nextStationName": "동대문",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "회현",
+"direction": "상행",
+"nextStationName": "명동",
+"n": 22
+},
+{
+"lineId": "1004",
+"stationName": "회현",
+"direction": "하행",
+"nextStationName": "서울",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "강동",
+"direction": "상행",
+"nextStationName": "천호(풍납토성)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "강동",
+"direction": "하행",
+"nextStationName": "길동",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "강일",
+"direction": "상행",
+"nextStationName": "상일동",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "강일",
+"direction": "하행",
+"nextStationName": "미사",
+"n": 11
+},
+{
+"lineId": "1005",
+"stationName": "개롱",
+"direction": "상행",
+"nextStationName": "오금",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "개롱",
+"direction": "하행",
+"nextStationName": "거여",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "개화산",
+"direction": "상행",
+"nextStationName": "방화",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "개화산",
+"direction": "하행",
+"nextStationName": "김포공항",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "거여",
+"direction": "상행",
+"nextStationName": "개롱",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "거여",
+"direction": "하행",
+"nextStationName": "마천",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "고덕",
+"direction": "상행",
+"nextStationName": "명일",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "고덕",
+"direction": "하행",
+"nextStationName": "상일동",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "공덕",
+"direction": "상행",
+"nextStationName": "마포",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "공덕",
+"direction": "하행",
+"nextStationName": "애오개",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "광나루(장신대)",
+"direction": "상행",
+"nextStationName": "아차산(어린이대공원후문)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "광나루(장신대)",
+"direction": "하행",
+"nextStationName": "천호(풍납토성)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "광화문",
+"direction": "상행",
+"nextStationName": "서대문",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "광화문",
+"direction": "하행",
+"nextStationName": "종로3가",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "군자(능동)",
+"direction": "상행",
+"nextStationName": "장한평",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "군자(능동)",
+"direction": "하행",
+"nextStationName": "아차산(어린이대공원후문)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "굽은다리(강동구민회관앞)",
+"direction": "상행",
+"nextStationName": "길동",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "굽은다리(강동구민회관앞)",
+"direction": "하행",
+"nextStationName": "명일",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "길동",
+"direction": "상행",
+"nextStationName": "강동",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "길동",
+"direction": "하행",
+"nextStationName": "굽은다리(강동구민회관앞)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "김포공항",
+"direction": "상행",
+"nextStationName": "개화산",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "김포공항",
+"direction": "하행",
+"nextStationName": "송정",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "까치산",
+"direction": "상행",
+"nextStationName": "화곡",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "까치산",
+"direction": "하행",
+"nextStationName": "신정(은행정)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "답십리",
+"direction": "상행",
+"nextStationName": "마장",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "답십리",
+"direction": "하행",
+"nextStationName": "장한평",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "동대문역사문화공원",
+"direction": "상행",
+"nextStationName": "을지로4가",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "동대문역사문화공원",
+"direction": "하행",
+"nextStationName": "청구",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "둔촌동",
+"direction": "상행",
+"nextStationName": "강동",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "둔촌동",
+"direction": "하행",
+"nextStationName": "올림픽공원(한국체대)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "마곡",
+"direction": "상행",
+"nextStationName": "송정",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "마곡",
+"direction": "하행",
+"nextStationName": "발산",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "마장",
+"direction": "상행",
+"nextStationName": "왕십리",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "마장",
+"direction": "하행",
+"nextStationName": "답십리",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "마천",
+"direction": "상행",
+"nextStationName": "거여",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "마포",
+"direction": "상행",
+"nextStationName": "여의나루",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "마포",
+"direction": "하행",
+"nextStationName": "공덕",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "명일",
+"direction": "상행",
+"nextStationName": "굽은다리(강동구민회관앞)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "명일",
+"direction": "하행",
+"nextStationName": "고덕",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "목동",
+"direction": "상행",
+"nextStationName": "신정(은행정)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "목동",
+"direction": "하행",
+"nextStationName": "오목교(목동운동장앞)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "미사",
+"direction": "상행",
+"nextStationName": "강일",
+"n": 17
+},
+{
+"lineId": "1005",
+"stationName": "미사",
+"direction": "하행",
+"nextStationName": "하남풍산",
+"n": 11
+},
+{
+"lineId": "1005",
+"stationName": "발산",
+"direction": "상행",
+"nextStationName": "마곡",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "발산",
+"direction": "하행",
+"nextStationName": "우장산",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "방이",
+"direction": "상행",
+"nextStationName": "올림픽공원(한국체대)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "방이",
+"direction": "하행",
+"nextStationName": "오금",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "방화",
+"direction": "하행",
+"nextStationName": "개화산",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "상일동",
+"direction": "상행",
+"nextStationName": "고덕",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "상일동",
+"direction": "하행",
+"nextStationName": "강일",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "서대문",
+"direction": "상행",
+"nextStationName": "충정로",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "서대문",
+"direction": "하행",
+"nextStationName": "광화문",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "송정",
+"direction": "상행",
+"nextStationName": "김포공항",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "송정",
+"direction": "하행",
+"nextStationName": "마곡",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "신금호",
+"direction": "상행",
+"nextStationName": "청구",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "신금호",
+"direction": "하행",
+"nextStationName": "행당",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "신길",
+"direction": "상행",
+"nextStationName": "영등포시장",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "신길",
+"direction": "하행",
+"nextStationName": "여의도",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "신정(은행정)",
+"direction": "상행",
+"nextStationName": "까치산",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "신정(은행정)",
+"direction": "하행",
+"nextStationName": "목동",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "아차산(어린이대공원후문)",
+"direction": "상행",
+"nextStationName": "군자(능동)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "아차산(어린이대공원후문)",
+"direction": "하행",
+"nextStationName": "광나루(장신대)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "애오개",
+"direction": "상행",
+"nextStationName": "공덕",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "애오개",
+"direction": "하행",
+"nextStationName": "충정로",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "양평",
+"direction": "상행",
+"nextStationName": "오목교(목동운동장앞)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "양평",
+"direction": "하행",
+"nextStationName": "영등포구청",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "여의나루",
+"direction": "상행",
+"nextStationName": "여의도",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "여의나루",
+"direction": "하행",
+"nextStationName": "마포",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "여의도",
+"direction": "상행",
+"nextStationName": "신길",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "여의도",
+"direction": "하행",
+"nextStationName": "여의나루",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "영등포구청",
+"direction": "상행",
+"nextStationName": "양평",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "영등포구청",
+"direction": "하행",
+"nextStationName": "영등포시장",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "영등포시장",
+"direction": "상행",
+"nextStationName": "영등포구청",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "영등포시장",
+"direction": "하행",
+"nextStationName": "신길",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "오금",
+"direction": "상행",
+"nextStationName": "방이",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "오금",
+"direction": "하행",
+"nextStationName": "개롱",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "오목교(목동운동장앞)",
+"direction": "상행",
+"nextStationName": "목동",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "오목교(목동운동장앞)",
+"direction": "하행",
+"nextStationName": "양평",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "올림픽공원(한국체대)",
+"direction": "상행",
+"nextStationName": "둔촌동",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "올림픽공원(한국체대)",
+"direction": "하행",
+"nextStationName": "방이",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "왕십리",
+"direction": "상행",
+"nextStationName": "행당",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "왕십리",
+"direction": "하행",
+"nextStationName": "마장",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "우장산",
+"direction": "상행",
+"nextStationName": "발산",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "우장산",
+"direction": "하행",
+"nextStationName": "화곡",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "을지로4가",
+"direction": "상행",
+"nextStationName": "종로3가",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "을지로4가",
+"direction": "하행",
+"nextStationName": "동대문역사문화공원",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "장한평",
+"direction": "상행",
+"nextStationName": "답십리",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "장한평",
+"direction": "하행",
+"nextStationName": "군자(능동)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "종로3가",
+"direction": "상행",
+"nextStationName": "광화문",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "종로3가",
+"direction": "하행",
+"nextStationName": "을지로4가",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "천호(풍납토성)",
+"direction": "상행",
+"nextStationName": "광나루(장신대)",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "천호(풍납토성)",
+"direction": "하행",
+"nextStationName": "강동",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "청구",
+"direction": "상행",
+"nextStationName": "동대문역사문화공원",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "청구",
+"direction": "하행",
+"nextStationName": "신금호",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "충정로",
+"direction": "상행",
+"nextStationName": "애오개",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "충정로",
+"direction": "하행",
+"nextStationName": "서대문",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "하남검단산",
+"direction": "상행",
+"nextStationName": "하남시청",
+"n": 11
+},
+{
+"lineId": "1005",
+"stationName": "하남시청",
+"direction": "상행",
+"nextStationName": "하남풍산",
+"n": 13
+},
+{
+"lineId": "1005",
+"stationName": "하남시청",
+"direction": "하행",
+"nextStationName": "하남검단산",
+"n": 11
+},
+{
+"lineId": "1005",
+"stationName": "하남풍산",
+"direction": "상행",
+"nextStationName": "미사",
+"n": 15
+},
+{
+"lineId": "1005",
+"stationName": "하남풍산",
+"direction": "하행",
+"nextStationName": "하남시청",
+"n": 11
+},
+{
+"lineId": "1005",
+"stationName": "행당",
+"direction": "상행",
+"nextStationName": "신금호",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "행당",
+"direction": "하행",
+"nextStationName": "왕십리",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "화곡",
+"direction": "상행",
+"nextStationName": "우장산",
+"n": 22
+},
+{
+"lineId": "1005",
+"stationName": "화곡",
+"direction": "하행",
+"nextStationName": "까치산",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "고려대",
+"direction": "상행",
+"nextStationName": "안암(고대병원앞)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "고려대",
+"direction": "하행",
+"nextStationName": "월곡(동덕여대)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "공덕",
+"direction": "상행",
+"nextStationName": "대흥(서강대앞)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "공덕",
+"direction": "하행",
+"nextStationName": "효창공원앞",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "광흥창",
+"direction": "상행",
+"nextStationName": "상수",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "광흥창",
+"direction": "하행",
+"nextStationName": "대흥(서강대앞)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "구산",
+"direction": "하행",
+"nextStationName": "응암순환(상선)",
+"n": 14
+},
+{
+"lineId": "1006",
+"stationName": "녹사평",
+"direction": "상행",
+"nextStationName": "삼각지",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "녹사평",
+"direction": "하행",
+"nextStationName": "이태원",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "대흥(서강대앞)",
+"direction": "상행",
+"nextStationName": "광흥창",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "대흥(서강대앞)",
+"direction": "하행",
+"nextStationName": "공덕",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "독바위",
+"direction": "하행",
+"nextStationName": "연신내",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "돌곶이",
+"direction": "상행",
+"nextStationName": "상월곡(한국과학기술연구원)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "돌곶이",
+"direction": "하행",
+"nextStationName": "석계",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "동묘앞",
+"direction": "상행",
+"nextStationName": "신당",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "동묘앞",
+"direction": "하행",
+"nextStationName": "창신",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "디지털미디어시티",
+"direction": "상행",
+"nextStationName": "증산(명지대앞)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "디지털미디어시티",
+"direction": "하행",
+"nextStationName": "월드컵경기장(성산)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "마포구청",
+"direction": "상행",
+"nextStationName": "월드컵경기장(성산)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "마포구청",
+"direction": "하행",
+"nextStationName": "망원",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "망원",
+"direction": "상행",
+"nextStationName": "마포구청",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "망원",
+"direction": "하행",
+"nextStationName": "합정",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "버티고개",
+"direction": "상행",
+"nextStationName": "한강진",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "버티고개",
+"direction": "하행",
+"nextStationName": "약수",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "보문",
+"direction": "상행",
+"nextStationName": "창신",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "보문",
+"direction": "하행",
+"nextStationName": "안암(고대병원앞)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "봉화산",
+"direction": "상행",
+"nextStationName": "화랑대(서울여대입구)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "봉화산",
+"direction": "하행",
+"nextStationName": "신내",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "불광",
+"direction": "하행",
+"nextStationName": "독바위",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "삼각지",
+"direction": "상행",
+"nextStationName": "효창공원앞",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "삼각지",
+"direction": "하행",
+"nextStationName": "녹사평",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "상수",
+"direction": "상행",
+"nextStationName": "합정",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "상수",
+"direction": "하행",
+"nextStationName": "광흥창",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "상월곡(한국과학기술연구원)",
+"direction": "상행",
+"nextStationName": "월곡(동덕여대)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "상월곡(한국과학기술연구원)",
+"direction": "하행",
+"nextStationName": "돌곶이",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "새절(신사)",
+"direction": "상행",
+"nextStationName": "응암순환(상선)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "새절(신사)",
+"direction": "하행",
+"nextStationName": "증산(명지대앞)",
+"n": 20
+},
+{
+"lineId": "1006",
+"stationName": "석계",
+"direction": "상행",
+"nextStationName": "돌곶이",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "석계",
+"direction": "하행",
+"nextStationName": "태릉입구",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "신내",
+"direction": "상행",
+"nextStationName": "봉화산",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "신당",
+"direction": "상행",
+"nextStationName": "청구",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "신당",
+"direction": "하행",
+"nextStationName": "동묘앞",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "안암(고대병원앞)",
+"direction": "상행",
+"nextStationName": "보문",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "안암(고대병원앞)",
+"direction": "하행",
+"nextStationName": "고려대",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "약수",
+"direction": "상행",
+"nextStationName": "버티고개",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "약수",
+"direction": "하행",
+"nextStationName": "청구",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "역촌",
+"direction": "하행",
+"nextStationName": "불광",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "연신내",
+"direction": "하행",
+"nextStationName": "구산",
+"n": 14
+},
+{
+"lineId": "1006",
+"stationName": "월곡(동덕여대)",
+"direction": "상행",
+"nextStationName": "고려대",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "월곡(동덕여대)",
+"direction": "하행",
+"nextStationName": "상월곡(한국과학기술연구원)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "월드컵경기장(성산)",
+"direction": "상행",
+"nextStationName": "디지털미디어시티",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "월드컵경기장(성산)",
+"direction": "하행",
+"nextStationName": "마포구청",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "응암순환(상선)",
+"direction": "하행",
+"nextStationName": "역촌",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "이태원",
+"direction": "상행",
+"nextStationName": "녹사평",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "이태원",
+"direction": "하행",
+"nextStationName": "한강진",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "증산(명지대앞)",
+"direction": "상행",
+"nextStationName": "새절(신사)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "증산(명지대앞)",
+"direction": "하행",
+"nextStationName": "디지털미디어시티",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "창신",
+"direction": "상행",
+"nextStationName": "동묘앞",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "창신",
+"direction": "하행",
+"nextStationName": "보문",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "청구",
+"direction": "상행",
+"nextStationName": "약수",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "청구",
+"direction": "하행",
+"nextStationName": "신당",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "태릉입구",
+"direction": "상행",
+"nextStationName": "석계",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "태릉입구",
+"direction": "하행",
+"nextStationName": "화랑대(서울여대입구)",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "한강진",
+"direction": "상행",
+"nextStationName": "이태원",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "한강진",
+"direction": "하행",
+"nextStationName": "버티고개",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "합정",
+"direction": "상행",
+"nextStationName": "망원",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "합정",
+"direction": "하행",
+"nextStationName": "상수",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "화랑대(서울여대입구)",
+"direction": "상행",
+"nextStationName": "태릉입구",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "화랑대(서울여대입구)",
+"direction": "하행",
+"nextStationName": "봉화산",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "효창공원앞",
+"direction": "상행",
+"nextStationName": "공덕",
+"n": 22
+},
+{
+"lineId": "1006",
+"stationName": "효창공원앞",
+"direction": "하행",
+"nextStationName": "삼각지",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "가산디지털단지",
+"direction": "상행",
+"nextStationName": "남구로",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "가산디지털단지",
+"direction": "하행",
+"nextStationName": "철산",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "강남구청",
+"direction": "상행",
+"nextStationName": "청담",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "강남구청",
+"direction": "하행",
+"nextStationName": "학동",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "건대입구",
+"direction": "상행",
+"nextStationName": "어린이대공원(세종대)",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "건대입구",
+"direction": "하행",
+"nextStationName": "뚝섬유원지",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "고속터미널",
+"direction": "상행",
+"nextStationName": "반포",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "고속터미널",
+"direction": "하행",
+"nextStationName": "내방",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "공릉(서울산업대입구)",
+"direction": "상행",
+"nextStationName": "하계",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "공릉(서울산업대입구)",
+"direction": "하행",
+"nextStationName": "태릉입구",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "광명사거리",
+"direction": "상행",
+"nextStationName": "철산",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "광명사거리",
+"direction": "하행",
+"nextStationName": "천왕",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "군자(능동)",
+"direction": "상행",
+"nextStationName": "중곡",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "군자(능동)",
+"direction": "하행",
+"nextStationName": "어린이대공원(세종대)",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "굴포천",
+"direction": "상행",
+"nextStationName": "삼산체육관",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "굴포천",
+"direction": "하행",
+"nextStationName": "부평구청",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "까치울",
+"direction": "상행",
+"nextStationName": "온수",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "까치울",
+"direction": "하행",
+"nextStationName": "부천종합운동장",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "남구로",
+"direction": "상행",
+"nextStationName": "대림",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "남구로",
+"direction": "하행",
+"nextStationName": "가산디지털단지",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "남성",
+"direction": "상행",
+"nextStationName": "총신대입구(이수)",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "남성",
+"direction": "하행",
+"nextStationName": "숭실대입구(살피재)",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "내방",
+"direction": "상행",
+"nextStationName": "고속터미널",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "내방",
+"direction": "하행",
+"nextStationName": "총신대입구(이수)",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "노원",
+"direction": "상행",
+"nextStationName": "마들",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "노원",
+"direction": "하행",
+"nextStationName": "중계",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "논현",
+"direction": "상행",
+"nextStationName": "학동",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "논현",
+"direction": "하행",
+"nextStationName": "반포",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "대림",
+"direction": "상행",
+"nextStationName": "신풍",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "대림",
+"direction": "하행",
+"nextStationName": "남구로",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "도봉산",
+"direction": "상행",
+"nextStationName": "장암",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "도봉산",
+"direction": "하행",
+"nextStationName": "수락산",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "뚝섬유원지",
+"direction": "상행",
+"nextStationName": "건대입구",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "뚝섬유원지",
+"direction": "하행",
+"nextStationName": "청담",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "마들",
+"direction": "상행",
+"nextStationName": "수락산",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "마들",
+"direction": "하행",
+"nextStationName": "노원",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "먹골",
+"direction": "상행",
+"nextStationName": "태릉입구",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "먹골",
+"direction": "하행",
+"nextStationName": "중화",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "면목",
+"direction": "상행",
+"nextStationName": "상봉",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "면목",
+"direction": "하행",
+"nextStationName": "사가정",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "반포",
+"direction": "상행",
+"nextStationName": "논현",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "반포",
+"direction": "하행",
+"nextStationName": "고속터미널",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "보라매",
+"direction": "상행",
+"nextStationName": "신대방삼거리",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "보라매",
+"direction": "하행",
+"nextStationName": "신풍",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "부천시청",
+"direction": "상행",
+"nextStationName": "신중동",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "부천시청",
+"direction": "하행",
+"nextStationName": "상동",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "부천종합운동장",
+"direction": "상행",
+"nextStationName": "까치울",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "부천종합운동장",
+"direction": "하행",
+"nextStationName": "춘의",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "부평구청",
+"direction": "상행",
+"nextStationName": "굴포천",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "부평구청",
+"direction": "하행",
+"nextStationName": "산곡",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "사가정",
+"direction": "상행",
+"nextStationName": "면목",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "사가정",
+"direction": "하행",
+"nextStationName": "용마산",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "산곡",
+"direction": "상행",
+"nextStationName": "부평구청",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "산곡",
+"direction": "하행",
+"nextStationName": "석남",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "삼산체육관",
+"direction": "상행",
+"nextStationName": "상동",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "삼산체육관",
+"direction": "하행",
+"nextStationName": "굴포천",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "상도(중앙대앞)",
+"direction": "상행",
+"nextStationName": "숭실대입구(살피재)",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "상도(중앙대앞)",
+"direction": "하행",
+"nextStationName": "장승배기",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "상동",
+"direction": "상행",
+"nextStationName": "부천시청",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "상동",
+"direction": "하행",
+"nextStationName": "삼산체육관",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "상봉",
+"direction": "상행",
+"nextStationName": "중화",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "상봉",
+"direction": "하행",
+"nextStationName": "면목",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "석남",
+"direction": "상행",
+"nextStationName": "산곡",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "수락산",
+"direction": "상행",
+"nextStationName": "도봉산",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "수락산",
+"direction": "하행",
+"nextStationName": "마들",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "숭실대입구(살피재)",
+"direction": "상행",
+"nextStationName": "남성",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "숭실대입구(살피재)",
+"direction": "하행",
+"nextStationName": "상도(중앙대앞)",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "신대방삼거리",
+"direction": "상행",
+"nextStationName": "장승배기",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "신대방삼거리",
+"direction": "하행",
+"nextStationName": "보라매",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "신중동",
+"direction": "상행",
+"nextStationName": "춘의",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "신중동",
+"direction": "하행",
+"nextStationName": "부천시청",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "신풍",
+"direction": "상행",
+"nextStationName": "보라매",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "신풍",
+"direction": "하행",
+"nextStationName": "대림",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "어린이대공원(세종대)",
+"direction": "상행",
+"nextStationName": "군자(능동)",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "어린이대공원(세종대)",
+"direction": "하행",
+"nextStationName": "건대입구",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "온수",
+"direction": "상행",
+"nextStationName": "천왕",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "온수",
+"direction": "하행",
+"nextStationName": "까치울",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "용마산",
+"direction": "상행",
+"nextStationName": "사가정",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "용마산",
+"direction": "하행",
+"nextStationName": "중곡",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "장승배기",
+"direction": "상행",
+"nextStationName": "상도(중앙대앞)",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "장승배기",
+"direction": "하행",
+"nextStationName": "신대방삼거리",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "장암",
+"direction": "하행",
+"nextStationName": "도봉산",
+"n": 21
+},
+{
+"lineId": "1007",
+"stationName": "중계",
+"direction": "상행",
+"nextStationName": "노원",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "중계",
+"direction": "하행",
+"nextStationName": "하계",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "중곡",
+"direction": "상행",
+"nextStationName": "용마산",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "중곡",
+"direction": "하행",
+"nextStationName": "군자(능동)",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "중화",
+"direction": "상행",
+"nextStationName": "먹골",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "중화",
+"direction": "하행",
+"nextStationName": "상봉",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "천왕",
+"direction": "상행",
+"nextStationName": "광명사거리",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "천왕",
+"direction": "하행",
+"nextStationName": "온수",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "철산",
+"direction": "상행",
+"nextStationName": "가산디지털단지",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "철산",
+"direction": "하행",
+"nextStationName": "광명사거리",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "청담",
+"direction": "상행",
+"nextStationName": "뚝섬유원지",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "청담",
+"direction": "하행",
+"nextStationName": "강남구청",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "총신대입구(이수)",
+"direction": "상행",
+"nextStationName": "내방",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "총신대입구(이수)",
+"direction": "하행",
+"nextStationName": "남성",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "춘의",
+"direction": "상행",
+"nextStationName": "부천종합운동장",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "춘의",
+"direction": "하행",
+"nextStationName": "신중동",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "태릉입구",
+"direction": "상행",
+"nextStationName": "공릉(서울산업대입구)",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "태릉입구",
+"direction": "하행",
+"nextStationName": "먹골",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "하계",
+"direction": "상행",
+"nextStationName": "중계",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "하계",
+"direction": "하행",
+"nextStationName": "공릉(서울산업대입구)",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "학동",
+"direction": "상행",
+"nextStationName": "강남구청",
+"n": 22
+},
+{
+"lineId": "1007",
+"stationName": "학동",
+"direction": "하행",
+"nextStationName": "논현",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "가락시장",
+"direction": "상행",
+"nextStationName": "송파",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "가락시장",
+"direction": "하행",
+"nextStationName": "문정",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "강동구청",
+"direction": "상행",
+"nextStationName": "천호(풍납토성)",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "강동구청",
+"direction": "하행",
+"nextStationName": "몽촌토성(평화의문)",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "구리",
+"direction": "상행",
+"nextStationName": "동구릉",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "구리",
+"direction": "하행",
+"nextStationName": "장자호수공원",
+"n": 17
+},
+{
+"lineId": "1008",
+"stationName": "남위례",
+"direction": "상행",
+"nextStationName": "복정",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "남위례",
+"direction": "하행",
+"nextStationName": "산성",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "남한산성입구(성남법원,검찰청)",
+"direction": "상행",
+"nextStationName": "산성",
+"n": 16
+},
+{
+"lineId": "1008",
+"stationName": "남한산성입구(성남법원,검찰청)",
+"direction": "하행",
+"nextStationName": "단대오거리",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "다산",
+"direction": "상행",
+"nextStationName": "별내",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "다산",
+"direction": "하행",
+"nextStationName": "동구릉",
+"n": 12
+},
+{
+"lineId": "1008",
+"stationName": "단대오거리",
+"direction": "상행",
+"nextStationName": "남한산성입구(성남법원,검찰청)",
+"n": 13
+},
+{
+"lineId": "1008",
+"stationName": "단대오거리",
+"direction": "하행",
+"nextStationName": "신흥",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "동구릉",
+"direction": "상행",
+"nextStationName": "다산",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "동구릉",
+"direction": "하행",
+"nextStationName": "구리",
+"n": 13
+},
+{
+"lineId": "1008",
+"stationName": "모란",
+"direction": "상행",
+"nextStationName": "수진",
+"n": 11
+},
+{
+"lineId": "1008",
+"stationName": "몽촌토성(평화의문)",
+"direction": "상행",
+"nextStationName": "강동구청",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "몽촌토성(평화의문)",
+"direction": "하행",
+"nextStationName": "잠실",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "문정",
+"direction": "상행",
+"nextStationName": "가락시장",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "문정",
+"direction": "하행",
+"nextStationName": "장지",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "별내",
+"direction": "하행",
+"nextStationName": "다산",
+"n": 11
+},
+{
+"lineId": "1008",
+"stationName": "복정",
+"direction": "상행",
+"nextStationName": "장지",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "복정",
+"direction": "하행",
+"nextStationName": "남위례",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "산성",
+"direction": "상행",
+"nextStationName": "남위례",
+"n": 19
+},
+{
+"lineId": "1008",
+"stationName": "산성",
+"direction": "하행",
+"nextStationName": "남한산성입구(성남법원,검찰청)",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "석촌",
+"direction": "상행",
+"nextStationName": "잠실",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "석촌",
+"direction": "하행",
+"nextStationName": "송파",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "송파",
+"direction": "상행",
+"nextStationName": "석촌",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "송파",
+"direction": "하행",
+"nextStationName": "가락시장",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "수진",
+"direction": "상행",
+"nextStationName": "신흥",
+"n": 11
+},
+{
+"lineId": "1008",
+"stationName": "수진",
+"direction": "하행",
+"nextStationName": "모란",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "신흥",
+"direction": "상행",
+"nextStationName": "단대오거리",
+"n": 12
+},
+{
+"lineId": "1008",
+"stationName": "신흥",
+"direction": "하행",
+"nextStationName": "수진",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "암사",
+"direction": "상행",
+"nextStationName": "암사역사공원",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "암사",
+"direction": "하행",
+"nextStationName": "천호(풍납토성)",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "암사역사공원",
+"direction": "상행",
+"nextStationName": "장자호수공원",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "암사역사공원",
+"direction": "하행",
+"nextStationName": "암사",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "잠실",
+"direction": "상행",
+"nextStationName": "몽촌토성(평화의문)",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "잠실",
+"direction": "하행",
+"nextStationName": "석촌",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "장자호수공원",
+"direction": "상행",
+"nextStationName": "구리",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "장자호수공원",
+"direction": "하행",
+"nextStationName": "암사역사공원",
+"n": 21
+},
+{
+"lineId": "1008",
+"stationName": "장지",
+"direction": "상행",
+"nextStationName": "문정",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "장지",
+"direction": "하행",
+"nextStationName": "복정",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "천호(풍납토성)",
+"direction": "상행",
+"nextStationName": "암사",
+"n": 22
+},
+{
+"lineId": "1008",
+"stationName": "천호(풍납토성)",
+"direction": "하행",
+"nextStationName": "강동구청",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "가양",
+"direction": "상행",
+"nextStationName": "증미",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "가양",
+"direction": "하행",
+"nextStationName": "양천향교",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "고속터미널",
+"direction": "상행",
+"nextStationName": "사평",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "고속터미널",
+"direction": "하행",
+"nextStationName": "신반포",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "공항시장",
+"direction": "상행",
+"nextStationName": "신방화",
+"n": 11
+},
+{
+"lineId": "1009",
+"stationName": "공항시장",
+"direction": "하행",
+"nextStationName": "김포공항",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "구반포",
+"direction": "상행",
+"nextStationName": "신반포",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "구반포",
+"direction": "하행",
+"nextStationName": "동작",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "국회의사당",
+"direction": "상행",
+"nextStationName": "여의도",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "국회의사당",
+"direction": "하행",
+"nextStationName": "당산",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "김포공항",
+"direction": "상행",
+"nextStationName": "공항시장",
+"n": 12
+},
+{
+"lineId": "1009",
+"stationName": "김포공항",
+"direction": "하행",
+"nextStationName": "개화",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "노들",
+"direction": "상행",
+"nextStationName": "흑석",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "노들",
+"direction": "하행",
+"nextStationName": "노량진",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "노량진",
+"direction": "상행",
+"nextStationName": "노들",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "노량진",
+"direction": "하행",
+"nextStationName": "샛강",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "당산",
+"direction": "상행",
+"nextStationName": "국회의사당",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "당산",
+"direction": "하행",
+"nextStationName": "선유도",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "동작",
+"direction": "상행",
+"nextStationName": "구반포",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "동작",
+"direction": "하행",
+"nextStationName": "흑석",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "둔촌오륜",
+"direction": "상행",
+"nextStationName": "중앙보훈병원",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "둔촌오륜",
+"direction": "하행",
+"nextStationName": "올림픽공원",
+"n": 11
+},
+{
+"lineId": "1009",
+"stationName": "등촌",
+"direction": "상행",
+"nextStationName": "염창",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "등촌",
+"direction": "하행",
+"nextStationName": "증미",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "마곡나루",
+"direction": "상행",
+"nextStationName": "양천향교",
+"n": 20
+},
+{
+"lineId": "1009",
+"stationName": "마곡나루",
+"direction": "하행",
+"nextStationName": "신방화",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "봉은사",
+"direction": "상행",
+"nextStationName": "종합운동장",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "봉은사",
+"direction": "하행",
+"nextStationName": "삼성중앙",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "사평",
+"direction": "상행",
+"nextStationName": "신논현",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "사평",
+"direction": "하행",
+"nextStationName": "고속터미널",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "삼성중앙",
+"direction": "상행",
+"nextStationName": "봉은사",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "삼성중앙",
+"direction": "하행",
+"nextStationName": "선정릉",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "삼전",
+"direction": "상행",
+"nextStationName": "석촌고분",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "삼전",
+"direction": "하행",
+"nextStationName": "종합운동장",
+"n": 20
+},
+{
+"lineId": "1009",
+"stationName": "샛강",
+"direction": "상행",
+"nextStationName": "노량진",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "샛강",
+"direction": "하행",
+"nextStationName": "여의도",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "석촌",
+"direction": "상행",
+"nextStationName": "송파나루",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "석촌",
+"direction": "하행",
+"nextStationName": "석촌고분",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "석촌고분",
+"direction": "상행",
+"nextStationName": "석촌",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "석촌고분",
+"direction": "하행",
+"nextStationName": "삼전",
+"n": 17
+},
+{
+"lineId": "1009",
+"stationName": "선유도",
+"direction": "상행",
+"nextStationName": "당산",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "선유도",
+"direction": "하행",
+"nextStationName": "신목동",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "선정릉",
+"direction": "상행",
+"nextStationName": "삼성중앙",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "선정릉",
+"direction": "하행",
+"nextStationName": "언주",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "송파나루",
+"direction": "상행",
+"nextStationName": "한성백제",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "송파나루",
+"direction": "하행",
+"nextStationName": "석촌",
+"n": 11
+},
+{
+"lineId": "1009",
+"stationName": "신논현",
+"direction": "상행",
+"nextStationName": "언주",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "신논현",
+"direction": "하행",
+"nextStationName": "사평",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "신목동",
+"direction": "상행",
+"nextStationName": "선유도",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "신목동",
+"direction": "하행",
+"nextStationName": "염창",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "신반포",
+"direction": "상행",
+"nextStationName": "고속터미널",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "신반포",
+"direction": "하행",
+"nextStationName": "구반포",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "신방화",
+"direction": "상행",
+"nextStationName": "마곡나루",
+"n": 13
+},
+{
+"lineId": "1009",
+"stationName": "신방화",
+"direction": "하행",
+"nextStationName": "공항시장",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "양천향교",
+"direction": "상행",
+"nextStationName": "가양",
+"n": 18
+},
+{
+"lineId": "1009",
+"stationName": "양천향교",
+"direction": "하행",
+"nextStationName": "마곡나루",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "언주",
+"direction": "상행",
+"nextStationName": "선정릉",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "언주",
+"direction": "하행",
+"nextStationName": "신논현",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "여의도",
+"direction": "상행",
+"nextStationName": "샛강",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "여의도",
+"direction": "하행",
+"nextStationName": "국회의사당",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "염창",
+"direction": "상행",
+"nextStationName": "신목동",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "염창",
+"direction": "하행",
+"nextStationName": "등촌",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "올림픽공원",
+"direction": "상행",
+"nextStationName": "둔촌오륜",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "올림픽공원",
+"direction": "하행",
+"nextStationName": "한성백제",
+"n": 15
+},
+{
+"lineId": "1009",
+"stationName": "종합운동장",
+"direction": "하행",
+"nextStationName": "봉은사",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "중앙보훈병원",
+"direction": "하행",
+"nextStationName": "둔촌오륜",
+"n": 11
+},
+{
+"lineId": "1009",
+"stationName": "증미",
+"direction": "상행",
+"nextStationName": "등촌",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "증미",
+"direction": "하행",
+"nextStationName": "가양",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "한성백제",
+"direction": "상행",
+"nextStationName": "올림픽공원",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "한성백제",
+"direction": "하행",
+"nextStationName": "송파나루",
+"n": 11
+},
+{
+"lineId": "1009",
+"stationName": "흑석",
+"direction": "상행",
+"nextStationName": "동작",
+"n": 22
+},
+{
+"lineId": "1009",
+"stationName": "흑석",
+"direction": "하행",
+"nextStationName": "노들",
+"n": 22
+},
+{
+"lineId": "1032",
+"stationName": "구성",
+"direction": "상행",
+"nextStationName": "성남",
+"n": 12
+},
+{
+"lineId": "1032",
+"stationName": "구성",
+"direction": "하행",
+"nextStationName": "동탄",
+"n": 14
+},
+{
+"lineId": "1032",
+"stationName": "대곡",
+"direction": "상행",
+"nextStationName": "킨텍스",
+"n": 21
+},
+{
+"lineId": "1032",
+"stationName": "대곡",
+"direction": "하행",
+"nextStationName": "연신내",
+"n": 22
+},
+{
+"lineId": "1032",
+"stationName": "동탄",
+"direction": "상행",
+"nextStationName": "구성",
+"n": 11
+},
+{
+"lineId": "1032",
+"stationName": "서울역",
+"direction": "상행",
+"nextStationName": "연신내",
+"n": 11
+},
+{
+"lineId": "1032",
+"stationName": "성남",
+"direction": "상행",
+"nextStationName": "수서",
+"n": 17
+},
+{
+"lineId": "1032",
+"stationName": "성남",
+"direction": "하행",
+"nextStationName": "구성",
+"n": 11
+},
+{
+"lineId": "1032",
+"stationName": "수서",
+"direction": "하행",
+"nextStationName": "성남",
+"n": 11
+},
+{
+"lineId": "1032",
+"stationName": "연신내",
+"direction": "상행",
+"nextStationName": "대곡",
+"n": 16
+},
+{
+"lineId": "1032",
+"stationName": "연신내",
+"direction": "하행",
+"nextStationName": "서울",
+"n": 22
+},
+{
+"lineId": "1032",
+"stationName": "운정중앙",
+"direction": "하행",
+"nextStationName": "킨텍스",
+"n": 10
+},
+{
+"lineId": "1032",
+"stationName": "킨텍스",
+"direction": "상행",
+"nextStationName": "운정중앙",
+"n": 22
+},
+{
+"lineId": "1032",
+"stationName": "킨텍스",
+"direction": "하행",
+"nextStationName": "대곡",
+"n": 16
+},
+{
+"lineId": "1063",
+"stationName": "가좌",
+"direction": "상행",
+"nextStationName": "디지털미디어시티",
+"n": 16
+},
+{
+"lineId": "1063",
+"stationName": "가좌",
+"direction": "하행",
+"nextStationName": "홍대입구",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "강매",
+"direction": "상행",
+"nextStationName": "행신",
+"n": 30
+},
+{
+"lineId": "1063",
+"stationName": "강매",
+"direction": "하행",
+"nextStationName": "한국항공대",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "곡산",
+"direction": "상행",
+"nextStationName": "백마",
+"n": 30
+},
+{
+"lineId": "1063",
+"stationName": "곡산",
+"direction": "하행",
+"nextStationName": "대곡",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "공덕",
+"direction": "상행",
+"nextStationName": "서강대",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "공덕",
+"direction": "하행",
+"nextStationName": "효창공원앞",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "구리",
+"direction": "상행",
+"nextStationName": "양원",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "구리",
+"direction": "하행",
+"nextStationName": "도농",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "국수",
+"direction": "상행",
+"nextStationName": "신원",
+"n": 16
+},
+{
+"lineId": "1063",
+"stationName": "국수",
+"direction": "하행",
+"nextStationName": "아신",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "금릉",
+"direction": "상행",
+"nextStationName": "금촌",
+"n": 31
+},
+{
+"lineId": "1063",
+"stationName": "금릉",
+"direction": "하행",
+"nextStationName": "운정",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "금촌",
+"direction": "상행",
+"nextStationName": "월롱",
+"n": 31
+},
+{
+"lineId": "1063",
+"stationName": "금촌",
+"direction": "하행",
+"nextStationName": "금릉",
+"n": 20
+},
+{
+"lineId": "1063",
+"stationName": "능곡",
+"direction": "상행",
+"nextStationName": "대곡",
+"n": 30
+},
+{
+"lineId": "1063",
+"stationName": "능곡",
+"direction": "하행",
+"nextStationName": "행신",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "대곡",
+"direction": "상행",
+"nextStationName": "곡산",
+"n": 30
+},
+{
+"lineId": "1063",
+"stationName": "대곡",
+"direction": "하행",
+"nextStationName": "능곡",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "덕소",
+"direction": "상행",
+"nextStationName": "양정",
+"n": 21
+},
+{
+"lineId": "1063",
+"stationName": "덕소",
+"direction": "하행",
+"nextStationName": "도심",
+"n": 18
+},
+{
+"lineId": "1063",
+"stationName": "도농",
+"direction": "상행",
+"nextStationName": "구리",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "도농",
+"direction": "하행",
+"nextStationName": "양정",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "도심",
+"direction": "상행",
+"nextStationName": "덕소",
+"n": 20
+},
+{
+"lineId": "1063",
+"stationName": "도심",
+"direction": "하행",
+"nextStationName": "팔당",
+"n": 18
+},
+{
+"lineId": "1063",
+"stationName": "디지털미디어시티",
+"direction": "상행",
+"nextStationName": "수색",
+"n": 30
+},
+{
+"lineId": "1063",
+"stationName": "디지털미디어시티",
+"direction": "하행",
+"nextStationName": "가좌",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "망우",
+"direction": "상행",
+"nextStationName": "상봉",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "망우",
+"direction": "하행",
+"nextStationName": "양원",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "문산",
+"direction": "상행",
+"nextStationName": "운천",
+"n": 31
+},
+{
+"lineId": "1063",
+"stationName": "문산",
+"direction": "하행",
+"nextStationName": "파주",
+"n": 14
+},
+{
+"lineId": "1063",
+"stationName": "백마",
+"direction": "상행",
+"nextStationName": "풍산",
+"n": 31
+},
+{
+"lineId": "1063",
+"stationName": "백마",
+"direction": "하행",
+"nextStationName": "곡산",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "상봉",
+"direction": "상행",
+"nextStationName": "중랑",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "상봉",
+"direction": "하행",
+"nextStationName": "망우",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "서강대",
+"direction": "상행",
+"nextStationName": "홍대입구",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "서강대",
+"direction": "하행",
+"nextStationName": "공덕",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "서빙고",
+"direction": "상행",
+"nextStationName": "이촌",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "서빙고",
+"direction": "하행",
+"nextStationName": "한남",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "서울",
+"direction": "상행",
+"nextStationName": "신촌(경의중앙선)",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "수색",
+"direction": "상행",
+"nextStationName": "한국항공대",
+"n": 30
+},
+{
+"lineId": "1063",
+"stationName": "수색",
+"direction": "하행",
+"nextStationName": "디지털미디어시티",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "신원",
+"direction": "상행",
+"nextStationName": "양수",
+"n": 17
+},
+{
+"lineId": "1063",
+"stationName": "신원",
+"direction": "하행",
+"nextStationName": "국수",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "신촌(경의중앙선)",
+"direction": "상행",
+"nextStationName": "가좌",
+"n": 4
+},
+{
+"lineId": "1063",
+"stationName": "신촌(경의중앙선)",
+"direction": "하행",
+"nextStationName": "서울",
+"n": 26
+},
+{
+"lineId": "1063",
+"stationName": "아신",
+"direction": "상행",
+"nextStationName": "국수",
+"n": 16
+},
+{
+"lineId": "1063",
+"stationName": "아신",
+"direction": "하행",
+"nextStationName": "오빈",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "야당",
+"direction": "상행",
+"nextStationName": "운정",
+"n": 31
+},
+{
+"lineId": "1063",
+"stationName": "야당",
+"direction": "하행",
+"nextStationName": "탄현",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "양수",
+"direction": "상행",
+"nextStationName": "운길산",
+"n": 19
+},
+{
+"lineId": "1063",
+"stationName": "양수",
+"direction": "하행",
+"nextStationName": "신원",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "양원",
+"direction": "상행",
+"nextStationName": "망우",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "양원",
+"direction": "하행",
+"nextStationName": "구리",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "양정",
+"direction": "상행",
+"nextStationName": "도농",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "양정",
+"direction": "하행",
+"nextStationName": "덕소",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "양평",
+"direction": "상행",
+"nextStationName": "오빈",
+"n": 14
+},
+{
+"lineId": "1063",
+"stationName": "양평",
+"direction": "하행",
+"nextStationName": "원덕",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "오빈",
+"direction": "상행",
+"nextStationName": "아신",
+"n": 15
+},
+{
+"lineId": "1063",
+"stationName": "오빈",
+"direction": "하행",
+"nextStationName": "양평",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "옥수",
+"direction": "상행",
+"nextStationName": "한남",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "옥수",
+"direction": "하행",
+"nextStationName": "응봉",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "왕십리",
+"direction": "상행",
+"nextStationName": "응봉",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "왕십리",
+"direction": "하행",
+"nextStationName": "청량리",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "용문",
+"direction": "상행",
+"nextStationName": "원덕",
+"n": 10
+},
+{
+"lineId": "1063",
+"stationName": "용문",
+"direction": "하행",
+"nextStationName": "지평",
+"n": 18
+},
+{
+"lineId": "1063",
+"stationName": "용산",
+"direction": "상행",
+"nextStationName": "효창공원앞",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "용산",
+"direction": "하행",
+"nextStationName": "이촌",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "운길산",
+"direction": "상행",
+"nextStationName": "팔당",
+"n": 20
+},
+{
+"lineId": "1063",
+"stationName": "운길산",
+"direction": "하행",
+"nextStationName": "양수",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "운정",
+"direction": "상행",
+"nextStationName": "금릉",
+"n": 31
+},
+{
+"lineId": "1063",
+"stationName": "운정",
+"direction": "하행",
+"nextStationName": "야당",
+"n": 23
+},
+{
+"lineId": "1063",
+"stationName": "원덕",
+"direction": "상행",
+"nextStationName": "양평",
+"n": 12
+},
+{
+"lineId": "1063",
+"stationName": "원덕",
+"direction": "하행",
+"nextStationName": "용문",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "월롱",
+"direction": "상행",
+"nextStationName": "파주",
+"n": 31
+},
+{
+"lineId": "1063",
+"stationName": "월롱",
+"direction": "하행",
+"nextStationName": "금촌",
+"n": 18
+},
+{
+"lineId": "1063",
+"stationName": "응봉",
+"direction": "상행",
+"nextStationName": "옥수",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "응봉",
+"direction": "하행",
+"nextStationName": "왕십리",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "이촌",
+"direction": "상행",
+"nextStationName": "용산",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "이촌",
+"direction": "하행",
+"nextStationName": "서빙고",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "일산",
+"direction": "상행",
+"nextStationName": "탄현",
+"n": 29
+},
+{
+"lineId": "1063",
+"stationName": "일산",
+"direction": "하행",
+"nextStationName": "풍산",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "중랑",
+"direction": "상행",
+"nextStationName": "회기",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "중랑",
+"direction": "하행",
+"nextStationName": "상봉",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "지평",
+"direction": "상행",
+"nextStationName": "용문",
+"n": 5
+},
+{
+"lineId": "1063",
+"stationName": "청량리",
+"direction": "상행",
+"nextStationName": "왕십리",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "청량리",
+"direction": "하행",
+"nextStationName": "회기",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "탄현",
+"direction": "상행",
+"nextStationName": "야당",
+"n": 31
+},
+{
+"lineId": "1063",
+"stationName": "탄현",
+"direction": "하행",
+"nextStationName": "일산",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "파주",
+"direction": "상행",
+"nextStationName": "문산",
+"n": 31
+},
+{
+"lineId": "1063",
+"stationName": "파주",
+"direction": "하행",
+"nextStationName": "월롱",
+"n": 16
+},
+{
+"lineId": "1063",
+"stationName": "팔당",
+"direction": "상행",
+"nextStationName": "도심",
+"n": 20
+},
+{
+"lineId": "1063",
+"stationName": "팔당",
+"direction": "하행",
+"nextStationName": "운길산",
+"n": 20
+},
+{
+"lineId": "1063",
+"stationName": "풍산",
+"direction": "상행",
+"nextStationName": "일산",
+"n": 31
+},
+{
+"lineId": "1063",
+"stationName": "풍산",
+"direction": "하행",
+"nextStationName": "백마",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "한국항공대",
+"direction": "상행",
+"nextStationName": "강매",
+"n": 30
+},
+{
+"lineId": "1063",
+"stationName": "한국항공대",
+"direction": "하행",
+"nextStationName": "수색",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "한남",
+"direction": "상행",
+"nextStationName": "서빙고",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "한남",
+"direction": "하행",
+"nextStationName": "옥수",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "행신",
+"direction": "상행",
+"nextStationName": "능곡",
+"n": 30
+},
+{
+"lineId": "1063",
+"stationName": "행신",
+"direction": "하행",
+"nextStationName": "강매",
+"n": 25
+},
+{
+"lineId": "1063",
+"stationName": "홍대입구",
+"direction": "상행",
+"nextStationName": "가좌",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "홍대입구",
+"direction": "하행",
+"nextStationName": "서강대",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "회기",
+"direction": "상행",
+"nextStationName": "청량리",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "회기",
+"direction": "하행",
+"nextStationName": "중랑",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "효창공원앞",
+"direction": "상행",
+"nextStationName": "공덕",
+"n": 22
+},
+{
+"lineId": "1063",
+"stationName": "효창공원앞",
+"direction": "하행",
+"nextStationName": "용산",
+"n": 22
+},
+{
+"lineId": "1065",
+"stationName": "검암",
+"direction": "상행",
+"nextStationName": "청라국제도시",
+"n": 33
+},
+{
+"lineId": "1065",
+"stationName": "검암",
+"direction": "하행",
+"nextStationName": "계양",
+"n": 33
+},
+{
+"lineId": "1065",
+"stationName": "계양",
+"direction": "상행",
+"nextStationName": "검암",
+"n": 31
+},
+{
+"lineId": "1065",
+"stationName": "계양",
+"direction": "하행",
+"nextStationName": "김포공항",
+"n": 33
+},
+{
+"lineId": "1065",
+"stationName": "공덕",
+"direction": "상행",
+"nextStationName": "홍대입구",
+"n": 16
+},
+{
+"lineId": "1065",
+"stationName": "공덕",
+"direction": "하행",
+"nextStationName": "서울",
+"n": 37
+},
+{
+"lineId": "1065",
+"stationName": "공항화물청사",
+"direction": "상행",
+"nextStationName": "인천공항1터미널",
+"n": 35
+},
+{
+"lineId": "1065",
+"stationName": "공항화물청사",
+"direction": "하행",
+"nextStationName": "운서",
+"n": 25
+},
+{
+"lineId": "1065",
+"stationName": "김포공항",
+"direction": "상행",
+"nextStationName": "계양",
+"n": 31
+},
+{
+"lineId": "1065",
+"stationName": "김포공항",
+"direction": "하행",
+"nextStationName": "마곡나루",
+"n": 33
+},
+{
+"lineId": "1065",
+"stationName": "디지털미디어시티",
+"direction": "상행",
+"nextStationName": "마곡나루",
+"n": 28
+},
+{
+"lineId": "1065",
+"stationName": "디지털미디어시티",
+"direction": "하행",
+"nextStationName": "홍대입구",
+"n": 36
+},
+{
+"lineId": "1065",
+"stationName": "마곡나루",
+"direction": "상행",
+"nextStationName": "김포공항",
+"n": 31
+},
+{
+"lineId": "1065",
+"stationName": "마곡나루",
+"direction": "하행",
+"nextStationName": "디지털미디어시티",
+"n": 34
+},
+{
+"lineId": "1065",
+"stationName": "서울",
+"direction": "상행",
+"nextStationName": "공덕",
+"n": 15
+},
+{
+"lineId": "1065",
+"stationName": "영종",
+"direction": "상행",
+"nextStationName": "운서",
+"n": 33
+},
+{
+"lineId": "1065",
+"stationName": "영종",
+"direction": "하행",
+"nextStationName": "청라국제도시",
+"n": 32
+},
+{
+"lineId": "1065",
+"stationName": "운서",
+"direction": "상행",
+"nextStationName": "공항화물청사",
+"n": 34
+},
+{
+"lineId": "1065",
+"stationName": "운서",
+"direction": "하행",
+"nextStationName": "영종",
+"n": 30
+},
+{
+"lineId": "1065",
+"stationName": "인천공항1터미널",
+"direction": "하행",
+"nextStationName": "공항화물청사",
+"n": 21
+},
+{
+"lineId": "1065",
+"stationName": "인천공항2터미널",
+"direction": "하행",
+"nextStationName": "인천공항1터미널",
+"n": 17
+},
+{
+"lineId": "1065",
+"stationName": "청라국제도시",
+"direction": "상행",
+"nextStationName": "영종",
+"n": 33
+},
+{
+"lineId": "1065",
+"stationName": "청라국제도시",
+"direction": "하행",
+"nextStationName": "검암",
+"n": 33
+},
+{
+"lineId": "1065",
+"stationName": "홍대입구",
+"direction": "상행",
+"nextStationName": "디지털미디어시티",
+"n": 21
+},
+{
+"lineId": "1065",
+"stationName": "홍대입구",
+"direction": "하행",
+"nextStationName": "공덕",
+"n": 36
+},
+{
+"lineId": "1067",
+"stationName": "가평",
+"direction": "상행",
+"nextStationName": "상천",
+"n": 33
+},
+{
+"lineId": "1067",
+"stationName": "가평",
+"direction": "하행",
+"nextStationName": "굴봉산",
+"n": 31
+},
+{
+"lineId": "1067",
+"stationName": "갈매",
+"direction": "상행",
+"nextStationName": "신내",
+"n": 39
+},
+{
+"lineId": "1067",
+"stationName": "갈매",
+"direction": "하행",
+"nextStationName": "별내",
+"n": 16
+},
+{
+"lineId": "1067",
+"stationName": "강촌",
+"direction": "상행",
+"nextStationName": "백양리",
+"n": 23
+},
+{
+"lineId": "1067",
+"stationName": "강촌",
+"direction": "하행",
+"nextStationName": "김유정",
+"n": 32
+},
+{
+"lineId": "1067",
+"stationName": "굴봉산",
+"direction": "상행",
+"nextStationName": "가평",
+"n": 27
+},
+{
+"lineId": "1067",
+"stationName": "굴봉산",
+"direction": "하행",
+"nextStationName": "백양리",
+"n": 31
+},
+{
+"lineId": "1067",
+"stationName": "금곡",
+"direction": "상행",
+"nextStationName": "사릉",
+"n": 39
+},
+{
+"lineId": "1067",
+"stationName": "금곡",
+"direction": "하행",
+"nextStationName": "평내호평",
+"n": 21
+},
+{
+"lineId": "1067",
+"stationName": "김유정",
+"direction": "상행",
+"nextStationName": "강촌",
+"n": 19
+},
+{
+"lineId": "1067",
+"stationName": "김유정",
+"direction": "하행",
+"nextStationName": "남춘천",
+"n": 32
+},
+{
+"lineId": "1067",
+"stationName": "남춘천",
+"direction": "상행",
+"nextStationName": "김유정",
+"n": 18
+},
+{
+"lineId": "1067",
+"stationName": "남춘천",
+"direction": "하행",
+"nextStationName": "춘천",
+"n": 32
+},
+{
+"lineId": "1067",
+"stationName": "대성리",
+"direction": "상행",
+"nextStationName": "마석",
+"n": 37
+},
+{
+"lineId": "1067",
+"stationName": "대성리",
+"direction": "하행",
+"nextStationName": "청평",
+"n": 28
+},
+{
+"lineId": "1067",
+"stationName": "마석",
+"direction": "상행",
+"nextStationName": "천마산",
+"n": 37
+},
+{
+"lineId": "1067",
+"stationName": "마석",
+"direction": "하행",
+"nextStationName": "대성리",
+"n": 28
+},
+{
+"lineId": "1067",
+"stationName": "망우",
+"direction": "상행",
+"nextStationName": "상봉",
+"n": 39
+},
+{
+"lineId": "1067",
+"stationName": "망우",
+"direction": "하행",
+"nextStationName": "신내",
+"n": 15
+},
+{
+"lineId": "1067",
+"stationName": "백양리",
+"direction": "상행",
+"nextStationName": "굴봉산",
+"n": 25
+},
+{
+"lineId": "1067",
+"stationName": "백양리",
+"direction": "하행",
+"nextStationName": "강촌",
+"n": 31
+},
+{
+"lineId": "1067",
+"stationName": "별내",
+"direction": "상행",
+"nextStationName": "갈매",
+"n": 39
+},
+{
+"lineId": "1067",
+"stationName": "별내",
+"direction": "하행",
+"nextStationName": "퇴계원",
+"n": 16
+},
+{
+"lineId": "1067",
+"stationName": "사릉",
+"direction": "상행",
+"nextStationName": "퇴계원",
+"n": 39
+},
+{
+"lineId": "1067",
+"stationName": "사릉",
+"direction": "하행",
+"nextStationName": "금곡",
+"n": 19
+},
+{
+"lineId": "1067",
+"stationName": "상봉",
+"direction": "상행",
+"nextStationName": "중랑",
+"n": 35
+},
+{
+"lineId": "1067",
+"stationName": "상봉",
+"direction": "하행",
+"nextStationName": "망우",
+"n": 15
+},
+{
+"lineId": "1067",
+"stationName": "상천",
+"direction": "상행",
+"nextStationName": "청평",
+"n": 33
+},
+{
+"lineId": "1067",
+"stationName": "상천",
+"direction": "하행",
+"nextStationName": "가평",
+"n": 28
+},
+{
+"lineId": "1067",
+"stationName": "신내",
+"direction": "상행",
+"nextStationName": "망우",
+"n": 39
+},
+{
+"lineId": "1067",
+"stationName": "신내",
+"direction": "하행",
+"nextStationName": "갈매",
+"n": 15
+},
+{
+"lineId": "1067",
+"stationName": "중랑",
+"direction": "상행",
+"nextStationName": "회기",
+"n": 19
+},
+{
+"lineId": "1067",
+"stationName": "중랑",
+"direction": "하행",
+"nextStationName": "상봉",
+"n": 10
+},
+{
+"lineId": "1067",
+"stationName": "천마산",
+"direction": "상행",
+"nextStationName": "평내호평",
+"n": 37
+},
+{
+"lineId": "1067",
+"stationName": "천마산",
+"direction": "하행",
+"nextStationName": "마석",
+"n": 27
+},
+{
+"lineId": "1067",
+"stationName": "청량리",
+"direction": "하행",
+"nextStationName": "회기",
+"n": 8
+},
+{
+"lineId": "1067",
+"stationName": "청평",
+"direction": "상행",
+"nextStationName": "대성리",
+"n": 37
+},
+{
+"lineId": "1067",
+"stationName": "청평",
+"direction": "하행",
+"nextStationName": "상천",
+"n": 28
+},
+{
+"lineId": "1067",
+"stationName": "춘천",
+"direction": "상행",
+"nextStationName": "남춘천",
+"n": 13
+},
+{
+"lineId": "1067",
+"stationName": "퇴계원",
+"direction": "상행",
+"nextStationName": "별내",
+"n": 39
+},
+{
+"lineId": "1067",
+"stationName": "퇴계원",
+"direction": "하행",
+"nextStationName": "사릉",
+"n": 18
+},
+{
+"lineId": "1067",
+"stationName": "평내호평",
+"direction": "상행",
+"nextStationName": "금곡",
+"n": 39
+},
+{
+"lineId": "1067",
+"stationName": "평내호평",
+"direction": "하행",
+"nextStationName": "천마산",
+"n": 25
+},
+{
+"lineId": "1067",
+"stationName": "회기",
+"direction": "상행",
+"nextStationName": "청량리",
+"n": 20
+},
+{
+"lineId": "1067",
+"stationName": "회기",
+"direction": "하행",
+"nextStationName": "중랑",
+"n": 9
+},
+{
+"lineId": "1075",
+"stationName": "가천대",
+"direction": "상행",
+"nextStationName": "복정",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "가천대",
+"direction": "하행",
+"nextStationName": "태평",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "강남구청",
+"direction": "상행",
+"nextStationName": "압구정로데오",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "강남구청",
+"direction": "하행",
+"nextStationName": "선정릉",
+"n": 20
+},
+{
+"lineId": "1075",
+"stationName": "개포동",
+"direction": "상행",
+"nextStationName": "구룡",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "개포동",
+"direction": "하행",
+"nextStationName": "대모산입구",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "고색",
+"direction": "상행",
+"nextStationName": "수원",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "고색",
+"direction": "하행",
+"nextStationName": "오목천",
+"n": 18
+},
+{
+"lineId": "1075",
+"stationName": "고잔",
+"direction": "상행",
+"nextStationName": "중앙",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "고잔",
+"direction": "하행",
+"nextStationName": "초지",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "구룡",
+"direction": "상행",
+"nextStationName": "도곡",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "구룡",
+"direction": "하행",
+"nextStationName": "개포동",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "구성",
+"direction": "상행",
+"nextStationName": "보정",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "구성",
+"direction": "하행",
+"nextStationName": "신갈",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "기흥",
+"direction": "상행",
+"nextStationName": "신갈",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "기흥",
+"direction": "하행",
+"nextStationName": "상갈",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "남동인더스파크",
+"direction": "상행",
+"nextStationName": "호구포",
+"n": 18
+},
+{
+"lineId": "1075",
+"stationName": "남동인더스파크",
+"direction": "하행",
+"nextStationName": "원인재",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "달월",
+"direction": "상행",
+"nextStationName": "오이도",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "달월",
+"direction": "하행",
+"nextStationName": "월곶",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "대모산입구",
+"direction": "상행",
+"nextStationName": "개포동",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "대모산입구",
+"direction": "하행",
+"nextStationName": "수서",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "도곡",
+"direction": "상행",
+"nextStationName": "한티",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "도곡",
+"direction": "하행",
+"nextStationName": "구룡",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "망포",
+"direction": "상행",
+"nextStationName": "영통",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "망포",
+"direction": "하행",
+"nextStationName": "매탄권선",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "매교",
+"direction": "상행",
+"nextStationName": "수원시청",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "매교",
+"direction": "하행",
+"nextStationName": "수원",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "매탄권선",
+"direction": "상행",
+"nextStationName": "망포",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "매탄권선",
+"direction": "하행",
+"nextStationName": "수원시청",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "모란",
+"direction": "상행",
+"nextStationName": "태평",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "모란",
+"direction": "하행",
+"nextStationName": "야탑",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "미금",
+"direction": "상행",
+"nextStationName": "정자",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "미금",
+"direction": "하행",
+"nextStationName": "오리",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "보정",
+"direction": "상행",
+"nextStationName": "죽전",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "보정",
+"direction": "하행",
+"nextStationName": "구성",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "복정",
+"direction": "상행",
+"nextStationName": "수서",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "복정",
+"direction": "하행",
+"nextStationName": "가천대",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "사리",
+"direction": "상행",
+"nextStationName": "야목",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "사리",
+"direction": "하행",
+"nextStationName": "한대앞",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "상갈",
+"direction": "상행",
+"nextStationName": "기흥",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "상갈",
+"direction": "하행",
+"nextStationName": "청명",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "서울숲",
+"direction": "상행",
+"nextStationName": "왕십리",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "서울숲",
+"direction": "하행",
+"nextStationName": "압구정로데오",
+"n": 15
+},
+{
+"lineId": "1075",
+"stationName": "서현",
+"direction": "상행",
+"nextStationName": "이매",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "서현",
+"direction": "하행",
+"nextStationName": "수내",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "선릉",
+"direction": "상행",
+"nextStationName": "선정릉",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "선릉",
+"direction": "하행",
+"nextStationName": "한티",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "선정릉",
+"direction": "상행",
+"nextStationName": "강남구청",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "선정릉",
+"direction": "하행",
+"nextStationName": "선릉",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "소래포구",
+"direction": "상행",
+"nextStationName": "월곶",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "소래포구",
+"direction": "하행",
+"nextStationName": "인천논현",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "송도",
+"direction": "상행",
+"nextStationName": "연수",
+"n": 15
+},
+{
+"lineId": "1075",
+"stationName": "송도",
+"direction": "하행",
+"nextStationName": "인하대",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "수내",
+"direction": "상행",
+"nextStationName": "서현",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "수내",
+"direction": "하행",
+"nextStationName": "정자",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "수서",
+"direction": "상행",
+"nextStationName": "대모산입구",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "수서",
+"direction": "하행",
+"nextStationName": "복정",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "수원",
+"direction": "상행",
+"nextStationName": "매교",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "수원",
+"direction": "하행",
+"nextStationName": "고색",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "수원시청",
+"direction": "상행",
+"nextStationName": "매탄권선",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "수원시청",
+"direction": "하행",
+"nextStationName": "매교",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "숭의",
+"direction": "상행",
+"nextStationName": "인하대",
+"n": 11
+},
+{
+"lineId": "1075",
+"stationName": "숭의",
+"direction": "하행",
+"nextStationName": "신포",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "신갈",
+"direction": "상행",
+"nextStationName": "구성",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "신갈",
+"direction": "하행",
+"nextStationName": "기흥",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "신길온천",
+"direction": "상행",
+"nextStationName": "안산",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "신길온천",
+"direction": "하행",
+"nextStationName": "정왕",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "신포",
+"direction": "상행",
+"nextStationName": "숭의",
+"n": 11
+},
+{
+"lineId": "1075",
+"stationName": "신포",
+"direction": "하행",
+"nextStationName": "인천",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "안산",
+"direction": "상행",
+"nextStationName": "초지",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "안산",
+"direction": "하행",
+"nextStationName": "신길온천",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "압구정로데오",
+"direction": "상행",
+"nextStationName": "서울숲",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "압구정로데오",
+"direction": "하행",
+"nextStationName": "강남구청",
+"n": 19
+},
+{
+"lineId": "1075",
+"stationName": "야목",
+"direction": "상행",
+"nextStationName": "어천",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "야목",
+"direction": "하행",
+"nextStationName": "사리",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "야탑",
+"direction": "상행",
+"nextStationName": "모란",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "야탑",
+"direction": "하행",
+"nextStationName": "이매",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "어천",
+"direction": "상행",
+"nextStationName": "오목천",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "어천",
+"direction": "하행",
+"nextStationName": "야목",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "연수",
+"direction": "상행",
+"nextStationName": "원인재",
+"n": 15
+},
+{
+"lineId": "1075",
+"stationName": "연수",
+"direction": "하행",
+"nextStationName": "송도",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "영통",
+"direction": "상행",
+"nextStationName": "청명",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "영통",
+"direction": "하행",
+"nextStationName": "망포",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "오리",
+"direction": "상행",
+"nextStationName": "미금",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "오리",
+"direction": "하행",
+"nextStationName": "죽전",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "오목천",
+"direction": "상행",
+"nextStationName": "고색",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "오목천",
+"direction": "하행",
+"nextStationName": "어천",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "오이도",
+"direction": "상행",
+"nextStationName": "정왕",
+"n": 16
+},
+{
+"lineId": "1075",
+"stationName": "오이도",
+"direction": "하행",
+"nextStationName": "달월",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "왕십리",
+"direction": "상행",
+"nextStationName": "청량리",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "왕십리",
+"direction": "하행",
+"nextStationName": "서울숲",
+"n": 12
+},
+{
+"lineId": "1075",
+"stationName": "원인재",
+"direction": "상행",
+"nextStationName": "남동인더스파크",
+"n": 16
+},
+{
+"lineId": "1075",
+"stationName": "원인재",
+"direction": "하행",
+"nextStationName": "연수",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "월곶",
+"direction": "상행",
+"nextStationName": "달월",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "월곶",
+"direction": "하행",
+"nextStationName": "소래포구",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "이매",
+"direction": "상행",
+"nextStationName": "야탑",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "이매",
+"direction": "하행",
+"nextStationName": "서현",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "인천",
+"direction": "상행",
+"nextStationName": "신포",
+"n": 11
+},
+{
+"lineId": "1075",
+"stationName": "인천논현",
+"direction": "상행",
+"nextStationName": "소래포구",
+"n": 21
+},
+{
+"lineId": "1075",
+"stationName": "인천논현",
+"direction": "하행",
+"nextStationName": "호구포",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "인하대",
+"direction": "상행",
+"nextStationName": "송도",
+"n": 12
+},
+{
+"lineId": "1075",
+"stationName": "인하대",
+"direction": "하행",
+"nextStationName": "숭의",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "정왕",
+"direction": "상행",
+"nextStationName": "신길온천",
+"n": 21
+},
+{
+"lineId": "1075",
+"stationName": "정왕",
+"direction": "하행",
+"nextStationName": "오이도",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "정자",
+"direction": "상행",
+"nextStationName": "수내",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "정자",
+"direction": "하행",
+"nextStationName": "미금",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "죽전",
+"direction": "상행",
+"nextStationName": "오리",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "죽전",
+"direction": "하행",
+"nextStationName": "보정",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "중앙",
+"direction": "상행",
+"nextStationName": "한대앞",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "중앙",
+"direction": "하행",
+"nextStationName": "고잔",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "청량리",
+"direction": "하행",
+"nextStationName": "왕십리",
+"n": 4
+},
+{
+"lineId": "1075",
+"stationName": "청명",
+"direction": "상행",
+"nextStationName": "상갈",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "청명",
+"direction": "하행",
+"nextStationName": "영통",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "초지",
+"direction": "상행",
+"nextStationName": "고잔",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "초지",
+"direction": "하행",
+"nextStationName": "안산",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "태평",
+"direction": "상행",
+"nextStationName": "가천대",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "태평",
+"direction": "하행",
+"nextStationName": "모란",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "한대앞",
+"direction": "상행",
+"nextStationName": "사리",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "한대앞",
+"direction": "하행",
+"nextStationName": "중앙",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "한티",
+"direction": "상행",
+"nextStationName": "선릉",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "한티",
+"direction": "하행",
+"nextStationName": "도곡",
+"n": 22
+},
+{
+"lineId": "1075",
+"stationName": "호구포",
+"direction": "상행",
+"nextStationName": "인천논현",
+"n": 19
+},
+{
+"lineId": "1075",
+"stationName": "호구포",
+"direction": "하행",
+"nextStationName": "남동인더스파크",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "강남",
+"direction": "상행",
+"nextStationName": "신논현",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "강남",
+"direction": "하행",
+"nextStationName": "양재",
+"n": 11
+},
+{
+"lineId": "1077",
+"stationName": "광교",
+"direction": "상행",
+"nextStationName": "광교중앙",
+"n": 11
+},
+{
+"lineId": "1077",
+"stationName": "광교중앙",
+"direction": "상행",
+"nextStationName": "상현",
+"n": 11
+},
+{
+"lineId": "1077",
+"stationName": "광교중앙",
+"direction": "하행",
+"nextStationName": "광교",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "논현",
+"direction": "상행",
+"nextStationName": "신사",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "논현",
+"direction": "하행",
+"nextStationName": "신논현",
+"n": 11
+},
+{
+"lineId": "1077",
+"stationName": "동천",
+"direction": "상행",
+"nextStationName": "미금",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "동천",
+"direction": "하행",
+"nextStationName": "수지구청",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "미금",
+"direction": "상행",
+"nextStationName": "정자",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "미금",
+"direction": "하행",
+"nextStationName": "동천",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "상현",
+"direction": "상행",
+"nextStationName": "성복",
+"n": 13
+},
+{
+"lineId": "1077",
+"stationName": "상현",
+"direction": "하행",
+"nextStationName": "광교중앙",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "성복",
+"direction": "상행",
+"nextStationName": "수지구청",
+"n": 17
+},
+{
+"lineId": "1077",
+"stationName": "성복",
+"direction": "하행",
+"nextStationName": "상현",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "수지구청",
+"direction": "상행",
+"nextStationName": "동천",
+"n": 19
+},
+{
+"lineId": "1077",
+"stationName": "수지구청",
+"direction": "하행",
+"nextStationName": "성복",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "신논현",
+"direction": "상행",
+"nextStationName": "논현",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "신논현",
+"direction": "하행",
+"nextStationName": "강남",
+"n": 11
+},
+{
+"lineId": "1077",
+"stationName": "신사",
+"direction": "하행",
+"nextStationName": "논현",
+"n": 11
+},
+{
+"lineId": "1077",
+"stationName": "양재",
+"direction": "상행",
+"nextStationName": "강남",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "양재",
+"direction": "하행",
+"nextStationName": "양재시민의숲",
+"n": 13
+},
+{
+"lineId": "1077",
+"stationName": "양재시민의숲",
+"direction": "상행",
+"nextStationName": "양재",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "양재시민의숲",
+"direction": "하행",
+"nextStationName": "청계산입구",
+"n": 17
+},
+{
+"lineId": "1077",
+"stationName": "정자",
+"direction": "상행",
+"nextStationName": "판교",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "정자",
+"direction": "하행",
+"nextStationName": "미금",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "청계산입구",
+"direction": "상행",
+"nextStationName": "양재시민의숲",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "청계산입구",
+"direction": "하행",
+"nextStationName": "판교",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "판교",
+"direction": "상행",
+"nextStationName": "청계산입구",
+"n": 22
+},
+{
+"lineId": "1077",
+"stationName": "판교",
+"direction": "하행",
+"nextStationName": "정자",
+"n": 22
+},
+{
+"lineId": "1081",
+"stationName": "경기광주",
+"direction": "상행",
+"nextStationName": "삼동",
+"n": 22
+},
+{
+"lineId": "1081",
+"stationName": "경기광주",
+"direction": "하행",
+"nextStationName": "초월",
+"n": 15
+},
+{
+"lineId": "1081",
+"stationName": "곤지암",
+"direction": "상행",
+"nextStationName": "초월",
+"n": 21
+},
+{
+"lineId": "1081",
+"stationName": "곤지암",
+"direction": "하행",
+"nextStationName": "신둔도예촌",
+"n": 20
+},
+{
+"lineId": "1081",
+"stationName": "부발",
+"direction": "상행",
+"nextStationName": "이천",
+"n": 11
+},
+{
+"lineId": "1081",
+"stationName": "부발",
+"direction": "하행",
+"nextStationName": "세종왕릉",
+"n": 20
+},
+{
+"lineId": "1081",
+"stationName": "삼동",
+"direction": "상행",
+"nextStationName": "이매",
+"n": 22
+},
+{
+"lineId": "1081",
+"stationName": "삼동",
+"direction": "하행",
+"nextStationName": "경기광주",
+"n": 13
+},
+{
+"lineId": "1081",
+"stationName": "성남",
+"direction": "상행",
+"nextStationName": "판교",
+"n": 22
+},
+{
+"lineId": "1081",
+"stationName": "성남",
+"direction": "하행",
+"nextStationName": "이매",
+"n": 11
+},
+{
+"lineId": "1081",
+"stationName": "세종왕릉",
+"direction": "상행",
+"nextStationName": "부발",
+"n": 9
+},
+{
+"lineId": "1081",
+"stationName": "세종왕릉",
+"direction": "하행",
+"nextStationName": "여주",
+"n": 21
+},
+{
+"lineId": "1081",
+"stationName": "신둔도예촌",
+"direction": "상행",
+"nextStationName": "곤지암",
+"n": 18
+},
+{
+"lineId": "1081",
+"stationName": "신둔도예촌",
+"direction": "하행",
+"nextStationName": "이천",
+"n": 22
+},
+{
+"lineId": "1081",
+"stationName": "여주",
+"direction": "상행",
+"nextStationName": "세종왕릉",
+"n": 9
+},
+{
+"lineId": "1081",
+"stationName": "이매",
+"direction": "상행",
+"nextStationName": "성남",
+"n": 22
+},
+{
+"lineId": "1081",
+"stationName": "이매",
+"direction": "하행",
+"nextStationName": "삼동",
+"n": 11
+},
+{
+"lineId": "1081",
+"stationName": "이천",
+"direction": "상행",
+"nextStationName": "신둔도예촌",
+"n": 15
+},
+{
+"lineId": "1081",
+"stationName": "이천",
+"direction": "하행",
+"nextStationName": "부발",
+"n": 22
+},
+{
+"lineId": "1081",
+"stationName": "초월",
+"direction": "상행",
+"nextStationName": "경기광주",
+"n": 22
+},
+{
+"lineId": "1081",
+"stationName": "초월",
+"direction": "하행",
+"nextStationName": "곤지암",
+"n": 18
+},
+{
+"lineId": "1081",
+"stationName": "판교",
+"direction": "하행",
+"nextStationName": "성남",
+"n": 11
+},
+{
+"lineId": "1092",
+"stationName": "4.19 민주묘지",
+"direction": "상행",
+"nextStationName": "가오리",
+"n": 11
+},
+{
+"lineId": "1092",
+"stationName": "4.19 민주묘지",
+"direction": "하행",
+"nextStationName": "솔밭공원",
+"n": 22
+},
+{
+"lineId": "1092",
+"stationName": "가오리",
+"direction": "상행",
+"nextStationName": "화계",
+"n": 11
+},
+{
+"lineId": "1092",
+"stationName": "가오리",
+"direction": "하행",
+"nextStationName": "4.19 민주묘지",
+"n": 22
+},
+{
+"lineId": "1092",
+"stationName": "보문",
+"direction": "상행",
+"nextStationName": "신설동",
+"n": 22
+},
+{
+"lineId": "1092",
+"stationName": "보문",
+"direction": "하행",
+"nextStationName": "성신여대입구",
+"n": 11
+},
+{
+"lineId": "1092",
+"stationName": "북한산보국문",
+"direction": "상행",
+"nextStationName": "정릉",
+"n": 22
+},
+{
+"lineId": "1092",
+"stationName": "북한산보국문",
+"direction": "하행",
+"nextStationName": "솔샘",
+"n": 18
+},
+{
+"lineId": "1092",
+"stationName": "북한산우이",
+"direction": "상행",
+"nextStationName": "솔밭공원",
+"n": 11
+},
+{
+"lineId": "1092",
+"stationName": "삼양",
+"direction": "상행",
+"nextStationName": "삼양사거리",
+"n": 18
+},
+{
+"lineId": "1092",
+"stationName": "삼양",
+"direction": "하행",
+"nextStationName": "화계",
+"n": 22
+},
+{
+"lineId": "1092",
+"stationName": "삼양사거리",
+"direction": "상행",
+"nextStationName": "솔샘",
+"n": 22
+},
+{
+"lineId": "1092",
+"stationName": "삼양사거리",
+"direction": "하행",
+"nextStationName": "삼양",
+"n": 22
+},
+{
+"lineId": "1092",
+"stationName": "성신여대입구",
+"direction": "상행",
+"nextStationName": "보문",
+"n": 22
+},
+{
+"lineId": "1092",
+"stationName": "성신여대입구",
+"direction": "하행",
+"nextStationName": "정릉",
+"n": 11
+},
+{
+"lineId": "1092",
+"stationName": "솔밭공원",
+"direction": "상행",
+"nextStationName": "4.19 민주묘지",
+"n": 11
+},
+{
+"lineId": "1092",
+"stationName": "솔밭공원",
+"direction": "하행",
+"nextStationName": "북한산우이",
+"n": 22
+},
+{
+"lineId": "1092",
+"stationName": "솔샘",
+"direction": "상행",
+"nextStationName": "북한산보국문",
+"n": 22
+},
+{
+"lineId": "1092",
+"stationName": "솔샘",
+"direction": "하행",
+"nextStationName": "삼양사거리",
+"n": 22
+},
+{
+"lineId": "1092",
+"stationName": "신설동",
+"direction": "하행",
+"nextStationName": "보문",
+"n": 11
+},
+{
+"lineId": "1092",
+"stationName": "정릉",
+"direction": "상행",
+"nextStationName": "성신여대입구",
+"n": 22
+},
+{
+"lineId": "1092",
+"stationName": "정릉",
+"direction": "하행",
+"nextStationName": "북한산보국문",
+"n": 17
+},
+{
+"lineId": "1092",
+"stationName": "화계",
+"direction": "상행",
+"nextStationName": "삼양",
+"n": 17
+},
+{
+"lineId": "1092",
+"stationName": "화계",
+"direction": "하행",
+"nextStationName": "가오리",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "곡산",
+"direction": "상행",
+"nextStationName": "백마",
+"n": 20
+},
+{
+"lineId": "1093",
+"stationName": "김포공항",
+"direction": "상행",
+"nextStationName": "능곡",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "김포공항",
+"direction": "하행",
+"nextStationName": "원종",
+"n": 16
+},
+{
+"lineId": "1093",
+"stationName": "능곡",
+"direction": "상행",
+"nextStationName": "대곡",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "능곡",
+"direction": "하행",
+"nextStationName": "김포공항",
+"n": 12
+},
+{
+"lineId": "1093",
+"stationName": "달미",
+"direction": "상행",
+"nextStationName": "시흥능곡",
+"n": 16
+},
+{
+"lineId": "1093",
+"stationName": "달미",
+"direction": "하행",
+"nextStationName": "선부",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "대곡",
+"direction": "상행",
+"nextStationName": "곡산",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "대곡",
+"direction": "하행",
+"nextStationName": "능곡",
+"n": 11
+},
+{
+"lineId": "1093",
+"stationName": "백마",
+"direction": "상행",
+"nextStationName": "풍산",
+"n": 20
+},
+{
+"lineId": "1093",
+"stationName": "부천종합운동장",
+"direction": "상행",
+"nextStationName": "원종",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "부천종합운동장",
+"direction": "하행",
+"nextStationName": "소사",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "선부",
+"direction": "상행",
+"nextStationName": "달미",
+"n": 13
+},
+{
+"lineId": "1093",
+"stationName": "선부",
+"direction": "하행",
+"nextStationName": "초지",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "소사",
+"direction": "상행",
+"nextStationName": "부천종합운동장",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "소사",
+"direction": "하행",
+"nextStationName": "소새울",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "소새울",
+"direction": "상행",
+"nextStationName": "소사",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "소새울",
+"direction": "하행",
+"nextStationName": "시흥대야",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "시우",
+"direction": "상행",
+"nextStationName": "초지",
+"n": 11
+},
+{
+"lineId": "1093",
+"stationName": "시우",
+"direction": "하행",
+"nextStationName": "원시",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "시흥능곡",
+"direction": "상행",
+"nextStationName": "시흥시청",
+"n": 16
+},
+{
+"lineId": "1093",
+"stationName": "시흥능곡",
+"direction": "하행",
+"nextStationName": "달미",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "시흥대야",
+"direction": "상행",
+"nextStationName": "소새울",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "시흥대야",
+"direction": "하행",
+"nextStationName": "신천",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "시흥시청",
+"direction": "상행",
+"nextStationName": "신현",
+"n": 20
+},
+{
+"lineId": "1093",
+"stationName": "시흥시청",
+"direction": "하행",
+"nextStationName": "시흥능곡",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "신천",
+"direction": "상행",
+"nextStationName": "시흥대야",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "신천",
+"direction": "하행",
+"nextStationName": "신현",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "신현",
+"direction": "상행",
+"nextStationName": "신천",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "신현",
+"direction": "하행",
+"nextStationName": "시흥시청",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "원시",
+"direction": "상행",
+"nextStationName": "시우",
+"n": 11
+},
+{
+"lineId": "1093",
+"stationName": "원종",
+"direction": "상행",
+"nextStationName": "김포공항",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "원종",
+"direction": "하행",
+"nextStationName": "부천종합운동장",
+"n": 20
+},
+{
+"lineId": "1093",
+"stationName": "초지",
+"direction": "상행",
+"nextStationName": "선부",
+"n": 11
+},
+{
+"lineId": "1093",
+"stationName": "초지",
+"direction": "하행",
+"nextStationName": "시우",
+"n": 22
+},
+{
+"lineId": "1093",
+"stationName": "풍산",
+"direction": "상행",
+"nextStationName": "일산",
+"n": 20
+},
+{
+"lineId": "1094",
+"stationName": "관악산",
+"direction": "상행",
+"nextStationName": "서울대벤처타운",
+"n": 10
+},
+{
+"lineId": "1094",
+"stationName": "당곡",
+"direction": "상행",
+"nextStationName": "보라매병원",
+"n": 15
+},
+{
+"lineId": "1094",
+"stationName": "당곡",
+"direction": "하행",
+"nextStationName": "신림",
+"n": 17
+},
+{
+"lineId": "1094",
+"stationName": "대방",
+"direction": "상행",
+"nextStationName": "샛강",
+"n": 22
+},
+{
+"lineId": "1094",
+"stationName": "대방",
+"direction": "하행",
+"nextStationName": "서울지방병무청",
+"n": 11
+},
+{
+"lineId": "1094",
+"stationName": "보라매",
+"direction": "상행",
+"nextStationName": "서울지방병무청",
+"n": 21
+},
+{
+"lineId": "1094",
+"stationName": "보라매",
+"direction": "하행",
+"nextStationName": "보라매공원",
+"n": 11
+},
+{
+"lineId": "1094",
+"stationName": "보라매공원",
+"direction": "상행",
+"nextStationName": "보라매",
+"n": 19
+},
+{
+"lineId": "1094",
+"stationName": "보라매공원",
+"direction": "하행",
+"nextStationName": "보라매병원",
+"n": 12
+},
+{
+"lineId": "1094",
+"stationName": "보라매병원",
+"direction": "상행",
+"nextStationName": "보라매공원",
+"n": 16
+},
+{
+"lineId": "1094",
+"stationName": "보라매병원",
+"direction": "하행",
+"nextStationName": "당곡",
+"n": 15
+},
+{
+"lineId": "1094",
+"stationName": "샛강",
+"direction": "하행",
+"nextStationName": "대방",
+"n": 11
+},
+{
+"lineId": "1094",
+"stationName": "서울대벤처타운",
+"direction": "상행",
+"nextStationName": "서원",
+"n": 13
+},
+{
+"lineId": "1094",
+"stationName": "서울대벤처타운",
+"direction": "하행",
+"nextStationName": "관악산",
+"n": 22
+},
+{
+"lineId": "1094",
+"stationName": "서울지방병무청",
+"direction": "상행",
+"nextStationName": "대방",
+"n": 22
+},
+{
+"lineId": "1094",
+"stationName": "서울지방병무청",
+"direction": "하행",
+"nextStationName": "보라매",
+"n": 11
+},
+{
+"lineId": "1094",
+"stationName": "서원",
+"direction": "상행",
+"nextStationName": "신림",
+"n": 17
+},
+{
+"lineId": "1094",
+"stationName": "서원",
+"direction": "하행",
+"nextStationName": "서울대벤처타운",
+"n": 22
+},
+{
+"lineId": "1094",
+"stationName": "신림",
+"direction": "상행",
+"nextStationName": "당곡",
+"n": 12
+},
+{
+"lineId": "1094",
+"stationName": "신림",
+"direction": "하행",
+"nextStationName": "서원",
+"n": 19
+}
+]
+}

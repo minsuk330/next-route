@@ -1,0 +1,6521 @@
+{
+"_source": "서울 realtimePosition(노선별) × realtimeStationArrival/ALL 운영 키 원문 11회(2026-10-22T14:03:37+0900~2026-10-22T14:41:07+0900). 같은 회차·같은 노선·같은 열차번호(숫자 비교)로 맞춘 위치 행과 그 열차의 도착 API 방향. 도착 행 방향이 둘인 열차(회차 중)는 뺐다",
+"rows": [
+{
+"lineId": "1001",
+"trainNo": "0092",
+"updnLine": "0",
+"statnId": "1001000128",
+"statnTid": "1001000110",
+"statnTnm": "의정부",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0115",
+"updnLine": "1",
+"statnId": "1001000130",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0642",
+"updnLine": "0",
+"statnId": "1001000133",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0816",
+"updnLine": "0",
+"statnId": "1001000125",
+"statnTid": "1001001003",
+"statnTnm": "연천",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "1921",
+"updnLine": "1",
+"statnId": "1001080169",
+"statnTid": "1001080169",
+"statnTnm": "천안",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0818",
+"updnLine": "0",
+"statnId": "1001000141",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0811",
+"updnLine": "1",
+"statnId": "1001000126",
+"statnTid": "1001000141",
+"statnTnm": "구로",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0647",
+"updnLine": "1",
+"statnId": "1001080168",
+"statnTid": "1001080176",
+"statnTnm": "신창",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0098",
+"updnLine": "0",
+"statnId": "1001000142",
+"statnTid": "1001000101",
+"statnTnm": "동두천",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0649",
+"updnLine": "1",
+"statnId": "1001080163",
+"statnTid": "1001080176",
+"statnTnm": "신창",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0100",
+"updnLine": "0",
+"statnId": "1001000147",
+"statnTid": "1001001003",
+"statnTnm": "연천",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0651",
+"updnLine": "1",
+"statnId": "1001080161",
+"statnTid": "1001080169",
+"statnTnm": "천안",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "1928",
+"updnLine": "0",
+"statnId": "1001080168",
+"statnTid": "1001000141",
+"statnTnm": "구로",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0107",
+"updnLine": "1",
+"statnId": "1001000144",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0656",
+"updnLine": "0",
+"statnId": "1001080169",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "1922",
+"updnLine": "0",
+"statnId": "1001000124",
+"statnTid": "1001000124",
+"statnTnm": "청량리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0129",
+"updnLine": "1",
+"statnId": "1001000100",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0650",
+"updnLine": "0",
+"statnId": "1001080158",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0088",
+"updnLine": "0",
+"statnId": "1001000116",
+"statnTid": "1001000107",
+"statnTnm": "양주",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0101",
+"updnLine": "1",
+"statnId": "1001000161",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0111",
+"updnLine": "1",
+"statnId": "1001000138",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0104",
+"updnLine": "0",
+"statnId": "1001000151",
+"statnTid": "1001000107",
+"statnTnm": "양주",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0453",
+"updnLine": "1",
+"statnId": "1001080156",
+"statnTid": "1001801571",
+"statnTnm": "서동탄",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0648",
+"updnLine": "0",
+"statnId": "1001080150",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0086",
+"updnLine": "0",
+"statnId": "1001000111",
+"statnTid": "1001000100",
+"statnTnm": "소요산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0121",
+"updnLine": "1",
+"statnId": "1001000112",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0454",
+"updnLine": "0",
+"statnId": "1001000135",
+"statnTid": "1001000124",
+"statnTnm": "청량리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0655",
+"updnLine": "1",
+"statnId": "1001080154",
+"statnTid": "1001080169",
+"statnTnm": "천안",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "1923",
+"updnLine": "1",
+"statnId": "1001080168",
+"statnTid": "1001080169",
+"statnTnm": "천안",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0096",
+"updnLine": "0",
+"statnId": "1001000138",
+"statnTid": "1001000107",
+"statnTnm": "양주",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0455",
+"updnLine": "1",
+"statnId": "1001080147",
+"statnTid": "1001801571",
+"statnTnm": "서동탄",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0119",
+"updnLine": "1",
+"statnId": "1001000122",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0460",
+"updnLine": "0",
+"statnId": "1001080156",
+"statnTid": "1001000124",
+"statnTnm": "청량리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0653",
+"updnLine": "1",
+"statnId": "1001080158",
+"statnTid": "1001080169",
+"statnTnm": "천안",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "1088",
+"updnLine": "0",
+"statnId": "1001000152",
+"statnTid": "1001000135",
+"statnTnm": "용산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0652",
+"updnLine": "0",
+"statnId": "1001080161",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0654",
+"updnLine": "0",
+"statnId": "1001080166",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0123",
+"updnLine": "1",
+"statnId": "1001000108",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0644",
+"updnLine": "0",
+"statnId": "1001000141",
+"statnTid": "1001000124",
+"statnTnm": "청량리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0657",
+"updnLine": "1",
+"statnId": "1001080143",
+"statnTid": "1001080169",
+"statnTnm": "천안",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0456",
+"updnLine": "0",
+"statnId": "1001000136",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0106",
+"updnLine": "0",
+"statnId": "1001000158",
+"statnTid": "1001000100",
+"statnTnm": "소요산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "1086",
+"updnLine": "0",
+"statnId": "1001000139",
+"statnTid": "1001000135",
+"statnTnm": "용산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0103",
+"updnLine": "1",
+"statnId": "1001000158",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0094",
+"updnLine": "0",
+"statnId": "1001000134",
+"statnTid": "1001000100",
+"statnTnm": "소요산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0109",
+"updnLine": "1",
+"statnId": "1001000141",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0646",
+"updnLine": "0",
+"statnId": "1001080145",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0113",
+"updnLine": "1",
+"statnId": "1001000134",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0458",
+"updnLine": "0",
+"statnId": "1001080154",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0105",
+"updnLine": "1",
+"statnId": "1001000152",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "1609",
+"updnLine": "1",
+"statnId": "1001000142",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0640",
+"updnLine": "0",
+"statnId": "1001000119",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "1611",
+"updnLine": "1",
+"statnId": "1001000116",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "1079",
+"updnLine": "1",
+"statnId": "1001000139",
+"statnTid": "1001000160",
+"statnTnm": "동인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0658",
+"updnLine": "0",
+"statnId": "1001080174",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0814",
+"updnLine": "0",
+"statnId": "1001000102",
+"statnTid": "1001001003",
+"statnTnm": "연천",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "1614",
+"updnLine": "0",
+"statnId": "1001000123",
+"statnTid": "1001000101",
+"statnTnm": "동두천",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "1929",
+"updnLine": "1",
+"statnId": "1001000128",
+"statnTid": "1001080169",
+"statnTnm": "천안",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "7021",
+"updnLine": "1",
+"statnId": "1001000139",
+"statnTid": "1001075410",
+"statnTnm": "광명",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "7018",
+"updnLine": "0",
+"statnId": "1001000139",
+"statnTid": "1001000139",
+"statnTnm": "영등포",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1002",
+"trainNo": "2241",
+"updnLine": "1",
+"statnId": "1002000212",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2243",
+"updnLine": "1",
+"statnId": "1002000213",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "3245",
+"updnLine": "1",
+"statnId": "1002000216",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2247",
+"updnLine": "1",
+"statnId": "1002000219",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2251",
+"updnLine": "1",
+"statnId": "1002000224",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "5600",
+"updnLine": "0",
+"statnId": "1002002341",
+"statnTid": "1002002344",
+"statnTnm": "까치산",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "2259",
+"updnLine": "1",
+"statnId": "1002000233",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "5597",
+"updnLine": "1",
+"statnId": "1002002341",
+"statnTid": "1002000234",
+"statnTnm": "신도림지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "3242",
+"updnLine": "0",
+"statnId": "1002000228",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "2226",
+"updnLine": "0",
+"statnId": "1002000208",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "3244",
+"updnLine": "0",
+"statnId": "1002000226",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "3240",
+"updnLine": "0",
+"statnId": "1002000231",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "1599",
+"updnLine": "1",
+"statnId": "1002002114",
+"statnTid": "1002002114",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "1602",
+"updnLine": "0",
+"statnId": "1002002113",
+"statnTid": "1002000211",
+"statnTnm": "성수지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "3224",
+"updnLine": "0",
+"statnId": "1002000210",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "3228",
+"updnLine": "0",
+"statnId": "1002000205",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "2230",
+"updnLine": "0",
+"statnId": "1002000202",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "3232",
+"updnLine": "0",
+"statnId": "1002000241",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "2234",
+"updnLine": "0",
+"statnId": "1002000238",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "2238",
+"updnLine": "0",
+"statnId": "1002000233",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "2246",
+"updnLine": "0",
+"statnId": "1002000223",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "2261",
+"updnLine": "1",
+"statnId": "1002000235",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2263",
+"updnLine": "1",
+"statnId": "1002000238",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2267",
+"updnLine": "1",
+"statnId": "1002000243",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2269",
+"updnLine": "1",
+"statnId": "1002000202",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "3249",
+"updnLine": "1",
+"statnId": "1002000222",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2257",
+"updnLine": "1",
+"statnId": "1002000230",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "3248",
+"updnLine": "0",
+"statnId": "1002000220",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "2265",
+"updnLine": "1",
+"statnId": "1002000240",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "3271",
+"updnLine": "1",
+"statnId": "1002000205",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "3236",
+"updnLine": "0",
+"statnId": "1002000236",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "3273",
+"updnLine": "1",
+"statnId": "1002000207",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2253",
+"updnLine": "1",
+"statnId": "1002000228",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2250",
+"updnLine": "0",
+"statnId": "1002000216",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "3252",
+"updnLine": "0",
+"statnId": "1002000213",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1003",
+"trainNo": "3206",
+"updnLine": "0",
+"statnId": "1003000319",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3208",
+"updnLine": "0",
+"statnId": "1003000321",
+"statnTid": "1003000320",
+"statnTnm": "구파발",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3210",
+"updnLine": "0",
+"statnId": "1003000324",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3189",
+"updnLine": "1",
+"statnId": "1003000342",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3187",
+"updnLine": "1",
+"statnId": "1003000349",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3212",
+"updnLine": "0",
+"statnId": "1003000327",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3214",
+"updnLine": "0",
+"statnId": "1003000330",
+"statnTid": "1003000320",
+"statnTnm": "구파발",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3216",
+"updnLine": "0",
+"statnId": "1003000334",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3195",
+"updnLine": "1",
+"statnId": "1003000337",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3193",
+"updnLine": "1",
+"statnId": "1003000341",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3218",
+"updnLine": "0",
+"statnId": "1003000337",
+"statnTid": "1003000320",
+"statnTnm": "구파발",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3197",
+"updnLine": "1",
+"statnId": "1003000334",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3220",
+"updnLine": "0",
+"statnId": "1003000340",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3222",
+"updnLine": "0",
+"statnId": "1003000343",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3224",
+"updnLine": "0",
+"statnId": "1003000347",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3203",
+"updnLine": "1",
+"statnId": "1003000325",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3201",
+"updnLine": "1",
+"statnId": "1003000329",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3226",
+"updnLine": "0",
+"statnId": "1003000350",
+"statnTid": "1003000320",
+"statnTnm": "구파발",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3207",
+"updnLine": "1",
+"statnId": "1003000319",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3205",
+"updnLine": "1",
+"statnId": "1003000322",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3198",
+"updnLine": "0",
+"statnId": "1003000310",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3211",
+"updnLine": "1",
+"statnId": "1003000315",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3202",
+"updnLine": "0",
+"statnId": "1003000314",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3213",
+"updnLine": "1",
+"statnId": "1003000313",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3204",
+"updnLine": "0",
+"statnId": "1003000316",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4096",
+"updnLine": "0",
+"statnId": "1004000409",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4097",
+"updnLine": "1",
+"statnId": "1004000432",
+"statnTid": "1004000433",
+"statnTnm": "사당",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4099",
+"updnLine": "1",
+"statnId": "1004000425",
+"statnTid": "1004000433",
+"statnTnm": "사당",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4098",
+"updnLine": "0",
+"statnId": "1004000413",
+"statnTid": "1004000405",
+"statnTnm": "진접",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4584",
+"updnLine": "0",
+"statnId": "1004000415",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4100",
+"updnLine": "0",
+"statnId": "1004000417",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4101",
+"updnLine": "1",
+"statnId": "1004000418",
+"statnTid": "1004000433",
+"statnTnm": "사당",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4586",
+"updnLine": "0",
+"statnId": "1004000411",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4103",
+"updnLine": "1",
+"statnId": "1004000413",
+"statnTid": "1004000433",
+"statnTnm": "사당",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4102",
+"updnLine": "0",
+"statnId": "1004000422",
+"statnTid": "1004000405",
+"statnTnm": "진접",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4588",
+"updnLine": "0",
+"statnId": "1004000414",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4590",
+"updnLine": "0",
+"statnId": "1004000420",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4104",
+"updnLine": "0",
+"statnId": "1004000428",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4592",
+"updnLine": "0",
+"statnId": "1004000424",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4106",
+"updnLine": "0",
+"statnId": "1004000433",
+"statnTid": "1004000405",
+"statnTnm": "진접",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4594",
+"updnLine": "0",
+"statnId": "1004000431",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4605",
+"updnLine": "1",
+"statnId": "1004000433",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4607",
+"updnLine": "1",
+"statnId": "1004000430",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4609",
+"updnLine": "1",
+"statnId": "1004000427",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4611",
+"updnLine": "1",
+"statnId": "1004000422",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4613",
+"updnLine": "1",
+"statnId": "1004000416",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4615",
+"updnLine": "1",
+"statnId": "1004000410",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4596",
+"updnLine": "0",
+"statnId": "1004000435",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4600",
+"updnLine": "0",
+"statnId": "1004000445",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4602",
+"updnLine": "0",
+"statnId": "1004000447",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4595",
+"updnLine": "1",
+"statnId": "1004000455",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4604",
+"updnLine": "0",
+"statnId": "1004000453",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4597",
+"updnLine": "1",
+"statnId": "1004000450",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4599",
+"updnLine": "1",
+"statnId": "1004000446",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4601",
+"updnLine": "1",
+"statnId": "1004000443",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4598",
+"updnLine": "0",
+"statnId": "1004000440",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4603",
+"updnLine": "1",
+"statnId": "1004000438",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5097",
+"updnLine": "1",
+"statnId": "1005000543",
+"statnTid": "1005000558",
+"statnTnm": "하남검단산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5590",
+"updnLine": "0",
+"statnId": "1005000525",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5617",
+"updnLine": "1",
+"statnId": "1005000527",
+"statnTid": "1005080555",
+"statnTnm": "마천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5592",
+"updnLine": "0",
+"statnId": "1005000532",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5594",
+"updnLine": "0",
+"statnId": "1005000538",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5596",
+"updnLine": "0",
+"statnId": "1005000545",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5110",
+"updnLine": "0",
+"statnId": "1005000514",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5598",
+"updnLine": "0",
+"statnId": "1005080549",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5600",
+"updnLine": "0",
+"statnId": "1005080555",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5105",
+"updnLine": "1",
+"statnId": "1005000516",
+"statnTid": "1005000558",
+"statnTnm": "하남검단산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5623",
+"updnLine": "1",
+"statnId": "1005000510",
+"statnTid": "1005080555",
+"statnTnm": "마천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5103",
+"updnLine": "1",
+"statnId": "1005000522",
+"statnTid": "1005000558",
+"statnTnm": "하남검단산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5621",
+"updnLine": "1",
+"statnId": "1005000513",
+"statnTid": "1005080555",
+"statnTnm": "마천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5101",
+"updnLine": "1",
+"statnId": "1005000530",
+"statnTid": "1005000558",
+"statnTnm": "하남검단산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5619",
+"updnLine": "1",
+"statnId": "1005000519",
+"statnTid": "1005080555",
+"statnTnm": "마천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5099",
+"updnLine": "1",
+"statnId": "1005000536",
+"statnTid": "1005000558",
+"statnTnm": "하남검단산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5112",
+"updnLine": "0",
+"statnId": "1005000519",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5114",
+"updnLine": "0",
+"statnId": "1005000530",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5116",
+"updnLine": "0",
+"statnId": "1005000534",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5118",
+"updnLine": "0",
+"statnId": "1005000543",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5120",
+"updnLine": "0",
+"statnId": "1005000547",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5122",
+"updnLine": "0",
+"statnId": "1005000553",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5609",
+"updnLine": "1",
+"statnId": "1005080552",
+"statnTid": "1005080555",
+"statnTnm": "마천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5611",
+"updnLine": "1",
+"statnId": "1005000546",
+"statnTid": "1005080555",
+"statnTnm": "마천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5613",
+"updnLine": "1",
+"statnId": "1005000540",
+"statnTid": "1005080555",
+"statnTnm": "마천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5586",
+"updnLine": "0",
+"statnId": "1005000510",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5095",
+"updnLine": "1",
+"statnId": "1005000550",
+"statnTid": "1005000558",
+"statnTnm": "하남검단산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5588",
+"updnLine": "0",
+"statnId": "1005000517",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5615",
+"updnLine": "1",
+"statnId": "1005000532",
+"statnTid": "1005080555",
+"statnTnm": "마천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5093",
+"updnLine": "1",
+"statnId": "1005000556",
+"statnTid": "1005000558",
+"statnTnm": "하남검단산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5124",
+"updnLine": "0",
+"statnId": "1005000558",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6160",
+"updnLine": "0",
+"statnId": "1006000617",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6157",
+"updnLine": "1",
+"statnId": "1006000636",
+"statnTid": "1006000647",
+"statnTnm": "봉화산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6155",
+"updnLine": "1",
+"statnId": "1006000641",
+"statnTid": "1006000648",
+"statnTnm": "신내",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6153",
+"updnLine": "1",
+"statnId": "1006000645",
+"statnTid": "1006000647",
+"statnTnm": "봉화산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6162",
+"updnLine": "0",
+"statnId": "1006000622",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6159",
+"updnLine": "1",
+"statnId": "1006000632",
+"statnTid": "1006000647",
+"statnTnm": "봉화산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6164",
+"updnLine": "0",
+"statnId": "1006000626",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6161",
+"updnLine": "1",
+"statnId": "1006000627",
+"statnTid": "1006000648",
+"statnTnm": "신내",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6163",
+"updnLine": "1",
+"statnId": "1006000623",
+"statnTid": "1006000647",
+"statnTnm": "봉화산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6168",
+"updnLine": "0",
+"statnId": "1006000635",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6165",
+"updnLine": "1",
+"statnId": "1006000618",
+"statnTid": "1006000647",
+"statnTnm": "봉화산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6167",
+"updnLine": "1",
+"statnId": "1006000610",
+"statnTid": "1006000648",
+"statnTnm": "신내",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6166",
+"updnLine": "0",
+"statnId": "1006000631",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6170",
+"updnLine": "0",
+"statnId": "1006000640",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6172",
+"updnLine": "0",
+"statnId": "1006000643",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6169",
+"updnLine": "1",
+"statnId": "1006000612",
+"statnTid": "1006000647",
+"statnTnm": "봉화산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7174",
+"updnLine": "0",
+"statnId": "1007000710",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7176",
+"updnLine": "0",
+"statnId": "1007000714",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7178",
+"updnLine": "0",
+"statnId": "1007000716",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7180",
+"updnLine": "0",
+"statnId": "1007000718",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7182",
+"updnLine": "0",
+"statnId": "1007000723",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7184",
+"updnLine": "0",
+"statnId": "1007000725",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7186",
+"updnLine": "0",
+"statnId": "1007000728",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7188",
+"updnLine": "0",
+"statnId": "1007000732",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7195",
+"updnLine": "1",
+"statnId": "1007000759",
+"statnTid": "1007000761",
+"statnTnm": "석남",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7190",
+"updnLine": "0",
+"statnId": "1007000735",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7192",
+"updnLine": "0",
+"statnId": "1007000737",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7199",
+"updnLine": "1",
+"statnId": "1007000752",
+"statnTid": "1007000761",
+"statnTnm": "석남",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7200",
+"updnLine": "0",
+"statnId": "1007000748",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7205",
+"updnLine": "1",
+"statnId": "1007000744",
+"statnTid": "1007000750",
+"statnTnm": "온수",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7209",
+"updnLine": "1",
+"statnId": "1007000739",
+"statnTid": "1007000750",
+"statnTnm": "온수",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7211",
+"updnLine": "1",
+"statnId": "1007000737",
+"statnTid": "1007000761",
+"statnTnm": "석남",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7213",
+"updnLine": "1",
+"statnId": "1007000734",
+"statnTid": "1007000750",
+"statnTnm": "온수",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7206",
+"updnLine": "0",
+"statnId": "1007000756",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7221",
+"updnLine": "1",
+"statnId": "1007000722",
+"statnTid": "1007000750",
+"statnTnm": "온수",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7196",
+"updnLine": "0",
+"statnId": "1007000742",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7201",
+"updnLine": "1",
+"statnId": "1007000749",
+"statnTid": "1007000750",
+"statnTnm": "온수",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7194",
+"updnLine": "0",
+"statnId": "1007000739",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7203",
+"updnLine": "1",
+"statnId": "1007000748",
+"statnTid": "1007000761",
+"statnTnm": "석남",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7198",
+"updnLine": "0",
+"statnId": "1007000745",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7207",
+"updnLine": "1",
+"statnId": "1007000743",
+"statnTid": "1007000761",
+"statnTnm": "석남",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7202",
+"updnLine": "0",
+"statnId": "1007000750",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7215",
+"updnLine": "1",
+"statnId": "1007000732",
+"statnTid": "1007000761",
+"statnTnm": "석남",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7219",
+"updnLine": "1",
+"statnId": "1007000726",
+"statnTid": "1007000761",
+"statnTnm": "석남",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7223",
+"updnLine": "1",
+"statnId": "1007000719",
+"statnTid": "1007000761",
+"statnTnm": "석남",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7225",
+"updnLine": "1",
+"statnId": "1007000715",
+"statnTid": "1007000750",
+"statnTnm": "온수",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7227",
+"updnLine": "1",
+"statnId": "1007000713",
+"statnTid": "1007000761",
+"statnTnm": "석남",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7229",
+"updnLine": "1",
+"statnId": "1007000710",
+"statnTid": "1007000750",
+"statnTnm": "온수",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7217",
+"updnLine": "1",
+"statnId": "1007000728",
+"statnTid": "1007000750",
+"statnTnm": "온수",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8152",
+"updnLine": "0",
+"statnId": "1008000806",
+"statnTid": "1008000804",
+"statnTnm": "별내",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1008",
+"trainNo": "8149",
+"updnLine": "1",
+"statnId": "1008000820",
+"statnTid": "1008000827",
+"statnTnm": "모란",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8154",
+"updnLine": "0",
+"statnId": "1008000809",
+"statnTid": "1008000804",
+"statnTnm": "별내",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1008",
+"trainNo": "8158",
+"updnLine": "0",
+"statnId": "1008000815",
+"statnTid": "1008000804",
+"statnTnm": "별내",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1008",
+"trainNo": "8155",
+"updnLine": "1",
+"statnId": "1008000808",
+"statnTid": "1008000827",
+"statnTnm": "모란",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8145",
+"updnLine": "1",
+"statnId": "1008000827",
+"statnTid": "1008000827",
+"statnTnm": "모란",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8147",
+"updnLine": "1",
+"statnId": "1008000822",
+"statnTid": "1008000827",
+"statnTnm": "모란",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8151",
+"updnLine": "1",
+"statnId": "1008000815",
+"statnTid": "1008000827",
+"statnTnm": "모란",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8156",
+"updnLine": "0",
+"statnId": "1008000812",
+"statnTid": "1008000804",
+"statnTnm": "별내",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1008",
+"trainNo": "8153",
+"updnLine": "1",
+"statnId": "1008000811",
+"statnTid": "1008000827",
+"statnTnm": "모란",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8160",
+"updnLine": "0",
+"statnId": "1008000819",
+"statnTid": "1008000804",
+"statnTnm": "별내",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1008",
+"trainNo": "8157",
+"updnLine": "1",
+"statnId": "1008000805",
+"statnTid": "1008000827",
+"statnTnm": "모란",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8162",
+"updnLine": "0",
+"statnId": "1008000823",
+"statnTid": "1008000804",
+"statnTnm": "별내",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1008",
+"trainNo": "8164",
+"updnLine": "0",
+"statnId": "1008000827",
+"statnTid": "1008000804",
+"statnTnm": "별내",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9608",
+"updnLine": "1",
+"statnId": "1009000917",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9601",
+"updnLine": "0",
+"statnId": "1009000931",
+"statnTid": "1009000902",
+"statnTnm": "김포공항",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9603",
+"updnLine": "0",
+"statnId": "1009000938",
+"statnTid": "1009000902",
+"statnTnm": "김포공항",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9606",
+"updnLine": "1",
+"statnId": "1009000923",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9612",
+"updnLine": "1",
+"statnId": "1009000902",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9599",
+"updnLine": "0",
+"statnId": "1009000923",
+"statnTid": "1009000902",
+"statnTnm": "김포공항",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9610",
+"updnLine": "1",
+"statnId": "1009000910",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9110",
+"updnLine": "1",
+"statnId": "1009000933",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9112",
+"updnLine": "1",
+"statnId": "1009000928",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9114",
+"updnLine": "1",
+"statnId": "1009000922",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9111",
+"updnLine": "0",
+"statnId": "1009000913",
+"statnTid": "1009000901",
+"statnTnm": "개화",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9115",
+"updnLine": "0",
+"statnId": "1009000921",
+"statnTid": "1009000901",
+"statnTnm": "개화",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9122",
+"updnLine": "1",
+"statnId": "1009000904",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9124",
+"updnLine": "1",
+"statnId": "1009000901",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9119",
+"updnLine": "0",
+"statnId": "1009000932",
+"statnTid": "1009000901",
+"statnTnm": "개화",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9121",
+"updnLine": "0",
+"statnId": "1009000936",
+"statnTid": "1009000901",
+"statnTnm": "개화",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9108",
+"updnLine": "1",
+"statnId": "1009000937",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9107",
+"updnLine": "0",
+"statnId": "1009000903",
+"statnTid": "1009000901",
+"statnTnm": "개화",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9109",
+"updnLine": "0",
+"statnId": "1009000907",
+"statnTid": "1009000901",
+"statnTnm": "개화",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9116",
+"updnLine": "1",
+"statnId": "1009000918",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9118",
+"updnLine": "1",
+"statnId": "1009000913",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9120",
+"updnLine": "1",
+"statnId": "1009000908",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9113",
+"updnLine": "0",
+"statnId": "1009000917",
+"statnTid": "1009000901",
+"statnTnm": "개화",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9117",
+"updnLine": "0",
+"statnId": "1009000927",
+"statnTid": "1009000901",
+"statnTnm": "개화",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9595",
+"updnLine": "0",
+"statnId": "1009000908",
+"statnTid": "1009000902",
+"statnTnm": "김포공항",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9597",
+"updnLine": "0",
+"statnId": "1009000915",
+"statnTid": "1009000902",
+"statnTnm": "김포공항",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9604",
+"updnLine": "1",
+"statnId": "1009000932",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "5066",
+"updnLine": "0",
+"statnId": "1063075335",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "5086",
+"updnLine": "0",
+"statnId": "1063075132",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "5073",
+"updnLine": "1",
+"statnId": "1063075126",
+"statnTid": "1063075126",
+"statnTnm": "덕소",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5081",
+"updnLine": "1",
+"statnId": "1063075317",
+"statnTid": "1063075126",
+"statnTnm": "덕소",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "2221",
+"updnLine": "1",
+"statnId": "1063075327",
+"statnTid": "1063080313",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5071",
+"updnLine": "1",
+"statnId": "1063075130",
+"statnTid": "1063075137",
+"statnTnm": "용문",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5075",
+"updnLine": "1",
+"statnId": "1063075121",
+"statnTid": "1063075137",
+"statnTnm": "용문",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5079",
+"updnLine": "1",
+"statnId": "1063075314",
+"statnTid": "1063075137",
+"statnTnm": "용문",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5087",
+"updnLine": "1",
+"statnId": "1063075329",
+"statnTid": "1063075137",
+"statnTnm": "용문",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5078",
+"updnLine": "0",
+"statnId": "1063075117",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "5080",
+"updnLine": "0",
+"statnId": "1063075121",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "5077",
+"updnLine": "1",
+"statnId": "1063075115",
+"statnTid": "1063075126",
+"statnTnm": "덕소",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5085",
+"updnLine": "1",
+"statnId": "1063075323",
+"statnTid": "1063075126",
+"statnTnm": "덕소",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5072",
+"updnLine": "0",
+"statnId": "1063075318",
+"statnTid": "1063075326",
+"statnTnm": "일산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "5074",
+"updnLine": "0",
+"statnId": "1063075315",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "5067",
+"updnLine": "1",
+"statnId": "1063075135",
+"statnTid": "1063075138",
+"statnTnm": "지평",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5070",
+"updnLine": "0",
+"statnId": "1063075328",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "5076",
+"updnLine": "0",
+"statnId": "1063075111",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "7129",
+"updnLine": "0",
+"statnId": "1063075324",
+"statnTid": "1063075326",
+"statnTnm": "일산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2132",
+"updnLine": "0",
+"statnId": "1065006508",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2121",
+"updnLine": "1",
+"statnId": "1065006502",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2119",
+"updnLine": "1",
+"statnId": "1065006504",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2117",
+"updnLine": "1",
+"statnId": "1065006505",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2115",
+"updnLine": "1",
+"statnId": "1065006506",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2113",
+"updnLine": "1",
+"statnId": "1065065071",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2124",
+"updnLine": "0",
+"statnId": "1065006505",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2126",
+"updnLine": "0",
+"statnId": "1065006506",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2128",
+"updnLine": "0",
+"statnId": "1065065071",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2130",
+"updnLine": "0",
+"statnId": "1065065072",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2134",
+"updnLine": "0",
+"statnId": "1065006510",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2109",
+"updnLine": "1",
+"statnId": "1065006509",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2122",
+"updnLine": "0",
+"statnId": "1065006504",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A1026",
+"updnLine": "0",
+"statnId": "1065065042",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A1028",
+"updnLine": "0",
+"statnId": "1065006511",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2107",
+"updnLine": "1",
+"statnId": "1065006510",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2120",
+"updnLine": "0",
+"statnId": "1065006502",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2111",
+"updnLine": "1",
+"statnId": "1065065072",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1067",
+"trainNo": "8043",
+"updnLine": "1",
+"statnId": "1067080135",
+"statnTid": "1067080140",
+"statnTnm": "춘천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1067",
+"trainNo": "8045",
+"updnLine": "1",
+"statnId": "1067080131",
+"statnTid": "1067080140",
+"statnTnm": "춘천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1067",
+"trainNo": "8050",
+"updnLine": "0",
+"statnId": "1067080131",
+"statnTid": "1067080120",
+"statnTnm": "상봉",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1067",
+"trainNo": "8047",
+"updnLine": "1",
+"statnId": "1067080127",
+"statnTid": "1067080140",
+"statnTnm": "춘천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1067",
+"trainNo": "2015",
+"updnLine": "1",
+"statnId": "1067080137",
+"statnTid": "1067080140",
+"statnTnm": "춘천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1067",
+"trainNo": "8048",
+"updnLine": "0",
+"statnId": "1067080126",
+"statnTid": "1067080120",
+"statnTnm": "상봉",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1067",
+"trainNo": "8052",
+"updnLine": "0",
+"statnId": "1067080136",
+"statnTid": "1067080120",
+"statnTnm": "상봉",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6104",
+"updnLine": "0",
+"statnId": "1075075215",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6112",
+"updnLine": "0",
+"statnId": "1075075233",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6110",
+"updnLine": "0",
+"statnId": "1075075227",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6114",
+"updnLine": "0",
+"statnId": "1075075235",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6115",
+"updnLine": "1",
+"statnId": "1075075245",
+"statnTid": "1075075246",
+"statnTnm": "고색",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6129",
+"updnLine": "1",
+"statnId": "1075075211",
+"statnTid": "1075075233",
+"statnTnm": "죽전",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6127",
+"updnLine": "1",
+"statnId": "1075075217",
+"statnTid": "1075075233",
+"statnTnm": "죽전",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6106",
+"updnLine": "0",
+"statnId": "1075075218",
+"statnTid": "1075075209",
+"statnTnm": "청량리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6123",
+"updnLine": "1",
+"statnId": "1075075225",
+"statnTid": "1075075246",
+"statnTnm": "고색",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6125",
+"updnLine": "1",
+"statnId": "1075075222",
+"statnTid": "1075075233",
+"statnTnm": "죽전",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6121",
+"updnLine": "1",
+"statnId": "1075075229",
+"statnTid": "1075075233",
+"statnTnm": "죽전",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6131",
+"updnLine": "1",
+"statnId": "1075075210",
+"statnTid": "1075075246",
+"statnTnm": "고색",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6424",
+"updnLine": "0",
+"statnId": "1075075268",
+"statnTid": "1075075258",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6108",
+"updnLine": "0",
+"statnId": "1075075221",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6102",
+"updnLine": "0",
+"statnId": "1075075210",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6547",
+"updnLine": "1",
+"statnId": "1075075271",
+"statnTid": "1075075271",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6542",
+"updnLine": "0",
+"statnId": "1075075213",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6544",
+"updnLine": "0",
+"statnId": "1075075223",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6546",
+"updnLine": "0",
+"statnId": "1075075231",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6548",
+"updnLine": "0",
+"statnId": "1075075242",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6550",
+"updnLine": "0",
+"statnId": "1075075246",
+"statnTid": "1075075209",
+"statnTnm": "청량리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6552",
+"updnLine": "0",
+"statnId": "1075075256",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6554",
+"updnLine": "0",
+"statnId": "1075075262",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6553",
+"updnLine": "1",
+"statnId": "1075075248",
+"statnTid": "1075075271",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6559",
+"updnLine": "1",
+"statnId": "1075075220",
+"statnTid": "1075075271",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6549",
+"updnLine": "1",
+"statnId": "1075075267",
+"statnTid": "1075075271",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6551",
+"updnLine": "1",
+"statnId": "1075075255",
+"statnTid": "1075075271",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6555",
+"updnLine": "1",
+"statnId": "1075075241",
+"statnTid": "1075075271",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6557",
+"updnLine": "1",
+"statnId": "1075075234",
+"statnTid": "1075075271",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "4595",
+"updnLine": "1",
+"statnId": "1075075257",
+"statnTid": "1075075258",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "4597",
+"updnLine": "1",
+"statnId": "1075075252",
+"statnTid": "1075075258",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6561",
+"updnLine": "1",
+"statnId": "1075075214",
+"statnTid": "1075075271",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6441",
+"updnLine": "1",
+"statnId": "1075075260",
+"statnTid": "1075075271",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1077",
+"trainNo": "4",
+"updnLine": "0",
+"statnId": "1077006817",
+"statnTid": "1077000684",
+"statnTnm": "신사",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1077",
+"trainNo": "7",
+"updnLine": "1",
+"statnId": "1077006810",
+"statnTid": "1077006819",
+"statnTnm": "광교",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1077",
+"trainNo": "11",
+"updnLine": "1",
+"statnId": "1077006818",
+"statnTid": "1077006819",
+"statnTnm": "광교",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1077",
+"trainNo": "14",
+"updnLine": "1",
+"statnId": "1077006812",
+"statnTid": "1077006819",
+"statnTnm": "광교",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1077",
+"trainNo": "18",
+"updnLine": "0",
+"statnId": "1077006811",
+"statnTid": "1077000684",
+"statnTnm": "신사",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1077",
+"trainNo": "20",
+"updnLine": "1",
+"statnId": "1077000688",
+"statnTid": "1077006819",
+"statnTnm": "광교",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1077",
+"trainNo": "17",
+"updnLine": "0",
+"statnId": "1077006810",
+"statnTid": "1077000684",
+"statnTnm": "신사",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1077",
+"trainNo": "13",
+"updnLine": "1",
+"statnId": "1077006815",
+"statnTid": "1077006819",
+"statnTnm": "광교",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1077",
+"trainNo": "23",
+"updnLine": "0",
+"statnId": "1077000687",
+"statnTid": "1077000684",
+"statnTnm": "신사",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1077",
+"trainNo": "21",
+"updnLine": "0",
+"statnId": "1077006814",
+"statnTid": "1077000684",
+"statnTnm": "신사",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1081",
+"trainNo": "7559",
+"updnLine": "1",
+"statnId": "1081037419",
+"statnTid": "1081037420",
+"statnTnm": "여주",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1081",
+"trainNo": "7562",
+"updnLine": "0",
+"statnId": "1081037410",
+"statnTid": "1081037409",
+"statnTnm": "판교",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1081",
+"trainNo": "7561",
+"updnLine": "1",
+"statnId": "1081037416",
+"statnTid": "1081037420",
+"statnTnm": "여주",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1081",
+"trainNo": "7563",
+"updnLine": "1",
+"statnId": "1081037412",
+"statnTid": "1081037420",
+"statnTnm": "여주",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1081",
+"trainNo": "7564",
+"updnLine": "0",
+"statnId": "1081037414",
+"statnTid": "1081037409",
+"statnTnm": "판교",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1234",
+"updnLine": "0",
+"statnId": "1092004708",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1227",
+"updnLine": "1",
+"statnId": "1092004708",
+"statnTid": "1092004701",
+"statnTnm": "북한산우이",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1092",
+"trainNo": "1236",
+"updnLine": "0",
+"statnId": "1092004706",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1229",
+"updnLine": "1",
+"statnId": "1092004710",
+"statnTid": "1092004701",
+"statnTnm": "북한산우이",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1092",
+"trainNo": "1230",
+"updnLine": "0",
+"statnId": "1092004712",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1223",
+"updnLine": "1",
+"statnId": "1092004703",
+"statnTid": "1092004701",
+"statnTnm": "북한산우이",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1092",
+"trainNo": "1232",
+"updnLine": "0",
+"statnId": "1092004710",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1225",
+"updnLine": "1",
+"statnId": "1092004706",
+"statnTid": "1092004701",
+"statnTnm": "북한산우이",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1092",
+"trainNo": "1238",
+"updnLine": "0",
+"statnId": "1092004702",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1093",
+"trainNo": "7247",
+"updnLine": "1",
+"statnId": "1093004022",
+"statnTid": "1093004022",
+"statnTnm": "원시",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1093",
+"trainNo": "7249",
+"updnLine": "1",
+"statnId": "1093004012",
+"statnTid": "1093004022",
+"statnTnm": "원시",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1093",
+"trainNo": "7251",
+"updnLine": "1",
+"statnId": "1093004005",
+"statnTid": "1093004022",
+"statnTnm": "원시",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1093",
+"trainNo": "7250",
+"updnLine": "0",
+"statnId": "1093004007",
+"statnTid": "1093004005",
+"statnTnm": "대곡",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1093",
+"trainNo": "7252",
+"updnLine": "0",
+"statnId": "1093004016",
+"statnTid": "1093004005",
+"statnTnm": "대곡",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1093",
+"trainNo": "7132",
+"updnLine": "0",
+"statnId": "1093004010",
+"statnTid": "1093004001",
+"statnTnm": "일산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1093",
+"trainNo": "7129",
+"updnLine": "1",
+"statnId": "1093004017",
+"statnTid": "1093004022",
+"statnTnm": "원시",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1093",
+"trainNo": "7134",
+"updnLine": "0",
+"statnId": "1093004021",
+"statnTid": "1093004001",
+"statnTnm": "일산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1093",
+"trainNo": "7131",
+"updnLine": "1",
+"statnId": "1093004007",
+"statnTid": "1093004022",
+"statnTnm": "원시",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1094",
+"trainNo": "1165",
+"updnLine": "1",
+"statnId": "1094000411",
+"statnTid": "1094000411",
+"statnTnm": "관악산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1094",
+"trainNo": "1166",
+"updnLine": "0",
+"statnId": "1094000405",
+"statnTid": "1094000401",
+"statnTnm": "샛강",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1094",
+"trainNo": "1167",
+"updnLine": "1",
+"statnId": "1094000409",
+"statnTid": "1094000411",
+"statnTnm": "관악산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1094",
+"trainNo": "1168",
+"updnLine": "0",
+"statnId": "1094000410",
+"statnTid": "1094000401",
+"statnTnm": "샛강",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1094",
+"trainNo": "1169",
+"updnLine": "1",
+"statnId": "1094000404",
+"statnTid": "1094000411",
+"statnTnm": "관악산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "0054",
+"updnLine": "0",
+"statnId": "1032000354",
+"statnTid": "1032000353",
+"statnTnm": "수서",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1032",
+"trainNo": "0053",
+"updnLine": "1",
+"statnId": "1032000355",
+"statnTid": "1032000356",
+"statnTnm": "동탄",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "0056",
+"updnLine": "0",
+"statnId": "1032000356",
+"statnTid": "1032000353",
+"statnTnm": "수서",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1032",
+"trainNo": "0055",
+"updnLine": "1",
+"statnId": "1032000353",
+"statnTid": "1032000356",
+"statnTnm": "동탄",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "1123",
+"updnLine": "1",
+"statnId": "1032000351",
+"statnTid": "1032000351",
+"statnTnm": "서울역",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "1122",
+"updnLine": "0",
+"statnId": "1032000346",
+"statnTid": "1032000346",
+"statnTnm": "운정중앙",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1032",
+"trainNo": "1124",
+"updnLine": "0",
+"statnId": "1032000348",
+"statnTid": "1032000346",
+"statnTnm": "운정중앙",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1032",
+"trainNo": "1127",
+"updnLine": "1",
+"statnId": "1032000347",
+"statnTid": "1032000351",
+"statnTnm": "서울역",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "1126",
+"updnLine": "0",
+"statnId": "1032000351",
+"statnTid": "1032000346",
+"statnTnm": "운정중앙",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1032",
+"trainNo": "1129",
+"updnLine": "1",
+"statnId": "1032000346",
+"statnTid": "1032000351",
+"statnTnm": "서울역",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "1125",
+"updnLine": "1",
+"statnId": "1032000350",
+"statnTid": "1032000351",
+"statnTnm": "서울역",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0465",
+"updnLine": "1",
+"statnId": "1001000129",
+"statnTid": "1001801571",
+"statnTnm": "서동탄",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "1924",
+"updnLine": "0",
+"statnId": "1001000133",
+"statnTid": "1001000124",
+"statnTnm": "청량리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0127",
+"updnLine": "1",
+"statnId": "1001000121",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0114",
+"updnLine": "0",
+"statnId": "1001000159",
+"statnTid": "1001000127",
+"statnTnm": "동묘앞",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0462",
+"updnLine": "0",
+"statnId": "1001080154",
+"statnTid": "1001000124",
+"statnTnm": "청량리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0463",
+"updnLine": "1",
+"statnId": "1001000137",
+"statnTid": "1001801571",
+"statnTnm": "서동탄",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0459",
+"updnLine": "1",
+"statnId": "1001080152",
+"statnTid": "1001080157",
+"statnTnm": "병점",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0131",
+"updnLine": "1",
+"statnId": "1001000111",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0660",
+"updnLine": "0",
+"statnId": "1001080168",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0110",
+"updnLine": "0",
+"statnId": "1001000149",
+"statnTid": "1001000101",
+"statnTnm": "동두천",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0659",
+"updnLine": "1",
+"statnId": "1001080150",
+"statnTid": "1001080169",
+"statnTnm": "천안",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0661",
+"updnLine": "1",
+"statnId": "1001000132",
+"statnTid": "1001080169",
+"statnTnm": "천안",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0137",
+"updnLine": "1",
+"statnId": "1001000101",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0112",
+"updnLine": "0",
+"statnId": "1001000154",
+"statnTid": "1001001003",
+"statnTnm": "연천",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0116",
+"updnLine": "0",
+"statnId": "1001000161",
+"statnTid": "1001000110",
+"statnTnm": "의정부",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0461",
+"updnLine": "1",
+"statnId": "1001000141",
+"statnTid": "1001801571",
+"statnTnm": "서동탄",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0457",
+"updnLine": "1",
+"statnId": "1001080154",
+"statnTid": "1001801571",
+"statnTnm": "서동탄",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0141",
+"updnLine": "1",
+"statnId": "1001001002",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0108",
+"updnLine": "0",
+"statnId": "1001000143",
+"statnTid": "1001000110",
+"statnTnm": "의정부",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "1083",
+"updnLine": "1",
+"statnId": "1001000141",
+"statnTid": "1001000160",
+"statnTnm": "동인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "1930",
+"updnLine": "0",
+"statnId": "1001080166",
+"statnTid": "1001000124",
+"statnTnm": "청량리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "1927",
+"updnLine": "1",
+"statnId": "1001080160",
+"statnTid": "1001080169",
+"statnTnm": "천안",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "1081",
+"updnLine": "1",
+"statnId": "1001000150",
+"statnTid": "1001000160",
+"statnTnm": "동인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "1613",
+"updnLine": "1",
+"statnId": "1001000106",
+"statnTid": "1001000119",
+"statnTnm": "광운대",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "1931",
+"updnLine": "1",
+"statnId": "1001000134",
+"statnTid": "1001080169",
+"statnTnm": "천안",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "7020",
+"updnLine": "0",
+"statnId": "1001000141",
+"statnTid": "1001000139",
+"statnTnm": "영등포",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "1932",
+"updnLine": "0",
+"statnId": "1001080175",
+"statnTid": "1001000124",
+"statnTnm": "청량리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1002",
+"trainNo": "2277",
+"updnLine": "1",
+"statnId": "1002000232",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2281",
+"updnLine": "1",
+"statnId": "1002000238",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "3283",
+"updnLine": "1",
+"statnId": "1002000240",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2287",
+"updnLine": "1",
+"statnId": "1002000205",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2289",
+"updnLine": "1",
+"statnId": "1002000207",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2256",
+"updnLine": "0",
+"statnId": "1002000227",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "2285",
+"updnLine": "1",
+"statnId": "1002000243",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "5605",
+"updnLine": "1",
+"statnId": "1002000234",
+"statnTid": "1002000234",
+"statnTnm": "신도림지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "1607",
+"updnLine": "1",
+"statnId": "1002002114",
+"statnTid": "1002002114",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "5608",
+"updnLine": "0",
+"statnId": "1002002342",
+"statnTid": "1002002344",
+"statnTnm": "까치산",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "1610",
+"updnLine": "0",
+"statnId": "1002002113",
+"statnTid": "1002000211",
+"statnTnm": "성수지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "3279",
+"updnLine": "1",
+"statnId": "1002000236",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "3262",
+"updnLine": "0",
+"statnId": "1002000219",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "2264",
+"updnLine": "0",
+"statnId": "1002000216",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "3266",
+"updnLine": "0",
+"statnId": "1002000214",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "2268",
+"updnLine": "0",
+"statnId": "1002000212",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "2275",
+"updnLine": "1",
+"statnId": "1002000234",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "2291",
+"updnLine": "1",
+"statnId": "1002000210",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "3258",
+"updnLine": "0",
+"statnId": "1002000225",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "2260",
+"updnLine": "0",
+"statnId": "1002000222",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "3254",
+"updnLine": "0",
+"statnId": "1002000230",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1003",
+"trainNo": "3228",
+"updnLine": "0",
+"statnId": "1003000334",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3209",
+"updnLine": "1",
+"statnId": "1003000336",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3232",
+"updnLine": "0",
+"statnId": "1003000338",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3234",
+"updnLine": "0",
+"statnId": "1003000343",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3215",
+"updnLine": "1",
+"statnId": "1003000326",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3238",
+"updnLine": "0",
+"statnId": "1003000347",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3219",
+"updnLine": "1",
+"statnId": "1003000320",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3240",
+"updnLine": "0",
+"statnId": "1003000351",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1003",
+"trainNo": "3217",
+"updnLine": "1",
+"statnId": "1003000323",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3231",
+"updnLine": "1",
+"statnId": "1003000309",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3223",
+"updnLine": "1",
+"statnId": "1003000316",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3225",
+"updnLine": "1",
+"statnId": "1003000314",
+"statnTid": "1003000349",
+"statnTnm": "수서",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4623",
+"updnLine": "1",
+"statnId": "1004000409",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4621",
+"updnLine": "1",
+"statnId": "1004000413",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4105",
+"updnLine": "1",
+"statnId": "1004000426",
+"statnTid": "1004000433",
+"statnTnm": "사당",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4107",
+"updnLine": "1",
+"statnId": "1004000423",
+"statnTid": "1004000433",
+"statnTnm": "사당",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4109",
+"updnLine": "1",
+"statnId": "1004000414",
+"statnTid": "1004000433",
+"statnTnm": "사당",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4108",
+"updnLine": "0",
+"statnId": "1004000419",
+"statnTid": "1004000405",
+"statnTnm": "진접",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4111",
+"updnLine": "1",
+"statnId": "1004000411",
+"statnTid": "1004000433",
+"statnTnm": "사당",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4110",
+"updnLine": "0",
+"statnId": "1004000425",
+"statnTid": "1004000405",
+"statnTnm": "진접",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4112",
+"updnLine": "0",
+"statnId": "1004000433",
+"statnTid": "1004000405",
+"statnTnm": "진접",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4617",
+"updnLine": "1",
+"statnId": "1004000420",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4619",
+"updnLine": "1",
+"statnId": "1004000417",
+"statnTid": "1004000456",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4606",
+"updnLine": "0",
+"statnId": "1004000442",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4614",
+"updnLine": "0",
+"statnId": "1004000454",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4608",
+"updnLine": "0",
+"statnId": "1004000445",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4610",
+"updnLine": "0",
+"statnId": "1004000447",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4612",
+"updnLine": "0",
+"statnId": "1004000452",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5107",
+"updnLine": "1",
+"statnId": "1005000531",
+"statnTid": "1005000558",
+"statnTnm": "하남검단산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5625",
+"updnLine": "1",
+"statnId": "1005000521",
+"statnTid": "1005080555",
+"statnTnm": "마천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5627",
+"updnLine": "1",
+"statnId": "1005000514",
+"statnTid": "1005080555",
+"statnTnm": "마천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5109",
+"updnLine": "1",
+"statnId": "1005000525",
+"statnTid": "1005000558",
+"statnTnm": "하남검단산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5602",
+"updnLine": "0",
+"statnId": "1005000542",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5111",
+"updnLine": "1",
+"statnId": "1005000518",
+"statnTid": "1005000558",
+"statnTnm": "하남검단산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5113",
+"updnLine": "1",
+"statnId": "1005000510",
+"statnTid": "1005000558",
+"statnTnm": "하남검단산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1005",
+"trainNo": "5126",
+"updnLine": "0",
+"statnId": "1005000545",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5604",
+"updnLine": "0",
+"statnId": "1005080549",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5128",
+"updnLine": "0",
+"statnId": "1005000552",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5130",
+"updnLine": "0",
+"statnId": "1005000557",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5132",
+"updnLine": "0",
+"statnId": "1005000558",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6182",
+"updnLine": "0",
+"statnId": "1006000642",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6174",
+"updnLine": "0",
+"statnId": "1006000625",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6171",
+"updnLine": "1",
+"statnId": "1006000629",
+"statnTid": "1006000647",
+"statnTnm": "봉화산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6176",
+"updnLine": "0",
+"statnId": "1006000628",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6173",
+"updnLine": "1",
+"statnId": "1006000625",
+"statnTid": "1006000648",
+"statnTnm": "신내",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6178",
+"updnLine": "0",
+"statnId": "1006000633",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6175",
+"updnLine": "1",
+"statnId": "1006000620",
+"statnTid": "1006000647",
+"statnTnm": "봉화산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6180",
+"updnLine": "0",
+"statnId": "1006000638",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6177",
+"updnLine": "1",
+"statnId": "1006000616",
+"statnTid": "1006000647",
+"statnTnm": "봉화산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6179",
+"updnLine": "1",
+"statnId": "1006000613",
+"statnTid": "1006000648",
+"statnTnm": "신내",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6184",
+"updnLine": "0",
+"statnId": "1006000646",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6186",
+"updnLine": "0",
+"statnId": "1006000647",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1006",
+"trainNo": "6190",
+"updnLine": "0",
+"statnId": "1006000648",
+"statnTid": "1006000610",
+"statnTnm": "응암순환(상선)",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7204",
+"updnLine": "0",
+"statnId": "1007000734",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7210",
+"updnLine": "0",
+"statnId": "1007000742",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7214",
+"updnLine": "0",
+"statnId": "1007000748",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7208",
+"updnLine": "0",
+"statnId": "1007000739",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7212",
+"updnLine": "0",
+"statnId": "1007000744",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7216",
+"updnLine": "0",
+"statnId": "1007000750",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7218",
+"updnLine": "0",
+"statnId": "1007000752",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7222",
+"updnLine": "0",
+"statnId": "1007000759",
+"statnTid": "1007000710",
+"statnTnm": "도봉산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1007",
+"trainNo": "7231",
+"updnLine": "1",
+"statnId": "1007000729",
+"statnTid": "1007000761",
+"statnTnm": "석남",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7233",
+"updnLine": "1",
+"statnId": "1007000725",
+"statnTid": "1007000750",
+"statnTnm": "온수",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7235",
+"updnLine": "1",
+"statnId": "1007000722",
+"statnTid": "1007000761",
+"statnTnm": "석남",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7239",
+"updnLine": "1",
+"statnId": "1007000716",
+"statnTid": "1007000761",
+"statnTnm": "석남",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7237",
+"updnLine": "1",
+"statnId": "1007000719",
+"statnTid": "1007000750",
+"statnTnm": "온수",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7243",
+"updnLine": "1",
+"statnId": "1007000710",
+"statnTid": "1007000761",
+"statnTnm": "석남",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7241",
+"updnLine": "1",
+"statnId": "1007000713",
+"statnTid": "1007000750",
+"statnTnm": "온수",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8159",
+"updnLine": "1",
+"statnId": "1008000821",
+"statnTid": "1008000827",
+"statnTnm": "모란",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8161",
+"updnLine": "1",
+"statnId": "1008000816",
+"statnTid": "1008000827",
+"statnTnm": "모란",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8166",
+"updnLine": "0",
+"statnId": "1008000810",
+"statnTid": "1008000804",
+"statnTnm": "별내",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1008",
+"trainNo": "8163",
+"updnLine": "1",
+"statnId": "1008000812",
+"statnTid": "1008000827",
+"statnTnm": "모란",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8168",
+"updnLine": "0",
+"statnId": "1008000814",
+"statnTid": "1008000804",
+"statnTnm": "별내",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1008",
+"trainNo": "8165",
+"updnLine": "1",
+"statnId": "1008000809",
+"statnTid": "1008000827",
+"statnTnm": "모란",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8170",
+"updnLine": "0",
+"statnId": "1008000818",
+"statnTid": "1008000804",
+"statnTnm": "별내",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1008",
+"trainNo": "8172",
+"updnLine": "0",
+"statnId": "1008000822",
+"statnTid": "1008000804",
+"statnTnm": "별내",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1008",
+"trainNo": "8169",
+"updnLine": "1",
+"statnId": "1008000804",
+"statnTid": "1008000827",
+"statnTnm": "모란",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8167",
+"updnLine": "1",
+"statnId": "1008000807",
+"statnTid": "1008000827",
+"statnTnm": "모란",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1008",
+"trainNo": "8174",
+"updnLine": "0",
+"statnId": "1008000826",
+"statnTid": "1008000804",
+"statnTnm": "별내",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9605",
+"updnLine": "0",
+"statnId": "1009000917",
+"statnTid": "1009000902",
+"statnTnm": "김포공항",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9607",
+"updnLine": "0",
+"statnId": "1009000924",
+"statnTid": "1009000902",
+"statnTnm": "김포공항",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9614",
+"updnLine": "1",
+"statnId": "1009000923",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9609",
+"updnLine": "0",
+"statnId": "1009000933",
+"statnTid": "1009000902",
+"statnTnm": "김포공항",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9616",
+"updnLine": "1",
+"statnId": "1009000915",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9611",
+"updnLine": "0",
+"statnId": "1009000938",
+"statnTid": "1009000902",
+"statnTnm": "김포공항",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9618",
+"updnLine": "1",
+"statnId": "1009000908",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9126",
+"updnLine": "1",
+"statnId": "1009000912",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9128",
+"updnLine": "1",
+"statnId": "1009000907",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9123",
+"updnLine": "0",
+"statnId": "1009000923",
+"statnTid": "1009000901",
+"statnTnm": "개화",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9130",
+"updnLine": "1",
+"statnId": "1009000904",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9125",
+"updnLine": "0",
+"statnId": "1009000928",
+"statnTid": "1009000901",
+"statnTnm": "개화",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9132",
+"updnLine": "1",
+"statnId": "1009000901",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9127",
+"updnLine": "0",
+"statnId": "1009000934",
+"statnTid": "1009000901",
+"statnTnm": "개화",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1009",
+"trainNo": "9129",
+"updnLine": "0",
+"statnId": "1009000937",
+"statnTid": "1009000901",
+"statnTnm": "개화",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5082",
+"updnLine": "0",
+"statnId": "1063075111",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "5083",
+"updnLine": "1",
+"statnId": "1063075114",
+"statnTid": "1063075138",
+"statnTnm": "지평",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5089",
+"updnLine": "1",
+"statnId": "1063075319",
+"statnTid": "1063075126",
+"statnTnm": "덕소",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "2511",
+"updnLine": "1",
+"statnId": "1063075335",
+"statnTid": "1063080313",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5091",
+"updnLine": "1",
+"statnId": "1063075324",
+"statnTid": "1063075126",
+"statnTnm": "덕소",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5090",
+"updnLine": "0",
+"statnId": "1063075131",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "5093",
+"updnLine": "1",
+"statnId": "1063075327",
+"statnTid": "1063075138",
+"statnTnm": "지평",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5095",
+"updnLine": "1",
+"statnId": "1063075333",
+"statnTid": "1063075126",
+"statnTnm": "덕소",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1063",
+"trainNo": "5084",
+"updnLine": "0",
+"statnId": "1063075116",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "5088",
+"updnLine": "0",
+"statnId": "1063075126",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "5094",
+"updnLine": "0",
+"statnId": "1063075137",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2123",
+"updnLine": "1",
+"statnId": "1065006507",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2125",
+"updnLine": "1",
+"statnId": "1065006506",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2136",
+"updnLine": "0",
+"statnId": "1065006506",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2127",
+"updnLine": "1",
+"statnId": "1065006504",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2138",
+"updnLine": "0",
+"statnId": "1065006507",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2129",
+"updnLine": "1",
+"statnId": "1065006503",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2142",
+"updnLine": "0",
+"statnId": "1065006508",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A3053",
+"updnLine": "1",
+"statnId": "1065065042",
+"statnTid": "1065006507",
+"statnTnm": "검암",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2144",
+"updnLine": "0",
+"statnId": "1065006510",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A3052",
+"updnLine": "0",
+"statnId": "1065006502",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A3054",
+"updnLine": "0",
+"statnId": "1065065042",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1067",
+"trainNo": "2017",
+"updnLine": "1",
+"statnId": "1067080128",
+"statnTid": "1067080140",
+"statnTnm": "춘천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1067",
+"trainNo": "8051",
+"updnLine": "1",
+"statnId": "1067080125",
+"statnTid": "1067080140",
+"statnTnm": "춘천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1067",
+"trainNo": "8056",
+"updnLine": "0",
+"statnId": "1067080137",
+"statnTid": "1067080120",
+"statnTnm": "상봉",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1067",
+"trainNo": "8055",
+"updnLine": "1",
+"statnId": "1067080120",
+"statnTid": "1067080140",
+"statnTnm": "춘천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1067",
+"trainNo": "8049",
+"updnLine": "1",
+"statnId": "1067080130",
+"statnTid": "1067080140",
+"statnTnm": "춘천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1067",
+"trainNo": "8054",
+"updnLine": "0",
+"statnId": "1067080134",
+"statnTid": "1067080120",
+"statnTnm": "상봉",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1067",
+"trainNo": "2020",
+"updnLine": "0",
+"statnId": "1067080132",
+"statnTid": "1067080115",
+"statnTnm": "용산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6120",
+"updnLine": "0",
+"statnId": "1075075233",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6137",
+"updnLine": "1",
+"statnId": "1075075210",
+"statnTid": "1075075233",
+"statnTnm": "죽전",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6122",
+"updnLine": "0",
+"statnId": "1075075236",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6118",
+"updnLine": "0",
+"statnId": "1075075227",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6135",
+"updnLine": "1",
+"statnId": "1075075219",
+"statnTid": "1075075233",
+"statnTnm": "죽전",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6133",
+"updnLine": "1",
+"statnId": "1075075224",
+"statnTid": "1075075233",
+"statnTnm": "죽전",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6116",
+"updnLine": "0",
+"statnId": "1075075222",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6556",
+"updnLine": "0",
+"statnId": "1075075257",
+"statnTid": "1075075209",
+"statnTnm": "청량리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6558",
+"updnLine": "0",
+"statnId": "1075075264",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6565",
+"updnLine": "1",
+"statnId": "1075075213",
+"statnTid": "1075075271",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6563",
+"updnLine": "1",
+"statnId": "1075075222",
+"statnTid": "1075075271",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "4605",
+"updnLine": "1",
+"statnId": "1075075252",
+"statnTid": "1075075258",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "4603",
+"updnLine": "1",
+"statnId": "1075075255",
+"statnTid": "1075075258",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6443",
+"updnLine": "1",
+"statnId": "1075075258",
+"statnTid": "1075075271",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6426",
+"updnLine": "0",
+"statnId": "1075075270",
+"statnTid": "1075075258",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1077",
+"trainNo": "9",
+"updnLine": "0",
+"statnId": "1077000686",
+"statnTid": "1077000684",
+"statnTnm": "신사",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1077",
+"trainNo": "4",
+"updnLine": "1",
+"statnId": "1077000685",
+"statnTid": "1077006819",
+"statnTnm": "광교",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1077",
+"trainNo": "7",
+"updnLine": "0",
+"statnId": "1077006816",
+"statnTid": "1077000684",
+"statnTnm": "신사",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1077",
+"trainNo": "11",
+"updnLine": "0",
+"statnId": "1077006810",
+"statnTid": "1077000684",
+"statnTnm": "신사",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1077",
+"trainNo": "10",
+"updnLine": "1",
+"statnId": "1077006818",
+"statnTid": "1077006819",
+"statnTnm": "광교",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1077",
+"trainNo": "14",
+"updnLine": "0",
+"statnId": "1077006813",
+"statnTid": "1077000684",
+"statnTnm": "신사",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1077",
+"trainNo": "18",
+"updnLine": "1",
+"statnId": "1077006810",
+"statnTid": "1077006819",
+"statnTnm": "광교",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1077",
+"trainNo": "20",
+"updnLine": "0",
+"statnId": "1077006818",
+"statnTid": "1077000684",
+"statnTnm": "신사",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1077",
+"trainNo": "17",
+"updnLine": "1",
+"statnId": "1077006813",
+"statnTid": "1077006819",
+"statnTnm": "광교",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1077",
+"trainNo": "13",
+"updnLine": "0",
+"statnId": "1077006811",
+"statnTid": "1077000684",
+"statnTnm": "신사",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1077",
+"trainNo": "23",
+"updnLine": "1",
+"statnId": "1077006816",
+"statnTid": "1077006819",
+"statnTnm": "광교",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1077",
+"trainNo": "21",
+"updnLine": "1",
+"statnId": "1077000689",
+"statnTid": "1077006819",
+"statnTnm": "광교",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1081",
+"trainNo": "7566",
+"updnLine": "0",
+"statnId": "1081037409",
+"statnTid": "1081037409",
+"statnTnm": "판교",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1081",
+"trainNo": "7568",
+"updnLine": "0",
+"statnId": "1081037414",
+"statnTid": "1081037409",
+"statnTnm": "판교",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1081",
+"trainNo": "7567",
+"updnLine": "1",
+"statnId": "1081037413",
+"statnTid": "1081037418",
+"statnTnm": "부발",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1081",
+"trainNo": "7572",
+"updnLine": "0",
+"statnId": "1081037420",
+"statnTid": "1081037409",
+"statnTnm": "판교",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1081",
+"trainNo": "7565",
+"updnLine": "1",
+"statnId": "1081037416",
+"statnTid": "1081037420",
+"statnTnm": "여주",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1081",
+"trainNo": "7570",
+"updnLine": "0",
+"statnId": "1081037417",
+"statnTid": "1081037409",
+"statnTnm": "판교",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1081",
+"trainNo": "7569",
+"updnLine": "1",
+"statnId": "1081037409",
+"statnTid": "1081037420",
+"statnTnm": "여주",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1092",
+"trainNo": "1248",
+"updnLine": "0",
+"statnId": "1092004711",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1241",
+"updnLine": "1",
+"statnId": "1092004703",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1092",
+"trainNo": "1250",
+"updnLine": "0",
+"statnId": "1092004709",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1243",
+"updnLine": "1",
+"statnId": "1092004706",
+"statnTid": "1092004701",
+"statnTnm": "북한산우이",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1092",
+"trainNo": "1254",
+"updnLine": "0",
+"statnId": "1092004704",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1252",
+"updnLine": "0",
+"statnId": "1092004707",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1245",
+"updnLine": "1",
+"statnId": "1092004709",
+"statnTid": "1092004701",
+"statnTnm": "북한산우이",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1093",
+"trainNo": "7255",
+"updnLine": "1",
+"statnId": "1093004005",
+"statnTid": "1093004022",
+"statnTnm": "원시",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1093",
+"trainNo": "7253",
+"updnLine": "1",
+"statnId": "1093004011",
+"statnTid": "1093004022",
+"statnTnm": "원시",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1093",
+"trainNo": "7254",
+"updnLine": "0",
+"statnId": "1093004011",
+"statnTid": "1093004005",
+"statnTnm": "대곡",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1093",
+"trainNo": "7256",
+"updnLine": "0",
+"statnId": "1093004016",
+"statnTid": "1093004005",
+"statnTnm": "대곡",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1093",
+"trainNo": "7136",
+"updnLine": "0",
+"statnId": "1093004021",
+"statnTid": "1093004001",
+"statnTnm": "일산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1093",
+"trainNo": "7133",
+"updnLine": "1",
+"statnId": "1093004007",
+"statnTid": "1093004022",
+"statnTnm": "원시",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1094",
+"trainNo": "1176",
+"updnLine": "0",
+"statnId": "1094000404",
+"statnTid": "1094000401",
+"statnTnm": "샛강",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1094",
+"trainNo": "1177",
+"updnLine": "1",
+"statnId": "1094000410",
+"statnTid": "1094000411",
+"statnTnm": "관악산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1094",
+"trainNo": "1178",
+"updnLine": "0",
+"statnId": "1094000409",
+"statnTid": "1094000401",
+"statnTnm": "샛강",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1094",
+"trainNo": "1179",
+"updnLine": "1",
+"statnId": "1094000406",
+"statnTid": "1094000411",
+"statnTnm": "관악산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1094",
+"trainNo": "1180",
+"updnLine": "0",
+"statnId": "1094000411",
+"statnTid": "1094000401",
+"statnTnm": "샛강",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1094",
+"trainNo": "1181",
+"updnLine": "1",
+"statnId": "1094000401",
+"statnTid": "1094000411",
+"statnTnm": "관악산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "0059",
+"updnLine": "1",
+"statnId": "1032000353",
+"statnTid": "1032000356",
+"statnTnm": "동탄",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "0060",
+"updnLine": "0",
+"statnId": "1032000356",
+"statnTid": "1032000353",
+"statnTnm": "수서",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1032",
+"trainNo": "0057",
+"updnLine": "1",
+"statnId": "1032000356",
+"statnTid": "1032000356",
+"statnTnm": "동탄",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "0058",
+"updnLine": "0",
+"statnId": "1032000353",
+"statnTid": "1032000353",
+"statnTnm": "수서",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1032",
+"trainNo": "1139",
+"updnLine": "1",
+"statnId": "1032000346",
+"statnTid": "1032000351",
+"statnTnm": "서울역",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "1137",
+"updnLine": "1",
+"statnId": "1032000348",
+"statnTid": "1032000351",
+"statnTnm": "서울역",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "1135",
+"updnLine": "1",
+"statnId": "1032000350",
+"statnTid": "1032000351",
+"statnTnm": "서울역",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "1133",
+"updnLine": "1",
+"statnId": "1032000351",
+"statnTid": "1032000351",
+"statnTnm": "서울역",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "1130",
+"updnLine": "0",
+"statnId": "1032000346",
+"statnTid": "1032000346",
+"statnTnm": "운정중앙",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1032",
+"trainNo": "1132",
+"updnLine": "0",
+"statnId": "1032000347",
+"statnTid": "1032000346",
+"statnTnm": "운정중앙",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1032",
+"trainNo": "1134",
+"updnLine": "0",
+"statnId": "1032000348",
+"statnTid": "1032000346",
+"statnTnm": "운정중앙",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1032",
+"trainNo": "1136",
+"updnLine": "0",
+"statnId": "1032000351",
+"statnTid": "1032000346",
+"statnTnm": "운정중앙",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "1090",
+"updnLine": "0",
+"statnId": "1001000160",
+"statnTid": "1001000135",
+"statnTnm": "용산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0118",
+"updnLine": "0",
+"statnId": "1001000161",
+"statnTid": "1001000100",
+"statnTnm": "소요산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "0135",
+"updnLine": "1",
+"statnId": "1001000110",
+"statnTid": "1001000161",
+"statnTnm": "인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "1926",
+"updnLine": "0",
+"statnId": "1001080147",
+"statnTid": "1001000124",
+"statnTnm": "청량리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "1925",
+"updnLine": "1",
+"statnId": "1001080166",
+"statnTid": "1001080176",
+"statnTnm": "신창",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0765",
+"updnLine": "1",
+"statnId": "1001080157",
+"statnTid": "1001080176",
+"statnTnm": "신창",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1002",
+"trainNo": "2293",
+"updnLine": "1",
+"statnId": "1002000210",
+"statnTid": "1002000211",
+"statnTnm": "성수종착",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "5607",
+"updnLine": "1",
+"statnId": "1002002342",
+"statnTid": "1002000234",
+"statnTnm": "신도림지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "1609",
+"updnLine": "1",
+"statnId": "1002002112",
+"statnTid": "1002002114",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "1612",
+"updnLine": "0",
+"statnId": "1002002114",
+"statnTid": "1002000211",
+"statnTnm": "성수지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1003",
+"trainNo": "3221",
+"updnLine": "1",
+"statnId": "1003000320",
+"statnTid": "1003000352",
+"statnTnm": "오금",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1003",
+"trainNo": "3242",
+"updnLine": "0",
+"statnId": "1003000352",
+"statnTid": "1003000309",
+"statnTnm": "대화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1004",
+"trainNo": "4113",
+"updnLine": "1",
+"statnId": "1004000409",
+"statnTid": "1004000433",
+"statnTnm": "사당",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1004",
+"trainNo": "4616",
+"updnLine": "0",
+"statnId": "1004000456",
+"statnTid": "1004000409",
+"statnTnm": "불암산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5606",
+"updnLine": "0",
+"statnId": "1005080552",
+"statnTid": "1005000510",
+"statnTnm": "방화",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1005",
+"trainNo": "5115",
+"updnLine": "1",
+"statnId": "1005000510",
+"statnTid": "1005000558",
+"statnTnm": "하남검단산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1006",
+"trainNo": "6181",
+"updnLine": "1",
+"statnId": "1006000612",
+"statnTid": "1006000647",
+"statnTnm": "봉화산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7245",
+"updnLine": "1",
+"statnId": "1007000710",
+"statnTid": "1007000750",
+"statnTnm": "온수",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1007",
+"trainNo": "7510",
+"updnLine": "0",
+"statnId": "1007000710",
+"statnTid": "1007000709",
+"statnTnm": "장암",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1008",
+"trainNo": "8176",
+"updnLine": "0",
+"statnId": "1008000827",
+"statnTid": "1008000804",
+"statnTnm": "별내",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1009",
+"trainNo": "9620",
+"updnLine": "1",
+"statnId": "1009000904",
+"statnTid": "1009000938",
+"statnTnm": "중앙보훈병원",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "2506",
+"updnLine": "0",
+"statnId": "1063075324",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "2508",
+"updnLine": "0",
+"statnId": "1063080313",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2140",
+"updnLine": "0",
+"statnId": "1065065071",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2131",
+"updnLine": "1",
+"statnId": "1065006502",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A1030",
+"updnLine": "0",
+"statnId": "1065006510",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1065",
+"trainNo": "A1025",
+"updnLine": "1",
+"statnId": "1065006508",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A2146",
+"updnLine": "0",
+"statnId": "1065006511",
+"statnTid": "1065006501",
+"statnTnm": "서울",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1067",
+"trainNo": "8058",
+"updnLine": "0",
+"statnId": "1067080140",
+"statnTid": "1067080120",
+"statnTnm": "상봉",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "6139",
+"updnLine": "1",
+"statnId": "1075075210",
+"statnTid": "1075075246",
+"statnTnm": "고색",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1075",
+"trainNo": "6560",
+"updnLine": "0",
+"statnId": "1075075271",
+"statnTid": "1075075210",
+"statnTnm": "왕십리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1256",
+"updnLine": "0",
+"statnId": "1092004704",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1249",
+"updnLine": "1",
+"statnId": "1092004711",
+"statnTid": "1092004701",
+"statnTnm": "북한산우이",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1094",
+"trainNo": "1182",
+"updnLine": "0",
+"statnId": "1094000411",
+"statnTid": "1094000401",
+"statnTnm": "샛강",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1032",
+"trainNo": "1141",
+"updnLine": "1",
+"statnId": "1032000346",
+"statnTid": "1032000351",
+"statnTnm": "서울역",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1032",
+"trainNo": "1138",
+"updnLine": "0",
+"statnId": "1032000351",
+"statnTid": "1032000346",
+"statnTnm": "운정중앙",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1002",
+"trainNo": "1601",
+"updnLine": "1",
+"statnId": "1002002111",
+"statnTid": "1002002114",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "1602",
+"updnLine": "0",
+"statnId": "1002002111",
+"statnTid": "1002000211",
+"statnTnm": "성수지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "5599",
+"updnLine": "1",
+"statnId": "1002002343",
+"statnTid": "1002000234",
+"statnTnm": "신도림지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1063",
+"trainNo": "2226",
+"updnLine": "0",
+"statnId": "1063075324",
+"statnTid": "1063075335",
+"statnTnm": "문산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A3051",
+"updnLine": "1",
+"statnId": "1065006505",
+"statnTid": "1065006507",
+"statnTnm": "검암",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1065",
+"trainNo": "A1023",
+"updnLine": "1",
+"statnId": "1065065072",
+"statnTid": "1065006511",
+"statnTnm": "인천공항2터미널",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1240",
+"updnLine": "0",
+"statnId": "1092004701",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1233",
+"updnLine": "1",
+"statnId": "1092004712",
+"statnTid": "1092004701",
+"statnTnm": "북한산우이",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1094",
+"trainNo": "1171",
+"updnLine": "1",
+"statnId": "1094000402",
+"statnTid": "1094000411",
+"statnTnm": "관악산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1002",
+"trainNo": "1601",
+"updnLine": "1",
+"statnId": "1002002113",
+"statnTid": "1002002114",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "1604",
+"updnLine": "0",
+"statnId": "1002002114",
+"statnTid": "1002000211",
+"statnTnm": "성수지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "5602",
+"updnLine": "0",
+"statnId": "1002002341",
+"statnTid": "1002002344",
+"statnTnm": "까치산",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1007",
+"trainNo": "7504",
+"updnLine": "0",
+"statnId": "1007000710",
+"statnTid": "1007000709",
+"statnTnm": "장암",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1067",
+"trainNo": "2018",
+"updnLine": "0",
+"statnId": "1067080116",
+"statnTid": "1067080115",
+"statnTnm": "용산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "4599",
+"updnLine": "1",
+"statnId": "1075075251",
+"statnTid": "1075075258",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1092",
+"trainNo": "1242",
+"updnLine": "0",
+"statnId": "1092004702",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1231",
+"updnLine": "1",
+"statnId": "1092004708",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1093",
+"trainNo": "5071",
+"updnLine": "0",
+"statnId": "1093004006",
+"statnTid": "1093004001",
+"statnTnm": "일산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1094",
+"trainNo": "1170",
+"updnLine": "0",
+"statnId": "1094000410",
+"statnTid": "1094000401",
+"statnTnm": "샛강",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1032",
+"trainNo": "1128",
+"updnLine": "0",
+"statnId": "1032000351",
+"statnTid": "1032000346",
+"statnTnm": "운정중앙",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1032",
+"trainNo": "1131",
+"updnLine": "1",
+"statnId": "1032000346",
+"statnTid": "1032000351",
+"statnTnm": "서울역",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1002",
+"trainNo": "1604",
+"updnLine": "0",
+"statnId": "1002002111",
+"statnTid": "1002000211",
+"statnTnm": "성수지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "5601",
+"updnLine": "1",
+"statnId": "1002002343",
+"statnTid": "1002000234",
+"statnTnm": "신도림지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "1603",
+"updnLine": "1",
+"statnId": "1002000211",
+"statnTid": "1002002114",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1092",
+"trainNo": "1244",
+"updnLine": "0",
+"statnId": "1092004702",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1237",
+"updnLine": "1",
+"statnId": "1092004713",
+"statnTid": "1092004701",
+"statnTnm": "북한산우이",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1094",
+"trainNo": "1172",
+"updnLine": "0",
+"statnId": "1094000411",
+"statnTid": "1094000401",
+"statnTnm": "샛강",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1094",
+"trainNo": "1173",
+"updnLine": "1",
+"statnId": "1094000403",
+"statnTid": "1094000411",
+"statnTnm": "관악산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1002",
+"trainNo": "5604",
+"updnLine": "0",
+"statnId": "1002002341",
+"statnTid": "1002002344",
+"statnTnm": "까치산",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "1606",
+"updnLine": "0",
+"statnId": "1002002114",
+"statnTid": "1002000211",
+"statnTnm": "성수지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "1603",
+"updnLine": "1",
+"statnId": "1002002113",
+"statnTid": "1002002114",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1007",
+"trainNo": "7506",
+"updnLine": "0",
+"statnId": "1007000710",
+"statnTid": "1007000709",
+"statnTnm": "장암",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1075",
+"trainNo": "4601",
+"updnLine": "1",
+"statnId": "1075075253",
+"statnTid": "1075075258",
+"statnTnm": "오이도",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1092",
+"trainNo": "1246",
+"updnLine": "0",
+"statnId": "1092004702",
+"statnTid": "1092004713",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1235",
+"updnLine": "1",
+"statnId": "1092004708",
+"statnTid": "1092004701",
+"statnTnm": "북한산우이",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1094",
+"trainNo": "1175",
+"updnLine": "1",
+"statnId": "1094000401",
+"statnTid": "1094000411",
+"statnTnm": "관악산",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1002",
+"trainNo": "1606",
+"updnLine": "0",
+"statnId": "1002002112",
+"statnTid": "1002000211",
+"statnTnm": "성수지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "1605",
+"updnLine": "1",
+"statnId": "1002002111",
+"statnTid": "1002002114",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1094",
+"trainNo": "1174",
+"updnLine": "0",
+"statnId": "1094000410",
+"statnTid": "1094000401",
+"statnTnm": "샛강",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1002",
+"trainNo": "1605",
+"updnLine": "1",
+"statnId": "1002002113",
+"statnTid": "1002002114",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "5603",
+"updnLine": "1",
+"statnId": "1002002342",
+"statnTid": "1002000234",
+"statnTnm": "신도림지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "1608",
+"updnLine": "0",
+"statnId": "1002002114",
+"statnTid": "1002000211",
+"statnTnm": "성수지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1007",
+"trainNo": "7508",
+"updnLine": "0",
+"statnId": "1007000710",
+"statnTid": "1007000709",
+"statnTnm": "장암",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1063",
+"trainNo": "7131",
+"updnLine": "0",
+"statnId": "1063075323",
+"statnTid": "1063075326",
+"statnTnm": "일산",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1092",
+"trainNo": "1239",
+"updnLine": "1",
+"statnId": "1092004709",
+"statnTid": "1092004701",
+"statnTnm": "북한산우이",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1001",
+"trainNo": "0663",
+"updnLine": "1",
+"statnId": "1001000119",
+"statnTid": "1001080169",
+"statnTnm": "천안",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1002",
+"trainNo": "5606",
+"updnLine": "0",
+"statnId": "1002002342",
+"statnTid": "1002002344",
+"statnTnm": "까치산",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "1608",
+"updnLine": "0",
+"statnId": "1002002112",
+"statnTid": "1002000211",
+"statnTnm": "성수지선",
+"arrivalUpdnLine": "외선"
+},
+{
+"lineId": "1002",
+"trainNo": "1607",
+"updnLine": "1",
+"statnId": "1002000211",
+"statnTid": "1002002114",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1001",
+"trainNo": "0662",
+"updnLine": "0",
+"statnId": "1001080169",
+"statnTid": "1001000124",
+"statnTnm": "청량리",
+"arrivalUpdnLine": "상행"
+},
+{
+"lineId": "1001",
+"trainNo": "1085",
+"updnLine": "1",
+"statnId": "1001000135",
+"statnTid": "1001000160",
+"statnTnm": "동인천",
+"arrivalUpdnLine": "하행"
+},
+{
+"lineId": "1002",
+"trainNo": "1607",
+"updnLine": "1",
+"statnId": "1002002112",
+"statnTid": "1002002114",
+"statnTnm": "신설동",
+"arrivalUpdnLine": "내선"
+},
+{
+"lineId": "1002",
+"trainNo": "1610",
+"updnLine": "0",
+"statnId": "1002002114",
+"statnTid": "1002000211",
+"statnTnm": "성수지선",
+"arrivalUpdnLine": "외선"
+}
+]
+}

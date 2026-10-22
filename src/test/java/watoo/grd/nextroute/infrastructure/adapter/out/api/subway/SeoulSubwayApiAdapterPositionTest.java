@@ -48,6 +48,18 @@ class SeoulSubwayApiAdapterPositionTest {
                "directAt":"0","lstcarAt":"0"}]}
             """;
 
+    /** 2026-10-22 14:03 운영 원문(2호선 성수지선 두 대). 같은 시각 도착 API 는 1602 를 외선, 1599 를 내선이라 불렀다. */
+    private static final String SEONGSU_BRANCH = """
+            {"errorMessage":{"status":200,"code":"INFO-000","message":"정상 처리되었습니다.","total":2},
+             "realtimePositionList":[
+              {"subwayId":"1002","subwayNm":"2호선","statnId":"1002002113","statnNm":"용두","trainNo":"1602",
+               "lastRecptnDt":"20261022","recptnDt":"2026-10-22 14:03:17","updnLine":"0","statnTid":"1002000211",
+               "statnTnm":"성수지선","trainSttus":"0","directAt":"0","lstcarAt":"0"},
+              {"subwayId":"1002","subwayNm":"2호선","statnId":"1002002114","statnNm":"신설동","trainNo":"1599",
+               "lastRecptnDt":"20261022","recptnDt":"2026-10-22 14:02:50","updnLine":"1","statnTid":"1002002114",
+               "statnTnm":"신설동","trainSttus":"1","directAt":"0","lstcarAt":"0"}]}
+            """;
+
     private RestTemplate restTemplate;
     private MockRestServiceServer server;
     private SeoulSubwayApiAdapter adapter;
@@ -120,6 +132,20 @@ class SeoulSubwayApiAdapterPositionTest {
         assertThat(result.status()).isEqualTo(SubwayPositionFetchResult.Status.COMPLETE);
         assertThat(result.rows()).hasSize(1);
         assertThat(result.rows().get(0).trainNo()).isEqualTo("2300");
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("2호선 성수지선 열차의 내·외선은 도착 API 표기로 뒤집어 읽는다 — 안 뒤집으면 지선 역 도착 목록이 빈다")
+    void seongsuBranchDirectionMatchesArrivalApi() {
+        respond(once(), SEONGSU_BRANCH);
+
+        var rows = adapter.getRealtimePosition(LINE_2).rows();
+
+        assertThat(rows).extracting(SubwayPositionInfo::trainNo, SubwayPositionInfo::direction)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("1602", "외선"),
+                        org.assertj.core.groups.Tuple.tuple("1599", "내선"));
         server.verify();
     }
 

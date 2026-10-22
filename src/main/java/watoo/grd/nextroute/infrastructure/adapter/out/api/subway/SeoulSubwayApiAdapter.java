@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static watoo.grd.nextroute.common.util.ParseUtils.parseDouble;
@@ -235,7 +236,8 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 				item.getTrainNo(),
 				item.getStatnId(),
 				item.getStatnNm(),
-				SubwayDirectionNormalizer.fromUpDownLine(lineId, item.getUpdnLine()),
+				SubwayDirectionNormalizer.fromPositionRow(lineId, item.getUpdnLine(), item.getStatnId(),
+						item.getStatnTid(), item.getStatnTnm()),
 				item.getStatnTid(),
 				item.getStatnTnm(),
 				SubwayTrainStatus.from(item.getTrainSttus()),
@@ -344,14 +346,22 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 		);
 	}
 
+	/**
+	 * {@code statnFid}/{@code statnTid} 가 서로 바뀌어 오는 노선. 실측(2026-10-22 운영 3회): 공항철도만 {@code trainLineNm} 의
+	 * "Y방면"(다음 역)이 {@code statnFid} 쪽이다(67/67, 나머지 18개 노선은 {@code statnTid} 쪽). 전역 출발(3) 행의 열차도 위치 API 로는
+	 * {@code statnTid} 역에 있었다(23/23). 그대로 두면 공항철도 열차가 조회역을 이미 지난 것으로 놓이고 구간 소요시간도 반대 구간을 잡는다.
+	 */
+	private static final Set<String> SWAPPED_NEIGHBOR_LINES = Set.of("1065");
+
 	private SubwayArrivalInfo toArrivalInfo(SubwayArrivalItem item) {
+		boolean swapped = SWAPPED_NEIGHBOR_LINES.contains(item.getSubwayId());
 		return new SubwayArrivalInfo(
 				item.getStatnId(),
 				item.getStatnNm(),
 				item.getSubwayId(),
 				item.getUpdnLine(),
-				item.getStatnFid(),
-				item.getStatnTid(),
+				swapped ? item.getStatnTid() : item.getStatnFid(),
+				swapped ? item.getStatnFid() : item.getStatnTid(),
 				parseInteger(item.getTrnsitCo()),
 				item.getOrdkey(),
 				item.getSubwayList(),
