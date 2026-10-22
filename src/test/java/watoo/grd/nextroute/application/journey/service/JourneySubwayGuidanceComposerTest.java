@@ -97,14 +97,37 @@ class JourneySubwayGuidanceComposerTest {
     }
 
     @Test
-    @DisplayName("링이 없어 확인 중이면 bindingVersion 은 싣지 않는다 — 앱이 노선 경로를 다시 받을 근거가 없다")
-    void pendingHasNoBindingVersion() {
+    @DisplayName("급행을 고르고 링 첫 tick 전이면 진행 값은 비우되 열차 종류·판은 싣는다 — 홈 카드가 바로 급행으로 그린다")
+    void boundExpressWithoutRingCarriesTrainKind() {
+        SubwayLegBinding binding = SubwayLegBinding.selected(ride.getId(), JOURNEY, 1, 1,
+                "9594", LocalDate.parse("2026-10-22"), "1009", "상행",
+                SubwayBindingTrainKind.EXPRESS, "1009-express", "2026-10-21");
+        given(bindingRepository.findByJourneyLegIdIn(List.of(ride.getId()))).willReturn(List.of(binding));
+        given(ringPort.find(JOURNEY, 1, 1, binding.getVersion())).willReturn(Optional.empty());
+
+        SubwayGuidance guidance = composer.compose(1, 0, List.of(wait, ride), Map.of());
+
+        assertThat(guidance.bindingStatus()).isEqualTo(SubwayBindingStatus.CONFIRMED);
+        assertThat(guidance.trainKind()).isEqualTo("EXPRESS");
+        assertThat(guidance.trainLabel()).isEqualTo("급행");
+        assertThat(guidance.bindingVersion()).isEqualTo(binding.getVersion());
+        assertThat(guidance.nextStationName()).isNull();
+        assertThat(guidance.remainingStations()).isNull();
+        assertThat(guidance.quality()).isEqualTo(SubwayRingQuality.STALE);
+    }
+
+    @Test
+    @DisplayName("배포 전 미분류 바인딩이면 링 전에는 열차 종류를 싣지 않는다 — 일반으로 단정하지 않는다")
+    void unclassifiedBindingWithoutRingHasNoTrainKind() {
         SubwayLegBinding binding = SubwayLegBinding.selected(ride.getId(), JOURNEY, 1, 1,
                 "2390", LocalDate.parse("2026-10-07"), "1002", "내선");
         given(bindingRepository.findByJourneyLegIdIn(List.of(ride.getId()))).willReturn(List.of(binding));
         given(ringPort.find(JOURNEY, 1, 1, binding.getVersion())).willReturn(Optional.empty());
 
-        assertThat(composer.compose(1, 0, List.of(wait, ride), Map.of()).bindingVersion()).isNull();
+        SubwayGuidance guidance = composer.compose(1, 0, List.of(wait, ride), Map.of());
+
+        assertThat(guidance.trainKind()).isNull();
+        assertThat(guidance.trainLabel()).isNull();
     }
 
     @Test

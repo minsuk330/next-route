@@ -80,8 +80,14 @@ public class JourneySubwayGuidanceComposer {
                 .filter(ring -> ring.matches(routeRevision, binding.getLegIndex(),
                         binding.getVersion()))
                 .map(ring -> confirmed(binding, lineName, ring))
-                .orElseGet(() -> SubwayGuidance.pending(binding.getStatus(), lineName,
-                        ride.getEndName()));
+                .orElseGet(() -> awaitingRing(binding, lineName, ride.getEndName()));
+    }
+
+    /** 링 첫 tick 전. 열차 종류는 바인딩이 이미 안다 — 링이 붙일 값과 같은 이름을 쓴다. */
+    private SubwayGuidance awaitingRing(SubwayLegBinding binding, String lineName, String alightingStationName) {
+        SubwayBoundTrainResolver.BoundTrain bound = new SubwayBoundTrainResolver.BoundTrain(binding.getTrainKind(), null);
+        return SubwayGuidance.awaitingRing(binding.getStatus(), lineName, alightingStationName,
+                bound.kindName(), bound.label(), binding.getVersion());
     }
 
     private SubwayGuidance confirmed(SubwayLegBinding binding, String lineName,

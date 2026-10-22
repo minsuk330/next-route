@@ -55,7 +55,7 @@ import java.util.List;
  * @param trainLabel             표시 이름(일반·급행). 모름이면 null. {@code lineName} 은 바꾸지 않는다 — 앱이 배지를 따로 그린다
  * @param bindingVersion         묶인 열차의 판(#501) — 노선 경로 {@code geometryVersion} 의 바인딩 판과 같은 값이다. 열차를 다시
  *                               고르면 오른다. 같은 종류의 다른 급행(1호선 경부 A↔B)으로 바꿔도 {@code trainKind} 는 그대로라
- *                               앱이 이 값으로 노선 경로를 다시 받는다. 링이 없거나 아직 확인 중이면 null
+ *                               앱이 이 값으로 노선 경로를 다시 받는다. 열차가 아직 안 묶였으면 null
  */
 public record SubwayGuidance(
         SubwayBindingStatus bindingStatus,
@@ -217,6 +217,24 @@ public record SubwayGuidance(
                 null, alightingStationName, null,
                 null, null, null, null, null,
                 SubwayRingQuality.STALE, null, null);
+    }
+
+    /**
+     * 열차는 묶였는데 링이 아직 없다(첫 tick 전). 진행 값은 {@link #pending} 처럼 비우고, 묶인 열차의 종류·판만 싣는다 — 바인딩은
+     * 고른 순간부터 종류를 안다. 이게 비면 단독 추적을 막 시작한 홈 카드가 첫 tick 까지 급행 표시 없이 그려진다(2026-10-22 여정 317).
+     *
+     * @param trainKind  {@code NORMAL}·{@code EXPRESS}·{@code UNKNOWN}. 배포 전 미분류 행이면 null
+     * @param trainLabel 표시 이름. 모름이면 null
+     */
+    public static SubwayGuidance awaitingRing(SubwayBindingStatus status, String lineName,
+                                              String alightingStationName, String trainKind, String trainLabel,
+                                              int bindingVersion) {
+        return new SubwayGuidance(status, SubwayRingPhase.RIDE_SUBWAY, lineName,
+                null, alightingStationName, null,
+                null, null, null, null, null,
+                SubwayRingQuality.STALE, null, null,
+                null, null, null, null, null, null, null, null, null, false,
+                trainKind, trainLabel, bindingVersion);
     }
 
     /** 확정된 고정에 링 상태를 얹는다. */

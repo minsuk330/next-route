@@ -5885,3 +5885,12 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - src/main/java/watoo/grd/nextroute/application/journey/dto/SubwayGuidance.java — `of` 에서 옮겨 싣는다
 ### 검증
 - `./gradlew test --tests 'watoo.grd.nextroute.application.journey.*Test' --tests 'watoo.grd.nextroute.infrastructure.adapter.in.api.journey.*Test'`: 175 클래스, 실패 0
+
+## 2026-10-22 guidance-kind-before-ring (낮 급행 테스트 #5)
+### 확정
+- 열차는 묶였는데 링 첫 tick 전이면 `SubwayGuidance.awaitingRing` 으로 바인딩의 `trainKind`·`trainLabel`·`bindingVersion` 만 싣는다. 진행 값은 `pending` 과 똑같이 비운다(STALE). 이름은 링과 같은 `SubwayBoundTrainResolver.BoundTrain` 으로 만든다
+- 묶이기 전(`PENDING` 상태)은 그대로 `pending` 이다
+### 함정
+- 단독 추적은 계획 `trainKind` 가 없다. 그래서 앱 `actualTrainKind` 가 링 첫 tick 까지 아무 종류도 못 받아 홈 카드가 급행 표시 없이 그려졌다(여정 317, 12:52)
+### 검증
+- `./gradlew test --tests '*Test'`: 419 클래스, 실패 0
