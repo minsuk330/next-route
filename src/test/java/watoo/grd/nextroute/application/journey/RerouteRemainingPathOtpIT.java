@@ -255,6 +255,13 @@ class RerouteRemainingPathOtpIT {
             "1:RR_ACC1_S-1-01-4D", "1:RR_ACC1_S-1-01-4U", "1:RR_ACC1_S-1-01-6D", "1:RR_ACC1_S-1-01-6U",
             "1:RR_ACC1_S-1-09-2D", "1:RR_ACC1_S-1-09-2U");
 
+    /** 공항철도 직통(#518). 급행 끄기와 상관없이 늘 뺀다 — 추적할 수 없는 열차다. */
+    private static final List<String> DIRECT_ROUTES = List.of("1:RR_ACC4_NATE971_D", "1:RR_ACC4_NATE971_U");
+
+    /** 급행 끄기 재검색이 빼는 route 전부(정렬). */
+    private static final List<String> EXCLUDED_WITHOUT_EXPRESS = java.util.stream.Stream
+            .concat(EXPRESS_ROUTES.stream(), DIRECT_ROUTES.stream()).sorted().toList();
+
     @Test
     @DisplayName("급행 끄기 검색으로 시작한 여정의 재탐색은 OTP 에 노선형 급행 제외를 실어 묻는다 — 스냅샷 → 세션 → 재검색")
     void excludeExpressJourneyReroutesWithoutExpressRoutes() throws IOException {
@@ -271,11 +278,11 @@ class RerouteRemainingPathOtpIT {
                 RECEIVED.get(0).getBody().readString(StandardCharsets.UTF_8)).path("variables");
         List<String> excluded = new ArrayList<>();
         variables.at("/preferences/transit/filters/0/exclude/0/routes").forEach(id -> excluded.add(id.asText()));
-        assertThat(excluded).containsExactlyElementsOf(EXPRESS_ROUTES);
+        assertThat(excluded).containsExactlyElementsOf(EXCLUDED_WITHOUT_EXPRESS);
     }
 
     @Test
-    @DisplayName("급행 포함 여정(옛 스냅샷·기본)의 재탐색은 제외 없이 묻는다 — 옛 동작 그대로")
+    @DisplayName("급행 포함 여정(옛 스냅샷·기본)의 재탐색은 급행을 빼지 않는다 — 공항철도 직통만 뺀다(#518)")
     void defaultJourneyReroutesWithExpress() throws IOException {
         assertThat(sessionExcludeExpress()).isFalse();
         Instant readyAt = Instant.now().plusSeconds(600);
@@ -287,8 +294,9 @@ class RerouteRemainingPathOtpIT {
         assertThat(RECEIVED).hasSize(1);
         JsonNode variables = objectMapper.readTree(
                 RECEIVED.get(0).getBody().readString(StandardCharsets.UTF_8)).path("variables");
-        assertThat(variables.path("preferences").isMissingNode() || variables.path("preferences").isNull())
-                .as("급행 제외 필터 없음").isTrue();
+        List<String> excluded = new ArrayList<>();
+        variables.at("/preferences/transit/filters/0/exclude/0/routes").forEach(id -> excluded.add(id.asText()));
+        assertThat(excluded).as("급행 제외 없음").containsExactlyElementsOf(DIRECT_ROUTES);
     }
 
     @Test
@@ -317,7 +325,7 @@ class RerouteRemainingPathOtpIT {
         JsonNode second = objectMapper.readTree(
                 RECEIVED.get(1).getBody().readString(StandardCharsets.UTF_8)).path("variables");
         assertThat(second.at("/preferences/transit/filters/0/exclude/0/routes").size())
-                .isEqualTo(EXPRESS_ROUTES.size());
+                .isEqualTo(EXCLUDED_WITHOUT_EXPRESS.size());
     }
 
     /** 급행 끄기 검색 스냅샷으로 여정을 갈아 시작한다(setUp 의 기본 여정을 대체). */
