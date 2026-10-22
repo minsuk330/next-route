@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 역 마스터를 메모리에 든다(#283). 696행이라 통째로 한 번 읽는다.
@@ -45,6 +46,21 @@ public class SubwayLineStationIndex {
                 .map(SubwayStation::getLineName)
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * 역 마스터의 역 이름 — 서울 실시간 도착 API 가 받는 이름이다({@code 논현}, {@code 총신대입구(이수)}).
+     * 경로 단계의 역 이름은 GTFS 표기라 노선이 붙어 있어({@code 논현(7호선)}) API 가 못 찾는다.
+     * 괄호를 떼어 맞추면 안 된다 — 마스터 이름 자체에 괄호가 든 역이 29곳이다. 모르는 역이면 empty.
+     */
+    public Optional<String> stationName(String stationId) {
+        if (stationId == null) {
+            return Optional.empty();
+        }
+        return stations().stream()
+                .filter(s -> stationId.equals(s.getStationId()) && s.getStationName() != null)
+                .map(SubwayStation::getStationName)
+                .findFirst();
     }
 
     /** 이 역에서 갈아탈 수 있는 다른 노선. 이름이 같고 {@value #TRANSFER_RADIUS_M}m 안이어야 한다. */

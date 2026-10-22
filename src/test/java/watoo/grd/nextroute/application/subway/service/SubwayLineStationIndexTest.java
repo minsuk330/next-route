@@ -38,6 +38,20 @@ class SubwayLineStationIndexTest {
     }
 
     @Test
+    @DisplayName("역 ID 로 마스터 이름을 준다 — 괄호가 이름의 일부인 역은 그대로, 모르는 역은 empty")
+    void stationNameById() {
+        List<SubwayStation> stations = List.of(
+                station("1007000732", "논현", "1007", "7호선", 37.5110, 127.0214),
+                station("1007000736", "총신대입구(이수)", "1007", "7호선", 37.4866, 126.9819));
+        given(repository.findAll()).willReturn(stations);
+
+        assertThat(index.stationName("1007000732")).contains("논현");
+        assertThat(index.stationName("1007000736")).contains("총신대입구(이수)");
+        assertThat(index.stationName("9999999999")).isEmpty();
+        assertThat(index.stationName(null)).isEmpty();
+    }
+
+    @Test
     @DisplayName("역 마스터는 한 번만 읽는다")
     void loadsOnce() {
         List<SubwayStation> stations = List.of(station("1", "강남", "1002", "2호선", 37.49, 127.02));

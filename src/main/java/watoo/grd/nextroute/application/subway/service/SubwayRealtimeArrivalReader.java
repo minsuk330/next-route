@@ -51,6 +51,7 @@ public class SubwayRealtimeArrivalReader {
 
     private final SubwayRealtimeCachePort cachePort;
     private final SubwayApiPort subwayApiPort;
+    private final SubwayLineStationIndex stationIndex;
 
     /**
      * 수집기가 채운 캐시 snapshot 에서 읽는다.
@@ -133,18 +134,22 @@ public class SubwayRealtimeArrivalReader {
      * <p>호출이 실패하면 빈 목록이다. 여기서 정적 대기시간을 만들어 내지 않는다 — 부르는 쪽이
      * "모름"으로 내려보낸다.
      *
-     * @param stationName API 가 역 이름으로만 조회를 받는다
+     * <p>API 에는 역 마스터 이름을 넘긴다({@link SubwayLineStationIndex#stationName}). 단계 이름({@code 논현(7호선)})을
+     * 그대로 넘기면 API 가 역을 못 찾아 대기 도착 예정이 늘 비었다(2026-10-22 여정 313, 지하철 대기 75% 가 이 표기).
+     *
+     * @param stationName 역 마스터에 없는 역일 때만 쓰는 이름. API 가 역 이름으로만 조회를 받는다
      */
     public List<Arrival> arrivalsByStation(String lineId, String stationId,
                                            String stationName, Integer wayCode) {
-        if (stationName == null || stationName.isBlank()) {
+        String apiName = stationIndex.stationName(stationId).orElse(stationName);
+        if (apiName == null || apiName.isBlank()) {
             return List.of();
         }
         List<SubwayArrivalInfo> fetched;
         try {
-            fetched = subwayApiPort.getRealtimeArrivalByStation(stationName);
+            fetched = subwayApiPort.getRealtimeArrivalByStation(apiName);
         } catch (Exception e) {
-            log.warn("지하철 실시간 역별 조회 실패 — station={}, {}", stationName, e.getMessage());
+            log.warn("지하철 실시간 역별 조회 실패 — station={}, {}", apiName, e.getMessage());
             return List.of();
         }
         if (fetched == null || fetched.isEmpty()) {
