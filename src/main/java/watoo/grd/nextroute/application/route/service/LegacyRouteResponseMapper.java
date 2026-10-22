@@ -21,6 +21,8 @@ import watoo.grd.nextroute.application.route.routing.RoutingItinerary;
 import watoo.grd.nextroute.application.route.routing.RoutingLeg;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.subway.service.SubwayDirectionNormalizer;
+import watoo.grd.nextroute.application.subway.service.SubwayLineIdMapper;
+import watoo.grd.nextroute.application.subway.service.SubwayLineStationIndex;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import watoo.grd.nextroute.application.route.routing.StopOccurrence;
 
@@ -67,16 +69,24 @@ public class LegacyRouteResponseMapper {
     /** 버스 leg 의 서울 실시간 id(정류장/노선) 해석. 지하철은 좌표 기반이라 사용 안 함. */
     private final OtpSeoulIdentityResolver resolver;
     private final GyeonggiBusRouteTypeColors gyeonggiColors;
+    /** 지하철 역마다 갈아탈 노선(#510). null 이면(수동 조립) 싣지 않는다. */
+    private final SubwayLineStationIndex stationIndex;
 
     /** 경기 노선 유형은 번들 목록으로 읽는다(테스트·수동 조립용). */
     public LegacyRouteResponseMapper(OtpSeoulIdentityResolver resolver) {
         this(resolver, new GyeonggiBusRouteTypeColors());
     }
 
-    @Autowired
     public LegacyRouteResponseMapper(OtpSeoulIdentityResolver resolver, GyeonggiBusRouteTypeColors gyeonggiColors) {
+        this(resolver, gyeonggiColors, null);
+    }
+
+    @Autowired
+    public LegacyRouteResponseMapper(OtpSeoulIdentityResolver resolver, GyeonggiBusRouteTypeColors gyeonggiColors,
+                                     SubwayLineStationIndex stationIndex) {
         this.resolver = resolver;
         this.gyeonggiColors = gyeonggiColors;
+        this.stationIndex = stationIndex;
     }
 
     private static final int TRAFFIC_SUBWAY = 1;
@@ -150,7 +160,11 @@ public class LegacyRouteResponseMapper {
             case UNSUPPORTED -> 0;
         };
         int sectionTime = Math.round(leg.rideDurationSeconds() / (float) SECONDS_PER_MINUTE);
-        List<StationResult> stations = toStations(leg.stops());
+        // 지하철 구간이면 그 노선(실시간 line_id)을 빼고 역마다 갈아탈 노선을 싣는다(#510). 여정 단계와 같은 해석이다.
+        String subwayLineId = leg.mode() == RoutingMode.SUBWAY || leg.mode() == RoutingMode.RAIL
+                ? SubwayLineIdMapper.resolveOdsay(leg.sourceRouteName(), leg.sourceRouteId()).orElse(null)
+                : null;
+        List<StationResult> stations = toStations(leg.stops(), subwayLineId);
         Double startX = leg.stops().isEmpty() ? null : leg.stops().get(0).lon();
         Double startY = leg.stops().isEmpty() ? null : leg.stops().get(0).lat();
         StopOccurrence last = leg.stops().isEmpty() ? null : leg.stops().get(leg.stops().size() - 1);
@@ -305,13 +319,25 @@ public class LegacyRouteResponseMapper {
         return points.size() < 2 ? null : points;
     }
 
-    private List<StationResult> toStations(List<StopOccurrence> stops) {
+    /** @param subwayLineId 지하철 구간의 실시간 line_id. null 이면(버스·모르는 노선) 환승을 싣지 않는다 */
+    private List<StationResult> toStations(List<StopOccurrence> stops, String subwayLineId) {
         List<StationResult> stations = new ArrayList<>();
         for (StopOccurrence s : stops) {
             stations.add(new StationResult(s.occurrenceIndex(), s.sourceStopId(), s.name(),
-                    s.lon(), s.lat()));
+                    s.lon(), s.lat(), transfersAt(s, subwayLineId)));
         }
         return stations;
+    }
+
+    private List<StationResult.Transfer> transfersAt(StopOccurrence stop, String subwayLineId) {
+        if (stationIndex == null || subwayLineId == null) {
+            return null;
+        }
+        return stationIndex.transfersAt(stop.name(), stop.lat(), stop.lon(), subwayLineId)
+                .map(transfers -> transfers.stream()
+                        .map(t -> new StationResult.Transfer(t.lineId(), t.lineName()))
+                        .toList())
+                .orElse(null);
     }
 
     private String firstStationName(RoutingItinerary it) {

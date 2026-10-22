@@ -6,10 +6,14 @@ import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 역 마스터를 메모리에 든다(#283). 696행이라 통째로 한 번 읽는다.
@@ -30,6 +34,8 @@ public class SubwayLineStationIndex {
     private final SubwayStationRepository repository;
 
     private volatile List<SubwayStation> all;
+    /** 정규화 이름 → 역(#510). 검색 응답이 역마다 환승을 물으므로 696행을 매번 훑지 않는다. */
+    private volatile Lookup lookup;
 
     public List<SubwayPatternStationMatcher.Candidate> candidates(String lineId) {
         return stations().stream()
@@ -70,9 +76,8 @@ public class SubwayLineStationIndex {
             return List.of();
         }
         Map<String, Transfer> byLine = new LinkedHashMap<>();
-        for (SubwayStation s : stations()) {
-            if (excludeLineId.equals(s.getLineId()) || s.getLatitude() == null || s.getLongitude() == null
-                    || !name.equals(NORMALIZER.normalize(s.getStationName()))) {
+        for (SubwayStation s : lookup().byName().getOrDefault(name, List.of())) {
+            if (excludeLineId.equals(s.getLineId()) || s.getLatitude() == null || s.getLongitude() == null) {
                 continue;
             }
             if (SubwayPatternStationMatcher.distanceMeters(lat, lon, s.getLatitude(), s.getLongitude())
@@ -84,6 +89,57 @@ public class SubwayLineStationIndex {
     }
 
     public record Transfer(String lineId, String lineName) {
+    }
+
+    /**
+     * 경로 단계의 역 하나에서 갈아탈 다른 노선(#510 — 길안내 geometry·검색 결과). 단계의 역 이름·좌표는 GTFS 표기라
+     * 같은 노선의 마스터 역을 이름으로 찾아 그 좌표로 잰다 — 남은 역 응답({@code stations[].transfers})과 같은 기준이다.
+     *
+     * @return 모르면 empty — 좌표가 없거나, {@code lineId} 가 역 마스터에 없는 노선이면 제 노선이 환승으로 나오므로
+     *         답하지 않는다. 알면 목록(없으면 빈 목록)
+     */
+    public Optional<List<Transfer>> transfersAt(String stationName, Double lat, Double lon, String lineId) {
+        if (lat == null || lon == null || lineId == null || !lookup().lineIds().contains(lineId)) {
+            return Optional.empty();
+        }
+        String name = NORMALIZER.normalize(stationName);
+        if (name == null) {
+            return Optional.of(List.of());
+        }
+        Optional<SubwayStation> own = lookup().byName().getOrDefault(name, List.of()).stream()
+                .filter(s -> lineId.equals(s.getLineId()) && s.getLatitude() != null && s.getLongitude() != null)
+                .min(Comparator.comparingDouble(s ->
+                        SubwayPatternStationMatcher.distanceMeters(lat, lon, s.getLatitude(), s.getLongitude())));
+        double atLat = own.map(SubwayStation::getLatitude).orElse(lat);
+        double atLon = own.map(SubwayStation::getLongitude).orElse(lon);
+        return Optional.of(transfers(stationName, atLat, atLon, lineId));
+    }
+
+    private record Lookup(Map<String, List<SubwayStation>> byName, Set<String> lineIds) {
+    }
+
+    private Lookup lookup() {
+        Lookup cached = lookup;
+        if (cached == null) {
+            List<SubwayStation> stations = stations();
+            Map<String, List<SubwayStation>> byName = new HashMap<>();
+            Set<String> lineIds = new HashSet<>();
+            for (SubwayStation s : stations) {
+                String key = NORMALIZER.normalize(s.getStationName());
+                if (key != null) {
+                    byName.computeIfAbsent(key, k -> new ArrayList<>()).add(s);
+                }
+                if (s.getLineId() != null) {
+                    lineIds.add(s.getLineId());
+                }
+            }
+            cached = new Lookup(byName, lineIds);
+            if (!stations.isEmpty()) {
+                // stations() 와 같은 규칙: 빈 마스터로 만든 색인은 남기지 않는다
+                lookup = cached;
+            }
+        }
+        return cached;
     }
 
     private List<SubwayStation> stations() {

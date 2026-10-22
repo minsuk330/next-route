@@ -65,6 +65,7 @@ class JourneyNavigationGeometryServiceTest {
     private JourneyLegRouteOptionRepository routeOptionRepository;
     private BusRouteStopRepository busRouteStopRepository;
     private watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository bindingRepository;
+    private watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository stationRepository;
     private JourneyNavigationGeometryService service;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -77,6 +78,7 @@ class JourneyNavigationGeometryServiceTest {
         routeOptionRepository = mock(JourneyLegRouteOptionRepository.class);
         busRouteStopRepository = mock(BusRouteStopRepository.class);
         bindingRepository = mock(watoo.grd.nextroute.domain.journey.repository.SubwayLegBindingRepository.class);
+        stationRepository = mock(watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository.class);
         service = new JourneyNavigationGeometryService(
                 sessionRepository, revisionRepository, legRepository, routeOptionRepository,
                 new BusShapeStopSplitter(),
@@ -89,7 +91,8 @@ class JourneyNavigationGeometryServiceTest {
                 new BusRealtimeStopIds(InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()),
                 watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier(),
                 new SubwayBoundStopsResolver(bindingRepository,
-                        watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.resolver()));
+                        watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.resolver()),
+                new watoo.grd.nextroute.application.subway.service.SubwayLineStationIndex(stationRepository));
     }
 
     @Test
@@ -243,6 +246,73 @@ class JourneyNavigationGeometryServiceTest {
         JourneyNavigationGeometry walkOnly = service.get(USER_ID, JOURNEY_ID, REVISION);
         assertThat(walkOnly.legs().get(0).allStops()).isNull();
         assertThat(objectMapper.writeValueAsString(walkOnly)).doesNotContain("allStops");
+    }
+
+    // ── #510 역마다 갈아탈 노선 ─────────────────────────────────────────────
+
+    /** 9호선 신논현→종합운동장(이슈 #510 확인 경로). 역 좌표는 운영 역 마스터, 단계 역은 GTFS 처럼 조금 비켜 둔다. */
+    private PathResult line9SinnonhyeonToSportsComplex() {
+        Object[][] stops = {
+                {"신논현(9호선)", 37.50491, 127.02559}, {"언주", 37.50743, 127.03407},
+                {"선정릉(9호선)", 37.51042, 127.04411}, {"삼성중앙", 37.51306, 127.05314},
+                {"봉은사", 37.51436, 127.06033}, {"종합운동장(9호선)", 37.51151, 127.07642}};
+        List<StationResult> stations = new java.util.ArrayList<>();
+        for (int i = 0; i < stops.length; i++) {
+            stations.add(new StationResult(i, "1:" + i, (String) stops[i][0], (Double) stops[i][2], (Double) stops[i][1]));
+        }
+        SubPathResult subway = SubPathFixture.subway(10).names("신논현(9호선)", "종합운동장(9호선)")
+                .coords(stations.get(0).x(), stations.get(0).y(), stations.get(5).x(), stations.get(5).y())
+                .stations(stations.toArray(StationResult[]::new))
+                .lanes(new LaneResult("서울9호선", null, null, null, null, null, "#BDB092"))
+                .build();
+        return new PathResult(1, null, List.of(subway), List.of());
+    }
+
+    private static watoo.grd.nextroute.domain.subway.entity.SubwayStation master(String id, String name, String lineId,
+                                                                                  String lineName, double lat, double lon) {
+        return watoo.grd.nextroute.domain.subway.entity.SubwayStation.builder().stationId(id).stationName(name)
+                .lineId(lineId).lineName(lineName).latitude(lat).longitude(lon).build();
+    }
+
+    @Test
+    @DisplayName("#510 지하철 단계 역마다 갈아탈 노선 — 타는 노선 빼고, 환승 없는 역은 빈 목록, 단계 노선을 모르면 칸이 빠진다")
+    void subwayStopsCarryTransfers() throws Exception {
+        when(stationRepository.findAll()).thenReturn(List.of(
+                master("1009000925", "신논현", "1009", "9호선", 37.504811111562, 127.025492036104),
+                master("1077000686", "신논현", "1077", "신분당선", 37.5036164990854, 127.024926154562),
+                master("1009000926", "언주", "1009", "9호선", 37.5073353959717, 127.033970921595),
+                master("1009000927", "선정릉", "1009", "9호선", 37.51032431709664, 127.0440148858615),
+                master("1075075214", "선정릉", "1075", "수인분당선", 37.5109326388803, 127.043627289129),
+                master("1009000928", "삼성중앙", "1009", "9호선", 37.5129614511319, 127.053043676912),
+                master("1009000929", "봉은사", "1009", "9호선", 37.5142554489848, 127.060233935114),
+                master("1009000930", "종합운동장", "1009", "9호선", 37.5114097871778, 127.076324485585),
+                master("1002000218", "종합운동장", "1002", "2호선", 37.5111446632705, 127.073849447402)));
+        givenJourney(line9SinnonhyeonToSportsComplex());
+        JourneyLeg ride = leg(0, JourneyLegType.RIDE_SUBWAY, 900);
+        ReflectionTestUtils.setField(ride, "routeId", "1009");
+        givenLegs(ride);
+        givenOptions();
+
+        JourneyNavigationGeometry geometry = service.get(USER_ID, JOURNEY_ID, REVISION);
+        JourneyNavigationGeometry.LegGeometry leg = geometry.legs().get(0);
+
+        List<List<JourneyNavigationGeometry.TransferLine>> expected = List.of(
+                List.of(new JourneyNavigationGeometry.TransferLine("1077", "신분당선")),
+                List.of(),
+                List.of(new JourneyNavigationGeometry.TransferLine("1075", "수인분당선")),
+                List.of(),
+                List.of(),
+                List.of(new JourneyNavigationGeometry.TransferLine("1002", "2호선")));
+        assertThat(leg.allStops()).extracting(StopGeometry::transfers).containsExactlyElementsOf(expected);
+        assertThat(leg.stops()).extracting(StopGeometry::transfers).containsExactlyElementsOf(expected);
+        com.fasterxml.jackson.databind.JsonNode json = objectMapper.readTree(objectMapper.writeValueAsString(geometry));
+        assertThat(json.path("legs").get(0).path("stops").get(1).path("transfers").isArray()).isTrue();
+
+        // 단계 노선(routeId)을 모르면 제 노선이 환승으로 나오므로 싣지 않는다
+        ReflectionTestUtils.setField(ride, "routeId", null);
+        JourneyNavigationGeometry unknown = service.get(USER_ID, JOURNEY_ID, REVISION);
+        assertThat(unknown.legs().get(0).stops()).extracting(StopGeometry::transfers).containsOnlyNulls();
+        assertThat(objectMapper.writeValueAsString(unknown)).doesNotContain("transfers");
     }
 
     // ── subway-express S4: 묶인 열차 기준 역 목록·버전 키 ─────────────────────────
