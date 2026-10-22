@@ -33,6 +33,15 @@ public final class SubwayDirectionNormalizer {
     /** 위치 API 의 상·하행이 도착 API 와 반대인 노선(실측, 클래스 주석). */
     static final Set<String> INVERTED_UPDN_LINES = Set.of("1009", "1065");
 
+    /** 2호선 성수지선에만 있는 역(용답·신답·용두·신설동). 이 구간 열차는 위치 API 내·외선이 도착 API 와 반대다({@link #fromPositionRow}). */
+    static final Set<String> SEONGSU_BRANCH_STATIONS = Set.of("1002002111", "1002002112", "1002002113", "1002002114");
+
+    /** 성수지선 끝 신설동. 본선 열차의 종착이 될 수 없다. */
+    private static final String SINSEOLDONG_BRANCH = "1002002114";
+
+    /** 성수로 들어가는 지선 열차의 위치 API 종착 표기(본선은 {@code 성수종착}). */
+    private static final String SEONGSU_BRANCH_TERMINAL = "성수지선";
+
     /**
      * feed 노선 이름의 방향 라벨이 도착 API 와 반대인 노선(feed 접두사 뺀 gtfsId). {@link #realtimeLabelFrom} 이 뒤집는다.
      *
@@ -79,6 +88,41 @@ public final class SubwayDirectionNormalizer {
             return label;
         }
         return "상행".equals(label) ? "하행" : "하행".equals(label) ? "상행" : label;
+    }
+
+    /**
+     * 위치 API 한 행의 방향(도착정보 표기). {@link #fromUpDownLine} 에 <b>2호선 성수지선 반전</b>을 더한다.
+     *
+     * <p>실측(2026-10-22 운영, 같은 열차번호를 도착 API 와 대조): 성수지선 열차만 위치 {@code updnLine} 이 도착 API 와 반대다 —
+     * 성수로 가는 1602 가 위치 {@code 0}(내선)·도착 {@code 외선 "성수지선행"}, 신설동으로 가는 1599·1601 이 위치
+     * {@code 1}(외선)·도착 {@code 내선 "신설동행"}. 본선·신정지선 열차는 규칙대로다. 안 뒤집으면 지선 4역 도착 목록에서 지선
+     * 열차가 전부 "반대 방향으로 더 최근에 본 열차"로 빠지고, 떠난 열차가 반대 방향 칸에 붙어 방면 이름까지 뒤집힌다
+     * (운영 응답: 용답 {@code 내선 "성수 방면"}, 열차 0대). 9호선·공항철도 노선 단위 반전({@link #INVERTED_UPDN_LINES})과 같은 병이다.
+     *
+     * <p>지선 열차는 역(용답·신답·용두·신설동) 또는 종착(신설동, {@code 성수지선})으로 가린다. 성수 역 id 는 본선과 같아서 역만으로는
+     * 못 가린다. 본선 열차의 성수 종착 표기는 {@code 성수종착} 이다.
+     *
+     * @param stationId    {@code statnId}
+     * @param terminalId   {@code statnTid}(종착역)
+     * @param terminalName {@code statnTnm}
+     */
+    public static String fromPositionRow(String lineId, String updnLine, String stationId,
+                                         String terminalId, String terminalName) {
+        String label = fromUpDownLine(lineId, updnLine);
+        if (label == null || !isSeongsuBranchTrain(lineId, stationId, terminalId, terminalName)) {
+            return label;
+        }
+        return "내선".equals(label) ? "외선" : "외선".equals(label) ? "내선" : label;
+    }
+
+    private static boolean isSeongsuBranchTrain(String lineId, String stationId, String terminalId,
+                                                String terminalName) {
+        if (!CIRCULAR_LINE_ID.equals(lineId)) {
+            return false;
+        }
+        return SEONGSU_BRANCH_STATIONS.contains(stationId)
+                || SINSEOLDONG_BRANCH.equals(terminalId)
+                || (terminalName != null && SEONGSU_BRANCH_TERMINAL.equals(terminalName.trim()));
     }
 
     /** 공식 명세 규칙 그대로(뒤집기 전). */

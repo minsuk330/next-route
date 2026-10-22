@@ -5885,3 +5885,21 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - src/main/java/watoo/grd/nextroute/application/journey/dto/SubwayGuidance.java — `of` 에서 옮겨 싣는다
 ### 검증
 - `./gradlew test --tests 'watoo.grd.nextroute.application.journey.*Test' --tests 'watoo.grd.nextroute.infrastructure.adapter.in.api.journey.*Test'`: 175 클래스, 실패 0
+
+## 2026-10-22 지하철 방향 전수 감사 (test/subway-direction-audit)
+### 확정 (운영 서울 원문 realtimeStationArrival/ALL + realtimePosition 전 노선, 14:03~14:51 11회 × 운영 OTP 패턴)
+- 정답 = 도착 API 행의 `updnLine` + `trainLineNm` "Y방면"(그 방향 바로 다음 역). `statnTid` 가 다음 역인 것은 18개 노선뿐 — **공항철도(1065)는 `statnFid`/`statnTid` 가 바뀌어 온다**(방면 대조 67/67, 전역출발 행 열차가 위치 API 로 `statnTid` 역에 있음 23/23)
+- OTP 라벨 반전표 `REVERSED_LABEL_ROUTES`(KJ-2·02-2·09-1/2·AP-1)는 전부 필요하고 빠진 노선도 없다: 반전 뒤 패턴 연속쌍 대조 불일치 0, 반전 전 원래 라벨은 그 10개 노선에서 일치 0. 신정지선 02-3 은 반전 불필요(원래 라벨 일치). 6호선 응암 규칙(labelFor·SPLIT_ROUTES) 불일치 0
+- 위치 API 반전 `INVERTED_UPDN_LINES {1009,1065}` 맞음(열차번호 대조 반대 100%), 나머지 노선 일치 — **단 2호선 성수지선 열차만 구간 반전**(1599~1612 12대 22행 전부). 신정지선은 일치
+- 신분당(1077) "both": `trainNo` 가 편성 번호(2~23)라 하루 종일 같은 번호가 신사↔광교를 왕복한다 → 날짜 hash 에 양방향이 다 남는 게 정상. 순간 방향은 도착 API 와 일치
+### 함정
+- 성수지선 반전을 안 고치면: 운영 `/api/subway/stations/{용답·신답·용두·신설동}/arrivals` 가 열차 0대 + 방면이 뒤집힘(`내선 "성수 방면"`, 실제 내선은 신설동행) ← 위치 hash 에 `내선|1606`(실제 외선)으로 남아 resolver 가 "반대 방향으로 더 최근에 본 열차"로 빼고, 떠난 열차(subway:dep)가 반대 칸에 붙어 그 행선지가 라벨이 된다
+- 성수 역 id(1002000211)는 본선과 같아 역만으로 지선 열차를 못 가린다 → 종착(`statnTid`=신설동 1002002114, `statnTnm`=성수지선)으로도 가린다. 본선 성수 종착 표기는 `성수종착`
+- 기존 `realtimeDestinationsLieAheadInTheirDirection` 는 02-2 를 반전표에서 빼도 통과한다(행선지 단위라 지선이 묻힘) → 역 단위 대조 시험을 더했다
+### 좌표
+- SubwayDirectionNormalizer.fromPositionRow / SEONGSU_BRANCH_STATIONS — 위치 행 방향 + 성수지선 반전. 호출처는 SeoulSubwayApiAdapter.toPositionInfo 하나
+- SeoulSubwayApiAdapter.SWAPPED_NEIGHBOR_LINES — 공항철도 statnFid/statnTid 맞바꿈(toArrivalInfo). 이후 DB subway_arrival_raw 의 1065 prev/next 도 진행 방향 기준으로 쌓인다(전날까지 행은 반대)
+- 시험: SubwayPatternCoverageTest(everyPatternStepMatchesRealtimeNextStation·routeLabelsMatchRealtimeNextStation, fixture otp/subway-patterns/realtime-next-stations.json), SubwayPositionDirectionCoverageTest(fixture subway/direction/position-vs-arrival.json), SubwayDirectionNormalizerTest, SeoulSubwayApiAdapterPositionTest, SeoulSubwayApiAdapterStationArrivalTest
+### 미결
+- 1081 경강·1093 서해·1094 신림은 위치 수집 대상(`subway.position.lines`)이 아니다 — 방향과 무관, 메모만
+- 청량리 1호선 상행 칸 라벨이 "청량리 방면"(여기서 끝나는 열차가 최빈) — 방향 오류는 아니고 표시 문제

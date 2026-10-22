@@ -66,6 +66,8 @@ class SubwayPatternCoverageTest {
     private static Map<String, List<RailPattern>> patternsByRoute;
     private static Map<String, List<SubwayPatternStationMatcher.Candidate>> stationsByLine;
     private static List<JsonNode> destinations;
+    /** {@code lineId|역|방향} → 그 방향 다음 역(정규화 이름). 도착 API {@code trainLineNm} 의 "Y방면"이 출처다. */
+    private static Map<String, Set<String>> nextStations;
 
     @BeforeAll
     static void load() throws IOException {
@@ -85,6 +87,93 @@ class SubwayPatternCoverageTest {
         }
         destinations = new ArrayList<>();
         read("otp/subway-patterns/realtime-destinations.json").path("destinations").forEach(destinations::add);
+        nextStations = new HashMap<>();
+        for (JsonNode n : read("otp/subway-patterns/realtime-next-stations.json").path("next")) {
+            nextStations.computeIfAbsent(nextKey(n.path("lineId").asText(),
+                            NORMALIZER.normalize(n.path("stationName").asText()), n.path("direction").asText()),
+                    k -> new HashSet<>()).add(NORMALIZER.normalize(n.path("nextStationName").asText()));
+        }
+    }
+
+    /**
+     * 실시간이 "이 역 다음은 저 역"이라고 말한 것과 패턴 진행이 맞는다 — 역 하나하나의 방향을 본다(2026-10-22 감사).
+     *
+     * <p>행선지 대조({@link #realtimeDestinationsLieAheadInTheirDirection})는 노선·방향 단위라 지선 4역(성수지선)처럼 행선지가
+     * 본선과 겹치는 구간을 놓칠 수 있다. 여기서는 도착 API 한 행의 {@code updnLine} 과 "Y방면"(그 방향 바로 다음 역)으로 모든 연속
+     * 정차 쌍을 대조한다. 반대 방향 쪽에서만 다음 역으로 나오면 위반이다.
+     */
+    @Test
+    @DisplayName("패턴의 연속 두 역은 실시간이 그 방향 '다음 역'이라 부른 쌍이다 — 역 단위 방향 대조")
+    void everyPatternStepMatchesRealtimeNextStation() {
+        List<String> violations = new ArrayList<>();
+        Map<String, Integer> checked = new TreeMap<>();
+        for (String lineId : stationsByLine.keySet()) {
+            for (String direction : directionsOf(lineId)) {
+                String opposite = SubwayTrainIdentity.opposite(direction);
+                for (DirectedRailPattern pattern : directed(lineId, direction)) {
+                    List<RailPattern.Stop> stops = pattern.stops();
+                    for (int i = 0; i + 1 < stops.size(); i++) {
+                        String a = stationName(lineId, stops.get(i));
+                        String b = stationName(lineId, stops.get(i + 1));
+                        boolean same = nextStations.getOrDefault(nextKey(lineId, a, direction), Set.of()).contains(b);
+                        boolean reverse = nextStations.getOrDefault(nextKey(lineId, a, opposite), Set.of()).contains(b);
+                        if (same || reverse) {
+                            checked.merge(pattern.routeGtfsId(), 1, Integer::sum);
+                        }
+                        if (reverse && !same) {
+                            violations.add(lineId + " " + direction + " " + pattern.routeGtfsId() + " " + a + "→" + b);
+                        }
+                    }
+                }
+            }
+        }
+        assertThat(violations).as("실시간으로는 반대 방향인 패턴 구간").isEmpty();
+        // 반전표 노선과 신정지선이 실제로 대조됐는지 — 픽스처가 비면 위 단언이 거저 통과한다
+        assertThat(checked.keySet()).contains(
+                "1:RR_ACC1_S-1-02-2I", "1:RR_ACC1_S-1-02-2O", "1:RR_ACC1_S-1-02-3I", "1:RR_ACC1_S-1-02-3O",
+                "1:RR_ACC1_S-1-09-1U", "1:RR_ACC1_S-1-09-1D", "1:RR_ACC1_S-1-AP-1U", "1:RR_ACC1_S-1-AP-1D",
+                "1:RR_ACC1_S-1-KJ-2U", "1:RR_ACC1_S-1-KJ-2D", "1:RR_ACC1_S-1-06-00");
+    }
+
+    /**
+     * 검색 {@code wayCode} 쪽: 방향 라벨이 있는 모든 노선(급행 포함)의 라벨({@link SubwayDirectionNormalizer#realtimeLabelFrom}, 반전표
+     * 적용)이 실시간 다음 역과 맞는다. 반전표에 빠진 노선도, 필요 없는데 들어간 노선도 여기서 깨진다.
+     */
+    @Test
+    @DisplayName("노선 라벨(반전표 적용)이 실시간 다음 역 방향과 같다 — 반전표 누락·과잉을 잡는다")
+    void routeLabelsMatchRealtimeNextStation() {
+        List<String> violations = new ArrayList<>();
+        Map<String, Integer> agree = new TreeMap<>();
+        for (OtpRailRoute route : routes) {
+            String lineId = SubwayRoutePatternAssembler.lineIdOf(route.shortName()).orElse(null);
+            String label = SubwayDirectionNormalizer.realtimeLabelFrom(route.gtfsId(), route.longName());
+            if (lineId == null || label == null || !stationsByLine.containsKey(lineId)) {
+                continue;
+            }
+            String opposite = SubwayTrainIdentity.opposite(label);
+            for (RailPattern pattern : patternsByRoute.get(route.gtfsId())) {
+                List<RailPattern.Stop> stops = pattern.stops();
+                for (int i = 0; i + 1 < stops.size(); i++) {
+                    String a = stationName(lineId, stops.get(i));
+                    String b = stationName(lineId, stops.get(i + 1));
+                    boolean same = nextStations.getOrDefault(nextKey(lineId, a, label), Set.of()).contains(b);
+                    boolean reverse = nextStations.getOrDefault(nextKey(lineId, a, opposite), Set.of()).contains(b);
+                    if (same) {
+                        agree.merge(route.gtfsId(), 1, Integer::sum);
+                    } else if (reverse) {
+                        violations.add(route.gtfsId() + " " + route.longName() + " → " + label + " " + a + "→" + b);
+                    }
+                }
+            }
+        }
+        assertThat(violations).as("라벨이 실시간과 반대인 노선 구간 — REVERSED_LABEL_ROUTES 를 볼 것").isEmpty();
+        assertThat(agree.keySet()).containsAll(SubwayDirectionNormalizer.REVERSED_LABEL_ROUTES.stream()
+                .filter(id -> !id.contains("09-2")) // 9호선 급행은 연속 정차가 인접역이 아니어서 대조 쌍이 적다
+                .map(id -> "1:" + id).toList());
+    }
+
+    private static String nextKey(String lineId, String station, String direction) {
+        return lineId + "|" + station + "|" + direction;
     }
 
     @Test
