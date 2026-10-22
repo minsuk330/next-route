@@ -213,10 +213,26 @@ public record SubwayGuidance(
      */
     public static SubwayGuidance pending(SubwayBindingStatus status, String lineName,
                                          String alightingStationName) {
+        return pending(status, lineName, alightingStationName, null, null);
+    }
+
+    /**
+     * 열차는 골랐는데 링이 아직 한 번도 돌지 않았다. 고른 열차의 종류는 바인딩에 이미 있으니
+     * 첫 tick 전에도 싣는다 — 비우면 앱은 계획 종류로 돌아가고, 계획이 없는 단독 추적은 급행 표시를 잃는다(#497).
+     *
+     * @param trainKind  바인딩의 열차 종류. 모르면 null
+     * @param trainLabel 그 표시 이름. 모르면 null
+     */
+    public static SubwayGuidance pending(SubwayBindingStatus status, String lineName,
+                                         String alightingStationName, String trainKind, String trainLabel) {
         return new SubwayGuidance(status, SubwayRingPhase.RIDE_SUBWAY, lineName,
                 null, alightingStationName, null,
                 null, null, null, null, null,
-                SubwayRingQuality.STALE, null, null);
+                SubwayRingQuality.STALE, null, null,
+                null, null, null, null, null,
+                null, null, null,
+                null, false,
+                trainKind, trainLabel);
     }
 
     /** 확정된 고정에 링 상태를 얹는다. */

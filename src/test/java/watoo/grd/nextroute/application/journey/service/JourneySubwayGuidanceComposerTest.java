@@ -78,6 +78,37 @@ class JourneySubwayGuidanceComposerTest {
     }
 
     @Test
+    @DisplayName("급행을 골랐는데 링이 아직 없으면(첫 tick 전) 바인딩의 열차 종류를 먼저 싣는다(#497)")
+    void pendingCarriesBoundTrainKind() {
+        SubwayLegBinding binding = SubwayLegBinding.selected(ride.getId(), JOURNEY, 1, 1,
+                "9594", LocalDate.parse("2026-10-22"), "1009", "하행",
+                SubwayBindingTrainKind.EXPRESS, "1009-express", "2026-10-21");
+        given(bindingRepository.findByJourneyLegIdIn(List.of(ride.getId()))).willReturn(List.of(binding));
+        given(ringPort.find(JOURNEY, 1, 1, binding.getVersion())).willReturn(Optional.empty());
+
+        SubwayGuidance guidance = composer.compose(1, 0, List.of(wait, ride), Map.of());
+
+        assertThat(guidance.quality()).isEqualTo(SubwayRingQuality.STALE);
+        assertThat(guidance.nextStationName()).isNull();
+        assertThat(guidance.trainKind()).isEqualTo("EXPRESS");
+        assertThat(guidance.trainLabel()).isEqualTo("급행");
+    }
+
+    @Test
+    @DisplayName("종류를 모르는 바인딩이면 확인 중에도 종류를 비운다")
+    void pendingWithoutKindStaysEmpty() {
+        SubwayLegBinding binding = SubwayLegBinding.selected(ride.getId(), JOURNEY, 1, 1,
+                "2390", LocalDate.parse("2026-10-07"), "1002", "내선");
+        given(bindingRepository.findByJourneyLegIdIn(List.of(ride.getId()))).willReturn(List.of(binding));
+        given(ringPort.find(JOURNEY, 1, 1, binding.getVersion())).willReturn(Optional.empty());
+
+        SubwayGuidance guidance = composer.compose(1, 0, List.of(wait, ride), Map.of());
+
+        assertThat(guidance.trainKind()).isNull();
+        assertThat(guidance.trainLabel()).isNull();
+    }
+
+    @Test
     @DisplayName("같은 종류의 다른 급행으로 다시 고르면 trainKind 는 그대로여도 bindingVersion 이 오른다(#501)")
     void reselectSameKindBumpsBindingVersion() {
         SubwayLegBinding binding = SubwayLegBinding.selected(ride.getId(), JOURNEY, 1, 1,
