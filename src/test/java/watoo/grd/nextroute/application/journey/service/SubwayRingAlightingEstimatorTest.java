@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingChain;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingContext;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingPhase;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
@@ -84,6 +85,30 @@ class SubwayRingAlightingEstimatorTest {
         given(lineOrder.arrivalGapSeconds("1002", "외선", "S1", "S3", pattern)).willReturn(Optional.empty());
         assertThat(estimator.estimate(ring, null, express, TRAIN, NOW).at()).as("급행 계획을 모르면 지어내지 않는다")
                 .isNull();
+    }
+
+    @Test
+    @DisplayName("#497 급행 체인은 링과 같은 구간 시간(급행 실측 포함)으로 남은 구간을 더한다 — 한 구간이라도 모르면 계획 간격")
+    void expressChainUsesRingSegmentTimes() {
+        var service = new watoo.grd.nextroute.application.subway.service.SubwayExpressCatalog.ExpressService(
+                "x", "1002", "급행", "외선", "t", null, List.of(), false);
+        var pattern = new watoo.grd.nextroute.application.subway.service.SubwayStopPatternResolver.ResolvedPattern(
+                service, "외선", List.of("S0", "S1", "S3", "S4"), null);
+        SubwayRingChain express = new SubwayRingChain(List.of(
+                new SubwayRingChain.Station(0, "S0", "승차역"),
+                new SubwayRingChain.Station(1, "S1", "역A"),
+                new SubwayRingChain.Station(2, "S3", "역C", List.of("S2")),
+                new SubwayRingChain.Station(3, "S4", "하차역")), pattern);
+        given(lineOrder.arrivalGapSeconds("1002", "외선", "S1", "S4", pattern)).willReturn(Optional.of(400));
+        SubwayRingState ring = ring(1, NOW.plusSeconds(60), SubwayRingEtaSource.LIVE, SubwayRingStage.RUN);
+
+        SubwayRingAlightingEstimator.Estimate measured = estimator.estimate(ring, null, express, TRAIN, NOW,
+                seq -> new SubwayRingContext.Typical(20, seq == 2 ? 200 : 100));
+        assertThat(measured.at()).as("(20 + 200) + (20 + 100)").isEqualTo(NOW.plusSeconds(60 + 340));
+
+        SubwayRingAlightingEstimator.Estimate partial = estimator.estimate(ring, null, express, TRAIN, NOW,
+                seq -> seq == 3 ? null : new SubwayRingContext.Typical(20, 200));
+        assertThat(partial.at()).isEqualTo(NOW.plusSeconds(60 + 400));
     }
 
     @Test

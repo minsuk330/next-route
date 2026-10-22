@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.journey.config.JourneySubwayRingProperties;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingChain;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingContext;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingStage;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingState;
@@ -13,6 +14,7 @@ import watoo.grd.nextroute.application.subway.service.SubwayLineOrder;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.function.IntFunction;
 
 /**
  * 하차역 도착 예정(#310)과 그 출처. <b>링에 다음 역 예정이 없어도 채운다</b>(지하철 링 TYPICAL PR-4) — 늦음·진입·도착·정차 초과·
@@ -49,6 +51,15 @@ public class SubwayRingAlightingEstimator {
      */
     public Estimate estimate(SubwayRingState state, SubwayRingState previous, SubwayRingChain chain,
                              TrainIdentity train, Instant now) {
+        return estimate(state, previous, chain, train, now, null);
+    }
+
+    /**
+     * @param segmentTimes 링 계산기와 같은 구간 시간(순번 → 정차·운행). 급행 체인이면 남은 구간도 이것으로 더한다 — 급행 실측(#497)이
+     *                들어 있다. 없거나 한 구간이라도 모르면 GTFS 도착 간격
+     */
+    public Estimate estimate(SubwayRingState state, SubwayRingState previous, SubwayRingChain chain,
+                             TrainIdentity train, Instant now, IntFunction<SubwayRingContext.Typical> segmentTimes) {
         if (state == null || chain == null || train == null) {
             return Estimate.NONE;
         }
@@ -67,11 +78,12 @@ public class SubwayRingAlightingEstimator {
         }
         // 진입 직선(#483)의 예정은 그리기용(지금 + 몇 초)이다 — 다음 역 도착은 "지금"으로 본다(아래 nextArrivalWithoutEta).
         Instant next = state.stage() == SubwayRingStage.APPROACH ? null : state.estimatedNextStationAt();
+        IntFunction<SubwayRingContext.Typical> times = chain.hasPassing() ? segmentTimes : null;
         boolean typical = false;
         if (next != null && state.stage() == SubwayRingStage.DWELL
                 && state.etaSource() == SubwayRingEtaSource.TYPICAL) {
             // 정차 직선의 예정은 정차 끝이다 — 다음 역 도착은 그 뒤 운행 시간만큼 더 걸린다.
-            Optional<Integer> run = runSeconds(chain, train, state.nextStationSequence());
+            Optional<Integer> run = runSeconds(chain, train, state.nextStationSequence(), times);
             if (run.isEmpty()) {
                 return Estimate.NONE;
             }
@@ -80,7 +92,7 @@ public class SubwayRingAlightingEstimator {
         }
         boolean fromNow = false;
         if (next == null) {
-            next = nextArrivalWithoutEta(state, chain, train, now);
+            next = nextArrivalWithoutEta(state, chain, train, now, times);
             if (next == null) {
                 return Estimate.NONE;
             }
@@ -92,11 +104,14 @@ public class SubwayRingAlightingEstimator {
                     fromNow);
         }
         // 급행이면 정차열이 정확히 같은 OTP 급행 패턴의 계획만(subway-express PR-S4). 없으면 모름 — 완행 합으로 지어내지 않는다.
-        Optional<Integer> gap = chain.pattern() == null
-                ? lineOrder.arrivalGapSeconds(train.lineId(), train.direction(), nextStation.canonicalKey(),
-                        alighting.canonicalKey())
-                : lineOrder.arrivalGapSeconds(train.lineId(), train.direction(), nextStation.canonicalKey(),
-                        alighting.canonicalKey(), chain.pattern());
+        Optional<Integer> gap = gapOf(chain, nextStation.sequence(), alighting.sequence(), times);
+        if (gap.isEmpty()) {
+            gap = chain.pattern() == null
+                    ? lineOrder.arrivalGapSeconds(train.lineId(), train.direction(), nextStation.canonicalKey(),
+                            alighting.canonicalKey())
+                    : lineOrder.arrivalGapSeconds(train.lineId(), train.direction(), nextStation.canonicalKey(),
+                            alighting.canonicalKey(), chain.pattern());
+        }
         if (gap.isEmpty()) {
             return Estimate.NONE;
         }
@@ -117,13 +132,13 @@ public class SubwayRingAlightingEstimator {
 
     /** 다음 역 예정이 없을 때의 다음 역 도착 추정. 모르면 null. */
     private Instant nextArrivalWithoutEta(SubwayRingState state, SubwayRingChain chain, TrainIdentity train,
-                                          Instant now) {
+                                          Instant now, IntFunction<SubwayRingContext.Typical> times) {
         SubwayRingStage stage = state.stage();
         if (stage == SubwayRingStage.LATE || stage == SubwayRingStage.APPROACH || stage == SubwayRingStage.ARRIVED
                 || state.arrivedAtNextStation()) {
             return now;
         }
-        Optional<Integer> run = runSeconds(chain, train, state.nextStationSequence());
+        Optional<Integer> run = runSeconds(chain, train, state.nextStationSequence(), times);
         if (run.isEmpty()) {
             return null;
         }
@@ -138,7 +153,30 @@ public class SubwayRingAlightingEstimator {
         return now.plusMillis(BigDecimal.valueOf(scaledMillis(run.get())).multiply(left).longValue());
     }
 
-    private Optional<Integer> runSeconds(SubwayRingChain chain, TrainIdentity train, int sequence) {
+    /** 다음 역 → 하차역 도착 간격 = 그 뒤 구간마다 정차 + 운행. 한 구간이라도 모르면 empty. */
+    private Optional<Integer> gapOf(SubwayRingChain chain, int next, int alighting,
+                                    IntFunction<SubwayRingContext.Typical> times) {
+        if (times == null) {
+            return Optional.empty();
+        }
+        int sum = 0;
+        for (int sequence = next + 1; sequence <= alighting; sequence++) {
+            SubwayRingContext.Typical t = times.apply(sequence);
+            if (t == null || t.runSeconds() == null) {
+                return Optional.empty();
+            }
+            sum += (t.dwellSeconds() != null ? t.dwellSeconds() : (int) properties.getDefaultDwell().toSeconds())
+                    + t.runSeconds();
+        }
+        return Optional.of(sum);
+    }
+
+    private Optional<Integer> runSeconds(SubwayRingChain chain, TrainIdentity train, int sequence,
+                                         IntFunction<SubwayRingContext.Typical> times) {
+        SubwayRingContext.Typical t = times == null ? null : times.apply(sequence);
+        if (t != null && t.runSeconds() != null) {
+            return Optional.of(t.runSeconds());
+        }
         SubwayRingChain.Station from = chain.at(sequence - 1);
         SubwayRingChain.Station to = chain.at(sequence);
         if (from == null || to == null) {

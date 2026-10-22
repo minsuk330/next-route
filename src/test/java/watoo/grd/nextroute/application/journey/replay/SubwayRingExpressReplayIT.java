@@ -41,6 +41,7 @@ import watoo.grd.nextroute.application.subway.dto.SubwayPositionFetchResult;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeSnapshot;
 import watoo.grd.nextroute.application.subway.dto.SubwayRealtimeTrain;
 import watoo.grd.nextroute.application.subway.dto.SubwayTrainStatus;
+import watoo.grd.nextroute.application.subway.port.out.SubwayExpressSegmentTimePort;
 import watoo.grd.nextroute.application.subway.port.out.SubwayRealtimeCachePort;
 import watoo.grd.nextroute.application.subway.service.RealtimeSubwayCollector;
 import watoo.grd.nextroute.application.subway.service.SubwayArrivalDepartureRecorder;
@@ -120,6 +121,8 @@ class SubwayRingExpressReplayIT {
     private static final Duration RING_TICK = Duration.ofSeconds(5);
     static final String EXPRESS_FIXTURE = "replay/line9-9712-express-gayang-goter";
     static final String NORMAL_FIXTURE = "replay/line9-9226-normal-gayang-dangsan";
+    static final String GYEONGBU_FIXTURE = "replay/line1-1948-express-geumjeong-yeongdeungpo";
+    static final String GYEONGIN_FIXTURE = "replay/line1-1171-express-sindorim-bupyeong";
 
     private static final GenericContainer<?> REDIS =
             new GenericContainer<>(DockerImageName.parse("redis:7-alpine")).withExposedPorts(6379);
@@ -161,6 +164,7 @@ class SubwayRingExpressReplayIT {
     @Autowired SubwayArrivalDepartureRecorder departureRecorder;
     @Autowired SubwayStationIdLookup stationIdLookup;
     @Autowired SubwayExpressCatalog catalog;
+    @Autowired SubwayExpressSegmentTimePort expressSegmentTimes;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired StringRedisTemplate redisTemplate;
 
@@ -168,6 +172,8 @@ class SubwayRingExpressReplayIT {
     @MockBean LiveActivityPushPort pushPort;
 
     private final List<Long> seededSegmentIds = new ArrayList<>();
+    /** 재생 전에 넣을 급행 실측 표본 "출발역>도착역" → 초. 시험마다 비운다. */
+    private Map<String, Long> expressSamples = Map.of();
     private final List<Long> seededStationIds = new ArrayList<>();
     private Long userId;
     private Long journeyId;
@@ -206,6 +212,61 @@ class SubwayRingExpressReplayIT {
                 .allMatch(s -> s.remaining() != null && s.remaining() >= 1 && s.remaining() <= 6);
         assertThat(replay.timeline()).as("라벨").allMatch(s -> "EXPRESS".equals(s.trainKind())
                 && "급행".equals(s.trainLabel()));
+        assertNonIncreasingRemaining(replay.timeline());
+        assertNoRewind(replay.timeline());
+        assertNoEarlyAlighting(replay, alight);
+        assertAlightingError(replay, alight, 240, 120);
+    }
+
+    @Test
+    @DisplayName("1호선 경부 A급행 1948 금정→영등포: 정차역만 세고, 지나치는 역에서 PASSED 로 뛰지 않고, 하차 예정 오차가 범위 안")
+    void gyeongbuExpress1948() throws Exception {
+        assertLine1Express(GYEONGBU_FIXTURE, "1001-gyeongbu-a", 5);
+    }
+
+    @Test
+    @DisplayName("1호선 경인 급행 1171 신도림→부평: 정차역만 세고, 지나치는 역에서 PASSED 로 뛰지 않고, 하차 예정 오차가 범위 안")
+    void gyeonginExpress1171() throws Exception {
+        assertLine1Express(GYEONGIN_FIXTURE, "1001-gyeongin", 6);
+    }
+
+    /**
+     * 급행 실측 구간 시간을 링이 쓰는지(#497). 1948 자신의 녹화 실측(정차역 도착 → 다음 정차역 도착)을 표본 3개씩 넣는다 —
+     * 실측이 실제와 같으면 하차 예정이 실측 없을 때(평균|e| 79초)보다 맞아야 한다. 배선 시험이다: 표본이 그 열차 자신의 값이다.
+     */
+    @Test
+    @DisplayName("1호선 경부 A급행 1948: 급행 실측 구간 시간이 있으면 하차 예정이 그 시간을 따른다")
+    void gyeongbuExpress1948WithMeasuredTimes() throws Exception {
+        expressSamples = Map.of(
+                "1001080149>1001080147", 235L, // 금정 21:44:03 → 안양 21:47:58
+                "1001080147>1001080142", 454L, // 안양 → 가산디지털단지 21:55:32
+                "1001080142>1001000141", 278L, // 가산디지털단지 → 구로 22:00:10
+                "1001000141>1001000140", 190L, // 구로 → 신도림 22:03:20
+                "1001000140>1001000139", 209L); // 신도림 → 영등포 22:06:49
+        Replay replay = replay(GYEONGBU_FIXTURE);
+        Station alight = replay.planned().get(replay.planned().size() - 1);
+
+        assertThat(replay.timeline()).noneMatch(s -> "STALE".equals(s.quality()));
+        assertNoEarlyAlighting(replay, alight);
+        assertAlightingError(replay, alight, 40, 60);
+    }
+
+    /** 1호선 급행(#497): 9호선 급행과 같은 기준. 위치 API 가 지나치는 역 행을 내지 않는 노선이다. */
+    private void assertLine1Express(String fixture, String service, int stops) throws Exception {
+        Replay replay = replay(fixture);
+        Set<String> names = replay.planned().stream().map(Station::name).collect(Collectors.toSet());
+        Station alight = replay.planned().get(replay.planned().size() - 1);
+
+        assertThat(replay.boundKind()).isEqualTo("EXPRESS");
+        assertThat(replay.boundService()).isEqualTo(service);
+        assertThat(replay.timeline()).as("링이 그려진다").isNotEmpty();
+        assertThat(replay.timeline()).as("다음 역은 급행이 서는 역뿐(D9)").allMatch(s -> names.contains(s.next()));
+        assertThat(replay.timeline()).as("남은 역은 정차역만 센다 — %d역", stops)
+                .allMatch(s -> s.remaining() != null && s.remaining() >= 1 && s.remaining() <= stops);
+        assertThat(replay.timeline()).as("라벨").allMatch(s -> "EXPRESS".equals(s.trainKind())
+                && "급행".equals(s.trainLabel()));
+        // 역 사이 침묵(출발 신호 없음·지나치는 역 행 없음)은 예상된 것이라 멈추지 않는다
+        assertThat(replay.timeline()).as("STALE 없음").noneMatch(s -> "STALE".equals(s.quality()));
         assertNonIncreasingRemaining(replay.timeline());
         assertNoRewind(replay.timeline());
         assertNoEarlyAlighting(replay, alight);
@@ -312,10 +373,17 @@ class SubwayRingExpressReplayIT {
         clock.set(from);
 
         clearRedis();
+        String direction = props.getProperty("REPLAY_WAY_CODE").equals("1") ? "상행" : "하행";
+        expressSamples.forEach((pair, seconds) -> {
+            String[] ends = pair.split(">");
+            for (int i = 0; i < SubwayRingUpdateService.MIN_EXPRESS_SAMPLES; i++) {
+                expressSegmentTimes.record(line, direction, ends[0], ends[1], seconds);
+            }
+        });
         delegatePatternsToOtpFixture();
         seed(line, allStops);
         adjacency.reload();
-        awaitCatalog();
+        awaitCatalog(props.getProperty("REPLAY_SERVICE", "1009-express"));
         startJourney(props, planned);
         liveActivityOn();
 
@@ -362,8 +430,9 @@ class SubwayRingExpressReplayIT {
                 select train_kind, train_service_id from subway_leg_binding where journey_id = ?
                 """, journeyId);
         String route = timeline.stream().map(Shown::next).distinct().collect(Collectors.joining(" > "));
-        System.out.printf("[express-replay] %s 열차 %s 종류 %s 서비스 %s 링 %d초, 다음 역 %s%n", fixture, trainNo,
-                bound.get("train_kind"), bound.get("train_service_id"), timeline.size(), route);
+        long stale = timeline.stream().filter(s -> "STALE".equals(s.quality())).count();
+        System.out.printf("[express-replay] %s 열차 %s 종류 %s 서비스 %s 링 %d초(STALE %d초), 다음 역 %s%n", fixture,
+                trainNo, bound.get("train_kind"), bound.get("train_service_id"), timeline.size(), stale, route);
         return new Replay(planned, timeline, sourceArrivals, (String) bound.get("train_kind"),
                 (String) bound.get("train_service_id"));
     }
@@ -394,12 +463,12 @@ class SubwayRingExpressReplayIT {
                 .when(lineOrder).nextOf(any(), any(), any());
     }
 
-    /** 카탈로그가 9호선 역을 이을 때까지(보류면 30초 재시도) 기다린다 — 첫 사용 전에 역 마스터가 있어야 한다. */
-    private void awaitCatalog() throws InterruptedException {
-        for (int i = 0; i < 40 && catalog.service("1009-express").isEmpty(); i++) {
+    /** 카탈로그가 그 노선 역을 이을 때까지(보류면 30초 재시도) 기다린다 — 첫 사용 전에 역 마스터가 있어야 한다. */
+    private void awaitCatalog(String service) throws InterruptedException {
+        for (int i = 0; i < 40 && catalog.service(service).isEmpty(); i++) {
             Thread.sleep(1000);
         }
-        assertThat(catalog.service("1009-express")).as("급행 카탈로그 9호선 서비스").isPresent();
+        assertThat(catalog.service(service)).as("급행 카탈로그 서비스 %s", service).isPresent();
     }
 
     private RealtimeSubwayCollector collector() {
@@ -609,6 +678,7 @@ class SubwayRingExpressReplayIT {
         seededStationIds.clear();
         journeyId = null;
         userId = null;
+        expressSamples = Map.of();
         Mockito.reset(lineOrder);
     }
 

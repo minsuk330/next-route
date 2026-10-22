@@ -6,6 +6,7 @@ import watoo.grd.nextroute.application.journey.config.JourneySubwayRingPropertie
 import watoo.grd.nextroute.application.journey.dto.SubwayRingChain;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingContext;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingEtaSource;
+import watoo.grd.nextroute.application.journey.dto.SubwayRingHoldReason;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingObservation;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingQuality;
 import watoo.grd.nextroute.application.journey.dto.SubwayRingStage;
@@ -184,5 +185,63 @@ class SubwayRingCalculatorPassingTest {
         assertThat(state.segmentProgress()).isEqualByComparingTo("0");
         assertThat(state.estimatedNextStationAt()).isEqualTo(T0.plusSeconds(60));
         assertThat(SubwayArrivalCode.PREV_DEPARTED.isPreviousStation()).isTrue();
+    }
+
+    // ── 급행 구간의 침묵 (#497) ──────────────────────────────────────────────
+
+    @Test
+    @DisplayName("#497 급행 체인에서 관측이 끊기면 STALE 로 멈추지 않고 예정까지 그리던 직선을 잇는다")
+    void silentExpressSegmentKeepsTheLine() {
+        SubwayRingState line = calculator.next(null, context, passing(1, "0.40", T0, T0), T0);
+        Instant t1 = T0.plusSeconds(120);
+
+        SubwayRingState state = calculator.next(line, context, null, t1);
+
+        assertThat(state.quality()).isEqualTo(SubwayRingQuality.NORMAL);
+        assertThat(state.holdReason()).isNull();
+        assertThat(state.progressBaseAt()).isEqualTo(line.progressBaseAt());
+        assertThat(state.estimatedNextStationAt()).as("예정 그대로").isEqualTo(line.estimatedNextStationAt());
+        assertThat(state.progressValidUntil()).as("앱 보간이 예정 전에 끊기지 않는다")
+                .isAfter(line.estimatedNextStationAt());
+        assertThat(state.shownProgressAt(t1)).isGreaterThan(line.shownProgressAt(T0));
+    }
+
+    @Test
+    @DisplayName("#497 예정 + 유예가 지나도 안 보이면 상한에서 LATE 로 기다리고, 그 뒤 원천 상한 시간까지 끊기면 STALE")
+    void silentExpressSegmentGoesLateThenStale() {
+        SubwayRingState line = calculator.next(null, context, passing(1, "0.40", T0, T0), T0);
+        Instant lateAt = line.estimatedNextStationAt().plus(properties.getLateGrace());
+
+        SubwayRingState late = calculator.next(line, context, null, lateAt);
+        assertThat(late.quality()).isEqualTo(SubwayRingQuality.NORMAL);
+        assertThat(late.holdReason()).isEqualTo(SubwayRingHoldReason.LATE);
+        assertThat(late.segmentProgress()).isEqualByComparingTo("0.90");
+        assertThat(late.estimatedNextStationAt()).isNull();
+
+        Instant stillLate = lateAt.plus(properties.getStaleSourceMaxAge());
+        SubwayRingState waiting = calculator.next(late, context, null, stillLate);
+        assertThat(waiting.holdReason()).isEqualTo(SubwayRingHoldReason.LATE);
+        assertThat(waiting.quality()).isEqualTo(SubwayRingQuality.NORMAL);
+
+        SubwayRingState stale = calculator.next(waiting, context, null, stillLate.plusSeconds(1));
+        assertThat(stale.quality()).isEqualTo(SubwayRingQuality.STALE);
+        assertThat(stale.segmentProgress()).as("되감지 않는다").isEqualByComparingTo("0.90");
+    }
+
+    @Test
+    @DisplayName("#497 일반 열차(지나치는 역 없는 체인)는 그대로 — 관측이 끊기면 STALE")
+    void silentNormalSegmentStillFreezes() {
+        SubwayRingContext normal = new SubwayRingContext(7L, 1, 3, 0,
+                new SubwayRingChain(List.of(
+                        new SubwayRingChain.Station(0, "1009000907", "가양"),
+                        new SubwayRingChain.Station(1, "1009000908", "증미"))),
+                1).withTypical(seq -> new SubwayRingContext.Typical(null, 90));
+        SubwayRingState line = calculator.next(null, normal,
+                SubwayRingObservation.position(SubwayTrainStatus.DEPARTED, 0, T0), T0);
+
+        SubwayRingState state = calculator.next(line, normal, null, T0.plusSeconds(30));
+
+        assertThat(state.quality()).isEqualTo(SubwayRingQuality.STALE);
+        assertThat(state.estimatedNextStationAt()).isNull();
     }
 }

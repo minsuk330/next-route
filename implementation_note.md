@@ -5989,6 +5989,39 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 재빌드 명령(다음 번)
 - `runner/apply_osm_patches.sh data/input/south-korea-260929-nojeju.osm.pbf config/otp-national/osm-patches.osc data/input/south-korea-260929-nojeju-osmfix.osm.pbf` 뒤 `OTP_OSM=data/input/south-korea-260929-nojeju-osmfix.osm.pbf runner/build_otp_graph.sh --profile national --from-zip data/input/national-nojeju-202503-shaped-gbis-busrt-entrances.gtfs.zip --add-trips config/otp-national/added-trips/line7-down-weekday.json --subway-corrections config/otp-national/subway-corrections.json --calendar-end <빌드일+2개월> --thresholds config/otp-national/shape-gate-thresholds.json --modes bus,subway --graph-version …`
 
+## 2026-10-22 급행 역 사이 침묵에 링을 멈추지 않음 (#497, fix/express-blind-segment)
+### 문제
+- 1호선 급행 녹화 재생(#520)에서 경부 A급행 1948 금정→영등포 링이 110초 STALE(안양→가산디지털단지 3분 + 가산·구로 뒤 각 1분 안팎). 원천이 역 사이에서 말이 없다:
+  - 위치 API 는 코레일 구간에서 출발(2)을 내지 않는다(녹화 1호선 코레일 구간 행 18,355건 중 2 = 0, 서울 지하 구간은 721건). 역 도착 행이 원천 시각 그대로 다음 역 진입까지 반복된다
+  - 급행이 지나치는 역에는 행이 없다(9호선과 다름). 안양 도착 행 5분 반복 → 2분 사라짐 → 가산디지털단지 진입
+  - 도착 API 도 같은 원천 시각으로 멈춰 있고, 구로~용산 정차역에는 1948 행이 아예 없다 → 위치만 남아 `freshness-window`(2분)에 낡음
+### 바꾼 것
+- `SubwayRingCalculator.blindExpressRun`: 관측이 없거나 낡았을 때, 지나치는 역이 있는 체인(급행)이고 같은 구간 직선을 그리던 중이면 STALE 대신 직선을 예정 + `late-grace` 까지 잇는다(보간 유효기간도 예정 뒤로). 넘으면 LATE 로 상한(0.90)에서 기다리고, LATE 뒤 `stale-source-max-age`(240초)까지도 아무것도 없으면 STALE. 진입 직선(APPROACH)·이미 STALE·일반 열차는 그대로
+### 검증
+- 단위 3건(`SubwayRingCalculatorPassingTest`: 직선 유지, LATE → STALE, 일반 열차는 STALE)
+- 녹화 재생 STALE: 1948 110초 → 0, 1171·9712·9226 0 그대로. 하차 예정 평균|e| 1948 87 → 79초, 나머지 같음. 재생 단언에 "1호선 급행 STALE 없음" 추가
+- 전체 `./gradlew test` 3864건 — 실패 3건은 #518 뒤 main 의 `RerouteRemainingPathOtpIT`(별도 #521)
+### 미결
+- 급행 실측 구간 시간(2단계): `SubwaySegmentTimeRecorder` 는 일반 열차만 표본으로 쓴다. 1948 안양→가산디지털단지 링 직선은 약 9분, 실제 7분 7초
+- GPS 보조(3단계)는 jette-app 이슈
+
+## 2026-10-22 급행 실측 구간 시간 (#497 2단계, feat/express-segment-time)
+### 문제
+- 급행 링 직선·하차 예정은 OTP 급행 패턴의 GTFS 시간이다. 1948 안양→가산디지털단지 직선은 약 9분, 실제 도착 → 도착 7분 34초(2026-10-21 녹화). 일반 구간 실측(`SubwaySegmentTimeRecorder`)은 도착 API "전역 출발 → 도착"이라 급행을 일부러 뺐고, 1호선 코레일 급행은 출발을 안 알리고 도착 API 가 구로~용산에 그 열차 행을 내지 않아 그 방식으로는 못 잰다
+### 바꾼 것
+- `SubwayExpressSegmentTimeRecorder`(worker, 위치 추적기 `observeOne` 에서 인접 여부 전에 부름): 급행(번호·directAt 분류) 열차가 어느 역에 도착(1)하면 그 열차의 직전 도착 역 → 이 역 시간을 표본으로 남긴다. 30초~25분만. 열차별 직전 도착은 메모리(2000건 넘으면 25분 넘은 것 정리)
+- Redis `subway:xseg:{line}:{dir}:{from}:{to}` list 최신 9개, TTL 7일(`RedisSubwayExpressSegmentTimeAdapter`)
+- `SubwayRingUpdateService.typicalOf`: 급행 체인이면 표본 3개 이상일 때 중앙값으로 정차+운행을 맞춘다(정차 = 계획값 또는 기본 30초, 운행 = 중앙값 − 정차, 하한 30초)
+- `SubwayRingAlightingEstimator`: 급행 체인이면 남은 구간도 링과 같은 구간 시간으로 더한다(한 구간이라도 모르면 GTFS 도착 간격)
+### 함정
+- 처음엔 도착 → 다음 역 진입으로 쟀다. 하차 예정은 구간 합이라 구간마다 진입 → 도착(20~40초, 구로 100초)이 빠져 1948 재생에서 75초 일렀다. 양 끝을 도착으로 맞췄다
+- 9호선 급행은 지나치는 역에도 도착을 내 (지나치는 역, 정차역) 표본이 생긴다. 링은 이웃 정차역 쌍으로만 찾으므로 안 쓰인다
+### 검증
+- 단위: 기록기 3, 하차 예정 1(급행 구간 합·모르면 계획 간격), 추적기 22 그대로. Redis 계약 IT 2
+- 녹화 재생: 1948 에 자신의 실측을 표본으로 넣으면 하차 예정 평균|e| 79 → 20초(치우침 +4초, 마지막 구간 59 → 34초). 표본 없는 재생 4건은 전과 같음(배선 시험 — 표본이 그 열차 자신의 값)
+- 전체 `./gradlew test` 3871건, 실패 3건은 #521
+### 미결
+- 운영 표본이 쌓이는 속도·분포는 배포 뒤 Redis `subway:xseg:1001:*` 로 본다. 주말·출퇴근 차이를 가르지 않는다(최신 9개 중앙값)
 ## 2026-10-22 급행 카탈로그 열차번호 주간 점검 (#497 후속, feat/express-catalog-drift)
 ### 왜
 - 카탈로그는 1호선·4호선 급행을 열차번호로 가른다(`trainNoAuthoritative`). 번호 → 급행 규칙은 공식 문서가 없다(코레일 급행 안내·경인 급행 보도자료·광역철도 시간표 페이지·사규 목록에 없음, 위키 자료만 대역을 적음). 카탈로그 번호는 서울 시간표 API 에서 열차별 정차·통과로 모은 결과라 시간표 개정 때 바뀔 수 있다. 일반 열차가 급행 번호대에 들어오면 급행으로 보고 정차역을 잘못 센다
