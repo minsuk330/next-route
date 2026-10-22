@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static watoo.grd.nextroute.common.util.ParseUtils.parseDouble;
 import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
@@ -36,6 +37,8 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 
 	private static final int MAX_RETRIES = 3;
 	private static final int PAGE_SIZE = 1000;
+	/** 이보다 짧은 값은 키로 보지 않는다 — 빈 값·짧은 더미 값이 메시지의 엉뚱한 글자를 지우지 않게. */
+	private static final int MIN_SECRET_LENGTH = 8;
 
 	private static final String API_ARRIVAL = "seoul-subway-arrival";
 	private static final String API_MASTER = "seoul-subway-master";
@@ -56,6 +59,11 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 	private final String masterKey;
 	private final String routeKey;
 	private final String seoulBaseApiUrl;
+	/**
+	 * 로그·예외 메시지에서 가릴 키들. 서울 API 는 키를 URL 경로에 받아({@code /api/subway/{키}/json/…}) 경로를 찍거나
+	 * RestTemplate 예외 메시지("I/O error on GET request for …")를 찍으면 키가 그대로 로그(Loki)에 남았다.
+	 */
+	private final List<String> secrets;
 
 	public SeoulSubwayApiAdapter(
 			RestTemplate restTemplate,
@@ -74,6 +82,22 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 		this.masterKey = masterKey;
 		this.routeKey = routeKey;
 		this.seoulBaseApiUrl = seoulBaseApiUrl;
+		this.secrets = Stream.of(arrivalKey, positionKey, masterKey, routeKey)
+				.filter(key -> key != null && key.length() >= MIN_SECRET_LENGTH)
+				.distinct()
+				.toList();
+	}
+
+	/** 키를 {@code ****} 로 가린다. 로그와 예외 메시지에 URL·원인 예외를 넣을 때는 반드시 이것을 거친다. */
+	String redact(Object value) {
+		if (value == null) {
+			return null;
+		}
+		String text = String.valueOf(value);
+		for (String secret : secrets) {
+			text = text.replace(secret, "****");
+		}
+		return text;
 	}
 
 	@Override
@@ -366,7 +390,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 				}
 				return response;
 			} catch (Exception e) {
-				log.warn("Subway master API attempt {}/{} failed: {}", attempt, MAX_RETRIES, e.getMessage());
+				log.warn("Subway master API attempt {}/{} failed: {}", attempt, MAX_RETRIES, redact(e.getMessage()));
 				if (attempt < MAX_RETRIES) {
 					try {
 						Thread.sleep((long) Math.pow(2, attempt) * 1000);
@@ -401,7 +425,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 				return response;
 			} catch (Exception e) {
 				log.warn("[SubwayPosition] 호출 실패 {}/{} — lineId={}, {}",
-						attempt, MAX_RETRIES, lineId, e.getMessage());
+						attempt, MAX_RETRIES, lineId, redact(e.getMessage()));
 				if (attempt < MAX_RETRIES) {
 					try {
 						Thread.sleep((long) Math.pow(2, attempt) * 1000);
@@ -433,7 +457,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 				}
 				return response;
 			} catch (Exception e) {
-				log.warn("Station distance API attempt {}/{} failed: {}", attempt, MAX_RETRIES, e.getMessage());
+				log.warn("Station distance API attempt {}/{} failed: {}", attempt, MAX_RETRIES, redact(e.getMessage()));
 				if (attempt < MAX_RETRIES) {
 					try {
 						Thread.sleep((long) Math.pow(2, attempt) * 1000);
@@ -455,14 +479,14 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 			try {
 				SubwayApiResponse response = restTemplate.getForObject(uri, SubwayApiResponse.class);
 				if (response == null) {
-					log.warn("Empty response from subway API: {}", uri.getPath());
+					log.warn("Empty response from subway API: {}", redact(uri.getPath()));
 					return List.of();
 				}
 
 				if (!response.isSuccess()) {
 					String code = response.getErrorMessage() != null ? response.getErrorMessage().getCode() : "UNKNOWN";
 					String msg  = response.getErrorMessage() != null ? response.getErrorMessage().getMessage() : "UNKNOWN";
-					log.warn("Subway arrival API non-success [{}]: {} - {}", uri.getPath(), code, msg);
+					log.warn("Subway arrival API non-success [{}]: {} - {}", redact(uri.getPath()), code, msg);
 					throw new RuntimeException("Subway arrival API error: " + code + " - " + msg);
 				}
 
@@ -470,7 +494,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 			} catch (Exception e) {
 				lastException = e;
 				log.warn("Subway API call attempt {}/{} failed: {}",
-						attempt, MAX_RETRIES, e.getMessage());
+						attempt, MAX_RETRIES, redact(e.getMessage()));
 
 				if (attempt < MAX_RETRIES) {
 					try {
@@ -483,7 +507,9 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 			}
 		}
 
-		log.error("Subway arrival API failed after {} retries", MAX_RETRIES, lastException);
-		throw new RuntimeException("Subway arrival API failed after " + MAX_RETRIES + " retries", lastException);
+		// 원인 예외를 붙이지 않는다 — 그 메시지(와 스택 트레이스)에 키가 든 URL 이 실린다. 가린 문자열로만 남긴다.
+		String cause = redact(lastException);
+		log.error("Subway arrival API failed after {} retries: {}", MAX_RETRIES, cause);
+		throw new RuntimeException("Subway arrival API failed after " + MAX_RETRIES + " retries: " + cause);
 	}
 }
