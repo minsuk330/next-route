@@ -15,9 +15,9 @@
 #                `pfaedle`, so pass ARGS ONLY (a stray `pfaedle` word is read as a
 #                second feed → "Multiple feeds only allowed in filter mode").
 #   2b-2f — national zip→zip edits, in this order: 2b GBIS (--gbis), 2d bus runtimes
-#              (--bus-runtime-coefficients), 2e subway corrections (--subway-corrections),
-#              2c virtual stations (--station-entrances), 2f calendar end (--calendar-end).
-#              --from-zip <finished feed> skips 1-2c and runs only 2e/2f on it.
+#              (--bus-runtime-coefficients), 2g added trips (--add-trips), 2e subway corrections
+#              (--subway-corrections), 2c virtual stations (--station-entrances), 2f calendar end (--calendar-end).
+#              --from-zip <finished feed> skips 1-2c and runs only 2g/2e/2f on it.
 #   3. gate  — compute_shape_quality.py prints the per-trip metric distribution and,
 #              when --thresholds is given, writes coverage-index.json.
 #   4. package — zip the shaped feed and (unless --report-only) rebuild the OTP graph.
@@ -61,6 +61,8 @@ SUBWAY_CORRECTIONS="" # --subway-corrections JSON: step 2e (after 2d, before 2c)
                     # timetable (apply_subway_corrections.py; config/otp-national/subway-corrections.json).
 CALENDAR_END=""     # --calendar-end YYYYMMDD: step 2f, move calendar.txt end_date later (extend_calendar.py). Fails
                     # when build-config.json transitServiceEnd (P2M from today) would cut the graph earlier.
+ADD_TRIPS=()        # --add-trips JSON (repeatable): step 2g (after 2d, before 2e), metro trips KTDB lacks, from the Seoul
+                    # timetable API (add_missing_trips.py; config/otp-national/added-trips/*.json, #385 7호선 하행).
 FROM_ZIP=""         # --from-zip PATH: steps 1-2c skipped, start from a finished feed (e.g. the deployed zip) and
                     # run only 2e/2f on it. The output zip is PATH + suffixes, so PATH is never overwritten.
 while [[ $# -gt 0 ]]; do
@@ -68,6 +70,7 @@ while [[ $# -gt 0 ]]; do
     --profile) PROFILE="$2"; shift 2 ;;
     --subway-corrections) SUBWAY_CORRECTIONS="$2"; shift 2 ;;
     --calendar-end) CALENDAR_END="$2"; shift 2 ;;
+    --add-trips) ADD_TRIPS+=("$2"); shift 2 ;;
     --from-zip) FROM_ZIP="$2"; shift 2 ;;
     --input) INPUT_OVERRIDE="$2"; shift 2 ;;
     --pfaedle-config) PFAEDLE_CONFIG="$2"; shift 2 ;;
@@ -129,8 +132,8 @@ if [[ -n "$FROM_ZIP" ]]; then
   [[ -z "$GBIS_DIR$BUS_RUNTIME_COEF$BUS_SECTION_TIMES$STATION_ENTRANCES$INPUT_OVERRIDE$PFAEDLE_CONFIG" ]] \
     || { echo "--from-zip skips steps 1-2c; drop --gbis/--bus-runtime-*/--station-entrances/--input/--pfaedle-config" >&2; exit 2; }
   [[ "$SKIP_MATCH$FROM_SHAPED_ZIP" == "00" ]] || { echo "--from-zip excludes --skip-match/--from-shaped-zip" >&2; exit 2; }
-  [[ -n "$SUBWAY_CORRECTIONS$CALENDAR_END" ]] \
-    || { echo "--from-zip needs --subway-corrections and/or --calendar-end (else it would rebuild the same feed)" >&2; exit 2; }
+  [[ -n "$SUBWAY_CORRECTIONS$CALENDAR_END" || ${#ADD_TRIPS[@]} -gt 0 ]] \
+    || { echo "--from-zip needs --add-trips, --subway-corrections and/or --calendar-end (else it would rebuild the same feed)" >&2; exit 2; }
   [[ "$FROM_ZIP" != /* && "$FROM_ZIP" == *.gtfs.zip ]] \
     || { echo "--from-zip must be a *.gtfs.zip path relative to tools/transit-routing-benchmark" >&2; exit 2; }
   test -s "$FROM_ZIP" || { echo "--from-zip not found: $FROM_ZIP" >&2; exit 2; }
@@ -158,6 +161,11 @@ if [[ -n "$STATION_ENTRANCES" ]]; then
   test -s "$STATION_ENTRANCES" || { echo "--station-entrances csv not found: $STATION_ENTRANCES" >&2; exit 2; }
   # Same rule as --gbis: keep the previous zip as the rollback source.
   SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-entrances.gtfs.zip"
+fi
+if [[ ${#ADD_TRIPS[@]} -gt 0 ]]; then
+  [[ "$PROFILE" == "national" ]] || { echo "--add-trips is national-only" >&2; exit 2; }
+  for f in "${ADD_TRIPS[@]}"; do test -s "$f" || { echo "--add-trips json not found: $f" >&2; exit 2; }; done
+  SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-addtrips.gtfs.zip"
 fi
 if [[ -n "$SUBWAY_CORRECTIONS" ]]; then
   [[ "$PROFILE" == "national" ]] || { echo "--subway-corrections is national-only" >&2; exit 2; }
@@ -291,6 +299,19 @@ if [[ -n "$BUS_RUNTIME_COEF" ]]; then
   rm -rf "$GTFS_OUT"; mkdir -p "$GTFS_OUT"
   unzip -o -q "$BUILD/busrt.gtfs.zip" -d "$GTFS_OUT"
   rm -f "$BUILD/pre-busrt.gtfs.zip" "$BUILD/busrt.gtfs.zip"
+fi
+
+if [[ ${#ADD_TRIPS[@]} -gt 0 ]]; then
+  echo "== step 2g: added trips (${ADD_TRIPS[*]}) =="
+  ADD_ARGS=()
+  for f in "${ADD_TRIPS[@]}"; do
+    echo "  $f sha256 $(shasum -a 256 "$f" | awk '{print $1}')"
+    ADD_ARGS+=(--trips "$f")
+  done
+  step_in="$(stage_in "$BUILD/pre-addtrips.gtfs.zip")"
+  python3 runner/add_missing_trips.py --in "$step_in" "${ADD_ARGS[@]}" \
+    --out "$BUILD/addtrips.gtfs.zip" --report "$DEPLOY_DIR/added-trips-report.json"
+  stage_done "$step_in" "$BUILD/addtrips.gtfs.zip"
 fi
 
 if [[ -n "$SUBWAY_CORRECTIONS" ]]; then
