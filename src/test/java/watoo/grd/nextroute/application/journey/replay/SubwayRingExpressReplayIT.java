@@ -240,6 +240,8 @@ class SubwayRingExpressReplayIT {
                 .allMatch(s -> s.remaining() != null && s.remaining() >= 1 && s.remaining() <= stops);
         assertThat(replay.timeline()).as("라벨").allMatch(s -> "EXPRESS".equals(s.trainKind())
                 && "급행".equals(s.trainLabel()));
+        // 역 사이 침묵(출발 신호 없음·지나치는 역 행 없음)은 예상된 것이라 멈추지 않는다
+        assertThat(replay.timeline()).as("STALE 없음").noneMatch(s -> "STALE".equals(s.quality()));
         assertNonIncreasingRemaining(replay.timeline());
         assertNoRewind(replay.timeline());
         assertNoEarlyAlighting(replay, alight);
@@ -396,8 +398,9 @@ class SubwayRingExpressReplayIT {
                 select train_kind, train_service_id from subway_leg_binding where journey_id = ?
                 """, journeyId);
         String route = timeline.stream().map(Shown::next).distinct().collect(Collectors.joining(" > "));
-        System.out.printf("[express-replay] %s 열차 %s 종류 %s 서비스 %s 링 %d초, 다음 역 %s%n", fixture, trainNo,
-                bound.get("train_kind"), bound.get("train_service_id"), timeline.size(), route);
+        long stale = timeline.stream().filter(s -> "STALE".equals(s.quality())).count();
+        System.out.printf("[express-replay] %s 열차 %s 종류 %s 서비스 %s 링 %d초(STALE %d초), 다음 역 %s%n", fixture,
+                trainNo, bound.get("train_kind"), bound.get("train_service_id"), timeline.size(), stale, route);
         return new Replay(planned, timeline, sourceArrivals, (String) bound.get("train_kind"),
                 (String) bound.get("train_service_id"));
     }
