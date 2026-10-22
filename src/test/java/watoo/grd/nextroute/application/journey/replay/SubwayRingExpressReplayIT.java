@@ -120,6 +120,8 @@ class SubwayRingExpressReplayIT {
     private static final Duration RING_TICK = Duration.ofSeconds(5);
     static final String EXPRESS_FIXTURE = "replay/line9-9712-express-gayang-goter";
     static final String NORMAL_FIXTURE = "replay/line9-9226-normal-gayang-dangsan";
+    static final String GYEONGBU_FIXTURE = "replay/line1-1948-express-geumjeong-yeongdeungpo";
+    static final String GYEONGIN_FIXTURE = "replay/line1-1171-express-sindorim-bupyeong";
 
     private static final GenericContainer<?> REDIS =
             new GenericContainer<>(DockerImageName.parse("redis:7-alpine")).withExposedPorts(6379);
@@ -204,6 +206,38 @@ class SubwayRingExpressReplayIT {
                 .allMatch(s -> stops.contains(s.next()));
         assertThat(replay.timeline()).as("남은 역은 정차역만 센다 — 가양→고속터미널 6역")
                 .allMatch(s -> s.remaining() != null && s.remaining() >= 1 && s.remaining() <= 6);
+        assertThat(replay.timeline()).as("라벨").allMatch(s -> "EXPRESS".equals(s.trainKind())
+                && "급행".equals(s.trainLabel()));
+        assertNonIncreasingRemaining(replay.timeline());
+        assertNoRewind(replay.timeline());
+        assertNoEarlyAlighting(replay, alight);
+        assertAlightingError(replay, alight, 240, 120);
+    }
+
+    @Test
+    @DisplayName("1호선 경부 A급행 1948 금정→영등포: 정차역만 세고, 지나치는 역에서 PASSED 로 뛰지 않고, 하차 예정 오차가 범위 안")
+    void gyeongbuExpress1948() throws Exception {
+        assertLine1Express(GYEONGBU_FIXTURE, "1001-gyeongbu-a", 5);
+    }
+
+    @Test
+    @DisplayName("1호선 경인 급행 1171 신도림→부평: 정차역만 세고, 지나치는 역에서 PASSED 로 뛰지 않고, 하차 예정 오차가 범위 안")
+    void gyeonginExpress1171() throws Exception {
+        assertLine1Express(GYEONGIN_FIXTURE, "1001-gyeongin", 6);
+    }
+
+    /** 1호선 급행(#497): 9호선 급행과 같은 기준. 위치 API 가 지나치는 역 행을 내지 않는 노선이다. */
+    private void assertLine1Express(String fixture, String service, int stops) throws Exception {
+        Replay replay = replay(fixture);
+        Set<String> names = replay.planned().stream().map(Station::name).collect(Collectors.toSet());
+        Station alight = replay.planned().get(replay.planned().size() - 1);
+
+        assertThat(replay.boundKind()).isEqualTo("EXPRESS");
+        assertThat(replay.boundService()).isEqualTo(service);
+        assertThat(replay.timeline()).as("링이 그려진다").isNotEmpty();
+        assertThat(replay.timeline()).as("다음 역은 급행이 서는 역뿐(D9)").allMatch(s -> names.contains(s.next()));
+        assertThat(replay.timeline()).as("남은 역은 정차역만 센다 — %d역", stops)
+                .allMatch(s -> s.remaining() != null && s.remaining() >= 1 && s.remaining() <= stops);
         assertThat(replay.timeline()).as("라벨").allMatch(s -> "EXPRESS".equals(s.trainKind())
                 && "급행".equals(s.trainLabel()));
         assertNonIncreasingRemaining(replay.timeline());
@@ -315,7 +349,7 @@ class SubwayRingExpressReplayIT {
         delegatePatternsToOtpFixture();
         seed(line, allStops);
         adjacency.reload();
-        awaitCatalog();
+        awaitCatalog(props.getProperty("REPLAY_SERVICE", "1009-express"));
         startJourney(props, planned);
         liveActivityOn();
 
@@ -394,12 +428,12 @@ class SubwayRingExpressReplayIT {
                 .when(lineOrder).nextOf(any(), any(), any());
     }
 
-    /** 카탈로그가 9호선 역을 이을 때까지(보류면 30초 재시도) 기다린다 — 첫 사용 전에 역 마스터가 있어야 한다. */
-    private void awaitCatalog() throws InterruptedException {
-        for (int i = 0; i < 40 && catalog.service("1009-express").isEmpty(); i++) {
+    /** 카탈로그가 그 노선 역을 이을 때까지(보류면 30초 재시도) 기다린다 — 첫 사용 전에 역 마스터가 있어야 한다. */
+    private void awaitCatalog(String service) throws InterruptedException {
+        for (int i = 0; i < 40 && catalog.service(service).isEmpty(); i++) {
             Thread.sleep(1000);
         }
-        assertThat(catalog.service("1009-express")).as("급행 카탈로그 9호선 서비스").isPresent();
+        assertThat(catalog.service(service)).as("급행 카탈로그 서비스 %s", service).isPresent();
     }
 
     private RealtimeSubwayCollector collector() {
