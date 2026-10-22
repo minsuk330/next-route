@@ -11,10 +11,12 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -39,7 +41,9 @@ class SubwayRealtimeArrivalReaderTest {
 
     private final SubwayApiPort apiPort = mock(SubwayApiPort.class);
     private final SubwayRealtimeCachePort cachePort = mock(SubwayRealtimeCachePort.class);
-    private final SubwayRealtimeArrivalReader reader = new SubwayRealtimeArrivalReader(cachePort, apiPort);
+    private final SubwayLineStationIndex stationIndex = mock(SubwayLineStationIndex.class);
+    private final SubwayRealtimeArrivalReader reader =
+            new SubwayRealtimeArrivalReader(cachePort, apiPort, stationIndex);
 
     // ── 방향 ──────────────────────────────────────────────────────────────
 
@@ -62,6 +66,29 @@ class SubwayRealtimeArrivalReaderTest {
 
         assertThat(reader.arrivalsByStation(LINE, STATION, "서울역", 99)).hasSize(2);
         assertThat(reader.arrivalsByStation(LINE, STATION, "서울역", null)).hasSize(2);
+    }
+
+    // ── 역 이름 ───────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("API 에는 역 마스터 이름을 넘긴다 — 단계 이름 '논현(7호선)' 은 API 가 못 찾는다")
+    void asksApiWithMasterStationName() {
+        // 실측(2026-10-22 여정 313): '논현(7호선)' 으로 부르면 매번 실패해 대기 도착 예정이 끝까지 비었다.
+        when(stationIndex.stationName("1007000732")).thenReturn(Optional.of("논현"));
+
+        reader.arrivalsByStation("1007", "1007000732", "논현(7호선)", 1);
+
+        verify(apiPort).getRealtimeArrivalByStation("논현");
+    }
+
+    @Test
+    @DisplayName("역 마스터에 없는 역이면 받은 이름으로 부른다")
+    void fallsBackToGivenNameForUnknownStation() {
+        when(stationIndex.stationName(STATION)).thenReturn(Optional.empty());
+
+        reader.arrivalsByStation(LINE, STATION, "서울역", 1);
+
+        verify(apiPort).getRealtimeArrivalByStation("서울역");
     }
 
     // ── 지나간 열차 판정 ───────────────────────────────────────────────────
