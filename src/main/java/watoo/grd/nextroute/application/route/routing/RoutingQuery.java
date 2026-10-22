@@ -11,7 +11,8 @@ import java.util.Set;
  * @param maxWalkMeters 접근 도보 상한(있으면). 캐시 키에 정렬 직렬화로 반영
  * @param provider     상위 서비스가 선택한 provider(어댑터는 이것만 호출)
  * @param graphVersion 고정할 graph 버전(있으면). ODsay 는 무시
- * @param excludedRouteIds 탐색에서 뺄 원천 route id(급행 끄기·일반 대안 되찾기, subway-express S2). 비면 거르지 않는다.
+ * @param excludedRouteIds 탐색에서 뺄 원천 route id(급행 끄기·일반 대안 되찾기, subway-express S2). 비면 요청으로는 거르지 않는다
+ *                         (공항철도 직통은 OTP 어댑터가 언제나 더해 뺀다, #495).
  *                     OTP 만 쓴다(ODsay 는 무시)
  */
 public record RoutingQuery(

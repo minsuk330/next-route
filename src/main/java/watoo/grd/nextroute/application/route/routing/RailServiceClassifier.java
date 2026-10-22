@@ -28,7 +28,8 @@ import java.util.stream.Collectors;
  * <ol>
  *   <li>버스·도보 → null</li>
  *   <li>ITX 노선({@code 1:RR_ACC4_NATZ200_U/D}, 이름에 {@code ITX}) → ITX. 경로에는 남기고 추적은 안 한다(D4)</li>
- *   <li>노선 긴 이름에 {@code 직통} → DIRECT(안전장치. 운영 그래프에는 공항철도 직통이 없다, D3)</li>
+ *   <li>공항철도 직통 노선({@link #DIRECT_ROUTE_IDS}) 또는 노선 긴 이름에 {@code 직통} → DIRECT. 경로에 넣지 않는다(D3) —
+ *       어댑터가 OTP 탐색에서 빼고({@link #directRouteIds}), 그래도 섞이면 사후 필터({@code ExpressFilterPolicy})가 뺀다</li>
  *   <li>급행 카탈로그에 서비스가 없는 노선(2·3·5호선, 공항철도, 간선 철도 등) → NORMAL</li>
  *   <li><b>구간 기준</b>: 승·하차역 사이 정차열을 완행 순서({@link SubwayStopPatternResolver#allStopPathEitherDirection})와
  *       맞대어 <b>한 역이라도 건너뛰면</b> EXPRESS, 아니면 NORMAL. 노선 이름이 급행이어도 건너뛴 역이 없으면 NORMAL 이다 —
@@ -53,6 +54,14 @@ public class RailServiceClassifier {
             "1:RR_ACC1_S-1-09-2U", "1:RR_ACC1_S-1-09-2D",
             "1:RR_ACC1_S-1-01-4U", "1:RR_ACC1_S-1-01-4D",
             "1:RR_ACC1_S-1-01-6U", "1:RR_ACC1_S-1-01-6D");
+
+    /**
+     * 공항철도 직통 route. 운영 그래프(KTDB 202503)에서는 공항철도 본선({@code RR_ACC1_S-1-AP-1U/D}, 지하철)과 따로 <b>국가철도판</b>
+     * 노선으로 온다: {@code [일반]서울공-인천국}, longName 은 {@code 상행}/{@code 하행} 뿐이라 이름에 '직통'이 없다(#495).
+     * 서울역 → 인천공항1터미널 → 인천공항2터미널 3역, 방향마다 26 trip(약 40분 간격), 서울역→1터미널 43분(본선 60분).
+     * 실시간 노선(1065)이 없어 열차 고르기·도착·링이 안 되고 별도 승차권이다. 운영 OTP 2026-10-22 노선 목록 대조.
+     */
+    static final Set<String> DIRECT_ROUTE_IDS = Set.of("1:RR_ACC4_NATE971_U", "1:RR_ACC4_NATE971_D");
 
     /** ITX-청춘 route({@code [일반]ITX청춘(천마산.신내)}). */
     static final Set<String> ITX_ROUTE_IDS = Set.of("1:RR_ACC4_NATZ200_U", "1:RR_ACC4_NATZ200_D");
@@ -99,6 +108,14 @@ public class RailServiceClassifier {
         return EXPRESS_ROUTE_IDS;
     }
 
+    /**
+     * 공항철도 직통 route id. 어댑터가 요청과 무관하게 언제나 OTP 탐색에서 뺀다(D3) — 결과에서만 거르면 OTP 가 고른 후보 자리를
+     * 직통이 차지해 본선 대안이 줄어든다.
+     */
+    public Set<String> directRouteIds() {
+        return DIRECT_ROUTE_IDS;
+    }
+
     /** 결과의 모든 철도 구간에 열차 종류를 붙인다. 실패 결과는 그대로. */
     public RoutingOutcome annotate(RoutingOutcome outcome) {
         if (outcome instanceof RoutingResult result) {
@@ -133,7 +150,7 @@ public class RailServiceClassifier {
                 || contains(longName, ITX_WORD)) {
             return TrainKind.ITX;
         }
-        if (contains(longName, DIRECT_WORD)) {
+        if ((routeId != null && DIRECT_ROUTE_IDS.contains(routeId)) || contains(longName, DIRECT_WORD)) {
             return TrainKind.DIRECT;
         }
         Optional<String> lineId = SubwayRoutePatternAssembler.lineIdOf(shortName);
@@ -231,6 +248,9 @@ public class RailServiceClassifier {
     /**
      * 노선형 급행 route id 가 지금 그래프에 있는지 한 번 대조한다(그래프 재빌드 때 id 가 바뀌면 급행 끄기가 소리 없이
      * 안 먹는다). 지하철 노선 목록이 캐시에 있을 때만 — OTP 를 부르지 않는다.
+     *
+     * <p>직통 route({@link #DIRECT_ROUTE_IDS})는 국가철도(RAIL)라 이 지하철 노선 목록에 없다. 그 id 가 바뀌면 직통이 다시 경로에
+     * 섞인다 — 그래프 재빌드 때 OTP {@code routes} 로 확인한다(implementation_note #495).
      */
     void verifyExpressRoutesOnce() {
         if (routesVerified.get()) {

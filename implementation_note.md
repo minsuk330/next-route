@@ -5914,3 +5914,26 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 같은 녹화 재생(운영 코드), 옛 값 → 새 값: 9호선 일반 9226 하차 예정 평균|e| 111→33초(최대 346→131, 마지막 구간 34→9), 급행 9712 41→29초(치우침 +36→−16, 최대 517→137). 도착 반영 +29.8초는 그대로(원천)
 - 링 IT(`SubwayRingIT` 17, `SubwayRingPushIT` 30, `SubwayRideScenarioIT` 5, `SubwayRingReplayIT` 1, `SubwayRingExpressReplayIT` 2, `JourneySubwayGuidanceIT` 9) 실패 0, 단위 420 클래스 실패 0
+
+## 2026-10-22 공항철도 직통이 국가철도판으로 경로에 섞임 (#495, fix/arex-national-route)
+### 확정 (운영 OTP GraphQL 읽기 전용 + 운영 `/api/route/search`, 2026-10-23 10:00·18:30 출발)
+- `RR_ACC4_NATE971_U/D`(`[일반]서울공-인천국`, RAIL, longName `상행`/`하행`)는 **공항철도 직통열차**다: 정차 서울역 → 인천공항1터미널 → 인천공항2터미널 3역(`RS_TAGO_NATC10000`·`NATC10580`·`NATC30058`, 본선과 다른 국가철도 역 id), 방향마다 26 trip(06:00~22:50, 약 40분 간격), 서울역→1터미널 43분·→2터미널 51.5분. 본선 AP-1 은 14역, 하행 100+54+2 trip, 서울→1터미널 60분
+- D3(직통은 경로에 넣지 않는다)의 "운영 그래프에는 직통이 없다"는 틀렸다 — 본선 AP-1 trip 에는 직통이 없지만(PR-G1 `assert_absent`), 직통은 별도 노선으로 있다. 이름에 '직통'이 없어 분류기 안전장치(longName '직통')를 빠져 NORMAL 로 나갔다
+- 그래서 1065 매핑·방향 반전(이슈 제안)이 아니라 **제외**가 맞다: 실시간 1065 의 직통 열차는 `SubwayTrainKindClassifier` 가 DIRECT 로 막고(선택 422), 별도 승차권이다
+- 수정: `RailServiceClassifier.DIRECT_ROUTE_IDS`(route id → DIRECT, 사후 필터 `ExpressFilterPolicy` 가 언제나 뺌) + `OtpRoutingAdapter.requestBody` 가 **모든 OTP 검색**에 직통 id 를 `preferences.transit.filters[].exclude.routes` 로 더한다(요청 제외 노선과 합집합, 정렬). 서비스 계층 `RoutingQuery.excludedRouteIds` 는 그대로라 급행 끄기·되찾기·D10 판단은 바뀌지 않는다
+- 그래프에 없는 route id 를 exclude 에 넣어도 OTP 2.9 는 오류 없이 무시한다(가짜 id 실측). 강남→잠실 필터 유무 지연 차이 없음(800~990ms 같은 폭)
+- 전후(운영 OTP, 역 id 출발 = 앱이 이름을 보내는 경우): 서울역→인천공항1터미널 10:00 직통 43분 1위·본선 60분 2위 → 본선 60분 5건(wayCode 1, 상행 = 도착 API 인천공항행). 인천공항1터미널→서울역 18:30 직통 45분 1위 → 본선 61분(wayCode 2). 공덕→1터미널·홍대입구→김포공항·계양→서울역은 원래 직통을 안 탔다(변화 없음)
+- ACC4 국가철도 65개 노선 전수: 지하철 중복은 NATE971 하나. 나머지는 간선 무궁화·ITX-새마을류, ITX-청춘(NATZ200, D4 유지), 교외선(NAT1497 대곡~의정부 10 trip), 서해선 장항 연계(NAT2912) — 실시간 노선이 원래 없는 별개 열차라 같은 문제 아님. ACC6 은 [고속] 53개. 경의중앙·경춘·수인분당 국가철도판은 없다
+### 함정
+- **좌표만 주는 검색(이름 없음 — 재탐색·현재 위치)**은 서울역 좌표(126.9707, 37.5547)에서 본선 `서울(공항철도)` 승강장까지 OTP 가 1,887m 를 걷게 한다(승강장 좌표 자체에서 출발하면 정상). 그래서 직통을 빼면 이 경우 서울역→인천공항1터미널은 버스(6001 75분)만 남는다(전: 직통 47분). 역 id 출발(앱이 장소 이름을 줌)은 본선이 나온다. 그래프 거리 연결 문제 — 재빌드 거리
+- 본선 `인천공항2터미널`(`RS_ACC1_S-1-4215`) 좌표가 37.460949, 126.467949 로 실제(약 37.4686, 126.4337)에서 3km 넘게 떨어져 있다 → 2터미널 목적지는 본선으로 1터미널까지 + 셔틀버스가 나온다(서울역→2터미널 본선 84~92분). 직통을 빼기 전엔 직통 65분이었다
+- 직통 id 는 지하철 노선 캐시(`routes(transportModes:[SUBWAY])`)에 없어 `verifyExpressRoutesOnce` 로 대조하지 못한다. 12월 그래프 재빌드 때 `routes` 로 `RR_ACC4_NATE971_U/D` 가 그대로인지 확인할 것 — id 가 바뀌면 직통이 다시 섞인다(이름 '직통' 안전장치도 안 걸린다)
+- GTFS 보정(subway-corrections.json)은 더하지 않았다: 서버 제외가 그래프 유무와 무관하게 맞고, 보정 도구는 지하철(route_type 1)·trip 수 불변을 가드로 걸어 노선 삭제 op 가 없다
+### 좌표
+- RailServiceClassifier.DIRECT_ROUTE_IDS / directRouteIds / classify
+- OtpRoutingAdapter.requestBody — 제외 노선 합집합
+- 시험: RailServiceClassifierTest#arexDirectNationalRoute, OtpRoutingAdapterHttpTest#directRoutesAlwaysExcluded·liveArexDirectAnnotatedDirect·excludedRoutesSentAsTransitFilter, RouteSearchServiceOtpWiringTest#liveArexDirectRemoved. fixture otp/planconnection-arex-direct.json(운영 OTP 2026-10-23 10:00 출발, VSA 서울 → VSA 인천공항1터미널, 앞 2건)
+### 검증
+- 새 시험 5개(분류기 1·어댑터 3·검색 흐름 1)가 수정 전 실패, 수정 뒤 통과. `./gradlew test --tests '*Test' --continue`: 420 클래스 3,165 테스트 실패 0·오류 0·건너뜀 1
+### 미결
+- 서울역 좌표 출발 본선 승강장 거리 연결(1,887m), 본선 인천공항2터미널 좌표 오류 — 12월 재빌드 때 같이

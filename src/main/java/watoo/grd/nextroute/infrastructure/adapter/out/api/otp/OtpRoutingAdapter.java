@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * OTP 2.9.0 planConnection 어댑터. 선택된 provider 가 OTP 일 때만 호출된다(selector 는 PR2b).
@@ -215,10 +216,14 @@ public class OtpRoutingAdapter implements RoutingPort {
             vars.put("modes", Map.of("transit", Map.of("transit",
                     transitModes(otpModes(q.modes()), properties.getBusReluctance()))));
         }
-        // 제외 노선(급행 끄기·일반 대안 되찾기). 비면 보내지 않는다 — 옛 요청과 같다.
-        if (!q.excludedRouteIds().isEmpty()) {
+        // 제외 노선 = 요청 값(급행 끄기·일반 대안 되찾기) + 공항철도 직통(언제나, D3·#495). 직통은 본·추가·되찾기·재탐색 모든
+        // 검색이 이 길을 타므로 여기 한 곳에서 뺀다 — 결과에서만 거르면 직통이 OTP 후보 자리를 차지해 본선 대안이 줄어든다.
+        // 그래프에 없는 id 를 보내도 OTP 는 오류 없이 무시한다(운영 2026-10-22 확인).
+        Set<String> excluded = new TreeSet<>(q.excludedRouteIds());
+        excluded.addAll(classifier.directRouteIds());
+        if (!excluded.isEmpty()) {
             vars.put("preferences", Map.of("transit", Map.of("filters", List.of(
-                    Map.of("exclude", List.of(Map.of("routes", q.excludedRouteIds().stream().sorted().toList())))))));
+                    Map.of("exclude", List.of(Map.of("routes", List.copyOf(excluded))))))));
         }
         try {
             return objectMapper.writeValueAsString(Map.of("query", query, "variables", vars));
