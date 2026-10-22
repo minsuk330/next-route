@@ -5988,3 +5988,19 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - OTP 메모리 3.82/4.395 GiB(전 3.88), ERROR 0, Full GC 0
 ### 재빌드 명령(다음 번)
 - `runner/apply_osm_patches.sh data/input/south-korea-260929-nojeju.osm.pbf config/otp-national/osm-patches.osc data/input/south-korea-260929-nojeju-osmfix.osm.pbf` 뒤 `OTP_OSM=data/input/south-korea-260929-nojeju-osmfix.osm.pbf runner/build_otp_graph.sh --profile national --from-zip data/input/national-nojeju-202503-shaped-gbis-busrt-entrances.gtfs.zip --add-trips config/otp-national/added-trips/line7-down-weekday.json --subway-corrections config/otp-national/subway-corrections.json --calendar-end <빌드일+2개월> --thresholds config/otp-national/shape-gate-thresholds.json --modes bus,subway --graph-version …`
+
+## 2026-10-22 급행 역 사이 침묵에 링을 멈추지 않음 (#497, fix/express-blind-segment)
+### 문제
+- 1호선 급행 녹화 재생(#520)에서 경부 A급행 1948 금정→영등포 링이 110초 STALE(안양→가산디지털단지 3분 + 가산·구로 뒤 각 1분 안팎). 원천이 역 사이에서 말이 없다:
+  - 위치 API 는 코레일 구간에서 출발(2)을 내지 않는다(녹화 1호선 코레일 구간 행 18,355건 중 2 = 0, 서울 지하 구간은 721건). 역 도착 행이 원천 시각 그대로 다음 역 진입까지 반복된다
+  - 급행이 지나치는 역에는 행이 없다(9호선과 다름). 안양 도착 행 5분 반복 → 2분 사라짐 → 가산디지털단지 진입
+  - 도착 API 도 같은 원천 시각으로 멈춰 있고, 구로~용산 정차역에는 1948 행이 아예 없다 → 위치만 남아 `freshness-window`(2분)에 낡음
+### 바꾼 것
+- `SubwayRingCalculator.blindExpressRun`: 관측이 없거나 낡았을 때, 지나치는 역이 있는 체인(급행)이고 같은 구간 직선을 그리던 중이면 STALE 대신 직선을 예정 + `late-grace` 까지 잇는다(보간 유효기간도 예정 뒤로). 넘으면 LATE 로 상한(0.90)에서 기다리고, LATE 뒤 `stale-source-max-age`(240초)까지도 아무것도 없으면 STALE. 진입 직선(APPROACH)·이미 STALE·일반 열차는 그대로
+### 검증
+- 단위 3건(`SubwayRingCalculatorPassingTest`: 직선 유지, LATE → STALE, 일반 열차는 STALE)
+- 녹화 재생 STALE: 1948 110초 → 0, 1171·9712·9226 0 그대로. 하차 예정 평균|e| 1948 87 → 79초, 나머지 같음. 재생 단언에 "1호선 급행 STALE 없음" 추가
+- 전체 `./gradlew test` 3864건 — 실패 3건은 #518 뒤 main 의 `RerouteRemainingPathOtpIT`(별도 #521)
+### 미결
+- 급행 실측 구간 시간(2단계): `SubwaySegmentTimeRecorder` 는 일반 열차만 표본으로 쓴다. 1948 안양→가산디지털단지 링 직선은 약 9분, 실제 7분 7초
+- GPS 보조(3단계)는 jette-app 이슈

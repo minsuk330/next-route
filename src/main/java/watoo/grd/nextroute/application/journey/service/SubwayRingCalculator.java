@@ -83,6 +83,10 @@ public class SubwayRingCalculator {
             return prior;
         }
         if (observation == null || isStale(observation, now)) {
+            SubwayRingState blind = blindExpressRun(prior, context, target, now);
+            if (blind != null) {
+                return stamped(prior, notBehindScreen(prior, blind, now), null);
+            }
             return stamped(prior, notBehindScreen(prior, freeze(prior, context, target, now), now), null);
         }
         SubwayRingState state = switch (observation.source()) {
@@ -461,6 +465,45 @@ public class SubwayRingCalculator {
                     observation.observedAt(), now).withSource(prior.etaSource(), SubwayRingStage.RUN);
         }
         return hold(context, seen, point, observation.observedAt(), now).withSource(null, SubwayRingStage.RUN);
+    }
+
+    /**
+     * 급행 열차(지나치는 역이 있는 체인)를 따라 달리는 중인데 새 관측이 없거나 낡았다(#497). 1호선 코레일 구간 급행은 역 사이에
+     * 아무 신호도 내지 않는다(2026-10-21 녹화, 1948):
+     * <ul>
+     *   <li>위치 API 는 출발(2)을 내지 않는다 — 역 도착 행이 원천 시각 그대로 다음 역 진입까지 반복된다(가산디지털단지 3분)</li>
+     *   <li>지나치는 역에는 행이 없다 — 안양 도착 행이 5분 반복되다 2분 사라지고 가산디지털단지 진입으로 다시 나온다</li>
+     *   <li>도착 API 는 구로~용산 정차역에 이 열차 행을 내지 않는다 — 위치만 남아 {@code freshnessWindow}(2분)에 낡는다</li>
+     * </ul>
+     * 이 침묵은 고장이 아니라 예상된 것이라 STALE 로 멈추지 않는다: 그리던 직선을 예정 + 유예까지 잇고, 넘으면 LATE 로 상한에서
+     * 기다린다. 그 뒤로도 {@code staleSourceMaxAge} 동안 아무것도 안 오면 진짜 끊김으로 보고 멈춘다. 일반 열차는 그대로다.
+     *
+     * @return 이 경우가 아니면 null — 부르는 쪽이 멈춘다
+     */
+    private SubwayRingState blindExpressRun(SubwayRingState prior, SubwayRingContext context, int target,
+                                            Instant now) {
+        if (!sameSegment(prior, target) || !context.chain().hasPassing()
+                || prior.quality() == SubwayRingQuality.STALE || prior.stage() == SubwayRingStage.APPROACH) {
+            return null;
+        }
+        if (prior.holdReason() == SubwayRingHoldReason.LATE) {
+            Instant lateSince = prior.progressBaseAt();
+            return lateSince != null && now.isAfter(lateSince.plus(properties.getStaleSourceMaxAge()))
+                    ? null : prior.refreshed(prior.observedAt(), now);
+        }
+        Instant eta = prior.estimatedNextStationAt();
+        if (eta == null) {
+            return null;
+        }
+        if (!now.isBefore(eta.plus(properties.getLateGrace()))) {
+            // 기준 시각 = LATE 가 된 지금(위의 상한이 여기서 센다). 원천 시각은 직전 관측 그대로 둔다.
+            return late(context, target, prior.segmentProgress(), now, now).refreshed(prior.observedAt(), now);
+        }
+        SubwayRingState kept = prior.refreshed(prior.observedAt(), now);
+        if (kept.stage() == SubwayRingStage.DWELL && pastDwell(context, target, kept, now)) {
+            kept = kept.withHold(null, null).withSource(kept.etaSource(), SubwayRingStage.RUN);
+        }
+        return longValidity(kept, now);
     }
 
     /** 지나친 역 지점 = 상한 × 구간 안 진행 비율. */
