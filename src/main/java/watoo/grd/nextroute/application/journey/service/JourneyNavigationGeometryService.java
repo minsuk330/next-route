@@ -13,6 +13,7 @@ import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.Leg
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.ManeuverGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.SegmentGeometry;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.StopGeometry;
+import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.TransferLine;
 import watoo.grd.nextroute.application.journey.exception.StaleRouteRevisionException;
 import watoo.grd.nextroute.application.journey.port.in.GetJourneyNavigationGeometryUseCase;
 import watoo.grd.nextroute.application.route.dto.CoordPoint;
@@ -21,6 +22,7 @@ import watoo.grd.nextroute.application.route.dto.PathResult;
 import watoo.grd.nextroute.application.route.dto.StationResult;
 import watoo.grd.nextroute.application.route.dto.SubPathResult;
 import watoo.grd.nextroute.application.route.routing.RailServiceClassifier;
+import watoo.grd.nextroute.application.subway.service.SubwayLineStationIndex;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.SubwayLegBinding;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
@@ -88,6 +90,8 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
     private final RailServiceClassifier railServiceClassifier;
     // 묶인 열차 기준 역 목록·버전 키의 바인딩 판(subway-express S4).
     private final SubwayBoundStopsResolver boundStops;
+    // 지하철 역마다 갈아탈 노선(#510).
+    private final SubwayLineStationIndex stationIndex;
 
     @Override
     @Transactional(readOnly = true)
@@ -118,7 +122,8 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
                         routeStopsByRouteId);
                 case WAIT_BUS, WAIT_SUBWAY -> new Built(waitLeg(leg, sub), null);
                 case WALK, TRANSFER_WALK -> new Built(walkLeg(leg, sub), null);
-                case RIDE_SUBWAY -> new Built(subwayRide(leg, sub, bindings.get(leg.getId())), null);
+                case RIDE_SUBWAY -> new Built(
+                        withTransfers(subwayRide(leg, sub, bindings.get(leg.getId())), leg.getRouteId()), null);
                 default -> new Built(snapshotLeg(leg, sub), null);
             };
             geometries.add(built.geometry().withDisplayColor(
@@ -129,6 +134,19 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
         return new JourneyNavigationGeometry(journeyId, revision, geometries, oldestFetchedAt,
                 JourneyNavigationGeometry.versionKey(revision, railServiceClassifier.catalogVersion(),
                         SubwayBoundStopsResolver.versionToken(bindings.values())));
+    }
+
+    /**
+     * 지하철 단계 역마다 갈아탈 수 있는 다른 노선(#510) — 앱 지도가 역 이름 옆에 노선 색 점을 찍는다. 단계 노선
+     * ({@code routeId}, 실시간 line_id)을 빼고 계산한다. 그 노선을 역 마스터가 모르면 붙이지 않는다(제 노선이 환승으로 나온다).
+     */
+    private LegGeometry withTransfers(LegGeometry geometry, String lineId) {
+        return geometry.mapStops(stop -> stop.withTransfers(
+                stationIndex.transfersAt(stop.stopName(), stop.y(), stop.x(), lineId)
+                        .map(transfers -> transfers.stream()
+                                .map(t -> new TransferLine(t.lineId(), t.lineName()))
+                                .toList())
+                        .orElse(null)));
     }
 
     /**

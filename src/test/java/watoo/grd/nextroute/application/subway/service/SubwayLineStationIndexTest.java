@@ -52,6 +52,25 @@ class SubwayLineStationIndexTest {
     }
 
     @Test
+    @DisplayName("#510 경로 역의 환승 — 같은 노선 마스터 좌표로 재고, 모르는 노선·좌표 없음은 empty, 환승 없으면 빈 목록")
+    void transfersAtRouteStop() {
+        // 종합운동장 2호선↔9호선 마스터 거리 약 221m. 단계 좌표(GTFS)를 9호선 마스터에서 동쪽으로 150m 비켜 두면
+        // 그 좌표로는 2호선까지 300m 를 넘는다 — 같은 노선 마스터 좌표로 재야 환승이 나온다
+        List<SubwayStation> stations = List.of(
+                station("1009000930", "종합운동장", "1009", "9호선", 37.5114097871778, 127.076324485585),
+                station("1002000218", "종합운동장", "1002", "2호선", 37.5111446632705, 127.073849447402),
+                station("1009000929", "봉은사", "1009", "9호선", 37.5142554489848, 127.060233935114));
+        given(repository.findAll()).willReturn(stations);
+
+        assertThat(index.transfersAt("종합운동장(9호선)", 37.51141, 127.07802, "1009"))
+                .contains(List.of(new SubwayLineStationIndex.Transfer("1002", "2호선")));
+        assertThat(index.transfersAt("봉은사", 37.51426, 127.06023, "1009")).contains(List.of());
+        assertThat(index.transfersAt("종합운동장", 37.51141, 127.07802, "9999")).isEmpty();
+        assertThat(index.transfersAt("종합운동장", null, 127.07802, "1009")).isEmpty();
+        assertThat(index.transfersAt("종합운동장", 37.51141, 127.07802, null)).isEmpty();
+    }
+
+    @Test
     @DisplayName("역 마스터는 한 번만 읽는다")
     void loadsOnce() {
         List<SubwayStation> stations = List.of(station("1", "강남", "1002", "2호선", 37.49, 127.02));

@@ -5,6 +5,7 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.function.UnaryOperator;
 
 /**
  * 여정 전체의 지도·진행 판정용 좌표.
@@ -163,6 +164,13 @@ public record JourneyNavigationGeometry(
                     totalDistanceMeters, quality, points, segments, stops, maneuvers, color, allStops);
         }
 
+        /** 정차열과 완행 전체 역의 역마다 같은 변환을 적용한다(나머지 보존). */
+        public LegGeometry mapStops(UnaryOperator<StopGeometry> mapper) {
+            return new LegGeometry(legIndex, type, routeId, plannedDurationSeconds, totalDistanceMeters, quality,
+                    points, segments, stops.stream().map(mapper).toList(), maneuvers, displayColor,
+                    allStops == null ? null : allStops.stream().map(mapper).toList());
+        }
+
         /** 완행 전체 역만 갈아끼운다(나머지 보존). */
         public LegGeometry withAllStops(List<StopGeometry> newAllStops) {
             return new LegGeometry(legIndex, type, routeId, plannedDurationSeconds,
@@ -214,6 +222,8 @@ public record JourneyNavigationGeometry(
      * @param stopNo   버스 정류장 번호(#266). 서울 노선표 경로만 채운다 — 그 밖(경기·지방·지하철)은 null
      * @param trainStops 지하철 {@code allStops} 에서만: 이 열차가 이 역에 서는가(subway-express S2). {@code stops} 와 버스는
      *                   null(응답에서 빠짐)
+     * @param transfers  지하철 단계(#510): 이 역에서 갈아탈 수 있는 다른 노선. 환승 없는 역은 빈 목록. 버스·단계 노선을
+     *                   모르는 지하철은 null(응답에서 빠짐)
      */
     public record StopGeometry(
             int seq,
@@ -222,16 +232,39 @@ public record JourneyNavigationGeometry(
             Double x,
             Double y,
             String stopNo,
-            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean trainStops
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean trainStops,
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<TransferLine> transfers
     ) {
 
+        public StopGeometry {
+            transfers = transfers == null ? null : List.copyOf(transfers);
+        }
+
         public StopGeometry(int seq, String stopId, String stopName, Double x, Double y) {
-            this(seq, stopId, stopName, x, y, null, null);
+            this(seq, stopId, stopName, x, y, null, null, null);
         }
 
         public StopGeometry(int seq, String stopId, String stopName, Double x, Double y, String stopNo) {
-            this(seq, stopId, stopName, x, y, stopNo, null);
+            this(seq, stopId, stopName, x, y, stopNo, null, null);
         }
+
+        public StopGeometry(int seq, String stopId, String stopName, Double x, Double y, String stopNo,
+                            Boolean trainStops) {
+            this(seq, stopId, stopName, x, y, stopNo, trainStops, null);
+        }
+
+        public StopGeometry withTransfers(List<TransferLine> newTransfers) {
+            return new StopGeometry(seq, stopId, stopName, x, y, stopNo, trainStops, newTransfers);
+        }
+    }
+
+    /**
+     * 갈아탈 수 있는 노선 하나(#510). 남은 역 응답의 {@code stations[].transfers} 와 같은 모양이다.
+     *
+     * @param lineId   실시간 체계 노선 id({@code 1002}, {@code 1077}). 앱 노선 색 표의 키
+     * @param lineName 노선 표시 이름({@code 2호선}, {@code 신분당선})
+     */
+    public record TransferLine(String lineId, String lineName) {
     }
 
     /**

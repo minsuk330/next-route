@@ -24,7 +24,12 @@ import watoo.grd.nextroute.application.route.routing.RoutingWalkStep;
 import watoo.grd.nextroute.application.route.routing.StopOccurrence;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
 import watoo.grd.nextroute.domain.bus.repository.BusStopRepository;
+import watoo.grd.nextroute.domain.subway.entity.SubwayStation;
 import watoo.grd.nextroute.domain.subway.repository.SubwayStationRepository;
+import watoo.grd.nextroute.application.route.dto.StationResult;
+import watoo.grd.nextroute.application.subway.service.SubwayLineStationIndex;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.List;
@@ -89,6 +94,59 @@ class LegacyRouteResponseMapperTest {
         return new RoutingLeg(RoutingMode.SUBWAY, null, "1", "1:A1", "1:R1", routeShortName,
                 direction, "1:T1", null, null, null, 600, stops, List.of(),
                 geometry, Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), null);
+    }
+
+    /** 2호선 선릉(2호선)→역삼→강남(2호선). 좌표는 GTFS 처럼 마스터에서 조금 비켜 둔다(약 40m). */
+    private RoutingLeg line2Leg(String routeShortName) {
+        LegGeometry geometry = new LegGeometry(GeometrySource.OTP_STREET,
+                GeometryQuality.STREET_FALLBACK, "test fixture", "g1", BUS_SHAPE, BUS_SHAPE);
+        List<StopOccurrence> stops = List.of(
+                new StopOccurrence("1:S220", null, null, 0, 127.04896, 37.50485, "선릉(2호선)"),
+                new StopOccurrence("1:S221", null, null, 1, 127.03647, 37.50103, "역삼"),
+                new StopOccurrence("1:S222", null, null, 2, 127.02800, 37.49844, "강남(2호선)"));
+        return new RoutingLeg(RoutingMode.SUBWAY, null, "1", "1:A1", "1:R2", routeShortName,
+                "외선", "1:T1", null, null, null, 600, stops, List.of(),
+                geometry, Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), null);
+    }
+
+    private static SubwayStation station(String id, String name, String lineId, String lineName,
+                                         double lat, double lon) {
+        return SubwayStation.builder().stationId(id).stationName(name).lineId(lineId).lineName(lineName)
+                .latitude(lat).longitude(lon).build();
+    }
+
+    @Test
+    @DisplayName("#510 지하철 구간 역마다 갈아탈 노선을 싣는다 — 타는 노선은 빼고, 환승 없는 역은 빈 목록, 버스·모르는 노선은 생략")
+    void subwayStationsCarryTransfers() throws Exception {
+        SubwayStationRepository stations = mock(SubwayStationRepository.class);
+        when(stations.findAll()).thenReturn(List.of(
+                station("1002000220", "선릉", "1002", "2호선", 37.504497373023206, 127.04896282498558),
+                station("1075075215", "선릉", "1075", "수인분당선", 37.505167825521674, 127.04870992465413),
+                station("1002000221", "역삼", "1002", "2호선", 37.5006744185994, 127.03646946847),
+                station("1002000222", "강남", "1002", "2호선", 37.49808633653005, 127.02800140627488),
+                station("1077000687", "강남", "1077", "신분당선", 37.4967771303817, 127.028185245594)));
+        LegacyRouteResponseMapper withIndex = new LegacyRouteResponseMapper(
+                new OtpSeoulIdentityResolver(busStopRepository, busRouteRepository,
+                        mock(SubwayStationRepository.class),
+                        InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup()),
+                new GyeonggiBusRouteTypeColors(), new SubwayLineStationIndex(stations));
+
+        SubPathResult line2 = firstSubPath(withIndex, line2Leg("서울2호선"));
+
+        assertThat(line2.stations()).extracting(StationResult::transfers).containsExactly(
+                List.of(new StationResult.Transfer("1075", "수인분당선")),
+                List.of(),
+                List.of(new StationResult.Transfer("1077", "신분당선")));
+        ObjectMapper om = new ObjectMapper();
+        JsonNode json = om.readTree(om.writeValueAsString(line2));
+        assertThat(json.path("stations").get(1).path("transfers").isArray()).isTrue();
+
+        // 노선을 모르는 지하철 구간·버스 구간은 칸이 빠진다(구버전 응답과 같다)
+        SubPathResult unknownLine = firstSubPath(withIndex, line2Leg("부산1호선"));
+        assertThat(unknownLine.stations()).extracting(StationResult::transfers).containsOnlyNulls();
+        SubPathResult bus = firstSubPath(withIndex, transitLeg(RoutingMode.BUS, GeometryQuality.SHAPE_OK, BUS_SHAPE));
+        assertThat(bus.stations()).extracting(StationResult::transfers).containsOnlyNulls();
+        assertThat(om.writeValueAsString(bus)).doesNotContain("transfers");
     }
 
     private RoutingLeg walkLeg(String points) {
