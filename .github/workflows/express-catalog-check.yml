@@ -1,0 +1,74 @@
+name: Express catalog check
+
+# 급행 카탈로그 열차번호가 시간표와 맞는지 매주 본다(#497 후속). 열차번호 → 급행 규칙은 공식 문서가 없고 시간표 개정 때
+# 바뀔 수 있다. 다르면 이슈(라벨 express-catalog-drift)를 열거나 댓글을 단다. 다시 맞으면 닫는다.
+on:
+  schedule:
+    - cron: '0 0 * * 1' # 월 09:00 KST
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tools/subway-express/**'
+      - 'src/main/resources/subway/express-catalog.json'
+      - '.github/workflows/express-catalog-check.yml'
+
+concurrency:
+  group: express-catalog-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Compare catalog train numbers with the timetable
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+    env:
+      LABEL: express-catalog-drift
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Unit tests
+        run: python3 -I -m unittest discover -s tools/subway-express -p 'test_*.py'
+
+      - name: Fetch timetable verdicts
+        env:
+          SEOUL_SUBWAY_MASTER: ${{ secrets.SEOUL_SUBWAY_MASTER }}
+        run: |
+          if [ -z "$SEOUL_SUBWAY_MASTER" ]; then echo "SEOUL_SUBWAY_MASTER secret 없음"; exit 1; fi
+          python3 -I tools/subway-express/fetch_trainnos.py --weeks 1,2,3 --json > report.json
+
+      - name: Compare
+        id: compare
+        run: |
+          set +e
+          python3 -I tools/subway-express/check_catalog.py report.json src/main/resources/subway/express-catalog.json > body.md
+          code=$?
+          cat body.md
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          [ "$code" -ne 2 ]
+
+      - name: Open or update the drift issue
+        if: steps.compare.outputs.code == '1' && github.event_name != 'pull_request'
+        run: |
+          gh label create "$LABEL" --color D93F0B --description "급행 카탈로그 열차번호가 시간표와 다름" 2>/dev/null || true
+          issue=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number')
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body-file body.md
+          else
+            gh issue create --title "급행 카탈로그 열차번호가 시간표와 다르다" --label "$LABEL" --body-file body.md
+          fi
+
+      - name: Close the drift issue once they match again
+        if: steps.compare.outputs.code == '0' && github.event_name != 'pull_request'
+        run: |
+          for issue in $(gh issue list --label "$LABEL" --state open --json number --jq '.[].number'); do
+            gh issue close "$issue" --comment "$(date -u +%F) 점검에서 다시 일치한다."
+          done
+
+      - name: Fail a pull request whose catalog does not match
+        if: steps.compare.outputs.code == '1' && github.event_name == 'pull_request'
+        run: exit 1

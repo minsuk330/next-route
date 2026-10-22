@@ -1,7 +1,8 @@
 """서울 시간표 API 로 1호선(1001)·4호선(1004) 급행 열차번호를 서비스별로 뽑는다 (subway-express PR-S1).
 
 카탈로그(src/main/resources/subway/express-catalog.json) 의 열차번호 `match` 를 정하는 근거 도구다. 결과는 사람이 검토해
-카탈로그에 옮긴다(자동으로 쓰지 않는다).
+카탈로그에 옮긴다(자동으로 쓰지 않는다). 매주 GitHub Actions(express-catalog-check.yml)가 --json 으로 돌려 check_catalog.py 로
+카탈로그와 견준다(키는 repo secret SEOUL_SUBWAY_MASTER).
 
 사용(키는 VPS 에만 있다 — 출력·커밋 금지):
   ssh vps 'cd /root/apps/nextroute && set -a && . env/api.env && set +a && python3 -I - [--weeks 1,2,3] [--json]' \\
@@ -261,7 +262,9 @@ def analyse(tables, weeks, explain=()):
     matched = {(r["line"], n) for r in report.values() for n in r["trains"]}
     unmatched = {line: {n: v for n, v in by_no.items() if (line, n) not in matched}
                  for line, by_no in flagged.items()}
-    return report, unmatched, explained
+    seen = {line: sorted(numbers, key=lambda n: int(n) if n.isdigit() else -1)
+            for line, numbers in seen_on_line.items()}
+    return report, unmatched, explained, seen
 
 
 def main():
@@ -277,9 +280,10 @@ def main():
     codes, tables = collect(key, weeks)
     missing = sorted("%s:%s" % ln for ln, code in codes.items() if not code)
     explain = {n.strip().lstrip("K") for n in args.explain.split(",") if n.strip()}
-    report, unmatched, explained = analyse(tables, weeks, explain)
+    report, unmatched, explained, seen = analyse(tables, weeks, explain)
     if args.json:
-        json.dump({"missingStations": missing, "services": report, "unmatchedExpressFlagged": unmatched},
+        json.dump({"weeks": weeks, "missingStations": missing, "services": report,
+                   "unmatchedExpressFlagged": unmatched, "seenTrainNos": seen},
                   sys.stdout, ensure_ascii=False, indent=1, default=list)
         print()
         return
