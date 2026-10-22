@@ -54,6 +54,43 @@ class SeoulSubwayApiAdapterStationArrivalTest {
         server.verify();
     }
 
+    @Test
+    @DisplayName("성수지선 성수행의 행선지 '성수지선'은 역 이름 '성수'로 읽는다 — 역 시트가 '성수지선 방면'으로 그리지 않게")
+    void seongsuBranchDestinationIsTheStationName() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
+        SeoulSubwayApiAdapter adapter = new SeoulSubwayApiAdapter(restTemplate, new ApiCallBlocker(),
+                "arrival-key", "position-key", "http://swopenapi.test/api/subway",
+                "master-key", "route-key", "http://openapi.test");
+        server.expect(once(), requestTo(containsString("/realtimeStationArrival/")))
+                .andRespond(withSuccess(SEONGSU_BRANCH, MediaType.APPLICATION_JSON));
+
+        List<SubwayArrivalInfo> rows = adapter.getRealtimeArrivalByStation("용답");
+
+        assertThat(rows.get(0).destinationName()).isEqualTo("성수");
+        assertThat(rows.get(1).destinationName()).as("다른 행선지는 원문 그대로").isEqualTo("신설동");
+        server.verify();
+    }
+
+    /** 운영 용답 행 모양을 본뜬 두 행(2026-10-22 15:25 성수행 1618 외선이 bstatnNm "성수지선" 으로 옴). */
+    private static final String SEONGSU_BRANCH = """
+            {"errorMessage":{"status":200,"code":"INFO-000","message":"정상 처리되었습니다.","total":2},
+             "realtimeArrivalList":[
+              {"subwayId":"1002","updnLine":"외선","trainLineNm":"성수지선행 - 성수방면",
+               "statnFid":"1002002112","statnTid":"1002000211","statnId":"1002002111","statnNm":"용답",
+               "trnsitCo":"1","ordkey":"02001성수지선0","subwayList":"1002",
+               "statnList":"1002002111","btrainSttus":"일반","barvlDt":"120","btrainNo":"1618",
+               "bstatnId":"1002000211","bstatnNm":"성수지선","recptnDt":"2026-10-22 15:25:30",
+               "arvlMsg2":"2전역 (용두)","arvlMsg3":"용두","arvlCd":"99","lstcarAt":"0"},
+              {"subwayId":"1002","updnLine":"내선","trainLineNm":"신설동행 - 신답방면",
+               "statnFid":"1002000211","statnTid":"1002002112","statnId":"1002002111","statnNm":"용답",
+               "trnsitCo":"1","ordkey":"01001신설동0","subwayList":"1002",
+               "statnList":"1002002111","btrainSttus":"일반","barvlDt":"300","btrainNo":"1619",
+               "bstatnId":"1002002114","bstatnNm":"신설동","recptnDt":"2026-10-22 15:25:30",
+               "arvlMsg2":"5분 후 (성수)","arvlMsg3":"성수","arvlCd":"99","lstcarAt":"0"}
+             ]}
+            """;
+
     /**
      * 2026-10-22 13:59 운영 원문 두 행. 9호선 둔촌오륜 하행(개화행 - 올림픽공원방면)은 {@code statnFid}=중앙보훈병원(지나온 역),
      * {@code statnTid}=올림픽공원(다음 역)으로 이름 그대로다. <b>공항철도는 둘이 바뀌어 온다</b> — 홍대입구 상행(인천공항2터미널행 -

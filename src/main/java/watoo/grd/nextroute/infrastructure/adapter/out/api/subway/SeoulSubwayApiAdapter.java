@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -353,6 +354,12 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 	 */
 	private static final Set<String> SWAPPED_NEIGHBOR_LINES = Set.of("1065");
 
+	/**
+	 * 도착 API 행선지({@code bstatnNm}) 중 역 이름이 아닌 표기 → 역 이름. 2호선 성수지선의 성수행은 {@code 성수지선} 으로 와서 역 시트가
+	 * "성수지선 방면"·"성수지선행"으로 그렸다(2026-10-22 운영). 위치 API 쪽은 종착 역 id 를 역 마스터 이름으로 바꿔 이미 {@code 성수} 다.
+	 */
+	private static final Map<String, String> DESTINATION_STATION_NAMES = Map.of("성수지선", "성수");
+
 	private SubwayArrivalInfo toArrivalInfo(SubwayArrivalItem item) {
 		boolean swapped = SWAPPED_NEIGHBOR_LINES.contains(item.getSubwayId());
 		return new SubwayArrivalInfo(
@@ -370,7 +377,7 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 				parseInteger(item.getBarvlDt()),
 				item.getBtrainNo(),
 				item.getBstatnId(),
-				item.getBstatnNm(),
+				destinationStationName(item.getBstatnNm()),
 				item.getArvlMsg2(),
 				item.getArvlCd(),
 				item.getSubwayId(),
@@ -379,6 +386,10 @@ public class SeoulSubwayApiAdapter implements SubwayApiPort {
 				item.getTrainLineNm(),
 				item.getLstcarAt()
 		);
+	}
+
+	private static String destinationStationName(String destination) {
+		return destination == null ? null : DESTINATION_STATION_NAMES.getOrDefault(destination.trim(), destination);
 	}
 
 	// ===== API 호출 =====
