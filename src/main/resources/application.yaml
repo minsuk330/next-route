@@ -785,13 +785,17 @@ journey:
       freshness-window: PT120S
       # TYPICAL 직선(실시간 예정이 없을 때 GTFS × 배수로 움직인다). stale-after 는 서버 시계 기준
       # 무관측 폭, stale-source-max-age 는 원천 시각이 너무 묵은 경우의 이중 가드.
-      typical-factor: 1.2
+      # 배수 1.0(#509·#512, 2026-10-22): 1.2 는 예정 − 원천 도착을 중앙 +26초 늦게 만들었다(운영 11구간). 1.0 이면 +6초,
+      # 녹화 23구간 −4초. 계획보다 느린 구간에서는 감지될 때까지 링이 progress-target 에서 기다린다.
+      typical-factor: ${JOURNEY_SUBWAY_RING_TYPICAL_FACTOR:1.0}
       default-dwell: PT30S
       stale-after: PT60S
       stale-source-max-age: PT240S
       late-grace: PT30S
       # 직선 시작점 = 원천 사건 시각, 단 서버가 처음 본 시각 − 이 값보다 이르면 그 값(#371).
-      max-source-lag: PT30S
+      # 60초(#509·#512, 2026-10-22): 위치 API 노출 지연이 p90 37~46초라 30초면 다음 구간 앵커가 0~25초 밀렸다. 이 값을 둔
+      # 이유(journey 202, 그리자마자 LATE)는 지연을 반영한 LATE 유예(#375)가 막는다.
+      max-source-lag: ${JOURNEY_SUBWAY_RING_MAX_SOURCE_LAG:PT60S}
       # 수명주기 네 접점이 지우지만 그중 하나라도 새면 키가 영원히 남는다.
       ttl: PT30M
       push:
