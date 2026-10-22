@@ -5903,3 +5903,14 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결
 - 1081 경강·1093 서해·1094 신림은 위치 수집 대상(`subway.position.lines`)이 아니다 — 방향과 무관, 메모만
 - 청량리 1호선 상행 칸 라벨이 "청량리 방면"(여기서 끝나는 열차가 최빈) — 방향 오류는 아니고 표시 문제
+
+## 2026-10-22 ring-latency (#509·#512)
+### 확정
+- `typical-factor` 1.2 → 1.0, `max-source-lag` PT30S → PT60S. 둘 다 env 로 되돌릴 수 있다(`JOURNEY_SUBWAY_RING_TYPICAL_FACTOR`, `JOURNEY_SUBWAY_RING_MAX_SOURCE_LAG`, 재빌드 없이 컨테이너 재생성). Java 기본값(1.2·30s)은 단위 시험이 기대는 값이라 두었다 — 운영 값은 yaml 이 정한다
+- 링 지연 몫: 위치 API 노출 지연 ~25–32초(원천, 못 줄임), 배수 1.2 +20–34초, 앵커 클램프 0–25초, 서버 파이프라인 ~4–5초
+### 함정
+- `subway:arr:*` 도착 창 `[직전 recptn − 150초, 처음 도착 recptn]` 의 **중간값을 실제 도착으로 쓰면 75초 넘게 이르다**. 여정 323 "2–3분 늦음·봉은사 놓침"은 이 착시였다. 실제 도착 비교는 창 끝값(처음 도착 recptn) 기준
+- `SubwayRingExpressReplayIT` 는 일회용 DB 에 `subway_station`(역 마스터)이 없으면 카탈로그가 비어 실패한다 → 개발 DB 에서 `pg_dump --data-only -t subway_station` 으로 옮기면 돈다
+### 검증
+- 같은 녹화 재생(운영 코드), 옛 값 → 새 값: 9호선 일반 9226 하차 예정 평균|e| 111→33초(최대 346→131, 마지막 구간 34→9), 급행 9712 41→29초(치우침 +36→−16, 최대 517→137). 도착 반영 +29.8초는 그대로(원천)
+- 링 IT(`SubwayRingIT` 17, `SubwayRingPushIT` 30, `SubwayRideScenarioIT` 5, `SubwayRingReplayIT` 1, `SubwayRingExpressReplayIT` 2, `JourneySubwayGuidanceIT` 9) 실패 0, 단위 420 클래스 실패 0
