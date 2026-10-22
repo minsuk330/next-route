@@ -80,8 +80,14 @@ public class JourneySubwayGuidanceComposer {
                 .filter(ring -> ring.matches(routeRevision, binding.getLegIndex(),
                         binding.getVersion()))
                 .map(ring -> confirmed(binding, lineName, ring))
-                .orElseGet(() -> SubwayGuidance.pending(binding.getStatus(), lineName,
-                        ride.getEndName()));
+                .orElseGet(() -> pendingWithTrain(binding, lineName, ride.getEndName()));
+    }
+
+    /** 고정됐지만 링이 아직 없다. 고른 열차 종류는 바인딩에서 바로 싣는다(#497). */
+    private SubwayGuidance pendingWithTrain(SubwayLegBinding binding, String lineName, String alightingStationName) {
+        SubwayBoundTrainResolver.BoundTrain bound = new SubwayBoundTrainResolver.BoundTrain(binding.getTrainKind(), null);
+        return SubwayGuidance.pending(binding.getStatus(), lineName, alightingStationName,
+                bound.kindName(), bound.label());
     }
 
     private SubwayGuidance confirmed(SubwayLegBinding binding, String lineName,
