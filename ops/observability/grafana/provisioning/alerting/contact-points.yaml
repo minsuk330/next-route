@@ -11,3 +11,12 @@ contactPoints:
         settings:
           url: $SLACK_ALERT_WEBHOOK_URL
         disableResolveMessage: false
+      # AI 분석기(alert-analyzer). 연동마다 따로 발송·재시도되므로 이쪽이 실패해도 Slack 알림은 간다.
+      # 토큰은 env/grafana.env 와 env/alert-analyzer.env 의 ANALYZER_WEBHOOK_TOKEN (같은 값).
+      - uid: alert-analyzer
+        type: webhook
+        settings:
+          url: http://alert-analyzer:8000/webhook/grafana
+          authorization_scheme: Bearer
+          authorization_credentials: $ANALYZER_WEBHOOK_TOKEN
+        disableResolveMessage: true

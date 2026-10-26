@@ -1,0 +1,118 @@
+{
+  "name": "quiet",
+  "captured_at": "2026-10-26T07:21:30.674154+00:00",
+  "synthetic_alert": true,
+  "alert": {
+    "labels": {
+      "alertname": "api 5xx 발생",
+      "instance": "api:8081"
+    },
+    "starts_at": "2026-10-25T14:00:00+09:00"
+  },
+  "bundle": {
+    "alerts": [
+      {
+        "alertname": "api 5xx 발생",
+        "labels": {
+          "instance": "api:8081"
+        },
+        "summary": "api:8081 5xx 3건 (5분)",
+        "values": {},
+        "starts_at": "2026-10-25T14:00:00+09:00",
+        "fingerprint": "capture-quiet"
+      }
+    ],
+    "window_start": "2026-10-25T13:50:00+09:00",
+    "window_end": "2026-10-25T14:01:00+09:00",
+    "templates": [],
+    "quiet_summary": [
+      "worker WARN SubwayTrainTransitionTracker: 141건 (직전 60분 755건, NORMAL)"
+    ],
+    "metrics": [
+      {
+        "key": "m:memory_available_mib",
+        "labels": {
+          "instance": "node-exporter:9100",
+          "job": "node"
+        },
+        "at_alert": 1523.9,
+        "before_30m": 1485.3
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "api:8081",
+          "job": "nextroute-app",
+          "role": "api"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "node-exporter:9100",
+          "job": "node"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "otp:9404",
+          "job": "otp",
+          "role": "otp"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "worker:8081",
+          "job": "nextroute-app",
+          "role": "worker"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:client_fail_10m",
+        "labels": {
+          "client_name": "swopenAPI.seoul.go.kr",
+          "status": "503"
+        },
+        "at_alert": 0.0,
+        "before_30m": 0.0
+      },
+      {
+        "key": "m:heap_used_mib",
+        "labels": {
+          "instance": "api:8081"
+        },
+        "at_alert": 145.4,
+        "before_30m": 143.5
+      },
+      {
+        "key": "m:heap_used_mib",
+        "labels": {
+          "instance": "otp:9404"
+        },
+        "at_alert": 3262.6,
+        "before_30m": 3298.6
+      },
+      {
+        "key": "m:heap_used_mib",
+        "labels": {
+          "instance": "worker:8081"
+        },
+        "at_alert": 332.6,
+        "before_30m": 341.1
+      }
+    ],
+    "restarts": [],
+    "collection_errors": [],
+    "truncated": []
+  }
+}

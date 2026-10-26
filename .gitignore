@@ -80,6 +80,8 @@ src/main/resources/toss/
 
 ### Observability — Grafana admin 비밀번호 (커밋 금지) ###
 ops/observability/env/grafana.env
+ops/observability/env/alert-analyzer.env
+alert-analyzer/.venv/
 
 # 실험 산출물·임시 파일. 2026-09-19 에 `git add -A` 한 번이 이 둘을 통째로 커밋했고
 # (16MB 짜리 tar.gz 포함) 되돌리는 데 별도 커밋이 들어갔다. 추적 대상이 아니다.
