@@ -42,6 +42,25 @@ ssh vps 'certbot --nginx -d grafana.refit-100.site'
 # 7. app 재배포 (management 포트 8081 + JSON 로깅 활성) — 로컬빌드 convention
 ```
 
+## 장애 알림 (Grafana → Slack)
+
+`grafana/provisioning/alerting/` 3파일. AI 분석 없이 Grafana 가 Slack 으로 바로 보낸다.
+
+| 규칙 | 조건 | 근거(2026-10-26 실측) |
+|---|---|---|
+| 메모리 부족 | 남은 메모리 < 300MiB, 5분 | 14일 최저 255MiB. 바닥나면 OOM killer 가 OTP 부터 죽인다 |
+| 컨테이너 다운 | `up{job=~"nextroute-app\|otp\|node"}` = 0, 3분 | 배포 재시작은 최대 2분 → 안 울림 |
+| api 5xx 발생 | 5xx ≥ 3건 / 5분 | 7일 최대 5건(1회) |
+| ERROR 로그 급증 | 앱별 ERROR ≥ 5건 / 5분 | 평시 하루 1건, 외부 API 503 때 21건/1분 |
+| OTP 호출 실패 | OTP 호출 실패 ≥ 3건 / 10분 | 살아 있는데 응답 못 주는 경우. JVM 사망은 '컨테이너 다운' |
+
+- 묶기: 같은 규칙은 한 메시지, 계속 울리면 1시간마다. 해소되면 RESOLVED 메시지
+- 웹훅 URL: `env/grafana.env` 의 `SLACK_ALERT_WEBHOOK_URL` (provisioning 이 `$VAR` 치환)
+- 반영: `rsync` 후 `docker compose up -d --no-deps --force-recreate grafana` (env 바뀌면 재생성해야 읽음). 규칙만 바꿨으면 재생성 대신 `POST /api/admin/provisioning/alerting/reload`
+- 규칙 삭제: 파일에서 빼도 DB 에 남는다 → `deleteRules: [{orgId: 1, uid: ...}]` 로 지우고 reload
+- 템플릿에 `$values`/`$labels` 금지 — provisioning 의 env 치환에 먹힌다. `.Values`/`.Labels` 사용
+- 한계: VPS 자체가 죽으면 Grafana 도 같이 죽어 알림이 안 간다(외부 감시 별건)
+
 ## 배포 전 grep (management 포트 8081 격리 영향)
 
 app actuator가 8080 → 8081로 이동. VPS에서 `:8080/actuator` 또는 `/actuator` 참조 확인:
