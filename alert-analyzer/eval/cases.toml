@@ -1,0 +1,56 @@
+# Eval cases for the analyzer. Labels are drafts until the user confirms them (PLAN §11).
+# Freeze analyzer/prompts/system.md before scoring; run_eval.py records its sha256.
+#
+# expect:
+#   a category        -> top hypothesis must have it
+#   "unknown"         -> no hypothesis, or the top one is low confidence
+#   "none"            -> no hypothesis at all (nothing happened)
+# must_cite: the answer must cite at least one of these ids (empty = not scored)
+# Every alert here is synthetic (the incidents predate the alert rules); the
+# logs and metrics are real unless `synthetic_context = true`.
+
+[[case]]
+id = "subway-api-503"
+fixture = "subway-api-503"
+expect = "external_api"
+must_cite = ["t:0366fb74", "t:118541be", "t:d372f3ab", "m:client_fail_10m"]
+answer = "서울 지하철 도착 API(swopenAPI.seoul.go.kr)가 503 — 외부 API 장애"
+
+[[case]]
+id = "api-5xx-deploy"
+fixture = "api-5xx-deploy"
+expect = "deploy_restart"
+must_cite = ["m:restarts"]
+answer = "12:22~12:23 otp·api·worker 재시작(배포) 직후 OTP 미기동 동안 api 5xx"
+
+[[case]]
+id = "otp-fail-deploy"
+fixture = "otp-fail-deploy"
+expect = "deploy_restart"
+must_cite = ["m:restarts"]
+answer = "같은 배포. OTP 그래프 로딩 중 api→OTP 호출이 ResourceAccessException"
+
+[[case]]
+id = "memory-low-1021"
+fixture = "memory-low-1021"
+expect = "unknown"
+must_cite = []
+answer = "호스트 메모리 278MiB(30분 전 525) — 무엇이 썼는지 맥락에 없음, 원인 불명이 정답"
+
+[[case]]
+id = "quiet"
+fixture = "quiet"
+expect = "none"
+must_cite = []
+answer = "아무 일 없는 구간의 거짓 알림 — 가설 없음이 정답"
+
+# Confound: the subway 503 outage plus an api restart a few minutes before.
+# Real logs, invented restart. A rule that blames every restart gets this wrong.
+[[case]]
+id = "subway-503-with-restart"
+fixture = "subway-api-503"
+synthetic_context = true
+add_restarts = [{ instance = "api:8081", started_at = "2026-10-23T18:57:00+09:00" }]
+expect = "external_api"
+must_cite = ["t:0366fb74", "t:118541be", "t:d372f3ab", "m:client_fail_10m"]
+answer = "api 재시작은 우연. worker 의 외부 API 503 이 원인"

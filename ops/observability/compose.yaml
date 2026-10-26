@@ -114,7 +114,7 @@ services:
     image: ${ALERT_ANALYZER_IMAGE:-ghcr.io/minsuk330/nextroute-alert-analyzer:latest}
     env_file:
       - env/alert-analyzer.env
-    # idle RSS 약 40MiB(2026-10-26 로컬 실측). 운영 실측 후 조정.
+    # idle RSS: PR-1 40~45MiB(운영 실측), PR-2 anthropic SDK 포함 약 88MiB·분석 중 +10MiB(로컬 실측).
     mem_limit: 192m
     memswap_limit: 192m
     oom_score_adj: 500

@@ -9,8 +9,10 @@ import pytest
 from analyzer.config import Settings
 from analyzer.context import ContextBundle, TemplateStat
 from analyzer.dedupe import DailyBudget
+from analyzer.llm import Hypothesis, LlmFailure, Verdict
 from analyzer.payload import AnalysisJob, GrafanaAlert
-from analyzer.worker import process, run_worker
+from analyzer.slack import SlackError
+from analyzer.worker import Live, process, run_worker
 
 pytestmark = pytest.mark.anyio
 
@@ -106,3 +108,101 @@ async def test_worker_survives_failing_job(caplog):
 
     assert done == ["good"]
     assert "analysis failed group=bad" in caplog.text
+
+
+LIVE_SETTINGS = Settings(webhook_token="t", dry_run=False, daily_limit=1)
+
+
+class FakeNotifier:
+    def __init__(self, error: Exception | None = None):
+        self.texts: list[str] = []
+        self.error = error
+
+    async def reply(self, j: AnalysisJob, text: str) -> bool:
+        self.texts.append(text)
+        if self.error:
+            raise self.error
+        return True
+
+
+def verdict() -> Verdict:
+    return Verdict(
+        headline="새 ERROR 로거 1개",
+        hypotheses=[
+            Hypothesis(cause="c", category="app_bug", confidence="low", evidence=["t:1"], next_check="n")
+        ],
+        deploy_related=False,
+        unknown=False,
+        invalid_evidence=0,
+        total_evidence=1,
+        model="claude-sonnet-5-5",
+        input_tokens=10,
+        output_tokens=5,
+        elapsed_s=1.0,
+    )
+
+
+async def gather_secret(_):
+    return bundle_with_secret()
+
+
+async def test_live_posts_the_analysis_of_the_masked_bundle():
+    seen = []
+
+    async def analyze(bundle):
+        seen.append(bundle)
+        return verdict()
+
+    notifier = FakeNotifier()
+    await process(
+        job(), settings=LIVE_SETTINGS, budget=DailyBudget(5), gather_fn=gather_secret, now=NOW,
+        live=Live(analyze=analyze, notifier=notifier),
+    )
+
+    assert "4a6b7c8d9e0f1a2b3c4d5e6f7a" not in seen[0].templates[0].samples[0]
+    assert len(notifier.texts) == 1
+    assert "새 ERROR 로거 1개" in notifier.texts[0]
+    assert "`t:1` worker ERROR B NEW 1건" in notifier.texts[0]
+
+
+async def test_llm_failure_posts_a_failure_line(caplog):
+    async def analyze(_):
+        raise LlmFailure("시간 초과")
+
+    notifier = FakeNotifier()
+    with caplog.at_level(logging.WARNING):
+        bundle = await process(
+            job(), settings=LIVE_SETTINGS, budget=DailyBudget(5), gather_fn=gather_secret, now=NOW,
+            live=Live(analyze=analyze, notifier=notifier),
+        )
+
+    assert bundle is not None
+    assert notifier.texts[0].startswith(":warning: AI 원인 분석 실패: 시간 초과")
+    assert "analysis failed group=g reason=시간 초과" in caplog.text
+
+
+async def test_slack_failure_is_logged_not_raised(caplog):
+    async def analyze(_):
+        return verdict()
+
+    with caplog.at_level(logging.WARNING):
+        await process(
+            job(), settings=LIVE_SETTINGS, budget=DailyBudget(5), gather_fn=gather_secret, now=NOW,
+            live=Live(analyze=analyze, notifier=FakeNotifier(SlackError("slack chat.postMessage: not_in_channel"))),
+        )
+
+    assert "slack post failed group=g: slack chat.postMessage: not_in_channel" in caplog.text
+
+
+async def test_daily_limit_is_announced_once_in_slack():
+    async def analyze(_):
+        return verdict()
+
+    notifier = FakeNotifier()
+    live = Live(analyze=analyze, notifier=notifier)
+    budget = DailyBudget(1)
+    for _ in range(3):
+        await process(job(), settings=LIVE_SETTINGS, budget=budget, gather_fn=gather_secret, now=NOW, live=live)
+
+    assert len(notifier.texts) == 2
+    assert "오늘 AI 분석 상한(1건)" in notifier.texts[1]
