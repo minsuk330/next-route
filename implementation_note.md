@@ -6144,3 +6144,4 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - 비용: 거절 뒤 대체 모델로 넘어가면 앞 시도도 과금되는데 top-level `usage` 엔 마지막 시도만 있다 → `usage.iterations`(`message`/`fallback_message`) 합산, 모델별 단가표 `PRICES`. 평가 `--model` 은 단가표에 있는 모델만
   - 확인된 정상(리뷰): worker 루프는 CancelledError 외 전부 잡음, lifespan 종료 순서, dry run 우선, 비밀값 비노출, `_fit` 5,000회 퍼징에서 3,000자 초과·깨진 엔티티 0
 - (추가 검증) 리뷰 반영 후 `pytest -q -W error::DeprecationWarning` → **129 passed**
+- (배포 준비 2026-10-26 22:09) 사용자가 Anthropic API 키를 대화에 붙여 넣어 전달 → 무료 `GET /v1/models` 로 유효 확인(200, 14개, `claude-sonnet-5-5` 있음) → VPS `env/alert-analyzer.env` 에 `ANTHROPIC_API_KEY` 추가(stdin 으로 전달, 600 유지, sha256 앞 12자 로컬과 일치). 백업 `/root/apps/observability-backups/alert-analyzer.env.bak-20261026-220952-pre-anthropic`. 컨테이너는 재생성 안 함(DRY_RUN=true, 운영 이미지는 PR-1 이라 키를 안 읽음). 키가 대화 기록(로컬 jsonl)에 평문으로 남음 → 켜기 전 재발급 권고
