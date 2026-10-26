@@ -214,7 +214,7 @@ class TemplateStat:
 - [x] 5. worker: dry_run=false 일 때만 LLM·Slack. 실패는 WARN 로그 + 스레드에 "AI 분석 실패: 사유" 한 줄. 하루 상한 초과 1회 안내
 - [x] 6. 테스트: 근거 검증, refusal·타임아웃, 스레드 찾기 3경우, 이스케이프(`<!channel>`→`&lt;!channel&gt;`), 길이 자르기, Settings 필수값
 - [x] 7. (yaml 대신 표준 라이브러리로 읽는 `eval/cases.toml`) `eval/cases.yaml`(기대 category, must-cite 템플릿 id, 정답 한 줄) + `eval/run_eval.py`(실 API, 예상 비용 출력, `--yes` 필수). 출력: LLM 1순위 적중 / **규칙 비교선**(재시작→deploy, client_fail>0→external_api, 그 외 unknown) 적중 / must-cite 적중 / 무효 근거율 / 토큰·비용·지연. 교란 케이스(배포+실제 503 동시)는 실사례 없으면 합성하고 합성이라 표기
-- [ ] 8. 사용자 승인 후 평가 실행(약 $0.5). 결과를 노트에. 비교선 대비 LLM 이 낫지 않으면 그대로 기록하고 사용자와 진행 여부 결정
+- [x] 8. **평가 완료 2026-10-26**: LLM 6/6, 규칙 비교선 5/6, 없는 근거 0/40, $0.10, 최대 6.6초(노트·`eval/results-20261026.json`). 원래: 사용자 승인 후 평가 실행(약 $0.5). 결과를 노트에. 비교선 대비 LLM 이 낫지 않으면 그대로 기록하고 사용자와 진행 여부 결정
 - [ ] 9. 노트 + PR
 
 ## 8. PR-3 켜기 — 브랜치 `feat/alert-analyzer-enable`

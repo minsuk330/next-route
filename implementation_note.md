@@ -6145,3 +6145,17 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - 확인된 정상(리뷰): worker 루프는 CancelledError 외 전부 잡음, lifespan 종료 순서, dry run 우선, 비밀값 비노출, `_fit` 5,000회 퍼징에서 3,000자 초과·깨진 엔티티 0
 - (추가 검증) 리뷰 반영 후 `pytest -q -W error::DeprecationWarning` → **129 passed**
 - (배포 준비 2026-10-26 22:09) 사용자가 Anthropic API 키를 대화에 붙여 넣어 전달 → 무료 `GET /v1/models` 로 유효 확인(200, 14개, `claude-sonnet-5-5` 있음) → VPS `env/alert-analyzer.env` 에 `ANTHROPIC_API_KEY` 추가(stdin 으로 전달, 600 유지, sha256 앞 12자 로컬과 일치). 백업 `/root/apps/observability-backups/alert-analyzer.env.bak-20261026-220952-pre-anthropic`. 컨테이너는 재생성 안 함(DRY_RUN=true, 운영 이미지는 PR-1 이라 키를 안 읽음). 키가 대화 기록(로컬 jsonl)에 평문으로 남음 → 켜기 전 재발급 권고
+- (평가 실행 2026-10-26, 사용자 승인: 비용·라벨 그대로) `uv run python -m eval.run_eval --yes --out eval/results-20261026.json`, `claude-sonnet-5-5` effort medium, 프롬프트 sha256 `99375fdd02aa`(동결)
+  | 케이스 | 정답 | LLM | 규칙 비교선 | 입력/출력 토큰 | 지연 | 비용 |
+  |---|---|---|---|---|---|---|
+  | subway-api-503 | external_api | ✅ external_api | ✅ | 9,809 / 488 | 6.6s | $0.025 |
+  | api-5xx-deploy | deploy_restart | ✅ deploy_restart | ✅ | 5,714 / 770 | 6.6s | $0.019 |
+  | otp-fail-deploy | deploy_restart | ✅ deploy_restart | ✅ | 5,706 / 680 | 6.2s | $0.018 |
+  | memory-low-1021 | 원인 불명 | ✅ 가설 0개 | ✅ | 3,684 / 50 | 3.0s | $0.008 |
+  | quiet | 가설 없음 | ✅ 가설 0개 | ✅ | 3,755 / 48 | 1.7s | $0.008 |
+  | subway-503-with-restart (합성) | external_api | ✅ external_api | ❌ deploy_restart | 9,850 / 437 | 4.0s | $0.024 |
+  - 합계: LLM **6/6**, 규칙 비교선 5/6(교란 합성만 틀림), must-cite 4/4, **없는 근거 0/40**, 실패 0, 비용 **$0.10**, 최대 지연 6.6초
+  - 해석: 실제 사례 5건은 단순 규칙도 다 맞힌다. LLM 이 규칙보다 나은 건 (1) 재시작과 외부 장애가 겹친 교란 케이스 (2) 원인 설명과 다음 확인 거리. 표본이 6건(합성 1)이라 일반화 근거로는 약하다 — 운영 알림이 쌓이면 다시 잰다
+  - memory-low·quiet 는 모델이 가설을 비우고 headline 만 "…원인 불명" 으로 냈다 → 코드가 고정 문구로 바꿈(의도대로)
+  - 지연 최대 6.6초 → timeout 120s 는 넉넉. 재시도로 인한 중복 과금 걱정은 실측상 해당 없음
+  - 결과 파일 비밀값 대조: VPS env 35개 값 × 1파일 0건, 토큰 패턴 0건
