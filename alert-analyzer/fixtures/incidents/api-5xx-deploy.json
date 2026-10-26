@@ -1,0 +1,263 @@
+{
+  "name": "api-5xx-deploy",
+  "captured_at": "2026-10-26T07:21:29.420759+00:00",
+  "synthetic_alert": true,
+  "alert": {
+    "labels": {
+      "alertname": "api 5xx 발생",
+      "instance": "api:8081"
+    },
+    "starts_at": "2026-10-20T12:23:00+09:00"
+  },
+  "bundle": {
+    "alerts": [
+      {
+        "alertname": "api 5xx 발생",
+        "labels": {
+          "instance": "api:8081"
+        },
+        "summary": "api:8081 5xx 5건 (5분)",
+        "values": {},
+        "starts_at": "2026-10-20T12:23:00+09:00",
+        "fingerprint": "capture-api-5xx-deploy"
+      }
+    ],
+    "window_start": "2026-10-20T12:13:00+09:00",
+    "window_end": "2026-10-20T12:24:00+09:00",
+    "templates": [
+      {
+        "id": "t:8881b745",
+        "app": "api",
+        "level": "WARN",
+        "logger": "watoo.grd.nextroute.application.journey.service.TrackPatternSource",
+        "template": "[Track] OTP 패턴 조회 실패: OTP 호출 실패(TripsForDate)",
+        "status": "NEW",
+        "logger_total": 10,
+        "logger_baseline": 0,
+        "sample_count": 6,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "[Track] OTP 패턴 조회 실패: OTP 호출 실패(TripsForDate)",
+          "[Track] OTP 패턴 조회 실패: OTP 호출 실패(TripsForDate)"
+        ],
+        "trace_ids": [
+          "102d9a6c8fd986e903f715c8e1e088c7",
+          "f9d58082072e726a42efadbb1ac4cf5d"
+        ]
+      },
+      {
+        "id": "t:ad4fa5b1",
+        "app": "api",
+        "level": "WARN",
+        "logger": "watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpTransitPatternAdapter",
+        "template": "[OTP-track] TripsForDate 호출 실패: ResourceAccessException",
+        "status": "NEW",
+        "logger_total": 10,
+        "logger_baseline": 0,
+        "sample_count": 6,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "[OTP-track] TripsForDate 호출 실패: ResourceAccessException",
+          "[OTP-track] TripsForDate 호출 실패: ResourceAccessException"
+        ],
+        "trace_ids": [
+          "102d9a6c8fd986e903f715c8e1e088c7",
+          "f9d58082072e726a42efadbb1ac4cf5d"
+        ]
+      },
+      {
+        "id": "t:2083dad8",
+        "app": "api",
+        "level": "WARN",
+        "logger": "watoo.grd.nextroute.application.journey.service.TrackPatternSource",
+        "template": "[Track] OTP 패턴 조회 실패: OTP 호출 실패(StopsNear)",
+        "status": "NEW",
+        "logger_total": 10,
+        "logger_baseline": 0,
+        "sample_count": 4,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "[Track] OTP 패턴 조회 실패: OTP 호출 실패(StopsNear)",
+          "[Track] OTP 패턴 조회 실패: OTP 호출 실패(StopsNear)"
+        ],
+        "trace_ids": []
+      },
+      {
+        "id": "t:060fd731",
+        "app": "api",
+        "level": "WARN",
+        "logger": "watoo.grd.nextroute.infrastructure.adapter.out.api.otp.OtpTransitPatternAdapter",
+        "template": "[OTP-track] StopsNear 호출 실패: ResourceAccessException",
+        "status": "NEW",
+        "logger_total": 10,
+        "logger_baseline": 0,
+        "sample_count": 4,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "[OTP-track] StopsNear 호출 실패: ResourceAccessException",
+          "[OTP-track] StopsNear 호출 실패: ResourceAccessException"
+        ],
+        "trace_ids": []
+      },
+      {
+        "id": "t:79fea091",
+        "app": "api",
+        "level": "WARN",
+        "logger": "org.hibernate.orm.deprecation",
+        "template": "HHH#: PostgreSQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)",
+        "status": "NEW",
+        "logger_total": 1,
+        "logger_baseline": 0,
+        "sample_count": 1,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "HHH90000025: PostgreSQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)",
+          "HHH90000025: PostgreSQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)"
+        ],
+        "trace_ids": []
+      },
+      {
+        "id": "t:db218633",
+        "app": "worker",
+        "level": "WARN",
+        "logger": "org.hibernate.orm.deprecation",
+        "template": "HHH#: PostgreSQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)",
+        "status": "NEW",
+        "logger_total": 1,
+        "logger_baseline": 0,
+        "sample_count": 1,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "HHH90000025: PostgreSQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)",
+          "HHH90000025: PostgreSQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)"
+        ],
+        "trace_ids": []
+      }
+    ],
+    "quiet_summary": [
+      "worker WARN SubwayTrainTransitionTracker: 140건 (직전 60분 763건, NORMAL)"
+    ],
+    "metrics": [
+      {
+        "key": "m:memory_available_mib",
+        "labels": {
+          "instance": "node-exporter:9100",
+          "job": "node"
+        },
+        "at_alert": 1235.0,
+        "before_30m": 1511.3
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "api:8081",
+          "job": "nextroute-app",
+          "role": "api"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "node-exporter:9100",
+          "job": "node"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "otp:9404",
+          "job": "otp",
+          "role": "otp"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "worker:8081",
+          "job": "nextroute-app",
+          "role": "worker"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:http_5xx_10m",
+        "labels": {
+          "instance": "api:8081"
+        },
+        "at_alert": 5.3,
+        "before_30m": null
+      },
+      {
+        "key": "m:client_fail_10m",
+        "labels": {
+          "client_name": "apis.data.go.kr",
+          "status": "CLIENT_ERROR"
+        },
+        "at_alert": 0.0,
+        "before_30m": 0.0
+      },
+      {
+        "key": "m:client_fail_10m",
+        "labels": {
+          "client_name": "otp",
+          "status": "CLIENT_ERROR"
+        },
+        "at_alert": 10.5,
+        "before_30m": null
+      },
+      {
+        "key": "m:heap_used_mib",
+        "labels": {
+          "instance": "api:8081"
+        },
+        "at_alert": 184.0,
+        "before_30m": 134.0
+      },
+      {
+        "key": "m:heap_used_mib",
+        "labels": {
+          "instance": "otp:9404"
+        },
+        "at_alert": 2810.3,
+        "before_30m": 2852.0
+      },
+      {
+        "key": "m:heap_used_mib",
+        "labels": {
+          "instance": "worker:8081"
+        },
+        "at_alert": 133.3,
+        "before_30m": 149.9
+      }
+    ],
+    "restarts": [
+      {
+        "instance": "otp:9404",
+        "started_at": "2026-10-20T03:22:20.801000+00:00"
+      },
+      {
+        "instance": "api:8081",
+        "started_at": "2026-10-20T03:23:24.870000+00:00"
+      },
+      {
+        "instance": "worker:8081",
+        "started_at": "2026-10-20T03:23:24.921000+00:00"
+      }
+    ],
+    "collection_errors": [],
+    "truncated": []
+  }
+}

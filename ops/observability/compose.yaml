@@ -107,6 +107,25 @@ services:
     restart: always
     logging: *logrotate
 
+  # 장애 알림 AI 분석기(docs/plan/alert-analyzer). Grafana webhook 연동이 여기로 보낸다.
+  # 포트 공개 없음 — Grafana 만 내부망으로 부른다. Loki/Prometheus 를 읽어야 해서 default 네트워크.
+  # 메모리 상한 + oom_score_adj: 호스트가 바닥나면 OTP 보다 이 컨테이너가 먼저 죽게 한다.
+  alert-analyzer:
+    image: ${ALERT_ANALYZER_IMAGE:-ghcr.io/minsuk330/nextroute-alert-analyzer:latest}
+    env_file:
+      - env/alert-analyzer.env
+    # idle RSS 약 40MiB(2026-10-26 로컬 실측). 운영 실측 후 조정.
+    mem_limit: 192m
+    memswap_limit: 192m
+    oom_score_adj: 500
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: always
+    logging: *logrotate
+
 networks:
   # nextroute 서비스가 속한 네트워크에 연결 → Prometheus가 api/worker:8081 스크랩.
   # 실제 네트워크 이름은 `docker network ls | grep nextroute`로 확인 후 맞출 것.

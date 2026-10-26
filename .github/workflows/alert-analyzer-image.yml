@@ -1,0 +1,69 @@
+name: alert-analyzer image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'alert-analyzer/**'
+      - '.github/workflows/alert-analyzer-image.yml'
+  pull_request:
+    paths:
+      - 'alert-analyzer/**'
+      - '.github/workflows/alert-analyzer-image.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: alert-analyzer-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test alert-analyzer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      # Same Python 3.12 + uv the image uses; no extra setup action to pin.
+      - name: Run tests
+        run: >
+          docker run --rm -v "$PWD/alert-analyzer":/app -w /app
+          -e UV_PROJECT_ENVIRONMENT=/tmp/venv
+          ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+          uv run --frozen --extra dev pytest -q
+
+  build-push:
+    name: Build and push alert-analyzer image
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/nextroute-alert-analyzer
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./alert-analyzer
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

@@ -1,0 +1,54 @@
+{
+  "receiver": "catcher",
+  "status": "firing",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "메모리 부족",
+        "grafana_folder": "nextroute",
+        "instance": "Grafana",
+        "severity": "critical"
+      },
+      "annotations": {
+        "summary": "VPS 남은 메모리 250MiB (기준 300MiB, 5분 지속)"
+      },
+      "startsAt": "2026-10-26T07:01:20.945744196Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "?orgId=1",
+      "fingerprint": "140515ca470d0b8b",
+      "silenceURL": "https://grafana.refit-100.site/alerting/silence/new?alertmanager=grafana&matcher=alertname%3D%EB%A9%94%EB%AA%A8%EB%A6%AC+%EB%B6%80%EC%A1%B1&matcher=grafana_folder%3Dnextroute&matcher=instance%3DGrafana&matcher=severity%3Dcritical&orgId=1",
+      "dashboardURL": "https://grafana.refit-100.site/d/dashboard_uid?from=1792994480945&orgId=1&to=1792998080949",
+      "panelURL": "https://grafana.refit-100.site/d/dashboard_uid?from=1792994480945&orgId=1&to=1792998080949&viewPanel=1",
+      "values": {
+        "B": 22,
+        "C": 1
+      },
+      "valueString": "[ var='B' labels={__name__=go_threads, instance=host.docker.internal:3000, job=grafana} value=22 ], [ var='C' labels={__name__=go_threads, instance=host.docker.internal:3000, job=grafana} value=1 ]",
+      "orgId": 1
+    }
+  ],
+  "groupLabels": {
+    "alertname": "메모리 부족",
+    "grafana_folder": "nextroute",
+    "instance": "Grafana",
+    "severity": "critical"
+  },
+  "commonLabels": {
+    "alertname": "메모리 부족",
+    "grafana_folder": "nextroute",
+    "instance": "Grafana",
+    "severity": "critical"
+  },
+  "commonAnnotations": {
+    "summary": "VPS 남은 메모리 250MiB (기준 300MiB, 5분 지속)"
+  },
+  "externalURL": "https://grafana.refit-100.site/",
+  "version": "1",
+  "groupKey": "catcher-140515ca470d0b8b-1792998080",
+  "truncatedAlerts": 0,
+  "orgId": 1,
+  "title": "[FIRING:1] 메모리 부족 nextroute Grafana critical ",
+  "state": "alerting",
+  "message": "**Firing**\n\nValue: B=22, C=1\nLabels:\n - alertname = 메모리 부족\n - grafana_folder = nextroute\n - instance = Grafana\n - severity = critical\nAnnotations:\n - summary = VPS 남은 메모리 250MiB (기준 300MiB, 5분 지속)\nSource: ?orgId=1\nSilence: https://grafana.refit-100.site/alerting/silence/new?alertmanager=grafana&matcher=alertname%3D%EB%A9%94%EB%AA%A8%EB%A6%AC+%EB%B6%80%EC%A1%B1&matcher=grafana_folder%3Dnextroute&matcher=instance%3DGrafana&matcher=severity%3Dcritical&orgId=1\nDashboard: https://grafana.refit-100.site/d/dashboard_uid?from=1792994480945&orgId=1&to=1792998080949\nPanel: https://grafana.refit-100.site/d/dashboard_uid?from=1792994480945&orgId=1&to=1792998080949&viewPanel=1\n"
+}

@@ -6058,3 +6058,33 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결
 - VPS 자체 사망은 못 잡음(Grafana 동반 사망) → 외부 heartbeat 별건
 - `SubwayArrivalEventBatchService` "Phase A failed … skipping Phase B/C/Truth" 가 10-24·25·26 04:30 매일 ERROR 1건 — 문턱(5건/5분) 아래라 안 울림, 원인 미조사
+
+## 2026-10-26 장애 알림 AI 분석기 PR-1 수집기 (feat/alert-analyzer-collector)
+### 확정
+- 플랜 `docs/plan/alert-analyzer/PLAN.md`(L). 사용자 결정: 모델 Sonnet 5.5, Slack 은 알림 스레드 답글. Opus 독립 검토(블로커 3, 주요 5) 반영표는 PLAN §0.1
+- 알림 경로에 AI 를 넣지 않는다: Grafana contact point 에 slack 연동과 webhook 연동을 나란히 둔다(분석기 장애 ≠ 알림 장애)
+- NEW/SPIKE 는 **로거 단위 정확 집계**(LogQL metric)로만 판정. 템플릿은 `line_format "{{.message}}"` 로 메시지만 작게(창 100, 기준선 300) — 잘린 표본 개수로 판정하지 않는다. 기준선 표본이 잘렸고 못 찾았으면 `baseline_seen=None`(모름)
+- 분석 대상에서 빼는 것: resolved, `DatasourceError`/`DatasourceNoData`, `app="alert-analyzer"`(자기 ERROR 루프), 시작 10분 넘은 알림(재시작으로 기억을 잃은 뒤 1시간 반복 알림 재분석 방지)
+- HTTP 는 `httpx2`(anthropic 1.x 와 같은 스택, Starlette TestClient 도 `httpx` 를 deprecated 로 경고). 플랜 초안의 "httpx 대체" 안은 버림
+- `mem_limit 192m`: 로컬 idle RSS 40~46MiB 실측. 운영 실측 후 조정
+### 함정
+- **운영 Loki 에 서울 지하철 도착 API 키가 평문** ← `SeoulSubwayApiAdapter` 가 `uri.getPath()`(=`/api/subway/{KEY}/json/…`)를 WARN 으로 찍음. 7일 표본 200줄 중 112줄이 `SEOUL_SUBWAY_ARRIVAL` 값 포함(값 비교로 확인, 출력 안 함) / 가드: 마스킹 `url_path_secret`(영문+숫자 섞인 16자+ 경로 세그먼트), fixture 는 `scripts/check_no_secrets.py` 로 VPS env 값 대조. 앱 쪽 로그 수정은 별건
+- 템플릿화(숫자→#)가 마스킹보다 먼저면 키의 영문 부분이 새어 나간다(16자 규칙이 `#` 때문에 안 걸림) / 가드: 원문을 받자마자 `mask()` → 그다음 `normalize_template()`. 회귀 테스트 `test_key_in_raw_message_never_reaches_template`
+- 경로 마스킹이 `realtimeStationArrival` 같은 긴 영문 엔드포인트까지 지움 ← 16자 영숫자만 봄 / 가드: 영문과 숫자가 **둘 다** 있는 세그먼트만
+- `--no-access-log` 를 줘도 접근 로그가 찍힘 ← uvicorn 은 `uvicorn.access` 로거의 `hasHandlers()`(상속 포함)로 판단하는데 JSON 로깅 설정이 루트로 propagate 시킴 / 가드: `uvicorn.access` 는 handler 비우고 `propagate=False`, 테스트로 고정. 안 막으면 30초 healthcheck 가 Loki 에 쌓임
+- Grafana webhook `startsAt` 은 나노초(`…20.945744196Z`) / 가드: before-validator 로 마이크로초까지 자름, 실 payload fixture 테스트
+- 루트 `.gitignore` 의 `env/*.env` 는 루트 `env/` 만 막는다 → `ops/observability/env/alert-analyzer.env` 를 명시 추가
+- VPS 관측 compose 는 repo main 과 다르다(Prometheus 에 `127.0.0.1:9090` 포트, OTP 콘솔용). 서비스 블록만 넣고 통째로 덮지 말 것
+- `docker exec` 에 stdin 을 넘기려면 `-i` 필수(없으면 빈 본문 → 400 으로 오진)
+### 좌표
+- 실 payload: `alert-analyzer/fixtures/grafana_webhook_firing.json`(Grafana receivers test API → 임시 수신 컨테이너, 정리 완료). Bearer 헤더 전달 확인, `values` 는 refId 키
+- 키 로깅 위치: `src/main/java/.../subway/SeoulSubwayApiAdapter.java:447,454`
+### 검증
+- `docker run ghcr.io/astral-sh/uv:python3.12-bookworm-slim uv run --frozen --extra dev pytest -q -W error::DeprecationWarning` → 75 passed
+- 로컬 이미지 빌드 + 컨테이너 스모크: webhook 202 `{"queued":1}` → 워커 DRY_RUN 요약 로그, 소스 불통 시 `collection_errors` 기록, 접근 로그 없음, RSS 46MiB
+- fixture 5건 캡처(VPS observability 네트워크 임시 컨테이너, 정리 완료) → `check_no_secrets.py` 33개 env 값 × 5파일 0건, 토큰 패턴 grep 0건
+  - 규칙 실제 발화 여부: subway-api-503(10-23 19:01) 넘음 / api-5xx-deploy(10-20 12:23) 넘음 / otp-fail-deploy(10-20 12:24) 넘음 / memory-low-1021(10-21 19:49) **안 넘음**(1분) / quiet 거짓 알림
+  - ~~PLAN 초안의 otp-fail-deploy 10-22 17:57~~ 틀림 — OTP 실패 폭주는 10-20 12:24 배포(api·worker·otp 동시 재시작) 때
+### 미결
+- contact point webhook 연동은 PR #526(알림 파일) 머지 후. #526 머지는 자동 모드 분류기가 막아 사용자 판단 대기
+- 배포(GHCR 이미지 → VPS)는 이 PR 머지 후

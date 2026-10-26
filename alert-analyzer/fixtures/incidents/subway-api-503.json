@@ -1,0 +1,292 @@
+{
+  "name": "subway-api-503",
+  "captured_at": "2026-10-26T07:21:28.970090+00:00",
+  "synthetic_alert": true,
+  "alert": {
+    "labels": {
+      "alertname": "ERROR 로그 급증",
+      "app": "worker"
+    },
+    "starts_at": "2026-10-23T19:01:00+09:00"
+  },
+  "bundle": {
+    "alerts": [
+      {
+        "alertname": "ERROR 로그 급증",
+        "labels": {
+          "app": "worker"
+        },
+        "summary": "worker ERROR 로그 12건 (5분)",
+        "values": {},
+        "starts_at": "2026-10-23T19:01:00+09:00",
+        "fingerprint": "capture-subway-api-503"
+      }
+    ],
+    "window_start": "2026-10-23T18:51:00+09:00",
+    "window_end": "2026-10-23T19:02:00+09:00",
+    "templates": [
+      {
+        "id": "t:0366fb74",
+        "app": "worker",
+        "level": "ERROR",
+        "logger": "watoo.grd.nextroute.infrastructure.adapter.out.api.subway.SeoulSubwayApiAdapter",
+        "template": "[SubwayPosition] #회 재시도 후 실패 — lineId=#",
+        "status": "NEW",
+        "logger_total": 16,
+        "logger_baseline": 0,
+        "sample_count": 11,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "[SubwayPosition] 3회 재시도 후 실패 — lineId=1065",
+          "[SubwayPosition] 3회 재시도 후 실패 — lineId=1065"
+        ],
+        "trace_ids": [
+          "5369b0b4ed627e5f747d38ad27ed7682"
+        ]
+      },
+      {
+        "id": "t:118541be",
+        "app": "worker",
+        "level": "ERROR",
+        "logger": "watoo.grd.nextroute.infrastructure.adapter.out.api.subway.SeoulSubwayApiAdapter",
+        "template": "Subway arrival API failed after # retries: org.springframework.web.client.HttpServerErrorException$ServiceUnavailable: # Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway",
+        "status": "NEW",
+        "logger_total": 16,
+        "logger_baseline": 0,
+        "sample_count": 5,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "Subway arrival API failed after 3 retries: org.springframework.web.client.HttpServerErrorException$ServiceUnavailable: 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimeStationArrival/ALL\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<EOL>request due to maintenance downtime",
+          "Subway arrival API failed after 3 retries: org.springframework.web.client.HttpServerErrorException$ServiceUnavailable: 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimeStationArrival/ALL\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<EOL>request due to maintenance downtime"
+        ],
+        "trace_ids": [
+          "6fa1a09199ed607081f44689def1b771"
+        ]
+      },
+      {
+        "id": "t:d372f3ab",
+        "app": "worker",
+        "level": "ERROR",
+        "logger": "watoo.grd.nextroute.application.subway.service.RealtimeSubwayCollector",
+        "template": "[RealtimeCollector] Collection failed: Subway arrival API failed after # retries: org.springframework.web.client.HttpServerErrorException$ServiceUnavailable: # Service Unavailable on GET request for \"",
+        "status": "NEW",
+        "logger_total": 5,
+        "logger_baseline": 0,
+        "sample_count": 5,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "[RealtimeCollector] Collection failed: Subway arrival API failed after 3 retries: org.springframework.web.client.HttpServerErrorException$ServiceUnavailable: 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimeStationArrival/ALL\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<",
+          "[RealtimeCollector] Collection failed: Subway arrival API failed after 3 retries: org.springframework.web.client.HttpServerErrorException$ServiceUnavailable: 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimeStationArrival/ALL\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<"
+        ],
+        "trace_ids": [
+          "6fa1a09199ed607081f44689def1b771",
+          "a1aea9e36dc6df946ac069652ada9564"
+        ]
+      },
+      {
+        "id": "t:9612d367",
+        "app": "worker",
+        "level": "WARN",
+        "logger": "watoo.grd.nextroute.infrastructure.adapter.out.api.subway.SeoulSubwayApiAdapter",
+        "template": "[SubwayPosition] 호출 실패 #/# — lineId=#, # Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimePosition/#/#/#%ED%#%B#%EC%#%A#\": \"<!DOCTYPE HTML PUBLIC \"-//I",
+        "status": "NEW",
+        "logger_total": 50,
+        "logger_baseline": 0,
+        "sample_count": 27,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "[SubwayPosition] 호출 실패 3/3 — lineId=1009, 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimePosition/0/1000/9%ED%98%B8%EC%84%A0\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<EOL>request due to maintenance downtime or capacity<EOL>problems. Please try again later.</p><EOL><",
+          "[SubwayPosition] 호출 실패 2/3 — lineId=1009, 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimePosition/0/1000/9%ED%98%B8%EC%84%A0\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<EOL>request due to maintenance downtime or capacity<EOL>problems. Please try again later.</p><EOL><"
+        ],
+        "trace_ids": []
+      },
+      {
+        "id": "t:a9714d89",
+        "app": "worker",
+        "level": "WARN",
+        "logger": "watoo.grd.nextroute.infrastructure.adapter.out.api.subway.SeoulSubwayApiAdapter",
+        "template": "Subway API call attempt #/# failed: # Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimeStationArrival/ALL\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML #",
+        "status": "NEW",
+        "logger_total": 50,
+        "logger_baseline": 0,
+        "sample_count": 15,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "Subway API call attempt 3/3 failed: 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimeStationArrival/ALL\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<EOL>request due to maintenance downtime or capacity<EOL>problems. Please try again later.</p><EOL></body></html><EOL>\"",
+          "Subway API call attempt 2/3 failed: 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimeStationArrival/ALL\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<EOL>request due to maintenance downtime or capacity<EOL>problems. Please try again later.</p><EOL></body></html><EOL>\""
+        ],
+        "trace_ids": []
+      },
+      {
+        "id": "t:e14fdec4",
+        "app": "worker",
+        "level": "WARN",
+        "logger": "watoo.grd.nextroute.infrastructure.adapter.out.api.subway.SeoulSubwayApiAdapter",
+        "template": "[SubwayPosition] 호출 실패 #/# — lineId=#, # Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimePosition/#/#/%EA%B#%B#%ED%#%AD%EC%B#%A#%EB%#F%#\": \"<!DOCTYPE ",
+        "status": "NEW",
+        "logger_total": 50,
+        "logger_baseline": 0,
+        "sample_count": 3,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "[SubwayPosition] 호출 실패 3/3 — lineId=1065, 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimePosition/0/1000/%EA%B3%B5%ED%95%AD%EC%B2%A0%EB%8F%84\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<EOL>request due to maintenance downtime or capacity<EOL>problems. Please try again",
+          "[SubwayPosition] 호출 실패 2/3 — lineId=1065, 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimePosition/0/1000/%EA%B3%B5%ED%95%AD%EC%B2%A0%EB%8F%84\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<EOL>request due to maintenance downtime or capacity<EOL>problems. Please try again"
+        ],
+        "trace_ids": []
+      },
+      {
+        "id": "t:84c4b20c",
+        "app": "worker",
+        "level": "WARN",
+        "logger": "watoo.grd.nextroute.infrastructure.adapter.out.api.subway.SeoulSubwayApiAdapter",
+        "template": "[SubwayPosition] 호출 실패 #/# — lineId=#, # Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimePosition/#/#/%EA%B#%BD%EC%#D%#%EC%A#%#%EC%#%#%EC%#%A#\": \"<!DO",
+        "status": "NEW",
+        "logger_total": 50,
+        "logger_baseline": 0,
+        "sample_count": 3,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "[SubwayPosition] 호출 실패 3/3 — lineId=1063, 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimePosition/0/1000/%EA%B2%BD%EC%9D%98%EC%A4%91%EC%95%99%EC%84%A0\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<EOL>request due to maintenance downtime or capacity<EOL>problems. Please ",
+          "[SubwayPosition] 호출 실패 2/3 — lineId=1063, 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimePosition/0/1000/%EA%B2%BD%EC%9D%98%EC%A4%91%EC%95%99%EC%84%A0\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<EOL>request due to maintenance downtime or capacity<EOL>problems. Please "
+        ],
+        "trace_ids": []
+      },
+      {
+        "id": "t:93349b79",
+        "app": "worker",
+        "level": "WARN",
+        "logger": "watoo.grd.nextroute.infrastructure.adapter.out.api.subway.SeoulSubwayApiAdapter",
+        "template": "[SubwayPosition] 호출 실패 #/# — lineId=#, # Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimePosition/#/#/%EA%B#%BD%EC%B#%#%EC%#%A#\": \"<!DOCTYPE HTML PUBL",
+        "status": "NEW",
+        "logger_total": 50,
+        "logger_baseline": 0,
+        "sample_count": 2,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "[SubwayPosition] 호출 실패 2/3 — lineId=1067, 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimePosition/0/1000/%EA%B2%BD%EC%B6%98%EC%84%A0\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<EOL>request due to maintenance downtime or capacity<EOL>problems. Please try again later.</",
+          "[SubwayPosition] 호출 실패 1/3 — lineId=1067, 503 Service Unavailable on GET request for \"http://swopenAPI.seoul.go.kr/api/subway/****/json/realtimePosition/0/1000/%EA%B2%BD%EC%B6%98%EC%84%A0\": \"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><EOL><html><head><EOL><title>503 Service Unavailable</title><EOL></head><body><EOL><h1>Service Unavailable</h1><EOL><p>The server is temporarily unable to service your<EOL>request due to maintenance downtime or capacity<EOL>problems. Please try again later.</"
+        ],
+        "trace_ids": [
+          "5369b0b4ed627e5f747d38ad27ed7682"
+        ]
+      },
+      {
+        "id": "t:ecf01e21",
+        "app": "worker",
+        "level": "WARN",
+        "logger": "watoo.grd.nextroute.application.subway.service.RealtimeSubwayPositionCollector",
+        "template": "[PositionCollector] #/# 노선 실패, 사건 #건",
+        "status": "NEW",
+        "logger_total": 1,
+        "logger_baseline": 0,
+        "sample_count": 1,
+        "sample_capped": false,
+        "baseline_seen": false,
+        "samples": [
+          "[PositionCollector] 11/16 노선 실패, 사건 132건",
+          "[PositionCollector] 11/16 노선 실패, 사건 132건"
+        ],
+        "trace_ids": [
+          "5369b0b4ed627e5f747d38ad27ed7682"
+        ]
+      }
+    ],
+    "quiet_summary": [
+      "worker WARN SubwayTrainTransitionTracker: 102건 (직전 60분 686건, NORMAL)"
+    ],
+    "metrics": [
+      {
+        "key": "m:memory_available_mib",
+        "labels": {
+          "instance": "node-exporter:9100",
+          "job": "node"
+        },
+        "at_alert": 1368.8,
+        "before_30m": 1244.3
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "api:8081",
+          "job": "nextroute-app",
+          "role": "api"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "node-exporter:9100",
+          "job": "node"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "otp:9404",
+          "job": "otp",
+          "role": "otp"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "worker:8081",
+          "job": "nextroute-app",
+          "role": "worker"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:client_fail_10m",
+        "labels": {
+          "client_name": "swopenAPI.seoul.go.kr",
+          "status": "503"
+        },
+        "at_alert": 23.0,
+        "before_30m": null
+      },
+      {
+        "key": "m:heap_used_mib",
+        "labels": {
+          "instance": "api:8081"
+        },
+        "at_alert": 148.0,
+        "before_30m": 150.1
+      },
+      {
+        "key": "m:heap_used_mib",
+        "labels": {
+          "instance": "otp:9404"
+        },
+        "at_alert": 3170.2,
+        "before_30m": 2864.1
+      },
+      {
+        "key": "m:heap_used_mib",
+        "labels": {
+          "instance": "worker:8081"
+        },
+        "at_alert": 199.7,
+        "before_30m": 238.3
+      }
+    ],
+    "restarts": [],
+    "collection_errors": [],
+    "truncated": []
+  }
+}

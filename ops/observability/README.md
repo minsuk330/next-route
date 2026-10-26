@@ -75,7 +75,7 @@ ssh vps 'grep -rn "actuator\|:8080" /etc/nginx /root/apps/nextroute /etc/systemd
 - **메모리**: 스택 ~700MB 예산. `free -h`로 여유 확인, OOM 관찰
 - **로그 유실 창**: docker json-file max-size 10m/max-file 5 = 컨테이너당 ~50MB만 원본. Alloy/Loki 장애 지속 시 회전분 복구 불가
 - **docker.sock**: Alloy가 접근 = Docker 관리자 권한 동급. 단일 호스트 내부망 전용으로 수용. 강화 시 docker-socket-proxy (백로그)
-- **신뢰 경계**: Loki(`auth_enabled:false`)·Prometheus 무인증. 관측 default 네트워크에 Alloy/Grafana 외 컨테이너 추가 금지
+- **신뢰 경계**: Loki(`auth_enabled:false`)·Prometheus 무인증. 관측 default 네트워크에 Alloy/Grafana/alert-analyzer 외 컨테이너 추가 금지. alert-analyzer 는 예외로 둔다 — 무인증 Loki/Prometheus 를 읽어야 하고, 공개 포트가 없어 외부에서 들어오는 길이 없는 1st-party 서비스다
 
 ## 검증 (배포 후)
 
@@ -85,3 +85,16 @@ ssh vps 'grep -rn "actuator\|:8080" /etc/nginx /root/apps/nextroute /etc/systemd
 - 외부에서 3000/3100/9090/8081 직접 접근 실패
 - `https://grafana.refit-100.site` 로그인
 - `docker compose restart grafana` 후 대시보드/데이터소스 유지
+
+## 장애 알림 AI 분석기 (alert-analyzer)
+
+Grafana 알림이 울리면 그 시각의 로그·메트릭을 모아 원인 가설을 만드는 서비스. 코드 `alert-analyzer/`, 플랜 `docs/plan/alert-analyzer/PLAN.md`.
+
+- 지금은 **DRY_RUN 전용**: 맥락만 수집해 로그(`{app="alert-analyzer"}`)로 남긴다. LLM·Slack 호출은 다음 단계
+- 알림 경로와 분리: Grafana 가 Slack 과 분석기에 따로 보낸다. 분석기가 죽어도 Slack 알림은 간다
+- 수집: 로거별 WARN/ERROR 정확 집계(창 vs 직전 60분) → NEW/SPIKE 로거만 작은 표본, Prometheus 스냅샷, 재시작(`process_start_time_seconds`)
+- 마스킹: 밖으로 나가는 모든 문자열. **운영 로그에 서울 지하철 API 키가 경로째 찍혀 있다**(`SeoulSubwayApiAdapter` 의 `uri.getPath()`) — 경로 세그먼트 규칙이 지운다
+- 자원: `mem_limit 192m` + `oom_score_adj 500`(호스트가 바닥나면 OTP 대신 이게 먼저 죽게), 포트 공개 없음
+- env: `env/alert-analyzer.env` (`env/alert-analyzer.env.example` 참고). `ANALYZER_WEBHOOK_TOKEN` 은 Grafana webhook 연동과 같은 값
+- 반영: 이미지는 main push 때 GHCR(`nextroute-alert-analyzer`). VPS 는 compose 의 서비스 블록만 추가(파일 통째 덮기 금지) 후 `docker compose up -d --no-deps alert-analyzer`
+- 평가용 fixture 캡처: `docker exec alert-analyzer python -m scripts.capture_fixture --at <ISO+09:00> --name <id> --alertname <이름>` → 커밋 전 `python3 scripts/check_no_secrets.py --env '/root/apps/*/env/*.env' <파일>`

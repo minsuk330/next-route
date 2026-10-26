@@ -1,0 +1,109 @@
+{
+  "name": "memory-low-1021",
+  "captured_at": "2026-10-26T07:21:30.231439+00:00",
+  "synthetic_alert": true,
+  "alert": {
+    "labels": {
+      "alertname": "메모리 부족",
+      "instance": "node-exporter:9100"
+    },
+    "starts_at": "2026-10-21T19:49:00+09:00"
+  },
+  "bundle": {
+    "alerts": [
+      {
+        "alertname": "메모리 부족",
+        "labels": {
+          "instance": "node-exporter:9100"
+        },
+        "summary": "VPS 남은 메모리 278MiB (기준 300MiB)",
+        "values": {},
+        "starts_at": "2026-10-21T19:49:00+09:00",
+        "fingerprint": "capture-memory-low-1021"
+      }
+    ],
+    "window_start": "2026-10-21T19:39:00+09:00",
+    "window_end": "2026-10-21T19:50:00+09:00",
+    "templates": [],
+    "quiet_summary": [
+      "worker WARN SubwayTrainTransitionTracker: 134건 (직전 60분 761건, NORMAL)"
+    ],
+    "metrics": [
+      {
+        "key": "m:memory_available_mib",
+        "labels": {
+          "instance": "node-exporter:9100",
+          "job": "node"
+        },
+        "at_alert": 277.7,
+        "before_30m": 524.6
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "api:8081",
+          "job": "nextroute-app",
+          "role": "api"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "node-exporter:9100",
+          "job": "node"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "otp:9404",
+          "job": "otp",
+          "role": "otp"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:up",
+        "labels": {
+          "instance": "worker:8081",
+          "job": "nextroute-app",
+          "role": "worker"
+        },
+        "at_alert": 1.0,
+        "before_30m": 1.0
+      },
+      {
+        "key": "m:heap_used_mib",
+        "labels": {
+          "instance": "api:8081"
+        },
+        "at_alert": 160.0,
+        "before_30m": 132.4
+      },
+      {
+        "key": "m:heap_used_mib",
+        "labels": {
+          "instance": "otp:9404"
+        },
+        "at_alert": 3315.6,
+        "before_30m": 3297.5
+      },
+      {
+        "key": "m:heap_used_mib",
+        "labels": {
+          "instance": "worker:8081"
+        },
+        "at_alert": 103.0,
+        "before_30m": 209.3
+      }
+    ],
+    "restarts": [],
+    "collection_errors": [],
+    "truncated": []
+  }
+}
