@@ -6135,3 +6135,12 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 실 API 평가: 사용자 API 키 + 비용 승인 후 `--yes`. 결과(적중·비교선·must-cite·없는 근거율·토큰·지연)를 여기 `### 검증` 에. 비교선보다 낫지 않으면 그대로 기록하고 진행 여부 결정
 - 평가 정답 라벨 6건 사용자 확인(특히 memory-low = "원인 불명"이 정답, quiet = 가설 없음)
 - 프롬프트는 평가 전에 동결 — 평가 결과 보고 고치면 sha 가 바뀐 것으로 기록
+- (추가, 독립 리뷰 반영 2026-10-26) Opus 서브에이전트가 diff 를 따로 읽고 SDK 설치본·탐침 스크립트로 확인. 중 2건, 하 4건 → 전부 반영:
+  - ~~headline 은 모델 것 그대로~~ → **근거 검증이 headline 을 건너뛰었다**: 지어낸 근거로 가설이 다 버려져도 "OTP 힙 고갈 OOM (확실)" 같은 모델 headline 이 굵게 첫 줄에 나갔다 / 가드: 가설이 다 버려지면 고정 문구 `원인 불명 — 근거로 확인된 가설 없음`, 1순위만 버려지면 남은 1순위의 cause 를 headline 으로. 모델 원문은 `model_headline` 으로 로그·평가에만
+  - **history 오류가 답글을 통째로 버렸다**(권한 `groups:history` 누락·`not_in_channel`·rate limit·5xx) ← `find_thread` 의 `SlackError` 가 `post()` 전에 빠져나감 / 가드: 찾기 오류는 WARN 로그 후 "못 찾음"으로 보고 별도 메시지. 테스트 `test_history_failure_still_posts_a_standalone_message`
+  - timeout 60s → 120s: Sonnet 5.5 는 사고가 항상 켜져 있고 비스트리밍은 다 끝나야 응답이 온다. SDK 는 timeout 도 재시도(최대 3회 과금 가능) → 평가 `elapsed_s` 로 재확인
+  - Slack 이 HTTP 200 + JSON 아닌 본문 → `JSONDecodeError` 가 `_notify` 를 빠져나가 "analysis failed" ERROR 로 찍혔다 / 가드: `SlackError("response is not JSON")`. LLM 쪽도 마지막에 `anthropic.AnthropicError` 를 잡아 `LlmFailure`
+  - history `limit` 15 → 50(내부 앱은 999 까지 허용, 페이지네이션은 안 함)
+  - 비용: 거절 뒤 대체 모델로 넘어가면 앞 시도도 과금되는데 top-level `usage` 엔 마지막 시도만 있다 → `usage.iterations`(`message`/`fallback_message`) 합산, 모델별 단가표 `PRICES`. 평가 `--model` 은 단가표에 있는 모델만
+  - 확인된 정상(리뷰): worker 루프는 CancelledError 외 전부 잡음, lifespan 종료 순서, dry run 우선, 비밀값 비노출, `_fit` 5,000회 퍼징에서 3,000자 초과·깨진 엔티티 0
+- (추가 검증) 리뷰 반영 후 `pytest -q -W error::DeprecationWarning` → **129 passed**

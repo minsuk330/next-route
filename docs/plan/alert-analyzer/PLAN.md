@@ -87,7 +87,7 @@ Grafana 알림 ─┬─ slack 연동(기존 웹훅) ─────────
 ### 4.2 Slack 알림 메시지 ↔ 분석기 (PR-2/PR-3)
 - Grafana slack 연동 `text` = `{{ template "default.message" . }}` + 줄바꿈 + `fp: {{ range .Alerts }}{{ .Fingerprint }} {{ end }}`
   - `$` 금지(provisioning env 치환). 반영 전 Grafana 템플릿 미리보기/테스트 API 로 렌더 확인, 이전 파일 tar 백업
-- 분석기: `conversations.history(channel, oldest=min(startsAt)-120s, limit=15)` → 메시지 텍스트(+attachments)에 fingerprint 포함 → `chat.postMessage(thread_ts=…, unfurl_links=false, unfurl_media=false)`. 못 찾으면 10초 간격 3회 → 별도 메시지
+- 분석기: `conversations.history(channel, oldest=min(startsAt)-120s, limit=50)`(PR-2 리뷰: 15 는 알림 폭주 때 원래 알림이 페이지 밖으로 밀림) → 메시지 텍스트(+attachments)에 fingerprint 포함 → `chat.postMessage(thread_ts=…, unfurl_links=false, unfurl_media=false)`. 못 찾으면 10초 간격 3회 → 별도 메시지
 - 봇 권한 `chat:write`, `channels:history`, `groups:history`. 내부 앱(배포 안 함)이라 history 일반 한도
 - 출력은 mrkdwn 텍스트 한 덩어리 ≤ 3,000자. 로그·LLM 에서 온 모든 문자열은 `& < >` 이스케이프
 
@@ -209,7 +209,7 @@ class TemplateStat:
 
 - [x] 1. `claude-api` 스킬 로드 → Python SDK 1.x `messages.parse`, `output_config.effort`, refusal fallback(`fallbacks: "default"` + `server-side-fallback-2026-07-01`), 타임아웃·재시도, 비동기 클라이언트 확인. 프롬프트 캐싱은 쓰지 않음
 - [x] 2. `prompts/system.md` (입력 id 만 근거, 근거 없으면 가설 비움, 한국어, 개인정보 재출력 금지, 최대 3개). **평가 전에 동결**
-- [x] 3. `llm.py`: Sonnet 5.5, effort `medium`, `max_tokens` 16000, timeout 60s, 재시도 2, refusal → 실패. 검증 전 무효 근거 수 기록
+- [x] 3. `llm.py`: Sonnet 5.5, effort `medium`, `max_tokens` 16000, timeout ~~60s~~ 120s(PR-2 리뷰: 비스트리밍이라 사고 포함 전체 생성이 끝나야 응답), 재시도 2, refusal → 실패. 검증 전 무효 근거 수 기록
 - [x] 4. `slack.py`: httpx 로 `conversations.history`·`chat.postMessage` 직접 호출, mrkdwn ≤3,000자, 이스케이프, unfurl 끔
 - [x] 5. worker: dry_run=false 일 때만 LLM·Slack. 실패는 WARN 로그 + 스레드에 "AI 분석 실패: 사유" 한 줄. 하루 상한 초과 1회 안내
 - [x] 6. 테스트: 근거 검증, refusal·타임아웃, 스레드 찾기 3경우, 이스케이프(`<!channel>`→`&lt;!channel&gt;`), 길이 자르기, Settings 필수값

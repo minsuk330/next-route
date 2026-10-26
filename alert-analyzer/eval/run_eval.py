@@ -27,8 +27,7 @@ from analyzer.context import ContextBundle, Restart
 from analyzer.llm import (
     EFFORT,
     MODEL,
-    PRICE_IN,
-    PRICE_OUT,
+    PRICES,
     SYSTEM_PROMPT,
     Analyzer,
     LlmFailure,
@@ -99,9 +98,10 @@ def cited(case: Case, verdict: Verdict) -> bool | None:
     return any(e in case.must_cite for h in verdict.hypotheses for e in h.evidence)
 
 
-def estimate_usd(bundles: list[ContextBundle]) -> float:
+def estimate_usd(bundles: list[ContextBundle], model: str = MODEL) -> float:
+    price_in, price_out = PRICES[model]
     chars = sum(len(SYSTEM_PROMPT) + len(user_message(b)) for b in bundles)
-    return chars / CHARS_PER_TOKEN * PRICE_IN + len(bundles) * OUTPUT_TOKENS_GUESS * PRICE_OUT
+    return (chars / CHARS_PER_TOKEN * price_in + len(bundles) * OUTPUT_TOKENS_GUESS * price_out) / 1_000_000
 
 
 def score(case: Case, bundle: ContextBundle, verdict: Verdict | None, failure: str | None = None) -> dict:
@@ -123,6 +123,7 @@ def score(case: Case, bundle: ContextBundle, verdict: Verdict | None, failure: s
         "invalid_evidence": verdict.invalid_evidence,
         "total_evidence": verdict.total_evidence,
         "headline": verdict.headline,
+        "model_headline": verdict.model_headline,
         "hypotheses": [h.model_dump() for h in verdict.hypotheses],
         "input_tokens": verdict.input_tokens,
         "output_tokens": verdict.output_tokens,
@@ -172,13 +173,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--yes", action="store_true", help="actually call the API (costs money)")
     parser.add_argument("--case", action="append", default=[], help="only these case ids (repeatable)")
-    parser.add_argument("--model", default=MODEL)
+    parser.add_argument("--model", default=MODEL, choices=sorted(PRICES))
     parser.add_argument("--effort", default=EFFORT)
     parser.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
 
     cases = [c for c in load_cases() if not args.case or c.id in args.case]
-    estimate = estimate_usd([load_bundle(c) for c in cases])
+    estimate = estimate_usd([load_bundle(c) for c in cases], args.model)
     print(f"{len(cases)} cases, model={args.model} effort={args.effort}, estimated ≤ ${estimate:.2f}", file=sys.stderr)
     if not args.yes:
         print("dry run: pass --yes to call the API", file=sys.stderr)

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import datetime, timedelta
@@ -25,9 +26,12 @@ from analyzer.dedupe import KST
 from analyzer.llm import Hypothesis, Verdict
 from analyzer.payload import AnalysisJob
 
+log = logging.getLogger(__name__)
+
 SLACK_API = "https://slack.com/api"
 TIMEOUT_S = 10.0
-HISTORY_LIMIT = 15
+# One page. Internal (non-Marketplace) apps may ask for up to 999; 50 covers an alert storm.
+HISTORY_LIMIT = 50
 # The alert message is posted after startsAt (group_wait); look a little earlier too.
 LOOKBACK = timedelta(seconds=120)
 FIND_ATTEMPTS = 3
@@ -75,8 +79,6 @@ def render(verdict: Verdict, bundle: ContextBundle, *, link: str) -> str:
     lines = [":mag: *AI 원인 분석* _(참고용 — 틀릴 수 있음)_", f"*{escape(verdict.headline)}*"]
     if verdict.deploy_related:
         lines.append(f":recycle: 직전 재시작: {escape(_restarts(bundle))}")
-    if verdict.unknown:
-        lines.append("근거를 댈 수 있는 원인 가설이 없음 — 모은 맥락만으로는 원인을 특정하지 못함")
     for n, hypothesis in enumerate(verdict.hypotheses, 1):
         lines.extend(_hypothesis(n, hypothesis, bundle))
     if bundle.collection_errors:
@@ -186,7 +188,11 @@ class SlackClient:
         thread_ts = None
         if fingerprints:
             for attempt in range(self._attempts):
-                thread_ts = await self.find_thread(fingerprints, oldest)
+                try:
+                    thread_ts = await self.find_thread(fingerprints, oldest)
+                except SlackError as exc:
+                    # Missing history scope, rate limit, outage: still post, just not threaded.
+                    log.warning("thread lookup failed (attempt %d): %s", attempt + 1, exc)
                 if thread_ts or attempt == self._attempts - 1:
                     break
                 await self._sleep(self._interval)
@@ -224,7 +230,10 @@ class SlackClient:
             raise SlackError(f"slack {method}: {type(exc).__name__}") from None
         if response.status_code != 200:
             raise SlackError(f"slack {method}: HTTP {response.status_code}")
-        body = response.json()
+        try:
+            body = response.json()
+        except ValueError:
+            raise SlackError(f"slack {method}: response is not JSON") from None
         # Slack reports most failures as HTTP 200 with ok=false.
         if not body.get("ok"):
             raise SlackError(f"slack {method}: {body.get('error', 'unknown error')}")

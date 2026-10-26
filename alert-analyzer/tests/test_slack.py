@@ -133,7 +133,6 @@ def test_render_marks_restart_and_unknown():
     text = render(verdict(deploy_related=True, unknown=True, hypotheses=[]), bundle, link=LINK)
 
     assert ":recycle: 직전 재시작: otp:9404 12:22:20, api:8081 12:23:24" in text
-    assert "원인 가설이 없음" in text
 
 
 def test_render_never_exceeds_slack_limit():
@@ -173,7 +172,7 @@ async def test_reply_goes_into_the_alert_thread():
     history = fake.histories()[0]
     assert history.headers["authorization"] == "Bearer xoxb-test-token"
     assert history.url.params["channel"] == "C0123"
-    assert history.url.params["limit"] == "15"
+    assert history.url.params["limit"] == "50"
     assert history.url.params["oldest"] == f"{(STARTS - timedelta(seconds=120)).timestamp():.6f}"
     assert fake.posts() == [
         {
@@ -216,9 +215,32 @@ async def test_slack_error_names_the_method_not_the_token():
     assert "xoxb" not in str(caught.value)
 
 
+async def test_history_failure_still_posts_a_standalone_message(caplog):
+    posts: list = []
+
+    def no_history_scope(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("conversations.history"):
+            return httpx.Response(200, json={"ok": False, "error": "missing_scope"})
+        posts.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True})
+
+    assert await slack(no_history_scope).reply(job(), "분석") is False
+
+    assert len(posts) == 1 and "thread_ts" not in posts[0]
+    assert "conversations.history: missing_scope" in caplog.text
+
+
 async def test_http_failure_is_a_slack_error():
     def down(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused", request=request)
 
-    with pytest.raises(SlackError, match="conversations.history: ConnectError"):
+    with pytest.raises(SlackError, match="chat.postMessage: ConnectError"):
         await slack(down).reply(job(), "분석")
+
+
+async def test_non_json_answer_is_a_slack_error():
+    def html(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>maintenance</html>")
+
+    with pytest.raises(SlackError, match="chat.postMessage: response is not JSON"):
+        await slack(html).reply(job(), "분석")

@@ -12,6 +12,7 @@ from analyzer.llm import (
     FALLBACK_BETA,
     MODEL,
     SYSTEM_PROMPT,
+    UNKNOWN_HEADLINE,
     Analysis,
     Analyzer,
     Hypothesis,
@@ -85,16 +86,16 @@ def test_check_evidence_drops_invented_ids_then_empty_hypotheses():
         ],
     )
 
-    kept, invalid, total = check_evidence(analysis, {SUBWAY_ERROR, "m:up"})
+    kept, invalid, total, top_survived = check_evidence(analysis, {SUBWAY_ERROR, "m:up"})
 
     assert [h.evidence for h in kept] == [[SUBWAY_ERROR]]
-    assert (invalid, total) == (2, 3)
+    assert (invalid, total, top_survived) == (2, 3, True)
 
 
 def test_check_evidence_keeps_at_most_three_and_dedupes():
     analysis = Analysis(headline="x", hypotheses=[Hypothesis(**hypothesis(["m:up", " m:up"])) for _ in range(5)])
 
-    kept, invalid, total = check_evidence(analysis, {"m:up"})
+    kept, invalid, total, _ = check_evidence(analysis, {"m:up"})
 
     assert len(kept) == 3
     assert kept[0].evidence == ["m:up"]
@@ -137,14 +138,56 @@ async def test_deploy_flag_comes_from_restarts_not_from_model():
     assert verdict.hypotheses[0].category == "external_api"
 
 
-async def test_all_evidence_invented_means_unknown():
-    body = message(answer("원인 불명", [hypothesis(["t:00000000"])]))
+async def test_all_evidence_invented_means_unknown_and_hides_the_headline():
+    body = message(answer("OTP 힙 고갈로 인한 OOM 재시작 (확실)", [hypothesis(["m:oom_kill"])]))
 
     verdict = await analyzer(replying(body)).analyze(incident("quiet"))
 
     assert verdict.unknown is True
     assert verdict.hypotheses == []
+    assert verdict.headline == UNKNOWN_HEADLINE
+    assert verdict.model_headline == "OTP 힙 고갈로 인한 OOM 재시작 (확실)"
     assert (verdict.invalid_evidence, verdict.total_evidence) == (1, 1)
+
+
+async def test_headline_follows_the_surviving_hypothesis_when_the_top_one_is_dropped():
+    invented = hypothesis(["t:00000000"], category="app_bug") | {"cause": "코드 결함"}
+    supported = hypothesis([SUBWAY_ERROR]) | {"cause": "도착 API 503"}
+    body = message(answer("앱 코드 결함", [invented, supported]))
+
+    verdict = await analyzer(replying(body)).analyze(incident("subway-api-503"))
+
+    assert verdict.headline == "도착 API 503"
+    assert [h.category for h in verdict.hypotheses] == ["external_api"]
+
+
+async def test_cost_counts_every_billed_attempt():
+    usage = {
+        "input_tokens": 3000,
+        "output_tokens": 400,
+        "iterations": [
+            {"type": "message", "model": "claude-sonnet-5-5", "input_tokens": 3000, "output_tokens": 200},
+            {"type": "fallback_message", "model": "claude-sonnet-5", "input_tokens": 3000, "output_tokens": 400},
+        ],
+    }
+    body = message(answer("외부 API", [hypothesis([SUBWAY_ERROR])])) | {"usage": usage, "model": "claude-sonnet-5"}
+
+    verdict = await analyzer(replying(body)).analyze(incident("subway-api-503"))
+
+    assert (verdict.input_tokens, verdict.output_tokens) == (6000, 600)
+    assert verdict.cost_usd == pytest.approx((6000 * 2 + 600 * 10) / 1_000_000)
+    assert verdict.model == "claude-sonnet-5"
+
+
+async def test_any_other_sdk_error_is_a_failure():
+    class Broken:
+        async def parse(self, **kwargs):
+            raise anthropic.AnthropicError("something odd")
+
+    client = type("C", (), {"beta": type("B", (), {"messages": Broken()})()})()
+
+    with pytest.raises(LlmFailure, match="Claude SDK 오류\\(AnthropicError\\)"):
+        await Analyzer(client).analyze(incident("quiet"))
 
 
 async def test_refusal_is_a_failure():

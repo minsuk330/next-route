@@ -21,14 +21,21 @@ from analyzer.context import ContextBundle
 MODEL = "claude-sonnet-5-5"
 EFFORT = "medium"
 MAX_TOKENS = 16_000
-TIMEOUT_S = 60.0
+# Non-streaming: nothing arrives until the whole answer (thinking included) is
+# done, so leave room. A timeout is retried by the SDK; the eval measures elapsed_s.
+TIMEOUT_S = 120.0
 MAX_RETRIES = 2
 # Server-side refusal fallback ("default" picks the model per refusal category).
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 MAX_HYPOTHESES = 3
-# USD per token, claude-sonnet-5-5.
-PRICE_IN = 2.0 / 1_000_000
-PRICE_OUT = 10.0 / 1_000_000
+# USD per million tokens (input, output). Sonnet 5 is the refusal fallback.
+PRICES = {
+    "claude-sonnet-5-5": (2.0, 10.0),
+    "claude-sonnet-5": (2.0, 10.0),
+    "claude-opus-5-5": (4.0, 20.0),
+}
+UNKNOWN_HEADLINE = "원인 불명 — 근거로 확인된 가설 없음"
+HEADLINE_FROM_CAUSE_CHARS = 80
 
 SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "system.md").read_text(encoding="utf-8")
 
@@ -53,7 +60,7 @@ class Analysis(BaseModel):
 
 @dataclass(frozen=True)
 class Verdict:
-    headline: str
+    headline: str                  # never a claim the evidence check removed
     hypotheses: list[Hypothesis]   # evidence-checked, at most MAX_HYPOTHESES
     deploy_related: bool           # a process restarted near the window (from Prometheus)
     unknown: bool                  # no hypothesis survived the evidence check
@@ -63,11 +70,9 @@ class Verdict:
     input_tokens: int
     output_tokens: int
     elapsed_s: float
+    cost_usd: float = 0.0
     request_id: str | None = None
-
-    @property
-    def cost_usd(self) -> float:
-        return self.input_tokens * PRICE_IN + self.output_tokens * PRICE_OUT
+    model_headline: str = ""       # what the model wrote, for logs and the eval only
 
 
 class LlmFailure(Exception):
@@ -78,21 +83,48 @@ class LlmFailure(Exception):
         self.reason = reason
 
 
-def check_evidence(analysis: Analysis, valid_ids: set[str]) -> tuple[list[Hypothesis], int, int]:
+def check_evidence(analysis: Analysis, valid_ids: set[str]) -> tuple[list[Hypothesis], int, int, bool]:
     """Drop ids not in the bundle, then hypotheses left without evidence.
 
-    Returns (kept hypotheses, invalid id count, total id count).
+    Returns (kept hypotheses, invalid id count, total id count, whether the
+    model's first hypothesis survived).
     """
     kept: list[Hypothesis] = []
     invalid = total = 0
-    for hypothesis in analysis.hypotheses:
+    top_survived = False
+    for n, hypothesis in enumerate(analysis.hypotheses):
         cited = [e.strip() for e in hypothesis.evidence]
         total += len(cited)
         valid = [e for e in cited if e in valid_ids]
         invalid += len(cited) - len(valid)
         if valid:
             kept.append(hypothesis.model_copy(update={"evidence": list(dict.fromkeys(valid))}))
-    return kept[:MAX_HYPOTHESES], invalid, total
+            top_survived = top_survived or n == 0
+    return kept[:MAX_HYPOTHESES], invalid, total, top_survived
+
+
+def checked_headline(model_headline: str, kept: list[Hypothesis], top_survived: bool) -> str:
+    """The model's headline sums up its first hypothesis; show it only if that one survived."""
+    if not kept:
+        return UNKNOWN_HEADLINE
+    if top_survived and model_headline.strip():
+        return model_headline.strip()
+    cause = kept[0].cause.strip()
+    return cause if len(cause) <= HEADLINE_FROM_CAUSE_CHARS else cause[:HEADLINE_FROM_CAUSE_CHARS] + "…"
+
+
+def billed(usage, served_model: str) -> tuple[int, int, float]:
+    """Tokens and USD across every attempt. A declined attempt before a fallback is billed too."""
+    attempts = [
+        (it.model, it.input_tokens, it.output_tokens)
+        for it in (usage.iterations or [])
+        if it.type in ("message", "fallback_message")
+    ] or [(served_model, usage.input_tokens, usage.output_tokens)]
+    cost = 0.0
+    for model, tokens_in, tokens_out in attempts:
+        price_in, price_out = PRICES.get(model, PRICES[MODEL])
+        cost += (tokens_in * price_in + tokens_out * price_out) / 1_000_000
+    return sum(a[1] for a in attempts), sum(a[2] for a in attempts), cost
 
 
 def user_message(bundle: ContextBundle) -> str:
@@ -141,6 +173,8 @@ class Analyzer:
             raise LlmFailure("Claude API 연결 실패") from None
         except anthropic.APIStatusError as exc:
             raise LlmFailure(f"Claude API 오류 HTTP {exc.status_code}") from None
+        except anthropic.AnthropicError as exc:
+            raise LlmFailure(f"Claude SDK 오류({type(exc).__name__})") from None
 
         if response.stop_reason == "refusal":
             category = response.stop_details.category if response.stop_details else None
@@ -151,19 +185,22 @@ class Analyzer:
         if analysis is None:
             raise LlmFailure("응답이 비어 있음")
 
-        kept, invalid, total = check_evidence(analysis, bundle.ids())
+        kept, invalid, total, top_survived = check_evidence(analysis, bundle.ids())
+        tokens_in, tokens_out, cost = billed(response.usage, response.model)
         return Verdict(
-            headline=analysis.headline.strip(),
+            headline=checked_headline(analysis.headline, kept, top_survived),
             hypotheses=kept,
             deploy_related=bool(bundle.restarts),
             unknown=not kept,
             invalid_evidence=invalid,
             total_evidence=total,
             model=response.model,
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
+            input_tokens=tokens_in,
+            output_tokens=tokens_out,
             elapsed_s=time.monotonic() - started,
+            cost_usd=cost,
             request_id=getattr(response, "_request_id", None),
+            model_headline=analysis.headline.strip(),
         )
 
 
