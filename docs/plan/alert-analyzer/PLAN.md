@@ -87,7 +87,7 @@ Grafana 알림 ─┬─ slack 연동(기존 웹훅) ─────────
 ### 4.2 Slack 알림 메시지 ↔ 분석기 (PR-2/PR-3)
 - Grafana slack 연동 `text` = `{{ template "default.message" . }}` + 줄바꿈 + `fp: {{ range .Alerts }}{{ .Fingerprint }} {{ end }}`
   - `$` 금지(provisioning env 치환). 반영 전 Grafana 템플릿 미리보기/테스트 API 로 렌더 확인, 이전 파일 tar 백업
-- 분석기: `conversations.history(channel, oldest=min(startsAt)-120s, limit=15)` → 메시지 텍스트(+attachments)에 fingerprint 포함 → `chat.postMessage(thread_ts=…, unfurl_links=false, unfurl_media=false)`. 못 찾으면 10초 간격 3회 → 별도 메시지
+- 분석기: `conversations.history(channel, oldest=min(startsAt)-120s, limit=50)`(PR-2 리뷰: 15 는 알림 폭주 때 원래 알림이 페이지 밖으로 밀림) → 메시지 텍스트(+attachments)에 fingerprint 포함 → `chat.postMessage(thread_ts=…, unfurl_links=false, unfurl_media=false)`. 못 찾으면 10초 간격 3회 → 별도 메시지
 - 봇 권한 `chat:write`, `channels:history`, `groups:history`. 내부 앱(배포 안 함)이라 history 일반 한도
 - 출력은 mrkdwn 텍스트 한 덩어리 ≤ 3,000자. 로그·LLM 에서 온 모든 문자열은 `& < >` 이스케이프
 
@@ -188,7 +188,7 @@ class TemplateStat:
 - [x] 5. `ops/observability/compose.yaml` 서비스(포트 없음, `env/alert-analyzer.env`, mem_limit, oom_score_adj, healthcheck, logrotate), `env/alert-analyzer.env.example`
 - [x] 6. (#526 머지 05a79c56 후) `contact-points.yaml`: webhook 연동 추가(`disableResolveMessage: true`, Bearer `$ANALYZER_WEBHOOK_TOKEN`). slack 연동 text 는 **안 건드림**(PR-3)
 - [x] 7. README: 분석기 절 + 신뢰 경계 예외 문구
-- [ ] 8. 머지 → CI 이미지 → VPS 반영(백업 → compose 블록만 삽입 → env 작성 → 분석기 기동 → idle RSS 측정 → provisioning 반영 + grafana `--no-deps` 재생성 → receivers test 로 실 수신 로그 확인)
+- [x] 8. **배포 완료 2026-10-26 18:14~18:24 KST** — 기록은 `implementation_note.md` "PR-1 배포 기록" 절. 원래 단계: 머지 → CI 이미지 → VPS 반영(백업 → compose 블록만 삽입 → env 작성 → 분석기 기동 → idle RSS 측정 → provisioning 반영 + grafana `--no-deps` 재생성 → receivers test 로 실 수신 로그 확인)
 - [x] 9. **fixture 5건 캡처 완료(2026-10-26, 배포 전이라 VPS 임시 컨테이너로)**: 원래 계획은 운영 컨테이너에서 `python -m scripts.capture_fixture` → `check_no_secrets.py` 로 VPS env 값 대조 0건 확인 → 커밋(후속 PR 또는 PR-2)
   | id | 시각(KST) | 기대 |
   |---|---|---|
@@ -207,14 +207,14 @@ class TemplateStat:
 
 ## 7. PR-2 분석과 Slack — 브랜치 `feat/alert-analyzer-llm-slack`
 
-- [ ] 1. `claude-api` 스킬 로드 → Python SDK 1.x `messages.parse`, `output_config.effort`, refusal fallback(`fallbacks: "default"` + `server-side-fallback-2026-07-01`), 타임아웃·재시도, 비동기 클라이언트 확인. 프롬프트 캐싱은 쓰지 않음
-- [ ] 2. `prompts/system.md` (입력 id 만 근거, 근거 없으면 가설 비움, 한국어, 개인정보 재출력 금지, 최대 3개). **평가 전에 동결**
-- [ ] 3. `llm.py`: Sonnet 5.5, effort `medium`, `max_tokens` 16000, timeout 60s, 재시도 2, refusal → 실패. 검증 전 무효 근거 수 기록
-- [ ] 4. `slack.py`: httpx 로 `conversations.history`·`chat.postMessage` 직접 호출, mrkdwn ≤3,000자, 이스케이프, unfurl 끔
-- [ ] 5. worker: dry_run=false 일 때만 LLM·Slack. 실패는 WARN 로그 + 스레드에 "AI 분석 실패: 사유" 한 줄. 하루 상한 초과 1회 안내
-- [ ] 6. 테스트: 근거 검증, refusal·타임아웃, 스레드 찾기 3경우, 이스케이프(`<!channel>`→`&lt;!channel&gt;`), 길이 자르기, Settings 필수값
-- [ ] 7. `eval/cases.yaml`(기대 category, must-cite 템플릿 id, 정답 한 줄) + `eval/run_eval.py`(실 API, 예상 비용 출력, `--yes` 필수). 출력: LLM 1순위 적중 / **규칙 비교선**(재시작→deploy, client_fail>0→external_api, 그 외 unknown) 적중 / must-cite 적중 / 무효 근거율 / 토큰·비용·지연. 교란 케이스(배포+실제 503 동시)는 실사례 없으면 합성하고 합성이라 표기
-- [ ] 8. 사용자 승인 후 평가 실행(약 $0.5). 결과를 노트에. 비교선 대비 LLM 이 낫지 않으면 그대로 기록하고 사용자와 진행 여부 결정
+- [x] 1. `claude-api` 스킬 로드 → Python SDK 1.x `messages.parse`, `output_config.effort`, refusal fallback(`fallbacks: "default"` + `server-side-fallback-2026-07-01`), 타임아웃·재시도, 비동기 클라이언트 확인. 프롬프트 캐싱은 쓰지 않음
+- [x] 2. `prompts/system.md` (입력 id 만 근거, 근거 없으면 가설 비움, 한국어, 개인정보 재출력 금지, 최대 3개). **평가 전에 동결**
+- [x] 3. `llm.py`: Sonnet 5.5, effort `medium`, `max_tokens` 16000, timeout ~~60s~~ 120s(PR-2 리뷰: 비스트리밍이라 사고 포함 전체 생성이 끝나야 응답), 재시도 2, refusal → 실패. 검증 전 무효 근거 수 기록
+- [x] 4. `slack.py`: httpx 로 `conversations.history`·`chat.postMessage` 직접 호출, mrkdwn ≤3,000자, 이스케이프, unfurl 끔
+- [x] 5. worker: dry_run=false 일 때만 LLM·Slack. 실패는 WARN 로그 + 스레드에 "AI 분석 실패: 사유" 한 줄. 하루 상한 초과 1회 안내
+- [x] 6. 테스트: 근거 검증, refusal·타임아웃, 스레드 찾기 3경우, 이스케이프(`<!channel>`→`&lt;!channel&gt;`), 길이 자르기, Settings 필수값
+- [x] 7. (yaml 대신 표준 라이브러리로 읽는 `eval/cases.toml`) `eval/cases.yaml`(기대 category, must-cite 템플릿 id, 정답 한 줄) + `eval/run_eval.py`(실 API, 예상 비용 출력, `--yes` 필수). 출력: LLM 1순위 적중 / **규칙 비교선**(재시작→deploy, client_fail>0→external_api, 그 외 unknown) 적중 / must-cite 적중 / 무효 근거율 / 토큰·비용·지연. 교란 케이스(배포+실제 503 동시)는 실사례 없으면 합성하고 합성이라 표기
+- [x] 8. **평가 완료 2026-10-26**: LLM 6/6, 규칙 비교선 5/6, 없는 근거 0/40, $0.10, 최대 6.6초(노트·`eval/results-20261026.json`). 원래: 사용자 승인 후 평가 실행(약 $0.5). 결과를 노트에. 비교선 대비 LLM 이 낫지 않으면 그대로 기록하고 사용자와 진행 여부 결정
 - [ ] 9. 노트 + PR
 
 ## 8. PR-3 켜기 — 브랜치 `feat/alert-analyzer-enable`

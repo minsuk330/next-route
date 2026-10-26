@@ -90,12 +90,14 @@ ssh vps 'grep -rn "actuator\|:8080" /etc/nginx /root/apps/nextroute /etc/systemd
 
 Grafana 알림이 울리면 그 시각의 로그·메트릭을 모아 원인 가설을 만드는 서비스. 코드 `alert-analyzer/`, 플랜 `docs/plan/alert-analyzer/PLAN.md`.
 
-- 지금은 **DRY_RUN 전용**: 맥락만 수집해 로그(`{app="alert-analyzer"}`)로 남긴다. LLM·Slack 호출은 다음 단계
+- 운영은 아직 **DRY_RUN**: 맥락만 수집해 로그(`{app="alert-analyzer"}`)로 남긴다. `ANALYZER_DRY_RUN=false` 면 Claude(`claude-sonnet-5-5`)에 마스킹된 맥락을 보내 원인 가설을 받고, 근거 id 를 검증한 뒤 알림의 Slack 스레드에 답글을 단다(스레드를 못 찾으면 별도 메시지). 켜는 것은 PR-3
+- 실패해도 알림은 그대로: LLM 오류·거절·시간 초과는 스레드에 "AI 원인 분석 실패" 한 줄, Slack 오류는 로그만. 하루 상한(`ANALYZER_DAILY_LIMIT`, 기본 30) 넘으면 하루 한 번 안내
 - 알림 경로와 분리: Grafana 가 Slack 과 분석기에 따로 보낸다. 분석기가 죽어도 Slack 알림은 간다
 - 수집: 로거별 WARN/ERROR 정확 집계(창 vs 직전 60분) → NEW/SPIKE 로거만 작은 표본, Prometheus 스냅샷, 재시작(`process_start_time_seconds`)
 - 마스킹: 밖으로 나가는 모든 문자열. **운영 로그에 서울 지하철 API 키가 경로째 찍혀 있다**(`SeoulSubwayApiAdapter` 의 `uri.getPath()`) — 경로 세그먼트 규칙이 지운다
-- 자원: `mem_limit 192m` + `oom_score_adj 500`(호스트가 바닥나면 OTP 대신 이게 먼저 죽게), 포트 공개 없음
-- env: `env/alert-analyzer.env` (`env/alert-analyzer.env.example` 참고). `ANALYZER_WEBHOOK_TOKEN` 은 `env/grafana.env` 에도 같은 값으로 넣는다(contact point `slack-alerts` 의 webhook 연동이 참조, resolve 는 안 보냄)
+- 자원: `mem_limit 192m` + `oom_score_adj 500`(호스트가 바닥나면 OTP 대신 이게 먼저 죽게), 포트 공개 없음. idle RSS 약 88MiB(anthropic SDK 포함, PR-1 은 45MiB)
+- env: `env/alert-analyzer.env` (`env/alert-analyzer.env.example` 참고). `ANALYZER_WEBHOOK_TOKEN` 은 `env/grafana.env` 에도 같은 값으로 넣는다(contact point `slack-alerts` 의 webhook 연동이 참조, resolve 는 안 보냄). `ANALYZER_DRY_RUN=false` 는 `ANTHROPIC_API_KEY`·`SLACK_BOT_TOKEN`·`SLACK_CHANNEL_ID` 가 없으면 기동을 거부한다. Slack 봇 권한 `chat:write`, `channels:history`(비공개 채널이면 `groups:history`), 채널에 봇 초대 필요
 - 끄기: `contact-points.yaml` 에서 `alert-analyzer` 연동을 지우고 grafana 재생성(또는 provisioning reload). Slack 알림은 영향 없음
 - 반영: 이미지는 main push 때 GHCR(`nextroute-alert-analyzer`). VPS 는 compose 의 서비스 블록만 추가(파일 통째 덮기 금지) 후 `docker compose up -d --no-deps alert-analyzer`
+- 평가: `cd alert-analyzer && ANTHROPIC_API_KEY=… uv run python -m eval.run_eval` 은 예상 비용만 출력, `--yes` 를 붙여야 실제 호출(6건 약 $0.25 이하). 규칙 비교선 대비 적중·근거 인용·없는 근거 수를 낸다
 - 평가용 fixture 캡처: `docker exec alert-analyzer python -m scripts.capture_fixture --at <ISO+09:00> --name <id> --alertname <이름>` → 커밋 전 `python3 scripts/check_no_secrets.py --env '/root/apps/*/env/*.env' <파일>`

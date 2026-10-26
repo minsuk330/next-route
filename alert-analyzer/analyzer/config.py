@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+# Needed only when the analyzer actually calls Claude and posts to Slack.
+LIVE_ONLY = ("ANTHROPIC_API_KEY", "SLACK_BOT_TOKEN", "SLACK_CHANNEL_ID")
 
 
 def _bool(raw: str | None, default: bool) -> bool:
@@ -15,13 +18,17 @@ def _bool(raw: str | None, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
-    webhook_token: str
+    # Secrets stay out of repr so a logged Settings never leaks them.
+    webhook_token: str = field(repr=False)
     loki_url: str = "http://loki:3100"
     prom_url: str = "http://prometheus:9090"
     grafana_url: str = "https://grafana.refit-100.site"
     dry_run: bool = True
     daily_limit: int = 30
     queue_max: int = 20
+    anthropic_api_key: str = field(default="", repr=False)
+    slack_bot_token: str = field(default="", repr=False)
+    slack_channel_id: str = ""
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -30,10 +37,11 @@ class Settings:
         if not token:
             raise RuntimeError("ANALYZER_WEBHOOK_TOKEN is required")
         dry_run = _bool(env.get("ANALYZER_DRY_RUN"), True)
-        # LLM analysis and Slack posting arrive in the next PR. Until then the only
-        # supported mode is dry run, so refuse to start rather than silently ignore.
-        if not dry_run:
-            raise RuntimeError("ANALYZER_DRY_RUN=false is not supported yet (no LLM stage)")
+        live = {name: env.get(name, "").strip() for name in LIVE_ONLY}
+        missing = [name for name, value in live.items() if not value]
+        # Fail at startup, not on the first alert, when live mode lacks a key.
+        if not dry_run and missing:
+            raise RuntimeError(f"ANALYZER_DRY_RUN=false needs {', '.join(missing)}")
         return cls(
             webhook_token=token,
             loki_url=env.get("ANALYZER_LOKI_URL", cls.loki_url),
@@ -42,4 +50,7 @@ class Settings:
             dry_run=dry_run,
             daily_limit=int(env.get("ANALYZER_DAILY_LIMIT", cls.daily_limit)),
             queue_max=int(env.get("ANALYZER_QUEUE_MAX", cls.queue_max)),
+            anthropic_api_key=live["ANTHROPIC_API_KEY"],
+            slack_bot_token=live["SLACK_BOT_TOKEN"],
+            slack_channel_id=live["SLACK_CHANNEL_ID"],
         )

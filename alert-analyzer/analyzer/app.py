@@ -20,10 +20,12 @@ from pydantic import ValidationError
 from analyzer.config import Settings
 from analyzer.context import gather
 from analyzer.dedupe import DailyBudget, SeenStore
+from analyzer.llm import Analyzer, make_client
 from analyzer.logging_json import configure_logging
 from analyzer.payload import AnalysisJob, GrafanaWebhook, dedupe_key, select_new
+from analyzer.slack import SlackClient
 from analyzer.sources import LokiClient, PromClient
-from analyzer.worker import GatherFn, run_worker, utcnow
+from analyzer.worker import GatherFn, Live, run_worker, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +34,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     gather_fn: GatherFn | None = None,
+    live: Live | None = None,
     start_worker: bool = True,
     clock: Callable[[], datetime] = utcnow,
 ) -> FastAPI:
@@ -50,12 +53,29 @@ def create_app(
         prom = PromClient(resolved.prom_url, http)
         fn = gather_fn or (lambda job: gather(job, loki, prom))
 
+        # Dry run always wins: nothing leaves the box, even if stages were injected.
+        claude = None
+        stages = None if resolved.dry_run else live
+        if stages is None and not resolved.dry_run:
+            claude = make_client(resolved.anthropic_api_key)
+            stages = Live(
+                analyze=Analyzer(claude).analyze,
+                notifier=SlackClient(resolved.slack_bot_token, resolved.slack_channel_id, http),
+            )
+
         worker = None
         if start_worker:
             worker = asyncio.create_task(
-                run_worker(app.state.queue, settings=resolved, budget=app.state.budget, gather_fn=fn, clock=clock)
+                run_worker(
+                    app.state.queue, settings=resolved, budget=app.state.budget, gather_fn=fn, live=stages, clock=clock
+                )
             )
-        log.info("alert-analyzer started dry_run=%s daily_limit=%d", resolved.dry_run, resolved.daily_limit)
+        log.info(
+            "alert-analyzer started dry_run=%s live=%s daily_limit=%d",
+            resolved.dry_run,
+            stages is not None,
+            resolved.daily_limit,
+        )
         try:
             yield
         finally:
@@ -63,6 +83,8 @@ def create_app(
                 worker.cancel()
                 with suppress(asyncio.CancelledError):
                     await worker
+            if claude is not None:
+                await claude.close()
             await http.aclose()
 
     app = FastAPI(title="nextroute alert-analyzer", lifespan=lifespan)

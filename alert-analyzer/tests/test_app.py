@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import threading
+import time
 from datetime import datetime, timezone
 
 import pytest
@@ -11,6 +13,7 @@ from fastapi.testclient import TestClient
 from analyzer.app import create_app
 from analyzer.config import Settings
 from analyzer.context import ContextBundle
+from analyzer.worker import Live
 
 NOW = datetime(2026, 10, 26, 7, 2, tzinfo=timezone.utc)
 AUTH = {"Authorization": "Bearer test-token"}
@@ -120,13 +123,56 @@ def test_settings_require_token():
         Settings.from_env({})
 
 
-def test_settings_refuse_live_mode_until_llm_stage():
-    with pytest.raises(RuntimeError, match="DRY_RUN"):
-        Settings.from_env({"ANALYZER_WEBHOOK_TOKEN": "t", "ANALYZER_DRY_RUN": "false"})
+LIVE_ENV = {
+    "ANALYZER_WEBHOOK_TOKEN": "t",
+    "ANALYZER_DRY_RUN": "false",
+    "ANTHROPIC_API_KEY": "sk-ant-secret",
+    "SLACK_BOT_TOKEN": "xoxb-secret",
+    "SLACK_CHANNEL_ID": "C0123",
+}
 
 
-def test_settings_defaults():
-    s = Settings.from_env({"ANALYZER_WEBHOOK_TOKEN": "t"})
+@pytest.mark.parametrize("missing", ["ANTHROPIC_API_KEY", "SLACK_BOT_TOKEN", "SLACK_CHANNEL_ID"])
+def test_live_mode_refuses_to_start_without_its_keys(missing):
+    env = {k: v for k, v in LIVE_ENV.items() if k != missing}
 
-    assert (s.dry_run, s.daily_limit, s.queue_max) == (True, 30, 20)
-    assert s.loki_url == "http://loki:3100"
+    with pytest.raises(RuntimeError, match=f"ANALYZER_DRY_RUN=false needs {missing}"):
+        Settings.from_env(env)
+
+
+def test_live_mode_settings_hide_secrets_from_repr():
+    s = Settings.from_env(LIVE_ENV)
+
+    assert (s.dry_run, s.slack_channel_id) == (False, "C0123")
+    assert "secret" not in repr(s)
+    assert "'t'" not in repr(s)
+
+
+def test_dry_run_needs_no_keys():
+    assert Settings.from_env({"ANALYZER_WEBHOOK_TOKEN": "t"}).anthropic_api_key == ""
+
+
+def test_dry_run_wins_over_injected_live_stages(grafana_payload, caplog):
+    caplog.set_level(logging.INFO, logger="analyzer.worker")
+    calls = []
+
+    async def fake_gather(job):
+        return ContextBundle(
+            alerts=[], window_start=NOW, window_end=NOW, templates=[], quiet_summary=[],
+            metrics=[], restarts=[], collection_errors=[],
+        )
+
+    async def record(*args):
+        calls.append(args)
+        return True
+
+    live = Live(analyze=record, notifier=type("N", (), {"reply": staticmethod(record)})())
+    app = create_app(settings(), gather_fn=fake_gather, live=live, clock=lambda: NOW)
+    with TestClient(app) as c:
+        assert post(c, grafana_payload).status_code == 202
+        deadline = time.monotonic() + 5
+        while "dry-run" not in caplog.text and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+    assert "dry-run" in caplog.text
+    assert calls == []

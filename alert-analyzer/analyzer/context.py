@@ -121,6 +121,21 @@ class ContextBundle:
     def to_json(self) -> str:
         return json.dumps(asdict(self), default=_json_default, ensure_ascii=False)
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "ContextBundle":
+        """Inverse of to_json (after json.loads), for the eval fixtures."""
+        return cls(
+            alerts=data["alerts"],
+            window_start=datetime.fromisoformat(data["window_start"]),
+            window_end=datetime.fromisoformat(data["window_end"]),
+            templates=[TemplateStat(**t) for t in data["templates"]],
+            quiet_summary=data["quiet_summary"],
+            metrics=[MetricPoint(**m) for m in data["metrics"]],
+            restarts=[Restart(r["instance"], datetime.fromisoformat(r["started_at"])) for r in data["restarts"]],
+            collection_errors=data["collection_errors"],
+            truncated=data.get("truncated", []),
+        )
+
 
 # --- templates -----------------------------------------------------------------
 

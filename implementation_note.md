@@ -6089,3 +6089,73 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - contact point webhook 연동은 PR #526(알림 파일) 머지 후. #526 머지는 자동 모드 분류기가 막아 사용자 판단 대기
 - 배포(GHCR 이미지 → VPS)는 이 PR 머지 후
 - (추가) #526 머지(05a79c56, 사용자 지시) 후 리베이스 → contact point `slack-alerts` 에 webhook 연동(`alert-analyzer`, Bearer `$ANALYZER_WEBHOOK_TOKEN`, `disableResolveMessage: true`) 추가. 위 미결 1번 해소. 리베이스 때 이 노트 끝이 #526 노트와 append 충돌 → 두 절 모두 유지
+
+## 2026-10-26 장애 알림 AI 분석기 PR-1 배포 기록 (PLAN §6-8 에서 옮김)
+### 배포
+- 2026-10-26 18:14~18:24 KST. #526 05a79c56, #527 33e2c64f 머지 → GHCR 빌드 성공 → VPS
+- 백업 `/root/apps/observability-backups/observability-20261026-181414-pre-alert-analyzer.tgz`(compose·env·provisioning)
+- 토큰은 VPS 에서 `openssl rand -hex 32` 로 만들어 `env/grafana.env`·`env/alert-analyzer.env` 에 넣음(출력 안 함, 해시로 일치 확인). 두 파일 600
+- VPS compose 에 서비스 블록만 삽입(diff 는 추가 줄만), `docker compose config -q` 통과 → `up -d --no-deps alert-analyzer` → healthy, RSS 42~45MiB, `oom_score_adj=500`, 상한 192m
+- contact-points.yaml 반영 + grafana `--no-deps --force-recreate` → provisioning 오류 없음, 연동 2개(slack, webhook `disableResolveMessage=true`)
+### 검증
+- (a) 분석기 켜짐: 임시 규칙 A → slack·webhook 18:20:50 둘 다 오류 없음, 분석기 DRY_RUN 요약(수집 오류 0, 0.13초)
+- (b) 분석기 정지: 규칙 B → slack 18:22:06 정상, webhook 만 `lookup alert-analyzer … server misbehaving` 실패 → **분석기가 죽어도 Slack 알림은 간다**. 임시 규칙 2개 `deleteRules` 정리, 규칙 5개만 남음
+### 함정
+- 임시 규칙 파일 들여쓰기(rules 아래 6칸)가 틀리면 provisioning reload 500 — 기존 설정은 유지됨
+### 미결
+- Tempo 컨테이너 15시 179MB → 18시 700MB, 메모리 상한 없음. 호스트 available 992MB. 분석기 무관(Tempo 안 읽음), 별건
+
+## 2026-10-26 장애 알림 AI 분석기 PR-2 분석과 Slack (feat/alert-analyzer-llm-slack)
+### 확정
+- 사용자 지시: API 키 없이 코드부터. LLM·Slack 은 가짜 전송(httpx2 MockTransport)으로 테스트, 실 API 평가는 키 발급 + 비용 승인 후
+- `uv add "anthropic>=1"` 이 **anthropic 2.3.0** 을 잡았다(PLAN 은 1.x 가정). 설치본 시그니처로 확인: `client.beta.messages.parse(betas=[...], fallbacks="default", output_format=Model, output_config={"effort": ...})` 지원, `fallbacks` 타입 = 목록 | `"default"`, 베타 목록에 `server-side-fallback-2026-07-01` 있음. parse 는 `output_config` 에 format 을 합쳐 보내므로 effort 와 같이 써도 충돌 없음
+- **dry run 이 항상 이긴다**: `ANALYZER_DRY_RUN=true` 면 `create_app(live=...)` 로 단계를 넣어도 LLM·Slack 을 부르지 않는다(테스트 `test_dry_run_wins_over_injected_live_stages`). false 는 `ANTHROPIC_API_KEY`·`SLACK_BOT_TOKEN`·`SLACK_CHANNEL_ID` 가 없으면 기동 거부(첫 알림 때가 아니라 기동 때 실패)
+- `Settings` 의 비밀 필드는 `repr=False` — Settings 를 로그에 찍어도 키가 안 나온다
+- 하루 상한은 LLM 이 실패해도 1건으로 센다(실패 반복이 비용 폭주로 번지지 않게). 상한 도달 안내는 그 알림 스레드에 하루 한 번
+- Slack 실패는 로그만 남기고 삼킨다(알림 자체는 이미 갔다). LLM 실패는 스레드에 "AI 원인 분석 실패: 사유" — 사유 문자열은 SDK 예외 메시지가 아니라 우리가 만든 고정 문구(키·요청 본문 유출 방지)
+- 평가 케이스는 yaml 대신 `eval/cases.toml`(표준 `tomllib`, 의존성 추가 없음). 교란 케이스 `subway-503-with-restart` = 실제 503 로그 + 지어낸 api 재시작(`synthetic_context = true`). 규칙 비교선은 이 케이스를 틀리게 만들어 둠
+- Grafana 링크는 Explore(Loki, 알림 창, api/worker WARN|ERROR). Slack 링크 안의 `&` 도 `&amp;` 로 이스케이프
+### 함정
+- `messages.parse` 는 응답 text 를 받자마자 Pydantic 으로 검증한다 → 모델이 출력 도중 거절하거나 max_tokens 로 잘리면 `stop_reason` 을 보기 전에 `pydantic.ValidationError` 가 난다(SDK `lib/_parse/_response.py`). 출력 전 거절은 content 가 비어 `parsed_output=None` / 가드: ValidationError 를 따로 잡아 "응답 형식 오류", 그다음 stop_reason 확인
+- **idle RSS 45 → 88MiB** ← `anthropic` SDK import(전 타입 pydantic 모델). dry run 에서도 import 됨. 분석 1회 피크 +10MiB(목업 응답 5회, `ru_maxrss` 75→85MB). 상한 192m 은 유지, 운영 실측 후 재검토
+- Explore URL 형식(`schemaVersion=1&panes=…`)은 Grafana 10+ 형식으로 썼고 **실제 열어 보진 않음** → PR-3 실물 확인 때 링크 클릭 확인
+- `conversations.history` 는 최신순. 같은 지문 메시지가 여러 개면(1시간 반복 알림) 가장 오래된 것=첫 알림을 스레드로 고른다. 우리 답글에 지문을 넣지 않는다(다음 검색에 걸리지 않게)
+### 좌표
+- LLM 호출 `alert-analyzer/analyzer/llm.py` `Analyzer.analyze`, 근거 검증 `check_evidence`, 프롬프트 `analyzer/prompts/system.md`
+- Slack `analyzer/slack.py` `render`/`SlackClient.reply`, 배선 `analyzer/worker.py` `process(live=…)`, `analyzer/app.py` lifespan
+- 평가 `alert-analyzer/eval/{cases.toml,run_eval.py}`
+### 검증
+- `docker run ghcr.io/astral-sh/uv:python3.12-bookworm-slim uv run --frozen --extra dev pytest -q -W error::DeprecationWarning` → **124 passed** (PR-1 75 + 49)
+  - LLM 은 실제 `anthropic.AsyncAnthropic` + httpx2 MockTransport 로: 요청 계약(경로, `anthropic-beta: server-side-fallback-2026-07-01`, `fallbacks:"default"`, effort medium, json_schema), refusal·잘린 JSON·시간 초과·HTTP 529 → `LlmFailure`
+  - Slack: 스레드 찾기 3경우(바로, 10초 뒤, 못 찾음 → 별도 메시지), `ok:false` 오류에 토큰 없음, 이스케이프, 3,000자 자르기
+  - 평가 라벨의 must-cite id 가 각 fixture 에 실제로 있는지 테스트로 고정(라벨 오타 방지)
+- 로컬 이미지 빌드 → dry/live(가짜 키) 둘 다 기동·healthz 200, RSS 88MiB
+- `python -m eval.run_eval`(--yes 없음) → "6 cases … estimated ≤ $0.24", API 호출 없음
+### 미결
+- 실 API 평가: 사용자 API 키 + 비용 승인 후 `--yes`. 결과(적중·비교선·must-cite·없는 근거율·토큰·지연)를 여기 `### 검증` 에. 비교선보다 낫지 않으면 그대로 기록하고 진행 여부 결정
+- 평가 정답 라벨 6건 사용자 확인(특히 memory-low = "원인 불명"이 정답, quiet = 가설 없음)
+- 프롬프트는 평가 전에 동결 — 평가 결과 보고 고치면 sha 가 바뀐 것으로 기록
+- (추가, 독립 리뷰 반영 2026-10-26) Opus 서브에이전트가 diff 를 따로 읽고 SDK 설치본·탐침 스크립트로 확인. 중 2건, 하 4건 → 전부 반영:
+  - ~~headline 은 모델 것 그대로~~ → **근거 검증이 headline 을 건너뛰었다**: 지어낸 근거로 가설이 다 버려져도 "OTP 힙 고갈 OOM (확실)" 같은 모델 headline 이 굵게 첫 줄에 나갔다 / 가드: 가설이 다 버려지면 고정 문구 `원인 불명 — 근거로 확인된 가설 없음`, 1순위만 버려지면 남은 1순위의 cause 를 headline 으로. 모델 원문은 `model_headline` 으로 로그·평가에만
+  - **history 오류가 답글을 통째로 버렸다**(권한 `groups:history` 누락·`not_in_channel`·rate limit·5xx) ← `find_thread` 의 `SlackError` 가 `post()` 전에 빠져나감 / 가드: 찾기 오류는 WARN 로그 후 "못 찾음"으로 보고 별도 메시지. 테스트 `test_history_failure_still_posts_a_standalone_message`
+  - timeout 60s → 120s: Sonnet 5.5 는 사고가 항상 켜져 있고 비스트리밍은 다 끝나야 응답이 온다. SDK 는 timeout 도 재시도(최대 3회 과금 가능) → 평가 `elapsed_s` 로 재확인
+  - Slack 이 HTTP 200 + JSON 아닌 본문 → `JSONDecodeError` 가 `_notify` 를 빠져나가 "analysis failed" ERROR 로 찍혔다 / 가드: `SlackError("response is not JSON")`. LLM 쪽도 마지막에 `anthropic.AnthropicError` 를 잡아 `LlmFailure`
+  - history `limit` 15 → 50(내부 앱은 999 까지 허용, 페이지네이션은 안 함)
+  - 비용: 거절 뒤 대체 모델로 넘어가면 앞 시도도 과금되는데 top-level `usage` 엔 마지막 시도만 있다 → `usage.iterations`(`message`/`fallback_message`) 합산, 모델별 단가표 `PRICES`. 평가 `--model` 은 단가표에 있는 모델만
+  - 확인된 정상(리뷰): worker 루프는 CancelledError 외 전부 잡음, lifespan 종료 순서, dry run 우선, 비밀값 비노출, `_fit` 5,000회 퍼징에서 3,000자 초과·깨진 엔티티 0
+- (추가 검증) 리뷰 반영 후 `pytest -q -W error::DeprecationWarning` → **129 passed**
+- (배포 준비 2026-10-26 22:09) 사용자가 Anthropic API 키를 대화에 붙여 넣어 전달 → 무료 `GET /v1/models` 로 유효 확인(200, 14개, `claude-sonnet-5-5` 있음) → VPS `env/alert-analyzer.env` 에 `ANTHROPIC_API_KEY` 추가(stdin 으로 전달, 600 유지, sha256 앞 12자 로컬과 일치). 백업 `/root/apps/observability-backups/alert-analyzer.env.bak-20261026-220952-pre-anthropic`. 컨테이너는 재생성 안 함(DRY_RUN=true, 운영 이미지는 PR-1 이라 키를 안 읽음). 키가 대화 기록(로컬 jsonl)에 평문으로 남음 → 켜기 전 재발급 권고
+- (평가 실행 2026-10-26, 사용자 승인: 비용·라벨 그대로) `uv run python -m eval.run_eval --yes --out eval/results-20261026.json`, `claude-sonnet-5-5` effort medium, 프롬프트 sha256 `99375fdd02aa`(동결)
+  | 케이스 | 정답 | LLM | 규칙 비교선 | 입력/출력 토큰 | 지연 | 비용 |
+  |---|---|---|---|---|---|---|
+  | subway-api-503 | external_api | ✅ external_api | ✅ | 9,809 / 488 | 6.6s | $0.025 |
+  | api-5xx-deploy | deploy_restart | ✅ deploy_restart | ✅ | 5,714 / 770 | 6.6s | $0.019 |
+  | otp-fail-deploy | deploy_restart | ✅ deploy_restart | ✅ | 5,706 / 680 | 6.2s | $0.018 |
+  | memory-low-1021 | 원인 불명 | ✅ 가설 0개 | ✅ | 3,684 / 50 | 3.0s | $0.008 |
+  | quiet | 가설 없음 | ✅ 가설 0개 | ✅ | 3,755 / 48 | 1.7s | $0.008 |
+  | subway-503-with-restart (합성) | external_api | ✅ external_api | ❌ deploy_restart | 9,850 / 437 | 4.0s | $0.024 |
+  - 합계: LLM **6/6**, 규칙 비교선 5/6(교란 합성만 틀림), must-cite 4/4, **없는 근거 0/40**, 실패 0, 비용 **$0.10**, 최대 지연 6.6초
+  - 해석: 실제 사례 5건은 단순 규칙도 다 맞힌다. LLM 이 규칙보다 나은 건 (1) 재시작과 외부 장애가 겹친 교란 케이스 (2) 원인 설명과 다음 확인 거리. 표본이 6건(합성 1)이라 일반화 근거로는 약하다 — 운영 알림이 쌓이면 다시 잰다
+  - memory-low·quiet 는 모델이 가설을 비우고 headline 만 "…원인 불명" 으로 냈다 → 코드가 고정 문구로 바꿈(의도대로)
+  - 지연 최대 6.6초 → timeout 120s 는 넉넉. 재시도로 인한 중복 과금 걱정은 실측상 해당 없음
+  - 결과 파일 비밀값 대조: VPS env 35개 값 × 1파일 0건, 토큰 패턴 0건
