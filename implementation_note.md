@@ -6088,3 +6088,4 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결
 - contact point webhook 연동은 PR #526(알림 파일) 머지 후. #526 머지는 자동 모드 분류기가 막아 사용자 판단 대기
 - 배포(GHCR 이미지 → VPS)는 이 PR 머지 후
+- (추가) #526 머지(05a79c56, 사용자 지시) 후 리베이스 → contact point `slack-alerts` 에 webhook 연동(`alert-analyzer`, Bearer `$ANALYZER_WEBHOOK_TOKEN`, `disableResolveMessage: true`) 추가. 위 미결 1번 해소. 리베이스 때 이 노트 끝이 #526 노트와 append 충돌 → 두 절 모두 유지

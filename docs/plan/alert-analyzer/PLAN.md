@@ -186,7 +186,7 @@ class TemplateStat:
 - [x] 3. `scripts/capture_fixture.py`, `scripts/check_no_secrets.py`
 - [x] 4. `Dockerfile`(python:3.12-slim + uv, `CMD uvicorn analyzer.app:app --port 8000`), `.github/workflows/alert-analyzer-image.yml`(ml-image 복제 + pytest 단계, PR 에서는 테스트만)
 - [x] 5. `ops/observability/compose.yaml` 서비스(포트 없음, `env/alert-analyzer.env`, mem_limit, oom_score_adj, healthcheck, logrotate), `env/alert-analyzer.env.example`
-- [ ] 6. (**#526 머지 후**) `contact-points.yaml`: webhook 연동 추가(`disableResolveMessage: true`, Bearer `$ANALYZER_WEBHOOK_TOKEN`). slack 연동 text 는 **안 건드림**(PR-3)
+- [x] 6. (#526 머지 05a79c56 후) `contact-points.yaml`: webhook 연동 추가(`disableResolveMessage: true`, Bearer `$ANALYZER_WEBHOOK_TOKEN`). slack 연동 text 는 **안 건드림**(PR-3)
 - [x] 7. README: 분석기 절 + 신뢰 경계 예외 문구
 - [ ] 8. 머지 → CI 이미지 → VPS 반영(백업 → compose 블록만 삽입 → env 작성 → 분석기 기동 → idle RSS 측정 → provisioning 반영 + grafana `--no-deps` 재생성 → receivers test 로 실 수신 로그 확인)
 - [x] 9. **fixture 5건 캡처 완료(2026-10-26, 배포 전이라 VPS 임시 컨테이너로)**: 원래 계획은 운영 컨테이너에서 `python -m scripts.capture_fixture` → `check_no_secrets.py` 로 VPS env 값 대조 0건 확인 → 커밋(후속 PR 또는 PR-2)

@@ -95,6 +95,7 @@ Grafana 알림이 울리면 그 시각의 로그·메트릭을 모아 원인 가
 - 수집: 로거별 WARN/ERROR 정확 집계(창 vs 직전 60분) → NEW/SPIKE 로거만 작은 표본, Prometheus 스냅샷, 재시작(`process_start_time_seconds`)
 - 마스킹: 밖으로 나가는 모든 문자열. **운영 로그에 서울 지하철 API 키가 경로째 찍혀 있다**(`SeoulSubwayApiAdapter` 의 `uri.getPath()`) — 경로 세그먼트 규칙이 지운다
 - 자원: `mem_limit 192m` + `oom_score_adj 500`(호스트가 바닥나면 OTP 대신 이게 먼저 죽게), 포트 공개 없음
-- env: `env/alert-analyzer.env` (`env/alert-analyzer.env.example` 참고). `ANALYZER_WEBHOOK_TOKEN` 은 Grafana webhook 연동과 같은 값
+- env: `env/alert-analyzer.env` (`env/alert-analyzer.env.example` 참고). `ANALYZER_WEBHOOK_TOKEN` 은 `env/grafana.env` 에도 같은 값으로 넣는다(contact point `slack-alerts` 의 webhook 연동이 참조, resolve 는 안 보냄)
+- 끄기: `contact-points.yaml` 에서 `alert-analyzer` 연동을 지우고 grafana 재생성(또는 provisioning reload). Slack 알림은 영향 없음
 - 반영: 이미지는 main push 때 GHCR(`nextroute-alert-analyzer`). VPS 는 compose 의 서비스 블록만 추가(파일 통째 덮기 금지) 후 `docker compose up -d --no-deps alert-analyzer`
 - 평가용 fixture 캡처: `docker exec alert-analyzer python -m scripts.capture_fixture --at <ISO+09:00> --name <id> --alertname <이름>` → 커밋 전 `python3 scripts/check_no_secrets.py --env '/root/apps/*/env/*.env' <파일>`
