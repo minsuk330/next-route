@@ -1,0 +1,13 @@
+apiVersion: 1
+
+# Slack Incoming Webhook 으로 바로 보낸다(AI 분석 없음 — 분석기가 죽어도 알림은 가야 한다).
+# URL 은 env/grafana.env 의 SLACK_ALERT_WEBHOOK_URL (gitignore). Grafana 가 provisioning 로드 시 치환.
+contactPoints:
+  - orgId: 1
+    name: slack-alerts
+    receivers:
+      - uid: slack-alerts
+        type: slack
+        settings:
+          url: $SLACK_ALERT_WEBHOOK_URL
+        disableResolveMessage: false

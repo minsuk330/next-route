@@ -1,0 +1,155 @@
+apiVersion: 1
+
+# 장애 알림 규칙. 문턱값은 2026-10-26 VPS 실측 기준(최근 7~14일):
+#   - 남은 메모리 최저 255MiB(10-21), 평시 800MiB~1.7GiB
+#   - 배포 재시작으로 api/worker/otp 가 내려간 시간 최대 2분(주 13회)
+#   - api 5xx 5분 최대 5건(1회), OTP 호출 실패 10분 최대 11건(배포 1회)
+#   - ERROR 로그: worker 외부 API 503 폭주 21건/1분(10-23 19:00), 평시 하루 1건
+#
+# 주의: provisioning 파일은 $VAR 를 env 로 치환한다. 템플릿에 $values/$labels 를 쓰면 빈 문자열이 되므로
+#       .Values / .Labels 로 쓴다.
+groups:
+  - orgId: 1
+    name: nextroute-core
+    folder: nextroute
+    interval: 1m
+    rules:
+      - uid: nr-memory-low
+        title: 메모리 부족
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: node_memory_MemAvailable_bytes / 1024 / 1024
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [300] }
+        for: 5m
+        # node-exporter 가 사라지면 메모리를 볼 수 없다 → 그것도 장애로 본다.
+        noDataState: Alerting
+        execErrState: Error
+        labels: { severity: critical }
+        annotations:
+          summary: 'VPS 남은 메모리 {{ printf "%.0f" .Values.A.Value }}MiB (기준 300MiB, 5분 지속)'
+          description: 메모리가 바닥나면 커널 OOM killer 가 가장 큰 프로세스(OTP)부터 죽인다 → 경로 검색 전체 중단.
+
+      - uid: nr-target-down
+        title: 컨테이너 다운
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: up{job=~"nextroute-app|otp|node"}
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+        # 배포 재시작(최대 2분)은 울리지 않는다.
+        for: 3m
+        noDataState: Alerting
+        execErrState: Error
+        labels: { severity: critical }
+        annotations:
+          summary: '{{ .Labels.instance }} 응답 없음 (3분 이상)'
+          description: Prometheus 가 메트릭을 못 긁고 있다. 컨테이너가 죽었거나 JVM 이 멈춤.
+
+      - uid: nr-api-5xx
+        title: api 5xx 발생
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: sum by (instance) (increase(http_server_requests_seconds_count{job="nextroute-app", status=~"5.."}[5m]))
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                # increase() 는 소수로 보정되므로 3건 이상 = 2.5 초과.
+                - evaluator: { type: gt, params: [2.5] }
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ .Labels.instance }} 5xx {{ printf "%.0f" .Values.A.Value }}건 (5분)'
+          description: 'Grafana Explore 에서 {app="api", level="ERROR"} | json 으로 원인 로그 확인.'
+
+      - uid: nr-error-log-burst
+        title: ERROR 로그 급증
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              expr: sum by (app) (count_over_time({level="ERROR"}[5m]))
+              queryType: instant
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                # 평시 하루 1건 수준이라 5건/5분이면 이상.
+                - evaluator: { type: gt, params: [4] }
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ .Labels.app }} ERROR 로그 {{ printf "%.0f" .Values.A.Value }}건 (5분)'
+          description: '외부 API 장애나 쿼터 소진일 때 자주 뜬다. {app="<app>", level="ERROR"} | json 로 확인.'
+
+      - uid: nr-otp-call-failure
+        title: OTP 호출 실패
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: sum(increase(http_client_requests_seconds_count{client_name="otp", outcome!="SUCCESS"}[10m]))
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [2.5] }
+        # OTP JVM 이 죽은 경우는 '컨테이너 다운'이 잡는다. 이 규칙은 살아 있는데 응답을 못 주는 경우(h2c 멈춤 등).
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: critical }
+        annotations:
+          summary: 'OTP 호출 실패 {{ printf "%.0f" .Values.A.Value }}건 (10분)'
+          description: 경로 검색이 OTP 응답을 못 받고 있다. OTP 컨테이너 상태와 api 로그 확인.

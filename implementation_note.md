@@ -6036,3 +6036,25 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 합성 차이(카탈로그 밖 급행·번호대 침입·새 급행 표시) → 종료 1 과 항목별 본문
 ### 범위 밖
 - 9호선·수인분당·경춘(`kind` 만)과 경의중앙(번호 범위지만 비권위)은 이 점검이 보지 않는다 — 실시간 급행 표시로 가른다
+
+## 2026-10-26 장애 알림 Grafana → Slack (feat/grafana-slack-alerts)
+### 왜
+- 관측 3축(Loki·Prometheus·Tempo)은 있는데 알림 규칙 0개 — 장애는 사람이 대시보드를 열어야 보였다. FastAPI+RAG+AI 분석은 다음 단계이고 알림 경로에는 넣지 않는다(분석기가 죽어도 알림은 가야 한다)
+- VPS 메모리 실측(10-26): 7.7G 중 available 1.7G, 14일 최저 255MiB(10-21), OTP 힙 실사용 3.1~3.3G / Xmx 3.5G(줄일 여지 없음). 분석기는 외부 LLM API + 컨테이너 상한 256m 전제로만 가능, 로컬 모델·벡터 DB 컨테이너 불가
+### 바꾼 것
+- `ops/observability/grafana/provisioning/alerting/` contact-points(Slack Incoming Webhook `$SLACK_ALERT_WEBHOOK_URL`)·policies(alertname 묶기, 반복 1h)·rules 5개(메모리 부족·컨테이너 다운·api 5xx·ERROR 로그 급증·OTP 호출 실패). 문턱값 근거는 rules.yaml 머리말과 README
+### 함정
+- 파일에서 규칙을 빼도 Grafana DB 에서 안 지워짐 ← file provisioning 은 upsert 만 / 가드: `deleteRules` + `POST /api/admin/provisioning/alerting/reload` (임시 규칙 제거로 확인)
+- provisioning 파일의 `$VAR` 는 env 치환된다(웹훅 URL 치환·발송 성공으로 확인) → 템플릿 `$values`/`$labels` 도 먹힐 것(추론, 직접 깨뜨려 보진 않음) / 가드: `.Values`/`.Labels` 만 사용
+- 실패 카운터(5xx·OTP outcome≠SUCCESS)는 프로세스 재시작 뒤 첫 실패 때 시리즈가 생긴다 → 평시 NoData(=OK 로 둠), increase() 는 새 시리즈의 첫 1건을 못 셀 수 있다(문턱 3건이라 감수)
+- receivers API `lastNotifyAttempt` 는 group_wait(30s) 지나야 찍힘 — 직후에 보면 0001-01-01 이라 미발송으로 오진하기 쉽다
+- env_file 바뀌면 컨테이너 재생성 필요. `--no-deps` 로 loki·prometheus·tempo 는 안 건드림(VPS compose 는 git 아님, drift 주의)
+### 배포
+- 2026-10-26 15:31 VPS 반영(scp alerting/ 3파일 + grafana 재생성). env `SLACK_ALERT_WEBHOOK_URL` 추가. 백업: `/root/apps/observability-backups/grafana.env.bak-20261026-pre-slack`, `grafana-provisioning-20261026-pre-alerting.tgz`. 마이그레이션 없음, 앱 영향 없음
+### 검증
+- provisioning 로그 오류 없음, 규칙 5개 health=ok, 템플릿 렌더 확인(메모리 1733MiB)
+- 임시 규칙 `vector(42)` → Slack 발송 15:33:03 KST 209ms 오류 없음, 요약에 42 렌더 → deleteRules 로 제거, 남은 규칙 5개 확인
+- Grafana 메모리 104MiB 그대로
+### 미결
+- VPS 자체 사망은 못 잡음(Grafana 동반 사망) → 외부 heartbeat 별건
+- `SubwayArrivalEventBatchService` "Phase A failed … skipping Phase B/C/Truth" 가 10-24·25·26 04:30 매일 ERROR 1건 — 문턱(5건/5분) 아래라 안 울림, 원인 미조사
