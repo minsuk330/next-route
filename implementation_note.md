@@ -6159,3 +6159,27 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - memory-low·quiet 는 모델이 가설을 비우고 headline 만 "…원인 불명" 으로 냈다 → 코드가 고정 문구로 바꿈(의도대로)
   - 지연 최대 6.6초 → timeout 120s 는 넉넉. 재시도로 인한 중복 과금 걱정은 실측상 해당 없음
   - 결과 파일 비밀값 대조: VPS env 35개 값 × 1파일 0건, 토큰 패턴 0건
+
+## 2026-10-27 VPS 21분 정지 조사 + Tempo 메모리 상한 (fix/tempo-memory-limit)
+### 확정
+- **사건**: 20:04 KST 께 VPS 가 종료 기록 없이 멈춤 → 20:25:29 부팅. 컨테이너 13개 전부 재기동. 정지 중엔 Grafana 도 같이 죽어 **알림 0건**(외부 heartbeat 공백이 실제로 드러남 — 사용자 결정: 면접 뒤 진행)
+- 20:28 "OTP 호출 실패 18건" 알림은 그 여파: api 가 20:25:51 기동 직후 `SubwayLinePatternWarmup` 으로 OTP 를 불렀는데 OTP(20:25:48 기동)는 그래프 로딩 중 → 20:27 한 분에 `ResourceAccessException` 19건 → 20:28 부터 정상, 20:37 알림 해제
+- 분석기(DRY_RUN) 가 이 알림을 실제로 받아 20:28:16 요약을 남김: 재시작 5건(prometheus·node-exporter·otp·api·worker), 새 로그 패턴 6종, 수집 오류 0. **운영 webhook 경로의 첫 실제 알림 검증**
+- 정지 원인은 **미확정**:
+  - journal(이전 부팅) 마지막 줄 20:04:22, 컨테이너 마지막 로그는 Loki 20:04:34·Tempo 20:04:32 → 호스트는 20:04:34 이후 멈춤
+  - 커널 OOM/panic/hung_task 로그 없음, 19:30 이후 SSH 로그인·cron·docker 기록 없음
+  - 마지막 Prometheus 표본(20:04:30): MemAvailable 1,380 → 817MiB(15초 사이), CPU 7 → 29%. 스왑 아웃·디스크 쓰기는 평소
+  - 업체(하이퍼바이저) 쪽 가능성 배제 못 함. 21분 뒤 자동 부팅 여부는 사용자 확인 필요
+- Tempo 상한 **512m(제안) → 768m(적용)**: 실측상 Tempo 는 30분마다 head block 을 완성할 때(블록 2MB, trace 1.1만 개) RSS 가 ~640MB 까지 오른다(12:26Z 완성 직후 641MiB, 몇 분 뒤 112MiB). 512m 면 정상 작업 중 OOM 루프 위험. `GOMEMLIMIT=512MiB` 로 GC 가 상한 전에 회수하게 하고, `oom_score_adj 500` 으로 호스트가 바닥나면 OTP 대신 Tempo 가 먼저 죽게
+### 함정
+- `docker stats` 의 Tempo 641MiB 는 상시가 아니라 블록 완성 직후 순간값. Go 가 OS 에 돌려준 뒤엔 RSS 112MiB(`heap_inuse` 59MB, `heap_released` 573MB). 한 번 보고 "Tempo 가 상시 640MB" 로 읽기 쉽다
+- 같은 시각대의 메모리 출렁임(19:36~19:39 691MiB, 18:35 등)은 Tempo 30분 주기 블록 완성 직후와 겹친다 — 정지와의 인과는 미증명(정지 직전 압축 주기는 "No more blocks to compact" 로 정상 종료)
+- Tempo·api·worker RSS 이력은 Prometheus 에 없다(node·otp·prometheus 만 `process_resident_memory_bytes`). 컨테이너별 메모리 이력이 없어 사후 조사가 막힌다 → cAdvisor 또는 Tempo `/metrics` 스크랩 별건
+- prod 트레이스 샘플링 `management.tracing.sampling.probability: 1.0`(`src/main/resources/application-prod.yaml:23`) — 전량 수집. 줄이는 건 앱 배포 별건
+### 배포
+- 2026-10-27 21:35 KST VPS: 백업 `/root/apps/observability-backups/compose.yaml.bak-20261027-213522-pre-tempo-limit` → tempo 블록에 7줄 삽입(diff 로 추가 줄만 확인) → `docker compose config -q` → `up -d --no-deps tempo`. healthy, mem 768m, `GOMEMLIMIT=512MiB`, oom_score_adj 500, 재기동 직후 169MiB. 기동 직후 `pusher failed … InstancesCount <= 0` 1줄(링 준비 전, 일시)
+### 미결
+- 외부 heartbeat(UptimeRobot / healthchecks.io / 공개 저장소 Actions 중 선택) — 사용자 면접 뒤. 후보 주소 `https://grafana.refit-100.site/api/health`(200), `https://api.refit-100.site/`(200)
+- api 기동 워밍업이 OTP 준비를 기다리게(재부팅·배포마다 OTP 실패 알림이 날 수 있음)
+### 검증
+- 상한 적용 뒤 첫 블록 완성(22:05:38 KST)까지 5초 간격 감시: cgroup `memory.current` 최고 **512MiB**(상한 768m 의 67%, 페이지 캐시 포함), 60초 뒤 496MiB, `restarts=0 oomkilled=false`, 트레이스 수신 계속(`tempo_ingester_bytes_received_total` 251,561 → 8,633,203)
