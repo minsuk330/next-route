@@ -60,6 +60,16 @@ def parse_args() -> argparse.Namespace:
         help="Regenerate dataset even when parquet parts already exist.",
     )
     parser.add_argument(
+        "--sample-fraction",
+        type=float,
+        default=1.0,
+        help=(
+            "Keep this fraction of each route's rows (uniform, seeded by service date). "
+            "A 90-minute horizon on a busy day yields 30M+ rows (~1GB) while training "
+            "samples a few million in total; thinning at build time keeps the cache small."
+        ),
+    )
+    parser.add_argument(
         "--max-horizon-minutes",
         type=int,
         default=DEFAULT_MAX_HORIZON_MINUTES,
@@ -652,7 +662,10 @@ def build_dataset(
     data_dir: Path,
     overwrite: bool,
     max_horizon_minutes: int = DEFAULT_MAX_HORIZON_MINUTES,
+    sample_fraction: float = 1.0,
 ) -> None:
+    if not 0 < sample_fraction <= 1:
+        raise DatasetBuildError(f"--sample-fraction must be in (0, 1], got {sample_fraction}")
     label_path = require_archive(data_dir, "bus_label", service_date)
     position_path = require_archive(data_dir, "bus_position", service_date)
     output_dir = partition_dir(data_dir, "dataset", service_date)
@@ -702,6 +715,10 @@ def build_dataset(
                 .collect(engine="streaming")
             )
             route_frame = add_realtime_features(route_frame, history).select(dataset_columns())
+            if sample_fraction < 1.0:
+                route_frame = route_frame.sample(
+                    fraction=sample_fraction, seed=service_date.toordinal(), shuffle=True
+                )
 
             part_path = output_dir / f"part-{part_index:04d}.parquet"
             route_frame.write_parquet(part_path)
@@ -725,6 +742,7 @@ def build_dataset(
             "schema_version": SCHEMA_VERSION,
             "query_version": QUERY_VERSION,
             "max_horizon_minutes": max_horizon_minutes,
+            "sample_fraction": sample_fraction,
             "service_date": service_date.isoformat(),
             "row_count": row_count,
             "holiday_sidecar_dates": len(holidays),
@@ -765,7 +783,9 @@ def main() -> int:
         service_dates = service_dates_from_args(args)
         data_dir = load_data_dir()
         for service_date in service_dates:
-            build_dataset(service_date, data_dir, args.overwrite, args.max_horizon_minutes)
+            build_dataset(
+                service_date, data_dir, args.overwrite, args.max_horizon_minutes, args.sample_fraction
+            )
     except (DatasetBuildError, OSError, pl.exceptions.PolarsError) as exc:
         print(f"[error] {exc}", file=sys.stderr)
         return 1
