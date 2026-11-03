@@ -104,10 +104,10 @@
 - 흐름(도착 `getArrInfoByStop`, 위치 `getBusPosByRtid` 둘 다, JVM SingleFlight owner 안에서):
   1. `tryLead(type, key, lockTtl)` — Lua 하나: `SET lock token NX PX ttl` 성공이면 내 토큰을, 실패면 **현재 보유자의 토큰**을 돌려준다.
   2. 잡음(리더): **캐시를 한 번 더 읽는다**(double-check, 검토 #5: 다른 서버가 방금 채웠으면 호출 없이 `cached` 반환 + 결과 키에 그 값 기록) → 공급자 호출 → OK 이고 비어 있지 않으면 캐시 쓰기(기존) → `finish(type, key, token, result)` = `SET bus:flight:result:{type}:{key}:{token} <JSON: outcome + data> PX resultTtl` 뒤 토큰 비교 Lua 로 lock DEL.
-  3. 못 잡음(대기자): `pollMs` 마다, 자기 남은 기한 안에서: (a) `GET result:{…}:{보유자 토큰}` 있으면 **owner 와 같은 outcome 을 그대로** 반환(OK 면 `cached(data)`, 빈 OK 면 `cached(빈 목록)`, LIMITED/ERROR/BLOCKED 는 그대로 — JVM joiner 와 같은 의미) (b) 없고 lock 도 사라졌으면(owner 죽음) `limited()` 즉시 (c) Redis GET 오류 → `limited()` 즉시 (d) 기한 초과 → `limited()`.
+  3. 못 잡음(대기자): `pollMs` 마다, 자기 대기 상한 안에서: (a) `GET result:{…}:{보유자 토큰}` 있으면 **OK → `cached(data)`(빈 OK 포함), BLOCKED → 그대로**(공유 차단기라 어느 서버든 같음), **LIMITED·ERROR → 직접 부른다**(리더 서버의 JVM 세마포어 포화·일시 오류는 그 서버 사정이라 공유하면 플래그 꺼짐보다 가용성이 떨어진다 — 2차 검토) (b) 결과가 없고 잠금 보유자가 **바뀌었으면**(첫 리더 만료 → 새 리더) 새 토큰을 따라간다 (c) 결과도 잠금도 없으면(리더 사망) 한 번 더 결과를 본 뒤 **스스로 리더를 시도** — 잡으면 직접 부르고(waiter_takeover), 남이 잡았으면 그 토큰을 따라간다 (d) Redis GET 오류 → `limited()` (e) 상한 초과 → `limited()`. 대기 상한 = 기한 있는 호출은 `joinWait(timeoutMs)`, 기한 없는 호출은 잠금 수명(리더가 걸릴 수 있는 최대).
   4. `tryLead` 자체가 Redis 오류 → 지금처럼 delegate 를 직접 부른다. 가용성 근거는 쓰지 않는다(검토 #16: delegate 의 검색 쿼터가 fail-closed 라 어차피 LIMITED). 지표 `redis_error` 만 남긴다.
 - 결과 키가 **토큰별**이라, 이전 flight 의 ERROR 를 새 flight 대기자가 읽는 일(검토 #2)이 없다. lock 이 만료된 뒤 늦게 끝난 옛 owner 의 `finish` 는 자기 토큰 키에만 쓰고 DEL 은 토큰 비교로 막힌다.
-- 값: `lockTtl` = 호출 기한이 있으면 `timeoutMs + lockMarginMs(500)`, 무한(`Long.MAX_VALUE`)이면 **세마포어 대기(500) + connect(1500) + read(1500) + 500 = 4,000ms**(검토 #4, `ApiClientConfig` 의 버스 RestClient 타임아웃 기준). `resultTtl` = 2,000ms. `pollMs` = 50. 대기 상한 = 기존 `joinWait(timeoutMs)`.
+- 값: `lockTtl` = 호출 기한이 있으면 `timeoutMs + lockMarginMs(1,000)`, 무한(`Long.MAX_VALUE`)이면 **6,000ms**(세마포어 대기 500 + connect 1,500 + read 1,500 + 차단기·몫 Redis 왕복 + 여유. 검토 #4와 2차 검토). 잠금은 갱신하지 않는다 — 넘기면 두 번째 리더가 한 번 더 부르는 것을 감수(결과 키가 토큰별이라 정합성 문제는 아님). `resultTtl` = 2,000ms. `pollMs` = 50(하한 1). 폴링 비용 = 진행 중 키당 50ms 마다 Redis GET 1~2회(검토: 키 수에 비례, pub/sub 전환은 미결).
 
 ### 신규 파일
 - `application/route/port/out/CrossInstanceFlightPort.java`
@@ -119,7 +119,8 @@ public interface CrossInstanceFlightPort {
     void finish(String type, String key, String token, FlightResult result, Duration resultTtl);
     /** @return 결과 없음이면 empty. Redis 오류는 예외. */
     Optional<FlightResult> peekResult(String type, String key, String token);
-    boolean lockExists(String type, String key);
+    /** 지금 잠금을 쥔 토큰(없으면 empty) — 대기자가 리더 교체를 따라가는 데 쓴다. */
+    Optional<String> currentHolder(String type, String key);
     /** outcome = SearchTimeBusQueryPort.BusQueryResult.Outcome 그대로, data 는 OK 일 때만. */
     record FlightResult(String outcome, String dataJson) {}
 }
@@ -130,7 +131,7 @@ public interface CrossInstanceFlightPort {
 ### 변경
 - `CachedSearchTimeBusAdapter` — 생성자에 `CrossInstanceFlightPort flight` 추가. `arrivalFlight.execute(key, loader)` 와 `positionFlight.execute(...)` 의 loader 를 `crossInstance(type, key, loader, timeoutMs)` 로 감싼다. 플래그 꺼짐이면 지금 코드 그대로.
   - 생성자가 바뀌므로 `new CachedSearchTimeBusAdapter(` 를 쓰는 **`RouteSearchCacheIT`, `RouteSearchStampedeIT`, `RouteSearchRealtimeDeadlineIT`, `CachedSearchTimeBusAdapterTest`** 를 함께 고친다(검토 #13). 꺼짐 상태의 no-op 구현 `CrossInstanceFlightPort.disabled()` 정적 팩토리를 둬 테스트가 짧게 쓰게.
-- `RouteSearchMetrics.recordCrossInstanceFlight(provider, type, role)` 추가. role = `leader|leader_recheck_hit|waiter_result|waiter_owner_gone|waiter_timeout|redis_error`. 기존 `recordSingleFlight` 와 같은 태그 모양.
+- `RouteSearchMetrics.recordCrossInstanceFlight(provider, type, role)` 추가. role = `leader|leader_recheck_hit|waiter_result|waiter_fallback|waiter_owner_gone|waiter_timeout|redis_error`. 기존 `recordSingleFlight` 와 같은 태그 모양.
 - `SingleFlight` javadoc "현재 단일 인스턴스 배포…" → "서버 사이 묶기는 `CrossInstanceFlightPort`(플래그)가 맡는다".
 - `application.yaml` `route.search.bus` 아래 `cross-instance: { enabled: ${ROUTE_SEARCH_BUS_CROSS_INSTANCE:false}, poll-ms: 50, result-ttl-ms: 2000, lock-margin-ms: 500, unbounded-lock-ttl-ms: 4000 }`.
 
@@ -140,7 +141,8 @@ public interface CrossInstanceFlightPort {
   - 플래그 켬: 동시 100건을 셋에 나눠 보내면 delegate 호출 1회, 모든 요청이 값을 받음(반복 20회 전부).
   - 플래그 끔: 같은 조건에서 3회(대조군).
   - delegate 가 빈 목록 → 대기자가 빈 `cached` 를 받고, **delegate 완료 시각부터** pollMs × 4 안에 끝남.
-  - delegate 가 LIMITED / BLOCKED → 대기자도 같은 outcome.
+  - delegate 가 BLOCKED → 대기자도 BLOCKED, 공급자 1회. delegate 가 LIMITED → 대기 서버가 직접 불러 서버 수만큼 호출. 리더 예외 → 대기 서버가 직접 불러 값을 받음.
+  - 기한 100ms 대기자 → LIMITED(waiter_timeout), 리더는 OK. 결과 키가 깨짐 → LIMITED. 리더가 잠금만 쥐고 죽으면 만료 뒤 대기 서버 하나가 이어받아 1회 부르고 나머지는 그 결과를 받음.
   - owner 를 lock 만 잡고 멈추게 한 뒤 lock TTL 만료 → 대기자는 `limited()`, 다음 요청은 리더를 잡음.
   - Redis 닫힘(`tryLead` 예외) → 각 서버가 delegate 직접 호출.
   - 리더 double-check: 다른 서버가 캐시를 먼저 채운 상태에서 리더가 잡으면 delegate 0회.
