@@ -11,6 +11,7 @@ worker 를 2대 이상으로 늘려도 버스 공급자 호출이 서버 수만�
 - 미리 모르는 키(검색, 재탐색, 평가기 miss)는 서버 간 single-flight: 리더 대행(RPC, MQ) 기각
 - 결과는 캐시가 아니라 토큰별 결과 키로 전달: 캐시 쓰기 실패와 "빈 결과 안 씀" 규칙에 기대지 않고, 이전 flight 의 실패를 잘못 읽지 않게. done 표시 방식 기각(검토)
 - 리더는 잡은 뒤 캐시를 한 번 더 읽음(double-check): "1회" 가 간헐적으로 2회 되는 경합 제거
+- 대기자는 리더의 OK·BLOCKED 만 받고, LIMITED·ERROR 는 직접 부름(리더 서버만의 사정일 수 있어 플래그 꺼짐과 같은 가용성 유지). 리더가 바뀌면 새 토큰을 따라감
 - 일일 몫은 기존 `BusApiQuotaPort.tryAcquire` Redis 버킷으로. 경기 몫(8,000)은 어댑터 안 캐시 miss 뒤에만 셈
 - TAGO 동시 상한은 OTP 게이트를 건드리지 않고 형제 `RedisNamedSemaphore` 로 서버 합산 8: 세션 30 공유 때문
 - 차단기 Redis 화는 지역 버스 두 이름만, 플래그 아래, Redis 오류 시 JVM 폴백: 지하철 hot path 영향 기각

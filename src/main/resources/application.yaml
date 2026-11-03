@@ -129,6 +129,14 @@ route:
       queue: ${ROUTE_SEARCH_TMAP_POOL_QUEUE:16}
     bus:
       join-wait-ms: ${ROUTE_SEARCH_BUS_JOIN_WAIT_MS:1800}
+      # 서버 사이 single-flight(bus-multi-instance PR-2). 기본 꺼짐. 켜면 캐시 miss 때 Redis SET NX 로 api·worker 중
+      # 한 대만 공급자를 부르고 나머지는 결과 키를 기다린다. worker 를 늘릴 때 api 와 모든 worker env 에 함께 켠다.
+      cross-instance:
+        enabled: ${ROUTE_SEARCH_BUS_CROSS_INSTANCE:false}
+        poll-ms: 50
+        result-ttl-ms: 2000
+        lock-margin-ms: 1000
+        unbounded-lock-ttl-ms: 6000
     # 사용자별 검색 이력 저장(비동기 전용 풀). 저장은 best-effort — 포화·실패는 drop metric.
     history:
       max-per-user: ${ROUTE_SEARCH_HISTORY_MAX_PER_USER:50}

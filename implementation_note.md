@@ -6266,6 +6266,31 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 코드 리뷰(reviewer 에이전트, 🟡4 ❓2 🔵2) 반영: ① 몫 점유 실패 분기의 `purgeStaleActive` 를 try/catch 로(Redis 장애면 스냅숏 조회도 같이 실패해 execute 가 중간에 끊기던 것) ② 공급자 응답을 받은 뒤 reconcile/saveAll 전에 리더 재확인(긴 호출 중 강등된 리더가 새 리더 옆에서 상태를 쓰지 않게) ③ "처음부터 리더 아님 → 몫·공급자·저장 무접촉" 테스트 2종, "호출 중 리더 잃음 → 응답 버림" 테스트 ④ `BusCollectorLeaderIT` 몫 시험은 고정 Clock(KST 자정 경계 flaky 제거) ⑤ yaml 주석에 "Redis 장애 시 수집 멈춤은 리더 락 플래그와 무관" 명시
 - 운영 확인(ssh vps 읽기 전용, 2026-11-03): 컨테이너 12개 env 에 `LEADER_LEASE` 없음 → 기본 false → 이 배포는 동작 불변. 알림 폴러가 플래그 켬일 때 Redis 에 묶이는 것은 플랜대로 의도(사용자 확인 대상)
 - 재실행 `--tests '*BusArrivalService*' '*BusPositionService*' '*BusCollectorLeader*' '*BusAlertDispatchServiceTest'` → BUILD SUCCESSFUL
+
+## 서버 사이 single-flight (2026-11-03, feat/bus-cross-instance-flight, bus-multi-instance PR-2)
+### 확정
+- 플래그 `route.search.bus.cross-instance.enabled`(env `ROUTE_SEARCH_BUS_CROSS_INSTANCE`, 기본 false). 꺼짐이면 `CachedSearchTimeBusAdapter` 의 loader 를 그대로 부른다(기존 경로)
+- 2단계 묶기: JVM `SingleFlight` owner 만 `crossInstance()` 에 들어온다. 리더 = Lua `SET NX PX` 성공(실패면 보유자 토큰을 돌려받음). 리더는 잠금 뒤 캐시를 한 번 더 읽고(double-check), 공급자 결과의 outcome + data 를 **토큰별 결과 키** `bus:flight:result:{type}:{key}:{token}`(2초)에 남긴 뒤 토큰 비교 DEL. 대기자는 50ms 마다 결과 키를 보고 리더와 같은 outcome 을 돌려준다(OK → cached). 잠금 없음 + 결과 없음(한 번 더 확인 뒤) → LIMITED, 기한(joinWait) 초과 → LIMITED, Redis 오류 → LIMITED. `tryLead` 자체가 Redis 오류면 직접 부른다
+- 결과를 캐시가 아니라 결과 키로 전하는 이유: 캐시 쓰기 실패·TTL 0·"빈 목록 안 씀" 규칙에 기대지 않고, 이전 flight 의 실패를 새 대기자가 읽지 않게(검토 #2, #3). 대기자 outcome 은 `BusQueryResult.Outcome` 그대로(BLOCKED 포함, 검토 #10)
+- 잠금 수명: 기한 있는 호출 = timeoutMs + 500, 무기한(`Long.MAX_VALUE`) = 4,000(세마포어 500 + connect 1,500 + read 1,500 + 500, 검토 #4)
+- 포트 `CrossInstanceFlightPort` 는 Jackson 을 모른다 — `Class<T> elementType` 으로 받아 Redis 구현이 `constructCollectionType` 으로 푼다. `none()` 은 늘 리더(테스트·플래그 꺼짐용)
+### 함정
+- 리더의 `finish` 는 "결과 SET → 잠금 DEL" 순서. 대기자는 결과 없음 + 잠금 없음을 보면 **결과를 한 번 더** 본 뒤 사망 판정 — 그 사이에 리더가 끝났을 수 있다
+- 생성자 인자 추가로 `new CachedSearchTimeBusAdapter(` 호출처 4곳(RouteSearchCacheIT ×3, RouteSearchStampedeIT, RouteSearchRealtimeDeadlineIT, CachedSearchTimeBusAdapterTest)에 `CrossInstanceFlightPort.none()` 추가(검토 #13)
+- 새 IT 는 Testcontainers 가 아니라 REDIS_HOST·REDIS_PORT(st-redis)를 쓴다 — 새 컨테이너 금지 규칙. 동시 100건은 latch 로 동시 출발(늦게 출발하면 캐시 hit 가 되어 호출 수를 못 셈, 검토 #18)
+### 좌표
+- `application/route/port/out/CrossInstanceFlightPort`, `infrastructure/adapter/out/cache/bus/RedisCrossInstanceFlight`(LEAD·RELEASE Lua)
+- `CachedSearchTimeBusAdapter.crossInstance/lead/await/finishQuietly`, `SearchTimeBusProperties.CrossInstance`, `RouteSearchMetrics.recordCrossInstanceFlight`(`crossflight.requests`, role 6종)
+- 시험: `RedisCrossInstanceFlightIT`(6), `CachedSearchTimeBusAdapterCrossInstanceIT`(7: 켬 1회×20회, 끔 3회, 빈 결과 신속, LIMITED/BLOCKED 공유, 리더 사망, double-check, Redis 다운 폴백)
+### 검증
+- `compileJava compileTestJava` 통과
+- `runsome.sh --tests '*CrossInstance*' '*CachedSearchTimeBus*' '*RouteSearchCacheIT' '*RouteSearchStampedeIT' '*RouteSearchRealtimeDeadlineIT'` → BUILD SUCCESSFUL
+- 코드 리뷰(reviewer 에이전트, 🟡7 ❓1 🔵4) 반영: ① **대기자는 리더의 OK·BLOCKED 만 받고 LIMITED·ERROR 는 직접 부른다**(리더 서버의 JVM 세마포어 포화·일시 오류를 공유하면 플래그 꺼짐보다 가용성이 떨어짐) ② 잠금 보유자가 바뀌면(첫 리더 만료 → 새 리더) 그 토큰을 따라감 ③ **잠금도 결과도 없으면 스스로 리더를 시도**(waiter_takeover) — 리더 사망이 LIMITED 가 아니라 한 번 더 부르는 것으로 끝남 ④ 기한 없는 호출의 대기 상한 = 잠금 수명(1,800ms joinWait 에 묶이지 않게), 잠금 수명 4,000 → 6,000, 여유 500 → 1,000(차단기·몫 Redis 왕복) ⑤ pollMs·resultTtl 하한 ⑥ metrics javadoc 위치 ⑦ IT 추가: BLOCKED 공유/LIMITED 폴백/리더 예외 폴백/기한 짧은 대기자 timeout/깨진 결과 키/리더 사망 인계. `lockExists` → `currentHolder`
+- 함정: "리더 사망 → 새 리더" 시나리오를 시간차(300ms 만료 뒤 350ms 에 새 요청)로 시험하면 대기자가 그 사이 포기해 flaky ← 설계상 대기자가 포기하던 구조 / 가드: 대기자가 직접 이어받게 바꿔(③) 시간차 없이 결정적
+- 미결: 폴링 비용(진행 중 키당 50ms 마다 GET 1~2회). 키 수가 많아지면 pub/sub 또는 pollMs 상향 — 측정 B 뒤 판단
+- 전체 `runfull.sh`(리뷰 반영 **전** 코드, 중간에 `lockExists→currentHolder` 편집이 겹침): 3,907 중 실패 1(`RedisCrossInstanceFlightIT`, 편집 겹침 탓 — 최종 코드 단독 재실행 통과), 건너뜀 7, 17분. 최종 코드 전체 재실행은 PR 머지 전 별도
+- 재실행(최종 코드) `--tests '*CrossInstance*' '*CachedSearchTimeBus*' '*RouteSearchCacheIT' '*RouteSearchStampedeIT' '*RouteSearchRealtimeDeadlineIT'` → 32 tests, BUILD SUCCESSFUL
+- 전체 `runfull.sh`(최종 코드, 리뷰 반영 뒤): **BUILD SUCCESSFUL, 3911 tests, 실패 0, 건너뜀 7**, 19분 33초(실제 OTP·공휴일 API 를 부르는 전체 컨텍스트 IT 가 느린 원인)
 ## 트랙 근처 정류장 진행 방향 heading (2026-11-03, feat/track-stop-heading, #538)
 플랜: `docs/plan/track-stop-heading/PLAN.md`(M).
 ### 확정

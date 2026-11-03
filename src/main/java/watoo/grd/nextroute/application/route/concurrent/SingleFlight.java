@@ -18,8 +18,8 @@ import java.util.function.Supplier;
  * 대기 구조는 같다. joiner 는 자신의 남은 시간 예산까지만 기다린다 — owner 가 느리다고 joiner 의
  * deadline 을 어길 수는 없다.
  *
- * <p>범위는 JVM 로컬이다. 현재 단일 인스턴스 배포이므로 이걸로 충분하고, 다중 인스턴스로 가면
- * 인스턴스 수만큼 호출이 남는다(그때는 Redis 분산 락 또는 상류 캐시가 필요하다).
+ * <p>범위는 JVM 로컬이다. 서버 사이의 묶기는 {@code CrossInstanceFlightPort}(플래그 {@code route.search.bus.cross-instance})가
+ * 맡는다 — 이 클래스의 owner 가 공급자를 부르기 전에 Redis 로 한 번 더 묶는 2단계다.
  */
 public final class SingleFlight<K, V> {
 

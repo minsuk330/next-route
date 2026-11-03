@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.route.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import watoo.grd.nextroute.application.route.port.out.CrossInstanceFlightPort;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterAll;
@@ -100,7 +101,7 @@ class RouteSearchStampedeIT {
         RedisBusRealtimeCacheAdapter redisCache =
                 new RedisBusRealtimeCacheAdapter(redisTemplate, new ObjectMapper(), props, metrics);
         cache = new CachedSearchTimeBusAdapter(provider, redisCache, redisCache, metrics,
-                new SearchTimeBusProperties());
+                new SearchTimeBusProperties(), CrossInstanceFlightPort.none());
     }
 
     @Test
