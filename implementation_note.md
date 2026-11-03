@@ -6159,3 +6159,20 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - memory-low·quiet 는 모델이 가설을 비우고 headline 만 "…원인 불명" 으로 냈다 → 코드가 고정 문구로 바꿈(의도대로)
   - 지연 최대 6.6초 → timeout 120s 는 넉넉. 재시도로 인한 중복 과금 걱정은 실측상 해당 없음
   - 결과 파일 비밀값 대조: VPS env 35개 값 × 1파일 0건, 토큰 패턴 0건
+
+## 2026-11-03 사용 통계 PR-1 일별 활성 기록 (feat/usage-stats)
+### 확정
+- 플랜 `docs/plan/usage-stats/PLAN.md`(M). 사용자 결정: Grafana 대시보드 + DAU 서버 기록
+- `user_daily_activity`(activity_date KST, user_id) PK, 첫 요청만 `ON CONFLICT DO NOTHING`. `DailyActivityFilter` 는 JwtAuthFilter 뒤, 빈 아님(SecurityConfig 가 new). 기록기는 `@Profile("!worker")` + `usage.daily-activity.enabled`(기본 true) — 없으면 필터도 안 붙음(`ObjectProvider`)
+- 요청 스레드 안 막음: 메모리 집합(KST 날짜 바뀌면 비움, 상한 5만)으로 거르고 전용 executor(1스레드·큐 1,000·AbortPolicy). 실패·거절은 WARN 후 집합에서 빼 다음 요청 때 재시도
+- 탈퇴 물리 버킷에 추가(`WithdrawService`, 경계 IT PHYSICAL)
+### 함정
+- 운영 `route_search_log` 는 최근 14일 0행(안 쓰임), `route_search_history` 는 좌표쌍당 upsert 1행 → 검색 횟수 원천이 아님. 대시보드 검색 수는 Prometheus `/api/route/search`
+- 운영 naive timestamp(created_at·searched_at)는 KST 벽시계, timestamptz(started_at·ended_at)는 UTC(journey 363: created 07:54 = started 22:54Z)
+- `./gradlew test` 를 env 없이 돌리면 전체 컨텍스트 IT 389건이 `${POSTGRES_USER}` 미치환·API 키 placeholder 로 실패(기존 무관, 환경). st-pg(:55432)·st-redis(:56379) 자격 + application.yaml 의 `${UPPER}` 키를 더미로 export 하면 통과
+### 검증
+- 새 시험: `DailyActivityRecorderTest` 4, `DailyActivityFilterTest` 3, `UserDailyActivityRepositoryIT` 2, `WithdrawalDeletionBoundaryIT` 7 → 16/0
+- V74 SQL: st-pg 임시 스키마에서 생성·중복 INSERT 0행 확인 후 ROLLBACK
+- 전체 `./gradlew test`(st-pg/st-redis env) **3880/0**. 전체 컨텍스트 IT 중 인증 요청이 st-pg `user_daily_activity` 에 11행 남김(필터 → 기록기 → DB 배선 확인)
+### 배포
+- V74 는 Flyway 자동(jar 포함). api·worker 교체 필요(worker 는 기록기 없음, 스키마만)
