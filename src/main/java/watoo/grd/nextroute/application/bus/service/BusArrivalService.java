@@ -2,7 +2,6 @@ package watoo.grd.nextroute.application.bus.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.bus.config.BusCollectorProperties;
 import watoo.grd.nextroute.application.bus.dto.ArrivalScope;
@@ -12,12 +11,14 @@ import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.in.CollectBusArrivalUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
+import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.application.bus.port.out.BusArrivalSnapshotPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.domain.bus.entity.BusArrivalCandidateRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
 import watoo.grd.nextroute.domain.bus.service.BusArrivalCandidateWriter;
+import watoo.grd.nextroute.common.lock.LeaderLease;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -36,14 +37,16 @@ import java.util.Set;
 public class BusArrivalService implements CollectBusArrivalUseCase {
 
   private static final long API_CALL_INTERVAL_MS = 100;
+	/** 수집 몫 Redis 버킷 — 검색 몫(arrival)·재탐색 몫과 이름이 다르다. 서버 수와 무관하게 하나로 센다. */
+	static final String BUCKET_ARRIVAL = "collector-arrival";
 
 	private final BusApiPort busApiPort;
 	private final BusRouteRepository busRouteRepository;
 	private final BusArrivalCandidateWriter busArrivalCandidateWriter;
 	private final BusCollectorProperties properties;
 	private final TargetRouteProvider targetRouteProvider;
-	@Qualifier("arrivalApiCallBudget")
-	private final BusApiCallBudget budget;
+	private final BusApiQuotaPort quota;
+	private final LeaderLease leaderLease;
 	private final BusArrivalSnapshotPort busArrivalSnapshotPort;
 	private final BusRealtimeCacheWritePort realtimeCacheWrite;
 	private final Clock clock;
@@ -72,32 +75,38 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 //		}
 
 		int dailyBudget = properties.getDailyBudget();
-		if (!budget.canMakeCall(dailyBudget)) {
-			log.warn("[BusArrival] Daily budget exhausted ({}/{}). Skipping.", budget.getUsed(), dailyBudget);
-			return;
-		}
-
 		LocalDateTime collectedAt = LocalDateTime.now(clock);
 		int totalFinalized = 0;
 
-//		log.info("[BusArrival] Starting collection for {} target routes (budget: {}/{})",
-//				routeIds.size(), budget.getUsed(), dailyBudget);
-
 		for (String routeId : routeIds) {
-			// 예산이 소진돼 API를 못 불러도 stale active purge는 멈추지 않는다.
+			// 리더 재확인이 몫 점유보다 앞 — 리더가 아닌 서버가 몫을 태우지 않게. 한 바퀴가 노선 수 × (호출 + 100ms) 라
+			// 도중에 리더를 잃을 수 있다(LeaderLease 계약: 부작용 직전 재확인). 잠금이 꺼져 있으면 늘 리더다.
+			if (!leaderLease.isLeader()) {
+				log.info("[BusArrival] Lost leadership. Stopping before route {}.", routeId);
+				return;
+			}
+			// 몫은 Redis 버킷(서버 수와 무관). 호출 전 점유라 실패한 호출도 1 로 센다. Redis 장애면 fail-closed —
+			// 공급자 한도 보호가 우선이다. 예산이 소진돼 API를 못 불러도 stale active purge는 멈추지 않는다.
 			// (API 호출과 무관하게 오래 끊긴 active를 정리해야 유령 레코드/누수가 누적되지 않는다)
-			if (!budget.canMakeCall(dailyBudget)) {
-				log.warn("[BusArrival] Budget exhausted ({}/{}). Skipping API for route {}, stale purge only.",
-						budget.getUsed(), dailyBudget, routeId);
-				purgeStaleActive(routeId, collectedAt);
+			if (!quota.tryAcquire(BUCKET_ARRIVAL, dailyBudget)) {
+				log.warn("[BusArrival] Budget exhausted or unavailable (limit {}). Skipping API for route {}, stale purge only.",
+						dailyBudget, routeId);
+				try {
+					purgeStaleActive(routeId, collectedAt);
+				} catch (Exception e) {
+					// Redis 장애면 몫 점유도 purge(스냅숏 조회)도 같이 실패한다 — 한 노선 실패가 나머지 purge 를 막지 않게.
+					log.warn("[BusArrival] Stale purge failed for route {}: {}", routeId, e.getMessage());
+				}
 				continue;
 			}
 
-			boolean callRecorded = false;
 			try {
 				List<BusArrivalInfo> items = busApiPort.getArrInfoByRouteAll(routeId);
-				budget.recordCall();
-				callRecorded = true;
+				// 호출이 긴 동안(legacy 어댑터는 2초·4초 재시도까지) 리더를 잃었으면 새 리더 옆에서 상태를 쓰지 않는다.
+				if (!leaderLease.isLeader()) {
+					log.info("[BusArrival] Lost leadership during route {}. Discarding response.", routeId);
+					return;
+				}
 				totalFinalized += reconcile(routeId, items, collectedAt);
 				// 검색·공용 조회가 재사용하도록 실시간 캐시 프라이밍(정류장·순번별 분해; best-effort)
 				if (properties.isPrimeRealtimeCache()) {
@@ -106,24 +115,14 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 				Thread.sleep(API_CALL_INTERVAL_MS);
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
-				if (!callRecorded) {
-					budget.recordCall();
-				}
 				return;
 			} catch (BusApiBlockedException e) {
-				log.warn("[BusArrival] API blocked. Stopping collection without reconcile or budget record: {}",
-						e.getMessage());
+				log.warn("[BusArrival] API blocked. Stopping collection without reconcile: {}", e.getMessage());
 				return;
 			} catch (Exception e) {
-				if (!callRecorded) {
-					budget.recordCall();
-				}
 				log.error("[BusArrival] Failed for route {}: {}", routeId, e.getMessage());
 			}
 		}
-
-//		log.info("[BusArrival] Completed. Finalized {} candidates (budget: {}/{})",
-//				totalFinalized, budget.getUsed(), dailyBudget);
 	}
 
 	/**

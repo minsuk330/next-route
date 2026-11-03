@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
@@ -16,7 +15,6 @@ import watoo.grd.nextroute.application.bus.exception.BusApiLimitExceededExceptio
 import watoo.grd.nextroute.application.bus.port.out.BusApiBreakerPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
-import watoo.grd.nextroute.application.bus.service.BusApiCallBudget;
 import watoo.grd.nextroute.common.config.ClockConfig;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.*;
 
@@ -48,10 +46,6 @@ public class SeoulBusApiAdapter implements BusApiPort {
 	private final String apiKey;
 	private final String baseUrl;
 	private final Clock clock;
-	private final BusApiCallBudget arrivalBudget;
-	private final BusApiCallBudget positionBudget;
-	private final int arrivalDailyBudget;
-	private final int positionDailyBudget;
 
 	private final String busRouteKey;
 	private final String busUsageKey;
@@ -64,10 +58,6 @@ public class SeoulBusApiAdapter implements BusApiPort {
 			ObjectMapper objectMapper,
 			Clock clock,
 			BusApiBreakerPort breaker,
-			@Qualifier("arrivalApiCallBudget") BusApiCallBudget arrivalBudget,
-			@Qualifier("positionApiCallBudget") BusApiCallBudget positionBudget,
-			@Value("${collector.bus-arrival.daily-budget:50000}") int arrivalDailyBudget,
-			@Value("${collector.bus-position.daily-budget:50000}") int positionDailyBudget,
 			@Value("${seoul.api.bus-key}") String apiKey,
 			@Value("${seoul.api.bus-base-url}") String baseUrl,
 			@Value("${seoul.api.bus-route-key}") String busRouteKey,
@@ -77,10 +67,6 @@ public class SeoulBusApiAdapter implements BusApiPort {
 		this.objectMapper = objectMapper;
 		this.clock = clock;
 		this.breaker = breaker;
-		this.arrivalBudget = arrivalBudget;
-		this.positionBudget = positionBudget;
-		this.arrivalDailyBudget = arrivalDailyBudget;
-		this.positionDailyBudget = positionDailyBudget;
 		this.apiKey = apiKey;
 		this.baseUrl = baseUrl;
 		this.busRouteKey = busRouteKey;
@@ -577,8 +563,7 @@ public class SeoulBusApiAdapter implements BusApiPort {
 								throw new BusApiLimitExceededException(
 										"Seoul bus API daily limit exceeded [" + uri.getPath() + "]: " + headerMsg);
 							}
-							log.warn("API error code 7 on non-breaker endpoint [{}]: {} [budget: {}]",
-									uri.getPath(), headerMsg, budgetStatus());
+							log.warn("API error code 7 on non-breaker endpoint [{}]: {}", uri.getPath(), headerMsg);
 							return List.of();
 						}
 						throw recordLimitUntilNextMidnight(endpoint, uri, headerMsg);
@@ -628,8 +613,8 @@ public class SeoulBusApiAdapter implements BusApiPort {
 		}
 
 		Instant until = blocked.get();
-		log.warn("{} API blocked until {} KST due to error code 7 [{}] [budget: {}]",
-				endpoint, until.atZone(ClockConfig.KST), uri.getPath(), budgetStatus());
+		log.warn("{} API blocked until {} KST due to error code 7 [{}]",
+				endpoint, until.atZone(ClockConfig.KST), uri.getPath());
 		throw new BusApiBlockedException(
 				until,
 				"Seoul bus " + endpoint + " API blocked until " + until.atZone(ClockConfig.KST) + " KST"
@@ -648,8 +633,8 @@ public class SeoulBusApiAdapter implements BusApiPort {
 		Instant until = nextMidnight.toInstant();
 		BusApiBreakerPort.LimitDecision decision = breaker.recordApiLimit(endpoint, until);
 		String action = decision.blocked() ? "blocked" : "limit observed";
-		log.error("{} API error code 7 - {} until {} KST after count={} [{}]: {} [budget: {}]",
-				endpoint, action, nextMidnight, decision.count(), uri.getPath(), headerMsg, budgetStatus());
+		log.error("{} API error code 7 - {} until {} KST after count={} [{}]: {}",
+				endpoint, action, nextMidnight, decision.count(), uri.getPath(), headerMsg);
 		return new BusApiBlockedException(
 				until,
 				"Seoul bus " + endpoint + " API error code 7; " + action + " until " + nextMidnight + " KST"
@@ -658,10 +643,5 @@ public class SeoulBusApiAdapter implements BusApiPort {
 
 	private String normalize(String value) {
 		return value == null ? null : value.trim();
-	}
-
-	private String budgetStatus() {
-		return "arrival=" + arrivalBudget.getUsed() + "/" + arrivalDailyBudget
-				+ ", position=" + positionBudget.getUsed() + "/" + positionDailyBudget;
 	}
 }

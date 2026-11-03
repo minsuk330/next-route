@@ -9,6 +9,7 @@ import watoo.grd.nextroute.application.bus.InMemoryBusRealtimeCache;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.notification.config.BusArrivalAlertProperties;
+import watoo.grd.nextroute.common.lock.FixedLeaderLease;
 import watoo.grd.nextroute.domain.notification.entity.BusArrivalAlert;
 import watoo.grd.nextroute.domain.notification.repository.BusArrivalAlertRepository;
 import watoo.grd.nextroute.domain.user.entity.User;
@@ -39,10 +40,12 @@ class BusAlertDispatchServiceTest {
     Clock clock = Clock.fixed(Instant.parse("2026-06-23T03:00:00Z"), ZoneId.of("Asia/Seoul"));
     InMemoryBusRealtimeCache cache = new InMemoryBusRealtimeCache();
 
+    FixedLeaderLease lease = FixedLeaderLease.leader();
+
     BusAlertDispatchService service() {
         return new BusAlertDispatchService(
                 alertRepository, stateService, outboxEnqueueService, busApiPort, cache, cache,
-                props, clock);
+                props, clock, lease);
     }
 
     private java.time.LocalDateTime now() {
@@ -114,6 +117,22 @@ class BusAlertDispatchServiceTest {
 
         verify(busApiPort, times(1)).getArrInfoByStop("S1", "R1", "3"); // 그룹당 조회 1회
         verify(outboxEnqueueService, times(2)).enqueueTossArrival(any(), anyInt());
+    }
+
+    @Test
+    void lostLeadership_skipsRemainingGroups() {
+        // 그룹 둘(정류장 S1, S2). 첫 그룹의 공급자 호출 중에 리더를 잃으면 둘째 그룹은 공급자를 부르지 않는다.
+        due(List.of(alert(1L, "S1", "R1", 3), alert(2L, "S2", "R1", 3)));
+        // 그룹 순서는 HashMap 이라 정해져 있지 않다 — 먼저 불린 그룹에서 리더를 잃는다.
+        given(busApiPort.getArrInfoByStop(any(), any(), any())).willAnswer(inv -> {
+            lease.set(false);
+            return List.of(arrival(60));
+        });
+        enqueueOk();
+
+        service().dispatchDue();
+
+        verify(busApiPort, times(1)).getArrInfoByStop(any(), any(), any());
     }
 
     @Test

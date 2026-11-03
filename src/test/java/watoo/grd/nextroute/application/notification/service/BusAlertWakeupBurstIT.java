@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.notification.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import watoo.grd.nextroute.common.lock.AlwaysLeaderLeaseTestConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestReporter;
@@ -55,7 +56,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         RelayWaker.class,
         RelayWakeListener.class,
         BusAlertRelayLoop.class,
-        BusAlertWakeupBurstIT.Config.class
+        BusAlertWakeupBurstIT.Config.class,
+        AlwaysLeaderLeaseTestConfig.class
 })
 class BusAlertWakeupBurstIT extends AbstractBusAlertOutboxPostgresIT {
 

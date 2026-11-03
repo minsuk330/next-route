@@ -9,6 +9,7 @@ import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheReadPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.application.notification.config.BusArrivalAlertProperties;
+import watoo.grd.nextroute.common.lock.LeaderLease;
 import watoo.grd.nextroute.domain.notification.entity.BusArrivalAlert;
 import watoo.grd.nextroute.domain.notification.repository.BusArrivalAlertRepository;
 
@@ -38,6 +39,7 @@ public class BusAlertDispatchService {
     private final BusRealtimeCacheWritePort cacheWritePort;
     private final BusArrivalAlertProperties properties;
     private final Clock clock;
+    private final LeaderLease leaderLease;
 
     public void dispatchDue() {
         try {
@@ -56,6 +58,12 @@ public class BusAlertDispatchService {
                     .collect(Collectors.groupingBy(a -> a.getStopId() + "|" + a.getRouteId() + "|" + a.getOrd()));
 
             for (List<BusArrivalAlert> group : groups.values()) {
+                // 한 바퀴가 그룹 수 × 공급자 왕복(legacy 어댑터는 2초/4초 재시도까지)이라 도중에 리더를 잃을 수 있다.
+                // LeaderLease 계약: 부작용(공급자 호출) 직전에 다시 묻는다.
+                if (!leaderLease.isLeader()) {
+                    log.info("[BusAlertDispatch] 리더가 아니게 되어 남은 그룹을 건너뛴다");
+                    return;
+                }
                 // 그룹(=정류소·노선·순번) 단위 격리: API 오류가 다른 그룹을 막지 않게.
                 try {
                     processGroup(group, now, enqueuedPerUser);
