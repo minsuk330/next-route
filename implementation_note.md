@@ -6187,3 +6187,19 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - VPS datasources.yaml = repo main(diff 0) → 새 파일로 덮어도 drift 없음. VPS 관측 compose 는 drift 있으니 grafana 블록에 networks 3줄만 삽입
 ### 배포
 - 운영 DB 에 `CREATE ROLE grafana_ro`(DDL) 필요 — 사용자 확인 후. 순서: 백업 → role → env → compose 3줄 → scp(datasources·usage.json) → grafana `--no-deps --force-recreate`
+
+## 2026-11-03 사용 통계 배포 (#531·#532, 사용자 승인 "둘 다 지금 진행")
+### 배포
+- 21:26 api·worker `nextroute:20261103-212613-f64caa36`(main f64caa36). 직전 진행 여정 0. jar 2MB×70 조각 업로드, sha256 `1b7b7207…1e0c` 일치. 백업 `app.jar.bak-20261103-212613-pre-f64caa36`(=d7f21ded). 롤백 = 그 jar 복원 + `DEPLOY_REVISION=d7f21ded ./deploy.sh all` 또는 `./deploy.sh rollback-api`·`rollback-worker`
+- V74 Flyway 자동 적용(flyway 74 success). 배포 후 5분 api·worker ERROR 0
+- 21:28 Grafana: 백업 `/root/apps/observability-backups/observability-20261103-212851-pre-usage-stats.tgz`, `compose.yaml.bak-20261103-212851-pre-usage-stats`. role `grafana_ro` 생성(비밀번호는 VPS 에서 생성해 `env/grafana.env` `GRAFANA_PG_PASSWORD` 에만, 출력 안 함) → compose grafana 블록 networks 3줄(추가만) → datasources.yaml·usage.json 복사 → grafana `--no-deps --force-recreate`
+- 되돌리기: tgz 복원 + grafana 재생성, `DROP OWNED BY grafana_ro; DROP ROLE grafana_ro;`
+### 검증
+- 데이터소스 health "Database Connection OK", 대시보드 uid `nextroute-usage` 로드, 패널 10개 쿼리 전부 오류 없음(DAU 계열 4개는 아직 0행)
+- role: CONNECTION LIMIT 3, `{default_transaction_read_only=on,statement_timeout=10s}`, 권한 = 3표 SELECT 만. `SET ROLE grafana_ro` 로 `users` 조회 → permission denied
+### 함정
+- VPS 적용 스크립트 `set -o pipefail` + `diff | grep` → diff 가 차이 있음(1)으로 스크립트가 중간 종료. role·env·compose 삽입까지만 된 상태에서 나머지를 이어 실행. 다음엔 `diff … || true`
+- Grafana `/api/ds/query` 가 오류면 wget 은 본문 없이 실패 → 권한 확인은 DB 에서 `SET ROLE` 로
+- grafana 기동 로그의 `plugin table is already registered`·`provisioning/plugins` 디렉터리 없음 error 는 기존부터(이번 변경 무관)
+### 미결
+- 첫 DAU 행은 다음 앱 요청 때. 내일 `user_daily_activity` 행·대시보드 DAU 확인
