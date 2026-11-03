@@ -6203,3 +6203,17 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - grafana 기동 로그의 `plugin table is already registered`·`provisioning/plugins` 디렉터리 없음 error 는 기존부터(이번 변경 무관)
 ### 미결
 - 첫 DAU 행은 다음 앱 요청 때. 내일 `user_daily_activity` 행·대시보드 DAU 확인
+
+## 2026-11-03 장애 알림 AI 분석기 PR-3 켜기 (feat/alert-analyzer-enable)
+
+### 확정
+- Slack 연동 `text` = `{{ template "default.message" . }}` + 줄바꿈 + `fp: {{ range .Alerts }}{{ .Fingerprint }} {{ end }}`. 분석기 `find_thread` 는 채널 최근 메시지 JSON 전체에서 fingerprint 문자열 포함 여부로 찾으므로 attachment text 에 들어가도 된다
+- Grafana 12.0.0 템플릿 미리보기 API `POST /api/alertmanager/grafana/config/api/v1/templates/test` 로 발송 없이 렌더 확인 가능(fingerprint 는 라벨로 계산돼 입력값과 달라도 정상)
+
+### 배포
+- 2026-11-03 21:43 KST `contact-points.yaml` VPS 반영 + `POST /api/admin/provisioning/alerting/reload`("Alerting config reloaded"). 백업 `/root/apps/observability-backups/contact-points.yaml.bak-20261103-214325-pre-fp`. grafana 재생성 없음(env 변경 없음). 마이그레이션 없음
+- 반영 시점 운영 상태: 분석기 컨테이너는 아직 PR-1 이미지(digest 81901f7c, 10-26 18:12) + `ANALYZER_DRY_RUN=true`. env 에 `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID` 없음 → 사용자 작업 대기
+
+### 미결
+- 사용자: Slack 봇 토큰(chat:write, channels:history, 비공개면 groups:history), 봇 채널 초대, 채널 ID. VPS env 에 직접 넣기 권장(대화 기록 평문 방지)
+- 사용자: Anthropic 키 재발급(10-26 대화에 평문으로 붙여넣은 키가 VPS 에 들어 있음)
