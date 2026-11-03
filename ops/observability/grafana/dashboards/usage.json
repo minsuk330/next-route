@@ -1,0 +1,473 @@
+{
+  "uid": "nextroute-usage",
+  "title": "사용 통계",
+  "tags": [
+    "nextroute",
+    "usage"
+  ],
+  "timezone": "Asia/Seoul",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "refresh": "",
+  "schemaVersion": 39,
+  "editable": true,
+  "panels": [
+    {
+      "id": 1,
+      "title": "오늘·7일·30일 활성 사용자",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "select\n  count(distinct user_id) filter (where activity_date = (now() AT TIME ZONE 'Asia/Seoul')::date) as \"오늘 (DAU)\",\n  count(distinct user_id) filter (where activity_date > (now() AT TIME ZONE 'Asia/Seoul')::date - 7) as \"7일 (WAU)\",\n  count(distinct user_id) as \"30일 (MAU)\"\nfrom user_daily_activity\nwhere activity_date > (now() AT TIME ZONE 'Asia/Seoul')::date - 30"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "description": "인증된 요청을 보낸 사용자 수(사용자당 하루 1번 기록). 기록은 2026-11 배포일부터."
+    },
+    {
+      "id": 2,
+      "title": "기간 요약",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "select\n  (select count(*) from auth_identity where provider = 'DEVICE' and created_at >= ($__timeFrom()::timestamptz AT TIME ZONE 'Asia/Seoul') and created_at < ($__timeTo()::timestamptz AT TIME ZONE 'Asia/Seoul')) as \"신규 설치\",\n  count(*) as \"여정 시작\",\n  count(distinct user_id) as \"여정 사용자\",\n  round(100.0 * count(*) filter (where status = 'COMPLETED') / nullif(count(*) filter (where status <> 'ACTIVE'), 0)) as \"완료율 %\"\nfrom journey_session\nwhere created_at >= ($__timeFrom()::timestamptz AT TIME ZONE 'Asia/Seoul') and created_at < ($__timeTo()::timestamptz AT TIME ZONE 'Asia/Seoul')"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "description": "대시보드 시간 범위 안. 완료율 = 완료 / (시작 − 진행 중)."
+    },
+    {
+      "id": 3,
+      "title": "일별 활성 사용자 (DAU)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select activity_date::timestamp at time zone 'Asia/Seoul' as time, count(*) as \"DAU\"\nfrom user_daily_activity\nwhere activity_date between ($__timeFrom()::timestamptz AT TIME ZONE 'Asia/Seoul')::date and ($__timeTo()::timestamptz AT TIME ZONE 'Asia/Seoul')::date\ngroup by 1 order by 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "pointSize": 6,
+            "showPoints": "always"
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "일별 신규 계정 (provider)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select date_trunc('day', created_at) at time zone 'Asia/Seoul' as time, provider as metric, count(*) as value\nfrom auth_identity\nwhere created_at >= ($__timeFrom()::timestamptz AT TIME ZONE 'Asia/Seoul') and created_at < ($__timeTo()::timestamptz AT TIME ZONE 'Asia/Seoul')\ngroup by 1, 2 order by 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            },
+            "lineWidth": 1
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "DEVICE = 앱 첫 실행 때 만드는 기기 계정 ≈ 신규 설치."
+    },
+    {
+      "id": 5,
+      "title": "일별 여정 시작 (끝난 상태별)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select date_trunc('day', created_at) at time zone 'Asia/Seoul' as time, status as metric, count(*) as value\nfrom journey_session\nwhere created_at >= ($__timeFrom()::timestamptz AT TIME ZONE 'Asia/Seoul') and created_at < ($__timeTo()::timestamptz AT TIME ZONE 'Asia/Seoul')\ngroup by 1, 2 order by 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            },
+            "lineWidth": 1
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "일별 여정 사용자 수",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select date_trunc('day', created_at) at time zone 'Asia/Seoul' as time, count(distinct user_id) as \"여정 사용자\"\nfrom journey_session\nwhere created_at >= ($__timeFrom()::timestamptz AT TIME ZONE 'Asia/Seoul') and created_at < ($__timeTo()::timestamptz AT TIME ZONE 'Asia/Seoul')\ngroup by 1 order by 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "pointSize": 6,
+            "showPoints": "always"
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "일별 경로 검색 요청",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "interval": "1d",
+          "expr": "sum(increase(http_server_requests_seconds_count{uri=\"/api/route/search\"}[1d]))",
+          "legendFormat": "검색 요청"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            },
+            "lineWidth": 1
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "api 의 /api/route/search 요청 수(Prometheus). 사용자 구분 없음. 재시작 직후 첫 건은 빠질 수 있다."
+    },
+    {
+      "id": 8,
+      "title": "앱 빌드별 사용자 (기간)",
+      "type": "bargauge",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "select coalesce(app_build, '(알 수 없음)') as build, count(distinct user_id) as \"사용자\"\nfrom user_daily_activity\nwhere activity_date between ($__timeFrom()::timestamptz AT TIME ZONE 'Asia/Seoul')::date and ($__timeTo()::timestamptz AT TIME ZONE 'Asia/Seoul')::date\ngroup by 1 order by 2 desc"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": true
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "description": "User-Agent 첫 토큰. app/N = 출시 앱, Dev/N = 개발 빌드."
+    },
+    {
+      "id": 9,
+      "title": "재방문 (첫 활동 주 코호트)",
+      "type": "table",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with first_day as (\n  select user_id, min(activity_date) as d0 from user_daily_activity group by user_id\n)\nselect date_trunc('week', f.d0)::date as \"첫 활동 주\",\n       count(*) as \"사용자\",\n       count(*) filter (where exists (select 1 from user_daily_activity a\n                                       where a.user_id = f.user_id and a.activity_date between f.d0 + 1 and f.d0 + 7)) as \"7일 안 재방문\",\n       round(100.0 * count(*) filter (where exists (select 1 from user_daily_activity a\n                                       where a.user_id = f.user_id and a.activity_date between f.d0 + 1 and f.d0 + 7)) / count(*)) as \"재방문 %\"\nfrom first_day f\ngroup by 1 order by 1 desc"
+        }
+      ],
+      "description": "첫 활동일 다음 날부터 7일 안에 다시 온 사용자. 최근 7일 코호트는 아직 덜 찼다."
+    },
+    {
+      "id": 10,
+      "title": "사용자별 (최근 30일)",
+      "type": "table",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "select left(md5(a.user_id::text), 6) as \"사용자\",\n       min(a.activity_date) as \"첫 활동\",\n       max(a.activity_date) as \"마지막 활동\",\n       count(*) as \"활동 일수\",\n       (select count(*) from journey_session j\n         where j.user_id = a.user_id and j.created_at >= ((now() AT TIME ZONE 'Asia/Seoul')::date - 30)::timestamp) as \"여정 수\",\n       max(a.app_build) as \"빌드\"\nfrom user_daily_activity a\nwhere a.activity_date > (now() AT TIME ZONE 'Asia/Seoul')::date - 30\ngroup by a.user_id\norder by \"활동 일수\" desc, \"마지막 활동\" desc"
+        }
+      ],
+      "description": "사용자 id 는 md5 앞 6자로만. 목적지·좌표·이름은 싣지 않는다."
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

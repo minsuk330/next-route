@@ -6176,3 +6176,14 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 `./gradlew test`(st-pg/st-redis env) **3880/0**. 전체 컨텍스트 IT 중 인증 요청이 st-pg `user_daily_activity` 에 11행 남김(필터 → 기록기 → DB 배선 확인)
 ### 배포
 - V74 는 Flyway 자동(jar 포함). api·worker 교체 필요(worker 는 기록기 없음, 스키마만)
+
+## 2026-11-03 사용 통계 PR-2 Grafana 대시보드 (feat/usage-dashboard)
+### 확정
+- `grafana/dashboards/usage.json`(uid `nextroute-usage`, 패널 10), 데이터소스 `nextroute-pg`(grafana-postgresql-datasource, `postgres:5432`, db mydatabase, 연결 2), grafana 를 `nextroute` 네트워크에 붙임
+- 계정 `grafana_ro`: 3표 SELECT(auth_identity·journey_session·user_daily_activity), `default_transaction_read_only=on`, `statement_timeout=10s`, CONNECTION LIMIT 3. 비밀번호는 파일에 없음(`-v pw` + env `GRAFANA_PG_PASSWORD`)
+### 검증
+- 운영 읽기 전용으로 비-DAU 쿼리 5개 실행: 2026-10-05~11-03 신규 설치 28·여정 266·여정 사용자 8·완료율 19%, 일별 버킷이 15:00Z(=KST 0시)로 묶임
+- DAU 쿼리 5개는 st-pg 임시 스키마(V74 + 예시 행)에서 실행·ROLLBACK
+- VPS datasources.yaml = repo main(diff 0) → 새 파일로 덮어도 drift 없음. VPS 관측 compose 는 drift 있으니 grafana 블록에 networks 3줄만 삽입
+### 배포
+- 운영 DB 에 `CREATE ROLE grafana_ro`(DDL) 필요 — 사용자 확인 후. 순서: 백업 → role → env → compose 3줄 → scp(datasources·usage.json) → grafana `--no-deps --force-recreate`
