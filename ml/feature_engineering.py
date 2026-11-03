@@ -217,6 +217,7 @@ def full_data_stats(
     folds: int,
     seed: int,
     exclude_route_dates: pl.DataFrame | None = None,
+    max_target_seconds: int = TARGET_MAX_SECONDS,
 ) -> pl.DataFrame:
     """Aggregate one encoding over every training row on disk, not just a sampled frame.
 
@@ -245,7 +246,7 @@ def full_data_stats(
         scan.filter(
             pl.col(target_column).is_not_null()
             & (pl.col(target_column) >= TARGET_MIN_SECONDS)
-            & (pl.col(target_column) <= TARGET_MAX_SECONDS)
+            & (pl.col(target_column) <= max_target_seconds)
         )
         .with_columns(
             [
@@ -484,6 +485,7 @@ def build_feature_frames(
                         args.te_folds,
                         args.seed,
                         getattr(args, "encoding_exclude_route_dates", None),
+                        getattr(args, "max_target_seconds", TARGET_MAX_SECONDS),
                     )
                     print(
                         f"[encode] full-data scan {cache_key} -> "

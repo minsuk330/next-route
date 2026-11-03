@@ -25,6 +25,12 @@ COMMUTE_EVENING = (18, 20)
 LATE_NIGHT_START = 23  # hour >= 23
 LATE_NIGHT_END = 5  # or hour < 5
 
+# How far ahead of an arrival a snapshot may be and still become a training row.
+# The trip-consistent join already caps every row at the vehicle's remaining trip,
+# so this is the outer bound for the longest routes.
+DEFAULT_MAX_HORIZON_MINUTES = 40
+MIN_HORIZON_SECONDS = 60
+
 
 class DatasetBuildError(RuntimeError):
     pass
@@ -45,6 +51,12 @@ def parse_args() -> argparse.Namespace:
         "--overwrite",
         action="store_true",
         help="Regenerate dataset even when parquet parts already exist.",
+    )
+    parser.add_argument(
+        "--max-horizon-minutes",
+        type=int,
+        default=DEFAULT_MAX_HORIZON_MINUTES,
+        help="Keep snapshots at most this many minutes before the arrival.",
     )
     return parser.parse_args()
 
@@ -400,7 +412,9 @@ def dataset_for_route(
     generated_at: str,
     holidays: list[date],
     weather: pl.LazyFrame | None,
+    max_horizon_minutes: int = DEFAULT_MAX_HORIZON_MINUTES,
 ) -> pl.LazyFrame:
+    max_horizon_seconds = max_horizon_minutes * 60
     position_route = assign_trip_index(position.filter(pl.col("route_id") == route_id))
     label_route = assign_label_trip_index(
         label.filter(pl.col("route_id") == route_id), position_route
@@ -438,11 +452,11 @@ def dataset_for_route(
             (pl.col("label_arrival_at") > pl.col("snapshot_at") + pl.duration(minutes=1))
             & (
                 pl.col("label_arrival_at")
-                <= pl.col("snapshot_at") + pl.duration(minutes=40)
+                <= pl.col("snapshot_at") + pl.duration(minutes=max_horizon_minutes)
             )
             & (pl.col("target_seq") >= pl.col("current_section_order"))
-            & (pl.col("label_target_seconds_to_arrival") >= 60)
-            & (pl.col("label_target_seconds_to_arrival") <= 2400)
+            & (pl.col("label_target_seconds_to_arrival") >= MIN_HORIZON_SECONDS)
+            & (pl.col("label_target_seconds_to_arrival") <= max_horizon_seconds)
         )
         .with_columns(
             [
@@ -639,7 +653,12 @@ def build_drop_counts(
     }
 
 
-def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
+def build_dataset(
+    service_date: date,
+    data_dir: Path,
+    overwrite: bool,
+    max_horizon_minutes: int = DEFAULT_MAX_HORIZON_MINUTES,
+) -> None:
     label_path = require_archive(data_dir, "bus_label", service_date)
     position_path = require_archive(data_dir, "bus_position", service_date)
     output_dir = partition_dir(data_dir, "dataset", service_date)
@@ -673,6 +692,7 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
                 generated_at,
                 holidays,
                 weather,
+                max_horizon_minutes,
             )
             route_frame = route_dataset.collect(engine="streaming")
             if route_frame.is_empty():
@@ -700,6 +720,7 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
             "archive_version": DATASET_ARCHIVE_VERSION,
             "schema_version": SCHEMA_VERSION,
             "query_version": QUERY_VERSION,
+            "max_horizon_minutes": max_horizon_minutes,
             "service_date": service_date.isoformat(),
             "row_count": row_count,
             "holiday_sidecar_dates": len(holidays),
@@ -721,9 +742,10 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
                 "excluded_from_training = false",
                 "label_arrival_at is not null",
                 "api_estimated_arrival_at is not null",
-                "snapshot_at + 1 minute < label_arrival_at <= snapshot_at + 40 minutes",
+                f"snapshot_at + 1 minute < label_arrival_at <= snapshot_at + {max_horizon_minutes} minutes",
                 "target_seq >= current_section_order",
-                "label_target_seconds_to_arrival between 60 and 2400",
+                "snapshot and arrival in the same vehicle trip",
+                f"label_target_seconds_to_arrival between {MIN_HORIZON_SECONDS} and {max_horizon_minutes * 60}",
             ],
         }
         write_manifest(manifest_path, manifest)
@@ -739,7 +761,7 @@ def main() -> int:
         service_dates = service_dates_from_args(args)
         data_dir = load_data_dir()
         for service_date in service_dates:
-            build_dataset(service_date, data_dir, args.overwrite)
+            build_dataset(service_date, data_dir, args.overwrite, args.max_horizon_minutes)
     except (DatasetBuildError, OSError, pl.exceptions.PolarsError) as exc:
         print(f"[error] {exc}", file=sys.stderr)
         return 1

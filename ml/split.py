@@ -21,6 +21,8 @@ TARGET_COLUMNS: dict[str, str] = {
 }
 
 HORIZON_BUCKETS = ("1-5m", "5-10m", "10-20m", "20-40m")
+MIN_TARGET_SECONDS = 60
+DEFAULT_MAX_TARGET_SECONDS = 2400
 FrameLike = pl.DataFrame | pl.LazyFrame
 
 
@@ -75,18 +77,23 @@ def add_horizon_bucket(frame: FrameLike, target_column: str) -> FrameLike:
             .then(pl.lit("5-10m"))
             .when(pl.col(target_column) < 1200)
             .then(pl.lit("10-20m"))
+            # everything beyond 20 min (also >40 min when the horizon is raised)
             .otherwise(pl.lit("20-40m"))
             .alias("horizon_bucket")
         ]
     )
 
 
-def filter_for_target(frame: FrameLike, target_name: TargetName) -> tuple[FrameLike, str]:
+def filter_for_target(
+    frame: FrameLike,
+    target_name: TargetName,
+    max_target_seconds: int = DEFAULT_MAX_TARGET_SECONDS,
+) -> tuple[FrameLike, str]:
     target_column = TARGET_COLUMNS[target_name]
     filtered = frame.filter(
         pl.col(target_column).is_not_null()
-        & (pl.col(target_column) >= 60)
-        & (pl.col(target_column) <= 2400)
+        & (pl.col(target_column) >= MIN_TARGET_SECONDS)
+        & (pl.col(target_column) <= max_target_seconds)
     )
     return add_horizon_bucket(filtered, target_column), target_column
 
@@ -239,8 +246,11 @@ def collect_date_sample(
     per_date_sample_rows: int | None,
     seed: int,
     columns: Sequence[str] | None = None,
+    max_target_seconds: int = DEFAULT_MAX_TARGET_SECONDS,
 ) -> tuple[pl.DataFrame, dict[str, object], str]:
-    filtered, target_column = filter_for_target(scan_dataset(data_dir, service_date), target_name)
+    filtered, target_column = filter_for_target(
+        scan_dataset(data_dir, service_date), target_name, max_target_seconds
+    )
     if columns is not None:
         # Projected before collect so the unused columns never materialise. The dataset
         # carries ~54 columns at 421 bytes/row, but training touches 25 of them at 163
@@ -294,6 +304,7 @@ def create_split(
     data_dir: Path | None = None,
     columns: Sequence[str] | None = None,
     holdout_last_days_per_route: int | None = None,
+    max_target_seconds: int = DEFAULT_MAX_TARGET_SECONDS,
 ) -> DatasetSplit:
     data_dir = data_dir or load_data_dir()
     service_dates = normalize_service_dates(service_date)
@@ -318,6 +329,7 @@ def create_split(
             effective_per_date_sample_rows,
             seed,
             columns,
+            max_target_seconds,
         )
         target_column = current_target_column
         date_policies.append(date_policy)

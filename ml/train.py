@@ -96,6 +96,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-from", default="21:00")
     parser.add_argument("--test-dates", default=None)
     parser.add_argument(
+        "--max-target-seconds",
+        type=int,
+        default=2400,
+        help="Drop rows whose target exceeds this (must not exceed the dataset's horizon).",
+    )
+    parser.add_argument(
         "--holdout-last-days-per-route",
         type=int,
         default=None,
@@ -263,6 +269,7 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         data_dir=data_dir,
         columns=load_columns,
         holdout_last_days_per_route=args.holdout_last_days_per_route,
+        max_target_seconds=args.max_target_seconds,
     )
     target_column = split.target_column
     exclude_route_dates = None
@@ -285,6 +292,7 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
             data_dir=data_dir,
             encoding_dates=train_dates,
             encoding_exclude_route_dates=exclude_route_dates,
+            max_target_seconds=args.max_target_seconds,
             te_folds=5,
             te_smoothing=50.0,
             seed=args.seed,
@@ -349,6 +357,7 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         "target_encoding_enabled": args.target_encoding,
         "sampling_policy": split.sampling_policy,
         "split_policy": split.split_policy,
+        "max_target_seconds": args.max_target_seconds,
         "train_rows": split.train.height,
         "test_rows": split.test.height,
         "training_route_categories": training_route_categories,
