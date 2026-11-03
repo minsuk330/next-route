@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.route.port.out;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -21,11 +22,18 @@ public interface MlArrivalPredictorPort {
     }
 
     /**
-     * @param requestId 결과 재결합 키(배치 내 유일).
-     * @param features  feature 이름→값. 이름은 학습(train.py)과 동일. 값은 숫자 또는 route_id(String).
-     *                  null 값 허용(serving이 NaN으로 처리).
+     * @param requestId  결과 재결합 키(배치 내 유일).
+     * @param features   feature 이름→값. 이름은 학습(train.py)과 동일. 값은 숫자 또는 route_id(String).
+     *                   null 값 허용(serving이 NaN으로 처리).
+     * @param vehicleId  이 feature 의 바탕이 된 관측 차량. serving 이 노선 이력에서 이 차량의 궤적을
+     *                   찾아 rt_* 피처를 만든다. null 이면 rt_* 는 NaN.
+     * @param snapshotAt 그 관측 시각(dataTm). vehicleId 와 함께 쓰인다.
      */
-    record MlFeatureVector(String requestId, Map<String, Object> features) {
+    record MlFeatureVector(String requestId, Map<String, Object> features,
+                           String vehicleId, Instant snapshotAt) {
+        public MlFeatureVector(String requestId, Map<String, Object> features) {
+            this(requestId, features, null, null);
+        }
     }
 
     /**

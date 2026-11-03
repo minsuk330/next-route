@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from feature_engineering import SERVABLE_ENCODING_SPECS, compute_serving_features, encoding_name
+from realtime_features import HISTORY_WINDOW, REALTIME_FEATURES, compute_realtime_features
 
 logger = logging.getLogger("ml.serve")
 
@@ -105,6 +107,9 @@ class ModelState:
         self.encoding_tables: dict[str, pl.DataFrame] = {}
         self.global_pace: float = 0.0
         self.te_smoothing: float = 0.0
+        # rt_* same-route history features (realtime_features.py). The client never
+        # sends these; they are derived here from the request's route_history.
+        self.realtime_features: list[str] = []
 
     @property
     def loaded(self) -> bool:
@@ -217,6 +222,7 @@ def load_model(state: ModelState) -> None:
     state.numeric_features = [f for f in feature_names if f != CATEGORICAL_FEATURE]
     state.model_categories = [str(c) for c in pandas_categorical[0]] if pandas_categorical else []
     state.target_encoding_enabled = target_encoding_enabled
+    state.realtime_features = [f for f in feature_names if f in REALTIME_FEATURES]
     state.route_profile = route_profile
     state.encoding_tables = encoding_tables
     state.global_pace = global_pace
@@ -270,10 +276,24 @@ class PredictItem(BaseModel):
     # Values are kept untyped: route_id is categorical (string) while the rest are
     # numeric. Typing as float would coerce route_id and break category lookup.
     features: dict[str, Any]
+    # Identity of the observation behind ``features`` — needed to place it in the
+    # route's history for the rt_* features. Optional: without them (or without a
+    # route_history entry) those features are NaN, as in training's no-history rows.
+    vehicle_id: str | None = None
+    snapshot_at: int | None = Field(default=None, description="observation time, epoch seconds")
+
+
+class HistoryObservation(BaseModel):
+    vehicle_id: str
+    section_order: int
+    snapshot_at: int = Field(..., description="epoch seconds")
 
 
 class PredictRequest(BaseModel):
     items: list[PredictItem]
+    # route_id -> that route's recent observations (ideally the last
+    # realtime_history_minutes), every vehicle, oldest or newest first — order is free.
+    route_history: dict[str, list[HistoryObservation]] | None = None
 
 
 @asynccontextmanager
@@ -320,6 +340,9 @@ def metadata() -> JSONResponse:
             # 디버그: booster categorical(train∪test) 크기. route_count보다 크면 test-only/미학습 route 존재.
             "model_route_count": len(state.model_categories),
             "target_encoding_enabled": state.target_encoding_enabled,
+            # rt_* 피처: 클라이언트가 보내는 값이 아니라 route_history(최근 관측 이력)에서 serve가 계산.
+            "realtime_features": state.realtime_features,
+            "realtime_history_minutes": int(HISTORY_WINDOW.total_seconds() // 60),
         }
     )
 
@@ -346,7 +369,7 @@ def predict(request: PredictRequest) -> JSONResponse:
     required_features = (
         set(RAW_FEATURE_NAMES) | {CATEGORICAL_FEATURE}
         if state.target_encoding_enabled
-        else set(state.feature_names)
+        else set(state.feature_names) - set(REALTIME_FEATURES)
     )
     for item in items:
         missing = [f for f in required_features if f not in item.features]
@@ -373,10 +396,15 @@ def predict(request: PredictRequest) -> JSONResponse:
             }
 
     if predictable_a:
+        realtime = (
+            _realtime_frame(predictable_a, request.route_history)
+            if state.realtime_features
+            else None
+        )
         frame = (
-            _build_frame_target_encoded(predictable_a, state)
+            _build_frame_target_encoded(predictable_a, state, realtime)
             if state.target_encoding_enabled
-            else _build_frame(predictable_a, state.feature_names, state.model_categories)
+            else _build_frame(predictable_a, state.feature_names, state.model_categories, realtime)
         )
         preds = state.booster.predict(frame)
         for item, pred in zip(predictable_a, preds):
@@ -390,8 +418,86 @@ def predict(request: PredictRequest) -> JSONResponse:
     return JSONResponse({"results": [results[rid] for rid in request_ids]})
 
 
+def _realtime_frame(
+    items: list[PredictItem], route_history: dict[str, list[HistoryObservation]] | None
+) -> pl.DataFrame:
+    """rt_* columns for ``items`` (one row each, in order) from the request's route
+    history, via the same function build_dataset.py used — so a live request sees
+    exactly the training-time definition. Items without an identity, or whose route
+    has no history, get NaN (the no-history case the model trained on)."""
+
+    def at(epoch: int) -> datetime:
+        return datetime.fromtimestamp(epoch, tz=timezone.utc).replace(tzinfo=None)
+
+    queries = pl.DataFrame(
+        {
+            "route_id": [str(item.features.get(CATEGORICAL_FEATURE)) for item in items],
+            "vehicle_identity": [item.vehicle_id or "" for item in items],
+            "snapshot_at": [at(item.snapshot_at or 0) for item in items],
+            "current_section_order": [
+                _int_or_none(item.features.get("current_section_order")) for item in items
+            ],
+            "target_seq": [_int_or_none(item.features.get("target_seq")) for item in items],
+        },
+        schema={
+            "route_id": pl.Utf8,
+            "vehicle_identity": pl.Utf8,
+            "snapshot_at": pl.Datetime("us"),
+            "current_section_order": pl.Int32,
+            "target_seq": pl.Int32,
+        },
+    )
+    identified = (
+        (pl.col("vehicle_identity") != "")
+        & pl.col("current_section_order").is_not_null()
+        & pl.col("target_seq").is_not_null()
+    )
+    history_rows = {
+        "route_id": [],
+        "vehicle_identity": [],
+        "snapshot_at": [],
+        "current_section_order": [],
+    }
+    for route_id, observations in (route_history or {}).items():
+        for obs in observations:
+            history_rows["route_id"].append(str(route_id))
+            history_rows["vehicle_identity"].append(obs.vehicle_id)
+            history_rows["snapshot_at"].append(at(obs.snapshot_at))
+            history_rows["current_section_order"].append(obs.section_order)
+    history = pl.DataFrame(
+        history_rows,
+        schema={
+            "route_id": pl.Utf8,
+            "vehicle_identity": pl.Utf8,
+            "snapshot_at": pl.Datetime("us"),
+            "current_section_order": pl.Int32,
+        },
+    )
+    # The items themselves are observations too (the newest point of each trajectory).
+    own = queries.filter(identified).select(history.columns)
+    history = pl.concat([history, own])
+    features = compute_realtime_features(history, queries)
+    blank = pl.DataFrame({c: [math.nan] * queries.height for c in REALTIME_FEATURES})
+    return pl.concat(
+        [queries.select(identified.alias("_ok")), features, blank.rename({c: f"_b_{c}" for c in REALTIME_FEATURES})],
+        how="horizontal",
+    ).select(
+        [pl.when(pl.col("_ok")).then(pl.col(c)).otherwise(pl.col(f"_b_{c}")).alias(c) for c in REALTIME_FEATURES]
+    )
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return None if value is None else int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def _build_frame(
-    items: list[PredictItem], feature_names: list[str], categories: list[str] | None
+    items: list[PredictItem],
+    feature_names: list[str],
+    categories: list[str] | None,
+    realtime: pl.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Build a feature-ordered DataFrame for one booster. ``categories`` is the
     trained categorical dtype for route_id (model A); None means the feature set
@@ -408,6 +514,10 @@ def _build_frame(
             columns[CATEGORICAL_FEATURE].append(str(route))
 
     frame = pd.DataFrame(columns)
+    if realtime is not None:
+        for f in realtime.columns:
+            if f in feature_names:
+                frame[f] = realtime[f].to_numpy()
     if categories is not None and CATEGORICAL_FEATURE in feature_names:
         # dtype은 booster의 full categorical(model_categories)이어야 category code가 일치한다.
         # 지원 판정은 route_categories로 이미 격리됐고, predictable route ⊆ training ⊆ model_categories.
@@ -417,7 +527,9 @@ def _build_frame(
     return frame[feature_names]
 
 
-def _build_frame_target_encoded(items: list[PredictItem], state: ModelState) -> pd.DataFrame:
+def _build_frame_target_encoded(
+    items: list[PredictItem], state: ModelState, realtime: pl.DataFrame | None = None
+) -> pd.DataFrame:
     """Model A frame when target_encoding_enabled: pull every raw field the client
     sends, derive the route-profile/te_* columns via feature_engineering's shared
     formula (the same one training used for test rows), then select the model's
@@ -431,6 +543,8 @@ def _build_frame_target_encoded(items: list[PredictItem], state: ModelState) -> 
         routes.append(str(item.features.get(CATEGORICAL_FEATURE)))
 
     raw = pl.DataFrame(columns).with_columns(pl.Series(CATEGORICAL_FEATURE, routes))
+    if realtime is not None:
+        raw = pl.concat([raw, realtime], how="horizontal")
     computed = compute_serving_features(
         raw, state.route_profile, state.encoding_tables, state.global_pace, state.te_smoothing
     )

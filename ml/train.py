@@ -13,6 +13,7 @@ import pandas as pd
 import polars as pl
 
 from metrics import evaluate_predictions, print_reports, write_json
+from realtime_features import HISTORY_WINDOW, REALTIME_FEATURES
 from split import TARGET_COLUMNS, create_split, load_data_dir, parse_test_dates
 from feature_engineering import (
     SERVABLE_ENCODING_SPECS,
@@ -96,6 +97,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-from", default="21:00")
     parser.add_argument("--test-dates", default=None)
     parser.add_argument(
+        "--no-realtime-features",
+        action="store_true",
+        help="Train without the rt_* same-route history features (build_dataset.py adds them).",
+    )
+    parser.add_argument(
+        "--realtime-nan-fraction",
+        type=float,
+        default=0.3,
+        help=(
+            "Blank the rt_* features on this fraction of training rows so the model "
+            "also learns the no-history case (a route the app has not observed recently)."
+        ),
+    )
+    parser.add_argument(
         "--max-target-seconds",
         type=int,
         default=2400,
@@ -158,8 +173,10 @@ def experiment_dir(data_dir: Path, run_id: str) -> Path:
     return path
 
 
-def feature_columns(with_api_feature: bool) -> list[str]:
+def feature_columns(with_api_feature: bool, realtime_features: bool = True) -> list[str]:
     columns = [*NUMERIC_FEATURES, *CATEGORICAL_FEATURES]
+    if realtime_features:
+        columns = [*NUMERIC_FEATURES, *REALTIME_FEATURES, *CATEGORICAL_FEATURES]
     if with_api_feature:
         columns.append("api_target_seconds_to_arrival")
     return columns
@@ -193,6 +210,25 @@ def to_pandas(
     y = selected[target_column]
     x = selected.drop(columns=[target_column])
     return x, y
+
+
+def blank_realtime_features(
+    x_train: pd.DataFrame, fraction: float, seed: int
+) -> pd.DataFrame:
+    """Set every rt_* feature to NaN on a random `fraction` of rows.
+
+    The dataset has full 60-second position coverage, so the rt_* columns are almost
+    never missing in training; the live app, however, only has history for routes
+    it has polled recently. Without this the model never sees the no-history case
+    it will meet in production."""
+    columns = [c for c in REALTIME_FEATURES if c in x_train.columns]
+    if not columns or fraction <= 0:
+        return x_train
+    rng = np.random.default_rng(seed)
+    mask = rng.random(len(x_train)) < fraction
+    x_train = x_train.copy()
+    x_train.loc[mask, columns] = np.nan
+    return x_train
 
 
 def validation_split(
@@ -254,7 +290,9 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
     test_dates = parse_test_dates(args.test_dates) or set()
     train_dates = [item for item in service_dates if item not in test_dates]
 
-    columns = feature_columns(args.with_api_feature)
+    realtime = not args.no_realtime_features
+    columns = feature_columns(args.with_api_feature, realtime)
+    numeric_features = [*NUMERIC_FEATURES, *REALTIME_FEATURES] if realtime else NUMERIC_FEATURES
     load_columns = (
         sorted(set(columns) | set(ENCODING_SUPPORT_COLUMNS)) if args.target_encoding else None
     )
@@ -296,7 +334,7 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
             te_folds=5,
             te_smoothing=50.0,
             seed=args.seed,
-            numeric_features=NUMERIC_FEATURES,
+            numeric_features=numeric_features,
             encoding_specs=SERVABLE_ENCODING_SPECS,
             route_agnostic_specs=SERVABLE_ROUTE_AGNOSTIC_SPECS,
         )
@@ -314,6 +352,8 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
     x_train, y_train, x_valid, y_valid = validation_split(
         train_frame, target_column, model_a_columns, cat_dtypes
     )
+    if realtime:
+        x_train = blank_realtime_features(x_train, args.realtime_nan_fraction, args.seed)
     x_test, _ = to_pandas(test_frame, model_a_columns, target_column, cat_dtypes)
 
     # 실제 train split에 1행 이상 존재한 route만. pandas_categorical(train∪test)과 달리
@@ -358,6 +398,9 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         "sampling_policy": split.sampling_policy,
         "split_policy": split.split_policy,
         "max_target_seconds": args.max_target_seconds,
+        "realtime_features": [c for c in REALTIME_FEATURES if c in model_a_columns],
+        "realtime_nan_fraction": args.realtime_nan_fraction if realtime else None,
+        "realtime_history_minutes": int(HISTORY_WINDOW.total_seconds() // 60) if realtime else None,
         "train_rows": split.train.height,
         "test_rows": split.test.height,
         "training_route_categories": training_route_categories,

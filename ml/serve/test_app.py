@@ -449,3 +449,147 @@ def test_plain_model_isolates_untrained_route(monkeypatch, model_dir):
         by_id = {r["request_id"]: r for r in res.json()["results"]}
         assert by_id["r1"]["status"] == "AVAILABLE"
         assert by_id["bad"]["status"] == "UNSUPPORTED_ROUTE"
+
+
+# --- real-time (route history) features -------------------------------------
+
+from datetime import datetime, timezone  # noqa: E402
+
+from realtime_features import REALTIME_FEATURES, compute_realtime_features  # noqa: E402
+
+RT_FEATURES = [*RAW_FEATURES, *REALTIME_FEATURES, "route_id"]
+
+
+def _build_realtime_model(model_dir: Path) -> lgb.Booster:
+    rows = []
+    for i in range(300):
+        row = {f: float((i * 7 + k) % 50) for k, f in enumerate(RAW_FEATURES)}
+        for k, f in enumerate(REALTIME_FEATURES):
+            row[f] = float((i * 3 + k) % 400) if i % 4 else float("nan")
+        row["route_id"] = ROUTES[i % len(ROUTES)]
+        row["y"] = 120 + (i % 600)
+        rows.append(row)
+    frame = pd.DataFrame(rows)
+    frame["route_id"] = frame["route_id"].astype("category")
+    booster = lgb.train(
+        {"objective": "mae", "num_leaves": 7, "verbose": -1},
+        lgb.Dataset(frame[RT_FEATURES], frame["y"], categorical_feature=["route_id"]),
+        num_boost_round=20,
+    )
+    model_dir.mkdir(parents=True, exist_ok=True)
+    booster.save_model(str(model_dir / "model.txt"))
+    (model_dir / "training_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "with_api_feature": False,
+                "feature_list": RT_FEATURES,
+                "model_version": "test-rt-model-v1",
+                "realtime_features": REALTIME_FEATURES,
+            }
+        )
+    )
+    return booster
+
+
+@pytest.fixture()
+def realtime_model_dir(tmp_path) -> tuple[Path, lgb.Booster]:
+    d = tmp_path / "rt_experiment"
+    return d, _build_realtime_model(d)
+
+
+T0 = datetime(2026, 10, 30, 9, 0, 0)
+
+
+def _epoch(dt: datetime) -> int:
+    return int(dt.replace(tzinfo=timezone.utc).timestamp())
+
+
+def _route_history() -> list[dict]:
+    """Leader L one section per minute from 09:00; follower F every 2 minutes from 09:10."""
+    obs = [{"vehicle_id": "L", "section_order": k, "snapshot_at": _epoch(T0.replace(minute=k - 1))}
+           for k in range(1, 13)]
+    obs += [{"vehicle_id": "F", "section_order": k, "snapshot_at": _epoch(T0.replace(minute=10 + 2 * (k - 1)))}
+            for k in range(1, 4)]
+    return obs
+
+
+def _rt_item(request_id: str, with_identity: bool = True) -> dict:
+    item = _item(request_id, route="143", current_section_order=3, target_seq=6)
+    if with_identity:
+        item["vehicle_id"] = "F"
+        item["snapshot_at"] = _epoch(T0.replace(minute=14))
+    return item
+
+
+def _offline_prediction(booster: lgb.Booster, item: dict, history: list[dict] | None) -> float:
+    raw = {f: [float(item["features"][f])] for f in RAW_FEATURES}
+    if history is None:
+        rt = {f: [float("nan")] for f in REALTIME_FEATURES}
+    else:
+        hist = pl.DataFrame(
+            {
+                "route_id": ["143"] * len(history),
+                "vehicle_identity": [h["vehicle_id"] for h in history],
+                "snapshot_at": [datetime.fromtimestamp(h["snapshot_at"], tz=timezone.utc).replace(tzinfo=None) for h in history],
+                "current_section_order": [h["section_order"] for h in history],
+            }
+        )
+        query = pl.DataFrame(
+            {
+                "route_id": ["143"],
+                "vehicle_identity": [item["vehicle_id"]],
+                "snapshot_at": [datetime.fromtimestamp(item["snapshot_at"], tz=timezone.utc).replace(tzinfo=None)],
+                "current_section_order": [3],
+                "target_seq": [6],
+            }
+        )
+        rt = compute_realtime_features(hist, query).to_dict(as_series=False)
+    frame = pd.DataFrame({**raw, **rt, "route_id": ["143"]})
+    frame["route_id"] = pd.Categorical(frame["route_id"], categories=booster.pandas_categorical[0])
+    return float(booster.predict(frame[RT_FEATURES])[0])
+
+
+def test_realtime_metadata(monkeypatch, realtime_model_dir):
+    model_dir, _ = realtime_model_dir
+    with _client(monkeypatch, str(model_dir)) as client:
+        body = client.get("/metadata").json()
+        assert body["realtime_features"] == REALTIME_FEATURES
+        assert body["realtime_history_minutes"] == 90
+
+
+def test_realtime_client_need_not_send_rt_features(monkeypatch, realtime_model_dir):
+    model_dir, booster = realtime_model_dir
+    with _client(monkeypatch, str(model_dir)) as client:
+        res = client.post("/predict", json={"items": [_rt_item("r0", with_identity=False)]})
+        assert res.status_code == 200
+        result = res.json()["results"][0]
+        assert result["status"] == "AVAILABLE"
+        # no identity, no history -> the model's NaN (no-history) path
+        assert result["seconds_to_arrival"] == pytest.approx(
+            _offline_prediction(booster, _rt_item("r0", with_identity=False), None), abs=1e-6)
+
+
+def test_realtime_prediction_matches_offline_feature_pipeline(monkeypatch, realtime_model_dir):
+    """Serving derives rt_* from route_history with the same function build_dataset.py
+    used, so a served prediction equals the offline one for the same observation."""
+    model_dir, booster = realtime_model_dir
+    item = _rt_item("r0")
+    history = _route_history()
+    with _client(monkeypatch, str(model_dir)) as client:
+        res = client.post("/predict", json={"items": [item], "route_history": {"143": history}})
+        assert res.status_code == 200
+        served = res.json()["results"][0]["seconds_to_arrival"]
+        expected = _offline_prediction(booster, item, history)
+        assert served == pytest.approx(expected, abs=1e-6)
+        # the history actually changed the answer (rt features reached the booster)
+        assert served != pytest.approx(_offline_prediction(booster, item, None), abs=1e-6)
+
+
+def test_realtime_history_for_other_route_is_ignored(monkeypatch, realtime_model_dir):
+    model_dir, booster = realtime_model_dir
+    item = _rt_item("r0")
+    with _client(monkeypatch, str(model_dir)) as client:
+        res = client.post("/predict", json={"items": [item], "route_history": {"999": _route_history()}})
+        assert res.json()["results"][0]["seconds_to_arrival"] == pytest.approx(
+            _offline_prediction(booster, item, None), abs=1e-6)

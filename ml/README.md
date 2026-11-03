@@ -140,6 +140,22 @@ day_of_week = 1(월) ~ 7(일)
 is_weekend = day_of_week in (6, 7)
 ```
 
+실시간 컬럼(`rt_*`, `realtime_features.py`): 같은 노선의 위치 이력에서 라벨 없이 만든다.
+
+```text
+rt_elapsed_in_section   이 차량이 현재 구간에 들어온 뒤 지난 시간(초)
+rt_own_recent_pace      최근 ≤5개 구간의 구간당 소요시간
+rt_headway              앞차보다 얼마나 늦게 현재 구간에 들어왔는가
+rt_leader_dur           앞차가 현재 구간→목표 정류장을 지나는 데 걸린 시간
+rt_leader_elapsed_open  앞차가 아직 목표에 못 갔으면 현재 구간 진입 후 경과 시간
+rt_leader2_dur          두 대 앞 버스의 같은 구간 소요시간
+rt_leader_age           앞차가 목표에 도착한 지 얼마나 됐는가
+```
+
+모든 조회는 스냅샷 시각 이전·90분 이내(`HISTORY_WINDOW`)로 묶여 있어서, serving 이 Java 앱의 최근
+이력으로 같은 함수를 돌리면 같은 값이 나온다. 이력이 없으면 NaN — `train.py`는 학습 행의 일부
+(`--realtime-nan-fraction`, 기본 0.3)에서 `rt_*`를 비워 그 경우도 학습시킨다.
+
 ## Validate
 
 archive와 dataset 품질을 검증한다.
@@ -270,10 +286,16 @@ ML_MODEL_PATH=data/experiments/lgbm_2026-06-10_label_20260612T080252Z \
 
 - `GET /health` — 모델 로드 여부. 없으면 503.
 - `GET /metadata` — `model_version`, `feature_list`, `route_count` 등 계약.
-- `POST /predict` — `{"items":[{"request_id","features":{...}}]}`. feature 키는 학습과 동일.
+- `POST /predict` — `{"items":[{"request_id","features":{...},"vehicle_id","snapshot_at"}],"route_history":{...}}`.
+  feature 키는 학습과 동일하되 `rt_*`는 보내지 않는다.
   - 응답은 **`request_id`로 결합**: `{"results":[{"request_id","status","seconds_to_arrival","model_version"}]}`.
   - feature **키 누락**은 HTTP 422(요청 거부), 존재하는 키의 **null 값은 허용**(NaN), **미등록 route_id**는
     그 item만 `UNSUPPORTED_ROUTE`(나머지는 계속 예측).
+  - `rt_*` 피처는 serve 가 `route_history`(노선별 최근 관측 `{vehicle_id, section_order, snapshot_at(epoch s)}`
+    목록, Java 앱이 Redis ZSET `bus:ml:hist:{routeId}`에 쌓음)와 item 의 `vehicle_id`·`snapshot_at`으로
+    `realtime_features.compute_realtime_features`를 돌려 만든다 — 학습(`build_dataset.py`)과 같은 함수.
+    둘 중 하나라도 없으면 그 item 의 `rt_*`는 NaN(학습 때 본 경우). `/metadata`의 `realtime_features`·
+    `realtime_history_minutes`로 모델이 쓰는 피처와 필요한 이력 길이를 알 수 있다.
 
 테스트:
 

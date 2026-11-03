@@ -8,6 +8,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import okhttp3.mockwebserver.RecordedRequest;
+import watoo.grd.nextroute.application.bus.port.out.BusRouteObservationHistoryPort;
 import watoo.grd.nextroute.application.route.config.MlPredictorProperties;
 import watoo.grd.nextroute.application.route.exception.MlPredictionException;
 import watoo.grd.nextroute.application.route.port.out.MlArrivalPredictorPort.MlFeatureVector;
@@ -16,6 +20,7 @@ import watoo.grd.nextroute.application.route.port.out.MlArrivalPredictorPort.MlP
 
 import java.io.IOException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -159,5 +164,61 @@ class MlArrivalPredictorAdapterTest {
     void TC_빈_입력은_빈_결과() {
         assertThat(adapter.predict(List.of())).isEmpty();
         assertThat(server.getRequestCount()).isZero();
+    }
+
+    @Test
+    void TC_요청에_차량_관측시각과_노선_이력을_싣는다() throws Exception {
+        MlPredictorProperties properties = new MlPredictorProperties();
+        properties.setBaseUrl(server.url("/").toString().replaceAll("/$", ""));
+        BusRouteObservationHistoryPort history = new BusRouteObservationHistoryPort() {
+            @Override
+            public void append(String routeId, List<watoo.grd.nextroute.application.bus.dto.BusPositionInfo> positions) {
+            }
+
+            @Override
+            public List<Observation> recent(String routeId) {
+                return routeId.equals("143")
+                        ? List.of(new Observation("L", 3, 1780718340L))
+                        : List.of();
+            }
+        };
+        MlArrivalPredictorAdapter withHistory = new MlArrivalPredictorAdapter(
+                RestClient.builder().build(), properties,
+                new watoo.grd.nextroute.common.config.JdkHttpClientMetrics(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
+                history);
+        server.enqueue(json("""
+                {"results":[
+                  {"request_id":"a","status":"AVAILABLE","seconds_to_arrival":300.5,"model_version":"v1"},
+                  {"request_id":"b","status":"UNSUPPORTED_ROUTE","seconds_to_arrival":null,"model_version":"v1"}
+                ]}"""));
+
+        withHistory.predict(List.of(
+                new MlFeatureVector("a", Map.of("route_id", "143"), "F", Instant.ofEpochSecond(1780718400L)),
+                new MlFeatureVector("b", Map.of("route_id", "999"))));
+
+        RecordedRequest recorded = server.takeRequest(1, TimeUnit.SECONDS);
+        JsonNode body = new ObjectMapper().readTree(recorded.getBody().readUtf8());
+        assertThat(body.get("items").get(0).get("vehicle_id").asText()).isEqualTo("F");
+        assertThat(body.get("items").get(0).get("snapshot_at").asLong()).isEqualTo(1780718400L);
+        assertThat(body.get("items").get(1).get("vehicle_id").isNull()).isTrue();
+        JsonNode routeHistory = body.get("route_history");
+        assertThat(routeHistory.has("999")).isFalse();  // 이력 없는 노선은 싣지 않는다
+        JsonNode obs = routeHistory.get("143").get(0);
+        assertThat(obs.get("vehicle_id").asText()).isEqualTo("L");
+        assertThat(obs.get("section_order").asInt()).isEqualTo(3);
+        assertThat(obs.get("snapshot_at").asLong()).isEqualTo(1780718340L);
+    }
+
+    @Test
+    void TC_이력_기능이_꺼지면_route_history를_싣지_않는다() throws Exception {
+        server.enqueue(json("""
+                {"results":[{"request_id":"a","status":"AVAILABLE","seconds_to_arrival":300.5,"model_version":"v1"}]}"""));
+
+        adapter.predict(vectors("a"));
+
+        RecordedRequest recorded = server.takeRequest(1, TimeUnit.SECONDS);
+        JsonNode body = new ObjectMapper().readTree(recorded.getBody().readUtf8());
+        assertThat(body.get("route_history").isNull()).isTrue();
     }
 }

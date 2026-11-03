@@ -12,6 +12,13 @@ from typing import Any
 import polars as pl
 from dotenv import load_dotenv
 
+from realtime_features import (
+    REALTIME_FEATURES,
+    TRIP_INDEX_COLUMN,
+    add_realtime_features,
+    assign_trip_index,
+)
+
 
 SCHEMA_VERSION = 2
 QUERY_VERSION = "v1"
@@ -484,28 +491,9 @@ def dataset_for_route(
         subset=["position_raw_id", "target_seq"], keep="first", maintain_order=True
     )
 
-    return attach_weather(first_arrival, weather).select(dataset_columns())
-
-
-TRIP_INDEX_COLUMN = "_trip_index"
-# A new trip starts when section_order falls back by more than this many sections
-# (lap reset / turnaround), or when the vehicle goes silent for longer than the gap.
-TRIP_BREAK_SECTION_DROP = 2
-TRIP_BREAK_GAP = timedelta(minutes=20)
-
-
-def assign_trip_index(position: pl.LazyFrame) -> pl.LazyFrame:
-    """Number each vehicle's consecutive snapshots into trips (0, 1, 2, ...)."""
-    keys = ["route_id", "vehicle_identity"]
-    previous_order = pl.col("current_section_order").shift(1).over(keys)
-    previous_time = pl.col("snapshot_at").shift(1).over(keys)
-    is_break = (
-        (pl.col("current_section_order") < previous_order - TRIP_BREAK_SECTION_DROP)
-        | ((pl.col("snapshot_at") - previous_time) > TRIP_BREAK_GAP)
-    ).fill_null(True)
-    return position.sort([*keys, "snapshot_at", "position_raw_id"]).with_columns(
-        (is_break.cast(pl.Int32).cum_sum().over(keys) - 1).alias(TRIP_INDEX_COLUMN)
-    )
+    # rt_* columns are added by build_dataset() after collect (they need the route's
+    # position history as a DataFrame), so this lazy plan stops at the base columns.
+    return attach_weather(first_arrival, weather).select(base_dataset_columns())
 
 
 def assign_label_trip_index(label: pl.LazyFrame, position: pl.LazyFrame) -> pl.LazyFrame:
@@ -531,6 +519,12 @@ def assign_label_trip_index(label: pl.LazyFrame, position: pl.LazyFrame) -> pl.L
 
 
 def dataset_columns() -> list[str]:
+    columns = base_dataset_columns()
+    index = columns.index("api_target_seconds_to_arrival")
+    return [*columns[:index], *REALTIME_FEATURES, *columns[index:]]
+
+
+def base_dataset_columns() -> list[str]:
     return [
         "service_date",
         "snapshot_at",
@@ -698,6 +692,16 @@ def build_dataset(
             if route_frame.is_empty():
                 print(f"[route] {route_id}: rows=0")
                 continue
+            # Same-route position history (positions only, no labels) -> rt_* columns.
+            # Serving recomputes these from the Java app's rolling history with the
+            # same function, so the dataset carries exactly what the model will see.
+            history = (
+                positions["prepared"]
+                .filter(pl.col("route_id") == route_id)
+                .select("route_id", "vehicle_identity", "snapshot_at", "current_section_order")
+                .collect(engine="streaming")
+            )
+            route_frame = add_realtime_features(route_frame, history).select(dataset_columns())
 
             part_path = output_dir / f"part-{part_index:04d}.parquet"
             route_frame.write_parquet(part_path)
