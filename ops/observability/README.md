@@ -90,7 +90,7 @@ ssh vps 'grep -rn "actuator\|:8080" /etc/nginx /root/apps/nextroute /etc/systemd
 
 Grafana 알림이 울리면 그 시각의 로그·메트릭을 모아 원인 가설을 만드는 서비스. 코드 `alert-analyzer/`, 플랜 `docs/plan/alert-analyzer/PLAN.md`.
 
-- 운영은 아직 **DRY_RUN**: 맥락만 수집해 로그(`{app="alert-analyzer"}`)로 남긴다. `ANALYZER_DRY_RUN=false` 면 Claude(`claude-sonnet-5-5`)에 마스킹된 맥락을 보내 원인 가설을 받고, 근거 id 를 검증한 뒤 알림의 Slack 스레드에 답글을 단다(스레드를 못 찾으면 별도 메시지). 켜는 것은 PR-3
+- **운영 라이브(2026-11-03, `ANALYZER_DRY_RUN=false`)**: Claude(`claude-sonnet-5-5`)에 마스킹된 맥락을 보내 원인 가설을 받고, 근거 id 를 검증한 뒤 알림의 Slack 스레드에 답글을 단다(스레드를 못 찾으면 별도 메시지). 스레드는 Slack 연동 `text` 끝의 `fp: <fingerprint>` 줄로 찾는다(`contact-points.yaml`). `ANALYZER_DRY_RUN=true` 로 되돌리면 맥락만 수집해 로그(`{app="alert-analyzer"}`)로 남긴다
 - 실패해도 알림은 그대로: LLM 오류·거절·시간 초과는 스레드에 "AI 원인 분석 실패" 한 줄, Slack 오류는 로그만. 하루 상한(`ANALYZER_DAILY_LIMIT`, 기본 30) 넘으면 하루 한 번 안내
 - 알림 경로와 분리: Grafana 가 Slack 과 분석기에 따로 보낸다. 분석기가 죽어도 Slack 알림은 간다
 - 수집: 로거별 WARN/ERROR 정확 집계(창 vs 직전 60분) → NEW/SPIKE 로거만 작은 표본, Prometheus 스냅샷, 재시작(`process_start_time_seconds`)

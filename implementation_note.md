@@ -6204,6 +6204,34 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결
 - 첫 DAU 행은 다음 앱 요청 때. 내일 `user_daily_activity` 행·대시보드 DAU 확인
 
+## 2026-11-03 장애 알림 AI 분석기 PR-3 켜기 (feat/alert-analyzer-enable)
+
+### 확정
+- Slack 연동 `text` = `{{ template "default.message" . }}` + 줄바꿈 + `fp: {{ range .Alerts }}{{ .Fingerprint }} {{ end }}`. 분석기 `find_thread` 는 채널 최근 메시지 JSON 전체에서 fingerprint 문자열 포함 여부로 찾으므로 attachment text 에 들어가도 된다
+- Grafana 12.0.0 템플릿 미리보기 API `POST /api/alertmanager/grafana/config/api/v1/templates/test` 로 발송 없이 렌더 확인 가능(fingerprint 는 라벨로 계산돼 입력값과 달라도 정상)
+
+### 배포
+- 2026-11-03 21:43 KST `contact-points.yaml` VPS 반영 + `POST /api/admin/provisioning/alerting/reload`("Alerting config reloaded"). 백업 `/root/apps/observability-backups/contact-points.yaml.bak-20261103-214325-pre-fp`. grafana 재생성 없음(env 변경 없음). 마이그레이션 없음
+- 반영 시점 운영 상태: 분석기 컨테이너는 아직 PR-1 이미지(digest 81901f7c, 10-26 18:12) + `ANALYZER_DRY_RUN=true`. env 에 `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID` 없음 → 사용자 작업 대기
+
+### 미결
+- 사용자: Slack 봇 토큰(chat:write, channels:history, 비공개면 groups:history), 봇 채널 초대, 채널 ID. VPS env 에 직접 넣기 권장(대화 기록 평문 방지)
+- 사용자: Anthropic 키 재발급(10-26 대화에 평문으로 붙여넣은 키가 VPS 에 들어 있음)
+
+### 배포 (이어서)
+- 2026-11-03 21:56 KST `env/alert-analyzer.env` 에 `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID=C0CCXF6UGN4` 추가, `ANALYZER_DRY_RUN=false`, `docker compose up -d --no-deps alert-analyzer`(이미지 fd095ea6 = #528 빌드 10-26 22:14). 기동 로그 `dry_run=False live=True daily_limit=30`, RSS 88MiB/192MiB, 재시작 0. 백업 `alert-analyzer.env.bak-20261103-*-pre-live`
+- 임시 규칙 `nr-temp-fp`(vector(42), 라벨 app=api) 21:56 추가 → 21:57:40 분석기 수신 → Claude 200 → `conversations.history` 에서 fp 발견 → `chat.postMessage` 스레드. 로그 `categories=[] unknown=True invalid_evidence=0/0 tokens=4101/45 cost_usd=0.0087 elapsed_s=3.4 threaded=True`. Slack 확인: 알림 메시지 `reply_count=1`. 22:00 `deleteRules` + reload, 규칙 5개만 남음
+
+### 함정
+- Slack 봇 토큰 권한은 앱 설정에서 scope 추가만으로는 안 바뀜 ← OAuth 토큰은 설치 시점 scope 고정 / 가드: `auth.test` 응답 헤더 `x-oauth-scopes` 로 실제 권한 확인(처음엔 `incoming-webhook` 뿐이었음), "Reinstall to Workspace" 후 재확인
+- `/invite @nextroute-alert` 가 Slackbot "채널에 없습니다" 로 끝남 ← 명령이 아니라 멘션 메시지로 나감 / 가드: 채널 상세 > 통합 > 앱 추가, 성공하면 `bot_add` 시스템 메시지
+- 원격 zsh 에서 `read -p` 실패("no coprocess") / 가드: `ssh -t vps "bash -c '…'"`
+
+### 미결
+- 봇 토큰과 Anthropic 키 둘 다 대화 기록에 평문 → 재발급 권고(기능 동작과 무관)
+
+### 검증
+- 위 배포 절의 실물 확인이 검증. 코드 변경 없음(yaml, 문서만) → 테스트 실행 없음
 ## 2026-11-03 사용 통계: 토스 사용자 제외 (fix/usage-exclude-toss)
 ### 확정
 - 사용자 지시: 토스(앱인토스) 요청은 통계에서 뺀다. 규칙 = 토스 계정이 하나라도 있는 user_id 제외(`user_id not in (select user_id from auth_identity where provider='TOSS')`). 토스·다른 계정을 함께 가진 사용자는 0명(운영 확인). 신규 설치는 원래 DEVICE 만이라 변화 없음, 일별 신규 계정에서 TOSS 줄 제거
