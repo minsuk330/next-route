@@ -6188,6 +6188,60 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 배포
 - 운영 DB 에 `CREATE ROLE grafana_ro`(DDL) 필요 — 사용자 확인 후. 순서: 백업 → role → env → compose 3줄 → scp(datasources·usage.json) → grafana `--no-deps --force-recreate`
 
+## 2026-11-03 사용 통계 배포 (#531·#532, 사용자 승인 "둘 다 지금 진행")
+### 배포
+- 21:26 api·worker `nextroute:20261103-212613-f64caa36`(main f64caa36). 직전 진행 여정 0. jar 2MB×70 조각 업로드, sha256 `1b7b7207…1e0c` 일치. 백업 `app.jar.bak-20261103-212613-pre-f64caa36`(=d7f21ded). 롤백 = 그 jar 복원 + `DEPLOY_REVISION=d7f21ded ./deploy.sh all` 또는 `./deploy.sh rollback-api`·`rollback-worker`
+- V74 Flyway 자동 적용(flyway 74 success). 배포 후 5분 api·worker ERROR 0
+- 21:28 Grafana: 백업 `/root/apps/observability-backups/observability-20261103-212851-pre-usage-stats.tgz`, `compose.yaml.bak-20261103-212851-pre-usage-stats`. role `grafana_ro` 생성(비밀번호는 VPS 에서 생성해 `env/grafana.env` `GRAFANA_PG_PASSWORD` 에만, 출력 안 함) → compose grafana 블록 networks 3줄(추가만) → datasources.yaml·usage.json 복사 → grafana `--no-deps --force-recreate`
+- 되돌리기: tgz 복원 + grafana 재생성, `DROP OWNED BY grafana_ro; DROP ROLE grafana_ro;`
+### 검증
+- 데이터소스 health "Database Connection OK", 대시보드 uid `nextroute-usage` 로드, 패널 10개 쿼리 전부 오류 없음(DAU 계열 4개는 아직 0행)
+- role: CONNECTION LIMIT 3, `{default_transaction_read_only=on,statement_timeout=10s}`, 권한 = 3표 SELECT 만. `SET ROLE grafana_ro` 로 `users` 조회 → permission denied
+### 함정
+- VPS 적용 스크립트 `set -o pipefail` + `diff | grep` → diff 가 차이 있음(1)으로 스크립트가 중간 종료. role·env·compose 삽입까지만 된 상태에서 나머지를 이어 실행. 다음엔 `diff … || true`
+- Grafana `/api/ds/query` 가 오류면 wget 은 본문 없이 실패 → 권한 확인은 DB 에서 `SET ROLE` 로
+- grafana 기동 로그의 `plugin table is already registered`·`provisioning/plugins` 디렉터리 없음 error 는 기존부터(이번 변경 무관)
+### 미결
+- 첫 DAU 행은 다음 앱 요청 때. 내일 `user_daily_activity` 행·대시보드 DAU 확인
+
+## 2026-11-03 장애 알림 AI 분석기 PR-3 켜기 (feat/alert-analyzer-enable)
+
+### 확정
+- Slack 연동 `text` = `{{ template "default.message" . }}` + 줄바꿈 + `fp: {{ range .Alerts }}{{ .Fingerprint }} {{ end }}`. 분석기 `find_thread` 는 채널 최근 메시지 JSON 전체에서 fingerprint 문자열 포함 여부로 찾으므로 attachment text 에 들어가도 된다
+- Grafana 12.0.0 템플릿 미리보기 API `POST /api/alertmanager/grafana/config/api/v1/templates/test` 로 발송 없이 렌더 확인 가능(fingerprint 는 라벨로 계산돼 입력값과 달라도 정상)
+
+### 배포
+- 2026-11-03 21:43 KST `contact-points.yaml` VPS 반영 + `POST /api/admin/provisioning/alerting/reload`("Alerting config reloaded"). 백업 `/root/apps/observability-backups/contact-points.yaml.bak-20261103-214325-pre-fp`. grafana 재생성 없음(env 변경 없음). 마이그레이션 없음
+- 반영 시점 운영 상태: 분석기 컨테이너는 아직 PR-1 이미지(digest 81901f7c, 10-26 18:12) + `ANALYZER_DRY_RUN=true`. env 에 `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID` 없음 → 사용자 작업 대기
+
+### 미결
+- 사용자: Slack 봇 토큰(chat:write, channels:history, 비공개면 groups:history), 봇 채널 초대, 채널 ID. VPS env 에 직접 넣기 권장(대화 기록 평문 방지)
+- 사용자: Anthropic 키 재발급(10-26 대화에 평문으로 붙여넣은 키가 VPS 에 들어 있음)
+
+### 배포 (이어서)
+- 2026-11-03 21:56 KST `env/alert-analyzer.env` 에 `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID=C0CCXF6UGN4` 추가, `ANALYZER_DRY_RUN=false`, `docker compose up -d --no-deps alert-analyzer`(이미지 fd095ea6 = #528 빌드 10-26 22:14). 기동 로그 `dry_run=False live=True daily_limit=30`, RSS 88MiB/192MiB, 재시작 0. 백업 `alert-analyzer.env.bak-20261103-*-pre-live`
+- 임시 규칙 `nr-temp-fp`(vector(42), 라벨 app=api) 21:56 추가 → 21:57:40 분석기 수신 → Claude 200 → `conversations.history` 에서 fp 발견 → `chat.postMessage` 스레드. 로그 `categories=[] unknown=True invalid_evidence=0/0 tokens=4101/45 cost_usd=0.0087 elapsed_s=3.4 threaded=True`. Slack 확인: 알림 메시지 `reply_count=1`. 22:00 `deleteRules` + reload, 규칙 5개만 남음
+
+### 함정
+- Slack 봇 토큰 권한은 앱 설정에서 scope 추가만으로는 안 바뀜 ← OAuth 토큰은 설치 시점 scope 고정 / 가드: `auth.test` 응답 헤더 `x-oauth-scopes` 로 실제 권한 확인(처음엔 `incoming-webhook` 뿐이었음), "Reinstall to Workspace" 후 재확인
+- `/invite @nextroute-alert` 가 Slackbot "채널에 없습니다" 로 끝남 ← 명령이 아니라 멘션 메시지로 나감 / 가드: 채널 상세 > 통합 > 앱 추가, 성공하면 `bot_add` 시스템 메시지
+- 원격 zsh 에서 `read -p` 실패("no coprocess") / 가드: `ssh -t vps "bash -c '…'"`
+
+### 미결
+- 봇 토큰과 Anthropic 키 둘 다 대화 기록에 평문 → 재발급 권고(기능 동작과 무관)
+
+### 검증
+- 위 배포 절의 실물 확인이 검증. 코드 변경 없음(yaml, 문서만) → 테스트 실행 없음
+## 2026-11-03 사용 통계: 토스 사용자 제외 (fix/usage-exclude-toss)
+### 확정
+- 사용자 지시: 토스(앱인토스) 요청은 통계에서 뺀다. 규칙 = 토스 계정이 하나라도 있는 user_id 제외(`user_id not in (select user_id from auth_identity where provider='TOSS')`). 토스·다른 계정을 함께 가진 사용자는 0명(운영 확인). 신규 설치는 원래 DEVICE 만이라 변화 없음, 일별 신규 계정에서 TOSS 줄 제거
+- 검색 요청 패널(Prometheus)은 사용자를 몰라 못 뺀다 — 설명에 표기(10월 이후 토스 활성 0)
+- 대시보드 JSON 생성기 `ops/observability/grafana/usage_dashboard.py` 를 저장소에 둔다
+### 함정
+- 처음 `not exists (… where t.user_id = user_id …)` 로 썼더니 비한정 `user_id` 가 안쪽 auth_identity 로 묶여 토스 계정이 하나만 있어도 전부 제외 → 운영 여정 패널 0행으로 발견. `NOT IN`(+ `user_id is not null`)으로 교체
+### 검증
+- 운영 읽기 전용: 기간 요약 28·266·8·19% 그대로(최근 30일 토스 여정 0), 일별 버킷 행 수 그대로
+- st-pg 예시(토스 user 3 포함): DAU·코호트·사용자별에서 토스 사용자만 빠짐
 ## 버스 수집기·알림 폴러 리더 한 대 + 수집 몫 Redis (2026-11-03, feat/bus-collector-leader, bus-multi-instance PR-1)
 플랜: `docs/plan/bus-multi-instance/PLAN.md`(L 티어, Opus 검토 18건 반영판).
 ### 확정

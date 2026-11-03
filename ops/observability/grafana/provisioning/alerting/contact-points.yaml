@@ -10,6 +10,11 @@ contactPoints:
         type: slack
         settings:
           url: $SLACK_ALERT_WEBHOOK_URL
+          # 기본 본문 뒤에 fingerprint 줄을 붙인다. 분석기(alert-analyzer)가 채널 최근 메시지에서
+          # 이 값을 찾아 같은 스레드에 답글을 단다. provisioning 이 $VAR 를 env 로 치환하므로 $ 금지.
+          text: |-
+            {{ template "default.message" . }}
+            fp: {{ range .Alerts }}{{ .Fingerprint }} {{ end }}
         disableResolveMessage: false
       # AI 분석기(alert-analyzer). 연동마다 따로 발송·재시도되므로 이쪽이 실패해도 Slack 알림은 간다.
       # 토큰은 env/grafana.env 와 env/alert-analyzer.env 의 ANALYZER_WEBHOOK_TOKEN (같은 값).

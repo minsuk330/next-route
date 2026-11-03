@@ -219,9 +219,9 @@ class TemplateStat:
 
 ## 8. PR-3 켜기 — 브랜치 `feat/alert-analyzer-enable`
 
-- [ ] 1. 사용자 작업 완료 확인(§11)
-- [ ] 2. `contact-points.yaml` slack 연동 text 에 fp 줄 추가(§4.2). 반영 전 렌더 확인, 이전 파일 백업
-- [ ] 3. VPS env: `ANALYZER_DRY_RUN=false` + 키들 → 분석기만 재생성 → 임시 규칙 `vector(42)` 로 "알림 → 스레드 답글" 실물 확인 → `deleteRules`
+- [x] 1. 사용자 작업 완료 확인(§11) — 2026-11-03 봇 권한 `chat:write`, `channels:history`, `groups:history`, 채널 초대, 토큰·채널 ID VPS env
+- [x] 2. `contact-points.yaml` slack 연동 text 에 fp 줄 추가(§4.2). 템플릿 미리보기 API 로 렌더 확인, 백업 후 반영 2026-11-03 21:43
+- [x] 3. VPS env: `ANALYZER_DRY_RUN=false` + 키들 → 분석기만 재생성(#528 이미지) → 임시 규칙 `vector(42)` 로 "알림 → 스레드 답글" 실물 확인(threaded=True, 3.4초, $0.0087) → `deleteRules` 2026-11-03 21:56~22:00
 - [ ] 4. 노트 + PR
 
 ## 9. 실패 경로 (경계 리뷰 대상)
@@ -242,7 +242,7 @@ class TemplateStat:
 
 | 플래그 | 코드 기본 | 운영 |
 |---|---|---|
-| `ANALYZER_DRY_RUN` | `true` (PR-1 은 false 거부) | PR-3 에서 false |
+| `ANALYZER_DRY_RUN` | `true` (PR-1 은 false 거부) | **false** (2026-11-03 PR-3) |
 | `ANALYZER_DAILY_LIMIT` | `30` | 그대로 |
 | webhook 연동 `disableResolveMessage` | `true` | |
 | 끄는 법 | contact point 의 webhook 연동 삭제 + reload (1~2단계 무영향) | |
