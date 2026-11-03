@@ -85,7 +85,7 @@ class JourneyTrackControllerTest {
     void directions() throws Exception {
         given(queryService.directions("1:RS_ACC1_S-1-0222")).willReturn(List.of(new TrackViews.Direction(
                 "1:RR_ACC1_S-1-02-1I", RoutingMode.SUBWAY, "서울2호선", "#00A23F", "내선", "교대(2호선)",
-                "1:RR_ACC1_S-1-02-1I::10", null, "1:RS_ACC1_S-1-0222", null)));
+                "1:RR_ACC1_S-1-02-1I::10", null, "1:RS_ACC1_S-1-0222", null, List.of("역삼", "선릉"))));
 
         mockMvc.perform(get("/api/journeys/track/stops/1:RS_ACC1_S-1-0222/patterns").with(authentication(user())))
                 .andExpect(status().isOk())
@@ -93,6 +93,7 @@ class JourneyTrackControllerTest {
                 .andExpect(jsonPath("$[0].mode").value("SUBWAY"))
                 .andExpect(jsonPath("$[0].patternCode").value("1:RR_ACC1_S-1-02-1I::10"))
                 .andExpect(jsonPath("$[0].boardStopGtfsId").value("1:RS_ACC1_S-1-0222"))
+                .andExpect(jsonPath("$[0].nextStopNames[1]").value("선릉"))
                 .andExpect(jsonPath("$[0].arrivalStopId").doesNotExist());
     }
 
@@ -129,14 +130,26 @@ class JourneyTrackControllerTest {
 
         given(queryService.stopsNear(37.5, 127.0, RoutingMode.SUBWAY)).willReturn(List.of(new TrackViews.Stop(
                 "1:RS_ACC1_S-1-0222", "강남(2호선)", 37.4981, 127.0281, RoutingMode.SUBWAY, 64,
-                null, null, "1002000222", "1002", "2호선")));
+                null, null, "1002000222", "1002", "2호선", List.of("서울2호선"), null)));
         mockMvc.perform(get("/api/journeys/track/stops/near?lat=37.5&lon=127.0&mode=SUBWAY")
                         .with(authentication(user())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].arrivalStationId").value("1002000222"))
                 .andExpect(jsonPath("$[0].lineId").value("1002"))
-                .andExpect(jsonPath("$[0].distanceMeters").value(64));
+                .andExpect(jsonPath("$[0].distanceMeters").value(64))
+                .andExpect(jsonPath("$[0].routeNames[0]").value("서울2호선"));
         verify(queryService).stopsNear(37.5, 127.0, RoutingMode.SUBWAY);
+
+        given(queryService.stopsNear(37.5, 127.0, RoutingMode.BUS)).willReturn(List.of(new TrackViews.Stop(
+                "1:BS_TAGO_SEB121000091", "강남역9번출구", 37.4975, 127.0273, RoutingMode.BUS, 54,
+                "121000091", "22009", null, null, null, List.of("146", "740"),
+                new TrackViews.Heading(List.of("1:BR_TAGO_SEB100100537::01"), List.of("서초동진흥아파트"), 249.0))));
+        mockMvc.perform(get("/api/journeys/track/stops/near?lat=37.5&lon=127.0&mode=BUS")
+                        .with(authentication(user())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].heading.patternCodes[0]").value("1:BR_TAGO_SEB100100537::01"))
+                .andExpect(jsonPath("$[0].heading.nextStopNames[0]").value("서초동진흥아파트"))
+                .andExpect(jsonPath("$[0].heading.bearingDegrees").value(249.0));
     }
 
     @Test
