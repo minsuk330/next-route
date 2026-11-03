@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.route.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import watoo.grd.nextroute.application.route.port.out.CrossInstanceFlightPort;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterAll;
@@ -104,7 +105,7 @@ class RouteSearchCacheIT {
         provider = mock(SearchTimeBusAdapter.class);
         redisCache = new RedisBusRealtimeCacheAdapter(redisTemplate, new ObjectMapper(), props, metrics);
         cache = new CachedSearchTimeBusAdapter(provider, redisCache, redisCache, metrics,
-                new SearchTimeBusProperties());
+                new SearchTimeBusProperties(), CrossInstanceFlightPort.none());
     }
 
     // ── 1. 수집기 write ↔ 검색 read 계약 ─────────────────────────────────────
@@ -193,7 +194,7 @@ class RouteSearchCacheIT {
                 new RedisBusRealtimeCacheAdapter(broken, new ObjectMapper(), props, metrics);
         CachedSearchTimeBusAdapter searchCache =
                 new CachedSearchTimeBusAdapter(provider, brokenCache, brokenCache, metrics,
-                new SearchTimeBusProperties());
+                new SearchTimeBusProperties(), CrossInstanceFlightPort.none());
 
         when(provider.getArrInfoByStop(anyString(), anyString(), anyInt()))
                 .thenReturn(BusQueryResult.ok(List.of(arrival(60))));
@@ -276,7 +277,7 @@ class RouteSearchCacheIT {
 
         CachedSearchTimeBusAdapter sweepSearchCache =
                 new CachedSearchTimeBusAdapter(sweepProvider, sweepCache, sweepCache, sweepMetrics,
-                        new SearchTimeBusProperties());
+                        new SearchTimeBusProperties(), CrossInstanceFlightPort.none());
 
         String key = "bus:search:arr:" + STOP + ":" + ROUTE + ":" + SEQ;
         List<Long> ages = new ArrayList<>();

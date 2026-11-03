@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.out.api.bus;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import watoo.grd.nextroute.application.route.port.out.CrossInstanceFlightPort;
 import watoo.grd.nextroute.application.route.config.SearchTimeBusProperties;
 import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,7 +37,7 @@ class CachedSearchTimeBusAdapterTest {
     @BeforeEach
     void setUp() {
         cache = new CachedSearchTimeBusAdapter(delegate, cacheRead, cacheWrite,
-                new RouteSearchMetrics(new SimpleMeterRegistry()), new SearchTimeBusProperties());
+                new RouteSearchMetrics(new SimpleMeterRegistry()), new SearchTimeBusProperties(), CrossInstanceFlightPort.none());
     }
 
     private BusPositionInfo pos(String vehId) {

@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.route.service;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import watoo.grd.nextroute.application.route.port.out.CrossInstanceFlightPort;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.SocketPolicy;
@@ -82,7 +83,7 @@ class RouteSearchRealtimeDeadlineIT {
         when(cacheRead.getArrivals(any(), any(), anyInt())).thenReturn(Optional.empty());
         CachedSearchTimeBusAdapter busPort = new CachedSearchTimeBusAdapter(
                 provider, cacheRead, mock(BusRealtimeCacheWritePort.class), metrics,
-                new SearchTimeBusProperties());
+                new SearchTimeBusProperties(), CrossInstanceFlightPort.none());
 
         TransferStopResolver resolver = mock(TransferStopResolver.class);
         when(resolver.resolveStop(any())).thenReturn(Optional.of(
