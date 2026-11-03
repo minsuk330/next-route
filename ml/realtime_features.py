@@ -148,21 +148,28 @@ def compute_realtime_features(history: pl.DataFrame, queries: pl.DataFrame) -> p
     )
     q = q.join(own, on=[*_KEYS, "current_section_order"], how="left")
 
-    # own recent pace: earliest usable entry within the last OWN_PACE_SECTIONS sections
+    # own recent pace: earliest usable entry within the last OWN_PACE_SECTIONS sections.
+    # Joined on the exact candidate sections (<= OWN_PACE_SECTIONS rows per query), not
+    # on the whole trip — a trip-wide join multiplies every query row by the trip's
+    # section count and ran a big service day out of memory.
     back = usable.select(*_KEYS, pl.col("k").alias("_bk"), pl.col("entered_at").alias("_bt"))
-    back = (
+    candidates = (
         q.select("_q", *_KEYS, "current_section_order", "snapshot_at")
-        .join(back, on=_KEYS, how="inner")
-        .filter(
-            (pl.col("_bk") < pl.col("current_section_order"))
-            & (pl.col("_bk") >= pl.col("current_section_order") - OWN_PACE_SECTIONS)
-            & (pl.col("_bt") >= pl.col("snapshot_at") - HISTORY_WINDOW)
+        .with_columns(
+            pl.int_ranges(
+                pl.col("current_section_order") - OWN_PACE_SECTIONS, pl.col("current_section_order")
+            )
+            .cast(pl.List(pl.Int32))
+            .alias("_bk")
         )
+        .explode("_bk")
+        .join(back, on=[*_KEYS, "_bk"], how="inner")
+        .filter(pl.col("_bt") >= pl.col("snapshot_at") - HISTORY_WINDOW)
         .sort("_bk")
         .group_by("_q", maintain_order=True)
         .agg(pl.col("_bk").first().alias("back_k"), pl.col("_bt").first().alias("own_tb"))
     )
-    q = q.join(back, on="_q", how="left")
+    q = q.join(candidates, on="_q", how="left")
 
     # leader: the latest other entry into section c before this vehicle's entry
     lead = usable.select(
