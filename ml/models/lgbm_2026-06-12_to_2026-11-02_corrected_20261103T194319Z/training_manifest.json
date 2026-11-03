@@ -1,0 +1,4404 @@
+{
+  "best_iteration": 1908,
+  "dataset_path": "/home/user/data_probe/full/dataset/service_date=2026-06-12,/home/user/data_probe/full/dataset/service_date=2026-06-13,/home/user/data_probe/full/dataset/service_date=2026-06-14,/home/user/data_probe/full/dataset/service_date=2026-06-15,/home/user/data_probe/full/dataset/service_date=2026-06-16,/home/user/data_probe/full/dataset/service_date=2026-06-17,/home/user/data_probe/full/dataset/service_date=2026-06-18,/home/user/data_probe/full/dataset/service_date=2026-06-19,/home/user/data_probe/full/dataset/service_date=2026-06-20,/home/user/data_probe/full/dataset/service_date=2026-06-21,/home/user/data_probe/full/dataset/service_date=2026-06-22,/home/user/data_probe/full/dataset/service_date=2026-06-23,/home/user/data_probe/full/dataset/service_date=2026-06-24,/home/user/data_probe/full/dataset/service_date=2026-06-25,/home/user/data_probe/full/dataset/service_date=2026-06-26,/home/user/data_probe/full/dataset/service_date=2026-06-27,/home/user/data_probe/full/dataset/service_date=2026-06-28,/home/user/data_probe/full/dataset/service_date=2026-06-29,/home/user/data_probe/full/dataset/service_date=2026-06-30,/home/user/data_probe/full/dataset/service_date=2026-07-01,/home/user/data_probe/full/dataset/service_date=2026-07-02,/home/user/data_probe/full/dataset/service_date=2026-07-03,/home/user/data_probe/full/dataset/service_date=2026-07-04,/home/user/data_probe/full/dataset/service_date=2026-07-05,/home/user/data_probe/full/dataset/service_date=2026-07-06,/home/user/data_probe/full/dataset/service_date=2026-07-07,/home/user/data_probe/full/dataset/service_date=2026-07-08,/home/user/data_probe/full/dataset/service_date=2026-07-09,/home/user/data_probe/full/dataset/service_date=2026-07-10,/home/user/data_probe/full/dataset/service_date=2026-07-11,/home/user/data_probe/full/dataset/service_date=2026-07-12,/home/user/data_probe/full/dataset/service_date=2026-07-13,/home/user/data_probe/full/dataset/service_date=2026-07-14,/home/user/data_probe/full/dataset/service_date=2026-07-15,/home/user/data_probe/full/dataset/service_date=2026-07-16,/home/user/data_probe/full/dataset/service_date=2026-07-17,/home/user/data_probe/full/dataset/service_date=2026-07-18,/home/user/data_probe/full/dataset/service_date=2026-07-19,/home/user/data_probe/full/dataset/service_date=2026-07-20,/home/user/data_probe/full/dataset/service_date=2026-07-21,/home/user/data_probe/full/dataset/service_date=2026-07-22,/home/user/data_probe/full/dataset/service_date=2026-07-23,/home/user/data_probe/full/dataset/service_date=2026-07-24,/home/user/data_probe/full/dataset/service_date=2026-07-25,/home/user/data_probe/full/dataset/service_date=2026-07-26,/home/user/data_probe/full/dataset/service_date=2026-07-27,/home/user/data_probe/full/dataset/service_date=2026-07-28,/home/user/data_probe/full/dataset/service_date=2026-07-29,/home/user/data_probe/full/dataset/service_date=2026-07-30,/home/user/data_probe/full/dataset/service_date=2026-07-31,/home/user/data_probe/full/dataset/service_date=2026-08-01,/home/user/data_probe/full/dataset/service_date=2026-08-02,/home/user/data_probe/full/dataset/service_date=2026-08-03,/home/user/data_probe/full/dataset/service_date=2026-08-04,/home/user/data_probe/full/dataset/service_date=2026-08-05,/home/user/data_probe/full/dataset/service_date=2026-08-06,/home/user/data_probe/full/dataset/service_date=2026-08-07,/home/user/data_probe/full/dataset/service_date=2026-08-08,/home/user/data_probe/full/dataset/service_date=2026-08-09,/home/user/data_probe/full/dataset/service_date=2026-08-15,/home/user/data_probe/full/dataset/service_date=2026-08-16,/home/user/data_probe/full/dataset/service_date=2026-08-17,/home/user/data_probe/full/dataset/service_date=2026-08-18,/home/user/data_probe/full/dataset/service_date=2026-08-19,/home/user/data_probe/full/dataset/service_date=2026-08-20,/home/user/data_probe/full/dataset/service_date=2026-08-21,/home/user/data_probe/full/dataset/service_date=2026-08-22,/home/user/data_probe/full/dataset/service_date=2026-08-23,/home/user/data_probe/full/dataset/service_date=2026-08-24,/home/user/data_probe/full/dataset/service_date=2026-08-25,/home/user/data_probe/full/dataset/service_date=2026-08-26,/home/user/data_probe/full/dataset/service_date=2026-08-27,/home/user/data_probe/full/dataset/service_date=2026-08-28,/home/user/data_probe/full/dataset/service_date=2026-08-29,/home/user/data_probe/full/dataset/service_date=2026-08-30,/home/user/data_probe/full/dataset/service_date=2026-08-31,/home/user/data_probe/full/dataset/service_date=2026-09-01,/home/user/data_probe/full/dataset/service_date=2026-09-02,/home/user/data_probe/full/dataset/service_date=2026-09-03,/home/user/data_probe/full/dataset/service_date=2026-09-04,/home/user/data_probe/full/dataset/service_date=2026-09-05,/home/user/data_probe/full/dataset/service_date=2026-09-06,/home/user/data_probe/full/dataset/service_date=2026-09-07,/home/user/data_probe/full/dataset/service_date=2026-09-08,/home/user/data_probe/full/dataset/service_date=2026-09-09,/home/user/data_probe/full/dataset/service_date=2026-09-10,/home/user/data_probe/full/dataset/service_date=2026-09-11,/home/user/data_probe/full/dataset/service_date=2026-09-12,/home/user/data_probe/full/dataset/service_date=2026-09-13,/home/user/data_probe/full/dataset/service_date=2026-09-14,/home/user/data_probe/full/dataset/service_date=2026-09-15,/home/user/data_probe/full/dataset/service_date=2026-09-16,/home/user/data_probe/full/dataset/service_date=2026-09-17,/home/user/data_probe/full/dataset/service_date=2026-09-18,/home/user/data_probe/full/dataset/service_date=2026-09-19,/home/user/data_probe/full/dataset/service_date=2026-09-20,/home/user/data_probe/full/dataset/service_date=2026-09-21,/home/user/data_probe/full/dataset/service_date=2026-09-22,/home/user/data_probe/full/dataset/service_date=2026-09-23,/home/user/data_probe/full/dataset/service_date=2026-09-24,/home/user/data_probe/full/dataset/service_date=2026-09-25,/home/user/data_probe/full/dataset/service_date=2026-09-26,/home/user/data_probe/full/dataset/service_date=2026-09-27,/home/user/data_probe/full/dataset/service_date=2026-09-28,/home/user/data_probe/full/dataset/service_date=2026-09-29,/home/user/data_probe/full/dataset/service_date=2026-09-30,/home/user/data_probe/full/dataset/service_date=2026-10-01,/home/user/data_probe/full/dataset/service_date=2026-10-02,/home/user/data_probe/full/dataset/service_date=2026-10-03,/home/user/data_probe/full/dataset/service_date=2026-10-04,/home/user/data_probe/full/dataset/service_date=2026-10-05,/home/user/data_probe/full/dataset/service_date=2026-10-06,/home/user/data_probe/full/dataset/service_date=2026-10-07,/home/user/data_probe/full/dataset/service_date=2026-10-08,/home/user/data_probe/full/dataset/service_date=2026-10-09,/home/user/data_probe/full/dataset/service_date=2026-10-10,/home/user/data_probe/full/dataset/service_date=2026-10-11,/home/user/data_probe/full/dataset/service_date=2026-10-12,/home/user/data_probe/full/dataset/service_date=2026-10-13,/home/user/data_probe/full/dataset/service_date=2026-10-14,/home/user/data_probe/full/dataset/service_date=2026-10-15,/home/user/data_probe/full/dataset/service_date=2026-10-16,/home/user/data_probe/full/dataset/service_date=2026-10-17,/home/user/data_probe/full/dataset/service_date=2026-10-18,/home/user/data_probe/full/dataset/service_date=2026-10-19,/home/user/data_probe/full/dataset/service_date=2026-10-20,/home/user/data_probe/full/dataset/service_date=2026-10-21,/home/user/data_probe/full/dataset/service_date=2026-10-22,/home/user/data_probe/full/dataset/service_date=2026-10-23,/home/user/data_probe/full/dataset/service_date=2026-10-24,/home/user/data_probe/full/dataset/service_date=2026-10-25,/home/user/data_probe/full/dataset/service_date=2026-10-26,/home/user/data_probe/full/dataset/service_date=2026-10-27,/home/user/data_probe/full/dataset/service_date=2026-10-28,/home/user/data_probe/full/dataset/service_date=2026-10-29,/home/user/data_probe/full/dataset/service_date=2026-10-30,/home/user/data_probe/full/dataset/service_date=2026-10-31,/home/user/data_probe/full/dataset/service_date=2026-11-01,/home/user/data_probe/full/dataset/service_date=2026-11-02",
+  "default_horizon_seconds": 5400,
+  "feature_list": [
+    "current_section_order",
+    "section_progress",
+    "current_section_distance",
+    "current_full_section_distance",
+    "next_stop_time",
+    "last_stop_time",
+    "congestion",
+    "gps_x",
+    "gps_y",
+    "target_seq",
+    "remaining_stop_count",
+    "hour_of_day",
+    "minute_of_day",
+    "day_of_week",
+    "is_weekend",
+    "is_holiday",
+    "is_pre_holiday",
+    "is_post_holiday",
+    "is_commute_morning",
+    "is_commute_evening",
+    "is_late_night",
+    "rt_elapsed_in_section",
+    "rt_own_recent_pace",
+    "rt_headway",
+    "rt_leader_dur",
+    "rt_leader_elapsed_open",
+    "rt_leader2_dur",
+    "rt_leader_age",
+    "current_position_ratio",
+    "target_position_ratio",
+    "remaining_stop_ratio",
+    "congestion_vs_route",
+    "approx_remaining_distance",
+    "minute_sin",
+    "minute_cos",
+    "dow_sin",
+    "dow_cos",
+    "route_total_stops",
+    "route_mean_congestion",
+    "route_mean_section_distance",
+    "route_train_rows",
+    "te_pace__route_id",
+    "te_pace__route_id__n",
+    "te_pace__route_id_hour_of_day",
+    "te_pace__route_id_hour_of_day__n",
+    "te_pace__route_id_current_section_order_target_seq",
+    "te_pace__route_id_current_section_order_target_seq__n",
+    "te_target__route_id_current_section_order_target_seq",
+    "te_target__route_id_current_section_order_target_seq__n",
+    "te_target__route_id_target_seq",
+    "te_target__route_id_target_seq__n",
+    "te_pace__route_id__x_stops",
+    "te_pace__route_id_hour_of_day__x_stops",
+    "te_pace__route_id_current_section_order_target_seq__x_stops"
+  ],
+  "feature_policy": {
+    "dropped_all_null_features": [
+      "temperature_c",
+      "precipitation_mm",
+      "humidity_pct",
+      "wind_speed_mps",
+      "is_raining",
+      "is_snowing"
+    ],
+    "encoding_serving_stats": {
+      "global_pace": 82.0,
+      "prior_pace_column": "_prior_pace",
+      "spec_order": [
+        "te_pace__route_id",
+        "te_pace__route_id_hour_of_day",
+        "te_pace__route_id_current_section_order_target_seq",
+        "te_target__route_id_current_section_order_target_seq",
+        "te_target__route_id_target_seq"
+      ],
+      "tables": {
+        "te_pace__route_id": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261103T194319Z/encoding_tables/te_pace__route_id.parquet",
+        "te_pace__route_id_current_section_order_target_seq": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261103T194319Z/encoding_tables/te_pace__route_id_current_section_order_target_seq.parquet",
+        "te_pace__route_id_hour_of_day": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261103T194319Z/encoding_tables/te_pace__route_id_hour_of_day.parquet",
+        "te_target__route_id_current_section_order_target_seq": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261103T194319Z/encoding_tables/te_target__route_id_current_section_order_target_seq.parquet",
+        "te_target__route_id_target_seq": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261103T194319Z/encoding_tables/te_target__route_id_target_seq.parquet"
+      }
+    },
+    "feature_count": 54,
+    "route_profile": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261103T194319Z/encoding_tables/route_profile.parquet",
+    "target_encoding": {
+      "fold_grouping": "arrival_label_event_id",
+      "folds": 5,
+      "prior": "hierarchical (route pace x remaining stops), not a global constant",
+      "smoothing": 50.0,
+      "specs": [
+        "pace:route_id",
+        "pace:route_id+hour_of_day",
+        "pace:route_id+current_section_order+target_seq",
+        "target:route_id+current_section_order+target_seq",
+        "target:route_id+target_seq"
+      ]
+    }
+  },
+  "generated_at": "2026-11-03T19:43:20.099682+00:00",
+  "git_commit": "c2be84dd0f48e7ea8719d0c9afb720713e52534a",
+  "leakage_columns_excluded": [
+    "api_estimated_arrival_at",
+    "corrected_arrival_at",
+    "label_arrival_at",
+    "api_target_seconds_to_arrival",
+    "corrected_target_seconds_to_arrival",
+    "label_target_seconds_to_arrival"
+  ],
+  "max_target_seconds": 5400,
+  "metrics": {
+    "lightgbm": {
+      "by_horizon": {
+        "1-5m": {
+          "count": 410722,
+          "mae": 38.31499756130689,
+          "p50_abs_error": 29.65753149714277,
+          "p90_abs_error": 81.5923632402786,
+          "rmse": 54.57216563398424
+        },
+        "10-20m": {
+          "count": 419405,
+          "mae": 92.31194671826829,
+          "p50_abs_error": 73.28965053684999,
+          "p90_abs_error": 192.17616581021403,
+          "rmse": 121.9712499584143
+        },
+        "20-40m": {
+          "count": 430883,
+          "mae": 178.00049682313596,
+          "p50_abs_error": 133.38282513628383,
+          "p90_abs_error": 378.4726117286749,
+          "rmse": 247.4802380506441
+        },
+        "5-10m": {
+          "count": 413680,
+          "mae": 62.006964746764965,
+          "p50_abs_error": 49.39079289983712,
+          "p90_abs_error": 129.71401001050174,
+          "rmse": 83.43633187575645
+        }
+      },
+      "by_label_source": {
+        "POSITION_STOP_FLAG_CORRECTED": {
+          "count": 1674690,
+          "mae": 93.63006508120036,
+          "p50_abs_error": 58.58227654632228,
+          "p90_abs_error": 214.1135044558855,
+          "rmse": 148.10123046722435
+        }
+      },
+      "overall": {
+        "count": 1674690,
+        "mae": 93.63006508120036,
+        "p50_abs_error": 58.58227654632228,
+        "p90_abs_error": 214.1135044558855,
+        "rmse": 148.10123046722435
+      },
+      "worst_routes": [
+        {
+          "count": 3253,
+          "mae": 175.6365533619012,
+          "p90_abs_error": 398.0859740276103,
+          "route_id": "100100001"
+        },
+        {
+          "count": 3713,
+          "mae": 171.51334870927053,
+          "p90_abs_error": 394.40456740083073,
+          "route_id": "112900007"
+        },
+        {
+          "count": 3279,
+          "mae": 162.39794506094313,
+          "p90_abs_error": 446.2646482365212,
+          "route_id": "112900009"
+        },
+        {
+          "count": 4569,
+          "mae": 161.73890629502864,
+          "p90_abs_error": 380.5430472418957,
+          "route_id": "100100607"
+        },
+        {
+          "count": 3551,
+          "mae": 160.30229765969653,
+          "p90_abs_error": 424.17742021872346,
+          "route_id": "100900008"
+        }
+      ]
+    }
+  },
+  "model_file": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261103T194319Z/model.txt",
+  "model_version": "lgbm_2026-06-12_to_2026-11-02_corrected_20261103T194319Z",
+  "n_estimators": 6000,
+  "num_leaves": 255,
+  "realtime_features": [
+    "rt_elapsed_in_section",
+    "rt_own_recent_pace",
+    "rt_headway",
+    "rt_leader_dur",
+    "rt_leader_elapsed_open",
+    "rt_leader2_dur",
+    "rt_leader_age"
+  ],
+  "realtime_history_minutes": 90,
+  "realtime_nan_fraction": 0.3,
+  "route_day_type_coverage": {
+    "routes_missing_day_type": {
+      "100100134": [
+        "saturday",
+        "sunday"
+      ],
+      "100100139": [
+        "saturday",
+        "sunday"
+      ],
+      "100100392": [
+        "saturday",
+        "sunday"
+      ],
+      "100100589": [
+        "saturday",
+        "sunday"
+      ],
+      "103900001": [
+        "saturday",
+        "sunday"
+      ],
+      "105900005": [
+        "saturday",
+        "sunday"
+      ],
+      "107900016": [
+        "saturday",
+        "sunday"
+      ],
+      "108900013": [
+        "saturday",
+        "sunday"
+      ],
+      "109900008": [
+        "saturday",
+        "sunday"
+      ],
+      "110900003": [
+        "saturday",
+        "sunday"
+      ],
+      "111900010": [
+        "saturday",
+        "sunday"
+      ],
+      "111900014": [
+        "saturday",
+        "sunday"
+      ],
+      "112000005": [
+        "saturday",
+        "sunday"
+      ],
+      "113000004": [
+        "saturday",
+        "sunday"
+      ],
+      "113900003": [
+        "saturday",
+        "sunday"
+      ],
+      "113900004": [
+        "saturday",
+        "sunday"
+      ],
+      "113900010": [
+        "saturday",
+        "sunday"
+      ],
+      "113900016": [
+        "saturday",
+        "sunday"
+      ],
+      "114900004": [
+        "saturday",
+        "sunday"
+      ],
+      "117900002": [
+        "saturday",
+        "sunday"
+      ],
+      "118900008": [
+        "saturday",
+        "sunday"
+      ],
+      "118900009": [
+        "saturday",
+        "sunday"
+      ],
+      "119900016": [
+        "saturday",
+        "sunday"
+      ],
+      "121900011": [
+        "saturday",
+        "sunday"
+      ],
+      "121900014": [
+        "saturday",
+        "sunday"
+      ],
+      "122900008": [
+        "saturday",
+        "sunday"
+      ],
+      "122900010": [
+        "saturday",
+        "sunday"
+      ],
+      "123900002": [
+        "saturday",
+        "sunday"
+      ]
+    },
+    "summary": {
+      "route_count": 527,
+      "routes_missing_day_type": 28,
+      "routes_with_all_day_types": 499
+    }
+  },
+  "route_horizon_policy": {
+    "bin_seconds": 600,
+    "min_rows": 100,
+    "p90_limit_seconds": 420,
+    "summary": {
+      "max_seconds": 5400,
+      "median_seconds": 3000,
+      "min_seconds": 1200,
+      "route_count": 527,
+      "routes_at_default": 113,
+      "routes_below_default": 414
+    }
+  },
+  "route_horizon_seconds": {
+    "100100001": 1200,
+    "100100006": 1800,
+    "100100007": 5400,
+    "100100008": 5400,
+    "100100009": 3000,
+    "100100010": 5400,
+    "100100012": 5400,
+    "100100014": 2400,
+    "100100017": 5400,
+    "100100018": 5400,
+    "100100019": 5400,
+    "100100020": 1800,
+    "100100021": 5400,
+    "100100022": 5400,
+    "100100023": 5400,
+    "100100024": 3000,
+    "100100025": 3000,
+    "100100026": 5400,
+    "100100027": 1800,
+    "100100029": 5400,
+    "100100030": 3600,
+    "100100031": 3600,
+    "100100032": 5400,
+    "100100033": 5400,
+    "100100034": 1800,
+    "100100036": 3000,
+    "100100037": 3000,
+    "100100038": 5400,
+    "100100039": 5400,
+    "100100042": 5400,
+    "100100043": 3000,
+    "100100044": 5400,
+    "100100046": 3000,
+    "100100047": 5400,
+    "100100048": 5400,
+    "100100049": 5400,
+    "100100051": 5400,
+    "100100052": 2400,
+    "100100053": 5400,
+    "100100055": 5400,
+    "100100056": 3000,
+    "100100057": 5400,
+    "100100061": 5400,
+    "100100062": 3000,
+    "100100063": 2400,
+    "100100064": 1800,
+    "100100068": 5400,
+    "100100070": 4200,
+    "100100071": 1800,
+    "100100073": 1800,
+    "100100075": 1200,
+    "100100076": 2400,
+    "100100077": 5400,
+    "100100078": 2400,
+    "100100079": 3600,
+    "100100080": 4800,
+    "100100082": 3600,
+    "100100083": 2400,
+    "100100084": 2400,
+    "100100085": 5400,
+    "100100086": 2400,
+    "100100087": 2400,
+    "100100088": 5400,
+    "100100089": 5400,
+    "100100090": 5400,
+    "100100091": 3000,
+    "100100093": 5400,
+    "100100094": 5400,
+    "100100096": 5400,
+    "100100097": 3000,
+    "100100098": 1200,
+    "100100099": 1800,
+    "100100102": 4800,
+    "100100103": 3000,
+    "100100104": 5400,
+    "100100105": 5400,
+    "100100107": 3600,
+    "100100110": 3600,
+    "100100111": 5400,
+    "100100112": 5400,
+    "100100114": 5400,
+    "100100116": 3000,
+    "100100117": 5400,
+    "100100118": 3000,
+    "100100124": 3600,
+    "100100129": 2400,
+    "100100130": 1200,
+    "100100131": 1200,
+    "100100132": 5400,
+    "100100133": 2400,
+    "100100134": 2400,
+    "100100137": 5400,
+    "100100138": 2400,
+    "100100139": 3000,
+    "100100142": 5400,
+    "100100143": 4800,
+    "100100144": 3000,
+    "100100146": 2400,
+    "100100147": 4200,
+    "100100148": 4800,
+    "100100149": 3600,
+    "100100150": 4800,
+    "100100151": 3000,
+    "100100152": 5400,
+    "100100153": 4800,
+    "100100154": 5400,
+    "100100155": 4200,
+    "100100156": 4200,
+    "100100157": 3600,
+    "100100158": 3000,
+    "100100159": 3600,
+    "100100164": 5400,
+    "100100166": 5400,
+    "100100170": 3000,
+    "100100171": 3000,
+    "100100172": 5400,
+    "100100175": 5400,
+    "100100177": 3600,
+    "100100178": 4200,
+    "100100179": 4800,
+    "100100181": 5400,
+    "100100184": 5400,
+    "100100185": 2400,
+    "100100186": 3600,
+    "100100188": 5400,
+    "100100189": 4800,
+    "100100190": 3000,
+    "100100191": 5400,
+    "100100192": 4800,
+    "100100193": 3000,
+    "100100194": 4200,
+    "100100198": 5400,
+    "100100199": 3000,
+    "100100201": 4800,
+    "100100202": 3600,
+    "100100203": 5400,
+    "100100204": 3600,
+    "100100209": 3000,
+    "100100210": 1800,
+    "100100211": 1200,
+    "100100212": 5400,
+    "100100213": 5400,
+    "100100215": 3600,
+    "100100216": 3000,
+    "100100218": 5400,
+    "100100219": 4800,
+    "100100220": 3600,
+    "100100221": 3000,
+    "100100222": 4200,
+    "100100223": 3600,
+    "100100224": 1800,
+    "100100225": 5400,
+    "100100226": 1800,
+    "100100228": 4800,
+    "100100229": 5400,
+    "100100232": 3000,
+    "100100234": 1800,
+    "100100237": 5400,
+    "100100246": 5400,
+    "100100247": 3000,
+    "100100248": 2400,
+    "100100249": 5400,
+    "100100251": 3600,
+    "100100252": 3000,
+    "100100253": 5400,
+    "100100254": 5400,
+    "100100255": 3000,
+    "100100259": 3600,
+    "100100260": 5400,
+    "100100261": 4200,
+    "100100263": 3000,
+    "100100264": 2400,
+    "100100265": 5400,
+    "100100266": 2400,
+    "100100267": 5400,
+    "100100268": 5400,
+    "100100269": 3000,
+    "100100272": 3000,
+    "100100273": 3600,
+    "100100274": 2400,
+    "100100275": 5400,
+    "100100276": 1800,
+    "100100277": 4200,
+    "100100278": 1800,
+    "100100279": 5400,
+    "100100281": 5400,
+    "100100282": 2400,
+    "100100283": 3600,
+    "100100284": 3600,
+    "100100285": 5400,
+    "100100286": 2400,
+    "100100287": 3000,
+    "100100288": 2400,
+    "100100289": 3000,
+    "100100290": 3000,
+    "100100291": 3600,
+    "100100292": 5400,
+    "100100293": 5400,
+    "100100294": 3600,
+    "100100295": 3000,
+    "100100297": 5400,
+    "100100298": 3600,
+    "100100299": 4800,
+    "100100300": 3600,
+    "100100301": 3000,
+    "100100302": 3600,
+    "100100303": 2400,
+    "100100304": 5400,
+    "100100305": 2400,
+    "100100306": 2400,
+    "100100307": 5400,
+    "100100308": 3600,
+    "100100309": 3000,
+    "100100312": 4200,
+    "100100313": 2400,
+    "100100316": 3000,
+    "100100318": 5400,
+    "100100320": 4800,
+    "100100329": 3000,
+    "100100330": 2400,
+    "100100331": 1800,
+    "100100332": 5400,
+    "100100337": 3000,
+    "100100338": 1800,
+    "100100339": 5400,
+    "100100340": 5400,
+    "100100341": 2400,
+    "100100342": 2400,
+    "100100344": 3600,
+    "100100345": 5400,
+    "100100346": 3000,
+    "100100347": 2400,
+    "100100348": 1800,
+    "100100349": 4800,
+    "100100352": 5400,
+    "100100353": 4800,
+    "100100354": 3600,
+    "100100357": 3600,
+    "100100358": 5400,
+    "100100359": 5400,
+    "100100360": 5400,
+    "100100363": 3000,
+    "100100364": 2400,
+    "100100387": 4800,
+    "100100389": 1800,
+    "100100391": 5400,
+    "100100392": 5400,
+    "100100400": 2400,
+    "100100407": 2400,
+    "100100409": 5400,
+    "100100410": 3600,
+    "100100425": 3600,
+    "100100427": 3000,
+    "100100437": 5400,
+    "100100438": 2400,
+    "100100440": 5400,
+    "100100446": 5400,
+    "100100447": 1800,
+    "100100448": 1800,
+    "100100449": 1800,
+    "100100450": 3000,
+    "100100451": 2400,
+    "100100453": 3000,
+    "100100454": 1800,
+    "100100459": 3600,
+    "100100462": 5400,
+    "100100478": 4200,
+    "100100495": 2400,
+    "100100496": 2400,
+    "100100497": 1800,
+    "100100498": 5400,
+    "100100499": 2400,
+    "100100500": 1800,
+    "100100501": 5400,
+    "100100511": 2400,
+    "100100521": 5400,
+    "100100522": 3000,
+    "100100537": 3000,
+    "100100549": 3000,
+    "100100550": 5400,
+    "100100551": 3600,
+    "100100552": 4200,
+    "100100553": 1800,
+    "100100564": 3600,
+    "100100565": 3000,
+    "100100566": 3000,
+    "100100574": 3600,
+    "100100576": 2400,
+    "100100578": 5400,
+    "100100579": 2400,
+    "100100583": 5400,
+    "100100587": 3600,
+    "100100589": 5400,
+    "100100595": 3000,
+    "100100596": 1800,
+    "100100597": 1800,
+    "100100599": 5400,
+    "100100601": 4800,
+    "100100602": 3000,
+    "100100604": 1200,
+    "100100605": 1200,
+    "100100607": 1200,
+    "100100609": 2400,
+    "100100611": 2400,
+    "100100612": 1800,
+    "100100613": 5400,
+    "100900003": 1800,
+    "100900005": 1800,
+    "100900007": 1800,
+    "100900008": 1200,
+    "100900009": 1200,
+    "100900010": 1800,
+    "100900011": 1800,
+    "100900012": 1800,
+    "101900001": 1200,
+    "101900002": 1800,
+    "102900001": 2400,
+    "102900002": 3000,
+    "102900004": 1800,
+    "103900001": 1200,
+    "103900002": 2400,
+    "103900003": 3000,
+    "103900004": 3600,
+    "103900008": 1200,
+    "103900009": 1800,
+    "103900011": 2400,
+    "103900012": 3000,
+    "104000006": 2400,
+    "104000009": 3000,
+    "104000010": 1800,
+    "104000012": 3000,
+    "104000013": 5400,
+    "104000014": 1800,
+    "104900001": 3600,
+    "104900002": 2400,
+    "104900004": 3000,
+    "104900005": 3600,
+    "105900001": 3000,
+    "105900002": 2400,
+    "105900003": 1200,
+    "105900004": 1800,
+    "105900005": 2400,
+    "105900006": 2400,
+    "106000004": 2400,
+    "106900002": 2400,
+    "107000001": 3600,
+    "107000002": 2400,
+    "107000007": 1800,
+    "107000008": 3000,
+    "107900001": 1800,
+    "107900002": 2400,
+    "107900003": 1800,
+    "107900005": 2400,
+    "107900006": 1800,
+    "107900007": 1200,
+    "107900008": 2400,
+    "107900009": 1800,
+    "107900016": 1800,
+    "107900018": 2400,
+    "108000002": 3000,
+    "108900001": 4200,
+    "108900002": 2400,
+    "108900003": 1800,
+    "108900004": 4200,
+    "108900005": 1800,
+    "108900006": 3000,
+    "108900007": 2400,
+    "108900008": 2400,
+    "108900009": 1200,
+    "108900010": 2400,
+    "108900012": 2400,
+    "108900013": 2400,
+    "109900001": 2400,
+    "109900002": 3000,
+    "109900003": 2400,
+    "109900004": 3000,
+    "109900005": 4200,
+    "109900007": 1800,
+    "109900008": 1800,
+    "109900010": 5400,
+    "109900011": 4200,
+    "110000002": 3000,
+    "110000009": 5400,
+    "110900002": 3000,
+    "110900003": 3000,
+    "110900005": 1200,
+    "110900006": 3000,
+    "110900007": 3000,
+    "110900009": 1800,
+    "111000008": 3600,
+    "111000010": 5400,
+    "111000014": 3600,
+    "111000019": 5400,
+    "111000022": 3600,
+    "111000027": 3000,
+    "111000028": 1800,
+    "111900003": 2400,
+    "111900004": 1800,
+    "111900005": 2400,
+    "111900007": 2400,
+    "111900009": 2400,
+    "111900010": 1800,
+    "111900014": 1800,
+    "112000005": 4800,
+    "112900002": 1800,
+    "112900004": 3000,
+    "112900006": 3600,
+    "112900007": 1200,
+    "112900008": 1800,
+    "112900009": 1200,
+    "112900010": 1800,
+    "113000002": 3600,
+    "113000004": 4800,
+    "113900001": 1200,
+    "113900002": 1800,
+    "113900003": 2400,
+    "113900004": 2400,
+    "113900008": 3000,
+    "113900009": 3000,
+    "113900010": 2400,
+    "113900012": 3000,
+    "113900013": 3000,
+    "113900014": 3600,
+    "113900015": 2400,
+    "113900016": 2400,
+    "114900001": 3600,
+    "114900002": 3600,
+    "114900003": 4200,
+    "114900004": 1800,
+    "114900006": 3000,
+    "115000005": 3000,
+    "115000007": 3000,
+    "115000012": 3000,
+    "115900001": 2400,
+    "115900002": 3600,
+    "115900004": 3600,
+    "115900005": 1800,
+    "115900006": 3600,
+    "116000002": 4200,
+    "116000004": 3600,
+    "116000006": 5400,
+    "116900001": 1800,
+    "116900003": 3600,
+    "116900004": 4800,
+    "116900006": 3000,
+    "116900007": 1800,
+    "116900008": 3600,
+    "116900009": 3000,
+    "116900010": 1800,
+    "116900011": 2400,
+    "116900012": 2400,
+    "116900013": 2400,
+    "116900014": 1800,
+    "116900015": 1800,
+    "116900017": 2400,
+    "116900018": 3600,
+    "117900001": 3000,
+    "117900002": 3000,
+    "117900003": 2400,
+    "117900004": 3000,
+    "117900005": 4200,
+    "117900007": 2400,
+    "117900008": 2400,
+    "118900001": 3600,
+    "118900004": 2400,
+    "118900005": 3000,
+    "118900006": 4200,
+    "118900007": 1200,
+    "118900008": 2400,
+    "118900009": 1800,
+    "119900004": 2400,
+    "119900007": 3600,
+    "119900009": 2400,
+    "119900010": 1800,
+    "119900011": 3000,
+    "119900013": 3000,
+    "119900014": 1200,
+    "119900016": 2400,
+    "119900017": 1800,
+    "119900018": 1800,
+    "119900019": 1800,
+    "119900020": 3000,
+    "119900021": 2400,
+    "119900022": 2400,
+    "120900001": 3600,
+    "120900002": 2400,
+    "120900003": 2400,
+    "120900004": 3000,
+    "120900005": 2400,
+    "120900006": 1800,
+    "120900007": 3000,
+    "120900009": 1800,
+    "120900010": 1800,
+    "120900011": 3000,
+    "120900012": 3000,
+    "121900001": 4200,
+    "121900002": 2400,
+    "121900003": 1800,
+    "121900005": 1200,
+    "121900006": 3000,
+    "121900007": 1800,
+    "121900008": 1800,
+    "121900010": 3600,
+    "121900011": 4200,
+    "121900012": 2400,
+    "121900013": 1800,
+    "121900014": 1200,
+    "121900016": 2400,
+    "122000001": 5400,
+    "122900001": 1800,
+    "122900002": 4200,
+    "122900003": 4200,
+    "122900004": 3000,
+    "122900005": 3000,
+    "122900006": 2400,
+    "122900008": 3000,
+    "122900009": 3600,
+    "122900010": 2400,
+    "123000010": 2400,
+    "123000011": 3000,
+    "123900002": 3600,
+    "124000036": 3600,
+    "124000038": 3000,
+    "124000039": 5400,
+    "124900001": 5400,
+    "124900002": 3000,
+    "124900003": 3000
+  },
+  "run_id": "lgbm_2026-06-12_to_2026-11-02_corrected_20261103T194319Z",
+  "sampling_policy": {
+    "date_policies": [
+      {
+        "input_rows": 1381193,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-12"
+      },
+      {
+        "input_rows": 1375960,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-13"
+      },
+      {
+        "input_rows": 1410253,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-14"
+      },
+      {
+        "input_rows": 1393793,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-15"
+      },
+      {
+        "input_rows": 1387398,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-16"
+      },
+      {
+        "input_rows": 1382541,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-17"
+      },
+      {
+        "input_rows": 828896,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-18"
+      },
+      {
+        "input_rows": 823110,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-19"
+      },
+      {
+        "input_rows": 843731,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-20"
+      },
+      {
+        "input_rows": 855801,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-21"
+      },
+      {
+        "input_rows": 793136,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-22"
+      },
+      {
+        "input_rows": 830864,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-23"
+      },
+      {
+        "input_rows": 833575,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-24"
+      },
+      {
+        "input_rows": 830365,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-25"
+      },
+      {
+        "input_rows": 377796,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-26"
+      },
+      {
+        "input_rows": 845395,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-27"
+      },
+      {
+        "input_rows": 850091,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-28"
+      },
+      {
+        "input_rows": 834923,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-29"
+      },
+      {
+        "input_rows": 780756,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-06-30"
+      },
+      {
+        "input_rows": 824834,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-01"
+      },
+      {
+        "input_rows": 827711,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-02"
+      },
+      {
+        "input_rows": 803040,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-03"
+      },
+      {
+        "input_rows": 813849,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-04"
+      },
+      {
+        "input_rows": 819661,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-05"
+      },
+      {
+        "input_rows": 782361,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-06"
+      },
+      {
+        "input_rows": 829058,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-07"
+      },
+      {
+        "input_rows": 797447,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-08"
+      },
+      {
+        "input_rows": 801132,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-09"
+      },
+      {
+        "input_rows": 789395,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-10"
+      },
+      {
+        "input_rows": 834361,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-11"
+      },
+      {
+        "input_rows": 766275,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-12"
+      },
+      {
+        "input_rows": 734814,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-13"
+      },
+      {
+        "input_rows": 699159,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-14"
+      },
+      {
+        "input_rows": 691242,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-15"
+      },
+      {
+        "input_rows": 741592,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-16"
+      },
+      {
+        "input_rows": 757863,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-17"
+      },
+      {
+        "input_rows": 754922,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-18"
+      },
+      {
+        "input_rows": 750632,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-19"
+      },
+      {
+        "input_rows": 720980,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-20"
+      },
+      {
+        "input_rows": 716923,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-21"
+      },
+      {
+        "input_rows": 686766,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-22"
+      },
+      {
+        "input_rows": 712285,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-23"
+      },
+      {
+        "input_rows": 719744,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-24"
+      },
+      {
+        "input_rows": 716458,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-25"
+      },
+      {
+        "input_rows": 712142,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-26"
+      },
+      {
+        "input_rows": 727792,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-27"
+      },
+      {
+        "input_rows": 723055,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-28"
+      },
+      {
+        "input_rows": 757586,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-29"
+      },
+      {
+        "input_rows": 759737,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-30"
+      },
+      {
+        "input_rows": 761160,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-07-31"
+      },
+      {
+        "input_rows": 758200,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-01"
+      },
+      {
+        "input_rows": 746886,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-02"
+      },
+      {
+        "input_rows": 768111,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-03"
+      },
+      {
+        "input_rows": 763435,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-04"
+      },
+      {
+        "input_rows": 762657,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-05"
+      },
+      {
+        "input_rows": 759414,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-06"
+      },
+      {
+        "input_rows": 757873,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-07"
+      },
+      {
+        "input_rows": 759810,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-08"
+      },
+      {
+        "input_rows": 704569,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-09"
+      },
+      {
+        "input_rows": 724253,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-15"
+      },
+      {
+        "input_rows": 758557,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-16"
+      },
+      {
+        "input_rows": 659643,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-17"
+      },
+      {
+        "input_rows": 673416,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-18"
+      },
+      {
+        "input_rows": 669886,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-19"
+      },
+      {
+        "input_rows": 665408,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-20"
+      },
+      {
+        "input_rows": 635594,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-21"
+      },
+      {
+        "input_rows": 665096,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-22"
+      },
+      {
+        "input_rows": 670035,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-23"
+      },
+      {
+        "input_rows": 597092,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-24"
+      },
+      {
+        "input_rows": 600363,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-25"
+      },
+      {
+        "input_rows": 603241,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-26"
+      },
+      {
+        "input_rows": 604614,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-27"
+      },
+      {
+        "input_rows": 598875,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-28"
+      },
+      {
+        "input_rows": 598318,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-29"
+      },
+      {
+        "input_rows": 589921,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-30"
+      },
+      {
+        "input_rows": 653691,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-08-31"
+      },
+      {
+        "input_rows": 648459,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-01"
+      },
+      {
+        "input_rows": 652818,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-02"
+      },
+      {
+        "input_rows": 651542,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-03"
+      },
+      {
+        "input_rows": 650217,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-04"
+      },
+      {
+        "input_rows": 638383,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-05"
+      },
+      {
+        "input_rows": 616854,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-06"
+      },
+      {
+        "input_rows": 610737,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-07"
+      },
+      {
+        "input_rows": 608082,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-08"
+      },
+      {
+        "input_rows": 606756,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-09"
+      },
+      {
+        "input_rows": 597637,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-10"
+      },
+      {
+        "input_rows": 599752,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-11"
+      },
+      {
+        "input_rows": 575343,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-12"
+      },
+      {
+        "input_rows": 564626,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-13"
+      },
+      {
+        "input_rows": 531515,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-14"
+      },
+      {
+        "input_rows": 530222,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-15"
+      },
+      {
+        "input_rows": 529233,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-16"
+      },
+      {
+        "input_rows": 531536,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-17"
+      },
+      {
+        "input_rows": 536319,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-18"
+      },
+      {
+        "input_rows": 531853,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-19"
+      },
+      {
+        "input_rows": 519876,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-20"
+      },
+      {
+        "input_rows": 617720,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-21"
+      },
+      {
+        "input_rows": 619211,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-22"
+      },
+      {
+        "input_rows": 619039,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-23"
+      },
+      {
+        "input_rows": 574437,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-24"
+      },
+      {
+        "input_rows": 549945,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-25"
+      },
+      {
+        "input_rows": 574888,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-26"
+      },
+      {
+        "input_rows": 583827,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-27"
+      },
+      {
+        "input_rows": 495956,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-28"
+      },
+      {
+        "input_rows": 495534,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-29"
+      },
+      {
+        "input_rows": 496349,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-09-30"
+      },
+      {
+        "input_rows": 494617,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-01"
+      },
+      {
+        "input_rows": 497114,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-02"
+      },
+      {
+        "input_rows": 467743,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-03"
+      },
+      {
+        "input_rows": 461490,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-04"
+      },
+      {
+        "input_rows": 381013,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-05"
+      },
+      {
+        "input_rows": 419090,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-06"
+      },
+      {
+        "input_rows": 412323,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-07"
+      },
+      {
+        "input_rows": 417647,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-08"
+      },
+      {
+        "input_rows": 393069,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-09"
+      },
+      {
+        "input_rows": 393726,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-10"
+      },
+      {
+        "input_rows": 385325,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-11"
+      },
+      {
+        "input_rows": 343046,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-12"
+      },
+      {
+        "input_rows": 344777,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-13"
+      },
+      {
+        "input_rows": 344184,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-14"
+      },
+      {
+        "input_rows": 341702,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-15"
+      },
+      {
+        "input_rows": 342719,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-16"
+      },
+      {
+        "input_rows": 338163,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-17"
+      },
+      {
+        "input_rows": 326781,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-18"
+      },
+      {
+        "input_rows": 363683,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-19"
+      },
+      {
+        "input_rows": 361682,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-20"
+      },
+      {
+        "input_rows": 362753,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-21"
+      },
+      {
+        "input_rows": 358848,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-22"
+      },
+      {
+        "input_rows": 363631,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-23"
+      },
+      {
+        "input_rows": 349408,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-24"
+      },
+      {
+        "input_rows": 337776,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-25"
+      },
+      {
+        "input_rows": 270326,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-26"
+      },
+      {
+        "input_rows": 267449,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-27"
+      },
+      {
+        "input_rows": 272688,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-28"
+      },
+      {
+        "input_rows": 270676,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-29"
+      },
+      {
+        "input_rows": 274679,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-30"
+      },
+      {
+        "input_rows": 263848,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-10-31"
+      },
+      {
+        "input_rows": 251912,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-11-01"
+      },
+      {
+        "input_rows": 288168,
+        "output_rows": 100720,
+        "per_date_sample_rows": 100720,
+        "service_date": "2026-11-02"
+      }
+    ],
+    "input_rows": 89063233,
+    "output_rows": 14000000,
+    "per_date_sample_rows": 100720,
+    "sample_rows": 14000000,
+    "seed": 42,
+    "strategy": "per_date_horizon_bucket_route_cap"
+  },
+  "schema_version": 2,
+  "service_date_range": [
+    "2026-06-12",
+    "2026-06-13",
+    "2026-06-14",
+    "2026-06-15",
+    "2026-06-16",
+    "2026-06-17",
+    "2026-06-18",
+    "2026-06-19",
+    "2026-06-20",
+    "2026-06-21",
+    "2026-06-22",
+    "2026-06-23",
+    "2026-06-24",
+    "2026-06-25",
+    "2026-06-26",
+    "2026-06-27",
+    "2026-06-28",
+    "2026-06-29",
+    "2026-06-30",
+    "2026-07-01",
+    "2026-07-02",
+    "2026-07-03",
+    "2026-07-04",
+    "2026-07-05",
+    "2026-07-06",
+    "2026-07-07",
+    "2026-07-08",
+    "2026-07-09",
+    "2026-07-10",
+    "2026-07-11",
+    "2026-07-12",
+    "2026-07-13",
+    "2026-07-14",
+    "2026-07-15",
+    "2026-07-16",
+    "2026-07-17",
+    "2026-07-18",
+    "2026-07-19",
+    "2026-07-20",
+    "2026-07-21",
+    "2026-07-22",
+    "2026-07-23",
+    "2026-07-24",
+    "2026-07-25",
+    "2026-07-26",
+    "2026-07-27",
+    "2026-07-28",
+    "2026-07-29",
+    "2026-07-30",
+    "2026-07-31",
+    "2026-08-01",
+    "2026-08-02",
+    "2026-08-03",
+    "2026-08-04",
+    "2026-08-05",
+    "2026-08-06",
+    "2026-08-07",
+    "2026-08-08",
+    "2026-08-09",
+    "2026-08-15",
+    "2026-08-16",
+    "2026-08-17",
+    "2026-08-18",
+    "2026-08-19",
+    "2026-08-20",
+    "2026-08-21",
+    "2026-08-22",
+    "2026-08-23",
+    "2026-08-24",
+    "2026-08-25",
+    "2026-08-26",
+    "2026-08-27",
+    "2026-08-28",
+    "2026-08-29",
+    "2026-08-30",
+    "2026-08-31",
+    "2026-09-01",
+    "2026-09-02",
+    "2026-09-03",
+    "2026-09-04",
+    "2026-09-05",
+    "2026-09-06",
+    "2026-09-07",
+    "2026-09-08",
+    "2026-09-09",
+    "2026-09-10",
+    "2026-09-11",
+    "2026-09-12",
+    "2026-09-13",
+    "2026-09-14",
+    "2026-09-15",
+    "2026-09-16",
+    "2026-09-17",
+    "2026-09-18",
+    "2026-09-19",
+    "2026-09-20",
+    "2026-09-21",
+    "2026-09-22",
+    "2026-09-23",
+    "2026-09-24",
+    "2026-09-25",
+    "2026-09-26",
+    "2026-09-27",
+    "2026-09-28",
+    "2026-09-29",
+    "2026-09-30",
+    "2026-10-01",
+    "2026-10-02",
+    "2026-10-03",
+    "2026-10-04",
+    "2026-10-05",
+    "2026-10-06",
+    "2026-10-07",
+    "2026-10-08",
+    "2026-10-09",
+    "2026-10-10",
+    "2026-10-11",
+    "2026-10-12",
+    "2026-10-13",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-19",
+    "2026-10-20",
+    "2026-10-21",
+    "2026-10-22",
+    "2026-10-23",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26",
+    "2026-10-27",
+    "2026-10-28",
+    "2026-10-29",
+    "2026-10-30",
+    "2026-10-31",
+    "2026-11-01",
+    "2026-11-02"
+  ],
+  "split_policy": {
+    "day_type_protected": true,
+    "last_days": 1,
+    "test_route_count": 499,
+    "test_route_dates": [
+      {
+        "route_id": "100100001",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100006",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100007",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100008",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100009",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100010",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100012",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100014",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "100100017",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100018",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100019",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100020",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100021",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100022",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100023",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100024",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100025",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100026",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100027",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100029",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100030",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100031",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100032",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100033",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100034",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100036",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100037",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100038",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100039",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100042",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100043",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100044",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100046",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100047",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100048",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100049",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100051",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100052",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100053",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100055",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100056",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100057",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100061",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100062",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100063",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100064",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100068",
+        "service_date": "2026-07-02"
+      },
+      {
+        "route_id": "100100070",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100071",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100073",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100075",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100076",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100077",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100078",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "100100079",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100080",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100082",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100083",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100084",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100085",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100086",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100087",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100088",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100089",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100090",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100091",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100093",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100094",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100096",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100097",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100098",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100099",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100102",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100103",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100104",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100105",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "100100107",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100110",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100111",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100112",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100114",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100116",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100117",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100118",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100124",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "100100129",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100130",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100131",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100132",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100133",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "100100137",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100138",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100142",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100143",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "100100144",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100146",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "100100147",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "100100148",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100149",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "100100150",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "100100151",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "100100152",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100153",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "100100154",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "100100155",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "100100156",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "100100157",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100158",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "100100159",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "100100164",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "100100166",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "100100170",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "100100171",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100172",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100175",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100177",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100178",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "100100179",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100181",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100184",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "100100185",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100186",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100188",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "100100189",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100190",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100191",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100192",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "100100193",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100194",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100198",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100199",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100201",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100202",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100203",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100204",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100209",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100210",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "100100211",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100212",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "100100213",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "100100215",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100216",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100218",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100219",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100220",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100221",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100222",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100223",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100224",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100225",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100226",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100228",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100229",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100232",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100234",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100237",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100246",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100247",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "100100248",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100249",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100251",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100252",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100253",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100254",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100255",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "100100259",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "100100260",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100261",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "100100263",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100264",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100265",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100266",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "100100267",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100268",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100269",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "100100272",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100273",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100274",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "100100275",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100276",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100277",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100278",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "100100279",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100281",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100282",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100283",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "100100284",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "100100285",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100286",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100287",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100288",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100289",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100290",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100291",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "100100292",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100293",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100294",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100295",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "100100297",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "100100298",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "100100299",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "100100300",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "100100301",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100302",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100303",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100304",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100305",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100306",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100307",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "100100308",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100309",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100312",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100313",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100316",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "100100318",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100320",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "100100329",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "100100330",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "100100331",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100332",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100337",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100338",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100339",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100340",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100341",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100342",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "100100344",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100345",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100346",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100347",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100348",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "100100349",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100352",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100353",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "100100354",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "100100357",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "100100358",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100359",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100360",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100363",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100364",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100387",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "100100389",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100391",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "100100400",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "100100407",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100409",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "100100410",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100425",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100427",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100437",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "100100438",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100440",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100446",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100447",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100448",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "100100449",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "100100450",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100451",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100453",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "100100454",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100459",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100462",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100478",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100495",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "100100496",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100497",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "100100498",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100499",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100500",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100501",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "100100511",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "100100521",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100522",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100537",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100549",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100550",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "100100551",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100552",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "100100553",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "100100564",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100565",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100566",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "100100574",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100576",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100578",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "100100579",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "100100583",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "100100587",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "100100595",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100596",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "100100597",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100100599",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100601",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "100100602",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "100100604",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "100100605",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "100100607",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "100100609",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100611",
+        "service_date": "2026-11-02"
+      },
+      {
+        "route_id": "100100612",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100100613",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100900003",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "100900005",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "100900007",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "100900008",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "100900009",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "100900010",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "100900011",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "100900012",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "101900001",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "101900002",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "102900001",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "102900002",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "102900004",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "103900002",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "103900003",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "103900004",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "103900008",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "103900009",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "103900011",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "103900012",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "104000006",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "104000009",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "104000010",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "104000012",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "104000013",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "104000014",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "104900001",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "104900002",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "104900004",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "104900005",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "105900001",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "105900002",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "105900003",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "105900004",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "105900006",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "106000004",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "106900002",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "107000001",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "107000002",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "107000007",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "107000008",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "107900001",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "107900002",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "107900003",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "107900005",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "107900006",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "107900007",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "107900008",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "107900009",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "107900018",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "108000002",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "108900001",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "108900002",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "108900003",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "108900004",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "108900005",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "108900006",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "108900007",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "108900008",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "108900009",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "108900010",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "108900012",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "109900001",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "109900002",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "109900003",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "109900004",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "109900005",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "109900007",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "109900010",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "109900011",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "110000002",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "110000009",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "110900002",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "110900005",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "110900006",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "110900007",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "110900009",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "111000008",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "111000010",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "111000014",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "111000019",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "111000022",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "111000027",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "111000028",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "111900003",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "111900004",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "111900005",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "111900007",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "111900009",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "112900002",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "112900004",
+        "service_date": "2026-08-16"
+      },
+      {
+        "route_id": "112900006",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "112900007",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "112900008",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "112900009",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "112900010",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "113000002",
+        "service_date": "2026-07-10"
+      },
+      {
+        "route_id": "113900001",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "113900002",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "113900008",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "113900009",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "113900012",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "113900013",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "113900014",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "113900015",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "114900001",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "114900002",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "114900003",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "114900006",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "115000005",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "115000007",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "115000012",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "115900001",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "115900002",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "115900004",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "115900005",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "115900006",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "116000002",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "116000004",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "116000006",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "116900001",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "116900003",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "116900004",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "116900006",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "116900007",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "116900008",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "116900009",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "116900010",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "116900011",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "116900012",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "116900013",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "116900014",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "116900015",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "116900017",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "116900018",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "117900001",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "117900003",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "117900004",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "117900005",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "117900007",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "117900008",
+        "service_date": "2026-07-31"
+      },
+      {
+        "route_id": "118900001",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "118900004",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "118900005",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "118900006",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "118900007",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "119900004",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "119900007",
+        "service_date": "2026-07-06"
+      },
+      {
+        "route_id": "119900009",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "119900010",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "119900011",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "119900013",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "119900014",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "119900017",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "119900018",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "119900019",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "119900020",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "119900021",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "119900022",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "120900001",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "120900002",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "120900003",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "120900004",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "120900005",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "120900006",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "120900007",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "120900009",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "120900010",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "120900011",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "120900012",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "121900001",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "121900002",
+        "service_date": "2026-10-30"
+      },
+      {
+        "route_id": "121900003",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "121900005",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "121900006",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "121900007",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "121900008",
+        "service_date": "2026-10-23"
+      },
+      {
+        "route_id": "121900010",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "121900012",
+        "service_date": "2026-10-09"
+      },
+      {
+        "route_id": "121900013",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "121900016",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "122000001",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "122900001",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "122900002",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "122900003",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "122900004",
+        "service_date": "2026-09-18"
+      },
+      {
+        "route_id": "122900005",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "122900006",
+        "service_date": "2026-10-02"
+      },
+      {
+        "route_id": "122900009",
+        "service_date": "2026-10-16"
+      },
+      {
+        "route_id": "123000010",
+        "service_date": "2026-07-17"
+      },
+      {
+        "route_id": "123000011",
+        "service_date": "2026-09-11"
+      },
+      {
+        "route_id": "124000036",
+        "service_date": "2026-08-21"
+      },
+      {
+        "route_id": "124000038",
+        "service_date": "2026-07-24"
+      },
+      {
+        "route_id": "124000039",
+        "service_date": "2026-09-25"
+      },
+      {
+        "route_id": "124900001",
+        "service_date": "2026-09-04"
+      },
+      {
+        "route_id": "124900002",
+        "service_date": "2026-08-28"
+      },
+      {
+        "route_id": "124900003",
+        "service_date": "2026-09-25"
+      }
+    ],
+    "train_only_route_count": 28,
+    "type": "last_days_per_route"
+  },
+  "target_column": "corrected_target_seconds_to_arrival",
+  "target_encoding_enabled": true,
+  "target_policy": "corrected",
+  "test_rows": 1674690,
+  "train_rows": 12325310,
+  "training_route_categories": [
+    "100100001",
+    "100100006",
+    "100100007",
+    "100100008",
+    "100100009",
+    "100100010",
+    "100100012",
+    "100100014",
+    "100100017",
+    "100100018",
+    "100100019",
+    "100100020",
+    "100100021",
+    "100100022",
+    "100100023",
+    "100100024",
+    "100100025",
+    "100100026",
+    "100100027",
+    "100100029",
+    "100100030",
+    "100100031",
+    "100100032",
+    "100100033",
+    "100100034",
+    "100100036",
+    "100100037",
+    "100100038",
+    "100100039",
+    "100100042",
+    "100100043",
+    "100100044",
+    "100100046",
+    "100100047",
+    "100100048",
+    "100100049",
+    "100100051",
+    "100100052",
+    "100100053",
+    "100100055",
+    "100100056",
+    "100100057",
+    "100100061",
+    "100100062",
+    "100100063",
+    "100100064",
+    "100100068",
+    "100100070",
+    "100100071",
+    "100100073",
+    "100100075",
+    "100100076",
+    "100100077",
+    "100100078",
+    "100100079",
+    "100100080",
+    "100100082",
+    "100100083",
+    "100100084",
+    "100100085",
+    "100100086",
+    "100100087",
+    "100100088",
+    "100100089",
+    "100100090",
+    "100100091",
+    "100100093",
+    "100100094",
+    "100100096",
+    "100100097",
+    "100100098",
+    "100100099",
+    "100100102",
+    "100100103",
+    "100100104",
+    "100100105",
+    "100100107",
+    "100100110",
+    "100100111",
+    "100100112",
+    "100100114",
+    "100100116",
+    "100100117",
+    "100100118",
+    "100100124",
+    "100100129",
+    "100100130",
+    "100100131",
+    "100100132",
+    "100100133",
+    "100100134",
+    "100100137",
+    "100100138",
+    "100100139",
+    "100100142",
+    "100100143",
+    "100100144",
+    "100100146",
+    "100100147",
+    "100100148",
+    "100100149",
+    "100100150",
+    "100100151",
+    "100100152",
+    "100100153",
+    "100100154",
+    "100100155",
+    "100100156",
+    "100100157",
+    "100100158",
+    "100100159",
+    "100100164",
+    "100100166",
+    "100100170",
+    "100100171",
+    "100100172",
+    "100100175",
+    "100100177",
+    "100100178",
+    "100100179",
+    "100100181",
+    "100100184",
+    "100100185",
+    "100100186",
+    "100100188",
+    "100100189",
+    "100100190",
+    "100100191",
+    "100100192",
+    "100100193",
+    "100100194",
+    "100100198",
+    "100100199",
+    "100100201",
+    "100100202",
+    "100100203",
+    "100100204",
+    "100100209",
+    "100100210",
+    "100100211",
+    "100100212",
+    "100100213",
+    "100100215",
+    "100100216",
+    "100100218",
+    "100100219",
+    "100100220",
+    "100100221",
+    "100100222",
+    "100100223",
+    "100100224",
+    "100100225",
+    "100100226",
+    "100100228",
+    "100100229",
+    "100100232",
+    "100100234",
+    "100100237",
+    "100100246",
+    "100100247",
+    "100100248",
+    "100100249",
+    "100100251",
+    "100100252",
+    "100100253",
+    "100100254",
+    "100100255",
+    "100100259",
+    "100100260",
+    "100100261",
+    "100100263",
+    "100100264",
+    "100100265",
+    "100100266",
+    "100100267",
+    "100100268",
+    "100100269",
+    "100100272",
+    "100100273",
+    "100100274",
+    "100100275",
+    "100100276",
+    "100100277",
+    "100100278",
+    "100100279",
+    "100100281",
+    "100100282",
+    "100100283",
+    "100100284",
+    "100100285",
+    "100100286",
+    "100100287",
+    "100100288",
+    "100100289",
+    "100100290",
+    "100100291",
+    "100100292",
+    "100100293",
+    "100100294",
+    "100100295",
+    "100100297",
+    "100100298",
+    "100100299",
+    "100100300",
+    "100100301",
+    "100100302",
+    "100100303",
+    "100100304",
+    "100100305",
+    "100100306",
+    "100100307",
+    "100100308",
+    "100100309",
+    "100100312",
+    "100100313",
+    "100100316",
+    "100100318",
+    "100100320",
+    "100100329",
+    "100100330",
+    "100100331",
+    "100100332",
+    "100100337",
+    "100100338",
+    "100100339",
+    "100100340",
+    "100100341",
+    "100100342",
+    "100100344",
+    "100100345",
+    "100100346",
+    "100100347",
+    "100100348",
+    "100100349",
+    "100100352",
+    "100100353",
+    "100100354",
+    "100100357",
+    "100100358",
+    "100100359",
+    "100100360",
+    "100100363",
+    "100100364",
+    "100100387",
+    "100100389",
+    "100100391",
+    "100100392",
+    "100100400",
+    "100100407",
+    "100100409",
+    "100100410",
+    "100100425",
+    "100100427",
+    "100100437",
+    "100100438",
+    "100100440",
+    "100100446",
+    "100100447",
+    "100100448",
+    "100100449",
+    "100100450",
+    "100100451",
+    "100100453",
+    "100100454",
+    "100100459",
+    "100100462",
+    "100100478",
+    "100100495",
+    "100100496",
+    "100100497",
+    "100100498",
+    "100100499",
+    "100100500",
+    "100100501",
+    "100100511",
+    "100100521",
+    "100100522",
+    "100100537",
+    "100100549",
+    "100100550",
+    "100100551",
+    "100100552",
+    "100100553",
+    "100100564",
+    "100100565",
+    "100100566",
+    "100100574",
+    "100100576",
+    "100100578",
+    "100100579",
+    "100100583",
+    "100100587",
+    "100100589",
+    "100100595",
+    "100100596",
+    "100100597",
+    "100100599",
+    "100100601",
+    "100100602",
+    "100100604",
+    "100100605",
+    "100100607",
+    "100100609",
+    "100100611",
+    "100100612",
+    "100100613",
+    "100900003",
+    "100900005",
+    "100900007",
+    "100900008",
+    "100900009",
+    "100900010",
+    "100900011",
+    "100900012",
+    "101900001",
+    "101900002",
+    "102900001",
+    "102900002",
+    "102900004",
+    "103900001",
+    "103900002",
+    "103900003",
+    "103900004",
+    "103900008",
+    "103900009",
+    "103900011",
+    "103900012",
+    "104000006",
+    "104000009",
+    "104000010",
+    "104000012",
+    "104000013",
+    "104000014",
+    "104900001",
+    "104900002",
+    "104900004",
+    "104900005",
+    "105900001",
+    "105900002",
+    "105900003",
+    "105900004",
+    "105900005",
+    "105900006",
+    "106000004",
+    "106900002",
+    "107000001",
+    "107000002",
+    "107000007",
+    "107000008",
+    "107900001",
+    "107900002",
+    "107900003",
+    "107900005",
+    "107900006",
+    "107900007",
+    "107900008",
+    "107900009",
+    "107900016",
+    "107900018",
+    "108000002",
+    "108900001",
+    "108900002",
+    "108900003",
+    "108900004",
+    "108900005",
+    "108900006",
+    "108900007",
+    "108900008",
+    "108900009",
+    "108900010",
+    "108900012",
+    "108900013",
+    "109900001",
+    "109900002",
+    "109900003",
+    "109900004",
+    "109900005",
+    "109900007",
+    "109900008",
+    "109900010",
+    "109900011",
+    "110000002",
+    "110000009",
+    "110900002",
+    "110900003",
+    "110900005",
+    "110900006",
+    "110900007",
+    "110900009",
+    "111000008",
+    "111000010",
+    "111000014",
+    "111000019",
+    "111000022",
+    "111000027",
+    "111000028",
+    "111900003",
+    "111900004",
+    "111900005",
+    "111900007",
+    "111900009",
+    "111900010",
+    "111900014",
+    "112000005",
+    "112900002",
+    "112900004",
+    "112900006",
+    "112900007",
+    "112900008",
+    "112900009",
+    "112900010",
+    "113000002",
+    "113000004",
+    "113900001",
+    "113900002",
+    "113900003",
+    "113900004",
+    "113900008",
+    "113900009",
+    "113900010",
+    "113900012",
+    "113900013",
+    "113900014",
+    "113900015",
+    "113900016",
+    "114900001",
+    "114900002",
+    "114900003",
+    "114900004",
+    "114900006",
+    "115000005",
+    "115000007",
+    "115000012",
+    "115900001",
+    "115900002",
+    "115900004",
+    "115900005",
+    "115900006",
+    "116000002",
+    "116000004",
+    "116000006",
+    "116900001",
+    "116900003",
+    "116900004",
+    "116900006",
+    "116900007",
+    "116900008",
+    "116900009",
+    "116900010",
+    "116900011",
+    "116900012",
+    "116900013",
+    "116900014",
+    "116900015",
+    "116900017",
+    "116900018",
+    "117900001",
+    "117900002",
+    "117900003",
+    "117900004",
+    "117900005",
+    "117900007",
+    "117900008",
+    "118900001",
+    "118900004",
+    "118900005",
+    "118900006",
+    "118900007",
+    "118900008",
+    "118900009",
+    "119900004",
+    "119900007",
+    "119900009",
+    "119900010",
+    "119900011",
+    "119900013",
+    "119900014",
+    "119900016",
+    "119900017",
+    "119900018",
+    "119900019",
+    "119900020",
+    "119900021",
+    "119900022",
+    "120900001",
+    "120900002",
+    "120900003",
+    "120900004",
+    "120900005",
+    "120900006",
+    "120900007",
+    "120900009",
+    "120900010",
+    "120900011",
+    "120900012",
+    "121900001",
+    "121900002",
+    "121900003",
+    "121900005",
+    "121900006",
+    "121900007",
+    "121900008",
+    "121900010",
+    "121900011",
+    "121900012",
+    "121900013",
+    "121900014",
+    "121900016",
+    "122000001",
+    "122900001",
+    "122900002",
+    "122900003",
+    "122900004",
+    "122900005",
+    "122900006",
+    "122900008",
+    "122900009",
+    "122900010",
+    "123000010",
+    "123000011",
+    "123900002",
+    "124000036",
+    "124000038",
+    "124000039",
+    "124900001",
+    "124900002",
+    "124900003"
+  ],
+  "type": "lightgbm",
+  "validation_rows": 1232531,
+  "with_api_feature": false
+}
