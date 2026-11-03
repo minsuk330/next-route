@@ -148,6 +148,9 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--n-estimators", type=int, default=2000,
+                        help="Boosting rounds cap (early stopping decides the actual count).")
+    parser.add_argument("--num-leaves", type=int, default=64)
     parser.add_argument(
         "--with-api-feature",
         action="store_true",
@@ -280,12 +283,14 @@ def fit_lgbm(
     y_valid: pd.Series,
     seed: int,
     categorical_feature: list[str] | str = "auto",
+    n_estimators: int = 2000,
+    num_leaves: int = 64,
 ) -> lgb.LGBMRegressor:
     model = lgb.LGBMRegressor(
         objective="mae",
-        n_estimators=2000,
+        n_estimators=n_estimators,
         learning_rate=0.05,
-        num_leaves=64,
+        num_leaves=num_leaves,
         subsample=0.9,
         colsample_bytree=0.9,
         random_state=seed,
@@ -387,7 +392,10 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
     # A raw route_id categorical actively hurt routing in production (148.85s vs 138.53s,
     # 2026-08-14) — target-encoding drops it in favor of te_* aggregates instead.
     categorical_feature_a = "auto" if args.target_encoding else CATEGORICAL_FEATURES
-    model = fit_lgbm(x_train, y_train, x_valid, y_valid, args.seed, categorical_feature_a)
+    model = fit_lgbm(
+        x_train, y_train, x_valid, y_valid, args.seed, categorical_feature_a,
+        args.n_estimators, args.num_leaves,
+    )
     predictions = model.predict(x_test, num_iteration=model.best_iteration_)
 
     scored = test_frame.with_columns(pl.Series("prediction_lgbm", predictions))
@@ -450,6 +458,8 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         "training_route_categories": training_route_categories,
         "validation_rows": len(y_valid),
         "best_iteration": int(model.best_iteration_ or model.n_estimators),
+        "n_estimators": args.n_estimators,
+        "num_leaves": args.num_leaves,
         "metrics": reports,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "git_commit": git_commit(),
