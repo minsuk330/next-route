@@ -237,6 +237,20 @@ def to_pandas(
     return x, y
 
 
+def split_light(split: Any) -> Any:
+    """Keep the split's metadata but drop its row frames (train/test keep only their
+    heights), so the feature frames built from them are the only copy in memory."""
+    import types
+
+    return types.SimpleNamespace(
+        train=types.SimpleNamespace(height=split.train.height),
+        test=types.SimpleNamespace(height=split.test.height),
+        dataset_path=split.dataset_path,
+        sampling_policy=split.sampling_policy,
+        split_policy=split.split_policy,
+    )
+
+
 def shrink_numeric(x: pd.DataFrame) -> pd.DataFrame:
     """float64 -> float32 for the fit frames only. LightGBM bins features anyway, and
     this halves the largest allocation so a run can take twice the rows. Test rows
@@ -409,6 +423,17 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         train_frame, test_frame = split.train, split.test
         model_a_columns = columns
         feature_policy = {}
+
+    # Trim the training frame to what the fit needs and store features as float32
+    # before the pandas conversion: the polars frame and its pandas copy coexist for a
+    # moment, and that moment is the run's memory peak.
+    keep = list(dict.fromkeys([*model_a_columns, target_column, "route_id", "service_date", "snapshot_at"]))
+    numeric_cols = [c for c in model_a_columns if c not in CATEGORICAL_FEATURES]
+    train_frame = train_frame.select([c for c in keep if c in train_frame.columns]).with_columns(
+        [pl.col(c).cast(pl.Float32) for c in numeric_cols]
+    )
+    # the original split frames are superseded by train_frame/test_frame (TE path copies them)
+    split = split_light(split)
 
     cat_dtypes = categorical_dtypes([train_frame, test_frame])
 
