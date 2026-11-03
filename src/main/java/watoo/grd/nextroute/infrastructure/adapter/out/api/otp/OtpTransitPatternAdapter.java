@@ -181,7 +181,9 @@ public class OtpTransitPatternAdapter implements TransitPatternPort {
         for (JsonNode pattern : stop.path("patterns")) {
             List<PatternStop> stops = new ArrayList<>();
             for (JsonNode s : pattern.path("stops")) {
-                stops.add(new PatternStop(text(s.path("gtfsId")), text(s.path("name"))));
+                stops.add(new PatternStop(text(s.path("gtfsId")), text(s.path("name")),
+                        s.path("lat").isNumber() ? s.path("lat").asDouble() : null,
+                        s.path("lon").isNumber() ? s.path("lon").asDouble() : null));
             }
             patterns.add(new TransitPattern(text(pattern.path("code")), text(pattern.path("headsign")),
                     toRoute(pattern.path("route")), stops, pattern.path("trips").size()));

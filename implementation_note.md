@@ -6291,3 +6291,25 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 `runfull.sh`(리뷰 반영 **전** 코드, 중간에 `lockExists→currentHolder` 편집이 겹침): 3,907 중 실패 1(`RedisCrossInstanceFlightIT`, 편집 겹침 탓 — 최종 코드 단독 재실행 통과), 건너뜀 7, 17분. 최종 코드 전체 재실행은 PR 머지 전 별도
 - 재실행(최종 코드) `--tests '*CrossInstance*' '*CachedSearchTimeBus*' '*RouteSearchCacheIT' '*RouteSearchStampedeIT' '*RouteSearchRealtimeDeadlineIT'` → 32 tests, BUILD SUCCESSFUL
 - 전체 `runfull.sh`(최종 코드, 리뷰 반영 뒤): **BUILD SUCCESSFUL, 3911 tests, 실패 0, 건너뜀 7**, 19분 33초(실제 OTP·공휴일 API 를 부르는 전체 컨텍스트 IT 가 느린 원인)
+## 트랙 근처 정류장 진행 방향 heading (2026-11-03, feat/track-stop-heading, #538)
+플랜: `docs/plan/track-stop-heading/PLAN.md`(M).
+### 확정
+- 대표 방향 = **방위각 ±60° 묶음**(이슈 원안 "다음 정류장 key 다수결"에서 사용자 결정으로 변경). 운영 OTP 6곳 754분기 실측: key 다수결 72%, ±45° 90%, ±60° 91% 대표 포함
+- 방위각 = 정류장 → 다음 정류장(지도 고정값). 사용자 위치와 무관
+- 서울 버스 패턴은 차고지 → 차고지 왕복 하나 → 같은 패턴 코드가 길 건너편 정류장에도 나온다(고속터미널 104m 쌍 20개, 잠실역.롯데월드 54m 쌍 15개). 서버는 코드 그대로, **앱이 코드 겹침 + 방위각 차 ≤60° 일 때만 같은 섹션**(이슈 댓글로 계약 전달)
+- 80m 보강(다음 정류장이 가까우면 remaining[1]) 미적용: 80m 미만 6/754, 40m 미만 0, 결과 동일. 바뀐 3건(사당역3번출구 → 50m 4번출구)은 그 뒤 꺾는 방향을 잡아 오히려 덜 맞음
+- heading 계산은 근처 조회와 같은 permit·마감 안, 정류장 단위 try/catch → 실패한 정류장만 null. 운영 실측 `patternsAtStop` 15회 합 121ms(p50 6ms) → 순차
+- `PatternStop(gtfsId, name, lat, lon)` + 2인자 생성자(좌표 null) — 기존 호출 13곳 무수정
+### 함정
+- 이슈 수용 기준 예시 "강남역 → 지하철2호선강남역" 쌍은 강남역 사거리 300m 안에서 그 이름으로 잡히지 않음 → 같은 이름 길 건너편 쌍(강남역9번출구·12번출구·10번출구)과 잇따르는 쌍(12번출구 → 9번출구)으로 확인
+- 같은 정류장이라도 경기 피드 노선은 정류장 순서가 달라 다음 정류장이 서울 노선과 다르다(강남역9번출구: 서울 → 서초동진흥아파트, 경기 → 서초푸르지오써밋)
+### 좌표
+- `application/journey/service/TrackStopHeading.java`(순수), `TrackSelectionQueryService.headings`, `TrackPatternSource.expired`
+- `application/journey/dto/TrackViews.{Stop.routeNames,Stop.heading,Heading,Direction.nextStopNames}`, `JourneyTrackProperties.headingLimit`(12)
+- `otp/trackPatterns.graphql` PatternsAtStop `stops { gtfsId name lat lon }`
+- 실측 스크립트: 세션 scratchpad `heading_v4.py`(운영 OTP 127.0.0.1:18080 를 `ssh vps python3 -` 로)
+- 보강(계획 밖): heading 단계 시간 상한 `journey.track.heading-budget-ms`(기본 1000) — OTP 가 느려도 근처 조회가 마감 8초까지 늘어지지 않게. `TrackPatternSource.capped` 는 바깥 마감보다 늘리지 않는다
+### 검증
+- `./gradlew test --tests '*TrackStopHeadingTest' --tests '*TrackSelectionQueryServiceTest' --tests '*JourneyTrackControllerTest' --tests '*OtpTransitPatternAdapterTest'` → 통과
+- 전체 `cleanTest test --continue`(st-pg·st-redis env): **3,910 중 실패 8, 모두 기존 무관** — `SubwayRideScenarioIT`·`SubwayRingExpressReplayIT`·`SubwayRingReplayIT` 가 `user_push_token` 에 고정 token `'device-token'` 을 넣다 `DuplicateKeyException`. st-pg 에 2026-11-03 23:28 에 남은 행(앞서 Gradle 데몬이 외부 stop 으로 끊긴 실행의 잔여로 추정)이 원인. 이 브랜치 diff 와 무관한 테이블
+- 함정(시험 환경): 전체 시험 env 스크립트가 `${X:기본값}` 자리까지 dummy 로 덮으면 boolean 바인딩이 깨져 컨텍스트 IT 411건 실패 ← 기본값 없는 `${X}` 만 채울 것

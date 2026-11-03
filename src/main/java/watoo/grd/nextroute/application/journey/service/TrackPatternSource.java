@@ -199,6 +199,16 @@ public class TrackPatternSource {
         return Optional.empty();
     }
 
+    public boolean expired(RoutingDeadline deadline) {
+        return deadline.expired(clock);
+    }
+
+    /** 지금부터 {@code budgetMs} 와 {@code outer} 중 이른 마감. 묶음 예산을 늘리지 않고 한 단계만 더 짧게 끊는다. */
+    public RoutingDeadline capped(RoutingDeadline outer, long budgetMs) {
+        RoutingDeadline cap = RoutingDeadline.of(clock, budgetMs);
+        return cap.deadlineAt().isBefore(outer.deadlineAt()) ? cap : outer;
+    }
+
     public String graphVersion() {
         return otpProperties.getGraphVersion();
     }
