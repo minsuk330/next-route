@@ -6310,3 +6310,7 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `compileJava compileTestJava` 통과
 - `runsome.sh --tests '*Regional*' '*NamedSemaphore*' '*SharedBlock*' '*Gyeonggi*' '*Tago*' '*CrossInstance*' '*CachedSearchTimeBus*' '*RouteSearchCacheIT' '*RouteSearchStampedeIT' '*OtpConcurrencyGate*' '*ApiCallBlocker*' '*BusArrivalQueryService*'` → 141 tests, BUILD SUCCESSFUL
+- 코드 리뷰(reviewer 에이전트, 🔴2 🟡6 ❓1) 반영: 🔴① `ApiCallBlocker` 가 공유 저장소의 "차단 아님"을 그대로 믿어 이 서버의 JVM 차단(공유 쓰기 실패 뒤)을 놓치던 것 → 공유가 "차단"일 때만 바로 true, 아니면 JVM 상태도 본다(+테스트) 🔴② `gyeonggi-daily-limit` 8,000 + 재탐색 버킷 기본 5,000 = 13,000 > 공급자 10,000 → 5,000 으로, `RegionalBusQuotaBudgetTest` 가 합 ≤ 10,000 을 지킨다 🟡③ 공유 차단기 읽기를 2초 메모(캐시 hit 마다 Redis GET 하나 더 붙던 것) ④ `RegionalBusShared.runner()` resultTtl 하한 100 ⑤ TAGO lease 10 → 15초(본문 느린 수신 여유) ⑥ 시험 flaky 완화: 끔 대조군 ≥ 서버 수, TAGO 상한 시험 호출 3초·setUp 에서 세마포어 키 제거, lease 만료 시험 1초
+- ❓ "빈 OK 를 캐시 hit 로"는 의도: 지역 캐시 포트 규칙(빈 결과도 저장, 10,000 한도 보호). 서울 캐시는 빈 목록을 저장하지 않으므로 러너의 cacheProbe 가 빈 목록을 돌려주는 일이 없다 — 러너 공유로 서울 동작이 바뀌지 않음
+- 미결: TAGO `fetch()` 본문 읽기(`readAllBytes`)에 전체 기한이 없어 극단적으로 느린 수신이 lease 를 넘길 수 있음(그때 자리 하나가 잠시 초과). 기한 있는 본문 읽기는 별건
+- 재실행(리뷰 반영 뒤) 대상 묶음 + `RegionalBusQuotaBudgetTest` → BUILD SUCCESSFUL (2분 26초)

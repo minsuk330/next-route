@@ -68,6 +68,7 @@ class TagoBusArrivalAdapterSharedIT {
         factory = RedisTestSupport.factory();
         redis = RedisTestSupport.template(factory);
         node = "GMB" + UUID.randomUUID();
+        redis.delete("sem:" + TagoBusArrivalAdapter.SHARED_SEMAPHORE + ":permits");   // 죽은 회차의 lease 잔재 제거
         providerCalls = new AtomicInteger();
         pool = Executors.newFixedThreadPool(REQUESTS);
     }
@@ -129,8 +130,8 @@ class TagoBusArrivalAdapterSharedIT {
     @DisplayName("플래그 켬: 서로 다른 정류장 동시 조회는 서버 합산 상한을 넘지 않고, 넘친 쪽은 LIMITED")
     void sharedConcurrencyCapAcrossServers() throws Exception {
         RegionalBusShared shared = shared(true, 2);
-        TagoBusArrivalAdapter a = server(shared, 1500);
-        TagoBusArrivalAdapter b = server(shared, 1500);
+        TagoBusArrivalAdapter a = server(shared, 3000);
+        TagoBusArrivalAdapter b = server(shared, 3000);
         CountDownLatch start = new CountDownLatch(1);
         List<Future<BusQueryResult<TagoBusArrival>>> futures = new ArrayList<>();
         for (int i = 0; i < 6; i++) {
@@ -149,7 +150,7 @@ class TagoBusArrivalAdapterSharedIT {
             if (r.isOk()) ok++;
             if (r.outcome() == Outcome.LIMITED) limited++;
         }
-        // 자리 2 × (1초 안에 자리 대기) — 1.5초 호출이라 첫 2건만 자리를 얻고 나머지 4건은 1초 대기 뒤 LIMITED
+        // 자리 2 × (1초 안에 자리 대기) — 3초 호출이라 첫 2건만 자리를 얻고 나머지 4건은 1초 대기 뒤 LIMITED
         assertThat(ok).isEqualTo(2);
         assertThat(limited).isEqualTo(4);
         assertThat(providerCalls.get()).isEqualTo(2);

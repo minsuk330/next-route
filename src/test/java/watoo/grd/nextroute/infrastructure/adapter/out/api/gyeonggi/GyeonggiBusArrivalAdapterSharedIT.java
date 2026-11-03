@@ -135,7 +135,7 @@ class GyeonggiBusArrivalAdapterSharedIT {
     @Test
     @DisplayName("플래그 켬: 서버 셋에 동시 요청이 몰려도 공급자 호출 1회, 몫도 1 만 쓴다")
     void enabledCollapsesToOneCall() throws Exception {
-        RegionalBusShared shared = shared(true, 8000);
+        RegionalBusShared shared = shared(true, 5000);
         List<GyeonggiBusArrivalAdapter> adapters = List.of(server(ITEM, shared), server(ITEM, shared), server(ITEM, shared));
 
         List<BusQueryResult<GyeonggiBusArrival>> results = fire(adapters);
@@ -148,7 +148,7 @@ class GyeonggiBusArrivalAdapterSharedIT {
     @Test
     @DisplayName("플래그 켬: 빈 결과(resultCode 4)도 공유 캐시에 남아 다음 조회가 공급자를 안 부른다")
     void emptyResultIsCachedAcrossServers() throws Exception {
-        RegionalBusShared shared = shared(true, 8000);
+        RegionalBusShared shared = shared(true, 5000);
         GyeonggiBusArrivalAdapter a = server(NO_RESULT, shared);
         GyeonggiBusArrivalAdapter b = server(NO_RESULT, shared);
 
@@ -160,12 +160,13 @@ class GyeonggiBusArrivalAdapterSharedIT {
     @Test
     @DisplayName("플래그 끔(대조군): 서버 수만큼 부른다")
     void disabledCallsPerServer() throws Exception {
-        RegionalBusShared shared = shared(false, 8000);
+        RegionalBusShared shared = shared(false, 5000);
         List<GyeonggiBusArrivalAdapter> adapters = List.of(server(ITEM, shared), server(ITEM, shared), server(ITEM, shared));
 
         fire(adapters);
 
-        assertThat(providerCalls.get()).isEqualTo(SERVERS);
+        // JVM 캐시 put 이 flight 안에서 일어나 드물게 한 번 더 부를 수 있다 — 대조군의 요지는 "서버 수 이상"
+        assertThat(providerCalls.get()).isGreaterThanOrEqualTo(SERVERS);
     }
 
     @Test

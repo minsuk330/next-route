@@ -65,6 +65,6 @@ public class RegionalBusShared {
     public CrossInstanceFlightRunner runner(String provider) {
         return new CrossInstanceFlightRunner(flight,
                 (type, role) -> metrics.recordCrossInstanceFlight(provider, type, role),
-                props.getPollMs(), Duration.ofMillis(props.getResultTtlMs()));
+                props.getPollMs(), Duration.ofMillis(Math.max(100, props.getResultTtlMs())));
     }
 }

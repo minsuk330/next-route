@@ -55,9 +55,9 @@ class RedisNamedSemaphoreIT {
     @DisplayName("lease 가 지나면 자리가 저절로 회수된다")
     void leaseExpires() throws Exception {
         RedisNamedSemaphore a = new RedisNamedSemaphore(redis);
-        assertThat(a.tryAcquire(name, 1, 200, 0, 10)).isPresent();
-        assertThat(a.tryAcquire(name, 1, 200, 0, 10)).isEmpty();
-        Thread.sleep(300);
-        assertThat(a.tryAcquire(name, 1, 200, 0, 10)).isPresent();
+        assertThat(a.tryAcquire(name, 1, 1000, 0, 10)).isPresent();
+        assertThat(a.tryAcquire(name, 1, 1000, 0, 10)).isEmpty();
+        Thread.sleep(1100);
+        assertThat(a.tryAcquire(name, 1, 1000, 0, 10)).isPresent();
     }
 }

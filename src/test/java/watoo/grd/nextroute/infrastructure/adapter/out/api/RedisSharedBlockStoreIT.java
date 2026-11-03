@@ -72,4 +72,24 @@ class RedisSharedBlockStoreIT {
         blocker.block("gyeonggi-bus-arrival");
         assertThat(blocker.isBlocked("gyeonggi-bus-arrival")).as("저장소가 답을 못 주면 JVM 상태(차단)").isTrue();
     }
+
+    @Test
+    @DisplayName("공유 저장소가 '차단 아님'이어도 이 서버의 JVM 차단은 유지된다(공유 쓰기 실패 대비)")
+    void localBlockSurvivesRemoteFalse() {
+        SharedBlockStore saysNo = new SharedBlockStore() {
+            @Override public boolean handles(String apiName) { return true; }
+            @Override public Optional<Boolean> isBlocked(String apiName) { return Optional.of(false); }
+            @Override public void block(String apiName) { /* 쓰기 실패를 흉내: 아무것도 안 함 */ }
+        };
+        ApiCallBlocker blocker = new ApiCallBlocker(new org.springframework.beans.factory.ObjectProvider<SharedBlockStore>() {
+            @Override public SharedBlockStore getObject(Object... args) { return saysNo; }
+            @Override public SharedBlockStore getIfAvailable() { return saysNo; }
+            @Override public SharedBlockStore getIfUnique() { return saysNo; }
+            @Override public SharedBlockStore getObject() { return saysNo; }
+        });
+
+        blocker.block("tago-bus-arrival");
+
+        assertThat(blocker.isBlocked("tago-bus-arrival")).isTrue();
+    }
 }

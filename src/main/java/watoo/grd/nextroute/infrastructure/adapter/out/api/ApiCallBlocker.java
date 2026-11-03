@@ -40,9 +40,11 @@ public class ApiCallBlocker {
 
 	public boolean isBlocked(String apiName) {
 		if (shared != null && shared.handles(apiName)) {
+			// 공유 저장소가 "차단"이면 그대로. "아님"이어도 이 서버의 JVM 상태는 본다 — 공유 쓰기가 실패해 이 서버만 차단한
+			// 경우(block 이 Redis 오류를 삼킴)를 놓치지 않게.
 			Optional<Boolean> remote = shared.isBlocked(apiName);
-			if (remote.isPresent()) {
-				return remote.get();
+			if (remote.isPresent() && remote.get()) {
+				return true;
 			}
 		}
 		BlockState state = states.computeIfAbsent(apiName, k -> new BlockState());

@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 경기·TAGO 버스 도착 차단기의 Redis 공유 저장소. 플래그 {@code regional-bus.shared.enabled} 가 켜질 때만 빈이 된다 —
@@ -28,8 +29,14 @@ public class RedisSharedBlockStore implements SharedBlockStore {
     static final String KEY_PREFIX = "api:block:";
     static final Set<String> NAMES = Set.of("gyeonggi-bus-arrival", "tago-bus-arrival");
 
+    /** 읽기 결과를 잠깐 기억한다 — 캐시 hit 마다 Redis GET 을 하나 더 붙이지 않게. 차단은 자정까지라 2초 지연은 무해하다. */
+    static final long MEMO_MS = 2000;
+
+    private record Memo(long untilNanos, boolean blocked) {}
+
     private final RedisTemplate<String, String> redisTemplate;
     private final Clock clock;
+    private final ConcurrentHashMap<String, Memo> memo = new ConcurrentHashMap<>();
 
     public RedisSharedBlockStore(RedisTemplate<String, String> redisTemplate, Clock clock) {
         this.redisTemplate = redisTemplate;
@@ -43,9 +50,15 @@ public class RedisSharedBlockStore implements SharedBlockStore {
 
     @Override
     public Optional<Boolean> isBlocked(String apiName) {
+        Memo m = memo.get(apiName);
+        if (m != null && System.nanoTime() < m.untilNanos()) {
+            return Optional.of(m.blocked());
+        }
         try {
             String blockedOn = redisTemplate.opsForValue().get(KEY_PREFIX + apiName);
-            return Optional.of(blockedOn != null && blockedOn.equals(today().toString()));
+            boolean blocked = blockedOn != null && blockedOn.equals(today().toString());
+            memo.put(apiName, new Memo(System.nanoTime() + MEMO_MS * 1_000_000L, blocked));
+            return Optional.of(blocked);
         } catch (Exception e) {
             log.warn("[SharedBlock] 읽기 실패 — JVM 차단기로 내려간다 name={}: {}", apiName, e.getMessage());
             return Optional.empty();
@@ -58,6 +71,7 @@ public class RedisSharedBlockStore implements SharedBlockStore {
             ZonedDateTime nowKst = ZonedDateTime.now(clock).withZoneSameInstant(ClockConfig.KST);
             Duration ttl = Duration.between(nowKst, nowKst.toLocalDate().plusDays(1).atStartOfDay(ClockConfig.KST));
             redisTemplate.opsForValue().set(KEY_PREFIX + apiName, today().toString(), ttl);
+            memo.put(apiName, new Memo(System.nanoTime() + MEMO_MS * 1_000_000L, true));
         } catch (Exception e) {
             log.warn("[SharedBlock] 쓰기 실패 — 이 서버만 차단된다 name={}: {}", apiName, e.getMessage());
         }
