@@ -145,6 +145,18 @@ class BusPositionServiceTest {
 	}
 
 	@Test
+	void TC_처음부터_리더가_아니면_몫도_공급자도_건드리지_않는다() {
+		prepareRoutes(route("100100118", "143"));
+		leaderLease.set(false);
+
+		service.execute();
+
+		verifyNoInteractions(quota);
+		verifyNoInteractions(busApiPort);
+		verifyNoInteractions(busPositionRawRepository);
+	}
+
+	@Test
 	void TC_리더가_아니게_되면_몫을_점유하지_않고_남은_노선을_호출하지_않는다() {
 		prepareRoutes(route("100100118", "143"), route("100100119", "272"));
 		given(quota.tryAcquire("collector-position", 50000)).willReturn(true);
@@ -158,6 +170,7 @@ class BusPositionServiceTest {
 		verify(busApiPort).getBusPosByRtid("100100118");
 		verify(busApiPort, never()).getBusPosByRtid("100100119");
 		verify(quota, times(1)).tryAcquire("collector-position", 50000);
+		verify(busPositionRawRepository, never()).saveAll(anyList());
 	}
 
 	private void prepareRoutes(BusRoute... routes) {

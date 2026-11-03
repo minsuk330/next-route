@@ -6263,3 +6263,6 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `runsome.sh --tests '*BusArrival*' --tests '*BusPosition*' --tests '*BusAlert*' --tests '*LeaderLease*' --tests '*SeoulBusApiAdapter*' --tests '*BusCollectorLeader*'` → 141 tests, BUILD SUCCESSFUL (st-pg:55432, st-redis:56379)
 - 함정 추가: `RuntimeRoleProfileTest.profileConditionActuallySelectsTheRoleSpecificComponent` 가 `BusArrivalScheduler` 를 직접 등록한 컨텍스트라 `LeaderLease` 빈 없음 ← 생성자 의존 추가 / 가드: 테스트 컨텍스트에 `LeaderLease` mock 등록
 - 전체 `runfull.sh`(cleanTest test --continue): **3,891 중 실패 1(위 RuntimeRoleProfileTest, 수정 뒤 단독 재실행 통과), 건너뜀 7**, 16분 4초. 예전 노트의 "기존 무관 12건"은 이제 0. 느린 원인 = 전체 컨텍스트 IT 가 실제 공휴일 API(`GongApiAdapter`, 12달 × 읽기 30초)를 부름 — 별건
+- 코드 리뷰(reviewer 에이전트, 🟡4 ❓2 🔵2) 반영: ① 몫 점유 실패 분기의 `purgeStaleActive` 를 try/catch 로(Redis 장애면 스냅숏 조회도 같이 실패해 execute 가 중간에 끊기던 것) ② 공급자 응답을 받은 뒤 reconcile/saveAll 전에 리더 재확인(긴 호출 중 강등된 리더가 새 리더 옆에서 상태를 쓰지 않게) ③ "처음부터 리더 아님 → 몫·공급자·저장 무접촉" 테스트 2종, "호출 중 리더 잃음 → 응답 버림" 테스트 ④ `BusCollectorLeaderIT` 몫 시험은 고정 Clock(KST 자정 경계 flaky 제거) ⑤ yaml 주석에 "Redis 장애 시 수집 멈춤은 리더 락 플래그와 무관" 명시
+- 운영 확인(ssh vps 읽기 전용, 2026-11-03): 컨테이너 12개 env 에 `LEADER_LEASE` 없음 → 기본 false → 이 배포는 동작 불변. 알림 폴러가 플래그 켬일 때 Redis 에 묶이는 것은 플랜대로 의도(사용자 확인 대상)
+- 재실행 `--tests '*BusArrivalService*' '*BusPositionService*' '*BusCollectorLeader*' '*BusAlertDispatchServiceTest'` → BUILD SUCCESSFUL

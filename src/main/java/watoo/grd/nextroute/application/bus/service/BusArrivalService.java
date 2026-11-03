@@ -91,12 +91,22 @@ public class BusArrivalService implements CollectBusArrivalUseCase {
 			if (!quota.tryAcquire(BUCKET_ARRIVAL, dailyBudget)) {
 				log.warn("[BusArrival] Budget exhausted or unavailable (limit {}). Skipping API for route {}, stale purge only.",
 						dailyBudget, routeId);
-				purgeStaleActive(routeId, collectedAt);
+				try {
+					purgeStaleActive(routeId, collectedAt);
+				} catch (Exception e) {
+					// Redis 장애면 몫 점유도 purge(스냅숏 조회)도 같이 실패한다 — 한 노선 실패가 나머지 purge 를 막지 않게.
+					log.warn("[BusArrival] Stale purge failed for route {}: {}", routeId, e.getMessage());
+				}
 				continue;
 			}
 
 			try {
 				List<BusArrivalInfo> items = busApiPort.getArrInfoByRouteAll(routeId);
+				// 호출이 긴 동안(legacy 어댑터는 2초·4초 재시도까지) 리더를 잃었으면 새 리더 옆에서 상태를 쓰지 않는다.
+				if (!leaderLease.isLeader()) {
+					log.info("[BusArrival] Lost leadership during route {}. Discarding response.", routeId);
+					return;
+				}
 				totalFinalized += reconcile(routeId, items, collectedAt);
 				// 검색·공용 조회가 재사용하도록 실시간 캐시 프라이밍(정류장·순번별 분해; best-effort)
 				if (properties.isPrimeRealtimeCache()) {

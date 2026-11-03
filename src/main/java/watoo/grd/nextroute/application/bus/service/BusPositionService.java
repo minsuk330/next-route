@@ -88,6 +88,11 @@ public class BusPositionService implements CollectBusPositionUseCase {
 
 			try {
 				List<BusPositionInfo> items = busApiPort.getBusPosByRtid(routeId);
+				// 호출이 긴 동안 리더를 잃었으면 새 리더 옆에서 저장하지 않는다.
+				if (!leaderLease.isLeader()) {
+					log.info("[BusPosition] Lost leadership during route {}. Discarding response.", routeId);
+					return;
+				}
 
 				List<BusPositionRaw> entities = items.stream()
 						.map(info -> toEntity(info, routeId, collectedAt))

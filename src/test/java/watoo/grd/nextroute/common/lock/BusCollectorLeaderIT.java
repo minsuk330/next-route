@@ -16,6 +16,8 @@ import watoo.grd.nextroute.infrastructure.adapter.in.scheduler.BusArrivalSchedul
 import watoo.grd.nextroute.infrastructure.adapter.out.cache.bus.RedisBusApiQuota;
 
 import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -91,8 +93,10 @@ class BusCollectorLeaderIT {
     @Test
     @DisplayName("수집 몫 버킷은 두 서버가 합쳐 한도에서 멈춘다")
     void quotaIsSharedAcrossInstances() {
-        BusApiQuotaPort quotaA = new RedisBusApiQuota(redis, new BusApiQuotaProperties(), Clock.systemUTC());
-        BusApiQuotaPort quotaB = new RedisBusApiQuota(redis, new BusApiQuotaProperties(), Clock.systemUTC());
+        // 고정 시계 — 두 인스턴스가 같은 KST 날짜 키를 보게(자정 직전 실행에도 흔들리지 않게)
+        Clock fixed = Clock.fixed(Instant.parse("2026-11-03T03:00:00Z"), ZoneOffset.UTC);
+        BusApiQuotaPort quotaA = new RedisBusApiQuota(redis, new BusApiQuotaProperties(), fixed);
+        BusApiQuotaPort quotaB = new RedisBusApiQuota(redis, new BusApiQuotaProperties(), fixed);
 
         assertThat(quotaA.tryAcquire(bucket, 3)).isTrue();
         assertThat(quotaB.tryAcquire(bucket, 3)).isTrue();

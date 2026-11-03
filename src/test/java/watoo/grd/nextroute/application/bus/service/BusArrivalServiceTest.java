@@ -389,6 +389,35 @@ class BusArrivalServiceTest {
 	}
 
 	@Test
+	void TC_처음부터_리더가_아니면_몫도_공급자도_건드리지_않는다() {
+		BusRoute route = BusRoute.builder().routeId("100100118").routeName("753").build();
+		given(targetRouteProvider.activeRouteNames()).willReturn(List.of("753"));
+		given(busRouteRepository.findByRouteNameIn(List.of("753"))).willReturn(List.of(route));
+		given(properties.getDailyBudget()).willReturn(1000);
+		leaderLease.set(false);
+
+		service.execute();
+
+		verifyNoInteractions(quota);
+		verifyNoInteractions(busApiPort);
+		verifyNoInteractions(busArrivalSnapshotPort);
+	}
+
+	@Test
+	void TC_호출_중_리더를_잃으면_응답을_저장하지_않는다() {
+		prepareRoute();
+		given(busApiPort.getArrInfoByRouteAll("100100118")).willAnswer(inv -> {
+			leaderLease.set(false);
+			return List.of(arrivalInfo("veh-A", "서울71사1111", "1분 후", "veh-B", "서울72사2222", "4분 후"));
+		});
+
+		service.execute();
+
+		verifyNoInteractions(busArrivalSnapshotPort);
+		verify(busArrivalCandidateWriter, never()).saveAllArrivalCandidates(anyList());
+	}
+
+	@Test
 	void TC_리더가_아니게_되면_몫을_점유하지_않고_공급자도_부르지_않는다() {
 		BusRoute a = BusRoute.builder().routeId("100100118").routeName("753").build();
 		BusRoute b = BusRoute.builder().routeId("100100119").routeName("754").build();
@@ -396,8 +425,7 @@ class BusArrivalServiceTest {
 		given(busRouteRepository.findByRouteNameIn(List.of("753", "754"))).willReturn(List.of(a, b));
 		given(properties.getDailyBudget()).willReturn(1000);
 		given(quota.tryAcquire("collector-arrival", 1000)).willReturn(true);
-		given(busArrivalSnapshotPort.findActiveScopes("100100118")).willReturn(Set.of());
-		// 첫 노선 호출 중에 리더를 잃는다
+		// 첫 노선 호출 중에 리더를 잃는다 — 그 응답도 버린다
 		given(busApiPort.getArrInfoByRouteAll("100100118")).willAnswer(inv -> {
 			leaderLease.set(false);
 			return List.of();

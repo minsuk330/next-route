@@ -321,7 +321,8 @@ collector:
       - 1
     excluded-arrival-messages:
       - "출발대기"
-    # Redis 버킷 collector-arrival 로 셈 — worker 수와 무관하게 하루 하나. Redis 장애면 수집을 멈춘다(fail-closed).
+    # Redis 버킷 collector-arrival 로 셈 — worker 수와 무관하게 하루 하나. Redis 장애면 리더 락 플래그와 무관하게
+    # 수집을 멈춘다(fail-closed, 공급자 한도 보호 우선). 위치 수집(collector-position)도 같다.
     daily-budget: 50000
     target-route-names:
       - "143"
