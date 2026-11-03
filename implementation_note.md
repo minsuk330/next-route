@@ -6291,3 +6291,22 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 `runfull.sh`(리뷰 반영 **전** 코드, 중간에 `lockExists→currentHolder` 편집이 겹침): 3,907 중 실패 1(`RedisCrossInstanceFlightIT`, 편집 겹침 탓 — 최종 코드 단독 재실행 통과), 건너뜀 7, 17분. 최종 코드 전체 재실행은 PR 머지 전 별도
 - 재실행(최종 코드) `--tests '*CrossInstance*' '*CachedSearchTimeBus*' '*RouteSearchCacheIT' '*RouteSearchStampedeIT' '*RouteSearchRealtimeDeadlineIT'` → 32 tests, BUILD SUCCESSFUL
 - 전체 `runfull.sh`(최종 코드, 리뷰 반영 뒤): **BUILD SUCCESSFUL, 3911 tests, 실패 0, 건너뜀 7**, 19분 33초(실제 OTP·공휴일 API 를 부르는 전체 컨텍스트 IT 가 느린 원인)
+
+## 경기·TAGO 버스를 서울 버스와 같은 구조로 (2026-11-03, feat/regional-bus-shared-cache, bus-multi-instance PR-4)
+### 확정
+- 플래그 `regional-bus.shared.enabled`(env `REGIONAL_BUS_SHARED`, 기본 false). 꺼지면 두 어댑터 모두 기존 JVM 캐시·JVM 세마포어·JVM 차단기 경로 그대로(기존 6인자 생성자 → `RegionalBusShared.disabled()`). 켜면 Redis 캐시(`bus:gg:arr:{station}:{route}`, `bus:tago:arr:{city}:{node}:{route}`, 15초, **빈 OK 도 저장**) → JVM SingleFlight → 서버 사이 single-flight → 공급자
+- 서버 사이 single-flight 절차를 `CrossInstanceFlightRunner`(application/route/concurrent)로 뽑아 서울 `CachedSearchTimeBusAdapter` 와 지역 어댑터가 같은 코드. 잠금 수명은 지역 상수(경기 9초, TAGO 10초 — 기본 RestClient connect 3 + read 5 + TAGO 자리 대기 1)
+- 경기 일일 몫 `gg-arrival`(Redis 버킷, 기본 8,000)은 **어댑터 안, 캐시 miss·double-check 뒤 fetch 직전**에만 점유(캐시 hit 는 몫 안 씀). 재탐색은 자기 버킷을 이미 냈으므로 포트 오버로드 `getArrival(station, route, chargeQuota=false)` 로 부름(`RegionalArrivalLookup`)
+- TAGO 동시 호출: JVM `Semaphore(8)` → 플래그 켬이면 `RedisNamedSemaphore`(`sem:tago-bus:permits`, ZSET + Redis TIME + lease 10초, OTP 게이트와 같은 Lua, OTP 빈·키·지표는 무변경) 서버 합산 8. fail-closed
+- 차단기: `ApiCallBlocker` 에 선택 의존 `SharedBlockStore`. `RedisSharedBlockStore` 는 플래그 켬일 때만 빈(`@ConditionalOnProperty`), `gyeonggi-bus-arrival`·`tago-bus-arrival` 두 이름만, 키 `api:block:{name}` 값 KST 날짜 TTL KST 자정. 저장소 오류면 JVM 상태로 폴백. 지하철 어댑터 등 다른 이름은 영향 없음
+### 함정
+- `RegionalArrivalLookupTest` 가 2인자 `getArrival` 을 stub 했는데 Mockito mock 은 인터페이스 default 메서드를 타지 않아 3인자 호출이 null → stub·verify 를 3인자(`false`)로
+- `MockRestServiceServer` 의 `andRespond` 람다는 IOException 만 던질 수 있어 `Thread.sleep` 을 직접 못 씀 → `sleepQuietly` 헬퍼
+- `RedisNamedSemaphore.key()` 가 package-private → 다른 패키지 IT 는 키 문자열 직접
+### 좌표
+- 신규: `application/route/concurrent/CrossInstanceFlightRunner`, `application/arrival/port/out/RegionalBusCachePort`, `application/arrival/config/RegionalBusSharedProperties`, `infrastructure/adapter/out/cache/bus/{RedisRegionalBusCacheAdapter, RegionalBusShared}`, `infrastructure/adapter/out/cache/RedisNamedSemaphore`, `infrastructure/adapter/out/api/{SharedBlockStore, RedisSharedBlockStore}`
+- 수정: `GyeonggiBusArrivalAdapter.getArrivalShared/fetchAndStore`, `TagoBusArrivalAdapter.getArrivalsShared/fetchAndStore`, `GyeonggiBusArrivalPort.getArrival(…, chargeQuota)`, `RegionalArrivalLookup.gyeonggi`, `ApiCallBlocker`, `CachedSearchTimeBusAdapter.crossInstance`(러너 위임), yaml `regional-bus.shared`
+- 시험: `RedisRegionalBusCacheAdapterIT`, `RedisNamedSemaphoreIT`, `RedisSharedBlockStoreIT`, `GyeonggiBusArrivalAdapterSharedIT`(켬 1회/끔 3회/빈 결과 공유/몫 게이트), `TagoBusArrivalAdapterSharedIT`(켬 1회/합산 상한), 공용 `RedisTestSupport`
+### 검증
+- `compileJava compileTestJava` 통과
+- `runsome.sh --tests '*Regional*' '*NamedSemaphore*' '*SharedBlock*' '*Gyeonggi*' '*Tago*' '*CrossInstance*' '*CachedSearchTimeBus*' '*RouteSearchCacheIT' '*RouteSearchStampedeIT' '*OtpConcurrencyGate*' '*ApiCallBlocker*' '*BusArrivalQueryService*'` → 141 tests, BUILD SUCCESSFUL

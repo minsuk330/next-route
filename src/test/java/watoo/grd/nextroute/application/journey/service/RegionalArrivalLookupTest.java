@@ -19,6 +19,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
@@ -45,7 +46,7 @@ class RegionalArrivalLookupTest {
     @DisplayName("남은 순번이 기대값이거나 하나 적은 차만 내 차다 — 내 뒤의 차(더 먼 차)는 받지 않는다")
     void picksMyBusByStopsAway() {
         // 1번째 차: 3정류장 전 2분, 2번째 차: 6정류장 전 9분.
-        given(gyeonggi.getArrival("S", "R")).willReturn(BusQueryResult.ok(List.of(
+        given(gyeonggi.getArrival("S", "R", false)).willReturn(BusQueryResult.ok(List.of(
                 new GyeonggiBusArrival("R", 2, 3, null, null, 9, 6, null, null, null))));
 
         assertThat(lookup.arrivalAt(RegionalBusProvider.GG, "R", "S", 3).at()).isEqualTo(NOW.plusSeconds(120));
@@ -57,7 +58,7 @@ class RegionalArrivalLookupTest {
     @Test
     @DisplayName("다음 버스(기다리는 단계, #333): 몇 정류장 전이든 가장 이른 도착")
     void nextArrivalIsEarliest() {
-        given(gyeonggi.getArrival("S", "R")).willReturn(BusQueryResult.ok(List.of(
+        given(gyeonggi.getArrival("S", "R", false)).willReturn(BusQueryResult.ok(List.of(
                 new GyeonggiBusArrival("R", 9, 6, null, null, 2, 1, null, null, null))));
 
         assertThat(lookup.nextArrival(RegionalBusProvider.GG, "R", "S").at()).isEqualTo(NOW.plusSeconds(120));
@@ -66,7 +67,7 @@ class RegionalArrivalLookupTest {
     @Test
     @DisplayName("다음 버스: 오는 차가 없으면 no-realtime")
     void nextArrivalWithoutVehicles() {
-        given(gyeonggi.getArrival("S", "R")).willReturn(BusQueryResult.ok(List.of()));
+        given(gyeonggi.getArrival("S", "R", false)).willReturn(BusQueryResult.ok(List.of()));
 
         assertThat(lookup.nextArrival(RegionalBusProvider.GG, "R", "S").failureReason()).isEqualTo("no-realtime");
     }
@@ -74,13 +75,13 @@ class RegionalArrivalLookupTest {
     @Test
     @DisplayName("같은 정류장·노선은 짧게 캐시한다 — 여정끼리 호출을 나눠 쓴다")
     void cachesShortly() {
-        given(gyeonggi.getArrival("S", "R")).willReturn(BusQueryResult.ok(List.of(
+        given(gyeonggi.getArrival("S", "R", false)).willReturn(BusQueryResult.ok(List.of(
                 new GyeonggiBusArrival("R", 2, 3, null, null, null, null, null, null, null))));
 
         lookup.arrivalAt(RegionalBusProvider.GG, "R", "S", 3);
         lookup.arrivalAt(RegionalBusProvider.GG, "R", "S", 3);
 
-        verify(gyeonggi, times(1)).getArrival("S", "R");
+        verify(gyeonggi, times(1)).getArrival("S", "R", false);
     }
 
     @Test
@@ -91,7 +92,7 @@ class RegionalArrivalLookupTest {
         RegionalArrivalLookup.Lookup result = lookup.arrivalAt(RegionalBusProvider.GG, "R", "S", 3);
 
         assertThat(result.quotaExhausted()).isTrue();
-        verify(gyeonggi, times(0)).getArrival(anyString(), anyString());
+        verify(gyeonggi, times(0)).getArrival(anyString(), anyString(), anyBoolean());
     }
 
     @Test

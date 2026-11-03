@@ -114,7 +114,7 @@ public class RegionalArrivalLookup {
     }
 
     private List<Approach> gyeonggi(String routeId, String stopId) {
-        var result = gyeonggiPort.getArrival(stopId, routeId);
+        var result = gyeonggiPort.getArrival(stopId, routeId, false);   // 재탐색 버킷을 위에서 이미 점유했다
         if (!result.isOk()) {
             return null;
         }

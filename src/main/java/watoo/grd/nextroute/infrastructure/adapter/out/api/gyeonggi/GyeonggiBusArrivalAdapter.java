@@ -8,7 +8,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.arrival.dto.GyeonggiBusArrival;
 import watoo.grd.nextroute.application.arrival.port.out.GyeonggiBusArrivalPort;
+import org.springframework.beans.factory.annotation.Autowired;
 import watoo.grd.nextroute.application.route.concurrent.SingleFlight;
+import watoo.grd.nextroute.infrastructure.adapter.out.cache.bus.RegionalBusShared;
+import java.time.Duration;
+import java.util.Optional;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.BusQueryResult;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.ApiCallBlocker;
 
@@ -50,28 +54,48 @@ public class GyeonggiBusArrivalAdapter implements GyeonggiBusArrivalPort {
     private final Clock clock;
     private final String baseUrl;
     private final String apiKey;
+    /** 서버 사이 공유 부품(PR-4). {@code enabled()} 가 false 면 아래 JVM 캐시 경로 그대로. */
+    private final RegionalBusShared shared;
 
     private final ConcurrentHashMap<String, CacheEntry> cache = new ConcurrentHashMap<>();
     private final SingleFlight<String, BusQueryResult<GyeonggiBusArrival>> flight = new SingleFlight<>();
 
     private record CacheEntry(BusQueryResult<GyeonggiBusArrival> result, Instant expiresAt) {}
 
+    /** JVM 전용(시험·공유 부품 없음). */
+    public GyeonggiBusArrivalAdapter(RestClient restClient,
+                                     ObjectMapper objectMapper,
+                                     ApiCallBlocker blocker,
+                                     Clock clock,
+                                     String baseUrl,
+                                     String apiKey) {
+        this(restClient, objectMapper, blocker, clock, baseUrl, apiKey, RegionalBusShared.disabled());
+    }
+
+    @Autowired
     public GyeonggiBusArrivalAdapter(RestClient restClient,
                                      ObjectMapper objectMapper,
                                      ApiCallBlocker blocker,
                                      Clock clock,
                                      @Value("${gyeonggi.api.bus-arrival-base-url}") String baseUrl,
-                                     @Value("${gyeonggi.api.bus-key:}") String apiKey) {
+                                     @Value("${gyeonggi.api.bus-key:}") String apiKey,
+                                     RegionalBusShared shared) {
         this.restClient = restClient;
         this.objectMapper = objectMapper;
         this.blocker = blocker;
         this.clock = clock;
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
+        this.shared = shared;
     }
 
     @Override
     public BusQueryResult<GyeonggiBusArrival> getArrival(String stationId, String routeId) {
+        return getArrival(stationId, routeId, true);
+    }
+
+    @Override
+    public BusQueryResult<GyeonggiBusArrival> getArrival(String stationId, String routeId, boolean chargeQuota) {
         if (apiKey == null || apiKey.isBlank()) {
             log.debug("[GyeonggiBus] key not configured; skip stationId={} routeId={}", stationId, routeId);
             return BusQueryResult.error();
@@ -80,6 +104,9 @@ public class GyeonggiBusArrivalAdapter implements GyeonggiBusArrivalPort {
             return BusQueryResult.blocked();
         }
         String key = stationId + ":" + routeId;
+        if (shared.enabled()) {
+            return getArrivalShared(key, stationId, routeId, chargeQuota);
+        }
         CacheEntry hit = cache.get(key);
         if (hit != null && clock.instant().isBefore(hit.expiresAt())) {
             return BusQueryResult.cached(hit.result().data());
@@ -88,6 +115,39 @@ public class GyeonggiBusArrivalAdapter implements GyeonggiBusArrivalPort {
         SingleFlight.Outcome<BusQueryResult<GyeonggiBusArrival>> outcome =
                 flight.execute(key, () -> fetchAndCache(key, stationId, routeId), JOIN_WAIT_MS);
         return outcome.hasValue() ? outcome.value() : BusQueryResult.error();
+    }
+
+    /**
+     * 서버 사이 공유 경로(PR-4): Redis 캐시 → JVM SingleFlight → 서버 사이 single-flight → (몫 점유) → 공급자. 몫은
+     * 캐시 miss 와 double-check 뒤, 공급자 호출 직전에만 센다 — 캐시 hit 가 몫을 태우지 않게(플랜 검토 #7).
+     */
+    private BusQueryResult<GyeonggiBusArrival> getArrivalShared(String key, String stationId, String routeId,
+                                                                boolean chargeQuota) {
+        Optional<List<GyeonggiBusArrival>> hit = shared.cache().getGyeonggi(stationId, routeId);
+        if (hit.isPresent()) {
+            return BusQueryResult.cached(hit.get());
+        }
+        SingleFlight.Outcome<BusQueryResult<GyeonggiBusArrival>> outcome = flight.execute(key,
+                () -> shared.runner("gg").run("gg-arrival", key,
+                        () -> fetchAndStore(stationId, routeId, chargeQuota),
+                        () -> shared.cache().getGyeonggi(stationId, routeId),
+                        GyeonggiBusArrival.class,
+                        Duration.ofMillis(shared.props().getGyeonggiLockTtlMs()), JOIN_WAIT_MS),
+                JOIN_WAIT_MS);
+        return outcome.hasValue() ? outcome.value() : BusQueryResult.error();
+    }
+
+    private BusQueryResult<GyeonggiBusArrival> fetchAndStore(String stationId, String routeId, boolean chargeQuota) {
+        if (chargeQuota && !shared.quota().tryAcquire("gg-arrival", shared.props().getGyeonggiDailyLimit())) {
+            log.debug("[GyeonggiBus] daily quota exhausted; stationId={} routeId={}", stationId, routeId);
+            return BusQueryResult.limited();
+        }
+        BusQueryResult<GyeonggiBusArrival> result = fetch(stationId, routeId);
+        // 조회 성공(빈 결과 포함)만 저장한다 — JVM 캐시와 같은 규칙.
+        if (result.isOk()) {
+            shared.cache().putGyeonggi(stationId, routeId, result.data());
+        }
+        return result;
     }
 
     private BusQueryResult<GyeonggiBusArrival> fetchAndCache(String key, String stationId, String routeId) {

@@ -7,6 +7,7 @@ import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheReadPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
+import watoo.grd.nextroute.application.route.concurrent.CrossInstanceFlightRunner;
 import watoo.grd.nextroute.application.route.concurrent.SingleFlight;
 import watoo.grd.nextroute.application.route.config.SearchTimeBusProperties;
 import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
@@ -132,18 +133,11 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
     }
 
     /**
-     * 서버 사이 single-flight(PR-2). JVM 안 SingleFlight 의 owner 만 여기 들어온다(2단계).
-     *
-     * <p>리더: 잠금을 잡은 뒤 캐시를 <b>한 번 더</b> 읽는다 — 다른 서버가 방금 채웠으면 호출 없이 끝(double-check).
-     * 공급자를 부른 뒤 outcome 과 data 를 토큰별 결과 키에 남기고 잠금을 푼다.
-     * 대기자: 보유자 토큰의 결과 키를 {@code pollMs} 마다 본다. OK 는 cached 로, BLOCKED(공유 차단기)는 그대로 돌려준다.
-     * LIMITED·ERROR 는 리더 서버의 <b>자기 사정</b>(JVM 세마포어 포화, 일시 오류)일 수 있으므로 공유하지 않고 직접 부른다
-     * (플래그 꺼짐 때와 같은 가용성). 잠금이 만료돼 새 리더가 섰으면 그 토큰을 따라간다. 잠금이 사라졌는데 결과가 없으면
-     * (리더 사망) <b>스스로 리더를 시도</b>한다 — 잡으면 직접 부르고, 남이 잡았으면 그 토큰을 따라간다. 상한 초과·Redis 오류는
-     * LIMITED. 잠금 획득 자체가 Redis 오류면 직접 부른다.
+     * 서버 사이 single-flight(PR-2). JVM 안 SingleFlight 의 owner 만 여기 들어온다(2단계). 절차는
+     * {@link CrossInstanceFlightRunner}(PR-4 에서 경기·TAGO 와 공용으로 뽑음)가 맡고, 여기서는 잠금 수명과 대기 상한만 정한다.
      *
      * <p>잠금 수명은 갱신하지 않는다 — 기한 없는 호출은 세마포어 대기 + connect + read + Redis 왕복을 더한 상한(기본 6초)으로
-     * 잡고, 넘기면 두 번째 리더가 한 번 더 부르는 것을 감수한다(정합성 문제는 아니다, 결과 키가 토큰별이라).
+     * 잡고, 넘기면 두 번째 리더가 한 번 더 부르는 것을 감수한다(결과 키가 토큰별이라 정합성 문제는 아니다).
      */
     private <T> BusQueryResult<T> crossInstance(String type, String key, Supplier<BusQueryResult<T>> loader,
                                                 Supplier<Optional<List<T>>> cacheProbe, Class<T> elementType,
@@ -158,115 +152,10 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
                 : timeoutMs + Math.max(0, ci.getLockMarginMs()));
         // 대기 상한: 기한 있는 호출은 JVM joiner 와 같은 joinWait, 기한 없는 호출은 리더가 걸릴 수 있는 최대(잠금 수명).
         long waitMs = unbounded ? lockTtl.toMillis() : joinWait(timeoutMs);
-        CrossInstanceFlightPort.Lead lead;
-        try {
-            lead = flight.tryLead(type, key, lockTtl);
-        } catch (RuntimeException e) {
-            log.warn("[CrossFlight] 잠금 시도 실패 — 직접 부른다 [{}:{}]: {}", type, key, e.getMessage());
-            metrics.recordCrossInstanceFlight(PROVIDER, type, "redis_error");
-            return loader.get();
-        }
-        if (lead.mine()) {
-            return lead(type, key, lead.token(), loader, cacheProbe, Duration.ofMillis(Math.max(100, ci.getResultTtlMs())));
-        }
-        return await(type, key, lead.token(), loader, cacheProbe, elementType, lockTtl,
-                Duration.ofMillis(Math.max(100, ci.getResultTtlMs())), waitMs, Math.max(1, ci.getPollMs()));
-    }
-
-    private <T> BusQueryResult<T> lead(String type, String key, String token, Supplier<BusQueryResult<T>> loader,
-                                       Supplier<Optional<List<T>>> cacheProbe, Duration resultTtl) {
-        Optional<List<T>> again = cacheProbe.get();
-        if (again.isPresent()) {
-            metrics.recordCrossInstanceFlight(PROVIDER, type, "leader_recheck_hit");
-            finishQuietly(type, key, token, Outcome.OK, again.get(), resultTtl);
-            return BusQueryResult.cached(again.get());
-        }
-        BusQueryResult<T> fresh;
-        try {
-            fresh = loader.get();
-        } catch (RuntimeException e) {
-            finishQuietly(type, key, token, Outcome.ERROR, List.of(), resultTtl);
-            throw e;
-        }
-        metrics.recordCrossInstanceFlight(PROVIDER, type, "leader");
-        finishQuietly(type, key, token, fresh.outcome(), fresh.data(), resultTtl);
-        return fresh;
-    }
-
-    private void finishQuietly(String type, String key, String token, Outcome outcome, List<?> data,
-                               Duration resultTtl) {
-        try {
-            flight.finish(type, key, token, outcome, data, resultTtl);
-        } catch (RuntimeException e) {
-            // 결과를 못 남기면 대기자는 잠금 만료까지 기다렸다 캐시를 보고, 없으면 LIMITED. 리더의 결과 자체는 유효하다.
-            log.warn("[CrossFlight] 결과 기록 실패 [{}:{}]: {}", type, key, e.getMessage());
-            metrics.recordCrossInstanceFlight(PROVIDER, type, "redis_error");
-        }
-    }
-
-    private <T> BusQueryResult<T> await(String type, String key, String holder, Supplier<BusQueryResult<T>> loader,
-                                        Supplier<Optional<List<T>>> cacheProbe, Class<T> elementType,
-                                        Duration lockTtl, Duration resultTtl, long waitMs, long pollMs) {
-        long deadline = System.nanoTime() + waitMs * 1_000_000L;
-        while (true) {
-            try {
-                Optional<CrossInstanceFlightPort.Peek<T>> peek = holder == null
-                        ? Optional.empty()
-                        : flight.peekResult(type, key, holder, elementType);
-                if (peek.isEmpty()) {
-                    Optional<String> current = flight.currentHolder(type, key);
-                    if (current.isEmpty()) {
-                        // 리더가 "결과 쓰기 → 잠금 해제" 사이에 있었을 수 있다 — 한 번 더 본 뒤 사망으로 판정.
-                        peek = holder == null ? Optional.empty() : flight.peekResult(type, key, holder, elementType);
-                        if (peek.isEmpty()) {
-                            // 리더 사망(또는 결과 기록 실패). 스스로 리더를 시도한다 — 잡으면 직접 부르고, 남이 먼저 잡았으면 따라간다.
-                            CrossInstanceFlightPort.Lead retake = flight.tryLead(type, key, lockTtl);
-                            if (retake.mine()) {
-                                metrics.recordCrossInstanceFlight(PROVIDER, type, "waiter_takeover");
-                                return lead(type, key, retake.token(), loader, cacheProbe, resultTtl);
-                            }
-                            holder = retake.token();
-                        }
-                    } else if (holder == null || !current.get().equals(holder)) {
-                        // 잠금이 만료돼 새 리더가 섰다 — 그 토큰의 결과를 기다린다.
-                        holder = current.get();
-                    }
-                }
-                if (peek.isPresent()) {
-                    CrossInstanceFlightPort.Peek<T> r = peek.get();
-                    return switch (r.outcome()) {
-                        case OK -> {
-                            metrics.recordCrossInstanceFlight(PROVIDER, type, "waiter_result");
-                            yield BusQueryResult.cached(r.data());
-                        }
-                        case BLOCKED -> {
-                            metrics.recordCrossInstanceFlight(PROVIDER, type, "waiter_result");
-                            yield BusQueryResult.blocked();
-                        }
-                        case LIMITED, ERROR -> {
-                            // 리더 서버의 자기 사정(세마포어 포화·일시 오류)일 수 있다 — 직접 불러 본다.
-                            metrics.recordCrossInstanceFlight(PROVIDER, type, "waiter_fallback");
-                            yield loader.get();
-                        }
-                    };
-                }
-            } catch (RuntimeException e) {
-                log.warn("[CrossFlight] 결과 조회 실패 [{}:{}]: {}", type, key, e.getMessage());
-                metrics.recordCrossInstanceFlight(PROVIDER, type, "redis_error");
-                return BusQueryResult.limited();
-            }
-            long remainingMs = (deadline - System.nanoTime()) / 1_000_000L;
-            if (remainingMs <= 0) {
-                metrics.recordCrossInstanceFlight(PROVIDER, type, "waiter_timeout");
-                return BusQueryResult.limited();
-            }
-            try {
-                Thread.sleep(Math.min(pollMs, remainingMs));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return BusQueryResult.limited();
-            }
-        }
+        CrossInstanceFlightRunner runner = new CrossInstanceFlightRunner(flight,
+                (t, role) -> metrics.recordCrossInstanceFlight(PROVIDER, t, role),
+                ci.getPollMs(), Duration.ofMillis(Math.max(100, ci.getResultTtlMs())));
+        return runner.run(type, key, loader, cacheProbe, elementType, lockTtl, waitMs);
     }
 
     private long joinWait(long timeoutMs) {
