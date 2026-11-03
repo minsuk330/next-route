@@ -2,6 +2,7 @@ package watoo.grd.nextroute.common.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -14,6 +15,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import watoo.grd.nextroute.application.auth.config.AdminProperties;
 import watoo.grd.nextroute.application.auth.port.out.TokenGenerationPort;
+import watoo.grd.nextroute.application.user.service.DailyActivityRecorder;
 
 /**
  * 무상태(JWT) 보안 설정. 기존 오픈 엔드포인트는 그대로 permitAll로 유지하고,
@@ -28,6 +30,8 @@ public class SecurityConfig {
     private final JwtProvider jwtProvider;
     private final AdminProperties adminProperties;
     private final TokenGenerationPort tokenGenerationPort;
+    /** 사용 통계 기록기. api 에만 있고 플래그로 끌 수 있다 — 없으면 필터를 붙이지 않는다. */
+    private final ObjectProvider<DailyActivityRecorder> dailyActivityRecorder;
 
     @Bean
     public SecurityFilterChain securityFilterChain(
@@ -70,6 +74,10 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler))
                 .addFilterBefore(new AdminApiKeyFilter(adminProperties.getApiKey()), UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new JwtAuthFilter(jwtProvider, tokenGenerationPort), UsernamePasswordAuthenticationFilter.class);
+        DailyActivityRecorder recorder = dailyActivityRecorder.getIfAvailable();
+        if (recorder != null) {
+            http.addFilterAfter(new DailyActivityFilter(recorder), JwtAuthFilter.class);
+        }
         return http.build();
     }
 

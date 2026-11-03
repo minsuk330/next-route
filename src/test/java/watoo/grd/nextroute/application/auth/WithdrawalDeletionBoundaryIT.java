@@ -69,7 +69,7 @@ class WithdrawalDeletionBoundaryIT {
             "auth_identity", "apple_user_token", "user_push_token", "subway_live_activity_token",
             "subway_ring_push_outbox", "route_arrival_alert", "route_arrival_alert_notification",
             "bus_arrival_alert", "bus_alert_notification", "route_alert_schedule",
-            "route_search_history", "favorite_route", "route_search_log");
+            "route_search_history", "favorite_route", "route_search_log", "user_daily_activity");
 
     /** 소프트 삭제 대상: 탈퇴 후 이 사용자 관련 행이 전부 deleted_at 채워져야 한다. */
     private static final List<String> SOFT = List.of(
@@ -99,7 +99,7 @@ class WithdrawalDeletionBoundaryIT {
                 "journey_leg_route_option", "journey_leg", "journey_session",
                 "bus_alert_notification", "bus_arrival_alert", "route_arrival_alert_notification",
                 "route_arrival_alert", "route_alert_schedule", "route_search_history",
-                "route_search_log", "favorite_route", "user_push_token", "auth_identity",
+                "route_search_log", "favorite_route", "user_daily_activity", "user_push_token", "auth_identity",
                 "apple_user_token", "toss_user_token", "users")) {
             jdbc.update("delete from " + t);
         }
@@ -250,7 +250,7 @@ class WithdrawalDeletionBoundaryIT {
         String sql = switch (table) {
             case "auth_identity", "apple_user_token", "user_push_token", "subway_live_activity_token",
                  "bus_arrival_alert", "route_alert_schedule", "route_search_history",
-                 "route_search_log", "journey_session", "journey_telemetry_event",
+                 "route_search_log", "user_daily_activity", "journey_session", "journey_telemetry_event",
                  "reroute_proposal", "journey_notification" ->
                     "select count(*) from " + table + " where user_id = ?";
             case "route_arrival_alert" ->
@@ -344,6 +344,9 @@ class WithdrawalDeletionBoundaryIT {
                 insert into route_search_log
                     (created_at, updated_at, user_id, startx, starty, endx, endy, searched_at)
                 values (now(), now(), ?, 1, 2, 3, 4, now())""", uid);
+        jdbc.update("""
+                insert into user_daily_activity (activity_date, user_id, first_seen_at, app_build)
+                values (current_date, ?, now(), 'app/7')""", uid);
         jdbc.update("""
                 insert into favorite_route
                     (created_at, updated_at, user_id, type, name, address, end_place, ex, ey)
