@@ -75,6 +75,9 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
+    networks:
+      - default
+      - nextroute   # 사용 통계 대시보드가 운영 Postgres(postgres:5432)를 읽기 전용 계정으로 조회
     depends_on:
       loki:
         condition: service_healthy

@@ -35,3 +35,21 @@ datasources:
       tracesToLogsV2:
         datasourceUid: loki
         filterByTraceID: true
+
+  # 사용 통계 대시보드(dashboards/usage.json). 읽기 전용 계정 grafana_ro — 권한은 ops/observability/postgres/grafana_ro.sql
+  - name: nextroute-postgres
+    uid: nextroute-pg
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: postgres:5432
+    user: grafana_ro
+    jsonData:
+      database: mydatabase
+      sslmode: disable
+      maxOpenConns: 2
+      maxIdleConns: 1
+      connMaxLifetime: 14400
+      postgresVersion: 1700
+      timescaledb: false
+    secureJsonData:
+      password: $GRAFANA_PG_PASSWORD
