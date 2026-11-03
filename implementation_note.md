@@ -6203,3 +6203,14 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - grafana 기동 로그의 `plugin table is already registered`·`provisioning/plugins` 디렉터리 없음 error 는 기존부터(이번 변경 무관)
 ### 미결
 - 첫 DAU 행은 다음 앱 요청 때. 내일 `user_daily_activity` 행·대시보드 DAU 확인
+
+## 2026-11-03 사용 통계: 토스 사용자 제외 (fix/usage-exclude-toss)
+### 확정
+- 사용자 지시: 토스(앱인토스) 요청은 통계에서 뺀다. 규칙 = 토스 계정이 하나라도 있는 user_id 제외(`user_id not in (select user_id from auth_identity where provider='TOSS')`). 토스·다른 계정을 함께 가진 사용자는 0명(운영 확인). 신규 설치는 원래 DEVICE 만이라 변화 없음, 일별 신규 계정에서 TOSS 줄 제거
+- 검색 요청 패널(Prometheus)은 사용자를 몰라 못 뺀다 — 설명에 표기(10월 이후 토스 활성 0)
+- 대시보드 JSON 생성기 `ops/observability/grafana/usage_dashboard.py` 를 저장소에 둔다
+### 함정
+- 처음 `not exists (… where t.user_id = user_id …)` 로 썼더니 비한정 `user_id` 가 안쪽 auth_identity 로 묶여 토스 계정이 하나만 있어도 전부 제외 → 운영 여정 패널 0행으로 발견. `NOT IN`(+ `user_id is not null`)으로 교체
+### 검증
+- 운영 읽기 전용: 기간 요약 28·266·8·19% 그대로(최근 30일 토스 여정 0), 일별 버킷 행 수 그대로
+- st-pg 예시(토스 user 3 포함): DAU·코호트·사용자별에서 토스 사용자만 빠짐

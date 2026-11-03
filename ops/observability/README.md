@@ -111,4 +111,6 @@ Grafana 알림이 울리면 그 시각의 로그·메트릭을 모아 원인 가
 - 계정 생성: `postgres/grafana_ro.sql` 머리말 명령. 비밀번호는 `env/grafana.env` 의 `GRAFANA_PG_PASSWORD`
 - 시간대: 운영 naive timestamp(created_at)는 KST 벽시계라 쿼리에서 `AT TIME ZONE 'Asia/Seoul'` 로 바꾼다
 - DAU 는 V74 배포일부터 쌓인다(과거 소급 불가)
+- 토스(앱인토스) 사용자는 모든 패널에서 뺀다: 토스 계정(`auth_identity.provider='TOSS'`)이 있는 user_id 제외. 신규 설치 = 새 DEVICE 계정. 검색 요청(Prometheus)만 사용자를 몰라 못 뺀다
+- 대시보드 JSON 은 `grafana/usage_dashboard.py` 로 생성한다(손으로 고치지 말고 생성기 수정 후 재생성)
 
