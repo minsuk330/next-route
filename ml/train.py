@@ -14,6 +14,13 @@ import polars as pl
 
 from metrics import evaluate_predictions, print_reports, write_json
 from realtime_features import HISTORY_WINDOW, REALTIME_FEATURES
+from route_horizon import (
+    DEFAULT_BIN_SECONDS,
+    DEFAULT_MIN_ROWS,
+    DEFAULT_P90_LIMIT_SECONDS,
+    route_horizons,
+    summarize,
+)
 from split import TARGET_COLUMNS, create_split, load_data_dir, parse_test_dates
 from feature_engineering import (
     SERVABLE_ENCODING_SPECS,
@@ -109,6 +116,21 @@ def parse_args() -> argparse.Namespace:
             "Blank the rt_* features on this fraction of training rows so the model "
             "also learns the no-history case (a route the app has not observed recently)."
         ),
+    )
+    parser.add_argument(
+        "--horizon-p90-limit-seconds",
+        type=float,
+        default=DEFAULT_P90_LIMIT_SECONDS,
+        help=(
+            "Per-route horizon: the first 10-minute remaining-time bin whose p90 absolute "
+            "error exceeds this ends the route's horizon (serve answers BEYOND_HORIZON past it)."
+        ),
+    )
+    parser.add_argument(
+        "--horizon-min-rows",
+        type=int,
+        default=DEFAULT_MIN_ROWS,
+        help="Test rows a bin needs before it counts as evidence for the per-route horizon.",
     )
     parser.add_argument(
         "--max-target-seconds",
@@ -371,6 +393,19 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
     scored = test_frame.with_columns(pl.Series("prediction_lgbm", predictions))
     reports = {"lightgbm": evaluate_predictions(scored, target_column, "prediction_lgbm")}
 
+    horizon_caps, horizon_detail = route_horizons(
+        scored.select("route_id", target_column, "prediction_lgbm"),
+        target_column,
+        "prediction_lgbm",
+        train_frame.select("route_id", target_column),
+        args.max_target_seconds,
+        DEFAULT_BIN_SECONDS,
+        args.horizon_p90_limit_seconds,
+        args.horizon_min_rows,
+    )
+    horizon_summary = summarize(horizon_caps, args.max_target_seconds)
+    print(f"[horizon] per-route caps: {horizon_summary}")
+
     date_label = service_date_label(service_dates)
     run_id = (
         f"lgbm_{date_label}_{args.target}_"
@@ -401,6 +436,15 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         "realtime_features": [c for c in REALTIME_FEATURES if c in model_a_columns],
         "realtime_nan_fraction": args.realtime_nan_fraction if realtime else None,
         "realtime_history_minutes": int(HISTORY_WINDOW.total_seconds() // 60) if realtime else None,
+        # serve: a prediction past its route's cap is answered BEYOND_HORIZON (route_horizon.py).
+        "default_horizon_seconds": args.max_target_seconds,
+        "route_horizon_seconds": horizon_caps,
+        "route_horizon_policy": {
+            "bin_seconds": DEFAULT_BIN_SECONDS,
+            "p90_limit_seconds": args.horizon_p90_limit_seconds,
+            "min_rows": args.horizon_min_rows,
+            "summary": horizon_summary,
+        },
         "train_rows": split.train.height,
         "test_rows": split.test.height,
         "training_route_categories": training_route_categories,
@@ -414,6 +458,7 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
     if args.target_encoding:
         manifest["feature_policy"] = persist_encoding_artifacts(output_dir, feature_policy)
     write_json(output_dir / "metrics.json", reports)
+    write_json(output_dir / "route_horizons.json", horizon_detail)
     write_json(output_dir / "training_manifest.json", manifest)
     print_reports(reports)
     print(f"\nmodel={model_path}")

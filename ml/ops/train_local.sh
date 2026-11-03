@@ -25,6 +25,8 @@ TARGET="${ML_TARGET:-corrected}"
 TARGET_ENCODING="${ML_TARGET_ENCODING:-false}"
 # 노선마다 자기 수집 기간의 마지막 N일을 test로 둔다(주간 로테이션이라 날짜 cutoff는 노선 전체를 test로 보냄).
 HOLDOUT_DAYS="${ML_HOLDOUT_DAYS_PER_ROUTE:-1}"
+# 학습 상한(분). 노선별 상한(route_horizon.py)이 실제 예측 범위를 정하므로 가장 긴 노선에 맞춰 넉넉히 둔다.
+MAX_HORIZON_MINUTES="${ML_MAX_HORIZON_MINUTES:-90}"
 VPS_HOST="${ML_VPS_HOST:-vps}"
 VPS_DATA="${ML_VPS_DATA:-/srv/nextroute/ml-data}"
 ALLOW_NO_PREV="${ML_ALLOW_NO_PREV:-false}"
@@ -79,7 +81,8 @@ pyrun weather_fetch.py --from "$TRAIN_FROM" --to "$TO" \
 rm -rf "$DATA_DIR/dataset"; mkdir -p "$DATA_DIR/dataset"
 for d in "${AVAIL_DATES[@]}"; do
 	log "build_dataset $d"
-	pyrun build_dataset.py "$d" --overwrite || { err "build_dataset failed $d"; exit 1; }
+	pyrun build_dataset.py "$d" --overwrite --max-horizon-minutes "$MAX_HORIZON_MINUTES" \
+		|| { err "build_dataset failed $d"; exit 1; }
 done
 
 # ── 5. per-date route list (expected-routes gate input; same target filter as split.py) ─
@@ -116,9 +119,10 @@ fi
 
 # ── 7. cumulative train ─────────────────────────────────────────────────────
 DATE_CSV="$(IFS=,; echo "${AVAIL_DATES[*]}")"
-TRAIN_ARGS=("$DATE_CSV" --target "$TARGET" --holdout-last-days-per-route "$HOLDOUT_DAYS" --sample-rows "$SAMPLE_ROWS")
+TRAIN_ARGS=("$DATE_CSV" --target "$TARGET" --holdout-last-days-per-route "$HOLDOUT_DAYS" --sample-rows "$SAMPLE_ROWS"
+	--max-target-seconds "$((MAX_HORIZON_MINUTES * 60))")
 [ "$TARGET_ENCODING" = "true" ] && TRAIN_ARGS+=(--target-encoding)
-log "train dates=${#AVAIL_DATES[@]} holdout_days_per_route=$HOLDOUT_DAYS sample_rows=$SAMPLE_ROWS target_encoding=$TARGET_ENCODING"
+log "train dates=${#AVAIL_DATES[@]} holdout_days_per_route=$HOLDOUT_DAYS max_horizon_minutes=$MAX_HORIZON_MINUTES sample_rows=$SAMPLE_ROWS target_encoding=$TARGET_ENCODING"
 pyrun train.py "${TRAIN_ARGS[@]}" || { err "train failed"; exit 1; }
 
 RUN_DIR="$(ls -1dt "$DATA_DIR/experiments"/*/ 2>/dev/null | head -1)"; RUN_DIR="${RUN_DIR%/}"

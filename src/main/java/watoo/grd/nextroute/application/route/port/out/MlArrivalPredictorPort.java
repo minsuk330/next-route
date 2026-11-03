@@ -45,6 +45,13 @@ public interface MlArrivalPredictorPort {
 
     enum MlPredictionStatus {
         AVAILABLE,
-        UNSUPPORTED_ROUTE
+        UNSUPPORTED_ROUTE,
+        /**
+         * 예측값이 그 노선의 예측 상한(serving {@code /metadata.route_horizon_seconds})을 넘는다.
+         * 노선마다 믿을 만한 범위가 다르므로(짧은 순환 노선 10분, 긴 간선 70분) 모델이 학습 결과로
+         * 상한을 정한다. 이 상태는 "버스가 없다"가 아니라 "너무 멀어서 숫자를 믿을 수 없다"이며,
+         * 호출자는 시간표 등 다른 근거로 넘어간다. secondsToArrival 은 null.
+         */
+        BEYOND_HORIZON
     }
 }

@@ -291,6 +291,11 @@ ML_MODEL_PATH=data/experiments/lgbm_2026-06-10_label_20260612T080252Z \
   - 응답은 **`request_id`로 결합**: `{"results":[{"request_id","status","seconds_to_arrival","model_version"}]}`.
   - feature **키 누락**은 HTTP 422(요청 거부), 존재하는 키의 **null 값은 허용**(NaN), **미등록 route_id**는
     그 item만 `UNSUPPORTED_ROUTE`(나머지는 계속 예측).
+  - **노선별 예측 상한**: 예측값이 그 노선의 상한(`training_manifest.json`의 `route_horizon_seconds`,
+    없으면 `default_horizon_seconds`)을 넘으면 그 item 은 `BEYOND_HORIZON`(`seconds_to_arrival` null).
+    상한은 `train.py`가 `route_horizon.py`로 정한다 — 운행 길이(학습 타깃 p99)와, 남은 시간 10분 구간별
+    p90 절대오차가 `--horizon-p90-limit-seconds`(기본 420초)를 처음 넘는 구간 중 작은 쪽. 앱은 이 상태를
+    "예측 없음"으로 보고 시간표로 넘어간다.
   - `rt_*` 피처는 serve 가 `route_history`(노선별 최근 관측 `{vehicle_id, section_order, snapshot_at(epoch s)}`
     목록, Java 앱이 Redis ZSET `bus:ml:hist:{routeId}`에 쌓음)와 item 의 `vehicle_id`·`snapshot_at`으로
     `realtime_features.compute_realtime_features`를 돌려 만든다 — 학습(`build_dataset.py`)과 같은 함수.
@@ -489,6 +494,7 @@ dataset 삭제(EXIT trap, 항상) + 오래된 experiment 정리.
 | `ML_MAX_REGRESSION` | 직전 모델 대비 MAE 허용 배수 | `1.05` |
 | `ML_TARGET` | 학습 타깃(`label`은 API ETA 라벨이 섞여 오염) | `corrected` |
 | `ML_HOLDOUT_DAYS_PER_ROUTE` | 노선별 test로 떼는 마지막 수집일 수 | `1` |
+| `ML_MAX_HORIZON_MINUTES` | dataset·학습 상한(분). 실제 예측 범위는 노선별 상한이 정하므로 가장 긴 노선에 맞춰 넉넉히 | `90` |
 | `ML_TARGET_ENCODING` | route-키드 target-encoding(`te_*`) 피처 사용 (`--target-encoding`) | `true` |
 | `ML_MIN_FREE_GB` / `ML_EXTRA_FREE_GB` / `ML_DISK_FACTOR` | 디스크 gate | `8` / `5` / `2.5` |
 | `ML_KEEP_EXPERIMENTS` | 보관 experiment 개수 | `5` |
@@ -499,9 +505,10 @@ dataset 삭제(EXIT trap, 항상) + 오래된 experiment 정리.
 2026-10-26~11-02 실측에서 미학습 노선 MAE 344초로 쓸 수 없었다). 수집된 노선 전부를 학습에 넣는 것이
 커버리지 전략이다.
 
-`ML_ABS_MAE=123`은 2026-08-16 routed 모델(A+B, 날짜 holdout) 기준값이다. 노선별 holdout과
-trip 단위 라벨 조인(순환 노선의 다음 바퀴 오매칭 제거)으로 평가 방식이 바뀌었으므로, 새 파이프라인으로
-첫 학습한 `metrics.json`의 `overall.mae`로 다시 잡아야 한다(첫 회는 `ML_ALLOW_NO_PREV=true`).
+`ML_ABS_MAE=123`은 2026-08-16 routed 모델(A+B, 날짜 holdout, 40분 상한) 기준값이다. 노선별 holdout,
+trip 단위 라벨 조인(순환 노선의 다음 바퀴 오매칭 제거), 90분 학습 상한(먼 구간이 섞여 overall MAE 가
+오른다)으로 평가 방식이 바뀌었으므로, 새 파이프라인으로 첫 학습한 `metrics.json`의 `overall.mae`로
+다시 잡아야 한다(첫 회는 `ML_ALLOW_NO_PREV=true`).
 
 ### 1회성 ops — symlink 모델 경로 전환
 

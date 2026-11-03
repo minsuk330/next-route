@@ -593,3 +593,48 @@ def test_realtime_history_for_other_route_is_ignored(monkeypatch, realtime_model
         res = client.post("/predict", json={"items": [item], "route_history": {"999": _route_history()}})
         assert res.json()["results"][0]["seconds_to_arrival"] == pytest.approx(
             _offline_prediction(booster, item, None), abs=1e-6)
+
+
+# --- per-route prediction horizon ------------------------------------------
+
+
+def _build_horizon_model(model_dir: Path) -> None:
+    _build_model(model_dir)
+    manifest_path = model_dir / "training_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["default_horizon_seconds"] = 2400
+    manifest["route_horizon_seconds"] = {"143": 1, "272": 2400}  # 143: everything is beyond
+    manifest_path.write_text(json.dumps(manifest))
+
+
+@pytest.fixture()
+def horizon_model_dir(tmp_path) -> Path:
+    d = tmp_path / "horizon_experiment"
+    _build_horizon_model(d)
+    return d
+
+
+def test_prediction_past_route_horizon_is_beyond_horizon(monkeypatch, horizon_model_dir):
+    with _client(monkeypatch, str(horizon_model_dir)) as client:
+        res = client.post("/predict", json={"items": [_item("near", route="272"), _item("far", route="143")]})
+        by_id = {r["request_id"]: r for r in res.json()["results"]}
+        assert by_id["near"]["status"] == "AVAILABLE"
+        assert by_id["far"]["status"] == "BEYOND_HORIZON"
+        assert by_id["far"]["seconds_to_arrival"] is None
+        assert by_id["far"]["model_version"] == "test-model-v1"
+
+
+def test_metadata_exposes_route_horizons(monkeypatch, horizon_model_dir):
+    with _client(monkeypatch, str(horizon_model_dir)) as client:
+        body = client.get("/metadata").json()
+        assert body["default_horizon_seconds"] == 2400
+        assert body["route_horizon_seconds"] == {"143": 1, "272": 2400}
+
+
+def test_model_without_horizons_uses_global_default(monkeypatch, model_dir):
+    with _client(monkeypatch, str(model_dir)) as client:
+        body = client.get("/metadata").json()
+        assert body["default_horizon_seconds"] == 2400
+        assert body["route_horizon_seconds"] == {}
+        res = client.post("/predict", json={"items": [_item("r1", route="143")]})
+        assert res.json()["results"][0]["status"] == "AVAILABLE"

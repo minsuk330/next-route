@@ -36,6 +36,8 @@ logger = logging.getLogger("ml.serve")
 # artifact would break the fixed /predict feature contract, so we refuse to load it.
 EXPECTED_SCHEMA_VERSION = 2
 CATEGORICAL_FEATURE = "route_id"
+# Horizon for models trained before per-route caps existed (the old global 40 min).
+DEFAULT_HORIZON_SECONDS = 2400
 FORBIDDEN_FEATURE = "api_target_seconds_to_arrival"
 
 # Every raw field the Java MlFeatureVectorBuilder always sends per item, regardless
@@ -110,6 +112,10 @@ class ModelState:
         # rt_* same-route history features (realtime_features.py). The client never
         # sends these; they are derived here from the request's route_history.
         self.realtime_features: list[str] = []
+        # per-route prediction horizon (route_horizon.py): a prediction past the cap is
+        # BEYOND_HORIZON. Routes missing from the map use the default.
+        self.route_horizon_seconds: dict[str, int] = {}
+        self.default_horizon_seconds: int = DEFAULT_HORIZON_SECONDS
 
     @property
     def loaded(self) -> bool:
@@ -223,6 +229,11 @@ def load_model(state: ModelState) -> None:
     state.model_categories = [str(c) for c in pandas_categorical[0]] if pandas_categorical else []
     state.target_encoding_enabled = target_encoding_enabled
     state.realtime_features = [f for f in feature_names if f in REALTIME_FEATURES]
+    state.default_horizon_seconds = int(manifest.get("default_horizon_seconds") or DEFAULT_HORIZON_SECONDS)
+    state.route_horizon_seconds = {
+        str(route): int(seconds)
+        for route, seconds in (manifest.get("route_horizon_seconds") or {}).items()
+    }
     state.route_profile = route_profile
     state.encoding_tables = encoding_tables
     state.global_pace = global_pace
@@ -343,6 +354,9 @@ def metadata() -> JSONResponse:
             # rt_* 피처: 클라이언트가 보내는 값이 아니라 route_history(최근 관측 이력)에서 serve가 계산.
             "realtime_features": state.realtime_features,
             "realtime_history_minutes": int(HISTORY_WINDOW.total_seconds() // 60),
+            # 노선별 예측 상한(초). 예측값이 상한을 넘으면 그 item 은 BEYOND_HORIZON.
+            "default_horizon_seconds": state.default_horizon_seconds,
+            "route_horizon_seconds": state.route_horizon_seconds,
         }
     )
 
@@ -408,6 +422,18 @@ def predict(request: PredictRequest) -> JSONResponse:
         )
         preds = state.booster.predict(frame)
         for item, pred in zip(predictable_a, preds):
+            route_str = str(item.features.get(CATEGORICAL_FEATURE))
+            cap = state.route_horizon_seconds.get(route_str, state.default_horizon_seconds)
+            if float(pred) > cap:
+                # Past what this route's predictions are good for — the app should fall
+                # back to the timetable rather than show this number.
+                results[item.request_id] = {
+                    "request_id": item.request_id,
+                    "status": "BEYOND_HORIZON",
+                    "seconds_to_arrival": None,
+                    "model_version": state.model_version,
+                }
+                continue
             results[item.request_id] = {
                 "request_id": item.request_id,
                 "status": "AVAILABLE",

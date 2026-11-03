@@ -221,4 +221,17 @@ class MlArrivalPredictorAdapterTest {
         JsonNode body = new ObjectMapper().readTree(recorded.getBody().readUtf8());
         assertThat(body.get("route_history").isNull()).isTrue();
     }
+
+    @Test
+    void TC_BEYOND_HORIZON은_seconds_null로_결합된다() {
+        server.enqueue(json("""
+                {"results":[
+                  {"request_id":"a","status":"BEYOND_HORIZON","seconds_to_arrival":null,"model_version":"v1"}
+                ]}"""));
+
+        List<MlPrediction> results = adapter.predict(vectors("a"));
+
+        assertThat(results.get(0).status()).isEqualTo(MlPredictionStatus.BEYOND_HORIZON);
+        assertThat(results.get(0).secondsToArrival()).isNull();
+    }
 }

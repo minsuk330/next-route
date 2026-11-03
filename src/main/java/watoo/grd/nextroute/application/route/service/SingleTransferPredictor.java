@@ -217,6 +217,7 @@ public class SingleTransferPredictor implements PredictTransferUseCase {
                 anyUnsupported = true;
                 continue;
             }
+            // BEYOND_HORIZON(노선 상한 밖)도 여기서 빠진다 — 그 차량은 후보가 아니다.
             if (pred.status() != MlArrivalPredictorPort.MlPredictionStatus.AVAILABLE
                     || pred.secondsToArrival() == null) continue;
             Optional<Instant> snap = BusTimeParser.parse(pos.dataTm());
