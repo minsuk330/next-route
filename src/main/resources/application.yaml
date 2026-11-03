@@ -321,6 +321,7 @@ collector:
       - 1
     excluded-arrival-messages:
       - "출발대기"
+    # Redis 버킷 collector-arrival 로 셈 — worker 수와 무관하게 하루 하나. Redis 장애면 수집을 멈춘다(fail-closed).
     daily-budget: 50000
     target-route-names:
       - "143"
@@ -358,7 +359,7 @@ collector:
     cron: "0 * * * * *"
     # 수집 위치를 실시간 캐시에 프라이밍(노선당 1키, 저렴 — 기본 on).
     prime-realtime-cache: ${COLLECTOR_POS_PRIME_CACHE:true}
-    # 도착 수집과 독립 예산. 30노선 × 분당 × active-hours(23h) ≈ 41,400 호출/일.
+    # 도착 수집과 독립 예산. 30노선 × 분당 × active-hours(23h) ≈ 41,400 호출/일. Redis 버킷 collector-position.
     daily-budget: 50000
     active-hours:
       start: "03:30"
@@ -589,6 +590,8 @@ journey:
       bus-relaxed-cadence-seconds: 60
       bus-max-routes-per-tick: 10
       # 감시는 리더 한 대만. 끄면(기본) 늘 리더 — worker 한 대인 지금과 같다. worker 를 늘리기 전에 켠다.
+      # 지하철 수집·변화 감지·버스 노선 감시자뿐 아니라 버스 도착·위치 수집기와 버스 도착 알림 폴러도 따른다.
+      # 켠 상태에서 Redis 가 죽으면 이들이 전부 멈춘다(모두 "리더 아님").
       leader-lease:
         enabled: ${JOURNEY_REEVAL_LEADER_LEASE:false}
         ttl-ms: 10000

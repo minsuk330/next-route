@@ -6187,3 +6187,25 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - VPS datasources.yaml = repo main(diff 0) → 새 파일로 덮어도 drift 없음. VPS 관측 compose 는 drift 있으니 grafana 블록에 networks 3줄만 삽입
 ### 배포
 - 운영 DB 에 `CREATE ROLE grafana_ro`(DDL) 필요 — 사용자 확인 후. 순서: 백업 → role → env → compose 3줄 → scp(datasources·usage.json) → grafana `--no-deps --force-recreate`
+
+## 버스 수집기·알림 폴러 리더 한 대 + 수집 몫 Redis (2026-11-03, feat/bus-collector-leader, bus-multi-instance PR-1)
+플랜: `docs/plan/bus-multi-instance/PLAN.md`(L 티어, Opus 검토 18건 반영판).
+### 확정
+- 리더 락(`journey.navigation.reeval.leader-lease.enabled`, 기본 false)을 따르는 작업에 버스 도착 수집기, 버스 위치 수집기, 버스 도착 알림 폴러를 추가. 새 플래그 없음. 꺼짐이면 `isLeader()` 가 늘 true 라 worker 1대 운영 동작 그대로
+- 수집 몫: JVM `AtomicInteger`(`BusApiCallBudget`, 삭제) → `BusApiQuotaPort.tryAcquire` Redis 버킷 `collector-arrival`, `collector-position`(키 `bus:quota:search:{bucket}:{yyyyMMdd}`, KST 자정 TTL). 서버 수와 무관하게 하루 하나
+- 점유 순서 = 리더 재확인 → `tryAcquire` → 공급자 호출. 리더가 아닌 서버가 몫을 태우지 않게 재확인이 앞
+- 동작 변경(숨기지 않음): ① 몫이 "호출 뒤 기록" → "호출 전 점유". `BusApiBlockedException`·`InterruptedException` 도 1 로 셈(전에는 blocked = 0) ② Redis 장애면 수집 멈춤(fail-closed, 공급자 한도 보호 우선) ③ 플래그 켬 + Redis 장애 → 모든 worker 가 "리더 아님" → 버스 도착 알림까지 멈춤. 리더 교체 공백 ≈ TTL 10초 + TTL/3
+- `SeoulBusApiAdapter` 는 budget 을 로그 `budgetStatus()` 에만 썼음(검토 #1) → 생성자 인자 4개(budget 2, dailyBudget 2) 제거, 로그에서 뺌
+### 함정
+- 슬라이스 IT 8개(`BusAlert*IT`, `@Import` 로 `BusAlertDispatchService` 를 직접 띄움)가 `LeaderLease` 빈이 없어 `NoSuchBeanDefinitionException` ← 생성자에 의존 추가 / 가드: 테스트 설정 `common/lock/AlwaysLeaderLeaseTestConfig`(늘 리더 = 플래그 꺼짐과 같음)를 `@Import` 에 추가
+- `BusAlertDispatchService` 의 그룹 순서는 `Collectors.groupingBy` HashMap 이라 정해져 있지 않음 ← "리더 잃음" 단위 테스트가 S1 을 먼저 부른다고 가정하면 간헐 실패 / 가드: 어느 그룹이든 첫 호출에서 리더를 내리고 총 호출 1회만 단언
+- `RedisBusApiQuota.KEY_PREFIX` 는 package-private → 다른 패키지 IT 는 문자열 `bus:quota:search:` 직접 사용
+### 좌표
+- `infrastructure/adapter/in/scheduler/{BusArrivalScheduler,BusPositionScheduler}.trigger`, `…/notifination/BusArrivalAlertScheduler.poll` — `isLeader()` 가드
+- `application/bus/service/BusArrivalService.execute`(`BUCKET_ARRIVAL`), `BusPositionService.execute`(`BUCKET_POSITION`), `application/notification/service/BusAlertDispatchService.dispatchDue`(그룹 루프 리더 재확인)
+- 시험: `common/lock/{FixedLeaderLease, AlwaysLeaderLeaseTestConfig, BusCollectorLeaderIT}`, `…/notifination/BusArrivalAlertSchedulerTest`
+### 검증
+- `./gradlew compileJava compileTestJava` 통과
+- `runsome.sh --tests '*BusArrival*' --tests '*BusPosition*' --tests '*BusAlert*' --tests '*LeaderLease*' --tests '*SeoulBusApiAdapter*' --tests '*BusCollectorLeader*'` → 141 tests, BUILD SUCCESSFUL (st-pg:55432, st-redis:56379)
+- 함정 추가: `RuntimeRoleProfileTest.profileConditionActuallySelectsTheRoleSpecificComponent` 가 `BusArrivalScheduler` 를 직접 등록한 컨텍스트라 `LeaderLease` 빈 없음 ← 생성자 의존 추가 / 가드: 테스트 컨텍스트에 `LeaderLease` mock 등록
+- 전체 `runfull.sh`(cleanTest test --continue): **3,891 중 실패 1(위 RuntimeRoleProfileTest, 수정 뒤 단독 재실행 통과), 건너뜀 7**, 16분 4초. 예전 노트의 "기존 무관 12건"은 이제 0. 느린 원인 = 전체 컨텍스트 IT 가 실제 공휴일 API(`GongApiAdapter`, 12달 × 읽기 30초)를 부름 — 별건
