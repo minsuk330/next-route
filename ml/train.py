@@ -21,7 +21,7 @@ from route_horizon import (
     route_horizons,
     summarize,
 )
-from split import TARGET_COLUMNS, create_split, load_data_dir, parse_test_dates
+from split import DAY_TYPES, TARGET_COLUMNS, create_split, day_type_expr, load_data_dir, parse_test_dates
 from feature_engineering import (
     SERVABLE_ENCODING_SPECS,
     SERVABLE_ROUTE_AGNOSTIC_SPECS,
@@ -237,6 +237,42 @@ def to_pandas(
     return x, y
 
 
+def shrink_numeric(x: pd.DataFrame) -> pd.DataFrame:
+    """float64 -> float32 for the fit frames only. LightGBM bins features anyway, and
+    this halves the largest allocation so a run can take twice the rows. Test rows
+    stay float64, as a live request would be."""
+    numeric = [c for c in x.columns if c not in CATEGORICAL_FEATURES]
+    return x.astype({c: "float32" for c in numeric})
+
+
+def day_type_coverage(train_frame: pl.DataFrame) -> dict[str, Any]:
+    """Training dates per route and day type; a route must see all three patterns."""
+    counts = (
+        train_frame.select(pl.col("route_id").cast(pl.Utf8), pl.col("service_date").cast(pl.Date))
+        .unique()
+        .with_columns(day_type_expr().alias("_day_type"))
+        .group_by("route_id", "_day_type")
+        .agg(pl.len().alias("days"))
+    )
+    per_route: dict[str, dict[str, int]] = {}
+    for row in counts.iter_rows(named=True):
+        per_route.setdefault(row["route_id"], {t: 0 for t in DAY_TYPES})[row["_day_type"]] = int(row["days"])
+    missing = {
+        route: [t for t in DAY_TYPES if days[t] == 0]
+        for route, days in per_route.items()
+        if any(days[t] == 0 for t in DAY_TYPES)
+    }
+    return {
+        "per_route": per_route,
+        "routes_missing_day_type": missing,
+        "summary": {
+            "route_count": len(per_route),
+            "routes_with_all_day_types": len(per_route) - len(missing),
+            "routes_missing_day_type": len(missing),
+        },
+    }
+
+
 def blank_realtime_features(
     x_train: pd.DataFrame, fraction: float, seed: int
 ) -> pd.DataFrame:
@@ -379,15 +415,31 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
     x_train, y_train, x_valid, y_valid = validation_split(
         train_frame, target_column, model_a_columns, cat_dtypes
     )
+    x_train, x_valid = shrink_numeric(x_train), shrink_numeric(x_valid)
     if realtime:
         x_train = blank_realtime_features(x_train, args.realtime_nan_fraction, args.seed)
-    x_test, _ = to_pandas(test_frame, model_a_columns, target_column, cat_dtypes)
-
     # 실제 train split에 1행 이상 존재한 route만. pandas_categorical(train∪test)과 달리
     # 이 값이 "모델이 실제로 학습한 route"다. serving 지원 판정·coverage gate·routing의 권위 소스.
     training_route_categories = sorted(
         str(v) for v in train_frame[CATEGORICAL_FEATURES[0]].unique().to_list() if v is not None
     )
+
+    coverage = day_type_coverage(train_frame)
+    if coverage["routes_missing_day_type"]:
+        print(
+            f"[warn] {len(coverage['routes_missing_day_type'])} routes lack a weekday/saturday/"
+            f"sunday training day: {list(coverage['routes_missing_day_type'].items())[:10]} ..."
+        )
+    else:
+        print(f"[info] every route trained on weekday, saturday and sunday ({coverage['summary']})")
+    # the polars training frame is no longer needed: keep only what the manifest/horizons use
+    train_targets = train_frame.select("route_id", target_column)
+    train_rows, test_rows = split.train.height, split.test.height
+    dataset_path, sampling_policy, split_policy = (
+        split.dataset_path, split.sampling_policy, split.split_policy
+    )
+    del train_frame, split
+    x_test, _ = to_pandas(test_frame, model_a_columns, target_column, cat_dtypes)
 
     # A raw route_id categorical actively hurt routing in production (148.85s vs 138.53s,
     # 2026-08-14) — target-encoding drops it in favor of te_* aggregates instead.
@@ -405,7 +457,7 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         scored.select("route_id", target_column, "prediction_lgbm"),
         target_column,
         "prediction_lgbm",
-        train_frame.select("route_id", target_column),
+        train_targets,
         args.max_target_seconds,
         DEFAULT_BIN_SECONDS,
         args.horizon_p90_limit_seconds,
@@ -429,7 +481,7 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         "model_version": run_id,
         "schema_version": 2,
         "service_date_range": [item.isoformat() for item in service_dates],
-        "dataset_path": split.dataset_path,
+        "dataset_path": dataset_path,
         "target_policy": args.target,
         "target_column": target_column,
         "feature_list": model_a_columns,
@@ -438,8 +490,8 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         ],
         "with_api_feature": args.with_api_feature,
         "target_encoding_enabled": args.target_encoding,
-        "sampling_policy": split.sampling_policy,
-        "split_policy": split.split_policy,
+        "sampling_policy": sampling_policy,
+        "split_policy": split_policy,
         "max_target_seconds": args.max_target_seconds,
         "realtime_features": [c for c in REALTIME_FEATURES if c in model_a_columns],
         "realtime_nan_fraction": args.realtime_nan_fraction if realtime else None,
@@ -453,8 +505,12 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
             "min_rows": args.horizon_min_rows,
             "summary": horizon_summary,
         },
-        "train_rows": split.train.height,
-        "test_rows": split.test.height,
+        "train_rows": train_rows,
+        "test_rows": test_rows,
+        "route_day_type_coverage": {
+            "summary": coverage["summary"],
+            "routes_missing_day_type": coverage["routes_missing_day_type"],
+        },
         "training_route_categories": training_route_categories,
         "validation_rows": len(y_valid),
         "best_iteration": int(model.best_iteration_ or model.n_estimators),

@@ -151,32 +151,60 @@ def split_by_time(
     return train, test, policy
 
 
+DAY_TYPES = ("weekday", "saturday", "sunday")
+
+
+def day_type_expr(column: str = "service_date") -> pl.Expr:
+    """weekday / saturday / sunday — the three service patterns a route must be trained on."""
+    weekday = pl.col(column).dt.weekday()
+    return (
+        pl.when(weekday == 6)
+        .then(pl.lit("saturday"))
+        .when(weekday == 7)
+        .then(pl.lit("sunday"))
+        .otherwise(pl.lit("weekday"))
+    )
+
+
 def split_last_days_per_route(
     frame: pl.DataFrame, last_days: int
 ) -> tuple[pl.DataFrame, pl.DataFrame, dict[str, object]]:
-    """Hold out each route's own most recent `last_days` service dates.
+    """Hold out each route's most recent `last_days` service dates that it can spare.
 
     Routes are collected in weekly rotation, so a global date cutoff puts whole
     routes into test (never trained). Splitting per route keeps every route in
-    train while still testing on days after its training days. A route with no
-    more than `last_days` dates stays entirely in train.
+    train while still testing on days after its training days.
+
+    A date is only a holdout candidate if its day type (weekday / saturday /
+    sunday) occurs more than once for that route: a rotation week has one Saturday
+    and one Sunday, and taking either would leave the route untrained on that
+    pattern. So for a Mon-Sun week the test day is the Friday. A route with no
+    spare date stays entirely in train.
     """
     if last_days < 1:
         raise ValueError("last_days must be >= 1")
     split_frame = frame.with_columns(pl.col("service_date").cast(pl.Date))
     route_dates = split_frame.select("route_id", "service_date").unique()
-    ranked = route_dates.with_columns(
-        pl.col("service_date").rank("dense", descending=True).over("route_id").alias("_recency"),
-        pl.col("service_date").n_unique().over("route_id").alias("_date_count"),
+    ranked = (
+        route_dates.with_columns(day_type_expr().alias("_day_type"))
+        .with_columns(
+            pl.len().over("route_id", "_day_type").alias("_type_count"),
+        )
+        .filter(pl.col("_type_count") > 1)
+        .with_columns(
+            pl.col("service_date").rank("dense", descending=True).over("route_id").alias("_recency"),
+            pl.col("service_date").n_unique().over("route_id").alias("_spare_count"),
+        )
     )
     test_route_dates = ranked.filter(
-        (pl.col("_recency") <= last_days) & (pl.col("_date_count") > last_days)
+        (pl.col("_recency") <= last_days) & (pl.col("_spare_count") > last_days)
     ).select("route_id", "service_date")
     test = split_frame.join(test_route_dates, on=["route_id", "service_date"], how="semi")
     train = split_frame.join(test_route_dates, on=["route_id", "service_date"], how="anti")
     policy: dict[str, object] = {
         "type": "last_days_per_route",
         "last_days": last_days,
+        "day_type_protected": True,
         "test_route_count": test_route_dates["route_id"].n_unique(),
         "train_only_route_count": route_dates["route_id"].n_unique()
         - test_route_dates["route_id"].n_unique(),

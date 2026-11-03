@@ -103,3 +103,15 @@ def test_main_error_exit_1_when_metrics_missing(tmp_path, capsys):
     code = gate.main(["--model-dir", str(tmp_path / "new"), "--abs-mae", "100"])
     assert code == 1
     assert json.loads(capsys.readouterr().out)["verdict"] == "error"
+
+
+def test_day_type_gate_fails_on_expected_route_missing_sunday():
+    manifest = {"route_day_type_coverage": {"routes_missing_day_type": {"143": ["sunday"], "999": ["saturday"]}}}
+    ok, missing = gate.day_type_gate(manifest, {"143", "272"})
+    assert not ok
+    assert missing == {"143": ["sunday"]}  # 999 is not expected, so it does not count
+
+
+def test_day_type_gate_passes_without_field_or_without_missing():
+    assert gate.day_type_gate({}, {"143"}) == (True, {})
+    assert gate.day_type_gate({"route_day_type_coverage": {"routes_missing_day_type": {}}}, set()) == (True, {})
