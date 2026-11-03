@@ -6290,3 +6290,4 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 미결: 폴링 비용(진행 중 키당 50ms 마다 GET 1~2회). 키 수가 많아지면 pub/sub 또는 pollMs 상향 — 측정 B 뒤 판단
 - 전체 `runfull.sh`(리뷰 반영 **전** 코드, 중간에 `lockExists→currentHolder` 편집이 겹침): 3,907 중 실패 1(`RedisCrossInstanceFlightIT`, 편집 겹침 탓 — 최종 코드 단독 재실행 통과), 건너뜀 7, 17분. 최종 코드 전체 재실행은 PR 머지 전 별도
 - 재실행(최종 코드) `--tests '*CrossInstance*' '*CachedSearchTimeBus*' '*RouteSearchCacheIT' '*RouteSearchStampedeIT' '*RouteSearchRealtimeDeadlineIT'` → 32 tests, BUILD SUCCESSFUL
+- 전체 `runfull.sh`(최종 코드, 리뷰 반영 뒤): **BUILD SUCCESSFUL, 3911 tests, 실패 0, 건너뜀 7**, 19분 33초(실제 OTP·공휴일 API 를 부르는 전체 컨텍스트 IT 가 느린 원인)
