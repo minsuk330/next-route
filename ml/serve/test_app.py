@@ -117,70 +117,7 @@ def _build_model(model_dir: Path) -> None:
     )
 
 
-FEATURES_B = [f for f in FEATURES if f != "route_id"]
-
-
-def _build_router_model(model_dir: Path, training_routes: list[str]) -> None:
-    """Like _build_model, but also trains model_b.txt (route-agnostic) and marks
-    the manifest router_enabled — the dual-model fixture for router tests."""
-    _build_model(model_dir)
-    rows = []
-    for i in range(300):
-        route = ROUTES[i % len(ROUTES)]
-        rows.append(
-            {
-                "current_section_order": i % 20,
-                "section_progress": (i % 10) / 10.0,
-                "current_section_distance": float(i * 3 % 500),
-                "current_full_section_distance": 500.0,
-                "next_stop_time": i % 60,
-                "last_stop_time": i % 40,
-                "congestion": i % 4,
-                "gps_x": 127.0 + (i % 10) / 100.0,
-                "gps_y": 37.5 + (i % 10) / 100.0,
-                "target_seq": (i % 20) + 3,
-                "remaining_stop_count": 3,
-                "hour_of_day": i % 24,
-                "minute_of_day": i % 60,
-                "day_of_week": (i % 7) + 1,
-                "is_weekend": 1 if (i % 7) + 1 in (6, 7) else 0,
-                "is_holiday": i % 2,
-                "is_pre_holiday": (i + 1) % 2,
-                "is_post_holiday": i % 3 == 0,
-                "is_commute_morning": 1 if (i % 24) in (7, 8) else 0,
-                "is_commute_evening": 1 if (i % 24) in (18, 19) else 0,
-                "is_late_night": 1 if (i % 24) >= 23 or (i % 24) < 5 else 0,
-                "temperature_c": float(i % 35) - 5.0,
-                "precipitation_mm": float(i % 5),
-                "humidity_pct": float(40 + i % 60),
-                "wind_speed_mps": float(i % 8),
-                "is_raining": 1 if i % 5 else 0,
-                "is_snowing": 1 if i % 9 == 0 else 0,
-                "y": 300 + (i % 600),  # different y range so A/B predictions are distinguishable
-            }
-        )
-    frame = pd.DataFrame(rows)
-    x = frame[FEATURES_B]
-    y = frame["y"]
-    booster_b = lgb.train(
-        {"objective": "mae", "num_leaves": 7, "verbose": -1},
-        lgb.Dataset(x, y),
-        num_boost_round=5,
-    )
-    booster_b.save_model(str(model_dir / "model_b.txt"))
-    manifest_path = model_dir / "training_manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    manifest["router_enabled"] = True
-    manifest["feature_list_b"] = FEATURES_B
-    manifest["training_route_categories"] = training_routes
-    manifest_path.write_text(json.dumps(manifest))
-
-
-@pytest.fixture()
-def router_model_dir(tmp_path) -> Path:
-    d = tmp_path / "router_experiment"
-    _build_router_model(d, training_routes=["143", "272"])
-    return d
+RAW_FEATURES = [f for f in FEATURES if f != "route_id"]
 
 
 def _client(monkeypatch, model_path: str | None) -> TestClient:
@@ -332,56 +269,6 @@ def test_predict_503_without_model(monkeypatch):
         assert res.status_code == 503
 
 
-# --- router (model A + model B fallback) -----------------------------------
-
-
-def test_metadata_reports_router_enabled(monkeypatch, router_model_dir):
-    with _client(monkeypatch, str(router_model_dir)) as client:
-        body = client.get("/metadata").json()
-        assert body["router_enabled"] is True
-        assert body["feature_list_b"] == FEATURES_B
-
-
-def test_predict_seen_route_uses_model_a(monkeypatch, router_model_dir):
-    with _client(monkeypatch, str(router_model_dir)) as client:
-        res = client.post("/predict", json={"items": [_item("r1", route="143")]})
-        assert res.status_code == 200
-        result = res.json()["results"][0]
-        assert result["status"] == "AVAILABLE"
-        assert result["model"] == "a"
-
-
-def test_predict_unseen_route_falls_back_to_model_b(monkeypatch, router_model_dir):
-    # 160 is a valid category on the booster but not in training_route_categories
-    # (["143", "272"]) — without a router this would be UNSUPPORTED_ROUTE.
-    with _client(monkeypatch, str(router_model_dir)) as client:
-        res = client.post("/predict", json={"items": [_item("r1", route="160")]})
-        assert res.status_code == 200
-        result = res.json()["results"][0]
-        assert result["status"] == "AVAILABLE"
-        assert isinstance(result["seconds_to_arrival"], float)
-        assert result["model"] == "b"
-
-
-def test_predict_unknown_route_also_falls_back_to_model_b(monkeypatch, router_model_dir):
-    # a route id never seen by either booster still gets a model B prediction —
-    # B never needed route_id as a feature, so it isn't limited to known categories.
-    with _client(monkeypatch, str(router_model_dir)) as client:
-        res = client.post("/predict", json={"items": [_item("r1", route="999999")]})
-        assert res.status_code == 200
-        result = res.json()["results"][0]
-        assert result["status"] == "AVAILABLE"
-        assert result["model"] == "b"
-
-
-def test_router_load_fails_if_model_b_missing(monkeypatch, router_model_dir):
-    (router_model_dir / "model_b.txt").unlink()
-    with _client(monkeypatch, str(router_model_dir)) as client:
-        res = client.get("/health")
-        assert res.status_code == 503
-        assert "model_b" in res.json()["error"]
-
-
 # --- target encoding (model A route-keyed te_* features, no route_id categorical) --
 
 
@@ -426,7 +313,7 @@ def _synthetic_rows() -> list[dict]:
 
 
 def _build_target_encoding_model(model_dir: Path) -> tuple[list[dict], list[float]]:
-    """Trains a real target-encoding model A (+ plain model B) the same way
+    """Trains a real target-encoding model the same way
     train.py's --target-encoding path does, using feature_engineering directly, so
     the test exercises the actual training-side artifact shape. Returns the raw
     test-split rows (as /predict would receive them) and model A's own offline
@@ -447,7 +334,7 @@ def _build_target_encoding_model(model_dir: Path) -> tuple[list[dict], list[floa
         te_folds=5,
         te_smoothing=50.0,
         seed=42,
-        numeric_features=FEATURES_B,
+        numeric_features=RAW_FEATURES,
         encoding_specs=SERVABLE_ENCODING_SPECS,
         route_agnostic_specs=SERVABLE_ROUTE_AGNOSTIC_SPECS,
     )
@@ -468,15 +355,6 @@ def _build_target_encoding_model(model_dir: Path) -> tuple[list[dict], list[floa
     model_dir.mkdir(parents=True, exist_ok=True)
     booster.save_model(str(model_dir / "model.txt"))
 
-    x_train_b = train_pl.select(FEATURES_B).to_pandas()
-    y_train_b = train_pl["target_seconds"].to_pandas()
-    booster_b = lgb.train(
-        {"objective": "mae", "num_leaves": 7, "verbose": -1},
-        lgb.Dataset(x_train_b, y_train_b),
-        num_boost_round=5,
-    )
-    booster_b.save_model(str(model_dir / "model_b.txt"))
-
     safe_policy = persist_encoding_artifacts(model_dir, feature_policy)
     training_route_categories = sorted(set(train_pl["route_id"].to_list()))
 
@@ -484,9 +362,7 @@ def _build_target_encoding_model(model_dir: Path) -> tuple[list[dict], list[floa
         "schema_version": 2,
         "with_api_feature": False,
         "feature_list": model_a_columns,
-        "feature_list_b": FEATURES_B,
         "model_version": "test-te-model-v1",
-        "router_enabled": True,
         "target_encoding_enabled": True,
         "training_route_categories": training_route_categories,
         "feature_policy": safe_policy,
@@ -530,13 +406,13 @@ def test_target_encoding_predict_matches_offline_predictions(
         res = client.post("/predict", json={"items": items})
         assert res.status_code == 200
         results = res.json()["results"]
-        assert all(r["status"] == "AVAILABLE" and r["model"] == "a" for r in results)
+        assert all(r["status"] == "AVAILABLE" for r in results)
         served = [r["seconds_to_arrival"] for r in results]
         for served_value, offline_value in zip(served, predictions):
             assert served_value == pytest.approx(offline_value, abs=1e-4)
 
 
-def test_target_encoding_unseen_route_falls_back_to_model_b(
+def test_target_encoding_unseen_route_is_unsupported(
     monkeypatch, target_encoding_model_dir
 ):
     model_dir, rows, _predictions = target_encoding_model_dir
@@ -548,8 +424,8 @@ def test_target_encoding_unseen_route_falls_back_to_model_b(
         )
         assert res.status_code == 200
         result = res.json()["results"][0]
-        assert result["status"] == "AVAILABLE"
-        assert result["model"] == "b"
+        assert result["status"] == "UNSUPPORTED_ROUTE"
+        assert result["seconds_to_arrival"] is None
 
 
 def test_target_encoding_missing_raw_feature_422(monkeypatch, target_encoding_model_dir):
@@ -563,11 +439,9 @@ def test_target_encoding_missing_raw_feature_422(monkeypatch, target_encoding_mo
         assert res.status_code == 422
 
 
-def test_non_router_model_unaffected(monkeypatch, model_dir):
-    # a plain single-model experiment dir (no model_b.txt, no router_enabled key)
-    # must behave exactly as it did before this feature existed — rollback safety.
+def test_plain_model_isolates_untrained_route(monkeypatch, model_dir):
     with _client(monkeypatch, str(model_dir)) as client:
-        assert client.get("/metadata").json()["router_enabled"] is False
+        assert "router_enabled" not in client.get("/metadata").json()
         res = client.post(
             "/predict",
             json={"items": [_item("r1", route="143"), _item("bad", route="99999")]},

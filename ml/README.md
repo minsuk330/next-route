@@ -450,9 +450,9 @@ rclone copy gdrive:nextroute-archive/bus_candidate ml/data/bus_candidate
 `docs/plan/rotation-PR5-cumulative-retrain.md`.
 
 파이프라인: flock(retention과 공유) → 디스크 gate → Drive 누락 partition restore
-(`bus_label∩bus_position`) → 날짜별 `build_dataset.py`(갭 안전) → `holdout.py`로 coverage-safe
-test 날짜 선택(신규 route가 전부 test로 빠져 미학습되지 않도록) → 누적 `train.py`(콤마 날짜리스트 +
-`--test-dates`) → `gate.py`(metric AND coverage) → relative symlink swap →
+(`bus_label∩bus_position`) → 날짜별 `build_dataset.py`(갭 안전) → 누적 `train.py`(콤마 날짜리스트 +
+`--holdout-last-days-per-route`: 노선마다 자기 수집 기간의 마지막 N일만 test — 주간 로테이션이라
+날짜 cutoff는 마지막 주 노선을 통째로 test로 보내 미학습 상태로 만든다) → `gate.py`(metric AND coverage) → relative symlink swap →
 `compose restart nextroute-ml-serve` → `/health`·`/metadata` 확인 →
 dataset 삭제(EXIT trap, 항상) + 오래된 experiment 정리.
 
@@ -465,19 +465,21 @@ dataset 삭제(EXIT trap, 항상) + 오래된 experiment 정리.
 | `ML_ARCHIVE_REMOTE` | gdrive 원천 | `gdrive:nextroute-archive` |
 | `ML_SAMPLE_ROWS` | 학습 행 상한(OOM 방지) | `2000000` |
 | `ML_MAX_REGRESSION` | 직전 모델 대비 MAE 허용 배수 | `1.05` |
-| `ML_ROUTER_FALLBACK` | model A(seen route) + model B(route-agnostic) 라우팅 활성화 (`train.py --fallback-model`) | `true` |
-| `ML_TARGET_ENCODING` | model A에 route-키드 target-encoding(`te_*`) 피처 사용 (`--target-encoding`, `ML_ROUTER_FALLBACK=true` 필수) | `true` |
+| `ML_TARGET` | 학습 타깃(`label`은 API ETA 라벨이 섞여 오염) | `corrected` |
+| `ML_HOLDOUT_DAYS_PER_ROUTE` | 노선별 test로 떼는 마지막 수집일 수 | `1` |
+| `ML_TARGET_ENCODING` | route-키드 target-encoding(`te_*`) 피처 사용 (`--target-encoding`) | `true` |
 | `ML_MIN_FREE_GB` / `ML_EXTRA_FREE_GB` / `ML_DISK_FACTOR` | 디스크 gate | `8` / `5` / `2.5` |
 | `ML_KEEP_EXPERIMENTS` | 보관 experiment 개수 | `5` |
 | `ML_KEEP_DATASET_ON_FAILURE` | 실패 시 dataset 보존(디버그) | `false` |
 | `ML_APP_DIR` / `ML_DATA_DIR` | compose dir / 데이터 host 경로 | `/root/apps/nextroute` / `/srv/nextroute/ml-data` |
 
-`ML_ABS_MAE=123`의 근거: 2026-08-16 `train.py --fallback-model --target-encoding`
-풀스케일(56일 윈도우) 실행에서 routed `lightgbm` MAE **117.19초** 확정
-(`117.19 × 1.05 ≈ 123`) — 기존 plain 모델 138.51s/138.53s 기준선 대비 약 15% 개선.
-target-encoding 없이 라우팅만 켠 경우(148.85/138.53s, route_id가 bare categorical로 오히려 손해)는
-개선이 아니므로 `ML_ROUTER_FALLBACK=true`는 `ML_TARGET_ENCODING=true`와 함께 켜야 한다.
-연구 경위는 [docs/api-eta-leakage.md §4.1](../docs/api-eta-leakage.md#41-확정-수치-2026-08-13-전체-학습기간) 참고.
+학습하지 않은 노선은 serve가 `UNSUPPORTED_ROUTE`로 격리한다(route-agnostic model B는 제거됨 —
+2026-10-26~11-02 실측에서 미학습 노선 MAE 344초로 쓸 수 없었다). 수집된 노선 전부를 학습에 넣는 것이
+커버리지 전략이다.
+
+`ML_ABS_MAE=123`은 2026-08-16 routed 모델(A+B, 날짜 holdout) 기준값이다. 노선별 holdout과
+trip 단위 라벨 조인(순환 노선의 다음 바퀴 오매칭 제거)으로 평가 방식이 바뀌었으므로, 새 파이프라인으로
+첫 학습한 `metrics.json`의 `overall.mae`로 다시 잡아야 한다(첫 회는 `ML_ALLOW_NO_PREV=true`).
 
 ### 1회성 ops — symlink 모델 경로 전환
 
@@ -494,7 +496,7 @@ cd /root/apps/nextroute && docker compose up -d nextroute-ml-serve
 ### crontab (validate/upload·retention 이후, 공통 lock)
 
 ```cron
-30 6 * * MON cd /root/apps/nextroute && ML_TRAIN_FROM=2026-06-12 ML_ABS_MAE=123 ML_ROUTER_FALLBACK=true ML_TARGET_ENCODING=true bash ml/ops/train_local.sh >> /var/log/nextroute-ml.log 2>&1 && bash ml/ops/deploy_model.sh
+30 6 * * MON cd /root/apps/nextroute && ML_TRAIN_FROM=2026-06-12 ML_ABS_MAE=123 ML_TARGET_ENCODING=true bash ml/ops/train_local.sh >> /var/log/nextroute-ml.log 2>&1 && bash ml/ops/deploy_model.sh
 ```
 
 위 crontab은 `ml/ops/train_local.sh`가 실제로 실행되는 host(학습은 VPS가 아닌 dev/학습 머신에서 —
@@ -510,8 +512,8 @@ gate 실패 시 `train_local.sh`/`gate.py`는 non-zero로 종료(current 모델 
 ```bash
 rsync -av vps:/srv/nextroute/ml-data/bus_label/ ml/data/bus_label/
 uv run python build_dataset.py <date>            # 날짜별
-uv run python train.py <dates,csv> --target corrected --test-dates <latest_week> --sample-rows 2000000 \
-  --fallback-model --target-encoding
+uv run python train.py <dates,csv> --target corrected --holdout-last-days-per-route 1 \
+  --sample-rows 2000000 --target-encoding
 uv run python gate.py --model-dir ml/data/experiments/<run> --abs-mae 123 \
   --prev-dir ml/data/experiments/<prev> --expected-routes-file <routes.txt>
 ```

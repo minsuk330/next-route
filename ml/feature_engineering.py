@@ -216,11 +216,13 @@ def full_data_stats(
     value: str,
     folds: int,
     seed: int,
+    exclude_route_dates: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Aggregate one encoding over every training row on disk, not just a sampled frame.
 
     Returns per (keys, fold) sums so the caller can form an out-of-fold aggregate by
-    subtracting a row's own fold from the total.
+    subtracting a row's own fold from the total. `exclude_route_dates` (route_id,
+    service_date) drops held-out test rows so their targets never reach the tables.
     """
     files: list[str] = []
     for item in train_dates:
@@ -234,9 +236,13 @@ def full_data_stats(
         / pl.when(remaining > 0).then(remaining).otherwise(pl.lit(1.0))
     )
 
+    scan = pl.scan_parquet(files)
+    if exclude_route_dates is not None and exclude_route_dates.height:
+        scan = scan.join(
+            exclude_route_dates.lazy(), on=["route_id", "service_date"], how="anti"
+        )
     frame = (
-        pl.scan_parquet(files)
-        .filter(
+        scan.filter(
             pl.col(target_column).is_not_null()
             & (pl.col(target_column) >= TARGET_MIN_SECONDS)
             & (pl.col(target_column) <= TARGET_MAX_SECONDS)
@@ -477,6 +483,7 @@ def build_feature_frames(
                         value,
                         args.te_folds,
                         args.seed,
+                        getattr(args, "encoding_exclude_route_dates", None),
                     )
                     print(
                         f"[encode] full-data scan {cache_key} -> "

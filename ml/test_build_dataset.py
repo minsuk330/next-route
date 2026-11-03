@@ -9,6 +9,7 @@ from build_dataset import (
     WEATHER_RAW_COLUMNS,
     attach_weather,
     calendar_columns,
+    dataset_for_route,
     holiday_sidecar_path,
     load_holidays,
     load_weather,
@@ -186,3 +187,74 @@ def test_minute_of_day_is_minute_of_day_not_minute_of_hour():
         .alias("minute_of_day")
     )
     assert out["minute_of_day"].to_list() == [0, 517, 1439]
+
+
+def _circular_route_frames() -> tuple[pl.LazyFrame, pl.LazyFrame]:
+    """One vehicle, two laps of a 5-section circular route, 2-minute snapshots."""
+    base = datetime(2026, 10, 28, 9, 0, 0)
+    laps = [(0, [1, 2, 3, 4, 5]), (10, [1, 2, 3, 4, 5])]
+    rows = []
+    for start_minute, orders in laps:
+        for i, order in enumerate(orders):
+            minute = start_minute + 2 * i
+            rows.append(
+                {
+                    "position_raw_id": len(rows) + 1,
+                    "route_id": "R",
+                    "vehicle_identity": "V",
+                    "snapshot_at": base.replace(minute=minute),
+                    "current_section_id": f"S{order}",
+                    "current_section_order": order,
+                    "current_section_distance": 10.0,
+                    "current_full_section_distance": 100.0,
+                    "section_progress": 0.1,
+                    "stop_flag": 0,
+                    "next_stop_id": f"N{order}",
+                    "next_stop_time": 0,
+                    "last_stop_time": 0,
+                    "congestion": 0,
+                    "gps_x": 127.0,
+                    "gps_y": 37.5,
+                }
+            )
+    position = pl.DataFrame(rows).lazy()
+    arrivals = [(101, base.replace(minute=7)), (102, base.replace(minute=17))]
+    label = pl.DataFrame(
+        [
+            {
+                "arrival_label_event_id": event_id,
+                "service_date": date(2026, 10, 28),
+                "route_id": "R",
+                "vehicle_identity": "V",
+                "trip_id": None,
+                "target_stop_id": "T4",
+                "target_seq": 4,
+                "target_section_id": "S4",
+                "api_estimated_arrival_at": arrived,
+                "corrected_arrival_at": arrived,
+                "label_arrival_at": arrived,
+                "label_source": "POSITION_STOP_FLAG_CORRECTED",
+                "label_confidence": 1.0,
+                "correction_source": None,
+                "correction_confidence": None,
+                "arrival_raw_id": event_id,
+            }
+            for event_id, arrived in arrivals
+        ],
+        schema_overrides={"trip_id": pl.Utf8, "correction_source": pl.Utf8,
+                          "correction_confidence": pl.Float64},
+    ).lazy()
+    return position, label
+
+
+def test_circular_route_snapshot_pairs_only_with_same_lap_arrival():
+    position, label = _circular_route_frames()
+    out = dataset_for_route(position, label, "R", "now", [], None).collect()
+
+    # Lap 1 snapshot at 09:00 must not pick up lap 2's arrival at 09:17 (1020 s).
+    first = out.filter(pl.col("position_raw_id") == 1)
+    assert first["arrival_label_event_id"].to_list() == [101]
+    assert first["label_target_seconds_to_arrival"].to_list() == [420]
+    assert out.select(pl.struct("position_raw_id", "target_seq").is_unique().all()).item()
+    # Lap 2 snapshots pair with lap 2's arrival only.
+    assert set(out.filter(pl.col("position_raw_id") >= 6)["arrival_label_event_id"]) == {102}

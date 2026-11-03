@@ -77,10 +77,10 @@ RAW_FEATURE_NAMES = [
 
 
 class ModelState:
-    """Holds the loaded booster(s) and their contract, or the reason it is unavailable.
+    """Holds the loaded booster and its contract, or the reason it is unavailable.
 
-    booster is model A (dense, route-keyed). booster_b, when router_enabled, is
-    model B (route-agnostic) — the fallback for routes not in route_category_set.
+    Only routes in route_category_set are predicted; any other route gets
+    UNSUPPORTED_ROUTE (the Java app degrades to no ML prediction for it).
     """
 
     def __init__(self) -> None:
@@ -91,17 +91,12 @@ class ModelState:
         # model_categories: booster의 pandas_categorical(train∪test). DataFrame dtype 인코딩용 — 절대 부분집합으로 바꾸면 category code 깨짐.
         self.model_categories: list[str] = []
         # route_categories: 실제 학습된 route(manifest.training_route_categories). 없으면 model_categories로 폴백.
-        # 지원 판정(metadata + predict 라우팅)의 권위 소스: seen -> model A, unseen -> model B(있으면).
+        # 지원 판정(metadata + predict 격리)의 권위 소스: 목록 밖 route는 UNSUPPORTED_ROUTE.
         self.route_categories: list[str] = []
         self.route_category_set: set[str] = set()
         self.model_version: str | None = None
         self.error: str | None = None
-        # router (model B, route-agnostic fallback for unseen routes) — optional.
-        self.router_enabled: bool = False
-        self.booster_b: lgb.Booster | None = None
-        self.feature_names_b: list[str] = []
-        # target encoding (model A route-keyed te_* features) — optional, requires
-        # router_enabled (train.py's validate_target_encoding). When set, model A's
+        # target encoding (route-keyed te_* features) — optional. When set, the model's
         # feature_list has no route_id categorical; these hold what
         # compute_serving_features needs to rebuild the te_*/derived columns from a
         # request's raw fields at predict time.
@@ -113,9 +108,7 @@ class ModelState:
 
     @property
     def loaded(self) -> bool:
-        if self.booster is None:
-            return False
-        return not self.router_enabled or self.booster_b is not None
+        return self.booster is not None
 
 
 state = ModelState()
@@ -188,35 +181,6 @@ def load_model(state: ModelState) -> None:
         logger.error("[serve] %s", state.error)
         return
 
-    # --- model B (route-agnostic fallback), only if the manifest says so ---
-    router_enabled = bool(manifest.get("router_enabled"))
-    booster_b: lgb.Booster | None = None
-    feature_names_b: list[str] = []
-    if router_enabled:
-        model_b_path = model_path.parent / "model_b.txt"
-        if not model_b_path.exists():
-            state.error = f"router_enabled but model_b not found: {model_b_path}"
-            logger.error("[serve] %s", state.error)
-            return
-        try:
-            booster_b = lgb.Booster(model_file=str(model_b_path))
-        except Exception as exc:  # noqa: BLE001
-            state.error = f"failed to load booster_b: {exc}"
-            logger.error("[serve] %s", state.error)
-            return
-        feature_names_b = list(booster_b.feature_name())
-        error = _validate_contract(
-            manifest, feature_names_b, "feature_list_b", require_categorical=False
-        )
-        if error is not None:
-            state.error = f"model_b: {error}"
-            logger.error("[serve] contract rejected: %s", state.error)
-            return
-        if booster_b.pandas_categorical:
-            state.error = "model_b must have no categorical columns"
-            logger.error("[serve] %s", state.error)
-            return
-
     # --- target encoding (model A route-keyed te_* features), only if manifest says so ---
     route_profile: pl.DataFrame | None = None
     encoding_tables: dict[str, pl.DataFrame] = {}
@@ -266,15 +230,11 @@ def load_model(state: ModelState) -> None:
         state.route_categories = state.model_categories
     state.route_category_set = set(state.route_categories)
     state.model_version = manifest.get("model_version") or model_path.parent.name
-    state.router_enabled = router_enabled
-    state.booster_b = booster_b
-    state.feature_names_b = feature_names_b
     logger.info(
-        "[serve] model loaded: version=%s features=%d routes=%d router_enabled=%s",
+        "[serve] model loaded: version=%s features=%d routes=%d",
         state.model_version,
         len(feature_names),
         len(state.route_categories),
-        state.router_enabled,
     )
 
 
@@ -355,13 +315,10 @@ def metadata() -> JSONResponse:
             "categorical_feature": CATEGORICAL_FEATURE,
             "route_count": len(state.route_categories),
             # 실제 학습된 지원 route_id 목록(manifest.training_route_categories, 폴백 시 model categorical).
-            # 백엔드가 "환승 예측 가능" 배지 판정에 사용. router_enabled=false면 predict 격리 기준과 동일;
-            # true면 route_categories 밖 route도 model B로 예측되지만, "고정밀(A)" 커버리지 신호로는 유효.
+            # 백엔드가 "환승 예측 가능" 배지 판정에 사용. predict 격리 기준과 동일.
             "route_categories": state.route_categories,
             # 디버그: booster categorical(train∪test) 크기. route_count보다 크면 test-only/미학습 route 존재.
             "model_route_count": len(state.model_categories),
-            "router_enabled": state.router_enabled,
-            "feature_list_b": state.feature_names_b if state.router_enabled else None,
             "target_encoding_enabled": state.target_encoding_enabled,
         }
     )
@@ -382,12 +339,12 @@ def predict(request: PredictRequest) -> JSONResponse:
         return JSONResponse(
             {"detail": "duplicate request_id in batch"}, status_code=422
         )
-    # A target-encoding model A's feature_list has te_*/derived columns the client
+    # A target-encoding model's feature_list has te_*/derived columns the client
     # never sends (compute_serving_features derives them here) — the raw contract to
-    # require from the client is feature_names_b (plain numerics) plus route_id
-    # (needed for routing and the encoding's route-keyed lookups either way).
+    # require from the client is RAW_FEATURE_NAMES plus route_id (needed for the
+    # support check and the encoding's route-keyed lookups).
     required_features = (
-        set(state.feature_names_b) | {CATEGORICAL_FEATURE}
+        set(RAW_FEATURE_NAMES) | {CATEGORICAL_FEATURE}
         if state.target_encoding_enabled
         else set(state.feature_names)
     )
@@ -399,20 +356,14 @@ def predict(request: PredictRequest) -> JSONResponse:
                 status_code=422,
             )
 
-    # --- per-item routing: seen route -> model A, unseen -> model B (if any) ---
-    # Without a router, an unseen route was terminal (UNSUPPORTED_ROUTE, never
-    # predicted). With one, it's routed to model B instead — same idea as
-    # train_advanced.py's --router-model-a, applied to the servable feature set.
+    # --- per-item support check: trained route -> predict, else UNSUPPORTED_ROUTE ---
     results: dict[str, dict[str, Any]] = {}
     predictable_a: list[PredictItem] = []
-    predictable_b: list[PredictItem] = []
     for item in items:
         route = item.features.get(CATEGORICAL_FEATURE)
         route_str = None if route is None else str(route)
         if route_str is not None and route_str in state.route_category_set:
             predictable_a.append(item)
-        elif state.router_enabled:
-            predictable_b.append(item)
         else:
             results[item.request_id] = {
                 "request_id": item.request_id,
@@ -434,19 +385,6 @@ def predict(request: PredictRequest) -> JSONResponse:
                 "status": "AVAILABLE",
                 "seconds_to_arrival": float(pred),
                 "model_version": state.model_version,
-                "model": "a",
-            }
-
-    if predictable_b:
-        frame_b = _build_frame(predictable_b, state.feature_names_b, None)
-        preds_b = state.booster_b.predict(frame_b)
-        for item, pred in zip(predictable_b, preds_b):
-            results[item.request_id] = {
-                "request_id": item.request_id,
-                "status": "AVAILABLE",
-                "seconds_to_arrival": float(pred),
-                "model_version": state.model_version,
-                "model": "b",
             }
 
     return JSONResponse({"results": [results[rid] for rid in request_ids]})
@@ -457,7 +395,7 @@ def _build_frame(
 ) -> pd.DataFrame:
     """Build a feature-ordered DataFrame for one booster. ``categories`` is the
     trained categorical dtype for route_id (model A); None means the feature set
-    has no categorical column (model B, route-agnostic)."""
+    has no categorical column (a target-encoding model, built separately)."""
     columns: dict[str, list[Any]] = {f: [] for f in feature_names}
     for item in items:
         for f in feature_names:

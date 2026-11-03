@@ -401,12 +401,18 @@ def dataset_for_route(
     holidays: list[date],
     weather: pl.LazyFrame | None,
 ) -> pl.LazyFrame:
-    position_route = position.filter(pl.col("route_id") == route_id)
-    label_route = label.filter(pl.col("route_id") == route_id)
+    position_route = assign_trip_index(position.filter(pl.col("route_id") == route_id))
+    label_route = assign_label_trip_index(
+        label.filter(pl.col("route_id") == route_id), position_route
+    )
 
+    # Join on the trip as well as the vehicle. A circular route (most village buses)
+    # completes a lap inside the 40-minute window, so a vehicle-only join also pairs a
+    # snapshot with the *next* lap's arrival at the same stop — a target one lap
+    # (~20 min) too long.
     joined = position_route.join(
         label_route,
-        on=["route_id", "vehicle_identity"],
+        on=["route_id", "vehicle_identity", TRIP_INDEX_COLUMN],
         how="inner",
     )
 
@@ -459,7 +465,55 @@ def dataset_for_route(
         )
     )
 
-    return attach_weather(enriched, weather).select(dataset_columns())
+    # Safety net: one (snapshot, target stop) pair keeps only the earliest arrival.
+    first_arrival = enriched.sort(["label_arrival_at", "arrival_label_event_id"]).unique(
+        subset=["position_raw_id", "target_seq"], keep="first", maintain_order=True
+    )
+
+    return attach_weather(first_arrival, weather).select(dataset_columns())
+
+
+TRIP_INDEX_COLUMN = "_trip_index"
+# A new trip starts when section_order falls back by more than this many sections
+# (lap reset / turnaround), or when the vehicle goes silent for longer than the gap.
+TRIP_BREAK_SECTION_DROP = 2
+TRIP_BREAK_GAP = timedelta(minutes=20)
+
+
+def assign_trip_index(position: pl.LazyFrame) -> pl.LazyFrame:
+    """Number each vehicle's consecutive snapshots into trips (0, 1, 2, ...)."""
+    keys = ["route_id", "vehicle_identity"]
+    previous_order = pl.col("current_section_order").shift(1).over(keys)
+    previous_time = pl.col("snapshot_at").shift(1).over(keys)
+    is_break = (
+        (pl.col("current_section_order") < previous_order - TRIP_BREAK_SECTION_DROP)
+        | ((pl.col("snapshot_at") - previous_time) > TRIP_BREAK_GAP)
+    ).fill_null(True)
+    return position.sort([*keys, "snapshot_at", "position_raw_id"]).with_columns(
+        (is_break.cast(pl.Int32).cum_sum().over(keys) - 1).alias(TRIP_INDEX_COLUMN)
+    )
+
+
+def assign_label_trip_index(label: pl.LazyFrame, position: pl.LazyFrame) -> pl.LazyFrame:
+    """Give each arrival the trip of the vehicle's last snapshot at or before it."""
+    snapshots = position.select(
+        "route_id",
+        "vehicle_identity",
+        pl.col("snapshot_at").alias("_trip_snapshot_at"),
+        TRIP_INDEX_COLUMN,
+    ).sort("_trip_snapshot_at")
+    return (
+        label.sort("label_arrival_at")
+        .join_asof(
+            snapshots,
+            left_on="label_arrival_at",
+            right_on="_trip_snapshot_at",
+            by=["route_id", "vehicle_identity"],
+            strategy="backward",
+            check_sortedness=False,
+        )
+        .drop("_trip_snapshot_at")
+    )
 
 
 def dataset_columns() -> list[str]:

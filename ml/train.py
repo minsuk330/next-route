@@ -95,6 +95,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--test-from", default="21:00")
     parser.add_argument("--test-dates", default=None)
+    parser.add_argument(
+        "--holdout-last-days-per-route",
+        type=int,
+        default=None,
+        help=(
+            "Test on each route's own last N service dates instead of global "
+            "--test-dates. Keeps every rotation-week route in training."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--with-api-feature",
@@ -102,37 +111,15 @@ def parse_args() -> argparse.Namespace:
         help="Include api_target_seconds_to_arrival as a feature for separate leakage-aware experiments.",
     )
     parser.add_argument(
-        "--fallback-model",
-        action="store_true",
-        help=(
-            "Also train a route-agnostic model B (same features minus route_id) and "
-            "serve the routed combination — model A for routes seen in training, model B "
-            "for the rest — as the reported/gated 'lightgbm' metric, instead of returning "
-            "UNSUPPORTED_ROUTE for unseen routes at serve time."
-        ),
-    )
-    parser.add_argument(
         "--target-encoding",
         action="store_true",
         help=(
-            "Give model A route-keyed hierarchical target-encoding features (te_*), "
-            "computed via full-data-encoding over the training window using the same "
-            "deployable-only spec subset Stage 0 validated on 2026-08-15 (routed MAE "
-            "117.67s vs the 138.53s plain baseline). Requires --fallback-model: an "
-            "encoded model A alone (141.00s in Stage 0) is worse than the plain "
-            "route-agnostic baseline — the gain only appears once routed."
+            "Add route-keyed hierarchical target-encoding features (te_*), computed "
+            "via full-data-encoding over the training window using the deployable-only "
+            "spec subset (SERVABLE_ENCODING_SPECS)."
         ),
     )
     return parser.parse_args()
-
-
-def validate_target_encoding(args: argparse.Namespace) -> None:
-    if args.target_encoding and not args.fallback_model:
-        raise ValueError(
-            "--target-encoding requires --fallback-model: Stage 0 (2026-08-15) found an "
-            "encoded model A alone (141.00s) is worse than the plain baseline (138.53s) — "
-            "the gain only shows up once routed."
-        )
 
 
 def parse_service_dates(value: str) -> list[date]:
@@ -254,30 +241,7 @@ def fit_lgbm(
     return model
 
 
-def build_router_reports(
-    test: pl.DataFrame,
-    target_column: str,
-    prediction_a: np.ndarray,
-    prediction_b: np.ndarray,
-    seen_mask: np.ndarray,
-) -> dict[str, Any]:
-    """Score model A alone, model B alone, and the routed (A on seen routes, B on
-    unseen) combination. The routed report is written under the same "lightgbm"
-    key gate.py already reads, so gate.py needs no changes: it transparently
-    gates on the routed MAE once --fallback-model is used."""
-    routed = np.where(seen_mask, prediction_a, prediction_b)
-    scored_a = test.with_columns(pl.Series("prediction_model_a", prediction_a))
-    scored_b = test.with_columns(pl.Series("prediction_model_b", prediction_b))
-    scored_routed = test.with_columns(pl.Series("prediction_routed", routed))
-    return {
-        "lightgbm": evaluate_predictions(scored_routed, target_column, "prediction_routed"),
-        "model_a_alone": evaluate_predictions(scored_a, target_column, "prediction_model_a"),
-        "model_b_alone": evaluate_predictions(scored_b, target_column, "prediction_model_b"),
-    }
-
-
 def train_model(args: argparse.Namespace) -> dict[str, Any]:
-    validate_target_encoding(args)
 
     service_dates = parse_service_dates(args.service_date)
     data_dir = load_data_dir()
@@ -298,8 +262,17 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         seed=args.seed,
         data_dir=data_dir,
         columns=load_columns,
+        holdout_last_days_per_route=args.holdout_last_days_per_route,
     )
     target_column = split.target_column
+    exclude_route_dates = None
+    if args.holdout_last_days_per_route:
+        # every date still feeds the encoding tables, minus each route's held-out days
+        train_dates = service_dates
+        exclude_route_dates = pl.DataFrame(
+            split.split_policy["test_route_dates"],
+            schema={"route_id": pl.Utf8, "service_date": pl.Utf8},
+        ).with_columns(pl.col("service_date").str.to_date())
 
     if args.target_encoding:
         encoding_args = argparse.Namespace(
@@ -311,6 +284,7 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
             full_data_encoding=True,
             data_dir=data_dir,
             encoding_dates=train_dates,
+            encoding_exclude_route_dates=exclude_route_dates,
             te_folds=5,
             te_smoothing=50.0,
             seed=args.seed,
@@ -346,34 +320,8 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
     model = fit_lgbm(x_train, y_train, x_valid, y_valid, args.seed, categorical_feature_a)
     predictions = model.predict(x_test, num_iteration=model.best_iteration_)
 
-    model_b = None
-    feature_columns_b: list[str] = []
-    if args.fallback_model:
-        feature_columns_b = [c for c in columns if c not in CATEGORICAL_FEATURES]
-        if args.target_encoding:
-            # Independent of model A's frame: SERVABLE_ROUTE_AGNOSTIC_SPECS is empty
-            # (Stage 0 found nothing servable for the route-agnostic side to encode), so
-            # model B stays on the plain raw columns, same as without --target-encoding.
-            x_train_b, y_train_b, x_valid_b, y_valid_b = validation_split(
-                train_frame, target_column, feature_columns_b, cat_dtypes
-            )
-            x_test_b, _ = to_pandas(test_frame, feature_columns_b, target_column, cat_dtypes)
-        else:
-            x_train_b = x_train.drop(columns=CATEGORICAL_FEATURES)
-            x_valid_b = x_valid.drop(columns=CATEGORICAL_FEATURES)
-            x_test_b = x_test.drop(columns=CATEGORICAL_FEATURES)
-            y_train_b, y_valid_b = y_train, y_valid
-        model_b = fit_lgbm(x_train_b, y_train_b, x_valid_b, y_valid_b, args.seed, "auto")
-        predictions_b = model_b.predict(x_test_b, num_iteration=model_b.best_iteration_)
-
-        train_routes = set(training_route_categories)
-        seen_mask = test_frame[CATEGORICAL_FEATURES[0]].cast(pl.Utf8).is_in(train_routes).to_numpy()
-        reports = build_router_reports(
-            test_frame, target_column, predictions, predictions_b, seen_mask
-        )
-    else:
-        scored = test_frame.with_columns(pl.Series("prediction_lgbm", predictions))
-        reports = {"lightgbm": evaluate_predictions(scored, target_column, "prediction_lgbm")}
+    scored = test_frame.with_columns(pl.Series("prediction_lgbm", predictions))
+    reports = {"lightgbm": evaluate_predictions(scored, target_column, "prediction_lgbm")}
 
     date_label = service_date_label(service_dates)
     run_id = (
@@ -383,8 +331,6 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = experiment_dir(data_dir, run_id)
     model_path = output_dir / "model.txt"
     model.booster_.save_model(str(model_path))
-    if model_b is not None:
-        model_b.booster_.save_model(str(output_dir / "model_b.txt"))
 
     manifest = {
         "run_id": run_id,
@@ -400,9 +346,7 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
             column for column in LEAKAGE_COLUMNS if column not in model_a_columns
         ],
         "with_api_feature": args.with_api_feature,
-        "router_enabled": args.fallback_model,
         "target_encoding_enabled": args.target_encoding,
-        "feature_list_b": feature_columns_b,
         "sampling_policy": split.sampling_policy,
         "split_policy": split.split_policy,
         "train_rows": split.train.height,
@@ -414,7 +358,6 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "git_commit": git_commit(),
         "model_file": str(model_path),
-        "model_b_file": str(output_dir / "model_b.txt") if model_b is not None else None,
     }
     if args.target_encoding:
         manifest["feature_policy"] = persist_encoding_artifacts(output_dir, feature_policy)
@@ -422,8 +365,6 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
     write_json(output_dir / "training_manifest.json", manifest)
     print_reports(reports)
     print(f"\nmodel={model_path}")
-    if model_b is not None:
-        print(f"model_b={output_dir / 'model_b.txt'}")
     print(f"manifest={output_dir / 'training_manifest.json'}")
     return manifest
 

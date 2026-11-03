@@ -45,7 +45,7 @@ from train import (
 ALL_MODELS = ("lightgbm", "xgboost", "catboost")
 API_PREDICTION_COLUMN = "api_target_seconds_to_arrival"
 
-# Weekly route rotation (holdout.py) means these absolute stop-sequence indices carry
+# Weekly route rotation means these absolute stop-sequence indices carry
 # little signal for a route the model has never seen: a "3rd stop of 40" pattern learned
 # on one route's numbering does not transfer to another route's numbering. Converting to
 # 0-1 ratios of route length is the route-agnostic replacement.
@@ -89,7 +89,7 @@ def parse_args() -> argparse.Namespace:
         "--no-route-id",
         action="store_true",
         help=(
-            "Drop route_id from the feature set. Routes rotate weekly (see holdout.py), "
+            "Drop route_id from the feature set. Routes rotate weekly (see split.split_last_days_per_route), "
             "so a test-week route may have little or no training history — route-specific "
             "learning cannot transfer and may actively hurt. This trains route-agnostic."
         ),

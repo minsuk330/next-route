@@ -135,7 +135,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "Keep route_id as a native categorical. Off by default: routes rotate weekly "
-            "(holdout.py), and train_compare measured route_id as a 6s MAE regression."
+            "and train_compare measured route_id as a 6s MAE regression."
         ),
     )
     parser.add_argument(
