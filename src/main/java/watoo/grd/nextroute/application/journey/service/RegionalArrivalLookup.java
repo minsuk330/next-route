@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 /**
  * 경기·TAGO 정류장에 <b>내 버스</b>가 언제 닿는지(#264 PR-4).
@@ -36,6 +37,11 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class RegionalArrivalLookup {
 
+    /** TAGO 노선 id(영문 3글자 접두사). {@code BusArrivalQueryService} 와 같은 규칙. */
+    private static final Pattern TAGO_ID = Pattern.compile("^[A-Z]{3}[\\dA-Z-]+$");
+    /** 경기 GBIS 노선 id(2로 시작하는 9자리). 서울은 1로 시작해 겹치지 않는다({@code TransferStopResolver} 와 같은 규칙). */
+    private static final Pattern GBIS_ROUTE_ID = Pattern.compile("^2\\d{8}$");
+
     private final GyeonggiBusArrivalPort gyeonggiPort;
     private final TagoBusArrivalPort tagoPort;
     private final TagoCityCodeLookup cityCodeLookup;
@@ -44,6 +50,23 @@ public class RegionalArrivalLookup {
     private final Clock clock;
 
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
+
+    /**
+     * 지역 실시간으로 물을 구간의 공급자. 서울 노선으로 풀리지 않았고 원천 노선 id 가 경기·TAGO 모양일 때만이다. 모양을 모르는 id
+     * (서울 DB 에 없는 서울 노선, 시외버스 등)는 지역 API 로 묻지 않는다 — 엉뚱한 원천에 물어 할당량만 쓴다.
+     *
+     * @return 지역 구간이 아니면 null
+     */
+    public static RegionalBusProvider providerOf(String routeId, String sourceRouteId, String sourceStopId) {
+        if ((routeId != null && !routeId.isBlank()) || sourceRouteId == null
+                || sourceStopId == null || sourceStopId.isBlank()) {
+            return null;
+        }
+        if (GBIS_ROUTE_ID.matcher(sourceRouteId).matches()) {
+            return RegionalBusProvider.GG;
+        }
+        return TAGO_ID.matcher(sourceRouteId).matches() ? RegionalBusProvider.TAGO : null;
+    }
 
     public Lookup arrivalAt(RegionalBusProvider provider, String routeId, String stopId, int expectedAway) {
         Instant now = Instant.now(clock);
@@ -81,6 +104,30 @@ public class RegionalArrivalLookup {
                 .filter(seconds -> seconds != null && seconds >= 0)
                 .min(Integer::compare)
                 .map(seconds -> new Lookup(now.plusSeconds(seconds), null))
+                .orElse(Lookup.NO_REALTIME);
+    }
+
+    /**
+     * 사용자가 준비를 마친 뒤 처음 오는 버스 — 갈아탈 차 판정. 먼저 지나가는 차는 탈 수 없어 고르지 않는다. 응답에 그런 차가 없으면
+     * {@code no-realtime} 이다. 지난 차로 "환승 놓침"을 단정하지 않는다: 응답은 다음 한두 대뿐이라 그 뒤에 탈 차가 있을 수 있다.
+     * 서울 실시간의 {@code SingleTransferPredictor.pickRealtime} 과 같은 규칙이다.
+     */
+    public Lookup boardableAt(RegionalBusProvider provider, String routeId, String stopId, Instant anchorAt) {
+        Instant now = Instant.now(clock);
+        Optional<List<Approach>> approaches = approaches(provider, routeId, stopId, now);
+        if (approaches == null) {
+            return Lookup.QUOTA;
+        }
+        if (approaches.isEmpty()) {
+            return Lookup.BLOCKED;
+        }
+        return approaches.get().stream()
+                .map(Approach::seconds)
+                .filter(seconds -> seconds != null && seconds >= 0)
+                .map(now::plusSeconds)
+                .filter(at -> !at.isBefore(anchorAt))
+                .min(Instant::compareTo)
+                .map(at -> new Lookup(at, null))
                 .orElse(Lookup.NO_REALTIME);
     }
 

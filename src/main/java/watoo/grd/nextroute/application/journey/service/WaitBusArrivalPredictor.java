@@ -20,7 +20,6 @@ import watoo.grd.nextroute.domain.journey.repository.JourneyLegRouteOptionReposi
 
 import java.time.Instant;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 /**
  * 버스를 기다리는 단계가 언제 끝나는지 — 즉 버스가 언제 오는지.
@@ -43,11 +42,6 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class WaitBusArrivalPredictor implements CurrentLegArrivalPredictor {
 
-    /** TAGO 노선 id(영문 3글자 접두사). {@code BusArrivalQueryService} 와 같은 규칙. */
-    private static final Pattern TAGO_ID = Pattern.compile("^[A-Z]{3}[\\dA-Z-]+$");
-    /** 경기 GBIS 노선 id(2로 시작하는 9자리). 서울은 1로 시작해 겹치지 않는다({@code TransferStopResolver} 와 같은 규칙). */
-    private static final Pattern GBIS_ROUTE_ID = Pattern.compile("^2\\d{8}$");
-
     private final PredictTransferUseCase predictTransferUseCase;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
     private final RegionalArrivalLookup regionalArrivalLookup;
@@ -66,8 +60,11 @@ public class WaitBusArrivalPredictor implements CurrentLegArrivalPredictor {
         }
 
         Optional<JourneyLegRouteOption> option = selectedOption(leg);
-        if (option.isPresent() && isRegional(leg, option.get())) {
-            return predictRegional(leg, option.get(), now);
+        RegionalBusProvider regional = option
+                .map(o -> RegionalArrivalLookup.providerOf(o.getRouteId(), o.getSourceRouteId(), leg.getSourceStartStopId()))
+                .orElse(null);
+        if (regional != null) {
+            return predictRegional(leg, option.get(), regional, now);
         }
         if (option.isEmpty() || !hasBusScope(option.get()) || leg.getStartStopId() == null) {
             log.debug("대기 버스 ETA 조회 불가 — legIndex={}, 노선·정류장 미해석", leg.getLegIndex());
@@ -105,27 +102,8 @@ public class WaitBusArrivalPredictor implements CurrentLegArrivalPredictor {
         return realtime && exact ? Quality.GOOD : Quality.APPROXIMATE;
     }
 
-    /**
-     * 서울 노선으로 풀리지 않았고 원천 노선 id 가 경기·TAGO 모양이다. 모양을 모르는 id(서울 DB 에 없는 서울 노선 등)는
-     * 지역 API 로 묻지 않는다 — 엉뚱한 원천에 물어 할당량만 쓴다.
-     */
-    private boolean isRegional(JourneyLeg leg, JourneyLegRouteOption option) {
-        return (option.getRouteId() == null || option.getRouteId().isBlank())
-                && regionalProvider(option.getSourceRouteId()) != null && hasText(leg.getSourceStartStopId());
-    }
-
-    private static RegionalBusProvider regionalProvider(String sourceRouteId) {
-        if (sourceRouteId == null) {
-            return null;
-        }
-        if (GBIS_ROUTE_ID.matcher(sourceRouteId).matches()) {
-            return RegionalBusProvider.GG;
-        }
-        return TAGO_ID.matcher(sourceRouteId).matches() ? RegionalBusProvider.TAGO : null;
-    }
-
-    private CurrentLegArrival predictRegional(JourneyLeg leg, JourneyLegRouteOption option, Instant now) {
-        RegionalBusProvider provider = regionalProvider(option.getSourceRouteId());
+    private CurrentLegArrival predictRegional(JourneyLeg leg, JourneyLegRouteOption option,
+                                              RegionalBusProvider provider, Instant now) {
         RegionalArrivalLookup.Lookup lookup = regionalArrivalLookup.nextArrival(
                 provider, option.getSourceRouteId(), leg.getSourceStartStopId());
         if (lookup.at() == null) {
@@ -142,10 +120,6 @@ public class WaitBusArrivalPredictor implements CurrentLegArrivalPredictor {
                 // 경기는 분 단위 예측이라 근사다.
                 provider == RegionalBusProvider.TAGO ? Quality.GOOD : Quality.APPROXIMATE,
                 now);
-    }
-
-    private static boolean hasText(String value) {
-        return value != null && !value.isBlank();
     }
 
     private Optional<JourneyLegRouteOption> selectedOption(JourneyLeg leg) {
