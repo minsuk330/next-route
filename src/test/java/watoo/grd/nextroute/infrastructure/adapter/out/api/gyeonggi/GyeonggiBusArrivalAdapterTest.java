@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.arrival.dto.GyeonggiBusArrival;
+import watoo.grd.nextroute.application.arrival.port.out.GyeonggiStopOrderPort;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.BusQueryResult;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.Outcome;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.ApiCallBlocker;
@@ -16,6 +17,7 @@ import watoo.grd.nextroute.infrastructure.adapter.out.api.ApiCallBlocker;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.OptionalInt;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,6 +70,9 @@ class GyeonggiBusArrivalAdapterTest {
         @Override public Instant instant() { return now.get(); }
     };
 
+    private final AtomicReference<GyeonggiStopOrderPort> stopOrder =
+            new AtomicReference<>((stationId, routeId) -> OptionalInt.of(7));
+
     private MockRestServiceServer server;
     private ApiCallBlocker blocker;
     private GyeonggiBusArrivalAdapter adapter;
@@ -77,14 +82,52 @@ class GyeonggiBusArrivalAdapterTest {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
         blocker = new ApiCallBlocker();
-        adapter = new GyeonggiBusArrivalAdapter(builder.build(), new ObjectMapper(), blocker, clock, BASE, KEY);
+        adapter = new GyeonggiBusArrivalAdapter(builder.build(), new ObjectMapper(), blocker, clock, BASE, KEY,
+                (stationId, routeId) -> stopOrder.get().orderOf(stationId, routeId));
     }
 
     private void expectCall(String stationId, String routeId, String body) {
         server.expect(once(), requestTo(org.hamcrest.Matchers.startsWith(BASE + "/getBusArrivalItemv2")))
                 .andExpect(queryParam("stationId", stationId))
                 .andExpect(queryParam("routeId", routeId))
+                .andExpect(queryParam("staOrder", "7"))
                 .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    @DisplayName("순번이 하나로 안 정해지면 공급자를 부르지 않고 ERROR")
+    void noUniqueOrderSkipsTheCall() {
+        stopOrder.set((stationId, routeId) -> OptionalInt.empty());
+
+        assertThat(adapter.getArrival("123000001", "228000184").outcome()).isEqualTo(Outcome.ERROR);
+
+        server.verify();   // 기대한 호출 없음 = 호출하면 실패
+    }
+
+    @Test
+    @DisplayName("순번 표를 못 읽으면 공급자를 부르지 않고 ERROR")
+    void orderLookupFailureSkipsTheCall() {
+        stopOrder.set((stationId, routeId) -> {
+            throw new IllegalStateException("db down");
+        });
+
+        assertThat(adapter.getArrival("123000001", "228000184").outcome()).isEqualTo(Outcome.ERROR);
+
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("공급자의 필수 값 거절(resultCode 2)은 ERROR 이고 캐시하지 않는다")
+    void missingParameterRejectionIsNotCached() {
+        String rejected = """
+                {"response":{"msgHeader":{"resultCode":2,"resultMessage":"필수 요청 Parameter 가 존재하지 않습니다."}}}
+                """;
+        expectCall("113000422", "232000071", rejected);
+        expectCall("113000422", "232000071", ITEM_NUMERIC);
+
+        assertThat(adapter.getArrival("113000422", "232000071").outcome()).isEqualTo(Outcome.ERROR);
+        assertThat(adapter.getArrival("113000422", "232000071").outcome()).isEqualTo(Outcome.OK);
+        server.verify();
     }
 
     @Test
@@ -162,7 +205,7 @@ class GyeonggiBusArrivalAdapterTest {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer noCalls = MockRestServiceServer.bindTo(builder).build();
         GyeonggiBusArrivalAdapter noKey = new GyeonggiBusArrivalAdapter(
-                builder.build(), new ObjectMapper(), blocker, clock, BASE, "");
+                builder.build(), new ObjectMapper(), blocker, clock, BASE, "", (stationId, routeId) -> OptionalInt.of(7));
 
         assertThat(noKey.getArrival("123000001", "228000184").outcome()).isEqualTo(Outcome.ERROR);
         noCalls.verify();
