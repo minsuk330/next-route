@@ -41,6 +41,11 @@ def check(report, catalog):
     """@return (문제 목록[(제목, 줄들)], 판정 불가 사유 또는 None)."""
     if report.get("missingStations"):
         return [], "역 코드를 못 찾은 역: %s" % ", ".join(report["missingStations"])
+    # 빈 표는 그 역의 열차가 안 서는 것으로 판정돼 가짜 차이를 만든다(#530). 평소에는 표가 하나도 비지 않는다.
+    if report.get("unreadTables"):
+        return [], "시간표를 못 읽은 역: %s" % ", ".join(report["unreadTables"])
+    if report.get("emptyTables"):
+        return [], "시간표가 빈 역: %s" % ", ".join(report["emptyTables"])
     seen = report.get("seenTrainNos") or {}
     services = report.get("services") or {}
     if not services or not any(seen.values()):

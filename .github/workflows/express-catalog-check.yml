@@ -51,6 +51,15 @@ jobs:
           echo "code=$code" >> "$GITHUB_OUTPUT"
           [ "$code" -ne 2 ]
 
+      - name: Keep the timetable verdicts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: express-catalog-report
+          path: report.json
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Open or update the drift issue
         if: steps.compare.outputs.code == '1' && github.event_name != 'pull_request'
         run: |
