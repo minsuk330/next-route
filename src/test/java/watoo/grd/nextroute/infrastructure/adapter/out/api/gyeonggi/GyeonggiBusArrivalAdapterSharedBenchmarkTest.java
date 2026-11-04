@@ -38,13 +38,15 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /**
  * 측정 A(bus-multi-instance PR-3), 경기 어댑터 편: 서버 수 1~4 × {@code regional-bus.shared.enabled} 끔/켬에서 같은 정류장
  * 동시 100건이 공급자를 몇 번 부르는지. 서울 편({@code CachedSearchTimeBusAdapterCrossInstanceBenchmarkTest})과 같은 표.
- * 쓰는 숫자는 호출 수뿐이다. 실행: {@code RUN_BENCHMARK=true runsome.sh --tests '*SharedBenchmark*'}.
+ * 쓰는 숫자는 호출 수뿐이다. 실행: {@code RUN_BENCHMARK=true ./gradlew cleanTest test --tests '*SharedBenchmark*'}(환경 변수는 Gradle 입력이 아니라
+ * {@code cleanTest} 없이는 UP-TO-DATE 로 건너뛴다). 플래그 켬의 호출 수는 서버 수와 무관하게 1 이어야 한다(단언).
  */
 @EnabledIfEnvironmentVariable(named = "RUN_BENCHMARK", matches = "true")
 class GyeonggiBusArrivalAdapterSharedBenchmarkTest {
@@ -74,9 +76,11 @@ class GyeonggiBusArrivalAdapterSharedBenchmarkTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws InterruptedException {
         pool.shutdownNow();
-        redis.keys("bus:quota:search:gg-arrival:*").forEach(redis::delete);
+        pool.awaitTermination(5, TimeUnit.SECONDS);
+        // 고정 Clock(2026-11-03 KST 12:00)이 쓰는 날짜 버킷만 지운다 — 다른 날짜(실제 오늘)의 몫은 건드리지 않는다.
+        redis.delete("bus:quota:search:gg-arrival:20261103");
         factory.destroy();
     }
 
@@ -96,15 +100,24 @@ class GyeonggiBusArrivalAdapterSharedBenchmarkTest {
                     for (int i = 0; i < servers; i++) {
                         adapters.add(server(counter, shared));
                     }
-                    fire(adapters, station);
-                    if (round >= WARMUP) {
-                        calls.add(counter.get());
+                    try {
+                        fire(adapters, station);
+                        if (round >= WARMUP) {
+                            calls.add(counter.get());
+                        }
+                    } finally {
+                        redis.keys("bus:*" + station + "*").forEach(redis::delete);
                     }
-                    redis.keys("bus:*" + station + "*").forEach(redis::delete);
                 }
                 calls.sort(Integer::compareTo);
-                System.out.printf("%-8d %-6s %12d %12d%n", servers, on ? "on" : "off",
-                        calls.get(calls.size() / 2), calls.get(calls.size() - 1));
+                int median = calls.get(calls.size() / 2);
+                int max = calls.get(calls.size() - 1);
+                System.out.printf("%-8d %-6s %12d %12d%n", servers, on ? "on" : "off", median, max);
+                if (on) {
+                    assertThat(max).as("flag on, %d servers: provider calls per round", servers).isEqualTo(1);
+                } else {
+                    assertThat(median).as("flag off, %d servers: provider calls per round", servers).isEqualTo(servers);
+                }
             }
         }
     }

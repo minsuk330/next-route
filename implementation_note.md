@@ -6359,3 +6359,5 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 측정 B(사다리, worker 2대, 여정 100, 10분 칸 ×2, 11-04): 리더 락 **끔 route-all 84 = 12/분(노선 6 × 2)**, **켬 42 = 6/분(노선 6 × 1)**, 위치도 같음. 7 틱 × 12 / 7 틱 × 6 로 정확. 켬 칸 리더 = worker2 만(게이지 1, 수집 성공 40). 심은 bus_route 6행은 칸 끝에 지워짐(0행 확인). 지하철 평가 p50 87→93ms, 실패 0(같은 범위)
 - 함정: WORKER_PORT_BASE=8090 이면 worker 포트는 8091·8092(base + i). 8090 이 아님. preflight 도 같은 식으로 센다
 - 문서: `load/ladder/MULTI-WORKER.md` "버스 경로" 절 추가
+- 코드 리뷰(reviewer 에이전트, 🟡8 🔵2) 반영: ① 하네스에 `bus_collect_cleanup` + `trap … EXIT INT TERM`(exit 7·Ctrl-C 에서도 심은 bus_route 행 삭제와 표본 루프 정지) ② 표본이 fake 응답 실패 때 빈 칸 대신 줄을 건너뛰고, 요약은 숫자 3칸 줄만 읽음 ③ preflight 를 배열로, lsof 없으면 exit 6 ④ 벤치 2개에 단언 추가(켬 = 모든 회차 1회, 끔 = 중앙값 서버 수), 회차 키 정리를 finally 로, 풀 awaitTermination ⑤ 경기 벤치 tearDown 이 고정 Clock 날짜 키 `gg-arrival:20261103` 만 지움(와일드카드 삭제 제거) ⑥ javadoc 에 `cleanTest` 필수 명시(환경 변수는 Gradle 입력이 아님)
+- 재검증: `RUN_BENCHMARK=true` 벤치 2개 통과(단언 포함), 변수 없이 `--rerun-tasks` → skipped 1/1. 2분 스모크 칸(BUS_COLLECT=1, worker 2) rc=0, 심은 행 0, 표본 루프 종료, 포트 전부 내려감

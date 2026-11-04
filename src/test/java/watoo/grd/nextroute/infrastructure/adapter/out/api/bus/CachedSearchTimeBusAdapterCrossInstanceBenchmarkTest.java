@@ -29,6 +29,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -38,7 +39,8 @@ import static org.mockito.Mockito.when;
  * 측정 A(bus-multi-instance PR-3): 서버 수 1~4 × 플래그 끔/켬에서 같은 정류장 동시 100건이 공급자를 몇 번 부르는지.
  * 바꾸는 것은 플래그 하나뿐. 공급자 지연은 사다리 가짜 공급자의 보정값(BUS_MS=73)을 쓴다 — 운영 Prometheus 에는 외부 API
  * 히스토그램이 없다(2026-11-03 읽기 전용 확인). 쓰는 숫자는 호출 수뿐이다(한 프로세스 + 로컬 Redis 라 지연은 배포를 대표하지
- * 않음, 플랜 검토 #18). 실행: {@code RUN_BENCHMARK=true runsome.sh --tests '*CrossInstanceBenchmark*'}.
+ * 않음, 플랜 검토 #18). 실행: {@code RUN_BENCHMARK=true ./gradlew cleanTest test --tests '*CrossInstanceBenchmark*'}(환경 변수는 Gradle 입력이 아니라
+ * {@code cleanTest} 없이는 UP-TO-DATE 로 건너뛴다). 플래그 켬의 호출 수는 서버 수와 무관하게 1 이어야 한다(단언).
  */
 @EnabledIfEnvironmentVariable(named = "RUN_BENCHMARK", matches = "true")
 class CachedSearchTimeBusAdapterCrossInstanceBenchmarkTest {
@@ -60,8 +62,9 @@ class CachedSearchTimeBusAdapterCrossInstanceBenchmarkTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws InterruptedException {
         pool.shutdownNow();
+        pool.awaitTermination(5, TimeUnit.SECONDS);
         factory.destroy();
     }
 
@@ -81,18 +84,28 @@ class CachedSearchTimeBusAdapterCrossInstanceBenchmarkTest {
                     for (int i = 0; i < servers; i++) {
                         adapters.add(server(counter, on));
                     }
-                    long[] latencies = fire(adapters, stop);
-                    if (round >= WARMUP) {
-                        calls.add(counter.get());
-                        java.util.Arrays.sort(latencies);
-                        p50s.add(latencies[latencies.length / 2]);
+                    try {
+                        long[] latencies = fire(adapters, stop);
+                        if (round >= WARMUP) {
+                            calls.add(counter.get());
+                            java.util.Arrays.sort(latencies);
+                            p50s.add(latencies[latencies.length / 2]);
+                        }
+                    } finally {
+                        redis.keys("bus:*" + stop + "*").forEach(redis::delete);
                     }
-                    redis.keys("bus:*" + stop + "*").forEach(redis::delete);
                 }
                 calls.sort(Integer::compareTo);
                 p50s.sort(Long::compareTo);
+                int median = calls.get(calls.size() / 2);
+                int max = calls.get(calls.size() - 1);
                 System.out.printf("%-8d %-6s %12d %12d %14d%n", servers, on ? "on" : "off",
-                        calls.get(calls.size() / 2), calls.get(calls.size() - 1), p50s.get(p50s.size() / 2));
+                        median, max, p50s.get(p50s.size() / 2));
+                if (on) {
+                    assertThat(max).as("flag on, %d servers: provider calls per round", servers).isEqualTo(1);
+                } else {
+                    assertThat(median).as("flag off, %d servers: provider calls per round", servers).isEqualTo(servers);
+                }
             }
         }
     }

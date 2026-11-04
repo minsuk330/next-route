@@ -28,7 +28,9 @@ LEASE_KEY=lease:realtime-watch
 # worker JVM 포트 = WORKER_PORT_BASE+i(기본 8081…). 8081 이 다른 프로그램(Expo 등)에 잡혀 있으면 WORKER_PORT_BASE=8090 으로.
 WORKER_PORT_BASE=${WORKER_PORT_BASE:-8080}
 wport() { echo $((WORKER_PORT_BASE + $1)); }
-for p in 8080 $([[ ${SPLIT:-0} == 1 ]] && for i in {1..$WORKERS}; do wport $i; done); do
+command -v lsof >/dev/null || { echo "lsof 없음 — 포트 preflight 불가"; exit 6; }
+PORTS=(8080); if [[ ${SPLIT:-0} == 1 ]]; then for i in {1..$WORKERS}; do PORTS+=($(wport $i)); done; fi
+for p in $PORTS; do
   lsof -nP -iTCP:$p -sTCP:LISTEN >/dev/null 2>&1 && { echo "포트 $p 사용 중 — WORKER_PORT_BASE 로 바꾸거나 비우고 다시"; exit 6; }
 done
 # 버스 수집기 칸(bus-multi-instance PR-3 측정 B): BUS_COLLECT=1 이면 worker 에서 버스 도착·위치 수집기를 켜고(dev 프로필은 끔)
@@ -98,13 +100,20 @@ if [[ $BUS_COLLECT == 1 ]]; then
     --journey.navigation.reeval.bus-watcher=false)
   # 수집기는 target-route-names 를 bus_route 표에서 id 로 바꾼다 — st-pg 는 비어 있으니 사다리용 행 6개를 심고 끝에 지운다.
   BUS_ROUTES=(143 272 160 271 130 720)
+  # 어떤 경로로 끝나든(exit 7, Ctrl-C, set -u 중단) 심은 행과 표본 루프를 치운다. 정상 경로의 정리와 겹쳐도 무해(idempotent).
+  bus_collect_cleanup() {
+    [[ -n ${OUT:-} && -n ${LABEL:-} ]] && touch $OUT/stop-buscount-$LABEL
+    [[ -n ${BUSCOUNTS:-} ]] && kill $BUSCOUNTS 2>/dev/null
+    for r in $BUS_ROUTES; do psqlq "delete from bus_route where route_id='LADDER-$r'" >/dev/null 2>&1; done
+  }
+  trap bus_collect_cleanup EXIT INT TERM
   for r in $BUS_ROUTES; do
     psqlq "insert into bus_route (route_id, route_name, created_at, updated_at)
            select 'LADDER-$r', '$r', now(), now()
            where not exists (select 1 from bus_route where route_name='$r')" >/dev/null
   done
   nroutes=$(psqlq "select count(*) from bus_route where route_name in ('143','272','160','271','130','720')")
-  [[ ${nroutes// /} == 6 ]] || { echo "bus_route 심기 실패($nroutes)"; kill $FAKE; exit 7; }
+  [[ ${nroutes// /} == 6 ]] || { echo "bus_route 심기 실패($nroutes)"; kill $FAKE; exit 7; }   # trap 이 행을 지운다
 fi
 # 지표를 긁을 JVM 들: "이름:포트". 한 JVM 이면 하나, SPLIT=1 이면 api·worker 둘.
 JVMS=(app:8080)
@@ -197,8 +206,12 @@ rm -f $OUT/stop-buscount-$LABEL
 if [[ $BUS_COLLECT == 1 ]]; then
   ( while [[ ! -e $OUT/stop-buscount-$LABEL ]]; do
       c=$(curl -s -m 1 http://127.0.0.1:18999/counts 2>/dev/null)
-      printf '%s\t%s\t%s\n' "$(date +%s)" "$(echo "$c" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("route_all",0))' 2>/dev/null)" \
-        "$(echo "$c" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("pos",0))' 2>/dev/null)"
+      # fake 가 늦거나(curl -m 1) 응답이 JSON 이 아니면 빈 줄 대신 건너뛴다(요약이 빈 칸을 int() 하다 죽지 않게).
+      printf '%s\n' "$c" | python3 -c 'import json,sys,time
+try:
+    d=json.load(sys.stdin); print("%d\t%d\t%d" % (int(time.time()), int(d.get("route_all",0)), int(d.get("pos",0))))
+except Exception:
+    pass' 2>/dev/null
       sleep 10
     done >$OUT/buscount-$LABEL.tsv ) & BUSCOUNTS=$!
 fi
@@ -309,8 +322,11 @@ if [[ $BUS_COLLECT == 1 ]]; then
   touch $OUT/stop-buscount-$LABEL; wait $BUSCOUNTS 2>/dev/null
   python3 -I - $OUT/buscount-$LABEL.tsv $WORKERS $T_FROM <<'PY'
 import sys
-rows=[l.split('\t') for l in open(sys.argv[1]) if l.strip() and 'None' not in l]
-rows=[(int(t),int(a),int(p)) for t,a,p in rows]
+rows=[]
+for l in open(sys.argv[1]):
+    f=l.rstrip('\n').split('\t')
+    if len(f)==3 and all(x.strip().isdigit() for x in f):
+        rows.append(tuple(int(x) for x in f))
 w=int(sys.argv[2]); t0=int(sys.argv[3])
 m=[r for r in rows if r[0]>=t0]
 if len(m)>=2:
@@ -319,7 +335,7 @@ if len(m)>=2:
     print(f"── 버스 수집 호출(측정 창 {mins:.1f}분, worker {w}대, 노선 6) ──")
     print(f"route-all {ra}회 = 분당 {ra/mins:.1f} (기대: 리더 락 켬 6, 끔 {6*w}) · 위치 {po}회 = 분당 {po/mins:.1f}")
 PY
-  for r in 143 272 160 271 130 720; do psqlq "delete from bus_route where route_id='LADDER-$r'" >/dev/null; done
+  bus_collect_cleanup
 fi
 # 정상 종료가 길다(relay 워커 128 + 발송 중 행 정리) — 다음 칸이 같은 포트로 뜨기 전에 다 내려갔는지 기다리고, 30초 넘으면 -9.
 #  대상은 이 칸이 띄운 pid 만(같은 기계의 다른 세션 JVM 을 건드리지 않게).
