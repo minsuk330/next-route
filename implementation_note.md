@@ -6314,3 +6314,7 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - ❓ "빈 OK 를 캐시 hit 로"는 의도: 지역 캐시 포트 규칙(빈 결과도 저장, 10,000 한도 보호). 서울 캐시는 빈 목록을 저장하지 않으므로 러너의 cacheProbe 가 빈 목록을 돌려주는 일이 없다 — 러너 공유로 서울 동작이 바뀌지 않음
 - 미결: TAGO `fetch()` 본문 읽기(`readAllBytes`)에 전체 기한이 없어 극단적으로 느린 수신이 lease 를 넘길 수 있음(그때 자리 하나가 잠시 초과). 기한 있는 본문 읽기는 별건
 - 재실행(리뷰 반영 뒤) 대상 묶음 + `RegionalBusQuotaBudgetTest` → BUILD SUCCESSFUL (2분 26초)
+- 전체 `runfull.sh`(최종 코드 32e86800, 1차): 3,653 중 실패 467 — 전부 `Connection to localhost:55432 refused`. Docker Desktop 이 내려가 st-pg·st-redis 없음(코드 무관). `docker start st-pg st-redis` 로 기존 컨테이너만 올림(새 컨테이너 없음)
+- 전체 `runfull.sh`(최종 코드, 2차): **3,925 중 실패 8, 건너뜀 7**, 5분 10초. 실패 8 = `SubwayRideScenarioIT`(2) `SubwayRingExpressReplayIT`(5) `SubwayRingReplayIT`(1), 전부 `DuplicateKeyException uq_user_push_token_token (token)=(device-token)` — PR-4 무관
+- 함정: st-pg 에 11-03 23:28 의 시험 행(user 296322, journey 294167, push 토큰 `device-token`)이 남아 있었음 ← 그 전 전체 실행이 메모리 부족으로 중간에 죽어 `@AfterEach` 가 안 돎 / 가드: 시험의 cleanUp 과 같은 순서로 수동 삭제(subway_* → journey_* → user_push_token → users). 앞으로 전체 실행이 강제 종료되면 `select count(*) from user_push_token where token='device-token'` 먼저 확인
+- 재실행 3 클래스 → 11 tests, BUILD SUCCESSFUL. 합치면 전체 실패 0
