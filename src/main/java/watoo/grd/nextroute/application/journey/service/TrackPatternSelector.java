@@ -52,7 +52,7 @@ public final class TrackPatternSelector {
      * 시작할 구간.
      *
      * @param boardIndex  패턴 안 승차 위치(첫 등장)
-     * @param alightIndex 패턴 안 하차 위치(승차 뒤 한 바퀴 안의 첫 등장)
+     * @param alightIndex 패턴 안 하차 위치(승차 뒤 한 바퀴 안의 첫 등장, 위치 힌트가 맞으면 그 자리)
      */
     public record Selection(TransitPattern pattern, int boardIndex, int alightIndex) {
     }
@@ -103,16 +103,29 @@ public final class TrackPatternSelector {
      *
      * <p>패턴 코드가 있고 그 패턴이 승차 다음 한 바퀴 안에 하차를 지나면 그것. 아니면 그 노선 패턴 중 구간이 가장 짧은 것,
      * 같으면 trip 이 많은 것. 코드는 그래프를 다시 빌드하면 바뀌므로 낡아도 노선으로 다시 찾는다.
+     *
+     * <p>하차는 한 바퀴 안 첫 등장이다. 같은 정류장을 두 번 지나는 패턴(#546)에서 뒤쪽을 고르려면 {@code alightOffset}
+     * ({@code AlightStop.index}, 승차 다음 정류장이 0)을 준다. 그 자리 정류장이 하차와 같을 때만 쓰는 힌트라, 낡았거나
+     * 어긋나면 첫 등장으로 떨어진다. 힌트가 맞은 패턴이 있으면 코드가 없을 때도 그쪽에서 고른다.
      */
     public static Optional<Selection> select(String routeGtfsId, String boardStopId, String alightStopId,
-                                             String patternCode, List<TransitPattern> patterns) {
+                                             String patternCode, Integer alightOffset,
+                                             List<TransitPattern> patterns) {
         List<Selection> candidates = new ArrayList<>();
+        List<Selection> hinted = new ArrayList<>();
         for (TransitPattern pattern : patterns) {
             if (!routeMatches(routeGtfsId, pattern.route().gtfsId())) {
                 continue;
             }
             Lap lap = lap(pattern, boardStopId);
             if (lap == null) {
+                continue;
+            }
+            if (alightOffset != null && alightOffset >= 0 && alightOffset < lap.remaining().size()
+                    && alightStopId.equals(lap.remaining().get(alightOffset).gtfsId())) {
+                Selection selection = new Selection(pattern, lap.boardIndex(), lap.boardIndex() + 1 + alightOffset);
+                candidates.add(selection);
+                hinted.add(selection);
                 continue;
             }
             for (int k = 0; k < lap.remaining().size(); k++) {
@@ -130,10 +143,16 @@ public final class TrackPatternSelector {
                 return exact;
             }
         }
-        return candidates.stream().min(Comparator
+        return (hinted.isEmpty() ? candidates : hinted).stream().min(Comparator
                 .comparingInt((Selection c) -> c.alightIndex() - c.boardIndex())
                 .thenComparing(Comparator.comparingInt((Selection c) -> c.pattern().tripCount()).reversed())
                 .thenComparing(c -> c.pattern().code()));
+    }
+
+    /** 위치 힌트 없는 선택: 하차는 한 바퀴 안 첫 등장. */
+    public static Optional<Selection> select(String routeGtfsId, String boardStopId, String alightStopId,
+                                             String patternCode, List<TransitPattern> patterns) {
+        return select(routeGtfsId, boardStopId, alightStopId, patternCode, null, patterns);
     }
 
     /**

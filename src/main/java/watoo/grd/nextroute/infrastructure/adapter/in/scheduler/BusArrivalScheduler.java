@@ -10,6 +10,7 @@ import watoo.grd.nextroute.application.bus.port.in.CollectBusArrivalUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiBlockStatusPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.common.config.ClockConfig;
+import watoo.grd.nextroute.common.lock.LeaderLease;
 
 import java.time.Instant;
 import java.time.LocalTime;
@@ -26,6 +27,7 @@ public class BusArrivalScheduler {
 
 	private final CollectBusArrivalUseCase useCase;
 	private final BusApiBlockStatusPort busApiBlockStatusPort;
+	private final LeaderLease leaderLease;
 
 	@Value("${collector.bus-arrival.enabled:true}")
 	private boolean enabled;
@@ -47,6 +49,10 @@ public class BusArrivalScheduler {
 		if (blockedUntil.isPresent()) {
 			log.debug("[BusArrival] API blocked until {}, skipping collection",
 					blockedUntil.get().atZone(ClockConfig.KST));
+			return;
+		}
+		// 공급자를 부르는 수집은 리더 한 대만(잠금 꺼짐이면 늘 리더). worker 가 여러 대여도 노선당 1분에 1회.
+		if (!leaderLease.isLeader()) {
 			return;
 		}
 		useCase.execute();

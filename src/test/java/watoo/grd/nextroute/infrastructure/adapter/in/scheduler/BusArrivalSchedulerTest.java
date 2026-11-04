@@ -5,6 +5,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import watoo.grd.nextroute.application.bus.port.in.CollectBusArrivalUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiBlockStatusPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
+import watoo.grd.nextroute.common.lock.FixedLeaderLease;
 
 import java.time.Instant;
 import java.time.LocalTime;
@@ -17,7 +18,7 @@ class BusArrivalSchedulerTest {
 
 	private final CollectBusArrivalUseCase useCase = () -> {};
 	private final BusApiBlockStatusPort blockStatusPort = endpoint -> Optional.empty();
-	private final BusArrivalScheduler scheduler = new BusArrivalScheduler(useCase, blockStatusPort);
+	private final BusArrivalScheduler scheduler = new BusArrivalScheduler(useCase, blockStatusPort, FixedLeaderLease.leader());
 
 	@Test
 	void TC_자정을_넘기는_수집시간대_안에서만_active다() {
@@ -38,7 +39,8 @@ class BusArrivalSchedulerTest {
 				executions::incrementAndGet,
 				endpoint -> endpoint == BusApiQuotaPort.Endpoint.ARRIVAL
 						? Optional.of(Instant.parse("2026-06-09T00:00:00Z"))
-						: Optional.empty()
+						: Optional.empty(),
+				FixedLeaderLease.leader()
 		);
 		ReflectionTestUtils.setField(blockedScheduler, "enabled", true);
 		ReflectionTestUtils.setField(blockedScheduler, "activeStart", "00:00");
@@ -47,5 +49,33 @@ class BusArrivalSchedulerTest {
 		blockedScheduler.trigger();
 
 		assertThat(executions).hasValue(0);
+	}
+
+	@Test
+	void TC_리더가_아니면_useCase를_실행하지_않는다() {
+		AtomicInteger executions = new AtomicInteger();
+		BusArrivalScheduler follower = new BusArrivalScheduler(
+				executions::incrementAndGet, endpoint -> Optional.empty(), FixedLeaderLease.notLeader());
+		ReflectionTestUtils.setField(follower, "enabled", true);
+		ReflectionTestUtils.setField(follower, "activeStart", "00:00");
+		ReflectionTestUtils.setField(follower, "activeEnd", "00:00");
+
+		follower.trigger();
+
+		assertThat(executions).hasValue(0);
+	}
+
+	@Test
+	void TC_리더면_useCase를_실행한다() {
+		AtomicInteger executions = new AtomicInteger();
+		BusArrivalScheduler leader = new BusArrivalScheduler(
+				executions::incrementAndGet, endpoint -> Optional.empty(), FixedLeaderLease.leader());
+		ReflectionTestUtils.setField(leader, "enabled", true);
+		ReflectionTestUtils.setField(leader, "activeStart", "00:00");
+		ReflectionTestUtils.setField(leader, "activeEnd", "00:00");
+
+		leader.trigger();
+
+		assertThat(executions).hasValue(1);
 	}
 }

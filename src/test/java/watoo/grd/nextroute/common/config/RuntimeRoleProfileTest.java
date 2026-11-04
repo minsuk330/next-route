@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.common.config;
 
 import org.junit.jupiter.api.Test;
+import watoo.grd.nextroute.common.lock.LeaderLease;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.AnnotatedElementUtils;
@@ -93,6 +94,7 @@ class RuntimeRoleProfileTest {
         context.registerBean(WeatherSnapshotService.class, () -> mock(WeatherSnapshotService.class));
         context.registerBean(CollectBusArrivalUseCase.class, () -> mock(CollectBusArrivalUseCase.class));
         context.registerBean(BusApiBlockStatusPort.class, () -> mock(BusApiBlockStatusPort.class));
+        context.registerBean(LeaderLease.class, () -> mock(LeaderLease.class));
         context.register(WeatherSnapshotRefreshScheduler.class, BusArrivalScheduler.class);
         context.refresh();
         return context;

@@ -13,12 +13,14 @@ import watoo.grd.nextroute.application.bus.dto.BusArrivalCandidate;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
+import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.application.bus.port.out.BusArrivalSnapshotPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.domain.bus.entity.BusArrivalCandidateRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
 import watoo.grd.nextroute.domain.bus.service.BusArrivalCandidateWriter;
+import watoo.grd.nextroute.common.lock.FixedLeaderLease;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -52,7 +54,8 @@ class BusArrivalServiceTest {
 	@Mock BusArrivalCandidateWriter busArrivalCandidateWriter;
 	@Mock BusCollectorProperties properties;
 	@Mock TargetRouteProvider targetRouteProvider;
-	@Mock BusApiCallBudget budget;
+	@Mock BusApiQuotaPort quota;
+	private final FixedLeaderLease leaderLease = FixedLeaderLease.leader();
 	@Mock BusArrivalSnapshotPort busArrivalSnapshotPort;
 	@Mock BusRealtimeCacheWritePort realtimeCacheWrite;
 
@@ -61,7 +64,7 @@ class BusArrivalServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new BusArrivalService(busApiPort, busRouteRepository, busArrivalCandidateWriter, properties, targetRouteProvider, budget, busArrivalSnapshotPort, realtimeCacheWrite, clock);
+		service = new BusArrivalService(busApiPort, busRouteRepository, busArrivalCandidateWriter, properties, targetRouteProvider, quota, leaderLease, busArrivalSnapshotPort, realtimeCacheWrite, clock);
 	}
 
 	@Test
@@ -334,8 +337,8 @@ class BusArrivalServiceTest {
 		given(targetRouteProvider.activeRouteNames()).willReturn(List.of("753"));
 		given(busRouteRepository.findByRouteNameIn(List.of("753"))).willReturn(List.of(route));
 		given(properties.getDailyBudget()).willReturn(1000);
-		// 시작 가드는 통과, 루프 내 route 단위 체크에서 소진
-		given(budget.canMakeCall(1000)).willReturn(true, false);
+		// 호출 전 점유에서 소진(또는 Redis 장애 fail-closed)
+		given(quota.tryAcquire("collector-arrival", 1000)).willReturn(false);
 
 		LocalDateTime stale = FIXED_NOW.minusMinutes(10);
 		BusArrivalCandidate previousA = BusArrivalCandidate.from(
@@ -366,11 +369,12 @@ class BusArrivalServiceTest {
 
 		verifyNoInteractions(busArrivalSnapshotPort);
 		verify(busArrivalCandidateWriter, never()).saveAllArrivalCandidates(anyList());
-		verify(budget).recordCall();
+		// 실패한 호출도 몫 1 — 호출 전 점유
+		verify(quota).tryAcquire("collector-arrival", 1000);
 	}
 
 	@Test
-	void TC_API_차단_상태는_budget_기록과_reconcile_없이_수집을_중단한다() {
+	void TC_API_차단_상태는_reconcile_없이_수집을_중단한다() {
 		prepareRoute();
 		given(busApiPort.getArrInfoByRouteAll("100100118"))
 				.willThrow(new BusApiBlockedException(
@@ -382,7 +386,56 @@ class BusArrivalServiceTest {
 
 		verifyNoInteractions(busArrivalSnapshotPort);
 		verify(busArrivalCandidateWriter, never()).saveAllArrivalCandidates(anyList());
-		verify(budget, never()).recordCall();
+	}
+
+	@Test
+	void TC_처음부터_리더가_아니면_몫도_공급자도_건드리지_않는다() {
+		BusRoute route = BusRoute.builder().routeId("100100118").routeName("753").build();
+		given(targetRouteProvider.activeRouteNames()).willReturn(List.of("753"));
+		given(busRouteRepository.findByRouteNameIn(List.of("753"))).willReturn(List.of(route));
+		given(properties.getDailyBudget()).willReturn(1000);
+		leaderLease.set(false);
+
+		service.execute();
+
+		verifyNoInteractions(quota);
+		verifyNoInteractions(busApiPort);
+		verifyNoInteractions(busArrivalSnapshotPort);
+	}
+
+	@Test
+	void TC_호출_중_리더를_잃으면_응답을_저장하지_않는다() {
+		prepareRoute();
+		given(busApiPort.getArrInfoByRouteAll("100100118")).willAnswer(inv -> {
+			leaderLease.set(false);
+			return List.of(arrivalInfo("veh-A", "서울71사1111", "1분 후", "veh-B", "서울72사2222", "4분 후"));
+		});
+
+		service.execute();
+
+		verifyNoInteractions(busArrivalSnapshotPort);
+		verify(busArrivalCandidateWriter, never()).saveAllArrivalCandidates(anyList());
+	}
+
+	@Test
+	void TC_리더가_아니게_되면_몫을_점유하지_않고_공급자도_부르지_않는다() {
+		BusRoute a = BusRoute.builder().routeId("100100118").routeName("753").build();
+		BusRoute b = BusRoute.builder().routeId("100100119").routeName("754").build();
+		given(targetRouteProvider.activeRouteNames()).willReturn(List.of("753", "754"));
+		given(busRouteRepository.findByRouteNameIn(List.of("753", "754"))).willReturn(List.of(a, b));
+		given(properties.getDailyBudget()).willReturn(1000);
+		given(quota.tryAcquire("collector-arrival", 1000)).willReturn(true);
+		// 첫 노선 호출 중에 리더를 잃는다 — 그 응답도 버린다
+		given(busApiPort.getArrInfoByRouteAll("100100118")).willAnswer(inv -> {
+			leaderLease.set(false);
+			return List.of();
+		});
+
+		service.execute();
+
+		verify(busApiPort).getArrInfoByRouteAll("100100118");
+		verify(busApiPort, never()).getArrInfoByRouteAll("100100119");
+		verify(quota, times(1)).tryAcquire(anyString(), anyInt());
 	}
 
 	private void prepareRoute() {
@@ -394,7 +447,7 @@ class BusArrivalServiceTest {
 		given(targetRouteProvider.activeRouteNames()).willReturn(List.of("753"));
 		given(busRouteRepository.findByRouteNameIn(List.of("753"))).willReturn(List.of(route));
 		given(properties.getDailyBudget()).willReturn(1000);
-		given(budget.canMakeCall(1000)).willReturn(true);
+		given(quota.tryAcquire("collector-arrival", 1000)).willReturn(true);
 	}
 
 	private void noRedisActiveScopes() {

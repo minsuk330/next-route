@@ -133,6 +133,14 @@ route:
       queue: ${ROUTE_SEARCH_TMAP_POOL_QUEUE:16}
     bus:
       join-wait-ms: ${ROUTE_SEARCH_BUS_JOIN_WAIT_MS:1800}
+      # 서버 사이 single-flight(bus-multi-instance PR-2). 기본 꺼짐. 켜면 캐시 miss 때 Redis SET NX 로 api·worker 중
+      # 한 대만 공급자를 부르고 나머지는 결과 키를 기다린다. worker 를 늘릴 때 api 와 모든 worker env 에 함께 켠다.
+      cross-instance:
+        enabled: ${ROUTE_SEARCH_BUS_CROSS_INSTANCE:false}
+        poll-ms: 50
+        result-ttl-ms: 2000
+        lock-margin-ms: 1000
+        unbounded-lock-ttl-ms: 6000
     # 사용자별 검색 이력 저장(비동기 전용 풀). 저장은 best-effort — 포화·실패는 drop metric.
     history:
       max-per-user: ${ROUTE_SEARCH_HISTORY_MAX_PER_USER:50}
@@ -187,6 +195,24 @@ gyeonggi:
     bus-arrival-base-url: https://apis.data.go.kr/6410000/busarrivalservice/v2
     # 노선정류소(#267 표 적재). 같은 포털 키.
     bus-route-base-url: https://apis.data.go.kr/6410000/busrouteservice/v2
+# 경기·TAGO 버스 도착 조회의 서버 사이 공유(bus-multi-instance PR-4). 기본 꺼짐 — 꺼지면 어댑터는 JVM 캐시·JVM 세마포어·JVM
+# 차단기 그대로. worker 를 늘릴 때 api 와 모든 worker env 에 함께 켠다. 켜면 캐시는 Redis, 캐시 miss 는 서버 중 한 대만
+# 공급자를 부르고, 경기 공개 조회는 Redis 몫(gg-arrival)을 세며, TAGO 동시 호출은 서버 합산으로 묶이고, 차단기도 공유된다.
+regional-bus:
+  shared:
+    enabled: ${REGIONAL_BUS_SHARED:false}
+    cache-ttl-seconds: 15
+    # 공급자 10,000/일 − 재탐색 버킷(journey.reroute.board.quota-gyeonggi, 기본 5,000). 둘의 합이 10,000 을 넘지 않게.
+    gyeonggi-daily-limit: 5000
+    # 포털 키 동시 세션 30 을 GBIS·TAGO·지하철 TAGO 가 공유 — TAGO 버스 몫만 서버 합산 8
+    tago-max-concurrent: 8
+    # 가장 긴 호출(connect 3s + read 5s + 자리 대기 1s)보다 길게, 본문 느린 수신 여유 포함
+    tago-lease-ms: 15000
+    gyeonggi-lock-ttl-ms: 9000
+    tago-lock-ttl-ms: 10000
+    poll-ms: 50
+    result-ttl-ms: 2000
+
 tago:
   api:
     # 서울·경기 밖 버스도착(국토교통부 TAGO). 포털 Encoding 키 그대로. 미설정이면 호출 없이 빈 결과.
@@ -325,6 +351,8 @@ collector:
       - 1
     excluded-arrival-messages:
       - "출발대기"
+    # Redis 버킷 collector-arrival 로 셈 — worker 수와 무관하게 하루 하나. Redis 장애면 리더 락 플래그와 무관하게
+    # 수집을 멈춘다(fail-closed, 공급자 한도 보호 우선). 위치 수집(collector-position)도 같다.
     daily-budget: 50000
     target-route-names:
       - "143"
@@ -362,7 +390,7 @@ collector:
     cron: "0 * * * * *"
     # 수집 위치를 실시간 캐시에 프라이밍(노선당 1키, 저렴 — 기본 on).
     prime-realtime-cache: ${COLLECTOR_POS_PRIME_CACHE:true}
-    # 도착 수집과 독립 예산. 30노선 × 분당 × active-hours(23h) ≈ 41,400 호출/일.
+    # 도착 수집과 독립 예산. 30노선 × 분당 × active-hours(23h) ≈ 41,400 호출/일. Redis 버킷 collector-position.
     daily-budget: 50000
     active-hours:
       start: "03:30"
@@ -593,6 +621,8 @@ journey:
       bus-relaxed-cadence-seconds: 60
       bus-max-routes-per-tick: 10
       # 감시는 리더 한 대만. 끄면(기본) 늘 리더 — worker 한 대인 지금과 같다. worker 를 늘리기 전에 켠다.
+      # 지하철 수집·변화 감지·버스 노선 감시자뿐 아니라 버스 도착·위치 수집기와 버스 도착 알림 폴러도 따른다.
+      # 켠 상태에서 Redis 가 죽으면 이들이 전부 멈춘다(모두 "리더 아님").
       leader-lease:
         enabled: ${JOURNEY_REEVAL_LEADER_LEASE:false}
         ttl-ms: 10000

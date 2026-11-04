@@ -133,13 +133,15 @@ public class OtpTransitPatternAdapter implements TransitPatternPort {
             }
             // 노선은 방향마다 따로라 같은 이름이 두 번 온다(서울2호선 ×2).
             java.util.LinkedHashSet<String> routeNames = new java.util.LinkedHashSet<>();
+            List<TransitRoute> routes = new ArrayList<>();
             for (JsonNode route : stop.path("routes")) {
                 String name = text(route.path("shortName"));
                 if (name != null) {
                     routeNames.add(name);
+                    routes.add(toRoute(route));
                 }
             }
-            stops.add(new NearStop(transitStop, distance, List.copyOf(routeNames)));
+            stops.add(new NearStop(transitStop, distance, List.copyOf(routeNames), List.copyOf(routes)));
         }
         stops.sort(java.util.Comparator.comparingInt(NearStop::distanceMeters));
         return stops.size() > limit ? List.copyOf(stops.subList(0, limit)) : stops;
@@ -181,7 +183,9 @@ public class OtpTransitPatternAdapter implements TransitPatternPort {
         for (JsonNode pattern : stop.path("patterns")) {
             List<PatternStop> stops = new ArrayList<>();
             for (JsonNode s : pattern.path("stops")) {
-                stops.add(new PatternStop(text(s.path("gtfsId")), text(s.path("name"))));
+                stops.add(new PatternStop(text(s.path("gtfsId")), text(s.path("name")),
+                        s.path("lat").isNumber() ? s.path("lat").asDouble() : null,
+                        s.path("lon").isNumber() ? s.path("lon").asDouble() : null));
             }
             patterns.add(new TransitPattern(text(pattern.path("code")), text(pattern.path("headsign")),
                     toRoute(pattern.path("route")), stops, pattern.path("trips").size()));

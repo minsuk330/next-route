@@ -5,8 +5,9 @@ package watoo.grd.nextroute.application.bus.port.out;
  *
  * <p>검색·collector가 동일 provider key를 공유하므로, 검색 트래픽이 collector·학습데이터 수집의
  * 일일 quota를 잠식하지 않도록 검색 몫(reserved)을 엔드포인트별로 분리한다. Redis 원자 카운터로
- * 일 단위(KST) 사용량을 추적해 다중 인스턴스 간 공유한다. collector 몫은 기존 in-memory budget이
- * 담당하고, provider 총량은 (collector reserved + search reserved) ≤ provider 일일 한도로 보호한다.
+ * 일 단위(KST) 사용량을 추적해 다중 인스턴스 간 공유한다. collector 몫도 이름 붙은 Redis 버킷
+ * ({@code collector-arrival}, {@code collector-position})으로 세어 서버 수와 무관하게 하나다. provider 총량은
+ * (collector reserved + search reserved + 재탐색·감시자 버킷) ≤ provider 일일 한도로 보호한다.
  *
  * <p><b>fail-closed</b>: 공유 저장소 장애 시 {@code false}를 반환해 호출을 막는다.
  */

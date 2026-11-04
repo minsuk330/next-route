@@ -7,6 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.notification.config.BusArrivalAlertProperties;
 import watoo.grd.nextroute.application.notification.service.BusAlertDispatchService;
+import watoo.grd.nextroute.common.lock.LeaderLease;
 
 import java.time.Clock;
 import java.time.LocalTime;
@@ -23,12 +24,16 @@ public class BusArrivalAlertScheduler {
     private final BusAlertDispatchService dispatchService;
     private final BusArrivalAlertProperties properties;
     private final Clock clock;
+    private final LeaderLease leaderLease;
 
     @Scheduled(fixedDelayString = "${notification.bus-arrival.poll-interval-ms:1000}",
             scheduler = "notificationTaskScheduler")
     public void poll() {
         if (!properties.isEnabled()) return;
         if (!isActiveHours()) return;
+        // 구독마다 공급자를 부르므로 리더 한 대만 돈다(잠금 꺼짐이면 늘 리더). 적재는 원자적이라 중복 발송은
+        // 원래 없고, 여기서 막는 것은 worker 수만큼 늘어나는 공급자 호출이다.
+        if (!leaderLease.isLeader()) return;
         dispatchService.dispatchDue();
     }
 

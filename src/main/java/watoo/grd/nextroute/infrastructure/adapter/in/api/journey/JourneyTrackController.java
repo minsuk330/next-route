@@ -73,8 +73,9 @@ public class JourneyTrackController {
                                   @PathVariable String routeGtfsId,
                                   @RequestParam String from,
                                   @RequestParam(required = false) String to,
-                                  @RequestParam(required = false) String pattern) {
-        return queryService.shape(routeGtfsId, from, to, pattern);
+                                  @RequestParam(required = false) String pattern,
+                                  @RequestParam(required = false) Integer alightIndex) {
+        return queryService.shape(routeGtfsId, from, to, pattern, alightIndex);
     }
 
     /**

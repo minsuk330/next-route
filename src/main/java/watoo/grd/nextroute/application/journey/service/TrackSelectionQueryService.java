@@ -1,6 +1,7 @@
 package watoo.grd.nextroute.application.journey.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.journey.config.JourneyTrackProperties;
 import watoo.grd.nextroute.application.journey.dto.TrackViews;
@@ -26,6 +27,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -37,6 +39,7 @@ import java.util.Set;
  *
  * <p>플래그({@code journey.track.enabled})가 꺼져 있으면 404 다 — 조회도 OTP 를 부른다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TrackSelectionQueryService {
@@ -51,8 +54,16 @@ public class TrackSelectionQueryService {
      */
     public List<TrackViews.Stop> stopsNear(double lat, double lon, RoutingMode mode) {
         requireEnabled();
-        List<NearStop> stops = source.withPermit(deadline -> source.port().stopsNear(lat, lon,
-                properties.getNearRadiusMeters(), properties.getNearLimit(), deadline));
+        Map<String, TrackViews.Heading> headings = new HashMap<>();
+        List<NearStop> stops = source.withPermit(deadline -> {
+            List<NearStop> found = source.port().stopsNear(lat, lon,
+                    properties.getNearRadiusMeters(), properties.getNearLimit(), deadline);
+            if (matches(mode, RoutingMode.BUS)) {
+                headings.putAll(headings(found, siblingGroups(found),
+                        source.capped(deadline, properties.getHeadingBudgetMs())));
+            }
+            return found;
+        });
         List<TrackViews.Stop> views = new ArrayList<>();
         Map<String, List<NearStop>> groups = siblingGroups(stops);
         Set<String> merged = new HashSet<>();
@@ -77,15 +88,77 @@ public class TrackSelectionQueryService {
                         .orElse(TrackRealtimeIdResolver.BusStopIds.NONE);
                 views.add(new TrackViews.Stop(representative.gtfsId(), representative.name(), representative.lat(),
                         representative.lon(), representative.mode(), distance, ids.arrivalStopId(), ids.arsId(),
-                        null, null, null));
+                        null, null, null, routeNames(group), headings.get(representative.gtfsId()), routes(group)));
             } else {
                 for (TrackRealtimeIdResolver.SubwayStationIds ids : realtimeIds.subway(stop, near.routeShortNames())) {
                     views.add(new TrackViews.Stop(stop.gtfsId(), stop.name(), stop.lat(), stop.lon(), stop.mode(),
-                            near.distanceMeters(), null, null, ids.arrivalStationId(), ids.lineId(), ids.lineName()));
+                            near.distanceMeters(), null, null, ids.arrivalStationId(), ids.lineId(), ids.lineName(),
+                            near.routeShortNames(), null, null));
                 }
             }
         }
         return views;
+    }
+
+    /**
+     * 버스 묶음 대표 id → 진행 방향(#538). 거리순 앞 {@code headingLimit} 묶음만, 묶음마다 정류장 패턴 조회 1회씩.
+     *
+     * <p>best-effort: 한 정류장의 OTP 실패·마감 초과는 그 정류장만 빠지고 근처 목록은 그대로 성공이다. 마감은
+     * {@code headingBudgetMs} 로 줄인 것이다.
+     */
+    private Map<String, TrackViews.Heading> headings(List<NearStop> stops, Map<String, List<NearStop>> groups,
+                                                     RoutingDeadline deadline) {
+        Map<String, TrackViews.Heading> result = new HashMap<>();
+        Set<String> seen = new HashSet<>();
+        for (NearStop near : stops) {
+            if (near.stop().mode() != RoutingMode.BUS) {
+                continue;
+            }
+            List<NearStop> group = groups.getOrDefault(near.stop().gtfsId(), List.of(near));
+            TransitStop representative = group.get(0).stop();
+            if (!seen.add(representative.gtfsId())) {
+                continue;
+            }
+            if (seen.size() > properties.getHeadingLimit() || source.expired(deadline)) {
+                break;
+            }
+            try {
+                List<TrackStopHeading.BoardPatterns> members = new ArrayList<>();
+                for (NearStop member : group) {
+                    members.add(new TrackStopHeading.BoardPatterns(member.stop(),
+                            source.patternsAtStop(member.stop().gtfsId(), deadline)));
+                }
+                TrackStopHeading.of(representative, members)
+                        .ifPresent(heading -> result.put(representative.gtfsId(), heading));
+            } catch (RuntimeException e) {
+                log.debug("[Track] 진행 방향 계산 실패 stop={}: {}", representative.gtfsId(), e.getMessage());
+            }
+        }
+        return result;
+    }
+
+    /** 묶음 노선 이름 합집합. 순서 유지, 중복 제거. */
+    private static List<String> routeNames(List<NearStop> group) {
+        Set<String> names = new LinkedHashSet<>();
+        group.stream().filter(member -> member.routeShortNames() != null)
+                .forEach(member -> names.addAll(member.routeShortNames()));
+        return List.copyOf(names);
+    }
+
+    /** 묶음 노선 칩. 이름으로 중복을 빼고, 같은 이름이면 색 있는 쪽을 남긴다. 색 규칙은 방향 목록과 같다. */
+    private List<TrackViews.Route> routes(List<NearStop> group) {
+        Map<String, String> colors = new LinkedHashMap<>();
+        for (NearStop member : group) {
+            for (TransitRoute route : member.routes()) {
+                String color = color(route, true);
+                if (colors.get(route.shortName()) == null) {
+                    colors.put(route.shortName(), color);
+                }
+            }
+        }
+        return colors.entrySet().stream()
+                .map(entry -> new TrackViews.Route(entry.getKey(), entry.getValue()))
+                .toList();
     }
 
     /**
@@ -161,7 +234,7 @@ public class TrackSelectionQueryService {
                         pattern.route().shortName(), color(pattern.route(), bus), branch.directionLabel(),
                         branch.terminalName(), pattern.code(),
                         bus ? realtimeIds.busRoute(pattern.route().gtfsId()) : null,
-                        boardStopId, bus ? arrivalStopId : null));
+                        boardStopId, bus ? arrivalStopId : null, TrackStopHeading.nextStopNames(branch.remaining())));
             }
             seen.addAll(seenHere);
         }
@@ -223,7 +296,7 @@ public class TrackSelectionQueryService {
      * @throws BusinessException 422 {@code TRACK_STOPS_INVALID} — 그 노선으로 그 승하차가 안 된다
      */
     public TrackViews.Shape shape(String routeGtfsId, String requestedFromStopId, String toStopId,
-                                  String patternCode) {
+                                  String patternCode, Integer alightOffset) {
         requireEnabled();
         return source.withPermit(deadline -> {
             String fromStopId = source.boardingStop(routeGtfsId, requestedFromStopId, deadline);
@@ -233,7 +306,7 @@ public class TrackSelectionQueryService {
             int alightIndex;
             if (toStopId != null) {
                 TrackPatternSelector.Selection selection = TrackPatternSelector
-                        .select(routeGtfsId, fromStopId, toStopId, patternCode, patterns)
+                        .select(routeGtfsId, fromStopId, toStopId, patternCode, alightOffset, patterns)
                         .orElseThrow(() -> new BusinessException(JourneyErrorCode.TRACK_STOPS_INVALID));
                 pattern = selection.pattern();
                 boardIndex = selection.boardIndex();

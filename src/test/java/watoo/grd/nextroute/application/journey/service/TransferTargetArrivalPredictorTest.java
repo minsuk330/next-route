@@ -9,6 +9,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
 import watoo.grd.nextroute.application.journey.dto.TransferTargetArrival;
+import watoo.grd.nextroute.application.regionalbus.dto.RegionalBusProvider;
 import watoo.grd.nextroute.application.route.dto.TransferArrival;
 import watoo.grd.nextroute.application.route.dto.TransferPredictionResult;
 import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
@@ -60,19 +61,98 @@ class TransferTargetArrivalPredictorTest {
     class Bus {
 
         private final PredictTransferUseCase predictTransferUseCase = mock(PredictTransferUseCase.class);
+        private final RegionalArrivalLookup regionalArrivalLookup = mock(RegionalArrivalLookup.class);
         private BusTransferTargetArrivalPredictor predictor;
         private JourneyLeg waitLeg;
 
         @BeforeEach
         void setUp() {
             TransferPredictionInterpreter interpreter = new TransferPredictionInterpreter(properties);
+            var metrics = new watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics(
+                    new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
             predictor = new BusTransferTargetArrivalPredictor(
-                    new BusBoardingTimeEstimator(predictTransferUseCase, interpreter,
-                            new watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics(
-                                    new io.micrometer.core.instrument.simple.SimpleMeterRegistry())),
-                    routeOptionRepository, interpreter);
+                    new BusBoardingTimeEstimator(predictTransferUseCase, interpreter, metrics),
+                    routeOptionRepository, interpreter, regionalArrivalLookup, metrics);
             waitLeg = waitLeg(JourneyLegType.WAIT_BUS, JourneyLegState.PENDING);
             given(routeOptionRepository.findById(OPTION_ID)).willReturn(Optional.of(busOption()));
+        }
+
+        private JourneyLeg regionalWaitLeg(String sourceRouteId, String sourceStopId) {
+            JourneyLeg leg = mock(JourneyLeg.class);
+            given(leg.getSelectedRouteOptionId()).willReturn(OPTION_ID);
+            given(leg.getSourceStartStopId()).willReturn(sourceStopId);
+            JourneyLegRouteOption option = mock(JourneyLegRouteOption.class);
+            given(option.getSourceRouteId()).willReturn(sourceRouteId);
+            given(routeOptionRepository.findById(OPTION_ID)).willReturn(Optional.of(option));
+            return leg;
+        }
+
+        @Test
+        @DisplayName("경기 노선: 준비 시각을 기준으로 지역 실시간에 묻고 근사 품질로 답한다")
+        void gyeonggiTargetUsesRegionalRealtime() {
+            JourneyLeg leg = regionalWaitLeg("234001243", "101000002");
+            Instant anchor = NOW.plusSeconds(300);
+            given(regionalArrivalLookup.boardableAt(RegionalBusProvider.GG, "234001243", "101000002", anchor))
+                    .willReturn(new RegionalArrivalLookup.Lookup(NOW.plusSeconds(420), null));
+
+            TransferTargetArrival result = predictor.predictBoarding(leg, anchor, NOW);
+
+            assertThat(result.arrival().arrivalAt()).isEqualTo(NOW.plusSeconds(420));
+            assertThat(result.arrival().source()).isEqualTo(CurrentLegArrival.Source.REALTIME_ARRIVAL);
+            assertThat(result.arrival().quality()).isEqualTo(CurrentLegArrival.Quality.APPROXIMATE);
+            verifyNoInteractions(predictTransferUseCase);
+        }
+
+        @Test
+        @DisplayName("TAGO 노선: 초 단위라 품질이 좋다")
+        void tagoTargetIsGoodQuality() {
+            JourneyLeg leg = regionalWaitLeg("BSB5202029000", "BSB186450201");
+            Instant anchor = NOW.plusSeconds(60);
+            given(regionalArrivalLookup.boardableAt(RegionalBusProvider.TAGO, "BSB5202029000", "BSB186450201", anchor))
+                    .willReturn(new RegionalArrivalLookup.Lookup(NOW.plusSeconds(90), null));
+
+            assertThat(predictor.predictBoarding(leg, anchor, NOW).arrival().quality())
+                    .isEqualTo(CurrentLegArrival.Quality.GOOD);
+        }
+
+        @Test
+        @DisplayName("지역 노선: 실시간 시야 밖이면 몫을 쓰지 않고 모른다")
+        void regionalBeyondWindowSkipsTheCall() {
+            JourneyLeg leg = regionalWaitLeg("234001243", "101000002");
+
+            TransferTargetArrival result = predictor.predictBoarding(
+                    leg, NOW.plus(properties.busRealtimeWindow()).plusSeconds(1), NOW);
+
+            assertThat(result.arrival().arrivalAt()).isNull();
+            assertThat(result.upstreamBlocked()).isFalse();
+            verifyNoInteractions(regionalArrivalLookup);
+        }
+
+        @Test
+        @DisplayName("지역 노선: 몫 소진만 막힘이고, 탈 차 없음과 조회 실패는 모름이다")
+        void regionalFailures() {
+            JourneyLeg leg = regionalWaitLeg("234001243", "101000002");
+            Instant anchor = NOW.plusSeconds(60);
+            given(regionalArrivalLookup.boardableAt(any(), anyString(), anyString(), any()))
+                    .willReturn(RegionalArrivalLookup.Lookup.QUOTA,
+                            RegionalArrivalLookup.Lookup.NO_REALTIME,
+                            RegionalArrivalLookup.Lookup.BLOCKED);
+
+            assertThat(predictor.predictBoarding(leg, anchor, NOW).upstreamBlocked()).isTrue();
+            assertThat(predictor.predictBoarding(leg, anchor, NOW).upstreamBlocked()).isFalse();
+            TransferTargetArrival failed = predictor.predictBoarding(leg, anchor, NOW);
+            assertThat(failed.upstreamBlocked()).isFalse();
+            assertThat(failed.arrival().arrivalAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("시외버스처럼 모양을 모르는 원천 노선은 지역 실시간에 묻지 않는다")
+        void unknownSourceRouteIsNotRegional() {
+            JourneyLeg leg = regionalWaitLeg(null, "1:BS_ACC3_33020010");
+
+            assertThat(predictor.predictBoarding(leg, NOW.plusSeconds(60), NOW).arrival().arrivalAt()).isNull();
+
+            verifyNoInteractions(regionalArrivalLookup);
         }
 
         @Test

@@ -25,7 +25,19 @@ WORKERS=${WORKERS:-1}
 # 수집 리더 잠금(journey.navigation.reeval.leader-lease). 끄면 모든 worker 가 "늘 리더"라 2대면 둘 다 수집한다 — 2대 이상이면 기본 켬.
 LEASE=${LEADER_LEASE:-$([[ $WORKERS -gt 1 ]] && echo true || echo false)}
 LEASE_KEY=lease:realtime-watch
-wport() { echo $((8080 + $1)); }
+# worker JVM 포트 = WORKER_PORT_BASE+i(기본 8081…). 8081 이 다른 프로그램(Expo 등)에 잡혀 있으면 WORKER_PORT_BASE=8090 으로.
+WORKER_PORT_BASE=${WORKER_PORT_BASE:-8080}
+wport() { echo $((WORKER_PORT_BASE + $1)); }
+command -v lsof >/dev/null || { echo "lsof 없음 — 포트 preflight 불가"; exit 6; }
+PORTS=(8080); if [[ ${SPLIT:-0} == 1 ]]; then for i in {1..$WORKERS}; do PORTS+=($(wport $i)); done; fi
+for p in $PORTS; do
+  lsof -nP -iTCP:$p -sTCP:LISTEN >/dev/null 2>&1 && { echo "포트 $p 사용 중 — WORKER_PORT_BASE 로 바꾸거나 비우고 다시"; exit 6; }
+done
+# 버스 수집기 칸(bus-multi-instance PR-3 측정 B): BUS_COLLECT=1 이면 worker 에서 버스 도착·위치 수집기를 켜고(dev 프로필은 끔)
+# 운영 시간을 24시간으로 풀어 1분마다 노선별 route-all·위치를 가짜 공급자에 부르게 한다. 리더 락 켬/끔에 따라 분당 호출이
+# 노선 수 × 1 인지 × WORKERS 인지를 fake /counts 표본(buscount-*.tsv)으로 센다. 노선 감시자(bus-watcher)는 기본 꺼짐이라
+# route_all 은 수집기만 센다.
+BUS_COLLECT=${BUS_COLLECT:-0}
 wname() { [[ $1 == 1 ]] && echo worker || echo worker$1; }
 cd $REPO
 
@@ -81,6 +93,28 @@ WORKER_ONLY=(--journey.notification.relay.enabled=true --journey.notification.se
   --loadtest.push.outage.control-file=$OUTAGE_CTL
   --journey.navigation.reeval.leader-lease.enabled=$LEASE --logging.level.watoo.grd.nextroute.common.lock=INFO
   ${=PUSH_ARGS:-})
+if [[ $BUS_COLLECT == 1 ]]; then
+  WORKER_ONLY+=(--collector.bus-arrival.enabled=true --collector.bus-position.enabled=true
+    --collector.bus-arrival.active-hours.start=00:00 --collector.bus-arrival.active-hours.end=00:00
+    --collector.bus-position.active-hours.start=00:00 --collector.bus-position.active-hours.end=00:00
+    --journey.navigation.reeval.bus-watcher=false)
+  # 수집기는 target-route-names 를 bus_route 표에서 id 로 바꾼다 — st-pg 는 비어 있으니 사다리용 행 6개를 심고 끝에 지운다.
+  BUS_ROUTES=(143 272 160 271 130 720)
+  # 어떤 경로로 끝나든(exit 7, Ctrl-C, set -u 중단) 심은 행과 표본 루프를 치운다. 정상 경로의 정리와 겹쳐도 무해(idempotent).
+  bus_collect_cleanup() {
+    [[ -n ${OUT:-} && -n ${LABEL:-} ]] && touch $OUT/stop-buscount-$LABEL
+    [[ -n ${BUSCOUNTS:-} ]] && kill $BUSCOUNTS 2>/dev/null
+    for r in $BUS_ROUTES; do psqlq "delete from bus_route where route_id='LADDER-$r'" >/dev/null 2>&1; done
+  }
+  trap bus_collect_cleanup EXIT INT TERM
+  for r in $BUS_ROUTES; do
+    psqlq "insert into bus_route (route_id, route_name, created_at, updated_at)
+           select 'LADDER-$r', '$r', now(), now()
+           where not exists (select 1 from bus_route where route_name='$r')" >/dev/null
+  done
+  nroutes=$(psqlq "select count(*) from bus_route where route_name in ('143','272','160','271','130','720')")
+  [[ ${nroutes// /} == 6 ]] || { echo "bus_route 심기 실패($nroutes)"; kill $FAKE; exit 7; }   # trap 이 행을 지운다
+fi
 # 지표를 긁을 JVM 들: "이름:포트". 한 JVM 이면 하나, SPLIT=1 이면 api·worker 둘.
 JVMS=(app:8080)
 if [[ ${SPLIT:-0} == 1 ]]; then
@@ -166,6 +200,20 @@ if [[ ${SPLIT:-0} == 1 ]]; then
       printf '%s\tredis\t%s\t%s\n' $t "$(rcli get $LEASE_KEY 2>/dev/null | cut -c1-8)" "$(rcli pttl $LEASE_KEY 2>/dev/null)"
       sleep 1
     done >$OUT/leader-$LABEL.tsv ) & LEADERS=$!
+fi
+# 버스 수집 호출 표본(PR-3 측정 B): 10초마다 fake /counts 의 route_all·pos 누적.
+rm -f $OUT/stop-buscount-$LABEL
+if [[ $BUS_COLLECT == 1 ]]; then
+  ( while [[ ! -e $OUT/stop-buscount-$LABEL ]]; do
+      c=$(curl -s -m 1 http://127.0.0.1:18999/counts 2>/dev/null)
+      # fake 가 늦거나(curl -m 1) 응답이 JSON 이 아니면 빈 줄 대신 건너뛴다(요약이 빈 칸을 int() 하다 죽지 않게).
+      printf '%s\n' "$c" | python3 -c 'import json,sys,time
+try:
+    d=json.load(sys.stdin); print("%d\t%d\t%d" % (int(time.time()), int(d.get("route_all",0)), int(d.get("pos",0))))
+except Exception:
+    pass' 2>/dev/null
+      sleep 10
+    done >$OUT/buscount-$LABEL.tsv ) & BUSCOUNTS=$!
 fi
 # 대기열 표본(#446): 5초마다 사다리 여정 알림의 보낼 때 된 PENDING·PENDING·PROCESSING·누적 SENT.
 rm -f $OUT/stop-queue-$LABEL
@@ -270,6 +318,25 @@ kill $APP $FAKE 2>/dev/null; wait $APP 2>/dev/null
 [[ -s $OUT/pids-$LABEL ]] && kill $(awk '{print $2}' $OUT/pids-$LABEL) 2>/dev/null
 sleep 2
 if [[ ${SPLIT:-0} == 1 ]]; then for i in {1..$WORKERS}; do pkill -f "server.port=$(wport $i)" 2>/dev/null; done; fi
+if [[ $BUS_COLLECT == 1 ]]; then
+  touch $OUT/stop-buscount-$LABEL; wait $BUSCOUNTS 2>/dev/null
+  python3 -I - $OUT/buscount-$LABEL.tsv $WORKERS $T_FROM <<'PY'
+import sys
+rows=[]
+for l in open(sys.argv[1]):
+    f=l.rstrip('\n').split('\t')
+    if len(f)==3 and all(x.strip().isdigit() for x in f):
+        rows.append(tuple(int(x) for x in f))
+w=int(sys.argv[2]); t0=int(sys.argv[3])
+m=[r for r in rows if r[0]>=t0]
+if len(m)>=2:
+    mins=(m[-1][0]-m[0][0])/60
+    ra=m[-1][1]-m[0][1]; po=m[-1][2]-m[0][2]
+    print(f"── 버스 수집 호출(측정 창 {mins:.1f}분, worker {w}대, 노선 6) ──")
+    print(f"route-all {ra}회 = 분당 {ra/mins:.1f} (기대: 리더 락 켬 6, 끔 {6*w}) · 위치 {po}회 = 분당 {po/mins:.1f}")
+PY
+  bus_collect_cleanup
+fi
 # 정상 종료가 길다(relay 워커 128 + 발송 중 행 정리) — 다음 칸이 같은 포트로 뜨기 전에 다 내려갔는지 기다리고, 30초 넘으면 -9.
 #  대상은 이 칸이 띄운 pid 만(같은 기계의 다른 세션 JVM 을 건드리지 않게).
 MINE=($APP); [[ -s $OUT/pids-$LABEL ]] && MINE+=($(awk '{print $2}' $OUT/pids-$LABEL))

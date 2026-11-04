@@ -30,6 +30,7 @@ public class RouteSearchMetrics {
     public static final String ML_CACHE_REQUESTS = "ml.prediction.cache.requests";
     public static final String ML_CACHE_ERRORS = "ml.prediction.cache.errors";
     public static final String SINGLEFLIGHT = "singleflight.requests";
+    public static final String CROSS_FLIGHT = "crossflight.requests";
     public static final String BULKHEAD_ACTIVE = "bulkhead.active";
     public static final String BULKHEAD_QUEUE = "bulkhead.queue";
     public static final String BULKHEAD_REJECTED = "bulkhead.rejected";
@@ -119,6 +120,14 @@ public class RouteSearchMetrics {
                 .tag("provider", provider).register(registry);
         Gauge.builder(BULKHEAD_QUEUE, executor, e -> e.getQueue().size())
                 .tag("provider", provider).register(registry);
+    }
+
+    /**
+     * 서버 사이 single-flight(PR-2). role = leader / leader_recheck_hit / waiter_result / waiter_fallback /
+     * waiter_takeover / waiter_timeout / redis_error. 고정 집합.
+     */
+    public void recordCrossInstanceFlight(String provider, String type, String role) {
+        registry.counter(CROSS_FLIGHT, "provider", provider, "type", type, "role", role).increment();
     }
 
     /**

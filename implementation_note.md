@@ -6159,3 +6159,314 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - memory-low·quiet 는 모델이 가설을 비우고 headline 만 "…원인 불명" 으로 냈다 → 코드가 고정 문구로 바꿈(의도대로)
   - 지연 최대 6.6초 → timeout 120s 는 넉넉. 재시도로 인한 중복 과금 걱정은 실측상 해당 없음
   - 결과 파일 비밀값 대조: VPS env 35개 값 × 1파일 0건, 토큰 패턴 0건
+
+## 2026-11-03 사용 통계 PR-1 일별 활성 기록 (feat/usage-stats)
+### 확정
+- 플랜 `docs/plan/usage-stats/PLAN.md`(M). 사용자 결정: Grafana 대시보드 + DAU 서버 기록
+- `user_daily_activity`(activity_date KST, user_id) PK, 첫 요청만 `ON CONFLICT DO NOTHING`. `DailyActivityFilter` 는 JwtAuthFilter 뒤, 빈 아님(SecurityConfig 가 new). 기록기는 `@Profile("!worker")` + `usage.daily-activity.enabled`(기본 true) — 없으면 필터도 안 붙음(`ObjectProvider`)
+- 요청 스레드 안 막음: 메모리 집합(KST 날짜 바뀌면 비움, 상한 5만)으로 거르고 전용 executor(1스레드·큐 1,000·AbortPolicy). 실패·거절은 WARN 후 집합에서 빼 다음 요청 때 재시도
+- 탈퇴 물리 버킷에 추가(`WithdrawService`, 경계 IT PHYSICAL)
+### 함정
+- 운영 `route_search_log` 는 최근 14일 0행(안 쓰임), `route_search_history` 는 좌표쌍당 upsert 1행 → 검색 횟수 원천이 아님. 대시보드 검색 수는 Prometheus `/api/route/search`
+- 운영 naive timestamp(created_at·searched_at)는 KST 벽시계, timestamptz(started_at·ended_at)는 UTC(journey 363: created 07:54 = started 22:54Z)
+- `./gradlew test` 를 env 없이 돌리면 전체 컨텍스트 IT 389건이 `${POSTGRES_USER}` 미치환·API 키 placeholder 로 실패(기존 무관, 환경). st-pg(:55432)·st-redis(:56379) 자격 + application.yaml 의 `${UPPER}` 키를 더미로 export 하면 통과
+### 검증
+- 새 시험: `DailyActivityRecorderTest` 4, `DailyActivityFilterTest` 3, `UserDailyActivityRepositoryIT` 2, `WithdrawalDeletionBoundaryIT` 7 → 16/0
+- V74 SQL: st-pg 임시 스키마에서 생성·중복 INSERT 0행 확인 후 ROLLBACK
+- 전체 `./gradlew test`(st-pg/st-redis env) **3880/0**. 전체 컨텍스트 IT 중 인증 요청이 st-pg `user_daily_activity` 에 11행 남김(필터 → 기록기 → DB 배선 확인)
+### 배포
+- V74 는 Flyway 자동(jar 포함). api·worker 교체 필요(worker 는 기록기 없음, 스키마만)
+
+## 2026-11-03 사용 통계 PR-2 Grafana 대시보드 (feat/usage-dashboard)
+### 확정
+- `grafana/dashboards/usage.json`(uid `nextroute-usage`, 패널 10), 데이터소스 `nextroute-pg`(grafana-postgresql-datasource, `postgres:5432`, db mydatabase, 연결 2), grafana 를 `nextroute` 네트워크에 붙임
+- 계정 `grafana_ro`: 3표 SELECT(auth_identity·journey_session·user_daily_activity), `default_transaction_read_only=on`, `statement_timeout=10s`, CONNECTION LIMIT 3. 비밀번호는 파일에 없음(`-v pw` + env `GRAFANA_PG_PASSWORD`)
+### 검증
+- 운영 읽기 전용으로 비-DAU 쿼리 5개 실행: 2026-10-05~11-03 신규 설치 28·여정 266·여정 사용자 8·완료율 19%, 일별 버킷이 15:00Z(=KST 0시)로 묶임
+- DAU 쿼리 5개는 st-pg 임시 스키마(V74 + 예시 행)에서 실행·ROLLBACK
+- VPS datasources.yaml = repo main(diff 0) → 새 파일로 덮어도 drift 없음. VPS 관측 compose 는 drift 있으니 grafana 블록에 networks 3줄만 삽입
+### 배포
+- 운영 DB 에 `CREATE ROLE grafana_ro`(DDL) 필요 — 사용자 확인 후. 순서: 백업 → role → env → compose 3줄 → scp(datasources·usage.json) → grafana `--no-deps --force-recreate`
+
+## 2026-11-03 사용 통계 배포 (#531·#532, 사용자 승인 "둘 다 지금 진행")
+### 배포
+- 21:26 api·worker `nextroute:20261103-212613-f64caa36`(main f64caa36). 직전 진행 여정 0. jar 2MB×70 조각 업로드, sha256 `1b7b7207…1e0c` 일치. 백업 `app.jar.bak-20261103-212613-pre-f64caa36`(=d7f21ded). 롤백 = 그 jar 복원 + `DEPLOY_REVISION=d7f21ded ./deploy.sh all` 또는 `./deploy.sh rollback-api`·`rollback-worker`
+- V74 Flyway 자동 적용(flyway 74 success). 배포 후 5분 api·worker ERROR 0
+- 21:28 Grafana: 백업 `/root/apps/observability-backups/observability-20261103-212851-pre-usage-stats.tgz`, `compose.yaml.bak-20261103-212851-pre-usage-stats`. role `grafana_ro` 생성(비밀번호는 VPS 에서 생성해 `env/grafana.env` `GRAFANA_PG_PASSWORD` 에만, 출력 안 함) → compose grafana 블록 networks 3줄(추가만) → datasources.yaml·usage.json 복사 → grafana `--no-deps --force-recreate`
+- 되돌리기: tgz 복원 + grafana 재생성, `DROP OWNED BY grafana_ro; DROP ROLE grafana_ro;`
+### 검증
+- 데이터소스 health "Database Connection OK", 대시보드 uid `nextroute-usage` 로드, 패널 10개 쿼리 전부 오류 없음(DAU 계열 4개는 아직 0행)
+- role: CONNECTION LIMIT 3, `{default_transaction_read_only=on,statement_timeout=10s}`, 권한 = 3표 SELECT 만. `SET ROLE grafana_ro` 로 `users` 조회 → permission denied
+### 함정
+- VPS 적용 스크립트 `set -o pipefail` + `diff | grep` → diff 가 차이 있음(1)으로 스크립트가 중간 종료. role·env·compose 삽입까지만 된 상태에서 나머지를 이어 실행. 다음엔 `diff … || true`
+- Grafana `/api/ds/query` 가 오류면 wget 은 본문 없이 실패 → 권한 확인은 DB 에서 `SET ROLE` 로
+- grafana 기동 로그의 `plugin table is already registered`·`provisioning/plugins` 디렉터리 없음 error 는 기존부터(이번 변경 무관)
+### 미결
+- 첫 DAU 행은 다음 앱 요청 때. 내일 `user_daily_activity` 행·대시보드 DAU 확인
+
+## 2026-11-03 장애 알림 AI 분석기 PR-3 켜기 (feat/alert-analyzer-enable)
+
+### 확정
+- Slack 연동 `text` = `{{ template "default.message" . }}` + 줄바꿈 + `fp: {{ range .Alerts }}{{ .Fingerprint }} {{ end }}`. 분석기 `find_thread` 는 채널 최근 메시지 JSON 전체에서 fingerprint 문자열 포함 여부로 찾으므로 attachment text 에 들어가도 된다
+- Grafana 12.0.0 템플릿 미리보기 API `POST /api/alertmanager/grafana/config/api/v1/templates/test` 로 발송 없이 렌더 확인 가능(fingerprint 는 라벨로 계산돼 입력값과 달라도 정상)
+
+### 배포
+- 2026-11-03 21:43 KST `contact-points.yaml` VPS 반영 + `POST /api/admin/provisioning/alerting/reload`("Alerting config reloaded"). 백업 `/root/apps/observability-backups/contact-points.yaml.bak-20261103-214325-pre-fp`. grafana 재생성 없음(env 변경 없음). 마이그레이션 없음
+- 반영 시점 운영 상태: 분석기 컨테이너는 아직 PR-1 이미지(digest 81901f7c, 10-26 18:12) + `ANALYZER_DRY_RUN=true`. env 에 `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID` 없음 → 사용자 작업 대기
+
+### 미결
+- 사용자: Slack 봇 토큰(chat:write, channels:history, 비공개면 groups:history), 봇 채널 초대, 채널 ID. VPS env 에 직접 넣기 권장(대화 기록 평문 방지)
+- 사용자: Anthropic 키 재발급(10-26 대화에 평문으로 붙여넣은 키가 VPS 에 들어 있음)
+
+### 배포 (이어서)
+- 2026-11-03 21:56 KST `env/alert-analyzer.env` 에 `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID=C0CCXF6UGN4` 추가, `ANALYZER_DRY_RUN=false`, `docker compose up -d --no-deps alert-analyzer`(이미지 fd095ea6 = #528 빌드 10-26 22:14). 기동 로그 `dry_run=False live=True daily_limit=30`, RSS 88MiB/192MiB, 재시작 0. 백업 `alert-analyzer.env.bak-20261103-*-pre-live`
+- 임시 규칙 `nr-temp-fp`(vector(42), 라벨 app=api) 21:56 추가 → 21:57:40 분석기 수신 → Claude 200 → `conversations.history` 에서 fp 발견 → `chat.postMessage` 스레드. 로그 `categories=[] unknown=True invalid_evidence=0/0 tokens=4101/45 cost_usd=0.0087 elapsed_s=3.4 threaded=True`. Slack 확인: 알림 메시지 `reply_count=1`. 22:00 `deleteRules` + reload, 규칙 5개만 남음
+
+### 함정
+- Slack 봇 토큰 권한은 앱 설정에서 scope 추가만으로는 안 바뀜 ← OAuth 토큰은 설치 시점 scope 고정 / 가드: `auth.test` 응답 헤더 `x-oauth-scopes` 로 실제 권한 확인(처음엔 `incoming-webhook` 뿐이었음), "Reinstall to Workspace" 후 재확인
+- `/invite @nextroute-alert` 가 Slackbot "채널에 없습니다" 로 끝남 ← 명령이 아니라 멘션 메시지로 나감 / 가드: 채널 상세 > 통합 > 앱 추가, 성공하면 `bot_add` 시스템 메시지
+- 원격 zsh 에서 `read -p` 실패("no coprocess") / 가드: `ssh -t vps "bash -c '…'"`
+
+### 미결
+- 봇 토큰과 Anthropic 키 둘 다 대화 기록에 평문 → 재발급 권고(기능 동작과 무관)
+
+### 검증
+- 위 배포 절의 실물 확인이 검증. 코드 변경 없음(yaml, 문서만) → 테스트 실행 없음
+## 2026-11-03 사용 통계: 토스 사용자 제외 (fix/usage-exclude-toss)
+### 확정
+- 사용자 지시: 토스(앱인토스) 요청은 통계에서 뺀다. 규칙 = 토스 계정이 하나라도 있는 user_id 제외(`user_id not in (select user_id from auth_identity where provider='TOSS')`). 토스·다른 계정을 함께 가진 사용자는 0명(운영 확인). 신규 설치는 원래 DEVICE 만이라 변화 없음, 일별 신규 계정에서 TOSS 줄 제거
+- 검색 요청 패널(Prometheus)은 사용자를 몰라 못 뺀다 — 설명에 표기(10월 이후 토스 활성 0)
+- 대시보드 JSON 생성기 `ops/observability/grafana/usage_dashboard.py` 를 저장소에 둔다
+### 함정
+- 처음 `not exists (… where t.user_id = user_id …)` 로 썼더니 비한정 `user_id` 가 안쪽 auth_identity 로 묶여 토스 계정이 하나만 있어도 전부 제외 → 운영 여정 패널 0행으로 발견. `NOT IN`(+ `user_id is not null`)으로 교체
+### 검증
+- 운영 읽기 전용: 기간 요약 28·266·8·19% 그대로(최근 30일 토스 여정 0), 일별 버킷 행 수 그대로
+- st-pg 예시(토스 user 3 포함): DAU·코호트·사용자별에서 토스 사용자만 빠짐
+## 버스 수집기·알림 폴러 리더 한 대 + 수집 몫 Redis (2026-11-03, feat/bus-collector-leader, bus-multi-instance PR-1)
+플랜: `docs/plan/bus-multi-instance/PLAN.md`(L 티어, Opus 검토 18건 반영판).
+### 확정
+- 리더 락(`journey.navigation.reeval.leader-lease.enabled`, 기본 false)을 따르는 작업에 버스 도착 수집기, 버스 위치 수집기, 버스 도착 알림 폴러를 추가. 새 플래그 없음. 꺼짐이면 `isLeader()` 가 늘 true 라 worker 1대 운영 동작 그대로
+- 수집 몫: JVM `AtomicInteger`(`BusApiCallBudget`, 삭제) → `BusApiQuotaPort.tryAcquire` Redis 버킷 `collector-arrival`, `collector-position`(키 `bus:quota:search:{bucket}:{yyyyMMdd}`, KST 자정 TTL). 서버 수와 무관하게 하루 하나
+- 점유 순서 = 리더 재확인 → `tryAcquire` → 공급자 호출. 리더가 아닌 서버가 몫을 태우지 않게 재확인이 앞
+- 동작 변경(숨기지 않음): ① 몫이 "호출 뒤 기록" → "호출 전 점유". `BusApiBlockedException`·`InterruptedException` 도 1 로 셈(전에는 blocked = 0) ② Redis 장애면 수집 멈춤(fail-closed, 공급자 한도 보호 우선) ③ 플래그 켬 + Redis 장애 → 모든 worker 가 "리더 아님" → 버스 도착 알림까지 멈춤. 리더 교체 공백 ≈ TTL 10초 + TTL/3
+- `SeoulBusApiAdapter` 는 budget 을 로그 `budgetStatus()` 에만 썼음(검토 #1) → 생성자 인자 4개(budget 2, dailyBudget 2) 제거, 로그에서 뺌
+### 함정
+- 슬라이스 IT 8개(`BusAlert*IT`, `@Import` 로 `BusAlertDispatchService` 를 직접 띄움)가 `LeaderLease` 빈이 없어 `NoSuchBeanDefinitionException` ← 생성자에 의존 추가 / 가드: 테스트 설정 `common/lock/AlwaysLeaderLeaseTestConfig`(늘 리더 = 플래그 꺼짐과 같음)를 `@Import` 에 추가
+- `BusAlertDispatchService` 의 그룹 순서는 `Collectors.groupingBy` HashMap 이라 정해져 있지 않음 ← "리더 잃음" 단위 테스트가 S1 을 먼저 부른다고 가정하면 간헐 실패 / 가드: 어느 그룹이든 첫 호출에서 리더를 내리고 총 호출 1회만 단언
+- `RedisBusApiQuota.KEY_PREFIX` 는 package-private → 다른 패키지 IT 는 문자열 `bus:quota:search:` 직접 사용
+### 좌표
+- `infrastructure/adapter/in/scheduler/{BusArrivalScheduler,BusPositionScheduler}.trigger`, `…/notifination/BusArrivalAlertScheduler.poll` — `isLeader()` 가드
+- `application/bus/service/BusArrivalService.execute`(`BUCKET_ARRIVAL`), `BusPositionService.execute`(`BUCKET_POSITION`), `application/notification/service/BusAlertDispatchService.dispatchDue`(그룹 루프 리더 재확인)
+- 시험: `common/lock/{FixedLeaderLease, AlwaysLeaderLeaseTestConfig, BusCollectorLeaderIT}`, `…/notifination/BusArrivalAlertSchedulerTest`
+### 검증
+- `./gradlew compileJava compileTestJava` 통과
+- `runsome.sh --tests '*BusArrival*' --tests '*BusPosition*' --tests '*BusAlert*' --tests '*LeaderLease*' --tests '*SeoulBusApiAdapter*' --tests '*BusCollectorLeader*'` → 141 tests, BUILD SUCCESSFUL (st-pg:55432, st-redis:56379)
+- 함정 추가: `RuntimeRoleProfileTest.profileConditionActuallySelectsTheRoleSpecificComponent` 가 `BusArrivalScheduler` 를 직접 등록한 컨텍스트라 `LeaderLease` 빈 없음 ← 생성자 의존 추가 / 가드: 테스트 컨텍스트에 `LeaderLease` mock 등록
+- 전체 `runfull.sh`(cleanTest test --continue): **3,891 중 실패 1(위 RuntimeRoleProfileTest, 수정 뒤 단독 재실행 통과), 건너뜀 7**, 16분 4초. 예전 노트의 "기존 무관 12건"은 이제 0. 느린 원인 = 전체 컨텍스트 IT 가 실제 공휴일 API(`GongApiAdapter`, 12달 × 읽기 30초)를 부름 — 별건
+- 코드 리뷰(reviewer 에이전트, 🟡4 ❓2 🔵2) 반영: ① 몫 점유 실패 분기의 `purgeStaleActive` 를 try/catch 로(Redis 장애면 스냅숏 조회도 같이 실패해 execute 가 중간에 끊기던 것) ② 공급자 응답을 받은 뒤 reconcile/saveAll 전에 리더 재확인(긴 호출 중 강등된 리더가 새 리더 옆에서 상태를 쓰지 않게) ③ "처음부터 리더 아님 → 몫·공급자·저장 무접촉" 테스트 2종, "호출 중 리더 잃음 → 응답 버림" 테스트 ④ `BusCollectorLeaderIT` 몫 시험은 고정 Clock(KST 자정 경계 flaky 제거) ⑤ yaml 주석에 "Redis 장애 시 수집 멈춤은 리더 락 플래그와 무관" 명시
+- 운영 확인(ssh vps 읽기 전용, 2026-11-03): 컨테이너 12개 env 에 `LEADER_LEASE` 없음 → 기본 false → 이 배포는 동작 불변. 알림 폴러가 플래그 켬일 때 Redis 에 묶이는 것은 플랜대로 의도(사용자 확인 대상)
+- 재실행 `--tests '*BusArrivalService*' '*BusPositionService*' '*BusCollectorLeader*' '*BusAlertDispatchServiceTest'` → BUILD SUCCESSFUL
+
+## 서버 사이 single-flight (2026-11-03, feat/bus-cross-instance-flight, bus-multi-instance PR-2)
+### 확정
+- 플래그 `route.search.bus.cross-instance.enabled`(env `ROUTE_SEARCH_BUS_CROSS_INSTANCE`, 기본 false). 꺼짐이면 `CachedSearchTimeBusAdapter` 의 loader 를 그대로 부른다(기존 경로)
+- 2단계 묶기: JVM `SingleFlight` owner 만 `crossInstance()` 에 들어온다. 리더 = Lua `SET NX PX` 성공(실패면 보유자 토큰을 돌려받음). 리더는 잠금 뒤 캐시를 한 번 더 읽고(double-check), 공급자 결과의 outcome + data 를 **토큰별 결과 키** `bus:flight:result:{type}:{key}:{token}`(2초)에 남긴 뒤 토큰 비교 DEL. 대기자는 50ms 마다 결과 키를 보고 리더와 같은 outcome 을 돌려준다(OK → cached). 잠금 없음 + 결과 없음(한 번 더 확인 뒤) → LIMITED, 기한(joinWait) 초과 → LIMITED, Redis 오류 → LIMITED. `tryLead` 자체가 Redis 오류면 직접 부른다
+- 결과를 캐시가 아니라 결과 키로 전하는 이유: 캐시 쓰기 실패·TTL 0·"빈 목록 안 씀" 규칙에 기대지 않고, 이전 flight 의 실패를 새 대기자가 읽지 않게(검토 #2, #3). 대기자 outcome 은 `BusQueryResult.Outcome` 그대로(BLOCKED 포함, 검토 #10)
+- 잠금 수명: 기한 있는 호출 = timeoutMs + 500, 무기한(`Long.MAX_VALUE`) = 4,000(세마포어 500 + connect 1,500 + read 1,500 + 500, 검토 #4)
+- 포트 `CrossInstanceFlightPort` 는 Jackson 을 모른다 — `Class<T> elementType` 으로 받아 Redis 구현이 `constructCollectionType` 으로 푼다. `none()` 은 늘 리더(테스트·플래그 꺼짐용)
+### 함정
+- 리더의 `finish` 는 "결과 SET → 잠금 DEL" 순서. 대기자는 결과 없음 + 잠금 없음을 보면 **결과를 한 번 더** 본 뒤 사망 판정 — 그 사이에 리더가 끝났을 수 있다
+- 생성자 인자 추가로 `new CachedSearchTimeBusAdapter(` 호출처 4곳(RouteSearchCacheIT ×3, RouteSearchStampedeIT, RouteSearchRealtimeDeadlineIT, CachedSearchTimeBusAdapterTest)에 `CrossInstanceFlightPort.none()` 추가(검토 #13)
+- 새 IT 는 Testcontainers 가 아니라 REDIS_HOST·REDIS_PORT(st-redis)를 쓴다 — 새 컨테이너 금지 규칙. 동시 100건은 latch 로 동시 출발(늦게 출발하면 캐시 hit 가 되어 호출 수를 못 셈, 검토 #18)
+### 좌표
+- `application/route/port/out/CrossInstanceFlightPort`, `infrastructure/adapter/out/cache/bus/RedisCrossInstanceFlight`(LEAD·RELEASE Lua)
+- `CachedSearchTimeBusAdapter.crossInstance/lead/await/finishQuietly`, `SearchTimeBusProperties.CrossInstance`, `RouteSearchMetrics.recordCrossInstanceFlight`(`crossflight.requests`, role 6종)
+- 시험: `RedisCrossInstanceFlightIT`(6), `CachedSearchTimeBusAdapterCrossInstanceIT`(7: 켬 1회×20회, 끔 3회, 빈 결과 신속, LIMITED/BLOCKED 공유, 리더 사망, double-check, Redis 다운 폴백)
+### 검증
+- `compileJava compileTestJava` 통과
+- `runsome.sh --tests '*CrossInstance*' '*CachedSearchTimeBus*' '*RouteSearchCacheIT' '*RouteSearchStampedeIT' '*RouteSearchRealtimeDeadlineIT'` → BUILD SUCCESSFUL
+- 코드 리뷰(reviewer 에이전트, 🟡7 ❓1 🔵4) 반영: ① **대기자는 리더의 OK·BLOCKED 만 받고 LIMITED·ERROR 는 직접 부른다**(리더 서버의 JVM 세마포어 포화·일시 오류를 공유하면 플래그 꺼짐보다 가용성이 떨어짐) ② 잠금 보유자가 바뀌면(첫 리더 만료 → 새 리더) 그 토큰을 따라감 ③ **잠금도 결과도 없으면 스스로 리더를 시도**(waiter_takeover) — 리더 사망이 LIMITED 가 아니라 한 번 더 부르는 것으로 끝남 ④ 기한 없는 호출의 대기 상한 = 잠금 수명(1,800ms joinWait 에 묶이지 않게), 잠금 수명 4,000 → 6,000, 여유 500 → 1,000(차단기·몫 Redis 왕복) ⑤ pollMs·resultTtl 하한 ⑥ metrics javadoc 위치 ⑦ IT 추가: BLOCKED 공유/LIMITED 폴백/리더 예외 폴백/기한 짧은 대기자 timeout/깨진 결과 키/리더 사망 인계. `lockExists` → `currentHolder`
+- 함정: "리더 사망 → 새 리더" 시나리오를 시간차(300ms 만료 뒤 350ms 에 새 요청)로 시험하면 대기자가 그 사이 포기해 flaky ← 설계상 대기자가 포기하던 구조 / 가드: 대기자가 직접 이어받게 바꿔(③) 시간차 없이 결정적
+- 미결: 폴링 비용(진행 중 키당 50ms 마다 GET 1~2회). 키 수가 많아지면 pub/sub 또는 pollMs 상향 — 측정 B 뒤 판단
+- 전체 `runfull.sh`(리뷰 반영 **전** 코드, 중간에 `lockExists→currentHolder` 편집이 겹침): 3,907 중 실패 1(`RedisCrossInstanceFlightIT`, 편집 겹침 탓 — 최종 코드 단독 재실행 통과), 건너뜀 7, 17분. 최종 코드 전체 재실행은 PR 머지 전 별도
+- 재실행(최종 코드) `--tests '*CrossInstance*' '*CachedSearchTimeBus*' '*RouteSearchCacheIT' '*RouteSearchStampedeIT' '*RouteSearchRealtimeDeadlineIT'` → 32 tests, BUILD SUCCESSFUL
+- 전체 `runfull.sh`(최종 코드, 리뷰 반영 뒤): **BUILD SUCCESSFUL, 3911 tests, 실패 0, 건너뜀 7**, 19분 33초(실제 OTP·공휴일 API 를 부르는 전체 컨텍스트 IT 가 느린 원인)
+
+## 경기·TAGO 버스를 서울 버스와 같은 구조로 (2026-11-03, feat/regional-bus-shared-cache, bus-multi-instance PR-4)
+### 확정
+- 플래그 `regional-bus.shared.enabled`(env `REGIONAL_BUS_SHARED`, 기본 false). 꺼지면 두 어댑터 모두 기존 JVM 캐시·JVM 세마포어·JVM 차단기 경로 그대로(기존 6인자 생성자 → `RegionalBusShared.disabled()`). 켜면 Redis 캐시(`bus:gg:arr:{station}:{route}`, `bus:tago:arr:{city}:{node}:{route}`, 15초, **빈 OK 도 저장**) → JVM SingleFlight → 서버 사이 single-flight → 공급자
+- 서버 사이 single-flight 절차를 `CrossInstanceFlightRunner`(application/route/concurrent)로 뽑아 서울 `CachedSearchTimeBusAdapter` 와 지역 어댑터가 같은 코드. 잠금 수명은 지역 상수(경기 9초, TAGO 10초 — 기본 RestClient connect 3 + read 5 + TAGO 자리 대기 1)
+- 경기 일일 몫 `gg-arrival`(Redis 버킷, 기본 8,000)은 **어댑터 안, 캐시 miss·double-check 뒤 fetch 직전**에만 점유(캐시 hit 는 몫 안 씀). 재탐색은 자기 버킷을 이미 냈으므로 포트 오버로드 `getArrival(station, route, chargeQuota=false)` 로 부름(`RegionalArrivalLookup`)
+- TAGO 동시 호출: JVM `Semaphore(8)` → 플래그 켬이면 `RedisNamedSemaphore`(`sem:tago-bus:permits`, ZSET + Redis TIME + lease 10초, OTP 게이트와 같은 Lua, OTP 빈·키·지표는 무변경) 서버 합산 8. fail-closed
+- 차단기: `ApiCallBlocker` 에 선택 의존 `SharedBlockStore`. `RedisSharedBlockStore` 는 플래그 켬일 때만 빈(`@ConditionalOnProperty`), `gyeonggi-bus-arrival`·`tago-bus-arrival` 두 이름만, 키 `api:block:{name}` 값 KST 날짜 TTL KST 자정. 저장소 오류면 JVM 상태로 폴백. 지하철 어댑터 등 다른 이름은 영향 없음
+### 함정
+- `RegionalArrivalLookupTest` 가 2인자 `getArrival` 을 stub 했는데 Mockito mock 은 인터페이스 default 메서드를 타지 않아 3인자 호출이 null → stub·verify 를 3인자(`false`)로
+- `MockRestServiceServer` 의 `andRespond` 람다는 IOException 만 던질 수 있어 `Thread.sleep` 을 직접 못 씀 → `sleepQuietly` 헬퍼
+- `RedisNamedSemaphore.key()` 가 package-private → 다른 패키지 IT 는 키 문자열 직접
+### 좌표
+- 신규: `application/route/concurrent/CrossInstanceFlightRunner`, `application/arrival/port/out/RegionalBusCachePort`, `application/arrival/config/RegionalBusSharedProperties`, `infrastructure/adapter/out/cache/bus/{RedisRegionalBusCacheAdapter, RegionalBusShared}`, `infrastructure/adapter/out/cache/RedisNamedSemaphore`, `infrastructure/adapter/out/api/{SharedBlockStore, RedisSharedBlockStore}`
+- 수정: `GyeonggiBusArrivalAdapter.getArrivalShared/fetchAndStore`, `TagoBusArrivalAdapter.getArrivalsShared/fetchAndStore`, `GyeonggiBusArrivalPort.getArrival(…, chargeQuota)`, `RegionalArrivalLookup.gyeonggi`, `ApiCallBlocker`, `CachedSearchTimeBusAdapter.crossInstance`(러너 위임), yaml `regional-bus.shared`
+- 시험: `RedisRegionalBusCacheAdapterIT`, `RedisNamedSemaphoreIT`, `RedisSharedBlockStoreIT`, `GyeonggiBusArrivalAdapterSharedIT`(켬 1회/끔 3회/빈 결과 공유/몫 게이트), `TagoBusArrivalAdapterSharedIT`(켬 1회/합산 상한), 공용 `RedisTestSupport`
+### 검증
+- `compileJava compileTestJava` 통과
+- `runsome.sh --tests '*Regional*' '*NamedSemaphore*' '*SharedBlock*' '*Gyeonggi*' '*Tago*' '*CrossInstance*' '*CachedSearchTimeBus*' '*RouteSearchCacheIT' '*RouteSearchStampedeIT' '*OtpConcurrencyGate*' '*ApiCallBlocker*' '*BusArrivalQueryService*'` → 141 tests, BUILD SUCCESSFUL
+- 코드 리뷰(reviewer 에이전트, 🔴2 🟡6 ❓1) 반영: 🔴① `ApiCallBlocker` 가 공유 저장소의 "차단 아님"을 그대로 믿어 이 서버의 JVM 차단(공유 쓰기 실패 뒤)을 놓치던 것 → 공유가 "차단"일 때만 바로 true, 아니면 JVM 상태도 본다(+테스트) 🔴② `gyeonggi-daily-limit` 8,000 + 재탐색 버킷 기본 5,000 = 13,000 > 공급자 10,000 → 5,000 으로, `RegionalBusQuotaBudgetTest` 가 합 ≤ 10,000 을 지킨다 🟡③ 공유 차단기 읽기를 2초 메모(캐시 hit 마다 Redis GET 하나 더 붙던 것) ④ `RegionalBusShared.runner()` resultTtl 하한 100 ⑤ TAGO lease 10 → 15초(본문 느린 수신 여유) ⑥ 시험 flaky 완화: 끔 대조군 ≥ 서버 수, TAGO 상한 시험 호출 3초·setUp 에서 세마포어 키 제거, lease 만료 시험 1초
+- ❓ "빈 OK 를 캐시 hit 로"는 의도: 지역 캐시 포트 규칙(빈 결과도 저장, 10,000 한도 보호). 서울 캐시는 빈 목록을 저장하지 않으므로 러너의 cacheProbe 가 빈 목록을 돌려주는 일이 없다 — 러너 공유로 서울 동작이 바뀌지 않음
+- 미결: TAGO `fetch()` 본문 읽기(`readAllBytes`)에 전체 기한이 없어 극단적으로 느린 수신이 lease 를 넘길 수 있음(그때 자리 하나가 잠시 초과). 기한 있는 본문 읽기는 별건
+- 재실행(리뷰 반영 뒤) 대상 묶음 + `RegionalBusQuotaBudgetTest` → BUILD SUCCESSFUL (2분 26초)
+- 전체 `runfull.sh`(최종 코드 32e86800, 1차): 3,653 중 실패 467 — 전부 `Connection to localhost:55432 refused`. Docker Desktop 이 내려가 st-pg·st-redis 없음(코드 무관). `docker start st-pg st-redis` 로 기존 컨테이너만 올림(새 컨테이너 없음)
+- 전체 `runfull.sh`(최종 코드, 2차): **3,925 중 실패 8, 건너뜀 7**, 5분 10초. 실패 8 = `SubwayRideScenarioIT`(2) `SubwayRingExpressReplayIT`(5) `SubwayRingReplayIT`(1), 전부 `DuplicateKeyException uq_user_push_token_token (token)=(device-token)` — PR-4 무관
+- 함정: st-pg 에 11-03 23:28 의 시험 행(user 296322, journey 294167, push 토큰 `device-token`)이 남아 있었음 ← 그 전 전체 실행이 메모리 부족으로 중간에 죽어 `@AfterEach` 가 안 돎 / 가드: 시험의 cleanUp 과 같은 순서로 수동 삭제(subway_* → journey_* → user_push_token → users). 앞으로 전체 실행이 강제 종료되면 `select count(*) from user_push_token where token='device-token'` 먼저 확인
+- 재실행 3 클래스 → 11 tests, BUILD SUCCESSFUL. 합치면 전체 실패 0
+
+## 트랙 근처 정류장 진행 방향 heading (2026-11-03, feat/track-stop-heading, #538)
+플랜: `docs/plan/track-stop-heading/PLAN.md`(M).
+### 확정
+- 대표 방향 = **방위각 ±60° 묶음**(이슈 원안 "다음 정류장 key 다수결"에서 사용자 결정으로 변경). 운영 OTP 6곳 754분기 실측: key 다수결 72%, ±45° 90%, ±60° 91% 대표 포함
+- 방위각 = 정류장 → 다음 정류장(지도 고정값). 사용자 위치와 무관
+- 서울 버스 패턴은 차고지 → 차고지 왕복 하나 → 같은 패턴 코드가 길 건너편 정류장에도 나온다(고속터미널 104m 쌍 20개, 잠실역.롯데월드 54m 쌍 15개). 서버는 코드 그대로, **앱이 코드 겹침 + 방위각 차 ≤60° 일 때만 같은 섹션**(이슈 댓글로 계약 전달)
+- 80m 보강(다음 정류장이 가까우면 remaining[1]) 미적용: 80m 미만 6/754, 40m 미만 0, 결과 동일. 바뀐 3건(사당역3번출구 → 50m 4번출구)은 그 뒤 꺾는 방향을 잡아 오히려 덜 맞음
+- heading 계산은 근처 조회와 같은 permit·마감 안, 정류장 단위 try/catch → 실패한 정류장만 null. 운영 실측 `patternsAtStop` 15회 합 121ms(p50 6ms) → 순차
+- `PatternStop(gtfsId, name, lat, lon)` + 2인자 생성자(좌표 null) — 기존 호출 13곳 무수정
+### 함정
+- 이슈 수용 기준 예시 "강남역 → 지하철2호선강남역" 쌍은 강남역 사거리 300m 안에서 그 이름으로 잡히지 않음 → 같은 이름 길 건너편 쌍(강남역9번출구·12번출구·10번출구)과 잇따르는 쌍(12번출구 → 9번출구)으로 확인
+- 같은 정류장이라도 경기 피드 노선은 정류장 순서가 달라 다음 정류장이 서울 노선과 다르다(강남역9번출구: 서울 → 서초동진흥아파트, 경기 → 서초푸르지오써밋)
+### 좌표
+- `application/journey/service/TrackStopHeading.java`(순수), `TrackSelectionQueryService.headings`, `TrackPatternSource.expired`
+- `application/journey/dto/TrackViews.{Stop.routeNames,Stop.heading,Heading,Direction.nextStopNames}`, `JourneyTrackProperties.headingLimit`(12)
+- `otp/trackPatterns.graphql` PatternsAtStop `stops { gtfsId name lat lon }`
+- 실측 스크립트: 세션 scratchpad `heading_v4.py`(운영 OTP 127.0.0.1:18080 를 `ssh vps python3 -` 로)
+- 보강(계획 밖): heading 단계 시간 상한 `journey.track.heading-budget-ms`(기본 1000) — OTP 가 느려도 근처 조회가 마감 8초까지 늘어지지 않게. `TrackPatternSource.capped` 는 바깥 마감보다 늘리지 않는다
+### 검증
+- `./gradlew test --tests '*TrackStopHeadingTest' --tests '*TrackSelectionQueryServiceTest' --tests '*JourneyTrackControllerTest' --tests '*OtpTransitPatternAdapterTest'` → 통과
+- 전체 `cleanTest test --continue`(st-pg·st-redis env): **3,910 중 실패 8, 모두 기존 무관** — `SubwayRideScenarioIT`·`SubwayRingExpressReplayIT`·`SubwayRingReplayIT` 가 `user_push_token` 에 고정 token `'device-token'` 을 넣다 `DuplicateKeyException`. st-pg 에 2026-11-03 23:28 에 남은 행(앞서 Gradle 데몬이 외부 stop 으로 끊긴 실행의 잔여로 추정)이 원인. 이 브랜치 diff 와 무관한 테이블
+- 함정(시험 환경): 전체 시험 env 스크립트가 `${X:기본값}` 자리까지 dummy 로 덮으면 boolean 바인딩이 깨져 컨텍스트 IT 411건 실패 ← 기본값 없는 `${X}` 만 채울 것
+### 배포 (#538, 2026-11-04 11:20 KST)
+- api 만: `nextroute:20261104-112049-d9d38adf`. worker 는 `20261103-212613-f64caa36` 그대로. 마이그레이션 없음. jar 백업 `app.jar.bak-20261104-112048-pre-d9d38adf`(= f64caa36)
+- 이 api 에는 #536·#537 코드도 들어 있다. #537 플래그 꺼짐, #536 은 worker 쪽 수집기라 api 동작 변화 없음. **VPS `app.jar` 는 이제 d9d38adf** — 다음 worker 배포는 #536(수집 몫 Redis, 호출 전 점유)을 함께 싣는다
+- 확인: 기동 뒤 ERROR 0, 새 이미지 태그, 미인증 401. **실제 `heading` 응답은 아직 못 봄**(인증 필요, 운영 계정 안 만듦) — 앱 호출 뒤 확인. 배포 전 `stops/near` p95 약 48ms(7일) = 비교 기준
+
+## 다중 인스턴스 측정과 하네스 (2026-11-04, perf/bus-multi-instance-measure, bus-multi-instance PR-3)
+### 확정
+- 측정 A 는 JUnit 벤치 2개(`RUN_BENCHMARK=true` 일 때만): 서울 `CachedSearchTimeBusAdapterCrossInstanceBenchmarkTest`, 경기 `GyeonggiBusArrivalAdapterSharedBenchmarkTest`. 서버 1~4 × 플래그 끔/켬 × 동시 100건, 예열 2 + 10회. 쓰는 숫자는 공급자 호출 수뿐(플랜 검토 #18). 공급자 지연 73ms = 사다리 가짜 공급자 보정값(운영 Prometheus 에 외부 API 히스토그램 없음, 11-03 읽기 전용 확인)
+- 측정 B 하네스: `run_subway_ladder.sh` 에 `WORKER_PORT_BASE`(기본 8080, 사용 중이면 exit 6), `BUS_COLLECT=1`(worker 에 버스 도착·위치 수집기 켬 + 운영 시간 24시간 + bus_route 에 `LADDER-<이름>` 6행 심고 끝에 지움), fake `/counts` 의 route_all·pos 10초 표본 `buscount-<label>.tsv` 와 분당 요약
+### 함정
+- `bus_route.id` 는 `generated by default as identity`(시퀀스 이름 없음) → `pg_get_serial_sequence` 가 null. 심을 때 id 를 빼고 insert
+### 좌표
+- `load/ladder/run_subway_ladder.sh`(WORKER_PORT_BASE, BUS_COLLECT 블록 3곳), 벤치 2개(위)
+### 검증
+- 측정 A(st-redis, 11-04): 서울·경기 모두 **servers 1/2/3/4 → 끔 1/2/3/4회, 켬 1/1/1/1회(중앙값 = 최대, 10회 전부)**. 서울 p50 참고값 끔 ≈81ms, 켬 ≈116ms(대기자 50ms 폴링 탓, 배포 환경 대표 아님)
+- 측정 B(사다리, worker 2대, 여정 100, 10분 칸 ×2, 11-04): 리더 락 **끔 route-all 84 = 12/분(노선 6 × 2)**, **켬 42 = 6/분(노선 6 × 1)**, 위치도 같음. 7 틱 × 12 / 7 틱 × 6 로 정확. 켬 칸 리더 = worker2 만(게이지 1, 수집 성공 40). 심은 bus_route 6행은 칸 끝에 지워짐(0행 확인). 지하철 평가 p50 87→93ms, 실패 0(같은 범위)
+- 함정: WORKER_PORT_BASE=8090 이면 worker 포트는 8091·8092(base + i). 8090 이 아님. preflight 도 같은 식으로 센다
+- 문서: `load/ladder/MULTI-WORKER.md` "버스 경로" 절 추가
+- 코드 리뷰(reviewer 에이전트, 🟡8 🔵2) 반영: ① 하네스에 `bus_collect_cleanup` + `trap … EXIT INT TERM`(exit 7·Ctrl-C 에서도 심은 bus_route 행 삭제와 표본 루프 정지) ② 표본이 fake 응답 실패 때 빈 칸 대신 줄을 건너뛰고, 요약은 숫자 3칸 줄만 읽음 ③ preflight 를 배열로, lsof 없으면 exit 6 ④ 벤치 2개에 단언 추가(켬 = 모든 회차 1회, 끔 = 중앙값 서버 수), 회차 키 정리를 finally 로, 풀 awaitTermination ⑤ 경기 벤치 tearDown 이 고정 Clock 날짜 키 `gg-arrival:20261103` 만 지움(와일드카드 삭제 제거) ⑥ javadoc 에 `cleanTest` 필수 명시(환경 변수는 Gradle 입력이 아님)
+- 재검증: `RUN_BENCHMARK=true` 벤치 2개 통과(단언 포함), 변수 없이 `--rerun-tasks` → skipped 1/1. 2분 스모크 칸(BUS_COLLECT=1, worker 2) rc=0, 심은 행 0, 표본 루프 종료, 포트 전부 내려감
+
+## 트랙 근처 정류장 노선 색 routes (2026-11-04, feat/track-near-route-colors, #542)
+### 확정
+- 버스 `Stop.routes[{name,color}]` 추가, `routeNames` 와 같은 범위(형제 묶음 합집합). 지하철 null. 같은 이름이면 색 있는 쪽. OTP 호출 수 그대로(`StopsNear` 의 `routes { gtfsId shortName color }`)
+- 색은 `TrackSelectionQueryService.color(route, true)` 를 그대로 호출 → `Direction.color` 와 규칙 하나. 근처 노선은 mode 없는 `TransitRoute`(gtfsId·shortName·color 만)
+- 운영 OTP 실측(강남역 27정류장 173노선): 색 없음 0, 같은 이름에 색 둘 0, 146 근처·패턴 모두 `0068B7`
+### 검증
+- `./gradlew test --tests '*Track*' --tests '*OtpTransitPatternAdapterTest' --tests '*WorkerProfileWiring*'`(st-pg·st-redis env) → 141 tests, 실패 0. 전체 시험은 안 돌림(바뀐 곳이 근처 조회 경로뿐)
+### 배포 (#542, 2026-11-04 12:02 KST)
+- api 만: `nextroute:20261104-120233-44654762`. worker 는 `20261103-212613-f64caa36` 그대로. 마이그레이션 없음. jar 백업 `app.jar.bak-20261104-120231-pre-44654762`(= d9d38adf)
+- 함께 실린 #539: `REGIONAL_BUS_SHARED`·`ROUTE_SEARCH_BUS_CROSS_INSTANCE` env 없음(꺼짐), `RedisSharedBlockStore` 는 `regional-bus.shared.enabled=true` 일 때만 빈 → 기존 경로. **VPS `app.jar` 는 44654762** — 다음 worker 배포는 #536·#537·#539 를 함께 싣는다
+- 확인: 기동 뒤 ERROR 0, 새 이미지 태그, healthy. `heading`·`routes` 실응답은 인증이 필요해 아직 못 봄 → 앱 호출 뒤 확인. 디스크 83%(여유 11G), `.upload-d9d38adf`·`.upload-44654762` 조각 폴더가 남아 있음
+
+## 운영 배포: 다중 인스턴스 플래그 3개 + Xmx512 + Tempo 끔 (2026-11-04 13:47 KST)
+### 배포
+- 사용자 지시("운영 배포 플래그도 키자", "끄자 그리고 ① 적용"). 스크립트 `vps-flags-xmx512-tempo-off.sh` 를 사용자가 `ssh vps 'bash -s'` 로 실행(에이전트 VPS 쓰기 금지 규칙)
+- VPS `compose.yaml`(백업 `compose.yaml.bak-20261104-134739-pre-flags`): `-Xmx768m → -Xmx512m`(api·worker 공통 앵커), 공통 env `ROUTE_SEARCH_BUS_CROSS_INSTANCE=true` `REGIONAL_BUS_SHARED=true` `MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=false`, worker 전용 `JOURNEY_REEVAL_LEADER_LEASE=true`
+- worker 이미지 `f64caa36`(#532, PR-1·2·4 없음) → `nextroute:20261104-134740-44654762`(api 와 같은 app.jar). api 는 같은 이미지로 env 만 재생성. 마이그레이션 없음
+- Tempo: `observability/compose.yaml`(백업 `…bak-20261104-134739-pre-tempo-off`) grafana depends_on 에서 제거, tempo 에 `profiles: ["traces"]`, stop + rm. 볼륨 `tempo-data`(1.48GB) 남김. 근거: 최근 24h Tempo 조회 0건, RAM 112MB. 앱은 export 만 끔(트레이싱 유지 → 로그 traceId 그대로)
+### 검증
+- 두 컨테이너 healthy, env·이미지 확인. worker `[LeaderLease] 리더가 됨`, `journey_reeval_leader 1`. Redis 에 `bus:quota:search:collector-arrival/position:20261104` 생김(PR-1 수집 몫 동작). 15분 ERROR 0/0, export 실패 로그 0, WARN 은 기존 `[TrainTransition] 중복 열차` 뿐
+- 메모리: 기동 직후 api 709MB·worker 799MB(Xmx512, 주기 GC 전), 호스트 가용 1,463MB(전 1,431)
+### 미결
+- `crossflight.requests`·`bus:flight:*`·`bus:gg:arr:*` 는 실트래픽 뒤 확인(하루 관찰). worker2 추가는 그 뒤
+- 운영 메모리 근거(11-04 7일 Prometheus): api old gen ≤241MB, worker ≤312MB, 메타스페이스 148MB. OTP 는 GC 뒤 old gen 2.72~2.76GB 라 Xmx3500 못 줄임
+
+## 단독 추적 두 번째 통과 하차 alightIndex (2026-11-04, fix/track-alight-index, #546)
+### 확정
+- 운영 OTP 실측(버스 25,103노선, 28,756패턴): 승차 뒤 한 바퀴 안에 같은 `gtfsId` 가 두 번 나오는 패턴 3,101개(10.8%), 노선 3,046개(12.1%). 피드별 SEB 91/781, GGB 672/3,892, ICB 38/716, 그 밖 2,300/23,367. (승차, 하차) 쌍 기준 216,307/41,531,350(0.52%)
+- 형제 정류장은 id 가 달라 안 걸린다: id 중복 없는 패턴 중 groupKey 만 겹치는 패턴 0개. 이름만 같은 다른 id 는 15,702패턴(문제 아님)
+- `alightIndex` 는 힌트: 그 자리 정류장이 하차와 같을 때만 쓴다. 코드 없이 패턴이 여럿이면 힌트가 맞은 패턴 안에서 고른다(짧은 다른 패턴의 첫 등장으로 새지 않게)
+- 이슈 밖 추가: `shape` 에도 선택 `alightIndex`(고를 때 본 선 = 시작 후 선 계약 유지)
+- 이슈 밖 추가: `RegionalRideLocator` 는 계획 정류장에 하차 id 가 두 번이면 `ambiguous-stop`. 표 첫 등장으로 세면 첫 통과를 지난 뒤 지나간 자리를 현재 위치로 잡는다(왕복 구간처럼 연달아 겹치는 노선). 서울 `BusRideLocator` 는 원래 `ambiguous-stop` 이다
+### 함정
+- 같은 정류장이면 첫 통과가 항상 더 빨리 도착한다 → 두 번째 통과를 일부러 고를 이유는 드물다. 앱에서 행 두 개가 함께 선택되는 표시 문제가 사용자에게 보이는 쪽
+- 첫 통과가 하차 금지라 두 번째 행만 보이고 시작이 422 나는 경우를 의심했으나 실측 0패턴(같은 id 가 두 번 이상인 5,659패턴 전수, 패턴별 첫 trip 기준)
+- 시험에서 패턴 정류장만 바꾸면 `TrackLegFactory` 의 승하차 stop id 일치 검사에 걸린다 → 시각표도 같이 바꿀 것
+### 미결
+- 두 번째 통과 하차 여정은 위치 기반 기능(다음 정류장 재탐색, 보드)이 꺼진다. 서울·지역 모두 위치를 안 만든다. 계획 목록을 못 읽은 지역 여정은 가드를 못 타고 옛 규칙으로 센다
+### 검증
+- `--tests '*Track*' '*RegionalRideLocator*' '*RideTruncation*' '*UpcomingStopWindow*' '*WorkerProfileWiring*'`(st-pg·st-redis env) → 167 tests, 실패 0. 전체 시험은 안 돌림
+### 배포
+- 미배포. 마이그레이션 없음. 앱이 `alightIndex` 를 보내기 전까지 동작 변화 없음
+
+## 운영 worker2 기동 (2026-11-04 13:59 KST)
+### 배포
+- `compose.yaml`(백업 `…bak-20261104-135906-pre-worker2`)에 `worker2` 서비스: worker 블록 복제, 같은 이미지(`WORKER_IMAGE`)·env. **리더 락을 안 보는 단독 작업은 worker2 에서 env 로 끔**: `SUBWAY_POSITION_ENABLED`·`REGIONAL_BUS_CATALOG_ENABLED` 미설정, `COLLECTOR_ROUTEROTATION_ENABLED=false`(+`COLLECTOR_ROUTE_ROTATION_ENABLED`), `BATCH_BUS_LABEL_ENABLED=false`, `BATCH_ARRIVAL_EVENT_ENABLED=false`. 로그 `/logs/worker2-<build>.log`
+- Prometheus `prometheus.yml` 에 `worker2:8081`(role worker2) 추가, SIGHUP. alloy 는 compose 서비스 라벨로 자동 수집
+- `deploy.sh` 는 worker2 를 모름 → `./deploy.sh worker` 뒤 `compose up -d --no-deps --force-recreate worker2` 수동(compose 주석)
+### 확정
+- 코드 조사(@Scheduled 28곳): 리더 락 게이트 있음 = 지하철 도착 수집, 버스 도착·위치 수집, 버스 도착 알림 폴러, 노선 감시자. DB claim(`SKIP LOCKED`)으로 다중 안전 = 재평가, 재탐색 보드, 링 push relay, 버스 알림 relay. latest-wins = 링 계산. **게이트 없음(두 대면 2배)** = `RealtimeSubwayPositionCollector`(5초 폴링, 주석 "한 인스턴스에서만"), `RegionalBusCatalogScheduler`(매월 1일 2.15만 호출), `WeeklyRouteRotationScheduler`, `SubwayArrivalEventBatchScheduler`(04:30), `BusArrivalLabelBatchScheduler`(04:50). 프로필 없음(api 에도 이미 도는 것) = 날씨·예측 지원·TAGO 도시코드·시계 skew
+### 검증
+- worker2 healthy, `journey_reeval_leader` worker 1 / worker2 0. `collector-arrival` 몫 70초 증가 29(한 틱 ≈ 노선 30, 두 대면 60) → 수집기 한 대. worker2 위치 수집 흔적 0, ERROR 0/0/0
+- 메모리: worker2 706MB(기동 피크), 호스트 가용 1,397 → 729MB, 스왑 1.0GB. 주기 GC 뒤 재확인 필요
+### 미결
+- 리더 게이트 PR(위 5개에 `isLeader()`) → 머지·배포 뒤 worker2 env 를 worker 와 같게. 그때까지 worker1 이 죽으면 지하철 위치 수집·노선표·배치는 멈춤(도착 수집·알림은 worker2 가 이어받음)
+- 메모리 추가 절약(③ SerialGC/Xss512k, ④ CDS)은 가용 메모리 추이 보고
+
+## 급행 카탈로그 점검 오탐 가드 (2026-11-04, fix/express-check-unread-tables, #530)
+### 확정
+- 카탈로그는 안 고친다: 11-04 VPS 에서 `--weeks 1,2,3` 재실행 → 5개 서비스 모두 일치. 1호선 경부 A 의 `onlyTrains` 13개가 금천구청·의왕 예외 정차로 그대로 나옴
+- 11-02 경보의 원인은 **확정 못 함**. 그날 report 를 남기지 않았다. 후보 ① 조회 실패가 빈 표로 삼켜짐(`get` 이 예외를 `{"error"}` 로 바꾸고 `timetable` 이 빈 목록 반환) ② API 가 그 시점에 다른 데이터를 줌. 그날 Fetch 66초(10-26 97초)라 타임아웃이 많았다는 증거는 없다
+- 평소 빈 표 0개(같은 실행에서 못 읽은 표 0, 빈 표 0) → 못 읽은 표·빈 표가 있으면 판정 불가(종료 2), 이슈를 만들지 않고 잡이 실패한다
+- 공급자의 '데이터 없음' 응답 모양은 `{"RESULT":{"CODE":"INFO-200"}}`(11-04 실측)
+- report.json 을 artifact 로 30일 보관(키 없음) — 다음 경보 때 원인을 볼 수 있게
+### 미결
+- 후보 ②(API 가 정상 행으로 다른 값을 준 경우)는 이 가드로 못 막는다. 다시 나면 artifact 로 판단
+### 검증
+- `python3 -I -m unittest discover -s tools/subway-express -p 'test_*.py'` → 9 tests OK. VPS 실행 → 못 읽은 표 0, 빈 표 0, `check_catalog.py` 종료 0
+
+## 경기 버스 도착 전면 실패: staOrder 필수 (2026-11-04, fix/gyeonggi-arrival-sta-order)
+### 확정
+- `getBusArrivalItemv2` 는 `staOrder` 없으면 `resultCode=2`(필수 요청 Parameter). 3노선 60곳 표본: 없으면 60/60 실패, 넣으면 60/60 성공(경기·서울 정류장 같음). 운영 11-04 13:47 뒤 `gg-arrival` 몫 101건 = 거절 로그 101건. 첫 거절 로그 11-02 06:04:02 KST. 10-05 계획서에는 `staOrder` 없이 정상으로 적혀 있다. 공급자 공지는 확인 못 함
+- 순번은 `regional_bus_route_stop.seq`(GBIS `stationSeq`, 표본 6쌍 일치). 조회는 캐시 miss 때만, 몫 점유 전에 한다 → 순번을 모르면 공급자 호출도 몫도 없다
+- 같은 노선에 같은 정류장이 두 번이면 빈 값(서울 다중 순번과 같은 규칙). 첫 순번을 쓰면 반대 방향 버스 도착을 보여 줄 수 있다
+- 운영 OTP GGB (노선, 정류장) 139,880쌍: 순번 하나 121,939(87.2%), 두 번 이상 2,289(1.6%), 노선이 표에 없음 14,769(10.6%), 정류장이 표에 없음 883(0.6%). 표에 없는 450노선 중 앞 8개는 GBIS 도 결과 없음(코드 4) → 공급자 API 대체 경로를 안 넣음
+### 미결
+- 두 번 나오는 쌍 2,289개는 계속 실시간 없음. 표 전체 중복 2,640쌍 가운데 337쌍은 첫·마지막 순번 쌍(순환 기점)이라, 승차 쪽만이면 첫 순번을 써도 되는지 따로 판단
+- 실패가 WARN 뿐이고 응답이 200 이라 이번 장애가 이틀간 경보 없이 지나갔다. `resultCode=2` 같은 거절 비율 경보는 별건
+### 검증
+- `--tests '*Gyeonggi*' '*RegionalArrivalLookup*' '*BusArrivalQueryService*' '*RideTruncation*' '*UpcomingStopWindow*' '*WaitBusArrival*' '*WorkerProfileWiring*'`(st-pg·st-redis env) → 73 tests, 실패 0
+### 배포
+- 미배포. 마이그레이션 없음. api·worker·worker2 모두 어댑터를 쓴다
+
+## 경기·TAGO 버스로 갈아타는 환승 판정 (2026-11-04, fix/regional-transfer-verdict)
+### 확정
+- 조사: `BusBoardingTimeEstimator.hasScope` 가 서울 route_id·순번을 요구해 경기·TAGO 대상은 `no_scope` → 항상 UNKNOWN. 30일 WAIT_BUS 대상 54건 중 19건 route_id null(시외 2건은 공급원 없음)
+- 규칙은 서울 `pickRealtime` 과 같다: 준비 시각 뒤 첫 버스, 없으면 모름. 응답의 차가 전부 준비 시각 전이어도 "놓침"을 단정하지 않는다(다음 한두 대뿐). 서울과 달리 모델 대체가 없다
+- 실시간 시야(`bus-realtime-window-seconds` 1200초) 밖이면 호출하지 않는다. 몫은 재탐색 지역 버킷(`reroute-gg-arrival`) 공유
+- 몫 소진만 `blocked`(평가 간격 늦춤). 조회 실패는 unknown: #551 뒤 순번이 안 정해지는 정류장도 조회 실패로 오기 때문에, 막힘으로 치면 그 여정 평가가 계속 늦춰진다
+- 알림은 판정 품질로 거르지 않는다. 경기는 분 단위라 근사 품질로도 위험 알림이 나간다
+- 지표 `journey_transfer_boarding_miss_total{mode="regional_bus"}`: beyond-window, no-realtime, arrival-blocked, quota-exhausted
+### 검증
+- `--tests '*TransferTargetArrivalPredictor*' '*RegionalArrivalLookup*' '*WaitLegArrivalPredictor*' '*TransferRisk*' '*WorkerProfileWiring*' '*BoardingTime*'`(st-pg·st-redis env) → 131 tests, 실패 0
+### 배포
+- 미배포. 마이그레이션 없음. 평가기는 worker 라 worker·worker2 교체면 판정에 반영된다
+
+## 사용 통계 대시보드 빈 그래프 (2026-11-04, fix/usage-dashboard-hourly)
+### 확정
+- 쿼리·권한·데이터는 정상. 일별 패널의 점은 날짜 00:00(KST)에 찍히는데, 하루 안쪽 범위를 고르면 그 점이 축 밖으로 나가 빈 그래프가 된다(Grafana `/api/ds/query` 로 재현: 값 1건, 범위 안 0건)
+- 일별 패널 5개는 `timeFrom: 30d` 로 고정, 시간별 패널 4개(첫 접속, 신규 계정, 여정 시작, 경로 검색) 추가. 기본 범위 now-24h
+- 시간별 활성은 `user_daily_activity.first_seen_at` 뿐이라 "그날 첫 접속" 시각이다. 그 시간의 전체 사용자 수는 기록이 없다
+- 일별 검색은 `[1d] offset -1d`: 없으면 막대가 구간 끝에 찍혀 진행 중인 오늘이 빠진다. Prometheus 3.4 는 음수 offset 지원. 11-04 값 296 = 같은 시점 `increase[9h]` 296
+### 함정
+- `$__timeGroupAlias` 인자에 `(col at time zone '…')` 를 넣으면 `macro __timeGroup needs time column…` 오류 ← naive KST 칸은 `generate_series` 왼쪽 조인으로 묶는다
+### 배포
+- VPS `/root/apps/observability/grafana/dashboards/usage.json` 교체(백업 `../usage.json.bak-20261104-172558-pre-hourly`), 30초 안에 자동 반영. 앱 배포 없음
+### 검증
+- `/api/ds/query` 로 1시간·24시간 범위: 시간별 4개 값 있음, 일별 5개 30일 값 있음, 오류 0. 브라우저 화면은 로그인이 필요해 직접 못 봄

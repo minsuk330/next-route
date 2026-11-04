@@ -8,7 +8,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.arrival.dto.TagoBusArrival;
 import watoo.grd.nextroute.application.arrival.port.out.TagoBusArrivalPort;
+import org.springframework.beans.factory.annotation.Autowired;
 import watoo.grd.nextroute.application.route.concurrent.SingleFlight;
+import watoo.grd.nextroute.infrastructure.adapter.out.cache.bus.RegionalBusShared;
+import java.time.Duration;
+import java.util.Optional;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.BusQueryResult;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.ApiCallBlocker;
 
@@ -45,6 +49,7 @@ public class TagoBusArrivalAdapter implements TagoBusArrivalPort {
 
     static final String API_NAME = "tago-bus-arrival";
     static final int MAX_CONCURRENT = 8;
+    static final String SHARED_SEMAPHORE = "tago-bus";
     static final Duration CACHE_TTL = Duration.ofSeconds(15);
     private static final long PERMIT_WAIT_MS = 1_000;
     private static final long JOIN_WAIT_MS = 5_000;
@@ -57,6 +62,8 @@ public class TagoBusArrivalAdapter implements TagoBusArrivalPort {
     private final Clock clock;
     private final String baseUrl;
     private final String apiKey;
+    /** 서버 사이 공유 부품(PR-4). {@code enabled()} 가 false 면 아래 JVM 캐시·JVM 세마포어 경로 그대로. */
+    private final RegionalBusShared shared;
 
     final Semaphore permits = new Semaphore(MAX_CONCURRENT);   // package-private: 테스트가 한도 상황을 만든다
     private final ConcurrentHashMap<String, CacheEntry> cache = new ConcurrentHashMap<>();
@@ -64,18 +71,31 @@ public class TagoBusArrivalAdapter implements TagoBusArrivalPort {
 
     private record CacheEntry(BusQueryResult<TagoBusArrival> result, Instant expiresAt) {}
 
+    /** JVM 전용(시험·공유 부품 없음). */
+    public TagoBusArrivalAdapter(RestClient restClient,
+                                 ObjectMapper objectMapper,
+                                 ApiCallBlocker blocker,
+                                 Clock clock,
+                                 String baseUrl,
+                                 String apiKey) {
+        this(restClient, objectMapper, blocker, clock, baseUrl, apiKey, RegionalBusShared.disabled());
+    }
+
+    @Autowired
     public TagoBusArrivalAdapter(RestClient restClient,
                                  ObjectMapper objectMapper,
                                  ApiCallBlocker blocker,
                                  Clock clock,
                                  @Value("${tago.api.bus-arrival-base-url}") String baseUrl,
-                                 @Value("${tago.api.bus-key:}") String apiKey) {
+                                 @Value("${tago.api.bus-key:}") String apiKey,
+                                 RegionalBusShared shared) {
         this.restClient = restClient;
         this.objectMapper = objectMapper;
         this.blocker = blocker;
         this.clock = clock;
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
+        this.shared = shared;
     }
 
     @Override
@@ -88,6 +108,9 @@ public class TagoBusArrivalAdapter implements TagoBusArrivalPort {
             return BusQueryResult.blocked();
         }
         String key = cityCode + ":" + nodeId + ":" + routeId;
+        if (shared.enabled()) {
+            return getArrivalsShared(key, cityCode, nodeId, routeId);
+        }
         CacheEntry hit = cache.get(key);
         if (hit != null && clock.instant().isBefore(hit.expiresAt())) {
             return BusQueryResult.cached(hit.result().data());
@@ -96,6 +119,42 @@ public class TagoBusArrivalAdapter implements TagoBusArrivalPort {
         SingleFlight.Outcome<BusQueryResult<TagoBusArrival>> outcome =
                 flight.execute(key, () -> fetchAndCache(key, cityCode, nodeId, routeId), JOIN_WAIT_MS);
         return outcome.hasValue() ? outcome.value() : BusQueryResult.error();
+    }
+
+    /** 서버 사이 공유 경로(PR-4): Redis 캐시 → JVM SingleFlight → 서버 사이 single-flight → 서버 합산 세마포어 → 공급자. */
+    private BusQueryResult<TagoBusArrival> getArrivalsShared(String key, String cityCode, String nodeId, String routeId) {
+        Optional<List<TagoBusArrival>> hit = shared.cache().getTago(cityCode, nodeId, routeId);
+        if (hit.isPresent()) {
+            return BusQueryResult.cached(hit.get());
+        }
+        SingleFlight.Outcome<BusQueryResult<TagoBusArrival>> outcome = flight.execute(key,
+                () -> shared.runner("tago").run("tago-arrival", key,
+                        () -> fetchAndStore(cityCode, nodeId, routeId),
+                        () -> shared.cache().getTago(cityCode, nodeId, routeId),
+                        TagoBusArrival.class,
+                        Duration.ofMillis(shared.props().getTagoLockTtlMs()), JOIN_WAIT_MS),
+                JOIN_WAIT_MS);
+        return outcome.hasValue() ? outcome.value() : BusQueryResult.error();
+    }
+
+    private BusQueryResult<TagoBusArrival> fetchAndStore(String cityCode, String nodeId, String routeId) {
+        // 동시 세션 30 을 GBIS·TAGO 지하철과 나눠 쓰므로 TAGO 버스 몫은 서버 합산으로 묶는다.
+        Optional<String> permit = shared.semaphore().tryAcquire(SHARED_SEMAPHORE, shared.props().getTagoMaxConcurrent(),
+                shared.props().getTagoLeaseMs(), PERMIT_WAIT_MS, 50);
+        if (permit.isEmpty()) {
+            log.debug("[TagoBus] shared concurrency limit reached; nodeId={} routeId={}", nodeId, routeId);
+            return BusQueryResult.limited();
+        }
+        BusQueryResult<TagoBusArrival> result;
+        try {
+            result = fetch(cityCode, nodeId, routeId);
+        } finally {
+            shared.semaphore().release(SHARED_SEMAPHORE, permit.get());
+        }
+        if (result.isOk()) {
+            shared.cache().putTago(cityCode, nodeId, routeId, result.data());
+        }
+        return result;
     }
 
     private BusQueryResult<TagoBusArrival> fetchAndCache(String key, String cityCode, String nodeId, String routeId) {

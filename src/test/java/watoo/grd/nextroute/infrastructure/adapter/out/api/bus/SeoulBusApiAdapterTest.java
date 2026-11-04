@@ -13,7 +13,6 @@ import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.exception.BusApiLimitExceededException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiBreakerPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
-import watoo.grd.nextroute.application.bus.service.BusApiCallBudget;
 import watoo.grd.nextroute.common.config.ClockConfig;
 
 import java.net.URI;
@@ -39,8 +38,6 @@ class SeoulBusApiAdapterTest {
 
 	@Mock RestTemplate restTemplate;
 	@Mock BusApiBreakerPort breaker;
-	@Mock BusApiCallBudget arrivalBudget;
-	@Mock BusApiCallBudget positionBudget;
 	SeoulBusApiAdapter adapter;
 
 	@BeforeEach
@@ -50,10 +47,6 @@ class SeoulBusApiAdapterTest {
 				new ObjectMapper(),
 				CLOCK,
 				breaker,
-				arrivalBudget,
-				positionBudget,
-				50000,
-				50000,
 				"bus-key",
 				"http://ws.bus.go.kr/api/rest",
 				"route-key",
@@ -219,10 +212,6 @@ class SeoulBusApiAdapterTest {
 				new ObjectMapper(),
 				CLOCK,
 				breaker,
-				arrivalBudget,
-				positionBudget,
-				50000,
-				50000,
 				"abc%2Fdef%3D",
 				"http://ws.bus.go.kr/api/rest",
 				"route-key",

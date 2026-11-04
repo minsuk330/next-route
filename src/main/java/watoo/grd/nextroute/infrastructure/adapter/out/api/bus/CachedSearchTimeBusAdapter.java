@@ -9,13 +9,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import watoo.grd.nextroute.application.bus.port.out.BusRouteObservationHistoryPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheReadPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
+import watoo.grd.nextroute.application.route.concurrent.CrossInstanceFlightRunner;
 import watoo.grd.nextroute.application.route.concurrent.SingleFlight;
 import watoo.grd.nextroute.application.route.config.SearchTimeBusProperties;
 import watoo.grd.nextroute.application.route.observability.RouteSearchMetrics;
+import watoo.grd.nextroute.application.route.port.out.CrossInstanceFlightPort;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * 검색용 버스 API 캐시 데코레이터.
@@ -42,6 +46,7 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
     private final RouteSearchMetrics metrics;
     private final SearchTimeBusProperties properties;
     private final BusRouteObservationHistoryPort observationHistory;
+    private final CrossInstanceFlightPort flight;
 
     /**
      * 캐시 miss 뒤의 provider 호출을 키 단위로 병합한다(Step 3).
@@ -56,13 +61,15 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
                                       BusRealtimeCacheWritePort cacheWrite,
                                       RouteSearchMetrics metrics,
                                       SearchTimeBusProperties properties,
-                                      BusRouteObservationHistoryPort observationHistory) {
+                                      BusRouteObservationHistoryPort observationHistory,
+                                      CrossInstanceFlightPort flight) {
         this.delegate = delegate;
         this.cacheRead = cacheRead;
         this.cacheWrite = cacheWrite;
         this.metrics = metrics;
         this.properties = properties;
         this.observationHistory = observationHistory;
+        this.flight = flight;
     }
 
     /** ML 노선 이력을 쌓지 않는 생성자(테스트용). */
@@ -70,8 +77,9 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
                                       BusRealtimeCacheReadPort cacheRead,
                                       BusRealtimeCacheWritePort cacheWrite,
                                       RouteSearchMetrics metrics,
-                                      SearchTimeBusProperties properties) {
-        this(delegate, cacheRead, cacheWrite, metrics, properties, BusRouteObservationHistoryPort.NONE);
+                                      SearchTimeBusProperties properties,
+                                      CrossInstanceFlightPort flight) {
+        this(delegate, cacheRead, cacheWrite, metrics, properties, BusRouteObservationHistoryPort.NONE, flight);
     }
 
     @Override
@@ -90,15 +98,17 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
         metrics.recordCacheAccess(TYPE_ARRIVAL, "miss");
 
         String key = stopId + ":" + routeId + ":" + ord;
-        SingleFlight.Outcome<BusQueryResult<BusArrivalInfo>> outcome = arrivalFlight.execute(key, () -> {
-            BusQueryResult<BusArrivalInfo> fresh = timeoutMs == Long.MAX_VALUE
-                    ? delegate.getArrInfoByStop(stopId, routeId, ord)
-                    : delegate.getArrInfoByStop(stopId, routeId, ord, timeoutMs);
-            if (fresh.isOk() && !fresh.data().isEmpty()) {
-                cacheWrite.putArrivals(stopId, routeId, ord, fresh.data());
-            }
-            return fresh;
-        }, joinWait(timeoutMs));
+        SingleFlight.Outcome<BusQueryResult<BusArrivalInfo>> outcome = arrivalFlight.execute(key,
+                () -> crossInstance(TYPE_ARRIVAL, key, () -> {
+                    BusQueryResult<BusArrivalInfo> fresh = timeoutMs == Long.MAX_VALUE
+                            ? delegate.getArrInfoByStop(stopId, routeId, ord)
+                            : delegate.getArrInfoByStop(stopId, routeId, ord, timeoutMs);
+                    if (fresh.isOk() && !fresh.data().isEmpty()) {
+                        cacheWrite.putArrivals(stopId, routeId, ord, fresh.data());
+                    }
+                    return fresh;
+                }, () -> cacheRead.getArrivals(stopId, routeId, ord), BusArrivalInfo.class, timeoutMs),
+                joinWait(timeoutMs));
 
         return resolve(outcome, TYPE_ARRIVAL);
     }
@@ -123,19 +133,47 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
         }
         metrics.recordCacheAccess(TYPE_POSITION, "miss");
 
-        SingleFlight.Outcome<BusQueryResult<BusPositionInfo>> outcome = positionFlight.execute(busRouteId, () -> {
-            BusQueryResult<BusPositionInfo> fresh = timeoutMs == Long.MAX_VALUE
-                    ? delegate.getBusPosByRtid(busRouteId)
-                    : delegate.getBusPosByRtid(busRouteId, timeoutMs);
-            if (fresh.isOk() && !fresh.data().isEmpty()) {
-                cacheWrite.putPositions(busRouteId, fresh.data());
-                // 새 관측만 ML 노선 이력에 덧붙인다(캐시 hit 은 이미 쌓인 관측)
-                observationHistory.append(busRouteId, fresh.data());
-            }
-            return fresh;
-        }, joinWait(timeoutMs));
+        SingleFlight.Outcome<BusQueryResult<BusPositionInfo>> outcome = positionFlight.execute(busRouteId,
+                () -> crossInstance(TYPE_POSITION, busRouteId, () -> {
+                    BusQueryResult<BusPositionInfo> fresh = timeoutMs == Long.MAX_VALUE
+                            ? delegate.getBusPosByRtid(busRouteId)
+                            : delegate.getBusPosByRtid(busRouteId, timeoutMs);
+                    if (fresh.isOk() && !fresh.data().isEmpty()) {
+                        cacheWrite.putPositions(busRouteId, fresh.data());
+                        // 새 관측만 ML 노선 이력에 덧붙인다(캐시 hit 은 이미 쌓인 관측)
+                        observationHistory.append(busRouteId, fresh.data());
+                    }
+                    return fresh;
+                }, () -> cacheRead.getPositions(busRouteId), BusPositionInfo.class, timeoutMs),
+                joinWait(timeoutMs));
 
         return resolve(outcome, TYPE_POSITION);
+    }
+
+    /**
+     * 서버 사이 single-flight(PR-2). JVM 안 SingleFlight 의 owner 만 여기 들어온다(2단계). 절차는
+     * {@link CrossInstanceFlightRunner}(PR-4 에서 경기·TAGO 와 공용으로 뽑음)가 맡고, 여기서는 잠금 수명과 대기 상한만 정한다.
+     *
+     * <p>잠금 수명은 갱신하지 않는다 — 기한 없는 호출은 세마포어 대기 + connect + read + Redis 왕복을 더한 상한(기본 6초)으로
+     * 잡고, 넘기면 두 번째 리더가 한 번 더 부르는 것을 감수한다(결과 키가 토큰별이라 정합성 문제는 아니다).
+     */
+    private <T> BusQueryResult<T> crossInstance(String type, String key, Supplier<BusQueryResult<T>> loader,
+                                                Supplier<Optional<List<T>>> cacheProbe, Class<T> elementType,
+                                                long timeoutMs) {
+        SearchTimeBusProperties.CrossInstance ci = properties.getCrossInstance();
+        if (!ci.isEnabled()) {
+            return loader.get();
+        }
+        boolean unbounded = timeoutMs == Long.MAX_VALUE;
+        Duration lockTtl = Duration.ofMillis(unbounded
+                ? Math.max(1000, ci.getUnboundedLockTtlMs())
+                : timeoutMs + Math.max(0, ci.getLockMarginMs()));
+        // 대기 상한: 기한 있는 호출은 JVM joiner 와 같은 joinWait, 기한 없는 호출은 리더가 걸릴 수 있는 최대(잠금 수명).
+        long waitMs = unbounded ? lockTtl.toMillis() : joinWait(timeoutMs);
+        CrossInstanceFlightRunner runner = new CrossInstanceFlightRunner(flight,
+                (t, role) -> metrics.recordCrossInstanceFlight(PROVIDER, t, role),
+                ci.getPollMs(), Duration.ofMillis(Math.max(100, ci.getResultTtlMs())));
+        return runner.run(type, key, loader, cacheProbe, elementType, lockTtl, waitMs);
     }
 
     private long joinWait(long timeoutMs) {

@@ -6,19 +6,20 @@ import java.util.List;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.in.CollectBusPositionUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
+import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.application.bus.port.out.BusRouteObservationHistoryPort;
 import watoo.grd.nextroute.domain.bus.entity.BusPositionRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.repository.BusPositionRawRepository;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
+import watoo.grd.nextroute.common.lock.LeaderLease;
 
 @Slf4j
 @Service
@@ -26,13 +27,15 @@ import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
 public class BusPositionService implements CollectBusPositionUseCase {
 
 	private static final long API_CALL_INTERVAL_MS = 100;
+	/** 수집 몫 Redis 버킷 — 검색 몫(position)과 이름이 다르다. 서버 수와 무관하게 하나로 센다. */
+	static final String BUCKET_POSITION = "collector-position";
 
 	private final BusApiPort busApiPort;
 	private final BusRouteRepository busRouteRepository;
 	private final BusPositionRawRepository busPositionRawRepository;
 	private final TargetRouteProvider targetRouteProvider;
-	@Qualifier("positionApiCallBudget")
-	private final BusApiCallBudget budget;
+	private final BusApiQuotaPort quota;
+	private final LeaderLease leaderLease;
 	private final Clock clock;
 	private final BusRealtimeCacheWritePort realtimeCacheWrite;
 	private final BusRouteObservationHistoryPort observationHistory;
@@ -72,21 +75,26 @@ public class BusPositionService implements CollectBusPositionUseCase {
 		int successfulRoutes = 0;
 		int failedRoutes = 0;
 
-//		log.info("[BusPosition] Starting collection for {} target routes (budget: {}/{})",
-//				routeIds.size(), budget.getUsed(), dailyBudget);
-
 		for (String routeId : routeIds) {
-			if (!budget.canMakeCall(dailyBudget)) {
-				log.warn("[BusPosition] Daily budget exhausted ({}/{}). Stopping before route {}.",
-						budget.getUsed(), dailyBudget, routeId);
+			// 리더 재확인이 몫 점유보다 앞(리더가 아닌 서버가 몫을 태우지 않게). 잠금이 꺼져 있으면 늘 리더다.
+			if (!leaderLease.isLeader()) {
+				log.info("[BusPosition] Lost leadership. Stopping before route {}.", routeId);
+				return;
+			}
+			// 몫은 Redis 버킷(서버 수와 무관). 호출 전 점유라 실패한 호출도 1 로 센다. Redis 장애면 fail-closed.
+			if (!quota.tryAcquire(BUCKET_POSITION, dailyBudget)) {
+				log.warn("[BusPosition] Daily budget exhausted or unavailable (limit {}). Stopping before route {}.",
+						dailyBudget, routeId);
 				break;
 			}
 
-			boolean callRecorded = false;
 			try {
 				List<BusPositionInfo> items = busApiPort.getBusPosByRtid(routeId);
-				budget.recordCall();
-				callRecorded = true;
+				// 호출이 긴 동안 리더를 잃었으면 새 리더 옆에서 저장하지 않는다.
+				if (!leaderLease.isLeader()) {
+					log.info("[BusPosition] Lost leadership during route {}. Discarding response.", routeId);
+					return;
+				}
 
 				List<BusPositionRaw> entities = items.stream()
 						.map(info -> toEntity(info, routeId, collectedAt))
@@ -109,20 +117,14 @@ public class BusPositionService implements CollectBusPositionUseCase {
 				Thread.currentThread().interrupt();
 				return;
 			} catch (BusApiBlockedException e) {
-				log.warn("[BusPosition] API blocked. Stopping collection without budget record: {}",
-						e.getMessage());
+				log.warn("[BusPosition] API blocked. Stopping collection: {}", e.getMessage());
 				return;
 			} catch (Exception e) {
-				if (!callRecorded) {
-					budget.recordCall();
-				}
 				failedRoutes++;
 				log.error("[BusPosition] Failed for route {}: {}", routeId, e.getMessage());
 			}
 		}
 
-//		log.info("[BusPosition] Completed. Saved {} records across {} routes, failed {} routes (budget: {}/{})",
-//				totalSaved, successfulRoutes, failedRoutes, budget.getUsed(), dailyBudget);
 	}
 
 	private BusPositionRaw toEntity(BusPositionInfo info, String routeId, LocalDateTime collectedAt) {

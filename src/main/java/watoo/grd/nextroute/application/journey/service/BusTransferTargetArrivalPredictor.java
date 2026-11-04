@@ -6,8 +6,13 @@ import watoo.grd.nextroute.application.journey.dto.BoardingEstimate;
 import watoo.grd.nextroute.application.journey.dto.BoardingOutcome;
 import watoo.grd.nextroute.application.journey.dto.BoardingQuery;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival;
+import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Quality;
+import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Source;
 import watoo.grd.nextroute.application.journey.dto.TransferTargetArrival;
+import watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics;
 import watoo.grd.nextroute.application.journey.port.out.TransferTargetArrivalPredictor;
+import watoo.grd.nextroute.application.regionalbus.dto.RegionalBusProvider;
+import watoo.grd.nextroute.application.route.port.in.PredictTransferUseCase;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
@@ -45,14 +50,24 @@ import java.util.Optional;
  * <p>추정 자체는 {@link BusBoardingTimeEstimator} 가 한다. 여기 남는 것은 <b>저장된 단계에서
  * 값을 꺼내는 일</b>(선택 노선 DB 읽기)과 결과를 여정 평가의 모양으로 옮기는 일뿐이다 — 재탐색이
  * 검색해 온 후보 경로는 DB 에 없어서 같은 추정을 단계 없이도 물어볼 수 있어야 한다.
+ *
+ * <h2>경기·TAGO 노선</h2>
+ *
+ * <p>서울 노선 id·순번이 없어 그 길로 못 간다. 원천 id 로 지역 실시간({@link RegionalArrivalLookup})에 묻고, 준비 시각 뒤 첫
+ * 버스를 쓴다. 모델이 없어 실시간 시야 밖이거나 탈 차가 응답에 없으면 모른다고 한다. 조회 몫은 재탐색 지역 버킷을 함께 쓴다.
  */
 @Component
 @RequiredArgsConstructor
 public class BusTransferTargetArrivalPredictor implements TransferTargetArrivalPredictor {
 
+    /** 관측용 mode tag. 서울 버스와 못 구하는 이유가 달라 나눠 센다. */
+    private static final String REGIONAL_MODE = "regional_bus";
+
     private final BusBoardingTimeEstimator boardingTimeEstimator;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
     private final TransferPredictionInterpreter interpreter;
+    private final RegionalArrivalLookup regionalArrivalLookup;
+    private final JourneyEvaluationMetrics metrics;
 
     @Override
     public boolean supports(JourneyLegType type) {
@@ -67,6 +82,13 @@ public class BusTransferTargetArrivalPredictor implements TransferTargetArrivalP
             return TransferTargetArrival.unknown();
         }
         Optional<JourneyLegRouteOption> option = selectedOption(waitLeg);
+        RegionalBusProvider regional = option
+                .map(o -> RegionalArrivalLookup.providerOf(o.getRouteId(), o.getSourceRouteId(),
+                        waitLeg.getSourceStartStopId()))
+                .orElse(null);
+        if (regional != null) {
+            return predictRegional(waitLeg, option.get(), regional, boardingAnchorAt, now);
+        }
         BoardingQuery query = new BoardingQuery(
                 JourneyLegType.WAIT_BUS,
                 waitLeg.getStartStopId(),
@@ -97,6 +119,31 @@ public class BusTransferTargetArrivalPredictor implements TransferTargetArrivalP
                 estimate.observedAt()),
                 estimate.modelVersion(),
                 false);
+    }
+
+    private TransferTargetArrival predictRegional(JourneyLeg waitLeg, JourneyLegRouteOption option,
+                                                  RegionalBusProvider provider, Instant boardingAnchorAt, Instant now) {
+        if (interpreter.modeFor(boardingAnchorAt, now) == PredictTransferUseCase.Mode.MODEL_ONLY) {
+            // 그 시각에 탈 차는 응답에 없고 대신할 모델도 없다. 답이 없을 호출로 몫을 쓰지 않는다.
+            metrics.recordBoardingMiss(REGIONAL_MODE, "beyond-window");
+            return TransferTargetArrival.unknown();
+        }
+        RegionalArrivalLookup.Lookup lookup = regionalArrivalLookup.boardableAt(
+                provider, option.getSourceRouteId(), waitLeg.getSourceStartStopId(), boardingAnchorAt);
+        if (lookup.failed()) {
+            metrics.recordBoardingMiss(REGIONAL_MODE, lookup.failureReason());
+            // 몫 소진만 막힘이다. 조회 실패에는 순번이 안 정해지는 정류장처럼 계속 그런 경우가 섞여 있어, 평가 간격을 늦추면 안 된다.
+            return lookup.quotaExhausted() ? TransferTargetArrival.blocked() : TransferTargetArrival.unknown();
+        }
+        return TransferTargetArrival.of(new CurrentLegArrival(
+                lookup.at(),
+                (int) Math.max(0, Duration.between(now, lookup.at()).getSeconds()),
+                null,
+                null,
+                Source.REALTIME_ARRIVAL,
+                // 경기는 분 단위 예측이라 근사다.
+                provider == RegionalBusProvider.TAGO ? Quality.GOOD : Quality.APPROXIMATE,
+                now));
     }
 
     private Optional<JourneyLegRouteOption> selectedOption(JourneyLeg leg) {

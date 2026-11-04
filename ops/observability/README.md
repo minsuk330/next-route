@@ -90,7 +90,7 @@ ssh vps 'grep -rn "actuator\|:8080" /etc/nginx /root/apps/nextroute /etc/systemd
 
 Grafana 알림이 울리면 그 시각의 로그·메트릭을 모아 원인 가설을 만드는 서비스. 코드 `alert-analyzer/`, 플랜 `docs/plan/alert-analyzer/PLAN.md`.
 
-- 운영은 아직 **DRY_RUN**: 맥락만 수집해 로그(`{app="alert-analyzer"}`)로 남긴다. `ANALYZER_DRY_RUN=false` 면 Claude(`claude-sonnet-5-5`)에 마스킹된 맥락을 보내 원인 가설을 받고, 근거 id 를 검증한 뒤 알림의 Slack 스레드에 답글을 단다(스레드를 못 찾으면 별도 메시지). 켜는 것은 PR-3
+- **운영 라이브(2026-11-03, `ANALYZER_DRY_RUN=false`)**: Claude(`claude-sonnet-5-5`)에 마스킹된 맥락을 보내 원인 가설을 받고, 근거 id 를 검증한 뒤 알림의 Slack 스레드에 답글을 단다(스레드를 못 찾으면 별도 메시지). 스레드는 Slack 연동 `text` 끝의 `fp: <fingerprint>` 줄로 찾는다(`contact-points.yaml`). `ANALYZER_DRY_RUN=true` 로 되돌리면 맥락만 수집해 로그(`{app="alert-analyzer"}`)로 남긴다
 - 실패해도 알림은 그대로: LLM 오류·거절·시간 초과는 스레드에 "AI 원인 분석 실패" 한 줄, Slack 오류는 로그만. 하루 상한(`ANALYZER_DAILY_LIMIT`, 기본 30) 넘으면 하루 한 번 안내
 - 알림 경로와 분리: Grafana 가 Slack 과 분석기에 따로 보낸다. 분석기가 죽어도 Slack 알림은 간다
 - 수집: 로거별 WARN/ERROR 정확 집계(창 vs 직전 60분) → NEW/SPIKE 로거만 작은 표본, Prometheus 스냅샷, 재시작(`process_start_time_seconds`)
@@ -101,3 +101,18 @@ Grafana 알림이 울리면 그 시각의 로그·메트릭을 모아 원인 가
 - 반영: 이미지는 main push 때 GHCR(`nextroute-alert-analyzer`). VPS 는 compose 의 서비스 블록만 추가(파일 통째 덮기 금지) 후 `docker compose up -d --no-deps alert-analyzer`
 - 평가: `cd alert-analyzer && ANTHROPIC_API_KEY=… uv run python -m eval.run_eval` 은 예상 비용만 출력, `--yes` 를 붙여야 실제 호출(6건 약 $0.25 이하). 규칙 비교선 대비 적중·근거 인용·없는 근거 수를 낸다
 - 평가용 fixture 캡처: `docker exec alert-analyzer python -m scripts.capture_fixture --at <ISO+09:00> --name <id> --alertname <이름>` → 커밋 전 `python3 scripts/check_no_secrets.py --env '/root/apps/*/env/*.env' <파일>`
+
+## 사용 통계 대시보드 (docs/plan/usage-stats)
+
+`grafana/dashboards/usage.json` "사용 통계" — DAU·WAU·MAU, 신규 설치(DEVICE 계정), 여정 시작·상태·사용자, 경로 검색 요청(Prometheus), 앱 빌드, 재방문 코호트, 사용자별(md5 6자) 표.
+
+- 원천: `user_daily_activity`(V74, 사용자당 하루 1행), `auth_identity`, `journey_session`, Prometheus `/api/route/search`
+- DB 접근: 데이터소스 `nextroute-pg` → `postgres:5432`(grafana 가 `nextroute` 네트워크에 붙어야 함). 계정 `grafana_ro` 는 위 3표 SELECT 만, 읽기 전용 트랜잭션, 쿼리 10초, 연결 3
+- 계정 생성: `postgres/grafana_ro.sql` 머리말 명령. 비밀번호는 `env/grafana.env` 의 `GRAFANA_PG_PASSWORD`
+- 시간대: 운영 naive timestamp(created_at)는 KST 벽시계라 쿼리에서 `AT TIME ZONE 'Asia/Seoul'` 로 바꾼다
+- DAU 는 V74 배포일부터 쌓인다(과거 소급 불가)
+- 토스(앱인토스) 사용자는 모든 패널에서 뺀다: 토스 계정(`auth_identity.provider='TOSS'`)이 있는 user_id 제외. 신규 설치 = 새 DEVICE 계정. 검색 요청(Prometheus)만 사용자를 몰라 못 뺀다
+- 대시보드 JSON 은 `grafana/usage_dashboard.py` 로 생성한다(손으로 고치지 말고 생성기 수정 후 재생성)
+
+## Tempo (2026-11-04 운영에서 내림)
+운영 VPS 는 메모리 절약(112MB)으로 Tempo 를 내렸다: `observability/compose.yaml` 의 tempo 에 `profiles: ["traces"]`, grafana `depends_on` 에서 제거, 앱 env `MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=false`(트레이싱은 켜 둬 로그의 `traceId` 는 남는다). 저장소의 이 compose 는 그대로(로컬은 켜서 쓴다). 다시 켜기 = `docker compose --profile traces up -d tempo` + 앱 env 줄 삭제 후 api·worker 재생성. Loki 의 TraceID 파생 링크는 내려 있는 동안 죽은 링크다.

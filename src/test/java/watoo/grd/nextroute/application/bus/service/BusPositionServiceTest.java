@@ -9,12 +9,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
+import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.application.bus.port.out.BusRouteObservationHistoryPort;
 import watoo.grd.nextroute.domain.bus.entity.BusPositionRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.repository.BusPositionRawRepository;
 import watoo.grd.nextroute.domain.bus.repository.BusRouteRepository;
+import watoo.grd.nextroute.common.lock.FixedLeaderLease;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -39,7 +41,8 @@ class BusPositionServiceTest {
 	@Mock BusRouteRepository busRouteRepository;
 	@Mock BusPositionRawRepository busPositionRawRepository;
 	@Mock TargetRouteProvider targetRouteProvider;
-	@Mock BusApiCallBudget budget;
+	@Mock BusApiQuotaPort quota;
+	private final FixedLeaderLease leaderLease = FixedLeaderLease.leader();
 	@Mock BusRealtimeCacheWritePort realtimeCacheWrite;
 	@Mock BusRouteObservationHistoryPort observationHistory;
 
@@ -48,13 +51,13 @@ class BusPositionServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new BusPositionService(busApiPort, busRouteRepository, busPositionRawRepository, targetRouteProvider, budget, clock, realtimeCacheWrite, observationHistory);
+		service = new BusPositionService(busApiPort, busRouteRepository, busPositionRawRepository, targetRouteProvider, quota, leaderLease, clock, realtimeCacheWrite, observationHistory);
 	}
 
 	@Test
 	void TC_위치응답을_원본필드로_저장하고_호출예산을_기록한다() {
 		prepareRoutes(route("100100118", "143"));
-		given(budget.canMakeCall(50000)).willReturn(true);
+		given(quota.tryAcquire("collector-position", 50000)).willReturn(true);
 		given(busApiPort.getBusPosByRtid("100100118")).willReturn(List.of(positionInfo()));
 
 		service.execute();
@@ -90,7 +93,7 @@ class BusPositionServiceTest {
 		assertThat(saved.getGpsX()).isEqualTo(126.982001);
 		assertThat(saved.getGpsY()).isEqualTo(37.566500);
 		assertThat(saved.getIsRunYn()).isEqualTo("1");
-		verify(budget).recordCall();
+		verify(quota).tryAcquire("collector-position", 50000);
 		// 실시간 캐시 프라이밍(prime-realtime-cache 기본 on)
 		verify(realtimeCacheWrite).putPositions("100100118", List.of(positionInfo()));
 	}
@@ -98,20 +101,20 @@ class BusPositionServiceTest {
 	@Test
 	void TC_예산이_소진되면_남은_노선은_호출하지_않는다() {
 		prepareRoutes(route("100100118", "143"), route("100100119", "272"));
-		given(budget.canMakeCall(50000)).willReturn(true, false);
+		given(quota.tryAcquire("collector-position", 50000)).willReturn(true, false);
 		given(busApiPort.getBusPosByRtid("100100118")).willReturn(List.of(positionInfo()));
 
 		service.execute();
 
 		verify(busApiPort).getBusPosByRtid("100100118");
 		verify(busApiPort, never()).getBusPosByRtid("100100119");
-		verify(budget, times(1)).recordCall();
+		verify(quota, times(2)).tryAcquire("collector-position", 50000);
 	}
 
 	@Test
 	void TC_API_실패도_호출예산에_반영하고_다음노선을_계속한다() {
 		prepareRoutes(route("100100118", "143"), route("100100119", "272"));
-		given(budget.canMakeCall(50000)).willReturn(true);
+		given(quota.tryAcquire("collector-position", 50000)).willReturn(true);
 		given(busApiPort.getBusPosByRtid("100100118")).willThrow(new IllegalStateException("boom"));
 		given(busApiPort.getBusPosByRtid("100100119")).willReturn(List.of());
 
@@ -119,16 +122,17 @@ class BusPositionServiceTest {
 
 		verify(busApiPort).getBusPosByRtid("100100118");
 		verify(busApiPort).getBusPosByRtid("100100119");
-		verify(budget, times(2)).recordCall();
+		// 실패한 호출도 몫 1 — 호출 전 점유
+		verify(quota, times(2)).tryAcquire("collector-position", 50000);
 		verify(busPositionRawRepository, never()).saveAll(anyList());
 		// 실패(예외)·빈 결과 노선은 캐시 프라이밍 안 함
 		verifyNoInteractions(realtimeCacheWrite);
 	}
 
 	@Test
-	void TC_API_차단_상태는_budget_기록_없이_남은_노선을_호출하지_않는다() {
+	void TC_API_차단_상태는_남은_노선을_호출하지_않는다() {
 		prepareRoutes(route("100100118", "143"), route("100100119", "272"));
-		given(budget.canMakeCall(50000)).willReturn(true);
+		given(quota.tryAcquire("collector-position", 50000)).willReturn(true);
 		given(busApiPort.getBusPosByRtid("100100118"))
 				.willThrow(new BusApiBlockedException(
 						FIXED_NOW.plusDays(1).atZone(KST).toInstant(),
@@ -139,7 +143,35 @@ class BusPositionServiceTest {
 
 		verify(busApiPort).getBusPosByRtid("100100118");
 		verify(busApiPort, never()).getBusPosByRtid("100100119");
-		verify(budget, never()).recordCall();
+		verify(busPositionRawRepository, never()).saveAll(anyList());
+	}
+
+	@Test
+	void TC_처음부터_리더가_아니면_몫도_공급자도_건드리지_않는다() {
+		prepareRoutes(route("100100118", "143"));
+		leaderLease.set(false);
+
+		service.execute();
+
+		verifyNoInteractions(quota);
+		verifyNoInteractions(busApiPort);
+		verifyNoInteractions(busPositionRawRepository);
+	}
+
+	@Test
+	void TC_리더가_아니게_되면_몫을_점유하지_않고_남은_노선을_호출하지_않는다() {
+		prepareRoutes(route("100100118", "143"), route("100100119", "272"));
+		given(quota.tryAcquire("collector-position", 50000)).willReturn(true);
+		given(busApiPort.getBusPosByRtid("100100118")).willAnswer(inv -> {
+			leaderLease.set(false);
+			return List.of();
+		});
+
+		service.execute();
+
+		verify(busApiPort).getBusPosByRtid("100100118");
+		verify(busApiPort, never()).getBusPosByRtid("100100119");
+		verify(quota, times(1)).tryAcquire("collector-position", 50000);
 		verify(busPositionRawRepository, never()).saveAll(anyList());
 	}
 
