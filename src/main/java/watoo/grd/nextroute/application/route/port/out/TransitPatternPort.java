@@ -64,8 +64,16 @@ public interface TransitPatternPort {
     record NearStop(TransitStop stop, Integer distanceMeters, List<String> routeShortNames) {
     }
 
-    /** 패턴 안의 정류장 1회 방문(같은 정류장이 여러 번 나올 수 있다 — 2호선 패턴은 한 패턴이 여러 바퀴). */
-    record PatternStop(String gtfsId, String name) {
+    /**
+     * 패턴 안의 정류장 1회 방문(같은 정류장이 여러 번 나올 수 있다 — 2호선 패턴은 한 패턴이 여러 바퀴).
+     *
+     * @param lat 정류장 위도. 근처 정류장 진행 방향(#538) 방위각에만 쓴다. 모르면 null
+     */
+    record PatternStop(String gtfsId, String name, Double lat, Double lon) {
+
+        public PatternStop(String gtfsId, String name) {
+            this(gtfsId, name, null, null);
+        }
     }
 
     /**

@@ -446,4 +446,115 @@ class TrackSelectionQueryServiceTest {
     private static TransitPatternPort.NearStop near(TransitStop stop) {
         return new TransitPatternPort.NearStop(stop, null, List.of());
     }
+
+    // ── #538 진행 방향 ──────────────────────────────────────────────────────────
+
+    private static final TransitPatternPort.PatternStop EAST =
+            new TransitPatternPort.PatternStop("1:BS_TAGO_SEB1", "역삼역", 37.5, 127.001);
+    private static final TransitPatternPort.PatternStop EAST_FAR =
+            new TransitPatternPort.PatternStop("1:BS_TAGO_SEB3", "선릉역", 37.5, 127.002);
+
+    private static TransitPatternPort.TransitPattern busPattern(String code, String routeName, String boardId,
+                                                               TransitPatternPort.PatternStop... next) {
+        List<TransitPatternPort.PatternStop> stops = new java.util.ArrayList<>();
+        stops.add(new TransitPatternPort.PatternStop(boardId, "승차", 37.5, 127.0));
+        stops.addAll(List.of(next));
+        return new TransitPatternPort.TransitPattern(code, null, new TransitPatternPort.TransitRoute(
+                code.substring(0, code.indexOf("::")), routeName, "-", RoutingMode.BUS, "BUS", null, null), stops, 1);
+    }
+
+    @Test
+    @DisplayName("#538 근처 버스: 형제 묶음 노선을 합쳐 heading 을 싣고, 노선 이름은 합집합이다")
+    void stopsNearHeading() {
+        TransitStop seb = new TransitStop("1:BS_TAGO_SEB121000091", "강남역9번출구", 37.5, 127.0, RoutingMode.BUS);
+        TransitStop ggb = new TransitStop("1:BS_TAGO_GGB121000091", "강남역.강남역사거리", 37.5, 127.0, RoutingMode.BUS);
+        given(port.stopsNear(anyDouble(), anyDouble(), anyInt(), anyInt(), any())).willReturn(List.of(
+                new TransitPatternPort.NearStop(seb, 54, List.of("146", "740")),
+                new TransitPatternPort.NearStop(ggb, 55, List.of("2000", "146"))));
+        given(port.patternsAtStop(eq(seb.gtfsId()), any())).willReturn(List.of(
+                busPattern("1:R146::01", "146", seb.gtfsId(), EAST, EAST_FAR)));
+        given(port.patternsAtStop(eq(ggb.gtfsId()), any())).willReturn(List.of(
+                busPattern("1:R2000::01", "2000", ggb.gtfsId(), EAST)));
+
+        List<TrackViews.Stop> stops = service.stopsNear(37.5, 127.0, RoutingMode.BUS);
+
+        assertThat(stops).singleElement().satisfies(stop -> {
+            assertThat(stop.routeNames()).containsExactly("146", "740", "2000");
+            assertThat(stop.heading().patternCodes()).containsExactly("1:R146::01", "1:R2000::01");
+            assertThat(stop.heading().nextStopNames()).containsExactly("역삼역", "선릉역");
+            assertThat(stop.heading().bearingDegrees()).isBetween(89.0, 91.0);
+        });
+    }
+
+    @Test
+    @DisplayName("#538 headingLimit 밖 묶음은 heading null, OTP 를 부르지 않는다")
+    void stopsNearHeadingLimit() {
+        properties.setHeadingLimit(1);
+        TransitStop first = new TransitStop("1:BS_TAGO_SEB1001", "가", 37.5, 127.0, RoutingMode.BUS);
+        TransitStop second = new TransitStop("1:BS_TAGO_SEB1002", "나", 37.5, 127.0, RoutingMode.BUS);
+        given(port.stopsNear(anyDouble(), anyDouble(), anyInt(), anyInt(), any())).willReturn(List.of(
+                near(first), near(second)));
+        given(port.patternsAtStop(eq(first.gtfsId()), any())).willReturn(List.of(
+                busPattern("1:R1::01", "1", first.gtfsId(), EAST)));
+
+        List<TrackViews.Stop> stops = service.stopsNear(37.5, 127.0, null);
+
+        assertThat(stops.get(0).heading()).isNotNull();
+        assertThat(stops.get(1).heading()).isNull();
+        verify(port, times(0)).patternsAtStop(eq(second.gtfsId()), any());
+    }
+
+    @Test
+    @DisplayName("#538 heading 예산을 다 쓰면 남은 정류장은 heading null, 목록은 그대로")
+    void stopsNearHeadingBudget() {
+        properties.setHeadingBudgetMs(0);
+        TransitStop stop = new TransitStop("1:BS_TAGO_SEB1001", "가", 37.5, 127.0, RoutingMode.BUS);
+        given(port.stopsNear(anyDouble(), anyDouble(), anyInt(), anyInt(), any())).willReturn(List.of(near(stop)));
+
+        List<TrackViews.Stop> stops = service.stopsNear(37.5, 127.0, RoutingMode.BUS);
+
+        assertThat(stops).singleElement().extracting(TrackViews.Stop::heading).isNull();
+        verify(port, times(0)).patternsAtStop(any(), any());
+    }
+
+    @Test
+    @DisplayName("#538 한 정류장 OTP 실패는 그 정류장만 heading null, 목록은 성공")
+    void stopsNearHeadingFailureIsolated() {
+        TransitStop broken = new TransitStop("1:BS_TAGO_SEB1001", "가", 37.5, 127.0, RoutingMode.BUS);
+        TransitStop fine = new TransitStop("1:BS_TAGO_SEB1002", "나", 37.5, 127.0, RoutingMode.BUS);
+        given(port.stopsNear(anyDouble(), anyDouble(), anyInt(), anyInt(), any())).willReturn(List.of(
+                near(broken), near(fine)));
+        given(port.patternsAtStop(eq(broken.gtfsId()), any()))
+                .willThrow(new TransitPatternPort.TransitPatternUnavailableException("timeout"));
+        given(port.patternsAtStop(eq(fine.gtfsId()), any())).willReturn(List.of(
+                busPattern("1:R1::01", "1", fine.gtfsId(), EAST)));
+
+        List<TrackViews.Stop> stops = service.stopsNear(37.5, 127.0, RoutingMode.BUS);
+
+        assertThat(stops).hasSize(2);
+        assertThat(stops.get(0).heading()).isNull();
+        assertThat(stops.get(1).heading().patternCodes()).containsExactly("1:R1::01");
+    }
+
+    @Test
+    @DisplayName("#538 지하철 줄은 heading null, 노선 이름은 그대로. SUBWAY 조회는 패턴을 부르지 않는다")
+    void stopsNearSubwayHasNoHeading() {
+        TransitStop subway = new TransitStop("1:RS_ACC1_S-1-X", "환승역", 37.5, 127.0, RoutingMode.SUBWAY);
+        given(port.stopsNear(anyDouble(), anyDouble(), anyInt(), anyInt(), any())).willReturn(List.of(
+                new TransitPatternPort.NearStop(subway, 90, List.of("서울2호선"))));
+
+        List<TrackViews.Stop> stops = service.stopsNear(37.5, 127.0, RoutingMode.SUBWAY);
+
+        assertThat(stops.get(0).heading()).isNull();
+        assertThat(stops.get(0).routeNames()).containsExactly("서울2호선");
+        verify(port, times(0)).patternsAtStop(any(), any());
+    }
+
+    @Test
+    @DisplayName("#538 방향: nextStopNames 는 승차 다음 정류장 앞 2개")
+    void directionNextStopNames() {
+        assertThat(service.directions(TrackFixtures.GANGNAM)).singleElement()
+                .extracting(TrackViews.Direction::nextStopNames)
+                .isEqualTo(List.of(line2.stops().get(32).name(), line2.stops().get(33).name()));
+    }
 }

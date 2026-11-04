@@ -205,6 +205,24 @@ class OtpTransitPatternAdapterTest {
         assertThat(p640.stops()).extracting(s -> s.gtfsId()).contains("1:BS_TAGO_SEB121000091");
         assertThat(p640.tripCount()).isEqualTo(3);
         assertThat(lastBody().path("variables").path("id").asText()).isEqualTo("1:BS_TAGO_SEB121000091");
+        // 축약본엔 좌표가 없다 → null
+        assertThat(p640.stops().get(0).lat()).isNull();
+    }
+
+    @Test
+    @DisplayName("정류장 패턴: 패턴 정류장 좌표를 읽는다(#538 방위각)")
+    void patternsAtStopCoordinates() throws Exception {
+        JsonNode root = new ObjectMapper().readTree("""
+                {"data":{"stop":{"patterns":[{"code":"1:P::01","route":{"gtfsId":"1:R","shortName":"146","mode":"BUS"},
+                  "stops":[{"gtfsId":"1:A","name":"강남역","lat":37.4979,"lon":127.0276},{"gtfsId":"1:B","name":"역삼역"}],
+                  "trips":[]}]}}}
+                """);
+
+        List<TransitPattern> patterns = OtpTransitPatternAdapter.parsePatternsAtStop(root);
+
+        assertThat(patterns.get(0).stops().get(0).lat()).isEqualTo(37.4979);
+        assertThat(patterns.get(0).stops().get(0).lon()).isEqualTo(127.0276);
+        assertThat(patterns.get(0).stops().get(1).lat()).isNull();
     }
 
     @Test

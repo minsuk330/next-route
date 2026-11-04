@@ -33,7 +33,7 @@ query PatternsAtStop($id: String!) {
       code
       headsign
       route { gtfsId shortName longName mode color agency { gtfsId } }
-      stops { gtfsId name }
+      stops { gtfsId name lat lon }
       trips { gtfsId }
     }
   }
