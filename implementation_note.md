@@ -6345,3 +6345,10 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - api 만: `nextroute:20261104-112049-d9d38adf`. worker 는 `20261103-212613-f64caa36` 그대로. 마이그레이션 없음. jar 백업 `app.jar.bak-20261104-112048-pre-d9d38adf`(= f64caa36)
 - 이 api 에는 #536·#537 코드도 들어 있다. #537 플래그 꺼짐, #536 은 worker 쪽 수집기라 api 동작 변화 없음. **VPS `app.jar` 는 이제 d9d38adf** — 다음 worker 배포는 #536(수집 몫 Redis, 호출 전 점유)을 함께 싣는다
 - 확인: 기동 뒤 ERROR 0, 새 이미지 태그, 미인증 401. **실제 `heading` 응답은 아직 못 봄**(인증 필요, 운영 계정 안 만듦) — 앱 호출 뒤 확인. 배포 전 `stops/near` p95 약 48ms(7일) = 비교 기준
+## 트랙 근처 정류장 노선 색 routes (2026-11-04, feat/track-near-route-colors, #542)
+### 확정
+- 버스 `Stop.routes[{name,color}]` 추가, `routeNames` 와 같은 범위(형제 묶음 합집합). 지하철 null. 같은 이름이면 색 있는 쪽. OTP 호출 수 그대로(`StopsNear` 의 `routes { gtfsId shortName color }`)
+- 색은 `TrackSelectionQueryService.color(route, true)` 를 그대로 호출 → `Direction.color` 와 규칙 하나. 근처 노선은 mode 없는 `TransitRoute`(gtfsId·shortName·color 만)
+- 운영 OTP 실측(강남역 27정류장 173노선): 색 없음 0, 같은 이름에 색 둘 0, 146 근처·패턴 모두 `0068B7`
+### 검증
+- `./gradlew test --tests '*Track*' --tests '*OtpTransitPatternAdapterTest' --tests '*WorkerProfileWiring*'`(st-pg·st-redis env) → 141 tests, 실패 0. 전체 시험은 안 돌림(바뀐 곳이 근처 조회 경로뿐)

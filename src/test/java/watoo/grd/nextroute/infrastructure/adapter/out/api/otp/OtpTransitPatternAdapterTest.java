@@ -33,6 +33,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * OTP 노선 패턴 어댑터(#265). 응답은 2026-10-07 운영 OTP 실측(trips 일부만 남긴 축약본, {@code otp/track/}).
@@ -207,6 +208,23 @@ class OtpTransitPatternAdapterTest {
         assertThat(lastBody().path("variables").path("id").asText()).isEqualTo("1:BS_TAGO_SEB121000091");
         // 축약본엔 좌표가 없다 → null
         assertThat(p640.stops().get(0).lat()).isNull();
+    }
+
+    @Test
+    @DisplayName("좌표 주변: 노선 id·이름·색을 읽고, 빈 색은 null, 이름 없는 노선은 뺀다(#542)")
+    void stopsNearRoutes() throws Exception {
+        JsonNode root = new ObjectMapper().readTree("""
+                {"data":{"stopsByBbox":[{"gtfsId":"1:S","name":"강남역","lat":37.4979,"lon":127.0276,"vehicleMode":"BUS",
+                  "routes":[{"gtfsId":"1:R146","shortName":"146","color":"0068B7"},
+                            {"gtfsId":"1:R740","shortName":"740","color":""},
+                            {"gtfsId":"1:RX","shortName":null,"color":"000000"}]}]}}
+                """);
+
+        List<TransitPatternPort.NearStop> stops = OtpTransitPatternAdapter.parseStopsNear(root, 37.4979, 127.0276, 300, 30);
+
+        assertThat(stops.get(0).routeShortNames()).containsExactly("146", "740");
+        assertThat(stops.get(0).routes()).extracting(r -> r.gtfsId(), r -> r.shortName(), r -> r.color())
+                .containsExactly(tuple("1:R146", "146", "0068B7"), tuple("1:R740", "740", null));
     }
 
     @Test

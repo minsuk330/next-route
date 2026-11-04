@@ -88,12 +88,12 @@ public class TrackSelectionQueryService {
                         .orElse(TrackRealtimeIdResolver.BusStopIds.NONE);
                 views.add(new TrackViews.Stop(representative.gtfsId(), representative.name(), representative.lat(),
                         representative.lon(), representative.mode(), distance, ids.arrivalStopId(), ids.arsId(),
-                        null, null, null, routeNames(group), headings.get(representative.gtfsId())));
+                        null, null, null, routeNames(group), headings.get(representative.gtfsId()), routes(group)));
             } else {
                 for (TrackRealtimeIdResolver.SubwayStationIds ids : realtimeIds.subway(stop, near.routeShortNames())) {
                     views.add(new TrackViews.Stop(stop.gtfsId(), stop.name(), stop.lat(), stop.lon(), stop.mode(),
                             near.distanceMeters(), null, null, ids.arrivalStationId(), ids.lineId(), ids.lineName(),
-                            near.routeShortNames(), null));
+                            near.routeShortNames(), null, null));
                 }
             }
         }
@@ -143,6 +143,22 @@ public class TrackSelectionQueryService {
         group.stream().filter(member -> member.routeShortNames() != null)
                 .forEach(member -> names.addAll(member.routeShortNames()));
         return List.copyOf(names);
+    }
+
+    /** 묶음 노선 칩. 이름으로 중복을 빼고, 같은 이름이면 색 있는 쪽을 남긴다. 색 규칙은 방향 목록과 같다. */
+    private List<TrackViews.Route> routes(List<NearStop> group) {
+        Map<String, String> colors = new LinkedHashMap<>();
+        for (NearStop member : group) {
+            for (TransitRoute route : member.routes()) {
+                String color = color(route, true);
+                if (colors.get(route.shortName()) == null) {
+                    colors.put(route.shortName(), color);
+                }
+            }
+        }
+        return colors.entrySet().stream()
+                .map(entry -> new TrackViews.Route(entry.getKey(), entry.getValue()))
+                .toList();
     }
 
     /**
