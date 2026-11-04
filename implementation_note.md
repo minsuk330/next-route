@@ -6457,3 +6457,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `--tests '*TransferTargetArrivalPredictor*' '*RegionalArrivalLookup*' '*WaitLegArrivalPredictor*' '*TransferRisk*' '*WorkerProfileWiring*' '*BoardingTime*'`(st-pg·st-redis env) → 131 tests, 실패 0
 ### 배포
 - 미배포. 마이그레이션 없음. 평가기는 worker 라 worker·worker2 교체면 판정에 반영된다
+
+## 사용 통계 대시보드 빈 그래프 (2026-11-04, fix/usage-dashboard-hourly)
+### 확정
+- 쿼리·권한·데이터는 정상. 일별 패널의 점은 날짜 00:00(KST)에 찍히는데, 하루 안쪽 범위를 고르면 그 점이 축 밖으로 나가 빈 그래프가 된다(Grafana `/api/ds/query` 로 재현: 값 1건, 범위 안 0건)
+- 일별 패널 5개는 `timeFrom: 30d` 로 고정, 시간별 패널 4개(첫 접속, 신규 계정, 여정 시작, 경로 검색) 추가. 기본 범위 now-24h
+- 시간별 활성은 `user_daily_activity.first_seen_at` 뿐이라 "그날 첫 접속" 시각이다. 그 시간의 전체 사용자 수는 기록이 없다
+- 일별 검색은 `[1d] offset -1d`: 없으면 막대가 구간 끝에 찍혀 진행 중인 오늘이 빠진다. Prometheus 3.4 는 음수 offset 지원. 11-04 값 296 = 같은 시점 `increase[9h]` 296
+### 함정
+- `$__timeGroupAlias` 인자에 `(col at time zone '…')` 를 넣으면 `macro __timeGroup needs time column…` 오류 ← naive KST 칸은 `generate_series` 왼쪽 조인으로 묶는다
+### 배포
+- VPS `/root/apps/observability/grafana/dashboards/usage.json` 교체(백업 `../usage.json.bak-20261104-172558-pre-hourly`), 30초 안에 자동 반영. 앱 배포 없음
+### 검증
+- `/api/ds/query` 로 1시간·24시간 범위: 시간별 4개 값 있음, 일별 5개 30일 값 있음, 오류 0. 브라우저 화면은 로그인이 필요해 직접 못 봄

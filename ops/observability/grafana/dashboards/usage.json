@@ -7,7 +7,7 @@
   ],
   "timezone": "Asia/Seoul",
   "time": {
-    "from": "now-30d",
+    "from": "now-24h",
     "to": "now"
   },
   "refresh": "",
@@ -107,6 +107,227 @@
       "description": "대시보드 시간 범위 안, 토스 사용자 제외. 신규 설치 = 새 DEVICE(기기) 계정. 완료율 = 완료 / (시작 − 진행 중)."
     },
     {
+      "id": 11,
+      "type": "timeseries",
+      "title": "시간별 첫 접속 사용자",
+      "description": "사용자마다 그날 첫 요청이 들어온 시각으로 센다. 그 시간에 앱을 쓴 전체 사용자 수가 아니다.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            },
+            "lineWidth": 1
+          },
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select $__timeGroupAlias(first_seen_at,'1h',0), count(*) as \"첫 접속\" from user_daily_activity where first_seen_at >= $__timeFrom()::timestamptz and first_seen_at < $__timeTo()::timestamptz and user_id not in (select t.user_id from auth_identity t where t.provider = 'TOSS' and t.user_id is not null) group by 1 order by 1",
+          "editorMode": "code"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "시간별 신규 계정",
+      "description": "계정이 만들어진 시각(KST) 기준.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            },
+            "lineWidth": 1
+          },
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select h.t as time, count(a.created_at) as \"신규 계정\" from generate_series(date_trunc('hour', $__timeFrom()::timestamptz), $__timeTo()::timestamptz, interval '1 hour') as h(t) left join auth_identity a on (a.created_at at time zone 'Asia/Seoul') >= h.t and (a.created_at at time zone 'Asia/Seoul') < h.t + interval '1 hour' and a.provider <> 'TOSS' group by 1 order by 1",
+          "editorMode": "code"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "시간별 여정 시작",
+      "description": "여정이 만들어진 시각(KST) 기준.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            },
+            "lineWidth": 1
+          },
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select h.t as time, count(a.created_at) as \"여정 시작\" from generate_series(date_trunc('hour', $__timeFrom()::timestamptz), $__timeTo()::timestamptz, interval '1 hour') as h(t) left join journey_session a on (a.created_at at time zone 'Asia/Seoul') >= h.t and (a.created_at at time zone 'Asia/Seoul') < h.t + interval '1 hour' and a.user_id not in (select t.user_id from auth_identity t where t.provider = 'TOSS' and t.user_id is not null) group by 1 order by 1",
+          "editorMode": "code"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "시간별 경로 검색 요청",
+      "description": "한 시간 구간마다 들어온 경로 검색 요청 수.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            },
+            "lineWidth": 1
+          },
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(http_server_requests_seconds_count{uri=\"/api/route/search\"}[1h]))",
+          "legendFormat": "검색 요청",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "interval": "1h"
+    },
+    {
       "id": 3,
       "title": "일별 활성 사용자 (DAU)",
       "type": "timeseries",
@@ -116,7 +337,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 4,
+        "y": 20,
         "w": 12,
         "h": 8
       },
@@ -154,7 +375,8 @@
           "mode": "multi"
         }
       },
-      "description": "토스 사용자 제외."
+      "description": "토스 사용자 제외.",
+      "timeFrom": "30d"
     },
     {
       "id": 4,
@@ -166,7 +388,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 4,
+        "y": 20,
         "w": 12,
         "h": 8
       },
@@ -206,7 +428,8 @@
           "mode": "multi"
         }
       },
-      "description": "DEVICE = 앱 첫 실행 때 만드는 기기 계정 ≈ 신규 설치. TOSS 계정은 뺀다."
+      "description": "DEVICE = 앱 첫 실행 때 만드는 기기 계정 ≈ 신규 설치. TOSS 계정은 뺀다.",
+      "timeFrom": "30d"
     },
     {
       "id": 5,
@@ -218,7 +441,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 12,
+        "y": 28,
         "w": 12,
         "h": 8
       },
@@ -258,7 +481,8 @@
           "mode": "multi"
         }
       },
-      "description": "토스 사용자 제외."
+      "description": "토스 사용자 제외.",
+      "timeFrom": "30d"
     },
     {
       "id": 6,
@@ -270,7 +494,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 12,
+        "y": 28,
         "w": 12,
         "h": 8
       },
@@ -308,7 +532,8 @@
           "mode": "multi"
         }
       },
-      "description": "토스 사용자 제외."
+      "description": "토스 사용자 제외.",
+      "timeFrom": "30d"
     },
     {
       "id": 7,
@@ -320,7 +545,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 36,
         "w": 12,
         "h": 8
       },
@@ -334,7 +559,7 @@
           "editorMode": "code",
           "range": true,
           "interval": "1d",
-          "expr": "sum(increase(http_server_requests_seconds_count{uri=\"/api/route/search\"}[1d]))",
+          "expr": "sum(increase(http_server_requests_seconds_count{uri=\"/api/route/search\"}[1d] offset -1d))",
           "legendFormat": "검색 요청"
         }
       ],
@@ -361,7 +586,9 @@
           "mode": "multi"
         }
       },
-      "description": "api 의 /api/route/search 요청 수(Prometheus). 사용자를 모르니 토스 요청도 섞일 수 있다(2026-10 이후 토스 활성 0). 재시작 직후 첫 건은 빠질 수 있다."
+      "description": "api 의 /api/route/search 요청 수(Prometheus). 사용자를 모르니 토스 요청도 섞일 수 있다(2026-10 이후 토스 활성 0). 재시작 직후 첫 건은 빠질 수 있다. 막대 하나는 그 시각부터 하루 동안의 요청이고, 마지막 막대는 지금까지의 값이다. 대략값이며 재시작 직후 요청은 조금 빠질 수 있다.",
+      "timeFrom": "30d",
+      "interval": "1d"
     },
     {
       "id": 8,
@@ -373,7 +600,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 20,
+        "y": 36,
         "w": 12,
         "h": 8
       },
@@ -418,7 +645,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 44,
         "w": 12,
         "h": 8
       },
@@ -447,7 +674,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 28,
+        "y": 44,
         "w": 12,
         "h": 8
       },
