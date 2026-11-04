@@ -34,10 +34,13 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.parse
 import urllib.request
 
 BASE = "http://openapi.seoul.go.kr:8088/"
+ATTEMPTS = 3
+RETRY_SECONDS = 2
 LINE_NUMS = {"1001": "01호선", "1004": "04호선"}
 DIRECTIONS = {"1": "상행", "2": "하행"}
 
@@ -92,11 +95,15 @@ SERVICES = {
 
 def get(key, path):
     url = BASE + key + "/json/" + path
-    try:
-        with urllib.request.urlopen(url, timeout=30) as resp:
-            return json.load(resp)
-    except Exception as e:  # URL 에 키가 있으니 예외 메시지에 URL 을 싣지 않는다
-        return {"error": type(e).__name__}
+    for attempt in range(ATTEMPTS):
+        try:
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                return json.load(resp)
+        except Exception as e:  # URL 에 키가 있으니 예외 메시지에 URL 을 싣지 않는다
+            error = type(e).__name__
+            if attempt + 1 < ATTEMPTS:
+                time.sleep(RETRY_SECONDS)
+    return {"error": error}
 
 
 def station_code(key, line_id, name):
@@ -109,9 +116,19 @@ def station_code(key, line_id, name):
     return None
 
 
+def table_rows(body):
+    """시간표 응답 → 행 목록. 못 읽었으면 None — 빈 목록으로 두면 그 역의 열차가 안 서는 것으로 판정된다(#530).
+
+    INFO-200 은 공급자가 '해당 데이터 없음'이라고 답한 것이라 빈 목록이다.
+    """
+    table = body.get("SearchSTNTimeTableByIDService")
+    if table is not None:
+        return table.get("row")
+    return [] if body.get("RESULT", {}).get("CODE") == "INFO-200" else None
+
+
 def timetable(key, code, week, inout):
-    body = get(key, "SearchSTNTimeTableByIDService/1/1000/%s/%s/%s/" % (code, week, inout))
-    return body.get("SearchSTNTimeTableByIDService", {}).get("row", [])
+    return table_rows(get(key, "SearchSTNTimeTableByIDService/1/1000/%s/%s/%s/" % (code, week, inout)))
 
 
 def catalog_no(train_no):
@@ -128,11 +145,16 @@ def collect(key, weeks):
         for (line, name), code in zip(wanted, pool.map(lambda ln: station_code(key, *ln), wanted)):
             codes[(line, name)] = code
     jobs = [(ln, w, io) for ln in wanted if codes[ln] for w in weeks for io in DIRECTIONS]
-    tables = {}
+    tables, unread, empty = {}, [], []
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         for (ln, w, io), rows in zip(jobs, pool.map(lambda j: timetable(key, codes[j[0]], j[1], j[2]), jobs)):
-            tables.setdefault(ln, {})[(w, io)] = rows
-    return codes, tables
+            label = "%s:%s:%s:%s" % (ln[0], ln[1], w, DIRECTIONS[io])
+            if rows is None:
+                unread.append(label)
+            elif not rows:
+                empty.append(label)
+            tables.setdefault(ln, {})[(w, io)] = rows or []
+    return codes, tables, unread, empty
 
 
 def train_visits(segment, line, tables, week, inout):
@@ -277,12 +299,13 @@ def main():
     if not key:
         sys.exit("SEOUL_SUBWAY_MASTER 없음 — VPS 에서 env/api.env 를 읽고 실행한다")
     weeks = [w.strip() for w in args.weeks.split(",") if w.strip()]
-    codes, tables = collect(key, weeks)
+    codes, tables, unread, empty = collect(key, weeks)
     missing = sorted("%s:%s" % ln for ln, code in codes.items() if not code)
     explain = {n.strip().lstrip("K") for n in args.explain.split(",") if n.strip()}
     report, unmatched, explained, seen = analyse(tables, weeks, explain)
     if args.json:
-        json.dump({"weeks": weeks, "missingStations": missing, "services": report,
+        json.dump({"weeks": weeks, "missingStations": missing, "unreadTables": unread, "emptyTables": empty,
+                   "services": report,
                    "unmatchedExpressFlagged": unmatched, "seenTrainNos": seen},
                   sys.stdout, ensure_ascii=False, indent=1, default=list)
         print()

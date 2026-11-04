@@ -2,6 +2,7 @@
 import unittest
 
 from check_catalog import check, render
+from fetch_trainnos import table_rows
 
 CATALOG = {
     "services": [
@@ -71,6 +72,19 @@ class CheckCatalogTest(unittest.TestCase):
         self.assertIn("1001:서울", broken)
         _, broken = check(report(seenTrainNos={"1001": []}), CATALOG)
         self.assertIsNotNone(broken)
+
+    def test_unread_or_empty_table_cannot_judge(self):
+        for field in ("unreadTables", "emptyTables"):
+            problems, reason = check(report(**{field: ["1001:금천구청:1:하행"]}), CATALOG)
+            self.assertEqual(problems, [])
+            self.assertIn("금천구청", reason)
+
+    def test_table_rows_tells_failure_from_no_data(self):
+        rows = [{"TRAIN_NO": "K1903"}]
+        self.assertEqual(table_rows({"SearchSTNTimeTableByIDService": {"row": rows}}), rows)
+        self.assertEqual(table_rows({"RESULT": {"CODE": "INFO-200", "MESSAGE": "해당하는 데이터가 없습니다."}}), [])
+        self.assertIsNone(table_rows({"error": "URLError"}))
+        self.assertIsNone(table_rows({"RESULT": {"CODE": "ERROR-500"}}))
 
     def test_render_lists_each_problem(self):
         r = report()
