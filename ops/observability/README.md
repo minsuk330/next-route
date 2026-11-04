@@ -114,3 +114,5 @@ Grafana 알림이 울리면 그 시각의 로그·메트릭을 모아 원인 가
 - 토스(앱인토스) 사용자는 모든 패널에서 뺀다: 토스 계정(`auth_identity.provider='TOSS'`)이 있는 user_id 제외. 신규 설치 = 새 DEVICE 계정. 검색 요청(Prometheus)만 사용자를 몰라 못 뺀다
 - 대시보드 JSON 은 `grafana/usage_dashboard.py` 로 생성한다(손으로 고치지 말고 생성기 수정 후 재생성)
 
+## Tempo (2026-11-04 운영에서 내림)
+운영 VPS 는 메모리 절약(112MB)으로 Tempo 를 내렸다: `observability/compose.yaml` 의 tempo 에 `profiles: ["traces"]`, grafana `depends_on` 에서 제거, 앱 env `MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=false`(트레이싱은 켜 둬 로그의 `traceId` 는 남는다). 저장소의 이 compose 는 그대로(로컬은 켜서 쓴다). 다시 켜기 = `docker compose --profile traces up -d tempo` + 앱 env 줄 삭제 후 api·worker 재생성. Loki 의 TraceID 파생 링크는 내려 있는 동안 죽은 링크다.
