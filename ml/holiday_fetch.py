@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 
 
 BASE_URL = (
-    "http://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo"
+    "https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo"
 )
 HOLIDAY_DATE_FMT = "%Y%m%d"
 REQUEST_TIMEOUT_SECONDS = 15
