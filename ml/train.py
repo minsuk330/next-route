@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from datetime import date, datetime, timezone
@@ -14,6 +15,7 @@ import polars as pl
 
 from metrics import evaluate_predictions, print_reports, write_json
 from realtime_features import HISTORY_WINDOW, REALTIME_FEATURES
+from route_pace import ROUTE_PACE_FEATURES
 from route_horizon import (
     DEFAULT_BIN_SECONDS,
     DEFAULT_MIN_ROWS,
@@ -198,10 +200,14 @@ def experiment_dir(data_dir: Path, run_id: str) -> Path:
     return path
 
 
-def feature_columns(with_api_feature: bool, realtime_features: bool = True) -> list[str]:
+def feature_columns(
+    with_api_feature: bool, realtime_features: bool = True, route_pace: bool = False
+) -> list[str]:
     columns = [*NUMERIC_FEATURES, *CATEGORICAL_FEATURES]
     if realtime_features:
         columns = [*NUMERIC_FEATURES, *REALTIME_FEATURES, *CATEGORICAL_FEATURES]
+    if route_pace:
+        columns = [*columns[: len(columns) - len(CATEGORICAL_FEATURES)], *ROUTE_PACE_FEATURES, *CATEGORICAL_FEATURES]
     if with_api_feature:
         columns.append("api_target_seconds_to_arrival")
     return columns
@@ -287,6 +293,13 @@ def day_type_coverage(train_frame: pl.DataFrame) -> dict[str, Any]:
     }
 
 
+def dataset_has_columns(data_dir: Path, service_date: date, columns: list[str]) -> bool:
+    from split import dataset_part_files
+
+    schema = pl.read_parquet_schema(dataset_part_files(data_dir, service_date)[0])
+    return all(column in schema for column in columns)
+
+
 def blank_realtime_features(
     x_train: pd.DataFrame, fraction: float, seed: int
 ) -> pd.DataFrame:
@@ -296,7 +309,7 @@ def blank_realtime_features(
     never missing in training; the live app, however, only has history for routes
     it has polled recently. Without this the model never sees the no-history case
     it will meet in production."""
-    columns = [c for c in REALTIME_FEATURES if c in x_train.columns]
+    columns = [c for c in [*REALTIME_FEATURES, *ROUTE_PACE_FEATURES] if c in x_train.columns]
     if not columns or fraction <= 0:
         return x_train
     rng = np.random.default_rng(seed)
@@ -368,8 +381,15 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
     train_dates = [item for item in service_dates if item not in test_dates]
 
     realtime = not args.no_realtime_features
-    columns = feature_columns(args.with_api_feature, realtime)
+    # route-pace columns are optional in the dataset (patch_route_pace.py / build_dataset
+    # with a section reference); use them when the first partition carries them.
+    route_pace = realtime and dataset_has_columns(data_dir, service_dates[0], ROUTE_PACE_FEATURES)
+    if realtime and not route_pace:
+        print("[info] dataset has no route-pace columns (rt_route_*): training without them")
+    columns = feature_columns(args.with_api_feature, realtime, route_pace)
     numeric_features = [*NUMERIC_FEATURES, *REALTIME_FEATURES] if realtime else NUMERIC_FEATURES
+    if route_pace:
+        numeric_features = [*numeric_features, *ROUTE_PACE_FEATURES]
     load_columns = (
         sorted(set(columns) | set(ENCODING_SUPPORT_COLUMNS)) if args.target_encoding else None
     )
@@ -519,6 +539,7 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         "split_policy": split_policy,
         "max_target_seconds": args.max_target_seconds,
         "realtime_features": [c for c in REALTIME_FEATURES if c in model_a_columns],
+        "route_pace_features": [c for c in ROUTE_PACE_FEATURES if c in model_a_columns],
         "realtime_nan_fraction": args.realtime_nan_fraction if realtime else None,
         "realtime_history_minutes": int(HISTORY_WINDOW.total_seconds() // 60) if realtime else None,
         # serve: a prediction past its route's cap is answered BEYOND_HORIZON (route_horizon.py).
@@ -548,6 +569,13 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
     }
     if args.target_encoding:
         manifest["feature_policy"] = persist_encoding_artifacts(output_dir, feature_policy)
+    if route_pace:
+        # the section reference table the dataset's rt_route_* columns were computed
+        # from must ship with the model so serve reproduces them from live history.
+        reference = data_dir / "section_reference" / "data.parquet"
+        tables_dir = output_dir / "encoding_tables"
+        tables_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(reference, tables_dir / "section_reference.parquet")
     write_json(output_dir / "metrics.json", reports)
     write_json(output_dir / "route_horizons.json", horizon_detail)
     write_json(output_dir / "training_manifest.json", manifest)

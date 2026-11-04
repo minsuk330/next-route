@@ -638,3 +638,99 @@ def test_model_without_horizons_uses_global_default(monkeypatch, model_dir):
         assert body["route_horizon_seconds"] == {}
         res = client.post("/predict", json={"items": [_item("r1", route="143")]})
         assert res.json()["results"][0]["status"] == "AVAILABLE"
+
+
+# --- route-wide pace features (section reference table) -----------------------
+
+from route_pace import ROUTE_PACE_FEATURES, compute_route_pace_features  # noqa: E402
+
+PACE_FEATURES = [*RAW_FEATURES, *REALTIME_FEATURES, *ROUTE_PACE_FEATURES, "route_id"]
+
+
+def _build_pace_model(model_dir: Path) -> lgb.Booster:
+    rows = []
+    for i in range(300):
+        row = {f: float((i * 7 + k) % 50) for k, f in enumerate(RAW_FEATURES)}
+        for k, f in enumerate([*REALTIME_FEATURES, *ROUTE_PACE_FEATURES]):
+            row[f] = float((i * 3 + k) % 400) if i % 4 else float("nan")
+        row["route_id"] = ROUTES[i % len(ROUTES)]
+        row["y"] = 120 + (i % 600)
+        rows.append(row)
+    frame = pd.DataFrame(rows)
+    frame["route_id"] = frame["route_id"].astype("category")
+    booster = lgb.train(
+        {"objective": "mae", "num_leaves": 7, "verbose": -1},
+        lgb.Dataset(frame[PACE_FEATURES], frame["y"], categorical_feature=["route_id"]),
+        num_boost_round=20,
+    )
+    model_dir.mkdir(parents=True, exist_ok=True)
+    booster.save_model(str(model_dir / "model.txt"))
+    (model_dir / "encoding_tables").mkdir()
+    pl.DataFrame(
+        {"route_id": ["143"] * 20, "k": list(range(1, 21)), "median_seconds": [60.0] * 20, "n": [100] * 20}
+    ).write_parquet(model_dir / "encoding_tables" / "section_reference.parquet")
+    (model_dir / "training_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "with_api_feature": False,
+                "feature_list": PACE_FEATURES,
+                "model_version": "test-pace-model-v1",
+                "realtime_features": REALTIME_FEATURES,
+                "route_pace_features": ROUTE_PACE_FEATURES,
+            }
+        )
+    )
+    return booster
+
+
+@pytest.fixture()
+def pace_model_dir(tmp_path) -> tuple[Path, lgb.Booster]:
+    d = tmp_path / "pace_experiment"
+    return d, _build_pace_model(d)
+
+
+def _pace_offline(booster: lgb.Booster, item: dict, history: list[dict]) -> float:
+    raw = {f: [float(item["features"][f])] for f in RAW_FEATURES}
+    hist = pl.DataFrame(
+        {
+            "route_id": ["143"] * len(history),
+            "vehicle_identity": [h["vehicle_id"] for h in history],
+            "snapshot_at": [datetime.fromtimestamp(h["snapshot_at"], tz=timezone.utc).replace(tzinfo=None) for h in history],
+            "current_section_order": [h["section_order"] for h in history],
+        }
+    )
+    query = pl.DataFrame(
+        {
+            "route_id": ["143"], "vehicle_identity": [item["vehicle_id"]],
+            "snapshot_at": [datetime.fromtimestamp(item["snapshot_at"], tz=timezone.utc).replace(tzinfo=None)],
+            "current_section_order": [3], "target_seq": [6],
+        }
+    )
+    rt = compute_realtime_features(hist, query).to_dict(as_series=False)
+    ref = pl.DataFrame({"route_id": ["143"] * 20, "k": list(range(1, 21)), "median_seconds": [60.0] * 20, "n": [100] * 20})
+    pace = compute_route_pace_features(hist, query.drop("vehicle_identity"), ref).to_dict(as_series=False)
+    frame = pd.DataFrame({**raw, **rt, **pace, "route_id": ["143"]})
+    frame["route_id"] = pd.Categorical(frame["route_id"], categories=booster.pandas_categorical[0])
+    return float(booster.predict(frame[PACE_FEATURES])[0])
+
+
+def test_route_pace_metadata_and_parity(monkeypatch, pace_model_dir):
+    model_dir, booster = pace_model_dir
+    item = _rt_item("r0")
+    history = _route_history()
+    with _client(monkeypatch, str(model_dir)) as client:
+        assert client.get("/metadata").json()["route_pace_features"] == ROUTE_PACE_FEATURES
+        res = client.post("/predict", json={"items": [item], "route_history": {"143": history}})
+        assert res.status_code == 200
+        served = res.json()["results"][0]["seconds_to_arrival"]
+        assert served == pytest.approx(_pace_offline(booster, item, history), abs=1e-6)
+
+
+def test_route_pace_model_refuses_to_load_without_reference(monkeypatch, pace_model_dir):
+    model_dir, _ = pace_model_dir
+    (model_dir / "encoding_tables" / "section_reference.parquet").unlink()
+    with _client(monkeypatch, str(model_dir)) as client:
+        res = client.get("/health")
+        assert res.status_code == 503
+        assert "section_reference" in res.json()["error"]

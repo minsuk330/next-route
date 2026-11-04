@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 
 from feature_engineering import SERVABLE_ENCODING_SPECS, compute_serving_features, encoding_name
 from realtime_features import HISTORY_WINDOW, REALTIME_FEATURES, compute_realtime_features
+from route_pace import ROUTE_PACE_FEATURES, compute_route_pace_features
 
 logger = logging.getLogger("ml.serve")
 
@@ -112,6 +113,10 @@ class ModelState:
         # rt_* same-route history features (realtime_features.py). The client never
         # sends these; they are derived here from the request's route_history.
         self.realtime_features: list[str] = []
+        # route-wide pace features (route_pace.py): recent traversals on the whole route
+        # versus the per-section reference table shipped with the model.
+        self.route_pace_features: list[str] = []
+        self.section_reference: pl.DataFrame | None = None
         # per-route prediction horizon (route_horizon.py): a prediction past the cap is
         # BEYOND_HORIZON. Routes missing from the map use the default.
         self.route_horizon_seconds: dict[str, int] = {}
@@ -229,6 +234,16 @@ def load_model(state: ModelState) -> None:
     state.model_categories = [str(c) for c in pandas_categorical[0]] if pandas_categorical else []
     state.target_encoding_enabled = target_encoding_enabled
     state.realtime_features = [f for f in feature_names if f in REALTIME_FEATURES]
+    state.route_pace_features = [f for f in feature_names if f in ROUTE_PACE_FEATURES]
+    if state.route_pace_features:
+        reference_path = model_path.parent / "encoding_tables" / "section_reference.parquet"
+        try:
+            state.section_reference = pl.read_parquet(reference_path)
+        except Exception as exc:  # noqa: BLE001
+            state.booster = None
+            state.error = f"route-pace features need {reference_path}: {exc}"
+            logger.error("[serve] %s", state.error)
+            return
     state.default_horizon_seconds = int(manifest.get("default_horizon_seconds") or DEFAULT_HORIZON_SECONDS)
     state.route_horizon_seconds = {
         str(route): int(seconds)
@@ -354,6 +369,7 @@ def metadata() -> JSONResponse:
             # rt_* 피처: 클라이언트가 보내는 값이 아니라 route_history(최근 관측 이력)에서 serve가 계산.
             "realtime_features": state.realtime_features,
             "realtime_history_minutes": int(HISTORY_WINDOW.total_seconds() // 60),
+            "route_pace_features": state.route_pace_features,
             # 노선별 예측 상한(초). 예측값이 상한을 넘으면 그 item 은 BEYOND_HORIZON.
             "default_horizon_seconds": state.default_horizon_seconds,
             "route_horizon_seconds": state.route_horizon_seconds,
@@ -383,7 +399,7 @@ def predict(request: PredictRequest) -> JSONResponse:
     required_features = (
         set(RAW_FEATURE_NAMES) | {CATEGORICAL_FEATURE}
         if state.target_encoding_enabled
-        else set(state.feature_names) - set(REALTIME_FEATURES)
+        else set(state.feature_names) - set(REALTIME_FEATURES) - set(ROUTE_PACE_FEATURES)
     )
     for item in items:
         missing = [f for f in required_features if f not in item.features]
@@ -411,8 +427,8 @@ def predict(request: PredictRequest) -> JSONResponse:
 
     if predictable_a:
         realtime = (
-            _realtime_frame(predictable_a, request.route_history)
-            if state.realtime_features
+            _realtime_frame(predictable_a, request.route_history, state.section_reference)
+            if state.realtime_features or state.route_pace_features
             else None
         )
         frame = (
@@ -445,7 +461,9 @@ def predict(request: PredictRequest) -> JSONResponse:
 
 
 def _realtime_frame(
-    items: list[PredictItem], route_history: dict[str, list[HistoryObservation]] | None
+    items: list[PredictItem],
+    route_history: dict[str, list[HistoryObservation]] | None,
+    section_reference: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """rt_* columns for ``items`` (one row each, in order) from the request's route
     history, via the same function build_dataset.py used — so a live request sees
@@ -504,12 +522,27 @@ def _realtime_frame(
     history = pl.concat([history, own])
     features = compute_realtime_features(history, queries)
     blank = pl.DataFrame({c: [math.nan] * queries.height for c in REALTIME_FEATURES})
-    return pl.concat(
+    out = pl.concat(
         [queries.select(identified.alias("_ok")), features, blank.rename({c: f"_b_{c}" for c in REALTIME_FEATURES})],
         how="horizontal",
     ).select(
         [pl.when(pl.col("_ok")).then(pl.col(c)).otherwise(pl.col(f"_b_{c}")).alias(c) for c in REALTIME_FEATURES]
     )
+    if section_reference is not None:
+        # route pace needs no vehicle identity: only the route, the time and the path.
+        timed = (
+            (pl.col("snapshot_at") > datetime(2000, 1, 1))
+            & pl.col("current_section_order").is_not_null()
+            & pl.col("target_seq").is_not_null()
+        )
+        pace = compute_route_pace_features(
+            history, queries.select("route_id", "snapshot_at", "current_section_order", "target_seq"), section_reference
+        )
+        pace = pl.concat([queries.select(timed.alias("_t")), pace], how="horizontal").select(
+            [pl.when(pl.col("_t")).then(pl.col(c)).otherwise(pl.lit(math.nan)).alias(c) for c in ROUTE_PACE_FEATURES]
+        )
+        out = pl.concat([out, pace], how="horizontal")
+    return out
 
 
 def _int_or_none(value: Any) -> int | None:
