@@ -12,6 +12,7 @@ from typing import Any
 import polars as pl
 from dotenv import load_dotenv
 
+from route_pace import ROUTE_PACE_FEATURES, compute_route_pace_features
 from realtime_features import (
     HISTORY_COLUMNS,
     REALTIME_FEATURES,
@@ -594,10 +595,25 @@ def assign_label_trip_index(label: pl.LazyFrame, position: pl.LazyFrame) -> pl.L
     )
 
 
-def dataset_columns() -> list[str]:
+def dataset_columns(route_pace: bool = False) -> list[str]:
     columns = base_dataset_columns()
     index = columns.index("api_target_seconds_to_arrival")
-    return [*columns[:index], *REALTIME_FEATURES, *columns[index:]]
+    realtime = [*REALTIME_FEATURES, *(ROUTE_PACE_FEATURES if route_pace else [])]
+    return [*columns[:index], *realtime, *columns[index:]]
+
+
+def section_reference_path(data_dir: Path) -> Path:
+    return data_dir / "section_reference" / "data.parquet"
+
+
+def load_section_reference(data_dir: Path) -> pl.DataFrame | None:
+    """Per-(route, section) reference traversal table (section_reference.py). Missing
+    table: the rt_route_* columns are not written and train.py trains without them."""
+    path = section_reference_path(data_dir)
+    if not path.exists():
+        print(f"[warn] section reference missing: {path} — rt_route_* features skipped")
+        return None
+    return pl.read_parquet(path)
 
 
 def base_dataset_columns() -> list[str]:
@@ -752,6 +768,7 @@ def build_dataset(
     labels = label_frames(label_path)
     generated_at = datetime.now(timezone.utc).isoformat()
     holidays = load_holidays(data_dir)
+    section_reference = load_section_reference(data_dir)
     weather = load_weather(data_dir, service_date)
 
     drops = build_drop_counts(positions, labels)
@@ -784,7 +801,15 @@ def build_dataset(
                 .select("route_id", "vehicle_identity", "snapshot_at", "current_section_order")
                 .collect(engine="streaming")
             )
-            route_frame = add_realtime_features(route_frame, history).select(dataset_columns())
+            route_frame = add_realtime_features(route_frame, history)
+            if section_reference is not None:
+                pace = compute_route_pace_features(
+                    history,
+                    route_frame.select("route_id", "snapshot_at", "current_section_order", "target_seq"),
+                    section_reference,
+                )
+                route_frame = pl.concat([route_frame, pace], how="horizontal")
+            route_frame = route_frame.select(dataset_columns(section_reference is not None))
             if sample_fraction < 1.0:
                 route_frame = route_frame.sample(
                     fraction=sample_fraction, seed=service_date.toordinal(), shuffle=True

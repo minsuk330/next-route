@@ -77,7 +77,11 @@ log "weather fetch ${TRAIN_FROM}..${TO}"
 pyrun weather_fetch.py --from "$TRAIN_FROM" --to "$TO" \
 	|| log "weather fetch failed (best-effort) — weather features null"
 
-# ── 4. dataset cleanup + build per available date ───────────────────────────
+# ── 4. section reference (positions only) + dataset cleanup + build per available date ──
+# rt_route_* 피처의 기준표. 모델과 함께 배포되어 serve 가 같은 표로 계산한다.
+log "section reference ${AVAIL_DATES[0]}..${AVAIL_DATES[-1]}"
+pyrun section_reference.py --from "${AVAIL_DATES[0]}" --to "${AVAIL_DATES[-1]}" \
+	|| { err "section_reference failed"; exit 1; }
 rm -rf "$DATA_DIR/dataset"; mkdir -p "$DATA_DIR/dataset"
 for d in "${AVAIL_DATES[@]}"; do
 	log "build_dataset $d"
