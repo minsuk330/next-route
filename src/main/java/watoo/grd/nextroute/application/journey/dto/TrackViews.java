@@ -27,11 +27,20 @@ public final class TrackViews {
      * @param arrivalStationId 지하철 역 도착 조회 id(서울 실시간 {@code statn_id})
      * @param routeNames       지나는 노선 이름(묶음 합집합, 중복 제거)
      * @param heading          버스 대표 진행 방향(#538). 지하철·못 구함·계산 상한 밖이면 null
+     * @param routes           버스 노선 칩(#542). {@code routeNames} 와 같은 범위. 지하철이면 null
      */
     public record Stop(String gtfsStopId, String name, double lat, double lon, RoutingMode mode,
                        Integer distanceMeters, String arrivalStopId, String arsId,
                        String arrivalStationId, String lineId, String lineName,
-                       List<String> routeNames, Heading heading) {
+                       List<String> routeNames, Heading heading, List<Route> routes) {
+    }
+
+    /**
+     * 근처 목록의 노선 칩(#542).
+     *
+     * @param color {@link Direction#color} 와 같은 값. 모르면 null
+     */
+    public record Route(String name, String color) {
     }
 
     /**
