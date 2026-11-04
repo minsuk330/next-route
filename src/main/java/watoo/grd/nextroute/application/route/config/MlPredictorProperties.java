@@ -26,4 +26,13 @@ public class MlPredictorProperties {
      * 있을지"만 정한다 — 상류 위치 캐시(15초)보다 조금 길게 잡아 세대 경계의 miss 를 줄인다.
      */
     private long cacheTtlSeconds = 30;
+
+    /**
+     * rt_* 피처용 노선별 관측 이력. false 면 이력을 쌓지도 요청에 싣지도 않는다 — serving 은
+     * 그 피처를 NaN 으로 두고 예측한다(학습 때 본 경우).
+     */
+    private boolean historyEnabled = true;
+
+    /** 이력 보존 시간(분). serving 이 쓰는 창(realtime_history_minutes, 90분)보다 길게 둔다. */
+    private int historyMinutes = 100;
 }

@@ -12,6 +12,16 @@ from typing import Any
 import polars as pl
 from dotenv import load_dotenv
 
+from route_pace import ROUTE_PACE_FEATURES, compute_route_pace_features
+from realtime_features import (
+    HISTORY_COLUMNS,
+    REALTIME_FEATURES,
+    TRIP_INDEX_COLUMN,
+    add_realtime_features,
+    assign_trip_index,
+    section_passes,
+)
+
 
 SCHEMA_VERSION = 2
 QUERY_VERSION = "v1"
@@ -24,6 +34,12 @@ COMMUTE_MORNING = (7, 9)
 COMMUTE_EVENING = (18, 20)
 LATE_NIGHT_START = 23  # hour >= 23
 LATE_NIGHT_END = 5  # or hour < 5
+
+# How far ahead of an arrival a snapshot may be and still become a training row.
+# The trip-consistent join already caps every row at the vehicle's remaining trip,
+# so this is the outer bound for the longest routes.
+DEFAULT_MAX_HORIZON_MINUTES = 40
+MIN_HORIZON_SECONDS = 60
 
 
 class DatasetBuildError(RuntimeError):
@@ -45,6 +61,32 @@ def parse_args() -> argparse.Namespace:
         "--overwrite",
         action="store_true",
         help="Regenerate dataset even when parquet parts already exist.",
+    )
+    parser.add_argument(
+        "--sample-fraction",
+        type=float,
+        default=1.0,
+        help=(
+            "Keep this fraction of each route's rows (uniform, seeded by service date). "
+            "A 90-minute horizon on a busy day yields 30M+ rows (~1GB) while training "
+            "samples a few million in total; thinning at build time keeps the cache small."
+        ),
+    )
+    parser.add_argument(
+        "--refine-arrival",
+        action="store_true",
+        help=(
+            "Replace corrected_arrival_at with the interpolated section entry (midpoint "
+            "between the last snapshot before the stop and the first at it). Off by default: "
+            "it removes the ~30 s late bias of the raw label but not its spread, and the "
+            "2026-11-04 full-archive run scored no better with it (95.5 s vs 94.0 s MAE)."
+        ),
+    )
+    parser.add_argument(
+        "--max-horizon-minutes",
+        type=int,
+        default=DEFAULT_MAX_HORIZON_MINUTES,
+        help="Keep snapshots at most this many minutes before the arrival.",
     )
     return parser.parse_args()
 
@@ -400,13 +442,23 @@ def dataset_for_route(
     generated_at: str,
     holidays: list[date],
     weather: pl.LazyFrame | None,
+    max_horizon_minutes: int = DEFAULT_MAX_HORIZON_MINUTES,
+    refine_arrival: bool = False,
 ) -> pl.LazyFrame:
-    position_route = position.filter(pl.col("route_id") == route_id)
-    label_route = label.filter(pl.col("route_id") == route_id)
+    max_horizon_seconds = max_horizon_minutes * 60
+    position_route = assign_trip_index(position.filter(pl.col("route_id") == route_id))
+    label_route = assign_label_trip_index(
+        label.filter(pl.col("route_id") == route_id), position_route
+    )
+    label_route = refine_arrival_times(label_route, position_route, enabled=refine_arrival)
 
+    # Join on the trip as well as the vehicle. A circular route (most village buses)
+    # completes a lap inside the 40-minute window, so a vehicle-only join also pairs a
+    # snapshot with the *next* lap's arrival at the same stop — a target one lap
+    # (~20 min) too long.
     joined = position_route.join(
         label_route,
-        on=["route_id", "vehicle_identity"],
+        on=["route_id", "vehicle_identity", TRIP_INDEX_COLUMN],
         how="inner",
     )
 
@@ -432,11 +484,11 @@ def dataset_for_route(
             (pl.col("label_arrival_at") > pl.col("snapshot_at") + pl.duration(minutes=1))
             & (
                 pl.col("label_arrival_at")
-                <= pl.col("snapshot_at") + pl.duration(minutes=40)
+                <= pl.col("snapshot_at") + pl.duration(minutes=max_horizon_minutes)
             )
             & (pl.col("target_seq") >= pl.col("current_section_order"))
-            & (pl.col("label_target_seconds_to_arrival") >= 60)
-            & (pl.col("label_target_seconds_to_arrival") <= 2400)
+            & (pl.col("label_target_seconds_to_arrival") >= MIN_HORIZON_SECONDS)
+            & (pl.col("label_target_seconds_to_arrival") <= max_horizon_seconds)
         )
         .with_columns(
             [
@@ -459,10 +511,112 @@ def dataset_for_route(
         )
     )
 
-    return attach_weather(enriched, weather).select(dataset_columns())
+    # Safety net: one (snapshot, target stop) pair keeps only the earliest arrival.
+    first_arrival = enriched.sort(["label_arrival_at", "arrival_label_event_id"]).unique(
+        subset=["position_raw_id", "target_seq"], keep="first", maintain_order=True
+    )
+
+    # rt_* columns are added by build_dataset() after collect (they need the route's
+    # position history as a DataFrame), so this lazy plan stops at the base columns.
+    return attach_weather(first_arrival, weather).select(base_dataset_columns())
 
 
-def dataset_columns() -> list[str]:
+# A refined arrival must sit within this much of the raw one (polling cadence is
+# 60 s; a larger gap means the trajectory had a hole and the raw time is kept).
+ARRIVAL_REFINE_MAX_SECONDS = 20 * 60
+
+
+def refine_arrival_times(
+    label: pl.LazyFrame, position: pl.LazyFrame, enabled: bool = True
+) -> pl.LazyFrame:
+    """Move ``corrected_arrival_at`` from the first snapshot *at* the stop to the
+    interpolated moment the bus reached it.
+
+    The position feed is polled once a minute and ``section_order`` steps up when
+    the bus reaches the next stop (stop ``seq`` opens section ``seq - 1``), so the
+    raw label — the first snapshot in that section with stop_flag set — is late by
+    anything up to a polling interval (≈30 s on average, a floor under the 1-5 min
+    error). ``section_passes`` already interpolates when each section was entered;
+    the arrival at stop ``seq`` is the entry into section ``seq - 1``.
+
+    Keeps the raw value in ``corrected_arrival_at_raw`` and the shift in
+    ``arrival_refined_seconds`` (0 when nothing could be refined). With
+    ``enabled=False`` the columns are still written (shift as measured) but
+    ``corrected_arrival_at`` is left as the raw label.
+    """
+    passes = section_passes(position.select(HISTORY_COLUMNS).collect()).lazy()
+    entries = passes.filter(~pl.col("is_trip_start")).select(
+        "route_id",
+        "vehicle_identity",
+        TRIP_INDEX_COLUMN,
+        (pl.col("k") + 1).alias("target_seq"),
+        pl.col("entered_at").alias("_entered_at"),
+    )
+    shift = (pl.col("corrected_arrival_at") - pl.col("_entered_at")).dt.total_seconds()
+    usable = (
+        pl.col("_entered_at").is_not_null()
+        & (shift >= 0)
+        & (shift <= ARRIVAL_REFINE_MAX_SECONDS)
+    )
+    return (
+        label.join(
+            entries,
+            on=["route_id", "vehicle_identity", TRIP_INDEX_COLUMN, "target_seq"],
+            how="left",
+        )
+        .with_columns(
+            pl.col("corrected_arrival_at").alias("corrected_arrival_at_raw"),
+            pl.when(usable).then(shift).otherwise(pl.lit(0)).cast(pl.Int64).alias("arrival_refined_seconds"),
+            pl.when(usable & pl.lit(enabled)).then(pl.col("_entered_at")).otherwise(pl.col("corrected_arrival_at")).alias("corrected_arrival_at"),
+        )
+        .drop("_entered_at")
+    )
+
+
+def assign_label_trip_index(label: pl.LazyFrame, position: pl.LazyFrame) -> pl.LazyFrame:
+    """Give each arrival the trip of the vehicle's last snapshot at or before it."""
+    snapshots = position.select(
+        "route_id",
+        "vehicle_identity",
+        pl.col("snapshot_at").alias("_trip_snapshot_at"),
+        TRIP_INDEX_COLUMN,
+    ).sort("_trip_snapshot_at")
+    return (
+        label.sort("label_arrival_at")
+        .join_asof(
+            snapshots,
+            left_on="label_arrival_at",
+            right_on="_trip_snapshot_at",
+            by=["route_id", "vehicle_identity"],
+            strategy="backward",
+            check_sortedness=False,
+        )
+        .drop("_trip_snapshot_at")
+    )
+
+
+def dataset_columns(route_pace: bool = False) -> list[str]:
+    columns = base_dataset_columns()
+    index = columns.index("api_target_seconds_to_arrival")
+    realtime = [*REALTIME_FEATURES, *(ROUTE_PACE_FEATURES if route_pace else [])]
+    return [*columns[:index], *realtime, *columns[index:]]
+
+
+def section_reference_path(data_dir: Path) -> Path:
+    return data_dir / "section_reference" / "data.parquet"
+
+
+def load_section_reference(data_dir: Path) -> pl.DataFrame | None:
+    """Per-(route, section) reference traversal table (section_reference.py). Missing
+    table: the rt_route_* columns are not written and train.py trains without them."""
+    path = section_reference_path(data_dir)
+    if not path.exists():
+        print(f"[warn] section reference missing: {path} — rt_route_* features skipped")
+        return None
+    return pl.read_parquet(path)
+
+
+def base_dataset_columns() -> list[str]:
     return [
         "service_date",
         "snapshot_at",
@@ -507,6 +661,8 @@ def dataset_columns() -> list[str]:
         "label_target_seconds_to_arrival",
         "api_estimated_arrival_at",
         "corrected_arrival_at",
+        "corrected_arrival_at_raw",
+        "arrival_refined_seconds",
         "label_arrival_at",
         "label_source",
         "label_confidence",
@@ -585,7 +741,16 @@ def build_drop_counts(
     }
 
 
-def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
+def build_dataset(
+    service_date: date,
+    data_dir: Path,
+    overwrite: bool,
+    max_horizon_minutes: int = DEFAULT_MAX_HORIZON_MINUTES,
+    sample_fraction: float = 1.0,
+    refine_arrival: bool = False,
+) -> None:
+    if not 0 < sample_fraction <= 1:
+        raise DatasetBuildError(f"--sample-fraction must be in (0, 1], got {sample_fraction}")
     label_path = require_archive(data_dir, "bus_label", service_date)
     position_path = require_archive(data_dir, "bus_position", service_date)
     output_dir = partition_dir(data_dir, "dataset", service_date)
@@ -603,6 +768,7 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
     labels = label_frames(label_path)
     generated_at = datetime.now(timezone.utc).isoformat()
     holidays = load_holidays(data_dir)
+    section_reference = load_section_reference(data_dir)
     weather = load_weather(data_dir, service_date)
 
     drops = build_drop_counts(positions, labels)
@@ -619,11 +785,35 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
                 generated_at,
                 holidays,
                 weather,
+                max_horizon_minutes,
+                refine_arrival,
             )
             route_frame = route_dataset.collect(engine="streaming")
             if route_frame.is_empty():
                 print(f"[route] {route_id}: rows=0")
                 continue
+            # Same-route position history (positions only, no labels) -> rt_* columns.
+            # Serving recomputes these from the Java app's rolling history with the
+            # same function, so the dataset carries exactly what the model will see.
+            history = (
+                positions["prepared"]
+                .filter(pl.col("route_id") == route_id)
+                .select("route_id", "vehicle_identity", "snapshot_at", "current_section_order")
+                .collect(engine="streaming")
+            )
+            route_frame = add_realtime_features(route_frame, history)
+            if section_reference is not None:
+                pace = compute_route_pace_features(
+                    history,
+                    route_frame.select("route_id", "snapshot_at", "current_section_order", "target_seq"),
+                    section_reference,
+                )
+                route_frame = pl.concat([route_frame, pace], how="horizontal")
+            route_frame = route_frame.select(dataset_columns(section_reference is not None))
+            if sample_fraction < 1.0:
+                route_frame = route_frame.sample(
+                    fraction=sample_fraction, seed=service_date.toordinal(), shuffle=True
+                )
 
             part_path = output_dir / f"part-{part_index:04d}.parquet"
             route_frame.write_parquet(part_path)
@@ -646,6 +836,9 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
             "archive_version": DATASET_ARCHIVE_VERSION,
             "schema_version": SCHEMA_VERSION,
             "query_version": QUERY_VERSION,
+            "max_horizon_minutes": max_horizon_minutes,
+            "sample_fraction": sample_fraction,
+            "refine_arrival": refine_arrival,
             "service_date": service_date.isoformat(),
             "row_count": row_count,
             "holiday_sidecar_dates": len(holidays),
@@ -667,9 +860,10 @@ def build_dataset(service_date: date, data_dir: Path, overwrite: bool) -> None:
                 "excluded_from_training = false",
                 "label_arrival_at is not null",
                 "api_estimated_arrival_at is not null",
-                "snapshot_at + 1 minute < label_arrival_at <= snapshot_at + 40 minutes",
+                f"snapshot_at + 1 minute < label_arrival_at <= snapshot_at + {max_horizon_minutes} minutes",
                 "target_seq >= current_section_order",
-                "label_target_seconds_to_arrival between 60 and 2400",
+                "snapshot and arrival in the same vehicle trip",
+                f"label_target_seconds_to_arrival between {MIN_HORIZON_SECONDS} and {max_horizon_minutes * 60}",
             ],
         }
         write_manifest(manifest_path, manifest)
@@ -685,7 +879,14 @@ def main() -> int:
         service_dates = service_dates_from_args(args)
         data_dir = load_data_dir()
         for service_date in service_dates:
-            build_dataset(service_date, data_dir, args.overwrite)
+            build_dataset(
+                service_date,
+                data_dir,
+                args.overwrite,
+                args.max_horizon_minutes,
+                args.sample_fraction,
+                args.refine_arrival,
+            )
     except (DatasetBuildError, OSError, pl.exceptions.PolarsError) as exc:
         print(f"[error] {exc}", file=sys.stderr)
         return 1

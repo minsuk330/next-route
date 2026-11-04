@@ -70,6 +70,20 @@ def coverage_gate(
     return (not missing), missing
 
 
+def day_type_gate(
+    manifest: dict[str, Any], expected_routes: set[str]
+) -> tuple[bool, dict[str, list[str]]]:
+    """Every expected route must have trained on weekday, saturday and sunday.
+    Manifests without the field (older train.py) pass — nothing to check."""
+    coverage = manifest.get("route_day_type_coverage") or {}
+    missing = {
+        route: types
+        for route, types in (coverage.get("routes_missing_day_type") or {}).items()
+        if not expected_routes or route in expected_routes
+    }
+    return (not missing), missing
+
+
 def load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise GateError(f"file not found: {path}")
@@ -92,6 +106,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Newline-separated route ids that must be covered by training.",
     )
+    p.add_argument(
+        "--allow-missing-day-types",
+        action="store_true",
+        help="Do not fail when an expected route lacks a weekday/saturday/sunday training day.",
+    )
     return p.parse_args(argv)
 
 
@@ -111,8 +130,10 @@ def main(argv: list[str] | None = None) -> int:
         m_ok, m_reason = metric_gate(new_mae, prev_mae, args.abs_mae, args.max_regression)
 
         c_ok, missing = True, set()
+        d_ok, missing_day_types = True, {}
+        manifest = load_json(manifest_path)
+        expected: set[str] = set()
         if args.expected_routes_file:
-            manifest = load_json(manifest_path)
             training = set(str(r) for r in manifest.get("training_route_categories", []))
             expected = {
                 line.strip()
@@ -120,17 +141,21 @@ def main(argv: list[str] | None = None) -> int:
                 if line.strip()
             }
             c_ok, missing = coverage_gate(training, expected)
+        if not args.allow_missing_day_types:
+            d_ok, missing_day_types = day_type_gate(manifest, expected)
     except GateError as exc:
         print(json.dumps({"verdict": "error", "reason": str(exc)}))
         return 1
 
+    ok = m_ok and c_ok and d_ok
     verdict = {
-        "verdict": "pass" if (m_ok and c_ok) else "fail",
+        "verdict": "pass" if ok else "fail",
         "metric_gate": {"ok": m_ok, "reason": m_reason},
         "coverage_gate": {"ok": c_ok, "missing": sorted(missing)},
+        "day_type_gate": {"ok": d_ok, "missing": missing_day_types},
     }
     print(json.dumps(verdict))
-    return 0 if (m_ok and c_ok) else 2
+    return 0 if ok else 2
 
 
 if __name__ == "__main__":

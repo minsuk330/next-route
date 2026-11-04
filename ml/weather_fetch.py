@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 
 
 BASE_URL = (
-    "http://apis.data.go.kr/1360000/AsosHourlyInfoService/getWthrDataList"
+    "https://apis.data.go.kr/1360000/AsosHourlyInfoService/getWthrDataList"
 )
 DEFAULT_STATION = "108"  # 서울
 TM_FMT = "%Y-%m-%d %H:%M"

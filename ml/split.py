@@ -21,6 +21,8 @@ TARGET_COLUMNS: dict[str, str] = {
 }
 
 HORIZON_BUCKETS = ("1-5m", "5-10m", "10-20m", "20-40m")
+MIN_TARGET_SECONDS = 60
+DEFAULT_MAX_TARGET_SECONDS = 2400
 FrameLike = pl.DataFrame | pl.LazyFrame
 
 
@@ -75,18 +77,23 @@ def add_horizon_bucket(frame: FrameLike, target_column: str) -> FrameLike:
             .then(pl.lit("5-10m"))
             .when(pl.col(target_column) < 1200)
             .then(pl.lit("10-20m"))
+            # everything beyond 20 min (also >40 min when the horizon is raised)
             .otherwise(pl.lit("20-40m"))
             .alias("horizon_bucket")
         ]
     )
 
 
-def filter_for_target(frame: FrameLike, target_name: TargetName) -> tuple[FrameLike, str]:
+def filter_for_target(
+    frame: FrameLike,
+    target_name: TargetName,
+    max_target_seconds: int = DEFAULT_MAX_TARGET_SECONDS,
+) -> tuple[FrameLike, str]:
     target_column = TARGET_COLUMNS[target_name]
     filtered = frame.filter(
         pl.col(target_column).is_not_null()
-        & (pl.col(target_column) >= 60)
-        & (pl.col(target_column) <= 2400)
+        & (pl.col(target_column) >= MIN_TARGET_SECONDS)
+        & (pl.col(target_column) <= max_target_seconds)
     )
     return add_horizon_bucket(filtered, target_column), target_column
 
@@ -137,6 +144,75 @@ def split_by_time(
             "boundary_dropped": boundary.height,
         }
 
+    if train.is_empty() or test.is_empty():
+        raise ValueError(
+            f"Split produced empty train/test: train={train.height}, test={test.height}."
+        )
+    return train, test, policy
+
+
+DAY_TYPES = ("weekday", "saturday", "sunday")
+
+
+def day_type_expr(column: str = "service_date") -> pl.Expr:
+    """weekday / saturday / sunday — the three service patterns a route must be trained on."""
+    weekday = pl.col(column).dt.weekday()
+    return (
+        pl.when(weekday == 6)
+        .then(pl.lit("saturday"))
+        .when(weekday == 7)
+        .then(pl.lit("sunday"))
+        .otherwise(pl.lit("weekday"))
+    )
+
+
+def split_last_days_per_route(
+    frame: pl.DataFrame, last_days: int
+) -> tuple[pl.DataFrame, pl.DataFrame, dict[str, object]]:
+    """Hold out each route's most recent `last_days` service dates that it can spare.
+
+    Routes are collected in weekly rotation, so a global date cutoff puts whole
+    routes into test (never trained). Splitting per route keeps every route in
+    train while still testing on days after its training days.
+
+    A date is only a holdout candidate if its day type (weekday / saturday /
+    sunday) occurs more than once for that route: a rotation week has one Saturday
+    and one Sunday, and taking either would leave the route untrained on that
+    pattern. So for a Mon-Sun week the test day is the Friday. A route with no
+    spare date stays entirely in train.
+    """
+    if last_days < 1:
+        raise ValueError("last_days must be >= 1")
+    split_frame = frame.with_columns(pl.col("service_date").cast(pl.Date))
+    route_dates = split_frame.select("route_id", "service_date").unique()
+    ranked = (
+        route_dates.with_columns(day_type_expr().alias("_day_type"))
+        .with_columns(
+            pl.len().over("route_id", "_day_type").alias("_type_count"),
+        )
+        .filter(pl.col("_type_count") > 1)
+        .with_columns(
+            pl.col("service_date").rank("dense", descending=True).over("route_id").alias("_recency"),
+            pl.col("service_date").n_unique().over("route_id").alias("_spare_count"),
+        )
+    )
+    test_route_dates = ranked.filter(
+        (pl.col("_recency") <= last_days) & (pl.col("_spare_count") > last_days)
+    ).select("route_id", "service_date")
+    test = split_frame.join(test_route_dates, on=["route_id", "service_date"], how="semi")
+    train = split_frame.join(test_route_dates, on=["route_id", "service_date"], how="anti")
+    policy: dict[str, object] = {
+        "type": "last_days_per_route",
+        "last_days": last_days,
+        "day_type_protected": True,
+        "test_route_count": test_route_dates["route_id"].n_unique(),
+        "train_only_route_count": route_dates["route_id"].n_unique()
+        - test_route_dates["route_id"].n_unique(),
+        "test_route_dates": [
+            {"route_id": str(row["route_id"]), "service_date": row["service_date"].isoformat()}
+            for row in test_route_dates.sort("route_id", "service_date").to_dicts()
+        ],
+    }
     if train.is_empty() or test.is_empty():
         raise ValueError(
             f"Split produced empty train/test: train={train.height}, test={test.height}."
@@ -198,8 +274,11 @@ def collect_date_sample(
     per_date_sample_rows: int | None,
     seed: int,
     columns: Sequence[str] | None = None,
+    max_target_seconds: int = DEFAULT_MAX_TARGET_SECONDS,
 ) -> tuple[pl.DataFrame, dict[str, object], str]:
-    filtered, target_column = filter_for_target(scan_dataset(data_dir, service_date), target_name)
+    filtered, target_column = filter_for_target(
+        scan_dataset(data_dir, service_date), target_name, max_target_seconds
+    )
     if columns is not None:
         # Projected before collect so the unused columns never materialise. The dataset
         # carries ~54 columns at 421 bytes/row, but training touches 25 of them at 163
@@ -252,12 +331,16 @@ def create_split(
     seed: int = 42,
     data_dir: Path | None = None,
     columns: Sequence[str] | None = None,
+    holdout_last_days_per_route: int | None = None,
+    max_target_seconds: int = DEFAULT_MAX_TARGET_SECONDS,
 ) -> DatasetSplit:
     data_dir = data_dir or load_data_dir()
     service_dates = normalize_service_dates(service_date)
     parsed_test_dates = parse_test_dates(test_dates)
-    if len(service_dates) > 1 and not parsed_test_dates:
-        raise ValueError("multi-date split requires --test-dates")
+    if parsed_test_dates and holdout_last_days_per_route:
+        raise ValueError("use either --test-dates or --holdout-last-days-per-route, not both")
+    if len(service_dates) > 1 and not (parsed_test_dates or holdout_last_days_per_route):
+        raise ValueError("multi-date split requires --test-dates or --holdout-last-days-per-route")
 
     effective_per_date_sample_rows = per_date_sample_rows
     if effective_per_date_sample_rows is None and sample_rows is not None and sample_rows > 0:
@@ -274,6 +357,7 @@ def create_split(
             effective_per_date_sample_rows,
             seed,
             columns,
+            max_target_seconds,
         )
         target_column = current_target_column
         date_policies.append(date_policy)
@@ -302,12 +386,17 @@ def create_split(
         filtered = sample_bucket_route(filtered, sample_rows, seed)
     sampling_policy["output_rows"] = filtered.height
 
-    train, test, split_policy = split_by_time(
-        filtered,
-        service_dates[0],
-        test_from,
-        parsed_test_dates,
-    )
+    if holdout_last_days_per_route:
+        train, test, split_policy = split_last_days_per_route(
+            filtered, holdout_last_days_per_route
+        )
+    else:
+        train, test, split_policy = split_by_time(
+            filtered,
+            service_dates[0],
+            test_from,
+            parsed_test_dates,
+        )
 
     return DatasetSplit(
         train=train,

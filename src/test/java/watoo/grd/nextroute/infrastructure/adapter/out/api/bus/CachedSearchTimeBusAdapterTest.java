@@ -12,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheReadPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
+import watoo.grd.nextroute.application.bus.port.out.BusRouteObservationHistoryPort;
 import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.BusQueryResult;
 
 import java.util.List;
@@ -31,13 +32,15 @@ class CachedSearchTimeBusAdapterTest {
     @Mock SearchTimeBusAdapter delegate;
     @Mock BusRealtimeCacheReadPort cacheRead;
     @Mock BusRealtimeCacheWritePort cacheWrite;
+    @Mock BusRouteObservationHistoryPort observationHistory;
 
     CachedSearchTimeBusAdapter cache;
 
     @BeforeEach
     void setUp() {
         cache = new CachedSearchTimeBusAdapter(delegate, cacheRead, cacheWrite,
-                new RouteSearchMetrics(new SimpleMeterRegistry()), new SearchTimeBusProperties(), CrossInstanceFlightPort.none());
+                new RouteSearchMetrics(new SimpleMeterRegistry()), new SearchTimeBusProperties(),
+                observationHistory, CrossInstanceFlightPort.none());
     }
 
     private BusPositionInfo pos(String vehId) {
@@ -107,5 +110,24 @@ class CachedSearchTimeBusAdapterTest {
 
         // 빈 결과라 저장 안 함
         verify(cacheWrite, never()).putArrivals(any(), any(), anyInt(), any());
+    }
+
+    @Test
+    void TC_miss로_받은_새_관측만_ML_노선이력에_덧붙인다() {
+        given(cacheRead.getPositions("R1")).willReturn(Optional.empty());
+        given(delegate.getBusPosByRtid("R1")).willReturn(BusQueryResult.ok(List.of(pos("v1"))));
+
+        cache.getBusPosByRtid("R1");
+
+        org.mockito.Mockito.verify(observationHistory).append("R1", List.of(pos("v1")));
+    }
+
+    @Test
+    void TC_캐시_hit은_ML_노선이력에_다시_쌓지_않는다() {
+        given(cacheRead.getPositions("R1")).willReturn(Optional.of(List.of(pos("v1"))));
+
+        cache.getBusPosByRtid("R1");
+
+        org.mockito.Mockito.verifyNoInteractions(observationHistory);
     }
 }

@@ -20,9 +20,13 @@ TRAIN_FROM="${ML_TRAIN_FROM:?set ML_TRAIN_FROM=YYYY-MM-DD (first collection date
 ABS_MAE="${ML_ABS_MAE:?set ML_ABS_MAE (absolute MAE ceiling)}"
 MAX_REGRESSION="${ML_MAX_REGRESSION:-1.05}"
 SAMPLE_ROWS="${ML_SAMPLE_ROWS:-2000000}"
-TARGET="${ML_TARGET:-label}"
-ROUTER_FALLBACK="${ML_ROUTER_FALLBACK:-false}"
+# label 타깃은 ~35%가 API ETA 추정값이라 오염돼 있다(docs/api-eta-leakage.md §5).
+TARGET="${ML_TARGET:-corrected}"
 TARGET_ENCODING="${ML_TARGET_ENCODING:-false}"
+# 노선마다 자기 수집 기간의 마지막 N일을 test로 둔다(주간 로테이션이라 날짜 cutoff는 노선 전체를 test로 보냄).
+HOLDOUT_DAYS="${ML_HOLDOUT_DAYS_PER_ROUTE:-1}"
+# 학습 상한(분). 노선별 상한(route_horizon.py)이 실제 예측 범위를 정하므로 가장 긴 노선에 맞춰 넉넉히 둔다.
+MAX_HORIZON_MINUTES="${ML_MAX_HORIZON_MINUTES:-90}"
 VPS_HOST="${ML_VPS_HOST:-vps}"
 VPS_DATA="${ML_VPS_DATA:-/srv/nextroute/ml-data}"
 ALLOW_NO_PREV="${ML_ALLOW_NO_PREV:-false}"
@@ -73,14 +77,19 @@ log "weather fetch ${TRAIN_FROM}..${TO}"
 pyrun weather_fetch.py --from "$TRAIN_FROM" --to "$TO" \
 	|| log "weather fetch failed (best-effort) — weather features null"
 
-# ── 4. dataset cleanup + build per available date ───────────────────────────
+# ── 4. section reference (positions only) + dataset cleanup + build per available date ──
+# rt_route_* 피처의 기준표. 모델과 함께 배포되어 serve 가 같은 표로 계산한다.
+log "section reference ${AVAIL_DATES[0]}..${AVAIL_DATES[-1]}"
+pyrun section_reference.py --from "${AVAIL_DATES[0]}" --to "${AVAIL_DATES[-1]}" \
+	|| { err "section_reference failed"; exit 1; }
 rm -rf "$DATA_DIR/dataset"; mkdir -p "$DATA_DIR/dataset"
 for d in "${AVAIL_DATES[@]}"; do
 	log "build_dataset $d"
-	pyrun build_dataset.py "$d" --overwrite || { err "build_dataset failed $d"; exit 1; }
+	pyrun build_dataset.py "$d" --overwrite --max-horizon-minutes "$MAX_HORIZON_MINUTES" \
+		|| { err "build_dataset failed $d"; exit 1; }
 done
 
-# ── 5. coverage-safe holdout (same target filter as split.py) ───────────────
+# ── 5. per-date route list (expected-routes gate input; same target filter as split.py) ─
 mkdir -p "$DATA_DIR/tmp"
 TARGET="$TARGET" pyrun - <<'PY' || { err "date-routes extraction failed"; exit 1; }
 import polars as pl, glob, json, os
@@ -99,10 +108,6 @@ for d in sorted(glob.glob(f'{DATA_DIR}/dataset/service_date=*')):
 open(f'{DATA_DIR}/tmp/date_routes.json','w').write(json.dumps(out))
 PY
 
-TEST_DATES="$(pyrun holdout.py --date-routes-file "$DATA_DIR/tmp/date_routes.json" --max-test-days 7)"
-TEST_DATES="$(echo "$TEST_DATES" | tr -d '[:space:]')"
-[ -n "$TEST_DATES" ] || { err "holdout produced empty test set"; exit 1; }
-
 # ── 6. gate baseline: pull the deployed model (resolve relative symlink) ─────
 PREV_REAL="$(ssh "$VPS_HOST" "readlink -f $VPS_DATA/model/current" 2>/dev/null || true)"
 rm -rf "$DATA_DIR/prev"
@@ -118,10 +123,10 @@ fi
 
 # ── 7. cumulative train ─────────────────────────────────────────────────────
 DATE_CSV="$(IFS=,; echo "${AVAIL_DATES[*]}")"
-TRAIN_ARGS=("$DATE_CSV" --target "$TARGET" --test-dates "$TEST_DATES" --sample-rows "$SAMPLE_ROWS")
-[ "$ROUTER_FALLBACK" = "true" ] && TRAIN_ARGS+=(--fallback-model)
+TRAIN_ARGS=("$DATE_CSV" --target "$TARGET" --holdout-last-days-per-route "$HOLDOUT_DAYS" --sample-rows "$SAMPLE_ROWS"
+	--max-target-seconds "$((MAX_HORIZON_MINUTES * 60))")
 [ "$TARGET_ENCODING" = "true" ] && TRAIN_ARGS+=(--target-encoding)
-log "train dates=${#AVAIL_DATES[@]} test=$TEST_DATES sample_rows=$SAMPLE_ROWS fallback_model=$ROUTER_FALLBACK target_encoding=$TARGET_ENCODING"
+log "train dates=${#AVAIL_DATES[@]} holdout_days_per_route=$HOLDOUT_DAYS max_horizon_minutes=$MAX_HORIZON_MINUTES sample_rows=$SAMPLE_ROWS target_encoding=$TARGET_ENCODING"
 pyrun train.py "${TRAIN_ARGS[@]}" || { err "train failed"; exit 1; }
 
 RUN_DIR="$(ls -1dt "$DATA_DIR/experiments"/*/ 2>/dev/null | head -1)"; RUN_DIR="${RUN_DIR%/}"

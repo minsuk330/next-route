@@ -23,6 +23,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.HashSet;
+import org.springframework.beans.factory.annotation.Autowired;
+import watoo.grd.nextroute.application.bus.port.out.BusRouteObservationHistoryPort;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.List;
 import java.util.Set;
 
@@ -39,16 +44,27 @@ public class MlArrivalPredictorAdapter implements MlArrivalPredictorPort {
     private final RestClient restClient;
     private final MlPredictorProperties properties;
     private final JdkHttpClientMetrics httpMetrics;
+    private final BusRouteObservationHistoryPort observationHistory;
     private final HttpClient httpClient = HttpClient.newBuilder().build();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Autowired
     public MlArrivalPredictorAdapter(
             @Qualifier("mlPredictorRestClient") RestClient restClient,
             MlPredictorProperties properties,
-            JdkHttpClientMetrics httpMetrics) {
+            JdkHttpClientMetrics httpMetrics,
+            BusRouteObservationHistoryPort observationHistory) {
         this.restClient = restClient;
         this.properties = properties;
         this.httpMetrics = httpMetrics;
+        this.observationHistory = observationHistory;
+    }
+
+    /** 노선 이력 없이(rt_* 는 NaN) 호출하는 생성자. */
+    public MlArrivalPredictorAdapter(RestClient restClient,
+                                     MlPredictorProperties properties,
+                                     JdkHttpClientMetrics httpMetrics) {
+        this(restClient, properties, httpMetrics, BusRouteObservationHistoryPort.NONE);
     }
 
     @Override
@@ -70,14 +86,42 @@ public class MlArrivalPredictorAdapter implements MlArrivalPredictorPort {
         }
 
         List<MlPredictRequestDto.Item> items = vectors.stream()
-                .map(v -> new MlPredictRequestDto.Item(v.requestId(), v.features()))
+                .map(v -> new MlPredictRequestDto.Item(v.requestId(), v.features(), v.vehicleId(),
+                        v.snapshotAt() == null ? null : v.snapshotAt().getEpochSecond()))
                 .toList();
 
-        MlPredictRequestDto request = new MlPredictRequestDto(items);
+        MlPredictRequestDto request = new MlPredictRequestDto(items, routeHistory(vectors));
         MlPredictResponseDto response = timeoutMs == null
                 ? callApi(request)
                 : callApiWithin(request, timeoutMs);
         return toResults(vectors, response);
+    }
+
+    /**
+     * 배치에 등장한 노선마다 최근 관측 이력을 싣는다(rt_* 피처 재료). 이력이 없는 노선은 빼고,
+     * 이력 기능이 꺼져 있으면 아예 싣지 않는다 — serving 은 둘 다 NaN 으로 처리한다.
+     */
+    private Map<String, List<MlPredictRequestDto.Observation>> routeHistory(List<MlFeatureVector> vectors) {
+        if (!properties.isHistoryEnabled()) {
+            return null;
+        }
+        Set<String> routeIds = new LinkedHashSet<>();
+        for (MlFeatureVector v : vectors) {
+            Object route = v.features() == null ? null : v.features().get("route_id");
+            if (route != null) {
+                routeIds.add(route.toString());
+            }
+        }
+        Map<String, List<MlPredictRequestDto.Observation>> history = new HashMap<>();
+        for (String routeId : routeIds) {
+            List<BusRouteObservationHistoryPort.Observation> recent = observationHistory.recent(routeId);
+            if (recent.isEmpty()) continue;
+            history.put(routeId, recent.stream()
+                    .map(o -> new MlPredictRequestDto.Observation(
+                            o.vehicleId(), o.sectionOrder(), o.snapshotEpochSeconds()))
+                    .toList());
+        }
+        return history.isEmpty() ? null : history;
     }
 
     /** 검색 요청마다 달라지는 잔여 예산을 HTTP 요청 timeout으로 적용한다. */

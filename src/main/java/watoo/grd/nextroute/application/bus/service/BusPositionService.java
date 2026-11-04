@@ -14,6 +14,7 @@ import watoo.grd.nextroute.application.bus.port.in.CollectBusPositionUseCase;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
+import watoo.grd.nextroute.application.bus.port.out.BusRouteObservationHistoryPort;
 import watoo.grd.nextroute.domain.bus.entity.BusPositionRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.repository.BusPositionRawRepository;
@@ -37,6 +38,7 @@ public class BusPositionService implements CollectBusPositionUseCase {
 	private final LeaderLease leaderLease;
 	private final Clock clock;
 	private final BusRealtimeCacheWritePort realtimeCacheWrite;
+	private final BusRouteObservationHistoryPort observationHistory;
 
 	@Value("${collector.bus-position.daily-budget:50000}")
 	private int dailyBudget = 50000;
@@ -104,6 +106,10 @@ public class BusPositionService implements CollectBusPositionUseCase {
 				// 검색·공용 조회가 재사용하도록 실시간 캐시 프라이밍(best-effort — 어댑터가 장애 graceful 처리)
 				if (primeRealtimeCache && !items.isEmpty()) {
 					realtimeCacheWrite.putPositions(routeId, items);
+				}
+				// ML rt_* 피처용 노선 이력(best-effort — 어댑터가 장애를 삼킨다)
+				if (!items.isEmpty()) {
+					observationHistory.append(routeId, items);
 				}
 				successfulRoutes++;
 				Thread.sleep(API_CALL_INTERVAL_MS);

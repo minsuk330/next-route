@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.route.port.out;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -21,11 +22,18 @@ public interface MlArrivalPredictorPort {
     }
 
     /**
-     * @param requestId 결과 재결합 키(배치 내 유일).
-     * @param features  feature 이름→값. 이름은 학습(train.py)과 동일. 값은 숫자 또는 route_id(String).
-     *                  null 값 허용(serving이 NaN으로 처리).
+     * @param requestId  결과 재결합 키(배치 내 유일).
+     * @param features   feature 이름→값. 이름은 학습(train.py)과 동일. 값은 숫자 또는 route_id(String).
+     *                   null 값 허용(serving이 NaN으로 처리).
+     * @param vehicleId  이 feature 의 바탕이 된 관측 차량. serving 이 노선 이력에서 이 차량의 궤적을
+     *                   찾아 rt_* 피처를 만든다. null 이면 rt_* 는 NaN.
+     * @param snapshotAt 그 관측 시각(dataTm). vehicleId 와 함께 쓰인다.
      */
-    record MlFeatureVector(String requestId, Map<String, Object> features) {
+    record MlFeatureVector(String requestId, Map<String, Object> features,
+                           String vehicleId, Instant snapshotAt) {
+        public MlFeatureVector(String requestId, Map<String, Object> features) {
+            this(requestId, features, null, null);
+        }
     }
 
     /**
@@ -37,6 +45,13 @@ public interface MlArrivalPredictorPort {
 
     enum MlPredictionStatus {
         AVAILABLE,
-        UNSUPPORTED_ROUTE
+        UNSUPPORTED_ROUTE,
+        /**
+         * 예측값이 그 노선의 예측 상한(serving {@code /metadata.route_horizon_seconds})을 넘는다.
+         * 노선마다 믿을 만한 범위가 다르므로(짧은 순환 노선 10분, 긴 간선 70분) 모델이 학습 결과로
+         * 상한을 정한다. 이 상태는 "버스가 없다"가 아니라 "너무 멀어서 숫자를 믿을 수 없다"이며,
+         * 호출자는 시간표 등 다른 근거로 넘어간다. secondsToArrival 은 null.
+         */
+        BEYOND_HORIZON
     }
 }

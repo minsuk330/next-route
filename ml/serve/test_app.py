@@ -117,70 +117,7 @@ def _build_model(model_dir: Path) -> None:
     )
 
 
-FEATURES_B = [f for f in FEATURES if f != "route_id"]
-
-
-def _build_router_model(model_dir: Path, training_routes: list[str]) -> None:
-    """Like _build_model, but also trains model_b.txt (route-agnostic) and marks
-    the manifest router_enabled — the dual-model fixture for router tests."""
-    _build_model(model_dir)
-    rows = []
-    for i in range(300):
-        route = ROUTES[i % len(ROUTES)]
-        rows.append(
-            {
-                "current_section_order": i % 20,
-                "section_progress": (i % 10) / 10.0,
-                "current_section_distance": float(i * 3 % 500),
-                "current_full_section_distance": 500.0,
-                "next_stop_time": i % 60,
-                "last_stop_time": i % 40,
-                "congestion": i % 4,
-                "gps_x": 127.0 + (i % 10) / 100.0,
-                "gps_y": 37.5 + (i % 10) / 100.0,
-                "target_seq": (i % 20) + 3,
-                "remaining_stop_count": 3,
-                "hour_of_day": i % 24,
-                "minute_of_day": i % 60,
-                "day_of_week": (i % 7) + 1,
-                "is_weekend": 1 if (i % 7) + 1 in (6, 7) else 0,
-                "is_holiday": i % 2,
-                "is_pre_holiday": (i + 1) % 2,
-                "is_post_holiday": i % 3 == 0,
-                "is_commute_morning": 1 if (i % 24) in (7, 8) else 0,
-                "is_commute_evening": 1 if (i % 24) in (18, 19) else 0,
-                "is_late_night": 1 if (i % 24) >= 23 or (i % 24) < 5 else 0,
-                "temperature_c": float(i % 35) - 5.0,
-                "precipitation_mm": float(i % 5),
-                "humidity_pct": float(40 + i % 60),
-                "wind_speed_mps": float(i % 8),
-                "is_raining": 1 if i % 5 else 0,
-                "is_snowing": 1 if i % 9 == 0 else 0,
-                "y": 300 + (i % 600),  # different y range so A/B predictions are distinguishable
-            }
-        )
-    frame = pd.DataFrame(rows)
-    x = frame[FEATURES_B]
-    y = frame["y"]
-    booster_b = lgb.train(
-        {"objective": "mae", "num_leaves": 7, "verbose": -1},
-        lgb.Dataset(x, y),
-        num_boost_round=5,
-    )
-    booster_b.save_model(str(model_dir / "model_b.txt"))
-    manifest_path = model_dir / "training_manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    manifest["router_enabled"] = True
-    manifest["feature_list_b"] = FEATURES_B
-    manifest["training_route_categories"] = training_routes
-    manifest_path.write_text(json.dumps(manifest))
-
-
-@pytest.fixture()
-def router_model_dir(tmp_path) -> Path:
-    d = tmp_path / "router_experiment"
-    _build_router_model(d, training_routes=["143", "272"])
-    return d
+RAW_FEATURES = [f for f in FEATURES if f != "route_id"]
 
 
 def _client(monkeypatch, model_path: str | None) -> TestClient:
@@ -332,56 +269,6 @@ def test_predict_503_without_model(monkeypatch):
         assert res.status_code == 503
 
 
-# --- router (model A + model B fallback) -----------------------------------
-
-
-def test_metadata_reports_router_enabled(monkeypatch, router_model_dir):
-    with _client(monkeypatch, str(router_model_dir)) as client:
-        body = client.get("/metadata").json()
-        assert body["router_enabled"] is True
-        assert body["feature_list_b"] == FEATURES_B
-
-
-def test_predict_seen_route_uses_model_a(monkeypatch, router_model_dir):
-    with _client(monkeypatch, str(router_model_dir)) as client:
-        res = client.post("/predict", json={"items": [_item("r1", route="143")]})
-        assert res.status_code == 200
-        result = res.json()["results"][0]
-        assert result["status"] == "AVAILABLE"
-        assert result["model"] == "a"
-
-
-def test_predict_unseen_route_falls_back_to_model_b(monkeypatch, router_model_dir):
-    # 160 is a valid category on the booster but not in training_route_categories
-    # (["143", "272"]) — without a router this would be UNSUPPORTED_ROUTE.
-    with _client(monkeypatch, str(router_model_dir)) as client:
-        res = client.post("/predict", json={"items": [_item("r1", route="160")]})
-        assert res.status_code == 200
-        result = res.json()["results"][0]
-        assert result["status"] == "AVAILABLE"
-        assert isinstance(result["seconds_to_arrival"], float)
-        assert result["model"] == "b"
-
-
-def test_predict_unknown_route_also_falls_back_to_model_b(monkeypatch, router_model_dir):
-    # a route id never seen by either booster still gets a model B prediction —
-    # B never needed route_id as a feature, so it isn't limited to known categories.
-    with _client(monkeypatch, str(router_model_dir)) as client:
-        res = client.post("/predict", json={"items": [_item("r1", route="999999")]})
-        assert res.status_code == 200
-        result = res.json()["results"][0]
-        assert result["status"] == "AVAILABLE"
-        assert result["model"] == "b"
-
-
-def test_router_load_fails_if_model_b_missing(monkeypatch, router_model_dir):
-    (router_model_dir / "model_b.txt").unlink()
-    with _client(monkeypatch, str(router_model_dir)) as client:
-        res = client.get("/health")
-        assert res.status_code == 503
-        assert "model_b" in res.json()["error"]
-
-
 # --- target encoding (model A route-keyed te_* features, no route_id categorical) --
 
 
@@ -426,7 +313,7 @@ def _synthetic_rows() -> list[dict]:
 
 
 def _build_target_encoding_model(model_dir: Path) -> tuple[list[dict], list[float]]:
-    """Trains a real target-encoding model A (+ plain model B) the same way
+    """Trains a real target-encoding model the same way
     train.py's --target-encoding path does, using feature_engineering directly, so
     the test exercises the actual training-side artifact shape. Returns the raw
     test-split rows (as /predict would receive them) and model A's own offline
@@ -447,7 +334,7 @@ def _build_target_encoding_model(model_dir: Path) -> tuple[list[dict], list[floa
         te_folds=5,
         te_smoothing=50.0,
         seed=42,
-        numeric_features=FEATURES_B,
+        numeric_features=RAW_FEATURES,
         encoding_specs=SERVABLE_ENCODING_SPECS,
         route_agnostic_specs=SERVABLE_ROUTE_AGNOSTIC_SPECS,
     )
@@ -468,15 +355,6 @@ def _build_target_encoding_model(model_dir: Path) -> tuple[list[dict], list[floa
     model_dir.mkdir(parents=True, exist_ok=True)
     booster.save_model(str(model_dir / "model.txt"))
 
-    x_train_b = train_pl.select(FEATURES_B).to_pandas()
-    y_train_b = train_pl["target_seconds"].to_pandas()
-    booster_b = lgb.train(
-        {"objective": "mae", "num_leaves": 7, "verbose": -1},
-        lgb.Dataset(x_train_b, y_train_b),
-        num_boost_round=5,
-    )
-    booster_b.save_model(str(model_dir / "model_b.txt"))
-
     safe_policy = persist_encoding_artifacts(model_dir, feature_policy)
     training_route_categories = sorted(set(train_pl["route_id"].to_list()))
 
@@ -484,9 +362,7 @@ def _build_target_encoding_model(model_dir: Path) -> tuple[list[dict], list[floa
         "schema_version": 2,
         "with_api_feature": False,
         "feature_list": model_a_columns,
-        "feature_list_b": FEATURES_B,
         "model_version": "test-te-model-v1",
-        "router_enabled": True,
         "target_encoding_enabled": True,
         "training_route_categories": training_route_categories,
         "feature_policy": safe_policy,
@@ -530,13 +406,13 @@ def test_target_encoding_predict_matches_offline_predictions(
         res = client.post("/predict", json={"items": items})
         assert res.status_code == 200
         results = res.json()["results"]
-        assert all(r["status"] == "AVAILABLE" and r["model"] == "a" for r in results)
+        assert all(r["status"] == "AVAILABLE" for r in results)
         served = [r["seconds_to_arrival"] for r in results]
         for served_value, offline_value in zip(served, predictions):
             assert served_value == pytest.approx(offline_value, abs=1e-4)
 
 
-def test_target_encoding_unseen_route_falls_back_to_model_b(
+def test_target_encoding_unseen_route_is_unsupported(
     monkeypatch, target_encoding_model_dir
 ):
     model_dir, rows, _predictions = target_encoding_model_dir
@@ -548,8 +424,8 @@ def test_target_encoding_unseen_route_falls_back_to_model_b(
         )
         assert res.status_code == 200
         result = res.json()["results"][0]
-        assert result["status"] == "AVAILABLE"
-        assert result["model"] == "b"
+        assert result["status"] == "UNSUPPORTED_ROUTE"
+        assert result["seconds_to_arrival"] is None
 
 
 def test_target_encoding_missing_raw_feature_422(monkeypatch, target_encoding_model_dir):
@@ -563,11 +439,9 @@ def test_target_encoding_missing_raw_feature_422(monkeypatch, target_encoding_mo
         assert res.status_code == 422
 
 
-def test_non_router_model_unaffected(monkeypatch, model_dir):
-    # a plain single-model experiment dir (no model_b.txt, no router_enabled key)
-    # must behave exactly as it did before this feature existed — rollback safety.
+def test_plain_model_isolates_untrained_route(monkeypatch, model_dir):
     with _client(monkeypatch, str(model_dir)) as client:
-        assert client.get("/metadata").json()["router_enabled"] is False
+        assert "router_enabled" not in client.get("/metadata").json()
         res = client.post(
             "/predict",
             json={"items": [_item("r1", route="143"), _item("bad", route="99999")]},
@@ -575,3 +449,288 @@ def test_non_router_model_unaffected(monkeypatch, model_dir):
         by_id = {r["request_id"]: r for r in res.json()["results"]}
         assert by_id["r1"]["status"] == "AVAILABLE"
         assert by_id["bad"]["status"] == "UNSUPPORTED_ROUTE"
+
+
+# --- real-time (route history) features -------------------------------------
+
+from datetime import datetime, timezone  # noqa: E402
+
+from realtime_features import REALTIME_FEATURES, compute_realtime_features  # noqa: E402
+
+RT_FEATURES = [*RAW_FEATURES, *REALTIME_FEATURES, "route_id"]
+
+
+def _build_realtime_model(model_dir: Path) -> lgb.Booster:
+    rows = []
+    for i in range(300):
+        row = {f: float((i * 7 + k) % 50) for k, f in enumerate(RAW_FEATURES)}
+        for k, f in enumerate(REALTIME_FEATURES):
+            row[f] = float((i * 3 + k) % 400) if i % 4 else float("nan")
+        row["route_id"] = ROUTES[i % len(ROUTES)]
+        row["y"] = 120 + (i % 600)
+        rows.append(row)
+    frame = pd.DataFrame(rows)
+    frame["route_id"] = frame["route_id"].astype("category")
+    booster = lgb.train(
+        {"objective": "mae", "num_leaves": 7, "verbose": -1},
+        lgb.Dataset(frame[RT_FEATURES], frame["y"], categorical_feature=["route_id"]),
+        num_boost_round=20,
+    )
+    model_dir.mkdir(parents=True, exist_ok=True)
+    booster.save_model(str(model_dir / "model.txt"))
+    (model_dir / "training_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "with_api_feature": False,
+                "feature_list": RT_FEATURES,
+                "model_version": "test-rt-model-v1",
+                "realtime_features": REALTIME_FEATURES,
+            }
+        )
+    )
+    return booster
+
+
+@pytest.fixture()
+def realtime_model_dir(tmp_path) -> tuple[Path, lgb.Booster]:
+    d = tmp_path / "rt_experiment"
+    return d, _build_realtime_model(d)
+
+
+T0 = datetime(2026, 10, 30, 9, 0, 0)
+
+
+def _epoch(dt: datetime) -> int:
+    return int(dt.replace(tzinfo=timezone.utc).timestamp())
+
+
+def _route_history() -> list[dict]:
+    """Leader L one section per minute from 09:00; follower F every 2 minutes from 09:10."""
+    obs = [{"vehicle_id": "L", "section_order": k, "snapshot_at": _epoch(T0.replace(minute=k - 1))}
+           for k in range(1, 13)]
+    obs += [{"vehicle_id": "F", "section_order": k, "snapshot_at": _epoch(T0.replace(minute=10 + 2 * (k - 1)))}
+            for k in range(1, 4)]
+    return obs
+
+
+def _rt_item(request_id: str, with_identity: bool = True) -> dict:
+    item = _item(request_id, route="143", current_section_order=3, target_seq=6)
+    if with_identity:
+        item["vehicle_id"] = "F"
+        item["snapshot_at"] = _epoch(T0.replace(minute=14))
+    return item
+
+
+def _offline_prediction(booster: lgb.Booster, item: dict, history: list[dict] | None) -> float:
+    raw = {f: [float(item["features"][f])] for f in RAW_FEATURES}
+    if history is None:
+        rt = {f: [float("nan")] for f in REALTIME_FEATURES}
+    else:
+        hist = pl.DataFrame(
+            {
+                "route_id": ["143"] * len(history),
+                "vehicle_identity": [h["vehicle_id"] for h in history],
+                "snapshot_at": [datetime.fromtimestamp(h["snapshot_at"], tz=timezone.utc).replace(tzinfo=None) for h in history],
+                "current_section_order": [h["section_order"] for h in history],
+            }
+        )
+        query = pl.DataFrame(
+            {
+                "route_id": ["143"],
+                "vehicle_identity": [item["vehicle_id"]],
+                "snapshot_at": [datetime.fromtimestamp(item["snapshot_at"], tz=timezone.utc).replace(tzinfo=None)],
+                "current_section_order": [3],
+                "target_seq": [6],
+            }
+        )
+        rt = compute_realtime_features(hist, query).to_dict(as_series=False)
+    frame = pd.DataFrame({**raw, **rt, "route_id": ["143"]})
+    frame["route_id"] = pd.Categorical(frame["route_id"], categories=booster.pandas_categorical[0])
+    return float(booster.predict(frame[RT_FEATURES])[0])
+
+
+def test_realtime_metadata(monkeypatch, realtime_model_dir):
+    model_dir, _ = realtime_model_dir
+    with _client(monkeypatch, str(model_dir)) as client:
+        body = client.get("/metadata").json()
+        assert body["realtime_features"] == REALTIME_FEATURES
+        assert body["realtime_history_minutes"] == 90
+
+
+def test_realtime_client_need_not_send_rt_features(monkeypatch, realtime_model_dir):
+    model_dir, booster = realtime_model_dir
+    with _client(monkeypatch, str(model_dir)) as client:
+        res = client.post("/predict", json={"items": [_rt_item("r0", with_identity=False)]})
+        assert res.status_code == 200
+        result = res.json()["results"][0]
+        assert result["status"] == "AVAILABLE"
+        # no identity, no history -> the model's NaN (no-history) path
+        assert result["seconds_to_arrival"] == pytest.approx(
+            _offline_prediction(booster, _rt_item("r0", with_identity=False), None), abs=1e-6)
+
+
+def test_realtime_prediction_matches_offline_feature_pipeline(monkeypatch, realtime_model_dir):
+    """Serving derives rt_* from route_history with the same function build_dataset.py
+    used, so a served prediction equals the offline one for the same observation."""
+    model_dir, booster = realtime_model_dir
+    item = _rt_item("r0")
+    history = _route_history()
+    with _client(monkeypatch, str(model_dir)) as client:
+        res = client.post("/predict", json={"items": [item], "route_history": {"143": history}})
+        assert res.status_code == 200
+        served = res.json()["results"][0]["seconds_to_arrival"]
+        expected = _offline_prediction(booster, item, history)
+        assert served == pytest.approx(expected, abs=1e-6)
+        # the history actually changed the answer (rt features reached the booster)
+        assert served != pytest.approx(_offline_prediction(booster, item, None), abs=1e-6)
+
+
+def test_realtime_history_for_other_route_is_ignored(monkeypatch, realtime_model_dir):
+    model_dir, booster = realtime_model_dir
+    item = _rt_item("r0")
+    with _client(monkeypatch, str(model_dir)) as client:
+        res = client.post("/predict", json={"items": [item], "route_history": {"999": _route_history()}})
+        assert res.json()["results"][0]["seconds_to_arrival"] == pytest.approx(
+            _offline_prediction(booster, item, None), abs=1e-6)
+
+
+# --- per-route prediction horizon ------------------------------------------
+
+
+def _build_horizon_model(model_dir: Path) -> None:
+    _build_model(model_dir)
+    manifest_path = model_dir / "training_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["default_horizon_seconds"] = 2400
+    manifest["route_horizon_seconds"] = {"143": 1, "272": 2400}  # 143: everything is beyond
+    manifest_path.write_text(json.dumps(manifest))
+
+
+@pytest.fixture()
+def horizon_model_dir(tmp_path) -> Path:
+    d = tmp_path / "horizon_experiment"
+    _build_horizon_model(d)
+    return d
+
+
+def test_prediction_past_route_horizon_is_beyond_horizon(monkeypatch, horizon_model_dir):
+    with _client(monkeypatch, str(horizon_model_dir)) as client:
+        res = client.post("/predict", json={"items": [_item("near", route="272"), _item("far", route="143")]})
+        by_id = {r["request_id"]: r for r in res.json()["results"]}
+        assert by_id["near"]["status"] == "AVAILABLE"
+        assert by_id["far"]["status"] == "BEYOND_HORIZON"
+        assert by_id["far"]["seconds_to_arrival"] is None
+        assert by_id["far"]["model_version"] == "test-model-v1"
+
+
+def test_metadata_exposes_route_horizons(monkeypatch, horizon_model_dir):
+    with _client(monkeypatch, str(horizon_model_dir)) as client:
+        body = client.get("/metadata").json()
+        assert body["default_horizon_seconds"] == 2400
+        assert body["route_horizon_seconds"] == {"143": 1, "272": 2400}
+
+
+def test_model_without_horizons_uses_global_default(monkeypatch, model_dir):
+    with _client(monkeypatch, str(model_dir)) as client:
+        body = client.get("/metadata").json()
+        assert body["default_horizon_seconds"] == 2400
+        assert body["route_horizon_seconds"] == {}
+        res = client.post("/predict", json={"items": [_item("r1", route="143")]})
+        assert res.json()["results"][0]["status"] == "AVAILABLE"
+
+
+# --- route-wide pace features (section reference table) -----------------------
+
+from route_pace import ROUTE_PACE_FEATURES, compute_route_pace_features  # noqa: E402
+
+PACE_FEATURES = [*RAW_FEATURES, *REALTIME_FEATURES, *ROUTE_PACE_FEATURES, "route_id"]
+
+
+def _build_pace_model(model_dir: Path) -> lgb.Booster:
+    rows = []
+    for i in range(300):
+        row = {f: float((i * 7 + k) % 50) for k, f in enumerate(RAW_FEATURES)}
+        for k, f in enumerate([*REALTIME_FEATURES, *ROUTE_PACE_FEATURES]):
+            row[f] = float((i * 3 + k) % 400) if i % 4 else float("nan")
+        row["route_id"] = ROUTES[i % len(ROUTES)]
+        row["y"] = 120 + (i % 600)
+        rows.append(row)
+    frame = pd.DataFrame(rows)
+    frame["route_id"] = frame["route_id"].astype("category")
+    booster = lgb.train(
+        {"objective": "mae", "num_leaves": 7, "verbose": -1},
+        lgb.Dataset(frame[PACE_FEATURES], frame["y"], categorical_feature=["route_id"]),
+        num_boost_round=20,
+    )
+    model_dir.mkdir(parents=True, exist_ok=True)
+    booster.save_model(str(model_dir / "model.txt"))
+    (model_dir / "encoding_tables").mkdir()
+    pl.DataFrame(
+        {"route_id": ["143"] * 20, "k": list(range(1, 21)), "median_seconds": [60.0] * 20, "n": [100] * 20}
+    ).write_parquet(model_dir / "encoding_tables" / "section_reference.parquet")
+    (model_dir / "training_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "with_api_feature": False,
+                "feature_list": PACE_FEATURES,
+                "model_version": "test-pace-model-v1",
+                "realtime_features": REALTIME_FEATURES,
+                "route_pace_features": ROUTE_PACE_FEATURES,
+            }
+        )
+    )
+    return booster
+
+
+@pytest.fixture()
+def pace_model_dir(tmp_path) -> tuple[Path, lgb.Booster]:
+    d = tmp_path / "pace_experiment"
+    return d, _build_pace_model(d)
+
+
+def _pace_offline(booster: lgb.Booster, item: dict, history: list[dict]) -> float:
+    raw = {f: [float(item["features"][f])] for f in RAW_FEATURES}
+    hist = pl.DataFrame(
+        {
+            "route_id": ["143"] * len(history),
+            "vehicle_identity": [h["vehicle_id"] for h in history],
+            "snapshot_at": [datetime.fromtimestamp(h["snapshot_at"], tz=timezone.utc).replace(tzinfo=None) for h in history],
+            "current_section_order": [h["section_order"] for h in history],
+        }
+    )
+    query = pl.DataFrame(
+        {
+            "route_id": ["143"], "vehicle_identity": [item["vehicle_id"]],
+            "snapshot_at": [datetime.fromtimestamp(item["snapshot_at"], tz=timezone.utc).replace(tzinfo=None)],
+            "current_section_order": [3], "target_seq": [6],
+        }
+    )
+    rt = compute_realtime_features(hist, query).to_dict(as_series=False)
+    ref = pl.DataFrame({"route_id": ["143"] * 20, "k": list(range(1, 21)), "median_seconds": [60.0] * 20, "n": [100] * 20})
+    pace = compute_route_pace_features(hist, query.drop("vehicle_identity"), ref).to_dict(as_series=False)
+    frame = pd.DataFrame({**raw, **rt, **pace, "route_id": ["143"]})
+    frame["route_id"] = pd.Categorical(frame["route_id"], categories=booster.pandas_categorical[0])
+    return float(booster.predict(frame[PACE_FEATURES])[0])
+
+
+def test_route_pace_metadata_and_parity(monkeypatch, pace_model_dir):
+    model_dir, booster = pace_model_dir
+    item = _rt_item("r0")
+    history = _route_history()
+    with _client(monkeypatch, str(model_dir)) as client:
+        assert client.get("/metadata").json()["route_pace_features"] == ROUTE_PACE_FEATURES
+        res = client.post("/predict", json={"items": [item], "route_history": {"143": history}})
+        assert res.status_code == 200
+        served = res.json()["results"][0]["seconds_to_arrival"]
+        assert served == pytest.approx(_pace_offline(booster, item, history), abs=1e-6)
+
+
+def test_route_pace_model_refuses_to_load_without_reference(monkeypatch, pace_model_dir):
+    model_dir, _ = pace_model_dir
+    (model_dir / "encoding_tables" / "section_reference.parquet").unlink()
+    with _client(monkeypatch, str(model_dir)) as client:
+        res = client.get("/health")
+        assert res.status_code == 503
+        assert "section_reference" in res.json()["error"]

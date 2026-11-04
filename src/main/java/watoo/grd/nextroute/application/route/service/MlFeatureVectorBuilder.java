@@ -86,7 +86,8 @@ public class MlFeatureVectorBuilder {
         putCalendarFeatures(features, snap.toLocalDate(), hour);
         putWeatherFeatures(features);
 
-        return Optional.of(new MlFeatureVector(requestId, features));
+        // 차량·관측시각은 feature 가 아니라 rt_* 계산용 식별자 — serving 이 route_history 에서 찾는다.
+        return Optional.of(new MlFeatureVector(requestId, features, pos.vehicleId(), snapshotInstant.get()));
     }
 
     /** is_holiday/pre/post + commute/late. build_dataset.calendar_columns와 동일 규칙. */

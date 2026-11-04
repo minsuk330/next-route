@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from datetime import date, datetime, timezone
@@ -13,7 +14,16 @@ import pandas as pd
 import polars as pl
 
 from metrics import evaluate_predictions, print_reports, write_json
-from split import TARGET_COLUMNS, create_split, load_data_dir, parse_test_dates
+from realtime_features import HISTORY_WINDOW, REALTIME_FEATURES
+from route_pace import ROUTE_PACE_FEATURES
+from route_horizon import (
+    DEFAULT_BIN_SECONDS,
+    DEFAULT_MIN_ROWS,
+    DEFAULT_P90_LIMIT_SECONDS,
+    route_horizons,
+    summarize,
+)
+from split import DAY_TYPES, TARGET_COLUMNS, create_split, day_type_expr, load_data_dir, parse_test_dates
 from feature_engineering import (
     SERVABLE_ENCODING_SPECS,
     SERVABLE_ROUTE_AGNOSTIC_SPECS,
@@ -95,44 +105,69 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--test-from", default="21:00")
     parser.add_argument("--test-dates", default=None)
+    parser.add_argument(
+        "--no-realtime-features",
+        action="store_true",
+        help="Train without the rt_* same-route history features (build_dataset.py adds them).",
+    )
+    parser.add_argument(
+        "--realtime-nan-fraction",
+        type=float,
+        default=0.3,
+        help=(
+            "Blank the rt_* features on this fraction of training rows so the model "
+            "also learns the no-history case (a route the app has not observed recently)."
+        ),
+    )
+    parser.add_argument(
+        "--horizon-p90-limit-seconds",
+        type=float,
+        default=DEFAULT_P90_LIMIT_SECONDS,
+        help=(
+            "Per-route horizon: the first 10-minute remaining-time bin whose p90 absolute "
+            "error exceeds this ends the route's horizon (serve answers BEYOND_HORIZON past it)."
+        ),
+    )
+    parser.add_argument(
+        "--horizon-min-rows",
+        type=int,
+        default=DEFAULT_MIN_ROWS,
+        help="Test rows a bin needs before it counts as evidence for the per-route horizon.",
+    )
+    parser.add_argument(
+        "--max-target-seconds",
+        type=int,
+        default=2400,
+        help="Drop rows whose target exceeds this (must not exceed the dataset's horizon).",
+    )
+    parser.add_argument(
+        "--holdout-last-days-per-route",
+        type=int,
+        default=None,
+        help=(
+            "Test on each route's own last N service dates instead of global "
+            "--test-dates. Keeps every rotation-week route in training."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--n-estimators", type=int, default=2000,
+                        help="Boosting rounds cap (early stopping decides the actual count).")
+    parser.add_argument("--num-leaves", type=int, default=64)
     parser.add_argument(
         "--with-api-feature",
         action="store_true",
         help="Include api_target_seconds_to_arrival as a feature for separate leakage-aware experiments.",
     )
     parser.add_argument(
-        "--fallback-model",
-        action="store_true",
-        help=(
-            "Also train a route-agnostic model B (same features minus route_id) and "
-            "serve the routed combination — model A for routes seen in training, model B "
-            "for the rest — as the reported/gated 'lightgbm' metric, instead of returning "
-            "UNSUPPORTED_ROUTE for unseen routes at serve time."
-        ),
-    )
-    parser.add_argument(
         "--target-encoding",
         action="store_true",
         help=(
-            "Give model A route-keyed hierarchical target-encoding features (te_*), "
-            "computed via full-data-encoding over the training window using the same "
-            "deployable-only spec subset Stage 0 validated on 2026-08-15 (routed MAE "
-            "117.67s vs the 138.53s plain baseline). Requires --fallback-model: an "
-            "encoded model A alone (141.00s in Stage 0) is worse than the plain "
-            "route-agnostic baseline — the gain only appears once routed."
+            "Add route-keyed hierarchical target-encoding features (te_*), computed "
+            "via full-data-encoding over the training window using the deployable-only "
+            "spec subset (SERVABLE_ENCODING_SPECS)."
         ),
     )
     return parser.parse_args()
-
-
-def validate_target_encoding(args: argparse.Namespace) -> None:
-    if args.target_encoding and not args.fallback_model:
-        raise ValueError(
-            "--target-encoding requires --fallback-model: Stage 0 (2026-08-15) found an "
-            "encoded model A alone (141.00s) is worse than the plain baseline (138.53s) — "
-            "the gain only shows up once routed."
-        )
 
 
 def parse_service_dates(value: str) -> list[date]:
@@ -165,8 +200,14 @@ def experiment_dir(data_dir: Path, run_id: str) -> Path:
     return path
 
 
-def feature_columns(with_api_feature: bool) -> list[str]:
+def feature_columns(
+    with_api_feature: bool, realtime_features: bool = True, route_pace: bool = False
+) -> list[str]:
     columns = [*NUMERIC_FEATURES, *CATEGORICAL_FEATURES]
+    if realtime_features:
+        columns = [*NUMERIC_FEATURES, *REALTIME_FEATURES, *CATEGORICAL_FEATURES]
+    if route_pace:
+        columns = [*columns[: len(columns) - len(CATEGORICAL_FEATURES)], *ROUTE_PACE_FEATURES, *CATEGORICAL_FEATURES]
     if with_api_feature:
         columns.append("api_target_seconds_to_arrival")
     return columns
@@ -202,6 +243,82 @@ def to_pandas(
     return x, y
 
 
+def split_light(split: Any) -> Any:
+    """Keep the split's metadata but drop its row frames (train/test keep only their
+    heights), so the feature frames built from them are the only copy in memory."""
+    import types
+
+    return types.SimpleNamespace(
+        train=types.SimpleNamespace(height=split.train.height),
+        test=types.SimpleNamespace(height=split.test.height),
+        dataset_path=split.dataset_path,
+        sampling_policy=split.sampling_policy,
+        split_policy=split.split_policy,
+    )
+
+
+def shrink_numeric(x: pd.DataFrame) -> pd.DataFrame:
+    """float64 -> float32 for the fit frames only. LightGBM bins features anyway, and
+    this halves the largest allocation so a run can take twice the rows. Test rows
+    stay float64, as a live request would be."""
+    numeric = [c for c in x.columns if c not in CATEGORICAL_FEATURES]
+    return x.astype({c: "float32" for c in numeric})
+
+
+def day_type_coverage(train_frame: pl.DataFrame) -> dict[str, Any]:
+    """Training dates per route and day type; a route must see all three patterns."""
+    counts = (
+        train_frame.select(pl.col("route_id").cast(pl.Utf8), pl.col("service_date").cast(pl.Date))
+        .unique()
+        .with_columns(day_type_expr().alias("_day_type"))
+        .group_by("route_id", "_day_type")
+        .agg(pl.len().alias("days"))
+    )
+    per_route: dict[str, dict[str, int]] = {}
+    for row in counts.iter_rows(named=True):
+        per_route.setdefault(row["route_id"], {t: 0 for t in DAY_TYPES})[row["_day_type"]] = int(row["days"])
+    missing = {
+        route: [t for t in DAY_TYPES if days[t] == 0]
+        for route, days in per_route.items()
+        if any(days[t] == 0 for t in DAY_TYPES)
+    }
+    return {
+        "per_route": per_route,
+        "routes_missing_day_type": missing,
+        "summary": {
+            "route_count": len(per_route),
+            "routes_with_all_day_types": len(per_route) - len(missing),
+            "routes_missing_day_type": len(missing),
+        },
+    }
+
+
+def dataset_has_columns(data_dir: Path, service_date: date, columns: list[str]) -> bool:
+    from split import dataset_part_files
+
+    schema = pl.read_parquet_schema(dataset_part_files(data_dir, service_date)[0])
+    return all(column in schema for column in columns)
+
+
+def blank_realtime_features(
+    x_train: pd.DataFrame, fraction: float, seed: int
+) -> pd.DataFrame:
+    """Set every rt_* feature to NaN on a random `fraction` of rows.
+
+    The dataset has full 60-second position coverage, so the rt_* columns are almost
+    never missing in training; the live app, however, only has history for routes
+    it has polled recently. Without this the model never sees the no-history case
+    it will meet in production."""
+    columns = [c for c in [*REALTIME_FEATURES, *ROUTE_PACE_FEATURES] if c in x_train.columns]
+    if not columns or fraction <= 0:
+        return x_train
+    rng = np.random.default_rng(seed)
+    mask = rng.random(len(x_train)) < fraction
+    x_train = x_train.copy()
+    x_train.loc[mask, columns] = np.nan
+    return x_train
+
+
 def validation_split(
     train: pl.DataFrame,
     target_column: str,
@@ -229,12 +346,14 @@ def fit_lgbm(
     y_valid: pd.Series,
     seed: int,
     categorical_feature: list[str] | str = "auto",
+    n_estimators: int = 2000,
+    num_leaves: int = 64,
 ) -> lgb.LGBMRegressor:
     model = lgb.LGBMRegressor(
         objective="mae",
-        n_estimators=2000,
+        n_estimators=n_estimators,
         learning_rate=0.05,
-        num_leaves=64,
+        num_leaves=num_leaves,
         subsample=0.9,
         colsample_bytree=0.9,
         random_state=seed,
@@ -254,37 +373,23 @@ def fit_lgbm(
     return model
 
 
-def build_router_reports(
-    test: pl.DataFrame,
-    target_column: str,
-    prediction_a: np.ndarray,
-    prediction_b: np.ndarray,
-    seen_mask: np.ndarray,
-) -> dict[str, Any]:
-    """Score model A alone, model B alone, and the routed (A on seen routes, B on
-    unseen) combination. The routed report is written under the same "lightgbm"
-    key gate.py already reads, so gate.py needs no changes: it transparently
-    gates on the routed MAE once --fallback-model is used."""
-    routed = np.where(seen_mask, prediction_a, prediction_b)
-    scored_a = test.with_columns(pl.Series("prediction_model_a", prediction_a))
-    scored_b = test.with_columns(pl.Series("prediction_model_b", prediction_b))
-    scored_routed = test.with_columns(pl.Series("prediction_routed", routed))
-    return {
-        "lightgbm": evaluate_predictions(scored_routed, target_column, "prediction_routed"),
-        "model_a_alone": evaluate_predictions(scored_a, target_column, "prediction_model_a"),
-        "model_b_alone": evaluate_predictions(scored_b, target_column, "prediction_model_b"),
-    }
-
-
 def train_model(args: argparse.Namespace) -> dict[str, Any]:
-    validate_target_encoding(args)
 
     service_dates = parse_service_dates(args.service_date)
     data_dir = load_data_dir()
     test_dates = parse_test_dates(args.test_dates) or set()
     train_dates = [item for item in service_dates if item not in test_dates]
 
-    columns = feature_columns(args.with_api_feature)
+    realtime = not args.no_realtime_features
+    # route-pace columns are optional in the dataset (patch_route_pace.py / build_dataset
+    # with a section reference); use them when the first partition carries them.
+    route_pace = realtime and dataset_has_columns(data_dir, service_dates[0], ROUTE_PACE_FEATURES)
+    if realtime and not route_pace:
+        print("[info] dataset has no route-pace columns (rt_route_*): training without them")
+    columns = feature_columns(args.with_api_feature, realtime, route_pace)
+    numeric_features = [*NUMERIC_FEATURES, *REALTIME_FEATURES] if realtime else NUMERIC_FEATURES
+    if route_pace:
+        numeric_features = [*numeric_features, *ROUTE_PACE_FEATURES]
     load_columns = (
         sorted(set(columns) | set(ENCODING_SUPPORT_COLUMNS)) if args.target_encoding else None
     )
@@ -298,8 +403,18 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         seed=args.seed,
         data_dir=data_dir,
         columns=load_columns,
+        holdout_last_days_per_route=args.holdout_last_days_per_route,
+        max_target_seconds=args.max_target_seconds,
     )
     target_column = split.target_column
+    exclude_route_dates = None
+    if args.holdout_last_days_per_route:
+        # every date still feeds the encoding tables, minus each route's held-out days
+        train_dates = service_dates
+        exclude_route_dates = pl.DataFrame(
+            split.split_policy["test_route_dates"],
+            schema={"route_id": pl.Utf8, "service_date": pl.Utf8},
+        ).with_columns(pl.col("service_date").str.to_date())
 
     if args.target_encoding:
         encoding_args = argparse.Namespace(
@@ -311,10 +426,12 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
             full_data_encoding=True,
             data_dir=data_dir,
             encoding_dates=train_dates,
+            encoding_exclude_route_dates=exclude_route_dates,
+            max_target_seconds=args.max_target_seconds,
             te_folds=5,
             te_smoothing=50.0,
             seed=args.seed,
-            numeric_features=NUMERIC_FEATURES,
+            numeric_features=numeric_features,
             encoding_specs=SERVABLE_ENCODING_SPECS,
             route_agnostic_specs=SERVABLE_ROUTE_AGNOSTIC_SPECS,
         )
@@ -327,53 +444,72 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         model_a_columns = columns
         feature_policy = {}
 
+    # Trim the training frame to what the fit needs and store features as float32
+    # before the pandas conversion: the polars frame and its pandas copy coexist for a
+    # moment, and that moment is the run's memory peak.
+    keep = list(dict.fromkeys([*model_a_columns, target_column, "route_id", "service_date", "snapshot_at"]))
+    numeric_cols = [c for c in model_a_columns if c not in CATEGORICAL_FEATURES]
+    train_frame = train_frame.select([c for c in keep if c in train_frame.columns]).with_columns(
+        [pl.col(c).cast(pl.Float32) for c in numeric_cols]
+    )
+    # the original split frames are superseded by train_frame/test_frame (TE path copies them)
+    split = split_light(split)
+
     cat_dtypes = categorical_dtypes([train_frame, test_frame])
 
     x_train, y_train, x_valid, y_valid = validation_split(
         train_frame, target_column, model_a_columns, cat_dtypes
     )
-    x_test, _ = to_pandas(test_frame, model_a_columns, target_column, cat_dtypes)
-
+    x_train, x_valid = shrink_numeric(x_train), shrink_numeric(x_valid)
+    if realtime:
+        x_train = blank_realtime_features(x_train, args.realtime_nan_fraction, args.seed)
     # 실제 train split에 1행 이상 존재한 route만. pandas_categorical(train∪test)과 달리
     # 이 값이 "모델이 실제로 학습한 route"다. serving 지원 판정·coverage gate·routing의 권위 소스.
     training_route_categories = sorted(
         str(v) for v in train_frame[CATEGORICAL_FEATURES[0]].unique().to_list() if v is not None
     )
 
+    coverage = day_type_coverage(train_frame)
+    if coverage["routes_missing_day_type"]:
+        print(
+            f"[warn] {len(coverage['routes_missing_day_type'])} routes lack a weekday/saturday/"
+            f"sunday training day: {list(coverage['routes_missing_day_type'].items())[:10]} ..."
+        )
+    else:
+        print(f"[info] every route trained on weekday, saturday and sunday ({coverage['summary']})")
+    # the polars training frame is no longer needed: keep only what the manifest/horizons use
+    train_targets = train_frame.select("route_id", target_column)
+    train_rows, test_rows = split.train.height, split.test.height
+    dataset_path, sampling_policy, split_policy = (
+        split.dataset_path, split.sampling_policy, split.split_policy
+    )
+    del train_frame, split
+    x_test, _ = to_pandas(test_frame, model_a_columns, target_column, cat_dtypes)
+
     # A raw route_id categorical actively hurt routing in production (148.85s vs 138.53s,
     # 2026-08-14) — target-encoding drops it in favor of te_* aggregates instead.
     categorical_feature_a = "auto" if args.target_encoding else CATEGORICAL_FEATURES
-    model = fit_lgbm(x_train, y_train, x_valid, y_valid, args.seed, categorical_feature_a)
+    model = fit_lgbm(
+        x_train, y_train, x_valid, y_valid, args.seed, categorical_feature_a,
+        args.n_estimators, args.num_leaves,
+    )
     predictions = model.predict(x_test, num_iteration=model.best_iteration_)
 
-    model_b = None
-    feature_columns_b: list[str] = []
-    if args.fallback_model:
-        feature_columns_b = [c for c in columns if c not in CATEGORICAL_FEATURES]
-        if args.target_encoding:
-            # Independent of model A's frame: SERVABLE_ROUTE_AGNOSTIC_SPECS is empty
-            # (Stage 0 found nothing servable for the route-agnostic side to encode), so
-            # model B stays on the plain raw columns, same as without --target-encoding.
-            x_train_b, y_train_b, x_valid_b, y_valid_b = validation_split(
-                train_frame, target_column, feature_columns_b, cat_dtypes
-            )
-            x_test_b, _ = to_pandas(test_frame, feature_columns_b, target_column, cat_dtypes)
-        else:
-            x_train_b = x_train.drop(columns=CATEGORICAL_FEATURES)
-            x_valid_b = x_valid.drop(columns=CATEGORICAL_FEATURES)
-            x_test_b = x_test.drop(columns=CATEGORICAL_FEATURES)
-            y_train_b, y_valid_b = y_train, y_valid
-        model_b = fit_lgbm(x_train_b, y_train_b, x_valid_b, y_valid_b, args.seed, "auto")
-        predictions_b = model_b.predict(x_test_b, num_iteration=model_b.best_iteration_)
+    scored = test_frame.with_columns(pl.Series("prediction_lgbm", predictions))
+    reports = {"lightgbm": evaluate_predictions(scored, target_column, "prediction_lgbm")}
 
-        train_routes = set(training_route_categories)
-        seen_mask = test_frame[CATEGORICAL_FEATURES[0]].cast(pl.Utf8).is_in(train_routes).to_numpy()
-        reports = build_router_reports(
-            test_frame, target_column, predictions, predictions_b, seen_mask
-        )
-    else:
-        scored = test_frame.with_columns(pl.Series("prediction_lgbm", predictions))
-        reports = {"lightgbm": evaluate_predictions(scored, target_column, "prediction_lgbm")}
+    horizon_caps, horizon_detail = route_horizons(
+        scored.select("route_id", target_column, "prediction_lgbm"),
+        target_column,
+        "prediction_lgbm",
+        train_targets,
+        args.max_target_seconds,
+        DEFAULT_BIN_SECONDS,
+        args.horizon_p90_limit_seconds,
+        args.horizon_min_rows,
+    )
+    horizon_summary = summarize(horizon_caps, args.max_target_seconds)
+    print(f"[horizon] per-route caps: {horizon_summary}")
 
     date_label = service_date_label(service_dates)
     run_id = (
@@ -383,8 +519,6 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = experiment_dir(data_dir, run_id)
     model_path = output_dir / "model.txt"
     model.booster_.save_model(str(model_path))
-    if model_b is not None:
-        model_b.booster_.save_model(str(output_dir / "model_b.txt"))
 
     manifest = {
         "run_id": run_id,
@@ -392,7 +526,7 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
         "model_version": run_id,
         "schema_version": 2,
         "service_date_range": [item.isoformat() for item in service_dates],
-        "dataset_path": split.dataset_path,
+        "dataset_path": dataset_path,
         "target_policy": args.target,
         "target_column": target_column,
         "feature_list": model_a_columns,
@@ -400,30 +534,53 @@ def train_model(args: argparse.Namespace) -> dict[str, Any]:
             column for column in LEAKAGE_COLUMNS if column not in model_a_columns
         ],
         "with_api_feature": args.with_api_feature,
-        "router_enabled": args.fallback_model,
         "target_encoding_enabled": args.target_encoding,
-        "feature_list_b": feature_columns_b,
-        "sampling_policy": split.sampling_policy,
-        "split_policy": split.split_policy,
-        "train_rows": split.train.height,
-        "test_rows": split.test.height,
+        "sampling_policy": sampling_policy,
+        "split_policy": split_policy,
+        "max_target_seconds": args.max_target_seconds,
+        "realtime_features": [c for c in REALTIME_FEATURES if c in model_a_columns],
+        "route_pace_features": [c for c in ROUTE_PACE_FEATURES if c in model_a_columns],
+        "realtime_nan_fraction": args.realtime_nan_fraction if realtime else None,
+        "realtime_history_minutes": int(HISTORY_WINDOW.total_seconds() // 60) if realtime else None,
+        # serve: a prediction past its route's cap is answered BEYOND_HORIZON (route_horizon.py).
+        "default_horizon_seconds": args.max_target_seconds,
+        "route_horizon_seconds": horizon_caps,
+        "route_horizon_policy": {
+            "bin_seconds": DEFAULT_BIN_SECONDS,
+            "p90_limit_seconds": args.horizon_p90_limit_seconds,
+            "min_rows": args.horizon_min_rows,
+            "summary": horizon_summary,
+        },
+        "train_rows": train_rows,
+        "test_rows": test_rows,
+        "route_day_type_coverage": {
+            "summary": coverage["summary"],
+            "routes_missing_day_type": coverage["routes_missing_day_type"],
+        },
         "training_route_categories": training_route_categories,
         "validation_rows": len(y_valid),
         "best_iteration": int(model.best_iteration_ or model.n_estimators),
+        "n_estimators": args.n_estimators,
+        "num_leaves": args.num_leaves,
         "metrics": reports,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "git_commit": git_commit(),
         "model_file": str(model_path),
-        "model_b_file": str(output_dir / "model_b.txt") if model_b is not None else None,
     }
     if args.target_encoding:
         manifest["feature_policy"] = persist_encoding_artifacts(output_dir, feature_policy)
+    if route_pace:
+        # the section reference table the dataset's rt_route_* columns were computed
+        # from must ship with the model so serve reproduces them from live history.
+        reference = data_dir / "section_reference" / "data.parquet"
+        tables_dir = output_dir / "encoding_tables"
+        tables_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(reference, tables_dir / "section_reference.parquet")
     write_json(output_dir / "metrics.json", reports)
+    write_json(output_dir / "route_horizons.json", horizon_detail)
     write_json(output_dir / "training_manifest.json", manifest)
     print_reports(reports)
     print(f"\nmodel={model_path}")
-    if model_b is not None:
-        print(f"model_b={output_dir / 'model_b.txt'}")
     print(f"manifest={output_dir / 'training_manifest.json'}")
     return manifest
 

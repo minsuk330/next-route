@@ -11,6 +11,7 @@ import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
 import watoo.grd.nextroute.application.bus.port.out.BusApiPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
+import watoo.grd.nextroute.application.bus.port.out.BusRouteObservationHistoryPort;
 import watoo.grd.nextroute.domain.bus.entity.BusPositionRaw;
 import watoo.grd.nextroute.domain.bus.entity.BusRoute;
 import watoo.grd.nextroute.domain.bus.repository.BusPositionRawRepository;
@@ -43,13 +44,14 @@ class BusPositionServiceTest {
 	@Mock BusApiQuotaPort quota;
 	private final FixedLeaderLease leaderLease = FixedLeaderLease.leader();
 	@Mock BusRealtimeCacheWritePort realtimeCacheWrite;
+	@Mock BusRouteObservationHistoryPort observationHistory;
 
 	private final Clock clock = Clock.fixed(FIXED_NOW.atZone(KST).toInstant(), KST);
 	private BusPositionService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new BusPositionService(busApiPort, busRouteRepository, busPositionRawRepository, targetRouteProvider, quota, leaderLease, clock, realtimeCacheWrite);
+		service = new BusPositionService(busApiPort, busRouteRepository, busPositionRawRepository, targetRouteProvider, quota, leaderLease, clock, realtimeCacheWrite, observationHistory);
 	}
 
 	@Test

@@ -5,6 +5,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
+import org.springframework.beans.factory.annotation.Autowired;
+import watoo.grd.nextroute.application.bus.port.out.BusRouteObservationHistoryPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheReadPort;
 import watoo.grd.nextroute.application.bus.port.out.BusRealtimeCacheWritePort;
 import watoo.grd.nextroute.application.route.concurrent.CrossInstanceFlightRunner;
@@ -43,6 +45,7 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
     private final BusRealtimeCacheWritePort cacheWrite;
     private final RouteSearchMetrics metrics;
     private final SearchTimeBusProperties properties;
+    private final BusRouteObservationHistoryPort observationHistory;
     private final CrossInstanceFlightPort flight;
 
     /**
@@ -52,18 +55,31 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
     private final SingleFlight<String, BusQueryResult<BusArrivalInfo>> arrivalFlight = new SingleFlight<>();
     private final SingleFlight<String, BusQueryResult<BusPositionInfo>> positionFlight = new SingleFlight<>();
 
+    @Autowired
     public CachedSearchTimeBusAdapter(SearchTimeBusAdapter delegate,
                                       BusRealtimeCacheReadPort cacheRead,
                                       BusRealtimeCacheWritePort cacheWrite,
                                       RouteSearchMetrics metrics,
                                       SearchTimeBusProperties properties,
+                                      BusRouteObservationHistoryPort observationHistory,
                                       CrossInstanceFlightPort flight) {
         this.delegate = delegate;
         this.cacheRead = cacheRead;
         this.cacheWrite = cacheWrite;
         this.metrics = metrics;
         this.properties = properties;
+        this.observationHistory = observationHistory;
         this.flight = flight;
+    }
+
+    /** ML 노선 이력을 쌓지 않는 생성자(테스트용). */
+    public CachedSearchTimeBusAdapter(SearchTimeBusAdapter delegate,
+                                      BusRealtimeCacheReadPort cacheRead,
+                                      BusRealtimeCacheWritePort cacheWrite,
+                                      RouteSearchMetrics metrics,
+                                      SearchTimeBusProperties properties,
+                                      CrossInstanceFlightPort flight) {
+        this(delegate, cacheRead, cacheWrite, metrics, properties, BusRouteObservationHistoryPort.NONE, flight);
     }
 
     @Override
@@ -124,6 +140,8 @@ public class CachedSearchTimeBusAdapter implements SearchTimeBusQueryPort {
                             : delegate.getBusPosByRtid(busRouteId, timeoutMs);
                     if (fresh.isOk() && !fresh.data().isEmpty()) {
                         cacheWrite.putPositions(busRouteId, fresh.data());
+                        // 새 관측만 ML 노선 이력에 덧붙인다(캐시 hit 은 이미 쌓인 관측)
+                        observationHistory.append(busRouteId, fresh.data());
                     }
                     return fresh;
                 }, () -> cacheRead.getPositions(busRouteId), BusPositionInfo.class, timeoutMs),

@@ -104,6 +104,10 @@ ml:
     # 예측 결과 캐시. 키가 feature 값 전체라 상류 위치 캐시가 갱신되면 저절로 무효화된다.
     # 0 이하면 캐시 우회. 효율은 route.transfer-arrival.cache-ttl-seconds 에 매달린다.
     cache-ttl-seconds: ${ML_PREDICTION_CACHE_TTL:30}
+    # rt_* 피처용 노선별 최근 관측 이력(Redis ZSET). 위치 응답을 받을 때마다 쌓고 예측 요청에 싣는다.
+    # 보존 시간은 serving 창(realtime_history_minutes=90)보다 길게.
+    history-enabled: ${ML_HISTORY_ENABLED:true}
+    history-minutes: ${ML_HISTORY_MINUTES:100}
 
 route:
   transfer-arrival:
