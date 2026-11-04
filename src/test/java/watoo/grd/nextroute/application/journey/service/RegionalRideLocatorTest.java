@@ -125,6 +125,39 @@ class RegionalRideLocatorTest {
         assertThat(locator.locate(stale, 180, NOW).failureReason()).isEqualTo("stale-progress");
     }
 
+    @Test
+    @DisplayName("하차가 같은 정류장의 두 번째 통과면 위치를 만들지 않는다(#546)")
+    void secondPassAlightIsAmbiguous() {
+        String loop = "233000099";
+        store.replaceRoute(RegionalBusProvider.GG, loop, "7771", null, List.of(
+                stop("A", 1, false), stop("B", 2, false), stop("C", 3, false), stop("D", 4, false),
+                stop("B", 5, false), stop("C", 6, false), stop("E", 7, false)), NOW);
+        given(options.findById(11L)).willReturn(Optional.of(JourneyLegRouteOption.builder()
+                .journeyLegId(3L).optionIndex(0).laneIndex(0).sourceRouteId(loop).routeName("7771").build()));
+        given(plannedReader.realtimeStopIds(1L, 1, 1)).willReturn(List.of("A", "B", "C", "D", "B", "C"));
+        JourneyLeg ride = ride("A", "C", 1);
+        ReflectionTestUtils.setField(ride, "selectedRouteOptionId", 11L);
+
+        // 남은 1개면 실제론 뒤쪽 B(표 인덱스 4)인데, 표 첫 등장으로 세면 앞쪽 B(인덱스 1)로 잡힌다
+        assertThat(locator.locate(ride, 180, NOW).failureReason()).isEqualTo("ambiguous-stop");
+    }
+
+    @Test
+    @DisplayName("같은 정류장을 두 번 지나는 노선이어도 첫 통과에서 내리면 위치를 낸다(#546)")
+    void firstPassAlightStillLocates() {
+        String loop = "233000099";
+        store.replaceRoute(RegionalBusProvider.GG, loop, "7771", null, List.of(
+                stop("A", 1, false), stop("B", 2, false), stop("C", 3, false), stop("D", 4, false),
+                stop("B", 5, false), stop("C", 6, false), stop("E", 7, false)), NOW);
+        given(options.findById(11L)).willReturn(Optional.of(JourneyLegRouteOption.builder()
+                .journeyLegId(3L).optionIndex(0).laneIndex(0).sourceRouteId(loop).routeName("7771").build()));
+        given(plannedReader.realtimeStopIds(1L, 1, 1)).willReturn(List.of("A", "B", "C"));
+        JourneyLeg ride = ride("A", "C", 1);
+        ReflectionTestUtils.setField(ride, "selectedRouteOptionId", 11L);
+
+        assertThat(locator.locate(ride, 180, NOW).position().currentIndex()).isEqualTo(1);
+    }
+
     private static JourneyLeg ride(String from, String to, int remainingStops) {
         JourneyLeg leg = JourneyLeg.builder().journeyId(1L).routeRevision(1).legIndex(1)
                 .type(JourneyLegType.RIDE_BUS).state(JourneyLegState.ACTIVE)

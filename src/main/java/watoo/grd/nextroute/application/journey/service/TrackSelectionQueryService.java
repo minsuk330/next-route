@@ -296,7 +296,7 @@ public class TrackSelectionQueryService {
      * @throws BusinessException 422 {@code TRACK_STOPS_INVALID} — 그 노선으로 그 승하차가 안 된다
      */
     public TrackViews.Shape shape(String routeGtfsId, String requestedFromStopId, String toStopId,
-                                  String patternCode) {
+                                  String patternCode, Integer alightOffset) {
         requireEnabled();
         return source.withPermit(deadline -> {
             String fromStopId = source.boardingStop(routeGtfsId, requestedFromStopId, deadline);
@@ -306,7 +306,7 @@ public class TrackSelectionQueryService {
             int alightIndex;
             if (toStopId != null) {
                 TrackPatternSelector.Selection selection = TrackPatternSelector
-                        .select(routeGtfsId, fromStopId, toStopId, patternCode, patterns)
+                        .select(routeGtfsId, fromStopId, toStopId, patternCode, alightOffset, patterns)
                         .orElseThrow(() -> new BusinessException(JourneyErrorCode.TRACK_STOPS_INVALID));
                 pattern = selection.pattern();
                 boardIndex = selection.boardIndex();

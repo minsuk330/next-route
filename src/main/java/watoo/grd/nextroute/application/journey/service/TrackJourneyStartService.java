@@ -135,7 +135,7 @@ public class TrackJourneyStartService {
         String boardStopId = source.boardingStop(command.routeGtfsId(), command.boardStopId(), deadline);
         List<TransitPattern> patterns = source.patternsAtStop(boardStopId, deadline);
         TrackPatternSelector.Selection selection = TrackPatternSelector.select(command.routeGtfsId(),
-                        boardStopId, command.alightStopId(), command.patternCode(), patterns)
+                        boardStopId, command.alightStopId(), command.patternCode(), command.alightIndex(), patterns)
                 .orElseThrow(() -> new BusinessException(JourneyErrorCode.TRACK_STOPS_INVALID));
 
         TransitPatternDetail detail = source.pattern(selection.pattern().code(), deadline)

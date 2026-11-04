@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.service;
 
+import watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitStop;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -125,6 +126,39 @@ class TrackJourneyStartServiceTest {
         assertThat(plan.getValue().legs()).extracting(leg -> leg.guidance().trainKind())
                 .containsExactly("NORMAL", "NORMAL");
         assertThat(snapshot.getValue().path("subPaths").get(0).path("trainKind").asText()).isEqualTo("NORMAL");
+    }
+
+    @Test
+    @DisplayName("같은 역 두 번(#546): alightIndex 면 두 번째 통과까지 타고, 없으면 첫 통과에서 내린다")
+    void startsToSecondPass() {
+        int board = 0;
+        while (!line2.stops().get(board).gtfsId().equals(TrackFixtures.GANGNAM)) {
+            board++;
+        }
+        List<TransitStop> stops = new java.util.ArrayList<>(line2.stops());
+        stops.set(board + 4, stops.get(board + 2));
+        TransitPatternDetail repeat = new TransitPatternDetail(line2.code(), line2.route(), stops,
+                line2.geometryPoints());
+        given(port.patternsAtStop(eq(TrackFixtures.GANGNAM), any()))
+                .willReturn(List.of(TrackFixtures.lightOf(repeat, 2)));
+        given(port.pattern(eq(TrackFixtures.LINE2_PATTERN), any())).willReturn(Optional.of(repeat));
+        String twice = stops.get(board + 2).gtfsId();
+        List<TransitPatternPort.TransitStopTime> times = new java.util.ArrayList<>(TrackFixtures.line2Times());
+        TransitPatternPort.TransitStopTime replaced = times.get(board + 4);
+        times.set(board + 4, new TransitPatternPort.TransitStopTime(twice, replaced.scheduledArrival(),
+                replaced.scheduledDeparture()));
+        given(port.tripStopTimes(anyString(), eq(DAY), any())).willReturn(times);
+
+        service.start(1L, new StartTrackCommand(ROUTE, TrackFixtures.GANGNAM, twice, null, false));
+        service.start(1L, new StartTrackCommand(ROUTE, TrackFixtures.GANGNAM, twice, null, 3, false));
+
+        ArgumentCaptor<JourneyPlan> plans = ArgumentCaptor.forClass(JourneyPlan.class);
+        verify(txService, org.mockito.Mockito.times(2)).start(eq(1L), plans.capture(), any(), any(), eq(false),
+                eq(NOW), eq(JourneyKind.TRACK));
+        JourneyLegDraft first = plans.getAllValues().get(0).legs().get(1);
+        JourneyLegDraft second = plans.getAllValues().get(1).legs().get(1);
+        assertThat(second.endStopId()).isEqualTo(first.endStopId());
+        assertThat(second.plannedDurationSec()).isGreaterThan(first.plannedDurationSec());
     }
 
     @Test

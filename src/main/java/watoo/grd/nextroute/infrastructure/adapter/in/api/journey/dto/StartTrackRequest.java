@@ -10,15 +10,17 @@ import watoo.grd.nextroute.application.journey.dto.StartTrackCommand;
  * 요청 줄만 봐도 드러나야 한다.
  *
  * @param patternCode 방향 조회가 준 값. 힌트일 뿐이라 비워도 된다
+ * @param alightIndex 하차 후보 조회가 준 {@code index}. 힌트일 뿐이라 비워도 된다. 없거나 어긋나면 첫 등장이다(#546)
  */
 public record StartTrackRequest(
         @NotBlank String routeGtfsId,
         @NotBlank String boardStopId,
         @NotBlank String alightStopId,
-        String patternCode
+        String patternCode,
+        Integer alightIndex
 ) {
 
     public StartTrackCommand toCommand(boolean replace) {
-        return new StartTrackCommand(routeGtfsId, boardStopId, alightStopId, patternCode, replace);
+        return new StartTrackCommand(routeGtfsId, boardStopId, alightStopId, patternCode, alightIndex, replace);
     }
 }

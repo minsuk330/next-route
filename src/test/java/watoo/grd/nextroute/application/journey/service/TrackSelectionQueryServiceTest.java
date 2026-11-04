@@ -166,7 +166,7 @@ class TrackSelectionQueryServiceTest {
     @Test
     @DisplayName("노선 선(to 없음): 하차 후보 마지막(한 바퀴 끝)까지, 시작 후 안내와 같은 slice")
     void shapeWholeLap() {
-        TrackViews.Shape shape = service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, null, null);
+        TrackViews.Shape shape = service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, null, null, null);
 
         assertThat(shape.quality()).isEqualTo(TrackViews.ShapeQuality.SHAPE_OK);
         assertThat(shape.points()).isEqualTo(
@@ -183,11 +183,27 @@ class TrackSelectionQueryServiceTest {
         String to = line2.stops().get(35).gtfsId();
 
         TrackViews.Shape shape = service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, to,
-                TrackFixtures.LINE2_PATTERN);
+                TrackFixtures.LINE2_PATTERN, null);
 
         assertThat(shape.quality()).isEqualTo(TrackViews.ShapeQuality.SHAPE_OK);
         assertThat(shape.points()).isEqualTo(
                 EncodedPolyline.decode(TrackLegFactory.geometry(line2, 31, 35, "g").displayPoints()));
+    }
+
+    @Test
+    @DisplayName("같은 역 두 번(#546): 노선 선도 시작과 같이 alightIndex 자리까지 자른다")
+    void shapeToSecondPass() {
+        java.util.List<watoo.grd.nextroute.application.route.port.out.TransitPatternPort.TransitStop> stops =
+                new java.util.ArrayList<>(line2.stops());
+        stops.set(35, stops.get(33));
+        TransitPatternDetail repeat = new TransitPatternDetail(line2.code(), line2.route(), stops, null);
+        given(port.patternsAtStop(eq(TrackFixtures.GANGNAM), any()))
+                .willReturn(List.of(TrackFixtures.lightOf(repeat, 2)));
+        given(port.pattern(eq(TrackFixtures.LINE2_PATTERN), any())).willReturn(Optional.of(repeat));
+        String to = stops.get(33).gtfsId();
+
+        assertThat(service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, to, null, null).points()).hasSize(3);
+        assertThat(service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, to, null, 3).points()).hasSize(5);
     }
 
     @Test
@@ -197,7 +213,7 @@ class TrackSelectionQueryServiceTest {
         given(port.pattern(eq(TrackFixtures.LINE2_PATTERN), any())).willReturn(Optional.of(noShape));
 
         TrackViews.Shape shape = service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM,
-                line2.stops().get(35).gtfsId(), null);
+                line2.stops().get(35).gtfsId(), null, null);
 
         assertThat(shape.quality()).isEqualTo(TrackViews.ShapeQuality.STOP_LINE);
         assertThat(shape.points()).hasSize(5);
@@ -208,17 +224,17 @@ class TrackSelectionQueryServiceTest {
     @Test
     @DisplayName("노선 선: 그 노선으로 못 가는 하차면 422, 상세가 정류장 패턴과 어긋나면 TRACK_PATTERN_UNAVAILABLE")
     void shapeErrors() {
-        assertThatThrownBy(() -> service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, "1:NOWHERE", null))
+        assertThatThrownBy(() -> service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, "1:NOWHERE", null, null))
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(JourneyErrorCode.TRACK_STOPS_INVALID);
-        assertThatThrownBy(() -> service.shape("1:OTHER", TrackFixtures.GANGNAM, null, null))
+        assertThatThrownBy(() -> service.shape("1:OTHER", TrackFixtures.GANGNAM, null, null, null))
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(JourneyErrorCode.TRACK_STOPS_INVALID);
 
         TransitPatternDetail shorter = new TransitPatternDetail(line2.code(), line2.route(),
                 line2.stops().subList(0, 80), line2.geometryPoints());
         given(port.pattern(eq(TrackFixtures.LINE2_PATTERN), any())).willReturn(Optional.of(shorter));
-        assertThatThrownBy(() -> service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, null, null))
+        assertThatThrownBy(() -> service.shape("1:RR_ACC1_S-1-02-1I", TrackFixtures.GANGNAM, null, null, null))
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(JourneyErrorCode.TRACK_PATTERN_UNAVAILABLE);
     }
@@ -368,7 +384,7 @@ class TrackSelectionQueryServiceTest {
         given(port.pattern(eq(p5100.code()), any())).willReturn(Optional.of(detail));
 
         List<TrackViews.AlightStop> stops = service.alightStops(GGB_5100, SEB, null);
-        TrackViews.Shape shape = service.shape(GGB_5100, SEB, null, null);
+        TrackViews.Shape shape = service.shape(GGB_5100, SEB, null, null, null);
 
         assertThat(stops).isNotEmpty().noneMatch(s -> s.gtfsStopId().equals(GGB));
         assertThat(stops.get(0).gtfsStopId())

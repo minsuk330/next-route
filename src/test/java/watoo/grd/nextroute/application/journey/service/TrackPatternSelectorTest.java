@@ -156,6 +156,51 @@ class TrackPatternSelectorTest {
         assertThat(TrackPatternSelector.routeMatches("1:BR_TAGO_SEB100100600", "1:BR_TAGO_SEB1001006001")).isFalse();
     }
 
+    @Test
+    @DisplayName("같은 정류장 두 번(#546): alightOffset 이 맞으면 그 자리")
+    void selectSecondPass() {
+        TransitPattern p = pattern("1:B::01", BUS, 1, "A", "B", "C", "D", "C", "E");
+
+        TrackPatternSelector.Selection selection = TrackPatternSelector
+                .select("1:BR_TAGO_DJB30300151", "A", "C", null, 3, List.of(p)).orElseThrow();
+
+        assertThat(selection.boardIndex()).isZero();
+        assertThat(selection.alightIndex()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("같은 정류장 두 번(#546): alightOffset 없으면 첫 등장(구버전 앱)")
+    void selectFirstPassWithoutOffset() {
+        TransitPattern p = pattern("1:B::01", BUS, 1, "A", "B", "C", "D", "C", "E");
+
+        assertThat(TrackPatternSelector.select("1:BR_TAGO_DJB30300151", "A", "C", null, List.of(p))
+                .orElseThrow().alightIndex()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("같은 정류장 두 번(#546): alightOffset 이 다른 정류장이거나 범위 밖이면 첫 등장")
+    void selectFallsBackOnStaleOffset() {
+        TransitPattern p = pattern("1:B::01", BUS, 1, "A", "B", "C", "D", "C", "E");
+
+        for (Integer stale : List.of(2, 99, -1)) {
+            assertThat(TrackPatternSelector.select("1:BR_TAGO_DJB30300151", "A", "C", null, stale, List.of(p))
+                    .orElseThrow().alightIndex()).as("offset %d", stale).isEqualTo(2);
+        }
+    }
+
+    @Test
+    @DisplayName("같은 정류장 두 번(#546): 코드 없이 패턴이 여럿이면 힌트가 맞은 패턴을 고른다")
+    void selectPrefersHintedPattern() {
+        TransitPattern shortcut = pattern("1:B::01", BUS, 9, "A", "C", "E");
+        TransitPattern loop = pattern("1:B::02", BUS, 1, "A", "B", "C", "D", "C", "E");
+
+        TrackPatternSelector.Selection selection = TrackPatternSelector
+                .select("1:BR_TAGO_DJB30300151", "A", "C", null, 3, List.of(shortcut, loop)).orElseThrow();
+
+        assertThat(selection.pattern().code()).isEqualTo("1:B::02");
+        assertThat(selection.alightIndex()).isEqualTo(4);
+    }
+
     private static TransitPattern pattern(String code, TransitRoute route, int trips, String... ids) {
         return new TransitPattern(code, null, route, stops(ids), trips);
     }

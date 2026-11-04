@@ -100,7 +100,7 @@ class JourneyTrackControllerTest {
     @Test
     @DisplayName("200 — 노선 선: points 는 x=경도·y=위도, quality 문자열. to·pattern 은 선택")
     void shape() throws Exception {
-        given(queryService.shape("1:BR_TAGO_SEB100100093", "1:BS_A", null, null)).willReturn(new TrackViews.Shape(
+        given(queryService.shape("1:BR_TAGO_SEB100100093", "1:BS_A", null, null, null)).willReturn(new TrackViews.Shape(
                 List.of(new CoordPoint(126.83, 37.52), new CoordPoint(126.84, 37.53)),
                 TrackViews.ShapeQuality.SHAPE_OK));
 
@@ -111,10 +111,10 @@ class JourneyTrackControllerTest {
                 .andExpect(jsonPath("$.points[0].x").value(126.83))
                 .andExpect(jsonPath("$.points[0].y").value(37.52));
 
-        mockMvc.perform(get("/api/journeys/track/routes/1:BR_TAGO_SEB100100093/shape?from=1:BS_A&to=1:BS_B&pattern=p")
+        mockMvc.perform(get("/api/journeys/track/routes/1:BR_TAGO_SEB100100093/shape?from=1:BS_A&to=1:BS_B&pattern=p&alightIndex=7")
                         .with(authentication(user())))
                 .andExpect(status().isOk());
-        verify(queryService).shape("1:BR_TAGO_SEB100100093", "1:BS_A", "1:BS_B", "p");
+        verify(queryService).shape("1:BR_TAGO_SEB100100093", "1:BS_A", "1:BS_B", "p", 7);
     }
 
     @Test
@@ -197,6 +197,24 @@ class JourneyTrackControllerTest {
         mockMvc.perform(post("/api/journeys/track").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"routeGtfsId\":\"r\"}").with(authentication(user())))
                 .andExpect(status().isBadRequest());
+    }
+
+
+    @Test
+    @DisplayName("시작: alightIndex 를 명령으로 넘긴다(#546)")
+    void startPassesAlightIndex() throws Exception {
+        given(startService.start(eq(1L), any())).willReturn(JourneySnapshot.of(9L, JourneyStatus.ACTIVE,
+                JourneyKind.TRACK, 1L, 0L, 1, 0, Instant.parse("2026-10-07T03:03:00Z"), null,
+                Instant.parse("2026-10-07T03:00:00Z"), List.of()));
+        given(etaComposer.compose(eq(1L), any())).willAnswer(call -> call.getArgument(1));
+
+        mockMvc.perform(post("/api/journeys/track").contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"routeGtfsId":"1:R","boardStopId":"1:A","alightStopId":"1:B","alightIndex":5}
+                                """).with(authentication(user())))
+                .andExpect(status().isCreated());
+
+        verify(startService).start(1L, new StartTrackCommand("1:R", "1:A", "1:B", null, 5, false));
     }
 
     private Authentication user() {
