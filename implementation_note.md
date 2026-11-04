@@ -6404,3 +6404,17 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `--tests '*Track*' '*RegionalRideLocator*' '*RideTruncation*' '*UpcomingStopWindow*' '*WorkerProfileWiring*'`(st-pg·st-redis env) → 167 tests, 실패 0. 전체 시험은 안 돌림
 ### 배포
 - 미배포. 마이그레이션 없음. 앱이 `alightIndex` 를 보내기 전까지 동작 변화 없음
+
+## 운영 worker2 기동 (2026-11-04 13:59 KST)
+### 배포
+- `compose.yaml`(백업 `…bak-20261104-135906-pre-worker2`)에 `worker2` 서비스: worker 블록 복제, 같은 이미지(`WORKER_IMAGE`)·env. **리더 락을 안 보는 단독 작업은 worker2 에서 env 로 끔**: `SUBWAY_POSITION_ENABLED`·`REGIONAL_BUS_CATALOG_ENABLED` 미설정, `COLLECTOR_ROUTEROTATION_ENABLED=false`(+`COLLECTOR_ROUTE_ROTATION_ENABLED`), `BATCH_BUS_LABEL_ENABLED=false`, `BATCH_ARRIVAL_EVENT_ENABLED=false`. 로그 `/logs/worker2-<build>.log`
+- Prometheus `prometheus.yml` 에 `worker2:8081`(role worker2) 추가, SIGHUP. alloy 는 compose 서비스 라벨로 자동 수집
+- `deploy.sh` 는 worker2 를 모름 → `./deploy.sh worker` 뒤 `compose up -d --no-deps --force-recreate worker2` 수동(compose 주석)
+### 확정
+- 코드 조사(@Scheduled 28곳): 리더 락 게이트 있음 = 지하철 도착 수집, 버스 도착·위치 수집, 버스 도착 알림 폴러, 노선 감시자. DB claim(`SKIP LOCKED`)으로 다중 안전 = 재평가, 재탐색 보드, 링 push relay, 버스 알림 relay. latest-wins = 링 계산. **게이트 없음(두 대면 2배)** = `RealtimeSubwayPositionCollector`(5초 폴링, 주석 "한 인스턴스에서만"), `RegionalBusCatalogScheduler`(매월 1일 2.15만 호출), `WeeklyRouteRotationScheduler`, `SubwayArrivalEventBatchScheduler`(04:30), `BusArrivalLabelBatchScheduler`(04:50). 프로필 없음(api 에도 이미 도는 것) = 날씨·예측 지원·TAGO 도시코드·시계 skew
+### 검증
+- worker2 healthy, `journey_reeval_leader` worker 1 / worker2 0. `collector-arrival` 몫 70초 증가 29(한 틱 ≈ 노선 30, 두 대면 60) → 수집기 한 대. worker2 위치 수집 흔적 0, ERROR 0/0/0
+- 메모리: worker2 706MB(기동 피크), 호스트 가용 1,397 → 729MB, 스왑 1.0GB. 주기 GC 뒤 재확인 필요
+### 미결
+- 리더 게이트 PR(위 5개에 `isLeader()`) → 머지·배포 뒤 worker2 env 를 worker 와 같게. 그때까지 worker1 이 죽으면 지하철 위치 수집·노선표·배치는 멈춤(도착 수집·알림은 worker2 가 이어받음)
+- 메모리 추가 절약(③ SerialGC/Xss512k, ④ CDS)은 가용 메모리 추이 보고
