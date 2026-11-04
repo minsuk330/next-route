@@ -6444,3 +6444,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `--tests '*Gyeonggi*' '*RegionalArrivalLookup*' '*BusArrivalQueryService*' '*RideTruncation*' '*UpcomingStopWindow*' '*WaitBusArrival*' '*WorkerProfileWiring*'`(st-pg·st-redis env) → 73 tests, 실패 0
 ### 배포
 - 미배포. 마이그레이션 없음. api·worker·worker2 모두 어댑터를 쓴다
+
+## 경기·TAGO 버스로 갈아타는 환승 판정 (2026-11-04, fix/regional-transfer-verdict)
+### 확정
+- 조사: `BusBoardingTimeEstimator.hasScope` 가 서울 route_id·순번을 요구해 경기·TAGO 대상은 `no_scope` → 항상 UNKNOWN. 30일 WAIT_BUS 대상 54건 중 19건 route_id null(시외 2건은 공급원 없음)
+- 규칙은 서울 `pickRealtime` 과 같다: 준비 시각 뒤 첫 버스, 없으면 모름. 응답의 차가 전부 준비 시각 전이어도 "놓침"을 단정하지 않는다(다음 한두 대뿐). 서울과 달리 모델 대체가 없다
+- 실시간 시야(`bus-realtime-window-seconds` 1200초) 밖이면 호출하지 않는다. 몫은 재탐색 지역 버킷(`reroute-gg-arrival`) 공유
+- 몫 소진만 `blocked`(평가 간격 늦춤). 조회 실패는 unknown: #551 뒤 순번이 안 정해지는 정류장도 조회 실패로 오기 때문에, 막힘으로 치면 그 여정 평가가 계속 늦춰진다
+- 알림은 판정 품질로 거르지 않는다. 경기는 분 단위라 근사 품질로도 위험 알림이 나간다
+- 지표 `journey_transfer_boarding_miss_total{mode="regional_bus"}`: beyond-window, no-realtime, arrival-blocked, quota-exhausted
+### 검증
+- `--tests '*TransferTargetArrivalPredictor*' '*RegionalArrivalLookup*' '*WaitLegArrivalPredictor*' '*TransferRisk*' '*WorkerProfileWiring*' '*BoardingTime*'`(st-pg·st-redis env) → 131 tests, 실패 0
+### 배포
+- 미배포. 마이그레이션 없음. 평가기는 worker 라 worker·worker2 교체면 판정에 반영된다

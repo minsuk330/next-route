@@ -65,6 +65,39 @@ class RegionalArrivalLookupTest {
     }
 
     @Test
+    @DisplayName("갈아탈 차: 준비 시각 전에 지나가는 차는 건너뛰고 그 뒤 첫 차")
+    void boardableSkipsEarlierBus() {
+        given(gyeonggi.getArrival("S", "R", false)).willReturn(BusQueryResult.ok(List.of(
+                new GyeonggiBusArrival("R", 2, 1, null, null, 9, 6, null, null, null))));
+
+        assertThat(lookup.boardableAt(RegionalBusProvider.GG, "R", "S", NOW.plusSeconds(300)).at())
+                .isEqualTo(NOW.plusSeconds(540));
+        assertThat(lookup.boardableAt(RegionalBusProvider.GG, "R", "S", NOW.plusSeconds(120)).at())
+                .as("준비 시각과 같은 차는 탈 수 있다").isEqualTo(NOW.plusSeconds(120));
+    }
+
+    @Test
+    @DisplayName("갈아탈 차: 응답의 차가 전부 준비 시각 전이면 놓침이 아니라 no-realtime")
+    void boardableWithoutLaterBus() {
+        given(gyeonggi.getArrival("S", "R", false)).willReturn(BusQueryResult.ok(List.of(
+                new GyeonggiBusArrival("R", 2, 1, null, null, 9, 6, null, null, null))));
+
+        assertThat(lookup.boardableAt(RegionalBusProvider.GG, "R", "S", NOW.plusSeconds(600)).failureReason())
+                .isEqualTo("no-realtime");
+    }
+
+    @Test
+    @DisplayName("지역 구간 판별: 서울 노선으로 풀렸거나 원천 정류장이 없으면 아니다")
+    void providerOf() {
+        assertThat(RegionalArrivalLookup.providerOf(null, "234001243", "101000002")).isEqualTo(RegionalBusProvider.GG);
+        assertThat(RegionalArrivalLookup.providerOf(" ", "BSB5202029000", "BSB1")).isEqualTo(RegionalBusProvider.TAGO);
+        assertThat(RegionalArrivalLookup.providerOf("100100224", "234001243", "101000002")).isNull();
+        assertThat(RegionalArrivalLookup.providerOf(null, "234001243", " ")).isNull();
+        assertThat(RegionalArrivalLookup.providerOf(null, "100100224", "101000002")).isNull();
+        assertThat(RegionalArrivalLookup.providerOf(null, null, "101000002")).isNull();
+    }
+
+    @Test
     @DisplayName("다음 버스: 오는 차가 없으면 no-realtime")
     void nextArrivalWithoutVehicles() {
         given(gyeonggi.getArrival("S", "R", false)).willReturn(BusQueryResult.ok(List.of()));
