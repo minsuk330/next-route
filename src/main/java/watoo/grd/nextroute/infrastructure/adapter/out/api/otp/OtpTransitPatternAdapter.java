@@ -133,13 +133,15 @@ public class OtpTransitPatternAdapter implements TransitPatternPort {
             }
             // 노선은 방향마다 따로라 같은 이름이 두 번 온다(서울2호선 ×2).
             java.util.LinkedHashSet<String> routeNames = new java.util.LinkedHashSet<>();
+            List<TransitRoute> routes = new ArrayList<>();
             for (JsonNode route : stop.path("routes")) {
                 String name = text(route.path("shortName"));
                 if (name != null) {
                     routeNames.add(name);
+                    routes.add(toRoute(route));
                 }
             }
-            stops.add(new NearStop(transitStop, distance, List.copyOf(routeNames)));
+            stops.add(new NearStop(transitStop, distance, List.copyOf(routeNames), List.copyOf(routes)));
         }
         stops.sort(java.util.Comparator.comparingInt(NearStop::distanceMeters));
         return stops.size() > limit ? List.copyOf(stops.subList(0, limit)) : stops;

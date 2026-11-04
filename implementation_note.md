@@ -6361,3 +6361,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 문서: `load/ladder/MULTI-WORKER.md` "버스 경로" 절 추가
 - 코드 리뷰(reviewer 에이전트, 🟡8 🔵2) 반영: ① 하네스에 `bus_collect_cleanup` + `trap … EXIT INT TERM`(exit 7·Ctrl-C 에서도 심은 bus_route 행 삭제와 표본 루프 정지) ② 표본이 fake 응답 실패 때 빈 칸 대신 줄을 건너뛰고, 요약은 숫자 3칸 줄만 읽음 ③ preflight 를 배열로, lsof 없으면 exit 6 ④ 벤치 2개에 단언 추가(켬 = 모든 회차 1회, 끔 = 중앙값 서버 수), 회차 키 정리를 finally 로, 풀 awaitTermination ⑤ 경기 벤치 tearDown 이 고정 Clock 날짜 키 `gg-arrival:20261103` 만 지움(와일드카드 삭제 제거) ⑥ javadoc 에 `cleanTest` 필수 명시(환경 변수는 Gradle 입력이 아님)
 - 재검증: `RUN_BENCHMARK=true` 벤치 2개 통과(단언 포함), 변수 없이 `--rerun-tasks` → skipped 1/1. 2분 스모크 칸(BUS_COLLECT=1, worker 2) rc=0, 심은 행 0, 표본 루프 종료, 포트 전부 내려감
+
+## 트랙 근처 정류장 노선 색 routes (2026-11-04, feat/track-near-route-colors, #542)
+### 확정
+- 버스 `Stop.routes[{name,color}]` 추가, `routeNames` 와 같은 범위(형제 묶음 합집합). 지하철 null. 같은 이름이면 색 있는 쪽. OTP 호출 수 그대로(`StopsNear` 의 `routes { gtfsId shortName color }`)
+- 색은 `TrackSelectionQueryService.color(route, true)` 를 그대로 호출 → `Direction.color` 와 규칙 하나. 근처 노선은 mode 없는 `TransitRoute`(gtfsId·shortName·color 만)
+- 운영 OTP 실측(강남역 27정류장 173노선): 색 없음 0, 같은 이름에 색 둘 0, 146 근처·패턴 모두 `0068B7`
+### 검증
+- `./gradlew test --tests '*Track*' --tests '*OtpTransitPatternAdapterTest' --tests '*WorkerProfileWiring*'`(st-pg·st-redis env) → 141 tests, 실패 0. 전체 시험은 안 돌림(바뀐 곳이 근처 조회 경로뿐)
+### 배포 (#542, 2026-11-04 12:02 KST)
+- api 만: `nextroute:20261104-120233-44654762`. worker 는 `20261103-212613-f64caa36` 그대로. 마이그레이션 없음. jar 백업 `app.jar.bak-20261104-120231-pre-44654762`(= d9d38adf)
+- 함께 실린 #539: `REGIONAL_BUS_SHARED`·`ROUTE_SEARCH_BUS_CROSS_INSTANCE` env 없음(꺼짐), `RedisSharedBlockStore` 는 `regional-bus.shared.enabled=true` 일 때만 빈 → 기존 경로. **VPS `app.jar` 는 44654762** — 다음 worker 배포는 #536·#537·#539 를 함께 싣는다
+- 확인: 기동 뒤 ERROR 0, 새 이미지 태그, healthy. `heading`·`routes` 실응답은 인증이 필요해 아직 못 봄 → 앱 호출 뒤 확인. 디스크 83%(여유 11G), `.upload-d9d38adf`·`.upload-44654762` 조각 폴더가 남아 있음

@@ -60,8 +60,15 @@ public interface TransitPatternPort {
      * @param distanceMeters  좌표에서 정류장까지. 없으면 null
      * @param routeShortNames 그 정류장을 지나는 노선 이름(중복 제거). 지하철 정류장은 호선마다 따로라서 이것으로
      *                        호선을 안다({@code 강남(2호선)} → {@code 서울2호선})
+     * @param routes          그 정류장을 지나는 노선(#542 표시색). {@code gtfsId}·{@code shortName}·{@code color} 만 채워져
+     *                        있고, 이름이 같은 노선이 여럿일 수 있다
      */
-    record NearStop(TransitStop stop, Integer distanceMeters, List<String> routeShortNames) {
+    record NearStop(TransitStop stop, Integer distanceMeters, List<String> routeShortNames,
+                    List<TransitRoute> routes) {
+
+        public NearStop(TransitStop stop, Integer distanceMeters, List<String> routeShortNames) {
+            this(stop, distanceMeters, routeShortNames, List.of());
+        }
     }
 
     /**

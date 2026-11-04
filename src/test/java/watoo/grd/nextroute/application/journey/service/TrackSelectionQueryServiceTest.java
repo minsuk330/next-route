@@ -486,6 +486,50 @@ class TrackSelectionQueryServiceTest {
         });
     }
 
+    private static TransitPatternPort.TransitRoute nearRoute(String gtfsId, String name, String color) {
+        return new TransitPatternPort.TransitRoute(gtfsId, name, null, RoutingMode.UNSUPPORTED, null, color, null);
+    }
+
+    @Test
+    @DisplayName("#542 근처 버스 routes: 형제 묶음 합집합, 이름 중복은 색 있는 쪽, 색 없으면 null, # 를 붙인다")
+    void stopsNearRoutes() {
+        TransitStop seb = new TransitStop("1:BS_TAGO_SEB121000091", "강남역9번출구", 37.5, 127.0, RoutingMode.BUS);
+        TransitStop ggb = new TransitStop("1:BS_TAGO_GGB121000091", "강남역.강남역사거리", 37.5, 127.0, RoutingMode.BUS);
+        given(port.stopsNear(anyDouble(), anyDouble(), anyInt(), anyInt(), any())).willReturn(List.of(
+                new TransitPatternPort.NearStop(seb, 54, List.of("146", "서초09"), List.of(
+                        nearRoute("1:R146", "146", null),
+                        nearRoute("1:R146_D", "146", null),
+                        nearRoute("1:R09", "서초09", null))),
+                new TransitPatternPort.NearStop(ggb, 55, List.of("146", "740"), List.of(
+                        nearRoute("1:G146", "146", "0068B7"),
+                        nearRoute("1:R740", "740", "53B332")))));
+
+        assertThat(service.stopsNear(37.5, 127.0, RoutingMode.BUS)).singleElement()
+                .extracting(TrackViews.Stop::routes)
+                .isEqualTo(List.of(new TrackViews.Route("146", "#0068B7"), new TrackViews.Route("서초09", null),
+                        new TrackViews.Route("740", "#53B332")));
+    }
+
+    @Test
+    @DisplayName("#542 근처 routes 의 색은 방향 목록 색과 같다 — 경기 노선은 노선 유형 색이다")
+    void stopsNearRouteColorMatchesDirection() {
+        TransitStop stop = new TransitStop("1:BS_TAGO_GGB1001", "가", 37.5, 127.0, RoutingMode.BUS);
+        String routeId = "1:BR_TAGO_GGB200000115";
+        given(port.stopsNear(anyDouble(), anyDouble(), anyInt(), anyInt(), any())).willReturn(List.of(
+                new TransitPatternPort.NearStop(stop, 54, List.of("3100"),
+                        List.of(nearRoute(routeId, "3100", "53B332")))));
+        given(port.patternsAtStop(eq(stop.gtfsId()), any())).willReturn(List.of(
+                new TransitPatternPort.TransitPattern(routeId + "::01", null, new TransitPatternPort.TransitRoute(
+                        routeId, "3100", "-", RoutingMode.BUS, "BUS", "53B332", null),
+                        List.of(new TransitPatternPort.PatternStop(stop.gtfsId(), "가"), EAST), 1)));
+
+        String nearColor = service.stopsNear(37.5, 127.0, RoutingMode.BUS).get(0).routes().get(0).color();
+
+        assertThat(nearColor).isEqualTo(new watoo.grd.nextroute.application.route.service.GyeonggiBusRouteTypeColors()
+                .color(routeId).orElseThrow());
+        assertThat(nearColor).isEqualTo(service.directions(stop.gtfsId()).get(0).color());
+    }
+
     @Test
     @DisplayName("#538 headingLimit 밖 묶음은 heading null, OTP 를 부르지 않는다")
     void stopsNearHeadingLimit() {
@@ -547,6 +591,7 @@ class TrackSelectionQueryServiceTest {
 
         assertThat(stops.get(0).heading()).isNull();
         assertThat(stops.get(0).routeNames()).containsExactly("서울2호선");
+        assertThat(stops.get(0).routes()).isNull();
         verify(port, times(0)).patternsAtStop(any(), any());
     }
 

@@ -12,7 +12,7 @@
 # 사각형으로 받아 거리·정렬·개수는 어댑터가 직선거리로 정한다.
 query StopsNear($minLat: Float!, $minLon: Float!, $maxLat: Float!, $maxLon: Float!) {
   stopsByBbox(minLat: $minLat, minLon: $minLon, maxLat: $maxLat, maxLon: $maxLon) {
-    gtfsId name lat lon vehicleMode routes { shortName }
+    gtfsId name lat lon vehicleMode routes { gtfsId shortName color }
   }
 }
 
