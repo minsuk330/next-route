@@ -31,6 +31,7 @@ import polars as pl
 
 from feature_engineering import SERVABLE_ENCODING_SPECS, compute_serving_features, encoding_name
 from realtime_features import REALTIME_FEATURES
+from route_pace import ROUTE_PACE_FEATURES
 from split import HORIZON_BUCKETS, add_horizon_bucket, load_data_dir, scan_dataset
 
 TARGET = "corrected_target_seconds_to_arrival"
@@ -73,7 +74,7 @@ class Model:
         raw = rows.select([pl.col(c).cast(pl.Float64) for c in RAW_FEATURE_NAMES]).with_columns(
             rows["route_id"].cast(pl.Utf8)
         )
-        for c in REALTIME_FEATURES:
+        for c in [*REALTIME_FEATURES, *ROUTE_PACE_FEATURES]:
             if c in self.features:
                 raw = raw.with_columns(rows[c].cast(pl.Float64).alias(c))
         seen = rows["route_id"].cast(pl.Utf8).is_in(list(self.routes)).to_numpy()

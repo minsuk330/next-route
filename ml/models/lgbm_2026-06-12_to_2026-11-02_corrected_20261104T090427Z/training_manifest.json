@@ -1,5 +1,5 @@
 {
-  "best_iteration": 1294,
+  "best_iteration": 1448,
   "dataset_path": "/home/user/data_probe/full/dataset/service_date=2026-06-12,/home/user/data_probe/full/dataset/service_date=2026-06-13,/home/user/data_probe/full/dataset/service_date=2026-06-14,/home/user/data_probe/full/dataset/service_date=2026-06-15,/home/user/data_probe/full/dataset/service_date=2026-06-16,/home/user/data_probe/full/dataset/service_date=2026-06-17,/home/user/data_probe/full/dataset/service_date=2026-06-18,/home/user/data_probe/full/dataset/service_date=2026-06-19,/home/user/data_probe/full/dataset/service_date=2026-06-20,/home/user/data_probe/full/dataset/service_date=2026-06-21,/home/user/data_probe/full/dataset/service_date=2026-06-22,/home/user/data_probe/full/dataset/service_date=2026-06-23,/home/user/data_probe/full/dataset/service_date=2026-06-24,/home/user/data_probe/full/dataset/service_date=2026-06-25,/home/user/data_probe/full/dataset/service_date=2026-06-26,/home/user/data_probe/full/dataset/service_date=2026-06-27,/home/user/data_probe/full/dataset/service_date=2026-06-28,/home/user/data_probe/full/dataset/service_date=2026-06-29,/home/user/data_probe/full/dataset/service_date=2026-06-30,/home/user/data_probe/full/dataset/service_date=2026-07-01,/home/user/data_probe/full/dataset/service_date=2026-07-02,/home/user/data_probe/full/dataset/service_date=2026-07-03,/home/user/data_probe/full/dataset/service_date=2026-07-04,/home/user/data_probe/full/dataset/service_date=2026-07-05,/home/user/data_probe/full/dataset/service_date=2026-07-06,/home/user/data_probe/full/dataset/service_date=2026-07-07,/home/user/data_probe/full/dataset/service_date=2026-07-08,/home/user/data_probe/full/dataset/service_date=2026-07-09,/home/user/data_probe/full/dataset/service_date=2026-07-10,/home/user/data_probe/full/dataset/service_date=2026-07-11,/home/user/data_probe/full/dataset/service_date=2026-07-12,/home/user/data_probe/full/dataset/service_date=2026-07-13,/home/user/data_probe/full/dataset/service_date=2026-07-14,/home/user/data_probe/full/dataset/service_date=2026-07-15,/home/user/data_probe/full/dataset/service_date=2026-07-16,/home/user/data_probe/full/dataset/service_date=2026-07-17,/home/user/data_probe/full/dataset/service_date=2026-07-18,/home/user/data_probe/full/dataset/service_date=2026-07-19,/home/user/data_probe/full/dataset/service_date=2026-07-20,/home/user/data_probe/full/dataset/service_date=2026-07-21,/home/user/data_probe/full/dataset/service_date=2026-07-22,/home/user/data_probe/full/dataset/service_date=2026-07-23,/home/user/data_probe/full/dataset/service_date=2026-07-24,/home/user/data_probe/full/dataset/service_date=2026-07-25,/home/user/data_probe/full/dataset/service_date=2026-07-26,/home/user/data_probe/full/dataset/service_date=2026-07-27,/home/user/data_probe/full/dataset/service_date=2026-07-28,/home/user/data_probe/full/dataset/service_date=2026-07-29,/home/user/data_probe/full/dataset/service_date=2026-07-30,/home/user/data_probe/full/dataset/service_date=2026-07-31,/home/user/data_probe/full/dataset/service_date=2026-08-01,/home/user/data_probe/full/dataset/service_date=2026-08-02,/home/user/data_probe/full/dataset/service_date=2026-08-03,/home/user/data_probe/full/dataset/service_date=2026-08-04,/home/user/data_probe/full/dataset/service_date=2026-08-05,/home/user/data_probe/full/dataset/service_date=2026-08-06,/home/user/data_probe/full/dataset/service_date=2026-08-07,/home/user/data_probe/full/dataset/service_date=2026-08-08,/home/user/data_probe/full/dataset/service_date=2026-08-09,/home/user/data_probe/full/dataset/service_date=2026-08-15,/home/user/data_probe/full/dataset/service_date=2026-08-16,/home/user/data_probe/full/dataset/service_date=2026-08-17,/home/user/data_probe/full/dataset/service_date=2026-08-18,/home/user/data_probe/full/dataset/service_date=2026-08-19,/home/user/data_probe/full/dataset/service_date=2026-08-20,/home/user/data_probe/full/dataset/service_date=2026-08-21,/home/user/data_probe/full/dataset/service_date=2026-08-22,/home/user/data_probe/full/dataset/service_date=2026-08-23,/home/user/data_probe/full/dataset/service_date=2026-08-24,/home/user/data_probe/full/dataset/service_date=2026-08-25,/home/user/data_probe/full/dataset/service_date=2026-08-26,/home/user/data_probe/full/dataset/service_date=2026-08-27,/home/user/data_probe/full/dataset/service_date=2026-08-28,/home/user/data_probe/full/dataset/service_date=2026-08-29,/home/user/data_probe/full/dataset/service_date=2026-08-30,/home/user/data_probe/full/dataset/service_date=2026-08-31,/home/user/data_probe/full/dataset/service_date=2026-09-01,/home/user/data_probe/full/dataset/service_date=2026-09-02,/home/user/data_probe/full/dataset/service_date=2026-09-03,/home/user/data_probe/full/dataset/service_date=2026-09-04,/home/user/data_probe/full/dataset/service_date=2026-09-05,/home/user/data_probe/full/dataset/service_date=2026-09-06,/home/user/data_probe/full/dataset/service_date=2026-09-07,/home/user/data_probe/full/dataset/service_date=2026-09-08,/home/user/data_probe/full/dataset/service_date=2026-09-09,/home/user/data_probe/full/dataset/service_date=2026-09-10,/home/user/data_probe/full/dataset/service_date=2026-09-11,/home/user/data_probe/full/dataset/service_date=2026-09-12,/home/user/data_probe/full/dataset/service_date=2026-09-13,/home/user/data_probe/full/dataset/service_date=2026-09-14,/home/user/data_probe/full/dataset/service_date=2026-09-15,/home/user/data_probe/full/dataset/service_date=2026-09-16,/home/user/data_probe/full/dataset/service_date=2026-09-17,/home/user/data_probe/full/dataset/service_date=2026-09-18,/home/user/data_probe/full/dataset/service_date=2026-09-19,/home/user/data_probe/full/dataset/service_date=2026-09-20,/home/user/data_probe/full/dataset/service_date=2026-09-21,/home/user/data_probe/full/dataset/service_date=2026-09-22,/home/user/data_probe/full/dataset/service_date=2026-09-23,/home/user/data_probe/full/dataset/service_date=2026-09-24,/home/user/data_probe/full/dataset/service_date=2026-09-25,/home/user/data_probe/full/dataset/service_date=2026-09-26,/home/user/data_probe/full/dataset/service_date=2026-09-27,/home/user/data_probe/full/dataset/service_date=2026-09-28,/home/user/data_probe/full/dataset/service_date=2026-09-29,/home/user/data_probe/full/dataset/service_date=2026-09-30,/home/user/data_probe/full/dataset/service_date=2026-10-01,/home/user/data_probe/full/dataset/service_date=2026-10-02,/home/user/data_probe/full/dataset/service_date=2026-10-03,/home/user/data_probe/full/dataset/service_date=2026-10-04,/home/user/data_probe/full/dataset/service_date=2026-10-05,/home/user/data_probe/full/dataset/service_date=2026-10-06,/home/user/data_probe/full/dataset/service_date=2026-10-07,/home/user/data_probe/full/dataset/service_date=2026-10-08,/home/user/data_probe/full/dataset/service_date=2026-10-09,/home/user/data_probe/full/dataset/service_date=2026-10-10,/home/user/data_probe/full/dataset/service_date=2026-10-11,/home/user/data_probe/full/dataset/service_date=2026-10-12,/home/user/data_probe/full/dataset/service_date=2026-10-13,/home/user/data_probe/full/dataset/service_date=2026-10-14,/home/user/data_probe/full/dataset/service_date=2026-10-15,/home/user/data_probe/full/dataset/service_date=2026-10-16,/home/user/data_probe/full/dataset/service_date=2026-10-17,/home/user/data_probe/full/dataset/service_date=2026-10-18,/home/user/data_probe/full/dataset/service_date=2026-10-19,/home/user/data_probe/full/dataset/service_date=2026-10-20,/home/user/data_probe/full/dataset/service_date=2026-10-21,/home/user/data_probe/full/dataset/service_date=2026-10-22,/home/user/data_probe/full/dataset/service_date=2026-10-23,/home/user/data_probe/full/dataset/service_date=2026-10-24,/home/user/data_probe/full/dataset/service_date=2026-10-25,/home/user/data_probe/full/dataset/service_date=2026-10-26,/home/user/data_probe/full/dataset/service_date=2026-10-27,/home/user/data_probe/full/dataset/service_date=2026-10-28,/home/user/data_probe/full/dataset/service_date=2026-10-29,/home/user/data_probe/full/dataset/service_date=2026-10-30,/home/user/data_probe/full/dataset/service_date=2026-10-31,/home/user/data_probe/full/dataset/service_date=2026-11-01,/home/user/data_probe/full/dataset/service_date=2026-11-02",
   "default_horizon_seconds": 5400,
   "feature_list": [
@@ -37,6 +37,9 @@
     "rt_leader_elapsed_open",
     "rt_leader2_dur",
     "rt_leader_age",
+    "rt_route_ratio_30m",
+    "rt_path_ref_seconds",
+    "rt_path_expected_seconds",
     "current_position_ratio",
     "target_position_ratio",
     "remaining_stop_ratio",
@@ -67,7 +70,7 @@
   "feature_policy": {
     "dropped_all_null_features": [],
     "encoding_serving_stats": {
-      "global_pace": 81.82142857142857,
+      "global_pace": 81.83333333333333,
       "prior_pace_column": "_prior_pace",
       "spec_order": [
         "te_pace__route_id",
@@ -77,15 +80,15 @@
         "te_target__route_id_target_seq"
       ],
       "tables": {
-        "te_pace__route_id": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T040313Z/encoding_tables/te_pace__route_id.parquet",
-        "te_pace__route_id_current_section_order_target_seq": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T040313Z/encoding_tables/te_pace__route_id_current_section_order_target_seq.parquet",
-        "te_pace__route_id_hour_of_day": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T040313Z/encoding_tables/te_pace__route_id_hour_of_day.parquet",
-        "te_target__route_id_current_section_order_target_seq": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T040313Z/encoding_tables/te_target__route_id_current_section_order_target_seq.parquet",
-        "te_target__route_id_target_seq": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T040313Z/encoding_tables/te_target__route_id_target_seq.parquet"
+        "te_pace__route_id": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T090427Z/encoding_tables/te_pace__route_id.parquet",
+        "te_pace__route_id_current_section_order_target_seq": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T090427Z/encoding_tables/te_pace__route_id_current_section_order_target_seq.parquet",
+        "te_pace__route_id_hour_of_day": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T090427Z/encoding_tables/te_pace__route_id_hour_of_day.parquet",
+        "te_target__route_id_current_section_order_target_seq": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T090427Z/encoding_tables/te_target__route_id_current_section_order_target_seq.parquet",
+        "te_target__route_id_target_seq": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T090427Z/encoding_tables/te_target__route_id_target_seq.parquet"
       }
     },
-    "feature_count": 60,
-    "route_profile": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T040313Z/encoding_tables/route_profile.parquet",
+    "feature_count": 63,
+    "route_profile": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T090427Z/encoding_tables/route_profile.parquet",
     "target_encoding": {
       "fold_grouping": "arrival_label_event_id",
       "folds": 5,
@@ -100,8 +103,8 @@
       ]
     }
   },
-  "generated_at": "2026-11-04T04:03:13.230803+00:00",
-  "git_commit": "dbd0a24f7986c4c7c9b3ce31957c5b15203c61ae",
+  "generated_at": "2026-11-04T09:04:28.072006+00:00",
+  "git_commit": "9bd2ba8cd1dea56e70efc678b17a21617e01c229",
   "leakage_columns_excluded": [
     "api_estimated_arrival_at",
     "corrected_arrival_at",
@@ -115,86 +118,86 @@
     "lightgbm": {
       "by_horizon": {
         "1-5m": {
-          "count": 354124,
-          "mae": 38.47472993147089,
-          "p50_abs_error": 29.812458783930218,
-          "p90_abs_error": 81.9193425409402,
-          "rmse": 54.527409730069735
+          "count": 353925,
+          "mae": 38.191808767673216,
+          "p50_abs_error": 29.63114836602682,
+          "p90_abs_error": 81.32199647717731,
+          "rmse": 55.3038911843924
         },
         "10-20m": {
-          "count": 359030,
-          "mae": 92.98017156809662,
-          "p50_abs_error": 73.95968818347353,
-          "p90_abs_error": 193.4006018892374,
-          "rmse": 122.89008469541972
+          "count": 359153,
+          "mae": 92.0053424091011,
+          "p50_abs_error": 73.17181666773524,
+          "p90_abs_error": 190.92674864077372,
+          "rmse": 122.53117317523566
         },
         "20-40m": {
-          "count": 364637,
-          "mae": 179.92171344378048,
-          "p50_abs_error": 133.94714899538008,
-          "p90_abs_error": 382.96833762976667,
-          "rmse": 250.9171437714279
+          "count": 364369,
+          "mae": 174.84875566019988,
+          "p50_abs_error": 130.86755582362866,
+          "p90_abs_error": 370.0139401508829,
+          "rmse": 243.4378649819344
         },
         "5-10m": {
-          "count": 355583,
-          "mae": 62.25129133792631,
-          "p50_abs_error": 49.49078012933688,
-          "p90_abs_error": 130.32692242414794,
-          "rmse": 83.81334809395864
+          "count": 355855,
+          "mae": 61.62263357927986,
+          "p50_abs_error": 49.281167217338236,
+          "p90_abs_error": 128.69596987333995,
+          "rmse": 81.86115075103876
         }
       },
       "by_label_source": {
         "POSITION_STOP_FLAG_CORRECTED": {
-          "count": 1433374,
-          "mae": 94.0083404702189,
-          "p50_abs_error": 58.63766341078589,
-          "p90_abs_error": 214.5991382295969,
-          "rmse": 149.25217736722036
+          "count": 1433302,
+          "mae": 92.2340296628768,
+          "p50_abs_error": 58.064523030696776,
+          "p90_abs_error": 210.01574971880325,
+          "rmse": 145.76185200233923
         }
       },
       "overall": {
-        "count": 1433374,
-        "mae": 94.0083404702189,
-        "p50_abs_error": 58.63766341078589,
-        "p90_abs_error": 214.5991382295969,
-        "rmse": 149.25217736722036
+        "count": 1433302,
+        "mae": 92.2340296628768,
+        "p50_abs_error": 58.064523030696776,
+        "p90_abs_error": 210.01574971880325,
+        "rmse": 145.76185200233923
       },
       "worst_routes": [
         {
-          "count": 3133,
-          "mae": 169.59129020312847,
-          "p90_abs_error": 381.30772645935576,
+          "count": 3139,
+          "mae": 167.2353327837206,
+          "p90_abs_error": 397.26033000925906,
           "route_id": "112900007"
         },
         {
-          "count": 2872,
-          "mae": 167.5072516427407,
-          "p90_abs_error": 415.3773153826072,
-          "route_id": "103900008"
-        },
-        {
-          "count": 2884,
-          "mae": 167.4848784018206,
-          "p90_abs_error": 365.2322537729249,
-          "route_id": "100100001"
-        },
-        {
-          "count": 3036,
-          "mae": 163.87304703117383,
-          "p90_abs_error": 437.0319373149928,
+          "count": 3021,
+          "mae": 164.6517734031599,
+          "p90_abs_error": 439.9484189485463,
           "route_id": "100900008"
         },
         {
-          "count": 3014,
-          "mae": 163.666256244958,
-          "p90_abs_error": 399.3756162260454,
-          "route_id": "100900003"
+          "count": 2940,
+          "mae": 160.3931500826774,
+          "p90_abs_error": 392.8820430866333,
+          "route_id": "103900008"
+        },
+        {
+          "count": 2890,
+          "mae": 157.84337197850274,
+          "p90_abs_error": 344.29813977687036,
+          "route_id": "100100001"
+        },
+        {
+          "count": 3816,
+          "mae": 155.73828073654258,
+          "p90_abs_error": 373.43140125886566,
+          "route_id": "100100607"
         }
       ]
     }
   },
-  "model_file": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T040313Z/model.txt",
-  "model_version": "lgbm_2026-06-12_to_2026-11-02_corrected_20261104T040313Z",
+  "model_file": "/home/user/data_probe/full/experiments/lgbm_2026-06-12_to_2026-11-02_corrected_20261104T090427Z/model.txt",
+  "model_version": "lgbm_2026-06-12_to_2026-11-02_corrected_20261104T090427Z",
   "n_estimators": 6000,
   "num_leaves": 255,
   "realtime_features": [
@@ -338,71 +341,71 @@
       "median_seconds": 3000,
       "min_seconds": 1200,
       "route_count": 527,
-      "routes_at_default": 161,
-      "routes_below_default": 366
+      "routes_at_default": 174,
+      "routes_below_default": 353
     }
   },
   "route_horizon_seconds": {
     "100100001": 1200,
-    "100100006": 3000,
+    "100100006": 5400,
     "100100007": 5400,
     "100100008": 5400,
-    "100100009": 3000,
+    "100100009": 5400,
     "100100010": 5400,
     "100100012": 5400,
-    "100100014": 2400,
+    "100100014": 3000,
     "100100017": 5400,
     "100100018": 5400,
     "100100019": 5400,
-    "100100020": 1800,
+    "100100020": 2400,
     "100100021": 5400,
     "100100022": 5400,
     "100100023": 5400,
-    "100100024": 3000,
+    "100100024": 1800,
     "100100025": 5400,
     "100100026": 5400,
-    "100100027": 2400,
+    "100100027": 5400,
     "100100029": 5400,
     "100100030": 5400,
     "100100031": 5400,
     "100100032": 5400,
     "100100033": 5400,
-    "100100034": 1800,
+    "100100034": 2400,
     "100100036": 5400,
     "100100037": 5400,
     "100100038": 5400,
     "100100039": 5400,
     "100100042": 5400,
-    "100100043": 3000,
+    "100100043": 5400,
     "100100044": 5400,
     "100100046": 5400,
     "100100047": 5400,
     "100100048": 5400,
     "100100049": 5400,
     "100100051": 5400,
-    "100100052": 2400,
+    "100100052": 5400,
     "100100053": 5400,
     "100100055": 5400,
-    "100100056": 3600,
+    "100100056": 4200,
     "100100057": 5400,
     "100100061": 5400,
     "100100062": 2400,
-    "100100063": 2400,
+    "100100063": 5400,
     "100100064": 1800,
     "100100068": 5400,
-    "100100070": 3600,
+    "100100070": 5400,
     "100100071": 1800,
-    "100100073": 1800,
-    "100100075": 1200,
+    "100100073": 5400,
+    "100100075": 1800,
     "100100076": 2400,
     "100100077": 5400,
-    "100100078": 2400,
+    "100100078": 1800,
     "100100079": 5400,
-    "100100080": 5400,
-    "100100082": 3600,
-    "100100083": 2400,
-    "100100084": 2400,
-    "100100085": 3000,
+    "100100080": 3600,
+    "100100082": 3000,
+    "100100083": 3000,
+    "100100084": 3000,
+    "100100085": 5400,
     "100100086": 2400,
     "100100087": 2400,
     "100100088": 5400,
@@ -412,38 +415,38 @@
     "100100093": 5400,
     "100100094": 5400,
     "100100096": 5400,
-    "100100097": 3000,
+    "100100097": 3600,
     "100100098": 1800,
-    "100100099": 1800,
+    "100100099": 2400,
     "100100102": 5400,
-    "100100103": 5400,
-    "100100104": 5400,
+    "100100103": 3000,
+    "100100104": 3000,
     "100100105": 5400,
-    "100100107": 5400,
+    "100100107": 3600,
     "100100110": 5400,
     "100100111": 5400,
     "100100112": 5400,
     "100100114": 5400,
-    "100100116": 3000,
-    "100100117": 3000,
+    "100100116": 5400,
+    "100100117": 5400,
     "100100118": 3000,
     "100100124": 3600,
     "100100129": 2400,
     "100100130": 1200,
-    "100100131": 1200,
+    "100100131": 1800,
     "100100132": 5400,
     "100100133": 3000,
-    "100100134": 2400,
+    "100100134": 3000,
     "100100137": 5400,
-    "100100138": 1800,
+    "100100138": 3000,
     "100100139": 3000,
-    "100100142": 5400,
-    "100100143": 3600,
+    "100100142": 4800,
+    "100100143": 4800,
     "100100144": 3000,
     "100100146": 2400,
     "100100147": 4200,
     "100100148": 4800,
-    "100100149": 3600,
+    "100100149": 3000,
     "100100150": 4800,
     "100100151": 3000,
     "100100152": 5400,
@@ -461,28 +464,28 @@
     "100100172": 5400,
     "100100175": 5400,
     "100100177": 5400,
-    "100100178": 3600,
+    "100100178": 4200,
     "100100179": 4800,
     "100100181": 5400,
     "100100184": 5400,
     "100100185": 3000,
     "100100186": 5400,
-    "100100188": 5400,
+    "100100188": 3000,
     "100100189": 4800,
-    "100100190": 5400,
-    "100100191": 5400,
+    "100100190": 3000,
+    "100100191": 2400,
     "100100192": 4800,
-    "100100193": 3000,
+    "100100193": 5400,
     "100100194": 4200,
     "100100198": 5400,
-    "100100199": 5400,
+    "100100199": 3000,
     "100100201": 4800,
     "100100202": 5400,
     "100100203": 5400,
     "100100204": 5400,
-    "100100209": 1800,
+    "100100209": 2400,
     "100100210": 1800,
-    "100100211": 1200,
+    "100100211": 1800,
     "100100212": 5400,
     "100100213": 5400,
     "100100215": 5400,
@@ -492,19 +495,19 @@
     "100100220": 3600,
     "100100221": 2400,
     "100100222": 4200,
-    "100100223": 5400,
+    "100100223": 2400,
     "100100224": 2400,
     "100100225": 5400,
-    "100100226": 1800,
+    "100100226": 2400,
     "100100228": 4800,
-    "100100229": 3000,
-    "100100232": 2400,
-    "100100234": 5400,
+    "100100229": 5400,
+    "100100232": 5400,
+    "100100234": 2400,
     "100100237": 5400,
     "100100246": 5400,
     "100100247": 3000,
-    "100100248": 2400,
-    "100100249": 2400,
+    "100100248": 5400,
+    "100100249": 5400,
     "100100251": 3600,
     "100100252": 3000,
     "100100253": 5400,
@@ -512,7 +515,7 @@
     "100100255": 3000,
     "100100259": 3600,
     "100100260": 5400,
-    "100100261": 4200,
+    "100100261": 3600,
     "100100263": 5400,
     "100100264": 2400,
     "100100265": 5400,
@@ -521,61 +524,61 @@
     "100100268": 5400,
     "100100269": 3000,
     "100100272": 3000,
-    "100100273": 3600,
+    "100100273": 4200,
     "100100274": 2400,
     "100100275": 5400,
-    "100100276": 1800,
+    "100100276": 3000,
     "100100277": 3000,
     "100100278": 1800,
-    "100100279": 3000,
+    "100100279": 5400,
     "100100281": 5400,
     "100100282": 5400,
     "100100283": 5400,
-    "100100284": 3600,
+    "100100284": 5400,
     "100100285": 5400,
-    "100100286": 2400,
-    "100100287": 3600,
-    "100100288": 2400,
+    "100100286": 5400,
+    "100100287": 5400,
+    "100100288": 5400,
     "100100289": 5400,
-    "100100290": 2400,
-    "100100291": 5400,
+    "100100290": 3000,
+    "100100291": 3600,
     "100100292": 5400,
     "100100293": 5400,
     "100100294": 5400,
     "100100295": 3000,
     "100100297": 5400,
-    "100100298": 5400,
+    "100100298": 3600,
     "100100299": 4800,
     "100100300": 5400,
-    "100100301": 3000,
+    "100100301": 5400,
     "100100302": 5400,
     "100100303": 2400,
     "100100304": 5400,
     "100100305": 2400,
-    "100100306": 2400,
-    "100100307": 5400,
-    "100100308": 3600,
+    "100100306": 3000,
+    "100100307": 3000,
+    "100100308": 4200,
     "100100309": 5400,
     "100100312": 5400,
     "100100313": 2400,
     "100100316": 5400,
     "100100318": 5400,
-    "100100320": 3600,
+    "100100320": 4800,
     "100100329": 3000,
     "100100330": 2400,
-    "100100331": 1200,
+    "100100331": 1800,
     "100100332": 5400,
     "100100337": 5400,
     "100100338": 1800,
     "100100339": 5400,
     "100100340": 5400,
-    "100100341": 2400,
-    "100100342": 1800,
-    "100100344": 3600,
+    "100100341": 3000,
+    "100100342": 2400,
+    "100100344": 5400,
     "100100345": 5400,
     "100100346": 3000,
-    "100100347": 1800,
-    "100100348": 1800,
+    "100100347": 2400,
+    "100100348": 3600,
     "100100349": 4800,
     "100100352": 5400,
     "100100353": 4800,
@@ -587,68 +590,68 @@
     "100100363": 3000,
     "100100364": 2400,
     "100100387": 4800,
-    "100100389": 1800,
+    "100100389": 2400,
     "100100391": 5400,
     "100100392": 5400,
-    "100100400": 2400,
-    "100100407": 2400,
+    "100100400": 3000,
+    "100100407": 5400,
     "100100409": 5400,
     "100100410": 5400,
     "100100425": 4800,
-    "100100427": 2400,
+    "100100427": 5400,
     "100100437": 5400,
-    "100100438": 2400,
+    "100100438": 5400,
     "100100440": 5400,
-    "100100446": 5400,
+    "100100446": 2400,
     "100100447": 2400,
     "100100448": 2400,
-    "100100449": 2400,
-    "100100450": 5400,
-    "100100451": 2400,
+    "100100449": 3000,
+    "100100450": 3000,
+    "100100451": 5400,
     "100100453": 5400,
     "100100454": 1800,
-    "100100459": 3600,
-    "100100462": 5400,
-    "100100478": 4200,
-    "100100495": 3000,
-    "100100496": 2400,
+    "100100459": 3000,
+    "100100462": 3600,
+    "100100478": 4800,
+    "100100495": 5400,
+    "100100496": 5400,
     "100100497": 2400,
     "100100498": 5400,
     "100100499": 2400,
-    "100100500": 1800,
+    "100100500": 1200,
     "100100501": 5400,
-    "100100511": 2400,
+    "100100511": 3600,
     "100100521": 5400,
-    "100100522": 3000,
-    "100100537": 3000,
+    "100100522": 5400,
+    "100100537": 2400,
     "100100549": 5400,
     "100100550": 5400,
-    "100100551": 3000,
+    "100100551": 5400,
     "100100552": 4200,
-    "100100553": 1800,
+    "100100553": 2400,
     "100100564": 5400,
-    "100100565": 3000,
+    "100100565": 2400,
     "100100566": 3000,
     "100100574": 5400,
-    "100100576": 2400,
+    "100100576": 5400,
     "100100578": 5400,
-    "100100579": 2400,
+    "100100579": 5400,
     "100100583": 5400,
-    "100100587": 5400,
+    "100100587": 3600,
     "100100589": 5400,
     "100100595": 5400,
-    "100100596": 1800,
+    "100100596": 2400,
     "100100597": 1200,
     "100100599": 5400,
     "100100601": 4800,
-    "100100602": 4800,
+    "100100602": 3000,
     "100100604": 1200,
-    "100100605": 1200,
-    "100100607": 1200,
-    "100100609": 3000,
-    "100100611": 2400,
-    "100100612": 2400,
-    "100100613": 5400,
+    "100100605": 2400,
+    "100100607": 1800,
+    "100100609": 5400,
+    "100100611": 1800,
+    "100100612": 1800,
+    "100100613": 3600,
     "100900003": 1200,
     "100900005": 1800,
     "100900007": 1800,
@@ -658,26 +661,26 @@
     "100900011": 1800,
     "100900012": 1800,
     "101900001": 1200,
-    "101900002": 1200,
+    "101900002": 1800,
     "102900001": 2400,
     "102900002": 3000,
     "102900004": 1800,
     "103900001": 1200,
     "103900002": 2400,
-    "103900003": 3000,
+    "103900003": 1800,
     "103900004": 3600,
     "103900008": 1200,
     "103900009": 1800,
     "103900011": 2400,
-    "103900012": 3000,
-    "104000006": 2400,
-    "104000009": 3000,
+    "103900012": 3600,
+    "104000006": 5400,
+    "104000009": 5400,
     "104000010": 2400,
-    "104000012": 5400,
+    "104000012": 1800,
     "104000013": 5400,
-    "104000014": 1200,
-    "104900001": 2400,
-    "104900002": 2400,
+    "104000014": 1800,
+    "104900001": 3600,
+    "104900002": 3600,
     "104900004": 3000,
     "104900005": 3600,
     "105900001": 3000,
@@ -686,11 +689,11 @@
     "105900004": 1800,
     "105900005": 2400,
     "105900006": 2400,
-    "106000004": 2400,
+    "106000004": 1200,
     "106900002": 2400,
     "107000001": 3600,
-    "107000002": 2400,
-    "107000007": 5400,
+    "107000002": 3000,
+    "107000007": 3000,
     "107000008": 3000,
     "107900001": 1800,
     "107900002": 2400,
@@ -702,7 +705,7 @@
     "107900009": 1800,
     "107900016": 1800,
     "107900018": 2400,
-    "108000002": 2400,
+    "108000002": 4800,
     "108900001": 4200,
     "108900002": 2400,
     "108900003": 1800,
@@ -724,20 +727,20 @@
     "109900008": 1800,
     "109900010": 5400,
     "109900011": 4200,
-    "110000002": 2400,
+    "110000002": 3000,
     "110000009": 5400,
-    "110900002": 3000,
-    "110900003": 3000,
+    "110900002": 1800,
+    "110900003": 2400,
     "110900005": 1200,
     "110900006": 3000,
     "110900007": 3000,
     "110900009": 1800,
-    "111000008": 5400,
+    "111000008": 3000,
     "111000010": 5400,
     "111000014": 3600,
     "111000019": 5400,
     "111000022": 5400,
-    "111000027": 5400,
+    "111000027": 2400,
     "111000028": 1800,
     "111900003": 3000,
     "111900004": 3000,
@@ -749,12 +752,12 @@
     "112000005": 4800,
     "112900002": 1800,
     "112900004": 3000,
-    "112900006": 3600,
+    "112900006": 3000,
     "112900007": 1200,
     "112900008": 1800,
     "112900009": 1200,
     "112900010": 1800,
-    "113000002": 5400,
+    "113000002": 2400,
     "113000004": 4800,
     "113900001": 1200,
     "113900002": 1800,
@@ -766,13 +769,13 @@
     "113900012": 3000,
     "113900013": 3000,
     "113900014": 3600,
-    "113900015": 3000,
+    "113900015": 2400,
     "113900016": 2400,
     "114900001": 3600,
     "114900002": 3600,
     "114900003": 4200,
     "114900004": 1800,
-    "114900006": 3000,
+    "114900006": 2400,
     "115000005": 5400,
     "115000007": 3000,
     "115000012": 3000,
@@ -788,13 +791,13 @@
     "116900003": 3000,
     "116900004": 4800,
     "116900006": 3000,
-    "116900007": 1800,
+    "116900007": 2400,
     "116900008": 3600,
     "116900009": 3000,
     "116900010": 1800,
     "116900011": 2400,
     "116900012": 2400,
-    "116900013": 1800,
+    "116900013": 2400,
     "116900014": 1800,
     "116900015": 1800,
     "116900017": 2400,
@@ -813,7 +816,7 @@
     "118900007": 1200,
     "118900008": 2400,
     "118900009": 1800,
-    "119900004": 2400,
+    "119900004": 1800,
     "119900007": 3600,
     "119900009": 2400,
     "119900010": 1800,
@@ -830,130 +833,135 @@
     "120900001": 3600,
     "120900002": 2400,
     "120900003": 2400,
-    "120900004": 3000,
+    "120900004": 2400,
     "120900005": 2400,
     "120900006": 1800,
     "120900007": 3000,
     "120900009": 1800,
     "120900010": 1800,
     "120900011": 3000,
-    "120900012": 3000,
-    "121900001": 4200,
+    "120900012": 1800,
+    "121900001": 4800,
     "121900002": 2400,
     "121900003": 1800,
     "121900005": 1200,
-    "121900006": 3600,
+    "121900006": 3000,
     "121900007": 1800,
     "121900008": 1800,
     "121900010": 3600,
     "121900011": 4200,
-    "121900012": 2400,
+    "121900012": 1800,
     "121900013": 1800,
     "121900014": 1200,
-    "121900016": 2400,
+    "121900016": 4200,
     "122000001": 5400,
     "122900001": 1800,
     "122900002": 4200,
-    "122900003": 3600,
+    "122900003": 1800,
     "122900004": 3000,
-    "122900005": 3000,
+    "122900005": 4800,
     "122900006": 2400,
     "122900008": 3000,
     "122900009": 3600,
     "122900010": 2400,
     "123000010": 2400,
-    "123000011": 5400,
+    "123000011": 3000,
     "123900002": 3600,
     "124000036": 5400,
     "124000038": 2400,
     "124000039": 5400,
     "124900001": 5400,
-    "124900002": 3000,
-    "124900003": 3000
+    "124900002": 5400,
+    "124900003": 5400
   },
-  "run_id": "lgbm_2026-06-12_to_2026-11-02_corrected_20261104T040313Z",
+  "route_pace_features": [
+    "rt_route_ratio_30m",
+    "rt_path_ref_seconds",
+    "rt_path_expected_seconds"
+  ],
+  "run_id": "lgbm_2026-06-12_to_2026-11-02_corrected_20261104T090427Z",
   "sampling_policy": {
     "date_policies": [
       {
-        "input_rows": 1381193,
+        "input_rows": 828972,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-12"
       },
       {
-        "input_rows": 1375960,
+        "input_rows": 827029,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-13"
       },
       {
-        "input_rows": 1410253,
+        "input_rows": 845205,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-14"
       },
       {
-        "input_rows": 1393793,
+        "input_rows": 835750,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-15"
       },
       {
-        "input_rows": 1387398,
+        "input_rows": 832791,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-16"
       },
       {
-        "input_rows": 1382541,
+        "input_rows": 830468,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-17"
       },
       {
-        "input_rows": 828896,
+        "input_rows": 830227,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-18"
       },
       {
-        "input_rows": 823110,
+        "input_rows": 823556,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-19"
       },
       {
-        "input_rows": 843731,
+        "input_rows": 843198,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-20"
       },
       {
-        "input_rows": 855801,
+        "input_rows": 854702,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-21"
       },
       {
-        "input_rows": 793136,
+        "input_rows": 793326,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-22"
       },
       {
-        "input_rows": 830864,
+        "input_rows": 832080,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-23"
       },
       {
-        "input_rows": 833575,
+        "input_rows": 833873,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-24"
       },
       {
-        "input_rows": 830365,
+        "input_rows": 831618,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-25"
@@ -965,751 +973,751 @@
         "service_date": "2026-06-26"
       },
       {
-        "input_rows": 845395,
+        "input_rows": 845071,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-27"
       },
       {
-        "input_rows": 850091,
+        "input_rows": 850333,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-28"
       },
       {
-        "input_rows": 834923,
+        "input_rows": 834645,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-29"
       },
       {
-        "input_rows": 780756,
+        "input_rows": 780917,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-06-30"
       },
       {
-        "input_rows": 824834,
+        "input_rows": 824819,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-01"
       },
       {
-        "input_rows": 827711,
+        "input_rows": 828335,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-02"
       },
       {
-        "input_rows": 803040,
+        "input_rows": 803979,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-03"
       },
       {
-        "input_rows": 813849,
+        "input_rows": 812894,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-04"
       },
       {
-        "input_rows": 819661,
+        "input_rows": 820386,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-05"
       },
       {
-        "input_rows": 782361,
+        "input_rows": 782081,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-06"
       },
       {
-        "input_rows": 829058,
+        "input_rows": 829478,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-07"
       },
       {
-        "input_rows": 797447,
+        "input_rows": 797260,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-08"
       },
       {
-        "input_rows": 801132,
+        "input_rows": 800098,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-09"
       },
       {
-        "input_rows": 789395,
+        "input_rows": 790167,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-10"
       },
       {
-        "input_rows": 834361,
+        "input_rows": 835963,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-11"
       },
       {
-        "input_rows": 766275,
+        "input_rows": 767137,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-12"
       },
       {
-        "input_rows": 734814,
+        "input_rows": 734294,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-13"
       },
       {
-        "input_rows": 699159,
+        "input_rows": 699368,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-14"
       },
       {
-        "input_rows": 691242,
+        "input_rows": 691948,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-15"
       },
       {
-        "input_rows": 741592,
+        "input_rows": 741011,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-16"
       },
       {
-        "input_rows": 757863,
+        "input_rows": 758202,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-17"
       },
       {
-        "input_rows": 754922,
+        "input_rows": 754374,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-18"
       },
       {
-        "input_rows": 750632,
+        "input_rows": 749606,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-19"
       },
       {
-        "input_rows": 720980,
+        "input_rows": 720435,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-20"
       },
       {
-        "input_rows": 716923,
+        "input_rows": 715912,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-21"
       },
       {
-        "input_rows": 686766,
+        "input_rows": 686351,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-22"
       },
       {
-        "input_rows": 712285,
+        "input_rows": 712314,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-23"
       },
       {
-        "input_rows": 719744,
+        "input_rows": 720112,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-24"
       },
       {
-        "input_rows": 716458,
+        "input_rows": 716610,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-25"
       },
       {
-        "input_rows": 712142,
+        "input_rows": 712717,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-26"
       },
       {
-        "input_rows": 727792,
+        "input_rows": 728344,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-27"
       },
       {
-        "input_rows": 723055,
+        "input_rows": 723397,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-28"
       },
       {
-        "input_rows": 757586,
+        "input_rows": 756536,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-29"
       },
       {
-        "input_rows": 759737,
+        "input_rows": 760386,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-30"
       },
       {
-        "input_rows": 761160,
+        "input_rows": 760346,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-07-31"
       },
       {
-        "input_rows": 758200,
+        "input_rows": 757397,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-01"
       },
       {
-        "input_rows": 746886,
+        "input_rows": 746640,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-02"
       },
       {
-        "input_rows": 768111,
+        "input_rows": 766984,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-03"
       },
       {
-        "input_rows": 763435,
+        "input_rows": 762489,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-04"
       },
       {
-        "input_rows": 762657,
+        "input_rows": 762707,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-05"
       },
       {
-        "input_rows": 759414,
+        "input_rows": 760275,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-06"
       },
       {
-        "input_rows": 757873,
+        "input_rows": 757670,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-07"
       },
       {
-        "input_rows": 759810,
+        "input_rows": 759494,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-08"
       },
       {
-        "input_rows": 704569,
+        "input_rows": 704536,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-09"
       },
       {
-        "input_rows": 724253,
+        "input_rows": 724256,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-15"
       },
       {
-        "input_rows": 758557,
+        "input_rows": 758341,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-16"
       },
       {
-        "input_rows": 659643,
+        "input_rows": 658518,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-17"
       },
       {
-        "input_rows": 673416,
+        "input_rows": 672621,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-18"
       },
       {
-        "input_rows": 669886,
+        "input_rows": 671497,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-19"
       },
       {
-        "input_rows": 665408,
+        "input_rows": 664657,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-20"
       },
       {
-        "input_rows": 635594,
+        "input_rows": 636448,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-21"
       },
       {
-        "input_rows": 665096,
+        "input_rows": 665807,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-22"
       },
       {
-        "input_rows": 670035,
+        "input_rows": 670902,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-23"
       },
       {
-        "input_rows": 597092,
+        "input_rows": 597724,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-24"
       },
       {
-        "input_rows": 600363,
+        "input_rows": 599882,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-25"
       },
       {
-        "input_rows": 603241,
+        "input_rows": 603784,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-26"
       },
       {
-        "input_rows": 604614,
+        "input_rows": 603907,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-27"
       },
       {
-        "input_rows": 598875,
+        "input_rows": 599015,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-28"
       },
       {
-        "input_rows": 598318,
+        "input_rows": 597824,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-29"
       },
       {
-        "input_rows": 589921,
+        "input_rows": 589753,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-30"
       },
       {
-        "input_rows": 653691,
+        "input_rows": 652893,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-08-31"
       },
       {
-        "input_rows": 648459,
+        "input_rows": 649422,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-01"
       },
       {
-        "input_rows": 652818,
+        "input_rows": 652489,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-02"
       },
       {
-        "input_rows": 651542,
+        "input_rows": 650630,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-03"
       },
       {
-        "input_rows": 650217,
+        "input_rows": 649697,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-04"
       },
       {
-        "input_rows": 638383,
+        "input_rows": 637735,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-05"
       },
       {
-        "input_rows": 616854,
+        "input_rows": 617577,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-06"
       },
       {
-        "input_rows": 610737,
+        "input_rows": 610018,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-07"
       },
       {
-        "input_rows": 608082,
+        "input_rows": 608121,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-08"
       },
       {
-        "input_rows": 606756,
+        "input_rows": 606222,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-09"
       },
       {
-        "input_rows": 597637,
+        "input_rows": 597533,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-10"
       },
       {
-        "input_rows": 599752,
+        "input_rows": 600729,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-11"
       },
       {
-        "input_rows": 575343,
+        "input_rows": 575447,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-12"
       },
       {
-        "input_rows": 564626,
+        "input_rows": 563949,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-13"
       },
       {
-        "input_rows": 531515,
+        "input_rows": 530888,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-14"
       },
       {
-        "input_rows": 530222,
+        "input_rows": 529969,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-15"
       },
       {
-        "input_rows": 529233,
+        "input_rows": 529125,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-16"
       },
       {
-        "input_rows": 531536,
+        "input_rows": 531049,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-17"
       },
       {
-        "input_rows": 536319,
+        "input_rows": 535290,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-18"
       },
       {
-        "input_rows": 531853,
+        "input_rows": 531982,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-19"
       },
       {
-        "input_rows": 519876,
+        "input_rows": 518952,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-20"
       },
       {
-        "input_rows": 617720,
+        "input_rows": 617948,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-21"
       },
       {
-        "input_rows": 619211,
+        "input_rows": 619795,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-22"
       },
       {
-        "input_rows": 619039,
+        "input_rows": 619491,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-23"
       },
       {
-        "input_rows": 574437,
+        "input_rows": 574332,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-24"
       },
       {
-        "input_rows": 549945,
+        "input_rows": 549773,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-25"
       },
       {
-        "input_rows": 574888,
+        "input_rows": 573678,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-26"
       },
       {
-        "input_rows": 583827,
+        "input_rows": 582937,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-27"
       },
       {
-        "input_rows": 495956,
+        "input_rows": 496207,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-28"
       },
       {
-        "input_rows": 495534,
+        "input_rows": 495691,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-29"
       },
       {
-        "input_rows": 496349,
+        "input_rows": 495600,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-09-30"
       },
       {
-        "input_rows": 494617,
+        "input_rows": 494673,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-01"
       },
       {
-        "input_rows": 497114,
+        "input_rows": 497331,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-02"
       },
       {
-        "input_rows": 467743,
+        "input_rows": 468275,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-03"
       },
       {
-        "input_rows": 461490,
+        "input_rows": 461281,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-04"
       },
       {
-        "input_rows": 381013,
+        "input_rows": 380746,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-05"
       },
       {
-        "input_rows": 419090,
+        "input_rows": 418406,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-06"
       },
       {
-        "input_rows": 412323,
+        "input_rows": 413431,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-07"
       },
       {
-        "input_rows": 417647,
+        "input_rows": 416886,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-08"
       },
       {
-        "input_rows": 393069,
+        "input_rows": 392969,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-09"
       },
       {
-        "input_rows": 393726,
+        "input_rows": 394378,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-10"
       },
       {
-        "input_rows": 385325,
+        "input_rows": 385376,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-11"
       },
       {
-        "input_rows": 343046,
+        "input_rows": 342701,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-12"
       },
       {
-        "input_rows": 344777,
+        "input_rows": 345036,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-13"
       },
       {
-        "input_rows": 344184,
+        "input_rows": 344203,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-14"
       },
       {
-        "input_rows": 341702,
+        "input_rows": 342743,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-15"
       },
       {
-        "input_rows": 342719,
+        "input_rows": 342672,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-16"
       },
       {
-        "input_rows": 338163,
+        "input_rows": 337467,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-17"
       },
       {
-        "input_rows": 326781,
+        "input_rows": 327577,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-18"
       },
       {
-        "input_rows": 363683,
+        "input_rows": 363016,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-19"
       },
       {
-        "input_rows": 361682,
+        "input_rows": 361421,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-20"
       },
       {
-        "input_rows": 362753,
+        "input_rows": 363799,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-21"
       },
       {
-        "input_rows": 358848,
+        "input_rows": 358706,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-22"
       },
       {
-        "input_rows": 363631,
+        "input_rows": 363343,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-23"
       },
       {
-        "input_rows": 349408,
+        "input_rows": 349390,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-24"
       },
       {
-        "input_rows": 337776,
+        "input_rows": 338028,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-25"
       },
       {
-        "input_rows": 270326,
+        "input_rows": 270157,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-26"
       },
       {
-        "input_rows": 267449,
+        "input_rows": 267443,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-27"
       },
       {
-        "input_rows": 272688,
+        "input_rows": 272588,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-28"
       },
       {
-        "input_rows": 270676,
+        "input_rows": 270536,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-29"
       },
       {
-        "input_rows": 274679,
+        "input_rows": 274447,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-30"
       },
       {
-        "input_rows": 263848,
+        "input_rows": 263681,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-10-31"
       },
       {
-        "input_rows": 251912,
+        "input_rows": 251920,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-11-01"
       },
       {
-        "input_rows": 288168,
+        "input_rows": 288842,
         "output_rows": 86331,
         "per_date_sample_rows": 86331,
         "service_date": "2026-11-02"
       }
     ],
-    "input_rows": 89063233,
+    "input_rows": 85728182,
     "output_rows": 12000000,
     "per_date_sample_rows": 86331,
     "sample_rows": 12000000,
@@ -3866,8 +3874,8 @@
   "target_column": "corrected_target_seconds_to_arrival",
   "target_encoding_enabled": true,
   "target_policy": "corrected",
-  "test_rows": 1433374,
-  "train_rows": 10566626,
+  "test_rows": 1433302,
+  "train_rows": 10566698,
   "training_route_categories": [
     "100100001",
     "100100006",
@@ -4398,6 +4406,6 @@
     "124900003"
   ],
   "type": "lightgbm",
-  "validation_rows": 1056662,
+  "validation_rows": 1056669,
   "with_api_feature": false
 }
