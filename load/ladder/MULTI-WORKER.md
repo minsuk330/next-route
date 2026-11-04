@@ -53,6 +53,30 @@
 - 2대 이상이면 리더 잠금을 자동으로 켠다(`journey.navigation.reeval.leader-lease.enabled` — 코드 기본값 false). 안 켜면 두 대가 다 "늘 리더"라 같이 수집·같이 변화 감지를 한다
 - 재기동한 worker 의 지표는 0 부터 다시 쌓이므로 `summarize.py` 차분이 음수가 되던 것을 "줄었으면 끝 값" 으로 바꿨다
 
+## 버스 경로 — worker 2대의 수집 중복 (bus-multi-instance PR-3, 2026-11-04)
+
+지하철과 달리 버스 도착·위치 수집기는 리더 락을 따르지 않아 worker 수만큼 공급자를 불렀다(PR-1 #536 에서 리더 한 대로). 그 효과를 같은 사다리에서 쟀다.
+
+### 어떻게 쟀나
+- `SPLIT=1 WORKERS=2 BUS_COLLECT=1 WORKER_PORT_BASE=8090 LEADER_LEASE=false|true MODE=subway RUN_TAG=busoff|buson run_ladder.sh 100 on 10m 20`
+- `BUS_COLLECT=1`: worker 에서 버스 도착·위치 수집기를 켜고(dev 프로필은 끔) 운영 시간을 24시간으로 풀어 1분 cron 마다 노선별 route-all·위치를 가짜 공급자(18999)에 부르게 한다. 수집기는 `target-route-names` 를 `bus_route` 에서 찾으므로 st-pg 에 `LADDER-<이름>` 6행(143 272 160 271 130 720)을 심고 칸 끝에 지운다
+- 세는 것: 가짜 공급자 `/counts` 의 `route_all`·`pos` 누적을 10초마다 `buscount-<label>.tsv` 로. 노선 감시자(bus-watcher)는 기본 꺼짐이라 route-all 은 수집기만 센다
+- 리더 락 끔 칸은 `LEADER_LEASE=false` 를 명시해야 한다(WORKERS>1 이면 하네스가 켬을 기본으로 한다)
+
+### 결과 (노트북, st-pg·st-redis, 여정 100, 10분 칸)
+
+| 칸 | 측정 창 | route-all | 위치 | 분당 | 기대 |
+|---|---|---|---|---|---|
+| 리더 락 끔 | 7.2분(7 틱) | 84 | 84 | 11.6 ≈ **12** | 노선 6 × worker 2 |
+| 리더 락 켬 | 7.2분(7 틱) | 42 | 42 | 5.8 ≈ **6** | 노선 6 × 1 |
+
+- 틱 단위로 보면 끔 = 12 × 7, 켬 = 6 × 7 로 딱 맞는다(칸 전체 10분은 120 / 60). 켬 칸의 리더 게이지는 worker2 만 1, 수집 성공 누적은 worker2 에만 쌓였다
+- 켬 칸의 지하철 쪽 수치(평가 p50 93ms, 알림 실패 0)는 끔 칸(87ms)과 같은 범위 — 리더 한 대에 버스 수집이 더 얹혀도 이 부하에서는 티가 안 난다
+- 리더 kill 칸은 지하철 결과(위 절, 인계 17~19초)와 같은 구조라 다시 재지 않았다. 버스 수집기는 리더 게이지와 같은 `LeaderLease.isLeader()` 를 보므로 인계 뒤 다음 cron 틱(최대 60초)에 새 리더가 잇는다
+
+### 서버 간 묶기(검색 캐시 miss)는 JUnit 으로
+서울 `CachedSearchTimeBusAdapterCrossInstanceBenchmarkTest`, 경기 `GyeonggiBusArrivalAdapterSharedBenchmarkTest`(`RUN_BENCHMARK=true`): 서버 1~4 × 플래그 끔/켬 × 같은 정류장 동시 100건, 10회. 끔 = 서버 수만큼(1/2/3/4회), 켬 = **1회**(10회 전부, 서울·경기 같음). 지연은 한 프로세스 + 로컬 Redis 라 참고값만(끔 ≈81ms, 켬 ≈116ms — 대기자 50ms 폴링).
+
 ## VM 단계에 필요한 것 (아직 안 함)
 
 - 원격 기동: 지금은 worker 가 모두 localhost. VM 에선 worker 호스트 목록(`WORKER_HOSTS`)을 받아 ssh 로 jar 를 띄우고, 지표·표본 curl 대상을 `호스트:포트` 로 바꿔야 한다(`wport`·`JVMS` 가 그 자리)
