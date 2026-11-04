@@ -6470,3 +6470,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - VPS `/root/apps/observability/grafana/dashboards/usage.json` 교체(백업 `../usage.json.bak-20261104-172558-pre-hourly`), 30초 안에 자동 반영. 앱 배포 없음
 ### 검증
 - `/api/ds/query` 로 1시간·24시간 범위: 시간별 4개 값 있음, 일별 5개 30일 값 있음, 오류 0. 브라우저 화면은 로그인이 필요해 직접 못 봄
+
+## ML 재학습 PR #554 머지 확인 (2026-11-04)
+### 확정
+- 배포 순서는 **Java → serve 이미지 → 모델**. 옛 Java 는 `BEYOND_HORIZON` 을 `valueOf` 로 못 읽어 예외를 던지고 요청 묶음 전체가 실패한다. 새 serve 는 옛 모델에서도 `default_horizon_seconds` 2400 을 넘으면 이 값을 준다. 새 Java → 옛 serve 는 pydantic 기본값(추가 필드 무시)이라 안전
+- serve 는 VPS `.env` `ML_SERVE_IMAGE=sha-39ec535` 고정. 05:10 cron pull 은 배치용 `nextroute-ml:latest` 만 바꾼다. serve 교체는 `ml/ops/deploy_model.sh --with-image --image <sha 태그>`
+- 새 serve 는 옛 모델(0816)·새 모델(20261104) 모두 로드 확인. `archive.py`·`validate.py`·`retention.py`·Dockerfile·의존성은 이 PR 에서 안 바뀜
+- `bus:ml:hist:*` 는 보존 100분 + 키 TTL. 위치 행 약 6만 건/100분 기준 몇 MB 로 추정(Redis 한도 128MB, 사용 42MB)
+### 미결
+- 기존 146노선은 PR 표에서 97.0 → 105.5초. 모델 교체 전에 판단 필요
+### 검증
+- `uv run --extra serve --extra serve-dev --extra train pytest` → 83 passed. main 합친 뒤 Java 전체 3,979개 중 실패 1 = `BusAlertEnqueueLoadIT` Testcontainers 기동 실패(기존 무관), 단독 재실행 2회 통과
+### 배포
+- 미배포. 머지로 ML 이미지 빌드만 돈다
