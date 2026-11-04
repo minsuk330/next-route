@@ -72,6 +72,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--refine-arrival",
+        action="store_true",
+        help=(
+            "Replace corrected_arrival_at with the interpolated section entry (midpoint "
+            "between the last snapshot before the stop and the first at it). Off by default: "
+            "it removes the ~30 s late bias of the raw label but not its spread, and the "
+            "2026-11-04 full-archive run scored no better with it (95.5 s vs 94.0 s MAE)."
+        ),
+    )
+    parser.add_argument(
         "--max-horizon-minutes",
         type=int,
         default=DEFAULT_MAX_HORIZON_MINUTES,
@@ -432,13 +442,14 @@ def dataset_for_route(
     holidays: list[date],
     weather: pl.LazyFrame | None,
     max_horizon_minutes: int = DEFAULT_MAX_HORIZON_MINUTES,
+    refine_arrival: bool = False,
 ) -> pl.LazyFrame:
     max_horizon_seconds = max_horizon_minutes * 60
     position_route = assign_trip_index(position.filter(pl.col("route_id") == route_id))
     label_route = assign_label_trip_index(
         label.filter(pl.col("route_id") == route_id), position_route
     )
-    label_route = refine_arrival_times(label_route, position_route)
+    label_route = refine_arrival_times(label_route, position_route, enabled=refine_arrival)
 
     # Join on the trip as well as the vehicle. A circular route (most village buses)
     # completes a lap inside the 40-minute window, so a vehicle-only join also pairs a
@@ -514,7 +525,9 @@ def dataset_for_route(
 ARRIVAL_REFINE_MAX_SECONDS = 20 * 60
 
 
-def refine_arrival_times(label: pl.LazyFrame, position: pl.LazyFrame) -> pl.LazyFrame:
+def refine_arrival_times(
+    label: pl.LazyFrame, position: pl.LazyFrame, enabled: bool = True
+) -> pl.LazyFrame:
     """Move ``corrected_arrival_at`` from the first snapshot *at* the stop to the
     interpolated moment the bus reached it.
 
@@ -526,7 +539,9 @@ def refine_arrival_times(label: pl.LazyFrame, position: pl.LazyFrame) -> pl.Lazy
     the arrival at stop ``seq`` is the entry into section ``seq - 1``.
 
     Keeps the raw value in ``corrected_arrival_at_raw`` and the shift in
-    ``arrival_refined_seconds`` (0 when nothing could be refined).
+    ``arrival_refined_seconds`` (0 when nothing could be refined). With
+    ``enabled=False`` the columns are still written (shift as measured) but
+    ``corrected_arrival_at`` is left as the raw label.
     """
     passes = section_passes(position.select(HISTORY_COLUMNS).collect()).lazy()
     entries = passes.filter(~pl.col("is_trip_start")).select(
@@ -551,7 +566,7 @@ def refine_arrival_times(label: pl.LazyFrame, position: pl.LazyFrame) -> pl.Lazy
         .with_columns(
             pl.col("corrected_arrival_at").alias("corrected_arrival_at_raw"),
             pl.when(usable).then(shift).otherwise(pl.lit(0)).cast(pl.Int64).alias("arrival_refined_seconds"),
-            pl.when(usable).then(pl.col("_entered_at")).otherwise(pl.col("corrected_arrival_at")).alias("corrected_arrival_at"),
+            pl.when(usable & pl.lit(enabled)).then(pl.col("_entered_at")).otherwise(pl.col("corrected_arrival_at")).alias("corrected_arrival_at"),
         )
         .drop("_entered_at")
     )
@@ -716,6 +731,7 @@ def build_dataset(
     overwrite: bool,
     max_horizon_minutes: int = DEFAULT_MAX_HORIZON_MINUTES,
     sample_fraction: float = 1.0,
+    refine_arrival: bool = False,
 ) -> None:
     if not 0 < sample_fraction <= 1:
         raise DatasetBuildError(f"--sample-fraction must be in (0, 1], got {sample_fraction}")
@@ -753,6 +769,7 @@ def build_dataset(
                 holidays,
                 weather,
                 max_horizon_minutes,
+                refine_arrival,
             )
             route_frame = route_dataset.collect(engine="streaming")
             if route_frame.is_empty():
@@ -796,6 +813,7 @@ def build_dataset(
             "query_version": QUERY_VERSION,
             "max_horizon_minutes": max_horizon_minutes,
             "sample_fraction": sample_fraction,
+            "refine_arrival": refine_arrival,
             "service_date": service_date.isoformat(),
             "row_count": row_count,
             "holiday_sidecar_dates": len(holidays),
@@ -837,7 +855,12 @@ def main() -> int:
         data_dir = load_data_dir()
         for service_date in service_dates:
             build_dataset(
-                service_date, data_dir, args.overwrite, args.max_horizon_minutes, args.sample_fraction
+                service_date,
+                data_dir,
+                args.overwrite,
+                args.max_horizon_minutes,
+                args.sample_fraction,
+                args.refine_arrival,
             )
     except (DatasetBuildError, OSError, pl.exceptions.PolarsError) as exc:
         print(f"[error] {exc}", file=sys.stderr)
