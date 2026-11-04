@@ -6313,3 +6313,7 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew test --tests '*TrackStopHeadingTest' --tests '*TrackSelectionQueryServiceTest' --tests '*JourneyTrackControllerTest' --tests '*OtpTransitPatternAdapterTest'` → 통과
 - 전체 `cleanTest test --continue`(st-pg·st-redis env): **3,910 중 실패 8, 모두 기존 무관** — `SubwayRideScenarioIT`·`SubwayRingExpressReplayIT`·`SubwayRingReplayIT` 가 `user_push_token` 에 고정 token `'device-token'` 을 넣다 `DuplicateKeyException`. st-pg 에 2026-11-03 23:28 에 남은 행(앞서 Gradle 데몬이 외부 stop 으로 끊긴 실행의 잔여로 추정)이 원인. 이 브랜치 diff 와 무관한 테이블
 - 함정(시험 환경): 전체 시험 env 스크립트가 `${X:기본값}` 자리까지 dummy 로 덮으면 boolean 바인딩이 깨져 컨텍스트 IT 411건 실패 ← 기본값 없는 `${X}` 만 채울 것
+### 배포 (#538, 2026-11-04 11:20 KST)
+- api 만: `nextroute:20261104-112049-d9d38adf`. worker 는 `20261103-212613-f64caa36` 그대로. 마이그레이션 없음. jar 백업 `app.jar.bak-20261104-112048-pre-d9d38adf`(= f64caa36)
+- 이 api 에는 #536·#537 코드도 들어 있다. #537 플래그 꺼짐, #536 은 worker 쪽 수집기라 api 동작 변화 없음. **VPS `app.jar` 는 이제 d9d38adf** — 다음 worker 배포는 #536(수집 몫 Redis, 호출 전 점유)을 함께 싣는다
+- 확인: 기동 뒤 ERROR 0, 새 이미지 태그, 미인증 401. **실제 `heading` 응답은 아직 못 봄**(인증 필요, 운영 계정 안 만듦) — 앱 호출 뒤 확인. 배포 전 `stops/near` p95 약 48ms(7일) = 비교 기준
