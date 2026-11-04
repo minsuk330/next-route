@@ -13,10 +13,12 @@ import polars as pl
 from dotenv import load_dotenv
 
 from realtime_features import (
+    HISTORY_COLUMNS,
     REALTIME_FEATURES,
     TRIP_INDEX_COLUMN,
     add_realtime_features,
     assign_trip_index,
+    section_passes,
 )
 
 
@@ -436,6 +438,7 @@ def dataset_for_route(
     label_route = assign_label_trip_index(
         label.filter(pl.col("route_id") == route_id), position_route
     )
+    label_route = refine_arrival_times(label_route, position_route)
 
     # Join on the trip as well as the vehicle. A circular route (most village buses)
     # completes a lap inside the 40-minute window, so a vehicle-only join also pairs a
@@ -504,6 +507,54 @@ def dataset_for_route(
     # rt_* columns are added by build_dataset() after collect (they need the route's
     # position history as a DataFrame), so this lazy plan stops at the base columns.
     return attach_weather(first_arrival, weather).select(base_dataset_columns())
+
+
+# A refined arrival must sit within this much of the raw one (polling cadence is
+# 60 s; a larger gap means the trajectory had a hole and the raw time is kept).
+ARRIVAL_REFINE_MAX_SECONDS = 20 * 60
+
+
+def refine_arrival_times(label: pl.LazyFrame, position: pl.LazyFrame) -> pl.LazyFrame:
+    """Move ``corrected_arrival_at`` from the first snapshot *at* the stop to the
+    interpolated moment the bus reached it.
+
+    The position feed is polled once a minute and ``section_order`` steps up when
+    the bus reaches the next stop (stop ``seq`` opens section ``seq - 1``), so the
+    raw label — the first snapshot in that section with stop_flag set — is late by
+    anything up to a polling interval (≈30 s on average, a floor under the 1-5 min
+    error). ``section_passes`` already interpolates when each section was entered;
+    the arrival at stop ``seq`` is the entry into section ``seq - 1``.
+
+    Keeps the raw value in ``corrected_arrival_at_raw`` and the shift in
+    ``arrival_refined_seconds`` (0 when nothing could be refined).
+    """
+    passes = section_passes(position.select(HISTORY_COLUMNS).collect()).lazy()
+    entries = passes.filter(~pl.col("is_trip_start")).select(
+        "route_id",
+        "vehicle_identity",
+        TRIP_INDEX_COLUMN,
+        (pl.col("k") + 1).alias("target_seq"),
+        pl.col("entered_at").alias("_entered_at"),
+    )
+    shift = (pl.col("corrected_arrival_at") - pl.col("_entered_at")).dt.total_seconds()
+    usable = (
+        pl.col("_entered_at").is_not_null()
+        & (shift >= 0)
+        & (shift <= ARRIVAL_REFINE_MAX_SECONDS)
+    )
+    return (
+        label.join(
+            entries,
+            on=["route_id", "vehicle_identity", TRIP_INDEX_COLUMN, "target_seq"],
+            how="left",
+        )
+        .with_columns(
+            pl.col("corrected_arrival_at").alias("corrected_arrival_at_raw"),
+            pl.when(usable).then(shift).otherwise(pl.lit(0)).cast(pl.Int64).alias("arrival_refined_seconds"),
+            pl.when(usable).then(pl.col("_entered_at")).otherwise(pl.col("corrected_arrival_at")).alias("corrected_arrival_at"),
+        )
+        .drop("_entered_at")
+    )
 
 
 def assign_label_trip_index(label: pl.LazyFrame, position: pl.LazyFrame) -> pl.LazyFrame:
@@ -579,6 +630,8 @@ def base_dataset_columns() -> list[str]:
         "label_target_seconds_to_arrival",
         "api_estimated_arrival_at",
         "corrected_arrival_at",
+        "corrected_arrival_at_raw",
+        "arrival_refined_seconds",
         "label_arrival_at",
         "label_source",
         "label_confidence",

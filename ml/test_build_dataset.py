@@ -258,3 +258,17 @@ def test_circular_route_snapshot_pairs_only_with_same_lap_arrival():
     assert out.select(pl.struct("position_raw_id", "target_seq").is_unique().all()).item()
     # Lap 2 snapshots pair with lap 2's arrival only.
     assert set(out.filter(pl.col("position_raw_id") >= 6)["arrival_label_event_id"]) == {102}
+
+
+def test_arrival_time_is_refined_to_the_section_entry():
+    position, label = _circular_route_frames()
+    out = dataset_for_route(position, label, "R", "now", [], None).collect()
+
+    # Stop 4 opens section 3, entered midway between the 09:02 (section 2) and
+    # 09:04 (section 3) snapshots -> 09:03. The raw label said 09:07.
+    first = out.filter(pl.col("position_raw_id") == 1)
+    assert first["corrected_target_seconds_to_arrival"].to_list() == [180]
+    assert first["arrival_refined_seconds"].to_list() == [240]
+    assert first["corrected_arrival_at_raw"].to_list() == [datetime(2026, 10, 28, 9, 7, 0)]
+    # the unrefined label time still drives the join window
+    assert first["label_target_seconds_to_arrival"].to_list() == [420]
