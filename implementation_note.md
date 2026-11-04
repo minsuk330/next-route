@@ -6352,3 +6352,7 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 운영 OTP 실측(강남역 27정류장 173노선): 색 없음 0, 같은 이름에 색 둘 0, 146 근처·패턴 모두 `0068B7`
 ### 검증
 - `./gradlew test --tests '*Track*' --tests '*OtpTransitPatternAdapterTest' --tests '*WorkerProfileWiring*'`(st-pg·st-redis env) → 141 tests, 실패 0. 전체 시험은 안 돌림(바뀐 곳이 근처 조회 경로뿐)
+### 배포 (#542, 2026-11-04 12:02 KST)
+- api 만: `nextroute:20261104-120233-44654762`. worker 는 `20261103-212613-f64caa36` 그대로. 마이그레이션 없음. jar 백업 `app.jar.bak-20261104-120231-pre-44654762`(= d9d38adf)
+- 함께 실린 #539: `REGIONAL_BUS_SHARED`·`ROUTE_SEARCH_BUS_CROSS_INSTANCE` env 없음(꺼짐), `RedisSharedBlockStore` 는 `regional-bus.shared.enabled=true` 일 때만 빈 → 기존 경로. **VPS `app.jar` 는 44654762** — 다음 worker 배포는 #536·#537·#539 를 함께 싣는다
+- 확인: 기동 뒤 ERROR 0, 새 이미지 태그, healthy. `heading`·`routes` 실응답은 인증이 필요해 아직 못 봄 → 앱 호출 뒤 확인. 디스크 83%(여유 11G), `.upload-d9d38adf`·`.upload-44654762` 조각 폴더가 남아 있음
