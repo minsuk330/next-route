@@ -6373,3 +6373,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - api 만: `nextroute:20261104-120233-44654762`. worker 는 `20261103-212613-f64caa36` 그대로. 마이그레이션 없음. jar 백업 `app.jar.bak-20261104-120231-pre-44654762`(= d9d38adf)
 - 함께 실린 #539: `REGIONAL_BUS_SHARED`·`ROUTE_SEARCH_BUS_CROSS_INSTANCE` env 없음(꺼짐), `RedisSharedBlockStore` 는 `regional-bus.shared.enabled=true` 일 때만 빈 → 기존 경로. **VPS `app.jar` 는 44654762** — 다음 worker 배포는 #536·#537·#539 를 함께 싣는다
 - 확인: 기동 뒤 ERROR 0, 새 이미지 태그, healthy. `heading`·`routes` 실응답은 인증이 필요해 아직 못 봄 → 앱 호출 뒤 확인. 디스크 83%(여유 11G), `.upload-d9d38adf`·`.upload-44654762` 조각 폴더가 남아 있음
+
+## 운영 배포: 다중 인스턴스 플래그 3개 + Xmx512 + Tempo 끔 (2026-11-04 13:47 KST)
+### 배포
+- 사용자 지시("운영 배포 플래그도 키자", "끄자 그리고 ① 적용"). 스크립트 `vps-flags-xmx512-tempo-off.sh` 를 사용자가 `ssh vps 'bash -s'` 로 실행(에이전트 VPS 쓰기 금지 규칙)
+- VPS `compose.yaml`(백업 `compose.yaml.bak-20261104-134739-pre-flags`): `-Xmx768m → -Xmx512m`(api·worker 공통 앵커), 공통 env `ROUTE_SEARCH_BUS_CROSS_INSTANCE=true` `REGIONAL_BUS_SHARED=true` `MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=false`, worker 전용 `JOURNEY_REEVAL_LEADER_LEASE=true`
+- worker 이미지 `f64caa36`(#532, PR-1·2·4 없음) → `nextroute:20261104-134740-44654762`(api 와 같은 app.jar). api 는 같은 이미지로 env 만 재생성. 마이그레이션 없음
+- Tempo: `observability/compose.yaml`(백업 `…bak-20261104-134739-pre-tempo-off`) grafana depends_on 에서 제거, tempo 에 `profiles: ["traces"]`, stop + rm. 볼륨 `tempo-data`(1.48GB) 남김. 근거: 최근 24h Tempo 조회 0건, RAM 112MB. 앱은 export 만 끔(트레이싱 유지 → 로그 traceId 그대로)
+### 검증
+- 두 컨테이너 healthy, env·이미지 확인. worker `[LeaderLease] 리더가 됨`, `journey_reeval_leader 1`. Redis 에 `bus:quota:search:collector-arrival/position:20261104` 생김(PR-1 수집 몫 동작). 15분 ERROR 0/0, export 실패 로그 0, WARN 은 기존 `[TrainTransition] 중복 열차` 뿐
+- 메모리: 기동 직후 api 709MB·worker 799MB(Xmx512, 주기 GC 전), 호스트 가용 1,463MB(전 1,431)
+### 미결
+- `crossflight.requests`·`bus:flight:*`·`bus:gg:arr:*` 는 실트래픽 뒤 확인(하루 관찰). worker2 추가는 그 뒤
+- 운영 메모리 근거(11-04 7일 Prometheus): api old gen ≤241MB, worker ≤312MB, 메타스페이스 148MB. OTP 는 GC 뒤 old gen 2.72~2.76GB 라 Xmx3500 못 줄임
