@@ -66,6 +66,10 @@ public class RegionalRideLocator {
             return Located.failed("stop-unjoined");
         }
         List<String> planned = plannedStops(ride, stops, board, alight);
+        if (planned.indexOf(ride.getSourceEndStopId()) != planned.lastIndexOf(ride.getSourceEndStopId())) {
+            // 하차가 같은 정류장의 두 번째 통과다(#546). 표의 첫 등장으로 세면 지나간 자리를 앞으로 올 자리로 착각한다.
+            return Located.failed("ambiguous-stop");
+        }
         int current = planned.isEmpty()
                 ? walkBackSkippingWaypoints(stops, board, alight, remainingStops)
                 : walkBackOnPlanned(stops, planned, board, alight, remainingStops);
