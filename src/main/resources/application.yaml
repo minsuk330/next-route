@@ -191,6 +191,24 @@ gyeonggi:
     bus-arrival-base-url: https://apis.data.go.kr/6410000/busarrivalservice/v2
     # 노선정류소(#267 표 적재). 같은 포털 키.
     bus-route-base-url: https://apis.data.go.kr/6410000/busrouteservice/v2
+# 경기·TAGO 버스 도착 조회의 서버 사이 공유(bus-multi-instance PR-4). 기본 꺼짐 — 꺼지면 어댑터는 JVM 캐시·JVM 세마포어·JVM
+# 차단기 그대로. worker 를 늘릴 때 api 와 모든 worker env 에 함께 켠다. 켜면 캐시는 Redis, 캐시 miss 는 서버 중 한 대만
+# 공급자를 부르고, 경기 공개 조회는 Redis 몫(gg-arrival)을 세며, TAGO 동시 호출은 서버 합산으로 묶이고, 차단기도 공유된다.
+regional-bus:
+  shared:
+    enabled: ${REGIONAL_BUS_SHARED:false}
+    cache-ttl-seconds: 15
+    # 공급자 10,000/일 − 재탐색 버킷(journey.reroute.board.quota-gyeonggi, 기본 5,000). 둘의 합이 10,000 을 넘지 않게.
+    gyeonggi-daily-limit: 5000
+    # 포털 키 동시 세션 30 을 GBIS·TAGO·지하철 TAGO 가 공유 — TAGO 버스 몫만 서버 합산 8
+    tago-max-concurrent: 8
+    # 가장 긴 호출(connect 3s + read 5s + 자리 대기 1s)보다 길게, 본문 느린 수신 여유 포함
+    tago-lease-ms: 15000
+    gyeonggi-lock-ttl-ms: 9000
+    tago-lock-ttl-ms: 10000
+    poll-ms: 50
+    result-ttl-ms: 2000
+
 tago:
   api:
     # 서울·경기 밖 버스도착(국토교통부 TAGO). 포털 Encoding 키 그대로. 미설정이면 호출 없이 빈 결과.

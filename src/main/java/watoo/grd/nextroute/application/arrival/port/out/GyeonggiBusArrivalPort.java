@@ -12,4 +12,12 @@ import watoo.grd.nextroute.application.route.port.out.SearchTimeBusQueryPort.Bus
 public interface GyeonggiBusArrivalPort {
 
     BusQueryResult<GyeonggiBusArrival> getArrival(String stationId, String routeId);
+
+    /**
+     * @param chargeQuota false 면 어댑터가 일일 몫(gg-arrival)을 세지 않는다 — 재탐색처럼 부르는 쪽이 자기 버킷을 이미
+     *                    점유한 경우(bus-multi-instance PR-4). 공유 플래그가 꺼져 있으면 의미 없다.
+     */
+    default BusQueryResult<GyeonggiBusArrival> getArrival(String stationId, String routeId, boolean chargeQuota) {
+        return getArrival(stationId, routeId);
+    }
 }
