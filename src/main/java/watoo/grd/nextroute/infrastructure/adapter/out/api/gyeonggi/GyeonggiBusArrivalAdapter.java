@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import watoo.grd.nextroute.application.arrival.dto.GyeonggiBusArrival;
 import watoo.grd.nextroute.application.arrival.port.out.GyeonggiBusArrivalPort;
+import watoo.grd.nextroute.application.arrival.port.out.GyeonggiStopOrderPort;
 import org.springframework.beans.factory.annotation.Autowired;
 import watoo.grd.nextroute.application.route.concurrent.SingleFlight;
 import watoo.grd.nextroute.infrastructure.adapter.out.cache.bus.RegionalBusShared;
@@ -22,6 +23,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -30,6 +32,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>실측(2026-10-05)에서 정한 규칙:
  * <ul>
+ *   <li>{@code staOrder}(노선 안 정류장 순번)가 필수다. 없으면 {@code resultCode} 2 로 거절한다(2026-11-02 부터 실측).
+ *       순번이 하나로 정해지지 않으면 호출하지 않고 ERROR 다.</li>
  *   <li>값이 있으면 숫자, 없으면 {@code ""} 로 온다 — 모든 수치를 숫자·문자 둘 다 받아 읽는다.</li>
  *   <li>{@code msgHeader.resultCode} 0 = 정상, 4 = 결과 없음(그 정류장에 그 노선이 없음 — 서울 노선 id 도 4).</li>
  *   <li>포털 공통 오류는 HTTP 403 등과 함께 {@code OpenAPI_ServiceResponse.cmmMsgHeader.returnReasonCode} 로 온다.
@@ -56,6 +60,7 @@ public class GyeonggiBusArrivalAdapter implements GyeonggiBusArrivalPort {
     private final String apiKey;
     /** 서버 사이 공유 부품(PR-4). {@code enabled()} 가 false 면 아래 JVM 캐시 경로 그대로. */
     private final RegionalBusShared shared;
+    private final GyeonggiStopOrderPort stopOrders;
 
     private final ConcurrentHashMap<String, CacheEntry> cache = new ConcurrentHashMap<>();
     private final SingleFlight<String, BusQueryResult<GyeonggiBusArrival>> flight = new SingleFlight<>();
@@ -68,8 +73,9 @@ public class GyeonggiBusArrivalAdapter implements GyeonggiBusArrivalPort {
                                      ApiCallBlocker blocker,
                                      Clock clock,
                                      String baseUrl,
-                                     String apiKey) {
-        this(restClient, objectMapper, blocker, clock, baseUrl, apiKey, RegionalBusShared.disabled());
+                                     String apiKey,
+                                     GyeonggiStopOrderPort stopOrders) {
+        this(restClient, objectMapper, blocker, clock, baseUrl, apiKey, RegionalBusShared.disabled(), stopOrders);
     }
 
     @Autowired
@@ -79,7 +85,8 @@ public class GyeonggiBusArrivalAdapter implements GyeonggiBusArrivalPort {
                                      Clock clock,
                                      @Value("${gyeonggi.api.bus-arrival-base-url}") String baseUrl,
                                      @Value("${gyeonggi.api.bus-key:}") String apiKey,
-                                     RegionalBusShared shared) {
+                                     RegionalBusShared shared,
+                                     GyeonggiStopOrderPort stopOrders) {
         this.restClient = restClient;
         this.objectMapper = objectMapper;
         this.blocker = blocker;
@@ -87,6 +94,7 @@ public class GyeonggiBusArrivalAdapter implements GyeonggiBusArrivalPort {
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
         this.shared = shared;
+        this.stopOrders = stopOrders;
     }
 
     @Override
@@ -138,11 +146,15 @@ public class GyeonggiBusArrivalAdapter implements GyeonggiBusArrivalPort {
     }
 
     private BusQueryResult<GyeonggiBusArrival> fetchAndStore(String stationId, String routeId, boolean chargeQuota) {
+        OptionalInt order = staOrder(stationId, routeId);
+        if (order.isEmpty()) {
+            return BusQueryResult.error();   // 호출하지 않으니 몫도 쓰지 않는다
+        }
         if (chargeQuota && !shared.quota().tryAcquire("gg-arrival", shared.props().getGyeonggiDailyLimit())) {
             log.debug("[GyeonggiBus] daily quota exhausted; stationId={} routeId={}", stationId, routeId);
             return BusQueryResult.limited();
         }
-        BusQueryResult<GyeonggiBusArrival> result = fetch(stationId, routeId);
+        BusQueryResult<GyeonggiBusArrival> result = fetch(stationId, routeId, order.getAsInt());
         // 조회 성공(빈 결과 포함)만 저장한다 — JVM 캐시와 같은 규칙.
         if (result.isOk()) {
             shared.cache().putGyeonggi(stationId, routeId, result.data());
@@ -151,7 +163,11 @@ public class GyeonggiBusArrivalAdapter implements GyeonggiBusArrivalPort {
     }
 
     private BusQueryResult<GyeonggiBusArrival> fetchAndCache(String key, String stationId, String routeId) {
-        BusQueryResult<GyeonggiBusArrival> result = fetch(stationId, routeId);
+        OptionalInt order = staOrder(stationId, routeId);
+        if (order.isEmpty()) {
+            return BusQueryResult.error();
+        }
+        BusQueryResult<GyeonggiBusArrival> result = fetch(stationId, routeId, order.getAsInt());
         // 조회 성공(빈 결과 포함)만 캐시한다. 실패를 캐시하면 일시 오류가 15초 동안 굳는다.
         if (result.isOk()) {
             cache.put(key, new CacheEntry(result, clock.instant().plus(CACHE_TTL)));
@@ -160,11 +176,27 @@ public class GyeonggiBusArrivalAdapter implements GyeonggiBusArrivalPort {
         return result;
     }
 
-    private BusQueryResult<GyeonggiBusArrival> fetch(String stationId, String routeId) {
+    /** 캐시 miss 때만 부른다. 표를 못 읽으면 순번을 모르는 것과 같다. */
+    private OptionalInt staOrder(String stationId, String routeId) {
+        try {
+            OptionalInt order = stopOrders.orderOf(stationId, routeId);
+            if (order.isEmpty()) {
+                log.info("[GyeonggiBus] no unique staOrder; skip stationId={} routeId={}", stationId, routeId);
+            }
+            return order;
+        } catch (RuntimeException e) {
+            log.warn("[GyeonggiBus] staOrder lookup failed stationId={} routeId={}: {}",
+                    stationId, routeId, e.getMessage());
+            return OptionalInt.empty();
+        }
+    }
+
+    private BusQueryResult<GyeonggiBusArrival> fetch(String stationId, String routeId, int staOrder) {
         URI uri = URI.create(baseUrl + "/getBusArrivalItemv2"
                 + "?serviceKey=" + apiKey
                 + "&stationId=" + stationId
                 + "&routeId=" + routeId
+                + "&staOrder=" + staOrder
                 + "&format=json");
         String body;
         try {

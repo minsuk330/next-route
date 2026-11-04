@@ -142,7 +142,8 @@ class GyeonggiBusArrivalAdapterSharedBenchmarkTest {
                     sleepQuietly(PROVIDER_MS);
                     return withSuccess(ITEM, MediaType.APPLICATION_JSON).createResponse(req);
                 });
-        return new GyeonggiBusArrivalAdapter(builder.build(), new ObjectMapper(), new ApiCallBlocker(), clock, BASE, "K%2F", shared);
+        return new GyeonggiBusArrivalAdapter(builder.build(), new ObjectMapper(), new ApiCallBlocker(), clock, BASE, "K%2F", shared,
+                (stationId, routeId) -> java.util.OptionalInt.of(7));
     }
 
     private void fire(List<GyeonggiBusArrivalAdapter> adapters, String station) throws Exception {

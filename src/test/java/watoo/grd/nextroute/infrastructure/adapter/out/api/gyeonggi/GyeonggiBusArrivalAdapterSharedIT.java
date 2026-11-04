@@ -111,7 +111,8 @@ class GyeonggiBusArrivalAdapterSharedIT {
                     return withSuccess(body, MediaType.APPLICATION_JSON).createResponse(req);
                 });
         servers.add(server);
-        return new GyeonggiBusArrivalAdapter(builder.build(), new ObjectMapper(), new ApiCallBlocker(), clock, BASE, "K%2F", shared);
+        return new GyeonggiBusArrivalAdapter(builder.build(), new ObjectMapper(), new ApiCallBlocker(), clock, BASE, "K%2F", shared,
+                (stationId, routeId) -> java.util.OptionalInt.of(7));
     }
 
     private List<BusQueryResult<GyeonggiBusArrival>> fire(List<GyeonggiBusArrivalAdapter> adapters) throws Exception {
@@ -167,6 +168,21 @@ class GyeonggiBusArrivalAdapterSharedIT {
 
         // JVM 캐시 put 이 flight 안에서 일어나 드물게 한 번 더 부를 수 있다 — 대조군의 요지는 "서버 수 이상"
         assertThat(providerCalls.get()).isGreaterThanOrEqualTo(SERVERS);
+    }
+
+    @Test
+    @DisplayName("플래그 켬: 순번이 안 정해지면 공급자를 안 부르고 몫도 안 쓴다")
+    void noUniqueOrderChargesNoQuota() {
+        RegionalBusShared shared = shared(true, 1);
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer.bindTo(builder).build();
+        GyeonggiBusArrivalAdapter adapter = new GyeonggiBusArrivalAdapter(builder.build(), new ObjectMapper(),
+                new ApiCallBlocker(), clock, BASE, "K%2F", shared,
+                (stationId, routeId) -> java.util.OptionalInt.empty());
+
+        assertThat(adapter.getArrival(station, "228000184").isOk()).isFalse();
+
+        assertThat(redis.keys("bus:quota:search:gg-arrival:*")).isEmpty();
     }
 
     @Test

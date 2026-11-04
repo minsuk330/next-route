@@ -6430,3 +6430,17 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 후보 ②(API 가 정상 행으로 다른 값을 준 경우)는 이 가드로 못 막는다. 다시 나면 artifact 로 판단
 ### 검증
 - `python3 -I -m unittest discover -s tools/subway-express -p 'test_*.py'` → 9 tests OK. VPS 실행 → 못 읽은 표 0, 빈 표 0, `check_catalog.py` 종료 0
+
+## 경기 버스 도착 전면 실패: staOrder 필수 (2026-11-04, fix/gyeonggi-arrival-sta-order)
+### 확정
+- `getBusArrivalItemv2` 는 `staOrder` 없으면 `resultCode=2`(필수 요청 Parameter). 3노선 60곳 표본: 없으면 60/60 실패, 넣으면 60/60 성공(경기·서울 정류장 같음). 운영 11-04 13:47 뒤 `gg-arrival` 몫 101건 = 거절 로그 101건. 첫 거절 로그 11-02 06:04:02 KST. 10-05 계획서에는 `staOrder` 없이 정상으로 적혀 있다. 공급자 공지는 확인 못 함
+- 순번은 `regional_bus_route_stop.seq`(GBIS `stationSeq`, 표본 6쌍 일치). 조회는 캐시 miss 때만, 몫 점유 전에 한다 → 순번을 모르면 공급자 호출도 몫도 없다
+- 같은 노선에 같은 정류장이 두 번이면 빈 값(서울 다중 순번과 같은 규칙). 첫 순번을 쓰면 반대 방향 버스 도착을 보여 줄 수 있다
+- 운영 OTP GGB (노선, 정류장) 139,880쌍: 순번 하나 121,939(87.2%), 두 번 이상 2,289(1.6%), 노선이 표에 없음 14,769(10.6%), 정류장이 표에 없음 883(0.6%). 표에 없는 450노선 중 앞 8개는 GBIS 도 결과 없음(코드 4) → 공급자 API 대체 경로를 안 넣음
+### 미결
+- 두 번 나오는 쌍 2,289개는 계속 실시간 없음. 표 전체 중복 2,640쌍 가운데 337쌍은 첫·마지막 순번 쌍(순환 기점)이라, 승차 쪽만이면 첫 순번을 써도 되는지 따로 판단
+- 실패가 WARN 뿐이고 응답이 200 이라 이번 장애가 이틀간 경보 없이 지나갔다. `resultCode=2` 같은 거절 비율 경보는 별건
+### 검증
+- `--tests '*Gyeonggi*' '*RegionalArrivalLookup*' '*BusArrivalQueryService*' '*RideTruncation*' '*UpcomingStopWindow*' '*WaitBusArrival*' '*WorkerProfileWiring*'`(st-pg·st-redis env) → 73 tests, 실패 0
+### 배포
+- 미배포. 마이그레이션 없음. api·worker·worker2 모두 어댑터를 쓴다
