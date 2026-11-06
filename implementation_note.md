@@ -6483,3 +6483,11 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `uv run --extra serve --extra serve-dev --extra train pytest` → 83 passed. main 합친 뒤 Java 전체 3,979개 중 실패 1 = `BusAlertEnqueueLoadIT` Testcontainers 기동 실패(기존 무관), 단독 재실행 2회 통과
 ### 배포
 - 미배포. 머지로 ML 이미지 빌드만 돈다
+
+## 환승 판정 model_version 길이 (2026-11-06)
+### 함정
+- ML 기반 환승 판정이 저장되지 않음 ← `transfer_connection.model_version` varchar(50) 에 56자 모델 이름. `value too long` 으로 여정 평가 저장 전체가 실패한다. 운영 표에 `source=MODEL` 행이 한 행도 없었다
+### 배포
+- V75
+### 검증
+- `JourneySchemaIT` 수정 전 22건 중 1건 실패, 수정 후 22건 통과. 전체 시험 3980건 실패 0
