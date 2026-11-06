@@ -86,7 +86,7 @@ public class TransferConnection extends BaseEntity {
     /** 계산에 쓴 관측값이 만들어진 시각. 계산 시각과 다르면 낡은 데이터로 계산한 것이다. */
     private Instant dataObservedAt;
 
-    @Column(length = 50)
+    @Column(length = 100)
     private String modelVersion;
 
     /** 마지막으로 알림을 보낸 시점의 상태. 같은 상태로 반복해 알리지 않기 위한 값(Phase 5). */

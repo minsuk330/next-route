@@ -86,7 +86,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V65__journey_leg_alight_door_side.sql",
         "classpath:db/migration/V71__journey_leg_train_kind.sql",
         "classpath:db/migration/V66__journey_session_evaluation_urgent.sql",
-        "classpath:db/migration/V67__journey_reevaluation_trigger.sql"
+        "classpath:db/migration/V67__journey_reevaluation_trigger.sql",
+        "classpath:db/migration/V75__transfer_connection_model_version_length.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 class JourneySchemaIT {
@@ -377,6 +378,29 @@ class JourneySchemaIT {
         sessionRepository.saveAndFlush(reloaded);
         assertThat(jdbcTemplate.queryForObject("select exclude_express from journey_session where id = ?",
                 Boolean.class, on.getId())).isTrue();
+    }
+
+    @Test
+    @DisplayName("운영 ML 모델 이름(56자)이 환승 판정에 저장된다 — 50자 칼럼이면 여정 평가 저장 전체가 실패한다")
+    void transferModelVersion_storesProductionModelName() {
+        String modelName = "lgbm_2026-06-12_to_2026-11-02_corrected_20261104T090427Z";
+        JourneySession session = sessionRepository.saveAndFlush(newSession(Instant.now()));
+
+        TransferConnection transfer = transferRepository.saveAndFlush(TransferConnection.builder()
+                .journeyId(session.getId())
+                .routeRevision(1)
+                .transferIndex(0)
+                .fromLegIndex(1)
+                .walkLegIndex(null)
+                .toLegIndex(2)
+                .status(TransferStatus.UNKNOWN)
+                .build());
+        transfer.applyModelVersion(modelName);
+        transferRepository.saveAndFlush(transfer);
+
+        assertThat(jdbcTemplate.queryForObject("select model_version from transfer_connection where id = ?",
+                String.class, transfer.getId())).isEqualTo(modelName);
+        endNow(session);
     }
 
     private void endNow(JourneySession session) {
