@@ -114,7 +114,8 @@ def parse_time(cell: str) -> int | None:
     if m:
         return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3) or 0)
     if FRACTION.fullmatch(cell):
-        return round(float(cell) * DAY)
+        v = float(cell)
+        return round(v * DAY) if 0 <= v < 1 else None  # a day fraction; anything else is not a time
     return None
 
 
@@ -133,14 +134,12 @@ Stop = tuple  # (name, arrival | None, departure | None)
 
 def _clock(stops: list[Stop]) -> list[Stop] | None:
     """One clock for the stops with times (None times kept as None); None when times go backwards other than
-    once across midnight."""
+    once across midnight (between stops, or within a stop's dwell — later stops then run on 24:xx)."""
     out, prev, extra = [], None, 0
     for name, a, d in stops:
         if a is None:
             out.append((name, None, None))
             continue
-        if d < a and a >= NIGHT_FROM and d < NIGHT_TO:
-            d += DAY
         a, d = a + extra, d + extra
         if prev is not None and a < prev:
             if extra == 0 and prev % DAY >= NIGHT_FROM and a % DAY < NIGHT_TO:
@@ -149,7 +148,11 @@ def _clock(stops: list[Stop]) -> list[Stop] | None:
             else:
                 return None
         if d < a:
-            return None
+            if extra == 0 and a % DAY >= NIGHT_FROM and d % DAY < NIGHT_TO:
+                extra = DAY
+                d += DAY
+            else:
+                return None
         out.append((name, a, d))
         prev = d
     return out
@@ -159,7 +162,7 @@ def unroll(stops: list[Stop]) -> tuple[list[Stop] | None, int]:
     """(stops on one clock, number of middle stops blanked).  When the times go backwards, one middle stop whose
     time is the odd one out (a typo) is blanked — the builder fills it from the template's running times.  A train
     whose origin leaves before 03:00 moves to 24:xx (previous service day).  None = unusable train."""
-    if len(stops) < 2 or stops[0][1] is None:
+    if len(stops) < 2 or (stops[0][1] is None and stops[1][1] is None):
         return None, 0
     out, blanked = _clock(stops), 0
     if out is None:
@@ -173,7 +176,8 @@ def unroll(stops: list[Stop]) -> tuple[list[Stop] | None, int]:
                 break
     if out is None:
         return None, 0
-    if out[0][2] < SERVICE_DAY_START:
+    first = next(x[2] for x in out if x[2] is not None)
+    if first < SERVICE_DAY_START:
         out = [(n, None if a is None else a + DAY, None if d is None else d + DAY) for n, a, d in out]
     return out, blanked
 
@@ -222,7 +226,7 @@ def multi_stops(row: dict[str, str]) -> list[Stop]:
     arr = {k: parse_time(v) for k, v in arr_l}
     dep = {k: parse_time(v) for k, v in dep_l}
     if _backwards(dep_l) and arr_l and not _backwards(arr_l):  # 신림: departure cell in reverse order
-        dep = dict(arr)
+        dep = dict(arr)  # the origin then has no time: the builder backs it out from the next arrival
     order: list[str] = []
     for seq in [k for k, _ in dep_l] + [k for k, _ in arr_l] + list(names):
         if seq not in order:
@@ -276,6 +280,8 @@ def collect_trains(rows) -> tuple[list[dict], dict]:
         rs.sort(key=lambda r: service_day_time(r[2] if r[2] is not None else r[1]))
         runs, cur = [], []
         for r in rs:
+            if cur and r == cur[-1]:  # a duplicated source row, not a new stop
+                continue
             if any(x[0] == r[0] for x in cur):
                 runs.append(cur)
                 cur = []
@@ -287,7 +293,7 @@ def collect_trains(rows) -> tuple[list[dict], dict]:
     for meta, stops in found:
         out, blanked = unroll(stops)
         if out is None:
-            bump("invalidTrains", meta["line"])
+            bump("invalidTrains", f"{meta['line']}|{meta['day']}")
             continue
         trains.append(dict(meta, blanked=blanked, stops=out))
     return trains, stats
@@ -382,21 +388,21 @@ def map_train(t: dict, smap: dict[str, str | None], sequences: list[list[str]],
         if i == 0 or j == len(out):
             return None, ["(unnamed end stop)"], False
         left, right, n = out[i - 1][0], out[j][0], j - i
-        fill = None
+        fills = set()
         for seq in sequences:
             if left in seq and right in seq:
                 a, b = seq.index(left), seq.index(right)
                 if b - a - 1 == n:
-                    fill = seq[a + 1:b]
-                    break
-        if fill is None:
+                    fills.add(tuple(seq[a + 1:b]))
+        if len(fills) != 1:
             return None, ["(unnamed stops)"], False
+        fill = list(fills.pop())
         for k2, sid in enumerate(fill):
             out[i + k2] = (sid,) + out[i + k2][1:]
         i = j
     if len(out) < 2:
         return None, [], True
-    if out[0][1] is None:
+    if out[0][1] is None and out[1][1] is None:
         return None, ["(origin without time)"], False
     return out, [], False
 
@@ -419,6 +425,10 @@ def fill_times(stops: list[tuple[str, int | None, int | None]], route_trips: dic
     if tmpl is None:
         return None
     out = list(stops)
+    if out[0][1] is None:  # origin: next arrival − the template's running time to it
+        k = next(k for k in range(1, len(out)) if out[k][1] is not None)
+        base = out[k][1] - (tmpl[k][1] - tmpl[0][2])
+        out[0] = (out[0][0], base, base)
     for i, (sid, a, d) in enumerate(out):
         if a is not None:
             continue
@@ -453,7 +463,8 @@ def strictly_increasing(stops: list) -> list:
 def build_line(trains: list[dict], cfg: dict, gtfs: dict[str, dict[str, dict]], stop_names: dict[str, str],
                aliases: dict[str, str | None], window: int = 60, min_match: float = 0.95,
                max_unmatched: float = 0.05, max_p90: int = 90,
-               typo_aliases: set[str] = frozenset()) -> tuple[dict, dict[str, dict]]:
+               typo_aliases: set[str] = frozenset(), invalid: dict[str, int] | None = None,
+               max_filled_share: float = 0.10) -> tuple[dict, dict[str, dict]]:
     """One KRIC line → (report, route_id → data doc).  Gate per direction as in seoul build-day-types, plus the
     line's lost trains (unmapped names, bad times, no template) in the denominators."""
     routes = cfg["routes"]
@@ -461,7 +472,10 @@ def build_line(trains: list[dict], cfg: dict, gtfs: dict[str, dict[str, dict]], 
     patterns = stt.route_patterns(gtfs)
     code_to_sid = {stt.stop_code(s): s for s in stop_names}
     exclude = set(cfg.get("excludeKinds", []))
-    lost = {s: dict(unmapped=0, noTemplate=0, badFill=0) for s in SERVICES}
+    lost = {s: dict(unmapped=0, noTemplate=0, badFill=0, invalid=0) for s in SERVICES}
+    for day, n in (invalid or {}).items():  # trains the parser could not use count against the gate too
+        if cfg["days"].get(day):
+            lost[cfg["days"][day]]["invalid"] += n
     sequences = sorted({tuple(x[0] for x in t["stops"]) for ts in gtfs.values() for t in ts.values()}, key=len,
                        reverse=True)
     sequences = [list(q) for q in sequences]
@@ -473,7 +487,9 @@ def build_line(trains: list[dict], cfg: dict, gtfs: dict[str, dict[str, dict]], 
     by_service: dict[str, dict[str, dict]] = {s: {} for s in SERVICES}
     used: dict[str, set[str]] = {}
     excluded = filled = 0
-    for t in sorted(trains, key=lambda t: (t["day"], t["stops"][0][2], t["trainNo"])):
+    def first_time(t):
+        return next((x[2] for x in t["stops"] if x[2] is not None), 0)
+    for t in sorted(trains, key=lambda t: (t["day"], first_time(t), t["trainNo"])):
         svc = cfg["days"][t["day"]]
         if svc is None:
             continue
@@ -494,7 +510,8 @@ def build_line(trains: list[dict], cfg: dict, gtfs: dict[str, dict[str, dict]], 
         if rid is None:
             lost[svc]["noTemplate"] += 1
             continue
-        if any(a is None for _, a, _ in stops):
+        n_filled = sum(1 for _, a, _ in stops if a is None)
+        if n_filled:
             stops = fill_times(stops, gtfs[rid])
             if stops is None:
                 lost[svc]["badFill"] += 1
@@ -506,7 +523,7 @@ def build_line(trains: list[dict], cfg: dict, gtfs: dict[str, dict[str, dict]], 
             n += 1
             key = f"{t['trainNo']}-{n}"
         by_service[svc][key] = dict(trainNo=key, origin=stt.stop_code(stops[0][0]), dest=stt.stop_code(stops[-1][0]),
-                                    express=False, filled=t["blanked"] > 0 or stops != t["stops"],
+                                    express=False, filledStops=n_filled,
                                     stops=[(stt.stop_code(s), a, d) for s, a, d in stops])
     typos = {norm_name(k) for k in typo_aliases}
     clash = {sid: sorted(ks) for sid, ks in used.items() if len(ks - typos) > 1}
@@ -520,7 +537,8 @@ def build_line(trains: list[dict], cfg: dict, gtfs: dict[str, dict[str, dict]], 
                trains={s: len(v) for s, v in by_service.items()}, lost=lost, excludedKinds=excluded,
                nonRevenueMoves=non_revenue,
                filledTrains=filled, unmappedNames=unmapped_names, ambiguousNames=ambiguous,
-               gate=dict(window=window, minWeekdayMatch=min_match, maxUnmatched=max_unmatched, maxStopDeltaP90=max_p90),
+               gate=dict(window=window, minWeekdayMatch=min_match, maxUnmatched=max_unmatched, maxStopDeltaP90=max_p90,
+                         maxFilledStopShare=max_filled_share),
                directions={})
     wd_lost = sum(lost["M_WD"].values())
     we_lost = sum(sum(lost[s].values()) for s in ("M_SA", "M_HO", "M_SH"))
@@ -539,18 +557,22 @@ def build_line(trains: list[dict], cfg: dict, gtfs: dict[str, dict[str, dict]], 
             rid, kind = stt.assign_route(v, rs, patterns, set())
             per_route[rid].append((svc, v, kind))
         p90 = wd.get("stopDeltaP90")
+        all_mine = [v for svc in SERVICES for v in mine(by_service[svc]).values()]
+        n_stops = sum(len(v["stops"]) for v in all_mine)
+        filled_share = round(sum(v["filledStops"] for v in all_mine) / n_stops, 4) if n_stops else 0.0
         passed = bool(line_ok and wd["gtfsRate"] >= min_match and wd["apiRate"] >= min_match
-                      and p90 is not None and p90 <= max_p90)
+                      and p90 is not None and p90 <= max_p90 and filled_share <= max_filled_share)
         dr = dict(routes=rs, weekday={k: v for k, v in wd.items() if k != "routes"}, weekdayRoutes=wd["routes"],
                   entries={s: sum(1 for x, _ in entries if x == s) for s in ("M_SA", "M_HO", "M_SH")},
-                  lineLostWeekday=wd_lost, lineLostWeekend=we_lost, passed=passed, files=[], noWeekendTrips=[])
+                  lineLostWeekday=wd_lost, lineLostWeekend=we_lost, filledStopShare=filled_share, passed=passed,
+                  files=[], noWeekendTrips=[])
         if passed:
             for rid, got in per_route.items():
                 if not got:
                     dr["noWeekendTrips"].append(rid)
                     continue
                 trips = [dict(tripId=f"{rid}_{svc[2:]}_{v['trainNo']}", trainNo=v["trainNo"], service=svc,
-                              template=kind, **({"filled": True} if v["filled"] else {}),
+                              template=kind, **({"filledStops": v["filledStops"]} if v["filledStops"] else {}),
                               stops=[[code_to_sid[c], stt.fmt_hms(a), stt.fmt_hms(b)] for c, a, b in v["stops"]])
                          for svc, v, kind in sorted(got, key=lambda g: (g[1]["stops"][0][2], g[0], g[1]["trainNo"]))]
                 docs[rid] = dict(
@@ -559,7 +581,7 @@ def build_line(trains: list[dict], cfg: dict, gtfs: dict[str, dict[str, dict]], 
                                 baseDates=rep["baseDates"], days=cfg["days"],
                                 rule="KRIC train rows; times past midnight as 24:xx (origin before 03:00 = previous "
                                      "service day); a missing terminal time or one typo'd middle time is filled with "
-                                     "the previous departure + the KTDB template's running time (trip 'filled'); "
+                                     "the previous departure + the KTDB template's running time (trip 'filledStops'); "
                                      "M_SH = Saturday and holiday rows with the same stops and times, or a "
                                      "Saturday+holiday label"),
                     routeId=rid,
@@ -598,15 +620,21 @@ def main() -> int:
             sn = {x[0]: names[x[0]] for ts in g.values() for t in ts.values() for x in t["stops"]}
             try:
                 al = aliases.get(ln, {})
+                inv = {key.split("|", 1)[1]: n for key, n in stats["invalidTrains"].items()
+                       if key.split("|", 1)[0] == ln}
                 rep, docs = build_line([t for t in trains if t["line"] == ln], c, g, sn,
                                        {k: v["stop"] for k, v in al.items()}, a.window,
-                                       typo_aliases={k for k, v in al.items() if v.get("typo")})
+                                       typo_aliases={k for k, v in al.items() if v.get("typo")}, invalid=inv)
             except KricError as e:
                 report["lines"][ln] = dict(error=str(e))
                 continue
             report["lines"][ln] = rep
             if a.out_dir:
                 a.out_dir.mkdir(parents=True, exist_ok=True)
+                for rid in c["routes"]:  # a route that no longer passes must not keep an old file
+                    old = a.out_dir / f"{rid}.json"
+                    if rid not in docs and old.exists():
+                        old.unlink()
                 for rid, doc in docs.items():
                     stt.write_day_data(a.out_dir / f"{rid}.json", doc)
         if a.report:
@@ -618,7 +646,7 @@ def main() -> int:
             ds = " ".join(f"{d}:{'PASS' if x['passed'] else 'fail'}(wd {x['weekday']['gtfsRate']}/{x['weekday']['apiRate']} "
                           f"p90 {x['weekday']['stopDeltaP90']})" for d, x in r["directions"].items())
             print(f"{ln}: trains {r['trains']} lost {r['lost']} unmapped {len(r['unmappedNames'])} {ds}")
-        return 0
+        return 1 if any("error" in r for r in report["lines"].values()) else 0
     except KricError as e:
         print(f"kric timetable: {e}", file=sys.stderr)
         return 1

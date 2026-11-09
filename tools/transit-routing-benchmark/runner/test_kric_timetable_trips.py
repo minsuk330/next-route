@@ -33,6 +33,7 @@ class ParseTimeTest(unittest.TestCase):
         self.assertEqual(k.parse_time("0.22916666666666666"), 5 * H + 30 * 60)
         self.assertEqual(k.parse_time("1.5625E-2"), 22 * 60 + 30)          # 00:22:30
         self.assertEqual(k.parse_time("00:00"), 0)                          # a real time, not a placeholder
+        self.assertIsNone(k.parse_time("5"))                                # not a day fraction
         for p in ("", "  :  ", ":", "운행시격 3분~10분"):
             self.assertIsNone(k.parse_time(p))
         self.assertEqual(k.excel_day("46173"), "2026-05-31")
@@ -62,6 +63,10 @@ class UnrollTest(unittest.TestCase):
         out, _ = k.unroll([("a", 30 * 60, 30 * 60), ("b", 35 * 60, 35 * 60)])
         self.assertEqual(out[0][2], 24 * H + 30 * 60)  # origin before 03:00 → previous service day
 
+    def test_dwell_across_midnight_moves_later_stops(self):
+        out, blanked = k.unroll([("x", 85800, 85800), ("a", 86370, 10), ("b", 300, 300)])
+        self.assertEqual((blanked, [s[1:] for s in out]), (0, [(85800, 85800), (86370, 86410), (86700, 86700)]))
+
     def test_one_typo_middle_stop_is_blanked(self):
         out, blanked = k.unroll([("a", 8 * H, 8 * H), ("b", 5 * H, 5 * H), ("c", 8 * H + 300, 8 * H + 300)])
         self.assertEqual((blanked, out[1][1]), (1, None))
@@ -81,6 +86,18 @@ class CollectTest(unittest.TestCase):
         trains, _ = k.collect_trains(rows)
         got = sorted([s[0] for s in t["stops"]] for t in trains if t["trainNo"] == "1123")
         self.assertEqual(got, [["녹동", "소태"], ["녹동", "소태"]])
+
+    def test_duplicated_source_row_does_not_split(self):
+        def r(st, t):
+            return row(노선명="광주1호선", 열차번호="7", 운행구간정거장=st, 정거장도착시각=t, 정가장출발시각=t)
+        trains, _ = k.collect_trains([r("녹동", "16:00:00"), r("소태", "16:05:00"), r("소태", "16:05:00"),
+                                      r("남광주", "16:09:00")])
+        self.assertEqual([[s[0] for s in t["stops"]] for t in trains], [["녹동", "소태", "남광주"]])
+
+    def test_invalid_trains_are_counted_per_line_and_day(self):
+        bad = row(운행구간정거장="001-a+002-b+003-c+004-d", 정가장출발시각="001-08:00+002-07:00+003-06:00+004-05:00")
+        _, st = k.collect_trains([bad])
+        self.assertEqual(st["invalidTrains"], {"대구도시철도 3호선|평일": 1})
 
     def test_prose_rows_are_counted(self):
         _, st = k.collect_trains([row(노선명="인천지하철 2호선", 운행구간정거장="221-a,222-b", 정가장출발시각="운행시격 3분~10분")])
@@ -151,7 +168,8 @@ class BuildLineTest(unittest.TestCase):
         self.assertEqual([(t["tripId"], t["service"]) for t in d["trips"]],
                          [(f"{R_D}_SH_S1", "M_SH"), (f"{R_D}_SA_S2", "M_SA"), (f"{R_D}_HO_S2", "M_HO")])
         ho = d["trips"][2]
-        self.assertTrue(ho["filled"])
+        self.assertEqual(ho["filledStops"], 1)
+        self.assertNotIn("filledStops", d["trips"][0])  # nothing filled → no flag
         self.assertEqual(ho["stops"][-1], [IDS[4], "08:13:00", "08:13:00"])  # previous dep 08:11:30 + template 90 s
         self.assertEqual([t["tripId"] for t in docs[R_U]["trips"]], [f"{R_U}_HO_T1"])
         out = Path(tempfile.mkdtemp()) / "d.json"
@@ -166,6 +184,20 @@ class BuildLineTest(unittest.TestCase):
     def test_weekday_mismatch_fails_the_direction(self):
         rep, docs = k.build_line(self.trains(wd=15), CFG, gtfs_trips(), NAMES, self.aliases)
         self.assertFalse(rep["directions"]["D"]["passed"])
+        self.assertNotIn(R_D, docs)
+
+    def test_invalid_trains_count_against_the_gate(self):
+        rep, docs = k.build_line(self.trains(), CFG, gtfs_trips(), NAMES, self.aliases, invalid={"휴일": 3})
+        self.assertEqual(rep["lost"]["M_HO"]["invalid"], 3)
+        self.assertEqual(docs, {})  # 3 of 8 weekend trains lost > 5%
+
+    def test_too_many_filled_stops_fail_the_direction(self):
+        t = self.trains()
+        for x in t:
+            if x["day"] == "평일" and x["trainNo"].startswith("D"):
+                x["stops"][-1] = (x["stops"][-1][0], None, None)
+        rep, docs = k.build_line(t, CFG, gtfs_trips(), NAMES, self.aliases)
+        self.assertGreater(rep["directions"]["D"]["filledStopShare"], 0.10)
         self.assertNotIn(R_D, docs)
 
     def test_unknown_day_label_fails(self):
@@ -190,6 +222,16 @@ class MapTrainTest(unittest.TestCase):
         self.assertEqual(([s[0] for s in stops], bad, nonrev), (IDS[:3], [], False))
         _, _, nonrev = k.map_train(kric_train("평일", "2", ["기지사업소", "용지"], 6 * H), self.smap, self.seqs)
         self.assertTrue(nonrev)
+
+    def test_origin_without_time_is_backed_out_from_the_template(self):
+        stops = [(IDS[0], None, None), (IDS[1], 6 * H + 120, 6 * H + 150), (IDS[2], 6 * H + 240, 6 * H + 240)]
+        got = k.fill_times(stops, gtfs_trips()[R_D])
+        self.assertEqual(got[0], (IDS[0], 6 * H, 6 * H))
+
+    def test_unnamed_fill_must_agree_across_sequences(self):
+        other = [IDS[0], "X1", "X2", IDS[3]]
+        t = kric_train("평일", "1", [NAMES[IDS[0]], None, None, NAMES[IDS[3]]], 6 * H)
+        self.assertIsNone(k.map_train(t, self.smap, [IDS, other])[0])
 
     def test_unnamed_stops_fill_from_the_ktdb_sequence(self):
         t = kric_train("평일", "1", [NAMES[IDS[0]], None, None, NAMES[IDS[3]]], 6 * H)
