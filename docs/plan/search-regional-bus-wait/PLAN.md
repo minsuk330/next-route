@@ -1,5 +1,15 @@
 # 검색 결과의 경기·TAGO 버스 대기 (L, slug `search-regional-bus-wait`)
 
+> **2026-11-09 오후 결정 변경(사용자) — 이 절이 아래 본문보다 우선한다**
+> - **시간표 대기(SCHEDULE)는 하지 않는다**: 신뢰도가 낮아 사용자에게 혼돈. PR-1b 는 배포 뒤 운영에서 끄고(env) PR-2 에서 코드·enum 값을 지웠다.
+>   그때 저장된 스냅샷의 `"SCHEDULE"` 은 PR-0 으로 NONE 으로 읽힌다
+> - **② 의 뜻**: 앞 버스 결과가 없어도 뒤 버스 실시간은 조회해 내려주되 환승 대기는 계산하지 않는다 → 새 status `ARRIVAL_ONLY`
+>   (`predictedArrivalAt` = 지금부터 가장 이른 도착, `waitSeconds`·`userArrivalAt` = null, 다음 버스 계산에 안 씀). 외부 호출 증가 허용.
+>   플래그 `route.transfer-arrival.arrival-only-enabled`
+> - **PR-2 경기·TAGO 실시간은 보강 wave 안에서**: 서울과 같이 앞 버스가 실시간이면 뒤 버스 환승 대기까지 이어서 계산(`SearchRegionalArrivalService`,
+>   검색 전용 몫 경기 2,000·TAGO 100,000(공급자 500,000/일), 공급자별 자리 2, 기한 800ms, 검색당 6회). 플래그 `route.transfer-arrival.regional-enabled`
+> - PR-1a(계획 시각 필드)는 그대로 유지 — 앱 ETA 환승 대기 중복 제거용(#569)
+
 ## 결론
 경로 검색 응답의 버스 대기(`subPaths[].transferArrivals[].waitSeconds`)가 서울 버스에서만 채워진다. 다섯 PR 로 고친다.
 - **PR-0 enum 관용 읽기**: 모르는 enum 값을 기본값으로 읽게 한다. api·worker 에 먼저 배포한다(새 값 `SCHEDULE` 이 저장된 스냅샷·여정을 옛 코드가 못 읽는 것 방지)

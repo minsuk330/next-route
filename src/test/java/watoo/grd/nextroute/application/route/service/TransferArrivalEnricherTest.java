@@ -43,6 +43,7 @@ class TransferArrivalEnricherTest {
     @Mock BusRouteRepository routeRepo;
     @Mock BusRouteStopRepository routeStopRepo;
     @Mock PredictionSupportService predictionSupport;
+    @Mock SearchRegionalArrivalService regional;
 
     TransferArrivalProperties props = new TransferArrivalProperties();
     MlPredictorProperties mlProps = new MlPredictorProperties();
@@ -60,7 +61,7 @@ class TransferArrivalEnricherTest {
         resolver = new TransferStopResolver(stopRepo, routeRepo, routeStopRepo);
         featureBuilder = new MlFeatureVectorBuilder(d -> false, org.mockito.Mockito.mock(WeatherSnapshotService.class));
         enricher = new TransferArrivalEnricher(props, mlProps, busPort, mlPort,
-                resolver, featureBuilder, predictionSupport, clock);
+                resolver, featureBuilder, predictionSupport, clock, regional);
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────
@@ -651,7 +652,7 @@ class TransferArrivalEnricherTest {
         java.time.Clock deadlineClock = mock(java.time.Clock.class);
         when(deadlineClock.instant()).thenReturn(NOW, NOW.plusSeconds(2));
         TransferArrivalEnricher deadlineEnricher = new TransferArrivalEnricher(
-                props, mlProps, busPort, mlPort, resolver, featureBuilder, predictionSupport, deadlineClock);
+                props, mlProps, busPort, mlPort, resolver, featureBuilder, predictionSupport, deadlineClock, null);
 
         RouteSearchResult input = resultWith(List.of(busSubPath("1111", "route1", "360")));
         RouteSearchResult result = deadlineEnricher.enrich(input, NOW);
@@ -678,5 +679,148 @@ class TransferArrivalEnricherTest {
         verify(busPort).getArrInfoByStop(eq("1111"), eq("100100360"), eq(5),
                 longThat(ms -> ms > 0 && ms <= 500));
         verify(busPort, never()).getArrInfoByStop(any(), any(), anyInt());
+    }
+
+    // ── search-regional-bus-wait PR-2: 경기·TAGO 실시간, ARRIVAL_ONLY ─────────────────
+
+    private static final String GG_STOP = "202000208";
+    private static final String GG_ROUTE = "234000026";
+
+    private static SearchRegionalArrivalService.Pending done(SearchRegionalArrivalService.Outcome o, Integer... secondsAhead) {
+        return new SearchRegionalArrivalService.Pending(SearchRegionalArrivalService.Provider.GG,
+                java.util.concurrent.CompletableFuture.completedFuture(
+                        new SearchRegionalArrivalService.Result(o, NOW, List.of(secondsAhead))));
+    }
+
+    private RouteSearchResult path(SubPathResult... sps) {
+        PathInfo info = new PathInfo(3600, 2000, 0, 0, "출발", "도착", null);
+        return new RouteSearchResult(0, 2, 0, 0, 0, List.of(new PathResult(1, info, List.of(sps), Collections.emptyList())));
+    }
+
+    @Test
+    void TC_경기_버스는_지역_실시간으로_대기를_계산한다() {
+        props.setEnabled(true);
+        when(regional.enabled()).thenReturn(true);
+        when(regional.start(SearchRegionalArrivalService.Provider.GG, GG_ROUTE, GG_STOP))
+                .thenReturn(done(SearchRegionalArrivalService.Outcome.OK, 300, 900));
+
+        TransferArrival ta = enricher.enrich(resultWith(List.of(busSubPath(GG_STOP, GG_ROUTE, "720-2"))), NOW)
+                .paths().get(0).subPaths().get(0).transferArrivals().get(0);
+
+        assertThat(ta.status()).isEqualTo(TransferArrival.Status.AVAILABLE);
+        assertThat(ta.source()).isEqualTo(TransferArrival.Source.REALTIME);
+        assertThat(ta.waitSeconds()).isEqualTo(300L);
+        assertThat(ta.routeId()).isEqualTo(GG_ROUTE);
+        verifyNoInteractions(busPort);
+    }
+
+    @Test
+    void TC_경기_실시간_다음_서울_버스는_환승_대기까지_이어서_계산한다() {
+        props.setEnabled(true);
+        when(regional.enabled()).thenReturn(true);
+        when(regional.start(SearchRegionalArrivalService.Provider.GG, GG_ROUTE, GG_STOP))
+                .thenReturn(done(SearchRegionalArrivalService.Outcome.OK, 300));
+        String seoulRoute = "100100360";
+        lenient().when(stopRepo.findByStopId(GG_STOP)).thenReturn(Optional.empty());
+        lenient().when(routeRepo.findByRouteId(GG_ROUTE)).thenReturn(Optional.empty());
+        when(stopRepo.findByStopId("1111")).thenReturn(Optional.of(busStop("1111")));
+        when(routeRepo.findByRouteId(seoulRoute)).thenReturn(Optional.of(busRoute(seoulRoute, "360")));
+        when(routeStopRepo.findByRouteIdAndStopId(seoulRoute, "1111")).thenReturn(List.of(routeStop(seoulRoute, "1111", 5)));
+        // 도착 = 경기 탑승 NOW+300 + 승차 10분 + 도보 5분 = NOW+1200. 서울 버스 NOW+1500 → 대기 300
+        when(busPort.getArrInfoByStop(eq("1111"), eq(seoulRoute), eq(5), anyLong()))
+                .thenReturn(arrOk(List.of(arrivalInfo(seoulRoute, "20260606130000", 1500, -1))));
+
+        List<SubPathResult> subs = enricher.enrich(path(busSubPath(GG_STOP, GG_ROUTE, "720-2"), walkSubPath(5),
+                busSubPath("1111", seoulRoute, "360")), NOW, RouteSearchContext.start(5000)).paths().get(0).subPaths();
+
+        TransferArrival seoul = subs.get(2).transferArrivals().get(0);
+        assertThat(seoul.source()).isEqualTo(TransferArrival.Source.REALTIME);
+        assertThat(seoul.userArrivalAt()).isEqualTo(NOW.plusSeconds(1200));
+        assertThat(seoul.waitSeconds()).isEqualTo(300L);
+    }
+
+    @Test
+    void TC_지역_조회_한도와_실패는_LIMITED_ERROR() {
+        props.setEnabled(true);
+        when(regional.enabled()).thenReturn(true);
+        when(regional.start(SearchRegionalArrivalService.Provider.GG, GG_ROUTE, GG_STOP))
+                .thenReturn(done(SearchRegionalArrivalService.Outcome.LIMITED),
+                        done(SearchRegionalArrivalService.Outcome.TIMEOUT));
+
+        TransferArrival limited = enricher.enrich(resultWith(List.of(busSubPath(GG_STOP, GG_ROUTE, "720-2"))), NOW)
+                .paths().get(0).subPaths().get(0).transferArrivals().get(0);
+        TransferArrival timeout = enricher.enrich(resultWith(List.of(busSubPath(GG_STOP, GG_ROUTE, "720-2"))), NOW)
+                .paths().get(0).subPaths().get(0).transferArrivals().get(0);
+
+        assertThat(limited.status()).isEqualTo(TransferArrival.Status.LIMITED);
+        assertThat(timeout.status()).isEqualTo(TransferArrival.Status.ERROR);
+    }
+
+    @Test
+    void TC_지역_조회가_꺼지면_경기_버스는_지금처럼_STOP_MAPPING_FAILED() {
+        props.setEnabled(true);
+
+        TransferArrival ta = enricher.enrich(resultWith(List.of(busSubPath(GG_STOP, GG_ROUTE, "720-2"))), NOW)
+                .paths().get(0).subPaths().get(0).transferArrivals().get(0);
+
+        assertThat(ta.status()).isEqualTo(TransferArrival.Status.STOP_MAPPING_FAILED);
+        verify(regional, never()).start(any(), any(), any());
+    }
+
+    @Test
+    void TC_앞_버스_결과가_없으면_뒤_버스는_도착만_싣고_대기는_계산하지_않는다() {
+        props.setEnabled(true);
+        props.setArrivalOnlyEnabled(true);
+        String seoulRoute = "100100360";
+        lenient().when(stopRepo.findByStopId(GG_STOP)).thenReturn(Optional.empty());
+        lenient().when(routeRepo.findByRouteId(GG_ROUTE)).thenReturn(Optional.empty());
+        when(stopRepo.findByStopId("1111")).thenReturn(Optional.of(busStop("1111")));
+        when(routeRepo.findByRouteId(seoulRoute)).thenReturn(Optional.of(busRoute(seoulRoute, "360")));
+        when(routeStopRepo.findByRouteIdAndStopId(seoulRoute, "1111")).thenReturn(List.of(routeStop(seoulRoute, "1111", 5)));
+        when(busPort.getArrInfoByStop(eq("1111"), eq(seoulRoute), eq(5), anyLong()))
+                .thenReturn(arrOk(List.of(arrivalInfo(seoulRoute, "20260606130000", 420, -1))));
+
+        // 앞 버스 = 경기(지역 조회 꺼짐) → 결과 없음 → 뒤 서울 버스는 도착만
+        List<SubPathResult> subs = enricher.enrich(path(busSubPath(GG_STOP, GG_ROUTE, "720-2"), walkSubPath(5),
+                busSubPath("1111", seoulRoute, "360")), NOW, RouteSearchContext.start(5000)).paths().get(0).subPaths();
+
+        TransferArrival back = subs.get(2).transferArrivals().get(0);
+        assertThat(back.status()).isEqualTo(TransferArrival.Status.ARRIVAL_ONLY);
+        assertThat(back.source()).isEqualTo(TransferArrival.Source.REALTIME);
+        assertThat(back.predictedArrivalAt()).isEqualTo(NOW.plusSeconds(420));
+        assertThat(back.waitSeconds()).isNull();
+        assertThat(back.userArrivalAt()).isNull();
+    }
+
+    @Test
+    void TC_도착만_꺼지면_뒤_버스는_조회하지_않고_UPSTREAM_UNAVAILABLE() {
+        props.setEnabled(true);
+        String seoulRoute = "100100360";
+
+        List<SubPathResult> subs = enricher.enrich(path(busSubPath(GG_STOP, GG_ROUTE, "720-2"), walkSubPath(5),
+                busSubPath("1111", seoulRoute, "360")), NOW, RouteSearchContext.start(5000)).paths().get(0).subPaths();
+
+        assertThat(subs.get(2).transferArrivals().get(0).status()).isEqualTo(TransferArrival.Status.UPSTREAM_UNAVAILABLE);
+        verifyNoInteractions(busPort);
+    }
+
+    @Test
+    void TC_앞_경기_버스가_한도로_실패하면_뒤_경기_버스는_지역_도착만() {
+        props.setEnabled(true);
+        props.setArrivalOnlyEnabled(true);
+        when(regional.enabled()).thenReturn(true);
+        when(regional.start(SearchRegionalArrivalService.Provider.GG, GG_ROUTE, GG_STOP))
+                .thenReturn(done(SearchRegionalArrivalService.Outcome.LIMITED));
+        when(regional.start(SearchRegionalArrivalService.Provider.GG, "234000099", "202000300"))
+                .thenReturn(done(SearchRegionalArrivalService.Outcome.OK, 240, 840));
+
+        List<SubPathResult> subs = enricher.enrich(path(busSubPath(GG_STOP, GG_ROUTE, "720-2"), walkSubPath(5),
+                busSubPath("202000300", "234000099", "7002")), NOW, RouteSearchContext.start(5000)).paths().get(0).subPaths();
+
+        TransferArrival back = subs.get(2).transferArrivals().get(0);
+        assertThat(back.status()).isEqualTo(TransferArrival.Status.ARRIVAL_ONLY);
+        assertThat(back.routeId()).isEqualTo("234000099");
+        assertThat(back.predictedArrivalAt()).isEqualTo(NOW.plusSeconds(240));
+        assertThat(back.waitSeconds()).isNull();
     }
 }

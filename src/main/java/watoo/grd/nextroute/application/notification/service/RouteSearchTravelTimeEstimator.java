@@ -178,9 +178,7 @@ public class RouteSearchTravelTimeEstimator implements RouteTravelTimeEstimator 
                 if (realtimeBest == null || cand.waitSec < realtimeBest.waitSec) realtimeBest = cand;
             } else {
                 TransferArrival ta = arrivalForLane(arrivals, li);
-                // 시간표 대기(SCHEDULE)는 실측이 아니다 — term/2 와 같은 fallback(낮은 신뢰)으로 다룬다.
                 boolean valid = ta != null && ta.waitSeconds() != null
-                        && ta.source() != TransferArrival.Source.SCHEDULE
                         && (ta.status() == TransferArrival.Status.AVAILABLE
                             || ta.status() == TransferArrival.Status.ARRIVAL_TIME_APPROXIMATE);
                 if (valid) {

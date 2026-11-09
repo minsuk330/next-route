@@ -35,16 +35,16 @@ public class RouteSearchMetrics {
     public static final String BULKHEAD_QUEUE = "bulkhead.queue";
     public static final String BULKHEAD_REJECTED = "bulkhead.rejected";
     public static final String HISTORY_DROPPED = "route.search.history.dropped";
-    public static final String SCHEDULE_WAIT = "route.search.schedule.wait";
+    public static final String REGIONAL_WAIT = "route.search.regional.wait";
 
     private final MeterRegistry registry;
 
     /**
-     * 시간표 대기(search-regional-bus-wait PR-1b). outcome=filled 면 reason=바꾸기 전 status, skipped 면 reason=
-     * missed|cap|departure_at|no_plan. 둘 다 고정 집합.
+     * 검색 중 경기·TAGO 도착 조회(search-regional-bus-wait PR-2). provider=GG|TAGO, outcome=ok|limited|error|timeout|
+     * limited_quota|limited_slot|limited_pool. 고정 집합.
      */
-    public void recordScheduleWait(String outcome, String reason) {
-        registry.counter(SCHEDULE_WAIT, "outcome", outcome, "reason", reason).increment();
+    public void recordRegionalWait(String provider, String outcome) {
+        registry.counter(REGIONAL_WAIT, "provider", provider, "outcome", outcome).increment();
     }
 
     /** 검색 이력 저장이 유실된 횟수(큐 포화 또는 워커 저장 실패). best-effort 저장의 drop 관측. */
