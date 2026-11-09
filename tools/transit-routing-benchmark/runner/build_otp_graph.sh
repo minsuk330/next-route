@@ -16,8 +16,10 @@
 #                second feed → "Multiple feeds only allowed in filter mode").
 #   2b-2f — national zip→zip edits, in this order: 2b GBIS (--gbis), 2d bus runtimes
 #              (--bus-runtime-coefficients), 2g added trips (--add-trips), 2e subway corrections
-#              (--subway-corrections), 2c virtual stations (--station-entrances), 2f calendar end (--calendar-end).
-#              --from-zip <finished feed> skips 1-2c and runs only 2g/2e/2f on it.
+#              (--subway-corrections), 2c virtual stations (--station-entrances), 2f calendar end (--calendar-end),
+#              2h metro weekday/Saturday/holiday services (--day-types + --holidays, after 2f so the holiday
+#              guard sees the final service range).
+#              --from-zip <finished feed> skips 1-2c and runs only 2g/2e/2f/2h on it.
 #   3. gate  — compute_shape_quality.py prints the per-trip metric distribution and,
 #              when --thresholds is given, writes coverage-index.json.
 #   4. package — zip the shaped feed and (unless --report-only) rebuild the OTP graph.
@@ -63,6 +65,9 @@ CALENDAR_END=""     # --calendar-end YYYYMMDD: step 2f, move calendar.txt end_da
                     # when build-config.json transitServiceEnd (P2M from today) would cut the graph earlier.
 ADD_TRIPS=()        # --add-trips JSON (repeatable): step 2g (after 2d, before 2e), metro trips KTDB lacks, from the Seoul
                     # timetable API (add_missing_trips.py; config/otp-national/added-trips/*.json, #385 7호선 하행).
+DAY_TYPES=""        # --day-types DIR: step 2h (last), routes with a data file move to M_WD and get Saturday/holiday
+                    # trips (apply_day_types.py; config/otp-national/day-types/*.json, #557). Needs --holidays.
+HOLIDAYS=""         # --holidays JSON: public holidays for step 2h (config/otp-national/kr-holidays.json).
 FROM_ZIP=""         # --from-zip PATH: steps 1-2c skipped, start from a finished feed (e.g. the deployed zip) and
                     # run only 2e/2f on it. The output zip is PATH + suffixes, so PATH is never overwritten.
 while [[ $# -gt 0 ]]; do
@@ -71,6 +76,8 @@ while [[ $# -gt 0 ]]; do
     --subway-corrections) SUBWAY_CORRECTIONS="$2"; shift 2 ;;
     --calendar-end) CALENDAR_END="$2"; shift 2 ;;
     --add-trips) ADD_TRIPS+=("$2"); shift 2 ;;
+    --day-types) DAY_TYPES="$2"; shift 2 ;;
+    --holidays) HOLIDAYS="$2"; shift 2 ;;
     --from-zip) FROM_ZIP="$2"; shift 2 ;;
     --input) INPUT_OVERRIDE="$2"; shift 2 ;;
     --pfaedle-config) PFAEDLE_CONFIG="$2"; shift 2 ;;
@@ -132,8 +139,8 @@ if [[ -n "$FROM_ZIP" ]]; then
   [[ -z "$GBIS_DIR$BUS_RUNTIME_COEF$BUS_SECTION_TIMES$STATION_ENTRANCES$INPUT_OVERRIDE$PFAEDLE_CONFIG" ]] \
     || { echo "--from-zip skips steps 1-2c; drop --gbis/--bus-runtime-*/--station-entrances/--input/--pfaedle-config" >&2; exit 2; }
   [[ "$SKIP_MATCH$FROM_SHAPED_ZIP" == "00" ]] || { echo "--from-zip excludes --skip-match/--from-shaped-zip" >&2; exit 2; }
-  [[ -n "$SUBWAY_CORRECTIONS$CALENDAR_END" || ${#ADD_TRIPS[@]} -gt 0 ]] \
-    || { echo "--from-zip needs --add-trips, --subway-corrections and/or --calendar-end (else it would rebuild the same feed)" >&2; exit 2; }
+  [[ -n "$SUBWAY_CORRECTIONS$CALENDAR_END$DAY_TYPES" || ${#ADD_TRIPS[@]} -gt 0 ]] \
+    || { echo "--from-zip needs --add-trips, --subway-corrections, --calendar-end and/or --day-types (else it would rebuild the same feed)" >&2; exit 2; }
   [[ "$FROM_ZIP" != /* && "$FROM_ZIP" == *.gtfs.zip ]] \
     || { echo "--from-zip must be a *.gtfs.zip path relative to tools/transit-routing-benchmark" >&2; exit 2; }
   test -s "$FROM_ZIP" || { echo "--from-zip not found: $FROM_ZIP" >&2; exit 2; }
@@ -176,6 +183,13 @@ if [[ -n "$CALENDAR_END" ]]; then
   [[ "$PROFILE" == "national" ]] || { echo "--calendar-end is national-only (seoul: --from-ktdb window)" >&2; exit 2; }
   [[ "$CALENDAR_END" =~ ^[0-9]{8}$ ]] || { echo "--calendar-end must be YYYYMMDD" >&2; exit 2; }
   SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-calend${CALENDAR_END}.gtfs.zip"
+fi
+if [[ -n "$DAY_TYPES$HOLIDAYS" ]]; then
+  [[ "$PROFILE" == "national" ]] || { echo "--day-types is national-only" >&2; exit 2; }
+  [[ -n "$DAY_TYPES" && -n "$HOLIDAYS" ]] || { echo "--day-types and --holidays go together" >&2; exit 2; }
+  compgen -G "$DAY_TYPES/*.json" > /dev/null || { echo "--day-types has no *.json: $DAY_TYPES" >&2; exit 2; }
+  test -s "$HOLIDAYS" || { echo "--holidays json not found: $HOLIDAYS" >&2; exit 2; }
+  SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-daytypes.gtfs.zip"
 fi
 if [[ -n "$FROM_ZIP" ]]; then
   [[ "$SHAPED_ZIP" != "$FROM_ZIP" && "$SHAPED_ZIP" != "$SOURCE_SHAPED_ZIP" ]] \
@@ -341,6 +355,15 @@ if [[ -n "$CALENDAR_END" ]]; then
   python3 runner/extend_calendar.py --in "$step_in" --out "$BUILD/calendar.gtfs.zip" --end "$CALENDAR_END" \
     --otp-build-config config/otp-national/build-config.json --report "$DEPLOY_DIR/calendar-report.json"
   stage_done "$step_in" "$BUILD/calendar.gtfs.zip"
+fi
+
+if [[ -n "$DAY_TYPES" ]]; then
+  echo "== step 2h: metro day types ($DAY_TYPES, holidays sha256 $(shasum -a 256 "$HOLIDAYS" | awk '{print $1}')) =="
+  for f in "$DAY_TYPES"/*.json; do echo "  $f sha256 $(shasum -a 256 "$f" | awk '{print $1}')"; done
+  step_in="$(stage_in "$BUILD/pre-daytypes.gtfs.zip")"
+  python3 runner/apply_day_types.py --in "$step_in" --day-types "$DAY_TYPES" --holidays "$HOLIDAYS" \
+    --out "$BUILD/daytypes.gtfs.zip" --report "$DEPLOY_DIR/day-types-report.json"
+  stage_done "$step_in" "$BUILD/daytypes.gtfs.zip"
 fi
 unstage
 
