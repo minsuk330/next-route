@@ -13,6 +13,12 @@ spring:
       - optional:file:./env/oauth.env[.properties]
   application:
     name: nextroute
+  jackson:
+    deserialization:
+      # 모르는 enum 값은 @JsonEnumDefaultValue 로 읽는다(search-regional-bus-wait PR-0). 검색 결과는 Redis 스냅샷·여정
+      # routeSnapshot 으로 저장돼 다른 버전 서버가 다시 읽는다 — 새 값(TransferArrival.Source.SCHEDULE 등)을 옛 서버가 만나도
+      # 예외로 형상·정류장·재탐색 수락이 조용히 깨지지 않게. 기본값이 없는 enum 은 지금처럼 예외.
+      read-unknown-enum-values-using-default-value: true
   task:
     scheduling:
       pool:
