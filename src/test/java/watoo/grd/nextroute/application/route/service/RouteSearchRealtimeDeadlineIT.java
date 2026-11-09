@@ -143,7 +143,7 @@ class RouteSearchRealtimeDeadlineIT {
                 127.0, 37.5, 127.01, 37.51,
                 null, null, null, null, null, null,
                 null, null, null, null, null, null,
-                null, "stop-1", null, null, null, null, null, null, null);
+                null, "stop-1", null, null, null, null, null, null, null, null, null, null);
         PathInfo info = new PathInfo(10, 0, 0, 0, "출발", "도착", null);
         return new RouteSearchResult(0, 1, 0, 0, 0,
                 List.of(new PathResult(2, info, List.of(bus), List.of())));

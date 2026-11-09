@@ -197,7 +197,7 @@ class RedisRouteSearchSnapshotAdapterTest {
     void trainKindRoundTrip() {
         SubPathResult express = new SubPathResult(1, 4, null, List.of(), List.of(), "가양", "염창",
                 126.85, 37.56, 126.87, 37.55, null, null, null, null, 1, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null, "EXPRESS");
+                null, null, null, null, null, null, null, null, "EXPRESS", null, null, null);
         RouteSearchResult result = new RouteSearchResult(0, 0, 1, 0, 0,
                 List.of(new PathResult(1, info(20), List.of(express), List.of()))).withPathKeys();
 

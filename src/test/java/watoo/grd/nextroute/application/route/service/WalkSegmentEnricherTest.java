@@ -58,8 +58,7 @@ class WalkSegmentEnricherTest {
                 null, null, null,
                 null, null, null,
                 null,
-                null, null, null, null, null, null, null, null
-        );
+                null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private SubPathResult subway(String startName, double sx, double sy,
@@ -77,8 +76,7 @@ class WalkSegmentEnricherTest {
                 startExitNo, startExitX, startExitY,
                 endExitNo, endExitX, endExitY,
                 null,
-                null, null, null, null, null, null, null, null
-        );
+                null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private RouteSearchResult resultOf(List<SubPathResult> subPaths) {

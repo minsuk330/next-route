@@ -114,7 +114,9 @@ public class WalkCoordResolver {
                 sp.startArsID(), sp.endArsID(), sp.endID(),
                 sp.walkTotalTimeSeconds(),
                 sp.transferArrivals(),
-                sp.trainKind());
+                sp.trainKind(),
+                sp.plannedBoardAt(), sp.plannedAlightAt(), sp.plannedWaitSeconds()
+        );
     }
 
     private static Double exitCoord(Resolved point, double value) {
