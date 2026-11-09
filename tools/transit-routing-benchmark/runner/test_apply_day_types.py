@@ -184,6 +184,28 @@ class ApplyDayTypesTest(unittest.TestCase):
         self.assertEqual(rep["status"], "alreadyApplied")
         self.assertEqual(self.out.read_bytes(), again.read_bytes())
 
+    def test_reapply_with_other_holidays_fails(self):
+        self.run_()
+        hol = holidays(self.tmp / "h4.json", ["2026-12-25", "2027-01-01"])
+        with self.assertRaisesRegex(adt.DayTypesError, "holidays differ"):
+            adt.run(self.out, [self.d7], hol, self.tmp / "x.gtfs.zip", build_day=BUILD_DAY)
+
+    def test_same_day_duplicate_across_routes_fails(self):
+        feed(self.src)
+        with zipfile.ZipFile(self.src) as z:
+            files = {n: z.read(n) for n in z.namelist()}
+        r2 = "RR_ACC1_S-1-07-2D"
+        files["routes.txt"] += f"{r2},A1,서울7호선,1\n".encode()
+        files["trips.txt"] += f"{r2},B1,{r2}_Ord001,shp7\n".encode()
+        files["stop_times.txt"] += "".join(ln + "\n" for ln in st_lines(f"{r2}_Ord001", 6 * 3600, S7)).encode()
+        with zipfile.ZipFile(self.src, "w") as z:
+            for n, b in files.items():
+                z.writestr(n, b)
+        a = data_file(self.tmp / "a.json", R7, [trip(R7, "M_SH", "1", 9 * 3600, S7)])
+        b = data_file(self.tmp / "b.json", r2, [trip(r2, "M_SA", "2", 9 * 3600 + 20, S7)])
+        with self.assertRaisesRegex(adt.DayTypesError, "duplicates .* on sat"):
+            self.run_([a, b])
+
     def test_reapply_with_other_data_fails(self):
         self.run_()
         other = data_file(self.tmp / "o.json", R7, [trip(R7, "M_SA", "9999", 11 * 3600, S7)])

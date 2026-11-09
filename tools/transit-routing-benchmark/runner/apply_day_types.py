@@ -177,6 +177,16 @@ def run(in_zip: Path, data_paths: list[Path], holidays_path: Path, out_zip: Path
         col = {h: i for i, h in enumerate(st_header)}
 
         if WD in cal:
+            used_now = {s for s in (WD,) + NEW_SERVICES if s in cal}
+            want, _ = holiday_rows(hol["days"], eff_start, end, used_now)
+            have = set()
+            if cal_dates is not None:
+                c = cal_dates.col
+                have = {(r[c["service_id"]], r[c["date"]], r[c["exception_type"]]) for r in cal_dates.rows
+                        if r is not None and r[c["service_id"]] in used_now}
+            if have != set(want):
+                raise DayTypesError(f"calendar.txt has {WD} but calendar_dates.txt holidays differ from "
+                                    f"{holidays_path.name}: run on a feed before step 2h")
             return already_applied(in_zip, out_zip, docs, existing_rows, trip_k, col, report_path)
         clash = [s for s in (WD,) + NEW_SERVICES if s in cal]
         if clash:
@@ -197,6 +207,8 @@ def run(in_zip: Path, data_paths: list[Path], holidays_path: Path, out_zip: Path
 
         # 2. new trips from M_WD templates
         new_trip_lines, new_st_lines, results, used = [], [], [], {WD}
+        all_new: dict[str, list[list[str]]] = {}
+        all_service: dict[str, str] = {}
         trip_eol = line_end(trips.lines[-1]) or b"\n"
         for path, doc in docs:
             rid = doc["routeId"]
@@ -221,16 +233,20 @@ def run(in_zip: Path, data_paths: list[Path], holidays_path: Path, out_zip: Path
                 trow = list(trips.rows[trip_k[tmpl]])
                 trow[trips.col["trip_id"]] = tid
                 trow[trips.col["service_id"]] = svc
+                if "block_id" in trips.col:  # never interline a weekend trip with its weekday template's block
+                    trow[trips.col["block_id"]] = ""
                 new_trip_lines.append(format_line(trow, trip_eol))
                 new_st_lines += [format_line(r, eol) for r in rows]
                 new_rows[tid], service_of[tid] = rows, svc
                 kinds[kind] = kinds.get(kind, 0) + 1
                 per_service[svc] = per_service.get(svc, 0) + 1
                 used.add(svc)
-            checked = check_days(new_rows, service_of, col)
+            all_new.update(new_rows)
+            all_service.update(service_of)
             results.append(dict(data=str(path), dataSha256=sha256_file(path), routeId=rid,
-                                weekdayTrips=moved.get(rid, 0), added=per_service, templateKinds=kinds,
-                                sameDayPairsChecked=checked))
+                                weekdayTrips=moved.get(rid, 0), added=per_service, templateKinds=kinds))
+        # across routes too: two routes of one direction may share a stop list
+        checked = check_days(all_new, all_service, col)
 
         # 3. calendar + calendar_dates
         cal_eol = line_end(calendar.lines[-1]) if calendar.lines else b"\n"
@@ -291,7 +307,7 @@ def run(in_zip: Path, data_paths: list[Path], holidays_path: Path, out_zip: Path
                   status="applied", holidays=str(holidays_path), holidaysSha256=sha256_file(holidays_path),
                   serviceRange=f"{eff_start}..{end}", services=sorted(used),
                   calendarDatesRowsAdded=len(hrows), holidaysOutsideRange=skipped,
-                  tripsMovedToWeekday=sum(moved.values()), tripsAdded=len(new_trip_lines),
+                  tripsMovedToWeekday=sum(moved.values()), tripsAdded=len(new_trip_lines), sameDayPairsChecked=checked,
                   stopTimesRowsAdded=len(new_st_lines), routes=results)
     if report_path:
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
