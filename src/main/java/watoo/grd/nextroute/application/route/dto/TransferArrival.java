@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.route.dto;
 
+import com.fasterxml.jackson.annotation.JsonEnumDefaultValue;
+
 import java.time.Instant;
 
 public record TransferArrival(
@@ -16,7 +18,8 @@ public record TransferArrival(
         Integer basisLaneIndex,
         Boolean conditional
 ) {
-    public enum Source { REALTIME, MODEL, NONE }
+    /** 모르는 값(다른 버전 서버가 저장한 스냅샷)은 NONE 으로 읽는다 — spring.jackson.deserialization 설정과 짝. */
+    public enum Source { REALTIME, MODEL, @JsonEnumDefaultValue NONE }
 
     public enum Status {
         AVAILABLE,
@@ -31,6 +34,8 @@ public record TransferArrival(
         BLOCKED,
         /** quota 소진·동시성·per-search 호출 상한으로 조회 생략. */
         LIMITED,
+        /** 모르는 값(다른 버전 서버가 저장한 스냅샷)도 여기로 읽는다. */
+        @JsonEnumDefaultValue
         ERROR
     }
 }
