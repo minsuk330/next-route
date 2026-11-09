@@ -301,8 +301,7 @@ def build(cache: Path, gtfs_zip: Path, route_id: str, line: str, week: str, inou
     if sorted(order) != sorted(codes):
         raise TimetableError(f"{route_id}: longest trip does not cover the line")
     trains, diag = api_trains(tables, order)
-    to_code = lambda sid: sid[len(STOP_PREFIX):]  # noqa: E731
-    m = match(gtfs, trains, to_code, window)
+    m = match(gtfs, trains, stop_code, window)
     matched_trains = set(m["pairs"].values())
     missing = [a for no, a in sorted(trains.items(), key=lambda kv: (kv[1]["stops"][0][2], kv[0]))
                if no not in matched_trains]
@@ -382,8 +381,14 @@ def read_gtfs_routes(zip_path: Path, route_ids: list[str]) -> dict[str, dict[str
     return trips
 
 
+def stop_code(sid: str) -> str:
+    """Station code of a stop: the Seoul station code for RS_ACC1_S-1-{code}, the stop_id itself otherwise.
+    Patterns, trains and match() must all use this one mapping (other regions' stop_ids have no such prefix)."""
+    return sid[len(STOP_PREFIX):] if sid.startswith(STOP_PREFIX) else sid
+
+
 def codes_of(stops) -> tuple[str, ...]:
-    return tuple(s[0][len(STOP_PREFIX):] if s[0].startswith(STOP_PREFIX) else s[0] for s in stops)
+    return tuple(stop_code(s[0]) for s in stops)
 
 
 def contains_run(seq: tuple[str, ...], run: tuple[str, ...]) -> bool:
@@ -451,16 +456,17 @@ def weekday_match(gtfs, routes, trains, patterns, express_routes, window) -> dic
             unassigned += 1
         else:
             by_route[rid][no] = a
-    to_code = lambda sid: sid[len(STOP_PREFIX):]  # noqa: E731
     matched = n_gtfs = 0
-    per_route = {}
+    per_route, deltas = {}, []
     for r in routes:
-        m = match(gtfs[r], by_route[r], to_code, window)
+        m = match(gtfs[r], by_route[r], stop_code, window)
         matched += len(m["pairs"])
+        deltas += m["stopDeltaSec"]
         n_gtfs += len(gtfs[r])
         per_route[r] = dict(gtfsTrips=len(gtfs[r]), apiTrains=len(by_route[r]), matched=len(m["pairs"]))
     n_api = len(trains)
     return dict(matched=matched, gtfsTrips=n_gtfs, apiTrains=n_api, unassignedApiTrains=unassigned,
+                stopDeltaP90=percentile(deltas, .9),
                 gtfsRate=round(matched / n_gtfs, 4) if n_gtfs else 0.0,
                 apiRate=round(matched / n_api, 4) if n_api else 0.0, routes=per_route)
 

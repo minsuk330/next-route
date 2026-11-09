@@ -1,0 +1,31 @@
+{
+ "issue": "minsuk330/next-route#557",
+ "purpose": "KRIC 노선명 → KTDB route 와 요일구분 표기 → service (kric_timetable_trips.py). null = 쓰지 않음. 토요일 표기가 없는 노선의 휴일은 M_SH(토요일도 휴일 시각표).",
+ "lines": {
+  "수인분당선": {"routes": ["RR_ACC1_S-1-SD-1D", "RR_ACC1_S-1-SD-1U"], "days": {"평일": "M_WD", "휴일": "M_SH"}},
+  "신분당선": {"routes": ["RR_ACC1_S-1-SB-1D", "RR_ACC1_S-1-SB-1U"], "days": {"평일": "M_WD", "토요일": "M_SA", "공휴일": "M_HO"}},
+  "경의중앙선": {"routes": ["RR_ACC1_S-1-KJ-1D", "RR_ACC1_S-1-KJ-1U", "RR_ACC1_S-1-KJ-2D", "RR_ACC1_S-1-KJ-2U"], "days": {"평일": "M_WD", "휴일": "M_SH"}},
+  "경춘선": {"routes": ["RR_ACC1_S-1-GC-1D", "RR_ACC1_S-1-GC-1U"], "days": {"평일": "M_WD", "휴일": "M_SH"}},
+  "경강선": {"routes": ["RR_ACC1_S-1-KK-1D", "RR_ACC1_S-1-KK-1U"], "days": {"평일": "M_WD", "휴일": "M_SH"}},
+  "서해선": {"routes": ["RR_ACC1_S-1-SH-1D", "RR_ACC1_S-1-SH-1U"], "days": {"평일": "M_WD", "휴일": "M_SH"}},
+  "동해선": {"routes": ["RR_ACC1_S-2-DH-1D", "RR_ACC1_S-2-DH-1U"], "days": {"평일": "M_WD", "휴일": "M_SH"}},
+  "인천국제공항선": {"routes": ["RR_ACC1_S-1-AP-1D", "RR_ACC1_S-1-AP-1U"], "days": {"평일": "M_WD", "휴일": "M_SH"},
+                "excludeKinds": ["직통"], "excludeReason": "직통은 그래프에서 뺀 결정(subway-corrections arex-direct-absent)"},
+  "인천지하철 1호선": {"routes": ["RR_ACC1_S-1-I1-1D", "RR_ACC1_S-1-I1-1U"], "days": {"평일": "M_WD", "휴일": "M_SH"}},
+  "수도권 경량도시철도 우이신설선": {"routes": ["RR_ACC1_S-1-WS-1D", "RR_ACC1_S-1-WS-1U"], "days": {"평일": "M_WD", "토요일+휴일": "M_SH"}},
+  "수도권 경량도시철도 신림선": {"routes": ["RR_ACC1_S-1-SL-1D", "RR_ACC1_S-1-SL-1U"], "days": {"평일": "M_WD", "주말+공휴일": "M_SH"}},
+  "김포골드라인": {"routes": ["RR_ACC1_S-1-KP-1D", "RR_ACC1_S-1-KP-1U"], "days": {"평일": "M_WD", "토요일+일요일+공휴일": "M_SH"}},
+  "의정부": {"routes": ["RR_ACC1_S-1-UI-1D", "RR_ACC1_S-1-UI-1U"], "days": {"평일": "M_WD", "토+공휴일": "M_SH"}},
+  "부산 도시철도 1호선": {"routes": ["RR_ACC1_S-2-01-1D", "RR_ACC1_S-2-01-1U"], "days": {"평일": "M_WD", "토요일": "M_SA", "공휴일": "M_HO"}},
+  "부산 도시철도 2호선": {"routes": ["RR_ACC1_S-2-02-1D", "RR_ACC1_S-2-02-1U"], "days": {"평일": "M_WD", "토요일": "M_SA", "공휴일": "M_HO"}},
+  "부산 도시철도 3호선": {"routes": ["RR_ACC1_S-2-03-1D", "RR_ACC1_S-2-03-1U"], "days": {"평일": "M_WD", "토요일": "M_SA", "공휴일": "M_HO"}},
+  "부산 도시철도 4호선": {"routes": ["RR_ACC1_S-2-04-1D", "RR_ACC1_S-2-04-1U"], "days": {"평일": "M_WD", "토요일": "M_SA", "일요일": "M_HO"},
+                  "note": "일요일표를 공휴일에도 쓴다(근사)"},
+  "대구도시철도 1호선": {"routes": ["RR_ACC1_S-3-01-1D", "RR_ACC1_S-3-01-1U"], "days": {"평일": "M_WD", "토요일": "M_SA", "휴일": "M_HO"}},
+  "대구도시철도 2호선": {"routes": ["RR_ACC1_S-3-02-1D", "RR_ACC1_S-3-02-1U"], "days": {"평일": "M_WD", "토요일": "M_SA", "휴일": "M_HO"}},
+  "대구도시철도 3호선": {"routes": ["RR_ACC1_S-3-03-1D", "RR_ACC1_S-3-03-1U"], "days": {"평일": "M_WD", "토요일": "M_SA", "휴일": "M_HO"}},
+  "광주1호선": {"routes": ["RR_ACC1_S-4-01-1D", "RR_ACC1_S-4-01-1U"], "days": {"평일": "M_WD", "토요일": "M_SA", "휴일": "M_HO", "명절": null},
+             "note": "명절표는 쓰지 않는다(공휴일 목록이 명절을 따로 갖지 않음)"},
+  "대전 도시철도 1호선": {"routes": ["RR_ACC1_S-5-01-1D", "RR_ACC1_S-5-01-1U"], "days": {"평일": "M_WD", "휴일": "M_SH"}}
+ }
+}
