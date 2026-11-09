@@ -29,16 +29,37 @@ final class GyeonggiArrivalMapper {
         return BusArrivalResponse.builder()
                 .routeId(a.routeId())
                 .arrivalMsg1(message(a.predictMin1(), a.locationNo1(), a.flag()))
-                .predictTime1(seconds(a.predictMin1()))
+                .predictTime1(seconds(a.predictMin1(), a.predictSec1()))
                 .congestionNum1(congestion(a.crowded1()))
                 .arrivalMsg2(message(a.predictMin2(), a.locationNo2(), a.flag()))
-                .predictTime2(seconds(a.predictMin2()))
+                .predictTime2(seconds(a.predictMin2(), a.predictSec2()))
                 .congestionNum2(congestion(a.crowded2()))
+                .stopsAway1(stopsAway(a.predictMin1(), a.locationNo1()))
+                .stopsAway2(stopsAway(a.predictMin2(), a.locationNo2()))
+                .vehicleId1(vehicleId(a.predictMin1(), a.vehicleId1()))
+                .vehicleId2(vehicleId(a.predictMin2(), a.vehicleId2()))
                 .build();
     }
 
-    private static Integer seconds(Integer minutes) {
-        return minutes == null ? null : minutes * 60;
+    /**
+     * 버스가 있을 때만(분이 있을 때만). 초 단위 칸은 분과 1분 안에서 맞을 때만 쓴다 — 값이 든 실응답을 아직 보지 못해
+     * (2026-11-10 밤, 칸 이름만 확인) 분과 어긋난 초는 믿지 않고 분 × 60 으로 돌아간다. 문구는 분 기준이라 둘이 엇갈리면 안 된다.
+     */
+    private static Integer seconds(Integer minutes, Integer sourceSeconds) {
+        if (minutes == null) {
+            return null;
+        }
+        int fromMinutes = minutes * 60;
+        return sourceSeconds != null && sourceSeconds >= 0 && Math.abs(sourceSeconds - fromMinutes) <= 60
+                ? sourceSeconds : fromMinutes;
+    }
+
+    private static Integer stopsAway(Integer minutes, Integer locationNo) {
+        return minutes == null || locationNo == null || locationNo < 0 ? null : locationNo;
+    }
+
+    private static String vehicleId(Integer minutes, String raw) {
+        return minutes == null || raw == null || raw.isBlank() || "0".equals(raw) ? null : raw;
     }
 
     private static String message(Integer minutes, Integer stopsAway, String flag) {

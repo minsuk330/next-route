@@ -21,6 +21,8 @@ import java.util.UUID;
  * @param fromLegIndex       앱이 경계를 통과했다고 판단한 현재 leg
  * @param toLegIndex         다음으로 활성화할 leg. 1차에서는 반드시 from+1
  * @param clientOccurredAt   기기 관측 시각. 감사용이며 서버 상태 순서의 기준으로 쓰지 않는다
+ * @param trigger            앱이 어떤 근거로 leg 를 넘겼는지({@link #TRIGGERS} 중 하나, 모르면 null). 기록용이며 상태
+ *                           판단에 쓰지 않는다
  */
 public record JourneyCommand(
         UUID eventId,
@@ -29,6 +31,27 @@ public record JourneyCommand(
         int routeRevision,
         Integer fromLegIndex,
         Integer toLegIndex,
-        java.time.Instant clientOccurredAt
+        java.time.Instant clientOccurredAt,
+        String trigger
 ) {
+
+    /** 앱이 보낼 수 있는 근거(bus-boarding-flow D4). 목록 밖 값은 저장하지 않는다. */
+    public static final java.util.Set<String> TRIGGERS = java.util.Set.of(
+            "WALK_PROGRESS", "STOP_NEAR", "SPEED_ON_LINE", "BUS_DEPARTED_MOVING",
+            "MANUAL_LIVE_ACTIVITY", "MANUAL_APP", "MISSED_SAID_BOARDED");
+
+    public JourneyCommand {
+        trigger = normalizeTrigger(trigger);
+    }
+
+    /** 근거를 보내지 않는 명령(옛 앱, 종료·취소 등). */
+    public JourneyCommand(UUID eventId, JourneyEventType type, long baseCommandVersion, int routeRevision,
+                          Integer fromLegIndex, Integer toLegIndex, java.time.Instant clientOccurredAt) {
+        this(eventId, type, baseCommandVersion, routeRevision, fromLegIndex, toLegIndex, clientOccurredAt, null);
+    }
+
+    /** 모르는 값을 거절하지 않는다 — 근거 한 칸 때문에 leg 전환이 실패하면 안 된다. 같은 입력은 늘 같은 값이 된다. */
+    static String normalizeTrigger(String raw) {
+        return raw != null && TRIGGERS.contains(raw) ? raw : null;
+    }
 }

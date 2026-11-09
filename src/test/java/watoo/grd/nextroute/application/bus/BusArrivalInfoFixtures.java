@@ -70,6 +70,38 @@ public final class BusArrivalInfoFixtures {
 		);
 	}
 
+	/** 버스 위치만 다른 도착 정보: 차량 id, 현재 구간 순번, 현재 정류장 이름. 나머지는 {@link #arrivalInfo} 와 같다. */
+	public static BusArrivalInfo arrivalAt(
+			String vehicleId1, Integer sectionOrder1, String stationName1, String arrivalMsg1,
+			String vehicleId2, Integer sectionOrder2, String arrivalMsg2
+	) {
+		return new BusArrivalInfo(
+				"100100118", "753", "753",
+				"111000299", "12390", "구상동사거리",
+				1, "방향", 3, 12,
+				"2023-09-27 16:51:36.0", "00", "Y",
+				"20230927041000", "20230927222000",
+				arrivalMsg1, vehicleId1, "12가1234", 0, sectionOrder1, stationName1, "0", "0", "0",
+				60, 61, 62, 3600,
+				1.1, 1.2, 1.3, 1.4,
+				2, 14.5,
+				10, 4, 12, 2,
+				"111000300", 2, 80, 20,
+				5, 200, "111000310",
+				10, 500, "111000320",
+				15, 900, "111000330",
+				arrivalMsg2, vehicleId2, "12가5678", 1, sectionOrder2, "두번째정류장", "0", "0", "0",
+				240, 241, 242, 7200,
+				2.1, 2.2, 2.3, 2.4,
+				5, 13.5,
+				20, 4, 24, 2,
+				"111000301", 6, 280, 18,
+				11, 700, "111000311",
+				16, 1000, "111000321",
+				21, 1400, "111000331"
+		);
+	}
+
 	public static BusArrivalInfo arrivalInfo(
 			String vehicleId1,
 			String plainNo1,

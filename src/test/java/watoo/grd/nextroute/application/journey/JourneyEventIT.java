@@ -263,6 +263,73 @@ class JourneyEventIT {
                         e -> assertThat(e.getErrorCode()).isEqualTo(JourneyErrorCode.JOURNEY_NOT_FOUND));
     }
 
+    // ── bus-boarding-flow S1: 전환 근거(trigger) 기록 ─────────────────────────────────────
+
+    @Test
+    void triggerIsStoredInThePayload_andAResendWithTheSameTriggerIsADuplicate() {
+        UUID eventId = UUID.randomUUID();
+        JourneyCommand withTrigger = new JourneyCommand(eventId, JourneyEventType.CLIENT_LEG_TRANSITION_DETECTED,
+                1L, 1, 0, 1, CLIENT_OCCURRED_AT, "STOP_NEAR");
+
+        JourneyEventOutcome first = applyJourneyEventUseCase.apply(userId, journey.journeyId(), withTrigger);
+        JourneyEventOutcome resend = applyJourneyEventUseCase.apply(userId, journey.journeyId(), withTrigger);
+
+        assertThat(first.result()).isEqualTo(JourneyEventResult.APPLIED);
+        assertThat(resend.result()).isEqualTo(JourneyEventResult.DUPLICATE);
+        assertThat(storedTrigger(eventId)).isEqualTo("STOP_NEAR");
+        assertThat(first.journey().currentLegIndex()).isEqualTo(1);   // 근거는 상태 판단에 끼지 않는다
+    }
+
+    @Test
+    void commandWithoutTrigger_storesNoTriggerKey_soOldResendsStillMatch() {
+        // 근거를 모르는 옛 앱: payload 모양이 배포 전과 같아야 같은 eventId 재전송이 DUPLICATE 로 남는다.
+        UUID eventId = UUID.randomUUID();
+
+        transition(eventId, 1L, 1, 0, 1);
+        JourneyEventOutcome resend = transition(eventId, 1L, 1, 0, 1);
+
+        assertThat(resend.result()).isEqualTo(JourneyEventResult.DUPLICATE);
+        assertThat(jdbcTemplate.queryForObject(
+                "select payload::text from journey_event where event_id = ?", String.class, eventId))
+                .doesNotContain("trigger");
+    }
+
+    @Test
+    void unknownTriggerIsDropped_notRejected() {
+        UUID eventId = UUID.randomUUID();
+
+        JourneyEventOutcome outcome = applyJourneyEventUseCase.apply(userId, journey.journeyId(),
+                new JourneyCommand(eventId, JourneyEventType.CLIENT_LEG_TRANSITION_DETECTED,
+                        1L, 1, 0, 1, CLIENT_OCCURRED_AT, "NOT_A_TRIGGER"));
+
+        assertThat(outcome.result()).isEqualTo(JourneyEventResult.APPLIED);
+        assertThat(storedTrigger(eventId)).isNull();
+    }
+
+    @Test
+    void triggerIsNotPartOfTheDuplicateCheck() {
+        // 근거 없이 저장된 명령(옛 서버·허용 목록이 달랐던 서버)을 근거를 달아 다시 보내도, 근거만 바꿔 다시 보내도 같은 명령이다.
+        UUID eventId = UUID.randomUUID();
+        transition(eventId, 1L, 1, 0, 1);
+
+        JourneyEventOutcome withTrigger = applyJourneyEventUseCase.apply(userId, journey.journeyId(),
+                new JourneyCommand(eventId, JourneyEventType.CLIENT_LEG_TRANSITION_DETECTED,
+                        1L, 1, 0, 1, CLIENT_OCCURRED_AT, "STOP_NEAR"));
+        JourneyEventOutcome otherTrigger = applyJourneyEventUseCase.apply(userId, journey.journeyId(),
+                new JourneyCommand(eventId, JourneyEventType.CLIENT_LEG_TRANSITION_DETECTED,
+                        1L, 1, 0, 1, CLIENT_OCCURRED_AT, "MANUAL_APP"));
+
+        assertThat(withTrigger.result()).isEqualTo(JourneyEventResult.DUPLICATE);
+        assertThat(otherTrigger.result()).isEqualTo(JourneyEventResult.DUPLICATE);
+        assertThat(storedTrigger(eventId)).isNull();   // 처음 저장된 기록은 바뀌지 않는다
+        assertThat(eventCount()).isEqualTo(1);
+    }
+
+    private String storedTrigger(UUID eventId) {
+        return jdbcTemplate.queryForObject(
+                "select payload->>'trigger' from journey_event where event_id = ?", String.class, eventId);
+    }
+
     private JourneyEventOutcome transition(UUID eventId, long version, int revision,
                                            int from, int to) {
         return applyJourneyEventUseCase.apply(userId, journey.journeyId(),

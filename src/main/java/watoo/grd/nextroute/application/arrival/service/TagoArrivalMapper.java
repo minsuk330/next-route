@@ -45,7 +45,13 @@ final class TagoArrivalMapper {
                 .arrivalMsg2(second == null ? MSG_NONE : message(second))
                 .predictTime2(second == null ? null : second.arrSeconds())
                 .congestionNum2(0)
+                .stopsAway1(stopsAway(first))
+                .stopsAway2(second == null ? null : stopsAway(second))
                 .build());
+    }
+
+    private static Integer stopsAway(TagoBusArrival bus) {
+        return bus.stopsAway() == null || bus.stopsAway() < 0 ? null : bus.stopsAway();
     }
 
     private static String message(TagoBusArrival bus) {

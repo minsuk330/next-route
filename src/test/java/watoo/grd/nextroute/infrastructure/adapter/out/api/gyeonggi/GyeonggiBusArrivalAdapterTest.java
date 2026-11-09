@@ -251,4 +251,67 @@ class GyeonggiBusArrivalAdapterTest {
         adapter.getArrival("123000001", "228000184");
         server.verify();
     }
+
+    // ── bus-boarding-flow S1: 차량 id·초 단위(2026-11-10 실응답으로 칸 이름 확인) ──────────────
+
+    @Test
+    @DisplayName("차량 id 와 초 단위 도착을 읽는다. 값이 없으면(\"\") null")
+    void parsesVehicleIdAndSeconds() {
+        String withValues = """
+                {"response":{"comMsgHeader":"","msgHeader":{"resultCode":0,"resultMessage":"ok"},
+                "msgBody":{"busArrivalItem":{"crowded1":1,"crowded2":"","flag":"PASS","locationNo1":2,"locationNo2":"",
+                "plateNo1":"경기70바1234","plateNo2":"","predictTime1":4,"predictTime2":"","predictTimeSec1":251,
+                "predictTimeSec2":"","remainSeatCnt1":-1,"remainSeatCnt2":"","routeId":234000026,"routeName":"720-2",
+                "staOrder":20,"stationId":201000260,"stationNm1":"수원역","stationNm2":"","vehId1":241001234,"vehId2":""}}}}
+                """;
+
+        GyeonggiBusArrival arrival = adapter.parse(withValues, "201000260", "234000026").data().get(0);
+
+        assertThat(arrival.vehicleId1()).isEqualTo("241001234");
+        assertThat(arrival.predictSec1()).isEqualTo(251);
+        assertThat(arrival.vehicleId2()).isNull();
+        assertThat(arrival.predictSec2()).isNull();
+        assertThat(arrival.predictMin1()).isEqualTo(4);   // 기존 칸은 그대로
+        assertThat(arrival.stationName1()).isEqualTo("수원역");
+    }
+
+    @Test
+    @DisplayName("서버 사이 공유 캐시: 옛 서버가 쓴 값(새 칸 없음)을 새 서버가 읽고, 새 서버가 쓴 값을 옛 모양으로도 읽는다")
+    void cachedJsonIsCompatibleBothWays() throws Exception {
+        ObjectMapper mapper = new ObjectMapper()
+                .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        String writtenByOldServer = """
+                {"routeId":"228000184","predictMin1":4,"locationNo1":2,"crowded1":2,"remainSeat1":33,
+                 "predictMin2":29,"locationNo2":19,"crowded2":4,"remainSeat2":39,"flag":"PASS"}
+                """;
+
+        GyeonggiBusArrival read = mapper.readValue(writtenByOldServer, GyeonggiBusArrival.class);
+
+        assertThat(read.predictMin1()).isEqualTo(4);
+        assertThat(read.vehicleId1()).isNull();
+        assertThat(read.predictSec1()).isNull();
+        assertThat(read.stationName1()).isNull();
+
+        // 옛 서버의 레코드 모양(새 칸을 모른다)으로 새 값을 읽는다 — 모르는 칸은 버려진다.
+        record OldShape(String routeId, Integer predictMin1, Integer locationNo1, Integer crowded1, Integer remainSeat1,
+                        Integer predictMin2, Integer locationNo2, Integer crowded2, Integer remainSeat2, String flag) {
+        }
+        String writtenByNewServer = mapper.writeValueAsString(new GyeonggiBusArrival(
+                "228000184", 4, 2, 2, 33, 29, 19, 4, 39, "PASS", "241001", null, 251, null, "수원역"));
+
+        OldShape old = mapper.readValue(writtenByNewServer, OldShape.class);
+
+        assertThat(old.predictMin1()).isEqualTo(4);
+        assertThat(old.flag()).isEqualTo("PASS");
+    }
+
+    @Test
+    @DisplayName("차량 id·초 단위 칸이 아예 없어도 기존처럼 읽는다")
+    void missingNewFieldsAreNull() {
+        GyeonggiBusArrival arrival = adapter.parse(ITEM_NUMERIC, "123000001", "228000184").data().get(0);
+
+        assertThat(arrival.predictMin1()).isEqualTo(1);
+        assertThat(arrival.vehicleId1()).isNull();
+        assertThat(arrival.predictSec1()).isNull();
+    }
 }
