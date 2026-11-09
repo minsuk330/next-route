@@ -78,6 +78,8 @@ public class RouteSearchService implements SearchRouteUseCase {
     private final WalkCoordResolver walkCoordResolver;
     // 급행 끄기·DIRECT 제외(subway-express S2). 재탐색과 같은 정책 객체.
     private final ExpressFilterPolicy expressFilterPolicy;
+    /** 실시간·모델을 못 물은 버스를 OTP 계획으로 채우는 후처리(search-regional-bus-wait PR-1b). OTP 경로만. */
+    private final ScheduleWaitFiller scheduleWaitFiller;
 
     @Override
     public RouteSearchResult search(RouteSearchRequest request) {
@@ -235,8 +237,10 @@ public class RouteSearchService implements SearchRouteUseCase {
         // 남은 순서는 그대로, 놓침(MISSED)·지연 기반 재정렬·강등은 하지 않는다(그 판단은 사용자 몫). 보강이 예산에 잘리면
         // transferArrivals 가 비고 meta.degraded 에 bus_realtime 이 남는다 — 검색 자체는 200 이다.
         RouteSearchResult afterBus = mapped;
-        return requireRideable(afterBus, stage(ctx, SearchComponent.BUS_REALTIME,
-                () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx)));
+        RouteSearchResult enriched = stage(ctx, SearchComponent.BUS_REALTIME,
+                () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx));
+        // 실시간·모델을 못 물은 버스는 OTP 계획 탑승시각으로(source=SCHEDULE). 보강·저하 보고가 끝난 뒤라 다음 버스 계산에 안 들어간다.
+        return requireRideable(afterBus, scheduleWaitFiller.fill(enriched, searchStartedAt, departureAt));
     }
 
     /** 후보가 있었는데 전부 운행종료로 빠졌으면 422 — 앱이 "지금은 탈 수 있는 경로가 없어요"를 보인다(#400). */

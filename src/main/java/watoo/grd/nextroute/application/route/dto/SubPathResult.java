@@ -73,6 +73,15 @@ public record SubPathResult(
                 walkTotalTimeSeconds, transferArrivals, trainKind, boardAt, alightAt, waitSeconds);
     }
 
+    /** 도착예측만 바꾼 복사본. */
+    public SubPathResult withTransferArrivals(List<TransferArrival> arrivals) {
+        return new SubPathResult(trafficType, sectionTime, distance, lanes, stations, startName, endName,
+                startX, startY, endX, endY, trainType, payment, startId, way, wayCode, polyline,
+                startExitNo, startExitX, startExitY, endExitNo, endExitX, endExitY, walkSteps,
+                startLocalStationID, endLocalStationID, startArsID, endArsID, endID,
+                walkTotalTimeSeconds, arrivals, trainKind, plannedBoardAt, plannedAlightAt, plannedWaitSeconds);
+    }
+
     /** 계획 시각을 다른 구간에서 옮겨 싣는다(복사본을 만드는 보강 단계가 잃지 않게). */
     public SubPathResult withPlannedFrom(SubPathResult source) {
         return withPlanned(source.plannedBoardAt(), source.plannedAlightAt(), source.plannedWaitSeconds());

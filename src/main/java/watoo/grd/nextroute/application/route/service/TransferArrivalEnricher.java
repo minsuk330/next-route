@@ -672,14 +672,14 @@ public class TransferArrivalEnricher {
                 : TransferArrival.Status.AVAILABLE;
         return new TransferArrival(routeId, laneIdx, source, status,
                 calculatedAt, userAt, predictedAt, waitSec,
-                vehicleId, modelVersion, basisLaneIndex, conditional);
+                vehicleId, modelVersion, basisLaneIndex, conditional, null);
     }
 
     private TransferArrival noResult(String routeId, int laneIdx,
                                      TransferArrival.Source source, TransferArrival.Status status,
                                      Instant calculatedAt, Instant userAt) {
         return new TransferArrival(routeId, laneIdx, source, status,
-                calculatedAt, userAt, null, null, null, null, null, null);
+                calculatedAt, userAt, null, null, null, null, null, null, null);
     }
 
     private void updatePrevWave(
@@ -720,7 +720,7 @@ public class TransferArrivalEnricher {
             List<TransferArrival> laneResults = IntStream.range(0, ctx.laneCount)
                     .mapToObj(li -> new TransferArrival(
                             null, li, TransferArrival.Source.NONE, TransferArrival.Status.DISABLED,
-                            calculatedAt, null, null, null, null, null, null, null))
+                            calculatedAt, null, null, null, null, null, null, null, null))
                     .toList();
             map.computeIfAbsent(ctx.pathIdx, k -> new HashMap<>())
                     .put(ctx.subPathIdx, laneResults);

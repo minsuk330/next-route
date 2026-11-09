@@ -44,4 +44,13 @@ public class TransferArrivalProperties {
      * 정적으로 fallback 한다(단 운행취소는 fallback 하지 않고 후보 제외).
      */
     private long realtimeStaleAfterSeconds = 90;
+
+    /**
+     * 실시간·모델을 묻지 못한 버스(정류장 매핑 실패·다른 지역·차단·한도·오류·앞 버스 결과 없음)를 OTP 계획 탑승시각으로 채운다
+     * (source=SCHEDULE, search-regional-bus-wait PR-1b). 외부 호출 없음. 꺼지면 응답은 지금과 같다.
+     */
+    private boolean scheduleFallbackEnabled = true;
+
+    /** 시간표 대기 상한(초). 이보다 길면 채우지 않는다(먼 미래 일정·막차 뒤를 "대기"로 보이지 않게). */
+    private long scheduleMaxWaitSeconds = 3600;
 }
