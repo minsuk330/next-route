@@ -2,6 +2,7 @@ package watoo.grd.nextroute.application.route.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -11,6 +12,7 @@ import java.util.List;
  * 생성 지점이 {@code trainKind} 를 명시한다.
  *
  * @param trainType ODsay 기차 등급(정수). 열차 종류({@code trainKind})와 다른 값이다 — 재사용하지 않는다
+ * @param plannedWaitSeconds 이 구간 탑승 전 OTP 계획 대기(초). 경로의 합 = OTP waitingTime(= {@code info.totalTime} 에 든 대기)
  * @param trainKind 철도 구간 열차 종류 {@code NORMAL}·{@code EXPRESS}·{@code DIRECT}·{@code ITX}(subway-express S2,
  *                  {@code TrainKind#name()}). 버스·도보·ODsay 원천은 null 이고 응답에서 빠진다
  */
@@ -54,6 +56,25 @@ public record SubPathResult(
         // 환승 도착예측 결과 (lane별, trafficType == 2일 때만 non-null)
         List<TransferArrival> transferArrivals,
         // 열차 종류 (철도 구간만, subway-express S2)
-        @JsonInclude(JsonInclude.Include.NON_NULL) String trainKind
+        @JsonInclude(JsonInclude.Include.NON_NULL) String trainKind,
+        // OTP 계획 시각 (대중교통 구간만, search-regional-bus-wait PR-1a). ODsay·도보·잘라 낸 구간은 null
+        @JsonInclude(JsonInclude.Include.NON_NULL) Instant plannedBoardAt,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Instant plannedAlightAt,
+        // 이 구간 탑승 전 OTP 계획 대기(초) = 탑승 − 직전 구간 끝. 경로 합이 OTP waitingTime(= info.totalTime 에 든 대기)과 같다.
+        // 앱은 버스 대기를 더할 때 이 값을 빼야 환승 대기를 두 번 세지 않는다
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer plannedWaitSeconds
 ) {
+    /** 계획 시각만 바꾼 복사본. */
+    public SubPathResult withPlanned(Instant boardAt, Instant alightAt, Integer waitSeconds) {
+        return new SubPathResult(trafficType, sectionTime, distance, lanes, stations, startName, endName,
+                startX, startY, endX, endY, trainType, payment, startId, way, wayCode, polyline,
+                startExitNo, startExitX, startExitY, endExitNo, endExitX, endExitY, walkSteps,
+                startLocalStationID, endLocalStationID, startArsID, endArsID, endID,
+                walkTotalTimeSeconds, transferArrivals, trainKind, boardAt, alightAt, waitSeconds);
+    }
+
+    /** 계획 시각을 다른 구간에서 옮겨 싣는다(복사본을 만드는 보강 단계가 잃지 않게). */
+    public SubPathResult withPlannedFrom(SubPathResult source) {
+        return withPlanned(source.plannedBoardAt(), source.plannedAlightAt(), source.plannedWaitSeconds());
+    }
 }

@@ -41,7 +41,7 @@ public final class SubPathFixture {
                 sp.trainType(), sp.payment(), sp.startId(), sp.way(), sp.wayCode(), sp.polyline(),
                 sp.startExitNo(), sp.startExitX(), sp.startExitY(), sp.endExitNo(), sp.endExitX(), sp.endExitY(),
                 sp.walkSteps(), sp.startLocalStationID(), sp.endLocalStationID(), sp.startArsID(), sp.endArsID(),
-                sp.endID(), sp.walkTotalTimeSeconds(), sp.transferArrivals(), trainKind);
+                sp.endID(), sp.walkTotalTimeSeconds(), sp.transferArrivals(), trainKind, null, null, null);
     }
 
     public static LaneResult busLane(String busNo, String localBlId) {
@@ -177,7 +177,7 @@ public final class SubPathFixture {
                     null, payment, startId, null, wayCode, polyline,
                     null, null, null, null, null, null, walkSteps,
                     startLocalStationID, endLocalStationID, startArsID, endArsID, endID,
-                    walkTotalTimeSeconds, null, trainKind);
+                    walkTotalTimeSeconds, null, trainKind, null, null, null);
         }
     }
 }

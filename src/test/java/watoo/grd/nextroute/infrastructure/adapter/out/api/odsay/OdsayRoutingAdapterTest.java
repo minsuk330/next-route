@@ -53,7 +53,7 @@ class OdsayRoutingAdapterTest {
     private SubPathResult sub(int trafficType, int sectionTime, List<StationResult> stations) {
         return new SubPathResult(trafficType, sectionTime, null, null, stations,
                 null, null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     @Test

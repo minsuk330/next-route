@@ -78,8 +78,7 @@ class TransferArrivalEnricherTest {
                 null, null, null, null, null, null,
                 null, null, null, null, null, null,
                 null,
-                startLocalStationID, null, null, null, null, null, null, null
-        );
+                startLocalStationID, null, null, null, null, null, null, null, null, null, null);
     }
 
     private SubPathResult walkSubPath(int sectionTime) {
@@ -90,8 +89,7 @@ class TransferArrivalEnricherTest {
                 null, null, null, null, null, null,
                 null, null, null, null, null, null,
                 null,
-                null, null, null, null, null, null, null, null
-        );
+                null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private RouteSearchResult resultWith(List<SubPathResult> subPaths) {
@@ -176,7 +174,7 @@ class TransferArrivalEnricherTest {
         return new SubPathResult(one.trafficType(), one.sectionTime(), one.distance(), lanes, one.stations(),
                 one.startName(), one.endName(), one.startX(), one.startY(), one.endX(), one.endY(),
                 null, null, null, null, null, null, null, null, null, null, null, null, null,
-                stopId, null, null, null, null, null, null, null);
+                stopId, null, null, null, null, null, null, null, null, null, null);
     }
 
     private void stubRoute(String routeId, String name, BusArrivalInfo arrival) {
@@ -264,6 +262,21 @@ class TransferArrivalEnricherTest {
         RouteSearchResult out = enricher.enrich(resultWith(List.of(busSubPath("1111", "100100750", "750B"))), NOW);
 
         assertThat(out.paths()).hasSize(1);
+    }
+
+    @Test
+    void TC_보강_뒤에도_계획_시각이_남는다() {
+        props.setEnabled(false);
+        Instant board = Instant.parse("2026-06-06T04:10:00Z");
+        SubPathResult planned = busSubPath("1111", "route1", "360")
+                .withPlanned(board, board.plusSeconds(900), 180);
+
+        SubPathResult sp = enricher.enrich(resultWith(List.of(planned)), NOW).paths().get(0).subPaths().get(0);
+
+        assertThat(sp.transferArrivals()).hasSize(1);
+        assertThat(sp.plannedBoardAt()).isEqualTo(board);
+        assertThat(sp.plannedAlightAt()).isEqualTo(board.plusSeconds(900));
+        assertThat(sp.plannedWaitSeconds()).isEqualTo(180);
     }
 
     @Test

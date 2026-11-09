@@ -45,8 +45,7 @@ class WalkCoordResolverTest {
                 startExitNo, startExitX, startExitY,
                 endExitNo,   endExitX,   endExitY,
                 null,
-                null, null, null, null, null, null, null, null
-        );
+                null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private SubPathResult bus(String startName, double sx, double sy,
@@ -62,8 +61,7 @@ class WalkCoordResolverTest {
                 null, null, null,
                 null, null, null,
                 null,
-                null, null, null, null, null, null, null, null
-        );
+                null, null, null, null, null, null, null, null, null, null, null);
     }
 
     // ── 시드 테스트 1~8 ──────────────────────────────────────────────────
@@ -233,8 +231,7 @@ class WalkCoordResolverTest {
                 List.of(new CoordPoint(127.0, 37.5), new CoordPoint(127.001, 37.501)),
                 null, null, null, null, null, null,
                 null,
-                null, null, null, null, null, null, null, null
-        );
+                null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private SubPathResult otpSubway(String startName, double sx, double sy,

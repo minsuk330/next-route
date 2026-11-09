@@ -110,8 +110,7 @@ class RouteSearchServiceTest {
                 polyline,
                 null, null, null, null, null, null,
                 steps,
-                null, null, null, null, null, null, null, null
-        );
+                null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private RouteSearchResult resultWith(List<SubPathResult> subPaths) {

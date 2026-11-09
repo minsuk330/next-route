@@ -26,6 +26,7 @@ import watoo.grd.nextroute.application.subway.service.SubwayLineStationIndex;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
 import watoo.grd.nextroute.application.route.routing.StopOccurrence;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -125,10 +126,27 @@ public class LegacyRouteResponseMapper {
                 lastStationName(it),
                 null);                              // mapObj: ODsay 전용
         List<SubPathResult> subPaths = new ArrayList<>();
+        RoutingLeg previous = null;
         for (RoutingLeg leg : it.legs()) {
-            subPaths.add(toSubPath(leg));
+            subPaths.add(withPlannedTimes(toSubPath(leg), leg, previous));
+            previous = leg;
         }
         return new PathResult(pathType(it), info, subPaths, List.<LaneGraphicResult>of());
+    }
+
+    /**
+     * 대중교통 구간에 OTP 계획 탑승·하차와 계획 대기를 싣는다(search-regional-bus-wait PR-1a). 계획 대기 = 탑승 − 직전 구간 끝 —
+     * OTP {@code waitingTime} 이 정확히 이 간격들의 합이다(첫 대중교통 구간 앞 여유 포함, 2026-11-09 운영 OTP 실측). 도보 구간과
+     * 시각이 없는 구간은 그대로 둔다. {@link #toSubPath} 는 구간 하나만 봐서(단독 추적이 재사용) 직전 구간을 알 수 없어 여기서 한다.
+     */
+    static SubPathResult withPlannedTimes(SubPathResult sp, RoutingLeg leg, RoutingLeg previous) {
+        if (leg.mode() == RoutingMode.WALK || leg.mode() == RoutingMode.UNSUPPORTED || leg.boardAt() == null) {
+            return sp;
+        }
+        Integer wait = previous != null && previous.alightAt() != null
+                ? (int) Math.max(0, Duration.between(previous.alightAt(), leg.boardAt()).getSeconds())
+                : null;
+        return sp.withPlanned(leg.boardAt(), leg.alightAt(), wait);
     }
 
     private int toLegacyPayment(Fare fare) {
@@ -240,7 +258,7 @@ public class LegacyRouteResponseMapper {
                 startName, endName, startX, startY, endX, endY,
                 null, null, null, null, wayCode, polyline,
                 null, null, null, null, null, null,
-                null, startLocalStationID, endLocalStationID, null, null, null, null, null, trainKind);
+                null, startLocalStationID, endLocalStationID, null, null, null, null, null, trainKind, null, null, null);
     }
 
     /**

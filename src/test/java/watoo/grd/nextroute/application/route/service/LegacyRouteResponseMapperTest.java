@@ -503,4 +503,49 @@ class LegacyRouteResponseMapperTest {
         assertThat(bus).doesNotContain("trainKind");
         assertThat(express).contains("\"trainKind\":\"EXPRESS\"");
     }
+    // ── search-regional-bus-wait PR-1a: 계획 시각 ─────────────────────────────
+
+    private static RoutingLeg timed(RoutingLeg base, String board, String alight) {
+        return new RoutingLeg(base.mode(), base.sourceDetailType(), base.feedId(), base.agencyId(),
+                base.sourceRouteId(), base.sourceRouteName(), base.sourceRouteDirection(), base.tripId(),
+                base.serviceDate(), Instant.parse(board), Instant.parse(alight), base.rideDurationSeconds(),
+                base.stops(), base.walkSteps(), base.geometry(), base.enrichment(), base.missing(), null);
+    }
+
+    @Test
+    @DisplayName("대중교통 구간에 계획 탑승·하차와 계획 대기(탑승 − 직전 구간 끝)를 싣고, 도보는 비워 둔다")
+    void plannedTimesForTransitLegs() {
+        RoutingLeg walk1 = timed(walkLeg(BUS_SHAPE), "2026-09-17T07:00:00Z", "2026-09-17T07:05:00Z");
+        RoutingLeg busA = timed(transitLeg(RoutingMode.BUS, GeometryQuality.SHAPE_OK, BUS_SHAPE),
+                "2026-09-17T07:07:00Z", "2026-09-17T07:20:00Z");
+        RoutingLeg walk2 = timed(walkLeg(BUS_SHAPE), "2026-09-17T07:20:00Z", "2026-09-17T07:23:00Z");
+        RoutingLeg subway = timed(subwayLeg("2호선", "내선"), "2026-09-17T07:30:00Z", "2026-09-17T07:50:00Z");
+        RoutingItinerary itinerary = new RoutingItinerary(NOW, 1980, 540, 480, 1, false, null, null,
+                List.of(walk1, busA, walk2, subway));
+        RoutingResult result = new RoutingResult(RoutingProvider.OTP, "v2", "net1", "g1", null, null,
+                NOW, List.of(), List.of(itinerary));
+
+        List<SubPathResult> sps = mapper.toLegacy(result).paths().get(0).subPaths();
+
+        assertThat(sps.get(0).plannedBoardAt()).isNull();
+        assertThat(sps.get(0).plannedWaitSeconds()).isNull();
+        assertThat(sps.get(1).plannedBoardAt()).isEqualTo(Instant.parse("2026-09-17T07:07:00Z"));
+        assertThat(sps.get(1).plannedAlightAt()).isEqualTo(Instant.parse("2026-09-17T07:20:00Z"));
+        assertThat(sps.get(1).plannedWaitSeconds()).isEqualTo(120);   // 첫 대중교통 앞 여유도 OTP waitingTime 에 든다
+        assertThat(sps.get(2).plannedWaitSeconds()).isNull();
+        assertThat(sps.get(3).plannedWaitSeconds()).isEqualTo(420);   // 환승 대기
+        assertThat(sps.get(1).plannedWaitSeconds() + sps.get(3).plannedWaitSeconds()).isEqualTo(itinerary.waitSeconds());
+    }
+
+    @Test
+    @DisplayName("구간 하나만 매핑하는 toSubPath(단독 추적)는 직전 구간을 몰라 계획 시각을 싣지 않는다")
+    void toSubPathAloneHasNoPlannedTimes() {
+        RoutingLeg bus = timed(transitLeg(RoutingMode.BUS, GeometryQuality.SHAPE_OK, BUS_SHAPE),
+                "2026-09-17T07:07:00Z", "2026-09-17T07:20:00Z");
+
+        SubPathResult sp = mapper.toSubPath(bus);
+
+        assertThat(sp.plannedBoardAt()).isNull();
+        assertThat(sp.plannedWaitSeconds()).isNull();
+    }
 }

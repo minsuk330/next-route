@@ -60,7 +60,7 @@ class RouteSearchTravelTimeEstimatorTest {
                 null, null, null, null, null,
                 null, null, null, null, null, null, null,
                 null, "STA1", "STA2", null, null, null,
-                null, arrivals, null);
+                null, arrivals, null, null, null, null);
     }
 
     private SubPathResult busTwoLane(int sectionTimeMin, List<TransferArrival> arrivals) {
@@ -72,7 +72,7 @@ class RouteSearchTravelTimeEstimatorTest {
                 null, null, null, null, null,
                 null, null, null, null, null, null, null,
                 null, "STA1", "STA2", null, null, null,
-                null, arrivals, null);
+                null, arrivals, null, null, null, null);
     }
 
     private SubPathResult walk(int walkSeconds) {
@@ -82,7 +82,7 @@ class RouteSearchTravelTimeEstimatorTest {
                 null, null, null, null, null,
                 null, null, null, null, null, null, null,
                 List.of(), null, null, null, null, null,
-                walkSeconds, null, null);
+                walkSeconds, null, null, null, null, null);
     }
 
     private TransferArrival arrival(int laneIndex, TransferArrival.Status status, long waitSeconds) {

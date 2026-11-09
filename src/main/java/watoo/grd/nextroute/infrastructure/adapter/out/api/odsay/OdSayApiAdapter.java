@@ -314,7 +314,8 @@ public class OdSayApiAdapter implements OdSayApiPort {
                 subPath.getEndID(),
                 null,                              // walkTotalTimeSeconds (WalkSegmentEnricher가 채움)
                 null,                              // transferArrivals (TransferArrivalEnricher가 채움)
-                null                               // trainKind: ODsay 는 판정하지 않는다(subway-express S2 는 OTP 전용)
+                null,                              // trainKind: ODsay 는 판정하지 않는다(subway-express S2 는 OTP 전용)
+                null, null, null                   // 계획 시각: OTP 전용
         );
     }
 
