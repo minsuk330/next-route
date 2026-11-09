@@ -40,8 +40,8 @@ public class RouteSearchMetrics {
     private final MeterRegistry registry;
 
     /**
-     * 검색 중 경기·TAGO 도착 조회(search-regional-bus-wait PR-2). provider=GG|TAGO, outcome=ok|limited|error|timeout|
-     * limited_quota|limited_slot|limited_pool. 고정 집합.
+     * 검색 중 경기·TAGO 도착 조회(search-regional-bus-wait PR-2). provider=GG|TAGO, outcome=ok|limited|error|
+     * limited_quota|limited_pool|abandoned(검색이 기한 안에 못 받음). 고정 집합.
      */
     public void recordRegionalWait(String provider, String outcome) {
         registry.counter(REGIONAL_WAIT, "provider", provider, "outcome", outcome).increment();

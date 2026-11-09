@@ -55,13 +55,13 @@ public class TransferArrivalProperties {
     private boolean regionalEnabled = false;
 
     /** 검색이 경기·TAGO 조회를 기다리는 상한(ms). 남은 보강 기한과 짧은 쪽. 넘으면 포기(호출은 공유 캐시를 채운다). */
-    private long regionalTimeoutMs = 800;
+    private long regionalTimeoutMs = 1200;
 
     /** 검색 1건의 경기·TAGO 조회 상한(정류장·노선 단위, 중복 제거 뒤). */
     private int regionalMaxCallsPerSearch = 6;
 
-    /** 공급자별 검색 전용 동시 자리(기다리지 않음). TAGO 서버 합산 자리를 검색이 독점하지 않게. */
-    private int regionalMaxConcurrent = 2;
+    /** 공급자별 검색 전용 풀 스레드 수(넘치면 큐 4배, 큐가 차면 LIMITED). TAGO 서버 합산 자리를 검색이 독점하지 않게. */
+    private int regionalMaxConcurrent = 3;
 
     /** 검색 전용 경기 도착 일일 몫(호출 전 셈). 공급자 10,000 = 재탐색 5,000 + 공개 5,000(어댑터가 miss 때 셈) 안. */
     private int regionalGyeonggiDailyLimit = 2000;
