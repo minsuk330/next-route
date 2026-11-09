@@ -103,7 +103,7 @@ class SearchRegionalArrivalServiceTest {
     }
 
     @Test
-    void 검색_전용_자리가_차면_기다리지_않고_LIMITED_이고_기한을_넘으면_TIMEOUT() throws Exception {
+    void 풀이_차면_큐에서_기다리고_기한을_넘으면_TIMEOUT_큐까지_차면_LIMITED() throws Exception {
         CountDownLatch release = new CountDownLatch(1);
         when(gg.getArrival("202000208", "234000026", true)).thenAnswer(inv -> {
             release.await();
@@ -112,10 +112,18 @@ class SearchRegionalArrivalServiceTest {
 
         SearchRegionalArrivalService.Pending slow = service.start(Provider.GG, "234000026", "202000208");
         assertThat(slow.await(50).outcome()).isEqualTo(Outcome.TIMEOUT);
+        // 스레드 1 + 큐 4: 다음 넷은 큐에서 기다리고, 다섯째는 LIMITED
+        List<SearchRegionalArrivalService.Pending> queued = new java.util.ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            queued.add(service.start(Provider.GG, "234000026", "202000208"));
+        }
         assertThat(service.start(Provider.GG, "234000026", "202000208").await(50).outcome()).isEqualTo(Outcome.LIMITED);
 
         release.countDown();
         assertThat(slow.await(1000).outcome()).isEqualTo(Outcome.OK);   // 포기한 호출도 끝까지 돈다(공유 캐시를 채움)
+        for (SearchRegionalArrivalService.Pending p : queued) {
+            assertThat(p.await(1000).outcome()).isEqualTo(Outcome.OK);
+        }
     }
 
     @Test

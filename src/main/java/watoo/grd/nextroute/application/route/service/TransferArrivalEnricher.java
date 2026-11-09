@@ -402,6 +402,24 @@ public class TransferArrivalEnricher {
             }
         }
 
+        // 3b-0: 경기·TAGO 도착을 먼저 띄운다 — 서울 도착 조회(순차)와 겹쳐 돌게(search-regional-bus-wait PR-2)
+        Map<String, SearchRegionalArrivalService.Pending> regionalPending = new HashMap<>();
+        if (regionalOn()) {
+            for (SubPathCtx ctx : waveCtxs) {
+                if (ctx.upstreamUnavailable && !props.isArrivalOnlyEnabled()) continue;
+                for (LaneCtx lc : ctx.laneContexts) {
+                    if (lc.regional == null) continue;
+                    String key = lc.regional + ":" + lc.regionalStopId + ":" + lc.regionalRouteId;
+                    if (!regionalPending.containsKey(key)) {
+                        if (regionalBudget.getAndDecrement() <= 0) continue;   // 검색당 상한 → 이 lane 은 기존 status
+                        regionalPending.put(key, regional.start(lc.regional, lc.regionalRouteId, lc.regionalStopId));
+                    }
+                }
+            }
+        }
+        long regionalDeadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(
+                Math.max(0, Math.min(remainingBudget.getAsLong(), props.getRegionalTimeoutMs())));
+
         // 3b: arrival API 조회 — (stopId, routeId, ord) 단위 dedupe (정류장·노선·순번 특정 상황)
         Map<String, BusQueryResult<BusArrivalInfo>> arrCache = new HashMap<>();
         for (SubPathCtx ctx : waveCtxs) {
@@ -424,26 +442,16 @@ public class TransferArrivalEnricher {
             }
         }
 
-        // 3b': 경기·TAGO 도착 — wave 안 병렬, 남은 기한 하나를 나눠 쓴다(search-regional-bus-wait PR-2)
-        if (regionalOn()) {
-            Map<String, SearchRegionalArrivalService.Pending> pending = new HashMap<>();
-            for (SubPathCtx ctx : waveCtxs) {
-                if (ctx.upstreamUnavailable && !props.isArrivalOnlyEnabled()) continue;
-                for (LaneCtx lc : ctx.laneContexts) {
-                    if (lc.regional == null) continue;
-                    String key = lc.regional + ":" + lc.regionalStopId + ":" + lc.regionalRouteId;
-                    if (!pending.containsKey(key)) {
-                        if (regionalBudget.getAndDecrement() <= 0) continue;   // 검색당 상한 → 이 lane 은 기존 status
-                        pending.put(key, regional.start(lc.regional, lc.regionalRouteId, lc.regionalStopId));
-                    }
-                }
-            }
-            long waitMs = Math.min(remainingBudget.getAsLong(), props.getRegionalTimeoutMs());
-            long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.max(0, waitMs));
+        // 3b': 경기·TAGO 결과 — 3b-0 에서 띄운 조회를 남은 시간만큼 기다린다
+        if (!regionalPending.isEmpty()) {
             Map<String, SearchRegionalArrivalService.Result> done = new HashMap<>();
-            for (Map.Entry<String, SearchRegionalArrivalService.Pending> e : pending.entrySet()) {
-                long left = TimeUnit.NANOSECONDS.toMillis(deadlineNanos - System.nanoTime());
-                done.put(e.getKey(), e.getValue().await(left));
+            for (Map.Entry<String, SearchRegionalArrivalService.Pending> e : regionalPending.entrySet()) {
+                long left = TimeUnit.NANOSECONDS.toMillis(regionalDeadlineNanos - System.nanoTime());
+                SearchRegionalArrivalService.Result r = e.getValue().await(left);
+                if (r.outcome() == SearchRegionalArrivalService.Outcome.TIMEOUT) {
+                    regional.recordAbandoned(e.getValue().provider());
+                }
+                done.put(e.getKey(), r);
             }
             for (SubPathCtx ctx : waveCtxs) {
                 for (LaneCtx lc : ctx.laneContexts) {
