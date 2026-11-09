@@ -823,4 +823,43 @@ class TransferArrivalEnricherTest {
         assertThat(back.predictedArrivalAt()).isEqualTo(NOW.plusSeconds(240));
         assertThat(back.waitSeconds()).isNull();
     }
+
+    @Test
+    void TC_상한이_없으면_결과의_지역_버스를_모두_묻는다() {
+        props.setEnabled(true);
+        when(regional.enabled()).thenReturn(true);
+        when(regional.start(eq(SearchRegionalArrivalService.Provider.GG), anyString(), anyString()))
+                .thenReturn(done(SearchRegionalArrivalService.Outcome.OK, 300));
+        PathInfo info = new PathInfo(3600, 2000, 0, 0, "출발", "도착", null);
+        List<PathResult> paths = new java.util.ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            paths.add(new PathResult(1, info, List.of(busSubPath("20200" + (1000 + i), "2340" + (10000 + i), "b" + i)),
+                    Collections.emptyList()));
+        }
+
+        RouteSearchResult out = enricher.enrich(new RouteSearchResult(0, 10, 0, 0, 0, paths), NOW);
+
+        verify(regional, times(10)).start(eq(SearchRegionalArrivalService.Provider.GG), anyString(), anyString());
+        assertThat(out.paths()).allSatisfy(p -> assertThat(p.subPaths().get(0).transferArrivals().get(0).status())
+                .isEqualTo(TransferArrival.Status.AVAILABLE));
+    }
+
+    @Test
+    void TC_상한을_주면_그만큼만_묻는다() {
+        props.setEnabled(true);
+        props.setRegionalMaxCallsPerSearch(2);
+        when(regional.enabled()).thenReturn(true);
+        when(regional.start(eq(SearchRegionalArrivalService.Provider.GG), anyString(), anyString()))
+                .thenReturn(done(SearchRegionalArrivalService.Outcome.OK, 300));
+        PathInfo info = new PathInfo(3600, 2000, 0, 0, "출발", "도착", null);
+        List<PathResult> paths = new java.util.ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            paths.add(new PathResult(1, info, List.of(busSubPath("20200" + (1000 + i), "2340" + (10000 + i), "b" + i)),
+                    Collections.emptyList()));
+        }
+
+        enricher.enrich(new RouteSearchResult(0, 4, 0, 0, 0, paths), NOW);
+
+        verify(regional, times(2)).start(eq(SearchRegionalArrivalService.Provider.GG), anyString(), anyString());
+    }
 }

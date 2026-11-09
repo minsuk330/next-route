@@ -170,9 +170,9 @@ public class TransferArrivalEnricher {
         // 검색당 외부 호출 상한(provider fan-out cap). 0 이하면 무제한.
         java.util.concurrent.atomic.AtomicInteger callBudget = new java.util.concurrent.atomic.AtomicInteger(
                 props.getMaxExternalCallsPerSearch() > 0 ? props.getMaxExternalCallsPerSearch() : Integer.MAX_VALUE);
-        // 검색당 경기·TAGO 조회 상한(정류장·노선 단위)
+        // 검색당 경기·TAGO 조회 상한(정류장·노선 단위). 0 이하 = 상한 없음 — 결과에 나온 지역 버스를 모두 묻는다(경로 수가 상한)
         java.util.concurrent.atomic.AtomicInteger regionalBudget = new java.util.concurrent.atomic.AtomicInteger(
-                Math.max(0, props.getRegionalMaxCallsPerSearch()));
+                props.getRegionalMaxCallsPerSearch() > 0 ? props.getRegionalMaxCallsPerSearch() : Integer.MAX_VALUE);
 
         for (int wave = 0; wave <= maxWave; wave++) {
             int w = wave;
