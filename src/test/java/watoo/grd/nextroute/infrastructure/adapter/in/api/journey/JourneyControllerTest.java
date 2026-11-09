@@ -270,6 +270,42 @@ class JourneyControllerTest {
              "toLegIndex":1}
             """;
 
+    @Test
+    @DisplayName("전환 근거(trigger)는 명령으로 넘어가고, 모르는 값이어도 요청은 받는다")
+    void event_triggerIsPassedAndUnknownIsAccepted() throws Exception {
+        givenOutcome(JourneyEventResult.APPLIED, null);
+
+        mockMvc.perform(post("/api/journeys/5/events")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(EVENT_BODY.replace("\"toLegIndex\":1}", "\"toLegIndex\":1,\"trigger\":\"STOP_NEAR\"}")))
+                .andExpect(status().isOk());
+        verify(applyJourneyEventUseCase).apply(eq(7L), eq(5L),
+                org.mockito.ArgumentMatchers.argThat(c -> "STOP_NEAR".equals(c.trigger())));
+
+        mockMvc.perform(post("/api/journeys/5/events")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(EVENT_BODY.replace("\"toLegIndex\":1}", "\"toLegIndex\":1,\"trigger\":\"" + "Z".repeat(500) + "\"}")))
+                .andExpect(status().isOk());
+
+        // 문자열이 아닌 값(객체·배열·숫자)도 400 이 아니라 "근거 없음"이다.
+        for (String wrongType : List.of("{\"a\":1}", "[\"STOP_NEAR\"]", "7", "null")) {
+            mockMvc.perform(post("/api/journeys/5/events")
+                            .with(authentication(authUser(7L)))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(EVENT_BODY.replace("\"toLegIndex\":1}", "\"toLegIndex\":1,\"trigger\":" + wrongType + "}")))
+                    .andExpect(status().isOk());
+        }
+
+        mockMvc.perform(post("/api/journeys/5/events")
+                        .with(authentication(authUser(7L)))
+                        .contentType(MediaType.APPLICATION_JSON).content(EVENT_BODY))
+                .andExpect(status().isOk());
+        verify(applyJourneyEventUseCase, org.mockito.Mockito.times(6)).apply(eq(7L), eq(5L),
+                org.mockito.ArgumentMatchers.argThat(c -> c.trigger() == null));
+    }
+
     private static final String END_BODY = """
             {"eventId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
              "baseCommandVersion":1,

@@ -26,6 +26,7 @@ import watoo.grd.nextroute.domain.bus.repository.BusRouteStopRepository;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
@@ -42,6 +43,14 @@ class BusArrivalQueryServiceTest {
     @Mock BusRouteStopRepository busRouteStopRepository;
     @Mock GyeonggiBusArrivalPort gyeonggiBusArrivalPort;
     @Mock TagoBusArrivalPort tagoBusArrivalPort;
+    /** 운영에서는 띠 이름이 null 아니면 한 개 이상이다. Mockito 기본값(빈 목록)이 그 자리에 끼지 않게 null 로 답한다. */
+    @Mock BusApproachStopNames approachStopNames;
+
+    @org.junit.jupiter.api.BeforeEach
+    void approachStopNamesAnswerNullUnlessStubbed() {
+        org.mockito.Mockito.lenient().when(approachStopNames.seoul(any(), anyInt(), any(), any())).thenReturn(null);
+        org.mockito.Mockito.lenient().when(approachStopNames.gyeonggi(any(), any(), any(), any())).thenReturn(null);
+    }
     /** 노선 표가 빈 조회기 — 접두사 표만 쓴다(#267 이전과 같은 동작). */
     @Spy TagoCityCodeLookup tagoCityCodeLookup = InMemoryRegionalBusRouteStopStore.prefixTableOnlyLookup();
     @InjectMocks BusArrivalQueryService service;
@@ -188,6 +197,141 @@ class BusArrivalQueryServiceTest {
         verify(gyeonggiBusArrivalPort, never()).getArrival(anyString(), anyString());
     }
 
+    // ── 대기 화면용 칸(bus-boarding-flow S1): 몇 정류장 전·차량 id·띠 이름 ─────────────────────
+
+    @Test
+    void seoul_stopsAwayIsOrdMinusSectionOrder_andVehicleIdsPassThrough() {
+        // N16 실응답(2026-11-10): 요청 순번 40, 첫 차 구간 순번 37 "남대문시장.회현역" → "6분38초후[3번째 전]",
+        // 둘째 차 25 → "26분11초후[15번째 전]".
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP)).willReturn(List.of(routeStop(40)));
+        given(busQueryPort.getArrInfoByStop(STOP, ROUTE, 40))
+                .willReturn(BusQueryResult.ok(List.of(BusArrivalInfoFixtures.arrivalAt(
+                        "109059152", 37, "남대문시장.회현역", "6분38초후[3번째 전]",
+                        "109042262", 25, "26분11초후[15번째 전]"))));
+        given(approachStopNames.seoul(ROUTE, 40, 3, "남대문시장.회현역")).willReturn(List.of("가", "나", "다"));
+
+        BusArrivalResponse r = service.getArrivals(STOP, ROUTE).get(0);
+
+        assertThat(r.getStopsAway1()).isEqualTo(3);
+        assertThat(r.getStopsAway2()).isEqualTo(15);
+        assertThat(r.getVehicleId1()).isEqualTo("109059152");
+        assertThat(r.getVehicleId2()).isEqualTo("109042262");
+        assertThat(r.getApproachStops1()).containsExactly("가", "나", "다");
+        assertThat(r.getArrivalMsg1()).isEqualTo("6분38초후[3번째 전]");   // 기존 칸은 그대로
+    }
+
+    @Test
+    void seoul_noBus_vehicleZeroMeansUnknownStopsAwayAndNoVehicle() {
+        // 서울은 버스가 없으면 차량 id "0", 구간 순번 0(운행종료·출발대기 실응답).
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP)).willReturn(List.of(routeStop(10)));
+        given(busQueryPort.getArrInfoByStop(STOP, ROUTE, 10))
+                .willReturn(BusQueryResult.ok(List.of(BusArrivalInfoFixtures.arrivalAt(
+                        "0", 0, " ", "운행종료", " ", 0, "운행종료"))));
+
+        BusArrivalResponse r = service.getArrivals(STOP, ROUTE).get(0);
+
+        assertThat(r.getStopsAway1()).isNull();
+        assertThat(r.getStopsAway2()).isNull();
+        assertThat(r.getVehicleId1()).isNull();
+        assertThat(r.getVehicleId2()).isNull();
+        verify(approachStopNames).seoul(ROUTE, 10, null, " ");
+    }
+
+    @Test
+    void seoul_sectionOrderWithoutAVehicle_orVehicleWithoutASectionOrder_isUnknown() {
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP)).willReturn(List.of(routeStop(10)));
+        given(busQueryPort.getArrInfoByStop(STOP, ROUTE, 10))
+                .willReturn(BusQueryResult.ok(List.of(BusArrivalInfoFixtures.arrivalAt(
+                        "0", 7, "어딘가", "3분후", "v2", 0, "출발대기"))));
+
+        BusArrivalResponse r = service.getArrivals(STOP, ROUTE).get(0);
+
+        assertThat(r.getStopsAway1()).isNull();   // 구간 순번이 남아 있어도 차량이 없으면 믿지 않는다
+        assertThat(r.getStopsAway2()).isNull();   // 차량 id 가 있어도 구간 순번 0 은 위치가 아니다
+        assertThat(r.getVehicleId2()).isEqualTo("v2");
+    }
+
+    @Test
+    void seoul_busAtTheStopIsZero_andPastTheStopIsUnknown() {
+        // N13 실응답: 요청 순번 40, 첫 차 구간 순번 40 "곧 도착"(현재 정류장 = 요청 정류장).
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP)).willReturn(List.of(routeStop(40)));
+        given(busQueryPort.getArrInfoByStop(STOP, ROUTE, 40))
+                .willReturn(BusQueryResult.ok(List.of(BusArrivalInfoFixtures.arrivalAt(
+                        "110058306", 40, "동대문역.흥인지문", "곧 도착", "v2", 44, "8분후"))));
+
+        BusArrivalResponse r = service.getArrivals(STOP, ROUTE).get(0);
+
+        assertThat(r.getStopsAway1()).isZero();
+        assertThat(r.getStopsAway2()).isNull();   // 요청 정류장을 지나친 순번
+    }
+
+    @Test
+    void gyeonggi_newFields_andTheStripUsesTheFilteredStopsAway() {
+        given(busRouteStopRepository.findByRouteIdAndStopId("228000184", "123000001")).willReturn(List.of());
+        given(gyeonggiBusArrivalPort.getArrival("123000001", "228000184"))
+                .willReturn(BusQueryResult.ok(List.of(new GyeonggiBusArrival(
+                        "228000184", 4, 2, 2, 33, 29, 19, 4, 39, "PASS", "241001", "241002", 251, null, "수원역"))));
+        given(approachStopNames.gyeonggi("228000184", "123000001", 2, "수원역")).willReturn(List.of("수원역", "나"));
+
+        BusArrivalResponse r = service.getArrivals("123000001", "228000184").get(0);
+
+        assertThat(r.getStopsAway1()).isEqualTo(2);
+        assertThat(r.getStopsAway2()).isEqualTo(19);
+        assertThat(r.getVehicleId1()).isEqualTo("241001");
+        assertThat(r.getVehicleId2()).isEqualTo("241002");
+        assertThat(r.getPredictTime1()).isEqualTo(251);     // 초 칸이 분과 맞으면 그 값
+        assertThat(r.getPredictTime2()).isEqualTo(1740);    // 없으면 분 × 60
+        assertThat(r.getArrivalMsg1()).isEqualTo("4분후[2번째 전]");   // 문구는 그대로 분 기준
+        assertThat(r.getApproachStops1()).containsExactly("수원역", "나");
+    }
+
+    @Test
+    void gyeonggi_secondsThatDisagreeWithTheMinutes_areNotUsed() {
+        // 초 칸의 뜻은 값이 든 실응답으로 확인하지 못했다. 분과 1분 넘게 어긋나면 분을 믿는다.
+        given(busRouteStopRepository.findByRouteIdAndStopId("228000184", "123000001")).willReturn(List.of());
+        given(gyeonggiBusArrivalPort.getArrival("123000001", "228000184"))
+                .willReturn(BusQueryResult.ok(List.of(new GyeonggiBusArrival(
+                        "228000184", 5, 2, 2, 33, 9, 6, 4, 39, "PASS", "241001", "241002", 0, 600, null))));
+
+        BusArrivalResponse r = service.getArrivals("123000001", "228000184").get(0);
+
+        assertThat(r.getPredictTime1()).isEqualTo(300);   // 0초 ≠ 5분
+        assertThat(r.getPredictTime2()).isEqualTo(600);   // 600초 = 9분에서 60초 차이 → 쓴다
+    }
+
+    @Test
+    void gyeonggi_noBus_newFieldsAndTheStripAreNullEvenIfSourceLeavesValues() {
+        given(busRouteStopRepository.findByRouteIdAndStopId("228000184", "123000001")).willReturn(List.of());
+        given(gyeonggiBusArrivalPort.getArrival("123000001", "228000184"))
+                .willReturn(BusQueryResult.ok(List.of(new GyeonggiBusArrival(
+                        "228000184", null, 3, null, null, null, null, null, null, "WAIT", "241001", null, 99, null,
+                        "수원역"))));
+
+        BusArrivalResponse r = service.getArrivals("123000001", "228000184").get(0);
+
+        assertThat(r.getStopsAway1()).isNull();
+        assertThat(r.getVehicleId1()).isNull();
+        assertThat(r.getPredictTime1()).isNull();
+        // 원천에 남은 "3정류장 전"으로 띠를 만들지 않는다
+        verify(approachStopNames).gyeonggi("228000184", "123000001", null, "수원역");
+    }
+
+    @Test
+    void tago_stopsAwayFollowsTheSortedBuses_andHasNoStrip() {
+        given(tagoBusArrivalPort.getArrivals("21", "BSB167850202", "BSB5200186000"))
+                .willReturn(BusQueryResult.ok(List.of(
+                        new TagoBusArrival("BSB5200186000", 600, 8, null),
+                        new TagoBusArrival("BSB5200186000", 150, 2, null))));
+
+        BusArrivalResponse r = service.getArrivals("BSB167850202", "BSB5200186000").get(0);
+
+        assertThat(r.getStopsAway1()).isEqualTo(2);     // 먼저 오는 차
+        assertThat(r.getStopsAway2()).isEqualTo(8);
+        assertThat(r.getVehicleId1()).isNull();          // TAGO 는 차량 id 를 주지 않는다
+        assertThat(r.getApproachStops1()).isNull();      // 현재 정류장 이름이 없어 순번을 확인할 수 없다
+        org.mockito.Mockito.verifyNoInteractions(approachStopNames);
+    }
+
     private BusRouteStop routeStop(int seq) {
         return BusRouteStop.builder().routeId(ROUTE).stopId(STOP).seq(seq).build();
     }
@@ -262,7 +406,8 @@ class BusArrivalQueryServiceTest {
         TagoCityCodeLookup lookup = new TagoCityCodeLookup(store);
         lookup.refresh();
         BusArrivalQueryService withTable = new BusArrivalQueryService(
-                busQueryPort, busRouteStopRepository, gyeonggiBusArrivalPort, tagoBusArrivalPort, lookup);
+                busQueryPort, busRouteStopRepository, gyeonggiBusArrivalPort, tagoBusArrivalPort, lookup,
+                approachStopNames);
         given(tagoBusArrivalPort.getArrivals(anyString(), anyString(), anyString()))
                 .willReturn(BusQueryResult.ok(List.of()));
 

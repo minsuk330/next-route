@@ -258,7 +258,13 @@ public class GyeonggiBusArrivalAdapter implements GyeonggiBusArrivalPort {
                 intOrNull(item.path("locationNo2")),
                 intOrNull(item.path("crowded2")),
                 intOrNull(item.path("remainSeatCnt2")),
-                text(item.path("flag")))));
+                text(item.path("flag")),
+                // 아래 칸들은 값이 없으면 ""(2026-11-10 실응답으로 칸 이름 확인). null 이면 차량 구분 없이, 분 단위로 동작.
+                text(item.path("vehId1")),
+                text(item.path("vehId2")),
+                intOrNull(item.path("predictTimeSec1")),
+                intOrNull(item.path("predictTimeSec2")),
+                text(item.path("stationNm1")))));
     }
 
     /** 숫자 또는 숫자 문자열. {@code ""}·누락·숫자 아님 → null. */

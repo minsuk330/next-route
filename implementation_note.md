@@ -6491,3 +6491,43 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - V75
 ### 검증
 - `JourneySchemaIT` 수정 전 22건 중 1건 실패, 수정 후 22건 통과. 전체 시험 3980건 실패 0
+
+## bus-boarding-flow S1 — 버스 도착 응답 칸 + leg 전환 근거(trigger) 기록 (2026-11-10)
+
+플랜: 앱 저장소 `docs/plan/bus-boarding-flow/PLAN.md`(§7 PR-S1, §10-1), 이슈 minsuk330/jette-app#113.
+
+### 확정
+- `GET /api/arrivals/bus/{stopId}/{routeId}` 응답에 `stopsAway1/2`, `vehicleId1/2`, `approachStops1` 추가. 전부 nullable, 기존 칸의 뜻은 그대로. 전역 NON_NULL 이 없어 모르면 `null` 로 나간다.
+- `stopsAway`: 서울 = 요청 정류장 순번(`bus_route_stop.seq`, 도착 API 에 보내는 ord 와 같은 수) − 버스의 현재 구간 순번(`sectOrd`). 버스가 없으면(차량 id `"0"`·빈값, 구간 순번 0) null, 지나친 값(음수)도 null. 경기 = `locationNo`, TAGO = `arrprevstationcnt`(둘 다 버스가 있을 때만).
+- `approachStops1`: 첫 차의 현재 정류장부터 탑승 정류장 바로 앞까지 이름. 3개 이하면 전부, 넘으면 처음 1개 + 마지막 2개(앱은 `stopsAway1 > size` 로 가운데가 줄었음을 안다). **첫 이름이 공급자가 준 현재 정류장 이름과 같을 때만** 준다(서울은 이름이 없으면 대조 없이, 경기는 이름이 없으면 안 준다). TAGO 는 주지 않는다.
+- 경기 초 단위(`predictTimeSec`)는 분(`predictTime`)과 60초 안에서 맞을 때만 `predictTime` 칸에 쓴다. 문구(`arrivalMsg`)는 계속 분 기준.
+- leg 전환 요청의 `trigger`(선택)는 `journey_event.payload.trigger` 에만 남는다. 허용 목록(`JourneyCommand.TRIGGERS`) 밖 값·문자열이 아닌 값은 버린다(400 아님). **재전송 판정(sameCommand)은 trigger 를 보지 않는다.** 근거가 없으면 payload 에 키도 없다(옛 payload 모양 유지).
+- `BusApproachStopNames` 는 부른 쪽 트랜잭션 **밖에서** 읽는다(`@Transactional(propagation = NOT_SUPPORTED)`).
+
+### 함정
+- 띠 이름을 도착 조회의 읽기 트랜잭션 안에서 읽다 실패하면 ← JPA 예외가 그 트랜잭션을 rollback-only 로 만든다 → 예외를 삼켜도 커밋에서 `UnexpectedRollbackException`(도착 응답 500) / 가드: NOT_SUPPORTED + `BusApproachStopNamesTransactionIT`.
+- trigger 를 payload 비교에 넣으면 ← 허용 목록이 다른 서버(롤백·배포 중)나 근거만 바뀐 재전송이 `EVENT_ID_REUSED` 로 거절된다 / 가드: `withoutTrigger`, `JourneyEventIT.triggerIsNotPartOfTheDuplicateCheck`.
+- 경기 원천은 버스가 없어도 `locationNo1` 을 남길 수 있다 ← 원천 칸으로 띠를 만들면 "버스 없음" 응답에 띠만 남는다 / 가드: 걸러진 `stopsAway1` 로 띠 조회.
+- 서버 사이 공유 캐시(`bus:gg:arr:*`)는 `GyeonggiBusArrival` 을 JSON 으로 둔다 ← api 만 새 이미지면 옛 worker 가 새 칸 없는 값을 써서 같은 정류장 응답이 조회마다 차량 id 유무·초 정밀도가 달라진다 / 가드: **api 와 worker 를 같은 이미지로 배포**. 읽기 호환은 양방향 확인(`cachedJsonIsCompatibleBothWays`).
+- 노선 표는 노선별 10분 기억한다 ← 밤사이 표가 다시 적재되면 최대 10분 옛 이름 / 가드: 현재 정류장 이름 대조가 어긋난 목록을 버린다.
+- 로컬 `env/api.env` 의 경기 키는 `GYEONGGI_BUS_API` 가 아니라 `GONG_API` 에 들어 있다(이미 Encoding 형태, 다시 quote 금지).
+
+### 좌표
+- `application/arrival/service/BusApproachStopNames.java`(신규), `BusArrivalQueryService.java`(`toSeoulResponse`, `seoulStopsAway`), `GyeonggiArrivalMapper.java`, `TagoArrivalMapper.java`
+- `application/arrival/dto/BusArrivalResponse.java`, `GyeonggiBusArrival.java`(15칸 + 10칸 편의 생성자), `infrastructure/adapter/out/api/gyeonggi/GyeonggiBusArrivalAdapter.java`(`parse`)
+- `application/journey/dto/JourneyCommand.java`(`TRIGGERS`, `normalizeTrigger`), `JourneyCommandService.java`(`sameCommand`, `withoutTrigger`, `transitionPayload`), `infrastructure/adapter/in/api/journey/dto/ApplyJourneyEventRequest.java`
+
+### 미결
+- 경기 `predictTimeSec`·`vehId`·`stationNm1` 은 칸 이름만 실응답으로 확인했다(2026-11-10 새벽, 값은 전부 빈값). 낮에 값이 든 응답으로 초의 뜻과 `locationNo` 가 표의 순번과 같은 공간인지(경유 정류장 포함 여부) 확인 필요 — 지금은 이름 대조로 어긋난 띠를 거른다.
+- TAGO 띠 이름: 현재 정류장 이름을 주는 칸이 없어 보류.
+
+### 배포
+- 마이그레이션 없음. api·worker·worker2 를 같은 이미지로.
+- `BusArrivalQueryService` 의 클래스 단위 `@Transactional(readOnly = true)` 를 뺐다 — DB 는 순번 조회 한 번(리포지토리 자체 트랜잭션)뿐이고 그 뒤는 공급자 HTTP 호출이라, 걸어 두면 외부 호출 내내 커넥션을 쥔다. 띠 이름 조회가 NOT_SUPPORTED 로 커넥션을 하나 더 잡으면 풀(20)이 마른다(리뷰 지적).
+- 노선 표 읽기는 노선마다 한 번에 하나(`loading` 의 future 를 나머지가 최대 3초 기다린다), 맵 잠금 밖에서 읽는다. 실패한 읽기는 기억하지 않는다.
+
+### 검증
+- `./gradlew test --tests '*BusArrivalQueryServiceTest' '*BusApproachStopNames*' '*GyeonggiBusArrivalAdapterTest' '*JourneyCommandTest' '*JourneyControllerTest' '*JourneyEventIT' '*BusArrivalControllerTest'`(st-pg·st-redis env) → BUILD SUCCESSFUL. BusArrivalQueryServiceTest 25, BusApproachStopNamesTest 14, BusApproachStopNamesTransactionIT 1, GyeonggiBusArrivalAdapterTest 16, JourneyCommandTest 4, JourneyControllerTest 45, JourneyEventIT 19 — 실패 0.
+- `./gradlew test --continue`(같은 env) → 4,035 tests, 실패 0, 건너뜀 9(3차 리뷰 반영 직전 코드 기준. 그 뒤 바뀐 것은 `route()` 의 Throwable 처리·대기 상한·재확인과 테스트 3개뿐이고 위 대상 테스트로 다시 확인).
+- 실응답 대조(2026-11-10 새벽): 서울 심야 노선 9건 `[N번째 전]` = staOrd − sectOrd1, 운영 DB(읽기 전용) `bus_route_stop`+`bus_stop` 의 순번 이름 10건 = `stationNm`. 경기 `getBusArrivalItemv2` 키 목록에 `vehId1/2`·`predictTimeSec1/2`·`stationNm1/2` 확인(값은 빈값).
+- 리뷰: Opus 엄격 리뷰 3회. 1차 should-fix 7건(경기 띠가 걸러지지 않은 값 사용, 트랜잭션 오염, trigger 가 재전송 판정에 참여, 공유 캐시 혼재, 초 단위 가드 없음, 띠 시작 정류장 미검증, 캐시 무한 성장), 2차 2건(두 번째 커넥션·잠금 안 읽기), 3차 1건(Error 때 대기 요청 멈춤) 전부 반영.

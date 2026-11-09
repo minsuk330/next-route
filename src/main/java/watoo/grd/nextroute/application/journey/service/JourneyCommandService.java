@@ -119,7 +119,9 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
                 && seen.getRouteRevision() == command.routeRevision()
                 && seen.getType().equals(command.type().name())
                 && Objects.equals(seen.getClientOccurredAt(), command.clientOccurredAt())
-                && Objects.equals(seen.getPayload(), transitionPayload(command));
+                // 근거(trigger)는 기록일 뿐이라 같은 명령인지 가릴 때 보지 않는다. 보면 허용 목록이 다른 서버(롤백·배포
+                // 중)나 근거만 바뀐 재전송이 EVENT_ID_REUSED 로 거절된다.
+                && Objects.equals(withoutTrigger(seen.getPayload()), withoutTrigger(transitionPayload(command)));
     }
 
     /** 결정된 지시서를 여정·단계에 옮긴다. */
@@ -198,6 +200,15 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
                 .build());
     }
 
+    private static com.fasterxml.jackson.databind.JsonNode withoutTrigger(com.fasterxml.jackson.databind.JsonNode payload) {
+        if (payload == null || !payload.isObject() || !payload.has("trigger")) {
+            return payload;
+        }
+        com.fasterxml.jackson.databind.node.ObjectNode copy = payload.deepCopy();
+        copy.remove("trigger");
+        return copy;
+    }
+
     private com.fasterxml.jackson.databind.JsonNode transitionPayload(JourneyCommand command) {
         if (command.fromLegIndex() == null && command.toLegIndex() == null) {
             return null;
@@ -209,6 +220,10 @@ public class JourneyCommandService implements ApplyJourneyEventUseCase {
         }
         if (command.toLegIndex() != null) {
             payload.put("toLegIndex", command.toLegIndex());
+        }
+        // 근거가 없으면 키도 없다 — 옛 앱의 payload 모양을 그대로 둔다.
+        if (command.trigger() != null) {
+            payload.put("trigger", command.trigger());
         }
         return payload;
     }

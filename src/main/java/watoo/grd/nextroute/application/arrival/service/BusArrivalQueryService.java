@@ -2,7 +2,6 @@ package watoo.grd.nextroute.application.arrival.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.arrival.dto.BusArrivalResponse;
 import watoo.grd.nextroute.application.arrival.dto.GyeonggiBusArrival;
 import watoo.grd.nextroute.application.arrival.dto.TagoBusArrival;
@@ -20,9 +19,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
+/**
+ * 버스 도착 조회. 클래스 단위 트랜잭션을 두지 않는다 — DB 는 순번 조회 한 번뿐이고(리포지토리가 제 트랜잭션으로 읽는다)
+ * 그 뒤는 공급자 HTTP 호출이다. 트랜잭션을 걸어 두면 외부 호출이 끝날 때까지 커넥션을 쥐고, 띠 이름 조회
+ * ({@link BusApproachStopNames}, 트랜잭션 밖에서 읽는다)가 요청마다 커넥션을 하나 더 잡아 풀이 마른다.
+ */
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class BusArrivalQueryService implements GetBusArrivalUseCase {
 
     /**
@@ -44,6 +47,8 @@ public class BusArrivalQueryService implements GetBusArrivalUseCase {
     private final TagoBusArrivalPort tagoBusArrivalPort;
     /** TAGO 도시코드는 노선으로 찾는다(#267). 접두사 하나가 여러 시군에 걸친다. */
     private final TagoCityCodeLookup tagoCityCodeLookup;
+    /** 대기 화면의 정거장 띠에 쓸 이름(bus-boarding-flow S1). 못 구하면 null — 도착 정보는 그대로 나간다. */
+    private final BusApproachStopNames approachStopNames;
 
     @Override
     public List<BusArrivalResponse> getArrivals(String stopId, String routeId) {
@@ -71,17 +76,44 @@ public class BusArrivalQueryService implements GetBusArrivalUseCase {
             return List.of();
         }
 
-        return arrRes.data().stream()
-                .map(info -> BusArrivalResponse.builder()
-                        .routeId(info.routeId())
-                        .arrivalMsg1(info.arrivalMsg1())
-                        .predictTime1(info.sectionTime1())
-                        .congestionNum1(info.congestionNum1())
-                        .arrivalMsg2(info.arrivalMsg2())
-                        .predictTime2(info.sectionTime2())
-                        .congestionNum2(info.congestionNum2())
-                        .build())
-                .toList();
+        return arrRes.data().stream().map(info -> toSeoulResponse(info, routeId, ord)).toList();
+    }
+
+    private BusArrivalResponse toSeoulResponse(BusArrivalInfo info, String routeId, int ord) {
+        String vehicle1 = vehicleId(info.vehicleId1());
+        String vehicle2 = vehicleId(info.vehicleId2());
+        Integer stopsAway1 = seoulStopsAway(ord, info.sectionOrder1(), vehicle1);
+        return BusArrivalResponse.builder()
+                .routeId(info.routeId())
+                .arrivalMsg1(info.arrivalMsg1())
+                .predictTime1(info.sectionTime1())
+                .congestionNum1(info.congestionNum1())
+                .arrivalMsg2(info.arrivalMsg2())
+                .predictTime2(info.sectionTime2())
+                .congestionNum2(info.congestionNum2())
+                .stopsAway1(stopsAway1)
+                .stopsAway2(seoulStopsAway(ord, info.sectionOrder2(), vehicle2))
+                .vehicleId1(vehicle1)
+                .vehicleId2(vehicle2)
+                .approachStops1(approachStopNames.seoul(routeId, ord, stopsAway1, info.stationName1()))
+                .build();
+    }
+
+    /** 서울은 버스가 없으면 차량 id 를 {@code "0"} 으로 준다({@code BusRouteWatcher} 와 같은 규칙). */
+    private static String vehicleId(String raw) {
+        return raw == null || raw.isBlank() || "0".equals(raw) ? null : raw;
+    }
+
+    /**
+     * 요청 정류장 순번 − 버스의 현재 구간 순번 = 도착 문구의 {@code [N번째 전]}(2026-11-10 실응답 9건으로 확인. 곧 도착이면 0).
+     * 버스가 없으면(차량 id 없음, 구간 순번 0) 모른다. 음수(정류장을 지나친 값)도 모른다.
+     */
+    private static Integer seoulStopsAway(int ord, Integer sectionOrder, String vehicleId) {
+        if (vehicleId == null || sectionOrder == null || sectionOrder <= 0) {
+            return null;
+        }
+        int away = ord - sectionOrder;
+        return away < 0 ? null : away;
     }
 
     private List<BusArrivalResponse> getGyeonggiArrivals(String stationId, String routeId) {
@@ -90,7 +122,16 @@ public class BusArrivalQueryService implements GetBusArrivalUseCase {
             // 서울 경로와 같은 시맨틱: 조회 못 함(BLOCKED/ERROR)도 응답은 빈 리스트.
             return List.of();
         }
-        return res.data().stream().map(GyeonggiArrivalMapper::toResponse).toList();
+        return res.data().stream()
+                .map(arrival -> {
+                    // 걸러진 값(버스가 없으면 null)으로 띠를 만든다 — 원천 칸을 그대로 쓰면 버스 없는 응답에 띠만 남는다.
+                    BusArrivalResponse response = GyeonggiArrivalMapper.toResponse(arrival);
+                    return response.toBuilder()
+                            .approachStops1(approachStopNames.gyeonggi(routeId, stationId,
+                                    response.getStopsAway1(), arrival.stationName1()))
+                            .build();
+                })
+                .toList();
     }
 
     private static boolean isTagoId(String id) {
@@ -110,6 +151,7 @@ public class BusArrivalQueryService implements GetBusArrivalUseCase {
         if (!res.isOk()) {
             return List.of();
         }
+        // TAGO 는 띠 이름을 주지 않는다 — 버스의 현재 정류장 이름이 없어 순번이 맞는지 확인할 수 없다(몇 정류장 전만 준다).
         return TagoArrivalMapper.toResponse(routeId, res.data()).map(List::of).orElse(List.of());
     }
 }
