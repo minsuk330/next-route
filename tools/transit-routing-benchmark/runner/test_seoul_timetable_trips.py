@@ -50,6 +50,21 @@ class AssignRouteTest(unittest.TestCase):
         self.assertIn("ambiguous", why)
 
 
+class OtherRegionStopIdsTest(unittest.TestCase):
+    """Stops outside Seoul have no RS_ACC1_S-1- prefix: patterns, trains and the match must use one code."""
+    IDS = [f"RS_ACC3_S-3-01-{i:03d}" for i in range(5)]
+    R = "RR_ACC3_S-3-01-1D"
+
+    def test_assign_and_match_with_full_stop_ids(self):
+        gtfs = {self.R: {f"t{k}": dict(stops=[(s, 6 * 3600 + 600 * k + 120 * j, 6 * 3600 + 600 * k + 120 * j)
+                                              for j, s in enumerate(self.IDS)]) for k in range(3)}}
+        pats = stt.route_patterns(gtfs)
+        trains = {str(k): train(str(k), [stt.stop_code(s) for s in self.IDS], 6 * 3600 + 600 * k) for k in range(3)}
+        self.assertEqual(stt.assign_route(trains["0"], [self.R], pats, set()), (self.R, "same"))
+        wd = stt.weekday_match(gtfs, [self.R], trains, pats, set(), 60)
+        self.assertEqual((wd["matched"], wd["gtfsRate"], wd["stopDeltaP90"]), (3, 1.0, 0))
+
+
 class WeekendEntriesTest(unittest.TestCase):
     def test_same_train_in_both_tables_is_one_sh_trip(self):
         sa = {"1": train("1", CODES), "2": train("2", CODES, 7 * 3600), "3": train("3", CODES, 8 * 3600)}
