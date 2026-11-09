@@ -122,7 +122,8 @@ class RouteSearchRealtimeDeadlineIT {
                 java.time.Clock.systemDefaultZone(), new watoo.grd.nextroute.application.route.config.OtpRoutingProperties(),
                 new WalkCoordResolver(),
                 new watoo.grd.nextroute.application.route.routing.ExpressFilterPolicy(
-                        watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier()));
+                        watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier()),
+                watoo.grd.nextroute.application.route.service.ScheduleWaitFillerTest.disabled());
 
         long started = System.nanoTime();
         RouteSearchResult result = service.search(

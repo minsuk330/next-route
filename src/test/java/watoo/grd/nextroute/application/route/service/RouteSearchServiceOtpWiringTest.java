@@ -89,7 +89,8 @@ class RouteSearchServiceOtpWiringTest {
                 new DepartureTimeResolver(Clock.systemDefaultZone()), grantingGate, Clock.systemDefaultZone(), otpProps,
                 new WalkCoordResolver(),
                 new watoo.grd.nextroute.application.route.routing.ExpressFilterPolicy(
-                        watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier()));
+                        watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier()),
+                watoo.grd.nextroute.application.route.service.ScheduleWaitFillerTest.disabled());
     }
 
     private RoutingPort otpReturning(RoutingOutcome outcome) {

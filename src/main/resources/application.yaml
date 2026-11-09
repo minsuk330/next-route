@@ -123,6 +123,9 @@ route:
     max-concurrent-external-calls: ${TRANSFER_ARRIVAL_MAX_CONCURRENT:8}
     external-call-acquire-ms: ${TRANSFER_ARRIVAL_ACQUIRE_MS:500}
     max-external-calls-per-search: ${TRANSFER_ARRIVAL_MAX_CALLS:12}
+    # 실시간·모델을 못 물은 버스를 OTP 계획 탑승시각으로 채운다(source=SCHEDULE, search-regional-bus-wait PR-1b). 외부 호출 없음
+    schedule-fallback-enabled: ${TRANSFER_ARRIVAL_SCHEDULE_FALLBACK:true}
+    schedule-max-wait-seconds: ${TRANSFER_ARRIVAL_SCHEDULE_MAX_WAIT:3600}
 
   # 경로 검색 시간 예산·격리. 값 선정 근거는 docs/plan/route-search-resilience/RESULTS.md
   search:
