@@ -50,6 +50,8 @@ public class TransferArrivalEnricher {
     private final MlFeatureVectorBuilder featureBuilder;
     private final PredictionSupportService predictionSupport;
     private final java.time.Clock clock;
+    /** 경기·TAGO 도착 조회(search-regional-bus-wait PR-2). null 이면 지역 조회 없음(시험 대역). */
+    private final SearchRegionalArrivalService regional;
 
     // ── 공개 API ────────────────────────────────────────────────────────────
 
@@ -118,7 +120,7 @@ public class TransferArrivalEnricher {
     /** 정상 조회(버스가 실제로 없는 NO_VEHICLE 포함)는 degradation 이 아니다. */
     private void reportStatus(TransferArrival.Status status, RouteSearchContext searchCtx) {
         switch (status) {
-            case AVAILABLE, ARRIVAL_TIME_APPROXIMATE, NO_VEHICLE -> { }
+            case AVAILABLE, ARRIVAL_TIME_APPROXIMATE, NO_VEHICLE, ARRIVAL_ONLY -> { }
             case DISABLED -> searchCtx.degrade(SearchComponent.BUS_REALTIME, DegradeReason.DISABLED);
             case BLOCKED -> searchCtx.degrade(SearchComponent.BUS_REALTIME, DegradeReason.BLOCKED);
             case LIMITED -> searchCtx.degrade(SearchComponent.BUS_REALTIME, DegradeReason.LIMITED);
@@ -168,6 +170,9 @@ public class TransferArrivalEnricher {
         // 검색당 외부 호출 상한(provider fan-out cap). 0 이하면 무제한.
         java.util.concurrent.atomic.AtomicInteger callBudget = new java.util.concurrent.atomic.AtomicInteger(
                 props.getMaxExternalCallsPerSearch() > 0 ? props.getMaxExternalCallsPerSearch() : Integer.MAX_VALUE);
+        // 검색당 경기·TAGO 조회 상한(정류장·노선 단위)
+        java.util.concurrent.atomic.AtomicInteger regionalBudget = new java.util.concurrent.atomic.AtomicInteger(
+                Math.max(0, props.getRegionalMaxCallsPerSearch()));
 
         for (int wave = 0; wave <= maxWave; wave++) {
             int w = wave;
@@ -181,7 +186,7 @@ public class TransferArrivalEnricher {
             }
 
             processWave(wave, waveCtxs, result, searchStartedAt, prevWave, resultMap,
-                    callBudget, remainingBudget, requestBudgetAware);
+                    callBudget, regionalBudget, remainingBudget, requestBudgetAware);
         }
 
         Set<Integer> endedPaths = new TreeSet<>();
@@ -316,6 +321,7 @@ public class TransferArrivalEnricher {
             Map<Integer, PrevWaveInfo> prevWave,
             Map<Integer, Map<Integer, List<TransferArrival>>> resultMap,
             java.util.concurrent.atomic.AtomicInteger callBudget,
+            java.util.concurrent.atomic.AtomicInteger regionalBudget,
             LongSupplier remainingBudget,
             boolean requestBudgetAware) {
 
@@ -343,17 +349,21 @@ public class TransferArrivalEnricher {
                 if (prev == null || !prev.boardable) {
                     ctx.upstreamUnavailable = true;
                     ctx.estimatedUserArrivalAt = searchStartedAt; // 사용 안 함
-                    continue;
+                    if (!props.isArrivalOnlyEnabled()) {
+                        continue;
+                    }
+                    // 도착 시각은 모르지만 실시간 도착은 묻는다 → 3f 에서 ARRIVAL_ONLY(대기 계산 없음). 아래 정적 해석으로 간다
+                } else {
+                    // 직전 버스 ride time + 사이 이동 시간
+                    SubPathResult prevBusSp = path.subPaths().get(prev.subPathIdx);
+                    long sumSec = prevBusSp.sectionTime() * 60L;
+                    for (int k = prev.subPathIdx + 1; k < ctx.subPathIdx; k++) {
+                        sumSec += travelSeconds(path.subPaths().get(k));
+                    }
+                    ctx.estimatedUserArrivalAt = prev.predictedArrivalAt.plusSeconds(sumSec);
+                    ctx.basisLaneIndex = prev.basisLaneIndex;
+                    ctx.conditional = prev.conditional;
                 }
-                // 직전 버스 ride time + 사이 이동 시간
-                SubPathResult prevBusSp = path.subPaths().get(prev.subPathIdx);
-                long sumSec = prevBusSp.sectionTime() * 60L;
-                for (int k = prev.subPathIdx + 1; k < ctx.subPathIdx; k++) {
-                    sumSec += travelSeconds(path.subPaths().get(k));
-                }
-                ctx.estimatedUserArrivalAt = prev.predictedArrivalAt.plusSeconds(sumSec);
-                ctx.basisLaneIndex = prev.basisLaneIndex;
-                ctx.conditional = prev.conditional;
             }
 
             // static resolve 실행 (subPath 접근 필요)
@@ -372,6 +382,13 @@ public class TransferArrivalEnricher {
                 if (routeRes.isEmpty()) {
                     lc.routeId = null;
                     lc.routeName = null;
+                    // 서울 노선이 아니면 경기·TAGO 로 묻는다(id 모양으로 판정)
+                    if (regionalOn()) {
+                        lc.regional = SearchRegionalArrivalService
+                                .providerOf(lane.busLocalBlID(), sp.startLocalStationID()).orElse(null);
+                        lc.regionalRouteId = lc.regional == null ? null : lane.busLocalBlID();
+                        lc.regionalStopId = lc.regional == null ? null : sp.startLocalStationID();
+                    }
                 } else {
                     lc.routeId = routeRes.get().routeId();
                     lc.routeName = routeRes.get().routeName();
@@ -388,7 +405,7 @@ public class TransferArrivalEnricher {
         // 3b: arrival API 조회 — (stopId, routeId, ord) 단위 dedupe (정류장·노선·순번 특정 상황)
         Map<String, BusQueryResult<BusArrivalInfo>> arrCache = new HashMap<>();
         for (SubPathCtx ctx : waveCtxs) {
-            if (ctx.upstreamUnavailable || ctx.stopId == null) continue;
+            if ((ctx.upstreamUnavailable && !props.isArrivalOnlyEnabled()) || ctx.stopId == null) continue;
             for (LaneCtx lc : ctx.laneContexts) {
                 if (lc.routeId == null || lc.targetSeq == null) continue;  // seq 미확정 lane은 조회 불가
                 String key = ctx.stopId + ":" + lc.routeId + ":" + lc.targetSeq;
@@ -403,6 +420,35 @@ public class TransferArrivalEnricher {
                     lc.arrMatched = r.data().stream()
                             .filter(a -> lc.routeId.equals(a.routeId()))
                             .findFirst().orElse(null);
+                }
+            }
+        }
+
+        // 3b': 경기·TAGO 도착 — wave 안 병렬, 남은 기한 하나를 나눠 쓴다(search-regional-bus-wait PR-2)
+        if (regionalOn()) {
+            Map<String, SearchRegionalArrivalService.Pending> pending = new HashMap<>();
+            for (SubPathCtx ctx : waveCtxs) {
+                if (ctx.upstreamUnavailable && !props.isArrivalOnlyEnabled()) continue;
+                for (LaneCtx lc : ctx.laneContexts) {
+                    if (lc.regional == null) continue;
+                    String key = lc.regional + ":" + lc.regionalStopId + ":" + lc.regionalRouteId;
+                    if (!pending.containsKey(key)) {
+                        if (regionalBudget.getAndDecrement() <= 0) continue;   // 검색당 상한 → 이 lane 은 기존 status
+                        pending.put(key, regional.start(lc.regional, lc.regionalRouteId, lc.regionalStopId));
+                    }
+                }
+            }
+            long waitMs = Math.min(remainingBudget.getAsLong(), props.getRegionalTimeoutMs());
+            long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.max(0, waitMs));
+            Map<String, SearchRegionalArrivalService.Result> done = new HashMap<>();
+            for (Map.Entry<String, SearchRegionalArrivalService.Pending> e : pending.entrySet()) {
+                long left = TimeUnit.NANOSECONDS.toMillis(deadlineNanos - System.nanoTime());
+                done.put(e.getKey(), e.getValue().await(left));
+            }
+            for (SubPathCtx ctx : waveCtxs) {
+                for (LaneCtx lc : ctx.laneContexts) {
+                    if (lc.regional == null) continue;
+                    lc.regionalResult = done.get(lc.regional + ":" + lc.regionalStopId + ":" + lc.regionalRouteId);
                 }
             }
         }
@@ -499,9 +545,15 @@ public class TransferArrivalEnricher {
 
             if (ctx.upstreamUnavailable) {
                 for (LaneCtx lc : ctx.laneContexts) {
-                    laneResults.add(noResult(lc.routeId, lc.laneIdx,
-                            TransferArrival.Source.NONE, TransferArrival.Status.UPSTREAM_UNAVAILABLE,
-                            calculatedAt, ctx.estimatedUserArrivalAt));
+                    // 도착 시각을 모른다 — 실시간 도착이 있으면 그것만 싣고(대기 없음), 없으면 앞 버스 결과 없음
+                    Optional<Instant> next = props.isArrivalOnlyEnabled() ? nextArrival(lc, calculatedAt) : Optional.empty();
+                    laneResults.add(next.isPresent()
+                            ? new TransferArrival(lc.regional != null ? lc.regionalRouteId : lc.routeId, lc.laneIdx,
+                                    TransferArrival.Source.REALTIME, TransferArrival.Status.ARRIVAL_ONLY,
+                                    calculatedAt, null, next.get(), null, null, null, null, true)
+                            : noResult(lc.routeId, lc.laneIdx,
+                                    TransferArrival.Source.NONE, TransferArrival.Status.UPSTREAM_UNAVAILABLE,
+                                    calculatedAt, ctx.estimatedUserArrivalAt));
                 }
                 resultMap.computeIfAbsent(ctx.pathIdx, k -> new HashMap<>())
                         .put(ctx.subPathIdx, laneResults);
@@ -511,7 +563,9 @@ public class TransferArrivalEnricher {
             for (LaneCtx lc : ctx.laneContexts) {
                 TransferArrival ta;
 
-                if (ctx.stopId == null) {
+                if (lc.regional != null && lc.regionalResult != null) {
+                    ta = regionalResult(ctx, lc, calculatedAt);
+                } else if (ctx.stopId == null) {
                     ta = noResult(lc.routeId, lc.laneIdx,
                             TransferArrival.Source.NONE, TransferArrival.Status.STOP_MAPPING_FAILED,
                             calculatedAt, ctx.estimatedUserArrivalAt);
@@ -660,6 +714,35 @@ public class TransferArrivalEnricher {
                 ctx.basisLaneIndex, ctx.conditional, ctx.precedingSubway);
     }
 
+    private boolean regionalOn() {
+        return regional != null && regional.enabled();
+    }
+
+    /** 지금부터 가장 이른 도착(서울 실시간 또는 경기·TAGO). ARRIVAL_ONLY 용. */
+    private Optional<Instant> nextArrival(LaneCtx lc, Instant now) {
+        if (lc.regional != null) {
+            return lc.regionalResult == null ? Optional.empty() : lc.regionalResult.boardableAt(now);
+        }
+        return lc.arrMatched == null ? Optional.empty() : earliestRealtimeArrival(lc.arrMatched, now);
+    }
+
+    /** 경기·TAGO 조회 결과 → lane 결과. 정류장 도착 시각 뒤 첫 버스가 있으면 실시간 대기(다음 버스 계산에도 쓰인다). */
+    private TransferArrival regionalResult(SubPathCtx ctx, LaneCtx lc, Instant calculatedAt) {
+        SearchRegionalArrivalService.Result r = lc.regionalResult;
+        return switch (r.outcome()) {
+            case OK -> r.boardableAt(ctx.estimatedUserArrivalAt)
+                    .map(at -> buildAvailable(lc.regionalRouteId, lc.laneIdx, TransferArrival.Source.REALTIME,
+                            calculatedAt, ctx.estimatedUserArrivalAt, at, null, null,
+                            ctx.basisLaneIndex, ctx.conditional, ctx.precedingSubway))
+                    .orElseGet(() -> noResult(lc.regionalRouteId, lc.laneIdx, TransferArrival.Source.NONE,
+                            TransferArrival.Status.NO_VEHICLE, calculatedAt, ctx.estimatedUserArrivalAt));
+            case LIMITED -> noResult(lc.regionalRouteId, lc.laneIdx, TransferArrival.Source.NONE,
+                    TransferArrival.Status.LIMITED, calculatedAt, ctx.estimatedUserArrivalAt);
+            case ERROR, TIMEOUT -> noResult(lc.regionalRouteId, lc.laneIdx, TransferArrival.Source.NONE,
+                    TransferArrival.Status.ERROR, calculatedAt, ctx.estimatedUserArrivalAt);
+        };
+    }
+
     private TransferArrival buildAvailable(
             String routeId, int laneIdx, TransferArrival.Source source,
             Instant calculatedAt, Instant userAt, Instant predictedAt,
@@ -672,14 +755,14 @@ public class TransferArrivalEnricher {
                 : TransferArrival.Status.AVAILABLE;
         return new TransferArrival(routeId, laneIdx, source, status,
                 calculatedAt, userAt, predictedAt, waitSec,
-                vehicleId, modelVersion, basisLaneIndex, conditional, null);
+                vehicleId, modelVersion, basisLaneIndex, conditional);
     }
 
     private TransferArrival noResult(String routeId, int laneIdx,
                                      TransferArrival.Source source, TransferArrival.Status status,
                                      Instant calculatedAt, Instant userAt) {
         return new TransferArrival(routeId, laneIdx, source, status,
-                calculatedAt, userAt, null, null, null, null, null, null, null);
+                calculatedAt, userAt, null, null, null, null, null, null);
     }
 
     private void updatePrevWave(
@@ -720,7 +803,7 @@ public class TransferArrivalEnricher {
             List<TransferArrival> laneResults = IntStream.range(0, ctx.laneCount)
                     .mapToObj(li -> new TransferArrival(
                             null, li, TransferArrival.Source.NONE, TransferArrival.Status.DISABLED,
-                            calculatedAt, null, null, null, null, null, null, null, null))
+                            calculatedAt, null, null, null, null, null, null, null))
                     .toList();
             map.computeIfAbsent(ctx.pathIdx, k -> new HashMap<>())
                     .put(ctx.subPathIdx, laneResults);
@@ -817,6 +900,10 @@ public class TransferArrivalEnricher {
         Outcome arrOutcome = Outcome.OK;        // 도착 조회 결과(BLOCKED/LIMITED/ERROR면 lane status로 반영)
         BusArrivalInfo arrMatched;              // 해당 노선 도착 1건(OK일 때만)
         TransferArrival realtimeResult;
+        SearchRegionalArrivalService.Provider regional;   // 경기·TAGO 로 물을 lane(서울 해석 실패 + id 모양)
+        String regionalRouteId;
+        String regionalStopId;
+        SearchRegionalArrivalService.Result regionalResult;
 
         LaneCtx(int laneIdx) { this.laneIdx = laneIdx; }
     }

@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * search-regional-bus-wait PR-0: 다른 버전 서버가 저장한 검색 스냅샷(Redis·여정 routeSnapshot)에 이 서버가 모르는 enum 값이
- * 있어도 읽혀야 한다. 스프링 ObjectMapper(application.yaml spring.jackson 설정 포함)로 확인한다. (SCHEDULE 은 PR-1b 에서 알려진 값이 됐다.)
+ * 있어도 읽혀야 한다. 스프링 ObjectMapper(application.yaml spring.jackson 설정 포함)로 확인한다.
  */
 @JsonTest
 class TransferArrivalUnknownEnumTest {
@@ -23,10 +23,11 @@ class TransferArrivalUnknownEnumTest {
 
     record Holder(List<TransferArrival> transferArrivals) {}
 
+    /** SCHEDULE 은 2026-11-09 잠깐 배포됐다가 빠진 값 — 그때 저장된 여정 routeSnapshot 도 읽혀야 한다. */
     @Test
     void unknownSourceAndStatusFallBackToDefaults() throws Exception {
         String json = """
-                {"transferArrivals":[{"routeId":"234000026","laneIndex":0,"source":"FROM_A_NEWER_SERVER","status":"SOMETHING_NEW",
+                {"transferArrivals":[{"routeId":"234000026","laneIndex":0,"source":"SCHEDULE","status":"SOMETHING_NEW",
                   "waitSeconds":120}]}
                 """;
         TransferArrival ta = objectMapper.readValue(json, Holder.class).transferArrivals().get(0);
@@ -39,13 +40,12 @@ class TransferArrivalUnknownEnumTest {
     @Test
     void knownValuesAreUnchanged() throws Exception {
         String json = """
-                {"transferArrivals":[{"laneIndex":0,"source":"SCHEDULE","status":"NO_VEHICLE","fallbackReason":"LIMITED"}]}
+                {"transferArrivals":[{"laneIndex":0,"source":"MODEL","status":"ARRIVAL_ONLY"}]}
                 """;
         TransferArrival ta = objectMapper.readValue(json, Holder.class).transferArrivals().get(0);
 
-        assertThat(ta.source()).isEqualTo(TransferArrival.Source.SCHEDULE);
-        assertThat(ta.fallbackReason()).isEqualTo("LIMITED");
-        assertThat(ta.status()).isEqualTo(TransferArrival.Status.NO_VEHICLE);
+        assertThat(ta.source()).isEqualTo(TransferArrival.Source.MODEL);
+        assertThat(ta.status()).isEqualTo(TransferArrival.Status.ARRIVAL_ONLY);
     }
 
     enum NoDefault { A, B }

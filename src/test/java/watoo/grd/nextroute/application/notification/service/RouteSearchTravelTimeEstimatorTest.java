@@ -88,7 +88,7 @@ class RouteSearchTravelTimeEstimatorTest {
     private TransferArrival arrival(int laneIndex, TransferArrival.Status status, long waitSeconds) {
         Instant base = Instant.parse("2026-06-23T00:00:00Z");
         return new TransferArrival("route1", laneIndex, TransferArrival.Source.REALTIME, status,
-                base, base, base.plusSeconds(waitSeconds), waitSeconds, "veh1", null, null, false, null);
+                base, base, base.plusSeconds(waitSeconds), waitSeconds, "veh1", null, null, false);
     }
 
     private RouteSearchResult result(SubPathResult... subs) {
@@ -169,23 +169,6 @@ class RouteSearchTravelTimeEstimatorTest {
         RouteEvaluation e = estimator().evaluate(query(), EvaluationMode.REALTIME);
 
         // fallback term/2 = 6분 → 20+6 = 26분
-        assertThat(e.durationSec()).isEqualTo(20 * 60 + 6 * 60);
-        assertThat(e.reliability()).isEqualTo(RouteAlertReliability.LOW);
-    }
-
-    @Test
-    void realtime_scheduleWait_isFallbackNotRealtime_reliabilityLow() {
-        // 시간표 대기(SCHEDULE)는 status 가 AVAILABLE 이어도 실측이 아니다 — term/2 fallback, 신뢰도 LOW(search-regional-bus-wait PR-1b)
-        Instant base = Instant.parse("2026-06-23T00:00:00Z");
-        TransferArrival schedule = new TransferArrival("route1", 0, TransferArrival.Source.SCHEDULE,
-                TransferArrival.Status.AVAILABLE, base, base, base.plusSeconds(60), 60L, null, null, null, false,
-                "LIMITED");
-        given(searchRouteUseCase.search(any())).willReturn(result(bus(20, List.of(schedule))));
-        stubResolveOk(12);
-        given(serviceWindowChecker.judge(any(), any(), any())).willReturn(Availability.AVAILABLE);
-
-        RouteEvaluation e = estimator().evaluate(query(), EvaluationMode.REALTIME);
-
         assertThat(e.durationSec()).isEqualTo(20 * 60 + 6 * 60);
         assertThat(e.reliability()).isEqualTo(RouteAlertReliability.LOW);
     }

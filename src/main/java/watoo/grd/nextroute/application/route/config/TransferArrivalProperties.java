@@ -46,11 +46,26 @@ public class TransferArrivalProperties {
     private long realtimeStaleAfterSeconds = 90;
 
     /**
-     * 실시간·모델을 묻지 못한 버스(정류장 매핑 실패·다른 지역·차단·한도·오류·앞 버스 결과 없음)를 OTP 계획 탑승시각으로 채운다
-     * (source=SCHEDULE, search-regional-bus-wait PR-1b). 외부 호출 없음. 꺼지면 응답은 지금과 같다.
+     * 앞 버스 결과가 없어 이 정류장 도착 시각을 모르는 버스도 실시간 도착을 조회해 {@code ARRIVAL_ONLY}(다음 도착만, 대기 없음)로
+     * 싣는다(search-regional-bus-wait PR-2). 외부 호출이 는다 — 검색당 호출 상한·기한은 그대로.
      */
-    private boolean scheduleFallbackEnabled = true;
+    private boolean arrivalOnlyEnabled = false;
 
-    /** 시간표 대기 상한(초). 이보다 길면 채우지 않는다(먼 미래 일정·막차 뒤를 "대기"로 보이지 않게). */
-    private long scheduleMaxWaitSeconds = 3600;
+    /** 경기(GBIS)·TAGO 버스도 검색에서 실시간 도착을 조회한다(search-regional-bus-wait PR-2). */
+    private boolean regionalEnabled = false;
+
+    /** 검색이 경기·TAGO 조회를 기다리는 상한(ms). 남은 보강 기한과 짧은 쪽. 넘으면 포기(호출은 공유 캐시를 채운다). */
+    private long regionalTimeoutMs = 800;
+
+    /** 검색 1건의 경기·TAGO 조회 상한(정류장·노선 단위, 중복 제거 뒤). */
+    private int regionalMaxCallsPerSearch = 6;
+
+    /** 공급자별 검색 전용 동시 자리(기다리지 않음). TAGO 서버 합산 자리를 검색이 독점하지 않게. */
+    private int regionalMaxConcurrent = 2;
+
+    /** 검색 전용 경기 도착 일일 몫(호출 전 셈). 공급자 10,000 = 재탐색 5,000 + 공개 5,000(어댑터가 miss 때 셈) 안. */
+    private int regionalGyeonggiDailyLimit = 2000;
+
+    /** 검색 전용 TAGO 도착 일일 몫(호출 전 셈). 공급자 한도 500,000/일(2026-11-09 사용자 확인). */
+    private int regionalTagoDailyLimit = 100000;
 }
