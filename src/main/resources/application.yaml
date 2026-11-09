@@ -128,8 +128,9 @@ route:
     # 경기(GBIS)·TAGO 버스도 검색에서 실시간 도착 조회. 검색 전용 몫·동시 자리·기한(search-regional-bus-wait PR-2)
     regional-enabled: ${TRANSFER_ARRIVAL_REGIONAL:false}
     regional-timeout-ms: ${TRANSFER_ARRIVAL_REGIONAL_TIMEOUT_MS:1200}
-    regional-max-calls-per-search: ${TRANSFER_ARRIVAL_REGIONAL_MAX_CALLS:6}
-    regional-max-concurrent: ${TRANSFER_ARRIVAL_REGIONAL_MAX_CONCURRENT:3}
+    # 0 = 상한 없음: 결과에 나온 경기·TAGO 버스를 모두 묻는다(경로 수가 상한)
+    regional-max-calls-per-search: ${TRANSFER_ARRIVAL_REGIONAL_MAX_CALLS:0}
+    regional-max-concurrent: ${TRANSFER_ARRIVAL_REGIONAL_MAX_CONCURRENT:4}
     # 경기 공급자 10,000/일 = 재탐색 5,000 + 공개 5,000(gg-arrival, miss 때 셈). 검색은 그 위에 상한 하나 더
     regional-gyeonggi-daily-limit: ${TRANSFER_ARRIVAL_REGIONAL_GG_DAILY:2000}
     # TAGO 공급자 500,000/일
