@@ -1,0 +1,15 @@
+{
+ "issue": "minsuk330/next-route#557",
+ "purpose": "Public holidays that run the metro holiday timetable (apply_day_types.py, step 2h). Extend coverage before a build whose service range passes coverage.to.",
+ "source": "한국천문연구원 특일 정보 getRestDeInfo (apis.data.go.kr/B090041/openapi/service/SpcdeInfoService), isHoliday=Y, fetched 2026-11-09",
+ "coverage": {"from": "2026-11-01", "to": "2027-03-31"},
+ "days": [
+  {"date": "2026-12-25", "name": "기독탄신일", "source": "getRestDeInfo 2026-12"},
+  {"date": "2027-01-01", "name": "1월1일", "source": "getRestDeInfo 2027-01"},
+  {"date": "2027-02-06", "name": "설날", "source": "getRestDeInfo 2027-02"},
+  {"date": "2027-02-07", "name": "설날", "source": "getRestDeInfo 2027-02"},
+  {"date": "2027-02-08", "name": "설날", "source": "getRestDeInfo 2027-02"},
+  {"date": "2027-02-09", "name": "대체공휴일(설날)", "source": "getRestDeInfo 2027-02"},
+  {"date": "2027-03-01", "name": "삼일절", "source": "getRestDeInfo 2027-03"}
+ ]
+}
