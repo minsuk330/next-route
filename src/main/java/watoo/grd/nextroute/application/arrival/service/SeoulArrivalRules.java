@@ -40,8 +40,9 @@ final class SeoulArrivalRules {
     }
 
     /**
-     * 버스가 있을 때의 남은 초. 차량이 없는 행의 {@code traTime} 은 남은 초가 아니다(운행종료 행은 0) — 그대로 두면
-     * 정렬에서 "0분"으로 맨 위에 온다.
+     * 버스가 있을 때의 남은 초. 차량이 없는 행(차량 id "0": 출발대기, 운행종료 등, 또는 운행종료 문구)의 {@code traTime} 은
+     * 남은 초가 아니다(운행종료 행은 0) — 그대로 두면 정렬에서 "0분"으로 맨 위에 온다. 노선 단위와 정류장 단위 공통
+     * (사용자 결정 2026-11-16).
      */
     static Integer predictSeconds(Integer traTime, String vehicleId) {
         return vehicleId == null || traTime == null || traTime < 0 ? null : traTime;

@@ -464,4 +464,19 @@ class BusArrivalQueryServiceTest {
         assertThat(r.getPredictTime1()).isEqualTo(source.sectionTime1()).isNotNull();
         assertThat(r.getPredictTime2()).isEqualTo(source.sectionTime2()).isNotNull();
     }
+
+    @Test
+    void seoul_departureWaitWithoutAVehicle_hasNoTime() {
+        // 출발대기: 차량 id "0", 구간 순번 0 인데 원본 traTime 칸은 비어 있지 않다. 정류장 단위와 같이 시간을 비운다(2026-11-16).
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP)).willReturn(List.of(routeStop(10)));
+        var source = BusArrivalInfoFixtures.arrivalAt("0", 0, " ", "출발대기", "0", 0, "출발대기");
+        given(busQueryPort.getArrInfoByStop(STOP, ROUTE, 10)).willReturn(BusQueryResult.ok(List.of(source)));
+
+        BusArrivalResponse r = service.getArrivals(STOP, ROUTE).get(0);
+
+        assertThat(source.sectionTime1()).as("원본 칸에는 값이 있다").isNotNull();
+        assertThat(r.getArrivalMsg1()).isEqualTo("출발대기");
+        assertThat(r.getPredictTime1()).isNull();
+        assertThat(r.getPredictTime2()).isNull();
+    }
 }
