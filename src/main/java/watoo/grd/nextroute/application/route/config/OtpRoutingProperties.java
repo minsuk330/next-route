@@ -75,6 +75,21 @@ public class OtpRoutingProperties {
     /** 대체 노선 탑승시간 상한 = 대표 탑승시간 × 이 값 + {@link #alternativeRideSlackSeconds}. 실측 노이즈(수원 2-1) 제거. */
     private double alternativeRideFactor = 1.3;
     private int alternativeRideSlackSeconds = 300;
+    /**
+     * 최단 소요 × 이 값을 넘는 경로는 가장 빠른 {@link #slowRouteKeep} 개만 남긴다(otp-kakao-parity). 0 이하면 끈다.
+     * 2026-11-16 운영: 합정→잠실 최단 41분에 91~102분 버스 경로 8개가 목록을 채웠다.
+     */
+    private double slowRouteFactor = 1.6;
+    private int slowRouteKeep = 2;
+    /**
+     * 철도만 타는 경로가 {@link #railAlternativeThreshold} 개보다 적으면, 가장 좋은 철도 경로의 노선을 하나씩 빼고 철도만 다시
+     * 묻는다(otp-kakao-parity). 호출은 노선마다 한 번, {@link #railAlternativeMaxLines} 까지. false 면 옛 "철도만" 추가 검색.
+     */
+    private boolean railAlternativesEnabled = true;
+    private int railAlternativeThreshold = 3;
+    private int railAlternativeMaxLines = 2;
+    /** 예매 열차(KTX·SRT·무궁화 등 국가철도)를 이 시간(분)보다 짧게 타는 경로는 뺀다 — 도시 안 한두 정거장 이동에 섞인다. 0 이면 끈다. */
+    private int intercityRailMinRideMinutes = 40;
     /** 연결 timeout(ms). read timeout 은 호출별 남은 예산으로 결정. */
     private long connectTimeoutMs = 2000;
     private String schemaVersion = "otp-2.10.0-planConnection-v1";
@@ -91,6 +106,18 @@ public class OtpRoutingProperties {
     private boolean realtimeEnabled = false;
 
     public String getBaseUrl() { return baseUrl; }
+    public double getSlowRouteFactor() { return slowRouteFactor; }
+    public void setSlowRouteFactor(double slowRouteFactor) { this.slowRouteFactor = slowRouteFactor; }
+    public int getSlowRouteKeep() { return slowRouteKeep; }
+    public void setSlowRouteKeep(int slowRouteKeep) { this.slowRouteKeep = slowRouteKeep; }
+    public boolean isRailAlternativesEnabled() { return railAlternativesEnabled; }
+    public void setRailAlternativesEnabled(boolean railAlternativesEnabled) { this.railAlternativesEnabled = railAlternativesEnabled; }
+    public int getRailAlternativeThreshold() { return railAlternativeThreshold; }
+    public void setRailAlternativeThreshold(int railAlternativeThreshold) { this.railAlternativeThreshold = railAlternativeThreshold; }
+    public int getRailAlternativeMaxLines() { return railAlternativeMaxLines; }
+    public void setRailAlternativeMaxLines(int railAlternativeMaxLines) { this.railAlternativeMaxLines = railAlternativeMaxLines; }
+    public int getIntercityRailMinRideMinutes() { return intercityRailMinRideMinutes; }
+    public void setIntercityRailMinRideMinutes(int intercityRailMinRideMinutes) { this.intercityRailMinRideMinutes = intercityRailMinRideMinutes; }
     public boolean isBusLaneMergeEnabled() { return busLaneMergeEnabled; }
     public void setBusLaneMergeEnabled(boolean busLaneMergeEnabled) { this.busLaneMergeEnabled = busLaneMergeEnabled; }
     public int getAlternativeLegs() { return alternativeLegs; }

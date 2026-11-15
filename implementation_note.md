@@ -6604,3 +6604,25 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 `runfull.sh`(cleanTest test --continue): **4,065 중 실패 2, 건너뜀 12**, 10분. 둘 다 기존 무관: `RerouteRemainingPathOtpLiveIT`(로컬 OTP 가 떠서 켜짐 → `otpConcurrencyConfigValidator` lease-ms 12000 < 17000, 노트 5875행과 같은 실패), `RedisOtpConcurrencyGateAdapterIT` lease 만료 시험(단독 재실행 통과, 타이밍).
 ### 배포
 - V76(regional_subway_station, regional_subway_departure). 플래그 `REGIONAL_SUBWAY_TIMETABLE_ENABLED` 기본 false.
+
+
+## OTP 검색을 카카오맵과 맞추기 1차 (otp-kakao-parity, 2026-11-16)
+플랜 `docs/plan/otp-kakao-parity/`. 비교 도구·원자료 `tools/route-compare/`(untracked): `ods.tsv`(80 OD), `ods_old.tsv`(25), `kakao_raw.txt`, `compare.py`, `xfer_all.py`.
+### 확정
+- 지하철 대안 = 가장 좋은 철도 경로의 노선을 하나씩 빼고 철도만 재검색(최대 2회, 철도만 타는 경로 3개 미만일 때). OTP `relaxTransitGroupPriority` 는 그룹을 router-config 로만 정할 수 있어(서버 재시작) 기각.
+- 노선 제외는 이름으로(route id 가 방향·계통별로 나뉨: 2호선·1호선). id 하나만 빼면 같은 노선 다른 계통이 다시 나온다.
+- 느린 경로: 최단 × 1.6 초과는 빠른 2개만. 카카오 상위 7개의 최단 대비 최대 배수는 1.3~3.1(대안이 적은 OD 에서 큼)이라 전부 자르지 않는다.
+- 예매 열차: RAIL 모드 118개 route 가 전부 `[일반]`·`[고속]` 국가철도. GTX·경춘·서해 등은 SUBWAY. ITX-청춘(NATZ200)은 열차 종류로 보여 주는 대상이라 제외 안 함.
+### 함정
+- 🔴 그래프 환승 끊김: 신도림(2호선)↔신도림(1호선) 직선 77m 인데 OTP 도보 1,734m(22분, maxTransferDuration 10분 초과 → 환승 불가). 구디→송내가 2호선→문래→버스→1호선으로 나옴(카카오 25분, 우리 41분). 같은 이름 승강장 쌍 254개 전수(`xfer_all.py`): 옥수 3↔경의중앙 3,483m, 대곡 GTX↔3호선 3,128m, 온수 1↔7 2,052m, 석남 1,587m, 서울 4↔공항철도 1,112m, 을지로3가 2↔3 867m, DMC 경의중앙↔공항철도 861m, 초지 854m, 대방 788m, 석계 658m, 구성 878m. 그래프(pathways) 로만 고쳐진다.
+- 카카오 웹은 출발 시각 지정이 없다(지금 기준). 새벽 수집분은 심야 버스가 섞여 비교에서 뺐고, 배차 드문 노선(경춘·GTX·경의중앙)은 우리(14:00 시간표 대기 포함)가 10~19분 길게 나온다 — 낮 재수집 필요.
+- `SubwayLinePatternService.cachedRoutes()` 는 패턴을 누가 물어야 채워진다 → 재시작 직후엔 비어 있음. `loadRoutesLater` 로 검색이 뒤에서 채우게 함.
+- 기존 테스트 3개가 "추가 검색 없음"을 기대 → 철도 경로 3개 미만이면 지하철 대안을 한 번 묻는 게 새 동작이라 기대값 수정.
+### 검증
+- 단위: RouteSearchService·KakaoParityRules·ItineraryRanker·BusLaneMerger·SubwayLinePatternService·RailServiceClassifier·RemainingRoute·ExpressFilter·LegacyRouteResponse·OtpRoutingAdapter → 199 tests, 실패 0.
+- IT(st-pg, st-redis): NextrouteApplicationTests, RerouteRemainingPathOtpIT, RerouteRemainingPathIT, JourneyStartIT, WorkerProfileWiring → 26 tests, 실패 0.
+- 운영 OTP 80 OD(실제 RouteSearchService 경로): 카카오 상위 3개 일치 64→73%, 지하철 경로 일치 60→73%, 지하철만 경로 평균 2.4→3.9, 검색 평균 3.03→2.83s·최대 7.1→5.5s. 기존 25 OD: 평균 2.48→2.72s.
+- 버스 묶음(카카오와 같은 승차 정류장 88개): 카카오 노선을 전부 포함 55개. 불일치 23개 중 7개는 상한 6, 나머지는 하차 정류장이 다른 구간(비교 불가)이거나 변형 노선(5001 vs 5001A).
+### 미결
+- 그래프 재빌드 L: 환승 승강장 pathways, 역 접근 도보(지금 0분, 같은 경로 도보 평균 -4.3분), 광역버스 탑승시간(버스 포함 경로 평균 -5.6분).
+- 리뷰(서브에이전트) 반영 5건: ①지하철 대안 두 번째 호출은 버스만 추가 검색 한 번 몫의 예산이 남을 때만 ②옛 "철도만" 추가 검색은 지하철 대안이 실제로 물었을 때만 건너뜀 ③추가 검색 기준 고유 수는 노출에서 빠질 경로(예매 열차 짧은 구간)를 빼고 셈 ④느린 경로 기준은 대중교통 경로의 최단(도보 경로 제외) ⑤빈 노선 목록이 캐시돼도 다시 받음. 반영 안 함: 지하철 대안은 고유 5개 기준과 따로 도는 게 의도, `[일반]` 접두사(교외선 포함)는 전부 승차권 열차라 유지, 재탐색 경로는 손대지 않음(중간에 유일한 연결일 수 있음). 테스트 121, 실패 0.

@@ -39,6 +39,33 @@ public class ExpressFilterPolicy {
         return classifier.expressRouteIds();
     }
 
+    /** 노선 이름의 모든 route id(지하철 대안 검색용). 모르면 빈 집합. */
+    public Set<String> routeIdsOfLine(String shortName) {
+        return classifier.routeIdsOfLine(shortName);
+    }
+
+    /**
+     * 예매 열차(KTX·SRT·무궁화 등 — 원천 노선 이름이 {@code [고속]}·{@code [일반]} 으로 시작하는 국가철도)를 minRideMinutes 보다
+     * 짧게 타는 구간이 든 경로를 뺀다(otp-kakao-parity). 2026-11-16 운영: 동탄→강남에 SRT 17분, 부평→서울에 KTX 한 구간이 섞였다.
+     * ITX-청춘은 열차 종류로 따로 보여 주는 대상이라 남긴다. 장거리(40분 이상) 이용은 그대로 둔다.
+     */
+    public static List<RoutingItinerary> withoutShortIntercityHops(List<RoutingItinerary> itineraries,
+                                                                  int minRideMinutes) {
+        if (minRideMinutes <= 0) {
+            return itineraries;
+        }
+        return itineraries.stream()
+                .filter(it -> it.legs().stream().noneMatch(leg -> isShortIntercityHop(leg, minRideMinutes)))
+                .toList();
+    }
+
+    static boolean isShortIntercityHop(RoutingLeg leg, int minRideMinutes) {
+        String name = leg.sourceRouteName();
+        return leg.mode() == RoutingMode.RAIL && leg.trainKind() != TrainKind.ITX && name != null
+                && (name.startsWith("[고속]") || name.startsWith("[일반]"))
+                && leg.rideDurationSeconds() < minRideMinutes * 60;
+    }
+
     /** 사후 필터. DIRECT 구간이 든 경로는 언제나, 급행 끄기면 EXPRESS 구간이 든 경로도 뺀다. 순서는 지킨다. */
     public List<RoutingItinerary> filter(List<RoutingItinerary> itineraries, boolean excludeExpress) {
         return itineraries.stream()

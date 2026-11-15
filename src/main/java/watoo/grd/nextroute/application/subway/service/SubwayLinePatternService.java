@@ -136,6 +136,33 @@ public class SubwayLinePatternService {
      * 뒤에서 한 번 적재한다(#317). {@link #cachedPatterns} 가 비어 응답이 노선도를 비워 보낸 뒤 다음 요청을 채우려고 쓴다.
      * 같은 키가 이미 적재 중이면 아무것도 안 한다. 실패는 로그만.
      */
+    /**
+     * 노선 목록만 뒤에서 받아 둔다(지하철 대안 검색, otp-kakao-parity). 캐시가 비어 있을 때 검색 요청이 부른다 — 그 요청은
+     * 목록 없이 지나가고 다음 요청부터 쓴다. 검색 경로에서 OTP 를 기다리지 않는다.
+     */
+    public void loadRoutesLater() {
+        Cached<List<OtpRailRoute>> cached = routes;
+        // 빈 목록이 캐시된 경우(OTP 가 빈 답을 준 적 있음)도 다시 받는다 — 안 그러면 하루 동안 대안 검색이 못 쓴다.
+        if ((cached != null && !cached.value().isEmpty()) || !loading.add(ROUTES_KEY)) {
+            return;
+        }
+        try {
+            loader.execute(() -> {
+                try {
+                    routes = new Cached<>(List.copyOf(port.subwayRoutes(LOAD_BUDGET)), clock.instant());
+                } catch (RuntimeException e) {
+                    log.warn("[OTP] 지하철 노선 목록 지연 적재 실패: {}", e.getMessage());
+                } finally {
+                    loading.remove(ROUTES_KEY);
+                }
+            });
+        } catch (RuntimeException e) {
+            loading.remove(ROUTES_KEY);
+        }
+    }
+
+    private static final String ROUTES_KEY = "routes";
+
     public void loadLater(String lineId, String direction) {
         loadLater(lineId, direction, false);
     }
