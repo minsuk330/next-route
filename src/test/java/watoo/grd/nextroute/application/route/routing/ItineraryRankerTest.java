@@ -161,6 +161,63 @@ class ItineraryRankerTest {
         assertThat(ItineraryRanker.rank(List.of(a), 0)).isEmpty();
     }
 
+    @Test
+    @DisplayName("버스 합치기: 같은 승하차 정류장이면 노선이 달라도 한 경로다(서울역 5번승강장→명동입구 8100·3201)")
+    void busByStopsMergesDifferentRoutesOnSameStops() {
+        RoutingItinerary a = it(42, 4582, bus("1:8100", "8100", "S5", "MD"));
+        RoutingItinerary b = it(43, 4381, bus("1:3201", "3201", "S5", "MD"));
+
+        assertThat(ItineraryRanker.rank(List.of(a, b), 5, true)).containsExactly(a);
+        // 끄면 옛 규칙(노선 이름) — 둘 다 남는다
+        assertThat(ItineraryRanker.rank(List.of(a, b), 5, false)).containsExactly(b, a);
+    }
+
+    @Test
+    @DisplayName("버스 합치기: 같은 노선이 정류장만 다르면 하나만 — 같은 경로 반복으로 보인다(강남→홍대 740 9번·12번출구)")
+    void busByStopsDropsSameRouteOnOtherStops() {
+        RoutingItinerary a = it(58, 5636, bus("1:740", "740", "G9", "DG"));
+        RoutingItinerary b = it(62, 5671, bus("1:740", "740", "G12", "DG"));
+        RoutingItinerary c = it(60, 5955, bus("1:741", "741", "G5", "DG"));
+
+        assertThat(ItineraryRanker.rank(List.of(b, c, a), 5, true)).containsExactly(a, c);
+    }
+
+    @Test
+    @DisplayName("버스 합치기: 정류장만 다른 같은 노선 중 남는 쪽은 비용이 아니라 가장 이른 도착(대표 규칙)")
+    void sameRouteOtherStopsKeepsEarliestArrival() {
+        RoutingItinerary cheapLate = it(70, 1000, bus("1:740", "740", "G9", "DG"));
+        RoutingItinerary early = it(61, 1010, bus("1:740", "740", "G12", "DG"));
+
+        assertThat(ItineraryRanker.rank(List.of(cheapLate, early), 5, true)).containsExactly(early);
+    }
+
+    @Test
+    @DisplayName("버스 합치기: 정류장 id 를 모르면 노선 이름으로 돌아간다")
+    void busByStopsFallsBackToNameWithoutStops() {
+        RoutingItinerary a = it(41, 3444, transit(RoutingMode.BUS, "1:740", "740"));
+        RoutingItinerary b = it(42, 3500, transit(RoutingMode.BUS, "1:741", "741"));
+
+        assertThat(ItineraryRanker.fingerprint(a, true)).containsExactly("BUS|740");
+        assertThat(ItineraryRanker.rank(List.of(a, b), 5, true)).containsExactly(a, b);
+    }
+
+    @Test
+    @DisplayName("버스 합치기는 지하철 지문을 바꾸지 않는다")
+    void busByStopsLeavesSubwayAlone() {
+        RoutingItinerary s = it(45, 4978, transit(RoutingMode.SUBWAY, "1:S2", "서울2호선"));
+
+        assertThat(ItineraryRanker.fingerprint(s, true)).isEqualTo(ItineraryRanker.fingerprint(s, false));
+    }
+
+    private static RoutingLeg bus(String routeId, String routeName, String from, String to) {
+        return new RoutingLeg(RoutingMode.BUS, "BUS", "1", "1:A1", routeId, routeName,
+                "1:T", null, T0, T0, 600,
+                List.of(new StopOccurrence(from, null, null, 0, 0, 0, from),
+                        new StopOccurrence(to, null, null, 1, 0, 0, to)),
+                List.of(), LegGeometry.missing("x"),
+                Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of());
+    }
+
     private static RoutingItinerary it(int arrivalMinutes, Integer cost, RoutingLeg... legs) {
         return new RoutingItinerary(T0.plusSeconds(arrivalMinutes * 60L), 0, 0, 0, 0, false,
                 List.of(), Fare.unknown(), List.of(legs), cost);

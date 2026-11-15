@@ -6531,3 +6531,38 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew test --continue`(같은 env) → 4,035 tests, 실패 0, 건너뜀 9(3차 리뷰 반영 직전 코드 기준. 그 뒤 바뀐 것은 `route()` 의 Throwable 처리·대기 상한·재확인과 테스트 3개뿐이고 위 대상 테스트로 다시 확인).
 - 실응답 대조(2026-11-10 새벽): 서울 심야 노선 9건 `[N번째 전]` = staOrd − sectOrd1, 운영 DB(읽기 전용) `bus_route_stop`+`bus_stop` 의 순번 이름 10건 = `stationNm`. 경기 `getBusArrivalItemv2` 키 목록에 `vehId1/2`·`predictTimeSec1/2`·`stationNm1/2` 확인(값은 빈값).
 - 리뷰: Opus 엄격 리뷰 3회. 1차 should-fix 7건(경기 띠가 걸러지지 않은 값 사용, 트랜잭션 오염, trigger 가 재전송 판정에 참여, 공유 캐시 혼재, 초 단위 가드 없음, 띠 시작 정류장 미검증, 캐시 무한 성장), 2차 2건(두 번째 커넥션·잠금 안 읽기), 3차 1건(Error 때 대기 요청 멈춤) 전부 반영.
+
+## OTP 버스 합치기 (otp-bus-lane-merge, 2026-11-16)
+플랜 `docs/plan/otp-bus-lane-merge/PLAN.md`. 브랜치 `feat/otp-bus-lane-merge`.
+### 확정
+- OTP 엔진에 "같은 구간 다른 노선 합치기" 필터 없음(groupSimilarity*, filterItinerariesWithSameFirstOrLastTrip 은 버리는 필터). 재료 = `Leg.nextLegs`(AlternativeLegs.java, GTFS API 는 NO_FILTER 고정 → 다른 노선 포함, 버스는 정확히 같은 정류장만).
+- 버스 지문 = `BUS|승차stopId>하차stopId`(busLaneMergeEnabled + rankingEnabled 일 때만, stopId 없으면 노선 이름). 같은 노선이어도 정류장이 다르면 다른 경로(사당→판교 1500-2).
+- 대표 선택 규칙 유지(이른 도착 → 비용). 비용 우선은 늦은 출발편을 고름(2호선 08:48 편 cost 3317 < 08:31 편 3347).
+- lane = 대표 + 대체 노선(승차 이른 순, 승차 시각 모르면 뒤), 상한 6(서울 실시간 조회가 lane 마다 순차). 대체 노선 정류장 id 는 대표 값 공유, 노선 id 만 노선마다 해석.
+- nextLegs 는 `RoutingQuery.withAlternativeLegs()` 질의만(본 검색 → 추가 검색, 되찾기는 파생돼 따라옴). 재탐색은 안 물음.
+- `RoutingLeg` 정식 생성자 끝에 `alternatives` 추가 + 옛 22개 인자 생성자 호환용 유지 → 호출부 46곳 무변경.
+### 함정
+- 같은 노선을 OTP 가 노선 이름만 다르게 줄 때(5000A, 5000B)는 다른 노선으로 남김(실제 별개 노선).
+- nextLegs 는 지하철 구간에도 붙음(GraphQL 로 수단별 제외 불가). 서울역→잠실 응답 161KB → 400KB(nextLegs 840개), OTP 시간은 1.42s vs 1.32s 로 차이 없음. 매퍼는 BUS 구간만 읽음.
+- 대표가 서울 노선이고 대체가 경기 노선이면 구간 startLocalStationID 가 서울 id 라 그 lane 실시간은 못 붙음(표시는 됨). 반대도 같음.
+- 테스트 픽스처가 모든 버스를 같은 정류장 하나(`1:S1`)로 만들던 `RouteSearchServiceOtpWiringTest` 는 새 지문에서 한 경로로 묶여 8개 실패 → 노선마다 하차 정류장을 다르게 수정.
+- 운행종료 숨김(#400)이 미래 departureAt 검색에도 지금 실시간을 적용(00:29 에 내일 08:30 검색 → 740 등 8개 숨김, 로그 `운행 종료 경로 제외 hidden=8`). 별건.
+- 강남→홍대 740 은 본 검색에 안 나옴 = Raptor 파레토 지배(LIST_ALL 디버그에도 없음). 버스만 추가 검색에서 버스 1위로 나옴(cost 5636).
+### 좌표
+- `application/route/routing/BusLaneMerger.java` (거르기 규칙 select), `ItineraryRanker.fingerprint(it, busByStops)`
+- `RouteSearchService.selectCandidates` (merge/clear), `busByStops()`
+- `LegacyRouteResponseMapper.resolveBusIds` (서울 → 경기 → TAGO 해석 추출)
+- `OtpPlanConnectionMapper.toAlternatives`, `OtpRoutingAdapter.requestBody` (withAlternatives, alternativeLegs)
+### 미결
+- 모바일 카드 라벨은 `lanes[0].busNo` 만 표시(`route-results-model.ts getSegmentLabel`) → "M4130 외 2" 표시는 앱 후속.
+- ~~같은 노선이어도 정류장이 다르면 다른 경로(사당→판교 1500-2)~~ 취소: 실측(강남→홍대 740 강남역9번출구·12번출구 두 번 노출)이 사용자에겐 같은 경로 반복. 정류장 지문으로 줄 세운 뒤 노선 이름 지문이 위 대표와 같으면 뺀다(`ItineraryRanker.rank` busByStops 분기).
+### 검증
+- `./gradlew compileJava compileTestJava` 성공.
+- 대상 단위: ItineraryRankerTest 17, BusLaneMergerTest 8, OtpPlanConnectionMapperTest 14, OtpRoutingAdapterHttpTest 33, LegacyRouteResponseMapperTest 34, RouteSearchServiceOtpWiringTest 32 — 실패 0. (WiringTest 픽스처 수정 전 8 실패 = 모든 버스가 같은 정류장 하나라 묶임, 위 함정)
+- 전체 `./gradlew test`(env 없음): 4,060 중 394 실패 = 전부 IT 의 DB 접속(`password authentication failed for user "${POSTGRES_USER}"`) — 기존 무관(env 미설정). 단위 실패 0.
+- st-pg(:55432)·st-redis(:56379) env 로 관련 IT: NextrouteApplicationTests 1, RerouteRemainingPathOtpIT 8, RerouteRemainingPathIT 5, JourneyStartIT 10, TrackJourneyStartIT 1, RerouteAcceptIT 35 — 실패 0.
+- 운영 OTP(터널 18080) 실측, 실제 RouteSearchService+OtpRoutingAdapter 경로(실시간 보강은 mock), 2026-11-17 08:30 출발:
+  - 서울역→잠실 merge 끔 10개 → 켬 6개. `버스[M4137, M4130, 9301]`(6번승강장), `버스[8100, 5000A, 9200, 4103, 3201, 1101]`(5번승강장, 상한 6). `(예약)` 없음. 1.52s → 1.56s.
+  - 신촌→여의도 `버스[163, 753, 6713]`, 수원→강남 `[5001-1A, 1560A]`, `[8401, 8409]`.
+  - 강남→홍대 9개(끔 10): 2호선, 740 직통(1개만), 470·741 묶음 등. 2.51s → 2.42s.
+- 리뷰(서브에이전트) 반영 2건: ①정류장만 다른 같은 노선 중 남는 쪽 = 비용 최저가 아니라 대표 규칙(가장 이른 도착 → 비용). ②대체 노선 실시간 노선 id 는 대표와 같은 지역(서울·경기·TAGO)일 때만 — 구간 startLocalStationID 가 대표 지역 id 라 섞이면 서울 정류장 + 경기 노선 같은 짝 안 맞는 조회가 됨. 테스트 ItineraryRankerTest 18, LegacyRouteResponseMapperTest 35, RouteSearchServiceOtpWiringTest 32, BusLaneMergerTest 8 — 실패 0.

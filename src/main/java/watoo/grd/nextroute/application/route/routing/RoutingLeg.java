@@ -29,6 +29,9 @@ import java.util.Set;
  * @param patternCode       원천 trip 패턴 코드(OTP {@code trip.pattern.code}, {@code 1:RR_ACC1_S-1-SD-1D::05}). 없으면 null
  * @param trainKind         철도 구간 열차 종류(subway-express). 어댑터 경계의 {@code RailServiceClassifier} 가 한 번
  *                          채운다. 매퍼는 판정하지 않는다(null). 버스·도보는 언제나 null
+ * @param alternatives      같은 승하차 정류장으로 갈 수 있는 다른 버스 노선(otp-bus-lane-merge). 어댑터는 OTP
+ *                          {@code nextLegs} 원재료를 싣고, {@link BusLaneMerger} 가 거른 최종 목록으로 바꾼다. 버스가
+ *                          아니거나 모르면 빈 목록
  */
 public record RoutingLeg(
         RoutingMode mode,
@@ -52,8 +55,24 @@ public record RoutingLeg(
         Double distanceMeters,
         String sourceRouteLongName,
         String patternCode,
-        TrainKind trainKind
+        TrainKind trainKind,
+        List<AlternativeRoute> alternatives
 ) {
+    /** 대체 노선을 모르는 원천용 하위호환 생성자. 빈 목록이 곧 옛 동작이다. */
+    public RoutingLeg(RoutingMode mode, String sourceDetailType, String feedId, String agencyId,
+                      String sourceRouteId, String sourceRouteName, String sourceRouteDirection,
+                      String tripId, LocalDate serviceDate, Instant boardAt, Instant alightAt,
+                      int rideDurationSeconds, List<StopOccurrence> stops,
+                      List<RoutingWalkStep> walkSteps, LegGeometry geometry,
+                      Enrichment enrichment, Set<MissingAttribute> missing, String sourceRouteColor,
+                      Double distanceMeters, String sourceRouteLongName, String patternCode,
+                      TrainKind trainKind) {
+        this(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName,
+                sourceRouteDirection, tripId, serviceDate, boardAt, alightAt, rideDurationSeconds,
+                stops, walkSteps, geometry, enrichment, missing, sourceRouteColor, distanceMeters,
+                sourceRouteLongName, patternCode, trainKind, List.of());
+    }
+
     /** 노선 긴 이름·패턴·열차 종류를 모르는 원천용 하위호환 생성자. 새 칸을 null 로 두는 것이 곧 옛 동작이다. */
     public RoutingLeg(RoutingMode mode, String sourceDetailType, String feedId, String agencyId,
                       String sourceRouteId, String sourceRouteName, String sourceRouteDirection,
@@ -108,6 +127,7 @@ public record RoutingLeg(
         stops = stops == null ? List.of() : List.copyOf(stops);
         walkSteps = walkSteps == null ? List.of() : List.copyOf(walkSteps);
         missing = missing == null ? Set.of() : Set.copyOf(missing);
+        alternatives = alternatives == null ? List.of() : List.copyOf(alternatives);
     }
 
     public boolean isTransit() {
@@ -119,7 +139,7 @@ public record RoutingLeg(
         return new RoutingLeg(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName,
                 sourceRouteDirection, tripId, serviceDate, boardAt, alightAt, rideDurationSeconds,
                 stops, walkSteps, geometry, newEnrichment, missing, sourceRouteColor, distanceMeters,
-                sourceRouteLongName, patternCode, trainKind);
+                sourceRouteLongName, patternCode, trainKind, alternatives);
     }
 
     /** 열차 종류만 바꾼 복사본(나머지 필드 보존). */
@@ -127,6 +147,24 @@ public record RoutingLeg(
         return new RoutingLeg(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName,
                 sourceRouteDirection, tripId, serviceDate, boardAt, alightAt, rideDurationSeconds,
                 stops, walkSteps, geometry, enrichment, missing, sourceRouteColor, distanceMeters,
-                sourceRouteLongName, patternCode, newTrainKind);
+                sourceRouteLongName, patternCode, newTrainKind, alternatives);
+    }
+
+    /** 대체 버스 노선만 바꾼 복사본(나머지 필드 보존). */
+    public RoutingLeg withAlternatives(List<AlternativeRoute> newAlternatives) {
+        return new RoutingLeg(mode, sourceDetailType, feedId, agencyId, sourceRouteId, sourceRouteName,
+                sourceRouteDirection, tripId, serviceDate, boardAt, alightAt, rideDurationSeconds,
+                stops, walkSteps, geometry, enrichment, missing, sourceRouteColor, distanceMeters,
+                sourceRouteLongName, patternCode, trainKind, newAlternatives);
+    }
+
+    /** 승차 정류장 원천 id. 정류장이 없으면 null. */
+    public String boardStopId() {
+        return stops.isEmpty() ? null : stops.get(0).sourceStopId();
+    }
+
+    /** 하차 정류장 원천 id. 정류장이 없으면 null. */
+    public String alightStopId() {
+        return stops.isEmpty() ? null : stops.get(stops.size() - 1).sourceStopId();
     }
 }

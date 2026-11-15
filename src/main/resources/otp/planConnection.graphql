@@ -4,6 +4,7 @@
 #       searchWindow(Duration, null=OTP 동적 창), modes(PlanModesInput, null=전 수단 기본 비용),
 #       preferences(PlanPreferencesInput, null=기본. 급행 끄기는 transit.filters[].exclude.routes, subway-express S2).
 # trip.pattern.code = 같은 정차 순서 trip 묶음(급행 판정 근거 보존용, 판정은 RailServiceClassifier).
+# nextLegs = 같은 승차 정류장의 다른 편(다른 노선 포함, 버스는 정확히 같은 정류장). withAlternatives 일 때만(otp-bus-lane-merge).
 # generalizedCost = 앱 후보 정렬 키(ItineraryRanker). OTP 기본 순서는 도착시각 타임라인이다.
 query PlanConnection(
   $origin: PlanLabeledLocationInput!
@@ -13,6 +14,8 @@ query PlanConnection(
   $searchWindow: Duration
   $modes: PlanModesInput
   $preferences: PlanPreferencesInput
+  $withAlternatives: Boolean! = false
+  $alternativeLegs: Int! = 0
 ) {
   planConnection(
     origin: $origin
@@ -59,6 +62,13 @@ query PlanConnection(
           steps { distance relativeDirection streetName }
           legGeometry { length points }
           fareProducts { id product { name } }
+          nextLegs(numberOfLegs: $alternativeLegs) @include(if: $withAlternatives) {
+            mode
+            start { scheduledTime }
+            end { scheduledTime }
+            to { stop { gtfsId } }
+            route { gtfsId shortName color }
+          }
         }
       }
     }

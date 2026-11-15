@@ -103,6 +103,51 @@ class OtpRoutingAdapterHttpTest {
     }
 
     @Test
+    @DisplayName("검색 화면 질의(withAlternativeLegs)면 nextLegs 를 30편 묻는다(otp-bus-lane-merge)")
+    void alternativeLegsRequested() throws Exception {
+        enqueueSuccess();
+        RoutingQuery q = new RoutingQuery(126.97, 37.56, "o", 127.02, 37.49, "d", now, Set.of(), null, false, "v",
+                RoutingProvider.OTP, null).withAlternativeLegs();
+
+        adapter.search(q, RoutingDeadline.of(clock, 3000));
+
+        JsonNode sent = new ObjectMapper().readTree(server.takeRequest(1, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(sent.path("query").asText())
+                .contains("nextLegs(numberOfLegs: $alternativeLegs) @include(if: $withAlternatives)");
+        assertThat(sent.path("variables").path("withAlternatives").asBoolean()).isTrue();
+        assertThat(sent.path("variables").path("alternativeLegs").asInt()).isEqualTo(30);
+        // 수단 제한 복사본(추가 검색)도 그대로 들고 간다
+        assertThat(q.withModes(Set.of(RoutingMode.BUS)).alternativeLegs()).isTrue();
+        assertThat(q.withExcludedRouteIds(Set.of("x")).alternativeLegs()).isTrue();
+    }
+
+    @Test
+    @DisplayName("플래그 없는 질의(재탐색 등)·버스 합치기 끔·편 수 0 이면 nextLegs 를 묻지 않는다")
+    void alternativeLegsNotRequested() throws Exception {
+        RoutingQuery plain = new RoutingQuery(126.97, 37.56, "o", 127.02, 37.49, "d", now, Set.of(), null, false, "v",
+                RoutingProvider.OTP, null);
+        enqueueSuccess();
+        adapter.search(plain, RoutingDeadline.of(clock, 3000));
+        assertThat(sentVars().has("withAlternatives")).isFalse();
+
+        props.setBusLaneMergeEnabled(false);
+        enqueueSuccess();
+        adapter.search(plain.withAlternativeLegs(), RoutingDeadline.of(clock, 3000));
+        assertThat(sentVars().has("withAlternatives")).isFalse();
+
+        props.setBusLaneMergeEnabled(true);
+        props.setAlternativeLegs(0);
+        enqueueSuccess();
+        adapter.search(plain.withAlternativeLegs(), RoutingDeadline.of(clock, 3000));
+        assertThat(sentVars().has("withAlternatives")).isFalse();
+    }
+
+    private JsonNode sentVars() throws Exception {
+        return new ObjectMapper().readTree(server.takeRequest(1, TimeUnit.SECONDS).getBody().readUtf8())
+                .path("variables");
+    }
+
+    @Test
     @DisplayName("가중치 1.0·창 미지정이면 그 변수를 보내지 않는다 — OTP 기본 탐색과 같다")
     void neutralSettingsOmitVariables() throws Exception {
         props.setBusReluctance(1.0);
