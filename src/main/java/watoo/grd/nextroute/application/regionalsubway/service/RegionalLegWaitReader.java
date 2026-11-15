@@ -45,8 +45,10 @@ public class RegionalLegWaitReader {
                 .stream()
                 .filter(l -> l.getLegIndex() == waitLeg.getLegIndex() + 1 && l.getType() == JourneyLegType.RIDE_SUBWAY)
                 .map(JourneyLeg::getSourceEndStopId)
+                .filter(s -> s != null && !s.isBlank())
                 .findFirst();
         if (alight.isEmpty()) {
+            // 내릴 역을 모르면 방향을 못 정한다. 역 화면(두 방향)으로 빠지면 반대 방향 열차를 집을 수 있다 → 모름
             return Optional.empty();
         }
         return queryService.nextForLeg(board, alight.get(), 1, anchor)

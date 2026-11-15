@@ -58,7 +58,7 @@ public class WaitSubwayArrivalPredictor implements CurrentLegArrivalPredictor {
         if (leg.getState() != JourneyLegState.ACTIVE) {
             return CurrentLegArrival.unknown();
         }
-        if (leg.getRouteId() == null) {
+        if (!leg.hasSubwayRealtimeLine()) {
             // 서울 노선 id 가 없다 = 지방 지하철일 수 있다. 실시간 소스가 없어 공식 시간표로만 답한다(서울 노선은 여기서 empty)
             return regionalTimetable(leg, now);
         }

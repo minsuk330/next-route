@@ -62,7 +62,7 @@ public class SubwayTransferTargetArrivalPredictor implements TransferTargetArriv
             // 기준이 없으면 어느 열차가 "탈 수 있는 열차"인지 가릴 수 없다.
             return TransferTargetArrival.unknown();
         }
-        if (waitLeg.getRouteId() == null && regionalReader != null) {
+        if (!waitLeg.hasSubwayRealtimeLine() && regionalReader != null) {
             // 지방 지하철: 환승역에 닿는 시각 이후 첫 열차를 공식 시간표로(서울 노선은 empty → 모름)
             return regionalReader.nextDeparture(waitLeg, boardingAnchorAt)
                     .map(d -> TransferTargetArrival.of(new CurrentLegArrival(d.scheduledAt(),

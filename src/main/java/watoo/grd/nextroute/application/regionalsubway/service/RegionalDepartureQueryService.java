@@ -46,7 +46,8 @@ public class RegionalDepartureQueryService {
         int lim = Math.max(1, Math.min(limit, 10));
         RegionalServiceDay today = RegionalServiceDay.of(at);
         DayRows todayRows = rows(station, today.date());
-        DayRows nextRows = rows(station, today.date().plusDays(1));
+        // 다음 서비스일 행은 오늘 열차로 limit 을 못 채울 때만 읽는다(평가 주기마다 불리는 경로)
+        java.util.function.Supplier<DayRows> nextRows = memoize(() -> rows(station, today.date().plusDays(1)));
 
         List<Direction> directions = new ArrayList<>();
         if (alightSeq != null) {
@@ -83,11 +84,11 @@ public class RegionalDepartureQueryService {
     }
 
     private Direction direction(RegionalStationSeed station, boolean increasing, IntPredicate reaches,
-                                RegionalServiceDay today, DayRows todayRows, DayRows nextRows, int limit, Instant at) {
+                                RegionalServiceDay today, DayRows todayRows, java.util.function.Supplier<DayRows> nextRows, int limit, Instant at) {
         List<Departure> out = new ArrayList<>();
         collect(out, todayRows, today.date(), reaches, today.seconds(), limit, at);
         if (out.size() < limit) {
-            collect(out, nextRows, today.date().plusDays(1), reaches, Integer.MIN_VALUE, limit, at);
+            collect(out, nextRows.get(), today.date().plusDays(1), reaches, Integer.MIN_VALUE, limit, at);
         }
         return new Direction(catalog.lineEnd(station.lineCode(), increasing).stationName(), increasing, out);
     }
@@ -116,6 +117,17 @@ public class RegionalDepartureQueryService {
             }
         }
         return new DayRows(requested, null, List.of());
+    }
+
+    private static <T> java.util.function.Supplier<T> memoize(java.util.function.Supplier<T> supplier) {
+        Object[] box = new Object[1];
+        return () -> {
+            if (box[0] == null) {
+                box[0] = supplier.get();
+            }
+            @SuppressWarnings("unchecked") T value = (T) box[0];
+            return value;
+        };
     }
 
     private boolean isLineEnd(RegionalStationSeed station, boolean increasing) {

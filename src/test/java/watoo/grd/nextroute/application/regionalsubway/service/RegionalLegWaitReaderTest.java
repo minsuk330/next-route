@@ -76,4 +76,24 @@ class RegionalLegWaitReaderTest {
         serving.setEnabled(false);
         assertThat(reader.nextDeparture(leg(JourneyLegType.WAIT_SUBWAY, 2, seomyeon, null), mon0800)).isEmpty();
     }
+
+    @Test
+    @DisplayName("내릴 역을 모르면(다음 RIDE 없음, sourceEndStopId null·빈 값) 모름 — 역 화면으로 빠져 반대 방향을 집지 않는다")
+    void unknownAlightIsEmpty() {
+        serving.setEnabled(true);
+        JourneyLeg wait = leg(JourneyLegType.WAIT_SUBWAY, 2, seomyeon, seomyeon);
+        given(repo.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(anyLong(), anyInt()))
+                .willReturn(List.of(wait));
+        assertThat(reader.nextDeparture(wait, mon0800)).isEmpty();
+
+        JourneyLeg nullEnd = leg(JourneyLegType.RIDE_SUBWAY, 3, seomyeon, null);
+        given(repo.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(anyLong(), anyInt()))
+                .willReturn(List.of(wait, nullEnd));
+        assertThat(reader.nextDeparture(wait, mon0800)).isEmpty();
+
+        JourneyLeg blankEnd = leg(JourneyLegType.RIDE_SUBWAY, 3, seomyeon, " ");
+        given(repo.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(anyLong(), anyInt()))
+                .willReturn(List.of(wait, blankEnd));
+        assertThat(reader.nextDeparture(wait, mon0800)).isEmpty();
+    }
 }

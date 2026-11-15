@@ -6669,3 +6669,5 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전체 `runfull.sh`: 4,188 중 실패 1(`RerouteRemainingPathOtpLiveIT`, 기존 무관), 건너뜀 14.
 ### 배포
 - 마이그레이션 없음. serving 플래그 off 면 지방 대기 예측도 empty(기존과 같음).
+- 리뷰 반영(PR-4): 다음 RIDE 의 `sourceEndStopId` 가 null 이면 NPE ← filter / 빈 값이면 역 화면으로 빠져 반대 방향 열차 ← empty(모름). 서울/지방 가르기는 `routeId == null` 대신 `!hasSubwayRealtimeLine()`(빈 문자열 포함). 다음 서비스일 행은 오늘로 limit 을 못 채울 때만 읽는다(평가 주기 경로).
+- serving 플래그 하나가 departures API 와 여정 대기 TIMETABLE 을 같이 켠다 — 둘 다 앱 "시간표" 라벨이 필요해 같은 시점에 켜는 게 맞다(따로 둘 이유 없음).

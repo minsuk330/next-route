@@ -344,6 +344,15 @@ class WaitLegArrivalPredictorTest {
         }
 
         @Test
+        @DisplayName("빈 노선 id(\"\")도 지방 경로 — hasSubwayRealtimeLine 과 같은 기준")
+        void blankRouteIdIsRegional() {
+            JourneyLeg leg = leg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.ACTIVE, null, " ");
+            subwayPredictor.predict(leg, null, java.time.Instant.parse("2026-11-15T23:00:00Z"));
+            org.mockito.Mockito.verify(regionalReader).nextDeparture(org.mockito.ArgumentMatchers.eq(leg), org.mockito.ArgumentMatchers.any());
+            org.mockito.Mockito.verifyNoInteractions(arrivalReader);
+        }
+
+        @Test
         @DisplayName("지방 시간표가 없으면(서울 미해석 단계, serving off) 모름")
         void noTimetableIsUnknown() {
             JourneyLeg leg = leg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.ACTIVE, null, null);
