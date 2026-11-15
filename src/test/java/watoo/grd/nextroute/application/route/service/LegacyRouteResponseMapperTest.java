@@ -346,6 +346,31 @@ class LegacyRouteResponseMapperTest {
     }
 
     @Test
+    @DisplayName("버스 합치기: 대체 노선마다 lane 을 더한다 — 대표가 첫 lane, 노선 id 는 노선마다, 정류장 id 는 구간 공통(otp-bus-lane-merge)")
+    void alternativesBecomeExtraLanes() {
+        RoutingLeg leg = gyeonggiBusLeg("1:BR_TAGO_GGB228000184").withAlternatives(List.of(
+                new watoo.grd.nextroute.application.route.routing.AlternativeRoute(
+                        "1:BR_TAGO_GGB234000026", "M4130", null, "1:BS_TAGO_GGB104000279", null, null),
+                new watoo.grd.nextroute.application.route.routing.AlternativeRoute(
+                        "1:BR_TAGO_ZZZ0000", "999", "53B332", "1:BS_TAGO_GGB104000279", null, null)));
+
+        SubPathResult sub = firstSubPath(leg);
+
+        assertThat(sub.startLocalStationID()).isEqualTo("123000001");
+        assertThat(sub.endLocalStationID()).isEqualTo("104000279");
+        assertThat(sub.lanes()).extracting(l -> l.busNo()).containsExactly("5600", "M4130", "999");
+        assertThat(sub.lanes()).extracting(l -> l.busLocalBlID()).containsExactly("228000184", "234000026", null);
+        // M+4자리는 광역 빨강, 모르는 노선은 원천 색
+        assertThat(sub.lanes().get(2).routeDisplayColor()).isEqualTo("#53B332");
+    }
+
+    @Test
+    @DisplayName("대체 노선이 없으면 lane 은 하나 — 옛 응답과 같다")
+    void noAlternativesSingleLane() {
+        assertThat(firstSubPath(gyeonggiBusLeg("1:BR_TAGO_GGB228000184")).lanes()).hasSize(1);
+    }
+
+    @Test
     @DisplayName("경기 마을버스(노선 1:BR_3100_)도 GBIS id 로 채운다 — TAGO 로 새지 않는다")
     void gyeonggiVillageBusFillsGbisIds() {
         SubPathResult sub = firstSubPath(gyeonggiBusLeg("1:BR_3100_241419002"));

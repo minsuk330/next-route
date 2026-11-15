@@ -60,6 +60,21 @@ public class OtpRoutingProperties {
     private boolean stationSnapEnabled = true;
     /** 장소 검색 역 좌표는 승강장에서 6~58m(잠실·강남·홍대입구·서울역 실측). 이름 조건이 있어 150m. */
     private double stationSnapMeters = 150;
+    /**
+     * 버스 합치기 킬스위치(otp-bus-lane-merge). 켜면 같은 승하차 정류장의 버스 후보를 한 경로로 묶고 그 구간 lane 에
+     * 노선을 여럿 싣는다(네이버·카카오 방식). false 면 노선 이름 지문과 lane 1개(옛 동작).
+     */
+    private boolean busLaneMergeEnabled = true;
+    /**
+     * 버스 구간마다 OTP {@code nextLegs} 로 물을 다음 편 수. 0 이면 묻지 않는다(묶기는 OTP 후보끼리만). 편 수라서 배차가
+     * 잦은 노선 하나가 다 먹을 수 있어 넉넉히 30(2026-11-16 실측: 서울역 5번승강장 노선 4→14, OTP +0.1~0.2s).
+     */
+    private int alternativeLegs = 30;
+    /** 버스 구간 lane 상한(대표 포함). 서울 도착 조회가 lane 마다 순차라 검색 응답 시간을 지킨다. */
+    private int maxBusLanes = 6;
+    /** 대체 노선 탑승시간 상한 = 대표 탑승시간 × 이 값 + {@link #alternativeRideSlackSeconds}. 실측 노이즈(수원 2-1) 제거. */
+    private double alternativeRideFactor = 1.3;
+    private int alternativeRideSlackSeconds = 300;
     /** 연결 timeout(ms). read timeout 은 호출별 남은 예산으로 결정. */
     private long connectTimeoutMs = 2000;
     private String schemaVersion = "otp-2.10.0-planConnection-v1";
@@ -76,6 +91,16 @@ public class OtpRoutingProperties {
     private boolean realtimeEnabled = false;
 
     public String getBaseUrl() { return baseUrl; }
+    public boolean isBusLaneMergeEnabled() { return busLaneMergeEnabled; }
+    public void setBusLaneMergeEnabled(boolean busLaneMergeEnabled) { this.busLaneMergeEnabled = busLaneMergeEnabled; }
+    public int getAlternativeLegs() { return alternativeLegs; }
+    public void setAlternativeLegs(int alternativeLegs) { this.alternativeLegs = alternativeLegs; }
+    public int getMaxBusLanes() { return maxBusLanes; }
+    public void setMaxBusLanes(int maxBusLanes) { this.maxBusLanes = maxBusLanes; }
+    public double getAlternativeRideFactor() { return alternativeRideFactor; }
+    public void setAlternativeRideFactor(double alternativeRideFactor) { this.alternativeRideFactor = alternativeRideFactor; }
+    public int getAlternativeRideSlackSeconds() { return alternativeRideSlackSeconds; }
+    public void setAlternativeRideSlackSeconds(int alternativeRideSlackSeconds) { this.alternativeRideSlackSeconds = alternativeRideSlackSeconds; }
     public int getRerouteLimit() { return rerouteLimit; }
     public int getSupplementaryThreshold() { return supplementaryThreshold; }
     public void setSupplementaryThreshold(int supplementaryThreshold) { this.supplementaryThreshold = supplementaryThreshold; }

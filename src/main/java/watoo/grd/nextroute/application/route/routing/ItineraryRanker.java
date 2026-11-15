@@ -23,7 +23,11 @@ import java.util.Map;
  *       응답에는 노선 이름만 나가므로 이름이 같으면 사용자에겐 같은 경로다 — 1호선 계통(연천-인천·광운대-신창)
  *       처럼 id 만 다른 것은 하나로 본다. <b>열차 종류가 일반이 아니면(급행·ITX 등) 지문에 덧붙인다</b>(subway-express
  *       S2, D2) — 응답이 {@code trainKind} 로 급행을 보여 주므로 같은 노선의 급행·일반은 다른 경로다. 종류 null 과
- *       NORMAL 은 같은 지문이다. 도보 구간 차이는 지문에 넣지 않는다.</li>
+ *       NORMAL 은 같은 지문이다. 도보 구간 차이는 지문에 넣지 않는다.
+ *       <b>버스 합치기를 켜면 버스 구간은 노선 대신 (승차 정류장, 하차 정류장)</b>(otp-bus-lane-merge) — 같은 정류장에서
+ *       타서 같은 정류장에 내리는 다른 버스는 사용자에겐 같은 길이다(네이버·카카오가 한 경로로 묶는다). 묶인 노선은
+ *       {@link BusLaneMerger} 가 대표 경로의 lane 으로 싣는다. 정류장 id 를 모르면 노선 이름으로 돌아간다. 정류장만 다른
+ *       같은 노선 흐름(740 강남역9번출구·12번출구)은 줄 세운 뒤 위 대표 하나만 남긴다.</li>
  *   <li>지문마다 대표 하나 = 가장 이른 도착 → 낮은 비용 → 엔진 순서. 다음 출발편은 대표가 될 수 없다.</li>
  *   <li>대표를 비용 오름차순(모르면 뒤) → 엔진 순서로 줄 세운다. 대표만 내보낸다 — 고유 경로가 상한보다
  *       적어도 같은 경로의 다음 편으로 채우지 않는다(2026-10-12 운영: 부평→서울 1호선이 출발시각만 달리 3번).</li>
@@ -36,7 +40,15 @@ public final class ItineraryRanker {
     private ItineraryRanker() {
     }
 
+    /** 노선 이름 지문(버스 합치기 끔)으로 줄 세운다. */
     public static List<RoutingItinerary> rank(List<RoutingItinerary> engineOrder, int limit) {
+        return rank(engineOrder, limit, false);
+    }
+
+    /**
+     * @param busByStops 버스 구간 지문을 승하차 정류장으로(버스 합치기). false 면 노선 이름
+     */
+    public static List<RoutingItinerary> rank(List<RoutingItinerary> engineOrder, int limit, boolean busByStops) {
         if (engineOrder == null || engineOrder.isEmpty() || limit <= 0) {
             return List.of();
         }
@@ -47,12 +59,18 @@ public final class ItineraryRanker {
 
         Map<List<String>, Candidate> representatives = new LinkedHashMap<>();
         for (Candidate c : candidates) {
-            representatives.merge(fingerprint(c.itinerary()), c,
+            representatives.merge(fingerprint(c.itinerary(), busByStops), c,
                     (kept, next) -> REPRESENTATIVE_ORDER.compare(kept, next) <= 0 ? kept : next);
         }
 
         List<Candidate> ranked = new ArrayList<>(representatives.values());
         ranked.sort(RANK_ORDER);
+        if (busByStops) {
+            // 정류장으로 묶으면 같은 노선이 정류장만 달리 두 번 나온다(2026-11-16 실측 강남→홍대: 740 강남역9번출구·
+            // 강남역12번출구). 보이는 노선 흐름이 위 대표와 같으면 뺀다 — 노선 이름 지문 시절과 같은 규칙.
+            java.util.Set<List<String>> seenNames = new java.util.HashSet<>();
+            ranked.removeIf(c -> !seenNames.add(fingerprint(c.itinerary(), false)));
+        }
 
         return ranked.stream()
                 .limit(limit)
@@ -62,9 +80,19 @@ public final class ItineraryRanker {
 
     /** 같은 경로를 가르는 지문(규칙은 클래스 주석). 일반 대안 되찾기({@code RouteSearchService})도 같은 규칙을 쓴다. */
     public static List<String> fingerprint(RoutingItinerary itinerary) {
+        return fingerprint(itinerary, false);
+    }
+
+    /** @param busByStops 버스 구간을 승하차 정류장으로 가른다(버스 합치기) */
+    public static List<String> fingerprint(RoutingItinerary itinerary, boolean busByStops) {
         List<String> key = new ArrayList<>();
         for (RoutingLeg leg : itinerary.legs()) {
             if (leg.mode() == RoutingMode.WALK) {
+                continue;
+            }
+            if (busByStops && leg.mode() == RoutingMode.BUS
+                    && leg.boardStopId() != null && leg.alightStopId() != null) {
+                key.add(RoutingMode.BUS + "|" + leg.boardStopId() + ">" + leg.alightStopId());
                 continue;
             }
             String route = leg.sourceRouteName() != null ? leg.sourceRouteName() : leg.sourceRouteId();

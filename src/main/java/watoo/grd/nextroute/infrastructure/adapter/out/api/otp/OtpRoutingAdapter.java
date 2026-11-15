@@ -225,6 +225,11 @@ public class OtpRoutingAdapter implements RoutingPort {
             vars.put("preferences", Map.of("transit", Map.of("filters", List.of(
                     Map.of("exclude", List.of(Map.of("routes", List.copyOf(excluded))))))));
         }
+        // 버스 합치기(otp-bus-lane-merge): 검색 화면 질의만 같은 정류장의 다른 노선을 함께 묻는다.
+        if (q.alternativeLegs() && properties.isBusLaneMergeEnabled() && properties.getAlternativeLegs() > 0) {
+            vars.put("withAlternatives", true);
+            vars.put("alternativeLegs", properties.getAlternativeLegs());
+        }
         try {
             return objectMapper.writeValueAsString(Map.of("query", query, "variables", vars));
         } catch (IOException e) {

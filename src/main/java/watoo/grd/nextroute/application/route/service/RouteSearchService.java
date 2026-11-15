@@ -25,6 +25,7 @@ import watoo.grd.nextroute.application.route.port.out.OdSayApiPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort;
 import watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort.WalkSearchCommand;
 import watoo.grd.nextroute.application.route.routing.ExpressFilterPolicy;
+import watoo.grd.nextroute.application.route.routing.BusLaneMerger;
 import watoo.grd.nextroute.application.route.routing.ItineraryRanker;
 import watoo.grd.nextroute.application.route.routing.OtpConcurrencyGate;
 import watoo.grd.nextroute.application.route.routing.OtpPermit;
@@ -198,7 +199,10 @@ public class RouteSearchService implements SearchRouteUseCase {
                 request.startX(), request.startY(), request.startName(),
                 request.endX(), request.endY(), request.endName(),
                 departureAt, java.util.Set.of(), null, false, "otp-v2",
-                RoutingProvider.OTP, null, expressFilterPolicy.routeExclusions(excludeExpress));
+                RoutingProvider.OTP, null, expressFilterPolicy.routeExclusions(excludeExpress))
+                // 검색 화면 질의만 같은 정류장의 다른 버스 노선을 함께 묻는다(otp-bus-lane-merge). 추가 검색·되찾기는
+                // 이 질의에서 파생돼 따라온다. 재탐색(RemainingRouteSearchService)은 묻지 않는다.
+                .withAlternativeLegs();
 
         long start = System.nanoTime();
         RoutingOutcome outcome;
@@ -299,7 +303,7 @@ public class RouteSearchService implements SearchRouteUseCase {
     }
 
     private int distinctAfterFilter(List<RoutingItinerary> pool, int limit, boolean excludeExpress) {
-        return ItineraryRanker.rank(expressFilterPolicy.filter(pool, excludeExpress), limit).size();
+        return ItineraryRanker.rank(expressFilterPolicy.filter(pool, excludeExpress), limit, busByStops()).size();
     }
 
     /** 추가 검색 한 번에 쓸 예산. 남은 OTP 예산이 선택 단계 하한 이하면 empty(묻지 않는다). */
@@ -325,7 +329,7 @@ public class RouteSearchService implements SearchRouteUseCase {
             return;
         }
         Set<String> expressRoutes = expressFilterPolicy.expressRouteIds();
-        List<RoutingItinerary> shown = ItineraryRanker.rank(pool, otpRoutingProperties.getDisplayLimit());
+        List<RoutingItinerary> shown = ItineraryRanker.rank(pool, otpRoutingProperties.getDisplayLimit(), busByStops());
         Optional<RoutingItinerary> unpaired = shown.stream()
                 .filter(it -> it.legs().stream().anyMatch(leg -> isRouteTypeExpress(leg, expressRoutes)))
                 .filter(it -> !hasNormalPair(it, pool))
@@ -460,9 +464,21 @@ public class RouteSearchService implements SearchRouteUseCase {
         int limit = otpRoutingProperties.getDisplayLimit();
         List<RoutingItinerary> its = result.itineraries();
         List<RoutingItinerary> chosen = otpRoutingProperties.isRankingEnabled()
-                ? ItineraryRanker.rank(its, limit)
+                ? ItineraryRanker.rank(its, limit, busByStops())
                 : its.subList(0, Math.min(Math.max(limit, 0), its.size()));
+        // 버스 합치기(otp-bus-lane-merge): 대표의 버스 구간에 같은 승하차 정류장의 다른 노선을 싣는다. 꺼져 있으면
+        // 어댑터가 실은 nextLegs 원재료가 lane 으로 새지 않게 비운다.
+        chosen = busByStops()
+                ? BusLaneMerger.merge(chosen, its, new BusLaneMerger.Rules(
+                        otpRoutingProperties.getMaxBusLanes(), otpRoutingProperties.getAlternativeRideFactor(),
+                        otpRoutingProperties.getAlternativeRideSlackSeconds()))
+                : BusLaneMerger.clear(chosen);
         return result.withItineraries(chosen);
+    }
+
+    /** 버스 구간을 승하차 정류장으로 묶는가(버스 합치기 켜짐 + 정렬 켜짐). */
+    private boolean busByStops() {
+        return otpRoutingProperties.isRankingEnabled() && otpRoutingProperties.isBusLaneMergeEnabled();
     }
 
     /**

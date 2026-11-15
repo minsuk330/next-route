@@ -271,6 +271,66 @@ class RouteSearchServiceOtpWiringTest {
         assertThat(firstLaneNames(legacy)).containsExactly("B0", "B1", "B2", "B3", "B4", "B5");
     }
 
+    @Test
+    @DisplayName("버스 합치기: 같은 승하차 정류장의 버스 후보는 한 경로가 되고 lane 에 노선이 여럿 실린다(otp-bus-lane-merge)")
+    void sameStopBusesMergeIntoLanes() {
+        java.util.List<RoutingQuery> asked = new java.util.ArrayList<>();
+        RoutingItinerary m4130 = sameStopBus("1:M4130", "M4130", 4360, List.of(
+                new watoo.grd.nextroute.application.route.routing.AlternativeRoute(
+                        "1:9301", "9301", null, "1:MD", null, null),
+                new watoo.grd.nextroute.application.route.routing.AlternativeRoute(
+                        "1:5000(예약)", "5000(예약)", null, "1:MD", null, null)));
+        RoutingItinerary m4137 = sameStopBus("1:M4137", "M4137", 4401, List.of());
+        RoutingPort otp = new RoutingPort() {
+            @Override public RoutingOutcome search(RoutingQuery q, RoutingDeadline d) {
+                asked.add(q);
+                return result(m4130, m4137);
+            }
+            @Override public RoutingProvider provider() { return RoutingProvider.OTP; }
+        };
+
+        RouteSearchResult legacy = service(otp).search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(legacy.paths()).hasSize(1);
+        assertThat(legacy.paths().get(0).subPaths().get(0).lanes()).extracting(l -> l.busNo())
+                .containsExactly("M4130", "M4137", "9301");   // 승차 시각 모르는 편은 뒤로
+        // 검색 화면 질의는 nextLegs 를 함께 묻는다 — 추가 검색도 같은 플래그를 들고 간다
+        assertThat(asked).isNotEmpty().allSatisfy(q -> assertThat(q.alternativeLegs()).isTrue());
+    }
+
+    @Test
+    @DisplayName("버스 합치기를 끄면 노선마다 따로, lane 하나 — 어댑터 원재료도 버린다(옛 동작)")
+    void mergeOffKeepsRoutesApart() {
+        var props = limitFive();
+        props.setBusLaneMergeEnabled(false);
+        RoutingItinerary m4130 = sameStopBus("1:M4130", "M4130", 4360, List.of(
+                new watoo.grd.nextroute.application.route.routing.AlternativeRoute(
+                        "1:9301", "9301", null, "1:MD", null, null)));
+        RoutingItinerary m4137 = sameStopBus("1:M4137", "M4137", 4401, List.of());
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
+
+        RouteSearchResult legacy = service(otpReturning(result(m4130, m4137)), enricher, props)
+                .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(legacy.paths()).hasSize(2);
+        assertThat(legacy.paths()).allSatisfy(p -> assertThat(p.subPaths().get(0).lanes()).hasSize(1));
+    }
+
+    /** 서울역 5번승강장(1:S5) → 명동입구(1:MD) 버스 한 구간. 실측 운영 응답 모양. */
+    private RoutingItinerary sameStopBus(String routeId, String routeName, int cost,
+                                         List<watoo.grd.nextroute.application.route.routing.AlternativeRoute> alts) {
+        Instant board = Instant.parse("2026-11-16T23:40:00Z");
+        RoutingLeg leg = new RoutingLeg(RoutingMode.BUS, "BUS", "1", "1:A1", routeId, routeName,
+                "1:T", null, board, board.plusSeconds(382), 382,
+                List.of(new StopOccurrence("1:S5", null, null, 0, 126.97, 37.55, "서울역버스환승센터(5번승강장)(중)"),
+                        new StopOccurrence("1:MD", null, null, 1, 126.98, 37.56, "명동입구")),
+                List.of(), LegGeometry.missing("x"),
+                Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of()).withAlternatives(alts);
+        return new RoutingItinerary(board.plusSeconds(382), 382, 0, 0, 0, false, List.of(), Fare.unknown(),
+                List.of(leg), cost);
+    }
+
     private static final Set<RoutingMode> RAIL_ONLY = Set.of(RoutingMode.SUBWAY, RoutingMode.RAIL);
     private static final Set<RoutingMode> BUS_ONLY = Set.of(RoutingMode.BUS);
 
@@ -319,9 +379,11 @@ class RouteSearchServiceOtpWiringTest {
     }
 
     private RoutingItinerary singleLeg(RoutingMode mode, String routeId, String routeName, int cost) {
+        // 노선마다 하차 정류장이 다르다 — 버스 합치기(승하차 정류장 지문)가 서로 다른 경로를 하나로 묶지 않게.
         RoutingLeg leg = new RoutingLeg(mode, mode.name(), "1", "1:A1", routeId, routeName,
                 "1:T", null, Instant.now(), Instant.now(), 600,
-                List.of(new StopOccurrence("1:S1", null, null, 0, 126.98, 37.55, "정류장1")),
+                List.of(new StopOccurrence("1:S1", null, null, 0, 126.98, 37.55, "정류장1"),
+                        new StopOccurrence("1:E-" + routeId, null, null, 1, 126.99, 37.56, "하차-" + routeName)),
                 List.of(), LegGeometry.missing("x"),
                 Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of());
         return new RoutingItinerary(Instant.now(), 600, 0, 0, 0, false,

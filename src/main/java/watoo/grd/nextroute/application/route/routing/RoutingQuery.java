@@ -29,8 +29,18 @@ public record RoutingQuery(
         String schemaVersion,
         RoutingProvider provider,
         String graphVersion,
-        Set<String> excludedRouteIds
+        Set<String> excludedRouteIds,
+        boolean alternativeLegs
 ) {
+    /** 대체 버스 노선을 묻지 않는 호출부용. false 가 곧 옛 동작이다. */
+    public RoutingQuery(double originLon, double originLat, String originName, double destLon, double destLat,
+                        String destName, Instant departureAt, Set<RoutingMode> modes, Integer maxWalkMeters,
+                        boolean wheelchair, String schemaVersion, RoutingProvider provider, String graphVersion,
+                        Set<String> excludedRouteIds) {
+        this(originLon, originLat, originName, destLon, destLat, destName, departureAt, modes, maxWalkMeters,
+                wheelchair, schemaVersion, provider, graphVersion, excludedRouteIds, false);
+    }
+
     /** 제외 노선 없는 호출부용. 빈 집합이 곧 옛 동작이다. */
     public RoutingQuery(double originLon, double originLat, String originName, double destLon, double destLat,
                         String destName, Instant departureAt, Set<RoutingMode> modes, Integer maxWalkMeters,
@@ -53,12 +63,23 @@ public record RoutingQuery(
     /** 허용 수단만 바꾼 복사본(나머지 필드 보존 — 제외 노선도 그대로 간다). */
     public RoutingQuery withModes(Set<RoutingMode> newModes) {
         return new RoutingQuery(originLon, originLat, originName, destLon, destLat, destName, departureAt,
-                newModes, maxWalkMeters, wheelchair, schemaVersion, provider, graphVersion, excludedRouteIds);
+                newModes, maxWalkMeters, wheelchair, schemaVersion, provider, graphVersion, excludedRouteIds,
+                alternativeLegs);
     }
 
     /** 제외 노선만 바꾼 복사본(나머지 필드 보존). */
     public RoutingQuery withExcludedRouteIds(Set<String> newExcludedRouteIds) {
         return new RoutingQuery(originLon, originLat, originName, destLon, destLat, destName, departureAt,
-                modes, maxWalkMeters, wheelchair, schemaVersion, provider, graphVersion, newExcludedRouteIds);
+                modes, maxWalkMeters, wheelchair, schemaVersion, provider, graphVersion, newExcludedRouteIds,
+                alternativeLegs);
+    }
+
+    /**
+     * 버스 구간마다 같은 승하차 정류장의 다른 노선(OTP {@code nextLegs})도 함께 묻는 복사본(otp-bus-lane-merge).
+     * 검색 화면용 질의만 켠다 — 재탐색은 노선을 묶어 보여 주지 않으니 비용만 든다.
+     */
+    public RoutingQuery withAlternativeLegs() {
+        return new RoutingQuery(originLon, originLat, originName, destLon, destLat, destName, departureAt,
+                modes, maxWalkMeters, wheelchair, schemaVersion, provider, graphVersion, excludedRouteIds, true);
     }
 }

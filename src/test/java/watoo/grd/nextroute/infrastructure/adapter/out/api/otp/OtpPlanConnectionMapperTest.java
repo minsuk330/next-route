@@ -48,6 +48,34 @@ class OtpPlanConnectionMapperTest {
     }
 
     @Test
+    @DisplayName("버스 구간의 nextLegs 를 대체 노선 원재료로 옮긴다 — 거르지 않는다(otp-bus-lane-merge)")
+    void mapsNextLegsToBusAlternatives() throws IOException {
+        RoutingItinerary it = ((RoutingResult) mapper.map(load("otp/planconnection-bus-alternatives.json"),
+                departureAt, versions)).itineraries().get(0);
+        RoutingLeg bus = it.legs().stream().filter(l -> l.mode() == RoutingMode.BUS).findFirst().orElseThrow();
+        RoutingLeg subway = it.legs().stream().filter(l -> l.mode() == RoutingMode.SUBWAY).findFirst().orElseThrow();
+
+        assertThat(bus.sourceRouteName()).isEqualTo("8100");
+        assertThat(bus.alternatives()).extracting(a -> a.routeName())
+                .containsExactly("5000A", "9200", "4103", "3201", "1101", "5005(예약)");
+        assertThat(bus.alternatives().get(0).alightStopId()).isEqualTo("1:BS_TAGO_GGB101000148");
+        assertThat(bus.alternatives().get(0).boardAt().atZone(java.time.ZoneId.of("Asia/Seoul")).toLocalTime()
+                .withSecond(0)).isEqualTo(java.time.LocalTime.of(8, 48));
+        assertThat(bus.alternatives().get(0).rideSeconds()).isPositive();
+        // 지하철 구간에 실린 nextLegs 는 버리지 않고 무시한다(버스만 합친다)
+        assertThat(subway.alternatives()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("nextLegs 를 묻지 않은 옛 응답이면 대체 노선은 빈 목록")
+    void noNextLegsMeansEmptyAlternatives() throws IOException {
+        RoutingResult r = (RoutingResult) mapper.map(load("otp/planconnection-success.json"), departureAt, versions);
+
+        assertThat(r.itineraries()).allSatisfy(i -> assertThat(i.legs())
+                .allSatisfy(l -> assertThat(l.alternatives()).isEmpty()));
+    }
+
+    @Test
     @DisplayName("노선 긴 이름·trip 패턴 코드를 보존하고 열차 종류는 판정하지 않는다(subway-express S2 — 판정은 어댑터 경계)")
     void keepsLongNameAndPatternCodeWithoutClassifying() throws IOException {
         com.fasterxml.jackson.databind.node.ObjectNode root =

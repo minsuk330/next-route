@@ -3,6 +3,7 @@ package watoo.grd.nextroute.infrastructure.adapter.out.api.otp;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.route.routing.ActualSource;
+import watoo.grd.nextroute.application.route.routing.AlternativeRoute;
 import watoo.grd.nextroute.application.route.routing.Enrichment;
 import watoo.grd.nextroute.application.route.routing.Fare;
 import watoo.grd.nextroute.application.route.routing.GeometryQuality;
@@ -183,7 +184,33 @@ public class OtpPlanConnectionMapper {
                 sourceRouteId, sourceRouteName, sourceRouteDirection, tripId, serviceDate,
                 boardAt, alightAt, rideDurationSeconds, stops, walkSteps,
                 geometry, enrichment, missing, sourceRouteColor, distance(legNode),
-                sourceRouteLongName, patternCode, null);
+                sourceRouteLongName, patternCode, null,
+                mode == RoutingMode.BUS ? toAlternatives(legNode.path("nextLegs")) : List.of());
+    }
+
+    /**
+     * OTP {@code nextLegs} → 대체 버스 노선 원재료(otp-bus-lane-merge). 버스 편만 옮기고 거르지 않는다 — 예약 노선·긴 탑승
+     * 거르기, 중복 제거, 상한은 {@code BusLaneMerger} 한 곳에서 한다. 쿼리가 묻지 않았으면 빈 목록.
+     */
+    private static List<AlternativeRoute> toAlternatives(JsonNode nextLegs) {
+        if (!nextLegs.isArray() || nextLegs.isEmpty()) {
+            return List.of();
+        }
+        List<AlternativeRoute> out = new java.util.ArrayList<>(nextLegs.size());
+        for (JsonNode n : nextLegs) {
+            if (!"BUS".equals(n.path("mode").asText(""))) {
+                continue;
+            }
+            JsonNode route = n.path("route");
+            String color = text(route.path("color"));
+            out.add(new AlternativeRoute(
+                    text(route.path("gtfsId")), text(route.path("shortName")),
+                    color == null || color.isBlank() ? null : color,
+                    text(n.path("to").path("stop").path("gtfsId")),
+                    instant(n.path("start").path("scheduledTime")),
+                    instant(n.path("end").path("scheduledTime"))));
+        }
+        return out;
     }
 
     /** leg 거리(m). 없거나 숫자가 아니면 null — 0 으로 지어내지 않는다. */
