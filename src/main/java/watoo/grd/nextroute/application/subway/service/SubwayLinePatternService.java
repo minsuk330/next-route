@@ -141,13 +141,15 @@ public class SubwayLinePatternService {
      * 목록 없이 지나가고 다음 요청부터 쓴다. 검색 경로에서 OTP 를 기다리지 않는다.
      */
     public void loadRoutesLater() {
-        if (routes != null || !loading.add(ROUTES_KEY)) {
+        Cached<List<OtpRailRoute>> cached = routes;
+        // 빈 목록이 캐시된 경우(OTP 가 빈 답을 준 적 있음)도 다시 받는다 — 안 그러면 하루 동안 대안 검색이 못 쓴다.
+        if ((cached != null && !cached.value().isEmpty()) || !loading.add(ROUTES_KEY)) {
             return;
         }
         try {
             loader.execute(() -> {
                 try {
-                    routes(clock.instant().plus(LOAD_BUDGET));
+                    routes = new Cached<>(List.copyOf(port.subwayRoutes(LOAD_BUDGET)), clock.instant());
                 } catch (RuntimeException e) {
                     log.warn("[OTP] 지하철 노선 목록 지연 적재 실패: {}", e.getMessage());
                 } finally {

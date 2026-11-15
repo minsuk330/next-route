@@ -213,8 +213,8 @@ public class RouteSearchService implements SearchRouteUseCase {
             if (outcome instanceof RoutingResult first) {
                 // 후보 풀은 사후 필터 전 값으로 모은다(DIRECT 만 언제나 뺀다) — 0건 해제(D10)가 풀 값으로 돌아간다.
                 List<RoutingItinerary> pool = new ArrayList<>(expressFilterPolicy.filter(first.itineraries(), false));
-                supplementRailAlternatives(pool, query, deadline, excludeExpress);
-                supplementIfShort(pool, query, deadline, excludeExpress);
+                boolean railAsked = supplementRailAlternatives(pool, query, deadline, excludeExpress);
+                supplementIfShort(pool, query, deadline, excludeExpress, railAsked);
                 if (!excludeExpress) {
                     recoverNormalAlternatives(pool, query, deadline);
                 }
@@ -274,19 +274,20 @@ public class RouteSearchService implements SearchRouteUseCase {
      * 다시 묻는다 — OTP 가 지배당했다고 버린 다른 노선 조합이 나온다(규칙·실측은 {@link RailAlternatives}). 철도 경로가 하나도
      * 없으면 철도만 한 번 묻는다. 추가 검색과 같은 예산 규칙이고 실패는 무시한다.
      */
-    private void supplementRailAlternatives(List<RoutingItinerary> pool, RoutingQuery query, RoutingDeadline deadline,
-                                            boolean excludeExpress) {
+    private boolean supplementRailAlternatives(List<RoutingItinerary> pool, RoutingQuery query,
+                                               RoutingDeadline deadline, boolean excludeExpress) {
         if (!otpRoutingProperties.isRankingEnabled() || !otpRoutingProperties.isSupplementaryEnabled()
                 || !otpRoutingProperties.isRailAlternativesEnabled()) {
-            return;
+            return false;
         }
         List<RoutingItinerary> ranked = ItineraryRanker.rank(usable(pool, excludeExpress), Integer.MAX_VALUE,
                 busByStops());
         Optional<List<String>> lines = RailAlternatives.linesToExclude(ranked,
                 otpRoutingProperties.getRailAlternativeThreshold(), otpRoutingProperties.getRailAlternativeMaxLines());
         if (lines.isEmpty()) {
-            return;
+            return false;
         }
+        boolean asked = false;
         List<Set<String>> exclusions = new ArrayList<>();
         if (lines.get().isEmpty()) {
             exclusions.add(Set.of());
@@ -302,10 +303,15 @@ public class RouteSearchService implements SearchRouteUseCase {
             exclusions.add(Set.of());
         }
         for (Set<String> ids : exclusions) {
+            // 두 번째 호출부터는 뒤따르는 버스만 추가 검색 몫(한 번 예산)을 남길 수 있을 때만 — 지하철 대안이 버스 대안을 굶기지 않게.
+            if (asked && deadline.remainingMillis(clock) < 2 * otpRoutingProperties.getSupplementaryBudgetMs()) {
+                break;
+            }
             Optional<RoutingDeadline> budget = optionalBudget(deadline);
             if (budget.isEmpty()) {
-                return;
+                break;
             }
+            asked = true;
             Set<String> excluded = new java.util.HashSet<>(query.excludedRouteIds());
             excluded.addAll(ids);
             RoutingOutcome extra;
@@ -323,6 +329,7 @@ public class RouteSearchService implements SearchRouteUseCase {
                     extra instanceof RoutingResult more ? "후보 " + more.itineraries().size()
                             : ((RoutingFailure) extra).code());
         }
+        return asked;
     }
 
     /** 사후 필터(급행 끄기·직통)와 예매 열차 짧은 구간 제외를 거친, 노출 대상이 될 수 있는 후보. */
@@ -347,8 +354,8 @@ public class RouteSearchService implements SearchRouteUseCase {
      * @param pool 사후 필터 전 후보(DIRECT 제외). 여기에 이어 붙인다
      */
     private void supplementIfShort(List<RoutingItinerary> pool, RoutingQuery query, RoutingDeadline deadline,
-                                   boolean excludeExpress) {
-        // 기준은 노출 상한이 아니라 추가 검색 기준(5) — 노출을 늘려도 OTP 추가 호출은 예전과 같다.
+                                   boolean excludeExpress, boolean railAsked) {
+        // 기준은 노출 상한이 아니라 추가 검색 기준(5). 지하철 대안 검색은 이 기준과 따로 돈다(철도 경로 3개 미만이면).
         int limit = otpRoutingProperties.getSupplementaryThreshold();
         if (!otpRoutingProperties.isRankingEnabled() || !otpRoutingProperties.isSupplementaryEnabled()) {
             return;
@@ -358,8 +365,8 @@ public class RouteSearchService implements SearchRouteUseCase {
             if (distinct >= limit) {
                 break;
             }
-            // 철도만 묻기는 지하철 대안 검색이 이미 했다(노선을 빼고 묻거나, 철도 경로가 없으면 그대로).
-            if (otpRoutingProperties.isRailAlternativesEnabled() && modes.equals(RAIL_ONLY_MODES)) {
+            // 철도만 묻기는 지하철 대안 검색이 이미 했으면 건너뛴다(노선을 빼고 묻거나, 철도 경로가 없으면 그대로 물었다).
+            if (railAsked && modes.equals(RAIL_ONLY_MODES)) {
                 continue;
             }
             Optional<RoutingDeadline> budget = optionalBudget(deadline);
@@ -385,7 +392,8 @@ public class RouteSearchService implements SearchRouteUseCase {
     }
 
     private int distinctAfterFilter(List<RoutingItinerary> pool, int limit, boolean excludeExpress) {
-        return ItineraryRanker.rank(expressFilterPolicy.filter(pool, excludeExpress), limit, busByStops()).size();
+        // 노출에서 빠질 경로(예매 열차 짧은 구간)는 세지 않는다 — 세면 추가 검색을 건너뛰고 결과가 모자란다.
+        return ItineraryRanker.rank(usable(pool, excludeExpress), limit, busByStops()).size();
     }
 
     /** 추가 검색 한 번에 쓸 예산. 남은 OTP 예산이 선택 단계 하한 이하면 empty(묻지 않는다). */

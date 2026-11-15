@@ -27,7 +27,9 @@ public final class SlowRouteTrimmer {
         if (ranked == null || ranked.size() <= 1 || factor <= 0) {
             return ranked == null ? List.of() : ranked;
         }
-        int best = ranked.stream().mapToInt(SlowRouteTrimmer::totalSeconds).filter(s -> s > 0).min().orElse(0);
+        // 기준은 대중교통 경로의 최단이다 — 걸어서 12분인 거리에서 도보 경로를 기준으로 삼으면 버스 경로가 다 잘린다.
+        int best = ranked.stream().filter(SlowRouteTrimmer::hasTransit)
+                .mapToInt(SlowRouteTrimmer::totalSeconds).filter(s -> s > 0).min().orElse(0);
         if (best <= 0) {
             return ranked;
         }
@@ -41,6 +43,10 @@ public final class SlowRouteTrimmer {
         return ranked.stream()
                 .filter(it -> totalSeconds(it) <= cutoff || keptSlow.contains(it))
                 .toList();
+    }
+
+    private static boolean hasTransit(RoutingItinerary it) {
+        return it.legs().stream().anyMatch(leg -> leg.mode() != RoutingMode.WALK);
     }
 
     /** 응답 {@code totalTime} 과 같은 합(이동 + 대기 + 도보). */

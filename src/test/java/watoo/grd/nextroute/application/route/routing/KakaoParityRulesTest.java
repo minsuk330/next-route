@@ -35,6 +35,15 @@ class KakaoParityRulesTest {
     }
 
     @Test
+    @DisplayName("걸어서 12분인 거리: 기준은 대중교통 최단(25분)이라 버스 경로가 잘리지 않는다")
+    void walkOnlyDoesNotAnchorTheCutoff() {
+        RoutingItinerary walkOnly = it(12, walk());
+        RoutingItinerary a = it(25, bus("a")), b = it(27, bus("b")), c = it(30, bus("c")), d = it(33, bus("d"));
+
+        assertThat(SlowRouteTrimmer.trim(List.of(a, b, walkOnly, c, d), 1.6, 2)).containsExactly(a, b, walkOnly, c, d);
+    }
+
+    @Test
     @DisplayName("지하철 대안: 철도 경로 1개(천호→홍대 5호선→2호선)면 그 노선들을 차례로 뺀다. 상한 2")
     void picksLinesOfBestRailRoute() {
         RoutingItinerary rail = it(46, subway("서울5호선"), walk(), subway("서울2호선"), subway("공항철도"));
