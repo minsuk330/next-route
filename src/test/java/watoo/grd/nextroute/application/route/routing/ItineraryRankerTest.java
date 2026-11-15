@@ -173,13 +173,22 @@ class ItineraryRankerTest {
     }
 
     @Test
-    @DisplayName("버스 합치기: 같은 노선이 정류장만 다르면 비용 낮은 쪽 하나만 — 같은 경로 반복으로 보인다(강남→홍대 740 9번·12번출구)")
+    @DisplayName("버스 합치기: 같은 노선이 정류장만 다르면 하나만 — 같은 경로 반복으로 보인다(강남→홍대 740 9번·12번출구)")
     void busByStopsDropsSameRouteOnOtherStops() {
         RoutingItinerary a = it(58, 5636, bus("1:740", "740", "G9", "DG"));
         RoutingItinerary b = it(62, 5671, bus("1:740", "740", "G12", "DG"));
         RoutingItinerary c = it(60, 5955, bus("1:741", "741", "G5", "DG"));
 
         assertThat(ItineraryRanker.rank(List.of(b, c, a), 5, true)).containsExactly(a, c);
+    }
+
+    @Test
+    @DisplayName("버스 합치기: 정류장만 다른 같은 노선 중 남는 쪽은 비용이 아니라 가장 이른 도착(대표 규칙)")
+    void sameRouteOtherStopsKeepsEarliestArrival() {
+        RoutingItinerary cheapLate = it(70, 1000, bus("1:740", "740", "G9", "DG"));
+        RoutingItinerary early = it(61, 1010, bus("1:740", "740", "G12", "DG"));
+
+        assertThat(ItineraryRanker.rank(List.of(cheapLate, early), 5, true)).containsExactly(early);
     }
 
     @Test

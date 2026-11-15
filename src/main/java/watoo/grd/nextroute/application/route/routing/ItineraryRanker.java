@@ -68,8 +68,15 @@ public final class ItineraryRanker {
         if (busByStops) {
             // 정류장으로 묶으면 같은 노선이 정류장만 달리 두 번 나온다(2026-11-16 실측 강남→홍대: 740 강남역9번출구·
             // 강남역12번출구). 보이는 노선 흐름이 위 대표와 같으면 뺀다 — 노선 이름 지문 시절과 같은 규칙.
-            java.util.Set<List<String>> seenNames = new java.util.HashSet<>();
-            ranked.removeIf(c -> !seenNames.add(fingerprint(c.itinerary(), false)));
+            // 남길 쪽은 대표 규칙 그대로(가장 이른 도착 → 비용 → 엔진 순서).
+            Map<List<String>, Candidate> byName = new LinkedHashMap<>();
+            for (Candidate c : ranked) {
+                byName.merge(fingerprint(c.itinerary(), false), c,
+                        (kept, next) -> REPRESENTATIVE_ORDER.compare(kept, next) <= 0 ? kept : next);
+            }
+            java.util.Set<Candidate> survivors = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+            survivors.addAll(byName.values());
+            ranked.removeIf(c -> !survivors.contains(c));
         }
 
         return ranked.stream()

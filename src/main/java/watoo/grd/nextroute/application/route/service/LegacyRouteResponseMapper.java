@@ -222,9 +222,11 @@ public class LegacyRouteResponseMapper {
             // 같은 승하차 정류장의 다른 노선(otp-bus-lane-merge, BusLaneMerger 가 거른 최종 목록). 정류장 id 는 구간 공통이라
             // 대표 값을 쓰고, 노선마다 실시간용 노선 id 만 해석한다. 미매핑이어도 lane 은 남긴다(번호 표시).
             for (AlternativeRoute alt : leg.alternatives()) {
-                String altId = boardStopId == null ? null
-                        : resolveBusIds(boardStopId, alightStopId, alt.routeId(), alt.routeName(), false)
-                                .routeLocalId();
+                BusIds altIds = boardStopId == null ? BusIds.NONE
+                        : resolveBusIds(boardStopId, alightStopId, alt.routeId(), alt.routeName(), false);
+                // 구간 정류장 id 는 대표 지역(서울·경기·TAGO) 값이다. 다른 지역 노선 id 를 붙이면 실시간 조회가 서울 정류장 +
+                // 경기 노선처럼 짝이 안 맞는다 → 같은 지역일 때만 싣고, 아니면 번호만 보인다.
+                String altId = altIds.region() != null && altIds.region() == ids.region() ? altIds.routeLocalId() : null;
                 busLanes.add(new LaneResult(alt.label(), alt.label(), null, null, null, altId,
                         displayColor(RoutingMode.BUS, alt.routeId(), alt.routeName(), alt.routeColor())));
             }
@@ -302,8 +304,10 @@ public class LegacyRouteResponseMapper {
     }
 
     /** 버스 구간의 실시간 호출용 id(서울 → 경기 → TAGO 순으로 첫 매핑). 못 찾으면 전부 null. */
-    private record BusIds(String startStationId, String endStationId, String routeLocalId) {
-        static final BusIds NONE = new BusIds(null, null, null);
+    private enum BusRegion { SEOUL, GYEONGGI, TAGO }
+
+    private record BusIds(String startStationId, String endStationId, String routeLocalId, BusRegion region) {
+        static final BusIds NONE = new BusIds(null, null, null, null);
     }
 
     /**
@@ -319,7 +323,7 @@ public class LegacyRouteResponseMapper {
             String end = withAlight && alightStopId != null
                     ? resolver.resolveBus(alightStopId, routeId, routeName).map(SeoulBusIdentity::stopId).orElse(null)
                     : null;
-            return new BusIds(seoul.get().stopId(), end, seoul.get().routeId());
+            return new BusIds(seoul.get().stopId(), end, seoul.get().routeId(), BusRegion.SEOUL);
         }
         Optional<GyeonggiBusIdentity> gg = resolver.resolveGyeonggiBus(boardStopId, routeId, routeName);
         if (gg.isPresent()) {
@@ -327,7 +331,7 @@ public class LegacyRouteResponseMapper {
                     ? resolver.resolveGyeonggiBus(alightStopId, routeId, routeName)
                             .map(GyeonggiBusIdentity::stationId).orElse(null)
                     : null;
-            return new BusIds(gg.get().stationId(), end, gg.get().routeId());
+            return new BusIds(gg.get().stationId(), end, gg.get().routeId(), BusRegion.GYEONGGI);
         }
         Optional<TagoBusIdentity> tago = resolver.resolveTagoBus(boardStopId, routeId, routeName);
         if (tago.isEmpty()) {
@@ -336,7 +340,7 @@ public class LegacyRouteResponseMapper {
         String end = withAlight && alightStopId != null
                 ? resolver.resolveTagoBus(alightStopId, routeId, routeName).map(TagoBusIdentity::nodeId).orElse(null)
                 : null;
-        return new BusIds(tago.get().nodeId(), end, tago.get().routeId());
+        return new BusIds(tago.get().nodeId(), end, tago.get().routeId(), BusRegion.TAGO);
     }
 
     /**

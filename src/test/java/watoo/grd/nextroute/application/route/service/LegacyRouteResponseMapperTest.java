@@ -365,6 +365,19 @@ class LegacyRouteResponseMapperTest {
     }
 
     @Test
+    @DisplayName("대체 노선이 대표와 다른 지역(경기 대표 + 부산 TAGO 노선)이면 실시간 노선 id 를 비운다 — 구간 정류장 id 와 짝이 안 맞는다")
+    void crossRegionAlternativeHasNoRealtimeId() {
+        RoutingLeg leg = gyeonggiBusLeg("1:BR_TAGO_GGB228000184").withAlternatives(List.of(
+                new watoo.grd.nextroute.application.route.routing.AlternativeRoute(
+                        "1:BR_TAGO_BSB5200000", "83", null, "1:BS_TAGO_GGB104000279", null, null)));
+
+        SubPathResult sub = firstSubPath(leg);
+
+        assertThat(sub.lanes()).extracting(l -> l.busLocalBlID()).containsExactly("228000184", null);
+        assertThat(sub.lanes().get(1).busNo()).isEqualTo("83");
+    }
+
+    @Test
     @DisplayName("대체 노선이 없으면 lane 은 하나 — 옛 응답과 같다")
     void noAlternativesSingleLane() {
         assertThat(firstSubPath(gyeonggiBusLeg("1:BR_TAGO_GGB228000184")).lanes()).hasSize(1);
