@@ -35,6 +35,10 @@ import java.util.Optional;
  * 실제와 어긋나면 그럴듯하게 틀린 시각이 사용자를 엉뚱한 때에 움직이게 한다. 지하철에는 도착 예측
  * 모델도 없다.
  *
+ * <p><b>예외 — 지방 지하철</b>(부산·대구·대전·광주): 서울 노선 id 가 없는 단계는 실시간 소스가 아예 없어서 운영사 공식 시간표의
+ * 다음 열차를 {@code TIMETABLE}·{@code APPROXIMATE} 로 준다({@code RegionalLegWaitReader}, docs/plan/subway-regional-timetable).
+ * 서울 노선은 이 경로에 가지 않는다.
+ *
  * <p>추정 자체는 {@link SubwayBoardingTimeEstimator} 가 한다. 여기 남는 것은 저장된 단계에서
  * 방향을 DB 로 읽어 오는 일과 결과를 여정 평가의 모양으로 옮기는 일뿐이다.
  */
@@ -45,6 +49,7 @@ public class SubwayTransferTargetArrivalPredictor implements TransferTargetArriv
 
     private final SubwayBoardingTimeEstimator boardingTimeEstimator;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
+    private final watoo.grd.nextroute.application.regionalsubway.service.RegionalLegWaitReader regionalReader;
 
     @Override
     public boolean supports(JourneyLegType type) {
@@ -56,6 +61,14 @@ public class SubwayTransferTargetArrivalPredictor implements TransferTargetArriv
         if (boardingAnchorAt == null) {
             // 기준이 없으면 어느 열차가 "탈 수 있는 열차"인지 가릴 수 없다.
             return TransferTargetArrival.unknown();
+        }
+        if (waitLeg.getRouteId() == null && regionalReader != null) {
+            // 지방 지하철: 환승역에 닿는 시각 이후 첫 열차를 공식 시간표로(서울 노선은 empty → 모름)
+            return regionalReader.nextDeparture(waitLeg, boardingAnchorAt)
+                    .map(d -> TransferTargetArrival.of(new CurrentLegArrival(d.scheduledAt(),
+                            (int) Math.max(0, d.scheduledAt().getEpochSecond() - now.getEpochSecond()), null, null,
+                            CurrentLegArrival.Source.TIMETABLE, CurrentLegArrival.Quality.APPROXIMATE, now)))
+                    .orElseGet(TransferTargetArrival::unknown);
         }
         if (waitLeg.getRouteId() == null || waitLeg.getStartStopId() == null) {
             return TransferTargetArrival.unknown();

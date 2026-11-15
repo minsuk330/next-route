@@ -71,6 +71,10 @@ public class RegionalDepartureQueryService {
      */
     public Optional<RegionalDeparturesView> nextForLeg(String boardGtfsStopId, String alightGtfsStopId, int limit, Instant at) {
         Optional<RegionalStationSeed> board = catalog.findByGtfsStopId(boardGtfsStopId);
+        if (alightGtfsStopId == null || alightGtfsStopId.isBlank()) {
+            // 앱 근처 역 목록(전국 track API)은 지방 역을 OTP 정류장 id 로만 안다 → 역 화면(두 방향)
+            return board.flatMap(s -> next(s.stationKey(), null, limit, at));
+        }
         Optional<RegionalStationSeed> alight = catalog.findByGtfsStopId(alightGtfsStopId);
         if (board.isEmpty() || alight.isEmpty() || !board.get().lineCode().equals(alight.get().lineCode())) {
             return Optional.empty();

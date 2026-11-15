@@ -350,6 +350,8 @@ class TransferTargetArrivalPredictorTest {
     class Subway {
 
         private final SubwayRealtimeArrivalReader arrivalReader = mock(SubwayRealtimeArrivalReader.class);
+        private final watoo.grd.nextroute.application.regionalsubway.service.RegionalLegWaitReader regionalReader =
+                mock(watoo.grd.nextroute.application.regionalsubway.service.RegionalLegWaitReader.class);
         private SubwayTransferTargetArrivalPredictor predictor;
         private JourneyLeg waitLeg;
 
@@ -360,10 +362,28 @@ class TransferTargetArrivalPredictorTest {
                             new watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics(
                                     new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
                             mock(watoo.grd.nextroute.application.subway.service.SubwayLineOrder.class)),
-                    routeOptionRepository);
+                    routeOptionRepository, regionalReader);
             waitLeg = waitLeg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.PENDING);
             ReflectionTestUtils.setField(waitLeg, "routeId", "1002");
             given(routeOptionRepository.findById(OPTION_ID)).willReturn(Optional.of(subwayOption()));
+        }
+
+        @Test
+        @DisplayName("지방 지하철(노선 id 없음): 환승역에 닿는 시각 이후 첫 열차를 공식 시간표로 — TIMETABLE·APPROXIMATE")
+        void regionalUsesTimetableFromAnchor() {
+            ReflectionTestUtils.setField(waitLeg, "routeId", null);
+            java.time.Instant now = java.time.Instant.parse("2026-11-15T23:00:00Z");
+            java.time.Instant anchor = now.plusSeconds(600);
+            java.time.Instant dep = anchor.plusSeconds(120);
+            given(regionalReader.nextDeparture(waitLeg, anchor)).willReturn(Optional.of(
+                    new watoo.grd.nextroute.application.regionalsubway.dto.RegionalDeparturesView.Departure(dep, 12, "노포", 0)));
+
+            var result = predictor.predictBoarding(waitLeg, anchor, now);
+
+            org.assertj.core.api.Assertions.assertThat(result.arrival().arrivalAt()).isEqualTo(dep);
+            org.assertj.core.api.Assertions.assertThat(result.arrival().source())
+                    .isEqualTo(watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Source.TIMETABLE);
+            org.mockito.Mockito.verifyNoInteractions(arrivalReader);
         }
 
         @Test

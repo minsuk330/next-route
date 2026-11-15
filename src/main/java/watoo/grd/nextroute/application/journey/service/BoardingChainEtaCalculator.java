@@ -108,6 +108,7 @@ public class BoardingChainEtaCalculator {
                 first = estimate;
             }
             worst = worse(worst, estimate.quality());
+            // 실시간이 아니면(모델, 지방 공식 시간표 TIMETABLE) "추정 기반"으로 센다
             if (estimate.source() != watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Source.REALTIME_ARRIVAL) {
                 modelBased = true;
             }

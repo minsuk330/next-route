@@ -47,8 +47,10 @@ class WaitLegArrivalPredictorTest {
 
     private final WaitBusArrivalPredictor busPredictor =
             new WaitBusArrivalPredictor(predictTransferUseCase, routeOptionRepository, regionalArrivalLookup);
+    private final watoo.grd.nextroute.application.regionalsubway.service.RegionalLegWaitReader regionalReader =
+            mock(watoo.grd.nextroute.application.regionalsubway.service.RegionalLegWaitReader.class);
     private final WaitSubwayArrivalPredictor subwayPredictor =
-            new WaitSubwayArrivalPredictor(arrivalReader, routeOptionRepository);
+            new WaitSubwayArrivalPredictor(arrivalReader, routeOptionRepository, regionalReader);
 
     @Test
     @DisplayName("각자 자기 단계만 맡는다")
@@ -310,5 +312,42 @@ class WaitLegArrivalPredictorTest {
                 SubwayRealtimeTrain.builder().trainNo("T1").lineId("1009").stationId("923")
                         .direction("상행").arrivalSeconds(seconds).build(),
                 seconds);
+    }
+
+    @org.junit.jupiter.api.Nested
+    @DisplayName("지방 지하철(공식 시간표) — 서울 노선 id 가 없는 대기 단계만")
+    class RegionalTimetable {
+
+        @Test
+        @DisplayName("서울 노선 id 가 없고 지방 시간표가 있으면 TIMETABLE·APPROXIMATE 로 다음 열차 시각을 준다")
+        void regionalLegUsesTimetable() {
+            JourneyLeg leg = leg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.ACTIVE, null, null);
+            java.time.Instant now = java.time.Instant.parse("2026-11-15T23:00:00Z");
+            java.time.Instant dep = now.plusSeconds(210);
+            org.mockito.BDDMockito.given(regionalReader.nextDeparture(leg, now)).willReturn(java.util.Optional.of(
+                    new watoo.grd.nextroute.application.regionalsubway.dto.RegionalDeparturesView.Departure(dep, 3, "다대포해수욕장", 39)));
+
+            CurrentLegArrival arrival = subwayPredictor.predict(leg, null, now);
+
+            assertThat(arrival.arrivalAt()).isEqualTo(dep);
+            assertThat(arrival.remainingSeconds()).isEqualTo(210);
+            assertThat(arrival.source()).isEqualTo(CurrentLegArrival.Source.TIMETABLE);
+            assertThat(arrival.quality()).isEqualTo(CurrentLegArrival.Quality.APPROXIMATE);
+        }
+
+        @Test
+        @DisplayName("서울 노선(노선 id 있음)은 시간표 경로에 절대 가지 않는다 — 실시간이 없으면 모름 그대로")
+        void seoulLegNeverUsesTimetable() {
+            JourneyLeg leg = leg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.ACTIVE, "923", "1009");
+            subwayPredictor.predict(leg, null, java.time.Instant.parse("2026-11-15T23:00:00Z"));
+            org.mockito.Mockito.verifyNoInteractions(regionalReader);
+        }
+
+        @Test
+        @DisplayName("지방 시간표가 없으면(서울 미해석 단계, serving off) 모름")
+        void noTimetableIsUnknown() {
+            JourneyLeg leg = leg(JourneyLegType.WAIT_SUBWAY, JourneyLegState.ACTIVE, null, null);
+            assertThat(subwayPredictor.predict(leg, null, java.time.Instant.now()).isUnknown()).isTrue();
+        }
     }
 }
