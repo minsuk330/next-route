@@ -47,6 +47,22 @@ class SubwayLinePatternServiceTest {
     }
 
     @Test
+    @DisplayName("loadRoutesLater: 노선 목록만 뒤에서 한 번 받아 cachedRoutes 를 채운다 — 이미 있으면 OTP 를 부르지 않는다(지하철 대안 검색)")
+    void loadRoutesLaterFillsRouteCacheOnce() throws Exception {
+        given(port.subwayRoutes(any())).willReturn(List.of(LINE5_DOWN));
+        assertThat(service.cachedRoutes()).isEmpty();
+
+        service.loadRoutesLater();
+        for (int i = 0; i < 50 && service.cachedRoutes().isEmpty(); i++) {
+            Thread.sleep(20);
+        }
+        service.loadRoutesLater();
+
+        assertThat(service.cachedRoutes()).containsExactly(LINE5_DOWN);
+        verify(port, times(1)).subwayRoutes(any());
+    }
+
+    @Test
     @DisplayName("#317 loadLater: 뒤에서 한 번 적재해 cachedPatterns 를 채운다 — 겹친 요청은 OTP 를 다시 부르지 않는다")
     void loadLaterFillsCacheOnce() throws Exception {
         given(port.subwayRoutes(any())).willAnswer(invocation -> {

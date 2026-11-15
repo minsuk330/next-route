@@ -138,6 +138,24 @@ public class RailServiceClassifier {
         return result.withItineraries(itineraries);
     }
 
+    /**
+     * 노선 짧은 이름({@code 서울2호선})의 모든 route id — 방향·계통별로 나뉜 id 를 한 번에 뺄 때 쓴다(지하철 대안 검색).
+     * 노선 목록이 캐시에 없으면 빈 집합을 주고 뒤에서 받아 둔다 — 검색 경로에서 OTP 를 기다리지 않는다.
+     */
+    public Set<String> routeIdsOfLine(String shortName) {
+        if (shortName == null) {
+            return Set.of();
+        }
+        List<OtpRailRoute> routes = patternService.cachedRoutes();
+        if (routes.isEmpty()) {
+            patternService.loadRoutesLater();
+        }
+        return routes.stream()
+                .filter(r -> shortName.equals(r.shortName()))
+                .map(OtpRailRoute::gtfsId)
+                .collect(Collectors.toSet());
+    }
+
     /** 규칙은 클래스 주석. 철도가 아니면 null. */
     public TrainKind classify(RoutingLeg leg) {
         if (leg == null || (leg.mode() != RoutingMode.SUBWAY && leg.mode() != RoutingMode.RAIL)) {

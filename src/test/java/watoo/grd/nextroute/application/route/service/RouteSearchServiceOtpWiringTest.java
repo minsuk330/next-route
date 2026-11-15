@@ -168,13 +168,13 @@ class RouteSearchServiceOtpWiringTest {
     }
 
     @Test
-    @DisplayName("본 검색이 고유 5개면 더 묻지 않는다")
+    @DisplayName("본 검색이 고유 5개면 버스만은 더 묻지 않는다 — 지하철 대안(철도 경로 3개 미만)만 한 번 묻는다")
     void fullResultSkipsSupplementary() {
         ScriptedOtp otp = new ScriptedOtp().on(Set.of(), busesThenCheapSubway());
 
         service(otp).search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
 
-        assertThat(otp.asked).containsExactly(Set.of());
+        assertThat(otp.asked).containsExactly(Set.of(), RAIL_ONLY);
     }
 
     @Test
@@ -267,7 +267,8 @@ class RouteSearchServiceOtpWiringTest {
                 .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
 
         assertThat(defaults.getSupplementaryThreshold()).isEqualTo(5);
-        assertThat(otp.asked).containsExactly(Set.of());
+        // 버스만 추가 검색은 없다. 철도 경로가 0개라 지하철 대안만 한 번 묻는다(otp-kakao-parity).
+        assertThat(otp.asked).containsExactly(Set.of(), RAIL_ONLY);
         assertThat(firstLaneNames(legacy)).containsExactly("B0", "B1", "B2", "B3", "B4", "B5");
     }
 
@@ -328,6 +329,64 @@ class RouteSearchServiceOtpWiringTest {
                 List.of(), LegGeometry.missing("x"),
                 Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of()).withAlternatives(alts);
         return new RoutingItinerary(board.plusSeconds(382), 382, 0, 0, 0, false, List.of(), Fare.unknown(),
+                List.of(leg), cost);
+    }
+
+    @Test
+    @DisplayName("지하철 대안: 철도 경로가 3개 미만이면 가장 좋은 철도 경로의 노선을 빼고 철도만 다시 묻는다 — 노선 목록을 모르면 그대로 철도만")
+    void railAlternativesAskedWhenFewRailRoutes() {
+        QueryScriptedOtp otp = new QueryScriptedOtp()
+                .on(Set.of(), Set.of(), result(rail("1:S2", "서울2호선", NORMAL, 3000)))
+                .on(RAIL_ONLY, Set.of(), result(rail("1:S9", "서울9호선", NORMAL, 4000)));
+
+        RouteSearchResult legacy = service(otp).search(request(false));
+
+        assertThat(otp.asked.get(1).modes()).isEqualTo(RAIL_ONLY);
+        assertThat(otp.asked.get(1).alternativeLegs()).isTrue();
+        assertThat(legacy.paths()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("지하철 대안: 철도 경로가 이미 3개면 묻지 않는다. 끄면 옛 추가 검색(철도만 → 버스만)")
+    void railAlternativesSkippedWhenEnough() {
+        ScriptedOtp otp = new ScriptedOtp().on(Set.of(), result(
+                singleLeg(RoutingMode.SUBWAY, "1:S2", "서울2호선", 3000),
+                singleLeg(RoutingMode.SUBWAY, "1:S3", "서울3호선", 3100),
+                singleLeg(RoutingMode.SUBWAY, "1:S4", "서울4호선", 3200),
+                singleLeg(RoutingMode.BUS, "1:R1", "B1", 5000),
+                singleLeg(RoutingMode.BUS, "1:R2", "B2", 5001)));
+        service(otp).search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+        assertThat(otp.asked).containsExactly(Set.of());
+
+        var off = limitFive();
+        off.setRailAlternativesEnabled(false);
+        ScriptedOtp old = new ScriptedOtp().on(Set.of(), result(singleLeg(RoutingMode.SUBWAY, "1:S2", "서울2호선", 3000)));
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
+        service(old, enricher, off).search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+        assertThat(old.asked).containsExactly(Set.of(), RAIL_ONLY, BUS_ONLY);
+    }
+
+    @Test
+    @DisplayName("최단보다 1.6배 넘게 느린 경로는 가장 빠른 2개만 남긴다 — 버스 대안은 보이되 목록을 채우지 않는다")
+    void slowRoutesTrimmed() {
+        RoutingResult r = result(
+                timed(RoutingMode.SUBWAY, "1:S2", "서울2호선", 3000, 41),
+                timed(RoutingMode.SUBWAY, "1:S9", "서울9호선", 3100, 44),
+                timed(RoutingMode.SUBWAY, "1:S6", "서울6호선", 3200, 59),
+                timed(RoutingMode.BUS, "1:R1", "B1", 6000, 96),
+                timed(RoutingMode.BUS, "1:R2", "B2", 6100, 91),
+                timed(RoutingMode.BUS, "1:R3", "B3", 6200, 102),
+                timed(RoutingMode.BUS, "1:R4", "B4", 6300, 99));
+
+        RouteSearchResult legacy = service(otpReturning(r)).search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d"));
+
+        assertThat(firstLaneNames(legacy)).containsExactly("서울2호선", "서울9호선", "서울6호선", "B1", "B2");
+    }
+
+    private RoutingItinerary timed(RoutingMode mode, String routeId, String routeName, int cost, int minutes) {
+        RoutingLeg leg = singleLeg(mode, routeId, routeName, cost).legs().get(0);
+        return new RoutingItinerary(Instant.now(), minutes * 60, 0, 0, 0, false, List.of(), Fare.unknown(),
                 List.of(leg), cost);
     }
 
@@ -672,10 +731,11 @@ class RouteSearchServiceOtpWiringTest {
 
         RouteSearchResult legacy = service(otp).search(request(false));
 
-        // 고유 5개라 추가 검색은 없었지만 짝 검사는 따로 한다
-        assertThat(otp.asked).hasSize(2);
-        assertThat(otp.asked.get(1).modes()).isEmpty();
-        assertThat(otp.asked.get(1).excludedRouteIds()).isEqualTo(EXPRESS_ROUTES);
+        // 고유 5개라 버스만 추가 검색은 없다. 지하철 대안 검색 뒤 짝 검사를 따로 한다
+        assertThat(otp.asked).hasSize(3);
+        assertThat(otp.asked.get(1).modes()).isEqualTo(RAIL_ONLY);
+        assertThat(otp.asked.get(2).modes()).isEmpty();
+        assertThat(otp.asked.get(2).excludedRouteIds()).isEqualTo(EXPRESS_ROUTES);
         assertThat(kinds(legacy)).containsExactly("EXPRESS", "NORMAL", "null", "null", "null");
     }
 
