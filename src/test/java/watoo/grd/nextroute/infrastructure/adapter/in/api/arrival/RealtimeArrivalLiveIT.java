@@ -138,9 +138,7 @@ class RealtimeArrivalLiveIT {
                 expectNull(p, "vehicleId1", ours.path("vehicleId1"));
                 expectNull(p, "stopsAway1", ours.path("stopsAway1"));
                 expectNull(p, "approachStops1", ours.path("approachStops1"));
-                if (raw.path("arrmsg1").asText("").contains("운행종료")) {
-                    expectNull(p, "predictTime1", ours.path("predictTime1"));
-                }
+                expectNull(p, "predictTime1", ours.path("predictTime1"));   // 차량 없는 행(출발대기, 운행종료)은 시간 없음
             }
             return p.isEmpty() ? null : p;
         }
