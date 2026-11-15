@@ -6566,3 +6566,14 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - 신촌→여의도 `버스[163, 753, 6713]`, 수원→강남 `[5001-1A, 1560A]`, `[8401, 8409]`.
   - 강남→홍대 9개(끔 10): 2호선, 740 직통(1개만), 470·741 묶음 등. 2.51s → 2.42s.
 - 리뷰(서브에이전트) 반영 2건: ①정류장만 다른 같은 노선 중 남는 쪽 = 비용 최저가 아니라 대표 규칙(가장 이른 도착 → 비용). ②대체 노선 실시간 노선 id 는 대표와 같은 지역(서울·경기·TAGO)일 때만 — 구간 startLocalStationID 가 대표 지역 id 라 섞이면 서울 정류장 + 경기 노선 같은 짝 안 맞는 조회가 됨. 테스트 ItineraryRankerTest 18, LegacyRouteResponseMapperTest 35, RouteSearchServiceOtpWiringTest 32, BusLaneMergerTest 8 — 실패 0.
+
+## 미래 출발 검색의 운행종료 숨김 (#400 후속, 2026-11-16)
+### 확정
+- 출발 시각이 검색 시점보다 5분 넘게 뒤면 OTP 검색은 실시간 보강을 건너뛴다(`RouteSearchService.departsLater`). 보강과 운행종료 숨김이 모두 "지금" 기준(`searchStartedAt`, estimatedUserArrivalAt = 지금 + 도보)이라 미래 여정과 무관하다. degradation 아님(알림 STATIC 과 같은 취급).
+- 5분 = 앱이 보낸 "지금"과 서버 시계 차, 검색 지연 여유.
+### 함정
+- 증상: 00:29 에 "내일 08:30 출발" 검색 → 버스 경로 8개 사라짐(`운행 종료 경로 제외 hidden=8`), 신촌→여의도는 버스 3개 전부 ← 지금 운행종료를 내일 아침 여정에 적용.
+- 모바일은 departureAt 을 보내지 않는다(언제나 지금) → 지금까지 앱 사용자 영향 없음. 출발 시각 지정 기능을 만들면 바로 드러났을 것.
+- ODsay 분기는 departureAt 을 쓰지 않아 손대지 않음.
+### 검증
+- `./gradlew test --tests '*RouteSearchService*' --tests '*TransferArrivalEnricher*' --tests '*BusServiceEnded*'` → 99 tests, 실패 0. 신규 2: futureDepartureSkipsRealtime, nearDepartureKeepsRealtime(경계 300/301초).

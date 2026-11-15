@@ -437,6 +437,36 @@ class RouteSearchServiceOtpWiringTest {
     }
 
     @Test
+    @DisplayName("출발이 나중(내일 아침)이면 지금 실시간으로 보강하지도, 운행종료로 숨기지도 않는다(#400 — 밤에 찾으면 버스 경로가 사라졌다)")
+    void futureDepartureSkipsRealtime() {
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        String tomorrow = java.time.OffsetDateTime.now().plusHours(8).toString();
+
+        RouteSearchResult out = service(otpReturning(busItinerary()), enricher)
+                .search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4, "o", "d", tomorrow));
+
+        verifyNoInteractions(enricher);
+        assertThat(out.paths()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("출발이 지금이거나 5분 안이면 실시간으로 보강한다 — 경계는 5분")
+    void nearDepartureKeepsRealtime() {
+        Instant now = Instant.parse("2026-11-16T00:00:00Z");
+
+        assertThat(RouteSearchService.departsLater(now, now)).isFalse();
+        assertThat(RouteSearchService.departsLater(now.plusSeconds(300), now)).isFalse();
+        assertThat(RouteSearchService.departsLater(now.plusSeconds(301), now)).isTrue();
+        assertThat(RouteSearchService.departsLater(now.minusSeconds(3600), now)).isFalse();
+
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
+        service(otpReturning(busItinerary()), enricher).search(new RouteSearchRequest(126.9, 37.5, 127.0, 37.4,
+                "o", "d", java.time.OffsetDateTime.now().plusMinutes(2).toString()));
+        org.mockito.Mockito.verify(enricher).enrich(any(), any(), any());
+    }
+
+    @Test
     @DisplayName("보강이 값을 못 채워도 검색은 성공하고 순서도 그대로다")
     void enricherMissKeepsSearchAlive() {
         TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
