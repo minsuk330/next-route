@@ -272,6 +272,23 @@ seoul:
     subway-route-key: ${SEOUL_SUBWAY_ROUTE}
     subway-tago-base-url: http://apis.data.go.kr/1613000/SubwayInfo
 
+# 부산교통공사 열차시각표 조회(data.go.kr 15158990). 키는 지하철 TAGO 와 같은 data.go.kr 계정 키(활용신청 승인 2026-11-16).
+# day·updown 파라미터를 무시하고 역 전체를 준다 — 어댑터가 행의 dayType 으로 나눈다.
+busan:
+  api:
+    train-time-base-url: https://apis.data.go.kr/B551542/trainTime
+    key: ${SEOUL_SUBWAY_API:}
+
+# 지방 지하철(부산1~4, 대구1~3, 대전1, 광주1) 공식 시간표 기반 도착. docs/plan/subway-regional-timetable
+regional-subway:
+  timetable:
+    # worker 적재. 주 1회 + 출발 표가 비었을 때 부팅 직후 1회. 원격 호출: 적재 약 200회(대전 TAGO 88, 부산 114),
+    # 이어서 대구 파일 신선도 비교 TAGO 약 376회(94역 × 평일·휴일 × 상하). 대구·광주 시간표 자체는 리소스 파일.
+    enabled: ${REGIONAL_SUBWAY_TIMETABLE_ENABLED:false}
+    cron: "0 30 4 * * SUN"
+    lines: BS1,BS2,BS3,BS4,DG1,DG2,DG3,DJ1,GJ1
+    call-interval-ms: 200
+
 toss:
   login:
     base-url: ${TOSS_LOGIN_BASE_URL:https://apps-in-toss-api.toss.im}
