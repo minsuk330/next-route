@@ -232,7 +232,9 @@ public class RouteSearchService implements SearchRouteUseCase {
                 request.startX(), request.startY(), request.startName(),
                 request.endX(), request.endY(), request.endName());
         // 요청이 실시간을 요구하지 않았으면(알림용 STATIC 경로) 보강하지 않는다 — degradation 이 아니다.
-        if (!withRealtime) {
+        // 출발이 나중이면(내일 아침 등) 지금의 버스 도착은 그 여정과 무관하다 — 보강도, 운행종료 숨김(#400)도 하지 않는다.
+        // 2026-11-16 운영: 00:29 에 "내일 08:30 출발"을 찾으니 지금 운행종료인 740 등 8개 경로가 사라졌다.
+        if (!withRealtime || departsLater(departureAt, searchStartedAt)) {
             return mapped;
         }
         // 버스 구간 도착예측. enricher 는 값을 채우고, 실시간이 "운행종료"라 한 버스 구간을 지나는 경로만 뺀다(#400) —
@@ -241,6 +243,15 @@ public class RouteSearchService implements SearchRouteUseCase {
         RouteSearchResult afterBus = mapped;
         return requireRideable(afterBus, stage(ctx, SearchComponent.BUS_REALTIME,
                 () -> transferArrivalEnricher.enrich(afterBus, searchStartedAt, ctx)));
+    }
+
+    /** 지금 실시간이 의미 있는 출발 여유. 앱이 보낸 "지금"과 서버 시계 차·검색 지연을 덮는다. */
+    static final java.time.Duration REALTIME_DEPARTURE_SLACK = java.time.Duration.ofMinutes(5);
+
+    /** 출발 시각이 검색 시점보다 {@link #REALTIME_DEPARTURE_SLACK} 넘게 뒤인가 — 그러면 정적 결과만 낸다. */
+    static boolean departsLater(Instant departureAt, Instant searchStartedAt) {
+        return departureAt != null && searchStartedAt != null
+                && departureAt.isAfter(searchStartedAt.plus(REALTIME_DEPARTURE_SLACK));
     }
 
     /** 후보가 있었는데 전부 운행종료로 빠졌으면 422 — 앱이 "지금은 탈 수 있는 경로가 없어요"를 보인다(#400). */
