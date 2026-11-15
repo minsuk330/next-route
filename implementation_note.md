@@ -6577,3 +6577,30 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - ODsay 분기는 departureAt 을 쓰지 않아 손대지 않음.
 ### 검증
 - `./gradlew test --tests '*RouteSearchService*' --tests '*TransferArrivalEnricher*' --tests '*BusServiceEnded*'` → 99 tests, 실패 0. 신규 2: futureDepartureSkipsRealtime, nearDepartureKeepsRealtime(경계 300/301초).
+## subway-regional-timetable PR-1 — 지방 지하철 공식 시간표 데이터 (2026-11-16)
+플랜: docs/plan/subway-regional-timetable/PLAN.md. 범위 부산1~4, 대구1~3, 대전1, 광주1.
+### 확정
+- 출처(공식 대조 완료): 부산=부산교통공사 API(15158990), 대구=대구교통공사 열차시각 API 브라우저 내보내기 파일(resources/subway/daegu), 광주=공식 CSV 15111497(2026-11-01), 대전=TAGO(공식 엑셀 2026-03-30 과 전 시각 일치).
+- 시드 250역 = tools/regional-subway/build_stations.py(OTP 패턴 + TAGO 역 목록). stationKey = {lineCode}-{TAGO id 뒤 3자리}, 예외 codeOverride 중앙로 MTRDG13140→131.
+- stationName 은 현재 역명(TAGO), OTP 는 개명 전 이름(큰고개=동구청, 성당못=서부정류장, 어린이회관=어린이세상) → aliases.json.
+### 함정
+- 부산 API 는 day/updown/stime/etime 파라미터 무시 ← 역 전체 반환 / 행 dayType·updown 으로 분리.
+- TAGO dailyTypeCode=02 전 노선 0건, 반영 지연(광주 11-01 추가 열차 누락) ← TAGO 를 대구·광주 주 출처로 쓰지 않음.
+- dtro.or.kr 서버 호출은 봇 확인 스크립트(로컬, VPS 모두) ← 우회 금지, 브라우저 내보내기. data.go.kr 15133855 는 링크형.
+- 대구 내보내기: 종착역 반대 방향 schedule ["-"] ← 파서에서 버림. 괄호 = 그 열차 종착역.
+- 부산3호선 수영→대저 16역 패턴(한 역 건너뜀) ← 일직선 검사는 "순서 지키는 부분열".
+- 광주 CSV 역사코드는 역과 1:1 아님(101=소태·학동증심사입구) ← 역명 매칭.
+- 부산1호선 다대포 연장 5역: TAGO MTRBS1195~1199 ↔ 부산 API scode 95~99(195 는 결과 없음) ← aliases.json codeOverride.
+- 생성자 두 개(공개 + 테스트용 package)인데 `@Autowired` 없음 ← Spring 이 기본 생성자를 찾다 기동 실패(api·worker 모두) / 공개 생성자에 `@Autowired`. 단위 테스트는 package 생성자를 직접 불러 못 잡고, `NextrouteApplicationTests.contextLoads` 만 잡는다(env 필요).
+- data.go.kr 호출 예외 메시지에 요청 URL(serviceKey) 이 실림 ← 로그로 키 누출 / `DataGoKrJson.redact`.
+- 시드에서 빠진 역을 남기면 seq 를 음수로 비켜 둔 값이 다음 실행에서 UNIQUE(line_code, seq) 충돌 ← 매주 같은 노선 적재가 계속 실패 / upsert 전에 시드에 없는 역(과 출발 행) 삭제.
+- 부산 응답이 totalCount 보다 적게 오면 완전한 역처럼 덮어씀 ← 서버가 numOfRows 를 깎는 경우 / items < totalCount 면 실패(옛 값 유지).
+- 파일 원천 생성자에서 날짜·방향 파싱 예외 → 기동 실패 ← 데이터 파일 하나로 전체가 죽음 / 날짜는 null, 방향 미해결 노선은 fetch 실패로 격리.
+### 확정
+- 부산 `arrtime`, 광주 `도착시간` 은 도착 시각(정차 20~30초 전). 출발 시각 자리에 그대로 쓴다 — "시간표 기준" 표시라 수용.
+### 검증
+- 전체 테스트 환경: `scratchpad/runfull.sh` = st-pg(:55432 myuser)·st-redis(:56379) + 기본값 없는 `${KEY}` 9개 더미 export. env 없이 돌리면 컨텍스트 IT 395건이 `${POSTGRES_USER}` 로 실패(기존 무관, 환경).
+- `NextrouteApplicationTests.contextLoads` 통과(지방 빈 포함), PR-1 단위·IT 전부 통과.
+- 전체 `runfull.sh`(cleanTest test --continue): **4,065 중 실패 2, 건너뜀 12**, 10분. 둘 다 기존 무관: `RerouteRemainingPathOtpLiveIT`(로컬 OTP 가 떠서 켜짐 → `otpConcurrencyConfigValidator` lease-ms 12000 < 17000, 노트 5875행과 같은 실패), `RedisOtpConcurrencyGateAdapterIT` lease 만료 시험(단독 재실행 통과, 타이밍).
+### 배포
+- V76(regional_subway_station, regional_subway_departure). 플래그 `REGIONAL_SUBWAY_TIMETABLE_ENABLED` 기본 false.

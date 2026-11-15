@@ -1,0 +1,3752 @@
+[
+ {
+  "stationKey": "BS1-134",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "노포",
+  "otpStationName": "노포",
+  "seq": 0,
+  "tagoStationId": "MTRBS1134",
+  "providerStationCode": "134",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0134"
+  ],
+  "lat": 35.283619,
+  "lon": 129.094833
+ },
+ {
+  "stationKey": "BS1-133",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "범어사",
+  "otpStationName": "범어사",
+  "seq": 1,
+  "tagoStationId": "MTRBS1133",
+  "providerStationCode": "133",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0133"
+  ],
+  "lat": 35.273163,
+  "lon": 129.092636
+ },
+ {
+  "stationKey": "BS1-132",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "남산",
+  "otpStationName": "남산",
+  "seq": 2,
+  "tagoStationId": "MTRBS1132",
+  "providerStationCode": "132",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0132"
+  ],
+  "lat": 35.265167,
+  "lon": 129.092453
+ },
+ {
+  "stationKey": "BS1-131",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "두실",
+  "otpStationName": "두실",
+  "seq": 3,
+  "tagoStationId": "MTRBS1131",
+  "providerStationCode": "131",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0131"
+  ],
+  "lat": 35.257038,
+  "lon": 129.091385
+ },
+ {
+  "stationKey": "BS1-130",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "구서",
+  "otpStationName": "구서",
+  "seq": 4,
+  "tagoStationId": "MTRBS1130",
+  "providerStationCode": "130",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0130"
+  ],
+  "lat": 35.247284,
+  "lon": 129.091293
+ },
+ {
+  "stationKey": "BS1-129",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "장전",
+  "otpStationName": "장전",
+  "seq": 5,
+  "tagoStationId": "MTRBS1129",
+  "providerStationCode": "129",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0129"
+  ],
+  "lat": 35.238293,
+  "lon": 129.088089
+ },
+ {
+  "stationKey": "BS1-128",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "부산대",
+  "otpStationName": "부산대",
+  "seq": 6,
+  "tagoStationId": "MTRBS1128",
+  "providerStationCode": "128",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0128"
+  ],
+  "lat": 35.229633,
+  "lon": 129.089355
+ },
+ {
+  "stationKey": "BS1-127",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "온천장",
+  "otpStationName": "온천장",
+  "seq": 7,
+  "tagoStationId": "MTRBS1127",
+  "providerStationCode": "127",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0127"
+  ],
+  "lat": 35.220245,
+  "lon": 129.086441
+ },
+ {
+  "stationKey": "BS1-126",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "명륜",
+  "otpStationName": "명륜",
+  "seq": 8,
+  "tagoStationId": "MTRBS1126",
+  "providerStationCode": "126",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0126"
+  ],
+  "lat": 35.212643,
+  "lon": 129.079712
+ },
+ {
+  "stationKey": "BS1-125",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "동래",
+  "otpStationName": "동래",
+  "seq": 9,
+  "tagoStationId": "MTRBS1125",
+  "providerStationCode": "125",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0125"
+  ],
+  "lat": 35.205578,
+  "lon": 129.078476
+ },
+ {
+  "stationKey": "BS1-124",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "교대",
+  "otpStationName": "교대",
+  "seq": 10,
+  "tagoStationId": "MTRBS1124",
+  "providerStationCode": "124",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0124"
+  ],
+  "lat": 35.195518,
+  "lon": 129.079971
+ },
+ {
+  "stationKey": "BS1-123",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "연산",
+  "otpStationName": "연산",
+  "seq": 11,
+  "tagoStationId": "MTRBS1123",
+  "providerStationCode": "123",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0123"
+  ],
+  "lat": 35.185352,
+  "lon": 129.0811
+ },
+ {
+  "stationKey": "BS1-122",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "시청",
+  "otpStationName": "시청",
+  "seq": 12,
+  "tagoStationId": "MTRBS1122",
+  "providerStationCode": "122",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0122"
+  ],
+  "lat": 35.179832,
+  "lon": 129.07666
+ },
+ {
+  "stationKey": "BS1-121",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "양정",
+  "otpStationName": "양정",
+  "seq": 13,
+  "tagoStationId": "MTRBS1121",
+  "providerStationCode": "121",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0121"
+  ],
+  "lat": 35.17305,
+  "lon": 129.071274
+ },
+ {
+  "stationKey": "BS1-120",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "부전",
+  "otpStationName": "부전",
+  "seq": 14,
+  "tagoStationId": "MTRBS1120",
+  "providerStationCode": "120",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0120"
+  ],
+  "lat": 35.162392,
+  "lon": 129.06282
+ },
+ {
+  "stationKey": "BS1-119",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "서면",
+  "otpStationName": "서면",
+  "seq": 15,
+  "tagoStationId": "MTRBS1119",
+  "providerStationCode": "119",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0119"
+  ],
+  "lat": 35.157345,
+  "lon": 129.059097
+ },
+ {
+  "stationKey": "BS1-118",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "범내골",
+  "otpStationName": "범내골",
+  "seq": 16,
+  "tagoStationId": "MTRBS1118",
+  "providerStationCode": "118",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0118"
+  ],
+  "lat": 35.14732,
+  "lon": 129.05925
+ },
+ {
+  "stationKey": "BS1-117",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "범일",
+  "otpStationName": "범일",
+  "seq": 17,
+  "tagoStationId": "MTRBS1117",
+  "providerStationCode": "117",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0117"
+  ],
+  "lat": 35.140858,
+  "lon": 129.059357
+ },
+ {
+  "stationKey": "BS1-116",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "좌천",
+  "otpStationName": "좌천",
+  "seq": 18,
+  "tagoStationId": "MTRBS1116",
+  "providerStationCode": "116",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0116"
+  ],
+  "lat": 35.134422,
+  "lon": 129.054474
+ },
+ {
+  "stationKey": "BS1-115",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "부산진",
+  "otpStationName": "부산진",
+  "seq": 19,
+  "tagoStationId": "MTRBS1115",
+  "providerStationCode": "115",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0115"
+  ],
+  "lat": 35.127712,
+  "lon": 129.047791
+ },
+ {
+  "stationKey": "BS1-114",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "초량",
+  "otpStationName": "초량",
+  "seq": 20,
+  "tagoStationId": "MTRBS1114",
+  "providerStationCode": "114",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0114"
+  ],
+  "lat": 35.120735,
+  "lon": 129.04274
+ },
+ {
+  "stationKey": "BS1-113",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "부산",
+  "otpStationName": "부산",
+  "seq": 21,
+  "tagoStationId": "MTRBS1113",
+  "providerStationCode": "113",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0113"
+  ],
+  "lat": 35.114605,
+  "lon": 129.039383
+ },
+ {
+  "stationKey": "BS1-112",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "중앙",
+  "otpStationName": "중앙",
+  "seq": 22,
+  "tagoStationId": "MTRBS1112",
+  "providerStationCode": "112",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0112"
+  ],
+  "lat": 35.10387,
+  "lon": 129.036362
+ },
+ {
+  "stationKey": "BS1-111",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "남포",
+  "otpStationName": "남포",
+  "seq": 23,
+  "tagoStationId": "MTRBS1111",
+  "providerStationCode": "111",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0111"
+  ],
+  "lat": 35.097923,
+  "lon": 129.03479
+ },
+ {
+  "stationKey": "BS1-110",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "자갈치",
+  "otpStationName": "자갈치",
+  "seq": 24,
+  "tagoStationId": "MTRBS1110",
+  "providerStationCode": "110",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0110"
+  ],
+  "lat": 35.097458,
+  "lon": 129.026978
+ },
+ {
+  "stationKey": "BS1-109",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "토성",
+  "otpStationName": "토성",
+  "seq": 25,
+  "tagoStationId": "MTRBS1109",
+  "providerStationCode": "109",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0109"
+  ],
+  "lat": 35.100689,
+  "lon": 129.019791
+ },
+ {
+  "stationKey": "BS1-108",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "동대신",
+  "otpStationName": "동대신",
+  "seq": 26,
+  "tagoStationId": "MTRBS1108",
+  "providerStationCode": "108",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0108"
+  ],
+  "lat": 35.11034,
+  "lon": 129.017715
+ },
+ {
+  "stationKey": "BS1-107",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "서대신",
+  "otpStationName": "서대신",
+  "seq": 27,
+  "tagoStationId": "MTRBS1107",
+  "providerStationCode": "107",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0107"
+  ],
+  "lat": 35.110901,
+  "lon": 129.012161
+ },
+ {
+  "stationKey": "BS1-106",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "대티",
+  "otpStationName": "대티",
+  "seq": 28,
+  "tagoStationId": "MTRBS1106",
+  "providerStationCode": "106",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0106"
+  ],
+  "lat": 35.103157,
+  "lon": 128.999924
+ },
+ {
+  "stationKey": "BS1-105",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "괴정",
+  "otpStationName": "괴정",
+  "seq": 29,
+  "tagoStationId": "MTRBS1105",
+  "providerStationCode": "105",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0105"
+  ],
+  "lat": 35.099937,
+  "lon": 128.992554
+ },
+ {
+  "stationKey": "BS1-104",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "사하",
+  "otpStationName": "사하",
+  "seq": 30,
+  "tagoStationId": "MTRBS1104",
+  "providerStationCode": "104",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0104"
+  ],
+  "lat": 35.099789,
+  "lon": 128.983246
+ },
+ {
+  "stationKey": "BS1-103",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "당리",
+  "otpStationName": "당리",
+  "seq": 31,
+  "tagoStationId": "MTRBS1103",
+  "providerStationCode": "103",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0103"
+  ],
+  "lat": 35.103607,
+  "lon": 128.973602
+ },
+ {
+  "stationKey": "BS1-102",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "하단",
+  "otpStationName": "하단",
+  "seq": 32,
+  "tagoStationId": "MTRBS1102",
+  "providerStationCode": "102",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0102"
+  ],
+  "lat": 35.106232,
+  "lon": 128.966736
+ },
+ {
+  "stationKey": "BS1-101",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "신평",
+  "otpStationName": "신평",
+  "seq": 33,
+  "tagoStationId": "MTRBS1101",
+  "providerStationCode": "101",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0101"
+  ],
+  "lat": 35.095257,
+  "lon": 128.96077
+ },
+ {
+  "stationKey": "BS1-100",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "동매",
+  "otpStationName": "동매",
+  "seq": 34,
+  "tagoStationId": "MTRBS1100",
+  "providerStationCode": "100",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0100"
+  ],
+  "lat": 35.089951,
+  "lon": 128.973969
+ },
+ {
+  "stationKey": "BS1-99",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "장림",
+  "otpStationName": "장림",
+  "seq": 35,
+  "tagoStationId": "MTRBS1199",
+  "providerStationCode": "99",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0099"
+  ],
+  "lat": 35.081631,
+  "lon": 128.977631
+ },
+ {
+  "stationKey": "BS1-98",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "신장림",
+  "otpStationName": "신장림",
+  "seq": 36,
+  "tagoStationId": "MTRBS1198",
+  "providerStationCode": "98",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0098"
+  ],
+  "lat": 35.074432,
+  "lon": 128.977036
+ },
+ {
+  "stationKey": "BS1-97",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "낫개",
+  "otpStationName": "낫개",
+  "seq": 37,
+  "tagoStationId": "MTRBS1197",
+  "providerStationCode": "97",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0097"
+  ],
+  "lat": 35.065266,
+  "lon": 128.979874
+ },
+ {
+  "stationKey": "BS1-96",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "다대포항",
+  "otpStationName": "다대포항",
+  "seq": 38,
+  "tagoStationId": "MTRBS1196",
+  "providerStationCode": "96",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0096"
+  ],
+  "lat": 35.057419,
+  "lon": 128.971283
+ },
+ {
+  "stationKey": "BS1-95",
+  "lineCode": "BS1",
+  "lineName": "부산1호선",
+  "stationName": "다대포해수욕장",
+  "otpStationName": "다대포해수욕장",
+  "seq": 39,
+  "tagoStationId": "MTRBS1195",
+  "providerStationCode": "95",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0095"
+  ],
+  "lat": 35.048622,
+  "lon": 128.965912
+ },
+ {
+  "stationKey": "BS2-243",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "양산",
+  "otpStationName": "양산",
+  "seq": 0,
+  "tagoStationId": "MTRBS2243",
+  "providerStationCode": "243",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0243"
+  ],
+  "lat": 35.338768,
+  "lon": 129.026428
+ },
+ {
+  "stationKey": "BS2-242",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "남양산",
+  "otpStationName": "남양산",
+  "seq": 1,
+  "tagoStationId": "MTRBS2242",
+  "providerStationCode": "242",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0242"
+  ],
+  "lat": 35.325371,
+  "lon": 129.019424
+ },
+ {
+  "stationKey": "BS2-241",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "부산대양산캠퍼스",
+  "otpStationName": "부산대양산캠퍼스",
+  "seq": 2,
+  "tagoStationId": "MTRBS2241",
+  "providerStationCode": "241",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0241"
+  ],
+  "lat": 35.317062,
+  "lon": 129.014114
+ },
+ {
+  "stationKey": "BS2-240",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "증산",
+  "otpStationName": "증산",
+  "seq": 3,
+  "tagoStationId": "MTRBS2240",
+  "providerStationCode": "240",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0240"
+  ],
+  "lat": 35.308277,
+  "lon": 129.010269
+ },
+ {
+  "stationKey": "BS2-239",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "호포",
+  "otpStationName": "호포",
+  "seq": 4,
+  "tagoStationId": "MTRBS2239",
+  "providerStationCode": "239",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0239"
+  ],
+  "lat": 35.281399,
+  "lon": 129.017365
+ },
+ {
+  "stationKey": "BS2-238",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "금곡",
+  "otpStationName": "금곡",
+  "seq": 5,
+  "tagoStationId": "MTRBS2238",
+  "providerStationCode": "238",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0238"
+  ],
+  "lat": 35.267803,
+  "lon": 129.01709
+ },
+ {
+  "stationKey": "BS2-237",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "동원",
+  "otpStationName": "동원",
+  "seq": 6,
+  "tagoStationId": "MTRBS2237",
+  "providerStationCode": "237",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0237"
+  ],
+  "lat": 35.258217,
+  "lon": 129.012161
+ },
+ {
+  "stationKey": "BS2-236",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "율리",
+  "otpStationName": "율리",
+  "seq": 7,
+  "tagoStationId": "MTRBS2236",
+  "providerStationCode": "236",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0236"
+  ],
+  "lat": 35.246265,
+  "lon": 129.012878
+ },
+ {
+  "stationKey": "BS2-235",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "화명",
+  "otpStationName": "화명",
+  "seq": 8,
+  "tagoStationId": "MTRBS2235",
+  "providerStationCode": "235",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0235"
+  ],
+  "lat": 35.235619,
+  "lon": 129.01387
+ },
+ {
+  "stationKey": "BS2-234",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "수정",
+  "otpStationName": "수정",
+  "seq": 9,
+  "tagoStationId": "MTRBS2234",
+  "providerStationCode": "234",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0234"
+  ],
+  "lat": 35.223385,
+  "lon": 129.009201
+ },
+ {
+  "stationKey": "BS2-233",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "덕천",
+  "otpStationName": "덕천",
+  "seq": 10,
+  "tagoStationId": "MTRBS2233",
+  "providerStationCode": "233",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0233"
+  ],
+  "lat": 35.210629,
+  "lon": 129.005173
+ },
+ {
+  "stationKey": "BS2-232",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "구명",
+  "otpStationName": "구명",
+  "seq": 11,
+  "tagoStationId": "MTRBS2232",
+  "providerStationCode": "232",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0232"
+  ],
+  "lat": 35.20282,
+  "lon": 128.999557
+ },
+ {
+  "stationKey": "BS2-231",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "구남",
+  "otpStationName": "구남",
+  "seq": 12,
+  "tagoStationId": "MTRBS2231",
+  "providerStationCode": "231",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0231"
+  ],
+  "lat": 35.196938,
+  "lon": 128.995026
+ },
+ {
+  "stationKey": "BS2-230",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "모라",
+  "otpStationName": "모라",
+  "seq": 13,
+  "tagoStationId": "MTRBS2230",
+  "providerStationCode": "230",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0230"
+  ],
+  "lat": 35.189617,
+  "lon": 128.988632
+ },
+ {
+  "stationKey": "BS2-229",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "모덕",
+  "otpStationName": "모덕",
+  "seq": 14,
+  "tagoStationId": "MTRBS2229",
+  "providerStationCode": "229",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0229"
+  ],
+  "lat": 35.18037,
+  "lon": 128.985596
+ },
+ {
+  "stationKey": "BS2-228",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "덕포",
+  "otpStationName": "덕포",
+  "seq": 15,
+  "tagoStationId": "MTRBS2228",
+  "providerStationCode": "228",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0228"
+  ],
+  "lat": 35.173363,
+  "lon": 128.983795
+ },
+ {
+  "stationKey": "BS2-227",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "사상",
+  "otpStationName": "사상",
+  "seq": 16,
+  "tagoStationId": "MTRBS2227",
+  "providerStationCode": "227",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0227"
+  ],
+  "lat": 35.16238,
+  "lon": 128.98468
+ },
+ {
+  "stationKey": "BS2-226",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "감전",
+  "otpStationName": "감전",
+  "seq": 17,
+  "tagoStationId": "MTRBS2226",
+  "providerStationCode": "226",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0226"
+  ],
+  "lat": 35.155396,
+  "lon": 128.991394
+ },
+ {
+  "stationKey": "BS2-225",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "주례",
+  "otpStationName": "주례",
+  "seq": 18,
+  "tagoStationId": "MTRBS2225",
+  "providerStationCode": "225",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0225"
+  ],
+  "lat": 35.150513,
+  "lon": 129.003143
+ },
+ {
+  "stationKey": "BS2-224",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "냉정",
+  "otpStationName": "냉정",
+  "seq": 19,
+  "tagoStationId": "MTRBS2224",
+  "providerStationCode": "224",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0224"
+  ],
+  "lat": 35.151199,
+  "lon": 129.01178
+ },
+ {
+  "stationKey": "BS2-223",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "개금",
+  "otpStationName": "개금",
+  "seq": 20,
+  "tagoStationId": "MTRBS2223",
+  "providerStationCode": "223",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0223"
+  ],
+  "lat": 35.153301,
+  "lon": 129.020355
+ },
+ {
+  "stationKey": "BS2-222",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "동의대",
+  "otpStationName": "동의대",
+  "seq": 21,
+  "tagoStationId": "MTRBS2222",
+  "providerStationCode": "222",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0222"
+  ],
+  "lat": 35.154068,
+  "lon": 129.032593
+ },
+ {
+  "stationKey": "BS2-221",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "가야",
+  "otpStationName": "가야",
+  "seq": 22,
+  "tagoStationId": "MTRBS2221",
+  "providerStationCode": "221",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0221"
+  ],
+  "lat": 35.155888,
+  "lon": 129.04303
+ },
+ {
+  "stationKey": "BS2-220",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "부암",
+  "otpStationName": "부암",
+  "seq": 23,
+  "tagoStationId": "MTRBS2220",
+  "providerStationCode": "220",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0220"
+  ],
+  "lat": 35.157421,
+  "lon": 129.050354
+ },
+ {
+  "stationKey": "BS2-219",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "서면",
+  "otpStationName": "서면",
+  "seq": 24,
+  "tagoStationId": "MTRBS2219",
+  "providerStationCode": "219",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0219"
+  ],
+  "lat": 35.157673,
+  "lon": 129.058365
+ },
+ {
+  "stationKey": "BS2-218",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "전포",
+  "otpStationName": "전포",
+  "seq": 25,
+  "tagoStationId": "MTRBS2218",
+  "providerStationCode": "218",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0218"
+  ],
+  "lat": 35.153,
+  "lon": 129.065369
+ },
+ {
+  "stationKey": "BS2-217",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "국제금융센터부산은행",
+  "otpStationName": "국제금융센터부산은행",
+  "seq": 26,
+  "tagoStationId": "MTRBS2217",
+  "providerStationCode": "217",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0217"
+  ],
+  "lat": 35.145947,
+  "lon": 129.066757
+ },
+ {
+  "stationKey": "BS2-216",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "문현",
+  "otpStationName": "문현",
+  "seq": 27,
+  "tagoStationId": "MTRBS2216",
+  "providerStationCode": "216",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0216"
+  ],
+  "lat": 35.139122,
+  "lon": 129.067352
+ },
+ {
+  "stationKey": "BS2-215",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "지게골",
+  "otpStationName": "지게골",
+  "seq": 28,
+  "tagoStationId": "MTRBS2215",
+  "providerStationCode": "215",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0215"
+  ],
+  "lat": 35.135582,
+  "lon": 129.074448
+ },
+ {
+  "stationKey": "BS2-214",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "못골",
+  "otpStationName": "못골",
+  "seq": 29,
+  "tagoStationId": "MTRBS2214",
+  "providerStationCode": "214",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0214"
+  ],
+  "lat": 35.134712,
+  "lon": 129.084381
+ },
+ {
+  "stationKey": "BS2-213",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "대연",
+  "otpStationName": "대연",
+  "seq": 30,
+  "tagoStationId": "MTRBS2213",
+  "providerStationCode": "213",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0213"
+  ],
+  "lat": 35.135147,
+  "lon": 129.092102
+ },
+ {
+  "stationKey": "BS2-212",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "경성대부경대",
+  "otpStationName": "경성대부경대",
+  "seq": 31,
+  "tagoStationId": "MTRBS2212",
+  "providerStationCode": "212",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0212"
+  ],
+  "lat": 35.137527,
+  "lon": 129.100403
+ },
+ {
+  "stationKey": "BS2-211",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "남천",
+  "otpStationName": "남천",
+  "seq": 32,
+  "tagoStationId": "MTRBS2211",
+  "providerStationCode": "211",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0211"
+  ],
+  "lat": 35.141922,
+  "lon": 129.107742
+ },
+ {
+  "stationKey": "BS2-210",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "금련산",
+  "otpStationName": "금련산",
+  "seq": 33,
+  "tagoStationId": "MTRBS2210",
+  "providerStationCode": "210",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0210"
+  ],
+  "lat": 35.149845,
+  "lon": 129.110977
+ },
+ {
+  "stationKey": "BS2-209",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "광안",
+  "otpStationName": "광안",
+  "seq": 34,
+  "tagoStationId": "MTRBS2209",
+  "providerStationCode": "209",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0209"
+  ],
+  "lat": 35.157845,
+  "lon": 129.113129
+ },
+ {
+  "stationKey": "BS2-208",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "수영",
+  "otpStationName": "수영",
+  "seq": 35,
+  "tagoStationId": "MTRBS2208",
+  "providerStationCode": "208",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0208"
+  ],
+  "lat": 35.167442,
+  "lon": 129.115479
+ },
+ {
+  "stationKey": "BS2-207",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "민락",
+  "otpStationName": "민락",
+  "seq": 36,
+  "tagoStationId": "MTRBS2207",
+  "providerStationCode": "207",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0207"
+  ],
+  "lat": 35.16713,
+  "lon": 129.122009
+ },
+ {
+  "stationKey": "BS2-206",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "센텀시티",
+  "otpStationName": "센텀시티",
+  "seq": 37,
+  "tagoStationId": "MTRBS2206",
+  "providerStationCode": "206",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0206"
+  ],
+  "lat": 35.168957,
+  "lon": 129.131744
+ },
+ {
+  "stationKey": "BS2-205",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "벡스코",
+  "otpStationName": "벡스코",
+  "seq": 38,
+  "tagoStationId": "MTRBS2205",
+  "providerStationCode": "205",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0205"
+  ],
+  "lat": 35.168991,
+  "lon": 129.138687
+ },
+ {
+  "stationKey": "BS2-204",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "동백",
+  "otpStationName": "동백",
+  "seq": 39,
+  "tagoStationId": "MTRBS2204",
+  "providerStationCode": "204",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0204"
+  ],
+  "lat": 35.161495,
+  "lon": 129.147827
+ },
+ {
+  "stationKey": "BS2-203",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "해운대",
+  "otpStationName": "해운대",
+  "seq": 40,
+  "tagoStationId": "MTRBS2203",
+  "providerStationCode": "203",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0203"
+  ],
+  "lat": 35.163574,
+  "lon": 129.158783
+ },
+ {
+  "stationKey": "BS2-202",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "중동",
+  "otpStationName": "중동",
+  "seq": 41,
+  "tagoStationId": "MTRBS2202",
+  "providerStationCode": "202",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0202"
+  ],
+  "lat": 35.166698,
+  "lon": 129.168274
+ },
+ {
+  "stationKey": "BS2-201",
+  "lineCode": "BS2",
+  "lineName": "부산2호선",
+  "stationName": "장산",
+  "otpStationName": "장산",
+  "seq": 42,
+  "tagoStationId": "MTRBS2201",
+  "providerStationCode": "201",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0201"
+  ],
+  "lat": 35.169827,
+  "lon": 129.176712
+ },
+ {
+  "stationKey": "BS3-301",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "수영",
+  "otpStationName": "수영",
+  "seq": 0,
+  "tagoStationId": "MTRBS3301",
+  "providerStationCode": "301",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0301"
+  ],
+  "lat": 35.167786,
+  "lon": 129.114548
+ },
+ {
+  "stationKey": "BS3-302",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "망미",
+  "otpStationName": "망미",
+  "seq": 1,
+  "tagoStationId": "MTRBS3302",
+  "providerStationCode": "302",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0302"
+  ],
+  "lat": 35.171555,
+  "lon": 129.108185
+ },
+ {
+  "stationKey": "BS3-303",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "배산",
+  "otpStationName": "배산",
+  "seq": 2,
+  "tagoStationId": "MTRBS3303",
+  "providerStationCode": "303",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0303"
+  ],
+  "lat": 35.1735,
+  "lon": 129.09552
+ },
+ {
+  "stationKey": "BS3-304",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "물만골",
+  "otpStationName": "물만골",
+  "seq": 3,
+  "tagoStationId": "MTRBS3304",
+  "providerStationCode": "304",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0304"
+  ],
+  "lat": 35.176479,
+  "lon": 129.085846
+ },
+ {
+  "stationKey": "BS3-305",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "연산",
+  "otpStationName": "연산",
+  "seq": 4,
+  "tagoStationId": "MTRBS3305",
+  "providerStationCode": "305",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0305"
+  ],
+  "lat": 35.186306,
+  "lon": 129.081024
+ },
+ {
+  "stationKey": "BS3-306",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "거제",
+  "otpStationName": "거제",
+  "seq": 5,
+  "tagoStationId": "MTRBS3306",
+  "providerStationCode": "306",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0306"
+  ],
+  "lat": 35.188519,
+  "lon": 129.073975
+ },
+ {
+  "stationKey": "BS3-307",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "종합운동장",
+  "otpStationName": "종합운동장",
+  "seq": 6,
+  "tagoStationId": "MTRBS3307",
+  "providerStationCode": "307",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0307"
+  ],
+  "lat": 35.191113,
+  "lon": 129.067825
+ },
+ {
+  "stationKey": "BS3-308",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "사직",
+  "otpStationName": "사직",
+  "seq": 7,
+  "tagoStationId": "MTRBS3308",
+  "providerStationCode": "308",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0308"
+  ],
+  "lat": 35.198601,
+  "lon": 129.065186
+ },
+ {
+  "stationKey": "BS3-309",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "미남",
+  "otpStationName": "미남",
+  "seq": 8,
+  "tagoStationId": "MTRBS3309",
+  "providerStationCode": "309",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0309"
+  ],
+  "lat": 35.20546,
+  "lon": 129.068054
+ },
+ {
+  "stationKey": "BS3-310",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "만덕",
+  "otpStationName": "만덕",
+  "seq": 9,
+  "tagoStationId": "MTRBS3310",
+  "providerStationCode": "310",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0310"
+  ],
+  "lat": 35.212921,
+  "lon": 129.036957
+ },
+ {
+  "stationKey": "BS3-311",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "남산정",
+  "otpStationName": "남산정",
+  "seq": 10,
+  "tagoStationId": "MTRBS3311",
+  "providerStationCode": "311",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0311"
+  ],
+  "lat": 35.213326,
+  "lon": 129.024002
+ },
+ {
+  "stationKey": "BS3-312",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "숙등",
+  "otpStationName": "숙등",
+  "seq": 11,
+  "tagoStationId": "MTRBS3312",
+  "providerStationCode": "312",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0312"
+  ],
+  "lat": 35.212124,
+  "lon": 129.013351
+ },
+ {
+  "stationKey": "BS3-313",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "덕천",
+  "otpStationName": "덕천",
+  "seq": 12,
+  "tagoStationId": "MTRBS3313",
+  "providerStationCode": "313",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0313"
+  ],
+  "lat": 35.210304,
+  "lon": 129.006073
+ },
+ {
+  "stationKey": "BS3-314",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "구포",
+  "otpStationName": "구포",
+  "seq": 13,
+  "tagoStationId": "MTRBS3314",
+  "providerStationCode": "314",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0314"
+  ],
+  "lat": 35.206696,
+  "lon": 128.996384
+ },
+ {
+  "stationKey": "BS3-315",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "강서구청",
+  "otpStationName": "강서구청",
+  "seq": 14,
+  "tagoStationId": "MTRBS3315",
+  "providerStationCode": "315",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0315"
+  ],
+  "lat": 35.211224,
+  "lon": 128.981964
+ },
+ {
+  "stationKey": "BS3-316",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "체육공원",
+  "otpStationName": "체육공원",
+  "seq": 15,
+  "tagoStationId": "MTRBS3316",
+  "providerStationCode": "316",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0316"
+  ],
+  "lat": 35.212505,
+  "lon": 128.969406
+ },
+ {
+  "stationKey": "BS3-317",
+  "lineCode": "BS3",
+  "lineName": "부산3호선",
+  "stationName": "대저",
+  "otpStationName": "대저",
+  "seq": 16,
+  "tagoStationId": "MTRBS3317",
+  "providerStationCode": "317",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0317"
+  ],
+  "lat": 35.21336,
+  "lon": 128.961029
+ },
+ {
+  "stationKey": "BS4-414",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "안평",
+  "otpStationName": "안평",
+  "seq": 0,
+  "tagoStationId": "MTRBS4414",
+  "providerStationCode": "414",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0414"
+  ],
+  "lat": 35.237373,
+  "lon": 129.17186
+ },
+ {
+  "stationKey": "BS4-413",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "고촌",
+  "otpStationName": "고촌",
+  "seq": 1,
+  "tagoStationId": "MTRBS4413",
+  "providerStationCode": "413",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0413"
+  ],
+  "lat": 35.236015,
+  "lon": 129.160324
+ },
+ {
+  "stationKey": "BS4-412",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "윗반송",
+  "otpStationName": "윗반송",
+  "seq": 2,
+  "tagoStationId": "MTRBS4412",
+  "providerStationCode": "412",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0412"
+  ],
+  "lat": 35.23243,
+  "lon": 129.1539
+ },
+ {
+  "stationKey": "BS4-411",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "영산대",
+  "otpStationName": "영산대",
+  "seq": 3,
+  "tagoStationId": "MTRBS4411",
+  "providerStationCode": "411",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0411"
+  ],
+  "lat": 35.225677,
+  "lon": 129.146179
+ },
+ {
+  "stationKey": "BS4-410",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "석대",
+  "otpStationName": "석대",
+  "seq": 4,
+  "tagoStationId": "MTRBS4410",
+  "providerStationCode": "410",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0410"
+  ],
+  "lat": 35.21814,
+  "lon": 129.136948
+ },
+ {
+  "stationKey": "BS4-409",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "반여농산물시장",
+  "otpStationName": "반여농산물시장",
+  "seq": 5,
+  "tagoStationId": "MTRBS4409",
+  "providerStationCode": "409",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0409"
+  ],
+  "lat": 35.217758,
+  "lon": 129.123947
+ },
+ {
+  "stationKey": "BS4-408",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "금사",
+  "otpStationName": "금사",
+  "seq": 6,
+  "tagoStationId": "MTRBS4408",
+  "providerStationCode": "408",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0408"
+  ],
+  "lat": 35.215805,
+  "lon": 129.115189
+ },
+ {
+  "stationKey": "BS4-407",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "서동",
+  "otpStationName": "서동",
+  "seq": 7,
+  "tagoStationId": "MTRBS4407",
+  "providerStationCode": "407",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0407"
+  ],
+  "lat": 35.213139,
+  "lon": 129.107483
+ },
+ {
+  "stationKey": "BS4-406",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "명장",
+  "otpStationName": "명장",
+  "seq": 8,
+  "tagoStationId": "MTRBS4406",
+  "providerStationCode": "406",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0406"
+  ],
+  "lat": 35.205257,
+  "lon": 129.101761
+ },
+ {
+  "stationKey": "BS4-405",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "충렬사",
+  "otpStationName": "충렬사",
+  "seq": 9,
+  "tagoStationId": "MTRBS4405",
+  "providerStationCode": "405",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0405"
+  ],
+  "lat": 35.199802,
+  "lon": 129.097595
+ },
+ {
+  "stationKey": "BS4-404",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "낙민",
+  "otpStationName": "낙민",
+  "seq": 10,
+  "tagoStationId": "MTRBS4404",
+  "providerStationCode": "404",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0404"
+  ],
+  "lat": 35.200188,
+  "lon": 129.090897
+ },
+ {
+  "stationKey": "BS4-403",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "수안",
+  "otpStationName": "수안",
+  "seq": 11,
+  "tagoStationId": "MTRBS4403",
+  "providerStationCode": "403",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0403"
+  ],
+  "lat": 35.201824,
+  "lon": 129.083832
+ },
+ {
+  "stationKey": "BS4-402",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "동래",
+  "otpStationName": "동래",
+  "seq": 12,
+  "tagoStationId": "MTRBS4402",
+  "providerStationCode": "402",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0402"
+  ],
+  "lat": 35.204823,
+  "lon": 129.077072
+ },
+ {
+  "stationKey": "BS4-401",
+  "lineCode": "BS4",
+  "lineName": "부산4호선",
+  "stationName": "미남",
+  "otpStationName": "미남",
+  "seq": 13,
+  "tagoStationId": "MTRBS4401",
+  "providerStationCode": "401",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-2-0401"
+  ],
+  "lat": 35.207508,
+  "lon": 129.069382
+ },
+ {
+  "stationKey": "DG1-149",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "하양",
+  "otpStationName": "하양",
+  "seq": 0,
+  "tagoStationId": "MTRDG10149",
+  "providerStationCode": "149",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0149"
+  ],
+  "lat": 35.909428,
+  "lon": 128.81752
+ },
+ {
+  "stationKey": "DG1-148",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "부호",
+  "otpStationName": "부호",
+  "seq": 1,
+  "tagoStationId": "MTRDG10148",
+  "providerStationCode": "148",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0148"
+  ],
+  "lat": 35.900192,
+  "lon": 128.803131
+ },
+ {
+  "stationKey": "DG1-147",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "대구한의대병원",
+  "otpStationName": "대구한의대병원",
+  "seq": 2,
+  "tagoStationId": "MTRDG10147",
+  "providerStationCode": "147",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0147"
+  ],
+  "lat": 35.871681,
+  "lon": 128.750977
+ },
+ {
+  "stationKey": "DG1-146",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "안심",
+  "otpStationName": "안심",
+  "seq": 3,
+  "tagoStationId": "MTRDG10146",
+  "providerStationCode": "146",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0146"
+  ],
+  "lat": 35.87125,
+  "lon": 128.73378
+ },
+ {
+  "stationKey": "DG1-145",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "각산",
+  "otpStationName": "각산",
+  "seq": 4,
+  "tagoStationId": "MTRDG10145",
+  "providerStationCode": "145",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0145"
+  ],
+  "lat": 35.868027,
+  "lon": 128.72438
+ },
+ {
+  "stationKey": "DG1-144",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "반야월",
+  "otpStationName": "반야월",
+  "seq": 5,
+  "tagoStationId": "MTRDG10144",
+  "providerStationCode": "144",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0144"
+  ],
+  "lat": 35.865967,
+  "lon": 128.713547
+ },
+ {
+  "stationKey": "DG1-143",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "신기",
+  "otpStationName": "신기",
+  "seq": 6,
+  "tagoStationId": "MTRDG10143",
+  "providerStationCode": "143",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0143"
+  ],
+  "lat": 35.866714,
+  "lon": 128.701843
+ },
+ {
+  "stationKey": "DG1-142",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "율하",
+  "otpStationName": "율하",
+  "seq": 7,
+  "tagoStationId": "MTRDG10142",
+  "providerStationCode": "142",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0142"
+  ],
+  "lat": 35.869339,
+  "lon": 128.693268
+ },
+ {
+  "stationKey": "DG1-141",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "용계",
+  "otpStationName": "용계",
+  "seq": 8,
+  "tagoStationId": "MTRDG10141",
+  "providerStationCode": "141",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0141"
+  ],
+  "lat": 35.876202,
+  "lon": 128.681747
+ },
+ {
+  "stationKey": "DG1-140",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "방촌",
+  "otpStationName": "방촌",
+  "seq": 9,
+  "tagoStationId": "MTRDG10140",
+  "providerStationCode": "140",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0140"
+  ],
+  "lat": 35.879681,
+  "lon": 128.670135
+ },
+ {
+  "stationKey": "DG1-139",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "해안",
+  "otpStationName": "해안",
+  "seq": 10,
+  "tagoStationId": "MTRDG10139",
+  "providerStationCode": "139",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0139"
+  ],
+  "lat": 35.883526,
+  "lon": 128.659775
+ },
+ {
+  "stationKey": "DG1-138",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "동촌",
+  "otpStationName": "동촌",
+  "seq": 11,
+  "tagoStationId": "MTRDG10138",
+  "providerStationCode": "138",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0138"
+  ],
+  "lat": 35.88615,
+  "lon": 128.650146
+ },
+ {
+  "stationKey": "DG1-137",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "아양교",
+  "otpStationName": "아양교",
+  "seq": 12,
+  "tagoStationId": "MTRDG10137",
+  "providerStationCode": "137",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0137"
+  ],
+  "lat": 35.88715,
+  "lon": 128.639755
+ },
+ {
+  "stationKey": "DG1-136",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "동구청",
+  "otpStationName": "큰고개",
+  "seq": 13,
+  "tagoStationId": "MTRDG10136",
+  "providerStationCode": "136",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0136"
+  ],
+  "lat": 35.884338,
+  "lon": 128.632156
+ },
+ {
+  "stationKey": "DG1-135",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "동대구",
+  "otpStationName": "동대구",
+  "seq": 14,
+  "tagoStationId": "MTRDG10135",
+  "providerStationCode": "135",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0135"
+  ],
+  "lat": 35.877445,
+  "lon": 128.627548
+ },
+ {
+  "stationKey": "DG1-134",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "신천",
+  "otpStationName": "신천",
+  "seq": 15,
+  "tagoStationId": "MTRDG10134",
+  "providerStationCode": "134",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0134"
+  ],
+  "lat": 35.874588,
+  "lon": 128.617493
+ },
+ {
+  "stationKey": "DG1-133",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "칠성시장",
+  "otpStationName": "칠성시장",
+  "seq": 16,
+  "tagoStationId": "MTRDG10133",
+  "providerStationCode": "133",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0133"
+  ],
+  "lat": 35.876102,
+  "lon": 128.605194
+ },
+ {
+  "stationKey": "DG1-132",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "대구",
+  "otpStationName": "대구",
+  "seq": 17,
+  "tagoStationId": "MTRDG10132",
+  "providerStationCode": "132",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0132"
+  ],
+  "lat": 35.876339,
+  "lon": 128.597122
+ },
+ {
+  "stationKey": "DG1-131",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "중앙로",
+  "otpStationName": "중앙로",
+  "seq": 18,
+  "tagoStationId": "MTRDG13140",
+  "providerStationCode": "131",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0131"
+  ],
+  "lat": 35.870911,
+  "lon": 128.593994
+ },
+ {
+  "stationKey": "DG1-130",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "반월당",
+  "otpStationName": "반월당",
+  "seq": 19,
+  "tagoStationId": "MTRDG10130",
+  "providerStationCode": "130",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0130"
+  ],
+  "lat": 35.864574,
+  "lon": 128.593338
+ },
+ {
+  "stationKey": "DG1-129",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "명덕",
+  "otpStationName": "명덕",
+  "seq": 20,
+  "tagoStationId": "MTRDG10129",
+  "providerStationCode": "129",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0129"
+  ],
+  "lat": 35.858013,
+  "lon": 128.591187
+ },
+ {
+  "stationKey": "DG1-128",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "교대",
+  "otpStationName": "교대",
+  "seq": 21,
+  "tagoStationId": "MTRDG10128",
+  "providerStationCode": "128",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0128"
+  ],
+  "lat": 35.851112,
+  "lon": 128.590607
+ },
+ {
+  "stationKey": "DG1-127",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "영대병원",
+  "otpStationName": "영대병원",
+  "seq": 22,
+  "tagoStationId": "MTRDG10127",
+  "providerStationCode": "127",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0127"
+  ],
+  "lat": 35.844273,
+  "lon": 128.588272
+ },
+ {
+  "stationKey": "DG1-126",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "현충로",
+  "otpStationName": "현충로",
+  "seq": 23,
+  "tagoStationId": "MTRDG10126",
+  "providerStationCode": "126",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0126"
+  ],
+  "lat": 35.840874,
+  "lon": 128.581329
+ },
+ {
+  "stationKey": "DG1-125",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "안지랑",
+  "otpStationName": "안지랑",
+  "seq": 24,
+  "tagoStationId": "MTRDG10125",
+  "providerStationCode": "125",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0125"
+  ],
+  "lat": 35.839226,
+  "lon": 128.573944
+ },
+ {
+  "stationKey": "DG1-124",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "대명",
+  "otpStationName": "대명",
+  "seq": 25,
+  "tagoStationId": "MTRDG10124",
+  "providerStationCode": "124",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0124"
+  ],
+  "lat": 35.839294,
+  "lon": 128.565445
+ },
+ {
+  "stationKey": "DG1-123",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "서부정류장",
+  "otpStationName": "성당못",
+  "seq": 26,
+  "tagoStationId": "MTRDG10123",
+  "providerStationCode": "123",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0123"
+  ],
+  "lat": 35.837582,
+  "lon": 128.557587
+ },
+ {
+  "stationKey": "DG1-122",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "송현",
+  "otpStationName": "송현",
+  "seq": 27,
+  "tagoStationId": "MTRDG10122",
+  "providerStationCode": "122",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0122"
+  ],
+  "lat": 35.831146,
+  "lon": 128.551819
+ },
+ {
+  "stationKey": "DG1-121",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "월촌",
+  "otpStationName": "월촌",
+  "seq": 28,
+  "tagoStationId": "MTRDG10121",
+  "providerStationCode": "121",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0121"
+  ],
+  "lat": 35.823566,
+  "lon": 128.545334
+ },
+ {
+  "stationKey": "DG1-120",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "상인",
+  "otpStationName": "상인",
+  "seq": 29,
+  "tagoStationId": "MTRDG10120",
+  "providerStationCode": "120",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0120"
+  ],
+  "lat": 35.81897,
+  "lon": 128.537857
+ },
+ {
+  "stationKey": "DG1-119",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "월배",
+  "otpStationName": "월배",
+  "seq": 30,
+  "tagoStationId": "MTRDG10119",
+  "providerStationCode": "119",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0119"
+  ],
+  "lat": 35.816235,
+  "lon": 128.530502
+ },
+ {
+  "stationKey": "DG1-118",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "진천",
+  "otpStationName": "진천",
+  "seq": 31,
+  "tagoStationId": "MTRDG10118",
+  "providerStationCode": "118",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0118"
+  ],
+  "lat": 35.813824,
+  "lon": 128.522644
+ },
+ {
+  "stationKey": "DG1-117",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "대곡",
+  "otpStationName": "대곡",
+  "seq": 32,
+  "tagoStationId": "MTRDG10117",
+  "providerStationCode": "117",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0117"
+  ],
+  "lat": 35.809441,
+  "lon": 128.512497
+ },
+ {
+  "stationKey": "DG1-116",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "화원",
+  "otpStationName": "화원",
+  "seq": 33,
+  "tagoStationId": "MTRDG10116",
+  "providerStationCode": "116",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0116"
+  ],
+  "lat": 35.804356,
+  "lon": 128.500397
+ },
+ {
+  "stationKey": "DG1-115",
+  "lineCode": "DG1",
+  "lineName": "대구1호선",
+  "stationName": "설화명곡",
+  "otpStationName": "설화명곡",
+  "seq": 34,
+  "tagoStationId": "MTRDG10115",
+  "providerStationCode": "115",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0115"
+  ],
+  "lat": 35.798717,
+  "lon": 128.489319
+ },
+ {
+  "stationKey": "DG2-244",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "영남대",
+  "otpStationName": "영남대",
+  "seq": 0,
+  "tagoStationId": "MTRDG20244",
+  "providerStationCode": "244",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0244"
+  ],
+  "lat": 35.836246,
+  "lon": 128.752838
+ },
+ {
+  "stationKey": "DG2-243",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "임당",
+  "otpStationName": "임당",
+  "seq": 1,
+  "tagoStationId": "MTRDG20243",
+  "providerStationCode": "243",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0243"
+  ],
+  "lat": 35.83411,
+  "lon": 128.740982
+ },
+ {
+  "stationKey": "DG2-242",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "정평",
+  "otpStationName": "정평",
+  "seq": 2,
+  "tagoStationId": "MTRDG20242",
+  "providerStationCode": "242",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0242"
+  ],
+  "lat": 35.834118,
+  "lon": 128.728485
+ },
+ {
+  "stationKey": "DG2-241",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "사월",
+  "otpStationName": "사월",
+  "seq": 3,
+  "tagoStationId": "MTRDG20241",
+  "providerStationCode": "241",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0241"
+  ],
+  "lat": 35.836983,
+  "lon": 128.715576
+ },
+ {
+  "stationKey": "DG2-240",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "신매",
+  "otpStationName": "신매",
+  "seq": 4,
+  "tagoStationId": "MTRDG20240",
+  "providerStationCode": "240",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0240"
+  ],
+  "lat": 35.840851,
+  "lon": 128.70491
+ },
+ {
+  "stationKey": "DG2-239",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "고산",
+  "otpStationName": "고산",
+  "seq": 5,
+  "tagoStationId": "MTRDG20239",
+  "providerStationCode": "239",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0239"
+  ],
+  "lat": 35.842934,
+  "lon": 128.693237
+ },
+ {
+  "stationKey": "DG2-238",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "수성알파시티",
+  "otpStationName": "수성알파시티",
+  "seq": 6,
+  "tagoStationId": "MTRDG20238",
+  "providerStationCode": "238",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0238"
+  ],
+  "lat": 35.842182,
+  "lon": 128.680023
+ },
+ {
+  "stationKey": "DG2-237",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "연호",
+  "otpStationName": "연호",
+  "seq": 7,
+  "tagoStationId": "MTRDG20237",
+  "providerStationCode": "237",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0237"
+  ],
+  "lat": 35.846722,
+  "lon": 128.671417
+ },
+ {
+  "stationKey": "DG2-236",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "담티",
+  "otpStationName": "담티",
+  "seq": 8,
+  "tagoStationId": "MTRDG20236",
+  "providerStationCode": "236",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0236"
+  ],
+  "lat": 35.854683,
+  "lon": 128.65419
+ },
+ {
+  "stationKey": "DG2-235",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "만촌",
+  "otpStationName": "만촌",
+  "seq": 9,
+  "tagoStationId": "MTRDG20235",
+  "providerStationCode": "235",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0235"
+  ],
+  "lat": 35.858898,
+  "lon": 128.644791
+ },
+ {
+  "stationKey": "DG2-234",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "수성구청",
+  "otpStationName": "수성구청",
+  "seq": 10,
+  "tagoStationId": "MTRDG20234",
+  "providerStationCode": "234",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0234"
+  ],
+  "lat": 35.858841,
+  "lon": 128.635635
+ },
+ {
+  "stationKey": "DG2-233",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "범어",
+  "otpStationName": "범어",
+  "seq": 11,
+  "tagoStationId": "MTRDG20233",
+  "providerStationCode": "233",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0233"
+  ],
+  "lat": 35.859077,
+  "lon": 128.626175
+ },
+ {
+  "stationKey": "DG2-232",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "대구은행",
+  "otpStationName": "대구은행",
+  "seq": 12,
+  "tagoStationId": "MTRDG20232",
+  "providerStationCode": "232",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0232"
+  ],
+  "lat": 35.859772,
+  "lon": 128.613983
+ },
+ {
+  "stationKey": "DG2-231",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "경대병원",
+  "otpStationName": "경대병원",
+  "seq": 13,
+  "tagoStationId": "MTRDG20231",
+  "providerStationCode": "231",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0231"
+  ],
+  "lat": 35.863091,
+  "lon": 128.603271
+ },
+ {
+  "stationKey": "DG2-230",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "반월당",
+  "otpStationName": "반월당",
+  "seq": 14,
+  "tagoStationId": "MTRDG20230",
+  "providerStationCode": "230",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0230"
+  ],
+  "lat": 35.865265,
+  "lon": 128.594681
+ },
+ {
+  "stationKey": "DG2-229",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "청라언덕",
+  "otpStationName": "청라언덕",
+  "seq": 15,
+  "tagoStationId": "MTRDG20229",
+  "providerStationCode": "229",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0229"
+  ],
+  "lat": 35.865089,
+  "lon": 128.583038
+ },
+ {
+  "stationKey": "DG2-228",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "반고개",
+  "otpStationName": "반고개",
+  "seq": 16,
+  "tagoStationId": "MTRDG20228",
+  "providerStationCode": "228",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0228"
+  ],
+  "lat": 35.862377,
+  "lon": 128.573288
+ },
+ {
+  "stationKey": "DG2-227",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "내당",
+  "otpStationName": "내당",
+  "seq": 17,
+  "tagoStationId": "MTRDG20227",
+  "providerStationCode": "227",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0227"
+  ],
+  "lat": 35.860252,
+  "lon": 128.565063
+ },
+ {
+  "stationKey": "DG2-226",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "두류",
+  "otpStationName": "두류",
+  "seq": 18,
+  "tagoStationId": "MTRDG20226",
+  "providerStationCode": "226",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0226"
+  ],
+  "lat": 35.857361,
+  "lon": 128.556061
+ },
+ {
+  "stationKey": "DG2-225",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "감삼",
+  "otpStationName": "감삼",
+  "seq": 19,
+  "tagoStationId": "MTRDG20225",
+  "providerStationCode": "225",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0225"
+  ],
+  "lat": 35.854313,
+  "lon": 128.54808
+ },
+ {
+  "stationKey": "DG2-224",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "죽전",
+  "otpStationName": "죽전",
+  "seq": 20,
+  "tagoStationId": "MTRDG20224",
+  "providerStationCode": "224",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0224"
+  ],
+  "lat": 35.850662,
+  "lon": 128.538635
+ },
+ {
+  "stationKey": "DG2-223",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "용산",
+  "otpStationName": "용산",
+  "seq": 21,
+  "tagoStationId": "MTRDG20223",
+  "providerStationCode": "223",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0223"
+  ],
+  "lat": 35.848969,
+  "lon": 128.528381
+ },
+ {
+  "stationKey": "DG2-222",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "이곡",
+  "otpStationName": "이곡",
+  "seq": 22,
+  "tagoStationId": "MTRDG20222",
+  "providerStationCode": "222",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0222"
+  ],
+  "lat": 35.85059,
+  "lon": 128.51619
+ },
+ {
+  "stationKey": "DG2-221",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "성서산업단지",
+  "otpStationName": "성서산업단지",
+  "seq": 23,
+  "tagoStationId": "MTRDG20221",
+  "providerStationCode": "221",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0221"
+  ],
+  "lat": 35.851776,
+  "lon": 128.506607
+ },
+ {
+  "stationKey": "DG2-220",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "계명대",
+  "otpStationName": "계명대",
+  "seq": 24,
+  "tagoStationId": "MTRDG20220",
+  "providerStationCode": "220",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0220"
+  ],
+  "lat": 35.85149,
+  "lon": 128.491882
+ },
+ {
+  "stationKey": "DG2-219",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "강창",
+  "otpStationName": "강창",
+  "seq": 25,
+  "tagoStationId": "MTRDG20219",
+  "providerStationCode": "219",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0219"
+  ],
+  "lat": 35.853085,
+  "lon": 128.478897
+ },
+ {
+  "stationKey": "DG2-218",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "대실",
+  "otpStationName": "대실",
+  "seq": 26,
+  "tagoStationId": "MTRDG20218",
+  "providerStationCode": "218",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0218"
+  ],
+  "lat": 35.85741,
+  "lon": 128.46553
+ },
+ {
+  "stationKey": "DG2-217",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "다사",
+  "otpStationName": "다사",
+  "seq": 27,
+  "tagoStationId": "MTRDG20217",
+  "providerStationCode": "217",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0217"
+  ],
+  "lat": 35.864948,
+  "lon": 128.458282
+ },
+ {
+  "stationKey": "DG2-216",
+  "lineCode": "DG2",
+  "lineName": "대구2호선",
+  "stationName": "문양",
+  "otpStationName": "문양",
+  "seq": 28,
+  "tagoStationId": "MTRDG20216",
+  "providerStationCode": "216",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0216"
+  ],
+  "lat": 35.864037,
+  "lon": 128.437149
+ },
+ {
+  "stationKey": "DG3-341",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "용지",
+  "otpStationName": "용지",
+  "seq": 0,
+  "tagoStationId": "MTRDG30341",
+  "providerStationCode": "341",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0341"
+  ],
+  "lat": 35.818279,
+  "lon": 128.646652
+ },
+ {
+  "stationKey": "DG3-340",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "범물",
+  "otpStationName": "범물",
+  "seq": 1,
+  "tagoStationId": "MTRDG30340",
+  "providerStationCode": "340",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0340"
+  ],
+  "lat": 35.82085,
+  "lon": 128.640076
+ },
+ {
+  "stationKey": "DG3-339",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "지산",
+  "otpStationName": "지산",
+  "seq": 2,
+  "tagoStationId": "MTRDG30339",
+  "providerStationCode": "339",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0339"
+  ],
+  "lat": 35.825172,
+  "lon": 128.631927
+ },
+ {
+  "stationKey": "DG3-338",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "수성못",
+  "otpStationName": "수성못",
+  "seq": 3,
+  "tagoStationId": "MTRDG30338",
+  "providerStationCode": "338",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0338"
+  ],
+  "lat": 35.831398,
+  "lon": 128.62323
+ },
+ {
+  "stationKey": "DG3-337",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "황금",
+  "otpStationName": "황금",
+  "seq": 4,
+  "tagoStationId": "MTRDG30337",
+  "providerStationCode": "337",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0337"
+  ],
+  "lat": 35.839134,
+  "lon": 128.623917
+ },
+ {
+  "stationKey": "DG3-336",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "어린이세상",
+  "otpStationName": "어린이회관",
+  "seq": 5,
+  "tagoStationId": "MTRDG30336",
+  "providerStationCode": "336",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0336"
+  ],
+  "lat": 35.845234,
+  "lon": 128.624451
+ },
+ {
+  "stationKey": "DG3-335",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "수성구민운동장",
+  "otpStationName": "수성구민운동장",
+  "seq": 6,
+  "tagoStationId": "MTRDG30335",
+  "providerStationCode": "335",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0335"
+  ],
+  "lat": 35.852421,
+  "lon": 128.625137
+ },
+ {
+  "stationKey": "DG3-334",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "수성시장",
+  "otpStationName": "수성시장",
+  "seq": 7,
+  "tagoStationId": "MTRDG30334",
+  "providerStationCode": "334",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0334"
+  ],
+  "lat": 35.854321,
+  "lon": 128.616119
+ },
+ {
+  "stationKey": "DG3-333",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "대봉교",
+  "otpStationName": "대봉교",
+  "seq": 8,
+  "tagoStationId": "MTRDG30333",
+  "providerStationCode": "333",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0333"
+  ],
+  "lat": 35.855015,
+  "lon": 128.606216
+ },
+ {
+  "stationKey": "DG3-332",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "건들바위",
+  "otpStationName": "건들바위",
+  "seq": 9,
+  "tagoStationId": "MTRDG30332",
+  "providerStationCode": "332",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0332"
+  ],
+  "lat": 35.855404,
+  "lon": 128.599609
+ },
+ {
+  "stationKey": "DG3-331",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "명덕",
+  "otpStationName": "명덕",
+  "seq": 10,
+  "tagoStationId": "MTRDG30331",
+  "providerStationCode": "331",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0331"
+  ],
+  "lat": 35.856949,
+  "lon": 128.590057
+ },
+ {
+  "stationKey": "DG3-330",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "남산",
+  "otpStationName": "남산",
+  "seq": 11,
+  "tagoStationId": "MTRDG30330",
+  "providerStationCode": "330",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0330"
+  ],
+  "lat": 35.856686,
+  "lon": 128.58345
+ },
+ {
+  "stationKey": "DG3-329",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "청라언덕",
+  "otpStationName": "청라언덕",
+  "seq": 12,
+  "tagoStationId": "MTRDG30329",
+  "providerStationCode": "329",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0329"
+  ],
+  "lat": 35.864162,
+  "lon": 128.582367
+ },
+ {
+  "stationKey": "DG3-328",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "서문시장",
+  "otpStationName": "서문시장",
+  "seq": 13,
+  "tagoStationId": "MTRDG30328",
+  "providerStationCode": "328",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0328"
+  ],
+  "lat": 35.869671,
+  "lon": 128.582275
+ },
+ {
+  "stationKey": "DG3-327",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "달성공원",
+  "otpStationName": "달성공원",
+  "seq": 14,
+  "tagoStationId": "MTRDG30327",
+  "providerStationCode": "327",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0327"
+  ],
+  "lat": 35.875755,
+  "lon": 128.582108
+ },
+ {
+  "stationKey": "DG3-326",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "북구청",
+  "otpStationName": "북구청",
+  "seq": 15,
+  "tagoStationId": "MTRDG30326",
+  "providerStationCode": "326",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0326"
+  ],
+  "lat": 35.88385,
+  "lon": 128.581482
+ },
+ {
+  "stationKey": "DG3-325",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "원대",
+  "otpStationName": "원대",
+  "seq": 16,
+  "tagoStationId": "MTRDG30325",
+  "providerStationCode": "325",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0325"
+  ],
+  "lat": 35.887859,
+  "lon": 128.57428
+ },
+ {
+  "stationKey": "DG3-324",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "팔달시장",
+  "otpStationName": "팔달시장",
+  "seq": 17,
+  "tagoStationId": "MTRDG30324",
+  "providerStationCode": "324",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0324"
+  ],
+  "lat": 35.88884,
+  "lon": 128.567871
+ },
+ {
+  "stationKey": "DG3-323",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "만평",
+  "otpStationName": "만평",
+  "seq": 18,
+  "tagoStationId": "MTRDG30323",
+  "providerStationCode": "323",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0323"
+  ],
+  "lat": 35.889874,
+  "lon": 128.560944
+ },
+ {
+  "stationKey": "DG3-322",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "공단",
+  "otpStationName": "공단",
+  "seq": 19,
+  "tagoStationId": "MTRDG30322",
+  "providerStationCode": "322",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0322"
+  ],
+  "lat": 35.892014,
+  "lon": 128.553589
+ },
+ {
+  "stationKey": "DG3-321",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "팔달",
+  "otpStationName": "팔달",
+  "seq": 20,
+  "tagoStationId": "MTRDG30321",
+  "providerStationCode": "321",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0321"
+  ],
+  "lat": 35.897804,
+  "lon": 128.546753
+ },
+ {
+  "stationKey": "DG3-320",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "매천시장",
+  "otpStationName": "매천시장",
+  "seq": 21,
+  "tagoStationId": "MTRDG30320",
+  "providerStationCode": "320",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0320"
+  ],
+  "lat": 35.904327,
+  "lon": 128.545761
+ },
+ {
+  "stationKey": "DG3-319",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "매천",
+  "otpStationName": "매천",
+  "seq": 22,
+  "tagoStationId": "MTRDG30319",
+  "providerStationCode": "319",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0319"
+  ],
+  "lat": 35.912762,
+  "lon": 128.543365
+ },
+ {
+  "stationKey": "DG3-318",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "태전",
+  "otpStationName": "태전",
+  "seq": 23,
+  "tagoStationId": "MTRDG30318",
+  "providerStationCode": "318",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0318"
+  ],
+  "lat": 35.919601,
+  "lon": 128.547409
+ },
+ {
+  "stationKey": "DG3-317",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "구암",
+  "otpStationName": "구암",
+  "seq": 24,
+  "tagoStationId": "MTRDG30317",
+  "providerStationCode": "317",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0317"
+  ],
+  "lat": 35.925716,
+  "lon": 128.550339
+ },
+ {
+  "stationKey": "DG3-316",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "칠곡운암",
+  "otpStationName": "칠곡운암",
+  "seq": 25,
+  "tagoStationId": "MTRDG30316",
+  "providerStationCode": "316",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0316"
+  ],
+  "lat": 35.931469,
+  "lon": 128.55452
+ },
+ {
+  "stationKey": "DG3-315",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "동천",
+  "otpStationName": "동천",
+  "seq": 26,
+  "tagoStationId": "MTRDG30315",
+  "providerStationCode": "315",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0315"
+  ],
+  "lat": 35.937698,
+  "lon": 128.556641
+ },
+ {
+  "stationKey": "DG3-314",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "팔거",
+  "otpStationName": "팔거",
+  "seq": 27,
+  "tagoStationId": "MTRDG30314",
+  "providerStationCode": "314",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0314"
+  ],
+  "lat": 35.944176,
+  "lon": 128.558365
+ },
+ {
+  "stationKey": "DG3-313",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "학정",
+  "otpStationName": "학정",
+  "seq": 28,
+  "tagoStationId": "MTRDG30313",
+  "providerStationCode": "313",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0313"
+  ],
+  "lat": 35.951614,
+  "lon": 128.559204
+ },
+ {
+  "stationKey": "DG3-312",
+  "lineCode": "DG3",
+  "lineName": "대구3호선",
+  "stationName": "칠곡경대병원",
+  "otpStationName": "칠곡경대병원",
+  "seq": 29,
+  "tagoStationId": "MTRDG30312",
+  "providerStationCode": "312",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-3-0312"
+  ],
+  "lat": 35.958305,
+  "lon": 128.559906
+ },
+ {
+  "stationKey": "DJ1-001",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "판암",
+  "otpStationName": "판암",
+  "seq": 0,
+  "tagoStationId": "MTRDJ10001",
+  "providerStationCode": "001",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0101"
+  ],
+  "lat": 36.316898,
+  "lon": 127.458321
+ },
+ {
+  "stationKey": "DJ1-002",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "신흥",
+  "otpStationName": "신흥",
+  "seq": 1,
+  "tagoStationId": "MTRDJ10002",
+  "providerStationCode": "002",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0102"
+  ],
+  "lat": 36.319717,
+  "lon": 127.448586
+ },
+ {
+  "stationKey": "DJ1-003",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "대동",
+  "otpStationName": "대동",
+  "seq": 2,
+  "tagoStationId": "MTRDJ10003",
+  "providerStationCode": "003",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0103"
+  ],
+  "lat": 36.329208,
+  "lon": 127.443123
+ },
+ {
+  "stationKey": "DJ1-004",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "대전",
+  "otpStationName": "대전",
+  "seq": 3,
+  "tagoStationId": "MTRDJ10004",
+  "providerStationCode": "004",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0104"
+  ],
+  "lat": 36.331284,
+  "lon": 127.433441
+ },
+ {
+  "stationKey": "DJ1-005",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "중앙로",
+  "otpStationName": "중앙로",
+  "seq": 4,
+  "tagoStationId": "MTRDJ10005",
+  "providerStationCode": "005",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0105"
+  ],
+  "lat": 36.328671,
+  "lon": 127.425789
+ },
+ {
+  "stationKey": "DJ1-006",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "중구청",
+  "otpStationName": "중구청",
+  "seq": 5,
+  "tagoStationId": "MTRDJ10006",
+  "providerStationCode": "006",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0106"
+  ],
+  "lat": 36.324802,
+  "lon": 127.419586
+ },
+ {
+  "stationKey": "DJ1-007",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "서대전네거리",
+  "otpStationName": "서대전네거리",
+  "seq": 6,
+  "tagoStationId": "MTRDJ10007",
+  "providerStationCode": "007",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0107"
+  ],
+  "lat": 36.322392,
+  "lon": 127.412552
+ },
+ {
+  "stationKey": "DJ1-008",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "오룡",
+  "otpStationName": "오룡",
+  "seq": 7,
+  "tagoStationId": "MTRDJ10008",
+  "providerStationCode": "008",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0108"
+  ],
+  "lat": 36.328556,
+  "lon": 127.405052
+ },
+ {
+  "stationKey": "DJ1-009",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "용문",
+  "otpStationName": "용문",
+  "seq": 8,
+  "tagoStationId": "MTRDJ10009",
+  "providerStationCode": "009",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0109"
+  ],
+  "lat": 36.338253,
+  "lon": 127.393303
+ },
+ {
+  "stationKey": "DJ1-010",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "탄방",
+  "otpStationName": "탄방",
+  "seq": 9,
+  "tagoStationId": "MTRDJ10010",
+  "providerStationCode": "010",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0110"
+  ],
+  "lat": 36.345516,
+  "lon": 127.384598
+ },
+ {
+  "stationKey": "DJ1-011",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "시청",
+  "otpStationName": "시청",
+  "seq": 10,
+  "tagoStationId": "MTRDJ10011",
+  "providerStationCode": "011",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0111"
+  ],
+  "lat": 36.351627,
+  "lon": 127.386726
+ },
+ {
+  "stationKey": "DJ1-012",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "정부청사",
+  "otpStationName": "정부청사",
+  "seq": 11,
+  "tagoStationId": "MTRDJ10012",
+  "providerStationCode": "012",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0112"
+  ],
+  "lat": 36.357433,
+  "lon": 127.381676
+ },
+ {
+  "stationKey": "DJ1-013",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "갈마",
+  "otpStationName": "갈마",
+  "seq": 12,
+  "tagoStationId": "MTRDJ10013",
+  "providerStationCode": "013",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0113"
+  ],
+  "lat": 36.357574,
+  "lon": 127.372719
+ },
+ {
+  "stationKey": "DJ1-014",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "월평",
+  "otpStationName": "월평",
+  "seq": 13,
+  "tagoStationId": "MTRDJ10014",
+  "providerStationCode": "014",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0114"
+  ],
+  "lat": 36.358261,
+  "lon": 127.364334
+ },
+ {
+  "stationKey": "DJ1-015",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "갑천",
+  "otpStationName": "갑천",
+  "seq": 14,
+  "tagoStationId": "MTRDJ10015",
+  "providerStationCode": "015",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0115"
+  ],
+  "lat": 36.354694,
+  "lon": 127.354637
+ },
+ {
+  "stationKey": "DJ1-016",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "유성온천",
+  "otpStationName": "유성온천",
+  "seq": 15,
+  "tagoStationId": "MTRDJ10016",
+  "providerStationCode": "016",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0116"
+  ],
+  "lat": 36.353714,
+  "lon": 127.341537
+ },
+ {
+  "stationKey": "DJ1-017",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "구암",
+  "otpStationName": "구암",
+  "seq": 16,
+  "tagoStationId": "MTRDJ10017",
+  "providerStationCode": "017",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0117"
+  ],
+  "lat": 36.356628,
+  "lon": 127.330772
+ },
+ {
+  "stationKey": "DJ1-018",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "현충원",
+  "otpStationName": "현충원",
+  "seq": 17,
+  "tagoStationId": "MTRDJ10018",
+  "providerStationCode": "018",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0118"
+  ],
+  "lat": 36.359028,
+  "lon": 127.32148
+ },
+ {
+  "stationKey": "DJ1-019",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "월드컵경기장",
+  "otpStationName": "월드컵경기장",
+  "seq": 18,
+  "tagoStationId": "MTRDJ10019",
+  "providerStationCode": "019",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0119"
+  ],
+  "lat": 36.366886,
+  "lon": 127.317833
+ },
+ {
+  "stationKey": "DJ1-020",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "노은",
+  "otpStationName": "노은",
+  "seq": 19,
+  "tagoStationId": "MTRDJ10020",
+  "providerStationCode": "020",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0120"
+  ],
+  "lat": 36.374168,
+  "lon": 127.317841
+ },
+ {
+  "stationKey": "DJ1-021",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "지족",
+  "otpStationName": "지족",
+  "seq": 20,
+  "tagoStationId": "MTRDJ10021",
+  "providerStationCode": "021",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0121"
+  ],
+  "lat": 36.38414,
+  "lon": 127.319489
+ },
+ {
+  "stationKey": "DJ1-022",
+  "lineCode": "DJ1",
+  "lineName": "대전1호선",
+  "stationName": "반석",
+  "otpStationName": "반석",
+  "seq": 21,
+  "tagoStationId": "MTRDJ10022",
+  "providerStationCode": "022",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-5-0122"
+  ],
+  "lat": 36.392147,
+  "lon": 127.31456
+ },
+ {
+  "stationKey": "GJ1-119",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "평동",
+  "otpStationName": "평동",
+  "seq": 0,
+  "tagoStationId": "MTRGJ1119",
+  "providerStationCode": "119",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0119"
+  ],
+  "lat": 35.124763,
+  "lon": 126.769577
+ },
+ {
+  "stationKey": "GJ1-118",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "도산",
+  "otpStationName": "도산",
+  "seq": 1,
+  "tagoStationId": "MTRGJ1118",
+  "providerStationCode": "118",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0118"
+  ],
+  "lat": 35.13208,
+  "lon": 126.788155
+ },
+ {
+  "stationKey": "GJ1-117",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "광주송정",
+  "otpStationName": "광주송정",
+  "seq": 2,
+  "tagoStationId": "MTRGJ1117",
+  "providerStationCode": "117",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0117"
+  ],
+  "lat": 35.137539,
+  "lon": 126.791481
+ },
+ {
+  "stationKey": "GJ1-116",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "송정공원",
+  "otpStationName": "송정공원",
+  "seq": 3,
+  "tagoStationId": "MTRGJ1116",
+  "providerStationCode": "116",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0116"
+  ],
+  "lat": 35.143547,
+  "lon": 126.799362
+ },
+ {
+  "stationKey": "GJ1-115",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "공항",
+  "otpStationName": "공항",
+  "seq": 4,
+  "tagoStationId": "MTRGJ1115",
+  "providerStationCode": "115",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0115"
+  ],
+  "lat": 35.144081,
+  "lon": 126.811798
+ },
+ {
+  "stationKey": "GJ1-114",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "김대중컨벤션센터",
+  "otpStationName": "김대중컨벤션센터",
+  "seq": 5,
+  "tagoStationId": "MTRGJ1114",
+  "providerStationCode": "114",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0114"
+  ],
+  "lat": 35.143234,
+  "lon": 126.841476
+ },
+ {
+  "stationKey": "GJ1-113",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "상무",
+  "otpStationName": "상무",
+  "seq": 6,
+  "tagoStationId": "MTRGJ1113",
+  "providerStationCode": "113",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0113"
+  ],
+  "lat": 35.146675,
+  "lon": 126.848526
+ },
+ {
+  "stationKey": "GJ1-112",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "운천",
+  "otpStationName": "운천",
+  "seq": 7,
+  "tagoStationId": "MTRGJ1112",
+  "providerStationCode": "112",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0112"
+  ],
+  "lat": 35.150501,
+  "lon": 126.858559
+ },
+ {
+  "stationKey": "GJ1-111",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "쌍촌",
+  "otpStationName": "쌍촌",
+  "seq": 8,
+  "tagoStationId": "MTRGJ1111",
+  "providerStationCode": "111",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0111"
+  ],
+  "lat": 35.151619,
+  "lon": 126.869553
+ },
+ {
+  "stationKey": "GJ1-110",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "화정",
+  "otpStationName": "화정",
+  "seq": 9,
+  "tagoStationId": "MTRGJ1110",
+  "providerStationCode": "110",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0110"
+  ],
+  "lat": 35.151955,
+  "lon": 126.876663
+ },
+ {
+  "stationKey": "GJ1-109",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "농성",
+  "otpStationName": "농성",
+  "seq": 10,
+  "tagoStationId": "MTRGJ1109",
+  "providerStationCode": "109",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0109"
+  ],
+  "lat": 35.153309,
+  "lon": 126.88398
+ },
+ {
+  "stationKey": "GJ1-108",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "돌고개",
+  "otpStationName": "돌고개",
+  "seq": 11,
+  "tagoStationId": "MTRGJ1108",
+  "providerStationCode": "108",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0108"
+  ],
+  "lat": 35.151627,
+  "lon": 126.894844
+ },
+ {
+  "stationKey": "GJ1-107",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "양동시장",
+  "otpStationName": "양동시장",
+  "seq": 12,
+  "tagoStationId": "MTRGJ1107",
+  "providerStationCode": "107",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0107"
+  ],
+  "lat": 35.154335,
+  "lon": 126.901321
+ },
+ {
+  "stationKey": "GJ1-106",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "금남로5가",
+  "otpStationName": "금남로5가",
+  "seq": 13,
+  "tagoStationId": "MTRGJ1106",
+  "providerStationCode": "106",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0106"
+  ],
+  "lat": 35.154064,
+  "lon": 126.909515
+ },
+ {
+  "stationKey": "GJ1-105",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "금남로4가",
+  "otpStationName": "금남로4가",
+  "seq": 14,
+  "tagoStationId": "MTRGJ1105",
+  "providerStationCode": "105",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0105"
+  ],
+  "lat": 35.150776,
+  "lon": 126.914467
+ },
+ {
+  "stationKey": "GJ1-104",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "문화전당",
+  "otpStationName": "문화전당",
+  "seq": 15,
+  "tagoStationId": "MTRGJ1104",
+  "providerStationCode": "104",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0104"
+  ],
+  "lat": 35.146729,
+  "lon": 126.91983
+ },
+ {
+  "stationKey": "GJ1-103",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "남광주",
+  "otpStationName": "남광주",
+  "seq": 16,
+  "tagoStationId": "MTRGJ1103",
+  "providerStationCode": "103",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0103"
+  ],
+  "lat": 35.139404,
+  "lon": 126.922874
+ },
+ {
+  "stationKey": "GJ1-102",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "학동증심사입구",
+  "otpStationName": "학동증심사입구",
+  "seq": 17,
+  "tagoStationId": "MTRGJ1102",
+  "providerStationCode": "102",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0102"
+  ],
+  "lat": 35.13271,
+  "lon": 126.928413
+ },
+ {
+  "stationKey": "GJ1-101",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "소태",
+  "otpStationName": "소태",
+  "seq": 18,
+  "tagoStationId": "MTRGJ1101",
+  "providerStationCode": "101",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0101"
+  ],
+  "lat": 35.12344,
+  "lon": 126.932381
+ },
+ {
+  "stationKey": "GJ1-100",
+  "lineCode": "GJ1",
+  "lineName": "광주1호선",
+  "stationName": "녹동",
+  "otpStationName": "녹동",
+  "seq": 19,
+  "tagoStationId": "MTRGJ1100",
+  "providerStationCode": "100",
+  "gtfsStopIds": [
+   "1:RS_ACC1_S-4-0100"
+  ],
+  "lat": 35.106834,
+  "lon": 126.93399
+ }
+]

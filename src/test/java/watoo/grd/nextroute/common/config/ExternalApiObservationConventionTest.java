@@ -65,6 +65,9 @@ class ExternalApiObservationConventionTest {
             "/6410000/busarrivalservice/v2/getBusArrivalItemv2 | /{}/busarrivalservice/v2/getBusArrivalItemv2",
             "/1613000/ArvlInfoInqireService/getSttnAcctoSpcifyRouteBusArvlPrearngeInfoList"
                     + " | /{}/ArvlInfoInqireService/getSttnAcctoSpcifyRouteBusArvlPrearngeInfoList",
+            // 부산교통공사 열차시각표(지방 지하철 시간표): 기관 번호 B551542 를 가린다
+            "/B551542/trainTime/getTrainTime | /{}/trainTime/getTrainTime",
+            "/1613000/SubwayInfo/GetSubwaySttnAcctoSchdulList | /{}/SubwayInfo/GetSubwaySttnAcctoSchdulList",
             "/v2/local/search/keyword.json | /v2/local/search/keyword.json"
     })
     void masksPathToApiNames(String rawPath, String expected) {
