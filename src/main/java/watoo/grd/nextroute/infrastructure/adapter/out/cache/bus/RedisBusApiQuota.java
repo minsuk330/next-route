@@ -41,6 +41,7 @@ public class RedisBusApiQuota implements BusApiQuotaPort {
         int reserved = switch (endpoint) {
             case ARRIVAL -> props.getArrival();
             case POSITION -> props.getPosition();
+            case STATION -> props.getStation();
         };
         if (reserved <= 0) {
             return false;

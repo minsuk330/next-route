@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import watoo.grd.nextroute.application.arrival.dto.SeoulStationArrival;
+import watoo.grd.nextroute.application.arrival.port.out.SeoulStationArrivalPort;
 import watoo.grd.nextroute.application.bus.dto.BusArrivalInfo;
 import watoo.grd.nextroute.application.bus.dto.BusPositionInfo;
 import watoo.grd.nextroute.application.bus.port.out.BusApiBreakerPort;
@@ -18,6 +20,7 @@ import watoo.grd.nextroute.common.config.ClockConfig;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.BusApiResponse;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.BusArrivalItem;
 import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.BusPositionItem;
+import watoo.grd.nextroute.infrastructure.adapter.out.api.bus.dto.SeoulStationArrivalItem;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -50,7 +53,7 @@ import static watoo.grd.nextroute.common.util.ParseUtils.parseInteger;
  */
 @Slf4j
 @Component
-public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
+public class SearchTimeBusAdapter implements SearchTimeBusQueryPort, SeoulStationArrivalPort {
 
     private static final String API_LIMIT_EXCEEDED_CODE = "7";
 
@@ -64,6 +67,9 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
     private final TransferArrivalProperties props;
     private final Clock clock;
     private final JdkHttpClientMetrics httpMetrics;
+    /** 정류장 단위 호출(STATION)이 검색 공유 슬롯에서 동시에 잡을 수 있는 최대 수. */
+    static final int STATION_MAX_CONCURRENT = 3;
+    final Semaphore stationLimiter = new Semaphore(STATION_MAX_CONCURRENT);
     /** 검색 요청마다 달라지는 잔여 예산을 HttpRequest timeout으로 전달한다. */
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofMillis(1500))
@@ -139,10 +145,40 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
                 this::toArrivalInfo, timeoutMs);
     }
 
+    /**
+     * 정류장 단위 도착(#577, {@code stationinfo/getStationByUid}). 한도 끝점 {@code STATION}(몫·차단기 따로). 동시 슬롯은
+     * 검색과 같이 쓰되 기다리지 않는다 — 비어 있지 않으면 바로 LIMITED, 경로 검색이 먼저다. 그리고 검색 슬롯 중 최대
+     * {@value #STATION_MAX_CONCURRENT}개만 잡는다(근처 화면 10곳 요청 하나가 검색 슬롯을 다 차지하지 않게).
+     */
+    @Override
+    public BusQueryResult<SeoulStationArrival> getStationArrivals(String arsId, long timeoutMs) {
+        if (!stationLimiter.tryAcquire()) {
+            log.debug("[SearchTimeAdapter] station slot unavailable — skip arsId={}", arsId);
+            return BusQueryResult.limited();
+        }
+        try {
+            URI uri = URI.create(baseUrl + "/stationinfo/getStationByUid"
+                    + "?serviceKey=" + apiKey
+                    + "&arsId=" + arsId);
+            return callApi(uri, SeoulStationArrivalItem.class, BusApiQuotaPort.Endpoint.STATION,
+                    SearchTimeBusAdapter::toStationArrival, timeoutMs, true);
+        } finally {
+            stationLimiter.release();
+        }
+    }
+
     private <I, R> BusQueryResult<R> callApi(URI uri, Class<I> itemType,
                                              BusApiQuotaPort.Endpoint endpoint,
                                              java.util.function.Function<I, R> mapper,
                                              long timeoutMs) {
+        return callApi(uri, itemType, endpoint, mapper, timeoutMs, false);
+    }
+
+    private <I, R> BusQueryResult<R> callApi(URI uri, Class<I> itemType,
+                                             BusApiQuotaPort.Endpoint endpoint,
+                                             java.util.function.Function<I, R> mapper,
+                                             long timeoutMs,
+                                             boolean noWait) {
         if (timeoutMs <= 0) return BusQueryResult.limited();
         long startedNanos = System.nanoTime();
         // 1. 공유 차단 중이면 외부 호출 생략 → BLOCKED
@@ -155,7 +191,8 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
         // 2. 동시 호출 슬롯 확보(초과 대기 시 생략 → LIMITED)
         boolean acquired;
         try {
-            long acquireMs = timeoutMs == Long.MAX_VALUE
+            long acquireMs = noWait ? 0
+                    : timeoutMs == Long.MAX_VALUE
                     ? props.getExternalCallAcquireMs()
                     : Math.min(props.getExternalCallAcquireMs(), timeoutMs);
             acquired = concurrencyLimiter.tryAcquire(acquireMs, TimeUnit.MILLISECONDS);
@@ -300,6 +337,25 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort {
                 parseInteger(item.getNmain3Ord2()), parseInteger(item.getNmain3Sec2()),
                 item.getNmain3Stnid2()
         );
+    }
+
+    static SeoulStationArrival toStationArrival(SeoulStationArrivalItem item) {
+        return new SeoulStationArrival(
+                trimToNull(item.getBusRouteId()), trimToNull(item.getRtNm()), parseInteger(trim(item.getRouteType())),
+                trimToNull(item.getStId()), parseInteger(trim(item.getStaOrd())),
+                trimToNull(item.getArrmsg1()), parseInteger(trim(item.getTraTime1())), trimToNull(item.getVehId1()),
+                parseInteger(trim(item.getSectOrd1())), parseInteger(trim(item.getCongestion1())),
+                trimToNull(item.getArrmsg2()), parseInteger(trim(item.getTraTime2())), trimToNull(item.getVehId2()),
+                parseInteger(trim(item.getSectOrd2())), parseInteger(trim(item.getCongestion2())),
+                trimToNull(item.getAdirection()));
+    }
+
+    private static String trim(String s) {
+        return s == null ? null : s.trim();
+    }
+
+    private static String trimToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 
     private BusPositionInfo toPositionInfo(BusPositionItem item) {

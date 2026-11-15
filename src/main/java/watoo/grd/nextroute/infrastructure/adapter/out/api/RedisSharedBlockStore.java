@@ -27,7 +27,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class RedisSharedBlockStore implements SharedBlockStore {
 
     static final String KEY_PREFIX = "api:block:";
-    static final Set<String> NAMES = Set.of("gyeonggi-bus-arrival", "tago-bus-arrival");
+    static final Set<String> NAMES = Set.of("gyeonggi-bus-arrival", "tago-bus-arrival",
+            "gyeonggi-stop-arrival", "tago-stop-arrival");
 
     /** 읽기 결과를 잠깐 기억한다 — 캐시 hit 마다 Redis GET 을 하나 더 붙이지 않게. 차단은 자정까지라 2초 지연은 무해하다. */
     static final long MEMO_MS = 2000;

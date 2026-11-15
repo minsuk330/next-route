@@ -18,4 +18,6 @@ public class BusApiQuotaProperties {
     private int arrival = 5000;
     /** 검색 위치정보(getBusPosByRtid) 일일 호출 상한. */
     private int position = 5000;
+    /** 정류장 단위 도착(getStationByUid, #577) 일일 호출 상한. */
+    private int station = 5000;
 }
