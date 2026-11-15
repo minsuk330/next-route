@@ -24,7 +24,7 @@ import java.util.Map;
  *   <li>하차 정류장이 대표와 다른 편(값을 알 때만)</li>
  *   <li>탑승시간 &gt; 대표 탑승시간 × factor + slack(수원 2-1 같은 우회 노선)</li>
  * </ul>
- * 같은 이름은 가장 이른 승차 한 편만 남기고, 승차 이른 순 → 이름으로 줄 세워 {@code maxLanes - 1} 개까지 싣는다(대표 포함
+ * 같은 이름은 가장 이른 승차 한 편만 남기고, 자주 오는 순(받은 편 수) → 승차 이른 순 → 이름으로 줄 세워 {@code maxLanes - 1} 개까지 싣는다(대표 포함
  * lane 상한 = maxLanes). 버스가 아닌 구간과 정류장 id 를 모르는 버스 구간은 대체 노선을 비운다(어댑터 원재료가 lane 으로
  * 새지 않게).
  */
@@ -113,6 +113,7 @@ public final class BusLaneMerger {
         String repName = leg.sourceRouteName() != null ? leg.sourceRouteName() : leg.sourceRouteId();
         long maxRide = rideCap(leg, rules);
         Map<String, AlternativeRoute> byName = new LinkedHashMap<>();
+        Map<String, Integer> trips = new java.util.HashMap<>();
         for (AlternativeRoute c : candidates) {
             String name = c.label();
             if (name == null || name.equals(repName) || name.contains(RESERVATION_MARK)) {
@@ -126,9 +127,13 @@ public final class BusLaneMerger {
                 continue;
             }
             byName.merge(name, c, (a, b) -> EARLIEST.compare(a, b) <= 0 ? a : b);
+            trips.merge(name, 1, Integer::sum);
         }
+        // 자주 오는 노선 먼저(받은 편 수), 같으면 승차 이른 순 → 이름. 상한에 걸릴 때 하루 몇 번 안 오는 노선이 자주 오는
+        // 노선을 밀어내지 않는다(2026-11-16 사당역(중)→과천: 11-5·11-2 각 8편, 777·103 각 3편, 7007-1 2편 — 카카오 순서와 같다).
         return byName.values().stream()
-                .sorted(EARLIEST.thenComparing(AlternativeRoute::label))
+                .sorted(Comparator.comparing((AlternativeRoute r) -> -trips.get(r.label()))
+                        .thenComparing(EARLIEST).thenComparing(AlternativeRoute::label))
                 .limit(slots)
                 .toList();
     }
