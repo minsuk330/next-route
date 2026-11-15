@@ -131,13 +131,16 @@ class RealtimeArrivalLiveIT {
         if (raw == null) {
             return null;
         }
-        String rawVehicle1 = seoulVehicle(raw.path("vehId1").asText(null));
+        String rawVehicle1 = seoulVehicle(raw.path("vehId1").asText(null), raw.path("arrmsg1").asText(""));
         List<String> p = new ArrayList<>();
         if (rawVehicle1 == null) {
             if (ours != null) {
                 expectNull(p, "vehicleId1", ours.path("vehicleId1"));
                 expectNull(p, "stopsAway1", ours.path("stopsAway1"));
                 expectNull(p, "approachStops1", ours.path("approachStops1"));
+                if (raw.path("arrmsg1").asText("").contains("운행종료")) {
+                    expectNull(p, "predictTime1", ours.path("predictTime1"));
+                }
             }
             return p.isEmpty() ? null : p;
         }
@@ -154,7 +157,7 @@ class RealtimeArrivalLiveIT {
         if (nth.find()) {
             expectEq(p, "stopsAway1 vs 원본 문구 [N번째 전]", Integer.parseInt(nth.group(1)), integer(ours.path("stopsAway1")));
         }
-        String rawVehicle2 = seoulVehicle(raw.path("vehId2").asText(null));
+        String rawVehicle2 = seoulVehicle(raw.path("vehId2").asText(null), raw.path("arrmsg2").asText(""));
         expectEq(p, "vehicleId2", rawVehicle2, text(ours.path("vehicleId2")));
         expectEq(p, "stopsAway2", rawVehicle2 == null ? null : seoulAway(staOrd, raw.path("sectOrd2").asInt(0)),
                 integer(ours.path("stopsAway2")));
@@ -192,8 +195,9 @@ class RealtimeArrivalLiveIT {
         return p;
     }
 
-    private static String seoulVehicle(String raw) {
-        return raw == null || raw.isBlank() || "0".equals(raw) ? null : raw;
+    /** 문구가 운행종료면 차량 id 가 와도 버스가 없다(막차가 정류장에 닿은 순간, 2026-11-16 사용자 결정). */
+    private static String seoulVehicle(String raw, String message) {
+        return raw == null || raw.isBlank() || "0".equals(raw) || message.contains("운행종료") ? null : raw;
     }
 
     private static Integer seoulAway(int staOrd, int sectOrd) {
@@ -446,7 +450,8 @@ class RealtimeArrivalLiveIT {
                 if (!s.stopId().equals(row.path("stId").asText())) {
                     continue;
                 }
-                Integer seconds = seoulVehicle(row.path("vehId1").asText(null)) == null ? null : integer(row.path("traTime1"));
+                Integer seconds = seoulVehicle(row.path("vehId1").asText(null), row.path("arrmsg1").asText("")) == null
+                        ? null : integer(row.path("traTime1"));
                 addRaw(raw, row.path("busRouteId").asText(), seconds);
                 sources.merge(row.path("busRouteId").asText(), "SEOUL", (a, b) -> a);
             }

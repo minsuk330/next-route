@@ -125,4 +125,28 @@ class BusStopArrivalMappersTest {
         assertThat(merged).extracting(BusStopArrivalResponse::routeId).containsExactly("A", "222000073", "B");
         assertThat(merged.get(1).routeTypeSource()).as("같은 노선이면 시간이 있는 경기 쪽").isEqualTo("GG");
     }
+
+    @Test
+    void 서울_문구가_운행종료면_차량id가_와도_시간과_정거장과_차량을_비운다() {
+        // 2026-11-16 01:1x 121000009 420번 실응답: 막차가 정류장에 닿은 순간.
+        var row = BusStopArrivalMappers.seoul(seoul("100100062", "420", 3, "121000009", 71,
+                "운행종료", 5, "122014120", 71, "운행종료", 3, "122014121", 70));
+
+        assertThat(row.predictTime2()).as("둘째 버스도 같은 규칙").isNull();
+        assertThat(row.stopsAway2()).isNull();
+        assertThat(row.vehicleId2()).isNull();
+        assertThat(row.arrivalMsg1()).isEqualTo("운행종료");
+        assertThat(row.predictTime1()).isNull();
+        assertThat(row.stopsAway1()).isNull();
+        assertThat(row.vehicleId1()).isNull();
+    }
+
+    @Test
+    void 서울_막차_문구는_운행종료가_아니라_시간을_준다() {
+        var row = BusStopArrivalMappers.seoul(seoul("104000014", "040", 3, "121000091", 56,
+                "[막차] 11분후[5번째 전]", 685, "104011016", 51, "운행종료", 0, "0", 0));
+
+        assertThat(row.predictTime1()).isEqualTo(685);
+        assertThat(row.predictTime2()).isNull();
+    }
 }
