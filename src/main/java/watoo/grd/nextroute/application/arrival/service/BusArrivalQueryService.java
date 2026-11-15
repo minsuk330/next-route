@@ -80,16 +80,16 @@ public class BusArrivalQueryService implements GetBusArrivalUseCase {
     }
 
     private BusArrivalResponse toSeoulResponse(BusArrivalInfo info, String routeId, int ord) {
-        String vehicle1 = SeoulArrivalRules.vehicleId(info.vehicleId1());
-        String vehicle2 = SeoulArrivalRules.vehicleId(info.vehicleId2());
+        String vehicle1 = SeoulArrivalRules.vehicleId(info.vehicleId1(), info.arrivalMsg1());
+        String vehicle2 = SeoulArrivalRules.vehicleId(info.vehicleId2(), info.arrivalMsg2());
         Integer stopsAway1 = SeoulArrivalRules.stopsAway(ord, info.sectionOrder1(), vehicle1);
         return BusArrivalResponse.builder()
                 .routeId(info.routeId())
                 .arrivalMsg1(info.arrivalMsg1())
-                .predictTime1(info.sectionTime1())
+                .predictTime1(SeoulArrivalRules.ended(info.arrivalMsg1()) ? null : info.sectionTime1())
                 .congestionNum1(info.congestionNum1())
                 .arrivalMsg2(info.arrivalMsg2())
-                .predictTime2(info.sectionTime2())
+                .predictTime2(SeoulArrivalRules.ended(info.arrivalMsg2()) ? null : info.sectionTime2())
                 .congestionNum2(info.congestionNum2())
                 .stopsAway1(stopsAway1)
                 .stopsAway2(SeoulArrivalRules.stopsAway(ord, info.sectionOrder2(), vehicle2))

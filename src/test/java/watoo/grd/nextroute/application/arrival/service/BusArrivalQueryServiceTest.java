@@ -429,4 +429,35 @@ class BusArrivalQueryServiceTest {
         verify(tagoBusArrivalPort).getArrivals("21", "BSB167850202", "BSB5201002F00");
         verify(busRouteStopRepository, never()).findByRouteIdAndStopId(anyString(), anyString());
     }
+
+    @Test
+    void seoul_endedMessageWithAVehicle_hasNoTimeStopsAwayOrVehicle() {
+        // 막차가 정류장에 닿은 순간 서울은 "운행종료" 와 차량 id, 구간 순번 = 요청 순번, 몇 초를 같이 준다(2026-11-16).
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP)).willReturn(List.of(routeStop(71)));
+        given(busQueryPort.getArrInfoByStop(STOP, ROUTE, 71))
+                .willReturn(BusQueryResult.ok(List.of(BusArrivalInfoFixtures.arrivalAt(
+                        "122014120", 71, "신분당선강남역", "운행종료", "0", 0, "운행종료"))));
+
+        BusArrivalResponse r = service.getArrivals(STOP, ROUTE).get(0);
+
+        assertThat(r.getArrivalMsg1()).isEqualTo("운행종료");
+        assertThat(r.getPredictTime1()).isNull();
+        assertThat(r.getPredictTime2()).isNull();
+        assertThat(r.getStopsAway1()).isNull();
+        assertThat(r.getVehicleId1()).isNull();
+    }
+
+    @Test
+    void seoul_vehicleWithATime_keepsTheSourceSeconds() {
+        given(busRouteStopRepository.findByRouteIdAndStopId(ROUTE, STOP)).willReturn(List.of(routeStop(40)));
+        given(busQueryPort.getArrInfoByStop(STOP, ROUTE, 40))
+                .willReturn(BusQueryResult.ok(List.of(BusArrivalInfoFixtures.arrivalAt(
+                        "109059152", 37, "남대문시장.회현역", "6분38초후[3번째 전]",
+                        "109042262", 25, "26분11초후[15번째 전]"))));
+
+        BusArrivalResponse r = service.getArrivals(STOP, ROUTE).get(0);
+
+        assertThat(r.getPredictTime1()).isNotNull();
+        assertThat(r.getPredictTime2()).isNotNull();
+    }
 }

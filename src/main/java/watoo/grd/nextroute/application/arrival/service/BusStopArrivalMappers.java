@@ -46,8 +46,8 @@ final class BusStopArrivalMappers {
     }
 
     static BusStopArrivalResponse seoul(SeoulStationArrival row) {
-        String vehicle1 = SeoulArrivalRules.vehicleId(row.vehId1());
-        String vehicle2 = SeoulArrivalRules.vehicleId(row.vehId2());
+        String vehicle1 = SeoulArrivalRules.vehicleId(row.vehId1(), row.arrivalMsg1());
+        String vehicle2 = SeoulArrivalRules.vehicleId(row.vehId2(), row.arrivalMsg2());
         return BusStopArrivalResponse.builder()
                 .routeId(row.busRouteId())
                 .routeName(row.routeName())
