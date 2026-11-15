@@ -6626,3 +6626,24 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 미결
 - 그래프 재빌드 L: 환승 승강장 pathways, 역 접근 도보(지금 0분, 같은 경로 도보 평균 -4.3분), 광역버스 탑승시간(버스 포함 경로 평균 -5.6분).
 - 리뷰(서브에이전트) 반영 5건: ①지하철 대안 두 번째 호출은 버스만 추가 검색 한 번 몫의 예산이 남을 때만 ②옛 "철도만" 추가 검색은 지하철 대안이 실제로 물었을 때만 건너뜀 ③추가 검색 기준 고유 수는 노출에서 빠질 경로(예매 열차 짧은 구간)를 빼고 셈 ④느린 경로 기준은 대중교통 경로의 최단(도보 경로 제외) ⑤빈 노선 목록이 캐시돼도 다시 받음. 반영 안 함: 지하철 대안은 고유 5개 기준과 따로 도는 게 의도, `[일반]` 접두사(교외선 포함)는 전부 승차권 열차라 유지, 재탐색 경로는 손대지 않음(중간에 유일한 연결일 수 있음). 테스트 121, 실패 0.
+## subway-regional-timetable PR-2 — 역 API, 요일·명절, 근처 역 (2026-11-16)
+### 확정
+- 요일 판정 순서 명절(광주만, 특일 이름 설날·추석·대체공휴일(설날/추석)) → 공휴일 → 토 → 일 → 평일. 공휴일 토요일은 공휴일표. 대체: 대전 SA→HO, 명절→HO(광주 외). `RegionalDayTypePolicy`.
+- 막차 뒤 모자란 칸은 다음 서비스일 요일을 다시 판정해 채운다. 04:00 전은 전날 서비스일.
+- 역 정보·근처 역 검색은 시드(메모리 250역, haversine), 출발 시각만 DB. 근처 역 `includeRegional=true` + serving on 일 때만 섞고, 그때만 `arrivalSource`(옛 응답 JSON 불변). 지방 `gtfsStopId`=null(서울 단독 추적 전제 #298).
+- `GET /api/subway/regional/stations/{stationKey}/departures?limit=3`, serving off → 404. 응답 source=TIMETABLE, dayType/timetableDayType, 방향 = 노선 끝 역 방면.
+### 함정
+- `GongApiAdapter`: 실패한 달을 "공휴일 없음"으로 캐시, 실패한 해는 매 요청 12회 동기 재호출 ← 한 달이라도 실패면 그 해 폴백 + 1시간 음수 캐시. 하드코딩 폴백은 이름을 몰라 명절 판정이 공휴일표로 내려간다.
+- 테스트 ObjectMapper 는 Boot 와 달리 날짜를 숫자로 씀 ← `WRITE_DATES_AS_TIMESTAMPS` 끔.
+### 검증
+- `RegionalTimetableEndToEndIT`: 커밋된 대구·광주 공식 파일 → 적재 → V76(PostGIS) → 조회. 114역 전부, 모르는 종착 0, 반월당2 일 첫차 05:42·토 08:00/08:09/08:18(공식 API 와 같음), 이곡행 단축 열차 제외, 광주 추석 명절표.
+- 특일정보 API 는 공휴일 0건 달에도 `00` + `<items/>`(2026-04, 2026-11 실측) → "한 달 실패면 그 해 폴백" 규칙이 정상 달을 실패로 오판하지 않는다. 2027-02 = 설날 6·7·8일 + 대체공휴일(설날) 9일.
+- `GongApiAdapter` 연도별 락 + 더블체크(옛 computeIfAbsent 의 단일 호출 보장을 유지).
+- `minutesUntil` 은 버림(30초 남으면 0분). 서울 실시간과 달리 초 단위가 아니라 "곧" 표시는 앱 몫.
+- 근처 역 `includeRegional=true` 면 serving 이 꺼져 있어도 서울 항목에 `arrivalSource=REALTIME` 을 싣는다(앱 옵트인 요청이라 라벨 분기에 쓰게). 옛 앱은 파라미터를 안 보내 무관.
+### 미결
+- 하드코딩 폴백(`KoreanPublicHolidayCalendar`)은 2026 변동 공휴일까지만, 이름도 모른다 → 특일 API 실패 창(1시간)에는 2027 설날이 토요일표·명절 미판정. 2027 목록 추가는 별건.
+- 전체 `runfull.sh`: 4,162 중 실패 1(`RerouteRemainingPathOtpLiveIT`, 기존 무관 — 로컬 OTP lease-ms 검증기), 건너뜀 14. 리뷰 반영 뒤 관련 시험 + `contextLoads` 재통과.
+### 배포
+- 마이그레이션 없음. 플래그 `REGIONAL_SUBWAY_SERVING_ENABLED` 기본 false(앱 라벨 출시 뒤 켠다).
+- 새로 쓴다고 만든 `GongApiAdapterTest.java` 가 main 의 기존 7개 시험 파일을 덮어씀 ← heredoc `cat >` / 원본 복구, 새 시험은 `GongApiAdapterHolidayNameTest` 로 분리(원본 7 + 새 2 통과).

@@ -251,3 +251,11 @@ CREATE INDEX idx_regional_subway_departure_lookup ON regional_subway_departure (
 - **[m15·16·17] 교차 검사**: 대구 파일 vs TAGO 평일·휴일 주 1회 하나만. 광주는 TAGO 가 늦어 오탐 → 수정일 감시만. `daegu.api.*` yaml 없음.
 - **[m19] V76**: 출발 표 UNIQUE(station_key, day_type, dep_seconds, terminal_seq). 역 seq 충돌은 upsert 트랜잭션 안에서 대상 노선 seq 를 음수로 비킨 뒤 upsert. 시드 `gtfsStopIds` 는 실측 역당 1개 → 컬럼은 단일 값(첫 값).
 - **station_key 규칙**: `{lineCode}-{TAGO id 뒤 3자리}`, 예외 `tools/regional-subway/aliases.json codeOverride`(대구 중앙로 MTRDG13140→131, 부산 다대포 연장 MTRBS1195~1199→95~99).
+
+## 11. 구현 중 결정 (2026-11-16) — 10절보다 우선
+- **PR-3 를 PR-2 에 합치고 계약을 바꾼다**: 검색 응답 `SubPathResult.scheduledDepartures` 대신 구간용 엔드포인트
+  `GET /api/subway/regional/departures?boardStopId={stations[0].stationID}&alightStopId={stations[last].stationID}&at={ISO}&limit=3`.
+  이유: 앱은 이미 서울 지하철 구간 도착을 검색 응답과 별도로 구간마다 부른다(`route-live-arrivals.ts getSubwayArrivalTarget`). 같은 방식이면
+  `SubPathResult` 생성 지점 8곳·테스트 11개를 건드리지 않고, 기준 시각(M10)은 앱이 가진 `plannedBoardAt − plannedWaitSeconds` 로 넘긴다.
+  역 화면 엔드포인트는 `/api/subway/regional/stations/{stationKey}/departures` 그대로.
+- 근처 역 지방 항목은 시드 메모리 검색(250역 haversine). DB geom 은 적재 기록용.

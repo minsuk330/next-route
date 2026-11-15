@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
  */
 public final class RegionalTimetableText {
 
-    static final int SERVICE_DAY_START_SECONDS = 4 * 3600;
+    public static final int SERVICE_DAY_START_SECONDS = 4 * 3600;
     private static final Pattern CLOCK = Pattern.compile("^\\s*(\\d{1,2}):(\\d{2})(?::(\\d{2}))?");
     private static final Pattern COMPACT = Pattern.compile("^\\s*(\\d{2})(\\d{2})(\\d{2})\\s*$");
     private static final Pattern PAREN = Pattern.compile("\\((.*?)\\)");

@@ -43,6 +43,8 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
     private final SubwayStationRepository subwayStationRepository;
     private final PredictionSupportService predictionSupportService;
     private final SubwayGtfsStopIndex subwayGtfsStopIndex;
+    private final watoo.grd.nextroute.application.regionalsubway.service.RegionalStationSeedCatalog regionalStations;
+    private final watoo.grd.nextroute.application.regionalsubway.config.RegionalSubwayServingProperties regionalServing;
 
     @Override
     public List<NearbyBusStopResult> getNearbyBusStops(double lat, double lng, int limit) {
@@ -113,17 +115,49 @@ public class NearbyTransitService implements GetNearbyBusStopsUseCase, GetNearby
 
     @Override
     public List<NearbySubwayStationResult> getNearbySubwayStations(double lat, double lng, int limit) {
+        return getNearbySubwayStations(lat, lng, limit, false);
+    }
+
+    @Override
+    public List<NearbySubwayStationResult> getNearbySubwayStations(double lat, double lng, int limit, boolean includeRegional) {
         validateCoordinates(lat, lng);
         int lim = clampLimit(limit);
+        boolean regional = includeRegional && regionalServing != null && regionalServing.isEnabled() && regionalStations != null;
         return searchWithExpanding(
-                (radius, l) -> subwayStationRepository.findNearby(lat, lng, radius, l).stream()
-                        .map(p -> new NearbySubwayStationResult(
-                                p.getStationId(), p.getStationName(), p.getLineId(), p.getLineName(),
-                                p.getLatitude(), p.getLongitude(),
-                                (int) Math.round(p.getDistMeters()),
-                                subwayGtfsStopIndex.gtfsStopId(p.getLineId(), p.getStationId()).orElse(null)))
-                        .toList(),
+                (radius, l) -> {
+                    List<NearbySubwayStationResult> seoul = subwayStationRepository.findNearby(lat, lng, radius, l).stream()
+                            .map(p -> new NearbySubwayStationResult(
+                                    p.getStationId(), p.getStationName(), p.getLineId(), p.getLineName(),
+                                    p.getLatitude(), p.getLongitude(),
+                                    (int) Math.round(p.getDistMeters()),
+                                    subwayGtfsStopIndex.gtfsStopId(p.getLineId(), p.getStationId()).orElse(null),
+                                    includeRegional ? "REALTIME" : null))
+                            .toList();
+                    if (!regional) {
+                        return seoul;
+                    }
+                    // 지방 역은 시드 250개라 메모리에서 거리 계산. 합친 뒤 거리순으로 자른다
+                    java.util.List<NearbySubwayStationResult> merged = new java.util.ArrayList<>(seoul);
+                    for (var s : regionalStations.all()) {
+                        double d = haversineMeters(lat, lng, s.lat(), s.lon());
+                        if (d <= radius) {
+                            merged.add(new NearbySubwayStationResult(s.stationKey(), s.stationName(), s.lineCode(),
+                                    s.lineName(), s.lat(), s.lon(), (int) Math.round(d), null, "TIMETABLE"));
+                        }
+                    }
+                    merged.sort(java.util.Comparator.comparingInt(NearbySubwayStationResult::distanceMeters));
+                    return merged.size() > l ? merged.subList(0, l) : merged;
+                },
                 lim);
+    }
+
+    static double haversineMeters(double lat1, double lon1, double lat2, double lon2) {
+        double r = 6_371_000.0;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 2 * r * Math.asin(Math.sqrt(a));
     }
 
     private <T> List<T> searchWithExpanding(BiFunction<Double, Integer, List<T>> searcher, int lim) {
