@@ -31,6 +31,8 @@ public class RegionalStationSeedCatalog {
     private final List<RegionalStationSeed> stations;
     private final Map<String, List<RegionalStationSeed>> byLine;
     private final Map<String, Map<String, RegionalStationSeed>> byLineAndName;
+    private final Map<String, RegionalStationSeed> byKey;
+    private final Map<String, RegionalStationSeed> byGtfsStopId;
 
     @Autowired
     public RegionalStationSeedCatalog(ObjectMapper objectMapper) {
@@ -50,6 +52,36 @@ public class RegionalStationSeedCatalog {
         lines.replaceAll((k, v) -> List.copyOf(v));
         this.byLine = Collections.unmodifiableMap(lines);
         this.byLineAndName = names;
+        Map<String, RegionalStationSeed> keys = new HashMap<>();
+        Map<String, RegionalStationSeed> gtfs = new HashMap<>();
+        for (RegionalStationSeed s : stations) {
+            keys.put(s.stationKey(), s);
+            if (s.gtfsStopId() != null) {
+                gtfs.put(s.gtfsStopId(), s);
+            }
+        }
+        this.byKey = keys;
+        this.byGtfsStopId = gtfs;
+    }
+
+    public java.util.Optional<RegionalStationSeed> findByKey(String stationKey) {
+        return java.util.Optional.ofNullable(byKey.get(stationKey));
+    }
+
+    /** OTP 정류장 id(검색 결과 stations[].stationID, 여정 leg sourceStartStopId)로 지방 역을 찾는다. 서울 역이면 empty. */
+    public java.util.Optional<RegionalStationSeed> findByGtfsStopId(String gtfsStopId) {
+        return java.util.Optional.ofNullable(gtfsStopId == null ? null : byGtfsStopId.get(gtfsStopId));
+    }
+
+    /** 노선 양 끝 역(seq 0, 마지막). */
+    public RegionalStationSeed lineEnd(String lineCode, boolean increasing) {
+        List<RegionalStationSeed> l = line(lineCode);
+        return increasing ? l.get(l.size() - 1) : l.get(0);
+    }
+
+    /** 시드 파일 대신 주어진 역으로(테스트, 다른 패키지에서). */
+    public static RegionalStationSeedCatalog of(List<RegionalStationSeed> stations) {
+        return new RegionalStationSeedCatalog(stations);
     }
 
     public List<RegionalStationSeed> all() {

@@ -288,6 +288,9 @@ regional-subway:
     cron: "0 30 4 * * SUN"
     lines: BS1,BS2,BS3,BS4,DG1,DG2,DG3,DJ1,GJ1
     call-interval-ms: 200
+  # api 제공(departures 엔드포인트, 근처 역 includeRegional). 🔴 앱 "시간표" 라벨 출시 뒤에만 켠다 — 옛 앱은 라벨 없이 보인다.
+  serving:
+    enabled: ${REGIONAL_SUBWAY_SERVING_ENABLED:false}
 
 toss:
   login:

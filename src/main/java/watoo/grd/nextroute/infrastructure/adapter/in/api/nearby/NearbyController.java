@@ -40,7 +40,8 @@ public class NearbyController {
     public ResponseEntity<List<NearbySubwayStationResult>> getNearbySubwayStations(
             @RequestParam @DecimalMin("-90.0") @DecimalMax("90.0") Double lat,
             @RequestParam @DecimalMin("-180.0") @DecimalMax("180.0") Double lng,
-            @RequestParam(defaultValue = "0") int limit) {
-        return ResponseEntity.ok(getNearbySubwayStationsUseCase.getNearbySubwayStations(lat, lng, limit));
+            @RequestParam(defaultValue = "0") int limit,
+            @RequestParam(defaultValue = "false") boolean includeRegional) {
+        return ResponseEntity.ok(getNearbySubwayStationsUseCase.getNearbySubwayStations(lat, lng, limit, includeRegional));
     }
 }

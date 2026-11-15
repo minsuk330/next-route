@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import watoo.grd.nextroute.application.regionalsubway.dto.RegionalStationSeed;
+import watoo.grd.nextroute.application.regionalsubway.port.out.RegionalDepartureReadPort;
 import watoo.grd.nextroute.application.regionalsubway.port.out.RegionalSubwayTimetableStore;
 
 import java.sql.Date;
@@ -18,7 +19,7 @@ import java.util.List;
  */
 @Repository
 @RequiredArgsConstructor
-public class JdbcRegionalSubwayTimetableStore implements RegionalSubwayTimetableStore {
+public class JdbcRegionalSubwayTimetableStore implements RegionalSubwayTimetableStore, RegionalDepartureReadPort {
 
     private static final String UPSERT_STATION = """
             INSERT INTO regional_subway_station
@@ -112,5 +113,15 @@ public class JdbcRegionalSubwayTimetableStore implements RegionalSubwayTimetable
         Boolean exists = jdbcTemplate.queryForObject(
                 "SELECT EXISTS (SELECT 1 FROM regional_subway_departure)", Boolean.class);
         return !Boolean.TRUE.equals(exists);
+    }
+
+    @Override
+    public List<Row> departures(String stationKey, String dayType) {
+        return jdbcTemplate.query("""
+                SELECT dep_seconds, terminal_name, terminal_seq FROM regional_subway_departure
+                 WHERE station_key = ? AND day_type = ?
+                 ORDER BY dep_seconds, terminal_seq
+                """, (rs, i) -> new Row(rs.getInt("dep_seconds"), rs.getString("terminal_name"), rs.getInt("terminal_seq")),
+                stationKey, dayType);
     }
 }
