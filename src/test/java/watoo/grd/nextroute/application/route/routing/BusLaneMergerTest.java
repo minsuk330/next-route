@@ -62,6 +62,20 @@ class BusLaneMergerTest {
     }
 
     @Test
+    @DisplayName("자주 오는 노선이 먼저다 — 편 수가 같으면 승차 이른 순(사당역(중)→과천: 11-5·11-2 8편, 1-1 5편, 7007-1 2편)")
+    void ordersByFrequencyThenEarliest() {
+        List<AlternativeRoute> alts = new ArrayList<>();
+        alts.add(alt("7007-1", 2, 382));
+        alts.add(alt("7007-1", 40, 382));
+        for (int i = 0; i < 5; i++) alts.add(alt("1-1", 7 + i * 10, 382));
+        for (int i = 0; i < 8; i++) alts.add(alt("11-2", 11 + i * 6, 382));
+        for (int i = 0; i < 8; i++) alts.add(alt("11-5", 1 + i * 6, 382));
+        RoutingLeg leg = bus("777", 382, alts.toArray(AlternativeRoute[]::new));
+
+        assertThat(names(merge(it(leg)))).containsExactly("11-5", "11-2", "1-1", "7007-1");
+    }
+
+    @Test
     @DisplayName("대표 포함 lane 상한 6 → 대체 노선 5개까지")
     void capsLanes() {
         List<AlternativeRoute> alts = new ArrayList<>();
