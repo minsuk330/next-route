@@ -671,6 +671,9 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
         if (estimate == null) {
             return "STATIC";
         }
+        if (estimate.source() == CurrentLegArrival.Source.TIMETABLE) {
+            return "TIMETABLE";
+        }
         return estimate.source() == CurrentLegArrival.Source.REALTIME_ARRIVAL ? "REALTIME" : "ML";
     }
 

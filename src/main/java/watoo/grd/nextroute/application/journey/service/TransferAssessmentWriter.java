@@ -31,6 +31,8 @@ public class TransferAssessmentWriter {
     static final String SOURCE_REALTIME = "REALTIME";
     /** 실시간으로 못 잡아 모델이 추정했다. */
     static final String SOURCE_MODEL = "MODEL";
+    /** 지방 지하철 공식 시간표(실시간 소스 없음). 9자라 varchar(20) 안. */
+    static final String SOURCE_TIMETABLE = "TIMETABLE";
     /** 둘 다 실패했다. 판정은 UNKNOWN 이다. */
     static final String SOURCE_NONE = "NONE";
 
@@ -86,6 +88,9 @@ public class TransferAssessmentWriter {
         }
         if (targetSource == CurrentLegArrival.Source.MODEL_ARRIVAL) {
             return SOURCE_MODEL;
+        }
+        if (targetSource == CurrentLegArrival.Source.TIMETABLE) {
+            return SOURCE_TIMETABLE;
         }
         return SOURCE_NONE;
     }

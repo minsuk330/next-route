@@ -78,5 +78,10 @@ class RegionalSubwayStationControllerTest {
                 .andExpect(jsonPath("$.directions[0].departures[0].minutesUntil").value(2));
         mvc.perform(get("/api/subway/regional/departures").param("boardStopId", "1:seoul").param("alightStopId", "g2"))
                 .andExpect(status().isNotFound());
+        // 내릴 역 없이 OTP id 만: 역 화면(두 방향)
+        mvc.perform(get("/api/subway/regional/departures").param("boardStopId", "g1").param("at", "2026-11-16T08:01:00+09:00"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.directions.length()").value(2))
+                .andExpect(jsonPath("$.stationKey").value("BS1-119"));
     }
 }

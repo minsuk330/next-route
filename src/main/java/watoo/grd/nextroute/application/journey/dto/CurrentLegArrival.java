@@ -45,7 +45,12 @@ public record CurrentLegArrival(
          */
         MODEL_ARRIVAL,
         /** 진행도가 없어 계획 소요시간만 썼다. */
-        PLANNED_DURATION
+        PLANNED_DURATION,
+        /**
+         * 운영사 공식 시간표의 다음 열차. 실시간 소스가 없는 지방 지하철(부산·대구·대전·광주)에만 쓴다 — 서울 노선은 쓰지 않는다
+         * (SC-6 의 지방 노선 예외, docs/plan/subway-regional-timetable). 품질은 항상 {@code APPROXIMATE}.
+         */
+        TIMETABLE
     }
 
     /**

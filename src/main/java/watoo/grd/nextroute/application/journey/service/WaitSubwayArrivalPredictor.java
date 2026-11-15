@@ -8,6 +8,7 @@ import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Quality;
 import watoo.grd.nextroute.application.journey.dto.CurrentLegArrival.Source;
 import watoo.grd.nextroute.application.journey.dto.JourneyNavigationGeometry.LegGeometry;
 import watoo.grd.nextroute.application.journey.port.out.CurrentLegArrivalPredictor;
+import watoo.grd.nextroute.application.regionalsubway.service.RegionalLegWaitReader;
 import watoo.grd.nextroute.application.subway.service.SubwayRealtimeArrivalReader;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
@@ -29,6 +30,10 @@ import java.util.Optional;
  * <p>방향을 가릴 수 없으면 열차를 고르지 않는다. 반대 방향 열차를 집으면 ETA 가 그럴듯하게
  * 틀리고, 사용자는 그 숫자를 믿고 엉뚱한 시각에 움직인다.
  *
+ * <p><b>예외 — 지방 지하철</b>(부산·대구·대전·광주): 서울 노선 id 가 없는 단계는 실시간 소스가 아예 없어서 운영사 공식 시간표의
+ * 다음 열차를 {@code TIMETABLE}·{@code APPROXIMATE} 로 준다({@code RegionalLegWaitReader}, docs/plan/subway-regional-timetable).
+ * 서울 노선은 이 경로에 가지 않는다.
+ *
  * <p>매칭 실패·조회 실패에서 정적 대기시간을 만들어 내지 않는다(SC-6 4항·SC-9 8항).
  *
  * <p>실시간 수집기가 꺼져 있는 환경을 전제해 <b>역별 실시간 호출</b>을 쓴다. 캐시를 먼저 보지
@@ -41,6 +46,7 @@ public class WaitSubwayArrivalPredictor implements CurrentLegArrivalPredictor {
 
     private final SubwayRealtimeArrivalReader arrivalReader;
     private final JourneyLegRouteOptionRepository routeOptionRepository;
+    private final RegionalLegWaitReader regionalReader;
 
     @Override
     public boolean supports(JourneyLegType type) {
@@ -52,7 +58,11 @@ public class WaitSubwayArrivalPredictor implements CurrentLegArrivalPredictor {
         if (leg.getState() != JourneyLegState.ACTIVE) {
             return CurrentLegArrival.unknown();
         }
-        if (leg.getRouteId() == null || leg.getStartStopId() == null) {
+        if (!leg.hasSubwayRealtimeLine()) {
+            // 서울 노선 id 가 없다 = 지방 지하철일 수 있다. 실시간 소스가 없어 공식 시간표로만 답한다(서울 노선은 여기서 empty)
+            return regionalTimetable(leg, now);
+        }
+        if (leg.getStartStopId() == null) {
             return CurrentLegArrival.unknown();
         }
 
@@ -84,6 +94,19 @@ public class WaitSubwayArrivalPredictor implements CurrentLegArrivalPredictor {
                 Source.REALTIME_ARRIVAL,
                 Quality.GOOD,
                 now);
+    }
+
+    private CurrentLegArrival regionalTimetable(JourneyLeg leg, Instant now) {
+        if (regionalReader == null) {
+            return CurrentLegArrival.unknown();
+        }
+        return regionalReader.nextDeparture(leg, now)
+                .map(d -> {
+                    int seconds = (int) Math.max(0, d.scheduledAt().getEpochSecond() - now.getEpochSecond());
+                    return new CurrentLegArrival(d.scheduledAt(), seconds, null, null,
+                            Source.TIMETABLE, Quality.APPROXIMATE, now);
+                })
+                .orElseGet(CurrentLegArrival::unknown);
     }
 
     private Optional<JourneyLegRouteOption> selectedOption(JourneyLeg leg) {
