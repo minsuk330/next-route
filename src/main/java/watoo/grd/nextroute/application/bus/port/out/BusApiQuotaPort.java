@@ -27,5 +27,9 @@ public interface BusApiQuotaPort {
      */
     boolean tryAcquire(String bucket, int dailyLimit);
 
-    enum Endpoint { ARRIVAL, POSITION }
+    /**
+     * 서울 검색 몫의 끝점. {@code STATION} 은 정류장 단위 도착({@code stationinfo/getStationByUid}, #577) — 공급자
+     * 쪽에서도 도착({@code arrive})과 다른 서비스라 몫과 차단기를 따로 둔다.
+     */
+    enum Endpoint { ARRIVAL, POSITION, STATION }
 }

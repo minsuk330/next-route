@@ -80,9 +80,9 @@ public class BusArrivalQueryService implements GetBusArrivalUseCase {
     }
 
     private BusArrivalResponse toSeoulResponse(BusArrivalInfo info, String routeId, int ord) {
-        String vehicle1 = vehicleId(info.vehicleId1());
-        String vehicle2 = vehicleId(info.vehicleId2());
-        Integer stopsAway1 = seoulStopsAway(ord, info.sectionOrder1(), vehicle1);
+        String vehicle1 = SeoulArrivalRules.vehicleId(info.vehicleId1());
+        String vehicle2 = SeoulArrivalRules.vehicleId(info.vehicleId2());
+        Integer stopsAway1 = SeoulArrivalRules.stopsAway(ord, info.sectionOrder1(), vehicle1);
         return BusArrivalResponse.builder()
                 .routeId(info.routeId())
                 .arrivalMsg1(info.arrivalMsg1())
@@ -92,29 +92,13 @@ public class BusArrivalQueryService implements GetBusArrivalUseCase {
                 .predictTime2(info.sectionTime2())
                 .congestionNum2(info.congestionNum2())
                 .stopsAway1(stopsAway1)
-                .stopsAway2(seoulStopsAway(ord, info.sectionOrder2(), vehicle2))
+                .stopsAway2(SeoulArrivalRules.stopsAway(ord, info.sectionOrder2(), vehicle2))
                 .vehicleId1(vehicle1)
                 .vehicleId2(vehicle2)
                 .approachStops1(approachStopNames.seoul(routeId, ord, stopsAway1, info.stationName1()))
                 .build();
     }
 
-    /** 서울은 버스가 없으면 차량 id 를 {@code "0"} 으로 준다({@code BusRouteWatcher} 와 같은 규칙). */
-    private static String vehicleId(String raw) {
-        return raw == null || raw.isBlank() || "0".equals(raw) ? null : raw;
-    }
-
-    /**
-     * 요청 정류장 순번 − 버스의 현재 구간 순번 = 도착 문구의 {@code [N번째 전]}(2026-11-10 실응답 9건으로 확인. 곧 도착이면 0).
-     * 버스가 없으면(차량 id 없음, 구간 순번 0) 모른다. 음수(정류장을 지나친 값)도 모른다.
-     */
-    private static Integer seoulStopsAway(int ord, Integer sectionOrder, String vehicleId) {
-        if (vehicleId == null || sectionOrder == null || sectionOrder <= 0) {
-            return null;
-        }
-        int away = ord - sectionOrder;
-        return away < 0 ? null : away;
-    }
 
     private List<BusArrivalResponse> getGyeonggiArrivals(String stationId, String routeId) {
         BusQueryResult<GyeonggiBusArrival> res = gyeonggiBusArrivalPort.getArrival(stationId, routeId);

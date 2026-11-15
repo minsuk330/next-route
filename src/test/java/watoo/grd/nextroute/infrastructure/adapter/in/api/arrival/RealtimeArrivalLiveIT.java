@@ -42,6 +42,9 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
  *   <li>TAGO 버스: 남은 초가 짧은 순서로 첫째, 둘째. {@code stopsAway = arrprevstationcnt}. 차량 id 와 띠 이름은
  *       없다.</li>
  *   <li>서울 지하철: 우리 열차가 원본 열차와 (방면, 행선지)로 짝지어지고, 남은 정거장이 도착 코드 규칙을 따른다.</li>
+ *   <li>정류장 단위 버스(#577): 원본 정류장 API(서울 getStationByUid, 경기 getBusArrivalListv2, TAGO
+ *       getSttnAcctoArvlPrearngeInfoList)의 노선이 우리 응답에 다 있고, 첫 버스 초가 ±45초 안이고, 시간순(null 은 뒤)이다.
+ *       두 공급자 정류장은 서울과 경기 출처가 둘 다 나온다. 정류장 캐시는 30초라 다시 받기 전 31초 기다린다.</li>
  * </ul>
  *
  * <h2>돌리려면</h2>
@@ -374,6 +377,183 @@ class RealtimeArrivalLiveIT {
         expectNull(p, "vehicleId1", ours.path("vehicleId1"));
         expectNull(p, "approachStops1", ours.path("approachStops1"));
         return p;
+    }
+
+    // ----------------------------------------------------------------------------------------- 정류장 단위 버스(#577)
+
+    /** arsId 가 있으면 서울, gg 면 경기, tagoCity 가 있으면 TAGO 를 원본으로 부른다. 두 공급자 정류장은 둘 다. */
+    private record StopSample(String stopId, String arsId, boolean gg, String tagoCity) {
+    }
+
+    /** 2026-11-16 운영 카탈로그 기준. 121000009 = 서울 노선 + 경기 43노선, 124000360 = 서울 341·370 + 경기 9노선. */
+    private static final List<StopSample> STOPS = List.of(
+            new StopSample("121000091", "22167", false, null),
+            new StopSample("121000009", "22009", true, null),
+            new StopSample("124000360", "25005", true, null),
+            new StopSample("201000107", null, true, null),
+            new StopSample("BSB199080301", null, false, "21"),
+            new StopSample("ICB169000096", null, false, "23"));
+
+    private static final Duration STOP_CACHE_EXPIRY = Duration.ofSeconds(31);
+
+    @Test
+    void busStopArrivals() throws Exception {
+        String seoulKey = env("SEOUL_BUS_API");
+        String gongKey = env("GONG_API");
+        List<String> failures = new ArrayList<>();
+        int checked = 0;
+        for (StopSample sample : STOPS) {
+            List<String> problems = compareStop(sample, seoulKey, gongKey);
+            if (problems != null && !problems.isEmpty()) {
+                Thread.sleep(STOP_CACHE_EXPIRY.toMillis());
+                problems = compareStop(sample, seoulKey, gongKey);
+            }
+            if (problems == null) {
+                continue;
+            }
+            checked++;
+            problems.forEach(p -> failures.add("정류장 " + sample.stopId() + ": " + p));
+        }
+        System.out.println("[RealtimeArrivalLiveIT] 정류장 단위: 대조 " + checked + "/" + STOPS.size() + ", 어긋남 " + failures.size());
+        assertThat(failures).isEmpty();
+        assertThat(checked).as("버스가 다니는 정류장 표본 수").isGreaterThanOrEqualTo(4);
+    }
+
+    @Test
+    void busStopArrivalsBatch() throws Exception {
+        List<String> ids = STOPS.stream().map(StopSample::stopId).toList();
+        JsonNode body = getJson(baseUrl + "/api/bus/stops/arrivals?stopIds=" + enc(String.join(",", ids)));
+        List<String> order = new ArrayList<>();
+        List<String> notOk = new ArrayList<>();
+        for (JsonNode stop : body) {
+            order.add(stop.path("stopId").asText());
+            if (!"OK".equals(stop.path("status").asText())) {
+                notOk.add(stop.path("stopId").asText() + "=" + stop.path("status").asText());
+            }
+        }
+        assertThat(order).as("요청 순서").isEqualTo(ids);
+        assertThat(notOk).as("정류장마다 status").isEmpty();
+    }
+
+    /** null = 어느 원본에도 버스가 없어 볼 것이 없다. */
+    private List<String> compareStop(StopSample s, String seoulKey, String gongKey) throws Exception {
+        // 원본: 노선 id -> 공급자별 첫 버스 초(버스가 없으면 null). 두 공급자가 같은 노선을 주면 둘 다 둔다.
+        Map<String, List<Integer>> raw = new HashMap<>();
+        Map<String, String> sources = new HashMap<>();
+        if (s.arsId() != null) {
+            for (JsonNode row : array(getJson("http://ws.bus.go.kr/api/rest/stationinfo/getStationByUid?serviceKey="
+                    + seoulKey + "&arsId=" + s.arsId() + "&resultType=json").path("msgBody").path("itemList"))) {
+                if (!s.stopId().equals(row.path("stId").asText())) {
+                    continue;
+                }
+                Integer seconds = seoulVehicle(row.path("vehId1").asText(null)) == null ? null : integer(row.path("traTime1"));
+                addRaw(raw, row.path("busRouteId").asText(), seconds);
+                sources.merge(row.path("busRouteId").asText(), "SEOUL", (a, b) -> a);
+            }
+        }
+        if (s.gg()) {
+            for (JsonNode row : array(getJson("https://apis.data.go.kr/6410000/busarrivalservice/v2/getBusArrivalListv2?serviceKey="
+                    + gongKey + "&stationId=" + s.stopId() + "&format=json")
+                    .path("response").path("msgBody").path("busArrivalList"))) {
+                Integer minutes = integer(row.path("predictTime1"));
+                addRaw(raw, row.path("routeId").asText(),
+                        minutes == null ? null : gyeonggiSeconds(minutes, integer(row.path("predictTimeSec1"))));
+                sources.merge(row.path("routeId").asText(), "GG", (a, b) -> a);
+            }
+        }
+        if (s.tagoCity() != null) {
+            for (int page = 1; page <= 3; page++) {
+                JsonNode body = getJson("https://apis.data.go.kr/1613000/ArvlInfoInqireService/"
+                        + "getSttnAcctoArvlPrearngeInfoList?serviceKey=" + gongKey + "&_type=json&numOfRows=100&pageNo=" + page
+                        + "&cityCode=" + s.tagoCity() + "&nodeId=" + enc(s.stopId())).path("response").path("body");
+                for (JsonNode bus : array(body.path("items").path("item"))) {
+                    addRaw(raw, bus.path("routeid").asText(), integer(bus.path("arrtime")));
+                    sources.merge(bus.path("routeid").asText(), "TAGO", (a, b) -> a);
+                }
+                if (page * 100 >= body.path("totalCount").asInt(0)) {
+                    break;
+                }
+            }
+        }
+        boolean anyBus = raw.values().stream().anyMatch(times -> times.stream().anyMatch(Objects::nonNull));
+        JsonNode ours = getJson(baseUrl + "/api/bus/stops/" + enc(s.stopId()) + "/arrivals");
+        List<String> p = new ArrayList<>();
+        Map<String, JsonNode> oursByRoute = new HashMap<>();
+        Integer previous = null;
+        boolean sawNull = false;
+        for (JsonNode row : ours) {
+            String routeId = row.path("routeId").asText();
+            if (oursByRoute.put(routeId, row) != null) {
+                p.add("노선 " + routeId + " 이 두 줄");
+            }
+            Integer t = integer(row.path("predictTime1"));
+            if (t == null) {
+                sawNull = true;
+            } else if (sawNull || (previous != null && t < previous)) {
+                p.add("정렬: " + routeId + " 의 " + t + " 초가 앞 줄보다 앞서야 한다");
+            } else {
+                previous = t;
+            }
+            if (text(row.path("routeTypeSource")) == null) {
+                p.add("노선 " + routeId + " routeTypeSource 없음");
+            }
+        }
+        if (!anyBus) {
+            for (JsonNode row : ours) {
+                if (integer(row.path("predictTime1")) != null) {
+                    p.add("원본에 버스가 없는데 " + row.path("routeId").asText() + " 에 시간이 있다");
+                }
+            }
+            return p.isEmpty() ? null : p;
+        }
+        for (Map.Entry<String, List<Integer>> entry : raw.entrySet()) {
+            String routeId = entry.getKey();
+            JsonNode row = oursByRoute.get(routeId);
+            if (row == null) {
+                p.add("원본(" + sources.get(routeId) + ") 노선 " + routeId + " 이 우리 응답에 없다");
+                continue;
+            }
+            Integer best = entry.getValue().stream().filter(Objects::nonNull).min(Integer::compare).orElse(null);
+            Integer actual = integer(row.path("predictTime1"));
+            if (best == null) {
+                if (actual != null && entry.getValue().size() == 1) {
+                    p.add("노선 " + routeId + " 원본엔 버스가 없는데 " + actual + " 초");
+                }
+                continue;
+            }
+            boolean near = actual != null && entry.getValue().stream()
+                    .anyMatch(t -> t != null && Math.abs(t - actual) <= SECONDS_TOLERANCE);
+            if (!near) {
+                p.add("노선 " + routeId + " predictTime1 기대 " + entry.getValue() + "±" + SECONDS_TOLERANCE + " 실제 " + actual);
+            }
+        }
+        if (s.arsId() != null && s.gg()) {
+            List<String> seen = new ArrayList<>();
+            ours.forEach(row -> seen.add(row.path("routeTypeSource").asText()));
+            if (!seen.contains("SEOUL") || !seen.contains("GG")) {
+                p.add("두 공급자 정류장인데 출처가 " + new java.util.TreeSet<>(seen));
+            }
+        }
+        return p;
+    }
+
+    private static void addRaw(Map<String, List<Integer>> raw, String routeId, Integer seconds) {
+        if (routeId == null || routeId.isBlank()) {
+            return;
+        }
+        List<Integer> times = raw.computeIfAbsent(routeId, k -> new ArrayList<>());
+        // TAGO 는 버스마다 한 줄이라 같은 노선이 여러 번 온다. 우리 첫 버스가 그중 하나와 가까우면 맞다고 본다.
+        times.add(seconds);
+    }
+
+    private static List<JsonNode> array(JsonNode node) {
+        List<JsonNode> out = new ArrayList<>();
+        if (node.isArray()) {
+            node.forEach(out::add);
+        } else if (node.isObject()) {
+            out.add(node);
+        }
+        return out;
     }
 
     // ----------------------------------------------------------------------------------------- 서울 지하철
