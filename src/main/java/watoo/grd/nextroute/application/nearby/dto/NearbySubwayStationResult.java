@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.nearby.dto;
 
+import watoo.grd.nextroute.application.subway.service.SubwayLineColors;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 public record NearbySubwayStationResult(
@@ -18,6 +20,12 @@ public record NearbySubwayStationResult(
          */
         @JsonInclude(JsonInclude.Include.NON_NULL) String arrivalSource
 ) {
+
+    /** 지하철 공식 노선색({@code #RRGGBB}, {@link SubwayLineColors}). 모르는 노선은 null. */
+    @JsonProperty(value = "lineColor", access = JsonProperty.Access.READ_ONLY)
+    public String lineColor() {
+        return SubwayLineColors.of(lineId, lineName);
+    }
 
     public NearbySubwayStationResult withArrivalSource(String source) {
         return new NearbySubwayStationResult(stationId, stationName, lineId, lineName, latitude, longitude,

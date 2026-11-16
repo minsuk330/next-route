@@ -238,14 +238,23 @@ class LegacyRouteResponseMapperTest {
     }
 
     @Test
-    @DisplayName("지하철 lane 색은 그래프 route_color 를 그대로 쓴다(\"#\" 접두)")
-    void subwayLaneUsesRouteColor() {
-        SubPathResult sub = firstSubPath(coloredLeg(RoutingMode.SUBWAY, "1:RR_ACC1_B1", "부산1호선", "F06A00"));
+    @DisplayName("지하철 lane 색은 공식 노선색 표가 먼저다 — 그래프 route_color 가 달라도 표 값")
+    void subwayLaneUsesOfficialColor() {
+        SubPathResult sub = firstSubPath(coloredLeg(RoutingMode.SUBWAY, "1:RR_ACC1_S2", "서울2호선", "00A84D"));
 
         assertThat(sub.lanes()).singleElement().satisfies(lane -> {
-            assertThat(lane.name()).isEqualTo("부산1호선");
-            assertThat(lane.routeDisplayColor()).isEqualTo("#F06A00");
+            assertThat(lane.name()).isEqualTo("서울2호선");
+            assertThat(lane.routeDisplayColor()).isEqualTo("#00A23F");   // 서울시 노선별 색상값(그래프는 00A84D)
         });
+    }
+
+    @Test
+    @DisplayName("표 밖 철도(KTX·ITX)는 그래프 route_color 를 그대로 쓴다(\"#\" 접두)")
+    void railOutsideTableUsesRouteColor() {
+        SubPathResult sub = firstSubPath(coloredLeg(RoutingMode.RAIL, "1:KTX_1", "[일반]ITX청춘(천마산.신내)", "003DA5"));
+
+        assertThat(sub.lanes()).singleElement().satisfies(lane ->
+                assertThat(lane.routeDisplayColor()).isEqualTo("#003DA5"));
     }
 
     @Test

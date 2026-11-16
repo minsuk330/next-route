@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.journey.dto;
 
+import watoo.grd.nextroute.application.subway.service.SubwayLineColors;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import watoo.grd.nextroute.application.route.dto.CoordPoint;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
 
@@ -33,6 +35,16 @@ public final class TrackViews {
                        Integer distanceMeters, String arrivalStopId, String arsId,
                        String arrivalStationId, String lineId, String lineName,
                        List<String> routeNames, Heading heading, List<Route> routes) {
+
+        /** 지하철 공식 노선색({@code #RRGGBB}, {@link SubwayLineColors}). 모르는 노선은 null. */
+        @JsonProperty(value = "lineColor", access = JsonProperty.Access.READ_ONLY)
+        public String lineColor() {
+            return mode == RoutingMode.BUS ? null
+                    : SubwayLineColors.byLineId(lineId).or(() -> SubwayLineColors.byLineName(lineName))
+                    .or(() -> routeNames == null || routeNames.isEmpty() ? java.util.Optional.empty()
+                            : SubwayLineColors.byLineName(routeNames.get(0)))
+                    .orElse(null);
+        }
     }
 
     /**

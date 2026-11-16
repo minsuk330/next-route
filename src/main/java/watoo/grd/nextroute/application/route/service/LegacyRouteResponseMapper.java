@@ -22,6 +22,7 @@ import watoo.grd.nextroute.application.route.routing.AlternativeRoute;
 import watoo.grd.nextroute.application.route.routing.RoutingLeg;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.subway.service.SubwayDirectionNormalizer;
+import watoo.grd.nextroute.application.subway.service.SubwayLineColors;
 import watoo.grd.nextroute.application.subway.service.SubwayLineIdMapper;
 import watoo.grd.nextroute.application.subway.service.SubwayLineStationIndex;
 import watoo.grd.nextroute.application.route.routing.RoutingResult;
@@ -284,7 +285,7 @@ public class LegacyRouteResponseMapper {
 
     /**
      * GTFS route_color("B81B30") → legacy 표시색("#B81B30"). 원천에 없으면 null(가짜색 금지). 경기 버스는 노선 유형 색이
-     * 먼저다(#391) — 직행좌석 4403 처럼 M 이 아닌 광역 노선도 빨강이 된다.
+     * 먼저다(#391) — 직행좌석 4403 처럼 M 이 아닌 광역 노선도 빨강이 된다. 지하철은 공식 노선색 표({@link SubwayLineColors})가 먼저다.
      */
     private String displayColor(RoutingLeg leg) {
         return displayColor(leg.mode(), leg.sourceRouteId(), leg.sourceRouteName(), leg.sourceRouteColor());
@@ -298,6 +299,13 @@ public class LegacyRouteResponseMapper {
             }
             if (isMetropolitanExpressBus(routeName)) {
                 return METROPOLITAN_EXPRESS_BUS_COLOR;
+            }
+        }
+        if (mode == RoutingMode.SUBWAY || mode == RoutingMode.RAIL) {
+            // 지하철은 공식 노선색 표가 먼저다(OTP 그래프 색 대신). 표 밖 일반 철도(KTX·ITX)만 그래프 색.
+            Optional<String> official = SubwayLineColors.byLineName(routeName);
+            if (official.isPresent()) {
+                return official.get();
             }
         }
         return sourceColor == null ? null : "#" + sourceColor;

@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.subway.dto;
 
+import watoo.grd.nextroute.application.subway.service.SubwayLineColors;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import watoo.grd.nextroute.application.regionalsubway.dto.RegionalDayType;
 import watoo.grd.nextroute.application.regionalsubway.dto.RegionalDeparturesView;
@@ -25,6 +27,12 @@ public record RegionalDeparturesResponse(
         String timetableDayType,
         List<Direction> directions
 ) {
+
+    /** 지하철 공식 노선색({@code #RRGGBB}, {@link SubwayLineColors}). 모르는 노선은 null. */
+    @JsonProperty(value = "lineColor", access = JsonProperty.Access.READ_ONLY)
+    public String lineColor() {
+        return SubwayLineColors.of(lineCode, lineName);
+    }
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 

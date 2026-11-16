@@ -18,6 +18,7 @@ import watoo.grd.nextroute.application.route.routing.LegGeometry;
 import watoo.grd.nextroute.application.route.routing.RoutingDeadline;
 import watoo.grd.nextroute.application.route.routing.RoutingMode;
 import watoo.grd.nextroute.application.route.service.GyeonggiBusRouteTypeColors;
+import watoo.grd.nextroute.application.subway.service.SubwayLineColors;
 import watoo.grd.nextroute.global.error.BusinessException;
 import watoo.grd.nextroute.global.error.code.CommonErrorCode;
 import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
@@ -364,12 +365,17 @@ public class TrackSelectionQueryService {
         return wanted == actual;
     }
 
-    /** 그래프 색을 쓰되, 경기 버스는 노선 유형 색이 먼저다(#391 — 검색 응답과 같은 규칙). */
+    /** 그래프 색을 쓰되, 경기 버스는 노선 유형 색이, 지하철은 공식 노선색 표가 먼저다(검색 응답과 같은 규칙). */
     private String color(TransitRoute route, boolean bus) {
         if (bus) {
             Optional<String> gyeonggi = gyeonggiColors.color(route.gtfsId());
             if (gyeonggi.isPresent()) {
                 return gyeonggi.get();
+            }
+        } else {
+            Optional<String> official = SubwayLineColors.byLineName(route.shortName());
+            if (official.isPresent()) {
+                return official.get();
             }
         }
         return route.color() == null ? null : "#" + route.color();

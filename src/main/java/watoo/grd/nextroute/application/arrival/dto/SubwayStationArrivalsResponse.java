@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.arrival.dto;
 
+import watoo.grd.nextroute.application.subway.service.SubwayLineColors;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import watoo.grd.nextroute.application.subway.dto.TrainKind;
 
 import java.time.OffsetDateTime;
@@ -16,6 +18,12 @@ public record SubwayStationArrivalsResponse(
         String lineId,
         List<Direction> directions
 ) {
+
+    /** 지하철 공식 노선색({@code #RRGGBB}, {@link SubwayLineColors}). 모르는 노선은 null. */
+    @JsonProperty(value = "lineColor", access = JsonProperty.Access.READ_ONLY)
+    public String lineColor() {
+        return SubwayLineColors.of(lineId, null);
+    }
 
     /**
      * @param direction 실시간 API 의 {@code updnLine} 원문. 원천이 비워 보내면 {@code null}

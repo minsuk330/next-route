@@ -45,7 +45,7 @@ class NearbySubwayRegionalTest {
     }
 
     @Test
-    @DisplayName("서비스 경로 그대로 — includeRegional 생략 시 서울 항목 JSON 키가 기존 8개 그대로(arrivalSource 없음, 지방 역 없음)")
+    @DisplayName("서비스 경로 그대로 — includeRegional 생략 시 서울 항목 JSON 키가 기존 8개 + lineColor(arrivalSource 없음, 지방 역 없음)")
     void legacyJsonThroughService() throws Exception {
         serving.setEnabled(true);
         NearbySubwayStationProjection p = mock(NearbySubwayStationProjection.class);
@@ -63,7 +63,9 @@ class NearbySubwayRegionalTest {
         assertThat(out).hasSize(1);
         var node = new ObjectMapper().readTree(new ObjectMapper().writeValueAsString(out.get(0)));
         assertThat(node.properties()).extracting(java.util.Map.Entry::getKey).containsExactly(
-                "stationId", "stationName", "lineId", "lineName", "latitude", "longitude", "distanceMeters", "gtfsStopId");
+                "stationId", "stationName", "lineId", "lineName", "latitude", "longitude", "distanceMeters", "gtfsStopId",
+                "lineColor");
+        assertThat(node.path("lineColor").asText()).isEqualTo("#004A85");   // 1001 = 서울1호선 공식 색
     }
 
     @Test

@@ -1,0 +1,419 @@
+{
+  "_comment": "지하철 노선 표시색. 서버가 이 표로 모든 지하철 응답의 색을 정한다(OTP 그래프 route_color 대신). CITY_STANDARD = 서울시 '서울 지하철 노선도 디자인 개발'(https://news.seoul.go.kr/culture/archives/522224) 의 노선별 색상값 PDF RGB 열. NONE_FOUND = 공식 자료 못 찾음, 공식 값 찾으면 hex·source·sourceType 를 고친다.",
+  "lines": [
+    {
+      "name": "서울1호선",
+      "hex": "#004A85",
+      "aliases": [
+        "1호선",
+        "1001"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 2945C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "서울2호선",
+      "hex": "#00A23F",
+      "aliases": [
+        "2호선",
+        "1002"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 354C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "서울3호선",
+      "hex": "#ED6C00",
+      "aliases": [
+        "3호선",
+        "1003"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 1505C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "서울4호선",
+      "hex": "#009BCE",
+      "aliases": [
+        "4호선",
+        "1004"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 2995C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "서울5호선",
+      "hex": "#794698",
+      "aliases": [
+        "5호선",
+        "1005"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 2587C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "서울6호선",
+      "hex": "#7C4932",
+      "aliases": [
+        "6호선",
+        "1006"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 168C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "서울7호선",
+      "hex": "#6E7E31",
+      "aliases": [
+        "7호선",
+        "1007"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 5757C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "서울8호선",
+      "hex": "#D11D70",
+      "aliases": [
+        "8호선",
+        "1008"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 213C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "서울9호선",
+      "hex": "#A49D87",
+      "aliases": [
+        "9호선",
+        "1009"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 7536C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "경의중앙선",
+      "hex": "#6AC2B3",
+      "aliases": [
+        "1063",
+        "경의선",
+        "중앙선"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 3248C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "수인분당선",
+      "hex": "#ECA300",
+      "aliases": [
+        "1075",
+        "분당선",
+        "수인선"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 124C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "신분당선",
+      "hex": "#B81B30",
+      "aliases": [
+        "1077"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 711C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "인천1호선",
+      "hex": "#B4C7E7",
+      "aliases": [
+        "인천 1호선"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 278C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "공항철도",
+      "hex": "#0079AC",
+      "aliases": [
+        "1065",
+        "인천공항철도",
+        "공항철도선"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 641C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "우이신설경전철",
+      "hex": "#BACC50",
+      "aliases": [
+        "1092",
+        "우이신설선"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 382C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "신림선",
+      "hex": "#5E7DBB",
+      "aliases": [
+        "1094",
+        "신림경전철"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 2124C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "의정부경전철",
+      "hex": "#F0831E",
+      "aliases": [
+        "의정부선"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 152C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "용인경전철",
+      "hex": "#44A436",
+      "aliases": [
+        "에버라인",
+        "용인에버라인"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 368C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "인천2호선",
+      "hex": "#F4A462",
+      "aliases": [
+        "인천 2호선"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 714C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "김포도시철도",
+      "hex": "#957326",
+      "aliases": [
+        "김포골드라인"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 126C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "경춘선",
+      "hex": "#007A62",
+      "aliases": [
+        "1067"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 3298C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "경강선",
+      "hex": "#0B318F",
+      "aliases": [
+        "1081"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 2738C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "서해선",
+      "hex": "#5EAC41",
+      "aliases": [
+        "1093"
+      ],
+      "sourceType": "CITY_STANDARD",
+      "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
+      "note": "서울시 노선별 색상값 RGB, PANTONE 361C",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "GTX-A",
+      "hex": "#9A6292",
+      "aliases": [
+        "1032",
+        "GTX A"
+      ],
+      "sourceType": "NONE_FOUND",
+      "source": null,
+      "note": "운영사 공식 노선색 자료 못 찾음. 기존 값(OTP 그래프, 위키백과 틀) 유지",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "부산1호선",
+      "hex": "#F06A00",
+      "aliases": [
+        "BS1"
+      ],
+      "sourceType": "NONE_FOUND",
+      "source": null,
+      "note": "운영사 공식 노선색 자료 못 찾음. 기존 값(OTP 그래프, 위키백과 틀) 유지",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "부산2호선",
+      "hex": "#81BF48",
+      "aliases": [
+        "BS2"
+      ],
+      "sourceType": "NONE_FOUND",
+      "source": null,
+      "note": "운영사 공식 노선색 자료 못 찾음. 기존 값(OTP 그래프, 위키백과 틀) 유지",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "부산3호선",
+      "hex": "#BB8C00",
+      "aliases": [
+        "BS3"
+      ],
+      "sourceType": "NONE_FOUND",
+      "source": null,
+      "note": "운영사 공식 노선색 자료 못 찾음. 기존 값(OTP 그래프, 위키백과 틀) 유지",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "부산4호선",
+      "hex": "#217DCB",
+      "aliases": [
+        "BS4"
+      ],
+      "sourceType": "NONE_FOUND",
+      "source": null,
+      "note": "운영사 공식 노선색 자료 못 찾음. 기존 값(OTP 그래프, 위키백과 틀) 유지",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "부산김해경전철",
+      "hex": "#8652A1",
+      "aliases": [
+        "부산-김해경전철",
+        "김해경전철"
+      ],
+      "sourceType": "NONE_FOUND",
+      "source": null,
+      "note": "운영사 공식 노선색 자료 못 찾음. 기존 값(OTP 그래프, 위키백과 틀) 유지",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "동해선",
+      "hex": "#003DA5",
+      "aliases": [
+        "동해선광역전철"
+      ],
+      "sourceType": "NONE_FOUND",
+      "source": null,
+      "note": "운영사 공식 노선색 자료 못 찾음. 기존 값(OTP 그래프, 위키백과 틀) 유지",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "대경선",
+      "hex": "#003DA5",
+      "aliases": [],
+      "sourceType": "NONE_FOUND",
+      "source": null,
+      "note": "운영사 공식 노선색 자료 못 찾음. 기존 값(OTP 그래프, 위키백과 틀) 유지",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "대구1호선",
+      "hex": "#D93F5C",
+      "aliases": [
+        "DG1"
+      ],
+      "sourceType": "NONE_FOUND",
+      "source": null,
+      "note": "운영사 공식 노선색 자료 못 찾음. 기존 값(OTP 그래프, 위키백과 틀) 유지",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "대구2호선",
+      "hex": "#00AA80",
+      "aliases": [
+        "DG2"
+      ],
+      "sourceType": "NONE_FOUND",
+      "source": null,
+      "note": "운영사 공식 노선색 자료 못 찾음. 기존 값(OTP 그래프, 위키백과 틀) 유지",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "대구3호선",
+      "hex": "#FFB100",
+      "aliases": [
+        "DG3"
+      ],
+      "sourceType": "NONE_FOUND",
+      "source": null,
+      "note": "운영사 공식 노선색 자료 못 찾음. 기존 값(OTP 그래프, 위키백과 틀) 유지",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "대전1호선",
+      "hex": "#007448",
+      "aliases": [
+        "DJ1"
+      ],
+      "sourceType": "NONE_FOUND",
+      "source": null,
+      "note": "운영사 공식 노선색 자료 못 찾음. 기존 값(OTP 그래프, 위키백과 틀) 유지",
+      "checkedAt": "2026-11-16"
+    },
+    {
+      "name": "광주1호선",
+      "hex": "#009088",
+      "aliases": [
+        "GJ1"
+      ],
+      "sourceType": "NONE_FOUND",
+      "source": null,
+      "note": "운영사 공식 노선색 자료 못 찾음. 기존 값(OTP 그래프, 위키백과 틀) 유지",
+      "checkedAt": "2026-11-16"
+    }
+  ]
+}
