@@ -11,8 +11,12 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * 지하철 노선 표시색. 운영사·지자체 공식 자료에서 모은 표({@code resources/subway/line-colors.json})가 원천이고,
+ * 지하철 노선 표시색. 우리가 모은 표({@code resources/subway/line-colors.json})가 원천이고,
  * 검색 lane·여정 지도·근처 역·역 도착·시간표·환승 노선 등 지하철이 나오는 응답이 모두 이 값을 쓴다(OTP 그래프 route_color 대신).
+ *
+ * <p>수도권 23개 노선은 서울시 2025 노선별 색상값(공식, {@code sourceType=CITY_STANDARD}), 나머지 13개
+ * (부산·대구·대전·광주·김해·동해선·대경선·GTX-A)는 공식 자료를 못 찾은 기존 값({@code NONE_FOUND})이다 — 공식 값을 찾으면 표만 고친다.
+ * 별칭은 지하철 노선만 가리키는 이름만 둔다(일반 철도 노선명 "중앙선" 같은 맨 이름은 넣지 않는다).
  *
  * <p>키는 OTP 노선 이름({@code 부산2호선}, {@code 서울2호선}, {@code 신분당선}), 서울 실시간 id({@code 1002}),
  * 지방 노선 코드({@code BS2}), 표의 별칭({@code 2호선}, {@code 김포골드라인}). 공백은 무시한다.

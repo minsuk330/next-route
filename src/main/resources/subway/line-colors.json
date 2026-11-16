@@ -113,9 +113,7 @@
       "name": "경의중앙선",
       "hex": "#6AC2B3",
       "aliases": [
-        "1063",
-        "경의선",
-        "중앙선"
+        "1063"
       ],
       "sourceType": "CITY_STANDARD",
       "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
@@ -126,9 +124,7 @@
       "name": "수인분당선",
       "hex": "#ECA300",
       "aliases": [
-        "1075",
-        "분당선",
-        "수인선"
+        "1075"
       ],
       "sourceType": "CITY_STANDARD",
       "source": "https://news.seoul.go.kr/culture/files/2025/05/68219503904018.57272657.pdf",
