@@ -12,15 +12,23 @@ import java.time.Instant;
  * @param laneIndex          다음 버스 구간의 lane 순번
  * @param routeId            그 lane 의 실시간 노선 id
  * @param userArrivalAt      이 버스를 타고 다음 환승 정류장에 닿는 예상 시각
- * @param predictedArrivalAt 닿은 뒤 처음 탈 수 있는 그 노선 버스의 도착 시각. <b>null = 모름</b>: 도착 정보는 다음 한두 대만
- *                           알려 주므로, 닿는 시각이 그 뒤거나 정보가 없으면 비운다. "차가 없다"·"대기 0"으로 읽으면 안 된다
+ * @param predictedArrivalAt 닿은 뒤 처음 탈 수 있는 그 노선 버스의 도착 시각. 실시간(다음 한두 대)에 있으면 그 값, 없으면
+ *                           도착 예측 모델 값. <b>null = 모름</b>(둘 다 없음) — "차가 없다"·"대기 0"으로 읽으면 안 된다
  * @param waitSeconds        대기(초). {@code predictedArrivalAt} 이 null 이면 null(모름)
+ * @param source             {@code REALTIME}(실시간 도착) 또는 {@code MODEL}(예측 모델, 오차가 더 크다). 모르면 null
  */
 public record OnwardWait(
         int laneIndex,
         String routeId,
         Instant userArrivalAt,
         Instant predictedArrivalAt,
-        Long waitSeconds
+        Long waitSeconds,
+        TransferArrival.Source source
 ) {
+
+    /** 출처 칸이 생기기 전 호출부(시험)용. */
+    public OnwardWait(int laneIndex, String routeId, Instant userArrivalAt, Instant predictedArrivalAt,
+                      Long waitSeconds) {
+        this(laneIndex, routeId, userArrivalAt, predictedArrivalAt, waitSeconds, null);
+    }
 }
