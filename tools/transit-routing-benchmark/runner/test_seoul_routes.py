@@ -114,6 +114,19 @@ class SeoulApplyTest(unittest.TestCase):
         self.assertGreater(g.station_meas[-1] - g.station_meas[0], 0.8 * g.line.length)
         self.assertEqual(g.station_meas, sorted(g.station_meas))
 
+    def test_despike_removes_short_back_steps_and_keeps_a_real_turnaround(self):
+        # east along a road with two link-join hooks (step back ~9 m, then on), a 90 degree corner,
+        # and a real turnaround at the end (880 m out, 880 m back)
+        line = [(LAT, lon(0)), (LAT, lon(3)), (LAT, lon(2.9)), (LAT, lon(6)), (LAT, lon(5.95)), (LAT, lon(5.9)),
+                (LAT, lon(10)), (LAT + 0.004, lon(10)), (LAT, lon(10)), (LAT, lon(0))]
+        out = ag.despike(line)
+        self.assertEqual(len(out), len(line) - 3)            # one vertex per back step is dropped
+        self.assertIn((LAT + 0.004, lon(10)), out)          # 440 m out and back: a turnaround, not a spike
+        self.assertEqual((out[0], out[-1]), (line[0], line[-1]))
+        xs = [p[1] for p in out[:out.index((LAT + 0.004, lon(10))) - 1]]
+        self.assertEqual(xs, sorted(xs))                    # no back step is left on the way out
+        self.assertEqual(ag.despike(out), out)              # idempotent
+
     def test_loader_returns_none_without_a_usable_answer(self):
         (self.src / "1.path.json").write_text(_answer([], code="4"))
         (self.src / "1.stations.json").write_text(_answer([], code="4"))

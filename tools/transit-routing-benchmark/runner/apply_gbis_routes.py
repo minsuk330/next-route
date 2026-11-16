@@ -65,6 +65,8 @@ SEOUL_STOP_PREFIX = "BS_TAGO_SEB"
 SEOUL_PASS_THROUGH = ("(경유)", "(미정차)", "(가상)")
 WHOLE_ROUTE_WHEN_OFF_LINE = False   # seoul: a trip whose stops are off the official line takes the whole list
 OFF_LINE_M = 150.0      # OTP drops a shape whose stops sit farther than this from it
+SPIKE_ANGLE_DEG = 150.0  # the line reverses at a vertex when it turns by more than this
+SPIKE_MAX_M = 40.0      # and the reversal is a spike when one side is shorter than this
 LOOP_START_M = 500.0    # first station this near the line start may be assigned to it (closed loops)
 LOOP_M = 300.0          # trip's first≈last stop within this → round trip
 # A new span much longer/shorter than the old trip means the span was mis-chosen
@@ -353,11 +355,45 @@ def _coord(item: dict) -> tuple[float, float] | None:
     return (lat, lon) if 33.0 < lat < 39.5 and 124.0 < lon < 132.0 else None
 
 
+def despike(latlon: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Drop the vertices where the line steps back on itself for a few metres.
+
+    The Seoul route path is a chain of road links; where two links meet the next
+    one often starts a few metres before the previous one ends, so the line goes
+    back 5-15 m and then on (about two such hooks per route, visible as spikes on
+    the map).  A vertex is a spike when the line reverses there (more than
+    ``SPIKE_ANGLE_DEG``) and one of its two segments is shorter than
+    ``SPIKE_MAX_M``; a real turnaround has long segments on both sides and stays.
+    Repeats until none is left (removing one vertex can expose the next).
+    """
+    pts = list(latlon)
+    cos_limit = math.cos(math.radians(SPIKE_ANGLE_DEG))
+    changed = True
+    while changed and len(pts) > 2:
+        changed = False
+        xy = [_to_m(lat, lon) for lat, lon in pts]
+        keep = [True] * len(pts)
+        i = 1
+        while i < len(pts) - 1:
+            ax, ay = xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]
+            bx, by = xy[i + 1][0] - xy[i][0], xy[i + 1][1] - xy[i][1]
+            la, lb = math.hypot(ax, ay), math.hypot(bx, by)
+            if la > 0.5 and lb > 0.5 and min(la, lb) < SPIKE_MAX_M and (ax * bx + ay * by) / (la * lb) < cos_limit:
+                keep[i] = False
+                changed = True
+                i += 2          # neighbours are judged again on the next pass, against the new line
+            else:
+                i += 1
+        pts = [p for p, k in zip(pts, keep) if k]
+    return pts
+
+
 def load_seoul(source_dir: Path, route9: str) -> Gbis | None:
     """Same shape as load_gbis, from fetch_seoul_routes.py files (stations use the GBIS key names)."""
     pts = _seoul_items(source_dir / f"{route9}.path.json")
     sts = _seoul_items(source_dir / f"{route9}.stations.json")
     latlon = [c for p in sorted(pts or [], key=lambda p: int(p["no"])) if (c := _coord(p)) is not None]
+    latlon = despike(latlon)
     if len(latlon) < 2:
         return None
     line = Line(latlon)
