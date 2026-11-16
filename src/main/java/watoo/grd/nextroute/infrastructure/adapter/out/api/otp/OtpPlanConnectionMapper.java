@@ -208,9 +208,26 @@ public class OtpPlanConnectionMapper {
                     color == null || color.isBlank() ? null : color,
                     text(n.path("to").path("stop").path("gtfsId")),
                     instant(n.path("start").path("scheduledTime")),
-                    instant(n.path("end").path("scheduledTime"))));
+                    instant(n.path("end").path("scheduledTime")),
+                    stopIds(n.path("stopCalls"))));
         }
         return out;
+    }
+
+    /** nextLegs 의 정차 정류장 id(순서대로). 쿼리가 묻지 않았거나 id 가 하나라도 없으면 빈 목록(= 모름). */
+    private static List<String> stopIds(JsonNode stopCalls) {
+        if (!stopCalls.isArray() || stopCalls.isEmpty()) {
+            return List.of();
+        }
+        List<String> ids = new java.util.ArrayList<>(stopCalls.size());
+        for (JsonNode call : stopCalls) {
+            String id = text(call.path("stopLocation").path("gtfsId"));
+            if (id == null) {
+                return List.of();
+            }
+            ids.add(id);
+        }
+        return ids;
     }
 
     /** leg 거리(m). 없거나 숫자가 아니면 null — 0 으로 지어내지 않는다. */

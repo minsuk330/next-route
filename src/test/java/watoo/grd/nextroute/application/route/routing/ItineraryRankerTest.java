@@ -192,6 +192,19 @@ class ItineraryRankerTest {
     }
 
     @Test
+    @DisplayName("버스 합치기: 승하차 정류장이 같아도 중간 정류장이 다르면 다른 경로다(8100 10정류장·M4102 9정류장)")
+    void busByStopsSeparatesDifferentIntermediateStops() {
+        RoutingLeg viaA = new RoutingLeg(RoutingMode.BUS, "BUS", "1", "1:A1", "1:8100", "8100", "1:T", null, T0, T0, 600,
+                List.of(new StopOccurrence("S5", null, null, 0, 0, 0, "S5"), new StopOccurrence("A", null, null, 1, 0, 0, "A"),
+                        new StopOccurrence("MD", null, null, 2, 0, 0, "MD")),
+                List.of(), LegGeometry.missing("x"), Enrichment.staticOnly(RealtimeCoverage.STATIC_SCHEDULE), Set.of());
+        RoutingItinerary a = it(42, 4582, viaA);
+        RoutingItinerary b = it(43, 4600, bus("1:M4102", "M4102", "S5", "MD"));
+
+        assertThat(ItineraryRanker.rank(List.of(a, b), 5, true)).containsExactly(a, b);
+    }
+
+    @Test
     @DisplayName("버스 합치기: 정류장 id 를 모르면 노선 이름으로 돌아간다")
     void busByStopsFallsBackToNameWithoutStops() {
         RoutingItinerary a = it(41, 3444, transit(RoutingMode.BUS, "1:740", "740"));

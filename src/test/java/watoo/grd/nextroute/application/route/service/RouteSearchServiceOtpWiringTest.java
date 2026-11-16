@@ -278,9 +278,9 @@ class RouteSearchServiceOtpWiringTest {
         java.util.List<RoutingQuery> asked = new java.util.ArrayList<>();
         RoutingItinerary m4130 = sameStopBus("1:M4130", "M4130", 4360, List.of(
                 new watoo.grd.nextroute.application.route.routing.AlternativeRoute(
-                        "1:9301", "9301", null, "1:MD", null, null),
+                        "1:9301", "9301", null, "1:MD", null, null, List.of("1:S5", "1:MD")),
                 new watoo.grd.nextroute.application.route.routing.AlternativeRoute(
-                        "1:5000(예약)", "5000(예약)", null, "1:MD", null, null)));
+                        "1:5000(예약)", "5000(예약)", null, "1:MD", null, null, List.of("1:S5", "1:MD"))));
         RoutingItinerary m4137 = sameStopBus("1:M4137", "M4137", 4401, List.of());
         RoutingPort otp = new RoutingPort() {
             @Override public RoutingOutcome search(RoutingQuery q, RoutingDeadline d) {
@@ -306,7 +306,7 @@ class RouteSearchServiceOtpWiringTest {
         props.setBusLaneMergeEnabled(false);
         RoutingItinerary m4130 = sameStopBus("1:M4130", "M4130", 4360, List.of(
                 new watoo.grd.nextroute.application.route.routing.AlternativeRoute(
-                        "1:9301", "9301", null, "1:MD", null, null)));
+                        "1:9301", "9301", null, "1:MD", null, null, List.of("1:S5", "1:MD"))));
         RoutingItinerary m4137 = sameStopBus("1:M4137", "M4137", 4401, List.of());
         TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
         given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));

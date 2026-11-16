@@ -68,6 +68,7 @@ query PlanConnection(
             end { scheduledTime }
             to { stop { gtfsId } }
             route { gtfsId shortName color }
+            stopCalls { stopLocation { ... on Stop { gtfsId } } }
           }
         }
       }

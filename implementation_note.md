@@ -6750,3 +6750,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 단위: LegacyRouteResponseMapper·TransferArrivalEnricher·RouteSearchTravelTime·RouteSearchService·JourneyCompiler·OdSay 묶음 → 실패 0(같이 걸린 JourneyHeartbeatIT 1건은 DB env 없이 돌아서 컨텍스트 실패 — 기존 무관, env 로 재실행해 통과).
 - IT(st-pg, st-redis): NextrouteApplicationTests, JourneyHeartbeatIT, JourneyStartIT, RouteSearchSnapshot*, RouteSearchRealtimeDeadlineIT, RerouteAcceptIT → 75 tests, 실패 0.
 - 리뷰(서브에이전트) 반영: ①대표 lane 탑승시간을 모르면 승하차 시각 차로(묶인 노선과 같은 기준) ②대표 lane 의 `rideSeconds` 는 반올림 전 초 값이라 lane 이 하나인 구간도 환승 대기·알림 추정이 분 반올림(최대 30초) 만큼 달라진다 — 의도, 주석에 명시 ③여정 단계 탑승 소요(`JourneyCompiler`, `TrackJourneyStartService`)는 탑승 노선이 정해질 때까지 구간 값 그대로(PR-2) ④테스트 추가: 버스→버스 환승에서 먼저 오는 lane 의 840초로 다음 정류장 도착 계산(`transferArrivalUsesTheRideTimeOfTheEarliestLane`), 알림 추정이 고른 lane 의 탑승시간 사용, 605초 구간. 확인된 것: `basisLaneIndex` 는 직전 버스 구간 `lanes()` 의 순번이 맞고, 스냅샷은 엄격 모드가 아니라 옛·새 JSON 양쪽 호환. 테스트 81, 실패 0.
+
+## 버스 묶음: 서는 정류장이 같은 노선만 (2026-11-16, 사용자 결정)
+### 확정
+- 묶는 기준 = 승차부터 하차까지 **서는 정류장 목록이 대표와 완전히 같은 노선**. 승하차 정류장만 같은 노선은 묶지 않고 따로 보인다(`ItineraryRanker.fingerprint` 버스 지문 = 정류장 목록 전체, `BusLaneMerger.select` 가 목록 비교). 목록을 모르는 편은 묶지 않는다.
+- 근거(운영 OTP, 묶인 노선 125개): 정류장 같은 92개 = 대표와 탑승시간 차 최대 2.2분, 선 이탈 최대 44m. 정류장 다른 33개 = 최대 9.3분, 1,010m(5분 초과 14개). 묶음이 있던 구간 48개 중 39개는 묶음 유지, 구간당 2.6 → 2.4개.
+- 탑승시간 기준(1.3배 + 5분)은 안전장치로 남김(정류장이 같으면 걸릴 일이 거의 없다) → #599 는 사실상 해소.
+- nextLegs 에 `stopCalls{stopLocation{gtfsId}}` 를 같이 묻는다.
+### 함정
+- OTP 응답이 커진다: 본 검색 평균 182KB → 460KB(최대 1.5MB, nextLegs 가 지하철 구간에도 붙음). OTP 시간은 평균 1.10s 로 같다(VPS 안 측정). 로컬 SSH 터널로는 훨씬 느리게 보인다.
+- 카카오는 승하차만 같은 노선도 묶는 것으로 보여 묶음 구성이 카카오보다 적을 수 있다(내비 정확도를 택함).
+### 검증
+- `./gradlew test --tests '*ItineraryRanker*' --tests '*BusLaneMerger*' --tests '*OtpPlanConnectionMapper*' --tests '*RouteSearchService*' --tests '*LegacyRouteResponseMapper*' --tests '*OtpRoutingAdapter*' --tests '*KakaoParity*'` → 197 tests, 실패 0. 신규: onlyIdenticalStopListsMerge, busByStopsSeparatesDifferentIntermediateStops, fixture 에 stopCalls 있는 nextLegs.
