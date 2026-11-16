@@ -6776,3 +6776,42 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 단위 149(TransferArrivalEnricher·RouteSearchTravelTime·RouteSearchService·LegacyRouteResponseMapper), 실패 0. 신규 단언: 750B 를 타면 다음 정류장 13:19:50 도착·대기 600초, 360 을 타면 13:18:50 도착·대기 660초, 마지막 버스 구간은 null.
 - 리뷰(서브에이전트) 반영: ①다음 구간이 경기·TAGO lane 이면 이미 받은 `regionalResult.boardableAt(닿는 시각)` 으로 대기를 잰다(전에는 항상 null) ②`OnwardWait` 의 null 은 "모름"이다 — 도착 정보는 다음 한두 대뿐이라 닿는 시각이 그 뒤면 비운다. "차 없음"·"대기 0" 아님(주석 수정, 앱 이슈에 명시) ③테스트 추가: 탈 수 없는 lane 에는 안 붙음, 아는 두 대보다 뒤면 null, 옛 JSON(칸 없음) → null·새 JSON 왕복. 확인된 것: 스냅샷은 Spring 기본 ObjectMapper(모르는 칸 무시)라 옛·새 버전이 섞여도 읽힌다, `rebuild`·`WalkSegmentEnricher` 는 목록을 그대로 넘겨 새 칸이 안 사라진다. 경기·TAGO 경로의 시나리오 테스트는 없음(코드 경로만). 테스트 157, 실패 0.
+
+## 탄 버스 노선 선택 (#598, bus-lane-selection PR-2, 2026-11-16)
+
+### 확정
+- `POST /api/journeys/{id}/bus/route-selection {routeOptionId, routeRevision, legIndex?}` → 200 `JourneySnapshot`. `legIndex` = **탑승**(RIDE_BUS) 구간 순번(지하철 열차 선택과 같은 규칙), 생략 시 지금 단계 기준(대기 중이면 다음 구간).
+- 개정본을 새로 만들지 않는다. 대기 + 짝 탑승 단계의 `selectedRouteOptionId`·`routeId` 만 바꾼다(묶인 노선은 서는 정류장이 같다, #605).
+- **`commandVersion` 불변**, `evaluationVersion` +1. 앱이 선택 직후 탑승 전이를 보내는데 명령 번호를 올리면 그 전이가 409(STALE_COMMAND_VERSION)다.
+- 재탐색 수락: 복제한 앞 구간은 고른 후보를 `optionIndex` 로 이어받는다. 새 구간은 첫 후보.
+- 지도 좌표 버전 키 = `{rev}:{카탈로그}[:{바인딩}][:b{단계}.{후보}…]`. 첫 후보만 고른 여정은 키 불변.
+- 오류: 404 JOURNEY_NOT_FOUND / 409 JOURNEY_NOT_ACTIVE·STALE_ROUTE_REVISION / 422 BUS_ROUTE_SELECTION_NOT_ALLOWED·BUS_ROUTE_OPTION_NOT_FOUND.
+
+### 함정
+- 🔴 `journey_leg.vehicle_id` 를 엔티티로 비우면 안 된다 ← V61 CHECK 가 `vehicle_id`·`vehicle_id_type`·`vehicle_source` 를 묶고, 뒤 둘은 엔티티에 없다(단독 추적 워커의 부분 UPDATE 전용). 처음엔 선택 때 비우게 짰다가 IT 가 잡았다.
+- 🔴 `JourneyLeg` 에 `@DynamicUpdate` 를 붙였다 ← 진행 보고(`applyProgressIfNewer`)는 여정 행을 잠그지 않는 bulk UPDATE 라, 엔티티 flush 가 전 칼럼을 쓰면 그 사이 들어온 진행 값(과 워커가 쓴 차량 칼럼)을 옛 값으로 덮는다. 이제 단계 저장은 바뀐 칼럼만 쓴다(전 단계 저장 경로 공통 변화).
+- 재평가는 `scheduleEvaluationAt(now)` 로 건다 ← `ReevaluationTrigger` 는 평가가 돌고 있으면 dirty 표시만 해서, 그 평가가 옛 노선 예측을 방금 비운 칸에 다시 쓴다. `next_evaluation_at` 을 바꾸면 그 평가의 저장이 소유 검사에서 떨어진다.
+- 탑승 단계의 `remainingStops`·진행도·근거는 비우지 않는다 ← 앱 관측이고, 비우면 `BusRideLocator` 가 "진행 없음"으로 떨어진다. 대기 단계의 `predictedEndAt`·근거는 비운다 ← 남기면 평가기의 90초 유예(#480) 동안 옛 버스 도착 시각이 보인다.
+- 비고: 후보의 `routeId` 가 null 일 수 있다(다른 지역 노선이 묶였고 id 가 안 풀린 경우). 고를 수는 있고, 실시간 도착은 "모름"이 된다.
+
+### 좌표
+- `application/journey/service/BusRouteSelectionService.java`
+- `infrastructure/adapter/in/api/journey/JourneyBusRouteSelectionController.java`, `dto/BusRouteSelectionRequest.java`
+- `domain/journey/entity/JourneyLeg.java` `reselectRouteOption`
+- `application/journey/service/RerouteAcceptTxService.java` `carriedOption`
+- `application/journey/service/JourneyNavigationGeometryService.java` `busSelectionToken`
+
+### 미결
+- 앱(jette-app#127): 탑승 때 노선 고르기, 선택 뒤 좌표 다시 받기.
+- 선택 직후 다음 평가(수 초)까지 환승 판정·위험 알림 문구의 노선 이름은 옛 노선 기준일 수 있다(다음 평가가 다시 쓴다).
+- 감사 행(journey_event)은 안 남긴다. 로그 `[BusRouteSelection]` 한 줄.
+
+### 배포
+- 마이그레이션 없음. api·worker·worker2 같은 이미지(워커가 선택된 후보를 읽는다).
+
+### 검증
+- `./gradlew test --tests '*BusRouteSelection*' --tests '*RerouteAcceptIT*' --tests '*JourneyEvaluationIT*'` → 82 통과(st-pg, st-redis).
+- 여정 전체: `--tests 'watoo.grd.nextroute.application.journey.*' --tests '…domain.journey.*' --tests '…in.api.journey.*'` → 1,999 중 실패 1, 건너뜀 6. 실패 = `RerouteRemainingPathOtpLiveIT`(기존 무관: 그 시험의 `routing.otp.concurrency.lease-ms=12000` 이 설정 검증 17000 에 걸려 컨텍스트가 안 뜬다. OTP 터널이 열려 있을 때만 도는 시험).
+- 변이 확인: `carriedOption` 을 `firstOption` 으로 되돌리면 `keepsUserSelectedBusRouteOnCopiedLegs` 가 실패한다.
+- 리뷰(서브에이전트) 반영: ①갱신 신호 전에 단계·여정을 직접 flush(신호가 예외를 삼켜 원인이 가려지는 것 방지) ②지워진 후보 422 시험 추가 ③`vehicleId` 주석 정정 — 지금 차량 칼럼을 쓰는 코드는 main 에 없다(위 함정의 "워커 부분 UPDATE" 는 V61 주석을 옮긴 것, ~~단독 추적 워커가 쓴다~~ 현재 쓰는 코드 없음).
+- 리뷰가 남긴 미결(고치지 않음): ①탑승 중 재선택과 진행 보고가 수 ms 겹치면 교착으로 한쪽이 5xx(잠금 순서가 반대. 구간 전이도 같은 구조). 앱은 다시 보내면 된다 ②재탐색 보드가 옛 노선으로 계산한 "중간 하차" 후보를 선택 뒤에도 잠시 들고 있을 수 있다. 수락하면 `RideTruncationResolver` 가 노선 불일치로 거절한다(잘못 반영되지는 않음). 다음 보드 갱신이 바꾼다 ③선택 직전에 줄 선 위험 알림은 옛 노선 이름으로 나갈 수 있다 ④`@DynamicUpdate` 가 진행 보고를 안 덮는다는 것 자체를 고정하는 동시성 시험은 없다.

@@ -48,20 +48,51 @@
 - 테스트: 매퍼(lane 별 값), 환승 대기(먼저 오는 lane 이 대표가 아닐 때 닿는 시각이 그 lane 기준), null 폴백, 스냅샷 호환.
 - 검증: `./gradlew test --tests '*LegacyRouteResponseMapper*' --tests '*TransferArrivalEnricher*' --tests '*RouteSearchTravelTime*' --tests '*RouteSearchService*' --tests '*Snapshot*'` + 운영 OTP 로 버스→버스 환승 OD 몇 개의 `estimatedUserArrivalAt` 전후 비교.
 
-### PR-2 고른 버스로 여정 시작 (서버)
-- [ ] `StartJourneyRequest`, `StartJourneyCommand`: `busSelections` 추가, 검증.
-- [ ] `JourneyCompiler.routeOptions`: `JourneyRouteOptionDraft` 에 `rideSeconds` 를 싣는다. `journey_leg_route_option` 에 컬럼 추가(마이그레이션 V__, nullable `ride_seconds`).
-- [ ] `JourneyStartTxService.saveRouteOptions`: 선택된 laneIndex 의 후보를 `selectRouteOption`. 대기, 탑승 단계 둘 다.
-- [ ] 고른 lane 이 대표가 아니면 탑승 단계를 그 노선 기준으로 다시 채운다: `plannedDurationSec` = `rideSeconds`, 정류장 목록과 선 = OTP 패턴 조회(`OtpTransitPatternAdapter`/`StopPatternPort` 재사용, 승차 stopId ~ 하차 stopId 구간). 조회 실패 = 대표 값 유지 + `evidenceQuality` 낮춤 + 로그.
-- [ ] 뒤 구간 환승 연결(`TransferConnectionDraft`)의 예상 도착을 고른 lane 기준으로.
-- 테스트: 선택대로 시작, 생략 시 기존 동작, 잘못된 선택 400, 고른 lane 기준 소요와 정류장, OTP 실패 폴백, 재탐색 수락 뒤에도 선택 유지(`RerouteAcceptIT`).
-- 검증: `./gradlew test --tests '*JourneyStart*' --tests '*JourneyCompiler*' --tests '*RerouteAccept*'`(st-pg, st-redis).
+### PR-2 탑승 때 고른 노선으로 추적 (서버, 이슈 #598)
+사용자 결정(2026-11-16): 앱은 **버스 탑승 시점**에 탄 노선을 고른다. 묶음은 서는 정류장이 완전히 같은 노선만이라(#605) 고른 노선에 따라 바뀌는 것은 노선 번호, 실시간 도착, 차량 추적 대상뿐이다. 정류장 목록, 선, 구간 구조는 그대로다 → **개정본을 새로 만들지 않고 지금 개정본에서 선택만 바꾼다.**
 
-### PR-3 여정 중 노선 바꾸기 (서버, 앱 흐름 확정 뒤)
-- [ ] 이벤트 또는 전용 요청으로 선택 노선 교체, 단계 재계산. 범위는 jette-app#127 시안 확정 뒤.
+#### 현재 구조 (origin/main)
+- 여정 시작: `JourneyStartTxService.saveRouteOptions` 가 lane 마다 `journey_leg_route_option` 행을 저장하고 `saved.get(0)` 을 선택(`JourneyLeg.selectRouteOption(optionId, routeId)`, 대기와 탑승 단계 둘 다).
+- 조회 응답 `JourneyLegView{selectedRouteOptionId, routeOptions[]}`, `JourneyRouteOptionView{optionId, laneIndex, routeId, sourceRouteId, routeName, boardingSeq, alightingSeq}` — 앱은 이미 후보 전부를 받는다.
+- 선택을 바꾸는 코드: `RerouteAcceptTxService.select(legs, waitLeg, option)`(재탐색 수락 때만).
+- 같은 종류의 기존 API: 지하철 열차 선택 `POST /api/journeys/{journeyId}/subway/train-selection {trainNo, routeRevision, legIndex}`(`JourneySubwayBindingController`, `SubwayTrainSelectionService`). 낡은 개정본이면 `StaleRouteRevisionException`.
+
+#### 계약 (구현본, Opus 검토 반영)
+`POST /api/journeys/{journeyId}/bus/route-selection`
+```json
+{ "routeOptionId": 4812, "routeRevision": 3, "legIndex": 4 }
+```
+- `routeOptionId`: 조회 응답 `legs[].routeOptions[].optionId` 중 하나(필수).
+- `routeRevision`: 앱이 보고 있는 개정본(필수). 다르면 409 `STALE_ROUTE_REVISION`(details = 현재 개정본).
+- `legIndex`: 대상 버스 **탑승**(RIDE_BUS) 구간의 순번(지하철 열차 선택과 같은 규칙). 생략하면 지금 단계 기준 — 탑승 중이면 그 구간, 버스를 기다리는 중이면 바로 다음 구간.
+- 응답 200: `JourneySnapshot`.
+- 오류: 404 `JOURNEY_NOT_FOUND`, 409 `JOURNEY_NOT_ACTIVE`, 422 `BUS_ROUTE_SELECTION_NOT_ALLOWED`(버스 탑승 구간이 아님, 이미 내린 구간), 422 `BUS_ROUTE_OPTION_NOT_FOUND`(그 구간의 후보가 아님).
+- 같은 후보 재전송: 200, 변화 없음.
+
+#### 상태 전이 (구현본)
+- 허용: 대상 탑승 단계가 PENDING 또는 ACTIVE(기다리는 중, 탑승 중). COMPLETED 등은 거절.
+- 바뀌는 것: 대기 + 짝 탑승 단계의 `selectedRouteOptionId`, `routeId`. 비우는 것: 대기 단계의 `predictedEndAt`·`evidenceSource`·`evidenceObservedAt`, 탑승 단계의 `predictedEndAt`.
+- **안 건드리는 것**: 탑승 단계의 진행도·`remainingStops`·근거(앱 관측, 정류장이 같아 유효. 비우면 탑승 위치 판정이 "진행 없음"), `vehicleId`(단독 추적 워커 소유, V61 CHECK 가 종류·출처와 묶음), 알림과 환승 판정 행(다음 평가가 수 초 안에 다시 쓴다).
+- **`commandVersion` 은 올리지 않는다**: 앱이 선택과 탑승 전이를 연달아 보내므로, 올리면 전이가 409 로 거절된다. `evaluationVersion` +1 과 `JourneyVersionChangedEvent` 로 조회 갱신을 알린다.
+- 재평가: `journey.scheduleEvaluationAt(now)`(급한 줄). 돌고 있던 평가는 저장 때 소유 검사(`next_evaluation_at = 선점값`)에 걸려 버려진다. `ReevaluationTrigger` 는 쓰지 않는다(진행 중 평가가 옛 노선 값을 다시 쓴다). 재탐색 보드도 `rerouteRefreshSignal.requestNow`.
+- 잠금: `findByIdAndUserIdForUpdate`(여정 행). 재탐색 수락, 구간 전이와 같은 잠금.
+- 진행 보고와의 경합: `JourneyLeg` 에 `@DynamicUpdate` 추가(바뀐 칼럼만 UPDATE). 진행 보고는 여정 행을 안 잠그는 bulk UPDATE 라, 전 칼럼 flush 면 그 값을 덮는다.
+- 재탐색 수락: 복제한 앞 구간은 사용자가 고른 후보를 `optionIndex` 로 이어받는다(전에는 항상 첫 후보로 되돌렸다). 새 구간은 첫 후보.
+- 지도 좌표 버전 키: 첫 후보가 아닌 노선을 고르면 `:b{단계}.{후보}` 가 붙는다(색, 정류장 원천이 달라짐). 고르지 않은 여정은 키 불변.
+- 감사: `journey_event` 행은 쓰지 않고 로그 한 줄(`[BusRouteSelection]`). 최종 선택은 단계의 `selectedRouteOptionId` 에 남는다.
+- 마이그레이션 없음.
+
+#### 구현 좌표
+- `application/journey/service/BusRouteSelectionService`(단일 @Transactional), `infrastructure/.../JourneyBusRouteSelectionController`, `dto/BusRouteSelectionRequest`
+- `JourneyLeg.reselectRouteOption`, `@DynamicUpdate`
+- `RerouteAcceptTxService.carriedOption`
+- `JourneyNavigationGeometry.versionKey(4인자)`, `JourneyNavigationGeometryService.busSelectionToken`
+- `JourneyErrorCode.BUS_ROUTE_OPTION_NOT_FOUND`, `BUS_ROUTE_SELECTION_NOT_ALLOWED`
+- 테스트: `BusRouteSelectionIT`(9), `JourneyBusRouteSelectionControllerTest`(3), `RerouteAcceptIT.keepsUserSelectedBusRouteOnCopiedLegs`, `JourneyEvaluationIT.evaluatesWithUserSelectedRoute`
 
 ### 앱 (jette-app#127, #123)
-- PR-1 배포 뒤: lane 별 시간 표시 가능. PR-2 배포 뒤: 버스 선택 화면 → `busSelections` 전송.
+- 탑승 시([탔어요] 또는 탑승 판정) 묶인 노선이 2개 이상이면 고르게 하고 `POST …/bus/route-selection` 을 보낸다. 탑승 전환 이벤트는 지금처럼 따로 보낸다(선택 전에 읽은 `commandVersion` 그대로 써도 된다). 200 을 받으면 지도 좌표를 다시 받는다(버전 키가 바뀐다).
+- 조회 응답의 `routeOptions[]` 로 목록을 그리고, 응답 스냅샷으로 화면을 바꾼다.
 
 ## 리스크와 미결
 - OTP 패턴 조회가 여정 시작 경로에 들어간다(지연, 실패). 예산과 폴백을 PR-2 에서 정한다. 대안: 검색 때 lane 별 정류장 목록까지 스냅샷에 싣기(응답 커짐).
@@ -71,4 +102,4 @@
 
 ## 배포
 - PR-1: api, worker(알림 추정이 worker 에서 돈다). 마이그레이션 없음.
-- PR-2: V__(journey_leg_route_option.ride_seconds) Flyway 자동. api, worker, worker2 같은 이미지.
+- PR-2: 마이그레이션 없음. api, worker, worker2 같은 이미지.

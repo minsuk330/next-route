@@ -460,15 +460,33 @@ public class RerouteAcceptTxService {
                     ? copyOptions(oldByIndex.get(leg.getLegIndex()), oldOptions, leg)
                     : newOptions(composed, leg);
 
-            // 선택 노선은 언제나 그 단계의 첫 후보다(여정 시작과 같은 규칙). 사용자가 고른 것은
-            // 경로 전체이지 노선 하나가 아니다 — 노선만 바꾸는 수락(③)은 폐기됐다.
-            JourneyLegRouteOption selected = firstOption(saved);
+            // 새로 생긴 단계의 선택 노선은 첫 후보다(여정 시작과 같은 규칙). 복제한 단계는 사용자가 탑승 때 고른
+            // 노선(#598)을 이어받는다 — 첫 후보로 되돌리면 지금 타고 있는 버스가 다른 노선으로 바뀐다.
+            JourneyLegRouteOption selected = leg.getLegIndex() < composed.fromLegIndex()
+                    ? carriedOption(oldByIndex.get(leg.getLegIndex()), oldOptions, saved)
+                    : firstOption(saved);
             if (selected == null) {
                 continue;
             }
             select(newLegs, leg, selected);
         }
         legRepository.flush();
+    }
+
+    /** 복제한 단계: 옛 단계가 고른 후보와 {@code optionIndex} 가 같은 새 행. 못 찾으면 첫 후보. */
+    private static JourneyLegRouteOption carriedOption(JourneyLeg oldLeg,
+                                                       Map<Long, List<JourneyLegRouteOption>> oldOptions,
+                                                       List<JourneyLegRouteOption> saved) {
+        if (oldLeg == null || oldLeg.getSelectedRouteOptionId() == null) {
+            return firstOption(saved);
+        }
+        return oldOptions.getOrDefault(oldLeg.getId(), List.of()).stream()
+                .filter(option -> oldLeg.getSelectedRouteOptionId().equals(option.getId()))
+                .findFirst()
+                .flatMap(old -> saved.stream()
+                        .filter(option -> option.getOptionIndex() == old.getOptionIndex())
+                        .findFirst())
+                .orElseGet(() -> firstOption(saved));
     }
 
     /** {@code optionIndex} 0 번, 없으면 첫 후보. 비어 있으면 null(호출부가 skip). */
