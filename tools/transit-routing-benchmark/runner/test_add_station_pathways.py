@@ -41,6 +41,9 @@ STOPS = [
     ["VSA_P_P1", "", "가(1호선)", LAT, lon(0), "0", "VSA_P1"],
     ["VSA_P_P2", "", "가(2호선)", LAT, lon(200), "0", "VSA_P1"],
     ["VSA_X_n1_P1", "1", "가역 1번 출구", LAT, lon(50), "0", "VSA_P1"],
+    ["VSA_P_RS_TAGO_NAT1", "", "가", LAT, lon(100), "0", "VSA_P1"],
+    ["VSA_P_RS_TAGO_NATFAR", "", "가", LAT, lon(900), "0", "VSA_P1"],
+    ["RS_TAGO_NATFAR", "", "가", LAT, lon(900), "0", ""],
     # a platform with a station but no exits, a national rail platform without a station, a bus stop
     ["VST_P3", "", "나", LAT, lon(5000), "1", ""],
     ["P3", "", "나", LAT, lon(5000), "0", "VST_P3"],
@@ -91,7 +94,16 @@ class AddStationPathwaysTest(unittest.TestCase):
             p = self.pw["PW_" + ent]
             self.assertEqual((p["from_stop_id"], p["to_stop_id"], p["pathway_mode"], p["is_bidirectional"]), (ent, platform, "1", "1"))
             self.assertAlmostEqual(int(p["traversal_time"]), seconds, delta=2)
-        self.assertEqual(self.summary["entrances"], 3)
+        self.assertEqual(self.summary["entrances"], 5)       # three exits + one at each platform's own point
+
+    def test_platform_keeps_an_entrance_at_its_own_point_so_no_walk_gets_worse_than_before(self):
+        for platform in ("P1", "P2"):
+            e = self.stops["VEN_self_" + platform]
+            self.assertEqual((e["location_type"], e["parent_station"]), ("2", "VST_" + platform))
+            self.assertEqual((e["stop_lat"], e["stop_lon"]), (self.stops[platform]["stop_lat"], self.stops[platform]["stop_lon"]))
+            p = self.pw["PW_VEN_self_" + platform]
+            self.assertEqual((p["from_stop_id"], p["to_stop_id"], p["traversal_time"]), ("VEN_self_" + platform, platform, "90"))
+        self.assertNotIn("VEN_self_P3", self.stops)
 
     def test_exit_stops_and_all_other_stops_are_kept_as_they_were(self):
         before = read(self.feed, "stops.txt")
@@ -103,16 +115,27 @@ class AddStationPathwaysTest(unittest.TestCase):
         self.assertEqual(self.summary["transferPathways"], 1)
 
     def test_transfer_to_a_platform_without_exits_is_left_to_the_street(self):
-        # national rail and the exit-less platform keep their street link; the walk goes through an exit
-        self.assertFalse(any("RS_TAGO_NAT1" in k or "P3" in k for k in self.pw))
-        self.assertEqual(self.summary["transferPairsWithOneSideOnStreet"], 2)
+        # the exit-less platform keeps its street link; the walk goes through an exit
+        self.assertFalse(any("P3" in k for k in self.pw))
+        self.assertEqual(self.summary["transferPairsWithOneSideOnStreet"], 1)
         self.assertFalse(any(k.startswith("VEN_") and k.endswith("P3") for k in self.stops))
+
+    def test_national_rail_platform_is_joined_to_the_metro_platforms_of_its_station(self):
+        # listed in transfers.txt with P1 (240 s); 100 m from P2 and not listed -> 100 m + 120 s
+        a = self.pw["PW_R_RS_TAGO_NAT1_P1"]
+        self.assertEqual((a["from_stop_id"], a["to_stop_id"], a["traversal_time"]), ("RS_TAGO_NAT1", "P1", "240"))
+        b = self.pw["PW_R_RS_TAGO_NAT1_P2"]
+        self.assertAlmostEqual(int(b["traversal_time"]), 220, delta=2)
+        self.assertEqual(self.pw["PW_C_VSA_P_RS_TAGO_NAT1"]["to_stop_id"], "RS_TAGO_NAT1")
+        # 900 m away: not the same building — left on the street, no copy pathway either
+        self.assertFalse(any("NATFAR" in k for k in self.pw))
+        self.assertEqual((self.summary["nationalRailPlatforms"], self.summary["nationalRailPathways"]), (1, 2))
 
     def test_all_lines_platform_copy_reaches_its_platform_in_one_second(self):
         for copy, platform in (("VSA_P_P1", "P1"), ("VSA_P_P2", "P2")):
             p = self.pw["PW_C_" + copy]
             self.assertEqual((p["from_stop_id"], p["to_stop_id"], p["traversal_time"]), (copy, platform, "1"))
-        self.assertEqual(self.summary["allLinesCopyPathways"], 2)
+        self.assertEqual(self.summary["allLinesCopyPathways"], 3)        # P1, P2 and the national rail platform
 
     def test_other_files_are_copied_byte_for_byte(self):
         with zipfile.ZipFile(self.feed) as a, zipfile.ZipFile(self.out) as b:
