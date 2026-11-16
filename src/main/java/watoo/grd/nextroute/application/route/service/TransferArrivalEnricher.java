@@ -483,6 +483,12 @@ public class TransferArrivalEnricher {
                                 calculatedAt, ctx.estimatedUserArrivalAt, realtimeAt.get(),
                                 vehicleId, null,
                                 ctx.basisLaneIndex, ctx.conditional, ctx.precedingSubway);
+                        // 묶인 다른 버스를 타면 더 늦게 닿는다 — 그 시각이 실시간(다음 두 대) 밖이면 모델로 잰다
+                        if (mlProps.isEnabled() && needsModelForOnward(lc, onwardUserArrivals(ctx, result, prevWave.get(ctx.pathIdx), resultMap))
+                                && predictionSupport.support(lc.routeId) != PredictionSupportService.Support.UNSUPPORTED) {
+                            lc.modelForOnward = true;
+                            mlRouteIds.add(lc.routeId);
+                        }
                         continue;
                     }
                 }
@@ -515,7 +521,7 @@ public class TransferArrivalEnricher {
         for (SubPathCtx ctx : waveCtxs) {
             if (ctx.upstreamUnavailable) continue;
             for (LaneCtx lc : ctx.laneContexts) {
-                if (lc.realtimeResult != null || lc.routeId == null
+                if ((lc.realtimeResult != null && !lc.modelForOnward) || lc.routeId == null
                         || predictionSupport.support(lc.routeId) == PredictionSupportService.Support.UNSUPPORTED) continue;
                 if (lc.targetSeq == null || lc.arrOutcome != Outcome.OK) continue;
 
@@ -541,6 +547,16 @@ public class TransferArrivalEnricher {
                 }
             } catch (Exception e) {
                 log.warn("[TransferEnricher] ML predict failed: {}", e.getMessage());
+            }
+        }
+
+        // 3e': lane 마다 모델이 본 차량별 도착 시각 — 다음 환승 대기(onwardWaits)가 실시간 밖일 때 쓴다
+        if (!mlResults.isEmpty()) {
+            for (SubPathCtx ctx : waveCtxs) {
+                for (LaneCtx lc : ctx.laneContexts) {
+                    if (lc.routeId == null || lc.targetSeq == null) continue;
+                    lc.modelArrivals = modelArrivals(ctx, lc, positionMap, mlResults, calculatedAt);
+                }
             }
         }
 
@@ -650,19 +666,59 @@ public class TransferArrivalEnricher {
     /**
      * 앞 버스 구간의 탈 수 있는 lane 마다, 그 버스를 타고 이 정류장에 닿은 뒤 lane 별 대기를 계산해 앞 구간 결과에 붙인다
      * (bus-lane-selection). 이 구간의 {@code transferArrivals} 는 가장 먼저 오는 lane 을 탔다고 본 값 하나뿐이라, 묶인 다른
-     * 버스를 탈 때의 환승 대기는 여기서만 알 수 있다. 추가 조회는 없다 — 이 구간 lane 들이 이미 받은 도착 정보(서울 실시간
-     * {@code arrMatched}, 경기·TAGO {@code regionalResult})로만 잰다. 그 정보는 <b>다음 한두 대</b>뿐이라, 닿는 시각이 그 뒤면
-     * 대기를 모른다(null) — 차가 없다는 뜻이 아니다.
+     * 버스를 탈 때의 환승 대기는 여기서만 알 수 있다. 먼저 이 구간 lane 들이 이미 받은 도착 정보(서울 실시간
+     * {@code arrMatched}, 경기·TAGO {@code regionalResult})로 잰다. 그 정보는 <b>다음 한두 대</b>뿐이라 닿는 시각이 그 뒤면
+     * 서울 노선은 <b>도착 예측 모델</b>(운행 중인 차량별 예측, {@code modelArrivals})로 잰다 — 대표 lane 의 환승 대기와 같은
+     * 순서다. 둘 다 없으면 대기를 모른다(null) — 차가 없다는 뜻이 아니다.
      */
     private void attachOnwardWaits(SubPathCtx ctx, RouteSearchResult result, PrevWaveInfo prev,
                                    Map<Integer, Map<Integer, List<TransferArrival>>> resultMap) {
-        if (prev == null || ctx.upstreamUnavailable) {
+        Map<Integer, Instant> userArrivals = onwardUserArrivals(ctx, result, prev, resultMap);
+        if (userArrivals.isEmpty()) {
             return;
+        }
+        Map<Integer, List<TransferArrival>> byPath = resultMap.get(ctx.pathIdx);
+        List<TransferArrival> prevLanes = byPath.get(prev.subPathIdx);
+        List<TransferArrival> updated = new ArrayList<>(prevLanes.size());
+        for (int i = 0; i < prevLanes.size(); i++) {
+            TransferArrival prevLane = prevLanes.get(i);
+            Instant userAt = userArrivals.get(i);
+            if (userAt == null) {
+                updated.add(prevLane);
+                continue;
+            }
+            List<OnwardWait> waits = new ArrayList<>(ctx.laneContexts.size());
+            for (LaneCtx lc : ctx.laneContexts) {
+                Optional<Instant> realtime = realtimeAfter(lc, userAt);
+                // 실시간 밖이면 모델 — 운행 중인 차량별 예측 중 닿은 뒤 가장 먼저 오는 차
+                Optional<Instant> model = realtime.isPresent() || lc.regional != null
+                        ? Optional.empty()
+                        : lc.modelArrivals.stream().filter(at -> !at.isBefore(userAt)).min(Instant::compareTo);
+                Optional<Instant> next = realtime.isPresent() ? realtime : model;
+                waits.add(new OnwardWait(lc.laneIdx, lc.regional != null ? lc.regionalRouteId : lc.routeId, userAt,
+                        next.orElse(null),
+                        next.map(at -> Math.max(0, Duration.between(userAt, at).toSeconds())).orElse(null),
+                        realtime.isPresent() ? TransferArrival.Source.REALTIME
+                                : model.isPresent() ? TransferArrival.Source.MODEL : null));
+            }
+            updated.add(prevLane.withOnwardWaits(waits));
+        }
+        byPath.put(prev.subPathIdx, updated);
+    }
+
+    /**
+     * 앞 버스 구간의 lane 순번(목록 위치) → 그 버스를 타고 이 정류장에 닿는 시각. 탈 수 없는 lane 은 없다.
+     * 앞 구간이 없거나 도착 시각을 모르면 빈 맵.
+     */
+    private Map<Integer, Instant> onwardUserArrivals(SubPathCtx ctx, RouteSearchResult result, PrevWaveInfo prev,
+                                                     Map<Integer, Map<Integer, List<TransferArrival>>> resultMap) {
+        if (prev == null || ctx.upstreamUnavailable) {
+            return Map.of();
         }
         Map<Integer, List<TransferArrival>> byPath = resultMap.get(ctx.pathIdx);
         List<TransferArrival> prevLanes = byPath == null ? null : byPath.get(prev.subPathIdx);
         if (prevLanes == null || prevLanes.isEmpty()) {
-            return;
+            return Map.of();
         }
         PathResult path = result.paths().get(ctx.pathIdx);
         SubPathResult prevBusSp = path.subPaths().get(prev.subPathIdx);
@@ -670,31 +726,49 @@ public class TransferArrivalEnricher {
         for (int k = prev.subPathIdx + 1; k < ctx.subPathIdx; k++) {
             betweenSec += travelSeconds(path.subPaths().get(k));
         }
-        List<TransferArrival> updated = new ArrayList<>(prevLanes.size());
-        for (TransferArrival prevLane : prevLanes) {
+        Map<Integer, Instant> arrivals = new HashMap<>();
+        for (int i = 0; i < prevLanes.size(); i++) {
+            TransferArrival prevLane = prevLanes.get(i);
             boolean boardable = prevLane.predictedArrivalAt() != null
                     && (prevLane.status() == TransferArrival.Status.AVAILABLE
                         || prevLane.status() == TransferArrival.Status.ARRIVAL_TIME_APPROXIMATE);
-            if (!boardable) {
-                updated.add(prevLane);
-                continue;
+            if (boardable) {
+                arrivals.put(i, prevLane.predictedArrivalAt()
+                        .plusSeconds(rideSeconds(prevBusSp, prevLane.laneIndex()) + betweenSec));
             }
-            Instant userAt = prevLane.predictedArrivalAt()
-                    .plusSeconds(rideSeconds(prevBusSp, prevLane.laneIndex()) + betweenSec);
-            List<OnwardWait> waits = new ArrayList<>(ctx.laneContexts.size());
-            for (LaneCtx lc : ctx.laneContexts) {
-                // 서울은 실시간 도착, 경기·TAGO 는 이미 받은 조회 결과 — 둘 다 다음 한두 대만 안다
-                Optional<Instant> next = lc.regional != null
-                        ? (lc.regionalResult == null ? Optional.<Instant>empty() : lc.regionalResult.boardableAt(userAt))
-                        : (lc.arrMatched == null ? Optional.<Instant>empty()
-                                : earliestRealtimeArrival(lc.arrMatched, userAt));
-                waits.add(new OnwardWait(lc.laneIdx, lc.regional != null ? lc.regionalRouteId : lc.routeId, userAt,
-                        next.orElse(null),
-                        next.map(at -> Math.max(0, Duration.between(userAt, at).toSeconds())).orElse(null)));
-            }
-            updated.add(prevLane.withOnwardWaits(waits));
         }
-        byPath.put(prev.subPathIdx, updated);
+        return arrivals;
+    }
+
+    /** 서울은 실시간 도착, 경기·TAGO 는 이미 받은 조회 결과 — 둘 다 다음 한두 대만 안다. */
+    private Optional<Instant> realtimeAfter(LaneCtx lc, Instant userAt) {
+        if (lc.regional != null) {
+            return lc.regionalResult == null ? Optional.empty() : lc.regionalResult.boardableAt(userAt);
+        }
+        return lc.arrMatched == null ? Optional.empty() : earliestRealtimeArrival(lc.arrMatched, userAt);
+    }
+
+    /** 묶인 다른 버스로 닿는 시각 중 실시간이 못 덮는 것이 있나(서울 lane 만 — 모델은 서울 노선만 안다). */
+    private boolean needsModelForOnward(LaneCtx lc, Map<Integer, Instant> userArrivals) {
+        if (lc.regional != null) {
+            return false;
+        }
+        return userArrivals.values().stream().anyMatch(userAt -> realtimeAfter(lc, userAt).isEmpty());
+    }
+
+    /** 모델이 본 이 lane 의 차량별 도착 시각(운행 중이고 아직 이 정류장 전인 차량만). */
+    private List<Instant> modelArrivals(SubPathCtx ctx, LaneCtx lc, Map<String, List<BusPositionInfo>> positionMap,
+                                        Map<String, MlPrediction> mlResults, Instant calculatedAt) {
+        List<Instant> arrivals = new ArrayList<>();
+        for (BusPositionInfo pos : positionMap.getOrDefault(lc.routeId, List.of())) {
+            if (!isValidVehicle(pos, lc.targetSeq, calculatedAt)) continue;
+            MlPrediction pred = mlResults.get(ctx.pathIdx + ":" + ctx.subPathIdx + ":" + lc.laneIdx + ":" + pos.vehicleId());
+            if (pred == null || pred.status() != MlArrivalPredictorPort.MlPredictionStatus.AVAILABLE
+                    || pred.secondsToArrival() == null) continue;
+            BusTimeParser.parse(pos.dataTm())
+                    .ifPresent(snap -> arrivals.add(snap.plusSeconds(pred.secondsToArrival().longValue())));
+        }
+        return arrivals;
     }
 
     /** 버스 구간을 laneIndex 노선으로 타는 시간(초). 그 노선 값을 모르면 구간 값(대표 노선). */
@@ -974,6 +1048,8 @@ public class TransferArrivalEnricher {
         Outcome arrOutcome = Outcome.OK;        // 도착 조회 결과(BLOCKED/LIMITED/ERROR면 lane status로 반영)
         BusArrivalInfo arrMatched;              // 해당 노선 도착 1건(OK일 때만)
         TransferArrival realtimeResult;
+        boolean modelForOnward;                 // 실시간으로 잡았지만 묶인 다른 버스의 도착 시각은 모델이 필요하다
+        List<Instant> modelArrivals = List.of(); // 모델이 본 차량별 도착 시각(onwardWaits 용)
         SearchRegionalArrivalService.Provider regional;   // 경기·TAGO 로 물을 lane(서울 해석 실패 + id 모양)
         String regionalRouteId;
         String regionalStopId;

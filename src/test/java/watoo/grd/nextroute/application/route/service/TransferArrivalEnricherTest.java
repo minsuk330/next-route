@@ -760,6 +760,103 @@ class TransferArrivalEnricherTest {
         assertThat(firstLanes.get(1).onwardWaits()).isNull();
     }
 
+    /** 둘째 구간(정류장 2222, 노선 999, 순번 7)과 그 노선의 운행 차량 하나 — 모델은 그 차가 mlSeconds 뒤 닿는다고 본다. */
+    private void stubSecondLegWithModel(BusArrivalInfo realtime, double mlSeconds) {
+        mlProps.setEnabled(true);
+        lenient().when(predictionSupport.support(any())).thenReturn(PredictionSupportService.Support.SUPPORTED);
+        when(stopRepo.findByStopId("2222")).thenReturn(Optional.of(busStop("2222")));
+        when(routeRepo.findByRouteId("100100999")).thenReturn(Optional.of(busRoute("100100999", "999")));
+        when(routeStopRepo.findByRouteIdAndStopId("100100999", "2222")).thenReturn(List.of(routeStop("100100999", "2222", 7)));
+        lenient().when(busPort.getArrInfoByStop("2222", "100100999", 7)).thenReturn(arrOk(List.of(realtime)));
+        // 13:00:01 에 5번째 구간을 달리는 차(목표 순번 7 앞)
+        BusPositionInfo pos = new BusPositionInfo(
+                "veh999", 60, 3, 500.0, 10000.0, "0", "s1",
+                "20260606130001", "AB1234", 0, 120, "prevStop",
+                null, null, "0", "0", 1000.0, "nextStop",
+                2, "turnStop", 127.01, 37.51, "1");
+        lenient().when(busPort.getBusPosByRtid("100100999")).thenReturn(posOk(List.of(pos)));
+        lenient().when(mlPort.predict(anyList())).thenAnswer(inv -> {
+            List<MlFeatureVector> vectors = inv.getArgument(0);
+            return vectors.stream()
+                    .map(v -> new MlPrediction(v.requestId(), MlPredictionStatus.AVAILABLE, mlSeconds, "v1"))
+                    .toList();
+        });
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("다음 환승 대기: 닿는 시각이 실시간 두 대보다 뒤면 예측 모델로 채운다(출처 MODEL)")
+    void onwardWaitsFallBackToModel() {
+        props.setEnabled(true);
+        // 첫 구간: 360 은 13:04:50 도착, 탑승 840초 → 둘째 정류장에 13:18:50
+        stubRoute("100100360", "360", arrivalInfo("100100360", "2026-06-06 12:59:50.0", 300, 1200));
+        SubPathResult first = busSubPathLanes("1111", List.of(
+                new LaneResult("360", "360", null, 1, null, "100100360", null, 840)));
+        // 둘째 구간: 실시간은 13:04:50, 13:09:50 두 대뿐. 모델은 운행 중인 차가 13:00:01 + 1500초 = 13:25:01 에 온다고 본다
+        stubSecondLegWithModel(arrivalInfo("100100999", "2026-06-06 12:59:50.0", 300, 600), 1500.0);
+
+        RouteSearchResult out = enricher.enrich(resultWith(List.of(first, busSubPath("2222", "100100999", "999"))), NOW);
+
+        watoo.grd.nextroute.application.route.dto.OnwardWait via360 =
+                out.paths().get(0).subPaths().get(0).transferArrivals().get(0).onwardWaits().get(0);
+        assertThat(via360.userArrivalAt()).isEqualTo(Instant.parse("2026-06-06T04:18:50Z"));
+        assertThat(via360.predictedArrivalAt()).isEqualTo(Instant.parse("2026-06-06T04:25:01Z"));
+        assertThat(via360.waitSeconds()).isEqualTo(371);
+        assertThat(via360.source()).isEqualTo(TransferArrival.Source.MODEL);
+        // 둘째 구간 자신의 결과(대표 기준)와 같은 차다
+        TransferArrival second = out.paths().get(0).subPaths().get(1).transferArrivals().get(0);
+        assertThat(second.source()).isEqualTo(TransferArrival.Source.MODEL);
+        assertThat(second.predictedArrivalAt()).isEqualTo(via360.predictedArrivalAt());
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("다음 환승 대기: 먼저 오는 버스는 실시간으로, 늦게 닿는 묶인 버스만 모델로 — 대표가 실시간이어도 모델을 부른다")
+    void onwardWaitsMixRealtimeAndModelPerLane() {
+        props.setEnabled(true);
+        // 첫 구간: 361 은 13:01:50 도착·탑승 300초 → 13:06:50, 360 은 13:04:50 도착·탑승 1500초 → 13:29:50
+        stubRoute("100100360", "360", arrivalInfo("100100360", "2026-06-06 12:59:50.0", 300, 1200));
+        stubRoute("100100361", "361", arrivalInfo("100100361", "2026-06-06 12:59:50.0", 120, 1200));
+        SubPathResult first = busSubPathLanes("1111", List.of(
+                new LaneResult("360", "360", null, 1, null, "100100360", null, 1500),
+                new LaneResult("361", "361", null, 1, null, "100100361", null, 300)));
+        // 둘째 구간: 실시간 13:19:50, 13:21:30. 모델은 13:00:01 + 2000초 = 13:33:21
+        stubSecondLegWithModel(arrivalInfo("100100999", "2026-06-06 12:59:50.0", 1200, 1300), 2000.0);
+
+        RouteSearchResult out = enricher.enrich(resultWith(List.of(first, busSubPath("2222", "100100999", "999"))), NOW);
+
+        List<TransferArrival> firstLanes = out.paths().get(0).subPaths().get(0).transferArrivals();
+        watoo.grd.nextroute.application.route.dto.OnwardWait via361 = firstLanes.get(1).onwardWaits().get(0);
+        assertThat(via361.source()).isEqualTo(TransferArrival.Source.REALTIME);
+        assertThat(via361.predictedArrivalAt()).isEqualTo(Instant.parse("2026-06-06T04:19:50Z"));
+        assertThat(via361.waitSeconds()).isEqualTo(780);
+        watoo.grd.nextroute.application.route.dto.OnwardWait via360 = firstLanes.get(0).onwardWaits().get(0);
+        assertThat(via360.userArrivalAt()).isEqualTo(Instant.parse("2026-06-06T04:29:50Z"));
+        assertThat(via360.source()).isEqualTo(TransferArrival.Source.MODEL);
+        assertThat(via360.predictedArrivalAt()).isEqualTo(Instant.parse("2026-06-06T04:33:21Z"));
+        assertThat(via360.waitSeconds()).isEqualTo(211);
+        // 둘째 구간의 대표 결과는 실시간 그대로다
+        assertThat(out.paths().get(0).subPaths().get(1).transferArrivals().get(0).source())
+                .isEqualTo(TransferArrival.Source.REALTIME);
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("다음 환승 대기: 모델이 꺼져 있으면 실시간 밖은 모름으로 남고 모델을 부르지 않는다")
+    void onwardWaitsStayUnknownWhenModelDisabled() {
+        props.setEnabled(true);
+        stubRoute("100100360", "360", arrivalInfo("100100360", "2026-06-06 12:59:50.0", 300, 1200));
+        SubPathResult first = busSubPathLanes("1111", List.of(
+                new LaneResult("360", "360", null, 1, null, "100100360", null, 840)));
+        stubSecondLegWithModel(arrivalInfo("100100999", "2026-06-06 12:59:50.0", 300, 600), 1500.0);
+        mlProps.setEnabled(false);
+
+        RouteSearchResult out = enricher.enrich(resultWith(List.of(first, busSubPath("2222", "100100999", "999"))), NOW);
+
+        watoo.grd.nextroute.application.route.dto.OnwardWait via360 =
+                out.paths().get(0).subPaths().get(0).transferArrivals().get(0).onwardWaits().get(0);
+        assertThat(via360.waitSeconds()).isNull();
+        assertThat(via360.source()).isNull();
+        verifyNoInteractions(mlPort);
+    }
+
     @Test
     @org.junit.jupiter.api.DisplayName("검색 스냅샷 호환: onwardWaits 가 없는 옛 JSON 은 null 로 읽히고, 새 JSON 은 그대로 돌아온다")
     void transferArrivalJsonRoundTrip() throws Exception {

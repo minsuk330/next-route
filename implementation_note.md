@@ -6815,3 +6815,22 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 변이 확인: `carriedOption` 을 `firstOption` 으로 되돌리면 `keepsUserSelectedBusRouteOnCopiedLegs` 가 실패한다.
 - 리뷰(서브에이전트) 반영: ①갱신 신호 전에 단계·여정을 직접 flush(신호가 예외를 삼켜 원인이 가려지는 것 방지) ②지워진 후보 422 시험 추가 ③`vehicleId` 주석 정정 — 지금 차량 칼럼을 쓰는 코드는 main 에 없다(위 함정의 "워커 부분 UPDATE" 는 V61 주석을 옮긴 것, ~~단독 추적 워커가 쓴다~~ 현재 쓰는 코드 없음).
 - 리뷰가 남긴 미결(고치지 않음): ①탑승 중 재선택과 진행 보고가 수 ms 겹치면 교착으로 한쪽이 5xx(잠금 순서가 반대. 구간 전이도 같은 구조). 앱은 다시 보내면 된다 ②재탐색 보드가 옛 노선으로 계산한 "중간 하차" 후보를 선택 뒤에도 잠시 들고 있을 수 있다. 수락하면 `RideTruncationResolver` 가 노선 불일치로 거절한다(잘못 반영되지는 않음). 다음 보드 갱신이 바꾼다 ③선택 직전에 줄 선 위험 알림은 옛 노선 이름으로 나갈 수 있다 ④`@DynamicUpdate` 가 진행 보고를 안 덮는다는 것 자체를 고정하는 동시성 시험은 없다.
+
+## 다음 환승 대기를 예측 모델로 채우기 (onwardWaits, 2026-11-16)
+
+### 확정
+- `onwardWaits[]` 는 실시간(다음 한두 대) → 없으면 도착 예측 모델(운행 중 차량별 예측 중 닿은 뒤 첫 차) 순으로 잰다. 대표 lane 의 환승 대기와 같은 순서.
+- 새 칸 `onwardWaits[].source` = `REALTIME` | `MODEL` | null(모름). 기존 칸은 그대로.
+- 모델은 서울 노선만. 경기·TAGO lane 은 실시간 밖이면 여전히 모름.
+
+### 함정
+- 운영 실측(11-16 배포 직후): 버스→버스 경로의 `waitSeconds` 가 전부 null 이었다 ← 환승 정류장에 닿는 시각(보통 15분+ 뒤)이 실시간 두 대 범위 밖. 실시간만 보던 #606 구현의 한계.
+- 대표 lane 이 실시간으로 잡혀도 모델을 부르는 경우가 생겼다(`LaneCtx.modelForOnward`) ← 묶인 다른 버스는 더 늦게 닿아 실시간 밖일 수 있다. 그때만 그 노선의 위치 조회 1회 + 모델 벡터가 추가된다(대표도 실시간 밖이면 원래 부르던 호출을 재사용, 추가 0).
+- 모델은 지금 운행 중인 차량만 안다. 아직 기점을 떠나지 않은 차는 없어서, 먼 미래 도착은 여전히 모름일 수 있다.
+
+### 좌표
+- `application/route/service/TransferArrivalEnricher.java` `attachOnwardWaits`, `onwardUserArrivals`, `needsModelForOnward`, `modelArrivals`
+- `application/route/dto/OnwardWait.java` `source`
+
+### 검증
+- `./gradlew test --tests '*TransferArrivalEnricher*'` → 38 통과(신규 3: 모델로 채움, lane 별 실시간·모델 혼합, 모델 꺼짐이면 모름·미호출).
