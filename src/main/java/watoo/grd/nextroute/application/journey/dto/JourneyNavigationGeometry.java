@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.journey.dto;
 
+import watoo.grd.nextroute.application.subway.service.SubwayLineColors;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
 
@@ -265,6 +267,11 @@ public record JourneyNavigationGeometry(
      * @param lineName 노선 표시 이름({@code 2호선}, {@code 신분당선})
      */
     public record TransferLine(String lineId, String lineName) {
+        /** 지하철 공식 노선색({@code #RRGGBB}, {@link SubwayLineColors}). 모르는 노선은 null. */
+        @JsonProperty(value = "lineColor", access = JsonProperty.Access.READ_ONLY)
+        public String lineColor() {
+            return SubwayLineColors.of(lineId, lineName);
+        }
     }
 
     /**

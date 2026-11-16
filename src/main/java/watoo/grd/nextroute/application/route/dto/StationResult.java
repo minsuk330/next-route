@@ -1,5 +1,7 @@
 package watoo.grd.nextroute.application.route.dto;
 
+import watoo.grd.nextroute.application.subway.service.SubwayLineColors;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
@@ -32,5 +34,10 @@ public record StationResult(
      * @param lineName 노선 표시 이름({@code 2호선}, {@code 신분당선})
      */
     public record Transfer(String lineId, String lineName) {
+        /** 지하철 공식 노선색({@code #RRGGBB}, {@link SubwayLineColors}). 모르는 노선은 null. */
+        @JsonProperty(value = "lineColor", access = JsonProperty.Access.READ_ONLY)
+        public String lineColor() {
+            return SubwayLineColors.of(lineId, lineName);
+        }
     }
 }
