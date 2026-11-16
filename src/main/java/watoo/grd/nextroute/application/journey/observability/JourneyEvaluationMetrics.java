@@ -255,6 +255,9 @@ public class JourneyEvaluationMetrics {
         if (source == CurrentLegArrival.Source.MODEL_ARRIVAL) {
             return "model";
         }
+        if (source == CurrentLegArrival.Source.TIMETABLE) {
+            return "timetable";
+        }
         return "none";
     }
 }

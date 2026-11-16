@@ -45,6 +45,9 @@ final class TransferAssessmentMapper {
         if (TransferAssessmentWriter.SOURCE_MODEL.equals(stored)) {
             return CurrentLegArrival.Source.MODEL_ARRIVAL;
         }
+        if (TransferAssessmentWriter.SOURCE_TIMETABLE.equals(stored)) {
+            return CurrentLegArrival.Source.TIMETABLE;
+        }
         return null;
     }
 

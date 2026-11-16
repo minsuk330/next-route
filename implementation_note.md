@@ -6657,6 +6657,21 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 카카오와 승하차 정류장 이름이 모두 같은 버스 구간은 125개 중 16개뿐(하차 정류장 선택이 다름). 그 16개 중 카카오 노선을 전부 담은 것 10개.
 ### 검증
 - `./gradlew test --tests '*BusLaneMerger*' --tests '*RouteSearchService*'` → 76 tests, 실패 0.
+## subway-regional-timetable PR-4 — 여정 대기 TIMETABLE (2026-11-16)
+### 확정
+- 새 예측기 빈을 만들지 않는다(디스패치가 `supports(JourneyLegType)` 첫 매치). `WaitSubwayArrivalPredictor`·`SubwayTransferTargetArrivalPredictor` 안에서 `routeId == null` 이면 `RegionalLegWaitReader` 로.
+- 타는 역 = 대기 단계 `sourceStartStopId`(OTP id), 내릴 역 = `legIndex+1` RIDE_SUBWAY 의 `sourceEndStopId`. 시드에 없는 정류장(서울)은 DB 를 안 읽고 empty.
+- `CurrentLegArrival.Source.TIMETABLE`, 품질 APPROXIMATE. serving 플래그 off 면 empty(옛 앱 라벨 없음, 검토 M12).
+- 소비처: `TransferAssessmentWriter/Mapper` "TIMETABLE"(varchar(20) 안), `JourneyEvaluationMetrics` "timetable", `RemainingPathCandidateProvider.sourceTag` "TIMETABLE", `BoardingChainEtaCalculator` 는 실시간 아님 = 추정 기반으로 셈. `StoredJourneyEvaluationReader` 는 모르는 이름을 null 로 읽어 옛 서버도 안전.
+### 검증
+- `WaitLegArrivalPredictorTest`(지방 → TIMETABLE, 서울 노선은 `verifyNoInteractions(regionalReader)`), `TransferTargetArrivalPredictorTest`(환승 기준 시각 이후 첫 열차), `RegionalLegWaitReaderTest`, `TransferAssessmentTimetableSourceTest` 통과.
+- 앱 근처 역은 전국 track API(OTP id)로 받는다 → `/api/subway/regional/departures` 의 `alightStopId` 를 선택으로, 없으면 역 화면(두 방향).
+- 전체 `runfull.sh`: 4,188 중 실패 1(`RerouteRemainingPathOtpLiveIT`, 기존 무관), 건너뜀 14.
+### 배포
+- 마이그레이션 없음. serving 플래그 off 면 지방 대기 예측도 empty(기존과 같음).
+- 리뷰 반영(PR-4): 다음 RIDE 의 `sourceEndStopId` 가 null 이면 NPE ← filter / 빈 값이면 역 화면으로 빠져 반대 방향 열차 ← empty(모름). 서울/지방 가르기는 `routeId == null` 대신 `!hasSubwayRealtimeLine()`(빈 문자열 포함). 다음 서비스일 행은 오늘로 limit 을 못 채울 때만 읽는다(평가 주기 경로).
+- serving 플래그 하나가 departures API 와 여정 대기 TIMETABLE 을 같이 켠다 — 둘 다 앱 "시간표" 라벨이 필요해 같은 시점에 켜는 게 맞다(따로 둘 이유 없음).
+
 
 ## 환승 승강장 한 점에 두기 (otp-kakao-parity 후속, 2026-11-16) — 그래프 재빌드 전, 운영 미반영
 ### 확정
