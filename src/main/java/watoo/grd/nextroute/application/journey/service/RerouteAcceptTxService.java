@@ -504,6 +504,7 @@ public class RerouteAcceptTxService {
                         .wayCode(option.getWayCode())
                         .boardingSeq(option.getBoardingSeq())
                         .alightingSeq(option.getAlightingSeq())
+                        .routeDisplayColor(option.getRouteDisplayColor())
                         .build())
                 .toList());
     }
@@ -530,6 +531,7 @@ public class RerouteAcceptTxService {
                         .wayCode(draft.wayCode())
                         .boardingSeq(draft.boardingSeq())
                         .alightingSeq(draft.alightingSeq())
+                        .routeDisplayColor(draft.routeDisplayColor())
                         .build())
                 .toList());
     }

@@ -325,6 +325,26 @@ class JourneyCompilerTest {
         }
 
         @Test
+        @DisplayName("#607 lane 마다 검색 노선색을 그대로 들고 간다(#RRGGBB 만, 대문자로). 형식이 다르거나 없으면 null")
+        void laneColorCarriedPerOption() {
+            JourneyPlan plan = compiler.compile(path(
+                    bus(20).busStops("ST-A", "ST-F")
+                            .lanes(new watoo.grd.nextroute.application.route.dto.LaneResult(
+                                            "140", "140", null, null, null, "BL-140", "#3D5BAB"),
+                                    new watoo.grd.nextroute.application.route.dto.LaneResult(
+                                            "3201", "3201", null, null, null, "BL-3201", "#00a84d"),
+                                    new watoo.grd.nextroute.application.route.dto.LaneResult(
+                                            "741", "741", null, null, null, "BL-741", "3D5BAB"),
+                                    busLane("420", "BL-420")).build()));
+
+            assertThat(plan.legs().get(0).routeOptions())
+                    .extracting(JourneyRouteOptionDraft::routeDisplayColor)
+                    .containsExactly("#3D5BAB", "#00A84D", null, null);
+            assertThat(plan.legs().get(0).routeOptions().get(0)
+                    .resolved("R-140", 3, 9).routeDisplayColor()).isEqualTo("#3D5BAB");   // 해석 뒤에도 유지
+        }
+
+        @Test
         @DisplayName("기다리는 단계만 들고 있다 — 타는 단계는 짝을 가리키기만 한다")
         void onlyWaitLegOwnsOptions() {
             JourneyPlan plan = compiler.compile(path(

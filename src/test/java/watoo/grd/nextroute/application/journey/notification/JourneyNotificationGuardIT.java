@@ -73,7 +73,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "classpath:db/migration/V65__journey_leg_alight_door_side.sql",
         "classpath:db/migration/V71__journey_leg_train_kind.sql",
         "classpath:db/migration/V66__journey_session_evaluation_urgent.sql",
-        "classpath:db/migration/V67__journey_reevaluation_trigger.sql"
+        "classpath:db/migration/V67__journey_reevaluation_trigger.sql",
+        "classpath:db/migration/V77__add_journey_route_option_display_color.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DisplayName("발송 직전 재확인")

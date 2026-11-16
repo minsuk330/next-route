@@ -15,6 +15,7 @@ package watoo.grd.nextroute.application.journey.dto;
  * @param wayCode       ODSAY 지하철 방향 코드. 버스와 방향 미제공 구간은 null
  * @param boardingSeq   내부 버스 노선에서 승차 정류장의 순번. 단건 해석 실패 시 null
  * @param alightingSeq  내부 버스 노선에서 하차 정류장의 순번. 단건 해석 실패 시 null
+ * @param routeDisplayColor 검색 lane 의 노선 표시색({@code #RRGGBB}). 지하철은 공식 색표 값(#595). 모르거나 형식이 다르면 null
  */
 public record JourneyRouteOptionDraft(
         int optionIndex,
@@ -25,8 +26,19 @@ public record JourneyRouteOptionDraft(
         String directionKey,
         Integer wayCode,
         Integer boardingSeq,
-        Integer alightingSeq
+        Integer alightingSeq,
+        String routeDisplayColor
 ) {
+
+    private static final java.util.regex.Pattern HEX_COLOR = java.util.regex.Pattern.compile("^#[0-9A-Fa-f]{6}$");
+
+    /** 색 없는 후보(옛 호출부·시험용). */
+    public JourneyRouteOptionDraft(int optionIndex, int laneIndex, String routeId, String sourceRouteId,
+                                   String routeName, String directionKey, Integer wayCode,
+                                   Integer boardingSeq, Integer alightingSeq) {
+        this(optionIndex, laneIndex, routeId, sourceRouteId, routeName, directionKey, wayCode,
+                boardingSeq, alightingSeq, null);
+    }
 
     /**
      * 원천 식별자만 채운 후보를 만든다.
@@ -36,9 +48,17 @@ public record JourneyRouteOptionDraft(
      * 해석은 실시간 대조가 실제로 필요해지는 단계의 몫이다.
      */
     public static JourneyRouteOptionDraft of(int index, String sourceRouteId, String routeName,
-                                             Integer wayCode) {
+                                             Integer wayCode, String routeDisplayColor) {
         return new JourneyRouteOptionDraft(index, index, null, sourceRouteId, routeName, null,
-                wayCode, null, null);
+                wayCode, null, null, displayColor(routeDisplayColor));
+    }
+
+    /** {@code #RRGGBB} 만 받는다(대문자로). 다른 모양은 저장하지 않고 null — 앱이 대체색을 쓴다. */
+    static String displayColor(String color) {
+        if (color == null || !HEX_COLOR.matcher(color.trim()).matches()) {
+            return null;
+        }
+        return color.trim().toUpperCase(java.util.Locale.ROOT);
     }
 
     /** 내부 노선과 양 끝 정류장 순번까지 확보됐는지. 버스 실시간 API·ML 호출의 최소 단위다. */
@@ -55,7 +75,7 @@ public record JourneyRouteOptionDraft(
                                             Integer resolvedBoardingSeq, Integer resolvedAlightingSeq) {
         return new JourneyRouteOptionDraft(optionIndex, laneIndex, resolvedRouteId, sourceRouteId,
                 routeName, directionKey(wayCode, resolvedBoardingSeq, resolvedAlightingSeq),
-                wayCode, resolvedBoardingSeq, resolvedAlightingSeq);
+                wayCode, resolvedBoardingSeq, resolvedAlightingSeq, routeDisplayColor);
     }
 
     private static String directionKey(Integer wayCode, Integer boardingSeq, Integer alightingSeq) {

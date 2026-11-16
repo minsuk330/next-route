@@ -61,11 +61,16 @@ public class JourneyLegRouteOption extends BaseEntity {
     /** 내부 버스 노선에서 하차 정류장의 순번. 남은 정류장·구간 예측의 입력이다. */
     private Integer alightingSeq;
 
+    /** 검색 lane 의 노선 표시색({@code #RRGGBB}). 묶인 버스 노선마다 다르다(#607). V77 이전 행은 null. */
+    @Column(length = 16)
+    private String routeDisplayColor;
+
     @Builder
     public JourneyLegRouteOption(Long journeyLegId, int optionIndex, int laneIndex,
                                  String routeId, String sourceRouteId, String routeName,
                                  String directionKey, Integer wayCode,
-                                 Integer boardingSeq, Integer alightingSeq) {
+                                 Integer boardingSeq, Integer alightingSeq,
+                                 String routeDisplayColor) {
         this.journeyLegId = journeyLegId;
         this.optionIndex = optionIndex;
         this.laneIndex = laneIndex;
@@ -76,6 +81,7 @@ public class JourneyLegRouteOption extends BaseEntity {
         this.wayCode = wayCode;
         this.boardingSeq = boardingSeq;
         this.alightingSeq = alightingSeq;
+        this.routeDisplayColor = routeDisplayColor;
     }
 
     /** 저장 후 확정된 단계 id 를 연결한다(단계와 후보의 저장 순서를 코드가 잡을 때 쓴다). */
