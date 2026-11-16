@@ -17,6 +17,9 @@ import java.util.List;
  * {@code fastAlight} 는 지하철 빠른 하차 칸·문, {@code alightDoorSide} 는 지하철 하차역 내리는 문 {@code LEFT}·{@code RIGHT}(#335).
  * {@code trainKind} 는 지하철 단계(기다리기·타고 가기)의 열차 종류 {@code NORMAL}·{@code EXPRESS}·{@code DIRECT}·{@code ITX}
  * (subway-express S2) — 앱 단계({@code JourneyLeg}) 배지의 근거다. 버스·도보·배포 전 여정은 null.
+ * {@code sourceStartStopId}/{@code sourceEndStopId} 는 검색 원천(OTP)의 정류장 id({@code 1:RS_ACC1_S-2-0219}) —
+ * 검색 응답 {@code stations[].stationID} 와 같은 값이다(#593). {@code startStopId}/{@code endStopId} 는 실시간 체계 id(서울 역·정류장)라
+ * 지방 지하철은 비어 있고, 앱은 지방 시간표({@code /api/subway/regional/departures})를 이 값으로 부른다. 대기 단계는 둘 다 승차 정류장.
  */
 public record JourneyLegView(
         Long legId,
@@ -39,12 +42,28 @@ public record JourneyLegView(
         String endExitNo,
         List<FastAlight> fastAlight,
         String alightDoorSide,
-        String trainKind
+        String trainKind,
+        String sourceStartStopId,
+        String sourceEndStopId
 ) {
 
     public JourneyLegView {
         routeOptions = routeOptions == null ? List.of() : List.copyOf(routeOptions);
         fastAlight = fastAlight == null ? null : List.copyOf(fastAlight);
+    }
+
+    /** 원천 정류장 id 없는 단계(#593 이전 계약). */
+    public JourneyLegView(Long legId, int legIndex, JourneyLegType type, JourneyLegState state,
+                          String startStopId, String endStopId, String startName, String endName,
+                          String routeId, Integer plannedDurationSec, String evidenceQuality,
+                          Long selectedRouteOptionId, List<JourneyRouteOptionView> routeOptions,
+                          String startStopNo, String endStopNo, String directionName,
+                          String startExitNo, String endExitNo, List<FastAlight> fastAlight, String alightDoorSide,
+                          String trainKind) {
+        this(legId, legIndex, type, state, startStopId, endStopId, startName, endName, routeId,
+                plannedDurationSec, evidenceQuality, selectedRouteOptionId, routeOptions,
+                startStopNo, endStopNo, directionName, startExitNo, endExitNo, fastAlight, alightDoorSide, trainKind,
+                null, null);
     }
 
     /** 안내 값 없는 단계(#266 이전 계약). */
