@@ -12,8 +12,9 @@ import java.time.Instant;
  * @param laneIndex          다음 버스 구간의 lane 순번
  * @param routeId            그 lane 의 실시간 노선 id
  * @param userArrivalAt      이 버스를 타고 다음 환승 정류장에 닿는 예상 시각
- * @param predictedArrivalAt 닿은 뒤 처음 탈 수 있는 그 노선 버스의 도착 시각. 실시간 정보에 그런 차가 없으면 null
- * @param waitSeconds        대기(초). {@code predictedArrivalAt} 이 null 이면 null
+ * @param predictedArrivalAt 닿은 뒤 처음 탈 수 있는 그 노선 버스의 도착 시각. <b>null = 모름</b>: 도착 정보는 다음 한두 대만
+ *                           알려 주므로, 닿는 시각이 그 뒤거나 정보가 없으면 비운다. "차가 없다"·"대기 0"으로 읽으면 안 된다
+ * @param waitSeconds        대기(초). {@code predictedArrivalAt} 이 null 이면 null(모름)
  */
 public record OnwardWait(
         int laneIndex,

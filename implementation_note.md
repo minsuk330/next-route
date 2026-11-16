@@ -6775,3 +6775,4 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 버스 3번 갈아타는 경로: 각 구간은 바로 앞 구간 lane 기준 한 단계만 싣는다(조합 폭발 방지).
 ### 검증
 - 단위 149(TransferArrivalEnricher·RouteSearchTravelTime·RouteSearchService·LegacyRouteResponseMapper), 실패 0. 신규 단언: 750B 를 타면 다음 정류장 13:19:50 도착·대기 600초, 360 을 타면 13:18:50 도착·대기 660초, 마지막 버스 구간은 null.
+- 리뷰(서브에이전트) 반영: ①다음 구간이 경기·TAGO lane 이면 이미 받은 `regionalResult.boardableAt(닿는 시각)` 으로 대기를 잰다(전에는 항상 null) ②`OnwardWait` 의 null 은 "모름"이다 — 도착 정보는 다음 한두 대뿐이라 닿는 시각이 그 뒤면 비운다. "차 없음"·"대기 0" 아님(주석 수정, 앱 이슈에 명시) ③테스트 추가: 탈 수 없는 lane 에는 안 붙음, 아는 두 대보다 뒤면 null, 옛 JSON(칸 없음) → null·새 JSON 왕복. 확인된 것: 스냅샷은 Spring 기본 ObjectMapper(모르는 칸 무시)라 옛·새 버전이 섞여도 읽힌다, `rebuild`·`WalkSegmentEnricher` 는 목록을 그대로 넘겨 새 칸이 안 사라진다. 경기·TAGO 경로의 시나리오 테스트는 없음(코드 경로만). 테스트 157, 실패 0.

@@ -729,6 +729,58 @@ class TransferArrivalEnricherTest {
     }
 
     @Test
+    @org.junit.jupiter.api.DisplayName("다음 환승 대기: 탈 수 없는 lane 에는 붙지 않고, 닿는 시각이 아는 두 대보다 뒤면 대기는 모름(null)이다")
+    void onwardWaitsUnknownOutsideTheKnownBuses() {
+        props.setEnabled(true);
+        lenient().when(predictionSupport.support(any())).thenReturn(PredictionSupportService.Support.UNSUPPORTED);
+        // 첫 구간: 360 은 5분 뒤 도착(탈 수 있음), 모르는 노선(100199999)은 해석 실패(탈 수 없음)
+        stubRoute("100100360", "360", arrivalInfo("100100360", "2026-06-06 12:59:50.0", 300, 1200));
+        lenient().when(routeRepo.findByRouteId("100199999")).thenReturn(Optional.empty());
+        lenient().when(routeRepo.findByRouteNameIn(any())).thenReturn(List.of());
+        SubPathResult first = busSubPathLanes("1111", List.of(
+                new LaneResult("360", "360", null, 1, null, "100100360", null, 840),
+                new LaneResult("unknown", "unknown", null, 1, null, "100199999", null, 840)));
+        // 둘째 구간: 999 는 13:04:50, 13:09:50 두 대만 안다 — 360 을 타고 닿는 13:18:50 보다 앞이다
+        when(stopRepo.findByStopId("2222")).thenReturn(Optional.of(busStop("2222")));
+        when(routeRepo.findByRouteId("100100999")).thenReturn(Optional.of(busRoute("100100999", "999")));
+        when(routeStopRepo.findByRouteIdAndStopId("100100999", "2222")).thenReturn(List.of(routeStop("100100999", "2222", 7)));
+        BusArrivalInfo next = arrivalInfo("100100999", "2026-06-06 12:59:50.0", 300, 600);
+        lenient().when(busPort.getArrInfoByStop(eq("2222"), eq("100100999"), eq(7), anyLong())).thenReturn(arrOk(List.of(next)));
+        lenient().when(busPort.getArrInfoByStop("2222", "100100999", 7)).thenReturn(arrOk(List.of(next)));
+
+        RouteSearchResult out = enricher.enrich(resultWith(List.of(first, busSubPath("2222", "100100999", "999"))),
+                NOW, RouteSearchContext.start(5000));
+
+        List<TransferArrival> firstLanes = out.paths().get(0).subPaths().get(0).transferArrivals();
+        watoo.grd.nextroute.application.route.dto.OnwardWait via360 = firstLanes.get(0).onwardWaits().get(0);
+        assertThat(via360.userArrivalAt()).isEqualTo(Instant.parse("2026-06-06T04:18:50Z"));
+        assertThat(via360.predictedArrivalAt()).isNull();
+        assertThat(via360.waitSeconds()).isNull();
+        assertThat(firstLanes.get(1).predictedArrivalAt()).isNull();
+        assertThat(firstLanes.get(1).onwardWaits()).isNull();
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("검색 스냅샷 호환: onwardWaits 가 없는 옛 JSON 은 null 로 읽히고, 새 JSON 은 그대로 돌아온다")
+    void transferArrivalJsonRoundTrip() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper()
+                .findAndRegisterModules()
+                .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        TransferArrival old = om.readValue("{\"routeId\":\"100100360\",\"laneIndex\":0,\"source\":\"REALTIME\","
+                + "\"status\":\"AVAILABLE\",\"calculatedAt\":\"2026-06-06T04:00:00Z\",\"userArrivalAt\":\"2026-06-06T04:00:00Z\","
+                + "\"predictedArrivalAt\":\"2026-06-06T04:04:50Z\",\"waitSeconds\":290,\"vehicleId\":null,\"modelVersion\":null,"
+                + "\"basisLaneIndex\":null,\"conditional\":false}", TransferArrival.class);
+        assertThat(old.onwardWaits()).isNull();
+        assertThat(old.waitSeconds()).isEqualTo(290);
+
+        TransferArrival withWaits = old.withOnwardWaits(List.of(new watoo.grd.nextroute.application.route.dto.OnwardWait(
+                0, "100100999", Instant.parse("2026-06-06T04:18:50Z"), Instant.parse("2026-06-06T04:29:50Z"), 660L)));
+        TransferArrival back = om.readValue(om.writeValueAsString(withWaits), TransferArrival.class);
+        assertThat(back).isEqualTo(withWaits);
+        assertThat(back.onwardWaits().get(0).waitSeconds()).isEqualTo(660);
+    }
+
+    @Test
     @org.junit.jupiter.api.DisplayName("환승 도착 계산: 탄다고 본 lane 의 탑승시간을 쓴다 — 구간 sectionTime 은 대표 노선 값이다(bus-lane-selection PR-1)")
     void rideSecondsOfTheBasisLane() {
         // 구간 8분(대표 8100), 묶인 M4102 는 같은 정류장 사이를 14분에 간다(운영 실측 최대 차 9.3분)

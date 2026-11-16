@@ -650,8 +650,9 @@ public class TransferArrivalEnricher {
     /**
      * 앞 버스 구간의 탈 수 있는 lane 마다, 그 버스를 타고 이 정류장에 닿은 뒤 lane 별 대기를 계산해 앞 구간 결과에 붙인다
      * (bus-lane-selection). 이 구간의 {@code transferArrivals} 는 가장 먼저 오는 lane 을 탔다고 본 값 하나뿐이라, 묶인 다른
-     * 버스를 탈 때의 환승 대기는 여기서만 알 수 있다. 추가 조회는 없다 — 이 구간 lane 들이 이미 받은 서울 실시간 도착
-     * ({@code arrMatched})으로만 잰다. 경기·TAGO lane, 실시간이 없는 lane 은 대기를 모른다(null).
+     * 버스를 탈 때의 환승 대기는 여기서만 알 수 있다. 추가 조회는 없다 — 이 구간 lane 들이 이미 받은 도착 정보(서울 실시간
+     * {@code arrMatched}, 경기·TAGO {@code regionalResult})로만 잰다. 그 정보는 <b>다음 한두 대</b>뿐이라, 닿는 시각이 그 뒤면
+     * 대기를 모른다(null) — 차가 없다는 뜻이 아니다.
      */
     private void attachOnwardWaits(SubPathCtx ctx, RouteSearchResult result, PrevWaveInfo prev,
                                    Map<Integer, Map<Integer, List<TransferArrival>>> resultMap) {
@@ -682,8 +683,11 @@ public class TransferArrivalEnricher {
                     .plusSeconds(rideSeconds(prevBusSp, prevLane.laneIndex()) + betweenSec);
             List<OnwardWait> waits = new ArrayList<>(ctx.laneContexts.size());
             for (LaneCtx lc : ctx.laneContexts) {
-                Optional<Instant> next = lc.arrMatched == null
-                        ? Optional.empty() : earliestRealtimeArrival(lc.arrMatched, userAt);
+                // 서울은 실시간 도착, 경기·TAGO 는 이미 받은 조회 결과 — 둘 다 다음 한두 대만 안다
+                Optional<Instant> next = lc.regional != null
+                        ? (lc.regionalResult == null ? Optional.<Instant>empty() : lc.regionalResult.boardableAt(userAt))
+                        : (lc.arrMatched == null ? Optional.<Instant>empty()
+                                : earliestRealtimeArrival(lc.arrMatched, userAt));
                 waits.add(new OnwardWait(lc.laneIdx, lc.regional != null ? lc.regionalRouteId : lc.routeId, userAt,
                         next.orElse(null),
                         next.map(at -> Math.max(0, Duration.between(userAt, at).toSeconds())).orElse(null)));
