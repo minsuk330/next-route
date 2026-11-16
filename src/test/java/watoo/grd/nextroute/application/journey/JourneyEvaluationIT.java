@@ -75,6 +75,7 @@ class JourneyEvaluationIT {
     @Autowired watoo.grd.nextroute.application.journey.port.out.DetectionStampPort detectionStamps;
     @MockBean RouteSearchSnapshotPort snapshotPort;
     @MockBean PredictTransferUseCase predictTransferUseCase;
+    @MockBean watoo.grd.nextroute.application.arrival.port.in.GetBusStopArrivalsUseCase stopArrivalsUseCase;
 
     private final List<Long> createdUserIds = new ArrayList<>();
     private Long userId;
@@ -137,6 +138,100 @@ class JourneyEvaluationIT {
                 any(), any(), anyLong());
         org.mockito.Mockito.verify(predictTransferUseCase, org.mockito.Mockito.never()).predict(
                 anyString(), org.mockito.ArgumentMatchers.eq("TEST-721"), anyInt(), any(), any(), anyLong());
+    }
+
+    // ── #614 PR-2 묶인 버스 대기 중 먼저 오는 노선으로 옮기기 ──────────────────
+
+    /** 갈아탈 대기(3)에 140 후보를 심고, 그 정류장을 9자리 id 로 둔다. 심은 후보 id. */
+    private Long mergeLane140AtTransferStop() {
+        Long waitLegId = jdbcTemplate.queryForObject(
+                "select id from journey_leg where journey_id = ? and leg_index = 3 and deleted_at is null",
+                Long.class, journeyId);
+        jdbcTemplate.update("update journey_leg set start_stop_id = '121000009' where id = ?", waitLegId);
+        // 직전 평가가 721 도착을 10분 뒤로 저장해 둔 상태(도착 중·막 떠남 창 밖)
+        jdbcTemplate.update("update journey_leg set predicted_end_at = now() + interval '10 minutes',"
+                + " evidence_source = 'REALTIME_ARRIVAL', evidence_observed_at = now() where id = ?", waitLegId);
+        return jdbcTemplate.queryForObject(
+                "insert into journey_leg_route_option"
+                        + " (created_at, updated_at, journey_leg_id, option_index, lane_index, route_id, route_name,"
+                        + "  boarding_seq, ride_seconds)"
+                        + " values (now(), now(), ?, 1, 1, 'TEST-140', '140', 9, 905) returning id",
+                Long.class, waitLegId);
+    }
+
+    private void givenStopArrivals(int seconds721, int seconds140) {
+        given(stopArrivalsUseCase.getStopsArrivals(List.of("121000009"))).willReturn(List.of(
+                new watoo.grd.nextroute.application.arrival.dto.StopArrivals("121000009",
+                        watoo.grd.nextroute.application.arrival.dto.StopArrivals.Status.OK, List.of(
+                        watoo.grd.nextroute.application.arrival.dto.BusStopArrivalResponse.builder()
+                                .routeId("TEST-721").routeName("721").predictTime1(seconds721).build(),
+                        watoo.grd.nextroute.application.arrival.dto.BusStopArrivalResponse.builder()
+                                .routeId("TEST-140").routeName("140").predictTime1(seconds140).build()))));
+    }
+
+    private <T> T legColumn(int legIndex, String column, Class<T> type) {
+        return jdbcTemplate.queryForObject("select " + column + " from journey_leg where journey_id = ? and leg_index = ?"
+                + " and deleted_at is null", type, journeyId, legIndex);
+    }
+
+    @Test
+    @DisplayName("#614 갈아탄 정류장에서 기다리는 중(DEFAULT) 140 이 721 보다 먼저 오면 평가가 140 으로 옮긴다 — 탑승 소요·평가 번호·예측도 140")
+    void waitingDefaultSelectionMovesToEarliestLane() {
+        givenRealtimeArrival(600);
+        walkToTransferStop();
+        Long option140 = mergeLane140AtTransferStop();
+        givenStopArrivals(900, 120);
+        long versionBefore = jdbcTemplate.queryForObject("select evaluation_version from journey_session where id = ?",
+                Long.class, journeyId);
+        org.mockito.Mockito.clearInvocations(predictTransferUseCase);
+        makeDue();
+
+        assertThat(evaluate()).isEqualTo(Result.EVALUATED);
+
+        assertThat(legColumn(3, "selected_route_option_id", Long.class)).isEqualTo(option140);
+        assertThat(legColumn(4, "selected_route_option_id", Long.class)).isEqualTo(option140);
+        assertThat(legColumn(3, "route_id", String.class)).isEqualTo("TEST-140");
+        assertThat(legColumn(3, "route_option_selected_by", String.class)).isEqualTo("DEFAULT");
+        assertThat(legColumn(4, "planned_duration_sec", Integer.class)).isEqualTo(905);
+        assertThat(legColumn(3, "predicted_end_at", Instant.class)).as("새 노선으로 잰 예측이 남는다").isNotNull();
+        assertThat(jdbcTemplate.queryForObject("select evaluation_version from journey_session where id = ?",
+                Long.class, journeyId)).isGreaterThan(versionBefore);
+        org.mockito.Mockito.verify(predictTransferUseCase, org.mockito.Mockito.atLeastOnce()).predict(
+                anyString(), org.mockito.ArgumentMatchers.eq("TEST-140"), org.mockito.ArgumentMatchers.eq(9),
+                any(), any(), anyLong());
+    }
+
+    @Test
+    @DisplayName("#614 사용자가 721 을 확인(USER)했으면 140 이 먼저 와도 옮기지 않는다")
+    void userConfirmedSelectionStays() {
+        givenRealtimeArrival(600);
+        walkToTransferStop();
+        mergeLane140AtTransferStop();
+        givenStopArrivals(900, 120);
+        Long option721 = legColumn(3, "selected_route_option_id", Long.class);
+        busRouteSelectionService.select(userId, journeyId, option721, 1, 4);
+
+        assertThat(evaluate()).as("확인이 평가를 당겼다").isEqualTo(Result.EVALUATED);
+
+        assertThat(legColumn(3, "selected_route_option_id", Long.class)).isEqualTo(option721);
+        assertThat(legColumn(3, "route_option_selected_by", String.class)).isEqualTo("USER");
+    }
+
+    @Test
+    @DisplayName("#614 정류장 도착 조회가 실패하면 옮기지 않는다")
+    void lookupFailureKeepsSelection() {
+        givenRealtimeArrival(600);
+        walkToTransferStop();
+        mergeLane140AtTransferStop();
+        Long option721 = legColumn(3, "selected_route_option_id", Long.class);
+        given(stopArrivalsUseCase.getStopsArrivals(List.of("121000009"))).willReturn(List.of(
+                new watoo.grd.nextroute.application.arrival.dto.StopArrivals("121000009",
+                        watoo.grd.nextroute.application.arrival.dto.StopArrivals.Status.ERROR, List.of())));
+        makeDue();
+
+        assertThat(evaluate()).isEqualTo(Result.EVALUATED);
+
+        assertThat(legColumn(3, "selected_route_option_id", Long.class)).isEqualTo(option721);
     }
 
     @Test

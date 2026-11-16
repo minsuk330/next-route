@@ -563,7 +563,7 @@ class JourneySnapshotEtaComposerTest {
                 guidanceComposer, sharedRule,
                 new watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics(
                         new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
-                riskProperties, clock);
+                riskProperties, clock, null);
         JourneySnapshotEtaComposer requestPath = new JourneySnapshotEtaComposer(legRepository, geometryUseCase,
                 arrivalService, evaluator, storedEvaluationReader, evaluatorProperties, sharedRule, clock);
 

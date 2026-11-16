@@ -44,7 +44,8 @@ class JourneyEvaluationScheduleWriterBoardingTest {
     private final TransferTargetApproachNotifier approachNotifier = mock(TransferTargetApproachNotifier.class);
     private final JourneyEvaluationScheduleWriter writer = new JourneyEvaluationScheduleWriter(sessionRepository,
             legRepository, mock(TransferAssessmentWriter.class), riskNotifier, approachNotifier,
-            mock(ApplicationEventPublisher.class));
+            mock(ApplicationEventPublisher.class),
+            mock(watoo.grd.nextroute.domain.journey.repository.JourneyNotificationRepository.class));
 
     @Test
     @DisplayName("이번에 못 구했어도 직전 예측이 앞날이고 90초 안에 본 것이면 그대로 둔다")

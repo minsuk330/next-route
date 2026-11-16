@@ -17,6 +17,15 @@ import watoo.grd.nextroute.domain.journey.repository.JourneySessionRepository;
 
 import java.time.Duration;
 import java.time.Instant;
+import watoo.grd.nextroute.application.journey.dto.LaneReselection;
+import watoo.grd.nextroute.application.journey.dto.TransferAssessmentBatch;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
+import watoo.grd.nextroute.domain.journey.entity.JourneyLegState;
+import watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy;
+import watoo.grd.nextroute.domain.journey.entity.JourneyNotificationScope;
+import watoo.grd.nextroute.domain.journey.entity.JourneyCheckpoint;
+import java.util.List;
+import java.util.Objects;
 import java.util.Map;
 
 /**
@@ -45,6 +54,8 @@ public class JourneyEvaluationScheduleWriter {
     private final TransferRiskNotifier transferRiskNotifier;
     private final TransferTargetApproachNotifier approachNotifier;
     private final ApplicationEventPublisher eventPublisher;
+    /** 노선을 옮길 때 옛 노선의 "곧 도착" 대기 알림 취소(#614 PR-2). */
+    private final watoo.grd.nextroute.domain.journey.repository.JourneyNotificationRepository notificationRepository;
 
     /**
      * 소유권을 확인하고, 확인되면 판정과 예측을 저장하고 알릴 것이 있으면 outbox 에 쌓는다.
@@ -75,6 +86,10 @@ public class JourneyEvaluationScheduleWriter {
             return false;
         }
 
+        // 노선 옮기기(#614 PR-2)는 소유권 확인 바로 뒤, 판정·알림·예측 저장보다 먼저 — 재선택이 대기 예측을 비우므로 뒤에
+        // 두면 방금 저장한 새 예측을 지우고, 위험 알림이 DB 에서 읽는 노선 이름이 옛 노선이 된다.
+        outcome = applyLaneReselection(outcome);
+
         if (outcome.changed()) {
             // finishEvaluation 이 평가 번호를 올렸다 — 커밋 뒤 버전 캐시를 덮는다(처방 4차).
             eventPublisher.publishEvent(JourneyVersionChangedEvent.of(claim.journeyId()));
@@ -95,6 +110,63 @@ public class JourneyEvaluationScheduleWriter {
 
         storeBoardingPredictions(outcome, now);
         return true;
+    }
+
+    /**
+     * 평가기가 고른 노선 옮기기를 저장한다(#614 PR-2). 단계를 다시 읽어 <b>대기 중(WAIT_BUS·ACTIVE)이고, 선택이 계산 때 그대로이고,
+     * 주인이 DEFAULT</b> 일 때만 옮긴다. 소유권 확인(finishEvaluation)이 단계 전이·재탐색·사용자 선택 대부분을 이미 막지만(셋 다 평가
+     * 시각을 당긴다) 값싼 이중 보호다.
+     *
+     * <p>어긋나면 이번 결과 중 그 대기 단계의 예측과 그 단계로 들어오는 환승 판정을 버린다 — 새 노선 기준으로 잰 값이라 사용자가
+     * 고른(또는 이미 탄) 노선과 다른 버스의 시각이 남는다. 나머지는 그대로 저장한다.
+     *
+     * <p>옮기면 그 환승의 대기 중 접근 알림(옛 노선 시각·이름)을 취소한다. 알림 키는 환승 하나에 하나라 새 노선 접근 알림은 다시
+     * 쌓이지 않는다(이미 나간 알림도 되돌릴 수 없다) — 틀린 시각의 "곧 도착"보다 없는 편이 낫다.
+     */
+    JourneyEvaluationOutcome applyLaneReselection(JourneyEvaluationOutcome outcome) {
+        LaneReselection reselection = outcome.batch().laneReselection();
+        if (reselection == null) {
+            return outcome;
+        }
+        List<JourneyLeg> legs = legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(
+                outcome.journeyId(), outcome.routeRevision());
+        JourneyLeg wait = legAt(legs, reselection.waitLegIndex());
+        JourneyLeg ride = reselection.rideLegIndex() == null ? null : legAt(legs, reselection.rideLegIndex());
+        boolean stillDefaultWait = wait != null
+                && wait.getType() == JourneyLegType.WAIT_BUS
+                && wait.getState() == JourneyLegState.ACTIVE
+                && Objects.equals(wait.getSelectedRouteOptionId(), reselection.fromOptionId())
+                && wait.getRouteOptionSelectedByOrDefault() == RouteOptionSelectedBy.DEFAULT
+                && (ride == null || Objects.equals(ride.getSelectedRouteOptionId(), reselection.fromOptionId()));
+        if (!stillDefaultWait) {
+            log.info("[LaneReselect] journeyId={} legIndex={} 저장 직전 선택이 바뀜 — 옮기지 않고 그 대기 결과 버림",
+                    outcome.journeyId(), reselection.waitLegIndex());
+            return new JourneyEvaluationOutcome(outcome.journeyId(), outcome.routeRevision(),
+                    withoutLeg(outcome.batch(), reselection.waitLegIndex()), outcome.changed());
+        }
+        TransferRiskEvaluator.applyInMemory(wait, ride, reselection);
+        legRepository.flush();
+        outcome.batch().assessments().stream()
+                .filter(a -> a.toLegIndex() == reselection.waitLegIndex())
+                .forEach(a -> notificationRepository.supersedeAllPendingByScope(
+                        outcome.journeyId(), outcome.routeRevision(), JourneyNotificationScope.TRANSFER,
+                        a.transferIndex(), List.of(JourneyCheckpoint.TRANSFER_TARGET_APPROACHING)));
+        log.info("[LaneReselect] journeyId={} legIndex={} 저장 option {} -> {}({})", outcome.journeyId(),
+                reselection.waitLegIndex(), reselection.fromOptionId(), reselection.toOptionId(), reselection.toRouteName());
+        return outcome;
+    }
+
+    /** 그 대기 단계의 예측과 그 단계로 들어오는 판정을 뺀 배치. 노선 옮기기 정보도 지운다. */
+    static TransferAssessmentBatch withoutLeg(TransferAssessmentBatch batch, int waitLegIndex) {
+        Map<Integer, TransferTargetArrival> boarding = new java.util.HashMap<>(batch.boardingByLegIndex());
+        boarding.remove(waitLegIndex);
+        return new TransferAssessmentBatch(
+                batch.assessments().stream().filter(a -> a.toLegIndex() != waitLegIndex).toList(),
+                Map.copyOf(boarding), batch.upstreamBlocked(), null);
+    }
+
+    private static JourneyLeg legAt(List<JourneyLeg> legs, int legIndex) {
+        return legs.stream().filter(leg -> leg.getLegIndex() == legIndex).findFirst().orElse(null);
     }
 
     /**

@@ -64,6 +64,7 @@ class TransferRiskEvaluatorTest {
     /** 조립기와 같은 규칙 — 진짜 규칙을 감싸 판정기가 부르는지 확인한다. */
     private ChosenSubwayTrainWait chosenTrainWait;
     private TransferRiskEvaluator evaluator;
+    private MergedBusLaneChooser laneChooser;
     private final JourneyTransferRiskProperties riskProperties = new JourneyTransferRiskProperties();
     private final io.micrometer.core.instrument.simple.SimpleMeterRegistry meterRegistry =
             new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
@@ -86,6 +87,7 @@ class TransferRiskEvaluatorTest {
         assessmentWriter = new TransferAssessmentWriter(transferRepository);
         guidanceComposer = mock(JourneySubwayGuidanceComposer.class);
         chosenTrainWait = spy(new ChosenSubwayTrainWait());
+        laneChooser = mock(MergedBusLaneChooser.class);
         evaluator = new TransferRiskEvaluator(transferRepository, legRepository, arrivalService,
                 targetArrivalService,
                 new TransferReadinessCalculator(properties),
@@ -95,7 +97,8 @@ class TransferRiskEvaluatorTest {
                 chosenTrainWait,
                 new watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics(meterRegistry),
                 riskProperties,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                laneChooser);
 
         rideLeg = leg(0, JourneyLegType.RIDE_BUS, 1200);
         walkLeg = leg(1, JourneyLegType.TRANSFER_WALK, 120);
@@ -606,5 +609,81 @@ class TransferRiskEvaluatorTest {
                 .build();
         ReflectionTestUtils.setField(transfer, "id", 500L + transferIndex);
         return transfer;
+    }
+
+    // ── #614 PR-2 묶인 버스 대기 중 노선 옮기기 ────────────────────────────────
+
+    @Test
+    @DisplayName("#614 평가기 경로: 지금 대기 단계의 선택을 메모리에서 옮긴 뒤 갈아탈 차량을 새 노선으로 묻고, 배치에 결정을 싣는다")
+    void reselectsCurrentWaitLaneInMemory() {
+        JourneyLeg nextRide = leg(3, JourneyLegType.RIDE_BUS, 700);
+        waitLeg.selectRouteOption(11L, "R-402", watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy.DEFAULT);
+        nextRide.selectRouteOption(11L, "R-402", watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy.DEFAULT);
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY_ID, REVISION))
+                .willReturn(List.of(rideLeg, walkLeg, waitLeg, nextRide));
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        var chosen = new watoo.grd.nextroute.application.journey.dto.LaneReselection(2, 3, 11L, 13L, "R-140", "140",
+                905, 1140, 180);
+        given(laneChooser.choose(any(), any(), any())).willReturn(java.util.Optional.of(chosen));
+        java.util.concurrent.atomic.AtomicReference<Long> askedWith = new java.util.concurrent.atomic.AtomicReference<>();
+        given(targetArrivalService.predictBoarding(eq(waitLeg), any(), any())).willAnswer(call -> {
+            askedWith.set(((JourneyLeg) call.getArgument(0)).getSelectedRouteOptionId());
+            return TransferTargetArrival.of(arrival(NOW.plusSeconds(180), CurrentLegArrival.Quality.GOOD));
+        });
+
+        var batch = evaluator.assess(JOURNEY_ID, REVISION, 2, Map.of(), true);
+
+        assertThat(batch.laneReselection()).isEqualTo(chosen);
+        assertThat(askedWith.get()).as("판정·예측이 새 노선으로 묻는다").isEqualTo(13L);
+        assertThat(waitLeg.getRouteId()).isEqualTo("R-140");
+        assertThat(nextRide.getSelectedRouteOptionId()).isEqualTo(13L);
+        assertThat(nextRide.getPlannedDurationSec()).as("다음 대기 앵커가 쓰는 탑승 소요").isEqualTo(905);
+        assertThat(waitLeg.getRouteOptionSelectedByOrDefault())
+                .isEqualTo(watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy.DEFAULT);
+    }
+
+    @Test
+    @DisplayName("#614 조회 경로(assessAndStore)·옛 4인자 assess 는 고르지 않는다")
+    void requestPathDoesNotReselect() {
+        waitLeg.selectRouteOption(11L, "R-402", watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy.DEFAULT);
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+
+        evaluator.assessAndStore(JOURNEY_ID, REVISION, 2, Map.of());
+        var batch = evaluator.assess(JOURNEY_ID, REVISION, 2, Map.of());
+
+        assertThat(batch.laneReselection()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(laneChooser);
+        assertThat(waitLeg.getSelectedRouteOptionId()).isEqualTo(11L);
+    }
+
+    @Test
+    @DisplayName("#614 짝 탑승이 다른 후보를 가리키면(저장 쪽 재확인과 같은 조건) 고르지 않는다")
+    void pairedRideMismatchSkips() {
+        JourneyLeg nextRide = leg(3, JourneyLegType.RIDE_BUS, 700);
+        waitLeg.selectRouteOption(11L, "R-402", watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy.DEFAULT);
+        given(legRepository.findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByLegIndex(JOURNEY_ID, REVISION))
+                .willReturn(List.of(rideLeg, walkLeg, waitLeg, nextRide));   // nextRide 선택 없음
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+
+        var batch = evaluator.assess(JOURNEY_ID, REVISION, 2, Map.of(), true);
+
+        assertThat(batch.laneReselection()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(laneChooser);
+    }
+
+    @Test
+    @DisplayName("#614 고르기가 예외를 던지면 지금 선택 그대로 평가를 마친다")
+    void chooserFailureKeepsSelection() {
+        waitLeg.selectRouteOption(11L, "R-402", watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy.DEFAULT);
+        givenTransfers(transfer(0, 0, 1, 2, null));
+        givenBoarding(arrival(NOW.plusSeconds(600), CurrentLegArrival.Quality.GOOD));
+        given(laneChooser.choose(any(), any(), any())).willThrow(new IllegalStateException("boom"));
+
+        var batch = evaluator.assess(JOURNEY_ID, REVISION, 2, Map.of(), true);
+
+        assertThat(batch.laneReselection()).isNull();
+        assertThat(waitLeg.getSelectedRouteOptionId()).isEqualTo(11L);
     }
 }
