@@ -88,6 +88,11 @@ public class OtpRoutingProperties {
     private boolean railAlternativesEnabled = true;
     private int railAlternativeThreshold = 3;
     private int railAlternativeMaxLines = 2;
+    /**
+     * 노선을 빼고 다시 물을 때 수단을 제한하지 않는다(true). 뺀 구간을 버스로 잇는 혼합 경로가 같이 나온다 — 카카오맵 상위 목록의
+     * 37% 가 버스+지하철 경로다. false 면 철도만 묻는다(옛 동작, 호출당 약 0.6초 빠름).
+     */
+    private boolean railAlternativeAllModes = true;
     /** 예매 열차(KTX·SRT·무궁화 등 국가철도)를 이 시간(분)보다 짧게 타는 경로는 뺀다 — 도시 안 한두 정거장 이동에 섞인다. 0 이면 끈다. */
     private int intercityRailMinRideMinutes = 40;
     /** 연결 timeout(ms). read timeout 은 호출별 남은 예산으로 결정. */
@@ -114,6 +119,8 @@ public class OtpRoutingProperties {
     public void setRailAlternativesEnabled(boolean railAlternativesEnabled) { this.railAlternativesEnabled = railAlternativesEnabled; }
     public int getRailAlternativeThreshold() { return railAlternativeThreshold; }
     public void setRailAlternativeThreshold(int railAlternativeThreshold) { this.railAlternativeThreshold = railAlternativeThreshold; }
+    public boolean isRailAlternativeAllModes() { return railAlternativeAllModes; }
+    public void setRailAlternativeAllModes(boolean railAlternativeAllModes) { this.railAlternativeAllModes = railAlternativeAllModes; }
     public int getRailAlternativeMaxLines() { return railAlternativeMaxLines; }
     public void setRailAlternativeMaxLines(int railAlternativeMaxLines) { this.railAlternativeMaxLines = railAlternativeMaxLines; }
     public int getIntercityRailMinRideMinutes() { return intercityRailMinRideMinutes; }

@@ -119,6 +119,9 @@ class OtpRoutingAdapterHttpTest {
         // 수단 제한 복사본(추가 검색)도 그대로 들고 간다
         assertThat(q.withModes(Set.of(RoutingMode.BUS)).alternativeLegs()).isTrue();
         assertThat(q.withExcludedRouteIds(Set.of("x")).alternativeLegs()).isTrue();
+        // 전 수단 대안 검색은 nextLegs 를 뺀 복사본으로 묻는다 — 나머지 칸은 그대로
+        assertThat(q.withoutAlternativeLegs().alternativeLegs()).isFalse();
+        assertThat(q.withoutAlternativeLegs().withExcludedRouteIds(Set.of("x")).excludedRouteIds()).containsExactly("x");
     }
 
     @Test

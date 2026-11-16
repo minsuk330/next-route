@@ -74,6 +74,12 @@ public record RoutingQuery(
                 alternativeLegs);
     }
 
+    /** 대체 버스 노선(nextLegs)을 묻지 않는 복사본 — 응답이 2~3배 커져 느린 추가 검색에서 뺀다. */
+    public RoutingQuery withoutAlternativeLegs() {
+        return new RoutingQuery(originLon, originLat, originName, destLon, destLat, destName, departureAt,
+                modes, maxWalkMeters, wheelchair, schemaVersion, provider, graphVersion, excludedRouteIds, false);
+    }
+
     /**
      * 버스 구간마다 같은 승하차 정류장의 다른 노선(OTP {@code nextLegs})도 함께 묻는 복사본(otp-bus-lane-merge).
      * 검색 화면용 질의만 켠다 — 재탐색은 노선을 묶어 보여 주지 않으니 비용만 든다.
