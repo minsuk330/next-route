@@ -23,6 +23,13 @@ keeps its stops and only gets the new shape.  Anything that cannot be mapped is
 left untouched and listed in the report.  Everything outside the Gyeonggi trips
 is copied byte for byte.
 
+``--provider seoul`` does the same for Seoul buses (``BR_TAGO_SEB<9>[_U|_D]``,
+stops ``BS_TAGO_SEB<station>``) from the ws.bus.go.kr cache written by
+fetch_seoul_routes.py (``--source`` = that directory).  Seoul pass-through
+points (``(경유)``, ``(미정차)``, ``(가상)`` in the name) are dropped, the turn
+is the station flagged ``transYn``, and existing stops also take the official
+name (the 2025-03 names are stale for about a thousand Seoul stops).
+
 Stdlib only (same reason as compute_shape_quality.py: the release pipeline runs
 without a venv).
 """
@@ -50,6 +57,15 @@ csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
 ROUTE_RE = re.compile(r"^BR_(?:TAGO_GGB|3100_)(\d{9})(_[UD])?$")
 STOP_PREFIX = "BS_TAGO_GGB"
 WAYPOINT_SUFFIX = "(경유)"
+GBIS_ROUTE_RE, GBIS_STOP_PREFIX = ROUTE_RE, STOP_PREFIX
+SHAPE_TAG = "gbis"          # prefix of the shape ids this run writes
+REFRESH_NAMES = False       # also rename existing stops to the source's station name
+SEOUL_ROUTE_RE = re.compile(r"^BR_TAGO_SEB(\d{9})(_[UD])?$")
+SEOUL_STOP_PREFIX = "BS_TAGO_SEB"
+SEOUL_PASS_THROUGH = ("(경유)", "(미정차)", "(가상)")
+WHOLE_ROUTE_WHEN_OFF_LINE = False   # seoul: a trip whose stops are off the official line takes the whole list
+OFF_LINE_M = 150.0      # OTP drops a shape whose stops sit farther than this from it
+LOOP_START_M = 500.0    # first station this near the line start may be assigned to it (closed loops)
 LOOP_M = 300.0          # trip's first≈last stop within this → round trip
 # A new span much longer/shorter than the old trip means the span was mis-chosen
 # (e.g. a short-turn trip spread over the whole loop): keep its stops, swap the shape only.
@@ -134,14 +150,25 @@ class Line:
         return out
 
 
-def monotone_measures(line: Line, points: list[tuple[float, float]]) -> tuple[list[float], list[float]]:
+def monotone_measures(line: Line, points: list[tuple[float, float]],
+                      first_may_be_line_start: bool = False) -> tuple[list[float], list[float]]:
     """Assign each point (in order) a line measure, non-decreasing, minimising total distance.
 
     DP over each point's candidates.  Returns (measures, residual distances).
+
+    ``first_may_be_line_start``: on a closed loop the first station can sit nearer
+    the line's end than its start (another floor or bay of the same terminal); its
+    only candidate is then the end and every later station collapses onto it.
+    The line start is offered as a further candidate for the first point when it
+    is within ``LOOP_START_M``.
     """
     if not points:
         return [], []
     cands = [line.candidates(p) for p in points]
+    if first_may_be_line_start:
+        d0 = math.dist(points[0], line.xy[0])
+        if d0 <= LOOP_START_M and all(m > 1.0 for _, m in cands[0]):
+            cands[0] = [(d0, 0.0)] + list(cands[0])
     INF = float("inf")
     cost = [[d for d, _ in cands[0]]]
     back: list[list[int]] = [[-1] * len(cands[0])]
@@ -304,6 +331,74 @@ def load_gbis(gbis_dir: Path, route9: str) -> Gbis | None:
     return g
 
 
+def _seoul_items(path: Path) -> list[dict] | None:
+    try:
+        body = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if str((body.get("msgHeader") or {}).get("headerCd")) != "0":
+        return None
+    items = (body.get("msgBody") or {}).get("itemList")
+    if isinstance(items, dict):
+        items = [items]
+    return items or None
+
+
+def _coord(item: dict) -> tuple[float, float] | None:
+    """(lat, lon) of a ws.bus.go.kr item, None when it carries no usable coordinate."""
+    try:
+        lat, lon = float(item["gpsY"]), float(item["gpsX"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return (lat, lon) if 33.0 < lat < 39.5 and 124.0 < lon < 132.0 else None
+
+
+def load_seoul(source_dir: Path, route9: str) -> Gbis | None:
+    """Same shape as load_gbis, from fetch_seoul_routes.py files (stations use the GBIS key names)."""
+    pts = _seoul_items(source_dir / f"{route9}.path.json")
+    sts = _seoul_items(source_dir / f"{route9}.stations.json")
+    latlon = [c for p in sorted(pts or [], key=lambda p: int(p["no"])) if (c := _coord(p)) is not None]
+    if len(latlon) < 2:
+        return None
+    line = Line(latlon)
+    stations: list[dict] = []
+    turn = None
+    for s in sorted(sts or [], key=lambda s: int(s["seq"])):
+        name = str(s.get("stationNm", "")).strip()
+        c = _coord(s)
+        # A real stop has a 5-digit stop number; bridges, junctions and toll gates on the list
+        # ("…(가상)", "북인천IC", "영종대교") have none.
+        ars = str(s.get("arsId") or "").strip()
+        if (c is None or not str(s.get("station", "")).strip() or ars in ("", "0", "00000")
+                or any(tag in name for tag in SEOUL_PASS_THROUGH)):
+            continue
+        if s.get("transYn") == "Y" and turn is None:
+            turn = len(stations)
+        stations.append({"stationId": str(s["station"]).strip(), "stationName": name,
+                         "y": c[0], "x": c[1], "turnYn": s.get("transYn")})
+    g = Gbis(line=line, stations=stations, turn=turn)
+    if stations:
+        g.station_meas, g.station_resid = monotone_measures(
+            line, [_to_m(float(s["y"]), float(s["x"])) for s in stations], first_may_be_line_start=True)
+    return g
+
+
+LOADER = load_gbis
+
+
+def configure(provider: str) -> None:
+    """Point the module at one provider's id rules and cache format."""
+    global ROUTE_RE, STOP_PREFIX, SHAPE_TAG, REFRESH_NAMES, LOADER, WHOLE_ROUTE_WHEN_OFF_LINE
+    if provider == "seoul":
+        ROUTE_RE, STOP_PREFIX, SHAPE_TAG, REFRESH_NAMES, LOADER, WHOLE_ROUTE_WHEN_OFF_LINE = (
+            SEOUL_ROUTE_RE, SEOUL_STOP_PREFIX, "seoul", True, load_seoul, True)
+    elif provider == "gbis":
+        ROUTE_RE, STOP_PREFIX, SHAPE_TAG, REFRESH_NAMES, LOADER, WHOLE_ROUTE_WHEN_OFF_LINE = (
+            GBIS_ROUTE_RE, GBIS_STOP_PREFIX, "gbis", False, load_gbis, False)
+    else:
+        raise ValueError(f"unknown provider {provider}")
+
+
 def stop9(stop_id: str) -> str | None:
     return stop_id[len(STOP_PREFIX):] if stop_id.startswith(STOP_PREFIX) else None
 
@@ -426,7 +521,7 @@ def run(in_zip: Path, out_zip: Path, gbis_dir: Path, report_path: Path) -> dict:
             rep["unchanged"]["noStopTimes"] += 1
             continue
         if route9 not in gbis_cache:
-            gbis_cache[route9] = load_gbis(gbis_dir, route9)
+            gbis_cache[route9] = LOADER(gbis_dir, route9)
             if gbis_cache[route9] is None:
                 rep["gbisMissingRoutes"].append(route9)
         g = gbis_cache[route9]
@@ -464,6 +559,18 @@ def run(in_zip: Path, out_zip: Path, gbis_dir: Path, report_path: Path) -> dict:
             times = synthesize_times(old9, old_times, new9, meas) if meas[-1] > meas[0] else None
             if times is None:
                 rep["timeRejected"] += 1
+        if (times is None and WHOLE_ROUTE_WHEN_OFF_LINE and len(g.stations) >= 2
+                and g.station_meas[-1] > g.station_meas[0] and all(s in stop_xy for s in old_ids)):
+            # The old stops do not lie on the official line at all: the route was replaced, not
+            # adjusted, and a shape-only swap would leave a trip that follows neither.  Run the
+            # whole official list in the old trip's time window instead.
+            _, off = monotone_measures(g.line, [stop_xy[s] for s in old_ids])
+            if max(off) > OFF_LINE_M:
+                a, b, how = 0, len(g.stations) - 1, "offLine"
+                sts = g.stations
+                new9 = [str(s["stationId"]) for s in sts]
+                meas = g.station_meas
+                times = synthesize_times(old9, old_times, new9, meas)
         if times is None:
             # shape only: keep stops and times, project the stops on the GBIS line
             if any(s not in stop_xy for s in old_ids):
@@ -475,7 +582,7 @@ def run(in_zip: Path, out_zip: Path, gbis_dir: Path, report_path: Path) -> dict:
                 rep["unchanged"]["shapeOnlyDegenerate"] += 1
                 rr["unchanged"] += 1
                 continue
-            shape_id = f"gbis_{route9}_s{round(meas[0])}_{round(meas[-1])}"
+            shape_id = f"{SHAPE_TAG}_{route9}_s{round(meas[0])}_{round(meas[-1])}"
             new_shapes.setdefault(shape_id, g.line.cut(meas[0], meas[-1]))
             out = []
             for r, m in zip(rows, meas):
@@ -490,7 +597,7 @@ def run(in_zip: Path, out_zip: Path, gbis_dir: Path, report_path: Path) -> dict:
             rep["shapeOnlyResidualM"].extend(resid)
             continue
         rep["spanHow"][how] += 1
-        shape_id = f"gbis_{route9}_{a}_{b}"
+        shape_id = f"{SHAPE_TAG}_{route9}_{a}_{b}"
         new_shapes.setdefault(shape_id, g.line.cut(meas[0], meas[-1]))
         out = []
         for k, (s, (arr, dep, anchor)) in enumerate(zip(sts, times)):
@@ -511,10 +618,13 @@ def run(in_zip: Path, out_zip: Path, gbis_dir: Path, report_path: Path) -> dict:
 
     # stops: add new GBIS stations, move existing Gyeonggi ones to GBIS coordinates
     template = next((r for r in stops_rows if r[S["stop_id"]].startswith(STOP_PREFIX)), stops_rows[0])
-    moved = added = kept_shared = 0
+    moved = added = kept_shared = renamed = 0
     for r in stops_rows:
         sid = r[S["stop_id"]]
         if sid in station_votes:
+            if REFRESH_NAMES and station_name.get(sid) and r[S["stop_name"]] != station_name[sid]:
+                r[S["stop_name"]] = station_name[sid]
+                renamed += 1
             lat, lon = station_votes[sid].most_common(1)[0][0]
             move = math.dist(stop_xy[sid], _to_m(lat, lon))
             if sid in other_stops and move > SHARED_STOP_MOVE_M:
@@ -603,7 +713,7 @@ def run(in_zip: Path, out_zip: Path, gbis_dir: Path, report_path: Path) -> dict:
         "spanLengthRejected": rep["spanLengthRejected"], "timeRejected": rep["timeRejected"],
         "routes": len(rep["routes"]), "gbisMissingRoutes": sorted(set(rep["gbisMissingRoutes"])),
         "newShapes": len(new_shapes), "droppedShapes": len(dropped_shapes),
-        "stops": {"added": added, "moved": moved, "sharedKeptOldCoord": kept_shared},
+        "stops": {"added": added, "moved": moved, "sharedKeptOldCoord": kept_shared, "renamed": renamed},
         "stopToShapeResidualM": dist(rep["stopResidualM"]),
         # shape-only trips keep 2025-03 stops; OTP drops a shape whose stops sit >150 m off it
         # (ShapeGeometryTooFar) and draws those hops straight.
@@ -619,10 +729,16 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("in_zip", type=Path)
     p.add_argument("out_zip", type=Path)
-    p.add_argument("--gbis", type=Path, required=True, help="fetch_gbis_routes.py cache directory")
+    p.add_argument("--gbis", type=Path, help="fetch_gbis_routes.py cache directory (provider gbis)")
+    p.add_argument("--provider", choices=("gbis", "seoul"), default="gbis")
+    p.add_argument("--source", type=Path, help="fetch_seoul_routes.py cache directory (provider seoul)")
     p.add_argument("--report", type=Path, required=True)
     a = p.parse_args()
-    s = run(a.in_zip, a.out_zip, a.gbis, a.report)
+    source = a.source if a.provider == "seoul" else a.gbis
+    if source is None:
+        p.error("--gbis (provider gbis) or --source (provider seoul) is required")
+    configure(a.provider)
+    s = run(a.in_zip, a.out_zip, source, a.report)
     print(json.dumps({k: v for k, v in s.items() if k != "perRoute"}, ensure_ascii=False, indent=1)[:4000])
     return 0
 

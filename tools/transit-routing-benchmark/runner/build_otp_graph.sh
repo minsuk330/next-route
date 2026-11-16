@@ -68,6 +68,10 @@ ADD_TRIPS=()        # --add-trips JSON (repeatable): step 2g (after 2d, before 2
 DAY_TYPES=""        # --day-types DIR: step 2h (last), routes with a data file move to M_WD and get Saturday/holiday
                     # trips (apply_day_types.py; config/otp-national/day-types/*.json, #557). Needs --holidays.
 HOLIDAYS=""         # --holidays JSON: public holidays for step 2h (config/otp-national/kr-holidays.json).
+SEOUL_BUS_DIR=""    # --seoul-bus DIR: step 2i (after 2h), rewrite Seoul bus trips with the official ws.bus.go.kr
+                    # stations and shapes (apply_gbis_routes.py --provider seoul; cache from fetch_seoul_routes.py).
+SEOUL_NEW_ROUTES="" # --seoul-new-routes TSV: step 2j, add Seoul routes the feed lacks (add_seoul_routes.py;
+                    # route_id, name, type, headway min, first HHMM, last HHMM). Needs --seoul-bus.
 FROM_ZIP=""         # --from-zip PATH: steps 1-2c skipped, start from a finished feed (e.g. the deployed zip) and
                     # run only 2e/2f on it. The output zip is PATH + suffixes, so PATH is never overwritten.
 while [[ $# -gt 0 ]]; do
@@ -79,6 +83,8 @@ while [[ $# -gt 0 ]]; do
     --day-types) DAY_TYPES="$2"; shift 2 ;;
     --holidays) HOLIDAYS="$2"; shift 2 ;;
     --from-zip) FROM_ZIP="$2"; shift 2 ;;
+    --seoul-bus) SEOUL_BUS_DIR="$2"; shift 2 ;;
+    --seoul-new-routes) SEOUL_NEW_ROUTES="$2"; shift 2 ;;
     --input) INPUT_OVERRIDE="$2"; shift 2 ;;
     --pfaedle-config) PFAEDLE_CONFIG="$2"; shift 2 ;;
     --skip-match) SKIP_MATCH=1; shift ;;
@@ -139,8 +145,8 @@ if [[ -n "$FROM_ZIP" ]]; then
   [[ -z "$GBIS_DIR$BUS_RUNTIME_COEF$BUS_SECTION_TIMES$STATION_ENTRANCES$INPUT_OVERRIDE$PFAEDLE_CONFIG" ]] \
     || { echo "--from-zip skips steps 1-2c; drop --gbis/--bus-runtime-*/--station-entrances/--input/--pfaedle-config" >&2; exit 2; }
   [[ "$SKIP_MATCH$FROM_SHAPED_ZIP" == "00" ]] || { echo "--from-zip excludes --skip-match/--from-shaped-zip" >&2; exit 2; }
-  [[ -n "$SUBWAY_CORRECTIONS$CALENDAR_END$DAY_TYPES" || ${#ADD_TRIPS[@]} -gt 0 ]] \
-    || { echo "--from-zip needs --add-trips, --subway-corrections, --calendar-end and/or --day-types (else it would rebuild the same feed)" >&2; exit 2; }
+  [[ -n "$SUBWAY_CORRECTIONS$CALENDAR_END$DAY_TYPES$SEOUL_BUS_DIR" || ${#ADD_TRIPS[@]} -gt 0 ]] \
+    || { echo "--from-zip needs --add-trips, --subway-corrections, --calendar-end, --day-types and/or --seoul-bus (else it would rebuild the same feed)" >&2; exit 2; }
   [[ "$FROM_ZIP" != /* && "$FROM_ZIP" == *.gtfs.zip ]] \
     || { echo "--from-zip must be a *.gtfs.zip path relative to tools/transit-routing-benchmark" >&2; exit 2; }
   test -s "$FROM_ZIP" || { echo "--from-zip not found: $FROM_ZIP" >&2; exit 2; }
@@ -190,6 +196,13 @@ if [[ -n "$DAY_TYPES$HOLIDAYS" ]]; then
   compgen -G "$DAY_TYPES/*.json" > /dev/null || { echo "--day-types has no *.json: $DAY_TYPES" >&2; exit 2; }
   test -s "$HOLIDAYS" || { echo "--holidays json not found: $HOLIDAYS" >&2; exit 2; }
   SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-daytypes.gtfs.zip"
+fi
+if [[ -n "$SEOUL_BUS_DIR$SEOUL_NEW_ROUTES" ]]; then
+  [[ "$PROFILE" == "national" ]] || { echo "--seoul-bus is national-only" >&2; exit 2; }
+  [[ -n "$SEOUL_BUS_DIR" ]] || { echo "--seoul-new-routes needs --seoul-bus (same cache)" >&2; exit 2; }
+  compgen -G "$SEOUL_BUS_DIR/*.stations.json" > /dev/null || { echo "--seoul-bus has no *.stations.json: $SEOUL_BUS_DIR" >&2; exit 2; }
+  [[ -z "$SEOUL_NEW_ROUTES" ]] || test -s "$SEOUL_NEW_ROUTES" || { echo "--seoul-new-routes tsv not found: $SEOUL_NEW_ROUTES" >&2; exit 2; }
+  SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-seoulbus.gtfs.zip"
 fi
 if [[ -n "$FROM_ZIP" ]]; then
   [[ "$SHAPED_ZIP" != "$FROM_ZIP" && "$SHAPED_ZIP" != "$SOURCE_SHAPED_ZIP" ]] \
@@ -364,6 +377,22 @@ if [[ -n "$DAY_TYPES" ]]; then
   python3 runner/apply_day_types.py --in "$step_in" --day-types "$DAY_TYPES" --holidays "$HOLIDAYS" \
     --out "$BUILD/daytypes.gtfs.zip" --report "$DEPLOY_DIR/day-types-report.json"
   stage_done "$step_in" "$BUILD/daytypes.gtfs.zip"
+fi
+
+if [[ -n "$SEOUL_BUS_DIR" ]]; then
+  echo "== step 2i: Seoul bus official stations + shapes ($SEOUL_BUS_DIR, $(ls "$SEOUL_BUS_DIR" | grep -c '\.stations\.json$') routes cached) =="
+  step_in="$(stage_in "$BUILD/pre-seoulbus.gtfs.zip")"
+  python3 runner/apply_gbis_routes.py "$step_in" "$BUILD/seoulbus.gtfs.zip" \
+    --provider seoul --source "$SEOUL_BUS_DIR" --report "$DEPLOY_DIR/seoul-bus-apply-report.json"
+  stage_done "$step_in" "$BUILD/seoulbus.gtfs.zip"
+fi
+
+if [[ -n "$SEOUL_NEW_ROUTES" ]]; then
+  echo "== step 2j: Seoul routes the feed lacks ($SEOUL_NEW_ROUTES sha256 $(shasum -a 256 "$SEOUL_NEW_ROUTES" | awk '{print $1}')) =="
+  step_in="$(stage_in "$BUILD/pre-seoulnew.gtfs.zip")"
+  python3 runner/add_seoul_routes.py "$step_in" "$BUILD/seoulnew.gtfs.zip" \
+    --source "$SEOUL_BUS_DIR" --routes "$SEOUL_NEW_ROUTES" --report "$DEPLOY_DIR/seoul-new-routes-report.json"
+  stage_done "$step_in" "$BUILD/seoulnew.gtfs.zip"
 fi
 unstage
 
