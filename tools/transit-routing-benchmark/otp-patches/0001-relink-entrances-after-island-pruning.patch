@@ -1,0 +1,49 @@
+diff --git a/application/src/main/java/org/opentripplanner/graph_builder/module/StreetLinkerModule.java b/application/src/main/java/org/opentripplanner/graph_builder/module/StreetLinkerModule.java
+index 2a80ae87f0..f7ad6c7e59 100644
+--- a/application/src/main/java/org/opentripplanner/graph_builder/module/StreetLinkerModule.java
++++ b/application/src/main/java/org/opentripplanner/graph_builder/module/StreetLinkerModule.java
+@@ -243,6 +243,31 @@ public class StreetLinkerModule implements GraphBuilderModule {
+     }
+   }
+ 
++  /**
++   * Link the entrances again after island pruning. Pruning takes pedestrian access away from the
++   * edges of small street islands and re-links the stops that stood on them, but entrances keep
++   * their links to those dead edges and can no longer be reached from the street. A station whose
++   * platforms are only reachable through pathways then loses the exits that were linked to an
++   * island (nextroute #601).
++   */
++  public void relinkTransitEntrances(Graph graph) {
++    for (TransitEntranceVertex tEntrance : graph.getVerticesOfType(TransitEntranceVertex.class)) {
++      List<Edge> links = new java.util.ArrayList<>();
++      for (Edge e : tEntrance.getOutgoing()) {
++        if (e instanceof StreetTransitEntranceLink) {
++          links.add(e);
++        }
++      }
++      for (Edge e : tEntrance.getIncoming()) {
++        if (e instanceof StreetTransitEntranceLink) {
++          links.add(e);
++        }
++      }
++      links.forEach(graph::removeEdge);
++    }
++    linkTransitEntrances(graph);
++  }
++
+   private void linkTransitEntrances(Graph graph) {
+     LOG.info("Linking transit entrances to graph...");
+     for (TransitEntranceVertex tEntrance : graph.getVerticesOfType(TransitEntranceVertex.class)) {
+diff --git a/application/src/main/java/org/opentripplanner/graph_builder/module/islandpruning/IslandPruningModule.java b/application/src/main/java/org/opentripplanner/graph_builder/module/islandpruning/IslandPruningModule.java
+index 8b7e6888f4..6ca9c6f00f 100644
+--- a/application/src/main/java/org/opentripplanner/graph_builder/module/islandpruning/IslandPruningModule.java
++++ b/application/src/main/java/org/opentripplanner/graph_builder/module/islandpruning/IslandPruningModule.java
+@@ -89,6 +89,8 @@ public class IslandPruningModule implements GraphBuilderModule {
+     if (streetLinkerModule != null) {
+       LOG.info("Reconnecting stops");
+       streetLinkerModule.linkTransitStops(graph, transitRepository);
++      LOG.info("Reconnecting entrances");
++      streetLinkerModule.relinkTransitEntrances(graph);
+     }
+ 
+     // clean up pruned street vertices
