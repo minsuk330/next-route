@@ -20,6 +20,8 @@ import watoo.grd.nextroute.domain.journey.repository.TransferConnectionRepositor
 
 import java.time.Clock;
 import java.time.Instant;
+import watoo.grd.nextroute.application.journey.dto.LaneReselection;
+import watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -73,6 +75,8 @@ public class TransferRiskEvaluator {
     private final JourneyEvaluationMetrics metrics;
     private final JourneyTransferRiskProperties riskProperties;
     private final Clock clock;
+    /** 묶인 버스 대기 중 먼저 오는 노선 고르기(#614 PR-2). 평가기 경로에서만 쓴다. */
+    private final MergedBusLaneChooser laneChooser;
 
     /**
      * 판정만 한다. 저장은 부르는 쪽의 책임이다.
@@ -81,6 +85,17 @@ public class TransferRiskEvaluator {
      */
     public TransferAssessmentBatch assess(Long journeyId, int routeRevision, int currentLegIndex,
                                           Map<Integer, LegGeometry> geometryByLegIndex) {
+        return assess(journeyId, routeRevision, currentLegIndex, geometryByLegIndex, false);
+    }
+
+    /**
+     * @param reselectLanes 묶인 버스 대기 중 서버 기본 선택을 먼저 오는 노선으로 옮겨 볼지(#614 PR-2). 평가기만 true —
+     *                      읽어 온 단계 엔티티의 선택을 <b>메모리에서</b> 바꾼 뒤 판정·예측을 새 노선으로 잰다. 저장은
+     *                      {@link JourneyEvaluationScheduleWriter#finish} 가 소유권 확인 뒤 다시 확인하고 한다. 트랜잭션 안이면
+     *                      (변경이 dirty checking 으로 새어 나갈 수 있어) 고르지 않는다
+     */
+    public TransferAssessmentBatch assess(Long journeyId, int routeRevision, int currentLegIndex,
+                                          Map<Integer, LegGeometry> geometryByLegIndex, boolean reselectLanes) {
         List<TransferConnection> transfers = transferRepository
                 .findByJourneyIdAndRouteRevisionAndDeletedAtIsNullOrderByTransferIndex(
                         journeyId, routeRevision);
@@ -97,6 +112,7 @@ public class TransferRiskEvaluator {
                 .collect(Collectors.toMap(JourneyLeg::getLegIndex, Function.identity()));
 
         Instant now = Instant.now(clock);
+        LaneReselection reselection = reselectLanes ? reselectCurrentLane(legsByIndex, currentLegIndex, now) : null;
         SubwayGuidance currentGuidance = currentSubwayGuidance(
                 journeyId, routeRevision, currentLegIndex, legs, legsByIndex, transfers);
         Map<Integer, TransferTargetArrival> boardingByLegIndex = new java.util.HashMap<>();
@@ -113,7 +129,50 @@ public class TransferRiskEvaluator {
         }
         boolean upstreamBlocked = boardingByLegIndex.values().stream()
                 .anyMatch(TransferTargetArrival::upstreamBlocked);
-        return new TransferAssessmentBatch(assessments, Map.copyOf(boardingByLegIndex), upstreamBlocked);
+        return new TransferAssessmentBatch(assessments, Map.copyOf(boardingByLegIndex), upstreamBlocked, reselection);
+    }
+
+    /**
+     * 지금 대기 단계의 서버 기본 선택을 먼저 오는 노선으로 옮긴다(#614 PR-2) — 메모리에서만. 읽어 온 엔티티는 트랜잭션 밖이라
+     * (평가기 경로, open-in-view 꺼짐) 저장되지 않는다. 혹시 트랜잭션 안이면 고르지 않는다.
+     */
+    private LaneReselection reselectCurrentLane(Map<Integer, JourneyLeg> legsByIndex, int currentLegIndex, Instant now) {
+        JourneyLeg wait = legsByIndex.get(currentLegIndex);
+        if (!MergedBusLaneChooser.eligible(wait)) {
+            return null;
+        }
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+            log.warn("[LaneReselect] 트랜잭션 안의 평가 — 노선 고르기 건너뜀 journeyId={}", wait.getJourneyId());
+            return null;
+        }
+        JourneyLeg ride = legsByIndex.get(currentLegIndex + 1);
+        if (ride != null && ride.getType() != JourneyLegType.RIDE_BUS) {
+            ride = null;
+        }
+        if (ride != null && !java.util.Objects.equals(ride.getSelectedRouteOptionId(), wait.getSelectedRouteOptionId())) {
+            // 저장 쪽 재확인과 같은 조건 — 짝이 다른 후보를 가리키면 저장이 매번 버림 경로로 가 그 대기 결과가 영영 안 남는다.
+            return null;
+        }
+        try {
+            LaneReselection chosen = laneChooser.choose(wait, ride, now).orElse(null);
+            if (chosen == null) {
+                return null;
+            }
+            applyInMemory(wait, ride, chosen);
+            return chosen;
+        } catch (RuntimeException e) {
+            log.warn("[LaneReselect] 노선 고르기 실패 — 지금 선택 유지 journeyId={}: {}", wait.getJourneyId(), e.toString());
+            return null;
+        }
+    }
+
+    /** 저장 경로({@link JourneyEvaluationScheduleWriter})와 같은 변경. 짝 탑승의 계획 소요도 — 다음 대기 앵커가 이 값을 쓴다. */
+    static void applyInMemory(JourneyLeg wait, JourneyLeg ride, LaneReselection chosen) {
+        wait.reselectRouteOption(chosen.toOptionId(), chosen.toRouteId(), RouteOptionSelectedBy.DEFAULT);
+        if (ride != null) {
+            ride.reselectRouteOption(chosen.toOptionId(), chosen.toRouteId(), RouteOptionSelectedBy.DEFAULT);
+            ride.replanDurationSec(chosen.toRideSeconds());
+        }
     }
 
     /**

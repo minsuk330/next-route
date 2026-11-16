@@ -222,6 +222,23 @@ class BusRouteSelectionIT {
     }
 
     @Test
+    @DisplayName("#614 PR-2 서버 기본과 같은 노선 확인(DEFAULT→USER)도 평가를 당긴다 — 서버 기본 기준으로 노선을 옮기던 평가는 저장 때 버려진다")
+    void confirmingDefaultInvalidatesInFlightClaim() {
+        Instant lease = Instant.now().plusSeconds(120);
+        jdbcTemplate.update("""
+                update journey_session set next_evaluation_at = ?, evaluation_claimed_until = ?, evaluation_urgent = false
+                 where id = ?
+                """, Timestamp.from(lease), Timestamp.from(lease), journey.journeyId());
+
+        selectionService.select(userId, journey.journeyId(), option(3, 0).optionId(), journey.routeRevision(), 4);
+
+        Instant next = jdbcTemplate.queryForObject("select next_evaluation_at from journey_session where id = ?",
+                Timestamp.class, journey.journeyId()).toInstant();
+        assertThat(next).isNotEqualTo(lease);
+        assertThat(next).isCloseTo(Instant.now(), within(10, java.time.temporal.ChronoUnit.SECONDS));
+    }
+
+    @Test
     @DisplayName("선택 전에 읽은 명령 번호로 보낸 탑승 전이가 그대로 반영된다 — 선택은 명령 번호를 올리지 않는다")
     void boardingTransitionWithPreSelectionVersionStillApplies() {
         // legIndex 생략: 지금 버스를 기다리는 중(0)이라 바로 다음 탑승 구간(1)이 대상이다

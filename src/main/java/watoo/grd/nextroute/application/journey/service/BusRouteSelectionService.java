@@ -102,7 +102,10 @@ public class BusRouteSelectionService {
             // 남겨 두면 서버가 대기 중 선택을 옮길 수 있다(PR-2). 조회가 바뀌므로 evaluationVersion 만 올린다.
             wait.markRouteOptionSelectedBy(RouteOptionSelectedBy.USER);
             ride.markRouteOptionSelectedBy(RouteOptionSelectedBy.USER);
+            // 평가를 당긴다 — 돌고 있던 평가가 서버 기본 기준으로 노선을 옮기려 했다면(#614 PR-2) 저장 때 소유권을 잃고 버려진다.
+            journey.scheduleEvaluationAt(Instant.now(clock));
             legRepository.flush();
+            sessionRepository.flush();
             log.info("[BusRouteSelection] journeyId={} rideLegIndex={} option {} 확인(DEFAULT -> USER)",
                     journeyId, ride.getLegIndex(), option.getId());
             return bumpAndRead(userId, journeyId, routeRevision);

@@ -27,6 +27,7 @@ import watoo.grd.nextroute.domain.journey.entity.TransferStatus;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import watoo.grd.nextroute.application.journey.dto.LaneReselection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
@@ -76,6 +77,8 @@ public class JourneyEvaluationService {
     private final Clock clock;
     /** 처음 본 시각 칸(#446 처음부터 끝까지 지표). 측정 전용 — 실패해도 평가는 그대로다. */
     private final DetectionStampPort detectionStamps;
+    /** 노선을 옮긴 뒤 재탐색 보드 갱신(#614 PR-2). */
+    private final RerouteRefreshSignal rerouteRefreshSignal;
 
     /** 평가기 몫의 provider 동시 호출 수 — 버스 단계가 있는 여정. 워커 스레드 수와 분리하는 장치다. */
     @Qualifier("journeyEvaluatorProviderLimiter")
@@ -121,16 +124,24 @@ public class JourneyEvaluationService {
             return Report.skipped();
         }
 
-        TransferAssessmentBatch batch = applyGrace(computed, context, now);
+        LaneReselection reselection = computed.laneReselection();
+        // 노선을 옮긴 대기 단계(#614 PR-2)의 직전 판정·저장 예측은 옛 노선 것이다 — 붙잡거나(grace) 그 값으로 고정(stabilize)하지 않는다.
+        Map<Integer, TransferRiskAssessment> previousAssessments =
+                withoutReselectedLeg(context.previousAssessments(), reselection);
+        Map<Integer, JourneyEvaluationContextLoader.StoredBoarding> previousBoardings =
+                withoutReselectedBoarding(context.previousBoardings(), reselection);
+        TransferAssessmentBatch batch = applyGrace(computed, previousAssessments, now);
         Map<Integer, TransferTargetArrival> outside = outsideAssessments(batch, context.currentLegIndex());
-        boolean changed = hasChanged(batch.assessments(), context.previousAssessments())
-                || boardingsChanged(outside, context.previousBoardings(), now);
+        boolean changed = reselection != null
+                || hasChanged(batch.assessments(), context.previousAssessments())
+                || boardingsChanged(outside, previousBoardings, now);
         // 저장은 허용 폭 안이면 직전 값을 유지한다 — 저장값과 평가 번호가 늘 같은 것을 가리키게(AssessmentChangeRule)
         TransferAssessmentBatch toStore = new TransferAssessmentBatch(
-                AssessmentChangeRule.stabilize(batch.assessments(), context.previousAssessments(),
+                AssessmentChangeRule.stabilize(batch.assessments(), previousAssessments,
                         properties.changeTolerance()),
-                stabilizeBoardings(batch.boardingByLegIndex(), outside, context.previousBoardings(), now),
-                batch.upstreamBlocked());
+                stabilizeBoardings(batch.boardingByLegIndex(), outside, previousBoardings, now),
+                batch.upstreamBlocked(),
+                reselection);
         JourneyEvaluationOutcome outcome = new JourneyEvaluationOutcome(
                 context.journeyId(), context.routeRevision(), toStore, changed);
 
@@ -142,6 +153,11 @@ public class JourneyEvaluationService {
                 next.dirtyGapSeconds(), Instant.now(clock), notification);
         if (!stored) {
             return Report.lostClaim();
+        }
+        if (reselection != null) {
+            // 재탐색 보드도 옛 노선 기준이다(사용자 선택 #598 과 같은 처리). 커밋 뒤·트랜잭션 밖 — 신호는 자기 트랜잭션에서
+            // 예외를 삼키므로 finish 안에서 부르면 실패 때 finish 가 rollback-only 가 된다.
+            requestRerouteRefresh(context.journeyId());
         }
         evaluateRerouteTrigger(context, batch, now);
         return new Report(Result.EVALUATED, batch.assessments(), batch.upstreamBlocked(), changed);
@@ -246,7 +262,7 @@ public class JourneyEvaluationService {
             Map<Integer, LegGeometry> geometry = loadGeometry(context);
             return transferRiskEvaluator.assess(
                     context.journeyId(), context.routeRevision(), context.currentLegIndex(),
-                    geometry);
+                    geometry, true);
         } finally {
             providerLimiter.release();
         }
@@ -269,14 +285,14 @@ public class JourneyEvaluationService {
      * 순서가 뒤집히면 직전 값을 유지했는데도 평가 번호가 올라, 앱이 같은 값을 다시 받는다.
      */
     private TransferAssessmentBatch applyGrace(TransferAssessmentBatch batch,
-                                               JourneyEvaluationContext context, Instant now) {
+                                               Map<Integer, TransferRiskAssessment> previousAssessments, Instant now) {
         if (batch.isEmpty()) {
             return batch;
         }
         List<TransferRiskAssessment> chosen = batch.assessments().stream()
                 .map(fresh -> {
                     TransferRiskAssessment kept = gracePolicy.choose(
-                            fresh, context.previousAssessments().get(fresh.transferIndex()), now);
+                            fresh, previousAssessments.get(fresh.transferIndex()), now);
                     if (kept != fresh) {
                         metrics.recordGraceHeld();
                     }
@@ -284,7 +300,37 @@ public class JourneyEvaluationService {
                 })
                 .toList();
         return new TransferAssessmentBatch(chosen, batch.boardingByLegIndex(),
-                batch.upstreamBlocked());
+                batch.upstreamBlocked(), batch.laneReselection());
+    }
+
+    /** 옮긴 대기 단계로 들어오는 환승의 직전 판정을 뺀다(#614 PR-2). 키는 환승 순번. */
+    static Map<Integer, TransferRiskAssessment> withoutReselectedLeg(Map<Integer, TransferRiskAssessment> previous,
+                                                                     LaneReselection reselection) {
+        if (reselection == null || previous.isEmpty()) {
+            return previous;
+        }
+        Map<Integer, TransferRiskAssessment> out = new java.util.HashMap<>(previous);
+        out.values().removeIf(a -> a.toLegIndex() == reselection.waitLegIndex());
+        return out;
+    }
+
+    /** 옮긴 대기 단계의 직전 저장 예측을 뺀다(#614 PR-2). 키는 단계 순번. */
+    static Map<Integer, JourneyEvaluationContextLoader.StoredBoarding> withoutReselectedBoarding(
+            Map<Integer, JourneyEvaluationContextLoader.StoredBoarding> previous, LaneReselection reselection) {
+        if (reselection == null || !previous.containsKey(reselection.waitLegIndex())) {
+            return previous;
+        }
+        Map<Integer, JourneyEvaluationContextLoader.StoredBoarding> out = new java.util.HashMap<>(previous);
+        out.remove(reselection.waitLegIndex());
+        return out;
+    }
+
+    private void requestRerouteRefresh(Long journeyId) {
+        try {
+            rerouteRefreshSignal.requestNow(journeyId);
+        } catch (RuntimeException e) {
+            log.warn("[LaneReselect] 재탐색 보드 갱신 신호 실패 journeyId={}: {}", journeyId, e.getMessage());
+        }
     }
 
     /**
