@@ -107,7 +107,7 @@ class JourneyControllerTest {
                         List.of(new JourneyRouteOptionView(100L, 0, 0, null, "BL-370", "370",
                                 null, null, null, null, "#3D5BAB")),
                         "05229", "05229", null, null, null,
-                        List.of(new JourneyLegView.FastAlight("2-3", "STAIRS")), "RIGHT")));
+                        List.of(new JourneyLegView.FastAlight("2-3", "STAIRS")), "RIGHT", null, null, null, "USER")));
     }
 
     // ── 시작 ─────────────────────────────────────────────────────────────────
@@ -130,6 +130,7 @@ class JourneyControllerTest {
                 .andExpect(jsonPath("$.legs[0].state").value("ACTIVE"))
                 .andExpect(jsonPath("$.legs[0].routeOptions[0].routeName").value("370"))
                 .andExpect(jsonPath("$.legs[0].routeOptions[0].routeDisplayColor").value("#3D5BAB"))
+                .andExpect(jsonPath("$.legs[0].routeOptionSelectedBy").value("USER"))
                 // #266 안내 값 — 이름이 앱 계약. 모르면 키는 오고 값이 null
                 .andExpect(jsonPath("$.legs[0].startStopNo").value("05229"))
                 .andExpect(jsonPath("$.legs[0].endStopNo").value("05229"))

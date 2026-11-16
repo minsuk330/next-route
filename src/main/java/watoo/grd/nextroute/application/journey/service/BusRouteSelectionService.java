@@ -23,6 +23,7 @@ import watoo.grd.nextroute.global.error.code.JourneyErrorCode;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy;
 import java.util.Objects;
 
 /**
@@ -41,9 +42,9 @@ import java.util.Objects;
  *       옛 노선 기준 결과가 방금 비운 값을 다시 채우지 못한다.</li>
  * </ul>
  *
- * <p>알려진 한계: 진행 보고는 단계 행 → 여정 행 순서로 쓰고 여기는 여정 행 → 단계 행 순서라, 탑승 중 재선택이 진행 보고와
- * 수 ms 겹치면 DB 가 한쪽을 교착으로 끊는다(5xx). 구간 전이도 같은 순서를 쓴다. 같은 후보 재전송은 변화가 없으므로 앱이
- * 다시 보내면 된다.
+ * <p>알려진 한계: 진행 보고는 단계 행 → 여정 행 순서로 쓰고 여기는 여정 행 → 단계 행 순서라, 탑승 중 재선택(서버 기본과
+ * 같은 노선을 확인해 주인만 USER 로 바꾸는 경우 포함, #614)이 진행 보고와 수 ms 겹치면 DB 가 한쪽을 교착으로 끊는다(5xx).
+ * 구간 전이도 같은 순서를 쓴다. 다시 보내면 결과가 같으므로 앱이 재시도하면 된다.
  */
 @Slf4j
 @Service
@@ -92,13 +93,27 @@ public class BusRouteSelectionService {
 
         if (Objects.equals(wait.getSelectedRouteOptionId(), option.getId())
                 && Objects.equals(ride.getSelectedRouteOptionId(), option.getId())) {
-            // 같은 후보 재전송 — 아무것도 바꾸지 않는다(버전도, 평가 시각도).
-            return queryService.snapshotOf(journey);
+            if (wait.getRouteOptionSelectedByOrDefault() == RouteOptionSelectedBy.USER
+                    && ride.getRouteOptionSelectedByOrDefault() == RouteOptionSelectedBy.USER) {
+                // 같은 후보 재전송 — 아무것도 바꾸지 않는다(버전도, 평가 시각도).
+                return queryService.snapshotOf(journey);
+            }
+            // 서버 기본 선택과 같은 노선을 사용자가 확인했다(#614). 선택·예측은 그대로 두고 주인만 USER 로 —
+            // 남겨 두면 서버가 대기 중 선택을 옮길 수 있다(PR-2). 조회가 바뀌므로 evaluationVersion 만 올린다.
+            wait.markRouteOptionSelectedBy(RouteOptionSelectedBy.USER);
+            ride.markRouteOptionSelectedBy(RouteOptionSelectedBy.USER);
+            legRepository.flush();
+            log.info("[BusRouteSelection] journeyId={} rideLegIndex={} option {} 확인(DEFAULT -> USER)",
+                    journeyId, ride.getLegIndex(), option.getId());
+            return bumpAndRead(userId, journeyId, routeRevision);
         }
 
         Long previous = wait.getSelectedRouteOptionId();
-        wait.reselectRouteOption(option.getId(), option.getRouteId());
-        ride.reselectRouteOption(option.getId(), option.getRouteId());
+        wait.reselectRouteOption(option.getId(), option.getRouteId(), RouteOptionSelectedBy.USER);
+        ride.reselectRouteOption(option.getId(), option.getRouteId(), RouteOptionSelectedBy.USER);
+        // 탑승 소요도 고른 노선 값으로(#614). 묶인 노선은 정류장이 같아도 탑승시간이 다르다(실측 11% 가 5분 넘게 차이).
+        // 모르면(V78 전 후보, ODsay·지하철) 그대로.
+        ride.replanDurationSec(option.getRideSeconds());
 
         Instant now = Instant.now(clock);
         journey.scheduleEvaluationAt(now);
@@ -111,7 +126,11 @@ public class BusRouteSelectionService {
         log.info("[BusRouteSelection] journeyId={} rideLegIndex={} option {} -> {} route={}({})",
                 journeyId, ride.getLegIndex(), previous, option.getId(), option.getRouteName(), option.getRouteId());
 
-        // 마지막 쓰기다 — flush 뒤 영속성 컨텍스트를 비우므로 아래에서 여정을 다시 읽는다.
+        return bumpAndRead(userId, journeyId, routeRevision);
+    }
+
+    /** 마지막 쓰기다 — flush 뒤 영속성 컨텍스트를 비우므로 여정을 다시 읽는다. */
+    private JourneySnapshot bumpAndRead(Long userId, Long journeyId, int routeRevision) {
         sessionRepository.bumpEvaluationVersion(journeyId, routeRevision);
         eventPublisher.publishEvent(JourneyVersionChangedEvent.of(journeyId));
 

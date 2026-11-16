@@ -20,6 +20,8 @@ import java.util.List;
  * {@code sourceStartStopId}/{@code sourceEndStopId} 는 검색 원천(OTP)의 정류장 id({@code 1:RS_ACC1_S-2-0219}) —
  * 검색 응답 {@code stations[].stationID} 와 같은 값이다(#593). {@code startStopId}/{@code endStopId} 는 실시간 체계 id(서울 역·정류장)라
  * 지방 지하철은 비어 있고, 앱은 지방 시간표({@code /api/subway/regional/departures})를 이 값으로 부른다. 대기 단계는 둘 다 승차 정류장.
+ * {@code routeOptionSelectedBy} 는 선택 노선의 주인(#614): {@code DEFAULT}(서버 — 묶인 버스는 먼저 오는 노선) | {@code USER}(#598).
+ * 선택이 없는 단계는 null.
  */
 public record JourneyLegView(
         Long legId,
@@ -44,8 +46,23 @@ public record JourneyLegView(
         String alightDoorSide,
         String trainKind,
         String sourceStartStopId,
-        String sourceEndStopId
+        String sourceEndStopId,
+        String routeOptionSelectedBy
 ) {
+
+    /** 선택 주인 없는 단계(#614 이전 계약). */
+    public JourneyLegView(Long legId, int legIndex, JourneyLegType type, JourneyLegState state,
+                          String startStopId, String endStopId, String startName, String endName,
+                          String routeId, Integer plannedDurationSec, String evidenceQuality,
+                          Long selectedRouteOptionId, List<JourneyRouteOptionView> routeOptions,
+                          String startStopNo, String endStopNo, String directionName,
+                          String startExitNo, String endExitNo, List<FastAlight> fastAlight, String alightDoorSide,
+                          String trainKind, String sourceStartStopId, String sourceEndStopId) {
+        this(legId, legIndex, type, state, startStopId, endStopId, startName, endName, routeId,
+                plannedDurationSec, evidenceQuality, selectedRouteOptionId, routeOptions,
+                startStopNo, endStopNo, directionName, startExitNo, endExitNo, fastAlight, alightDoorSide, trainKind,
+                sourceStartStopId, sourceEndStopId, null);
+    }
 
     public JourneyLegView {
         routeOptions = routeOptions == null ? List.of() : List.copyOf(routeOptions);

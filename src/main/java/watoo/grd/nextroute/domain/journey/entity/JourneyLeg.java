@@ -144,6 +144,11 @@ public class JourneyLeg extends BaseEntity {
      */
     private Long selectedRouteOptionId;
 
+    /** 지금 선택의 주인(#614, V78). 옛 행은 null — {@link #getRouteOptionSelectedByOrDefault()} 로 읽는다. */
+    @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+    @Column(length = 16)
+    private RouteOptionSelectedBy routeOptionSelectedBy;
+
     // ── 안내 시트 지점 줄 값(#266). 계획 값이라 진행 중에 바뀌지 않는다 ─────────────────
     @Column(length = 16)
     private String startStopNo;
@@ -354,10 +359,36 @@ public class JourneyLeg extends BaseEntity {
         return routeId != null && !routeId.isBlank();
     }
 
-    /** 현재 경로의 routeOption을 선택한다. 실제 차량을 확정하는 동작은 아니다. */
+    /** 현재 경로의 routeOption을 서버 기본으로 선택한다. 실제 차량을 확정하는 동작은 아니다. */
     public void selectRouteOption(Long journeyLegRouteOptionId, String routeId) {
+        selectRouteOption(journeyLegRouteOptionId, routeId, RouteOptionSelectedBy.DEFAULT);
+    }
+
+    /** 선택과 그 주인을 함께 둔다. 재탐색 복제 구간은 옛 주인을 이어받는다(#614). */
+    public void selectRouteOption(Long journeyLegRouteOptionId, String routeId, RouteOptionSelectedBy selectedBy) {
         this.selectedRouteOptionId = journeyLegRouteOptionId;
         this.routeId = routeId;
+        this.routeOptionSelectedBy = selectedBy;
+    }
+
+    /** 선택이 있으면 그 주인(옛 행 null = DEFAULT), 없으면 null. */
+    public RouteOptionSelectedBy getRouteOptionSelectedByOrDefault() {
+        if (selectedRouteOptionId == null) {
+            return null;
+        }
+        return routeOptionSelectedBy == null ? RouteOptionSelectedBy.DEFAULT : routeOptionSelectedBy;
+    }
+
+    /** 탑승 노선이 바뀌어 계획 소요를 그 노선 값으로(#614). null 이면 그대로. */
+    public void replanDurationSec(Integer seconds) {
+        if (seconds != null && seconds > 0) {
+            this.plannedDurationSec = seconds;
+        }
+    }
+
+    /** 같은 후보를 사용자가 확인했을 때 — 선택은 그대로, 주인만 바꾼다(#614). */
+    public void markRouteOptionSelectedBy(RouteOptionSelectedBy selectedBy) {
+        this.routeOptionSelectedBy = selectedBy;
     }
 
     /**
@@ -371,9 +402,10 @@ public class JourneyLeg extends BaseEntity {
      * 엔티티에 없어, 여기서 하나만 비우면 제약에 걸린다. 지금 이 칼럼들을 쓰는 코드는 없다. 차량을 채우는 코드가 생기면
      * 재선택 때 네 칼럼을 함께 비우는 UPDATE 를 같이 넣어야 한다(옛 노선의 차량이 남는다).
      */
-    public void reselectRouteOption(Long journeyLegRouteOptionId, String routeId) {
+    public void reselectRouteOption(Long journeyLegRouteOptionId, String routeId, RouteOptionSelectedBy selectedBy) {
         this.selectedRouteOptionId = journeyLegRouteOptionId;
         this.routeId = routeId;
+        this.routeOptionSelectedBy = selectedBy;
         this.predictedEndAt = null;
         if (type.isWaiting()) {
             this.evidenceSource = null;

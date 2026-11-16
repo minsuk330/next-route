@@ -63,13 +63,14 @@ public class JourneyCompiler {
 
         List<JourneyLegDraft> legs = new ArrayList<>();
         List<Emitted> emitted = new ArrayList<>();
+        int firstBus = firstBusIndex(subPaths);
 
         for (int i = 0; i < subPaths.size(); i++) {
             SubPathResult sub = subPaths.get(i);
             if (isWalk(sub)) {
                 emitted.add(emitWalk(legs, subPaths, i, sub));
             } else {
-                emitted.add(emitTransit(legs, i, sub));
+                emitted.add(emitTransit(legs, i, sub, i == firstBus));
             }
         }
 
@@ -184,10 +185,20 @@ public class JourneyCompiler {
 
     // ── 교통수단 ─────────────────────────────────────────────────────────────
 
+    /** 경로의 첫 버스 구간 순번(없으면 -1). 검색 실시간을 기본 선택에 쓰는 구간이다(#614). */
+    private static int firstBusIndex(List<SubPathResult> subPaths) {
+        for (int i = 0; i < subPaths.size(); i++) {
+            if (subPaths.get(i).trafficType() == TRAFFIC_BUS) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     /** 교통수단 한 구간을 기다리기 + 타고 가기 두 단계로 만든다. */
-    private Emitted emitTransit(List<JourneyLegDraft> legs, int index, SubPathResult sub) {
+    private Emitted emitTransit(List<JourneyLegDraft> legs, int index, SubPathResult sub, boolean firstBus) {
         boolean subway = sub.trafficType() == TRAFFIC_SUBWAY;
-        List<JourneyRouteOptionDraft> options = routeOptions(sub);
+        List<JourneyRouteOptionDraft> options = routeOptions(sub, firstBus);
 
         String sourceStartStopId = sourceStartStopId(sub);
         String sourceEndStopId = sourceEndStopId(sub);
@@ -276,17 +287,40 @@ public class JourneyCompiler {
      * <p>후보가 여럿이어도 하나로 줄이지 않는다. 첫 lane은 현재 선택 노선이 되고 나머지는
      * 환승 시점 재평가에 쓸 대체 routeOption으로 남는다.
      */
-    private List<JourneyRouteOptionDraft> routeOptions(SubPathResult sub) {
+    private List<JourneyRouteOptionDraft> routeOptions(SubPathResult sub, boolean firstBus) {
         if (sub.lanes() == null || sub.lanes().isEmpty()) {
             return List.of();
         }
+        java.util.Map<Integer, watoo.grd.nextroute.application.route.dto.TransferArrival> arrivals =
+                firstBus ? searchArrivals(sub) : java.util.Map.of();
         List<JourneyRouteOptionDraft> options = new ArrayList<>(sub.lanes().size());
         for (int i = 0; i < sub.lanes().size(); i++) {
             LaneResult lane = sub.lanes().get(i);
             options.add(JourneyRouteOptionDraft.of(
-                    i, sourceRouteId(lane), routeName(lane), sub.wayCode(), lane.routeDisplayColor()));
+                            i, sourceRouteId(lane), routeName(lane), sub.wayCode(), lane.routeDisplayColor())
+                    .withSearch(arrivals.get(i), sub.trafficType() == TRAFFIC_BUS ? lane.rideSeconds() : null));
         }
         return options;
+    }
+
+    /**
+     * 첫 버스 구간의 lane 순번 → 검색 실시간 도착(#614 기본 선택 재료). 두 번째 이후 버스 구간은 부르지 않는다 — 그 값은 앞
+     * 구간에서 가장 먼저 오는 lane 을 탔다고 본 조건부다. 앞 lane 이 운행종료로 빠지면(#613) 재번호에서 basisLaneIndex 가 null 로
+     * 바뀔 수 있어 플래그({@code isUnconditional})만 믿지 않고 구조(첫 버스 구간)로 거른다. 플래그는 보조 가드.
+     * lane 순번은 #613 재번호 뒤 값과 같다.
+     */
+    private static java.util.Map<Integer, watoo.grd.nextroute.application.route.dto.TransferArrival> searchArrivals(
+            SubPathResult sub) {
+        if (sub.trafficType() != TRAFFIC_BUS || sub.transferArrivals() == null) {
+            return java.util.Map.of();
+        }
+        java.util.Map<Integer, watoo.grd.nextroute.application.route.dto.TransferArrival> byLane = new java.util.HashMap<>();
+        for (watoo.grd.nextroute.application.route.dto.TransferArrival arrival : sub.transferArrivals()) {
+            if (arrival != null && arrival.isUnconditional()) {
+                byLane.putIfAbsent(arrival.laneIndex(), arrival);
+            }
+        }
+        return byLane;
     }
 
     private String sourceRouteId(LaneResult lane) {

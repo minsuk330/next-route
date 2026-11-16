@@ -38,6 +38,41 @@ public record TransferArrival(
                 predictedArrivalAt, waitSeconds, vehicleId, modelVersion, newBasisLaneIndex, conditional, onwardWaits);
     }
 
+    /** 탈 수 있는 차인가 — 예측 시각이 있고 상태가 {@code AVAILABLE}·{@code ARRIVAL_TIME_APPROXIMATE}. 검색 bestLane 과 여정 기본 선택(#614)의 같은 기준. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isBoardable() {
+        return predictedArrivalAt != null
+                && (status == Status.AVAILABLE || status == Status.ARRIVAL_TIME_APPROXIMATE);
+    }
+
+    /**
+     * 앞 버스 가정 없이 잰 값인가(첫 버스 구간). 두 번째 이후 버스 구간 값은 앞 구간에서 가장 먼저 오는 lane 을 탔다고 본
+     * 조건부 값이라({@code basisLaneIndex}) 여정 기본 선택에 쓰지 않는다(#614).
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isUnconditional() {
+        return basisLaneIndex == null && !Boolean.TRUE.equals(conditional);
+    }
+
+    /**
+     * 검색 뒤 {@code startedAt} 에 출발해도 걸어서 정류장에 닿은 뒤 오는 차인가(#614). 정류장 도착은 검색이 잰
+     * {@code userArrivalAt} 에 늦게 시작한 만큼({@code startedAt − calculatedAt}, 음수는 0)을 더한 시각이다.
+     * {@code userArrivalAt} 을 모르면 {@code startedAt} 이후인지만 본다.
+     */
+    public boolean reachableIfStartedAt(Instant startedAt) {
+        if (!isBoardable() || startedAt == null) {
+            return false;
+        }
+        Instant atStop = startedAt;
+        if (userArrivalAt != null) {
+            java.time.Duration late = calculatedAt == null || startedAt.isBefore(calculatedAt)
+                    ? java.time.Duration.ZERO
+                    : java.time.Duration.between(calculatedAt, startedAt);
+            atStop = userArrivalAt.plus(late);
+        }
+        return !predictedArrivalAt.isBefore(atStop);
+    }
+
     public TransferArrival withOnwardWaits(java.util.List<OnwardWait> waits) {
         return new TransferArrival(routeId, laneIndex, source, status, calculatedAt, userArrivalAt,
                 predictedArrivalAt, waitSeconds, vehicleId, modelVersion, basisLaneIndex, conditional,

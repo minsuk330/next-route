@@ -65,12 +65,15 @@ public class JourneyLegRouteOption extends BaseEntity {
     @Column(length = 16)
     private String routeDisplayColor;
 
+    /** 이 노선으로 이 구간을 타는 정적 탑승시간(초, 검색 lane rideSeconds). 사용자가 노선을 바꾸면 탑승 단계 계획 소요가 이 값(#614). 모르면 null. */
+    private Integer rideSeconds;
+
     @Builder
     public JourneyLegRouteOption(Long journeyLegId, int optionIndex, int laneIndex,
                                  String routeId, String sourceRouteId, String routeName,
                                  String directionKey, Integer wayCode,
                                  Integer boardingSeq, Integer alightingSeq,
-                                 String routeDisplayColor) {
+                                 String routeDisplayColor, Integer rideSeconds) {
         this.journeyLegId = journeyLegId;
         this.optionIndex = optionIndex;
         this.laneIndex = laneIndex;
@@ -82,6 +85,7 @@ public class JourneyLegRouteOption extends BaseEntity {
         this.boardingSeq = boardingSeq;
         this.alightingSeq = alightingSeq;
         this.routeDisplayColor = routeDisplayColor;
+        this.rideSeconds = rideSeconds;
     }
 
     /** 저장 후 확정된 단계 id 를 연결한다(단계와 후보의 저장 순서를 코드가 잡을 때 쓴다). */

@@ -117,6 +117,11 @@ class TrackJourneyStartIT {
         assertThat(active.kind()).isEqualTo(JourneyKind.TRACK);
         assertThat(active.legs()).extracting(JourneyLegView::type)
                 .containsExactly(JourneyLegType.WAIT_SUBWAY, JourneyLegType.RIDE_SUBWAY);
+        // #614 단독 추적은 검색 실시간이 없다 → 첫 후보, 주인 DEFAULT
+        assertThat(active.legs()).allSatisfy(leg -> {
+            assertThat(leg.selectedRouteOptionId()).isEqualTo(active.legs().get(0).routeOptions().get(0).optionId());
+            assertThat(leg.routeOptionSelectedBy()).isEqualTo("DEFAULT");
+        });
         assertThat(jdbcTemplate.queryForObject("select kind from journey_session where id = ?", String.class,
                 started.journeyId())).isEqualTo("TRACK");
         assertThat(jdbcTemplate.queryForObject("select reroute_refresh_at is null from journey_session where id = ?",

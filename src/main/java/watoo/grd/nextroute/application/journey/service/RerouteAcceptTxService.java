@@ -52,6 +52,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -460,25 +461,33 @@ public class RerouteAcceptTxService {
                     ? copyOptions(oldByIndex.get(leg.getLegIndex()), oldOptions, leg)
                     : newOptions(composed, leg);
 
-            // 새로 생긴 단계의 선택 노선은 첫 후보다(여정 시작과 같은 규칙). 복제한 단계는 사용자가 탑승 때 고른
-            // 노선(#598)을 이어받는다 — 첫 후보로 되돌리면 지금 타고 있는 버스가 다른 노선으로 바뀐다.
-            JourneyLegRouteOption selected = leg.getLegIndex() < composed.fromLegIndex()
+            // 새로 생긴 단계의 선택 노선은 첫 후보다. 재탐색 후보는 lane 을 묶지도 실시간을 채우지도 않아(lane 1개)
+            // 여정 시작의 "먼저 오는 노선" 규칙(#614)을 적용할 재료가 없다. 복제한 단계는 고른 노선과 그 주인(#598 USER /
+            // 서버 DEFAULT)을 이어받는다 — 첫 후보로 되돌리면 지금 타고 있는 버스가 다른 노선으로 바뀐다.
+            Carried selected = leg.getLegIndex() < composed.fromLegIndex()
                     ? carriedOption(oldByIndex.get(leg.getLegIndex()), oldOptions, saved)
-                    : firstOption(saved);
-            if (selected == null) {
+                    : new Carried(firstOption(saved), RouteOptionSelectedBy.DEFAULT);
+            if (selected.option() == null) {
                 continue;
             }
-            select(newLegs, leg, selected);
+            select(newLegs, leg, selected.option(), selected.selectedBy());
         }
         legRepository.flush();
     }
 
-    /** 복제한 단계: 옛 단계가 고른 후보와 {@code optionIndex} 가 같은 새 행. 못 찾으면 첫 후보. */
-    private static JourneyLegRouteOption carriedOption(JourneyLeg oldLeg,
-                                                       Map<Long, List<JourneyLegRouteOption>> oldOptions,
-                                                       List<JourneyLegRouteOption> saved) {
+    /** 고른 후보와 그 주인. */
+    private record Carried(JourneyLegRouteOption option, RouteOptionSelectedBy selectedBy) {
+    }
+
+    /**
+     * 복제한 단계: 옛 단계가 고른 후보와 {@code optionIndex} 가 같은 새 행, 주인도 옛 값(#614). 못 찾으면 첫 후보·DEFAULT.
+     */
+    private static Carried carriedOption(JourneyLeg oldLeg,
+                                         Map<Long, List<JourneyLegRouteOption>> oldOptions,
+                                         List<JourneyLegRouteOption> saved) {
+        Carried fallback = new Carried(firstOption(saved), RouteOptionSelectedBy.DEFAULT);
         if (oldLeg == null || oldLeg.getSelectedRouteOptionId() == null) {
-            return firstOption(saved);
+            return fallback;
         }
         return oldOptions.getOrDefault(oldLeg.getId(), List.of()).stream()
                 .filter(option -> oldLeg.getSelectedRouteOptionId().equals(option.getId()))
@@ -486,7 +495,8 @@ public class RerouteAcceptTxService {
                 .flatMap(old -> saved.stream()
                         .filter(option -> option.getOptionIndex() == old.getOptionIndex())
                         .findFirst())
-                .orElseGet(() -> firstOption(saved));
+                .map(option -> new Carried(option, oldLeg.getRouteOptionSelectedByOrDefault()))
+                .orElse(fallback);
     }
 
     /** {@code optionIndex} 0 번, 없으면 첫 후보. 비어 있으면 null(호출부가 skip). */
@@ -523,6 +533,7 @@ public class RerouteAcceptTxService {
                         .boardingSeq(option.getBoardingSeq())
                         .alightingSeq(option.getAlightingSeq())
                         .routeDisplayColor(option.getRouteDisplayColor())
+                        .rideSeconds(option.getRideSeconds())
                         .build())
                 .toList());
     }
@@ -550,18 +561,20 @@ public class RerouteAcceptTxService {
                         .boardingSeq(draft.boardingSeq())
                         .alightingSeq(draft.alightingSeq())
                         .routeDisplayColor(draft.routeDisplayColor())
+                        .rideSeconds(draft.rideSeconds())
                         .build())
                 .toList());
     }
 
     /** 대기 단계와 짝 주행 단계가 <b>같은</b> 후보 행을 가리켜야 한다(여정 시작과 같은 규칙). */
-    private void select(List<JourneyLeg> legs, JourneyLeg waitLeg, JourneyLegRouteOption option) {
-        waitLeg.selectRouteOption(option.getId(), option.getRouteId());
+    private void select(List<JourneyLeg> legs, JourneyLeg waitLeg, JourneyLegRouteOption option,
+                        RouteOptionSelectedBy selectedBy) {
+        waitLeg.selectRouteOption(option.getId(), option.getRouteId(), selectedBy);
         legs.stream()
                 .filter(leg -> leg.getLegIndex() == waitLeg.getLegIndex() + 1)
                 .filter(leg -> !leg.getType().isWaiting())
                 .findFirst()
-                .ifPresent(ride -> ride.selectRouteOption(option.getId(), option.getRouteId()));
+                .ifPresent(ride -> ride.selectRouteOption(option.getId(), option.getRouteId(), selectedBy));
     }
 
     /**

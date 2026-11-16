@@ -107,6 +107,9 @@ class BusRouteSelectionIT {
                 .containsExactly("721", "140");
         assertThat(journey.legs().get(3).selectedRouteOptionId()).isEqualTo(option(3, 0).optionId());
         assertThat(journey.legs().get(4).selectedRouteOptionId()).isEqualTo(option(3, 0).optionId());
+        // #614 선택 주인: 서버 기본. 선택 없는 도보 단계는 null
+        assertThat(journey.legs()).extracting(JourneyLegView::routeOptionSelectedBy)
+                .containsExactly("DEFAULT", "DEFAULT", null, "DEFAULT", "DEFAULT");
     }
 
     @Test
@@ -128,6 +131,28 @@ class BusRouteSelectionIT {
         assertThat(after.commandVersion()).isEqualTo(journey.commandVersion());
         assertThat(after.evaluationVersion()).isEqualTo(journey.evaluationVersion() + 1);
         assertThat(after.legs()).hasSameSizeAs(journey.legs());
+        assertThat(after.legs().get(3).routeOptionSelectedBy()).isEqualTo("USER");
+        assertThat(after.legs().get(4).routeOptionSelectedBy()).isEqualTo("USER");
+        assertThat(after.legs().get(0).routeOptionSelectedBy()).isEqualTo("DEFAULT");
+    }
+
+    @Test
+    @DisplayName("#614 서버 기본과 같은 노선을 보내면 선택은 그대로 주인만 USER — 평가 번호 +1, 명령 번호·예측 시각은 그대로. 다시 보내면 무변화")
+    void confirmingDefaultOptionMarksUser() {
+        Long defaultOption = option(3, 0).optionId();
+
+        JourneySnapshot confirmed = selectionService.select(userId, journey.journeyId(), defaultOption,
+                journey.routeRevision(), 4);
+
+        assertThat(confirmed.legs().get(3).selectedRouteOptionId()).isEqualTo(defaultOption);
+        assertThat(confirmed.legs().get(3).routeOptionSelectedBy()).isEqualTo("USER");
+        assertThat(confirmed.legs().get(4).routeOptionSelectedBy()).isEqualTo("USER");
+        assertThat(confirmed.evaluationVersion()).isEqualTo(journey.evaluationVersion() + 1);
+        assertThat(confirmed.commandVersion()).isEqualTo(journey.commandVersion());
+
+        JourneySnapshot again = selectionService.select(userId, journey.journeyId(), defaultOption,
+                journey.routeRevision(), 4);
+        assertThat(again.evaluationVersion()).isEqualTo(confirmed.evaluationVersion());
     }
 
     @Test

@@ -88,7 +88,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V66__journey_session_evaluation_urgent.sql",
         "classpath:db/migration/V67__journey_reevaluation_trigger.sql",
         "classpath:db/migration/V75__transfer_connection_model_version_length.sql",
-        "classpath:db/migration/V77__add_journey_route_option_display_color.sql"
+        "classpath:db/migration/V77__add_journey_route_option_display_color.sql",
+        "classpath:db/migration/V78__journey_leg_route_option_selected_by.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 class JourneySchemaIT {
@@ -444,9 +445,11 @@ class JourneySchemaIT {
                         .boardingSeq(4)
                         .alightingSeq(12)
                         .routeDisplayColor("#3D5BAB")
+                        .rideSeconds(905)
                         .build());
 
-        wait.selectRouteOption(option.getId(), option.getRouteId());
+        wait.selectRouteOption(option.getId(), option.getRouteId(),
+                watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy.USER);
         legRepository.saveAndFlush(wait);
 
         List<JourneyLeg> legs = legRepository
@@ -458,6 +461,14 @@ class JourneySchemaIT {
         assertThat(legs.get(0).getEvidenceQuality()).isEqualTo("UNKNOWN");
         assertThat(legs.get(0).getSourceStartStopId()).isEqualTo("odsay-stop-1");
         assertThat(legs.get(0).getSourceEndStopId()).isEqualTo("odsay-stop-2");
+        // V78(#614) 선택 주인 왕복과 CHECK
+        assertThat(legs.get(0).getRouteOptionSelectedBy())
+                .isEqualTo(watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy.USER);
+        assertThat(jdbcTemplate.queryForObject("select route_option_selected_by from journey_leg where id = ?",
+                String.class, wait.getId())).isEqualTo("USER");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> jdbcTemplate.update(
+                        "update journey_leg set route_option_selected_by = 'AUTO' where id = ?", wait.getId()))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
 
         assertThat(routeOptionRepository.findByJourneyLegIdInAndDeletedAtIsNull(List.of(wait.getId())))
                 .singleElement()
@@ -467,6 +478,7 @@ class JourneySchemaIT {
                     assertThat(saved.getAlightingSeq()).isEqualTo(12);
                     assertThat(saved.getDirectionKey()).isEqualTo("SEQ:4>12");
                     assertThat(saved.getRouteDisplayColor()).isEqualTo("#3D5BAB");   // V77(#607)
+                    assertThat(saved.getRideSeconds()).isEqualTo(905);                // V78(#614)
                 });
     }
 
