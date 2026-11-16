@@ -367,8 +367,9 @@ public class JourneyLeg extends BaseEntity {
      * (평가기의 유예) 동안 다른 버스의 도착 시각이 보인다. 타는 단계의 진행도·남은 정류장·근거는 <b>남긴다</b> — 묶인
      * 노선은 서는 정류장이 같고(#605) 그 값들은 앱이 올린 관측이라, 비우면 탑승 위치 판정이 "진행 없음"으로 떨어진다.
      *
-     * <p>{@code vehicleId} 는 건드리지 않는다 — 단독 추적 워커가 종류·출처 칼럼과 함께 부분 UPDATE 로만 쓰는 값이고
-     * (V61 CHECK: 셋이 함께 있거나 함께 없다), 여기서 하나만 비우면 제약에 걸린다.
+     * <p>{@code vehicleId} 는 건드리지 않는다 — V61 CHECK 가 종류·출처 칼럼과 묶는데(셋이 함께 있거나 함께 없다) 그 둘은
+     * 엔티티에 없어, 여기서 하나만 비우면 제약에 걸린다. 지금 이 칼럼들을 쓰는 코드는 없다. 차량을 채우는 코드가 생기면
+     * 재선택 때 네 칼럼을 함께 비우는 UPDATE 를 같이 넣어야 한다(옛 노선의 차량이 남는다).
      */
     public void reselectRouteOption(Long journeyLegRouteOptionId, String routeId) {
         this.selectedRouteOptionId = journeyLegRouteOptionId;

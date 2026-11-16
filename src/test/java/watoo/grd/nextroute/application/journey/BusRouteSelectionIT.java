@@ -245,6 +245,11 @@ class BusRouteSelectionIT {
                 journey.routeRevision(), 2), JourneyErrorCode.BUS_ROUTE_SELECTION_NOT_ALLOWED);
         assertThatThrownBy(() -> selectionService.select(userId, journey.journeyId(), option(3, 1).optionId(),
                 journey.routeRevision() + 1, 4)).isInstanceOf(StaleRouteRevisionException.class);
+        // 지워진 후보는 고를 수 없다
+        jdbcTemplate.update("update journey_leg_route_option set deleted_at = now() where id = ?",
+                option(0, 1).optionId());
+        assertError(() -> selectionService.select(userId, journey.journeyId(), option(0, 1).optionId(),
+                journey.routeRevision(), 1), JourneyErrorCode.BUS_ROUTE_OPTION_NOT_FOUND);
         Long stranger = newUser();
         assertError(() -> selectionService.select(stranger, journey.journeyId(), option(3, 1).optionId(),
                 journey.routeRevision(), 4), JourneyErrorCode.JOURNEY_NOT_FOUND);

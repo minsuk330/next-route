@@ -40,6 +40,10 @@ import java.util.Objects;
  *   <li>평가를 지금으로 당긴다({@code scheduleEvaluationAt}). 돌고 있던 평가는 저장 때 소유 검사에 걸려 버려지므로
  *       옛 노선 기준 결과가 방금 비운 값을 다시 채우지 못한다.</li>
  * </ul>
+ *
+ * <p>알려진 한계: 진행 보고는 단계 행 → 여정 행 순서로 쓰고 여기는 여정 행 → 단계 행 순서라, 탑승 중 재선택이 진행 보고와
+ * 수 ms 겹치면 DB 가 한쪽을 교착으로 끊는다(5xx). 구간 전이도 같은 순서를 쓴다. 같은 후보 재전송은 변화가 없으므로 앱이
+ * 다시 보내면 된다.
  */
 @Slf4j
 @Service
@@ -98,6 +102,10 @@ public class BusRouteSelectionService {
 
         Instant now = Instant.now(clock);
         journey.scheduleEvaluationAt(now);
+        // 여기서 직접 flush 한다. 아래 갱신 신호는 자기 안에서 flush 하고 예외를 삼키므로, 단계 저장이 실패하면
+        // "신호 실패" 로그만 남고 원인이 가려진다(재탐색 수락과 같은 순서).
+        legRepository.flush();
+        sessionRepository.flush();
         // 재탐색 보드도 옛 노선 기준이다 — 다시 찾게 한다.
         rerouteRefreshSignal.requestNow(journeyId);
         log.info("[BusRouteSelection] journeyId={} rideLegIndex={} option {} -> {} route={}({})",

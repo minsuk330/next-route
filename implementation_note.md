@@ -6813,3 +6813,5 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `./gradlew test --tests '*BusRouteSelection*' --tests '*RerouteAcceptIT*' --tests '*JourneyEvaluationIT*'` → 82 통과(st-pg, st-redis).
 - 여정 전체: `--tests 'watoo.grd.nextroute.application.journey.*' --tests '…domain.journey.*' --tests '…in.api.journey.*'` → 1,999 중 실패 1, 건너뜀 6. 실패 = `RerouteRemainingPathOtpLiveIT`(기존 무관: 그 시험의 `routing.otp.concurrency.lease-ms=12000` 이 설정 검증 17000 에 걸려 컨텍스트가 안 뜬다. OTP 터널이 열려 있을 때만 도는 시험).
 - 변이 확인: `carriedOption` 을 `firstOption` 으로 되돌리면 `keepsUserSelectedBusRouteOnCopiedLegs` 가 실패한다.
+- 리뷰(서브에이전트) 반영: ①갱신 신호 전에 단계·여정을 직접 flush(신호가 예외를 삼켜 원인이 가려지는 것 방지) ②지워진 후보 422 시험 추가 ③`vehicleId` 주석 정정 — 지금 차량 칼럼을 쓰는 코드는 main 에 없다(위 함정의 "워커 부분 UPDATE" 는 V61 주석을 옮긴 것, ~~단독 추적 워커가 쓴다~~ 현재 쓰는 코드 없음).
+- 리뷰가 남긴 미결(고치지 않음): ①탑승 중 재선택과 진행 보고가 수 ms 겹치면 교착으로 한쪽이 5xx(잠금 순서가 반대. 구간 전이도 같은 구조). 앱은 다시 보내면 된다 ②재탐색 보드가 옛 노선으로 계산한 "중간 하차" 후보를 선택 뒤에도 잠시 들고 있을 수 있다. 수락하면 `RideTruncationResolver` 가 노선 불일치로 거절한다(잘못 반영되지는 않음). 다음 보드 갱신이 바꾼다 ③선택 직전에 줄 선 위험 알림은 옛 노선 이름으로 나갈 수 있다 ④`@DynamicUpdate` 가 진행 보고를 안 덮는다는 것 자체를 고정하는 동시성 시험은 없다.
