@@ -6834,3 +6834,36 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `./gradlew test --tests '*TransferArrivalEnricher*'` → 38 통과(신규 3: 모델로 채움, lane 별 실시간·모델 혼합, 모델 꺼짐이면 모름·미호출).
+
+## OTP 그래프: 서울 버스를 공식 API 로 갱신 (#611, 2026-11-16 밤)
+
+### 확정
+- 그래프의 서울 버스(2025-03 KTDB)를 서울 버스 공식 API(`getStaionByRoute`, `getRoutePath`)의 현재 정류장·노선 선으로 덮어쓴다. 경기 `apply_gbis_routes.py` 를 그대로 쓰고 `--provider seoul` 만 더했다(운행편·시각은 유지, 정류장 순서·선·이름만 교체).
+- 통과 지점 = 정류장 번호(arsId)가 없거나 이름에 `(경유)`·`(미정차)`·`(가상)`. 정류장에서 뺀다.
+- 피드에 없는 서울 노선 33개는 `add_seoul_routes.py` 로 추가. **시각은 추정**(공식 선 거리 ÷ 고정 속도 16km/h, 공항버스 35km/h, 정차 10초, 첫차~막차를 배차간격으로). `timepoint=0`.
+- 빌드: `OTP_OSM=…-osmfix.osm.pbf runner/build_otp_graph.sh --profile national --from-zip <운영 zip …-daytypes.gtfs.zip> --seoul-bus data/seoul-bus/raw --seoul-new-routes data/seoul-bus/routes-info.tsv --thresholds … --modes bus,subway --graph-version …-seoulbus`(2i, 2j 단계, 접미사 `-seoulbus`).
+
+### 함정
+- 🔴 그래프의 서울 노선 737행 중 74행은 id 에 `_U`·`_D` 가 붙는다(`BR_TAGO_SEB100100419_U`). 표시 없는 id 로만 조회하면 "노선 없음"으로 잘못 센다 — #611 첫 집계가 69개라고 했다가 33개로 정정한 원인.
+- 공식 정류장 목록에 태그 없는 통과 지점이 있다("영종대교", "북인천IC", "공항입구JC") ← arsId 가 비어 있다. 이름 태그만 보면 공항버스가 다리에 서게 된다.
+- 순환 노선의 첫 정류장이 선의 끝 쪽에만 붙으면(같은 터미널의 다른 층) 모든 정류장 위치가 선 끝으로 뭉개진다 ← 단조 배정. 첫 정류장 후보에 선 시작점을 넣어 해결(`first_may_be_line_start`, 서울만).
+- 옛 정류장이 공식 선에서 150m 넘게 벗어난 운행편(N6002, 동작05-1)은 선만 바꾸면 선도 정류장도 안 맞는다 → 공식 목록 전체로 교체(`offLine`, 56편).
+- 서울 표(`bus_route`)에 없는데 그래프에는 있던 5개 노선(8553출근, N6001, 관악02, 774, 노원13)도 공식 API 에는 있다 → 표가 빠뜨린 것. 수집 목록에 따로 넣었다.
+- `configure("gbis")` 가 값을 되돌리지 않으면 한 프로세스에서 provider 를 바꿔 쓰는 시험이 서로 오염된다.
+
+### 좌표
+- `tools/transit-routing-benchmark/runner/fetch_seoul_routes.py`, `apply_gbis_routes.py`(`load_seoul`, `configure`), `add_seoul_routes.py`, `test_seoul_routes.py`, `build_otp_graph.sh`(2i, 2j)
+- 대조·검증 도구(추적 안 함): `tools/route-compare/seoul_stops_audit.py`, `seoul_stops_judge.py`, `seoul_graph_verify.py`, `graph_ab.py`
+
+### 검증
+- 단위: `python3 -m unittest runner/test_seoul_routes.py runner/test_apply_gbis_routes.py` → 27 통과.
+- 적용 리포트: 서울 운행편 62,618 중 62,230 정류장 교체(id 일치 59,944, 좌표 근접 1,553, 순환 671, offLine 56, 방향 6), 선만 교체 388(5개 노선, 정류장~선 최대 100m), 미변경 0. 정류장 추가 88, 이동 12,619, 이름 변경 1,286. 누락 노선 33개·720편·정류장 79개 추가.
+- 새 그래프(로컬 18082) 전수 대조: 공식 733개 노선 중 정류장·순서 같음 719, 순서·구간만 다름 3, 일부 구간만 운행 9, 공식에 없는 정류장 남음 2(774, 서초21 = 선만 교체된 노선). 이전 그래프: 같음 522/728, 다름 130, 없음 33.
+- 검색 회귀(80 OD, 11-17 08:30, 운영 그래프 대비): 오류 0, 최단 시간 ±1분 79, 단축 1(봉천→옥수 58→54분), 경로 목록 동일 73, 다름 7.
+- 빌드 이슈 수(오전 그래프 → 새 그래프): ShapeGeometryTooFar 415 → 476, HopSpeedFast 2,844 → 3,030, HopZeroDistance 11,008 → 10,424.
+
+### 미결
+- 선만 교체된 5개 노선(506, 774, 은평03-1, 은평03-?, 서초21)은 옛 정류장이 남는다.
+- 추가한 33개 노선의 시각은 추정이다. 실제 시간표를 구하면 교체.
+- 경기·지방 노선의 공식 전수 대조는 안 했다(경기는 GBIS 로 이미 덮어씀).
+- 서울 표(`bus_route_stop`)도 4개 노선(145, 273, 405, 서초09)이 공식과 다르고 5개 노선이 없다 → 정적 배치 1회 필요.
