@@ -128,7 +128,8 @@ public class JourneyQueryService implements JourneyQueryUseCase {
                         option.getDirectionKey(),
                         option.getWayCode(),
                         option.getBoardingSeq(),
-                        option.getAlightingSeq()))
+                        option.getAlightingSeq(),
+                        option.getRouteDisplayColor()))
                 .toList();
 
         JourneyLegGuidance guidance = leg.getGuidance();

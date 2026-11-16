@@ -284,7 +284,7 @@ public class JourneyCompiler {
         for (int i = 0; i < sub.lanes().size(); i++) {
             LaneResult lane = sub.lanes().get(i);
             options.add(JourneyRouteOptionDraft.of(
-                    i, sourceRouteId(lane), routeName(lane), sub.wayCode()));
+                    i, sourceRouteId(lane), routeName(lane), sub.wayCode(), lane.routeDisplayColor()));
         }
         return options;
     }

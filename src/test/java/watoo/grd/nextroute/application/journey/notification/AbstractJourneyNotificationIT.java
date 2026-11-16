@@ -86,7 +86,8 @@ import java.util.Map;
         "classpath:db/migration/V71__journey_leg_train_kind.sql",
         "classpath:db/migration/V66__journey_session_evaluation_urgent.sql",
         "classpath:db/migration/V67__journey_reevaluation_trigger.sql",
-        "classpath:db/migration/V69__journey_session_alert_claim.sql"
+        "classpath:db/migration/V69__journey_session_alert_claim.sql",
+        "classpath:db/migration/V77__add_journey_route_option_display_color.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 abstract class AbstractJourneyNotificationIT extends AbstractJourneyOutboxPostgresIT {

@@ -231,6 +231,7 @@ public class JourneyStartTxService {
                 .wayCode(draft.wayCode())
                 .boardingSeq(draft.boardingSeq())
                 .alightingSeq(draft.alightingSeq())
+                .routeDisplayColor(draft.routeDisplayColor())
                 .build();
     }
 

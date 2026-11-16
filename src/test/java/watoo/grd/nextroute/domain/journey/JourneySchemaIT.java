@@ -87,7 +87,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V71__journey_leg_train_kind.sql",
         "classpath:db/migration/V66__journey_session_evaluation_urgent.sql",
         "classpath:db/migration/V67__journey_reevaluation_trigger.sql",
-        "classpath:db/migration/V75__transfer_connection_model_version_length.sql"
+        "classpath:db/migration/V75__transfer_connection_model_version_length.sql",
+        "classpath:db/migration/V77__add_journey_route_option_display_color.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 class JourneySchemaIT {
@@ -442,6 +443,7 @@ class JourneySchemaIT {
                         .wayCode(1)
                         .boardingSeq(4)
                         .alightingSeq(12)
+                        .routeDisplayColor("#3D5BAB")
                         .build());
 
         wait.selectRouteOption(option.getId(), option.getRouteId());
@@ -464,6 +466,7 @@ class JourneySchemaIT {
                     assertThat(saved.getBoardingSeq()).isEqualTo(4);
                     assertThat(saved.getAlightingSeq()).isEqualTo(12);
                     assertThat(saved.getDirectionKey()).isEqualTo("SEQ:4>12");
+                    assertThat(saved.getRouteDisplayColor()).isEqualTo("#3D5BAB");   // V77(#607)
                 });
     }
 
