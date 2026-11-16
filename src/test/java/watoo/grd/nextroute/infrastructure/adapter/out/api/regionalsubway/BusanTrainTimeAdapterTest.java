@@ -62,4 +62,28 @@ class BusanTrainTimeAdapterTest {
                 new RegionalDeparture(RegionalDayType.HO, 86400, "다대포해수욕장"),
                 new RegionalDeparture(RegionalDayType.HO, 25200, "#scode:777"));   // 모르는 종착 → 적재가 unmatched 로 버린다
     }
+
+    @Test
+    @DisplayName("3호선 endcode 318 = 대저, 4호선 415 = 안평(역 코드와 다른 종착 코드, 운영 실측)")
+    void endcodeAliases() {
+        server.expect(requestTo(containsString("scode=409")))
+                .andRespond(withSuccess("""
+                        {"header":{"resultCode":"00"},"body":{"items":{"item":[
+                          {"scode":"409","line":"4","arrtime":"06:00:00","dayType":"1","updown":"0","endcode":"401"},
+                          {"scode":"409","line":"4","arrtime":"06:05:00","dayType":"1","updown":"1","endcode":"415"}
+                        ]},"totalCount":2}}
+                        """, MediaType.APPLICATION_JSON));
+        List<RegionalDeparture> out = adapter.fetch(catalog.findByProviderCode("BS4", "409"));
+        assertThat(out).extracting(RegionalDeparture::terminalName).containsExactly("미남", "안평");
+
+        RegionalStationSeed yeonsan = catalog.findByProviderCode("BS3", "305");
+        server.reset();
+        server.expect(requestTo(containsString("scode=305")))
+                .andRespond(withSuccess("""
+                        {"header":{"resultCode":"00"},"body":{"items":{"item":
+                          {"scode":"305","line":"3","arrtime":"06:00:00","dayType":"1","updown":"1","endcode":"318"}
+                        },"totalCount":1}}
+                        """, MediaType.APPLICATION_JSON));
+        assertThat(adapter.fetch(yeonsan)).extracting(RegionalDeparture::terminalName).containsExactly("대저");
+    }
 }
