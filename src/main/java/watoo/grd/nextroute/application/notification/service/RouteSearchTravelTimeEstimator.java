@@ -106,7 +106,8 @@ public class RouteSearchTravelTimeEstimator implements RouteTravelTimeEstimator 
                 int offsetSec = fixedSec;                    // 스냅샷 offsetSec = 고정 소요만
 
                 waitSec += choice.waitSec;
-                fixedSec += sp.sectionTime() * 60;           // 승차 후 ride 는 고정
+                // 승차 후 ride 는 고정. 고른 lane 의 탑승시간을 알면 그 값으로(묶인 노선마다 다르다, bus-lane-selection PR-1)
+                fixedSec += choice.rideSec != null ? choice.rideSec : sp.sectionTime() * 60;
 
                 if (choice.maxTerm != null) {
                     maxHeadway = maxHeadway == null ? choice.maxTerm : Math.max(maxHeadway, choice.maxTerm);
@@ -175,6 +176,7 @@ public class RouteSearchTravelTimeEstimator implements RouteTravelTimeEstimator 
             if (mode == EvaluationMode.STATIC) {
                 // STATIC 은 term/2 가 정식 추정(fallback 아님) → realtimeBest 슬롯에 최소 대기로 집계.
                 BusLaneChoice cand = new BusLaneChoice(true, false, false, stopId, rr.routeId(), seq, staticWait, headway);
+                cand.rideSec = positive(lane.rideSeconds());
                 if (realtimeBest == null || cand.waitSec < realtimeBest.waitSec) realtimeBest = cand;
             } else {
                 TransferArrival ta = arrivalForLane(arrivals, li);
@@ -185,9 +187,11 @@ public class RouteSearchTravelTimeEstimator implements RouteTravelTimeEstimator 
                     int wait = (int) Math.max(0, ta.waitSeconds());
                     boolean approx = ta.status() == TransferArrival.Status.ARRIVAL_TIME_APPROXIMATE;
                     BusLaneChoice cand = new BusLaneChoice(true, false, approx, stopId, rr.routeId(), seq, wait, headway);
+                    cand.rideSec = positive(lane.rideSeconds());
                     if (realtimeBest == null || wait < realtimeBest.waitSec) realtimeBest = cand;
                 } else {
                     BusLaneChoice fb = new BusLaneChoice(true, true, false, stopId, rr.routeId(), seq, staticWait, headway);
+                    fb.rideSec = positive(lane.rideSeconds());
                     if (fallbackBest == null || fb.waitSec < fallbackBest.waitSec) fallbackBest = fb;
                 }
             }
@@ -255,7 +259,13 @@ public class RouteSearchTravelTimeEstimator implements RouteTravelTimeEstimator 
         }
     }
 
+    private static Integer positive(Integer seconds) {
+        return seconds != null && seconds > 0 ? seconds : null;
+    }
+
     private static final class BusLaneChoice {
+        /** 고른 lane 의 탑승시간(초). 모르면 null → 구간 값. */
+        Integer rideSec;
         final boolean resolved;
         final boolean fallback;
         final boolean approx;

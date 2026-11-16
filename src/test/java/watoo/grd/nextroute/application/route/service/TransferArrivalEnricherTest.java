@@ -686,6 +686,50 @@ class TransferArrivalEnricherTest {
     private static final String GG_STOP = "202000208";
     private static final String GG_ROUTE = "234000026";
 
+    @Test
+    @org.junit.jupiter.api.DisplayName("버스 → 버스 환승: 먼저 오는 lane 을 탄다고 보고 그 lane 의 탑승시간으로 다음 정류장 도착을 잰다")
+    void transferArrivalUsesTheRideTimeOfTheEarliestLane() {
+        props.setEnabled(true);
+        lenient().when(predictionSupport.support(any())).thenReturn(PredictionSupportService.Support.UNSUPPORTED);
+        // 첫 구간(정류장 1111): 750B 는 10분 뒤, 360 은 5분 뒤 도착. 구간 sectionTime 10분(대표 750B 600s), 360 은 840s 걸린다
+        stubRoute("100100750", "750B", arrivalInfo("100100750", "2026-06-06 12:59:50.0", 600, 1200));
+        stubRoute("100100360", "360", arrivalInfo("100100360", "2026-06-06 12:59:50.0", 300, 1200));
+        SubPathResult first = busSubPathLanes("1111", List.of(
+                new LaneResult("750B", "750B", null, 1, null, "100100750", null, 600),
+                new LaneResult("360", "360", null, 1, null, "100100360", null, 840)));
+        // 둘째 구간(정류장 2222, 노선 100100999)
+        when(stopRepo.findByStopId("2222")).thenReturn(Optional.of(busStop("2222")));
+        when(routeRepo.findByRouteId("100100999")).thenReturn(Optional.of(busRoute("100100999", "999")));
+        when(routeStopRepo.findByRouteIdAndStopId("100100999", "2222")).thenReturn(List.of(routeStop("100100999", "2222", 7)));
+        BusArrivalInfo next = arrivalInfo("100100999", "2026-06-06 12:59:50.0", 1800, 2400);
+        lenient().when(busPort.getArrInfoByStop(eq("2222"), eq("100100999"), eq(7), anyLong())).thenReturn(arrOk(List.of(next)));
+        lenient().when(busPort.getArrInfoByStop("2222", "100100999", 7)).thenReturn(arrOk(List.of(next)));
+        SubPathResult second = busSubPath("2222", "100100999", "999");
+
+        RouteSearchResult out = enricher.enrich(resultWith(List.of(first, second)), NOW, RouteSearchContext.start(5000));
+
+        TransferArrival ta = out.paths().get(0).subPaths().get(1).transferArrivals().get(0);
+        // 360 탑승 13:04:50 KST + 840s = 13:18:50 KST. 대표(750B) 탑승시간 600s 를 쓰면 13:14:50 이 된다
+        assertThat(ta.userArrivalAt()).isEqualTo(Instant.parse("2026-06-06T04:18:50Z"));
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("환승 도착 계산: 탄다고 본 lane 의 탑승시간을 쓴다 — 구간 sectionTime 은 대표 노선 값이다(bus-lane-selection PR-1)")
+    void rideSecondsOfTheBasisLane() {
+        // 구간 8분(대표 8100), 묶인 M4102 는 같은 정류장 사이를 14분에 간다(운영 실측 최대 차 9.3분)
+        SubPathResult bus = busSubPathLanes("111", List.of(
+                new LaneResult("8100", "8100", null, 1, null, "100100001", null, 480),
+                new LaneResult("M4102", "M4102", null, 1, null, "100100002", null, 840),
+                new LaneResult("9000", "9000", null, 1, null, "100100003", null)));
+
+        assertThat(TransferArrivalEnricher.rideSeconds(bus, 0)).isEqualTo(480);
+        assertThat(TransferArrivalEnricher.rideSeconds(bus, 1)).isEqualTo(840);
+        // 그 lane 값을 모르거나(옛 스냅샷·ODsay) lane 을 모르면 구간 값
+        assertThat(TransferArrivalEnricher.rideSeconds(bus, 2)).isEqualTo(bus.sectionTime() * 60L);
+        assertThat(TransferArrivalEnricher.rideSeconds(bus, null)).isEqualTo(bus.sectionTime() * 60L);
+        assertThat(TransferArrivalEnricher.rideSeconds(bus, 9)).isEqualTo(bus.sectionTime() * 60L);
+    }
+
     private static SearchRegionalArrivalService.Pending done(SearchRegionalArrivalService.Outcome o, Integer... secondsAhead) {
         return new SearchRegionalArrivalService.Pending(SearchRegionalArrivalService.Provider.GG,
                 java.util.concurrent.CompletableFuture.completedFuture(
