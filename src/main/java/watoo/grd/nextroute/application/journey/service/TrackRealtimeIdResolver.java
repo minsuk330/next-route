@@ -57,14 +57,24 @@ public class TrackRealtimeIdResolver {
     }
 
     /**
-     * 정류장을 지나는 호선마다 하나. 호선을 모르면 전부 null 인 한 줄 — 정류장 자체는 목록에 남긴다.
+     * 정류장을 지나는 호선마다 하나.
      *
-     * @param routeShortNames OTP 노선 이름({@code 서울2호선}, {@code 신분당선})
+     * <p>서울 노선 id 로 못 바꾸는 노선(부산·대구·대전·광주·인천2호선 등)은 id 없이 OTP 노선 이름만 담은 한 줄이다
+     * ({@code lineId}·{@code arrivalStationId} null → 앱은 실시간 도착 없음으로 그린다). 예전엔 이름까지 null 이라 앱이
+     * "지하철" 로 채워 갈아타는 역이 "지하철 · 지하철" 탭이 됐다(2026-11-16 부산 서면). 이름을 아예 모르면 전부 null 인 한 줄.
+     *
+     * @param routeShortNames OTP 노선 이름({@code 서울2호선}, {@code 신분당선}, {@code 부산2호선})
      */
     public List<SubwayStationIds> subway(TransitStop stop, List<String> routeShortNames) {
         Set<String> lineIds = new LinkedHashSet<>();
+        Set<String> unresolvedNames = new LinkedHashSet<>();
         for (String name : routeShortNames == null ? List.<String>of() : routeShortNames) {
-            SubwayRoutePatternAssembler.lineIdOf(name).ifPresent(lineIds::add);
+            java.util.Optional<String> lineId = SubwayRoutePatternAssembler.lineIdOf(name);
+            if (lineId.isPresent()) {
+                lineIds.add(lineId.get());
+            } else if (name != null && !name.isBlank()) {
+                unresolvedNames.add(name.trim());
+            }
         }
         List<SubwayStationIds> rows = new ArrayList<>();
         for (String lineId : lineIds) {
@@ -74,6 +84,8 @@ public class TrackRealtimeIdResolver {
                     .map(c -> new SubwayStationIds(c.stationId(), lineId, stationIndex.lineName(lineId)))
                     .orElse(new SubwayStationIds(null, lineId, stationIndex.lineName(lineId))));
         }
+        // 서울 id 가 없는 노선은 이름만(2호선으로 오인하지 않게 lineId 는 비운다)
+        unresolvedNames.forEach(name -> rows.add(new SubwayStationIds(null, null, name)));
         return rows.isEmpty() ? List.of(SubwayStationIds.NONE) : rows;
     }
 }

@@ -158,7 +158,10 @@ public class SubwayTrainSelectionService {
         if (!isSubwayPair(wait, ride)) {
             throw new BusinessException(JourneyErrorCode.NOT_WAITING_FOR_SUBWAY);
         }
-        if (!REALTIME_LINE_IDS.contains(wait.getRouteId())) {
+        // 지방 지하철(부산·대구·대전·광주)은 서울 노선 id 가 없다(null). Set.of(...).contains(null) 은 false 가 아니라
+        // NPE 라 그대로 두면 500 이 나고, 앱은 오류를 "추적 가능"으로 쳐 열차 고르기를 연다(2026-11-16 운영 여정 492).
+        String routeId = wait.getRouteId();
+        if (routeId == null || !REALTIME_LINE_IDS.contains(routeId)) {
             return SubwayTrackabilityView.no(rideIndex, SubwayTrackabilityView.Reason.NO_REALTIME_LINE);
         }
         if (wait.getStartStopId() == null) {

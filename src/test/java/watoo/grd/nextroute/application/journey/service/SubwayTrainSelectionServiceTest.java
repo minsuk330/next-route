@@ -399,6 +399,15 @@ class SubwayTrainSelectionServiceTest {
     }
 
     @Test
+    @DisplayName("추적 가능: 지방 지하철(서울 노선 id 없음, null)은 500 이 아니라 NO_REALTIME_LINE — 앱이 열차 고르기를 열지 않게")
+    void trackabilityRegionalNullRouteId() {
+        ReflectionTestUtils.setField(wait, "routeId", null);
+        assertThat(service.trackability(USER, JOURNEY, 1).reason())
+                .isEqualTo(watoo.grd.nextroute.application.journey.dto.SubwayTrackabilityView.Reason.NO_REALTIME_LINE);
+        assertThat(service.trackability(USER, JOURNEY, 1).trackable()).isFalse();
+    }
+
+    @Test
     @DisplayName("탑승 중 재선택은 이미 탄 열차로 넘긴다(aboard) — 링이 승차역으로 되감기지 않게")
     void ridingSelectionIsAboard() {
         session.moveToLeg(1);
