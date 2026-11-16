@@ -6684,3 +6684,10 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 안 고쳐진 쌍(transfers.txt 에 없음): 대곡(GTX-A)↔대곡(일반철도) 3,131m, 서울(지하·GTX-A)↔서울(경의중앙선) 약 1,035m.
 ### 배포
 - 전국 그래프 재빌드 때 `prepare_gtfs` 산출 zip 에 이 스크립트를 한 번 태운다(add_station_entrances 앞뒤 무관). 로컬 Docker 메모리 7.75GB 로는 전국 빌드 불가(11GB 이상).
+
+## subway-regional-timetable 운영 배포 (2026-11-16 05:2x KST)
+### 배포
+- worker/worker2 `nextroute:20261116-112711-2d7df272`, compose worker env `REGIONAL_SUBWAY_TIMETABLE_ENABLED: "true"`(백업 compose.yaml.bak-*-pre-regional-timetable, app.jar.bak-*-pre-regional-timetable). api 는 그대로(serving 은 앱 출시 뒤).
+- 부팅 적재: stations=250 loaded=249 empty=1 unmatchedTerminal=12857 rows=190790, 119초.
+### 함정
+- 부산 3호선 대저행 endcode 318(대저 scode 317), 4호선 안평행 415(안평 414) ← 끝까지 가는 열차가 전부 unmatched(12,857 ≈ 3·4호선), 미남(401) 0건 / `BusanTrainTimeAdapter.ENDCODE_ALIASES`. 반여농산물시장 endcode 가 401·415 둘뿐 → 415=안평.
