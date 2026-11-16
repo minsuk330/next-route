@@ -12,8 +12,14 @@ platforms link to streets on opposite sides of the tracks the walk is far longer
 * 옥수 3호선 ↔ 경의중앙선 3,483 m, 대곡 3호선 ↔ GTX-A 3,128 m, 온수 1호선 ↔ 7호선 2,052 m, 석남, 을지로3가, 초지 ...
 
 Pairs whose platforms already share a coordinate (왕십리, 용산, 금정) work.  So this script moves the platforms
-of a declared transfer group to the group's centroid.  The platforms then share a street link, the walk is
-~0 m, and the feed's ``min_transfer_time`` is what the transfer costs.
+of a declared transfer group onto one of them — the medoid, the member whose farthest sibling is nearest.
+The platforms then share a street link, the walk is ~0 m, and the feed's ``min_transfer_time`` is what the
+transfer costs.
+
+Why a member and not the centroid: the centroid of 디지털미디어시티 (경의중앙선·6호선·공항철도, 267 m wide) falls in
+the rail yard and links to a street that is far from every exit — every trip ending there got 8-12 min longer
+(2026-11-16 national build: 오목교 → 디지털미디어시티 38 → 47 min).  A member's own point already has a street link
+that works for that line.
 
 Only groups named in ``--stops-file`` are moved (one stop id per line, ``#`` comments).  Most stations transfer
 fine over the street network (잠실 2호선 ↔ 8호선 390 m), and moving a platform 200 m shifts every walk that
@@ -89,8 +95,8 @@ def colocate(stops: list[dict[str, str]], transfers: list[dict[str, str]], max_s
         if span > max_span_m:
             skipped.append({"stops": members, "names": [by_id[m]["stop_name"] for m in members], "span_m": round(span)})
             continue
-        lat = sum(p[0] for p in points) / len(points)
-        lon = sum(p[1] for p in points) / len(points)
+        # medoid: the member whose farthest sibling is nearest; ties go to the first stop id
+        lat, lon = min(points, key=lambda p: max(distance_m(*p, *q) for q in points))
         for member in members:
             for stop_id in (member, *(prefix + member for prefix in COPY_PREFIXES)):
                 row = by_id.get(stop_id)
