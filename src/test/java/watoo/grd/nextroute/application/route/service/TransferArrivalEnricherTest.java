@@ -711,6 +711,21 @@ class TransferArrivalEnricherTest {
         TransferArrival ta = out.paths().get(0).subPaths().get(1).transferArrivals().get(0);
         // 360 탑승 13:04:50 KST + 840s = 13:18:50 KST. 대표(750B) 탑승시간 600s 를 쓰면 13:14:50 이 된다
         assertThat(ta.userArrivalAt()).isEqualTo(Instant.parse("2026-06-06T04:18:50Z"));
+
+        // 앞 구간의 lane 마다 "그 버스를 타면 다음 정류장에서 얼마나 기다리나"가 붙는다(999 는 13:29:50, 13:39:50 도착)
+        List<TransferArrival> firstLanes = out.paths().get(0).subPaths().get(0).transferArrivals();
+        // 750B: 13:09:50 탑승 + 600s = 13:19:50 도착 → 999 13:29:50 차, 대기 600s
+        watoo.grd.nextroute.application.route.dto.OnwardWait via750 = firstLanes.get(0).onwardWaits().get(0);
+        assertThat(via750.userArrivalAt()).isEqualTo(Instant.parse("2026-06-06T04:19:50Z"));
+        assertThat(via750.predictedArrivalAt()).isEqualTo(Instant.parse("2026-06-06T04:29:50Z"));
+        assertThat(via750.waitSeconds()).isEqualTo(600);
+        // 360: 13:04:50 탑승 + 840s = 13:18:50 도착 → 같은 차, 대기 660s
+        watoo.grd.nextroute.application.route.dto.OnwardWait via360 = firstLanes.get(1).onwardWaits().get(0);
+        assertThat(via360.laneIndex()).isZero();
+        assertThat(via360.routeId()).isEqualTo("100100999");
+        assertThat(via360.waitSeconds()).isEqualTo(660);
+        // 마지막 버스 구간에는 다음 구간이 없다
+        assertThat(ta.onwardWaits()).isNull();
     }
 
     @Test

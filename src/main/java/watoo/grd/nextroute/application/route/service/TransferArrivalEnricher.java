@@ -619,6 +619,9 @@ public class TransferArrivalEnricher {
             resultMap.computeIfAbsent(ctx.pathIdx, k -> new HashMap<>())
                     .put(ctx.subPathIdx, laneResults);
 
+            // 앞 버스 구간의 lane 마다 "그 버스를 타면 여기서 얼마나 기다리나"를 붙인다
+            attachOnwardWaits(ctx, result, prevWave.get(ctx.pathIdx), resultMap);
+
             // 다음 wave 타임라인 업데이트
             updatePrevWave(ctx.pathIdx, ctx.subPathIdx, laneResults,
                     pathBestArrivalThisWave, pathBestLaneThisWave,
@@ -643,6 +646,52 @@ public class TransferArrivalEnricher {
     }
 
     // ── 헬퍼 ────────────────────────────────────────────────────────────────
+
+    /**
+     * 앞 버스 구간의 탈 수 있는 lane 마다, 그 버스를 타고 이 정류장에 닿은 뒤 lane 별 대기를 계산해 앞 구간 결과에 붙인다
+     * (bus-lane-selection). 이 구간의 {@code transferArrivals} 는 가장 먼저 오는 lane 을 탔다고 본 값 하나뿐이라, 묶인 다른
+     * 버스를 탈 때의 환승 대기는 여기서만 알 수 있다. 추가 조회는 없다 — 이 구간 lane 들이 이미 받은 서울 실시간 도착
+     * ({@code arrMatched})으로만 잰다. 경기·TAGO lane, 실시간이 없는 lane 은 대기를 모른다(null).
+     */
+    private void attachOnwardWaits(SubPathCtx ctx, RouteSearchResult result, PrevWaveInfo prev,
+                                   Map<Integer, Map<Integer, List<TransferArrival>>> resultMap) {
+        if (prev == null || ctx.upstreamUnavailable) {
+            return;
+        }
+        Map<Integer, List<TransferArrival>> byPath = resultMap.get(ctx.pathIdx);
+        List<TransferArrival> prevLanes = byPath == null ? null : byPath.get(prev.subPathIdx);
+        if (prevLanes == null || prevLanes.isEmpty()) {
+            return;
+        }
+        PathResult path = result.paths().get(ctx.pathIdx);
+        SubPathResult prevBusSp = path.subPaths().get(prev.subPathIdx);
+        long betweenSec = 0;
+        for (int k = prev.subPathIdx + 1; k < ctx.subPathIdx; k++) {
+            betweenSec += travelSeconds(path.subPaths().get(k));
+        }
+        List<TransferArrival> updated = new ArrayList<>(prevLanes.size());
+        for (TransferArrival prevLane : prevLanes) {
+            boolean boardable = prevLane.predictedArrivalAt() != null
+                    && (prevLane.status() == TransferArrival.Status.AVAILABLE
+                        || prevLane.status() == TransferArrival.Status.ARRIVAL_TIME_APPROXIMATE);
+            if (!boardable) {
+                updated.add(prevLane);
+                continue;
+            }
+            Instant userAt = prevLane.predictedArrivalAt()
+                    .plusSeconds(rideSeconds(prevBusSp, prevLane.laneIndex()) + betweenSec);
+            List<OnwardWait> waits = new ArrayList<>(ctx.laneContexts.size());
+            for (LaneCtx lc : ctx.laneContexts) {
+                Optional<Instant> next = lc.arrMatched == null
+                        ? Optional.empty() : earliestRealtimeArrival(lc.arrMatched, userAt);
+                waits.add(new OnwardWait(lc.laneIdx, lc.regional != null ? lc.regionalRouteId : lc.routeId, userAt,
+                        next.orElse(null),
+                        next.map(at -> Math.max(0, Duration.between(userAt, at).toSeconds())).orElse(null)));
+            }
+            updated.add(prevLane.withOnwardWaits(waits));
+        }
+        byPath.put(prev.subPathIdx, updated);
+    }
 
     /** 버스 구간을 laneIndex 노선으로 타는 시간(초). 그 노선 값을 모르면 구간 값(대표 노선). */
     static long rideSeconds(SubPathResult busSp, Integer laneIndex) {

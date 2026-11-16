@@ -6762,3 +6762,16 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 카카오는 승하차만 같은 노선도 묶는 것으로 보여 묶음 구성이 카카오보다 적을 수 있다(내비 정확도를 택함).
 ### 검증
 - `./gradlew test --tests '*ItineraryRanker*' --tests '*BusLaneMerger*' --tests '*OtpPlanConnectionMapper*' --tests '*RouteSearchService*' --tests '*LegacyRouteResponseMapper*' --tests '*OtpRoutingAdapter*' --tests '*KakaoParity*'` → 197 tests, 실패 0. 신규: onlyIdenticalStopListsMerge, busByStopsSeparatesDifferentIntermediateStops, fixture 에 stopCalls 있는 nextLegs.
+
+## 묶인 버스마다 다음 환승 대기 (bus-lane-selection, 2026-11-16 사용자 요청)
+### 확정
+- `TransferArrival.onwardWaits`(nullable 목록, 추가만 하는 계약 변경): 버스 구간의 lane 마다 "그 버스를 타면 다음 버스 구간에서 lane 별로 얼마나 기다리나". 항목 `OnwardWait{laneIndex(다음 구간), routeId, userArrivalAt, predictedArrivalAt, waitSeconds}`.
+- 다음 구간의 `transferArrivals` 는 지금처럼 가장 먼저 오는 lane 을 탔다고 본 값(기본). 앱은 사용자가 고른 버스의 `onwardWaits` 로 환승 대기를 보여 준다.
+- 닿는 시각 = 그 lane 의 도착 예측 + 그 lane 의 `rideSeconds` + 사이 도보. 추가 API 조회 없음 — 다음 구간 lane 이 이미 받은 서울 실시간 도착(`arrMatched`)으로만 잰다.
+- 같은 `transferArrivals` 목록에 lane 당 여러 줄을 넣는 안은 기각: 앱 `getBoardingWaitForLane` 이 lane 별 최소 대기를 고르므로 시나리오가 섞인다.
+### 함정
+- 다음 구간이 경기·TAGO lane 이거나 서울 실시간에 그 시각 이후 차가 없으면 `predictedArrivalAt`·`waitSeconds` 가 null(모름). 모델(ML) 대기는 시나리오에 쓰지 않는다.
+- 붙는 조건: 앞 lane 이 AVAILABLE·ARRIVAL_TIME_APPROXIMATE 이고 다음 버스 구간이 있을 때만. 다음이 지하철이면 없다(지하철 대기는 앱이 좌표로 묻는다).
+- 버스 3번 갈아타는 경로: 각 구간은 바로 앞 구간 lane 기준 한 단계만 싣는다(조합 폭발 방지).
+### 검증
+- 단위 149(TransferArrivalEnricher·RouteSearchTravelTime·RouteSearchService·LegacyRouteResponseMapper), 실패 0. 신규 단언: 750B 를 타면 다음 정류장 13:19:50 도착·대기 600초, 360 을 타면 13:18:50 도착·대기 660초, 마지막 버스 구간은 null.
