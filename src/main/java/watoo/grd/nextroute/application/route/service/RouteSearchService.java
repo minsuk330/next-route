@@ -316,8 +316,15 @@ public class RouteSearchService implements SearchRouteUseCase {
             excluded.addAll(ids);
             RoutingOutcome extra;
             try {
+                // 노선을 뺄 때는 원래 수단 그대로 묻는다 — 그 구간을 버스로 잇는 혼합 경로(지하철 → 버스)도 같이 나온다
+                // (2026-11-16 운영 OTP 80 OD: 카카오의 버스+지하철 경로 일치 23% → 62%, 지하철만 73% → 70%). 뺄 노선이 없을 때
+                // (철도 경로가 없거나 노선 목록을 모름)만 철도로 좁혀 묻는다.
+                // 전 수단으로 물을 때는 nextLegs 를 뺀다 — 응답이 2~3배 커져 예산(2초)을 넘기고, 끊긴 질의가 OTP 에 남아 본 검색까지
+                // 밀린다(2026-11-16 실측: 80 OD 중 35개 시간 초과). 버스 묶음은 후보끼리 묶는 것만으로 채운다.
+                RoutingQuery alternative = ids.isEmpty() || !otpRoutingProperties.isRailAlternativeAllModes()
+                        ? query.withModes(RAIL_ONLY_MODES) : query.withoutAlternativeLegs();
                 extra = providerSelector.portFor(RoutingProvider.OTP).search(
-                        query.withModes(RAIL_ONLY_MODES).withExcludedRouteIds(excluded), budget.get());
+                        alternative.withExcludedRouteIds(excluded), budget.get());
             } catch (RuntimeException e) {
                 log.warn("[OTP] 지하철 대안 검색 실패: {}", e.toString());
                 continue;

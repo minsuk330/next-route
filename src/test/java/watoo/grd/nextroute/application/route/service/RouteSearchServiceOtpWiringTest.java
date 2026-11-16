@@ -390,6 +390,41 @@ class RouteSearchServiceOtpWiringTest {
                 List.of(leg), cost);
     }
 
+    @Test
+    @DisplayName("지하철 대안: 노선 id 를 알면 원래 수단 그대로, 그 노선을 빼고, nextLegs 없이 묻는다 — 버스로 잇는 혼합 경로가 같이 나온다")
+    void railAlternativeAsksAllModesWithLineExcluded() {
+        QueryScriptedOtp otp = new QueryScriptedOtp()
+                .on(Set.of(), Set.of(), result(rail("1:S2", "서울2호선", NORMAL, 3000)))
+                .on(Set.of(), Set.of("1:S2", "1:S2-out"), result(rail("1:S9", "서울9호선", NORMAL, 4000),
+                        singleLeg(RoutingMode.BUS, "1:R740", "740", 5000)));
+        var policy = new watoo.grd.nextroute.application.route.routing.ExpressFilterPolicy(
+                watoo.grd.nextroute.application.subway.service.SubwayExpressRouteFixtures.railServiceClassifier()) {
+            @Override public Set<String> routeIdsOfLine(String shortName) {
+                return "서울2호선".equals(shortName) ? Set.of("1:S2", "1:S2-out") : Set.of();
+            }
+        };
+        TransferArrivalEnricher enricher = mock(TransferArrivalEnricher.class);
+        given(enricher.enrich(any(), any(), any())).willAnswer(call -> call.getArgument(0));
+        RoutingProviderProperties props = new RoutingProviderProperties();
+        props.setDefaultProvider(RoutingProvider.OTP);
+        props.setOtpEnabled(true);
+        RouteSearchService svc = new RouteSearchService(
+                odsayNeverCalled, mock(watoo.grd.nextroute.application.route.port.out.TmapPedestrianPort.class),
+                mock(WalkSegmentEnricher.class), enricher, new RouteSearchMetrics(new SimpleMeterRegistry()),
+                new RouteSearchDeadlineProperties(), new RoutingProviderSelector(props, List.of(otp)),
+                new LegacyRouteResponseMapper(mock(watoo.grd.nextroute.application.route.mapping.OtpSeoulIdentityResolver.class)),
+                new DepartureTimeResolver(Clock.systemDefaultZone()), grantingGate, Clock.systemDefaultZone(), limitFive(),
+                new WalkCoordResolver(), policy);
+
+        RouteSearchResult legacy = svc.search(request(false));
+
+        RoutingQuery asked = otp.asked.get(1);
+        assertThat(asked.modes()).isEmpty();
+        assertThat(asked.excludedRouteIds()).containsExactlyInAnyOrder("1:S2", "1:S2-out");
+        assertThat(asked.alternativeLegs()).isFalse();
+        assertThat(firstLaneNames(legacy)).contains("서울2호선", "서울9호선", "740");
+    }
+
     private static final Set<RoutingMode> RAIL_ONLY = Set.of(RoutingMode.SUBWAY, RoutingMode.RAIL);
     private static final Set<RoutingMode> BUS_ONLY = Set.of(RoutingMode.BUS);
 
