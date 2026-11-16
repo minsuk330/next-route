@@ -6657,3 +6657,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 카카오와 승하차 정류장 이름이 모두 같은 버스 구간은 125개 중 16개뿐(하차 정류장 선택이 다름). 그 16개 중 카카오 노선을 전부 담은 것 10개.
 ### 검증
 - `./gradlew test --tests '*BusLaneMerger*' --tests '*RouteSearchService*'` → 76 tests, 실패 0.
+
+## 환승 승강장 한 점에 두기 (otp-kakao-parity 후속, 2026-11-16) — 그래프 재빌드 전, 운영 미반영
+### 확정
+- 원인: KTDB transfers.txt 가 환승(신도림 2↔1호선 68초)을 선언해도, OTP 는 거리망으로 걸어갈 수 있는 환승만 만든다. 승강장이 선로 반대편 거리에 붙으면 도보가 maxTransferDuration(10분)을 넘어 환승이 빠진다.
+- 수정: `tools/transit-routing-benchmark/runner/colocate_transfer_platforms.py` — transfers.txt 로 묶인 승강장 그룹을 중심점 한 곳으로 옮긴다. `--stops-file transfer-platform-fixes.txt`(운영 그래프에서 잰 끊긴 승강장 59개)에 든 그룹만. `VST_<P>`·`VSA_P_<P>` 복제도 같이 옮기고 출구는 안 옮긴다.
+- 전부 옮기지 않는 이유: 잠실 2↔8(390m)·홍대입구·노원처럼 거리망 환승이 되는 역까지 옮기면 승강장이 최대 200m 움직여 좌표 검색의 도보가 틀어진다(전체 96그룹 중 12그룹만 대상, 수도권 기준).
+### 검증
+- `python3 -m unittest runner/test_colocate_transfer_platforms.py` → 8 tests OK.
+- 로컬 수도권 그래프(seoul-bbox GTFS + 이 스크립트, 운영과 같은 OTP 이미지, 빌드 5분 50초): 구로디지털단지→송내 = `서울2호선 > 서울1호선` 36분(운영 그래프: 2호선 > 버스 > 1호선 41~59분, 카카오 25~31분). 승강장 사이 도보: 신도림 1,734→0m, 옥수 3,483→0, 온수 2,052→0, 석남 1,587→0, 서울 4↔공항철도 1,112→0, 을지로3가 867→0, DMC 861→0, 초지 854→0, 대방 788→0, 석계 658→0, 수원 1,294→0.
+- 안 고쳐진 쌍(transfers.txt 에 없음): 대곡(GTX-A)↔대곡(일반철도) 3,131m, 서울(지하·GTX-A)↔서울(경의중앙선) 약 1,035m.
+### 배포
+- 전국 그래프 재빌드 때 `prepare_gtfs` 산출 zip 에 이 스크립트를 한 번 태운다(add_station_entrances 앞뒤 무관). 로컬 Docker 메모리 7.75GB 로는 전국 빌드 불가(11GB 이상).
