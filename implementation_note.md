@@ -6834,3 +6834,55 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `./gradlew test --tests '*TransferArrivalEnricher*'` → 38 통과(신규 3: 모델로 채움, lane 별 실시간·모델 혼합, 모델 꺼짐이면 모름·미호출).
+
+## OTP 그래프: 서울 버스를 공식 API 로 갱신 (#611, 2026-11-16 밤)
+
+### 확정
+- 그래프의 서울 버스(2025-03 KTDB)를 서울 버스 공식 API(`getStaionByRoute`, `getRoutePath`)의 현재 정류장·노선 선으로 덮어쓴다. 경기 `apply_gbis_routes.py` 를 그대로 쓰고 `--provider seoul` 만 더했다(운행편·시각은 유지, 정류장 순서·선·이름만 교체).
+- 통과 지점 = 정류장 번호(arsId)가 없거나 이름에 `(경유)`·`(미정차)`·`(가상)`. 정류장에서 뺀다.
+- 피드에 없는 서울 노선 33개는 `add_seoul_routes.py` 로 추가. **시각은 추정**(공식 선 거리 ÷ 고정 속도 16km/h, 공항버스 35km/h, 정차 10초, 첫차~막차를 배차간격으로). `timepoint=0`.
+- 빌드: `OTP_OSM=…-osmfix.osm.pbf runner/build_otp_graph.sh --profile national --from-zip <운영 zip …-daytypes.gtfs.zip> --seoul-bus data/seoul-bus/raw --seoul-new-routes data/seoul-bus/routes-info.tsv --thresholds … --modes bus,subway --graph-version …-seoulbus`(2i, 2j 단계, 접미사 `-seoulbus`).
+
+### 함정
+- 🔴 그래프의 서울 노선 737행 중 74행은 id 에 `_U`·`_D` 가 붙는다(`BR_TAGO_SEB100100419_U`). 표시 없는 id 로만 조회하면 "노선 없음"으로 잘못 센다 — #611 첫 집계가 69개라고 했다가 33개로 정정한 원인.
+- 공식 정류장 목록에 태그 없는 통과 지점이 있다("영종대교", "북인천IC", "공항입구JC") ← arsId 가 비어 있다. 이름 태그만 보면 공항버스가 다리에 서게 된다.
+- 순환 노선의 첫 정류장이 선의 끝 쪽에만 붙으면(같은 터미널의 다른 층) 모든 정류장 위치가 선 끝으로 뭉개진다 ← 단조 배정. 첫 정류장 후보에 선 시작점을 넣어 해결(`first_may_be_line_start`, 서울만).
+- 옛 정류장이 공식 선에서 150m 넘게 벗어난 운행편(N6002, 동작05-1)은 선만 바꾸면 선도 정류장도 안 맞는다 → 공식 목록 전체로 교체(`offLine`, 56편).
+- 서울 표(`bus_route`)에 없는데 그래프에는 있던 5개 노선(8553출근, N6001, 관악02, 774, 노원13)도 공식 API 에는 있다 → 표가 빠뜨린 것. 수집 목록에 따로 넣었다.
+- `configure("gbis")` 가 값을 되돌리지 않으면 한 프로세스에서 provider 를 바꿔 쓰는 시험이 서로 오염된다.
+
+### 좌표
+- `tools/transit-routing-benchmark/runner/fetch_seoul_routes.py`, `apply_gbis_routes.py`(`load_seoul`, `configure`), `add_seoul_routes.py`, `test_seoul_routes.py`, `build_otp_graph.sh`(2i, 2j)
+- 대조·검증 도구(추적 안 함): `tools/route-compare/seoul_stops_audit.py`, `seoul_stops_judge.py`, `seoul_graph_verify.py`, `graph_ab.py`
+
+### 검증
+- 단위: `python3 -m unittest runner/test_seoul_routes.py runner/test_apply_gbis_routes.py` → 27 통과.
+- 적용 리포트: 서울 운행편 62,618 중 62,230 정류장 교체(id 일치 59,944, 좌표 근접 1,553, 순환 671, offLine 56, 방향 6), 선만 교체 388(5개 노선, 정류장~선 최대 100m), 미변경 0. 정류장 추가 88, 이동 12,619, 이름 변경 1,286. 누락 노선 33개·720편·정류장 79개 추가.
+- 새 그래프(로컬 18082) 전수 대조: 공식 733개 노선 중 정류장·순서 같음 719, 순서·구간만 다름 3, 일부 구간만 운행 9, 공식에 없는 정류장 남음 2(774, 서초21 = 선만 교체된 노선). 이전 그래프: 같음 522/728, 다름 130, 없음 33.
+- 검색 회귀(80 OD, 11-17 08:30, 운영 그래프 대비): 오류 0, 최단 시간 ±1분 79, 단축 1(봉천→옥수 58→54분), 경로 목록 동일 73, 다름 7.
+- 빌드 이슈 수(오전 그래프 → 새 그래프): ShapeGeometryTooFar 415 → 476, HopSpeedFast 2,844 → 3,030, HopZeroDistance 11,008 → 10,424.
+
+### 미결
+- 선만 교체된 5개 노선(506, 774, 은평03-1, 은평03-?, 서초21)은 옛 정류장이 남는다.
+- 추가한 33개 노선의 시각은 추정이다. 실제 시간표를 구하면 교체.
+- 경기·지방 노선의 공식 전수 대조는 안 했다(경기는 GBIS 로 이미 덮어씀).
+- 서울 표(`bus_route_stop`)도 4개 노선(145, 273, 405, 서초09)이 공식과 다르고 5개 노선이 없다 → 정적 배치 1회 필요.
+
+### 추가 (2026-11-16 22:00~22:55, 선 품질 확인과 운영 교체)
+#### 확정
+- 서울 선은 다시 맵 매칭하지 않고 공식 `getRoutePath` 를 쓴다(사용자 확인: "확인 없이 진행"). 근거 = 정류장이 안 바뀐 일반 노선 520편에서 새 선의 점 98.2% 가 옛 맵 매칭 선 30m 안(p50 4.4m, p90 10.6m), 반대 방향 98.6%.
+- 공식 선의 삐침은 빌드 때 지운다(`despike`: 150도 넘게 되돌고 한쪽이 40m 미만인 꼭짓점 제거). 실데이터 1,533곳 → 0, 점 677,198 → 670,471.
+#### 함정
+- 공식 선은 도로 링크를 이어 붙인 것이라 링크가 만나는 곳에서 5~15m 뒤로 갔다가 다시 간다(노선당 평균 2곳). 지도에서 가시처럼 보인다 ← 사용자가 "선이 끊기지 않고 도로 밖으로 안 나가게 맵 매칭해 뒀다"고 물어서 측정하다 발견.
+- 공항버스(방향 표시 노선)는 옛 맵 매칭 선이 20~40% 짧았다(6500: 공식 구간거리 합 90.1km, 새 선 90.7km, 옛 선 66.8km) ← 정류장 사이가 수십 km 라 매칭이 다른 길을 골랐다. 이 차이는 회귀가 아니라 수정이다.
+- `xargs -I{} sh -c '…긴 문자열…'` 은 "command line cannot be assembled, too long" 으로 한 건도 안 돈다 → 조각 하나를 올리는 작은 스크립트를 만들고 `xargs -P 4 -n 1 script`.
+#### 배포
+- 새 graphVersion `national-nojeju-202503-cal20260729_20270115-otp278-shaped-gbis-alllines-busrt-addtrips-subwayfix-osmfix-xfer-daytypes-seoulbus`. graph.obj sha256 9a4e6334…dd4663(925,239,476B), coverage 19bcd1ee…2d79.
+- 교체 22:51:16~22:53:12(사용자 "운영 교체도 바로 하자", 진행 여정 0 확인). OTP 중단 52초, 재시작 0, 메모리 3.80GiB/4.395GiB. api·worker·worker2 재생성(이미지 65072dff 그대로). compose 백업 `*.bak-20261116-2251xx-pre-seoulbus`, 스크립트 `tools/route-compare/swap_graph_seoulbus.sh`.
+- 되돌리기: compose 백업 2개 복구 후 같은 순서(옛 그래프 `…-xfer-daytypes` 는 VPS 에 남김).
+- 업로드: 2MB 442조각 4개 병렬 약 3분(순차는 30분 페이스였다).
+#### 검증 (운영)
+- OTP: 600번 광화문역6번출구 → 시청역8번출구 → 서울역, 새 노선 7716 조회됨, serviceEnd 2027-01-16.
+- API 8개 OD: 전부 경로 반환(최단 15~62분), 버스 구간 56개 모두 선과 정류장 id 있음, 서울 실시간 도착 AVAILABLE 정상. ERROR 로그 0(api, worker, worker2, otp).
+- 기존 무관: 경기 버스 도착 API(apis.data.go.kr) I/O 오류로 경기 lane 일부가 ERROR(광화문→서울대 15건). 그래프와 무관한 외부 호출 실패.
+- 남음: 6411·6511 이 서울미래초등학교·거리공원 정류장에서 STOP_MAPPING_FAILED(교체 전에도 그랬는지 미확인).
