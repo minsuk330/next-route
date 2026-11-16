@@ -219,7 +219,7 @@ public class LegacyRouteResponseMapper {
             // 표시용 lane 은 버스번호로 항상 생성. busLocalBlID(실시간 호출용)는 매핑될 때만 non-null.
             List<LaneResult> busLanes = new ArrayList<>(1 + leg.alternatives().size());
             busLanes.add(new LaneResult(routeName, routeName, null, null, null, ids.routeLocalId(),
-                    displayColor(leg), leg.rideDurationSeconds() > 0 ? leg.rideDurationSeconds() : null));
+                    displayColor(leg), rideSeconds(leg)));
             // 같은 승하차 정류장의 다른 노선(otp-bus-lane-merge, BusLaneMerger 가 거른 최종 목록). 정류장 id 는 구간 공통이라
             // 대표 값을 쓰고, 노선마다 실시간용 노선 id 만 해석한다. 미매핑이어도 lane 은 남긴다(번호 표시).
             for (AlternativeRoute alt : leg.alternatives()) {
@@ -310,6 +310,18 @@ public class LegacyRouteResponseMapper {
             }
         }
         return sourceColor == null ? null : "#" + sourceColor;
+    }
+
+    /** 대표 노선의 탑승시간(초). 소요를 모르면 승하차 시각 차(묶인 노선과 같은 기준), 그것도 모르면 null. */
+    private static Integer rideSeconds(RoutingLeg leg) {
+        if (leg.rideDurationSeconds() > 0) {
+            return leg.rideDurationSeconds();
+        }
+        if (leg.boardAt() != null && leg.alightAt() != null) {
+            long seconds = java.time.Duration.between(leg.boardAt(), leg.alightAt()).getSeconds();
+            return seconds > 0 ? (int) seconds : null;
+        }
+        return null;
     }
 
     /** 버스 구간의 실시간 호출용 id(서울 → 경기 → TAGO 순으로 첫 매핑). 못 찾으면 전부 null. */

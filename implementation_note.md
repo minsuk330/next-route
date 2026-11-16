@@ -6749,3 +6749,4 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - 단위: LegacyRouteResponseMapper·TransferArrivalEnricher·RouteSearchTravelTime·RouteSearchService·JourneyCompiler·OdSay 묶음 → 실패 0(같이 걸린 JourneyHeartbeatIT 1건은 DB env 없이 돌아서 컨텍스트 실패 — 기존 무관, env 로 재실행해 통과).
 - IT(st-pg, st-redis): NextrouteApplicationTests, JourneyHeartbeatIT, JourneyStartIT, RouteSearchSnapshot*, RouteSearchRealtimeDeadlineIT, RerouteAcceptIT → 75 tests, 실패 0.
+- 리뷰(서브에이전트) 반영: ①대표 lane 탑승시간을 모르면 승하차 시각 차로(묶인 노선과 같은 기준) ②대표 lane 의 `rideSeconds` 는 반올림 전 초 값이라 lane 이 하나인 구간도 환승 대기·알림 추정이 분 반올림(최대 30초) 만큼 달라진다 — 의도, 주석에 명시 ③여정 단계 탑승 소요(`JourneyCompiler`, `TrackJourneyStartService`)는 탑승 노선이 정해질 때까지 구간 값 그대로(PR-2) ④테스트 추가: 버스→버스 환승에서 먼저 오는 lane 의 840초로 다음 정류장 도착 계산(`transferArrivalUsesTheRideTimeOfTheEarliestLane`), 알림 추정이 고른 lane 의 탑승시간 사용, 605초 구간. 확인된 것: `basisLaneIndex` 는 직전 버스 구간 `lanes()` 의 순번이 맞고, 스냅샷은 엄격 모드가 아니라 옛·새 JSON 양쪽 호환. 테스트 81, 실패 0.

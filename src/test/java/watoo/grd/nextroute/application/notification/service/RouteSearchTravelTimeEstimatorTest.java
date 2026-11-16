@@ -160,6 +160,29 @@ class RouteSearchTravelTimeEstimatorTest {
     }
 
     @Test
+    void realtime_usesTheChosenLanesRideSeconds() {
+        // 구간 20분(대표 lane0 = 1200s). lane1 은 같은 정류장 사이를 1500s 에 가고 먼저 온다(대기 60s vs 600s)
+        // → 고른 lane1 의 탑승시간으로 잰다: 1500 + 60 (bus-lane-selection PR-1)
+        LaneResult lane0 = new LaneResult("간선", "146", null, 2, 1, "BL1", null, 1200);
+        LaneResult lane1 = new LaneResult("지선", "471", null, 2, 2, "BL2", null, 1500);
+        SubPathResult twoLane = new SubPathResult(2, 20, 1000.0,
+                List.of(lane0, lane1), List.of(), "정류장A", "정류장B",
+                127.0, 37.5, 127.05, 37.55,
+                null, null, null, null, null,
+                null, null, null, null, null, null, null,
+                null, "STA1", "STA2", null, null, null,
+                null, List.of(arrival(0, TransferArrival.Status.AVAILABLE, 600),
+                        arrival(1, TransferArrival.Status.AVAILABLE, 60)), null, null, null, null);
+        given(searchRouteUseCase.search(any())).willReturn(result(twoLane));
+        stubResolveOk(12);
+        given(serviceWindowChecker.judge(any(), any(), any())).willReturn(Availability.AVAILABLE);
+
+        RouteEvaluation e = estimator().evaluate(query(), EvaluationMode.REALTIME);
+
+        assertThat(e.durationSec()).isEqualTo(1500 + 60);
+    }
+
+    @Test
     void realtime_noValidLane_fallbackTermHalf_reliabilityLow() {
         given(searchRouteUseCase.search(any()))
                 .willReturn(result(bus(20, List.of(arrival(0, TransferArrival.Status.NO_VEHICLE, 0)))));

@@ -400,6 +400,12 @@ class LegacyRouteResponseMapperTest {
 
         assertThat(sub.sectionTime()).isEqualTo(10);
         assertThat(sub.lanes()).extracting(l -> l.rideSeconds()).containsExactly(600, 840);
+        // 대표 lane 은 반올림 전 초 값이다: 605초 구간 = sectionTime 10분, rideSeconds 605
+        RoutingLeg odd = new RoutingLeg(leg.mode(), null, "1", "1:A1", leg.sourceRouteId(), "5600", "1:T1", null, null, null,
+                605, leg.stops(), List.of(), leg.geometry(), leg.enrichment(), null);
+        SubPathResult oddSub = firstSubPath(odd);
+        assertThat(oddSub.sectionTime()).isEqualTo(10);
+        assertThat(oddSub.lanes().get(0).rideSeconds()).isEqualTo(605);
     }
 
     @Test
