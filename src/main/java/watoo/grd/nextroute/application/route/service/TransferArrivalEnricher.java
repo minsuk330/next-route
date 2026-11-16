@@ -356,7 +356,9 @@ public class TransferArrivalEnricher {
                 } else {
                     // 직전 버스 ride time + 사이 이동 시간
                     SubPathResult prevBusSp = path.subPaths().get(prev.subPathIdx);
-                    long sumSec = prevBusSp.sectionTime() * 60L;
+                    // 탄다고 본 lane(가장 먼저 오는 노선)의 탑승시간으로 잰다. 구간 sectionTime 은 대표 노선 값이라, 묶인 다른
+                    // 노선이 먼저 오면 그 차만큼 환승 정류장 도착이 어긋난다(bus-lane-selection PR-1). 모르면 구간 값.
+                    long sumSec = rideSeconds(prevBusSp, prev.basisLaneIndex);
                     for (int k = prev.subPathIdx + 1; k < ctx.subPathIdx; k++) {
                         sumSec += travelSeconds(path.subPaths().get(k));
                     }
@@ -641,6 +643,17 @@ public class TransferArrivalEnricher {
     }
 
     // ── 헬퍼 ────────────────────────────────────────────────────────────────
+
+    /** 버스 구간을 laneIndex 노선으로 타는 시간(초). 그 노선 값을 모르면 구간 값(대표 노선). */
+    static long rideSeconds(SubPathResult busSp, Integer laneIndex) {
+        if (laneIndex != null && busSp.lanes() != null && laneIndex >= 0 && laneIndex < busSp.lanes().size()) {
+            Integer lane = busSp.lanes().get(laneIndex).rideSeconds();
+            if (lane != null && lane > 0) {
+                return lane;
+            }
+        }
+        return busSp.sectionTime() * 60L;
+    }
 
     private long travelSeconds(SubPathResult sp) {
         if (sp.trafficType() == TRAFFIC_WALK && sp.walkTotalTimeSeconds() != null) {

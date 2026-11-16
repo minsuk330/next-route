@@ -686,6 +686,23 @@ class TransferArrivalEnricherTest {
     private static final String GG_STOP = "202000208";
     private static final String GG_ROUTE = "234000026";
 
+    @Test
+    @org.junit.jupiter.api.DisplayName("환승 도착 계산: 탄다고 본 lane 의 탑승시간을 쓴다 — 구간 sectionTime 은 대표 노선 값이다(bus-lane-selection PR-1)")
+    void rideSecondsOfTheBasisLane() {
+        // 구간 8분(대표 8100), 묶인 M4102 는 같은 정류장 사이를 14분에 간다(운영 실측 최대 차 9.3분)
+        SubPathResult bus = busSubPathLanes("111", List.of(
+                new LaneResult("8100", "8100", null, 1, null, "100100001", null, 480),
+                new LaneResult("M4102", "M4102", null, 1, null, "100100002", null, 840),
+                new LaneResult("9000", "9000", null, 1, null, "100100003", null)));
+
+        assertThat(TransferArrivalEnricher.rideSeconds(bus, 0)).isEqualTo(480);
+        assertThat(TransferArrivalEnricher.rideSeconds(bus, 1)).isEqualTo(840);
+        // 그 lane 값을 모르거나(옛 스냅샷·ODsay) lane 을 모르면 구간 값
+        assertThat(TransferArrivalEnricher.rideSeconds(bus, 2)).isEqualTo(bus.sectionTime() * 60L);
+        assertThat(TransferArrivalEnricher.rideSeconds(bus, null)).isEqualTo(bus.sectionTime() * 60L);
+        assertThat(TransferArrivalEnricher.rideSeconds(bus, 9)).isEqualTo(bus.sectionTime() * 60L);
+    }
+
     private static SearchRegionalArrivalService.Pending done(SearchRegionalArrivalService.Outcome o, Integer... secondsAhead) {
         return new SearchRegionalArrivalService.Pending(SearchRegionalArrivalService.Provider.GG,
                 java.util.concurrent.CompletableFuture.completedFuture(

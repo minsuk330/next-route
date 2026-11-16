@@ -369,6 +369,8 @@ class LegacyRouteResponseMapperTest {
         assertThat(sub.endLocalStationID()).isEqualTo("104000279");
         assertThat(sub.lanes()).extracting(l -> l.busNo()).containsExactly("5600", "M4130", "999");
         assertThat(sub.lanes()).extracting(l -> l.busLocalBlID()).containsExactly("228000184", "234000026", null);
+        // 대표는 구간 탑승시간, 대체 노선은 시각을 모르면 null(구간 값으로 대신한다)
+        assertThat(sub.lanes()).extracting(l -> l.rideSeconds()).containsExactly(600, null, null);
         // M+4자리는 광역 빨강, 모르는 노선은 원천 색
         assertThat(sub.lanes().get(2).routeDisplayColor()).isEqualTo("#53B332");
     }
@@ -384,6 +386,34 @@ class LegacyRouteResponseMapperTest {
 
         assertThat(sub.lanes()).extracting(l -> l.busLocalBlID()).containsExactly("228000184", null);
         assertThat(sub.lanes().get(1).busNo()).isEqualTo("83");
+    }
+
+    @Test
+    @DisplayName("lane 마다 그 노선의 탑승시간을 싣는다 — 묶인 노선은 같은 정류장 사이도 시간이 다르다(bus-lane-selection PR-1)")
+    void lanesCarryTheirOwnRideSeconds() {
+        Instant board = Instant.parse("2026-11-17T05:00:00Z");
+        RoutingLeg leg = gyeonggiBusLeg("1:BR_TAGO_GGB228000184").withAlternatives(List.of(
+                new watoo.grd.nextroute.application.route.routing.AlternativeRoute(
+                        "1:BR_TAGO_GGB234000026", "M4130", null, "1:BS_TAGO_GGB104000279", board, board.plusSeconds(840))));
+
+        SubPathResult sub = firstSubPath(leg);
+
+        assertThat(sub.sectionTime()).isEqualTo(10);
+        assertThat(sub.lanes()).extracting(l -> l.rideSeconds()).containsExactly(600, 840);
+    }
+
+    @Test
+    @DisplayName("옛 검색 스냅샷(rideSeconds 없는 lane JSON)은 null 로 읽힌다 — 구간 값으로 대신한다")
+    void laneWithoutRideSecondsDeserializesToNull() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+        watoo.grd.nextroute.application.route.dto.LaneResult old = om.readValue(
+                "{\"name\":\"360\",\"busNo\":\"360\",\"subwayCode\":null,\"type\":1,\"busID\":null,"
+                        + "\"busLocalBlID\":\"100100360\",\"routeDisplayColor\":\"#0068B7\"}",
+                watoo.grd.nextroute.application.route.dto.LaneResult.class);
+
+        assertThat(old.rideSeconds()).isNull();
+        assertThat(om.writeValueAsString(new watoo.grd.nextroute.application.route.dto.LaneResult(
+                "360", "360", null, 1, null, "100100360", null, 480))).contains("\"rideSeconds\":480");
     }
 
     @Test

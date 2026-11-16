@@ -219,7 +219,7 @@ public class LegacyRouteResponseMapper {
             // 표시용 lane 은 버스번호로 항상 생성. busLocalBlID(실시간 호출용)는 매핑될 때만 non-null.
             List<LaneResult> busLanes = new ArrayList<>(1 + leg.alternatives().size());
             busLanes.add(new LaneResult(routeName, routeName, null, null, null, ids.routeLocalId(),
-                    displayColor(leg)));
+                    displayColor(leg), leg.rideDurationSeconds() > 0 ? leg.rideDurationSeconds() : null));
             // 같은 승하차 정류장의 다른 노선(otp-bus-lane-merge, BusLaneMerger 가 거른 최종 목록). 정류장 id 는 구간 공통이라
             // 대표 값을 쓰고, 노선마다 실시간용 노선 id 만 해석한다. 미매핑이어도 lane 은 남긴다(번호 표시).
             for (AlternativeRoute alt : leg.alternatives()) {
@@ -229,7 +229,8 @@ public class LegacyRouteResponseMapper {
                 // 경기 노선처럼 짝이 안 맞는다 → 같은 지역일 때만 싣고, 아니면 번호만 보인다.
                 String altId = altIds.region() != null && altIds.region() == ids.region() ? altIds.routeLocalId() : null;
                 busLanes.add(new LaneResult(alt.label(), alt.label(), null, null, null, altId,
-                        displayColor(RoutingMode.BUS, alt.routeId(), alt.routeName(), alt.routeColor())));
+                        displayColor(RoutingMode.BUS, alt.routeId(), alt.routeName(), alt.routeColor()),
+                        alt.rideSeconds() == null || alt.rideSeconds() <= 0 ? null : alt.rideSeconds().intValue()));
             }
             lanes = List.copyOf(busLanes);
         }

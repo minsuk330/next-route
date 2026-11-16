@@ -6732,3 +6732,20 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 카카오의 "사당역(중) 정류장 21028: 540, 502, 11-5 …" 는 카카오 자료에서 한 정류장이다. 우리 GTFS 는 502·540 을 다른 정류장(사당역)에 둔다 — 묶기 규칙이 아니라 정류장 자료 차이.
 ### 검증
 - `./gradlew test --tests '*RouteSearchService*' --tests '*KakaoParity*' --tests '*OtpRoutingAdapter*' --tests '*BusLaneMerger*' --tests '*ItineraryRanker*'` → 136 tests, 실패 0.
+
+## 버스 묶음: lane 별 탑승시간 (bus-lane-selection PR-1, 2026-11-16)
+플랜 `docs/plan/bus-lane-selection/`. 이슈 #598, #599, 총괄 #603.
+### 확정
+- `LaneResult.rideSeconds`(nullable, 끝 칸) 추가. 대표 lane = 구간 탑승시간, 묶인 lane = 그 노선의 정적 탑승시간(OTP nextLegs 또는 같은 지문 후보의 시각). 모르면 null → 소비처는 구간 `sectionTime` 으로 대신한다. 사용자 승인(2026-11-16 "추가한다").
+- 환승 대기: `TransferArrivalEnricher.processWave` 가 탄다고 본 lane(`prev.basisLaneIndex`, 가장 먼저 오는 노선)의 `rideSeconds` 로 다음 정류장 도착을 잰다. 전에는 구간 값(대표)이라 묶인 다른 노선이 먼저 오면 그 차만큼 어긋났다.
+- 알림 소요 추정(`RouteSearchTravelTimeEstimator`)도 고른 lane 의 탑승시간을 쓴다.
+- 사용자 결정: 앱은 **버스 탑승 시점**에 탄 노선을 선택하게 한다(여정 시작 때가 아니다). PR-2 는 탑승 이벤트의 노선 선택으로 설계한다.
+- 묶음 허용 기준(1.3배 + 5분)은 그대로(보류, #599).
+### 좌표
+- `application/route/dto/LaneResult.java`, `LegacyRouteResponseMapper`(버스 분기 lane 생성), `TransferArrivalEnricher.rideSeconds(busSp, laneIndex)`, `RouteSearchTravelTimeEstimator.BusLaneChoice.rideSec`
+### 함정
+- 묶인 노선의 실제 차이(운영 OTP 80 OD, 묶인 노선 125개): 탑승시간 = 75% ±1분, 87% ±3분, 11% 5분 초과(최대 9.3분). 선(polyline) = 94% 가 대표와 30m 안, 4% 는 400m~1km 벗어남(8100↔M4102, 3030↔917, M5121↔M5115, 310↔602). 중간 정류장 목록이 대표와 같은 것 74%. → 탑승 노선이 정해지면 선과 정류장 목록은 그 노선 것으로 다시 받아야 한다(PR-2).
+- `LaneResult` 는 검색 스냅샷에 JSON 으로 저장된다. 새 칸이 없는 옛 JSON 은 null 로 읽힌다(테스트로 고정).
+### 검증
+- 단위: LegacyRouteResponseMapper·TransferArrivalEnricher·RouteSearchTravelTime·RouteSearchService·JourneyCompiler·OdSay 묶음 → 실패 0(같이 걸린 JourneyHeartbeatIT 1건은 DB env 없이 돌아서 컨텍스트 실패 — 기존 무관, env 로 재실행해 통과).
+- IT(st-pg, st-redis): NextrouteApplicationTests, JourneyHeartbeatIT, JourneyStartIT, RouteSearchSnapshot*, RouteSearchRealtimeDeadlineIT, RerouteAcceptIT → 75 tests, 실패 0.
