@@ -197,7 +197,109 @@ public class TransferArrivalEnricher {
                 ctx.laneContexts.forEach(lc -> endedRoutes.add(lc.routeName != null ? lc.routeName : lc.routeId));
             }
         }
-        return new Enriched(rebuild(result, all, resultMap), endedPaths, endedRoutes);
+        return new Enriched(withoutEndedLanes(rebuild(result, all, resultMap), all, searchStartedAt),
+                endedPaths, endedRoutes);
+    }
+
+    /**
+     * 묶인 버스 중 실시간이 "운행종료"라고 한 노선을 그 구간에서 뺀다(2026-11-17 사용자 결정) — 탈 수 없는 버스를
+     * 고르게 하지 않는다. 구간의 노선이 <b>전부</b> 끝났으면 건드리지 않는다(그 경로는 {@link #withoutEnded} 가 통째로 뺀다).
+     * 실시간을 못 읽은 노선(경기·TAGO·차단·예산)은 판정 근거가 없어 남긴다.
+     *
+     * <p>lane 순번이 당겨지므로 그 순번을 가리키는 세 곳을 함께 고친다: 이 구간의 {@code transferArrivals[].laneIndex},
+     * 다음 버스 구간의 {@code basisLaneIndex}(이 구간의 어느 버스를 탔다고 봤나), 앞 버스 구간의
+     * {@code onwardWaits[].laneIndex}(이 구간의 어느 버스를 기다리나).
+     */
+    private RouteSearchResult withoutEndedLanes(RouteSearchResult result, List<SubPathCtx> all, Instant now) {
+        // (경로, 구간) → 옛 lane 순번 → 새 순번(빠진 노선은 없음)
+        Map<Integer, Map<Integer, Map<Integer, Integer>>> remaps = new HashMap<>();
+        for (SubPathCtx ctx : all) {
+            if (ctx.upstreamUnavailable || ctx.laneContexts.size() < 2) {
+                continue;
+            }
+            Map<Integer, Integer> remap = new HashMap<>();
+            int next = 0;
+            for (LaneCtx lc : ctx.laneContexts) {
+                boolean ended = lc.arrOutcome == Outcome.OK
+                        && BusServiceEnded.isEnded(lc.arrMatched, now, ctx.estimatedUserArrivalAt);
+                if (!ended) {
+                    remap.put(lc.laneIdx, next++);
+                }
+            }
+            if (!remap.isEmpty() && remap.size() < ctx.laneContexts.size()) {
+                remaps.computeIfAbsent(ctx.pathIdx, k -> new HashMap<>()).put(ctx.subPathIdx, remap);
+            }
+        }
+        if (remaps.isEmpty()) {
+            return result;
+        }
+        List<PathResult> paths = new ArrayList<>(result.paths().size());
+        for (int pi = 0; pi < result.paths().size(); pi++) {
+            PathResult path = result.paths().get(pi);
+            Map<Integer, Map<Integer, Integer>> byLeg = remaps.get(pi);
+            if (byLeg == null) {
+                paths.add(path);
+                continue;
+            }
+            List<Integer> busLegs = new ArrayList<>();
+            for (int si = 0; si < path.subPaths().size(); si++) {
+                if (path.subPaths().get(si).trafficType() == TRAFFIC_BUS) {
+                    busLegs.add(si);
+                }
+            }
+            List<SubPathResult> subs = new ArrayList<>(path.subPaths());
+            for (int b = 0; b < busLegs.size(); b++) {
+                int si = busLegs.get(b);
+                Map<Integer, Integer> own = byLeg.get(si);
+                Map<Integer, Integer> prev = b > 0 ? byLeg.get(busLegs.get(b - 1)) : null;
+                Map<Integer, Integer> following = b + 1 < busLegs.size() ? byLeg.get(busLegs.get(b + 1)) : null;
+                if (own == null && prev == null && following == null) {
+                    continue;
+                }
+                SubPathResult sp = subs.get(si);
+                List<LaneResult> lanes = sp.lanes();
+                if (own != null && lanes != null) {
+                    List<LaneResult> kept = new ArrayList<>(own.size());
+                    for (int i = 0; i < lanes.size(); i++) {
+                        if (own.containsKey(i)) {
+                            kept.add(lanes.get(i));
+                        }
+                    }
+                    lanes = kept;
+                }
+                List<TransferArrival> arrivals = null;
+                if (sp.transferArrivals() != null) {
+                    arrivals = new ArrayList<>(sp.transferArrivals().size());
+                    for (TransferArrival ta : sp.transferArrivals()) {
+                        Integer lane = own == null ? Integer.valueOf(ta.laneIndex()) : own.get(ta.laneIndex());
+                        if (lane == null) {
+                            continue;   // 운행이 끝난 노선
+                        }
+                        Integer basis = ta.basisLaneIndex();
+                        if (prev != null && basis != null) {
+                            basis = prev.get(basis);
+                        }
+                        TransferArrival moved = ta.reindexed(lane, basis);
+                        if (following != null && ta.onwardWaits() != null) {
+                            List<OnwardWait> waits = new ArrayList<>();
+                            for (OnwardWait w : ta.onwardWaits()) {
+                                Integer to = following.get(w.laneIndex());
+                                if (to != null) {
+                                    waits.add(new OnwardWait(to, w.routeId(), w.userArrivalAt(),
+                                            w.predictedArrivalAt(), w.waitSeconds(), w.source()));
+                                }
+                            }
+                            moved = moved.withOnwardWaits(waits);
+                        }
+                        arrivals.add(moved);
+                    }
+                }
+                subs.set(si, sp.withLanesAndTransferArrivals(lanes, arrivals));
+            }
+            paths.add(new PathResult(path.pathType(), path.info(), subs, path.laneGraphics()));
+        }
+        return new RouteSearchResult(result.searchType(), result.busCount(), result.subwayCount(),
+                result.trainCount(), result.airCount(), paths);
     }
 
     /** 구간의 노선이 <b>전부</b> 실시간 운행종료일 때만 — 같은 정류장의 다른 노선이 살아 있으면 그걸 타면 된다. */

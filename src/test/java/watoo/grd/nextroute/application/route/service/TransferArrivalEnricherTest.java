@@ -233,6 +233,80 @@ class TransferArrivalEnricherTest {
         RouteSearchResult out = enricher.enrich(resultWith(List.of(twoLanes)), NOW, RouteSearchContext.start(5000));
 
         assertThat(out.paths()).hasSize(1);
+        // 운행이 끝난 750B 는 구간에서 빠지고, 남은 360 이 첫 노선이 된다 — 순번도 같이 당겨진다
+        SubPathResult leg = out.paths().get(0).subPaths().get(0);
+        assertThat(leg.lanes()).extracting(LaneResult::busNo).containsExactly("360");
+        assertThat(leg.transferArrivals()).hasSize(1);
+        assertThat(leg.transferArrivals().get(0).laneIndex()).isZero();
+        assertThat(leg.transferArrivals().get(0).routeId()).isEqualTo("100100360");
+        assertThat(leg.transferArrivals().get(0).status()).isEqualTo(TransferArrival.Status.AVAILABLE);
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("운행종료 노선 빼기: 가운데 노선이 빠져도 남은 노선의 순번, 다음 구간의 기준 순번, 앞 구간의 환승 대기 순번이 맞는다")
+    void endedLaneIsDroppedAndEveryLaneIndexIsRemapped() {
+        props.setEnabled(true);
+        lenient().when(predictionSupport.support(any())).thenReturn(PredictionSupportService.Support.UNSUPPORTED);
+        // 첫 구간(정류장 1111): 750B 운행종료, 360 은 13:04:50 도착
+        stubRoute("100100750", "750B", endedInfo("100100750", "운행종료", "운행종료", "20260606043500"));
+        stubRoute("100100360", "360", arrivalInfo("100100360", "2026-06-06 12:59:50.0", 300, 1200));
+        SubPathResult first = busSubPathLanes("1111", List.of(
+                new LaneResult("750B", "750B", null, 1, null, "100100750", null, 840),
+                new LaneResult("360", "360", null, 1, null, "100100360", null, 840)));
+        // 둘째 구간(정류장 2222): 998 운행종료, 999 는 13:19:50 과 13:29:50 에 온다
+        when(stopRepo.findByStopId("2222")).thenReturn(Optional.of(busStop("2222")));
+        for (String[] r : new String[][]{{"100100998", "998"}, {"100100999", "999"}}) {
+            when(routeRepo.findByRouteId(r[0])).thenReturn(Optional.of(busRoute(r[0], r[1])));
+            when(routeStopRepo.findByRouteIdAndStopId(r[0], "2222")).thenReturn(List.of(routeStop(r[0], "2222", 7)));
+        }
+        BusArrivalInfo ended = endedInfo("100100998", "운행종료", "운행종료", "20260606043500");
+        BusArrivalInfo alive = arrivalInfo("100100999", "2026-06-06 12:59:50.0", 1200, 1800);
+        lenient().when(busPort.getArrInfoByStop(eq("2222"), eq("100100998"), eq(7), anyLong())).thenReturn(arrOk(List.of(ended)));
+        lenient().when(busPort.getArrInfoByStop(eq("2222"), eq("100100999"), eq(7), anyLong())).thenReturn(arrOk(List.of(alive)));
+        SubPathResult second = busSubPathLanes("2222", List.of(
+                new LaneResult("998", "998", null, 1, null, "100100998", null, 600),
+                new LaneResult("999", "999", null, 1, null, "100100999", null, 600)));
+
+        RouteSearchResult out = enricher.enrich(resultWith(List.of(first, second)), NOW, RouteSearchContext.start(5000));
+
+        SubPathResult a = out.paths().get(0).subPaths().get(0);
+        SubPathResult b = out.paths().get(0).subPaths().get(1);
+        assertThat(a.lanes()).extracting(LaneResult::busNo).containsExactly("360");
+        assertThat(b.lanes()).extracting(LaneResult::busNo).containsExactly("999");
+        TransferArrival via360 = a.transferArrivals().get(0);
+        assertThat(via360.laneIndex()).isZero();
+        // 앞 구간의 환승 대기는 둘째 구간의 남은 노선(999, 이제 0번)만 가리킨다
+        assertThat(via360.onwardWaits()).hasSize(1);
+        assertThat(via360.onwardWaits().get(0).laneIndex()).isZero();
+        assertThat(via360.onwardWaits().get(0).routeId()).isEqualTo("100100999");
+        assertThat(via360.onwardWaits().get(0).waitSeconds()).isEqualTo(60);
+        TransferArrival via999 = b.transferArrivals().get(0);
+        assertThat(b.transferArrivals()).hasSize(1);
+        assertThat(via999.laneIndex()).isZero();
+        assertThat(via999.routeId()).isEqualTo("100100999");
+        // 둘째 구간이 "첫 구간의 어느 버스를 탔다고 봤나"도 당겨진 순번(360 = 0번)이다
+        assertThat(via999.basisLaneIndex()).isZero();
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("운행종료 노선 빼기: 실시간을 못 읽은 노선은 근거가 없어 남긴다")
+    void laneWithoutRealtimeIsKept() {
+        props.setEnabled(true);
+        lenient().when(predictionSupport.support(any())).thenReturn(PredictionSupportService.Support.UNSUPPORTED);
+        stubRoute("100100750", "750B", endedInfo("100100750", "운행종료", "운행종료", "20260606043500"));
+        stubRoute("100100360", "360", arrivalInfo("100100360", "2026-06-06 12:59:50.0", 300));
+        lenient().when(routeRepo.findByRouteId("100199999")).thenReturn(Optional.empty());
+        lenient().when(routeRepo.findByRouteNameIn(any())).thenReturn(List.of());
+        SubPathResult lanes = busSubPathLanes("1111", List.of(
+                new LaneResult("360", "360", null, 1, null, "100100360", null),
+                new LaneResult("750B", "750B", null, 1, null, "100100750", null),
+                new LaneResult("unknown", "unknown", null, 1, null, "100199999", null)));
+
+        RouteSearchResult out = enricher.enrich(resultWith(List.of(lanes)), NOW, RouteSearchContext.start(5000));
+
+        SubPathResult leg = out.paths().get(0).subPaths().get(0);
+        assertThat(leg.lanes()).extracting(LaneResult::busNo).containsExactly("360", "unknown");
+        assertThat(leg.transferArrivals()).extracting(TransferArrival::laneIndex).containsExactly(0, 1);
     }
 
     @Test

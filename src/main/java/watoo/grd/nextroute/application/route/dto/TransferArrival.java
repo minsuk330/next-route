@@ -32,6 +32,12 @@ public record TransferArrival(
                 vehicleId, modelVersion, basisLaneIndex, conditional, null);
     }
 
+    /** lane 순번과 기준 lane 순번을 다시 매긴 복사본(구간에서 노선이 빠져 순번이 당겨질 때). */
+    public TransferArrival reindexed(int newLaneIndex, Integer newBasisLaneIndex) {
+        return new TransferArrival(routeId, newLaneIndex, source, status, calculatedAt, userArrivalAt,
+                predictedArrivalAt, waitSeconds, vehicleId, modelVersion, newBasisLaneIndex, conditional, onwardWaits);
+    }
+
     public TransferArrival withOnwardWaits(java.util.List<OnwardWait> waits) {
         return new TransferArrival(routeId, laneIndex, source, status, calculatedAt, userArrivalAt,
                 predictedArrivalAt, waitSeconds, vehicleId, modelVersion, basisLaneIndex, conditional,

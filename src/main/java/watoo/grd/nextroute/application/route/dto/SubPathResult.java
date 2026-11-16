@@ -73,6 +73,15 @@ public record SubPathResult(
                 walkTotalTimeSeconds, transferArrivals, trainKind, boardAt, alightAt, waitSeconds);
     }
 
+    /** 노선 목록과 도착예측을 함께 바꾼 복사본(운행이 끝난 노선을 빼는 데 쓴다 — 둘의 순번이 짝이다). */
+    public SubPathResult withLanesAndTransferArrivals(List<LaneResult> newLanes, List<TransferArrival> arrivals) {
+        return new SubPathResult(trafficType, sectionTime, distance, newLanes, stations, startName, endName,
+                startX, startY, endX, endY, trainType, payment, startId, way, wayCode, polyline,
+                startExitNo, startExitX, startExitY, endExitNo, endExitX, endExitY, walkSteps,
+                startLocalStationID, endLocalStationID, startArsID, endArsID, endID,
+                walkTotalTimeSeconds, arrivals, trainKind, plannedBoardAt, plannedAlightAt, plannedWaitSeconds);
+    }
+
     /** 도착예측만 바꾼 복사본. */
     public SubPathResult withTransferArrivals(List<TransferArrival> arrivals) {
         return new SubPathResult(trafficType, sectionTime, distance, lanes, stations, startName, endName,
