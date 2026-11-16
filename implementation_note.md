@@ -6901,3 +6901,41 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - `TransferArrivalEnricher.withoutEndedLanes`, `SubPathResult.withLanesAndTransferArrivals`, `TransferArrival.reindexed`
 ### 검증
 - `./gradlew test --tests '*TransferArrivalEnricher*' --tests '*RouteSearchService*' --tests '*RouteSearchTravelTime*'` → 118 통과(신규 2 + 기존 시험 1개 확장: 끝난 노선만 빠짐, 가운데가 빠져도 세 순번 일치, 실시간 없는 노선은 남음).
+
+## OTP 그래프: 역 출구와 환승을 통로(pathways)로 잇기 (#601, 2026-11-17 새벽)
+
+### 확정
+- 승강장마다 출구 자리에 출입구(`VEN_`, location_type=2)를 두고 출입구 ↔ 승강장 통로를 넣는다. 시간 = 직선거리 ÷ 1.0m/s + 60초(최소 90초). 카카오의 "N번 출구까지 도보"와 거의 같다(50m 2분, 116m 3분).
+- `transfers.txt` 의 환승 쌍(둘 다 출구가 있는 승강장)은 승강장 ↔ 승강장 통로로 잇고 시간은 피드의 최소 환승 시간(최소 60초).
+- 모든 노선 역(`VSA_`)의 승강장 복제(`VSA_P_`) ↔ 실제 승강장은 1초 통로 — 역 이름 검색은 전처럼 승강장에서 바로 출발·도착한다.
+- 그래프는 **출입구를 다시 붙이는 OTP 빌드**로 만든다(`tools/transit-routing-benchmark/otp-patches/`). 운영 OTP 이미지는 그대로.
+- 빌드: `OTP_JAR=data/input/otp-h-only-9dbfb229-entrance-relink.jar OTP_JAR_SHA256=71adf49d… OTP_OSM=…-osmfix.osm.pbf runner/build_otp_graph.sh --profile national --from-zip <…-seoulbus.gtfs.zip> --station-pathways --thresholds … --modes bus,subway --graph-version …-seoulbus-pathways`(2k 단계, 접미사 `-pathways`).
+
+### 함정
+- 🔴 **통로가 있는 승강장은 OTP 가 길에 직접 붙이지 않는다**(`StreetLinkerModule`: `hasPathways()` 면 건너뜀). 그래서 ①문제 역에만 통로를 넣으면(실험 1) 같은 역 환승이 "출구로 나갔다 다시 들어오기"가 된다(가산디지털단지→인덕원 25→38분) → 환승 쌍도 통로로 이어야 한다 ②역 이름 검색(`VSA_`)의 승강장 복제는 길에 붙어 있어 실제 승강장까지 출구를 돌아간다(양끝 +3분, 실험 2) → 복제 ↔ 승강장 1초 통로.
+- 🔴 **OTP 는 도로 섬 정리(island pruning) 뒤 정류장만 다시 붙이고 출입구는 안 붙인다**(`IslandPruningModule` 가 `linkTransitStops` 만 다시 부름). 보행 권한을 잃은 섬에 붙어 있던 출입구는 끊긴다 → 그 역 출구가 통째로 막힘(실험 3: 구로·상록수·가좌 등 출구 66곳 "경로 없음", 구로역 1번 출구 → 신도림역까지 17분). 패치로 해결.
+- 원인(운영 그래프): 승강장 정류장이 좌표에서 가장 가까운 길 한 곳에만 붙는다. 선로 반대편이면 이쪽 출구에서는 돌아간다. 역 이름 검색은 가상 역이라 멀쩡해서 그동안 안 보였다(카카오 비교도 역 이름 검색만 했다).
+- 좌표가 **승강장 지점 그 자체**인 검색은 느려진다(80 OD 평균 +4.3분): 길에서 출구까지 걷고 통로로 승강장까지 다시 들어가는 시간이 든다. 실제 사용에서는 역 이름이면 가상 역으로 붙고, 그 밖의 좌표는 이 시간이 드는 것이 맞다(카카오도 출구 ↔ 승강장을 센다: 을지로3가 11번 출구 320m 6분).
+- 걷기 경로가 역 안을 지나갈 수 있다(출구 → 승강장 → 다른 출구). 문제 역의 가장 먼 출구 쌍 348개 중 131개가 3분 넘게 줄었다(예: 주안역 6번 ↔ 1번 28분 → 5분). 개찰구 안을 지나야만 하는 역이면 실제와 다르다 — 역별로 가려내지 못했다.
+- `stations` 이름으로 역을 고르는 측정 스크립트는 같은 이름의 다른 도시 역(화정: 고양 / 광주)을 집을 수 있다 → 좌표로 가까운 역을 고른다.
+
+### 좌표
+- `tools/transit-routing-benchmark/runner/add_station_pathways.py`, `test_add_station_pathways.py`, `build_otp_graph.sh`(2k), `otp-patches/`
+- 측정 도구(추적 안 함, `tools/route-compare/`): `exit_walk_audit.py`, `xfer_walk_audit2.py`, `through_station.py`, `graph_ab_station.py` + `abs_cmp.py`, `why_missing*.py`
+
+### 검증 (운영 그래프 `…-seoulbus` → 실험 그래프, 로컬에서 운영과 같은 OTP 이미지로 기동)
+| 항목 | 운영 | 새 그래프 |
+|---|---|---|
+| 출구 → 승강장이 직선거리 기준보다 3분 넘게 긴 역(1,234개 중) | 304 | 0 |
+| 그 쌍 수(5,700 중) / 경로 없음 | 923 / 4 | 0 / 0 |
+| 출구 좌표에서 출발하는 실검색(주안·송내·신도림·가산디지털단지·을지로3가·동작·옥수·광운대·부천·구로·상록수·관악·제물포) | 다른 역이나 10~77분 걷기 | 그 역에서 1.5~3.2분 걷고 탑승 |
+| 지하철 ↔ 지하철 환승 걷기가 피드보다 3분 넘게 긴 쌍 | 14(복정 +9.3분 등) | 0 |
+| 역 이름 검색 80 OD 최단 소요 | — | ±1분 53, 빨라짐 21, 느려짐 6(뜯어 본 3개는 도착이 더 이름), 평균 −0.75분 |
+| 카카오 최단 대비 5분 넘게 긴 구간(79 중) | 13 | 9 |
+- 단위: `python3 -m unittest runner/test_add_station_pathways.py` 8 통과. 정식 도구의 `pathways.txt` 가 실험 도구와 같음(정렬 후 해시 일치, 6,174행).
+- 남은 것: 지하철 ↔ 일반 열차(KTX 등) 승강장 27쌍은 여전히 3분 넘게 더 걷는다(수원 15분, 하양 23분 등 — 일반 열차 승강장에는 출구 자료가 없다).
+
+### 미결
+- 역 안을 지나는 걷기 경로의 역별 검증.
+- 지하철 ↔ 일반 열차 환승.
+- 환승 여유(`transferSlack` 기본 2분) 실험, 버스 ↔ 지하철 환승 걷기 측정.
