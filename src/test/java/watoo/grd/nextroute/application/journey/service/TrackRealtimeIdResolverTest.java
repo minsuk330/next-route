@@ -83,11 +83,32 @@ class TrackRealtimeIdResolverTest {
     }
 
     @Test
-    @DisplayName("지하철: 명시표 밖 노선(인천2호선·지방 도시철도)이면 전부 null 인 한 줄 — 2호선으로 오인하지 않는다")
-    void unknownLineIsOneEmptyRow() {
+    @DisplayName("지하철: 명시표 밖 노선(인천2호선·지방 도시철도)은 id 없이 노선 이름만 — 2호선으로 오인하지 않는다")
+    void unknownLineKeepsItsName() {
         TransitStop stop = new TransitStop("1:RS_Y", "인천시청(인천2호선)", 37.45, 126.70, RoutingMode.SUBWAY);
 
-        assertThat(resolver.subway(stop, List.of("인천2호선"))).containsExactly(new SubwayStationIds(null, null, null));
+        assertThat(resolver.subway(stop, List.of("인천2호선"))).containsExactly(new SubwayStationIds(null, null, "인천2호선"));
+    }
+
+    @Test
+    @DisplayName("지하철: 부산 서면처럼 서울 id 가 없는 노선은 노선마다 이름 한 줄, 서울 노선과 섞이면 서울 줄 뒤에")
+    void regionalLinesByName() {
+        TransitStop seomyeon = new TransitStop("1:RS_ACC1_S-2-0219", "서면(부산2호선)", 35.157, 129.058, RoutingMode.SUBWAY);
+        assertThat(resolver.subway(seomyeon, List.of("부산2호선"))).containsExactly(new SubwayStationIds(null, null, "부산2호선"));
+        assertThat(resolver.subway(seomyeon, List.of("부산1호선", "부산2호선", "부산1호선"))).containsExactly(
+                new SubwayStationIds(null, null, "부산1호선"), new SubwayStationIds(null, null, "부산2호선"));
+
+        given(stationIndex.lineName("1002")).willReturn("2호선");
+        assertThat(resolver.subway(seomyeon, List.of("인천2호선", "서울2호선"))).containsExactly(
+                new SubwayStationIds(null, "1002", "2호선"), new SubwayStationIds(null, null, "인천2호선"));
+    }
+
+    @Test
+    @DisplayName("지하철: 노선 이름을 아예 모르면 전부 null 인 한 줄 — 정류장은 목록에 남긴다")
+    void noNamesIsOneEmptyRow() {
+        TransitStop stop = new TransitStop("1:RS_Z", "어딘가", 37.0, 127.0, RoutingMode.SUBWAY);
+        assertThat(resolver.subway(stop, List.of())).containsExactly(new SubwayStationIds(null, null, null));
+        assertThat(resolver.subway(stop, null)).containsExactly(new SubwayStationIds(null, null, null));
     }
 
     @Test

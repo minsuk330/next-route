@@ -6691,3 +6691,12 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 부팅 적재: stations=250 loaded=249 empty=1 unmatchedTerminal=12857 rows=190790, 119초.
 ### 함정
 - 부산 3호선 대저행 endcode 318(대저 scode 317), 4호선 안평행 415(안평 414) ← 끝까지 가는 열차가 전부 unmatched(12,857 ≈ 3·4호선), 미남(401) 0건 / `BusanTrainTimeAdapter.ENDCODE_ALIASES`. 반여농산물시장 endcode 가 401·415 둘뿐 → 415=안평.
+
+## 지방 지하철 trackability 500, 근처 역 노선 이름 (2026-11-16)
+### 함정
+- `SubwayTrainSelectionService.trackability` 의 `REALTIME_LINE_IDS.contains(null)` ← `Set.of` 는 null 에 NPE → 500(운영 여정 492, 11:46 4회) → 앱은 오류를 "추적 가능"으로 쳐 열차 고르기를 자동으로 연다 / null 이면 NO_REALTIME_LINE.
+- `TrackRealtimeIdResolver.subway` 가 서울 노선 id 로 못 바꾼 노선을 이름까지 null 로 ← 앱이 "지하철" 로 채워 서면이 "지하철 · 지하철" / OTP 노선 이름 그대로 한 줄씩(lineId 는 null 유지 — 2호선 오인 방지). 앱 #121 역 시트의 `isRegionalSubwayLine(lineName)` 도 이걸로 통과.
+### 미결
+- 노선 색: 앱은 `lineId` 로 색을 찾는다(지방은 `gtfs:` → 기본 파랑). 서버 `routes`(이름·색 칩)는 지하철 줄에 아직 안 싣는다 — 앱 수정과 같이 별건.
+### 검증
+- `TrackRealtimeIdResolverTest`(지방 이름 한 줄씩, 서울+인천 섞임 순서, 이름 없음), `SubwayTrainSelectionServiceTest.trackabilityRegionalNullRouteId`, 관련 시험 + `contextLoads` 통과.
