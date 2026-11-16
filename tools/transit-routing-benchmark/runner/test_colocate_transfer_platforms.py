@@ -27,14 +27,15 @@ def pair(a: str, b: str, seconds: int = 68, transfer_type: str = "2") -> list[di
 
 
 class ColocateTest(unittest.TestCase):
-    def test_declared_pair_moves_to_the_centroid(self):
+    def test_declared_pair_moves_onto_one_member(self):
         # 신도림 2호선 ↔ 1호선, 77 m apart (production coordinates)
         stops = [stop("P2", "신도림(2호선)", 37.508327, 126.891464), stop("P1", "신도림(1호선)", 37.509014, 126.891594),
                  stop("X", "구로(1호선)", 37.503, 126.882)]
         report = ctp.colocate(stops, pair("P2", "P1"), 500)
         self.assertEqual(report["moved_groups"], 1)
         self.assertEqual((stops[0]["stop_lat"], stops[0]["stop_lon"]), (stops[1]["stop_lat"], stops[1]["stop_lon"]))
-        self.assertEqual(stops[0]["stop_lat"], "37.508671")
+        # a pair has no single medoid: the first stop id (P1 after sorting) keeps its place
+        self.assertEqual((stops[0]["stop_lat"], stops[0]["stop_lon"]), ("37.509014", "126.891594"))
         self.assertEqual(stops[2]["stop_lat"], "37.503000")  # not in a pair: untouched
         self.assertEqual(report["moved"][0]["span_m"], 77)
 
@@ -44,6 +45,13 @@ class ColocateTest(unittest.TestCase):
                  stop("C", "대곡(GTX-A)", 37.6327, 126.8105)]
         ctp.colocate(stops, pair("A", "B") + pair("B", "C"), 500)
         self.assertEqual(len({(s["stop_lat"], s["stop_lon"]) for s in stops}), 1)
+
+    def test_wide_group_moves_onto_the_middle_platform_not_the_centroid(self):
+        # 디지털미디어시티: three platforms in a row, the middle one is the medoid
+        stops = [stop("A", "디지털미디어시티(경의중앙선)", 37.5800, 126.9000), stop("B", "디지털미디어시티(6호선)", 37.5790, 126.9000),
+                 stop("C", "디지털미디어시티(공항철도)", 37.5776, 126.9000)]
+        ctp.colocate(stops, pair("A", "B") + pair("B", "C"), 500)
+        self.assertEqual({(s["stop_lat"], s["stop_lon"]) for s in stops}, {("37.579000", "126.900000")})
 
     def test_already_colocated_pair_is_left_alone(self):
         stops = [stop("A", "왕십리(경의중앙선)", 37.5613, 127.0371), stop("B", "왕십리(수인분당선)", 37.5613, 127.0371)]

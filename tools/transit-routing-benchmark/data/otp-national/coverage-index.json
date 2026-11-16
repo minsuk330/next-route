@@ -1,5 +1,5 @@
 {
-  "graphVersion": "national-nojeju-202503-cal20260729_20261222-otp278-shaped-gbis-alllines-busrt-addtrips-subwayfix-osmfix-g9910d427f7d3",
+  "graphVersion": "national-nojeju-202503-cal20260729_20270115-otp278-shaped-gbis-alllines-busrt-addtrips-subwayfix-osmfix-xfer-daytypes",
   "coveredModes": [
     "bus",
     "subway"
@@ -10,8 +10,8 @@
   },
   "counts": {
     "busTrips": 306535,
-    "subwayTrips": 12630,
-    "shapeOk": 319165,
+    "subwayTrips": 18848,
+    "shapeOk": 325383,
     "degraded": 0,
     "missing": 0,
     "unjudged": 0

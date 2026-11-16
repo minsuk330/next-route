@@ -6700,3 +6700,20 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 노선 색: 앱은 `lineId` 로 색을 찾는다(지방은 `gtfs:` → 기본 파랑). 서버 `routes`(이름·색 칩)는 지하철 줄에 아직 안 싣는다 — 앱 수정과 같이 별건.
 ### 검증
 - `TrackRealtimeIdResolverTest`(지방 이름 한 줄씩, 서울+인천 섞임 순서, 이름 없음), `SubwayTrainSelectionServiceTest.trackabilityRegionalNullRouteId`, 관련 시험 + `contextLoads` 통과.
+
+## 그래프 교체: 환승 승강장 + 요일별 시간표 (2026-11-16 12:39~12:41, 사용자 "지금 바로") 
+### 배포
+- 새 graphVersion `national-nojeju-202503-cal20260729_20270115-otp278-shaped-gbis-alllines-busrt-addtrips-subwayfix-osmfix-xfer-daytypes`. graph.obj sha256 c4ebaac6…bb07(922,258,199B), coverage 06a79565…bb7b6.
+- 빌드(main 4b1e50cf 스크립트 + `fix/colocate-medoid`): 입력 zip `…-calend20261222.gtfs.zip` → `colocate_transfer_platforms.py --stops-file transfer-platform-fixes.txt`(18그룹 이동) → `build_otp_graph.sh --profile national --from-zip …-xfer.gtfs.zip --calendar-end 20270115 --day-types config/otp-national/day-types --holidays config/otp-national/kr-holidays.json --thresholds … --modes bus,subway`. 빌드는 Docker(로컬 Java 23 은 jar 실행 불가, class version).
+- VPS `/srv/nextroute/otp/<GV>/` 업로드(2MB 440조각, sha 일치, 약 12분). 교체 스크립트 `tools/route-compare/swap_graph.sh`: 진행 여정 0 확인 → compose.yaml 5곳 + observability override 1곳 sed(백업 `*.bak-20261116-1239xx-pre-xfer-daytypes`, diff 10줄·2줄) → OTP(override 겹침, 이미지 명시) → api·worker·worker2 `--force-recreate`. OTP 중단 51초, 재시작 0, 메모리 3.80→3.86GiB/4.395GiB.
+- 되돌리기: compose 백업 2개 복구 후 같은 순서(옛 그래프 `…-calext` 는 VPS 에 남김, 2027-01-09 까지 유효).
+- 다음 재빌드 기한: 2027-01-15 전(창 = 빌드일 + 2개월).
+### 확정
+- 요일별 시간표는 지하철 route 91개 중 32개만 들어갔다(서울 3·7·8·9, 신분당, 신림, 우이신설, 김포, 부산 1·3, 대구 1·2·3, 광주 1, 부산 2 하행, 대전 1 상행). 남은 20개 노선 = 이슈 #590. 사용자 확인: 지하철은 전부 교체 대상.
+- 승강장을 모을 위치 = 그룹의 medoid(가장 먼 형제가 가장 가까운 승강장). 중심점은 기각.
+### 함정
+- 중심점으로 모으면 디지털미디어시티(폭 267m)가 선로 부지 한가운데로 가서 엉뚱한 길에 붙는다 → 그 역 도착 경로가 8~12분 늘었다(오목교→DMC 38→47분). medoid 로 바꾸니 27분.
+- medoid 도 승강장이 최대 150m 움직인다: 서울역 1호선 도착이 좌표 검색에서 +3~4분(부평→서울역 49→52). 역 이름 검색(가상 역 출발·도착)은 출구 복제가 안 움직여 영향 없음.
+### 검증
+- 로컬(운영과 같은 이미지, 새 그래프 18082 vs 운영 18080): 환승 = 부천→광명사거리 34→16분(1호선>7호선), 압구정→왕십리 3호선>경의중앙선 21분 신규, 검단사거리→부평구청 45→38분, 구디→송내 2호선>1호선 82→37분. 휴일 = 일요일·12-25 23:40 에 3·8·9호선 평일 막차 사라짐, 7호선 경로 바뀜, 화요일은 운영과 같음, 비대상 2호선은 그대로. 평일 회귀 = 105 OD 지하철만 검색 중 69개 완전 동일, 36개는 이동한 역을 지나는 경로.
+- 운영(교체 후, API 80 OD 14:00 출발): 오류 0, 카카오 최단 ±5분 45→49/80, 상위 3개 일치 73→76%, 지하철 경로 일치 73→76%, 검색 평균 2.59→2.31s. serviceTimeRange.end 2027-01-16 00:00 KST.
