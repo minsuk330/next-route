@@ -133,7 +133,28 @@ public class JourneyNavigationGeometryService implements GetJourneyNavigationGeo
 
         return new JourneyNavigationGeometry(journeyId, revision, geometries, oldestFetchedAt,
                 JourneyNavigationGeometry.versionKey(revision, railServiceClassifier.catalogVersion(),
-                        SubwayBoundStopsResolver.versionToken(bindings.values())));
+                        SubwayBoundStopsResolver.versionToken(bindings.values()),
+                        busSelectionToken(legs, optionsByLeg)));
+    }
+
+    /**
+     * 첫 후보가 아닌 노선을 고른 버스 구간들(#598) — {@code b{단계}.{후보}} 를 이어 붙인다. 없으면 null.
+     * 후보는 기다리는 단계가 들고 있다.
+     */
+    static String busSelectionToken(List<JourneyLeg> legs, Map<Long, List<JourneyLegRouteOption>> optionsByLeg) {
+        StringBuilder token = new StringBuilder();
+        for (JourneyLeg leg : legs) {
+            Long selected = leg.getSelectedRouteOptionId();
+            if (leg.getType() != JourneyLegType.WAIT_BUS || selected == null) {
+                continue;
+            }
+            optionsByLeg.getOrDefault(leg.getId(), List.of()).stream()
+                    .filter(option -> selected.equals(option.getId()) && option.getOptionIndex() != 0)
+                    .findFirst()
+                    .ifPresent(option -> token.append('b').append(leg.getLegIndex())
+                            .append('.').append(option.getOptionIndex()));
+        }
+        return token.isEmpty() ? null : token.toString();
     }
 
     /**

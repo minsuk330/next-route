@@ -19,7 +19,8 @@ import java.util.function.UnaryOperator;
  * @param routeRevision   이 좌표가 속한 경로 개정본. 앱 캐시 fencing 키의 일부다
  * @param legs            단계별 좌표. 저장된 단계 순서를 그대로 따른다
  * @param sourceFetchedAt 좌표 원천 중 가장 오래된 수집 시각. 없으면 null
- * @param geometryVersion 이 응답의 버전 키(subway-express S2·S4) — {@code {routeRevision}:{급행 카탈로그 판}[:{바인딩 판}]}.
+ * @param geometryVersion 이 응답의 버전 키(subway-express S2·S4, #598) — {@code {routeRevision}:{급행 카탈로그 판}[:{바인딩 판}][:{노선 선택 판}]}.
+ *                        노선 선택 판은 묶인 버스 중 첫 후보가 아닌 노선을 골랐을 때만 붙는다(예 {@code b3.1}).
  *                        바인딩 판은 지하철 고정이 있을 때만 붙는다({@code SubwayBoundStopsResolver.versionToken}, 예 {@code 3:2026-10-21:1.0E}).
  *                        바뀌면 앱이 다시 받는다(카탈로그·묶인 열차가 바뀌면 {@code stops}·{@code allStops} 가 달라진다).
  *                        구버전 앱은 무시한다
@@ -56,6 +57,18 @@ public record JourneyNavigationGeometry(
     public static String versionKey(int routeRevision, String catalogVersion, String bindingToken) {
         String key = versionKey(routeRevision, catalogVersion);
         return bindingToken == null || bindingToken.isBlank() ? key : key + ":" + bindingToken;
+    }
+
+    /**
+     * 버전 키(#598): 위 키 뒤에 {@code [:{노선 선택 판}]}. 사용자가 묶인 버스 중 첫 후보가 아닌 노선을 골랐을 때만 붙는다
+     * — 고르지 않은 여정은 키가 그대로다. 고른 노선에 따라 타는 구간의 색과 정류장 원천이 달라진다.
+     *
+     * @param selectionToken 예 {@code b3.1}(3번 단계가 1번 후보). 전부 첫 후보면 null
+     */
+    public static String versionKey(int routeRevision, String catalogVersion, String bindingToken,
+                                    String selectionToken) {
+        String key = versionKey(routeRevision, catalogVersion, bindingToken);
+        return selectionToken == null || selectionToken.isBlank() ? key : key + ":" + selectionToken;
     }
 
     /**

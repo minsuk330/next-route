@@ -38,6 +38,12 @@ public enum JourneyErrorCode implements ErrorCode {
    */
   REROUTE_ALIGHT_UNAVAILABLE("REROUTE_ALIGHT_UNAVAILABLE",
       "그 정류장에서는 내릴 수 없습니다. 목록을 새로 확인해 주세요.", HttpStatus.CONFLICT),
+  /** 그 버스 구간에 묶인 후보가 아니다(#598). 앱은 여정을 다시 받아 후보 목록을 새로 그린다. */
+  BUS_ROUTE_OPTION_NOT_FOUND("BUS_ROUTE_OPTION_NOT_FOUND", "이 구간에서 고를 수 없는 노선입니다.",
+      HttpStatus.UNPROCESSABLE_ENTITY),
+  /** 버스 구간이 아니거나 이미 내린 구간이다(#598). */
+  BUS_ROUTE_SELECTION_NOT_ALLOWED("BUS_ROUTE_SELECTION_NOT_ALLOWED", "지금은 탄 버스를 바꿀 수 없습니다.",
+      HttpStatus.UNPROCESSABLE_ENTITY),
   SUBWAY_LEG_REQUIRED("SUBWAY_LEG_REQUIRED", "지하철 단계가 아닙니다.",
       HttpStatus.UNPROCESSABLE_ENTITY),
   SUBWAY_BINDING_NOT_FOUND("SUBWAY_BINDING_NOT_FOUND", "고정된 열차가 없습니다.",

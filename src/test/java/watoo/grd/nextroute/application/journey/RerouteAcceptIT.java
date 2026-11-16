@@ -94,6 +94,7 @@ class RerouteAcceptIT {
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired AcceptRerouteProposalUseCase acceptUseCase;
+    @Autowired watoo.grd.nextroute.application.journey.service.BusRouteSelectionService busRouteSelectionService;
     @Autowired GetRerouteCandidateRouteUseCase candidateRouteUseCase;
     @Autowired RerouteBoardService boardService;
     @Autowired RerouteRefreshSignal refreshSignal;
@@ -183,6 +184,34 @@ class RerouteAcceptIT {
                 .isEqualTo(200);
         assertThat(journeyController.detail(userId, journey.journeyId(), after.commandVersion(),
                 after.evaluationVersion(), null).getStatusCode().value()).isEqualTo(204);
+    }
+
+    @Test
+    @DisplayName("탑승 때 고른 노선(#598)은 수락 뒤에도 남는다 — 복제한 앞 구간이 첫 후보로 되돌아가지 않는다")
+    void keepsUserSelectedBusRouteOnCopiedLegs() {
+        Long chosen = journey.legs().get(0).routeOptions().stream()
+                .filter(option -> option.optionIndex() == 1).findFirst().orElseThrow().optionId();
+        busRouteSelectionService.select(userId, journey.journeyId(), chosen, journey.routeRevision(), 1);
+        String candidateId = givenProposal();
+
+        JourneySnapshot after = acceptUseCase.accept(userId, journey.journeyId(), proposalId(), candidateId);
+
+        assertThat(after.routeRevision()).isEqualTo(journey.routeRevision() + 1);
+        for (int legIndex : List.of(0, 1)) {
+            var leg = after.legs().get(legIndex);
+            assertThat(leg.routeId()).as("단계 %d 의 노선", legIndex).isEqualTo("BL-371");
+            assertThat(leg.selectedRouteOptionId()).as("새 개정본의 후보 행을 가리킨다").isNotEqualTo(chosen);
+            assertThat(after.legs().get(0).routeOptions().stream()
+                    .filter(option -> option.optionId().equals(leg.selectedRouteOptionId()))
+                    .findFirst().orElseThrow().optionIndex()).isEqualTo(1);
+        }
+        // 새로 생긴 구간은 첫 후보로 시작한다
+        var newWait = after.legs().stream()
+                .filter(leg -> leg.legIndex() > 1 && leg.type().isWaiting())
+                .findFirst().orElseThrow();
+        assertThat(newWait.routeOptions().stream()
+                .filter(option -> option.optionId().equals(newWait.selectedRouteOptionId()))
+                .findFirst().orElseThrow().optionIndex()).isZero();
     }
 
     @Test
@@ -994,7 +1023,9 @@ class RerouteAcceptIT {
                                         new StationResult(2, "OTP:C", "정류장C", 127.04, 37.04),
                                         new StationResult(3, "OTP:D", "정류장D", 127.06, 37.06),
                                         new StationResult(4, "OTP:F", "정류장F", 127.10, 37.10))
-                                .lanes(SubPathFixture.busLane("370", "BL-370")).build(),
+                                // 같은 정류장을 서는 371 이 묶여 있다(#598) — 첫 후보는 370 이다.
+                                .lanes(SubPathFixture.busLane("370", "BL-370"),
+                                        SubPathFixture.busLane("371", "BL-371")).build(),
                         SubPathFixture.walk(3).names("정류장F", "정류장G").distance(150.0)
                                 .coords(127.10, 37.10, 127.20, 37.20).build(),
                         SubPathFixture.bus(40).names("정류장G", "정류장Z")

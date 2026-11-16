@@ -26,6 +26,9 @@ import java.util.UUID;
  */
 @Entity
 @Table(name = "journey_leg")
+// 바뀐 칼럼만 UPDATE 한다(#598). 진행 보고(applyProgressIfNewer)는 여정 행을 잠그지 않는 bulk UPDATE 라, 엔티티 flush 가
+// 전 칼럼을 쓰면 그 사이 들어온 진행 값을 읽어 둔 옛 값으로 덮는다 — 노선 선택이 탑승 중에도 이 단계를 고친다.
+@org.hibernate.annotations.DynamicUpdate
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class JourneyLeg extends BaseEntity {
@@ -355,6 +358,26 @@ public class JourneyLeg extends BaseEntity {
     public void selectRouteOption(Long journeyLegRouteOptionId, String routeId) {
         this.selectedRouteOptionId = journeyLegRouteOptionId;
         this.routeId = routeId;
+    }
+
+    /**
+     * 사용자가 탄(탈) 노선을 묶인 후보 중 다른 것으로 바꾼다(#598).
+     *
+     * <p>옛 노선으로 잰 값만 비운다. 기다리는 단계의 도착 예측과 그 근거는 옛 노선 버스의 것이라 남기면 최대 90초
+     * (평가기의 유예) 동안 다른 버스의 도착 시각이 보인다. 타는 단계의 진행도·남은 정류장·근거는 <b>남긴다</b> — 묶인
+     * 노선은 서는 정류장이 같고(#605) 그 값들은 앱이 올린 관측이라, 비우면 탑승 위치 판정이 "진행 없음"으로 떨어진다.
+     *
+     * <p>{@code vehicleId} 는 건드리지 않는다 — 단독 추적 워커가 종류·출처 칼럼과 함께 부분 UPDATE 로만 쓰는 값이고
+     * (V61 CHECK: 셋이 함께 있거나 함께 없다), 여기서 하나만 비우면 제약에 걸린다.
+     */
+    public void reselectRouteOption(Long journeyLegRouteOptionId, String routeId) {
+        this.selectedRouteOptionId = journeyLegRouteOptionId;
+        this.routeId = routeId;
+        this.predictedEndAt = null;
+        if (type.isWaiting()) {
+            this.evidenceSource = null;
+            this.evidenceObservedAt = null;
+        }
     }
 
     /**

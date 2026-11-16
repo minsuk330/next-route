@@ -66,6 +66,7 @@ class JourneyEvaluationIT {
     @Autowired ApplyJourneyEventUseCase applyJourneyEventUseCase;
     @Autowired JourneyDueClaimService claimService;
     @Autowired JourneyEvaluationService evaluationService;
+    @Autowired watoo.grd.nextroute.application.journey.service.BusRouteSelectionService busRouteSelectionService;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired @Qualifier("journeyEvaluatorProviderLimiter") java.util.concurrent.Semaphore providerLimiter;
     @Autowired @Qualifier("journeyEvaluatorSubwayProviderLimiter") java.util.concurrent.Semaphore subwayProviderLimiter;
@@ -109,6 +110,33 @@ class JourneyEvaluationIT {
         assertThat(storedNextBusArrivalAt()).isNotNull();
         assertThat(storedSource()).isEqualTo("REALTIME");
         assertThat(storedCalculatedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("탄 버스 노선을 다른 후보로 고르면(#598) 다음 평가가 그 노선으로 갈아탈 차량을 묻는다")
+    void evaluatesWithUserSelectedRoute() {
+        givenRealtimeArrival(600);
+        evaluate();
+        // 갈아탈 구간(3 대기, 4 탑승)에 같은 정류장을 서는 140 이 묶여 있다고 치고 후보를 하나 더 심는다
+        Long waitLegId = jdbcTemplate.queryForObject(
+                "select id from journey_leg where journey_id = ? and leg_index = 3 and deleted_at is null",
+                Long.class, journeyId);
+        Long optionId = jdbcTemplate.queryForObject(
+                "insert into journey_leg_route_option"
+                        + " (created_at, updated_at, journey_leg_id, option_index, lane_index, route_id, route_name, boarding_seq)"
+                        + " values (now(), now(), ?, 1, 1, 'TEST-140', '140', 9) returning id",
+                Long.class, waitLegId);
+        org.mockito.Mockito.clearInvocations(predictTransferUseCase);
+
+        busRouteSelectionService.select(userId, journeyId, optionId, 1, 4);
+
+        // 선택이 평가를 지금으로 당겼다 — 기다리지 않고 바로 선점된다
+        assertThat(evaluate()).isEqualTo(Result.EVALUATED);
+        org.mockito.Mockito.verify(predictTransferUseCase, org.mockito.Mockito.atLeastOnce()).predict(
+                anyString(), org.mockito.ArgumentMatchers.eq("TEST-140"), org.mockito.ArgumentMatchers.eq(9),
+                any(), any(), anyLong());
+        org.mockito.Mockito.verify(predictTransferUseCase, org.mockito.Mockito.never()).predict(
+                anyString(), org.mockito.ArgumentMatchers.eq("TEST-721"), anyInt(), any(), any(), anyLong());
     }
 
     @Test
