@@ -62,6 +62,11 @@ class OtpPlanConnectionMapperTest {
         assertThat(bus.alternatives().get(0).boardAt().atZone(java.time.ZoneId.of("Asia/Seoul")).toLocalTime()
                 .withSecond(0)).isEqualTo(java.time.LocalTime.of(8, 48));
         assertThat(bus.alternatives().get(0).rideSeconds()).isPositive();
+        // 이 fixture 의 nextLegs 는 stopCalls 를 묻기 전 응답이다 → 정류장 목록은 모름(빈 목록, 묶이지 않는다)
+        assertThat(bus.alternatives().get(0).stopIds()).isEmpty();
+        // stopCalls 가 온 편은 서는 정류장 id 를 순서대로 싣는다 — 9200 은 대표와 같고 4103 은 중간 정류장이 다르다
+        assertThat(bus.alternatives().get(1).stopIds()).isEqualTo(bus.stops().stream().map(s -> s.sourceStopId()).toList());
+        assertThat(bus.alternatives().get(2).stopIds()).hasSize(3).contains("1:BS_OTHER");
         // 지하철 구간에 실린 nextLegs 는 버리지 않고 무시한다(버스만 합친다)
         assertThat(subway.alternatives()).isEmpty();
     }

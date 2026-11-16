@@ -44,10 +44,22 @@ class BusLaneMergerTest {
     @DisplayName("하차 정류장이 다른 편은 뺀다")
     void dropsDifferentAlightStop() {
         AlternativeRoute other = new AlternativeRoute("1:X", "X", null, "1:ELSEWHERE",
-                T0.plusSeconds(60), T0.plusSeconds(442));
+                T0.plusSeconds(60), T0.plusSeconds(442), List.of(FROM, "1:ELSEWHERE"));
         RoutingLeg leg = bus("8100", 382, other, alt("1101", 7, 382));
 
         assertThat(names(merge(it(leg)))).containsExactly("1101");
+    }
+
+    @Test
+    @DisplayName("서는 정류장이 대표와 완전히 같은 노선만 묶는다 — 승하차가 같아도 중간 정류장이 다르면(8100·M4102) 뺀다. 모르면 뺀다")
+    void onlyIdenticalStopListsMerge() {
+        Instant board = T0.plusSeconds(120);
+        AlternativeRoute extraStop = new AlternativeRoute("1:M4102", "M4102", null, TO, board, board.plusSeconds(382),
+                List.of(FROM, "1:MIDDLE", TO));
+        AlternativeRoute unknownStops = new AlternativeRoute("1:9000", "9000", null, TO, board, board.plusSeconds(382));
+        RoutingLeg leg = bus("8100", 382, extraStop, unknownStops, alt("9200", 5, 382));
+
+        assertThat(names(merge(it(leg)))).containsExactly("9200");
     }
 
     @Test
@@ -145,6 +157,6 @@ class BusLaneMergerTest {
     /** 대표 승차 뒤 boardMinutes 분에 타서 rideSeconds 초 걸리는 편. */
     private static AlternativeRoute alt(String name, int boardMinutes, int rideSeconds) {
         Instant board = T0.plusSeconds(boardMinutes * 60L);
-        return new AlternativeRoute("1:" + name, name, null, TO, board, board.plusSeconds(rideSeconds));
+        return new AlternativeRoute("1:" + name, name, null, TO, board, board.plusSeconds(rideSeconds), List.of(FROM, TO));
     }
 }

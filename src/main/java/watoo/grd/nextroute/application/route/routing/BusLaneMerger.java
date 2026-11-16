@@ -18,8 +18,13 @@ import java.util.Map;
  *       안 나온 노선까지 채운다.</li>
  * </ol>
  *
+ * <p><b>지나는 정류장이 대표와 완전히 같은 노선만 묶는다</b>(2026-11-16 사용자 결정). 운영 OTP 실측(묶인 노선 125개): 정류장이
+ * 같은 92개는 대표와 탑승시간 차가 최대 2.2분·선 이탈 최대 44m, 정류장이 다른 33개는 최대 9.3분·1,010m 였다. 정류장이
+ * 같으면 어느 노선을 타도 표시 시간·환승 대기·정거장 띠·지도 선이 맞는다.
+ *
  * <p>거르기(2026-11-16 운영 OTP 실측 노이즈)
  * <ul>
+ *   <li>승차 ~ 하차 정류장 목록이 대표와 다른 편(모르는 편 포함)</li>
  *   <li>대표 노선 자신, 이름 없는 편, 이름에 {@code (예약)} 이 든 노선({@code 5000(예약)}, {@code M5443(예약)}) — 예약제 버스</li>
  *   <li>하차 정류장이 대표와 다른 편(값을 알 때만)</li>
  *   <li>탑승시간 &gt; 대표 탑승시간 × factor + slack(수원 2-1 같은 우회 노선)</li>
@@ -97,7 +102,8 @@ public final class BusLaneMerger {
                 RoutingLeg same = transitLeg(member, transitIndex);
                 if (same != null && same.mode() == RoutingMode.BUS) {
                     candidates.add(new AlternativeRoute(same.sourceRouteId(), same.sourceRouteName(),
-                            same.sourceRouteColor(), same.alightStopId(), same.boardAt(), same.alightAt()));
+                            same.sourceRouteColor(), same.alightStopId(), same.boardAt(), same.alightAt(),
+                            stopIds(same)));
                 }
             }
             legs.add(leg.withAlternatives(select(leg, candidates, rules)));
@@ -112,6 +118,7 @@ public final class BusLaneMerger {
         }
         String repName = leg.sourceRouteName() != null ? leg.sourceRouteName() : leg.sourceRouteId();
         long maxRide = rideCap(leg, rules);
+        List<String> repStops = stopIds(leg);
         Map<String, AlternativeRoute> byName = new LinkedHashMap<>();
         Map<String, Integer> trips = new java.util.HashMap<>();
         for (AlternativeRoute c : candidates) {
@@ -120,6 +127,10 @@ public final class BusLaneMerger {
                 continue;
             }
             if (c.alightStopId() != null && !c.alightStopId().equals(leg.alightStopId())) {
+                continue;
+            }
+            // 승차부터 하차까지 서는 정류장이 대표와 완전히 같아야 묶는다. 모르면(빈 목록) 묶지 않는다.
+            if (!c.stopIds().equals(repStops)) {
                 continue;
             }
             Long ride = c.rideSeconds();
@@ -136,6 +147,18 @@ public final class BusLaneMerger {
                         .thenComparing(EARLIEST).thenComparing(AlternativeRoute::label))
                 .limit(slots)
                 .toList();
+    }
+
+    /** 구간이 서는 정류장 원천 id(승차 ~ 하차). id 가 하나라도 없으면 빈 목록. */
+    static List<String> stopIds(RoutingLeg leg) {
+        List<String> ids = new ArrayList<>(leg.stops().size());
+        for (StopOccurrence stop : leg.stops()) {
+            if (stop.sourceStopId() == null) {
+                return List.of();
+            }
+            ids.add(stop.sourceStopId());
+        }
+        return ids;
     }
 
     /** 대표 탑승시간 기준 상한(초). 대표 탑승시간을 모르면 -1(거르지 않음). */

@@ -24,8 +24,9 @@ import java.util.Map;
  *       처럼 id 만 다른 것은 하나로 본다. <b>열차 종류가 일반이 아니면(급행·ITX 등) 지문에 덧붙인다</b>(subway-express
  *       S2, D2) — 응답이 {@code trainKind} 로 급행을 보여 주므로 같은 노선의 급행·일반은 다른 경로다. 종류 null 과
  *       NORMAL 은 같은 지문이다. 도보 구간 차이는 지문에 넣지 않는다.
- *       <b>버스 합치기를 켜면 버스 구간은 노선 대신 (승차 정류장, 하차 정류장)</b>(otp-bus-lane-merge) — 같은 정류장에서
- *       타서 같은 정류장에 내리는 다른 버스는 사용자에겐 같은 길이다(네이버·카카오가 한 경로로 묶는다). 묶인 노선은
+ *       <b>버스 합치기를 켜면 버스 구간은 노선 대신 승차부터 하차까지 서는 정류장 목록</b>(otp-bus-lane-merge) — 같은
+ *       정류장들을 지나는 다른 버스는 사용자에겐 같은 길이다(처음엔 승하차 정류장만 봤으나 중간 정류장이 다르면 시간·선이
+ *       달라 2026-11-16 정류장 전체로 바꿨다). 묶인 노선은
  *       {@link BusLaneMerger} 가 대표 경로의 lane 으로 싣는다. 정류장 id 를 모르면 노선 이름으로 돌아간다. 정류장만 다른
  *       같은 노선 흐름(740 강남역9번출구·12번출구)은 줄 세운 뒤 위 대표 하나만 남긴다.</li>
  *   <li>지문마다 대표 하나 = 가장 이른 도착 → 낮은 비용 → 엔진 순서. 다음 출발편은 대표가 될 수 없다.</li>
@@ -97,10 +98,14 @@ public final class ItineraryRanker {
             if (leg.mode() == RoutingMode.WALK) {
                 continue;
             }
-            if (busByStops && leg.mode() == RoutingMode.BUS
-                    && leg.boardStopId() != null && leg.alightStopId() != null) {
-                key.add(RoutingMode.BUS + "|" + leg.boardStopId() + ">" + leg.alightStopId());
-                continue;
+            if (busByStops && leg.mode() == RoutingMode.BUS) {
+                // 서는 정류장 전체가 같아야 같은 길이다 — 승하차 정류장만 같고 중간에 다른 길로 가는 노선(8100·M4102)은
+                // 시간·선·정류장 수가 달라 따로 보인다(2026-11-16 사용자 결정, BusLaneMerger 와 같은 기준).
+                List<String> stops = BusLaneMerger.stopIds(leg);
+                if (stops.size() >= 2) {
+                    key.add(RoutingMode.BUS + "|" + String.join(">", stops));
+                    continue;
+                }
             }
             String route = leg.sourceRouteName() != null ? leg.sourceRouteName() : leg.sourceRouteId();
             TrainKind kind = leg.trainKind();
