@@ -6886,3 +6886,18 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - API 8개 OD: 전부 경로 반환(최단 15~62분), 버스 구간 56개 모두 선과 정류장 id 있음, 서울 실시간 도착 AVAILABLE 정상. ERROR 로그 0(api, worker, worker2, otp).
 - 기존 무관: 경기 버스 도착 API(apis.data.go.kr) I/O 오류로 경기 lane 일부가 ERROR(광화문→서울대 15건). 그래프와 무관한 외부 호출 실패.
 - 남음: 6411·6511 이 서울미래초등학교·거리공원 정류장에서 STOP_MAPPING_FAILED(교체 전에도 그랬는지 미확인).
+
+## 묶인 버스 중 운행이 끝난 노선은 구간에서 뺀다 (2026-11-17)
+### 확정
+- 한 구간에 버스가 여러 개 묶였을 때, 서울 실시간이 "운행종료"(첫째·둘째 도착 메시지 모두, 첫차 전 예외는 `BusServiceEnded`)라고 한 노선은 `lanes[]` 와 `transferArrivals[]` 에서 뺀다(사용자 결정 2026-11-17, 앱 화면에 "143 운행종료" 칩이 보여서).
+- 구간의 노선이 **전부** 끝났으면 건드리지 않는다 — 그 경로는 기존 `withoutEnded`(#400)가 통째로 뺀다.
+- 실시간을 못 읽은 노선(경기·TAGO·해석 실패·차단·예산)은 근거가 없어 남긴다.
+- "막차"(지금 오는 차가 마지막, 다음이 운행종료)는 탈 수 있으므로 남긴다.
+### 함정
+- lane 순번이 당겨지므로 세 곳을 같이 고친다: 이 구간 `transferArrivals[].laneIndex`, 다음 버스 구간의 `basisLaneIndex`, 앞 버스 구간의 `onwardWaits[].laneIndex`. 하나라도 빠지면 앱이 다른 버스의 값을 보여 준다.
+- 대표 노선(lane 0)이 끝났으면 다음 노선이 lane 0 이 된다. 구간의 `sectionTime`·선·정류장은 옛 대표 값이 남지만 묶인 노선은 정류장이 같아(#605) 차이는 탑승시간 최대 2분.
+- 검색 시점 기준이다. 검색 뒤에 끝나는 노선은 스냅샷에 남는다 → 앱의 실시간 도착 화면도 같은 규칙으로 걸러야 한다(jette-app#130 에 적음).
+### 좌표
+- `TransferArrivalEnricher.withoutEndedLanes`, `SubPathResult.withLanesAndTransferArrivals`, `TransferArrival.reindexed`
+### 검증
+- `./gradlew test --tests '*TransferArrivalEnricher*' --tests '*RouteSearchService*' --tests '*RouteSearchTravelTime*'` → 118 통과(신규 2 + 기존 시험 1개 확장: 끝난 노선만 빠짐, 가운데가 빠져도 세 순번 일치, 실시간 없는 노선은 남음).
