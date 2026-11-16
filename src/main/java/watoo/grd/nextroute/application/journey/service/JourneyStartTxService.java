@@ -38,6 +38,10 @@ import watoo.grd.nextroute.global.error.code.CommonErrorCode;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 여정을 실제로 DB 에 앉히는 트랜잭션.
@@ -48,6 +52,7 @@ import java.util.List;
  * <p>이 트랜잭션은 짧아야 한다. Redis 조회와 경로 쪼개기는 바깥에서 끝내고 들어온다 — 사용자
  * 행을 잠근 채 외부 저장소를 기다리면 같은 사람의 다음 요청이 그만큼 밀린다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class JourneyStartTxService {
@@ -131,10 +136,11 @@ public class JourneyStartTxService {
                 .activatedAt(now)
                 .build());
 
-        List<JourneyLeg> legs = saveLegs(session, plan);
+        Map<Integer, Integer> defaults = defaultOptionIndexes(plan, now);
+        List<JourneyLeg> legs = saveLegs(session, plan, rideSecondsOverrides(plan, defaults));
         // 새 번호다. 만들기 전에 누가 이 번호를 물어 캐시에 "없음"이 남았을 수 있다 — 커밋 뒤 덮는다(처방 4차).
         eventPublisher.publishEvent(JourneyVersionChangedEvent.of(session.getId()));
-        saveRouteOptions(plan, legs);
+        saveRouteOptions(session, plan, legs, defaults);
         saveTransfers(session, plan);
         // 재탐색 보드 첫 갱신은 시작 + 60초다(#264 PR-2). 시작 직후 3분의 push 차단은 push 판단이 맡는다.
         if (session.getKind() == JourneyKind.NAVIGATION) {
@@ -164,7 +170,40 @@ public class JourneyStartTxService {
                 SubwayBindingAbandonReason.SUPERSEDED_BY_NEW_JOURNEY);
     }
 
-    private List<JourneyLeg> saveLegs(JourneySession session, JourneyPlan plan) {
+    /**
+     * 노선 후보가 있는 단계(기다리는 단계)마다 기본 선택 후보 순번(#614). 검색 스냅샷 실시간상 걸어서 닿은 뒤 가장 먼저 오는
+     * lane, 없으면 첫 후보({@link JourneyRouteOptionDraft#defaultIndex}).
+     */
+    static Map<Integer, Integer> defaultOptionIndexes(JourneyPlan plan, Instant startedAt) {
+        Map<Integer, Integer> defaults = new HashMap<>();
+        for (JourneyLegDraft draft : plan.legs()) {
+            if (!draft.routeOptions().isEmpty()) {
+                defaults.put(draft.legIndex(), JourneyRouteOptionDraft.defaultIndex(draft.routeOptions(), startedAt));
+            }
+        }
+        return defaults;
+    }
+
+    /**
+     * 기본 선택이 첫 후보가 아니면 짝 탑승 단계의 계획 소요를 그 lane 의 탑승시간으로(#614). 구간 {@code sectionTime} 은 대표
+     * 노선(lane 0) 값이라 그대로 두면 "140 대기 + 402 탑승" 으로 도착 예정을 잰다. lane 탑승시간을 모르면 구간 값 그대로.
+     */
+    static Map<Integer, Integer> rideSecondsOverrides(JourneyPlan plan, Map<Integer, Integer> defaults) {
+        Map<Integer, Integer> overrides = new HashMap<>();
+        for (JourneyLegDraft draft : plan.legs()) {
+            Integer index = defaults.get(draft.legIndex());
+            if (index == null || index == 0 || draft.pairedLegIndex() == null) {
+                continue;
+            }
+            draft.routeOptions().stream()
+                    .filter(option -> option.optionIndex() == index && option.rideSeconds() != null)
+                    .findFirst()
+                    .ifPresent(option -> overrides.put(draft.pairedLegIndex(), option.rideSeconds()));
+        }
+        return overrides;
+    }
+
+    private List<JourneyLeg> saveLegs(JourneySession session, JourneyPlan plan, Map<Integer, Integer> plannedOverrides) {
         List<JourneyLeg> legs = new ArrayList<>(plan.legs().size());
         for (JourneyLegDraft draft : plan.legs()) {
             legs.add(JourneyLeg.builder()
@@ -179,7 +218,7 @@ public class JourneyStartTxService {
                     .sourceEndStopId(draft.sourceEndStopId())
                     .startName(draft.startName())
                     .endName(draft.endName())
-                    .plannedDurationSec(draft.plannedDurationSec())
+                    .plannedDurationSec(plannedOverrides.getOrDefault(draft.legIndex(), draft.plannedDurationSec()))
                     .evidenceQuality(draft.evidenceQuality())
                     .guidance(draft.guidance())
                     .activatedAt(draft.state() == watoo.grd.nextroute.domain.journey.entity.JourneyLegState.ACTIVE
@@ -190,12 +229,13 @@ public class JourneyStartTxService {
     }
 
     /**
-     * 노선 후보를 저장하고, ODsay가 첫 번째로 준 노선을 현재 선택 노선으로 둔다.
+     * 노선 후보를 저장하고 기본 선택 후보를 짝이 되는 두 단계의 현재 노선으로 둔다(주인 DEFAULT).
      *
-     * <p>사용자에게 차량 선택을 요구하지 않는 제품 계약이다. 나머지 후보는 대체 routeOption으로
-     * 그대로 보존하며 실제 차량·운행 회차는 어느 경우에도 확정하지 않는다.
+     * <p>기본 선택은 묶인 버스 구간이면 검색 실시간상 먼저 오는 노선, 아니면 첫 후보다(#614). 사용자에게 차량 선택을
+     * 요구하지 않는 제품 계약이고, 탄 노선이 다르면 앱이 #598 선택을 보낸다. 실제 차량·운행 회차는 확정하지 않는다.
      */
-    private void saveRouteOptions(JourneyPlan plan, List<JourneyLeg> legs) {
+    private void saveRouteOptions(JourneySession session, JourneyPlan plan, List<JourneyLeg> legs,
+                                  Map<Integer, Integer> defaults) {
         for (JourneyLegDraft draft : plan.legs()) {
             if (draft.routeOptions().isEmpty()) {
                 continue;
@@ -209,11 +249,20 @@ public class JourneyStartTxService {
             if (saved.isEmpty()) {
                 continue;
             }
-            Long selected = saved.get(0).getId();
-            String routeId = saved.get(0).getRouteId();
-            waitLeg.selectRouteOption(selected, routeId);
+            int index = defaults.getOrDefault(draft.legIndex(), 0);
+            JourneyLegRouteOption chosen = saved.stream()
+                    .filter(option -> option.getOptionIndex() == index)
+                    .findFirst()
+                    .orElse(saved.get(0));
+            if (chosen != saved.get(0)) {
+                log.info("[JourneyStart] journeyId={} legIndex={} 기본 선택 {} -> {}({}) — 검색 실시간상 먼저 옴",
+                        session.getId(), draft.legIndex(), saved.get(0).getRouteName(),
+                        chosen.getRouteName(), chosen.getOptionIndex());
+            }
+            waitLeg.selectRouteOption(chosen.getId(), chosen.getRouteId(), RouteOptionSelectedBy.DEFAULT);
             if (draft.pairedLegIndex() != null) {
-                legs.get(draft.pairedLegIndex()).selectRouteOption(selected, routeId);
+                legs.get(draft.pairedLegIndex())
+                        .selectRouteOption(chosen.getId(), chosen.getRouteId(), RouteOptionSelectedBy.DEFAULT);
             }
         }
         legRepository.flush();
@@ -232,6 +281,7 @@ public class JourneyStartTxService {
                 .boardingSeq(draft.boardingSeq())
                 .alightingSeq(draft.alightingSeq())
                 .routeDisplayColor(draft.routeDisplayColor())
+                .rideSeconds(draft.rideSeconds())
                 .build();
     }
 

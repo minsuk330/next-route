@@ -156,7 +156,8 @@ public class JourneyQueryService implements JourneyQueryUseCase {
                 guidance.alightDoorSide(),
                 guidance.trainKind(),
                 leg.getSourceStartStopId(),
-                leg.getSourceEndStopId());
+                leg.getSourceEndStopId(),
+                leg.getRouteOptionSelectedByOrDefault() == null ? null : leg.getRouteOptionSelectedByOrDefault().name());
     }
 
     /** 저장된 JSON 을 응답 모양으로. 깨진 값은 없는 것으로 본다 — 안내 줄 하나 때문에 여정 조회가 실패하면 안 된다. */

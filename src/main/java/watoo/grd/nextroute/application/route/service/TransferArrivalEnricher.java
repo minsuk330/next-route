@@ -1024,9 +1024,7 @@ public class TransferArrivalEnricher {
             Map<Integer, Boolean> boardable) {
 
         List<TransferArrival> boardables = laneResults.stream()
-                .filter(ta -> ta.predictedArrivalAt() != null &&
-                        (ta.status() == TransferArrival.Status.AVAILABLE ||
-                         ta.status() == TransferArrival.Status.ARRIVAL_TIME_APPROXIMATE))
+                .filter(TransferArrival::isBoardable)
                 .toList();
 
         if (boardables.isEmpty()) {

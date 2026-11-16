@@ -82,6 +82,7 @@ public final class SubPathFixture {
         private Integer walkTotalTimeSeconds;
         private List<CoordPoint> polyline;
         private List<WalkStep> walkSteps;
+        private List<watoo.grd.nextroute.application.route.dto.TransferArrival> transferArrivals;
 
         private Builder(int trafficType, int sectionTime) {
             this.trafficType = trafficType;
@@ -165,6 +166,11 @@ public final class SubPathFixture {
         }
 
         /** 철도 구간 열차 종류({@code EXPRESS} 등, subway-express S2). */
+        public Builder transferArrivals(watoo.grd.nextroute.application.route.dto.TransferArrival... arrivals) {
+            this.transferArrivals = List.of(arrivals);
+            return this;
+        }
+
         public Builder trainKind(String trainKind) {
             this.trainKind = trainKind;
             return this;
@@ -177,7 +183,7 @@ public final class SubPathFixture {
                     null, payment, startId, null, wayCode, polyline,
                     null, null, null, null, null, null, walkSteps,
                     startLocalStationID, endLocalStationID, startArsID, endArsID, endID,
-                    walkTotalTimeSeconds, null, trainKind, null, null, null);
+                    walkTotalTimeSeconds, transferArrivals, trainKind, null, null, null);
         }
     }
 }

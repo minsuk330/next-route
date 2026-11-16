@@ -345,6 +345,43 @@ class JourneyCompilerTest {
         }
 
         @Test
+        @DisplayName("#614 버스 lane 순번마다 조건부 아닌 검색 실시간과 lane 탑승시간을 싣는다. 조건부·지하철은 비운다")
+        void searchArrivalAndRideSecondsPerLane() {
+            java.time.Instant t = java.time.Instant.parse("2026-11-17T00:30:00Z");
+            var first = new watoo.grd.nextroute.application.route.dto.TransferArrival("R", 1,
+                    watoo.grd.nextroute.application.route.dto.TransferArrival.Source.REALTIME,
+                    watoo.grd.nextroute.application.route.dto.TransferArrival.Status.AVAILABLE,
+                    t, t, t.plusSeconds(180), 180L, null, null, null, false);
+            var conditional = new watoo.grd.nextroute.application.route.dto.TransferArrival("R", 0,
+                    watoo.grd.nextroute.application.route.dto.TransferArrival.Source.REALTIME,
+                    watoo.grd.nextroute.application.route.dto.TransferArrival.Status.AVAILABLE,
+                    t, t, t.plusSeconds(60), 60L, null, null, 1, true);
+            // 앞 lane 이 운행종료로 빠져 재번호에서 basis 가 null 이 된 두 번째 구간 값(리뷰 지적) — 구조로 거른다
+            var basisLost = new watoo.grd.nextroute.application.route.dto.TransferArrival("R", 1,
+                    watoo.grd.nextroute.application.route.dto.TransferArrival.Source.MODEL,
+                    watoo.grd.nextroute.application.route.dto.TransferArrival.Status.AVAILABLE,
+                    t, t, t.plusSeconds(90), 90L, null, null, null, false);
+            JourneyPlan plan = compiler.compile(path(
+                    bus(12).busStops("ST-A", "ST-F")
+                            .lanes(new watoo.grd.nextroute.application.route.dto.LaneResult(
+                                            "402", "402", null, null, null, "BL-402", null, 700),
+                                    new watoo.grd.nextroute.application.route.dto.LaneResult(
+                                            "140", "140", null, null, null, "BL-140", null, 905))
+                            .transferArrivals(first).build(),
+                    walk(3).build(),
+                    bus(10).busStops("ST-G", "ST-Z")
+                            .lanes(busLane("721", "BL-721"), busLane("110", "BL-110"))
+                            .transferArrivals(conditional, basisLost).build()));
+
+            List<JourneyRouteOptionDraft> firstOptions = plan.legs().get(0).routeOptions();
+            assertThat(firstOptions.get(0).searchArrival()).isNull();
+            assertThat(firstOptions.get(1).searchArrival()).isSameAs(first);
+            assertThat(firstOptions).extracting(JourneyRouteOptionDraft::rideSeconds).containsExactly(700, 905);
+            assertThat(plan.legs().get(3).routeOptions())
+                    .allSatisfy(o -> assertThat(o.searchArrival()).as("두 번째 버스 구간은 비움").isNull());
+        }
+
+        @Test
         @DisplayName("기다리는 단계만 들고 있다 — 타는 단계는 짝을 가리키기만 한다")
         void onlyWaitLegOwnsOptions() {
             JourneyPlan plan = compiler.compile(path(

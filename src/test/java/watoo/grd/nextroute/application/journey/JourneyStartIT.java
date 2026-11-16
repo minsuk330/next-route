@@ -60,6 +60,7 @@ class JourneyStartIT {
     private static final String PATH_KEY = "0";
 
     @Autowired StartJourneyUseCase startJourneyUseCase;
+    @Autowired watoo.grd.nextroute.application.journey.service.BusRouteSelectionService busRouteSelectionService;
     @Autowired JourneyQueryUseCase getActiveJourneyUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired EntityManager entityManager;
@@ -203,6 +204,82 @@ class JourneyStartIT {
                 select count(*) from journey_revision
                 where journey_id = ? and status = 'ACTIVE' and route_revision = 1
                 """, Integer.class, snapshot.journeyId())).isEqualTo(1);
+    }
+
+    /**
+     * journey 516 모양(#614): 첫 버스 구간에 402(대표)·741·140 이 묶이고 검색 실시간이 140 3분 / 741 7분 / 402 19분.
+     * 두 번째 버스 구간은 조건부 실시간(앞 버스 가정)이라 기본 선택에 쓰지 않는다.
+     */
+    private PathResult mergedFirstBusPath(Instant searchedAt) {
+        Instant atStop = searchedAt.plusSeconds(120);
+        java.util.function.BiFunction<Integer, Integer, watoo.grd.nextroute.application.route.dto.TransferArrival> ta =
+                (lane, waitMin) -> new watoo.grd.nextroute.application.route.dto.TransferArrival(
+                        "R" + lane, lane, watoo.grd.nextroute.application.route.dto.TransferArrival.Source.REALTIME,
+                        watoo.grd.nextroute.application.route.dto.TransferArrival.Status.AVAILABLE,
+                        searchedAt, atStop, atStop.plusSeconds(waitMin * 60L), waitMin * 60L, null, null, null, false);
+        return new PathResult(1,
+                new PathInfo(40, 2500, 600, 1, "신분당선강남역", "정류장Z", null),
+                List.of(
+                        SubPathFixture.bus(12).names("신분당선강남역", "한남오거리")
+                                .busStops("ST-A", "ST-F")
+                                .lanes(new watoo.grd.nextroute.application.route.dto.LaneResult(
+                                                "402", "402", null, null, null, "BL-402", null, 700),
+                                        new watoo.grd.nextroute.application.route.dto.LaneResult(
+                                                "741", "741", null, null, null, "BL-741", null, 780),
+                                        new watoo.grd.nextroute.application.route.dto.LaneResult(
+                                                "140", "140", null, null, null, "BL-140", null, 905))
+                                .transferArrivals(ta.apply(0, 19), ta.apply(1, 7), ta.apply(2, 3)).build(),
+                        SubPathFixture.walk(3).names("한남오거리", "정류장G").distance(150.0).build(),
+                        SubPathFixture.bus(15).names("정류장G", "정류장Z")
+                                .busStops("ST-G", "ST-Z")
+                                .lanes(SubPathFixture.busLane("721", "BL-721"), SubPathFixture.busLane("110", "BL-110"))
+                                .transferArrivals(new watoo.grd.nextroute.application.route.dto.TransferArrival(
+                                        "R1", 1, watoo.grd.nextroute.application.route.dto.TransferArrival.Source.REALTIME,
+                                        watoo.grd.nextroute.application.route.dto.TransferArrival.Status.AVAILABLE,
+                                        searchedAt, atStop, atStop.plusSeconds(60), 60L, null, null, 2, true))
+                                .build()),
+                List.of());
+    }
+
+    @Test
+    @DisplayName("#614 묶인 첫 버스 구간은 검색 실시간상 먼저 오는 140 으로 시작하고 탑승 소요도 140 값. 조건부 실시간뿐인 뒤 구간은 첫 후보")
+    void defaultSelectionIsEarliestLane() {
+        Long userId = newUser();
+        givenSnapshotOwnedBy(userId, mergedFirstBusPath(Instant.now()));
+
+        JourneySnapshot snapshot = start(userId, false);
+
+        JourneyLegView wait = snapshot.legs().get(0);
+        JourneyLegView ride = snapshot.legs().get(1);
+        Long chosen = wait.routeOptions().stream().filter(o -> o.routeName().equals("140"))
+                .findFirst().orElseThrow().optionId();
+        assertThat(wait.selectedRouteOptionId()).isEqualTo(chosen);
+        assertThat(ride.selectedRouteOptionId()).isEqualTo(chosen);
+        assertThat(wait.routeOptionSelectedBy()).isEqualTo("DEFAULT");
+        assertThat(ride.plannedDurationSec()).as("140 rideSeconds, 대표 sectionTime 12분 아님").isEqualTo(905);
+
+        // 사용자가 대표 402 를 탔다고 고르면 탑승 소요도 402 값(후보에 저장한 rideSeconds)
+        JourneySnapshot reselected = busRouteSelectionService.select(userId, snapshot.journeyId(),
+                wait.routeOptions().get(0).optionId(), snapshot.routeRevision(), 1);
+        assertThat(reselected.legs().get(1).plannedDurationSec()).isEqualTo(700);
+        assertThat(reselected.legs().get(1).routeOptionSelectedBy()).isEqualTo("USER");
+
+        JourneyLegView secondWait = snapshot.legs().get(3);
+        assertThat(secondWait.selectedRouteOptionId()).isEqualTo(secondWait.routeOptions().get(0).optionId());
+        assertThat(snapshot.legs().get(4).plannedDurationSec()).isEqualTo(15 * 60);
+    }
+
+    @Test
+    @DisplayName("#614 검색이 오래돼 걸어서 닿기 전에 다 지나가면 대표(첫 후보)로 시작한다")
+    void staleSnapshotFallsBackToFirst() {
+        Long userId = newUser();
+        givenSnapshotOwnedBy(userId, mergedFirstBusPath(Instant.now().minusSeconds(1500)));
+
+        JourneySnapshot snapshot = start(userId, false);
+
+        JourneyLegView wait = snapshot.legs().get(0);
+        assertThat(wait.selectedRouteOptionId()).isEqualTo(wait.routeOptions().get(0).optionId());
+        assertThat(snapshot.legs().get(1).plannedDurationSec()).isEqualTo(12 * 60);
     }
 
     @Test

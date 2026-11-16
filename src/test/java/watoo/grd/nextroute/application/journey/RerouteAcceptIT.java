@@ -204,6 +204,7 @@ class RerouteAcceptIT {
             assertThat(after.legs().get(0).routeOptions().stream()
                     .filter(option -> option.optionId().equals(leg.selectedRouteOptionId()))
                     .findFirst().orElseThrow().optionIndex()).isEqualTo(1);
+            assertThat(leg.routeOptionSelectedBy()).as("#614 주인도 이어받는다").isEqualTo("USER");
         }
         // 새로 생긴 구간은 첫 후보로 시작한다
         var newWait = after.legs().stream()
@@ -212,6 +213,7 @@ class RerouteAcceptIT {
         assertThat(newWait.routeOptions().stream()
                 .filter(option -> option.optionId().equals(newWait.selectedRouteOptionId()))
                 .findFirst().orElseThrow().optionIndex()).isZero();
+        assertThat(newWait.routeOptionSelectedBy()).isEqualTo("DEFAULT");
     }
 
     @Test

@@ -16,6 +16,8 @@ package watoo.grd.nextroute.application.journey.dto;
  * @param boardingSeq   내부 버스 노선에서 승차 정류장의 순번. 단건 해석 실패 시 null
  * @param alightingSeq  내부 버스 노선에서 하차 정류장의 순번. 단건 해석 실패 시 null
  * @param routeDisplayColor 검색 lane 의 노선 표시색({@code #RRGGBB}). 지하철은 공식 색표 값(#595). 모르거나 형식이 다르면 null
+ * @param searchArrival 저장하지 않는다. 검색 스냅샷의 이 lane 실시간 도착(첫 버스 구간의 조건부 아닌 값만) — 여정 시작 기본 선택(#614)
+ * @param rideSeconds   저장하지 않는다. 이 lane 으로 이 구간을 타는 정적 탑승시간(초, {@code LaneResult.rideSeconds}). 모르면 null
  */
 public record JourneyRouteOptionDraft(
         int optionIndex,
@@ -27,8 +29,20 @@ public record JourneyRouteOptionDraft(
         Integer wayCode,
         Integer boardingSeq,
         Integer alightingSeq,
-        String routeDisplayColor
+        String routeDisplayColor,
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        watoo.grd.nextroute.application.route.dto.TransferArrival searchArrival,
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        Integer rideSeconds
 ) {
+
+    /** 검색 실시간·탑승시간 없는 후보. */
+    public JourneyRouteOptionDraft(int optionIndex, int laneIndex, String routeId, String sourceRouteId,
+                                   String routeName, String directionKey, Integer wayCode,
+                                   Integer boardingSeq, Integer alightingSeq, String routeDisplayColor) {
+        this(optionIndex, laneIndex, routeId, sourceRouteId, routeName, directionKey, wayCode,
+                boardingSeq, alightingSeq, routeDisplayColor, null, null);
+    }
 
     private static final java.util.regex.Pattern HEX_COLOR = java.util.regex.Pattern.compile("^#[0-9A-Fa-f]{6}$");
 
@@ -53,6 +67,30 @@ public record JourneyRouteOptionDraft(
                 wayCode, null, null, displayColor(routeDisplayColor));
     }
 
+    /** 검색 스냅샷의 이 lane 실시간 도착과 탑승시간을 싣는다(저장하지 않는 값). */
+    public JourneyRouteOptionDraft withSearch(watoo.grd.nextroute.application.route.dto.TransferArrival arrival,
+                                              Integer laneRideSeconds) {
+        return new JourneyRouteOptionDraft(optionIndex, laneIndex, routeId, sourceRouteId, routeName, directionKey,
+                wayCode, boardingSeq, alightingSeq, routeDisplayColor, arrival, laneRideSeconds);
+    }
+
+    /**
+     * 여정 시작의 기본 선택 후보 순번(#614): {@code startedAt} 에 출발해 걸어서 닿은 뒤 오는 차 중 가장 먼저 오는 lane.
+     * 검색 bestLane 과 같은 기준({@link watoo.grd.nextroute.application.route.dto.TransferArrival#isBoardable()})에 도보 도달을 더했다.
+     * 동률은 앞 순번. 그런 lane 이 없으면(실시간 없음, 조건부 구간, 전부 지나감) 첫 후보 — 시간표 대표 노선.
+     */
+    public static int defaultIndex(java.util.List<JourneyRouteOptionDraft> options, java.time.Instant startedAt) {
+        if (options == null || options.isEmpty()) {
+            return 0;
+        }
+        return options.stream()
+                .filter(o -> o.searchArrival() != null && o.searchArrival().reachableIfStartedAt(startedAt))
+                .min(java.util.Comparator.comparing((JourneyRouteOptionDraft o) -> o.searchArrival().predictedArrivalAt())
+                        .thenComparingInt(JourneyRouteOptionDraft::optionIndex))
+                .map(JourneyRouteOptionDraft::optionIndex)
+                .orElse(options.get(0).optionIndex());
+    }
+
     /** {@code #RRGGBB} 만 받는다(대문자로). 다른 모양은 저장하지 않고 null — 앱이 대체색을 쓴다. */
     static String displayColor(String color) {
         if (color == null || !HEX_COLOR.matcher(color.trim()).matches()) {
@@ -75,7 +113,7 @@ public record JourneyRouteOptionDraft(
                                             Integer resolvedBoardingSeq, Integer resolvedAlightingSeq) {
         return new JourneyRouteOptionDraft(optionIndex, laneIndex, resolvedRouteId, sourceRouteId,
                 routeName, directionKey(wayCode, resolvedBoardingSeq, resolvedAlightingSeq),
-                wayCode, resolvedBoardingSeq, resolvedAlightingSeq, routeDisplayColor);
+                wayCode, resolvedBoardingSeq, resolvedAlightingSeq, routeDisplayColor, searchArrival, rideSeconds);
     }
 
     private static String directionKey(Integer wayCode, Integer boardingSeq, Integer alightingSeq) {

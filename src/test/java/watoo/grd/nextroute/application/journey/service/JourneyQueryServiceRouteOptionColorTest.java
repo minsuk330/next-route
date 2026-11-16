@@ -38,6 +38,20 @@ class JourneyQueryServiceRouteOptionColorTest {
     }
 
     @Test
+    @DisplayName("#614 선택 주인: 선택이 있는데 칸이 비면(V78 전 행) DEFAULT, 선택이 없으면 null, USER 는 그대로")
+    void selectedByReadsNullAsDefault() {
+        JourneyLeg oldRow = waitLeg();
+        ReflectionTestUtils.setField(oldRow, "selectedRouteOptionId", 11L);
+        assertThat(JourneyQueryService.toView(oldRow, Map.of()).routeOptionSelectedBy()).isEqualTo("DEFAULT");
+
+        assertThat(JourneyQueryService.toView(waitLeg(), Map.of()).routeOptionSelectedBy()).isNull();
+
+        JourneyLeg user = waitLeg();
+        user.selectRouteOption(11L, "R", watoo.grd.nextroute.domain.journey.entity.RouteOptionSelectedBy.USER);
+        assertThat(JourneyQueryService.toView(user, Map.of()).routeOptionSelectedBy()).isEqualTo("USER");
+    }
+
+    @Test
     @DisplayName("묶인 노선마다 저장된 색이 그대로 나가고, 색이 생기기 전 행은 null")
     void eachOptionCarriesItsColor() throws Exception {
         JourneyLegView view = JourneyQueryService.toView(waitLeg(), Map.of(LEG_ID, List.of(
