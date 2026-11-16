@@ -221,9 +221,17 @@ public class OtpRoutingAdapter implements RoutingPort {
         // 그래프에 없는 id 를 보내도 OTP 는 오류 없이 무시한다(운영 2026-10-22 확인).
         Set<String> excluded = new TreeSet<>(q.excludedRouteIds());
         excluded.addAll(classifier.directRouteIds());
+        Map<String, Object> transit = new LinkedHashMap<>();
         if (!excluded.isEmpty()) {
-            vars.put("preferences", Map.of("transit", Map.of("filters", List.of(
-                    Map.of("exclude", List.of(Map.of("routes", List.copyOf(excluded))))))));
+            transit.put("filters", List.of(Map.of("exclude", List.of(Map.of("routes", List.copyOf(excluded))))));
+        }
+        // 환승 여유: 걷는 시간(통로·피드의 최소 환승 시간) 위에 더 얹는 여유. OTP 기본은 2분이다.
+        Integer slack = properties.getTransferSlackSeconds();
+        if (slack != null && slack >= 0) {
+            transit.put("transfer", Map.of("slack", Duration.ofSeconds(slack).toString()));
+        }
+        if (!transit.isEmpty()) {
+            vars.put("preferences", Map.of("transit", transit));
         }
         // 버스 합치기(otp-bus-lane-merge): 검색 화면 질의만 같은 정류장의 다른 노선을 함께 묻는다.
         if (q.alternativeLegs() && properties.isBusLaneMergeEnabled() && properties.getAlternativeLegs() > 0) {

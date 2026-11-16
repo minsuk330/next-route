@@ -242,6 +242,30 @@ class OtpRoutingAdapterHttpTest {
     }
 
     @Test
+    @DisplayName("환승 여유를 preferences.transit.transfer.slack 로 보낸다(기본 1분) — 제외 노선 필터와 같이 실린다. null 이면 안 보낸다")
+    void transferSlackSentWithFilters() throws Exception {
+        RoutingQuery q = new RoutingQuery(126.97, 37.56, "o", 127.02, 37.49, "d", now, Set.of(), null, false, "v",
+                RoutingProvider.OTP, null, Set.of("1:RR_ACC1_S-1-09-2D"));
+        enqueueSuccess();
+        adapter.search(q, RoutingDeadline.of(clock, 3000));
+        JsonNode transit = sentVariables().path("preferences").path("transit");
+        assertThat(transit.path("transfer").path("slack").asText()).isEqualTo("PT1M");
+        assertThat(transit.path("filters")).hasSize(1);
+
+        props.setTransferSlackSeconds(0);
+        enqueueSuccess();
+        adapter.search(q, RoutingDeadline.of(clock, 3000));
+        assertThat(sentVariables().path("preferences").path("transit").path("transfer").path("slack").asText()).isEqualTo("PT0S");
+
+        props.setTransferSlackSeconds(null);
+        enqueueSuccess();
+        adapter.search(q, RoutingDeadline.of(clock, 3000));
+        JsonNode without = sentVariables().path("preferences").path("transit");
+        assertThat(without.has("transfer")).isFalse();
+        assertThat(without.path("filters")).hasSize(1);
+    }
+
+    @Test
     @DisplayName("제외 노선이 있으면 preferences.transit.filters[].exclude.routes 로 보낸다(급행 끄기, subway-express S2)")
     void excludedRoutesSentAsTransitFilter() throws Exception {
         enqueueSuccess();
