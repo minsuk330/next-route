@@ -22,7 +22,8 @@ For every metro platform P that add_station_entrances.py gave a station ``VST_<P
 * with ``--stop-entrances <tsv>`` (platform, bus stop): an entrance ``VEN_bs_<stop>_<P>`` at the bus
   stop's point.  For bus stops named after the station where the street data between the stop and
   the exits goes around (부산대역 stop → an exit 39 m away: 28 min; issue #620).  The list is
-  measured, not derived: ``config/otp-national/station-stop-entrances.tsv``;
+  measured, not derived: ``config/otp-national/station-stop-entrances.tsv``.  A listed platform that
+  has no exit data is treated like the others (and gets a station ``VST_<P>`` if it has none);
 * a pathway P ↔ Q for every platform pair of ``transfers.txt`` whose two platforms both got
   entrances, with the feed's ``min_transfer_time`` (at least 60 s).  A platform that has pathways is
   no longer linked to the street by OTP, so without these a transfer would leave by one exit and
@@ -119,10 +120,22 @@ def run(in_zip: Path, out_zip: Path, report_path: Path | None = None,
     pathways: list[list[str]] = []
     done: set[str] = set()
     exit_times: list[int] = []
-    for p in sorted(exits):
+    # platforms listed for a bus stop entrance but without exit data (연천, 광명 KTX, 인천공항2터미널) are handled
+    # like the others — own-point entrance, transfer pathways — and get a station if they have none
+    listed = {p for p, _ in (stop_entrances or []) if p in by_id and not by_id[p][H["location_type"]].strip("0")}
+    made_stations = 0
+    for p in sorted(set(exits) | listed):
         if p not in by_id:
             continue
-        for r in exits[p]:
+        if not by_id[p][H["parent_station"]]:
+            station = list(by_id[p])
+            station[H["stop_id"]], station[H["location_type"]] = PARENT_PREFIX + p, "1"
+            if "stop_code" in H:
+                station[H["stop_code"]] = ""
+            new_stops.append(station)
+            by_id[p][H["parent_station"]] = PARENT_PREFIX + p
+            made_stations += 1
+        for r in exits.get(p, []):
             ent = ENTRANCE_PREFIX + r[H["stop_id"]][len(EXIT_PREFIX):]
             e = list(r)
             e[H["stop_id"]], e[H["location_type"]] = ent, "2"
@@ -240,7 +253,7 @@ def run(in_zip: Path, out_zip: Path, report_path: Path | None = None,
         "input": str(in_zip), "output": str(out_zip),
         "platformsWithEntrances": len(done), "entrances": len(new_stops),
         "transferPathways": transfers, "transferPairsWithOneSideOnStreet": skipped,
-        "selfEntrances": len(done), "busStopEntrances": stop_made, "busStopEntrancesSkipped": stop_skipped, "nationalRailPlatforms": len(rail_done), "nationalRailPathways": rail_links,
+        "selfEntrances": len(done), "stationsCreated": made_stations, "busStopEntrances": stop_made, "busStopEntrancesSkipped": stop_skipped, "nationalRailPlatforms": len(rail_done), "nationalRailPathways": rail_links,
         "allLinesCopyPathways": copies, "pathways": len(pathways),
         "exitSeconds": ({"min": exit_times[0], "p50": exit_times[len(exit_times) // 2], "max": exit_times[-1]}
                         if exit_times else None),

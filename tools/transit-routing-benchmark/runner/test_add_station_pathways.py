@@ -51,6 +51,8 @@ STOPS = [
     ["P3", "", "나", LAT, lon(5000), "0", "VST_P3"],
     ["RS_TAGO_NAT1", "", "가", LAT, lon(100), "0", ""],
     ["BS_1", "01001", "가역", LAT, lon(-80), "0", ""],
+    ["P9", "", "다", LAT, lon(9000), "0", ""],
+    ["BS_9", "09001", "다역", LAT, lon(9060), "0", ""],
     ["BS_1", "", "가역앞", LAT, lon(60), "0", ""],
 ]
 TRANSFERS = [["from_stop_id", "to_stop_id", "transfer_type", "min_transfer_time"],
@@ -151,7 +153,7 @@ class AddStationPathwaysTest(unittest.TestCase):
 
     def test_listed_bus_stop_gets_an_entrance_at_its_own_point(self):
         tsv = self.tmp / "stops.tsv"
-        tsv.write_text("# platform\tbus stop\nP1\tBS_1\t가\t가역\t80\t20.0\nP3\tBS_1\nP1\tBS_missing\n", encoding="utf-8")
+        tsv.write_text("# platform\tbus stop\nP1\tBS_1\t가\t가역\t80\t20.0\nPX\tBS_1\nP1\tBS_missing\nP9\tBS_9\n", encoding="utf-8")
         out = self.tmp / "with-stops.gtfs.zip"
         summary = ap.run(self.feed, out, None, ap.read_stop_entrances(tsv))
         stops = {r["stop_id"]: r for r in read(out, "stops.txt")}
@@ -163,8 +165,14 @@ class AddStationPathwaysTest(unittest.TestCase):
         self.assertGreater(float(p["length"]), 50)                            # stop ↔ platform distance
         self.assertEqual(int(p["traversal_time"]), ap.exit_seconds(float(p["length"])))
         # a platform without exits has no station to hang an entrance on; an unknown stop is reported, not guessed
-        self.assertEqual(summary["busStopEntrances"], 1)
-        self.assertEqual(summary["busStopEntrancesSkipped"], ["P3|BS_1", "P1|BS_missing"])
+        self.assertEqual(summary["busStopEntrances"], 2)
+        self.assertEqual(summary["busStopEntrancesSkipped"], ["PX|BS_1", "P1|BS_missing"])    # unknown platform, unknown stop
+        # a listed platform without exits or a station (연천): gets a station, an own-point entrance and the stop entrance
+        self.assertEqual((stops["VST_P9"]["location_type"], stops["P9"]["parent_station"]), ("1", "VST_P9"))
+        self.assertEqual(pw["PW_VEN_self_P9"]["to_stop_id"], "P9")
+        self.assertEqual(stops["VEN_bs_BS_9_P9"]["parent_station"], "VST_P9")
+        self.assertEqual(summary["stationsCreated"], 1)
+        self.assertNotIn("VST_P9", self.stops)                                # untouched without the list
         self.assertEqual(stops["BS_1"]["parent_station"], "")                 # the bus stop itself is untouched
         self.assertEqual(self.summary["busStopEntrances"], 0)                 # nothing without the list
 
