@@ -160,6 +160,18 @@ def run(in_zip: Path, out_zip: Path, report_path: Path | None = None) -> dict:
                 pathways.append([f"PW_R_{n}_{m}", n, m, "1", "1", str(t), f"{d:.1f}"])
                 rail_links += 1
                 rail_done.add(n)
+    # two national rail platforms of one station (서울 KTX ↔ 서울역 일반열차, 아산 ↔ 천안아산): joined directly.
+    # Without this the walk between them goes through a metro platform and pays two pathways (12 min at 서울).
+    for members in groups.values():
+        rails = sorted(n for n in members if n in rail_done)
+        for i, a in enumerate(rails):
+            for b in rails[i + 1:]:
+                d = dist(by_id[a], by_id[b])
+                if d > RAIL_LINK_MAX_M:
+                    continue
+                t = pairs.get((a, b)) or max(RAIL_MIN_S, round(d / EXIT_WALK_MS + RAIL_FIXED_S))
+                pathways.append([f"PW_R_{a}_{b}", a, b, "1", "1", str(t), f"{d:.1f}"])
+                rail_links += 1
     done_all = done | rail_done
 
     copies = 0
