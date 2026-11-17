@@ -1,0 +1,286 @@
+diff --git a/application/src/main/java/org/opentripplanner/graph_builder/module/StreetLinkerModule.java b/application/src/main/java/org/opentripplanner/graph_builder/module/StreetLinkerModule.java
+index f7ad6c7e59..4f24b5a47d 100644
+--- a/application/src/main/java/org/opentripplanner/graph_builder/module/StreetLinkerModule.java
++++ b/application/src/main/java/org/opentripplanner/graph_builder/module/StreetLinkerModule.java
+@@ -17,6 +17,7 @@ import org.opentripplanner.street.linking.LinkingDirection;
+ import org.opentripplanner.street.linking.VehicleParkingHelper;
+ import org.opentripplanner.street.linking.VertexLinker;
+ import org.opentripplanner.street.model.edge.Edge;
++import org.opentripplanner.street.model.edge.LinkAvoidance;
+ import org.opentripplanner.street.model.edge.StreetStationCentroidLink;
+ import org.opentripplanner.street.model.edge.StreetTransitEntranceLink;
+ import org.opentripplanner.street.model.edge.StreetTransitStopLink;
+@@ -268,6 +269,145 @@ public class StreetLinkerModule implements GraphBuilderModule {
+     linkTransitEntrances(graph);
+   }
+ 
++  /** nextroute patch: band beyond the avoided edge in which an ordinary street is linked as well. */
++  private static final double AVOIDED_EDGE_BAND_METERS = Double.parseDouble(
++    System.getProperty("otp.linker.avoidedEdgeBandMeters", "25")
++  );
++
++  /**
++   * nextroute patch: a stop or an entrance whose links all end on avoided edges (see {@link
++   * LinkAvoidance}) gets one more link, to the nearest ordinary walkable street within
++   * {@link #AVOIDED_EDGE_BAND_METERS} of the avoided one. Runs after island pruning so the extra
++   * links cannot keep small islands alive (linking more edges before pruning did: a platform area
++   * that pruning used to drop survived and the walk to 오류동역 grew from 4 to 14 minutes).
++   */
++  public void addLinksAroundAvoidedEdges(Graph graph) {
++    int stops = 0;
++    int entrances = 0;
++    for (TransitStopVertex v : graph.getVerticesOfType(TransitStopVertex.class)) {
++      if (linkAroundAvoidedEdge(graph, v, sv -> createStopLinkEdges(v, sv))) {
++        stops++;
++      }
++    }
++    for (TransitEntranceVertex v : graph.getVerticesOfType(TransitEntranceVertex.class)) {
++      if (
++        linkAroundAvoidedEdge(graph, v, sv ->
++          List.of(
++            StreetTransitEntranceLink.createStreetTransitEntranceLink(v, sv),
++            StreetTransitEntranceLink.createStreetTransitEntranceLink(sv, v)
++          )
++        )
++      ) {
++        entrances++;
++      }
++    }
++    LOG.info(
++      "Linked around avoided edges: {} stops, {} entrances ({} avoided edges)",
++      stops,
++      entrances,
++      LinkAvoidance.size()
++    );
++  }
++
++  private boolean linkAroundAvoidedEdge(
++    Graph graph,
++    Vertex v,
++    java.util.function.Function<StreetVertex, List<Edge>> linkEdges
++  ) {
++    double nearest = Double.MAX_VALUE;
++    boolean linked = false;
++    for (Edge e : v.getOutgoing()) {
++      if (
++        !(e instanceof StreetTransitStopLink || e instanceof StreetTransitEntranceLink) ||
++        !(e.getToVertex() instanceof StreetVertex sv)
++      ) {
++        continue;
++      }
++      linked = true;
++      boolean anyWalkable = false;
++      for (Edge se : sv.getOutgoing()) {
++        if (se instanceof org.opentripplanner.street.model.edge.StreetEdge street && street.canTraverse(WALK_ONLY)) {
++          anyWalkable = true;
++          if (!LinkAvoidance.isAvoided(street)) {
++            return false;
++          }
++        }
++      }
++      if (!anyWalkable) {
++        return false;
++      }
++      nearest = Math.min(nearest, metres(v.getLat(), v.getLon(), sv.getLat(), sv.getLon()));
++    }
++    if (!linked) {
++      return false;
++    }
++    double reach = nearest + AVOIDED_EDGE_BAND_METERS;
++    double xscale = Math.cos(Math.toRadians(v.getLat()));
++    double reachDeg = reach / 110540.0;
++    var env = new org.locationtech.jts.geom.Envelope(v.getCoordinate());
++    env.expandBy(reachDeg / xscale, reachDeg);
++    double best = Double.MAX_VALUE;
++    List<org.opentripplanner.street.model.edge.StreetEdge> found = new ArrayList<>();
++    for (Edge e : graph.findEdges(env, org.opentripplanner.street.Scope.PERMANENT)) {
++      if (
++        !(e instanceof org.opentripplanner.street.model.edge.StreetEdge street) ||
++        !street.canTraverse(WALK_ONLY) ||
++        !street.isReachableFromGraph() ||
++        LinkAvoidance.isAvoided(street)
++      ) {
++        continue;
++      }
++      double d = distanceToLine(v.getLat(), v.getLon(), street.getGeometry(), xscale);
++      if (d > reach) {
++        continue;
++      }
++      if (d < best - 0.001) {
++        best = d;
++        found.clear();
++        found.add(street);
++      } else if (d <= best + 0.001) {
++        found.add(street);
++      }
++    }
++    if (found.isEmpty()) {
++      return false;
++    }
++    Set<StreetVertex> vertices = vertexLinker.linkToSpecificStreetEdgesPermanently(
++      v,
++      WALK_ONLY,
++      LinkingDirection.BIDIRECTIONAL,
++      Set.copyOf(found)
++    );
++    vertices.forEach(linkEdges::apply);
++    return !vertices.isEmpty();
++  }
++
++  private static double metres(double lat1, double lon1, double lat2, double lon2) {
++    double x = (lon2 - lon1) * 111320.0 * Math.cos(Math.toRadians(lat1));
++    double y = (lat2 - lat1) * 110540.0;
++    return Math.hypot(x, y);
++  }
++
++  private static double distanceToLine(
++    double lat,
++    double lon,
++    org.locationtech.jts.geom.LineString line,
++    double xscale
++  ) {
++    double px = lon * 111320.0 * xscale;
++    double py = lat * 110540.0;
++    double best = Double.MAX_VALUE;
++    var cs = line.getCoordinates();
++    for (int i = 0; i + 1 < cs.length; i++) {
++      double ax = cs[i].x * 111320.0 * xscale, ay = cs[i].y * 110540.0;
++      double bx = cs[i + 1].x * 111320.0 * xscale, by = cs[i + 1].y * 110540.0;
++      double dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
++      double t = len2 == 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
++      best = Math.min(best, Math.hypot(px - (ax + t * dx), py - (ay + t * dy)));
++    }
++    return best;
++  }
++
+   private void linkTransitEntrances(Graph graph) {
+     LOG.info("Linking transit entrances to graph...");
+     for (TransitEntranceVertex tEntrance : graph.getVerticesOfType(TransitEntranceVertex.class)) {
+diff --git a/application/src/main/java/org/opentripplanner/graph_builder/module/islandpruning/IslandPruningModule.java b/application/src/main/java/org/opentripplanner/graph_builder/module/islandpruning/IslandPruningModule.java
+index 6ca9c6f00f..5bccc52995 100644
+--- a/application/src/main/java/org/opentripplanner/graph_builder/module/islandpruning/IslandPruningModule.java
++++ b/application/src/main/java/org/opentripplanner/graph_builder/module/islandpruning/IslandPruningModule.java
+@@ -91,6 +91,7 @@ public class IslandPruningModule implements GraphBuilderModule {
+       streetLinkerModule.linkTransitStops(graph, transitRepository);
+       LOG.info("Reconnecting entrances");
+       streetLinkerModule.relinkTransitEntrances(graph);
++      streetLinkerModule.addLinksAroundAvoidedEdges(graph);
+     }
+ 
+     // clean up pruned street vertices
+diff --git a/application/src/main/java/org/opentripplanner/graph_builder/module/osm/OsmModule.java b/application/src/main/java/org/opentripplanner/graph_builder/module/osm/OsmModule.java
+index aecc303844..a15c751e68 100644
+--- a/application/src/main/java/org/opentripplanner/graph_builder/module/osm/OsmModule.java
++++ b/application/src/main/java/org/opentripplanner/graph_builder/module/osm/OsmModule.java
+@@ -55,6 +55,7 @@ import org.opentripplanner.street.graph.Graph;
+ import org.opentripplanner.street.model.StreetModelDetails;
+ import org.opentripplanner.street.model.StreetTraversalPermission;
+ import org.opentripplanner.street.model.edge.StreetEdge;
++import org.opentripplanner.street.model.edge.LinkAvoidance;
+ import org.opentripplanner.street.model.edge.StreetEdgeBuilder;
+ import org.opentripplanner.street.model.vertex.BarrierVertex;
+ import org.opentripplanner.street.model.vertex.IntersectionVertex;
+@@ -509,6 +510,10 @@ public class OsmModule implements GraphBuilderModule {
+           );
+ 
+           params.edgeNamer().recordEdges(way, streets, osmdb);
++          if (avoidForStopLinking(way)) {
++            LinkAvoidance.mark(streets.main());
++            LinkAvoidance.mark(streets.back());
++          }
+ 
+           StreetEdge street = streets.main();
+           StreetEdge backStreet = streets.back();
+@@ -644,6 +649,27 @@ public class OsmModule implements GraphBuilderModule {
+    * http://wiki.openstreetmap.org/wiki/Bicycle for various scenarios, along with
+    * http://wiki.openstreetmap.org/wiki/OSM_tags_for_routing#Oneway.
+    */
++  private static final Set<String> AVOIDED_HIGHWAYS = Set.of(
++    "service",
++    "busway",
++    "cycleway",
++    "steps",
++    "corridor"
++  );
++
++  /** nextroute patch: see {@link LinkAvoidance}. */
++  private static boolean avoidForStopLinking(OsmWay way) {
++    if (way.isOneOfTags("highway", AVOIDED_HIGHWAYS) || way.isTag("tunnel", "building_passage")) {
++      return true;
++    }
++    for (String key : List.of("bridge", "tunnel", "indoor", "covered")) {
++      if (way.hasTag(key) && !way.isTag(key, "no")) {
++        return true;
++      }
++    }
++    return way.hasTag("layer") && !way.isTag("layer", "0");
++  }
++
+   private StreetEdgePair getEdgesForStreet(
+     IntersectionVertex fromVertex,
+     IntersectionVertex toVertex,
+diff --git a/street/src/main/java/org/opentripplanner/street/model/edge/LinkAvoidance.java b/street/src/main/java/org/opentripplanner/street/model/edge/LinkAvoidance.java
+new file mode 100644
+index 0000000000..af15c11c1b
+--- /dev/null
++++ b/street/src/main/java/org/opentripplanner/street/model/edge/LinkAvoidance.java
+@@ -0,0 +1,44 @@
++package org.opentripplanner.street.model.edge;
++
++import java.util.Collections;
++import java.util.IdentityHashMap;
++import java.util.Set;
++
++/**
++ * nextroute patch (graph build only, never serialized): street edges a stop or an entrance should
++ * not depend on alone — flyovers, underpasses and other layers, service roads (parking aisles,
++ * driveways), bus lanes, cycleways, steps and building passages. OTP links a stop to its nearest
++ * edge only; when that edge is one of these, the walk to the pavement right beside the stop goes
++ * around (한강진 블루스퀘어 stop: 1.4 km for 0.35 km, nextroute #620). The OSM module marks the edges,
++ * splits inherit the mark, and after island pruning such stops get one more link to the nearest
++ * ordinary street.
++ */
++public final class LinkAvoidance {
++
++  private static final Set<StreetEdge> AVOIDED = Collections.synchronizedSet(
++    Collections.newSetFromMap(new IdentityHashMap<>())
++  );
++
++  private LinkAvoidance() {}
++
++  public static void mark(StreetEdge edge) {
++    if (edge != null) {
++      AVOIDED.add(edge);
++    }
++  }
++
++  public static boolean isAvoided(Edge edge) {
++    return edge instanceof StreetEdge && AVOIDED.contains(edge);
++  }
++
++  static void inherit(StreetEdge parent, SplitStreetEdge split) {
++    if (AVOIDED.contains(parent)) {
++      mark(split.head());
++      mark(split.tail());
++    }
++  }
++
++  public static int size() {
++    return AVOIDED.size();
++  }
++}
+diff --git a/street/src/main/java/org/opentripplanner/street/model/edge/StreetEdge.java b/street/src/main/java/org/opentripplanner/street/model/edge/StreetEdge.java
+index 601983c51b..bfbbc2caa8 100644
+--- a/street/src/main/java/org/opentripplanner/street/model/edge/StreetEdge.java
++++ b/street/src/main/java/org/opentripplanner/street/model/edge/StreetEdge.java
+@@ -613,7 +613,9 @@ public class StreetEdge
+     StreetEdge se1 = seb1.buildAndConnect();
+     StreetEdge se2 = seb2.buildAndConnect();
+ 
+-    return new SplitStreetEdge(se1, se2);
++    var split = new SplitStreetEdge(se1, se2);
++    LinkAvoidance.inherit(this, split);
++    return split;
+   }
+ 
+   /** Split this street edge and return the resulting street edges. The original edge is kept. */
