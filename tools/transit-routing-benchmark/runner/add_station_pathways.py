@@ -19,6 +19,10 @@ For every metro platform P that add_station_entrances.py gave a station ``VST_<P
   every exit (수색, 수성구민운동장 have one, on one side): without this the platform is reachable
   only through the known exits and a bus stop on the other side walks around the tracks (first
   build: 수색역 정류장 → 수색 +25 min).  With it no walk is worse than before the pathways plus 90 s;
+* with ``--stop-entrances <tsv>`` (platform, bus stop): an entrance ``VEN_bs_<stop>_<P>`` at the bus
+  stop's point.  For bus stops named after the station where the street data between the stop and
+  the exits goes around (부산대역 stop → an exit 39 m away: 28 min; issue #620).  The list is
+  measured, not derived: ``config/otp-national/station-stop-entrances.tsv``;
 * a pathway P ↔ Q for every platform pair of ``transfers.txt`` whose two platforms both got
   entrances, with the feed's ``min_transfer_time`` (at least 60 s).  A platform that has pathways is
   no longer linked to the street by OTP, so without these a transfer would leave by one exit and
@@ -77,7 +81,19 @@ def exit_seconds(distance_m: float) -> int:
     return max(EXIT_MIN_S, round(distance_m / EXIT_WALK_MS + EXIT_FIXED_S))
 
 
-def run(in_zip: Path, out_zip: Path, report_path: Path | None = None) -> dict:
+def read_stop_entrances(path: Path | None) -> list[tuple[str, str]]:
+    if path is None:
+        return []
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip() and not line.startswith("#"):
+            cols = line.split("\t")
+            out.append((cols[0].strip(), cols[1].strip()))
+    return out
+
+
+def run(in_zip: Path, out_zip: Path, report_path: Path | None = None,
+        stop_entrances: list[tuple[str, str]] | None = None) -> dict:
     zin = zipfile.ZipFile(in_zip)
     names = {i.filename for i in zin.infolist()}
     if "pathways.txt" in names:
@@ -137,6 +153,22 @@ def run(in_zip: Path, out_zip: Path, report_path: Path | None = None) -> dict:
             transfers += 1
         elif (a in done or b in done) and not (a.startswith(RAIL_PREFIX) or b.startswith(RAIL_PREFIX)):
             skipped += 1        # the other platform has no exits: it stays on the street, the walk goes through an exit
+
+    stop_made, stop_skipped = 0, []
+    for p, bus_stop in dict.fromkeys(stop_entrances or []):
+        if p not in done or bus_stop not in by_id:
+            stop_skipped.append(f"{p}|{bus_stop}")      # platform without exits (no station to hang the entrance on) or unknown stop
+            continue
+        ent = f"VEN_bs_{bus_stop}_{p}"
+        row = list(by_id[p])
+        row[H["stop_id"]], row[H["location_type"]] = ent, "2"
+        row[H["stop_lat"]], row[H["stop_lon"]] = by_id[bus_stop][H["stop_lat"]], by_id[bus_stop][H["stop_lon"]]
+        if "stop_code" in H:
+            row[H["stop_code"]] = ""
+        d = dist(by_id[bus_stop], by_id[p])
+        new_stops.append(row)
+        pathways.append([f"PW_{ent}", ent, p, "1", "1", str(exit_seconds(d)), f"{d:.1f}"])
+        stop_made += 1
 
     # national rail platforms: joined to the metro platforms of their all-lines station
     groups: dict[str, list[str]] = {}
@@ -208,7 +240,7 @@ def run(in_zip: Path, out_zip: Path, report_path: Path | None = None) -> dict:
         "input": str(in_zip), "output": str(out_zip),
         "platformsWithEntrances": len(done), "entrances": len(new_stops),
         "transferPathways": transfers, "transferPairsWithOneSideOnStreet": skipped,
-        "selfEntrances": len(done), "nationalRailPlatforms": len(rail_done), "nationalRailPathways": rail_links,
+        "selfEntrances": len(done), "busStopEntrances": stop_made, "busStopEntrancesSkipped": stop_skipped, "nationalRailPlatforms": len(rail_done), "nationalRailPathways": rail_links,
         "allLinesCopyPathways": copies, "pathways": len(pathways),
         "exitSeconds": ({"min": exit_times[0], "p50": exit_times[len(exit_times) // 2], "max": exit_times[-1]}
                         if exit_times else None),
@@ -223,8 +255,9 @@ def main() -> int:
     p.add_argument("--in", dest="in_zip", type=Path, required=True)
     p.add_argument("--out", dest="out_zip", type=Path, required=True)
     p.add_argument("--report", type=Path)
+    p.add_argument("--stop-entrances", type=Path, help="TSV: platform stop_id, bus stop_id (extra columns ignored)")
     a = p.parse_args()
-    print(json.dumps(run(a.in_zip, a.out_zip, a.report), ensure_ascii=False, indent=1))
+    print(json.dumps(run(a.in_zip, a.out_zip, a.report, read_stop_entrances(a.stop_entrances)), ensure_ascii=False, indent=1))
     return 0
 
 

@@ -410,6 +410,7 @@ if [[ "$STATION_PATHWAYS" == "1" ]]; then
   echo "== step 2k: station pathways (exit ↔ platform, transfer platforms) =="
   step_in="$(stage_in "$BUILD/pre-pathways.gtfs.zip")"
   python3 runner/add_station_pathways.py --in "$step_in" --out "$BUILD/pathways.gtfs.zip" \
+    --stop-entrances config/otp-national/station-stop-entrances.tsv \
     --report "$DEPLOY_DIR/station-pathways-report.json"
   stage_done "$step_in" "$BUILD/pathways.gtfs.zip"
 fi
