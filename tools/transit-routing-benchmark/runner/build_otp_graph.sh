@@ -72,6 +72,9 @@ SEOUL_BUS_DIR=""    # --seoul-bus DIR: step 2i (after 2h), rewrite Seoul bus tri
                     # stations and shapes (apply_gbis_routes.py --provider seoul; cache from fetch_seoul_routes.py).
 SEOUL_NEW_ROUTES="" # --seoul-new-routes TSV: step 2j, add Seoul routes the feed lacks (add_seoul_routes.py;
                     # route_id, name, type, headway min, first HHMM, last HHMM). Needs --seoul-bus.
+STATION_PATHWAYS=0  # --station-pathways: step 2k (last feed edit), exit ↔ platform and transfer pathways
+                    # (add_station_pathways.py). Needs the OTP build that re-links entrances after island
+                    # pruning (otp-patches/): pass OTP_JAR and OTP_JAR_SHA256 for it.
 FROM_ZIP=""         # --from-zip PATH: steps 1-2c skipped, start from a finished feed (e.g. the deployed zip) and
                     # run only 2e/2f on it. The output zip is PATH + suffixes, so PATH is never overwritten.
 while [[ $# -gt 0 ]]; do
@@ -84,6 +87,7 @@ while [[ $# -gt 0 ]]; do
     --holidays) HOLIDAYS="$2"; shift 2 ;;
     --from-zip) FROM_ZIP="$2"; shift 2 ;;
     --seoul-bus) SEOUL_BUS_DIR="$2"; shift 2 ;;
+    --station-pathways) STATION_PATHWAYS=1; shift ;;
     --seoul-new-routes) SEOUL_NEW_ROUTES="$2"; shift 2 ;;
     --input) INPUT_OVERRIDE="$2"; shift 2 ;;
     --pfaedle-config) PFAEDLE_CONFIG="$2"; shift 2 ;;
@@ -145,8 +149,8 @@ if [[ -n "$FROM_ZIP" ]]; then
   [[ -z "$GBIS_DIR$BUS_RUNTIME_COEF$BUS_SECTION_TIMES$STATION_ENTRANCES$INPUT_OVERRIDE$PFAEDLE_CONFIG" ]] \
     || { echo "--from-zip skips steps 1-2c; drop --gbis/--bus-runtime-*/--station-entrances/--input/--pfaedle-config" >&2; exit 2; }
   [[ "$SKIP_MATCH$FROM_SHAPED_ZIP" == "00" ]] || { echo "--from-zip excludes --skip-match/--from-shaped-zip" >&2; exit 2; }
-  [[ -n "$SUBWAY_CORRECTIONS$CALENDAR_END$DAY_TYPES$SEOUL_BUS_DIR" || ${#ADD_TRIPS[@]} -gt 0 ]] \
-    || { echo "--from-zip needs --add-trips, --subway-corrections, --calendar-end, --day-types and/or --seoul-bus (else it would rebuild the same feed)" >&2; exit 2; }
+  [[ -n "$SUBWAY_CORRECTIONS$CALENDAR_END$DAY_TYPES$SEOUL_BUS_DIR" || ${#ADD_TRIPS[@]} -gt 0 || "$STATION_PATHWAYS" == "1" ]] \
+    || { echo "--from-zip needs --add-trips, --subway-corrections, --calendar-end, --day-types --seoul-bus and/or --station-pathways (else it would rebuild the same feed)" >&2; exit 2; }
   [[ "$FROM_ZIP" != /* && "$FROM_ZIP" == *.gtfs.zip ]] \
     || { echo "--from-zip must be a *.gtfs.zip path relative to tools/transit-routing-benchmark" >&2; exit 2; }
   test -s "$FROM_ZIP" || { echo "--from-zip not found: $FROM_ZIP" >&2; exit 2; }
@@ -203,6 +207,13 @@ if [[ -n "$SEOUL_BUS_DIR$SEOUL_NEW_ROUTES" ]]; then
   compgen -G "$SEOUL_BUS_DIR/*.stations.json" > /dev/null || { echo "--seoul-bus has no *.stations.json: $SEOUL_BUS_DIR" >&2; exit 2; }
   [[ -z "$SEOUL_NEW_ROUTES" ]] || test -s "$SEOUL_NEW_ROUTES" || { echo "--seoul-new-routes tsv not found: $SEOUL_NEW_ROUTES" >&2; exit 2; }
   SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-seoulbus.gtfs.zip"
+fi
+if [[ "$STATION_PATHWAYS" == "1" ]]; then
+  [[ "$PROFILE" == "national" ]] || { echo "--station-pathways is national-only" >&2; exit 2; }
+  # The stock OTP build leaves entrances on pruned street islands unreachable (구로, 상록수 …).
+  [[ "$(basename "$OTP_JAR")" == *entrance-relink* ]] \
+    || { echo "--station-pathways needs the entrance-relink OTP build: set OTP_JAR and OTP_JAR_SHA256 (see otp-patches/)" >&2; exit 2; }
+  SHAPED_ZIP="${SHAPED_ZIP%.gtfs.zip}-pathways.gtfs.zip"
 fi
 if [[ -n "$FROM_ZIP" ]]; then
   [[ "$SHAPED_ZIP" != "$FROM_ZIP" && "$SHAPED_ZIP" != "$SOURCE_SHAPED_ZIP" ]] \
@@ -393,6 +404,15 @@ if [[ -n "$SEOUL_NEW_ROUTES" ]]; then
   python3 runner/add_seoul_routes.py "$step_in" "$BUILD/seoulnew.gtfs.zip" \
     --source "$SEOUL_BUS_DIR" --routes "$SEOUL_NEW_ROUTES" --report "$DEPLOY_DIR/seoul-new-routes-report.json"
   stage_done "$step_in" "$BUILD/seoulnew.gtfs.zip"
+fi
+
+if [[ "$STATION_PATHWAYS" == "1" ]]; then
+  echo "== step 2k: station pathways (exit ↔ platform, transfer platforms) =="
+  step_in="$(stage_in "$BUILD/pre-pathways.gtfs.zip")"
+  python3 runner/add_station_pathways.py --in "$step_in" --out "$BUILD/pathways.gtfs.zip" \
+    --stop-entrances config/otp-national/station-stop-entrances.tsv \
+    --report "$DEPLOY_DIR/station-pathways-report.json"
+  stage_done "$step_in" "$BUILD/pathways.gtfs.zip"
 fi
 unstage
 
