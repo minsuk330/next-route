@@ -6992,3 +6992,27 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 수성못 25.6 → 3.3분, 연천 18.5 → 2.9분, 인천공항2터미널 9.1 → 1.8분, 광명 7.0 → 2.5분, 김해공항 9.5 → 3.4분, 매천시장 8.2 → 2.9분, 신내 10.0 → 2.1분.
 - 출구 → 승강장 3분 넘는 역 0, 역 이름 검색 80 OD 전부 ±1분. 단위 테스트 12 통과.
 - 4차 graphVersion `…-seoulbus-pathways3`, graph.obj sha256 cfee41aa…1dc4.
+## 환승 여유 1분 (#601 원인 2, 2026-11-17)
+### 확정
+- 검색 요청에 `preferences.transit.transfer.slack` 을 싣는다. 설정 `routing.otp.transfer-slack-seconds`(기본 60, null·음수면 안 보냄 = OTP 기본 2분). OTP 설정 파일(router-config)은 건드리지 않는다 — 운영 OTP 에 router-config 가 없어도 요청 값이 먹는 것을 운영 OTP 로 확인(서현→목동 73 → 68분).
+- 본·추가·되찾기·재탐색 모든 검색이 `OtpRoutingAdapter.requestBody` 를 타므로 한 곳에서 적용된다.
+### 함정
+- 여유를 0 으로 하면 카카오보다 5분 넘게 짧은(낙관적인) 구간이 14 → 18로 늘어난다. 1분이 균형점.
+- 통로 그래프(`…-pathways`)가 아닌 운영 그래프(`…-seoulbus`)에서는 환승 걷기가 길로 돌아가는 역이 있어 효과가 다를 수 있다 — 통로 그래프 교체와 같이 나가는 것이 전제다.
+### 좌표
+- `OtpRoutingAdapter.requestBody`, `OtpRoutingProperties.transferSlackSeconds`
+### 검증
+- 로컬(통로 그래프, router-config 로 같은 값 설정, 역 이름 검색 80 OD, 카카오 최단 대비):
+| 환승 여유 | ±5분 안 | 5분 넘게 긴 구간 | 5분 넘게 짧은 구간 | 카카오 대비 평균 |
+|---|---|---|---|---|
+| 2분(지금) | 56 | 9 | 14 | −1.4분 |
+| 1분 | 63 | 3 | 13 | −2.4분 |
+| 0 | 59 | 2 | 18 | −3.9분 |
+- `./gradlew test --tests '*OtpRoutingAdapter*' --tests '*OtpRoutingProperties*' --tests '*RouteSearchService*'` → 104 통과(신규 1: 기본 PT1M·필터와 같이 실림·0 → PT0S·null 이면 안 보냄).
+
+## 환승 여유 1분: 오늘 카카오 대조와 배포 (2026-11-18 새벽)
+### 검증
+- 카카오 캡처(2026-11-17 14:18, 역 이름 80 OD)와 운영 OTP(4차 그래프 `…-seoulbus-pathways3`, 14:20 출발) 비교: 여유 2분 = 카카오 ±5분 56 · 5분 넘게 김 12 · 10분 넘게 김 2 · 5분 넘게 짧음 11 / **1분 = 62 · 6 · 1 · 11**. 짧아지는(낙관) 구간은 늘지 않았다.
+- 사례: 가락시장 → 영통. 여유 2분이면 수서역에서 4분 걷고 2분 여유 → GTX-A 14:45 를 놓쳐 8호선 + 수인분당선 54분. 1분이면 3호선 → GTX-A → 수인분당선 42분(카카오 41분, 같은 경로).
+### 배포
+- 운영 반영은 이 PR 머지본으로 api·worker·worker2. 되돌리기 = `ROUTING_OTP_TRANSFER_SLACK_SECONDS=120`(compose env) 후 재생성.

@@ -93,6 +93,15 @@ public class OtpRoutingProperties {
      * 37% 가 버스+지하철 경로다. false 면 철도만 묻는다(옛 동작, 호출당 약 0.6초 빠름).
      */
     private boolean railAlternativeAllModes = true;
+    /**
+     * 환승 여유(초) — OTP {@code preferences.transit.transfer.slack}. 환승에 걷는 시간 위에 더 두는 여유다. null·음수면 보내지
+     * 않는다(OTP 기본 2분).
+     *
+     * <p>실측(2026-11-17, 통로 그래프, 역 이름 검색 80 OD, 카카오 최단 대비): 2분 = ±5분 안 56·5분 넘게 긴 구간 9·5분 넘게 짧은
+     * 구간 14, <b>1분 = 63·3·13</b>, 0 = 59·2·18. 카카오는 환승을 1분 안팎으로 잡고 열차 대기를 안 넣는다. 0 은 우리가 더
+     * 낙관적인 구간이 늘어 1분으로 둔다. 통로 그래프(#601)에서는 환승 걷기가 피드의 최소 환승 시간이라 그 위에 1분이다.
+     */
+    private Integer transferSlackSeconds = 60;
     /** 예매 열차(KTX·SRT·무궁화 등 국가철도)를 이 시간(분)보다 짧게 타는 경로는 뺀다 — 도시 안 한두 정거장 이동에 섞인다. 0 이면 끈다. */
     private int intercityRailMinRideMinutes = 40;
     /** 연결 timeout(ms). read timeout 은 호출별 남은 예산으로 결정. */
@@ -119,6 +128,8 @@ public class OtpRoutingProperties {
     public void setRailAlternativesEnabled(boolean railAlternativesEnabled) { this.railAlternativesEnabled = railAlternativesEnabled; }
     public int getRailAlternativeThreshold() { return railAlternativeThreshold; }
     public void setRailAlternativeThreshold(int railAlternativeThreshold) { this.railAlternativeThreshold = railAlternativeThreshold; }
+    public Integer getTransferSlackSeconds() { return transferSlackSeconds; }
+    public void setTransferSlackSeconds(Integer transferSlackSeconds) { this.transferSlackSeconds = transferSlackSeconds; }
     public boolean isRailAlternativeAllModes() { return railAlternativeAllModes; }
     public void setRailAlternativeAllModes(boolean railAlternativeAllModes) { this.railAlternativeAllModes = railAlternativeAllModes; }
     public int getRailAlternativeMaxLines() { return railAlternativeMaxLines; }
