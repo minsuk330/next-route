@@ -50,6 +50,7 @@ STOPS = [
     ["VST_P3", "", "나", LAT, lon(5000), "1", ""],
     ["P3", "", "나", LAT, lon(5000), "0", "VST_P3"],
     ["RS_TAGO_NAT1", "", "가", LAT, lon(100), "0", ""],
+    ["BS_1", "01001", "가역", LAT, lon(-80), "0", ""],
     ["BS_1", "", "가역앞", LAT, lon(60), "0", ""],
 ]
 TRANSFERS = [["from_stop_id", "to_stop_id", "transfer_type", "min_transfer_time"],
@@ -147,6 +148,25 @@ class AddStationPathwaysTest(unittest.TestCase):
         with zipfile.ZipFile(self.feed) as a, zipfile.ZipFile(self.out) as b:
             for name in ("transfers.txt", "trips.txt"):
                 self.assertEqual(a.read(name), b.read(name))
+
+    def test_listed_bus_stop_gets_an_entrance_at_its_own_point(self):
+        tsv = self.tmp / "stops.tsv"
+        tsv.write_text("# platform\tbus stop\nP1\tBS_1\t가\t가역\t80\t20.0\nP3\tBS_1\nP1\tBS_missing\n", encoding="utf-8")
+        out = self.tmp / "with-stops.gtfs.zip"
+        summary = ap.run(self.feed, out, None, ap.read_stop_entrances(tsv))
+        stops = {r["stop_id"]: r for r in read(out, "stops.txt")}
+        pw = {r["pathway_id"]: r for r in read(out, "pathways.txt")}
+        e = stops["VEN_bs_BS_1_P1"]
+        self.assertEqual((e["location_type"], e["parent_station"], e["stop_lon"]), ("2", "VST_P1", stops["BS_1"]["stop_lon"]))
+        p = pw["PW_VEN_bs_BS_1_P1"]
+        self.assertEqual((p["from_stop_id"], p["to_stop_id"]), ("VEN_bs_BS_1_P1", "P1"))
+        self.assertGreater(float(p["length"]), 50)                            # stop ↔ platform distance
+        self.assertEqual(int(p["traversal_time"]), ap.exit_seconds(float(p["length"])))
+        # a platform without exits has no station to hang an entrance on; an unknown stop is reported, not guessed
+        self.assertEqual(summary["busStopEntrances"], 1)
+        self.assertEqual(summary["busStopEntrancesSkipped"], ["P3|BS_1", "P1|BS_missing"])
+        self.assertEqual(stops["BS_1"]["parent_station"], "")                 # the bus stop itself is untouched
+        self.assertEqual(self.summary["busStopEntrances"], 0)                 # nothing without the list
 
     def test_feed_that_already_has_pathways_is_refused(self):
         with self.assertRaises(SystemExit):
