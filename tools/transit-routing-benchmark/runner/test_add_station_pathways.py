@@ -43,6 +43,8 @@ STOPS = [
     ["VSA_X_n1_P1", "1", "가역 1번 출구", LAT, lon(50), "0", "VSA_P1"],
     ["VSA_P_RS_TAGO_NAT1", "", "가", LAT, lon(100), "0", "VSA_P1"],
     ["VSA_P_RS_TAGO_NATFAR", "", "가", LAT, lon(900), "0", "VSA_P1"],
+    ["VSA_P_RS_TAGO_NAT2", "", "가역", LAT, lon(100), "0", "VSA_P1"],
+    ["RS_TAGO_NAT2", "", "가역", LAT, lon(100), "0", ""],
     ["RS_TAGO_NATFAR", "", "가", LAT, lon(900), "0", ""],
     # a platform with a station but no exits, a national rail platform without a station, a bus stop
     ["VST_P3", "", "나", LAT, lon(5000), "1", ""],
@@ -129,13 +131,17 @@ class AddStationPathwaysTest(unittest.TestCase):
         self.assertEqual(self.pw["PW_C_VSA_P_RS_TAGO_NAT1"]["to_stop_id"], "RS_TAGO_NAT1")
         # 900 m away: not the same building — left on the street, no copy pathway either
         self.assertFalse(any("NATFAR" in k for k in self.pw))
-        self.assertEqual((self.summary["nationalRailPlatforms"], self.summary["nationalRailPathways"]), (1, 2))
+        self.assertEqual((self.summary["nationalRailPlatforms"], self.summary["nationalRailPathways"]), (2, 5))
+
+    def test_two_national_rail_platforms_of_one_station_are_joined_directly(self):
+        p = self.pw["PW_R_RS_TAGO_NAT1_RS_TAGO_NAT2"]       # same point: the 180 s minimum, not two pathways through a metro platform
+        self.assertEqual((p["from_stop_id"], p["to_stop_id"], p["traversal_time"]), ("RS_TAGO_NAT1", "RS_TAGO_NAT2", "180"))
 
     def test_all_lines_platform_copy_reaches_its_platform_in_one_second(self):
         for copy, platform in (("VSA_P_P1", "P1"), ("VSA_P_P2", "P2")):
             p = self.pw["PW_C_" + copy]
             self.assertEqual((p["from_stop_id"], p["to_stop_id"], p["traversal_time"]), (copy, platform, "1"))
-        self.assertEqual(self.summary["allLinesCopyPathways"], 3)        # P1, P2 and the national rail platform
+        self.assertEqual(self.summary["allLinesCopyPathways"], 4)        # P1, P2 and the national rail platform
 
     def test_other_files_are_copied_byte_for_byte(self):
         with zipfile.ZipFile(self.feed) as a, zipfile.ZipFile(self.out) as b:
