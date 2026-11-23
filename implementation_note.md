@@ -7031,3 +7031,26 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 경로: 역 이름 80 OD 전부 ±1분. 장소 50 OD(좌표) 2곳만 ±2분.
 - 메모리: GC 뒤 힙 중앙 3,030 → 3,096MB, 컨테이너 최대 3.98 → 4.03GiB.
 - graphVersion `…-seoulbus-pathways3-avoid25`, graph.obj sha256 은 업로드 때 기록.
+
+## 2026-11-24 장소 검색에 카카오 주소 검색 붙임 (S, fix/place-search-address)
+
+### 확정
+- 원인: 장소 검색이 카카오 `keyword.json` + 네이버 `/search/v1/local` 만 불렀다. 둘 다 가게·건물 이름 검색이라 동·호수가 붙은 주소("올림픽로 300 1001호", "중앙로 1305-30 101동 1203호")와 가게 없는 주택 주소는 0건. 운영에서 재현: 우리 0건, 카카오 키워드 0, 카카오 `address.json` 1건.
+- 카카오 `address.json` 을 검색어에 숫자가 있을 때만 부른다(건물 번호 없는 검색어는 정확한 지점이 안 나옴). `address_type` 이 `ROAD_ADDR`·`REGION_ADDR` 인 것만 쓴다(REGION·ROAD 는 "역삼동"·"테헤란로" 같은 넓은 이름). size=3 받아 첫 정확 주소.
+- 원래 검색어로 못 찾으면 끝의 `○동`·`○층`·`○호`·`지하○층`·`B○층`·괄호를 떼고 한 번 더(`AddressQueryTrimmer`). 앞이 공백·쉼표·괄호·다른 단위일 때만 뗀다 → "신림1동"·"목3동" 안전.
+- 결과 맨 위에 넣는다. 같은 건물 가게가 이미 있으면(이름 정규화 일치 + 50m, 기존 `PlaceDeduplicator`) 넣지 않는다.
+- 응답 계약 그대로: 앱은 `sources` 를 `'NAVER' | 'KAKAO'` 타입으로 받아서 새 값 안 만듦. 주소 항목은 `sources=["KAKAO"]`, `key="KAKAO_ADDRESS:<주소>"`, `category="주소"`, `name`=건물 이름(없으면 주소).
+- 주소 검색 실패는 결과에서 빼기만 하고 `degraded` 로 안 올린다(키워드 결과는 유효). 키워드 둘 다 실패면 기존대로 503.
+- 앱은 `limit=5` 로 부른다(`place-search-api.ts`). merged 는 개수 제한 없음이라 주소 1건이 더해져도 잘리지 않음.
+
+### 좌표
+- `application/place/service/PlaceSearchService.java` `findAddress`
+- `application/place/service/AddressQueryTrimmer.java`
+- `infrastructure/adapter/out/api/kakao/KakaoLocalSearchAdapter.java` `searchAddress`, `KakaoAddressSearchResponse.java`
+
+### 함정
+- 쉼표 뒤 단위("300, 1001호")를 떼면 쉼표가 남음 ← 단위 앞 `\s*` 만 먹음 / 가드: 뗀 뒤 끝 `[\s,]+` 정리 + 시험.
+- 검색어는 로그에 안 남아서 신고된 주소를 운영 로그로 못 찾음. 예시 주소로 재현.
+
+### 검증
+- `./gradlew test --tests '*AddressQueryTrimmerTest' --tests '*PlaceSearchServiceTest' --tests '*KakaoLocalSearchAdapterTest' --tests '*PlaceDeduplicatorTest'` → 35 tests, 0 failures(16 + 10 + 5 + 4).

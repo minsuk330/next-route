@@ -85,4 +85,64 @@ class KakaoLocalSearchAdapterTest {
         assertThat(places.get(0).roadAddress()).isNull();
         assertThat(places.get(0).address()).isEqualTo("서울 광진구 능동 216");
     }
+
+    @Test
+    void addressSearchSkipsRegionMatchesAndUsesTheBuildingName() throws InterruptedException {
+        server.enqueue(new MockResponse()
+                .addHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"documents":[
+                          {"address_name":"서울 송파구","address_type":"REGION","x":"127.10","y":"37.50",
+                           "address":{"address_name":"서울 송파구"},"road_address":null},
+                          {"address_name":"서울 송파구 올림픽로 300","address_type":"ROAD_ADDR","x":"127.1025","y":"37.5125",
+                           "address":{"address_name":"서울 송파구 신천동 29"},
+                           "road_address":{"address_name":"서울 송파구 올림픽로 300","building_name":"롯데월드타워앤드롯데월드몰"}}
+                        ]}
+                        """));
+
+        var found = adapter.searchAddress("서울 송파구 올림픽로 300");
+
+        assertThat(found).isPresent();
+        PlaceSearchResult.Item item = found.get();
+        assertThat(item.key()).isEqualTo("KAKAO_ADDRESS:서울 송파구 올림픽로 300");
+        assertThat(item.name()).isEqualTo("롯데월드타워앤드롯데월드몰");
+        assertThat(item.address()).isEqualTo("서울 송파구 올림픽로 300");
+        assertThat(item.roadAddress()).isEqualTo("서울 송파구 올림픽로 300");
+        assertThat(item.latitude()).isEqualTo(37.5125);
+        assertThat(item.longitude()).isEqualTo(127.1025);
+        assertThat(item.category()).isEqualTo("주소");
+        assertThat(item.sources()).containsExactly("KAKAO");
+
+        var request = server.takeRequest();
+        assertThat(request.getPath()).contains("/v2/local/search/address.json").contains("size=3");
+        assertThat(request.getHeader("Authorization")).isEqualTo("KakaoAK test-key");
+    }
+
+    @Test
+    void addressWithoutBuildingNameIsNamedByTheAddressAndJibunOnlyHasNoRoadAddress() {
+        server.enqueue(new MockResponse()
+                .addHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"documents":[{"address_name":"서울 관악구 신림동 1422-5","address_type":"REGION_ADDR",
+                          "x":"126.9297","y":"37.4842","address":{"address_name":"서울 관악구 신림동 1422-5"},"road_address":null}]}
+                        """));
+
+        var item = adapter.searchAddress("서울 관악구 신림동 1422-5").orElseThrow();
+
+        assertThat(item.name()).isEqualTo("서울 관악구 신림동 1422-5");
+        assertThat(item.address()).isEqualTo("서울 관악구 신림동 1422-5");
+        assertThat(item.roadAddress()).isNull();
+    }
+
+    @Test
+    void addressSearchReturnsEmptyWhenOnlyRegionMatches() {
+        server.enqueue(new MockResponse()
+                .addHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"documents":[{"address_name":"서울 강남구 역삼동","address_type":"REGION","x":"127.03","y":"37.50",
+                          "address":{"address_name":"서울 강남구 역삼동"},"road_address":null}]}
+                        """));
+
+        assertThat(adapter.searchAddress("역삼동 1")).isEmpty();
+    }
 }
