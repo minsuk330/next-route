@@ -8,7 +8,9 @@ What it reports (docs/plan/observability-north-star/PLAN.md, decided 2026-11-26)
   `nextroute-north-star`, so the digest and the dashboard can never disagree.
 - Slow endpoints: 7-day p95 over target (route search 2.5 s, everything else 500 ms).
 - Funnel: searches -> journeys started -> journeys notified -> completed.
-- Alerts fired in the alert channel last week (Grafana Slack messages carry an `fp:` line).
+- Alerts fired in the alert channel last week (Grafana Slack messages carry an `fp:` line), and how the
+  operator scored them by reaction: ✅ real / ❌ false alarm / 🎯 analyzer right / 🤷 wrong (needs reactions:read).
+- First week of the month: the drill checklist.
 - Open `observability-weekly` GitHub issues, when a token is configured.
 
 Each section fails on its own: a broken source becomes one line in the message, the rest still goes out.
@@ -73,6 +75,13 @@ SEARCH_OVER = (
     f' / sum(increase(http_server_requests_seconds_count{{{API}, uri="{ROUTE_SEARCH_URI}"}}[7d]))'
 )
 SEARCH_COUNT = 'sum(increase(route_search_duration_seconds_count[7d]))'
+
+# Monthly drill (first week of the month). Fake signals only — never break real users' searches.
+DRILLS = (
+    "가짜 5xx 급증 → 'api 5xx 발생' 알림이 오는지, analyzer 가설이 맞는지",
+    "가짜 OTP 호출 실패 → 'OTP 호출 실패' 알림 도착 시간",
+    "ERROR 로그 급증 → 'ERROR 로그 급증' 알림과 가설",
+)
 
 FP_LINE = re.compile(r"fp:\s*([0-9a-f ]+)")
 TITLE = re.compile(r"\[(FIRING|RESOLVED)(?::\d+)?\]\s*(.+?)(?:\s+\(|$)")
@@ -221,20 +230,55 @@ async def funnel(prom: Prom, grafana: Grafana, start: datetime, end: datetime) -
     return out
 
 
-async def alerts_fired(slack: SlackClient, start: datetime) -> Counter:
-    """Alert name -> number of distinct alerts that fired (unique fingerprints), from channel history."""
-    seen: dict[str, str] = {}
+# Scoring by reaction on the Grafana alert message (decided 2026-11-26). Needs reactions:read;
+# conversations.history then carries each message's `reactions`.
+REAL = {"white_check_mark", "heavy_check_mark"}      # ✅ real incident
+FALSE = {"x", "heavy_multiplication_x"}               # ❌ false alarm
+HIT = {"dart"}                                        # 🎯 analyzer hypothesis right
+MISS = {"shrug", "person_shrugging", "man-shrugging", "woman-shrugging"}  # 🤷 hypothesis wrong
+
+
+@dataclass
+class AlertWeek:
+    counts: Counter = field(default_factory=Counter)   # alert name -> distinct alerts (fingerprints)
+    scores: Counter = field(default_factory=Counter)   # real / false / unscored / hit / miss
+
+
+async def alerts_fired(slack: SlackClient, start: datetime) -> AlertWeek:
+    """Distinct alerts that fired last week and how they were scored, from channel history."""
+    names: dict[str, str] = {}
+    reactions: dict[str, set[str]] = {}
     cursor = None
     for _ in range(5):  # 5 x 200 messages is far more than a week here
         body = await slack.history(start, cursor=cursor)
         for message in body.get("messages", []):
+            emoji = {r.get("name", "") for r in message.get("reactions", []) if r.get("count", 0) > 0}
             for name, fps in parse_alert_message(message):
                 for fp in fps:
-                    seen.setdefault(fp, name)
+                    names.setdefault(fp, name)
+                    # A repeat notification for the same alert counts too: union across its messages.
+                    reactions.setdefault(fp, set()).update(emoji)
         cursor = (body.get("response_metadata") or {}).get("next_cursor")
         if not cursor:
             break
-    return Counter(seen.values())
+    return score(names, reactions)
+
+
+def score(names: dict[str, str], reactions: dict[str, set[str]]) -> AlertWeek:
+    week = AlertWeek(counts=Counter(names.values()))
+    for fp in names:
+        got = reactions.get(fp, set())
+        if got & FALSE:
+            week.scores["false"] += 1
+        elif got & REAL:
+            week.scores["real"] += 1
+        else:
+            week.scores["unscored"] += 1
+        if got & HIT:
+            week.scores["hit"] += 1
+        elif got & MISS:
+            week.scores["miss"] += 1
+    return week
 
 
 def parse_alert_message(message: dict) -> list[tuple[str, list[str]]]:
@@ -334,15 +378,26 @@ def render(start: datetime, end: datetime, data: dict, *, dashboard_url: str) ->
             f"알림 받은 여정 {_n(f.get('notified'))} → 완료 {_n(f.get('completed'))}"
         )
 
-    lines.append("\n*알림*")
+    lines.append("\n*알림* · 채점: 알림 메시지에 ✅ 진짜 / ❌ 오탐 / 🎯 분석 가설 맞음 / 🤷 틀림")
     a = data.get("alerts")
     if isinstance(a, str):
         lines.append(f"• 조회 실패: {a}")
-    elif not a:
+    elif not a or not a.counts:
         lines.append("• 지난주 0건 ✅")
     else:
-        top = ", ".join(f"{name} {n}" for name, n in a.most_common(6))
-        lines.append(f"• 지난주 {sum(a.values())}건: {top}")
+        top = ", ".join(f"{name} {n}" for name, n in a.counts.most_common(6))
+        lines.append(f"• 지난주 {sum(a.counts.values())}건: {top}")
+        sc = a.scores
+        mark = " ← 채점해 주세요" if sc["unscored"] else ""
+        lines.append(f"• 채점: 진짜 {sc['real']} · 오탐 {sc['false']} · 미채점 {sc['unscored']}{mark}")
+        if sc["hit"] or sc["miss"]:
+            lines.append(f"• 분석 가설: 맞음 {sc['hit']} · 틀림 {sc['miss']}")
+
+    if e.day <= 7:
+        lines.append("\n*이번 달 장애 훈련* (매월 첫 주, 사용자 영향 없는 것만)")
+        for item in DRILLS:
+            lines.append(f"• ☐ {item}")
+        lines.append("• 훈련 알림도 위와 같이 채점한다(도착 시간·🎯/🤷)")
 
     issues = data.get("issues")
     if issues is not None:

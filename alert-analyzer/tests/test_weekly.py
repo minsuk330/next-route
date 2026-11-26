@@ -9,6 +9,7 @@ import pytest
 
 from analyzer import weekly
 from analyzer.weekly import (
+    AlertWeek,
     DigestError,
     Prom,
     WeeklySettings,
@@ -16,6 +17,7 @@ from analyzer.weekly import (
     panel_sql,
     parse_alert_message,
     render,
+    score,
     slow_endpoints,
 )
 
@@ -109,7 +111,8 @@ def full_data() -> dict:
         "slow": [{"uri": "/api/journeys", "p95": 0.8, "target": 0.5, "count": 40.0},
                  {"uri": "/api/arrivals/subway", "p95": float("inf"), "target": 0.5, "count": 30.0}],
         "funnel": {"searches": 139.4, "starts": 31, "notified": 7, "completed": 6},
-        "alerts": Counter({"디스크 사용률 높음": 1, "api 5xx 발생": 2}),
+        "alerts": AlertWeek(counts=Counter({"디스크 사용률 높음": 1, "api 5xx 발생": 2}),
+                            scores=Counter(real=1, false=1, unscored=1, hit=1)),
         "issues": 3,
     }
 
@@ -123,6 +126,9 @@ def test_render_full_digest():
     assert "`/api/arrivals/subway` p95 5s 초과" in text
     assert "경로 검색 139 → 여정 시작 31 → 알림 받은 여정 7 → 완료 6" in text
     assert "지난주 3건: api 5xx 발생 2, 디스크 사용률 높음 1" in text
+    assert "채점: 진짜 1 · 오탐 1 · 미채점 1 ← 채점해 주세요" in text
+    assert "분석 가설: 맞음 1 · 틀림 0" in text
+    assert "장애 훈련" not in text  # 11/30 is not the first week
     assert "열린 issue 3" in text
     assert text.endswith("<https://g/d/nextroute-north-star|북극성 대시보드>")
 
@@ -133,7 +139,7 @@ def test_render_marks_problems_and_survives_failed_sections():
     data["north_star"]["summary"] = [{"정시 / 전체": "5 / 6", "정시율": "표본 6건 (20건부터 %)"}]
     data["slow"] = "DigestError: prometheus: HTTP 503"
     data["funnel"] = "DigestError: sql: permission denied"
-    data["alerts"] = Counter()
+    data["alerts"] = AlertWeek()
     del data["issues"]
     text = render(START, END, data, dashboard_url="u")
     assert "⚠️ 여정 알림 5 / 6 (표본 적음, 20건부터 %)" in text
@@ -141,3 +147,38 @@ def test_render_marks_problems_and_survives_failed_sections():
     assert "조회 실패: DigestError: sql: permission denied" in text
     assert "지난주 0건 ✅" in text
     assert "할 일" not in text
+
+
+def test_score_unions_reactions_and_false_wins():
+    names = {"fp1": "api 5xx 발생", "fp2": "api 5xx 발생", "fp3": "디스크 사용률 높음", "fp4": "OTP 호출 실패"}
+    reactions = {"fp1": {"white_check_mark", "dart"}, "fp2": {"x", "white_check_mark"},
+                 "fp3": {"shrug"}, "fp4": set()}
+    week = score(names, reactions)
+    assert week.counts == Counter({"api 5xx 발생": 2, "디스크 사용률 높음": 1, "OTP 호출 실패": 1})
+    assert week.scores == Counter(real=1, false=1, unscored=2, hit=1, miss=1)
+
+
+@pytest.mark.anyio
+async def test_alerts_fired_reads_reactions_from_history():
+    firing = {"ts": "1", "attachments": [{"title": "[FIRING:1] api 5xx 발생 nextroute (warning)", "text": "fp: aa11"}],
+              "reactions": [{"name": "white_check_mark", "count": 1}]}
+    repeat = {"ts": "2", "attachments": [{"title": "[FIRING:1] api 5xx 발생 nextroute (warning)", "text": "fp: aa11"}],
+              "reactions": [{"name": "dart", "count": 1}]}
+    resolved = {"ts": "3", "attachments": [{"title": "[RESOLVED] api 5xx 발생 nextroute (warning)", "text": "fp: aa11"}],
+                "reactions": [{"name": "x", "count": 1}]}
+
+    class FakeSlack:
+        async def history(self, oldest, *, cursor=None, limit=200):
+            return {"messages": [resolved, repeat, firing]}
+
+    week = await weekly.alerts_fired(FakeSlack(), START)
+    assert week.counts == Counter({"api 5xx 발생": 1})
+    # reaction on the RESOLVED message is ignored; FIRING + repeat are unioned
+    assert week.scores == Counter(real=1, hit=1)
+
+
+def test_render_adds_drill_checklist_in_first_week():
+    first_monday = datetime(2026, 12, 7, 0, 0, tzinfo=timezone.utc)  # Mon 09:00 KST, day 7
+    text = render(first_monday - weekly.WEEK, first_monday, {"alerts": AlertWeek()}, dashboard_url="u")
+    assert "*이번 달 장애 훈련*" in text
+    assert text.count("• ☐ ") == 3
