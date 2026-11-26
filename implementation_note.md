@@ -7161,3 +7161,21 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 기록기 부분 응답 가드(행 수 < 직전 절반이면 회차 건너뜀) — 시험에서 행 1개 → 0개로 만들면 기록 안 됨. 남는 행을 같이 둬야 함.
 ### 검증
 - `./gradlew test --tests 'watoo.grd.nextroute.application.arrival.service.*Test' --tests 'watoo.grd.nextroute.application.subway.*Test' --tests '*SubwayTrainSelectionServiceTest' --tests '*RealtimeSubwayCollector*Test'` → 697/697. 기록기 +3, 역 도착 +1.
+
+## synthetic-monitoring 운영 배포 (2026-11-26 23:30 KST, PR #646 = 3bdf0406)
+
+### 배포
+- api: 별도 배포 안 함. 다른 세션의 #647 배포(7acc7a34, 21:32)가 3bdf0406 을 포함해 이미 반영됨. 3bdf0406 jar 를 따로 올리면 #647 을 되돌린다(머지 순서 3bdf0406 → 7acc7a34 → 3fbcc18a). 운영 jar 에 SyntheticRequest·SyntheticAwareServerRequestObservationConvention 포함 확인
+- 분석기: env/alert-analyzer.env 에 ANALYZER_PROBE_ENABLED=true 추가(백업 env/alert-analyzer.env.bak-<ts>-pre-probe), GHCR latest(3bdf0406 빌드) pull 후 `docker compose -f compose.yaml -f compose.prod.yaml up -d --no-deps alert-analyzer`
+- 관측 설정: `ops/prod-sync.sh apply`(origin/main 3fbcc18a, 드리프트 = 이 PR 의 4개 파일만) → prometheus 재시작 → synthetic 대상 up 확인 → grafana 재시작
+
+### 함정
+- Prometheus 컨테이너 안 busybox `wget http://alert-analyzer:8000` 은 "bad address" 지만 Prometheus 자체 수집은 up ← busybox 이름 해석 문제(loki 도 같은 실패). 수집 확인은 /api/v1/targets 로
+
+### 검증
+- 로컬에서 운영 대상으로 probe.run_scenario 두 쌍: subway search 0(6.7s) arrival 0, bus search 0(4.0s) arrival 0 → 출발지·도착지 쌍 확정(밤 23:30 기준, 낮 확인 남음)
+- 헤더 검색 2회 뒤 route_search_event 최근 30분 0행(퍼널 기록기는 켜져 있음: 오늘 6행, 마지막 21:50 KST). http_server_requests_seconds_count{synthetic="true"} 에 /api/route/search 2, 도착 2개 uri 1
+- 분석기 기동 직후 첫 실행: "probe subway outcome=0", "probe bus outcome=0"
+- Prometheus targets: synthetic http://alert-analyzer:8000/metrics up, synthetic_probe_outcome 4개 모두 0
+- Grafana provisioning 오류 없음, 규칙 13개 전부 health ok·inactive(합성 3개, 외부 API 1개 포함)
+- 남음: 낮 시간 고장 주입(실패 → RESOLVED), 분석기 정지 → 멈춤 알림, 하루 뒤 합성 행 0 재확인
