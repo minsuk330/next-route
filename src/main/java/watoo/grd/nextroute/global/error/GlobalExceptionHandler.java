@@ -257,6 +257,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     if (status.is5xxServerError()) {
       errorCode = CommonErrorCode.INTERNAL_SERVER_ERROR;
       log.error("Unhandled Spring MVC exception", exception);
+      ServerErrorLoggingFilter.markLogged(request);
     } else {
       errorCode = CommonErrorCode.INVALID_REQUEST;
     }
@@ -297,6 +298,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         request.getRequestURI(),
         exception
     );
+    ServerErrorLoggingFilter.markLogged(request);
 
     CommonErrorCode errorCode =
         CommonErrorCode.INTERNAL_SERVER_ERROR;

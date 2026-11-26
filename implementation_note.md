@@ -7179,3 +7179,24 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - Prometheus targets: synthetic http://alert-analyzer:8000/metrics up, synthetic_probe_outcome 4개 모두 0
 - Grafana provisioning 오류 없음, 규칙 13개 전부 health ok·inactive(합성 3개, 외부 API 1개 포함)
 - 남음: 낮 시간 고장 주입(실패 → RESOLVED), 분석기 정지 → 멈춤 알림, 하루 뒤 합성 행 0 재확인
+
+## 5xx 응답 로그 필터 (2026-11-27, 브랜치 fix/server-error-log, 티어 S)
+
+### 확정
+- 사용자 결정: RAG 전에 재료 빈칸부터(재료 없으면 RAG 소용없음). 핸들러별 수정 말고 공통 필터 한 곳(구조로 지킴). 레벨 ERROR(분석기는 ERROR 는 항상, WARN 은 평소보다 튈 때만 재료로 씀 — alert-analyzer/analyzer/context.py:243)
+- 5xx 로 나간 응답마다 `[ServerError] status= method= uri= pattern= synthetic= exception=<class>: <msg>` + 스택. 예외는 DispatcherServlet.EXCEPTION_ATTRIBUTE(@ExceptionHandler 가 처리한 예외)에서 읽음
+- 이미 스택을 남기는 GlobalExceptionHandler 두 곳(handleUnexpectedException, handleExceptionInternal 5xx)은 markLogged 로 표시해 중복 안 찍음
+- 체인 밖으로 새는 예외는 다루지 않음(Tomcat 이 스택과 함께 남김)
+- 부수 효과: 5xx 가 5분 5건 넘게 몰리면 "api 5xx 발생"과 "ERROR 로그 급증"이 같이 울림(사용자 수용)
+
+### 함정
+- 조용한 5xx 핸들러: RouteSearchController OdSayApiException(502/504), TossAuthController(502), GlobalExceptionHandler.handleBusinessException(503: SUBWAY_ROUTE_UNAVAILABLE, JourneyErrorCode 1개) ← 응답만 바꾸고 로그 없음 / 가드 = 이 필터
+- 메시지만 남기는 log.error/warn(e.getMessage()) 약 160/410 — 이번 범위 밖(대부분 실패 허용 경로)
+
+### 좌표
+- src/main/java/watoo/grd/nextroute/global/error/ServerErrorLoggingFilter.java
+- src/main/java/watoo/grd/nextroute/global/error/GlobalExceptionHandler.java (markLogged 2곳)
+
+### 검증
+- `./gradlew test --tests 'watoo.grd.nextroute.global.error.*' --tests '*RouteSearchControllerTest'` → ServerErrorLoggingFilterTest 5/5 통과(경로 검색 504 실제 DispatcherServlet 경유 스택 포함, BusinessException 503, 처리 안 된 예외 중복 없음, 예외 없는 5xx, 4xx/2xx 무시)
+- 전체 `./gradlew test`: 4356개 중 411 실패 = 전부 "기존 무관"(로컬에 POSTGRES_USER 없어 IT 컨텍스트 로드 실패, password authentication failed). 그 외 실패 0 — @WebMvcTest 들이 새 필터 빈과 함께 통과
