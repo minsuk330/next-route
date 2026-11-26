@@ -7200,3 +7200,8 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `./gradlew test --tests 'watoo.grd.nextroute.global.error.*' --tests '*RouteSearchControllerTest'` → ServerErrorLoggingFilterTest 5/5 통과(경로 검색 504 실제 DispatcherServlet 경유 스택 포함, BusinessException 503, 처리 안 된 예외 중복 없음, 예외 없는 5xx, 4xx/2xx 무시)
 - 전체 `./gradlew test`: 4356개 중 411 실패 = 전부 "기존 무관"(로컬에 POSTGRES_USER 없어 IT 컨텍스트 로드 실패, password authentication failed). 그 외 실패 0 — @WebMvcTest 들이 새 필터 빈과 함께 통과
+
+### 배포 (5xx 응답 로그 필터, 2026-11-27 00:49 KST)
+- main 47d81acf jar(#648 3fbcc18a 포함, 사용자 승인) → api·worker `deploy.sh`(진행 여정 0, jar sha 7c500ce3… 대조, 백업 app.jar.bak-*-pre-47d81acf)
+- 🔴 `deploy.sh worker` 가 worker2 를 교체하지 않음: 로그가 "[deploy] worker is healthy" 에서 끝나고 worker2 Recreate 줄 없음. 직후 has_service worker2 를 10번 돌려도 모두 true 라 원인 미확정(후보: has_service 의 compose config | grep -q 가 pipefail 아래에서 SIGPIPE 로 거짓). 수동 `docker compose --env-file .env up -d --no-deps --force-recreate worker2` → healthy. 가드: 배포 뒤 worker2 이미지 태그 확인(스크립트 5단계가 잡음)
+- 검증: api·worker·worker2 = 47d81acf, healthy, 기동 5분 ERROR 0, 헤더 검색 200. 필터가 실제 5xx 를 찍는 것은 다음 5xx 때 Loki 에서 `[ServerError]` 로 확인
