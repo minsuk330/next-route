@@ -12,8 +12,10 @@ contactPoints:
           url: $SLACK_ALERT_WEBHOOK_URL
           # 기본 본문 뒤에 fingerprint 줄을 붙인다. 분석기(alert-analyzer)가 채널 최근 메시지에서
           # 이 값을 찾아 같은 스레드에 답글을 단다. provisioning 이 $VAR 를 env 로 치환하므로 $ 금지.
+          # 채점 안내: 주간 요약(analyzer.weekly)이 이 메시지의 이모지를 센다(reactions:read). fp 줄은 마지막에 둔다.
           text: |-
             {{ template "default.message" . }}
+            채점 ▸ ✅ 진짜 장애 · ❌ 오탐 · 🎯 분석 가설 맞음 · 🤷 틀림
             fp: {{ range .Alerts }}{{ .Fingerprint }} {{ end }}
         disableResolveMessage: false
       # AI 분석기(alert-analyzer). 연동마다 따로 발송·재시도되므로 이쪽이 실패해도 Slack 알림은 간다.

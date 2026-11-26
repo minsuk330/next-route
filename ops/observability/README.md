@@ -108,7 +108,7 @@ Grafana 알림이 울리면 그 시각의 로그·메트릭을 모아 원인 가
 ## 주간 요약 (analyzer.weekly)
 매주 월요일 09:00 KST, 알림 채널에 `[주간]` 메시지 한 통. 계획: `docs/plan/observability-north-star/PLAN.md`.
 
-- 내용: 여정 알림 정시 n/m·늦음·유실·지연 중(checkpoint 별), 잠금화면 갱신, p95 0.5s 넘은 엔드포인트(경로 검색은 OTP 라 완화: 5초 초과 비율 10% 넘을 때만, 평소 약 5%), 퍼널(검색 → 여정 → 알림 받은 여정 → 완료), 지난주 발생 알림, `observability-weekly` 열린 issue(토큰 있을 때)
+- 내용: 여정 알림 정시 n/m·늦음·유실·지연 중(checkpoint 별), 잠금화면 갱신, p95 0.5s 넘은 엔드포인트(경로 검색은 OTP 라 완화: 5초 초과 비율 10% 넘을 때만, 평소 약 5%), 퍼널(검색 → 여정 → 알림 받은 여정 → 완료), 지난주 발생 알림과 채점(알림 메시지 이모지 ✅ 진짜 / ❌ 오탐 / 🎯 가설 맞음 / 🤷 틀림, Slack 권한 `reactions:read`), 매월 첫 주 장애 훈련 체크리스트, `observability-weekly` 열린 issue(토큰 있을 때)
 - 북극성 수치는 Grafana 대시보드 `nextroute-north-star` 의 패널 SQL 을 그대로 실행한다 → 대시보드와 숫자가 같다. 패널 제목을 바꾸면 `analyzer/weekly.py` 도 같이
 - Postgres 는 Grafana `/api/ds/query`(서비스 계정 `weekly-digest`, Viewer)로 읽는다. 분석기에 DB 접속 없음
 - 섹션마다 따로 실패한다: 조회가 깨지면 그 줄만 "조회 실패" 로 나가고 나머지는 보낸다
