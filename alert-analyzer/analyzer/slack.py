@@ -212,6 +212,13 @@ class SlackClient:
                 return message.get("ts")
         return None
 
+    async def history(self, oldest: datetime, *, cursor: str | None = None, limit: int = 200) -> dict:
+        """One page of channel history (newest first). Needs channels:history."""
+        params = {"channel": self._channel, "oldest": f"{oldest.timestamp():.6f}", "limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        return await self._call("GET", "conversations.history", params=params)
+
     async def post(self, text: str, thread_ts: str | None = None) -> None:
         payload = {"channel": self._channel, "text": text, "unfurl_links": False, "unfurl_media": False}
         if thread_ts:
