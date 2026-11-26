@@ -1,0 +1,162 @@
+# 운영(VPS) 전용 override. base(compose.yaml) 위에 얹는다. 로컬 테스트는 compose.local.yaml.
+#
+#   VPS .env: COMPOSE_FILE=compose.yaml:compose.prod.yaml  → 모든 `docker compose` 명령이 두 파일을 합친다.
+#   deploy.sh 도 COMPOSE_FILE 을 따른다. `-f compose.yaml` 만 주면 이 파일이 빠지니 쓰지 말 것.
+#
+# 여기에는 "운영에서만 다른 값"만 둔다: 기능 플래그, 전국 OTP graph, 메모리 상한, worker2, 운영 전용 비밀 파일 mount.
+# 비밀값 자체는 env/*.env · /srv/nextroute/* (VPS 에만, git 아님).
+# 2026-11-26 VPS 실제 상태(compose.yaml + observability/otp/compose.otp-national.yaml)에서 옮겼다.
+#
+# 반영: ops/prod-sync.sh (diff → 백업 → 전송 → 바뀐 서비스만 재생성). 드리프트 검사: ops/prod-drift.sh.
+
+# 전국 graph. graph.obj · coverage-index.json 은 한 세트로만 교체한다(ROUTING_OTP_GRAPH_VERSION 과 일치해야 함).
+x-otp-coverage-mount: &otp-coverage-mount /srv/nextroute/otp/national-nojeju-202503-cal20260729_20270115-otp278-shaped-gbis-alllines-busrt-addtrips-subwayfix-osmfix-xfer-daytypes-seoulbus-pathways3-avoid25/coverage-index.json:/otp/coverage-index.json:ro
+
+x-prod-app-environment: &prod-app-environment
+  # OTP 가 기본 경로 엔진(전국, 제주 제외).
+  ROUTING_PROVIDER_OTP_ENABLED: "true"
+  ROUTING_PROVIDER_DEFAULT_PROVIDER: OTP
+  # P3 pfaedle 형상. graphVersion 은 coverage-index.json 의 값과 반드시 같아야 하며
+  # (다르면 기동 로그 WARN + 전량 STREET_FALLBACK), graph.obj 와 한 세트로만 교체한다.
+  ROUTING_OTP_GRAPH_VERSION: national-nojeju-202503-cal20260729_20270115-otp278-shaped-gbis-alllines-busrt-addtrips-subwayfix-osmfix-xfer-daytypes-seoulbus-pathways3-avoid25
+  ROUTING_OTP_COVERAGE_INDEX_PATH: file:/otp/coverage-index.json
+  ROUTING_OTP_SHAPES_ENABLED: "true"
+  # 주행 중 재탐색 알림(서버가 먼저 알린다). 경로 변경은 여전히 사용자 선택만 — 자동 적용 없음.
+  JOURNEY_REROUTE_ALERT_ENABLED: "true"
+  # 재탐색 시뮬레이터 수동 테스트 계정(쉼표 구분 userId). 시간 창·cooldown·최소 개선폭을 건너뛴다(#257). 테스트가 끝나면 비운다.
+  JOURNEY_REROUTE_TEST_USER_IDS: "26"
+  # 재탐색 주기 보드(#264). api(조회·ETag)와 worker(갱신 스케줄러) 둘 다. 2026-10-07 켬.
+  JOURNEY_REROUTE_BOARD_ENABLED: "true"
+  JOURNEY_NOTIFICATION_FATIGUE_ENABLED: "true"
+  # 2026-11-04 다중 인스턴스(docs/plan/bus-multi-instance). 버스 캐시 miss 를 서버 사이에서 1회로 묶고 몫·상한을 Redis 로 공유.
+  ROUTE_SEARCH_BUS_CROSS_INSTANCE: "true"
+  REGIONAL_BUS_SHARED: "true"
+  # 2026-11-16 지방 지하철 공식 시간표 제공(subway-regional-timetable). 끄면 404·서울만.
+  REGIONAL_SUBWAY_SERVING_ENABLED: "true"
+  # 2026-11-04 Tempo 를 내려서(메모리) span 전송만 끈다. traceId 는 로그에 남는다. Tempo 를 다시 올리면 이 줄을 지운다.
+  MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED: "false"
+  # 2026-11-04 Xmx 768→512: 7일 old gen 최대 api 241MB·worker 312MB. -Xmx 미지정 시 컨테이너마다 호스트 RAM 25% 를 잡는다.
+  # G1PeriodicGCInterval 은 유휴 시 미사용 힙을 OS 에 반환시켜 RSS 가 실제로 줄게 한다.
+  JAVA_TOOL_OPTIONS: >-
+    -Xms128m -Xmx512m
+    -XX:MaxMetaspaceSize=256m
+    -XX:+UseG1GC -XX:G1PeriodicGCInterval=300000
+
+# worker·worker2 공통(worker 프로필 전용 기능). ring.push 는 FCM 창구가 없는 api 에서 켜면 부팅이 죽는다.
+# 의존 순서: position(전이 로그) -> binding(고정) -> ring(진행률) -> ring.push(잠금화면 갱신).
+x-prod-worker-environment: &prod-worker-environment
+  JOURNEY_SUBWAY_BINDING_ENABLED: "true"
+  JOURNEY_SUBWAY_RING_ENABLED: "true"
+  JOURNEY_SUBWAY_RING_PUSH_ENABLED: "true"
+  # 2026-11-04 리더 락. 지하철·버스 수집기와 버스 도착 알림 폴러를 리더 한 대만 돌린다. worker 2대 전에 필수.
+  # Redis 장애 때는 수집·버스 알림이 멈춘다(의도, fail-closed).
+  JOURNEY_REEVAL_LEADER_LEASE: "true"
+  BATCH_ARRIVAL_EVENT_ENABLED: "false"
+
+services:
+  api:
+    # 호스트 OOM 연쇄를 막는 안전벨트. 힙 512m + 비힙 약 240m + 스레드/네이티브 여유.
+    mem_limit: 1200m
+    volumes:
+      - *otp-coverage-mount
+      # 애플 client_secret 서명용 .p8. apple 로그인·탈퇴 revoke 를 다루는 api 만 쓴다.
+      - /srv/nextroute/AuthKey_65933K4PP3.p8:/secrets/AuthKey_65933K4PP3.p8:ro
+    environment:
+      <<: *prod-app-environment
+      TRANSFER_ARRIVAL_ARRIVAL_ONLY: "true"
+      TRANSFER_ARRIVAL_REGIONAL: "true"
+      TRANSFER_ARRIVAL_REGIONAL_GG_DAILY: "5000"
+      # api 는 FCM 자격이 없어 journey 알림 sender 가 noop → relay 를 끄지 않으면 부팅이 막힌다
+      # (JourneyNotificationProperties.validate). relay 는 worker 담당.
+      JOURNEY_NOTIFICATION_RELAY_ENABLED: "false"
+      # 단독 추적(#265) + 역에서 열차 선택. 둘 다 api 전용.
+      JOURNEY_TRACK_ENABLED: "true"
+      JOURNEY_SUBWAY_SELECTION_ENABLED: "true"
+
+  worker:
+    mem_limit: 1200m
+    volumes:
+      - *otp-coverage-mount
+    environment:
+      <<: [*prod-app-environment, *prod-worker-environment]
+      # 2026-09-27 재개(키 증액). worker2 는 리더 게이트가 없어 끈다(아래).
+      SUBWAY_POSITION_ENABLED: "true"
+      # 경기·TAGO 노선 정류장 표(#267). 표가 비면 부팅 1회(약 2.15만 호출), 이후 매월 1일 03:30. 2026-10-07 켬.
+      REGIONAL_BUS_CATALOG_ENABLED: "true"
+      # 지방 지하철 공식 시간표 적재(V76). 주 1회 + 표가 비면 부팅 1회. 2026-11-16 켬.
+      REGIONAL_SUBWAY_TIMETABLE_ENABLED: "true"
+
+  # worker2 (2026-11-04): 이중화(알림 유실 방지). 장애 시나리오로 두 대 유실 없음 검증 완료.
+  # 같은 이미지·env + 리더 락으로 수집·알림 폴러는 한 대만 돈다.
+  # 끄기 = `docker compose stop worker2 && docker compose rm -f worker2`.
+  #
+  # ⚠ `extends: worker` 금지 — 합쳐진(운영) worker 를 물려받아 worker 전용 단독 작업(SUBWAY_POSITION 등)이
+  #   worker2 에도 켜진다(2026-11-26 config 비교로 확인). 그래서 base 의 worker 정의를 여기 다시 적는다.
+  worker2:
+    image: ${WORKER_IMAGE:-nextroute:bootstrap}
+    mem_limit: 1200m
+    env_file:
+      - env/db.env
+      - env/api.env
+      - env/toss.env
+      - env/auth.env
+      - env/oauth.env
+      - env/fcm.env
+    volumes:
+      - *otp-coverage-mount
+      - ./logs:/logs
+      - /srv/nextroute/toss.p12:/secrets/toss.p12:ro
+      - /srv/nextroute/firebase-service-account.json:/secrets/firebase-service-account.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8081/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    environment:
+      # base x-app-environment (앵커는 파일을 넘지 못해 다시 적는다)
+      TZ: Asia/Seoul
+      POSTGRES_HOST: postgres
+      ML_PREDICTOR_URL: http://nextroute-ml-serve:8001
+      ML_PREDICTOR_ENABLED: "true"
+      LOGGING_LOGBACK_ROLLINGPOLICY_MAX_FILE_SIZE: 10MB
+      LOGGING_LOGBACK_ROLLINGPOLICY_MAX_HISTORY: "30"
+      ROUTING_OTP_BASE_URL: http://otp:8080
+      SPRING_PROFILES_ACTIVE: prod,worker
+      <<: [*prod-app-environment, *prod-worker-environment]
+      # 리더 락을 보지 않는 단독 작업은 worker2 에서 끈다(두 대면 공급자 호출 2배·일일 배치 2회).
+      # SUBWAY_POSITION_ENABLED, REGIONAL_BUS_CATALOG_ENABLED 는 일부러 안 넣음(기본 false).
+      # 코드에 리더 게이트가 들어가면 이 줄들을 지우고 worker 와 같은 env 로 맞춘다.
+      COLLECTOR_ROUTEROTATION_ENABLED: "false"
+      COLLECTOR_ROUTE_ROTATION_ENABLED: "false"
+      BATCH_BUS_LABEL_ENABLED: "false"
+      LOGGING_FILE_NAME: /logs/worker2-${WORKER_BUILD_DATE:-bootstrap}.log
+
+  # 전국(제주 제외) OTP. base 의 서울 graph·Xmx 를 대체한다.
+  # National graph live set ~2.6G after full GC. Xmx3500m + ~450MiB native => RSS ~4.0G. 일부러 빠듯하게 둠.
+  otp:
+    image: local/nextroute-otp:20260920-h-only-9dbfb229b868
+    volumes: !override
+      # graph.obj 만 file-mount — dir 통째 mount 하면 이미지에 구운 otp-config.json 이 가려진다.
+      - /srv/nextroute/otp/national-nojeju-202503-cal20260729_20270115-otp278-shaped-gbis-alllines-busrt-addtrips-subwayfix-osmfix-xfer-daytypes-seoulbus-pathways3-avoid25/graph.obj:/var/opentripplanner/graph.obj:ro
+      - /srv/nextroute/otp/experiment-artifacts/20260930-national-shaped:/var/opentripplanner/experiment-artifacts
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -Xms256m -Xmx3500m -XX:+UseG1GC
+        -Xlog:gc*,safepoint:file=/var/opentripplanner/experiment-artifacts/gc-%t.log:time,uptime,level,tags:filecount=5,filesize=50M
+        -javaagent:/opt/otp/jmx_prometheus_javaagent-1.6.0.jar=9404:/opt/otp/otp-jmx.yaml
+    mem_limit: 4500m
+    memswap_limit: 4500m
+    expose:
+      - "9404"   # Prometheus 내부 스크랩 전용
