@@ -10,6 +10,7 @@ import watoo.grd.nextroute.application.arrival.dto.StopArrivals;
 import watoo.grd.nextroute.application.arrival.port.in.GetBusStopArrivalsUseCase;
 import watoo.grd.nextroute.application.journey.dto.LaneReselection;
 import watoo.grd.nextroute.application.route.mapping.BusRealtimeStopIds;
+import watoo.grd.nextroute.application.route.mapping.TagoCityCodeLookup;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegGuidance;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLegRouteOption;
@@ -216,5 +217,26 @@ class MergedBusLaneChooserTest {
         assertThat(matched).containsOnlyKeys(1L, 4L, 5L);   // 741 은 id 다르고 번호가 두 줄 → 뺌
         assertThat(matched.get(4L).routeName()).isEqualTo("N13");
         assertThat(matched.get(5L).predictTime1()).as("번호가 겹쳐도 공급자 id 로 맞춤").isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("#626: 저장된 정류장 id 가 9자리가 아니어도(TAGO) 그 id 로 묻는다. 원천이 이미 뗀 9자리면 startStopId 가 비어도 그걸로 묻는다")
+    void asksWithTheStoredOrSourceRealtimeStopId() {
+        TagoCityCodeLookup tago = mock(TagoCityCodeLookup.class);
+        given(tago.isRealtimePrefix("BSB")).willReturn(true);
+        chooser = new MergedBusLaneChooser(optionRepository, stopArrivals, new BusRealtimeStopIds(tago), registry);
+
+        ReflectionTestUtils.setField(wait, "startStopId", "BSB167850202");
+        given(stopArrivals.getStopsArrivals(List.of("BSB167850202"))).willReturn(List.of(new StopArrivals(
+                "BSB167850202", StopArrivals.Status.OK,
+                List.of(row("100100063", "402", 1140), row("100100120", "741", 420)))));
+        assertThat(chooser.choose(wait, ride, NOW)).get().extracting(LaneReselection::toOptionId).isEqualTo(2L);
+
+        ReflectionTestUtils.setField(wait, "startStopId", null);
+        ReflectionTestUtils.setField(wait, "sourceStartStopId", "233001674");
+        given(stopArrivals.getStopsArrivals(List.of("233001674"))).willReturn(List.of(new StopArrivals(
+                "233001674", StopArrivals.Status.OK,
+                List.of(row("100100063", "402", 1140), row("100100120", "741", 420)))));
+        assertThat(chooser.choose(wait, ride, NOW)).get().extracting(LaneReselection::toOptionId).isEqualTo(2L);
     }
 }

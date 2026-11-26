@@ -7054,3 +7054,22 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `./gradlew test --tests '*AddressQueryTrimmerTest' --tests '*PlaceSearchServiceTest' --tests '*KakaoLocalSearchAdapterTest' --tests '*PlaceDeduplicatorTest'` → 35 tests, 0 failures(16 + 10 + 5 + 4).
+
+## 2026-11-26 #626 경기·TAGO 버스 정류장 id 비어 저장 (fix/journey-regional-stop-id)
+
+### 확정
+- 원인: `JourneyTransitIdEnricher.resolveBusStop` 이 서울 `bus_stop` 표만 봐서, 표에 없으면 WAIT_BUS·RIDE_BUS 의 `start_stop_id`·`end_stop_id` 가 null. 원천 `source_start_stop_id` 는 검색 응답 `startLocalStationID` 로 이미 실시간 도착 API id(9자리, `BSB…`)다. 앱 네이티브 엔진은 `startStopId` 로만 `/api/arrivals/bus` 를 물어서 대기 화면이 "확인 중".
+- 운영 30일 WAIT_BUS: 경기 9자리 21건 중 19, TAGO 6/6, GTFS 원형 2/2, 서울 9자리 156건 중 14 null. **서울 9자리 14건은 전부 경기 노선(source_route_id 2xxxxxxxx)이 서울 번호 정류장에서 탄 경우**(정류장 표가 낡아서가 아님 — OTP 서울 지역 id 는 `OtpSeoulIdentityResolver` 가 bus_stop 에 있을 때만 냄).
+- 고침: 서울 표 → 없으면 `BusRealtimeStopIds.realtimeId(원천)`. GTFS 원형이면 `of()`, 이미 뗀 9자리 그대로, 이미 뗀 TAGO 는 `isRealtimePrefix` 일 때만. 폴백을 `TransferStopResolver.resolveStop` 에 두지 않음(검색 시점에서 빈 값 = "서울 아님 → 지역 분기" 의미).
+- `isOutsideSeoulGtfsStop` 은 계속 원천 값으로 판정(정규화 전).
+- `MergedBusLaneChooser.stopIdOf`: `realtimeId(원천)` → 없으면 저장된 startStopId(9자리 게이트 제거, TAGO 도 물음). 이전에는 `of()` 가 GTFS 원형만 받아 원천 9자리에서 항상 빈 값 → **#614 PR-2 노선 옮기기가 경기 정류장에서 한 번도 안 돌았다.**
+- **사용자 결정(11-26): 경기 환승 재탐색도 연다.** `RemainingPathCandidateProvider:155`(사건 기반)·`:881`(보드 계획 하차점)·`RerouteOriginResolver:60` 가 startStopId null 로 막혀 있었음. 운영 `JOURNEY_REROUTE_ALERT_ENABLED=true`, `BOARD_ENABLED=true` → 경기 환승 놓침 제안·푸시가 새로 나갈 수 있음. routeId·seq 는 null 이라 실시간 주소 후보는 아님.
+- 서울 GTFS 원형 정류장 + 번호 폴백 서울 노선이면 9자리로 풀려 `resolveSeq` 가 순번을 맞출 수 있음(개선).
+
+### 미결
+- GTFS 원형 2건은 `sourceRouteId` 도 null 이라 앱이 여전히 못 묻는다(정류장·노선 지역 짝맞춤 별건).
+
+### 검증
+- 단위: `./gradlew test --tests '*JourneyTransitIdEnricherTest' --tests '*MergedBusLaneChooserTest' --tests '*BusRealtimeStopIdsTest' --tests '*RerouteOriginResolverTest' --tests '*RemainingPathCandidateProviderTest' --tests '*JourneyCompiler*' --tests '*JourneyEvaluationScheduleWriterLaneReselectTest'` → 95 tests, 0 failures.
+- IT(st-pg :55432, st-redis :56379, env api·db·auth·oauth — fcm.env 넣으면 FirebaseApp 자격증명 없어 컨텍스트 실패): `*JourneyStartIT *RerouteAcceptIT *BusRouteSelectionIT *JourneyEvaluationIT` → 97 tests, 0 failures.
+- 리뷰 확인(운영 DB): `bus_stop` 12,986행·`bus_route_stop` 41,783행 전부 9자리, `bus_route_stop` 에 경기 번호(2…) 정류장 3,158행 → 서울 노선 + 경기 정류장 9자리 seq 매칭은 같은 id 체계. `RemainingRouteSearchService.search` 의 stopId 는 로그·telemetry 용(출발점은 좌표). 맨 9자리 통과는 ODsay(롤백 전용) 경로에서만 다른 지역 id 가 들어올 수 있음 — 낮음.

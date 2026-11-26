@@ -5,6 +5,8 @@ import watoo.grd.nextroute.application.arrival.service.SubwayArrivalQueryService
 import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
 import watoo.grd.nextroute.application.route.dto.PathResult;
+import watoo.grd.nextroute.application.route.mapping.BusRealtimeStopIds;
+import watoo.grd.nextroute.application.route.mapping.TagoCityCodeLookup;
 import watoo.grd.nextroute.application.route.service.TransferStopResolver;
 import watoo.grd.nextroute.application.subway.service.DestinationNormalizer;
 import watoo.grd.nextroute.domain.journey.entity.JourneyLeg;
@@ -26,8 +28,10 @@ class JourneyTransitIdEnricherTest {
     private final TransferStopResolver busResolver = mock(TransferStopResolver.class);
     private final SubwayArrivalQueryService subwayArrivalQueryService =
             mock(SubwayArrivalQueryService.class);
+    private final TagoCityCodeLookup tagoCityCodes = mock(TagoCityCodeLookup.class);
     private final JourneyTransitIdEnricher enricher = new JourneyTransitIdEnricher(
-            busResolver, subwayArrivalQueryService, new DestinationNormalizer());
+            busResolver, subwayArrivalQueryService, new DestinationNormalizer(),
+            new BusRealtimeStopIds(tagoCityCodes));
     private final JourneyCompiler compiler = new JourneyCompiler(new StopIdentityResolver());
 
     @Test
@@ -87,11 +91,20 @@ class JourneyTransitIdEnricherTest {
         given(busResolver.resolveRoute(null, "370")).willReturn(Optional.of(
                 new TransferStopResolver.RouteResolution("100100576", "370", true, 8)));
 
+        // #626: 서울 표에 없는 서울 GTFS 정류장도 실시간 9자리가 되고, 서울 노선이면 그 정류장으로 순번까지 맞춘다.
+        given(busResolver.resolveSeq("100100576", "121000091"))
+                .willReturn(new TransferStopResolver.SeqResolution(List.of(7)));
+        given(busResolver.resolveSeq("100100576", "121000092"))
+                .willReturn(new TransferStopResolver.SeqResolution(List.of()));
+
         JourneyPlan plan = enricher.enrich(compile(bus(20)
                 .busStops("1:BS_TAGO_SEB121000091", "1:BS_TAGO_SEB121000092")
                 .lanes(busLane("370", null)).build()));
 
+        assertThat(plan.legs().get(0).startStopId()).isEqualTo("121000091");
         assertThat(plan.legs().get(0).routeOptions().get(0).routeId()).isEqualTo("100100576");
+        assertThat(plan.legs().get(0).routeOptions().get(0).boardingSeq()).isEqualTo(7);
+        assertThat(plan.legs().get(0).routeOptions().get(0).alightingSeq()).isNull();
     }
 
     @Test
@@ -101,6 +114,86 @@ class JourneyTransitIdEnricherTest {
         assertThat(JourneyTransitIdEnricher.isOutsideSeoulGtfsStop("1:BS_TAGO_SEB121000091")).isFalse();
         assertThat(JourneyTransitIdEnricher.isOutsideSeoulGtfsStop("121000091")).isFalse();
         assertThat(JourneyTransitIdEnricher.isOutsideSeoulGtfsStop(null)).isFalse();
+    }
+
+    /**
+     * #626: 경기 정류장은 서울 표에 없다. 저장된 정류장 id 가 비면 앱이 도착 시간을 못 묻는다 → 원천 9자리를 그대로 쓴다.
+     * 경기 노선은 서울로 안 풀리므로 routeId·seq 는 비어 있고 근거 품질은 그대로 UNKNOWN 이다.
+     */
+    @Test
+    void gyeonggiStopMissingFromSeoulTable_usesTheRealtimeId() {
+        JourneyPlan plan = enricher.enrich(compile(bus(20).names("센트럴파크", "강남역")
+                .busStops("233001674", "233001999")
+                .lanes(busLane("1551", "234001138")).build()));
+
+        JourneyLegDraft wait = plan.legs().get(0);
+        JourneyLegDraft ride = plan.legs().get(1);
+        assertThat(wait.startStopId()).isEqualTo("233001674");
+        assertThat(ride.startStopId()).isEqualTo("233001674");
+        assertThat(ride.endStopId()).isEqualTo("233001999");
+        assertThat(wait.routeOptions()).singleElement().satisfies(option -> {
+            assertThat(option.routeId()).isNull();
+            assertThat(option.sourceRouteId()).isEqualTo("234001138");
+            assertThat(option.boardingSeq()).isNull();
+        });
+        assertThat(wait.evidenceQuality()).isEqualTo(JourneyLeg.EVIDENCE_QUALITY_UNKNOWN);
+    }
+
+    /** 경기 노선이 서울 번호(1로 시작) 정류장에서 타는 경우. 운영 #626 의 서울 9자리 14건이 전부 이 모양이었다. */
+    @Test
+    void gyeonggiRouteAtSeoulNumberedStopMissingFromTable_usesTheRealtimeId() {
+        JourneyPlan plan = enricher.enrich(compile(bus(20)
+                .busStops("121000974", "122000123")
+                .lanes(busLane("1550", "234000016")).build()));
+
+        assertThat(plan.legs().get(0).startStopId()).isEqualTo("121000974");
+        assertThat(plan.legs().get(1).endStopId()).isEqualTo("122000123");
+        assertThat(plan.legs().get(0).routeOptions().get(0).routeId()).isNull();
+    }
+
+    /** TAGO 는 실시간을 물을 수 있는 도시 접두사일 때만 쓴다. */
+    @Test
+    void tagoStop_usesTheRealtimeIdOnlyForARealtimePrefix() {
+        given(tagoCityCodes.isRealtimePrefix("BSB")).willReturn(true);
+
+        JourneyPlan realtime = enricher.enrich(compile(bus(20)
+                .busStops("BSB167850202", "BSB167850300")
+                .lanes(busLane("100", "BSB5200100000")).build()));
+        JourneyPlan unknown = enricher.enrich(compile(bus(20)
+                .busStops("CJB283000123", "CJB283000456")
+                .lanes(busLane("103", "CJB270000103")).build()));
+
+        assertThat(realtime.legs().get(0).startStopId()).isEqualTo("BSB167850202");
+        assertThat(realtime.legs().get(1).endStopId()).isEqualTo("BSB167850300");
+        assertThat(unknown.legs().get(0).startStopId()).isNull();
+        assertThat(unknown.legs().get(1).endStopId()).isNull();
+    }
+
+    /** GTFS 원형(검색 응답이 지역 id 를 못 줌)은 경기 GGB 9자리를 꺼낸다. 서울 밖 판정은 원형으로 그대로 한다. */
+    @Test
+    void gtfsGyeonggiStop_extractsTheRealtimeIdAndStaysOutsideSeoul() {
+        given(busResolver.resolveRoute(null, "103")).willReturn(Optional.of(
+                new TransferStopResolver.RouteResolution("100100008", "103", true, 10)));
+
+        JourneyPlan plan = enricher.enrich(compile(bus(20)
+                .busStops("1:BS_TAGO_GGB202000141", "1:BS_TAGO_GGB202000142")
+                .lanes(busLane("103", null)).build()));
+
+        assertThat(plan.legs().get(0).startStopId()).isEqualTo("202000141");
+        assertThat(plan.legs().get(1).endStopId()).isEqualTo("202000142");
+        assertThat(plan.legs().get(0).routeOptions().get(0).routeId()).isNull();   // 서울 103 으로 둔갑하지 않음
+        verify(busResolver).resolveRoute(null, null);
+    }
+
+    /** 모르는 모양(ODsay 내부 id 등)은 지금처럼 null 이다. */
+    @Test
+    void unknownStopShape_staysNull() {
+        JourneyPlan plan = enricher.enrich(compile(bus(20)
+                .busStops("ODSAY-X", "ODSAY-Y")
+                .lanes(busLane("370", "ODSAY-ROUTE")).build()));
+
+        assertThat(plan.legs().get(0).startStopId()).isNull();
+        assertThat(plan.legs().get(1).endStopId()).isNull();
     }
 
     @Test
