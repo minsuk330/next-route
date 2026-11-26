@@ -105,6 +105,19 @@ Grafana 알림이 울리면 그 시각의 로그·메트릭을 모아 원인 가
 - 평가: `cd alert-analyzer && ANTHROPIC_API_KEY=… uv run python -m eval.run_eval` 은 예상 비용만 출력, `--yes` 를 붙여야 실제 호출(6건 약 $0.25 이하). 규칙 비교선 대비 적중·근거 인용·없는 근거 수를 낸다
 - 평가용 fixture 캡처: `docker exec alert-analyzer python -m scripts.capture_fixture --at <ISO+09:00> --name <id> --alertname <이름>` → 커밋 전 `python3 scripts/check_no_secrets.py --env '/root/apps/*/env/*.env' <파일>`
 
+## 주간 요약 (analyzer.weekly)
+매주 월요일 09:00 KST, 알림 채널에 `[주간]` 메시지 한 통. 계획: `docs/plan/observability-north-star/PLAN.md`.
+
+- 내용: 여정 알림 정시 n/m·늦음·유실·지연 중(checkpoint 별), 잠금화면 갱신, 목표(p95 검색 2.5s / 그 외 0.5s) 넘은 엔드포인트, 퍼널(검색 → 여정 → 알림 받은 여정 → 완료), 지난주 발생 알림, `observability-weekly` 열린 issue(토큰 있을 때)
+- 북극성 수치는 Grafana 대시보드 `nextroute-north-star` 의 패널 SQL 을 그대로 실행한다 → 대시보드와 숫자가 같다. 패널 제목을 바꾸면 `analyzer/weekly.py` 도 같이
+- Postgres 는 Grafana `/api/ds/query`(서비스 계정 `weekly-digest`, Viewer)로 읽는다. 분석기에 DB 접속 없음
+- 섹션마다 따로 실패한다: 조회가 깨지면 그 줄만 "조회 실패" 로 나가고 나머지는 보낸다
+- 실행(VPS cron, `CRON_TZ=Asia/Seoul`):
+  ```cron
+  0 9 * * 1 cd /root/apps/observability && docker compose run --rm --no-deps -T alert-analyzer python -m analyzer.weekly >> /var/log/nextroute-weekly.log 2>&1
+  ```
+- 미리보기(발송 안 함): `docker compose run --rm --no-deps -T alert-analyzer python -m analyzer.weekly --dry-run`
+
 ## 사용 통계 대시보드 (docs/plan/usage-stats)
 
 `grafana/dashboards/usage.json` "사용 통계" — DAU·WAU·MAU, 신규 설치(DEVICE 계정), 여정 시작·상태·사용자, 경로 검색 요청(Prometheus), 앱 빌드, 재방문 코호트, 사용자별(md5 6자) 표.
