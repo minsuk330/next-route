@@ -7140,3 +7140,14 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 멀티 에이전트(사용자 지시): 구현 A(스크랩·통계 제외·주간 섹션) + 검증 B(api)·C(호출기 vs 서버 DTO)·D(규칙, Grafana 12.0 소스·운영 Prometheus 읽기) 병렬. 지적 반영: 퍼널 메트릭 교체(A), 모양 가드·전체 시간 상한·테스트 5개(C), Swagger 헤더 숨김(B), 5xx 첫 값 누락(D, HIGH).
 - B: `@WebMvcTest` 로 헤더 1 → recorder 0회, 없으면 1회. 컨텍스트 러너로 필터 통과 시 `synthetic=true/false` 시계열 생성 확인(임시 테스트, 삭제).
 - C: 서버 record 이름 = JSON 이름(naming strategy 없음), subPaths·startLocalStationID·busLocalBlID·transferArrivals·stations·wayCode·subwayCode 전부 앱·probe 와 일치.
+## #645 지하철 역 도착 API 막 떠난 열차 1분 공백 (2026-11-26, 브랜치 fix/subway-departed-gap, 티어 S)
+### 확정
+- 원인은 이슈 본문 추정(`passed()`)이 아니다. 운영 Redis `subway:dep:2026-11-26:1002:외선:1002000214` 의 7443 행 from 21:13:47 / to 21:16:17 = movedStation 경로(직전 관측 ARRIVED 21:15:17 → 다음 역 21:16:17). 위치 API 는 조회역 DEPARTED 를 한 번도 안 냄 → `hasPassed` 첫 갈래 불가, lastSeen 이 조회역이라 둘째 갈래도 불가.
+- 실제 원인: 도착 API 가 코드 2(조회역 출발)를 내면 `SubwayRealtimeArrivalReader.arrivals` 가 빼고, 역 도착 응답 departed 는 `SubwayDepartureLookup`(위치 출발 기록)만 봄. 위치 기록은 다음 역 관측 때 생겨 약 1분 늦음 → 그사이 열차가 응답 어디에도 없음.
+- 수정: departed 에 캐시 `justDeparted`(코드 2 행) 중 출발 기록 없는 열차를 원천 ARRIVAL·시각 recptnDt 로 넣음. 출발 기록이 생기면 기록이 이김(trainNo 중복 제거). 최근 순 3대·10분 창 유지.
+- #317 원칙(보인 떠난 열차는 고를 수 있다): `SubwayTrainSelectionService.select` 가 justDeparted 를 출발 기록보다 먼저 봄(대기·탑승 둘 다) → 추가 변경 불필요.
+### 범위 밖
+- `passed()` 둘째 갈래(위치가 하류인데 출발 기록 없음)는 비인접 이동일 때만 생김 → 이번엔 안 다룸.
+- 이미 역에 있는데 arrivalSeconds 49~59초 남는 것(원천 barvlDt 늦음)은 별건.
+### 검증
+- `./gradlew test --tests 'watoo.grd.nextroute.application.arrival.*' --tests 'watoo.grd.nextroute.application.subway.*' --tests '*SubwayTrainSelectionServiceTest'` → 695 중 694 통과. SubwayStationArrivalQueryServiceTest 31/31(+4). 실패 1 = BusApproachStopNamesTransactionIT 컨텍스트 로드(env 미주입, 기존 무관).
