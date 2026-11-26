@@ -692,6 +692,52 @@
         }
       ],
       "description": "사용자 id 는 md5 앞 6자로만. 목적지·좌표·이름은 싣지 않는다."
+    },
+    {
+      "id": 15,
+      "title": "퍼널: 검색 → 여정 → 알림 → 완료",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 24,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with e as (\n  select search_session_id from route_search_event\n  where $__timeFilter(searched_at) and (user_id is null or user_id not in (select t.user_id from auth_identity t where t.provider = 'TOSS' and t.user_id is not null))\n), j as (\n  select id, search_session_id, status from journey_session\n  where $__timeFilter(started_at) and deleted_at is null and kind = 'NAVIGATION' and user_id not in (select t.user_id from auth_identity t where t.provider = 'TOSS' and t.user_id is not null)\n)\nselect\n  (select count(*) from e) as \"경로 검색\",\n  (select count(*) from j) as \"여정 시작\",\n  (select count(*) from j where search_session_id is not null) as \"검색과 이어진 여정\",\n  (select count(distinct n.journey_id) from journey_notification n join j on j.id = n.journey_id\n     where n.channel = 'PUSH' and n.status = 'SENT') as \"알림 받은 여정\",\n  (select count(*) from j where status = 'COMPLETED') as \"완료\""
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "description": "검색 = route_search_event(V79, 2026-11-26 배포부터, 익명 포함·토스 제외, 좌표 없음). 검색과 이어진 여정 = 여정 시작 요청의 searchSessionId 가 남은 것(V80) — 배포 전 여정은 0. 단독 추적(TRACK)은 검색을 거치지 않아 뺀다."
     }
   ],
   "templating": {

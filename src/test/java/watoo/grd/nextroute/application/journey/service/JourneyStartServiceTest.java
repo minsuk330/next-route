@@ -147,7 +147,7 @@ class JourneyStartServiceTest {
     @DisplayName("로그인 없이 검색한 결과로는 시작할 수 있다")
     void anonymousSnapshot_allowed() {
         givenStoredPath(null, usablePath());
-        given(txService.start(eq(USER_ID), any(), any(), any(), eq(false), eq(NOW), eq(JourneyKind.NAVIGATION), eq(false)))
+        given(txService.start(eq(USER_ID), any(), any(), any(), eq(false), eq(NOW), eq(JourneyKind.NAVIGATION), eq(false), eq("sess-1")))
                 .willReturn(snapshot(1L));
 
         assertThat(service.start(USER_ID, command()).journeyId()).isEqualTo(1L);
@@ -167,7 +167,7 @@ class JourneyStartServiceTest {
     @DisplayName("경로 원본과 목적지 이름을 함께 넘긴다")
     void passesSnapshotAndDestination() {
         givenStoredPath(USER_ID, usablePath());
-        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean()))
+        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean(), any()))
                 .willReturn(snapshot(1L));
 
         service.start(USER_ID, command());
@@ -175,7 +175,7 @@ class JourneyStartServiceTest {
         verify(txService).start(eq(USER_ID), any(),
                 org.mockito.ArgumentMatchers.argThat(node -> node.get("pathType").asInt() == 1),
                 org.mockito.ArgumentMatchers.argThat(node -> "정류장F".equals(node.get("name").asText())),
-                eq(false), eq(NOW), eq(JourneyKind.NAVIGATION), eq(false));
+                eq(false), eq(NOW), eq(JourneyKind.NAVIGATION), eq(false), eq("sess-1"));
     }
 
     @Test
@@ -183,13 +183,13 @@ class JourneyStartServiceTest {
     void passesExcludeExpressFromSnapshot() {
         given(snapshotPort.find("sess-1", "0")).willReturn(Optional.of(
                 new RouteSearchSnapshotPort.StoredPath(USER_ID, usablePath(), NOW.plusSeconds(600), true)));
-        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean()))
+        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean(), any()))
                 .willReturn(snapshot(1L));
 
         service.start(USER_ID, command());
 
         verify(txService).start(eq(USER_ID), any(), any(), any(), eq(false), eq(NOW),
-                eq(JourneyKind.NAVIGATION), eq(true));
+                eq(JourneyKind.NAVIGATION), eq(true), eq("sess-1"));
     }
 
     // ── 충돌 번역 ────────────────────────────────────────────────────────────
@@ -198,7 +198,7 @@ class JourneyStartServiceTest {
     @DisplayName("사람당 하나 인덱스 위반은 409 로 바꾸고 현재 여정을 실어 준다")
     void uniqueViolation_becomesConflict() {
         givenStoredPath(USER_ID, usablePath());
-        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean()))
+        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean(), any()))
                 .willThrow(activeJourneyViolation());
         given(queryService.getActive(USER_ID)).willReturn(Optional.of(snapshot(42L)));
 
@@ -213,7 +213,7 @@ class JourneyStartServiceTest {
     void otherIntegrityError_notTranslated() {
         givenStoredPath(USER_ID, usablePath());
         DataIntegrityViolationException original = violation("fk_journey_leg_journey", "23503");
-        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean()))
+        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean(), any()))
                 .willThrow(original);
 
         assertThatThrownBy(() -> service.start(USER_ID, command()))
@@ -227,7 +227,7 @@ class JourneyStartServiceTest {
     void conflictGone_rethrows() {
         givenStoredPath(USER_ID, usablePath());
         DataIntegrityViolationException original = activeJourneyViolation();
-        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean()))
+        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean(), any()))
                 .willThrow(original);
         given(queryService.getActive(USER_ID)).willReturn(Optional.empty());
 
@@ -249,14 +249,14 @@ class JourneyStartServiceTest {
     @DisplayName("쪼갠 결과를 트랜잭션으로 넘긴다")
     void passesCompiledPlan() {
         givenStoredPath(USER_ID, usablePath());
-        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean()))
+        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean(), any()))
                 .willReturn(snapshot(1L));
 
         service.start(USER_ID, command());
 
         verify(txService).start(eq(USER_ID),
                 org.mockito.ArgumentMatchers.argThat(plan -> plan.legs().size() == 3),
-                any(), any(), eq(false), eq(NOW), eq(JourneyKind.NAVIGATION), eq(false));
+                any(), any(), eq(false), eq(NOW), eq(JourneyKind.NAVIGATION), eq(false), eq("sess-1"));
     }
 
     // ── 장소 목적지 걷기 이름(#468) ──────────────────────────────────────────
@@ -297,12 +297,12 @@ class JourneyStartServiceTest {
         ObjectMapper json = new ObjectMapper().registerModule(new JavaTimeModule());
         RouteSearchResult stored = json.readValue(json.writeValueAsString(searched), RouteSearchResult.class);
         givenStoredPath(USER_ID, stored.paths().get(0));
-        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean())).willReturn(snapshot(1L));
+        given(txService.start(anyLong(), any(), any(), any(), anyBoolean(), any(), any(), anyBoolean(), any())).willReturn(snapshot(1L));
 
         service.start(USER_ID, command());
 
         ArgumentCaptor<JourneyPlan> plan = ArgumentCaptor.forClass(JourneyPlan.class);
-        verify(txService).start(eq(USER_ID), plan.capture(), any(), any(), eq(false), eq(NOW), eq(JourneyKind.NAVIGATION), eq(false));
+        verify(txService).start(eq(USER_ID), plan.capture(), any(), any(), eq(false), eq(NOW), eq(JourneyKind.NAVIGATION), eq(false), eq("sess-1"));
         List<JourneyLegDraft> legs = plan.getValue().legs();
         assertThat(legs).extracting(JourneyLegDraft::type).containsExactly(
                 JourneyLegType.WALK, JourneyLegType.WAIT_SUBWAY, JourneyLegType.RIDE_SUBWAY, JourneyLegType.WALK);

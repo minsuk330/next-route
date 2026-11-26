@@ -109,6 +109,17 @@ public class JourneyStartTxService {
     public JourneySnapshot start(Long userId, JourneyPlan plan, JsonNode routeSnapshot,
                                  JsonNode destinationSummary, boolean replace, Instant now,
                                  JourneyKind kind, boolean excludeExpress) {
+        return start(userId, plan, routeSnapshot, destinationSummary, replace, now, kind, excludeExpress, null);
+    }
+
+    /**
+     * @param searchSessionId 시작 검색의 스냅샷 id(V80). 사용 퍼널에서 검색(route_search_event)과 여정을 잇는다.
+     *                        단독 추적은 검색이 없어 null
+     */
+    @Transactional
+    public JourneySnapshot start(Long userId, JourneyPlan plan, JsonNode routeSnapshot,
+                                 JsonNode destinationSummary, boolean replace, Instant now,
+                                 JourneyKind kind, boolean excludeExpress, String searchSessionId) {
         User user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.NOT_FOUND));
 
@@ -119,6 +130,7 @@ public class JourneyStartTxService {
                 .userId(user.getId())
                 .kind(kind)
                 .excludeExpress(excludeExpress)
+                .searchSessionId(searchSessionId)
                 .startedAt(now)
                 .guidanceLeaseUntil(now.plus(navigationProperties.guidanceLease()))
                 .routeSnapshot(routeSnapshot)

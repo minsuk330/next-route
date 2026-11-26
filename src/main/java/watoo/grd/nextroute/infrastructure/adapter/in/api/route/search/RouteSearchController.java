@@ -3,6 +3,7 @@ package watoo.grd.nextroute.infrastructure.adapter.in.api.route.search;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -16,6 +17,7 @@ import watoo.grd.nextroute.application.route.exception.InvalidDepartureTimeExcep
 import watoo.grd.nextroute.application.route.exception.OdSayApiException;
 import watoo.grd.nextroute.application.route.port.in.RecordSearchHistoryUseCase;
 import watoo.grd.nextroute.application.route.port.in.SearchRouteUseCase;
+import watoo.grd.nextroute.application.route.service.RouteSearchEventRecorder;
 import watoo.grd.nextroute.application.route.service.RouteSearchSnapshotRecorder;
 
 import java.util.Map;
@@ -29,6 +31,8 @@ public class RouteSearchController {
     private final SearchRouteUseCase searchRouteUseCase;
     private final RecordSearchHistoryUseCase recordSearchHistoryUseCase;
     private final RouteSearchSnapshotRecorder snapshotRecorder;
+    /** 사용 퍼널 기록(V79). 꺼져 있으면(route.search-event.enabled=false) 빈 provider. */
+    private final ObjectProvider<RouteSearchEventRecorder> searchEventRecorder;
 
     /**
      * 공용 엔드포인트 유지 + optional auth. JWT 가 있으면 {@code userId} 가 채워지고(로그인),
@@ -41,12 +45,16 @@ public class RouteSearchController {
     public ResponseEntity<RouteSearchResult> search(
             @AuthenticationPrincipal Long userId,
             @Valid RouteSearchRequest request) {
+        long startedAt = System.nanoTime();
         RouteSearchResult result = searchRouteUseCase.search(request);
         // 급행 끄기는 요청값으로 남긴다(D10 해제와 무관) — 여정 재탐색이 같은 선호로 찾는다(subway-express S5).
         result = snapshotRecorder.attach(userId, result, request.excludesExpress());
         if (userId != null) {
             recordSearchHistoryUseCase.record(userId, request, result);
         }
+        // 익명 포함 모든 성공 검색. 비동기·실패 무시라 응답에 영향 없음.
+        RouteSearchResult recorded = result;
+        searchEventRecorder.ifAvailable(r -> r.record(userId, recorded, System.nanoTime() - startedAt));
         return ResponseEntity.ok(result);
     }
 

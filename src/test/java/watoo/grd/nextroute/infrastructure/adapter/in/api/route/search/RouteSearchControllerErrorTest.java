@@ -16,7 +16,9 @@ class RouteSearchControllerErrorTest {
     private final RouteSearchController controller = new RouteSearchController(
             mock(watoo.grd.nextroute.application.route.port.in.SearchRouteUseCase.class),
             mock(watoo.grd.nextroute.application.route.port.in.RecordSearchHistoryUseCase.class),
-            mock(watoo.grd.nextroute.application.route.service.RouteSearchSnapshotRecorder.class));
+            mock(watoo.grd.nextroute.application.route.service.RouteSearchSnapshotRecorder.class),
+            new org.springframework.beans.factory.support.StaticListableBeanFactory()
+                    .getBeanProvider(watoo.grd.nextroute.application.route.service.RouteSearchEventRecorder.class));
 
     @Test
     @DisplayName("InvalidDepartureTimeException → 400 INVALID_DEPARTURE_TIME")
