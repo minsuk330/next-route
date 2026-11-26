@@ -176,3 +176,22 @@ def test_dry_run_wins_over_injected_live_stages(grafana_payload, caplog):
 
     assert "dry-run" in caplog.text
     assert calls == []
+
+
+def test_metrics_endpoint_serves_probe_gauges_without_auth(client):
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert "synthetic_probe_active 0" in response.text
+
+
+def test_probe_is_off_by_default_and_reads_env():
+    assert Settings(webhook_token="t").probe_enabled is False
+    parsed = Settings.from_env({
+        "ANALYZER_WEBHOOK_TOKEN": "t",
+        "ANALYZER_PROBE_ENABLED": "true",
+        "ANALYZER_PROBE_BASE_URL": "http://api:8080",
+        "ANALYZER_PROBE_INTERVAL_S": "120",
+    })
+    assert (parsed.probe_enabled, parsed.probe_base_url, parsed.probe_interval_s) == (True, "http://api:8080", 120.0)

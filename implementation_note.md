@@ -7104,3 +7104,39 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
   - 지역 분기 진입 판정(`providerOf`)도 `startStopIdForRealtime()`.
   - 남은 것(알고 둠): 지역 조회는 예산 1초 미만이면 안 부를 뿐, 어댑터 합류 대기 최대 5초를 끊지 못한다(기준선은 호출자 스레드).
 - 재검증: 단위 233 tests 0 failures, IT(+ContextLoads, WorkerProfileWiringTest) 167 tests 0 failures 1 skipped.
+
+
+## 2026-11-26 synthetic-monitoring 합성 모니터링 + 5xx 1건 + 외부 API 실패 (M, feat/synthetic-monitoring)
+
+### 확정
+- 사용자 결정 4개(대화 11-26): 시나리오형 OD 두 쌍(검색 → 탈것 구간 → 앱과 같은 도착 조회) / 10분·운행 시간만 / 실패 3층 + 1분 뒤 재확인 / 호출 주체 = alert-analyzer. 플랜 `docs/plan/synthetic-monitoring/`.
+- 호출 URL = 공개 도메인(nginx·TLS 포함). 분석기는 observability_default 만 속함(api 내부 주소 불가).
+- 표시 헤더 `X-Nextroute-Synthetic: 1`(값 "1" 만). api: `route_search_event` 생략 + `http.server.requests` 태그 `synthetic`(`SyntheticAwareServerRequestObservationConvention`, Boot 3.5 `WebMvcObservationAutoConfiguration` 이 ObjectProvider 로 집어 감 — javap 확인).
+- 실패 사유는 별도 메트릭이 아니라 `synthetic_probe_outcome` 의 `reason` 라벨(플랜 초안과 다름): Slack 요약에 사유가 바로 보이는 게 우선. 대가 = 실패 중 사유가 바뀌면 알림이 RESOLVED→FIRING 으로 다시 울림(드묾, 새 사유는 새 정보).
+- /metrics 직접 작성(prometheus_client 안 씀): 게이지·카운터 7개뿐, 의존성·이미지 증가 대비 직접 구현 비용이 작음.
+- 주간 퍼널 "경로 검색" = `http_server_requests_seconds_count{uri="/api/route/search",status=~"2..",synthetic!="true"}`(옛 `route_search_duration_seconds_count` 는 태그가 없어 합성 검색 주 약 1,500건이 섞임).
+- 앱과 다른 점(알고 둠): 지하철 도착 대상에 앱의 `hasLiveSubwayFeed`·ITX 제외가 없음 → 서울역→강남역은 영향 없음, 걸려도 빈 배열 = 정상.
+
+### 함정
+- 5xx 카운터는 첫 오류 때 값 1로 새로 생기고 `increase()` 는 첫 값을 안 셈 ← 배포 잦음·저트래픽 / 가드: `(increase > 0.5) or (현재 시리즈 unless 5분 전 시리즈)`. 그대로 1건 문턱만 낮추면 30일 5묶음 중 4개 놓침(규칙 검증 에이전트 실측).
+- 규칙 파일 `$A` 는 env 치환 안 됨(Grafana 12.0 rules_types.go: data.model·annotations 는 Raw). `$$A` 로 바꾸면 문자 그대로 남아 수식 오류.
+- Grafana: 질의 하나라도 빈 결과면 math 전에 규칙 전체 NoData. 그래서 stalled 의 B 는 `or on() vector(0)`, A(하트비트) 비면 NoData=Alerting.
+- `%g` 로 메트릭 숫자를 쓰면 unix 시각이 1.76413e+09 로 잘림 ← 테스트가 잡음 / 가드: 정수면 int, 아니면 repr.
+- httpx timeout 은 단계별 → 전체 상한은 `asyncio.timeout` 으로 감쌈.
+- 응답 모양이 계약과 다르면(AttributeError 등) 회차가 죽고 이전 outcome 이 남던 것 → bad_body(1) 로 게시.
+
+### 좌표
+- api: `common/observability/SyntheticRequest.java`, `common/config/SyntheticAwareServerRequestObservationConvention.java`, `RouteSearchController.java` search(3인자)
+- 분석기: `alert-analyzer/analyzer/probe.py`(SCENARIOS, run_scenario, probe_loop, render_metrics), `app.py` lifespan·/metrics, `config.py` probe_*
+- 규칙: `rules.yaml` nr-api-5xx, nr-synthetic-failed/degraded/stalled, nr-external-api-failure
+
+### 미결
+- OD 두 쌍 실검색 확정: api 배포 뒤 헤더 붙여 낮·저녁 검색(배포 전에 하면 퍼널에 남음).
+
+### 배포
+- 순서: api(헤더 인식) → 분석기 이미지 + `ANALYZER_PROBE_ENABLED=true` → target synthetic up 확인 → prometheus.yml·rules·대시보드 반영. 마이그레이션 없음.
+
+### 검증
+- 멀티 에이전트(사용자 지시): 구현 A(스크랩·통계 제외·주간 섹션) + 검증 B(api)·C(호출기 vs 서버 DTO)·D(규칙, Grafana 12.0 소스·운영 Prometheus 읽기) 병렬. 지적 반영: 퍼널 메트릭 교체(A), 모양 가드·전체 시간 상한·테스트 5개(C), Swagger 헤더 숨김(B), 5xx 첫 값 누락(D, HIGH).
+- B: `@WebMvcTest` 로 헤더 1 → recorder 0회, 없으면 1회. 컨텍스트 러너로 필터 통과 시 `synthetic=true/false` 시계열 생성 확인(임시 테스트, 삭제).
+- C: 서버 record 이름 = JSON 이름(naming strategy 없음), subPaths·startLocalStationID·busLocalBlID·transferArrivals·stations·wayCode·subwayCode 전부 앱·probe 와 일치.

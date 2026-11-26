@@ -50,9 +50,12 @@ ssh vps 'certbot --nginx -d grafana.refit-100.site'
 |---|---|---|
 | 메모리 부족 | 남은 메모리 < 300MiB, 5분 | 14일 최저 255MiB. 바닥나면 OOM killer 가 OTP 부터 죽인다 |
 | 컨테이너 다운 | `up{job=~"nextroute-app\|otp\|node"}` = 0, 3분 | 배포 재시작은 최대 2분 → 안 울림 |
-| api 5xx 발생 | 5xx ≥ 3건 / 5분 | 7일 최대 5건(1회) |
+| api 5xx 발생 | 5xx ≥ 1건 / 5분, uri 별 (새로 생긴 5xx 카운터도) | 2026-11-26: 검색 하루 약 20건이라 3건 문턱은 울릴 수 없었음(30일 5묶음 미알림) |
 | ERROR 로그 급증 | 앱별 ERROR ≥ 5건 / 5분 | 평시 하루 1건, 외부 API 503 때 21건/1분 |
 | OTP 호출 실패 | OTP 호출 실패 ≥ 3건 / 10분 | 살아 있는데 응답 못 주는 경우. JVM 사망은 '컨테이너 다운' |
+| 외부 API 호출 실패 | OTP 외 client_name 별 실패 ≥ 3건 / 10분 그리고 실패율 ≥ 5% | 2026-11-26 실측 7일 5구간(data.go.kr 4, ML 예측 1) |
+| 합성 확인 실패 / 결과 이상 | 합성 모니터링 outcome 2(critical) / 1(warning), 1분 뒤 재확인 후 | 아래 "합성 모니터링" |
+| 합성 확인 멈춤 | 호출기 하트비트 30분 끊김, 또는 운행 시간에 30분 넘게 시나리오 미완료, 또는 메트릭 없음(critical, 5분) | 분석기 사망·스크랩 끊김 |
 | 디스크 사용률 높음 / 거의 가득 | rootfs > 85% 10분(warning) / > 95% 5분(critical) | 2026-11-26 이미지·build cache 누적으로 90% 도달(알림 없었음). 관측 데이터는 30일 보존으로 정상 상태 |
 | 여정 알림 늦음·유실 | 최근 1시간 예정 시각 기준 늦음(예정+60초 초과)·유실(DEAD·FAILED·만료 취소)·지연 중 ≥ 1건 | 주 수 건이라 비율 대신 한 건이라도(2026-11-26). 30일 22/22 정시 |
 | 잠금화면 갱신 정시율 낮음 | 최근 1시간 10건 이상 && 정시율 < 95% | 30일 651/651, p95 2.25초 |
@@ -88,6 +91,17 @@ ssh vps 'grep -rn "actuator\|:8080" /etc/nginx /root/apps/nextroute /etc/systemd
 - 외부에서 3000/3100/9090/8081 직접 접근 실패
 - `https://grafana.refit-100.site` 로그인
 - `docker compose restart grafana` 후 대시보드/데이터소스 유지
+
+## 합성 모니터링 (alert-analyzer 호출기)
+
+사용자가 적어 실제 요청만으로는 고장이 안 드러나는 구멍을 메운다. 플랜 `docs/plan/synthetic-monitoring/PLAN.md`.
+
+- 운행 시간(05:30~24:00 KST) 10분마다 시나리오 두 개(지하철 서울역→강남역, 버스 신사역→소공동)를 공개 도메인으로 호출: 경로 검색 → 첫 해당 탈것 구간 → 앱과 같은 값으로 도착 조회
+- 판정: 0 정상, 1 결과 이상(경로 0개·탈것 구간 없음·도착 조회 대상 못 만듦·응답 모양 이상), 2 실패(HTTP 오류·시간 초과), 3 못 해 봄(검색 실패). 도착 "정보 없음"은 정상. 1·2 면 60초 뒤 한 번 더 하고 그 결과만 게시
+- 메트릭 `alert-analyzer:8000/metrics`(Prometheus job `synthetic`): `synthetic_probe_outcome{scenario,step,reason}`, `_duration_seconds`, `_last_run_timestamp_seconds`, `_heartbeat_timestamp_seconds`, `_active`, `_runs_total`, `_slow_total`(10초+ 검색, 주간 요약)
+- 표시: 요청 헤더 `X-Nextroute-Synthetic: 1` → api 가 `route_search_event` 기록 생략, `http.server.requests` 에 `synthetic="true"`. 대시보드·주간 요약은 `synthetic!="true"` 로 거른다
+- 켜기/끄기: `env/alert-analyzer.env` 의 `ANALYZER_PROBE_ENABLED`(기본 false) 후 분석기 재생성. **켠 뒤 target up 을 보고 규칙을 반영**(먼저 반영하면 '멈춤'이 바로 울림)
+- 밤엔 결과를 비운다 → 울리던 실패 알림은 자정에 RESOLVED 로 닫힌다
 
 ## 장애 알림 AI 분석기 (alert-analyzer)
 

@@ -6,8 +6,9 @@ apiVersion: 1
 #   - api 5xx 5분 최대 5건(1회), OTP 호출 실패 10분 최대 11건(배포 1회)
 #   - ERROR 로그: worker 외부 API 503 폭주 21건/1분(10-23 19:00), 평시 하루 1건
 #
-# 주의: provisioning 파일은 $VAR 를 env 로 치환한다. 템플릿에 $values/$labels 를 쓰면 빈 문자열이 되므로
-#       .Values / .Labels 로 쓴다.
+# 주의: provisioning 은 title/labels 같은 문자열 칸에서 $VAR 를 env 로 치환한다. data.model(수식의 $A 포함)과
+#       annotations 는 원문 그대로 저장된다(Grafana 12.0 rules_types.go, Raw). $A 로 바꾸면 문자 그대로 남아 수식 오류.
+#       그래도 템플릿은 .Values / .Labels 로 쓴다.
 groups:
   - orgId: 1
     name: nextroute-core
@@ -79,7 +80,16 @@ groups:
             datasourceUid: prometheus
             model:
               refId: A
-              expr: sum by (instance) (increase(http_server_requests_seconds_count{job="nextroute-app", status=~"5.."}[5m]))
+              # 2026-11-26: 검색 하루 약 20건이라 "5분 3건"은 사실상 울릴 수 없었다(30일 5xx 카운터 5개·약 11건, 미알림).
+              # 이 트래픽에선 한 건 한 건이 사건이다 → 1건, 어느 API 인지(uri) 보이게. 합성 모니터링 호출의 5xx 도 센다(진짜 고장).
+              # 함정: 5xx 카운터는 첫 오류 때 값 1로 새로 생기고 increase() 는 그 첫 값을 세지 않는다. 배포가 잦아 5xx 는 거의
+              # 매번 "새 카운터의 첫 값"이다(30일 5묶음 중 4개 놓침) → 5분 전엔 없던 5xx 시리즈도 같이 잡는다(or 아래).
+              # or 앞의 > 0.5 는 필수: 없으면 새 카운터의 increase=0 이 뒤쪽 결과를 가린다. 실측 30일 5묶음 모두 잡힘.
+              expr: |
+                (sum by (instance, uri) (increase(http_server_requests_seconds_count{job="nextroute-app", status=~"5.."}[5m])) > 0.5)
+                or
+                (sum by (instance, uri) (http_server_requests_seconds_count{job="nextroute-app", status=~"5.."}
+                  unless http_server_requests_seconds_count{job="nextroute-app", status=~"5.."} offset 5m))
               instant: true
           - refId: C
             datasourceUid: __expr__
@@ -88,14 +98,14 @@ groups:
               type: threshold
               expression: A
               conditions:
-                # increase() 는 소수로 보정되므로 3건 이상 = 2.5 초과.
-                - evaluator: { type: gt, params: [2.5] }
+                # increase() 는 소수로 보정되므로 1건 이상 = 0.5 초과.
+                - evaluator: { type: gt, params: [0.5] }
         for: 0s
         noDataState: OK
         execErrState: Error
         labels: { severity: warning }
         annotations:
-          summary: '{{ .Labels.instance }} 5xx {{ printf "%.0f" .Values.A.Value }}건 (5분)'
+          summary: '{{ .Labels.uri }} 5xx {{ printf "%.0f" .Values.A.Value }}건 (5분, {{ .Labels.instance }})'
           description: 'Grafana Explore 에서 {app="api", level="ERROR"} | json 으로 원인 로그 확인.'
 
       - uid: nr-error-log-burst
@@ -299,3 +309,134 @@ groups:
         annotations:
           summary: '잠금화면 갱신 정시율 {{ humanizePercentage .Values.A.Value }} (최근 1시간, 기준 95%)'
           description: '지하철 Live Activity 갱신이 생성 후 60초 안에 FCM 으로 못 나가고 있다. worker 로그의 SubwayRingPush 확인.'
+
+      # ---- 합성 모니터링(docs/plan/synthetic-monitoring, 2026-11-26). alert-analyzer 가 운행 시간 10분마다
+      # 경로 검색 → 첫 탈것 구간 도착 조회를 앱과 같은 순서로 부른다. outcome: 0 정상 1 결과 이상 2 실패 3 못 해 봄.
+
+      - uid: nr-synthetic-failed
+        title: 합성 확인 실패
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: synthetic_probe_outcome
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: within_range, params: [1.5, 2.5] }
+        # 호출기가 실패하면 60초 뒤 한 번 더 확인하고 그 결과만 내놓는다 → 여기선 기다리지 않는다.
+        for: 0s
+        # 밤(00:00~05:30)엔 호출기가 결과를 비운다 → 데이터 없음이 정상. 호출기 자체가 멈춘 건 '합성 확인 멈춤'이 잡는다.
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: critical }
+        annotations:
+          summary: '{{ .Labels.scenario }} 시나리오 {{ .Labels.step }} 실패 ({{ .Labels.reason }}, 1분 뒤 재확인도 실패)'
+          description: '사용자와 같은 길(공개 도메인 → api)로 부른 요청이 HTTP 오류·시간 초과. search 면 api·OTP, arrival 이면 도착 API 쪽. Explore 에서 {app="alert-analyzer"} |= "probe" 로 시도 기록 확인.'
+
+      - uid: nr-synthetic-degraded
+        title: 합성 확인 결과 이상
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: synthetic_probe_outcome
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: within_range, params: [0.5, 1.5] }
+        # 호출기가 실패하면 60초 뒤 한 번 더 확인하고 그 결과만 내놓는다 → 여기선 기다리지 않는다.
+        for: 0s
+        # 밤(00:00~05:30)엔 호출기가 결과를 비운다 → 데이터 없음이 정상. 호출기 자체가 멈춘 건 '합성 확인 멈춤'이 잡는다.
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ .Labels.scenario }} 시나리오 {{ .Labels.step }} 결과 이상 ({{ .Labels.reason }})'
+          description: '200 이지만 쓸 수 없는 응답. no_paths·no_*_segment = 경로 검색이 탈것 경로를 못 냄(OTP 그래프·시간표), no_*_target = 검색 응답에 도착 조회용 id 가 빠짐(#627 류), bad_body = 응답 모양이 바뀜.'
+
+      - uid: nr-synthetic-stalled
+        title: 합성 확인 멈춤
+        condition: C
+        data:
+          # 루프가 깨어난 지(밤 포함 10분마다) 얼마나 됐나. 분석기가 죽거나 스크랩이 끊기면 데이터 없음 → 아래 noDataState 로 알림.
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: max(time() - synthetic_probe_heartbeat_timestamp_seconds)
+              instant: true
+          # 운행 시간에 마지막으로 시나리오를 끝낸 지 얼마나 됐나(밤엔 0). 루프는 도는데 호출이 걸려 있는 경우.
+          - refId: B
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: B
+              expr: (max(time() - synthetic_probe_last_run_timestamp_seconds) * on() max(synthetic_probe_active)) or on() vector(0)
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: math
+              expression: '$A > 1800 || $B > 1800'
+        # 05:30 첫 실행이 끝나기 전(어제 밤 마지막 실행 기준 몇 시간)을 울리지 않게 5분 기다린다.
+        for: 5m
+        noDataState: Alerting
+        execErrState: Error
+        labels: { severity: critical }
+        annotations:
+          summary: '합성 모니터링이 30분 넘게 결과를 못 냄'
+          description: 'alert-analyzer 컨테이너 상태와 Prometheus target synthetic 확인. 이 동안은 사용자 0명일 때의 고장을 모른다.'
+
+      # 외부 API 호출 실패(OTP 제외 — 'OTP 호출 실패'가 따로 본다). 사용자에겐 "도착 시간이 안 뜸·예측이 없음"으로 보인다.
+      # 문턱 근거(2026-11-26 VPS 실측): 10분 3건 이상만이면 7일 7구간·30일 73구간(ws.bus.go.kr 은 7일 47만 건 중 몇 건이라 소음).
+      # 실패율 5% 이상을 같이 걸면 7일 5구간(data.go.kr 4, ml-serve 1), 30일 54구간(ws.bus.go.kr 503 장애 35구간 포함 — 잡혀야 할 것).
+      # 새로 생긴 실패 카운터의 첫 값은 increase() 가 세지 않아 실제로는 4건째에 울린다. 문턱이 3건이라 그대로 둔다.
+      - uid: nr-external-api-failure
+        title: 외부 API 호출 실패
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: |
+                (sum by (client_name) (increase(http_client_requests_seconds_count{outcome!="SUCCESS", client_name!="otp"}[10m])) > 2.5)
+                and
+                (sum by (client_name) (increase(http_client_requests_seconds_count{outcome!="SUCCESS", client_name!="otp"}[10m]))
+                  / sum by (client_name) (increase(http_client_requests_seconds_count{client_name!="otp"}[10m])) > 0.05)
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [2.5] }
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ .Labels.client_name }} 호출 실패 {{ printf "%.0f" .Values.A.Value }}건 (10분, 실패율 5% 이상)'
+          description: 'apis.data.go.kr = 공공데이터 버스(경기·TAGO 포함), ws.bus.go.kr = 서울 버스, swopenAPI.seoul.go.kr = 서울 지하철, nextroute-ml-serve = 도착 예측. status 별로는 Explore 에서 sum by (client_name, status) (increase(http_client_requests_seconds_count{outcome!="SUCCESS"}[10m])).'

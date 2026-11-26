@@ -8,6 +8,7 @@ What it reports (docs/plan/observability-north-star/PLAN.md, decided 2026-11-26)
   `nextroute-north-star`, so the digest and the dashboard can never disagree.
 - Slow endpoints: 7-day p95 over target (route search 2.5 s, everything else 500 ms).
 - Funnel: searches -> journeys started -> journeys notified -> completed.
+- Synthetic probe: runs per scenario by outcome (ok / degraded / failed) and searches that took 10 s or more.
 - Alerts fired in the alert channel last week (Grafana Slack messages carry an `fp:` line), and how the
   operator scored them by reaction: ✅ real / ❌ false alarm / 🎯 analyzer right / 🤷 wrong (needs reactions:read).
 - First week of the month: the drill checklist.
@@ -67,14 +68,24 @@ select
 """
 
 # "/**" = unmatched paths (404 scans), UNKNOWN = no handler; neither is ours to speed up.
-API = 'job="nextroute-app", role="api", uri!~"/actuator.*|UNKNOWN", uri!="/**"'
+# synthetic!="true": the probe's own requests (X-Nextroute-Synthetic) are not user traffic. Series from before the
+# tag existed have no label at all, and an absent label still matches !="true", so they keep counting.
+API = 'job="nextroute-app", role="api", synthetic!="true", uri!~"/actuator.*|UNKNOWN", uri!="/**"'
 SLOW_P95 = f"histogram_quantile(0.95, sum by (le, uri) (increase(http_server_requests_seconds_bucket{{{API}}}[7d])))"
 SLOW_COUNT = f"sum by (uri) (increase(http_server_requests_seconds_count{{{API}}}[7d]))"
 SEARCH_OVER = (
     f'1 - sum(increase(http_server_requests_seconds_bucket{{{API}, uri="{ROUTE_SEARCH_URI}", le="{ROUTE_SEARCH_OVER_S}"}}[7d]))'
     f' / sum(increase(http_server_requests_seconds_count{{{API}, uri="{ROUTE_SEARCH_URI}"}}[7d]))'
 )
-SEARCH_COUNT = 'sum(increase(route_search_duration_seconds_count[7d]))'
+# Answered searches from riders. Was route_search_duration_seconds_count, which has no synthetic tag and would
+# count the probe's ~1,500 searches a week (real: ~144). The http timer carries synthetic="true|false".
+SEARCH_COUNT = f'sum(increase(http_server_requests_seconds_count{{{API}, uri="{ROUTE_SEARCH_URI}", status=~"2.."}}[7d]))'
+
+# Synthetic probe (alert-analyzer probe.py, docs/plan/synthetic-monitoring/PLAN.md): counters it exports.
+# outcome = worst step of a published run (after the one retry): 0 ok, 1 degraded, 2 failed.
+SYNTH_RUNS = "sum by (scenario, outcome) (increase(synthetic_probe_runs_total[7d]))"
+SYNTH_SLOW = "sum by (scenario) (increase(synthetic_probe_slow_total[7d]))"
+SYNTH_OUTCOMES = {"0": "ok", "1": "degraded", "2": "failed"}
 
 # Monthly drill (first week of the month). Fake signals only — never break real users' searches.
 DRILLS = (
@@ -230,6 +241,22 @@ async def funnel(prom: Prom, grafana: Grafana, start: datetime, end: datetime) -
     return out
 
 
+async def synthetic_probe(prom: Prom, end: datetime) -> dict[str, dict[str, float]]:
+    """{scenario: {ok, degraded, failed, slow}} over the last 7 days; {} when the probe never ran."""
+    out: dict[str, dict[str, float]] = {}
+
+    def row(scenario: str) -> dict[str, float]:
+        return out.setdefault(scenario, {"ok": 0.0, "degraded": 0.0, "failed": 0.0, "slow": 0.0})
+
+    for r in await prom.vector(SYNTH_RUNS, end):
+        key = SYNTH_OUTCOMES.get(r["metric"].get("outcome", ""))
+        if key:
+            row(r["metric"].get("scenario", "?"))[key] += float(r["value"][1])
+    for r in await prom.vector(SYNTH_SLOW, end):
+        row(r["metric"].get("scenario", "?"))["slow"] += float(r["value"][1])
+    return out
+
+
 # Scoring by reaction on the Grafana alert message (decided 2026-11-26). Needs reactions:read;
 # conversations.history then carries each message's `reactions`.
 REAL = {"white_check_mark", "heavy_check_mark"}      # ✅ real incident
@@ -378,6 +405,18 @@ def render(start: datetime, end: datetime, data: dict, *, dashboard_url: str) ->
             f"알림 받은 여정 {_n(f.get('notified'))} → 완료 {_n(f.get('completed'))}"
         )
 
+    lines.append("\n*합성 확인* · 10분마다 경로 검색 → 도착 조회 (실패=비 2xx·시간초과, 이상=쓸 수 없는 응답)")
+    syn = data.get("synthetic")
+    if isinstance(syn, str):
+        lines.append(f"• 조회 실패: {syn}")
+    elif not syn:
+        lines.append("• 기록 없음 (호출기 꺼짐?)")
+    else:
+        for name, c in sorted(syn.items()):
+            ok, deg, fail, slow_n = (round(c[k]) for k in ("ok", "degraded", "failed", "slow"))
+            mark = "⚠️ " if deg or fail else "✅ "
+            lines.append(f"• {mark}{name}: 정상 {ok} · 이상 {deg} · 실패 {fail} · 검색 10초 이상 {slow_n}")
+
     lines.append("\n*알림* · 채점: 알림 메시지에 ✅ 진짜 / ❌ 오탐 / 🎯 분석 가설 맞음 / 🤷 틀림")
     a = data.get("alerts")
     if isinstance(a, str):
@@ -426,6 +465,7 @@ async def collect(settings: WeeklySettings, http: httpx.AsyncClient, slack: Slac
     await section("north_star", north_star(grafana, start, end))
     await section("slow", slow_endpoints(prom, end))
     await section("funnel", funnel(prom, grafana, start, end))
+    await section("synthetic", synthetic_probe(prom, end))
     if slack is not None:
         await section("alerts", alerts_fired(slack, start))
     if settings.github_token:
