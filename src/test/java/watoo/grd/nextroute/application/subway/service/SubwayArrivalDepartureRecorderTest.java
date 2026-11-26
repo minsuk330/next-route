@@ -64,8 +64,43 @@ class SubwayArrivalDepartureRecorderTest {
     }
 
     @Test
-    @DisplayName("대상 노선이 아니면(위치 API 가 있는 노선) 무시")
+    @DisplayName("#645 전역 출발(3) 뒤 행이 사라져도 출발 — 원천 갱신이 건너뛰어 진입·도착·출발을 한 번에 지나친 경우")
+    void disappearedAfterPreviousDeparted() {
+        recorder.record(List.of(row("K1", "3"), row("K2", "99")), RECEIVED.plusSeconds(10));
+        recorder.record(List.of(row("K2", "99")), RECEIVED.plusSeconds(40));
+
+        verify(port).append(TODAY, LINE, "상행", STATION, new Row("K1", "청량리", "일반", RECEIVED.plusSeconds(20)));
+    }
+
+    @Test
+    @DisplayName("#645 전역 진입(4)·전역 도착(5)·운행중(99)에서 사라진 행은 출발로 보지 않는다")
+    void farRowsVanishingAreNotDepartures() {
+        recorder.record(List.of(row("K1", "4"), row("K2", "5"), row("K3", "99"), row("K4", "1")), RECEIVED);
+        recorder.record(List.of(row("K4", "1")), RECEIVED.plusSeconds(15));
+
+        verify(port, never()).append(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("#645 기본은 전 노선 — 위치 API 가 있는 노선(2호선)도 사라진 도착 행을 기록")
+    void recordsPositionLinesByDefault() {
+        SubwayArrivalDepartureRecorder allLines = new SubwayArrivalDepartureRecorder(port, new ServiceDateResolver());
+        ReflectionTestUtils.setField(allLines, "enabled", true);
+        SubwayRealtimeTrain gangbyeon = SubwayRealtimeTrain.builder().lineId("1002").direction("외선")
+                .stationId("1002000214").trainNo("7443").arrivalCode("1").destinationName("성수")
+                .trainType("일반").receivedAt("2026-10-07 22:10:11").build();
+        SubwayRealtimeTrain stays = SubwayRealtimeTrain.builder().lineId("1002").direction("외선")
+                .stationId("1002000214").trainNo("7445").arrivalCode("99").receivedAt("2026-10-07 22:10:11").build();
+        allLines.record(List.of(gangbyeon, stays), RECEIVED);
+        allLines.record(List.of(stays), RECEIVED.plusSeconds(10));
+
+        verify(port).append(TODAY, "1002", "외선", "1002000214", new Row("7443", "성수", "일반", RECEIVED.plusSeconds(5)));
+    }
+
+    @Test
+    @DisplayName("전 노선을 끄면 대상 노선이 아닌 곳(위치 API 가 있는 노선)은 무시")
     void ignoresOtherLines() {
+        ReflectionTestUtils.setField(recorder, "allLines", false);
         SubwayRealtimeTrain other = SubwayRealtimeTrain.builder().lineId("1002").direction("내선")
                 .stationId("1002000222").trainNo("2231").arrivalCode("1").receivedAt("2026-10-07 22:10:11").build();
         recorder.record(List.of(other), RECEIVED);

@@ -368,6 +368,26 @@ class SubwayStationArrivalQueryServiceTest {
     }
 
     @Test
+    @DisplayName("#645 도착 원천 떠난 열차가 아직 곧 오는 목록에 있으면 뺀다 — 행이 한 회차 빠졌다 돌아온 거짓 출발. 위치 원천은 둔다")
+    void arrivalSourceDepartedStillUpcomingIsDropped() {
+        givenStation(GANGNAM, "1002");
+        given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of(
+                arrival("2231", "내선", "성수", 60), arrival("2233", "내선", "성수", 300)));
+        given(trainLogPort.findDepartures(any(), eq("1002"), eq("내선"), eq(GANGNAM), any(), any()))
+                .willReturn(List.of(departure("2233", 400)));
+        given(arrivalDepartureLog.find(any(), eq("1002"), eq("내선"), eq(GANGNAM), any(), any()))
+                .willReturn(List.of(
+                        new SubwayArrivalDepartureLogPort.Row("2231", "성수", "일반", NOW.minusSeconds(20)),
+                        new SubwayArrivalDepartureLogPort.Row("2229", "성수", "일반", NOW.minusSeconds(200))));
+
+        List<Departed> departed = service.getArrivals(GANGNAM).directions().get(0).departed();
+
+        assertThat(departed).extracting(Departed::trainNo, Departed::source).containsExactly(
+                org.assertj.core.groups.Tuple.tuple("2229", DepartureSource.ARRIVAL),
+                org.assertj.core.groups.Tuple.tuple("2233", DepartureSource.POSITION));
+    }
+
+    @Test
     @DisplayName("#317 같은 열차가 두 원천에 있으면 위치 원천")
     void positionWinsOverArrivalFeed() {
         givenStation(GANGNAM, "1002");

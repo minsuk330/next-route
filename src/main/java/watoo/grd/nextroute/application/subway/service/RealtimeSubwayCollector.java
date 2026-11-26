@@ -149,7 +149,7 @@ public class RealtimeSubwayCollector {
                 log.warn("[RealtimeCollector] 구간 실측 기록 실패: {}", e.getMessage());
             }
             try {
-                // 위치 API 없는 노선의 떠난 열차(#317). 실패해도 수집은 성공이다.
+                // 떠난 열차 빈틈 메우기(#317, #645 전 노선). 실패해도 수집은 성공이다.
                 arrivalDepartureRecorder.record(trains, java.time.Instant.now());
             } catch (Exception e) {
                 log.warn("[RealtimeCollector] 도착 출발 기록 실패: {}", e.getMessage());

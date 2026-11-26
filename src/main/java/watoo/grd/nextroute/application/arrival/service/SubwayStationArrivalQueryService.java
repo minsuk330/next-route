@@ -83,7 +83,7 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
                 .filter(p -> !terminatesBefore(p, station))
                 .map(p -> p.withSegment(segment(p, station)))
                 .toList();
-        Map<String, List<Departed>> departed = departed(station.getLineId(), station.getStationId());
+        Map<String, List<Departed>> departed = departed(station.getLineId(), station.getStationId(), upcoming(placed));
         List<Direction> directions = groupPlaced(placed, departed, p -> toTrain(p, kindOf(p, station))).stream()
                 .map(direction -> withStrip(direction, station))
                 .toList();
@@ -184,9 +184,13 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
      * 원천 ARRIVAL 로 넣는다. 열차 선택도 같은 캐시를 먼저 보므로(SubwayTrainSelectionService#departedCandidates) 여기 보인
      * 열차는 고를 수 있다. 출발 기록이 들어오면 그 값이 이긴다.
      *
+     * <p><b>도착 원천 떠난 열차는 아직 곧 오는 목록에 있으면 뺀다.</b> 도착 API 행이 한 회차 빠졌다 돌아오면 기록기가
+     * "사라짐 = 출발"로 남긴다 — 그 열차가 지금 오는 중으로 보이는데 떠난 쪽에도 있으면 화면이 두 번 그린다. 위치 원천은
+     * 관측된 출발이라 그대로 둔다.
+     *
      * <p>못 읽으면 빈 목록이다. 곧 오는 열차 응답까지 깨뜨릴 이유가 없다.
      */
-    private Map<String, List<Departed>> departed(String lineId, String stationId) {
+    private Map<String, List<Departed>> departed(String lineId, String stationId, Map<String, Set<String>> upcoming) {
         Instant now = clock.instant();
         Instant from = now.minus(DEPARTED_WINDOW);
         Map<String, String> stationNames = new HashMap<>();
@@ -204,11 +208,14 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
                                 kindOf(new Placed(arrival, null, false), stationId, lineId)));
                     }
                 }
+                Set<String> coming = upcoming.getOrDefault(direction, Set.of());
                 recorded.stream()
+                        .filter(d -> d.source() != SubwayDepartureLookup.Source.ARRIVAL || !coming.contains(d.trainNo()))
                         .limit(DEPARTED_LIMIT)
                         .map(d -> toDeparted(d, lineId, direction, stationNames, kindOf(d, lineId, direction, stationId)))
                         .forEach(rows::add);
                 List<Departed> limited = rows.stream()
+                        .filter(d -> d.source() != DepartureSource.ARRIVAL || !coming.contains(d.trainNo()))
                         .sorted(Comparator.comparing(Departed::departedAt).reversed())
                         .limit(DEPARTED_LIMIT)
                         .toList();
@@ -219,6 +226,19 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
         } catch (RuntimeException e) {
             log.warn("지하철 떠난 열차 조회 실패 — 빈 목록으로 응답 line={} station={}: {}", lineId, stationId, e.getMessage());
             return Map.of();
+        }
+        return byDirection;
+    }
+
+    /** 곧 오는 목록의 열차 번호, 방향별. */
+    private static Map<String, Set<String>> upcoming(List<Placed> placed) {
+        Map<String, Set<String>> byDirection = new HashMap<>();
+        for (Placed p : placed) {
+            SubwayRealtimeTrain train = p.arrival().train();
+            String direction = directionOf(train);
+            if (direction != null && train.getTrainNo() != null) {
+                byDirection.computeIfAbsent(direction, key -> new HashSet<>()).add(train.getTrainNo());
+            }
         }
         return byDirection;
     }
