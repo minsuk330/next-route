@@ -40,8 +40,12 @@ TIMEOUT = httpx.Timeout(15.0)
 PG = {"type": "grafana-postgresql-datasource", "uid": "nextroute-pg"}
 NORTH_STAR_UID = "nextroute-north-star"
 
+# Route search runs on OTP and is slow by nature (operator accepted 2026-11-26): 7-day share over 5 s was 5.4 %,
+# p95 sits on the 5 s bucket edge, so p95 cannot show it getting worse. It is judged by the share over 5 s instead
+# and reported only past ~2x that baseline. Every other endpoint keeps the 500 ms p95 target.
 ROUTE_SEARCH_URI = "/api/route/search"
-ROUTE_SEARCH_TARGET_S = 2.5
+ROUTE_SEARCH_OVER_S = "5.0"
+ROUTE_SEARCH_OVER_MAX = 0.10
 DEFAULT_TARGET_S = 0.5
 MIN_REQUESTS = 20  # below this a weekly p95 is noise
 SLOW_LIMIT = 8
@@ -64,6 +68,10 @@ select
 API = 'job="nextroute-app", role="api", uri!~"/actuator.*|UNKNOWN", uri!="/**"'
 SLOW_P95 = f"histogram_quantile(0.95, sum by (le, uri) (increase(http_server_requests_seconds_bucket{{{API}}}[7d])))"
 SLOW_COUNT = f"sum by (uri) (increase(http_server_requests_seconds_count{{{API}}}[7d]))"
+SEARCH_OVER = (
+    f'1 - sum(increase(http_server_requests_seconds_bucket{{{API}, uri="{ROUTE_SEARCH_URI}", le="{ROUTE_SEARCH_OVER_S}"}}[7d]))'
+    f' / sum(increase(http_server_requests_seconds_count{{{API}, uri="{ROUTE_SEARCH_URI}"}}[7d]))'
+)
 SEARCH_COUNT = 'sum(increase(route_search_duration_seconds_count[7d]))'
 
 FP_LINE = re.compile(r"fp:\s*([0-9a-f ]+)")
@@ -191,12 +199,18 @@ async def slow_endpoints(prom: Prom, end: datetime) -> list[dict]:
     slow = []
     for uri, value in p95.items():
         n = count.get(uri, 0.0)
-        if n < MIN_REQUESTS or math.isnan(value):
+        if uri == ROUTE_SEARCH_URI or n < MIN_REQUESTS or math.isnan(value):
             continue
-        target = ROUTE_SEARCH_TARGET_S if uri == ROUTE_SEARCH_URI else DEFAULT_TARGET_S
-        if value > target:
-            slow.append({"uri": uri, "p95": value, "target": target, "count": n})
-    return sorted(slow, key=lambda s: s["p95"] / s["target"], reverse=True)
+        if value > DEFAULT_TARGET_S:
+            slow.append({"uri": uri, "p95": value, "target": DEFAULT_TARGET_S, "count": n})
+    slow.sort(key=lambda s: s["p95"], reverse=True)
+
+    if count.get(ROUTE_SEARCH_URI, 0.0) >= MIN_REQUESTS:
+        over = await prom.vector(SEARCH_OVER, end)
+        share = float(over[0]["value"][1]) if over else 0.0
+        if not math.isnan(share) and share > ROUTE_SEARCH_OVER_MAX:
+            slow.insert(0, {"uri": ROUTE_SEARCH_URI, "over_share": share, "count": count[ROUTE_SEARCH_URI]})
+    return slow
 
 
 async def funnel(prom: Prom, grafana: Grafana, start: datetime, end: datetime) -> dict:
@@ -292,7 +306,8 @@ def render(start: datetime, end: datetime, data: dict, *, dashboard_url: str) ->
             f"p50 {_n(ring.get('p50'))} · p95 {_n(ring.get('p95'))}"
         )
 
-    lines.append(f"\n*느린 엔드포인트* · p95 목표 검색 {ROUTE_SEARCH_TARGET_S}s / 그 외 {DEFAULT_TARGET_S}s, 주 {MIN_REQUESTS}건 이상")
+    lines.append(f"\n*느린 엔드포인트* · p95 목표 {DEFAULT_TARGET_S}s, 주 {MIN_REQUESTS}건 이상 "
+                 f"(경로 검색은 OTP 완화: 5초 초과 {ROUTE_SEARCH_OVER_MAX:.0%} 넘을 때만)")
     slow = data.get("slow")
     if isinstance(slow, str):
         lines.append(f"• 조회 실패: {slow}")
@@ -300,6 +315,10 @@ def render(start: datetime, end: datetime, data: dict, *, dashboard_url: str) ->
         lines.append("• 없음 ✅")
     else:
         for x in slow[:SLOW_LIMIT]:
+            if "over_share" in x:
+                lines.append(f"• `{x['uri']}` 5초 초과 {x['over_share']:.0%} "
+                             f"(기준 {ROUTE_SEARCH_OVER_MAX:.0%}, 평소 약 5%, {int(x['count'])}건)")
+                continue
             p95 = "5s 초과" if math.isinf(x["p95"]) else f"{x['p95']:.2f}s"
             lines.append(f"• `{x['uri']}` p95 {p95} (목표 {x['target']}s, {int(x['count'])}건)")
         if len(slow) > SLOW_LIMIT:

@@ -62,27 +62,39 @@ def test_settings_need_grafana_token_and_slack_unless_dry_run():
     assert s.github_token == ""
 
 
-@pytest.mark.anyio
-async def test_slow_endpoints_applies_targets_and_minimum_count():
+def fake_prom(over_share: str):
     def handler(request: httpx.Request) -> httpx.Response:
         q = request.url.params["query"]
+        if q.startswith("1 - sum"):
+            return httpx.Response(200, json={"status": "success", "data": {"result": [{"metric": {}, "value": [0, over_share]}]}})
         if q.startswith("histogram_quantile"):
-            rows = [("/api/route/search", "2.0"), ("/api/journeys", "0.8"), ("/api/arrivals/subway", "+Inf"),
-                    ("/api/me/push-token", "3.0"), ("/api/rare", "9")]
+            rows = [("/api/route/search", "5.0"), ("/api/places/search", "2.39"), ("/api/journeys", "0.8"),
+                    ("/api/arrivals/subway", "+Inf"), ("/api/me/push-token", "0.3"), ("/api/rare", "9")]
         else:
-            rows = [("/api/route/search", "500"), ("/api/journeys", "40"), ("/api/arrivals/subway", "30"),
-                    ("/api/me/push-token", "100"), ("/api/rare", "3")]
+            rows = [("/api/route/search", "147"), ("/api/places/search", "277"), ("/api/journeys", "25"),
+                    ("/api/arrivals/subway", "30"), ("/api/me/push-token", "100"), ("/api/rare", "3")]
         body = {"status": "success", "data": {"result": [{"metric": {"uri": u}, "value": [0, v]} for u, v in rows]}}
         return httpx.Response(200, json=body)
+    return httpx.MockTransport(handler)
 
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+
+@pytest.mark.anyio
+async def test_slow_endpoints_relaxes_only_route_search():
+    async with httpx.AsyncClient(transport=fake_prom("0.054")) as http:
         slow = await slow_endpoints(Prom("http://prometheus:9090", http), END)
-
     uris = [s["uri"] for s in slow]
-    # route search 2.0s is under its 2.5s target; /api/rare has too few requests.
-    assert "/api/route/search" not in uris and "/api/rare" not in uris
-    assert uris[0] == "/api/arrivals/subway"  # +Inf sorts first
-    assert set(uris) == {"/api/arrivals/subway", "/api/me/push-token", "/api/journeys"}
+    # OTP route search at its usual 5.4 % over 5 s is accepted; places search is NOT relaxed.
+    assert "/api/route/search" not in uris
+    assert uris == ["/api/arrivals/subway", "/api/places/search", "/api/journeys"]  # by p95, rare skipped
+
+
+@pytest.mark.anyio
+async def test_route_search_reported_when_share_over_5s_doubles():
+    async with httpx.AsyncClient(transport=fake_prom("0.12")) as http:
+        slow = await slow_endpoints(Prom("http://prometheus:9090", http), END)
+    assert slow[0] == {"uri": "/api/route/search", "over_share": 0.12, "count": 147.0}
+    text = render(START, END, {"slow": slow}, dashboard_url="u")
+    assert "`/api/route/search` 5초 초과 12% (기준 10%, 평소 약 5%, 147건)" in text
 
 
 def full_data() -> dict:
