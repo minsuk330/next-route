@@ -1,0 +1,21 @@
+# National (no Jeju) OTP override. Production compose.yaml is left untouched.
+# Rollback: re-run with compose.otp-test.yaml (Seoul graph, Xmx2500m, 3000m).
+# Run with:
+#   docker compose -f compose.yaml -f /root/apps/observability/otp/compose.otp-national.yaml up -d --force-recreate --no-deps otp
+services:
+  otp:
+    image: local/nextroute-otp:20260920-h-only-9dbfb229b868
+    volumes:
+      - "/srv/nextroute/otp/national-nojeju-202503-cal20260729_20270115-otp278-shaped-gbis-alllines-busrt-addtrips-subwayfix-osmfix-xfer-daytypes-seoulbus-pathways3-avoid25/graph.obj:/var/opentripplanner/graph.obj:ro"
+      - "/srv/nextroute/otp/experiment-artifacts/20260930-national-shaped:/var/opentripplanner/experiment-artifacts"
+    environment:
+      TZ: Asia/Seoul
+      # National graph live set ~2.6G after full GC. Xmx3500m + ~450MiB native => RSS ~4.0G.
+      JAVA_TOOL_OPTIONS: >-
+        -Xms256m -Xmx3500m -XX:+UseG1GC
+        -Xlog:gc*,safepoint:file=/var/opentripplanner/experiment-artifacts/gc-%t.log:time,uptime,level,tags:filecount=5,filesize=50M
+        -javaagent:/opt/otp/jmx_prometheus_javaagent-1.6.0.jar=9404:/opt/otp/otp-jmx.yaml
+    mem_limit: 4500m
+    memswap_limit: 4500m
+    expose:
+      - "9404"
