@@ -132,10 +132,20 @@ restore_role_state() {
   state_set "PREVIOUS_${upper}_BUILD_DATE" "${current_date}"
 }
 
+has_service() {
+  compose config --services 2>/dev/null | grep -qx "$1"
+}
+
+# worker 역할 = worker + (운영 override 에 있으면) worker2. 같은 WORKER_IMAGE 를 쓴다.
+# 한 대씩 교체한다: worker 가 healthy 가 된 뒤 worker2 — 교체 중에도 worker 한 대는 늘 떠 있다(알림 유실 방지).
 recreate_role() {
   local role="$1"
   compose up -d --no-deps --force-recreate "${role}"
-  wait_healthy "${role}"
+  wait_healthy "${role}" || return 1
+  if [ "${role}" = "worker" ] && has_service worker2; then
+    compose up -d --no-deps --force-recreate worker2
+    wait_healthy worker2
+  fi
 }
 
 deploy_role() {
@@ -203,7 +213,8 @@ deploy_all() {
 
   if ! compose up -d --no-deps --force-recreate api worker \
       || ! wait_healthy api \
-      || ! wait_healthy worker; then
+      || ! wait_healthy worker \
+      || { has_service worker2 && ! recreate_worker2; }; then
     echo "[deploy] initial role split failed" >&2
     compose stop api worker || true
 
@@ -225,9 +236,15 @@ deploy_all() {
       compose up -d --no-deps --force-recreate api worker
       wait_healthy api
       wait_healthy worker
+      if has_service worker2; then recreate_worker2; fi
     fi
     return 1
   fi
+}
+
+recreate_worker2() {
+  compose up -d --no-deps --force-recreate worker2
+  wait_healthy worker2
 }
 
 rollback_role() {
