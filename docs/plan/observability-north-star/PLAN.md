@@ -8,6 +8,19 @@
 - 알림 파이프라인(Grafana → Slack + alert-analyzer)이 장애를 제대로 잡는지 채점·훈련
 - 사용 퍼널(검색 → 여정 → 알림 → 완료)
 
+## 진행 (2026-11-26)
+
+| 단계 | PR | 상태 |
+|---|---|---|
+| PR-1 VPS 드리프트 반영 + 디스크 알림 + node 디스크 패널 수정 | #630 | 운영 반영 |
+| PR-1b 운영 설정 `compose.prod.yaml` 분리 + `ops/prod-sync.sh`·`prod-drift.sh`·`prod-prune.sh` | #632 | 운영 반영(드리프트 0, prune cron 일 04:00) |
+| deploy.sh worker 배포·롤백 때 worker2 도 교체 | #634 | 운영 반영(16:16 배포에서 실제 동작 확인) |
+| PR-2 북극성 대시보드 + 늦음·유실 알림 | #635 | 운영 반영(규칙 9개 health ok) |
+| PR-3 주간 요약 `analyzer.weekly` | #636, #637 | 운영 반영(첫 발송, cron 월 09:00) |
+| PR-4 이모지 채점 | – | **대기: Slack 앱 `reactions:read` 추가 + 재설치(사용자 작업)** |
+| PR-5 검색 기록 `route_search_event` + `journey_session.search_session_id` | #638 | 운영 배포(`1fbfaa86`), 검색 기록 확인. 여정 연결은 실사용 여정으로 확인 필요(#643) |
+| PR-6 후속 issue | #633, #639~#643 | 등록(라벨 `observability-weekly`) |
+
 ## 사용자 결정 (2026-11-26, 인터뷰)
 
 ### 목적
@@ -15,52 +28,52 @@
 - 우선순위: 약속(정시 알림) > 느린가 > 살아 있나 > 사용량 > 버틸 수 있나
 - 주기: 실시간 = Slack 알림. 사람 = 주간(또는 일정 간격) 점검
 
+### 환경 전제
+- **VPS = 운영(최우선), 로컬 = 테스트.** 저장소를 VPS 에 통째로 덮지 않는다
+- 운영에서만 다른 값은 `compose.prod.yaml`(앱·관측 각각)에만. VPS `.env` 의 `COMPOSE_FILE` 로 합친다(`ops/PROD.md`)
+- VPS 반영은 `ops/prod-sync.sh apply`(origin/main 커밋에서만, 정해진 파일만, 백업 후). VPS 직접 수정 금지
+
 ### 북극성: 여정 알림 정시율
 - 대상: `journey_notification` 중 `channel='PUSH'`(FCM). checkpoint 별 + 합계
 - 정시: `sent_at <= created_at(KST naive) + payload.holdMs + 60s`
   - `scheduled_at` 은 재시도 backoff 로 덮이므로 기준으로 쓰지 않는다
-- 분모: SENT + DEAD/FAILED + 만료 CANCELED. SENT 외는 "늦음"
+- 유실: DEAD·FAILED·CANCELED(`expired`, `expired-before-retry` — 코드의 `recordLost` 와 같음). 지연 중: PENDING·PROCESSING 인데 예정+60초 지남
+- 분모: 정시 + 늦음 + 유실 + 지연 중. 뜻을 잃은 취소(journey-ended, command-changed, lease-expired)는 뺀다
 - 표시: `n/m` 건수. 주 20건 이상일 때만 % 병기
-- 실시간 알림: 늦음/유실 **1건이라도** → warning
-- 측정 지점 = FCM 수락까지. 기기 수신 확인은 범위 밖(issue)
-- 보조 지표: 잠금화면 갱신(`subway_ring_push_outbox`) 지연. 정시 = `sent_at <= created_at + 60s`.
-  알림 = 1h 발송 ≥10건 && 정시율 <95% → warning (2주 데이터 보고 조정)
+- 실시간 알림: 최근 1시간 늦음·유실·지연 중 **1건이라도** → warning (`nr-journey-notification-late`)
+- 측정 지점 = FCM 수락까지. 기기 수신 확인은 범위 밖(#640)
+- 보조 지표: 잠금화면 갱신(`subway_ring_push_outbox`) — 분모 SENT+FAILED(SKIPPED 제외), 정시 = `sent_at <= created_at + 60s`.
+  알림 = 1시간 ≥10건 && 정시율 <95% → warning (`nr-ring-push-ontime`). 2주 데이터 보고 조정
 - 제외: 토스 경로(`bus_alert_notification`, `route_arrival_alert_notification`) — 데이터 없음
-- 계산: Grafana Postgres 데이터소스(`nextroute-pg`, `grafana_ro`) SQL. 앱 코드 변경 없음.
-  메트릭 보강(checkpoint 태그, ring SLO bucket)은 issue
+- 계산: Grafana Postgres 데이터소스(`nextroute-pg`, `grafana_ro`) SQL. 정의는 `ops/observability/grafana/north_star_dashboard.py` 의 `JOURNEY`·`RING` 한 곳. 알림 규칙 SQL 도 같은 정의(바꾸면 둘 다). 메트릭 보강은 #639
 
 ### 느린가
-- 경로 검색 p95 < 2.5s, 그 외 API p95 < 500ms
-- 주간 요약에만. 실시간 알림 없음
+- p95 500ms 목표. 주간 요약에만, 실시간 알림 없음
+- **경로 검색(OTP)만 완화**(2026-11-26 사용자: 검색 지연은 감수). p95 가 5초 bucket 경계(7일 분포 ≤2.5s 55% / ≤5s 94.6% / >5s 5.4%)라 악화를 못 봐서, **5초 초과 비율 10% 초과 때만** 표시. 장소 검색 등 나머지는 완화하지 않음
 
 ### 살아 있나 / 버틸 수 있나
-- 기존 규칙 5개 유지
-- **디스크 알림 추가**: 85% warning, 95% critical
-- worker2 = 이중화(유실 방지). 장애 시나리오로 검증 완료. 유지, 메모리 부족 시에만 내림
+- 규칙: 메모리 부족, 컨테이너 다운, api 5xx, ERROR 로그 급증, OTP 호출 실패 + **디스크 85% warning / 95% critical**(추가)
+- worker2 = 이중화(유실 방지). 장애 시나리오로 검증 완료. 유지, 메모리 부족 시에만 내림. 리더 락이 없는 단독 작업 3개는 #633
 - OTP 힙은 의도적으로 빠듯 — 알림 추가 안 함
+- 외부 uptime 체크·postgres/redis exporter·Tempo 재가동은 범위 밖
 
 ### 알림 파이프라인 검증
-- 사후 채점: Slack 알림 메시지에 이모지 — ✅ 진짜 장애 / ❌ 오탐 / 🎯 가설 맞음 / 🤷 가설 틀림
-  - Slack 앱에 `reactions:read` 추가 + 재설치(사용자 작업). token 바뀌면 VPS env 교체
-- 정기 훈련: 매월 첫 주. 가짜 5xx / 가짜 OTP 호출 실패 / ERROR 로그 급증 → 도착 시간·가설 적중 기록
-  - 사용자 영향 있는 장애(OTP 중지, 실제 5xx)는 실제로 내지 않는다
+- 사후 채점: Slack 알림 메시지에 이모지 — ✅ 진짜 장애 / ❌ 오탐 / 🎯 가설 맞음 / 🤷 가설 틀림 (PR-4, Slack 권한 대기)
+- 정기 훈련: 매월 첫 주. 가짜 5xx / 가짜 OTP 호출 실패 / ERROR 로그 급증 → 도착 시간·가설 적중 기록. 사용자 영향 있는 장애는 실제로 내지 않는다
 
 ### 주간 점검
-- 월요일 09:00 KST, 알림과 같은 Slack 채널, 제목 `[주간]`
-- 내용: 정시율(n/m), 잠금화면 갱신 지연, 목표 초과 엔드포인트, 퍼널, 채점 결과, 열린 `observability-weekly` issue 수
-- 실행: alert-analyzer 이미지의 스크립트를 VPS crontab 이 실행(분석기 서버 안 주기 작업 아님 — 재시작 시 누락/중복 방지)
+- 월요일 09:00 KST, 알림과 같은 채널, 제목 `[주간]`. VPS crontab → `docker compose run --rm alert-analyzer python -m analyzer.weekly`
+- 북극성 수치는 대시보드 `nextroute-north-star` 패널 SQL 을 Grafana `/api/ds/query`(서비스 계정 `weekly-digest`, Viewer)로 실행 → 대시보드와 숫자 일치. 분석기에 DB 접속 없음
+- 내용: 정시율(n/m)·checkpoint 별, 잠금화면 갱신, 목표 초과 엔드포인트, 퍼널, 지난주 알림, 열린 `observability-weekly` issue(GITHUB_TOKEN 있을 때)
+- 섹션별 실패 격리. 드리프트 건수는 VPS 에 저장소가 없어 넣지 않음(로컬 `ops/prod-drift.sh`)
 - 고칠 것 → GitHub issue, 라벨 `observability-weekly`
 
 ### 퍼널
-- 새 테이블 `route_search_log` — 검색마다 1행(append-only)
-  - 좌표 저장 안 함(위치정보). 90일 후 삭제
-  - `user_id` 항상 채움(기기 계정도 `auth_identity.DEVICE` → `users` 행 존재). 미인증 요청만 null
-- 검색 응답에 `searchId`, 앱이 여정 시작 요청에 다시 보냄 → `journey_session.search_id`(nullable)
-- 서버 먼저(searchId 없어도 동작) → 모바일 PR
-- 대시보드에 search_id 연결 비율 표시
-
-### 운영 규칙
-- 설정 기준 = repo main. VPS 는 rsync 로만 반영. VPS 직접 수정은 같은 날 PR 로 되돌려 넣는다
+- **앱 수정 불필요**: 앱은 이미 여정 시작 요청에 `searchSessionId`(검색 응답 스냅샷 id)를 보낸다(`StartJourneyRequest`). 처음 계획한 새 `searchId`·모바일 PR 은 없앴다
+- `route_search_event`(V79) — 검색마다 1행. 좌표·장소명 없음, 90일 보관(worker 04:40 KST 묶음 삭제), 탈퇴 시 물리 삭제. 익명 포함
+  - 처음 이름으로 잡은 `route_search_log` 는 V1 의 옛 표(좌표·응답 JSON 155행, 미사용)라 새 이름. 옛 표 정리는 #641
+- `journey_session.search_session_id`(V80) — 여정 시작 때 저장
+- 사용 통계 대시보드 퍼널 패널. 주간 요약 퍼널은 데이터가 쌓인 뒤 `route_search_event` 로 전환(#643)
 
 ## 사실 (조사, 2026-11-26)
 
@@ -72,71 +85,20 @@
 | 버스 도착(토스) | `bus_alert_notification` | 없음 | 전체 2건 |
 | 경로 도착(토스) | `route_arrival_alert_notification` | 없음 | 0건 |
 
-- 30일 여정 알림 22/22 정시(0.4~3.8s). ring 7일 p95 2.25s
+- 30일 여정 알림 22/22 정시(p95 1.2s). ring 651/651(p95 2.25s). 전체 기간 유실 4건(FAILED 3 `fcm: INVALID_ARGUMENT`, DEAD 1)
 - `journey_telemetry_event` 7일 0건 → 기기 수신 확인 데이터 없음
 
-### 퍼널 (7일)
-- 검색 ≈139(Prometheus `route_search_duration_seconds_count`) → 여정 시작 31 → 완료 6
-- `route_search_history` 는 (user, 출발/도착 좌표) upsert → 이벤트 로그로 못 씀
-- 여정 → 알림 → 완료는 `journey_id` 로 정확히 조인됨
+### 퍼널 (7일, 배포 전)
+- 검색 ≈146(Prometheus) → 여정 시작 32 → 알림 받은 여정 5 → 완료 6
 
-### 관측 스택
-- `grafana_ro` 권한: `auth_identity, journey_session, user_daily_activity` 만
-  (`ops/observability/postgres/grafana_ro.sql`) → `journey_notification`, `subway_ring_push_outbox`,
-  `route_search_log` GRANT 필요
-- alert-analyzer: Slack bot token(`chat:write`, `channels:history`, `groups:history`), Prometheus·Loki 클라이언트 있음,
-  예약 실행 없음, 상태 메모리만
-- 마지막 마이그레이션 V78 → 새 파일 V79~
-- VPS 메모리: RAM 7.9G, available ~875M, swap 1.3G 사용. 새 상주 프로세스 추가 금지(cron 1회 실행만)
-
-### VPS ↔ main 드리프트 (PR-1 대상)
-- `prometheus.yml`: VPS 에 `worker2:8081`, `otp:9404`(5s) job
-- `compose.yaml`: Tempo `profiles: ["traces"]`(꺼짐) + grafana `depends_on: tempo` 제거, Loki `GOMEMLIMIT 512MiB`·`mem_limit 768m`·`oom_score_adj 500`,
-  Prometheus `127.0.0.1:9090` publish
-- VPS 전용 파일: `grafana/dashboards/otp.json`, `otp/compose.otp-national.yaml`, `otp/compose.otp-test.yaml`
-- 앱 compose(VPS): OTP 전국 graph override `-Xmx3500m`, `MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=false`
-- Tempo 꺼져 있는데 Tempo 데이터소스·Loki TraceID derived field 남아 있음
-
-## PR 순서
-
-### PR-1 (ops): 드리프트 반영 + 디스크 알림
-- VPS 설정을 main 에 반영(위 목록). `.bak` 파일은 제외
-- `rules.yaml` 에 디스크 규칙: `1 - avail/size`(rootfs) 85% warning / 95% critical, for 10m
-- Tempo 꺼진 상태 명시(README), 데이터소스는 유지하되 주석
-- 검증: VPS 와 diff 0(env 제외), `promtool check config`, Grafana provisioning reload 후 규칙 6개
-
-### PR-2 (ops): 북극성 대시보드 + 알림
-- `grafana_ro.sql` 에 GRANT 추가 (VPS 에서 수동 실행 명령 포함)
-- 대시보드 `north-star.json`: 여정 알림 checkpoint 별 n/m, 지연 분포, 유실 목록 / ring 정시율·p95
-- 알림 규칙(Postgres 데이터소스): 여정 늦음·유실 ≥1 warning / ring 1h ≥10건 && <95% warning
-- 검증: 30일 수치가 조사값(22/22)과 일치, 규칙 테스트 발화(Grafana test)
-
-### PR-3 (alert-analyzer): 주간 요약
-- `analyzer/weekly.py` 같은 1회 실행 엔트리포인트. Prometheus·Postgres(grafana_ro) 조회 → Slack `[주간]`
-- 내용은 "주간 점검" 절. 계산 로직 단위 테스트(고정 입력 → 고정 문구)
-- VPS crontab `CRON_TZ=Asia/Seoul`, `0 9 * * 1` `docker compose run --rm alert-analyzer python -m analyzer.weekly`
-- 검증: dry-run 출력 확인 후 1회 실발송
-
-### PR-4 (alert-analyzer): 이모지 채점
-- 선행: 사용자가 `reactions:read` 추가 + 재설치
-- 지난 7일 알림 메시지(`fp:` 줄로 식별)의 reaction 집계 → 주간 요약에 오탐률·가설 적중률·미채점 수
-- 매월 첫 주 요약에 훈련 체크리스트 3개 첨부
-
-### PR-5 (app): 검색 로그 + search_id
-- `V79__route_search_log.sql`: `id`(uuid), `user_id`(nullable FK), `searched_at`, `provider`, `result_status`, `latency_ms`. 좌표 없음
-- `V80__journey_session_search_id.sql`: `journey_session.search_id uuid NULL`
-- 검색 응답에 `searchId`. 여정 시작 요청 `searchId` 선택 필드
-- 기록은 비동기·실패 무시(요청 영향 0). 90일 파기 스케줄러(worker)
-- 탈퇴: 물리 삭제 목록에 `route_search_log` 추가 (`WithdrawalDeletionBoundaryIT`)
-- 대시보드 퍼널 패널 + 연결 비율
-- 후속: `nextroute-mobile` PR — 여정 시작에 `searchId` 전달
-
-### PR-6: issue 등록
-- 메트릭 보강(delivery-lag checkpoint 태그, ring latency SLO bucket)
-- 기기 수신 확인(`journey_telemetry_event` 0건)
-- 라벨 `observability-weekly` 생성
+### 운영 환경
+- VPS: 4 vCPU, RAM 7.9G(available ~875M, swap 1.3G 사용). 컨테이너 상한 합이 RAM 초과. OTP 힙 3.3/3.5G(일부러 빠듯)
+- 디스크: 오늘 90% → 62%(build cache 8.2G, 이미지 45개, jar 백업 23개, kmorgan 컨테이너·이미지, Tempo 볼륨). 원인은 VPS 에서 이미지를 빌드하는 배포 방식 → 주 1회 `prod-prune.sh`. CI 빌드 전환은 별건
+- 배포: 로컬 bootJar → `app.jar` 백업 → scp(sha256 확인) → `DEPLOY_REVISION=<sha> ./deploy.sh all`
+- 첫 분리 전 VPS 앱 compose 는 손으로 고친 파일 + `observability/otp/compose.otp-national.yaml` 혼용(저장소와 138줄 차이). 분리 뒤 VPS 실제 설정과 `docker compose config` 비교 차이 0(앱 8·관측 6 서비스)
+- node 대시보드 디스크 패널이 `mountpoint="/host"` 를 조회해 처음부터 비어 있었다(실제 `"/"`) — #630 에서 수정
 
 ## 범위 밖
-- 외부 uptime 체크(첫 리뷰 항목) — 이번 인터뷰에서 다루지 않음, 필요 시 별건
-- postgres/redis exporter, Tempo 재가동(메모리 여유 없음)
+- 외부 uptime 체크, postgres/redis exporter, Tempo 재가동(메모리 여유 없음)
 - OTP 힙 알림(의도적 유지)
+- 앱 이미지 CI(GHCR) 빌드 전환 — 북극성 작업 뒤 별건
