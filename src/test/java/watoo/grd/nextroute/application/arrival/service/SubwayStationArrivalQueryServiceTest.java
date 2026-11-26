@@ -300,6 +300,74 @@ class SubwayStationArrivalQueryServiceTest {
     }
 
     @Test
+    @DisplayName("#645 조회역 출발(코드 2)로 곧 오는 목록에서 빠졌는데 출발 기록이 아직 없으면 떠난 열차에 넣는다 — 원천 ARRIVAL, 시각 recptnDt")
+    void justDepartedFillsGapBeforeDepartureRecord() {
+        givenStation(GANGNAM, "1002");
+        given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of(arrival("2445", "외선", "성수", 300)));
+        given(arrivalReader.justDeparted("1002", GANGNAM, null)).willReturn(List.of(
+                justDepartedRow("7443", "외선", "2026-10-07 15:59:40")));
+        given(trainLogPort.findDepartures(any(), eq("1002"), eq("외선"), eq(GANGNAM), any(), any()))
+                .willReturn(List.of(departure("2437", 300)));
+
+        Direction outer = service.getArrivals(GANGNAM).directions().get(0);
+
+        assertThat(outer.direction()).isEqualTo("외선");
+        assertThat(outer.trains()).extracting(Train::trainNo).containsExactly("2445");
+        assertThat(outer.departed()).extracting(Departed::trainNo).containsExactly("7443", "2437");
+        Departed gap = outer.departed().get(0);
+        assertThat(gap.source()).isEqualTo(DepartureSource.ARRIVAL);
+        assertThat(gap.departedAt().toInstant()).isEqualTo(NOW.minusSeconds(20));
+        assertThat(gap).extracting(Departed::destinationName, Departed::trainType, Departed::currentStationName)
+                .containsExactly("성수", "일반", null);
+    }
+
+    @Test
+    @DisplayName("#645 출발 기록이 들어오면 그 값이 이긴다 — 같은 열차는 한 번, 원천 POSITION")
+    void departureRecordReplacesJustDepartedRow() {
+        givenStation(GANGNAM, "1002");
+        given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of());
+        given(arrivalReader.justDeparted("1002", GANGNAM, null)).willReturn(List.of(
+                justDepartedRow("7443", "외선", "2026-10-07 15:59:40")));
+        given(trainLogPort.findDepartures(any(), eq("1002"), eq("외선"), eq(GANGNAM), any(), any()))
+                .willReturn(List.of(departure("7443", 60)));
+
+        List<Departed> departed = service.getArrivals(GANGNAM).directions().get(0).departed();
+
+        assertThat(departed).hasSize(1);
+        assertThat(departed.get(0).source()).isEqualTo(DepartureSource.POSITION);
+        assertThat(departed.get(0).departedAt().toInstant()).isEqualTo(NOW.minusSeconds(60));
+    }
+
+    @Test
+    @DisplayName("#645 막 떠난 열차를 더해도 최근 순 최대 3대, 창보다 오래된 코드 2 행은 뺀다")
+    void justDepartedRespectsLimitAndWindow() {
+        givenStation(GANGNAM, "1002");
+        given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of());
+        given(arrivalReader.justDeparted("1002", GANGNAM, null)).willReturn(List.of(
+                justDepartedRow("7443", "내선", "2026-10-07 15:59:50"),
+                justDepartedRow("7001", "내선", "2026-10-07 15:45:00")));
+        given(trainLogPort.findDepartures(any(), eq("1002"), eq("내선"), eq(GANGNAM), any(), any()))
+                .willReturn(List.of(departure("2304", 60), departure("2303", 300), departure("2302", 420)));
+
+        List<Departed> departed = service.getArrivals(GANGNAM).directions().get(0).departed();
+
+        assertThat(departed).extracting(Departed::trainNo).containsExactly("7443", "2304", "2303");
+    }
+
+    @Test
+    @DisplayName("#645 막 떠난 열차 캐시를 못 읽어도 출발 기록은 그대로")
+    void justDepartedFailureKeepsRecords() {
+        givenStation(GANGNAM, "1002");
+        given(arrivalReader.arrivals("1002", GANGNAM, null)).willReturn(List.of());
+        given(arrivalReader.justDeparted(any(), any(), any())).willThrow(new IllegalStateException("redis down"));
+        given(trainLogPort.findDepartures(any(), eq("1002"), eq("내선"), eq(GANGNAM), any(), any()))
+                .willReturn(List.of(departure("2304", 60)));
+
+        assertThat(service.getArrivals(GANGNAM).directions().get(0).departed())
+                .extracting(Departed::trainNo).containsExactly("2304");
+    }
+
+    @Test
     @DisplayName("#317 같은 열차가 두 원천에 있으면 위치 원천")
     void positionWinsOverArrivalFeed() {
         givenStation(GANGNAM, "1002");
@@ -537,6 +605,12 @@ class SubwayStationArrivalQueryServiceTest {
         return new SubwayTrainLogPort.TrainDeparture(trainNo, new SubwayTrainEvent(
                 SubwayTrainEvent.Type.DEPARTED, GANGNAM, "강남", mid.minusSeconds(75), mid.plusSeconds(75),
                 SubwayTrainEvent.Quality.CORROBORATED, "1002000211", SubwayExpressType.NORMAL));
+    }
+
+    private Arrival justDepartedRow(String trainNo, String direction, String receivedAt) {
+        return new Arrival(SubwayRealtimeTrain.builder()
+                .trainNo(trainNo).direction(direction).destinationName("성수").arrivalCode("2")
+                .currentMessage("강남 출발").trainType("일반").receivedAt(receivedAt).build(), null);
     }
 
     private void givenStation(String stationId, String lineId) {

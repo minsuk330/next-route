@@ -95,13 +95,17 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
      * 판정 실패는 "모름"(null) — 목록을 깨뜨리지 않는다.
      */
     private SubwayTrainKindJudge.Judgement kindOf(Placed placed, SubwayStation station) {
+        return kindOf(placed, station.getStationId(), station.getLineId());
+    }
+
+    private SubwayTrainKindJudge.Judgement kindOf(Placed placed, String stationId, String lineId) {
         try {
             SubwayRealtimeTrain train = placed.arrival().train();
-            return kindJudge.judge(new SubwayTrainKindJudge.Train(station.getLineId(), train.getDirection(),
+            return kindJudge.judge(new SubwayTrainKindJudge.Train(lineId, train.getDirection(),
                             train.getTrainNo(), train.getDestinationName(), placed.arrival().sightings()),
-                    station.getStationId(), null);
+                    stationId, null);
         } catch (RuntimeException e) {
-            log.debug("열차 종류 판정 실패 station={}: {}", station.getStationId(), e.getMessage());
+            log.debug("열차 종류 판정 실패 station={}: {}", stationId, e.getMessage());
             return null;
         }
     }
@@ -171,8 +175,14 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
     }
 
     /**
-     * 방향별로 이 역을 떠난 열차(#299). 원천은 {@link SubwayDepartureLookup} 하나다 — 열차 선택과 같은 창구라 여기 보인
+     * 방향별로 이 역을 떠난 열차(#299). 원천은 {@link SubwayDepartureLookup} 이 먼저다 — 열차 선택과 같은 창구라 여기 보인
      * 열차는 반드시 고를 수 있다(#317). 위치 API 가 없는 노선은 도착 API 기록으로 채운다.
+     *
+     * <p><b>출발 기록 전 틈(#645)</b>: 도착 API 가 "조회역 출발"(코드 2)을 내면 reader 는 그 열차를 곧 오는 목록에서 뺀다.
+     * 그런데 위치 출발 기록은 위치 API 가 다음 역을 보여 줘야 생겨 약 1분 늦다. 그사이 열차가 응답 어디에도 없어 노선 그림에서
+     * 사라졌다. 그래서 캐시의 막 떠난 열차({@link SubwayRealtimeArrivalReader#justDeparted}) 중 출발 기록이 아직 없는 열차를
+     * 원천 ARRIVAL 로 넣는다. 열차 선택도 같은 캐시를 먼저 보므로(SubwayTrainSelectionService#departedCandidates) 여기 보인
+     * 열차는 고를 수 있다. 출발 기록이 들어오면 그 값이 이긴다.
      *
      * <p>못 읽으면 빈 목록이다. 곧 오는 열차 응답까지 깨뜨릴 이유가 없다.
      */
@@ -180,15 +190,30 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
         Instant now = clock.instant();
         Instant from = now.minus(DEPARTED_WINDOW);
         Map<String, String> stationNames = new HashMap<>();
+        Map<String, List<Arrival>> justDeparted = justDeparted(lineId, stationId, from);
         Map<String, List<Departed>> byDirection = new LinkedHashMap<>();
         try {
             for (String direction : directionsOf(lineId)) {
-                List<Departed> rows = departureLookup.find(lineId, direction, stationId, from, now).stream()
+                List<SubwayDepartureLookup.Departure> recorded = departureLookup.find(lineId, direction, stationId, from, now);
+                Set<String> recordedTrainNos = new HashSet<>();
+                recorded.forEach(d -> recordedTrainNos.add(d.trainNo()));
+                List<Departed> rows = new ArrayList<>();
+                for (Arrival arrival : justDeparted.getOrDefault(direction, List.of())) {
+                    if (!recordedTrainNos.contains(arrival.train().getTrainNo())) {
+                        rows.add(toDeparted(arrival, departedAtOf(arrival, now),
+                                kindOf(new Placed(arrival, null, false), stationId, lineId)));
+                    }
+                }
+                recorded.stream()
                         .limit(DEPARTED_LIMIT)
                         .map(d -> toDeparted(d, lineId, direction, stationNames, kindOf(d, lineId, direction, stationId)))
+                        .forEach(rows::add);
+                List<Departed> limited = rows.stream()
+                        .sorted(Comparator.comparing(Departed::departedAt).reversed())
+                        .limit(DEPARTED_LIMIT)
                         .toList();
-                if (!rows.isEmpty()) {
-                    byDirection.put(direction, rows);
+                if (!limited.isEmpty()) {
+                    byDirection.put(direction, limited);
                 }
             }
         } catch (RuntimeException e) {
@@ -196,6 +221,48 @@ public class SubwayStationArrivalQueryService implements GetSubwayStationArrival
             return Map.of();
         }
         return byDirection;
+    }
+
+    /** 캐시의 "조회역 출발" 행, 방향별. 창보다 오래된 행은 뺀다. 실패하면 빈 값 — 출발 기록만으로 답한다. */
+    private Map<String, List<Arrival>> justDeparted(String lineId, String stationId, Instant from) {
+        Map<String, List<Arrival>> byDirection = new HashMap<>();
+        try {
+            for (Arrival arrival : arrivalReader.justDeparted(lineId, stationId, null)) {
+                SubwayRealtimeTrain train = arrival.train();
+                String direction = directionOf(train);
+                Instant receivedAt = SubwayTrainPositionResolver.parse(train.getReceivedAt());
+                if (direction == null || train.getTrainNo() == null
+                        || (receivedAt != null && receivedAt.isBefore(from))) {
+                    continue;
+                }
+                byDirection.computeIfAbsent(direction, key -> new ArrayList<>()).add(arrival);
+            }
+        } catch (RuntimeException e) {
+            log.warn("지하철 막 떠난 열차 캐시 조회 실패 — 출발 기록만으로 응답 line={} station={}: {}",
+                    lineId, stationId, e.getMessage());
+            return Map.of();
+        }
+        return byDirection;
+    }
+
+    /** 코드 2 행의 원천 시각({@code recptnDt}). 모르면 지금 — 방금 떠난 열차라 오차가 수집 주기 안이다. */
+    private static Instant departedAtOf(Arrival arrival, Instant now) {
+        Instant receivedAt = SubwayTrainPositionResolver.parse(arrival.train().getReceivedAt());
+        return receivedAt == null || receivedAt.isAfter(now) ? now : receivedAt;
+    }
+
+    private static Departed toDeparted(Arrival arrival, Instant departedAt, SubwayTrainKindJudge.Judgement kind) {
+        SubwayRealtimeTrain train = arrival.train();
+        return new Departed(
+                train.getTrainNo(),
+                train.getDestinationName(),
+                train.getTrainType(),
+                OffsetDateTime.ofInstant(departedAt, SEOUL),
+                null,
+                DepartureSource.ARRIVAL,
+                kind == null ? null : kind.kind(),
+                kind == null ? null : kind.label(),
+                kind == null ? null : kind.stopsAtBoarding());
     }
 
     private Departed toDeparted(SubwayDepartureLookup.Departure row, String lineId, String direction,
