@@ -57,7 +57,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "1 - (node_filesystem_avail_bytes{mountpoint=\"/host\", fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{mountpoint=\"/host\", fstype!~\"tmpfs|overlay\"})",
+          "expr": "1 - (node_filesystem_avail_bytes{mountpoint=\"/\", fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{mountpoint=\"/\", fstype!~\"tmpfs|overlay\"})",
           "legendFormat": "rootfs"
         }
       ]
@@ -73,7 +73,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "node_filesystem_avail_bytes{mountpoint=\"/host\", fstype!~\"tmpfs|overlay\"}",
+          "expr": "node_filesystem_avail_bytes{mountpoint=\"/\", fstype!~\"tmpfs|overlay\"}",
           "legendFormat": "avail"
         }
       ]

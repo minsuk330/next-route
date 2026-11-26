@@ -1,0 +1,132 @@
+{
+  "uid": "nextroute-otp",
+  "title": "NextRoute · OTP JVM",
+  "tags": ["nextroute", "otp", "jvm"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Heap used / committed / max",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jvm_memory_used_bytes{job=\"otp\",area=\"heap\"} or jvm_memory_bytes_used{job=\"otp\",area=\"heap\"}",
+          "legendFormat": "used"
+        },
+        {
+          "refId": "B",
+          "expr": "jvm_memory_committed_bytes{job=\"otp\",area=\"heap\"} or jvm_memory_bytes_committed{job=\"otp\",area=\"heap\"}",
+          "legendFormat": "committed"
+        },
+        {
+          "refId": "C",
+          "expr": "jvm_memory_max_bytes{job=\"otp\",area=\"heap\"} or jvm_memory_bytes_max{job=\"otp\",area=\"heap\"}",
+          "legendFormat": "max"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Memory pools",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jvm_memory_pool_used_bytes{job=\"otp\"} or jvm_memory_pool_bytes_used{job=\"otp\"}",
+          "legendFormat": "{{pool}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "GC collections / second",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (gc) (rate(jvm_gc_collection_seconds_count{job=\"otp\"}[1m]))",
+          "legendFormat": "{{gc}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "GC collection time / second",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (gc) (rate(jvm_gc_collection_seconds_sum{job=\"otp\"}[1m]))",
+          "legendFormat": "{{gc}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Threads",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jvm_threads_current{job=\"otp\"} or jvm_threads_live_threads{job=\"otp\"}",
+          "legendFormat": "live"
+        },
+        {
+          "refId": "B",
+          "expr": "jvm_threads_peak{job=\"otp\"} or jvm_threads_peak_threads{job=\"otp\"}",
+          "legendFormat": "peak"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Process CPU",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(process_cpu_seconds_total{job=\"otp\"}[1m])",
+          "legendFormat": "process cpu"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Process resident memory",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_resident_memory_bytes{job=\"otp\"}",
+          "legendFormat": "RSS"
+        }
+      ]
+    }
+  ]
+}

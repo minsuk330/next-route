@@ -47,6 +47,8 @@ services:
     networks:
       - default
       - nextroute
+    ports:
+      - "127.0.0.1:9090:9090"   # 수동 OTP 콘솔의 SSH tunnel 전용 — 외부 공개 금지
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/ready || exit 1"]
       interval: 15s
@@ -83,8 +85,6 @@ services:
         condition: service_healthy
       prometheus:
         condition: service_healthy
-      tempo:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
       interval: 15s
@@ -94,8 +94,18 @@ services:
     logging: *logrotate
 
   tempo:
+    # 2026-11-04 메모리 절약으로 내림. 24h 조회 0건. 다시 켜기: docker compose --profile traces up -d tempo
+    # + nextroute compose 의 MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED 줄 삭제 후 api·worker 재생성.
+    profiles: ["traces"]
     image: grafana/tempo:2.7.0
     command: -config.file=/etc/tempo/tempo.yaml
+    # 30분마다 블록 완성 때 순간 ~640MB(2026-10-27 실측, 블록은 2MB). 상한이 없으면 호스트 메모리를 같이 깎는다.
+    # GOMEMLIMIT: Go GC 가 상한 전에 회수. oom_score_adj: 호스트가 바닥나면 OTP 대신 이게 먼저 죽게.
+    environment:
+      GOMEMLIMIT: 512MiB
+    mem_limit: 768m
+    memswap_limit: 768m
+    oom_score_adj: 500
     volumes:
       - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/var/tempo

@@ -53,6 +53,7 @@ ssh vps 'certbot --nginx -d grafana.refit-100.site'
 | api 5xx 발생 | 5xx ≥ 3건 / 5분 | 7일 최대 5건(1회) |
 | ERROR 로그 급증 | 앱별 ERROR ≥ 5건 / 5분 | 평시 하루 1건, 외부 API 503 때 21건/1분 |
 | OTP 호출 실패 | OTP 호출 실패 ≥ 3건 / 10분 | 살아 있는데 응답 못 주는 경우. JVM 사망은 '컨테이너 다운' |
+| 디스크 사용률 높음 / 거의 가득 | rootfs > 85% 10분(warning) / > 95% 5분(critical) | 2026-11-26 이미지·build cache 누적으로 90% 도달(알림 없었음). 관측 데이터는 30일 보존으로 정상 상태 |
 
 - 묶기: 같은 규칙은 한 메시지, 계속 울리면 1시간마다. 해소되면 RESOLVED 메시지
 - 웹훅 URL: `env/grafana.env` 의 `SLACK_ALERT_WEBHOOK_URL` (provisioning 이 `$VAR` 치환)
@@ -115,4 +116,4 @@ Grafana 알림이 울리면 그 시각의 로그·메트릭을 모아 원인 가
 - 대시보드 JSON 은 `grafana/usage_dashboard.py` 로 생성한다(손으로 고치지 말고 생성기 수정 후 재생성)
 
 ## Tempo (2026-11-04 운영에서 내림)
-운영 VPS 는 메모리 절약(112MB)으로 Tempo 를 내렸다: `observability/compose.yaml` 의 tempo 에 `profiles: ["traces"]`, grafana `depends_on` 에서 제거, 앱 env `MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=false`(트레이싱은 켜 둬 로그의 `traceId` 는 남는다). 저장소의 이 compose 는 그대로(로컬은 켜서 쓴다). 다시 켜기 = `docker compose --profile traces up -d tempo` + 앱 env 줄 삭제 후 api·worker 재생성. Loki 의 TraceID 파생 링크는 내려 있는 동안 죽은 링크다.
+운영 VPS 는 메모리 절약(112MB)으로 Tempo 를 내렸다: `observability/compose.yaml` 의 tempo 에 `profiles: ["traces"]`, grafana `depends_on` 에서 제거, 앱 env `MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=false`(트레이싱은 켜 둬 로그의 `traceId` 는 남는다). 2026-11-26 부터 저장소 compose 도 같은 상태(설정 기준 = 저장소, VPS 는 rsync 로만 반영). 로컬에서 트레이스가 필요하면 `--profile traces` 로 켠다. 다시 켜기 = `docker compose --profile traces up -d tempo` + 앱 env 줄 삭제 후 api·worker 재생성. Loki 의 TraceID 파생 링크는 내려 있는 동안 죽은 링크다.

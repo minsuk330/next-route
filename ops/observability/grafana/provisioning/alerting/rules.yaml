@@ -153,3 +153,61 @@ groups:
         annotations:
           summary: 'OTP 호출 실패 {{ printf "%.0f" .Values.A.Value }}건 (10분)'
           description: 경로 검색이 OTP 응답을 못 받고 있다. OTP 컨테이너 상태와 api 로그 확인.
+
+      # 디스크. 2026-11-26 이미지·build cache 누적으로 90%까지 찼는데 알림이 없었다(정리 후 66%).
+      # 관측 데이터(Prometheus 1.3G·Loki 0.2G)는 30일 보존으로 이미 정상 상태 — 늘어나는 건 배포 이미지와 Postgres.
+      # node-exporter(--path.rootfs=/host)는 루트를 mountpoint="/" 로 보고한다.
+      - uid: nr-disk-warning
+        title: 디스크 사용률 높음
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 100 * (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+        for: 10m
+        # node-exporter 부재는 '컨테이너 다운'(job=node)이 잡는다.
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: 'VPS 디스크 {{ printf "%.0f" .Values.A.Value }}% (기준 85%)'
+          description: 'docker system df 로 확인. 오래된 nextroute 이미지(최근 2쌍은 롤백용으로 남김)·build cache 부터 정리.'
+
+      - uid: nr-disk-critical
+        title: 디스크 거의 가득
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 100 * (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [95] }
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: critical }
+        annotations:
+          summary: 'VPS 디스크 {{ printf "%.0f" .Values.A.Value }}% (기준 95%)'
+          description: '가득 차면 Postgres 쓰기·Loki 적재·배포가 실패한다. 즉시 docker image/builder prune.'
