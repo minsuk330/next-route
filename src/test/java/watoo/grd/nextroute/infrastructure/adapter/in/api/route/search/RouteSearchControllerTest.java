@@ -46,6 +46,7 @@ class RouteSearchControllerTest {
     @Mock SearchRouteUseCase searchRouteUseCase;
     @Mock RecordSearchHistoryUseCase recordSearchHistoryUseCase;
     @Mock RouteSearchSnapshotPort snapshotPort;
+    @Mock watoo.grd.nextroute.application.route.service.RouteSearchEventRecorder searchEventRecorder;
 
     private RouteSnapshotProperties snapshotProperties;
     private RouteSearchController controller;
@@ -56,11 +57,20 @@ class RouteSearchControllerTest {
         RouteSearchSnapshotRecorder recorder = new RouteSearchSnapshotRecorder(
                 snapshotPort, snapshotProperties, Clock.fixed(NOW, ZoneOffset.UTC));
         controller = new RouteSearchController(
-                searchRouteUseCase, recordSearchHistoryUseCase, recorder);
+                searchRouteUseCase, recordSearchHistoryUseCase, recorder, eventRecorders(searchEventRecorder));
     }
 
     private RouteSearchRequest request() {
         return new RouteSearchRequest(127.0, 37.5, 127.01, 37.51, "출발지", "도착지");
+    }
+
+    private static org.springframework.beans.factory.ObjectProvider<watoo.grd.nextroute.application.route.service.RouteSearchEventRecorder>
+            eventRecorders(watoo.grd.nextroute.application.route.service.RouteSearchEventRecorder recorder) {
+        var factory = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        if (recorder != null) {
+            factory.addBean("searchEventRecorder", recorder);
+        }
+        return factory.getBeanProvider(watoo.grd.nextroute.application.route.service.RouteSearchEventRecorder.class);
     }
 
     /** 경로가 없는 결과 — 스냅샷 저장 대상이 아니라 기존 배선만 보는 테스트에 쓴다. */
@@ -198,5 +208,44 @@ class RouteSearchControllerTest {
         assertThat(body).isSameAs(result);
         assertThat(body.searchSessionId()).isNull();
         verifyNoInteractions(snapshotPort);
+    }
+
+    // ── 사용 퍼널 기록(V79) ──────────────────────────────────────────────────
+
+    @Test
+    void TC_익명_검색도_퍼널_기록을_남긴다() {
+        RouteSearchRequest request = request();
+        RouteSearchResult result = emptyResult();
+        when(searchRouteUseCase.search(request)).thenReturn(result);
+
+        controller.search(null, request);
+
+        verify(searchEventRecorder).record(isNull(), eq(result), org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void TC_퍼널_기록은_스냅샷이_붙은_응답을_받는다() {
+        RouteSearchRequest request = request();
+        when(searchRouteUseCase.search(request)).thenReturn(result());
+        when(snapshotPort.save(eq(42L), any(), anyBoolean(), any())).thenReturn("sess-9");
+
+        var response = controller.search(42L, request);
+
+        verify(searchEventRecorder).record(eq(42L),
+                org.mockito.ArgumentMatchers.argThat(r -> "sess-9".equals(r.searchSessionId())),
+                org.mockito.ArgumentMatchers.anyLong());
+        assertThat(response.getBody().searchSessionId()).isEqualTo("sess-9");
+    }
+
+    @Test
+    void TC_퍼널_기록기가_꺼져_있어도_검색은_그대로() {
+        controller = new RouteSearchController(searchRouteUseCase, recordSearchHistoryUseCase,
+                new RouteSearchSnapshotRecorder(snapshotPort, snapshotProperties, Clock.fixed(NOW, ZoneOffset.UTC)),
+                eventRecorders(null));
+        RouteSearchRequest request = request();
+        RouteSearchResult result = emptyResult();
+        when(searchRouteUseCase.search(request)).thenReturn(result);
+
+        assertThat(controller.search(null, request).getBody()).isSameAs(result);
     }
 }

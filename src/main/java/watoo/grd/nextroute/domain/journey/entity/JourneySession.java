@@ -164,14 +164,24 @@ public class JourneySession extends BaseEntity {
     private int rerouteIgnoredCount;
 
     /**
+     * 여정을 시작한 검색의 스냅샷 id(V80, route_search_event.search_session_id). 사용 퍼널에서 검색과 여정을 잇는다.
+     * 단독 추적(TRACK)은 검색을 거치지 않아 null.
+     */
+    @Column(name = "search_session_id", length = 64, updatable = false)
+    private String searchSessionId;
+
+    /**
      * @param kind 비우면 {@link JourneyKind#NAVIGATION}. 기본값을 빌더가 아니라 여기서 정한다 —
      *             {@code @Builder.Default} 없이 필드 초기화로 두면 빌더가 조용히 {@code null} 을 넣는다
      * @param excludeExpress 시작 검색의 급행 끄기(원래 요청값). 빌더에서 빼면 false
+     * @param searchSessionId 시작 검색의 스냅샷 id. 빌더에서 빼면 null
      */
     @Builder
     public JourneySession(Long userId, JourneyKind kind, Instant startedAt, Instant guidanceLeaseUntil,
-                          JsonNode routeSnapshot, JsonNode destinationSummary, boolean excludeExpress) {
+                          JsonNode routeSnapshot, JsonNode destinationSummary, boolean excludeExpress,
+                          String searchSessionId) {
         this.userId = userId;
+        this.searchSessionId = searchSessionId;
         this.kind = kind == null ? JourneyKind.NAVIGATION : kind;
         this.excludeExpress = excludeExpress;
         this.status = JourneyStatus.ACTIVE;

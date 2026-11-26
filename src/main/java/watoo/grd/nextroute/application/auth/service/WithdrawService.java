@@ -30,6 +30,7 @@ import watoo.grd.nextroute.domain.notification.repository.RouteArrivalAlertRepos
 import watoo.grd.nextroute.domain.push.repository.UserPushTokenRepository;
 import watoo.grd.nextroute.domain.route.favorite.repository.FavoriteRouteRepository;
 import watoo.grd.nextroute.domain.route.log.repository.RouteSearchHistoryRepository;
+import watoo.grd.nextroute.domain.route.log.repository.RouteSearchEventRepository;
 import watoo.grd.nextroute.domain.route.log.repository.RouteSearchLogRepository;
 import watoo.grd.nextroute.domain.user.entity.User;
 import watoo.grd.nextroute.domain.user.repository.UserDailyActivityRepository;
@@ -84,6 +85,7 @@ public class WithdrawService implements WithdrawUseCase {
 
     private final RouteSearchHistoryRepository routeSearchHistoryRepository;
     private final RouteSearchLogRepository routeSearchLogRepository;
+    private final RouteSearchEventRepository routeSearchEventRepository;
     private final FavoriteRouteRepository favoriteRouteRepository;
     private final UserDailyActivityRepository userDailyActivityRepository;
 
@@ -127,6 +129,7 @@ public class WithdrawService implements WithdrawUseCase {
         routeSearchHistoryRepository.deleteAllByUserId(userId);
         favoriteRouteRepository.deleteAllByUserId(userId);
         routeSearchLogRepository.deleteAllByUserId(userId);
+        routeSearchEventRepository.deleteAllByUserId(userId);
         userDailyActivityRepository.deleteAllByUserId(userId);
         // 로그인 수단.
         authIdentityRepository.deleteAllByUserId(userId);

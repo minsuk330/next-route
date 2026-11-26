@@ -71,7 +71,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "classpath:db/migration/V66__journey_session_evaluation_urgent.sql",
         "classpath:db/migration/V67__journey_reevaluation_trigger.sql",
         "classpath:db/migration/V77__add_journey_route_option_display_color.sql",
-        "classpath:db/migration/V78__journey_leg_route_option_selected_by.sql"
+        "classpath:db/migration/V78__journey_leg_route_option_selected_by.sql",
+        "classpath:db/migration/V80__journey_session_search_session_id.sql"
 },
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DisplayName("앱 계측 수집")

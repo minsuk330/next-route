@@ -67,7 +67,7 @@ public class JourneyStartService implements StartJourneyUseCase {
             // 급행 끄기는 검색 요청값 그대로 세션에 남긴다(D10 으로 풀렸어도) — 재탐색이 같은 선호로 찾는다(subway-express S5).
             return startTxService.start(userId, plan, routeSnapshot,
                     destinationSummary(stored.path()), command.replace(), clock.instant(),
-                    JourneyKind.NAVIGATION, stored.excludeExpress());
+                    JourneyKind.NAVIGATION, stored.excludeExpress(), command.searchSessionId());
         } catch (DataIntegrityViolationException e) {
             throw conflictTranslator.translate(e, userId);
         }
