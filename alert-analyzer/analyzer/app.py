@@ -15,6 +15,7 @@ from datetime import datetime
 
 import httpx2 as httpx
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import ValidationError
 
 from analyzer.config import Settings
@@ -23,6 +24,7 @@ from analyzer.dedupe import DailyBudget, SeenStore
 from analyzer.llm import Analyzer, make_client
 from analyzer.logging_json import configure_logging
 from analyzer.payload import AnalysisJob, GrafanaWebhook, dedupe_key, select_new
+from analyzer.probe import ProbeState, probe_loop, render_metrics
 from analyzer.slack import SlackClient
 from analyzer.sources import LokiClient, PromClient
 from analyzer.worker import GatherFn, Live, run_worker, utcnow
@@ -47,6 +49,7 @@ def create_app(
         app.state.queue = asyncio.Queue(maxsize=resolved.queue_max)
         app.state.seen = SeenStore()
         app.state.budget = DailyBudget(resolved.daily_limit)
+        app.state.probe = ProbeState()
 
         http = httpx.AsyncClient()
         loki = LokiClient(resolved.loki_url, http)
@@ -70,19 +73,30 @@ def create_app(
                     app.state.queue, settings=resolved, budget=app.state.budget, gather_fn=fn, live=stages, clock=clock
                 )
             )
+        # Its own task: an analysis that takes a minute must not delay a probe, and the other way round.
+        probe = None
+        if start_worker and resolved.probe_enabled:
+            probe = asyncio.create_task(
+                probe_loop(
+                    http, resolved.probe_base_url, resolved.probe_interval_s, app.state.probe,
+                    clock=clock, sleep=asyncio.sleep,
+                )
+            )
         log.info(
-            "alert-analyzer started dry_run=%s live=%s daily_limit=%d",
+            "alert-analyzer started dry_run=%s live=%s daily_limit=%d probe=%s",
             resolved.dry_run,
             stages is not None,
             resolved.daily_limit,
+            probe is not None,
         )
         try:
             yield
         finally:
-            if worker is not None:
-                worker.cancel()
-                with suppress(asyncio.CancelledError):
-                    await worker
+            for task in (worker, probe):
+                if task is not None:
+                    task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
             if claude is not None:
                 await claude.close()
             await http.aclose()
@@ -116,6 +130,11 @@ def create_app(
     @app.get("/healthz")
     async def healthz(request: Request) -> dict:
         return {"status": "ok", "queue": request.app.state.queue.qsize()}
+
+    # Scraped by Prometheus on the observability network only (port 8000 is not published).
+    @app.get("/metrics", response_class=PlainTextResponse)
+    async def metrics(request: Request) -> PlainTextResponse:
+        return PlainTextResponse(render_metrics(request.app.state.probe), media_type="text/plain; version=0.0.4")
 
     return app
 

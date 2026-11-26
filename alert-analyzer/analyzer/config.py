@@ -29,6 +29,10 @@ class Settings:
     anthropic_api_key: str = field(default="", repr=False)
     slack_bot_token: str = field(default="", repr=False)
     slack_channel_id: str = ""
+    # Synthetic monitoring (analyzer.probe). Off unless asked: it calls the production API.
+    probe_enabled: bool = False
+    probe_base_url: str = "https://api.refit-100.site"
+    probe_interval_s: float = 600.0
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -53,4 +57,7 @@ class Settings:
             anthropic_api_key=live["ANTHROPIC_API_KEY"],
             slack_bot_token=live["SLACK_BOT_TOKEN"],
             slack_channel_id=live["SLACK_CHANNEL_ID"],
+            probe_enabled=_bool(env.get("ANALYZER_PROBE_ENABLED"), False),
+            probe_base_url=env.get("ANALYZER_PROBE_BASE_URL", cls.probe_base_url),
+            probe_interval_s=float(env.get("ANALYZER_PROBE_INTERVAL_S", cls.probe_interval_s)),
         )

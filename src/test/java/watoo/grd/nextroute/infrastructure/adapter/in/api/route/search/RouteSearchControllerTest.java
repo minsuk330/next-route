@@ -248,4 +248,31 @@ class RouteSearchControllerTest {
 
         assertThat(controller.search(null, request).getBody()).isSameAs(result);
     }
+
+    // ── 합성 모니터링 ────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("합성 모니터링 검색(X-Nextroute-Synthetic: 1)은 퍼널에 남기지 않는다 — 응답은 같다")
+    void syntheticSearchSkipsFunnel() {
+        RouteSearchRequest request = request();
+        RouteSearchResult result = emptyResult();
+        when(searchRouteUseCase.search(request)).thenReturn(result);
+
+        var response = controller.search(null, request, "1");
+
+        assertThat(response.getBody()).isSameAs(result);
+        verifyNoInteractions(searchEventRecorder);
+    }
+
+    @Test
+    @DisplayName("헤더 값이 1 이 아니면 일반 검색으로 퍼널에 남긴다")
+    void otherHeaderValueStillRecorded() {
+        RouteSearchRequest request = request();
+        RouteSearchResult result = emptyResult();
+        when(searchRouteUseCase.search(request)).thenReturn(result);
+
+        controller.search(null, request, "true");
+
+        verify(searchEventRecorder).record(isNull(), eq(result), org.mockito.ArgumentMatchers.anyLong());
+    }
 }

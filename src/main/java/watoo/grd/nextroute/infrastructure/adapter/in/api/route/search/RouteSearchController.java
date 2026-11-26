@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.infrastructure.adapter.in.api.route.search;
 
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -9,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import watoo.grd.nextroute.application.route.dto.RouteSearchRequest;
@@ -19,6 +21,7 @@ import watoo.grd.nextroute.application.route.port.in.RecordSearchHistoryUseCase;
 import watoo.grd.nextroute.application.route.port.in.SearchRouteUseCase;
 import watoo.grd.nextroute.application.route.service.RouteSearchEventRecorder;
 import watoo.grd.nextroute.application.route.service.RouteSearchSnapshotRecorder;
+import watoo.grd.nextroute.common.observability.SyntheticRequest;
 
 import java.util.Map;
 
@@ -44,7 +47,9 @@ public class RouteSearchController {
     @GetMapping("/search")
     public ResponseEntity<RouteSearchResult> search(
             @AuthenticationPrincipal Long userId,
-            @Valid RouteSearchRequest request) {
+            @Valid RouteSearchRequest request,
+            @Parameter(hidden = true)
+            @RequestHeader(name = SyntheticRequest.HEADER, required = false) String syntheticHeader) {
         long startedAt = System.nanoTime();
         RouteSearchResult result = searchRouteUseCase.search(request);
         // 급행 끄기는 요청값으로 남긴다(D10 해제와 무관) — 여정 재탐색이 같은 선호로 찾는다(subway-express S5).
@@ -53,9 +58,17 @@ public class RouteSearchController {
             recordSearchHistoryUseCase.record(userId, request, result);
         }
         // 익명 포함 모든 성공 검색. 비동기·실패 무시라 응답에 영향 없음.
-        RouteSearchResult recorded = result;
-        searchEventRecorder.ifAvailable(r -> r.record(userId, recorded, System.nanoTime() - startedAt));
+        // 합성 모니터링 호출은 퍼널에서 뺀다(하루 약 220건 > 실제 검색, docs/plan/synthetic-monitoring).
+        if (!SyntheticRequest.isSynthetic(syntheticHeader)) {
+            RouteSearchResult recorded = result;
+            searchEventRecorder.ifAvailable(r -> r.record(userId, recorded, System.nanoTime() - startedAt));
+        }
         return ResponseEntity.ok(result);
+    }
+
+    /** 사용자 요청과 같은 경로(합성 표시 없음). 기존 호출부·테스트용. */
+    public ResponseEntity<RouteSearchResult> search(Long userId, RouteSearchRequest request) {
+        return search(userId, request, null);
     }
 
     /**

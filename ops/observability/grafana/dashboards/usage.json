@@ -319,7 +319,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(http_server_requests_seconds_count{uri=\"/api/route/search\"}[1h]))",
+          "expr": "sum(increase(http_server_requests_seconds_count{uri=\"/api/route/search\", synthetic!=\"true\"}[1h]))",
           "legendFormat": "검색 요청",
           "editorMode": "code",
           "range": true
@@ -559,7 +559,7 @@
           "editorMode": "code",
           "range": true,
           "interval": "1d",
-          "expr": "sum(increase(http_server_requests_seconds_count{uri=\"/api/route/search\"}[1d] offset -1d))",
+          "expr": "sum(increase(http_server_requests_seconds_count{uri=\"/api/route/search\", synthetic!=\"true\"}[1d] offset -1d))",
           "legendFormat": "검색 요청"
         }
       ],

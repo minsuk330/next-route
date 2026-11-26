@@ -19,6 +19,7 @@ from analyzer.weekly import (
     render,
     score,
     slow_endpoints,
+    synthetic_probe,
 )
 
 END = datetime(2026, 11, 30, 0, 0, tzinfo=timezone.utc)  # Mon 09:00 KST
@@ -97,6 +98,44 @@ async def test_route_search_reported_when_share_over_5s_doubles():
     assert slow[0] == {"uri": "/api/route/search", "over_share": 0.12, "count": 147.0}
     text = render(START, END, {"slow": slow}, dashboard_url="u")
     assert "`/api/route/search` 5초 초과 12% (기준 10%, 평소 약 5%, 147건)" in text
+
+
+def fake_synthetic_prom(runs, slow):
+    def handler(request: httpx.Request) -> httpx.Response:
+        q = request.url.params["query"]
+        rows = runs if "synthetic_probe_runs_total" in q else slow
+        return httpx.Response(200, json={"status": "success", "data": {"result": [
+            {"metric": m, "value": [0, v]} for m, v in rows]}})
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.anyio
+async def test_synthetic_probe_counts_runs_by_outcome_and_slow_searches():
+    runs = [({"scenario": "subway", "outcome": "0"}, "140.2"), ({"scenario": "subway", "outcome": "2"}, "1"),
+            ({"scenario": "bus", "outcome": "0"}, "138"), ({"scenario": "bus", "outcome": "1"}, "3.1"),
+            ({"scenario": "bus", "outcome": "3"}, "5")]  # unknown outcome ignored
+    slow = [({"scenario": "subway"}, "2")]
+    async with httpx.AsyncClient(transport=fake_synthetic_prom(runs, slow)) as http:
+        syn = await synthetic_probe(Prom("http://prometheus:9090", http), END)
+    assert syn == {"subway": {"ok": 140.2, "degraded": 0.0, "failed": 1.0, "slow": 2.0},
+                   "bus": {"ok": 138.0, "degraded": 3.1, "failed": 0.0, "slow": 0.0}}
+    text = render(START, END, {"synthetic": syn}, dashboard_url="u")
+    assert "• ✅ " not in text
+    assert "⚠️ bus: 정상 138 · 이상 3 · 실패 0 · 검색 10초 이상 0" in text
+    assert "⚠️ subway: 정상 140 · 이상 0 · 실패 1 · 검색 10초 이상 2" in text
+
+
+def test_render_synthetic_ok_empty_and_failed():
+    ok = {"subway": {"ok": 140.0, "degraded": 0.0, "failed": 0.0, "slow": 0.0}}
+    assert "✅ subway: 정상 140 · 이상 0 · 실패 0 · 검색 10초 이상 0" in render(START, END, {"synthetic": ok}, dashboard_url="u")
+    assert "기록 없음 (호출기 꺼짐?)" in render(START, END, {"synthetic": {}}, dashboard_url="u")
+    failed = render(START, END, {"synthetic": "DigestError: prometheus: HTTP 503"}, dashboard_url="u")
+    assert "*합성 확인*" in failed and "조회 실패: DigestError: prometheus: HTTP 503" in failed
+
+
+def test_api_selector_excludes_synthetic_traffic():
+    for q in (weekly.SLOW_P95, weekly.SLOW_COUNT, weekly.SEARCH_OVER):
+        assert 'synthetic!="true"' in q
 
 
 def full_data() -> dict:
