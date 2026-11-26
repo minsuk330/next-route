@@ -253,6 +253,21 @@ class RemainingPathCandidateProviderTest {
     }
 
     @Test
+    @DisplayName("#626: 경기 정류장 대기도(정류장 id = 실시간 9자리) 남은 구간을 찾는다 — 지금까지는 id 가 비어 막혀 있었다")
+    void gyeonggiWaitStopIsSearched() {
+        org.springframework.test.util.ReflectionTestUtils.setField(waitLeg, "startStopId", "233001674");
+        PathResult path = path("A");
+        given(searchService.search(eq("233001674"), eq(WAYPOINTS), anyLong(), any(), anyBoolean()))
+                .willReturn(List.of(path));
+        givenPrepared(path, prepared("BL-360", 0, 1));
+        givenBaseline(NOW.plusSeconds(600), true);
+        givenComposed(path, attempt(NOW.plusSeconds(2400)));
+
+        assertThat(provider.findCandidates(context())).isNotEmpty();
+        verify(searchService).search(eq("233001674"), eq(WAYPOINTS), anyLong(), any(), anyBoolean());
+    }
+
+    @Test
     @DisplayName("좌표를 못 찾으면 검색을 부르지 않는다")
     void missingWaypointsSkipsSearch() {
         given(waypointResolver.resolve(JOURNEY_ID, 1, 2)).willReturn(Optional.empty());

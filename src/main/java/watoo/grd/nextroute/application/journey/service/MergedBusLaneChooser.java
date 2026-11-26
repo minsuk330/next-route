@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 /**
  * 묶인 버스 대기 중 서버 기본 선택을 먼저 오는 노선으로 옮길지 정한다(#614 PR-2).
@@ -57,7 +56,6 @@ public class MergedBusLaneChooser {
     static final Duration JUST_LEFT = Duration.ofSeconds(120);
     static final String METRIC = "journey.lane.reselect";
 
-    private static final Pattern NINE_DIGITS = Pattern.compile("^\\d{9}$");
 
     private final JourneyLegRouteOptionRepository routeOptionRepository;
     private final GetBusStopArrivalsUseCase stopArrivals;
@@ -196,15 +194,19 @@ public class MergedBusLaneChooser {
                 && !storedArrival.isAfter(now.plus(ARRIVING));
     }
 
+    /**
+     * 정류장 단위 도착 API 에 물을 정류장 id. 원천 id 가 GTFS 원형이든 이미 뗀 값(9자리, TAGO)이든 실시간 id 로 바꾸고,
+     * 못 바꾸면 저장된 startStopId(#626 뒤에는 그 자체가 실시간 id)를 쓴다.
+     */
     private String stopIdOf(JourneyLeg wait) {
-        Optional<String> fromSource = wait.getSourceStartStopId() == null
-                ? Optional.empty() : realtimeStopIds.of(wait.getSourceStartStopId());
+        Optional<String> fromSource = realtimeStopIds.realtimeId(wait.getSourceStartStopId());
         if (fromSource.isPresent()) {
             return fromSource.get();
         }
         String start = wait.getStartStopId();
-        return start != null && NINE_DIGITS.matcher(start).matches() ? start : null;
+        return start == null || start.isBlank() ? null : start;
     }
+
 
     private static String normalize(String name) {
         if (name == null) {

@@ -118,6 +118,21 @@ class RerouteOriginResolverTest {
     }
 
     @Test
+    @DisplayName("#626: 경기 정류장 대기(서울 노선 없음)도 원점은 만든다 — seq 없음, 실시간 후보 아님")
+    void gyeonggiWaitStopMakesAnOriginWithoutSeq() {
+        transferExists();
+        boardingLeg("233001674", null);
+
+        RerouteOrigin origin = resolver
+                .resolveTransferWait(JOURNEY_ID, REVISION, TRANSFER_INDEX).orElseThrow();
+
+        assertThat(origin.stopId()).isEqualTo("233001674");
+        assertThat(origin.routeId()).isNull();
+        assertThat(origin.seq()).isNull();
+        assertThat(origin.isRealtimeAddressable()).isFalse();
+    }
+
+    @Test
     @DisplayName("환승 행이 없으면 빈 결과 — 예외가 아니다(옛 주소로 계속 돈다)")
     void missingTransferYieldsEmpty() {
         when(transferRepository.findByJourneyIdAndRouteRevisionAndTransferIndexAndDeletedAtIsNull(

@@ -27,6 +27,10 @@ public class BusRealtimeStopIds {
 
     private static final Pattern SEOUL_GYEONGGI = Pattern.compile("^\\d+:BS_TAGO_(?:SEB|GGB)(\\d{9})$");
     private static final Pattern TAGO = Pattern.compile("^\\d+:BS_TAGO_(([A-Z]{3})\\d+)$");
+    /** 이미 접두사를 뗀 값: 서울·경기 9자리. */
+    private static final Pattern NINE_DIGITS = Pattern.compile("^\\d{9}$");
+    /** 이미 접두사를 뗀 값: TAGO 도시 접두사 + 숫자({@code BSB167850202}). */
+    private static final Pattern TAGO_REALTIME = Pattern.compile("^([A-Z]{3})\\d+$");
 
     private final TagoCityCodeLookup tagoCityCodeLookup;
 
@@ -41,6 +45,30 @@ public class BusRealtimeStopIds {
         Matcher tago = TAGO.matcher(gtfsStopId);
         if (tago.matches() && tagoCityCodeLookup.isRealtimePrefix(tago.group(2))) {
             return Optional.of(tago.group(1));
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * 여정에 저장된 원천 정류장 id → 실시간 도착 API id. 원천 id 는 두 모양으로 온다: 길찾기 응답의
+     * {@code startLocalStationID}(이미 뗀 값: 9자리, {@code BSB…})와 그 칸이 비었을 때의 GTFS 원형.
+     * 둘 다 받는다. 이미 뗀 TAGO 값은 {@link #of} 와 같이 실시간을 물을 수 있는 접두사일 때만.
+     */
+    public Optional<String> realtimeId(String sourceStopId) {
+        if (sourceStopId == null || sourceStopId.isBlank()) {
+            return Optional.empty();
+        }
+        String id = sourceStopId.strip();
+        Optional<String> fromGtfs = of(id);
+        if (fromGtfs.isPresent()) {
+            return fromGtfs;
+        }
+        if (NINE_DIGITS.matcher(id).matches()) {
+            return Optional.of(id);
+        }
+        Matcher tago = TAGO_REALTIME.matcher(id);
+        if (tago.matches() && tagoCityCodeLookup.isRealtimePrefix(tago.group(1))) {
+            return Optional.of(id);
         }
         return Optional.empty();
     }

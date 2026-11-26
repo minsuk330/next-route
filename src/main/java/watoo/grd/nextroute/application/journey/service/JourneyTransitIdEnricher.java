@@ -6,6 +6,7 @@ import watoo.grd.nextroute.application.arrival.service.SubwayArrivalQueryService
 import watoo.grd.nextroute.application.journey.dto.JourneyLegDraft;
 import watoo.grd.nextroute.application.journey.dto.JourneyPlan;
 import watoo.grd.nextroute.application.journey.dto.JourneyRouteOptionDraft;
+import watoo.grd.nextroute.application.route.mapping.BusRealtimeStopIds;
 import watoo.grd.nextroute.application.route.service.TransferStopResolver;
 import watoo.grd.nextroute.application.subway.service.DestinationNormalizer;
 import watoo.grd.nextroute.application.subway.service.SubwayLineIdMapper;
@@ -34,6 +35,7 @@ public class JourneyTransitIdEnricher {
     private final TransferStopResolver busResolver;
     private final SubwayArrivalQueryService subwayArrivalQueryService;
     private final DestinationNormalizer destinationNormalizer;
+    private final BusRealtimeStopIds realtimeStopIds;
 
     public JourneyPlan enrich(JourneyPlan plan) {
         Map<Integer, JourneyLegDraft> originalByIndex = new HashMap<>();
@@ -147,9 +149,18 @@ public class JourneyTransitIdEnricher {
         return sourceStopId != null && OUTSIDE_SEOUL_GTFS_BUS_STOP.matcher(sourceStopId).matches();
     }
 
+    /**
+     * 서울 정류장 표에서 먼저 찾고, 없으면 원천 id 를 실시간 도착 API id 로 쓴다(#626). 경기 정류장(서울 번호 정류장에
+     * 서는 경기 노선 포함)·TAGO 정류장은 서울 표에 없어서 지금까지 null 이었고, 앱이 도착 시간을 한 번도 묻지 못했다.
+     *
+     * <p>폴백을 {@link TransferStopResolver#resolveStop} 에 두지 않는다 — 검색 시점에도 쓰이고 거기서 빈 값은
+     * "서울이 아님 → 지역 실시간 분기"라는 뜻이다. 서울 노선 해석·seq 는 노선 id 가 서울일 때만 돌아서 지역 id 로
+     * 잘못 맞춰지지 않는다.
+     */
     private String resolveBusStop(String sourceStopId) {
         return busResolver.resolveStop(sourceStopId)
                 .map(TransferStopResolver.StopResolution::stopId)
+                .or(() -> realtimeStopIds.realtimeId(sourceStopId))
                 .orElse(null);
     }
 
