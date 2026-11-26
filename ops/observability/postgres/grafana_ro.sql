@@ -12,3 +12,6 @@ GRANT CONNECT ON DATABASE mydatabase TO grafana_ro;
 GRANT USAGE ON SCHEMA public TO grafana_ro;
 -- 대시보드가 읽는 표만. 새 패널이 다른 표를 읽으면 여기에 추가한다.
 GRANT SELECT ON auth_identity, journey_session, user_daily_activity TO grafana_ro;
+-- 2026-11-26 북극성(정시 알림) 대시보드·알림 규칙. 이미 있는 계정엔 이 줄만 실행:
+--   docker exec -i nextroute-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' <<< 'GRANT SELECT ON journey_notification, subway_ring_push_outbox TO grafana_ro;'
+GRANT SELECT ON journey_notification, subway_ring_push_outbox TO grafana_ro;

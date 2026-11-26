@@ -1,0 +1,465 @@
+{
+  "uid": "nextroute-north-star",
+  "title": "북극성 · 정시 알림",
+  "tags": [
+    "nextroute",
+    "north-star"
+  ],
+  "timezone": "Asia/Seoul",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "5m",
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "여정 알림 정시율 (북극성) — 정시 = 예정 시각 + 60초 이내 FCM 전달",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "title": "정시 / 전체",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with n as (\n  select id, journey_id, checkpoint, status, last_failure_reason, sent_at,\n         (created_at at time zone 'Asia/Seoul')\n           + coalesce((payload->>'holdMs')::bigint, 0) * interval '1 millisecond' as due\n  from journey_notification\n  where channel = 'PUSH' and deleted_at is null\n), c as (\n  select *,\n    case\n      when status = 'SENT' and sent_at <= due + interval '60 seconds' then 'on_time'\n      when status = 'SENT' then 'late'\n      when status in ('DEAD', 'FAILED') then 'lost'\n      when status = 'CANCELED' and last_failure_reason in ('expired', 'expired-before-retry') then 'lost'\n      when status = 'CANCELED' then 'excluded'\n      when now() > due + interval '60 seconds' then 'overdue'\n      else 'pending'\n    end as outcome,\n    -- 유실은 지연이 없다(안 나갔다). 아직 대기 중이면 지금까지 밀린 시간.\n    case when sent_at is not null then extract(epoch from (sent_at - due))\n         when status in ('PENDING', 'PROCESSING') then extract(epoch from (now() - due)) end as delay_s\n  from n\n)\n\nselect\n  count(*) filter (where outcome = 'on_time') || ' / ' || count(*) as \"정시 / 전체\",\n  case when count(*) >= 20\n       then round(100.0 * count(*) filter (where outcome = 'on_time') / count(*), 1) || '%'\n       else '표본 ' || count(*) || '건 (20건부터 %)' end as \"정시율\"\nfrom c\nwhere outcome not in ('excluded', 'pending') and $__timeFilter(due)"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/"
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "description": "기간 안 예정 시각 기준. 분모 = 정시+늦음+유실+지연 중. 뜻을 잃은 취소(여정 종료 등)는 뺀다. 주 20건 미만이면 % 대신 건수만 본다(2026-11-26 결정)."
+    },
+    {
+      "id": 3,
+      "title": "늦음 · 유실 · 지연 중",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with n as (\n  select id, journey_id, checkpoint, status, last_failure_reason, sent_at,\n         (created_at at time zone 'Asia/Seoul')\n           + coalesce((payload->>'holdMs')::bigint, 0) * interval '1 millisecond' as due\n  from journey_notification\n  where channel = 'PUSH' and deleted_at is null\n), c as (\n  select *,\n    case\n      when status = 'SENT' and sent_at <= due + interval '60 seconds' then 'on_time'\n      when status = 'SENT' then 'late'\n      when status in ('DEAD', 'FAILED') then 'lost'\n      when status = 'CANCELED' and last_failure_reason in ('expired', 'expired-before-retry') then 'lost'\n      when status = 'CANCELED' then 'excluded'\n      when now() > due + interval '60 seconds' then 'overdue'\n      else 'pending'\n    end as outcome,\n    -- 유실은 지연이 없다(안 나갔다). 아직 대기 중이면 지금까지 밀린 시간.\n    case when sent_at is not null then extract(epoch from (sent_at - due))\n         when status in ('PENDING', 'PROCESSING') then extract(epoch from (now() - due)) end as delay_s\n  from n\n)\n\nselect\n  count(*) filter (where outcome = 'late') as \"늦음\",\n  count(*) filter (where outcome = 'lost') as \"유실\",\n  count(*) filter (where outcome = 'overdue') as \"지연 중\"\nfrom c where $__timeFilter(due)"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/"
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "description": "하나라도 생기면 Slack 알림(규칙 '여정 알림 늦음·유실'). 지연 중 = 아직 안 나갔는데 예정+60초 지남."
+    },
+    {
+      "id": 4,
+      "title": "발송 지연 p50 / p95 (정시·늦음)",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with n as (\n  select id, journey_id, checkpoint, status, last_failure_reason, sent_at,\n         (created_at at time zone 'Asia/Seoul')\n           + coalesce((payload->>'holdMs')::bigint, 0) * interval '1 millisecond' as due\n  from journey_notification\n  where channel = 'PUSH' and deleted_at is null\n), c as (\n  select *,\n    case\n      when status = 'SENT' and sent_at <= due + interval '60 seconds' then 'on_time'\n      when status = 'SENT' then 'late'\n      when status in ('DEAD', 'FAILED') then 'lost'\n      when status = 'CANCELED' and last_failure_reason in ('expired', 'expired-before-retry') then 'lost'\n      when status = 'CANCELED' then 'excluded'\n      when now() > due + interval '60 seconds' then 'overdue'\n      else 'pending'\n    end as outcome,\n    -- 유실은 지연이 없다(안 나갔다). 아직 대기 중이면 지금까지 밀린 시간.\n    case when sent_at is not null then extract(epoch from (sent_at - due))\n         when status in ('PENDING', 'PROCESSING') then extract(epoch from (now() - due)) end as delay_s\n  from n\n)\n\nselect\n  round(percentile_cont(0.5) within group (order by delay_s)::numeric, 1) as \"p50 (초)\",\n  round(percentile_cont(0.95) within group (order by delay_s)::numeric, 1) as \"p95 (초)\",\n  round(max(delay_s)::numeric, 1) as \"최대 (초)\"\nfrom c where outcome in ('on_time', 'late') and $__timeFilter(due)"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/"
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "description": "예정 시각(created_at + holdMs) → FCM 수락. hold(의도된 대기)는 빠진 값."
+    },
+    {
+      "id": 5,
+      "title": "checkpoint 별",
+      "type": "table",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with n as (\n  select id, journey_id, checkpoint, status, last_failure_reason, sent_at,\n         (created_at at time zone 'Asia/Seoul')\n           + coalesce((payload->>'holdMs')::bigint, 0) * interval '1 millisecond' as due\n  from journey_notification\n  where channel = 'PUSH' and deleted_at is null\n), c as (\n  select *,\n    case\n      when status = 'SENT' and sent_at <= due + interval '60 seconds' then 'on_time'\n      when status = 'SENT' then 'late'\n      when status in ('DEAD', 'FAILED') then 'lost'\n      when status = 'CANCELED' and last_failure_reason in ('expired', 'expired-before-retry') then 'lost'\n      when status = 'CANCELED' then 'excluded'\n      when now() > due + interval '60 seconds' then 'overdue'\n      else 'pending'\n    end as outcome,\n    -- 유실은 지연이 없다(안 나갔다). 아직 대기 중이면 지금까지 밀린 시간.\n    case when sent_at is not null then extract(epoch from (sent_at - due))\n         when status in ('PENDING', 'PROCESSING') then extract(epoch from (now() - due)) end as delay_s\n  from n\n)\n\nselect checkpoint as \"checkpoint\",\n  count(*) filter (where outcome = 'on_time') || ' / ' || count(*) as \"정시 / 전체\",\n  count(*) filter (where outcome = 'late') as \"늦음\",\n  count(*) filter (where outcome = 'lost') as \"유실\",\n  count(*) filter (where outcome = 'overdue') as \"지연 중\",\n  round((percentile_cont(0.95) within group (order by delay_s)\n         filter (where outcome in ('on_time', 'late')))::numeric, 1) as \"p95 지연(초)\"\nfrom c\nwhere outcome not in ('excluded', 'pending') and $__timeFilter(due)\ngroup by checkpoint order by count(*) desc"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "일별 결과",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "with n as (\n  select id, journey_id, checkpoint, status, last_failure_reason, sent_at,\n         (created_at at time zone 'Asia/Seoul')\n           + coalesce((payload->>'holdMs')::bigint, 0) * interval '1 millisecond' as due\n  from journey_notification\n  where channel = 'PUSH' and deleted_at is null\n), c as (\n  select *,\n    case\n      when status = 'SENT' and sent_at <= due + interval '60 seconds' then 'on_time'\n      when status = 'SENT' then 'late'\n      when status in ('DEAD', 'FAILED') then 'lost'\n      when status = 'CANCELED' and last_failure_reason in ('expired', 'expired-before-retry') then 'lost'\n      when status = 'CANCELED' then 'excluded'\n      when now() > due + interval '60 seconds' then 'overdue'\n      else 'pending'\n    end as outcome,\n    -- 유실은 지연이 없다(안 나갔다). 아직 대기 중이면 지금까지 밀린 시간.\n    case when sent_at is not null then extract(epoch from (sent_at - due))\n         when status in ('PENDING', 'PROCESSING') then extract(epoch from (now() - due)) end as delay_s\n  from n\n)\n\nselect date_trunc('day', due at time zone 'Asia/Seoul') at time zone 'Asia/Seoul' as time,\n  count(*) filter (where outcome = 'on_time') as \"정시\",\n  count(*) filter (where outcome = 'late') as \"늦음\",\n  count(*) filter (where outcome in ('lost', 'overdue')) as \"유실\"\nfrom c\nwhere outcome not in ('excluded', 'pending') and $__timeFilter(due)\ngroup by 1 order by 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            },
+            "lineWidth": 1
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "정시"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "늦음"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "유실"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "늦음 · 유실 · 지연 중 목록",
+      "type": "table",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with n as (\n  select id, journey_id, checkpoint, status, last_failure_reason, sent_at,\n         (created_at at time zone 'Asia/Seoul')\n           + coalesce((payload->>'holdMs')::bigint, 0) * interval '1 millisecond' as due\n  from journey_notification\n  where channel = 'PUSH' and deleted_at is null\n), c as (\n  select *,\n    case\n      when status = 'SENT' and sent_at <= due + interval '60 seconds' then 'on_time'\n      when status = 'SENT' then 'late'\n      when status in ('DEAD', 'FAILED') then 'lost'\n      when status = 'CANCELED' and last_failure_reason in ('expired', 'expired-before-retry') then 'lost'\n      when status = 'CANCELED' then 'excluded'\n      when now() > due + interval '60 seconds' then 'overdue'\n      else 'pending'\n    end as outcome,\n    -- 유실은 지연이 없다(안 나갔다). 아직 대기 중이면 지금까지 밀린 시간.\n    case when sent_at is not null then extract(epoch from (sent_at - due))\n         when status in ('PENDING', 'PROCESSING') then extract(epoch from (now() - due)) end as delay_s\n  from n\n)\n\nselect id as \"id\", journey_id as \"여정\", checkpoint, outcome as \"결과\", status as \"상태\",\n  due as \"예정 시각\", sent_at as \"발송\", round(delay_s::numeric, 1) as \"지연(초)\",\n  last_failure_reason as \"사유\"\nfrom c\nwhere outcome in ('late', 'lost', 'overdue') and $__timeFilter(due)\norder by due desc limit 100"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "description": "analyzer 없이 바로 원인을 보는 곳. 사유 = last_failure_reason."
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "잠금화면 갱신 지연 (보조) — 지하철 Live Activity, 정시 = 생성 + 60초 이내",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 9,
+      "title": "정시 / 전체 · 지연",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with r as (\n  select id, journey_id, reason, status, sent_at,\n         (created_at at time zone 'Asia/Seoul') as due\n  from subway_ring_push_outbox\n  where deleted_at is null and status in ('SENT', 'FAILED')\n), c as (\n  select *,\n    (status = 'SENT' and sent_at <= due + interval '60 seconds') as on_time,\n    extract(epoch from (sent_at - due)) as delay_s\n  from r\n)\n\nselect\n  count(*) filter (where on_time) || ' / ' || count(*) as \"정시 / 전체\",\n  case when count(*) > 0 then round(100.0 * count(*) filter (where on_time) / count(*), 1) || '%' end as \"정시율\",\n  round((percentile_cont(0.5) within group (order by delay_s) filter (where status = 'SENT'))::numeric, 2) || 's' as \"p50\",\n  round((percentile_cont(0.95) within group (order by delay_s) filter (where status = 'SENT'))::numeric, 2) || 's' as \"p95\"\nfrom c where $__timeFilter(due)"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/"
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "description": "분모 = SENT + FAILED. SKIPPED(의도된 생략)는 뺀다. 1시간 10건 이상 && 95% 미만이면 Slack 알림."
+    },
+    {
+      "id": 10,
+      "title": "시간별 p95 지연",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "nextroute-pg"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "nextroute-pg"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "with r as (\n  select id, journey_id, reason, status, sent_at,\n         (created_at at time zone 'Asia/Seoul') as due\n  from subway_ring_push_outbox\n  where deleted_at is null and status in ('SENT', 'FAILED')\n), c as (\n  select *,\n    (status = 'SENT' and sent_at <= due + interval '60 seconds') as on_time,\n    extract(epoch from (sent_at - due)) as delay_s\n  from r\n)\n\nselect date_trunc('hour', due) as time,\n  percentile_cont(0.95) within group (order by delay_s) as \"p95\",\n  percentile_cont(0.5) within group (order by delay_s) as \"p50\"\nfrom c where status = 'SENT' and $__timeFilter(due)\ngroup by 1 order by 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always"
+          },
+          "unit": "s",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ],
+  "description": "docs/plan/observability-north-star/PLAN.md. 생성기: ops/observability/grafana/north_star_dashboard.py"
+}

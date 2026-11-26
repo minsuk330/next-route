@@ -211,3 +211,91 @@ groups:
         annotations:
           summary: 'VPS 디스크 {{ printf "%.0f" .Values.A.Value }}% (기준 95%)'
           description: '가득 차면 Postgres 쓰기·Loki 적재·배포가 실패한다. 즉시 docker image/builder prune.'
+
+      # ---- 북극성(정시 알림). 정의는 grafana/north_star_dashboard.py 의 JOURNEY·RING 과 같다 — 바꾸면 둘 다. ----
+      # 여정 알림은 주 수 건이라 비율이 아니라 "한 건이라도"(2026-11-26 결정). 지연 중(PENDING 인데 예정+60초 지남)도 센다
+      # → worker 가 둘 다 멈춰 아무것도 안 나가는 경우를 발송 실패 기록 없이도 잡는다.
+      - uid: nr-journey-notification-late
+        title: 여정 알림 늦음·유실
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: nextroute-pg
+            model:
+              refId: A
+              editorMode: code
+              format: table
+              rawQuery: true
+              rawSql: |
+                with n as (
+                  select status, last_failure_reason, sent_at,
+                         (created_at at time zone 'Asia/Seoul')
+                           + coalesce((payload->>'holdMs')::bigint, 0) * interval '1 millisecond' as due
+                  from journey_notification
+                  where channel = 'PUSH' and deleted_at is null
+                    and created_at > (now() at time zone 'Asia/Seoul') - interval '2 hours'
+                )
+                select count(*)::float as value
+                from n
+                where due > now() - interval '1 hour'
+                  and ((status = 'SENT' and sent_at > due + interval '60 seconds')
+                    or status in ('DEAD', 'FAILED')
+                    or (status = 'CANCELED' and last_failure_reason in ('expired', 'expired-before-retry'))
+                    or (status in ('PENDING', 'PROCESSING') and now() > due + interval '60 seconds'))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        for: 0s
+        noDataState: OK
+        # DB 조회 실패(권한·연결)는 알림 자체가 눈먼 상태 → Error 로 드러낸다.
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: '여정 알림 늦음·유실·지연 중 {{ printf "%.0f" .Values.A.Value }}건 (최근 1시간, 기준 예정+60초)'
+          description: 'Grafana "북극성 · 정시 알림" 대시보드의 목록 패널에서 id·사유 확인. 지연 중이면 worker·worker2 상태부터.'
+
+      - uid: nr-ring-push-ontime
+        title: 잠금화면 갱신 정시율 낮음
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: nextroute-pg
+            model:
+              refId: A
+              editorMode: code
+              format: table
+              rawQuery: true
+              rawSql: |
+                with r as (
+                  select status, sent_at, (created_at at time zone 'Asia/Seoul') as due
+                  from subway_ring_push_outbox
+                  where deleted_at is null and status in ('SENT', 'FAILED')
+                    and created_at > (now() at time zone 'Asia/Seoul') - interval '1 hour'
+                )
+                -- 1시간 10건 미만이면 판단하지 않는다(1.0 반환).
+                select case when count(*) >= 10
+                            then count(*) filter (where status = 'SENT' and sent_at <= due + interval '60 seconds')::float / count(*)
+                            else 1 end as value
+                from r
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0.95] }
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: '잠금화면 갱신 정시율 {{ humanizePercentage .Values.A.Value }} (최근 1시간, 기준 95%)'
+          description: '지하철 Live Activity 갱신이 생성 후 60초 안에 FCM 으로 못 나가고 있다. worker 로그의 SubwayRingPush 확인.'
