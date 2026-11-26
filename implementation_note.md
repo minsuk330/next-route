@@ -7151,3 +7151,13 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 이미 역에 있는데 arrivalSeconds 49~59초 남는 것(원천 barvlDt 늦음)은 별건.
 ### 검증
 - `./gradlew test --tests 'watoo.grd.nextroute.application.arrival.*' --tests 'watoo.grd.nextroute.application.subway.*' --tests '*SubwayTrainSelectionServiceTest'` → 695 중 694 통과. SubwayStationArrivalQueryServiceTest 31/31(+4). 실패 1 = BusApproachStopNamesTransactionIT 컨텍스트 로드(env 미주입, 기존 무관).
+
+## #645 후속: 도착 원천 행이 코드 2 없이 사라지는 경우 (2026-11-26, 브랜치 fix/subway-departed-gap-vanished, 티어 S)
+### 확정
+- #647 배포 뒤 실측(22:09~22:14, API + `realtime:subway:snapshot` 행 동시 녹화): 코드 2 를 거치는 열차는 드묾. 8461 은 5 → 3(전역 출발) → 행 사라짐(22:12:44), API 에선 22:12:48~22:13:30 어디에도 없음. 3478 은 0(진입) → 사라짐, 1분 넘게 공백. 원천 recptnDt 가 20~30초씩 건너뛰어 진입·도착·출발을 한 회차에 지나침.
+- 수정: `SubwayArrivalDepartureRecorder` 를 전 노선으로(`realtime.subway.arrival-departure.all-lines` 기본 true, 끄면 옛 line-ids 6개). 사라짐 = 출발 직전 코드에 3 추가(0·1·3). `subway:adep` 를 읽는 곳은 `SubwayDepartureLookup` 하나 — 같은 열차는 위치 원천이 이김, M7 은 이 창구 안 씀.
+- 역 도착 응답: 도착 원천(ARRIVAL) 떠난 열차가 같은 방향 곧 오는 목록에 있으면 뺌(행이 한 회차 빠졌다 돌아온 거짓 출발). 위치 원천은 관측된 출발이라 둠. 3대 제한 전에 거름.
+### 함정
+- 기록기 부분 응답 가드(행 수 < 직전 절반이면 회차 건너뜀) — 시험에서 행 1개 → 0개로 만들면 기록 안 됨. 남는 행을 같이 둬야 함.
+### 검증
+- `./gradlew test --tests 'watoo.grd.nextroute.application.arrival.service.*Test' --tests 'watoo.grd.nextroute.application.subway.*Test' --tests '*SubwayTrainSelectionServiceTest' --tests '*RealtimeSubwayCollector*Test'` → 697/697. 기록기 +3, 역 도착 +1.

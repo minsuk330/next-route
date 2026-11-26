@@ -15,13 +15,17 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 위치 API 가 없는 노선에서 "이 역을 방금 떠난 열차"를 도착 API 수집 회차로 기록한다(#317-4).
+ * "이 역을 방금 떠난 열차"를 도착 API 수집 회차로 기록한다(#317-4, #645).
  *
- * <p>위치 API 출발 사건(#299)이 없는 노선은 역 도착 응답의 떠난 열차가 늘 비었다. 사용자는 대개 타고 나서 앱을 열어
- * 자기 열차가 떠난 쪽에 있다. 그래서 도착 API 에서 다음 두 순간을 출발로 본다.
+ * <p>처음엔 위치 API 출발 사건(#299)이 없는 노선만 채웠다. #645 에서 전 노선으로 넓혔다 — 위치 출발 사건은 위치 API 가
+ * 다음 역을 보여 줘야 생겨 약 1분 늦고, 그사이 도착 API 에서 행이 사라진 열차는 역 도착 응답 어디에도 없었다(노선 그림에서
+ * 열차가 사라짐). 같은 열차가 두 원천에 있으면 {@link SubwayDepartureLookup} 이 위치 원천을 고른다 — 여기 기록은 빈틈만
+ * 메운다. 도착 API 에서 다음 순간을 출발로 본다.
  * <ul>
  *   <li>직전 회차에 출발 전(그 밖의 코드)이던 그 역 행이 출발(2)이 됐다 → 그 행의 {@code recptnDt}</li>
- *   <li>직전 회차에 진입(0)·도착(1)이던 그 역 행이 사라졌다 → 직전 관측과 이번 수집 사이 가운데</li>
+ *   <li>직전 회차에 진입(0)·도착(1)·전역 출발(3)이던 그 역 행이 사라졌다 → 직전 관측과 이번 수집 사이 가운데.
+ *       전역 출발(3)은 원천 갱신이 20~30초씩 건너뛰어 진입·도착·출발을 한 번에 지나치는 경우다(2026-11-26 실측, 2호선
+ *       8461: 5 → 3 → 행 사라짐)</li>
  * </ul>
  *
  * <p><b>바뀌는 순간을 봤을 때만</b> 기록한다 — 재시작 첫 회차는 직전 상태가 없어 아무것도 안 남긴다
@@ -43,9 +47,16 @@ public class SubwayArrivalDepartureRecorder {
     @Value("${realtime.subway.arrival-departure.enabled:true}")
     private boolean enabled;
 
-    /** 위치 출발 사건이 없는 노선(2026-10-07 실측). 위치 API 가 있는 노선과 섞으면 같은 출발이 두 원천에 생긴다. */
+    /** 전 노선 기록(#645). 끄면 {@link #lineIds} 만 — 위치 출발 사건이 없는 노선. */
+    @Value("${realtime.subway.arrival-departure.all-lines:true}")
+    private boolean allLines = true;
+
+    /** 위치 출발 사건이 없는 노선(2026-10-07 실측). {@link #allLines} 를 끈 경우에만 본다. */
     @Value("${realtime.subway.arrival-departure.line-ids:1063,1067,1075,1081,1093,1094}")
     private Set<String> lineIds = Set.of();
+
+    /** 이 코드였던 행이 사라지면 그 역을 떠난 것으로 본다. */
+    private static final Set<String> VANISH_MEANS_DEPARTED = Set.of("0", "1", "3");
 
     private Map<String, Seen> previous = Map.of();
 
@@ -55,7 +66,8 @@ public class SubwayArrivalDepartureRecorder {
         }
         Map<String, Seen> current = new HashMap<>();
         for (SubwayRealtimeTrain train : trains) {
-            if (!lineIds.contains(train.getLineId()) || train.getTrainNo() == null || train.getStationId() == null
+            if ((!allLines && !lineIds.contains(train.getLineId())) || train.getLineId() == null
+                    || train.getTrainNo() == null || train.getStationId() == null
                     || train.getDirection() == null || train.getArrivalCode() == null) {
                 continue;
             }
@@ -76,7 +88,7 @@ public class SubwayArrivalDepartureRecorder {
                 }
             }
             for (Seen before : previous.values()) {
-                if (!current.containsKey(before.key()) && ("0".equals(before.code()) || "1".equals(before.code()))) {
+                if (!current.containsKey(before.key()) && VANISH_MEANS_DEPARTED.contains(before.code())) {
                     Instant last = before.receivedAt() != null && before.receivedAt().isBefore(fetchedAt)
                             ? before.receivedAt() : fetchedAt;
                     append(before, last.plus(Duration.between(last, fetchedAt).dividedBy(2)));
