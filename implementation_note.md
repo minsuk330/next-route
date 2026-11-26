@@ -7073,3 +7073,34 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 단위: `./gradlew test --tests '*JourneyTransitIdEnricherTest' --tests '*MergedBusLaneChooserTest' --tests '*BusRealtimeStopIdsTest' --tests '*RerouteOriginResolverTest' --tests '*RemainingPathCandidateProviderTest' --tests '*JourneyCompiler*' --tests '*JourneyEvaluationScheduleWriterLaneReselectTest'` → 95 tests, 0 failures.
 - IT(st-pg :55432, st-redis :56379, env api·db·auth·oauth — fcm.env 넣으면 FirebaseApp 자격증명 없어 컨텍스트 실패): `*JourneyStartIT *RerouteAcceptIT *BusRouteSelectionIT *JourneyEvaluationIT` → 97 tests, 0 failures.
 - 리뷰 확인(운영 DB): `bus_stop` 12,986행·`bus_route_stop` 41,783행 전부 9자리, `bus_route_stop` 에 경기 번호(2…) 정류장 3,158행 → 서울 노선 + 경기 정류장 9자리 seq 매칭은 같은 id 체계. `RemainingRouteSearchService.search` 의 stopId 는 로그·telemetry 용(출발점은 좌표). 맨 9자리 통과는 ODsay(롤백 전용) 경로에서만 다른 지역 id 가 들어올 수 있음 — 낮음.
+
+## 2026-11-26 regional-bus-parity PR-1 재탐색 후보의 지역 승차 시각 (L, feat/regional-bus-parity)
+
+### 확정
+- 사용자 결정(11-26): 경기·지방이라도 데이터가 있으면 서울과 같은 여정 기능. 플랜 `docs/plan/regional-bus-parity/`(PLAN·SUMMARY, Opus 사전 리뷰 반영).
+- 출발점 실측: 여정 555 보드가 남은 구간 검색 4번 → 후보 20개 전부 `unresolved-route`. `RemainingPathEtaComposer.unresolvedReason` 과 `BusBoardingTimeEstimator.hasScope` 가 서울 routeId+seq 요구.
+- `BoardingQuery.sourceRouteId` 추가(6-인자 생성자 유지 = 지역 조회 없음). 지역 분기는 sourceRouteId 를 넘기는 곳(composer 후보, storedSteps 기준선)만 탄다. **수락 트랜잭션은 넘기지 않음**(잠금 잡고 최대 5초 대기 방지, fail-open 유지). `BusTransferTargetArrivalPredictor` 는 자기 지역 분기로 먼저 빠져 추정기 새 분기에 안 닿음.
+- 지역 몫 두 칸: `reroute-gg-arrival`/`reroute-tago-arrival`(5000, 평가: 대기·환승·하차 창·자르기) + **`reroute-gg-candidate`/`reroute-tago-candidate`(1500, 후보·기준선)**. 후보가 평가 몫을 먹으면 모든 경기 여정 대기 화면이 비게 됨(리뷰 H1, 11-26 평가 몫 사용 154).
+- 회차당 지역 후보 조회 상한 `regionalCandidateLookupsPerRun=4`(TRANSFER_WAIT 자리 먼저). 넘으면 `regional-cap` 제외(지표 허용 목록 추가).
+- 몫은 실제 호출 때만: 경기 staOrder(`GyeonggiStopOrderPort.orderOf`) 비면 몫 전에 BLOCKED, 실패는 15초 음성 캐시, 캐시 2000칸 넘으면 만료 칸 정리.
+- 경기 `predictSec1/2` 있으면 초 값(정밀, quality GOOD), 분뿐이면 분×60(APPROXIMATE). TAGO arrtime 초 = 정밀. `Lookup.precise`. arrivalAt/nextArrival(평가)도 초 값을 쓰게 됨.
+- 실시간 창 밖 앵커(`modeFor==MODEL_ONLY`)·남은 예산 1초 미만이면 지역 조회 안 함.
+- prepare 에서 모든 대기를 외부 호출 없이 검사(뒤 대기 미해석 후보가 앞 대기 몫을 쓰고 버려지지 않게).
+- 같은 경로 거르기: 사건 경로 `currentRouteIds` 에 대기·직전 탑승의 고른 노선 sourceRouteId, 보드 `boardCurrentRouteIds` 에 다음 대기 sourceRouteId. 후보 쪽 `isSameAsCurrent` 는 원래 sourceRouteId 도 봄.
+- 지역 평가 분기(대기 ETA·환승 판정·`RegionalRideLocator`)는 `JourneyLeg.startStopIdForRealtime()`/`endStopIdForRealtime()`(저장 실시간 id, 없으면 원천) — 원천 GTFS 원형이면 실패하던 것과 캐시 키 중복 제거(리뷰 M2).
+
+### 함정
+- 목(mock) JourneyLeg fixture 는 새 메서드 `startStopIdForRealtime()` 를 null 로 돌려줌 → `TransferTargetArrivalPredictorTest.regionalWaitLeg` 에 stub 추가.
+- Prepared 레코드 안에서 `firstOption(leg)` 호출이 레코드 접근자 `firstOption()` 과 겹쳐 컴파일 오류 → `RemainingPathEtaComposer.firstOption(leg)` 로 한정.
+
+### 검증
+- 단위: `--tests '*RegionalArrivalLookupTest' '*BoardingTimeEstimatorTest' '*TransferTargetArrivalPredictorTest' '*WaitLegArrivalPredictorTest' '*RemainingPathEtaComposerTest' '*RemainingPathCandidateProviderTest' '*BoardingChainEtaCalculator*' '*RegionalRideLocatorTest' '*UpcomingStopWindowResolverTest' '*RideTruncationResolverTest' '*RerouteBoard*'` → 226 tests, 0 failures(신규 16).
+- IT(st-pg, st-redis, env api·db·auth·oauth): `*RerouteAcceptIT *JourneyEvaluationIT *JourneyStartIT *Reroute*IT *BusRouteSelectionIT *RegionalBus*IT` → 166 tests, 0 failures, 1 skipped.
+- 구현 리뷰(Opus) 반영:
+  - 경기 순번 사전 확인(`GyeonggiStopOrderPort.orderOf`, JDBC)을 try 안으로 — 예외가 평가 호출부(대기 ETA·하차 창·자르기·환승 판정, catch 없음)로 새던 회귀. 예외 = BLOCKED.
+  - 같은 구간 동시 조회 중복 깎기 방지: `RegionalArrivalLookup` 구간별 잠금(64줄무늬), 기다린 쪽은 캐시를 맞힘. 어댑터 내부 캐시(Redis 공유) 적중은 여기서 알 수 없어 몫이 깎인다(기존 동작, 주석에 명시).
+  - 회차 상한은 **조회 수**(후보의 지역 대기 수 합)로 셈 — `Prepared.regionalLookups()`, 순수 규칙 `admitRegional(kinds, lookups, cap)`(TRANSFER_WAIT 먼저, 넘는 후보 건너뛰고 뒤 작은 후보 허용). 기준선 지역 대기는 안 셈(기준선 없으면 서울 후보도 이득 못 잼).
+  - 뒤 대기 사전 검사는 **지역 후보만**(`boarding-unresolved`). 서울만 타는 후보는 예전처럼 overlay 에서 실패 → 보드 자리 "평가 못 함"(말풍선 유지) 동작 불변. 전부 사전 검사하면 자리가 `evaluatedEmpty` 로 숨겨지는 서울 동작 변화가 생겼다.
+  - 지역 분기 진입 판정(`providerOf`)도 `startStopIdForRealtime()`.
+  - 남은 것(알고 둠): 지역 조회는 예산 1초 미만이면 안 부를 뿐, 어댑터 합류 대기 최대 5초를 끊지 못한다(기준선은 호출자 스레드).
+- 재검증: 단위 233 tests 0 failures, IT(+ContextLoads, WorkerProfileWiringTest) 167 tests 0 failures 1 skipped.

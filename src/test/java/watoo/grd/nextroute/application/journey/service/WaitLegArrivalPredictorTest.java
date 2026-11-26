@@ -185,6 +185,18 @@ class WaitLegArrivalPredictorTest {
             verifyNoInteractions(regionalArrivalLookup);
         }
 
+        @Test
+        @DisplayName("PR-1: 저장된 실시간 정류장 id 가 있으면 원천(GTFS 원형일 수 있음) 대신 그것으로 묻는다")
+        void usesStoredRealtimeStopId() {
+            JourneyLeg leg = regionalLeg("1:BS_TAGO_GGB233001674");
+            ReflectionTestUtils.setField(leg, "startStopId", "233001674");
+            givenOption(regionalOption("234000068"));
+            given(regionalArrivalLookup.nextArrival(RegionalBusProvider.GG, "234000068", "233001674"))
+                    .willReturn(new RegionalArrivalLookup.Lookup(NOW.plusSeconds(240), null));
+
+            assertThat(busPredictor.predict(leg, null, NOW).arrivalAt()).isEqualTo(NOW.plusSeconds(240));
+        }
+
         private JourneyLeg regionalLeg(String sourceStopId) {
             JourneyLeg leg = leg(JourneyLegType.WAIT_BUS, JourneyLegState.ACTIVE, null, null);
             ReflectionTestUtils.setField(leg, "sourceStartStopId", sourceStopId);

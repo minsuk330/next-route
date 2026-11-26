@@ -56,6 +56,8 @@ public class JourneyRerouteMetrics {
             // overlay 체인(PR-1): 첫 대기가 아니라 <b>그 뒤 대기</b>를 못 풀어 버린 후보.
             // no-prediction 과 묶으면 "체인을 켜서 제외가 늘었다"를 못 읽는다.
             "boarding-unresolved",
+            // regional-bus-parity PR-1: 한 번의 후보 찾기에서 지역 실시간 조회 상한을 넘어 평가하지 않은 지역 후보.
+            "regional-cap",
             // 원점 창(PR-2): 내려서 곧바로 뛰어 타야 하는 후보. 방금 놓칠 뻔한 환승을 한 번 더
             // 겪게 하지 않으려고 뺀다. gain-below-threshold 와 묶으면 "여유가 없어 뺐다"가 안 보인다.
             "miss-risk");

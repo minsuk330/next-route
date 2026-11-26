@@ -236,6 +236,90 @@ class RemainingPathEtaComposerTest {
     // ── 준비 ────────────────────────────────────────────────────────────────
 
     /** 버스 대기 → 주행 600 → 환승 도보 120 → 버스 대기 → 주행 600. */
+    private JourneyRouteOptionDraft regionalOption(String sourceRouteId) {
+        return new JourneyRouteOptionDraft(0, 0, null, sourceRouteId, "720-3", null, null, null, null);
+    }
+
+    @Test
+    @DisplayName("PR-1: 경기 노선 첫 대기(서울 노선·순번 없음)는 버리지 않고, 질의에 지역 노선 id 를 싣는다")
+    void regionalFirstWaitIsComposedWithSourceRouteId() {
+        givenEnriched(new JourneyPlan(List.of(
+                walkDraft(0, 180, "센트럴파크"),
+                waitDraft(1, JourneyLegType.WAIT_BUS, "233001674", regionalOption("234000068")),
+                rideDraft(2, 900),
+                walkDraft(3, 240, "목적지")), List.of()));
+        givenBoarding(READY_AT.plusSeconds(600), true);
+
+        Prepared prepared = composer.prepare(anyPath());
+        Attempt attempt = composer.compose(prepared, READY_AT, NOW, 1500);
+
+        assertThat(prepared.failed()).isFalse();
+        assertThat(prepared.usesRegionalRealtime()).isTrue();
+        assertThat(attempt.failed()).isFalse();
+        ArgumentCaptor<BoardingQuery> query = ArgumentCaptor.forClass(BoardingQuery.class);
+        verify(busEstimator).estimate(query.capture(), any(), any(), anyLong());
+        assertThat(query.getValue().sourceRouteId()).isEqualTo("234000068");
+        assertThat(query.getValue().stopId()).isEqualTo("233001674");
+        assertThat(query.getValue().routeId()).isNull();
+    }
+
+    @Test
+    @DisplayName("PR-1: 뒤 대기가 안 풀리는 후보는 물어보기 전에 버린다 — 앞 대기에서 몫을 쓰고 버리지 않게")
+    void laterUnresolvedWaitIsFilteredBeforeAnyCall() {
+        givenEnriched(new JourneyPlan(List.of(
+                waitDraft(0, JourneyLegType.WAIT_BUS, "233001674", regionalOption("234000068")),
+                rideDraft(1, 600),
+                transferWalkDraft(2, 120),
+                waitDraft(3, JourneyLegType.WAIT_BUS, "1:BS_ACC3_33020010", regionalOption(null)),
+                rideDraft(4, 600)), List.of()));
+
+        Prepared prepared = composer.prepare(anyPath());
+
+        assertThat(prepared.failureReason()).isEqualTo("boarding-unresolved");
+    }
+
+    @Test
+    @DisplayName("PR-1: 서울만 타는 후보의 뒤 대기 미해석은 예전처럼 prepare 를 통과한다(보드 자리 '평가 못 함' 유지)")
+    void seoulCandidateWithUnresolvedLaterWaitStillPrepares() {
+        givenEnriched(new JourneyPlan(List.of(
+                waitDraft(0, JourneyLegType.WAIT_BUS, "ST-C", option("BL-360", 5, null)),
+                rideDraft(1, 600),
+                transferWalkDraft(2, 120),
+                waitDraft(3, JourneyLegType.WAIT_BUS, "1:BS_ACC3_33020010", regionalOption(null)),
+                rideDraft(4, 600)), List.of()));
+
+        assertThat(composer.prepare(anyPath()).failed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("PR-1: 서울 → 경기 두 대기 체인이 끝까지 계산되고, 뒤 대기 질의에 지역 노선 id 가 실린다")
+    void seoulThenRegionalChainComposes() {
+        givenEnriched(new JourneyPlan(List.of(
+                waitDraft(0, JourneyLegType.WAIT_BUS, "ST-C", option("BL-360", 5, null)),
+                rideDraft(1, 600),
+                transferWalkDraft(2, 120),
+                waitDraft(3, JourneyLegType.WAIT_BUS, "233001562", regionalOption("234000995")),
+                rideDraft(4, 600)), List.of()));
+        givenBoardingChain();
+
+        Prepared prepared = composer.prepare(anyPath());
+        Attempt attempt = composer.compose(prepared, READY_AT, NOW, 1500);
+
+        assertThat(prepared.regionalLookups()).isEqualTo(1);
+        assertThat(attempt.failed()).isFalse();
+        ArgumentCaptor<BoardingQuery> queries = ArgumentCaptor.forClass(BoardingQuery.class);
+        verify(busEstimator, org.mockito.Mockito.times(2)).estimate(queries.capture(), any(), any(), anyLong());
+        assertThat(queries.getAllValues()).extracting(BoardingQuery::sourceRouteId).containsExactly("SRC", "234000995");
+    }
+
+    @Test
+    @DisplayName("PR-1: 서울 노선만 있는 후보는 지역 실시간을 쓰지 않는다(회차 상한에 세지 않음)")
+    void seoulOnlyCandidateDoesNotUseRegional() {
+        givenEnriched(busPlan("ST-C", "BL-360", 5));
+
+        assertThat(composer.prepare(anyPath()).usesRegionalRealtime()).isFalse();
+    }
+
     private JourneyPlan twoTransferPlan() {
         return new JourneyPlan(List.of(
                 waitDraft(0, JourneyLegType.WAIT_BUS, "ST-C", option("BL-360", 5, null)),

@@ -84,7 +84,7 @@ public class BusTransferTargetArrivalPredictor implements TransferTargetArrivalP
         Optional<JourneyLegRouteOption> option = selectedOption(waitLeg);
         RegionalBusProvider regional = option
                 .map(o -> RegionalArrivalLookup.providerOf(o.getRouteId(), o.getSourceRouteId(),
-                        waitLeg.getSourceStartStopId()))
+                        waitLeg.startStopIdForRealtime()))
                 .orElse(null);
         if (regional != null) {
             return predictRegional(waitLeg, option.get(), regional, boardingAnchorAt, now);
@@ -129,7 +129,7 @@ public class BusTransferTargetArrivalPredictor implements TransferTargetArrivalP
             return TransferTargetArrival.unknown();
         }
         RegionalArrivalLookup.Lookup lookup = regionalArrivalLookup.boardableAt(
-                provider, option.getSourceRouteId(), waitLeg.getSourceStartStopId(), boardingAnchorAt);
+                provider, option.getSourceRouteId(), waitLeg.startStopIdForRealtime(), boardingAnchorAt);
         if (lookup.failed()) {
             metrics.recordBoardingMiss(REGIONAL_MODE, lookup.failureReason());
             // 몫 소진만 막힘이다. 조회 실패에는 순번이 안 정해지는 정류장처럼 계속 그런 경우가 섞여 있어, 평가 간격을 늦추면 안 된다.
