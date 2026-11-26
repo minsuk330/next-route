@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import watoo.grd.nextroute.application.arrival.dto.GyeonggiBusArrival;
 import watoo.grd.nextroute.application.arrival.dto.TagoBusArrival;
 import watoo.grd.nextroute.application.arrival.port.out.GyeonggiBusArrivalPort;
+import watoo.grd.nextroute.application.arrival.port.out.GyeonggiStopOrderPort;
 import watoo.grd.nextroute.application.arrival.port.out.TagoBusArrivalPort;
 import watoo.grd.nextroute.application.bus.port.out.BusApiQuotaPort;
 import watoo.grd.nextroute.application.journey.config.JourneyRerouteProperties;
@@ -29,8 +30,11 @@ import java.util.regex.Pattern;
  * 차</b>다. 받지 않는다(늦은 도착을 "아직 여유"로 말하면 사용자가 내릴 곳을 지나친다). TAGO 응답엔 차량번호가 없어
  * 정류장을 넘겨 가며 같은 차를 이어 잡지 못한다 — 순번만 쓴다.
  *
- * <p>재탐색 전용 일일 할당량(지역별)을 쓰고, 다 쓰면 {@link Lookup#quotaExhausted()} 다. 같은 정류장·노선은
- * 짧게 캐시한다(여정끼리 나눠 쓴다). 워커 한 대라 메모리 캐시로 충분하다.
+ * <p>재탐색 전용 일일 할당량(지역별)을 쓰고, 다 쓰면 {@link Lookup#quotaExhausted()} 다. 할당량은 두 칸이다
+ * ({@link Bucket}): 진행 중 여정 평가(대기·환승·하차 창)와 재탐색 후보 계산. 후보 계산이 평가 몫을 먹으면 모든 지역 여정의
+ * 대기 화면이 비게 되므로 나눈다. 같은 정류장·노선은 짧게 캐시한다(여정끼리, 두 칸이 같이 쓴다). 캐시는 JVM 마다 따로다
+ * (worker·worker2). 몫을 아끼는 규칙: 경기 순번이 없어 부를 수 없는 정류장, 실패 직후 재시도(15초 음성 캐시), 같은 정류장·노선을
+ * 동시에 묻는 중복(구간별 잠금)은 몫을 쓰지 않는다. 어댑터 안의 캐시(Redis 공유 캐시 등)가 맞는 경우는 여기서 알 수 없어 몫이 깎인다.
  */
 @Slf4j
 @Component
@@ -43,11 +47,22 @@ public class RegionalArrivalLookup {
     private static final Pattern GBIS_ROUTE_ID = Pattern.compile("^2\\d{8}$");
 
     private final GyeonggiBusArrivalPort gyeonggiPort;
+    private final GyeonggiStopOrderPort gyeonggiStopOrder;
     private final TagoBusArrivalPort tagoPort;
     private final TagoCityCodeLookup cityCodeLookup;
     private final BusApiQuotaPort quotaPort;
     private final JourneyRerouteProperties properties;
     private final Clock clock;
+
+    private static final int CACHE_SWEEP_SIZE = 2_000;
+    /** 구간별 잠금 줄무늬. 키마다 잠금 객체를 만들면 그 맵도 계속 자란다. */
+    private static final Object[] LOCKS = new Object[64];
+
+    static {
+        for (int i = 0; i < LOCKS.length; i++) {
+            LOCKS[i] = new Object();
+        }
+    }
 
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
 
@@ -68,9 +83,17 @@ public class RegionalArrivalLookup {
         return TAGO_ID.matcher(sourceRouteId).matches() ? RegionalBusProvider.TAGO : null;
     }
 
+    /** 할당량 칸. */
+    public enum Bucket {
+        /** 진행 중 여정 평가: 대기 ETA, 환승 판정, 하차 창, 자르기. */
+        EVALUATION,
+        /** 재탐색 후보 승차 시각. */
+        CANDIDATE
+    }
+
     public Lookup arrivalAt(RegionalBusProvider provider, String routeId, String stopId, int expectedAway) {
         Instant now = Instant.now(clock);
-        Optional<List<Approach>> approaches = approaches(provider, routeId, stopId, now);
+        Optional<List<Approach>> approaches = approaches(provider, routeId, stopId, now, Bucket.EVALUATION);
         if (approaches == null) {
             return Lookup.QUOTA;
         }
@@ -92,7 +115,7 @@ public class RegionalArrivalLookup {
      */
     public Lookup nextArrival(RegionalBusProvider provider, String routeId, String stopId) {
         Instant now = Instant.now(clock);
-        Optional<List<Approach>> approaches = approaches(provider, routeId, stopId, now);
+        Optional<List<Approach>> approaches = approaches(provider, routeId, stopId, now, Bucket.EVALUATION);
         if (approaches == null) {
             return Lookup.QUOTA;
         }
@@ -113,8 +136,17 @@ public class RegionalArrivalLookup {
      * 서울 실시간의 {@code SingleTransferPredictor.pickRealtime} 과 같은 규칙이다.
      */
     public Lookup boardableAt(RegionalBusProvider provider, String routeId, String stopId, Instant anchorAt) {
+        return boardableAt(provider, routeId, stopId, anchorAt, Bucket.EVALUATION);
+    }
+
+    /**
+     * {@link #boardableAt(RegionalBusProvider, String, String, Instant)} 를 고른 할당량 칸으로. 결과의 {@link Lookup#precise()}
+     * 는 초 단위 예측이었는지다(경기 {@code predictTimeSec}, TAGO {@code arrtime}). 분 단위뿐이면 false.
+     */
+    public Lookup boardableAt(RegionalBusProvider provider, String routeId, String stopId, Instant anchorAt,
+                              Bucket bucket) {
         Instant now = Instant.now(clock);
-        Optional<List<Approach>> approaches = approaches(provider, routeId, stopId, now);
+        Optional<List<Approach>> approaches = approaches(provider, routeId, stopId, now, bucket);
         if (approaches == null) {
             return Lookup.QUOTA;
         }
@@ -122,42 +154,79 @@ public class RegionalArrivalLookup {
             return Lookup.BLOCKED;
         }
         return approaches.get().stream()
-                .map(Approach::seconds)
-                .filter(seconds -> seconds != null && seconds >= 0)
-                .map(now::plusSeconds)
-                .filter(at -> !at.isBefore(anchorAt))
-                .min(Instant::compareTo)
-                .map(at -> new Lookup(at, null))
+                .filter(approach -> approach.seconds() != null && approach.seconds() >= 0)
+                .filter(approach -> !now.plusSeconds(approach.seconds()).isBefore(anchorAt))
+                .min(java.util.Comparator.comparingInt(Approach::seconds))
+                .map(approach -> new Lookup(now.plusSeconds(approach.seconds()), null, approach.precise()))
                 .orElse(Lookup.NO_REALTIME);
     }
 
-    /** @return null = 할당량 소진, 빈 Optional = 조회 실패 */
+    /** @return null = 할당량 소진, 빈 Optional = 조회 실패(부를 수 없는 정류장 포함) */
     private Optional<List<Approach>> approaches(RegionalBusProvider provider, String routeId, String stopId,
-                                                Instant now) {
+                                                Instant now, Bucket bucket) {
         String key = provider + ":" + stopId + ":" + routeId;
+        // 같은 구간을 동시에 묻는 후보·여정이 각자 몫을 깎지 않게 구간별로 한 줄로 세운다. 기다린 쪽은 캐시를 맞힌다.
+        synchronized (LOCKS[Math.floorMod(key.hashCode(), LOCKS.length)]) {
+            return approachesLocked(provider, routeId, stopId, now, bucket, key);
+        }
+    }
+
+    private Optional<List<Approach>> approachesLocked(RegionalBusProvider provider, String routeId, String stopId,
+                                                      Instant now, Bucket bucket, String key) {
         Cached hit = cache.get(key);
         if (hit != null && hit.at().plusSeconds(properties.getBoard().getRegionalArrivalCacheSeconds()).isAfter(now)) {
-            return Optional.of(hit.approaches());
+            // 실패도 잠깐 기억한다 — 실패는 어댑터가 캐시하지 않아 매 회차 몫을 다시 깎았다.
+            return hit.approaches() == null ? Optional.empty() : Optional.of(hit.approaches());
         }
-        JourneyRerouteProperties.Board board = properties.getBoard();
-        boolean admitted = provider == RegionalBusProvider.GG
-                ? quotaPort.tryAcquire("reroute-gg-arrival", board.getQuotaGyeonggi())
-                : quotaPort.tryAcquire("reroute-tago-arrival", board.getQuotaTago());
-        if (!admitted) {
+        if (provider == RegionalBusProvider.GG && !hasGyeonggiStopOrder(stopId, routeId)) {
+            // 순번이 없으면 공급자가 거절한다(어댑터도 부르지 않는다). 몫을 잡기 전에 끝낸다.
+            remember(key, new Cached(now, null), now);
+            return Optional.empty();
+        }
+        if (!admit(provider, bucket)) {
             return null;
         }
         try {
             List<Approach> approaches = provider == RegionalBusProvider.GG
                     ? gyeonggi(routeId, stopId) : tago(routeId, stopId);
-            if (approaches == null) {
-                return Optional.empty();
-            }
-            cache.put(key, new Cached(now, approaches));
-            return Optional.of(approaches);
+            remember(key, new Cached(now, approaches), now);
+            return approaches == null ? Optional.empty() : Optional.of(approaches);
         } catch (RuntimeException e) {
             log.warn("[RerouteBoard] 지역 도착 조회 실패 provider={} stop={}: {}", provider, stopId, e.getMessage());
+            remember(key, new Cached(now, null), now);
             return Optional.empty();
         }
+    }
+
+    /** 표 조회 실패(DB 예외)는 "부를 수 없음"으로 본다 — 예전엔 어댑터가 같은 조회를 감싸 삼켰고, 평가 호출부들은 예외를 받지 않는다. */
+    private boolean hasGyeonggiStopOrder(String stopId, String routeId) {
+        try {
+            return gyeonggiStopOrder.orderOf(stopId, routeId).isPresent();
+        } catch (RuntimeException e) {
+            log.warn("[RerouteBoard] 경기 정류장 순번 조회 실패 stop={} route={}: {}", stopId, routeId, e.getMessage());
+            return false;
+        }
+    }
+
+    private boolean admit(RegionalBusProvider provider, Bucket bucket) {
+        JourneyRerouteProperties.Board board = properties.getBoard();
+        if (bucket == Bucket.CANDIDATE) {
+            return provider == RegionalBusProvider.GG
+                    ? quotaPort.tryAcquire("reroute-gg-candidate", board.getQuotaGyeonggiCandidate())
+                    : quotaPort.tryAcquire("reroute-tago-candidate", board.getQuotaTagoCandidate());
+        }
+        return provider == RegionalBusProvider.GG
+                ? quotaPort.tryAcquire("reroute-gg-arrival", board.getQuotaGyeonggi())
+                : quotaPort.tryAcquire("reroute-tago-arrival", board.getQuotaTago());
+    }
+
+    /** 넣으면서 오래된 칸을 정리한다 — 후보 정류장까지 들어오면서 키가 계속 늘어난다. */
+    private void remember(String key, Cached value, Instant now) {
+        if (cache.size() >= CACHE_SWEEP_SIZE) {
+            Instant cutoff = now.minusSeconds(properties.getBoard().getRegionalArrivalCacheSeconds());
+            cache.entrySet().removeIf(entry -> entry.getValue().at().isBefore(cutoff));
+        }
+        cache.put(key, value);
     }
 
     private List<Approach> gyeonggi(String routeId, String stopId) {
@@ -167,10 +236,8 @@ public class RegionalArrivalLookup {
         }
         List<Approach> approaches = new ArrayList<>();
         for (GyeonggiBusArrival arrival : result.data()) {
-            approaches.add(new Approach(arrival.locationNo1(),
-                    arrival.predictMin1() == null ? null : arrival.predictMin1() * 60));
-            approaches.add(new Approach(arrival.locationNo2(),
-                    arrival.predictMin2() == null ? null : arrival.predictMin2() * 60));
+            approaches.add(approach(arrival.locationNo1(), arrival.predictSec1(), arrival.predictMin1()));
+            approaches.add(approach(arrival.locationNo2(), arrival.predictSec2(), arrival.predictMin2()));
         }
         return approaches;
     }
@@ -186,19 +253,31 @@ public class RegionalArrivalLookup {
         }
         List<Approach> approaches = new ArrayList<>();
         for (TagoBusArrival arrival : result.data()) {
-            approaches.add(new Approach(arrival.stopsAway(), arrival.arrSeconds()));
+            approaches.add(new Approach(arrival.stopsAway(), arrival.arrSeconds(), true));
         }
         return approaches;
     }
 
-    private record Approach(Integer stopsAway, Integer seconds) {
+    /** 경기: 초 값이 있으면 그것(정밀), 없으면 분×60. */
+    private static Approach approach(Integer stopsAway, Integer seconds, Integer minutes) {
+        if (seconds != null) {
+            return new Approach(stopsAway, seconds, true);
+        }
+        return new Approach(stopsAway, minutes == null ? null : minutes * 60, false);
+    }
+
+    private record Approach(Integer stopsAway, Integer seconds, boolean precise) {
     }
 
     private record Cached(Instant at, List<Approach> approaches) {
     }
 
-    /** 도착 시각 또는 실패 사유(지표 태그). */
-    public record Lookup(Instant at, String failureReason) {
+    /** 도착 시각 또는 실패 사유(지표 태그). {@code precise} = 초 단위 예측(분 단위면 false). */
+    public record Lookup(Instant at, String failureReason, boolean precise) {
+
+        public Lookup(Instant at, String failureReason) {
+            this(at, failureReason, false);
+        }
 
         static final Lookup QUOTA = new Lookup(null, "quota-exhausted");
         static final Lookup BLOCKED = new Lookup(null, "arrival-blocked");

@@ -71,7 +71,7 @@ class TransferTargetArrivalPredictorTest {
             var metrics = new watoo.grd.nextroute.application.journey.observability.JourneyEvaluationMetrics(
                     new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
             predictor = new BusTransferTargetArrivalPredictor(
-                    new BusBoardingTimeEstimator(predictTransferUseCase, interpreter, metrics),
+                    new BusBoardingTimeEstimator(predictTransferUseCase, interpreter, metrics, regionalArrivalLookup),
                     routeOptionRepository, interpreter, regionalArrivalLookup, metrics);
             waitLeg = waitLeg(JourneyLegType.WAIT_BUS, JourneyLegState.PENDING);
             given(routeOptionRepository.findById(OPTION_ID)).willReturn(Optional.of(busOption()));
@@ -81,6 +81,8 @@ class TransferTargetArrivalPredictorTest {
             JourneyLeg leg = mock(JourneyLeg.class);
             given(leg.getSelectedRouteOptionId()).willReturn(OPTION_ID);
             given(leg.getSourceStartStopId()).willReturn(sourceStopId);
+            // PR-1: 지역 조회는 저장된 실시간 정류장 id(없으면 원천)를 쓴다.
+            given(leg.startStopIdForRealtime()).willReturn(sourceStopId);
             JourneyLegRouteOption option = mock(JourneyLegRouteOption.class);
             given(option.getSourceRouteId()).willReturn(sourceRouteId);
             given(routeOptionRepository.findById(OPTION_ID)).willReturn(Optional.of(option));
@@ -101,6 +103,18 @@ class TransferTargetArrivalPredictorTest {
             assertThat(result.arrival().source()).isEqualTo(CurrentLegArrival.Source.REALTIME_ARRIVAL);
             assertThat(result.arrival().quality()).isEqualTo(CurrentLegArrival.Quality.APPROXIMATE);
             verifyNoInteractions(predictTransferUseCase);
+        }
+
+        @Test
+        @DisplayName("PR-1: 진입 판정과 조회 모두 저장된 실시간 정류장 id 를 쓴다 — 원천이 비거나 원형이어도")
+        void usesStoredRealtimeStopId() {
+            JourneyLeg leg = regionalWaitLeg("234001243", null);
+            given(leg.startStopIdForRealtime()).willReturn("101000002");
+            Instant anchor = NOW.plusSeconds(300);
+            given(regionalArrivalLookup.boardableAt(RegionalBusProvider.GG, "234001243", "101000002", anchor))
+                    .willReturn(new RegionalArrivalLookup.Lookup(NOW.plusSeconds(420), null));
+
+            assertThat(predictor.predictBoarding(leg, anchor, NOW).arrival().arrivalAt()).isEqualTo(NOW.plusSeconds(420));
         }
 
         @Test

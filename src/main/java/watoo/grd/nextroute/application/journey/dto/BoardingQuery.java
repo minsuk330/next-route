@@ -15,7 +15,15 @@ import watoo.grd.nextroute.domain.journey.entity.JourneyLegType;
  * @param routeId     내부 노선 ID
  * @param boardingSeq 버스 승차 정류장 순번. 지하철은 null
  * @param wayCode     지하철 방향. 버스는 null
+ * @param sourceRouteId 지역(경기·TAGO) 노선 실시간 id. 서울 {@code routeId} 로 안 풀린 버스 구간을 지역 실시간으로 물을 때만 쓴다
+ *                      (regional-bus-parity PR-1). null 이면 지역 조회를 하지 않는다 — 수락 트랜잭션처럼 기다리면 안 되는 곳은 넘기지 않는다
  */
 public record BoardingQuery(JourneyLegType waitType, String stopId, String stopName,
-                            String routeId, Integer boardingSeq, Integer wayCode) {
+                            String routeId, Integer boardingSeq, Integer wayCode, String sourceRouteId) {
+
+    /** 지역 조회 없는 질의(기존 호출부). */
+    public BoardingQuery(JourneyLegType waitType, String stopId, String stopName,
+                         String routeId, Integer boardingSeq, Integer wayCode) {
+        this(waitType, stopId, stopName, routeId, boardingSeq, wayCode, null);
+    }
 }

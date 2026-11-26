@@ -19,6 +19,7 @@ import watoo.grd.nextroute.application.journey.dto.RerouteCandidateDisplay;
 import watoo.grd.nextroute.application.journey.dto.RerouteContext;
 import watoo.grd.nextroute.application.journey.dto.RerouteOrigin;
 import watoo.grd.nextroute.application.journey.dto.RerouteOriginKind;
+import watoo.grd.nextroute.application.journey.dto.BoardingQuery;
 import watoo.grd.nextroute.application.journey.dto.RerouteOriginStop;
 import watoo.grd.nextroute.application.journey.observability.JourneyRerouteMetrics;
 import watoo.grd.nextroute.application.journey.port.out.BoardingTimeEstimator;
@@ -226,6 +227,91 @@ class RemainingPathCandidateProviderTest {
         verify(composer, never()).compose(any(), any(), any(),
                 any(BoardingChainEtaCalculator.Budget.class));
         verifyNoInteractions(busEstimator);
+    }
+
+    private Prepared regionalPrepared(String sourceRouteId) {
+        JourneyRouteOptionDraft option = new JourneyRouteOptionDraft(0, 0, null, sourceRouteId,
+                "720-3", null, null, null, null);
+        List<JourneyLegDraft> legs = List.of(waitDraft(0, option), rideDraft(1));
+        return new Prepared(legs, legs.get(0), option, null);
+    }
+
+    private JourneyLegRouteOption regionalStoredOption(String sourceRouteId) {
+        JourneyLegRouteOption option = JourneyLegRouteOption.builder()
+                .journeyLegId(21L).optionIndex(0).laneIndex(0).routeName("720-3").build();
+        ReflectionTestUtils.setField(option, "sourceRouteId", sourceRouteId);
+        return option;
+    }
+
+    @Test
+    @DisplayName("PR-1: 경기 노선 대기(서울 id 없음)와 같은 노선으로 시작하는 후보는 지역 id 로 알아보고 예측 전에 버린다")
+    void sameRegionalRouteIsFilteredBeforePrediction() {
+        given(routeOptionRepository.findById(11L)).willReturn(Optional.of(regionalStoredOption("234000068")));
+        PathResult path = path("A");
+        givenSearch(path);
+        givenPrepared(path, regionalPrepared("234000068"));
+
+        assertThat(provider.findCandidates(context())).isEmpty();
+        verify(composer, never()).compose(any(), any(), any(),
+                any(BoardingChainEtaCalculator.Budget.class));
+    }
+
+    @Test
+    @DisplayName("PR-1: 회차당 지역 조회 상한을 넘은 지역 후보는 평가하지 않는다(regional-cap)")
+    void regionalCandidatesBeyondTheCapAreNotComposed() {
+        properties.getBoard().setRegionalCandidateLookupsPerRun(0);
+        PathResult path = path("A");
+        givenSearch(path);
+        givenPrepared(path, regionalPrepared("234001708"));
+        givenBaseline(NOW.plusSeconds(600), true);
+
+        assertThat(provider.findCandidates(context())).isEmpty();
+        verify(composer, never()).compose(any(), any(), any(),
+                any(BoardingChainEtaCalculator.Budget.class));
+    }
+
+    @Test
+    @DisplayName("PR-1: 상한 안의 지역 후보는 평가해 제안이 된다")
+    void regionalCandidateWithinTheCapIsProposed() {
+        PathResult path = path("A");
+        givenSearch(path);
+        givenPrepared(path, regionalPrepared("234001708"));
+        givenBaseline(NOW.plusSeconds(600), true);
+        givenComposed(path, attempt(NOW.plusSeconds(2400)));
+
+        assertThat(provider.findCandidates(context())).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("PR-1: 상한은 조회 수로 센다 — 환승 하차점 먼저, 넘는 후보는 건너뛰고 서울 후보는 늘 통과")
+    void admitRegionalCountsLookups() {
+        var kinds = List.of(RerouteOriginKind.WAITING_STOP, RerouteOriginKind.RIDE_INTERIOR,
+                RerouteOriginKind.TRANSFER_WAIT, RerouteOriginKind.RIDE_INTERIOR, RerouteOriginKind.CURRENT_POSITION);
+        var lookups = List.of(2, 0, 2, 3, 1);
+
+        boolean[] admitted = RemainingPathCandidateProvider.admitRegional(kinds, lookups, 4);
+
+        // TRANSFER_WAIT(2) → WAITING_STOP(2) = 4. RIDE_INTERIOR(3)·CURRENT_POSITION(1)은 넘어서 빠짐. 서울(0)은 통과.
+        assertThat(admitted).containsExactly(true, true, true, false, false);
+        assertThat(RemainingPathCandidateProvider.admitRegional(kinds, lookups, 5))
+                .as("넘는 후보를 건너뛰고 뒤의 작은 후보는 들어간다").containsExactly(true, true, true, false, true);
+    }
+
+    @Test
+    @DisplayName("PR-1: 기준선(지금 경로)의 경기 대기 질의에 지역 노선 id 를 싣는다")
+    void baselineQueryCarriesSourceRouteId() {
+        given(routeOptionRepository.findById(11L)).willReturn(Optional.of(regionalStoredOption("234000068")));
+        given(busEstimator.supports(JourneyLegType.WAIT_BUS)).willReturn(true);
+        given(busEstimator.estimate(any(), any(), any(), anyLong())).willReturn(BoardingOutcome.none());
+        PathResult path = path("A");
+        givenSearch(path);
+        givenPrepared(path, prepared("BL-360", 0, 1));
+
+        provider.findCandidates(context());
+
+        org.mockito.ArgumentCaptor<BoardingQuery> query = org.mockito.ArgumentCaptor.forClass(BoardingQuery.class);
+        verify(busEstimator, org.mockito.Mockito.atLeastOnce()).estimate(query.capture(), any(), any(), anyLong());
+        assertThat(query.getAllValues()).extracting(BoardingQuery::sourceRouteId).contains("234000068");
     }
 
     @Test

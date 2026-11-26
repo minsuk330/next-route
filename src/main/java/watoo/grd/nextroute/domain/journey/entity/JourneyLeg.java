@@ -446,4 +446,17 @@ public class JourneyLeg extends BaseEntity {
             this.completedAt = at;
         }
     }
+
+    /**
+     * 지역(경기·TAGO) 실시간 조회에 쓸 승차 정류장 id. #627 뒤로 {@code startStopId} 가 실시간 도착 API id 다(서울 표에 없으면 원천에서 뗀 값).
+     * 원천 id 는 GTFS 원형일 수 있어 조회가 실패하므로 저장된 값을 먼저 쓴다. 옛 여정(값이 빈 경우)만 원천으로.
+     */
+    public String startStopIdForRealtime() {
+        return startStopId != null && !startStopId.isBlank() ? startStopId : sourceStartStopId;
+    }
+
+    /** {@link #startStopIdForRealtime()} 의 하차 정류장판. */
+    public String endStopIdForRealtime() {
+        return endStopId != null && !endStopId.isBlank() ? endStopId : sourceEndStopId;
+    }
 }

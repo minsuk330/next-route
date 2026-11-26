@@ -48,7 +48,9 @@ public class RegionalRideLocator {
             return Located.failed("stale-progress");
         }
         String routeId = sourceRouteId(ride).orElse(null);
-        if (routeId == null || ride.getSourceStartStopId() == null || ride.getSourceEndStopId() == null) {
+        String boardStop = ride.startStopIdForRealtime();
+        String alightStop = ride.endStopIdForRealtime();
+        if (routeId == null || boardStop == null || alightStop == null) {
             return Located.failed("route-unknown");
         }
         RegionalBusProvider provider = RegionalBusProvider.GG;
@@ -60,13 +62,13 @@ public class RegionalRideLocator {
         if (stops.isEmpty()) {
             return Located.failed("route-unknown");
         }
-        int board = indexOf(stops, ride.getSourceStartStopId(), 0);
-        int alight = board < 0 ? -1 : indexOf(stops, ride.getSourceEndStopId(), board + 1);
+        int board = indexOf(stops, boardStop, 0);
+        int alight = board < 0 ? -1 : indexOf(stops, alightStop, board + 1);
         if (board < 0 || alight < 0) {
             return Located.failed("stop-unjoined");
         }
         List<String> planned = plannedStops(ride, stops, board, alight);
-        if (planned.indexOf(ride.getSourceEndStopId()) != planned.lastIndexOf(ride.getSourceEndStopId())) {
+        if (planned.indexOf(alightStop) != planned.lastIndexOf(alightStop)) {
             // 하차가 같은 정류장의 두 번째 통과다(#546). 표의 첫 등장으로 세면 지나간 자리를 앞으로 올 자리로 착각한다.
             return Located.failed("ambiguous-stop");
         }

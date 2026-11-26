@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import watoo.grd.nextroute.application.regionalbus.dto.RegionalBusProvider;
 import org.mockito.ArgumentCaptor;
 import watoo.grd.nextroute.application.journey.config.JourneyEvaluatorProperties;
 import watoo.grd.nextroute.application.journey.dto.BoardingOutcome;
@@ -51,13 +52,98 @@ class BoardingTimeEstimatorTest {
         private final PredictTransferUseCase predictTransferUseCase = mock(PredictTransferUseCase.class);
         private final JourneyEvaluatorProperties properties = new JourneyEvaluatorProperties();
         private final MeterRegistry registry = new SimpleMeterRegistry();
+        private final RegionalArrivalLookup regional = mock(RegionalArrivalLookup.class);
         private BusBoardingTimeEstimator estimator;
 
         @BeforeEach
         void setUp() {
             estimator = new BusBoardingTimeEstimator(
                     predictTransferUseCase, new TransferPredictionInterpreter(properties),
-                    new JourneyEvaluationMetrics(registry));
+                    new JourneyEvaluationMetrics(registry), regional);
+        }
+
+        private double regionalMissCount(String reason) {
+            var counter = registry.find(JourneyEvaluationMetrics.BOARDING_MISS)
+                    .tag("mode", "regional_bus").tag("reason", reason).counter();
+            return counter == null ? 0 : counter.count();
+        }
+
+        private BoardingQuery gyeonggi() {
+            return new BoardingQuery(JourneyLegType.WAIT_BUS, "233001674", "센트럴파크", null, null, null, "234000068");
+        }
+
+        @Test
+        @DisplayName("PR-1: 경기 노선(서울 노선·순번 없음)은 후보 칸 지역 조회로 승차 시각을 낸다 — 초 단위면 GOOD")
+        void regionalBusUsesCandidateBucket() {
+            org.mockito.BDDMockito.given(regional.boardableAt(RegionalBusProvider.GG, "234000068", "233001674",
+                            NOW.plusSeconds(60), RegionalArrivalLookup.Bucket.CANDIDATE))
+                    .willReturn(new RegionalArrivalLookup.Lookup(NOW.plusSeconds(300), null, true));
+
+            BoardingOutcome outcome = estimator.estimate(gyeonggi(), NOW.plusSeconds(60), NOW, 2_000);
+
+            assertThat(outcome.isPresent()).isTrue();
+            assertThat(outcome.estimate().boardingAt()).isEqualTo(NOW.plusSeconds(300));
+            assertThat(outcome.estimate().boardable()).isTrue();
+            assertThat(outcome.estimate().source()).isEqualTo(CurrentLegArrival.Source.REALTIME_ARRIVAL);
+            assertThat(outcome.estimate().quality()).isEqualTo(CurrentLegArrival.Quality.GOOD);
+            org.mockito.Mockito.verifyNoInteractions(predictTransferUseCase);
+        }
+
+        @Test
+        @DisplayName("PR-1: 분 단위뿐이면 APPROXIMATE")
+        void regionalMinutesOnlyIsApproximate() {
+            org.mockito.BDDMockito.given(regional.boardableAt(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                    .willReturn(new RegionalArrivalLookup.Lookup(NOW.plusSeconds(300), null, false));
+
+            assertThat(estimator.estimate(gyeonggi(), NOW.plusSeconds(60), NOW, 2_000).estimate().quality())
+                    .isEqualTo(CurrentLegArrival.Quality.APPROXIMATE);
+        }
+
+        @Test
+        @DisplayName("PR-1: 지역 몫 소진은 막힘, 조회 실패·탈 차 없음은 근거 없음 — 사유가 regional_bus 로 남는다")
+        void regionalFailures() {
+            org.mockito.BDDMockito.given(regional.boardableAt(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                    .willReturn(new RegionalArrivalLookup.Lookup(null, "quota-exhausted"),
+                            new RegionalArrivalLookup.Lookup(null, "arrival-blocked"),
+                            new RegionalArrivalLookup.Lookup(null, "no-realtime"));
+
+            assertThat(estimator.estimate(gyeonggi(), NOW.plusSeconds(60), NOW, 2_000).blocked()).isTrue();
+            BoardingOutcome blocked = estimator.estimate(gyeonggi(), NOW.plusSeconds(60), NOW, 2_000);
+            BoardingOutcome noRealtime = estimator.estimate(gyeonggi(), NOW.plusSeconds(60), NOW, 2_000);
+
+            assertThat(blocked.isPresent()).isFalse();
+            assertThat(blocked.blocked()).isFalse();
+            assertThat(noRealtime.isPresent()).isFalse();
+            assertThat(regionalMissCount("quota-exhausted")).isEqualTo(1);
+            assertThat(regionalMissCount("no-realtime")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("PR-1: 실시간 창 밖 앵커·남은 예산 1초 미만이면 지역 조회를 부르지 않는다")
+        void regionalSkipsOutsideWindowAndLowBudget() {
+            Instant farAnchor = NOW.plus(properties.busRealtimeWindow()).plusSeconds(600);
+
+            assertThat(estimator.estimate(gyeonggi(), farAnchor, NOW, 2_000).isPresent()).isFalse();
+            assertThat(estimator.estimate(gyeonggi(), NOW.plusSeconds(60), NOW, 500).isPresent()).isFalse();
+
+            org.mockito.Mockito.verifyNoInteractions(regional);
+            assertThat(regionalMissCount("outside-realtime-window")).isEqualTo(1);
+            assertThat(regionalMissCount("budget-exhausted")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("PR-1: 지역 노선 id 를 안 넘긴 질의(수락 재확인 등)·모양 모르는 노선(시외)은 지역 조회 없이 no_scope")
+        void noRegionalWithoutSourceRouteOrUnknownShape() {
+            BoardingQuery noSource = new BoardingQuery(JourneyLegType.WAIT_BUS, "233001674", "센트럴파크", null, null, null);
+            BoardingQuery intercity = new BoardingQuery(JourneyLegType.WAIT_BUS, "1:BS_ACC3_33020010", "충주", null, null, null, null);
+
+            assertThat(estimator.estimate(noSource, NOW.plusSeconds(60), NOW, 2_000).isPresent()).isFalse();
+            assertThat(estimator.estimate(intercity, NOW.plusSeconds(60), NOW, 2_000).isPresent()).isFalse();
+
+            org.mockito.Mockito.verifyNoInteractions(regional);
+            assertThat(missCount("no_scope")).isEqualTo(2);
         }
 
         /** 못 구한 사유가 이 tag 로 남는지. 남지 않으면 운영에서 원인을 못 가린다. */

@@ -137,6 +137,21 @@ public class JourneyRerouteProperties {
         /** 재탐색 전용 TAGO 도착 조회 일일 상한. */
         private int quotaTago = 5000;
 
+        /**
+         * 재탐색 <b>후보</b> 승차 시각용 경기 도착 조회 일일 상한(regional-bus-parity PR-1). 위 {@link #quotaGyeonggi} 는 진행 중
+         * 여정 평가(대기·환승·하차 창)가 쓰고, 후보 계산이 그 몫을 먹으면 지역 여정의 대기 화면이 비게 되어 따로 둔다.
+         */
+        private int quotaGyeonggiCandidate = 1500;
+
+        /** 재탐색 후보 승차 시각용 TAGO 도착 조회 일일 상한. */
+        private int quotaTagoCandidate = 1500;
+
+        /**
+         * 한 번의 후보 찾기(보드 1회차, 사건 1회)에서 후보 평가에 쓸 수 있는 지역 조회 수(후보의 지역 대기 수 합). 넘는 지역 후보는
+         * {@code regional-cap} 으로 뺀다. 서울 후보·기준선은 세지 않는다.
+         */
+        private int regionalCandidateLookupsPerRun = 4;
+
         /** 경기·TAGO 도착 조회 캐시(초). 같은 정류장·노선을 보는 여정끼리 호출을 나눠 쓴다. */
         private int regionalArrivalCacheSeconds = 15;
 

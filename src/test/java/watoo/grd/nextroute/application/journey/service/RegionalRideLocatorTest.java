@@ -158,6 +158,18 @@ class RegionalRideLocatorTest {
         assertThat(locator.locate(ride, 180, NOW).position().currentIndex()).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("PR-1: 저장된 실시간 정류장 id 가 있으면 원천(GTFS 원형) 대신 그것으로 표를 맞춘다")
+    void storedRealtimeStopIdsWinOverRawSource() {
+        JourneyLeg ride = ride("1:BS_TAGO_GGBA", "1:BS_TAGO_GGBC", 1);
+        ReflectionTestUtils.setField(ride, "startStopId", "A");
+        ReflectionTestUtils.setField(ride, "endStopId", "C");
+
+        assertThat(locator.locate(ride, 180, NOW).position()).isNotNull();
+        assertThat(locator.locate(ride("1:BS_TAGO_GGBA", "1:BS_TAGO_GGBC", 1), 180, NOW).position())
+                .as("저장 id 가 없고 원천이 원형이면 표와 못 맞춘다").isNull();
+    }
+
     private static JourneyLeg ride(String from, String to, int remainingStops) {
         JourneyLeg leg = JourneyLeg.builder().journeyId(1L).routeRevision(1).legIndex(1)
                 .type(JourneyLegType.RIDE_BUS).state(JourneyLegState.ACTIVE)

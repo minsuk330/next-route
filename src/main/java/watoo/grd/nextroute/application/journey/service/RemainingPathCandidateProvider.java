@@ -314,16 +314,31 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
      * 다시 타는 제안은 말이 되지 않는다.
      */
     private List<String> currentRouteIds(JourneyLeg waitLeg, List<JourneyLeg> legs) {
-        List<String> routeIds = new ArrayList<>(2);
+        List<String> routeIds = new ArrayList<>(4);
         if (waitLeg.getRouteId() != null && !waitLeg.getRouteId().isBlank()) {
             routeIds.add(waitLeg.getRouteId());
         }
+        selectedSourceRouteId(waitLeg).ifPresent(routeIds::add);
         legs.stream()
                 .filter(leg -> leg.getLegIndex() == waitLeg.getLegIndex() - 1)
-                .map(JourneyLeg::getRouteId)
-                .filter(routeId -> routeId != null && !routeId.isBlank())
-                .forEach(routeIds::add);
+                .forEach(ride -> {
+                    if (ride.getRouteId() != null && !ride.getRouteId().isBlank()) {
+                        routeIds.add(ride.getRouteId());
+                    }
+                    selectedSourceRouteId(ride).ifPresent(routeIds::add);
+                });
         return routeIds;
+    }
+
+    /**
+     * 그 단계가 고른 노선 후보의 원천(지역) 노선 id. 경기·TAGO 노선은 서울 id 가 비어 있어 이것으로만 "같은 버스"를 알아본다
+     * (regional-bus-parity PR-1 — 지역 후보가 평가되면서 "계획 그대로"인 경로가 걸러지지 않던 문제).
+     */
+    private Optional<String> selectedSourceRouteId(JourneyLeg leg) {
+        return Optional.ofNullable(leg.getSelectedRouteOptionId())
+                .flatMap(routeOptionRepository::findById)
+                .map(JourneyLegRouteOption::getSourceRouteId)
+                .filter(id -> !id.isBlank());
     }
 
     /**
@@ -429,7 +444,8 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
                     leg.getStartName(),
                     option == null ? null : option.getRouteId(),
                     option == null ? null : option.getBoardingSeq(),
-                    option == null ? null : option.getWayCode());
+                    option == null ? null : option.getWayCode(),
+                    option == null ? null : option.getSourceRouteId());
             steps.add(new BoardingChainEtaCalculator.Step(leg.getLegIndex(), leg.getType(),
                     null, query));
         }
@@ -543,8 +559,14 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
      */
     private List<Attempt> overlayAll(List<Selected> candidates, RerouteContext context,
                                      Instant startedAt) {
+        Set<Selected> regionalAdmitted = admitRegional(candidates);
         List<CompletableFuture<Attempt>> futures = new ArrayList<>(candidates.size());
         for (Selected candidate : candidates) {
+            if (candidate.candidate().prepared().usesRegionalRealtime() && !regionalAdmitted.contains(candidate)) {
+                futures.add(CompletableFuture.completedFuture(
+                        new Attempt(null, null, null, null, REGIONAL_CAP)));
+                continue;
+            }
             futures.add(overlayAsync(candidate, context, startedAt));
         }
         List<Attempt> attempts = new ArrayList<>(futures.size());
@@ -552,6 +574,49 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
             attempts.add(awaitOverlay(future, context, startedAt));
         }
         return attempts;
+    }
+
+    /**
+     * 한 번의 후보 찾기에서 지역 실시간을 물을 후보를 고른다(regional-bus-parity PR-1). 지역 몫은 하루 상한이 있고 보드는 분마다 돈다 —
+     * 자리마다 다 물으면 여정 몇 개로 바닥난다. 상한은 <b>조회 수</b>(후보의 지역 대기 수 합)로 센다. 환승 하차점 자리를 먼저 넣는다.
+     * 기준선(지금 경로)의 지역 대기는 여기 세지 않는다 — 기준선이 없으면 서울 후보까지 이득을 못 재므로 아끼지 않는다(남은 지역 대기 수, 보통 0~2).
+     */
+    private Set<Selected> admitRegional(List<Selected> candidates) {
+        List<RerouteOriginKind> kinds = candidates.stream().map(candidate -> candidate.origin().originKind()).toList();
+        List<Integer> lookups = candidates.stream().map(candidate -> candidate.candidate().prepared().regionalLookups()).toList();
+        boolean[] admitted = admitRegional(kinds, lookups, properties.getBoard().getRegionalCandidateLookupsPerRun());
+        Set<Selected> result = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        for (int i = 0; i < candidates.size(); i++) {
+            if (admitted[i]) {
+                result.add(candidates.get(i));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 상한 고르기의 순수 규칙. 지역 조회가 없는 후보는 늘 통과. 지역 후보는 TRANSFER_WAIT 먼저, 그다음 원래 순서로 조회 수를 더해
+     * 상한을 넘지 않는 것까지 통과(넘는 후보는 건너뛰고 뒤의 더 작은 후보는 들어갈 수 있다).
+     */
+    static boolean[] admitRegional(List<RerouteOriginKind> kinds, List<Integer> lookups, int cap) {
+        boolean[] admitted = new boolean[kinds.size()];
+        List<Integer> order = new ArrayList<>();
+        for (int i = 0; i < kinds.size(); i++) {
+            if (lookups.get(i) <= 0) {
+                admitted[i] = true;
+            } else {
+                order.add(i);
+            }
+        }
+        order.sort(java.util.Comparator.comparing((Integer i) -> kinds.get(i) != RerouteOriginKind.TRANSFER_WAIT));
+        int used = 0;
+        for (int i : order) {
+            if (used + lookups.get(i) <= cap) {
+                admitted[i] = true;
+                used += lookups.get(i);
+            }
+        }
+        return admitted;
     }
 
     private CompletableFuture<Attempt> overlayAsync(Selected candidate, RerouteContext context,
@@ -933,9 +998,12 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
                 .filter(leg -> leg.getLegIndex() > current.getLegIndex())
                 .filter(leg -> leg.getType().isWaiting())
                 .findFirst()
-                .map(JourneyLeg::getRouteId)
-                .filter(routeId -> routeId != null && !routeId.isBlank())
-                .ifPresent(routeIds::add);
+                .ifPresent(next -> {
+                    if (next.getRouteId() != null && !next.getRouteId().isBlank()) {
+                        routeIds.add(next.getRouteId());
+                    }
+                    selectedSourceRouteId(next).ifPresent(routeIds::add);
+                });
         return routeIds;
     }
 
@@ -1096,6 +1164,9 @@ public class RemainingPathCandidateProvider implements RerouteCandidateProvider 
      * @param fromLegIndex 수락 시 여기부터 교체한다. 중간 정류장이면 <b>주행 중인 단계</b>다
      * @param applyOrigin  중간 하차 후보에만 실리는 원점. 계획 하차점이면 null(= 옛 동작)
      */
+    /** 회차당 지역 조회 상한을 넘어 평가하지 않은 지역 후보의 제외 사유. */
+    static final String REGIONAL_CAP = "regional-cap";
+
     private record Origin(String stopId, String stopName, Waypoints waypoints, Instant alightAt,
                           Instant departAt, int fromLegIndex, RerouteOrigin applyOrigin,
                           boolean planned, String slotKey, RerouteOriginKind originKind) {

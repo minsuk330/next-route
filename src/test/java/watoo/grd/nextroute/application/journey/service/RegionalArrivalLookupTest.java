@@ -2,6 +2,8 @@ package watoo.grd.nextroute.application.journey.service;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import watoo.grd.nextroute.application.arrival.port.out.GyeonggiStopOrderPort;
+import java.util.OptionalInt;
 import watoo.grd.nextroute.application.arrival.dto.GyeonggiBusArrival;
 import watoo.grd.nextroute.application.arrival.port.out.GyeonggiBusArrivalPort;
 import watoo.grd.nextroute.application.arrival.port.out.TagoBusArrivalPort;
@@ -35,11 +37,13 @@ class RegionalArrivalLookupTest {
     private final TagoBusArrivalPort tago = mock(TagoBusArrivalPort.class);
     private final TagoCityCodeLookup cityCodes = mock(TagoCityCodeLookup.class);
     private final BusApiQuotaPort quota = mock(BusApiQuotaPort.class);
-    private final RegionalArrivalLookup lookup = new RegionalArrivalLookup(gyeonggi, tago, cityCodes, quota,
+    private final GyeonggiStopOrderPort stopOrder = mock(GyeonggiStopOrderPort.class);
+    private final RegionalArrivalLookup lookup = new RegionalArrivalLookup(gyeonggi, stopOrder, tago, cityCodes, quota,
             new JourneyRerouteProperties(), Clock.fixed(NOW, ZoneOffset.UTC));
 
     {
         given(quota.tryAcquire(anyString(), anyInt())).willReturn(true);
+        given(stopOrder.orderOf(anyString(), anyString())).willReturn(OptionalInt.of(7));
     }
 
     @Test
@@ -135,5 +139,72 @@ class RegionalArrivalLookupTest {
 
         assertThat(lookup.arrivalAt(RegionalBusProvider.TAGO, "DJB1", "S", 3).failureReason())
                 .isEqualTo("arrival-blocked");
+    }
+
+    @Test
+    @DisplayName("PR-1: 경기 순번이 없으면 몫을 잡지 않고 막힘 — 그 실패는 캐시 시간 동안 다시 묻지 않는다")
+    void noStopOrderSkipsQuota() {
+        given(stopOrder.orderOf("S", "R")).willReturn(OptionalInt.empty());
+
+        assertThat(lookup.boardableAt(RegionalBusProvider.GG, "R", "S", NOW, RegionalArrivalLookup.Bucket.CANDIDATE)
+                .failureReason()).isEqualTo("arrival-blocked");
+        lookup.boardableAt(RegionalBusProvider.GG, "R", "S", NOW, RegionalArrivalLookup.Bucket.CANDIDATE);
+
+        org.mockito.Mockito.verify(quota, org.mockito.Mockito.never()).tryAcquire(anyString(), anyInt());
+        org.mockito.Mockito.verify(stopOrder, org.mockito.Mockito.times(1)).orderOf("S", "R");
+        org.mockito.Mockito.verifyNoInteractions(gyeonggi);
+    }
+
+    @Test
+    @DisplayName("PR-1: 조회 실패도 잠깐 기억한다 — 매 회차 몫을 다시 깎지 않는다")
+    void failureIsNegativelyCached() {
+        given(gyeonggi.getArrival("S", "R", false)).willReturn(BusQueryResult.blocked());
+
+        lookup.boardableAt(RegionalBusProvider.GG, "R", "S", NOW, RegionalArrivalLookup.Bucket.CANDIDATE);
+        lookup.boardableAt(RegionalBusProvider.GG, "R", "S", NOW, RegionalArrivalLookup.Bucket.CANDIDATE);
+
+        org.mockito.Mockito.verify(gyeonggi, org.mockito.Mockito.times(1)).getArrival("S", "R", false);
+        org.mockito.Mockito.verify(quota, org.mockito.Mockito.times(1)).tryAcquire(anyString(), anyInt());
+    }
+
+    @Test
+    @DisplayName("PR-1: 후보 칸은 후보 전용 몫(reroute-gg-candidate)을 쓰고, 평가 칸은 기존 몫을 쓴다")
+    void candidateBucketUsesItsOwnQuota() {
+        given(gyeonggi.getArrival(anyString(), anyString(), org.mockito.ArgumentMatchers.eq(false)))
+                .willReturn(BusQueryResult.ok(List.of(new GyeonggiBusArrival("R", 5, 3, null, null, null, null, null, null, null))));
+
+        lookup.boardableAt(RegionalBusProvider.GG, "R", "S1", NOW, RegionalArrivalLookup.Bucket.CANDIDATE);
+        lookup.boardableAt(RegionalBusProvider.GG, "R", "S2", NOW);
+
+        org.mockito.Mockito.verify(quota).tryAcquire("reroute-gg-candidate", 1500);
+        org.mockito.Mockito.verify(quota).tryAcquire("reroute-gg-arrival", 5000);
+    }
+
+    @Test
+    @DisplayName("PR-1: 경기 초 값(predictTimeSec)이 있으면 그것을 쓰고 정밀, 분 값뿐이면 분×60 이고 정밀 아님")
+    void gyeonggiSecondsWinOverMinutes() {
+        given(gyeonggi.getArrival("S", "R", false)).willReturn(BusQueryResult.ok(List.of(new GyeonggiBusArrival(
+                "R", 3, 2, null, null, null, null, null, null, null, null, null, 150, null, null))));
+        given(gyeonggi.getArrival("S2", "R", false)).willReturn(BusQueryResult.ok(List.of(
+                new GyeonggiBusArrival("R", 3, 2, null, null, null, null, null, null, null))));
+
+        RegionalArrivalLookup.Lookup precise = lookup.boardableAt(RegionalBusProvider.GG, "R", "S", NOW,
+                RegionalArrivalLookup.Bucket.CANDIDATE);
+        RegionalArrivalLookup.Lookup minutes = lookup.boardableAt(RegionalBusProvider.GG, "R", "S2", NOW,
+                RegionalArrivalLookup.Bucket.CANDIDATE);
+
+        assertThat(precise.at()).isEqualTo(NOW.plusSeconds(150));
+        assertThat(precise.precise()).isTrue();
+        assertThat(minutes.at()).isEqualTo(NOW.plusSeconds(180));
+        assertThat(minutes.precise()).isFalse();
+    }
+
+    @Test
+    @DisplayName("PR-1: 경기 순번 표 조회가 터져도 예외를 올리지 않고 막힘 — 평가 호출부들은 예외를 받지 않는다")
+    void stopOrderFailureIsBlockedNotThrown() {
+        given(stopOrder.orderOf("S", "R")).willThrow(new IllegalStateException("db down"));
+
+        assertThat(lookup.nextArrival(RegionalBusProvider.GG, "R", "S").failureReason()).isEqualTo("arrival-blocked");
+        org.mockito.Mockito.verifyNoInteractions(gyeonggi);
     }
 }

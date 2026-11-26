@@ -74,13 +74,17 @@ public class RemainingPathEtaComposer {
         }
 
         JourneyLegDraft waitLeg = firstWait.get();
-        JourneyRouteOptionDraft option = waitLeg.routeOptions().isEmpty()
-                ? null : waitLeg.routeOptions().get(0);
-        String reason = unresolvedReason(waitLeg, option);
+        String reason = unresolvedReason(waitLeg, firstOption(waitLeg));
         if (reason != null) {
             return Prepared.failed(reason);
         }
-        return new Prepared(legs, waitLeg, option, null);
+        Prepared prepared = new Prepared(legs, waitLeg, firstOption(waitLeg), null);
+        if (prepared.usesRegionalRealtime() && hasUnresolvedLaterWait(legs, waitLeg)) {
+            // 지역 후보는 뒤 대기까지 미리 본다 — 앞 대기에서 하루 상한이 있는 지역 몫을 쓰고 체인 중간에 버려지지 않게(PR-1 리뷰 M4).
+            // 서울만 타는 후보는 예전처럼 overlay 에서 boarding-unresolved 로 끝낸다(보드 자리의 "평가 못 함" 동작 유지).
+            return Prepared.failed("boarding-unresolved");
+        }
+        return prepared;
     }
 
     /**
@@ -138,7 +142,26 @@ public class RemainingPathEtaComposer {
         return steps;
     }
 
+    private boolean hasUnresolvedLaterWait(List<JourneyLegDraft> legs, JourneyLegDraft firstWait) {
+        return legs.stream()
+                .filter(leg -> leg.type().isWaiting() && leg != firstWait)
+                .anyMatch(leg -> unresolvedReason(leg, firstOption(leg)) != null);
+    }
+
+    private static JourneyRouteOptionDraft firstOption(JourneyLegDraft leg) {
+        return leg.routeOptions().isEmpty() ? null : leg.routeOptions().get(0);
+    }
+
+    /** 지역(경기·TAGO) 버스 대기 — 서울 노선·순번 없이 지역 실시간으로 묻는다(regional-bus-parity PR-1). */
+    static boolean isRegionalBusWait(JourneyLegDraft waitLeg, JourneyRouteOptionDraft option) {
+        return waitLeg.type() == JourneyLegType.WAIT_BUS && option != null
+                && RegionalArrivalLookup.providerOf(option.routeId(), option.sourceRouteId(), waitLeg.startStopId()) != null;
+    }
+
     private String unresolvedReason(JourneyLegDraft waitLeg, JourneyRouteOptionDraft option) {
+        if (isRegionalBusWait(waitLeg, option)) {
+            return null;
+        }
         if (option == null || option.routeId() == null || option.routeId().isBlank()) {
             return "unresolved-route";
         }
@@ -156,7 +179,8 @@ public class RemainingPathEtaComposer {
         return new BoardingQuery(waitLeg.type(), waitLeg.startStopId(), waitLeg.startName(),
                 option == null ? null : option.routeId(),
                 option == null ? null : option.boardingSeq(),
-                option == null ? null : option.wayCode());
+                option == null ? null : option.wayCode(),
+                option == null ? null : option.sourceRouteId());
     }
 
     /**
@@ -174,6 +198,19 @@ public class RemainingPathEtaComposer {
 
         public boolean failed() {
             return failureReason != null;
+        }
+
+        /** 지역 실시간으로 물을 대기가 하나라도 있다. */
+        public boolean usesRegionalRealtime() {
+            return regionalLookups() > 0;
+        }
+
+        /** 지역 실시간으로 물을 대기 수 = 이 후보를 평가할 때 나갈 지역 조회 수(최대). 회차당 상한을 셀 때 쓴다. */
+        public int regionalLookups() {
+            return (int) legs.stream()
+                    .filter(leg -> leg.type().isWaiting())
+                    .filter(leg -> isRegionalBusWait(leg, RemainingPathEtaComposer.firstOption(leg)))
+                    .count();
         }
 
         /** 탈 것이 없는 경로. 예측을 건너뛴다(D8). */

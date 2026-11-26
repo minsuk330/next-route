@@ -61,7 +61,7 @@ public class WaitBusArrivalPredictor implements CurrentLegArrivalPredictor {
 
         Optional<JourneyLegRouteOption> option = selectedOption(leg);
         RegionalBusProvider regional = option
-                .map(o -> RegionalArrivalLookup.providerOf(o.getRouteId(), o.getSourceRouteId(), leg.getSourceStartStopId()))
+                .map(o -> RegionalArrivalLookup.providerOf(o.getRouteId(), o.getSourceRouteId(), leg.startStopIdForRealtime()))
                 .orElse(null);
         if (regional != null) {
             return predictRegional(leg, option.get(), regional, now);
@@ -105,7 +105,7 @@ public class WaitBusArrivalPredictor implements CurrentLegArrivalPredictor {
     private CurrentLegArrival predictRegional(JourneyLeg leg, JourneyLegRouteOption option,
                                               RegionalBusProvider provider, Instant now) {
         RegionalArrivalLookup.Lookup lookup = regionalArrivalLookup.nextArrival(
-                provider, option.getSourceRouteId(), leg.getSourceStartStopId());
+                provider, option.getSourceRouteId(), leg.startStopIdForRealtime());
         if (lookup.at() == null) {
             log.debug("대기 버스 지역 ETA 없음 — legIndex={}, provider={}, reason={}",
                     leg.getLegIndex(), provider, lookup.failureReason());
