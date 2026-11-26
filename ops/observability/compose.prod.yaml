@@ -1,0 +1,19 @@
+# 운영(VPS) 전용 override. base(compose.yaml) 위에 얹는다.
+#   VPS /root/apps/observability/.env: COMPOSE_FILE=compose.yaml:compose.prod.yaml
+# 반영: ops/prod-sync.sh. 2026-11-26 VPS 실제 상태에서 옮겼다.
+services:
+  prometheus:
+    ports:
+      - "127.0.0.1:9090:9090"   # 수동 OTP 콘솔의 SSH tunnel 전용 — 외부 공개 금지
+
+  # 2026-11-04 메모리 절약으로 내림(24h 조회 0건). 다시 켜기: docker compose --profile traces up -d tempo
+  # + 앱 compose.prod.yaml 의 MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED 줄 삭제 후 api·worker 재생성.
+  tempo:
+    profiles: ["traces"]
+
+  grafana:
+    depends_on: !override
+      loki:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy

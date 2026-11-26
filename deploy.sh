@@ -5,8 +5,14 @@ COMPOSE_FILE="compose.yaml"
 STATE_FILE=".env"
 HEALTH_TIMEOUT_SECONDS=180
 
+# 운영은 .env 의 COMPOSE_FILE=compose.yaml:compose.prod.yaml 로 override 를 합친다.
+# 그 값이 있으면 -f 를 주지 않는다(-f 가 COMPOSE_FILE 을 이긴다 → compose.prod.yaml 이 빠진다).
 compose() {
-  docker compose --env-file "${STATE_FILE}" -f "${COMPOSE_FILE}" "$@"
+  if [ -n "$(state_get COMPOSE_FILE)" ]; then
+    docker compose --env-file "${STATE_FILE}" "$@"
+  else
+    docker compose --env-file "${STATE_FILE}" -f "${COMPOSE_FILE}" "$@"
+  fi
 }
 
 state_get() {
