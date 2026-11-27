@@ -167,6 +167,20 @@ class PrepareTest(unittest.TestCase):
             self.assertEqual((out / "tests.txt").read_text().split(), ["a.BTest"])
             self.assertFalse((out / "skip").exists())
 
+    def test_patch_keeps_crlf_bytes(self):
+        """create-pr compares `git diff >` raw bytes with fix.patch; text mode would fold CR and never match."""
+        with tempfile.TemporaryDirectory() as d:
+            t = self.repo(Path(d))
+            f = t / "src/main/java/a/B.java"
+            f.write_bytes(b"package a;\r\npublic class B {\r\n  int x = 1;\r\n}\r\n")
+            subprocess.run(["git", "-C", str(t), "-c", "user.email=ci@x", "-c", "user.name=ci", "commit", "-qam", "crlf"], check=True)
+            os.environ["EDITS"] = self.edits("  int x = 1;\n", "  int x = 2;\n")
+            out = Path(d, "out")
+            rt.prepare(t, out)
+            raw = subprocess.run(["git", "-C", str(t), "diff"], capture_output=True, check=True).stdout
+            self.assertIn(b"\r", raw)
+            self.assertEqual((out / "fix.patch").read_bytes(), raw)
+
     def test_mismatch_writes_apply_failed_summary(self):
         with tempfile.TemporaryDirectory() as d:
             t = self.repo(Path(d))

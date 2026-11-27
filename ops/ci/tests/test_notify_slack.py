@@ -96,9 +96,6 @@ class MainTest(unittest.TestCase):
             self.assertEqual(ns.main(["x", str(p), "--dry-run"]), 0)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 
 class ApprovableTest(unittest.TestCase):
@@ -162,3 +159,7 @@ class ModesTest(unittest.TestCase):
 
     def test_pr_failed_mode(self):
         self.assertEqual(ns.main(["x", "--pr-failed", "--dry-run"]), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

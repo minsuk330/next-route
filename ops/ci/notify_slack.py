@@ -121,7 +121,7 @@ def render(summary: dict | None, label: str, test_result: str, run_url: str) -> 
         lines.append(f"    • {clean(f.get('test'), 160)} — `{clean(f.get('message'), 200)}`")
     lines.append(f"{link} · 수정본은 실행의 artifact `fix-patch`(90일)")
     if approvable(summary):
-        lines.append(f":white_check_mark: 새 실패 없음 — <{run_url}|승인하면 Draft PR 생성>")
+        lines.append(f":white_check_mark: 새 실패 없음 — artifact `fix-patch` diff 를 보고 <{run_url}|승인하면 Draft PR 생성>")
     text = "\n".join(lines)
     return text if len(text) <= MAX_TEXT else text[:MAX_TEXT - 2] + " …"
 
