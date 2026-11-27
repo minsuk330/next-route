@@ -92,7 +92,7 @@ async def process(
     threaded = await _notify(live.notifier, job, render(verdict, bundle, link=link))
     log.info(
         "analyzed group=%s categories=%s unknown=%s invalid_evidence=%d/%d tokens=%d/%d cost_usd=%.4f "
-        "elapsed_s=%.1f threaded=%s request_id=%s code_via=%s code=%d",
+        "elapsed_s=%.1f threaded=%s request_id=%s code_via=%s code=%d cards=%d fix=%d",
         job.group_key,
         [h.category for h in verdict.hypotheses],
         verdict.unknown,
@@ -106,6 +106,8 @@ async def process(
         verdict.request_id,
         bundle.code_via,
         len(bundle.code),
+        len(bundle.cards),
+        len(verdict.fix_candidates),
     )
     return bundle
 

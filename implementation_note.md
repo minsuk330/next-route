@@ -7275,3 +7275,19 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 운영 컨테이너에서 CodeCollector 실호출: app_build → api f07e1f59 → GitHub sparse fetch 2.4초, `RouteSearchController#search L47-67`(via stack) 정확. 같은 커밋 두 번째 0.01초(캐시). 캐시 13MB
 - 메모리: 직후 120.8MiB/192MiB(anon 79MiB + 페이지 캐시 47MiB). 이 커널엔 memory.peak 없음 → 순간 최대는 미측정
 - 실제 알림에서의 code_via 는 다음 실알림 "analyzed" 로그로 확인(남음)
+
+## RAG PR-3 과거 장애 카드 + 고칠 곳 후보 (2026-11-27, 브랜치 feat/rag-incident-cards)
+
+### 확정
+- analyzer/incidents/cards.json: 씨앗 25장(seed-cards.json, C→K). analyzer/ 아래라 이미지 COPY 에 포함, Path(__file__) 로 읽음. 깨지면 카드 없이 진행 + 기동 경고
+- analyzer/cards.py select: 고친곳 클래스가 코드 symbol·header·로거·프레임에 겹치면 3점, 도메인 낱말 1점(Service·Adapter·Arrival 등 일반 낱말 제외). **클래스 겹치는 카드가 있으면 그것만**, 없을 때만 낱말. 0점 제외, 최대 10장. 예: SubwayDirectionNormalizer → K03·K11·K15 (규칙 전엔 Subway 낱말로 7장 더, 시험에서 오도한 K12 포함)
+- 카드는 bundle.cards(`k:K11`), ids() 에 없음 → 가설 evidence 의 k: 는 자동 무효. fix_ids() = s: ∪ k:
+- Analysis.fix_candidates(place·why·refs) 기본 [], Verdict.fix_candidates 기본 [], check_fix 로 refs 대조·빈 후보 제거·[:3]
+- Slack: 가설 아래 ":wrench: 고칠 곳 후보", 카드는 증상 40자+날짜
+- scripts/cards_loo.py: 빼고 맞히기 재실행 스크립트(이미지에 포함돼 VPS 에서 python -m scripts.cards_loo). 플랜의 eval/ 대신 scripts/ — eval/ 은 이미지에 안 들어감
+
+### 함정
+- 고친곳에 Java 클래스가 없는 카드 K04(그래프 bbox)·K17(시간표)·K19(스키마)는 클래스 기준으로 안 뽑힘. README 에 명시, 쌓이면 기준 확장
+
+### 검증
+- `uv run --extra dev pytest -q` → 223 passed (PR-2 213 + test_cards 9 + test_cards_loo 1)

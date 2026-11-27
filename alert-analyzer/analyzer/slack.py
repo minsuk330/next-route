@@ -23,7 +23,7 @@ import httpx2 as httpx
 
 from analyzer.context import ContextBundle, MetricPoint
 from analyzer.dedupe import KST
-from analyzer.llm import Hypothesis, Verdict
+from analyzer.llm import FixCandidate, Hypothesis, Verdict
 from analyzer.payload import AnalysisJob
 
 log = logging.getLogger(__name__)
@@ -81,6 +81,9 @@ def render(verdict: Verdict, bundle: ContextBundle, *, link: str) -> str:
         lines.append(f":recycle: 직전 재시작: {escape(_restarts(bundle))}")
     for n, hypothesis in enumerate(verdict.hypotheses, 1):
         lines.extend(_hypothesis(n, hypothesis, bundle))
+    if verdict.fix_candidates:
+        lines.append(":wrench: *고칠 곳 후보*")
+        lines.extend(_fix(f, bundle) for f in verdict.fix_candidates)
     if bundle.collection_errors:
         lines.append(f":warning: 수집 실패: {escape('; '.join(bundle.collection_errors))}")
 
@@ -102,6 +105,23 @@ def _hypothesis(n: int, h: Hypothesis, bundle: ContextBundle) -> list[str]:
     lines.extend(f"    • {_describe(e, bundle)}" for e in h.evidence)
     lines.append(f"    다음 확인: {escape(h.next_check)}")
     return lines
+
+
+def _fix(fix: FixCandidate, bundle: ContextBundle) -> str:
+    refs = ", ".join(_ref(r, bundle) for r in fix.refs)
+    return f"    • `{escape(fix.place)}` — {escape(fix.why)} ({refs})"
+
+
+def _ref(ref: str, bundle: ContextBundle) -> str:
+    for c in bundle.cards:
+        if c.get("id") == ref:
+            symptom = str(c.get("증상", ""))
+            symptom = symptom if len(symptom) <= 40 else symptom[:40] + "…"
+            return f"`{escape(ref)}` {escape(symptom)}({escape(str(c.get('날짜', ''))[5:])})"
+    for c in bundle.code:
+        if c.get("id") == ref:
+            return f"`{escape(ref)}` {escape(c['symbol'])}"
+    return f"`{escape(ref)}`"
 
 
 def _describe(evidence_id: str, bundle: ContextBundle) -> str:
