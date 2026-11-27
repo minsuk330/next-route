@@ -1,0 +1,7 @@
+// CI 전용 Gradle init script(docs/plan/pipeline-fix-verify). build.gradle 을 바꾸지 않고 테스트 대상 ref 에 건다.
+// 워크플로가 고른 테스트 목록에 테스트 없는 클래스가 섞여도 실패하지 않게 한다(필터 일치 0건 = 그 패턴만 무시).
+allprojects {
+    tasks.withType(Test).configureEach {
+        filter.failOnNoMatchingTests = false
+    }
+}

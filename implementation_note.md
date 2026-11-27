@@ -7353,3 +7353,24 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 실제로 고쳐진 버그(형식 시험 1번, 수정 커밋 21669ffc): 배포 커밋을 수정 직전 4b1e50cf 로 두고 propose → 블록이 배포 코드와 맞고 main 과 안 맞음 → main_changed, 커밋 목록 = "21669ffc fix(journey): regional metro trackability and nearby line names" 하나(실제 수정 커밋 정확)($0.0064)
 - 가상 원인(lineId null 이면 Set.of contains NPE, D=M=c74a365e): proposed, diff = `if (label == null || lineId == null || !INVERTED_UPDN_LINES.contains(lineId))` 한 줄($0.0029)
 - 남은 것: 실알림에서 fix_proposal 로그·Slack 두 번째 답글
+
+
+## 파이프라인 5·6단계 PR-1: CI DB 덤프 + fix-verify 워크플로 뼈대 (2026-11-27, docs/plan/pipeline-fix-verify)
+
+### 확정
+- CI DB = `ops/ci/schema.sql`(운영 `--schema-only --no-owner --no-privileges` + `flyway_schema_history` `--inserts`). 갱신은 `ops/ci/refresh-schema.sh`(Mac, ssh vps, 읽기만). 갱신 시점: 운영 배포에 새 V__ 가 들어간 뒤, 또는 CI 에서 schema_drift
+- 덤프 검사는 이름 grep 이 아니라 구조로: COPY 0, INSERT 는 flyway_schema_history 만, ROLE/PASSWORD 줄 0. 운영 적용 버전 ⊆ main 파일, 최대 버전 일치(운영에만 있는 V 면 Flyway validate 가 깨짐)
+- 덤프·init script 는 워크플로 자신의 커밋(`trusted/`)에서 읽는다. 테스트 대상(`target/`)은 수정 코드가 돌 곳이라 믿지 않음
+- `failOnNoMatchingTests=false` 는 build.gradle 이 아니라 init script(`ops/ci/ci-test.gradle`)로 — 아무 ref 에나 걸림
+- 전역 concurrency 그룹 없음(대기 칸 1개 → 몰릴 때 대기 run 조용히 취소). PR-2 에서 thread_ts 별 그룹
+
+### 함정
+- 운영 pg_dump 는 17.5 라 `\restrict` 줄 없음. CI 의 postgis/postgis:17-3.5 는 떠 있는 태그라 더 새 17.x 일 수 있음 → 복원은 서비스 컨테이너 psql 로(러너 psql 16 아님)
+- postgis/postgis 이미지는 POSTGRES_DB 에 postgis·topology·tiger 를 미리 만든다. 로컬 재현 때는 같은 확장 4개를 먼저 만들고 복원
+- `REDIS_PORT` 기본값 없음(application.yaml:31). toolchain 17(build.gradle:13)
+
+### 검증
+- `ops/ci/refresh-schema.sh` → V80, 160,388 bytes, 검사 통과. flyway 행 80
+- 로컬 st-pg 새 DB `fixverify_ci`(확장 4개 + `psql -v ON_ERROR_STOP=1 -f schema.sql`) → public 표 58, history 80
+- 그 DB + st-redis 로 `./gradlew test --init-script ops/ci/ci-test.gradle --tests NextrouteApplicationTests --tests JourneyStartIT --tests RailServiceClassifierTest --tests NoSuchTest` → BUILD SUCCESSFUL 28s. contextLoads 1, JourneyStartIT 6, RailServiceClassifierTest 12 + `@Nested` 4클래스(외부 FQN 만으로 내부 클래스도 실행됨), 없는 이름은 무시
+- actionlint 1.7.12 통과
