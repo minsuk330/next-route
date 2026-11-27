@@ -31,6 +31,8 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+	// BuildInfoMetricsTest 가 실제 Prometheus 노출 이름(app_build)을 scrape 로 확인한다.
+	testImplementation 'io.micrometer:micrometer-registry-prometheus'
 	implementation 'io.micrometer:micrometer-tracing-bridge-otel'
 	implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
 	implementation 'org.flywaydb:flyway-core'
@@ -65,4 +67,32 @@ tasks.named('test') {
 	// 기본 힙으로는 컨텍스트가 늘어날 때 OutOfMemoryError 가 나는데, 그 오류가 엉뚱한 테스트
 	// 클래스의 "컨텍스트 로드 실패"로 나타나 원인을 찾기 어렵다.
 	maxHeapSize = '2g'
+}
+
+// 배포 커밋을 jar 에 굽는다(META-INF/build-info.properties → BuildProperties → app_build 메트릭).
+// 장애 분석기가 이 40자 커밋으로 GitHub 에서 그 시점 코드를 받는다(docs/plan/rag-incident-context).
+// deploy.sh 의 revision 은 짧은 SHA·manual·운영자 입력이라 쓰지 않는다. git 이 없거나 실패하면 unknown.
+def gitOutput = { List<String> args ->
+	try {
+		return providers.exec {
+			commandLine(['git'] + args)
+			ignoreExitValue = true
+		}.standardOutput.asText.get().trim()
+	} catch (Exception ignored) {
+		return ''
+	}
+}
+def gitRevision = gitOutput(['rev-parse', 'HEAD'])
+// 소스·빌드 설정에 커밋 안 된 변경(추적 안 하는 새 파일 포함)이 있으면 그 커밋과 jar 가 다르다.
+def gitDirty = gitOutput(['status', '--porcelain', '--', 'src', 'build.gradle', 'settings.gradle'])
+
+springBoot {
+	buildInfo {
+		properties {
+			additional = [
+				revision: (gitRevision ==~ /[0-9a-f]{40}/) ? gitRevision : 'unknown',
+				dirty   : gitDirty.isEmpty() ? 'false' : 'true'
+			]
+		}
+	}
 }
