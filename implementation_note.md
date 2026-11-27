@@ -7229,3 +7229,27 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `./gradlew test --tests '*BuildInfoMetricsTest'` 4/4
 - Prometheus `app_build`: api·worker·worker2 모두 revision=f07e1f5920bad7d789a137fbf1c18ae0c37f10bd dirty=false, role·instance 라벨 붙음. 기동 4분 ERROR 0
+
+## RAG PR-2 분석기 코드 수집 (2026-11-27, 브랜치 feat/rag-code-context)
+
+### 확정
+- analyzer/code.py: 스택 프레임(전체 stack_trace, Caused by 포함, watoo 패키지만, CGLIB 제외, lambda$m$0→m) → 로그 태그 "[Tag]"·알림 uri 라벨 키워드 순. 메서드 최대 5개, 본문 합계 24k 자(별도 한도)
+- 배포 커밋 = Prometheus `last_over_time(app_build{job="nextroute-app"}[5m])` @ 알림 startsAt. role 에 값 둘(배포 중)·dirty·40자 아님 → 그 role 은 "코드 버전 불확실", fetch 안 함
+- SourceCache: git init → sparse-checkout src/main/java → fetch --depth 1 --filter=blob:none origin <sha> → checkout. 토큰은 env(ANALYZER_GIT_PASSWORD) + askpass 스크립트로만, credential.helper 끔, 명령마다 30초·프로세스 그룹 kill, 최근 3커밋
+- gather 가 fit_budget 전에 collect 호출. fit_budget 은 code 를 빼고 재서 나머지에만 40k 적용
+- APP_SELECTOR 에 worker2 추가(전엔 worker2 로그를 아예 안 봤음), explore 링크도
+- 프레임은 sample(앞 15줄) 이 아니라 FULL_SAMPLE_LINES 의 전체 stack_trace 에서. 템플릿이 안 맞으면 그 로거의 가장 큰 템플릿에 붙임
+- mask_code: 비밀값 규칙만(좌표·uuid 규칙은 코드 리터럴을 바꿔서 제외)
+- 플래그 ANALYZER_CODE_CONTEXT_ENABLED 기본 false, 켜면 ANALYZER_GITHUB_TOKEN 필수(없으면 기동 실패)
+
+### 함정
+- 메서드 경계: `@ExceptionHandler(X.class)` 의 `.class` 를 클래스 선언으로 오인 → 선언 판정은 `class\s+\w` 로. 수식어 없는 package-private 생성자(`Foo(List x) {`) 놓침 → 이름이 대문자면 허용
+- 실저장소 1,162 파일·메서드 안 줄 1,597개 표본: 1,593 정확, 4 = 텍스트 블록 안 Lua(정상 None)
+- 셸 `cd alert-analyzer &&` 는 REPL 작업 디렉터리를 바꾼다 → `.cwd()` 사용
+
+### 좌표
+- alert-analyzer/analyzer/code.py, context.py(gather·_logger_templates·fit_budget), masking.py(mask_code), config.py, app.py, worker.py, slack.py, prompts/system.md, Dockerfile(git)
+
+### 검증
+- `uv run --extra dev pytest -q` (alert-analyzer) → 202 passed (기존 175 + test_code 17 + test_code_wiring 10)
+- SourceCache 는 로컬 bare repo(uploadpack.allowAnySHA1InWant·allowFilter)로 실제 git sparse fetch, docs/ 미포함·LRU 3·예외에 토큰/경로 없음 확인

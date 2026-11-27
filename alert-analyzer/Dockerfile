@@ -5,6 +5,10 @@ ENV PATH="/app/.venv/bin:${PATH}"
 
 WORKDIR /app
 
+# git: sparse checkout of the deployed commit's src/main/java (analyzer.code).
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./

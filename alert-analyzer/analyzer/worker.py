@@ -51,7 +51,8 @@ def summarize(job: AnalysisJob, bundle: ContextBundle) -> str:
     return (
         f"group={job.group_key} alerts={names} templates={len(bundle.templates)} "
         f"notable={notable} restarts={restarts} errors={bundle.collection_errors} "
-        f"truncated={bundle.truncated} chars={len(bundle.to_json())}"
+        f"truncated={bundle.truncated} chars={len(bundle.to_json())} "
+        f"code_via={bundle.code_via} code={[c['symbol'] for c in bundle.code]}"
     )
 
 
@@ -91,7 +92,7 @@ async def process(
     threaded = await _notify(live.notifier, job, render(verdict, bundle, link=link))
     log.info(
         "analyzed group=%s categories=%s unknown=%s invalid_evidence=%d/%d tokens=%d/%d cost_usd=%.4f "
-        "elapsed_s=%.1f threaded=%s request_id=%s",
+        "elapsed_s=%.1f threaded=%s request_id=%s code_via=%s code=%d",
         job.group_key,
         [h.category for h in verdict.hypotheses],
         verdict.unknown,
@@ -103,6 +104,8 @@ async def process(
         verdict.elapsed_s,
         threaded,
         verdict.request_id,
+        bundle.code_via,
+        len(bundle.code),
     )
     return bundle
 

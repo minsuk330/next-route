@@ -22,6 +22,11 @@
 - `metrics`: `m:` 로 시작하는 근거 id 별 값. `at_alert` = 알림 시각, `before_30m` = 30분 전. `null` 은 그 시각에 시리즈가 없었다는 뜻(실패 카운터는 첫 실패 때 생긴다)
   - `m:memory_available_mib` 호스트 남은 메모리, `m:up` 수집 대상 생존(1/0), `m:http_5xx_10m` api 5xx 10분 건수, `m:client_fail_10m` 외부 호출 실패 10분 건수(`client_name`, `status`), `m:heap_used_mib` JVM 힙
 - `restarts`: 창 근처에 프로세스가 새로 뜬 기록. 있으면 근거 id `m:restarts` 를 쓸 수 있다
+- `code`: 장애 난 role 이 **지금 실제로 돌리는 배포 커밋**의 코드 조각. 로그의 스택이 가리킨 메서드(`via: stack`)나 로그 태그·API 경로로 찾은 메서드(`via: keyword`)
+  - `id`: `s:` 로 시작하는 근거 id. `symbol` 클래스#메서드, `header` 클래스가 하는 일, `body` 줄 번호가 붙은 원문, `revision` 커밋
+  - 코드는 지금 돌고 있는 사실이다. 스택이 가리킨 줄의 로직(예: null 을 받는 `contains`, 응답을 그대로 0 으로 바꾸는 분기)을 원인의 근거로 쓸 수 있다
+  - 코드만으로 원인을 세우지 않는다. 로그·지표가 그 코드 경로를 탔다는 근거(`t:`, `m:`)와 함께 쓴다
+  - `code_via`: 코드를 무엇으로 찾았나. `none` = 못 찾음, `version_unknown` = 배포 커밋을 몰라 안 넣음, `disabled` = 꺼짐
 - `collection_errors`: 수집에 실패한 소스. 여기 있는 소스는 "아무 일 없었다"가 아니라 "못 봤다"이다
 - `truncated`: 길이 제한으로 잘라 낸 부분
 
@@ -39,7 +44,7 @@
     - `app_bug`: 우리 코드의 결함(예외, 잘못된 데이터 처리)
     - `infra`: 네트워크, DNS, 컨테이너, 관측 스택 자체의 문제
   - `confidence`: `high` / `medium` / `low`
-  - `evidence`: 이 가설을 받치는 근거 id 목록. **입력에 실제로 있는 `t:…`, `m:…`, `m:restarts` 만** 쓴다. 지어내거나 바꿔 쓰지 않는다
+  - `evidence`: 이 가설을 받치는 근거 id 목록. **입력에 실제로 있는 `t:…`, `m:…`, `m:restarts`, `s:…` 만** 쓴다. 지어내거나 바꿔 쓰지 않는다
   - `next_check`: 사람이 바로 해 볼 확인 한 가지. 어느 로거, 어느 지표, 어느 외부 서비스를 볼지 구체적으로
 
 ## 규칙

@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Protocol
 
+from analyzer.code import MAX_FRAMES, frames_from_stack
 from analyzer.masking import mask
 from analyzer.payload import AnalysisJob, GrafanaAlert
 
@@ -42,7 +43,7 @@ QUIET_LINES = 5
 MAX_BUNDLE_CHARS = 40_000
 
 # Spring apps log JSON with a `level` label (Alloy). OTP logs are plain text.
-APP_SELECTOR = 'app=~"api|worker"'
+APP_SELECTOR = 'app=~"api|worker|worker2"'
 OTP_TEMPLATE = "OTP 로그의 ERROR/Exception 줄"
 
 METRIC_QUERIES = {
@@ -82,6 +83,9 @@ class TemplateStat:
     baseline_seen: bool | None
     samples: list[str] = field(default_factory=list)
     trace_ids: list[str] = field(default_factory=list)
+    # Our package's frames from the untruncated stack traces (Caused by included), top first.
+    # Samples keep only the first STACK_LINES rows, often all library frames.
+    frames: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -109,6 +113,9 @@ class ContextBundle:
     restarts: list[Restart]
     collection_errors: list[str]
     truncated: list[str] = field(default_factory=list)
+    # Deployed-commit code (analyzer.code.CodeSnippet as dicts). Ids "s:1".., citable as evidence.
+    code: list[dict] = field(default_factory=list)
+    code_via: str = "disabled"
 
     def ids(self) -> set[str]:
         """Evidence ids the LLM may cite."""
@@ -116,6 +123,7 @@ class ContextBundle:
         ids.update(m.key for m in self.metrics)
         if self.restarts:
             ids.add("m:restarts")
+        ids.update(c["id"] for c in self.code)
         return ids
 
     def to_json(self) -> str:
@@ -134,6 +142,8 @@ class ContextBundle:
             restarts=[Restart(r["instance"], datetime.fromisoformat(r["started_at"])) for r in data["restarts"]],
             collection_errors=data["collection_errors"],
             truncated=data.get("truncated", []),
+            code=data.get("code", []),
+            code_via=data.get("code_via", "disabled"),
         )
 
 
@@ -172,7 +182,13 @@ def classify(window_count: int, baseline_count: int, window_min: float, baseline
 # --- gathering -----------------------------------------------------------------
 
 
-async def gather(job: AnalysisJob, logs: LogSource, metrics: MetricSource) -> ContextBundle:
+class CodeSource(Protocol):
+    async def __call__(self, templates: list[TemplateStat], alerts: list[dict], at: datetime): ...
+
+
+async def gather(
+    job: AnalysisJob, logs: LogSource, metrics: MetricSource, code: CodeSource | None = None
+) -> ContextBundle:
     starts = [a.startsAt for a in job.alerts]
     first, last = min(starts), max(starts)
     window_start = first - WINDOW_BEFORE
@@ -212,8 +228,24 @@ async def gather(job: AnalysisJob, logs: LogSource, metrics: MetricSource) -> Co
     except Exception as exc:  # noqa: BLE001
         errors.append(_describe("prometheus restarts", exc))
 
+    alerts = [_alert_view(a) for a in job.alerts]
+    # Before fit_budget: the frames and templates it may cut are what finds the code.
+    snippets: list[dict] = []
+    code_via = "disabled"
+    truncated: list[str] = []
+    if code is not None:
+        try:
+            found = await code(templates, alerts, first)
+            snippets, code_via = found.as_dicts(), found.via
+            errors.extend(found.errors)
+            if found.truncated:
+                truncated.append("code")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(_describe("code", exc))
+            code_via = "none"
+
     bundle = ContextBundle(
-        alerts=[_alert_view(a) for a in job.alerts],
+        alerts=alerts,
         window_start=window_start,
         window_end=window_end,
         templates=templates,
@@ -221,6 +253,9 @@ async def gather(job: AnalysisJob, logs: LogSource, metrics: MetricSource) -> Co
         metrics=points,
         restarts=restarts,
         collection_errors=errors,
+        truncated=truncated,
+        code=snippets,
+        code_via=code_via,
     )
     return fit_budget(bundle)
 
@@ -279,6 +314,11 @@ async def _logger_templates(
     window = [mask(m) for m in _raw_lines(await logs.range(messages, start, end, WINDOW_LINES))]
     baseline = [mask(m) for m in _raw_lines(await logs.range(messages, start - BASELINE, start, BASELINE_LINES))]
     full_lines = _lines(await logs.range(full, start, end, FULL_SAMPLE_LINES))
+    logger_frames: list[str] = []
+    for line in full_lines:
+        for frame in frames_from_stack(str(line.get("stack_trace") or "")):
+            if frame not in logger_frames:
+                logger_frames.append(frame)
 
     baseline_templates = {normalize_template(m) for m in baseline}
     baseline_capped = len(baseline) >= BASELINE_LINES
@@ -291,8 +331,15 @@ async def _logger_templates(
         full_by_template.setdefault(normalize_template(mask(str(line.get("message", "")))), []).append(line)
 
     stats = []
+    frames_given = False
     for template, lines in groups.items():
         full_matches = full_by_template.get(template, [])
+        frames: list[str] = []
+        for line in full_matches:
+            for frame in frames_from_stack(str(line.get("stack_trace") or "")):
+                if frame not in frames:
+                    frames.append(frame)
+        frames_given = frames_given or bool(frames)
         samples = [_sample(line) for line in full_matches[:SAMPLES]]
         samples += [m[:SAMPLE_CHARS] for m in lines[: SAMPLES - len(samples)]]
         seen: bool | None = template in baseline_templates
@@ -313,8 +360,14 @@ async def _logger_templates(
                 baseline_seen=seen,
                 samples=samples,
                 trace_ids=_trace_ids(full_matches),
+                frames=frames[:MAX_FRAMES],
             )
         )
+    # The full lines' message may template differently from the window sample; keep
+    # their frames anyway, on the logger's biggest template.
+    if logger_frames and not frames_given and stats:
+        biggest = max(stats, key=lambda s: s.sample_count)
+        biggest.frames = logger_frames[:MAX_FRAMES]
     return stats
 
 
@@ -368,7 +421,19 @@ async def _restarts(metrics: MetricSource, first: datetime, window_end: datetime
 
 
 def fit_budget(bundle: ContextBundle, limit: int = MAX_BUNDLE_CHARS) -> ContextBundle:
-    """Shrink the bundle until it fits, least useful parts first. Records what was cut."""
+    """Shrink the bundle until it fits, least useful parts first. Records what was cut.
+
+    Code has its own budget (analyzer.code.BUDGET_CHARS), applied when it is
+    collected; this limit is for everything else, so a big incident's samples
+    never squeeze the code out.
+    """
+    code = bundle.code
+    bundle = replace(bundle, code=[])
+    fitted = _fit_rest(bundle, limit)
+    return replace(fitted, code=code)
+
+
+def _fit_rest(bundle: ContextBundle, limit: int) -> ContextBundle:
     if len(bundle.to_json()) <= limit:
         return bundle
     truncated = list(bundle.truncated)
