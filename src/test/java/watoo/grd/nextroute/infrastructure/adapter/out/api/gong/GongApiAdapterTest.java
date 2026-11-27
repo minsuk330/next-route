@@ -198,7 +198,9 @@ class GongApiAdapterTest {
     // ── 실제 API 호출 테스트 (GONG_API 환경변수 필요) ──────────────────
 
     @Test
-    @EnabledIfEnvironmentVariable(named = "GONG_API", matches = ".+")
+    // 키는 환경변수에서만 읽는다(저장소에 키를 두지 않는다 — 2026-11-28 공개 준비 때 재발급).
+    // 40자 미만(CI 의 더미 값 등)이면 건너뛴다.
+    @EnabledIfEnvironmentVariable(named = "GONG_API", matches = ".{40,}")
     void integration_실제_API_2026년_공휴일_조회() {
         // 실제 RestTemplate으로 교체
         org.springframework.boot.web.client.RestTemplateBuilder builder =
@@ -206,7 +208,7 @@ class GongApiAdapterTest {
         RestTemplate realTemplate = builder.build();
 
         GongApiAdapter realAdapter = new GongApiAdapter(realTemplate);
-        ReflectionTestUtils.setField(realAdapter, "apiKey", "VtEevb8AeUi%2Fd3j4s4%2FRxhJEqD8YDb3asOcMhx378FjO8UmDiI5cHFOt2Ry8FgJl6yi5v62uViSuFxUxiEOcDQ%3D%3D");
+        ReflectionTestUtils.setField(realAdapter, "apiKey", System.getenv("GONG_API"));
 
         // 신정(1/1)은 공휴일
         assertThat(realAdapter.isHoliday(LocalDate.of(2026, 1, 1))).isTrue();
