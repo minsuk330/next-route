@@ -7384,3 +7384,4 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 전역 concurrency 미루기(PR-2 에서 thread_ts 그룹)는 의도 — PR-1 엔 thread_ts 입력이 없음
 - 🔴 PR-2 주의: init script 의 `failOnNoMatchingTests=false` 때문에 0건 실행도 exit 0 → summary 의 "0건 = error" 판정 필수
 - refresh-schema 검사 시험(본문 python 만 떼어 가짜 입력): 정상 통과, 설명 안 `''` 통과, COPY 중단, success=false 중단, 운영에만 V81 중단
+- CI 2회차(run 45997155316, 리뷰 반영): pass 4m4s. contextLoads 1, JourneyStartIT 12, RailServiceClassifierTest 6 + Nested 4클래스 14, 실패 0. 로그 "Successfully validated 81 migrations"(덤프 V80 + 파일 81개 일치, 새로 적용 없음)
