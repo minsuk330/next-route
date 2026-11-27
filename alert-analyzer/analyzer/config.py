@@ -33,6 +33,11 @@ class Settings:
     probe_enabled: bool = False
     probe_base_url: str = "https://api.jettae.site"
     probe_interval_s: float = 600.0
+    # Deployed-commit code in the analysis (analyzer.code). Off until a GitHub read token is set.
+    code_context_enabled: bool = False
+    github_repo: str = "minsuk330/next-route"
+    github_token: str = field(default="", repr=False)
+    code_cache_dir: str = "/tmp/code-cache"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -46,6 +51,10 @@ class Settings:
         # Fail at startup, not on the first alert, when live mode lacks a key.
         if not dry_run and missing:
             raise RuntimeError(f"ANALYZER_DRY_RUN=false needs {', '.join(missing)}")
+        code_enabled = _bool(env.get("ANALYZER_CODE_CONTEXT_ENABLED"), False)
+        github_token = env.get("ANALYZER_GITHUB_TOKEN", "").strip()
+        if code_enabled and not github_token:
+            raise RuntimeError("ANALYZER_CODE_CONTEXT_ENABLED=true needs ANALYZER_GITHUB_TOKEN")
         return cls(
             webhook_token=token,
             loki_url=env.get("ANALYZER_LOKI_URL", cls.loki_url),
@@ -60,4 +69,8 @@ class Settings:
             probe_enabled=_bool(env.get("ANALYZER_PROBE_ENABLED"), False),
             probe_base_url=env.get("ANALYZER_PROBE_BASE_URL", cls.probe_base_url),
             probe_interval_s=float(env.get("ANALYZER_PROBE_INTERVAL_S", cls.probe_interval_s)),
+            code_context_enabled=code_enabled,
+            github_repo=env.get("ANALYZER_GITHUB_REPO", cls.github_repo),
+            github_token=github_token,
+            code_cache_dir=env.get("ANALYZER_CODE_CACHE_DIR", cls.code_cache_dir),
         )

@@ -25,12 +25,14 @@ jobs:
         uses: actions/checkout@v5
 
       # Same Python 3.12 + uv the image uses; no extra setup action to pin.
+      # git: SourceCache tests run a real sparse fetch from a local repo (the image installs git too).
       - name: Run tests
         run: >
           docker run --rm -v "$PWD/alert-analyzer":/app -w /app
           -e UV_PROJECT_ENVIRONMENT=/tmp/venv
           ghcr.io/astral-sh/uv:python3.12-bookworm-slim
-          uv run --frozen --extra dev pytest -q
+          sh -c "apt-get update -qq && apt-get install -y -qq --no-install-recommends git > /dev/null
+          && uv run --frozen --extra dev pytest -q"
 
   build-push:
     name: Build and push alert-analyzer image

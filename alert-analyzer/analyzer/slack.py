@@ -64,7 +64,7 @@ def escape(text: str) -> str:
 
 def explore_url(grafana_url: str, bundle: ContextBundle) -> str:
     """Grafana Explore on the alert window, WARN/ERROR of the apps involved."""
-    apps = sorted({t.app for t in bundle.templates if t.app in ("api", "worker")}) or ["api", "worker"]
+    apps = sorted({t.app for t in bundle.templates if t.app in ("api", "worker", "worker2")}) or ["api", "worker", "worker2"]
     expr = f'{{app=~"{"|".join(apps)}", level=~"WARN|ERROR"}}'
     pane = {
         "datasource": "loki",
@@ -108,6 +108,9 @@ def _describe(evidence_id: str, bundle: ContextBundle) -> str:
     code = f"`{escape(evidence_id)}`"
     if evidence_id == "m:restarts":
         return f"{code} {escape(_restarts(bundle))}"
+    for c in bundle.code:
+        if c.get("id") == evidence_id:
+            return f"{code} {escape(c['symbol'])} L{c['start_line']}-{c['end_line']} @{escape(c['revision'][:8])}"
     for t in bundle.templates:
         if t.id == evidence_id:
             template = t.template if len(t.template) <= TEMPLATE_CHARS else t.template[:TEMPLATE_CHARS] + "…"

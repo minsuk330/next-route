@@ -7229,3 +7229,39 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `./gradlew test --tests '*BuildInfoMetricsTest'` 4/4
 - Prometheus `app_build`: api·worker·worker2 모두 revision=f07e1f5920bad7d789a137fbf1c18ae0c37f10bd dirty=false, role·instance 라벨 붙음. 기동 4분 ERROR 0
+
+## RAG PR-2 분석기 코드 수집 (2026-11-27, 브랜치 feat/rag-code-context)
+
+### 확정
+- analyzer/code.py: 스택 프레임(전체 stack_trace, Caused by 포함, watoo 패키지만, CGLIB 제외, lambda$m$0→m) → 로그 태그 "[Tag]"·알림 uri 라벨 키워드 순. 메서드 최대 5개, 본문 합계 24k 자(별도 한도)
+- 배포 커밋 = Prometheus `last_over_time(app_build{job="nextroute-app"}[5m])` @ 알림 startsAt. role 에 값 둘(배포 중)·dirty·40자 아님 → 그 role 은 "코드 버전 불확실", fetch 안 함
+- SourceCache: git init → sparse-checkout src/main/java → fetch --depth 1 --filter=blob:none origin <sha> → checkout. 토큰은 env(ANALYZER_GIT_PASSWORD) + askpass 스크립트로만, credential.helper 끔, 명령마다 30초·프로세스 그룹 kill, 최근 3커밋
+- gather 가 fit_budget 전에 collect 호출. fit_budget 은 code 를 빼고 재서 나머지에만 40k 적용
+- APP_SELECTOR 에 worker2 추가(전엔 worker2 로그를 아예 안 봤음), explore 링크도
+- 프레임은 sample(앞 15줄) 이 아니라 FULL_SAMPLE_LINES 의 전체 stack_trace 에서. 템플릿이 안 맞으면 그 로거의 가장 큰 템플릿에 붙임
+- mask_code: 비밀값 규칙만(좌표·uuid 규칙은 코드 리터럴을 바꿔서 제외)
+- 플래그 ANALYZER_CODE_CONTEXT_ENABLED 기본 false, 켜면 ANALYZER_GITHUB_TOKEN 필수(없으면 기동 실패)
+
+### 함정
+- 메서드 경계: `@ExceptionHandler(X.class)` 의 `.class` 를 클래스 선언으로 오인 → 선언 판정은 `class\s+\w` 로. 수식어 없는 package-private 생성자(`Foo(List x) {`) 놓침 → 이름이 대문자면 허용
+- 실저장소 1,162 파일·메서드 안 줄 1,597개 표본: 1,593 정확, 4 = 텍스트 블록 안 Lua(정상 None)
+- 셸 `cd alert-analyzer &&` 는 REPL 작업 디렉터리를 바꾼다 → `.cwd()` 사용
+
+### 좌표
+- alert-analyzer/analyzer/code.py, context.py(gather·_logger_templates·fit_budget), masking.py(mask_code), config.py, app.py, worker.py, slack.py, prompts/system.md, Dockerfile(git)
+
+### 검증
+- `uv run --extra dev pytest -q` (alert-analyzer) → 202 passed (기존 175 + test_code 17 + test_code_wiring 10)
+- SourceCache 는 로컬 bare repo(uploadpack.allowAnySHA1InWant·allowFilter)로 실제 git sparse fetch, docs/ 미포함·LRU 3·예외에 토큰/경로 없음 확인
+
+### 함정 (독립 검토 반영, 9건)
+- record 헤더 `public record Rec(...)` 를 메서드로 오인 → record 전체(최대 302줄)를 잡음(return 줄 5,152 중 455). 가드: 이름 앞이 record/enum 이면 제외, compact 생성자(`public Fare {`) 인식. 재측정 return 4,668줄 중 타입 전체 잡힘 0
+- 태그는 한 클래스의 여러 메서드에 쓰인다([BusArrival] 4곳) → 템플릿의 가장 긴 고정 조각(template_hint)으로 줄 고름, 없으면 첫 사용
+- 배포 직후 5분 version_unknown: `last_over_time(...[5m])` 는 staleness 를 무시해 옛 revision 도 보임(instance 라벨이 배포 후에도 같음) → 평범한 선택자 `app_build{job="nextroute-app"}`
+- 알림 uri 에 HTTP 메서드가 없어 GET/DELETE 같은 경로면 첫 매핑만 → 파일 안 맞는 매핑 전부(최대 3)
+- annotation 배열 `{..}` 이 블록으로 세져 메서드 시작 줄이 잘림 → 괄호 안 중괄호 무시
+- git maintenance --detach 가 killpg·메모리 상한을 벗어남 → `-c maintenance.auto=false -c gc.auto=0`
+- git 없음·디스크 오류(OSError)가 수집 전체를 날림, 반쯤 받은 디렉터리 잔존 → CodeFetchError 로 감싸고 .ok 없는 디렉터리 prune
+- 코드용 bearer 규칙이 `BEARER = "Bearer ";` 를 바꿈 → 코드에는 20자 이상 토큰 모양만
+- 토큰 테스트가 구조상 늘 통과(stderr 버림) → create_subprocess_exec 를 가로채 인자에 토큰 없음·env 에만 있음 확인
+- 검증 갱신: pytest 213 passed. 실저장소 표본 1,597줄 중 1,593 정확(4 = Lua 텍스트 블록)
