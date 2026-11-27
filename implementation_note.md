@@ -7205,3 +7205,19 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - main 47d81acf jar(#648 3fbcc18a 포함, 사용자 승인) → api·worker `deploy.sh`(진행 여정 0, jar sha 7c500ce3… 대조, 백업 app.jar.bak-*-pre-47d81acf)
 - 🔴 `deploy.sh worker` 가 worker2 를 교체하지 않음: 로그가 "[deploy] worker is healthy" 에서 끝나고 worker2 Recreate 줄 없음. 직후 has_service worker2 를 10번 돌려도 모두 true 라 원인 미확정(후보: has_service 의 compose config | grep -q 가 pipefail 아래에서 SIGPIPE 로 거짓). 수동 `docker compose --env-file .env up -d --no-deps --force-recreate worker2` → healthy. 가드: 배포 뒤 worker2 이미지 태그 확인(스크립트 5단계가 잡음)
 - 검증: api·worker·worker2 = 47d81acf, healthy, 기동 5분 ERROR 0, 헤더 검색 200. 필터가 실제 5xx 를 찍는 것은 다음 5xx 때 Loki 에서 `[ServerError]` 로 확인
+
+## RAG PR-1 빌드 커밋 메트릭 (2026-11-27, 브랜치 feat/rag-build-info, 티어 L 의 PR-1)
+
+### 확정
+- 플랜 docs/plan/rag-incident-context(PLAN·SUMMARY·seed-cards.json) 사용자 승인. Opus 독립 검토 12건 반영 — PR-1 은 deploy.sh·compose 대신 jar 에 커밋을 굽는다
+- build.gradle springBoot.buildInfo additional: revision = git rev-parse HEAD(40자 hex 아니면 unknown), dirty = src·build.gradle·settings.gradle 에 커밋 안 된 변경(추적 안 하는 새 파일 포함) 있으면 true
+- 메트릭 이름 app.build → Prometheus app_build{revision,dirty} 값 1. role·instance 는 수집 설정 라벨
+
+### 함정
+- micrometer-registry-prometheus 는 runtimeOnly 라 테스트에서 PrometheusMeterRegistry 를 못 씀 → testImplementation 으로 같은 아티팩트 추가(새 라이브러리 아님)
+- `_info` 접미사는 Prometheus 클라이언트가 Info 타입으로 바꿔 노출 이름이 달라짐(검토 11) → app_build
+- application.yaml 에 `app:` 키가 이미 있음(L387). 새 최상위 `app:` 블록은 기동 실패(검토 9) — 이번엔 yaml 안 씀
+
+### 좌표
+- build.gradle 끝 springBoot.buildInfo
+- src/main/java/watoo/grd/nextroute/common/observability/BuildInfoMetrics.java
