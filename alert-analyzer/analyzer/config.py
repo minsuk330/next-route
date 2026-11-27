@@ -22,7 +22,7 @@ class Settings:
     webhook_token: str = field(repr=False)
     loki_url: str = "http://loki:3100"
     prom_url: str = "http://prometheus:9090"
-    grafana_url: str = "https://grafana.refit-100.site"
+    grafana_url: str = "https://grafana.jettae.site"
     dry_run: bool = True
     daily_limit: int = 30
     queue_max: int = 20
@@ -31,7 +31,7 @@ class Settings:
     slack_channel_id: str = ""
     # Synthetic monitoring (analyzer.probe). Off unless asked: it calls the production API.
     probe_enabled: bool = False
-    probe_base_url: str = "https://api.refit-100.site"
+    probe_base_url: str = "https://api.jettae.site"
     probe_interval_s: float = 600.0
 
     @classmethod
