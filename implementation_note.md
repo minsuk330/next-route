@@ -7419,3 +7419,4 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - Slack: 백틱을 ' 로 바꿔 코드 블록 탈출 차단, 실패 메시지는 인라인 코드
 - 보안 규칙 추가(PLAN): 이 저장소에 Actions cache 도입 금지. docker 격리는 후속
 - 단위 테스트 38개 OK(run() 판정표 10경우, baseline None·바깥 클래스 재실행, 예외 summary, 백틱, static star, 자기 테스트만 있는 scheduler)
+- 리뷰 반영 후 dispatch 재확인(run 46002045390): passed, 99 tests, 280s, notify success. PR scripts job 10s pass. #663 머지 308f1422
