@@ -132,7 +132,8 @@ class Index:
 
     def _refs(self, src: Src) -> set[str]:
         out = set()
-        for imp in src.imports:  # import a.b.Type / a.b.Type.Nested / static a.b.Type.member
+        # import a.b.Type / a.b.Type.Nested / static a.b.Type.member / static a.b.Type.* (a star on a type)
+        for imp in src.imports | src.star_imports:
             parts = imp.split(".")
             for i in range(len(parts), 0, -1):
                 if ".".join(parts[:i]) in self.files:
@@ -188,7 +189,9 @@ def select(root: Path, changed: list[str]) -> list[str] | None:
 
     for c in start:
         targets = {c} | idx.ancestors(c)
-        if not any(s.deps & targets for s in idx.files.values() if s.fqn != c):
+        # Only main-side references count: one unit test of its own must not switch the fallback off
+        # (measured: 26 @Scheduled/@EventListener classes are referenced only by their own tests).
+        if not any(s.deps & targets for s in idx.files.values() if s.fqn != c and not s.is_test):
             prefix = idx.files[c].pkg
             picked |= {t.fqn for t in tests if t.pkg == prefix or t.pkg.startswith(prefix + ".")}
 

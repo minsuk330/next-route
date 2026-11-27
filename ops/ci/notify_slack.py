@@ -39,7 +39,8 @@ def clean(value: object, limit: int) -> str:
     text = " ".join(text.split())[:limit]
     for pattern, repl in _MASKS:
         text = pattern.sub(repl, text)
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # Backticks would close our code spans/blocks and let the rest render as mrkdwn.
+    return text.replace("`", "'").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def count(value: object) -> int:
@@ -88,7 +89,7 @@ def render(summary: dict | None, label: str, test_result: str, run_url: str) -> 
     icon = ":white_check_mark:" if status == "passed" else (":x:" if new else ":large_yellow_circle:")
     lines = [head, f"{icon} {nums} · {scope} · {took} · `{path}`"]
     for f in (new or failures)[:SHOW_FAILURES]:
-        lines.append(f"    • {clean(f.get('test'), 160)} — {clean(f.get('message'), 200)}")
+        lines.append(f"    • {clean(f.get('test'), 160)} — `{clean(f.get('message'), 200)}`")
     lines.append(f"{link} · 수정본은 실행의 artifact `fix-patch`(90일)")
     text = "\n".join(lines)
     return text if len(text) <= MAX_TEXT else text[:MAX_TEXT - 2] + " …"

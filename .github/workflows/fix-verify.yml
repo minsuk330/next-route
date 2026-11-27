@@ -78,6 +78,10 @@ jobs:
       IN_REF: ${{ inputs.ref }}
       EDITS: ${{ inputs.edits }}
     steps:
+      # run_tests.py 가 남은 시간을 job 시작부터 센다(60분 timeout 전에 summary 를 써야 함).
+      - name: Record start
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Check out workflow commit (trusted)
         uses: actions/checkout@v5
         with:

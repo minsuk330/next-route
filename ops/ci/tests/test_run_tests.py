@@ -50,6 +50,89 @@ class ResultsTest(unittest.TestCase):
         self.assertEqual(rt.test_args(["a.B", "a.C"]), ["test", "--tests", "a.B", "--tests", "a.C"])
 
 
+class RunDecisionTest(unittest.TestCase):
+    """run() status table with gradle/results/baseline stubbed."""
+
+    def setUp(self):
+        self.saved = (rt.gradle, rt.results, rt.baseline)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.out = Path(self.tmp.name, "out")
+        self.out.mkdir()
+        (self.out / "tests.txt").write_text("a.BTest\n")
+        (self.out / "path.txt").write_text("src/main/java/a/B.java")
+
+    def tearDown(self):
+        rt.gradle, rt.results, rt.baseline = self.saved
+        self.tmp.cleanup()
+
+    def go(self, compile_=(0, ""), test=(0, ""), counts=(1, 0, 0), failures=(), base=None):
+        calls = iter([compile_, test])
+        rt.gradle = lambda cwd, *tasks, **kw: next(calls)
+        rt.results = lambda build: ({"tests": counts[0], "failed": counts[1], "skipped": counts[2]},
+                                    [dict(f) for f in failures])
+        rt.baseline = lambda target, fs: base
+        rt.run(Path(self.tmp.name, "target"), self.out)
+        return json.loads((self.out / "summary.json").read_text())
+
+    def f(self, test, drift=False):
+        return {"test": test, "message": "m", "drift": drift}
+
+    def test_table(self):
+        cases = [
+            ("passed", dict(), ("passed", "")),
+            ("compile error lines", dict(compile_=(1, "/t/B.java:1: error: x")), ("compile_failed", "")),
+            ("compile infra failure", dict(compile_=(1, "Could not resolve dependency")), ("error", "gradle_failed")),
+            ("compile timeout", dict(compile_=(None, "")), ("error", "timeout")),
+            ("test timeout", dict(test=(None, "")), ("error", "timeout")),
+            ("zero tests ran", dict(counts=(0, 0, 0)), ("error", "no_tests_ran")),
+            ("zero tests, gradle failed", dict(test=(1, ""), counts=(0, 0, 0)), ("error", "gradle_failed")),
+            ("non-zero exit, no failures", dict(test=(1, ""), counts=(3, 0, 0)), ("error", "gradle_failed")),
+            ("drift wins", dict(test=(1, ""), counts=(1, 1, 0), failures=[self.f("a.Ctx#c", drift=True)]), ("error", "schema_drift")),
+            ("failed, no baseline", dict(test=(1, ""), counts=(2, 1, 0), failures=[self.f("a.B#x")]), ("failed", "")),
+        ]
+        for name, kw, want in cases:
+            with self.subTest(name):
+                s = self.go(**kw)
+                self.assertEqual((s["status"], s["reason"]), want)
+
+    def test_baseline_marks_and_orders_new_first(self):
+        s = self.go(test=(1, ""), counts=(3, 2, 0), failures=[self.f("a.Old#x"), self.f("a.New#y")], base={"a.Old#x"})
+        self.assertTrue(s["baseline_checked"])
+        self.assertEqual([(f["test"], f["baseline"]) for f in s["failures"]], [("a.New#y", False), ("a.Old#x", True)])
+        self.assertNotIn("drift", s["failures"][0])
+
+    def test_baseline_unavailable_keeps_unchecked(self):
+        s = self.go(test=(1, ""), counts=(2, 1, 0), failures=[self.f("a.B#x")], base=None)
+        self.assertFalse(s["baseline_checked"])
+        self.assertFalse(s["failures"][0]["baseline"])
+
+
+class BaselineTest(unittest.TestCase):
+    def setUp(self):
+        self.saved = (rt.git, rt.gradle, rt.results)
+
+    def tearDown(self):
+        rt.git, rt.gradle, rt.results = self.saved
+
+    def test_none_when_worktree_or_run_fails(self):
+        def boom(*a):
+            raise subprocess.CalledProcessError(1, "git")
+        rt.git = boom
+        self.assertIsNone(rt.baseline(Path("/x/target"), [{"test": "a.B#x"}]))
+        rt.git = lambda *a: ""
+        rt.gradle = lambda cwd, *t, **kw: (None, "")
+        rt.results = lambda b: ({"tests": 0, "failed": 0, "skipped": 0}, [])
+        self.assertIsNone(rt.baseline(Path("/x/target"), [{"test": "a.B$Inner#x"}]))
+
+    def test_reruns_outer_classes(self):
+        seen = {}
+        rt.git = lambda *a: ""
+        rt.gradle = lambda cwd, *t, **kw: (seen.setdefault("args", t), (1, ""))[1]
+        rt.results = lambda b: ({"tests": 2, "failed": 1, "skipped": 0}, [{"test": "a.B$Inner#x"}])
+        self.assertEqual(rt.baseline(Path("/x/target"), [{"test": "a.B$Inner#x"}, {"test": "a.B#y"}]), {"a.B$Inner#x"})
+        self.assertEqual(seen["args"], ("test", "--tests", "a.B"))
+
+
 class PrepareTest(unittest.TestCase):
     def setUp(self):
         self.env = dict(os.environ)
@@ -92,6 +175,24 @@ class PrepareTest(unittest.TestCase):
             self.assertEqual(rt.prepare(t, out), 0)
             self.assertTrue((out / "skip").exists())
             self.assertEqual(json.loads((out / "summary.json").read_text())["status"], "apply_failed")
+
+    def test_exception_still_leaves_summary(self):
+        saved = rt.select_tests.select
+
+        def boom(*a):
+            raise ValueError("x")
+        rt.select_tests.select = boom
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                t = self.repo(Path(d))
+                out = Path(d, "out")
+                os.environ["EDITS"] = self.edits("  int x = 1;\n", "  int x = 2;\n")
+                self.assertEqual(rt.main(["x", "prepare", str(t), str(out)]), 0)
+                s = json.loads((out / "summary.json").read_text())
+                self.assertEqual((s["status"], s["reason"]), ("error", "exception:ValueError"))
+                self.assertTrue((out / "skip").exists())
+        finally:
+            rt.select_tests.select = saved
 
     def test_bad_input_is_error(self):
         with tempfile.TemporaryDirectory() as d:

@@ -7407,3 +7407,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 실제 저장소 선택 수: JourneyStartService 45, HealthController 35, SubwayDirectionNormalizer 212, ParseUtils 201, RouteAlertDispatchScheduler 3, ClockConfig 209 (각 ~2초)
 - 로컬 끝까지(st-pg fixverify_ci + st-redis, scratch worktree): 주석 1줄 → passed 6 tests 40s / 문법 오류 → compile_failed + 오류 줄 / RailServiceClassifier 반환값 바꿈(tests.txt 를 RailServiceClassifierTest 로 줄여서) → failed 1, baseline_checked=true, baseline=false(새 실패)
 - actionlint 통과
+- 브랜치 dispatch 끝까지 4건(시험 스레드 C0CCXF6UGN4 / 1795782729.655779, ref=bb35f9cf): apply_failed 0.7m, compile_failed 1.9m(오류 줄 1개), passed 4.2m(3클래스 6 tests), failed 8.4m(RailServiceClassifier 반환값 바꿈 → 63클래스, 통과 643 실패 11, baseline 재실행으로 새 실패 11·기존 0). 4건 모두 스레드 답글 확인(conversations.replies)
+
+### 확정 (Opus 리뷰 반영, major 3·minor 8)
+- 남은 시간은 job 시작(JOB_STARTED, 첫 단계에서 GITHUB_ENV)부터 55분 예산. gradle 호출마다 timeout=남은 시간-2분, 시간 초과는 error/timeout(부분 집계 포함). baseline 전에 summary 를 먼저 쓴다(재실행이 멈춰도 Slack 에 결과)
+- compileJava 실패인데 `: error:` 줄이 없으면 compile_failed 가 아니라 error/gradle_failed(의존성 다운로드 등)
+- prepare/test 의 모든 예외 → summary error/exception:<타입>
+- 참조 없음 판정은 main 쪽 참조만(자기 단위 테스트 하나가 대체 범위를 끄던 문제: @Scheduled/@EventListener 26개). RouteAlertCheckScheduler 4 → 23
+- `import static 타입.*` 도 그 타입 의존으로
+- 빈 SEARCH 는 apply_failed 가 아니라 bad_input
+- Slack: 백틱을 ' 로 바꿔 코드 블록 탈출 차단, 실패 메시지는 인라인 코드
+- 보안 규칙 추가(PLAN): 이 저장소에 Actions cache 도입 금지. docker 격리는 후속
+- 단위 테스트 38개 OK(run() 판정표 10경우, baseline None·바깥 클래스 재실행, 예외 summary, 백틱, static star, 자기 테스트만 있는 scheduler)

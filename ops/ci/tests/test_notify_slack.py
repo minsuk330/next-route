@@ -31,7 +31,7 @@ class RenderTest(unittest.TestCase):
              {"test": "a.CIT#y", "message": "timeout", "baseline": True}]
         text = ns.render(summary(status="failed", failed=2, failures=f, baseline_checked=True), "", "success", URL)
         self.assertIn("(새 실패 1, 기존 실패 1)", text)
-        self.assertIn("a.BTest#x — boom", text)
+        self.assertIn("a.BTest#x — `boom`", text)
         self.assertNotIn("a.CIT#y", text)  # only new failures listed when there are any
 
     def test_failed_without_baseline_check(self):
@@ -61,6 +61,12 @@ class RenderTest(unittest.TestCase):
         self.assertNotIn("xoxb-123", text)
         self.assertNotIn("<@U1>", text)
         self.assertIn("통과 0 · 실패 0", text)  # non-int counts fall back to 0
+
+    def test_backticks_cannot_close_code_blocks(self):
+        s = summary(status="compile_failed", compile_errors=["B.java:1: error: ```\n<!here> *bold*"], path="a`b")
+        text = ns.render(s, "", "success", URL)
+        self.assertEqual(text.count("```"), 2)  # only our own fence
+        self.assertNotIn("<!here>", text)
 
     def test_length_cap(self):
         f = [{"test": "t" * 500, "message": "m" * 500, "baseline": False}] * 20

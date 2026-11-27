@@ -22,6 +22,8 @@ TREE = {
           String s = "XService"; }""",
     "src/main/java/app/util/Strs.java": "package app.util; public final class Strs { public static String trim(String s) { return s.trim(); } }",
     "src/main/java/app/job/CleanupJob.java": "package app.job; public class CleanupJob { @Scheduled void run() {} }",
+    "src/main/java/app/consts/Limits.java": "package app.consts; public final class Limits { public static final int MAX = 3; }",
+    "src/main/java/app/use/UsesLimits.java": "package app.use;\nimport static app.consts.Limits.*;\npublic class UsesLimits { int m = MAX; }",
     "src/main/java/other/service/XService.java": "package other.service; public class XService {}",
     "src/main/java/app/rec/Point.java": "package app.rec; import app.port.GetX; public record Point(int a, int b) implements GetX { public String x() { return \"\"; } }",
     "src/main/java/watoo/grd/nextroute/NextrouteApplication.java": "package watoo.grd.nextroute; public class NextrouteApplication {}",
@@ -36,6 +38,7 @@ TREE = {
     "src/test/java/app/fake/UsesFakeTest.java": "package app.fake; class UsesFakeTest { FakeGetX f; @Test void t() {} }",
     "src/test/java/other/service/OtherXServiceTest.java": "package other.service; class OtherXServiceTest { XService s; @Test void t() {} }",
     "src/test/java/app/job/CleanupNeighbourTest.java": "package app.job; class CleanupNeighbourTest { @Test void t() {} }",
+    "src/test/java/app/job/CleanupJobTest.java": "package app.job; class CleanupJobTest { CleanupJob j; @Test void t() {} }",
     "src/test/java/app/job/sub/DeepJobTest.java": "package app.job.sub; class DeepJobTest { @Test void t() {} }",
     "src/test/java/app/rec/PointTest.java": "package app.rec; class PointTest { Point p; @Test void t() {} }",
 }
@@ -84,8 +87,13 @@ class SelectTest(unittest.TestCase):
 
     def test_unreferenced_class_adds_its_package_tests(self):
         got = self.pick("src/main/java/app/job/CleanupJob.java")
-        self.assertEqual(got, ["app.job.CleanupNeighbourTest", "app.job.sub.DeepJobTest",
+        # its own unit test (CleanupJobTest) must not switch the package fallback off
+        self.assertEqual(got, ["app.job.CleanupJobTest", "app.job.CleanupNeighbourTest", "app.job.sub.DeepJobTest",
                                "watoo.grd.nextroute.NextrouteApplicationTests"])
+
+    def test_static_star_import_of_a_type_is_a_dependency(self):
+        idx = st.Index(self.root)
+        self.assertIn("app.consts.Limits", idx.files["app.use.UsesLimits"].deps)
 
     def test_record_implements_is_a_supertype(self):
         idx = st.Index(self.root)

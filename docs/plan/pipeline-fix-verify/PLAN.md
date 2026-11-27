@@ -152,3 +152,6 @@
 - trusted checkout: `ref: main` 고정 → **워크플로 파일과 같은 커밋**(기본값). 분석기는 항상 ref=main 으로 dispatch 하므로 운영에선 main. 브랜치에서 dispatch 하려면 쓰기 권한이 필요하고 그 사람은 워크플로 자체를 바꿀 수 있어 고정이 막는 것이 없으며, 고정하면 머지 전 검증(브랜치 dispatch)이 불가능
 - 오케스트레이션은 `ops/ci/run_tests.py`(prepare / test 두 단계) — patch 업로드를 테스트 실행 전에 끼우기 위해 둘로 나눔
 - pull_request 트리거는 지우지 않고 `ops/ci` 단위 테스트 job(`scripts`)만 돌게 바꿈. test·notify 는 dispatch 에서만
+- summary.json 실제 계약: `ref`·`run_url`·`patch_artifact` 없음(notify 가 run 링크를 github 컨텍스트로 만들고 artifact 이름은 고정 `fix-patch`), 대신 `compile_errors`·`baseline_checked` 추가. reason 값: bad_input, edits_do_not_match, no_tests, no_tests_ran, gradle_failed, timeout, schema_drift, exception:<타입>
+- 보안 규칙 추가: **이 저장소에 Actions cache(gha) 도입 금지**(test job 의 수정 코드가 같은 job 의 JS action(upload-artifact·checkout post)을 고쳐 쓸 수 있어 cache 토큰을 얻으면 main 범위 cache 오염). 더 막으려면 Run tests 를 `docker run`(target·out 만 마운트)으로 격리 — 후속 과제
+- 한계: baseline 재실행은 같은 Postgres·Redis 를 쓴다(수정본 테스트가 남긴 데이터가 영향 가능). 표시 이름에 비결정 값이 있는 테스트는 이름 비교가 안 맞을 수 있음

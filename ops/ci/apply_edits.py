@@ -45,6 +45,8 @@ def decode(raw: str) -> tuple[str, list[tuple[str, str]]]:
     for e in edits:
         if not isinstance(e, dict) or not isinstance(e.get("search"), str) or not isinstance(e.get("replace"), str):
             raise BadInput("edit 항목 형식 오류")
+        if not e["search"].strip():
+            raise BadInput("빈 SEARCH")  # not "main changed": the input itself is wrong
         out.append((e["search"].replace("\r\n", "\n"), e["replace"].replace("\r\n", "\n")))
     return path, out
 

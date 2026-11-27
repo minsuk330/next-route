@@ -23,6 +23,7 @@ import os
 import subprocess
 import sys
 import time
+import traceback
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -34,7 +35,11 @@ import select_tests  # noqa: E402
 INIT = HERE / "ci-test.gradle"
 MAX_FAILURES = 20
 MESSAGE_CHARS = 200
-BASELINE_DEADLINE_S = 35 * 60  # job timeout is 60 min; a rerun after this would not finish
+# Wall-clock budget from the job start (JOB_STARTED, set by the workflow's first step) so checkout,
+# schema restore and setup-java count too. The job timeout is 60 min; summary.json must be written
+# before that or Slack only hears "결과 없음".
+JOB_BUDGET_S = 55 * 60
+BASELINE_MIN_LEFT_S = 10 * 60
 DRIFT_MARKERS = ("FlywayValidateException", "Validate failed: Migrations have failed validation")
 
 
@@ -66,12 +71,29 @@ def prepare(target: Path, out: Path) -> int:
     return 0
 
 
-def gradle(cwd: Path, *tasks: str) -> tuple[int, str]:
+def remaining() -> float:
+    started = float(os.environ.get("JOB_STARTED") or _STARTED)
+    return started + JOB_BUDGET_S - time.time()
+
+
+_STARTED = time.time()
+
+
+def gradle(cwd: Path, *tasks: str, reserve: int = 120) -> tuple[int | None, str]:
+    """(exit code, output). None = ran out of time (killed) or no time left to start."""
+    timeout = remaining() - reserve
+    if timeout < 60:
+        return None, "no time left"
     cmd = ["./gradlew", "--no-daemon", "--console=plain", "--init-script", str(INIT), *tasks]
-    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
-    sys.stdout.write(p.stdout[-20000:])
-    sys.stdout.write(p.stderr[-5000:])
-    return p.returncode, p.stdout + p.stderr
+    log_path = cwd.parent / f"gradle-{int(time.time() * 1000)}.log"
+    with log_path.open("w", encoding="utf-8") as fh:
+        try:
+            code: int | None = subprocess.run(cmd, cwd=cwd, stdout=fh, stderr=subprocess.STDOUT, timeout=timeout).returncode
+        except subprocess.TimeoutExpired:
+            code = None
+    log = log_path.read_text(encoding="utf-8", errors="replace")
+    sys.stdout.write(log[-20000:])
+    return code, log
 
 
 def results(build: Path) -> tuple[dict, list[dict]]:
@@ -129,14 +151,28 @@ def run(target: Path, out: Path) -> int:
         return 0
 
     code, log = gradle(target, "compileJava", "compileTestJava")
+    if code is None:
+        write_summary(out, reason="timeout", duration_s=int(time.monotonic() - started), **common)
+        return 0
     if code != 0:
-        write_summary(out, status="compile_failed", compile_errors=compile_errors(log, target),
-                      duration_s=int(time.monotonic() - started), **common)
+        errors = compile_errors(log, target)
+        if any(": error:" in l or l.startswith("e: ") for l in errors):
+            write_summary(out, status="compile_failed", compile_errors=errors,
+                          duration_s=int(time.monotonic() - started), **common)
+        else:  # wrapper/dependency download and the like: not the fix's fault
+            write_summary(out, reason="gradle_failed", compile_errors=errors,
+                          duration_s=int(time.monotonic() - started), **common)
         return 0
 
     code, log = gradle(target, *test_args(tests))
     counts, failures = results(target / "build")
     elapsed = int(time.monotonic() - started)
+    if code is None:
+        write_summary(out, reason="timeout", passed=counts["tests"] - counts["failed"] - counts["skipped"],
+                      failed=counts["failed"], skipped=counts["skipped"], duration_s=elapsed,
+                      failures=[{k: v for k, v in f.items() if k != "drift"} | {"baseline": False}
+                                for f in failures[:MAX_FAILURES]], **common)
+        return 0
     if counts["tests"] == 0:
         write_summary(out, reason="no_tests_ran" if code == 0 else "gradle_failed",
                       compile_errors=[l for l in log.splitlines() if l.strip()][-20:], duration_s=elapsed, **common)
@@ -146,26 +182,29 @@ def run(target: Path, out: Path) -> int:
                       failed=counts["failed"], skipped=counts["skipped"], duration_s=elapsed, **common)
         return 0
 
-    checked = False
-    if failures and elapsed < BASELINE_DEADLINE_S:
-        base_failed = baseline(target, failures)
-        if base_failed is not None:
-            checked = True
-            for f in failures:
-                f["baseline"] = f["test"] in base_failed
     for f in failures:
         f.pop("drift", None)
-        f.setdefault("baseline", False)
-    failures.sort(key=lambda f: f["baseline"])
-    write_summary(
-        out,
-        status="failed" if failures else ("passed" if code == 0 else "error"),
-        reason="" if failures or code == 0 else "gradle_failed",
-        passed=counts["tests"] - counts["failed"] - counts["skipped"],
-        failed=counts["failed"], skipped=counts["skipped"],
-        duration_s=int(time.monotonic() - started),
-        failures=failures[:MAX_FAILURES], baseline_checked=checked, **common,
-    )
+        f["baseline"] = False
+
+    def final(checked: bool) -> None:
+        failures.sort(key=lambda f: f["baseline"])
+        write_summary(
+            out,
+            status="failed" if failures else ("passed" if code == 0 else "error"),
+            reason="" if failures or code == 0 else "gradle_failed",
+            passed=counts["tests"] - counts["failed"] - counts["skipped"],
+            failed=counts["failed"], skipped=counts["skipped"],
+            duration_s=int(time.monotonic() - started),
+            failures=failures[:MAX_FAILURES], baseline_checked=checked, **common,
+        )
+
+    final(False)  # written first: if the baseline rerun hangs, this one still reaches Slack
+    if failures and remaining() > BASELINE_MIN_LEFT_S:
+        base_failed = baseline(target, failures)
+        if base_failed is not None:
+            for f in failures:
+                f["baseline"] = f["test"] in base_failed
+            final(True)
     return 0
 
 
@@ -179,19 +218,25 @@ def baseline(target: Path, failures: list[dict]) -> set[str] | None:
     classes = sorted({f["test"].split("#")[0].split("$")[0] for f in failures})
     code, _ = gradle(base, *test_args(classes))
     counts, base_failures = results(base / "build")
-    if counts["tests"] == 0:
+    if code is None or counts["tests"] == 0:
         return None
     return {f["test"] for f in base_failures}
 
 
 def main(argv: list[str]) -> int:
     mode, target, out = argv[1], Path(argv[2]).resolve(), Path(argv[3]).resolve()
-    if mode == "prepare":
-        return prepare(target, out)
-    if mode == "test":
-        return run(target, out)
-    print(f"unknown mode {mode}", file=sys.stderr)
-    return 3
+    if mode not in {"prepare", "test"}:
+        print(f"unknown mode {mode}", file=sys.stderr)
+        return 3
+    try:
+        return prepare(target, out) if mode == "prepare" else run(target, out)
+    except Exception as exc:  # noqa: BLE001 — every path must leave a summary for Slack
+        traceback.print_exc()
+        out.mkdir(parents=True, exist_ok=True)
+        write_summary(out, reason=f"exception:{type(exc).__name__}")
+        if mode == "prepare":
+            (out / "skip").write_text("1")
+        return 0
 
 
 if __name__ == "__main__":

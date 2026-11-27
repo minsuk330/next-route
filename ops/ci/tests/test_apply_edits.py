@@ -29,7 +29,8 @@ class DecodeTest(unittest.TestCase):
     def test_rejects_bad_shapes(self):
         for raw in ["!!!", base64.b64encode(b"[1]").decode(),
                     enc({"path": "src/main/java/a/B.java", "edits": []}),
-                    enc({"path": "src/main/java/a/B.java", "edits": [{"search": "a"}] * 4})]:
+                    enc({"path": "src/main/java/a/B.java", "edits": [{"search": "a"}] * 4}),
+                    enc({"path": "src/main/java/a/B.java", "edits": [{"search": "  \n", "replace": "x"}]})]:
             with self.subTest(raw=raw[:20]), self.assertRaises(ae.BadInput):
                 ae.decode(raw)
 
