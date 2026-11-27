@@ -7344,3 +7344,12 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - apply_edits 순차 적용: 앞 REPLACE 가 뒤 SEARCH 를 만족시키면 원문에 없는 블록이 통과 → 모든 SEARCH 를 원문에서 한꺼번에 검사, 겹침 거부, 뒤에서부터 치환
 - CRLF 블록 파싱 실패, 줄 삭제 블록이 빈 줄을 남김 → \r\n 정규화, SEARCH 끝 줄바꿈 포함 줄 단위 파싱
 - 검증: pytest 247 passed, resolve 테스트 -X dev -W error::ResourceWarning 통과
+
+### 배포 (4단계, 2026-11-27 17:06 KST, main c74a365e)
+- #660 머지 → GHCR → env ANALYZER_FIX_PROPOSAL_ENABLED=true(백업 *-pre-fix, 줄 확인) → --force-recreate. 기동 로그 `code=True cards=25 fix=True`
+
+### 검증 (운영 컨테이너 실호출 3회)
+- 연습 맥락(성수지선, 이미 10-22 에 고쳐진 코드): 분석 app_bug medium → 조건 통과 → 모델이 블록을 안 씀 → skipped($0.0078). 없는 수정을 지어내지 않음
+- 실제로 고쳐진 버그(형식 시험 1번, 수정 커밋 21669ffc): 배포 커밋을 수정 직전 4b1e50cf 로 두고 propose → 블록이 배포 코드와 맞고 main 과 안 맞음 → main_changed, 커밋 목록 = "21669ffc fix(journey): regional metro trackability and nearby line names" 하나(실제 수정 커밋 정확)($0.0064)
+- 가상 원인(lineId null 이면 Set.of contains NPE, D=M=c74a365e): proposed, diff = `if (label == null || lineId == null || !INVERTED_UPDN_LINES.contains(lineId))` 한 줄($0.0029)
+- 남은 것: 실알림에서 fix_proposal 로그·Slack 두 번째 답글
