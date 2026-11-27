@@ -7453,3 +7453,17 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 가상 원인(SubwayDirectionNormalizer lineId null NPE) propose → proposed($0.0029) → github_dispatch 200 run 46005381425 → 수정 제안 답글 + "테스트 요청함 · 진행 보기" 한 줄 → 워크플로 14.9분(212클래스) → notify 답글: 통과 2378 · 실패 9(새 실패 0, 기존 실패 9)
 - 🔴 CI 에서만 늘 실패하는 기존 테스트 9개(수정 전 코드도 실패): 시각 정밀도(Linux 러너 Instant 는 나노초, Postgres 는 마이크로초 저장 → JourneyDueEvaluatorIT·JourneyReevaluationTriggerIT·JourneySubwayProtectionIT 등 equals 실패), SubwayRingExpressReplayIT 급행 카탈로그 1009-express 없음, RerouteRemainingPathIT No value present. Mac 은 시계가 마이크로초라 로컬에선 안 보임. 매 결과에 "기존 실패" 로 섞여 신호를 흐림 → 테스트 쪽 수정(시각 truncatedTo(MICROS)) 후속
 - 남은 것: 실알림에서 fix_verify 로그·결과 답글
+
+
+## CI 에서만 늘 실패하던 기존 테스트 9개 정리 (2026-11-27, S, 브랜치 fix/ci-env-test-failures)
+
+### 함정
+- 시각 equals 3개(JourneyDueEvaluatorIT·JourneyReevaluationTriggerIT·JourneySubwayProtectionIT) ← Linux JVM `Instant.now()` 는 나노초, Postgres 는 마이크로초로 **반올림** 저장(pgjdbc). macOS JVM 시계는 마이크로초라 로컬에선 안 보임 / 가드: testsupport `DbInstants.micros()`(반올림, 0.5 올림)로 맞춰 비교. 운영 소유권 확인은 SQL 등호라 양쪽이 같은 규칙으로 반올림돼 무관
+- RerouteRemainingPathIT#acceptedRerouteKeepsWalkNames 50% 실패 ← "걷기 60초 · 버스 readyAt+60초" 경계값. readyAt 을 DB 에 넣을 때 반올림이 올라가면 사용자가 0.5µs 늦게 닿아 unboardable(지표 journey.reroute.candidate.filtered reason=unboardable 로 확인) / 가드: 이 IT 의 readyAt 5곳을 DbInstants.micros 로. (처음엔 평가 스케줄러 경쟁을 의심해 끄는 걸 넣었다가, 지표로 원인 확인 후 뺐다)
+- SubwayRingExpressReplayIT 5개 ← 급행 카탈로그는 좌표 있는 역만 잇는데(SubwayLineStationIndex#candidates) 시험이 역을 좌표 없이 넣음. 로컬 DB 는 개발 역 마스터(좌표 있음)가 있어 통과 / 가드: 좌표까지 넣고, 같은 컨텍스트 앞 시험이 역 마스터를 이미 읽어 둔 경우를 위해 `SubwayLineStationIndex.reload()`(신규, 다음 호출에 다시 읽음) 호출
+- 재현 방법: 로컬 Mac 은 시계가 마이크로초라 안 됨 → `docker run --cpus 2 eclipse-temurin:17-jdk ./gradlew test` + st-pg 의 빈 덤프 DB(fixverify_ci2) + st-redis db 7. 단 그 안에선 Testcontainers 쓰는 IT(급행 재생, outbox)는 Docker 를 못 찾아 시험 불가 → 그건 Mac 에서
+
+### 검증
+- Linux 컨테이너(--cpus 2): 시각 3개 통과, RerouteRemainingPathIT 4/4 통과(수정 전 2/2·1/2 실패)
+- Mac 빈 역 마스터 DB: SubwayRingExpressReplayIT 5/5 + SubwayRingReplayIT 같은 실행 통과(수정 전 5 실패)
+- Mac: 고친 5클래스 + application.subway.service.* 60클래스 전부 통과

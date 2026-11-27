@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey;
 
+import watoo.grd.nextroute.testsupport.DbInstants;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -105,7 +106,7 @@ class JourneySubwayProtectionIT {
 
         assertThat(outcome.result()).isEqualTo(Result.APPLIED);
         assertThat(outcome.journey().subwayOfflineProtectionUntil()).isAfter(planned);
-        assertThat(storedProtection()).isEqualTo(outcome.journey().subwayOfflineProtectionUntil());
+        assertThat(storedProtection()).isEqualTo(DbInstants.micros(outcome.journey().subwayOfflineProtectionUntil()));
         assertThat(storedProtection()).isBeforeOrEqualTo(cap());
     }
 

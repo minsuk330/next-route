@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey;
 
+import watoo.grd.nextroute.testsupport.DbInstants;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -119,7 +120,7 @@ class RerouteRemainingPathIT {
     @Test
     @DisplayName("③이 빈손이면 ④가 받아 제안을 만든다")
     void remainingPathProposalIsCreatedWhenRouteOptionIsEmpty() {
-        Instant readyAt = Instant.now().plusSeconds(240);
+        Instant readyAt = DbInstants.micros(Instant.now().plusSeconds(240));
         givenLiveTransfer(0, readyAt);
         // 지금 노선은 20분 뒤에 온다. 대안 노선이 없으니 ③은 낼 것이 없다.
         givenPrediction("BL-721", readyAt.plusSeconds(1200));
@@ -149,7 +150,7 @@ class RerouteRemainingPathIT {
     @Test
     @DisplayName("검색이 죽어도 예외가 아니라 빈 결과다")
     void searchFailureIsEmptyResult() {
-        Instant readyAt = Instant.now().plusSeconds(240);
+        Instant readyAt = DbInstants.micros(Instant.now().plusSeconds(240));
         givenLiveTransfer(0, readyAt);
         givenPrediction("BL-721", readyAt.plusSeconds(1200));
         org.mockito.BDDMockito.willThrow(new IllegalStateException("odsay down"))
@@ -163,7 +164,7 @@ class RerouteRemainingPathIT {
     @Test
     @DisplayName("미해석 정류장이면 검색을 부르지 않는다 — 캐시 키가 섞인다")
     void unresolvedStopSkipsSearch() {
-        Instant readyAt = Instant.now().plusSeconds(240);
+        Instant readyAt = DbInstants.micros(Instant.now().plusSeconds(240));
         givenLiveTransfer(0, readyAt);
         jdbcTemplate.update("update journey_leg set start_stop_id = null where id = ?",
                 firstWaitLegId());
@@ -176,7 +177,7 @@ class RerouteRemainingPathIT {
     @DisplayName("환승이 둘이어도 살아 있는 제안은 여정당 하나다 — 뒤 환승 제안이 앞 것을 밀어낸다")
     void secondTransferProposalReplacesTheFirst() {
         JourneySnapshot twoTransfers = startJourneyWith(TWO_TRANSFER_SESSION, threeBusPath());
-        Instant readyAt = Instant.now().plusSeconds(240);
+        Instant readyAt = DbInstants.micros(Instant.now().plusSeconds(240));
         givenLiveTransfer(twoTransfers.journeyId(), 0, readyAt);
         givenLiveTransfer(twoTransfers.journeyId(), 1, readyAt);
         // 지금 타려던 두 노선은 한참 뒤에 온다. 대안 노선이 없어 ③은 두 번 다 빈손이다.
@@ -204,7 +205,7 @@ class RerouteRemainingPathIT {
     @DisplayName("재탐색을 수락한 새 개정본의 걷기 단계에 이름이 있다 — 마지막 걷기 끝은 원래 목적지다(#474)")
     void acceptedRerouteKeepsWalkNames() {
         JourneySnapshot toPlace = startJourneyWith(PLACE_SESSION, placeDestinationPath());
-        Instant readyAt = Instant.now().plusSeconds(240);
+        Instant readyAt = DbInstants.micros(Instant.now().plusSeconds(240));
         givenLiveTransfer(toPlace.journeyId(), 0, readyAt);
         givenPrediction("BL-721", readyAt.plusSeconds(1200));
         givenPrediction("BL-360", readyAt.plusSeconds(60));
@@ -337,6 +338,11 @@ class RerouteRemainingPathIT {
         givenLiveTransfer(journey.journeyId(), transferIndex, readyAt);
     }
 
+    /**
+     * readyAt 은 {@link DbInstants#micros} 로 맞춘 값을 넘긴다. DB 는 마이크로초로 반올림해 저장하는데, 시험은
+     * "걷기 60초 · 버스 readyAt+60초" 같은 경계값을 쓴다. Linux 시계(나노초)에서 반올림이 올라가면 사용자가
+     * 버스보다 0.5µs 늦게 닿아 unboardable 로 걸러졌다(CI 에서 절반 확률로 실패).
+     */
     private void givenLiveTransfer(long journeyId, int transferIndex, Instant readyAt) {
         jdbcTemplate.update("""
                 update transfer_connection
