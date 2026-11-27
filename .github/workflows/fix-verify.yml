@@ -1,0 +1,127 @@
+name: Fix verify
+
+# 장애 분석기 수정 제안을 main 에 적용해 영향 받는 테스트만 돌린다(docs/plan/pipeline-fix-verify).
+# PR-1: CI DB(운영 스키마 덤프)와 테스트 실행 뼈대. 수정 적용·테스트 선택·Slack 은 PR-2.
+#
+# 보안 규칙(PLAN.md):
+# - inputs 는 run: 에 직접 쓰지 않고 env 로만 넘긴다(장애 제목 등에 $(...) 가 들어올 수 있음)
+# - 테스트 job 은 contents: read, checkout 자격증명 끔, Gradle 캐시 저장 안 함 — 이후 수정 코드가 여기서 돈다
+# - 덤프·init script 는 워크플로 자신의 커밋(trusted/)에서 읽는다. 테스트 대상 ref 의 파일을 믿지 않는다
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 테스트할 커밋(40자, main 의 조상)
+        required: true
+      tests:
+        description: 공백으로 구분한 테스트 클래스 FQN (PR-1 전용)
+        required: true
+  # PR-1 검증용 임시 트리거. PR-2 에서 지운다.
+  pull_request:
+    paths:
+      - '.github/workflows/fix-verify.yml'
+      - 'ops/ci/**'
+
+# concurrency 전역 그룹을 두지 않는다: 대기 칸이 1개라 몰릴 때 대기 run 이 조용히 취소된다.
+# PR-2 에서 요청(thread_ts)별 그룹을 단다.
+
+jobs:
+  test:
+    name: Run selected tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_DB: mydatabase
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d mydatabase"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    env:
+      IN_REF: ${{ inputs.ref || github.event.pull_request.head.sha }}
+      IN_TESTS: ${{ inputs.tests || 'watoo.grd.nextroute.NextrouteApplicationTests watoo.grd.nextroute.application.journey.JourneyStartIT watoo.grd.nextroute.application.route.routing.RailServiceClassifierTest' }}
+    steps:
+      # dispatch 는 어느 브랜치에서든 시작될 수 있으므로 trusted 는 main 으로 고정. PR 검증 실행만 PR 커밋.
+      - name: Check out workflow commit (trusted)
+        uses: actions/checkout@v5
+        with:
+          path: trusted
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || '' }}
+          persist-credentials: false
+
+      - name: Validate inputs
+        run: |
+          [[ "$IN_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "ref 형식 아님"; exit 1; }
+          read -ra names <<< "$IN_TESTS"   # 따옴표 안이라 * 가 파일 이름으로 펼쳐지지 않음
+          (( ${#names[@]} > 0 )) || { echo "테스트 목록이 비었음(비면 전체가 돈다)"; exit 1; }
+          for t in "${names[@]}"; do
+            [[ "$t" =~ ^[A-Za-z_][A-Za-z0-9_.$*]*$ ]] || { echo "테스트 이름 형식 아님: $t"; exit 1; }
+          done
+
+      - name: Check out target
+        uses: actions/checkout@v5
+        with:
+          path: target
+          ref: ${{ env.IN_REF }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Target must be on main
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: target
+        run: git merge-base --is-ancestor "$IN_REF" origin/main || { echo "ref 가 main 의 조상이 아님"; exit 1; }
+
+      # 러너 psql(16.x) 대신 서비스 컨테이너의 psql 17 로 복원(pg_dump 17.6+ 의 \restrict 줄 대응).
+      - name: Restore prod schema dump
+        env:
+          PG_ID: ${{ job.services.postgres.id }}
+        run: |
+          head -2 trusted/ops/ci/schema.sql
+          docker exec -i "$PG_ID" psql -v ON_ERROR_STOP=1 -q -U postgres -d mydatabase -f - < trusted/ops/ci/schema.sql
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Run tests
+        working-directory: target
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: '5432'
+          POSTGRES_DB: mydatabase
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          REDIS_HOST: localhost
+          REDIS_PORT: '6379'
+          # 기본값 없는 외부 API 키. 테스트는 실제 호출하지 않는다.
+          GONG_API: ci-dummy
+          KAKAO_REST_API_KEY: ci-dummy
+          SEOUL_BUS_USAGE: ci-dummy
+          SEOUL_SUBWAY_MASTER: ci-dummy
+          SEOUL_SUBWAY_ROUTE: ci-dummy
+        run: |
+          read -ra names <<< "$IN_TESTS"
+          args=()
+          for t in "${names[@]}"; do args+=(--tests "$t"); done
+          (( ${#args[@]} > 0 )) || { echo "테스트 목록이 비었음"; exit 1; }
+          ./gradlew test --no-daemon --init-script ../trusted/ops/ci/ci-test.gradle "${args[@]}"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: target/build/test-results/test/*.xml
+          retention-days: 14
+          if-no-files-found: warn

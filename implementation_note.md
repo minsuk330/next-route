@@ -7353,3 +7353,35 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 실제로 고쳐진 버그(형식 시험 1번, 수정 커밋 21669ffc): 배포 커밋을 수정 직전 4b1e50cf 로 두고 propose → 블록이 배포 코드와 맞고 main 과 안 맞음 → main_changed, 커밋 목록 = "21669ffc fix(journey): regional metro trackability and nearby line names" 하나(실제 수정 커밋 정확)($0.0064)
 - 가상 원인(lineId null 이면 Set.of contains NPE, D=M=c74a365e): proposed, diff = `if (label == null || lineId == null || !INVERTED_UPDN_LINES.contains(lineId))` 한 줄($0.0029)
 - 남은 것: 실알림에서 fix_proposal 로그·Slack 두 번째 답글
+
+
+## 파이프라인 5·6단계 PR-1: CI DB 덤프 + fix-verify 워크플로 뼈대 (2026-11-27, docs/plan/pipeline-fix-verify)
+
+### 확정
+- CI DB = `ops/ci/schema.sql`(운영 `--schema-only --no-owner --no-privileges` + `flyway_schema_history` `--inserts`). 갱신은 `ops/ci/refresh-schema.sh`(Mac, ssh vps, 읽기만). 갱신 시점: 운영 배포에 새 V__ 가 들어간 뒤, 또는 CI 에서 schema_drift
+- 덤프 검사는 이름 grep 이 아니라 구조로: COPY 0, INSERT 는 flyway_schema_history 만, ROLE/PASSWORD 줄 0. 운영 적용 버전 ⊆ main 파일, 최대 버전 일치(운영에만 있는 V 면 Flyway validate 가 깨짐)
+- 덤프·init script 는 워크플로 자신의 커밋(`trusted/`)에서 읽는다. 테스트 대상(`target/`)은 수정 코드가 돌 곳이라 믿지 않음
+- `failOnNoMatchingTests=false` 는 build.gradle 이 아니라 init script(`ops/ci/ci-test.gradle`)로 — 아무 ref 에나 걸림
+- 전역 concurrency 그룹 없음(대기 칸 1개 → 몰릴 때 대기 run 조용히 취소). PR-2 에서 thread_ts 별 그룹
+
+### 함정
+- 운영 pg_dump 는 17.5 라 `\restrict` 줄 없음. CI 의 postgis/postgis:17-3.5 는 떠 있는 태그라 더 새 17.x 일 수 있음 → 복원은 서비스 컨테이너 psql 로(러너 psql 16 아님)
+- postgis/postgis 이미지는 POSTGRES_DB 에 postgis·topology·tiger 를 미리 만든다. 로컬 재현 때는 같은 확장 4개를 먼저 만들고 복원
+- `REDIS_PORT` 기본값 없음(application.yaml:31). toolchain 17(build.gradle:13)
+
+### 검증
+- `ops/ci/refresh-schema.sh` → V80, 160,388 bytes, 검사 통과. flyway 행 80
+- 로컬 st-pg 새 DB `fixverify_ci`(확장 4개 + `psql -v ON_ERROR_STOP=1 -f schema.sql`) → public 표 58, history 80
+- 그 DB + st-redis 로 `./gradlew test --init-script ops/ci/ci-test.gradle --tests NextrouteApplicationTests --tests JourneyStartIT --tests RailServiceClassifierTest --tests NoSuchTest` → BUILD SUCCESSFUL 28s. contextLoads 1, JourneyStartIT 6, RailServiceClassifierTest 12 + `@Nested` 4클래스(외부 FQN 만으로 내부 클래스도 실행됨), 없는 이름은 무시
+- actionlint 1.7.12 통과
+- CI 1회차(PR #662 run 45996571852): pass, job 3m29s(그중 Gradle 2m41s: wrapper·의존성 받기 + 컴파일 + 테스트 3클래스). 복원 1초 미만
+
+### 확정 (리뷰 반영)
+- 서비스 health check 는 `pg_isready -h 127.0.0.1` — postgis 이미지는 초기화 때 unix 소켓만 듣는 임시 서버를 띄웠다 재시작한다. 소켓 검사는 그 사이에 통과해 복원이 재시작과 부딪힐 수 있음
+- 테스트 목록은 `read -ra` 로 읽는다(따옴표 없는 for 는 `*` 를 파일 이름으로 펼침). 비면 중단 — 빈 `--tests` 는 전체 실행(30분+)
+- dispatch 의 trusted checkout 은 `ref: main` 고정(dispatch 는 아무 브랜치에서나 시작 가능)
+- refresh-schema: 마이그레이션 목록은 작업 트리 말고 `origin/main`(ls-tree). history 행 수 = 읽은 행 수 아니면 중단, success=false 행 있으면 중단, `''` 이스케이프 허용. installed_by(운영 DB 사용자 이름)는 `'ci'` 로
+- 전역 concurrency 미루기(PR-2 에서 thread_ts 그룹)는 의도 — PR-1 엔 thread_ts 입력이 없음
+- 🔴 PR-2 주의: init script 의 `failOnNoMatchingTests=false` 때문에 0건 실행도 exit 0 → summary 의 "0건 = error" 판정 필수
+- refresh-schema 검사 시험(본문 python 만 떼어 가짜 입력): 정상 통과, 설명 안 `''` 통과, COPY 중단, success=false 중단, 운영에만 V81 중단
+- CI 2회차(run 45997155316, 리뷰 반영): pass 4m4s. contextLoads 1, JourneyStartIT 12, RailServiceClassifierTest 6 + Nested 4클래스 14, 실패 0. 로그 "Successfully validated 81 migrations"(덤프 V80 + 파일 81개 일치, 새로 적용 없음)
