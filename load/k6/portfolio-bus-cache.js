@@ -1,7 +1,7 @@
 import http from 'k6/http';
 import { check, fail } from 'k6';
 
-const BASE_URL = (__ENV.BASE_URL || 'https://api.refit-100.site').replace(/\/+$/, '');
+const BASE_URL = (__ENV.BASE_URL || 'https://api.jettae.site').replace(/\/+$/, '');
 const MODE = __ENV.MODE || 'stampede';
 const RUN_ID = __ENV.RUN_ID || 'manual';
 const STOP_ID = __ENV.STOP_ID || '101000013';

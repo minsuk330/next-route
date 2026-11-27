@@ -50,7 +50,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
  * <h2>돌리려면</h2>
  * <pre>
  *   set -a; . env/api.env; set +a
- *   ARRIVAL_LIVE_BASE_URL=https://api.refit-100.site ./gradlew test --tests '*RealtimeArrivalLiveIT'
+ *   ARRIVAL_LIVE_BASE_URL=https://api.jettae.site ./gradlew test --tests '*RealtimeArrivalLiveIT'
  * </pre>
  * <ul>
  *   <li>{@code ARRIVAL_LIVE_BASE_URL} 이 없으면 skip 이다. 키({@code SEOUL_BUS_API}, {@code GONG_API},

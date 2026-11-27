@@ -17,7 +17,7 @@ Grafana Alloy + Loki + Prometheus + Grafana + node-exporter. app 배포와 분�
 ## VPS 배포 절차
 
 ```bash
-# 1. DNS: grafana.refit-100.site A레코드 → VPS IP (선행)
+# 1. DNS: grafana.jettae.site A레코드 → VPS IP (선행)
 
 # 2. 설정 복사
 rsync -a ops/observability/ vps:/root/apps/observability/
@@ -33,10 +33,10 @@ ssh vps 'cd /root/apps/observability && docker compose up -d'
 ssh vps 'cd /root/apps/observability && docker compose ps'   # 5개 healthy/running
 
 # 6. nginx + certbot
-ssh vps 'cp /root/apps/observability/nginx/grafana.refit-100.site.conf /etc/nginx/sites-available/ \
-  && ln -sf /etc/nginx/sites-available/grafana.refit-100.site.conf /etc/nginx/sites-enabled/ \
+ssh vps 'cp /root/apps/observability/nginx/grafana.jettae.site.conf /etc/nginx/sites-available/ \
+  && ln -sf /etc/nginx/sites-available/grafana.jettae.site.conf /etc/nginx/sites-enabled/ \
   && nginx -t && systemctl reload nginx'
-ssh vps 'certbot --nginx -d grafana.refit-100.site'
+ssh vps 'certbot --nginx -d grafana.jettae.site'
 # certbot 후 생성된 설정에서 443 + HTTP→HTTPS redirect 확인
 
 # 7. app 재배포 (management 포트 8081 + JSON 로깅 활성) — 로컬빌드 convention
@@ -89,7 +89,7 @@ ssh vps 'grep -rn "actuator\|:8080" /etc/nginx /root/apps/nextroute /etc/systemd
 - `{app="app", level="ERROR"} | json` 필드 검색
 - Prometheus targets 전부 up (`/targets`)
 - 외부에서 3000/3100/9090/8081 직접 접근 실패
-- `https://grafana.refit-100.site` 로그인
+- `https://grafana.jettae.site` 로그인
 - `docker compose restart grafana` 후 대시보드/데이터소스 유지
 
 ## 합성 모니터링 (alert-analyzer 호출기)

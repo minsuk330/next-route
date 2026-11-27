@@ -2,7 +2,7 @@ import http from 'k6/http';
 import exec from 'k6/execution';
 import { check, fail } from 'k6';
 
-const BASE_URL = (__ENV.BASE_URL || 'https://api.refit-100.site').replace(/\/+$/, '');
+const BASE_URL = (__ENV.BASE_URL || 'https://api.jettae.site').replace(/\/+$/, '');
 const RATE = parsePositiveInteger(__ENV.RATE || '1', 'RATE');
 const DURATION = __ENV.DURATION || '1m';
 const RUN_ID = __ENV.RUN_ID || 'manual';

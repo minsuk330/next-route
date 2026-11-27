@@ -111,7 +111,7 @@ class WeeklySettings:
     slack_channel_id: str
     grafana_token: str = field(repr=False)
     grafana_api_url: str = "http://grafana:3000"
-    grafana_public_url: str = "https://grafana.refit-100.site"
+    grafana_public_url: str = "https://grafana.jettae.site"
     prom_url: str = "http://prometheus:9090"
     github_token: str = field(default="", repr=False)
     github_repo: str = "minsuk330/next-route"

@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RESULT_DIR="${SCRIPT_DIR}/results"
 K6_IMAGE="${K6_IMAGE:-grafana/k6:2.1.0}"
-BASE_URL="${BASE_URL:-https://api.refit-100.site}"
+BASE_URL="${BASE_URL:-https://api.jettae.site}"
 
 RATE="${1:?Usage: $0 RATE DURATION [LABEL]}"
 DURATION="${2:?Usage: $0 RATE DURATION [LABEL]}"

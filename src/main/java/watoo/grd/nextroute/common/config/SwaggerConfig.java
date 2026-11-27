@@ -21,7 +21,7 @@ public class SwaggerConfig {
         .info(new Info().title("제때"))
         .servers(List.of(
             new Server().url("http://localhost:8080").description("local"),
-            new Server().url("https://api.refit-100.site").description("prod"))
+            new Server().url("https://api.jettae.site").description("prod"))
         )
         // Swagger UI "Authorize" 버튼: JWT access 토큰 입력 → 보호 엔드포인트 호출에 자동 첨부.
         // 공용(permitAll) 엔드포인트에는 무해.
