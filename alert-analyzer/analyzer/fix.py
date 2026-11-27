@@ -58,6 +58,10 @@ class FixProposal:
     main_commits: list[str] = field(default_factory=list)
     reason: str = ""
     cost_usd: float = 0.0
+    # Stage 6 (analyzer.verify) input, set only when proposed: the raw blocks (not masked — a masked
+    # SEARCH would no longer match) and the file path from the repo root.
+    edits: list[Edit] = field(default_factory=list)
+    repo_path: str = ""
 
 
 def pick_target(verdict, bundle):
@@ -154,7 +158,8 @@ async def propose(verdict, bundle, *, complete: Complete, cache: Cache, compare:
             main.splitlines(keepends=True), changed.splitlines(keepends=True),
             fromfile=f"a/{target['path']}", tofile=f"b/{target['path']}", n=3,
         ))
-        return FixProposal("proposed", target, main_sha, diff=mask_code(diff), cost_usd=cost)
+        return FixProposal("proposed", target, main_sha, diff=mask_code(diff), cost_usd=cost,
+                           edits=edits, repo_path=f"src/main/java/{rel}")
     except Exception as exc:  # noqa: BLE001 — a proposal must never break the analysis
         reason = getattr(exc, "reason", None) or (str(exc)[:80] if isinstance(exc, CodeFetchError) else type(exc).__name__)
         log.warning("fix proposal failed: %s", reason)

@@ -7420,3 +7420,18 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 보안 규칙 추가(PLAN): 이 저장소에 Actions cache 도입 금지. docker 격리는 후속
 - 단위 테스트 38개 OK(run() 판정표 10경우, baseline None·바깥 클래스 재실행, 예외 summary, 백틱, static star, 자기 테스트만 있는 scheduler)
 - 리뷰 반영 후 dispatch 재확인(run 46002045390): passed, 99 tests, 280s, notify success. PR scripts job 10s pass. #663 머지 308f1422
+
+
+## 파이프라인 6단계 PR-3: 분석기 fix-verify dispatch (2026-11-27)
+
+### 확정
+- `analyzer/verify.py`: `github_dispatch(http, repo, token, channel)` → `dispatch(proposal, thread_ts, label) -> VerifyResult(dispatched, url, reason)`. POST `/actions/workflows/fix-verify.yml/dispatches` `{"ref":"main","inputs":{ref=main_sha, edits=base64 JSON, channel, thread_ts, label≤80},"return_run_details":true}`, timeout 10s, 재시도 없음. inputs 합 60,000자 넘으면 안 보냄
+- 실측 응답(11-27 gh api): **200** `{"workflow_run_id", "run_url"(api), "html_url"}`. 204 도 성공으로 받고 그땐 워크플로 runs 목록 링크. html_url 이 https://github.com/ 로 시작 안 하면 runs 목록(링크 위조 방지)
+- 응답 헤더 `Deprecation: 2026-03-10`, `Sunset: 2028-03-10` = 기본 API 버전(2022-11-28) 폐기 예고. 지금은 동작. 2028 전에 X-GitHub-Api-Version 올릴 것
+- FixProposal 에 `edits`(마스킹 전 원문)·`repo_path`(`src/main/java/...`) 추가, proposed 일 때만 채움
+- 워커: proposed + verify 켜짐 → `notifier.thread_of(job)`(reply 의 스레드 찾기를 메서드로 뺌) → 없으면 dispatch 안 함("스레드 못 찾음") → dispatch → 수정 제안 답글 끝에 한 줄. 전체 45s wait_for, 예외는 VerifyResult(False, 타입 이름) — 수정 제안 답글은 항상 나감. 로그 `fix_verify group= dispatched= reason=`
+- `ANALYZER_FIX_VERIFY_ENABLED`(기본 false), fix 꺼져 있으면 시작 거부. 시작 로그에 `verify=`
+- label = 경보 이름들(alertname 정렬, 쉼표)
+
+### 검증
+- `uv run --frozen --extra dev pytest -q` → 261 passed (verify 입력·응답 200/204/위조 링크/403/timeout·생략, 워커 dispatch·상태별·스레드 없음·예외, render 한 줄·길이, 설정 가드, fix edits/repo_path)

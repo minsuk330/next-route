@@ -95,22 +95,35 @@ def render_failure(reason: str, *, link: str) -> str:
     return f":warning: AI 원인 분석 실패: {escape(reason)}\n<{_link(link)}|로그 보기 (Grafana Explore)>"
 
 
-def render_fix(p) -> str | None:
-    """Second thread reply for analyzer.fix. None for statuses that stay in the logs."""
+def render_fix(p, verify=None) -> str | None:
+    """Second thread reply for analyzer.fix. None for statuses that stay in the logs.
+
+    verify: analyzer.verify.VerifyResult when stage 6 ran — one line at the end of a proposal.
+    """
     t = p.target or {}
     head = f"`{escape(t.get('symbol', '?'))}` · 배포 {escape(t.get('revision', '')[:8])}, main {escape((p.main_sha or '')[:8])}"
     if p.status == "proposed":
         top = ":hammer_and_wrench: *수정 제안* _(참고용 — 사람이 검토 후 적용)_\n" + head + "\n"
         room = MAX_TEXT - len(top) - len("```\n\n```") - 20
+        tail = _verify_line(verify)
+        room -= len(tail)
         diff = escape(p.diff)
         if len(diff) > room:
             diff = re.sub(r"&[a-z]*$", "", diff[:room]) + "\n… 생략"
-        return f"{top}```\n{diff}\n```"
+        return f"{top}```\n{diff}\n```{tail}"
     if p.status == "main_changed":
         lines = [":warning: *수정 제안 보류* — 배포 뒤 main 에서 이 파일이 바뀌었다. 이미 고쳐졌는지 먼저 확인", head]
         lines += [f"    • {escape(c)}" for c in p.main_commits] or ["    • (바꾼 커밋 목록을 못 가져옴)"]
         return _fit("\n".join(lines), "")
     return None
+
+
+def _verify_line(verify) -> str:
+    if verify is None:
+        return ""
+    if verify.dispatched:
+        return f"\n:hourglass: 테스트 요청함 — 결과는 이 스레드에 답글로 · <{verify.url}|진행 보기>"
+    return f"\n:warning: 테스트 요청 실패({escape(verify.reason)})"
 
 
 def render_budget_notice(limit: int) -> str:
@@ -224,6 +237,12 @@ class SlackClient:
 
     async def reply(self, job: AnalysisJob, text: str) -> bool:
         """Post into the alert's thread if it can be found. True when threaded."""
+        thread_ts = await self.thread_of(job)
+        await self.post(text, thread_ts)
+        return thread_ts is not None
+
+    async def thread_of(self, job: AnalysisJob) -> str | None:
+        """ts of the alert's first Slack message, or None (retries: Grafana may post after the webhook)."""
         fingerprints = {a.fingerprint for a in job.alerts if a.fingerprint}
         oldest = min(a.startsAt for a in job.alerts) - LOOKBACK
         thread_ts = None
@@ -237,8 +256,7 @@ class SlackClient:
                 if thread_ts or attempt == self._attempts - 1:
                     break
                 await self._sleep(self._interval)
-        await self.post(text, thread_ts)
-        return thread_ts is not None
+        return thread_ts
 
     async def find_thread(self, fingerprints: Iterable[str], oldest: datetime) -> str | None:
         body = await self._call(

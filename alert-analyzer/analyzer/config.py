@@ -40,6 +40,8 @@ class Settings:
     code_cache_dir: str = "/tmp/code-cache"
     # Stage 4: propose a code change in the thread (analyzer.fix). Needs the code context.
     fix_proposal_enabled: bool = False
+    # Stage 6: dispatch the fix-verify workflow for a proposal (analyzer.verify). Token needs Actions write.
+    fix_verify_enabled: bool = False
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -60,6 +62,9 @@ class Settings:
         fix_enabled = _bool(env.get("ANALYZER_FIX_PROPOSAL_ENABLED"), False)
         if fix_enabled and not code_enabled:
             raise RuntimeError("ANALYZER_FIX_PROPOSAL_ENABLED=true needs ANALYZER_CODE_CONTEXT_ENABLED=true")
+        verify_enabled = _bool(env.get("ANALYZER_FIX_VERIFY_ENABLED"), False)
+        if verify_enabled and not fix_enabled:
+            raise RuntimeError("ANALYZER_FIX_VERIFY_ENABLED=true needs ANALYZER_FIX_PROPOSAL_ENABLED=true")
         return cls(
             webhook_token=token,
             loki_url=env.get("ANALYZER_LOKI_URL", cls.loki_url),
@@ -79,4 +84,5 @@ class Settings:
             github_token=github_token,
             code_cache_dir=env.get("ANALYZER_CODE_CACHE_DIR", cls.code_cache_dir),
             fix_proposal_enabled=fix_enabled,
+            fix_verify_enabled=verify_enabled,
         )

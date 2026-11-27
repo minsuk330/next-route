@@ -17,6 +17,7 @@ from analyzer.llm import LlmFailure, Verdict
 from analyzer.masking import mask_bundle
 from analyzer.payload import AnalysisJob
 from analyzer.slack import SlackError, explore_url, render, render_budget_notice, render_failure, render_fix
+from analyzer.verify import VerifyResult
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +25,8 @@ log = logging.getLogger(__name__)
 MAX_JOB_WAIT = timedelta(minutes=10)
 # Stage 4 budget: one LLM call (90 s, 1 retry in app wiring) plus main lookup and checkout.
 FIX_TIMEOUT_S = 150.0
+# Stage 6: thread lookup (up to 3 tries, 10 s apart) plus one dispatch call.
+VERIFY_TIMEOUT_S = 45.0
 
 GatherFn = Callable[[AnalysisJob], Awaitable[ContextBundle]]
 AnalyzeFn = Callable[[ContextBundle], Awaitable[Verdict]]
@@ -31,6 +34,8 @@ AnalyzeFn = Callable[[ContextBundle], Awaitable[Verdict]]
 
 class Notifier(Protocol):
     async def reply(self, job: AnalysisJob, text: str) -> bool: ...
+
+    async def thread_of(self, job: AnalysisJob) -> str | None: ...
 
 
 @dataclass(frozen=True)
@@ -41,6 +46,8 @@ class Live:
     notifier: Notifier
     # Stage 4 (analyzer.fix): propose a code change after the analysis. None = off.
     fix: Callable[[Verdict, ContextBundle], Awaitable["FixProposal"]] | None = None
+    # Stage 6 (analyzer.verify): dispatch the fix-verify workflow for a proposal. None = off.
+    verify: Callable[["FixProposal", str, str], Awaitable[VerifyResult]] | None = None
 
 
 def utcnow() -> datetime:
@@ -120,7 +127,11 @@ async def process(
             proposal = await asyncio.wait_for(live.fix(verdict, bundle), FIX_TIMEOUT_S)
         except asyncio.TimeoutError:
             proposal = FixProposal("failed", reason=f"시간 초과({FIX_TIMEOUT_S:.0f}초)")
-        text = render_fix(proposal)
+        verified = None
+        if live.verify is not None and proposal.status == "proposed":
+            verified = await _verify(live, job, proposal)
+            log.info("fix_verify group=%s dispatched=%s reason=%s", job.group_key, verified.dispatched, verified.reason)
+        text = render_fix(proposal, verified)
         if text:
             await _notify(live.notifier, job, text)
         log.info(
@@ -132,6 +143,24 @@ async def process(
             proposal.cost_usd,
         )
     return bundle
+
+
+async def _verify(live: Live, job: AnalysisJob, proposal: FixProposal) -> VerifyResult:
+    """Dispatch stage 6. Never raises: the proposal reply goes out either way."""
+    async def go() -> VerifyResult:
+        thread_ts = await live.notifier.thread_of(job)
+        if not thread_ts:
+            # The workflow answers in the thread; without one there is nowhere to answer.
+            return VerifyResult(False, reason="스레드 못 찾음")
+        label = ", ".join(sorted({a.labels.get("alertname", "?") for a in job.alerts}))
+        return await live.verify(proposal, thread_ts, label)
+
+    try:
+        return await asyncio.wait_for(go(), VERIFY_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        return VerifyResult(False, reason="시간 초과")
+    except Exception as exc:  # noqa: BLE001
+        return VerifyResult(False, reason=type(exc).__name__)
 
 
 async def _notify(notifier: Notifier, job: AnalysisJob, text: str) -> bool | None:

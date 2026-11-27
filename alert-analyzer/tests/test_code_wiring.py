@@ -186,7 +186,15 @@ def test_fix_proposal_needs_the_code_context():
         Settings.from_env({**base, "ANALYZER_FIX_PROPOSAL_ENABLED": "true"})
     s = Settings.from_env({**base, "ANALYZER_FIX_PROPOSAL_ENABLED": "true", "ANALYZER_CODE_CONTEXT_ENABLED": "true",
                            "ANALYZER_GITHUB_TOKEN": "g"})
-    assert s.fix_proposal_enabled
+    assert s.fix_proposal_enabled and s.fix_verify_enabled is False
+
+
+def test_fix_verify_needs_the_fix_proposal():
+    base = {"ANALYZER_WEBHOOK_TOKEN": "t", "ANALYZER_CODE_CONTEXT_ENABLED": "true", "ANALYZER_GITHUB_TOKEN": "g"}
+    with pytest.raises(RuntimeError, match="ANALYZER_FIX_PROPOSAL_ENABLED"):
+        Settings.from_env({**base, "ANALYZER_FIX_VERIFY_ENABLED": "true"})
+    s = Settings.from_env({**base, "ANALYZER_FIX_PROPOSAL_ENABLED": "true", "ANALYZER_FIX_VERIFY_ENABLED": "true"})
+    assert s.fix_verify_enabled
 
 
 async def test_complete_returns_text_and_cost_without_iterations():

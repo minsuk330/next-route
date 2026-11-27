@@ -23,6 +23,7 @@ from analyzer.context import gather
 from analyzer.cards import load as load_cards
 from analyzer.code import CodeCollector, SourceCache
 from analyzer.fix import github_compare, propose
+from analyzer.verify import github_dispatch
 from analyzer.dedupe import DailyBudget, SeenStore
 from analyzer.llm import Analyzer, complete, make_client
 from analyzer.logging_json import configure_logging
@@ -86,10 +87,14 @@ def create_app(
                         cache=source_cache, compare=compare,
                     )
 
+            verify_stage = None
+            if resolved.fix_verify_enabled and fix_stage is not None:
+                verify_stage = github_dispatch(http, resolved.github_repo, resolved.github_token, resolved.slack_channel_id)
             stages = Live(
                 analyze=Analyzer(claude).analyze,
                 notifier=SlackClient(resolved.slack_bot_token, resolved.slack_channel_id, http),
                 fix=fix_stage,
+                verify=verify_stage,
             )
 
         worker = None
@@ -109,7 +114,7 @@ def create_app(
                 )
             )
         log.info(
-            "alert-analyzer started dry_run=%s live=%s daily_limit=%d probe=%s code=%s cards=%d fix=%s",
+            "alert-analyzer started dry_run=%s live=%s daily_limit=%d probe=%s code=%s cards=%d fix=%s verify=%s",
             resolved.dry_run,
             stages is not None,
             resolved.daily_limit,
@@ -117,6 +122,7 @@ def create_app(
             code is not None,
             len(cards),
             bool(stages is not None and getattr(stages, "fix", None)),
+            bool(stages is not None and getattr(stages, "verify", None)),
         )
         try:
             yield
