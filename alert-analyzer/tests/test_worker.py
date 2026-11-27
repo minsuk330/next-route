@@ -124,6 +124,9 @@ class FakeNotifier:
             raise self.error
         return True
 
+    async def thread_of(self, j: AnalysisJob) -> str | None:
+        return getattr(self, "thread", "1795782729.655779")
+
 
 def verdict() -> Verdict:
     return Verdict(
@@ -258,3 +261,78 @@ async def test_slow_fix_proposal_times_out_and_the_analysis_still_went_out(monke
         live=Live(analyze=analyze, notifier=notifier, fix=slow_fix),
     )
     assert len(notifier.texts) == 1
+
+
+async def _run_with_verify(proposal, verify, *, thread="1795782729.655779"):
+    async def analyze(_):
+        return verdict()
+
+    async def fix(v, b):
+        return proposal
+
+    notifier = FakeNotifier()
+    notifier.thread = thread
+    await process(
+        job(), settings=LIVE_SETTINGS, budget=DailyBudget(5), gather_fn=gather_secret, now=NOW,
+        live=Live(analyze=analyze, notifier=notifier, fix=fix, verify=verify),
+    )
+    return notifier
+
+
+async def test_verify_dispatches_for_a_proposal_and_adds_one_line(caplog):
+    import logging
+    from analyzer.fix import Edit, FixProposal
+    from analyzer.verify import VerifyResult
+    caplog.set_level(logging.INFO, logger="analyzer.worker")
+    calls = []
+
+    async def verify(p, ts, label):
+        calls.append((p.status, ts, label))
+        return VerifyResult(True, url="https://github.com/o/r/actions/runs/1")
+
+    p = FixProposal("proposed", {"symbol": "Svc#ok", "revision": "d" * 40}, "e" * 40, diff="+x\n",
+                    edits=[Edit("a\n", "b\n")], repo_path="src/main/java/a/Svc.java")
+    n = await _run_with_verify(p, verify)
+    assert calls and calls[0][0] == "proposed" and calls[0][1] == "1795782729.655779"
+    assert calls[0][2].endswith(" · Svc#ok")  # result reply stands alone
+    assert len(n.texts) == 2 and "테스트 요청함" in n.texts[1]
+    assert "fix_verify" in caplog.text and "dispatched=True" in caplog.text
+
+
+async def test_verify_not_called_for_other_statuses_or_without_thread():
+    from analyzer.fix import FixProposal
+    from analyzer.verify import VerifyResult
+    calls = []
+
+    async def verify(p, ts, label):
+        calls.append(p)
+        return VerifyResult(True, url="u")
+
+    await _run_with_verify(FixProposal("main_changed", {"symbol": "s", "revision": "d" * 40}, "e" * 40), verify)
+    assert calls == []
+    n = await _run_with_verify(FixProposal("proposed", {"symbol": "s", "revision": "d" * 40}, "e" * 40, diff="+x\n"),
+                               verify, thread=None)
+    assert calls == [] and "테스트 요청 실패(스레드 못 찾음)" in n.texts[1]
+
+
+async def test_verify_failure_never_blocks_the_proposal():
+    from analyzer.fix import FixProposal
+
+    async def boom(p, ts, label):
+        raise RuntimeError("x")
+
+    n = await _run_with_verify(FixProposal("proposed", {"symbol": "s", "revision": "d" * 40}, "e" * 40, diff="+x\n"), boom)
+    assert len(n.texts) == 2 and "수정 제안" in n.texts[1] and "테스트 요청 실패(RuntimeError)" in n.texts[1]
+
+
+async def test_verify_timeout_only_changes_the_line(monkeypatch):
+    import asyncio
+    from analyzer import worker as worker_mod
+    from analyzer.fix import FixProposal
+    monkeypatch.setattr(worker_mod, "VERIFY_TIMEOUT_S", 0.05)
+
+    async def slow(p, ts, label):
+        await asyncio.sleep(1)
+
+    n = await _run_with_verify(FixProposal("proposed", {"symbol": "s", "revision": "d" * 40}, "e" * 40, diff="+x\n"), slow)
+    assert len(n.texts) == 2 and "테스트 요청 실패(시간 초과)" in n.texts[1]

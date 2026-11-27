@@ -100,6 +100,9 @@ async def test_same_commit_on_main_proposes_a_diff(tmp_path):
     p = await propose(verdict(refs=("s:1", "k:K21")), bundle(cards=cards), complete=llm(BLOCK, seen),
                       cache=Cache(tmp_path, SRC, None, main_sha=D), compare=no_compare)
     assert p.status == "proposed" and p.main_sha == D and p.cost_usd == 0.03
+    # stage 6 input: raw blocks and the repo-root path
+    assert p.repo_path.startswith("src/main/java/") and p.repo_path.endswith(PATH.split("src/main/java/")[-1])
+    assert len(p.edits) == 1 and "IDS.contains(id);" in p.edits[0].search
     assert "+    return id != null && IDS.contains(id);" in p.diff and p.diff.startswith(f"--- a/{PATH}")
     assert "k:K21: null 이면 NO_REALTIME_LINE" in seen[0] and "배포 커밋 dddddddd" in seen[0]
 
@@ -163,6 +166,18 @@ def test_render_fix_fits_and_marks_cuts():
     held = render_fix(FixProposal("main_changed", target, M, main_commits=["abc12345 fix"]))
     assert "수정 제안 보류" in held and "abc12345 fix" in held
     assert render_fix(FixProposal("skipped")) is None and render_fix(FixProposal("failed", target)) is None
+
+
+def test_render_fix_adds_one_verify_line_and_still_fits():
+    from analyzer.verify import VerifyResult
+    target = {"symbol": "Svc#ok", "revision": D}
+    ok = render_fix(FixProposal("proposed", target, M, diff="+x\n" * 3000),
+                    VerifyResult(True, url="https://github.com/o/r/actions/runs/1"))
+    assert len(ok) <= MAX_TEXT and ok.endswith("<https://github.com/o/r/actions/runs/1|진행 보기>")
+    assert "테스트 요청함" in ok and "… 생략" in ok
+    bad = render_fix(FixProposal("proposed", target, M, diff="+x\n"), VerifyResult(False, reason="GitHub 403 <x>"))
+    assert "테스트 요청 실패(GitHub 403 &lt;x&gt;)" in bad
+    assert "테스트" not in render_fix(FixProposal("proposed", target, M, diff="+x\n"))
 
 
 # --- review fixes (2026-11-27) ---------------------------------------------------------------
@@ -233,3 +248,16 @@ async def test_github_compare_lists_only_commits_in_range_that_touched_the_file(
     assert out == ["cccccccc fix(x): newest", "aaaaaaaa feat(x): older"]
     assert http.calls[1][1] == {"sha": M, "path": PATH, "per_page": 30}
     assert all(h["Authorization"] == "Bearer tok" for _, _, h in http.calls)
+
+
+
+async def test_edits_stay_raw_while_the_diff_is_masked(tmp_path):
+    secret = 'String key = "sk-ant-abcdefghijklmnop";'
+    src = SRC.replace("class Svc {", "class Svc {\n  " + secret)
+    block = (
+        "<<<<<<< SEARCH\n  " + secret + "\n=======\n  " + secret + " // keep\n>>>>>>> REPLACE\n"
+    )
+    p = await propose(verdict(), bundle(), complete=llm(block), cache=Cache(tmp_path, src, None, main_sha=D), compare=no_compare)
+    assert p.status == "proposed"
+    assert "sk-ant-abcdefghijklmnop" in p.edits[0].search  # a masked SEARCH would not match in the workflow
+    assert "sk-ant-abcdefghijklmnop" not in p.diff
