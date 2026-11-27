@@ -62,7 +62,7 @@ def create_app(
         cards, cards_error = load_cards()
         if cards_error:
             log.warning("incident cards unavailable: %s", cards_error)
-        fn = gather_fn or (lambda job: gather(job, loki, prom, code, cards))
+        fn = gather_fn or (lambda job: gather(job, loki, prom, code, cards, cards_error))
 
         # Dry run always wins: nothing leaves the box, even if stages were injected.
         claude = None

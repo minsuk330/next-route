@@ -7291,3 +7291,12 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `uv run --extra dev pytest -q` → 223 passed (PR-2 213 + test_cards 9 + test_cards_loo 1)
+
+### 함정 (독립 검토 반영, 8건)
+- 점수 합 ≥3 으로 "클래스 겹침"을 판정해 낱말만 3개 겹친 카드가 클래스 카드로 올라감(MapBusStopController 에 K24) → 클래스 겹침 개수를 따로 세고, 낱말은 카드 낱말 수 대비 비율
+- Slack 고칠 곳 후보가 가설 뒤라 길면 통째로 잘림(테스트는 1562자라 자르기 분기 미실행) → 꼬리말 쪽(_fit 이 안 자르는 부분)으로 옮김, 3000자 넘는 테스트
+- 카드 파일 실패가 기동 경고뿐 → collection_errors 에 "cards: …"
+- 클래스 정규식이 OTPClient·JourneySchemaIT·"Calculator에서"(한글이 \b 를 깸) 놓침 → 대문자 2개+소문자 1개, 앞뒤 영숫자 아님. K19 도 이제 뽑힘(클래스 없는 카드 = K04·K17)
+- 카드도 mask_bundle 통과(증상로그에 운영 로그 원문을 붙일 수 있어서)
+- fix_candidates 는 SDK 가 선택 칸으로 만들어 API 거부 없음(anthropic 2.3.0 transform_schema 로 확인). 빠뜨림 방지는 프롬프트 "늘 쓰고 없으면 []"
+- 검증: pytest 227 passed

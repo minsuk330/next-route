@@ -32,7 +32,7 @@ def test_shipped_cards_load_with_every_field():
     for c in cards:
         assert set(c.fields) == {"id", "유형", "감지경로", "증상", "증상로그", "원인", "조치", "고친곳", "날짜"}
     # graph / timetable / schema fixes name no Java class, so the selector never picks them (README)
-    assert sorted(c.id for c in cards if not c.classes) == ["K04", "K17", "K19"]
+    assert sorted(c.id for c in cards if not c.classes) == ["K04", "K17"]
     assert CARDS_PATH.parent.name == "incidents"
 
 
@@ -57,12 +57,35 @@ def test_select_prefers_shared_classes_then_domain_words_and_drops_zero():
     assert [c.id for c in words_only] == ["K1", "K2"]   # no class matches: shared words decide
 
 
+def test_many_shared_words_never_beat_one_shared_class():
+    word_heavy = card("A", "BusStopLaneSelector, BusStopNameMapper, BusStopTileCache")
+    class_hit = card("B", "MapBusStopController")
+    code = [{"symbol": "MapBusStopController#tile", "header": ""}, {"symbol": "BusStopIdMapper#x", "header": ""}]
+    assert [c.id for c in select([word_heavy, class_hit], code=code, templates=[], alerts=[])] == ["B"]
+
+
+def test_class_regex_takes_acronyms_and_names_glued_to_korean():
+    c = card("K", "OTPClient, JourneySchemaIT, SubwayRingCalculator에서 고침")
+    assert c.classes == {"OTPClient", "JourneySchemaIT", "SubwayRingCalculator"}
+
+
 def test_select_uses_loggers_frames_and_limit():
     cards = [card(f"K{i}", "BusArrivalQueryService") for i in range(12)]
     t = TemplateStat(id="t:1", app="api", level="ERROR", logger="watoo.grd.nextroute.x.BusArrivalQueryService",
                      template="x", status="NEW", logger_total=1, logger_baseline=0, sample_count=1,
                      sample_capped=False, baseline_seen=False)
     assert len(select(cards, code=[], templates=[t], alerts=[])) == 10
+
+
+async def test_unreadable_cards_show_up_as_a_collection_error():
+    b = await gather(job(), logs(), _no_metrics(), None, [], "카드 읽기 실패(JSONDecodeError)")
+    assert "cards: 카드 읽기 실패(JSONDecodeError)" in b.collection_errors and b.cards == []
+
+
+def test_cards_are_masked_before_the_llm():
+    from analyzer.masking import mask_bundle
+    b = bundle(cards=[{"id": "k:K1", "증상로그": "GET /x?serviceKey=abcdef123456 failed"}])
+    assert "abcdef123456" not in mask_bundle(b).cards[0]["증상로그"]
 
 
 async def test_gather_attaches_selected_cards_outside_the_budget():
@@ -106,7 +129,7 @@ def test_user_message_lists_fix_ids():
 
 
 def _verdict(fixes) -> Verdict:
-    h = Hypothesis(cause="원인" * 200, category="app_bug", confidence="high", evidence=["s:1"], next_check="n")
+    h = Hypothesis(cause="원인" * 600, category="app_bug", confidence="high", evidence=["s:1"], next_check="n")
     return Verdict(headline="h", hypotheses=[h, h, h], deploy_related=False, unknown=False, invalid_evidence=0,
                    total_evidence=1, model="m", input_tokens=1, output_tokens=1, elapsed_s=1.0, fix_candidates=fixes)
 
@@ -119,4 +142,6 @@ def test_slack_shows_fix_candidates_with_card_summary_and_keeps_the_footer():
     short = render(_verdict([fix]).__class__(**{**_verdict([fix]).__dict__, "hypotheses": []}), b, link="https://g")
     assert "고칠 곳 후보" in short and "`k:K11` 9호선 0/38역 도착 열차 0대(10-10)" in short
     long = render(_verdict([fix]), b, link="https://g")
+    assert len(_verdict([fix]).hypotheses[0].cause) * 3 > MAX_TEXT          # the body really gets cut
     assert len(long) <= MAX_TEXT and "Grafana Explore" in long
+    assert "고칠 곳 후보" in long and "SubwayDirectionNormalizer" in long     # candidates survive the cut

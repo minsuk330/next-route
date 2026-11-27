@@ -19,17 +19,18 @@ log = logging.getLogger(__name__)
 
 CARDS_PATH = Path(__file__).parent / "incidents" / "cards.json"
 MAX_CARDS = 10
-CLASS_HIT = 3
-WORD_HIT = 1
 
-_CLASS = re.compile(r"\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+\b")
-_WORD = re.compile(r"[A-Z][a-z0-9]+")
+# Java type names: two or more capitals and a lowercase letter (OTPClient, JourneySchemaIT,
+# RedisOAuthChallengeAdapter). Not \b: Korean is a word character, so "Calculator에서" would miss.
+_CLASS = re.compile(r"(?<![A-Za-z0-9])(?=[A-Za-z0-9]*[a-z])(?=(?:[A-Za-z0-9]*[A-Z]){2})[A-Z][A-Za-z0-9]{5,}(?![A-Za-z0-9])")
+_WORD = re.compile(r"[A-Z][a-z0-9]+|[A-Z]+(?![a-z])")
 # Class-name words that say nothing about the domain.
 _GENERIC = {
     "Service", "Adapter", "Controller", "Api", "Query", "Reader", "Port", "Impl", "Response", "Request",
     "Exception", "Handler", "Calculator", "Client", "Config", "Recorder", "Resolver", "Mapper", "Source",
     "Seoul", "Realtime", "Time", "Selection", "Provider", "Composer", "Enricher", "Normalizer", "Test",
     "Wiring", "Search", "Info", "Data", "Line", "Station", "Train", "Route", "Arrival",
+    "Id", "Ids", "Lookup", "Collector", "IT", "Store", "Repository", "Job", "Batch",
 }
 
 
@@ -72,13 +73,17 @@ def select(cards: list[Card], *, code: list[dict], templates: list, alerts: list
         [*names, *(getattr(t, "template", "") for t in templates), *(json.dumps(a, ensure_ascii=False) for a in alerts)]
     )
     words = set(_WORD.findall(text)) | {w for n in names for w in _WORD.findall(n)}
-    scored = []
-    for n, card in enumerate(cards):
-        score = CLASS_HIT * len(card.classes & names) + WORD_HIT * len(card.words & words)
-        if score > 0:
-            scored.append((-score, n, card))
     # A shared class is strong; a shared domain word ("Subway") is weak and pulled in the
-    # misleading neighbours of the 2026-11-27 test. Words count only when no class matches.
-    if any(-s >= CLASS_HIT for s, _, _ in scored):
-        scored = [row for row in scored if -row[0] >= CLASS_HIT]
-    return [card for _, _, card in sorted(scored)[:limit]]
+    # misleading neighbours of the 2026-11-27 test. So class hits are counted on their own and,
+    # when any card has one, only those cards go in. Word overlap is a share of the card's words
+    # so cards with many words (K24: Bus, Stop, Lane, ...) do not win by size.
+    rows = []
+    for n, card in enumerate(cards):
+        class_hits = len(card.classes & names)
+        word_share = len(card.words & words) / max(1, len(card.words))
+        if class_hits or word_share:
+            rows.append((class_hits, word_share, n, card))
+    if any(r[0] for r in rows):
+        rows = [r for r in rows if r[0]]
+    rows.sort(key=lambda r: (-r[0], -r[1], r[2]))
+    return [r[3] for r in rows[:limit]]

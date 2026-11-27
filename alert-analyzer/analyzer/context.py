@@ -201,6 +201,7 @@ async def gather(
     metrics: MetricSource,
     code: CodeSource | None = None,
     cards: list[Card] | None = None,
+    cards_error: str | None = None,
 ) -> ContextBundle:
     starts = [a.startsAt for a in job.alerts]
     first, last = min(starts), max(starts)
@@ -258,6 +259,8 @@ async def gather(
             code_via = "none"
 
     chosen = select_cards(cards, code=snippets, templates=templates, alerts=alerts) if cards else []
+    if cards_error:
+        errors.append(f"cards: {cards_error}")
 
     bundle = ContextBundle(
         alerts=alerts,

@@ -80,4 +80,6 @@ def mask_bundle(bundle: "ContextBundle") -> "ContextBundle":
         quiet_summary=[mask(s) for s in bundle.quiet_summary],
         collection_errors=[mask(s) for s in bundle.collection_errors],
         code=[{**c, "body": mask_code(c.get("body", ""))} for c in bundle.code],
+        # cards are written by us, but a pasted production log line in 증상로그 must not slip through
+        cards=_mask_obj(bundle.cards),
     )

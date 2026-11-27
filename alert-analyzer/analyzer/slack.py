@@ -81,13 +81,13 @@ def render(verdict: Verdict, bundle: ContextBundle, *, link: str) -> str:
         lines.append(f":recycle: 직전 재시작: {escape(_restarts(bundle))}")
     for n, hypothesis in enumerate(verdict.hypotheses, 1):
         lines.extend(_hypothesis(n, hypothesis, bundle))
-    if verdict.fix_candidates:
-        lines.append(":wrench: *고칠 곳 후보*")
-        lines.extend(_fix(f, bundle) for f in verdict.fix_candidates)
     if bundle.collection_errors:
         lines.append(f":warning: 수집 실패: {escape('; '.join(bundle.collection_errors))}")
 
     footer = [f"<{_link(link)}|로그 보기 (Grafana Explore)>", f"_{escape(_meta(verdict))}_"]
+    if verdict.fix_candidates:
+        # In the footer, which _fit never cuts: long hypotheses must not push these out.
+        footer = [":wrench: *고칠 곳 후보*", *(_fix(f, bundle) for f in verdict.fix_candidates), *footer]
     return _fit("\n".join(lines), "\n".join(footer))
 
 

@@ -15,8 +15,8 @@
 | 날짜 | YYYY-MM-DD |
 
 ## 고르는 방식 (analyzer/cards.py)
-알림의 코드 조각·스택 프레임·로거에 카드의 "고친곳" 클래스가 나오면 3점, 클래스 이름의 도메인 낱말(Subway, Bus, Otp …)이 겹치면 1점. 0점은 넣지 않고 최대 10장. 클래스가 겹치는 카드가 하나라도 있으면 그 카드들만 넣는다(낱말만 겹치는 카드가 실험에서 잘못 이끌었다).
+알림의 코드 조각·스택 프레임·로거에 카드의 "고친곳" 클래스가 나오는지(클래스 겹침)를 먼저 센다. 클래스가 겹치는 카드가 하나라도 있으면 그 카드들만 넣는다(낱말만 겹치는 카드가 실험에서 잘못 이끌었다). 없을 때만 클래스 이름의 도메인 낱말(Subway, Bus, Otp …) 겹침 비율로 고른다. 겹침 0 은 넣지 않고 최대 10장.
 "고친곳"에 Java 클래스가 없는 카드(OTP 그래프·시간표·스키마: K04, K17, K19)는 지금 방식으로는 뽑히지 않는다. 그런 장애가 쌓이면 고르는 기준을 넓힌다.
 
 ## 추가
-장애를 고치면 한 장 추가한다. 씨앗 25장은 implementation_note.md 전수에서 고른 운영 장애(docs/plan/rag-incident-context/seed-cards.json). 카드를 바꾸면 `eval/cards_loo.py` 를 다시 돌려 고칠 곳 정확도가 떨어지지 않는지 본다.
+장애를 고치면 한 장 추가한다. 씨앗 25장은 implementation_note.md 전수에서 고른 운영 장애(docs/plan/rag-incident-context/seed-cards.json). 카드를 바꾸면 `scripts/cards_loo.py`(`docker exec -i observability-alert-analyzer-1 python -m scripts.cards_loo`)를 다시 돌려 고칠 곳 정확도가 떨어지지 않는지 본다.
