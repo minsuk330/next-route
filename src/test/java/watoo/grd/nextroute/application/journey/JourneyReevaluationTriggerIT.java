@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey;
 
+import watoo.grd.nextroute.testsupport.DbInstants;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -153,7 +154,7 @@ class JourneyReevaluationTriggerIT {
         request(ReevaluationTier.URGENT, id);
 
         assertThat(nextEvaluationAt(id)).as("증서가 바뀌면 진행 중 계산이 결과를 버린다")
-                .isEqualTo(claim.leaseUntil());
+                .isEqualTo(DbInstants.micros(claim.leaseUntil()));
         assertThat(dirty(id)).isTrue();
 
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);

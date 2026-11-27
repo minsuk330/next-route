@@ -37,6 +37,15 @@ public class SubwayLineStationIndex {
     /** 정규화 이름 → 역(#510). 검색 응답이 역마다 환승을 물으므로 696행을 매번 훑지 않는다. */
     private volatile Lookup lookup;
 
+    /**
+     * 역 마스터를 다음 호출에 다시 읽는다. 첫 비어 있지 않은 읽기를 재시작 전까지 들고 있으므로, 역 행을
+     * 나중에 넣는 쪽(시험 무대, 적재 배치)이 부른다.
+     */
+    public void reload() {
+        all = null;
+        lookup = null;
+    }
+
     public List<SubwayPatternStationMatcher.Candidate> candidates(String lineId) {
         return stations().stream()
                 .filter(s -> lineId.equals(s.getLineId()) && s.getLatitude() != null && s.getLongitude() != null)

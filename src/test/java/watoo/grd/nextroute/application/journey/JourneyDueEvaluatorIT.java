@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey;
 
+import watoo.grd.nextroute.testsupport.DbInstants;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -99,7 +100,8 @@ class JourneyDueEvaluatorIT {
                 .findFirst()
                 .orElseThrow();
         // 심어 둔 값과 돌려받은 값이 정확히 같아야 한다 — 그 값으로 소유권을 확인한다.
-        assertThat(nextEvaluationAt(journeyId)).isEqualTo(mine.leaseUntil());
+        // DB 정밀도(마이크로초)로 맞춰 비교한다 — Linux 시계는 나노초다(DbInstants).
+        assertThat(nextEvaluationAt(journeyId)).isEqualTo(DbInstants.micros(mine.leaseUntil()));
         assertThat(nextEvaluationAt(journeyId)).isAfter(Instant.now());
     }
 

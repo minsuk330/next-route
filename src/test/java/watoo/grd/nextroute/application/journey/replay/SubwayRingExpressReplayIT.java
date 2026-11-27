@@ -1,5 +1,6 @@
 package watoo.grd.nextroute.application.journey.replay;
 
+import watoo.grd.nextroute.application.subway.service.SubwayLineStationIndex;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -147,6 +148,7 @@ class SubwayRingExpressReplayIT {
     }
 
     @Autowired MutableClock clock;
+    @Autowired SubwayLineStationIndex stationIndex;
     @Autowired ObjectMapper objectMapper;
     @Autowired StartJourneyUseCase startJourneyUseCase;
     @Autowired SubwayTrainSelectionTxService selectionTxService;
@@ -578,12 +580,17 @@ class SubwayRingExpressReplayIT {
                     "select count(*) from subway_station where line_id = ? and statn_id = ?", Integer.class, line,
                     station.getStationId());
             if (exists == null || exists == 0) {
+                // 좌표까지 넣는다: 급행 카탈로그는 좌표 있는 역만 잇는다(SubwayLineStationIndex#candidates).
+                // 빼면 개발 역 마스터가 없는 DB(CI)에서 카탈로그가 영영 보류다.
                 seededStationIds.add(jdbcTemplate.queryForObject("""
-                        insert into subway_station (created_at, updated_at, line_id, statn_id, statn_nm)
-                        values (now(), now(), ?, ?, ?) returning id
-                        """, Long.class, line, station.getStationId(), station.getStationName()));
+                        insert into subway_station (created_at, updated_at, line_id, statn_id, statn_nm, latitude, longitude)
+                        values (now(), now(), ?, ?, ?, ?, ?) returning id
+                        """, Long.class, line, station.getStationId(), station.getStationName(),
+                        station.getLatitude(), station.getLongitude()));
             }
         }
+        // 같은 컨텍스트의 앞 시험이 역 마스터를 이미 읽어 두었으면 방금 넣은 역이 안 보인다.
+        stationIndex.reload();
     }
 
     private void startJourney(Properties props, List<Station> stations) {
