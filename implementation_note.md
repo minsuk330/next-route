@@ -7300,3 +7300,11 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 카드도 mask_bundle 통과(증상로그에 운영 로그 원문을 붙일 수 있어서)
 - fix_candidates 는 SDK 가 선택 칸으로 만들어 API 거부 없음(anthropic 2.3.0 transform_schema 로 확인). 빠뜨림 방지는 프롬프트 "늘 쓰고 없으면 []"
 - 검증: pytest 227 passed
+
+### 배포 (RAG PR-3, 2026-11-27 15:33 KST, main ba7a3043)
+- 사용자 명시 승인 후(자동 분류기가 첫 시도의 머지·재생성을 막음) #657 머지 → GHCR 빌드 → 분석기만 --force-recreate. 기동 로그 `code=True cards=25`
+
+### 검증
+- 운영 컨테이너 실분석 1회(연습 맥락: 성수지선 도착 0대, SubwayDirectionNormalizer 프레임): 코드 via=stack(SubwayDirectionNormalizer#fromPositionRow, 태그로 SeoulSubwayApiAdapter#getRealtimePosition), 카드 K11·K15·K14·K05·K03·K16(SeoulSubwayApiAdapter 클래스 겹침 포함)
+- 응답: 가설 2개 근거 t:+s:, 고칠 곳 후보 2개 — SubwayDirectionNormalizer [s:1, k:K15], SubwayTrainPositionResolver [k:K11, k:K15]. 없는 근거 0/4, $0.027, 15.2초. structured output 의 fix_candidates 정상
+- 남은 것: 실알림에서 code_via·cards·fix 로그와 Slack 표시 확인
