@@ -7320,3 +7320,27 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 정상 복귀 뒤에도 규칙이 약 1분 반 firing 유지 ← reason 라벨이 다른 시리즈(connect·search_failed)가 사라지는 방식으로 해제(MissingSeries, 평가 2회). RESOLVED Slack 은 group_interval 5분 뒤. 정상 복귀 → Slack 해제까지 최대 약 5분
 - 재생성 직후 outcome 시리즈가 잠깐 비어 NoData(noDataState OK 라 무해)
 - Slack conversations.history 의 oldest 에 소수점 긴 값을 주면 0건이 나왔다(정수 문자열은 정상) — 확인용 스크립트 함정
+
+## 파이프라인 4단계 수정 코드 제안 (2026-11-27, 브랜치 feat/fix-proposal, 티어 M)
+
+### 확정
+- 플랜 docs/plan/pipeline-fix-proposal 사용자 승인. 결정: 조건 app_bug+확신도 high/medium+고칠 곳 후보 s: / 형식 SEARCH/REPLACE / 배포 커밋(D)과 main(M) 대조 ①제안 ②main_changed ③mismatch / Slack 두 번째 답글만, GitHub 읽기 권한 그대로
+- 형식 시험(실제 fix 커밋 20건, 메서드 하나 안의 변경, Sonnet 5.5): 실제 수정이 메서드 밖이던 2건 제외 18건 — 적용 udiff 16 / 찾아바꾸기 18, 실제 고친 위치 13 / 16. udiff 실패 2건 = 덩어리 줄 수 오류(--recount 면 통과). 재실행 = eval/fix_format.py + scripts/fix_format_gen.py
+- analyzer/fix.py: pick_target → LLM(prompts/fix.md, 메서드 원문·원인·후보 이유·카드 조치) → parse_edits(최대 3) → D 대조 → SourceCache.resolve("main")(git ls-remote) → M 대조 → difflib diff. main_changed 는 GitHub compare API(읽기 토큰)로 그 파일을 바꾼 커밋 최대 5개. 블록 없음 = skipped, 모든 예외 = failed(사유만)
+- llm.complete: 텍스트 응답+비용(usage.iterations 없을 때 대체)
+- worker: 분석 답글 뒤 live.fix → proposed/main_changed 만 Slack, 로그 `fix_proposal status=…`
+- 플래그 ANALYZER_FIX_PROPOSAL_ENABLED 기본 false, 켜면 코드 수집도 켜져 있어야 기동
+- SourceCache KEEP_REVISIONS 3→4, ls-remote 작업 디렉터리 .ls-remote 는 prune 제외
+
+### 검증
+- `uv run --extra dev pytest -q` → 241 passed in 2.78s
+
+### 함정 (독립 검토 반영, 7건)
+- main_changed 커밋 목록이 그 파일과 무관한 최신 커밋 5개일 수 있었음(compare API 는 커밋별 파일 정보 없음, 250개 상한) → compare 의 커밋 집합 ∩ commits?path= 이력
+- SEARCH 를 마스킹한 뒤 대조해 비밀값 모양 줄이 늘 mismatch → 원문으로 대조, Slack diff 만 마스킹
+- fix 단계가 단일 워커 큐를 최악 7분 넘게 막을 수 있음 → wait_for 150초 + LLM timeout 90초·재시도 1회
+- resolve 의 stdout 파일 핸들 누수(ResourceWarning) → PIPE + communicate
+- LLM 호출 뒤 실패 시 비용 0 기록, LlmFailure 사유 유실 → cost 를 try 밖에서 유지, reason 보존
+- apply_edits 순차 적용: 앞 REPLACE 가 뒤 SEARCH 를 만족시키면 원문에 없는 블록이 통과 → 모든 SEARCH 를 원문에서 한꺼번에 검사, 겹침 거부, 뒤에서부터 치환
+- CRLF 블록 파싱 실패, 줄 삭제 블록이 빈 줄을 남김 → \r\n 정규화, SEARCH 끝 줄바꿈 포함 줄 단위 파싱
+- 검증: pytest 247 passed, resolve 테스트 -X dev -W error::ResourceWarning 통과

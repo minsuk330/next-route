@@ -37,7 +37,7 @@ METHOD_LINES = 150
 BUDGET_CHARS = 24_000
 KEYWORD_MAX_FILES = 5
 GIT_TIMEOUT_S = 30.0
-KEEP_REVISIONS = 3
+KEEP_REVISIONS = 4   # deployed commit and main are used together (analyzer.fix)
 SOURCE_ROOT = "src/main/java"
 
 Via = Literal["stack", "keyword", "none", "disabled", "version_unknown"]
@@ -388,12 +388,31 @@ class SourceCache:
                 shutil.rmtree(target, ignore_errors=True)
                 raise CodeFetchError(f"코드 캐시 오류({type(exc).__name__})") from None
 
-    async def _fetch(self, revision: str, target: Path) -> Path:
+    async def resolve(self, ref: str) -> str | None:
+        """40-char SHA of a branch on the remote (git ls-remote), or None."""
+        if not re.fullmatch(r"[\w./-]{1,100}", ref):
+            return None
         self._dir.mkdir(parents=True, exist_ok=True)
+        askpass = self._askpass()
+        scratch = self._dir / ".ls-remote"
+        scratch.mkdir(exist_ok=True)
+        try:
+            code, out = await self._git(scratch, askpass, ["ls-remote", self._remote, f"refs/heads/{ref}"], capture=True)
+        except (CodeFetchError, OSError):
+            return None
+        first = out.decode(errors="replace").split() if code == 0 else []
+        return first[0] if first and _FULL_SHA.fullmatch(first[0]) else None
+
+    def _askpass(self) -> Path:
         askpass = self._dir / "askpass.sh"
         if not askpass.exists():
             askpass.write_text(_ASKPASS)
             askpass.chmod(stat.S_IRWXU)
+        return askpass
+
+    async def _fetch(self, revision: str, target: Path) -> Path:
+        self._dir.mkdir(parents=True, exist_ok=True)
+        askpass = self._askpass()
         shutil.rmtree(target, ignore_errors=True)
         target.mkdir()
         steps = [
@@ -412,7 +431,8 @@ class SourceCache:
         self._prune()
         return target / SOURCE_ROOT
 
-    async def _git(self, cwd: Path, askpass: Path, args: list[str]) -> int:
+    async def _git(self, cwd: Path, askpass: Path, args: list[str], capture: bool = False):
+        """Exit code, or (exit code, stdout bytes) with capture=True."""
         env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "HOME": str(self._dir),
@@ -426,12 +446,15 @@ class SourceCache:
                 # no detached background maintenance: it escapes killpg and the memory limit
                 "-c", "maintenance.auto=false", "-c", "gc.auto=0", *args,
                 cwd=cwd, env=env,
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE if capture else asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
                 start_new_session=True,
             )
         except OSError as exc:
             raise CodeFetchError(f"git 실행 실패({type(exc).__name__})") from None
         try:
+            if capture:
+                out, _ = await asyncio.wait_for(proc.communicate(), GIT_TIMEOUT_S)
+                return proc.returncode, out
             return await asyncio.wait_for(proc.wait(), GIT_TIMEOUT_S)
         except asyncio.TimeoutError:
             with _suppress():
@@ -440,7 +463,7 @@ class SourceCache:
             raise CodeFetchError(f"git {args[0]} 시간 초과({GIT_TIMEOUT_S:.0f}초)") from None
 
     def _prune(self) -> None:
-        dirs = [p for p in self._dir.iterdir() if p.is_dir()]
+        dirs = [p for p in self._dir.iterdir() if p.is_dir() and not p.name.startswith(".")]
         for half in (p for p in dirs if not (p / ".ok").exists()):
             shutil.rmtree(half, ignore_errors=True)   # left by a crash mid-fetch (runs under the lock)
         done = sorted((p for p in dirs if (p / ".ok").exists()), key=lambda p: p.stat().st_mtime, reverse=True)

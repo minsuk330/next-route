@@ -206,3 +206,55 @@ async def test_daily_limit_is_announced_once_in_slack():
 
     assert len(notifier.texts) == 2
     assert "오늘 AI 분석 상한(1건)" in notifier.texts[1]
+
+
+async def _run_with_fix(proposal):
+    from analyzer.fix import FixProposal  # noqa: F401
+    calls = []
+
+    async def analyze(_):
+        return verdict()
+
+    async def fix(v, b):
+        calls.append((v, b))
+        return proposal
+
+    notifier = FakeNotifier()
+    await process(
+        job(), settings=LIVE_SETTINGS, budget=DailyBudget(5), gather_fn=gather_secret, now=NOW,
+        live=Live(analyze=analyze, notifier=notifier, fix=fix),
+    )
+    return notifier, calls
+
+
+async def test_fix_proposal_is_a_second_reply_only_when_it_has_something_to_show(caplog):
+    import logging
+    from analyzer.fix import FixProposal
+    caplog.set_level(logging.INFO, logger="analyzer.worker")
+    target = {"symbol": "Svc#ok", "revision": "d" * 40}
+    proposed, calls = await _run_with_fix(FixProposal("proposed", target, "e" * 40, diff="+x\n"))
+    assert len(proposed.texts) == 2 and "수정 제안" in proposed.texts[1] and len(calls) == 1
+    for status in ("skipped", "mismatch", "failed"):
+        quiet, _ = await _run_with_fix(FixProposal(status, target))
+        assert len(quiet.texts) == 1
+    assert "fix_proposal" in caplog.text and "status=mismatch" in caplog.text
+
+
+async def test_slow_fix_proposal_times_out_and_the_analysis_still_went_out(monkeypatch):
+    import asyncio
+    from analyzer import worker as worker_mod
+
+    monkeypatch.setattr(worker_mod, "FIX_TIMEOUT_S", 0.05)
+
+    async def analyze(_):
+        return verdict()
+
+    async def slow_fix(v, b):
+        await asyncio.sleep(1)
+
+    notifier = FakeNotifier()
+    await process(
+        job(), settings=LIVE_SETTINGS, budget=DailyBudget(5), gather_fn=gather_secret, now=NOW,
+        live=Live(analyze=analyze, notifier=notifier, fix=slow_fix),
+    )
+    assert len(notifier.texts) == 1

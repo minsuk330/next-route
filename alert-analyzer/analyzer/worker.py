@@ -12,15 +12,18 @@ from typing import Protocol
 from analyzer.config import Settings
 from analyzer.context import ContextBundle
 from analyzer.dedupe import DailyBudget
+from analyzer.fix import FixProposal
 from analyzer.llm import LlmFailure, Verdict
 from analyzer.masking import mask_bundle
 from analyzer.payload import AnalysisJob
-from analyzer.slack import SlackError, explore_url, render, render_budget_notice, render_failure
+from analyzer.slack import SlackError, explore_url, render, render_budget_notice, render_failure, render_fix
 
 log = logging.getLogger(__name__)
 
 # A reply that shows up long after the alert is noise; drop work that queued too long.
 MAX_JOB_WAIT = timedelta(minutes=10)
+# Stage 4 budget: one LLM call (90 s, 1 retry in app wiring) plus main lookup and checkout.
+FIX_TIMEOUT_S = 150.0
 
 GatherFn = Callable[[AnalysisJob], Awaitable[ContextBundle]]
 AnalyzeFn = Callable[[ContextBundle], Awaitable[Verdict]]
@@ -36,6 +39,8 @@ class Live:
 
     analyze: AnalyzeFn
     notifier: Notifier
+    # Stage 4 (analyzer.fix): propose a code change after the analysis. None = off.
+    fix: Callable[[Verdict, ContextBundle], Awaitable["FixProposal"]] | None = None
 
 
 def utcnow() -> datetime:
@@ -109,6 +114,23 @@ async def process(
         len(bundle.cards),
         len(verdict.fix_candidates),
     )
+    if live.fix is not None:
+        try:
+            # The queue is single-file: a slow proposal must not push the next alert past MAX_JOB_WAIT.
+            proposal = await asyncio.wait_for(live.fix(verdict, bundle), FIX_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            proposal = FixProposal("failed", reason=f"시간 초과({FIX_TIMEOUT_S:.0f}초)")
+        text = render_fix(proposal)
+        if text:
+            await _notify(live.notifier, job, text)
+        log.info(
+            "fix_proposal group=%s status=%s target=%s reason=%s cost_usd=%.4f",
+            job.group_key,
+            proposal.status,
+            (proposal.target or {}).get("symbol"),
+            proposal.reason,
+            proposal.cost_usd,
+        )
     return bundle
 
 
