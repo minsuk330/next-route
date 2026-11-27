@@ -7445,3 +7445,11 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 공백뿐인 SEARCH 는 fix.apply_edits 도 거부(워크플로와 같은 규칙)
 - 남긴 것: 코드 캐시 토큰이 Actions 쓰기도 갖게 됨(플랜이 수용). 분리하려면 ANALYZER_GITHUB_ACTIONS_TOKEN 별도 — 후속
 - pytest 267 passed, ops/ci unittest 38 OK
+
+### 배포 (6단계, 2026-11-27 22:13 KST, main e03dc14d)
+- 사용자: 분석기 토큰에 Actions 쓰기 추가. VPS env 백업 *-pre-fix-verify → `ANALYZER_FIX_VERIFY_ENABLED=true` 줄 확인 → pull → `docker compose -f compose.yaml -f compose.prod.yaml up -d --no-deps --force-recreate alert-analyzer`. 기동 로그 `fix=True verify=True`
+
+### 검증 (운영 컨테이너 실호출, 시험 스레드)
+- 가상 원인(SubwayDirectionNormalizer lineId null NPE) propose → proposed($0.0029) → github_dispatch 200 run 46005381425 → 수정 제안 답글 + "테스트 요청함 · 진행 보기" 한 줄 → 워크플로 14.9분(212클래스) → notify 답글: 통과 2378 · 실패 9(새 실패 0, 기존 실패 9)
+- 🔴 CI 에서만 늘 실패하는 기존 테스트 9개(수정 전 코드도 실패): 시각 정밀도(Linux 러너 Instant 는 나노초, Postgres 는 마이크로초 저장 → JourneyDueEvaluatorIT·JourneyReevaluationTriggerIT·JourneySubwayProtectionIT 등 equals 실패), SubwayRingExpressReplayIT 급행 카탈로그 1009-express 없음, RerouteRemainingPathIT No value present. Mac 은 시계가 마이크로초라 로컬에선 안 보임. 매 결과에 "기존 실패" 로 섞여 신호를 흐림 → 테스트 쪽 수정(시각 truncatedTo(MICROS)) 후속
+- 남은 것: 실알림에서 fix_verify 로그·결과 답글
