@@ -7374,3 +7374,13 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 로컬 st-pg 새 DB `fixverify_ci`(확장 4개 + `psql -v ON_ERROR_STOP=1 -f schema.sql`) → public 표 58, history 80
 - 그 DB + st-redis 로 `./gradlew test --init-script ops/ci/ci-test.gradle --tests NextrouteApplicationTests --tests JourneyStartIT --tests RailServiceClassifierTest --tests NoSuchTest` → BUILD SUCCESSFUL 28s. contextLoads 1, JourneyStartIT 6, RailServiceClassifierTest 12 + `@Nested` 4클래스(외부 FQN 만으로 내부 클래스도 실행됨), 없는 이름은 무시
 - actionlint 1.7.12 통과
+- CI 1회차(PR #662 run 45996571852): pass, job 3m29s(그중 Gradle 2m41s: wrapper·의존성 받기 + 컴파일 + 테스트 3클래스). 복원 1초 미만
+
+### 확정 (리뷰 반영)
+- 서비스 health check 는 `pg_isready -h 127.0.0.1` — postgis 이미지는 초기화 때 unix 소켓만 듣는 임시 서버를 띄웠다 재시작한다. 소켓 검사는 그 사이에 통과해 복원이 재시작과 부딪힐 수 있음
+- 테스트 목록은 `read -ra` 로 읽는다(따옴표 없는 for 는 `*` 를 파일 이름으로 펼침). 비면 중단 — 빈 `--tests` 는 전체 실행(30분+)
+- dispatch 의 trusted checkout 은 `ref: main` 고정(dispatch 는 아무 브랜치에서나 시작 가능)
+- refresh-schema: 마이그레이션 목록은 작업 트리 말고 `origin/main`(ls-tree). history 행 수 = 읽은 행 수 아니면 중단, success=false 행 있으면 중단, `''` 이스케이프 허용. installed_by(운영 DB 사용자 이름)는 `'ci'` 로
+- 전역 concurrency 미루기(PR-2 에서 thread_ts 그룹)는 의도 — PR-1 엔 thread_ts 입력이 없음
+- 🔴 PR-2 주의: init script 의 `failOnNoMatchingTests=false` 때문에 0건 실행도 exit 0 → summary 의 "0건 = error" 판정 필수
+- refresh-schema 검사 시험(본문 python 만 떼어 가짜 입력): 정상 통과, 설명 안 `''` 통과, COPY 중단, success=false 중단, 운영에만 V81 중단
