@@ -80,7 +80,9 @@ def create_app(
                 async def fix_stage(verdict, bundle):
                     return await propose(
                         verdict, bundle,
-                        complete=lambda system, user: complete(client, system, user),
+                        complete=lambda system, user: complete(
+                            client.with_options(timeout=90.0, max_retries=1), system, user, max_tokens=8000
+                        ),
                         cache=source_cache, compare=compare,
                     )
 

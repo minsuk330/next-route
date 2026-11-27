@@ -22,6 +22,8 @@ log = logging.getLogger(__name__)
 
 # A reply that shows up long after the alert is noise; drop work that queued too long.
 MAX_JOB_WAIT = timedelta(minutes=10)
+# Stage 4 budget: one LLM call (90 s, 1 retry in app wiring) plus main lookup and checkout.
+FIX_TIMEOUT_S = 150.0
 
 GatherFn = Callable[[AnalysisJob], Awaitable[ContextBundle]]
 AnalyzeFn = Callable[[ContextBundle], Awaitable[Verdict]]
@@ -113,7 +115,11 @@ async def process(
         len(verdict.fix_candidates),
     )
     if live.fix is not None:
-        proposal = await live.fix(verdict, bundle)
+        try:
+            # The queue is single-file: a slow proposal must not push the next alert past MAX_JOB_WAIT.
+            proposal = await asyncio.wait_for(live.fix(verdict, bundle), FIX_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            proposal = FixProposal("failed", reason=f"시간 초과({FIX_TIMEOUT_S:.0f}초)")
         text = render_fix(proposal)
         if text:
             await _notify(live.notifier, job, text)

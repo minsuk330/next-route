@@ -238,3 +238,23 @@ async def test_fix_proposal_is_a_second_reply_only_when_it_has_something_to_show
         quiet, _ = await _run_with_fix(FixProposal(status, target))
         assert len(quiet.texts) == 1
     assert "fix_proposal" in caplog.text and "status=mismatch" in caplog.text
+
+
+async def test_slow_fix_proposal_times_out_and_the_analysis_still_went_out(monkeypatch):
+    import asyncio
+    from analyzer import worker as worker_mod
+
+    monkeypatch.setattr(worker_mod, "FIX_TIMEOUT_S", 0.05)
+
+    async def analyze(_):
+        return verdict()
+
+    async def slow_fix(v, b):
+        await asyncio.sleep(1)
+
+    notifier = FakeNotifier()
+    await process(
+        job(), settings=LIVE_SETTINGS, budget=DailyBudget(5), gather_fn=gather_secret, now=NOW,
+        live=Live(analyze=analyze, notifier=notifier, fix=slow_fix),
+    )
+    assert len(notifier.texts) == 1

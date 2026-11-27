@@ -396,14 +396,11 @@ class SourceCache:
         askpass = self._askpass()
         scratch = self._dir / ".ls-remote"
         scratch.mkdir(exist_ok=True)
-        out = scratch / "out"
         try:
-            code = await self._git(scratch, askpass, ["ls-remote", self._remote, f"refs/heads/{ref}"], stdout=out)
+            code, out = await self._git(scratch, askpass, ["ls-remote", self._remote, f"refs/heads/{ref}"], capture=True)
         except (CodeFetchError, OSError):
             return None
-        if code != 0 or not out.exists():
-            return None
-        first = out.read_text().split()
+        first = out.decode(errors="replace").split() if code == 0 else []
         return first[0] if first and _FULL_SHA.fullmatch(first[0]) else None
 
     def _askpass(self) -> Path:
@@ -434,7 +431,8 @@ class SourceCache:
         self._prune()
         return target / SOURCE_ROOT
 
-    async def _git(self, cwd: Path, askpass: Path, args: list[str], stdout: Path | None = None) -> int:
+    async def _git(self, cwd: Path, askpass: Path, args: list[str], capture: bool = False):
+        """Exit code, or (exit code, stdout bytes) with capture=True."""
         env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "HOME": str(self._dir),
@@ -448,12 +446,15 @@ class SourceCache:
                 # no detached background maintenance: it escapes killpg and the memory limit
                 "-c", "maintenance.auto=false", "-c", "gc.auto=0", *args,
                 cwd=cwd, env=env,
-                stdout=open(stdout, "wb") if stdout else asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE if capture else asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
                 start_new_session=True,
             )
         except OSError as exc:
             raise CodeFetchError(f"git 실행 실패({type(exc).__name__})") from None
         try:
+            if capture:
+                out, _ = await asyncio.wait_for(proc.communicate(), GIT_TIMEOUT_S)
+                return proc.returncode, out
             return await asyncio.wait_for(proc.wait(), GIT_TIMEOUT_S)
         except asyncio.TimeoutError:
             with _suppress():

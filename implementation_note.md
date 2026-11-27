@@ -7334,3 +7334,13 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `uv run --extra dev pytest -q` → 241 passed in 2.78s
+
+### 함정 (독립 검토 반영, 7건)
+- main_changed 커밋 목록이 그 파일과 무관한 최신 커밋 5개일 수 있었음(compare API 는 커밋별 파일 정보 없음, 250개 상한) → compare 의 커밋 집합 ∩ commits?path= 이력
+- SEARCH 를 마스킹한 뒤 대조해 비밀값 모양 줄이 늘 mismatch → 원문으로 대조, Slack diff 만 마스킹
+- fix 단계가 단일 워커 큐를 최악 7분 넘게 막을 수 있음 → wait_for 150초 + LLM timeout 90초·재시도 1회
+- resolve 의 stdout 파일 핸들 누수(ResourceWarning) → PIPE + communicate
+- LLM 호출 뒤 실패 시 비용 0 기록, LlmFailure 사유 유실 → cost 를 try 밖에서 유지, reason 보존
+- apply_edits 순차 적용: 앞 REPLACE 가 뒤 SEARCH 를 만족시키면 원문에 없는 블록이 통과 → 모든 SEARCH 를 원문에서 한꺼번에 검사, 겹침 거부, 뒤에서부터 치환
+- CRLF 블록 파싱 실패, 줄 삭제 블록이 빈 줄을 남김 → \r\n 정규화, SEARCH 끝 줄바꿈 포함 줄 단위 파싱
+- 검증: pytest 247 passed, resolve 테스트 -X dev -W error::ResourceWarning 통과

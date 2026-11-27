@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol
 
+from analyzer.code import CodeFetchError
 from analyzer.masking import mask_code
 
 log = logging.getLogger(__name__)
@@ -30,7 +31,8 @@ MAX_COMMITS = 5
 CONFIDENT = {"high", "medium"}
 
 Status = Literal["proposed", "main_changed", "mismatch", "skipped", "failed"]
-_BLOCK = re.compile(r"<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n?>>>>>>> REPLACE", re.S)
+# Line-based: SEARCH keeps its last newline, so a block with an empty REPLACE removes whole lines.
+_BLOCK = re.compile(r"<<<<<<< SEARCH\n(.*?\n)=======\n(.*?)>>>>>>> REPLACE", re.S)
 
 Complete = Callable[[str, str], Awaitable[tuple[str, float]]]
 Compare = Callable[[str, str, str], Awaitable[list[str]]]
@@ -71,17 +73,29 @@ def pick_target(verdict, bundle):
 
 
 def parse_edits(text: str) -> list[Edit]:
-    return [Edit(s, r) for s, r in _BLOCK.findall(text or "")][:MAX_EDITS]
+    text = (text or "").replace("\r\n", "\n")
+    return [Edit(s, r) for s, r in _BLOCK.findall(text)][:MAX_EDITS]
 
 
 def apply_edits(source: str, edits: list[Edit]) -> str | None:
-    """Every SEARCH must occur exactly once (in order of application); otherwise None."""
+    """Every SEARCH must occur exactly once in the original and blocks must not overlap; otherwise None.
+
+    Checked against the original, not block by block: a later SEARCH must not be satisfied by an
+    earlier REPLACE (that would pass code that is not in the source).
+    """
     if not edits:
         return None
+    spans = []
     for e in edits:
         if not e.search or source.count(e.search) != 1:
             return None
-        source = source.replace(e.search, e.replace, 1)
+        start = source.index(e.search)
+        spans.append((start, start + len(e.search), e.replace))
+    spans.sort()
+    if any(a[1] > b[0] for a, b in zip(spans, spans[1:])):
+        return None
+    for start, end, replacement in reversed(spans):
+        source = source[:start] + replacement + source[end:]
     return source
 
 
@@ -99,34 +113,38 @@ def user_message(target: dict, fix, verdict, bundle) -> str:
 
 
 async def propose(verdict, bundle, *, complete: Complete, cache: Cache, compare: Compare) -> FixProposal:
-    picked = pick_target(verdict, bundle)
-    if picked is None:
-        return FixProposal("skipped")
-    target, fix = picked
+    target = None
+    cost = 0.0
     try:
+        picked = pick_target(verdict, bundle)
+        if picked is None:
+            return FixProposal("skipped")
+        target, fix = picked
         text, cost = await complete(PROMPT, user_message(target, fix, verdict, bundle))
-        edits = [Edit(mask_code(e.search), mask_code(e.replace)) for e in parse_edits(text)]
+        # Matched as written: masking first would turn a quoted secret-shaped line into a mismatch.
+        # Only the diff shown in Slack is masked.
+        edits = parse_edits(text)
         if not edits:
             return FixProposal("skipped", target, reason="모델이 수정 블록을 쓰지 않음", cost_usd=cost)
         rel = target["path"].split("src/main/java/", 1)[-1]
         deployed_root = await cache.checkout(target["revision"])
-        if deployed_root is None:
+        deployed_file = deployed_root / rel if deployed_root else None
+        if deployed_file is None or not deployed_file.exists():
             return FixProposal("failed", target, reason="배포 커밋 코드를 못 받음", cost_usd=cost)
-        deployed = (deployed_root / rel).read_text(encoding="utf-8")
+        deployed = deployed_file.read_text(encoding="utf-8")
         if apply_edits(deployed, edits) is None:
             return FixProposal("mismatch", target, reason=f"블록 {len(edits)}개가 배포 코드와 안 맞음", cost_usd=cost)
         main_sha = await cache.resolve("main")
         if main_sha is None:
             return FixProposal("failed", target, reason="main 커밋 조회 실패", cost_usd=cost)
-        if main_sha == target["revision"]:
-            main = deployed
-        else:
+        main = deployed
+        if main_sha != target["revision"]:
             main_root = await cache.checkout(main_sha)
             main_file = main_root / rel if main_root else None
             if main_file is None or not main_file.exists():
-                return FixProposal("main_changed", target, main_sha, reason="main 에 이 파일이 없음",
-                                   main_commits=await _safe_compare(compare, target["revision"], main_sha, target["path"]),
-                                   cost_usd=cost)
+                commits = await _safe_compare(compare, target["revision"], main_sha, target["path"])
+                return FixProposal("main_changed", target, main_sha, main_commits=commits,
+                                   reason="main 에 이 파일이 없음", cost_usd=cost)
             main = main_file.read_text(encoding="utf-8")
         changed = apply_edits(main, edits)
         if changed is None:
@@ -138,8 +156,9 @@ async def propose(verdict, bundle, *, complete: Complete, cache: Cache, compare:
         ))
         return FixProposal("proposed", target, main_sha, diff=mask_code(diff), cost_usd=cost)
     except Exception as exc:  # noqa: BLE001 — a proposal must never break the analysis
-        log.warning("fix proposal failed: %s", type(exc).__name__)
-        return FixProposal("failed", target, reason=type(exc).__name__)
+        reason = getattr(exc, "reason", None) or (str(exc)[:80] if isinstance(exc, CodeFetchError) else type(exc).__name__)
+        log.warning("fix proposal failed: %s", reason)
+        return FixProposal("failed", target, reason=reason, cost_usd=cost)
 
 
 async def _safe_compare(compare: Compare, base: str, head: str, path: str) -> list[str]:
@@ -150,21 +169,26 @@ async def _safe_compare(compare: Compare, base: str, head: str, path: str) -> li
 
 
 def github_compare(http, repo: str, token: str) -> Compare:
-    """Commits between two SHAs that touched one file (GitHub REST, read-only token)."""
+    """Commits between D and M that touched one file, newest first (GitHub REST, read-only token).
+
+    The compare endpoint lists the commits between two SHAs but not which file each touched, and
+    caps at 250 commits; the commits endpoint filters by path. Their intersection is the answer.
+    """
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
 
     async def compare(base: str, head: str, path: str) -> list[str]:
-        r = await http.get(
-            f"https://api.github.com/repos/{repo}/compare/{base}...{head}",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-            timeout=10,
+        between = await http.get(f"https://api.github.com/repos/{repo}/compare/{base}...{head}", headers=headers, timeout=10)
+        between.raise_for_status()
+        in_range = {c["sha"] for c in between.json().get("commits", [])}
+        touched = await http.get(
+            f"https://api.github.com/repos/{repo}/commits",
+            params={"sha": head, "path": path, "per_page": 30}, headers=headers, timeout=10,
         )
-        r.raise_for_status()
-        data = r.json()
-        if path not in {f.get("filename") for f in data.get("files", [])}:
-            return []
-        out = []
-        for c in reversed(data.get("commits", [])):
-            out.append(f"{c['sha'][:8]} {c['commit']['message'].splitlines()[0][:80]}")
-        return out
+        touched.raise_for_status()
+        return [
+            f"{c['sha'][:8]} {c['commit']['message'].splitlines()[0][:80]}"
+            for c in touched.json()
+            if c["sha"] in in_range
+        ]
 
     return compare

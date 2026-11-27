@@ -163,3 +163,73 @@ def test_render_fix_fits_and_marks_cuts():
     held = render_fix(FixProposal("main_changed", target, M, main_commits=["abc12345 fix"]))
     assert "수정 제안 보류" in held and "abc12345 fix" in held
     assert render_fix(FixProposal("skipped")) is None and render_fix(FixProposal("failed", target)) is None
+
+
+# --- review fixes (2026-11-27) ---------------------------------------------------------------
+
+
+def test_apply_edits_checks_every_search_against_the_original():
+    src = "a\nx=1;\nb\n"
+    chained = [Edit("x=1;\n", "x=2;\n"), Edit("x=2;\n", "x=3;\n")]
+    assert apply_edits(src, chained) is None                       # second SEARCH is not in the source
+    overlap = [Edit("a\nx=1;\n", "A\n"), Edit("x=1;\nb\n", "B\n")]
+    assert apply_edits(src, overlap) is None
+    makes_dup = [Edit("a\n", "b\n"), Edit("b\n", "c\n")]         # first REPLACE creates a second "b"
+    assert apply_edits(src, makes_dup) == "b\nx=1;\nc\n"
+
+
+def test_parse_edits_handles_crlf_and_line_deletion():
+    crlf = BLOCK.replace("\n", "\r\n")
+    assert len(parse_edits(crlf)) == 1
+    delete = "<<<<<<< SEARCH\n  // remove me\n=======\n>>>>>>> REPLACE"
+    assert apply_edits("a\n  // remove me\nb\n", parse_edits(delete)) == "a\nb\n"
+
+
+async def test_secret_shaped_source_line_still_matches_and_the_diff_is_masked(tmp_path):
+    src = SRC.replace("    return IDS.contains(id);", '    String k = "sk-ant-abcdef123456";\n    return IDS.contains(id);')
+    block = BLOCK.replace("    return IDS.contains(id);\n=======", '    String k = "sk-ant-abcdef123456";\n    return IDS.contains(id);\n=======')
+    block = block.replace("=======\n    return id != null", '=======\n    String k = "sk-ant-abcdef123456";\n    return id != null')
+    p = await propose(verdict(), bundle(), complete=llm(block), cache=Cache(tmp_path, src, None, main_sha=D), compare=no_compare)
+    assert p.status == "proposed" and "sk-ant-" not in p.diff and "id != null" in p.diff
+
+
+async def test_failure_after_the_llm_call_keeps_cost_and_a_readable_reason(tmp_path):
+    from analyzer.llm import LlmFailure
+
+    async def refused(system, user):
+        raise LlmFailure("응답 중단(max_tokens)")
+    p = await propose(verdict(), bundle(), complete=refused, cache=Cache(tmp_path, SRC, SRC), compare=no_compare)
+    assert p.status == "failed" and p.reason == "응답 중단(max_tokens)"
+
+    class Broken(Cache):
+        async def resolve(self, ref):
+            raise RuntimeError("boom")
+    p2 = await propose(verdict(), bundle(), complete=llm(BLOCK), cache=Broken(tmp_path, SRC, SRC), compare=no_compare)
+    assert p2.status == "failed" and p2.cost_usd == 0.03
+
+
+async def test_github_compare_lists_only_commits_in_range_that_touched_the_file():
+    from types import SimpleNamespace
+    from analyzer.fix import github_compare
+
+    class Http:
+        def __init__(self):
+            self.calls = []
+
+        async def get(self, url, params=None, headers=None, timeout=None):
+            self.calls.append((url, params, headers))
+            if "/compare/" in url:
+                body = {"commits": [{"sha": "a" * 40}, {"sha": "b" * 40}, {"sha": "c" * 40}]}
+            else:   # newest first, path-filtered, includes one older than the deploy
+                body = [
+                    {"sha": "c" * 40, "commit": {"message": "fix(x): newest\nbody"}},
+                    {"sha": "a" * 40, "commit": {"message": "feat(x): older"}},
+                    {"sha": "9" * 40, "commit": {"message": "before the deploy"}},
+                ]
+            return SimpleNamespace(raise_for_status=lambda: None, json=lambda: body)
+
+    http = Http()
+    out = await github_compare(http, "o/r", "tok")(D, M, PATH)
+    assert out == ["cccccccc fix(x): newest", "aaaaaaaa feat(x): older"]
+    assert http.calls[1][1] == {"sha": M, "path": PATH, "per_page": 30}
+    assert all(h["Authorization"] == "Bearer tok" for _, _, h in http.calls)
