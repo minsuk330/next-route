@@ -7265,3 +7265,13 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 코드용 bearer 규칙이 `BEARER = "Bearer ";` 를 바꿈 → 코드에는 20자 이상 토큰 모양만
 - 토큰 테스트가 구조상 늘 통과(stderr 버림) → create_subprocess_exec 를 가로채 인자에 토큰 없음·env 에만 있음 확인
 - 검증 갱신: pytest 213 passed. 실저장소 표본 1,597줄 중 1,593 정확(4 = Lua 텍스트 블록)
+
+### 배포 (RAG PR-2, 2026-11-27 15:11 KST, main 96f7c499)
+- CI: 테스트 컨테이너에 git 이 없어 SourceCache 실 git 테스트 2개 실패 → 워크플로 test 단계에서 git 설치(#655 에 포함)
+- 이미지 104MB(git 2.47.3 포함, python:3.12-slim = trixie). 사용자가 ANALYZER_GITHUB_TOKEN(fine-grained, contents:read) 입력. 🔴 ENABLED 줄이 빠져 기동 로그 code=False → 내가 `ANALYZER_CODE_CONTEXT_ENABLED=true` 추가(백업 *-pre-code-flag) 후 --force-recreate → code=True. 컨테이너·파일 토큰 해시 일치
+- #652 영향: env 의 ANALYZER_PROBE_BASE_URL=https://api.jettae.site, 합성 호출 4개 outcome 0
+
+### 검증
+- 운영 컨테이너에서 CodeCollector 실호출: app_build → api f07e1f59 → GitHub sparse fetch 2.4초, `RouteSearchController#search L47-67`(via stack) 정확. 같은 커밋 두 번째 0.01초(캐시). 캐시 13MB
+- 메모리: 직후 120.8MiB/192MiB(anon 79MiB + 페이지 캐시 47MiB). 이 커널엔 memory.peak 없음 → 순간 최대는 미측정
+- 실제 알림에서의 code_via 는 다음 실알림 "analyzed" 로그로 확인(남음)
