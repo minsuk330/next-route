@@ -7308,3 +7308,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 운영 컨테이너 실분석 1회(연습 맥락: 성수지선 도착 0대, SubwayDirectionNormalizer 프레임): 코드 via=stack(SubwayDirectionNormalizer#fromPositionRow, 태그로 SeoulSubwayApiAdapter#getRealtimePosition), 카드 K11·K15·K14·K05·K03·K16(SeoulSubwayApiAdapter 클래스 겹침 포함)
 - 응답: 가설 2개 근거 t:+s:, 고칠 곳 후보 2개 — SubwayDirectionNormalizer [s:1, k:K15], SubwayTrainPositionResolver [k:K11, k:K15]. 없는 근거 0/4, $0.027, 15.2초. structured output 의 fix_candidates 정상
 - 남은 것: 실알림에서 code_via·cards·fix 로그와 Slack 표시 확인
+
+## 합성 모니터링 고장 주입 시험 (2026-11-27 15:37~15:45 KST)
+
+### 검증
+- 방법: env ANALYZER_PROBE_BASE_URL=http://127.0.0.1:9(연결 거부) + ANALYZER_PROBE_INTERVAL_S=60, 백업 alert-analyzer.env.bak-fault-test → --force-recreate. 실서비스 무영향
+- 15:37:55 첫 실패(search=2:connect, arrival=3:search_failed) → 60초 재확인 15:38:55 outcome=2 → Grafana "합성 확인 실패" firing 15:39:57 → Slack [FIRING:1] 15:40:17
+- 분석기가 같은 알림 분석·스레드 답글: categories=infra×2, 없는 근거 0/4, $0.0156, 5.2초, code_via=none·cards=0·fix=0(스택·태그 없는 알림이라 정상)
+- 15:40:44 백업으로 복원·재생성 → 첫 호출 outcome 0 → 규칙 inactive 15:43:03 → Slack [RESOLVED] 15:45:17
+### 함정
+- 정상 복귀 뒤에도 규칙이 약 1분 반 firing 유지 ← reason 라벨이 다른 시리즈(connect·search_failed)가 사라지는 방식으로 해제(MissingSeries, 평가 2회). RESOLVED Slack 은 group_interval 5분 뒤. 정상 복귀 → Slack 해제까지 최대 약 5분
+- 재생성 직후 outcome 시리즈가 잠깐 비어 NoData(noDataState OK 라 무해)
+- Slack conversations.history 의 oldest 에 소수점 긴 값을 주면 0건이 나왔다(정수 문자열은 정상) — 확인용 스크립트 함정
