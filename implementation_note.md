@@ -7385,3 +7385,25 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 🔴 PR-2 주의: init script 의 `failOnNoMatchingTests=false` 때문에 0건 실행도 exit 0 → summary 의 "0건 = error" 판정 필수
 - refresh-schema 검사 시험(본문 python 만 떼어 가짜 입력): 정상 통과, 설명 안 `''` 통과, COPY 중단, success=false 중단, 운영에만 V81 중단
 - CI 2회차(run 45997155316, 리뷰 반영): pass 4m4s. contextLoads 1, JourneyStartIT 12, RailServiceClassifierTest 6 + Nested 4클래스 14, 실패 0. 로그 "Successfully validated 81 migrations"(덤프 V80 + 파일 81개 일치, 새로 적용 없음)
+
+
+## 파이프라인 5·6단계 PR-2: 수정 적용 + 테스트 선택 + artifact + Slack notify (2026-11-27)
+
+### 확정
+- `ops/ci/run_tests.py prepare`: apply_edits(EDITS env, base64 JSON) → `git diff` → fix.patch → select_tests → tests.txt. 블록 불일치는 apply_failed, 입력 오류는 error/bad_input 으로 summary 를 쓰고 이후 단계 skip
+- `run_tests.py test`: compileJava+compileTestJava 먼저(실패=compile_failed, 오류 줄 repo 상대·중복 제거) → test → XML 집계. 0건=error(no_tests_ran/gradle_failed), Flyway validate 문구=error/schema_drift. 실패가 있으면 35분 안일 때 `git worktree add ../baseline HEAD`(수정 전 커밋)에서 실패 클래스만 재실행 → baseline 표시
+- apply_edits 의 path 는 `src/main/java/**/*.java` 정규식만 허용(입력이 워크플로·ops/ci 를 못 건드림)
+- notify: 워크플로 커밋의 ops/ci 만 sparse checkout, summary 의 모든 칸 타입 검사·길이 자름·비밀 모양 마스킹·mrkdwn escape. run 링크는 summary 가 아니라 github 컨텍스트로
+- 참조 없는 변경 클래스 대체 범위 = 자기 패키지와 하위(PLAN 의 5단계 기준은 실측 130 클래스라 바꿈, PLAN "구현 중 바뀐 것")
+- trusted = 워크플로 파일과 같은 커밋(PLAN "구현 중 바뀐 것")
+
+### 함정
+- `Path.read_text` 는 universal newline 이라 CRLF 를 \n 으로 접는다 → CRLF 보존하려면 read_bytes().decode ← 단위 테스트가 잡음
+- 한 줄에 package·import 를 몰아 쓴 소스(시험 fixture)는 `^\s*import` 에 안 걸림 → `(?:^|(?<=;))` 로
+- javac 오류는 Gradle 출력에 두 번(들여쓰기 다르게) 나온다 → strip 후 중복 제거
+
+### 검증
+- `python3 -I -m unittest discover -s ops/ci/tests` → 30 tests OK (apply_edits 경로 거부·정확히 1회·CRLF, select_tests 인터페이스 경유·추상 base 하위·같은 이름 다른 패키지·주석/문자열 무시·상속 테스트·참조 없는 클래스·record implements·ALL, notify 상태별·escape·마스킹·타입·길이·채널 검증, run_tests XML·drift·compile 오류·prepare)
+- 실제 저장소 선택 수: JourneyStartService 45, HealthController 35, SubwayDirectionNormalizer 212, ParseUtils 201, RouteAlertDispatchScheduler 3, ClockConfig 209 (각 ~2초)
+- 로컬 끝까지(st-pg fixverify_ci + st-redis, scratch worktree): 주석 1줄 → passed 6 tests 40s / 문법 오류 → compile_failed + 오류 줄 / RailServiceClassifier 반환값 바꿈(tests.txt 를 RailServiceClassifierTest 로 줄여서) → failed 1, baseline_checked=true, baseline=false(새 실패)
+- actionlint 통과

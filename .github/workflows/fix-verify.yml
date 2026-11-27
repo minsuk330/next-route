@@ -1,33 +1,60 @@
 name: Fix verify
 
-# 장애 분석기 수정 제안을 main 에 적용해 영향 받는 테스트만 돌린다(docs/plan/pipeline-fix-verify).
-# PR-1: CI DB(운영 스키마 덤프)와 테스트 실행 뼈대. 수정 적용·테스트 선택·Slack 은 PR-2.
+# 장애 분석기 수정 제안을 main 에 적용해 영향 받는 테스트만 돌리고 결과를 장애 스레드에 답한다
+# (docs/plan/pipeline-fix-verify, 파이프라인 5·6단계). 결과는 참고 신호다: 수정 코드가 test job 에서
+# 돌므로 위조될 수 있다. 7단계 승인은 사람이 diff 를 보고 한다.
 #
 # 보안 규칙(PLAN.md):
 # - inputs 는 run: 에 직접 쓰지 않고 env 로만 넘긴다(장애 제목 등에 $(...) 가 들어올 수 있음)
-# - 테스트 job 은 contents: read, checkout 자격증명 끔, Gradle 캐시 저장 안 함 — 이후 수정 코드가 여기서 돈다
-# - 덤프·init script 는 워크플로 자신의 커밋(trusted/)에서 읽는다. 테스트 대상 ref 의 파일을 믿지 않는다
+# - test job: contents: read, checkout 자격증명 끔, Gradle 캐시 없음, Slack 토큰 없음
+# - notify job: 다른 VM, 워크플로 커밋의 코드만 실행, summary.json 은 신뢰 불가 데이터
+# - 스크립트(ops/ci)는 워크플로 파일과 같은 커밋(trusted/)에서 읽는다. 분석기는 ref=main 으로 dispatch 한다
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: 테스트할 커밋(40자, main 의 조상)
+        description: 수정을 적용할 커밋(40자, main 의 조상) — 분석기의 main_sha
         required: true
-      tests:
-        description: 공백으로 구분한 테스트 클래스 FQN (PR-1 전용)
+      edits:
+        description: base64(JSON {path, edits:[{search, replace}]})
         required: true
-  # PR-1 검증용 임시 트리거. PR-2 에서 지운다.
+      channel:
+        description: Slack 채널 id
+        required: true
+      thread_ts:
+        description: 장애 스레드 ts
+        required: true
+      label:
+        description: 장애 제목(짧게, 표시용)
+        required: false
+        default: ''
   pull_request:
     paths:
       - '.github/workflows/fix-verify.yml'
       - 'ops/ci/**'
 
-# concurrency 전역 그룹을 두지 않는다: 대기 칸이 1개라 몰릴 때 대기 run 이 조용히 취소된다.
-# PR-2 에서 요청(thread_ts)별 그룹을 단다.
+# 요청(스레드)마다 따로. 전역 그룹이면 대기 칸이 1개라 몰릴 때 대기 run 이 조용히 취소되고 notify 도 안 돈다.
+concurrency:
+  group: fix-verify-${{ inputs.thread_ts || github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  scripts:
+    name: ops/ci unit tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - run: python3 -I -m unittest discover -s ops/ci/tests -p 'test_*.py'
+
   test:
-    name: Run selected tests
+    name: Apply fix and run affected tests
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -40,6 +67,7 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
         ports: ['5432:5432']
+        # TCP 로 검사: 이미지가 초기화 중 unix 소켓만 듣는 임시 서버를 띄웠다 재시작한다
         options: >-
           --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d mydatabase"
           --health-interval 5s --health-timeout 5s --health-retries 30
@@ -47,25 +75,17 @@ jobs:
         image: redis:7-alpine
         ports: ['6379:6379']
     env:
-      IN_REF: ${{ inputs.ref || github.event.pull_request.head.sha }}
-      IN_TESTS: ${{ inputs.tests || 'watoo.grd.nextroute.NextrouteApplicationTests watoo.grd.nextroute.application.journey.JourneyStartIT watoo.grd.nextroute.application.route.routing.RailServiceClassifierTest' }}
+      IN_REF: ${{ inputs.ref }}
+      EDITS: ${{ inputs.edits }}
     steps:
-      # dispatch 는 어느 브랜치에서든 시작될 수 있으므로 trusted 는 main 으로 고정. PR 검증 실행만 PR 커밋.
       - name: Check out workflow commit (trusted)
         uses: actions/checkout@v5
         with:
           path: trusted
-          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || '' }}
           persist-credentials: false
 
       - name: Validate inputs
-        run: |
-          [[ "$IN_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "ref 형식 아님"; exit 1; }
-          read -ra names <<< "$IN_TESTS"   # 따옴표 안이라 * 가 파일 이름으로 펼쳐지지 않음
-          (( ${#names[@]} > 0 )) || { echo "테스트 목록이 비었음(비면 전체가 돈다)"; exit 1; }
-          for t in "${names[@]}"; do
-            [[ "$t" =~ ^[A-Za-z_][A-Za-z0-9_.$*]*$ ]] || { echo "테스트 이름 형식 아님: $t"; exit 1; }
-          done
+        run: '[[ "$IN_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "ref 형식 아님"; exit 1; }'
 
       - name: Check out target
         uses: actions/checkout@v5
@@ -76,12 +96,27 @@ jobs:
           persist-credentials: false
 
       - name: Target must be on main
-        if: github.event_name == 'workflow_dispatch'
         working-directory: target
         run: git merge-base --is-ancestor "$IN_REF" origin/main || { echo "ref 가 main 의 조상이 아님"; exit 1; }
 
+      - name: Apply fix and pick tests
+        id: prepare
+        run: |
+          python3 -I trusted/ops/ci/run_tests.py prepare target out
+          if [ -f out/skip ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi
+
+      # 수정 코드가 돌기 전에 올린다.
+      - name: Upload patch
+        if: steps.prepare.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fix-patch
+          path: out/fix.patch
+          retention-days: 90
+
       # 러너 psql(16.x) 대신 서비스 컨테이너의 psql 17 로 복원(pg_dump 17.6+ 의 \restrict 줄 대응).
       - name: Restore prod schema dump
+        if: steps.prepare.outputs.skip != 'true'
         env:
           PG_ID: ${{ job.services.postgres.id }}
         run: |
@@ -89,14 +124,16 @@ jobs:
           docker exec -i "$PG_ID" psql -v ON_ERROR_STOP=1 -q -U postgres -d mydatabase -f - < trusted/ops/ci/schema.sql
 
       - name: Set up Java
+        if: steps.prepare.outputs.skip != 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Run tests
-        working-directory: target
+        if: steps.prepare.outputs.skip != 'true'
         env:
+          EDITS: ''
           POSTGRES_HOST: localhost
           POSTGRES_PORT: '5432'
           POSTGRES_DB: mydatabase
@@ -110,18 +147,56 @@ jobs:
           SEOUL_BUS_USAGE: ci-dummy
           SEOUL_SUBWAY_MASTER: ci-dummy
           SEOUL_SUBWAY_ROUTE: ci-dummy
-        run: |
-          read -ra names <<< "$IN_TESTS"
-          args=()
-          for t in "${names[@]}"; do args+=(--tests "$t"); done
-          (( ${#args[@]} > 0 )) || { echo "테스트 목록이 비었음"; exit 1; }
-          ./gradlew test --no-daemon --init-script ../trusted/ops/ci/ci-test.gradle "${args[@]}"
+        run: python3 -I trusted/ops/ci/run_tests.py test target out
+
+      - name: Upload summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fix-summary
+          path: out/summary.json
+          retention-days: 90
+          if-no-files-found: warn
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: target/build/test-results/test/*.xml
+          path: |
+            target/build/test-results/test/*.xml
+            baseline/build/test-results/test/*.xml
           retention-days: 14
-          if-no-files-found: warn
+          if-no-files-found: ignore
+
+  notify:
+    name: Reply in the incident thread
+    needs: test
+    if: always() && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Check out workflow commit
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: ops/ci
+
+      - name: Download summary
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: fix-summary
+          path: summary
+
+      - name: Post to Slack
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          CHANNEL: ${{ inputs.channel }}
+          THREAD_TS: ${{ inputs.thread_ts }}
+          LABEL: ${{ inputs.label }}
+          TEST_RESULT: ${{ needs.test.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 -I ops/ci/notify_slack.py summary/summary.json

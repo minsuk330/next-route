@@ -145,3 +145,10 @@
 
 ## 범위 밖
 - 7단계(승인 버튼, PR 생성), 8단계(비용). 커버리지 지도. 분석기 polling
+
+
+## 구현 중 바뀐 것 (PR-2, 11-27)
+- 참조 없는 변경 클래스의 대체 범위: "패키지 앞 5단계" → **그 클래스의 패키지와 하위**. 실측: `infrastructure.adapter.in.api.HealthController` 하나가 5단계 기준이면 130 클래스(모든 adapter), 자기 패키지 기준 35
+- trusted checkout: `ref: main` 고정 → **워크플로 파일과 같은 커밋**(기본값). 분석기는 항상 ref=main 으로 dispatch 하므로 운영에선 main. 브랜치에서 dispatch 하려면 쓰기 권한이 필요하고 그 사람은 워크플로 자체를 바꿀 수 있어 고정이 막는 것이 없으며, 고정하면 머지 전 검증(브랜치 dispatch)이 불가능
+- 오케스트레이션은 `ops/ci/run_tests.py`(prepare / test 두 단계) — patch 업로드를 테스트 실행 전에 끼우기 위해 둘로 나눔
+- pull_request 트리거는 지우지 않고 `ops/ci` 단위 테스트 job(`scripts`)만 돌게 바꿈. test·notify 는 dispatch 에서만
