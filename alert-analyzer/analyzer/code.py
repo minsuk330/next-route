@@ -135,6 +135,10 @@ _THROWS = re.compile(r"\s*throws\s+[\w.,\s<>]+$")
 def _header_name(flat: str) -> str | None:
     """Name of a method/constructor header ("... name(params) [throws X]"), else None."""
     text = _THROWS.sub("", flat).rstrip()
+    # record compact constructor: "public Fare {" (no parameter list)
+    compact = re.fullmatch(r"(?:@[\w.]+(?:\([^)]*\))?\s+)*(?:(?:public|protected|private)\s+)?([A-Z]\w*)", text)
+    if compact:
+        return compact.group(1)
     if not text.endswith(")") or "->" in text:
         return None
     depth = 0
@@ -152,6 +156,12 @@ def _header_name(flat: str) -> str | None:
                 prefix = before[: m.start()]
                 # a declaration has a return type, modifier or annotation before the name; a call does not
                 if re.search(r"\b(?:class|interface|enum|record)\s+\w|\bnew\s+\w", prefix) or "=" in prefix.split("(")[0]:
+                    return None
+                # "record Rec(...)" header: the name follows the keyword, so the check above misses it
+                if re.search(r"\b(?:record|enum)\s*$", prefix):
+                    return None
+                # enum constant body "PLUS(\"+\") {": no type or modifier before an all-caps name
+                if not prefix.strip() and m.group(1).isupper():
                     return None
                 # package-private constructors have nothing before the name
                 if not prefix.strip() and not m.group(1)[:1].isupper():
@@ -174,8 +184,18 @@ def method_at(source: str, line: int) -> tuple[int, int, str] | None:
     blocks: list[tuple[int, int, int]] = []  # (open, close, header_start)
     stack: list[tuple[int, int]] = []
     head = 0
+    parens = 0
     for idx, ch in enumerate(source):
         if hidden[idx]:
+            continue
+        if ch == "(":
+            parens += 1
+            continue
+        if ch == ")":
+            parens = max(0, parens - 1)
+            continue
+        if parens:
+            # {..} inside (..): annotation arrays, lambda bodies passed as arguments
             continue
         if ch == "{":
             stack.append((idx, head))
@@ -239,19 +259,28 @@ def class_header(source: str, class_name: str) -> str:
     return f"{qualified} — {doc}" if doc else qualified
 
 
-def find_by_keyword(root: Path, keyword: str) -> list[tuple[Path, int]]:
-    """Literal hits for a log tag or uri. Too many files means the keyword says nothing: drop it."""
+HITS_PER_FILE = 3
+
+
+def find_by_keyword(root: Path, keyword: str, hint: str = "") -> list[tuple[Path, int]]:
+    """Literal hits for a log tag or uri. Too many files means the keyword says nothing: drop it.
+
+    A tag is used in many methods of one class ([BusArrival] in execute, reconcile, ...), so
+    `hint` (the longest fixed chunk of the log template) picks the line when it matches. A uri
+    can map several HTTP methods (GET/DELETE on one path) and the alert has no method label,
+    so every matching mapping in the file is returned (up to HITS_PER_FILE).
+    """
     needles = _needles(keyword)
     hits: list[tuple[Path, int]] = []
     files = 0
     for path in sorted(root.rglob("*.java")):
         text = path.read_text(encoding="utf-8", errors="replace")
-        line = _first_hit(text, needles)
-        if line:
+        lines = _hits(text, needles, hint)
+        if lines:
             files += 1
-            hits.append((path, line))
             if files > KEYWORD_MAX_FILES:
                 return []
+            hits.extend((path, line) for line in lines[:HITS_PER_FILE])
     return hits
 
 
@@ -266,11 +295,25 @@ def _needles(keyword: str) -> list[list[str]]:
     return [[f'"{keyword}']]
 
 
-def _first_hit(text: str, needles: list[list[str]]) -> int | None:
+def _hits(text: str, needles: list[list[str]], hint: str) -> list[int]:
     for group in needles:
-        if all(n in text for n in group):
-            return text[: text.find(group[-1])].count("\n") + 1
-    return None
+        if not all(n in text for n in group):
+            continue
+        rows = text.splitlines()
+        lines = [i for i, row in enumerate(rows, 1) if group[-1] in row]
+        if hint:
+            hinted = [i for i in lines if hint in rows[i - 1]]
+            return hinted or lines[:1]
+        return lines
+    return []
+
+
+def template_hint(template: str) -> str:
+    """Longest fixed chunk after the tag of a normalized template ("#", "<hex>" mark variables)."""
+    rest = _TAG.sub("", template or "")
+    chunks = re.split(r"#|<hex>|<uuid>|<redacted>|<email>|\{\}", rest)
+    best = max((c.strip(" :=,.-") for c in chunks), key=len, default="")
+    return best if len(best) >= 4 else ""
 
 
 # --- revisions -----------------------------------------------------------------------
@@ -283,10 +326,12 @@ class Deployed:
 
 
 async def deployed(prom: MetricSource, at: datetime) -> Deployed:
-    """What each role ran at the alert. Two revisions for one role (mid-deploy) or a dirty/short one → unknown."""
+    """What each role ran at the alert. Two revisions for one role (both live) or a dirty/short one → unknown."""
     seen: dict[str, set[str | None]] = {}
     out = Deployed()
-    for series in await prom.instant('last_over_time(app_build{job="nextroute-app"}[5m])', at):
+    # Plain selector, not last_over_time: the instance label stays "api:8081" across deploys, so a
+    # range query would also return the previous revision for 5 minutes (staleness markers ignored).
+    for series in await prom.instant('app_build{job="nextroute-app"}', at):
         labels = series.get("metric", {})
         role, instance = labels.get("role", ""), labels.get("instance", "")
         if not role:
@@ -334,28 +379,38 @@ class SourceCache:
         async with self._lock:
             if (target / ".ok").exists():
                 return target / SOURCE_ROOT
-            self._dir.mkdir(parents=True, exist_ok=True)
-            askpass = self._dir / "askpass.sh"
-            if not askpass.exists():
-                askpass.write_text(_ASKPASS)
-                askpass.chmod(stat.S_IRWXU)
-            shutil.rmtree(target, ignore_errors=True)
-            target.mkdir()
-            steps = [
-                ["init", "-q"],
-                ["remote", "add", "origin", self._remote],
-                ["sparse-checkout", "set", SOURCE_ROOT],
-                ["fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", revision],
-                ["checkout", "-q", "FETCH_HEAD"],
-            ]
-            for args in steps:
-                code = await self._git(target, askpass, args)
-                if code != 0:
-                    shutil.rmtree(target, ignore_errors=True)
-                    raise CodeFetchError(f"git {args[0]} 실패(exit {code})")
-            (target / ".ok").touch()
-            self._prune()
-            return target / SOURCE_ROOT
+            try:
+                return await self._fetch(revision, target)
+            except CodeFetchError:
+                shutil.rmtree(target, ignore_errors=True)
+                raise
+            except OSError as exc:
+                shutil.rmtree(target, ignore_errors=True)
+                raise CodeFetchError(f"코드 캐시 오류({type(exc).__name__})") from None
+
+    async def _fetch(self, revision: str, target: Path) -> Path:
+        self._dir.mkdir(parents=True, exist_ok=True)
+        askpass = self._dir / "askpass.sh"
+        if not askpass.exists():
+            askpass.write_text(_ASKPASS)
+            askpass.chmod(stat.S_IRWXU)
+        shutil.rmtree(target, ignore_errors=True)
+        target.mkdir()
+        steps = [
+            ["init", "-q"],
+            ["remote", "add", "origin", self._remote],
+            ["sparse-checkout", "set", SOURCE_ROOT],
+            ["fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", revision],
+            ["checkout", "-q", "FETCH_HEAD"],
+        ]
+        for args in steps:
+            code = await self._git(target, askpass, args)
+            if code != 0:
+                shutil.rmtree(target, ignore_errors=True)
+                raise CodeFetchError(f"git {args[0]} 실패(exit {code})")
+        (target / ".ok").touch()
+        self._prune()
+        return target / SOURCE_ROOT
 
     async def _git(self, cwd: Path, askpass: Path, args: list[str]) -> int:
         env = {
@@ -365,12 +420,17 @@ class SourceCache:
             "GIT_TERMINAL_PROMPT": "0",
             "ANALYZER_GIT_PASSWORD": self._token,
         }
-        proc = await asyncio.create_subprocess_exec(
-            "git", "-c", "credential.helper=", "-c", "protocol.file.allow=always", *args,
-            cwd=cwd, env=env,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git", "-c", "credential.helper=", "-c", "protocol.file.allow=always",
+                # no detached background maintenance: it escapes killpg and the memory limit
+                "-c", "maintenance.auto=false", "-c", "gc.auto=0", *args,
+                cwd=cwd, env=env,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            raise CodeFetchError(f"git 실행 실패({type(exc).__name__})") from None
         try:
             return await asyncio.wait_for(proc.wait(), GIT_TIMEOUT_S)
         except asyncio.TimeoutError:
@@ -380,11 +440,10 @@ class SourceCache:
             raise CodeFetchError(f"git {args[0]} 시간 초과({GIT_TIMEOUT_S:.0f}초)") from None
 
     def _prune(self) -> None:
-        done = sorted(
-            (p for p in self._dir.iterdir() if p.is_dir() and (p / ".ok").exists()),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
+        dirs = [p for p in self._dir.iterdir() if p.is_dir()]
+        for half in (p for p in dirs if not (p / ".ok").exists()):
+            shutil.rmtree(half, ignore_errors=True)   # left by a crash mid-fetch (runs under the lock)
+        done = sorted((p for p in dirs if (p / ".ok").exists()), key=lambda p: p.stat().st_mtime, reverse=True)
         for old in done[KEEP_REVISIONS:]:
             shutil.rmtree(old, ignore_errors=True)
 
@@ -439,6 +498,7 @@ class _Candidate:
     via: Literal["stack", "keyword"]
     frame: Frame | None = None
     keyword: str | None = None
+    hint: str = ""
 
 
 class CodeCollector:
@@ -517,7 +577,7 @@ def _candidates(templates: list, alerts: list[dict], dep: Deployed) -> list[_Can
     for t in templates:
         tag = _TAG.match(getattr(t, "template", "") or "")
         if tag and t.app in ("api", "worker", "worker2"):
-            out.append(_Candidate(role=t.app, via="keyword", keyword=f"[{tag.group(1)}]"))
+            out.append(_Candidate(role=t.app, via="keyword", keyword=f"[{tag.group(1)}]", hint=template_hint(t.template)))
     for alert in alerts:
         labels = alert.get("labels", {}) or {}
         uri = labels.get("uri", "")
@@ -536,7 +596,7 @@ def _snippets_for(cand: _Candidate, root: Path, rev: str) -> list[CodeSnippet]:
         snippet = _snippet(path, root, cand.frame.line, rev, cand.role, "stack", cand.frame.class_name)
         return [snippet] if snippet else []
     out = []
-    for path, line in find_by_keyword(root, cand.keyword or ""):
+    for path, line in find_by_keyword(root, cand.keyword or "", cand.hint):
         snippet = _snippet(path, root, line, rev, cand.role, "keyword", None)
         if snippet:
             out.append(snippet)

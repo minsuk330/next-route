@@ -156,6 +156,12 @@ def test_code_ids_pass_the_evidence_check_and_invented_ones_do_not():
     assert kept[0].evidence == ["s:1"] and invalid == 1 and total == 2 and top
 
 
+def test_code_masking_keeps_a_bearer_prefix_constant():
+    from analyzer.masking import mask_code
+    assert mask_code('private static final String BEARER = "Bearer ";') == 'private static final String BEARER = "Bearer ";'
+    assert mask_code('h = "Bearer abcdefghijklmnopqrstuvwxyz0123"') == 'h = "Bearer <redacted>"'
+
+
 def test_slack_describes_code_evidence_and_explores_worker2():
     bundle = ContextBundle(
         alerts=[], window_start=STARTS, window_end=STARTS, templates=[], quiet_summary=[], metrics=[],

@@ -311,3 +311,137 @@ async def test_source_cache_error_never_carries_the_token(tmp_path):
         await cache.checkout(SHA)
     assert "secret-token-123" not in str(err.value) and "missing" not in str(err.value)
     assert not (tmp_path / "cache" / SHA).exists()
+
+
+# --- review fixes (2026-11-27) ---------------------------------------------------------------
+
+RECORDS = '''package watoo.grd.nextroute.x;
+
+public record Rec(String a, int b) {
+    public Rec {
+        if (b < 0) {
+            throw new IllegalArgumentException();
+        }
+    }
+
+    int twice() {
+        return b * 2;
+    }
+}
+
+enum Op {
+    PLUS("+") {
+        int apply(int x, int y) {
+            return x + y;
+        }
+    };
+    Op(String s) {
+        this.s = s;
+    }
+}
+
+class Ann {
+    @Operation(responses = {@ApiResponse(responseCode = "200")})
+    @GetMapping(produces = {"application/json"})
+    public String get() {
+        return "x";
+    }
+}
+'''
+
+
+def _line(src, text):
+    return next(i for i, l in enumerate(src.splitlines(), 1) if text in l)
+
+
+def test_record_and_enum_bodies_are_not_methods():
+    assert method_at(RECORDS, _line(RECORDS, "return b * 2"))[2] == "twice"
+    assert method_at(RECORDS, _line(RECORDS, "throw new IllegalArgumentException"))[2] == "Rec"   # compact constructor
+    assert method_at(RECORDS, _line(RECORDS, "return x + y"))[2] == "apply"
+    assert method_at(RECORDS, _line(RECORDS, "this.s = s"))[2] == "Op"
+
+
+def test_annotation_arrays_do_not_cut_the_method_start():
+    start, _, name = method_at(RECORDS, _line(RECORDS, 'return "x"'))
+    assert name == "get" and start == _line(RECORDS, "@Operation")
+
+
+def test_tag_hint_picks_the_method_that_logs_this_template(tmp_path):
+    src = (
+        "class S {\n"
+        "  void a() { log.warn(\"[BusArrival] start {}\", n); }\n"
+        "  void b() { log.warn(\"[BusArrival] reconcile failed rows={}\", n); }\n"
+        "}\n"
+    )
+    root = _tree(tmp_path, {"S.java": src})
+    assert code_mod.template_hint("[BusArrival] reconcile failed rows=#") == "reconcile failed rows"
+    assert [l for _, l in find_by_keyword(root, "[BusArrival]", "reconcile failed rows")] == [3]
+    assert [l for _, l in find_by_keyword(root, "[BusArrival]", "nothing like it")] == [2]
+
+
+def test_uri_with_several_http_methods_returns_each_mapping(tmp_path):
+    src = '@RequestMapping("/api/journeys")\nclass J {\n  @GetMapping("/{journeyId}")\n  X detail() { return null; }\n  @DeleteMapping("/{journeyId}")\n  X cancel() { return null; }\n}\n'
+    root = _tree(tmp_path, {"J.java": src})
+    assert [l for _, l in find_by_keyword(root, "/api/journeys/{journeyId}")] == [3, 5]
+
+
+async def test_deployed_uses_a_plain_selector_so_old_revisions_go_stale():
+    metrics = FakeMetrics(lambda q, at: [_build("api", SHA)])
+    await deployed(metrics, AT)
+    assert metrics.calls == [("instant", 'app_build{job="nextroute-app"}', AT)]
+
+
+async def test_uri_without_known_instance_falls_back_to_api(tmp_path):
+    root = _tree(tmp_path / "src", {"x/R.java": '@RequestMapping("/api/a")\nclass R {\n  @GetMapping("/b")\n  X s() {\n    return null;\n  }\n}\n'})
+    cache = FakeCache(root)
+    ctx = await CodeCollector(_prom({"api": SHA, "worker": SHA2}), cache)([], [{"labels": {"uri": "/api/a/b"}}], AT)
+    assert ctx.snippets[0].role == "api" and cache.calls == [SHA]
+
+
+async def test_collect_stops_at_max_snippets(tmp_path):
+    files = {f"watoo/grd/nextroute/a/C{i}.java": f"package watoo.grd.nextroute.a;\nclass C{i} {{\n  void m() {{\n    x();\n  }}\n}}\n" for i in range(7)}
+    root = _tree(tmp_path / "src", files)
+    frames = [f"watoo.grd.nextroute.a.C{i}.m(C{i}.java:4)" for i in range(7)]
+    ctx = await CodeCollector(_prom({"api": SHA}), FakeCache(root))([T("api", frames)], [], AT)
+    assert [s.id for s in ctx.snippets] == ["s:1", "s:2", "s:3", "s:4", "s:5"]
+
+
+async def test_token_only_travels_in_the_askpass_env(tmp_path, monkeypatch):
+    seen = []
+
+    class Proc:
+        pid = 1
+        async def wait(self):
+            return 0
+
+    async def fake_exec(*args, **kwargs):
+        seen.append((args, kwargs["env"]))
+        if "init" in args:
+            (kwargs["cwd"]).mkdir(exist_ok=True)
+        return Proc()
+
+    monkeypatch.setattr(code_mod.asyncio, "create_subprocess_exec", fake_exec)
+    cache = SourceCache(str(tmp_path / "cache"), "o/r", "secret-token-123")
+    await cache.checkout(SHA)
+    for args, env in seen:
+        assert not any("secret-token-123" in a for a in args)
+        assert env["ANALYZER_GIT_PASSWORD"] == "secret-token-123" and env["GIT_TERMINAL_PROMPT"] == "0"
+        assert "credential.helper=" in args and "maintenance.auto=false" in args
+    assert any("https://github.com/o/r.git" in args for args, _ in seen)
+
+
+async def test_git_missing_becomes_a_safe_fetch_error(tmp_path, monkeypatch):
+    async def no_git(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(code_mod.asyncio, "create_subprocess_exec", no_git)
+    with pytest.raises(CodeFetchError, match="git 실행 실패"):
+        await SourceCache(str(tmp_path / "cache"), "o/r", "t").checkout(SHA)
+    assert not (tmp_path / "cache" / SHA).exists()
+
+
+async def test_half_fetched_dirs_are_pruned(tmp_path):
+    bare, shas = _repo(tmp_path, 1)
+    (tmp_path / "cache" / SHA2).mkdir(parents=True)   # crash leftover, no .ok
+    await SourceCache(str(tmp_path / "cache"), "o/r", "t", remote_url=f"file://{bare}").checkout(shas[0])
+    assert not (tmp_path / "cache" / SHA2).exists()

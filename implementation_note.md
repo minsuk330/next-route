@@ -7253,3 +7253,15 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 검증
 - `uv run --extra dev pytest -q` (alert-analyzer) → 202 passed (기존 175 + test_code 17 + test_code_wiring 10)
 - SourceCache 는 로컬 bare repo(uploadpack.allowAnySHA1InWant·allowFilter)로 실제 git sparse fetch, docs/ 미포함·LRU 3·예외에 토큰/경로 없음 확인
+
+### 함정 (독립 검토 반영, 9건)
+- record 헤더 `public record Rec(...)` 를 메서드로 오인 → record 전체(최대 302줄)를 잡음(return 줄 5,152 중 455). 가드: 이름 앞이 record/enum 이면 제외, compact 생성자(`public Fare {`) 인식. 재측정 return 4,668줄 중 타입 전체 잡힘 0
+- 태그는 한 클래스의 여러 메서드에 쓰인다([BusArrival] 4곳) → 템플릿의 가장 긴 고정 조각(template_hint)으로 줄 고름, 없으면 첫 사용
+- 배포 직후 5분 version_unknown: `last_over_time(...[5m])` 는 staleness 를 무시해 옛 revision 도 보임(instance 라벨이 배포 후에도 같음) → 평범한 선택자 `app_build{job="nextroute-app"}`
+- 알림 uri 에 HTTP 메서드가 없어 GET/DELETE 같은 경로면 첫 매핑만 → 파일 안 맞는 매핑 전부(최대 3)
+- annotation 배열 `{..}` 이 블록으로 세져 메서드 시작 줄이 잘림 → 괄호 안 중괄호 무시
+- git maintenance --detach 가 killpg·메모리 상한을 벗어남 → `-c maintenance.auto=false -c gc.auto=0`
+- git 없음·디스크 오류(OSError)가 수집 전체를 날림, 반쯤 받은 디렉터리 잔존 → CodeFetchError 로 감싸고 .ok 없는 디렉터리 prune
+- 코드용 bearer 규칙이 `BEARER = "Bearer ";` 를 바꿈 → 코드에는 20자 이상 토큰 모양만
+- 토큰 테스트가 구조상 늘 통과(stderr 버림) → create_subprocess_exec 를 가로채 인자에 토큰 없음·env 에만 있음 확인
+- 검증 갱신: pytest 213 passed. 실저장소 표본 1,597줄 중 1,593 정확(4 = Lua 텍스트 블록)

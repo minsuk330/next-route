@@ -41,7 +41,10 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
 RULE_NAMES = [name for name, _, _ in _RULES]
 # Source code: secrets only. Coordinates, uuids and the like are code literals there,
 # and rewriting them would make the snippet lie.
-_CODE_RULES = [r for r in _RULES if r[0] in {"slack", "anthropic", "jwt", "bearer", "api_key"}]
+_CODE_RULES = [r for r in _RULES if r[0] in {"slack", "anthropic", "jwt", "api_key"}] + [
+    # Only token-shaped values: `BEARER = "Bearer ";` in JwtAuthFilter must stay as written.
+    ("bearer", re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{20,}"), "Bearer <redacted>"),
+]
 
 
 def mask_code(text: str) -> str:
