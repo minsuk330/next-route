@@ -25,8 +25,8 @@ log = logging.getLogger(__name__)
 MAX_JOB_WAIT = timedelta(minutes=10)
 # Stage 4 budget: one LLM call (90 s, 1 retry in app wiring) plus main lookup and checkout.
 FIX_TIMEOUT_S = 150.0
-# Stage 6: thread lookup (up to 3 tries, 10 s apart) plus one dispatch call.
-VERIFY_TIMEOUT_S = 45.0
+# Stage 6: one dispatch call (10 s). The thread lookup is cached by the analysis reply before it.
+VERIFY_TIMEOUT_S = 20.0
 
 GatherFn = Callable[[AnalysisJob], Awaitable[ContextBundle]]
 AnalyzeFn = Callable[[ContextBundle], Awaitable[Verdict]]
@@ -152,7 +152,9 @@ async def _verify(live: Live, job: AnalysisJob, proposal: FixProposal) -> Verify
         if not thread_ts:
             # The workflow answers in the thread; without one there is nowhere to answer.
             return VerifyResult(False, reason="스레드 못 찾음")
-        label = ", ".join(sorted({a.labels.get("alertname", "?") for a in job.alerts}))
+        names = ", ".join(sorted({a.labels.get("alertname", "?") for a in job.alerts}))
+        # The result reply should stand alone even if the proposal reply failed to post.
+        label = f"{names} · {(proposal.target or {}).get('symbol', '?')}"
         return await live.verify(proposal, thread_ts, label)
 
     try:

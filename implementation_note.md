@@ -7435,3 +7435,13 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 
 ### 검증
 - `uv run --frozen --extra dev pytest -q` → 261 passed (verify 입력·응답 200/204/위조 링크/403/timeout·생략, 워커 dispatch·상태별·스레드 없음·예외, render 한 줄·길이, 설정 가드, fix edits/repo_path)
+
+### 확정 (Opus 리뷰 반영, major 3·minor 6)
+- 스레드 찾기는 SlackClient 가 작업별로 기억한다(없음도 기억, 64개). 한 작업이 분석·verify·수정 제안에서 세 번 찾던 것 → 한 번. 스레드가 없을 때 재시도 대기 ~40초 낭비가 사라짐. VERIFY_TIMEOUT_S 45 → 20(dispatch 만)
+- 채널 id·thread_ts·main_sha 모양을 워크플로와 같은 정규식으로 분석기에서 먼저 검사(틀리면 1시간 테스트 뒤 notify 가 말없이 끝남). verify 켤 때 SLACK_CHANNEL_ID 가 C…/G… 아니면 시작 거부
+- 계약 테스트: analyzer pytest 가 ops/ci/apply_edits.py·notify_slack.py 를 파일 경로로 불러 inputs → decode → apply 가 fix.apply_edits 와 같은지, CRLF 보존, 정규식 동일한지 확인. 그래서 alert-analyzer-image 워크플로가 저장소 전체를 마운트(-w /repo/alert-analyzer)하고 paths 에 두 파일 추가
+- run 링크는 `https://github.com/{repo}/actions/runs/<숫자>` 만, 아니면 runs 목록. Slack 링크 escape
+- label = 경보 이름 · 대상 심볼(수정 제안 답글이 실패해도 결과 답글이 혼자 읽힘)
+- 공백뿐인 SEARCH 는 fix.apply_edits 도 거부(워크플로와 같은 규칙)
+- 남긴 것: 코드 캐시 토큰이 Actions 쓰기도 갖게 됨(플랜이 수용). 분리하려면 ANALYZER_GITHUB_ACTIONS_TOKEN 별도 — 후속
+- pytest 267 passed, ops/ci unittest 38 OK

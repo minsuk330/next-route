@@ -6,10 +6,16 @@ on:
     paths:
       - 'alert-analyzer/**'
       - '.github/workflows/alert-analyzer-image.yml'
+      # analyzer tests check the stage 6 contract against these (tests/test_verify.py)
+      - 'ops/ci/apply_edits.py'
+      - 'ops/ci/notify_slack.py'
   pull_request:
     paths:
       - 'alert-analyzer/**'
       - '.github/workflows/alert-analyzer-image.yml'
+      # analyzer tests check the stage 6 contract against these (tests/test_verify.py)
+      - 'ops/ci/apply_edits.py'
+      - 'ops/ci/notify_slack.py'
   workflow_dispatch:
 
 concurrency:
@@ -28,7 +34,7 @@ jobs:
       # git: SourceCache tests run a real sparse fetch from a local repo (the image installs git too).
       - name: Run tests
         run: >
-          docker run --rm -v "$PWD/alert-analyzer":/app -w /app
+          docker run --rm -v "$PWD":/repo -w /repo/alert-analyzer
           -e UV_PROJECT_ENVIRONMENT=/tmp/venv
           ghcr.io/astral-sh/uv:python3.12-bookworm-slim
           sh -c "apt-get update -qq && apt-get install -y -qq --no-install-recommends git > /dev/null

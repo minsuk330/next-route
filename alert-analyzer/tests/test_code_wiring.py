@@ -193,8 +193,12 @@ def test_fix_verify_needs_the_fix_proposal():
     base = {"ANALYZER_WEBHOOK_TOKEN": "t", "ANALYZER_CODE_CONTEXT_ENABLED": "true", "ANALYZER_GITHUB_TOKEN": "g"}
     with pytest.raises(RuntimeError, match="ANALYZER_FIX_PROPOSAL_ENABLED"):
         Settings.from_env({**base, "ANALYZER_FIX_VERIFY_ENABLED": "true"})
-    s = Settings.from_env({**base, "ANALYZER_FIX_PROPOSAL_ENABLED": "true", "ANALYZER_FIX_VERIFY_ENABLED": "true"})
+    s = Settings.from_env({**base, "ANALYZER_FIX_PROPOSAL_ENABLED": "true", "ANALYZER_FIX_VERIFY_ENABLED": "true",
+                           "SLACK_CHANNEL_ID": "C0CCXF6UGN4"})
     assert s.fix_verify_enabled
+    with pytest.raises(RuntimeError, match="channel id"):
+        Settings.from_env({**base, "ANALYZER_FIX_PROPOSAL_ENABLED": "true", "ANALYZER_FIX_VERIFY_ENABLED": "true",
+                           "SLACK_CHANNEL_ID": "#alerts"})
 
 
 async def test_complete_returns_text_and_cost_without_iterations():

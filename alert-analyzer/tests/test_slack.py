@@ -244,3 +244,19 @@ async def test_non_json_answer_is_a_slack_error():
 
     with pytest.raises(SlackError, match="chat.postMessage: response is not JSON"):
         await slack(html).reply(job(), "분석")
+
+
+async def test_thread_lookup_is_remembered_per_job_including_a_miss():
+    sleeps: list = []
+    found = FakeSlack([[ALERT_MESSAGE]])
+    client = slack(found, sleeps)
+    await client.reply(job(), "분석")
+    assert await client.thread_of(job()) == ALERT_MESSAGE["ts"]
+    await client.reply(job(), "수정 제안")
+    assert len(found.histories()) == 1  # analysis, verify and proposal share one lookup
+
+    missing = FakeSlack([[OTHER_MESSAGE], [], []])
+    client = slack(missing, sleeps)
+    assert await client.thread_of(job()) is None
+    assert await client.thread_of(job()) is None
+    assert len(missing.histories()) == 3  # one round of retries, not two

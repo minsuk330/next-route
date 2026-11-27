@@ -91,7 +91,7 @@ def apply_edits(source: str, edits: list[Edit]) -> str | None:
         return None
     spans = []
     for e in edits:
-        if not e.search or source.count(e.search) != 1:
+        if not e.search.strip() or source.count(e.search) != 1:  # same rule as ops/ci/apply_edits.py
             return None
         start = source.index(e.search)
         spans.append((start, start + len(e.search), e.replace))

@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -22,6 +23,11 @@ TIMEOUT_S = 10.0
 # workflow_dispatch caps the inputs payload at 65,535 characters; leave room for the other inputs.
 MAX_INPUT_CHARS = 60_000
 LABEL_CHARS = 80
+# Same shapes the workflow (ops/ci/notify_slack.py, fix-verify.yml) accepts: catch here what it would reject
+# after an hour of tests.
+CHANNEL = re.compile(r"^[CG][A-Z0-9]{6,}$")
+THREAD_TS = re.compile(r"^\d{9,11}\.\d{1,6}$")
+SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 @dataclass(frozen=True)
@@ -36,7 +42,9 @@ Verify = Callable[["FixProposal", str, str], Awaitable[VerifyResult]]  # (propos
 
 def inputs(proposal, channel: str, thread_ts: str, label: str) -> dict[str, str] | None:
     """Workflow inputs, or None when the proposal is not something the workflow can apply."""
-    if proposal.status != "proposed" or not proposal.edits or not proposal.repo_path or not proposal.main_sha:
+    if proposal.status != "proposed" or not proposal.edits or not proposal.repo_path:
+        return None
+    if not SHA.match(proposal.main_sha or "") or not CHANNEL.match(channel) or not THREAD_TS.match(thread_ts):
         return None
     blob = json.dumps(
         {"path": proposal.repo_path, "edits": [{"search": e.search, "replace": e.replace} for e in proposal.edits]},
@@ -58,11 +66,12 @@ def github_dispatch(http, repo: str, token: str, channel: str) -> Verify:
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
     url = f"https://api.github.com/repos/{repo}/actions/workflows/{WORKFLOW}/dispatches"
     runs = f"https://github.com/{repo}/actions/workflows/{WORKFLOW}"
+    run_prefix = f"https://github.com/{repo}/actions/runs/"
 
     async def dispatch(proposal, thread_ts: str, label: str) -> VerifyResult:
         values = inputs(proposal, channel, thread_ts, label)
         if values is None:
-            return VerifyResult(False, reason="입력이 너무 크거나 적용할 블록 없음")
+            return VerifyResult(False, reason="입력이 형식에 안 맞거나 너무 큼")
         try:
             # ref=main: the workflow and its scripts always come from main; inputs.ref is what gets tested.
             response = await http.post(
@@ -78,7 +87,7 @@ def github_dispatch(http, repo: str, token: str, channel: str) -> Verify:
                 link = response.json().get("html_url") or runs
             except ValueError:
                 link = runs
-            return VerifyResult(True, url=link if str(link).startswith("https://github.com/") else runs)
+            return VerifyResult(True, url=link if re.fullmatch(re.escape(run_prefix) + r"\d+", str(link)) else runs)
         return VerifyResult(False, reason=f"GitHub {response.status_code}")
 
     return dispatch

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -65,6 +66,9 @@ class Settings:
         verify_enabled = _bool(env.get("ANALYZER_FIX_VERIFY_ENABLED"), False)
         if verify_enabled and not fix_enabled:
             raise RuntimeError("ANALYZER_FIX_VERIFY_ENABLED=true needs ANALYZER_FIX_PROPOSAL_ENABLED=true")
+        if verify_enabled and not re.match(r"^[CG][A-Z0-9]{6,}$", live["SLACK_CHANNEL_ID"]):
+            # The workflow's notify job only accepts a channel id; a name would run the tests and say nothing.
+            raise RuntimeError("ANALYZER_FIX_VERIFY_ENABLED=true needs SLACK_CHANNEL_ID to be a channel id (C…/G…)")
         return cls(
             webhook_token=token,
             loki_url=env.get("ANALYZER_LOKI_URL", cls.loki_url),

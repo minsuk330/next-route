@@ -294,6 +294,7 @@ async def test_verify_dispatches_for_a_proposal_and_adds_one_line(caplog):
                     edits=[Edit("a\n", "b\n")], repo_path="src/main/java/a/Svc.java")
     n = await _run_with_verify(p, verify)
     assert calls and calls[0][0] == "proposed" and calls[0][1] == "1795782729.655779"
+    assert calls[0][2].endswith(" · Svc#ok")  # result reply stands alone
     assert len(n.texts) == 2 and "테스트 요청함" in n.texts[1]
     assert "fix_verify" in caplog.text and "dispatched=True" in caplog.text
 
@@ -322,3 +323,16 @@ async def test_verify_failure_never_blocks_the_proposal():
 
     n = await _run_with_verify(FixProposal("proposed", {"symbol": "s", "revision": "d" * 40}, "e" * 40, diff="+x\n"), boom)
     assert len(n.texts) == 2 and "수정 제안" in n.texts[1] and "테스트 요청 실패(RuntimeError)" in n.texts[1]
+
+
+async def test_verify_timeout_only_changes_the_line(monkeypatch):
+    import asyncio
+    from analyzer import worker as worker_mod
+    from analyzer.fix import FixProposal
+    monkeypatch.setattr(worker_mod, "VERIFY_TIMEOUT_S", 0.05)
+
+    async def slow(p, ts, label):
+        await asyncio.sleep(1)
+
+    n = await _run_with_verify(FixProposal("proposed", {"symbol": "s", "revision": "d" * 40}, "e" * 40, diff="+x\n"), slow)
+    assert len(n.texts) == 2 and "테스트 요청 실패(시간 초과)" in n.texts[1]

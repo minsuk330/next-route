@@ -248,3 +248,16 @@ async def test_github_compare_lists_only_commits_in_range_that_touched_the_file(
     assert out == ["cccccccc fix(x): newest", "aaaaaaaa feat(x): older"]
     assert http.calls[1][1] == {"sha": M, "path": PATH, "per_page": 30}
     assert all(h["Authorization"] == "Bearer tok" for _, _, h in http.calls)
+
+
+
+async def test_edits_stay_raw_while_the_diff_is_masked(tmp_path):
+    secret = 'String key = "sk-ant-abcdefghijklmnop";'
+    src = SRC.replace("class Svc {", "class Svc {\n  " + secret)
+    block = (
+        "<<<<<<< SEARCH\n  " + secret + "\n=======\n  " + secret + " // keep\n>>>>>>> REPLACE\n"
+    )
+    p = await propose(verdict(), bundle(), complete=llm(block), cache=Cache(tmp_path, src, None, main_sha=D), compare=no_compare)
+    assert p.status == "proposed"
+    assert "sk-ant-abcdefghijklmnop" in p.edits[0].search  # a masked SEARCH would not match in the workflow
+    assert "sk-ant-abcdefghijklmnop" not in p.diff
