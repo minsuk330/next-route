@@ -38,6 +38,8 @@ class Settings:
     github_repo: str = "minsuk330/next-route"
     github_token: str = field(default="", repr=False)
     code_cache_dir: str = "/tmp/code-cache"
+    # Stage 4: propose a code change in the thread (analyzer.fix). Needs the code context.
+    fix_proposal_enabled: bool = False
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -55,6 +57,9 @@ class Settings:
         github_token = env.get("ANALYZER_GITHUB_TOKEN", "").strip()
         if code_enabled and not github_token:
             raise RuntimeError("ANALYZER_CODE_CONTEXT_ENABLED=true needs ANALYZER_GITHUB_TOKEN")
+        fix_enabled = _bool(env.get("ANALYZER_FIX_PROPOSAL_ENABLED"), False)
+        if fix_enabled and not code_enabled:
+            raise RuntimeError("ANALYZER_FIX_PROPOSAL_ENABLED=true needs ANALYZER_CODE_CONTEXT_ENABLED=true")
         return cls(
             webhook_token=token,
             loki_url=env.get("ANALYZER_LOKI_URL", cls.loki_url),
@@ -73,4 +78,5 @@ class Settings:
             github_repo=env.get("ANALYZER_GITHUB_REPO", cls.github_repo),
             github_token=github_token,
             code_cache_dir=env.get("ANALYZER_CODE_CACHE_DIR", cls.code_cache_dir),
+            fix_proposal_enabled=fix_enabled,
         )

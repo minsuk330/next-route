@@ -292,8 +292,8 @@ def _repo(tmp_path: Path, n: int) -> tuple[Path, list[str]]:
     return bare, shas
 
 
-async def test_source_cache_checks_out_only_src_of_that_commit_and_keeps_three(tmp_path, monkeypatch):
-    bare, shas = _repo(tmp_path, 4)
+async def test_source_cache_checks_out_only_src_of_that_commit_and_keeps_a_few(tmp_path, monkeypatch):
+    bare, shas = _repo(tmp_path, code_mod.KEEP_REVISIONS + 1)
     cache = SourceCache(str(tmp_path / "cache"), "o/r", "secret-token-123", remote_url=f"file://{bare}")
     first = await cache.checkout(shas[0])
     assert (first / "a/A.java").read_text() == "class A { int v = 0; }\n"
@@ -301,7 +301,7 @@ async def test_source_cache_checks_out_only_src_of_that_commit_and_keeps_three(t
     for sha in shas[1:]:
         await cache.checkout(sha)
     kept = sorted(p.name for p in (tmp_path / "cache").iterdir() if p.is_dir())
-    assert len(kept) == 3 and shas[0] not in kept
+    assert len(kept) == code_mod.KEEP_REVISIONS and shas[0] not in kept
     assert await cache.checkout("manual") is None
 
 
@@ -445,3 +445,14 @@ async def test_half_fetched_dirs_are_pruned(tmp_path):
     (tmp_path / "cache" / SHA2).mkdir(parents=True)   # crash leftover, no .ok
     await SourceCache(str(tmp_path / "cache"), "o/r", "t", remote_url=f"file://{bare}").checkout(shas[0])
     assert not (tmp_path / "cache" / SHA2).exists()
+
+
+async def test_resolve_reads_a_branch_sha_from_the_remote(tmp_path):
+    bare, shas = _repo(tmp_path, 2)
+    cache = SourceCache(str(tmp_path / "cache"), "o/r", "t", remote_url=f"file://{bare}")
+    branch = subprocess.run(["git", "symbolic-ref", "--short", "HEAD"], cwd=bare, capture_output=True, text=True).stdout.strip()
+    assert await cache.resolve(branch) == shas[-1]
+    assert await cache.resolve("no-such-branch") is None
+    assert await cache.resolve("bad ref; rm -rf") is None
+    await cache.checkout(shas[0])
+    assert (tmp_path / "cache" / ".ls-remote").exists()   # not pruned as a half fetch

@@ -225,5 +225,30 @@ class Analyzer:
         )
 
 
+async def complete(client: anthropic.AsyncAnthropic, system: str, user: str, *, model: str = MODEL,
+                   max_tokens: int = MAX_TOKENS) -> tuple[str, float]:
+    """Plain text answer and its USD cost. Used by the fix proposal (analyzer.fix)."""
+    try:
+        response = await client.messages.create(
+            model=model, max_tokens=max_tokens, system=system, messages=[{"role": "user", "content": user}]
+        )
+    except anthropic.AnthropicError as exc:
+        raise LlmFailure(f"Claude 호출 실패({type(exc).__name__})") from None
+    if response.stop_reason in ("refusal", "max_tokens"):
+        raise LlmFailure(f"응답 중단({response.stop_reason})")
+    text = "".join(b.text for b in response.content if getattr(b, "type", "") == "text")
+    usage = response.usage
+    if not getattr(usage, "iterations", None):
+        usage = _Usage(usage.input_tokens, usage.output_tokens)
+    return text, billed(usage, response.model)[2]
+
+
+@dataclass(frozen=True)
+class _Usage:
+    input_tokens: int
+    output_tokens: int
+    iterations: tuple = ()
+
+
 def make_client(api_key: str) -> anthropic.AsyncAnthropic:
     return anthropic.AsyncAnthropic(api_key=api_key, timeout=TIMEOUT_S, max_retries=MAX_RETRIES)

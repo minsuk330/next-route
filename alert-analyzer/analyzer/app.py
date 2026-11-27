@@ -22,8 +22,9 @@ from analyzer.config import Settings
 from analyzer.context import gather
 from analyzer.cards import load as load_cards
 from analyzer.code import CodeCollector, SourceCache
+from analyzer.fix import github_compare, propose
 from analyzer.dedupe import DailyBudget, SeenStore
-from analyzer.llm import Analyzer, make_client
+from analyzer.llm import Analyzer, complete, make_client
 from analyzer.logging_json import configure_logging
 from analyzer.payload import AnalysisJob, GrafanaWebhook, dedupe_key, select_new
 from analyzer.probe import ProbeState, probe_loop, render_metrics
@@ -57,8 +58,10 @@ def create_app(
         loki = LokiClient(resolved.loki_url, http)
         prom = PromClient(resolved.prom_url, http)
         code = None
+        source_cache = None
         if resolved.code_context_enabled:
-            code = CodeCollector(prom, SourceCache(resolved.code_cache_dir, resolved.github_repo, resolved.github_token))
+            source_cache = SourceCache(resolved.code_cache_dir, resolved.github_repo, resolved.github_token)
+            code = CodeCollector(prom, source_cache)
         cards, cards_error = load_cards()
         if cards_error:
             log.warning("incident cards unavailable: %s", cards_error)
@@ -69,9 +72,22 @@ def create_app(
         stages = None if resolved.dry_run else live
         if stages is None and not resolved.dry_run:
             claude = make_client(resolved.anthropic_api_key)
+            fix_stage = None
+            if resolved.fix_proposal_enabled and source_cache is not None:
+                client = claude
+                compare = github_compare(http, resolved.github_repo, resolved.github_token)
+
+                async def fix_stage(verdict, bundle):
+                    return await propose(
+                        verdict, bundle,
+                        complete=lambda system, user: complete(client, system, user),
+                        cache=source_cache, compare=compare,
+                    )
+
             stages = Live(
                 analyze=Analyzer(claude).analyze,
                 notifier=SlackClient(resolved.slack_bot_token, resolved.slack_channel_id, http),
+                fix=fix_stage,
             )
 
         worker = None
@@ -91,13 +107,14 @@ def create_app(
                 )
             )
         log.info(
-            "alert-analyzer started dry_run=%s live=%s daily_limit=%d probe=%s code=%s cards=%d",
+            "alert-analyzer started dry_run=%s live=%s daily_limit=%d probe=%s code=%s cards=%d fix=%s",
             resolved.dry_run,
             stages is not None,
             resolved.daily_limit,
             probe is not None,
             code is not None,
             len(cards),
+            bool(stages is not None and getattr(stages, "fix", None)),
         )
         try:
             yield

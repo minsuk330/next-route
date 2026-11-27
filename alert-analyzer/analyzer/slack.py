@@ -95,6 +95,24 @@ def render_failure(reason: str, *, link: str) -> str:
     return f":warning: AI 원인 분석 실패: {escape(reason)}\n<{_link(link)}|로그 보기 (Grafana Explore)>"
 
 
+def render_fix(p) -> str | None:
+    """Second thread reply for analyzer.fix. None for statuses that stay in the logs."""
+    t = p.target or {}
+    head = f"`{escape(t.get('symbol', '?'))}` · 배포 {escape(t.get('revision', '')[:8])}, main {escape((p.main_sha or '')[:8])}"
+    if p.status == "proposed":
+        top = ":hammer_and_wrench: *수정 제안* _(참고용 — 사람이 검토 후 적용)_\n" + head + "\n"
+        room = MAX_TEXT - len(top) - len("```\n\n```") - 20
+        diff = escape(p.diff)
+        if len(diff) > room:
+            diff = re.sub(r"&[a-z]*$", "", diff[:room]) + "\n… 생략"
+        return f"{top}```\n{diff}\n```"
+    if p.status == "main_changed":
+        lines = [":warning: *수정 제안 보류* — 배포 뒤 main 에서 이 파일이 바뀌었다. 이미 고쳐졌는지 먼저 확인", head]
+        lines += [f"    • {escape(c)}" for c in p.main_commits] or ["    • (바꾼 커밋 목록을 못 가져옴)"]
+        return _fit("\n".join(lines), "")
+    return None
+
+
 def render_budget_notice(limit: int) -> str:
     return f":information_source: 오늘 AI 분석 상한({limit}건)에 도달해 자정(KST)까지 분석을 건너뜁니다."
 

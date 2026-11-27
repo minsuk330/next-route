@@ -12,10 +12,11 @@ from typing import Protocol
 from analyzer.config import Settings
 from analyzer.context import ContextBundle
 from analyzer.dedupe import DailyBudget
+from analyzer.fix import FixProposal
 from analyzer.llm import LlmFailure, Verdict
 from analyzer.masking import mask_bundle
 from analyzer.payload import AnalysisJob
-from analyzer.slack import SlackError, explore_url, render, render_budget_notice, render_failure
+from analyzer.slack import SlackError, explore_url, render, render_budget_notice, render_failure, render_fix
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +37,8 @@ class Live:
 
     analyze: AnalyzeFn
     notifier: Notifier
+    # Stage 4 (analyzer.fix): propose a code change after the analysis. None = off.
+    fix: Callable[[Verdict, ContextBundle], Awaitable["FixProposal"]] | None = None
 
 
 def utcnow() -> datetime:
@@ -109,6 +112,19 @@ async def process(
         len(bundle.cards),
         len(verdict.fix_candidates),
     )
+    if live.fix is not None:
+        proposal = await live.fix(verdict, bundle)
+        text = render_fix(proposal)
+        if text:
+            await _notify(live.notifier, job, text)
+        log.info(
+            "fix_proposal group=%s status=%s target=%s reason=%s cost_usd=%.4f",
+            job.group_key,
+            proposal.status,
+            (proposal.target or {}).get("symbol"),
+            proposal.reason,
+            proposal.cost_usd,
+        )
     return bundle
 
 

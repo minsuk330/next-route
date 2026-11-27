@@ -178,3 +178,32 @@ def test_settings_need_a_token_when_code_context_is_on():
         Settings.from_env({**base, "ANALYZER_CODE_CONTEXT_ENABLED": "true"})
     s = Settings.from_env({**base, "ANALYZER_CODE_CONTEXT_ENABLED": "true", "ANALYZER_GITHUB_TOKEN": "ghp_x"})
     assert s.code_context_enabled and "ghp_x" not in repr(s)
+
+
+def test_fix_proposal_needs_the_code_context():
+    base = {"ANALYZER_WEBHOOK_TOKEN": "t"}
+    with pytest.raises(RuntimeError, match="ANALYZER_CODE_CONTEXT_ENABLED"):
+        Settings.from_env({**base, "ANALYZER_FIX_PROPOSAL_ENABLED": "true"})
+    s = Settings.from_env({**base, "ANALYZER_FIX_PROPOSAL_ENABLED": "true", "ANALYZER_CODE_CONTEXT_ENABLED": "true",
+                           "ANALYZER_GITHUB_TOKEN": "g"})
+    assert s.fix_proposal_enabled
+
+
+async def test_complete_returns_text_and_cost_without_iterations():
+    from types import SimpleNamespace
+    from analyzer.llm import LlmFailure, complete
+
+    class Client:
+        def __init__(self, stop="end_turn"):
+            self.messages = self
+            self.stop = stop
+
+        async def create(self, **kw):
+            return SimpleNamespace(stop_reason=self.stop, model="claude-sonnet-5-5",
+                                   content=[SimpleNamespace(type="thinking"), SimpleNamespace(type="text", text="블록")],
+                                   usage=SimpleNamespace(input_tokens=1_000_000, output_tokens=0))
+
+    text, cost = await complete(Client(), "s", "u")
+    assert text == "블록" and cost == 2.0
+    with pytest.raises(LlmFailure):
+        await complete(Client("max_tokens"), "s", "u")
