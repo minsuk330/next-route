@@ -7221,3 +7221,11 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 ### 좌표
 - build.gradle 끝 springBoot.buildInfo
 - src/main/java/watoo/grd/nextroute/common/observability/BuildInfoMetrics.java
+
+### 배포 (RAG PR-1, 2026-11-27 14:45 KST)
+- main f07e1f59 jar(#652 도메인 이전 포함, 사용자 승인) → api·worker `deploy.sh`. 진행 여정 0, jar sha 62b6d353… 대조, build-info revision=f07e1f59…(40자) dirty=false
+- 이번엔 deploy.sh worker 가 worker2 도 정상 교체("[deploy] worker2 is healthy"). 11-27 새벽 누락은 재현 안 됨, 원인 미확정 유지
+
+### 검증
+- `./gradlew test --tests '*BuildInfoMetricsTest'` 4/4
+- Prometheus `app_build`: api·worker·worker2 모두 revision=f07e1f5920bad7d789a137fbf1c18ae0c37f10bd dirty=false, role·instance 라벨 붙음. 기동 4분 ERROR 0
