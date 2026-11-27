@@ -9,7 +9,7 @@ Slack. Whether a restart happened is decided by code, not by the model.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -28,6 +28,7 @@ MAX_RETRIES = 2
 # Server-side refusal fallback ("default" picks the model per refusal category).
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 MAX_HYPOTHESES = 3
+MAX_FIXES = 3
 # USD per million tokens (input, output). Sonnet 5 is the refusal fallback.
 PRICES = {
     "claude-sonnet-5-5": (2.0, 10.0),
@@ -51,11 +52,18 @@ class Hypothesis(BaseModel):
     next_check: str
 
 
+class FixCandidate(BaseModel):
+    place: str        # class or layer to change
+    why: str
+    refs: list[str]   # code (s:) or past incident (k:) ids only
+
+
 class Analysis(BaseModel):
     """What the model fills in. Everything else on Verdict is computed here."""
 
     headline: str
     hypotheses: list[Hypothesis]
+    fix_candidates: list[FixCandidate] = []
 
 
 @dataclass(frozen=True)
@@ -73,6 +81,7 @@ class Verdict:
     cost_usd: float = 0.0
     request_id: str | None = None
     model_headline: str = ""       # what the model wrote, for logs and the eval only
+    fix_candidates: list[FixCandidate] = field(default_factory=list)   # refs checked, at most MAX_FIXES
 
 
 class LlmFailure(Exception):
@@ -101,6 +110,16 @@ def check_evidence(analysis: Analysis, valid_ids: set[str]) -> tuple[list[Hypoth
             kept.append(hypothesis.model_copy(update={"evidence": list(dict.fromkeys(valid))}))
             top_survived = top_survived or n == 0
     return kept[:MAX_HYPOTHESES], invalid, total, top_survived
+
+
+def check_fix(analysis: Analysis, fix_ids: set[str]) -> list[FixCandidate]:
+    """Keep refs that were really in the bundle; drop candidates left with none. Cards (k:) only count here."""
+    kept = []
+    for fix in analysis.fix_candidates:
+        refs = [r.strip() for r in fix.refs if r.strip() in fix_ids]
+        if refs:
+            kept.append(fix.model_copy(update={"refs": list(dict.fromkeys(refs))}))
+    return kept[:MAX_FIXES]
 
 
 def checked_headline(model_headline: str, kept: list[Hypothesis], top_survived: bool) -> str:
@@ -132,7 +151,8 @@ def user_message(bundle: ContextBundle) -> str:
     return (
         "아래는 방금 울린 알림의 맥락 묶음이다.\n\n"
         f"<context>\n{bundle.to_json()}\n</context>\n\n"
-        f"근거로 쓸 수 있는 id: {ids}"
+        f"근거로 쓸 수 있는 id: {ids}\n"
+        f"고칠 곳 후보에 쓸 수 있는 id: {', '.join(sorted(bundle.fix_ids())) or '(없음)'}"
     )
 
 
@@ -201,6 +221,7 @@ class Analyzer:
             cost_usd=cost,
             request_id=getattr(response, "_request_id", None),
             model_headline=analysis.headline.strip(),
+            fix_candidates=check_fix(analysis, bundle.fix_ids()),
         )
 
 

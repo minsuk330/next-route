@@ -17,6 +17,8 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Protocol
 
+from analyzer.cards import Card
+from analyzer.cards import select as select_cards
 from analyzer.code import MAX_FRAMES, frames_from_stack
 from analyzer.masking import mask
 from analyzer.payload import AnalysisJob, GrafanaAlert
@@ -116,6 +118,8 @@ class ContextBundle:
     # Deployed-commit code (analyzer.code.CodeSnippet as dicts). Ids "s:1".., citable as evidence.
     code: list[dict] = field(default_factory=list)
     code_via: str = "disabled"
+    # Past incidents (analyzer.cards), ids "k:K01". Only fix candidates may cite them.
+    cards: list[dict] = field(default_factory=list)
 
     def ids(self) -> set[str]:
         """Evidence ids the LLM may cite."""
@@ -125,6 +129,10 @@ class ContextBundle:
             ids.add("m:restarts")
         ids.update(c["id"] for c in self.code)
         return ids
+
+    def fix_ids(self) -> set[str]:
+        """Ids a fix candidate may cite: code and past incident cards."""
+        return {c["id"] for c in self.code} | {c["id"] for c in self.cards}
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), default=_json_default, ensure_ascii=False)
@@ -144,6 +152,7 @@ class ContextBundle:
             truncated=data.get("truncated", []),
             code=data.get("code", []),
             code_via=data.get("code_via", "disabled"),
+            cards=data.get("cards", []),
         )
 
 
@@ -187,7 +196,12 @@ class CodeSource(Protocol):
 
 
 async def gather(
-    job: AnalysisJob, logs: LogSource, metrics: MetricSource, code: CodeSource | None = None
+    job: AnalysisJob,
+    logs: LogSource,
+    metrics: MetricSource,
+    code: CodeSource | None = None,
+    cards: list[Card] | None = None,
+    cards_error: str | None = None,
 ) -> ContextBundle:
     starts = [a.startsAt for a in job.alerts]
     first, last = min(starts), max(starts)
@@ -244,6 +258,10 @@ async def gather(
             errors.append(_describe("code", exc))
             code_via = "none"
 
+    chosen = select_cards(cards, code=snippets, templates=templates, alerts=alerts) if cards else []
+    if cards_error:
+        errors.append(f"cards: {cards_error}")
+
     bundle = ContextBundle(
         alerts=alerts,
         window_start=window_start,
@@ -256,6 +274,7 @@ async def gather(
         truncated=truncated,
         code=snippets,
         code_via=code_via,
+        cards=[c.as_dict() for c in chosen],
     )
     return fit_budget(bundle)
 
@@ -427,10 +446,10 @@ def fit_budget(bundle: ContextBundle, limit: int = MAX_BUNDLE_CHARS) -> ContextB
     collected; this limit is for everything else, so a big incident's samples
     never squeeze the code out.
     """
-    code = bundle.code
-    bundle = replace(bundle, code=[])
+    code, cards = bundle.code, bundle.cards
+    bundle = replace(bundle, code=[], cards=[])
     fitted = _fit_rest(bundle, limit)
-    return replace(fitted, code=code)
+    return replace(fitted, code=code, cards=cards)
 
 
 def _fit_rest(bundle: ContextBundle, limit: int) -> ContextBundle:

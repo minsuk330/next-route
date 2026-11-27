@@ -20,6 +20,7 @@ from pydantic import ValidationError
 
 from analyzer.config import Settings
 from analyzer.context import gather
+from analyzer.cards import load as load_cards
 from analyzer.code import CodeCollector, SourceCache
 from analyzer.dedupe import DailyBudget, SeenStore
 from analyzer.llm import Analyzer, make_client
@@ -58,7 +59,10 @@ def create_app(
         code = None
         if resolved.code_context_enabled:
             code = CodeCollector(prom, SourceCache(resolved.code_cache_dir, resolved.github_repo, resolved.github_token))
-        fn = gather_fn or (lambda job: gather(job, loki, prom, code))
+        cards, cards_error = load_cards()
+        if cards_error:
+            log.warning("incident cards unavailable: %s", cards_error)
+        fn = gather_fn or (lambda job: gather(job, loki, prom, code, cards, cards_error))
 
         # Dry run always wins: nothing leaves the box, even if stages were injected.
         claude = None
@@ -87,12 +91,13 @@ def create_app(
                 )
             )
         log.info(
-            "alert-analyzer started dry_run=%s live=%s daily_limit=%d probe=%s code=%s",
+            "alert-analyzer started dry_run=%s live=%s daily_limit=%d probe=%s code=%s cards=%d",
             resolved.dry_run,
             stages is not None,
             resolved.daily_limit,
             probe is not None,
             code is not None,
+            len(cards),
         )
         try:
             yield
