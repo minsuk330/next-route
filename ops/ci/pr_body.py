@@ -53,14 +53,16 @@ def build(summary: dict, label: str, run_url: str, changed: str = "") -> tuple[s
     selected = summary.get("selected")
     scope = "전체 테스트" if selected == "ALL" else f"테스트 클래스 {count(selected)}개"
     baseline = [f for f in summary.get("failures") or [] if isinstance(f, dict) and f.get("baseline") is True]
+    failed = count(summary.get("failed"))
+    # Only failed-with-all-baseline reaches create-pr, so a non-zero count is always pre-existing failures.
+    old = f"(전부 수정 전에도 실패하던 기존 실패 {len(baseline)})" if failed else ""
     lines = [
         "> ⚠️ **AI 가 만든 수정 제안입니다. 머지 전에 diff 를 직접 리뷰하세요.**",
         "> 장애 분석기가 제안하고, fix-verify 가 영향 테스트를 돌린 뒤, 사람이 승인해서 만든 Draft PR 입니다.",
         "",
         f"- **장애**: {name}",
         f"- **고친 곳**: `{safe(changed, 200)}`",
-        f"- **테스트**: 통과 {count(summary.get('passed'))} · 실패 {count(summary.get('failed'))}"
-        f"(전부 수정 전에도 실패하던 기존 실패 {len(baseline)}) · {scope}",
+        f"- **테스트**: 통과 {count(summary.get('passed'))} · 실패 {failed}{old} · {scope}",
         f"- **fix-verify 실행**: {safe(run_url, 300)}",
         "",
         "테스트 결과는 수정 코드가 같은 job 에서 돈 결과라 참고 신호입니다(위조 가능). 판단은 diff 로 하세요.",

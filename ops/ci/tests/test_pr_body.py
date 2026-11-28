@@ -17,7 +17,8 @@ class PrBodyTest(unittest.TestCase):
         self.assertNotIn("forged", body)  # the path comes from create-pr, not the untrusted summary
         self.assertIn("AI 가 만든 수정 제안", body)
         self.assertIn("`src/main/java/a/B.java`", body)
-        self.assertIn("통과 40 · 실패 0", body)
+        self.assertIn("통과 40 · 실패 0 · ", body)
+        self.assertNotIn("기존 실패", body)  # nothing to explain when nothing failed
         self.assertIn("테스트 클래스 12개", body)
         self.assertIn("https://github.com/o/r/actions/runs/1", body)
 
