@@ -215,11 +215,12 @@ jobs:
   # 7단계(docs/plan/fix-approval-pr): 새 실패 0건이면 승인 대기 → 승인하면 Draft PR.
   # 쓰기 권한은 이 job 에만. 실행하는 저장소 코드는 워크플로 커밋($GITHUB_SHA)의 ops/ci 스크립트뿐 — 수정 대상 코드는
   # 빌드·실행하지 않는다. fix-patch artifact 는 test job(수정 코드가 돈 곳)이 바꿀 수 있으므로 믿지 않고, 입력 edits 를
-  # 다시 적용해 만든 diff 와 대조만 한다.
+  # 다시 적용해 만든 diff 와 대조만 한다. main 에서 시작한 실행만(환경 fix-approval 도 main 만 허용) — 브랜치에서
+  # 고친 워크플로가 쓰기 권한을 얻지 못하게.
   create-pr:
     name: Open a draft PR after approval
     needs: [test, notify]
-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.test.result == 'success' && needs.notify.outputs.approvable == 'true' }}
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs.notify.outputs.approvable == 'true' }}
     environment: fix-approval
     concurrency:
       group: fix-approval-${{ github.run_id }}
