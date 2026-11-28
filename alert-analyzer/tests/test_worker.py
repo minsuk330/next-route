@@ -118,8 +118,9 @@ class FakeNotifier:
         self.texts: list[str] = []
         self.error = error
 
-    async def reply(self, j: AnalysisJob, text: str) -> bool:
-        self.texts.append(text)
+    async def reply(self, j: AnalysisJob, msg) -> bool:
+        # Everything a reader would see (blocks + fallback text), so assertions read like the message.
+        self.texts.append(msg.visible() if hasattr(msg, "visible") else msg)
         if self.error:
             raise self.error
         return True
@@ -165,7 +166,8 @@ async def test_live_posts_the_analysis_of_the_masked_bundle():
     assert "4a6b7c8d9e0f1a2b3c4d5e6f7a" not in seen[0].templates[0].samples[0]
     assert len(notifier.texts) == 1
     assert "새 ERROR 로거 1개" in notifier.texts[0]
-    assert "`t:1` worker ERROR B NEW 1건" in notifier.texts[0]
+    assert "worker B ERROR 1건" in notifier.texts[0]
+    assert "t:1" not in notifier.texts[0]  # evidence ids stay out of the message
 
 
 async def test_llm_failure_posts_a_failure_line(caplog):
@@ -180,7 +182,7 @@ async def test_llm_failure_posts_a_failure_line(caplog):
         )
 
     assert bundle is not None
-    assert notifier.texts[0].startswith(":warning: AI 원인 분석 실패: 시간 초과")
+    assert "AI 원인 분석 실패" in notifier.texts[0] and "시간 초과" in notifier.texts[0]
     assert "analysis failed group=g reason=시간 초과" in caplog.text
 
 

@@ -11,6 +11,12 @@ import notify_slack as ns  # noqa: E402
 URL = "https://github.com/o/r/actions/runs/1"
 
 
+def shown(*args):
+    """Everything a reader sees: blocks and the fallback text."""
+    text, blocks = ns.render(*args)
+    return json.dumps(blocks, ensure_ascii=False) + "\n" + text
+
+
 def summary(**kw):
     base = {"status": "passed", "path": "src/main/java/a/B.java", "selected": 12, "passed": 40, "failed": 0,
             "skipped": 0, "duration_s": 512, "failures": [], "compile_errors": [], "baseline_checked": False}
@@ -20,41 +26,41 @@ def summary(**kw):
 
 class RenderTest(unittest.TestCase):
     def test_passed(self):
-        text = ns.render(summary(), "SubwayRing 5xx", "success", URL)
+        text = shown(summary(), "SubwayRing 5xx", "success", URL)
         self.assertIn("수정 검증", text)
         self.assertIn("통과 40 · 실패 0 · 클래스 12개 · 8분 32초", text)
-        self.assertIn(f"<{URL}|실행 보기>", text)
+        self.assertIn('"실행 보기"}, "url": "' + URL, text)
         self.assertIn("fix-patch", text)
 
     def test_failed_splits_new_and_baseline(self):
         f = [{"test": "a.BTest#x", "message": "boom", "baseline": False},
              {"test": "a.CIT#y", "message": "timeout", "baseline": True}]
-        text = ns.render(summary(status="failed", failed=2, failures=f, baseline_checked=True), "", "success", URL)
+        text = shown(summary(status="failed", failed=2, failures=f, baseline_checked=True), "", "success", URL)
         self.assertIn("(새 실패 1, 기존 실패 1)", text)
         self.assertIn("a.BTest#x — `boom`", text)
         self.assertNotIn("a.CIT#y", text)  # only new failures listed when there are any
 
     def test_failed_without_baseline_check(self):
         f = [{"test": "a.BTest#x", "message": "boom", "baseline": False}]
-        text = ns.render(summary(status="failed", failed=1, failures=f), "", "success", URL)
+        text = shown(summary(status="failed", failed=1, failures=f), "", "success", URL)
         self.assertIn("재확인 못 함", text)
 
     def test_other_statuses(self):
-        self.assertIn("적용 못 함", ns.render(summary(status="apply_failed"), "", "success", URL))
-        text = ns.render(summary(status="compile_failed", compile_errors=["B.java:3: error: ';' expected"]), "", "success", URL)
+        self.assertIn("적용 못 함", shown(summary(status="apply_failed"), "", "success", URL))
+        text = shown(summary(status="compile_failed", compile_errors=["B.java:3: error: ';' expected"]), "", "success", URL)
         self.assertIn("컴파일 실패", text)
         self.assertIn("error: ';' expected", text)
-        self.assertIn("schema_drift", ns.render(summary(status="error", reason="schema_drift"), "", "success", URL))
+        self.assertIn("schema_drift", shown(summary(status="error", reason="schema_drift"), "", "success", URL))
 
     def test_missing_or_unknown_summary(self):
-        self.assertIn("결과 없음", ns.render(None, "", "failure", URL))
-        self.assertIn("failure", ns.render(None, "", "failure", URL))
-        self.assertIn("결과 없음", ns.render({"status": "hacked"}, "", "success", URL))
+        self.assertIn("결과 없음", shown(None, "", "failure", URL))
+        self.assertIn("failure", shown(None, "", "failure", URL))
+        self.assertIn("결과 없음", shown({"status": "hacked"}, "", "success", URL))
 
     def test_untrusted_fields_are_escaped_masked_and_typed(self):
         f = [{"test": "<!channel> a#b", "message": "token=supersecretvalue xoxb-123-456 <https://evil|x>", "baseline": False}]
         s = summary(status="failed", failed="9999", passed=True, selected=[1], failures=f, path="<@U1>")
-        text = ns.render(s, "", "success", URL)
+        text = shown(s, "", "success", URL)
         self.assertNotIn("<!channel>", text)
         self.assertNotIn("<https://evil", text)
         self.assertNotIn("supersecretvalue", text)
@@ -64,13 +70,27 @@ class RenderTest(unittest.TestCase):
 
     def test_backticks_cannot_close_code_blocks(self):
         s = summary(status="compile_failed", compile_errors=["B.java:1: error: ```\n<!here> *bold*"], path="a`b")
-        text = ns.render(s, "", "success", URL)
+        text = shown(s, "", "success", URL)
         self.assertEqual(text.count("```"), 2)  # only our own fence
         self.assertNotIn("<!here>", text)
 
-    def test_length_cap(self):
+    def test_block_text_stays_within_slack_limits(self):
         f = [{"test": "t" * 500, "message": "m" * 500, "baseline": False}] * 20
-        self.assertLessEqual(len(ns.render(summary(status="failed", failures=f), "x" * 500, "success", URL)), ns.MAX_TEXT)
+        _, blocks = ns.render(summary(status="failed", failures=f), "x" * 500, "success", URL)
+        for b in blocks:
+            texts = [b["text"]["text"]] if b["type"] == "section" else [e["text"] for e in b.get("elements", []) if "text" in e and isinstance(e["text"], str)]
+            for t in texts:
+                self.assertLessEqual(len(t), ns.SECTION_CHARS)
+
+    def test_buttons_only_for_checked_urls_and_approval_only_when_approvable(self):
+        _, blocks = ns.render(summary(), "", "success", URL)
+        self.assertEqual([e["text"]["text"] for e in blocks[-1]["elements"]], ["diff 보고 승인", "실행 보기"])
+        bad = summary(status="failed", failed=1, failures=[{"test": "a#b", "message": "m", "baseline": False}], baseline_checked=True)
+        _, blocks = ns.render(bad, "", "success", URL)
+        self.assertEqual([e["text"]["text"] for e in blocks[-1]["elements"]], ["실행 보기"])
+        for odd in ["", "https://evil.example/o/r/actions/runs/1", "javascript:alert(1)"]:
+            _, blocks = ns.render(summary(), "", "success", odd)
+            self.assertNotIn("actions", [b["type"] for b in blocks], odd)
 
 
 class MainTest(unittest.TestCase):
@@ -122,9 +142,9 @@ class ApprovableTest(unittest.TestCase):
                 self.assertIs(ns.approvable(s), want)
 
     def test_render_shows_approval_link_only_when_approvable(self):
-        self.assertIn("승인하면 Draft PR 생성", ns.render(summary(), "", "success", URL))
+        self.assertIn("승인하면 Draft PR 생성", shown(summary(), "", "success", URL))
         bad = summary(status="failed", failed=1, failures=[self.f(False)], baseline_checked=True)
-        self.assertNotIn("승인하면", ns.render(bad, "", "success", URL))
+        self.assertNotIn("승인하면", shown(bad, "", "success", URL))
 
 
 class ModesTest(unittest.TestCase):
@@ -159,6 +179,47 @@ class ModesTest(unittest.TestCase):
 
     def test_pr_failed_mode(self):
         self.assertEqual(ns.main(["x", "--pr-failed", "--dry-run"]), 0)
+
+    def test_urls_with_a_trailing_newline_are_refused(self):
+        self.assertIsNone(ns.RUN_URL.fullmatch(URL + "\n"))
+        _, blocks = ns.render(summary(), "", "success", URL + "\n")
+        self.assertNotIn("actions", [b["type"] for b in blocks])
+
+    def test_token_at_the_cut_is_masked_not_half_leaked(self):
+        text = ns.clean("x" * 185 + "ghp_" + "A" * 36, 200)
+        self.assertNotIn("ghp_", text)
+
+    def test_escaped_compile_errors_keep_the_fence_closed(self):
+        s = summary(status="compile_failed", compile_errors=["<" * 200] * 10)
+        _, blocks = ns.render(s, "", "success", URL)
+        code = blocks[2]["text"]["text"]
+        self.assertTrue(code.startswith("```\n") and code.endswith("\n```"))
+        self.assertLessEqual(len(code), ns.SECTION_CHARS)
+        self.assertNotRegex(code, r"&[a-z]*\n```$")
+
+    def test_fallback_text_carries_numbers_new_failure_and_link(self):
+        bad = summary(status="failed", failed=1, failures=[{"test": "a.B#x", "message": "m", "baseline": False}], baseline_checked=True)
+        text, _ = ns.render(bad, "", "success", URL)
+        self.assertIn("통과 40", text)
+        self.assertIn("a.B#x", text)
+        self.assertIn(f"<{URL}|실행 보기>", text)
+
+    def test_rejected_blocks_fall_back_to_text_once(self):
+        sent = []
+
+        def fake(token, payload):
+            sent.append(payload)
+            return {"ok": "blocks" not in payload, "error": "invalid_blocks"}
+
+        saved, ns._post = ns._post, fake
+        try:
+            ns.post("t", "C0123ABCD", "1700000000.000100", "대체", [{"type": "divider"}])
+        finally:
+            ns._post = saved
+        self.assertEqual(len(sent), 2)
+        self.assertIn("blocks", sent[0])
+        self.assertNotIn("blocks", sent[1])
+        self.assertEqual(sent[1]["text"], "대체")
 
 
 if __name__ == "__main__":

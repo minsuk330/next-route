@@ -7486,3 +7486,19 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - PR 본문 "실패 0(…기존 실패 0)" 어색 → 실패 0 이면 기존 실패 문구 생략(03f0f487, ops/ci 48 OK). #669 머지 a47e938d.
 ### 미결
 - Opus #1 두 번째 겹: 환경 fix-approval 배포 브랜치 main 제한은 분류기가 막음([Undermining Oversight]) → 사용자 실행. 워크플로 조건은 #671.
+
+## Slack 가독성 (slack-block-kit, 2026-11-28)
+### 확정
+- Grafana 본문 = provisioning templates.yaml 의 nr.slack.title/text. contact point settings 의 title/text 는 template 호출만(settings 만 env 치환 → 거기 `$` 금지).
+- 분석기·notify_slack 답글 = Block Kit + 대체 text. Slack ok=false 면 blocks 빼고 text 만 한 번 재전송(전송 오류는 재전송 안 함).
+- 메타(모델·토큰·시간·없는 근거)는 메시지에서 뺌. worker 로그 줄에 model 추가.
+- TestAlert(contact point 시험 버튼)는 분석 제외(payload.SKIPPED_ALERTNAMES).
+### 함정
+- 새 템플릿은 Grafana 기동 직후 바로 안 먹음: receivers/test 가 "template nr.slack.title not defined" → 약 1분(alertmanager 설정 동기화) 뒤 정상. 운영 시험 알림은 재시작 1분 뒤에.
+- Slack 이 메시지 저장 때 유니코드 이모지를 :red_circle: 같은 shortcode 로 바꿈(채널 history 의 채점 줄이 :white_check_mark: 로 보였음) → weekly.TITLE_NEW 는 둘 다 받음.
+- templates/test API 의 resolved 샘플은 endsAt 이 과거여야 Status=resolved.
+- REPL 에서 `cd X && ...` 를 쓰면 작업 디렉터리가 바뀜 → .cwd() 사용.
+### 검증
+- 로컬 grafana/grafana:12.0.0 templates/test: firing 🟡 ERROR 로그 급증 · worker2 / 대상 2개(공통 대상 없으면 제목에 대상 없음) / 7개(5줄 + "외 더 있음") / resolved "🟢 해결 · … " + fp. receivers/test(slack) 본문: attachments[0].title·text·fallback, title_link 있음, footer "Grafana v12.0.0".
+- alert-analyzer pytest 277 passed, ops/ci unittest 50 OK.
+- 시험 스레드 실 게시 7건 전부 ok=true (invalid_blocks 없음): 분석·수정 제안·실패·검증 통과/새 실패·PR 링크.

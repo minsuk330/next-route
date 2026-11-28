@@ -54,8 +54,9 @@ class AnalysisJob:
 
 
 # Grafana's own "the query failed / returned nothing" alerts: the data source is
-# the broken part, so reading it for context is pointless.
-SKIPPED_ALERTNAMES = frozenset({"DatasourceError", "DatasourceNoData"})
+# the broken part, so reading it for context is pointless. TestAlert is the contact point
+# "Test" button: a fake alert, analysing it would only cost an LLM call and a reply.
+SKIPPED_ALERTNAMES = frozenset({"DatasourceError", "DatasourceNoData", "TestAlert"})
 SELF_APP = "alert-analyzer"
 # Older alerts are hourly repeats of an episode that was already analysed (or
 # missed while this service was down); analysing them late helps nobody.
@@ -72,7 +73,7 @@ def skip_reason(alert: GrafanaAlert, now: datetime) -> str | None:
     if alert.status != "firing":
         return "not firing"
     if alert.labels.get("alertname") in SKIPPED_ALERTNAMES:
-        return "datasource alert"
+        return "datasource or test alert"
     # The ERROR-burst rule counts every app, this one included: never analyse ourselves.
     if alert.labels.get("app") == SELF_APP:
         return "own alert"

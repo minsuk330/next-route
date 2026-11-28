@@ -8,7 +8,7 @@ import pytest
 from analyzer.cards import CARDS_PATH, Card, load, select
 from analyzer.context import ContextBundle, TemplateStat, fit_budget, gather
 from analyzer.llm import Analysis, FixCandidate, Hypothesis, Verdict, check_evidence, check_fix, user_message
-from analyzer.slack import MAX_TEXT, render
+from analyzer.slack import MAX_BLOCKS, SECTION_CHARS, render
 from tests.test_code_wiring import job, logs
 
 pytestmark = pytest.mark.anyio
@@ -139,9 +139,10 @@ def test_slack_shows_fix_candidates_with_card_summary_and_keeps_the_footer():
                code=[{"id": "s:1", "symbol": "SubwayDirectionNormalizer#fromPositionRow", "start_line": 1,
                       "end_line": 2, "revision": "f" * 40}])
     fix = FixCandidate(place="SubwayDirectionNormalizer", why="방향 반전 노선 추가", refs=["s:1", "k:K11"])
-    short = render(_verdict([fix]).__class__(**{**_verdict([fix]).__dict__, "hypotheses": []}), b, link="https://g")
-    assert "고칠 곳 후보" in short and "`k:K11` 9호선 0/38역 도착 열차 0대(10-10)" in short
+    short = render(_verdict([fix]).__class__(**{**_verdict([fix]).__dict__, "hypotheses": []}), b, link="https://g").visible()
+    assert "고칠 곳" in short and "9호선 0/38역 도착 열차 0대(10-10)" in short
+    assert "k:K11" not in short                                              # card id stays out
     long = render(_verdict([fix]), b, link="https://g")
-    assert len(_verdict([fix]).hypotheses[0].cause) * 3 > MAX_TEXT          # the body really gets cut
-    assert len(long) <= MAX_TEXT and "Grafana Explore" in long
-    assert "고칠 곳 후보" in long and "SubwayDirectionNormalizer" in long     # candidates survive the cut
+    assert len(long.blocks) <= MAX_BLOCKS
+    assert all(len(blk["text"]["text"]) <= SECTION_CHARS for blk in long.blocks if blk["type"] == "section")
+    assert "고칠 곳" in long.visible() and "SubwayDirectionNormalizer" in long.visible()  # candidates survive the cut

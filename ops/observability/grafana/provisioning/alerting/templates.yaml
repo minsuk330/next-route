@@ -1,0 +1,24 @@
+apiVersion: 1
+
+# Slack 알림 본문 (docs/plan/slack-block-kit). contact-points.yaml 의 slack receiver 가 title·text 로 부른다.
+# 남기는 것: 심각도 이모지 · 규칙 · 대상 / summary / 규칙·끄기 링크 / 채점 / fp. 해결 알림은 제목 한 줄 + fp.
+# - fp 줄은 마지막에 둔다: 분석기(slack.find_thread)가 메시지에서 fingerprint 를 찾아 같은 스레드에 답하고,
+#   주간 요약(weekly.parse_alert_message)이 이 줄과 제목으로 알림을 센다. 제목 모양을 바꾸면 weekly.TITLE_NEW 도 바꾼다.
+# - env 치환($VAR)은 contact point settings 에서만 일어난다. 이 파일의 템플릿 변수($i)는 그대로 남는다.
+templates:
+  - orgId: 1
+    name: nr-slack
+    template: |
+      {{ define "nr.slack.title" -}}
+      {{ if eq .Status "firing" }}{{ if eq .CommonLabels.severity "critical" }}🔴{{ else }}🟡{{ end }}{{ else }}🟢 해결 ·{{ end }} {{ .CommonLabels.alertname }}{{ with or .CommonLabels.app .CommonLabels.client_name .CommonLabels.scenario .CommonLabels.instance }} · {{ . }}{{ end }}
+      {{- end }}
+
+      {{ define "nr.slack.text" -}}
+      {{ if eq .Status "firing" -}}
+      {{ range $i, $a := .Alerts.Firing }}{{ if lt $i 5 }}{{ or $a.Annotations.summary $a.Labels.alertname }}
+      {{ end }}{{ end }}{{ if gt (len .Alerts.Firing) 5 }}… 외 더 있음 (규칙 보기)
+      {{ end }}{{ with index .Alerts.Firing 0 }}<{{ .GeneratorURL }}|규칙 보기> · <{{ .SilenceURL }}|끄기>{{ end }}
+      채점 ▸ ✅ 진짜 장애 · ❌ 오탐 · 🎯 분석 가설 맞음 · 🤷 틀림
+      {{ end -}}
+      fp: {{ range .Alerts }}{{ .Fingerprint }} {{ end }}
+      {{- end }}

@@ -96,6 +96,10 @@ DRILLS = (
 
 FP_LINE = re.compile(r"fp:\s*([0-9a-f ]+)")
 TITLE = re.compile(r"\[(FIRING|RESOLVED)(?::\d+)?\]\s*(.+?)(?:\s+\(|$)")
+# Since docs/plan/slack-block-kit the title is "<severity emoji> <alertname>[ · <target>]" (firing) or
+# "🟢 해결 · ..." (resolved); see ops/observability/grafana/provisioning/alerting/templates.yaml.
+# Slack may store the emoji as a shortcode, so both spellings count.
+TITLE_NEW = re.compile(r"^\s*(?:🔴|🟡|:red_circle:|:large_yellow_circle:)\s*(.+?)(?:\s+·\s+.*)?\s*$")
 
 
 class DigestError(Exception):
@@ -319,9 +323,13 @@ def parse_alert_message(message: dict) -> list[tuple[str, list[str]]]:
     for title in titles:
         m = TITLE.search(title)
         if m and m.group(1) == "FIRING":
-            # Title = "<alertname> <grafana_folder> (<severity>)"; every rule lives in folder "nextroute".
+            # Old title = "<alertname> <grafana_folder> (<severity>)"; every rule lives in folder "nextroute".
             name = m.group(2).strip().removesuffix(" nextroute")
             out.append((name, fp.group(1).split()))
+            continue
+        new = TITLE_NEW.match(title)
+        if new:
+            out.append((new.group(1).strip(), fp.group(1).split()))
     return out
 
 
