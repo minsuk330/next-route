@@ -264,6 +264,8 @@ external-api:
 seoul:
   api:
     bus-key: ${SEOUL_BUS_API:test}
+    # 키 재발급 반영이 기능별로 덜 끝난 동안만 채운다(옛 키). 401 이면 이 키로 한 번 더 부른다. 비우면 꺼짐.
+    bus-fallback-key: ${SEOUL_BUS_API_FALLBACK:}
     bus-base-url: http://ws.bus.go.kr/api/rest
     bus-route-key: ${SEOUL_BUS_ROUTE:test}
     seoul-bus-use-key: ${SEOUL_BUS_USAGE}

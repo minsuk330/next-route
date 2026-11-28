@@ -67,6 +67,12 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort, SeoulStatio
     private final TransferArrivalProperties props;
     private final Clock clock;
     private final JdkHttpClientMetrics httpMetrics;
+    private SeoulBusKeyFallback keyFallback = SeoulBusKeyFallback.disabled();
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setKeyFallback(SeoulBusKeyFallback keyFallback) {
+        this.keyFallback = keyFallback;
+    }
     /** 정류장 단위 호출(STATION)이 검색 공유 슬롯에서 동시에 잡을 수 있는 최대 수. */
     static final int STATION_MAX_CONCURRENT = 3;
     final Semaphore stationLimiter = new Semaphore(STATION_MAX_CONCURRENT);
@@ -225,12 +231,21 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort, SeoulStatio
             URI uri, Class<I> itemType, BusApiQuotaPort.Endpoint endpoint,
             java.util.function.Function<I, R> mapper, long timeoutMs) {
         try {
-            HttpRequest request = HttpRequest.newBuilder(uri)
-                    .timeout(Duration.ofMillis(Math.max(1, timeoutMs)))
-                    .GET()
-                    .build();
-            String xml = httpMetrics.send(httpClient, request, HttpResponse.BodyHandlers.ofString()).body();
-            return parseResponse(xml, uri, itemType, endpoint, mapper);
+            long startedNanos = System.nanoTime();
+            URI first = keyFallback.preferred(uri);
+            HttpResponse<String> response = send(first, timeoutMs);
+            if (response.statusCode() == 401) {
+                // 인증키 재발급 반영이 기능마다 따로 끝난다 — 남은 예산 안에서 다른 키로 한 번 더.
+                Optional<URI> other = keyFallback.alternate(first);
+                long remainingMs = remainingMillis(startedNanos, timeoutMs);
+                if (other.isPresent() && remainingMs > 0) {
+                    response = send(other.get(), remainingMs);
+                    if (response.statusCode() != 401) {
+                        keyFallback.markWorking(other.get());
+                    }
+                }
+            }
+            return parseResponse(response.body(), uri, itemType, endpoint, mapper);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return BusQueryResult.error();
@@ -240,14 +255,34 @@ public class SearchTimeBusAdapter implements SearchTimeBusQueryPort, SeoulStatio
         }
     }
 
+    private HttpResponse<String> send(URI uri, long timeoutMs) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .timeout(Duration.ofMillis(Math.max(1, timeoutMs)))
+                .GET()
+                .build();
+        return httpMetrics.send(httpClient, request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private String getWithKeyFallback(URI uri) {
+        URI first = keyFallback.preferred(uri);
+        try {
+            return restClient.get().uri(first).retrieve().body(String.class);
+        } catch (org.springframework.web.client.HttpClientErrorException.Unauthorized e) {
+            Optional<URI> other = keyFallback.alternate(first);
+            if (other.isEmpty()) {
+                throw e;
+            }
+            String body = restClient.get().uri(other.get()).retrieve().body(String.class);
+            keyFallback.markWorking(other.get());
+            return body;
+        }
+    }
+
     private <I, R> BusQueryResult<R> doCall(URI uri, Class<I> itemType,
                                             BusApiQuotaPort.Endpoint endpoint,
                                             java.util.function.Function<I, R> mapper) {
         try {
-            String xml = restClient.get()
-                    .uri(uri)
-                    .retrieve()
-                    .body(String.class);
+            String xml = getWithKeyFallback(uri);
             return parseResponse(xml, uri, itemType, endpoint, mapper);
         } catch (Exception e) {
             log.warn("[SearchTimeAdapter] Call failed [{}]: {}", uri.getPath(), e.getMessage());

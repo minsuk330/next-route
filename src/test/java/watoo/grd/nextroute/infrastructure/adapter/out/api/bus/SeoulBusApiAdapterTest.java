@@ -380,4 +380,38 @@ class SeoulBusApiAdapterTest {
 		assertThat(info.gpsY()).isEqualTo(37.566500);
 		assertThat(info.isRunYn()).isEqualTo("1");
 	}
+
+	@Test
+	void TC_401이면_대체키로_다시_부르고_다음부터는_그_키를_먼저_쓴다() {
+		adapter.setKeyFallback(new SeoulBusKeyFallback("bus-key", "old-key"));
+		String ok = """
+				<ServiceResult>
+				  <msgHeader><headerCd>0</headerCd><headerMsg>정상</headerMsg><itemCount>0</itemCount></msgHeader>
+				  <msgBody></msgBody>
+				</ServiceResult>
+				""";
+		URI withNew = URI.create("http://ws.bus.go.kr/api/rest/buspos/getBusPosByRtid?serviceKey=bus-key&busRouteId=100100118");
+		URI withOld = URI.create("http://ws.bus.go.kr/api/rest/buspos/getBusPosByRtid?serviceKey=old-key&busRouteId=100100118");
+		when(restTemplate.getForObject(eq(withNew), eq(String.class)))
+				.thenThrow(org.springframework.web.client.HttpClientErrorException.create(
+						org.springframework.http.HttpStatus.UNAUTHORIZED, "Unauthorized",
+						new org.springframework.http.HttpHeaders(), new byte[0], null));
+		when(restTemplate.getForObject(eq(withOld), eq(String.class))).thenReturn(ok);
+
+		adapter.getBusPosByRtid("100100118");
+		adapter.getBusPosByRtid("100100118");
+
+		verify(restTemplate, times(1)).getForObject(eq(withNew), eq(String.class));
+		verify(restTemplate, times(2)).getForObject(eq(withOld), eq(String.class));
+	}
+
+	@Test
+	void TC_대체키가_없으면_401은_예전처럼_재시도_없이_한_키로만_부른다() {
+		URI withNew = URI.create("http://ws.bus.go.kr/api/rest/busRouteInfo/getRouteInfo?serviceKey=bus-key&busRouteId=1");
+		when(restTemplate.getForObject(eq(withNew), eq(String.class))).thenReturn("");
+
+		adapter.getRouteInfo("1");
+
+		verify(restTemplate, times(1)).getForObject(any(URI.class), eq(String.class));
+	}
 }

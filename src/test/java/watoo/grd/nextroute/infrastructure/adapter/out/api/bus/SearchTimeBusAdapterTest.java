@@ -160,4 +160,37 @@ class SearchTimeBusAdapterTest {
             server.shutdown();
         }
     }
+
+    @Test
+    void TC_401이면_남은_예산_안에서_대체키로_다시_부른다() throws Exception {
+        MockWebServer server = new MockWebServer();
+        server.start();
+        try {
+            when(breaker.getBlockedUntil(BusApiQuotaPort.Endpoint.POSITION)).thenReturn(Optional.empty());
+            when(quota.tryAcquireSearch(BusApiQuotaPort.Endpoint.POSITION)).thenReturn(true);
+            server.enqueue(new MockResponse().setResponseCode(401)
+                    .setBody("{\"error\":\"Unauthorized\",\"status\":401}"));
+            String ok = "<ServiceResult><msgHeader><headerCd>0</headerCd><headerMsg>ok</headerMsg>"
+                    + "<itemCount>0</itemCount></msgHeader><msgBody></msgBody></ServiceResult>";
+            server.enqueue(new MockResponse().setBody(ok));
+            server.enqueue(new MockResponse().setBody(ok));
+
+            SearchTimeBusAdapter adapter = new SearchTimeBusAdapter(
+                    restClient, breaker, quota, new Semaphore(1), props, CLOCK,
+                    new JdkHttpClientMetrics(registry), "bus-key", server.url("/").toString().replaceAll("/$", ""));
+            adapter.setKeyFallback(new SeoulBusKeyFallback("bus-key", "old-key"));
+
+            var first = adapter.getBusPosByRtid("R1", 2000);
+            var second = adapter.getBusPosByRtid("R1", 2000);
+
+            assertThat(first.outcome()).isEqualTo(SearchTimeBusQueryPort.Outcome.OK);
+            assertThat(second.outcome()).isEqualTo(SearchTimeBusQueryPort.Outcome.OK);
+            assertThat(server.takeRequest().getPath()).contains("serviceKey=bus-key");
+            assertThat(server.takeRequest().getPath()).contains("serviceKey=old-key");
+            assertThat(server.takeRequest().getPath()).contains("serviceKey=old-key");
+            assertThat(server.getRequestCount()).isEqualTo(3);
+        } finally {
+            server.shutdown();
+        }
+    }
 }
