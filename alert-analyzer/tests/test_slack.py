@@ -10,14 +10,19 @@ import httpx2 as httpx
 import pytest
 
 from analyzer.context import ContextBundle
-from analyzer.llm import Hypothesis, Verdict
+from analyzer.llm import FixCandidate, Hypothesis, Verdict
 from analyzer.payload import AnalysisJob, GrafanaAlert
 from analyzer.slack import (
+    HEADER_CHARS,
+    MAX_BLOCKS,
     MAX_TEXT,
+    SECTION_CHARS,
     SlackClient,
     SlackError,
+    SlackMessage,
     escape,
     explore_url,
+    links,
     render,
     render_failure,
 )
@@ -110,43 +115,101 @@ def test_escape_neutralises_mentions_and_links():
 def test_render_escapes_everything_from_logs_and_model():
     v = verdict(headline="<!channel> 장애", hypotheses=[verdict().hypotheses[0].model_copy(update={"cause": "a<b>&c"})])
 
-    text = render(v, incident("subway-api-503"), link=LINK)
+    msg = render(v, incident("subway-api-503"), link=LINK)
+    mrkdwn = [b["text"]["text"] for b in msg.blocks if b["type"] == "section"]
+    mrkdwn += [e["text"] for b in msg.blocks if b["type"] == "context" for e in b["elements"]]
 
-    assert "<!channel>" not in text
-    assert "&lt;!channel&gt; 장애" in text
-    assert "a&lt;b&gt;&amp;c" in text
-    assert "<https://grafana.example/explore?a=1&amp;b=2|로그 보기 (Grafana Explore)>" in text
-
-
-def test_render_explains_each_evidence_id():
-    text = render(verdict(), incident("subway-api-503"), link=LINK)
-
-    assert "`t:0366fb74` worker ERROR SeoulSubwayApiAdapter NEW 16건(직전 60분 0)" in text
-    assert "`m:client_fail_10m` swopenAPI.seoul.go.kr/503 23 (30분 전 없음)" in text
-    assert "없는 근거 1/3개 제거" in text
-    assert "확신 높음" in text
+    assert msg.blocks[0] == {"type": "header", "text": {"type": "plain_text", "text": "🔍 <!channel> 장애", "emoji": True}}
+    assert not any("<!channel>" in t for t in mrkdwn)
+    assert any("a&lt;b&gt;&amp;c" in t for t in mrkdwn)
+    assert "<!channel>" not in msg.text and "&lt;!channel&gt; 장애" in msg.text
+    assert msg.blocks[-1]["elements"][0] == {"type": "button", "text": {"type": "plain_text", "text": "로그 보기"},
+                                             "url": LINK, "action_id": "link-0"}
 
 
-def test_render_marks_restart_and_unknown():
+def test_render_shows_evidence_in_words_without_ids_or_meta():
+    msg = render(verdict(), incident("subway-api-503"), link=LINK)
+    shown = msg.visible()
+
+    assert "worker SeoulSubwayApiAdapter ERROR 16건(직전 60분 0)" in shown
+    assert "swopenAPI.seoul.go.kr/503 23 (30분 전 없음)" in shown
+    assert "확신 높음" in shown and "*확인*  열린데이터 공지 확인" in shown
+    for hidden in ("t:0366fb74", "m:client_fail_10m", "claude-sonnet", "토큰", "12.3초", "없는 근거"):
+        assert hidden not in shown, hidden
+
+
+def test_same_logger_templates_merge_into_one_evidence_line():
+    bundle = incident("subway-api-503")
+    first = bundle.templates[0]
+    twin = first.model_copy(update={"id": "t:twin", "template": "other template"}) if hasattr(first, "model_copy") \
+        else replace(first, id="t:twin", template="other template")
+    bundle = replace(bundle, templates=[first, twin, *bundle.templates[1:]])
+    h = verdict().hypotheses[0].model_copy(update={"evidence": [first.id, "t:twin", "m:client_fail_10m"]})
+
+    shown = render(verdict(hypotheses=[h]), bundle, link=LINK).visible()
+
+    assert f"{first.logger_total}건(직전 60분 {first.logger_baseline})" in shown and " 외 1" in shown
+    assert "other template" not in shown
+    assert "swopenAPI.seoul.go.kr/503" in shown  # the merge freed the second slot for the metric
+
+
+def test_only_the_first_hypothesis_is_detailed():
+    first = verdict().hypotheses[0]
+    second = first.model_copy(update={"cause": "둘째 원인 " + "x" * 300, "confidence": "low", "next_check": "둘째 확인"})
+
+    msg = render(verdict(hypotheses=[first, second]), incident("subway-api-503"), link=LINK)
+    contexts = [e["text"] for b in msg.blocks if b["type"] == "context" for e in b["elements"]]
+
+    line = next(t for t in contexts if t.startswith("*②*"))
+    assert "확신 낮음 — 둘째 원인" in line and len(line) < 200
+    assert "둘째 확인" not in msg.visible()
+
+
+def test_render_marks_restart():
     bundle = incident("api-5xx-deploy")
 
-    text = render(verdict(deploy_related=True, unknown=True, hypotheses=[]), bundle, link=LINK)
+    msg = render(verdict(deploy_related=True, unknown=True, hypotheses=[]), bundle, link=LINK)
 
-    assert ":recycle: 직전 재시작: otp:9404 12:22:20, api:8081 12:23:24" in text
+    assert "♻️ 직전 재시작 otp:9404 12:22:20, api:8081 12:23:24" in msg.blocks[1]["elements"][0]["text"]
+    assert "근거가 부족함" in msg.visible()
 
 
-def test_render_never_exceeds_slack_limit():
+def test_render_respects_block_kit_limits():
     long = verdict().hypotheses[0].model_copy(update={"cause": "&" * 5000})
+    msg = render(verdict(headline="h" * 400, hypotheses=[long] * 20), incident("subway-api-503"), link=LINK)
 
-    text = render(verdict(hypotheses=[long]), incident("subway-api-503"), link=LINK)
+    assert len(msg.blocks) <= MAX_BLOCKS
+    assert len(msg.blocks[0]["text"]["text"]) <= HEADER_CHARS
+    for b in msg.blocks:
+        if b["type"] == "section":
+            assert 1 <= len(b["text"]["text"]) <= SECTION_CHARS
+            assert not b["text"]["text"].endswith(("&amp…", "&am…"))
+    assert len(msg.text) <= MAX_TEXT
 
-    assert len(text) <= MAX_TEXT
-    assert text.endswith("토큰 · 12.3초 · 없는 근거 1/3개 제거_")
-    assert "&amp…" not in text and "&am…" not in text
+
+def test_code_button_links_the_snippet_and_is_skipped_without_repo_or_path():
+    bundle = replace(incident("subway-api-503"), code=[{"id": "s:1", "symbol": "A#b", "path": "src/main/java/A.java",
+                                                      "revision": "f" * 40, "start_line": 3, "end_line": 9}])
+    fix = FixCandidate(place="A#b", why="w", refs=["s:1"])
+
+    msg = render(verdict(fix_candidates=[fix]), bundle, link=LINK, repo="o/r")
+
+    buttons = msg.blocks[-1]["elements"]
+    assert buttons[1]["url"] == f"https://github.com/o/r/blob/{'f' * 40}/src/main/java/A.java#L3-L9"
+    assert len(render(verdict(fix_candidates=[fix]), bundle, link=LINK).blocks[-1]["elements"]) == 1
+    no_path = replace(bundle, code=[{"id": "s:1", "symbol": "A#b", "revision": "f" * 40}])
+    assert len(render(verdict(fix_candidates=[fix]), no_path, link=LINK, repo="o/r").blocks[-1]["elements"]) == 1
+
+
+def test_links_skip_empty_or_non_https_urls():
+    assert links([("a", ""), ("b", None), ("c", "javascript:x")]) == []
+    assert links([("a", "https://x")])[0]["elements"][0]["url"] == "https://x"
 
 
 def test_render_failure_is_escaped():
-    assert render_failure("HTTP <500>", link=LINK).startswith(":warning: AI 원인 분석 실패: HTTP &lt;500&gt;")
+    msg = render_failure("HTTP <500>", link=LINK)
+    assert msg.text == "⚠️ AI 원인 분석 실패: HTTP &lt;500&gt;"
+    assert msg.blocks[0]["text"]["text"] == "⚠️ *AI 원인 분석 실패*  HTTP &lt;500&gt;"
 
 
 def test_explore_url_points_at_alert_window():
@@ -260,3 +323,53 @@ async def test_thread_lookup_is_remembered_per_job_including_a_miss():
     assert await client.thread_of(job()) is None
     assert await client.thread_of(job()) is None
     assert len(missing.histories()) == 3  # one round of retries, not two
+
+
+async def test_blocks_go_out_with_the_fallback_text():
+    fake = FakeSlack([[ALERT_MESSAGE]])
+    msg = SlackMessage("대체", [{"type": "section", "text": {"type": "mrkdwn", "text": "본문"}}])
+
+    await slack(fake).reply(job(), msg)
+
+    assert fake.posts()[0]["text"] == "대체" and fake.posts()[0]["blocks"] == msg.blocks
+
+
+async def test_rejected_blocks_fall_back_to_text_once(caplog):
+    posts: list = []
+
+    def picky(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("conversations.history"):
+            return httpx.Response(200, json={"ok": True, "messages": [ALERT_MESSAGE]})
+        body = json.loads(request.content)
+        posts.append(body)
+        return httpx.Response(200, json={"ok": "blocks" not in body, "error": "invalid_blocks"})
+
+    msg = SlackMessage("대체", [{"type": "section", "text": {"type": "mrkdwn", "text": ""}}])
+    assert await slack(picky).reply(job(), msg) is True
+
+    assert len(posts) == 2 and "blocks" in posts[0] and "blocks" not in posts[1]
+    assert posts[1]["text"] == "대체" and posts[1]["thread_ts"] == ALERT_MESSAGE["ts"]
+    assert "blocks rejected" in caplog.text
+
+
+async def test_transport_failure_is_not_retried_as_text():
+    calls: list = []
+
+    def down(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        raise httpx.ConnectError("refused", request=request)
+
+    with pytest.raises(SlackError):
+        await slack(down).post(SlackMessage("t", [{"type": "divider"}]))
+    assert len(calls) == 1
+
+
+async def test_new_grafana_alert_message_is_found_by_fingerprint():
+    # Shape of a Grafana 12.0.0 slack notification with templates.yaml (local receivers/test, 2026-11-28).
+    new = {"ts": "1761470431.000100", "attachments": [{"title": "🟡 ERROR 로그 급증 · worker2", "title_link": "https://g",
+           "text": f"worker2 ERROR 로그 80건 (5분)\n<https://g|규칙 보기> · <https://g/s|끄기>\n채점 ▸ ✅\nfp: {FP} ",
+           "fallback": "🟡 ERROR 로그 급증 · worker2", "footer": "Grafana v12.0.0"}]}
+    fake = FakeSlack([[OTHER_MESSAGE, new]])
+
+    assert await slack(fake).reply(job(), "분석") is True
+    assert fake.posts()[0]["thread_ts"] == new["ts"]

@@ -8,7 +8,7 @@ import pytest
 from analyzer.context import ContextBundle
 from analyzer.fix import FixProposal, apply_edits, Edit, parse_edits, pick_target, propose
 from analyzer.llm import FixCandidate, Hypothesis, Verdict
-from analyzer.slack import MAX_TEXT, render_fix
+from analyzer.slack import MAX_TEXT, SECTION_CHARS, render_fix
 
 pytestmark = pytest.mark.anyio
 STARTS = datetime(2026, 11, 27, 5, 0, tzinfo=timezone.utc)
@@ -161,9 +161,11 @@ async def test_secrets_in_the_model_output_are_masked(tmp_path):
 def test_render_fix_fits_and_marks_cuts():
     target = {"symbol": "Svc#ok", "revision": D}
     long = FixProposal("proposed", target, M, diff="+x\n" * 3000)
-    text = render_fix(long)
-    assert len(text) <= MAX_TEXT and "… 생략" in text and "참고용" in text and text.endswith("```")
-    held = render_fix(FixProposal("main_changed", target, M, main_commits=["abc12345 fix"]))
+    msg = render_fix(long)
+    code = msg.blocks[2]["text"]["text"]
+    assert len(code) <= SECTION_CHARS and "… 생략" in code and code.endswith("```")
+    assert "참고용" in msg.visible() and len(msg.text) <= MAX_TEXT
+    held = render_fix(FixProposal("main_changed", target, M, main_commits=["abc12345 fix"])).visible()
     assert "수정 제안 보류" in held and "abc12345 fix" in held
     assert render_fix(FixProposal("skipped")) is None and render_fix(FixProposal("failed", target)) is None
 
@@ -173,11 +175,13 @@ def test_render_fix_adds_one_verify_line_and_still_fits():
     target = {"symbol": "Svc#ok", "revision": D}
     ok = render_fix(FixProposal("proposed", target, M, diff="+x\n" * 3000),
                     VerifyResult(True, url="https://github.com/o/r/actions/runs/1"))
-    assert len(ok) <= MAX_TEXT and ok.endswith("<https://github.com/o/r/actions/runs/1|진행 보기>")
-    assert "테스트 요청함" in ok and "… 생략" in ok
+    assert ok.blocks[-1]["elements"][0]["url"] == "https://github.com/o/r/actions/runs/1"
+    assert "테스트 요청함" in ok.visible() and "… 생략" in ok.visible()
+    no_url = render_fix(FixProposal("proposed", target, M, diff="+x\n"), VerifyResult(True, url=""))
+    assert all(b["type"] != "actions" for b in no_url.blocks)  # an empty url never becomes a button
     bad = render_fix(FixProposal("proposed", target, M, diff="+x\n"), VerifyResult(False, reason="GitHub 403 <x>"))
-    assert "테스트 요청 실패(GitHub 403 &lt;x&gt;)" in bad
-    assert "테스트" not in render_fix(FixProposal("proposed", target, M, diff="+x\n"))
+    assert "테스트 요청 실패(GitHub 403 &lt;x&gt;)" in bad.visible()
+    assert "테스트" not in render_fix(FixProposal("proposed", target, M, diff="+x\n")).visible()
 
 
 # --- review fixes (2026-11-27) ---------------------------------------------------------------

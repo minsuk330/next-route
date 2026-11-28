@@ -14,7 +14,7 @@ from analyzer.context import ContextBundle, TemplateStat, fit_budget, gather
 from analyzer.llm import Analysis, Hypothesis, check_evidence
 from analyzer.masking import mask_bundle
 from analyzer.payload import AnalysisJob, GrafanaAlert
-from analyzer.slack import _describe, explore_url
+from analyzer.slack import _briefs, _code_url, explore_url
 from tests.conftest import FakeLogs, FakeMetrics, stream, vector
 
 pytestmark = pytest.mark.anyio
@@ -167,7 +167,7 @@ def test_slack_describes_code_evidence_and_explores_worker2():
         alerts=[], window_start=STARTS, window_end=STARTS, templates=[], quiet_summary=[], metrics=[],
         restarts=[], collection_errors=[], code=[vars(snippet(1))],
     )
-    assert _describe("s:1", bundle) == "`s:1` OtpRoutingAdapter#search L130-158 @f07e1f59"
+    assert _briefs(["s:1"], bundle) == ["`OtpRoutingAdapter#search`"]  # no id, line range or commit
     assert "worker2" in explore_url("https://g", bundle).replace("%7C", "|")
 
 

@@ -55,6 +55,15 @@ def test_parse_alert_message_counts_firing_only():
     assert parse_alert_message(digest) == []
 
 
+def test_parse_alert_message_reads_the_new_title_too():
+    # templates.yaml titles; Slack may store the emoji as a shortcode.
+    for title in ("🟡 ERROR 로그 급증 · worker2", ":red_circle: 합성 확인 실패", "🔴 외부 API 호출 실패 · ws.bus.go.kr"):
+        msg = {"attachments": [{"title": title, "text": "worker2 ERROR 로그 80건\nfp: ab12 cd34 "}]}
+        assert parse_alert_message(msg) == [(title.split(" ", 1)[1].split(" · ")[0], ["ab12", "cd34"])], title
+    for resolved in ("🟢 해결 · ERROR 로그 급증 · worker2", ":large_green_circle: 해결 · 합성 확인 실패"):
+        assert parse_alert_message({"attachments": [{"title": resolved, "text": "fp: ab12"}]}) == []
+
+
 def test_settings_need_grafana_token_and_slack_unless_dry_run():
     with pytest.raises(DigestError, match="GRAFANA_API_TOKEN"):
         WeeklySettings.from_env({}, dry_run=True)

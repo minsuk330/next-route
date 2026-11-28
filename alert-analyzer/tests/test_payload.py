@@ -65,6 +65,14 @@ def test_datasource_alerts_are_skipped(grafana_payload):
     assert select_new(payload, SeenStore(), NOW) == []
 
 
+def test_contact_point_test_alert_is_skipped(grafana_payload):
+    # The "Test" button sends a fake firing TestAlert to every integration, the analyzer webhook too.
+    grafana_payload["alerts"][0]["labels"]["alertname"] = "TestAlert"
+    payload = GrafanaWebhook.model_validate(grafana_payload)
+
+    assert select_new(payload, SeenStore(), NOW) == []
+
+
 def test_own_error_burst_is_skipped(grafana_payload):
     grafana_payload["alerts"][0]["labels"]["app"] = "alert-analyzer"
     payload = GrafanaWebhook.model_validate(grafana_payload)

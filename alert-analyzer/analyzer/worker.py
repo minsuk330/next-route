@@ -16,7 +16,7 @@ from analyzer.fix import FixProposal
 from analyzer.llm import LlmFailure, Verdict
 from analyzer.masking import mask_bundle
 from analyzer.payload import AnalysisJob
-from analyzer.slack import SlackError, explore_url, render, render_budget_notice, render_failure, render_fix
+from analyzer.slack import SlackError, SlackMessage, explore_url, render, render_budget_notice, render_failure, render_fix
 from analyzer.verify import VerifyResult
 
 log = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ AnalyzeFn = Callable[[ContextBundle], Awaitable[Verdict]]
 
 
 class Notifier(Protocol):
-    async def reply(self, job: AnalysisJob, text: str) -> bool: ...
+    async def reply(self, job: AnalysisJob, msg: SlackMessage | str) -> bool: ...
 
     async def thread_of(self, job: AnalysisJob) -> str | None: ...
 
@@ -101,10 +101,10 @@ async def process(
         log.warning("analysis failed group=%s reason=%s", job.group_key, exc.reason)
         await _notify(live.notifier, job, render_failure(exc.reason, link=link))
         return bundle
-    threaded = await _notify(live.notifier, job, render(verdict, bundle, link=link))
+    threaded = await _notify(live.notifier, job, render(verdict, bundle, link=link, repo=settings.github_repo))
     log.info(
         "analyzed group=%s categories=%s unknown=%s invalid_evidence=%d/%d tokens=%d/%d cost_usd=%.4f "
-        "elapsed_s=%.1f threaded=%s request_id=%s code_via=%s code=%d cards=%d fix=%d",
+        "elapsed_s=%.1f model=%s threaded=%s request_id=%s code_via=%s code=%d cards=%d fix=%d",
         job.group_key,
         [h.category for h in verdict.hypotheses],
         verdict.unknown,
@@ -114,6 +114,7 @@ async def process(
         verdict.output_tokens,
         verdict.cost_usd,
         verdict.elapsed_s,
+        verdict.model,
         threaded,
         verdict.request_id,
         bundle.code_via,
@@ -165,10 +166,10 @@ async def _verify(live: Live, job: AnalysisJob, proposal: FixProposal) -> Verify
         return VerifyResult(False, reason=type(exc).__name__)
 
 
-async def _notify(notifier: Notifier, job: AnalysisJob, text: str) -> bool | None:
+async def _notify(notifier: Notifier, job: AnalysisJob, msg: SlackMessage | str) -> bool | None:
     """Post to Slack. A Slack failure is logged, never raised: the alert itself already went out."""
     try:
-        return await notifier.reply(job, text)
+        return await notifier.reply(job, msg)
     except SlackError as exc:
         log.warning("slack post failed group=%s: %s", job.group_key, exc)
         return None
