@@ -6,8 +6,10 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 import watoo.grd.nextroute.application.bus.dto.*;
 import watoo.grd.nextroute.application.bus.exception.BusApiBlockedException;
@@ -52,6 +54,12 @@ public class SeoulBusApiAdapter implements BusApiPort {
 	private final String busRouteBaseUrl;
 	private final ObjectMapper objectMapper;
 	private final BusApiBreakerPort breaker;
+	private SeoulBusKeyFallback keyFallback = SeoulBusKeyFallback.disabled();
+
+	@Autowired
+	void setKeyFallback(SeoulBusKeyFallback keyFallback) {
+		this.keyFallback = keyFallback;
+	}
 
 	public SeoulBusApiAdapter(
 			RestTemplate restTemplate,
@@ -544,7 +552,7 @@ public class SeoulBusApiAdapter implements BusApiPort {
 
 		for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 			try {
-				String xml = restTemplate.getForObject(uri, String.class);
+				String xml = fetchWithKeyFallback(uri);
 				if (xml == null || xml.isBlank()) {
 					log.warn("Empty response from API: {}", uri.getPath());
 					return List.of();
@@ -600,6 +608,22 @@ public class SeoulBusApiAdapter implements BusApiPort {
 					"Seoul bus API call failed after retries: " + uri.getPath(), lastException);
 		}
 		return List.of();
+	}
+
+	/** 401 이면 다른 인증키로 한 번 더 부른다({@link SeoulBusKeyFallback}). 대체 키가 없으면 그대로 던진다. */
+	private String fetchWithKeyFallback(URI uri) {
+		URI first = keyFallback.preferred(uri);
+		try {
+			return restTemplate.getForObject(first, String.class);
+		} catch (HttpClientErrorException.Unauthorized e) {
+			Optional<URI> other = keyFallback.alternate(first);
+			if (other.isEmpty()) {
+				throw e;
+			}
+			String body = restTemplate.getForObject(other.get(), String.class);
+			keyFallback.markWorking(other.get());
+			return body;
+		}
 	}
 
 	private void throwIfBlocked(BusApiQuotaPort.Endpoint endpoint, URI uri) {
