@@ -7477,3 +7477,12 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - 승인 가능 판정은 notify(별도 VM, 워크플로 커밋 코드)가 `approvable()`: passed&failed==0, 또는 failed&baseline_checked&len(failures)==failed&전부 baseline. GITHUB_OUTPUT 은 Slack 전송 전에 씀
 - create-pr: `!cancelled() && test success && approvable`. 워크플로 커밋($GITHUB_SHA)의 apply_edits/pr_body/notify_slack 만 RUNNER_TEMP 로 꺼내 실행. inputs.edits 를 IN_REF 에 다시 적용한 diff 와 fix-patch artifact 를 cmp — 다르면 중단(artifact 는 test job 이 overwrite 가능). 바뀐 경로만 add. 브랜치 fix/alert-<run_id>-<attempt>, Draft, GH_TOKEN. 실패 시 브랜치 삭제+스레드 알림
 - 단위 46 OK(approvable 판정표 12경우, 출력이 Slack 실패 전에 쓰임, pr-url 허용·거부, pr_body 무력화)
+
+### 검증 (7단계 e2e, 2026-11-28)
+- C3: 같은 스레드 run A 46034048705 승인 대기 중 run B 46034594908 dispatch → B 의 test/notify 정상 진행, create-pr 대기. 승인 대기가 다음 실행 안 막음.
+- C2: B 승인 → Draft PR #670 (isDraft true, head fix/alert-46034594908-1, base main, 작성자 app/github-actions, 파일 1개). 재적용 cmp 통과, Slack PR 링크 답글 `posted`. A 거절 → create-pr failure, step 0개(Slack 답글 없음).
+- C4: 컴파일 실패 edits run 46096944079 → create-pr skipped.
+- C5: #670 닫고 브랜치 삭제(ls-remote 빈 값).
+- PR 본문 "실패 0(…기존 실패 0)" 어색 → 실패 0 이면 기존 실패 문구 생략(03f0f487, ops/ci 48 OK). #669 머지 a47e938d.
+### 미결
+- Opus #1 두 번째 겹: 환경 fix-approval 배포 브랜치 main 제한은 분류기가 막음([Undermining Oversight]) → 사용자 실행. 워크플로 조건은 #671.
