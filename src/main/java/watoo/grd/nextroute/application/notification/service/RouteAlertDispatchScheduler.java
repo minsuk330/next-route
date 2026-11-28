@@ -1,4 +1,5 @@
-package watoo.grd.nextroute.application.notification.service;
+package watoo.grd.nextroute.application.notification.service;// fix-approval e2e smoke
+
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
