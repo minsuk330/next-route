@@ -190,15 +190,18 @@ def render(verdict: Verdict, bundle: ContextBundle, *, link: str, repo: str | No
         if cards:
             blocks.append(context("비슷한 장애  " + " · ".join(dict.fromkeys(cards))))
     blocks += links([("로그 보기", link), ("코드 보기", _code_url(verdict, bundle, repo))])
-    return message(_fallback(verdict), blocks)
+    return message(_fallback(verdict, link), blocks)
 
 
-def _fallback(verdict: Verdict) -> str:
+def _fallback(verdict: Verdict, link: str) -> str:
+    """Shown in push notifications, and posted alone if Slack rejects the blocks: keep it usable."""
     lines = [f"🔍 AI 분석(참고용): {escape(verdict.headline)}"]
     if verdict.hypotheses:
         h = verdict.hypotheses[0]
         lines += [escape(h.cause), f"확인: {escape(h.next_check)}"]
     lines += [f"고칠 곳: {escape(f.place)} — {escape(f.why)}" for f in verdict.fix_candidates[:FIXES_SHOWN]]
+    if link.startswith("https://"):
+        lines.append(f"<{_link(link)}|로그 보기>")
     return "\n".join(lines)
 
 
@@ -228,13 +231,14 @@ def render_fix(p, verify=None) -> SlackMessage | None:
             context(f"{where} · 참고용, 사람이 검토 후 적용"),
             section(f"```\n{diff}\n```"),
         ]
-        text = f"🛠 수정 제안: {escape(t.get('symbol', '?'))}"
+        # The text alone must still carry the change if Slack rejects the blocks.
+        text = f"🛠 수정 제안: {escape(t.get('symbol', '?'))} ({where})\n```\n{_cut(escape(p.diff), MAX_TEXT - 400)}\n```"
         if verify is not None and verify.dispatched:
             blocks += [context("⏳ 테스트 요청함 — 결과는 이 스레드에 답글로"), *links([("진행 보기", verify.url)])]
-            text += " · 테스트 요청함"
+            text += f"\n테스트 요청함 · <{_link(verify.url)}|진행 보기>" if verify.url.startswith("https://") else "\n테스트 요청함"
         elif verify is not None:
             blocks.append(context(f"⚠️ 테스트 요청 실패({escape(verify.reason)})"))
-            text += f" · 테스트 요청 실패({escape(verify.reason)})"
+            text += f"\n테스트 요청 실패({escape(verify.reason)})"
         return message(text, blocks)
     if p.status == "main_changed":
         commits = "\n".join(f"• {escape(c)}" for c in p.main_commits) or "• (바꾼 커밋 목록을 못 가져옴)"

@@ -44,9 +44,11 @@ _MASKS = [
 
 def clean(value: object, limit: int) -> str:
     text = value if isinstance(value, str) else ""
-    text = " ".join(text.split())[:limit]
+    # Mask before cutting: a token split at the limit would be too short for its pattern and leak in part.
+    text = " ".join(text.split()[:2000])
     for pattern, repl in _MASKS:
         text = pattern.sub(repl, text)
+    text = text[:limit]
     # Backticks would close our code spans/blocks and let the rest render as mrkdwn.
     return text.replace("`", "'").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -91,7 +93,21 @@ def approvable(summary: dict | None) -> bool:
 
 
 def _cut(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[: limit - 2] + " …"
+    if len(text) <= limit:
+        return text
+    # Do not leave half an escape sequence like "&am" behind.
+    return re.sub(r"&[a-z]*$", "", text[: limit - 2]) + " …"
+
+
+def _lines_within(lines: list[str], limit: int) -> str:
+    """Whole lines only, so a cut never leaves a code span open."""
+    out, size = [], 0
+    for line in lines:
+        if size + len(line) + 1 > limit:
+            break
+        out.append(line)
+        size += len(line) + 1
+    return "\n".join(out)
 
 
 def section(mrkdwn: str) -> dict:
@@ -105,7 +121,7 @@ def context(mrkdwn: str) -> dict:
 def links(pairs: list[tuple[str, str]]) -> list[dict]:
     """URL buttons, only for URLs that passed RUN_URL / PR_URL. An empty url button would make Slack reject
     the whole message."""
-    good = [(label, url) for label, url in pairs if RUN_URL.match(url) or PR_URL.match(url)]
+    good = [(label, url) for label, url in pairs if RUN_URL.fullmatch(url) or PR_URL.fullmatch(url)]
     if not good:
         return []
     return [{"type": "actions", "elements": [
@@ -129,7 +145,7 @@ def render(summary: dict | None, label: str, test_result: str, run_url: str) -> 
         return f"{plain}: {why}", [section(f"{title}\n⚠️ {why}"), *run]
     if status == "compile_failed":
         lines = [clean(l, 200) for l in (summary.get("compile_errors") or [])[:10] if isinstance(l, str)]
-        body = "\n".join(lines) or "(오류 줄 없음)"
+        body = _lines_within(lines, SECTION_CHARS - len("```\n\n```")) or "(오류 줄 없음)"
         return f"{plain}: 컴파일 실패", [
             section(f"{title}\n❌ 컴파일 실패"), context(f"`{path}` · {took}"), section(f"```\n{body}\n```"), *run]
     if status == "error":
@@ -155,13 +171,16 @@ def render(summary: dict | None, label: str, test_result: str, run_url: str) -> 
     blocks = [section(f"{title}\n{icon} {verdict}"), context(f"{nums} · {scope} · {took} · `{path}`")]
     shown = (new or failures)[:SHOW_FAILURES]
     if shown:
-        blocks.append(section("\n".join(f"• {clean(f.get('test'), 160)} — `{clean(f.get('message'), 200)}`" for f in shown)))
+        blocks.append(section(_lines_within(
+            [f"• {clean(f.get('test'), 160)} — `{clean(f.get('message'), 200)}`" for f in shown], SECTION_CHARS)))
     note = "수정본은 실행의 artifact `fix-patch`(90일)"
     if ok:
         note = "artifact `fix-patch` diff 를 보고 승인하면 Draft PR 생성 · " + note
     blocks.append(context(note))
     blocks += links(([("diff 보고 승인", run_url)] if ok else []) + [("실행 보기", run_url)])
-    return f"{plain}: {verdict}", blocks
+    first = f" · {clean(new[0].get('test'), 160)}" if new else ""
+    see = f" · <{run_url}|실행 보기>" if RUN_URL.fullmatch(run_url) else ""
+    return f"{plain}: {verdict} · {nums}{first}{see}", blocks
 
 
 def post(token: str, channel: str, thread_ts: str, text: str, blocks: list[dict]) -> None:
@@ -202,7 +221,7 @@ def main(argv: list[str]) -> int:
     if "--pr-url" in flags:
         i = args.index("--pr-url")
         url = args[i + 1] if i + 1 < len(args) else ""
-        if not PR_URL.match(url):
+        if not PR_URL.fullmatch(url):
             print("PR url 형식 아님 — 보내지 않음", file=sys.stderr)
             return 1
         text = f"{plain}: Draft PR 만듦 {url}"
@@ -218,7 +237,7 @@ def main(argv: list[str]) -> int:
         text, blocks = render(summary, label, os.environ.get("TEST_RESULT", ""), run_url)
 
     channel, thread_ts = os.environ.get("CHANNEL", ""), os.environ.get("THREAD_TS", "")
-    if not CHANNEL.match(channel) or not THREAD_TS.match(thread_ts):
+    if not CHANNEL.fullmatch(channel) or not THREAD_TS.fullmatch(thread_ts):
         print("channel/thread_ts 형식 아님 — 보내지 않음", file=sys.stderr)
         return 1
     if "--dry-run" in argv:

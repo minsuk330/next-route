@@ -206,6 +206,12 @@ def test_links_skip_empty_or_non_https_urls():
     assert links([("a", "https://x")])[0]["elements"][0]["url"] == "https://x"
 
 
+def test_fallback_text_is_usable_alone():
+    fix = FixCandidate(place="A#b", why="w", refs=[])
+    text = render(verdict(fix_candidates=[fix]), incident("subway-api-503"), link=LINK).text
+    assert "도착 API 가 503" in text and "고칠 곳: A#b" in text and "|로그 보기>" in text
+
+
 def test_render_failure_is_escaped():
     msg = render_failure("HTTP <500>", link=LINK)
     assert msg.text == "⚠️ AI 원인 분석 실패: HTTP &lt;500&gt;"

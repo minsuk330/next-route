@@ -180,6 +180,30 @@ class ModesTest(unittest.TestCase):
     def test_pr_failed_mode(self):
         self.assertEqual(ns.main(["x", "--pr-failed", "--dry-run"]), 0)
 
+    def test_urls_with_a_trailing_newline_are_refused(self):
+        self.assertIsNone(ns.RUN_URL.fullmatch(URL + "\n"))
+        _, blocks = ns.render(summary(), "", "success", URL + "\n")
+        self.assertNotIn("actions", [b["type"] for b in blocks])
+
+    def test_token_at_the_cut_is_masked_not_half_leaked(self):
+        text = ns.clean("x" * 185 + "ghp_" + "A" * 36, 200)
+        self.assertNotIn("ghp_", text)
+
+    def test_escaped_compile_errors_keep_the_fence_closed(self):
+        s = summary(status="compile_failed", compile_errors=["<" * 200] * 10)
+        _, blocks = ns.render(s, "", "success", URL)
+        code = blocks[2]["text"]["text"]
+        self.assertTrue(code.startswith("```\n") and code.endswith("\n```"))
+        self.assertLessEqual(len(code), ns.SECTION_CHARS)
+        self.assertNotRegex(code, r"&[a-z]*\n```$")
+
+    def test_fallback_text_carries_numbers_new_failure_and_link(self):
+        bad = summary(status="failed", failed=1, failures=[{"test": "a.B#x", "message": "m", "baseline": False}], baseline_checked=True)
+        text, _ = ns.render(bad, "", "success", URL)
+        self.assertIn("통과 40", text)
+        self.assertIn("a.B#x", text)
+        self.assertIn(f"<{URL}|실행 보기>", text)
+
     def test_rejected_blocks_fall_back_to_text_once(self):
         sent = []
 

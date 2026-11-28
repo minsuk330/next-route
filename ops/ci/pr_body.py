@@ -24,9 +24,10 @@ ZERO_WIDTH_SPACE = chr(0x200B)
 
 def safe(value: object, limit: int) -> str:
     text = value if isinstance(value, str) else ""
-    text = " ".join(text.split())[:limit]
-    for pattern, repl in _MASKS:
+    text = " ".join(text.split())
+    for pattern, repl in _MASKS:  # mask before cutting so a token at the limit is not half kept
         text = pattern.sub(repl, text)
+    text = text[:limit]
     # No code spans to break out of, no pings ("@team"), no issue links or "closes #12" ("#"), no images or links.
     for ch in "@#":
         text = text.replace(ch, ch + ZERO_WIDTH_SPACE)
